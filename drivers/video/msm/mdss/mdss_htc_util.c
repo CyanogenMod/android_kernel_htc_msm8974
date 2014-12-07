@@ -23,15 +23,14 @@
 #include "mdss_dsi.h"
 #include "mdss_mdp.h"
 
-#define CABC_INDEX	 0
 struct attribute_status htc_attr_status[] = {
 	{"cabc_level_ctl", 1, 1, 1},
+	{"mdss_pp_hue", 0, 0, 0},
+	{"pp_pcc", 0, 0, 0},
 };
 
-#define HUE_INDEX	 0
-struct attribute_status htc_mdss_pp_pa[] = {
-	{"mdss_pp_hue", 0, 0, 0},
-};
+int dspp_pcc_mode_cnt;
+static struct mdss_dspp_pcc_mode *dspp_pcc_mode;
 
 static struct delayed_work dimming_work;
 
@@ -47,6 +46,14 @@ static char *tmp;
 static struct dsi_cmd_desc debug_cmd = {
 	{DTYPE_DCS_LWRITE, 1, 0, 0, 1, 1}, dcs_cmds
 };
+static char dsi_rbuf[4];
+static void dsi_read_cb(int len)
+{
+	unsigned *lp;
+
+	lp = (uint32_t *)dsi_rbuf;
+	PR_DISP_INFO("%s: data=0x%x len=%d\n", __func__,*lp, len);
+}
 static ssize_t dsi_cmd_write(
 	struct file *file,
 	const char __user *buff,
@@ -80,6 +87,8 @@ static ssize_t dsi_cmd_write(
 		debug_cmd.dchdr.dtype = DTYPE_DCS_LWRITE;
 	else if (type == DTYPE_GEN_LWRITE)
 		debug_cmd.dchdr.dtype = DTYPE_GEN_LWRITE;
+	else if (type == DTYPE_DCS_READ)
+		debug_cmd.dchdr.dtype = DTYPE_DCS_READ;
 	else
 		return -EFAULT;
 
@@ -98,19 +107,31 @@ static ssize_t dsi_cmd_write(
 	}
 
 	memset(&cmdreq, 0, sizeof(cmdreq));
-	cmdreq.cmds = &debug_cmd;
-	cmdreq.cmds_cnt = 1;
-	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
-	cmdreq.rlen = 0;
-	cmdreq.cb = NULL;
+	memset(&dsi_rbuf, 0, sizeof(dsi_rbuf));
 
-	mdss_dsi_cmdlist_put(ctrl_instance, &cmdreq);
-	PR_DISP_INFO("%s %d\n", __func__, count);
+	if (type == DTYPE_DCS_READ){
+		cmdreq.cmds = &debug_cmd;
+		cmdreq.cmds_cnt = 1;
+		cmdreq.flags = CMD_REQ_COMMIT | CMD_REQ_RX;
+		cmdreq.rlen = 4;
+		cmdreq.rbuf = dsi_rbuf;
+		cmdreq.cb = dsi_read_cb; 
+
+		mdss_dsi_cmdlist_put(ctrl_instance, &cmdreq);
+	} else {
+		cmdreq.cmds = &debug_cmd;
+		cmdreq.cmds_cnt = 1;
+		cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
+		cmdreq.rlen = 0;
+		cmdreq.cb = NULL;
+		mdss_dsi_cmdlist_put(ctrl_instance, &cmdreq);
+		PR_DISP_INFO("%s %d\n", __func__, count);
+	}
 	return count;
 }
 
 static const struct file_operations dsi_cmd_fops = {
-        .write = dsi_cmd_write,
+	.write = dsi_cmd_write,
 };
 
 void htc_debugfs_init(struct msm_fb_data_type *mfd)
@@ -144,8 +165,7 @@ static ssize_t camera_bl_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
 	ssize_t ret =0;
-	sprintf(buf,"%s%u\n%s%u\n", "BL_CAM_MIN=", backlightvalue, "BL_CAM_DUA_MIN=", dua_backlightvalue);
-	ret = strlen(buf) + 1;
+	ret = scnprintf(buf, PAGE_SIZE, "%s%u\n%s%u\n", "BL_CAM_MIN=", backlightvalue, "BL_CAM_DUA_MIN=", dua_backlightvalue);
 	return ret;
 }
 
@@ -155,17 +175,9 @@ static ssize_t attrs_show(struct device *dev,
 	ssize_t ret = 0;
 	int i;
 
-	for (i = 0 ; i < ARRAY_SIZE(htc_attr_status); i++) {
-		if (strcmp(attr->attr.name, htc_attr_status[i].title) == 0) {
-			sprintf(buf,"%d\n", htc_attr_status[i].cur_value);
-		        ret = strlen(buf) + 1;
-			break;
-		}
-	}
-	for (i = 0 ; i < ARRAY_SIZE(htc_mdss_pp_pa); i++) {
-		if (strcmp(attr->attr.name, htc_mdss_pp_pa[i].title) == 0) {
-			sprintf(buf,"%d\n", htc_mdss_pp_pa[i].cur_value);
-		        ret = strlen(buf) + 1;
+	for (i = 0; i < ARRAY_SIZE(htc_attr_status); i++) {
+		if (!strcmp(attr->attr.name, htc_attr_status[i].title)) {
+			ret = scnprintf(buf, PAGE_SIZE, "%d\n", htc_attr_status[i].cur_value);
 			break;
 		}
 	}
@@ -186,15 +198,9 @@ static ssize_t attr_store(struct device *dev, struct device_attribute *attr,
 		goto err_out;
 	}
 
-	for (i = 0 ; i < ARRAY_SIZE(htc_attr_status); i++) {
-		if (strcmp(attr->attr.name, htc_attr_status[i].title) == 0) {
+	for (i = 0; i < ARRAY_SIZE(htc_attr_status); i++) {
+		if (!strcmp(attr->attr.name, htc_attr_status[i].title)) {
 			htc_attr_status[i].req_value = res;
-			break;
-		}
-	}
-	for (i = 0 ; i < ARRAY_SIZE(htc_mdss_pp_pa); i++) {
-		if (strcmp(attr->attr.name, htc_mdss_pp_pa[i].title) == 0) {
-			htc_mdss_pp_pa[i].req_value = res;
 			break;
 		}
 	}
@@ -203,9 +209,264 @@ err_out:
 	return count;
 }
 
+
+#define SLEEPMS_OFFSET(strlen) (strlen+1) 
+#define CMDLEN_OFFSET(strlen)  (SLEEPMS_OFFSET(strlen)+sizeof(const __be32))
+#define CMD_OFFSET(strlen)     (CMDLEN_OFFSET(strlen)+sizeof(const __be32))
+
+static struct __dsi_cmd_map{
+	char *cmdtype_str;
+	int  cmdtype_strlen;
+	int  dtype;
+} dsi_cmd_map[] = {
+	{ "DTYPE_DCS_WRITE", 0, DTYPE_DCS_WRITE },
+	{ "DTYPE_DCS_WRITE1", 0, DTYPE_DCS_WRITE1 },
+	{ "DTYPE_DCS_LWRITE", 0, DTYPE_DCS_LWRITE },
+	{ "DTYPE_GEN_WRITE", 0, DTYPE_GEN_WRITE },
+	{ "DTYPE_GEN_WRITE1", 0, DTYPE_GEN_WRITE1 },
+	{ "DTYPE_GEN_WRITE2", 0, DTYPE_GEN_WRITE2 },
+	{ "DTYPE_GEN_LWRITE", 0, DTYPE_GEN_LWRITE },
+	{ NULL, 0, 0 }
+};
+
+int htc_mdss_dsi_parse_dcs_cmds(struct device_node *np,
+		struct dsi_panel_cmds *pcmds, char *cmd_key, char *link_key)
+{
+	const char *data;
+	int blen = 0, len = 0;
+	char *buf;
+	struct property *prop;
+	struct dsi_ctrl_hdr *pdchdr;
+	int i, cnt;
+	int curcmdtype;
+
+	i = 0;
+	while(dsi_cmd_map[i].cmdtype_str){
+		if(!dsi_cmd_map[i].cmdtype_strlen){
+			dsi_cmd_map[i].cmdtype_strlen = strlen(dsi_cmd_map[i].cmdtype_str);
+			pr_err("%s: parsing, key=%s/%d  [%d]\n", __func__,
+				dsi_cmd_map[i].cmdtype_str, dsi_cmd_map[i].cmdtype_strlen, dsi_cmd_map[i].dtype );
+		}
+		i++;
+	}
+
+	prop = of_find_property( np, cmd_key, &len);
+	if (!prop || !len || !(prop->length) || !(prop->value)) {
+		pr_err("%s: failed, key=%s  [%d : %d : %p]\n", __func__, cmd_key,
+			len, (prop ? prop->length : -1), (prop ? prop->value : 0) );
+		
+		return -ENOMEM;
+	}
+
+	data = prop->value;
+	blen = 0;
+	cnt = 0;
+	while(len > 0){
+		curcmdtype = 0;
+		while(dsi_cmd_map[curcmdtype].cmdtype_strlen){
+			if( !strncmp( data,
+						  dsi_cmd_map[curcmdtype].cmdtype_str,
+						  dsi_cmd_map[curcmdtype].cmdtype_strlen ) &&
+				data[dsi_cmd_map[curcmdtype].cmdtype_strlen] == '\0' )
+				break;
+			curcmdtype++;
+		};
+		if( !dsi_cmd_map[curcmdtype].cmdtype_strlen ) 
+			break;
+
+		i = be32_to_cpup((__be32 *)&data[CMDLEN_OFFSET(dsi_cmd_map[curcmdtype].cmdtype_strlen)]);
+		blen += i;
+		cnt++;
+
+		data = data + CMD_OFFSET(dsi_cmd_map[curcmdtype].cmdtype_strlen) + i;
+		len = len - CMD_OFFSET(dsi_cmd_map[curcmdtype].cmdtype_strlen) - i;
+	}
+
+	if(len || !cnt || !blen){
+		pr_err("%s: failed, key[%s] : %d cmds, remain=%d bytes \n", __func__, cmd_key, cnt, len);
+		return -ENOMEM;
+	}
+
+	i = (sizeof(char)*blen+sizeof(struct dsi_ctrl_hdr)*cnt);
+	buf = kzalloc( i, GFP_KERNEL);
+	if (!buf){
+		pr_err("%s: create dsi ctrl oom failed \n", __func__);
+		return -ENOMEM;
+	}
+
+	pcmds->cmds = kzalloc(cnt * sizeof(struct dsi_cmd_desc), GFP_KERNEL);
+	if (!pcmds->cmds){
+		pr_err("%s: create dsi commands oom failed \n", __func__);
+		goto exit_free;
+	}
+
+	pcmds->cmd_cnt = cnt;
+	pcmds->buf = buf;
+	pcmds->blen = i;
+	data = prop->value;
+	for(i=0; i<cnt; i++){
+		pdchdr = &pcmds->cmds[i].dchdr;
+
+		curcmdtype = 0;
+		while(dsi_cmd_map[curcmdtype].cmdtype_strlen){
+			if( !strncmp( data,
+						 dsi_cmd_map[curcmdtype].cmdtype_str,
+						 dsi_cmd_map[curcmdtype].cmdtype_strlen ) &&
+				data[dsi_cmd_map[curcmdtype].cmdtype_strlen] == '\0' ){
+				pdchdr->dtype = dsi_cmd_map[curcmdtype].dtype;
+				break;
+			}
+			curcmdtype ++;
+		}
+
+		pdchdr->last = 0x01;
+		pdchdr->vc = 0x00;
+		pdchdr->ack = 0x00;
+		pdchdr->wait = be32_to_cpup((__be32 *)&data[SLEEPMS_OFFSET(dsi_cmd_map[curcmdtype].cmdtype_strlen)]) & 0xff;
+		pdchdr->dlen = be32_to_cpup((__be32 *)&data[CMDLEN_OFFSET(dsi_cmd_map[curcmdtype].cmdtype_strlen)]);
+		memcpy( buf, pdchdr, sizeof(struct dsi_ctrl_hdr) );
+		buf += sizeof(struct dsi_ctrl_hdr);
+		memcpy( buf, &data[CMD_OFFSET(dsi_cmd_map[curcmdtype].cmdtype_strlen)], pdchdr->dlen);
+		pcmds->cmds[i].payload = buf;
+		buf += pdchdr->dlen;
+		data = data + CMD_OFFSET(dsi_cmd_map[curcmdtype].cmdtype_strlen) + pdchdr->dlen;
+	}
+
+	data = of_get_property(np, link_key, NULL);
+	if (data) {
+		if (!strncmp(data, "dsi_hs_mode", 11))
+			pcmds->link_state = DSI_HS_MODE;
+		else
+			pcmds->link_state = DSI_LP_MODE;
+	} else {
+		pcmds->link_state = DSI_HS_MODE;
+	}
+	pr_debug("%s: dcs_cmd=%x len=%d, cmd_cnt=%d link_state=%d\n", __func__,
+		pcmds->buf[0], pcmds->blen, pcmds->cmd_cnt, pcmds->link_state);
+
+	return 0;
+
+exit_free:
+	kfree(buf);
+	return -ENOMEM;
+}
+
+int mdss_mdp_parse_dt_dspp_pcc_setting(struct platform_device *pdev)
+{
+	struct mdss_dspp_pcc_config *pcc;
+	struct device_node *of_node = NULL, *pcc_node = NULL;
+	const u32 *pp_pcc_arr;
+	u32 pp_pcc_config_len = 0;
+	int mode_index = 0, rc = 0;
+	char pcc_str[] = "htc,mdss-pp-pcc-settings";
+	int pcc_str_size = strlen(pcc_str);
+
+	of_node = pdev->dev.of_node;
+	dspp_pcc_mode_cnt = 0;
+
+	for_each_child_of_node(of_node, pcc_node) {
+		if (!strncmp(pcc_node->name, pcc_str, pcc_str_size))
+			++dspp_pcc_mode_cnt;
+	}
+	if (dspp_pcc_mode_cnt == 0) {
+		pr_debug("%s: no htc,mdss-pp-pcc-settings node\n", __func__);
+		return 0;
+	} else {
+		pr_info("%s: dspp_pcc_setting found. count=%d\n", __func__, dspp_pcc_mode_cnt);
+	}
+	dspp_pcc_mode = devm_kzalloc(&pdev->dev, sizeof(*dspp_pcc_mode) * dspp_pcc_mode_cnt, GFP_KERNEL);
+
+	if(!dspp_pcc_mode)
+		return -ENOMEM;
+
+	for_each_child_of_node(of_node, pcc_node) {
+		if (!strncmp(pcc_node->name, pcc_str, pcc_str_size)) {
+			const char *st = NULL;
+			int i = 0;
+
+			dspp_pcc_mode[mode_index].dspp_pcc_config_cnt = 0;
+			
+			rc = of_property_read_string(pcc_node,
+				"htc,pcc-mode", &st);
+			if (rc) {
+				pr_err("%s: error reading name. rc=%d, skip this node\n",
+					__func__, rc);
+				dspp_pcc_mode_cnt--;
+				continue;
+			}
+
+			scnprintf(dspp_pcc_mode[mode_index].mode_name,
+				ARRAY_SIZE(dspp_pcc_mode[mode_index].mode_name),
+				"%s", st);
+
+			
+			of_property_read_u32(pcc_node, "htc,pcc-enable", &dspp_pcc_mode[mode_index].pcc_enable);
+
+			
+			pp_pcc_arr = of_get_property(pcc_node, "htc,pcc-configs", &pp_pcc_config_len);
+
+			if (!pp_pcc_arr) {
+				pr_debug("%s: Not found htc,pcc-configs node\n", __func__);
+				pp_pcc_config_len = 0;
+			} else if (pp_pcc_config_len % (2 * sizeof(u32))) {
+				pr_err("%s: htc,pcc-configs property size error. size=%d\n", __func__, pp_pcc_config_len);
+				pp_pcc_config_len = 0;
+			}
+
+			pp_pcc_config_len /= 2 * sizeof(u32);
+			if (pp_pcc_config_len) {
+				
+				dspp_pcc_mode[mode_index].dspp_pcc_config = devm_kzalloc(&pdev->dev,
+					sizeof(*dspp_pcc_mode[mode_index].dspp_pcc_config) * pp_pcc_config_len, GFP_KERNEL);
+				pcc = dspp_pcc_mode[mode_index].dspp_pcc_config;
+				if (!pcc)
+					return -ENOMEM;
+
+				for (i = 0; i < pp_pcc_config_len * 2; i += 2) {
+					pcc->reg_offset = be32_to_cpu(pp_pcc_arr[i]);
+					pcc->val = be32_to_cpu(pp_pcc_arr[i + 1]);
+					pr_debug("reg: 0x%04x=0x%08x\n", pcc->reg_offset, pcc->val);
+					pcc++;
+				}
+				dspp_pcc_mode[mode_index].dspp_pcc_config_cnt = pp_pcc_config_len;
+			}
+			++mode_index;
+		}
+	}
+	return 0;
+}
+
+static ssize_t pcc_attrs_show(struct device *dev,
+        struct device_attribute *attr, char *buf)
+{
+	ssize_t ret = 0;
+	u32 cur_val = htc_attr_status[PP_PCC_INDEX].cur_value;
+
+	if (cur_val < dspp_pcc_mode_cnt)
+		ret = scnprintf(buf, MAX_MODE_NAME_SIZE, "%s\n", dspp_pcc_mode[cur_val].mode_name);
+
+	return ret;
+}
+
+static ssize_t pcc_attr_store(struct device *dev, struct device_attribute *attr,
+        const char *buf, size_t count)
+{
+	int i, name_size;
+
+	for (i = 0; i < dspp_pcc_mode_cnt; i++) {
+		name_size = strlen(dspp_pcc_mode[i].mode_name);
+		if (!strncmp(buf, dspp_pcc_mode[i].mode_name, name_size)) {
+			htc_attr_status[PP_PCC_INDEX].req_value = i;
+			break;
+		}
+	}
+	return count;
+}
+
 static DEVICE_ATTR(backlight_info, S_IRUGO, camera_bl_show, NULL);
 static DEVICE_ATTR(cabc_level_ctl, S_IRUGO | S_IWUSR, attrs_show, attr_store);
 static DEVICE_ATTR(mdss_pp_hue, S_IRUGO | S_IWUSR, attrs_show, attr_store);
+static DEVICE_ATTR(pp_pcc, S_IRUGO | S_IWUSR, pcc_attrs_show, pcc_attr_store);
 static struct attribute *htc_extend_attrs[] = {
 	&dev_attr_backlight_info.attr,
 	&dev_attr_cabc_level_ctl.attr,
@@ -226,8 +487,16 @@ void htc_register_attrs(struct kobject *led_kobj, struct msm_fb_data_type *mfd)
 	if (rc)
 		pr_err("sysfs group creation failed, rc=%d\n", rc);
 
+	if (dspp_pcc_mode_cnt > 0) {
+		rc = sysfs_create_file(&mfd->fbi->dev->kobj, &dev_attr_pp_pcc.attr);
+		if (rc)
+			pr_err("sysfs creation pp_pcc failed, rc=%d\n", rc);
+	}
 	
-	htc_mdss_pp_pa[HUE_INDEX].req_value = panel_info->mdss_pp_hue;
+	htc_attr_status[HUE_INDEX].req_value = panel_info->mdss_pp_hue;
+
+	
+	htc_attr_status[PP_PCC_INDEX].req_value = 0;
 
 	return;
 }
@@ -236,16 +505,9 @@ void htc_reset_status(void)
 {
 	int i;
 
-	for (i = 0 ; i < ARRAY_SIZE(htc_attr_status); i++) {
+	for (i = 0; i < ARRAY_SIZE(htc_attr_status); i++) {
 		htc_attr_status[i].cur_value = htc_attr_status[i].def_value;
 	}
-	for (i = 0 ; i < ARRAY_SIZE(htc_mdss_pp_pa); i++) {
-		htc_mdss_pp_pa[i].cur_value = htc_mdss_pp_pa[i].def_value;
-	}
-
-
-	
-	cancel_delayed_work_sync(&dimming_work);
 
 	return;
 }
@@ -267,7 +529,7 @@ void htc_set_cabc(struct msm_fb_data_type *mfd)
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 					panel_data);
 
-	if ((htc_attr_status[CABC_INDEX].req_value > 2) || (htc_attr_status[CABC_INDEX].req_value < 0))
+	if (htc_attr_status[CABC_INDEX].req_value > 2)
 		return;
 
 	if (!ctrl_pdata->cabc_off_cmds.cmds)
@@ -353,6 +615,12 @@ void htc_dimming_on(struct msm_fb_data_type *mfd)
 	return;
 }
 
+void htc_dimming_off(void)
+{
+	
+	cancel_delayed_work_sync(&dimming_work);
+}
+
 #define HUE_MAX   4096
 void htc_set_pp_pa(struct mdss_mdp_ctl *ctl)
 {
@@ -362,10 +630,10 @@ void htc_set_pp_pa(struct mdss_mdp_ctl *ctl)
 	char __iomem *basel;
 
 	
-	if (htc_mdss_pp_pa[HUE_INDEX].req_value == htc_mdss_pp_pa[HUE_INDEX].cur_value)
+	if (htc_attr_status[HUE_INDEX].req_value == htc_attr_status[HUE_INDEX].cur_value)
 		return;
 
-	if (htc_mdss_pp_pa[HUE_INDEX].req_value >= HUE_MAX)
+	if (htc_attr_status[HUE_INDEX].req_value >= HUE_MAX)
 		return;
 
 	mdata = mdss_mdp_get_mdata();
@@ -376,7 +644,7 @@ void htc_set_pp_pa(struct mdss_mdp_ctl *ctl)
 
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON, false);
 
-	MDSS_MDP_REG_WRITE(base + MDSS_MDP_REG_DSPP_PA_BASE, htc_mdss_pp_pa[HUE_INDEX].req_value);
+	MDSS_MDP_REG_WRITE(base + MDSS_MDP_REG_DSPP_PA_BASE, htc_attr_status[HUE_INDEX].req_value);
 
 	opmode = MDSS_MDP_REG_READ(base);
 	opmode |= (1 << 20); 
@@ -387,6 +655,67 @@ void htc_set_pp_pa(struct mdss_mdp_ctl *ctl)
 	wmb();
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF, false);
 
-	htc_mdss_pp_pa[HUE_INDEX].cur_value = htc_mdss_pp_pa[HUE_INDEX].req_value;
-	PR_DISP_INFO("%s pp_hue = 0x%x\n", __func__, htc_mdss_pp_pa[HUE_INDEX].req_value);
+	htc_attr_status[HUE_INDEX].cur_value = htc_attr_status[HUE_INDEX].req_value;
+	PR_DISP_INFO("%s pp_hue = 0x%x\n", __func__, htc_attr_status[HUE_INDEX].req_value);
+}
+
+void htc_set_pp_pcc(struct mdss_mdp_ctl *ctl)
+{
+	struct mdss_data_type *mdata;
+	struct mdss_mdp_mixer *mixer;
+	struct mdss_dspp_pcc_config *pcc;
+	u32 base = 0, opmode, req_val;
+	char __iomem *basel;
+	int i;
+	req_val = htc_attr_status[PP_PCC_INDEX].req_value;
+
+	
+	if (req_val == htc_attr_status[PP_PCC_INDEX].cur_value)
+		return;
+
+	if (req_val >= dspp_pcc_mode_cnt) {
+		pr_err("%s:req_val = %d was invalid\n", __func__, req_val);
+		return;
+	}
+
+	mdata = mdss_mdp_get_mdata();
+	if(!mdata) {
+		pr_err("%s:mdss_mdp_get_mdata was NULL\n", __func__);
+		return;
+	}
+
+	mixer = mdata->mixer_intf;
+	if(!mixer) {
+		pr_err("%s:mdata->mixer_intf was NULL\n", __func__);
+		return;
+	}
+
+	base = MDSS_MDP_REG_DSPP_OFFSET(0);
+	basel = mixer->dspp_base;
+
+	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON, false);
+	opmode = MDSS_MDP_REG_READ(base);
+
+	if(dspp_pcc_mode[req_val].pcc_enable) {
+		opmode |= MDSS_MDP_DSPP_OP_PCC_EN; 
+		pcc = dspp_pcc_mode[req_val].dspp_pcc_config;
+		if (pcc)
+			for (i = 0; i < dspp_pcc_mode[req_val].dspp_pcc_config_cnt; i++) {
+				pr_debug("%s: pcc->val = %d\n", __func__, pcc->val);
+				MDSS_MDP_REG_WRITE(base + pcc->reg_offset, pcc->val);
+				pcc++;
+			}
+	} else {
+		opmode &= ~MDSS_MDP_DSPP_OP_PCC_EN; 
+	}
+
+	writel_relaxed(opmode, basel + MDSS_MDP_REG_DSPP_OP_MODE);
+
+	ctl->flush_bits |= BIT(13);
+
+	wmb();
+	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF, false);
+
+	htc_attr_status[PP_PCC_INDEX].cur_value = req_val;
+	PR_DISP_INFO("%s pp_pcc mode = 0x%x\n", __func__, req_val);
 }

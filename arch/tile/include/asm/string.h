@@ -29,4 +29,4 @@ extern void *memset(void *, int, __kernel_size_t);
 extern void *memcpy(void *, const void *, __kernel_size_t);
 extern void *memmove(void *, const void *, __kernel_size_t);
 
-#endif 
+#endif /* _ASM_TILE_STRING_H */

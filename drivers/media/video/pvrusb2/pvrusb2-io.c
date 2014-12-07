@@ -29,6 +29,7 @@ static const char *pvr2_buffer_state_decode(enum pvr2_buffer_state);
 
 #define BUFFER_SIG 0x47653271
 
+// #define SANITY_CHECK_BUFFERS
 
 
 #ifdef SANITY_CHECK_BUFFERS
@@ -46,36 +47,36 @@ static const char *pvr2_buffer_state_decode(enum pvr2_buffer_state);
 #endif
 
 struct pvr2_stream {
-	
+	/* Buffers queued for reading */
 	struct list_head queued_list;
 	unsigned int q_count;
 	unsigned int q_bcount;
-	
+	/* Buffers with retrieved data */
 	struct list_head ready_list;
 	unsigned int r_count;
 	unsigned int r_bcount;
-	
+	/* Buffers available for use */
 	struct list_head idle_list;
 	unsigned int i_count;
 	unsigned int i_bcount;
-	
+	/* Pointers to all buffers */
 	struct pvr2_buffer **buffers;
-	
+	/* Array size of buffers */
 	unsigned int buffer_slot_count;
-	
+	/* Total buffers actually in circulation */
 	unsigned int buffer_total_count;
-	
+	/* Designed number of buffers to be in circulation */
 	unsigned int buffer_target_count;
-	
+	/* Executed when ready list become non-empty */
 	pvr2_stream_callback callback_func;
 	void *callback_data;
-	
+	/* Context for transfer endpoint */
 	struct usb_device *dev;
 	int endpoint;
-	
+	/* Overhead for mutex enforcement */
 	spinlock_t list_lock;
 	struct mutex mutex;
-	
+	/* Tracking state for tolerating errors */
 	unsigned int fail_count;
 	unsigned int fail_tolerance;
 
@@ -88,10 +89,10 @@ struct pvr2_buffer {
 	int id;
 	int signature;
 	enum pvr2_buffer_state state;
-	void *ptr;               
-	unsigned int max_count;  
-	unsigned int used_count; 
-	int status;              
+	void *ptr;               /* Pointer to storage area */
+	unsigned int max_count;  /* Size of storage area */
+	unsigned int used_count; /* Amount of valid data in storage area */
+	int status;              /* Transfer result status */
 	struct pvr2_stream *stream;
 	struct list_head list_overhead;
 	struct urb *purb;
@@ -124,7 +125,7 @@ static void pvr2_buffer_describe(struct pvr2_buffer *bp,const char *msg)
 		   (bp ? bp->purb : NULL),
 		   (bp ? bp->signature : 0));
 }
-#endif  
+#endif  /*  SANITY_CHECK_BUFFERS  */
 
 static void pvr2_buffer_remove(struct pvr2_buffer *bp)
 {
@@ -301,7 +302,7 @@ static int pvr2_stream_buffer_count(struct pvr2_stream *sp,unsigned int cnt)
 	int ret;
 	unsigned int scnt;
 
-	
+	/* Allocate buffers pointer array in multiples of 32 entries */
 	if (cnt == sp->buffer_total_count) return 0;
 
 	pvr2_trace(PVR2_TRACE_BUF_POOL,
@@ -344,7 +345,7 @@ static int pvr2_stream_buffer_count(struct pvr2_stream *sp,unsigned int cnt)
 		while (sp->buffer_total_count > cnt) {
 			struct pvr2_buffer *bp;
 			bp = sp->buffers[sp->buffer_total_count - 1];
-			
+			/* Paranoia */
 			sp->buffers[sp->buffer_total_count - 1] = NULL;
 			(sp->buffer_total_count)--;
 			pvr2_buffer_done(bp);
@@ -401,6 +402,11 @@ static void pvr2_stream_internal_flush(struct pvr2_stream *sp)
 	while ((lp = sp->queued_list.next) != &sp->queued_list) {
 		bp1 = list_entry(lp,struct pvr2_buffer,list_overhead);
 		pvr2_buffer_wipe(bp1);
+		/* At this point, we should be guaranteed that no
+		   completion callback may happen on this buffer.  But it's
+		   possible that it might have completed after we noticed
+		   it but before we wiped it.  So double check its status
+		   here first. */
 		if (bp1->state != pvr2_buffer_state_queued) continue;
 		pvr2_buffer_set_idle(bp1);
 	}
@@ -453,8 +459,8 @@ static void buffer_complete(struct urb *urb)
 			sp->fail_count = 0;
 		}
 	} else if (sp->fail_count < sp->fail_tolerance) {
-		
-		
+		// We can tolerate this error, because we're below the
+		// threshold...
 		(sp->fail_count)++;
 		(sp->buffers_failed)++;
 		pvr2_trace(PVR2_TRACE_TOLERANCE,
@@ -538,6 +544,7 @@ void pvr2_stream_get_stats(struct pvr2_stream *sp,
 	spin_unlock_irqrestore(&sp->list_lock,irq_flags);
 }
 
+/* Query / set the nominal buffer count */
 int pvr2_stream_get_buffer_count(struct pvr2_stream *sp)
 {
 	return sp->buffer_target_count;
@@ -620,12 +627,12 @@ int pvr2_buffer_queue(struct pvr2_buffer *bp)
 		}
 #endif
 		bp->status = -EINPROGRESS;
-		usb_fill_bulk_urb(bp->purb,      
-				  sp->dev,       
-				  
+		usb_fill_bulk_urb(bp->purb,      // struct urb *urb
+				  sp->dev,       // struct usb_device *dev
+				  // endpoint (below)
 				  usb_rcvbulkpipe(sp->dev,sp->endpoint),
-				  bp->ptr,       
-				  bp->max_count, 
+				  bp->ptr,       // void *transfer_buffer
+				  bp->max_count, // int buffer_length
 				  buffer_complete,
 				  bp);
 		usb_submit_urb(bp->purb,GFP_KERNEL);
@@ -677,3 +684,12 @@ int pvr2_buffer_get_id(struct pvr2_buffer *bp)
 }
 
 
+/*
+  Stuff for Emacs to see, in order to encourage consistent editing style:
+  *** Local Variables: ***
+  *** mode: c ***
+  *** fill-column: 75 ***
+  *** tab-width: 8 ***
+  *** c-basic-offset: 8 ***
+  *** End: ***
+  */

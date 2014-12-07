@@ -74,6 +74,7 @@ static struct cpu_table cpu_ids[] __initdata = {
 	},
 };
 
+/* Initial IO mappings */
 
 static struct map_desc s5p64x0_iodesc[] __initdata = {
 	{
@@ -154,15 +155,20 @@ static void s5p64x0_idle(void)
 	cpu_do_idle();
 }
 
+/*
+ * s5p64x0_map_io
+ *
+ * register the standard CPU IO areas
+ */
 
 void __init s5p64x0_init_io(struct map_desc *mach_desc, int size)
 {
-	
+	/* initialize the io descriptors we need for initialization */
 	iotable_init(s5p64x0_iodesc, ARRAY_SIZE(s5p64x0_iodesc));
 	if (mach_desc)
 		iotable_init(mach_desc, size);
 
-	
+	/* detect cpu id and rev. */
 	s5p_init_cpu(S5P64X0_SYS_ID);
 
 	s3c_init_cpu(samsung_cpu_id, cpu_ids, ARRAY_SIZE(cpu_ids));
@@ -170,7 +176,7 @@ void __init s5p64x0_init_io(struct map_desc *mach_desc, int size)
 
 void __init s5p6440_map_io(void)
 {
-	
+	/* initialize any device information early */
 	s3c_adc_setname("s3c64xx-adc");
 	s3c_fb_setname("s5p64x0-fb");
 
@@ -184,7 +190,7 @@ void __init s5p6440_map_io(void)
 
 void __init s5p6450_map_io(void)
 {
-	
+	/* initialize any device information early */
 	s3c_adc_setname("s3c64xx-adc");
 	s3c_fb_setname("s5p64x0-fb");
 
@@ -196,6 +202,11 @@ void __init s5p6450_map_io(void)
 	init_consistent_dma_size(SZ_8M);
 }
 
+/*
+ * s5p64x0_init_clocks
+ *
+ * register and setup the CPU clocks
+ */
 
 void __init s5p6440_init_clocks(int xtal)
 {
@@ -217,12 +228,21 @@ void __init s5p6450_init_clocks(int xtal)
 	s5p6450_setup_clocks();
 }
 
+/*
+ * s5p64x0_init_irq
+ *
+ * register the CPU interrupts
+ */
 
 void __init s5p6440_init_irq(void)
 {
-	
+	/* S5P6440 supports 2 VIC */
 	u32 vic[2];
 
+	/*
+	 * VIC0 is missing IRQ_VIC0[3, 4, 8, 10, (12-22)]
+	 * VIC1 is missing IRQ VIC1[1, 3, 4, 10, 11, 12, 14, 15, 22]
+	 */
 	vic[0] = 0xff800ae7;
 	vic[1] = 0xffbf23e5;
 
@@ -231,9 +251,13 @@ void __init s5p6440_init_irq(void)
 
 void __init s5p6450_init_irq(void)
 {
-	
+	/* S5P6450 supports only 2 VIC */
 	u32 vic[2];
 
+	/*
+	 * VIC0 is missing IRQ_VIC0[(13-15), (21-22)]
+	 * VIC1 is missing IRQ VIC1[12, 14, 23]
+	 */
 	vic[0] = 0xff9f1fff;
 	vic[1] = 0xff7fafff;
 
@@ -259,12 +283,13 @@ int __init s5p64x0_init(void)
 {
 	printk(KERN_INFO "S5P64X0(S5P6440/S5P6450): Initializing architecture\n");
 
-	
+	/* set idle function */
 	arm_pm_idle = s5p64x0_idle;
 
 	return device_register(&s5p64x0_dev);
 }
 
+/* uart registration process */
 void __init s5p6440_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 {
 	int uart;
@@ -325,7 +350,7 @@ static int s5p64x0_irq_eint_set_type(struct irq_data *data, unsigned int type)
 	ctrl |= newvalue << shift;
 	__raw_writel(ctrl, S5P64X0_EINT0CON0);
 
-	
+	/* Configure the GPIO pin for 6450 or 6440 based on CPU ID */
 	if (soc_is_s5p6450())
 		s3c_gpio_cfgpin(S5P6450_GPN(offs), S3C_GPIO_SFN(2));
 	else
@@ -334,6 +359,13 @@ static int s5p64x0_irq_eint_set_type(struct irq_data *data, unsigned int type)
 	return 0;
 }
 
+/*
+ * s5p64x0_irq_demux_eint
+ *
+ * This function demuxes the IRQ from the group0 external interrupts,
+ * from IRQ_EINT(0) to IRQ_EINT(15). It is designed to be inlined into
+ * the specific handlers s5p64x0_irq_demux_eintX_Y.
+ */
 static inline void s5p64x0_irq_demux_eint(unsigned int start, unsigned int end)
 {
 	u32 status = __raw_readl(S5P64X0_EINT0PEND);

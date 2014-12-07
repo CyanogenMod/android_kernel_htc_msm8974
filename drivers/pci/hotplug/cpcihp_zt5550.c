@@ -36,7 +36,7 @@
 #include <linux/errno.h>
 #include <linux/pci.h>
 #include <linux/interrupt.h>
-#include <linux/signal.h>	
+#include <linux/signal.h>	/* IRQF_SHARED */
 #include "cpci_hotplug.h"
 #include "cpcihp_zt5550.h"
 
@@ -56,16 +56,20 @@
 #define info(format, arg...) printk(KERN_INFO "%s: " format "\n", MY_NAME , ## arg)
 #define warn(format, arg...) printk(KERN_WARNING "%s: " format "\n", MY_NAME , ## arg)
 
+/* local variables */
 static bool debug;
 static bool poll;
 static struct cpci_hp_controller_ops zt5550_hpc_ops;
 static struct cpci_hp_controller zt5550_hpc;
 
+/* Primary cPCI bus bridge device */
 static struct pci_dev *bus0_dev;
 static struct pci_bus *bus0;
 
+/* Host controller device */
 static struct pci_dev *hc_dev;
 
+/* Host controller register addresses */
 static void __iomem *hc_registers;
 static void __iomem *csr_hc_index;
 static void __iomem *csr_hc_data;
@@ -77,7 +81,7 @@ static int zt5550_hc_config(struct pci_dev *pdev)
 {
 	int ret;
 
-	
+	/* Since we know that no boards exist with two HC chips, treat it as an error */
 	if(hc_dev) {
 		err("too many host controller devices?");
 		return -EBUSY;
@@ -116,11 +120,17 @@ static int zt5550_hc_config(struct pci_dev *pdev)
 	csr_int_status = hc_registers + CSR_INTSTAT;
 	csr_int_mask = hc_registers + CSR_INTMASK;
 
+	/*
+	 * Disable host control, fault and serial interrupts
+	 */
 	dbg("disabling host control, fault and serial interrupts");
 	writeb((u8) HC_INT_MASK_REG, csr_hc_index);
 	writeb((u8) ALL_INDEXED_INTS_MASK, csr_hc_data);
 	dbg("disabled host control, fault and serial interrupts");
 
+	/*
+	 * Disable timer0, timer1 and ENUM interrupts
+	 */
 	dbg("disabling timer0, timer1 and ENUM interrupts");
 	writeb((u8) ALL_DIRECT_INTS_MASK, csr_int_mask);
 	dbg("disabled timer0, timer1 and ENUM interrupts");
@@ -227,7 +237,7 @@ static int zt5550_hc_init_one (struct pci_dev *pdev, const struct pci_device_id 
 	}
 	dbg("registered controller");
 
-	
+	/* Look for first device matching cPCI bus's bridge vendor and device IDs */
 	if(!(bus0_dev = pci_get_device(PCI_VENDOR_ID_DEC,
 					 PCI_DEVICE_ID_DEC_21154, NULL))) {
 		status = -ENODEV;

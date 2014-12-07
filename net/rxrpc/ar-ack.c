@@ -38,6 +38,9 @@ static const s8 rxrpc_ack_priority[] = {
 	[RXRPC_ACK_NOSPACE]		= 8,
 };
 
+/*
+ * propose an ACK be sent
+ */
 void __rxrpc_propose_ACK(struct rxrpc_call *call, u8 ack_reason,
 			 __be32 serial, bool immediate)
 {
@@ -56,6 +59,8 @@ void __rxrpc_propose_ACK(struct rxrpc_call *call, u8 ack_reason,
 		return;
 	}
 
+	/* update DELAY, IDLE, REQUESTED and PING_RESPONSE ACK serial
+	 * numbers */
 	if (prior == rxrpc_ack_priority[call->ackr_reason]) {
 		if (prior <= 4)
 			call->ackr_serial = serial;
@@ -113,6 +118,9 @@ cancel_timer:
 	read_unlock_bh(&call->state_lock);
 }
 
+/*
+ * propose an ACK be sent, locking the call structure
+ */
 void rxrpc_propose_ACK(struct rxrpc_call *call, u8 ack_reason,
 		       __be32 serial, bool immediate)
 {
@@ -125,6 +133,9 @@ void rxrpc_propose_ACK(struct rxrpc_call *call, u8 ack_reason,
 	}
 }
 
+/*
+ * set the resend timer
+ */
 static void rxrpc_set_resend(struct rxrpc_call *call, u8 resend,
 			     unsigned long resend_at)
 {
@@ -150,6 +161,9 @@ static void rxrpc_set_resend(struct rxrpc_call *call, u8 resend,
 	read_unlock_bh(&call->state_lock);
 }
 
+/*
+ * resend packets
+ */
 static void rxrpc_resend(struct rxrpc_call *call)
 {
 	struct rxrpc_skb_priv *sp;
@@ -183,7 +197,7 @@ static void rxrpc_resend(struct rxrpc_call *call)
 		if (sp->need_resend) {
 			sp->need_resend = false;
 
-			
+			/* each Tx packet has a new serial number */
 			sp->hdr.serial =
 				htonl(atomic_inc_return(&call->conn->serial));
 
@@ -217,6 +231,9 @@ static void rxrpc_resend(struct rxrpc_call *call)
 	_leave("");
 }
 
+/*
+ * handle resend timer expiry
+ */
 static void rxrpc_resend_timer(struct rxrpc_call *call)
 {
 	struct rxrpc_skb_priv *sp;
@@ -263,6 +280,11 @@ static void rxrpc_resend_timer(struct rxrpc_call *call)
 	_leave("");
 }
 
+/*
+ * process soft ACKs of our transmitted packets
+ * - these indicate packets the peer has or has not received, but hasn't yet
+ *   given to the consumer, and so can still be discarded and re-requested
+ */
 static int rxrpc_process_soft_ACKs(struct rxrpc_call *call,
 				   struct rxrpc_ackpacket *ack,
 				   struct sk_buff *skb)
@@ -309,6 +331,8 @@ static int rxrpc_process_soft_ACKs(struct rxrpc_call *call,
 	smp_mb();
 	call->acks_unacked = (call->acks_tail + loop) & (call->acks_winsz - 1);
 
+	/* anything not explicitly ACK'd is implicitly NACK'd, but may just not
+	 * have been received or processed yet by the far end */
 	for (loop = call->acks_unacked;
 	     loop != call->acks_head;
 	     loop = (loop + 1) &  (call->acks_winsz - 1)
@@ -319,7 +343,7 @@ static int rxrpc_process_soft_ACKs(struct rxrpc_call *call,
 		sp = rxrpc_skb(txb);
 
 		if (*p_txb & 1) {
-			
+			/* packet must have been discarded */
 			sp->need_resend = true;
 			*p_txb &= ~1;
 			resend |= 1;
@@ -346,6 +370,9 @@ protocol_error:
 	return -EPROTO;
 }
 
+/*
+ * discard hard-ACK'd packets from the Tx window
+ */
 static void rxrpc_rotate_tx_window(struct rxrpc_call *call, u32 hard)
 {
 	unsigned long _skb;
@@ -371,11 +398,17 @@ static void rxrpc_rotate_tx_window(struct rxrpc_call *call, u32 hard)
 	wake_up(&call->tx_waitq);
 }
 
+/*
+ * clear the Tx window in the event of a failure
+ */
 static void rxrpc_clear_tx_window(struct rxrpc_call *call)
 {
 	rxrpc_rotate_tx_window(call, atomic_read(&call->sequence));
 }
 
+/*
+ * drain the out of sequence received packet queue into the packet Rx queue
+ */
 static int rxrpc_drain_rx_oos_queue(struct rxrpc_call *call)
 {
 	struct rxrpc_skb_priv *sp;
@@ -411,7 +444,7 @@ static int rxrpc_drain_rx_oos_queue(struct rxrpc_call *call)
 			_debug("drain #%u", call->rx_data_post);
 			call->rx_data_post++;
 
-			
+			/* find out what the next packet is */
 			skb = skb_peek(&call->rx_oos_queue);
 			if (skb)
 				call->rx_first_oos =
@@ -429,6 +462,9 @@ socket_unavailable:
 	return ret;
 }
 
+/*
+ * insert an out of sequence packet into the buffer
+ */
 static void rxrpc_insert_oos_packet(struct rxrpc_call *call,
 				    struct sk_buff *skb)
 {
@@ -445,7 +481,7 @@ static void rxrpc_insert_oos_packet(struct rxrpc_call *call,
 	sp->call = call;
 	rxrpc_get_call(call);
 
-	
+	/* insert into the buffer in sequence order */
 	spin_lock_bh(&call->lock);
 
 	skb_queue_walk(&call->rx_oos_queue, p) {
@@ -462,7 +498,7 @@ static void rxrpc_insert_oos_packet(struct rxrpc_call *call,
 	skb_queue_tail(&call->rx_oos_queue, skb);
 inserted:
 
-	
+	/* we might now have a new front to the queue */
 	if (call->rx_first_oos == 0 || seq < call->rx_first_oos)
 		call->rx_first_oos = seq;
 
@@ -478,6 +514,9 @@ inserted:
 	_leave(" [stored #%u]", call->rx_first_oos);
 }
 
+/*
+ * clear the Tx window on final ACK reception
+ */
 static void rxrpc_zap_tx_window(struct rxrpc_call *call)
 {
 	struct rxrpc_skb_priv *sp;
@@ -505,6 +544,9 @@ static void rxrpc_zap_tx_window(struct rxrpc_call *call)
 	kfree(acks_window);
 }
 
+/*
+ * process the extra information that may be appended to an ACK packet
+ */
 static void rxrpc_extract_ackinfo(struct rxrpc_call *call, struct sk_buff *skb,
 				  unsigned latest, int nAcks)
 {
@@ -534,6 +576,9 @@ static void rxrpc_extract_ackinfo(struct rxrpc_call *call, struct sk_buff *skb,
 	}
 }
 
+/*
+ * process packets in the reception queue
+ */
 static int rxrpc_process_rx_queue(struct rxrpc_call *call,
 				  u32 *_abort_code)
 {
@@ -560,18 +605,20 @@ process_further:
 	post_ACK = false;
 
 	switch (sp->hdr.type) {
+		/* data packets that wind up here have been received out of
+		 * order, need security processing or are jumbo packets */
 	case RXRPC_PACKET_TYPE_DATA:
 		_proto("OOSQ DATA %%%u { #%u }",
 		       ntohl(sp->hdr.serial), ntohl(sp->hdr.seq));
 
-		
+		/* secured packets must be verified and possibly decrypted */
 		if (rxrpc_verify_packet(call, skb, _abort_code) < 0)
 			goto protocol_error;
 
 		rxrpc_insert_oos_packet(call, skb);
 		goto process_further;
 
-		
+		/* partial ACK to process */
 	case RXRPC_PACKET_TYPE_ACK:
 		if (skb_copy_bits(skb, 0, &ack, sizeof(ack)) < 0) {
 			_debug("extraction failure");
@@ -601,7 +648,7 @@ process_further:
 					  sp->hdr.serial, true);
 		}
 
-		
+		/* discard any out-of-order or duplicate ACKs */
 		if (latest - call->acks_latest <= 0) {
 			_debug("discard ACK %d <= %d",
 			       latest, call->acks_latest);
@@ -647,22 +694,24 @@ process_further:
 		}
 		goto discard;
 
-		
+		/* complete ACK to process */
 	case RXRPC_PACKET_TYPE_ACKALL:
 		goto all_acked;
 
-		
+		/* abort and busy are handled elsewhere */
 	case RXRPC_PACKET_TYPE_BUSY:
 	case RXRPC_PACKET_TYPE_ABORT:
 		BUG();
 
-		
+		/* connection level events - also handled elsewhere */
 	case RXRPC_PACKET_TYPE_CHALLENGE:
 	case RXRPC_PACKET_TYPE_RESPONSE:
 	case RXRPC_PACKET_TYPE_DEBUG:
 		BUG();
 	}
 
+	/* if we've had a hard ACK that covers all the packets we've sent, then
+	 * that ends that phase of the operation */
 all_acked:
 	write_lock_bh(&call->state_lock);
 	_debug("ack all %d", call->state);
@@ -678,14 +727,16 @@ all_acked:
 		break;
 	case RXRPC_CALL_CLIENT_SEND_REQUEST:
 	case RXRPC_CALL_SERVER_RECV_REQUEST:
-		goto protocol_error_unlock; 
+		goto protocol_error_unlock; /* can't occur yet */
 	default:
 		write_unlock_bh(&call->state_lock);
-		goto discard; 
+		goto discard; /* assume packet left over from earlier phase */
 	}
 
 	write_unlock_bh(&call->state_lock);
 
+	/* if all the packets we sent are hard-ACK'd, then we can discard
+	 * whatever we've got left */
 	_debug("clear Tx %d",
 	       CIRC_CNT(call->acks_head, call->acks_tail, call->acks_winsz));
 
@@ -697,7 +748,7 @@ all_acked:
 		rxrpc_zap_tx_window(call);
 
 	if (post_ACK) {
-		
+		/* post the final ACK message for userspace to pick up */
 		_debug("post ACK");
 		skb->mark = RXRPC_SKB_MARK_FINAL_ACK;
 		sp->call = call;
@@ -721,6 +772,9 @@ protocol_error:
 	return -EPROTO;
 }
 
+/*
+ * post a message to the socket Rx queue for recvmsg() to pick up
+ */
 static int rxrpc_post_message(struct rxrpc_call *call, u32 mark, u32 error,
 			      bool fatal)
 {
@@ -731,7 +785,7 @@ static int rxrpc_post_message(struct rxrpc_call *call, u32 mark, u32 error,
 	_enter("{%d,%lx},%u,%u,%d",
 	       call->debug_id, call->flags, mark, error, fatal);
 
-	
+	/* remove timers and things for fatal messages */
 	if (fatal) {
 		del_timer_sync(&call->resend_timer);
 		del_timer_sync(&call->ack_timer);
@@ -768,6 +822,10 @@ static int rxrpc_post_message(struct rxrpc_call *call, u32 mark, u32 error,
 	return 0;
 }
 
+/*
+ * handle background processing of incoming call packets and ACK / abort
+ * generation
+ */
 void rxrpc_process_call(struct work_struct *work)
 {
 	struct rxrpc_call *call =
@@ -784,7 +842,7 @@ void rxrpc_process_call(struct work_struct *work)
 	u32 abort_code = RX_PROTOCOL_ERROR;
 	u8 *acks = NULL;
 
-	
+	//printk("\n--------------------\n");
 	_enter("{%d,%s,%lx} [%lu]",
 	       call->debug_id, rxrpc_call_states[call->state], call->events,
 	       (jiffies - call->creation_jif) / (HZ / 10));
@@ -794,6 +852,8 @@ void rxrpc_process_call(struct work_struct *work)
 		return;
 	}
 
+	/* there's a good chance we're going to have to send a message, so set
+	 * one up in advance */
 	msg.msg_name	= &call->conn->trans->peer->srx.transport.sin;
 	msg.msg_namelen	= sizeof(call->conn->trans->peer->srx.transport.sin);
 	msg.msg_control	= NULL;
@@ -815,7 +875,7 @@ void rxrpc_process_call(struct work_struct *work)
 	iov[0].iov_base	= &hdr;
 	iov[0].iov_len	= sizeof(hdr);
 
-	
+	/* deal with events of a final nature */
 	if (test_bit(RXRPC_CALL_RELEASE, &call->events)) {
 		rxrpc_release_call(call);
 		clear_bit(RXRPC_CALL_RELEASE, &call->events);
@@ -943,7 +1003,7 @@ void rxrpc_process_call(struct work_struct *work)
 		goto kill_ACKs;
 	}
 
-	
+	/* deal with assorted inbound messages */
 	if (!skb_queue_empty(&call->rx_queue)) {
 		switch (rxrpc_process_rx_queue(call, &abort_code)) {
 		case 0:
@@ -959,13 +1019,13 @@ void rxrpc_process_call(struct work_struct *work)
 		}
 	}
 
-	
+	/* handle resending */
 	if (test_and_clear_bit(RXRPC_CALL_RESEND_TIMER, &call->events))
 		rxrpc_resend_timer(call);
 	if (test_and_clear_bit(RXRPC_CALL_RESEND, &call->events))
 		rxrpc_resend(call);
 
-	
+	/* consider sending an ordinary ACK */
 	if (test_bit(RXRPC_CALL_ACK, &call->events)) {
 		_debug("send ACK: window: %d - %d { %lx }",
 		       call->rx_data_eaten, call->ackr_win_top,
@@ -973,7 +1033,7 @@ void rxrpc_process_call(struct work_struct *work)
 
 		if (call->state > RXRPC_CALL_SERVER_ACK_REQUEST &&
 		    call->ackr_reason != RXRPC_ACK_PING_RESPONSE) {
-			
+			/* ACK by sending reply DATA packet in this state */
 			clear_bit(RXRPC_CALL_ACK, &call->events);
 			goto maybe_reschedule;
 		}
@@ -985,7 +1045,7 @@ void rxrpc_process_call(struct work_struct *work)
 		if (!acks)
 			goto no_mem;
 
-		
+		//hdr.flags	= RXRPC_SLOW_START_OK;
 		ack.bufferSpace	= htons(8);
 		ack.maxSkew	= 0;
 		ack.serial	= 0;
@@ -1039,6 +1099,8 @@ void rxrpc_process_call(struct work_struct *work)
 		}
 	}
 
+	/* handle completion of security negotiations on an incoming
+	 * connection */
 	if (test_and_clear_bit(RXRPC_CALL_SECURED, &call->events)) {
 		_debug("secured");
 		spin_lock_bh(&call->lock);
@@ -1065,7 +1127,7 @@ void rxrpc_process_call(struct work_struct *work)
 			goto maybe_reschedule;
 	}
 
-	
+	/* post a notification of an acceptable connection to the app */
 	if (test_bit(RXRPC_CALL_POST_ACCEPT, &call->events)) {
 		_debug("post accept");
 		if (rxrpc_post_message(call, RXRPC_SKB_MARK_NEW_CALL,
@@ -1075,7 +1137,7 @@ void rxrpc_process_call(struct work_struct *work)
 		goto maybe_reschedule;
 	}
 
-	
+	/* handle incoming call acceptance */
 	if (test_and_clear_bit(RXRPC_CALL_ACCEPTED, &call->events)) {
 		_debug("accepted");
 		ASSERTCMP(call->rx_data_post, ==, 0);
@@ -1086,6 +1148,8 @@ void rxrpc_process_call(struct work_struct *work)
 		read_unlock_bh(&call->state_lock);
 	}
 
+	/* drain the out of sequence received packet queue into the packet Rx
+	 * queue */
 	if (test_and_clear_bit(RXRPC_CALL_DRAIN_RX_OOS, &call->events)) {
 		while (call->rx_data_post == call->rx_first_oos)
 			if (rxrpc_drain_rx_oos_queue(call) < 0)
@@ -1093,7 +1157,7 @@ void rxrpc_process_call(struct work_struct *work)
 		goto maybe_reschedule;
 	}
 
-	
+	/* other events may have been raised since we started checking */
 	goto maybe_reschedule;
 
 send_ACK_with_skew:
@@ -1105,7 +1169,7 @@ send_ACK:
 	ackinfo.maxMTU	= htonl(mtu);
 	ackinfo.rwind	= htonl(32);
 
-	
+	/* permit the peer to send us jumbo packets if it wants to */
 	ackinfo.rxMTU	= htonl(5692);
 	ackinfo.jumbo_max = htonl(4);
 
@@ -1207,7 +1271,7 @@ maybe_reschedule:
 		read_unlock_bh(&call->state_lock);
 	}
 
-	
+	/* don't leave aborted connections on the accept queue */
 	if (call->state >= RXRPC_CALL_COMPLETE &&
 	    !list_empty(&call->accept_link)) {
 		_debug("X unlinking once-pending call %p { e=%lx f=%lx c=%x }",
@@ -1225,6 +1289,10 @@ error:
 	clear_bit(RXRPC_CALL_PROC_BUSY, &call->flags);
 	kfree(acks);
 
+	/* because we don't want two CPUs both processing the work item for one
+	 * call at the same time, we use a flag to note when it's busy; however
+	 * this means there's a race between clearing the flag and setting the
+	 * work pending bit and the work item being processed again */
 	if (call->events && !work_pending(&call->processor)) {
 		_debug("jumpstart %x", ntohl(call->conn->cid));
 		rxrpc_queue_call(call);

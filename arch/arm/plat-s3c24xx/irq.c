@@ -127,7 +127,7 @@ s3c_irqext_ack(struct irq_data *data)
 	req = __raw_readl(S3C24XX_EINTPEND);
 	req &= ~mask;
 
-	
+	/* not sure if we should be acking the parent irq... */
 
 	if (data->irq <= IRQ_EINT7) {
 		if ((req & 0xf0) == 0)
@@ -181,12 +181,12 @@ s3c_irqext_type(struct irq_data *data, unsigned int type)
 		return -1;
 	}
 
-	
+	/* Set the GPIO to external interrupt mode */
 	value = __raw_readl(gpcon_reg);
 	value = (value & ~(3 << gpcon_offset)) | (0x02 << gpcon_offset);
 	__raw_writel(value, gpcon_reg);
 
-	
+	/* Set the external interrupt to pointed trigger type */
 	switch (type)
 	{
 		case IRQ_TYPE_NONE:
@@ -243,6 +243,7 @@ static struct irq_chip s3c_irq_eint0t4 = {
 	.irq_set_type	= s3c_irqext_type,
 };
 
+/* mask values for the parent registers for each of the interrupt types */
 
 #define INTMSK_UART0	 (1UL << (IRQ_UART0 - IRQ_EINT0))
 #define INTMSK_UART1	 (1UL << (IRQ_UART1 - IRQ_EINT0))
@@ -250,6 +251,7 @@ static struct irq_chip s3c_irq_eint0t4 = {
 #define INTMSK_ADCPARENT (1UL << (IRQ_ADCPARENT - IRQ_EINT0))
 
 
+/* UART0 */
 
 static void
 s3c_irq_uart0_mask(struct irq_data *data)
@@ -276,6 +278,7 @@ static struct irq_chip s3c_irq_uart0 = {
 	.irq_ack	= s3c_irq_uart0_ack,
 };
 
+/* UART1 */
 
 static void
 s3c_irq_uart1_mask(struct irq_data *data)
@@ -302,6 +305,7 @@ static struct irq_chip s3c_irq_uart1 = {
 	.irq_ack	= s3c_irq_uart1_ack,
 };
 
+/* UART2 */
 
 static void
 s3c_irq_uart2_mask(struct irq_data *data)
@@ -328,6 +332,7 @@ static struct irq_chip s3c_irq_uart2 = {
 	.irq_ack	= s3c_irq_uart2_ack,
 };
 
+/* ADC and Touchscreen */
 
 static void
 s3c_irq_adc_mask(struct irq_data *d)
@@ -354,12 +359,15 @@ static struct irq_chip s3c_irq_adc = {
 	.irq_ack	= s3c_irq_adc_ack,
 };
 
+/* irq demux for adc */
 static void s3c_irq_demux_adc(unsigned int irq,
 			      struct irq_desc *desc)
 {
 	unsigned int subsrc, submsk;
 	unsigned int offset = 9;
 
+	/* read the current pending interrupts, and the mask
+	 * for what it is available */
 
 	subsrc = __raw_readl(S3C2410_SUBSRCPND);
 	submsk = __raw_readl(S3C2410_INTSUBMSK);
@@ -383,6 +391,8 @@ static void s3c_irq_demux_uart(unsigned int start)
 	unsigned int subsrc, submsk;
 	unsigned int offset = start - IRQ_S3CUART_RX0;
 
+	/* read the current pending interrupts, and the mask
+	 * for what it is available */
 
 	subsrc = __raw_readl(S3C2410_SUBSRCPND);
 	submsk = __raw_readl(S3C2410_INTSUBMSK);
@@ -406,6 +416,7 @@ static void s3c_irq_demux_uart(unsigned int start)
 	}
 }
 
+/* uart demux entry points */
 
 static void
 s3c_irq_demux_uart0(unsigned int irq,
@@ -439,9 +450,9 @@ s3c_irq_demux_extint8(unsigned int irq,
 	unsigned long eintmsk = __raw_readl(S3C24XX_EINTMASK);
 
 	eintpnd &= ~eintmsk;
-	eintpnd &= ~0xff;	
+	eintpnd &= ~0xff;	/* ignore lower irqs */
 
-	
+	/* we may as well handle all the pending IRQs here */
 
 	while (eintpnd) {
 		irq = __ffs(eintpnd);
@@ -461,9 +472,9 @@ s3c_irq_demux_extint4t7(unsigned int irq,
 	unsigned long eintmsk = __raw_readl(S3C24XX_EINTMASK);
 
 	eintpnd &= ~eintmsk;
-	eintpnd &= 0xff;	
+	eintpnd &= 0xff;	/* only lower irqs */
 
-	
+	/* we may as well handle all the pending IRQs here */
 
 	while (eintpnd) {
 		irq = __ffs(eintpnd);
@@ -476,6 +487,16 @@ s3c_irq_demux_extint4t7(unsigned int irq,
 }
 
 #ifdef CONFIG_FIQ
+/**
+ * s3c24xx_set_fiq - set the FIQ routing
+ * @irq: IRQ number to route to FIQ on processor.
+ * @on: Whether to route @irq to the FIQ, or to remove the FIQ routing.
+ *
+ * Change the state of the IRQ to FIQ routing depending on @irq and @on. If
+ * @on is true, the @irq is checked to see if it can be routed and the
+ * interrupt controller updated to route the IRQ. If @on is false, the FIQ
+ * routing is cleared, regardless of which @irq is specified.
+ */
 int s3c24xx_set_fiq(unsigned int irq, bool on)
 {
 	u32 intmod;
@@ -499,6 +520,10 @@ EXPORT_SYMBOL_GPL(s3c24xx_set_fiq);
 #endif
 
 
+/* s3c24xx_init_irq
+ *
+ * Initialise S3C2410 IRQ system
+*/
 
 void __init s3c24xx_init_irq(void)
 {
@@ -513,7 +538,7 @@ void __init s3c24xx_init_irq(void)
 
 	irqdbf("s3c2410_init_irq: clearing interrupt status flags\n");
 
-	
+	/* first, clear all interrupts pending... */
 
 	last = 0;
 	for (i = 0; i < 4; i++) {
@@ -552,15 +577,15 @@ void __init s3c24xx_init_irq(void)
 		last = pend;
 	}
 
-	
+	/* register the main interrupts */
 
 	irqdbf("s3c2410_init_irq: registering s3c2410 interrupt handlers\n");
 
 	for (irqno = IRQ_EINT4t7; irqno <= IRQ_ADCPARENT; irqno++) {
-		
+		/* set all the s3c2410 internal irqs */
 
 		switch (irqno) {
-			
+			/* deal with the special IRQs (cascaded) */
 
 		case IRQ_EINT4t7:
 		case IRQ_EINT8t23:
@@ -574,18 +599,18 @@ void __init s3c24xx_init_irq(void)
 
 		case IRQ_RESERVED6:
 		case IRQ_RESERVED24:
-			
+			/* no IRQ here */
 			break;
 
 		default:
-			
+			//irqdbf("registering irq %d (s3c irq)\n", irqno);
 			irq_set_chip_and_handler(irqno, &s3c_irq_chip,
 						 handle_edge_irq);
 			set_irq_flags(irqno, IRQF_VALID);
 		}
 	}
 
-	
+	/* setup the cascade irq handlers */
 
 	irq_set_chained_handler(IRQ_EINT4t7, s3c_irq_demux_extint4t7);
 	irq_set_chained_handler(IRQ_EINT8t23, s3c_irq_demux_extint8);
@@ -595,7 +620,7 @@ void __init s3c24xx_init_irq(void)
 	irq_set_chained_handler(IRQ_UART2, s3c_irq_demux_uart2);
 	irq_set_chained_handler(IRQ_ADCPARENT, s3c_irq_demux_adc);
 
-	
+	/* external interrupts */
 
 	for (irqno = IRQ_EINT0; irqno <= IRQ_EINT3; irqno++) {
 		irqdbf("registering irq %d (ext int)\n", irqno);
@@ -611,7 +636,7 @@ void __init s3c24xx_init_irq(void)
 		set_irq_flags(irqno, IRQF_VALID);
 	}
 
-	
+	/* register the uart interrupts */
 
 	irqdbf("s3c2410: registering external interrupts\n");
 

@@ -27,9 +27,13 @@
 
 static DEFINE_PER_CPU(struct cpu, cpu_devices);
 
+/*
+ * SMT snooze delay stuff, 64-bit only for now
+ */
 
 #ifdef CONFIG_PPC64
 
+/* Time in microseconds we delay before sleeping in the idle loop */
 DEFINE_PER_CPU(long, smt_snooze_delay) = { 100 };
 
 static ssize_t store_smt_snooze_delay(struct device *dev,
@@ -79,8 +83,12 @@ static int __init setup_smt_snooze_delay(char *str)
 }
 __setup("smt-snooze-delay=", setup_smt_snooze_delay);
 
-#endif 
+#endif /* CONFIG_PPC64 */
 
+/*
+ * Enabling PMCs will slow partition context switch times so we only do
+ * it the first time we write to the PMCs.
+ */
 
 static DEFINE_PER_CPU(char, pmcs_enabled);
 
@@ -88,7 +96,7 @@ void ppc_enable_pmcs(void)
 {
 	ppc_set_pmu_inuse(1);
 
-	
+	/* Only need to enable them once */
 	if (__get_cpu_var(pmcs_enabled))
 		return;
 
@@ -132,6 +140,9 @@ static ssize_t __used \
 }
 
 
+/* Let's define all possible registers, we'll only hook up the ones
+ * that are implemented on the current processor
+ */
 
 #if defined(CONFIG_PPC64)
 #define HAS_PPC_PMC_CLASSIC	1
@@ -207,7 +218,7 @@ static void sysfs_create_dscr_default(void)
 	if (cpu_has_feature(CPU_FTR_DSCR))
 		err = device_create_file(cpu_subsys.dev_root, &dev_attr_dscr_default);
 }
-#endif 
+#endif /* CONFIG_PPC64 */
 
 #ifdef HAS_PPC_PMC_PA6T
 SYSFS_PMCSETUP(pa6t_pmc0, SPRN_PA6T_PMC0);
@@ -245,15 +256,15 @@ SYSFS_PMCSETUP(tsr0, SPRN_PA6T_TSR0);
 SYSFS_PMCSETUP(tsr1, SPRN_PA6T_TSR1);
 SYSFS_PMCSETUP(tsr2, SPRN_PA6T_TSR2);
 SYSFS_PMCSETUP(tsr3, SPRN_PA6T_TSR3);
-#endif 
-#endif 
+#endif /* CONFIG_DEBUG_KERNEL */
+#endif /* HAS_PPC_PMC_PA6T */
 
 #ifdef HAS_PPC_PMC_IBM
 static struct device_attribute ibm_common_attrs[] = {
 	__ATTR(mmcr0, 0600, show_mmcr0, store_mmcr0),
 	__ATTR(mmcr1, 0600, show_mmcr1, store_mmcr1),
 };
-#endif 
+#endif /* HAS_PPC_PMC_G4 */
 
 #ifdef HAS_PPC_PMC_G4
 static struct device_attribute g4_common_attrs[] = {
@@ -261,7 +272,7 @@ static struct device_attribute g4_common_attrs[] = {
 	__ATTR(mmcr1, 0600, show_mmcr1, store_mmcr1),
 	__ATTR(mmcr2, 0600, show_mmcr2, store_mmcr2),
 };
-#endif 
+#endif /* HAS_PPC_PMC_G4 */
 
 static struct device_attribute classic_pmc_attrs[] = {
 	__ATTR(pmc1, 0600, show_pmc1, store_pmc1),
@@ -315,10 +326,10 @@ static struct device_attribute pa6t_attrs[] = {
 	__ATTR(tsr1, 0600, show_tsr1, store_tsr1),
 	__ATTR(tsr2, 0600, show_tsr2, store_tsr2),
 	__ATTR(tsr3, 0600, show_tsr3, store_tsr3),
-#endif 
+#endif /* CONFIG_DEBUG_KERNEL */
 };
-#endif 
-#endif 
+#endif /* HAS_PPC_PMC_PA6T */
+#endif /* HAS_PPC_PMC_CLASSIC */
 
 static void __cpuinit register_cpu_online(unsigned int cpu)
 {
@@ -332,7 +343,7 @@ static void __cpuinit register_cpu_online(unsigned int cpu)
 		device_create_file(s, &dev_attr_smt_snooze_delay);
 #endif
 
-	
+	/* PMC stuff */
 	switch (cur_cpu_spec->pmc_type) {
 #ifdef HAS_PPC_PMC_IBM
 	case PPC_PMC_IBM:
@@ -340,22 +351,22 @@ static void __cpuinit register_cpu_online(unsigned int cpu)
 		nattrs = sizeof(ibm_common_attrs) / sizeof(struct device_attribute);
 		pmc_attrs = classic_pmc_attrs;
 		break;
-#endif 
+#endif /* HAS_PPC_PMC_IBM */
 #ifdef HAS_PPC_PMC_G4
 	case PPC_PMC_G4:
 		attrs = g4_common_attrs;
 		nattrs = sizeof(g4_common_attrs) / sizeof(struct device_attribute);
 		pmc_attrs = classic_pmc_attrs;
 		break;
-#endif 
+#endif /* HAS_PPC_PMC_G4 */
 #ifdef HAS_PPC_PMC_PA6T
 	case PPC_PMC_PA6T:
-		
+		/* PA Semi starts counting at PMC0 */
 		attrs = pa6t_attrs;
 		nattrs = sizeof(pa6t_attrs) / sizeof(struct device_attribute);
 		pmc_attrs = NULL;
 		break;
-#endif 
+#endif /* HAS_PPC_PMC_PA6T */
 	default:
 		attrs = NULL;
 		nattrs = 0;
@@ -384,7 +395,7 @@ static void __cpuinit register_cpu_online(unsigned int cpu)
 
 	if (cpu_has_feature(CPU_FTR_PPCAS_ARCH_V2))
 		device_create_file(s, &dev_attr_pir);
-#endif 
+#endif /* CONFIG_PPC64 */
 
 	cacheinfo_cpu_online(cpu);
 }
@@ -404,7 +415,7 @@ static void unregister_cpu_online(unsigned int cpu)
 		device_remove_file(s, &dev_attr_smt_snooze_delay);
 #endif
 
-	
+	/* PMC stuff */
 	switch (cur_cpu_spec->pmc_type) {
 #ifdef HAS_PPC_PMC_IBM
 	case PPC_PMC_IBM:
@@ -412,22 +423,22 @@ static void unregister_cpu_online(unsigned int cpu)
 		nattrs = sizeof(ibm_common_attrs) / sizeof(struct device_attribute);
 		pmc_attrs = classic_pmc_attrs;
 		break;
-#endif 
+#endif /* HAS_PPC_PMC_IBM */
 #ifdef HAS_PPC_PMC_G4
 	case PPC_PMC_G4:
 		attrs = g4_common_attrs;
 		nattrs = sizeof(g4_common_attrs) / sizeof(struct device_attribute);
 		pmc_attrs = classic_pmc_attrs;
 		break;
-#endif 
+#endif /* HAS_PPC_PMC_G4 */
 #ifdef HAS_PPC_PMC_PA6T
 	case PPC_PMC_PA6T:
-		
+		/* PA Semi starts counting at PMC0 */
 		attrs = pa6t_attrs;
 		nattrs = sizeof(pa6t_attrs) / sizeof(struct device_attribute);
 		pmc_attrs = NULL;
 		break;
-#endif 
+#endif /* HAS_PPC_PMC_PA6T */
 	default:
 		attrs = NULL;
 		nattrs = 0;
@@ -456,7 +467,7 @@ static void unregister_cpu_online(unsigned int cpu)
 
 	if (cpu_has_feature(CPU_FTR_PPCAS_ARCH_V2))
 		device_remove_file(s, &dev_attr_pir);
-#endif 
+#endif /* CONFIG_PPC64 */
 
 	cacheinfo_cpu_offline(cpu);
 }
@@ -477,9 +488,9 @@ ssize_t arch_cpu_release(const char *buf, size_t count)
 
 	return -EINVAL;
 }
-#endif 
+#endif /* CONFIG_ARCH_CPU_PROBE_RELEASE */
 
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */
 
 static int __cpuinit sysfs_cpu_notify(struct notifier_block *self,
 				      unsigned long action, void *hcpu)
@@ -573,6 +584,7 @@ void cpu_remove_dev_attr_group(struct attribute_group *attrs)
 EXPORT_SYMBOL_GPL(cpu_remove_dev_attr_group);
 
 
+/* NUMA stuff */
 
 #ifdef CONFIG_NUMA
 static void register_nodes(void)
@@ -606,6 +618,7 @@ static void register_nodes(void)
 
 #endif
 
+/* Only valid if CPU is present. */
 static ssize_t show_physical_id(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -625,6 +638,13 @@ static int __init topology_init(void)
 	for_each_possible_cpu(cpu) {
 		struct cpu *c = &per_cpu(cpu_devices, cpu);
 
+		/*
+		 * For now, we just see if the system supports making
+		 * the RTAS calls for CPU hotplug.  But, there may be a
+		 * more comprehensive way to do this for an individual
+		 * CPU.  For instance, the boot cpu might never be valid
+		 * for hotplugging.
+		 */
 		if (ppc_md.cpu_die)
 			c->hotpluggable = 1;
 
@@ -639,7 +659,7 @@ static int __init topology_init(void)
 	}
 #ifdef CONFIG_PPC64
 	sysfs_create_dscr_default();
-#endif 
+#endif /* CONFIG_PPC64 */
 
 	return 0;
 }

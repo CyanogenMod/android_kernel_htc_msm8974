@@ -14,6 +14,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/* Toplevel file. Relies on dhd_linux.c to send commands to the dongle. */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -248,26 +249,41 @@ static const u32 __wl_cipher_suites[] = {
 	WLAN_CIPHER_SUITE_AES_CMAC,
 };
 
+/* tag_ID/length/value_buffer tuple */
 struct brcmf_tlv {
 	u8 id;
 	u8 len;
 	u8 data[1];
 };
 
+/* Quarter dBm units to mW
+ * Table starts at QDBM_OFFSET, so the first entry is mW for qdBm=153
+ * Table is offset so the last entry is largest mW value that fits in
+ * a u16.
+ */
 
-#define QDBM_OFFSET 153		
-#define QDBM_TABLE_LEN 40	
+#define QDBM_OFFSET 153		/* Offset for first entry */
+#define QDBM_TABLE_LEN 40	/* Table size */
 
-#define QDBM_TABLE_LOW_BOUND 6493	
+/* Smallest mW value that will round up to the first table entry, QDBM_OFFSET.
+ * Value is ( mW(QDBM_OFFSET - 1) + mW(QDBM_OFFSET) ) / 2
+ */
+#define QDBM_TABLE_LOW_BOUND 6493	/* Low bound */
 
-#define QDBM_TABLE_HIGH_BOUND 64938	
+/* Largest mW value that will round down to the last table entry,
+ * QDBM_OFFSET + QDBM_TABLE_LEN-1.
+ * Value is ( mW(QDBM_OFFSET + QDBM_TABLE_LEN - 1) +
+ * mW(QDBM_OFFSET + QDBM_TABLE_LEN) ) / 2.
+ */
+#define QDBM_TABLE_HIGH_BOUND 64938	/* High bound */
 
 static const u16 nqdBm_to_mW_map[QDBM_TABLE_LEN] = {
- 6683, 7079, 7499, 7943, 8414, 8913, 9441, 10000,
- 10593, 11220, 11885, 12589, 13335, 14125, 14962, 15849,
- 16788, 17783, 18836, 19953, 21135, 22387, 23714, 25119,
- 26607, 28184, 29854, 31623, 33497, 35481, 37584, 39811,
- 42170, 44668, 47315, 50119, 53088, 56234, 59566, 63096
+/* qdBm:	+0	+1	+2	+3	+4	+5	+6	+7 */
+/* 153: */ 6683, 7079, 7499, 7943, 8414, 8913, 9441, 10000,
+/* 161: */ 10593, 11220, 11885, 12589, 13335, 14125, 14962, 15849,
+/* 169: */ 16788, 17783, 18836, 19953, 21135, 22387, 23714, 25119,
+/* 177: */ 26607, 28184, 29854, 31623, 33497, 35481, 37584, 39811,
+/* 185: */ 42170, 44668, 47315, 50119, 53088, 56234, 59566, 63096
 };
 
 static u16 brcmf_qdbm_to_mw(u8 qdbm)
@@ -276,14 +292,20 @@ static u16 brcmf_qdbm_to_mw(u8 qdbm)
 	int idx = qdbm - QDBM_OFFSET;
 
 	if (idx >= QDBM_TABLE_LEN)
-		
+		/* clamp to max u16 mW value */
 		return 0xFFFF;
 
+	/* scale the qdBm index up to the range of the table 0-40
+	 * where an offset of 40 qdBm equals a factor of 10 mW.
+	 */
 	while (idx < 0) {
 		idx += 40;
 		factor *= 10;
 	}
 
+	/* return the mW value scaled down to the correct factor of 10,
+	 * adding in factor/2 to get proper rounding.
+	 */
 	return (nqdBm_to_mW_map[idx] + factor / 2) / factor;
 }
 
@@ -294,13 +316,13 @@ static u8 brcmf_mw_to_qdbm(u16 mw)
 	uint mw_uint = mw;
 	uint boundary;
 
-	
+	/* handle boundary case */
 	if (mw_uint <= 1)
 		return 0;
 
 	offset = QDBM_OFFSET;
 
-	
+	/* move mw into the range of the table */
 	while (mw_uint < QDBM_TABLE_LOW_BOUND) {
 		mw_uint *= 10;
 		offset -= 40;
@@ -318,6 +340,7 @@ static u8 brcmf_mw_to_qdbm(u16 mw)
 	return qdbm;
 }
 
+/* function for reading/writing a single u32 from/to the dongle */
 static int
 brcmf_exec_dcmd_u32(struct net_device *ndev, u32 cmd, u32 *par)
 {
@@ -548,7 +571,7 @@ static s32 brcmf_do_iscan(struct brcmf_cfg80211_priv *cfg_priv)
 	__le32 passive_scan;
 	s32 err = 0;
 
-	
+	/* Broadcast scan by default */
 	memset(&ssid, 0, sizeof(ssid));
 
 	iscan->state = WL_ISCAN_STATE_SCANING;
@@ -605,13 +628,13 @@ __brcmf_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 	iscan_req = false;
 	spec_scan = false;
 	if (request) {
-		
+		/* scan bss */
 		ssids = request->ssids;
 		if (cfg_priv->iscan_on && (!ssids || !ssids->ssid_len))
 			iscan_req = true;
 	} else {
-		
-		
+		/* scan in ibss */
+		/* we don't do iscan in ibss */
 		ssids = this_ssid;
 	}
 
@@ -932,7 +955,7 @@ brcmf_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *ndev,
 	else
 		WL_CONN("no privacy required\n");
 
-	
+	/* Configure Privacy for starter */
 	if (params->privacy)
 		wsec |= WEP_ENABLED;
 
@@ -942,7 +965,7 @@ brcmf_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *ndev,
 		goto done;
 	}
 
-	
+	/* Configure Beacon Interval for starter */
 	if (params->beacon_interval)
 		bcnprd = params->beacon_interval;
 	else
@@ -954,10 +977,10 @@ brcmf_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *ndev,
 		goto done;
 	}
 
-	
+	/* Configure required join parameter */
 	memset(&join_params, 0, sizeof(struct brcmf_join_params));
 
-	
+	/* SSID */
 	ssid.SSID_len = min_t(u32, params->ssid_len, 32);
 	memcpy(ssid.SSID, params->ssid, ssid.SSID_len);
 	memcpy(join_params.ssid_le.SSID, params->ssid, ssid.SSID_len);
@@ -965,7 +988,7 @@ brcmf_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *ndev,
 	join_params_size = sizeof(join_params.ssid_le);
 	brcmf_update_prof(cfg_priv, NULL, &ssid, WL_PROF_SSID);
 
-	
+	/* BSSID */
 	if (params->bssid) {
 		memcpy(join_params.params_le.bssid, params->bssid, ETH_ALEN);
 		join_params_size = sizeof(join_params.ssid_le) +
@@ -977,7 +1000,7 @@ brcmf_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *ndev,
 	brcmf_update_prof(cfg_priv, NULL,
 			  &join_params.params_le.bssid, WL_PROF_BSSID);
 
-	
+	/* Channel */
 	if (params->channel) {
 		u32 target_channel;
 
@@ -985,12 +1008,12 @@ brcmf_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *ndev,
 			ieee80211_frequency_to_channel(
 				params->channel->center_freq);
 		if (params->channel_fixed) {
-			
+			/* adding chanspec */
 			brcmf_ch_to_chanspec(cfg_priv->channel,
 				&join_params, &join_params_size);
 		}
 
-		
+		/* set channel for starter */
 		target_channel = cfg_priv->channel;
 		err = brcmf_exec_dcmd_u32(ndev, BRCM_SET_CHANNEL,
 					  &target_channel);
@@ -1266,7 +1289,7 @@ brcmf_set_wep_sharedkey(struct net_device *ndev,
 			       sme->crypto.ciphers_pairwise[0]);
 			return -EINVAL;
 		}
-		
+		/* Set the new key/index */
 		WL_CONN("key length (%d) key index (%d) algo (%d)\n",
 			key.len, key.index, key.algo);
 		WL_CONN("key \"%s\"\n", key.data);
@@ -1276,7 +1299,7 @@ brcmf_set_wep_sharedkey(struct net_device *ndev,
 
 		if (sec->auth_type == NL80211_AUTHTYPE_OPEN_SYSTEM) {
 			WL_CONN("set auth_type to shared key\n");
-			val = 1;	
+			val = 1;	/* shared key */
 			err = brcmf_dev_intvar_set(ndev, "auth", val);
 			if (err) {
 				WL_ERR("set auth failed (%d)\n", err);
@@ -1434,7 +1457,7 @@ brcmf_cfg80211_set_tx_power(struct wiphy *wiphy,
 		}
 		break;
 	}
-	
+	/* Make sure radio is off or on as far as software is concerned */
 	disable = WL_RADIO_SW_DISABLE << 16;
 	err = brcmf_exec_dcmd_u32(ndev, BRCMF_C_SET_RADIO, &disable);
 	if (err)
@@ -1501,7 +1524,7 @@ brcmf_cfg80211_config_default_key(struct wiphy *wiphy, struct net_device *ndev,
 	}
 
 	if (wsec & WEP_ENABLED) {
-		
+		/* Just select a new current key */
 		index = key_idx;
 		err = brcmf_exec_dcmd_u32(ndev, BRCMF_C_SET_KEY_PRIMARY,
 					  &index);
@@ -1523,12 +1546,14 @@ brcmf_add_keyext(struct wiphy *wiphy, struct net_device *ndev,
 
 	memset(&key, 0, sizeof(key));
 	key.index = (u32) key_idx;
+	/* Instead of bcast for ea address for default wep keys,
+		 driver needs it to be Null */
 	if (!is_multicast_ether_addr(mac_addr))
 		memcpy((char *)&key.ea, (void *)mac_addr, ETH_ALEN);
 	key.len = (u32) params->key_len;
-	
+	/* check for key index change */
 	if (key.len == 0) {
-		
+		/* key delete */
 		err = send_key_to_dongle(ndev, &key);
 		if (err)
 			return err;
@@ -1548,9 +1573,9 @@ brcmf_add_keyext(struct wiphy *wiphy, struct net_device *ndev,
 			memcpy(&key.data[16], keybuf, sizeof(keybuf));
 		}
 
-		
+		/* if IW_ENCODE_EXT_RX_SEQ_VALID set */
 		if (params->seq && params->seq_len == 6) {
-			
+			/* rx iv */
 			u8 *ivptr;
 			ivptr = (u8 *) params->seq;
 			key.rxiv.hi = (ivptr[5] << 24) | (ivptr[4] << 16) |
@@ -1660,7 +1685,7 @@ brcmf_cfg80211_add_key(struct wiphy *wiphy, struct net_device *ndev,
 		goto done;
 	}
 
-	err = send_key_to_dongle(ndev, &key); 
+	err = send_key_to_dongle(ndev, &key); /* Set the new key/index */
 	if (err)
 		goto done;
 
@@ -1678,7 +1703,7 @@ brcmf_cfg80211_add_key(struct wiphy *wiphy, struct net_device *ndev,
 		goto done;
 	}
 
-	val = 1;		
+	val = 1;		/* assume shared key. otherwise 0 */
 	err = brcmf_exec_dcmd_u32(ndev, BRCMF_C_SET_AUTH, &val);
 	if (err)
 		WL_ERR("WLC_SET_AUTH error (%d)\n", err);
@@ -1708,15 +1733,15 @@ brcmf_cfg80211_del_key(struct wiphy *wiphy, struct net_device *ndev,
 
 	WL_CONN("key index (%d)\n", key_idx);
 
-	
+	/* Set the new key/index */
 	err = send_key_to_dongle(ndev, &key);
 	if (err) {
 		if (err == -EINVAL) {
 			if (key.index >= DOT11_MAX_DEFAULT_KEYS)
-				
+				/* we ignore this key index in this case */
 				WL_ERR("invalid key index (%d)\n", key_idx);
 		}
-		
+		/* Ignore this error, may happen during DISASSOC */
 		err = -EAGAIN;
 		goto done;
 	}
@@ -1725,7 +1750,7 @@ brcmf_cfg80211_del_key(struct wiphy *wiphy, struct net_device *ndev,
 	err = brcmf_dev_intvar_get(ndev, "wsec", &wsec);
 	if (err) {
 		WL_ERR("get wsec error (%d)\n", err);
-		
+		/* Ignore this error, may happen during DISASSOC */
 		err = -EAGAIN;
 		goto done;
 	}
@@ -1734,16 +1759,16 @@ brcmf_cfg80211_del_key(struct wiphy *wiphy, struct net_device *ndev,
 	err = brcmf_dev_intvar_set(ndev, "wsec", wsec);
 	if (err) {
 		WL_ERR("set wsec error (%d)\n", err);
-		
+		/* Ignore this error, may happen during DISASSOC */
 		err = -EAGAIN;
 		goto done;
 	}
 
-	val = 0;		
+	val = 0;		/* assume open key. otherwise 1 */
 	err = brcmf_exec_dcmd_u32(ndev, BRCMF_C_SET_AUTH, &val);
 	if (err) {
 		WL_ERR("WLC_SET_AUTH error (%d)\n", err);
-		
+		/* Ignore this error, may happen during DISASSOC */
 		err = -EAGAIN;
 	}
 done:
@@ -1772,7 +1797,7 @@ brcmf_cfg80211_get_key(struct wiphy *wiphy, struct net_device *ndev,
 	err = brcmf_exec_dcmd_u32(ndev, BRCMF_C_GET_WSEC, &wsec);
 	if (err) {
 		WL_ERR("WLC_GET_WSEC error (%d)\n", err);
-		
+		/* Ignore this error, may happen during DISASSOC */
 		err = -EAGAIN;
 		goto done;
 	}
@@ -1841,7 +1866,7 @@ brcmf_cfg80211_get_station(struct wiphy *wiphy, struct net_device *ndev,
 		goto done;
 	}
 
-	
+	/* Report the current tx rate */
 	err = brcmf_exec_dcmd_u32(ndev, BRCMF_C_GET_RATE, &rate);
 	if (err) {
 		WL_ERR("Could not get rate (%d)\n", err);
@@ -1879,6 +1904,13 @@ brcmf_cfg80211_set_power_mgmt(struct wiphy *wiphy, struct net_device *ndev,
 
 	WL_TRACE("Enter\n");
 
+	/*
+	 * Powersave enable/disable request is coming from the
+	 * cfg80211 even before the interface is up. In that
+	 * scenario, driver will be storing the power save
+	 * preference in cfg_priv struct to apply this to
+	 * FW later while initializing the dongle
+	 */
 	cfg_priv->pwr_save = enabled;
 	if (!test_bit(WL_STATUS_READY, &cfg_priv->status)) {
 
@@ -1919,8 +1951,8 @@ brcmf_cfg80211_set_bitrate_mask(struct wiphy *wiphy, struct net_device *ndev,
 	if (!check_sys_up(wiphy))
 		return -EIO;
 
-	
-	
+	/* addr param is always NULL. ignore it */
+	/* Get current rateset */
 	err = brcmf_exec_dcmd(ndev, BRCM_GET_CURR_RATESET, &rateset_le,
 			      sizeof(rateset_le));
 	if (err) {
@@ -1936,14 +1968,19 @@ brcmf_cfg80211_set_bitrate_mask(struct wiphy *wiphy, struct net_device *ndev,
 	val = wl_g_rates[legacy - 1].bitrate * 100000;
 
 	if (val < le32_to_cpu(rateset_le.count))
-		
+		/* Select rate by rateset index */
 		rate = rateset_le.rates[val] & 0x7f;
 	else
-		
+		/* Specified rate in bps */
 		rate = val / 500000;
 
 	WL_CONN("rate %d mbps\n", rate / 2);
 
+	/*
+	 *
+	 *      Set rate override,
+	 *      Since the is a/b/g-blind, both a/bg_rate are enforced.
+	 */
 	err_bg = brcmf_dev_intvar_set(ndev, "bg_rate", rate);
 	err_a = brcmf_dev_intvar_set(ndev, "a_rate", rate);
 	if (err_bg && err_a) {
@@ -2026,7 +2063,7 @@ next_bss_le(struct brcmf_scan_results *list, struct brcmf_bss_info_le *bss)
 static s32 brcmf_inform_bss(struct brcmf_cfg80211_priv *cfg_priv)
 {
 	struct brcmf_scan_results *bss_list;
-	struct brcmf_bss_info_le *bi = NULL;	
+	struct brcmf_bss_info_le *bi = NULL;	/* must be initialized */
 	s32 err = 0;
 	int i;
 
@@ -2129,6 +2166,11 @@ static bool brcmf_is_ibssmode(struct brcmf_cfg80211_priv *cfg_priv)
 	return cfg_priv->conf->mode == WL_MODE_IBSS;
 }
 
+/*
+ * Traverse a string of 1-byte tag/1-byte length/variable-length value
+ * triples, returning a pointer to the substring whose first element
+ * matches tag
+ */
 static struct brcmf_tlv *brcmf_parse_tlvs(void *buf, int buflen, uint key)
 {
 	struct brcmf_tlv *elt;
@@ -2137,11 +2179,11 @@ static struct brcmf_tlv *brcmf_parse_tlvs(void *buf, int buflen, uint key)
 	elt = (struct brcmf_tlv *) buf;
 	totlen = buflen;
 
-	
+	/* find tagged parameter */
 	while (totlen >= 2) {
 		int len = elt->len;
 
-		
+		/* validate remaining totlen */
 		if ((elt->id == key) && (totlen >= (len + 2)))
 			return elt;
 
@@ -2190,6 +2232,11 @@ static s32 brcmf_update_bss_info(struct brcmf_cfg80211_priv *cfg_priv)
 	if (tim)
 		dtim_period = tim->data[1];
 	else {
+		/*
+		* active scan was done so we could not get dtim
+		* information out of probe response.
+		* so we speficially query dtim information to dongle.
+		*/
 		u32 var;
 		err = brcmf_dev_intvar_get(cfg_to_ndev(cfg_priv),
 					   "dtim_assoc", &var);
@@ -2223,7 +2270,7 @@ static void brcmf_term_iscan(struct brcmf_cfg80211_priv *cfg_priv)
 
 		cancel_work_sync(&iscan->work);
 
-		
+		/* Abort iscan running in FW */
 		memset(&ssid, 0, sizeof(ssid));
 		brcmf_run_iscan(iscan, &ssid, WL_SCAN_ACTION_ABORT);
 	}
@@ -2316,7 +2363,7 @@ static s32 brcmf_iscan_pending(struct brcmf_cfg80211_priv *cfg_priv)
 	struct brcmf_cfg80211_iscan_ctrl *iscan = cfg_priv->iscan;
 	s32 err = 0;
 
-	
+	/* Reschedule the timer */
 	mod_timer(&iscan->timer, jiffies + iscan->timer_ms * HZ / 1000);
 	iscan->timer_on = 1;
 
@@ -2330,7 +2377,7 @@ static s32 brcmf_iscan_inprogress(struct brcmf_cfg80211_priv *cfg_priv)
 
 	brcmf_inform_bss(cfg_priv);
 	brcmf_run_iscan(iscan, NULL, BRCMF_SCAN_ACTION_CONTINUE);
-	
+	/* Reschedule the timer */
 	mod_timer(&iscan->timer, jiffies + iscan->timer_ms * HZ / 1000);
 	iscan->timer_on = 1;
 
@@ -2438,6 +2485,11 @@ static s32 brcmf_cfg80211_resume(struct wiphy *wiphy)
 {
 	struct brcmf_cfg80211_priv *cfg_priv = wiphy_to_cfg(wiphy);
 
+	/*
+	 * Check for WL_STATUS_READY before any function call which
+	 * could result is bus access. Don't block the resume for
+	 * any driver error conditions
+	 */
 	WL_TRACE("Enter\n");
 
 	if (test_bit(WL_STATUS_READY, &cfg_priv->status))
@@ -2455,7 +2507,16 @@ static s32 brcmf_cfg80211_suspend(struct wiphy *wiphy,
 
 	WL_TRACE("Enter\n");
 
+	/*
+	 * Check for WL_STATUS_READY before any function call which
+	 * could result is bus access. Don't block the suspend for
+	 * any driver error conditions
+	 */
 
+	/*
+	 * While going to suspend if associated with AP disassociate
+	 * from AP to save power while system is in suspended state
+	 */
 	if ((test_bit(WL_STATUS_CONNECTED, &cfg_priv->status) ||
 	     test_bit(WL_STATUS_CONNECTING, &cfg_priv->status)) &&
 	     test_bit(WL_STATUS_READY, &cfg_priv->status)) {
@@ -2463,6 +2524,11 @@ static s32 brcmf_cfg80211_suspend(struct wiphy *wiphy,
 			" while entering suspend state\n");
 		brcmf_link_down(cfg_priv);
 
+		/*
+		 * Make sure WPA_Supplicant receives all the event
+		 * generated due to DISASSOC call to the fw to keep
+		 * the state fw and WPA_Supplicant state consistent
+		 */
 		brcmf_delay(500);
 	}
 
@@ -2471,7 +2537,7 @@ static s32 brcmf_cfg80211_suspend(struct wiphy *wiphy,
 		brcmf_term_iscan(cfg_priv);
 
 	if (cfg_priv->scan_request) {
-		
+		/* Indidate scan abort to cfg80211 layer */
 		WL_INFO("Terminating scan in progress\n");
 		cfg80211_scan_done(cfg_priv->scan_request, true);
 		cfg_priv->scan_request = NULL;
@@ -2479,7 +2545,7 @@ static s32 brcmf_cfg80211_suspend(struct wiphy *wiphy,
 	clear_bit(WL_STATUS_SCANNING, &cfg_priv->status);
 	clear_bit(WL_STATUS_SCAN_ABORTING, &cfg_priv->status);
 
-	
+	/* Turn off watchdog timer */
 	if (test_bit(WL_STATUS_READY, &cfg_priv->status)) {
 		WL_INFO("Enable MPC\n");
 		brcmf_set_mpc(ndev, 1);
@@ -2723,11 +2789,20 @@ static struct wireless_dev *brcmf_alloc_wdev(s32 sizeof_iface,
 	wdev->wiphy->interface_modes =
 	    BIT(NL80211_IFTYPE_STATION) | BIT(NL80211_IFTYPE_ADHOC);
 	wdev->wiphy->bands[IEEE80211_BAND_2GHZ] = &__wl_band_2ghz;
-	wdev->wiphy->bands[IEEE80211_BAND_5GHZ] = &__wl_band_5ghz_a;	
+	wdev->wiphy->bands[IEEE80211_BAND_5GHZ] = &__wl_band_5ghz_a;	/* Set
+						* it as 11a by default.
+						* This will be updated with
+						* 11n phy tables in
+						* "ifconfig up"
+						* if phy has 11n capability
+						*/
 	wdev->wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
 	wdev->wiphy->cipher_suites = __wl_cipher_suites;
 	wdev->wiphy->n_cipher_suites = ARRAY_SIZE(__wl_cipher_suites);
-	wdev->wiphy->flags |= WIPHY_FLAG_PS_ON_BY_DEFAULT;	
+	wdev->wiphy->flags |= WIPHY_FLAG_PS_ON_BY_DEFAULT;	/* enable power
+								 * save mode
+								 * by default
+								 */
 	err = wiphy_register(wdev->wiphy);
 	if (err < 0) {
 		WL_ERR("Could not register wiphy device (%d)\n", err);
@@ -3195,6 +3270,9 @@ init_priv_mem_out:
 	return -ENOMEM;
 }
 
+/*
+* retrieve first queued event from head
+*/
 
 static struct brcmf_cfg80211_event_q *brcmf_deq_event(
 	struct brcmf_cfg80211_priv *cfg_priv)
@@ -3212,6 +3290,11 @@ static struct brcmf_cfg80211_event_q *brcmf_deq_event(
 	return e;
 }
 
+/*
+*	push event to tail of the queue
+*
+*	remark: this function may not sleep as it is called in atomic context.
+*/
 
 static s32
 brcmf_enq_event(struct brcmf_cfg80211_priv *cfg_priv, u32 event,
@@ -3292,12 +3375,15 @@ static s32 wl_init_priv(struct brcmf_cfg80211_priv *cfg_priv)
 
 	cfg_priv->scan_request = NULL;
 	cfg_priv->pwr_save = true;
-	cfg_priv->iscan_on = true;	
-	cfg_priv->roam_on = true;	
+	cfg_priv->iscan_on = true;	/* iscan on & off switch.
+				 we enable iscan per default */
+	cfg_priv->roam_on = true;	/* roam on & off switch.
+				 we enable roam per default */
 
 	cfg_priv->iscan_kickstart = false;
-	cfg_priv->active_scan = true;	
-	cfg_priv->dongle_up = false;	
+	cfg_priv->active_scan = true;	/* we do active scan for
+				 specific scan per default */
+	cfg_priv->dongle_up = false;	/* dongle is not up yet */
 	brcmf_init_eq(cfg_priv);
 	err = brcmf_init_priv_mem(cfg_priv);
 	if (err)
@@ -3318,7 +3404,7 @@ static s32 wl_init_priv(struct brcmf_cfg80211_priv *cfg_priv)
 static void wl_deinit_priv(struct brcmf_cfg80211_priv *cfg_priv)
 {
 	cancel_work_sync(&cfg_priv->event_work);
-	cfg_priv->dongle_up = false;	
+	cfg_priv->dongle_up = false;	/* dongle down */
 	brcmf_flush_eq(cfg_priv);
 	brcmf_link_down(cfg_priv);
 	brcmf_term_iscan(cfg_priv);
@@ -3430,14 +3516,14 @@ static s32 brcmf_dongle_mode(struct net_device *ndev, s32 iftype)
 
 static s32 brcmf_dongle_eventmsg(struct net_device *ndev)
 {
-	
+	/* Room for "event_msgs" + '\0' + bitvec */
 	s8 iovbuf[BRCMF_EVENTING_MASK_LEN + 12];
 	s8 eventmask[BRCMF_EVENTING_MASK_LEN];
 	s32 err = 0;
 
 	WL_TRACE("Enter\n");
 
-	
+	/* Setup event_msgs */
 	brcmf_c_mkiovar("event_msgs", eventmask, BRCMF_EVENTING_MASK_LEN,
 			iovbuf, sizeof(iovbuf));
 	err = brcmf_exec_dcmd(ndev, BRCMF_C_GET_VAR, iovbuf, sizeof(iovbuf));
@@ -3490,6 +3576,10 @@ brcmf_dongle_roam(struct net_device *ndev, u32 roamvar, u32 bcn_timeout)
 	__le32 bcn_to_le;
 	__le32 roamvar_le;
 
+	/*
+	 * Setup timeout if Beacons are lost and roam is
+	 * off to report link down
+	 */
 	if (roamvar) {
 		bcn_to_le = cpu_to_le32(bcn_timeout);
 		brcmf_c_mkiovar("bcn_timeout", (char *)&bcn_to_le,
@@ -3502,6 +3592,10 @@ brcmf_dongle_roam(struct net_device *ndev, u32 roamvar, u32 bcn_timeout)
 		}
 	}
 
+	/*
+	 * Enable/Disable built-in roaming to allow supplicant
+	 * to take care of roaming
+	 */
 	WL_INFO("Internal Roaming = %s\n", roamvar ? "Off" : "On");
 	roamvar_le = cpu_to_le32(roamvar);
 	brcmf_c_mkiovar("roam_off", (char *)&roamvar_le,
@@ -3643,7 +3737,7 @@ static s32 brcmf_config_dongle(struct brcmf_cfg80211_priv *cfg_priv)
 	if (err)
 		goto default_conf_out;
 
-	
+	/* -EINPROGRESS: Call commit handler */
 
 default_conf_out:
 
@@ -3706,12 +3800,20 @@ static s32 __brcmf_cfg80211_up(struct brcmf_cfg80211_priv *cfg_priv)
 
 static s32 __brcmf_cfg80211_down(struct brcmf_cfg80211_priv *cfg_priv)
 {
+	/*
+	 * While going down, if associated with AP disassociate
+	 * from AP to save power
+	 */
 	if ((test_bit(WL_STATUS_CONNECTED, &cfg_priv->status) ||
 	     test_bit(WL_STATUS_CONNECTING, &cfg_priv->status)) &&
 	     test_bit(WL_STATUS_READY, &cfg_priv->status)) {
 		WL_INFO("Disassociating from AP");
 		brcmf_link_down(cfg_priv);
 
+		/* Make sure WPA_Supplicant receives all the event
+		   generated due to DISASSOC call to the fw to keep
+		   the state fw and WPA_Supplicant state consistent
+		 */
 		brcmf_delay(500);
 	}
 
@@ -3719,8 +3821,8 @@ static s32 __brcmf_cfg80211_down(struct brcmf_cfg80211_priv *cfg_priv)
 	brcmf_term_iscan(cfg_priv);
 	if (cfg_priv->scan_request) {
 		cfg80211_scan_done(cfg_priv->scan_request, true);
-		
-		
+		/* May need to perform this to cover rmmod */
+		/* wl_set_mpc(cfg_to_ndev(wl), 1); */
 		cfg_priv->scan_request = NULL;
 	}
 	clear_bit(WL_STATUS_READY, &cfg_priv->status);

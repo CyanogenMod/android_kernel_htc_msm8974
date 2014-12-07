@@ -58,11 +58,14 @@ enum {
 	MTHCA_ATOMIC_BYTE_LEN = 8
 };
 
+/*
+ * Must be packed because start is 64 bits but only aligned to 32 bits.
+ */
 struct mthca_cq_context {
 	__be32 flags;
 	__be64 start;
 	__be32 logsize_usrpage;
-	__be32 error_eqn;	
+	__be32 error_eqn;	/* Tavor only */
 	__be32 comp_eqn;
 	__be32 pd;
 	__be32 lkey;
@@ -71,8 +74,8 @@ struct mthca_cq_context {
 	__be32 consumer_index;
 	__be32 producer_index;
 	__be32 cqn;
-	__be32 ci_db;		
-	__be32 state_db;	
+	__be32 ci_db;		/* Arbel only */
+	__be32 state_db;	/* Arbel only */
 	u32    reserved;
 } __attribute__((packed));
 
@@ -187,13 +190,17 @@ static void dump_cqe(struct mthca_dev *dev, void *cqe_ptr)
 {
 	__be32 *cqe = cqe_ptr;
 
-	(void) cqe;	
+	(void) cqe;	/* avoid warning if mthca_dbg compiled away... */
 	mthca_dbg(dev, "CQE contents %08x %08x %08x %08x %08x %08x %08x %08x\n",
 		  be32_to_cpu(cqe[0]), be32_to_cpu(cqe[1]), be32_to_cpu(cqe[2]),
 		  be32_to_cpu(cqe[3]), be32_to_cpu(cqe[4]), be32_to_cpu(cqe[5]),
 		  be32_to_cpu(cqe[6]), be32_to_cpu(cqe[7]));
 }
 
+/*
+ * incr is ignored in native Arbel (mem-free) mode, so cq->cons_index
+ * should be correct before calling update_cons_index().
+ */
 static inline void update_cons_index(struct mthca_dev *dev, struct mthca_cq *cq,
 				     int incr)
 {
@@ -204,6 +211,10 @@ static inline void update_cons_index(struct mthca_dev *dev, struct mthca_cq *cq,
 		mthca_write64(MTHCA_TAVOR_CQ_DB_INC_CI | cq->cqn, incr - 1,
 			      dev->kar + MTHCA_CQ_DOORBELL,
 			      MTHCA_GET_DOORBELL_LOCK(&dev->doorbell_lock));
+		/*
+		 * Make sure doorbells don't leak out of CQ spinlock
+		 * and reach the HCA out of order:
+		 */
 		mmiowb();
 	}
 }
@@ -273,6 +284,13 @@ void mthca_cq_clean(struct mthca_dev *dev, struct mthca_cq *cq, u32 qpn,
 
 	spin_lock_irq(&cq->lock);
 
+	/*
+	 * First we need to find the current producer index, so we
+	 * know where to start cleaning from.  It doesn't matter if HW
+	 * adds new entries after this loop -- the QP we're worried
+	 * about is already in RESET, so the new entries won't come
+	 * from our QP and therefore don't need to be checked.
+	 */
 	for (prod_index = cq->cons_index;
 	     cqe_sw(get_cqe(cq, prod_index & cq->ibcq.cqe));
 	     ++prod_index)
@@ -283,6 +301,10 @@ void mthca_cq_clean(struct mthca_dev *dev, struct mthca_cq *cq, u32 qpn,
 		mthca_dbg(dev, "Cleaning QPN %06x from CQN %06x; ci %d, pi %d\n",
 			  qpn, cq->cqn, cq->cons_index, prod_index);
 
+	/*
+	 * Now sweep backwards through the CQ, removing CQ entries
+	 * that match our QP by copying older entries on top of them.
+	 */
 	while ((int) --prod_index - (int) cq->cons_index >= 0) {
 		cqe = get_cqe(cq, prod_index & cq->ibcq.cqe);
 		if (cqe->my_qpn == cpu_to_be32(qpn)) {
@@ -309,6 +331,12 @@ void mthca_cq_resize_copy_cqes(struct mthca_cq *cq)
 {
 	int i;
 
+	/*
+	 * In Tavor mode, the hardware keeps the consumer and producer
+	 * indices mod the CQ size.  Since we might be making the CQ
+	 * bigger, we need to deal with the case where the producer
+	 * index wrapped around before the CQ was resized.
+	 */
 	if (!mthca_is_memfree(to_mdev(cq->ibcq.device)) &&
 	    cq->ibcq.cqe < cq->resize_buf->cqe) {
 		cq->cons_index &= cq->ibcq.cqe;
@@ -362,6 +390,10 @@ static void handle_error_cqe(struct mthca_dev *dev, struct mthca_cq *cq,
 		dump_cqe(dev, cqe);
 	}
 
+	/*
+	 * For completions in error, only work request ID, status, vendor error
+	 * (and freed resource count for RD) have to be set.
+	 */
 	switch (cqe->syndrome) {
 	case SYNDROME_LOCAL_LENGTH_ERR:
 		entry->status = IB_WC_LOC_LEN_ERR;
@@ -424,11 +456,20 @@ static void handle_error_cqe(struct mthca_dev *dev, struct mthca_cq *cq,
 
 	entry->vendor_err = cqe->vendor_err;
 
+	/*
+	 * Mem-free HCAs always generate one CQE per WQE, even in the
+	 * error case, so we don't have to check the doorbell count, etc.
+	 */
 	if (mthca_is_memfree(dev))
 		return;
 
 	mthca_free_err_wqe(dev, qp, is_send, wqe_index, &dbd, &new_wqe);
 
+	/*
+	 * If we're at the end of the WQE chain, or we've used up our
+	 * doorbell count, free the CQE.  Otherwise just update it for
+	 * the next poll operation.
+	 */
 	if (!(new_wqe & cpu_to_be32(0x3f)) || (!cqe->db_cnt && dbd))
 		return;
 
@@ -458,6 +499,10 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 	if (!cqe)
 		return -EAGAIN;
 
+	/*
+	 * Make sure we read CQ entry contents after we've checked the
+	 * ownership bit.
+	 */
 	rmb();
 
 	if (0) {
@@ -472,6 +517,11 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 	is_send  = is_error ? cqe->opcode & 0x01 : cqe->is_send & 0x80;
 
 	if (!*cur_qp || be32_to_cpu(cqe->my_qpn) != (*cur_qp)->qpn) {
+		/*
+		 * We do not have to take the QP table lock here,
+		 * because CQs will be locked while QPs are removed
+		 * from the table.
+		 */
 		*cur_qp = mthca_array_get(&dev->qp_table.qp,
 					  be32_to_cpu(cqe->my_qpn) &
 					  (dev->limits.num_qps - 1));
@@ -503,6 +553,11 @@ static inline int mthca_poll_one(struct mthca_dev *dev,
 		wq = &(*cur_qp)->rq;
 		wqe = be32_to_cpu(cqe->wqe);
 		wqe_index = wqe >> wq->wqe_shift;
+		/*
+		 * WQE addr == base - 1 might be reported in receive completion
+		 * with error instead of (rq size - 1) by Sinai FW 1.0.800 and
+		 * Arbel FW 5.1.400.  This bug should be fixed in later FW revs.
+		 */
 		if (unlikely(wqe_index < 0))
 			wqe_index = wq->max - 1;
 		entry->wr_id = (*cur_qp)->wrid[wqe_index];
@@ -632,8 +687,21 @@ repoll:
 		update_cons_index(dev, cq, freed);
 	}
 
+	/*
+	 * If a CQ resize is in progress and we discovered that the
+	 * old buffer is empty, then peek in the new buffer, and if
+	 * it's not empty, switch to the new buffer and continue
+	 * polling there.
+	 */
 	if (unlikely(err == -EAGAIN && cq->resize_buf &&
 		     cq->resize_buf->state == CQ_RESIZE_READY)) {
+		/*
+		 * In Tavor mode, the hardware keeps the producer
+		 * index modulo the CQ size.  Since we might be making
+		 * the CQ bigger, we need to mask our consumer index
+		 * using the size of the old CQ buffer before looking
+		 * in the new CQ buffer.
+		 */
 		if (!mthca_is_memfree(dev))
 			cq->cons_index &= cq->ibcq.cqe;
 

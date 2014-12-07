@@ -31,6 +31,7 @@
 #include <net/netfilter/nf_conntrack_tuple.h>
 #include <net/netfilter/nf_conntrack_zones.h>
 
+/* we will save the tuples of all connections we care about */
 struct xt_connlimit_conn {
 	struct hlist_node		node;
 	struct nf_conntrack_tuple	tuple;
@@ -113,7 +114,7 @@ static int count_them(struct net *net,
 
 	rcu_read_lock();
 
-	
+	/* check the saved connections */
 	hlist_for_each_entry_safe(conn, pos, n, hash, node) {
 		found    = nf_conntrack_find_get(net, NF_CT_DEFAULT_ZONE,
 						 &conn->tuple);
@@ -125,16 +126,25 @@ static int count_them(struct net *net,
 		if (found_ct != NULL &&
 		    nf_ct_tuple_equal(&conn->tuple, tuple) &&
 		    !already_closed(found_ct))
+			/*
+			 * Just to be sure we have it only once in the list.
+			 * We should not see tuples twice unless someone hooks
+			 * this into a table without "-p tcp --syn".
+			 */
 			addit = false;
 
 		if (found == NULL) {
-			
+			/* this one is gone */
 			hlist_del(&conn->node);
 			kfree(conn);
 			continue;
 		}
 
 		if (already_closed(found_ct)) {
+			/*
+			 * we do not care about connections which are
+			 * closed already -> ditch it
+			 */
 			nf_ct_put(found_ct);
 			hlist_del(&conn->node);
 			kfree(conn);
@@ -142,7 +152,7 @@ static int count_them(struct net *net,
 		}
 
 		if (same_source_net(addr, mask, &conn->addr, family))
-			
+			/* same source network -> be counted! */
 			++matches;
 		nf_ct_put(found_ct);
 	}
@@ -150,7 +160,7 @@ static int count_them(struct net *net,
 	rcu_read_unlock();
 
 	if (addit) {
-		
+		/* save the new connection in our list */
 		conn = kmalloc(sizeof(*conn), GFP_ATOMIC);
 		if (conn == NULL)
 			return -ENOMEM;
@@ -198,7 +208,7 @@ connlimit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	spin_unlock_bh(&info->data->lock);
 
 	if (connections < 0)
-		
+		/* kmalloc failed, drop it entirely */
 		goto hotdrop;
 
 	return (connections > info->limit) ^
@@ -230,7 +240,7 @@ static int connlimit_mt_check(const struct xt_mtchk_param *par)
 		return ret;
 	}
 
-	
+	/* init private data */
 	info->data = kmalloc(sizeof(struct xt_connlimit_data), GFP_KERNEL);
 	if (info->data == NULL) {
 		nf_ct_l3proto_module_put(par->family);

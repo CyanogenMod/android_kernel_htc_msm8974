@@ -29,7 +29,7 @@
 #define PRCMU_TIMER_DOWNCOUNT	0x4
 #define PRCMU_TIMER_MODE	0x8
 
-#define SCHED_CLOCK_MIN_WRAP 131072 
+#define SCHED_CLOCK_MIN_WRAP 131072 /* 2^32 / 32768 */
 
 static void __iomem *clksrc_dbx500_timer_base;
 
@@ -44,7 +44,7 @@ static cycle_t clksrc_dbx500_prcmu_read(struct clocksource *cs)
 			       PRCMU_TIMER_DOWNCOUNT);
 	} while (count2 != count);
 
-	
+	/* Negate because the timer is a decrementing counter */
 	return ~count;
 }
 
@@ -72,6 +72,12 @@ void __init clksrc_dbx500_prcmu_init(void __iomem *base)
 {
 	clksrc_dbx500_timer_base = base;
 
+	/*
+	 * The A9 sub system expects the timer to be configured as
+	 * a continous looping timer.
+	 * The PRCMU should configure it but if it for some reason
+	 * don't we do it here.
+	 */
 	if (readl(clksrc_dbx500_timer_base + PRCMU_TIMER_MODE) !=
 	    TIMER_MODE_CONTINOUS) {
 		writel(TIMER_MODE_CONTINOUS,

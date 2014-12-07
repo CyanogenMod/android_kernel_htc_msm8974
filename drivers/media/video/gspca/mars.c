@@ -30,6 +30,7 @@ MODULE_AUTHOR("Michel Xhaard <mxhaard@users.sourceforge.net>");
 MODULE_DESCRIPTION("GSPCA/Mars USB Camera Driver");
 MODULE_LICENSE("GPL");
 
+/* controls */
 enum e_ctrl {
 	BRIGHTNESS,
 	COLORS,
@@ -37,11 +38,12 @@ enum e_ctrl {
 	SHARPNESS,
 	ILLUM_TOP,
 	ILLUM_BOT,
-	NCTRLS		
+	NCTRLS		/* number of controls */
 };
 
+/* specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 
 	struct gspca_ctrl ctrls[NCTRLS];
 
@@ -53,6 +55,7 @@ struct sd {
 	u8 jpeg_hdr[JPEG_HDR_SZ];
 };
 
+/* V4L2 controls supported by the driver */
 static void setbrightness(struct gspca_dev *gspca_dev);
 static void setcolors(struct gspca_dev *gspca_dev);
 static void setgamma(struct gspca_dev *gspca_dev);
@@ -151,12 +154,17 @@ static const struct v4l2_pix_format vga_mode[] = {
 };
 
 static const __u8 mi_data[0x20] = {
+/*	 01    02   03     04    05    06    07    08 */
 	0x48, 0x22, 0x01, 0x47, 0x10, 0x00, 0x00, 0x00,
+/*	 09    0a   0b     0c    0d    0e    0f    10 */
 	0x00, 0x01, 0x30, 0x01, 0x30, 0x01, 0x30, 0x01,
+/*	 11    12   13     14    15    16    17    18 */
 	0x30, 0x00, 0x04, 0x00, 0x06, 0x01, 0xe2, 0x02,
+/*	 19    1a   1b     1c    1d    1e    1f    20 */
 	0x82, 0x00, 0x20, 0x17, 0x80, 0x08, 0x0c, 0x00
 };
 
+/* write <len> bytes from gspca_dev->usb_buf */
 static void reg_w(struct gspca_dev *gspca_dev,
 		 int len)
 {
@@ -170,7 +178,7 @@ static void reg_w(struct gspca_dev *gspca_dev,
 			gspca_dev->usb_buf,
 			len,
 			&alen,
-			500);	
+			500);	/* timeout in milliseconds */
 	if (ret < 0) {
 		pr_err("reg write [%02x] error %d\n",
 		       gspca_dev->usb_buf[0], ret);
@@ -183,7 +191,7 @@ static void mi_w(struct gspca_dev *gspca_dev,
 		 u8 value)
 {
 	gspca_dev->usb_buf[0] = 0x1f;
-	gspca_dev->usb_buf[1] = 0;			
+	gspca_dev->usb_buf[1] = 0;			/* control byte */
 	gspca_dev->usb_buf[2] = addr;
 	gspca_dev->usb_buf[3] = value;
 
@@ -243,6 +251,7 @@ static void setilluminators(struct gspca_dev *gspca_dev)
 	reg_w(gspca_dev, 2);
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 			const struct usb_device_id *id)
 {
@@ -257,6 +266,7 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	gspca_dev->ctrl_inac = (1 << ILLUM_TOP) | (1 << ILLUM_BOT);
@@ -269,52 +279,69 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	u8 *data;
 	int i;
 
-	
+	/* create the JPEG header */
 	jpeg_define(sd->jpeg_hdr, gspca_dev->height, gspca_dev->width,
-			0x21);		
+			0x21);		/* JPEG 422 */
 	jpeg_set_qual(sd->jpeg_hdr, sd->quality);
 
 	data = gspca_dev->usb_buf;
 
-	data[0] = 0x01;		
+	data[0] = 0x01;		/* address */
 	data[1] = 0x01;
 	reg_w(gspca_dev, 2);
 
-	data[0] = 0x00;		
-	data[1] = 0x0c | 0x01;	
-	data[2] = 0x01;		
-	data[3] = gspca_dev->width / 8;		
-	data[4] = gspca_dev->height / 8;	
-	data[5] = 0x30;		
-	data[6] = 0x02;		
-	data[7] = sd->ctrls[GAMMA].val * 0x40;	
-	data[8] = 0x01;		
-	data[9] = 0x52;		
+	/*
+	   Initialize the MR97113 chip register
+	 */
+	data[0] = 0x00;		/* address */
+	data[1] = 0x0c | 0x01;	/* reg 0 */
+	data[2] = 0x01;		/* reg 1 */
+	data[3] = gspca_dev->width / 8;		/* h_size , reg 2 */
+	data[4] = gspca_dev->height / 8;	/* v_size , reg 3 */
+	data[5] = 0x30;		/* reg 4, MI, PAS5101 :
+				 *	0x30 for 24mhz , 0x28 for 12mhz */
+	data[6] = 0x02;		/* reg 5, H start - was 0x04 */
+	data[7] = sd->ctrls[GAMMA].val * 0x40;	/* reg 0x06: gamma */
+	data[8] = 0x01;		/* reg 7, V start - was 0x03 */
+/*	if (h_size == 320 ) */
+/*		data[9]= 0x56;	 * reg 8, 24MHz, 2:1 scale down */
+/*	else */
+	data[9] = 0x52;		/* reg 8, 24MHz, no scale down */
+/*jfm: from win trace*/
 	data[10] = 0x18;
 
 	reg_w(gspca_dev, 11);
 
-	data[0] = 0x23;		
-	data[1] = 0x09;		
+	data[0] = 0x23;		/* address */
+	data[1] = 0x09;		/* reg 35, append frame header */
 
 	reg_w(gspca_dev, 2);
 
-	data[0] = 0x3c;		
-	data[1] = 50;		
+	data[0] = 0x3c;		/* address */
+/*	if (gspca_dev->width == 1280) */
+/*		data[1] = 200;	 * reg 60, pc-cam frame size
+				 *	(unit: 4KB) 800KB */
+/*	else */
+	data[1] = 50;		/* 50 reg 60, pc-cam frame size
+				 *	(unit: 4KB) 200KB */
 	reg_w(gspca_dev, 2);
 
-	
-	data[0] = 0x5e;		
-	data[1] = 0;		
-				
+	/* auto dark-gain */
+	data[0] = 0x5e;		/* address */
+	data[1] = 0;		/* reg 94, Y Gain (auto) */
+/*jfm: from win trace*/
+				/* reg 0x5f/0x60 (LE) = saturation */
+				/* h (60): xxxx x100
+				 * l (5f): xxxx x000 */
 	data[2] = sd->ctrls[COLORS].val << 3;
 	data[3] = ((sd->ctrls[COLORS].val >> 2) & 0xf8) | 0x04;
-	data[4] = sd->ctrls[BRIGHTNESS].val; 
+	data[4] = sd->ctrls[BRIGHTNESS].val; /* reg 0x61 = brightness */
 	data[5] = 0x00;
 
 	reg_w(gspca_dev, 6);
 
 	data[0] = 0x67;
+/*jfm: from win trace*/
 	data[1] = sd->ctrls[SHARPNESS].val * 4 + 3;
 	data[2] = 0x14;
 	reg_w(gspca_dev, 3);
@@ -328,16 +355,17 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	data[0] = 0x63;
 	data[1] = 0x07;
 	reg_w(gspca_dev, 2);
+/*jfm: win trace - many writes here to reg 0x64*/
 
-	
+	/* initialize the MI sensor */
 	for (i = 0; i < sizeof mi_data; i++)
 		mi_w(gspca_dev, i + 1, mi_data[i]);
 
 	data[0] = 0x00;
-	data[1] = 0x4d;		
+	data[1] = 0x4d;		/* ISOC transferring enable... */
 	reg_w(gspca_dev, 2);
 
-	gspca_dev->ctrl_inac = 0; 
+	gspca_dev->ctrl_inac = 0; /* activate the illuminator controls */
 	return gspca_dev->usb_err;
 }
 
@@ -359,13 +387,14 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,			
-			int len)			
+			u8 *data,			/* isoc packet */
+			int len)			/* iso packet length */
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 	int p;
 
 	if (len < 6) {
+/*		gspca_dev->last_packet_type = DISCARD_PACKET; */
 		return;
 	}
 	for (p = 0; p < len - 6; p++) {
@@ -383,7 +412,7 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 				gspca_frame_add(gspca_dev, LAST_PACKET,
 						data, p);
 
-				
+				/* put the JPEG header */
 				gspca_frame_add(gspca_dev, FIRST_PACKET,
 					sd->jpeg_hdr, JPEG_HDR_SZ);
 				data += p + 16;
@@ -399,7 +428,7 @@ static int sd_setilluminator1(struct gspca_dev *gspca_dev, __s32 val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	
+	/* only one illuminator may be on */
 	sd->ctrls[ILLUM_TOP].val = val;
 	if (val)
 		sd->ctrls[ILLUM_BOT].val = 0;
@@ -411,7 +440,7 @@ static int sd_setilluminator2(struct gspca_dev *gspca_dev, __s32 val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	
+	/* only one illuminator may be on */
 	sd->ctrls[ILLUM_BOT].val = val;
 	if (val)
 		sd->ctrls[ILLUM_TOP].val = 0;
@@ -447,6 +476,7 @@ static int sd_get_jcomp(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -460,12 +490,14 @@ static const struct sd_desc sd_desc = {
 	.set_jcomp = sd_set_jcomp,
 };
 
+/* -- module initialisation -- */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x093a, 0x050f)},
 	{}
 };
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {

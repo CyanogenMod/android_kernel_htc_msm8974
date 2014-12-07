@@ -30,4 +30,4 @@ static inline int fls(int x)
 #include <asm-generic/bitops/fls.h>
 #endif
 
-#endif 
+#endif /* __ASM_OPENRISC_FLS_H */

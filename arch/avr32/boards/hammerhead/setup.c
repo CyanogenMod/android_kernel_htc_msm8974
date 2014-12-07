@@ -34,12 +34,14 @@
 #include "../../mach-at32ap/clock.h"
 #include "flash.h"
 
+/* Oscillator frequencies. These are board-specific */
 unsigned long at32_board_osc_rates[3] = {
-	[0] = 32768,	
-	[1] = 25000000, 
-	[2] = 12000000,	
+	[0] = 32768,	/* 32.768 kHz on RTC osc */
+	[1] = 25000000, /* 25MHz on osc0 */
+	[2] = 12000000,	/* 12 MHz on osc1 */
 };
 
+/* Initialized by bootloader-specific startup code. */
 struct tag *bootloader_tags __initdata;
 
 #ifdef CONFIG_BOARD_HAMMERHEAD_LCD
@@ -102,6 +104,14 @@ struct eth_addr {
 static struct eth_addr __initdata hw_addr[1];
 static struct macb_platform_data __initdata eth_data[1];
 
+/*
+ * The next two functions should go away as the boot loader is
+ * supposed to initialize the macb address registers with a valid
+ * ethernet address. But we need to keep it around for a while until
+ * we can be reasonably sure the boot loader does this.
+ *
+ * The phy_id is ignored as the driver will probe for it.
+ */
 static int __init parse_tag_ethernet(struct tag *tag)
 {
 	int i = tag->u.ethernet.mac_index;
@@ -132,6 +142,11 @@ static void __init set_hw_addr(struct platform_device *pdev)
 	if (!is_valid_ether_addr(addr))
 		return;
 
+	/*
+	 * Since this is board-specific code, we'll cheat and use the
+	 * physical address directly as we happen to know that it's
+	 * the same as the virtual address.
+	 */
 	regs = (void __iomem __force *)res->start;
 	pclk = clk_get(&pdev->dev, "pclk");
 
@@ -150,7 +165,7 @@ static void __init set_hw_addr(struct platform_device *pdev)
 
 void __init setup_board(void)
 {
-	at32_map_usart(1, 0, 0);	
+	at32_map_usart(1, 0, 0);	/* USART 1: /dev/ttyS0, DB9 */
 	at32_setup_serial_console(0);
 }
 
@@ -159,7 +174,7 @@ static struct i2c_gpio_platform_data i2c_gpio_data = {
 	.scl_pin		= GPIO_PIN_PA(7),
 	.sda_is_open_drain	= 1,
 	.scl_is_open_drain	= 1,
-	.udelay			= 2,	
+	.udelay			= 2,	/* close to 100 kHz */
 };
 
 static struct platform_device i2c_gpio_device = {
@@ -178,12 +193,23 @@ static struct ac97c_platform_data ac97c_data = {
 
 static int __init hammerhead_init(void)
 {
+	/*
+	 * Hammerhead uses 32-bit SDRAM interface. Reserve the
+	 * SDRAM-specific pins so that nobody messes with them.
+	 */
 	at32_reserve_pin(GPIO_PIOE_BASE, ATMEL_EBI_PE_DATA_ALL);
 
 	at32_add_device_usart(0);
 
+	/* Reserve PB29 (GCLK3). This pin is used as clock source
+	 * for ETH PHY (25MHz). GCLK3 setup is done by U-Boot.
+	 */
 	at32_reserve_pin(GPIO_PIOB_BASE, (1<<29));
 
+	/*
+	 * Hammerhead uses only one ethernet port, so we don't set
+	 * address of second port
+	 */
 	set_hw_addr(at32_add_device_eth(0, &eth_data[0]));
 
 #ifdef CONFIG_BOARD_HAMMERHEAD_FPGA
@@ -212,7 +238,7 @@ static int __init hammerhead_init(void)
 	at32_add_device_ac97c(0, &ac97c_data, AC97C_BOTH);
 #endif
 
-	
+	/* Select the Touchscreen interrupt pin mode */
 	at32_select_periph(GPIO_PIOB_BASE, 0x08000000, GPIO_PERIPH_A, 0);
 
 	return 0;

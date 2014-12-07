@@ -1,3 +1,6 @@
+/*
+ * Ceph fs string constants
+ */
 #include <linux/module.h>
 #include <linux/ceph/types.h>
 
@@ -5,16 +8,16 @@
 const char *ceph_mds_state_name(int s)
 {
 	switch (s) {
-		
+		/* down and out */
 	case CEPH_MDS_STATE_DNE:        return "down:dne";
 	case CEPH_MDS_STATE_STOPPED:    return "down:stopped";
-		
+		/* up and out */
 	case CEPH_MDS_STATE_BOOT:       return "up:boot";
 	case CEPH_MDS_STATE_STANDBY:    return "up:standby";
 	case CEPH_MDS_STATE_STANDBY_REPLAY:    return "up:standby-replay";
 	case CEPH_MDS_STATE_CREATING:   return "up:creating";
 	case CEPH_MDS_STATE_STARTING:   return "up:starting";
-		
+		/* up and in */
 	case CEPH_MDS_STATE_REPLAY:     return "up:replay";
 	case CEPH_MDS_STATE_RESOLVE:    return "up:resolve";
 	case CEPH_MDS_STATE_RECONNECT:  return "up:reconnect";

@@ -14,6 +14,7 @@
  *	- Registers with DWARF_VAL_OFFSET rules aren't handled properly.
  */
 
+/* #define DEBUG */
 #include <linux/kernel.h>
 #include <linux/io.h>
 #include <linux/list.h>
@@ -29,7 +30,9 @@
 #include <asm/unaligned.h>
 #include <asm/stacktrace.h>
 
+/* Reserve enough memory for two stack frames */
 #define DWARF_FRAME_MIN_REQ	2
+/* ... with 4 registers per frame. */
 #define DWARF_REG_MIN_REQ	(DWARF_FRAME_MIN_REQ * 4)
 
 static struct kmem_cache *dwarf_frame_cachep;
@@ -48,6 +51,17 @@ static struct dwarf_cie *cached_cie;
 
 static unsigned int dwarf_unwinder_ready;
 
+/**
+ *	dwarf_frame_alloc_reg - allocate memory for a DWARF register
+ *	@frame: the DWARF frame whose list of registers we insert on
+ *	@reg_num: the register number
+ *
+ *	Allocate space for, and initialise, a dwarf reg from
+ *	dwarf_reg_pool and insert it onto the (unsorted) linked-list of
+ *	dwarf registers for @frame.
+ *
+ *	Return the initialised DWARF reg.
+ */
 static struct dwarf_reg *dwarf_frame_alloc_reg(struct dwarf_frame *frame,
 					       unsigned int reg_num)
 {
@@ -56,6 +70,10 @@ static struct dwarf_reg *dwarf_frame_alloc_reg(struct dwarf_frame *frame,
 	reg = mempool_alloc(dwarf_reg_pool, GFP_ATOMIC);
 	if (!reg) {
 		printk(KERN_WARNING "Unable to allocate a DWARF register\n");
+		/*
+		 * Let's just bomb hard here, we have no way to
+		 * gracefully recover.
+		 */
 		UNWINDER_BUG();
 	}
 
@@ -78,6 +96,14 @@ static void dwarf_frame_free_regs(struct dwarf_frame *frame)
 	}
 }
 
+/**
+ *	dwarf_frame_reg - return a DWARF register
+ *	@frame: the DWARF frame to search in for @reg_num
+ *	@reg_num: the register number to search for
+ *
+ *	Lookup and return the dwarf reg @reg_num for this frame. Return
+ *	NULL if @reg_num is an register invalid number.
+ */
 static struct dwarf_reg *dwarf_frame_reg(struct dwarf_frame *frame,
 					 unsigned int reg_num)
 {
@@ -91,6 +117,17 @@ static struct dwarf_reg *dwarf_frame_reg(struct dwarf_frame *frame,
 	return NULL;
 }
 
+/**
+ *	dwarf_read_addr - read dwarf data
+ *	@src: source address of data
+ *	@dst: destination address to store the data to
+ *
+ *	Read 'n' bytes from @src, where 'n' is the size of an address on
+ *	the native machine. We return the number of bytes read, which
+ *	should always be 'n'. We also have to be careful when reading
+ *	from @src and writing to @dst, because they can be arbitrarily
+ *	aligned. Return 'n' - the number of bytes read.
+ */
 static inline int dwarf_read_addr(unsigned long *src, unsigned long *dst)
 {
 	u32 val = get_unaligned(src);
@@ -98,6 +135,16 @@ static inline int dwarf_read_addr(unsigned long *src, unsigned long *dst)
 	return sizeof(unsigned long *);
 }
 
+/**
+ *	dwarf_read_uleb128 - read unsigned LEB128 data
+ *	@addr: the address where the ULEB128 data is stored
+ *	@ret: address to store the result
+ *
+ *	Decode an unsigned LEB128 encoded datum. The algorithm is taken
+ *	from Appendix C of the DWARF 3 spec. For information on the
+ *	encodings refer to section "7.6 - Variable Length Data". Return
+ *	the number of bytes read.
+ */
 static inline unsigned long dwarf_read_uleb128(char *addr, unsigned int *ret)
 {
 	unsigned int result;
@@ -125,6 +172,14 @@ static inline unsigned long dwarf_read_uleb128(char *addr, unsigned int *ret)
 	return count;
 }
 
+/**
+ *	dwarf_read_leb128 - read signed LEB128 data
+ *	@addr: the address of the LEB128 encoded data
+ *	@ret: address to store the result
+ *
+ *	Decode signed LEB128 data. The algorithm is taken from Appendix
+ *	C of the DWARF 3 spec. Return the number of bytes read.
+ */
 static inline unsigned long dwarf_read_leb128(char *addr, int *ret)
 {
 	unsigned char byte;
@@ -147,7 +202,7 @@ static inline unsigned long dwarf_read_leb128(char *addr, int *ret)
 			break;
 	}
 
-	
+	/* The number of bits in a signed integer. */
 	num_bits = 8 * sizeof(result);
 
 	if ((shift < num_bits) && (byte & 0x40))
@@ -203,6 +258,15 @@ static int dwarf_read_encoded_value(char *addr, unsigned long *val,
 	return count;
 }
 
+/**
+ *	dwarf_entry_len - return the length of an FDE or CIE
+ *	@addr: the address of the entry
+ *	@len: the length of the entry
+ *
+ *	Read the initial_length field of the entry and store the size of
+ *	the entry in @len. We return the number of bytes read. Return a
+ *	count of 0 on error.
+ */
 static inline int dwarf_entry_len(char *addr, unsigned long *len)
 {
 	u32 initial_len;
@@ -211,7 +275,17 @@ static inline int dwarf_entry_len(char *addr, unsigned long *len)
 	initial_len = get_unaligned((u32 *)addr);
 	count = 4;
 
+	/*
+	 * An initial length field value in the range DW_LEN_EXT_LO -
+	 * DW_LEN_EXT_HI indicates an extension, and should not be
+	 * interpreted as a length. The only extension that we currently
+	 * understand is the use of DWARF64 addresses.
+	 */
 	if (initial_len >= DW_EXT_LO && initial_len <= DW_EXT_HI) {
+		/*
+		 * The 64-bit length field immediately follows the
+		 * compulsory 32-bit length field.
+		 */
 		if (initial_len == DW_EXT_DWARF64) {
 			*len = get_unaligned((u64 *)addr + 4);
 			count = 12;
@@ -225,6 +299,10 @@ static inline int dwarf_entry_len(char *addr, unsigned long *len)
 	return count;
 }
 
+/**
+ *	dwarf_lookup_cie - locate the cie
+ *	@cie_ptr: pointer to help with lookup
+ */
 static struct dwarf_cie *dwarf_lookup_cie(unsigned long cie_ptr)
 {
 	struct rb_node **rb_node = &cie_root.rb_node;
@@ -233,6 +311,10 @@ static struct dwarf_cie *dwarf_lookup_cie(unsigned long cie_ptr)
 
 	spin_lock_irqsave(&dwarf_cie_lock, flags);
 
+	/*
+	 * We've cached the last CIE we looked up because chances are
+	 * that the FDE wants this CIE.
+	 */
 	if (cached_cie && cached_cie->cie_pointer == cie_ptr) {
 		cie = cached_cie;
 		goto out;
@@ -261,6 +343,10 @@ out:
 	return cie;
 }
 
+/**
+ *	dwarf_lookup_fde - locate the FDE that covers pc
+ *	@pc: the program counter
+ */
 struct dwarf_fde *dwarf_lookup_fde(unsigned long pc)
 {
 	struct rb_node **rb_node = &fde_root.rb_node;
@@ -296,6 +382,20 @@ out:
 	return fde;
 }
 
+/**
+ *	dwarf_cfa_execute_insns - execute instructions to calculate a CFA
+ *	@insn_start: address of the first instruction
+ *	@insn_end: address of the last instruction
+ *	@cie: the CIE for this function
+ *	@fde: the FDE for this function
+ *	@frame: the instructions calculate the CFA for this frame
+ *	@pc: the program counter of the address we're interested in
+ *
+ *	Execute the Call Frame instruction sequence starting at
+ *	@insn_start and ending at @insn_end. The instructions describe
+ *	how to calculate the Canonical Frame Address of a stackframe.
+ *	Store the results in @frame.
+ */
 static int dwarf_cfa_execute_insns(unsigned char *insn_start,
 				   unsigned char *insn_end,
 				   struct dwarf_cie *cie,
@@ -313,13 +413,17 @@ static int dwarf_cfa_execute_insns(unsigned char *insn_start,
 	while (current_insn < insn_end && frame->pc <= pc) {
 		insn = __raw_readb(current_insn++);
 
+		/*
+		 * Firstly, handle the opcodes that embed their operands
+		 * in the instructions.
+		 */
 		switch (DW_CFA_opcode(insn)) {
 		case DW_CFA_advance_loc:
 			delta = DW_CFA_operand(insn);
 			delta *= cie->code_alignment_factor;
 			frame->pc += delta;
 			continue;
-			
+			/* NOTREACHED */
 		case DW_CFA_offset:
 			reg = DW_CFA_operand(insn);
 			count = dwarf_read_uleb128(current_insn, &offset);
@@ -329,13 +433,17 @@ static int dwarf_cfa_execute_insns(unsigned char *insn_start,
 			regp->addr = offset;
 			regp->flags |= DWARF_REG_OFFSET;
 			continue;
-			
+			/* NOTREACHED */
 		case DW_CFA_restore:
 			reg = DW_CFA_operand(insn);
 			continue;
-			
+			/* NOTREACHED */
 		}
 
+		/*
+		 * Secondly, handle the opcodes that don't embed their
+		 * operands in the instruction.
+		 */
 		switch (insn) {
 		case DW_CFA_nop:
 			continue;
@@ -444,6 +552,10 @@ static int dwarf_cfa_execute_insns(unsigned char *insn_start,
 	return 0;
 }
 
+/**
+ *	dwarf_free_frame - free the memory allocated for @frame
+ *	@frame: the frame to free
+ */
 void dwarf_free_frame(struct dwarf_frame *frame)
 {
 	dwarf_frame_free_regs(frame);
@@ -452,6 +564,16 @@ void dwarf_free_frame(struct dwarf_frame *frame)
 
 extern void ret_from_irq(void);
 
+/**
+ *	dwarf_unwind_stack - unwind the stack
+ *
+ *	@pc: address of the function to unwind
+ *	@prev: struct dwarf_frame of the previous stackframe on the callstack
+ *
+ *	Return a struct dwarf_frame representing the most recent frame
+ *	on the callstack. Each of the lower (older) stack frames are
+ *	linked via the "prev" member.
+ */
 struct dwarf_frame *dwarf_unwind_stack(unsigned long pc,
 				       struct dwarf_frame *prev)
 {
@@ -461,16 +583,39 @@ struct dwarf_frame *dwarf_unwind_stack(unsigned long pc,
 	struct dwarf_reg *reg;
 	unsigned long addr;
 
+	/*
+	 * If we've been called in to before initialization has
+	 * completed, bail out immediately.
+	 */
 	if (!dwarf_unwinder_ready)
 		return NULL;
 
+	/*
+	 * If we're starting at the top of the stack we need get the
+	 * contents of a physical register to get the CFA in order to
+	 * begin the virtual unwinding of the stack.
+	 *
+	 * NOTE: the return address is guaranteed to be setup by the
+	 * time this function makes its first function call.
+	 */
 	if (!pc || !prev)
 		pc = (unsigned long)current_text_addr();
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
+	/*
+	 * If our stack has been patched by the function graph tracer
+	 * then we might see the address of return_to_handler() where we
+	 * expected to find the real return address.
+	 */
 	if (pc == (unsigned long)&return_to_handler) {
 		int index = current->curr_ret_stack;
 
+		/*
+		 * We currently have no way of tracking how many
+		 * return_to_handler()'s we've seen. If there is more
+		 * than one patched return address on our stack,
+		 * complain loudly.
+		 */
 		WARN_ON(index > 0);
 
 		pc = current->ret_stack[index].ret;
@@ -490,6 +635,21 @@ struct dwarf_frame *dwarf_unwind_stack(unsigned long pc,
 
 	fde = dwarf_lookup_fde(pc);
 	if (!fde) {
+		/*
+		 * This is our normal exit path. There are two reasons
+		 * why we might exit here,
+		 *
+		 *	a) pc has no asscociated DWARF frame info and so
+		 *	we don't know how to unwind this frame. This is
+		 *	usually the case when we're trying to unwind a
+		 *	frame that was called from some assembly code
+		 *	that has no DWARF info, e.g. syscalls.
+		 *
+		 *	b) the DEBUG info for pc is bogus. There's
+		 *	really no way to distinguish this case from the
+		 *	case above, which sucks because we could print a
+		 *	warning here.
+		 */
 		goto bail;
 	}
 
@@ -497,16 +657,16 @@ struct dwarf_frame *dwarf_unwind_stack(unsigned long pc,
 
 	frame->pc = fde->initial_location;
 
-	
+	/* CIE initial instructions */
 	dwarf_cfa_execute_insns(cie->initial_instructions,
 				cie->instructions_end, cie, fde,
 				frame, pc);
 
-	
+	/* FDE instructions */
 	dwarf_cfa_execute_insns(fde->instructions, fde->end, cie,
 				fde, frame, pc);
 
-	
+	/* Calculate the CFA */
 	switch (frame->flags) {
 	case DWARF_FRAME_CFA_REG_OFFSET:
 		if (prev) {
@@ -518,6 +678,13 @@ struct dwarf_frame *dwarf_unwind_stack(unsigned long pc,
 			frame->cfa = __raw_readl(addr);
 
 		} else {
+			/*
+			 * Again, we're starting from the top of the
+			 * stack. We need to physically read
+			 * the contents of a register in order to get
+			 * the Canonical Frame Address for this
+			 * function.
+			 */
 			frame->cfa = dwarf_read_arch_reg(frame->cfa_register);
 		}
 
@@ -529,6 +696,11 @@ struct dwarf_frame *dwarf_unwind_stack(unsigned long pc,
 
 	reg = dwarf_frame_reg(frame, DWARF_ARCH_RA_REG);
 
+	/*
+	 * If we haven't seen the return address register or the return
+	 * address column is undefined then we must assume that this is
+	 * the end of the callstack.
+	 */
 	if (!reg || reg->flags == DWARF_UNDEFINED)
 		goto bail;
 
@@ -537,6 +709,21 @@ struct dwarf_frame *dwarf_unwind_stack(unsigned long pc,
 	addr = frame->cfa + reg->addr;
 	frame->return_addr = __raw_readl(addr);
 
+	/*
+	 * Ah, the joys of unwinding through interrupts.
+	 *
+	 * Interrupts are tricky - the DWARF info needs to be _really_
+	 * accurate and unfortunately I'm seeing a lot of bogus DWARF
+	 * info. For example, I've seen interrupts occur in epilogues
+	 * just after the frame pointer (r14) had been restored. The
+	 * problem was that the DWARF info claimed that the CFA could be
+	 * reached by using the value of the frame pointer before it was
+	 * restored.
+	 *
+	 * So until the compiler can be trusted to produce reliable
+	 * DWARF info when it really matters, let's stop unwinding once
+	 * we've calculated the function that was interrupted.
+	 */
 	if (prev && prev->pc == (unsigned long)ret_from_irq)
 		frame->return_addr = 0;
 
@@ -562,6 +749,12 @@ static int dwarf_parse_cie(void *entry, void *p, unsigned long len,
 
 	cie->length = len;
 
+	/*
+	 * Record the offset into the .eh_frame section
+	 * for this CIE. It allows this CIE to be
+	 * quickly and easily looked up from the
+	 * corresponding FDE.
+	 */
 	cie->cie_pointer = (unsigned long)entry;
 
 	cie->version = *(char *)p++;
@@ -576,6 +769,10 @@ static int dwarf_parse_cie(void *entry, void *p, unsigned long len,
 	count = dwarf_read_leb128(p, &cie->data_alignment_factor);
 	p += count;
 
+	/*
+	 * Which column in the rule table contains the
+	 * return address?
+	 */
 	if (cie->version == 1) {
 		cie->return_address_reg = __raw_readb(p);
 		p++;
@@ -598,17 +795,35 @@ static int dwarf_parse_cie(void *entry, void *p, unsigned long len,
 	}
 
 	while (*cie->augmentation) {
+		/*
+		 * "L" indicates a byte showing how the
+		 * LSDA pointer is encoded. Skip it.
+		 */
 		if (*cie->augmentation == 'L') {
 			p++;
 			cie->augmentation++;
 		} else if (*cie->augmentation == 'R') {
+			/*
+			 * "R" indicates a byte showing
+			 * how FDE addresses are
+			 * encoded.
+			 */
 			cie->encoding = *(char *)p++;
 			cie->augmentation++;
 		} else if (*cie->augmentation == 'P') {
+			/*
+			 * "R" indicates a personality
+			 * routine in the CIE
+			 * augmentation.
+			 */
 			UNWINDER_BUG();
 		} else if (*cie->augmentation == 'S') {
 			UNWINDER_BUG();
 		} else {
+			/*
+			 * Unknown augmentation. Assume
+			 * 'z' augmentation.
+			 */
 			p = cie->initial_instructions;
 			UNWINDER_BUG_ON(!p);
 			break;
@@ -618,7 +833,7 @@ static int dwarf_parse_cie(void *entry, void *p, unsigned long len,
 	cie->initial_instructions = p;
 	cie->instructions_end = end;
 
-	
+	/* Add to list */
 	spin_lock_irqsave(&dwarf_cie_lock, flags);
 
 	while (*rb_node) {
@@ -667,6 +882,10 @@ static int dwarf_parse_fde(void *entry, u32 entry_type,
 
 	fde->length = len;
 
+	/*
+	 * In a .eh_frame section the CIE pointer is the
+	 * delta between the address within the FDE
+	 */
 	fde->cie_pointer = (unsigned long)(p - entry_type - 4);
 
 	cie = dwarf_lookup_cie(fde->cie_pointer);
@@ -694,11 +913,11 @@ static int dwarf_parse_fde(void *entry, u32 entry_type,
 		p += count + length;
 	}
 
-	
+	/* Call frame instructions. */
 	fde->instructions = p;
 	fde->end = end;
 
-	
+	/* Add to list. */
 	spin_lock_irqsave(&dwarf_fde_lock, flags);
 
 	while (*rb_node) {
@@ -779,6 +998,11 @@ static void dwarf_unwinder_cleanup(void)
 	struct rb_node **fde_rb_node = &fde_root.rb_node;
 	struct rb_node **cie_rb_node = &cie_root.rb_node;
 
+	/*
+	 * Deallocate all the memory allocated for the DWARF unwinder.
+	 * Traverse all the FDE/CIE lists and remove and free all the
+	 * memory associated with those data structures.
+	 */
 	while (*fde_rb_node) {
 		struct dwarf_fde *fde;
 
@@ -799,6 +1023,14 @@ static void dwarf_unwinder_cleanup(void)
 	kmem_cache_destroy(dwarf_frame_cachep);
 }
 
+/**
+ *	dwarf_parse_section - parse DWARF section
+ *	@eh_frame_start: start address of the .eh_frame section
+ *	@eh_frame_end: end address of the .eh_frame section
+ *	@mod: the kernel module containing the .eh_frame section
+ *
+ *	Parse the information in a .eh_frame section.
+ */
 static int dwarf_parse_section(char *eh_frame_start, char *eh_frame_end,
 			       struct module *mod)
 {
@@ -818,12 +1050,19 @@ static int dwarf_parse_section(char *eh_frame_start, char *eh_frame_end,
 
 		count = dwarf_entry_len(p, &len);
 		if (count == 0) {
+			/*
+			 * We read a bogus length field value. There is
+			 * nothing we can do here apart from disabling
+			 * the DWARF unwinder. We can't even skip this
+			 * entry and move to the next one because 'len'
+			 * tells us where our next entry is.
+			 */
 			err = -EINVAL;
 			goto out;
 		} else
 			p += count;
 
-		
+		/* initial length does not include itself */
 		end = p + len;
 
 		entry_type = get_unaligned((u32 *)p);
@@ -867,7 +1106,7 @@ int module_dwarf_finalize(const Elf_Ehdr *hdr, const Elf_Shdr *sechdrs,
 	start = end = 0;
 
 	for (i = 1; i < hdr->e_shnum; i++) {
-		
+		/* Alloc bit cleared means "ignore it." */
 		if ((sechdrs[i].sh_flags & SHF_ALLOC)
 		    && !strcmp(secstrings+sechdrs[i].sh_name, ".eh_frame")) {
 			start = sechdrs[i].sh_addr;
@@ -876,7 +1115,7 @@ int module_dwarf_finalize(const Elf_Ehdr *hdr, const Elf_Shdr *sechdrs,
 		}
 	}
 
-	
+	/* Did we find the .eh_frame section? */
 	if (i != hdr->e_shnum) {
 		INIT_LIST_HEAD(&me->arch.cie_list);
 		INIT_LIST_HEAD(&me->arch.fde_list);
@@ -891,6 +1130,13 @@ int module_dwarf_finalize(const Elf_Ehdr *hdr, const Elf_Shdr *sechdrs,
 	return 0;
 }
 
+/**
+ *	module_dwarf_cleanup - remove FDE/CIEs associated with @mod
+ *	@mod: the module that is being unloaded
+ *
+ *	Remove any FDEs and CIEs from the global lists that came from
+ *	@mod's .eh_frame section because @mod is being unloaded.
+ */
 void module_dwarf_cleanup(struct module *mod)
 {
 	struct dwarf_fde *fde, *ftmp;
@@ -917,8 +1163,17 @@ void module_dwarf_cleanup(struct module *mod)
 
 	spin_unlock_irqrestore(&dwarf_fde_lock, flags);
 }
-#endif 
+#endif /* CONFIG_MODULES */
 
+/**
+ *	dwarf_unwinder_init - initialise the dwarf unwinder
+ *
+ *	Build the data structures describing the .dwarf_frame section to
+ *	make it easier to lookup CIE and FDE entries. Because the
+ *	.eh_frame section is packed as tightly as possible it is not
+ *	easy to lookup the FDE for a given PC, so we build a list of FDE
+ *	and CIE entries that make it easier.
+ */
 static int __init dwarf_unwinder_init(void)
 {
 	int err = -ENOMEM;

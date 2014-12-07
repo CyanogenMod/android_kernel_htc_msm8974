@@ -223,8 +223,9 @@
 
 #define VERSION "0.3"
 
-static int pm121_mach_model;	
+static int pm121_mach_model;	/* machine model id */
 
+/* Controls & sensors */
 static struct wf_sensor	*sensor_cpu_power;
 static struct wf_sensor	*sensor_cpu_temp;
 static struct wf_sensor	*sensor_cpu_voltage;
@@ -233,7 +234,7 @@ static struct wf_sensor	*sensor_gpu_temp;
 static struct wf_sensor	*sensor_north_bridge_temp;
 static struct wf_sensor	*sensor_hard_drive_temp;
 static struct wf_sensor	*sensor_optical_drive_temp;
-static struct wf_sensor	*sensor_incoming_air_temp; 
+static struct wf_sensor	*sensor_incoming_air_temp; /* unused ! */
 
 enum {
 	FAN_CPU,
@@ -244,6 +245,7 @@ enum {
 };
 static struct wf_control *controls[N_CONTROLS] = {};
 
+/* Set to kick the control loop into life */
 static int pm121_all_controls_ok, pm121_all_sensors_ok, pm121_started;
 
 enum {
@@ -252,11 +254,14 @@ enum {
 	FAILURE_OVERTEMP	= 1 << 2
 };
 
+/* All sys loops. Note the HD before the OD loop in order to have it
+   run before. */
 enum {
-	LOOP_GPU,		
-	LOOP_HD,		
-	LOOP_KODIAK,		
-	LOOP_OD,		
+	LOOP_GPU,		/* control = hd or cpu, but luckily,
+				   it doesn't matter */
+	LOOP_HD,		/* control = hd */
+	LOOP_KODIAK,		/* control = hd or od */
+	LOOP_OD,		/* control = od */
 	N_LOOPS
 };
 
@@ -279,40 +284,40 @@ struct pm121_correction {
 };
 
 static struct pm121_correction corrections[N_CONTROLS][PM121_NUM_CONFIGS] = {
-	
+	/* FAN_OD */
 	{
-		
+		/* MODEL 2 */
 		{ .offset	= -19563152,
 		  .slope	=  1956315
 		},
-		
+		/* MODEL 3 */
 		{ .offset	= -15650652,
 		  .slope	=  1565065
 		},
 	},
-	
+	/* FAN_HD */
 	{
-		
+		/* MODEL 2 */
 		{ .offset	= -15650652,
 		  .slope	=  1565065
 		},
-		
+		/* MODEL 3 */
 		{ .offset	= -19563152,
 		  .slope	=  1956315
 		},
 	},
-	
+	/* FAN_CPU */
 	{
-		
+		/* MODEL 2 */
 		{ .offset	= -25431900,
 		  .slope	=  2543190
 		},
-		
+		/* MODEL 3 */
 		{ .offset	= -15650652,
 		  .slope	=  1565065
 		},
 	},
-	
+	/* CPUFREQ has no correction (and is not implemented at all) */
 };
 
 struct pm121_connection {
@@ -322,14 +327,14 @@ struct pm121_connection {
 };
 
 static struct pm121_connection pm121_connections[] = {
-	
+	/* MODEL 2 */
 	{ .control_id	= FAN_CPU,
 	  .ref_id	= FAN_OD,
 	  { .offset	= -32768000,
 	    .slope	=  65536
 	  }
 	},
-	
+	/* MODEL 3 */
 	{ .control_id	= FAN_OD,
 	  .ref_id	= FAN_HD,
 	  { .offset	= -32768000,
@@ -338,20 +343,30 @@ static struct pm121_connection pm121_connections[] = {
 	},
 };
 
+/* pointer to the current model connection */
 static struct pm121_connection *pm121_connection;
 
+/*
+ * ****** System Fans Control Loop ******
+ *
+ */
 
+/* Since each loop handles only one control and we want to avoid
+ * writing virtual control, we store the control correction with the
+ * loop params. Some data are not set, there are common to all loop
+ * and thus, hardcoded.
+ */
 struct pm121_sys_param {
-	
+	/* purely informative since we use mach_model-2 as index */
 	int			model_id;
-	struct wf_sensor	**sensor; 
+	struct wf_sensor	**sensor; /* use sensor_id instead ? */
 	s32			gp, itarget;
 	unsigned int		control_id;
 };
 
 static struct pm121_sys_param
 pm121_sys_all_params[N_LOOPS][PM121_NUM_CONFIGS] = {
-	
+	/* GPU Fan control loop */
 	{
 		{ .model_id	= 2,
 		  .sensor	= &sensor_gpu_temp,
@@ -366,7 +381,7 @@ pm121_sys_all_params[N_LOOPS][PM121_NUM_CONFIGS] = {
 		  .control_id	= FAN_CPU,
 		},
 	},
-	
+	/* HD Fan control loop */
 	{
 		{ .model_id	= 2,
 		  .sensor	= &sensor_hard_drive_temp,
@@ -381,7 +396,7 @@ pm121_sys_all_params[N_LOOPS][PM121_NUM_CONFIGS] = {
 		  .control_id	= FAN_HD,
 		},
 	},
-	
+	/* KODIAK Fan control loop */
 	{
 		{ .model_id	= 2,
 		  .sensor	= &sensor_north_bridge_temp,
@@ -396,7 +411,7 @@ pm121_sys_all_params[N_LOOPS][PM121_NUM_CONFIGS] = {
 		  .control_id	= FAN_HD,
 		},
 	},
-	
+	/* OD Fan control loop */
 	{
 		{ .model_id	= 2,
 		  .sensor	= &sensor_optical_drive_temp,
@@ -413,11 +428,14 @@ pm121_sys_all_params[N_LOOPS][PM121_NUM_CONFIGS] = {
 	},
 };
 
+/* the hardcoded values */
 #define	PM121_SYS_GD		0x00000000
 #define	PM121_SYS_GR		0x00019999
 #define	PM121_SYS_HISTORY_SIZE	2
 #define	PM121_SYS_INTERVAL	5
 
+/* State data used by the system fans control loop
+ */
 struct pm121_sys_state {
 	int			ticks;
 	s32			setpoint;
@@ -426,9 +444,15 @@ struct pm121_sys_state {
 
 struct pm121_sys_state *pm121_sys_state[N_LOOPS] = {};
 
+/*
+ * ****** CPU Fans Control Loop ******
+ *
+ */
 
 #define PM121_CPU_INTERVAL	1
 
+/* State data used by the cpu fans control loop
+ */
 struct pm121_cpu_state {
 	int			ticks;
 	s32			setpoint;
@@ -439,7 +463,12 @@ static struct pm121_cpu_state *pm121_cpu_state;
 
 
 
+/*
+ * ***** Implementation *****
+ *
+ */
 
+/* correction the value using the output-low-bound correction algo */
 static s32 pm121_correct(s32 new_setpoint,
 			 unsigned int control_id,
 			 s32 min)
@@ -476,13 +505,14 @@ static s32 pm121_connect(unsigned int control_id, s32 setpoint)
 		} else
 			new_setpoint = setpoint;
 	}
-	
+	/* no connection */
 	else
 		new_setpoint = setpoint;
 
 	return new_setpoint;
 }
 
+/* FAN LOOPS */
 static void pm121_create_sys_fans(int loop_id)
 {
 	struct pm121_sys_param *param = NULL;
@@ -490,7 +520,7 @@ static void pm121_create_sys_fans(int loop_id)
 	struct wf_control *control = NULL;
 	int i;
 
-	
+	/* First, locate the params for this model */
 	for (i = 0; i < PM121_NUM_CONFIGS; i++) {
 		if (pm121_sys_all_params[loop_id][i].model_id == pm121_mach_model) {
 			param = &(pm121_sys_all_params[loop_id][i]);
@@ -498,7 +528,7 @@ static void pm121_create_sys_fans(int loop_id)
 		}
 	}
 
-	
+	/* No params found, put fans to max */
 	if (param == NULL) {
 		printk(KERN_WARNING "pm121: %s fan config not found "
 		       " for this machine model\n",
@@ -508,7 +538,7 @@ static void pm121_create_sys_fans(int loop_id)
 
 	control = controls[param->control_id];
 
-	
+	/* Alloc & initialize state */
 	pm121_sys_state[loop_id] = kmalloc(sizeof(struct pm121_sys_state),
 					   GFP_KERNEL);
 	if (pm121_sys_state[loop_id] == NULL) {
@@ -517,7 +547,7 @@ static void pm121_create_sys_fans(int loop_id)
 	}
 	pm121_sys_state[loop_id]->ticks = 1;
 
-	
+	/* Fill PID params */
 	pid_param.gd		= PM121_SYS_GD;
 	pid_param.gp		= param->gp;
 	pid_param.gr		= PM121_SYS_GR;
@@ -536,6 +566,8 @@ static void pm121_create_sys_fans(int loop_id)
 	return;
 
  fail:
+	/* note that this is not optimal since another loop may still
+	   control the same control */
 	printk(KERN_WARNING "pm121: failed to set up %s loop "
 	       "setting \"%s\" to max speed.\n",
 	       loop_names[loop_id], control->name);
@@ -579,11 +611,11 @@ static void pm121_sys_fans_tick(int loop_id)
 
 	new_setpoint = wf_pid_run(&st->pid, temp);
 
-	
+	/* correction */
 	new_setpoint = pm121_correct(new_setpoint,
 				     param->control_id,
 				     st->pid.param.min);
-	
+	/* linked corretion */
 	new_setpoint = pm121_connect(param->control_id, new_setpoint);
 
 	if (new_setpoint == st->setpoint)
@@ -603,6 +635,7 @@ static void pm121_sys_fans_tick(int loop_id)
 }
 
 
+/* CPU LOOP */
 static void pm121_create_cpu_fans(void)
 {
 	struct wf_cpu_pid_param pid_param;
@@ -614,7 +647,7 @@ static void pm121_create_cpu_fans(void)
 
 	fan_cpu = controls[FAN_CPU];
 
-	
+	/* First, locate the PID params in SMU SBD */
 	hdr = smu_get_sdb_partition(SMU_SDB_CPUPIDDATA_ID, NULL);
 	if (hdr == 0) {
 		printk(KERN_WARNING "pm121: CPU PID fan config not found.\n");
@@ -622,21 +655,24 @@ static void pm121_create_cpu_fans(void)
 	}
 	piddata = (struct smu_sdbp_cpupiddata *)&hdr[1];
 
+	/* Get the FVT params for operating point 0 (the only supported one
+	 * for now) in order to get tmax
+	 */
 	hdr = smu_get_sdb_partition(SMU_SDB_FVT_ID, NULL);
 	if (hdr) {
 		fvt = (struct smu_sdbp_fvt *)&hdr[1];
 		tmax = ((s32)fvt->maxtemp) << 16;
 	} else
-		tmax = 0x5e0000; 
+		tmax = 0x5e0000; /* 94 degree default */
 
-	
+	/* Alloc & initialize state */
 	pm121_cpu_state = kmalloc(sizeof(struct pm121_cpu_state),
 				  GFP_KERNEL);
 	if (pm121_cpu_state == NULL)
 		goto fail;
 	pm121_cpu_state->ticks = 1;
 
-	
+	/* Fill PID params */
 	pid_param.interval = PM121_CPU_INTERVAL;
 	pid_param.history_len = piddata->history_len;
 	if (pid_param.history_len > WF_CPU_PID_MAX_HISTORY) {
@@ -717,12 +753,12 @@ static void pm121_cpu_fans_tick(struct pm121_cpu_state *st)
 
 	new_setpoint = wf_cpu_pid_run(&st->pid, power, temp);
 
-	
+	/* correction */
 	new_setpoint = pm121_correct(new_setpoint,
 				     FAN_CPU,
 				     st->pid.param.min);
 
-	
+	/* connected correction */
 	new_setpoint = pm121_connect(FAN_CPU, new_setpoint);
 
 	if (st->setpoint == new_setpoint)
@@ -741,6 +777,10 @@ static void pm121_cpu_fans_tick(struct pm121_cpu_state *st)
 	}
 }
 
+/*
+ * ****** Common ******
+ *
+ */
 
 static void pm121_tick(void)
 {
@@ -758,11 +798,11 @@ static void pm121_tick(void)
 		pm121_started = 1;
 	}
 
-	
+	/* skipping ticks */
 	if (pm121_skipping && --pm121_skipping)
 		return;
 
-	
+	/* compute average power */
 	total_power = 0;
 	for (i = 0; i < pm121_cpu_state->pid.param.history_len; i++)
 		total_power += pm121_cpu_state->pid.powers[i];
@@ -782,6 +822,9 @@ static void pm121_tick(void)
 	pm121_readjust = 0;
 	new_failure = pm121_failure_state & ~last_failure;
 
+	/* If entering failure mode, clamp cpufreq and ramp all
+	 * fans to full speed.
+	 */
 	if (pm121_failure_state && !last_failure) {
 		for (i = 0; i < N_CONTROLS; i++) {
 			if (controls[i])
@@ -789,17 +832,29 @@ static void pm121_tick(void)
 		}
 	}
 
+	/* If leaving failure mode, unclamp cpufreq and readjust
+	 * all fans on next iteration
+	 */
 	if (!pm121_failure_state && last_failure) {
 		if (controls[CPUFREQ])
 			wf_control_set_min(controls[CPUFREQ]);
 		pm121_readjust = 1;
 	}
 
+	/* Overtemp condition detected, notify and start skipping a couple
+	 * ticks to let the temperature go down
+	 */
 	if (new_failure & FAILURE_OVERTEMP) {
 		wf_set_overtemp();
 		pm121_skipping = 2;
 	}
 
+	/* We only clear the overtemp condition if overtemp is cleared
+	 * _and_ no other failure is present. Since a sensor error will
+	 * clear the overtemp condition (can't measure temperature) at
+	 * the control loop levels, but we don't want to keep it clear
+	 * here in this case
+	 */
 	if (new_failure == 0 && last_failure & FAILURE_OVERTEMP)
 		wf_clear_overtemp();
 }

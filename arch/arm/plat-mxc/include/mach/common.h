@@ -79,11 +79,11 @@ extern int mx53_display_revision(void);
 extern void imx_set_aips(void __iomem *);
 
 enum mxc_cpu_pwr_mode {
-	WAIT_CLOCKED,		
-	WAIT_UNCLOCKED,		
-	WAIT_UNCLOCKED_POWER_OFF,	
-	STOP_POWER_ON,		
-	STOP_POWER_OFF,		
+	WAIT_CLOCKED,		/* wfi only */
+	WAIT_UNCLOCKED,		/* WAIT */
+	WAIT_UNCLOCKED_POWER_OFF,	/* WAIT + SRPG */
+	STOP_POWER_ON,		/* just STOP */
+	STOP_POWER_OFF,		/* STOP + SRPG */
 };
 
 enum mx3_cpu_pwr_mode {

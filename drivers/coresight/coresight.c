@@ -322,7 +322,7 @@ err:
 		}
 	}
 	cd = err_cd;
-	
+	/* This should be an enabled source, so we can disable it directly */
 	coresight_disable_source(cd);
 	list_for_each_entry_continue(cd, &coresight_devs, dev_link) {
 		if (cd->type == CORESIGHT_DEV_TYPE_SOURCE && cd->enable)

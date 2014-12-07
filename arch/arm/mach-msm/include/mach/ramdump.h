@@ -50,6 +50,6 @@ static inline int do_elf_ramdump(void *handle, struct ramdump_segment *segments,
 {
 	return -ENODEV;
 }
-#endif 
+#endif /* CONFIG_MSM_SUBSYSTEM_RESTART */
 
 #endif

@@ -59,7 +59,7 @@ static struct mtd_partition flash_parts[] = {
 	{
 		.name		= "u-boot",
 		.offset		= 0x00000000,
-		.size		= 0x00020000,           
+		.size		= 0x00020000,           /* 128 KiB */
 		.mask_flags	= MTD_WRITEABLE,
 	},
 	{
@@ -104,13 +104,15 @@ static struct smc_timing isp1160_timing __initdata = {
 	.nwe_setup		= 75,
 
 
-	.ncs_read_pulse		= 75,  
-	.nrd_pulse		= 75,  
-	.ncs_write_pulse	= 75,  
-	.nwe_pulse		= 75,  
+	/* We use conservative timing settings, as the minimal settings aren't
+	   stable. There may be room for tweaking. */
+	.ncs_read_pulse		= 75,  /* min. 33ns */
+	.nrd_pulse		= 75,  /* min. 33ns */
+	.ncs_write_pulse	= 75,  /* min. 26ns */
+	.nwe_pulse		= 75,  /* min. 26ns */
 
-	.read_cycle		= 225, 
-	.write_cycle		= 225, 
+	.read_cycle		= 225, /* min. 143ns */
+	.write_cycle		= 225, /* min. 136ns */
 };
 
 static struct smc_config isp1160_config __initdata = {
@@ -120,6 +122,12 @@ static struct smc_config isp1160_config __initdata = {
 	.byte_write		= 0,
 };
 
+/*
+ * The platform delay function is only used to enforce the strange
+ * read to write delay. This can not be configured in the SMC. All other
+ * timings are controlled by the SMC (see timings obove)
+ * So in isp116x-hcd.c we should comment out USE_PLATFORM_DELAY
+ */
 void isp116x_delay(struct device *dev, int delay)
 {
 	if (delay > 150)
@@ -127,11 +135,11 @@ void isp116x_delay(struct device *dev, int delay)
 }
 
 static struct  isp116x_platform_data isp1160_data = {
-	.sel15Kres		= 1,	
-	.oc_enable		= 0,	
-	.int_edge_triggered	= 0,	
-	.int_act_high		= 0,	
-	.delay = isp116x_delay,		
+	.sel15Kres		= 1,	/* use internal downstream resistors */
+	.oc_enable		= 0,	/* external overcurrent detection */
+	.int_edge_triggered	= 0,	/* interrupt is level triggered */
+	.int_act_high		= 0,	/* interrupt is active low */
+	.delay = isp116x_delay,		/* platform delay function */
 };
 
 static struct resource isp1160_resource[] = {
@@ -170,7 +178,7 @@ static int __init hammerhead_usbh_init(void)
 
 	int ret;
 
-	
+	/* setup smc for usbh */
 	smc_set_timing(&isp1160_config, &isp1160_timing);
 	ret = smc_set_configuration(2, &isp1160_config);
 
@@ -180,7 +188,7 @@ static int __init hammerhead_usbh_init(void)
 		return ret;
 	}
 
-	
+	/* setup gclk0 to run from osc1 */
 	gclk = clk_get(NULL, "gclk0");
 	if (IS_ERR(gclk))
 		goto err_gclk;
@@ -194,28 +202,28 @@ static int __init hammerhead_usbh_init(void)
 		goto err_set_clk;
 	}
 
-	
+	/* set clock to 6MHz */
 	clk_set_rate(gclk, 6000000);
 
-	
+	/* and enable */
 	clk_enable(gclk);
 
-	
+	/* select GCLK0 peripheral function */
 	at32_select_periph(GPIO_PIOA_BASE, HAMMERHEAD_USB_PERIPH_GCLK0,
 			   GPIO_PERIPH_A, 0);
 
-	
+	/* enable CS2 peripheral function */
 	at32_select_periph(GPIO_PIOE_BASE, HAMMERHEAD_USB_PERIPH_CS2,
 			   GPIO_PERIPH_A, 0);
 
-	
+	/* H_WAKEUP must be driven low */
 	at32_select_gpio(GPIO_PIN_PA(8), AT32_GPIOF_OUTPUT);
 
-	
+	/* Select EXTINT0 for PB25 */
 	at32_select_periph(GPIO_PIOB_BASE, HAMMERHEAD_USB_PERIPH_EXTINT0,
 			   GPIO_PERIPH_A, 0);
 
-	
+	/* register usbh device driver */
 	platform_device_register(&isp1160_device);
 
  err_set_clk:
@@ -294,33 +302,36 @@ static struct clk hh_fpga0_spi_clk = {
 
 struct platform_device *__init at32_add_device_hh_fpga(void)
 {
-	
+	/* Select peripheral functionallity for SPI SCK and MOSI */
 	at32_select_periph(GPIO_PIOB_BASE, HAMMERHEAD_FPGA_PERIPH_SCK,
 			   GPIO_PERIPH_B, 0);
 	at32_select_periph(GPIO_PIOB_BASE, HAMMERHEAD_FPGA_PERIPH_MOSI,
 			   GPIO_PERIPH_B, 0);
 
-	
+	/* reserve all other needed gpio
+	 * We have on board pull ups, so there is no need
+	 * to enable gpio pull ups */
+	/* INIT_DONE (input) */
 	at32_select_gpio(GPIO_PIN_PB(0), 0);
 
-	
+	/* nSTATUS (input) */
 	at32_select_gpio(GPIO_PIN_PB(2), 0);
 
-	
+	/* nCONFIG (output, low) */
 	at32_select_gpio(GPIO_PIN_PB(3), AT32_GPIOF_OUTPUT);
 
-	
+	/* CONF_DONE (input) */
 	at32_select_gpio(GPIO_PIN_PB(4), 0);
 
-	
+	/* Select EXTINT3 for PB28 (Interrupt from FPGA) */
 	at32_select_periph(GPIO_PIOB_BASE, HAMMERHEAD_FPGA_PERIPH_EXTINT3,
 			   GPIO_PERIPH_A, 0);
 
-	
+	/* Get our parent clock */
 	hh_fpga0_spi_clk.parent = clk_get(NULL, "pba");
 	clk_put(hh_fpga0_spi_clk.parent);
 
-	
+	/* Register clock in at32 clock tree */
 	at32_clk_register(&hh_fpga0_spi_clk);
 
 	platform_device_register(&hh_fpga0_device);
@@ -328,6 +339,7 @@ struct platform_device *__init at32_add_device_hh_fpga(void)
 }
 #endif
 
+/* This needs to be called after the SMC has been initialized */
 static int __init hammerhead_flash_init(void)
 {
 	int ret;
@@ -347,7 +359,7 @@ static int __init hammerhead_flash_init(void)
 #endif
 
 #ifdef CONFIG_BOARD_HAMMERHEAD_FPGA
-	
+	/* Setup SMC for FPGA interface */
 	smc_set_timing(&fpga_config, &fpga_timing);
 	ret = smc_set_configuration(3, &fpga_config);
 #endif

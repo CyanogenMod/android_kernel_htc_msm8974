@@ -61,6 +61,10 @@ static enum hrtimer_restart msm_idle_stats_busy_timer(struct hrtimer *timer)
 		container_of(timer, struct msm_idle_stats_device, busy_timer);
 
 
+	/* This is the only case that the event is modified without a device
+	 * lock. However, since the timer is cancelled in the other cases we are
+	 * assured that we have exclusive access to the event at this time.
+	 */
 	hrtimer_set_expires(&device->busy_timer, us_to_ktime(0));
 	msm_idle_stats_update_event(device,
 		MSM_IDLE_STATS_EVENT_BUSY_TIMER_EXPIRED);
@@ -244,12 +248,18 @@ void msm_idle_stats_idle_end(struct msm_idle_stats_device *device,
 				MSM_IDLE_STATS_EVENT_BUSY_TIMER_EXPIRED_RESET);
 		} else if (ktime_to_us(device->busy_timer_interval) > 0) {
 			ktime_t busy_timer = device->busy_timer_interval;
+			/* if it is serialized, it would be full busy,
+			 * checking 80%
+			 */
 			if ((pulse->wait_interval*5 >= idle_time*4) &&
 				(ktime_to_us(device->remaining_time) > 0) &&
 				(ktime_to_us(device->remaining_time) <
 				 ktime_to_us(busy_timer)))
 				busy_timer = device->remaining_time;
 		    start_busy_timer(device, busy_timer);
+		    /* If previous busy interval exceeds the current submit,
+		     * raise a busy timer expired event intentionally.
+		     */
 		    tmp = device->stats->nr_collected - 1;
 		    if (tmp > 0) {
 			if ((device->stats->pulse_chain[tmp - 1].busy_start_time

@@ -19,12 +19,13 @@
 #include <asm/ebcdic.h>
 #include "hypfs.h"
 
-#define LPAR_NAME_LEN 8		
-#define CPU_NAME_LEN 16		
-#define TMP_SIZE 64		
+#define LPAR_NAME_LEN 8		/* lpar name len in diag 204 data */
+#define CPU_NAME_LEN 16		/* type name len of cpus in diag224 name table */
+#define TMP_SIZE 64		/* size of temporary buffers */
 
 #define DBFS_D204_HDR_VERSION	0
 
+/* diag 204 subcodes */
 enum diag204_sc {
 	SUBC_STIB4 = 4,
 	SUBC_RSI = 5,
@@ -32,24 +33,34 @@ enum diag204_sc {
 	SUBC_STIB7 = 7
 };
 
+/* The two available diag 204 data formats */
 enum diag204_format {
 	INFO_SIMPLE = 0,
 	INFO_EXT = 0x00010000
 };
 
+/* bit is set in flags, when physical cpu info is included in diag 204 data */
 #define LPAR_PHYS_FLG  0x80
 
-static char *diag224_cpu_names;			
-static enum diag204_sc diag204_store_sc;	
-static enum diag204_format diag204_info_type;	
+static char *diag224_cpu_names;			/* diag 224 name table */
+static enum diag204_sc diag204_store_sc;	/* used subcode for store */
+static enum diag204_format diag204_info_type;	/* used diag 204 data format */
 
-static void *diag204_buf;		
-static void *diag204_buf_vmalloc;	
-static int diag204_buf_pages;		
+static void *diag204_buf;		/* 4K aligned buffer for diag204 data */
+static void *diag204_buf_vmalloc;	/* vmalloc pointer for diag204 data */
+static int diag204_buf_pages;		/* number of pages for diag204 data */
 
 static struct dentry *dbfs_d204_file;
 
+/*
+ * DIAG 204 data structures and member access functions.
+ *
+ * Since we have two different diag 204 data formats for old and new s390
+ * machines, we do not access the structs directly, but use getter functions for
+ * each struct member instead. This should make the code more readable.
+ */
 
+/* Time information block */
 
 struct info_blk_hdr {
 	__u8  npar;
@@ -75,7 +86,7 @@ static inline int info_blk_hdr__size(enum diag204_format type)
 {
 	if (type == INFO_SIMPLE)
 		return sizeof(struct info_blk_hdr);
-	else 
+	else /* INFO_EXT */
 		return sizeof(struct x_info_blk_hdr);
 }
 
@@ -83,7 +94,7 @@ static inline __u8 info_blk_hdr__npar(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct info_blk_hdr *)hdr)->npar;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_info_blk_hdr *)hdr)->npar;
 }
 
@@ -91,7 +102,7 @@ static inline __u8 info_blk_hdr__flags(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct info_blk_hdr *)hdr)->flags;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_info_blk_hdr *)hdr)->flags;
 }
 
@@ -99,10 +110,11 @@ static inline __u16 info_blk_hdr__pcpus(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct info_blk_hdr *)hdr)->phys_cpus;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_info_blk_hdr *)hdr)->phys_cpus;
 }
 
+/* Partition header */
 
 struct part_hdr {
 	__u8 pn;
@@ -133,7 +145,7 @@ static inline int part_hdr__size(enum diag204_format type)
 {
 	if (type == INFO_SIMPLE)
 		return sizeof(struct part_hdr);
-	else 
+	else /* INFO_EXT */
 		return sizeof(struct x_part_hdr);
 }
 
@@ -141,7 +153,7 @@ static inline __u8 part_hdr__rcpus(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct part_hdr *)hdr)->cpus;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_part_hdr *)hdr)->rcpus;
 }
 
@@ -151,7 +163,7 @@ static inline void part_hdr__part_name(enum diag204_format type, void *hdr,
 	if (type == INFO_SIMPLE)
 		memcpy(name, ((struct part_hdr *)hdr)->part_name,
 		       LPAR_NAME_LEN);
-	else 
+	else /* INFO_EXT */
 		memcpy(name, ((struct x_part_hdr *)hdr)->part_name,
 		       LPAR_NAME_LEN);
 	EBCASC(name, LPAR_NAME_LEN);
@@ -188,12 +200,13 @@ struct x_cpu_info {
 	char  reserved3[40];
 } __attribute__ ((packed));
 
+/* CPU info block */
 
 static inline int cpu_info__size(enum diag204_format type)
 {
 	if (type == INFO_SIMPLE)
 		return sizeof(struct cpu_info);
-	else 
+	else /* INFO_EXT */
 		return sizeof(struct x_cpu_info);
 }
 
@@ -201,7 +214,7 @@ static inline __u8 cpu_info__ctidx(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct cpu_info *)hdr)->ctidx;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_cpu_info *)hdr)->ctidx;
 }
 
@@ -209,7 +222,7 @@ static inline __u16 cpu_info__cpu_addr(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct cpu_info *)hdr)->cpu_addr;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_cpu_info *)hdr)->cpu_addr;
 }
 
@@ -217,7 +230,7 @@ static inline __u64 cpu_info__acc_time(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct cpu_info *)hdr)->acc_time;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_cpu_info *)hdr)->acc_time;
 }
 
@@ -225,18 +238,19 @@ static inline __u64 cpu_info__lp_time(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct cpu_info *)hdr)->lp_time;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_cpu_info *)hdr)->lp_time;
 }
 
 static inline __u64 cpu_info__online_time(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
-		return 0;	
-	else 
+		return 0;	/* online_time not available in simple info */
+	else /* INFO_EXT */
 		return ((struct x_cpu_info *)hdr)->online_time;
 }
 
+/* Physical header */
 
 struct phys_hdr {
 	char reserved1[1];
@@ -257,7 +271,7 @@ static inline int phys_hdr__size(enum diag204_format type)
 {
 	if (type == INFO_SIMPLE)
 		return sizeof(struct phys_hdr);
-	else 
+	else /* INFO_EXT */
 		return sizeof(struct x_phys_hdr);
 }
 
@@ -265,10 +279,11 @@ static inline __u8 phys_hdr__cpus(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct phys_hdr *)hdr)->cpus;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_phys_hdr *)hdr)->cpus;
 }
 
+/* Physical CPU info block */
 
 struct phys_cpu {
 	__u16 cpu_addr;
@@ -292,7 +307,7 @@ static inline int phys_cpu__size(enum diag204_format type)
 {
 	if (type == INFO_SIMPLE)
 		return sizeof(struct phys_cpu);
-	else 
+	else /* INFO_EXT */
 		return sizeof(struct x_phys_cpu);
 }
 
@@ -300,7 +315,7 @@ static inline __u16 phys_cpu__cpu_addr(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct phys_cpu *)hdr)->cpu_addr;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_phys_cpu *)hdr)->cpu_addr;
 }
 
@@ -308,7 +323,7 @@ static inline __u64 phys_cpu__mgm_time(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct phys_cpu *)hdr)->mgm_time;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_phys_cpu *)hdr)->mgm_time;
 }
 
@@ -316,10 +331,11 @@ static inline __u64 phys_cpu__ctidx(enum diag204_format type, void *hdr)
 {
 	if (type == INFO_SIMPLE)
 		return ((struct phys_cpu *)hdr)->ctidx;
-	else 
+	else /* INFO_EXT */
 		return ((struct x_phys_cpu *)hdr)->ctidx;
 }
 
+/* Diagnose 204 functions */
 
 static int diag204(unsigned long subcode, unsigned long size, void *addr)
 {
@@ -336,6 +352,12 @@ static int diag204(unsigned long subcode, unsigned long size, void *addr)
 	return _size;
 }
 
+/*
+ * For the old diag subcode 4 with simple data format we have to use real
+ * memory. If we use subcode 6 or 7 with extended data format, we can (and
+ * should) use vmalloc, since we need a lot of memory in that case. Currently
+ * up to 93 pages!
+ */
 
 static void diag204_free_buffer(void)
 {
@@ -357,7 +379,7 @@ static void *page_align_ptr(void *ptr)
 
 static void *diag204_alloc_vbuf(int pages)
 {
-	
+	/* The buffer has to be page aligned! */
 	diag204_buf_vmalloc = vmalloc(PAGE_SIZE * (pages + 1));
 	if (!diag204_buf_vmalloc)
 		return ERR_PTR(-ENOMEM);
@@ -384,7 +406,7 @@ static void *diag204_get_buffer(enum diag204_format fmt, int *pages)
 	if (fmt == INFO_SIMPLE) {
 		*pages = 1;
 		return diag204_alloc_rbuf();
-	} else {
+	} else {/* INFO_EXT */
 		*pages = diag204((unsigned long)SUBC_RSI |
 				 (unsigned long)INFO_EXT, 0, NULL);
 		if (*pages <= 0)
@@ -394,6 +416,19 @@ static void *diag204_get_buffer(enum diag204_format fmt, int *pages)
 	}
 }
 
+/*
+ * diag204_probe() has to find out, which type of diagnose 204 implementation
+ * we have on our machine. Currently there are three possible scanarios:
+ *   - subcode 4   + simple data format (only one page)
+ *   - subcode 4-6 + extended data format
+ *   - subcode 4-7 + extended data format
+ *
+ * Subcode 5 is used to retrieve the size of the data, provided by subcodes
+ * 6 and 7. Subcode 7 basically has the same function as subcode 6. In addition
+ * to subcode 6 it provides also information about secondary cpus.
+ * In order to get as much information as possible, we first try
+ * subcode 7, then 6 and if both fail, we use subcode 4.
+ */
 
 static int diag204_probe(void)
 {
@@ -417,7 +452,7 @@ static int diag204_probe(void)
 		diag204_free_buffer();
 	}
 
-	
+	/* subcodes 6 and 7 failed, now try subcode 4 */
 
 	buf = diag204_get_buffer(INFO_SIMPLE, &pages);
 	if (IS_ERR(buf)) {
@@ -465,6 +500,7 @@ out:
 	return buf;
 }
 
+/* Diagnose 224 functions */
 
 static int diag224(void *ptr)
 {
@@ -481,7 +517,7 @@ static int diag224(void *ptr)
 
 static int diag224_get_name_table(void)
 {
-	
+	/* memory must be below 2GB */
 	diag224_cpu_names = kmalloc(PAGE_SIZE, GFP_KERNEL | GFP_DMA);
 	if (!diag224_cpu_names)
 		return -ENOMEM;
@@ -508,15 +544,15 @@ static int diag224_idx2name(int index, char *name)
 }
 
 struct dbfs_d204_hdr {
-	u64	len;		
-	u16	version;	
-	u8	sc;		
+	u64	len;		/* Length of d204 buffer without header */
+	u16	version;	/* Version of header */
+	u8	sc;		/* Used subcode */
 	char	reserved[53];
 } __attribute__ ((packed));
 
 struct dbfs_d204 {
-	struct dbfs_d204_hdr	hdr;	
-	char			buf[];	
+	struct dbfs_d204_hdr	hdr;	/* 64 byte header */
+	char			buf[];	/* d204 buffer */
 } __attribute__ ((packed));
 
 static int dbfs_d204_create(void **data, void **data_free_ptr, size_t *size)
@@ -583,6 +619,10 @@ void hypfs_diag_exit(void)
 	hypfs_dbfs_remove_file(&dbfs_file_d204);
 }
 
+/*
+ * Functions to create the directory structure
+ * *******************************************
+ */
 
 static int hypfs_create_cpu_files(struct super_block *sb,
 				  struct dentry *cpus_dir, void *cpu_info)

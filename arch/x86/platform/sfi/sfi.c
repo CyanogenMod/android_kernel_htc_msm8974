@@ -34,6 +34,7 @@
 #ifdef CONFIG_X86_LOCAL_APIC
 static unsigned long sfi_lapic_addr __initdata = APIC_DEFAULT_PHYS_BASE;
 
+/* All CPUs enumerated by SFI must be present and enabled */
 static void __cpuinit mp_sfi_register_lapic(u8 id)
 {
 	if (MAX_LOCAL_APIC - id <= 0) {
@@ -66,7 +67,7 @@ static int __init sfi_parse_cpus(struct sfi_table_header *table)
 	smp_found_config = 1;
 	return 0;
 }
-#endif 
+#endif /* CONFIG_X86_LOCAL_APIC */
 
 #ifdef CONFIG_X86_IO_APIC
 
@@ -90,8 +91,11 @@ static int __init sfi_parse_ioapic(struct sfi_table_header *table)
 	pic_mode = 0;
 	return 0;
 }
-#endif 
+#endif /* CONFIG_X86_IO_APIC */
 
+/*
+ * sfi_platform_init(): register lapics & io-apics
+ */
 int __init sfi_platform_init(void)
 {
 #ifdef CONFIG_X86_LOCAL_APIC

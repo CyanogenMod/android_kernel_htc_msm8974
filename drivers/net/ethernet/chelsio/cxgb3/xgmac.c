@@ -32,6 +32,10 @@
 #include "common.h"
 #include "regs.h"
 
+/*
+ * # of exact address filters.  The first one is used for the station address,
+ * the rest are available for multicast addresses.
+ */
 #define EXACT_ADDR_FILTERS 8
 
 static inline int macidx(const struct cmac *mac)
@@ -96,7 +100,7 @@ int t3_mac_reset(struct cmac *mac)
 	unsigned int oft = mac->offset;
 
 	t3_write_reg(adap, A_XGM_RESET_CTRL + oft, F_MAC_RESET_);
-	t3_read_reg(adap, A_XGM_RESET_CTRL + oft);	
+	t3_read_reg(adap, A_XGM_RESET_CTRL + oft);	/* flush */
 
 	t3_write_regs(adap, mac_reset_avp, ARRAY_SIZE(mac_reset_avp), oft);
 	t3_set_reg_field(adap, A_XGM_RXFIFO_CFG + oft,
@@ -133,7 +137,7 @@ int t3_mac_reset(struct cmac *mac)
 	else
 		val |= F_RGMII_RESET_ | F_XG2G_RESET_;
 	t3_write_reg(adap, A_XGM_RESET_CTRL + oft, val);
-	t3_read_reg(adap, A_XGM_RESET_CTRL + oft);	
+	t3_read_reg(adap, A_XGM_RESET_CTRL + oft);	/* flush */
 	if ((val & F_PCS_RESET_) && adap->params.rev) {
 		msleep(1);
 		t3b_pcs_reset(mac);
@@ -155,26 +159,26 @@ static int t3b2_mac_reset(struct cmac *mac)
 	else
 		t3_set_reg_field(adap, A_MPS_CFG, F_PORT1ACTIVE, 0);
 
-	
+	/* Stop NIC traffic to reduce the number of TXTOGGLES */
 	t3_set_reg_field(adap, A_MPS_CFG, F_ENFORCEPKT, 0);
-	
+	/* Ensure TX drains */
 	t3_set_reg_field(adap, A_XGM_TX_CFG + oft, F_TXPAUSEEN, 0);
 
 	t3_write_reg(adap, A_XGM_RESET_CTRL + oft, F_MAC_RESET_);
-	t3_read_reg(adap, A_XGM_RESET_CTRL + oft);    
+	t3_read_reg(adap, A_XGM_RESET_CTRL + oft);    /* flush */
 
-	
+	/* Store A_TP_TX_DROP_CFG_CH0 */
 	t3_write_reg(adap, A_TP_PIO_ADDR, A_TP_TX_DROP_CFG_CH0 + idx);
 	store = t3_read_reg(adap, A_TP_TX_DROP_CFG_CH0 + idx);
 
 	msleep(10);
 
-	
+	/* Change DROP_CFG to 0xc0000011 */
 	t3_write_reg(adap, A_TP_PIO_ADDR, A_TP_TX_DROP_CFG_CH0 + idx);
 	t3_write_reg(adap, A_TP_PIO_DATA, 0xc0000011);
 
-	
-	
+	/* Check for xgm Rx fifo empty */
+	/* Increased loop count to 1000 from 5 cover 1G and 100Mbps case */
 	if (t3_wait_op_done(adap, A_XGM_RX_MAX_PKT_SIZE_ERR_CNT + oft,
 			    0x80000000, 1, 1000, 2)) {
 		CH_ERR(adap, "MAC %d Rx fifo drain failed\n",
@@ -183,7 +187,7 @@ static int t3b2_mac_reset(struct cmac *mac)
 	}
 
 	t3_write_reg(adap, A_XGM_RESET_CTRL + oft, 0);
-	t3_read_reg(adap, A_XGM_RESET_CTRL + oft);    
+	t3_read_reg(adap, A_XGM_RESET_CTRL + oft);    /* flush */
 
 	val = F_MAC_RESET_;
 	if (is_10G(adap))
@@ -193,7 +197,7 @@ static int t3b2_mac_reset(struct cmac *mac)
 	else
 		val |= F_RGMII_RESET_ | F_XG2G_RESET_;
 	t3_write_reg(adap, A_XGM_RESET_CTRL + oft, val);
-	t3_read_reg(adap, A_XGM_RESET_CTRL + oft);  
+	t3_read_reg(adap, A_XGM_RESET_CTRL + oft);  /* flush */
 	if ((val & F_PCS_RESET_) && adap->params.rev) {
 		msleep(1);
 		t3b_pcs_reset(mac);
@@ -202,7 +206,7 @@ static int t3b2_mac_reset(struct cmac *mac)
 		     F_DISPAUSEFRAMES | F_EN1536BFRAMES |
 		     F_RMFCS | F_ENJUMBO | F_ENHASHMCAST);
 
-	
+	/* Restore the DROP_CFG */
 	t3_write_reg(adap, A_TP_PIO_ADDR, A_TP_TX_DROP_CFG_CH0 + idx);
 	t3_write_reg(adap, A_TP_PIO_DATA, store);
 
@@ -211,15 +215,18 @@ static int t3b2_mac_reset(struct cmac *mac)
 	else
 		t3_set_reg_field(adap, A_MPS_CFG, 0, F_PORT1ACTIVE);
 
-	
+	/* re-enable nic traffic */
 	t3_set_reg_field(adap, A_MPS_CFG, F_ENFORCEPKT, 1);
 
-	
+	/*  Set: re-enable NIC traffic */
 	t3_set_reg_field(adap, A_MPS_CFG, F_ENFORCEPKT, 1);
 
 	return 0;
 }
 
+/*
+ * Set the exact match register 'idx' to recognize the given Ethernet address.
+ */
 static void set_addr_filter(struct cmac *mac, int idx, const u8 * addr)
 {
 	u32 addr_lo, addr_hi;
@@ -232,6 +239,7 @@ static void set_addr_filter(struct cmac *mac, int idx, const u8 * addr)
 	t3_write_reg(mac->adapter, A_XGM_RX_EXACT_MATCH_HIGH_1 + oft, addr_hi);
 }
 
+/* Set one of the station's unicast MAC addresses. */
 int t3_mac_set_address(struct cmac *mac, unsigned int idx, u8 addr[6])
 {
 	if (idx >= mac->nucast)
@@ -240,6 +248,11 @@ int t3_mac_set_address(struct cmac *mac, unsigned int idx, u8 addr[6])
 	return 0;
 }
 
+/*
+ * Specify the number of exact address filters that should be reserved for
+ * unicast addresses.  Caller should reload the unicast and multicast addresses
+ * after calling this.
+ */
 int t3_mac_set_num_ucast(struct cmac *mac, int n)
 {
 	if (n > EXACT_ADDR_FILTERS)
@@ -256,7 +269,7 @@ void t3_mac_disable_exact_filters(struct cmac *mac)
 		u32 v = t3_read_reg(mac->adapter, reg);
 		t3_write_reg(mac->adapter, reg, v);
 	}
-	t3_read_reg(mac->adapter, A_XGM_RX_EXACT_MATCH_LOW_1);	
+	t3_read_reg(mac->adapter, A_XGM_RX_EXACT_MATCH_LOW_1);	/* flush */
 }
 
 void t3_mac_enable_exact_filters(struct cmac *mac)
@@ -267,9 +280,10 @@ void t3_mac_enable_exact_filters(struct cmac *mac)
 		u32 v = t3_read_reg(mac->adapter, reg);
 		t3_write_reg(mac->adapter, reg, v);
 	}
-	t3_read_reg(mac->adapter, A_XGM_RX_EXACT_MATCH_LOW_1);	
+	t3_read_reg(mac->adapter, A_XGM_RX_EXACT_MATCH_LOW_1);	/* flush */
 }
 
+/* Calculate the RX hash filter index of an Ethernet address */
 static int hash_hw_addr(const u8 * addr)
 {
 	int hash = 0, octet, bit, i = 0, c;
@@ -335,6 +349,10 @@ int t3_mac_set_mtu(struct cmac *mac, unsigned int mtu)
 	unsigned int thres, v, reg;
 	struct adapter *adap = mac->adapter;
 
+	/*
+	 * MAX_FRAME_SIZE inludes header + FCS, mtu doesn't.  The HW max
+	 * packet size register includes header, but not FCS.
+	 */
 	mtu += 14;
 	if (mtu > 1536)
 		mtu += 4;
@@ -353,7 +371,7 @@ int t3_mac_set_mtu(struct cmac *mac, unsigned int mtu)
 		reg = adap->params.rev == T3_REV_B2 ?
 			A_XGM_RX_MAX_PKT_SIZE_ERR_CNT : A_XGM_RXFIFO_CFG;
 
-		
+		/* drain RX FIFO */
 		if (t3_wait_op_done(adap, reg + mac->offset,
 				    F_RXFIFO_EMPTY, 1, 20, 5)) {
 			t3_write_reg(adap, A_XGM_RX_CFG + mac->offset, v);
@@ -370,6 +388,10 @@ int t3_mac_set_mtu(struct cmac *mac, unsigned int mtu)
 				 V_RXMAXPKTSIZE(M_RXMAXPKTSIZE),
 				 V_RXMAXPKTSIZE(mtu));
 
+	/*
+	 * Adjust the PAUSE frame watermarks.  We always set the LWM, and the
+	 * HWM only if flow-control is enabled.
+	 */
 	hwm = rx_fifo_hwm(mtu);
 	lwm = min(3 * (int)mtu, MAC_RXFIFO_SIZE / 4);
 	v = t3_read_reg(adap, A_XGM_RXFIFO_CFG + mac->offset);
@@ -381,13 +403,13 @@ int t3_mac_set_mtu(struct cmac *mac, unsigned int mtu)
 
 	t3_write_reg(adap, A_XGM_RXFIFO_CFG + mac->offset, v);
 
-	
+	/* Adjust the TX FIFO threshold based on the MTU */
 	thres = (adap->params.vpd.cclk * 1000) / 15625;
 	thres = (thres * mtu) / 1000;
 	if (is_10G(adap))
 		thres /= 10;
 	thres = mtu > thres ? (mtu - thres + 7) / 8 : 0;
-	thres = max(thres, 8U);	
+	thres = max(thres, 8U);	/* need at least 8 */
 	ipg = (adap->params.rev == T3_REV_C) ? 0 : 1;
 	t3_set_reg_field(adap, A_XGM_TXFIFO_CFG + mac->offset,
 			 V_TXFIFOTHRESH(M_TXFIFOTHRESH) | V_TXIPG(M_TXIPG),
@@ -516,8 +538,8 @@ int t3b2_mac_watchdog_task(struct cmac *mac)
 	int status;
 
 	status = 0;
-	tx_xcnt = 1;		
-	tx_tcnt = mac->tx_tcnt;	
+	tx_xcnt = 1;		/* By default tx_xcnt is making progress */
+	tx_tcnt = mac->tx_tcnt;	/* If tx_mcnt is progressing ignore tx_tcnt */
 	if (tx_mcnt == mac->tx_mcnt && mac->rx_pause == s->rx_pause) {
 		tx_xcnt = (G_TXSPI4SOPCNT(t3_read_reg(adap,
 						A_XGM_TX_SPI4_SOP_EOP_CNT +
@@ -555,9 +577,9 @@ out:
 	mac->rx_pause = s->rx_pause;
 	if (status == 1) {
 		t3_write_reg(adap, A_XGM_TX_CTRL + mac->offset, 0);
-		t3_read_reg(adap, A_XGM_TX_CTRL + mac->offset);  
+		t3_read_reg(adap, A_XGM_TX_CTRL + mac->offset);  /* flush */
 		t3_write_reg(adap, A_XGM_TX_CTRL + mac->offset, mac->txen);
-		t3_read_reg(adap, A_XGM_TX_CTRL + mac->offset);  
+		t3_read_reg(adap, A_XGM_TX_CTRL + mac->offset);  /* flush */
 		mac->toggle_cnt++;
 	} else if (status == 2) {
 		t3b2_mac_reset(mac);
@@ -566,6 +588,13 @@ out:
 	return status;
 }
 
+/*
+ * This function is called periodically to accumulate the current values of the
+ * RMON counters into the port statistics.  Since the packet counters are only
+ * 32 bits they can overflow in ~286 secs at 10G, so the function should be
+ * called more frequently than that.  The byte counters are 45-bit wide, they
+ * would overflow in ~7.8 hours.
+ */
 const struct mac_stats *t3_mac_update_stats(struct cmac *mac)
 {
 #define RMON_READ(mac, addr) t3_read_reg(mac->adapter, addr + mac->offset)
@@ -607,7 +636,7 @@ const struct mac_stats *t3_mac_update_stats(struct cmac *mac)
 	RMON_UPDATE(mac, tx_mcast_frames, TX_MCAST);
 	RMON_UPDATE(mac, tx_bcast_frames, TX_BCAST);
 	RMON_UPDATE(mac, tx_pause, TX_PAUSE);
-	
+	/* This counts error frames in general (bad FCS, underrun, etc). */
 	RMON_UPDATE(mac, tx_underrun, TX_ERR_FRAMES);
 
 	RMON_UPDATE(mac, tx_frames_64, TX_64B_FRAMES);
@@ -618,7 +647,7 @@ const struct mac_stats *t3_mac_update_stats(struct cmac *mac)
 	RMON_UPDATE(mac, tx_frames_1024_1518, TX_1024_1518B_FRAMES);
 	RMON_UPDATE(mac, tx_frames_1519_max, TX_1519_MAXB_FRAMES);
 
-	
+	/* The next stat isn't clear-on-read. */
 	t3_write_reg(mac->adapter, A_TP_MIB_INDEX, mac->offset ? 51 : 50);
 	v = t3_read_reg(mac->adapter, A_TP_MIB_RDATA);
 	lo = (u32) mac->stats.rx_cong_drops;

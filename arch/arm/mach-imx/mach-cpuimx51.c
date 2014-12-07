@@ -43,6 +43,7 @@
 #define CPUIMX51_QUART_XTAL	14745600
 #define CPUIMX51_QUART_REGSHIFT	17
 
+/* USB_CTRL_1 */
 #define MX51_USB_CTRL_1_OFFSET		0x10
 #define MX51_USB_CTRL_UH1_EXT_CLK_EN	(1 << 25)
 
@@ -100,24 +101,24 @@ static struct platform_device *devices[] __initdata = {
 };
 
 static iomux_v3_cfg_t eukrea_cpuimx51_pads[] = {
-	
+	/* UART1 */
 	MX51_PAD_UART1_RXD__UART1_RXD,
 	MX51_PAD_UART1_TXD__UART1_TXD,
 	MX51_PAD_UART1_RTS__UART1_RTS,
 	MX51_PAD_UART1_CTS__UART1_CTS,
 
-	
+	/* I2C2 */
 	MX51_PAD_GPIO1_2__I2C2_SCL,
 	MX51_PAD_GPIO1_3__I2C2_SDA,
 	MX51_PAD_NANDF_D10__GPIO3_30,
 
-	
+	/* QUART IRQ */
 	MX51_PAD_NANDF_D15__GPIO3_25,
 	MX51_PAD_NANDF_D14__GPIO3_26,
 	MX51_PAD_NANDF_D13__GPIO3_27,
 	MX51_PAD_NANDF_D12__GPIO3_28,
 
-	
+	/* USB HOST1 */
 	MX51_PAD_USBH1_CLK__USBH1_CLK,
 	MX51_PAD_USBH1_DIR__USBH1_DIR,
 	MX51_PAD_USBH1_NXT__USBH1_NXT,
@@ -154,6 +155,9 @@ static struct i2c_board_info eukrea_cpuimx51_i2c_devices[] = {
 	},
 };
 
+/* This function is board specific as the bit mask for the plldiv will also
+be different for other Freescale SoCs, thus a common bitmask is not
+possible and cannot get place in /plat-mxc/ehci.c.*/
 static int initialize_otg_port(struct platform_device *pdev)
 {
 	u32 v;
@@ -165,7 +169,7 @@ static int initialize_otg_port(struct platform_device *pdev)
 		return -ENOMEM;
 	usbother_base = usb_base + MX5_USBOTHER_REGS_OFFSET;
 
-	
+	/* Set the PHY clock to 19.2MHz */
 	v = __raw_readl(usbother_base + MXC_USB_PHY_CTR_FUNC2_OFFSET);
 	v &= ~MX5_USB_UTMI_PHYCTRL1_PLLDIV_MASK;
 	v |= MX51_USB_PLL_DIV_19_2_MHZ;
@@ -188,7 +192,7 @@ static int initialize_usbh1_port(struct platform_device *pdev)
 		return -ENOMEM;
 	usbother_base = usb_base + MX5_USBOTHER_REGS_OFFSET;
 
-	
+	/* The clock for the USBH1 ULPI port will come externally from the PHY. */
 	v = __raw_readl(usbother_base + MX51_USB_CTRL_1_OFFSET);
 	__raw_writel(v | MX51_USB_CTRL_UH1_EXT_CLK_EN, usbother_base + MX51_USB_CTRL_1_OFFSET);
 	iounmap(usb_base);
@@ -229,6 +233,9 @@ static int __init eukrea_cpuimx51_otg_mode(char *options)
 }
 __setup("otg_mode=", eukrea_cpuimx51_otg_mode);
 
+/*
+ * Board specific initialization.
+ */
 static void __init eukrea_cpuimx51_init(void)
 {
 	imx51_soc_init();
@@ -282,7 +289,7 @@ static struct sys_timer mxc_timer = {
 };
 
 MACHINE_START(EUKREA_CPUIMX51, "Eukrea CPUIMX51 Module")
-	
+	/* Maintainer: Eric Bénard <eric@eukrea.com> */
 	.atag_offset = 0x100,
 	.map_io = mx51_map_io,
 	.init_early = imx51_init_early,

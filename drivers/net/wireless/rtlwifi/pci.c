@@ -67,6 +67,7 @@ static u8 _rtl_mac_to_hwqueue(struct ieee80211_hw *hw,
 	return ac_to_hwq[queue_index];
 }
 
+/* Update PCI dependent default settings*/
 static void _rtl_pci_update_default_setting(struct ieee80211_hw *hw)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
@@ -79,31 +80,39 @@ static void _rtl_pci_update_default_setting(struct ieee80211_hw *hw)
 	ppsc->reg_rfps_level = 0;
 	ppsc->support_aspm = false;
 
-	
+	/*Update PCI ASPM setting */
 	ppsc->const_amdpci_aspm = rtlpci->const_amdpci_aspm;
 	switch (rtlpci->const_pci_aspm) {
 	case 0:
-		
+		/*No ASPM */
 		break;
 
 	case 1:
-		
+		/*ASPM dynamically enabled/disable. */
 		ppsc->reg_rfps_level |= RT_RF_LPS_LEVEL_ASPM;
 		break;
 
 	case 2:
-		
+		/*ASPM with Clock Req dynamically enabled/disable. */
 		ppsc->reg_rfps_level |= (RT_RF_LPS_LEVEL_ASPM |
 					 RT_RF_OFF_LEVL_CLK_REQ);
 		break;
 
 	case 3:
+		/*
+		 * Always enable ASPM and Clock Req
+		 * from initialization to halt.
+		 * */
 		ppsc->reg_rfps_level &= ~(RT_RF_LPS_LEVEL_ASPM);
 		ppsc->reg_rfps_level |= (RT_RF_PS_LEVEL_ALWAYS_ASPM |
 					 RT_RF_OFF_LEVL_CLK_REQ);
 		break;
 
 	case 4:
+		/*
+		 * Always enable ASPM without Clock Req
+		 * from initialization to halt.
+		 * */
 		ppsc->reg_rfps_level &= ~(RT_RF_LPS_LEVEL_ASPM |
 					  RT_RF_OFF_LEVL_CLK_REQ);
 		ppsc->reg_rfps_level |= RT_RF_PS_LEVEL_ALWAYS_ASPM;
@@ -112,7 +121,7 @@ static void _rtl_pci_update_default_setting(struct ieee80211_hw *hw)
 
 	ppsc->reg_rfps_level |= RT_RF_OFF_LEVL_HALT_NIC;
 
-	
+	/*Update Radio OFF setting */
 	switch (rtlpci->const_hwsw_rfoff_d3) {
 	case 1:
 		if (ppsc->reg_rfps_level & RT_RF_LPS_LEVEL_ASPM)
@@ -130,27 +139,30 @@ static void _rtl_pci_update_default_setting(struct ieee80211_hw *hw)
 		break;
 	}
 
-	
+	/*Set HW definition to determine if it supports ASPM. */
 	switch (rtlpci->const_support_pciaspm) {
 	case 0:{
-			
+			/*Not support ASPM. */
 			bool support_aspm = false;
 			ppsc->support_aspm = support_aspm;
 			break;
 		}
 	case 1:{
-			
+			/*Support ASPM. */
 			bool support_aspm = true;
 			bool support_backdoor = true;
 			ppsc->support_aspm = support_aspm;
 
+			/*if (priv->oem_id == RT_CID_TOSHIBA &&
+			   !priv->ndis_adapter.amd_l1_patch)
+			   support_backdoor = false; */
 
 			ppsc->support_backdoor = support_backdoor;
 
 			break;
 		}
 	case 2:
-		
+		/*ASPM value set by chipset. */
 		if (pcibridge_vendor == PCI_BRIDGE_VENDOR_INTEL) {
 			bool support_aspm = true;
 			ppsc->support_aspm = support_aspm;
@@ -162,6 +174,8 @@ static void _rtl_pci_update_default_setting(struct ieee80211_hw *hw)
 		break;
 	}
 
+	/* toshiba aspm issue, toshiba will set aspm selfly
+	 * so we should not set aspm in driver */
 	pci_read_config_byte(rtlpci->pdev, 0x80, &init_aspm);
 	if (rtlpriv->rtlhal.hw_type == HARDWARE_TYPE_RTL8192SE &&
 		init_aspm == 0x43)
@@ -183,6 +197,7 @@ static bool _rtl_pci_platform_switch_device_pci_aspm(
 	return false;
 }
 
+/*When we set 0x01 to enable clk request. Set 0x0 to disable clk req.*/
 static void _rtl_pci_switch_clk_req(struct ieee80211_hw *hw, u8 value)
 {
 	struct rtl_pci *rtlpci = rtl_pcidev(rtl_pcipriv(hw));
@@ -194,6 +209,7 @@ static void _rtl_pci_switch_clk_req(struct ieee80211_hw *hw, u8 value)
 		udelay(100);
 }
 
+/*Disable RTL8192SE ASPM & Disable Pci Bridge ASPM*/
 static void rtl_pci_disable_aspm(struct ieee80211_hw *hw)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
@@ -202,7 +218,7 @@ static void rtl_pci_disable_aspm(struct ieee80211_hw *hw)
 	struct rtl_pci *rtlpci = rtl_pcidev(rtl_pcipriv(hw));
 	u8 pcibridge_vendor = pcipriv->ndis_adapter.pcibridge_vendor;
 	u8 num4bytes = pcipriv->ndis_adapter.num4bytes;
-	
+	/*Retrieve original configuration settings. */
 	u8 linkctrl_reg = pcipriv->ndis_adapter.linkctrl_reg;
 	u16 pcibridge_linkctrlreg = pcipriv->ndis_adapter.
 				pcibridge_linkctrlreg;
@@ -224,10 +240,10 @@ static void rtl_pci_disable_aspm(struct ieee80211_hw *hw)
 		_rtl_pci_switch_clk_req(hw, 0x0);
 	}
 
-	
+	/*for promising device will in L0 state after an I/O. */
 	pci_read_config_byte(rtlpci->pdev, 0x80, &tmp_u1b);
 
-	
+	/*Set corresponding value. */
 	aspmlevel |= BIT(0) | BIT(1);
 	linkctrl_reg &= ~aspmlevel;
 	pcibridge_linkctrlreg &= ~(BIT(0) | BIT(1));
@@ -235,13 +251,19 @@ static void rtl_pci_disable_aspm(struct ieee80211_hw *hw)
 	_rtl_pci_platform_switch_device_pci_aspm(hw, linkctrl_reg);
 	udelay(50);
 
-	
+	/*4 Disable Pci Bridge ASPM */
 	pci_write_config_byte(rtlpci->pdev, (num4bytes << 2),
 			      pcibridge_linkctrlreg);
 
 	udelay(50);
 }
 
+/*
+ *Enable RTL8192SE ASPM & Enable Pci Bridge ASPM for
+ *power saving We should follow the sequence to enable
+ *RTL8192SE first then enable Pci Bridge ASPM
+ *or the system will show bluescreen.
+ */
 static void rtl_pci_enable_aspm(struct ieee80211_hw *hw)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
@@ -266,7 +288,7 @@ static void rtl_pci_enable_aspm(struct ieee80211_hw *hw)
 		return;
 	}
 
-	
+	/*4 Enable Pci Bridge ASPM */
 
 	u_pcibridge_aspmsetting =
 	    pcipriv->ndis_adapter.pcibridge_linkctrlreg |
@@ -286,12 +308,12 @@ static void rtl_pci_enable_aspm(struct ieee80211_hw *hw)
 
 	udelay(50);
 
-	
+	/*Get ASPM level (with/without Clock Req) */
 	aspmlevel = rtlpci->const_devicepci_aspm_setting;
 	u_device_aspmsetting = pcipriv->ndis_adapter.linkctrl_reg;
 
-	
-	
+	/*_rtl_pci_platform_switch_device_pci_aspm(dev,*/
+	/*(priv->ndis_adapter.linkctrl_reg | ASPMLevel)); */
 
 	u_device_aspmsetting |= aspmlevel;
 
@@ -336,7 +358,7 @@ static void rtl_pci_get_linkcontrol_field(struct ieee80211_hw *hw)
 
 	num4bbytes = (capabilityoffset + 0x10) / 4;
 
-	
+	/*Read  Link Control Register */
 	pci_read_config_byte(rtlpci->pdev, (num4bbytes << 2), &linkctrl_reg);
 
 	pcipriv->ndis_adapter.pcibridge_linkctrlreg = linkctrl_reg;
@@ -352,7 +374,7 @@ static void rtl_pci_parse_configuration(struct pci_dev *pdev,
 	int pos;
 	u8 linkctrl_reg;
 
-	
+	/*Link Control Register */
 	pos = pci_pcie_cap(pdev);
 	pci_read_config_byte(pdev, pos + PCI_EXP_LNKCTL, &linkctrl_reg);
 	pcipriv->ndis_adapter.linkctrl_reg = linkctrl_reg;
@@ -375,7 +397,7 @@ static void rtl_pci_init_aspm(struct ieee80211_hw *hw)
 	_rtl_pci_update_default_setting(hw);
 
 	if (ppsc->reg_rfps_level & RT_RF_PS_LEVEL_ALWAYS_ASPM) {
-		
+		/*Always enable ASPM & Clock Req. */
 		rtl_pci_enable_aspm(hw);
 		RT_SET_PS_LEVEL(ppsc, RT_RF_PS_LEVEL_ALWAYS_ASPM);
 	}
@@ -411,11 +433,11 @@ static bool _rtl_update_earlymode_info(struct ieee80211_hw *hw,
 	u8 additionlen = FCS_LEN;
 	struct sk_buff *next_skb;
 
-	
+	/* here open is 4, wep/tkip is 8, aes is 12*/
 	if (info->control.hw_key)
 		additionlen += info->control.hw_key->icv_len;
 
-	
+	/* The most skb num is 6 */
 	tcb_desc->empkt_num = 0;
 	spin_lock_bh(&rtlpriv->locks.waitq_lock);
 	skb_queue_walk(&rtlpriv->mac80211.skb_waitq[tid], next_skb) {
@@ -442,6 +464,7 @@ static bool _rtl_update_earlymode_info(struct ieee80211_hw *hw,
 	return true;
 }
 
+/* just for early mode now */
 static void _rtl_pci_tx_chk_waitq(struct ieee80211_hw *hw)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
@@ -454,7 +477,7 @@ static void _rtl_pci_tx_chk_waitq(struct ieee80211_hw *hw)
 	if (!rtlpriv->rtlhal.earlymode_enable)
 		return;
 
-	
+	/* we juse use em for BE/BK/VI/VO */
 	for (tid = 7; tid >= 0; tid--) {
 		u8 hw_queue = ac_to_hwq[rtl_tid_to_ac(hw, tid)];
 		struct rtl8192_tx_ring *ring = &rtlpci->tx_ring[hw_queue];
@@ -473,6 +496,8 @@ static void _rtl_pci_tx_chk_waitq(struct ieee80211_hw *hw)
 			}
 			spin_unlock_bh(&rtlpriv->locks.waitq_lock);
 
+			/* Some macaddr can't do early mode. like
+			 * multicast/broadcast/no_qos data */
 			info = IEEE80211_SKB_CB(skb);
 			if (info->flags & IEEE80211_TX_CTL_AMPDU)
 				_rtl_update_earlymode_info(hw, skb,
@@ -501,6 +526,11 @@ static void _rtl_pci_tx_isr(struct ieee80211_hw *hw, int prio)
 		u8 own = (u8) rtlpriv->cfg->ops->get_desc((u8 *) entry, true,
 							  HW_DESC_OWN);
 
+		/*
+		 *beacon packet will only use the first
+		 *descriptor defautly,and the own may not
+		 *be cleared by the hardware
+		 */
 		if (own)
 			return;
 		ring->idx = (ring->idx + 1) % ring->entries;
@@ -512,7 +542,7 @@ static void _rtl_pci_tx_isr(struct ieee80211_hw *hw, int prio)
 						      HW_DESC_TXBUFF_ADDR),
 				 skb->len, PCI_DMA_TODEVICE);
 
-		
+		/* remove early mode header */
 		if (rtlpriv->rtlhal.earlymode_enable)
 			skb_pull(skb, EM_HDR_LEN);
 
@@ -528,6 +558,9 @@ static void _rtl_pci_tx_isr(struct ieee80211_hw *hw, int prio)
 
 		}
 
+		/* for sw LPS, just after NULL skb send out, we can
+		 * sure AP kown we are sleeped, our we should not let
+		 * rf to sleep*/
 		fc = rtl_get_fc(skb);
 		if (ieee80211_is_nullfunc(fc)) {
 			if (ieee80211_has_pm(fc)) {
@@ -538,7 +571,7 @@ static void _rtl_pci_tx_isr(struct ieee80211_hw *hw, int prio)
 			}
 		}
 
-		
+		/* update tid tx pkt num */
 		tid = rtl_get_tid(skb);
 		if (tid <= 7)
 			rtlpriv->link_info.tidtx_inperiod[tid]++;
@@ -547,7 +580,7 @@ static void _rtl_pci_tx_isr(struct ieee80211_hw *hw, int prio)
 		ieee80211_tx_info_clear_status(info);
 
 		info->flags |= IEEE80211_TX_STAT_ACK;
-		
+		/*info->status.rates[0].count = 1; */
 
 		ieee80211_tx_status_irqsafe(hw, skb);
 
@@ -588,9 +621,9 @@ static void _rtl_receive_one(struct ieee80211_hw *hw, struct sk_buff *skb,
 	memcpy(IEEE80211_SKB_RXCB(skb), &rx_status, sizeof(rx_status));
 
 	if (is_broadcast_ether_addr(hdr->addr1)) {
-		;
+		;/*TODO*/
 	} else if (is_multicast_ether_addr(hdr->addr1)) {
-		;
+		;/*TODO*/
 	} else {
 		unicast = true;
 		rtlpriv->stats.rxbytesunicast += skb->len;
@@ -605,7 +638,7 @@ static void _rtl_receive_one(struct ieee80211_hw *hw, struct sk_buff *skb,
 			rtlpriv->link_info.num_rx_inperiod++;
 	}
 
-	
+	/* for sw lps */
 	rtl_swlps_beacon(hw, (void *)skb->data, skb->len);
 	rtl_recognize_peer(hw, (void *)skb->data, skb->len);
 	if ((rtlpriv->mac80211.opmode == NL80211_IFTYPE_AP) &&
@@ -618,7 +651,7 @@ static void _rtl_receive_one(struct ieee80211_hw *hw, struct sk_buff *skb,
 
 	uskb = dev_alloc_skb(skb->len + 128);
 	if (!uskb)
-		return;		
+		return;		/* exit if allocation failed */
 	memcpy(IEEE80211_SKB_RXCB(uskb), &rx_status, sizeof(rx_status));
 	pdata = (u8 *)skb_put(uskb, skb->len);
 	memcpy(pdata, skb->data, skb->len);
@@ -645,12 +678,12 @@ static void _rtl_pci_rx_interrupt(struct ieee80211_hw *hw)
 	};
 	int index = rtlpci->rx_ring[rx_queue_idx].idx;
 
-	
+	/*RX NORMAL PKT */
 	while (count--) {
-		
+		/*rx descriptor */
 		struct rtl_rx_desc *pdesc = &rtlpci->rx_ring[rx_queue_idx].desc[
 				index];
-		
+		/*rx pkt */
 		struct sk_buff *skb = rtlpci->rx_ring[rx_queue_idx].rx_buf[
 				index];
 		struct sk_buff *new_skb = NULL;
@@ -658,7 +691,7 @@ static void _rtl_pci_rx_interrupt(struct ieee80211_hw *hw)
 		own = (u8) rtlpriv->cfg->ops->get_desc((u8 *) pdesc,
 						       false, HW_DESC_OWN);
 
-		
+		/*wait data to be filled by hardware */
 		if (own)
 			break;
 
@@ -685,6 +718,12 @@ static void _rtl_pci_rx_interrupt(struct ieee80211_hw *hw)
 			HW_DESC_RXPKT_LEN));
 		skb_reserve(skb, stats.rx_drvinfo_size + stats.rx_bufshift);
 
+		/*
+		 * NOTICE This can not be use for mac80211,
+		 * this is done in mac80211 code,
+		 * if you done here sec DHCP will fail
+		 * skb_trim(skb, skb->len - 4);
+		 */
 
 		_rtl_receive_one(hw, skb, rx_status);
 
@@ -739,16 +778,16 @@ static irqreturn_t _rtl_pci_interrupt(int irq, void *dev_id)
 
 	spin_lock_irqsave(&rtlpriv->locks.irq_th_lock, flags);
 
-	
+	/*read ISR: 4/8bytes */
 	rtlpriv->cfg->ops->interrupt_recognized(hw, &inta, &intb);
 
-	
+	/*Shared IRQ or HW disappared */
 	if (!inta || inta == 0xffff) {
 		ret = IRQ_NONE;
 		goto done;
 	}
 
-	
+	/*<1> beacon related */
 	if (inta & rtlpriv->cfg->maps[RTL_IMR_TBDOK]) {
 		RT_TRACE(rtlpriv, COMP_INTR, DBG_TRACE,
 			 "beacon ok interrupt!\n");
@@ -769,7 +808,7 @@ static irqreturn_t _rtl_pci_interrupt(int irq, void *dev_id)
 		tasklet_schedule(&rtlpriv->works.irq_prepare_bcn_tasklet);
 	}
 
-	
+	/*<3> Tx related */
 	if (unlikely(inta & rtlpriv->cfg->maps[RTL_IMR_TXFOVW]))
 		RT_TRACE(rtlpriv, COMP_ERR, DBG_WARNING, "IMR_TXFOVW!\n");
 
@@ -827,7 +866,7 @@ static irqreturn_t _rtl_pci_interrupt(int irq, void *dev_id)
 		}
 	}
 
-	
+	/*<2> Rx related */
 	if (inta & rtlpriv->cfg->maps[RTL_IMR_ROK]) {
 		RT_TRACE(rtlpriv, COMP_INTR, DBG_TRACE, "Rx ok interrupt!\n");
 		_rtl_pci_rx_interrupt(hw);
@@ -881,7 +920,7 @@ static void _rtl_pci_prepare_bcn_tasklet(struct ieee80211_hw *hw)
 		kfree_skb(pskb);
 	}
 
-	
+	/*NB: the beacon data buffer must be 32-bit aligned. */
 	pskb = ieee80211_beacon_get(hw, mac->vif);
 	if (pskb == NULL)
 		return;
@@ -916,12 +955,21 @@ static void _rtl_pci_init_trx_var(struct ieee80211_hw *hw)
 	for (i = 0; i < RTL_PCI_MAX_TX_QUEUE_COUNT; i++)
 		rtlpci->txringcount[i] = RT_TXDESC_NUM;
 
+	/*
+	 *we just alloc 2 desc for beacon queue,
+	 *because we just need first desc in hw beacon.
+	 */
 	rtlpci->txringcount[BEACON_QUEUE] = 2;
 
+	/*
+	 *BE queue need more descriptor for performance
+	 *consideration or, No more tx desc will happen,
+	 *and may cause mac80211 mem leakage.
+	 */
 	rtlpci->txringcount[BE_QUEUE] = RT_TXDESC_NUM_BE_QUEUE;
 
-	rtlpci->rxbuffersize = 9100;	
-	rtlpci->rxringcount = RTL_PCI_MAX_RX_COUNT;	
+	rtlpci->rxbuffersize = 9100;	/*2048/1024; */
+	rtlpci->rxringcount = RTL_PCI_MAX_RX_COUNT;	/*64; */
 }
 
 static void _rtl_pci_init_struct(struct ieee80211_hw *hw,
@@ -938,22 +986,22 @@ static void _rtl_pci_init_struct(struct ieee80211_hw *hw,
 	rtlhal->hw = hw;
 	rtlpci->pdev = pdev;
 
-	
+	/*Tx/Rx related var */
 	_rtl_pci_init_trx_var(hw);
 
-	 mac->beacon_interval = 100;
+	/*IBSS*/ mac->beacon_interval = 100;
 
-	
+	/*AMPDU*/
 	mac->min_space_cfg = 0;
 	mac->max_mss_density = 0;
-	
+	/*set sane AMPDU defaults */
 	mac->current_ampdu_density = 7;
 	mac->current_ampdu_factor = 3;
 
-	
+	/*QOS*/
 	rtlpci->acm_method = eAcmWay2_SW;
 
-	
+	/*task */
 	tasklet_init(&rtlpriv->works.irq_tasklet,
 		     (void (*)(unsigned long))_rtl_pci_irq_tasklet,
 		     (unsigned long)hw);
@@ -1013,6 +1061,10 @@ static int _rtl_pci_init_rx_ring(struct ieee80211_hw *hw)
 	int i, rx_queue_idx;
 	u8 tmp_one = 1;
 
+	/*
+	 *rx_queue_idx 0:RX_MPDU_QUEUE
+	 *rx_queue_idx 1:RX_CMD_QUEUE
+	 */
 	for (rx_queue_idx = 0; rx_queue_idx < RTL_PCI_MAX_RX_QUEUE;
 	     rx_queue_idx++) {
 		rtlpci->rx_ring[rx_queue_idx].desc =
@@ -1034,6 +1086,9 @@ static int _rtl_pci_init_rx_ring(struct ieee80211_hw *hw)
 
 		rtlpci->rx_ring[rx_queue_idx].idx = 0;
 
+		/* If amsdu_8k is disabled, set buffersize to 4096. This
+		 * change will reduce memory fragmentation.
+		 */
 		if (rtlpci->rxbuffersize > 4096 &&
 		    rtlpriv->rtlhal.disable_amsdu_8k)
 			rtlpci->rxbuffersize = 4096;
@@ -1046,10 +1101,14 @@ static int _rtl_pci_init_rx_ring(struct ieee80211_hw *hw)
 				return 0;
 			entry = &rtlpci->rx_ring[rx_queue_idx].desc[i];
 
-			
+			/*skb->dev = dev; */
 
 			rtlpci->rx_ring[rx_queue_idx].rx_buf[i] = skb;
 
+			/*
+			 *just set skb->cb to mapping addr
+			 *for pci_unmap_single use
+			 */
 			*((dma_addr_t *) skb->cb) =
 			    pci_map_single(rtlpci->pdev, skb_tail_pointer(skb),
 					   rtlpci->rxbuffersize,
@@ -1106,8 +1165,8 @@ static void _rtl_pci_free_rx_ring(struct rtl_pci *rtlpci)
 {
 	int i, rx_queue_idx;
 
-	
-	
+	/*rx_queue_idx 0:RX_MPDU_QUEUE */
+	/*rx_queue_idx 1:RX_CMD_QUEUE */
 	for (rx_queue_idx = 0; rx_queue_idx < RTL_PCI_MAX_RX_QUEUE;
 	     rx_queue_idx++) {
 		for (i = 0; i < rtlpci->rxringcount; i++) {
@@ -1168,10 +1227,10 @@ static int _rtl_pci_deinit_trx_ring(struct ieee80211_hw *hw)
 	struct rtl_pci *rtlpci = rtl_pcidev(rtl_pcipriv(hw));
 	u32 i;
 
-	
+	/*free rx rings */
 	_rtl_pci_free_rx_ring(rtlpci);
 
-	
+	/*free tx rings */
 	for (i = 0; i < RTL_PCI_MAX_TX_QUEUE_COUNT; i++)
 		_rtl_pci_free_tx_ring(hw, i);
 
@@ -1186,10 +1245,14 @@ int rtl_pci_reset_trx_ring(struct ieee80211_hw *hw)
 	unsigned long flags;
 	u8 tmp_one = 1;
 
-	
-	
+	/*rx_queue_idx 0:RX_MPDU_QUEUE */
+	/*rx_queue_idx 1:RX_CMD_QUEUE */
 	for (rx_queue_idx = 0; rx_queue_idx < RTL_PCI_MAX_RX_QUEUE;
 	     rx_queue_idx++) {
+		/*
+		 *force the rx_ring[RX_MPDU_QUEUE/
+		 *RX_CMD_QUEUE].idx to the first one
+		 */
 		if (rtlpci->rx_ring[rx_queue_idx].desc) {
 			struct rtl_rx_desc *entry = NULL;
 
@@ -1204,6 +1267,10 @@ int rtl_pci_reset_trx_ring(struct ieee80211_hw *hw)
 		}
 	}
 
+	/*
+	 *after reset, release previous pending packet,
+	 *and force the  tx idx to the first one
+	 */
 	spin_lock_irqsave(&rtlpriv->locks.irq_th_lock, flags);
 	for (i = 0; i < RTL_PCI_MAX_TX_QUEUE_COUNT; i++) {
 		if (rtlpci->tx_ring[i].desc) {
@@ -1256,7 +1323,7 @@ static bool rtl_pci_tx_chk_waitq_insert(struct ieee80211_hw *hw,
 	if (tid > 7)
 		return false;
 
-	
+	/* maybe every tid should be checked */
 	if (!rtlpriv->link_info.higher_busytxtraffic[tid])
 		return false;
 
@@ -1283,7 +1350,7 @@ static int rtl_pci_tx(struct ieee80211_hw *hw, struct sk_buff *skb,
 	__le16 fc = rtl_get_fc(skb);
 	u8 *pda_addr = hdr->addr1;
 	struct rtl_pci *rtlpci = rtl_pcidev(rtl_pcipriv(hw));
-	
+	/*ssn */
 	u8 tid = 0;
 	u16 seq_number = 0;
 	u8 own;
@@ -1396,7 +1463,7 @@ static void rtl_pci_flush(struct ieee80211_hw *hw, bool drop)
 			i++;
 		}
 
-		
+		/* we just wait 1s for all queues */
 		if (rtlpriv->psc.rfpwr_state == ERFOFF ||
 			is_hal_stop(rtlhal) || i >= 200)
 			return;
@@ -1460,7 +1527,7 @@ static int rtl_pci_start(struct ieee80211_hw *hw)
 
 	rtl_init_rx_config(hw);
 
-	
+	/*should be after adapter start and interrupt enable. */
 	set_hal_start(rtlhal);
 
 	RT_CLEAR_PS_LEVEL(ppsc, RT_RF_OFF_LEVL_HALT_NIC);
@@ -1480,6 +1547,10 @@ static void rtl_pci_stop(struct ieee80211_hw *hw)
 	unsigned long flags;
 	u8 RFInProgressTimeOut = 0;
 
+	/*
+	 *should be before disable interrupt&adapter
+	 *and will do it immediately.
+	 */
 	set_hal_stop(rtlhal);
 
 	rtlpriv->cfg->ops->disable_interrupt(hw);
@@ -1501,7 +1572,7 @@ static void rtl_pci_stop(struct ieee80211_hw *hw)
 
 	rtlpci->driver_is_goingto_unload = true;
 	rtlpriv->cfg->ops->hw_disable(hw);
-	
+	/* some things are not needed if firmware not available */
 	if (!rtlpriv->max_fw_size)
 		return;
 	rtlpriv->cfg->ops->led_control(hw, LED_CTL_POWER_OFF);
@@ -1532,6 +1603,12 @@ static bool _rtl_pci_find_adapter(struct pci_dev *pdev,
 	pci_read_config_byte(pdev, 0x8, &revisionid);
 	pci_read_config_word(pdev, 0x3C, &irqline);
 
+	/* PCI ID 0x10ec:0x8192 occurs for both RTL8192E, which uses
+	 * r8192e_pci, and RTL8192SE, which uses this driver. If the
+	 * revision ID is RTL_PCI_REVISION_ID_8192PCIE (0x01), then
+	 * the correct driver is r8192e_pci, thus this routine should
+	 * return false.
+	 */
 	if (deviceid == RTL_PCI_8192SE_DID &&
 	    revisionid == RTL_PCI_REVISION_ID_8192PCIE)
 		return false;
@@ -1605,13 +1682,13 @@ static bool _rtl_pci_find_adapter(struct pci_dev *pdev,
 			rtlhal->interfaceindex = 0;
 		}
 	}
-	
+	/*find bus info */
 	pcipriv->ndis_adapter.busnumber = pdev->bus->number;
 	pcipriv->ndis_adapter.devnumber = PCI_SLOT(pdev->devfn);
 	pcipriv->ndis_adapter.funcnumber = PCI_FUNC(pdev->devfn);
 
 	if (bridge_pdev) {
-		
+		/*find bridge info if available */
 		pcipriv->ndis_adapter.pcibridge_vendorid = bridge_pdev->vendor;
 		for (tmp = 0; tmp < PCI_BRIDGE_VENDOR_MAX; tmp++) {
 			if (bridge_pdev->vendor == pcibridge_vendors[tmp]) {
@@ -1714,14 +1791,22 @@ int __devinit rtl_pci_probe(struct pci_dev *pdev,
 	pcipriv->dev.pdev = pdev;
 	init_completion(&rtlpriv->firmware_loading_complete);
 
-	
+	/* init cfg & intf_ops */
 	rtlpriv->rtlhal.interface = INTF_PCI;
 	rtlpriv->cfg = (struct rtl_hal_cfg *)(id->driver_data);
 	rtlpriv->intf_ops = &rtl_pci_ops;
 
+	/*
+	 *init dbgp flags before all
+	 *other functions, because we will
+	 *use it in other funtions like
+	 *RT_TRACE/RT_PRINT/RTL_PRINT_DATA
+	 *you can not use these macro
+	 *before this
+	 */
 	rtl_dbgp_flag_init(hw);
 
-	
+	/* MEM map */
 	err = pci_request_regions(pdev, KBUILD_MODNAME);
 	if (err) {
 		RT_ASSERT(false, "Can't obtain PCI resources\n");
@@ -1732,7 +1817,7 @@ int __devinit rtl_pci_probe(struct pci_dev *pdev,
 	pmem_len = pci_resource_len(pdev, rtlpriv->cfg->bar_id);
 	pmem_flags = pci_resource_flags(pdev, rtlpriv->cfg->bar_id);
 
-	
+	/*shared mem start */
 	rtlpriv->io.pci_mem_start =
 			(unsigned long)pci_iomap(pdev,
 			rtlpriv->cfg->bar_id, pmem_len);
@@ -1747,29 +1832,29 @@ int __devinit rtl_pci_probe(struct pci_dev *pdev,
 		 pmem_start, pmem_len, pmem_flags,
 		 rtlpriv->io.pci_mem_start);
 
-	
+	/* Disable Clk Request */
 	pci_write_config_byte(pdev, 0x81, 0);
-	
+	/* leave D3 mode */
 	pci_write_config_byte(pdev, 0x44, 0);
 	pci_write_config_byte(pdev, 0x04, 0x06);
 	pci_write_config_byte(pdev, 0x04, 0x07);
 
-	
+	/* find adapter */
 	if (!_rtl_pci_find_adapter(pdev, hw)) {
 		err = -ENODEV;
 		goto fail3;
 	}
 
-	
+	/* Init IO handler */
 	_rtl_pci_io_handler_init(&pdev->dev, hw);
 
-	
+	/*like read eeprom and so on */
 	rtlpriv->cfg->ops->read_eeprom_info(hw);
 
-	
+	/*aspm */
 	rtl_pci_init_aspm(hw);
 
-	
+	/* Init mac80211 sw */
 	err = rtl_init_core(hw);
 	if (err) {
 		RT_TRACE(rtlpriv, COMP_ERR, DBG_EMERG,
@@ -1777,7 +1862,7 @@ int __devinit rtl_pci_probe(struct pci_dev *pdev,
 		goto fail3;
 	}
 
-	
+	/* Init PCI sw */
 	err = rtl_pci_init(hw, pdev);
 	if (err) {
 		RT_TRACE(rtlpriv, COMP_ERR, DBG_EMERG, "Failed to init PCI\n");
@@ -1842,13 +1927,13 @@ void rtl_pci_disconnect(struct pci_dev *pdev)
 	struct rtl_pci *rtlpci = rtl_pcidev(pcipriv);
 	struct rtl_mac *rtlmac = rtl_mac(rtlpriv);
 
-	
+	/* just in case driver is removed before firmware callback */
 	wait_for_completion(&rtlpriv->firmware_loading_complete);
 	clear_bit(RTL_STATUS_INTERFACE_START, &rtlpriv->status);
 
 	sysfs_remove_group(&pdev->dev.kobj, &rtl_attribute_group);
 
-	
+	/*ieee80211_unregister_hw will call ops_stop */
 	if (rtlmac->mac80211_registered == 1) {
 		ieee80211_unregister_hw(hw);
 		rtlmac->mac80211_registered = 0;
@@ -1858,7 +1943,7 @@ void rtl_pci_disconnect(struct pci_dev *pdev)
 	}
 	rtlpriv->cfg->ops->disable_interrupt(hw);
 
-	
+	/*deinit rfkill */
 	rtl_deinit_rfkill(hw);
 
 	rtl_pci_deinit(hw);
@@ -1886,6 +1971,21 @@ void rtl_pci_disconnect(struct pci_dev *pdev)
 }
 EXPORT_SYMBOL(rtl_pci_disconnect);
 
+/***************************************
+kernel pci power state define:
+PCI_D0         ((pci_power_t __force) 0)
+PCI_D1         ((pci_power_t __force) 1)
+PCI_D2         ((pci_power_t __force) 2)
+PCI_D3hot      ((pci_power_t __force) 3)
+PCI_D3cold     ((pci_power_t __force) 4)
+PCI_UNKNOWN    ((pci_power_t __force) 5)
+
+This function is called when system
+goes into suspend state mac80211 will
+call rtl_mac_stop() from the mac80211
+suspend function first, So there is
+no need to call hw_disable here.
+****************************************/
 int rtl_pci_suspend(struct device *dev)
 {
 	struct pci_dev *pdev = to_pci_dev(dev);

@@ -27,12 +27,30 @@
 
 #include <asm/octeon/octeon.h>
 
+/**
+ * Given the chip processor ID from COP0, this function returns a
+ * string representing the chip model number. The string is of the
+ * form CNXXXXpX.X-FREQ-SUFFIX.
+ * - XXXX = The chip model number
+ * - X.X = Chip pass number
+ * - FREQ = Current frequency in Mhz
+ * - SUFFIX = NSP, EXP, SCP, SSP, or CP
+ *
+ * @chip_id: Chip ID
+ *
+ * Returns Model string
+ */
 const char *octeon_model_get_string(uint32_t chip_id)
 {
 	static char buffer[32];
 	return octeon_model_get_string_buffer(chip_id, buffer);
 }
 
+/*
+ * Version of octeon_model_get_string() that takes buffer as argument,
+ * as running early in u-boot static/global variables don't work when
+ * running from flash.
+ */
 const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 {
 	const char *family;
@@ -54,25 +72,25 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 	fus_dat3.u64 = cvmx_read_csr(CVMX_MIO_FUS_DAT3);
 	num_cores = cvmx_pop(cvmx_read_csr(CVMX_CIU_FUSE));
 
-	
+	/* Make sure the non existent devices look disabled */
 	switch ((chip_id >> 8) & 0xff) {
-	case 6:		
-	case 2:		
+	case 6:		/* CN50XX */
+	case 2:		/* CN30XX */
 		fus_dat3.s.nodfa_dte = 1;
 		fus_dat3.s.nozip = 1;
 		break;
-	case 4:		
+	case 4:		/* CN57XX or CN56XX */
 		fus_dat3.s.nodfa_dte = 1;
 		break;
 	default:
 		break;
 	}
 
-	
-	
-	
-	
-	
+	/* Make a guess at the suffix */
+	/* NSP = everything */
+	/* EXP = No crypto */
+	/* SCP = No DFA, No zip */
+	/* CP = No DFA, No crypto, No zip */
 	if (fus_dat3.s.nodfa_dte) {
 		if (fus_dat2.s.nocrypto)
 			suffix = "CP";
@@ -83,8 +101,17 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 	else
 		suffix = "NSP";
 
+	/*
+	 * Assume pass number is encoded using <5:3><2:0>. Exceptions
+	 * will be fixed later.
+	 */
 	sprintf(pass, "%d.%d", (int)((chip_id >> 3) & 7) + 1, (int)chip_id & 7);
 
+	/*
+	 * Use the number of cores to determine the last 2 digits of
+	 * the model number. There are some exceptions that are fixed
+	 * later.
+	 */
 	switch (num_cores) {
 	case 32:
 		core_model = "80";
@@ -145,16 +172,24 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 		break;
 	}
 
-	
+	/* Now figure out the family, the first two digits */
 	switch ((chip_id >> 8) & 0xff) {
-	case 0:		
+	case 0:		/* CN38XX, CN37XX or CN36XX */
 		if (fus3.cn38xx.crip_512k) {
+			/*
+			 * For some unknown reason, the 16 core one is
+			 * called 37 instead of 36.
+			 */
 			if (num_cores >= 16)
 				family = "37";
 			else
 				family = "36";
 		} else
 			family = "38";
+		/*
+		 * This series of chips didn't follow the standard
+		 * pass numbering.
+		 */
 		switch (chip_id & 0xf) {
 		case 0:
 			strcpy(pass, "1.X");
@@ -170,11 +205,15 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 			break;
 		}
 		break;
-	case 1:		
+	case 1:		/* CN31XX or CN3020 */
 		if ((chip_id & 0x10) || fus3.cn31xx.crip_128k)
 			family = "30";
 		else
 			family = "31";
+		/*
+		 * This series of chips didn't follow the standard
+		 * pass numbering.
+		 */
 		switch (chip_id & 0xf) {
 		case 0:
 			strcpy(pass, "1.0");
@@ -187,11 +226,15 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 			break;
 		}
 		break;
-	case 2:		
+	case 2:		/* CN3010 or CN3005 */
 		family = "30";
-		
+		/* A chip with half cache is an 05 */
 		if (fus3.cn30xx.crip_64k)
 			core_model = "05";
+		/*
+		 * This series of chips didn't follow the standard
+		 * pass numbering.
+		 */
 		switch (chip_id & 0xf) {
 		case 0:
 			strcpy(pass, "1.0");
@@ -204,13 +247,13 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 			break;
 		}
 		break;
-	case 3:		
+	case 3:		/* CN58XX */
 		family = "58";
-		
+		/* Special case. 4 core, half cache (CP with half cache) */
 		if ((num_cores == 4) && fus3.cn58xx.crip_1024k && !strncmp(suffix, "CP", 2))
 			core_model = "29";
 
-		
+		/* Pass 1 uses different encodings for pass numbers */
 		if ((chip_id & 0xFF) < 0x8) {
 			switch (chip_id & 0x3) {
 			case 0:
@@ -228,7 +271,7 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 			}
 		}
 		break;
-	case 4:		
+	case 4:		/* CN57XX, CN56XX, CN55XX, CN54XX */
 		if (fus_dat2.cn56xx.raid_en) {
 			if (fus3.cn56xx.crip_1024k)
 				family = "55";
@@ -255,16 +298,16 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 				family = "56";
 		}
 		break;
-	case 6:		
+	case 6:		/* CN50XX */
 		family = "50";
 		break;
-	case 7:		
+	case 7:		/* CN52XX */
 		if (fus3.cn52xx.crip_256k)
 			family = "51";
 		else
 			family = "52";
 		break;
-	case 0x93:		
+	case 0x93:		/* CN61XX */
 		family = "61";
 		if (fus_dat2.cn61xx.nocrypto && fus_dat2.cn61xx.dorm_crypto)
 			suffix = "AP";
@@ -275,11 +318,11 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 		else if (fus_dat3.cn61xx.nozip)
 			suffix = "SCP";
 		break;
-	case 0x90:		
+	case 0x90:		/* CN63XX */
 		family = "63";
 		if (fus_dat3.s.l2c_crip == 2)
 			family = "62";
-		if (num_cores == 6)	
+		if (num_cores == 6)	/* Other core counts match generic */
 			core_model = "35";
 		if (fus_dat2.cn63xx.nocrypto)
 			suffix = "CP";
@@ -290,9 +333,9 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 		else
 			suffix = "AAP";
 		break;
-	case 0x92:		
+	case 0x92:		/* CN66XX */
 		family = "66";
-		if (num_cores == 6)	
+		if (num_cores == 6)	/* Other core counts match generic */
 			core_model = "35";
 		if (fus_dat2.cn66xx.nocrypto && fus_dat2.cn66xx.dorm_crypto)
 			suffix = "AP";
@@ -305,7 +348,7 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 		else
 			suffix = "AAP";
 		break;
-	case 0x91:		
+	case 0x91:		/* CN68XX */
 		family = "68";
 		if (fus_dat2.cn68xx.nocrypto && fus_dat3.cn68xx.nozip)
 			suffix = "CP";
@@ -332,8 +375,8 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 		if (family[0] == '6')
 			fuse_base = 832 / 8;
 
-		
-		
+		/* Check for model in fuses, overrides normal decode */
+		/* This is _not_ valid for Octeon CN3XXX models */
 		fuse_data |= cvmx_fuse_read_byte(fuse_base + 3);
 		fuse_data = fuse_data << 8;
 		fuse_data |= cvmx_fuse_read_byte(fuse_base + 2);
@@ -345,16 +388,16 @@ const char *octeon_model_get_string_buffer(uint32_t chip_id, char *buffer)
 			int model = fuse_data & 0x3fff;
 			int suffix = (fuse_data >> 14) & 0x1f;
 			if (suffix && model) {
-				
+				/* Have both number and suffix in fuses, so both */
 				sprintf(fuse_model, "%d%c", model, 'A' + suffix - 1);
 				core_model = "";
 				family = fuse_model;
 			} else if (suffix && !model) {
-				
+				/* Only have suffix, so add suffix to 'normal' model number */
 				sprintf(fuse_model, "%s%c", core_model, 'A' + suffix - 1);
 				core_model = fuse_model;
 			} else {
-				
+				/* Don't have suffix, so just use model from fuses */
 				sprintf(fuse_model, "%d", model);
 				core_model = "";
 				family = fuse_model;

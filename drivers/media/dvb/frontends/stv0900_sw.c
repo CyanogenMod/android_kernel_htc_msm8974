@@ -443,7 +443,7 @@ static void stv0900_set_dvbs2_rolloff(struct stv0900_internal *intp,
 		stv0900_write_bits(intp, ROLLOFF_CONTROL, rolloff);
 	} else if (intp->chip_id <= 0x20)
 		stv0900_write_bits(intp, MANUALSX_ROLLOFF, 0);
-	else 
+	else /* cut 3.0 */
 		stv0900_write_bits(intp, MANUALS2_ROLLOFF, 0);
 }
 
@@ -574,7 +574,7 @@ static int stv0900_get_demod_cold_lock(struct dvb_frontend *fe,
 		} else
 			timeout = (demod_timeout / 2);
 	} else {
-		
+		/*cut 3.0 */
 		currier_step = srate / 4000;
 		timeout = (demod_timeout * 3) / 4;
 	}
@@ -811,7 +811,7 @@ static void stv0900_set_dvbs1_track_car_loop(struct stv0900_internal *intp,
 			stv0900_write_reg(intp, BCLC, 0x1c);
 		}
 
-	} else { 
+	} else { /*cut 2.0 and 1.x*/
 		stv0900_write_reg(intp, ACLC, 0x1a);
 		stv0900_write_reg(intp, BCLC, 0x09);
 	}
@@ -1770,7 +1770,7 @@ static void stv0900_set_search_standard(struct stv0900_internal *intp,
 		stv0900_write_bits(intp, STOP_CLKVIT, 1);
 		stv0900_write_reg(intp, ACLC, 0x1a);
 		stv0900_write_reg(intp, BCLC, 0x09);
-		if (intp->chip_id <= 0x20) 
+		if (intp->chip_id <= 0x20) /*cut 1.x and 2.0*/
 			stv0900_write_reg(intp, CAR2CFG, 0x26);
 		else
 			stv0900_write_reg(intp, CAR2CFG, 0x66);
@@ -1797,7 +1797,7 @@ static void stv0900_set_search_standard(struct stv0900_internal *intp,
 		stv0900_set_dvbs1_track_car_loop(intp,
 						demod,
 						intp->symbol_rate[demod]);
-		if (intp->chip_id <= 0x20) 
+		if (intp->chip_id <= 0x20) /*cut 1.x and 2.0*/
 			stv0900_write_reg(intp, CAR2CFG, 0x26);
 		else
 			stv0900_write_reg(intp, CAR2CFG, 0x66);
@@ -1931,9 +1931,9 @@ enum fe_stv0900_signal_type stv0900_algo(struct dvb_frontend *fe)
 	} else {
 		stv0900_write_bits(intp, SPECINV_CONTROL,
 					intp->srch_iq_inv[demod]);
-		if (intp->chip_id <= 0x20) 
+		if (intp->chip_id <= 0x20) /*cut 2.0*/
 			stv0900_write_bits(intp, MANUALSX_ROLLOFF, 1);
-		else 
+		else /*cut 3.0*/
 			stv0900_write_bits(intp, MANUALS2_ROLLOFF, 1);
 
 		stv0900_set_search_standard(intp, demod);

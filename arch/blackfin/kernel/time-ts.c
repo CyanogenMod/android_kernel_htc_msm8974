@@ -107,6 +107,7 @@ static int __init bfin_cs_gptimer0_init(void)
 #endif
 
 #if defined(CONFIG_GPTMR0_CLOCKSOURCE) || defined(CONFIG_CYCLES_CLOCKSOURCE)
+/* prefer to use cycles since it has higher rating */
 notrace unsigned long long sched_clock(void)
 {
 #if defined(CONFIG_CYCLES_CLOCKSOURCE)
@@ -123,7 +124,7 @@ static int bfin_gptmr0_set_next_event(unsigned long cycles,
 {
 	disable_gptimers(TIMER0bit);
 
-	
+	/* it starts counting three SCLK cycles after the TIMENx bit is set */
 	set_gptimer_pwidth(TIMER0_id, cycles - 3);
 	enable_gptimers(TIMER0bit);
 	return 0;
@@ -174,6 +175,12 @@ irqreturn_t bfin_gptmr0_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *evt = dev_id;
 	smp_mb();
+	/*
+	 * We want to ACK before we handle so that we can handle smaller timer
+	 * intervals.  This way if the timer expires again while we're handling
+	 * things, we're more likely to see that 2nd int rather than swallowing
+	 * it by ACKing the int at the end of this handler.
+	 */
 	bfin_gptmr0_ack();
 	evt->event_handler(evt);
 	return IRQ_HANDLED;
@@ -208,9 +215,10 @@ static void __init bfin_gptmr0_clockevent_init(struct clock_event_device *evt)
 
 	clockevents_register_device(evt);
 }
-#endif 
+#endif /* CONFIG_TICKSOURCE_GPTMR0 */
 
 #if defined(CONFIG_TICKSOURCE_CORETMR)
+/* per-cpu local core timer */
 DEFINE_PER_CPU(struct clock_event_device, coretmr_events);
 
 static int bfin_coretmr_set_next_event(unsigned long cycles,
@@ -258,11 +266,11 @@ static void bfin_coretmr_set_mode(enum clock_event_mode mode,
 
 void bfin_coretmr_init(void)
 {
-	
+	/* power up the timer, but don't enable it just yet */
 	bfin_write_TCNTL(TMPWR);
 	CSYNC();
 
-	
+	/* the TSCALE prescaler counter. */
 	bfin_write_TSCALE(TIME_SCALE - 1);
 	bfin_write_TPERIOD(0);
 	bfin_write_TCOUNT(0);
@@ -321,12 +329,12 @@ void bfin_coretmr_clockevent_init(void)
 
 	clockevents_register_device(evt);
 }
-#endif 
+#endif /* CONFIG_TICKSOURCE_CORETMR */
 
 
 void read_persistent_clock(struct timespec *ts)
 {
-	time_t secs_since_1970 = (365 * 37 + 9) * 24 * 60 * 60;	
+	time_t secs_since_1970 = (365 * 37 + 9) * 24 * 60 * 60;	/* 1 Jan 2007 */
 	ts->tv_sec = secs_since_1970;
 	ts->tv_nsec = 0;
 }
@@ -335,6 +343,10 @@ void __init time_init(void)
 {
 
 #ifdef CONFIG_RTC_DRV_BFIN
+	/* [#2663] hack to filter junk RTC values that would cause
+	 * userspace to have to deal with time values greater than
+	 * 2^31 seconds (which uClibc cannot cope with yet)
+	 */
 	if ((bfin_read_RTC_STAT() & 0xC0000000) == 0xC0000000) {
 		printk(KERN_NOTICE "bfin-rtc: invalid date; resetting\n");
 		bfin_write_RTC_STAT(0);

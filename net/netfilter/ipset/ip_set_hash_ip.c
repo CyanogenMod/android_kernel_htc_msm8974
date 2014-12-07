@@ -5,6 +5,7 @@
  * published by the Free Software Foundation.
  */
 
+/* Kernel module implementing an IP set type: the hash:ip type */
 
 #include <linux/jhash.h>
 #include <linux/module.h>
@@ -28,6 +29,7 @@ MODULE_AUTHOR("Jozsef Kadlecsik <kadlec@blackhole.kfki.hu>");
 MODULE_DESCRIPTION("hash:ip type of IP sets");
 MODULE_ALIAS("ip_set_hash:ip");
 
+/* Type specific function prefix */
 #define TYPE		hash_ip
 
 static bool
@@ -36,11 +38,14 @@ hash_ip_same_set(const struct ip_set *a, const struct ip_set *b);
 #define hash_ip4_same_set	hash_ip_same_set
 #define hash_ip6_same_set	hash_ip_same_set
 
+/* The type variant functions: IPv4 */
 
+/* Member elements without timeout */
 struct hash_ip4_elem {
 	__be32 ip;
 };
 
+/* Member elements with timeout support */
 struct hash_ip4_telem {
 	__be32 ip;
 	unsigned long timeout;
@@ -66,6 +71,7 @@ hash_ip4_data_copy(struct hash_ip4_elem *dst, const struct hash_ip4_elem *src)
 	dst->ip = src->ip;
 }
 
+/* Zero valued IP addresses cannot be stored */
 static inline void
 hash_ip4_data_zero_out(struct hash_ip4_elem *elem)
 {
@@ -201,12 +207,13 @@ hash_ip_same_set(const struct ip_set *a, const struct ip_set *b)
 	const struct ip_set_hash *x = a->data;
 	const struct ip_set_hash *y = b->data;
 
-	
+	/* Resizing changes htable_bits, so we ignore it */
 	return x->maxelem == y->maxelem &&
 	       x->timeout == y->timeout &&
 	       x->netmask == y->netmask;
 }
 
+/* The type variant functions: IPv6 */
 
 struct hash_ip6_elem {
 	union nf_inet_addr ip;
@@ -350,6 +357,7 @@ hash_ip6_uadt(struct ip_set *set, struct nlattr *tb[],
 	return ip_set_eexist(ret, flags) ? 0 : ret;
 }
 
+/* Create hash:ip type of sets */
 
 static int
 hash_ip_create(struct ip_set *set, struct nlattr *tb[], u32 flags)

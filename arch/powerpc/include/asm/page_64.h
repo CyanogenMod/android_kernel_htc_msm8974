@@ -10,17 +10,28 @@
  * 2 of the License, or (at your option) any later version.
  */
 
+/*
+ * We always define HW_PAGE_SHIFT to 12 as use of 64K pages remains Linux
+ * specific, every notion of page number shared with the firmware, TCEs,
+ * iommu, etc... still uses a page size of 4K.
+ */
 #define HW_PAGE_SHIFT		12
 #define HW_PAGE_SIZE		(ASM_CONST(1) << HW_PAGE_SHIFT)
 #define HW_PAGE_MASK		(~(HW_PAGE_SIZE-1))
 
+/*
+ * PAGE_FACTOR is the number of bits factor between PAGE_SHIFT and
+ * HW_PAGE_SHIFT, that is 4K pages.
+ */
 #define PAGE_FACTOR		(PAGE_SHIFT - HW_PAGE_SHIFT)
 
+/* Segment size; normal 256M segments */
 #define SID_SHIFT		28
 #define SID_MASK		ASM_CONST(0xfffffffff)
 #define ESID_MASK		0xfffffffff0000000UL
 #define GET_ESID(x)		(((x) >> SID_SHIFT) & SID_MASK)
 
+/* 1T segments */
 #define SID_SHIFT_1T		40
 #define SID_MASK_1T		0xffffffUL
 #define ESID_MASK_1T		0xffffff0000000000UL
@@ -50,9 +61,10 @@ static __inline__ void clear_page(void *addr)
 
 extern void copy_page(void *to, void *from);
 
+/* Log 2 of page table size */
 extern u64 ppc64_pft_size;
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #ifdef CONFIG_PPC_MM_SLICES
 
@@ -92,7 +104,7 @@ extern void slice_set_range_psize(struct mm_struct *mm, unsigned long start,
 
 #define slice_mm_new_context(mm)	((mm)->context.id == MMU_NO_CONTEXT)
 
-#endif 
+#endif /* __ASSEMBLY__ */
 #else
 #define slice_init()
 #ifdef CONFIG_PPC_STD_MMU_64
@@ -102,19 +114,19 @@ do {						\
 	(mm)->context.user_psize = (psize);	\
 	(mm)->context.sllp = SLB_VSID_USER | mmu_psize_defs[(psize)].sllp; \
 } while (0)
-#else 
+#else /* CONFIG_PPC_STD_MMU_64 */
 #ifdef CONFIG_PPC_64K_PAGES
 #define get_slice_psize(mm, addr)	MMU_PAGE_64K
-#else 
+#else /* CONFIG_PPC_64K_PAGES */
 #define get_slice_psize(mm, addr)	MMU_PAGE_4K
-#endif 
+#endif /* !CONFIG_PPC_64K_PAGES */
 #define slice_set_user_psize(mm, psize)	do { BUG(); } while(0)
-#endif 
+#endif /* !CONFIG_PPC_STD_MMU_64 */
 
 #define slice_set_range_psize(mm, start, len, psize)	\
 	slice_set_user_psize((mm), (psize))
 #define slice_mm_new_context(mm)	1
-#endif 
+#endif /* CONFIG_PPC_MM_SLICES */
 
 #ifdef CONFIG_HUGETLB_PAGE
 
@@ -122,12 +134,18 @@ do {						\
 #define HAVE_ARCH_HUGETLB_UNMAPPED_AREA
 #endif
 
-#endif 
+#endif /* !CONFIG_HUGETLB_PAGE */
 
 #define VM_DATA_DEFAULT_FLAGS \
 	(is_32bit_task() ? \
 	 VM_DATA_DEFAULT_FLAGS32 : VM_DATA_DEFAULT_FLAGS64)
 
+/*
+ * This is the default if a program doesn't have a PT_GNU_STACK
+ * program header entry. The PPC64 ELF ABI has a non executable stack
+ * stack by default, so in the absence of a PT_GNU_STACK program header
+ * we turn execute permission off.
+ */
 #define VM_STACK_DEFAULT_FLAGS32	(VM_READ | VM_WRITE | VM_EXEC | \
 					 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
@@ -140,4 +158,4 @@ do {						\
 
 #include <asm-generic/getorder.h>
 
-#endif 
+#endif /* _ASM_POWERPC_PAGE_64_H */

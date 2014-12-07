@@ -30,14 +30,14 @@ int cxd2820r_set_frontend_t(struct dvb_frontend *fe)
 	u64 num;
 	u8 buf[3], bw_param;
 	u8 bw_params1[][5] = {
-		{ 0x17, 0xea, 0xaa, 0xaa, 0xaa }, 
-		{ 0x14, 0x80, 0x00, 0x00, 0x00 }, 
-		{ 0x11, 0xf0, 0x00, 0x00, 0x00 }, 
+		{ 0x17, 0xea, 0xaa, 0xaa, 0xaa }, /* 6 MHz */
+		{ 0x14, 0x80, 0x00, 0x00, 0x00 }, /* 7 MHz */
+		{ 0x11, 0xf0, 0x00, 0x00, 0x00 }, /* 8 MHz */
 	};
 	u8 bw_params2[][2] = {
-		{ 0x1f, 0xdc }, 
-		{ 0x12, 0xf8 }, 
-		{ 0x01, 0xe0 }, 
+		{ 0x1f, 0xdc }, /* 6 MHz */
+		{ 0x12, 0xf8 }, /* 7 MHz */
+		{ 0x01, 0xe0 }, /* 8 MHz */
 	};
 	struct reg_val_mask tab[] = {
 		{ 0x00080, 0x00, 0xff },
@@ -73,12 +73,12 @@ int cxd2820r_set_frontend_t(struct dvb_frontend *fe)
 		return -EINVAL;
 	}
 
-	
+	/* update GPIOs */
 	ret = cxd2820r_gpio(fe);
 	if (ret)
 		goto error;
 
-	
+	/* program tuner */
 	if (fe->ops.tuner_ops.set_params)
 		fe->ops.tuner_ops.set_params(fe);
 
@@ -92,9 +92,9 @@ int cxd2820r_set_frontend_t(struct dvb_frontend *fe)
 	}
 
 	priv->delivery_system = SYS_DVBT;
-	priv->ber_running = 0; 
+	priv->ber_running = 0; /* tune stops BER counter */
 
-	
+	/* program IF frequency */
 	if (fe->ops.tuner_ops.get_if_frequency) {
 		ret = fe->ops.tuner_ops.get_if_frequency(fe, &if_freq);
 		if (ret)
@@ -104,7 +104,7 @@ int cxd2820r_set_frontend_t(struct dvb_frontend *fe)
 
 	dbg("%s: if_freq=%d", __func__, if_freq);
 
-	num = if_freq / 1000; 
+	num = if_freq / 1000; /* Hz => kHz */
 	num *= 0x1000000;
 	if_ctl = cxd2820r_div_u64_round_closest(num, 41000);
 	buf[0] = ((if_ctl >> 16) & 0xff);
@@ -280,7 +280,7 @@ int cxd2820r_read_ber_t(struct dvb_frontend *fe, u32 *ber)
 	}
 
 	if (start_ber) {
-		
+		/* (re)start BER */
 		ret = cxd2820r_wr_reg(priv, 0x00079, 0x01);
 		if (ret)
 			goto error;
@@ -307,7 +307,7 @@ int cxd2820r_read_signal_strength_t(struct dvb_frontend *fe,
 	tmp = (buf[0] & 0x0f) << 8 | buf[1];
 	tmp = ~tmp & 0x0fff;
 
-	
+	/* scale value to 0x0000-0xffff from 0x0000-0x0fff */
 	*strength = tmp * 0xffff / 0x0fff;
 
 	return ret;
@@ -322,14 +322,14 @@ int cxd2820r_read_snr_t(struct dvb_frontend *fe, u16 *snr)
 	int ret;
 	u8 buf[2];
 	u16 tmp;
-	
+	/* report SNR in dB * 10 */
 
 	ret = cxd2820r_rd_regs(priv, 0x00028, buf, sizeof(buf));
 	if (ret)
 		goto error;
 
 	tmp = (buf[0] & 0x1f) << 8 | buf[1];
-	#define CXD2820R_LOG10_8_24 15151336 
+	#define CXD2820R_LOG10_8_24 15151336 /* log10(8) << 24 */
 	if (tmp)
 		*snr = (intlog10(tmp) - CXD2820R_LOG10_8_24) / ((1 << 24)
 			/ 100);
@@ -347,7 +347,7 @@ error:
 int cxd2820r_read_ucblocks_t(struct dvb_frontend *fe, u32 *ucblocks)
 {
 	*ucblocks = 0;
-	
+	/* no way to read ? */
 	return 0;
 }
 

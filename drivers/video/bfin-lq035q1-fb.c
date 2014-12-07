@@ -59,12 +59,15 @@
 #define TIMER_VSYNC_STATUS_TOVF		TIMER_STATUS_TOVF1
 #endif
 
-#define LCD_X_RES		320	
-#define LCD_Y_RES		240	
+#define LCD_X_RES		320	/* Horizontal Resolution */
+#define LCD_Y_RES		240	/* Vertical Resolution */
 #define	DMA_BUS_SIZE		16
-#define U_LINE			4	
+#define U_LINE			4	/* Blanking Lines */
 
 
+/* Interface 16/18-bit TFT over an 8-bit wide PPI using a small Programmable Logic Device (CPLD)
+ * http://blackfin.uclinux.org/gf/project/stamp/frs/?action=FrsReleaseBrowse&frs_package_id=165
+ */
 
 
 #define BFIN_LCD_NBR_PALETTE_ENTRIES	256
@@ -83,19 +86,19 @@
 #define LQ035_DRIVER_OUTPUT_MASK	(LQ035_LR | LQ035_TB | LQ035_BGR | LQ035_REV)
 #define LQ035_DRIVER_OUTPUT_DEFAULT	(0x2AEF & ~LQ035_DRIVER_OUTPUT_MASK)
 
-#define LQ035_SHUT			(1 << 0)	
-#define LQ035_ON			(0 << 0)	
+#define LQ035_SHUT			(1 << 0)	/* Shutdown */
+#define LQ035_ON			(0 << 0)	/* Shutdown */
 
 struct bfin_lq035q1fb_info {
 	struct fb_info *fb;
 	struct device *dev;
 	struct spi_driver spidrv;
 	struct bfin_lq035q1fb_disp_info *disp_info;
-	unsigned char *fb_buffer;	
+	unsigned char *fb_buffer;	/* RGB Buffer */
 	dma_addr_t dma_handle;
 	int lq035_open_cnt;
 	int irq;
-	spinlock_t lock;	
+	spinlock_t lock;	/* lock */
 	u32 pseudo_pal[16];
 
 	u32 lcd_bpp;
@@ -189,6 +192,7 @@ static int lq035q1_spidev_resume(struct spi_device *spi)
 # define lq035q1_spidev_resume  NULL
 #endif
 
+/* Power down all displays on reboot, poweroff or halt */
 static void lq035q1_spidev_shutdown(struct spi_device *spi)
 {
 	lq035q1_control(spi, LQ035_SHUT_CTL, LQ035_SHUT);
@@ -206,6 +210,11 @@ static int bfin_lq035q1_calc_timing(struct bfin_lq035q1fb_info *fbi)
 {
 	unsigned long clocks_per_pix, cpld_pipeline_delay_cor;
 
+	/*
+	 * Interface 16/18-bit TFT over an 8-bit wide PPI using a small
+	 * Programmable Logic Device (CPLD)
+	 * http://blackfin.uclinux.org/gf/project/stamp/frs/?action=FrsReleaseBrowse&frs_package_id=165
+	 */
 
 	switch (fbi->disp_info->ppi_mode) {
 	case USE_RGB565_16_BIT_PPI:
@@ -227,15 +236,18 @@ static int bfin_lq035q1_calc_timing(struct bfin_lq035q1fb_info *fbi)
 		return -EINVAL;
 	}
 
+	/*
+	 * HS and VS timing parameters (all in number of PPI clk ticks)
+	 */
 
-	fbi->h_actpix = (LCD_X_RES * clocks_per_pix);	
-	fbi->h_period = (336 * clocks_per_pix);		
-	fbi->h_pulse = (2 * clocks_per_pix);				
-	fbi->h_start = (7 * clocks_per_pix + cpld_pipeline_delay_cor);	
+	fbi->h_actpix = (LCD_X_RES * clocks_per_pix);	/* active horizontal pixel */
+	fbi->h_period = (336 * clocks_per_pix);		/* HS period */
+	fbi->h_pulse = (2 * clocks_per_pix);				/* HS pulse width */
+	fbi->h_start = (7 * clocks_per_pix + cpld_pipeline_delay_cor);	/* first valid pixel */
 
-	fbi->v_lines = (LCD_Y_RES + U_LINE);		
-	fbi->v_pulse = (2 * clocks_per_pix);		
-	fbi->v_period =	(fbi->h_period * fbi->v_lines);	
+	fbi->v_lines = (LCD_Y_RES + U_LINE);		/* total vertical lines */
+	fbi->v_pulse = (2 * clocks_per_pix);		/* VS pulse width (1-5 H_PERIODs) */
+	fbi->v_period =	(fbi->h_period * fbi->v_lines);	/* VS period */
 
 	return 0;
 }
@@ -253,11 +265,11 @@ static void bfin_lq035q1_config_ppi(struct bfin_lq035q1fb_info *fbi)
 	bfin_write_PPI_COUNT(fbi->h_actpix - 1);
 	bfin_write_PPI_FRAME(fbi->v_lines);
 
-	bfin_write_PPI_CONTROL(PPI_TX_MODE |	   
-				PPI_XFER_TYPE_11 | 
-				PPI_PORT_CFG_01 |  
-				ppi_pmode |	   
-				PPI_POLS_1);	   
+	bfin_write_PPI_CONTROL(PPI_TX_MODE |	   /* output mode , PORT_DIR */
+				PPI_XFER_TYPE_11 | /* sync mode XFR_TYPE */
+				PPI_PORT_CFG_01 |  /* two frame sync PORT_CFG */
+				ppi_pmode |	   /* 8/16 bit data length / PACK_EN? */
+				PPI_POLS_1);	   /* faling edge syncs POLS */
 }
 
 static inline void bfin_lq035q1_disable_ppi(void)
@@ -350,6 +362,9 @@ static int __devinit bfin_lq035q1_request_ports(struct platform_device *pdev,
 						unsigned ppi16)
 {
 	int ret;
+	/* ANOMALY_05000400 - PPI Does Not Start Properly In Specific Mode:
+	 * Drive PPI_FS3 Low
+	 */
 	if (ANOMALY_05000400) {
 		int ret = gpio_request_one(P_IDENT(P_PPI0_FS3),
 					GPIOF_OUT_INIT_LOW, "PPI_FS3");
@@ -386,7 +401,7 @@ static int bfin_lq035q1_fb_open(struct fb_info *info, int user)
 		bfin_lq035q1_config_ppi(fbi);
 		bfin_lq035q1_init_timers(fbi);
 
-		
+		/* start dma */
 		enable_dma(CH_PPI);
 		bfin_lq035q1_enable_ppi();
 		bfin_lq035q1_start_timers();
@@ -451,6 +466,9 @@ static int bfin_lq035q1_fb_check_var(struct fb_var_screeninfo *var,
 		return -EINVAL;
 	}
 
+	/*
+	 *  Memory limit
+	 */
 
 	if ((info->fix.line_length * var->yres_virtual) > info->fix.smem_len) {
 		pr_debug("%s: Memory Limit requested yres_virtual = %u\n",
@@ -467,7 +485,7 @@ int bfin_lq035q1_fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	if (nocursor)
 		return 0;
 	else
-		return -EINVAL;	
+		return -EINVAL;	/* just to force soft_cursor() call */
 }
 
 static int bfin_lq035q1_fb_setcolreg(u_int regno, u_int red, u_int green,
@@ -478,14 +496,14 @@ static int bfin_lq035q1_fb_setcolreg(u_int regno, u_int red, u_int green,
 		return -EINVAL;
 
 	if (info->var.grayscale) {
-		
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
 	}
 
 	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 
 		u32 value;
-		
+		/* Place color in the pseudopalette */
 		if (regno > 16)
 			return -EINVAL;
 
@@ -519,7 +537,7 @@ static struct fb_ops bfin_lq035q1_fb_ops = {
 
 static irqreturn_t bfin_lq035q1_irq_error(int irq, void *dev_id)
 {
-	
+	/*struct bfin_lq035q1fb_info *info = (struct bfin_lq035q1fb_info *)dev_id;*/
 
 	u16 status = bfin_read_PPI_STATUS();
 	bfin_write_PPI_STATUS(-1);
@@ -528,7 +546,7 @@ static irqreturn_t bfin_lq035q1_irq_error(int irq, void *dev_id)
 		bfin_lq035q1_disable_ppi();
 		disable_dma(CH_PPI);
 
-		
+		/* start dma */
 		enable_dma(CH_PPI);
 		bfin_lq035q1_enable_ppi();
 		bfin_write_PPI_STATUS(-1);
@@ -808,7 +826,7 @@ static int bfin_lq035q1_resume(struct device *dev)
 		bfin_lq035q1_config_ppi(info);
 		bfin_lq035q1_init_timers(info);
 
-		
+		/* start dma */
 		enable_dma(CH_PPI);
 		bfin_lq035q1_enable_ppi();
 		bfin_lq035q1_start_timers();

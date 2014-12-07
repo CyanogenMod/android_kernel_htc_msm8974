@@ -51,6 +51,7 @@
 
 unsigned long nlm_common_ebase = 0x0;
 
+/* default to uniprocessor */
 uint32_t nlm_coremask = 1, nlm_cpumask  = 1;
 int  nlm_threads_per_core = 1;
 
@@ -76,7 +77,7 @@ const char *get_system_type(void)
 
 void __init prom_free_prom_memory(void)
 {
-	
+	/* Nothing yet */
 }
 
 void xlp_mmu_init(void)

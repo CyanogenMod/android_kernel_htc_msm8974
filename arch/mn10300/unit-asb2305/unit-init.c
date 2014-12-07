@@ -19,16 +19,22 @@
 #include <asm/serial-regs.h>
 #include <unit/serial.h>
 
+/*
+ * initialise some of the unit hardware before gdbstub is set up
+ */
 asmlinkage void __init unit_init(void)
 {
 #ifndef CONFIG_GDBSTUB_ON_TTYSx
-	
+	/* set the 16550 interrupt line to level 3 if not being used for GDB */
 #ifdef CONFIG_EXT_SERIAL_IRQ_LEVEL
 	set_intr_level(XIRQ0, NUM2GxICR_LEVEL(CONFIG_EXT_SERIAL_IRQ_LEVEL));
 #endif
-#endif 
+#endif /* CONFIG_GDBSTUB_ON_TTYSx */
 }
 
+/*
+ * initialise the rest of the unit hardware after gdbstub is ready
+ */
 void __init unit_setup(void)
 {
 #ifdef CONFIG_PCI
@@ -36,6 +42,9 @@ void __init unit_setup(void)
 #endif
 }
 
+/*
+ * initialise the external interrupts used by a unit of this type
+ */
 void __init unit_init_IRQ(void)
 {
 	unsigned int extnum;

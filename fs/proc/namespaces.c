@@ -55,7 +55,7 @@ static struct dentry *proc_ns_instantiate(struct inode *dir,
 
 	d_set_d_op(dentry, &pid_dentry_operations);
 	d_add(dentry, inode);
-	
+	/* Close the race of the process dying before we return the dentry */
 	if (pid_revalidate(dentry, NULL))
 		error = NULL;
 out:
@@ -102,14 +102,14 @@ static int proc_ns_dir_readdir(struct file *filp, void *dirent,
 			goto out;
 		i++;
 		filp->f_pos++;
-		
+		/* fall through */
 	case 1:
 		ino = parent_ino(dentry);
 		if (filldir(dirent, "..", 2, i, ino, DT_DIR) < 0)
 			goto out;
 		i++;
 		filp->f_pos++;
-		
+		/* fall through */
 	default:
 		i -= 2;
 		if (i >= ARRAY_SIZE(ns_entries)) {

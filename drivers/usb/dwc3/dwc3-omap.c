@@ -50,6 +50,10 @@
 
 #include "core.h"
 
+/*
+ * All these registers belong to OMAP's Wrapper around the
+ * DesignWare USB3 Core.
+ */
 
 #define USBOTGSS_REVISION			0x0000
 #define USBOTGSS_SYSCONFIG			0x0010
@@ -69,6 +73,7 @@
 #define USBOTGSS_DEBUG_CFG			0x0108
 #define USBOTGSS_DEBUG_DATA			0x010c
 
+/* SYSCONFIG REGISTER */
 #define USBOTGSS_SYSCONFIG_DMADISABLE		(1 << 16)
 #define USBOTGSS_SYSCONFIG_STANDBYMODE(x)	((x) << 4)
 
@@ -88,10 +93,13 @@
 
 #define USBOTGSS_IDLEMODE_MASK			(0x03 << 2)
 
+/* IRQ_EOI REGISTER */
 #define USBOTGSS_IRQ_EOI_LINE_NUMBER		(1 << 0)
 
+/* IRQS0 BITS */
 #define USBOTGSS_IRQO_COREIRQ_ST		(1 << 0)
 
+/* IRQ1 BITS */
 #define USBOTGSS_IRQ1_DMADISABLECLR		(1 << 17)
 #define USBOTGSS_IRQ1_OEVT			(1 << 16)
 #define USBOTGSS_IRQ1_DRVVBUS_RISE		(1 << 13)
@@ -103,11 +111,13 @@
 #define USBOTGSS_IRQ1_DISCHRGVBUS_FALL		(1 << 3)
 #define USBOTGSS_IRQ1_IDPULLUP_FALL		(1 << 0)
 
+/* UTMI_OTG_CTRL REGISTER */
 #define USBOTGSS_UTMI_OTG_CTRL_DRVVBUS		(1 << 5)
 #define USBOTGSS_UTMI_OTG_CTRL_CHRGVBUS		(1 << 4)
 #define USBOTGSS_UTMI_OTG_CTRL_DISCHRGVBUS	(1 << 3)
 #define USBOTGSS_UTMI_OTG_CTRL_IDPULLUP		(1 << 0)
 
+/* UTMI_OTG_STATUS REGISTER */
 #define USBOTGSS_UTMI_OTG_STATUS_SW_MODE	(1 << 31)
 #define USBOTGSS_UTMI_OTG_STATUS_POWERPRESENT	(1 << 9)
 #define USBOTGSS_UTMI_OTG_STATUS_TXBITSTUFFENABLE (1 << 8)
@@ -117,7 +127,7 @@
 #define USBOTGSS_UTMI_OTG_STATUS_VBUSVALID	(1 << 1)
 
 struct dwc3_omap {
-	
+	/* device lock */
 	spinlock_t		lock;
 
 	struct platform_device	*dwc3;
@@ -295,11 +305,11 @@ static int __devinit dwc3_omap_probe(struct platform_device *pdev)
 
 	dwc3_omap_writel(omap->base, USBOTGSS_UTMI_OTG_STATUS, reg);
 
-	
+	/* check the DMA Status */
 	reg = dwc3_omap_readl(omap->base, USBOTGSS_SYSCONFIG);
 	omap->dma_status = !!(reg & USBOTGSS_SYSCONFIG_DMADISABLE);
 
-	
+	/* Set No-Idle and No-Standby */
 	reg &= ~(USBOTGSS_STANDBYMODE_MASK
 			| USBOTGSS_IDLEMODE_MASK);
 
@@ -316,7 +326,7 @@ static int __devinit dwc3_omap_probe(struct platform_device *pdev)
 		goto err2;
 	}
 
-	
+	/* enable all IRQs */
 	reg = USBOTGSS_IRQO_COREIRQ_ST;
 	dwc3_omap_writel(omap->base, USBOTGSS_IRQENABLE_SET_0, reg);
 

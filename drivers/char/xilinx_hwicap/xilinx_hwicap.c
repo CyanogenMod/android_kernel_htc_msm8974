@@ -32,6 +32,44 @@
  *
  *****************************************************************************/
 
+/*
+ * This is the code behind /dev/icap* -- it allows a user-space
+ * application to use the Xilinx ICAP subsystem.
+ *
+ * The following operations are possible:
+ *
+ * open         open the port and initialize for access.
+ * release      release port
+ * write        Write a bitstream to the configuration processor.
+ * read         Read a data stream from the configuration processor.
+ *
+ * After being opened, the port is initialized and accessed to avoid a
+ * corrupted first read which may occur with some hardware.  The port
+ * is left in a desynched state, requiring that a synch sequence be
+ * transmitted before any valid configuration data.  A user will have
+ * exclusive access to the device while it remains open, and the state
+ * of the ICAP cannot be guaranteed after the device is closed.  Note
+ * that a complete reset of the core and the state of the ICAP cannot
+ * be performed on many versions of the cores, hence users of this
+ * device should avoid making inconsistent accesses to the device.  In
+ * particular, accessing the read interface, without first generating
+ * a write containing a readback packet can leave the ICAP in an
+ * inaccessible state.
+ *
+ * Note that in order to use the read interface, it is first necessary
+ * to write a request packet to the write interface.  i.e., it is not
+ * possible to simply readback the bitstream (or any configuration
+ * bits) from a device without specifically requesting them first.
+ * The code to craft such packets is intended to be part of the
+ * user-space application code that uses this device.  The simplest
+ * way to use this interface is simply:
+ *
+ * cp foo.bit /dev/icap0
+ *
+ * Note that unless foo.bit is an appropriately constructed partial
+ * bitstream, this has a high likelihood of overwriting the design
+ * currently programmed in the FPGA.
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -53,6 +91,7 @@
 #include <asm/uaccess.h>
 
 #ifdef CONFIG_OF
+/* For open firmware. */
 #include <linux/of_address.h>
 #include <linux/of_device.h>
 #include <linux/of_platform.h>
@@ -70,6 +109,7 @@
 #define XHWICAP_MINOR 0
 #define HWICAP_DEVICES 1
 
+/* An array, which is set to true when the device is registered. */
 static DEFINE_MUTEX(hwicap_mutex);
 static bool probed_devices[HWICAP_DEVICES];
 static struct mutex icap_sem;
@@ -152,6 +192,14 @@ static const struct config_registers v5_config_registers = {
 	.CTL_1 = 19,
 };
 
+/**
+ * hwicap_command_desync - Send a DESYNC command to the ICAP port.
+ * @drvdata: a pointer to the drvdata.
+ *
+ * This command desynchronizes the ICAP After this command, a
+ * bitstream containing a NULL packet, followed by a SYNCH packet is
+ * required before the ICAP will recognize commands.
+ */
 static int hwicap_command_desync(struct hwicap_drvdata *drvdata)
 {
 	u32 buffer[4];
@@ -165,10 +213,25 @@ static int hwicap_command_desync(struct hwicap_drvdata *drvdata)
 	buffer[index++] = XHI_NOOP_PACKET;
 	buffer[index++] = XHI_NOOP_PACKET;
 
+	/*
+	 * Write the data to the FIFO and intiate the transfer of data present
+	 * in the FIFO to the ICAP device.
+	 */
 	return drvdata->config->set_configuration(drvdata,
 			&buffer[0], index);
 }
 
+/**
+ * hwicap_get_configuration_register - Query a configuration register.
+ * @drvdata: a pointer to the drvdata.
+ * @reg: a constant which represents the configuration
+ *		register value to be returned.
+ * 		Examples:  XHI_IDCODE, XHI_FLR.
+ * @reg_data: returns the value of the register.
+ *
+ * Sends a query packet to the ICAP and then receives the response.
+ * The icap is left in Synched state.
+ */
 static int hwicap_get_configuration_register(struct hwicap_drvdata *drvdata,
 		u32 reg, u32 *reg_data)
 {
@@ -185,12 +248,16 @@ static int hwicap_get_configuration_register(struct hwicap_drvdata *drvdata,
 	buffer[index++] = XHI_NOOP_PACKET;
 	buffer[index++] = XHI_NOOP_PACKET;
 
+	/*
+	 * Write the data to the FIFO and initiate the transfer of data present
+	 * in the FIFO to the ICAP device.
+	 */
 	status = drvdata->config->set_configuration(drvdata,
 						    &buffer[0], index);
 	if (status)
 		return status;
 
-	
+	/* If the syncword was not found, then we need to start over. */
 	status = drvdata->config->get_status(drvdata);
 	if ((status & XHI_SR_DALIGN_MASK) != XHI_SR_DALIGN_MASK)
 		return -EIO;
@@ -200,11 +267,18 @@ static int hwicap_get_configuration_register(struct hwicap_drvdata *drvdata,
 	buffer[index++] = XHI_NOOP_PACKET;
 	buffer[index++] = XHI_NOOP_PACKET;
 
+	/*
+	 * Write the data to the FIFO and intiate the transfer of data present
+	 * in the FIFO to the ICAP device.
+	 */
 	status = drvdata->config->set_configuration(drvdata,
 			&buffer[0], index);
 	if (status)
 		return status;
 
+	/*
+	 * Read the configuration register
+	 */
 	status = drvdata->config->get_configuration(drvdata, reg_data, 1);
 	if (status)
 		return status;
@@ -219,6 +293,8 @@ static int hwicap_initialize_hwicap(struct hwicap_drvdata *drvdata)
 
 	dev_dbg(drvdata->dev, "initializing\n");
 
+	/* Abort any current transaction, to make sure we have the
+	 * ICAP in a good state. */
 	dev_dbg(drvdata->dev, "Reset...\n");
 	drvdata->config->reset(drvdata);
 
@@ -227,6 +303,10 @@ static int hwicap_initialize_hwicap(struct hwicap_drvdata *drvdata)
 	if (status)
 		return status;
 
+	/* Attempt to read the IDCODE from ICAP.  This
+	 * may not be returned correctly, due to the design of the
+	 * hardware.
+	 */
 	dev_dbg(drvdata->dev, "Reading IDCODE...\n");
 	status = hwicap_get_configuration_register(
 			drvdata, drvdata->config_regs->IDCODE, &idcode);
@@ -257,14 +337,14 @@ hwicap_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 		return status;
 
 	if (drvdata->read_buffer_in_use) {
-		
-		
-		
+		/* If there are leftover bytes in the buffer, just */
+		/* return them and don't try to read more from the */
+		/* ICAP device. */
 		bytes_to_read =
 			(count < drvdata->read_buffer_in_use) ? count :
 			drvdata->read_buffer_in_use;
 
-		
+		/* Return the data currently in the read buffer. */
 		if (copy_to_user(buf, drvdata->read_buffer, bytes_to_read)) {
 			status = -EFAULT;
 			goto error;
@@ -274,28 +354,28 @@ hwicap_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 		       drvdata->read_buffer + bytes_to_read,
 		       4 - bytes_to_read);
 	} else {
-		
+		/* Get new data from the ICAP, and return was was requested. */
 		kbuf = (u32 *) get_zeroed_page(GFP_KERNEL);
 		if (!kbuf) {
 			status = -ENOMEM;
 			goto error;
 		}
 
-		
-		
-		
-		
-		
+		/* The ICAP device is only able to read complete */
+		/* words.  If a number of bytes that do not correspond */
+		/* to complete words is requested, then we read enough */
+		/* words to get the required number of bytes, and then */
+		/* save the remaining bytes for the next read. */
 
-		
-		
+		/* Determine the number of words to read, rounding up */
+		/* if necessary. */
 		words = ((count + 3) >> 2);
 		bytes_to_read = words << 2;
 
 		if (bytes_to_read > PAGE_SIZE)
 			bytes_to_read = PAGE_SIZE;
 
-		
+		/* Ensure we only read a complete number of words. */
 		bytes_remaining = bytes_to_read & 3;
 		bytes_to_read &= ~3;
 		words = bytes_to_read >> 2;
@@ -303,13 +383,13 @@ hwicap_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 		status = drvdata->config->get_configuration(drvdata,
 				kbuf, words);
 
-		
+		/* If we didn't read correctly, then bail out. */
 		if (status) {
 			free_page((unsigned long)kbuf);
 			goto error;
 		}
 
-		
+		/* If we fail to return the data to the user, then bail out. */
 		if (copy_to_user(buf, kbuf, bytes_to_read)) {
 			free_page((unsigned long)kbuf);
 			status = -EFAULT;
@@ -344,7 +424,7 @@ hwicap_write(struct file *file, const char __user *buf,
 
 	left += drvdata->write_buffer_in_use;
 
-	
+	/* Only write multiples of 4 bytes. */
 	if (left < 4) {
 		status = 0;
 		goto error;
@@ -357,8 +437,8 @@ hwicap_write(struct file *file, const char __user *buf,
 	}
 
 	while (left > 3) {
-		
-		
+		/* only write multiples of 4 bytes, so there might */
+		/* be as many as 3 bytes left (at the end). */
 		len = left;
 
 		if (len > PAGE_SIZE)
@@ -460,7 +540,7 @@ static int hwicap_release(struct inode *inode, struct file *file)
 	mutex_lock(&drvdata->sem);
 
 	if (drvdata->write_buffer_in_use) {
-		
+		/* Flush write buffer. */
 		for (i = drvdata->write_buffer_in_use; i < 4; i++)
 			drvdata->write_buffer[i] = 0;
 
@@ -578,7 +658,7 @@ static int __devinit hwicap_setup(struct device *dev, int id,
 	}
 
 	device_create(icap_class, dev, devt, NULL, "%s%d", DRIVER_NAME, id);
-	return 0;		
+	return 0;		/* success */
 
  failed3:
 	iounmap(drvdata->base_address);
@@ -630,7 +710,7 @@ static int __devexit hwicap_remove(struct device *dev)
 	mutex_lock(&icap_sem);
 	probed_devices[MINOR(dev->devt)-XHWICAP_MINOR] = 0;
 	mutex_unlock(&icap_sem);
-	return 0;		
+	return 0;		/* success */
 }
 
 #ifdef CONFIG_OF
@@ -652,6 +732,8 @@ static int __devinit hwicap_of_probe(struct platform_device *op,
 
 	id = of_get_property(op->dev.of_node, "port-number", NULL);
 
+	/* It's most likely that we're using V4, if the family is not
+	   specified */
 	regs = &v4_config_registers;
 	family = of_get_property(op->dev.of_node, "xlnx,family", NULL);
 
@@ -673,7 +755,7 @@ static inline int hwicap_of_probe(struct platform_device *op,
 {
 	return -EINVAL;
 }
-#endif 
+#endif /* CONFIG_OF */
 
 static const struct of_device_id __devinitconst hwicap_of_match[];
 static int __devinit hwicap_drv_probe(struct platform_device *pdev)
@@ -691,6 +773,8 @@ static int __devinit hwicap_drv_probe(struct platform_device *pdev)
 	if (!res)
 		return -ENODEV;
 
+	/* It's most likely that we're using V4, if the family is not
+	   specified */
 	regs = &v4_config_registers;
 	family = pdev->dev.platform_data;
 
@@ -714,6 +798,7 @@ static int __devexit hwicap_drv_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_OF
+/* Match table for device tree binding */
 static const struct of_device_id __devinitconst hwicap_of_match[] = {
 	{ .compatible = "xlnx,opb-hwicap-1.00.b", .data = &buffer_icap_config},
 	{ .compatible = "xlnx,xps-hwicap-1.00.a", .data = &fifo_icap_config},

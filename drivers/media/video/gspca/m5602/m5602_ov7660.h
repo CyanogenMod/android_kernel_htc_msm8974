@@ -84,6 +84,7 @@
 #define OV7660_DEFAULT_SATURATION	0x00
 #define OV7660_DEFAULT_EXPOSURE		0x20
 
+/* Kernel module parameters */
 extern int force_sensor;
 extern bool dump_sensor;
 

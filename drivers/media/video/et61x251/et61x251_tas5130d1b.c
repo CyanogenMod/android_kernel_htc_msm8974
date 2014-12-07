@@ -133,7 +133,7 @@ int et61x251_probe_tas5130d1b(struct et61x251_device* cam)
 		{ }
 	};
 
-	
+	/* Sensor detection is based on USB pid/vid */
 	if (!et61x251_match_id(cam, tas5130d1b_id_table))
 		return -ENODEV;
 

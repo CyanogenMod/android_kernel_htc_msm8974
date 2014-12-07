@@ -26,28 +26,38 @@
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
 
+/*
+ * Associate a large virtual page frame with a given physical page frame
+ * and protection flags for that frame. pfn is for the base of the page,
+ * vaddr is what the page gets mapped to - both must be properly aligned.
+ * The pmd must already be instantiated. Assumes PAE mode.
+ */
 void set_pmd_pfn(unsigned long vaddr, unsigned long pfn, pgprot_t flags)
 {
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
 
-	if (vaddr & (PMD_SIZE-1)) {		
+	if (vaddr & (PMD_SIZE-1)) {		/* vaddr is misaligned */
 		printk(KERN_ERR "set_pmd_pfn: vaddr misaligned\n");
-		return; 
+		return; /* BUG(); */
 	}
-	if (pfn & (PTRS_PER_PTE-1)) {		
+	if (pfn & (PTRS_PER_PTE-1)) {		/* pfn is misaligned */
 		printk(KERN_ERR "set_pmd_pfn: pfn misaligned\n");
-		return; 
+		return; /* BUG(); */
 	}
 	pgd = swapper_pg_dir + pgd_index(vaddr);
 	if (pgd_none(*pgd)) {
 		printk(KERN_ERR "set_pmd_pfn: pgd_none\n");
-		return; 
+		return; /* BUG(); */
 	}
 	pud = pud_offset(pgd, vaddr);
 	pmd = pmd_offset(pud, vaddr);
 	set_pmd(pmd, pfn_pmd(pfn, flags));
+	/*
+	 * It's enough to flush this one mapping.
+	 * (PGE mappings get flushed as well)
+	 */
 	local_flush_tlb_one(vaddr);
 }
 
@@ -73,6 +83,20 @@ struct page *pte_alloc_one(struct mm_struct *mm, unsigned long address)
 	return pte;
 }
 
+/*
+ * List of all pgd's needed for non-PAE so it can invalidate entries
+ * in both cached and uncached pgd's; not needed for PAE since the
+ * kernel pmd is shared. If PAE were not to share the pmd a similar
+ * tactic would be needed. This is essentially codepath-based locking
+ * against pageattr.c; it is the unique case in which a valid change
+ * of kernel pagetables can't be lazily synchronized by vmalloc faults.
+ * vmalloc faults work because attached pagetables are never freed.
+ * If the locking proves to be non-performant, a ticketing scheme with
+ * checks at dup_mmap(), exec(), and other mmlist addition points
+ * could be used. The locking scheme was chosen on the basis of
+ * manfred's recommendations and having no core impact whatsoever.
+ * -- wli
+ */
 DEFINE_SPINLOCK(pgd_lock);
 struct page *pgd_list;
 
@@ -115,9 +139,10 @@ void pgd_ctor(void *pgd)
 	memset(pgd, 0, USER_PTRS_PER_PGD * sizeof(pgd_t));
 }
 
+/* never called when PTRS_PER_PMD > 1 */
 void pgd_dtor(void *pgd)
 {
-	unsigned long flags; 
+	unsigned long flags; /* can be called from interrupt context */
 
 	spin_lock_irqsave(&pgd_lock, flags);
 	pgd_list_del(pgd);

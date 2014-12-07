@@ -22,8 +22,20 @@
 #include <media/v4l2-subdev.h>
 #include <media/v4l2-ctrls.h>
 
+/*
+ * ATTENTION: this driver still cannot be used outside of the soc-camera
+ * framework because of its PM implementation, using the video_device node.
+ * If hardware becomes available for testing, alternative PM approaches shall
+ * be considered and tested.
+ */
 
+/*
+ * mt9t031 i2c address 0x5d
+ * The platform has to define i2c_board_info and link to it from
+ * struct soc_camera_link
+ */
 
+/* mt9t031 selected register addresses */
 #define MT9T031_CHIP_VERSION		0x00
 #define MT9T031_ROW_START		0x01
 #define MT9T031_COLUMN_START		0x02
@@ -59,16 +71,16 @@ struct mt9t031 {
 	struct v4l2_subdev subdev;
 	struct v4l2_ctrl_handler hdl;
 	struct {
-		
+		/* exposure/auto-exposure cluster */
 		struct v4l2_ctrl *autoexposure;
 		struct v4l2_ctrl *exposure;
 	};
-	struct v4l2_rect rect;	
-	int model;	
+	struct v4l2_rect rect;	/* Sensor window */
+	int model;	/* V4L2_IDENT_MT9T031* codes from v4l2-chip-ident.h */
 	u16 xskip;
 	u16 yskip;
 	unsigned int total_h;
-	unsigned short y_skip_top;	
+	unsigned short y_skip_top;	/* Lines to skip at the top */
 };
 
 static struct mt9t031 *to_mt9t031(const struct i2c_client *client)
@@ -139,7 +151,7 @@ static int mt9t031_idle(struct i2c_client *client)
 {
 	int ret;
 
-	
+	/* Disable chip output, synchronous option update */
 	ret = reg_write(client, MT9T031_RESET, 1);
 	if (ret >= 0)
 		ret = reg_write(client, MT9T031_RESET, 0);
@@ -151,7 +163,7 @@ static int mt9t031_idle(struct i2c_client *client)
 
 static int mt9t031_disable(struct i2c_client *client)
 {
-	
+	/* Disable the chip */
 	reg_clear(client, MT9T031_OUTPUT_CONTROL, 2);
 
 	return 0;
@@ -163,10 +175,10 @@ static int mt9t031_s_stream(struct v4l2_subdev *sd, int enable)
 	int ret;
 
 	if (enable)
-		
+		/* Switch to master "normal" mode */
 		ret = reg_set(client, MT9T031_OUTPUT_CONTROL, 2);
 	else
-		
+		/* Stop sensor readout */
 		ret = reg_clear(client, MT9T031_OUTPUT_CONTROL, 2);
 
 	if (ret < 0)
@@ -175,6 +187,7 @@ static int mt9t031_s_stream(struct v4l2_subdev *sd, int enable)
 	return 0;
 }
 
+/* target must be _even_ */
 static u16 mt9t031_skip(s32 *source, s32 target, s32 max)
 {
 	unsigned int skip;
@@ -192,6 +205,7 @@ static u16 mt9t031_skip(s32 *source, s32 target, s32 max)
 	return skip;
 }
 
+/* rect is the sensor rectangle, the caller guarantees parameter validity */
 static int mt9t031_set_params(struct i2c_client *client,
 			      struct v4l2_rect *rect, u16 xskip, u16 yskip)
 {
@@ -204,6 +218,19 @@ static int mt9t031_set_params(struct i2c_client *client,
 	xbin = min(xskip, (u16)3);
 	ybin = min(yskip, (u16)3);
 
+	/*
+	 * Could just do roundup(rect->left, [xy]bin * 2); but this is cheaper.
+	 * There is always a valid suitably aligned value. The worst case is
+	 * xbin = 3, width = 2048. Then we will start at 36, the last read out
+	 * pixel will be 2083, which is < 2085 - first black pixel.
+	 *
+	 * MT9T031 datasheet imposes window left border alignment, depending on
+	 * the selected xskip. Failing to conform to this requirement produces
+	 * dark horizontal stripes in the image. However, even obeying to this
+	 * requirement doesn't eliminate the stripes in all configurations. They
+	 * appear "locally reproducibly," but can differ between tests under
+	 * different lighting conditions.
+	 */
 	switch (xbin) {
 	case 1:
 		rect->left &= ~1;
@@ -221,18 +248,18 @@ static int mt9t031_set_params(struct i2c_client *client,
 	dev_dbg(&client->dev, "skip %u:%u, rect %ux%u@%u:%u\n",
 		xskip, yskip, rect->width, rect->height, rect->left, rect->top);
 
-	
+	/* Disable register update, reconfigure atomically */
 	ret = reg_set(client, MT9T031_OUTPUT_CONTROL, 1);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Blanking and start values - default... */
 	ret = reg_write(client, MT9T031_HORIZONTAL_BLANKING, hblank);
 	if (ret >= 0)
 		ret = reg_write(client, MT9T031_VERTICAL_BLANKING, vblank);
 
 	if (yskip != mt9t031->yskip || xskip != mt9t031->xskip) {
-		
+		/* Binning, skipping */
 		if (ret >= 0)
 			ret = reg_write(client, MT9T031_COLUMN_ADDRESS_MODE,
 					((xbin - 1) << 4) | (xskip - 1));
@@ -243,6 +270,10 @@ static int mt9t031_set_params(struct i2c_client *client,
 	dev_dbg(&client->dev, "new physical left %u, top %u\n",
 		rect->left, rect->top);
 
+	/*
+	 * The caller provides a supported format, as guaranteed by
+	 * .try_mbus_fmt(), soc_camera_s_crop() and soc_camera_cropcap()
+	 */
 	if (ret >= 0)
 		ret = reg_write(client, MT9T031_COLUMN_START, rect->left);
 	if (ret >= 0)
@@ -258,7 +289,7 @@ static int mt9t031_set_params(struct i2c_client *client,
 		ret = set_shutter(client, mt9t031->total_h);
 	}
 
-	
+	/* Re-enable register update, commit all changes */
 	if (ret >= 0)
 		ret = reg_clear(client, MT9T031_OUTPUT_CONTROL, 1);
 
@@ -337,16 +368,24 @@ static int mt9t031_s_fmt(struct v4l2_subdev *sd,
 	u16 xskip, yskip;
 	struct v4l2_rect rect = mt9t031->rect;
 
+	/*
+	 * try_fmt has put width and height within limits.
+	 * S_FMT: use binning and skipping for scaling
+	 */
 	xskip = mt9t031_skip(&rect.width, mf->width, MT9T031_MAX_WIDTH);
 	yskip = mt9t031_skip(&rect.height, mf->height, MT9T031_MAX_HEIGHT);
 
 	mf->code	= V4L2_MBUS_FMT_SBGGR10_1X10;
 	mf->colorspace	= V4L2_COLORSPACE_SRGB;
 
-	
+	/* mt9t031_set_params() doesn't change width and height */
 	return mt9t031_set_params(client, &rect, xskip, yskip);
 }
 
+/*
+ * If a user window larger than sensor window is requested, we'll increase the
+ * sensor window.
+ */
 static int mt9t031_try_fmt(struct v4l2_subdev *sd,
 			   struct v4l2_mbus_framefmt *mf)
 {
@@ -462,9 +501,9 @@ static int mt9t031_s_ctrl(struct v4l2_ctrl *ctrl)
 			return -EIO;
 		return 0;
 	case V4L2_CID_GAIN:
-		
+		/* See Datasheet Table 7, Gain settings. */
 		if (ctrl->val <= ctrl->default_value) {
-			
+			/* Pack it into 0..1 step 0.125, register values 0..8 */
 			unsigned long range = ctrl->default_value - ctrl->minimum;
 			data = ((ctrl->val - ctrl->minimum) * 8 + range / 2) / range;
 
@@ -473,19 +512,19 @@ static int mt9t031_s_ctrl(struct v4l2_ctrl *ctrl)
 			if (data < 0)
 				return -EIO;
 		} else {
-			
-			
+			/* Pack it into 1.125..128 variable step, register values 9..0x7860 */
+			/* We assume qctrl->maximum - qctrl->default_value - 1 > 0 */
 			unsigned long range = ctrl->maximum - ctrl->default_value - 1;
-			
+			/* calculated gain: map 65..127 to 9..1024 step 0.125 */
 			unsigned long gain = ((ctrl->val - ctrl->default_value - 1) *
 					       1015 + range / 2) / range + 9;
 
-			if (gain <= 32)		
+			if (gain <= 32)		/* calculated gain 9..32 -> 9..32 */
 				data = gain;
-			else if (gain <= 64)	
+			else if (gain <= 64)	/* calculated gain 33..64 -> 0x51..0x60 */
 				data = ((gain - 32) * 16 + 16) / 32 + 80;
 			else
-				
+				/* calculated gain 65..1024 -> (1..120) << 8 + 0x60 */
 				data = (((gain - 64 + 7) * 32) & 0xff00) | 0x60;
 
 			dev_dbg(&client->dev, "Set gain from 0x%x to 0x%x\n",
@@ -523,6 +562,10 @@ static int mt9t031_s_ctrl(struct v4l2_ctrl *ctrl)
 	return 0;
 }
 
+/*
+ * Power Management:
+ * This function does nothing for now but must be present for pm to work
+ */
 static int mt9t031_runtime_suspend(struct device *dev)
 {
 	return 0;
@@ -583,17 +626,21 @@ static int mt9t031_s_power(struct v4l2_subdev *sd, int on)
 	return 0;
 }
 
+/*
+ * Interface active, can use i2c. If it fails, it can indeed mean, that
+ * this wasn't our capture interface, so, we wait for the right one
+ */
 static int mt9t031_video_probe(struct i2c_client *client)
 {
 	struct mt9t031 *mt9t031 = to_mt9t031(client);
 	s32 data;
 	int ret;
 
-	
+	/* Enable the chip */
 	data = reg_write(client, MT9T031_CHIP_ENABLE, 1);
 	dev_dbg(&client->dev, "write: %d\n", data);
 
-	
+	/* Read out the chip version register */
 	data = reg_read(client, MT9T031_CHIP_VERSION);
 
 	switch (data) {
@@ -734,6 +781,10 @@ static int mt9t031_probe(struct i2c_client *client,
 	v4l2_ctrl_new_std(&mt9t031->hdl, &mt9t031_ctrl_ops,
 			V4L2_CID_GAIN, 0, 127, 1, 64);
 
+	/*
+	 * Simulated autoexposure. If enabled, we calculate shutter width
+	 * ourselves in the driver based on vertical blanking and frame width
+	 */
 	mt9t031->autoexposure = v4l2_ctrl_new_std_menu(&mt9t031->hdl,
 			&mt9t031_ctrl_ops, V4L2_CID_EXPOSURE_AUTO, 1, 0,
 			V4L2_EXPOSURE_AUTO);

@@ -11,16 +11,37 @@ struct net;
 struct completion;
 struct mm_struct;
 
+/*
+ * The proc filesystem constants/structures
+ */
 
+/*
+ * Offset of the first process in the /proc root directory..
+ */
 #define FIRST_PROCESS_ENTRY 256
 
+/* Worst case buffer size needed for holding an integer. */
 #define PROC_NUMBUF 13
 
+/*
+ * We always define these enumerators
+ */
 
 enum {
 	PROC_ROOT_INO = 1,
 };
 
+/*
+ * This is not completely implemented yet. The idea is to
+ * create an in-memory tree (like the actual /proc filesystem
+ * tree) of these proc_dir_entries, so that we can dynamically
+ * add new files to /proc.
+ *
+ * The "next" pointer creates a linked list of one /proc directory,
+ * while parent/subdir create the directory structure (every
+ * /proc file has a parent, but "subdir" is NULL for all
+ * non-directory entries).
+ */
 
 typedef	int (read_proc_t)(char *page, char **start, off_t off,
 			  int count, int *eof, void *data);
@@ -35,16 +56,24 @@ struct proc_dir_entry {
 	gid_t gid;
 	loff_t size;
 	const struct inode_operations *proc_iops;
+	/*
+	 * NULL ->proc_fops means "PDE is going away RSN" or
+	 * "PDE is just created". In either case, e.g. ->read_proc won't be
+	 * called because it's too late or too early, respectively.
+	 *
+	 * If you're allocating ->proc_fops dynamically, save a pointer
+	 * somewhere.
+	 */
 	const struct file_operations *proc_fops;
 	struct proc_dir_entry *next, *parent, *subdir;
 	void *data;
 	read_proc_t *read_proc;
 	write_proc_t *write_proc;
-	atomic_t count;		
-	int pde_users;	
+	atomic_t count;		/* use count */
+	int pde_users;	/* number of callers into module in progress */
 	struct completion *pde_unload_completion;
-	struct list_head pde_openers;	
-	spinlock_t pde_unload_lock; 
+	struct list_head pde_openers;	/* who did ->open, but not ->release */
+	spinlock_t pde_unload_lock; /* proc_fops checks and pde_users bumps */
 	u8 namelen;
 	char name[];
 };
@@ -90,11 +119,17 @@ struct pid_namespace;
 extern int pid_ns_prepare_proc(struct pid_namespace *ns);
 extern void pid_ns_release_proc(struct pid_namespace *ns);
 
+/*
+ * proc_tty.c
+ */
 struct tty_driver;
 extern void proc_tty_init(void);
 extern void proc_tty_register_driver(struct tty_driver *driver);
 extern void proc_tty_unregister_driver(struct tty_driver *driver);
 
+/*
+ * proc_devtree.c
+ */
 #ifdef CONFIG_PROC_DEVICETREE
 struct device_node;
 struct property;
@@ -106,7 +141,7 @@ extern void proc_device_tree_remove_prop(struct proc_dir_entry *pde,
 extern void proc_device_tree_update_prop(struct proc_dir_entry *pde,
 					 struct property *newprop,
 					 struct property *oldprop);
-#endif 
+#endif /* CONFIG_PROC_DEVICETREE */
 
 extern struct proc_dir_entry *proc_symlink(const char *,
 		struct proc_dir_entry *, const char *);
@@ -194,7 +229,7 @@ static inline struct file *proc_ns_fget(int fd)
 	return ERR_PTR(-EINVAL);
 }
 
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 #if !defined(CONFIG_PROC_KCORE)
 static inline void
@@ -255,4 +290,4 @@ static inline struct net *PDE_NET(struct proc_dir_entry *pde)
 	return pde->parent->data;
 }
 
-#endif 
+#endif /* _LINUX_PROC_FS_H */

@@ -37,6 +37,6 @@ static inline bool kmemcheck_trap(struct pt_regs *regs)
 {
 	return false;
 }
-#endif 
+#endif /* CONFIG_KMEMCHECK */
 
 #endif

@@ -24,16 +24,28 @@
 #include <asm/byteorder.h>
 #include <asm/mips-boards/bonito64.h>
 
+/*
+ * Display register base.
+ */
 #define ASCII_DISPLAY_WORD_BASE    0x1f000410
 #define ASCII_DISPLAY_POS_BASE     0x1f000418
 
 
+/*
+ * Yamon Prom print address.
+ */
 #define YAMON_PROM_PRINT_ADDR      0x1fc00504
 
 
+/*
+ * Reset register.
+ */
 #define SOFTRES_REG       0x1f000500
 #define GORESET           0x42
 
+/*
+ * Revision register.
+ */
 #define MIPS_REVISION_REG                  0x1fc00010
 #define MIPS_REVISION_CORID_QED_RM5261     0
 #define MIPS_REVISION_CORID_CORE_LV        1
@@ -49,6 +61,11 @@
 #define MIPS_REVISION_CORID_CORE_FPGA4     11
 #define MIPS_REVISION_CORID_CORE_FPGA5     12
 
+/**** Artificial corid defines ****/
+/*
+ *  CoreEMUL with   Bonito   System Controller is treated like a Core20K
+ *  CoreEMUL with SOC-it 101 System Controller is treated like a CoreMSC
+ */
 #define MIPS_REVISION_CORID_CORE_EMUL_BON  -1
 #define MIPS_REVISION_CORID_CORE_EMUL_MSC  -2
 
@@ -58,6 +75,7 @@
 #define MIPS_REVISION_SCON_SOCITSC	   1
 #define MIPS_REVISION_SCON_SOCITSCP	   2
 
+/* Artificial SCON defines for MIPS_REVISION_SCON_OTHER */
 #define MIPS_REVISION_SCON_UNKNOWN	   -1
 #define MIPS_REVISION_SCON_GT64120	   -2
 #define MIPS_REVISION_SCON_BONITO	   -3
@@ -79,4 +97,4 @@ extern void mips_pcibios_init(void);
 extern void kgdb_config(void);
 #endif
 
-#endif  
+#endif  /* __ASM_MIPS_BOARDS_GENERIC_H */

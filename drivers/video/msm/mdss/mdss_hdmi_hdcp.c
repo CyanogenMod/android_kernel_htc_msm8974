@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2014 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -42,7 +42,10 @@ struct hdmi_hdcp_ctrl {
 	struct work_struct hdcp_int_work;
 	struct completion r0_checked;
 	struct hdmi_hdcp_init_data init_data;
+	bool mhl_hdcp_en;
+	int hdcp_ret;
 };
+struct hdmi_hdcp_ctrl *hdcp_ctrl_global = NULL;
 
 const char *hdcp_state_name(enum hdmi_hdcp_state hdcp_state)
 {
@@ -182,7 +185,7 @@ static void hdmi_hdcp_hw_ddc_clean(struct hdmi_hdcp_ctrl *hdcp_ctrl)
 	}
 } 
 
-static int hdmi_hdcp_authentication_part1(struct hdmi_hdcp_ctrl *hdcp_ctrl)
+static int hdmi_hdcp_authentication_part1(struct hdmi_hdcp_ctrl *hdcp_ctrl, bool encrypt_en)
 {
 	int rc;
 	u32 qfprom_aksv_lsb, qfprom_aksv_msb;
@@ -200,6 +203,7 @@ static int hdmi_hdcp_authentication_part1(struct hdmi_hdcp_ctrl *hdcp_ctrl)
 	u32 link0_status, an_ready, keys_state;
 	u8 buf[0xFF];
 
+	pr_info("hdmi_hdcp_authentication_part1()++\n");
 	if (!hdcp_ctrl || !hdcp_ctrl->init_data.core_io ||
 		!hdcp_ctrl->init_data.qfprom_io) {
 		DEV_ERR("%s: invalid input\n", __func__);
@@ -477,7 +481,7 @@ static int hdmi_hdcp_authentication_part1(struct hdmi_hdcp_ctrl *hdcp_ctrl)
 	
 	INIT_COMPLETION(hdcp_ctrl->r0_checked);
 	DSS_REG_W(io, HDMI_HDCP_RCVPORT_DATA2_0, (((u32)buf[1]) << 8) | buf[0]);
-	timeout_count = wait_for_completion_interruptible_timeout(
+	timeout_count = wait_for_completion_timeout(
 		&hdcp_ctrl->r0_checked, HZ*2);
 	link0_status = DSS_REG_R(io, HDMI_HDCP_LINK0_STATUS);
 	is_match = link0_status & BIT(12);
@@ -505,12 +509,78 @@ error:
 			HDCP_STATE_NAME);
 	} else {
 		
-		DSS_REG_W(io, HDMI_HDCP_CTRL, BIT(0) | BIT(8));
 		DEV_INFO("%s: %s: Authentication Part I successful\n",
 			__func__, HDCP_STATE_NAME);
+		if (encrypt_en)
+			DSS_REG_W(io, HDMI_HDCP_CTRL, BIT(0) | BIT(8));
+		else {
+			DSS_REG_W(io, HDMI_HDCP_CTRL, BIT(0));
+
+			
+			if (!(bcaps & BIT(6))) {
+				DEV_ERR("%s: %s: auth part II skipped, no repeater\n",
+					__func__, HDCP_STATE_NAME);
+			} else {
+				DEV_ERR("%s: %s: auth part II is performed, it is repeater\n",
+					__func__, HDCP_STATE_NAME);
+				
+				timeout_count = 50;
+				while (!(bcaps & BIT(5)) && timeout_count) {
+					msleep(100);
+					timeout_count--;
+					
+					memset(&ddc_data, 0, sizeof(ddc_data));
+					ddc_data.dev_addr = 0x74;
+					ddc_data.offset = 0x40;
+					ddc_data.data_buf = &bcaps;
+					ddc_data.data_len = 1;
+					ddc_data.request_len = 1;
+					ddc_data.retry = 5;
+					ddc_data.what = "Bcaps";
+					ddc_data.no_align = false;
+					rc = hdmi_ddc_read(hdcp_ctrl->init_data.ddc_ctrl, &ddc_data);
+					if (rc) {
+						DEV_ERR("%s: %s: BCAPS read failed\n", __func__,
+							HDCP_STATE_NAME);
+						break;
+					}
+				}
+				if (timeout_count == 0) {
+					pr_err("timeout while waiting for READY bit to be set in BCAPS");
+					rc = -EINVAL;
+				}
+			}
+		}
 	}
+	pr_info("hdmi_hdcp_authentication_part1()--\n");
 	return rc;
 } 
+
+int hdmi_hdcp_authentication_from_mhl(void)
+{
+	struct hdmi_hdcp_ctrl *hdcp_ctrl = hdcp_ctrl_global;
+
+	if (!hdcp_ctrl)
+		return -EINVAL;
+
+	hdcp_ctrl->mhl_hdcp_en = true;
+	queue_delayed_work(hdcp_ctrl->init_data.workq,
+		&hdcp_ctrl->hdcp_auth_work, 0);
+
+	flush_delayed_work(&hdcp_ctrl->hdcp_auth_work);
+	hdcp_ctrl->mhl_hdcp_en = false;
+
+	return hdcp_ctrl->hdcp_ret;
+}
+
+int hdmi_hdcp_set_state(enum hdmi_hdcp_state state)
+{
+	if (hdcp_ctrl_global)
+		hdcp_ctrl_global->hdcp_state = state;
+	pr_info("%s: set state to %s\n", __func__, hdcp_state_name(state));
+
+	return 0;
+}
 
 #define READ_WRITE_V_H(off, name, reg) \
 do { \
@@ -861,12 +931,17 @@ static void hdmi_hdcp_auth_work(struct work_struct *work)
 		return;
 	}
 
+	if (hdcp_ctrl->mhl_hdcp_en) {
+		hdcp_ctrl->hdcp_ret = hdmi_hdcp_authentication_part1(hdcp_ctrl, false);
+		return;
+	}
+
 	io = hdcp_ctrl->init_data.core_io;
 	
 	DSS_REG_W_ND(io, HDMI_DDC_ARBITRATION , DSS_REG_R(io,
 				HDMI_DDC_ARBITRATION) & ~(BIT(4)));
 
-	rc = hdmi_hdcp_authentication_part1(hdcp_ctrl);
+	rc = hdmi_hdcp_authentication_part1(hdcp_ctrl, true);
 	if (rc) {
 		DEV_DBG("%s: %s: HDCP Auth Part I failed\n", __func__,
 			HDCP_STATE_NAME);
@@ -952,7 +1027,10 @@ static int hdmi_msm_if_abort_reauth(struct hdmi_hdcp_ctrl *hdcp_ctrl)
 	}
 
 	if (++hdcp_ctrl->auth_retries == AUTH_RETRIES_TIME) {
-		hdmi_hdcp_off(hdcp_ctrl);
+		mutex_lock(hdcp_ctrl->init_data.mutex);
+		hdcp_ctrl->hdcp_state = HDCP_STATE_INACTIVE;
+		mutex_unlock(hdcp_ctrl->init_data.mutex);
+
 		hdcp_ctrl->auth_retries = 0;
 		ret = -ERANGE;
 	}
@@ -979,13 +1057,6 @@ int hdmi_hdcp_reauthenticate(void *input)
 		return 0;
 	}
 
-	ret = hdmi_msm_if_abort_reauth(hdcp_ctrl);
-
-	if (ret) {
-		DEV_ERR("%s: abort reauthentication!\n", __func__);
-		return ret;
-	}
-
 	DSS_REG_W(io, HDMI_HPD_CTRL, DSS_REG_R(hdcp_ctrl->init_data.core_io,
 		HDMI_HPD_CTRL) & ~BIT(28));
 
@@ -1004,6 +1075,13 @@ int hdmi_hdcp_reauthenticate(void *input)
 	DSS_REG_W(hdcp_ctrl->init_data.core_io, HDMI_HPD_CTRL,
 		DSS_REG_R(hdcp_ctrl->init_data.core_io,
 		HDMI_HPD_CTRL) | BIT(28));
+
+	ret = hdmi_msm_if_abort_reauth(hdcp_ctrl);
+
+	if (ret) {
+		DEV_ERR("%s: abort reauthentication!\n", __func__);
+		return ret;
+	}
 
 	
 	DEV_DBG("%s: %s: Scheduling work to start HDCP authentication",
@@ -1051,9 +1129,6 @@ void hdmi_hdcp_off(void *input)
 			HDCP_STATE_NAME);
 
 	DSS_REG_W(io, HDMI_HDCP_RESET, BIT(0));
-
-	
-	hdmi_hdcp_hw_ddc_clean(hdcp_ctrl);
 
 	
 	DSS_REG_W(io, HDMI_HDCP_CTRL, 0);
@@ -1279,6 +1354,7 @@ void *hdmi_hdcp_init(struct hdmi_hdcp_init_data *init_data)
 	DEV_DBG("%s: HDCP module initialized. HDCP_STATE=%s", __func__,
 		HDCP_STATE_NAME);
 
+	hdcp_ctrl_global = hdcp_ctrl;
 error:
 	return (void *)hdcp_ctrl;
 } 

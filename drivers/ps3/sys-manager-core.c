@@ -23,9 +23,21 @@
 #include <asm/lv1call.h>
 #include <asm/ps3.h>
 
+/**
+ * Staticly linked routines that allow late binding of a loaded sys-manager
+ * module.
+ */
 
 static struct ps3_sys_manager_ops ps3_sys_manager_ops;
 
+/**
+ * ps3_register_sys_manager_ops - Bind ps3_sys_manager_ops to a module.
+ * @ops: struct ps3_sys_manager_ops.
+ *
+ * To be called from ps3_sys_manager_probe() and ps3_sys_manager_remove() to
+ * register call back ops for power control.  Copies data to the static
+ * variable ps3_sys_manager_ops.
+ */
 
 void ps3_sys_manager_register_ops(const struct ps3_sys_manager_ops *ops)
 {

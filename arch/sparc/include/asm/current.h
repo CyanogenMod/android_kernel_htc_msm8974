@@ -18,6 +18,11 @@ register struct task_struct *current asm("g4");
 #endif
 
 #ifdef CONFIG_SPARC32
+/* We might want to consider using %g4 like sparc64 to shave a few cycles.
+ *
+ * Two stage process (inline + #define) for type-checking.
+ * We also obfuscate get_current() to check if anyone used that by mistake.
+ */
 struct task_struct;
 static inline struct task_struct *__get_current(void)
 {
@@ -26,4 +31,4 @@ static inline struct task_struct *__get_current(void)
 #define current __get_current()
 #endif
 
-#endif 
+#endif /* !(_SPARC_CURRENT_H) */

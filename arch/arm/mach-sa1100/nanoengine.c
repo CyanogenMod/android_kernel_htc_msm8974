@@ -32,10 +32,11 @@
 
 #include "generic.h"
 
+/* Flash bank 0 */
 static struct mtd_partition nanoengine_partitions[] = {
 	{
 		.name	= "nanoEngine boot firmware and parameter table",
-		.size		= 0x00010000,  
+		.size		= 0x00010000,  /* 32K */
 		.offset		= 0,
 		.mask_flags	= MTD_WRITEABLE,
 	}, {
@@ -64,19 +65,19 @@ static struct resource nanoengine_flash_resources[] = {
 
 static struct map_desc nanoengine_io_desc[] __initdata = {
 	{
-		
+		/* System Registers */
 		.virtual	= 0xf0000000,
 		.pfn		= __phys_to_pfn(0x10000000),
 		.length		= 0x00100000,
 		.type		= MT_DEVICE
 	}, {
-		
+		/* Internal PCI Memory Read/Write */
 		.virtual	= NANO_PCI_MEM_RW_VIRT,
 		.pfn		= __phys_to_pfn(NANO_PCI_MEM_RW_PHYS),
 		.length		= NANO_PCI_MEM_RW_SIZE,
 		.type		= MT_DEVICE
 	}, {
-		
+		/* Internal PCI Config Space */
 		.virtual	= NANO_PCI_CONFIG_SPACE_VIRT,
 		.pfn		= __phys_to_pfn(NANO_PCI_CONFIG_SPACE_PHYS),
 		.length		= NANO_PCI_CONFIG_SPACE_SIZE,
@@ -93,7 +94,7 @@ static void __init nanoengine_map_io(void)
 	sa1100_register_uart(1, 2);
 	sa1100_register_uart(2, 3);
 	Ser1SDCR0 |= SDCR0_UART;
-	
+	/* disable IRDA -- UART2 is used as a normal serial port */
 	Ser2UTCR4 = 0;
 	Ser2HSCR0 = 0;
 }

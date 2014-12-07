@@ -18,27 +18,52 @@
 #ifndef	_H_JFS_BTREE
 #define _H_JFS_BTREE
 
+/*
+ *	jfs_btree.h: B+-tree
+ *
+ * JFS B+-tree (dtree and xtree) common definitions
+ */
 
+/*
+ *	basic btree page - btpage
+ *
+struct btpage {
+	s64 next;		right sibling bn
+	s64 prev;		left sibling bn
 
-#define BT_TYPE		0x07	
-#define	BT_ROOT		0x01	
-#define	BT_LEAF		0x02	
-#define	BT_INTERNAL	0x04	
-#define	BT_RIGHTMOST	0x10	
-#define	BT_LEFTMOST	0x20	
-#define	BT_SWAPPED	0x80	
+	u8 flag;
+	u8 rsrvd[7];		type specific
+	s64 self;		self address
 
+	u8 entry[4064];
+};						*/
+
+/* btpaget_t flag */
+#define BT_TYPE		0x07	/* B+-tree index */
+#define	BT_ROOT		0x01	/* root page */
+#define	BT_LEAF		0x02	/* leaf page */
+#define	BT_INTERNAL	0x04	/* internal page */
+#define	BT_RIGHTMOST	0x10	/* rightmost page */
+#define	BT_LEFTMOST	0x20	/* leftmost page */
+#define	BT_SWAPPED	0x80	/* used by fsck for endian swapping */
+
+/* btorder (in inode) */
 #define	BT_RANDOM		0x0000
 #define	BT_SEQUENTIAL		0x0001
 #define	BT_LOOKUP		0x0010
 #define	BT_INSERT		0x0020
 #define	BT_DELETE		0x0040
 
+/*
+ *	btree page buffer cache access
+ */
 #define BT_IS_ROOT(MP) (((MP)->xflag & COMMIT_PAGE) == 0)
 
+/* get page from buffer page */
 #define BT_PAGE(IP, MP, TYPE, ROOT)\
 	(BT_IS_ROOT(MP) ? (TYPE *)&JFS_IP(IP)->ROOT : (TYPE *)(MP)->data)
 
+/* get the page buffer and the page for specified block address */
 #define BT_GETPAGE(IP, BN, MP, TYPE, SIZE, P, RC, ROOT)\
 {\
 	if ((BN) == 0)\
@@ -69,6 +94,7 @@
 		mark_metapage_dirty(MP);\
 }
 
+/* put the page buffer */
 #define BT_PUTPAGE(MP)\
 {\
 	if (! BT_IS_ROOT(MP)) \
@@ -76,12 +102,18 @@
 }
 
 
-struct btframe {	
-	s64 bn;			
-	s16 index;		
-	s16 lastindex;		
-	struct metapage *mp;	
-};				
+/*
+ *	btree traversal stack
+ *
+ * record the path traversed during the search;
+ * top frame record the leaf page/entry selected.
+ */
+struct btframe {	/* stack frame */
+	s64 bn;			/* 8: */
+	s16 index;		/* 2: */
+	s16 lastindex;		/* 2: unused */
+	struct metapage *mp;	/* 4/8: */
+};				/* (16/24) */
 
 struct btstack {
 	struct btframe *top;
@@ -119,6 +151,7 @@ static inline void BT_STACK_DUMP(struct btstack *btstack)
 		       btstack->stack[i].index);
 }
 
+/* retrieve search results */
 #define BT_GETSEARCH(IP, LEAF, BN, MP, TYPE, P, INDEX, ROOT)\
 {\
 	BN = (LEAF)->bn;\
@@ -130,9 +163,10 @@ static inline void BT_STACK_DUMP(struct btstack *btstack)
 	INDEX = (LEAF)->index;\
 }
 
+/* put the page buffer of search */
 #define BT_PUTSEARCH(BTSTACK)\
 {\
 	if (! BT_IS_ROOT((BTSTACK)->top->mp))\
 		release_metapage((BTSTACK)->top->mp);\
 }
-#endif				
+#endif				/* _H_JFS_BTREE */

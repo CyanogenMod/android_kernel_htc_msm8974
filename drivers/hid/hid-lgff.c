@@ -80,7 +80,7 @@ static int hid_lgff_play(struct input_dev *dev, void *data, struct ff_effect *ef
 
 	switch (effect->type) {
 	case FF_CONSTANT:
-		x = effect->u.ramp.start_level + 0x7f;	
+		x = effect->u.ramp.start_level + 0x7f;	/* 0x7f is center */
 		y = effect->u.ramp.end_level + 0x7f;
 		CLAMP(x);
 		CLAMP(y);
@@ -119,8 +119,8 @@ static void hid_lgff_set_autocenter(struct input_dev *dev, u16 magnitude)
 	magnitude = (magnitude >> 12) & 0xf;
 	*value++ = 0xfe;
 	*value++ = 0x0d;
-	*value++ = magnitude;   
-	*value++ = magnitude;   
+	*value++ = magnitude;   /* clockwise strength */
+	*value++ = magnitude;   /* counter-clockwise strength */
 	*value++ = 0x80;
 	*value++ = 0x00;
 	*value = 0x00;
@@ -138,13 +138,13 @@ int lgff_init(struct hid_device* hid)
 	int error;
 	int i;
 
-	
+	/* Find the report to use */
 	if (list_empty(report_list)) {
 		hid_err(hid, "No output report found\n");
 		return -1;
 	}
 
-	
+	/* Check that the report looks ok */
 	report = list_entry(report_list->next, struct hid_report, list);
 	field = report->field[0];
 	if (!field) {

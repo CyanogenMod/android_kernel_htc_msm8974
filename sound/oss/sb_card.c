@@ -31,7 +31,7 @@
 #include "sb.h"
 #ifdef CONFIG_PNP
 #include <linux/pnp.h>
-#endif 
+#endif /* CONFIG_PNP */
 #include "sb_card.h"
 
 MODULE_DESCRIPTION("OSS Soundblaster ISA PnP and legacy sound driver");
@@ -44,16 +44,19 @@ static int __initdata io	= -1;
 static int __initdata irq	= -1;
 static int __initdata dma	= -1;
 static int __initdata dma16	= -1;
-static int __initdata type	= 0; 
-static int __initdata esstype   = 0; 
-static int __initdata acer 	= 0; 
-static int __initdata sm_games 	= 0; 
+static int __initdata type	= 0; /* Can set this to a specific card type */
+static int __initdata esstype   = 0; /* ESS chip type */
+static int __initdata acer 	= 0; /* Do acer notebook init? */
+static int __initdata sm_games 	= 0; /* Logitech soundman games? */
 
 static struct sb_card_config *legacy = NULL;
 
 #ifdef CONFIG_PNP
 static int pnp_registered;
 static int __initdata pnp       = 1;
+/*
+static int __initdata uart401	= 0;
+*/
 #else
 static int __initdata pnp       = 0;
 #endif
@@ -84,8 +87,15 @@ MODULE_PARM_DESC(acer,	   "Set this to detect cards in some ACER notebooks "\
 module_param(pnp, int, 000);
 MODULE_PARM_DESC(pnp,     "Went set to 0 will disable detection using PnP. "\
 		  "Default is 1.\n");
-#endif 
+/* Not done yet.... */
+/*
+module_param(uart401, int, 000);
+MODULE_PARM_DESC(uart401,  "When set to 1, will attempt to detect and enable"\
+		 "the mpu on some clones");
+*/
+#endif /* CONFIG_PNP */
 
+/* OSS subsystem card registration shared by PnP and legacy routines */
 static int sb_register_oss(struct sb_card_config *scc, struct sb_module_options *sbmo)
 {
 	if (!request_region(scc->conf.io_base, 16, "soundblaster")) {
@@ -123,6 +133,7 @@ static void sb_unload(struct sb_card_config *scc)
 	kfree(scc);
 }
 
+/* Register legacy card with OSS subsystem */
 static int __init sb_init_legacy(void)
 {
 	struct sb_module_options sbmo = {0};
@@ -152,6 +163,7 @@ static int __init sb_init_legacy(void)
 
 #ifdef CONFIG_PNP
 
+/* Populate the OSS subsystem structures with information from PnP */
 static void sb_dev2cfg(struct pnp_dev *dev, struct sb_card_config *scc)
 {
 	scc->conf.io_base   = -1;
@@ -163,6 +175,8 @@ static void sb_dev2cfg(struct pnp_dev *dev, struct sb_card_config *scc)
 	scc->mpucnf.dma     = -1;
 	scc->mpucnf.dma2    = -1;
 
+	/* All clones layout their PnP tables differently and some use
+	   different logical devices for the MPU */
 	if(!strncmp("CTL",scc->card_id,3)) {
 		scc->conf.io_base   = pnp_port_start(dev,0);
 		scc->conf.irq       = pnp_irq(dev,0);
@@ -222,10 +236,11 @@ static void sb_dev2cfg(struct pnp_dev *dev, struct sb_card_config *scc)
 
 static unsigned int sb_pnp_devices;
 
+/* Probe callback function for the PnP API */
 static int sb_pnp_probe(struct pnp_card_link *card, const struct pnp_card_device_id *card_id)
 {
 	struct sb_card_config *scc;
-	struct sb_module_options sbmo = {0}; 
+	struct sb_module_options sbmo = {0}; /* Default to 0 for PnP */
 	struct pnp_dev *dev = pnp_request_card_device(card, card_id->devs[0].id, NULL);
 	
 	if(!dev){
@@ -268,13 +283,13 @@ static void sb_pnp_remove(struct pnp_card_link *card)
 }
 
 static struct pnp_card_driver sb_pnp_driver = {
-	.name          = "OSS SndBlstr", 
+	.name          = "OSS SndBlstr", /* 16 character limit */
 	.id_table      = sb_pnp_card_table,
 	.probe         = sb_pnp_probe,
 	.remove        = sb_pnp_remove,
 };
 MODULE_DEVICE_TABLE(pnp_card, sb_pnp_card_table);
-#endif 
+#endif /* CONFIG_PNP */
 
 static void sb_unregister_all(void)
 {
@@ -310,6 +325,8 @@ static int __init sb_init(void)
 #endif
 	printk(KERN_INFO "sb: Init: Done\n");
 
+	/* If either PnP or Legacy registered a card then return
+	 * success */
 	if (pres == 0 && lres <= 0) {
 		sb_unregister_all();
 		return -ENODEV;
@@ -321,7 +338,7 @@ static void __exit sb_exit(void)
 {
 	printk(KERN_INFO "sb: Unloading...\n");
 
-	
+	/* Unload legacy card */
 	if (legacy) {
 		printk (KERN_INFO "sb: Unloading legacy card\n");
 		sb_unload(legacy);

@@ -65,4 +65,4 @@ asmlinkage void name##_trap_handler(unsigned long r4, unsigned long r5,	\
 	unsigned int vec = regs->tra;			\
 	(void)vec;
 
-#endif 
+#endif /* __ASM_SH_TRAPS_32_H */

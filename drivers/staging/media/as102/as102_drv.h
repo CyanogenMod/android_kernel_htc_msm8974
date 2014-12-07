@@ -53,21 +53,21 @@ extern int elna_enable;
 
 struct as10x_bus_adapter_t {
 	struct usb_device *usb_dev;
-	
+	/* bus token lock */
 	struct mutex lock;
-	
+	/* low level interface for bus adapter */
 	union as10x_bus_token_t {
-		
+		/* usb token */
 		struct as10x_usb_token_cmd_t usb;
 	} token;
 
-	
+	/* token cmd xfer id */
 	uint16_t cmd_xid;
 
-	
+	/* as10x command and response for dvb interface*/
 	struct as10x_cmd_t *cmd, *rsp;
 
-	
+	/* bus adapter private ops callback */
 	struct as102_priv_ops_t *ops;
 };
 
@@ -83,14 +83,14 @@ struct as102_dev_t {
 	struct dvb_demux dvb_dmx;
 	struct dmxdev dvb_dmxdev;
 
-	
+	/* demodulator stats */
 	struct as10x_demod_stats demod_stats;
-	
+	/* signal strength */
 	uint16_t signal_strength;
-	
+	/* bit error rate */
 	uint32_t ber;
 
-	
+	/* timer handle to trig ts stream download */
 	struct timer_list timer_handle;
 
 	struct mutex sem;

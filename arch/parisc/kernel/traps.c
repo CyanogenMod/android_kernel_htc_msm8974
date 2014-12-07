@@ -5,6 +5,10 @@
  *  Copyright (C) 1999, 2000  Philipp Rumpf <prumpf@tux.org>
  */
 
+/*
+ * 'Traps.c' handles hardware traps and faults after we have saved some
+ * state in 'asm.s'.
+ */
 
 #include <linux/sched.h>
 #include <linux/kernel.h>
@@ -36,10 +40,10 @@
 #include <asm/tlbflush.h>
 #include <asm/cacheflush.h>
 
-#include "../math-emu/math-emu.h"	
+#include "../math-emu/math-emu.h"	/* for handle_fpe() */
 
-#define PRINT_USER_FAULTS 
-			  
+#define PRINT_USER_FAULTS /* (turn this on if you want user faults to be */
+			  /*  dumped to the console via printk)          */
 
 #if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 DEFINE_SPINLOCK(pa_dbit_lock);
@@ -65,7 +69,7 @@ static int printbinary(char *buf, unsigned long x, int nbits)
 #else
 #define RFMT "%08lx"
 #endif
-#define FFMT "%016llx"	
+#define FFMT "%016llx"	/* fpregs are 64-bit always */
 
 #define PRINTREGS(lvl,r,f,fmt,x)	\
 	printk("%s%s%02d-%02d  " fmt " " fmt " " fmt " " fmt "\n",	\
@@ -92,6 +96,12 @@ static void print_fr(char *level, struct pt_regs *regs)
 	char buf[64];
 	struct { u32 sw[2]; } s;
 
+	/* FR are 64bit everywhere. Need to use asm to get the content
+	 * of fpsr/fper1, and we assume that we won't have a FP Identify
+	 * in our way, otherwise we're screwed.
+	 * The fldd is used to restore the T-bit if there was one, as the
+	 * store clears it anyway.
+	 * PA2.0 book says "thou shall not use fstw on FPSR/FPERs" - T-Bone */
 	asm volatile ("fstd %%fr0,0(%1)	\n\t"
 		      "fldd 0(%1),%%fr0	\n\t"
 		      : "=m" (s) : "r" (&s) : "r0");
@@ -102,7 +112,7 @@ static void print_fr(char *level, struct pt_regs *regs)
 	printk("%sFPSR: %s\n", level, buf);
 	printk("%sFPER1: %08x\n", level, s.sw[1]);
 
-	
+	/* here we'll print fr0 again, tho it'll be meaningless */
 	for (i = 0; i < 32; i += 4)
 		PRINTREGS(level, regs->fr, "fr", FFMT, i);
 }
@@ -223,12 +233,12 @@ void die_if_kernel(char *str, struct pt_regs *regs, long err)
 {
 	if (user_mode(regs)) {
 		if (err == 0)
-			return; 
+			return; /* STFU */
 
 		printk(KERN_CRIT "%s (pid %d): %s (code %ld) at " RFMT "\n",
 			current->comm, task_pid_nr(current), str, err, regs->iaoq[0]);
 #ifdef PRINT_USER_FAULTS
-		
+		/* XXX for debugging only */
 		show_regs(regs);
 #endif
 		return;
@@ -238,7 +248,7 @@ void die_if_kernel(char *str, struct pt_regs *regs, long err)
 
 	oops_enter();
 
-	
+	/* Amuse the user in a SPARC fashion */
 	if (err) printk(KERN_CRIT
 			"      _______________________________ \n"
 			"     < Your System ate a SPARC! Gah! >\n"
@@ -248,9 +258,13 @@ void die_if_kernel(char *str, struct pt_regs *regs, long err)
 			"                  U  ||----w |\n"
 			"                     ||     ||\n");
 	
-	
+	/* unlock the pdc lock if necessary */
 	pdc_emergency_unlock();
 
+	/* maybe the kernel hasn't booted very far yet and hasn't been able 
+	 * to initialize the serial or STI console. In that case we should 
+	 * re-enable the pdc console, so that the user will be able to 
+	 * identify the problem. */
 	if (!console_drivers)
 		pdc_console_restart();
 	
@@ -258,7 +272,7 @@ void die_if_kernel(char *str, struct pt_regs *regs, long err)
 		printk(KERN_CRIT "%s (pid %d): %s (code %ld)\n",
 			current->comm, task_pid_nr(current), str, err);
 
-	
+	/* Wot's wrong wif bein' racy? */
 	if (current->thread.flags & PARISC_KERNEL_DEATH) {
 		printk(KERN_CRIT "%s() recursion detected.\n", __func__);
 		local_irq_enable();
@@ -288,6 +302,7 @@ int syscall_ipi(int (*syscall) (struct pt_regs *), struct pt_regs *regs)
 	return syscall(regs);
 }
 
+/* gdb uses break 4,8 */
 #define GDB_BREAK_INSN 0x10004
 static void handle_gdb_break(struct pt_regs *regs, int wot)
 {
@@ -305,13 +320,13 @@ static void handle_break(struct pt_regs *regs)
 	unsigned iir = regs->iir;
 
 	if (unlikely(iir == PARISC_BUG_BREAK_INSN && !user_mode(regs))) {
-		
+		/* check if a BUG() or WARN() trapped here.  */
 		enum bug_trap_type tt;
 		tt = report_bug(regs->iaoq[0] & ~3, regs);
 		if (tt == BUG_TRAP_TYPE_WARN) {
 			regs->iaoq[0] += 4;
 			regs->iaoq[1] += 4;
-			return; 
+			return; /* return to next instruction when WARN_ON().  */
 		}
 		die_if_kernel("Unknown kernel breakpoint", regs,
 			(tt == BUG_TRAP_TYPE_NONE) ? 9 : 0);
@@ -326,7 +341,7 @@ static void handle_break(struct pt_regs *regs)
 	}
 #endif
 
-	
+	/* send standard GDB signal */
 	handle_gdb_break(regs, TRAP_BRKPT);
 }
 
@@ -350,6 +365,12 @@ void transfer_pim_to_trap_frame(struct pt_regs *regs)
 
 	pim_wide = (struct pdc_hpmc_pim_20 *)hpmc_pim_data;
 
+	/*
+	 * Note: The following code will probably generate a
+	 * bunch of truncation error warnings from the compiler.
+	 * Could be handled with an ifdef, but perhaps there
+	 * is a better way.
+	 */
 
 	regs->gr[0] = pim_wide->cr[22];
 
@@ -397,6 +418,10 @@ void transfer_pim_to_trap_frame(struct pt_regs *regs)
 	regs->ior  = pim_narrow->cr[21];
     }
 
+    /*
+     * The following fields only have meaning if we came through
+     * another path. So just zero them here.
+     */
 
     regs->ksp = 0;
     regs->kpc = 0;
@@ -404,6 +429,11 @@ void transfer_pim_to_trap_frame(struct pt_regs *regs)
 }
 
 
+/*
+ * This routine is called as a last resort when everything else
+ * has gone clearly wrong. We get called for faults in kernel space,
+ * and HPMC's.
+ */
 void parisc_terminate(char *msg, struct pt_regs *regs, int code, unsigned long offset)
 {
 	static DEFINE_SPINLOCK(terminate_lock);
@@ -414,14 +444,14 @@ void parisc_terminate(char *msg, struct pt_regs *regs, int code, unsigned long o
 	local_irq_disable();
 	spin_lock(&terminate_lock);
 
-	
+	/* unlock the pdc lock if necessary */
 	pdc_emergency_unlock();
 
-	
+	/* restart pdc console if necessary */
 	if (!console_drivers)
 		pdc_console_restart();
 
-	
+	/* Not all paths will gutter the processor... */
 	switch(code){
 
 	case 1:
@@ -429,13 +459,13 @@ void parisc_terminate(char *msg, struct pt_regs *regs, int code, unsigned long o
 		break;
 
 	default:
-		
+		/* Fall through */
 		break;
 
 	}
 	    
 	{
-		
+		/* show_stack(NULL, (unsigned long *)regs->gr[30]); */
 		struct unwind_frame_info info;
 		unwind_frame_init(&info, current, regs);
 		do_show_stack(&info);
@@ -448,8 +478,20 @@ void parisc_terminate(char *msg, struct pt_regs *regs, int code, unsigned long o
 
 	spin_unlock(&terminate_lock);
 
+	/* put soft power button back under hardware control;
+	 * if the user had pressed it once at any time, the 
+	 * system will shut down immediately right here. */
 	pdc_soft_power_button(0);
 	
+	/* Call kernel panic() so reboot timeouts work properly 
+	 * FIXME: This function should be on the list of
+	 * panic notifiers, and we should call panic
+	 * directly from the location that we wish. 
+	 * e.g. We should not call panic from
+	 * parisc_terminate, but rather the oter way around.
+	 * This hack works, prints the panic message twice,
+	 * and it enables reboot timers!
+	 */
 	panic(msg);
 }
 
@@ -460,13 +502,33 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 	struct siginfo si;
 
 	if (code == 1)
-	    pdc_console_restart();  
+	    pdc_console_restart();  /* switch back to pdc if HPMC */
 	else
 	    local_irq_enable();
 
+	/* Security check:
+	 * If the priority level is still user, and the
+	 * faulting space is not equal to the active space
+	 * then the user is attempting something in a space
+	 * that does not belong to them. Kill the process.
+	 *
+	 * This is normally the situation when the user
+	 * attempts to jump into the kernel space at the
+	 * wrong offset, be it at the gateway page or a
+	 * random location.
+	 *
+	 * We cannot normally signal the process because it
+	 * could *be* on the gateway page, and processes
+	 * executing on the gateway page can't have signals
+	 * delivered.
+	 * 
+	 * We merely readjust the address into the users
+	 * space, at a destination address of zero, and
+	 * allow processing to continue.
+	 */
 	if (((unsigned long)regs->iaoq[0] & 3) &&
 	    ((unsigned long)regs->iasq[0] != (unsigned long)regs->sr[7])) { 
-	  	
+	  	/* Kill the user process later */
 	  	regs->iaoq[0] = 0 | 3;
 		regs->iaoq[1] = regs->iaoq[0] + 4;
 	 	regs->iasq[0] = regs->iasq[1] = regs->sr[7];
@@ -481,30 +543,30 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 	switch(code) {
 
 	case  1:
+		/* High-priority machine check (HPMC) */
 		
-		
-		
+		/* set up a new led state on systems shipped with a LED State panel */
 		pdc_chassis_send_status(PDC_CHASSIS_DIRECT_HPMC);
 		    
 	    	parisc_terminate("High Priority Machine Check (HPMC)",
 				regs, code, 0);
-		
+		/* NOT REACHED */
 		
 	case  2:
-		
+		/* Power failure interrupt */
 		printk(KERN_CRIT "Power failure interrupt !\n");
 		return;
 
 	case  3:
-		
+		/* Recovery counter trap */
 		regs->gr[0] &= ~PSW_R;
 		if (user_space(regs))
 			handle_gdb_break(regs, TRAP_TRACE);
-		
+		/* else this must be the start of a syscall - just let it run */
 		return;
 
 	case  5:
-		
+		/* Low-priority machine check */
 		pdc_chassis_send_status(PDC_CHASSIS_DIRECT_LPMC);
 		
 		flush_cache_all();
@@ -513,32 +575,35 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 		return;
 
 	case  6:
-		
+		/* Instruction TLB miss fault/Instruction page fault */
 		fault_address = regs->iaoq[0];
 		fault_space   = regs->iasq[0];
 		break;
 
 	case  8:
-		
+		/* Illegal instruction trap */
 		die_if_kernel("Illegal instruction", regs, code);
 		si.si_code = ILL_ILLOPC;
 		goto give_sigill;
 
 	case  9:
-		
+		/* Break instruction trap */
 		handle_break(regs);
 		return;
 	
 	case 10:
-		
+		/* Privileged operation trap */
 		die_if_kernel("Privileged operation", regs, code);
 		si.si_code = ILL_PRVOPC;
 		goto give_sigill;
 	
 	case 11:
-		
+		/* Privileged register trap */
 		if ((regs->iir & 0xffdfffe0) == 0x034008a0) {
 
+			/* This is a MFCTL cr26/cr27 to gr instruction.
+			 * PCXS traps on this, so we need to emulate it.
+			 */
 
 			if (regs->iir & 0x00200000)
 				regs->gr[regs->iir & 0x1f] = mfctl(27);
@@ -561,7 +626,7 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 		return;
 
 	case 12:
-		
+		/* Overflow Trap, let the userland signal handler do the cleanup */
 		si.si_signo = SIGFPE;
 		si.si_code = FPE_INTOVF;
 		si.si_addr = (void __user *) regs->iaoq[0];
@@ -569,69 +634,98 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 		return;
 		
 	case 13:
+		/* Conditional Trap
+		   The condition succeeds in an instruction which traps
+		   on condition  */
 		if(user_mode(regs)){
 			si.si_signo = SIGFPE;
+			/* Set to zero, and let the userspace app figure it out from
+		   	   the insn pointed to by si_addr */
 			si.si_code = 0;
 			si.si_addr = (void __user *) regs->iaoq[0];
 			force_sig_info(SIGFPE, &si, current);
 			return;
 		} 
-		
+		/* The kernel doesn't want to handle condition codes */
 		break;
 		
 	case 14:
-		
-		die_if_kernel("Floating point exception", regs, 0); 
+		/* Assist Exception Trap, i.e. floating point exception. */
+		die_if_kernel("Floating point exception", regs, 0); /* quiet */
 		handle_fpe(regs);
 		return;
 		
 	case 15:
-		
-		
+		/* Data TLB miss fault/Data page fault */
+		/* Fall through */
 	case 16:
-		
-		
+		/* Non-access instruction TLB miss fault */
+		/* The instruction TLB entry needed for the target address of the FIC
+		   is absent, and hardware can't find it, so we get to cleanup */
+		/* Fall through */
 	case 17:
-		
-			  
+		/* Non-access data TLB miss fault/Non-access data page fault */
+		/* FIXME: 
+		 	 Still need to add slow path emulation code here!
+		         If the insn used a non-shadow register, then the tlb
+			 handlers could not have their side-effect (e.g. probe
+			 writing to a target register) emulated since rfir would
+			 erase the changes to said register. Instead we have to
+			 setup everything, call this function we are in, and emulate
+			 by hand. Technically we need to emulate:
+			 fdc,fdce,pdc,"fic,4f",prober,probeir,probew, probeiw
+		*/			  
 		fault_address = regs->ior;
 		fault_space = regs->isr;
 		break;
 
 	case 18:
-		
-		
+		/* PCXS only -- later cpu's split this into types 26,27 & 28 */
+		/* Check for unaligned access */
 		if (check_unaligned(regs)) {
 			handle_unaligned(regs);
 			return;
 		}
-		
+		/* Fall Through */
 	case 26: 
-		
+		/* PCXL: Data memory access rights trap */
 		fault_address = regs->ior;
 		fault_space   = regs->isr;
 		break;
 
 	case 19:
-		
-		regs->gr[0] |= PSW_X; 
-		
+		/* Data memory break trap */
+		regs->gr[0] |= PSW_X; /* So we can single-step over the trap */
+		/* fall thru */
 	case 21:
-		
+		/* Page reference trap */
 		handle_gdb_break(regs, TRAP_HWBKPT);
 		return;
 
 	case 25:
-		
+		/* Taken branch trap */
 		regs->gr[0] &= ~PSW_T;
 		if (user_space(regs))
 			handle_gdb_break(regs, TRAP_BRANCH);
+		/* else this must be the start of a syscall - just let it
+		 * run.
+		 */
 		return;
 
 	case  7:  
-		
-		
+		/* Instruction access rights */
+		/* PCXL: Instruction memory protection trap */
 
+		/*
+		 * This could be caused by either: 1) a process attempting
+		 * to execute within a vma that does not have execute
+		 * permission, or 2) an access rights violation caused by a
+		 * flush only translation set up by ptep_get_and_clear().
+		 * So we check the vma permissions to differentiate the two.
+		 * If the vma indicates we have execute permission, then
+		 * the cause is the latter one. In this case, we need to
+		 * call do_page_fault() to fix the problem.
+		 */
 
 		if (user_mode(regs)) {
 			struct vm_area_struct *vma;
@@ -645,13 +739,13 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 				fault_space = regs->iasq[0];
 
 				up_read(&current->mm->mmap_sem);
-				break; 
+				break; /* call do_page_fault() */
 			}
 			up_read(&current->mm->mmap_sem);
 		}
-		
+		/* Fall Through */
 	case 27: 
-		
+		/* Data memory protection ID trap */
 		if (code == 27 && !user_mode(regs) &&
 			fixup_exception(regs))
 			return;
@@ -668,7 +762,7 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 		return;
 
 	case 28: 
-		
+		/* Unaligned data reference trap */
 		handle_unaligned(regs);
 		return;
 
@@ -679,7 +773,7 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 			    task_pid_nr(current), current->comm);
 			show_regs(regs);
 #endif
-			
+			/* SIGBUS, for lack of a better one. */
 			si.si_signo = SIGBUS;
 			si.si_code = BUS_OBJERR;
 			si.si_errno = 0;
@@ -690,7 +784,7 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 		pdc_chassis_send_status(PDC_CHASSIS_DIRECT_PANIC);
 		
 		parisc_terminate("Unexpected interruption", regs, code, 0);
-		
+		/* NOT REACHED */
 	}
 
 	if (user_mode(regs)) {
@@ -715,6 +809,9 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 	}
 	else {
 
+	    /*
+	     * The kernel should never fault on its own address space.
+	     */
 
 	    if (fault_space == 0) 
 	    {
@@ -747,7 +844,7 @@ int __init check_ivt(void *iva)
 	for (i = 0; i < 8; i++)
 	    *ivap++ = 0;
 
-	
+	/* Compute Checksum for HPMC handler */
 	length = os_hpmc_size;
 	ivap[7] = length;
 

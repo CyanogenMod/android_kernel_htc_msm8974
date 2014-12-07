@@ -185,6 +185,7 @@ static struct platform_driver e740_driver = {
 
 module_platform_driver(e740_driver);
 
+/* Module information */
 MODULE_AUTHOR("Ian Molton <spyro@f2s.com>");
 MODULE_DESCRIPTION("ALSA SoC driver for e740");
 MODULE_LICENSE("GPL v2");

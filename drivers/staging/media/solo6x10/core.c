@@ -43,6 +43,7 @@ void solo_irq_off(struct solo_dev *solo_dev, u32 mask)
 	solo_reg_write(solo_dev, SOLO_IRQ_ENABLE, solo_dev->irq_mask);
 }
 
+/* XXX We should check the return value of the sub-device ISR's */
 static irqreturn_t solo_isr(int irq, void *data)
 {
 	struct solo_dev *solo_dev = data;
@@ -75,7 +76,7 @@ static irqreturn_t solo_isr(int irq, void *data)
 	if (status & SOLO_IRQ_VIDEO_IN)
 		solo_video_in_isr(solo_dev);
 
-	
+	/* Call this first so enc gets detected flag set */
 	if (status & SOLO_IRQ_MOTION)
 		solo_motion_isr(solo_dev);
 
@@ -97,12 +98,14 @@ static void free_solo_dev(struct solo_dev *solo_dev)
 
 	pdev = solo_dev->pdev;
 
+	/* If we never initialized the PCI device, then nothing else
+	 * below here needs cleanup */
 	if (!pdev) {
 		kfree(solo_dev);
 		return;
 	}
 
-	
+	/* Bring down the sub-devices first */
 	solo_g723_exit(solo_dev);
 	solo_enc_v4l2_exit(solo_dev);
 	solo_enc_exit(solo_dev);
@@ -112,7 +115,7 @@ static void free_solo_dev(struct solo_dev *solo_dev)
 	solo_p2m_exit(solo_dev);
 	solo_i2c_exit(solo_dev);
 
-	
+	/* Now cleanup the PCI device */
 	if (solo_dev->reg_base) {
 		solo_irq_off(solo_dev, ~0);
 		pci_iounmap(pdev, solo_dev->reg_base);
@@ -181,11 +184,11 @@ static int __devinit solo_pci_probe(struct pci_dev *pdev,
 
 	solo_dev->flags = id->driver_data;
 
-	
+	/* Disable all interrupts to start */
 	solo_irq_off(solo_dev, ~0);
 
 	reg = SOLO_SYS_CFG_SDRAM64BIT;
-	
+	/* Initial global settings */
 	if (!(solo_dev->flags & FLAGS_6110))
 		reg |= SOLO6010_SYS_CFG_INPUTDIV(25) |
 			SOLO6010_SYS_CFG_FEEDBACKDIV((SOLO_CLOCK_MHZ * 2) - 2) |
@@ -210,15 +213,15 @@ static int __devinit solo_pci_probe(struct pci_dev *pdev,
 			       SOLO6110_PLL_DIVR(9) |
 			       SOLO6110_PLL_DIVQ_EXP(pll_DIVQ) |
 			       SOLO6110_PLL_DIVF(pll_DIVF) | SOLO6110_PLL_FSEN);
-		mdelay(1);      
+		mdelay(1);      /* PLL Locking time (1ms) */
 
-		solo_reg_write(solo_dev, SOLO_DMA_CTRL1, 3 << 8); 
+		solo_reg_write(solo_dev, SOLO_DMA_CTRL1, 3 << 8); /* ? */
 	} else
-		solo_reg_write(solo_dev, SOLO_DMA_CTRL1, 1 << 8); 
+		solo_reg_write(solo_dev, SOLO_DMA_CTRL1, 1 << 8); /* ? */
 
 	solo_reg_write(solo_dev, SOLO_TIMER_CLOCK_NUM, SOLO_CLOCK_MHZ - 1);
 
-	
+	/* PLL locking time of 1ms */
 	mdelay(1);
 
 	ret = request_irq(pdev->irq, solo_isr, IRQF_SHARED, SOLO6X10_NAME,
@@ -226,14 +229,14 @@ static int __devinit solo_pci_probe(struct pci_dev *pdev,
 	if (ret)
 		goto fail_probe;
 
-	
+	/* Handle this from the start */
 	solo_irq_on(solo_dev, SOLO_IRQ_PCI_ERR);
 
 	ret = solo_i2c_init(solo_dev);
 	if (ret)
 		goto fail_probe;
 
-	
+	/* Setup the DMA engine */
 	sdram = (solo_dev->nr_chans >= 8) ? 2 : 1;
 	solo_reg_write(solo_dev, SOLO_DMA_CTRL,
 		       SOLO_DMA_CTRL_REFRESH_CYCLE(1) |
@@ -289,7 +292,7 @@ static void __devexit solo_pci_remove(struct pci_dev *pdev)
 }
 
 static struct pci_device_id solo_id_table[] = {
-	
+	/* 6010 based cards */
 	{PCI_DEVICE(PCI_VENDOR_ID_SOFTLOGIC, PCI_DEVICE_ID_SOLO6010)},
 	{PCI_DEVICE(PCI_VENDOR_ID_SOFTLOGIC, PCI_DEVICE_ID_SOLO6110),
 	 .driver_data = FLAGS_6110},
@@ -299,7 +302,7 @@ static struct pci_device_id solo_id_table[] = {
 	{PCI_DEVICE(PCI_VENDOR_ID_BLUECHERRY, PCI_DEVICE_ID_BC_SOLO_4)},
 	{PCI_DEVICE(PCI_VENDOR_ID_BLUECHERRY, PCI_DEVICE_ID_BC_SOLO_9)},
 	{PCI_DEVICE(PCI_VENDOR_ID_BLUECHERRY, PCI_DEVICE_ID_BC_SOLO_16)},
-	
+	/* 6110 based cards */
 	{PCI_DEVICE(PCI_VENDOR_ID_BLUECHERRY, PCI_DEVICE_ID_BC_6110_4)},
 	{PCI_DEVICE(PCI_VENDOR_ID_BLUECHERRY, PCI_DEVICE_ID_BC_6110_8)},
 	{PCI_DEVICE(PCI_VENDOR_ID_BLUECHERRY, PCI_DEVICE_ID_BC_6110_16)},

@@ -67,6 +67,7 @@ static struct cpuidle_driver exynos4_idle_driver = {
 	.owner		= THIS_MODULE,
 };
 
+/* Ext-GIC nIRQ/nFIQ is the only wakeup source in AFTR */
 static void exynos4_set_wakeupmask(void)
 {
 	__raw_writel(0x0000ff3e, S5P_WAKEUP_MASK);
@@ -76,18 +77,18 @@ static unsigned int g_pwr_ctrl, g_diag_reg;
 
 static void save_cpu_arch_register(void)
 {
-	
+	/*read power control register*/
 	asm("mrc p15, 0, %0, c15, c0, 0" : "=r"(g_pwr_ctrl) : : "cc");
-	
+	/*read diagnostic register*/
 	asm("mrc p15, 0, %0, c15, c0, 1" : "=r"(g_diag_reg) : : "cc");
 	return;
 }
 
 static void restore_cpu_arch_register(void)
 {
-	
+	/*write power control register*/
 	asm("mcr p15, 0, %0, c15, c0, 0" : : "r"(g_pwr_ctrl) : "cc");
-	
+	/*write diagnostic register*/
 	asm("mcr p15, 0, %0, c15, c0, 1" : : "r"(g_diag_reg) : "cc");
 	return;
 }
@@ -111,7 +112,7 @@ static int exynos4_enter_core0_aftr(struct cpuidle_device *dev,
 
 	exynos4_set_wakeupmask();
 
-	
+	/* Set value of power down register for aftr mode */
 	exynos4_sys_powerdown_conf(SYS_AFTR);
 
 	__raw_writel(virt_to_phys(s3c_cpu_resume), REG_DIRECTGO_ADDR);
@@ -119,7 +120,7 @@ static int exynos4_enter_core0_aftr(struct cpuidle_device *dev,
 
 	save_cpu_arch_register();
 
-	
+	/* Setting Central Sequence Register for power down mode */
 	tmp = __raw_readl(S5P_CENTRAL_SEQ_CONFIGURATION);
 	tmp &= ~S5P_CENTRAL_LOWPWR_CFG;
 	__raw_writel(tmp, S5P_CENTRAL_SEQ_CONFIGURATION);
@@ -134,13 +135,19 @@ static int exynos4_enter_core0_aftr(struct cpuidle_device *dev,
 
 	restore_cpu_arch_register();
 
+	/*
+	 * If PMU failed while entering sleep mode, WFI will be
+	 * ignored by PMU and then exiting cpu_do_idle().
+	 * S5P_CENTRAL_LOWPWR_CFG bit will not be set automatically
+	 * in this situation.
+	 */
 	tmp = __raw_readl(S5P_CENTRAL_SEQ_CONFIGURATION);
 	if (!(tmp & S5P_CENTRAL_LOWPWR_CFG)) {
 		tmp |= S5P_CENTRAL_LOWPWR_CFG;
 		__raw_writel(tmp, S5P_CENTRAL_SEQ_CONFIGURATION);
 	}
 
-	
+	/* Clear wakeup state register */
 	__raw_writel(0x0, S5P_WAKEUP_STAT);
 
 	do_gettimeofday(&after);
@@ -180,7 +187,7 @@ static int exynos4_enter_lowpower(struct cpuidle_device *dev,
 {
 	int new_index = index;
 
-	
+	/* This mode only can be entered when other core's are offline */
 	if (num_online_cpus() > 1)
 		new_index = drv->safe_state_index;
 
@@ -196,7 +203,7 @@ static int __init exynos4_init_cpuidle(void)
 	struct cpuidle_device *device;
 	struct cpuidle_driver *drv = &exynos4_idle_driver;
 
-	
+	/* Setup cpuidle driver */
 	drv->state_count = (sizeof(exynos4_cpuidle_set) /
 				       sizeof(struct cpuidle_state));
 	max_cpuidle_state = drv->state_count;
@@ -215,7 +222,7 @@ static int __init exynos4_init_cpuidle(void)
 			device->state_count = (sizeof(exynos4_cpuidle_set) /
 					       sizeof(struct cpuidle_state));
 		else
-			device->state_count = 1;	
+			device->state_count = 1;	/* Support IDLE only */
 
 		if (cpuidle_register_device(device)) {
 			printk(KERN_ERR "CPUidle register device failed\n,");

@@ -1,3 +1,6 @@
+/*
+ * Simulator hook mechanism
+ */
 
 #include "vcs_hook.h"
 #include <asm/io.h>
@@ -29,17 +32,19 @@ static unsigned hook_trig(unsigned id)
 {
 	unsigned ret;
 
-	
+	/* preempt_disable(); */
 
+	/* Dummy read from mem to make sure data has propagated to memory
+	 * before trigging */
 	ret = *hook_base;
 
-	
+	/* trigger hook */
 	HOOK_TRIG(id);
 
-	
+	/* wait for call to finish */
 	while (VHOOK_DATA(0) > 0) ;
 
-	
+	/* extract return value */
 
 	ret = VHOOK_DATA(1);
 
@@ -88,7 +93,7 @@ int hook_call_str(unsigned id, unsigned size, const char *str)
 void print_str(const char *str)
 {
 	int i;
-	
+	/* find null at end of string */
 	for (i = 1; str[i]; i++) ;
 	hook_call(hook_print_str, i, str);
 }

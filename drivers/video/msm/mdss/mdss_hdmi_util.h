@@ -15,6 +15,7 @@
 #include "mdss_io_util.h"
 #include "video/msm_hdmi_modes.h"
 
+/* HDMI_TX Registers */
 #define HDMI_CTRL                        (0x00000000)
 #define HDMI_TEST_PATTERN                (0x00000010)
 #define HDMI_RANDOM_PATTERN              (0x00000014)
@@ -206,6 +207,7 @@
 #define HDMI_CEC_RD_ERR_RESP_LO          (0x0000036C)
 #define HDMI_CEC_WR_CHECK_CONFIG         (0x00000370)
 
+/* HDMI PHY Registers */
 #define HDMI_PHY_ANA_CFG0                (0x00000000)
 #define HDMI_PHY_ANA_CFG1                (0x00000004)
 #define HDMI_PHY_PD_CTRL0                (0x00000010)
@@ -216,6 +218,7 @@
 #define HDMI_PHY_BIST_PATN2              (0x00000044)
 #define HDMI_PHY_BIST_PATN3              (0x00000048)
 
+/* QFPROM Registers for HDMI/HDCP */
 #define QFPROM_RAW_FEAT_CONFIG_ROW0_LSB  (0x000000F8)
 #define QFPROM_RAW_FEAT_CONFIG_ROW0_MSB  (0x000000FC)
 #define HDCP_KSV_LSB                     (0x000060D8)
@@ -248,18 +251,21 @@ struct hdmi_tx_ddc_data {
 	int retry;
 };
 
+/* video timing related utility routines */
 void hdmi_setup_video_mode_lut(void);
 int hdmi_get_video_id_code(struct msm_hdmi_mode_timing_info *timing_in);
 const struct msm_hdmi_mode_timing_info *hdmi_get_supported_mode(u32 mode);
 void hdmi_del_supported_mode(u32 mode);
 ssize_t hdmi_get_video_3d_fmt_2string(u32 format, char *buf, u32 size);
 
+/* todo: Fix this. Right now this is defined in mdss_hdmi_tx.c */
 void *hdmi_get_featuredata_from_sysfs_dev(struct device *device, u32 type);
 
+/* DDC */
 void hdmi_ddc_config(struct hdmi_tx_ddc_ctrl *, u16 ddc_ref_clk);
 int hdmi_ddc_isr(struct hdmi_tx_ddc_ctrl *);
 int hdmi_ddc_write(struct hdmi_tx_ddc_ctrl *, struct hdmi_tx_ddc_data *);
 int hdmi_ddc_read_seg(struct hdmi_tx_ddc_ctrl *, struct hdmi_tx_ddc_data *);
 int hdmi_ddc_read(struct hdmi_tx_ddc_ctrl *, struct hdmi_tx_ddc_data *);
 
-#endif 
+#endif /* __HDMI_UTIL_H__ */

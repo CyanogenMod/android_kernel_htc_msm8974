@@ -25,6 +25,7 @@
 #ifndef ATOM_TYPES_H
 #define ATOM_TYPES_H
 
+/* sync atom types to kernel types */
 
 typedef uint16_t USHORT;
 typedef uint32_t ULONG;

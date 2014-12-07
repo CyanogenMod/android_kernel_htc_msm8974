@@ -240,7 +240,7 @@ static int ib_uverbs_cleanup_ucontext(struct ib_uverbs_file *file,
 		kfree(uevent);
 	}
 
-	
+	/* XXX Free MWs */
 
 	list_for_each_entry_safe(uobj, tmp, &context->mr_list, list) {
 		struct ib_mr *mr = uobj->object;
@@ -533,6 +533,11 @@ struct file *ib_uverbs_alloc_event_file(struct ib_uverbs_file *uverbs_file,
 	return filp;
 }
 
+/*
+ * Look up a completion event file by FD.  If lookup is successful,
+ * takes a ref to the event file struct that it returns; if
+ * unsuccessful, returns NULL.
+ */
 struct ib_uverbs_event_file *ib_uverbs_lookup_comp_file(int fd)
 {
 	struct ib_uverbs_event_file *ev_file = NULL;
@@ -598,6 +603,16 @@ static int ib_uverbs_mmap(struct file *filp, struct vm_area_struct *vma)
 		return file->device->ib_dev->mmap(file->ucontext, vma);
 }
 
+/*
+ * ib_uverbs_open() does not need the BKL:
+ *
+ *  - the ib_uverbs_device structures are properly reference counted and
+ *    everything else is purely local to the file being created, so
+ *    races against other open calls are not a problem;
+ *  - there is no ioctl method to race against;
+ *  - the open method will either immediately run -ENXIO, or all
+ *    required initialization will be done.
+ */
 static int ib_uverbs_open(struct inode *inode, struct file *filp)
 {
 	struct ib_uverbs_device *dev;
@@ -706,6 +721,11 @@ static CLASS_ATTR_STRING(abi_version, S_IRUGO,
 static dev_t overflow_maj;
 static DECLARE_BITMAP(overflow_map, IB_UVERBS_MAX_DEVICES);
 
+/*
+ * If we have more than IB_UVERBS_MAX_DEVICES, dynamically overflow by
+ * requesting a new major number and doubling the number of max devices we
+ * support. It's stupid, but simple.
+ */
 static int find_overflow_devnum(void)
 {
 	int ret;

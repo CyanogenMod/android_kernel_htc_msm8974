@@ -14,4 +14,4 @@
 
 #include <asm/mach-generic/spaces.h>
 
-#endif 
+#endif /* __ASM_TX39XX_SPACES_H */

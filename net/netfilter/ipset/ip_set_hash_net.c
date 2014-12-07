@@ -5,6 +5,7 @@
  * published by the Free Software Foundation.
  */
 
+/* Kernel module implementing an IP set type: the hash:net type */
 
 #include <linux/jhash.h>
 #include <linux/module.h>
@@ -27,6 +28,7 @@ MODULE_AUTHOR("Jozsef Kadlecsik <kadlec@blackhole.kfki.hu>");
 MODULE_DESCRIPTION("hash:net type of IP sets");
 MODULE_ALIAS("ip_set_hash:net");
 
+/* Type specific function prefix */
 #define TYPE		hash_net
 
 static bool
@@ -35,7 +37,9 @@ hash_net_same_set(const struct ip_set *a, const struct ip_set *b);
 #define hash_net4_same_set	hash_net_same_set
 #define hash_net6_same_set	hash_net_same_set
 
+/* The type variant functions: IPv4 */
 
+/* Member elements without timeout */
 struct hash_net4_elem {
 	__be32 ip;
 	u16 padding0;
@@ -43,6 +47,7 @@ struct hash_net4_elem {
 	u8 cidr;
 };
 
+/* Member elements with timeout support */
 struct hash_net4_telem {
 	__be32 ip;
 	u16 padding0;
@@ -94,6 +99,7 @@ hash_net4_data_netmask(struct hash_net4_elem *elem, u8 cidr)
 	elem->cidr = cidr;
 }
 
+/* Zero CIDR values cannot be stored */
 static inline void
 hash_net4_data_zero_out(struct hash_net4_elem *elem)
 {
@@ -248,11 +254,12 @@ hash_net_same_set(const struct ip_set *a, const struct ip_set *b)
 	const struct ip_set_hash *x = a->data;
 	const struct ip_set_hash *y = b->data;
 
-	
+	/* Resizing changes htable_bits, so we ignore it */
 	return x->maxelem == y->maxelem &&
 	       x->timeout == y->timeout;
 }
 
+/* The type variant functions: IPv6 */
 
 struct hash_net6_elem {
 	union nf_inet_addr ip;
@@ -445,6 +452,7 @@ hash_net6_uadt(struct ip_set *set, struct nlattr *tb[],
 	return ip_set_eexist(ret, flags) ? 0 : ret;
 }
 
+/* Create hash:ip type of sets */
 
 static int
 hash_net_create(struct ip_set *set, struct nlattr *tb[], u32 flags)
@@ -525,8 +533,8 @@ static struct ip_set_type hash_net_type __read_mostly = {
 	.dimension	= IPSET_DIM_ONE,
 	.family		= NFPROTO_UNSPEC,
 	.revision_min	= 0,
-	
-	.revision_max	= 2,	
+	/*		= 1 	   Range as input support for IPv4 added */
+	.revision_max	= 2,	/* nomatch flag support added */
 	.create		= hash_net_create,
 	.create_policy	= {
 		[IPSET_ATTR_HASHSIZE]	= { .type = NLA_U32 },

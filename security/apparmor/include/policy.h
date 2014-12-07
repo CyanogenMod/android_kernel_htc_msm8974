@@ -42,28 +42,41 @@ extern const char *const profile_mode_names[];
 
 #define PROFILE_IS_HAT(_profile) ((_profile)->flags & PFLAG_HAT)
 
+/*
+ * FIXME: currently need a clean way to replace and remove profiles as a
+ * set.  It should be done at the namespace level.
+ * Either, with a set of profiles loaded at the namespace level or via
+ * a mark and remove marked interface.
+ */
 enum profile_mode {
-	APPARMOR_ENFORCE,	
-	APPARMOR_COMPLAIN,	
-	APPARMOR_KILL,		
+	APPARMOR_ENFORCE,	/* enforce access rules */
+	APPARMOR_COMPLAIN,	/* allow and log access violations */
+	APPARMOR_KILL,		/* kill task on access violation */
 };
 
 enum profile_flags {
-	PFLAG_HAT = 1,			
-	PFLAG_UNCONFINED = 2,		
-	PFLAG_NULL = 4,			
-	PFLAG_IX_ON_NAME_ERROR = 8,	
-	PFLAG_IMMUTABLE = 0x10,		
-	PFLAG_USER_DEFINED = 0x20,	
-	PFLAG_NO_LIST_REF = 0x40,	
-	PFLAG_OLD_NULL_TRANS = 0x100,	
+	PFLAG_HAT = 1,			/* profile is a hat */
+	PFLAG_UNCONFINED = 2,		/* profile is an unconfined profile */
+	PFLAG_NULL = 4,			/* profile is null learning profile */
+	PFLAG_IX_ON_NAME_ERROR = 8,	/* fallback to ix on name lookup fail */
+	PFLAG_IMMUTABLE = 0x10,		/* don't allow changes/replacement */
+	PFLAG_USER_DEFINED = 0x20,	/* user based profile - lower privs */
+	PFLAG_NO_LIST_REF = 0x40,	/* list doesn't keep profile ref */
+	PFLAG_OLD_NULL_TRANS = 0x100,	/* use // as the null transition */
 
-	
-	PFLAG_MEDIATE_DELETED = 0x10000, 
+	/* These flags must correspond with PATH_flags */
+	PFLAG_MEDIATE_DELETED = 0x10000, /* mediate instead delegate deleted */
 };
 
 struct aa_profile;
 
+/* struct aa_policy - common part of both namespaces and profiles
+ * @name: name of the object
+ * @hname - The hierarchical name
+ * @count: reference count of the obj
+ * @list: list policy object is on
+ * @profiles: head of the profiles list contained in the object
+ */
 struct aa_policy {
 	char *name;
 	char *hname;
@@ -72,6 +85,12 @@ struct aa_policy {
 	struct list_head profiles;
 };
 
+/* struct aa_ns_acct - accounting of profiles in namespace
+ * @max_size: maximum space allowed for all profiles in namespace
+ * @max_count: maximum number of profiles that can be in this namespace
+ * @size: current size of profiles
+ * @count: current count of profiles (includes null profiles)
+ */
 struct aa_ns_acct {
 	int max_size;
 	int max_count;
@@ -79,6 +98,28 @@ struct aa_ns_acct {
 	int count;
 };
 
+/* struct aa_namespace - namespace for a set of profiles
+ * @base: common policy
+ * @parent: parent of namespace
+ * @lock: lock for modifying the object
+ * @acct: accounting for the namespace
+ * @unconfined: special unconfined profile for the namespace
+ * @sub_ns: list of namespaces under the current namespace.
+ *
+ * An aa_namespace defines the set profiles that are searched to determine
+ * which profile to attach to a task.  Profiles can not be shared between
+ * aa_namespaces and profile names within a namespace are guaranteed to be
+ * unique.  When profiles in separate namespaces have the same name they
+ * are NOT considered to be equivalent.
+ *
+ * Namespaces are hierarchical and only namespaces and profiles below the
+ * current namespace are visible.
+ *
+ * Namespace names must be unique and can not contain the characters :/\0
+ *
+ * FIXME TODO: add vserver support of namespaces (can it all be done in
+ *             userspace?)
+ */
 struct aa_namespace {
 	struct aa_policy base;
 	struct aa_namespace *parent;
@@ -88,13 +129,51 @@ struct aa_namespace {
 	struct list_head sub_ns;
 };
 
+/* struct aa_policydb - match engine for a policy
+ * dfa: dfa pattern match
+ * start: set of start states for the different classes of data
+ */
 struct aa_policydb {
-	
+	/* Generic policy DFA specific rule types will be subsections of it */
 	struct aa_dfa *dfa;
 	unsigned int start[AA_CLASS_LAST + 1];
 
 };
 
+/* struct aa_profile - basic confinement data
+ * @base - base components of the profile (name, refcount, lists, lock ...)
+ * @parent: parent of profile
+ * @ns: namespace the profile is in
+ * @replacedby: is set to the profile that replaced this profile
+ * @rename: optional profile name that this profile renamed
+ * @xmatch: optional extended matching for unconfined executables names
+ * @xmatch_len: xmatch prefix len, used to determine xmatch priority
+ * @sid: the unique security id number of this profile
+ * @audit: the auditing mode of the profile
+ * @mode: the enforcement mode of the profile
+ * @flags: flags controlling profile behavior
+ * @path_flags: flags controlling path generation behavior
+ * @size: the memory consumed by this profiles rules
+ * @policy: general match rules governing policy
+ * @file: The set of rules governing basic file access and domain transitions
+ * @caps: capabilities for the profile
+ * @rlimits: rlimits for the profile
+ *
+ * The AppArmor profile contains the basic confinement data.  Each profile
+ * has a name, and exists in a namespace.  The @name and @exec_match are
+ * used to determine profile attachment against unconfined tasks.  All other
+ * attachments are determined by profile X transition rules.
+ *
+ * The @replacedby field is write protected by the profile lock.  Reads
+ * are assumed to be atomic, and are done without locking.
+ *
+ * Profiles have a hierarchy where hats and children profiles keep
+ * a reference to their parent.
+ *
+ * Profile names can not begin with a : and can not contain the \0
+ * character.  If a profile name begins with / it will be considered when
+ * determining profile attachment on "unconfined" tasks.
+ */
 struct aa_profile {
 	struct aa_policy base;
 	struct aa_profile *parent;
@@ -140,6 +219,13 @@ static inline struct aa_policy *aa_get_common(struct aa_policy *c)
 	return c;
 }
 
+/**
+ * aa_get_namespace - increment references count on @ns
+ * @ns: namespace to increment reference count of (MAYBE NULL)
+ *
+ * Returns: pointer to @ns, if @ns is NULL returns NULL
+ * Requires: @ns must be held with valid refcount when called
+ */
 static inline struct aa_namespace *aa_get_namespace(struct aa_namespace *ns)
 {
 	if (ns)
@@ -148,6 +234,12 @@ static inline struct aa_namespace *aa_get_namespace(struct aa_namespace *ns)
 	return ns;
 }
 
+/**
+ * aa_put_namespace - decrement refcount on @ns
+ * @ns: namespace to put reference of
+ *
+ * Decrement reference count of @ns and if no longer in use free it
+ */
 static inline void aa_put_namespace(struct aa_namespace *ns)
 {
 	if (ns)
@@ -169,6 +261,17 @@ ssize_t aa_remove_profiles(char *name, size_t size);
 
 #define unconfined(X) ((X)->flags & PFLAG_UNCONFINED)
 
+/**
+ * aa_newest_version - find the newest version of @profile
+ * @profile: the profile to check for newer versions of (NOT NULL)
+ *
+ * Returns: newest version of @profile, if @profile is the newest version
+ *          return @profile.
+ *
+ * NOTE: the profile returned is not refcounted, The refcount on @profile
+ * must be held until the caller decides what to do with the returned newest
+ * version.
+ */
 static inline struct aa_profile *aa_newest_version(struct aa_profile *profile)
 {
 	while (profile->replacedby)
@@ -177,6 +280,13 @@ static inline struct aa_profile *aa_newest_version(struct aa_profile *profile)
 	return profile;
 }
 
+/**
+ * aa_get_profile - increment refcount on profile @p
+ * @p: profile  (MAYBE NULL)
+ *
+ * Returns: pointer to @p if @p is NULL will return NULL
+ * Requires: @p must be held with valid refcount when called
+ */
 static inline struct aa_profile *aa_get_profile(struct aa_profile *p)
 {
 	if (p)
@@ -185,6 +295,10 @@ static inline struct aa_profile *aa_get_profile(struct aa_profile *p)
 	return p;
 }
 
+/**
+ * aa_put_profile - decrement refcount on profile @p
+ * @p: profile  (MAYBE NULL)
+ */
 static inline void aa_put_profile(struct aa_profile *p)
 {
 	if (p)
@@ -201,4 +315,4 @@ static inline int AUDIT_MODE(struct aa_profile *profile)
 
 bool aa_may_manage_policy(int op);
 
-#endif 
+#endif /* __AA_POLICY_H */

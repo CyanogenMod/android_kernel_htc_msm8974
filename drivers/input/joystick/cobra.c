@@ -2,6 +2,9 @@
  *  Copyright (c) 1999-2001 Vojtech Pavlik
  */
 
+/*
+ * Creative Labs Blaster GamePad Cobra driver for Linux
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -37,7 +40,7 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
-#define COBRA_MAX_STROBE	45	
+#define COBRA_MAX_STROBE	45	/* 45 us max wait for first strobe */
 #define COBRA_LENGTH		36
 
 static int cobra_btn[] = { BTN_START, BTN_SELECT, BTN_TL, BTN_TR, BTN_X, BTN_Y, BTN_Z, BTN_A, BTN_B, BTN_C, BTN_TL2, BTN_TR2, 0 };

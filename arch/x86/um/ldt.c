@@ -21,6 +21,19 @@ static long write_ldt_entry(struct mm_id *mm_idp, int func,
 	long res;
 
 	if (proc_mm) {
+		/*
+		 * This is a special handling for the case, that the mm to
+		 * modify isn't current->active_mm.
+		 * If this is called directly by modify_ldt,
+		 *     (current->active_mm->context.skas.u == mm_idp)
+		 * will be true. So no call to __switch_mm(mm_idp) is done.
+		 * If this is called in case of init_new_ldt or PTRACE_LDT,
+		 * mm_idp won't belong to current->active_mm, but child->mm.
+		 * So we need to switch child's mm into our userspace, then
+		 * later switch back.
+		 *
+		 * Note: I'm unsure: should interrupts be disabled here?
+		 */
 		if (!current->active_mm || current->active_mm == &init_mm ||
 		    mm_idp != &current->active_mm->context.id)
 			__switch_mm(mm_idp);
@@ -63,6 +76,10 @@ static long write_ldt_entry(struct mm_id *mm_idp, int func,
 	}
 
 	if (proc_mm) {
+		/*
+		 * This is the second part of special handling, that makes
+		 * PTRACE_LDT possible to implement.
+		 */
 		if (current->active_mm && current->active_mm != &init_mm &&
 		    mm_idp != &current->active_mm->context.id)
 			__switch_mm(&current->active_mm->context.id);
@@ -83,6 +100,10 @@ static long read_ldt_from_host(void __user * ptr, unsigned long bytecount)
 	if (ptrace_ldt.ptr == NULL)
 		return -ENOMEM;
 
+	/*
+	 * This is called from sys_modify_ldt only, so userspace_pid gives
+	 * us the right number
+	 */
 
 	cpu = get_cpu();
 	res = os_ptrace_ldt(userspace_pid[cpu], 0, (unsigned long) &ptrace_ldt);
@@ -100,6 +121,17 @@ static long read_ldt_from_host(void __user * ptr, unsigned long bytecount)
 	return res;
 }
 
+/*
+ * In skas mode, we hold our own ldt data in UML.
+ * Thus, the code implementing sys_modify_ldt_skas
+ * is very similar to (and mostly stolen from) sys_modify_ldt
+ * for arch/i386/kernel/ldt.c
+ * The routines copied and modified in part are:
+ * - read_ldt
+ * - read_default_ldt
+ * - write_ldt
+ * - sys_modify_ldt_skas
+ */
 
 static int read_ldt(void __user * ptr, unsigned long bytecount)
 {
@@ -160,6 +192,11 @@ static int read_default_ldt(void __user * ptr, unsigned long bytecount)
 		bytecount = 5*LDT_ENTRY_SIZE;
 
 	err = bytecount;
+	/*
+	 * UML doesn't support lcall7 and lcall27.
+	 * So, we don't really have a default ldt, but emulate
+	 * an empty ldt of common host default ldt size.
+	 */
 	if (clear_user(ptr, bytecount))
 		err = -EFAULT;
 
@@ -199,7 +236,7 @@ static int write_ldt(void __user * ptr, unsigned long bytecount, int func)
 	if (err)
 		goto out_unlock;
 	else if (ptrace_ldt) {
-		
+		/* With PTRACE_LDT available, this is used as a flag only */
 		ldt->entry_count = 1;
 		goto out;
 	}
@@ -216,7 +253,7 @@ static int write_ldt(void __user * ptr, unsigned long bytecount, int func)
 				__get_free_page(GFP_KERNEL|__GFP_ZERO);
 			if (!ldt->u.pages[i]) {
 				err = -ENOMEM;
-				
+				/* Undo the change in host */
 				memset(&ldt_info, 0, sizeof(ldt_info));
 				write_ldt_entry(mm_idp, 1, &ldt_info, &addr, 1);
 				goto out_unlock;
@@ -316,7 +353,7 @@ static void ldt_get_host_info(void)
 		goto out_free;
 	}
 	if (ret == 0) {
-		
+		/* default_ldt is active, simply write an empty entry 0 */
 		host_ldt_entries = dummy_list;
 		goto out_free;
 	}
@@ -364,10 +401,25 @@ long init_new_ldt(struct mm_context *new_mm, struct mm_context *from_mm)
 
 	if (!from_mm) {
 		memset(&desc, 0, sizeof(desc));
+		/*
+		 * We have to initialize a clean ldt.
+		 */
 		if (proc_mm) {
+			/*
+			 * If the new mm was created using proc_mm, host's
+			 * default-ldt currently is assigned, which normally
+			 * contains the call-gates for lcall7 and lcall27.
+			 * To remove these gates, we simply write an empty
+			 * entry as number 0 to the host.
+			 */
 			err = write_ldt_entry(&new_mm->id, 1, &desc, &addr, 1);
 		}
 		else{
+			/*
+			 * Now we try to retrieve info about the ldt, we
+			 * inherited from the host. All ldt-entries found
+			 * will be reset in the following loop
+			 */
 			ldt_get_host_info();
 			for (num_p=host_ldt_entries; *num_p != -1; num_p++) {
 				desc.entry_number = *num_p;
@@ -383,6 +435,11 @@ long init_new_ldt(struct mm_context *new_mm, struct mm_context *from_mm)
 	}
 
 	if (proc_mm) {
+		/*
+		 * We have a valid from_mm, so we now have to copy the LDT of
+		 * from_mm to new_mm, because using proc_mm an new mm with
+		 * an empty/default LDT was created in new_mm()
+		 */
 		copy = ((struct proc_mm_op) { .op 	= MM_COPY_SEGMENTS,
 					      .u 	=
 					      { .copy_segments =
@@ -394,6 +451,12 @@ long init_new_ldt(struct mm_context *new_mm, struct mm_context *from_mm)
 	}
 
 	if (!ptrace_ldt) {
+		/*
+		 * Our local LDT is used to supply the data for
+		 * modify_ldt(READLDT), if PTRACE_LDT isn't available,
+		 * i.e., we have to use the stub for modify_ldt, which
+		 * can't handle the big read buffer of up to 64kB.
+		 */
 		mutex_lock(&from_mm->arch.ldt.lock);
 		if (from_mm->arch.ldt.entry_count <= LDT_DIRECT_ENTRIES)
 			memcpy(new_mm->arch.ldt.u.entries, from_mm->arch.ldt.u.entries,

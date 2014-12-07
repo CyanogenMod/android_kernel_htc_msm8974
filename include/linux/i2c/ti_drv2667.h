@@ -17,7 +17,7 @@
 struct drv2667_pdata {
 	const char *name;
 	u8 mode;
-	
+	/* support one waveform for now */
 	u8 wav_seq[DRV2667_WAV_SEQ_LEN];
 	u8 gain;
 	u8 idle_timeout_ms;

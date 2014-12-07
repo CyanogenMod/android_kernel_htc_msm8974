@@ -13,9 +13,10 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* ADS Tech Instant TV DVB-T PCI Remote */
 
 static struct rc_map_table adstech_dvb_t_pci[] = {
-	
+	/* Keys 0 to 9 */
 	{ 0x4d, KEY_0 },
 	{ 0x57, KEY_1 },
 	{ 0x4f, KEY_2 },
@@ -31,13 +32,13 @@ static struct rc_map_table adstech_dvb_t_pci[] = {
 	{ 0x5f, KEY_MUTE },
 	{ 0x55, KEY_GOTO },
 	{ 0x5d, KEY_SEARCH },
-	{ 0x17, KEY_EPG },		
+	{ 0x17, KEY_EPG },		/* Guide */
 	{ 0x1f, KEY_MENU },
 	{ 0x0f, KEY_UP },
 	{ 0x46, KEY_DOWN },
 	{ 0x16, KEY_LEFT },
 	{ 0x1e, KEY_RIGHT },
-	{ 0x0e, KEY_SELECT },		
+	{ 0x0e, KEY_SELECT },		/* Enter */
 	{ 0x5a, KEY_INFO },
 	{ 0x52, KEY_EXIT },
 	{ 0x59, KEY_PREVIOUS },
@@ -47,16 +48,16 @@ static struct rc_map_table adstech_dvb_t_pci[] = {
 	{ 0x44, KEY_PLAYPAUSE },
 	{ 0x07, KEY_STOP },
 	{ 0x1b, KEY_RECORD },
-	{ 0x13, KEY_TUNER },		
+	{ 0x13, KEY_TUNER },		/* Live */
 	{ 0x0a, KEY_A },
 	{ 0x12, KEY_B },
-	{ 0x03, KEY_RED },		
-	{ 0x01, KEY_GREEN },		
-	{ 0x00, KEY_YELLOW },		
+	{ 0x03, KEY_RED },		/* 1 */
+	{ 0x01, KEY_GREEN },		/* 2 */
+	{ 0x00, KEY_YELLOW },		/* 3 */
 	{ 0x06, KEY_DVD },
-	{ 0x48, KEY_AUX },		
+	{ 0x48, KEY_AUX },		/* Photo */
 	{ 0x40, KEY_VIDEO },
-	{ 0x19, KEY_AUDIO },		
+	{ 0x19, KEY_AUDIO },		/* Music */
 	{ 0x0b, KEY_CHANNELUP },
 	{ 0x08, KEY_CHANNELDOWN },
 	{ 0x15, KEY_VOLUMEUP },
@@ -67,7 +68,7 @@ static struct rc_map_list adstech_dvb_t_pci_map = {
 	.map = {
 		.scan    = adstech_dvb_t_pci,
 		.size    = ARRAY_SIZE(adstech_dvb_t_pci),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_ADSTECH_DVB_T_PCI,
 	}
 };

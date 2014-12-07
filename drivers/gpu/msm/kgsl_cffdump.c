@@ -11,6 +11,7 @@
  *
  */
 
+/* #define DEBUG */
 #define ALIGN_CPU
 
 #include <linux/spinlock.h>
@@ -36,6 +37,7 @@ static size_t		dropped;
 static size_t		subbuf_size = 256*1024;
 static size_t		n_subbufs = 64;
 
+/* forward declarations */
 static void destroy_channel(void);
 static struct rchan *create_channel(unsigned subbuf_size, unsigned n_subbufs);
 
@@ -160,7 +162,7 @@ static void b64_encode(const unsigned char *in_buf, int in_size,
 #define KLOG_TMPBUF_SIZE (1024)
 static void klog_printk(const char *fmt, ...)
 {
-	
+	/* per-cpu klog formatting temporary buffer */
 	static char klog_buf[NR_CPUS][KLOG_TMPBUF_SIZE];
 
 	va_list args;
@@ -430,6 +432,8 @@ void kgsl_cffdump_syncmem(struct kgsl_device *device,
 	}
 
 	if (clean_cache) {
+		/* Ensure that this memory region is not read from the
+		 * cache but fetched fresh */
 
 		mb();
 
@@ -456,6 +460,8 @@ void kgsl_cffdump_setmem(struct kgsl_device *device,
 		return;
 
 	while (sizebytes > 3) {
+		/* Use 32bit memory writes as long as there's at least
+		 * 4 bytes left */
 		cffdump_printline(-1, CFF_OP_WRITE_MEM, addr, value,
 				0, 0, 0);
 		addr += 4;
@@ -537,6 +543,9 @@ static struct dentry *create_buf_file_handler(const char *filename,
 				       &relay_file_operations);
 }
 
+/*
+ * file_remove() default callback.  Removes relay file in debugfs.
+ */
 static int remove_buf_file_handler(struct dentry *dentry)
 {
 	pr_info("kgsl: cffdump: %s()\n", __func__);
@@ -544,12 +553,22 @@ static int remove_buf_file_handler(struct dentry *dentry)
 	return 0;
 }
 
+/*
+ * relay callbacks
+ */
 static struct rchan_callbacks relay_callbacks = {
 	.subbuf_start = subbuf_start_handler,
 	.create_buf_file = create_buf_file_handler,
 	.remove_buf_file = remove_buf_file_handler,
 };
 
+/**
+ *	create_channel - creates channel /debug/klog/cpuXXX
+ *
+ *	Creates channel along with associated produced/consumed control files
+ *
+ *	Returns channel on success, NULL otherwise
+ */
 static struct rchan *create_channel(unsigned subbuf_size, unsigned n_subbufs)
 {
 	struct rchan *chan;
@@ -570,6 +589,11 @@ static struct rchan *create_channel(unsigned subbuf_size, unsigned n_subbufs)
 	return chan;
 }
 
+/**
+ *	destroy_channel - destroys channel /debug/kgsl/cff/cpuXXX
+ *
+ *	Destroys channel along with associated produced/consumed control files
+ */
 static void destroy_channel(void)
 {
 	pr_info("kgsl: cffdump: relay: destroy_channel\n");
@@ -586,8 +610,12 @@ int kgsl_cff_dump_enable_set(void *data, u64 val)
 	int i;
 
 	mutex_lock(&kgsl_driver.devlock);
+	/*
+	 * If CFF dump enabled then set active count to prevent device
+	 * from restarting because simulator cannot run device restarts
+	 */
 	if (val) {
-		
+		/* Check if CFF is on for some other device already */
 		for (i = 0; i < KGSL_DEVICE_MAX; i++) {
 			if (kgsl_driver.devp[i]) {
 				struct kgsl_device *device_temp =
@@ -603,20 +631,20 @@ int kgsl_cff_dump_enable_set(void *data, u64 val)
 			}
 		}
 		if (!device->cff_dump_enable) {
-			mutex_lock(&device->mutex);
+			kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 			device->cff_dump_enable = 1;
 			ret = kgsl_open_device(device);
 			if (!ret)
 				ret = kgsl_active_count_get(device);
 			if (ret)
 				device->cff_dump_enable = 0;
-			mutex_unlock(&device->mutex);
+			kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 		}
 	} else if (device->cff_dump_enable && !val) {
-		mutex_lock(&device->mutex);
+		kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 		ret = kgsl_close_device(device);
 		device->cff_dump_enable = 0;
-		mutex_unlock(&device->mutex);
+		kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 	}
 done:
 	mutex_unlock(&kgsl_driver.devlock);

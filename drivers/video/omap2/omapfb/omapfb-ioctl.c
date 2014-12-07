@@ -75,7 +75,7 @@ static int omapfb_setup_plane(struct fb_info *fbi, struct omapfb_plane_info *pi)
 		goto out;
 	}
 
-	
+	/* XXX uses only the first overlay */
 	ovl = ofbi->overlays[0];
 
 	old_rg = ofbi->region;
@@ -85,7 +85,7 @@ static int omapfb_setup_plane(struct fb_info *fbi, struct omapfb_plane_info *pi)
 		goto out;
 	}
 
-	
+	/* Take the locks in a specific order to keep lockdep happy */
 	if (old_rg->id < new_rg->id) {
 		omapfb_get_mem_region(old_rg);
 		omapfb_get_mem_region(new_rg);
@@ -96,6 +96,10 @@ static int omapfb_setup_plane(struct fb_info *fbi, struct omapfb_plane_info *pi)
 		omapfb_get_mem_region(old_rg);
 
 	if (pi->enabled && !new_rg->size) {
+		/*
+		 * This plane's memory was freed, can't enable it
+		 * until it's reallocated.
+		 */
 		r = -EINVAL;
 		goto put_mem;
 	}
@@ -142,7 +146,7 @@ static int omapfb_setup_plane(struct fb_info *fbi, struct omapfb_plane_info *pi)
 			goto undo;
 	}
 
-	
+	/* Release the locks in a specific order to keep lockdep happy */
 	if (old_rg->id > new_rg->id) {
 		omapfb_put_mem_region(old_rg);
 		omapfb_put_mem_region(new_rg);
@@ -162,7 +166,7 @@ static int omapfb_setup_plane(struct fb_info *fbi, struct omapfb_plane_info *pi)
 
 	ovl->set_overlay_info(ovl, &old_info);
  put_mem:
-	
+	/* Release the locks in a specific order to keep lockdep happy */
 	if (old_rg->id > new_rg->id) {
 		omapfb_put_mem_region(old_rg);
 		omapfb_put_mem_region(new_rg);
@@ -193,7 +197,7 @@ static int omapfb_query_plane(struct fb_info *fbi, struct omapfb_plane_info *pi)
 		pi->pos_x = ovli.pos_x;
 		pi->pos_y = ovli.pos_y;
 		pi->enabled = ovl->is_enabled(ovl);
-		pi->channel_out = 0; 
+		pi->channel_out = 0; /* xxx */
 		pi->mirror = 0;
 		pi->mem_idx = get_mem_idx(ofbi);
 		pi->out_width = ovli.out_width;
@@ -294,6 +298,7 @@ static int omapfb_update_window_nolock(struct fb_info *fbi,
 	return display->driver->update(display, x, y, w, h);
 }
 
+/* This function is exported for SGX driver use */
 int omapfb_update_window(struct fb_info *fbi,
 		u32 x, u32 y, u32 w, u32 h)
 {
@@ -343,11 +348,11 @@ int omapfb_set_update_mode(struct fb_info *fbi,
 	if (display->caps & OMAP_DSS_DISPLAY_CAP_MANUAL_UPDATE) {
 		if (mode == OMAPFB_AUTO_UPDATE)
 			omapfb_start_auto_update(fbdev, display);
-		else 
+		else /* MANUAL_UPDATE */
 			omapfb_stop_auto_update(fbdev, display);
 
 		d->update_mode = mode;
-	} else { 
+	} else { /* AUTO_UPDATE */
 		if (mode == OMAPFB_MANUAL_UPDATE)
 			r = -EINVAL;
 	}
@@ -379,6 +384,7 @@ int omapfb_get_update_mode(struct fb_info *fbi,
 	return 0;
 }
 
+/* XXX this color key handling is a hack... */
 static struct omapfb_color_key omapfb_color_keys[2];
 
 static int _omapfb_set_color_key(struct omap_overlay_manager *mgr,
@@ -545,6 +551,11 @@ static int omapfb_get_ovl_colormode(struct omapfb2_device *fbdev,
 	for (i = 0; i < sizeof(supported_modes) * 8; i++) {
 		if (!(supported_modes & (1 << i)))
 			continue;
+		/*
+		 * It's possible that the FB doesn't support a mode
+		 * that is supported by the overlay, so call the
+		 * following here.
+		 */
 		if (dss_mode_to_fb_mode(1 << i, &var) < 0)
 			continue;
 
@@ -611,8 +622,8 @@ int omapfb_ioctl(struct fb_info *fbi, unsigned int cmd, unsigned long arg)
 	case OMAPFB_SYNC_GFX:
 		DBG("ioctl SYNC_GFX\n");
 		if (!display || !display->driver->sync) {
-			
-			
+			/* DSS1 never returns an error here, so we neither */
+			/*r = -EINVAL;*/
 			break;
 		}
 
@@ -770,7 +781,7 @@ int omapfb_ioctl(struct fb_info *fbi, unsigned int cmd, unsigned long arg)
 			r = -ENODEV;
 			break;
 		}
-		
+		/* FALLTHROUGH */
 
 	case OMAPFB_WAITFORVSYNC:
 		DBG("ioctl WAITFORVSYNC\n");
@@ -792,6 +803,8 @@ int omapfb_ioctl(struct fb_info *fbi, unsigned int cmd, unsigned long arg)
 		r = omapfb_wait_for_go(fbi);
 		break;
 
+	/* LCD and CTRL tests do the same thing for backward
+	 * compatibility */
 	case OMAPFB_LCD_TEST:
 		DBG("ioctl LCD_TEST\n");
 		if (get_user(p.test_num, (int __user *)arg)) {

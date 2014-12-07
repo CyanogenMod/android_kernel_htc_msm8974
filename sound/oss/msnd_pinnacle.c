@@ -129,7 +129,7 @@ static void reset_record_queue(void)
 	writew(PCTODSP_OFFSET(0 * DAQDS__size), dev.DARQ + JQS_wHead);
 	writew(PCTODSP_OFFSET(dev.last_recbank * DAQDS__size), dev.DARQ + JQS_wTail);
 
-	
+	/* Critical section: bank 1 access */
 	spin_lock_irqsave(&dev.lock, flags);
 	msnd_outb(HPBLKSEL_1, dev.io + HP_BLKS);
 	memset_io(dev.base, 0, DAR_BUFF_SIZE * 3);
@@ -442,37 +442,37 @@ static int mixer_set(int d, int value)
 	dev.right_levels[d] = wRight;
 
 	switch (d) {
-		
-	case SOUND_MIXER_LINE:			
-		
+		/* master volume unscaled controls */
+	case SOUND_MIXER_LINE:			/* line pot control */
+		/* scaled by IMIX in digital mix */
 		writeb(bLeft, dev.SMA + SMA_bInPotPosLeft);
 		writeb(bRight, dev.SMA + SMA_bInPotPosRight);
 		if (msnd_send_word(&dev, 0, 0, HDEXAR_IN_SET_POTS) == 0)
 			chk_send_dsp_cmd(&dev, HDEX_AUX_REQ);
 		break;
 #ifndef MSND_CLASSIC
-	case SOUND_MIXER_MIC:			
-		
+	case SOUND_MIXER_MIC:			/* mic pot control */
+		/* scaled by IMIX in digital mix */
 		writeb(bLeft, dev.SMA + SMA_bMicPotPosLeft);
 		writeb(bRight, dev.SMA + SMA_bMicPotPosRight);
 		if (msnd_send_word(&dev, 0, 0, HDEXAR_MIC_SET_POTS) == 0)
 			chk_send_dsp_cmd(&dev, HDEX_AUX_REQ);
 		break;
 #endif
-	case SOUND_MIXER_VOLUME:		
+	case SOUND_MIXER_VOLUME:		/* master volume */
 		writew(wLeft, dev.SMA + SMA_wCurrMastVolLeft);
 		writew(wRight, dev.SMA + SMA_wCurrMastVolRight);
-		
+		/* fall through */
 
-	case SOUND_MIXER_LINE1:			
-		
-		
+	case SOUND_MIXER_LINE1:			/* aux pot control */
+		/* scaled by master volume */
+		/* fall through */
 
-		
-	case SOUND_MIXER_SYNTH:			
-	case SOUND_MIXER_PCM:			
-	case SOUND_MIXER_IMIX:			
-		
+		/* digital controls */
+	case SOUND_MIXER_SYNTH:			/* synth vol (dsp mix) */
+	case SOUND_MIXER_PCM:			/* pcm vol (dsp mix) */
+	case SOUND_MIXER_IMIX:			/* input monitor (dsp mix) */
+		/* scaled by master volume */
 		updatemaster = 1;
 		break;
 
@@ -481,7 +481,7 @@ static int mixer_set(int d, int value)
 	}
 
 	if (updatemaster) {
-		
+		/* update master volume scaled controls */
 		update_volm(SOUND_MIXER_PCM, wCurrPlayVol);
 		update_volm(SOUND_MIXER_IMIX, wCurrInVol);
 #ifndef MSND_CLASSIC
@@ -531,7 +531,7 @@ static unsigned long set_recsrc(unsigned long recsrc)
 	}
 	else {
 #ifdef HAVE_NORECSRC
-		
+		/* Select no input (?) */
 		dev.recsrc = 0;
 #else
 		dev.recsrc = SOUND_MASK_IMIX;
@@ -539,7 +539,7 @@ static unsigned long set_recsrc(unsigned long recsrc)
 			chk_send_dsp_cmd(&dev, HDEX_AUX_REQ);
 #endif
 	}
-#endif 
+#endif /* MSND_CLASSIC */
 
 	return dev.recsrc;
 }
@@ -788,7 +788,7 @@ static int dev_open(struct inode *inode, struct file *file)
 		}
 	}
 	else if (minor == dev.mixer_minor) {
-		
+		/* nothing */
 	} else
 		err = -EINVAL;
 out:
@@ -805,7 +805,7 @@ static int dev_release(struct inode *inode, struct file *file)
 	if (minor == dev.dsp_minor)
 		err = dsp_release(file);
 	else if (minor == dev.mixer_minor) {
-		
+		/* nothing */
 	} else
 		err = -EINVAL;
 	mutex_unlock(&msnd_pinnacle_mutex);
@@ -818,7 +818,7 @@ static __inline__ int pack_DARQ_to_DARF(register int bank)
 	register WORD wTmp;
 	LPDAQD DAQD;
 
-	
+	/* Increment the tail and check for queue wrap */
 	wTmp = readw(dev.DARQ + JQS_wTail) + PCTODSP_OFFSET(DAQDS__size);
 	if (wTmp > readw(dev.DARQ + JQS_wSize))
 		wTmp = 0;
@@ -826,12 +826,14 @@ static __inline__ int pack_DARQ_to_DARF(register int bank)
 		udelay(1);
 	writew(wTmp, dev.DARQ + JQS_wTail);
 
-	
+	/* Get our digital audio queue struct */
 	DAQD = bank * DAQDS__size + dev.base + DARQ_DATA_BUFF;
 
-	
+	/* Get length of data */
 	size = readw(DAQD + DAQDS_wSize);
 
+	/* Read data from the head (unprotected bank 1 access okay
+           since this is only called inside an interrupt) */
 	msnd_outb(HPBLKSEL_1, dev.io + HP_BLKS);
 	msnd_fifo_write_io(
 		&dev.DARF,
@@ -854,9 +856,9 @@ static __inline__ int pack_DAPF_to_DAPQ(register int start)
 		register int n;
 		unsigned long flags;
 
-		
+		/* Write the data to the new tail */
 		if (protect) {
-			
+			/* Critical section: protect fifo in non-interrupt */
 			spin_lock_irqsave(&dev.lock, flags);
 			n = msnd_fifo_read_io(
 				&dev.DAPF,
@@ -875,17 +877,17 @@ static __inline__ int pack_DAPF_to_DAPQ(register int start)
 		if (start)
 			start = 0;
 
-		
+		/* Get our digital audio queue struct */
 		DAQD = bank_num * DAQDS__size + dev.base + DAPQ_DATA_BUFF;
 
-		
+		/* Write size of this bank */
 		writew(n, DAQD + DAQDS_wSize);
 		++nbanks;
 
-		
+		/* Then advance the tail */
 		DAPQ_tail = (++bank_num % 3) * PCTODSP_OFFSET(DAQDS__size);
 		writew(DAPQ_tail, dev.DAPQ + JQS_wTail);
-		
+		/* Tell the DSP to play the bank */
 		msnd_send_dsp_cmd(&dev, HDEX_PLAY_START);
 	}
 	return nbanks;
@@ -907,7 +909,7 @@ static int dsp_read(char __user *buf, size_t len)
 		if (k > count)
 			k = count;
 
-		
+		/* Critical section: protect fifo in non-interrupt */
 		spin_lock_irqsave(&dev.lock, flags);
 		n = msnd_fifo_read(&dev.DARF, page, k);
 		spin_unlock_irqrestore(&dev.lock, flags);
@@ -970,7 +972,7 @@ static int dsp_write(const char __user *buf, size_t len)
 			return -EFAULT;
 		}
 
-		
+		/* Critical section: protect fifo in non-interrupt */
 		spin_lock_irqsave(&dev.lock, flags);
 		n = msnd_fifo_write(&dev.DAPF, page, k);
 		spin_unlock_irqrestore(&dev.lock, flags);
@@ -1063,14 +1065,18 @@ static __inline__ void eval_dsp_msg(register WORD wMessage)
 		case HIDSP_PLAY_UNDER:
 #endif
 		case HIDSP_INT_PLAY_UNDER:
+/*			printk(KERN_DEBUG LOGNAME ": Play underflow\n"); */
 			clear_bit(F_WRITING, &dev.flags);
 			break;
 
 		case HIDSP_INT_RECORD_OVER:
+/*			printk(KERN_DEBUG LOGNAME ": Record overflow\n"); */
 			clear_bit(F_READING, &dev.flags);
 			break;
 
 		default:
+/*			printk(KERN_DEBUG LOGNAME ": DSP message %d 0x%02x\n",
+			LOBYTE(wMessage), LOBYTE(wMessage)); */
 			break;
 		}
 		break;
@@ -1081,16 +1087,17 @@ static __inline__ void eval_dsp_msg(register WORD wMessage)
 		break;
 
 	default:
+/*		printk(KERN_DEBUG LOGNAME ": HIMT message %d 0x%02x\n", HIBYTE(wMessage), HIBYTE(wMessage)); */
 		break;
 	}
 }
 
 static irqreturn_t intr(int irq, void *dev_id)
 {
-	
+	/* Send ack to DSP */
 	msnd_inb(dev.io + HP_RXL);
 
-	
+	/* Evaluate queued DSP messages */
 	while (readw(dev.DSPQ + JQS_wTail) != readw(dev.DSPQ + JQS_wHead)) {
 		register WORD wTmp;
 
@@ -1179,7 +1186,7 @@ static int __init probe_multisound(void)
 		break;
 	}
 	printk(KERN_INFO LOGNAME ": %s revision %s, Xilinx version %s, "
-#endif 
+#endif /* MSND_CLASSIC */
 	       "I/O 0x%x-0x%x, IRQ %d, memory mapped to %p-%p\n",
 	       dev.name,
 #ifndef MSND_CLASSIC
@@ -1210,7 +1217,7 @@ static int init_sma(void)
 		mastVolLeft = mastVolRight = 0;
 	memset_io(dev.base, 0, 0x8000);
 
-	
+	/* Critical section: bank 1 access */
 	spin_lock_irqsave(&dev.lock, flags);
 	msnd_outb(HPBLKSEL_1, dev.io + HP_BLKS);
 	memset_io(dev.base, 0, 0x8000);
@@ -1221,30 +1228,30 @@ static int init_sma(void)
 	dev.pwMODQData = (dev.base + MODQ_DATA_BUFF);
 	dev.pwMIDQData = (dev.base + MIDQ_DATA_BUFF);
 
-	
+	/* Motorola 56k shared memory base */
 	dev.SMA = dev.base + SMA_STRUCT_START;
 
-	
+	/* Digital audio play queue */
 	dev.DAPQ = dev.base + DAPQ_OFFSET;
 	msnd_init_queue(dev.DAPQ, DAPQ_DATA_BUFF, DAPQ_BUFF_SIZE);
 
-	
+	/* Digital audio record queue */
 	dev.DARQ = dev.base + DARQ_OFFSET;
 	msnd_init_queue(dev.DARQ, DARQ_DATA_BUFF, DARQ_BUFF_SIZE);
 
-	
+	/* MIDI out queue */
 	dev.MODQ = dev.base + MODQ_OFFSET;
 	msnd_init_queue(dev.MODQ, MODQ_DATA_BUFF, MODQ_BUFF_SIZE);
 
-	
+	/* MIDI in queue */
 	dev.MIDQ = dev.base + MIDQ_OFFSET;
 	msnd_init_queue(dev.MIDQ, MIDQ_DATA_BUFF, MIDQ_BUFF_SIZE);
 
-	
+	/* DSP -> host message queue */
 	dev.DSPQ = dev.base + DSPQ_OFFSET;
 	msnd_init_queue(dev.DSPQ, DSPQ_DATA_BUFF, DSPQ_BUFF_SIZE);
 
-	
+	/* Setup some DSP values */
 #ifndef MSND_CLASSIC
 	writew(1, dev.SMA + SMA_wCurrPlayFormat);
 	writew(dev.play_sample_size, dev.SMA + SMA_wCurrPlaySampleSize);
@@ -1381,7 +1388,7 @@ static int dsp_full_reset(void)
 
 	set_bit(F_RESETTING, &dev.flags);
 	printk(KERN_INFO LOGNAME ": DSP reset\n");
-	dsp_halt(NULL);			
+	dsp_halt(NULL);			/* Unconditionally halt */
 	if ((rv = initialize()))
 		printk(KERN_WARNING LOGNAME ": DSP reset failed\n");
 	force_recsrc(dev.recsrc);
@@ -1457,6 +1464,7 @@ static void __exit unload_multisound(void)
 
 #ifndef MSND_CLASSIC
 
+/* Pinnacle/Fiji Logical Device Configuration */
 
 static int __init msnd_write_cfg(int cfg, int reg, int value)
 {
@@ -1555,7 +1563,7 @@ static int __init msnd_pinnacle_cfg_devices(int cfg, int reset, msnd_pinnacle_cf
 {
 	int i;
 
-	
+	/* Reset devices if told to */
 	if (reset) {
 		printk(KERN_INFO LOGNAME ": Resetting all devices\n");
 		for (i = 0; i < 4; ++i)
@@ -1563,29 +1571,29 @@ static int __init msnd_pinnacle_cfg_devices(int cfg, int reset, msnd_pinnacle_cf
 				return -EIO;
 	}
 
-	
+	/* Configure specified devices */
 	for (i = 0; i < 4; ++i) {
 
 		switch (i) {
-		case 0:		
+		case 0:		/* DSP */
 			if (!(device[i].io0 && device[i].irq && device[i].mem))
 				continue;
 			break;
-		case 1:		
+		case 1:		/* MPU */
 			if (!(device[i].io0 && device[i].irq))
 				continue;
 			printk(KERN_INFO LOGNAME
 			       ": Configuring MPU to I/O 0x%x IRQ %d\n",
 			       device[i].io0, device[i].irq);
 			break;
-		case 2:		
+		case 2:		/* IDE */
 			if (!(device[i].io0 && device[i].io1 && device[i].irq))
 				continue;
 			printk(KERN_INFO LOGNAME
 			       ": Configuring IDE to I/O 0x%x, 0x%x IRQ %d\n",
 			       device[i].io0, device[i].io1, device[i].irq);
 			break;
-		case 3:		
+		case 3:		/* Joystick */
 			if (!(device[i].io0))
 				continue;
 			printk(KERN_INFO LOGNAME
@@ -1594,7 +1602,7 @@ static int __init msnd_pinnacle_cfg_devices(int cfg, int reset, msnd_pinnacle_cf
 			break;
 		}
 
-		
+		/* Configure the device */
 		if (msnd_write_cfg_logical(cfg, i, device[i].io0, device[i].io1, device[i].irq, device[i].mem))
 			return -EIO;
 	}
@@ -1614,8 +1622,10 @@ static int mem __initdata =		-1;
 static int write_ndelay __initdata =	-1;
 
 #ifndef MSND_CLASSIC
+/* Pinnacle/Fiji non-PnP Config Port */
 static int cfg __initdata =		-1;
 
+/* Extra Peripheral Configuration */
 static int reset __initdata = 0;
 static int mpu_io __initdata = 0;
 static int mpu_irq __initdata = 0;
@@ -1624,13 +1634,14 @@ static int ide_io1 __initdata = 0;
 static int ide_irq __initdata = 0;
 static int joystick_io __initdata = 0;
 
+/* If we have the digital daugherboard... */
 static bool digital __initdata = false;
 #endif
 
 static int fifosize __initdata =	DEFFIFOSIZE;
 static int calibrate_signal __initdata = 0;
 
-#else 
+#else /* not a module */
 
 static int write_ndelay __initdata =	-1;
 
@@ -1638,12 +1649,13 @@ static int write_ndelay __initdata =	-1;
 static int io __initdata =		CONFIG_MSNDCLAS_IO;
 static int irq __initdata =		CONFIG_MSNDCLAS_IRQ;
 static int mem __initdata =		CONFIG_MSNDCLAS_MEM;
-#else 
+#else /* Pinnacle/Fiji */
 
 static int io __initdata =		CONFIG_MSNDPIN_IO;
 static int irq __initdata =		CONFIG_MSNDPIN_IRQ;
 static int mem __initdata =		CONFIG_MSNDPIN_MEM;
 
+/* Pinnacle/Fiji non-PnP Config Port */
 #ifdef CONFIG_MSNDPIN_NONPNP
 #  ifndef CONFIG_MSNDPIN_CFG
 #    define CONFIG_MSNDPIN_CFG		0x250
@@ -1655,8 +1667,10 @@ static int mem __initdata =		CONFIG_MSNDPIN_MEM;
 #  define CONFIG_MSNDPIN_CFG		-1
 #endif
 static int cfg __initdata =		CONFIG_MSNDPIN_CFG;
+/* If not a module, we don't need to bother with reset=1 */
 static int reset;
 
+/* Extra Peripheral Configuration (Default: Disable) */
 #ifndef CONFIG_MSNDPIN_MPU_IO
 #  define CONFIG_MSNDPIN_MPU_IO		0
 #endif
@@ -1687,12 +1701,13 @@ static int ide_irq __initdata =		CONFIG_MSNDPIN_IDE_IRQ;
 #endif
 static int joystick_io __initdata =	CONFIG_MSNDPIN_JOYSTICK_IO;
 
+/* Have SPDIF (Digital) Daughterboard */
 #ifndef CONFIG_MSNDPIN_DIGITAL
 #  define CONFIG_MSNDPIN_DIGITAL	0
 #endif
 static bool digital __initdata =	CONFIG_MSNDPIN_DIGITAL;
 
-#endif 
+#endif /* MSND_CLASSIC */
 
 #ifndef CONFIG_MSND_FIFOSIZE
 #  define CONFIG_MSND_FIFOSIZE		DEFFIFOSIZE
@@ -1704,7 +1719,7 @@ static int fifosize __initdata =	CONFIG_MSND_FIFOSIZE;
 #endif
 static int
 calibrate_signal __initdata =		CONFIG_MSND_CALSIGNAL;
-#endif 
+#endif /* MODULE */
 
 module_param				(io, int, 0);
 module_param				(irq, int, 0);
@@ -1729,7 +1744,7 @@ static int __init msnd_init(void)
 	int err;
 #ifndef MSND_CLASSIC
 	static msnd_pinnacle_cfg_t pinnacle_devs;
-#endif 
+#endif /* MSND_CLASSIC */
 
 	printk(KERN_INFO LOGNAME ": Turtle Beach " LONGNAME " Linux Driver Version "
 	       VERSION ", Copyright (C) 1998 Andrew Veliath\n");
@@ -1758,7 +1773,7 @@ static int __init msnd_init(void)
 			printk(KERN_ERR LOGNAME ": \"io\" - DSP I/O base must within the range 0x100 to 0x3E0 and must be evenly divisible by 0x10\n");
 			return -EINVAL;
 	}
-#endif 
+#endif /* MSND_CLASSIC */
 
 	if (irq == -1 ||
 	    !(irq == 5 ||
@@ -1810,23 +1825,23 @@ static int __init msnd_init(void)
 	} else {
 		printk(KERN_INFO LOGNAME ": Non-PnP mode: configuring at port 0x%x\n", cfg);
 
-		
+		/* DSP */
 		pinnacle_devs[0].io0 = io;
 		pinnacle_devs[0].irq = irq;
 		pinnacle_devs[0].mem = mem;
 
-		
+		/* The following are Pinnacle specific */
 
-		
+		/* MPU */
 		pinnacle_devs[1].io0 = mpu_io;
 		pinnacle_devs[1].irq = mpu_irq;
 
-		
+		/* IDE */
 		pinnacle_devs[2].io0 = ide_io0;
 		pinnacle_devs[2].io1 = ide_io1;
 		pinnacle_devs[2].irq = ide_irq;
 
-		
+		/* Joystick */
 		pinnacle_devs[3].io0 = joystick_io;
 
 		if (!request_region(cfg, 2, "Pinnacle/Fiji Config")) {
@@ -1841,7 +1856,7 @@ static int __init msnd_init(void)
 		}
 		release_region(cfg, 2);
 	}
-#endif 
+#endif /* MSND_CLASSIC */
 
 	if (fifosize < 16)
 		fifosize = 16;

@@ -42,11 +42,14 @@
 #include "sb.h"
 #include "sb_ess.h"
 
+/*
+ * global module flag
+ */
 
 int sb_be_quiet;
 
-static sb_devc *detected_devc;	
-static sb_devc *last_devc;	
+static sb_devc *detected_devc;	/* For communication from probe to init */
+static sb_devc *last_devc;	/* For MPU401 initialization */
 
 static unsigned char jazz_irq_bits[] = {
 	0, 0, 2, 3, 0, 1, 0, 4, 0, 2, 5, 0, 0, 0, 0, 6
@@ -58,11 +61,17 @@ static unsigned char jazz_dma_bits[] = {
 
 void *smw_free;
 
+/*
+ * Jazz16 chipset specific control variables
+ */
 
-static int jazz16_base;			
-static unsigned char jazz16_bits;	
+static int jazz16_base;			/* Not detected */
+static unsigned char jazz16_bits;	/* I/O relocation bits */
 static DEFINE_SPINLOCK(jazz16_lock);
 
+/*
+ * Logitech Soundman Wave specific initialization code
+ */
 
 #ifdef SMW_MIDI0001_INCLUDED
 #include "smw-midi0001.h"
@@ -72,15 +81,22 @@ static int      smw_ucodeLen;
 
 #endif
 
-static sb_devc *last_sb;		
+static sb_devc *last_sb;		/* Last sb loaded */
 
 int sb_dsp_command(sb_devc * devc, unsigned char val)
 {
 	int i;
 	unsigned long limit;
 
-	limit = jiffies + HZ / 10;	
+	limit = jiffies + HZ / 10;	/* Timeout */
 	
+	/*
+	 * Note! the i<500000 is an emergency exit. The sb_dsp_command() is sometimes
+	 * called while interrupts are disabled. This means that the timer is
+	 * disabled also. However the timeout situation is a abnormal condition.
+	 * Normally the DSP should be ready to accept commands after just couple of
+	 * loops.
+	 */
 
 	for (i = 0; i < 500000 && (limit-jiffies)>0; i++)
 	{
@@ -113,14 +129,14 @@ static void sb_intr (sb_devc *devc)
 
 	if (devc->model == MDL_SB16)
 	{
-		src = sb_getmixer(devc, IRQ_STAT);	
+		src = sb_getmixer(devc, IRQ_STAT);	/* Interrupt source register */
 
-		if (src & 4)						
+		if (src & 4)						/* MPU401 interrupt */
 			if(devc->midi_irq_cookie)
 				uart401intr(devc->irq, devc->midi_irq_cookie);
 
 		if (!(src & 3))
-			return;	
+			return;	/* Not a DSP interrupt */
 	}
 	if (devc->intr_active && (!devc->fullduplex || (src & 0x01)))
 	{
@@ -142,7 +158,7 @@ static void sb_intr (sb_devc *devc)
 				break;
 
 			default:
-				
+				/* printk(KERN_WARNING "Sound Blaster: Unexpected interrupt\n"); */
 				;
 		}
 	}
@@ -162,10 +178,13 @@ static void sb_intr (sb_devc *devc)
 				break;
 
 			default:
-				
+				/* printk(KERN_WARNING "Sound Blaster: Unexpected interrupt\n"); */
 				;
 		}
 	}
+	/*
+	 * Acknowledge interrupts 
+	 */
 
 	if (src & 0x01)
 		status = inb(DSP_DATA_AVAIL);
@@ -211,7 +230,7 @@ int sb_dsp_reset(sb_devc * devc)
 
 	if (devc->model == MDL_ESS) return ess_dsp_reset (devc);
 
-	
+	/* This is only for non-ESS chips */
 
 	outb(1, DSP_RESET);
 
@@ -224,7 +243,7 @@ int sb_dsp_reset(sb_devc * devc)
 	if (inb(DSP_READ) != 0xAA)
 	{
 		DDB(printk("sb: No response to RESET\n"));
-		return 0;	
+		return 0;	/* Sorry */
 	}
 
 	DEB(printk("sb_dsp_reset() OK\n"));
@@ -241,7 +260,7 @@ static void dsp_get_vers(sb_devc * devc)
 	DDB(printk("Entered dsp_get_vers()\n"));
 	spin_lock_irqsave(&devc->lock, flags);
 	devc->major = devc->minor = 0;
-	sb_dsp_command(devc, 0xe1);	
+	sb_dsp_command(devc, 0xe1);	/* Get version */
 
 	for (i = 100000; i; i--)
 	{
@@ -280,6 +299,9 @@ static int sb16_set_dma_hw(sb_devc * devc)
 
 static void sb16_set_mpu_port(sb_devc * devc, struct address_info *hw_config)
 {
+	/*
+	 * This routine initializes new MIDI port setup register of SB Vibra (CT2502).
+	 */
 	unsigned char   bits = sb_getmixer(devc, 0x84) & ~0x06;
 
 	switch (hw_config->io_base)
@@ -293,7 +315,7 @@ static void sb16_set_mpu_port(sb_devc * devc, struct address_info *hw_config)
 			break;
 
 		default:
-			sb_setmixer(devc, 0x84, bits | 0x02);		
+			sb_setmixer(devc, 0x84, bits | 0x02);		/* Disable MPU */
 			printk(KERN_ERR "SB16: Invalid MIDI I/O port %x\n", hw_config->io_base);
 	}
 }
@@ -349,6 +371,9 @@ static void relocate_Jazz16(sb_devc * devc, struct address_info *hw_config)
 	bits = jazz16_bits = bits << 5;
 	jazz16_base = hw_config->io_base;
 
+	/*
+	 *	Magic wake up sequence by writing to 0x201 (aka Joystick port)
+	 */
 	spin_lock_irqsave(&jazz16_lock, flags);
 	outb((0xAF), 0x201);
 	outb((0x50), 0x201);
@@ -359,6 +384,10 @@ static void relocate_Jazz16(sb_devc * devc, struct address_info *hw_config)
 static int init_Jazz16(sb_devc * devc, struct address_info *hw_config)
 {
 	char name[100];
+	/*
+	 * First try to check that the card has Jazz16 chip. It identifies itself
+	 * by returning 0x12 as response to DSP command 0xfa.
+	 */
 
 	if (!sb_dsp_command(devc, 0xfa))
 		return 0;
@@ -366,6 +395,9 @@ static int init_Jazz16(sb_devc * devc, struct address_info *hw_config)
 	if (sb_dsp_get_byte(devc) != 0x12)
 		return 0;
 
+	/*
+	 * OK so far. Now configure the IRQ and DMA channel used by the card.
+	 */
 	if (hw_config->irq < 1 || hw_config->irq > 15 || jazz_irq_bits[hw_config->irq] == 0)
 	{
 		printk(KERN_ERR "Jazz16: Invalid interrupt (IRQ%d)\n", hw_config->irq);
@@ -398,6 +430,9 @@ static int init_Jazz16(sb_devc * devc, struct address_info *hw_config)
 	if (!sb_dsp_command(devc, jazz_irq_bits[hw_config->irq]))
 		return 0;
 
+	/*
+	 * Now we have configured a standard Jazz16 device. 
+	 */
 	devc->model = MDL_JAZZ;
 	strcpy(name, "Jazz16");
 
@@ -425,18 +460,22 @@ static void relocate_ess1688(sb_devc * devc)
 			bits = 0x07;
 			break;
 		default:
-			return;	
+			return;	/* Wrong port */
 	}
 
 	DDB(printk("Doing ESS1688 address selection\n"));
 	
+	/*
+	 * ES1688 supports two alternative ways for software address config.
+	 * First try the so called Read-Sequence-Key method.
+	 */
 
-	
+	/* Reset the sequence logic */
 	inb(0x229);
 	inb(0x229);
 	inb(0x229);
 
-	
+	/* Perform the read sequence */
 	inb(0x22b);
 	inb(0x229);
 	inb(0x22b);
@@ -445,17 +484,20 @@ static void relocate_ess1688(sb_devc * devc)
 	inb(0x22b);
 	inb(0x229);
 
-	
+	/* Select the base address by reading from it. Then probe using the port. */
 	inb(devc->base);
-	if (sb_dsp_reset(devc))	
+	if (sb_dsp_reset(devc))	/* Bingo */
 		return;
 
-#if 0				
+#if 0				/* This causes system lockups (Nokia 386/25 at least) */
+	/*
+	 * The last resort is the system control register method.
+	 */
 
-	outb((0x00), 0xfb);	
-	outb((0x00), 0xe0);	
-	outb((bits), 0xe1);	
-	outb((0x00), 0xf9);	
+	outb((0x00), 0xfb);	/* 0xFB is the unlock register */
+	outb((0x00), 0xe0);	/* Select index 0 */
+	outb((bits), 0xe1);	/* Write the config bits */
+	outb((0x00), 0xf9);	/* 0xFB is the lock register */
 #endif
 }
 
@@ -464,15 +506,18 @@ int sb_dsp_detect(struct address_info *hw_config, int pci, int pciio, struct sb_
 	sb_devc sb_info;
 	sb_devc *devc = &sb_info;
 
-	memset((char *) &sb_info, 0, sizeof(sb_info));	
+	memset((char *) &sb_info, 0, sizeof(sb_info));	/* Zero everything */
 
-	
+	/* Copy module options in place */
 	if(sbmo) memcpy(&devc->sbmo, sbmo, sizeof(struct sb_module_options));
 
 	sb_info.my_mididev = -1;
 	sb_info.my_mixerdev = -1;
 	sb_info.dev = -1;
 
+	/*
+	 * Initialize variables 
+	 */
 	
 	DDB(printk("sb_dsp_detect(%x) entered\n", hw_config->io_base));
 
@@ -522,6 +567,9 @@ int sb_dsp_detect(struct address_info *hw_config, int pci, int pciio, struct sb_
 		inb(devc->base + 0x00);
 		spin_unlock_irqrestore(&devc->lock, flags);
 	}
+	/*
+	 * Detect the device
+	 */
 
 	if (sb_dsp_reset(devc))
 		dsp_get_vers(devc);
@@ -548,17 +596,17 @@ int sb_dsp_detect(struct address_info *hw_config, int pci, int pciio, struct sb_
 
 	if (devc->major == 3 && devc->minor == 1)
 	{
-		if (devc->type == MDL_AZTECH)		
+		if (devc->type == MDL_AZTECH)		/* SG Washington? */
 		{
 			if (sb_dsp_command(devc, 0x09))
-				if (sb_dsp_command(devc, 0x00))	
+				if (sb_dsp_command(devc, 0x00))	/* Enter WSS mode */
 				{
 					int i;
 
-					
+					/* Have some delay */
 					for (i = 0; i < 10000; i++)
 						inb(DSP_DATA_AVAIL);
-					devc->caps = SB_NO_AUDIO | SB_NO_MIDI;	
+					devc->caps = SB_NO_AUDIO | SB_NO_MIDI;	/* Mixer only */
 					devc->model = MDL_AZTECH;
 				}
 		}
@@ -573,6 +621,9 @@ int sb_dsp_detect(struct address_info *hw_config, int pci, int pciio, struct sb_
 		devc->model = MDL_YMPCI;
 	}
 		
+	/*
+	 * Save device information for sb_dsp_init()
+	 */
 
 
 	detected_devc = kmalloc(sizeof(sb_devc), GFP_KERNEL);
@@ -593,6 +644,9 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 	extern int sb_be_quiet;
 	int	mixer22, mixer30;
 	
+/*
+ * Check if we had detected a SB device earlier
+ */
 	DDB(printk("sb_dsp_init(%x) entered\n", hw_config->io_base));
 	name[0] = 0;
 
@@ -610,12 +664,19 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 		release_region(devc->base, 16);
 		return 0;
 	}
+	/*
+	 * Now continue initialization of the device
+	 */
 
 	devc->caps = hw_config->driver_use_1;
 
 	if (!((devc->caps & SB_NO_AUDIO) && (devc->caps & SB_NO_MIDI)) && hw_config->irq > 0)
-	{			
+	{			/* IRQ setup */
 		
+		/*
+		 *	ESS PCI cards do shared PCI IRQ stuff. Since they
+		 *	will get shared PCI irq lines we must cope.
+		 */
 		 
 		int i=(devc->caps&SB_PCI_IRQ)?IRQF_SHARED:0;
 		
@@ -628,7 +689,7 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 		devc->irq_ok = 0;
 
 		if (devc->major == 4)
-			if (!sb16_set_irq_hw(devc, devc->irq))	
+			if (!sb16_set_irq_hw(devc, devc->irq))	/* Unsupported IRQ */
 			{
 				free_irq(devc->irq, devc);
 				release_region(devc->base, 16);
@@ -636,7 +697,7 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 			}
 		if ((devc->type == 0 || devc->type == MDL_ESS) &&
 			devc->major == 3 && devc->minor == 1)
-		{		
+		{		/* Handle various chipsets which claim they are SB Pro compatible */
 			if ((devc->type != 0 && devc->type != MDL_ESS) ||
 				!ess_init(devc, hw_config))
 			{
@@ -647,7 +708,7 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 				}
 			}
 		}
-		if (devc->major == 4 && devc->minor <= 11 )	
+		if (devc->major == 4 && devc->minor <= 11 )	/* Won't work */
 			devc->irq_ok = 1;
 		else
 		{
@@ -655,7 +716,7 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 
 			for (n = 0; n < 3 && devc->irq_ok == 0; n++)
 			{
-				if (sb_dsp_command(devc, 0xf2))	
+				if (sb_dsp_command(devc, 0xf2))	/* Cause interrupt immediately */
 				{
 					int i;
 
@@ -669,24 +730,24 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 				DDB(printk("IRQ test OK (IRQ%d)\n", devc->irq));
 			}
 		}
-	}			
+	}			/* IRQ setup */
 
 	last_sb = devc;
 	
 	switch (devc->major)
 	{
-		case 1:		
+		case 1:		/* SB 1.0 or 1.5 */
 			devc->model = hw_config->card_subtype = MDL_SB1;
 			break;
 
-		case 2:		
+		case 2:		/* SB 2.x */
 			if (devc->minor == 0)
 				devc->model = hw_config->card_subtype = MDL_SB2;
 			else
 				devc->model = hw_config->card_subtype = MDL_SB201;
 			break;
 
-		case 3:		
+		case 3:		/* SB Pro and most clones */
 			switch (devc->model) {
 			case 0:
 				devc->model = hw_config->card_subtype = MDL_SBPRO;
@@ -701,13 +762,20 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 
 		case 4:
 			devc->model = hw_config->card_subtype = MDL_SB16;
+			/* 
+			 * ALS007 and ALS100 return DSP version 4.2 and have 2 post-reset !=0
+			 * registers at 0x3c and 0x4c (output ctrl registers on ALS007) whereas
+			 * a "standard" SB16 doesn't have a register at 0x4c.  ALS100 actively
+			 * updates register 0x22 whenever 0x30 changes, as per the SB16 spec.
+			 * Since ALS007 doesn't, this can be used to differentiate the 2 cards.
+			 */
 			if ((devc->minor == 2) && sb_getmixer(devc,0x3c) && sb_getmixer(devc,0x4c)) 
 			{
 				mixer30 = sb_getmixer(devc,0x30);
 				sb_setmixer(devc,0x22,(mixer22=sb_getmixer(devc,0x22)) & 0x0f);
 				sb_setmixer(devc,0x30,0xff);
-				
-				
+				/* ALS100 will force 0x30 to 0xf8 like SB16; ALS007 will allow 0xff. */
+				/* Register 0x22 & 0xf0 on ALS100 == 0xf0; on ALS007 it == 0x10.     */
 				if ((sb_getmixer(devc,0x30) != 0xff) || ((sb_getmixer(devc,0x22) & 0xf0) != 0x10)) 
 				{
 					devc->submodel = SUBMDL_ALS100;
@@ -716,9 +784,9 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
         			}
         			else
         			{
-        				sb_setmixer(devc,0x3c,0x1f);    
+        				sb_setmixer(devc,0x3c,0x1f);    /* Enable all inputs */
 					sb_setmixer(devc,0x4c,0x1f);
-					sb_setmixer(devc,0x22,mixer22); 
+					sb_setmixer(devc,0x22,mixer22); /* Restore 0x22 to original value */
 					devc->submodel = SUBMDL_ALS007;
 					if (hw_config->name == NULL)
 						hw_config->name = "Sound Blaster 16 (ALS-007)";
@@ -760,9 +828,16 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 	sprintf(name, "%s (%d.%02d)", hw_config->name, devc->major, devc->minor);
 	conf_printf(name, hw_config);
 
+	/*
+	 * Assuming that a sound card is Sound Blaster (compatible) is the most common
+	 * configuration error and the mother of all problems. Usually sound cards
+	 * emulate SB Pro but in addition they have a 16 bit native mode which should be
+	 * used in Unix. See Readme.cards for more information about configuring OSS/Free
+	 * properly.
+	 */
 	if (devc->model <= MDL_SBPRO)
 	{
-		if (devc->major == 3 && devc->minor != 1)	
+		if (devc->major == 3 && devc->minor != 1)	/* "True" SB Pro should have v3.1 (rare ones may have 3.2). */
 		{
 			printk(KERN_INFO "This sound card may not be fully Sound Blaster Pro compatible.\n");
 			printk(KERN_INFO "In many cases there is another way to configure OSS so that\n");
@@ -778,7 +853,7 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 	}
 	hw_config->card_subtype = devc->model;
 	hw_config->slots[0]=devc->dev;
-	last_devc = devc;	
+	last_devc = devc;	/* For SB MPU detection */
 
 	if (!(devc->caps & SB_NO_AUDIO) && devc->dma8 >= 0)
 	{
@@ -801,6 +876,8 @@ int sb_dsp_init(struct address_info *hw_config, struct module *owner)
 	return 1;
 }
 
+/* if (sbmpu) below we allow mpu401 to manage the midi devs
+   otherwise we have to unload them. (Andrzej Krzysztofowicz) */
    
 void sb_dsp_unload(struct address_info *hw_config, int sbmpu)
 {
@@ -827,7 +904,9 @@ void sb_dsp_unload(struct address_info *hw_config, int sbmpu)
 				free_irq(devc->irq, devc);
 
 			sb_mixer_unload(devc);
-			
+			/* We don't have to do this bit any more the UART401 is its own
+				master  -- Krzysztof Halasa */
+			/* But we have to do it, if UART401 is not detected */
 			if (!sbmpu)
 				sound_unload_mididev(devc->my_mididev);
 			sound_unload_audiodev(devc->dev);
@@ -840,6 +919,12 @@ void sb_dsp_unload(struct address_info *hw_config, int sbmpu)
 	kfree(detected_devc);
 }
 
+/*
+ *	Mixer access routines
+ *
+ *	ES1887 modifications: some mixer registers reside in the
+ *	range above 0xa0. These must be accessed in another way.
+ */
 
 void sb_setmixer(sb_devc * devc, unsigned int port, unsigned int value)
 {
@@ -889,16 +974,19 @@ void sb_chgmixer
 	sb_setmixer(devc, reg, value);
 }
 
+/*
+ *	MPU401 MIDI initialization.
+ */
 
 static void smw_putmem(sb_devc * devc, int base, int addr, unsigned char val)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&jazz16_lock, flags);  
+	spin_lock_irqsave(&jazz16_lock, flags);  /* NOT the SB card? */
 
-	outb((addr & 0xff), base + 1);	
-	outb((addr >> 8), base + 2);	
-	outb((val), base);	
+	outb((addr & 0xff), base + 1);	/* Low address bits */
+	outb((addr >> 8), base + 2);	/* High address bits */
+	outb((val), base);	/* Data */
 
 	spin_unlock_irqrestore(&jazz16_lock, flags);
 }
@@ -908,11 +996,11 @@ static unsigned char smw_getmem(sb_devc * devc, int base, int addr)
 	unsigned long flags;
 	unsigned char val;
 
-	spin_lock_irqsave(&jazz16_lock, flags);  
+	spin_lock_irqsave(&jazz16_lock, flags);  /* NOT the SB card? */
 
-	outb((addr & 0xff), base + 1);	
-	outb((addr >> 8), base + 2);	
-	val = inb(base);	
+	outb((addr & 0xff), base + 1);	/* Low address bits */
+	outb((addr >> 8), base + 2);	/* High address bits */
+	val = inb(base);	/* Data */
 
 	spin_unlock_irqrestore(&jazz16_lock, flags);
 	return val;
@@ -921,20 +1009,26 @@ static unsigned char smw_getmem(sb_devc * devc, int base, int addr)
 static int smw_midi_init(sb_devc * devc, struct address_info *hw_config)
 {
 	int mpu_base = hw_config->io_base;
-	int mp_base = mpu_base + 4;		
+	int mp_base = mpu_base + 4;		/* Microcontroller base */
 	int i;
 	unsigned char control;
 
 
+	/*
+	 *  Reset the microcontroller so that the RAM can be accessed
+	 */
 
 	control = inb(mpu_base + 7);
-	outb((control | 3), mpu_base + 7);	
-	outb(((control & 0xfe) | 2), mpu_base + 7);	
+	outb((control | 3), mpu_base + 7);	/* Set last two bits to 1 (?) */
+	outb(((control & 0xfe) | 2), mpu_base + 7);	/* xxxxxxx0 resets the mc */
 
-	mdelay(3);	
+	mdelay(3);	/* Wait at least 1ms */
 
-	outb((control & 0xfc), mpu_base + 7);	
+	outb((control & 0xfc), mpu_base + 7);	/* xxxxxx00 enables RAM */
 
+	/*
+	 *  Detect microcontroller by probing the 8k RAM area
+	 */
 	smw_putmem(devc, mp_base, 0, 0x00);
 	smw_putmem(devc, mp_base, 1, 0xff);
 	udelay(10);
@@ -942,8 +1036,11 @@ static int smw_midi_init(sb_devc * devc, struct address_info *hw_config)
 	if (smw_getmem(devc, mp_base, 0) != 0x00 || smw_getmem(devc, mp_base, 1) != 0xff)
 	{
 		DDB(printk("SM Wave: No microcontroller RAM detected (%02x, %02x)\n", smw_getmem(devc, mp_base, 0), smw_getmem(devc, mp_base, 1)));
-		return 0;	
+		return 0;	/* No RAM */
 	}
+	/*
+	 *  There is RAM so assume it's really a SM Wave
+	 */
 
 	devc->model = MDL_SMW;
 	smw_mixer_init(devc);
@@ -962,10 +1059,16 @@ static int smw_midi_init(sb_devc * devc, struct address_info *hw_config)
 			printk(KERN_ERR "SM Wave: Invalid microcode (MIDI0001.BIN) length\n");
 			return 1;
 		}
+		/*
+		 *  Download microcode
+		 */
 
 		for (i = 0; i < 8192; i++)
 			smw_putmem(devc, mp_base, i, smw_ucode[i]);
 
+		/*
+		 *  Verify microcode
+		 */
 
 		for (i = 0; i < 8192; i++)
 			if (smw_getmem(devc, mp_base, i) != smw_ucode[i])
@@ -976,6 +1079,14 @@ static int smw_midi_init(sb_devc * devc, struct address_info *hw_config)
 	}
 	control = 0;
 #ifdef SMW_SCSI_IRQ
+	/*
+	 * Set the SCSI interrupt (IRQ2/9, IRQ3 or IRQ10). The SCSI interrupt
+	 * is disabled by default.
+	 *
+	 * FIXME - make this a module option
+	 *
+	 * BTW the Zilog 5380 SCSI controller is located at MPU base + 0x10.
+	 */
 	{
 		static unsigned char scsi_irq_bits[] = {
 			0, 0, 3, 1, 0, 0, 0, 0, 0, 3, 2, 0, 0, 0, 0, 0
@@ -985,10 +1096,17 @@ static int smw_midi_init(sb_devc * devc, struct address_info *hw_config)
 #endif
 
 #ifdef SMW_OPL4_ENABLE
-	control |= 0x10;	
-	
+	/*
+	 *  Make the OPL4 chip visible on the PC bus at 0x380.
+	 *
+	 *  There is no need to enable this feature since this driver
+	 *  doesn't support OPL4 yet. Also there is no RAM in SM Wave so
+	 *  enabling OPL4 is pretty useless.
+	 */
+	control |= 0x10;	/* Uses IRQ12 if bit 0x20 == 0 */
+	/* control |= 0x20;      Uncomment this if you want to use IRQ7 */
 #endif
-	outb((control | 0x03), mpu_base + 7);	
+	outb((control | 0x03), mpu_base + 7);	/* xxxxxx11 restarts */
 	hw_config->name = "SoundMan Wave";
 	return 1;
 }
@@ -1041,6 +1159,9 @@ static int init_Jazz16_midi(sb_devc * devc, struct address_info *hw_config)
 			printk(KERN_ERR "Jazz16: Invalid MIDI I/O port %x\n", mpu_base);
 			return 0;
 	}
+	/*
+	 *	Magic wake up sequence by writing to 0x201 (aka Joystick port)
+	 */
 	spin_lock_irqsave(&jazz16_lock, flags);
 	outb(0xAF, 0x201);
 	outb(0x50, 0x201);
@@ -1076,11 +1197,13 @@ int probe_sbmpu(struct address_info *hw_config, struct module *owner)
 
 	if (hw_config->io_base <= 0)
 	{
+		/* The real vibra16 is fine about this, but we have to go
+		   wipe up after Cyrix again */
 		   	   
 		if(devc->model == MDL_SB16 && devc->minor >= 12)
 		{
 			unsigned char   bits = sb_getmixer(devc, 0x84) & ~0x06;
-			sb_setmixer(devc, 0x84, bits | 0x02);		
+			sb_setmixer(devc, 0x84, bits | 0x02);		/* Disable MPU */
 		}
 		return 0;
 	}
@@ -1123,7 +1246,7 @@ int probe_sbmpu(struct address_info *hw_config, struct module *owner)
 			hw_config->name = "Sound Blaster 16";
 			if (hw_config->irq < 3 || hw_config->irq == devc->irq)
 				hw_config->irq = -devc->irq;
-			if (devc->minor > 12)		
+			if (devc->minor > 12)		/* What is Vibra's version??? */
 				sb16_set_mpu_port(devc, hw_config);
 			break;
 

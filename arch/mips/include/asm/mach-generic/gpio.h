@@ -16,6 +16,6 @@ void gpio_set_value(unsigned gpio, int value);
 int gpio_to_irq(unsigned gpio);
 int irq_to_gpio(unsigned irq);
 
-#include <asm-generic/gpio.h>		
+#include <asm-generic/gpio.h>		/* cansleep wrappers */
 
-#endif 
+#endif /* __ASM_MACH_GENERIC_GPIO_H */

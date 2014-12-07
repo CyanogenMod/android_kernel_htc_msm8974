@@ -26,23 +26,23 @@
 struct pep_sock {
 	struct pn_sock		pn_sk;
 
-	
-	
+	/* XXX: union-ify listening vs connected stuff ? */
+	/* Listening socket stuff: */
 	struct hlist_head	hlist;
 
-	
+	/* Connected socket stuff: */
 	struct sock		*listener;
 	struct sk_buff_head	ctrlreq_queue;
 #define PNPIPE_CTRLREQ_MAX	10
 	atomic_t		tx_credits;
 	int			ifindex;
-	u16			peer_type;	
+	u16			peer_type;	/* peer type/subtype */
 	u8			pipe_handle;
 
 	u8			rx_credits;
-	u8			rx_fc;	
-	u8			tx_fc;	
-	u8			init_enable;	
+	u8			rx_fc;	/* RX flow control */
+	u8			tx_fc;	/* TX flow control */
+	u8			init_enable;	/* auto-enable at creation */
 	u8			aligned;
 };
 
@@ -53,15 +53,16 @@ static inline struct pep_sock *pep_sk(struct sock *sk)
 
 extern const struct proto_ops phonet_stream_ops;
 
+/* Pipe protocol definitions */
 struct pnpipehdr {
-	u8			utid; 
+	u8			utid; /* transaction ID */
 	u8			message_id;
 	u8			pipe_handle;
 	union {
-		u8		state_after_connect;	
-		u8		state_after_reset;	
-		u8		error_code;		
-		u8		pep_type;		
+		u8		state_after_connect;	/* connect request */
+		u8		state_after_reset;	/* reset request */
+		u8		error_code;		/* any response */
+		u8		pep_type;		/* status indication */
 		u8		data[1];
 	};
 };
@@ -107,11 +108,13 @@ enum {
 #define PN_PIPE_INVALID_HANDLE	0xff
 #define PN_PEP_TYPE_COMMON	0x00
 
+/* Phonet pipe status indication */
 enum {
 	PN_PEP_IND_FLOW_CONTROL,
 	PN_PEP_IND_ID_MCFC_GRANT_CREDITS,
 };
 
+/* Phonet pipe error codes */
 enum {
 	PN_PIPE_NO_ERROR,
 	PN_PIPE_ERR_INVALID_PARAM,
@@ -127,11 +130,13 @@ enum {
 	PN_PIPE_ERR_NOT_SUPPORTED,
 };
 
+/* Phonet pipe states */
 enum {
 	PN_PIPE_DISABLE,
 	PN_PIPE_ENABLE,
 };
 
+/* Phonet pipe sub-block types */
 enum {
 	PN_PIPE_SB_CREATE_REQ_PEP_SUB_TYPE,
 	PN_PIPE_SB_CONNECT_REQ_PEP_SUB_TYPE,
@@ -142,6 +147,7 @@ enum {
 	PN_PIPE_SB_ALIGNED_DATA,
 };
 
+/* Phonet pipe flow control models */
 enum {
 	PN_NO_FLOW_CONTROL,
 	PN_LEGACY_FLOW_CONTROL,
@@ -152,6 +158,7 @@ enum {
 
 #define pn_flow_safe(fc) ((fc) >> 1)
 
+/* Phonet pipe flow control states */
 enum {
 	PEP_IND_EMPTY,
 	PEP_IND_BUSY,

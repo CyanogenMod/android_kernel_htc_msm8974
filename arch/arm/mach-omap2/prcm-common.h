@@ -14,7 +14,14 @@
  * published by the Free Software Foundation.
  */
 
+/* Module offsets from both CM_BASE & PRM_BASE */
 
+/*
+ * Offsets that are the same on 24xx and 34xx
+ *
+ * Technically, in terms of the TRM, OCP_MOD is 34xx only; PLL_MOD is
+ * CCR_MOD on 3430; and GFX_MOD only exists < 3430ES2.
+ */
 #define OCP_MOD						0x000
 #define MPU_MOD						0x100
 #define CORE_MOD					0x200
@@ -23,11 +30,13 @@
 #define PLL_MOD						0x500
 
 
+/* Chip-specific module offsets */
 #define OMAP24XX_GR_MOD					OCP_MOD
 #define OMAP24XX_DSP_MOD				0x800
 
 #define OMAP2430_MDM_MOD				0xc00
 
+/* IVA2 module is < base on 3430 */
 #define OMAP3430_IVA2_MOD				-0x800
 #define OMAP3430ES2_SGX_MOD				GFX_MOD
 #define OMAP3430_CCR_MOD				PLL_MOD
@@ -39,7 +48,9 @@
 #define OMAP3430_NEON_MOD				0xb00
 #define OMAP3430ES2_USBHOST_MOD				0xc00
 
+/* 24XX register bits shared between CM & PRM registers */
 
+/* CM_FCLKEN1_CORE, CM_ICLKEN1_CORE, PM_WKEN1_CORE shared bits */
 #define OMAP2420_EN_MMC_SHIFT				26
 #define OMAP2420_EN_MMC_MASK				(1 << 26)
 #define OMAP24XX_EN_UART2_SHIFT				22
@@ -79,6 +90,7 @@
 #define OMAP2420_EN_VLYNQ_SHIFT				3
 #define OMAP2420_EN_VLYNQ_MASK				(1 << 3)
 
+/* CM_FCLKEN2_CORE, CM_ICLKEN2_CORE, PM_WKEN2_CORE shared bits */
 #define OMAP2430_EN_GPIO5_SHIFT				10
 #define OMAP2430_EN_GPIO5_MASK				(1 << 10)
 #define OMAP2430_EN_MCSPI3_SHIFT			9
@@ -92,11 +104,13 @@
 #define OMAP24XX_EN_USB_SHIFT				0
 #define OMAP24XX_EN_USB_MASK				(1 << 0)
 
+/* CM_ICLKEN2_CORE, PM_WKEN2_CORE shared bits */
 #define OMAP2430_EN_MDM_INTC_SHIFT			11
 #define OMAP2430_EN_MDM_INTC_MASK			(1 << 11)
 #define OMAP2430_EN_USBHS_SHIFT				6
 #define OMAP2430_EN_USBHS_MASK				(1 << 6)
 
+/* CM_IDLEST1_CORE, PM_WKST1_CORE shared bits */
 #define OMAP2420_ST_MMC_SHIFT				26
 #define OMAP2420_ST_MMC_MASK				(1 << 26)
 #define OMAP24XX_ST_UART2_SHIFT				22
@@ -136,6 +150,7 @@
 #define OMAP2420_ST_VLYNQ_SHIFT				3
 #define OMAP2420_ST_VLYNQ_MASK				(1 << 3)
 
+/* CM_IDLEST2_CORE, PM_WKST2_CORE shared bits */
 #define OMAP2430_ST_MDM_INTC_SHIFT			11
 #define OMAP2430_ST_MDM_INTC_MASK			(1 << 11)
 #define OMAP2430_ST_GPIO5_SHIFT				10
@@ -153,26 +168,33 @@
 #define OMAP24XX_ST_USB_SHIFT				0
 #define OMAP24XX_ST_USB_MASK				(1 << 0)
 
+/* CM_FCLKEN_WKUP, CM_ICLKEN_WKUP, PM_WKEN_WKUP shared bits */
 #define OMAP24XX_EN_GPIOS_SHIFT				2
 #define OMAP24XX_EN_GPIOS_MASK				(1 << 2)
 #define OMAP24XX_EN_GPT1_SHIFT				0
 #define OMAP24XX_EN_GPT1_MASK				(1 << 0)
 
+/* PM_WKST_WKUP, CM_IDLEST_WKUP shared bits */
 #define OMAP24XX_ST_GPIOS_SHIFT				2
 #define OMAP24XX_ST_GPIOS_MASK				(1 << 2)
 #define OMAP24XX_ST_GPT1_SHIFT				0
 #define OMAP24XX_ST_GPT1_MASK				(1 << 0)
 
+/* CM_IDLEST_MDM and PM_WKST_MDM shared bits */
 #define OMAP2430_ST_MDM_SHIFT				0
 #define OMAP2430_ST_MDM_MASK				(1 << 0)
 
 
+/* 3430 register bits shared between CM & PRM registers */
 
+/* CM_REVISION, PRM_REVISION shared bits */
 #define OMAP3430_REV_SHIFT				0
 #define OMAP3430_REV_MASK				(0xff << 0)
 
+/* CM_SYSCONFIG, PRM_SYSCONFIG shared bits */
 #define OMAP3430_AUTOIDLE_MASK				(1 << 0)
 
+/* CM_FCLKEN1_CORE, CM_ICLKEN1_CORE, PM_WKEN1_CORE shared bits */
 #define OMAP3430_EN_MMC3_MASK				(1 << 30)
 #define OMAP3430_EN_MMC3_SHIFT				30
 #define OMAP3430_EN_MMC2_MASK				(1 << 25)
@@ -212,9 +234,11 @@
 #define OMAP3430_EN_D2D_MASK				(1 << 3)
 #define OMAP3430_EN_D2D_SHIFT				3
 
+/* CM_ICLKEN1_CORE, PM_WKEN1_CORE shared bits */
 #define OMAP3430_EN_HSOTGUSB_MASK			(1 << 4)
 #define OMAP3430_EN_HSOTGUSB_SHIFT			4
 
+/* PM_WKST1_CORE, CM_IDLEST1_CORE shared bits */
 #define OMAP3430_ST_MMC3_SHIFT				30
 #define OMAP3430_ST_MMC3_MASK				(1 << 30)
 #define OMAP3430_ST_MMC2_SHIFT				25
@@ -258,6 +282,7 @@
 #define OMAP3430_ST_D2D_SHIFT				3
 #define OMAP3430_ST_D2D_MASK				(1 << 3)
 
+/* CM_FCLKEN_WKUP, CM_ICLKEN_WKUP, PM_WKEN_WKUP shared bits */
 #define OMAP3430_EN_GPIO1_MASK				(1 << 3)
 #define OMAP3430_EN_GPIO1_SHIFT				3
 #define OMAP3430_EN_GPT12_MASK				(1 << 1)
@@ -265,14 +290,17 @@
 #define OMAP3430_EN_GPT1_MASK				(1 << 0)
 #define OMAP3430_EN_GPT1_SHIFT				0
 
+/* CM_FCLKEN_WKUP, PM_WKEN_WKUP shared bits */
 #define OMAP3430_EN_SR2_MASK				(1 << 7)
 #define OMAP3430_EN_SR2_SHIFT				7
 #define OMAP3430_EN_SR1_MASK				(1 << 6)
 #define OMAP3430_EN_SR1_SHIFT				6
 
+/* CM_ICLKEN_WKUP, PM_WKEN_WKUP shared bits */
 #define OMAP3430_EN_GPT12_MASK				(1 << 1)
 #define OMAP3430_EN_GPT12_SHIFT				1
 
+/* CM_IDLEST_WKUP, PM_WKST_WKUP shared bits */
 #define OMAP3430_ST_SR2_SHIFT				7
 #define OMAP3430_ST_SR2_MASK				(1 << 7)
 #define OMAP3430_ST_SR1_SHIFT				6
@@ -284,9 +312,15 @@
 #define OMAP3430_ST_GPT1_SHIFT				0
 #define OMAP3430_ST_GPT1_MASK				(1 << 0)
 
+/*
+ * CM_SLEEPDEP_GFX, CM_SLEEPDEP_DSS, CM_SLEEPDEP_CAM,
+ * CM_SLEEPDEP_PER, PM_WKDEP_IVA2, PM_WKDEP_GFX,
+ * PM_WKDEP_DSS, PM_WKDEP_CAM, PM_WKDEP_PER, PM_WKDEP_NEON shared bits
+ */
 #define OMAP3430_EN_MPU_MASK				(1 << 1)
 #define OMAP3430_EN_MPU_SHIFT				1
 
+/* CM_FCLKEN_PER, CM_ICLKEN_PER, PM_WKEN_PER shared bits */
 
 #define OMAP3630_EN_UART4_MASK				(1 << 18)
 #define OMAP3630_EN_UART4_SHIFT				18
@@ -319,6 +353,9 @@
 #define OMAP3430_EN_GPT2_MASK				(1 << 3)
 #define OMAP3430_EN_GPT2_SHIFT				3
 
+/* CM_FCLKEN_PER, CM_ICLKEN_PER, PM_WKEN_PER, PM_WKST_PER shared bits */
+/* XXX Possible TI documentation bug: should the PM_WKST_PER EN_* bits
+ * be ST_* bits instead? */
 #define OMAP3430_EN_MCBSP4_MASK				(1 << 2)
 #define OMAP3430_EN_MCBSP4_SHIFT			2
 #define OMAP3430_EN_MCBSP3_MASK				(1 << 1)
@@ -326,6 +363,7 @@
 #define OMAP3430_EN_MCBSP2_MASK				(1 << 0)
 #define OMAP3430_EN_MCBSP2_SHIFT			0
 
+/* CM_IDLEST_PER, PM_WKST_PER shared bits */
 #define OMAP3630_ST_UART4_SHIFT				18
 #define OMAP3630_ST_UART4_MASK				(1 << 18)
 #define OMAP3430_ST_GPIO6_SHIFT				17
@@ -357,10 +395,15 @@
 #define OMAP3430_ST_GPT2_SHIFT				3
 #define OMAP3430_ST_GPT2_MASK				(1 << 3)
 
+/* CM_SLEEPDEP_PER, PM_WKDEP_IVA2, PM_WKDEP_MPU, PM_WKDEP_PER shared bits */
 #define OMAP3430_EN_CORE_SHIFT				0
 #define OMAP3430_EN_CORE_MASK				(1 << 0)
 
 
+/*
+ * MAX_MODULE_HARDRESET_WAIT: Maximum microseconds to wait for an OMAP
+ * submodule to exit hardreset
+ */
 #define MAX_MODULE_HARDRESET_WAIT		10000
 
 # ifndef __ASSEMBLER__
@@ -368,12 +411,46 @@ extern void __iomem *prm_base;
 extern void __iomem *cm_base;
 extern void __iomem *cm2_base;
 
+/**
+ * struct omap_prcm_irq - describes a PRCM interrupt bit
+ * @name: a short name describing the interrupt type, e.g. "wkup" or "io"
+ * @offset: the bit shift of the interrupt inside the IRQ{ENABLE,STATUS} regs
+ * @priority: should this interrupt be handled before @priority=false IRQs?
+ *
+ * Describes interrupt bits inside the PRM_IRQ{ENABLE,STATUS}_MPU* registers.
+ * On systems with multiple PRM MPU IRQ registers, the bitfields read from
+ * the registers are concatenated, so @offset could be > 31 on these systems -
+ * see omap_prm_irq_handler() for more details.  I/O ring interrupts should
+ * have @priority set to true.
+ */
 struct omap_prcm_irq {
 	const char *name;
 	unsigned int offset;
 	bool priority;
 };
 
+/**
+ * struct omap_prcm_irq_setup - PRCM interrupt controller details
+ * @ack: PRM register offset for the first PRM_IRQSTATUS_MPU register
+ * @mask: PRM register offset for the first PRM_IRQENABLE_MPU register
+ * @nr_regs: number of PRM_IRQ{STATUS,ENABLE}_MPU* registers
+ * @nr_irqs: number of entries in the @irqs array
+ * @irqs: ptr to an array of PRCM interrupt bits (see @nr_irqs)
+ * @irq: MPU IRQ asserted when a PRCM interrupt arrives
+ * @read_pending_irqs: fn ptr to determine if any PRCM IRQs are pending
+ * @ocp_barrier: fn ptr to force buffered PRM writes to complete
+ * @save_and_clear_irqen: fn ptr to save and clear IRQENABLE regs
+ * @restore_irqen: fn ptr to save and clear IRQENABLE regs
+ * @saved_mask: IRQENABLE regs are saved here during suspend
+ * @priority_mask: 1 bit per IRQ, set to 1 if omap_prcm_irq.priority = true
+ * @base_irq: base dynamic IRQ number, returned from irq_alloc_descs() in init
+ * @suspended: set to true after Linux suspend code has called our ->prepare()
+ * @suspend_save_flag: set to true after IRQ masks have been saved and disabled
+ *
+ * @saved_mask, @priority_mask, @base_irq, @suspended, and
+ * @suspend_save_flag are populated dynamically, and are not to be
+ * specified in static initializers.
+ */
 struct omap_prcm_irq_setup {
 	u16 ack;
 	u16 mask;
@@ -392,6 +469,7 @@ struct omap_prcm_irq_setup {
 	bool suspend_save_flag;
 };
 
+/* OMAP_PRCM_IRQ: convenience macro for creating struct omap_prcm_irq records */
 #define OMAP_PRCM_IRQ(_name, _offset, _priority) {	\
 	.name = _name,					\
 	.offset = _offset,				\

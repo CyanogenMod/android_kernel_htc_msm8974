@@ -980,11 +980,11 @@ static int __init iommu_init(void)
 		return -ENODEV;
 	}
 
-	
+	/* Initialize common devs */
 	platform_add_devices(msm_iommu_common_devs,
 				ARRAY_SIZE(msm_iommu_common_devs));
 
-	
+	/* Initialize soc-specific devs */
 	if (cpu_is_msm8x60() || cpu_is_msm8960()) {
 		platform_add_devices(msm_iommu_jpegd_devs,
 				ARRAY_SIZE(msm_iommu_jpegd_devs));
@@ -1002,11 +1002,11 @@ static int __init iommu_init(void)
 		platform_add_devices(msm_iommu_vcap_devs,
 				ARRAY_SIZE(msm_iommu_vcap_devs));
 
-	
+	/* Initialize common ctx_devs */
 	ret = platform_add_devices(msm_iommu_common_ctx_devs,
 				ARRAY_SIZE(msm_iommu_common_ctx_devs));
 
-	
+	/* Initialize soc-specific ctx_devs */
 	if (cpu_is_msm8x60() || cpu_is_msm8960()) {
 		platform_add_devices(msm_iommu_jpegd_ctx_devs,
 				ARRAY_SIZE(msm_iommu_jpegd_ctx_devs));
@@ -1032,11 +1032,11 @@ static void __exit iommu_exit(void)
 {
 	int i;
 
-	
+	/* Common ctx_devs */
 	for (i = 0; i < ARRAY_SIZE(msm_iommu_common_ctx_devs); i++)
 		platform_device_unregister(msm_iommu_common_ctx_devs[i]);
 
-	
+	/* Common devs. */
 	for (i = 0; i < ARRAY_SIZE(msm_iommu_common_devs); ++i)
 		platform_device_unregister(msm_iommu_common_devs[i]);
 

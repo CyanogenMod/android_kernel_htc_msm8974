@@ -91,6 +91,7 @@ static int __init epit_clocksource_init(struct clk *timer_clk)
 			clocksource_mmio_readl_down);
 }
 
+/* clock event */
 
 static int epit_set_next_event(unsigned long evt,
 			      struct clock_event_device *unused)
@@ -109,19 +110,23 @@ static void epit_set_mode(enum clock_event_mode mode,
 {
 	unsigned long flags;
 
+	/*
+	 * The timer interrupt generation is disabled at least
+	 * for enough time to call epit_set_next_event()
+	 */
 	local_irq_save(flags);
 
-	
+	/* Disable interrupt in GPT module */
 	epit_irq_disable();
 
 	if (mode != clockevent_mode) {
-		
+		/* Set event time into far-far future */
 
-		
+		/* Clear pending interrupt */
 		epit_irq_acknowledge();
 	}
 
-	
+	/* Remember timer mode */
 	clockevent_mode = mode;
 	local_irq_restore(flags);
 
@@ -131,6 +136,12 @@ static void epit_set_mode(enum clock_event_mode mode,
 				"supported for i.MX EPIT\n");
 		break;
 	case CLOCK_EVT_MODE_ONESHOT:
+	/*
+	 * Do not put overhead of interrupt enable/disable into
+	 * epit_set_next_event(), the core has about 4 minutes
+	 * to call epit_set_next_event() or shutdown clock after
+	 * mode switching
+	 */
 		local_irq_save(flags);
 		epit_irq_enable();
 		local_irq_restore(flags);
@@ -138,11 +149,14 @@ static void epit_set_mode(enum clock_event_mode mode,
 	case CLOCK_EVT_MODE_SHUTDOWN:
 	case CLOCK_EVT_MODE_UNUSED:
 	case CLOCK_EVT_MODE_RESUME:
-		
+		/* Left event sources disabled, no more interrupts appear */
 		break;
 	}
 }
 
+/*
+ * IRQ handler for the timer
+ */
 static irqreturn_t epit_timer_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *evt = &clockevent_epit;
@@ -193,16 +207,19 @@ void __init epit_timer_init(struct clk *timer_clk, void __iomem *base, int irq)
 
 	timer_base = base;
 
+	/*
+	 * Initialise to a known state (all timers off, and timing reset)
+	 */
 	__raw_writel(0x0, timer_base + EPITCR);
 
 	__raw_writel(0xffffffff, timer_base + EPITLR);
 	__raw_writel(EPITCR_EN | EPITCR_CLKSRC_REF_HIGH | EPITCR_WAITEN,
 			timer_base + EPITCR);
 
-	
+	/* init and register the timer to the framework */
 	epit_clocksource_init(timer_clk);
 	epit_clockevent_init(timer_clk);
 
-	
+	/* Make irqs happen */
 	setup_irq(irq, &epit_timer_irq);
 }

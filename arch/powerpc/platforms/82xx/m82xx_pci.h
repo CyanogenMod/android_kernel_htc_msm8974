@@ -14,4 +14,4 @@
 #define _IO_BASE isa_io_base
 #endif
 
-#endif				
+#endif				/* _PPC_KERNEL_M8260_PCI_H */

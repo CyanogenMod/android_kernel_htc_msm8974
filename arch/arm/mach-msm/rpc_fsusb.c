@@ -53,7 +53,7 @@ static int msm_fsusb_rpc_arg(struct msm_rpc_client *client,
 			buf += sizeof(uint32_t);
 		}
 
-		
+		/* sleep_assert callback fucntion will be registered locally*/
 		*((uint32_t *)buf) = cpu_to_be32(0xffffffff);
 		size += sizeof(uint32_t);
 		break;

@@ -114,6 +114,9 @@ done:
 	return 0;
 }
 
+/* compare strings: name[0..len-1] (not zero-terminated) and
+ * buffer[0..] (filled with zeroes up to buffer[0..maxlen-1])
+ */
 static inline int namecompare(int len, int maxlen,
 	const char * name, const char * buffer)
 {
@@ -122,6 +125,14 @@ static inline int namecompare(int len, int maxlen,
 	return !memcmp(name, buffer, len);
 }
 
+/*
+ *	sysv_find_entry()
+ *
+ * finds an entry in the specified directory with the wanted name. It
+ * returns the cache buffer in which the entry was found, and the entry
+ * itself (as a parameter - res_dir). It does NOT read the inode of the
+ * entry - you'll have to do that yourself if you want to.
+ */
 struct sysv_dir_entry *sysv_find_entry(struct dentry *dentry, struct page **res_page)
 {
 	const char * name = dentry->d_name.name;
@@ -181,7 +192,7 @@ int sysv_add_link(struct dentry *dentry, struct inode *inode)
 	loff_t pos;
 	int err;
 
-	
+	/* We take care of directory expansion in the same loop */
 	for (n = 0; n <= npages; n++) {
 		page = dir_get_page(dir, n);
 		err = PTR_ERR(page);
@@ -276,6 +287,9 @@ fail:
 	return err;
 }
 
+/*
+ * routine to check that the specified directory is empty (for rmdir)
+ */
 int sysv_empty_dir(struct inode * inode)
 {
 	struct super_block *sb = inode->i_sb;
@@ -297,7 +311,7 @@ int sysv_empty_dir(struct inode * inode)
 		for ( ;(char *)de <= kaddr; de++) {
 			if (!de->inode)
 				continue;
-			
+			/* check for . and .. */
 			if (de->name[0] != '.')
 				goto not_empty;
 			if (!de->name[1]) {
@@ -318,6 +332,7 @@ not_empty:
 	return 0;
 }
 
+/* Releases the page */
 void sysv_set_link(struct sysv_dir_entry *de, struct page *page,
 	struct inode *inode)
 {

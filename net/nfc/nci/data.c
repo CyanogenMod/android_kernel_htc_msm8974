@@ -34,6 +34,7 @@
 #include <net/nfc/nci_core.h>
 #include <linux/nfc.h>
 
+/* Complete data exchange transaction and forward skb to nfc core */
 void nci_data_exchange_complete(struct nci_dev *ndev, struct sk_buff *skb,
 				int err)
 {
@@ -42,7 +43,7 @@ void nci_data_exchange_complete(struct nci_dev *ndev, struct sk_buff *skb,
 
 	pr_debug("len %d, err %d\n", skb ? skb->len : 0, err);
 
-	
+	/* data exchange is complete, stop the data timer */
 	del_timer_sync(&ndev->data_timer);
 	clear_bit(NCI_DATA_EXCHANGE_TO, &ndev->flags);
 
@@ -50,18 +51,19 @@ void nci_data_exchange_complete(struct nci_dev *ndev, struct sk_buff *skb,
 		ndev->data_exchange_cb = NULL;
 		ndev->data_exchange_cb_context = 0;
 
-		
+		/* forward skb to nfc core */
 		cb(cb_context, skb, err);
 	} else if (skb) {
 		pr_err("no rx callback, dropping rx data...\n");
 
-		
+		/* no waiting callback, free skb */
 		kfree_skb(skb);
 	}
 
 	clear_bit(NCI_DATA_EXCHANGE, &ndev->flags);
 }
 
+/* ----------------- NCI TX Data ----------------- */
 
 static inline void nci_push_data_hdr(struct nci_dev *ndev,
 				     __u8 conn_id,
@@ -110,10 +112,10 @@ static int nci_queue_tx_data_frags(struct nci_dev *ndev,
 		}
 		skb_reserve(skb_frag, NCI_DATA_HDR_SIZE);
 
-		
+		/* first, copy the data */
 		memcpy(skb_put(skb_frag, frag_len), data, frag_len);
 
-		
+		/* second, set the header */
 		nci_push_data_hdr(ndev, conn_id, skb_frag,
 				  ((total_len == frag_len) ?
 				   (NCI_PBF_LAST) : (NCI_PBF_CONT)));
@@ -127,7 +129,7 @@ static int nci_queue_tx_data_frags(struct nci_dev *ndev,
 			 frag_len, total_len);
 	}
 
-	
+	/* queue all fragments atomically */
 	spin_lock_irqsave(&ndev->tx_q.lock, flags);
 
 	while ((skb_frag = __skb_dequeue(&frags_q)) != NULL)
@@ -135,7 +137,7 @@ static int nci_queue_tx_data_frags(struct nci_dev *ndev,
 
 	spin_unlock_irqrestore(&ndev->tx_q.lock, flags);
 
-	
+	/* free the original skb */
 	kfree_skb(skb);
 
 	goto exit;
@@ -148,20 +150,21 @@ exit:
 	return rc;
 }
 
+/* Send NCI data */
 int nci_send_data(struct nci_dev *ndev, __u8 conn_id, struct sk_buff *skb)
 {
 	int rc = 0;
 
 	pr_debug("conn_id 0x%x, plen %d\n", conn_id, skb->len);
 
-	
+	/* check if the packet need to be fragmented */
 	if (skb->len <= ndev->max_data_pkt_payload_size) {
-		
+		/* no need to fragment packet */
 		nci_push_data_hdr(ndev, conn_id, skb, NCI_PBF_LAST);
 
 		skb_queue_tail(&ndev->tx_q, skb);
 	} else {
-		
+		/* fragment packet and queue the fragments */
 		rc = nci_queue_tx_data_frags(ndev, conn_id, skb);
 		if (rc) {
 			pr_err("failed to fragment tx data packet\n");
@@ -180,6 +183,7 @@ exit:
 	return rc;
 }
 
+/* ----------------- NCI RX Data ----------------- */
 
 static void nci_add_rx_data_frag(struct nci_dev *ndev,
 				 struct sk_buff *skb,
@@ -191,7 +195,7 @@ static void nci_add_rx_data_frag(struct nci_dev *ndev,
 	if (ndev->rx_data_reassembly) {
 		reassembly_len = ndev->rx_data_reassembly->len;
 
-		
+		/* first, make enough room for the already accumulated data */
 		if (skb_cow_head(skb, reassembly_len)) {
 			pr_err("error adding room for accumulated rx data\n");
 
@@ -205,18 +209,18 @@ static void nci_add_rx_data_frag(struct nci_dev *ndev,
 			goto exit;
 		}
 
-		
+		/* second, combine the two fragments */
 		memcpy(skb_push(skb, reassembly_len),
 		       ndev->rx_data_reassembly->data,
 		       reassembly_len);
 
-		
+		/* third, free old reassembly */
 		kfree_skb(ndev->rx_data_reassembly);
 		ndev->rx_data_reassembly = 0;
 	}
 
 	if (pbf == NCI_PBF_CONT) {
-		
+		/* need to wait for next fragment, store skb and exit */
 		ndev->rx_data_reassembly = skb;
 		return;
 	}
@@ -225,6 +229,7 @@ exit:
 	nci_data_exchange_complete(ndev, skb, err);
 }
 
+/* Rx Data packet */
 void nci_rx_data_packet(struct nci_dev *ndev, struct sk_buff *skb)
 {
 	__u8 pbf = nci_pbf(skb->data);
@@ -236,11 +241,11 @@ void nci_rx_data_packet(struct nci_dev *ndev, struct sk_buff *skb)
 		 nci_conn_id(skb->data),
 		 nci_plen(skb->data));
 
-	
+	/* strip the nci data header */
 	skb_pull(skb, NCI_DATA_HDR_SIZE);
 
 	if (ndev->target_active_prot == NFC_PROTO_MIFARE) {
-		
+		/* frame I/F => remove the status byte */
 		pr_debug("NFC_PROTO_MIFARE => remove the status byte\n");
 		skb_trim(skb, (skb->len - 1));
 	}

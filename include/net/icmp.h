@@ -45,4 +45,4 @@ extern int	icmp_ioctl(struct sock *sk, int cmd, unsigned long arg);
 extern int	icmp_init(void);
 extern void	icmp_out_count(struct net *net, unsigned char type);
 
-#endif	
+#endif	/* _ICMP_H */

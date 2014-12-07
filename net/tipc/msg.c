@@ -65,6 +65,13 @@ void tipc_msg_init(struct tipc_msg *m, u32 user, u32 type,
 	msg_set_destnode(m, destnode);
 }
 
+/**
+ * tipc_msg_build - create message using specified header and data
+ *
+ * Note: Caller must not hold any locks in case copy_from_user() is interrupted!
+ *
+ * Returns message data size or errno
+ */
 
 int tipc_msg_build(struct tipc_msg *hdr, struct iovec const *msg_sect,
 		   u32 num_sect, unsigned int total_len,
@@ -172,7 +179,7 @@ void tipc_msg_dbg(struct print_buf *buf, struct tipc_msg *msg, const char *str)
 		tipc_printf(buf, "NMD::");
 		switch (msg_type(msg)) {
 		case PUBLICATION:
-			tipc_printf(buf, "PUBL(%u):", (msg_size(msg) - msg_hdr_sz(msg)) / 20);	
+			tipc_printf(buf, "PUBL(%u):", (msg_size(msg) - msg_hdr_sz(msg)) / 20);	/* Items */
 			break;
 		case WITHDRAWAL:
 			tipc_printf(buf, "WDRW:");

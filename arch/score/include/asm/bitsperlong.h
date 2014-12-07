@@ -3,4 +3,4 @@
 
 #include <asm-generic/bitsperlong.h>
 
-#endif 
+#endif /* _ASM_SCORE_BITSPERLONG_H */

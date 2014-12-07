@@ -1,3 +1,4 @@
+/* net/atm/resources.h - ATM-related resources */
 
 /* Written 1995-1998 by Werner Almesberger, EPFL LRC/ICA */
 
@@ -36,10 +37,10 @@ static inline int atm_proc_dev_register(struct atm_dev *dev)
 
 static inline void atm_proc_dev_deregister(struct atm_dev *dev)
 {
-	
+	/* nothing */
 }
 
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 int atm_register_sysfs(struct atm_dev *adev, struct device *parent);
 void atm_unregister_sysfs(struct atm_dev *adev);

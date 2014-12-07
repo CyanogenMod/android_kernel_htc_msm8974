@@ -33,32 +33,41 @@ struct amd_smbus {
 
 static struct pci_driver amd8111_driver;
 
+/*
+ * AMD PCI control registers definitions.
+ */
 
 #define AMD_PCI_MISC	0x48
 
-#define AMD_PCI_MISC_SCI	0x04	
-#define AMD_PCI_MISC_INT	0x02	
-#define AMD_PCI_MISC_SPEEDUP	0x01	
+#define AMD_PCI_MISC_SCI	0x04	/* deliver SCI */
+#define AMD_PCI_MISC_INT	0x02	/* deliver PCI IRQ */
+#define AMD_PCI_MISC_SPEEDUP	0x01	/* 16x clock speedup */
 
+/*
+ * ACPI 2.0 chapter 13 PCI interface definitions.
+ */
 
-#define AMD_EC_DATA	0x00	
-#define AMD_EC_SC	0x04	
-#define AMD_EC_CMD	0x04	
-#define AMD_EC_ICR	0x08	
+#define AMD_EC_DATA	0x00	/* data register */
+#define AMD_EC_SC	0x04	/* status of controller */
+#define AMD_EC_CMD	0x04	/* command register */
+#define AMD_EC_ICR	0x08	/* interrupt control register */
 
-#define AMD_EC_SC_SMI	0x04	
-#define AMD_EC_SC_SCI	0x02	
-#define AMD_EC_SC_BURST	0x01	
-#define AMD_EC_SC_CMD	0x08	
-#define AMD_EC_SC_IBF	0x02	
-#define AMD_EC_SC_OBF	0x01	
+#define AMD_EC_SC_SMI	0x04	/* smi event pending */
+#define AMD_EC_SC_SCI	0x02	/* sci event pending */
+#define AMD_EC_SC_BURST	0x01	/* burst mode enabled */
+#define AMD_EC_SC_CMD	0x08	/* byte in data reg is command */
+#define AMD_EC_SC_IBF	0x02	/* data ready for embedded controller */
+#define AMD_EC_SC_OBF	0x01	/* data ready for host */
 
-#define AMD_EC_CMD_RD	0x80	
-#define AMD_EC_CMD_WR	0x81	
-#define AMD_EC_CMD_BE	0x82	
-#define AMD_EC_CMD_BD	0x83	
-#define AMD_EC_CMD_QR	0x84	
+#define AMD_EC_CMD_RD	0x80	/* read EC */
+#define AMD_EC_CMD_WR	0x81	/* write EC */
+#define AMD_EC_CMD_BE	0x82	/* enable burst mode */
+#define AMD_EC_CMD_BD	0x83	/* disable burst mode */
+#define AMD_EC_CMD_QR	0x84	/* query EC */
 
+/*
+ * ACPI 2.0 chapter 13 access of registers of the EC
+ */
 
 static int amd_ec_wait_write(struct amd_smbus *smbus)
 {
@@ -138,15 +147,18 @@ static int amd_ec_write(struct amd_smbus *smbus, unsigned char address,
 	return 0;
 }
 
+/*
+ * ACPI 2.0 chapter 13 SMBus 2.0 EC register model
+ */
 
-#define AMD_SMB_PRTCL	0x00	
-#define AMD_SMB_STS	0x01	
-#define AMD_SMB_ADDR	0x02	
-#define AMD_SMB_CMD	0x03	
-#define AMD_SMB_DATA	0x04	
-#define AMD_SMB_BCNT	0x24	
-#define AMD_SMB_ALRM_A	0x25	
-#define AMD_SMB_ALRM_D	0x26	
+#define AMD_SMB_PRTCL	0x00	/* protocol, PEC */
+#define AMD_SMB_STS	0x01	/* status */
+#define AMD_SMB_ADDR	0x02	/* address */
+#define AMD_SMB_CMD	0x03	/* command */
+#define AMD_SMB_DATA	0x04	/* 32 data registers */
+#define AMD_SMB_BCNT	0x24	/* number of data bytes */
+#define AMD_SMB_ALRM_A	0x25	/* alarm address */
+#define AMD_SMB_ALRM_D	0x26	/* 2 bytes alarm data */
 
 #define AMD_SMB_STS_DONE	0x80
 #define AMD_SMB_STS_ALRM	0x40
@@ -445,7 +457,7 @@ static int __devinit amd8111_probe(struct pci_dev *dev,
 	smbus->adapter.algo = &smbus_algorithm;
 	smbus->adapter.algo_data = smbus;
 
-	
+	/* set up the sysfs linkage to our parent device */
 	smbus->adapter.dev.parent = &dev->dev;
 
 	pci_write_config_dword(smbus->dev, AMD_PCI_MISC, 0);

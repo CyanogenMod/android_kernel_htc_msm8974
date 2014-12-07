@@ -140,7 +140,7 @@ static int __init cfag12864bfb_init(void)
 {
 	int ret = -EINVAL;
 
-	
+	/* cfag12864b_init() must be called first */
 	if (!cfag12864b_isinited()) {
 		printk(KERN_ERR CFAG12864BFB_NAME ": ERROR: "
 			"cfag12864b is not initialized\n");

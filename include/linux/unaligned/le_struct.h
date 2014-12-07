@@ -33,4 +33,4 @@ static inline void put_unaligned_le64(u64 val, void *p)
 	__put_unaligned_cpu64(val, p);
 }
 
-#endif 
+#endif /* _LINUX_UNALIGNED_LE_STRUCT_H */

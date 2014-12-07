@@ -32,10 +32,11 @@
 					4 + 1 + 3)
 #define CB_OP_RECALLANY_RES_MAXSZ	(CB_OP_HDR_RES_MAXSZ)
 #define CB_OP_RECALLSLOT_RES_MAXSZ	(CB_OP_HDR_RES_MAXSZ)
-#endif 
+#endif /* CONFIG_NFS_V4_1 */
 
 #define NFSDBG_FACILITY NFSDBG_CALLBACK
 
+/* Internal error code */
 #define NFS4ERR_RESOURCE_HDR	11050
 
 typedef __be32 (*callback_process_op_t)(void *, void *,
@@ -154,7 +155,7 @@ static __be32 decode_compound_hdr_arg(struct xdr_stream *xdr, struct cb_compound
 	status = decode_string(xdr, &hdr->taglen, &hdr->tag);
 	if (unlikely(status != 0))
 		return status;
-	
+	/* We do not like overly long tags! */
 	if (hdr->taglen > CB_OP_TAGLEN_MAXSZ - 12) {
 		printk("NFS: NFSv4 CALLBACK %s: client sent tag of length %u\n",
 				__func__, hdr->taglen);
@@ -164,9 +165,9 @@ static __be32 decode_compound_hdr_arg(struct xdr_stream *xdr, struct cb_compound
 	if (unlikely(p == NULL))
 		return htonl(NFS4ERR_RESOURCE);
 	hdr->minorversion = ntohl(*p++);
-	
+	/* Check minor version is zero or one. */
 	if (hdr->minorversion <= 1) {
-		hdr->cb_ident = ntohl(*p++); 
+		hdr->cb_ident = ntohl(*p++); /* ignored by v4.1 */
 	} else {
 		pr_warn_ratelimited("NFS: %s: NFSv4 server callback with "
 			"illegal minor version %u!\n",
@@ -242,6 +243,9 @@ static __be32 decode_layoutrecall_args(struct svc_rqst *rqstp,
 	}
 
 	args->cbl_layout_type = ntohl(*p++);
+	/* Depite the spec's xdr, iomode really belongs in the FILE switch,
+	 * as it is unusable and ignored with the other types.
+	 */
 	iomode = ntohl(*p++);
 	args->cbl_layoutchanged = ntohl(*p++);
 	args->cbl_recall_type = ntohl(*p++);
@@ -294,7 +298,7 @@ __be32 decode_devicenotify_args(struct svc_rqst *rqstp,
 	int n, i;
 	args->ndevs = 0;
 
-	
+	/* Num of device notifications */
 	p = read_buf(xdr, sizeof(uint32_t));
 	if (unlikely(p == NULL)) {
 		status = htonl(NFS4ERR_BADXDR);
@@ -314,7 +318,7 @@ __be32 decode_devicenotify_args(struct svc_rqst *rqstp,
 		goto out;
 	}
 
-	
+	/* Decode each dev notification */
 	for (i = 0; i < n; i++) {
 		struct cb_devicenotifyitem *dev = &args->devs[i];
 
@@ -324,7 +328,7 @@ __be32 decode_devicenotify_args(struct svc_rqst *rqstp,
 			goto err;
 		}
 
-		tmp = ntohl(*p++);	
+		tmp = ntohl(*p++);	/* bitmap size */
 		if (tmp != 1) {
 			status = htonl(NFS4ERR_INVAL);
 			goto err;
@@ -336,7 +340,7 @@ __be32 decode_devicenotify_args(struct svc_rqst *rqstp,
 			goto err;
 		}
 
-		tmp = ntohl(*p++);	
+		tmp = ntohl(*p++);	/* opaque size */
 		if (((dev->cbd_notify_type == NOTIFY_DEVICEID4_CHANGE) &&
 		     (tmp != NFS4_DEVICEID4_SIZE + 8)) ||
 		    ((dev->cbd_notify_type == NOTIFY_DEVICEID4_DELETE) &&
@@ -520,7 +524,7 @@ static __be32 decode_recallslot_args(struct svc_rqst *rqstp,
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_NFS_V4_1 */
 
 static __be32 encode_string(struct xdr_stream *xdr, unsigned int len, const char *str)
 {
@@ -753,6 +757,10 @@ static void nfs4_callback_free_slot(struct nfs4_session *session)
 	struct nfs4_slot_table *tbl = &session->bc_slot_table;
 
 	spin_lock(&tbl->slot_tbl_lock);
+	/*
+	 * Let the state manager know callback processing done.
+	 * A single slot, so highest used slotid is either 0 or -1
+	 */
 	tbl->highest_used_slotid = NFS4_NO_SLOT;
 	nfs4_check_drain_bc_complete(session);
 	spin_unlock(&tbl->slot_tbl_lock);
@@ -764,7 +772,7 @@ static void nfs4_cb_free_slot(struct cb_process_state *cps)
 		nfs4_callback_free_slot(cps->clp->cl_session);
 }
 
-#else 
+#else /* CONFIG_NFS_V4_1 */
 
 static __be32
 preprocess_nfs41_op(int nop, unsigned int op_nr, struct callback_op **op)
@@ -775,7 +783,7 @@ preprocess_nfs41_op(int nop, unsigned int op_nr, struct callback_op **op)
 static void nfs4_cb_free_slot(struct cb_process_state *cps)
 {
 }
-#endif 
+#endif /* CONFIG_NFS_V4_1 */
 
 static __be32
 preprocess_nfs4_op(unsigned int op_nr, struct callback_op **op)
@@ -842,6 +850,9 @@ encode_hdr:
 	return status;
 }
 
+/*
+ * Decode, process and encode a COMPOUND
+ */
 static __be32 nfs4_callback_compound(struct svc_rqst *rqstp, void *argp, void *resp)
 {
 	struct cb_compound_hdr_arg hdr_arg = { 0 };
@@ -884,6 +895,8 @@ static __be32 nfs4_callback_compound(struct svc_rqst *rqstp, void *argp, void *r
 		nops++;
 	}
 
+	/* Buffer overflow in decode_ops_hdr or encode_ops_hdr. Return
+	* resource error in cb_compound status without returning op */
 	if (unlikely(status == htonl(NFS4ERR_RESOURCE_HDR))) {
 		status = htonl(NFS4ERR_RESOURCE);
 		nops--;
@@ -897,6 +910,9 @@ static __be32 nfs4_callback_compound(struct svc_rqst *rqstp, void *argp, void *r
 	return rpc_success;
 }
 
+/*
+ * Define NFS4 callback COMPOUND ops.
+ */
 static struct callback_op callback_ops[] = {
 	[0] = {
 		.res_maxsize = CB_OP_HDR_RES_MAXSZ,
@@ -941,9 +957,12 @@ static struct callback_op callback_ops[] = {
 		.decode_args = (callback_decode_arg_t)decode_recallslot_args,
 		.res_maxsize = CB_OP_RECALLSLOT_RES_MAXSZ,
 	},
-#endif 
+#endif /* CONFIG_NFS_V4_1 */
 };
 
+/*
+ * Define NFS4 callback procedures
+ */
 static struct svc_procedure nfs4_callback_procedures1[] = {
 	[CB_NULL] = {
 		.pc_func = nfs4_callback_null,

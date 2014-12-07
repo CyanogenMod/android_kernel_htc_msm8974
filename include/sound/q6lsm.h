@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,8 +25,8 @@ typedef void (*lsm_app_cb)(uint32_t opcode, uint32_t token,
 struct lsm_sound_model {
 	dma_addr_t      phys;
 	void		*data;
-	uint32_t	size; 
-	uint32_t	actual_size; 
+	uint32_t	size; /* size of buffer */
+	uint32_t	actual_size; /* actual number of bytes read by DSP */
 	struct ion_handle *handle;
 	struct ion_client *client;
 	uint32_t	mem_map_handle;
@@ -47,6 +47,8 @@ struct lsm_client {
 	uint16_t	user_sensitivity;
 	uint16_t	kw_sensitivity;
 	bool		started;
+	dma_addr_t	lsm_cal_phy_addr;
+	uint32_t	lsm_cal_size;
 };
 
 struct lsm_stream_cmd_open_tx {
@@ -73,7 +75,7 @@ struct lsm_param_op_mode {
 struct lsm_param_connect_to_port {
 	struct lsm_param_payload_common common;
 	uint32_t	minor_version;
-	
+	/* AFE port id that receives voice wake up data */
 	uint16_t	port_id;
 	uint16_t	reserved;
 } __packed;
@@ -81,7 +83,7 @@ struct lsm_param_connect_to_port {
 struct lsm_param_kw_detect_sensitivity {
 	struct lsm_param_payload_common common;
 	uint32_t	minor_version;
-	
+	/* scale factor to change the keyword confidence thresholds */
 	uint16_t	keyword_sensitivity;
 	uint16_t	reserved;
 } __packed;
@@ -89,7 +91,7 @@ struct lsm_param_kw_detect_sensitivity {
 struct lsm_param_user_detect_sensitivity {
 	struct lsm_param_payload_common common;
 	uint32_t	minor_version;
-	
+	/* scale factor to change the user confidence thresholds */
 	uint16_t	user_sensitivity;
 	uint16_t	reserved;
 } __packed;
@@ -123,13 +125,12 @@ void q6lsm_client_free(struct lsm_client *client);
 int q6lsm_open(struct lsm_client *client);
 int q6lsm_start(struct lsm_client *client, bool wait);
 int q6lsm_stop(struct lsm_client *client, bool wait);
-int q6lsm_snd_model_buf_alloc(struct lsm_client *client, uint32_t len);
+int q6lsm_snd_model_buf_alloc(struct lsm_client *client, size_t len);
 int q6lsm_snd_model_buf_free(struct lsm_client *client);
 int q6lsm_close(struct lsm_client *client);
-int q6lsm_unmap_cal_blocks(void);
 int q6lsm_register_sound_model(struct lsm_client *client,
 			       enum lsm_detection_mode mode, u16 minkeyword,
 			       u16 minuser, bool detectfailure);
 int q6lsm_deregister_sound_model(struct lsm_client *client);
 
-#endif 
+#endif /* __Q6LSM_H__ */

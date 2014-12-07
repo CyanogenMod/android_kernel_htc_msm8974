@@ -24,6 +24,9 @@
 
 static int cachefiles_daemon_add_cache(struct cachefiles_cache *caches);
 
+/*
+ * bind a directory as a cache
+ */
 int cachefiles_daemon_bind(struct cachefiles_cache *cache, char *args)
 {
 	_enter("{%u,%u,%u,%u,%u,%u},%s",
@@ -35,7 +38,7 @@ int cachefiles_daemon_bind(struct cachefiles_cache *cache, char *args)
 	       cache->bstop_percent,
 	       args);
 
-	
+	/* start by checking things over */
 	ASSERT(cache->fstop_percent >= 0 &&
 	       cache->fstop_percent < cache->fcull_percent &&
 	       cache->fcull_percent < cache->frun_percent &&
@@ -56,23 +59,28 @@ int cachefiles_daemon_bind(struct cachefiles_cache *cache, char *args)
 		return -EINVAL;
 	}
 
-	
+	/* don't permit already bound caches to be re-bound */
 	if (test_bit(CACHEFILES_READY, &cache->flags)) {
 		kerror("Cache already bound");
 		return -EBUSY;
 	}
 
-	
+	/* make sure we have copies of the tag and dirname strings */
 	if (!cache->tag) {
+		/* the tag string is released by the fops->release()
+		 * function, so we don't release it on error here */
 		cache->tag = kstrdup("CacheFiles", GFP_KERNEL);
 		if (!cache->tag)
 			return -ENOMEM;
 	}
 
-	
+	/* add the cache */
 	return cachefiles_daemon_add_cache(cache);
 }
 
+/*
+ * add a cache
+ */
 static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 {
 	struct cachefiles_object *fsdef;
@@ -84,14 +92,14 @@ static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 
 	_enter("");
 
-	
+	/* we want to work under the module's security ID */
 	ret = cachefiles_get_security_ID(cache);
 	if (ret < 0)
 		return ret;
 
 	cachefiles_begin_secure(cache, &saved_cred);
 
-	
+	/* allocate the root index object */
 	ret = -ENOMEM;
 
 	fsdef = kmem_cache_alloc(cachefiles_object_jar, GFP_KERNEL);
@@ -105,7 +113,7 @@ static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 
 	_debug("- fsdef %p", fsdef);
 
-	
+	/* look up the directory at the root of the cache */
 	ret = kern_path(cache->rootdirname, LOOKUP_DIRECTORY, &path);
 	if (ret < 0)
 		goto error_open_root;
@@ -113,7 +121,7 @@ static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 	cache->mnt = path.mnt;
 	root = path.dentry;
 
-	
+	/* check parameters */
 	ret = -EOPNOTSUPP;
 	if (!root->d_inode ||
 	    !root->d_inode->i_op ||
@@ -129,11 +137,13 @@ static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 	if (root->d_sb->s_flags & MS_RDONLY)
 		goto error_unsupported;
 
+	/* determine the security of the on-disk cache as this governs
+	 * security ID of files we create */
 	ret = cachefiles_determine_cache_security(cache, root, &saved_cred);
 	if (ret < 0)
 		goto error_unsupported;
 
-	
+	/* get the cache size and blocksize */
 	ret = vfs_statfs(&path, &stats);
 	if (ret < 0)
 		goto error_unsupported;
@@ -158,7 +168,7 @@ static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 	       (unsigned long long) stats.f_blocks,
 	       (unsigned long long) stats.f_bavail);
 
-	
+	/* set up caching limits */
 	do_div(stats.f_files, 100);
 	cache->fstop = stats.f_files * cache->fstop_percent;
 	cache->fcull = stats.f_files * cache->fcull_percent;
@@ -180,7 +190,7 @@ static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 	       (unsigned long long) cache->bcull,
 	       (unsigned long long) cache->bstop);
 
-	
+	/* get the cache directory and check its type */
 	cachedir = cachefiles_get_directory(cache, root, "cache");
 	if (IS_ERR(cachedir)) {
 		ret = PTR_ERR(cachedir);
@@ -194,7 +204,7 @@ static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 	if (ret < 0)
 		goto error_unsupported;
 
-	
+	/* get the graveyard directory */
 	graveyard = cachefiles_get_directory(cache, root, "graveyard");
 	if (IS_ERR(graveyard)) {
 		ret = PTR_ERR(graveyard);
@@ -203,7 +213,7 @@ static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 
 	cache->graveyard = graveyard;
 
-	
+	/* publish the cache */
 	fscache_init_cache(&cache->cache,
 			   &cachefiles_cache_ops,
 			   "%s",
@@ -215,7 +225,7 @@ static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 	if (ret < 0)
 		goto error_add_cache;
 
-	
+	/* done */
 	set_bit(CACHEFILES_READY, &cache->flags);
 	dput(root);
 
@@ -223,7 +233,7 @@ static int cachefiles_daemon_add_cache(struct cachefiles_cache *cache)
 	       " File cache on %s registered\n",
 	       cache->cache.identifier);
 
-	
+	/* check how much space the cache has */
 	cachefiles_has_space(cache, 0, 0);
 	cachefiles_end_secure(cache, saved_cred);
 	return 0;
@@ -245,6 +255,9 @@ error_root_object:
 	return ret;
 }
 
+/*
+ * unbind a cache on fd release
+ */
 void cachefiles_daemon_unbind(struct cachefiles_cache *cache)
 {
 	_enter("");

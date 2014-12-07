@@ -39,15 +39,19 @@ static unsigned short sc1200_get_pci_clock (void)
 {
 	unsigned char chip_id, silicon_revision;
 	unsigned int pci_clock;
+	/*
+	 * Check the silicon revision, as not all versions of the chip
+	 * have the register with the fast PCI bus timings.
+	 */
 	chip_id = inb (0x903c);
 	silicon_revision = inb (0x903d);
 
-	
+	// Read the fast pci clock frequency
 	if (chip_id == 0x04 && silicon_revision < SC1200_REV_B1) {
 		pci_clock = PCI_CLK_33;
 	} else {
-		
-		
+		// check clock generator configuration (cfcc)
+		// the clock is in bits 8 and 9 of this word
 
 		pci_clock = inw (0x901e);
 		pci_clock >>= 8;
@@ -58,12 +62,21 @@ static unsigned short sc1200_get_pci_clock (void)
 	return pci_clock;
 }
 
+/*
+ * Here are the standard PIO mode 0-4 timings for each "format".
+ * Format-0 uses fast data reg timings, with slower command reg timings.
+ * Format-1 uses fast timings for all registers, but won't work with all drives.
+ */
 static const unsigned int sc1200_pio_timings[4][5] =
-	{{0x00009172, 0x00012171, 0x00020080, 0x00032010, 0x00040010},	
-	 {0xd1329172, 0x71212171, 0x30200080, 0x20102010, 0x00100010},	
-	 {0xfaa3f4f3, 0xc23232b2, 0x513101c1, 0x31213121, 0x10211021},	
-	 {0xfff4fff4, 0xf35353d3, 0x814102f1, 0x42314231, 0x11311131}};	
+	{{0x00009172, 0x00012171, 0x00020080, 0x00032010, 0x00040010},	// format0  33Mhz
+	 {0xd1329172, 0x71212171, 0x30200080, 0x20102010, 0x00100010},	// format1, 33Mhz
+	 {0xfaa3f4f3, 0xc23232b2, 0x513101c1, 0x31213121, 0x10211021},	// format1, 48Mhz
+	 {0xfff4fff4, 0xf35353d3, 0x814102f1, 0x42314231, 0x11311131}};	// format1, 66Mhz
 
+/*
+ * After chip reset, the PIO timings are set to 0x00009172, which is not valid.
+ */
+//#define SC1200_BAD_PIO(timings) (((timings)&~0x80000000)==0x00009172)
 
 static void sc1200_tunepio(ide_drive_t *drive, u8 pio)
 {
@@ -79,6 +92,15 @@ static void sc1200_tunepio(ide_drive_t *drive, u8 pio)
 			       sc1200_pio_timings[format][pio]);
 }
 
+/*
+ *	The SC1200 specifies that two drives sharing a cable cannot mix
+ *	UDMA/MDMA.  It has to be one or the other, for the pair, though
+ *	different timings can still be chosen for each drive.  We could
+ *	set the appropriate timing bits on the fly, but that might be
+ *	a bit confusing.  So, for now we statically handle this requirement
+ *	by looking at our mate drive to see what it is capable of, before
+ *	choosing a mode for our own drive.
+ */
 static u8 sc1200_udma_filter(ide_drive_t *drive)
 {
 	ide_hwif_t *hwif = drive->hwif;
@@ -123,6 +145,10 @@ static void sc1200_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 
 	pci_clock = sc1200_get_pci_clock();
 
+	/*
+	 * Note that each DMA mode has several timings associated with it.
+	 * The correct timing depends on the fast PCI clock freq.
+	 */
 
 	if (mode >= XFER_UDMA_0)
 		timings =  udma_timing[pci_clock][mode - XFER_UDMA_0];
@@ -131,36 +157,51 @@ static void sc1200_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 
 	if ((drive->dn & 1) == 0) {
 		pci_read_config_dword(dev, basereg + 4, &reg);
-		timings |= reg & 0x80000000;	
+		timings |= reg & 0x80000000;	/* preserve PIO format bit */
 		pci_write_config_dword(dev, basereg + 4, timings);
 	} else
 		pci_write_config_dword(dev, basereg + 12, timings);
 }
 
+/*  Replacement for the standard ide_dma_end action in
+ *  dma_proc.
+ *
+ *  returns 1 on error, 0 otherwise
+ */
 static int sc1200_dma_end(ide_drive_t *drive)
 {
 	ide_hwif_t *hwif = drive->hwif;
 	unsigned long dma_base = hwif->dma_base;
 	u8 dma_stat;
 
-	dma_stat = inb(dma_base+2);		
+	dma_stat = inb(dma_base+2);		/* get DMA status */
 
 	if (!(dma_stat & 4))
 		printk(" ide_dma_end dma_stat=%0x err=%x newerr=%x\n",
 		  dma_stat, ((dma_stat&7)!=4), ((dma_stat&2)==2));
 
-	outb(dma_stat|0x1b, dma_base+2);	
-	outb(inb(dma_base)&~1, dma_base);	
+	outb(dma_stat|0x1b, dma_base+2);	/* clear the INTR & ERROR bits */
+	outb(inb(dma_base)&~1, dma_base);	/* !! DO THIS HERE !! stop DMA */
 
-	return (dma_stat & 7) != 4;		
+	return (dma_stat & 7) != 4;		/* verify good DMA status */
 }
 
+/*
+ * sc1200_set_pio_mode() handles setting of PIO modes
+ * for both the chipset and drive.
+ *
+ * All existing BIOSs for this chipset guarantee that all drives
+ * will have valid default PIO timings set up before we get here.
+ */
 
 static void sc1200_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
 	int		mode = -1;
 	const u8	pio = drive->pio_mode - XFER_PIO_0;
 
+	/*
+	 * bad abuse of ->set_pio_mode interface
+	 */
 	switch (pio) {
 		case 200: mode = XFER_UDMA_0;	break;
 		case 201: mode = XFER_UDMA_1;	break;
@@ -190,11 +231,18 @@ static int sc1200_suspend (struct pci_dev *dev, pm_message_t state)
 {
 	printk("SC1200: suspend(%u)\n", state.event);
 
+	/*
+	 * we only save state when going from full power to less
+	 */
 	if (state.event == PM_EVENT_ON) {
 		struct ide_host *host = pci_get_drvdata(dev);
 		struct sc1200_saved_state *ss = host->host_priv;
 		unsigned int r;
 
+		/*
+		 * save timing registers
+		 * (this may be unnecessary if BIOS also does it)
+		 */
 		for (r = 0; r < 8; r++)
 			pci_read_config_dword(dev, 0x40 + r * 4, &ss->regs[r]);
 	}
@@ -215,6 +263,10 @@ static int sc1200_resume (struct pci_dev *dev)
 	if (i)
 		return i;
 
+	/*
+	 * restore timing registers
+	 * (this may be unnecessary if BIOS also does it)
+	 */
 	for (r = 0; r < 8; r++)
 		pci_write_config_dword(dev, 0x40 + r * 4, ss->regs[r]);
 

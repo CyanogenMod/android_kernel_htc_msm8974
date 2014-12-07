@@ -18,19 +18,47 @@
 #include <linux/atomic.h>
 #include <linux/proc_fs.h>
 
+/*
+ * Each cache requires:
+ *  - A 'struct cache_detail' which contains information specific to the cache
+ *    for common code to use.
+ *  - An item structure that must contain a "struct cache_head"
+ *  - A lookup function defined using DefineCacheLookup
+ *  - A 'put' function that can release a cache item. It will only
+ *    be called after cache_put has succeed, so there are guarantee
+ *    to be no references.
+ *  - A function to calculate a hash of an item's key.
+ *
+ * as well as assorted code fragments (e.g. compare keys) and numbers
+ * (e.g. hash size, goal_age, etc).
+ *
+ * Each cache must be registered so that it can be cleaned regularly.
+ * When the cache is unregistered, it is flushed completely.
+ *
+ * Entries have a ref count and a 'hashed' flag which counts the existence
+ * in the hash table.
+ * We only expire entries when refcount is zero.
+ * Existence in the cache is counted  the refcount.
+ */
 
+/* Every cache item has a common header that is used
+ * for expiring and refreshing entries.
+ * 
+ */
 struct cache_head {
 	struct cache_head * next;
-	time_t		expiry_time;	
-	time_t		last_refresh;   
+	time_t		expiry_time;	/* After time time, don't use the data */
+	time_t		last_refresh;   /* If CACHE_PENDING, this is when upcall 
+					 * was sent, else this is when update was received
+					 */
 	struct kref	ref;
 	unsigned long	flags;
 };
-#define	CACHE_VALID	0	
-#define	CACHE_NEGATIVE	1	
-#define	CACHE_PENDING	2	
+#define	CACHE_VALID	0	/* Entry contains valid data */
+#define	CACHE_NEGATIVE	1	/* Negative entry - there is no match for the key */
+#define	CACHE_PENDING	2	/* An upcall has been sent but no reply received yet*/
 
-#define	CACHE_NEW_EXPIRY 120	
+#define	CACHE_NEW_EXPIRY 120	/* keep new things pending confirmation for 120 seconds */
 
 struct cache_detail_procfs {
 	struct proc_dir_entry	*proc_ent;
@@ -47,7 +75,7 @@ struct cache_detail {
 	struct cache_head **	hash_table;
 	rwlock_t		hash_lock;
 
-	atomic_t		inuse; 
+	atomic_t		inuse; /* active user-space update or lookup */
 
 	char			*name;
 	void			(*cache_put)(struct kref *);
@@ -69,17 +97,21 @@ struct cache_detail {
 	void			(*init)(struct cache_head *orig, struct cache_head *new);
 	void			(*update)(struct cache_head *orig, struct cache_head *new);
 
-	time_t			flush_time;		
+	/* fields below this comment are for internal use
+	 * and should not be touched by cache owners
+	 */
+	time_t			flush_time;		/* flush all cache items with last_refresh
+							 * earlier than this */
 	struct list_head	others;
 	time_t			nextcheck;
 	int			entries;
 
-	
+	/* fields for communication over channel */
 	struct list_head	queue;
 
-	atomic_t		readers;		
-	time_t			last_close;		
-	time_t			last_warn;		
+	atomic_t		readers;		/* how many time is /chennel open */
+	time_t			last_close;		/* if no readers, when did last close */
+	time_t			last_warn;		/* when we last warned about no readers */
 
 	union {
 		struct cache_detail_procfs procfs;
@@ -89,15 +121,25 @@ struct cache_detail {
 };
 
 
+/* this must be embedded in any request structure that
+ * identifies an object that will want a callback on
+ * a cache fill
+ */
 struct cache_req {
 	struct cache_deferred_req *(*defer)(struct cache_req *req);
-	int thread_wait;  
+	int thread_wait;  /* How long (jiffies) we can block the
+			   * current thread to wait for updates.
+			   */
 };
+/* this must be embedded in a deferred_request that is being
+ * delayed awaiting cache-fill
+ */
 struct cache_deferred_req {
-	struct hlist_node	hash;	
-	struct list_head	recent; 
-	struct cache_head	*item;  
-	void			*owner; 
+	struct hlist_node	hash;	/* on hash chain */
+	struct list_head	recent; /* on fifo */
+	struct cache_head	*item;  /* cache item we wait on */
+	void			*owner; /* we might need to discard all defered requests
+					 * owned by someone */
 	void			(*revisit)(struct cache_deferred_req *req,
 					   int too_many);
 };
@@ -141,6 +183,12 @@ static inline void cache_put(struct cache_head *h, struct cache_detail *cd)
 
 static inline int cache_valid(struct cache_head *h)
 {
+	/* If an item has been unhashed pending removal when
+	 * the refcount drops to 0, the expiry_time will be
+	 * set to 0.  We don't want to consider such items
+	 * valid in this context even though CACHE_VALID is
+	 * set.
+	 */
 	return (h->expiry_time != 0 && test_bit(CACHE_VALID, &h->flags));
 }
 
@@ -180,6 +228,11 @@ static inline int get_int(char **bpp, int *anint)
 	return 0;
 }
 
+/*
+ * timestamps kept in the cache are expressed in seconds
+ * since boot.  This is the best for measuring differences in
+ * real time.
+ */
 static inline time_t seconds_since_boot(void)
 {
 	struct timespec boot;
@@ -207,4 +260,4 @@ static inline time_t get_expiry(char **bpp)
 	return rv - boot.tv_sec;
 }
 
-#endif 
+#endif /*  _LINUX_SUNRPC_CACHE_H_ */

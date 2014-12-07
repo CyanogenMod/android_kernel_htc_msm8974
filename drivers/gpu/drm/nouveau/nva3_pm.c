@@ -45,10 +45,10 @@ read_clk(struct drm_device *dev, int clk, bool ignore_en)
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	u32 sctl, sdiv, sclk;
 
-	
+	/* refclk for the 0xe8xx plls is a fixed frequency */
 	if (clk >= 0x40) {
 		if (dev_priv->chipset == 0xaf) {
-			
+			/* no joke.. seriously.. sigh.. */
 			return nv_rd32(dev, 0x00471c) * 1000;
 		}
 
@@ -88,7 +88,7 @@ read_pll(struct drm_device *dev, int clk, u32 pll)
 			N = (coef & 0x0000ff00) >> 8;
 			P = (coef & 0x003f0000) >> 16;
 
-			
+			/* no post-divider on these.. */
 			if ((pll & 0x00ff00) == 0x00e800)
 				P = 1;
 
@@ -134,6 +134,14 @@ calc_clk(struct drm_device *dev, int clk, u32 pll, u32 khz, struct creg *reg)
 	default:
 		sclk = read_vco(dev, clk);
 		sdiv = min((sclk * 2) / (khz - 2999), (u32)65);
+		/* if the clock has a PLL attached, and we can get a within
+		 * [-2, 3) MHz of a divider, we'll disable the PLL and use
+		 * the divider instead.
+		 *
+		 * divider can go as low as 2, limited here because NVIDIA
+		 * and the VBIOS on my NVA8 seem to prefer using the PLL
+		 * for 810MHz - is there a good reason?
+		 */
 		if (sdiv > 4) {
 			oclk = (sclk * 2) / sdiv;
 			diff = khz - oclk;
@@ -287,16 +295,16 @@ nva3_pm_clocks_set(struct drm_device *dev, void *pre_state)
 	unsigned long flags;
 	int ret = -EAGAIN;
 
-	
+	/* prevent any new grctx switches from starting */
 	spin_lock_irqsave(&dev_priv->context_switch_lock, flags);
 	nv_wr32(dev, 0x400324, 0x00000000);
-	nv_wr32(dev, 0x400328, 0x0050001c); 
-	
+	nv_wr32(dev, 0x400328, 0x0050001c); /* wait flag 0x1c */
+	/* wait for any pending grctx switches to complete */
 	if (!nv_wait_cb(dev, nva3_pm_grcp_idle, dev)) {
 		NV_ERROR(dev, "pm: ctxprog didn't go idle\n");
 		goto cleanup;
 	}
-	
+	/* freeze PFIFO */
 	nv_mask(dev, 0x002504, 0x00000001, 0x00000001);
 	if (!nv_wait(dev, 0x002504, 0x00000010, 0x00000010)) {
 		NV_ERROR(dev, "pm: fifo didn't go idle\n");
@@ -324,12 +332,12 @@ nva3_pm_clocks_set(struct drm_device *dev, void *pre_state)
 	ret = 0;
 
 cleanup:
-	
+	/* unfreeze PFIFO */
 	nv_mask(dev, 0x002504, 0x00000001, 0x00000000);
-	
+	/* restore ctxprog to normal */
 	nv_wr32(dev, 0x400324, 0x00000000);
-	nv_wr32(dev, 0x400328, 0x0070009c); 
-	
+	nv_wr32(dev, 0x400328, 0x0070009c); /* set flag 0x1c */
+	/* unblock it if necessary */
 	if (nv_rd32(dev, 0x400308) == 0x0050001c)
 		nv_mask(dev, 0x400824, 0x10000000, 0x10000000);
 	spin_unlock_irqrestore(&dev_priv->context_switch_lock, flags);

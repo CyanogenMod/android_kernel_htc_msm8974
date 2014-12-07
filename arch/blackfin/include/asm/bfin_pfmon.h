@@ -9,6 +9,7 @@
 #ifndef __ASM_BFIN_PFMON_H__
 #define __ASM_BFIN_PFMON_H__
 
+/* PFCTL Masks */
 #define PFMON_MASK	0xff
 #define PFCEN_MASK	0x3
 #define PFCEN_DISABLE	0x0

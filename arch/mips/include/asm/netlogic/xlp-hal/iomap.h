@@ -39,16 +39,17 @@
 #define NMI_BASE			0xbfc00000
 #define	XLP_IO_CLK			133333333
 
-#define XLP_PCIE_CFG_SIZE		0x1000		
+#define XLP_PCIE_CFG_SIZE		0x1000		/* 4K */
 #define XLP_PCIE_DEV_BLK_SIZE		(8 * XLP_PCIE_CFG_SIZE)
 #define XLP_PCIE_BUS_BLK_SIZE		(256 * XLP_PCIE_DEV_BLK_SIZE)
-#define XLP_IO_SIZE			(64 << 20)	
+#define XLP_IO_SIZE			(64 << 20)	/* ECFG space size */
 #define XLP_IO_PCI_HDRSZ		0x100
 #define XLP_IO_DEV(node, dev)		((dev) + (node) * 8)
 #define XLP_HDR_OFFSET(node, bus, dev, fn)	(((bus) << 20) | \
 				((XLP_IO_DEV(node, dev)) << 15) | ((fn) << 12))
 
 #define XLP_IO_BRIDGE_OFFSET(node)	XLP_HDR_OFFSET(node, 0, 0, 0)
+/* coherent inter chip */
 #define XLP_IO_CIC0_OFFSET(node)	XLP_HDR_OFFSET(node, 0, 0, 1)
 #define XLP_IO_CIC1_OFFSET(node)	XLP_HDR_OFFSET(node, 0, 0, 2)
 #define XLP_IO_CIC2_OFFSET(node)	XLP_HDR_OFFSET(node, 0, 0, 3)
@@ -84,16 +85,19 @@
 #define XLP_IO_I2C0_OFFSET(node)	XLP_HDR_OFFSET(node, 0, 6, 2)
 #define XLP_IO_I2C1_OFFSET(node)	XLP_HDR_OFFSET(node, 0, 6, 3)
 #define XLP_IO_GPIO_OFFSET(node)	XLP_HDR_OFFSET(node, 0, 6, 4)
+/* system management */
 #define XLP_IO_SYS_OFFSET(node)		XLP_HDR_OFFSET(node, 0, 6, 5)
 #define XLP_IO_JTAG_OFFSET(node)	XLP_HDR_OFFSET(node, 0, 6, 6)
 
 #define XLP_IO_NOR_OFFSET(node)		XLP_HDR_OFFSET(node, 0, 7, 0)
 #define XLP_IO_NAND_OFFSET(node)	XLP_HDR_OFFSET(node, 0, 7, 1)
 #define XLP_IO_SPI_OFFSET(node)		XLP_HDR_OFFSET(node, 0, 7, 2)
+/* SD flash */
 #define XLP_IO_SD_OFFSET(node)          XLP_HDR_OFFSET(node, 0, 7, 3)
 #define XLP_IO_MMC_OFFSET(node, slot)   \
 		((XLP_IO_SD_OFFSET(node))+(slot*0x100)+XLP_IO_PCI_HDRSZ)
 
+/* PCI config header register id's */
 #define XLP_PCI_CFGREG0			0x00
 #define XLP_PCI_CFGREG1			0x01
 #define XLP_PCI_CFGREG2			0x02
@@ -117,6 +121,7 @@
 #define XLP_PCI_UCODEINFO_REG		0x3e
 #define XLP_PCI_SBB_WT_REG		0x3f
 
+/* PCI IDs for SoC device */
 #define	PCI_VENDOR_NETLOGIC		0x184e
 
 #define	PCI_DEVICE_ID_NLM_ROOT		0x1001
@@ -143,6 +148,6 @@
 #define nlm_read_pci_reg(b, r)		nlm_read_reg(b, r)
 #define nlm_write_pci_reg(b, r, v)	nlm_write_reg(b, r, v)
 
-#endif 
+#endif /* !__ASSEMBLY */
 
-#endif 
+#endif /* __NLM_HAL_IOMAP_H__ */

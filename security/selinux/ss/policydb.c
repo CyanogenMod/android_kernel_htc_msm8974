@@ -1,3 +1,8 @@
+/*
+ * Implementation of the policy database.
+ *
+ * Author : Stephen Smalley, <sds@epoch.ncsc.mil>
+ */
 
 /*
  * Updated: Trusted Computer Solutions, Inc. <dgoeddel@trustedcs.com>
@@ -66,6 +71,7 @@ struct policydb_compat_info {
 	int ocon_num;
 };
 
+/* These need to be updated if SYM_NUM or OCON_NUM changes */
 static struct policydb_compat_info policydb_compat[] = {
 	{
 		.version	= POLICYDB_VERSION_BASE,
@@ -143,6 +149,9 @@ static struct policydb_compat_info *policydb_lookup_compat(int version)
 	return info;
 }
 
+/*
+ * Initialize the role table.
+ */
 static int roles_init(struct policydb *p)
 {
 	char *key = NULL;
@@ -237,6 +246,9 @@ static int rangetr_cmp(struct hashtab *h, const void *k1, const void *k2)
 	return v;
 }
 
+/*
+ * Initialize a policy database structure.
+ */
 static int policydb_init(struct policydb *p)
 {
 	int i, rc;
@@ -282,6 +294,15 @@ out:
 	return rc;
 }
 
+/*
+ * The following *_index functions are used to
+ * define the val_to_name and val_to_struct arrays
+ * in a policy database structure.  The val_to_name
+ * arrays are used when converting security context
+ * structures into string representations.  The
+ * val_to_struct arrays are used when the attributes
+ * of a class, role, or user are needed.
+ */
 
 static int common_index(void *key, void *datum, void *datap)
 {
@@ -469,6 +490,12 @@ static inline void hash_eval(struct hashtab *h, char *hash_name)
 }
 #endif
 
+/*
+ * Define the other val_to_name and val_to_struct arrays
+ * in a policy database structure.
+ *
+ * Caller must clean up on failure.
+ */
 static int policydb_index(struct policydb *p)
 {
 	int i, rc;
@@ -509,7 +536,7 @@ static int policydb_index(struct policydb *p)
 	if (!p->user_val_to_struct)
 		goto out;
 
-	
+	/* Yes, I want the sizeof the pointer, not the structure */
 	rc = -ENOMEM;
 	p->type_val_to_struct_array = flex_array_alloc(sizeof(struct type_datum *),
 						       p->p_types.nprim,
@@ -549,6 +576,11 @@ out:
 	return rc;
 }
 
+/*
+ * The following *_destroy functions are used to
+ * free any memory allocated for each kind of
+ * symbol data in the policy database.
+ */
 
 static int perm_destroy(void *key, void *datum, void *p)
 {
@@ -720,6 +752,9 @@ static void ocontext_destroy(struct ocontext *c, int i)
 	kfree(c);
 }
 
+/*
+ * Free any memory allocated by a policy database structure.
+ */
 void policydb_destroy(struct policydb *p)
 {
 	struct ocontext *c, *ctmp;
@@ -815,6 +850,10 @@ void policydb_destroy(struct policydb *p)
 	return;
 }
 
+/*
+ * Load the initial SIDs specified in a policy database
+ * structure into a SID table.
+ */
 int policydb_load_isids(struct policydb *p, struct sidtab *s)
 {
 	struct ocontext *head, *c;
@@ -868,6 +907,10 @@ int policydb_type_isvalid(struct policydb *p, unsigned int type)
 	return 1;
 }
 
+/*
+ * Return 1 if the fields in the security context
+ * structure `c' are valid.  Return 0 otherwise.
+ */
 int policydb_context_isvalid(struct policydb *p, struct context *c)
 {
 	struct role_datum *role;
@@ -883,17 +926,23 @@ int policydb_context_isvalid(struct policydb *p, struct context *c)
 		return 0;
 
 	if (c->role != OBJECT_R_VAL) {
+		/*
+		 * Role must be authorized for the type.
+		 */
 		role = p->role_val_to_struct[c->role - 1];
 		if (!ebitmap_get_bit(&role->types, c->type - 1))
-			
+			/* role may not be associated with type */
 			return 0;
 
+		/*
+		 * User must be authorized for the role.
+		 */
 		usrdatum = p->user_val_to_struct[c->user - 1];
 		if (!usrdatum)
 			return 0;
 
 		if (!ebitmap_get_bit(&usrdatum->roles, c->role - 1))
-			
+			/* user may not be associated with role */
 			return 0;
 	}
 
@@ -903,6 +952,10 @@ int policydb_context_isvalid(struct policydb *p, struct context *c)
 	return 1;
 }
 
+/*
+ * Read a MLS range structure from a policydb binary
+ * representation file.
+ */
 static int mls_read_range_helper(struct mls_range *r, void *fp)
 {
 	__le32 buf[2];
@@ -958,6 +1011,10 @@ out:
 	return rc;
 }
 
+/*
+ * Read and validate a security context structure
+ * from a policydb binary representation file.
+ */
 static int context_read_and_validate(struct context *c,
 				     struct policydb *p,
 				     void *fp)
@@ -992,6 +1049,11 @@ out:
 	return rc;
 }
 
+/*
+ * The following *_read functions are used to
+ * read the symbol data from a policy database
+ * binary representation file.
+ */
 
 static int perm_read(struct policydb *p, struct hashtab *h, void *fp)
 {
@@ -1234,7 +1296,7 @@ static int class_read(struct policydb *p, struct hashtab *h, void *fp)
 		goto bad;
 
 	if (p->policyvers >= POLICYDB_VERSION_VALIDATETRANS) {
-		
+		/* grab the validatetrans rules */
 		rc = next_entry(buf, fp, sizeof(u32));
 		if (rc)
 			goto bad;
@@ -1371,6 +1433,10 @@ bad:
 }
 
 
+/*
+ * Read a MLS level structure from a policydb binary
+ * representation file.
+ */
 static int mls_read_level(struct mls_level *lp, void *fp)
 {
 	__le32 buf[1];
@@ -1815,7 +1881,7 @@ static int filename_trans_read(struct policydb *p, void *fp)
 		if (!otype)
 			goto out;
 
-		
+		/* length of the path component string */
 		rc = next_entry(buf, fp, sizeof(u32));
 		if (rc)
 			goto out;
@@ -1828,7 +1894,7 @@ static int filename_trans_read(struct policydb *p, void *fp)
 
 		ft->name = name;
 
-		
+		/* path component string */
 		rc = next_entry(name, fp, len);
 		if (rc)
 			goto out;
@@ -2062,8 +2128,8 @@ static int ocontext_read(struct policydb *p, struct policydb_compat_info *info,
 				rc = next_entry(nodebuf, fp, sizeof(u32) * 2);
 				if (rc)
 					goto out;
-				c->u.node.addr = nodebuf[0]; 
-				c->u.node.mask = nodebuf[1]; 
+				c->u.node.addr = nodebuf[0]; /* network order */
+				c->u.node.mask = nodebuf[1]; /* network order */
 				rc = context_read_and_validate(&c->context[0], p, fp);
 				if (rc)
 					goto out;
@@ -2115,6 +2181,10 @@ out:
 	return rc;
 }
 
+/*
+ * Read the configuration data from a policy database binary
+ * representation file into a policy database structure.
+ */
 int policydb_read(struct policydb *p, void *fp)
 {
 	struct role_allow *ra, *lra;
@@ -2130,7 +2200,7 @@ int policydb_read(struct policydb *p, void *fp)
 	if (rc)
 		return rc;
 
-	
+	/* Read the magic number and string length. */
 	rc = next_entry(buf, fp, sizeof(u32) * 2);
 	if (rc)
 		goto bad;
@@ -2175,11 +2245,11 @@ int policydb_read(struct policydb *p, void *fp)
 		kfree(policydb_str);
 		goto bad;
 	}
-	
+	/* Done with policydb_str. */
 	kfree(policydb_str);
 	policydb_str = NULL;
 
-	
+	/* Read the version and table sizes. */
 	rc = next_entry(buf, fp, sizeof(u32)*4);
 	if (rc)
 		goto bad;
@@ -2366,7 +2436,7 @@ int policydb_read(struct policydb *p, void *fp)
 	if (!p->type_attr_map_array)
 		goto bad;
 
-	
+	/* preallocate so we don't have to worry about the put ever failing */
 	rc = flex_array_prealloc(p->type_attr_map_array, 0, p->p_types.nprim,
 				 GFP_KERNEL | __GFP_ZERO);
 	if (rc)
@@ -2382,7 +2452,7 @@ int policydb_read(struct policydb *p, void *fp)
 			if (rc)
 				goto bad;
 		}
-		
+		/* add the type itself as the degenerate case */
 		rc = ebitmap_set_bit(e, i, 1);
 		if (rc)
 			goto bad;
@@ -2400,6 +2470,10 @@ bad:
 	goto out;
 }
 
+/*
+ * Write a MLS level structure to a policydb binary
+ * representation file.
+ */
 static int mls_write_level(struct mls_level *l, void *fp)
 {
 	__le32 buf[1];
@@ -2417,6 +2491,10 @@ static int mls_write_level(struct mls_level *l, void *fp)
 	return 0;
 }
 
+/*
+ * Write a MLS range structure to a policydb binary
+ * representation file.
+ */
 static int mls_write_range_helper(struct mls_range *r, void *fp)
 {
 	__le32 buf[3];
@@ -2562,6 +2640,10 @@ static int role_allow_write(struct role_allow *r, void *fp)
 	return 0;
 }
 
+/*
+ * Write a security context structure
+ * to a policydb binary representation file.
+ */
 static int context_write(struct policydb *p, struct context *c,
 			 void *fp)
 {
@@ -2583,6 +2665,11 @@ static int context_write(struct policydb *p, struct context *c,
 	return 0;
 }
 
+/*
+ * The following *_write functions are used to
+ * write the symbol data to a policy database
+ * binary representation file.
+ */
 
 static int perm_write(void *vkey, void *datum, void *fp)
 {
@@ -2731,7 +2818,7 @@ static int class_write(void *vkey, void *datum, void *ptr)
 	if (rc)
 		return rc;
 
-	
+	/* write out the validatetrans rule */
 	ncons = 0;
 	for (c = cladatum->validatetrans; c; c = c->next)
 		ncons++;
@@ -2938,8 +3025,8 @@ static int ocontext_write(struct policydb *p, struct policydb_compat_info *info,
 					return rc;
 				break;
 			case OCON_NODE:
-				nodebuf[0] = c->u.node.addr; 
-				nodebuf[1] = c->u.node.mask; 
+				nodebuf[0] = c->u.node.addr; /* network order */
+				nodebuf[1] = c->u.node.mask; /* network order */
 				rc = put_entry(nodebuf, sizeof(u32), 2, fp);
 				if (rc)
 					return rc;
@@ -2963,9 +3050,9 @@ static int ocontext_write(struct policydb *p, struct policydb_compat_info *info,
 				break;
 			case OCON_NODE6:
 				for (j = 0; j < 4; j++)
-					nodebuf[j] = c->u.node6.addr[j]; 
+					nodebuf[j] = c->u.node6.addr[j]; /* network order */
 				for (j = 0; j < 4; j++)
-					nodebuf[j + 4] = c->u.node6.mask[j]; 
+					nodebuf[j + 4] = c->u.node6.mask[j]; /* network order */
 				rc = put_entry(nodebuf, sizeof(u32), 8, fp);
 				if (rc)
 					return rc;
@@ -3077,7 +3164,7 @@ static int range_write(struct policydb *p, void *fp)
 	pd.p = p;
 	pd.fp = fp;
 
-	
+	/* count the number of entries in the hashtab */
 	nel = 0;
 	rc = hashtab_map(p->range_tr, hashtab_cnt, &nel);
 	if (rc)
@@ -3088,7 +3175,7 @@ static int range_write(struct policydb *p, void *fp)
 	if (rc)
 		return rc;
 
-	
+	/* actually write all of the entries */
 	rc = hashtab_map(p->range_tr, range_write_helper, &pd);
 	if (rc)
 		return rc;
@@ -3153,6 +3240,11 @@ static int filename_trans_write(struct policydb *p, void *fp)
 	return 0;
 }
 
+/*
+ * Write the configuration data in a policy database
+ * structure to a policy database binary representation
+ * file.
+ */
 int policydb_write(struct policydb *p, void *fp)
 {
 	unsigned int i, num_syms;
@@ -3162,6 +3254,12 @@ int policydb_write(struct policydb *p, void *fp)
 	size_t len;
 	struct policydb_compat_info *info;
 
+	/*
+	 * refuse to write policy older than compressed avtab
+	 * to simplify the writer.  There are other tests dropped
+	 * since we assume this throughout the writer code.  Be
+	 * careful if you ever try to remove this restriction
+	 */
 	if (p->policyvers < POLICYDB_VERSION_AVTAB) {
 		printk(KERN_ERR "SELinux: refusing to write policy version %d."
 		       "  Because it is less than version %d\n", p->policyvers,
@@ -3178,7 +3276,7 @@ int policydb_write(struct policydb *p, void *fp)
 	if (p->allow_unknown)
 		config |= ALLOW_UNKNOWN;
 
-	
+	/* Write the magic number and string identifiers. */
 	buf[0] = cpu_to_le32(POLICYDB_MAGIC);
 	len = strlen(POLICYDB_STRING);
 	buf[1] = cpu_to_le32(len);
@@ -3189,7 +3287,7 @@ int policydb_write(struct policydb *p, void *fp)
 	if (rc)
 		return rc;
 
-	
+	/* Write the version, config, and table sizes. */
 	info = policydb_lookup_compat(p->policyvers);
 	if (!info) {
 		printk(KERN_ERR "SELinux: compatibility lookup failed for policy "

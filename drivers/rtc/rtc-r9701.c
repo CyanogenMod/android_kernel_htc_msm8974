@@ -24,21 +24,21 @@
 #include <linux/delay.h>
 #include <linux/bitops.h>
 
-#define RSECCNT	0x00	
-#define RMINCNT	0x01	
-#define RHRCNT	0x02	
-#define RWKCNT	0x03	
-#define RDAYCNT	0x04	
-#define RMONCNT	0x05	
-#define RYRCNT	0x06	
-#define R100CNT	0x07	
-#define RMINAR	0x08	
-#define RHRAR	0x09	
-#define RWKAR	0x0a	
-#define RTIMCNT	0x0c	
-#define REXT	0x0d	
-#define RFLAG	0x0e	
-#define RCR	0x0f	
+#define RSECCNT	0x00	/* Second Counter */
+#define RMINCNT	0x01	/* Minute Counter */
+#define RHRCNT	0x02	/* Hour Counter */
+#define RWKCNT	0x03	/* Week Counter */
+#define RDAYCNT	0x04	/* Day Counter */
+#define RMONCNT	0x05	/* Month Counter */
+#define RYRCNT	0x06	/* Year Counter */
+#define R100CNT	0x07	/* Y100 Counter */
+#define RMINAR	0x08	/* Minute Alarm */
+#define RHRAR	0x09	/* Hour Alarm */
+#define RWKAR	0x0a	/* Week/Day Alarm */
+#define RTIMCNT	0x0c	/* Interval Timer */
+#define REXT	0x0d	/* Extension Register */
+#define RFLAG	0x0e	/* RTC Flag Register */
+#define RCR	0x0f	/* RTC Control Register */
 
 static int write_reg(struct device *dev, int address, unsigned char data)
 {
@@ -80,14 +80,17 @@ static int r9701_get_datetime(struct device *dev, struct rtc_time *dt)
 
 	memset(dt, 0, sizeof(*dt));
 
-	dt->tm_sec = bcd2bin(buf[0]); 
-	dt->tm_min = bcd2bin(buf[1]); 
-	dt->tm_hour = bcd2bin(buf[2]); 
+	dt->tm_sec = bcd2bin(buf[0]); /* RSECCNT */
+	dt->tm_min = bcd2bin(buf[1]); /* RMINCNT */
+	dt->tm_hour = bcd2bin(buf[2]); /* RHRCNT */
 
-	dt->tm_mday = bcd2bin(buf[3]); 
-	dt->tm_mon = bcd2bin(buf[4]) - 1; 
-	dt->tm_year = bcd2bin(buf[5]) + 100; 
+	dt->tm_mday = bcd2bin(buf[3]); /* RDAYCNT */
+	dt->tm_mon = bcd2bin(buf[4]) - 1; /* RMONCNT */
+	dt->tm_year = bcd2bin(buf[5]) + 100; /* RYRCNT */
 
+	/* the rtc device may contain illegal values on power up
+	 * according to the data sheet. make sure they are valid.
+	 */
 
 	return rtc_valid_tm(dt);
 }
@@ -130,6 +133,11 @@ static int __devinit r9701_probe(struct spi_device *spi)
 		return -ENODEV;
 	}
 
+	/*
+	 * The device seems to be present. Now check if the registers
+	 * contain invalid values. If so, try to write a default date:
+	 * 2000/1/1 00:00:00
+	 */
 	r9701_get_datetime(&spi->dev, &dt);
 	if (rtc_valid_tm(&dt)) {
 		dev_info(&spi->dev, "trying to repair invalid date/time\n");

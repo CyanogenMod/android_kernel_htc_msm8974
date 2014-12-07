@@ -94,6 +94,9 @@
 
 static struct pcf50633 *gta02_pcf;
 
+/*
+ * This gets called frequently when we paniced.
+ */
 
 static long gta02_panic_blink(int state)
 {
@@ -145,6 +148,13 @@ static struct s3c2410_uartcfg gta02_uartcfgs[] = {
 };
 
 #ifdef CONFIG_CHARGER_PCF50633
+/*
+ * On GTA02 the 1A charger features a 48K resistor to 0V on the ID pin.
+ * We use this to recognize that we can pull 1A from the USB socket.
+ *
+ * These constants are the measured pcf50633 ADC levels with the 1A
+ * charger / 48K resistor, and with no pulldown resistor.
+ */
 
 #define ADC_NOM_CHG_DETECT_1A 6
 #define ADC_NOM_CHG_DETECT_USB 43
@@ -154,9 +164,13 @@ gta02_configure_pmu_for_charger(struct pcf50633 *pcf, void *unused, int res)
 {
 	int  ma;
 
-	
+	/* Interpret charger type */
 	if (res < ((ADC_NOM_CHG_DETECT_USB + ADC_NOM_CHG_DETECT_1A) / 2)) {
 
+		/*
+		 * Sanity - stop GPO driving out now that we have a 1A charger
+		 * GPO controls USB Host power generation on GTA02
+		 */
 		pcf50633_gpio_set(pcf, PCF50633_GPO, 0);
 
 		ma = 1000;
@@ -183,6 +197,10 @@ static void gta02_charger_worker(struct work_struct *work)
 				gta02_configure_pmu_for_charger,
 				NULL);
 #else
+	/*
+	 * If the PCF50633 ADC is disabled we fallback to a
+	 * 100mA limit for safety.
+	 */
 	pcf50633_mbc_usb_curlim_set(pcf, 100);
 #endif
 }
@@ -214,11 +232,18 @@ static void gta02_udc_vbus_draw(unsigned int ma)
 	schedule_delayed_work(&gta02_charger_work,
 			      GTA02_CHARGER_CONFIGURE_TIMEOUT);
 }
-#else 
+#else /* !CONFIG_CHARGER_PCF50633 */
 #define gta02_pmu_event_callback	NULL
 #define gta02_udc_vbus_draw		NULL
 #endif
 
+/*
+ * This is called when pc50633 is probed, unfortunately quite late in the
+ * day since it is an I2C bus device. Here we can belatedly define some
+ * platform devices with the advantage that we can mark the pcf50633 as the
+ * parent. This makes them get suspended and resumed with their parent
+ * the pcf50633 still around.
+ */
 
 static void gta02_pmu_attach_child_devices(struct pcf50633 *pcf);
 
@@ -353,9 +378,10 @@ static struct pcf50633_platform_data gta02_pcf_pdata = {
 };
 
 
+/* NOR Flash. */
 
-#define GTA02_FLASH_BASE	0x18000000 
-#define GTA02_FLASH_SIZE	0x200000 
+#define GTA02_FLASH_BASE	0x18000000 /* GCS3 */
+#define GTA02_FLASH_SIZE	0x200000 /* 2MBytes */
 
 static struct physmap_flash_data gta02_nor_flash_data = {
 	.width		= 2,
@@ -400,12 +426,22 @@ static struct i2c_board_info gta02_i2c_devs[] __initdata = {
 
 static struct s3c2410_nand_set __initdata gta02_nand_sets[] = {
 	[0] = {
+		/*
+		 * This name is also hard-coded in the boot loaders, so
+		 * changing it would would require all users to upgrade
+		 * their boot loaders, some of which are stored in a NOR
+		 * that is considered to be immutable.
+		 */
 		.name		= "neo1973-nand",
 		.nr_chips	= 1,
 		.flash_bbt	= 1,
 	},
 };
 
+/*
+ * Choose a set of timings derived from S3C@2442B MCP54
+ * data sheet (K5D2G13ACM-D075 MCP Memory).
+ */
 
 static struct s3c2410_platform_nand __initdata gta02_nand_info = {
 	.tacls		= 0,
@@ -416,11 +452,13 @@ static struct s3c2410_platform_nand __initdata gta02_nand_info = {
 };
 
 
+/* Get PMU to set USB current limit accordingly. */
 static struct s3c2410_udc_mach_info gta02_udc_cfg __initdata = {
 	.vbus_draw	= gta02_udc_vbus_draw,
 	.pullup_pin = GTA02_GPIO_USB_PULLUP,
 };
 
+/* USB */
 static struct s3c2410_hcd_info gta02_usb_info __initdata = {
 	.port[0]	= {
 		.flags	= S3C_HCDFLG_USED,
@@ -430,12 +468,14 @@ static struct s3c2410_hcd_info gta02_usb_info __initdata = {
 	},
 };
 
+/* Touchscreen */
 static struct s3c2410_ts_mach_info gta02_ts_info = {
 	.delay			= 10000,
-	.presc			= 0xff, 
+	.presc			= 0xff, /* slow as we can go */
 	.oversampling_shift	= 2,
 };
 
+/* Buttons */
 static struct gpio_keys_button gta02_buttons[] = {
 	{
 		.gpio = GTA02_GPIO_AUX_KEY,
@@ -474,6 +514,7 @@ static void __init gta02_map_io(void)
 }
 
 
+/* These are the guys that don't need to be children of PMU. */
 
 static struct platform_device *gta02_devices[] __initdata = {
 	&s3c_device_ohci,
@@ -492,17 +533,27 @@ static struct platform_device *gta02_devices[] __initdata = {
 	&s3c_device_ts,
 };
 
+/* These guys DO need to be children of PMU. */
 
 static struct platform_device *gta02_devices_pmu_children[] = {
 };
 
 
+/*
+ * This is called when pc50633 is probed, quite late in the day since it is an
+ * I2C bus device.  Here we can define platform devices with the advantage that
+ * we can mark the pcf50633 as the parent.  This makes them get suspended and
+ * resumed with their parent the pcf50633 still around.  All devices whose
+ * operation depends on something from pcf50633 must have this relationship
+ * made explicit like this, or suspend and resume will become an unreliable
+ * hellworld.
+ */
 
 static void gta02_pmu_attach_child_devices(struct pcf50633 *pcf)
 {
 	int n;
 
-	
+	/* Grab a copy of the now probed PMU pointer. */
 	gta02_pcf = pcf;
 
 	for (n = 0; n < ARRAY_SIZE(gta02_devices_pmu_children); n++)
@@ -519,7 +570,7 @@ static void gta02_poweroff(void)
 
 static void __init gta02_machine_init(void)
 {
-	
+	/* Set the panic callback to turn AUX LED on or off. */
 	panic_blink = gta02_panic_blink;
 
 	s3c_pm_init();
@@ -544,7 +595,7 @@ static void __init gta02_machine_init(void)
 
 
 MACHINE_START(NEO1973_GTA02, "GTA02")
-	
+	/* Maintainer: Nelson Castillo <arhuaco@freaks-unidos.net> */
 	.atag_offset	= 0x100,
 	.map_io		= gta02_map_io,
 	.init_irq	= s3c24xx_init_irq,

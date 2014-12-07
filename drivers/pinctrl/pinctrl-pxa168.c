@@ -44,8 +44,9 @@
 #define GRP_168(a, m, p)		\
 	{ .name = a, .mux = PXA168_MUX_##m, .pins = p, .npins = ARRAY_SIZE(p), }
 
+/* 131 pins */
 enum pxa168_pin_list {
-	
+	/* 0~122: GPIO0~GPIO122 */
 	PWR_SCL = 123,
 	PWR_SDA,
 	TDI,
@@ -57,7 +58,7 @@ enum pxa168_pin_list {
 };
 
 enum pxa168_mux {
-	
+	/* PXA3xx_MUX_GPIO = 0 (predefined in pinctrl-pxa3xx.h) */
 	PXA168_MUX_GPIO = 0,
 	PXA168_MUX_DFIO,
 	PXA168_MUX_NAND,
@@ -261,7 +262,7 @@ static struct pinctrl_pin_desc pxa168_pads[] = {
 };
 
 struct pxa3xx_mfp_pin pxa168_mfp[] = {
-	
+	/*       pin      offs   f0       f1           f2         f3           f4           f5        f6           f7  */
 	MFPR_168(GPIO0,   0x04C, DFIO,    NONE,        NONE,      MSP,         MMC3_CMD,    GPIO,     MMC3,        NONE),
 	MFPR_168(GPIO1,   0x050, DFIO,    NONE,        NONE,      MSP,         MMC3_CLK,    GPIO,     MMC3,        NONE),
 	MFPR_168(GPIO2,   0x054, DFIO,    NONE,        NONE,      MSP,         NONE,        GPIO,     MMC3,        NONE),

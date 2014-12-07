@@ -5,12 +5,15 @@
 #include <linux/uaccess.h>
 #include <asm/tlbflush.h>
 
+/* The usual comment is "Caches aren't brain-dead on the <architecture>".
+ * Unfortunately, that doesn't apply to PA-RISC. */
 
-void flush_data_cache_local(void *);  
-void flush_instruction_cache_local(void *); 
+/* Internal implementation */
+void flush_data_cache_local(void *);  /* flushes local data-cache only */
+void flush_instruction_cache_local(void *); /* flushes local code-cache only */
 #ifdef CONFIG_SMP
-void flush_data_cache(void); 
-void flush_instruction_cache(void); 
+void flush_data_cache(void); /* flushes data-cache only (all processors) */
+void flush_instruction_cache(void); /* flushes i-cache only (all processors) */
 #else
 #define flush_data_cache() flush_data_cache_local(NULL)
 #define flush_instruction_cache() flush_instruction_cache_local(NULL)
@@ -27,6 +30,7 @@ void flush_kernel_icache_page(void *);
 void flush_user_dcache_range(unsigned long, unsigned long);
 void flush_user_icache_range(unsigned long, unsigned long);
 
+/* Cache flush operations */
 
 void flush_cache_all_local(void);
 void flush_cache_all(void);
@@ -41,6 +45,9 @@ static inline void flush_kernel_dcache_page(struct page *page)
 
 #define flush_kernel_dcache_range(start,size) \
 	flush_kernel_dcache_range_asm((start), (start)+(size));
+/* vmap range flushes and invalidates.  Architecturally, we don't need
+ * the invalidate, because the CPU should refuse to speculate once an
+ * area has been flushed, so invalidate is left empty */
 static inline void flush_kernel_vmap_range(void *vaddr, int size)
 {
 	unsigned long start = (unsigned long)vaddr;
@@ -99,6 +106,7 @@ void flush_cache_page(struct vm_area_struct *vma, unsigned long vmaddr, unsigned
 void flush_cache_range(struct vm_area_struct *vma,
 		unsigned long start, unsigned long end);
 
+/* defined in pacache.S exported in cache.c used by flush_anon_page */
 void flush_dcache_page_asm(unsigned long phys_addr, unsigned long vaddr);
 
 #define ARCH_HAS_FLUSH_ANON_PAGE
@@ -116,6 +124,7 @@ void mark_rodata_ro(void);
 #endif
 
 #ifdef CONFIG_PA8X00
+/* Only pa8800, pa8900 needs this */
 
 #include <asm/kmap_types.h>
 
@@ -148,5 +157,5 @@ static inline void __kunmap_atomic(void *addr)
 #define kmap_atomic_to_page(ptr)	virt_to_page(ptr)
 #endif
 
-#endif 
+#endif /* _PARISC_CACHEFLUSH_H */
 

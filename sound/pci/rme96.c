@@ -39,6 +39,7 @@
 
 #include <asm/io.h>
 
+/* note, two last pcis should be equal, it is not a bug */
 
 MODULE_AUTHOR("Anders Torger <torger@ludd.luth.se>");
 MODULE_DESCRIPTION("RME Digi96, Digi96/8, Digi96/8 PRO, Digi96/8 PST, "
@@ -50,9 +51,9 @@ MODULE_SUPPORTED_DEVICE("{{RME,Digi96},"
 		"{RME,Digi96/8 PST},"
 		"{RME,Digi96/8 PAD}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	/* Enable this card */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for RME Digi96 soundcard.");
@@ -61,13 +62,20 @@ MODULE_PARM_DESC(id, "ID string for RME Digi96 soundcard.");
 module_param_array(enable, bool, NULL, 0444);
 MODULE_PARM_DESC(enable, "Enable RME Digi96 soundcard.");
 
+/*
+ * Defines for RME Digi96 series, from internal RME reference documents
+ * dated 12.01.00
+ */
 
 #define RME96_SPDIF_NCHANNELS 2
 
+/* Playback and capture buffer size */
 #define RME96_BUFFER_SIZE 0x10000
 
+/* IO area size */
 #define RME96_IO_SIZE 0x60000
 
+/* IO area offsets */
 #define RME96_IO_PLAY_BUFFER      0x0
 #define RME96_IO_REC_BUFFER       0x10000
 #define RME96_IO_CONTROL_REGISTER 0x20000
@@ -81,6 +89,7 @@ MODULE_PARM_DESC(enable, "Enable RME Digi96 soundcard.");
 #define RME96_IO_GET_PLAY_POS     0x20000
 #define RME96_IO_GET_REC_POS      0x30000
 
+/* Write control register bits */
 #define RME96_WCR_START     (1 << 0)
 #define RME96_WCR_START_2   (1 << 1)
 #define RME96_WCR_GAIN_0    (1 << 2)
@@ -123,6 +132,7 @@ MODULE_PARM_DESC(enable, "Enable RME Digi96 soundcard.");
 #define RME96_WCR_BITPOS_MONITOR_0 28
 #define RME96_WCR_BITPOS_MONITOR_1 29
 
+/* Read control register bits */
 #define RME96_RCR_AUDIO_ADDR_MASK 0xFFFF
 #define RME96_RCR_IRQ_2     (1 << 16)
 #define RME96_RCR_T_OUT     (1 << 17)
@@ -140,6 +150,7 @@ MODULE_PARM_DESC(enable, "Enable RME Digi96 soundcard.");
 #define RME96_RCR_BITPOS_F1 28
 #define RME96_RCR_BITPOS_F2 29
 
+/* Additional register bits */
 #define RME96_AR_WSEL       (1 << 0)
 #define RME96_AR_ANALOG     (1 << 1)
 #define RME96_AR_FREQPAD_0  (1 << 2)
@@ -155,29 +166,35 @@ MODULE_PARM_DESC(enable, "Enable RME Digi96 soundcard.");
 #define RME96_AR_BITPOS_F1 3
 #define RME96_AR_BITPOS_F2 4
 
+/* Monitor tracks */
 #define RME96_MONITOR_TRACKS_1_2 0
 #define RME96_MONITOR_TRACKS_3_4 1
 #define RME96_MONITOR_TRACKS_5_6 2
 #define RME96_MONITOR_TRACKS_7_8 3
 
+/* Attenuation */
 #define RME96_ATTENUATION_0 0
 #define RME96_ATTENUATION_6 1
 #define RME96_ATTENUATION_12 2
 #define RME96_ATTENUATION_18 3
 
+/* Input types */
 #define RME96_INPUT_OPTICAL 0
 #define RME96_INPUT_COAXIAL 1
 #define RME96_INPUT_INTERNAL 2
 #define RME96_INPUT_XLR 3
 #define RME96_INPUT_ANALOG 4
 
+/* Clock modes */
 #define RME96_CLOCKMODE_SLAVE 0
 #define RME96_CLOCKMODE_MASTER 1
 #define RME96_CLOCKMODE_WORDCLOCK 2
 
+/* Block sizes in bytes */
 #define RME96_SMALL_BLOCK_SIZE 2048
 #define RME96_LARGE_BLOCK_SIZE 8192
 
+/* Volume control */
 #define RME96_AD1852_VOL_BITS 14
 #define RME96_AD1855_VOL_BITS 10
 
@@ -188,23 +205,23 @@ struct rme96 {
 	unsigned long port;
 	void __iomem *iobase;
 	
-	u32 wcreg;    
-	u32 wcreg_spdif;		
-	u32 wcreg_spdif_stream;		
-	u32 rcreg;    
-	u32 areg;     
-	u16 vol[2]; 
+	u32 wcreg;    /* cached write control register value */
+	u32 wcreg_spdif;		/* S/PDIF setup */
+	u32 wcreg_spdif_stream;		/* S/PDIF setup (temporary) */
+	u32 rcreg;    /* cached read control register value */
+	u32 areg;     /* cached additional register value */
+	u16 vol[2]; /* cached volume of analog output */
 
-	u8 rev; 
+	u8 rev; /* card revision number */
 
 	struct snd_pcm_substream *playback_substream;
 	struct snd_pcm_substream *capture_substream;
 
-	int playback_frlog; 
+	int playback_frlog; /* log2 of framesize */
 	int capture_frlog;
 	
-        size_t playback_periodsize; 
-	size_t capture_periodsize; 
+        size_t playback_periodsize; /* in bytes, zero if not used */
+	size_t capture_periodsize; /* in bytes, zero if not used */
 
 	struct snd_card *card;
 	struct snd_pcm *spdif_pcm;
@@ -279,7 +296,7 @@ snd_rme96_capture_ptr(struct rme96 *rme96)
 
 static int
 snd_rme96_playback_silence(struct snd_pcm_substream *substream,
-			   int channel, 
+			   int channel, /* not used (interleaved data) */
 			   snd_pcm_uframes_t pos,
 			   snd_pcm_uframes_t count)
 {
@@ -293,7 +310,7 @@ snd_rme96_playback_silence(struct snd_pcm_substream *substream,
 
 static int
 snd_rme96_playback_copy(struct snd_pcm_substream *substream,
-			int channel, 
+			int channel, /* not used (interleaved data) */
 			snd_pcm_uframes_t pos,
 			void __user *src,
 			snd_pcm_uframes_t count)
@@ -308,7 +325,7 @@ snd_rme96_playback_copy(struct snd_pcm_substream *substream,
 
 static int
 snd_rme96_capture_copy(struct snd_pcm_substream *substream,
-		       int channel, 
+		       int channel, /* not used (interleaved data) */
 		       snd_pcm_uframes_t pos,
 		       void __user *dst,
 		       snd_pcm_uframes_t count)
@@ -321,6 +338,9 @@ snd_rme96_capture_copy(struct snd_pcm_substream *substream,
         return 0;
 }
 
+/*
+ * Digital output capabilities (S/PDIF)
+ */
 static struct snd_pcm_hardware snd_rme96_playback_spdif_info =
 {
 	.info =		     (SNDRV_PCM_INFO_MMAP_IOMEM |
@@ -347,6 +367,9 @@ static struct snd_pcm_hardware snd_rme96_playback_spdif_info =
 	.fifo_size =	     0,
 };
 
+/*
+ * Digital input capabilities (S/PDIF)
+ */
 static struct snd_pcm_hardware snd_rme96_capture_spdif_info =
 {
 	.info =		     (SNDRV_PCM_INFO_MMAP_IOMEM |
@@ -373,6 +396,9 @@ static struct snd_pcm_hardware snd_rme96_capture_spdif_info =
 	.fifo_size =	     0,
 };
 
+/*
+ * Digital output capabilities (ADAT)
+ */
 static struct snd_pcm_hardware snd_rme96_playback_adat_info =
 {
 	.info =		     (SNDRV_PCM_INFO_MMAP_IOMEM |
@@ -395,6 +421,9 @@ static struct snd_pcm_hardware snd_rme96_playback_adat_info =
 	.fifo_size =	     0,
 };
 
+/*
+ * Digital input capabilities (ADAT)
+ */
 static struct snd_pcm_hardware snd_rme96_capture_adat_info =
 {
 	.info =		     (SNDRV_PCM_INFO_MMAP_IOMEM |
@@ -417,6 +446,18 @@ static struct snd_pcm_hardware snd_rme96_capture_adat_info =
 	.fifo_size =         0,
 };
 
+/*
+ * The CDATA, CCLK and CLATCH bits can be used to write to the SPI interface
+ * of the AD1852 or AD1852 D/A converter on the board.  CDATA must be set up
+ * on the falling edge of CCLK and be stable on the rising edge.  The rising
+ * edge of CLATCH after the last data bit clocks in the whole data word.
+ * A fast processor could probably drive the SPI interface faster than the
+ * DAC can handle (3MHz for the 1855, unknown for the 1852).  The udelay(1)
+ * limits the data rate to 500KHz and only causes a delay of 33 microsecs.
+ *
+ * NOTE: increased delay from 1 to 10, since there where problems setting
+ * the volume.
+ */
 static void
 snd_rme96_write_SPI(struct rme96 *rme96, u16 val)
 {
@@ -532,7 +573,7 @@ snd_rme96_capture_getrate(struct rme96 *rme96,
 
 	*is_adat = 0;
 	if (rme96->areg & RME96_AR_ANALOG) {
-		
+		/* Analog input, overrides S/PDIF setting */
 		n = ((rme96->areg >> RME96_AR_BITPOS_F0) & 1) +
 			(((rme96->areg >> RME96_AR_BITPOS_F1) & 1) << 1);
 		switch (n) {
@@ -553,7 +594,7 @@ snd_rme96_capture_getrate(struct rme96 *rme96,
 
 	rme96->rcreg = readl(rme96->iobase + RME96_IO_CONTROL_REGISTER);
 	if (rme96->rcreg & RME96_RCR_LOCK) {
-		
+		/* ADAT rate */
 		*is_adat = 1;
 		if (rme96->rcreg & RME96_RCR_T_OUT) {
 			return 48000;
@@ -565,7 +606,7 @@ snd_rme96_capture_getrate(struct rme96 *rme96,
 		return -1;
 	}
 	
-	
+	/* S/PDIF rate */
 	n = ((rme96->rcreg >> RME96_RCR_BITPOS_F0) & 1) +
 		(((rme96->rcreg >> RME96_RCR_BITPOS_F1) & 1) << 1) +
 		(((rme96->rcreg >> RME96_RCR_BITPOS_F2) & 1) << 2);
@@ -596,7 +637,7 @@ snd_rme96_playback_getrate(struct rme96 *rme96)
             snd_rme96_getinputtype(rme96) != RME96_INPUT_ANALOG &&
 	    (rate = snd_rme96_capture_getrate(rme96, &dummy)) > 0)
 	{
-	        
+	        /* slave clock */
 	        return rate;
 	}
 	rate = ((rme96->wcreg >> RME96_WCR_BITPOS_FREQ_0) & 1) +
@@ -661,7 +702,7 @@ snd_rme96_playback_setrate(struct rme96 *rme96,
 	if ((!ds && rme96->wcreg & RME96_WCR_DS) ||
 	    (ds && !(rme96->wcreg & RME96_WCR_DS)))
 	{
-		
+		/* change to/from double-speed: reset the DAC (if available) */
 		snd_rme96_reset_dac(rme96);
 	} else {
 		writel(rme96->wcreg, rme96->iobase + RME96_IO_CONTROL_REGISTER);
@@ -717,17 +758,17 @@ snd_rme96_setclockmode(struct rme96 *rme96,
 {
 	switch (mode) {
 	case RME96_CLOCKMODE_SLAVE:
-	         
+	        /* AutoSync */ 
 		rme96->wcreg &= ~RME96_WCR_MASTER;
 		rme96->areg &= ~RME96_AR_WSEL;
 		break;
 	case RME96_CLOCKMODE_MASTER:
-	        
+	        /* Internal */
 		rme96->wcreg |= RME96_WCR_MASTER;
 		rme96->areg &= ~RME96_AR_WSEL;
 		break;
 	case RME96_CLOCKMODE_WORDCLOCK:
-		
+		/* Word clock is a master mode */
 		rme96->wcreg |= RME96_WCR_MASTER; 
 		rme96->areg |= RME96_AR_WSEL;
 		break;
@@ -774,7 +815,7 @@ snd_rme96_setinputtype(struct rme96 *rme96,
 		    (rme96->pci->device == PCI_DEVICE_ID_RME_DIGI96_8_PAD_OR_PST &&
 		     rme96->rev > 4))
 		{
-			
+			/* Only Digi96/8 PRO and Digi96/8 PAD supports XLR */
 			return -EINVAL;
 		}
 		rme96->wcreg = (rme96->wcreg | RME96_WCR_INP_0) |
@@ -787,6 +828,10 @@ snd_rme96_setinputtype(struct rme96 *rme96,
 		rme96->areg |= RME96_AR_ANALOG;
 		writel(rme96->areg, rme96->iobase + RME96_IO_ADDITIONAL_REG);
 		if (rme96->rev < 4) {
+			/*
+			 * Revision less than 004 does not support 64 and
+			 * 88.2 kHz
+			 */
 			if (snd_rme96_capture_getrate(rme96, &n) == 88200) {
 				snd_rme96_capture_analog_setrate(rme96, 44100);
 			}
@@ -826,7 +871,7 @@ snd_rme96_setframelog(struct rme96 *rme96,
 	if (n_channels == 2) {
 		frlog = 1;
 	} else {
-		
+		/* assume 8 channels */
 		frlog = 3;
 	}
 	if (is_playback) {
@@ -911,7 +956,7 @@ snd_rme96_playback_hw_params(struct snd_pcm_substream *substream,
             snd_rme96_getinputtype(rme96) != RME96_INPUT_ANALOG &&
 	    (rate = snd_rme96_capture_getrate(rme96, &dummy)) > 0)
 	{
-                
+                /* slave clock */
                 if ((int)params_rate(params) != rate) {
 			spin_unlock_irq(&rme96->lock);
 			return -EIO;                    
@@ -936,7 +981,7 @@ snd_rme96_playback_hw_params(struct snd_pcm_substream *substream,
 	rme96->playback_periodsize =
 		params_period_size(params) << rme96->playback_frlog;
 	snd_rme96_set_period_properties(rme96, rme96->playback_periodsize);
-	
+	/* S/PDIF setup */
 	if ((rme96->wcreg & RME96_WCR_ADAT) == 0) {
 		rme96->wcreg &= ~(RME96_WCR_PRO | RME96_WCR_DOLBY | RME96_WCR_EMP);
 		writel(rme96->wcreg |= rme96->wcreg_spdif_stream, rme96->iobase + RME96_IO_CONTROL_REGISTER);
@@ -1027,6 +1072,10 @@ snd_rme96_capture_start(struct rme96 *rme96,
 static void
 snd_rme96_playback_stop(struct rme96 *rme96)
 {
+	/*
+	 * Check if there is an unconfirmed IRQ, if so confirm it, or else
+	 * the hardware will not stop generating interrupts
+	 */
 	rme96->rcreg = readl(rme96->iobase + RME96_IO_CONTROL_REGISTER);
 	if (rme96->rcreg & RME96_RCR_IRQ) {
 		writel(0, rme96->iobase + RME96_IO_CONFIRM_PLAY_IRQ);
@@ -1053,7 +1102,7 @@ snd_rme96_interrupt(int irq,
 	struct rme96 *rme96 = (struct rme96 *)dev_id;
 
 	rme96->rcreg = readl(rme96->iobase + RME96_IO_CONTROL_REGISTER);
-	
+	/* fastpath out, to ease interrupt sharing */
 	if (!((rme96->rcreg & RME96_RCR_IRQ) ||
 	      (rme96->rcreg & RME96_RCR_IRQ_2)))
 	{
@@ -1061,12 +1110,12 @@ snd_rme96_interrupt(int irq,
 	}
 	
 	if (rme96->rcreg & RME96_RCR_IRQ) {
-		
+		/* playback */
                 snd_pcm_period_elapsed(rme96->playback_substream);
 		writel(0, rme96->iobase + RME96_IO_CONFIRM_PLAY_IRQ);
 	}
 	if (rme96->rcreg & RME96_RCR_IRQ_2) {
-		
+		/* capture */
 		snd_pcm_period_elapsed(rme96->capture_substream);		
 		writel(0, rme96->iobase + RME96_IO_CONFIRM_REC_IRQ);
 	}
@@ -1122,7 +1171,7 @@ snd_rme96_playback_spdif_open(struct snd_pcm_substream *substream)
             snd_rme96_getinputtype(rme96) != RME96_INPUT_ANALOG &&
 	    (rate = snd_rme96_capture_getrate(rme96, &dummy)) > 0)
 	{
-                
+                /* slave clock */
                 runtime->hw.rates = snd_pcm_rate_to_rate_bit(rate);
                 runtime->hw.rate_min = rate;
                 runtime->hw.rate_max = rate;
@@ -1189,7 +1238,7 @@ snd_rme96_playback_adat_open(struct snd_pcm_substream *substream)
             snd_rme96_getinputtype(rme96) != RME96_INPUT_ANALOG &&
 	    (rate = snd_rme96_capture_getrate(rme96, &dummy)) > 0)
 	{
-                
+                /* slave clock */
                 runtime->hw.rates = snd_pcm_rate_to_rate_bit(rate);
                 runtime->hw.rate_min = rate;
                 runtime->hw.rate_max = rate;
@@ -1207,6 +1256,8 @@ snd_rme96_capture_adat_open(struct snd_pcm_substream *substream)
 
 	runtime->hw = snd_rme96_capture_adat_info;
         if (snd_rme96_getinputtype(rme96) == RME96_INPUT_ANALOG) {
+                /* makes no sense to use analog input. Note that analog
+                   expension cards AEB4/8-I are RME96_INPUT_INTERNAL */
                 return -EIO;
         }
         if ((rate = snd_rme96_capture_getrate(rme96, &isadat)) > 0) {
@@ -1516,10 +1567,10 @@ snd_rme96_create(struct rme96 *rme96)
 	}
 	rme96->irq = pci->irq;
 
-	
+	/* read the card's revision number */
 	pci_read_config_byte(pci, 8, &rme96->rev);	
 	
-	
+	/* set up ALSA pcm device for S/PDIF */
 	if ((err = snd_pcm_new(rme96->card, "Digi96 IEC958", 0,
 			       1, 1, &rme96->spdif_pcm)) < 0)
 	{
@@ -1533,9 +1584,9 @@ snd_rme96_create(struct rme96 *rme96)
 
 	rme96->spdif_pcm->info_flags = 0;
 
-	
+	/* set up ALSA pcm device for ADAT */
 	if (pci->device == PCI_DEVICE_ID_RME_DIGI96) {
-		
+		/* ADAT is not available on the base model */
 		rme96->adat_pcm = NULL;
 	} else {
 		if ((err = snd_pcm_new(rme96->card, "Digi96 ADAT", 1,
@@ -1555,53 +1606,56 @@ snd_rme96_create(struct rme96 *rme96)
 	rme96->playback_periodsize = 0;
 	rme96->capture_periodsize = 0;
 	
-	
+	/* make sure playback/capture is stopped, if by some reason active */
 	snd_rme96_playback_stop(rme96);
 	snd_rme96_capture_stop(rme96);
 	
-	
+	/* set default values in registers */
 	rme96->wcreg =
-		RME96_WCR_FREQ_1 | 
-		RME96_WCR_SEL |    
-		RME96_WCR_MASTER | 
-		RME96_WCR_INP_0;   
+		RME96_WCR_FREQ_1 | /* set 44.1 kHz playback */
+		RME96_WCR_SEL |    /* normal playback */
+		RME96_WCR_MASTER | /* set to master clock mode */
+		RME96_WCR_INP_0;   /* set coaxial input */
 
-	rme96->areg = RME96_AR_FREQPAD_1; 
+	rme96->areg = RME96_AR_FREQPAD_1; /* set 44.1 kHz analog capture */
 
 	writel(rme96->wcreg, rme96->iobase + RME96_IO_CONTROL_REGISTER);
 	writel(rme96->areg, rme96->iobase + RME96_IO_ADDITIONAL_REG);
 	
-	
+	/* reset the ADC */
 	writel(rme96->areg | RME96_AR_PD2,
 	       rme96->iobase + RME96_IO_ADDITIONAL_REG);
 	writel(rme96->areg, rme96->iobase + RME96_IO_ADDITIONAL_REG);	
 
-	
+	/* reset and enable the DAC (order is important). */
 	snd_rme96_reset_dac(rme96);
 	rme96->areg |= RME96_AR_DAC_EN;
 	writel(rme96->areg, rme96->iobase + RME96_IO_ADDITIONAL_REG);
 
-	
+	/* reset playback and record buffer pointers */
 	writel(0, rme96->iobase + RME96_IO_RESET_PLAY_POS);
 	writel(0, rme96->iobase + RME96_IO_RESET_REC_POS);
 
-	
+	/* reset volume */
 	rme96->vol[0] = rme96->vol[1] = 0;
 	if (RME96_HAS_ANALOG_OUT(rme96)) {
 		snd_rme96_apply_dac_volume(rme96);
 	}
 	
-	
+	/* init switch interface */
 	if ((err = snd_rme96_create_switches(rme96->card, rme96)) < 0) {
 		return err;
 	}
 
-        
+        /* init proc interface */
 	snd_rme96_proc_init(rme96);
 	
 	return 0;
 }
 
+/*
+ * proc interface
+ */
 
 static void 
 snd_rme96_proc_read(struct snd_info_entry *entry, struct snd_info_buffer *buffer)
@@ -1741,6 +1795,9 @@ snd_rme96_proc_init(struct rme96 *rme96)
 		snd_info_set_text_ops(entry, rme96, snd_rme96_proc_read);
 }
 
+/*
+ * control interface
+ */
 
 #define snd_rme96_info_loopback_control		snd_ctl_boolean_mono_info
 
@@ -1790,11 +1847,11 @@ snd_rme96_info_inputtype_control(struct snd_kcontrol *kcontrol, struct snd_ctl_e
 		break;
 	case PCI_DEVICE_ID_RME_DIGI96_8_PAD_OR_PST:
 		if (rme96->rev > 4) {
-			
+			/* PST */
 			uinfo->value.enumerated.items = 4;
-			texts[3] = _texts[4]; 
+			texts[3] = _texts[4]; /* Analog instead of XLR */
 		} else {
-			
+			/* PAD */
 			uinfo->value.enumerated.items = 5;
 		}
 		break;
@@ -1827,7 +1884,7 @@ snd_rme96_get_inputtype_control(struct snd_kcontrol *kcontrol, struct snd_ctl_el
 		break;
 	case PCI_DEVICE_ID_RME_DIGI96_8_PAD_OR_PST:
 		if (rme96->rev > 4) {
-			
+			/* for handling PST case, (INPUT_ANALOG is moved to INPUT_XLR */
 			if (ucontrol->value.enumerated.item[0] == RME96_INPUT_ANALOG) {
 				ucontrol->value.enumerated.item[0] = RME96_INPUT_XLR;
 			}
@@ -1875,7 +1932,7 @@ snd_rme96_put_inputtype_control(struct snd_kcontrol *kcontrol, struct snd_ctl_el
 	}
 	val = ucontrol->value.enumerated.item[0] % items;
 	
-	
+	/* special case for PST */
 	if (rme96->pci->device == PCI_DEVICE_ID_RME_DIGI96_8_PAD_OR_PST && rme96->rev > 4) {
 		if (val == RME96_INPUT_XLR) {
 			val = RME96_INPUT_ANALOG;
@@ -2247,7 +2304,7 @@ snd_rme96_create_switches(struct snd_card *card,
 	for (idx = 0; idx < 7; idx++) {
 		if ((err = snd_ctl_add(card, kctl = snd_ctl_new1(&snd_rme96_controls[idx], rme96))) < 0)
 			return err;
-		if (idx == 1)	
+		if (idx == 1)	/* IEC958 (S/PDIF) Stream */
 			rme96->spdif_ctl = kctl;
 	}
 
@@ -2260,6 +2317,9 @@ snd_rme96_create_switches(struct snd_card *card,
 	return 0;
 }
 
+/*
+ * Card initialisation
+ */
 
 static void snd_rme96_card_free(struct snd_card *card)
 {

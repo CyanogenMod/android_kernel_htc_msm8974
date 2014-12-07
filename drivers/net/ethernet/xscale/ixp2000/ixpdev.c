@@ -47,7 +47,7 @@ static int ixpdev_xmit(struct sk_buff *skb, struct net_device *dev)
 	unsigned long flags;
 
 	if (unlikely(skb->len > PAGE_SIZE)) {
-		
+		/* @@@ Count drops.  */
 		dev_kfree_skb(skb);
 		return NETDEV_TX_OK;
 	}
@@ -103,7 +103,7 @@ static int ixpdev_rx(struct net_device *dev, int processed, int budget)
 			goto err;
 		}
 
-		
+		/* @@@ Make FCS stripping configurable.  */
 		desc->pkt_length -= 4;
 
 		if (unlikely(!netif_running(nds[desc->channel])))
@@ -126,6 +126,7 @@ err:
 	return processed;
 }
 
+/* dev always points to nds[0].  */
 static int ixpdev_poll(struct napi_struct *napi, int budget)
 {
 	struct ixpdev_priv *ip = container_of(napi, struct ixpdev_priv, napi);
@@ -162,7 +163,7 @@ static void ixpdev_tx_complete(void)
 		if (desc == 0)
 			break;
 
-		
+		/* @@@ Check whether entries come back in order.  */
 		entry = (desc - TX_BUF_DESC_BASE) / sizeof(struct ixpdev_tx_desc);
 		channel = tx_desc[entry].channel;
 
@@ -195,6 +196,9 @@ static irqreturn_t ixpdev_interrupt(int irq, void *dev_id)
 	if (status == 0)
 		return IRQ_NONE;
 
+	/*
+	 * Any of the eight receive units signaled RX?
+	 */
 	if (status & 0x00ff) {
 		struct net_device *dev = nds[0];
 		struct ixpdev_priv *ip = netdev_priv(dev);
@@ -207,6 +211,9 @@ static irqreturn_t ixpdev_interrupt(int irq, void *dev_id)
 		}
 	}
 
+	/*
+	 * Any of the eight transmit units signaled TXdone?
+	 */
 	if (status & 0xff00) {
 		ixp2000_reg_wrb(IXP2000_IRQ_THD_RAW_STATUS_A_0, 0xff00);
 		ixpdev_tx_complete();
@@ -336,7 +343,7 @@ int ixpdev_init(int __nds_count, struct net_device **__nds,
 		rx_desc[i].buf_length = PAGE_SIZE;
 	}
 
-	
+	/* @@@ Maybe we shouldn't be preallocating TX buffers.  */
 	for (i = 0; i < TX_BUF_COUNT; i++) {
 		void *buf;
 
@@ -350,12 +357,12 @@ int ixpdev_init(int __nds_count, struct net_device **__nds,
 		tx_desc[i].buf_addr = virt_to_phys(buf);
 	}
 
-	
+	/* 256 entries, ring status set means 'empty', base address 0x0000.  */
 	ixp2000_reg_write(RING_RX_PENDING_BASE, 0x44000000);
 	ixp2000_reg_write(RING_RX_PENDING_HEAD, 0x00000000);
 	ixp2000_reg_write(RING_RX_PENDING_TAIL, 0x00000000);
 
-	
+	/* 256 entries, ring status set means 'full', base address 0x0400.  */
 	ixp2000_reg_write(RING_RX_DONE_BASE, 0x40000400);
 	ixp2000_reg_write(RING_RX_DONE_HEAD, 0x00000000);
 	ixp2000_reg_write(RING_RX_DONE_TAIL, 0x00000000);
@@ -368,12 +375,12 @@ int ixpdev_init(int __nds_count, struct net_device **__nds,
 	ixp2000_uengine_load(0, &ixp2400_rx);
 	ixp2000_uengine_start_contexts(0, 0xff);
 
-	
+	/* 256 entries, ring status set means 'empty', base address 0x0800.  */
 	ixp2000_reg_write(RING_TX_PENDING_BASE, 0x44000800);
 	ixp2000_reg_write(RING_TX_PENDING_HEAD, 0x00000000);
 	ixp2000_reg_write(RING_TX_PENDING_TAIL, 0x00000000);
 
-	
+	/* 256 entries, ring status set means 'full', base address 0x0c00.  */
 	ixp2000_reg_write(RING_TX_DONE_BASE, 0x40000c00);
 	ixp2000_reg_write(RING_TX_DONE_HEAD, 0x00000000);
 	ixp2000_reg_write(RING_TX_DONE_TAIL, 0x00000000);
@@ -413,7 +420,7 @@ void ixpdev_deinit(void)
 {
 	int i;
 
-	
+	/* @@@ Flush out pending packets.  */
 
 	for (i = 0; i < nds_count; i++)
 		unregister_netdev(nds[i]);

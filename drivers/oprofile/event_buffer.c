@@ -32,10 +32,21 @@ static unsigned long *event_buffer;
 static unsigned long buffer_size;
 static unsigned long buffer_watershed;
 static size_t buffer_pos;
+/* atomic_t because wait_event checks it outside of buffer_mutex */
 static atomic_t buffer_ready = ATOMIC_INIT(0);
 
+/*
+ * Add an entry to the event buffer. When we get near to the end we
+ * wake up the process sleeping on the read() of the file. To protect
+ * the event_buffer this function may only be called when buffer_mutex
+ * is set.
+ */
 void add_event_entry(unsigned long value)
 {
+	/*
+	 * This shouldn't happen since all workqueues or handlers are
+	 * canceled or flushed before the event buffer is freed.
+	 */
 	if (!event_buffer) {
 		WARN_ON_ONCE(1);
 		return;
@@ -54,6 +65,10 @@ void add_event_entry(unsigned long value)
 }
 
 
+/* Wake up the waiting process if any. This happens
+ * on "echo 0 >/dev/oprofile/enable" so the daemon
+ * processes the data remaining in the event buffer.
+ */
 void wake_up_buffer_waiter(void)
 {
 	mutex_lock(&buffer_mutex);
@@ -104,6 +119,10 @@ static int event_buffer_open(struct inode *inode, struct file *file)
 	if (test_and_set_bit_lock(0, &buffer_opened))
 		return -EBUSY;
 
+	/* Register as a user of dcookies
+	 * to ensure they persist for the lifetime of
+	 * the open event file
+	 */
 	err = -EINVAL;
 	file->private_data = dcookie_register();
 	if (!file->private_data)
@@ -112,6 +131,9 @@ static int event_buffer_open(struct inode *inode, struct file *file)
 	if ((err = oprofile_setup()))
 		goto fail;
 
+	/* NB: the actual start happens from userspace
+	 * echo 1 >/dev/oprofile/enable
+	 */
 
 	return nonseekable_open(inode, file);
 
@@ -141,7 +163,7 @@ static ssize_t event_buffer_read(struct file *file, char __user *buf,
 	int retval = -EINVAL;
 	size_t const max = buffer_size * sizeof(unsigned long);
 
-	
+	/* handling partial reads is more trouble than it's worth */
 	if (count != max || *offset)
 		return -EINVAL;
 
@@ -150,13 +172,13 @@ static ssize_t event_buffer_read(struct file *file, char __user *buf,
 	if (signal_pending(current))
 		return -EINTR;
 
-	
+	/* can't currently happen */
 	if (!atomic_read(&buffer_ready))
 		return -EAGAIN;
 
 	mutex_lock(&buffer_mutex);
 
-	
+	/* May happen if the buffer is freed during pending reads. */
 	if (!event_buffer) {
 		retval = -EINTR;
 		goto out;

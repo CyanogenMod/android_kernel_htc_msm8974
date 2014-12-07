@@ -1,3 +1,6 @@
+/*
+ *	vfsv0 quota IO operations on file
+ */
 
 #include <linux/errno.h>
 #include <linux/fs.h>
@@ -29,6 +32,7 @@ static int get_index(struct qtree_mem_dqinfo *info, qid_t id, int depth)
 	return id % epb;
 }
 
+/* Number of entries in one blocks */
 static int qtree_dqstr_in_blk(struct qtree_mem_dqinfo *info)
 {
 	return (info->dqi_usable_bs - sizeof(struct qt_disk_dqdbheader))
@@ -68,6 +72,7 @@ static ssize_t write_blk(struct qtree_mem_dqinfo *info, uint blk, char *buf)
 	return ret;
 }
 
+/* Remove empty block from list and return it */
 static int get_free_dqblk(struct qtree_mem_dqinfo *info)
 {
 	char *buf = getdqbuf(info->dqi_usable_bs);
@@ -85,7 +90,7 @@ static int get_free_dqblk(struct qtree_mem_dqinfo *info)
 	}
 	else {
 		memset(buf, 0, info->dqi_usable_bs);
-		
+		/* Assure block allocation... */
 		ret = write_blk(info, info->dqi_blocks, buf);
 		if (ret < 0)
 			goto out_buf;
@@ -98,6 +103,7 @@ out_buf:
 	return ret;
 }
 
+/* Insert empty block to the list */
 static int put_free_dqblk(struct qtree_mem_dqinfo *info, char *buf, uint blk)
 {
 	struct qt_disk_dqdbheader *dh = (struct qt_disk_dqdbheader *)buf;
@@ -114,6 +120,7 @@ static int put_free_dqblk(struct qtree_mem_dqinfo *info, char *buf, uint blk)
 	return 0;
 }
 
+/* Remove given block from the list of blocks with free entries */
 static int remove_free_dqentry(struct qtree_mem_dqinfo *info, char *buf,
 			       uint blk)
 {
@@ -150,7 +157,7 @@ static int remove_free_dqentry(struct qtree_mem_dqinfo *info, char *buf,
 	}
 	kfree(tmpbuf);
 	dh->dqdh_next_free = dh->dqdh_prev_free = cpu_to_le32(0);
-	
+	/* No matter whether write succeeds block is out of list */
 	if (write_blk(info, blk, buf) < 0)
 		quota_error(info->dqi_sb, "Can't write block (%u) "
 			    "with free entries", blk);
@@ -160,6 +167,7 @@ out_buf:
 	return err;
 }
 
+/* Insert given block to the beginning of list with free entries */
 static int insert_free_dqentry(struct qtree_mem_dqinfo *info, char *buf,
 			       uint blk)
 {
@@ -193,6 +201,7 @@ out_buf:
 	return err;
 }
 
+/* Is the entry in the block free? */
 int qtree_entry_unused(struct qtree_mem_dqinfo *info, char *disk)
 {
 	int i;
@@ -204,6 +213,7 @@ int qtree_entry_unused(struct qtree_mem_dqinfo *info, char *disk)
 }
 EXPORT_SYMBOL(qtree_entry_unused);
 
+/* Find space for dquot */
 static uint find_free_dqentry(struct qtree_mem_dqinfo *info,
 			      struct dquot *dquot, int *err)
 {
@@ -231,10 +241,12 @@ static uint find_free_dqentry(struct qtree_mem_dqinfo *info,
 			return 0;
 		}
 		memset(buf, 0, info->dqi_usable_bs);
+		/* This is enough as the block is already zeroed and the entry
+		 * list is empty... */
 		info->dqi_free_entry = blk;
 		mark_info_dirty(dquot->dq_sb, dquot->dq_type);
 	}
-	
+	/* Block will be full? */
 	if (le16_to_cpu(dh->dqdh_entries) + 1 >= qtree_dqstr_in_blk(info)) {
 		*err = remove_free_dqentry(info, buf, blk);
 		if (*err < 0) {
@@ -244,7 +256,7 @@ static uint find_free_dqentry(struct qtree_mem_dqinfo *info,
 		}
 	}
 	le16_add_cpu(&dh->dqdh_entries, 1);
-	
+	/* Find free structure in block */
 	ddquot = buf + sizeof(struct qt_disk_dqdbheader);
 	for (i = 0; i < qtree_dqstr_in_blk(info); i++) {
 		if (qtree_entry_unused(info, ddquot))
@@ -274,6 +286,7 @@ out_buf:
 	return 0;
 }
 
+/* Insert reference to structure into the trie */
 static int do_insert_tree(struct qtree_mem_dqinfo *info, struct dquot *dquot,
 			  uint *treeblk, int depth)
 {
@@ -330,6 +343,7 @@ out_buf:
 	return ret;
 }
 
+/* Wrapper for inserting quota structure into tree */
 static inline int dq_insert_tree(struct qtree_mem_dqinfo *info,
 				 struct dquot *dquot)
 {
@@ -337,6 +351,10 @@ static inline int dq_insert_tree(struct qtree_mem_dqinfo *info,
 	return do_insert_tree(info, dquot, &tmp, 0);
 }
 
+/*
+ * We don't have to be afraid of deadlocks as we never have quotas on quota
+ * files...
+ */
 int qtree_write_dquot(struct qtree_mem_dqinfo *info, struct dquot *dquot)
 {
 	int type = dquot->dq_type;
@@ -347,7 +365,7 @@ int qtree_write_dquot(struct qtree_mem_dqinfo *info, struct dquot *dquot)
 	if (!ddquot)
 		return -ENOMEM;
 
-	
+	/* dq_off is guarded by dqio_mutex */
 	if (!dquot->dq_off) {
 		ret = dq_insert_tree(info, dquot);
 		if (ret < 0) {
@@ -376,6 +394,7 @@ int qtree_write_dquot(struct qtree_mem_dqinfo *info, struct dquot *dquot)
 }
 EXPORT_SYMBOL(qtree_write_dquot);
 
+/* Free dquot entry in data block */
 static int free_dqentry(struct qtree_mem_dqinfo *info, struct dquot *dquot,
 			uint blk)
 {
@@ -399,7 +418,7 @@ static int free_dqentry(struct qtree_mem_dqinfo *info, struct dquot *dquot,
 	}
 	dh = (struct qt_disk_dqdbheader *)buf;
 	le16_add_cpu(&dh->dqdh_entries, -1);
-	if (!le16_to_cpu(dh->dqdh_entries)) {	
+	if (!le16_to_cpu(dh->dqdh_entries)) {	/* Block got free? */
 		ret = remove_free_dqentry(info, buf, blk);
 		if (ret >= 0)
 			ret = put_free_dqblk(info, buf, blk);
@@ -414,7 +433,7 @@ static int free_dqentry(struct qtree_mem_dqinfo *info, struct dquot *dquot,
 		       0, info->dqi_entry_size);
 		if (le16_to_cpu(dh->dqdh_entries) ==
 		    qtree_dqstr_in_blk(info) - 1) {
-			
+			/* Insert will write block itself */
 			ret = insert_free_dqentry(info, buf, blk);
 			if (ret < 0) {
 				quota_error(dquot->dq_sb, "Can't insert quota "
@@ -430,12 +449,13 @@ static int free_dqentry(struct qtree_mem_dqinfo *info, struct dquot *dquot,
 			}
 		}
 	}
-	dquot->dq_off = 0;	
+	dquot->dq_off = 0;	/* Quota is now unattached */
 out_buf:
 	kfree(buf);
 	return ret;
 }
 
+/* Remove reference to dquot from tree */
 static int remove_tree(struct qtree_mem_dqinfo *info, struct dquot *dquot,
 		       uint *blk, int depth)
 {
@@ -462,10 +482,10 @@ static int remove_tree(struct qtree_mem_dqinfo *info, struct dquot *dquot,
 	if (ret >= 0 && !newblk) {
 		int i;
 		ref[get_index(info, dquot->dq_id, depth)] = cpu_to_le32(0);
-		
+		/* Block got empty? */
 		for (i = 0; i < (info->dqi_usable_bs >> 2) && !ref[i]; i++)
 			;
-		
+		/* Don't put the root block into the free block list */
 		if (i == (info->dqi_usable_bs >> 2)
 		    && *blk != QT_TREEOFF) {
 			put_free_dqblk(info, buf, *blk);
@@ -483,16 +503,18 @@ out_buf:
 	return ret;
 }
 
+/* Delete dquot from tree */
 int qtree_delete_dquot(struct qtree_mem_dqinfo *info, struct dquot *dquot)
 {
 	uint tmp = QT_TREEOFF;
 
-	if (!dquot->dq_off)	
+	if (!dquot->dq_off)	/* Even not allocated? */
 		return 0;
 	return remove_tree(info, dquot, &tmp, 0);
 }
 EXPORT_SYMBOL(qtree_delete_dquot);
 
+/* Find entry in block */
 static loff_t find_block_dqentry(struct qtree_mem_dqinfo *info,
 				 struct dquot *dquot, uint blk)
 {
@@ -529,6 +551,7 @@ out_buf:
 	return ret;
 }
 
+/* Find entry for given id in the tree */
 static loff_t find_tree_dqentry(struct qtree_mem_dqinfo *info,
 				struct dquot *dquot, uint blk, int depth)
 {
@@ -546,7 +569,7 @@ static loff_t find_tree_dqentry(struct qtree_mem_dqinfo *info,
 	}
 	ret = 0;
 	blk = le32_to_cpu(ref[get_index(info, dquot->dq_id, depth)]);
-	if (!blk)	
+	if (!blk)	/* No reference? */
 		goto out_buf;
 	if (depth < info->dqi_qtree_depth - 1)
 		ret = find_tree_dqentry(info, dquot, blk, depth+1);
@@ -557,6 +580,7 @@ out_buf:
 	return ret;
 }
 
+/* Find entry for given id in the tree - wrapper function */
 static inline loff_t find_dqentry(struct qtree_mem_dqinfo *info,
 				  struct dquot *dquot)
 {
@@ -572,16 +596,16 @@ int qtree_read_dquot(struct qtree_mem_dqinfo *info, struct dquot *dquot)
 	int ret = 0;
 
 #ifdef __QUOTA_QT_PARANOIA
-	
+	/* Invalidated quota? */
 	if (!sb_dqopt(dquot->dq_sb)->files[type]) {
 		quota_error(sb, "Quota invalidated while reading!");
 		return -EIO;
 	}
 #endif
-	
+	/* Do we know offset of the dquot entry in the quota file? */
 	if (!dquot->dq_off) {
 		offset = find_dqentry(info, dquot);
-		if (offset <= 0) {	
+		if (offset <= 0) {	/* Entry not present? */
 			if (offset < 0)
 				quota_error(sb, "Can't read quota structure "
 					    "for id %u", dquot->dq_id);
@@ -623,6 +647,8 @@ out:
 }
 EXPORT_SYMBOL(qtree_read_dquot);
 
+/* Check whether dquot should not be deleted. We know we are
+ * the only one operating on dquot (thanks to dq_lock) */
 int qtree_release_dquot(struct qtree_mem_dqinfo *info, struct dquot *dquot)
 {
 	if (test_bit(DQ_FAKE_B, &dquot->dq_flags) &&

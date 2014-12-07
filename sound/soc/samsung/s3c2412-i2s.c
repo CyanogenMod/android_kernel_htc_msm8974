@@ -76,14 +76,14 @@ static int s3c2412_i2s_probe(struct snd_soc_dai *dai)
 		return PTR_ERR(s3c2412_i2s.iis_cclk);
 	}
 
-	
+	/* Set MPLL as the source for IIS CLK */
 
 	clk_set_parent(s3c2412_i2s.iis_cclk, clk_get(NULL, "mpll"));
 	clk_enable(s3c2412_i2s.iis_cclk);
 
 	s3c2412_i2s.iis_cclk = s3c2412_i2s.iis_pclk;
 
-	
+	/* Configure the I2S pins in correct mode */
 	s3c2410_gpio_cfgpin(S3C2410_GPE0, S3C2410_GPE0_I2SLRCK);
 	s3c2410_gpio_cfgpin(S3C2410_GPE1, S3C2410_GPE1_I2SSCLK);
 	s3c2410_gpio_cfgpin(S3C2410_GPE2, S3C2410_GPE2_CDCLK);
@@ -186,6 +186,7 @@ static struct platform_driver s3c2412_iis_driver = {
 
 module_platform_driver(s3c2412_iis_driver);
 
+/* Module information */
 MODULE_AUTHOR("Ben Dooks, <ben@simtec.co.uk>");
 MODULE_DESCRIPTION("S3C2412 I2S SoC Interface");
 MODULE_LICENSE("GPL");

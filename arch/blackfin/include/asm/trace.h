@@ -9,6 +9,9 @@
 #ifndef _BLACKFIN_TRACE_
 #define _BLACKFIN_TRACE_
 
+/* Normally, we use ON, but you can't turn on software expansion until
+ * interrupts subsystem is ready
+ */
 
 #define BFIN_TRACE_INIT ((CONFIG_DEBUG_BFIN_HWTRACE_COMPRESSION << 4) | 0x03)
 #ifdef CONFIG_DEBUG_BFIN_HWTRACE_EXPAND
@@ -28,6 +31,7 @@ static inline void decode_address(char *buf, unsigned long address) { }
 static inline bool get_instruction(unsigned int *val, unsigned short *address) { return false; }
 #endif
 
+/* Trace Macros for C files */
 
 #ifdef CONFIG_DEBUG_BFIN_HWTRACE_ON
 
@@ -43,13 +47,14 @@ static inline bool get_instruction(unsigned int *val, unsigned short *address) {
 	do { \
 		bfin_write_TBUFCTL((x));        \
 	} while (0)
-#else 
+#else /* DEBUG_BFIN_HWTRACE_ON */
 
 #define trace_buffer_save(x)
 #define trace_buffer_restore(x)
-#endif 
+#endif /* CONFIG_DEBUG_BFIN_HWTRACE_ON */
 
 #else
+/* Trace Macros for Assembly files */
 
 #ifdef CONFIG_DEBUG_BFIN_HWTRACE_ON
 
@@ -79,14 +84,14 @@ static inline bool get_instruction(unsigned int *val, unsigned short *address) {
 	dreg = [sp++]; \
 	[preg] = dreg;
 
-#else 
+#else /* CONFIG_DEBUG_BFIN_HWTRACE_ON */
 
 #define trace_buffer_stop(preg, dreg)
 #define trace_buffer_init(preg, dreg)
 #define trace_buffer_save(preg, dreg)
 #define trace_buffer_restore(preg, dreg)
 
-#endif 
+#endif /* CONFIG_DEBUG_BFIN_HWTRACE_ON */
 
 #ifdef CONFIG_DEBUG_BFIN_NO_KERN_HWTRACE
 # define DEBUG_HWTRACE_SAVE(preg, dreg)    trace_buffer_save(preg, dreg)
@@ -96,6 +101,6 @@ static inline bool get_instruction(unsigned int *val, unsigned short *address) {
 # define DEBUG_HWTRACE_RESTORE(preg, dreg)
 #endif
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif				
+#endif				/* _BLACKFIN_TRACE_ */

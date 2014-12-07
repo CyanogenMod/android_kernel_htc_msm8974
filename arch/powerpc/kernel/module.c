@@ -49,7 +49,7 @@ int module_finalize(const Elf_Ehdr *hdr,
 {
 	const Elf_Shdr *sect;
 
-	
+	/* Apply feature fixups */
 	sect = find_section(hdr, sechdrs, "__ftr_fixup");
 	if (sect != NULL)
 		do_feature_fixups(cur_cpu_spec->cpu_features,

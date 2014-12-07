@@ -31,6 +31,7 @@
 #include "ixgbe_type.h"
 #define IXGBE_I2C_EEPROM_DEV_ADDR    0xA0
 
+/* EEPROM byte offsets */
 #define IXGBE_SFF_IDENTIFIER         0x0
 #define IXGBE_SFF_IDENTIFIER_SFP     0x3
 #define IXGBE_SFF_VENDOR_OUI_BYTE0   0x25
@@ -41,6 +42,7 @@
 #define IXGBE_SFF_CABLE_TECHNOLOGY   0x8
 #define IXGBE_SFF_CABLE_SPEC_COMP    0x3C
 
+/* Bitmasks */
 #define IXGBE_SFF_DA_PASSIVE_CABLE           0x4
 #define IXGBE_SFF_DA_ACTIVE_CABLE            0x8
 #define IXGBE_SFF_DA_SPEC_ACTIVE_LIMITING    0x4
@@ -56,18 +58,22 @@
 #define IXGBE_I2C_EEPROM_STATUS_FAIL         0x2
 #define IXGBE_I2C_EEPROM_STATUS_IN_PROGRESS  0x3
 
+/* Flow control defines */
 #define IXGBE_TAF_SYM_PAUSE                  0x400
 #define IXGBE_TAF_ASM_PAUSE                  0x800
 
+/* Bit-shift macros */
 #define IXGBE_SFF_VENDOR_OUI_BYTE0_SHIFT    24
 #define IXGBE_SFF_VENDOR_OUI_BYTE1_SHIFT    16
 #define IXGBE_SFF_VENDOR_OUI_BYTE2_SHIFT    8
 
+/* Vendor OUIs: format of OUI is 0x[byte0][byte1][byte2][00] */
 #define IXGBE_SFF_VENDOR_OUI_TYCO     0x00407600
 #define IXGBE_SFF_VENDOR_OUI_FTL      0x00906500
 #define IXGBE_SFF_VENDOR_OUI_AVAGO    0x00176A00
 #define IXGBE_SFF_VENDOR_OUI_INTEL    0x001B2100
 
+/* I2C SDA and SCL timing parameters for standard mode */
 #define IXGBE_I2C_T_HD_STA  4
 #define IXGBE_I2C_T_LOW     5
 #define IXGBE_I2C_T_HIGH    4
@@ -98,6 +104,7 @@ s32 ixgbe_get_copper_link_capabilities_generic(struct ixgbe_hw *hw,
                                                ixgbe_link_speed *speed,
                                                bool *autoneg);
 
+/* PHY specific */
 s32 ixgbe_check_phy_link_tnx(struct ixgbe_hw *hw,
                              ixgbe_link_speed *speed,
                              bool *link_up);
@@ -121,4 +128,4 @@ s32 ixgbe_read_i2c_eeprom_generic(struct ixgbe_hw *hw, u8 byte_offset,
                                   u8 *eeprom_data);
 s32 ixgbe_write_i2c_eeprom_generic(struct ixgbe_hw *hw, u8 byte_offset,
                                    u8 eeprom_data);
-#endif 
+#endif /* _IXGBE_PHY_H_ */

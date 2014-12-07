@@ -18,6 +18,7 @@
 
 
 
+/* LCD Controller Hardware Desc */
 struct nuc900fb_hw {
 	unsigned int lcd_dccs;
 	unsigned int lcd_device_ctrl;
@@ -37,15 +38,16 @@ struct nuc900fb_hw {
 	unsigned int lcd_va_stuff;
 };
 
+/* LCD Display Description */
 struct nuc900fb_display {
-	
+	/* LCD Image type */
 	unsigned type;
 
-	
+	/* LCD Screen Size */
 	unsigned short width;
 	unsigned short height;
 
-	
+	/* LCD Screen Info */
 	unsigned short xres;
 	unsigned short yres;
 	unsigned short bpp;
@@ -58,7 +60,7 @@ struct nuc900fb_display {
 	unsigned short lower_margin;
 	unsigned short vsync_len;
 
-	
+	/* hardware special register value */
 	unsigned int dccs;
 	unsigned int devctl;
 	unsigned int fbctrl;
@@ -69,7 +71,7 @@ struct nuc900fb_mach_info {
 	struct nuc900fb_display *displays;
 	unsigned num_displays;
 	unsigned default_display;
-	
+	/* GPIO Setting  Info */
 	unsigned gpio_dir;
 	unsigned gpio_dir_mask;
 	unsigned gpio_data;
@@ -78,4 +80,4 @@ struct nuc900fb_mach_info {
 
 extern void __init nuc900_fb_set_platdata(struct nuc900fb_mach_info *);
 
-#endif 
+#endif /* __ASM_ARM_FB_H */

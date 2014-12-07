@@ -23,7 +23,7 @@
 #include <asm/gt64120.h>
 #include <asm/time.h>
 
-#define GT641XX_BASE_CLOCK	50000000	
+#define GT641XX_BASE_CLOCK	50000000	/* 50MHz */
 
 void __init plat_time_init(void)
 {
@@ -34,6 +34,10 @@ void __init plat_time_init(void)
 
 	gt641xx_set_base_clock(GT641XX_BASE_CLOCK);
 
+	/*
+	 * MIPS counter frequency is measured during a 100msec interval
+	 * using GT64111 timer0.
+	 */
 	while (!gt641xx_timer0_state())
 		;
 

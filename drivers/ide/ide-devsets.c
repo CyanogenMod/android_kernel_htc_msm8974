@@ -69,6 +69,9 @@ out:
 #endif
 }
 
+/*
+ * handle HDIO_SET_PIO_MODE ioctl abusers here, eventually it will go away
+ */
 static int set_pio_mode_abuse(ide_hwif_t *hwif, u8 req_pio)
 {
 	switch (req_pio) {
@@ -108,7 +111,7 @@ static int set_pio_mode(ide_drive_t *drive, int arg)
 		if (arg == 8 || arg == 9) {
 			unsigned long flags;
 
-			
+			/* take lock for IDE_DFLAG_[NO_]UNMASK/[NO_]IO_32BIT */
 			spin_lock_irqsave(&hwif->lock, flags);
 			port_ops->set_pio_mode(hwif, drive);
 			spin_unlock_irqrestore(&hwif->lock, flags);

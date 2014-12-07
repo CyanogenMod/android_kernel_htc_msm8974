@@ -22,6 +22,7 @@ int SM_SCSI_Write(struct us_data *us, struct scsi_cmnd *srb);
 extern PBYTE                SMHostAddr;
 extern DWORD                ErrXDCode;
 
+/* ----- SM_SCSIIrp() -------------------------------------------------- */
 int SM_SCSIIrp(struct us_data *us, struct scsi_cmnd *srb)
 {
 	int    result;
@@ -30,22 +31,22 @@ int SM_SCSIIrp(struct us_data *us, struct scsi_cmnd *srb)
 	switch (srb->cmnd[0]) {
 	case TEST_UNIT_READY:
 		result = SM_SCSI_Test_Unit_Ready(us, srb);
-		break;		
+		break;		/* 0x00 */
 	case INQUIRY:
 		result = SM_SCSI_Inquiry(us, srb);
-		break;		
+		break;		/* 0x12 */
 	case MODE_SENSE:
 		result = SM_SCSI_Mode_Sense(us, srb);
-		break;		
+		break;		/* 0x1A */
 	case READ_CAPACITY:
 		result = SM_SCSI_Read_Capacity(us, srb);
-		break;		
+		break;		/* 0x25 */
 	case READ_10:
 		result = SM_SCSI_Read(us, srb);
-		break;		
+		break;		/* 0x28 */
 	case WRITE_10:
 		result = SM_SCSI_Write(us, srb);
-		break;		
+		break;		/* 0x2A */
 
 	default:
 			us->SrbStatus = SS_ILLEGAL_REQUEST;
@@ -55,6 +56,7 @@ int SM_SCSIIrp(struct us_data *us, struct scsi_cmnd *srb)
 	return result;
 }
 
+/* ----- SM_SCSI_Test_Unit_Ready() -------------------------------------------------- */
 int SM_SCSI_Test_Unit_Ready(struct us_data *us, struct scsi_cmnd *srb)
 {
 	if (us->SM_Status.Insert && us->SM_Status.Ready)
@@ -67,6 +69,7 @@ int SM_SCSI_Test_Unit_Ready(struct us_data *us, struct scsi_cmnd *srb)
 	return USB_STOR_TRANSPORT_GOOD;
 }
 
+/* ----- SM_SCSI_Inquiry() -------------------------------------------------- */
 int SM_SCSI_Inquiry(struct us_data *us, struct scsi_cmnd *srb)
 {
 	BYTE data_ptr[36] = {0x00, 0x80, 0x02, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x55, 0x53, 0x42, 0x32, 0x2E, 0x30, 0x20, 0x20, 0x43, 0x61, 0x72, 0x64, 0x52, 0x65, 0x61, 0x64, 0x65, 0x72, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x30, 0x31, 0x30, 0x30};
@@ -76,6 +79,7 @@ int SM_SCSI_Inquiry(struct us_data *us, struct scsi_cmnd *srb)
 }
 
 
+/* ----- SM_SCSI_Mode_Sense() -------------------------------------------------- */
 int SM_SCSI_Mode_Sense(struct us_data *us, struct scsi_cmnd *srb)
 {
 	BYTE	mediaNoWP[12] = {0x0b, 0x00, 0x00, 0x08, 0x00, 0x00, 0x71, 0xc0, 0x00, 0x00, 0x02, 0x00};
@@ -90,6 +94,7 @@ int SM_SCSI_Mode_Sense(struct us_data *us, struct scsi_cmnd *srb)
 	return USB_STOR_TRANSPORT_GOOD;
 }
 
+/* ----- SM_SCSI_Read_Capacity() -------------------------------------------------- */
 int SM_SCSI_Read_Capacity(struct us_data *us, struct scsi_cmnd *srb)
 {
 	unsigned int offset = 0;
@@ -121,6 +126,7 @@ int SM_SCSI_Read_Capacity(struct us_data *us, struct scsi_cmnd *srb)
 	return USB_STOR_TRANSPORT_GOOD;
 }
 
+/* ----- SM_SCSI_Read() -------------------------------------------------- */
 int SM_SCSI_Read(struct us_data *us, struct scsi_cmnd *srb)
 {
 	int result = 0;
@@ -150,6 +156,7 @@ int SM_SCSI_Read(struct us_data *us, struct scsi_cmnd *srb)
 	return USB_STOR_TRANSPORT_GOOD;
 }
 
+/* ----- SM_SCSI_Write() -------------------------------------------------- */
 int SM_SCSI_Write(struct us_data *us, struct scsi_cmnd *srb)
 {
 	int result = 0;

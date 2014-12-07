@@ -51,9 +51,9 @@ static void __init patch_vdsox32(void *vdso, size_t len)
 		}
 	}
 
-	
+	/* If we get here, it's probably a bug. */
 	pr_warning("patch_vdsox32: .altinstructions not found\n");
-	return;  
+	return;  /* nothing to patch */
 
 found:
 	alt_data = (void *)hdr + alt_sec->sh_offset;
@@ -83,9 +83,9 @@ static void __init patch_vdso64(void *vdso, size_t len)
 		}
 	}
 
-	
+	/* If we get here, it's probably a bug. */
 	pr_warning("patch_vdso64: .altinstructions not found\n");
-	return;  
+	return;  /* nothing to patch */
 
 found:
 	alt_data = (void *)hdr + alt_sec->sh_offset;
@@ -117,6 +117,10 @@ subsys_initcall(init_vdso);
 
 struct linux_binprm;
 
+/* Put the vdso above the (randomized) stack with another randomized offset.
+   This way there is no hole in the middle of address space.
+   To save memory make sure it is still in the same PTE as the stack top.
+   This doesn't give that many random bits */
 static unsigned long vdso_addr(unsigned long start, unsigned len)
 {
 	unsigned long addr, end;
@@ -125,18 +129,25 @@ static unsigned long vdso_addr(unsigned long start, unsigned len)
 	if (end >= TASK_SIZE_MAX)
 		end = TASK_SIZE_MAX;
 	end -= len;
-	
+	/* This loses some more bits than a modulo, but is cheaper */
 	offset = get_random_int() & (PTRS_PER_PTE - 1);
 	addr = start + (offset << PAGE_SHIFT);
 	if (addr >= end)
 		addr = end;
 
+	/*
+	 * page-align it here so that get_unmapped_area doesn't
+	 * align it wrongfully again to the next page. addr can come in 4K
+	 * unaligned here as a result of stack start randomization.
+	 */
 	addr = PAGE_ALIGN(addr);
 	addr = align_addr(addr, NULL, ALIGN_VDSO);
 
 	return addr;
 }
 
+/* Setup a VMA at program startup for the vsyscall page.
+   Not called for compat tasks */
 static int setup_additional_pages(struct linux_binprm *bprm,
 				  int uses_interp,
 				  struct page **pages,

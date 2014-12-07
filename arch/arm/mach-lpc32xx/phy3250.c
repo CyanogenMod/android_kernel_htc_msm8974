@@ -41,11 +41,17 @@
 #include <mach/gpio-lpc32xx.h>
 #include "common.h"
 
+/*
+ * Mapped GPIOLIB GPIOs
+ */
 #define SPI0_CS_GPIO	LPC32XX_GPIO(LPC32XX_GPIO_P3_GRP, 5)
 #define LCD_POWER_GPIO	LPC32XX_GPIO(LPC32XX_GPO_P3_GRP, 0)
 #define BKL_POWER_GPIO	LPC32XX_GPIO(LPC32XX_GPO_P3_GRP, 4)
 #define LED_GPIO	LPC32XX_GPIO(LPC32XX_GPO_P3_GRP, 1)
 
+/*
+ * AMBA LCD controller
+ */
 static struct clcd_panel conn_lcd_panel = {
 	.mode		= {
 		.name		= "QVGA portrait",
@@ -116,6 +122,11 @@ static void lpc32xx_clcd_remove(struct clcd_fb *fb)
 		fb->fb.screen_base, fb->fb.fix.smem_start);
 }
 
+/*
+ * On some early LCD modules (1307.0), the backlight logic is inverted.
+ * For those board variants, swap the disable and enable states for
+ * BKL_POWER_GPIO.
+*/
 static void clcd_disable(struct clcd_fb *fb)
 {
 	gpio_set_value(BKL_POWER_GPIO, 0);
@@ -142,6 +153,9 @@ static struct clcd_board lpc32xx_clcd_data = {
 static AMBA_AHB_DEVICE(lpc32xx_clcd, "dev:clcd", 0,
 	LPC32XX_LCD_BASE, { IRQ_LPC32XX_LCD }, &lpc32xx_clcd_data);
 
+/*
+ * AMBA SSP (SPI)
+ */
 static void phy3250_spi_cs_set(u32 control)
 {
 	gpio_set_value(SPI0_CS_GPIO, (int) control);
@@ -169,6 +183,7 @@ static struct pl022_ssp_controller lpc32xx_ssp0_data = {
 static AMBA_APB_DEVICE(lpc32xx_ssp0, "dev:ssp0", 0,
 	LPC32XX_SSP0_BASE, { IRQ_LPC32XX_SSP0 }, &lpc32xx_ssp0_data);
 
+/* AT25 driver registration */
 static int __init phy3250_spi_board_register(void)
 {
 #if defined(CONFIG_SPI_SPIDEV) || defined(CONFIG_SPI_SPIDEV_MODULE)
@@ -250,6 +265,9 @@ static struct amba_device *amba_devs[] __initdata = {
 	&lpc32xx_ssp0_device,
 };
 
+/*
+ * Board specific functions
+ */
 static void __init phy3250_board_init(void)
 {
 	u32 tmp;
@@ -257,7 +275,7 @@ static void __init phy3250_board_init(void)
 
 	lpc32xx_gpio_init();
 
-	
+	/* Register GPIOs used on this board */
 	if (gpio_request(SPI0_CS_GPIO, "spi0 cs"))
 		printk(KERN_ERR "Error requesting gpio %u",
 			SPI0_CS_GPIO);
@@ -265,41 +283,47 @@ static void __init phy3250_board_init(void)
 		printk(KERN_ERR "Error setting gpio %u to output",
 			SPI0_CS_GPIO);
 
-	
+	/* Setup network interface for RMII mode */
 	tmp = __raw_readl(LPC32XX_CLKPWR_MACCLK_CTRL);
 	tmp &= ~LPC32XX_CLKPWR_MACCTRL_PINS_MSK;
 	tmp |= LPC32XX_CLKPWR_MACCTRL_USE_RMII_PINS;
 	__raw_writel(tmp, LPC32XX_CLKPWR_MACCLK_CTRL);
 
-	
+	/* Setup SLC NAND controller muxing */
 	__raw_writel(LPC32XX_CLKPWR_NANDCLK_SEL_SLC,
 		LPC32XX_CLKPWR_NAND_CLK_CTRL);
 
-	
+	/* Setup LCD muxing to RGB565 */
 	tmp = __raw_readl(LPC32XX_CLKPWR_LCDCLK_CTRL) &
 		~(LPC32XX_CLKPWR_LCDCTRL_LCDTYPE_MSK |
 		LPC32XX_CLKPWR_LCDCTRL_PSCALE_MSK);
 	tmp |= LPC32XX_CLKPWR_LCDCTRL_LCDTYPE_TFT16;
 	__raw_writel(tmp, LPC32XX_CLKPWR_LCDCLK_CTRL);
 
-	
+	/* Set up I2C pull levels */
 	tmp = __raw_readl(LPC32XX_CLKPWR_I2C_CLK_CTRL);
 	tmp |= LPC32XX_CLKPWR_I2CCLK_USBI2CHI_DRIVE |
 		LPC32XX_CLKPWR_I2CCLK_I2C2HI_DRIVE;
 	__raw_writel(tmp, LPC32XX_CLKPWR_I2C_CLK_CTRL);
 
-	
+	/* Disable IrDA pulsing support on UART6 */
 	tmp = __raw_readl(LPC32XX_UARTCTL_CTRL);
 	tmp |= LPC32XX_UART_UART6_IRDAMOD_BYPASS;
 	__raw_writel(tmp, LPC32XX_UARTCTL_CTRL);
 
-	
+	/* Enable DMA for I2S1 channel */
 	tmp = __raw_readl(LPC32XX_CLKPWR_I2S_CLK_CTRL);
 	tmp = LPC32XX_CLKPWR_I2SCTRL_I2S1_USE_DMA;
 	__raw_writel(tmp, LPC32XX_CLKPWR_I2S_CLK_CTRL);
 
 	lpc32xx_serial_init();
 
+	/*
+	 * AMBA peripheral clocks need to be enabled prior to AMBA device
+	 * detection or a data fault will occur, so enable the clocks
+	 * here. However, we don't want to enable them if the peripheral
+	 * isn't included in the image
+	 */
 #ifdef CONFIG_FB_ARMCLCD
 	tmp = __raw_readl(LPC32XX_CLKPWR_LCDCLK_CTRL);
 	__raw_writel((tmp | LPC32XX_CLKPWR_LCDCTRL_CLK_EN),
@@ -317,7 +341,7 @@ static void __init phy3250_board_init(void)
 		amba_device_register(d, &iomem_resource);
 	}
 
-	
+	/* Test clock needed for UDA1380 initial init */
 	__raw_writel(LPC32XX_CLKPWR_TESTCLK2_SEL_MOSC |
 		LPC32XX_CLKPWR_TESTCLK_TESTCLK2_EN,
 		LPC32XX_CLKPWR_TEST_CLK_SEL);
@@ -340,7 +364,7 @@ static int __init lpc32xx_display_uid(void)
 arch_initcall(lpc32xx_display_uid);
 
 MACHINE_START(PHY3250, "Phytec 3250 board with the LPC3250 Microcontroller")
-	
+	/* Maintainer: Kevin Wells, NXP Semiconductors */
 	.atag_offset	= 0x100,
 	.map_io		= lpc32xx_map_io,
 	.init_irq	= lpc32xx_init_irq,

@@ -15,24 +15,28 @@ static void logfs_calc_free(struct super_block *sb)
 	s64 free;
 	int i;
 
-	
+	/* superblock segments */
 	no_segs -= 2;
 	super->s_no_journal_segs = 0;
-	
+	/* journal */
 	journal_for_each(i)
 		if (super->s_journal_seg[i]) {
 			no_segs--;
 			super->s_no_journal_segs++;
 		}
 
-	
+	/* open segments plus one extra per level for GC */
 	no_segs -= 2 * super->s_total_levels;
 
 	free = no_segs * (super->s_segsize - LOGFS_SEGMENT_RESERVE);
 	free -= super->s_used_bytes;
-	
+	/* just a bit extra */
 	free -= super->s_total_levels * 4096;
 
+	/* Bad blocks are 'paid' for with speed reserve - the filesystem
+	 * simply gets slower as bad blocks accumulate.  Until the bad blocks
+	 * exceed the speed reserve - then the filesystem gets smaller.
+	 */
 	reserve = super->s_bad_segments + super->s_bad_seg_reserve;
 	reserve *= super->s_segsize - LOGFS_SEGMENT_RESERVE;
 	reserve = max(reserve, super->s_speed_reserve);
@@ -118,7 +122,7 @@ static int read_area(struct super_block *sb, struct logfs_je_area *a)
 	if (a->gc_level >= LOGFS_NO_AREAS)
 		return -EIO;
 	if (a->vim != VIM_DEFAULT)
-		return -EIO; 
+		return -EIO; /* TODO: close area and continue */
 
 	area->a_used_bytes = be32_to_cpu(a->used_bytes);
 	area->a_written_bytes = area->a_used_bytes & writemask;
@@ -161,7 +165,7 @@ static int __read_je_header(struct super_block *sb, u64 ofs,
 	u16 type, len, datalen;
 	int err;
 
-	
+	/* read header only */
 	err = wbuf_read(sb, ofs, sizeof(*jh), jh);
 	if (err)
 		return err;
@@ -188,6 +192,11 @@ static int __read_je_payload(struct super_block *sb, u64 ofs,
 	if (err)
 		return err;
 	if (jh->h_crc != logfs_crc32(jh, len + sizeof(*jh), 4)) {
+		/* Old code was confused.  It forgot about the header length
+		 * and stopped calculating the crc 16 bytes before the end
+		 * of data - ick!
+		 * FIXME: Remove this hack once the old code is fixed.
+		 */
 		if (jh->h_crc == logfs_crc32(jh, len, 4))
 			WARN_ON_ONCE(1);
 		else
@@ -196,6 +205,9 @@ static int __read_je_payload(struct super_block *sb, u64 ofs,
 	return 0;
 }
 
+/*
+ * jh needs to be large enough to hold the complete entry, not just the header
+ */
 static int __read_je(struct super_block *sb, u64 ofs,
 		struct logfs_journal_header *jh)
 {
@@ -254,7 +266,7 @@ static int logfs_read_segment(struct super_block *sb, u32 segno)
 	u16 len, datalen, last_len = 0;
 	int i, err;
 
-	
+	/* search for most recent commit */
 	for (h_ofs = 0; h_ofs < super->s_segsize; h_ofs += sizeof(*jh)) {
 		ofs = seg_ofs + h_ofs;
 		err = __read_je_header(sb, ofs, jh);
@@ -274,19 +286,19 @@ static int logfs_read_segment(struct super_block *sb, u32 segno)
 		last_len = datalen;
 		h_ofs += ALIGN(len, sizeof(*jh)) - sizeof(*jh);
 	}
-	
+	/* read commit */
 	if (last_ofs == 0)
 		return -ENOENT;
 	ofs = seg_ofs + last_ofs;
 	log_journal("Read commit from %llx\n", ofs);
 	err = __read_je(sb, ofs, jh);
-	BUG_ON(err); 
+	BUG_ON(err); /* We should have caught it in the scan loop already */
 	if (err)
 		return err;
-	
+	/* uncompress */
 	unpack(jh, super->s_je_array);
 	super->s_no_je = last_len / sizeof(__be64);
-	
+	/* iterate over array */
 	for (i = 0; i < super->s_no_je; i++) {
 		err = read_je(sb, be64_to_cpu(super->s_je_array[i]));
 		if (err)
@@ -310,7 +322,7 @@ static u64 read_gec(struct super_block *sb, u32 segno)
 	crc = logfs_crc32(&sh, sizeof(sh), 4);
 	if (crc != sh.crc) {
 		WARN_ON(sh.gec != cpu_to_be64(0xffffffffffffffffull));
-		
+		/* Most likely it was just erased */
 		return 0;
 	}
 	return be64_to_cpu(sh.gec);
@@ -335,10 +347,14 @@ static int logfs_read_journal(struct super_block *sb)
 	}
 	if (max_i == -1)
 		return -EIO;
-	
+	/* FIXME: Try older segments in case of error */
 	return logfs_read_segment(sb, super->s_journal_seg[max_i]);
 }
 
+/*
+ * First search the current segment (outer loop), then pick the next segment
+ * in the array, skipping any zero entries (inner loop).
+ */
 static void journal_get_free_segment(struct logfs_area *area)
 {
 	struct logfs_super *super = logfs_super(area->a_sb);
@@ -365,6 +381,8 @@ static void journal_get_free_segment(struct logfs_area *area)
 
 static void journal_get_erase_count(struct logfs_area *area)
 {
+	/* erase count is stored globally and incremented in
+	 * journal_get_free_segment() - nothing to do here */
 }
 
 static int journal_erase_segment(struct logfs_area *area)
@@ -390,8 +408,8 @@ static int journal_erase_segment(struct logfs_area *area)
 	u.sh.gec = cpu_to_be64(logfs_super(sb)->s_gec);
 	u.sh.crc = logfs_crc32(&u.sh, sizeof(u.sh), 4);
 
-	
-	
+	/* This causes a bug in segment.c.  Not yet. */
+	//logfs_set_segment_erased(sb, area->a_segno, area->a_erase_count, 0);
 
 	ofs = dev_ofs(sb, area->a_segno, 0);
 	area->a_used_bytes = sizeof(u);
@@ -450,12 +468,12 @@ static void account_shadow(void *_shadow, unsigned long _sb, u64 ignore,
 	struct super_block *sb = (void *)_sb;
 	struct logfs_super *super = logfs_super(sb);
 
-	
+	/* consume new space */
 	super->s_free_bytes	  -= shadow->new_len;
 	super->s_used_bytes	  += shadow->new_len;
 	super->s_dirty_used_bytes -= shadow->new_len;
 
-	
+	/* free up old space */
 	super->s_free_bytes	  += shadow->old_len;
 	super->s_used_bytes	  -= shadow->old_len;
 	super->s_dirty_free_bytes -= shadow->old_len;
@@ -483,6 +501,12 @@ static void account_shadows(struct super_block *sb)
 	tree->no_shadowed_segments = 0;
 
 	if (li->li_block) {
+		/*
+		 * We never actually use the structure, when attached to the
+		 * master inode.  But it is easier to always free it here than
+		 * to have checks in several places elsewhere when allocating
+		 * it.
+		 */
 		li->li_block->ops->free_block(sb, li->li_block);
 	}
 	BUG_ON((s64)li->li_used_bytes < 0);
@@ -720,7 +744,7 @@ void logfs_write_anchor(struct super_block *sb)
 	BUG_ON(super->s_flags & LOGFS_SB_FLAG_SHUTDOWN);
 	mutex_lock(&super->s_journal_mutex);
 
-	
+	/* Do this first or suffer corruption */
 	logfs_sync_segments(sb);
 	account_shadows(sb);
 
@@ -760,6 +784,10 @@ again:
 	 * another logfs_sync_area() super->s_devops->sync() combo before
 	 * writing the commit.
 	 */
+	/*
+	 * On another subject, super->s_devops->sync is usually not necessary.
+	 * Unless called from sys_sync or friends, a barrier would suffice.
+	 */
 	super->s_devops->sync(sb);
 	err = logfs_write_je(sb, logfs_write_commit);
 	if (err)
@@ -783,7 +811,7 @@ void do_logfs_journal_wl_pass(struct super_block *sb)
 	int i, err;
 
 	log_journal("Journal requires wear-leveling.\n");
-	
+	/* Drop old segments */
 	journal_for_each(i)
 		if (super->s_journal_seg[i]) {
 			btree_remove32(head, super->s_journal_seg[i]);
@@ -793,25 +821,25 @@ void do_logfs_journal_wl_pass(struct super_block *sb)
 			super->s_journal_seg[i] = 0;
 			super->s_journal_ec[i] = 0;
 		}
-	
+	/* Get new segments */
 	for (i = 0; i < super->s_no_journal_segs; i++) {
 		segno = get_best_cand(sb, &super->s_reserve_list, &ec);
 		super->s_journal_seg[i] = segno;
 		super->s_journal_ec[i] = ec;
 		logfs_set_segment_reserved(sb, segno);
 		err = btree_insert32(head, segno, (void *)1, GFP_NOFS);
-		BUG_ON(err); 
+		BUG_ON(err); /* mempool should prevent this */
 		err = logfs_erase_segment(sb, segno, 1);
-		BUG_ON(err); 
+		BUG_ON(err); /* FIXME: remount-ro would be nicer */
 	}
-	
+	/* Manually move journal_area */
 	freeseg(sb, area->a_segno);
 	area->a_segno = super->s_journal_seg[0];
 	area->a_is_open = 0;
 	area->a_used_bytes = 0;
-	
+	/* Write journal */
 	logfs_write_anchor(sb);
-	
+	/* Write superblocks */
 	err = logfs_write_sb(sb);
 	BUG_ON(err);
 }

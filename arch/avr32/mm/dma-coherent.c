@@ -15,17 +15,20 @@
 
 void dma_cache_sync(struct device *dev, void *vaddr, size_t size, int direction)
 {
+	/*
+	 * No need to sync an uncached area
+	 */
 	if (PXSEG(vaddr) == P2SEG)
 		return;
 
 	switch (direction) {
-	case DMA_FROM_DEVICE:		
+	case DMA_FROM_DEVICE:		/* invalidate only */
 		invalidate_dcache_region(vaddr, size);
 		break;
-	case DMA_TO_DEVICE:		
+	case DMA_TO_DEVICE:		/* writeback only */
 		clean_dcache_region(vaddr, size);
 		break;
-	case DMA_BIDIRECTIONAL:		
+	case DMA_BIDIRECTIONAL:		/* writeback and invalidate */
 		flush_dcache_region(vaddr, size);
 		break;
 	default:
@@ -40,6 +43,11 @@ static struct page *__dma_alloc(struct device *dev, size_t size,
 	struct page *page, *free, *end;
 	int order;
 
+	/* Following is a work-around (a.k.a. hack) to prevent pages
+	 * with __GFP_COMP being passed to split_page() which cannot
+	 * handle them.  The real problem is that this flag probably
+	 * should be 0 on AVR32 as it is not supported on this
+	 * platform--see CONFIG_HUGETLB_PAGE. */
 	gfp &= ~(__GFP_COMP);
 
 	size = PAGE_ALIGN(size);
@@ -50,12 +58,24 @@ static struct page *__dma_alloc(struct device *dev, size_t size,
 		return NULL;
 	split_page(page, order);
 
+	/*
+	 * When accessing physical memory with valid cache data, we
+	 * get a cache hit even if the virtual memory region is marked
+	 * as uncached.
+	 *
+	 * Since the memory is newly allocated, there is no point in
+	 * doing a writeback. If the previous owner cares, he should
+	 * have flushed the cache before releasing the memory.
+	 */
 	invalidate_dcache_region(phys_to_virt(page_to_phys(page)), size);
 
 	*handle = page_to_bus(page);
 	free = page + (size >> PAGE_SHIFT);
 	end = page + (1 << order);
 
+	/*
+	 * Free any unused pages
+	 */
 	while (free < end) {
 		__free_page(free);
 		free++;
@@ -114,7 +134,7 @@ void *dma_alloc_writecombine(struct device *dev, size_t size,
 	phys = page_to_phys(page);
 	*handle = phys;
 
-	
+	/* Now, map the page into P3 with write-combining turned on */
 	return __ioremap(phys, size, _PAGE_BUFFER);
 }
 EXPORT_SYMBOL(dma_alloc_writecombine);

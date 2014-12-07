@@ -53,9 +53,10 @@ struct adcxx {
 	struct device *hwmon_dev;
 	struct mutex lock;
 	u32 channels;
-	u32 reference; 
+	u32 reference; /* in millivolts */
 };
 
+/* sysfs hook function */
 static ssize_t adcxx_read(struct device *dev,
 		struct device_attribute *devattr, char *buf)
 {
@@ -73,7 +74,7 @@ static ssize_t adcxx_read(struct device *dev,
 	if (adc->channels == 1) {
 		status = spi_read(spi, rx_buf, sizeof(rx_buf));
 	} else {
-		tx_buf[0] = attr->index << 3; 
+		tx_buf[0] = attr->index << 3; /* other bits are don't care */
 		status = spi_write_then_read(spi, tx_buf, sizeof(tx_buf),
 						rx_buf, sizeof(rx_buf));
 	}
@@ -96,7 +97,7 @@ out:
 static ssize_t adcxx_show_min(struct device *dev,
 		struct device_attribute *devattr, char *buf)
 {
-	
+	/* The minimum reference is 0 for this chip family */
 	return sprintf(buf, "0\n");
 }
 
@@ -161,6 +162,7 @@ static struct sensor_device_attribute ad_input[] = {
 	SENSOR_ATTR(in7_input, S_IRUGO, adcxx_read, NULL, 7),
 };
 
+/*----------------------------------------------------------------------*/
 
 static int __devinit adcxx_probe(struct spi_device *spi)
 {
@@ -173,7 +175,7 @@ static int __devinit adcxx_probe(struct spi_device *spi)
 	if (!adc)
 		return -ENOMEM;
 
-	
+	/* set a default value for the reference */
 	adc->reference = 3300;
 	adc->channels = channels;
 	mutex_init(&adc->lock);

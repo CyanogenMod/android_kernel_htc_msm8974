@@ -22,6 +22,32 @@
  */
 
 
+ /*
+  * The i.MX21 USB hardware contains
+  *    * 32 transfer descriptors (called ETDs)
+  *    * 4Kb of Data memory
+  *
+  * The data memory is shared between the host and function controllers
+  * (but this driver only supports the host controller)
+  *
+  * So setting up a transfer involves:
+  *    * Allocating a ETD
+  *    * Fill in ETD with appropriate information
+  *    * Allocating data memory (and putting the offset in the ETD)
+  *    * Activate the ETD
+  *    * Get interrupt when done.
+  *
+  * An ETD is assigned to each active endpoint.
+  *
+  * Low resource (ETD and Data memory) situations are handled differently for
+  * isochronous and non insosynchronous transactions :
+  *
+  * Non ISOC transfers are queued if either ETDs or Data memory are unavailable
+  *
+  * ISOC transfers use 2 ETDs per endpoint to achieve double buffering.
+  * They allocate both ETDs and Data memory during URB submission
+  * (and fail if unavailable).
+  */
 
 #include <linux/clk.h>
 #include <linux/io.h>
@@ -50,6 +76,9 @@ static inline struct imx21 *hcd_to_imx21(struct usb_hcd *hcd)
 }
 
 
+/* =========================================== */
+/* Hardware access helpers			*/
+/* =========================================== */
 
 static inline void set_register_bits(struct imx21 *imx21, u32 offset, u32 mask)
 {
@@ -97,7 +126,7 @@ static inline int wrap_frame(int counter)
 
 static inline int frame_after(int frame, int after)
 {
-	
+	/* handle wrapping like jiffies time_afer */
 	return (s16)((s16)after - (s16)frame) < 0;
 }
 
@@ -120,6 +149,9 @@ static void nonisoc_urb_completed_for_etd(
 static void schedule_nonisoc_etd(struct imx21 *imx21, struct urb *urb);
 static void free_dmem(struct imx21 *imx21, struct etd_priv *etd);
 
+/* =========================================== */
+/* ETD management				*/
+/* ===========================================	*/
 
 static int alloc_etd(struct imx21 *imx21)
 {
@@ -200,6 +232,10 @@ static void setup_etd_dword0(struct imx21 *imx21,
 		((u32) maxpacket << DW0_MAXPKTSIZ));
 }
 
+/**
+ * Copy buffer to data controller data memory.
+ * We cannot use memcpy_toio() because the hardware requires 32bit writes
+ */
 static void copy_to_dmem(
 	struct imx21 *imx21, int dmem_offset, void *src, int count)
 {
@@ -229,9 +265,9 @@ static void activate_etd(struct imx21 *imx21, int etd_num, u8 dir)
 	struct etd_priv *etd = &imx21->etd[etd_num];
 
 	if (etd->dma_handle && unsuitable_for_dma(etd->dma_handle)) {
-		
+		/* For non aligned isoc the condition below is always true */
 		if (etd->len <= etd->dmem_size) {
-			
+			/* Fits into data memory, use PIO */
 			if (dir != TD_DIR_IN) {
 				copy_to_dmem(imx21,
 						etd->dmem_offset,
@@ -240,7 +276,7 @@ static void activate_etd(struct imx21 *imx21, int etd_num, u8 dir)
 			etd->dma_handle = 0;
 
 		} else {
-			
+			/* Too big for data memory, use bounce buffer */
 			enum dma_data_direction dmadir;
 
 			if (dir == TD_DIR_IN) {
@@ -283,7 +319,7 @@ static void activate_etd(struct imx21 *imx21, int etd_num, u8 dir)
 		set_register_bits(imx21, USB_ETDDMAEN, etd_mask);
 	} else {
 		if (dir != TD_DIR_IN) {
-			
+			/* need to set for ZLP and PIO */
 			set_toggle_bit(imx21, USBH_XFILLSTAT, etd_mask);
 			set_toggle_bit(imx21, USBH_YFILLSTAT, etd_mask);
 		}
@@ -316,6 +352,9 @@ err_bounce_alloc:
 	nonisoc_urb_completed_for_etd(imx21, etd, -ENOMEM);
 }
 
+/* ===========================================	*/
+/* Data memory management			*/
+/* ===========================================	*/
 
 static int alloc_dmem(struct imx21 *imx21, unsigned int size,
 		      struct usb_host_endpoint *ep)
@@ -324,7 +363,7 @@ static int alloc_dmem(struct imx21 *imx21, unsigned int size,
 	struct imx21_dmem_area *area;
 	struct imx21_dmem_area *tmp;
 
-	size += (~size + 1) & 0x3; 
+	size += (~size + 1) & 0x3; /* Round to 4 byte multiple */
 
 	if (size > DMEM_SIZE) {
 		dev_err(imx21->dev, "size=%d > DMEM_SIZE(%d)\n",
@@ -357,6 +396,7 @@ fail:
 	return -ENOMEM;
 }
 
+/* Memory now available for a queued ETD - activate it */
 static void activate_queued_etd(struct imx21 *imx21,
 	struct etd_priv *etd, u32 dmem_offset)
 {
@@ -403,7 +443,7 @@ static void free_dmem(struct imx21 *imx21, struct etd_priv *etd)
 		return;
 	}
 
-	
+	/* Try again to allocate memory for anything we've queued */
 	list_for_each_entry_safe(etd, tmp, &imx21->queue_for_dmem, queue) {
 		offset = alloc_dmem(imx21, etd->dmem_size, etd->ep);
 		if (offset >= 0) {
@@ -429,7 +469,11 @@ static void free_epdmem(struct imx21 *imx21, struct usb_host_endpoint *ep)
 }
 
 
+/* ===========================================	*/
+/* End handling 				*/
+/* ===========================================	*/
 
+/* Endpoint now idle - release its ETD(s) or assign to queued request */
 static void ep_idle(struct imx21 *imx21, struct ep_priv *ep_priv)
 {
 	int i;
@@ -443,7 +487,7 @@ static void ep_idle(struct imx21 *imx21, struct ep_priv *ep_priv)
 		etd = &imx21->etd[etd_num];
 		ep_priv->etd[i] = -1;
 
-		free_dmem(imx21, etd); 
+		free_dmem(imx21, etd); /* for isoc */
 
 		if (list_empty(&imx21->queue_for_etd)) {
 			free_etd(imx21, etd_num);
@@ -508,6 +552,9 @@ static void nonisoc_urb_completed_for_etd(
 }
 
 
+/* ===========================================	*/
+/* ISOC Handling ... 				*/
+/* ===========================================	*/
 
 static void schedule_isoc_etds(struct usb_hcd *hcd,
 	struct usb_host_endpoint *ep)
@@ -596,6 +643,9 @@ static void isoc_etd_done(struct usb_hcd *hcd, int etd_num)
 	cc = (etd_readl(imx21, etd_num, 3) >> DW3_COMPCODE0) & 0xf;
 	bytes_xfrd = etd_readl(imx21, etd_num, 3) & 0x3ff;
 
+	/* Input doesn't always fill the buffer, don't generate an error
+	 * when this happens.
+	 */
 	if (dir_in && (cc == TD_DATAUNDERRUN))
 		cc = TD_CC_NOERROR;
 
@@ -659,7 +709,7 @@ static int alloc_isoc_etds(struct imx21 *imx21, struct ep_priv *ep_priv)
 	int i, j;
 	int etd_num;
 
-	
+	/* Allocate the ETDs if required */
 	for (i = 0; i < NUM_ISO_ETDS; i++) {
 		if (ep_priv->etd[i] < 0) {
 			etd_num = alloc_etd(imx21);
@@ -732,13 +782,13 @@ static int imx21_hc_urb_enqueue_isoc(struct usb_hcd *hcd,
 	urb->hcpriv = urb_priv;
 	urb_priv->ep = ep;
 
-	
+	/* allocate data memory for largest packets if not already done */
 	maxpacket = usb_maxpacket(urb->dev, urb->pipe, usb_pipeout(urb->pipe));
 	for (i = 0; i < NUM_ISO_ETDS; i++) {
 		struct etd_priv *etd = &imx21->etd[ep_priv->etd[i]];
 
 		if (etd->dmem_size > 0 && etd->dmem_size < maxpacket) {
-			
+			/* not sure if this can really occur.... */
 			dev_err(imx21->dev, "increasing isoc buffer %d->%d\n",
 				etd->dmem_size, maxpacket);
 			ret = -EMSGSIZE;
@@ -756,7 +806,7 @@ static int imx21_hc_urb_enqueue_isoc(struct usb_hcd *hcd,
 		}
 	}
 
-	
+	/* calculate frame */
 	cur_frame = imx21_hc_get_frame(hcd);
 	if (urb->transfer_flags & URB_ISO_ASAP) {
 		if (list_empty(&ep_priv->td_list))
@@ -775,7 +825,7 @@ static int imx21_hc_urb_enqueue_isoc(struct usb_hcd *hcd,
 		urb->start_frame = wrap_frame(cur_frame + 1);
 	}
 
-	
+	/* set up transfers */
 	td = urb_priv->isoc_td;
 	for (i = 0; i < urb->number_of_packets; i++, td++) {
 		unsigned int offset = urb->iso_frame_desc[i].offset;
@@ -840,6 +890,9 @@ static void dequeue_isoc_urb(struct imx21 *imx21,
 	}
 }
 
+/* =========================================== */
+/* NON ISOC Handling ... 			*/
+/* =========================================== */
 
 static void schedule_nonisoc_etd(struct imx21 *imx21, struct urb *urb)
 {
@@ -881,7 +934,7 @@ static void schedule_nonisoc_etd(struct imx21 *imx21, struct urb *urb)
 			bufround = 0;
 			count = 8;
 			datatoggle = TD_TOGGLE_DATA0;
-		} else {	
+		} else {	/* US_CTRL_ACK */
 			dir = usb_pipeout(pipe) ? TD_DIR_IN : TD_DIR_OUT;
 			bufround = 0;
 			count = 0;
@@ -922,7 +975,7 @@ static void schedule_nonisoc_etd(struct imx21 *imx21, struct urb *urb)
 		relpolpos = (readl(imx21->regs + USBH_FRMNUB) + 1) & 0xff;
 	}
 
-	
+	/* Write ETD to device memory */
 	setup_etd_dword0(imx21, etd_num, urb, dir, maxpacket);
 
 	etd_writel(imx21, etd_num, 2,
@@ -933,6 +986,9 @@ static void schedule_nonisoc_etd(struct imx21 *imx21, struct urb *urb)
 		((u32) datatoggle << DW2_DATATOG) |
 		((u32) TD_NOTACCESSED << DW2_COMPCODE));
 
+	/* DMA will always transfer buffer size even if TOBYCNT in DWORD3
+	   is smaller. Make sure we don't overrun the buffer!
+	 */
 	if (count && count < maxpacket)
 		etd_buf_size = count;
 	else
@@ -944,11 +1000,11 @@ static void schedule_nonisoc_etd(struct imx21 *imx21, struct urb *urb)
 	if (!count)
 		etd->dma_handle = 0;
 
-	
+	/* allocate x and y buffer space at once */
 	etd->dmem_size = (count > maxpacket) ? maxpacket * 2 : maxpacket;
 	etd->dmem_offset = alloc_dmem(imx21, etd->dmem_size, urb_priv->ep);
 	if (etd->dmem_offset < 0) {
-		
+		/* Setup everything we can in HW and update when we get DMEM */
 		etd_writel(imx21, etd_num, 1, (u32)maxpacket << 16);
 
 		dev_dbg(imx21->dev, "Queuing etd %d for DMEM\n", etd_num);
@@ -963,7 +1019,7 @@ static void schedule_nonisoc_etd(struct imx21 *imx21, struct urb *urb)
 
 	urb_priv->active = 1;
 
-	
+	/* enable the ETD to kick off transfer */
 	dev_vdbg(imx21->dev, "Activating etd %d for %d bytes %s\n",
 		etd_num, count, dir != TD_DIR_IN ? "out" : "in");
 	activate_etd(imx21, etd_num, dir);
@@ -988,7 +1044,7 @@ static void nonisoc_etd_done(struct usb_hcd *hcd, int etd_num)
 	cc = (etd_readl(imx21, etd_num, 2) >> DW2_COMPCODE) & 0xf;
 	bytes_xfrd = etd->len - (etd_readl(imx21, etd_num, 3) & 0x1fffff);
 
-	
+	/* save toggle carry */
 	usb_settoggle(urb->dev, usb_pipeendpoint(urb->pipe),
 		      usb_pipeout(urb->pipe),
 		      (etd_readl(imx21, etd_num, 0) >> DW0_TOGCRY) & 0x1);
@@ -1001,7 +1057,7 @@ static void nonisoc_etd_done(struct usb_hcd *hcd, int etd_num)
 			memcpy(etd->cpu_buffer, etd->bounce_buffer, bytes_xfrd);
 			dma_unmap_single(imx21->dev,
 				etd->dma_handle, etd->len, DMA_FROM_DEVICE);
-		} else if (!etd->dma_handle && bytes_xfrd) {
+		} else if (!etd->dma_handle && bytes_xfrd) {/* PIO */
 			memcpy_fromio(etd->cpu_buffer,
 				imx21->regs + USBOTG_DMEM + etd->dmem_offset,
 				bytes_xfrd);
@@ -1020,7 +1076,7 @@ static void nonisoc_etd_done(struct usb_hcd *hcd, int etd_num)
 	if (cc != 0)
 		dev_vdbg(imx21->dev, "cc is 0x%x\n", cc);
 
-	etd_done = (cc_to_error[cc] != 0);	
+	etd_done = (cc_to_error[cc] != 0);	/* stop if error */
 
 	switch (usb_pipetype(urb->pipe)) {
 	case PIPE_CONTROL:
@@ -1054,7 +1110,7 @@ static void nonisoc_etd_done(struct usb_hcd *hcd, int etd_num)
 		    && ((urb->transfer_buffer_length %
 			 usb_maxpacket(urb->dev, urb->pipe,
 				       usb_pipeout(urb->pipe))) == 0)) {
-			
+			/* need a 0-packet */
 			urb_priv->state = US_BULK0;
 		} else {
 			etd_done = 1;
@@ -1169,7 +1225,7 @@ static int imx21_hc_urb_enqueue(struct usb_hcd *hcd,
 		}
 	}
 
-	
+	/* Schedule if no URB already active for this endpoint */
 	etd = &imx21->etd[ep_priv->etd[0]];
 	if (etd->urb == NULL) {
 		DEBUG_LOG_FRAME(imx21, etd, last_req);
@@ -1236,6 +1292,9 @@ fail:
 	return ret;
 }
 
+/* =========================================== */
+/* Interrupt dispatch	 			*/
+/* =========================================== */
 
 static void process_etds(struct usb_hcd *hcd, struct imx21 *imx21, int sof)
 {
@@ -1255,10 +1314,26 @@ static void process_etds(struct usb_hcd *hcd, struct imx21 *imx21, int sof)
 		if (done) {
 			DEBUG_LOG_FRAME(imx21, etd, last_int);
 		} else {
+/*
+ * Kludge warning!
+ *
+ * When multiple transfers are using the bus we sometimes get into a state
+ * where the transfer has completed (the CC field of the ETD is != 0x0F),
+ * the ETD has self disabled but the ETDDONESTAT flag is not set
+ * (and hence no interrupt occurs).
+ * This causes the transfer in question to hang.
+ * The kludge below checks for this condition at each SOF and processes any
+ * blocked ETDs (after an arbitrary 10 frame wait)
+ *
+ * With a single active transfer the usbtest test suite will run for days
+ * without the kludge.
+ * With other bus activity (eg mass storage) even just test1 will hang without
+ * the kludge.
+ */
 			u32 dword0;
 			int cc;
 
-			if (etd->active_count && !enabled) 
+			if (etd->active_count && !enabled) /* suspicious... */
 				enable_sof_int = 1;
 
 			if (!sof || enabled || !etd->active_count)
@@ -1290,6 +1365,7 @@ static void process_etds(struct usb_hcd *hcd, struct imx21 *imx21, int sof)
 			imx21->debug_unblocks++;
 #endif
 			etd->active_count = 0;
+/* End of kludge */
 		}
 
 		if (etd->ep == NULL || etd->urb == NULL) {
@@ -1307,7 +1383,7 @@ static void process_etds(struct usb_hcd *hcd, struct imx21 *imx21, int sof)
 			nonisoc_etd_done(hcd, etd_num);
 	}
 
-	
+	/* only enable SOF interrupt if it may be needed for the kludge */
 	if (enable_sof_int)
 		set_register_bits(imx21, USBH_SYSIEN, USBH_SYSIEN_SOFINT);
 	else
@@ -1376,12 +1452,15 @@ static void imx21_hc_endpoint_disable(struct usb_hcd *hcd,
 	spin_unlock_irqrestore(&imx21->lock, flags);
 }
 
+/* =========================================== */
+/* Hub handling		 			*/
+/* =========================================== */
 
 static int get_hub_descriptor(struct usb_hcd *hcd,
 			      struct usb_hub_descriptor *desc)
 {
 	struct imx21 *imx21 = hcd_to_imx21(hcd);
-	desc->bDescriptorType = 0x29;	
+	desc->bDescriptorType = 0x29;	/* HUB descriptor */
 	desc->bHubContrCurrent = 0;
 
 	desc->bNbrPorts = readl(imx21->regs + USBH_ROOTHUBA)
@@ -1389,8 +1468,8 @@ static int get_hub_descriptor(struct usb_hcd *hcd,
 	desc->bDescLength = 9;
 	desc->bPwrOn2PwrGood = 0;
 	desc->wHubCharacteristics = (__force __u16) cpu_to_le16(
-		0x0002 |	
-		0x0010 |	
+		0x0002 |	/* No power switching */
+		0x0010 |	/* No over current protection */
 		0);
 
 	desc->u.hs.DeviceRemovable[0] = 1 << 1;
@@ -1568,6 +1647,9 @@ static int imx21_hc_hub_control(struct usb_hcd *hcd,
 	return rc;
 }
 
+/* =========================================== */
+/* Host controller management 			*/
+/* =========================================== */
 
 static int imx21_hc_reset(struct usb_hcd *hcd)
 {
@@ -1577,12 +1659,12 @@ static int imx21_hc_reset(struct usb_hcd *hcd)
 
 	spin_lock_irqsave(&imx21->lock, flags);
 
-	
+	/* Reset the Host controller modules */
 	writel(USBOTG_RST_RSTCTRL | USBOTG_RST_RSTRH |
 		USBOTG_RST_RSTHSIE | USBOTG_RST_RSTHC,
 		imx21->regs + USBOTG_RST_CTRL);
 
-	
+	/* Wait for reset to finish */
 	timeout = jiffies + HZ;
 	while (readl(imx21->regs + USBOTG_RST_CTRL) != 0) {
 		if (time_after(jiffies, timeout)) {
@@ -1630,16 +1712,16 @@ static int __devinit imx21_hc_start(struct usb_hcd *hcd)
 	writel(USB_MISCCONTROL_SKPRTRY  | USB_MISCCONTROL_ARBMODE,
 		imx21->regs + USB_MISCCONTROL);
 
-	
+	/* Clear the ETDs */
 	for (i = 0; i < USB_NUM_ETD; i++)
 		for (j = 0; j < 4; j++)
 			etd_writel(imx21, i, j, 0);
 
-	
+	/* Take the HC out of reset */
 	writel(USBH_HOST_CTRL_HCUSBSTE_OPERATIONAL | USBH_HOST_CTRL_CTLBLKSR_1,
 		imx21->regs + USBH_HOST_CTRL);
 
-	
+	/* Enable ports */
 	if (imx21->pdata->enable_otg_host)
 		writel(USBH_PORTSTAT_PRTPWRST | USBH_PORTSTAT_PRTENABST,
 			imx21->regs + USBH_PORTSTAT(0));
@@ -1655,7 +1737,7 @@ static int __devinit imx21_hc_start(struct usb_hcd *hcd)
 
 	hcd->state = HC_STATE_RUNNING;
 
-	
+	/* Enable host controller interrupts */
 	set_register_bits(imx21, USBH_SYSIEN,
 		USBH_SYSIEN_HERRINT |
 		USBH_SYSIEN_DONEINT | USBH_SYSIEN_SORINT);
@@ -1680,6 +1762,9 @@ static void imx21_hc_stop(struct usb_hcd *hcd)
 	spin_unlock_irqrestore(&imx21->lock, flags);
 }
 
+/* =========================================== */
+/* Driver glue		 			*/
+/* =========================================== */
 
 static struct hc_driver imx21_hc_driver = {
 	.description = hcd_name,
@@ -1693,15 +1778,15 @@ static struct hc_driver imx21_hc_driver = {
 	.start = imx21_hc_start,
 	.stop = imx21_hc_stop,
 
-	
+	/* I/O requests */
 	.urb_enqueue = imx21_hc_urb_enqueue,
 	.urb_dequeue = imx21_hc_urb_dequeue,
 	.endpoint_disable = imx21_hc_endpoint_disable,
 
-	
+	/* scheduling support */
 	.get_frame_number = imx21_hc_get_frame,
 
-	
+	/* Root hub support */
 	.hub_status_data = imx21_hc_hub_status_data,
 	.hub_control = imx21_hc_hub_control,
 
@@ -1788,7 +1873,7 @@ static int imx21_probe(struct platform_device *pdev)
 		goto failed_ioremap;
 	}
 
-	
+	/* Enable clocks source */
 	imx21->clk = clk_get(imx21->dev, NULL);
 	if (IS_ERR(imx21->clk)) {
 		dev_err(imx21->dev, "no clock found\n");

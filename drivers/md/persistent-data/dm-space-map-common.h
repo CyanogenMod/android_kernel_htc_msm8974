@@ -9,7 +9,25 @@
 
 #include "dm-btree.h"
 
+/*----------------------------------------------------------------*/
 
+/*
+ * Low level disk format
+ *
+ * Bitmap btree
+ * ------------
+ *
+ * Each value stored in the btree is an index_entry.  This points to a
+ * block that is used as a bitmap.  Within the bitmap hold 2 bits per
+ * entry, which represent UNUSED = 0, REF_COUNT = 1, REF_COUNT = 2 and
+ * REF_COUNT = many.
+ *
+ * Refcount btree
+ * --------------
+ *
+ * Any entry that has a ref count higher than 2 gets entered in the ref
+ * count tree.  The leaf values for this tree is the 32-bit ref count.
+ */
 
 struct disk_index_entry {
 	__le64 blocknr;
@@ -46,6 +64,9 @@ struct ll_disk {
 	dm_block_t nr_blocks;
 	dm_block_t nr_allocated;
 
+	/*
+	 * bitmap_root may be a btree root or a simple index.
+	 */
 	dm_block_t bitmap_root;
 
 	dm_block_t ref_count_root;
@@ -80,6 +101,7 @@ enum allocation_event {
 	SM_FREE,
 };
 
+/*----------------------------------------------------------------*/
 
 int sm_ll_extend(struct ll_disk *ll, dm_block_t extra_blocks);
 int sm_ll_lookup_bitmap(struct ll_disk *ll, dm_block_t b, uint32_t *result);
@@ -99,5 +121,6 @@ int sm_ll_new_disk(struct ll_disk *ll, struct dm_transaction_manager *tm);
 int sm_ll_open_disk(struct ll_disk *ll, struct dm_transaction_manager *tm,
 		    void *root_le, size_t len);
 
+/*----------------------------------------------------------------*/
 
-#endif	
+#endif	/* DM_SPACE_MAP_COMMON_H */

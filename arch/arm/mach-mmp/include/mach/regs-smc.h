@@ -34,4 +34,4 @@
 #define SMC_ADV_AP0		SMC_REG(0x0100)
 #define SMC_ADV_AP1		SMC_REG(0x0104)
 
-#endif 
+#endif /* __ASM_MACH_REGS_SMC_H */

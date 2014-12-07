@@ -79,13 +79,13 @@ struct res_gid {
 enum res_qp_states {
 	RES_QP_BUSY = RES_ANY_BUSY,
 
-	
+	/* QP number was allocated */
 	RES_QP_RESERVED,
 
-	
+	/* ICM memory for QP context was mapped */
 	RES_QP_MAPPED,
 
-	
+	/* QP is in hw ownership */
 	RES_QP_HW
 };
 
@@ -209,6 +209,7 @@ struct res_counter {
 	int			port;
 };
 
+/* For Debug uses */
 static const char *ResourceType(enum mlx4_resource rt)
 {
 	switch (rt) {
@@ -1546,6 +1547,7 @@ int mlx4_FREE_RES_wrapper(struct mlx4_dev *dev, int slave,
 	return err;
 }
 
+/* ugly but other choices are uglier */
 static int mr_phys_mpt(struct mlx4_mpt_entry *mpt)
 {
 	return (be32_to_cpu(mpt->flags) >> 9) & 1;
@@ -1953,7 +1955,11 @@ int mlx4_WRITE_MTT_wrapper(struct mlx4_dev *dev, int slave,
 	if (err)
 		return err;
 
-	mtt.offset = 0;  
+	/* Call the SW implementation of write_mtt:
+	 * - Prepare a dummy mtt struct
+	 * - Translate inbox contents to simple addresses in host endianess */
+	mtt.offset = 0;  /* TBD this is broken but I don't handle it since
+			    we don't really use it */
 	mtt.order = 0;
 	mtt.page_shift = 0;
 	for (i = 0; i < npages; ++i)
@@ -2021,7 +2027,7 @@ int mlx4_GEN_EQE(struct mlx4_dev *dev, int slave, struct mlx4_eqe *eqe)
 
 	event_eq = &priv->mfunc.master.slave_state[slave].event_eq[eqe->type];
 
-	
+	/* Create the event only if the slave is registered */
 	if (event_eq->eqn < 0)
 		return 0;
 
@@ -2527,7 +2533,7 @@ int mlx4_QP_ATTACH_wrapper(struct mlx4_dev *dev, int slave,
 			       struct mlx4_cmd_mailbox *outbox,
 			       struct mlx4_cmd_info *cmd)
 {
-	struct mlx4_qp qp; 
+	struct mlx4_qp qp; /* dummy for calling attach/detach */
 	u8 *gid = inbox->buf;
 	enum mlx4_protocol prot = (vhcr->in_modifier >> 28) & 0x7;
 	int err, err1;
@@ -2564,7 +2570,7 @@ int mlx4_QP_ATTACH_wrapper(struct mlx4_dev *dev, int slave,
 	return 0;
 
 ex_rem:
-	
+	/* ignore error return below, already in error */
 	err1 = rem_mcg_res(dev, slave, rqp, gid, prot, type);
 ex_put:
 	put_res(dev, slave, qpn, RES_QP);
@@ -2599,7 +2605,7 @@ static void detach_qp(struct mlx4_dev *dev, int slave, struct res_qp *rqp)
 	struct res_gid *rgid;
 	struct res_gid *tmp;
 	int err;
-	struct mlx4_qp qp; 
+	struct mlx4_qp qp; /* dummy for calling attach/detach */
 
 	list_for_each_entry_safe(rgid, tmp, &rqp->mcg_list, list) {
 		qp.qpn = rqp->local_qpn;
@@ -3055,7 +3061,7 @@ void mlx4_delete_all_resources_for_slave(struct mlx4_dev *dev, int slave)
 	struct mlx4_priv *priv = mlx4_priv(dev);
 
 	mutex_lock(&priv->mfunc.master.res_tracker.slave_list[slave].mutex);
-	
+	/*VLAN*/
 	rem_slave_macs(dev, slave);
 	rem_slave_qps(dev, slave);
 	rem_slave_srqs(dev, slave);

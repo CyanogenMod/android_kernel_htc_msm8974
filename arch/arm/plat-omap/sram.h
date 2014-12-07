@@ -3,4 +3,4 @@
 
 extern int __init omap_sram_init(void);
 
-#endif 
+#endif /* __PLAT_OMAP_SRAM_H__ */

@@ -23,11 +23,16 @@
 #include <linux/list.h>
 #include <dspbridge/msgdefs.h>
 
+/*
+ *  These target side symbols define the beginning and ending addresses
+ *  of the section of shared memory used for messages. They are
+ *  defined in the *cfg.cmd file by cdb code.
+ */
 #define MSG_SHARED_BUFFER_BASE_SYM      "_MSG_BEG"
 #define MSG_SHARED_BUFFER_LIMIT_SYM     "_MSG_END"
 
 #ifndef _CHNL_WORDSIZE
-#define _CHNL_WORDSIZE 4	
+#define _CHNL_WORDSIZE 4	/* default _CHNL_WORDSIZE is 2 bytes/word */
 #endif
 
 /*
@@ -61,55 +66,77 @@
  *  size -          Number of messages to be read by the GPP.
  */
 struct msg_ctrl {
-	u32 buf_empty;		
-	u32 post_swi;		
-	u32 size;		
+	u32 buf_empty;		/* to/from DSP buffer is empty */
+	u32 post_swi;		/* Set to "1" to post msg_ctrl SWI */
+	u32 size;		/* Number of messages to/from the DSP */
 	u32 resvd;
 };
 
+/*
+ *  ======== msg_mgr ========
+ *  The msg_mgr maintains a list of all MSG_QUEUEs. Each NODE object can
+ *  have msg_queue to hold all messages that come up from the corresponding
+ *  node on the DSP. The msg_mgr also has a shared queue of messages
+ *  ready to go to the DSP.
+ */
 struct msg_mgr {
-	
+	/* The first field must match that in msgobj.h */
 
-	
+	/* Function interface to Bridge driver */
 	struct bridge_drv_interface *intf_fxns;
 
-	struct io_mgr *iomgr;		
-	struct list_head queue_list;	
-	spinlock_t msg_mgr_lock;	
-	
+	struct io_mgr *iomgr;		/* IO manager */
+	struct list_head queue_list;	/* List of MSG_QUEUEs */
+	spinlock_t msg_mgr_lock;	/* For critical sections */
+	/* Signalled when MsgFrame is available */
 	struct sync_object *sync_event;
-	struct list_head msg_free_list;	
-	struct list_head msg_used_list;	
-	u32 msgs_pending;	
-	u32 max_msgs;		
-	msg_onexit on_exit;	
+	struct list_head msg_free_list;	/* Free MsgFrames ready to be filled */
+	struct list_head msg_used_list;	/* MsgFrames ready to go to DSP */
+	u32 msgs_pending;	/* # of queued messages to go to DSP */
+	u32 max_msgs;		/* Max # of msgs that fit in buffer */
+	msg_onexit on_exit;	/* called when RMS_EXIT is received */
 };
 
+/*
+ *  ======== msg_queue ========
+ *  Each NODE has a msg_queue for receiving messages from the
+ *  corresponding node on the DSP. The msg_queue object maintains a list
+ *  of messages that have been sent to the host, but not yet read (MSG_Get),
+ *  and a list of free frames that can be filled when new messages arrive
+ *  from the DSP.
+ *  The msg_queue's hSynEvent gets posted when a message is ready.
+ */
 struct msg_queue {
 	struct list_head list_elem;
 	struct msg_mgr *msg_mgr;
-	u32 max_msgs;		
-	u32 msgq_id;		
-	struct list_head msg_free_list;	
-	
+	u32 max_msgs;		/* Node message depth */
+	u32 msgq_id;		/* Node environment pointer */
+	struct list_head msg_free_list;	/* Free MsgFrames ready to be filled */
+	/* Filled MsgFramess waiting to be read */
 	struct list_head msg_used_list;
-	void *arg;		
-	struct sync_object *sync_event;	
-	struct sync_object *sync_done;	
-	struct sync_object *sync_done_ack;	
-	struct ntfy_object *ntfy_obj;	
-	bool done;		
-	u32 io_msg_pend;	
+	void *arg;		/* Handle passed to mgr on_exit callback */
+	struct sync_object *sync_event;	/* Signalled when message is ready */
+	struct sync_object *sync_done;	/* For synchronizing cleanup */
+	struct sync_object *sync_done_ack;	/* For synchronizing cleanup */
+	struct ntfy_object *ntfy_obj;	/* For notification of message ready */
+	bool done;		/* TRUE <==> deleting the object */
+	u32 io_msg_pend;	/* Number of pending MSG_get/put calls */
 };
 
+/*
+ *  ======== msg_dspmsg ========
+ */
 struct msg_dspmsg {
 	struct dsp_msg msg;
-	u32 msgq_id;		
+	u32 msgq_id;		/* Identifies the node the message goes to */
 };
 
+/*
+ *  ======== msg_frame ========
+ */
 struct msg_frame {
 	struct list_head list_elem;
 	struct msg_dspmsg msg_data;
 };
 
-#endif 
+#endif /* _MSG_SM_ */

@@ -33,6 +33,8 @@ static int ltq_pci_config_access(unsigned char access_type, struct pci_bus *bus,
 	unsigned long flags;
 	u32 temp;
 
+	/* we support slot from 0 to 15 dev_fn & 0x68 (AD29) is the
+	   SoC itself */
 	if ((bus->number != 0) || ((devfn & 0xf8) > 0x78)
 		|| ((devfn & 0xf8) == 0) || ((devfn & 0xf8) == 0x68))
 		return 1;
@@ -43,7 +45,7 @@ static int ltq_pci_config_access(unsigned char access_type, struct pci_bus *bus,
 	cfg_base |= (bus->number << LTQ_PCI_CFG_BUSNUM_SHF) | (devfn <<
 			LTQ_PCI_CFG_FUNNUM_SHF) | (where & ~0x3);
 
-	
+	/* Perform access */
 	if (access_type == PCI_ACCESS_WRITE) {
 		ltq_w32(swab32(*data), ((u32 *)cfg_base));
 	} else {
@@ -52,7 +54,7 @@ static int ltq_pci_config_access(unsigned char access_type, struct pci_bus *bus,
 	}
 	wmb();
 
-	
+	/* clean possible Master abort */
 	cfg_base = (unsigned long) ltq_pci_mapped_cfg;
 	cfg_base |= (0x0 << LTQ_PCI_CFG_FUNNUM_SHF) + 4;
 	temp = ltq_r32(((u32 *)(cfg_base)));

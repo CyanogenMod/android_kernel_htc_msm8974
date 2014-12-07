@@ -24,8 +24,8 @@
 
 #define DRV_NAME "nmi-wdt"
 
-#define NMI_WDT_TIMEOUT 5          
-#define NMI_CHECK_TIMEOUT (4 * HZ) 
+#define NMI_WDT_TIMEOUT 5          /* 5 seconds */
+#define NMI_CHECK_TIMEOUT (4 * HZ) /* 4 seconds in jiffies */
 static int nmi_wdt_cpu = 1;
 
 static unsigned int timeout = NMI_WDT_TIMEOUT;
@@ -46,6 +46,7 @@ enum {
 };
 static unsigned long nmi_event __attribute__ ((__section__(".l2.bss")));
 
+/* we are in nmi, non-atomic bit ops is safe */
 static inline void set_nmi_event(int event)
 {
 	__set_bit(event, &nmi_event);
@@ -99,9 +100,10 @@ static inline void nmi_wdt_stop(void)
 	bfin_write_WDOGB_CTL(WDEN_DISABLE);
 }
 
+/* before calling this function, you must stop the WDT */
 static inline void nmi_wdt_clear(void)
 {
-	
+	/* clear TRO bit, disable event generation */
 	bfin_write_WDOGB_CTL(WDOG_EXPIRED | WDEN_DISABLE | ICTL_NONE);
 }
 
@@ -192,6 +194,7 @@ void touch_nmi_watchdog(void)
 	atomic_set(&nmi_touched[smp_processor_id()], 1);
 }
 
+/* Suspend/resume support */
 #ifdef CONFIG_PM
 static int nmi_wdt_suspend(void)
 {
@@ -219,7 +222,7 @@ static int __init init_nmi_wdt_syscore(void)
 }
 late_initcall(init_nmi_wdt_syscore);
 
-#endif	
+#endif	/* CONFIG_PM */
 
 
 asmlinkage notrace void do_nmi(struct pt_regs *fp)
@@ -230,31 +233,31 @@ asmlinkage notrace void do_nmi(struct pt_regs *fp)
 	cpu_pda[cpu].__nmi_count += 1;
 
 	if (cpu == nmi_wdt_cpu) {
-		
+		/* CoreB goes here first */
 
-		
+		/* reload the WDOG_STAT */
 		nmi_wdt_keepalive();
 
-		
+		/* clear nmi interrupt for CoreB */
 		nmi_wdt_stop();
 		nmi_wdt_clear();
 
-		
+		/* trigger NMI interrupt of CoreA */
 		send_corea_nmi();
 
-		
+		/* waiting CoreB to enter NMI */
 		wait_nmi_event(COREA_ENTER_NMI);
 
-		
+		/* recover WDOGA's settings */
 		restore_corea_nmi();
 
 		save_corelock();
 
-		
+		/* corelock is save/cleared, CoreA is dummping messages */
 
 		wait_nmi_event(COREA_EXIT_NMI);
 	} else {
-		
+		/* OK, CoreA entered NMI */
 		set_nmi_event(COREA_ENTER_NMI);
 	}
 
@@ -268,15 +271,15 @@ asmlinkage notrace void do_nmi(struct pt_regs *fp)
 	if (cpu == nmi_wdt_cpu) {
 		pr_emerg("This fault is not recoverable, sorry!\n");
 
-		
+		/* CoreA dump finished, restore the corelock */
 		restore_corelock();
 
 		set_nmi_event(COREB_EXIT_NMI);
 	} else {
-		
+		/* CoreB dump finished, notice the CoreA we are done */
 		set_nmi_event(COREA_EXIT_NMI);
 
-		
+		/* synchronize with CoreA */
 		wait_nmi_event(COREB_EXIT_NMI);
 	}
 

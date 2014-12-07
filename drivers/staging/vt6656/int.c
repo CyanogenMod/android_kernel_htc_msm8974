@@ -40,16 +40,45 @@
 #include "bssdb.h"
 #include "usbpipe.h"
 
+/*---------------------  Static Definitions -------------------------*/
+/* static int msglevel = MSG_LEVEL_DEBUG; */
 static int msglevel = MSG_LEVEL_INFO;
 
 
+/*---------------------  Static Classes  ----------------------------*/
+
+/*---------------------  Static Variables  --------------------------*/
+
+/*---------------------  Static Functions  --------------------------*/
+
+/*---------------------  Export Variables  --------------------------*/
 
 
+/*---------------------  Export Functions  --------------------------*/
 
 
-
-
-
+/*+
+ *
+ *  Function:   InterruptPollingThread
+ *
+ *  Synopsis:   Thread running at IRQL PASSIVE_LEVEL.
+ *
+ *  Arguments: Device Extension
+ *
+ *  Returns:
+ *
+ *  Algorithm:  Call USBD for input data;
+ *
+ *  History:    dd-mm-yyyy   Author    Comment
+ *
+ *
+ *  Notes:
+ *
+ *  USB reads are by nature 'Blocking', and when in a read, the device looks
+ *  like it's in a 'stall' condition, so we deliberately time out every second
+ *  if we've gotten no data
+ *
+-*/
 void INTvWorkItem(void *Context)
 {
 	PSDevice pDevice = (PSDevice) Context;
@@ -81,7 +110,7 @@ void INTnsProcessData(PSDevice pDevice)
 					&(pDevice->scStatistic),
 					pINTData->byTSR0,
 					pINTData->byPkt0);
-		
+		/*DBG_PRN_GRP01(("TSR0 %02x\n", pINTData->byTSR0));*/
 	}
 	if (pINTData->byTSR1 & TSR_VALID) {
 		STAvUpdateTDStatCounter(&(pDevice->scStatistic),
@@ -92,7 +121,7 @@ void INTnsProcessData(PSDevice pDevice)
 					&(pDevice->scStatistic),
 					pINTData->byTSR1,
 					pINTData->byPkt1);
-		
+		/*DBG_PRN_GRP01(("TSR1 %02x\n", pINTData->byTSR1));*/
 	}
 	if (pINTData->byTSR2 & TSR_VALID) {
 		STAvUpdateTDStatCounter(&(pDevice->scStatistic),
@@ -103,7 +132,7 @@ void INTnsProcessData(PSDevice pDevice)
 					&(pDevice->scStatistic),
 					pINTData->byTSR2,
 					pINTData->byPkt2);
-		
+		/*DBG_PRN_GRP01(("TSR2 %02x\n", pINTData->byTSR2));*/
 	}
 	if (pINTData->byTSR3 & TSR_VALID) {
 		STAvUpdateTDStatCounter(&(pDevice->scStatistic),
@@ -114,7 +143,7 @@ void INTnsProcessData(PSDevice pDevice)
 					&(pDevice->scStatistic),
 					pINTData->byTSR3,
 					pINTData->byPkt3);
-		
+		/*DBG_PRN_GRP01(("TSR3 %02x\n", pINTData->byTSR3));*/
 	}
 	if (pINTData->byISR0 != 0) {
 		if (pINTData->byISR0 & ISR_BNTX) {
@@ -124,7 +153,7 @@ void INTnsProcessData(PSDevice pDevice)
 					pMgmt->sNodeDBTable[0].bRxPSPoll =
 						FALSE;
 				} else if (pMgmt->byDTIMCount == 0) {
-					
+					/* check if mutltcast tx bufferring */
 					pMgmt->byDTIMCount =
 						pMgmt->byDTIMPeriod-1;
 					pMgmt->sNodeDBTable[0].bRxPSPoll = TRUE;
@@ -136,7 +165,7 @@ void INTnsProcessData(PSDevice pDevice)
 				bScheduleCommand((void *) pDevice,
 						WLAN_CMD_BECON_SEND,
 						NULL);
-			} 
+			} /* if (pDevice->eOPMode == OP_MODE_AP) */
 		pDevice->bBeaconSent = TRUE;
 		} else {
 			pDevice->bBeaconSent = FALSE;
@@ -156,6 +185,12 @@ void INTnsProcessData(PSDevice pDevice)
 		}
 		LODWORD(pDevice->qwCurrTSF) = pINTData->dwLoTSF;
 		HIDWORD(pDevice->qwCurrTSF) = pINTData->dwHiTSF;
+		/*DBG_PRN_GRP01(("ISR0 = %02x ,
+				LoTsf =  %08x,
+				HiTsf =  %08x\n",
+				pINTData->byISR0,
+				pINTData->dwLoTSF,
+				pINTData->dwHiTSF)); */
 
 		STAvUpdate802_11Counter(&pDevice->s802_11Counter,
 					&pDevice->scStatistic,

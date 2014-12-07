@@ -50,7 +50,7 @@ static u32 tegra_sdhci_readl(struct sdhci_host *host, int reg)
 	u32 val;
 
 	if (unlikely(reg == SDHCI_PRESENT_STATE)) {
-		
+		/* Use wp_gpio here instead? */
 		val = readl(host->ioaddr + reg);
 		return val | SDHCI_WRITE_PROTECT;
 	}
@@ -66,7 +66,7 @@ static u16 tegra_sdhci_readw(struct sdhci_host *host, int reg)
 
 	if (unlikely((soc_data->nvquirks & NVQUIRK_FORCE_SDHCI_SPEC_200) &&
 			(reg == SDHCI_HOST_VERSION))) {
-		
+		/* Erratum: Version register is invalid in HW. */
 		return SDHCI_SPEC_200;
 	}
 
@@ -79,6 +79,10 @@ static void tegra_sdhci_writel(struct sdhci_host *host, u32 val, int reg)
 	struct sdhci_tegra *tegra_host = pltfm_host->priv;
 	const struct sdhci_tegra_soc_data *soc_data = tegra_host->soc_data;
 
+	/* Seems like we're getting spurious timeout and crc errors, so
+	 * disable signalling of them. In case of real errors software
+	 * timers should take care of eventually detecting them.
+	 */
 	if (unlikely(reg == SDHCI_SIGNAL_ENABLE))
 		val &= ~(SDHCI_INT_TIMEOUT|SDHCI_INT_CRC);
 
@@ -86,7 +90,7 @@ static void tegra_sdhci_writel(struct sdhci_host *host, u32 val, int reg)
 
 	if (unlikely((soc_data->nvquirks & NVQUIRK_ENABLE_BLOCK_GAP_DET) &&
 			(reg == SDHCI_INT_ENABLE))) {
-		
+		/* Erratum: Must enable block gap interrupt detection */
 		u8 gap_ctrl = readb(host->ioaddr + SDHCI_BLOCK_GAP_CONTROL);
 		if (val & SDHCI_INT_CARD_INT)
 			gap_ctrl |= 0x8;

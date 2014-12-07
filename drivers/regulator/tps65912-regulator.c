@@ -25,11 +25,13 @@
 #include <linux/gpio.h>
 #include <linux/mfd/tps65912.h>
 
+/* DCDC's */
 #define TPS65912_REG_DCDC1	0
 #define TPS65912_REG_DCDC2	1
 #define TPS65912_REG_DCDC3	2
 #define TPS65912_REG_DCDC4	3
 
+/* LDOs */
 #define TPS65912_REG_LDO1	4
 #define TPS65912_REG_LDO2	5
 #define TPS65912_REG_LDO3	6
@@ -41,10 +43,13 @@
 #define TPS65912_REG_LDO9	12
 #define TPS65912_REG_LDO10	13
 
+/* Number of step-down converters available */
 #define TPS65912_NUM_DCDC	4
 
+/* Number of LDO voltage regulators  available */
 #define TPS65912_NUM_LDO	10
 
+/* Number of total regulators available */
 #define TPS65912_NUM_REGULATOR		(TPS65912_NUM_DCDC + TPS65912_NUM_LDO)
 
 #define TPS65912_REG_ENABLED	0x80
@@ -105,7 +110,7 @@ struct tps65912_reg {
 	struct tps65912 *mfd;
 	struct regulator_dev *rdev[TPS65912_NUM_REGULATOR];
 	struct tps_info *info[TPS65912_NUM_REGULATOR];
-	
+	/* for read/write access */
 	struct mutex io_lock;
 	int mode;
 	int (*get_ctrl_reg)(int);
@@ -317,7 +322,7 @@ static int tps65912_set_mode(struct regulator_dev *dev, unsigned int mode)
 
 	switch (mode) {
 	case REGULATOR_MODE_FAST:
-		
+		/* Verify if mode alredy set */
 		if (pwm_mode && !eco)
 			break;
 		tps65912_set_bits(mfd, pmic->pwm_mode_reg, DCDCCTRL_DCDC_MODE_MASK);
@@ -380,19 +385,19 @@ static int tps65912_list_voltage_dcdc(struct regulator_dev *dev,
 
 	switch (range) {
 	case 0:
-		
+		/* 0.5 - 1.2875V in 12.5mV steps */
 		voltage = tps65912_vsel_to_uv_range0(selector);
 		break;
 	case 1:
-		
+		/* 0.7 - 1.4875V in 12.5mV steps */
 		voltage = tps65912_vsel_to_uv_range1(selector);
 		break;
 	case 2:
-		
+		/* 0.5 - 2.075V in 25mV steps */
 		voltage = tps65912_vsel_to_uv_range2(selector);
 		break;
 	case 3:
-		
+		/* 0.5 - 3.8V in 50mV steps */
 		voltage = tps65912_vsel_to_uv_range3(selector);
 		break;
 	}
@@ -457,6 +462,7 @@ static int tps65912_list_voltage_ldo(struct regulator_dev *dev,
 	return tps65912_vsel_to_uv_ldo(selector);
 }
 
+/* Operations permitted on DCDCx */
 static struct regulator_ops tps65912_ops_dcdc = {
 	.is_enabled = tps65912_reg_is_enabled,
 	.enable = tps65912_reg_enable,
@@ -468,6 +474,7 @@ static struct regulator_ops tps65912_ops_dcdc = {
 	.list_voltage = tps65912_list_voltage_dcdc,
 };
 
+/* Operations permitted on LDOx */
 static struct regulator_ops tps65912_ops_ldo = {
 	.is_enabled = tps65912_reg_is_enabled,
 	.enable = tps65912_reg_enable,
@@ -506,7 +513,7 @@ static __devinit int tps65912_probe(struct platform_device *pdev)
 
 	for (i = 0; i < TPS65912_NUM_REGULATOR; i++, info++, reg_data++) {
 		int range = 0;
-		
+		/* Register the regulators */
 		pmic->info[i] = info;
 
 		pmic->desc[i].name = info->name;
@@ -527,7 +534,7 @@ static __devinit int tps65912_probe(struct platform_device *pdev)
 			goto err;
 		}
 
-		
+		/* Save regulator for cleanup */
 		pmic->rdev[i] = rdev;
 	}
 	return 0;

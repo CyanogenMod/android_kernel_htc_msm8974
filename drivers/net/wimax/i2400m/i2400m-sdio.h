@@ -65,6 +65,7 @@
 
 #include "i2400m.h"
 
+/* Host-Device interface for SDIO */
 enum {
 	I2400M_SDIO_BOOT_RETRIES = 3,
 	I2400MS_BLK_SIZE = 256,
@@ -75,16 +76,44 @@ enum {
 	I2400MS_INTR_CLEAR_ADDR = 0x13,
 	I2400MS_INTR_ENABLE_ADDR = 0x14,
 	I2400MS_INTR_GET_SIZE_ADDR = 0x2C,
+	/* The number of ticks to wait for the device to signal that
+	 * it is ready */
 	I2400MS_INIT_SLEEP_INTERVAL = 100,
-	
+	/* How long to wait for the device to settle after reset */
 	I2400MS_SETTLE_TIME = 40,
-	
+	/* The number of msec to wait for IOR after sending IOE */
 	IWMC3200_IOR_TIMEOUT = 10,
 };
 
 
+/**
+ * struct i2400ms - descriptor for a SDIO connected i2400m
+ *
+ * @i2400m: bus-generic i2400m implementation; has to be first (see
+ *     it's documentation in i2400m.h).
+ *
+ * @func: pointer to our SDIO function
+ *
+ * @tx_worker: workqueue struct used to TX data when the bus-generic
+ *     code signals packets are pending for transmission to the device.
+ *
+ * @tx_workqueue: workqeueue used for data TX; we don't use the
+ *     system's workqueue as that might cause deadlocks with code in
+ *     the bus-generic driver. The read/write operation to the queue
+ *     is protected with spinlock (tx_lock in struct i2400m) to avoid
+ *     the queue being destroyed in the middle of a the queue read/write
+ *     operation.
+ *
+ * @debugfs_dentry: dentry for the SDIO specific debugfs files
+ *
+ *     Note this value is set to NULL upon destruction; this is
+ *     because some routinges use it to determine if we are inside the
+ *     probe() path or some other path. When debugfs is disabled,
+ *     creation sets the dentry to '(void*) -ENODEV', which is valid
+ *     for the test.
+ */
 struct i2400ms {
-	struct i2400m i2400m;		
+	struct i2400m i2400m;		/* FIRST! See doc */
 	struct sdio_func *func;
 
 	struct work_struct tx_worker;
@@ -97,7 +126,7 @@ struct i2400ms {
 	int bm_wait_result;
 	size_t bm_ack_size;
 
-	
+	/* Device is any of the iwmc3200 SKUs */
 	unsigned iwmc3200:1;
 };
 
@@ -125,4 +154,4 @@ extern ssize_t i2400ms_bus_bm_wait_for_ack(struct i2400m *,
 extern void i2400ms_bus_bm_release(struct i2400m *);
 extern int i2400ms_bus_bm_setup(struct i2400m *);
 
-#endif 
+#endif /* #ifndef __I2400M_SDIO_H__ */

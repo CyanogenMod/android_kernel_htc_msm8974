@@ -8,7 +8,7 @@
 #include <linux/types.h>
 
 struct arch_hw_breakpoint {
-	char		*name; 
+	char		*name; /* Contains name of the symbol to set bkpt */
 	unsigned long	address;
 	u16		len;
 	u16		type;
@@ -36,13 +36,14 @@ struct sh_ubc {
 	unsigned long	(*active_mask)(void);
 	unsigned long	(*triggered_mask)(void);
 	void		(*clear_triggered_mask)(unsigned long);
-	struct clk	*clk;	
+	struct clk	*clk;	/* optional interface clock / MSTP bit */
 };
 
 struct perf_event;
 struct task_struct;
 struct pmu;
 
+/* Maximum number of UBC channels */
 #define HBP_NUM		2
 
 static inline int hw_breakpoint_slots(int type)
@@ -50,6 +51,7 @@ static inline int hw_breakpoint_slots(int type)
 	return HBP_NUM;
 }
 
+/* arch/sh/kernel/hw_breakpoint.c */
 extern int arch_check_bp_in_kernelspace(struct perf_event *bp);
 extern int arch_validate_hwbkpt_settings(struct perf_event *bp);
 extern int hw_breakpoint_exceptions_notify(struct notifier_block *unused,
@@ -64,5 +66,5 @@ extern int register_sh_ubc(struct sh_ubc *);
 
 extern struct pmu perf_ops_bp;
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_SH_HW_BREAKPOINT_H */

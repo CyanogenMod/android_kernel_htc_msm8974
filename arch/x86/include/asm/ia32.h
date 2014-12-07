@@ -6,21 +6,27 @@
 
 #include <linux/compat.h>
 
+/*
+ * 32 bit structures for IA32 support.
+ */
 
 #include <asm/sigcontext32.h>
 
+/* signal.h */
 struct sigaction32 {
-	unsigned int  sa_handler;	
+	unsigned int  sa_handler;	/* Really a pointer, but need to deal
+					   with 32 bits */
 	unsigned int sa_flags;
-	unsigned int sa_restorer;	
-	compat_sigset_t sa_mask;	
+	unsigned int sa_restorer;	/* Another 32 bit pointer */
+	compat_sigset_t sa_mask;	/* A 32 bit mask */
 };
 
 struct old_sigaction32 {
-	unsigned int  sa_handler;	
-	compat_old_sigset_t sa_mask;	
+	unsigned int  sa_handler;	/* Really a pointer, but need to deal
+					   with 32 bits */
+	compat_old_sigset_t sa_mask;	/* A 32 bit mask */
 	unsigned int sa_flags;
-	unsigned int sa_restorer;	
+	unsigned int sa_restorer;	/* Another 32 bit pointer */
 };
 
 typedef struct sigaltstack_ia32 {
@@ -34,18 +40,21 @@ struct ucontext_ia32 {
 	unsigned int 	  uc_link;
 	stack_ia32_t	  uc_stack;
 	struct sigcontext_ia32 uc_mcontext;
-	compat_sigset_t	  uc_sigmask;	
+	compat_sigset_t	  uc_sigmask;	/* mask last for extensibility */
 };
 
 struct ucontext_x32 {
 	unsigned int	  uc_flags;
 	unsigned int 	  uc_link;
 	stack_ia32_t	  uc_stack;
-	unsigned int	  uc__pad0;     
-	struct sigcontext uc_mcontext;  
-	compat_sigset_t	  uc_sigmask;	
+	unsigned int	  uc__pad0;     /* needed for alignment */
+	struct sigcontext uc_mcontext;  /* the 64-bit sigcontext type */
+	compat_sigset_t	  uc_sigmask;	/* mask last for extensibility */
 };
 
+/* This matches struct stat64 in glibc2.2, hence the absolutely
+ * insane amounts of padding around dev_t's.
+ */
 struct stat64 {
 	unsigned long long	st_dev;
 	unsigned char		__pad0[4];
@@ -65,7 +74,7 @@ struct stat64 {
 	long long		st_size;
 	unsigned int		st_blksize;
 
-	long long		st_blocks;
+	long long		st_blocks;/* Number 512-byte blocks allocated */
 
 	unsigned 		st_atime;
 	unsigned 		st_atime_nsec;
@@ -85,54 +94,54 @@ typedef struct compat_siginfo {
 	union {
 		int _pad[((128 / sizeof(int)) - 3)];
 
-		
+		/* kill() */
 		struct {
-			unsigned int _pid;	
-			unsigned int _uid;	
+			unsigned int _pid;	/* sender's pid */
+			unsigned int _uid;	/* sender's uid */
 		} _kill;
 
-		
+		/* POSIX.1b timers */
 		struct {
-			compat_timer_t _tid;	
-			int _overrun;		
-			compat_sigval_t _sigval;	
-			int _sys_private;	
-			int _overrun_incr;	
+			compat_timer_t _tid;	/* timer id */
+			int _overrun;		/* overrun count */
+			compat_sigval_t _sigval;	/* same as below */
+			int _sys_private;	/* not to be passed to user */
+			int _overrun_incr;	/* amount to add to overrun */
 		} _timer;
 
-		
+		/* POSIX.1b signals */
 		struct {
-			unsigned int _pid;	
-			unsigned int _uid;	
+			unsigned int _pid;	/* sender's pid */
+			unsigned int _uid;	/* sender's uid */
 			compat_sigval_t _sigval;
 		} _rt;
 
-		
+		/* SIGCHLD */
 		struct {
-			unsigned int _pid;	
-			unsigned int _uid;	
-			int _status;		
+			unsigned int _pid;	/* which child */
+			unsigned int _uid;	/* sender's uid */
+			int _status;		/* exit code */
 			compat_clock_t _utime;
 			compat_clock_t _stime;
 		} _sigchld;
 
-		
+		/* SIGCHLD (x32 version) */
 		struct {
-			unsigned int _pid;	
-			unsigned int _uid;	
-			int _status;		
+			unsigned int _pid;	/* which child */
+			unsigned int _uid;	/* sender's uid */
+			int _status;		/* exit code */
 			compat_s64 _utime;
 			compat_s64 _stime;
 		} _sigchld_x32;
 
-		
+		/* SIGILL, SIGFPE, SIGSEGV, SIGBUS */
 		struct {
-			unsigned int _addr;	
+			unsigned int _addr;	/* faulting insn/memory ref. */
 		} _sigfault;
 
-		
+		/* SIGPOLL */
 		struct {
-			int _band;	
+			int _band;	/* POLL_IN, POLL_OUT, POLL_MSG */
 			int _fd;
 		} _sigpoll;
 	} _sifields;
@@ -149,6 +158,6 @@ extern void ia32_pick_mmap_layout(struct mm_struct *mm);
 
 #endif
 
-#endif 
+#endif /* !CONFIG_IA32_SUPPORT */
 
-#endif 
+#endif /* _ASM_X86_IA32_H */

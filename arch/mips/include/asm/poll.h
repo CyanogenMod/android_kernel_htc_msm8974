@@ -6,4 +6,4 @@
 
 #include <asm-generic/poll.h>
 
-#endif 
+#endif /* __ASM_POLL_H */

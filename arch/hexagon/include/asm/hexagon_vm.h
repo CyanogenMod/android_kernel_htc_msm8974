@@ -21,7 +21,20 @@
 #ifndef ASM_HEXAGON_VM_H
 #define ASM_HEXAGON_VM_H
 
+/*
+ * In principle, a Linux kernel for the VM could
+ * selectively define the virtual instructions
+ * as inline assembler macros, but for a first pass,
+ * we'll use subroutines for both the VM and the native
+ * kernels.  It's costing a subroutine call/return,
+ * but it makes for a single set of entry points
+ * for tracing/debugging.
+ */
 
+/*
+ * Lets make this stuff visible only if configured,
+ * so we can unconditionally include the file.
+ */
 
 #ifndef __ASSEMBLY__
 
@@ -103,6 +116,7 @@ static inline long __vmcache_fetch_cfg(unsigned long val)
 	return __vmcache(fetch_cfg, val, 0);
 }
 
+/* interrupt operations  */
 
 static inline long __vmintop_nop(void)
 {
@@ -159,7 +173,7 @@ static inline long __vmintop_clear(long i)
 	return __vmintop(clear, i, 0, 0, 0);
 }
 
-#else 
+#else /* Only assembly code should reference these */
 
 #define HVM_TRAP1_VMRTE			1
 #define HVM_TRAP1_VMSETVEC		2
@@ -180,13 +194,18 @@ static inline long __vmintop_clear(long i)
 #define HVM_TRAP1_VMSETREGS		21
 #define HVM_TRAP1_VMGETREGS		22
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/*
+ * Constants for virtual instruction parameters and return values
+ */
 
+/* vmsetie arguments */
 
 #define VM_INT_DISABLE	0
 #define VM_INT_ENABLE	1
 
+/* vmsetimask arguments */
 
 #define VM_INT_UNMASK	0
 #define VM_INT_MASK	1
@@ -195,7 +214,11 @@ static inline long __vmintop_clear(long i)
 #define VM_NEWMAP_TYPE_PGTABLES	1
 
 
+/*
+ * Event Record definitions useful to both C and Assembler
+ */
 
+/* VMEST Layout */
 
 #define HVM_VMEST_UM_SFT	31
 #define HVM_VMEST_UM_MSK	1
@@ -206,18 +229,30 @@ static inline long __vmintop_clear(long i)
 #define HVM_VMEST_CAUSE_SFT	0
 #define HVM_VMEST_CAUSE_MSK	0xffff
 
+/*
+ * The initial program gets to find a system environment descriptor
+ * on its stack when it begins exection. The first word is a version
+ * code to indicate what is there.  Zero means nothing more.
+ */
 
 #define HEXAGON_VM_SED_NULL	0
 
+/*
+ * Event numbers for vector binding
+ */
 
 #define HVM_EV_RESET		0
 #define HVM_EV_MACHCHECK	1
 #define HVM_EV_GENEX		2
 #define HVM_EV_TRAP		8
 #define HVM_EV_INTR		15
+/* These shoud be nuked as soon as we know the VM is up to spec v0.1.1 */
 #define HVM_EV_INTR_0		16
 #define HVM_MAX_INTR		240
 
+/*
+ * Cause values for General Exception
+ */
 
 #define HVM_GE_C_BUS	0x01
 #define HVM_GE_C_XPROT	0x11
@@ -233,6 +268,9 @@ static inline long __vmintop_clear(long i)
 #define HVM_GE_C_WUSER	0x25
 #define HVM_GE_C_CACHE	0x28
 
+/*
+ * Cause codes for Machine Check
+ */
 
 #define	HVM_MCHK_C_DOWN		0x00
 #define	HVM_MCHK_C_BADSP	0x01

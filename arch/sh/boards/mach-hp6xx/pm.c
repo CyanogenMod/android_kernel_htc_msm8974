@@ -45,7 +45,7 @@ static void pm_enter(void)
 
 	set_bl_bit();
 
-	
+	/* set wdt */
 	csr = sh_wdt_read_csr();
 	csr &= ~WTCSR_TME;
 	csr |= WTCSR_CKS_4096;
@@ -53,20 +53,20 @@ static void pm_enter(void)
 	csr = sh_wdt_read_csr();
 	sh_wdt_write_cnt(0);
 
-	
+	/* disable PLL1 */
 	frqcr = __raw_readw(FRQCR);
 	frqcr &= ~(FRQCR_PLLEN | FRQCR_PSTBY);
 	__raw_writew(frqcr, FRQCR);
 
-	
+	/* enable standby */
 	stbcr = __raw_readb(STBCR);
 	__raw_writeb(stbcr | STBCR_STBY | STBCR_MSTP2, STBCR);
 
-	
+	/* set self-refresh */
 	mcr = __raw_readw(MCR);
 	__raw_writew(mcr & ~MCR_RFSH, MCR);
 
-	
+	/* set interrupt handler */
 	asm volatile("stc vbr, %0" : "=r" (vbr_old));
 	vbr_new = get_zeroed_page(GFP_ATOMIC);
 	udelay(50);
@@ -83,7 +83,7 @@ static void pm_enter(void)
 
 	free_page(vbr_new);
 
-	
+	/* enable PLL1 */
 	frqcr = __raw_readw(FRQCR);
 	frqcr |= FRQCR_PSTBY;
 	__raw_writew(frqcr, FRQCR);

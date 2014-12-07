@@ -19,15 +19,15 @@ extern u8 real_205_readb(volatile u8 __iomem  *addr);
 extern void real_205_writeb(u8 data, volatile u8 __iomem *addr);
 
 struct NS16550 {
-	
-	unsigned char rbr;  
-	unsigned char ier;  
-	unsigned char fcr;  
-	unsigned char lcr;  
-	unsigned char mcr;  
-	unsigned char lsr;  
-	unsigned char msr;  
-	unsigned char scr;  
+	/* this struct must be packed */
+	unsigned char rbr;  /* 0 */
+	unsigned char ier;  /* 1 */
+	unsigned char fcr;  /* 2 */
+	unsigned char lcr;  /* 3 */
+	unsigned char mcr;  /* 4 */
+	unsigned char lsr;  /* 5 */
+	unsigned char msr;  /* 6 */
+	unsigned char scr;  /* 7 */
 };
 
 #define thr rbr
@@ -36,14 +36,14 @@ struct NS16550 {
 #define dlm ier
 #define dlab lcr
 
-#define LSR_DR   0x01  
-#define LSR_OE   0x02  
-#define LSR_PE   0x04  
-#define LSR_FE   0x08  
-#define LSR_BI   0x10  
-#define LSR_THRE 0x20  
-#define LSR_TEMT 0x40  
-#define LSR_ERR  0x80  
+#define LSR_DR   0x01  /* Data ready */
+#define LSR_OE   0x02  /* Overrun */
+#define LSR_PE   0x04  /* Parity error */
+#define LSR_FE   0x08  /* Framing error */
+#define LSR_BI   0x10  /* Break */
+#define LSR_THRE 0x20  /* Xmit holding register empty */
+#define LSR_TEMT 0x40  /* Xmitter empty */
+#define LSR_ERR  0x80  /* Error */
 
 #define LCR_DLAB 0x80
 
@@ -53,7 +53,7 @@ static void udbg_550_flush(void)
 {
 	if (udbg_comport) {
 		while ((in_8(&udbg_comport->lsr) & LSR_THRE) == 0)
-			;
+			/* wait for idle */;
 	}
 }
 
@@ -82,7 +82,7 @@ static int udbg_550_getc(void)
 {
 	if (udbg_comport) {
 		while ((in_8(&udbg_comport->lsr) & LSR_DR) == 0)
-			;
+			/* wait for char */;
 		return in_8(&udbg_comport->rbr);
 	}
 	return -1;
@@ -109,11 +109,11 @@ void udbg_init_uart(void __iomem *comport, unsigned int speed,
 		out_8(&udbg_comport->lcr, LCR_DLAB);
 		out_8(&udbg_comport->dll, dll & 0xff);
 		out_8(&udbg_comport->dlm, dll >> 8);
-		
+		/* 8 data, 1 stop, no parity */
 		out_8(&udbg_comport->lcr, 0x03);
-		
+		/* RTS/DTR */
 		out_8(&udbg_comport->mcr, 0x03);
-		
+		/* Clear & enable FIFOs */
 		out_8(&udbg_comport->fcr ,0x07);
 		udbg_putc = udbg_550_putc;
 		udbg_flush = udbg_550_flush;
@@ -130,27 +130,27 @@ unsigned int udbg_probe_uart_speed(void __iomem *comport, unsigned int clock)
 
 	old_lcr = in_8(&port->lcr);
 
-	
+	/* select divisor latch registers.  */
 	out_8(&port->lcr, LCR_DLAB);
 
-	
+	/* now, read the divisor */
 	dll = in_8(&port->dll);
 	dlm = in_8(&port->dlm);
 	divisor = dlm << 8 | dll;
 
-	
+	/* check prescaling */
 	if (in_8(&port->mcr) & 0x80)
 		prescaler = 4;
 	else
 		prescaler = 1;
 
-	
+	/* restore the LCR */
 	out_8(&port->lcr, old_lcr);
 
-	
+	/* calculate speed */
 	speed = (clock / prescaler) / (divisor * 16);
 
-	
+	/* sanity check */
 	if (speed > (clock / 16))
 		speed = 9600;
 
@@ -162,7 +162,7 @@ void udbg_maple_real_flush(void)
 {
 	if (udbg_comport) {
 		while ((real_readb(&udbg_comport->lsr) & LSR_THRE) == 0)
-			;
+			/* wait for idle */;
 	}
 }
 
@@ -185,14 +185,14 @@ void __init udbg_init_maple_realmode(void)
 	udbg_getc = NULL;
 	udbg_getc_poll = NULL;
 }
-#endif 
+#endif /* CONFIG_PPC_MAPLE */
 
 #ifdef CONFIG_PPC_PASEMI
 void udbg_pas_real_flush(void)
 {
 	if (udbg_comport) {
 		while ((real_205_readb(&udbg_comport->lsr) & LSR_THRE) == 0)
-			;
+			/* wait for idle */;
 	}
 }
 
@@ -215,7 +215,7 @@ void udbg_init_pas_realmode(void)
 	udbg_getc = NULL;
 	udbg_getc_poll = NULL;
 }
-#endif 
+#endif /* CONFIG_PPC_MAPLE */
 
 #ifdef CONFIG_PPC_EARLY_DEBUG_44x
 #include <platforms/44x/44x.h>
@@ -224,7 +224,7 @@ static void udbg_44x_as1_flush(void)
 {
 	if (udbg_comport) {
 		while ((as1_readb(&udbg_comport->lsr) & LSR_THRE) == 0)
-			;
+			/* wait for idle */;
 	}
 }
 
@@ -242,7 +242,7 @@ static int udbg_44x_as1_getc(void)
 {
 	if (udbg_comport) {
 		while ((as1_readb(&udbg_comport->lsr) & LSR_DR) == 0)
-			; 
+			; /* wait for char */
 		return as1_readb(&udbg_comport->rbr);
 	}
 	return -1;
@@ -257,14 +257,14 @@ void __init udbg_init_44x_as1(void)
 	udbg_flush = udbg_44x_as1_flush;
 	udbg_getc = udbg_44x_as1_getc;
 }
-#endif 
+#endif /* CONFIG_PPC_EARLY_DEBUG_44x */
 
 #ifdef CONFIG_PPC_EARLY_DEBUG_40x
 static void udbg_40x_real_flush(void)
 {
 	if (udbg_comport) {
 		while ((real_readb(&udbg_comport->lsr) & LSR_THRE) == 0)
-			;
+			/* wait for idle */;
 	}
 }
 
@@ -282,7 +282,7 @@ static int udbg_40x_real_getc(void)
 {
 	if (udbg_comport) {
 		while ((real_readb(&udbg_comport->lsr) & LSR_DR) == 0)
-			; 
+			; /* wait for char */
 		return real_readb(&udbg_comport->rbr);
 	}
 	return -1;
@@ -298,14 +298,14 @@ void __init udbg_init_40x_realmode(void)
 	udbg_getc = udbg_40x_real_getc;
 	udbg_getc_poll = NULL;
 }
-#endif 
+#endif /* CONFIG_PPC_EARLY_DEBUG_40x */
 
 #ifdef CONFIG_PPC_EARLY_DEBUG_WSP
 static void udbg_wsp_flush(void)
 {
 	if (udbg_comport) {
 		while ((readb(&udbg_comport->lsr) & LSR_THRE) == 0)
-			;
+			/* wait for idle */;
 	}
 }
 
@@ -323,7 +323,7 @@ static int udbg_wsp_getc(void)
 {
 	if (udbg_comport) {
 		while ((readb(&udbg_comport->lsr) & LSR_DR) == 0)
-			; 
+			; /* wait for char */
 		return readb(&udbg_comport->rbr);
 	}
 	return -1;
@@ -348,4 +348,4 @@ void __init udbg_init_wsp(void)
 	udbg_getc = udbg_wsp_getc;
 	udbg_getc_poll = udbg_wsp_getc_poll;
 }
-#endif 
+#endif /* CONFIG_PPC_EARLY_DEBUG_WSP */

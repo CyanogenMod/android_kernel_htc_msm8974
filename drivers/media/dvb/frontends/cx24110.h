@@ -29,7 +29,7 @@
 
 struct cx24110_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 };
 
@@ -56,6 +56,6 @@ static inline struct dvb_frontend* cx24110_attach(const struct cx24110_config* c
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_CX24110
 
-#endif 
+#endif // CX24110_H

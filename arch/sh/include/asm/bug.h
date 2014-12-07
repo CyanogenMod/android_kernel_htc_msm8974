@@ -3,13 +3,25 @@
 
 #include <linux/linkage.h>
 
-#define TRAPA_BUG_OPCODE	0xc33e	
+#define TRAPA_BUG_OPCODE	0xc33e	/* trapa #0x3e */
 #define BUGFLAG_UNWINDER	(1 << 1)
 
 #ifdef CONFIG_GENERIC_BUG
 #define HAVE_ARCH_BUG
 #define HAVE_ARCH_WARN_ON
 
+/**
+ * _EMIT_BUG_ENTRY
+ * %1 - __FILE__
+ * %2 - __LINE__
+ * %3 - trap type
+ * %4 - sizeof(struct bug_entry)
+ *
+ * The trapa opcode itself sits in %0.
+ * The %O notation is used to avoid # generation.
+ *
+ * The offending file and line are encoded in the __bug_table section.
+ */
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 #define _EMIT_BUG_ENTRY				\
 	"\t.pushsection __bug_table,\"a\"\n"	\
@@ -93,11 +105,11 @@ do {							\
 #define UNWINDER_BUG	BUG
 #define UNWINDER_BUG_ON	BUG_ON
 
-#endif 
+#endif /* CONFIG_GENERIC_BUG */
 
 #include <asm-generic/bug.h>
 
 struct pt_regs;
 extern void die(const char *str, struct pt_regs *regs, long err) __attribute__ ((noreturn));
 
-#endif 
+#endif /* __ASM_SH_BUG_H */

@@ -15,18 +15,19 @@
 #ifndef BNX2X_INIT_H
 #define BNX2X_INIT_H
 
+/* Init operation types and structures */
 enum {
-	OP_RD = 0x1,	
-	OP_WR,		
-	OP_SW,		
-	OP_ZR,		
-	OP_ZP,		
-	OP_WR_64,	
-	OP_WB,		
-	OP_WB_ZR,	
-	
+	OP_RD = 0x1,	/* read a single register */
+	OP_WR,		/* write a single register */
+	OP_SW,		/* copy a string to the device */
+	OP_ZR,		/* clear memory */
+	OP_ZP,		/* unzip then copy with DMAE */
+	OP_WR_64,	/* write 64 bit pattern */
+	OP_WB,		/* copy a string using DMAE */
+	OP_WB_ZR,	/* Clear a string using DMAE or indirect-wr */
+	/* Skip the following ops if all of the init modes don't match */
 	OP_IF_MODE_OR,
-	
+	/* Skip the following ops if any of the init modes don't match */
 	OP_IF_MODE_AND,
 	OP_MAX
 };
@@ -36,10 +37,12 @@ enum {
 	STAGE_END,
 };
 
+/* Returns the index of start or end of a specific block stage in ops array*/
 #define BLOCK_OPS_IDX(block, stage, end) \
 	(2*(((block)*NUM_OF_INIT_PHASES) + (stage)) + (end))
 
 
+/* structs for the various opcodes */
 struct raw_op {
 	u32 op:8;
 	u32 offset:24;
@@ -64,7 +67,7 @@ struct op_arr_write {
 #ifdef __BIG_ENDIAN
 	u16 data_len;
 	u16 data_off;
-#else 
+#else /* __LITTLE_ENDIAN */
 	u16 data_off;
 	u16 data_len;
 #endif
@@ -93,6 +96,7 @@ union init_op {
 };
 
 
+/* Init Phases */
 enum {
 	PHASE_COMMON,
 	PHASE_PORT0,
@@ -108,6 +112,7 @@ enum {
 	NUM_OF_INIT_PHASES
 };
 
+/* Init Modes */
 enum {
 	MODE_ASIC                      = 0x00000001,
 	MODE_FPGA                      = 0x00000002,
@@ -129,6 +134,7 @@ enum {
 	MODE_BIG_ENDIAN                = 0x00020000,
 };
 
+/* Init Blocks */
 enum {
 	BLOCK_ATC,
 	BLOCK_BRB1,
@@ -167,6 +173,7 @@ enum {
 	NUM_OF_INIT_BLOCKS
 };
 
+/* QM queue numbers */
 #define BNX2X_ETH_Q		0
 #define BNX2X_TOE_Q		3
 #define BNX2X_TOE_ACK_Q		6
@@ -174,11 +181,14 @@ enum {
 #define BNX2X_ISCSI_ACK_Q	11
 #define BNX2X_FCOE_Q		10
 
+/* Vnics per mode */
 #define BNX2X_PORT2_MODE_NUM_VNICS 4
 #define BNX2X_PORT4_MODE_NUM_VNICS 2
 
+/* COS offset for port1 in E3 B0 4port mode */
 #define BNX2X_E3B0_PORT1_COS_OFFSET 3
 
+/* QM Register addresses */
 #define BNX2X_Q_VOQ_REG_ADDR(pf_q_num)\
 	(QM_REG_QVOQIDX_0 + 4 * (pf_q_num))
 #define BNX2X_VOQ_Q_REG_ADDR(cos, pf_q_num)\
@@ -186,21 +196,23 @@ enum {
 #define BNX2X_Q_CMDQ_REG_ADDR(pf_q_num)\
 	(QM_REG_BYTECRDCMDQ_0 + 4 * ((pf_q_num) >> 4))
 
+/* extracts the QM queue number for the specified port and vnic */
 #define BNX2X_PF_Q_NUM(q_num, port, vnic)\
 	((((port) << 1) | (vnic)) * 16 + (q_num))
 
 
+/* Maps the specified queue to the specified COS */
 static inline void bnx2x_map_q_cos(struct bnx2x *bp, u32 q_num, u32 new_cos)
 {
-	
+	/* find current COS mapping */
 	u32 curr_cos = REG_RD(bp, QM_REG_QVOQIDX_0 + q_num * 4);
 
-	
+	/* check if queue->COS mapping has changed */
 	if (curr_cos != new_cos) {
 		u32 num_vnics = BNX2X_PORT2_MODE_NUM_VNICS;
 		u32 reg_addr, reg_bit_map, vnic;
 
-		
+		/* update parameters for 4port mode */
 		if (INIT_MODE_FLAGS(bp) & MODE_PORT4) {
 			num_vnics = BNX2X_PORT4_MODE_NUM_VNICS;
 			if (BP_PORT(bp)) {
@@ -209,25 +221,27 @@ static inline void bnx2x_map_q_cos(struct bnx2x *bp, u32 q_num, u32 new_cos)
 			}
 		}
 
-		
+		/* change queue mapping for each VNIC */
 		for (vnic = 0; vnic < num_vnics; vnic++) {
 			u32 pf_q_num =
 				BNX2X_PF_Q_NUM(q_num, BP_PORT(bp), vnic);
 			u32 q_bit_map = 1 << (pf_q_num & 0x1f);
 
-			
+			/* overwrite queue->VOQ mapping */
 			REG_WR(bp, BNX2X_Q_VOQ_REG_ADDR(pf_q_num), new_cos);
 
-			
+			/* clear queue bit from current COS bit map */
 			reg_addr = BNX2X_VOQ_Q_REG_ADDR(curr_cos, pf_q_num);
 			reg_bit_map = REG_RD(bp, reg_addr);
 			REG_WR(bp, reg_addr, reg_bit_map & (~q_bit_map));
 
-			
+			/* set queue bit in new COS bit map */
 			reg_addr = BNX2X_VOQ_Q_REG_ADDR(new_cos, pf_q_num);
 			reg_bit_map = REG_RD(bp, reg_addr);
 			REG_WR(bp, reg_addr, reg_bit_map | q_bit_map);
 
+			/* set/clear queue bit in command-queue bit map
+			(E2/E3A0 only, valid COS values are 0/1) */
 			if (!(INIT_MODE_FLAGS(bp) & MODE_E3_B0)) {
 				reg_addr = BNX2X_Q_CMDQ_REG_ADDR(pf_q_num);
 				reg_bit_map = REG_RD(bp, reg_addr);
@@ -241,6 +255,7 @@ static inline void bnx2x_map_q_cos(struct bnx2x *bp, u32 q_num, u32 new_cos)
 	}
 }
 
+/* Configures the QM according to the specified per-traffic-type COSes */
 static inline void bnx2x_dcb_config_qm(struct bnx2x *bp, enum cos_mode mode,
 				       struct priority_cos *traffic_cos)
 {
@@ -251,7 +266,7 @@ static inline void bnx2x_dcb_config_qm(struct bnx2x *bp, enum cos_mode mode,
 	bnx2x_map_q_cos(bp, BNX2X_ISCSI_ACK_Q,
 		traffic_cos[LLFC_TRAFFIC_TYPE_ISCSI].cos);
 	if (mode != STATIC_COS) {
-		
+		/* required only in backward compatible COS mode */
 		bnx2x_map_q_cos(bp, BNX2X_ETH_Q,
 				traffic_cos[LLFC_TRAFFIC_TYPE_NW].cos);
 		bnx2x_map_q_cos(bp, BNX2X_TOE_Q,
@@ -262,14 +277,18 @@ static inline void bnx2x_dcb_config_qm(struct bnx2x *bp, enum cos_mode mode,
 }
 
 
+/* Returns the index of start or end of a specific block stage in ops array*/
 #define BLOCK_OPS_IDX(block, stage, end) \
 			(2*(((block)*NUM_OF_INIT_PHASES) + (stage)) + (end))
 
 
-#define INITOP_SET		0	
-#define INITOP_CLEAR		1	
-#define INITOP_INIT		2	
+#define INITOP_SET		0	/* set the HW directly */
+#define INITOP_CLEAR		1	/* clear the HW directly */
+#define INITOP_INIT		2	/* set the init-value array */
 
+/****************************************************************************
+* ILT management
+****************************************************************************/
 struct ilt_line {
 	dma_addr_t page_mapping;
 	void *page;
@@ -296,11 +315,17 @@ struct bnx2x_ilt {
 #define ILT_CLIENT_TM	3
 };
 
+/****************************************************************************
+* SRC configuration
+****************************************************************************/
 struct src_ent {
 	u8 opaque[56];
 	u64 next;
 };
 
+/****************************************************************************
+* Parity configuration
+****************************************************************************/
 #define BLOCK_PRTY_INFO(block, en_mask, m1, m1h, m2, m3) \
 { \
 	block##_REG_##block##_PRTY_MASK, \
@@ -325,24 +350,29 @@ struct src_ent {
 static const struct {
 	u32 mask_addr;
 	u32 sts_clr_addr;
-	u32 en_mask;		
+	u32 en_mask;		/* Mask to enable parity attentions */
 	struct {
-		u32 e1;		
-		u32 e1h;	
-		u32 e2;		
-		u32 e3;		
-	} reg_mask;		
-	char name[7];		
+		u32 e1;		/* 57710 */
+		u32 e1h;	/* 57711 */
+		u32 e2;		/* 57712 */
+		u32 e3;		/* 578xx */
+	} reg_mask;		/* Register mask (all valid bits) */
+	char name[7];		/* Block's longest name is 6 characters long
+				 * (name + suffix)
+				 */
 } bnx2x_blocks_parity_data[] = {
-	
-	
-	
-	
-	
-	
-	
-	
+	/* bit 19 masked */
+	/* REG_WR(bp, PXP_REG_PXP_PRTY_MASK, 0x80000); */
+	/* bit 5,18,20-31 */
+	/* REG_WR(bp, PXP2_REG_PXP2_PRTY_MASK_0, 0xfff40020); */
+	/* bit 5 */
+	/* REG_WR(bp, PXP2_REG_PXP2_PRTY_MASK_1, 0x20);	*/
+	/* REG_WR(bp, HC_REG_HC_PRTY_MASK, 0x0); */
+	/* REG_WR(bp, MISC_REG_MISC_PRTY_MASK, 0x0); */
 
+	/* Block IGU, MISC, PXP and PXP2 parity errors as long as we don't
+	 * want to handle "system kill" flow at the moment.
+	 */
 	BLOCK_PRTY_INFO(PXP, 0x7ffffff, 0x3ffffff, 0x3ffffff, 0x7ffffff,
 			0x7ffffff),
 	BLOCK_PRTY_INFO_0(PXP2,	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
@@ -396,12 +426,21 @@ static const struct {
 };
 
 
+/* [28] MCP Latched rom_parity
+ * [29] MCP Latched ump_rx_parity
+ * [30] MCP Latched ump_tx_parity
+ * [31] MCP Latched scpad_parity
+ */
 #define MISC_AEU_ENABLE_MCP_PRTY_BITS	\
 	(AEU_INPUTS_ATTN_BITS_MCP_LATCHED_ROM_PARITY | \
 	 AEU_INPUTS_ATTN_BITS_MCP_LATCHED_UMP_RX_PARITY | \
 	 AEU_INPUTS_ATTN_BITS_MCP_LATCHED_UMP_TX_PARITY | \
 	 AEU_INPUTS_ATTN_BITS_MCP_LATCHED_SCPAD_PARITY)
 
+/* Below registers control the MCP parity attention output. When
+ * MISC_AEU_ENABLE_MCP_PRTY_BITS are set - attentions are
+ * enabled, when cleared - disabled.
+ */
 static const u32 mcp_attn_ctl_regs[] = {
 	MISC_REG_AEU_ENABLE4_FUNC_0_OUT_0,
 	MISC_REG_AEU_ENABLE4_NIG_0,
@@ -436,7 +475,7 @@ static inline u32 bnx2x_parity_reg_mask(struct bnx2x *bp, int idx)
 		return bnx2x_blocks_parity_data[idx].reg_mask.e1h;
 	else if (CHIP_IS_E2(bp))
 		return bnx2x_blocks_parity_data[idx].reg_mask.e2;
-	else 
+	else /* CHIP_IS_E3 */
 		return bnx2x_blocks_parity_data[idx].reg_mask.e3;
 }
 
@@ -456,10 +495,13 @@ static inline void bnx2x_disable_blocks_parity(struct bnx2x *bp)
 		}
 	}
 
-	
+	/* Disable MCP parity attentions */
 	bnx2x_set_mcp_parity(bp, false);
 }
 
+/**
+ * Clear the parity error status registers.
+ */
 static inline void bnx2x_clear_blocks_parity(struct bnx2x *bp)
 {
 	int i;
@@ -469,7 +511,7 @@ static inline void bnx2x_clear_blocks_parity(struct bnx2x *bp)
 		AEU_INPUTS_ATTN_BITS_MCP_LATCHED_UMP_RX_PARITY |
 		AEU_INPUTS_ATTN_BITS_MCP_LATCHED_UMP_TX_PARITY;
 
-	
+	/* Clear SEM_FAST parities */
 	REG_WR(bp, XSEM_REG_FAST_MEMORY + SEM_FAST_REG_PARITY_RST, 0x1);
 	REG_WR(bp, TSEM_REG_FAST_MEMORY + SEM_FAST_REG_PARITY_RST, 0x1);
 	REG_WR(bp, USEM_REG_FAST_MEMORY + SEM_FAST_REG_PARITY_RST, 0x1);
@@ -489,12 +531,18 @@ static inline void bnx2x_clear_blocks_parity(struct bnx2x *bp)
 		}
 	}
 
-	
+	/* Check if there were parity attentions in MCP */
 	reg_val = REG_RD(bp, MISC_REG_AEU_AFTER_INVERT_4_MCP);
 	if (reg_val & mcp_aeu_bits)
 		DP(NETIF_MSG_HW, "Parity error in MCP: 0x%x\n",
 		   reg_val & mcp_aeu_bits);
 
+	/* Clear parity attentions in MCP:
+	 * [7]  clears Latched rom_parity
+	 * [8]  clears Latched ump_rx_parity
+	 * [9]  clears Latched ump_tx_parity
+	 * [10] clears Latched scpad_parity (both ports)
+	 */
 	REG_WR(bp, MISC_REG_AEU_CLR_LATCH_SIGNAL, 0x780);
 }
 
@@ -510,10 +558,10 @@ static inline void bnx2x_enable_blocks_parity(struct bnx2x *bp)
 				bnx2x_blocks_parity_data[i].en_mask & reg_mask);
 	}
 
-	
+	/* Enable MCP parity attentions */
 	bnx2x_set_mcp_parity(bp, true);
 }
 
 
-#endif 
+#endif /* BNX2X_INIT_H */
 

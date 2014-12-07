@@ -82,7 +82,7 @@ static u32 detect_input_clocks(const struct echoaudio *chip)
 {
 	u32 clocks_from_dsp, clock_bits;
 
-	
+	/* Map the DSP clock detect bits to the generic driver clock detect bits */
 	clocks_from_dsp = le32_to_cpu(chip->comm_page->status_clocks);
 
 	clock_bits = ECHO_CLOCK_BIT_INTERNAL;
@@ -102,6 +102,13 @@ static u32 detect_input_clocks(const struct echoaudio *chip)
 
 
 
+/* ASIC status check - some cards have one or two ASICs that need to be
+loaded.  Once that load is complete, this function is called to see if
+the load was successful.
+If this load fails, it does not necessarily mean that the hardware is
+defective - the external box may be disconnected or turned off.
+This routine sometimes fails for Layla20; for Layla20, the loop runs
+5 times and succeeds if it wins on three of the loops. */
 static int check_asic_status(struct echoaudio *chip)
 {
 	u32 asic_status;
@@ -111,6 +118,8 @@ static int check_asic_status(struct echoaudio *chip)
 	for (i = goodcnt = 0; i < 5; i++) {
 		send_vector(chip, DSP_VC_TEST_ASIC);
 
+		/* The DSP will return a value to indicate whether or not
+		   the ASIC is currently loaded */
 		if (read_dsp(chip, &asic_status) < 0) {
 			DE_ACT(("check_asic_status: failed on read_dsp\n"));
 			return -EIO;
@@ -128,6 +137,7 @@ static int check_asic_status(struct echoaudio *chip)
 
 
 
+/* Layla20 has an ASIC in the external box */
 static int load_asic(struct echoaudio *chip)
 {
 	int err;
@@ -140,7 +150,7 @@ static int load_asic(struct echoaudio *chip)
 	if (err < 0)
 		return err;
 
-	
+	/* Check if ASIC is alive and well. */
 	return check_asic_status(chip);
 }
 
@@ -151,6 +161,8 @@ static int set_sample_rate(struct echoaudio *chip, u32 rate)
 	if (snd_BUG_ON(rate < 8000 || rate > 50000))
 		return -EINVAL;
 
+	/* Only set the clock for internal mode. Do not return failure,
+	   simply treat it as a non-event. */
 	if (chip->input_clock != ECHO_CLOCK_INTERNAL) {
 		DE_ACT(("set_sample_rate: Cannot set sample rate - "
 			"clock not set to CLK_CLOCKININTERNAL\n"));
@@ -241,6 +253,7 @@ static int set_output_clock(struct echoaudio *chip, u16 clock)
 
 
 
+/* Set input bus gain (one unit is 0.5dB !) */
 static int set_input_gain(struct echoaudio *chip, u16 input, int gain)
 {
 	if (snd_BUG_ON(input >= num_busses_in(chip)))
@@ -257,6 +270,7 @@ static int set_input_gain(struct echoaudio *chip, u16 input, int gain)
 
 
 
+/* Tell the DSP to reread the flags from the comm page */
 static int update_flags(struct echoaudio *chip)
 {
 	if (wait_handshake(chip))

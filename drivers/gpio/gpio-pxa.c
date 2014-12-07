@@ -50,7 +50,7 @@
 #define GFER_OFFSET	0x3C
 #define GEDR_OFFSET	0x48
 #define GAFR_OFFSET	0x54
-#define ED_MASK_OFFSET	0x9C	
+#define ED_MASK_OFFSET	0x9C	/* GPIO edge detection for AP side */
 
 #define BANK_OFF(n)	(((n) < 3) ? (n) << 2 : 0x100 + (((n) - 3) << 2))
 
@@ -112,6 +112,9 @@ static inline int gpio_is_mmp_type(int type)
 	return (type & MMP_GPIO) != 0;
 }
 
+/* GPIO86/87/88/89 on PXA26x have their direction bits in PXA_GPDR(2 inverted,
+ * as well as their Alternate Function value being '1' for GPIO in GAFRx.
+ */
 static inline int __gpio_is_inverted(int gpio)
 {
 	if ((gpio_type == PXA26X_GPIO) && (gpio > 85))
@@ -119,6 +122,12 @@ static inline int __gpio_is_inverted(int gpio)
 	return 0;
 }
 
+/*
+ * On PXA25x and PXA27x, GAFRx and GPDRx together decide the alternate
+ * function of a GPIO, and GPDRx cannot be altered once configured. It
+ * is attributed as "occupied" here (I know this terminology isn't
+ * accurate, you are welcome to propose a better one :-)
+ */
 static inline int __gpio_is_occupied(unsigned gpio)
 {
 	struct pxa_gpio_chip *pxachip;
@@ -289,7 +298,7 @@ static int __devinit pxa_init_gpio_chip(int gpio_end,
 		c->set = pxa_gpio_set;
 		c->to_irq = pxa_gpio_to_irq;
 
-		
+		/* number of GPIOs on last bank may be less than 32 */
 		c->ngpio = (gpio + 31 > gpio_end) ? (gpio_end - gpio + 1) : 32;
 		gpiochip_add(c);
 	}
@@ -297,6 +306,9 @@ static int __devinit pxa_init_gpio_chip(int gpio_end,
 	return 0;
 }
 
+/* Update only those GRERx and GFERx edge detection register bits if those
+ * bits are set in c->irq_mask
+ */
 static inline void update_edge_detect(struct pxa_gpio_chip *c)
 {
 	uint32_t grer, gfer;
@@ -318,6 +330,9 @@ static int pxa_gpio_irq_type(struct irq_data *d, unsigned int type)
 	c = gpio_to_pxachip(gpio);
 
 	if (type == IRQ_TYPE_PROBE) {
+		/* Don't mess with enabled GPIOs using preconfigured edges or
+		 * GPIOs set to alternate function or to output during probe
+		 */
 		if ((c->irq_edge_rise | c->irq_edge_fall) & GPIO_bit(gpio))
 			return 0;
 
@@ -441,7 +456,7 @@ static int pxa_gpio_nums(void)
 #elif defined(CONFIG_PXA25x)
 		count = 84;
 		gpio_type = PXA26X_GPIO;
-#endif 
+#endif /* CONFIG_CPU_PXA26x */
 	} else if (cpu_is_pxa27x()) {
 		count = 120;
 		gpio_type = PXA27X_GPIO;
@@ -452,7 +467,7 @@ static int pxa_gpio_nums(void)
 		count = 127;
 		gpio_type = PXA3XX_GPIO;
 	}
-#endif 
+#endif /* CONFIG_ARCH_PXA */
 
 #ifdef CONFIG_ARCH_MMP
 	if (cpu_is_pxa168() || cpu_is_pxa910()) {
@@ -462,7 +477,7 @@ static int pxa_gpio_nums(void)
 		count = 191;
 		gpio_type = MMP2_GPIO;
 	}
-#endif 
+#endif /* CONFIG_ARCH_MMP */
 	return count;
 }
 
@@ -516,16 +531,16 @@ static int __devinit pxa_gpio_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	
+	/* Initialize GPIO chips */
 	info = dev_get_platdata(&pdev->dev);
 	pxa_init_gpio_chip(pxa_last_gpio, info ? info->gpio_set_wake : NULL);
 
-	
+	/* clear all GPIO edge detects */
 	for_each_gpio_chip(gpio, c) {
 		writel_relaxed(0, c->regbase + GFER_OFFSET);
 		writel_relaxed(0, c->regbase + GRER_OFFSET);
 		writel_relaxed(~0,c->regbase + GEDR_OFFSET);
-		
+		/* unmask GPIO edge detect for AP side */
 		if (gpio_is_mmp_type(gpio_type))
 			writel_relaxed(~0, c->regbase + ED_MASK_OFFSET);
 	}
@@ -580,7 +595,7 @@ static int pxa_gpio_suspend(void)
 		c->saved_grer = readl_relaxed(c->regbase + GRER_OFFSET);
 		c->saved_gfer = readl_relaxed(c->regbase + GFER_OFFSET);
 
-		
+		/* Clear GPIO transition detect bits */
 		writel_relaxed(0xffffffff, c->regbase + GEDR_OFFSET);
 	}
 	return 0;
@@ -592,7 +607,7 @@ static void pxa_gpio_resume(void)
 	int gpio;
 
 	for_each_gpio_chip(gpio, c) {
-		
+		/* restore level with set/clear */
 		writel_relaxed( c->saved_gplr, c->regbase + GPSR_OFFSET);
 		writel_relaxed(~c->saved_gplr, c->regbase + GPCR_OFFSET);
 

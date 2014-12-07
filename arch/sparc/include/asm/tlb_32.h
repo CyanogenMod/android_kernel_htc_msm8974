@@ -21,4 +21,4 @@ do {								\
 
 #include <asm-generic/tlb.h>
 
-#endif 
+#endif /* _SPARC_TLB_H */

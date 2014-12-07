@@ -36,22 +36,37 @@ int send_fault_sig(struct pt_regs *regs)
 		if (handle_kernel_fault(regs))
 			return -1;
 
-		
-		
-		
+		//if (siginfo.si_signo == SIGBUS)
+		//	force_sig_info(siginfo.si_signo,
+		//		       &siginfo, current);
 
+		/*
+		 * Oops. The kernel tried to access some bad page. We'll have to
+		 * terminate things with extreme prejudice.
+		 */
 		if ((unsigned long)siginfo.si_addr < PAGE_SIZE)
 			printk(KERN_ALERT "Unable to handle kernel NULL pointer dereference");
 		else
 			printk(KERN_ALERT "Unable to handle kernel access");
 		printk(" at virtual address %p\n", siginfo.si_addr);
-		die_if_kernel("Oops", regs, 0 );
+		die_if_kernel("Oops", regs, 0 /*error_code*/);
 		do_exit(SIGKILL);
 	}
 
 	return 1;
 }
 
+/*
+ * This routine handles page faults.  It determines the problem, and
+ * then passes it off to one of the appropriate routines.
+ *
+ * error_code:
+ *	bit 0 == 0 means no page found, 1 means protection fault
+ *	bit 1 == 0 means read, 1 means write
+ *
+ * If this routine detects a bad access, it returns 1, otherwise it
+ * returns 0.
+ */
 int do_page_fault(struct pt_regs *regs, unsigned long address,
 			      unsigned long error_code)
 {
@@ -65,6 +80,10 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 		current->mm->pgd);
 #endif
 
+	/*
+	 * If we're in an interrupt or have no user
+	 * context, we must not take the fault..
+	 */
 	if (in_atomic() || !mm)
 		goto no_context;
 
@@ -80,32 +99,45 @@ int do_page_fault(struct pt_regs *regs, unsigned long address,
 	if (!(vma->vm_flags & VM_GROWSDOWN))
 		goto map_err;
 	if (user_mode(regs)) {
+		/* Accessing the stack below usp is always a bug.  The
+		   "+ 256" is there due to some instructions doing
+		   pre-decrement on the stack and that doesn't show up
+		   until later.  */
 		if (address + 256 < rdusp())
 			goto map_err;
 	}
 	if (expand_stack(vma, address))
 		goto map_err;
 
+/*
+ * Ok, we have a good vm_area for this memory access, so
+ * we can handle it..
+ */
 good_area:
 #ifdef DEBUG
 	printk("do_page_fault: good_area\n");
 #endif
 	write = 0;
 	switch (error_code & 3) {
-		default:	
-			
-		case 2:		
+		default:	/* 3: write, present */
+			/* fall through */
+		case 2:		/* write, not present */
 			if (!(vma->vm_flags & VM_WRITE))
 				goto acc_err;
 			write++;
 			break;
-		case 1:		
+		case 1:		/* read, present */
 			goto acc_err;
-		case 0:		
+		case 0:		/* read, not present */
 			if (!(vma->vm_flags & (VM_READ | VM_EXEC | VM_WRITE)))
 				goto acc_err;
 	}
 
+	/*
+	 * If for any reason at all we couldn't handle the fault,
+	 * make sure we exit gracefully rather than endlessly redo
+	 * the fault.
+	 */
 
 	fault = handle_mm_fault(mm, vma, address, write ? FAULT_FLAG_WRITE : 0);
 #ifdef DEBUG
@@ -126,6 +158,10 @@ good_area:
 	up_read(&mm->mmap_sem);
 	return 0;
 
+/*
+ * We ran out of memory, or some other thing happened to us that made
+ * us unable to handle the page fault gracefully.
+ */
 out_of_memory:
 	up_read(&mm->mmap_sem);
 	if (!user_mode(regs))

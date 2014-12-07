@@ -89,6 +89,8 @@ int mlx4_en_QUERY_PORT(struct mlx4_en_dev *mdev, u8 port)
 		goto out;
 	qport_context = mailbox->buf;
 
+	/* This command is always accessed from Ethtool context
+	 * already synchronized, no need in locking */
 	state->link_state = !!(qport_context->link_up & MLX4_EN_LINK_UP_MASK);
 	switch (qport_context->link_speed & MLX4_EN_SPEED_MASK) {
 	case MLX4_EN_1G_SPEED:

@@ -33,6 +33,19 @@
 #define QNAP_TS209_NOR_BOOT_BASE 0xf4000000
 #define QNAP_TS209_NOR_BOOT_SIZE SZ_8M
 
+/****************************************************************************
+ * 8MiB NOR flash. The struct mtd_partition is not in the same order as the
+ *     partitions on the device because we want to keep compatibility with
+ *     existing QNAP firmware.
+ *
+ * Layout as used by QNAP:
+ *  [2] 0x00000000-0x00200000 : "Kernel"
+ *  [3] 0x00200000-0x00600000 : "RootFS1"
+ *  [4] 0x00600000-0x00700000 : "RootFS2"
+ *  [6] 0x00700000-0x00760000 : "NAS Config" (read-only)
+ *  [5] 0x00760000-0x00780000 : "U-Boot Config"
+ *  [1] 0x00780000-0x00800000 : "U-Boot" (read-only)
+ ***************************************************************************/
 static struct mtd_partition qnap_ts209_partitions[] = {
 	{
 		.name		= "U-Boot",
@@ -85,6 +98,9 @@ static struct platform_device qnap_ts209_nor_flash = {
 	.num_resources	= 1,
 };
 
+/*****************************************************************************
+ * PCI
+ ****************************************************************************/
 
 #define QNAP_TS209_PCI_SLOT0_OFFS	7
 #define QNAP_TS209_PCI_SLOT0_IRQ_PIN	6
@@ -94,6 +110,9 @@ void __init qnap_ts209_pci_preinit(void)
 {
 	int pin;
 
+	/*
+	 * Configure PCI GPIO IRQ pins
+	 */
 	pin = QNAP_TS209_PCI_SLOT0_IRQ_PIN;
 	if (gpio_request(pin, "PCI Int1") == 0) {
 		if (gpio_direction_input(pin) == 0) {
@@ -128,10 +147,16 @@ static int __init qnap_ts209_pci_map_irq(const struct pci_dev *dev, u8 slot,
 {
 	int irq;
 
+	/*
+	 * Check for devices with hard-wired IRQs.
+	 */
 	irq = orion5x_pci_map_irq(dev, slot, pin);
 	if (irq != -1)
 		return irq;
 
+	/*
+	 * PCI IRQs are connected via GPIOs.
+	 */
 	switch (slot - QNAP_TS209_PCI_SLOT0_OFFS) {
 	case 0:
 		return gpio_to_irq(QNAP_TS209_PCI_SLOT0_IRQ_PIN);
@@ -161,6 +186,9 @@ static int __init qnap_ts209_pci_init(void)
 
 subsys_initcall(qnap_ts209_pci_init);
 
+/*****************************************************************************
+ * RTC S35390A on I2C bus
+ ****************************************************************************/
 
 #define TS209_RTC_GPIO	3
 
@@ -169,6 +197,10 @@ static struct i2c_board_info __initdata qnap_ts209_i2c_rtc = {
 	.irq	= 0,
 };
 
+/****************************************************************************
+ * GPIO Attached Keys
+ *     Power button is attached to the PIC microcontroller
+ ****************************************************************************/
 
 #define QNAP_TS209_GPIO_KEY_MEDIA	1
 #define QNAP_TS209_GPIO_KEY_RESET	2
@@ -201,41 +233,60 @@ static struct platform_device qnap_ts209_button_device = {
 	},
 };
 
+/*****************************************************************************
+ * SATA
+ ****************************************************************************/
 static struct mv_sata_platform_data qnap_ts209_sata_data = {
 	.n_ports	= 2,
 };
 
+/*****************************************************************************
+
+ * General Setup
+ ****************************************************************************/
 static unsigned int ts209_mpp_modes[] __initdata = {
 	MPP0_UNUSED,
-	MPP1_GPIO,		
-	MPP2_GPIO,		
-	MPP3_GPIO,		
+	MPP1_GPIO,		/* USB copy button */
+	MPP2_GPIO,		/* Load defaults button */
+	MPP3_GPIO,		/* GPIO RTC */
 	MPP4_UNUSED,
 	MPP5_UNUSED,
-	MPP6_GPIO,		
-	MPP7_GPIO,		
+	MPP6_GPIO,		/* PCI Int A */
+	MPP7_GPIO,		/* PCI Int B */
 	MPP8_UNUSED,
 	MPP9_UNUSED,
 	MPP10_UNUSED,
 	MPP11_UNUSED,
-	MPP12_SATA_LED,		
-	MPP13_SATA_LED,		
-	MPP14_SATA_LED,		
-	MPP15_SATA_LED,		
-	MPP16_UART,		
-	MPP17_UART,		
-	MPP18_GPIO,		
+	MPP12_SATA_LED,		/* SATA 0 presence */
+	MPP13_SATA_LED,		/* SATA 1 presence */
+	MPP14_SATA_LED,		/* SATA 0 active */
+	MPP15_SATA_LED,		/* SATA 1 active */
+	MPP16_UART,		/* UART1 RXD */
+	MPP17_UART,		/* UART1 TXD */
+	MPP18_GPIO,		/* SW_RST */
 	MPP19_UNUSED,
 	0,
 };
 
 static void __init qnap_ts209_init(void)
 {
+	/*
+	 * Setup basic Orion functions. Need to be called early.
+	 */
 	orion5x_init();
 
 	orion5x_mpp_conf(ts209_mpp_modes);
 
+	/*
+	 * MPP[20] PCI clock 0
+	 * MPP[21] PCI clock 1
+	 * MPP[22] USB 0 over current
+	 * MPP[23-25] Reserved
+	 */
 
+	/*
+	 * Configure peripherals.
+	 */
 	orion5x_setup_dev_boot_win(QNAP_TS209_NOR_BOOT_BASE,
 				   QNAP_TS209_NOR_BOOT_SIZE);
 	platform_device_register(&qnap_ts209_nor_flash);
@@ -254,7 +305,7 @@ static void __init qnap_ts209_init(void)
 
 	platform_device_register(&qnap_ts209_button_device);
 
-	
+	/* Get RTC IRQ and register the chip */
 	if (gpio_request(TS209_RTC_GPIO, "rtc") == 0) {
 		if (gpio_direction_input(TS209_RTC_GPIO) == 0)
 			qnap_ts209_i2c_rtc.irq = gpio_to_irq(TS209_RTC_GPIO);
@@ -265,12 +316,12 @@ static void __init qnap_ts209_init(void)
 		pr_warning("qnap_ts209_init: failed to get RTC IRQ\n");
 	i2c_register_board_info(0, &qnap_ts209_i2c_rtc, 1);
 
-	
+	/* register tsx09 specific power-off method */
 	pm_power_off = qnap_tsx09_power_off;
 }
 
 MACHINE_START(TS209, "QNAP TS-109/TS-209")
-	
+	/* Maintainer: Byron Bradley <byron.bbradley@gmail.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= qnap_ts209_init,
 	.map_io		= orion5x_map_io,

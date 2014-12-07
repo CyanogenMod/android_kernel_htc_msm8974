@@ -191,6 +191,19 @@ static samsung_gpio_pull_t exynos_gpio_getpull(struct samsung_gpio_chip *chip,
 	return pull;
 }
 
+/*
+ * samsung_gpio_setcfg_2bit - Samsung 2bit style GPIO configuration.
+ * @chip: The gpio chip that is being configured.
+ * @off: The offset for the GPIO being configured.
+ * @cfg: The configuration value to set.
+ *
+ * This helper deal with the GPIO cases where the control register
+ * has two bits of configuration per gpio, which have the following
+ * functions:
+ *	00 = input
+ *	01 = output
+ *	1x = special function
+ */
 
 static int samsung_gpio_setcfg_2bit(struct samsung_gpio_chip *chip,
 				    unsigned int off, unsigned int cfg)
@@ -215,6 +228,15 @@ static int samsung_gpio_setcfg_2bit(struct samsung_gpio_chip *chip,
 	return 0;
 }
 
+/*
+ * samsung_gpio_getcfg_2bit - Samsung 2bit style GPIO configuration read.
+ * @chip: The gpio chip that is being configured.
+ * @off: The offset for the GPIO being configured.
+ *
+ * The reverse of samsung_gpio_setcfg_2bit(). Will return a value which
+ * could be directly passed back to samsung_gpio_setcfg_2bit(), from the
+ * S3C_GPIO_SPECIAL() macro.
+ */
 
 static unsigned int samsung_gpio_getcfg_2bit(struct samsung_gpio_chip *chip,
 					     unsigned int off)
@@ -225,10 +247,26 @@ static unsigned int samsung_gpio_getcfg_2bit(struct samsung_gpio_chip *chip,
 	con >>= off * 2;
 	con &= 3;
 
-	
+	/* this conversion works for IN and OUT as well as special mode */
 	return S3C_GPIO_SPECIAL(con);
 }
 
+/*
+ * samsung_gpio_setcfg_4bit - Samsung 4bit single register GPIO config.
+ * @chip: The gpio chip that is being configured.
+ * @off: The offset for the GPIO being configured.
+ * @cfg: The configuration value to set.
+ *
+ * This helper deal with the GPIO cases where the control register has 4 bits
+ * of control per GPIO, generally in the form of:
+ *	0000 = Input
+ *	0001 = Output
+ *	others = Special functions (dependent on bank)
+ *
+ * Note, since the code to deal with the case where there are two control
+ * registers instead of one, we do not have a separate set of functions for
+ * each case.
+ */
 
 static int samsung_gpio_setcfg_4bit(struct samsung_gpio_chip *chip,
 				    unsigned int off, unsigned int cfg)
@@ -253,6 +291,17 @@ static int samsung_gpio_setcfg_4bit(struct samsung_gpio_chip *chip,
 	return 0;
 }
 
+/*
+ * samsung_gpio_getcfg_4bit - Samsung 4bit single register GPIO config read.
+ * @chip: The gpio chip that is being configured.
+ * @off: The offset for the GPIO being configured.
+ *
+ * The reverse of samsung_gpio_setcfg_4bit(), turning a gpio configuration
+ * register setting into a value the software can use, such as could be passed
+ * to samsung_gpio_setcfg_4bit().
+ *
+ * @sa samsung_gpio_getcfg_2bit
+ */
 
 static unsigned samsung_gpio_getcfg_4bit(struct samsung_gpio_chip *chip,
 					 unsigned int off)
@@ -268,11 +317,21 @@ static unsigned samsung_gpio_getcfg_4bit(struct samsung_gpio_chip *chip,
 	con >>= shift;
 	con &= 0xf;
 
-	
+	/* this conversion works for IN and OUT as well as special mode */
 	return S3C_GPIO_SPECIAL(con);
 }
 
 #ifdef CONFIG_PLAT_S3C24XX
+/*
+ * s3c24xx_gpio_setcfg_abank - S3C24XX style GPIO configuration (Bank A)
+ * @chip: The gpio chip that is being configured.
+ * @off: The offset for the GPIO being configured.
+ * @cfg: The configuration value to set.
+ *
+ * This helper deal with the GPIO cases where the control register
+ * has one bit of configuration for the gpio, where setting the bit
+ * means the pin is in special function mode and unset means output.
+ */
 
 static int s3c24xx_gpio_setcfg_abank(struct samsung_gpio_chip *chip,
 				     unsigned int off, unsigned int cfg)
@@ -284,7 +343,7 @@ static int s3c24xx_gpio_setcfg_abank(struct samsung_gpio_chip *chip,
 	if (samsung_gpio_is_cfg_special(cfg)) {
 		cfg &= 0xf;
 
-		
+		/* Map output to 0, and SFN2 to 1 */
 		cfg -= 1;
 		if (cfg > 1)
 			return -EINVAL;
@@ -300,6 +359,17 @@ static int s3c24xx_gpio_setcfg_abank(struct samsung_gpio_chip *chip,
 	return 0;
 }
 
+/*
+ * s3c24xx_gpio_getcfg_abank - S3C24XX style GPIO configuration read (Bank A)
+ * @chip: The gpio chip that is being configured.
+ * @off: The offset for the GPIO being configured.
+ *
+ * The reverse of s3c24xx_gpio_setcfg_abank() turning an GPIO into a usable
+ * GPIO configuration value.
+ *
+ * @sa samsung_gpio_getcfg_2bit
+ * @sa samsung_gpio_getcfg_4bit
+ */
 
 static unsigned s3c24xx_gpio_getcfg_abank(struct samsung_gpio_chip *chip,
 					  unsigned int off)
@@ -444,6 +514,17 @@ static struct samsung_gpio_cfg samsung_gpio_cfgs[] = {
 	}
 };
 
+/*
+ * Default routines for controlling GPIO, based on the original S3C24XX
+ * GPIO functions which deal with the case where each gpio bank of the
+ * chip is as following:
+ *
+ * base + 0x00: Control register, 2 bits per gpio
+ *	        gpio n: 2 bits starting at (2*n)
+ *		00 = input, 01 = output, others mean special-function
+ * base + 0x04: Data register, 1 bit per gpio
+ *		bit n: data bit n
+*/
 
 static int samsung_gpiolib_2bit_input(struct gpio_chip *chip, unsigned offset)
 {
@@ -491,6 +572,21 @@ static int samsung_gpiolib_2bit_output(struct gpio_chip *chip,
 	return 0;
 }
 
+/*
+ * The samsung_gpiolib_4bit routines are to control the gpio banks where
+ * the gpio configuration register (GPxCON) has 4 bits per GPIO, as the
+ * following example:
+ *
+ * base + 0x00: Control register, 4 bits per gpio
+ *		gpio n: 4 bits starting at (4*n)
+ *		0000 = input, 0001 = output, others mean special-function
+ * base + 0x04: Data register, 1 bit per gpio
+ *		bit n: data bit n
+ *
+ * Note, since the data register is one bit per gpio and is at base + 0x4
+ * we can use samsung_gpiolib_get and samsung_gpiolib_set to change the
+ * state of the output.
+ */
 
 static int samsung_gpiolib_4bit_input(struct gpio_chip *chip,
 				      unsigned int offset)
@@ -536,6 +632,27 @@ static int samsung_gpiolib_4bit_output(struct gpio_chip *chip,
 	return 0;
 }
 
+/*
+ * The next set of routines are for the case where the GPIO configuration
+ * registers are 4 bits per GPIO but there is more than one register (the
+ * bank has more than 8 GPIOs.
+ *
+ * This case is the similar to the 4 bit case, but the registers are as
+ * follows:
+ *
+ * base + 0x00: Control register, 4 bits per gpio (lower 8 GPIOs)
+ *		gpio n: 4 bits starting at (4*n)
+ *		0000 = input, 0001 = output, others mean special-function
+ * base + 0x04: Control register, 4 bits per gpio (up to 8 additions GPIOs)
+ *		gpio n: 4 bits starting at (4*n)
+ *		0000 = input, 0001 = output, others mean special-function
+ * base + 0x08: Data register, 1 bit per gpio
+ *		bit n: data bit n
+ *
+ * To allow us to use the samsung_gpiolib_get and samsung_gpiolib_set
+ * routines we store the 'base + 0x4' address so that these routines see
+ * the data register at ourchip->base + 0x04.
+ */
 
 static int samsung_gpiolib_4bit2_input(struct gpio_chip *chip,
 				       unsigned int offset)
@@ -595,6 +712,7 @@ static int samsung_gpiolib_4bit2_output(struct gpio_chip *chip,
 }
 
 #ifdef CONFIG_PLAT_S3C24XX
+/* The next set of routines are for the case of s3c24xx bank a */
 
 static int s3c24xx_gpiolib_banka_input(struct gpio_chip *chip, unsigned offset)
 {
@@ -631,6 +749,7 @@ static int s3c24xx_gpiolib_banka_output(struct gpio_chip *chip,
 }
 #endif
 
+/* The next set of routines are for the case of s5p64x0 bank r */
 
 static int s5p64x0_gpiolib_rbank_input(struct gpio_chip *chip,
 				       unsigned int offset)
@@ -746,6 +865,17 @@ static int samsung_gpiolib_get(struct gpio_chip *chip, unsigned offset)
 	return val;
 }
 
+/*
+ * CONFIG_S3C_GPIO_TRACK enables the tracking of the s3c specific gpios
+ * for use with the configuration calls, and other parts of the s3c gpiolib
+ * support code.
+ *
+ * Not all s3c support code will need this, as some configurations of cpu
+ * may only support one or two different configuration options and have an
+ * easy gpio to samsung_gpio_chip mapping function. If this is the case, then
+ * the machine support file should provide its own samsung_gpiolib_getchip()
+ * and any other necessary functions.
+ */
 
 #ifdef CONFIG_S3C_GPIO_TRACK
 struct samsung_gpio_chip *s3c_gpios[S3C_GPIO_END];
@@ -761,8 +891,17 @@ static __init void s3c_gpiolib_track(struct samsung_gpio_chip *chip)
 		s3c_gpios[gpn] = chip;
 	}
 }
-#endif 
+#endif /* CONFIG_S3C_GPIO_TRACK */
 
+/*
+ * samsung_gpiolib_add() - add the Samsung gpio_chip.
+ * @chip: The chip to register
+ *
+ * This is a wrapper to gpiochip_add() that takes our specific gpio chip
+ * information and makes the necessary alterations for the platform and
+ * notes the information for use with the configuration systems and any
+ * other parts of the system.
+ */
 
 static void __init samsung_gpiolib_add(struct samsung_gpio_chip *chip)
 {
@@ -793,7 +932,7 @@ static void __init samsung_gpiolib_add(struct samsung_gpio_chip *chip)
 		printk(KERN_ERR "gpio: %s has no PM function\n", gc->label);
 #endif
 
-	
+	/* gpiochip_add() prints own failure message on error. */
 	ret = gpiochip_add(gc);
 	if (ret >= 0)
 		s3c_gpiolib_track(chip);
@@ -806,7 +945,7 @@ static void __init s3c24xx_gpiolib_add_chips(struct samsung_gpio_chip *chip,
 	struct gpio_chip *gc = &chip->chip;
 
 	for (i = 0 ; i < nr_chips; i++, chip++) {
-		
+		/* skip banks not present on SoC */
 		if (chip->chip.base >= S3C_GPIO_END)
 			continue;
 
@@ -847,6 +986,21 @@ static void __init samsung_gpiolib_add_2bit_chips(struct samsung_gpio_chip *chip
 	}
 }
 
+/*
+ * samsung_gpiolib_add_4bit_chips - 4bit single register GPIO config.
+ * @chip: The gpio chip that is being configured.
+ * @nr_chips: The no of chips (gpio ports) for the GPIO being configured.
+ *
+ * This helper deal with the GPIO cases where the control register has 4 bits
+ * of control per GPIO, generally in the form of:
+ * 0000 = Input
+ * 0001 = Output
+ * others = Special functions (dependent on bank)
+ *
+ * Note, since the code to deal with the case where there are two control
+ * registers instead of one, we do not have a separate set of function
+ * (samsung_gpiolib_add_4bit2_chips)for each case.
+ */
 
 static void __init samsung_gpiolib_add_4bit_chips(struct samsung_gpio_chip *chip,
 						  int nr_chips, void __iomem *base)
@@ -995,7 +1149,7 @@ struct samsung_gpio_chip s3c24xx_gpios[] = {
 			.ngpio	= 11,
 		},
 	},
-		
+		/* GPIOS for the S3C2443 and later devices. */
 	{
 		.base	= S3C2440_GPJCON,
 		.chip	= {
@@ -1032,6 +1186,31 @@ struct samsung_gpio_chip s3c24xx_gpios[] = {
 #endif
 };
 
+/*
+ * GPIO bank summary:
+ *
+ * Bank	GPIOs	Style	SlpCon	ExtInt Group
+ * A	8	4Bit	Yes	1
+ * B	7	4Bit	Yes	1
+ * C	8	4Bit	Yes	2
+ * D	5	4Bit	Yes	3
+ * E	5	4Bit	Yes	None
+ * F	16	2Bit	Yes	4 [1]
+ * G	7	4Bit	Yes	5
+ * H	10	4Bit[2]	Yes	6
+ * I	16	2Bit	Yes	None
+ * J	12	2Bit	Yes	None
+ * K	16	4Bit[2]	No	None
+ * L	15	4Bit[2] No	None
+ * M	6	4Bit	No	IRQ_EINT
+ * N	16	2Bit	No	IRQ_EINT
+ * O	16	2Bit	Yes	7
+ * P	15	2Bit	Yes	8
+ * Q	9	2Bit	Yes	9
+ *
+ * [1] BANKF pins 14,15 do not form part of the external interrupt sources
+ * [2] BANK has two control registers, GPxCON0 and GPxCON1
+ */
 
 static struct samsung_gpio_chip s3c64xx_gpios_4bit[] = {
 #ifdef CONFIG_PLAT_S3C64XX
@@ -1175,6 +1354,22 @@ static struct samsung_gpio_chip s3c64xx_gpios_2bit[] = {
 #endif
 };
 
+/*
+ * S5P6440 GPIO bank summary:
+ *
+ * Bank	GPIOs	Style	SlpCon	ExtInt Group
+ * A	6	4Bit	Yes	1
+ * B	7	4Bit	Yes	1
+ * C	8	4Bit	Yes	2
+ * F	2	2Bit	Yes	4 [1]
+ * G	7	4Bit	Yes	5
+ * H	10	4Bit[2]	Yes	6
+ * I	16	2Bit	Yes	None
+ * J	12	2Bit	Yes	None
+ * N	16	2Bit	No	IRQ_EINT
+ * P	8	2Bit	Yes	8
+ * R	15	4Bit[2]	Yes	8
+ */
 
 static struct samsung_gpio_chip s5p6440_gpios_4bit[] = {
 #ifdef CONFIG_CPU_S5P6440
@@ -1280,6 +1475,29 @@ static struct samsung_gpio_chip s5p6440_gpios_2bit[] = {
 #endif
 };
 
+/*
+ * S5P6450 GPIO bank summary:
+ *
+ * Bank	GPIOs	Style	SlpCon	ExtInt Group
+ * A	6	4Bit	Yes	1
+ * B	7	4Bit	Yes	1
+ * C	8	4Bit	Yes	2
+ * D	8	4Bit	Yes	None
+ * F	2	2Bit	Yes	None
+ * G	14	4Bit[2]	Yes	5
+ * H	10	4Bit[2]	Yes	6
+ * I	16	2Bit	Yes	None
+ * J	12	2Bit	Yes	None
+ * K	5	4Bit	Yes	None
+ * N	16	2Bit	No	IRQ_EINT
+ * P	11	2Bit	Yes	8
+ * Q	14	2Bit	Yes	None
+ * R	15	4Bit[2]	Yes	None
+ * S	8	2Bit	Yes	None
+ *
+ * [1] BANKF pins 14,15 do not form part of the external interrupt sources
+ * [2] BANK has two control registers, GPxCON0 and GPxCON1
+ */
 
 static struct samsung_gpio_chip s5p6450_gpios_4bit[] = {
 #ifdef CONFIG_CPU_S5P6450
@@ -1414,6 +1632,44 @@ static struct samsung_gpio_chip s5p6450_gpios_2bit[] = {
 #endif
 };
 
+/*
+ * S5PC100 GPIO bank summary:
+ *
+ * Bank	GPIOs	Style	INT Type
+ * A0	8	4Bit	GPIO_INT0
+ * A1	5	4Bit	GPIO_INT1
+ * B	8	4Bit	GPIO_INT2
+ * C	5	4Bit	GPIO_INT3
+ * D	7	4Bit	GPIO_INT4
+ * E0	8	4Bit	GPIO_INT5
+ * E1	6	4Bit	GPIO_INT6
+ * F0	8	4Bit	GPIO_INT7
+ * F1	8	4Bit	GPIO_INT8
+ * F2	8	4Bit	GPIO_INT9
+ * F3	4	4Bit	GPIO_INT10
+ * G0	8	4Bit	GPIO_INT11
+ * G1	3	4Bit	GPIO_INT12
+ * G2	7	4Bit	GPIO_INT13
+ * G3	7	4Bit	GPIO_INT14
+ * H0	8	4Bit	WKUP_INT
+ * H1	8	4Bit	WKUP_INT
+ * H2	8	4Bit	WKUP_INT
+ * H3	8	4Bit	WKUP_INT
+ * I	8	4Bit	GPIO_INT15
+ * J0	8	4Bit	GPIO_INT16
+ * J1	5	4Bit	GPIO_INT17
+ * J2	8	4Bit	GPIO_INT18
+ * J3	8	4Bit	GPIO_INT19
+ * J4	4	4Bit	GPIO_INT20
+ * K0	8	4Bit	None
+ * K1	6	4Bit	None
+ * K2	8	4Bit	None
+ * K3	8	4Bit	None
+ * L0	8	4Bit	None
+ * L1	8	4Bit	None
+ * L2	8	4Bit	None
+ * L3	8	4Bit	None
+ */
 
 static struct samsung_gpio_chip s5pc100_gpios_4bit[] = {
 #ifdef CONFIG_CPU_S5PC100
@@ -1637,6 +1893,16 @@ static struct samsung_gpio_chip s5pc100_gpios_4bit[] = {
 #endif
 };
 
+/*
+ * Followings are the gpio banks in S5PV210/S5PC110
+ *
+ * The 'config' member when left to NULL, is initialized to the default
+ * structure samsung_gpio_cfgs[3] in the init function below.
+ *
+ * The 'base' member is also initialized in the init function below.
+ * Note: The initialization of 'base' member of samsung_gpio_chip structure
+ * uses the above macro and depends on the banks being listed in order here.
+ */
 
 static struct samsung_gpio_chip s5pv210_gpios_4bit[] = {
 #ifdef CONFIG_CPU_S5PV210
@@ -1848,6 +2114,16 @@ static struct samsung_gpio_chip s5pv210_gpios_4bit[] = {
 #endif
 };
 
+/*
+ * Followings are the gpio banks in EXYNOS SoCs
+ *
+ * The 'config' member when left to NULL, is initialized to the default
+ * structure exynos_gpio_cfg in the init function below.
+ *
+ * The 'base' member is also initialized in the init function below.
+ * Note: The initialization of 'base' member of samsung_gpio_chip structure
+ * uses the above macro and depends on the banks being listed in order here.
+ */
 
 #ifdef CONFIG_ARCH_EXYNOS4
 static struct samsung_gpio_chip exynos4_gpios_1[] = {
@@ -2438,8 +2714,9 @@ static __init void exynos_gpiolib_attach_ofnode(struct samsung_gpio_chip *chip,
 {
 	return;
 }
-#endif 
+#endif /* defined(CONFIG_ARCH_EXYNOS) && defined(CONFIG_OF) */
 
+/* TODO: cleanup soc_is_* */
 static __init int samsung_gpiolib_init(void)
 {
 	struct samsung_gpio_chip *chip;
@@ -2515,7 +2792,7 @@ static __init int samsung_gpiolib_init(void)
 #ifdef CONFIG_CPU_EXYNOS4210
 		void __iomem *gpx_base;
 
-		
+		/* gpio part1 */
 		gpio_base1 = ioremap(EXYNOS4_PA_GPIO1, SZ_4K);
 		if (gpio_base1 == NULL) {
 			pr_err("unable to ioremap for gpio_base1\n");
@@ -2536,14 +2813,14 @@ static __init int samsung_gpiolib_init(void)
 		samsung_gpiolib_add_4bit_chips(exynos4_gpios_1,
 					       nr_chips, gpio_base1);
 
-		
+		/* gpio part2 */
 		gpio_base2 = ioremap(EXYNOS4_PA_GPIO2, SZ_4K);
 		if (gpio_base2 == NULL) {
 			pr_err("unable to ioremap for gpio_base2\n");
 			goto err_ioremap2;
 		}
 
-		
+		/* need to set base address for gpx */
 		chip = &exynos4_gpios_2[16];
 		gpx_base = gpio_base2 + 0xC00;
 		for (i = 0; i < 4; i++, chip++, gpx_base += 0x20)
@@ -2563,7 +2840,7 @@ static __init int samsung_gpiolib_init(void)
 		samsung_gpiolib_add_4bit_chips(exynos4_gpios_2,
 					       nr_chips, gpio_base2);
 
-		
+		/* gpio part3 */
 		gpio_base3 = ioremap(EXYNOS4_PA_GPIO3, SZ_256);
 		if (gpio_base3 == NULL) {
 			pr_err("unable to ioremap for gpio_base3\n");
@@ -2589,19 +2866,19 @@ static __init int samsung_gpiolib_init(void)
 		s5p_register_gpioint_bank(IRQ_GPIO_XB, IRQ_GPIO1_NR_GROUPS, IRQ_GPIO2_NR_GROUPS);
 #endif
 
-#endif	
+#endif	/* CONFIG_CPU_EXYNOS4210 */
 	} else if (soc_is_exynos5250()) {
 #ifdef CONFIG_SOC_EXYNOS5250
 		void __iomem *gpx_base;
 
-		
+		/* gpio part1 */
 		gpio_base1 = ioremap(EXYNOS5_PA_GPIO1, SZ_4K);
 		if (gpio_base1 == NULL) {
 			pr_err("unable to ioremap for gpio_base1\n");
 			goto err_ioremap1;
 		}
 
-		
+		/* need to set base address for gpx */
 		chip = &exynos5_gpios_1[20];
 		gpx_base = gpio_base1 + 0xC00;
 		for (i = 0; i < 4; i++, chip++, gpx_base += 0x20)
@@ -2621,7 +2898,7 @@ static __init int samsung_gpiolib_init(void)
 		samsung_gpiolib_add_4bit_chips(exynos5_gpios_1,
 					       nr_chips, gpio_base1);
 
-		
+		/* gpio part2 */
 		gpio_base2 = ioremap(EXYNOS5_PA_GPIO2, SZ_4K);
 		if (gpio_base2 == NULL) {
 			pr_err("unable to ioremap for gpio_base2\n");
@@ -2642,14 +2919,14 @@ static __init int samsung_gpiolib_init(void)
 		samsung_gpiolib_add_4bit_chips(exynos5_gpios_2,
 					       nr_chips, gpio_base2);
 
-		
+		/* gpio part3 */
 		gpio_base3 = ioremap(EXYNOS5_PA_GPIO3, SZ_4K);
 		if (gpio_base3 == NULL) {
 			pr_err("unable to ioremap for gpio_base3\n");
 			goto err_ioremap3;
 		}
 
-		
+		/* need to set base address for gpv */
 		exynos5_gpios_3[0].base = gpio_base3;
 		exynos5_gpios_3[1].base = gpio_base3 + 0x20;
 		exynos5_gpios_3[2].base = gpio_base3 + 0x60;
@@ -2670,7 +2947,7 @@ static __init int samsung_gpiolib_init(void)
 		samsung_gpiolib_add_4bit_chips(exynos5_gpios_3,
 					       nr_chips, gpio_base3);
 
-		
+		/* gpio part4 */
 		gpio_base4 = ioremap(EXYNOS5_PA_GPIO4, SZ_4K);
 		if (gpio_base4 == NULL) {
 			pr_err("unable to ioremap for gpio_base4\n");
@@ -2690,7 +2967,7 @@ static __init int samsung_gpiolib_init(void)
 		}
 		samsung_gpiolib_add_4bit_chips(exynos5_gpios_4,
 					       nr_chips, gpio_base4);
-#endif	
+#endif	/* CONFIG_SOC_EXYNOS5250 */
 	} else {
 		WARN(1, "Unknown SoC in gpio-samsung, no GPIOs added\n");
 		return -ENODEV;
@@ -2819,14 +3096,17 @@ samsung_gpio_pull_t s3c_gpio_getpull(unsigned int pin)
 }
 EXPORT_SYMBOL(s3c_gpio_getpull);
 
+/* gpiolib wrappers until these are totally eliminated */
 
 void s3c2410_gpio_pullup(unsigned int pin, unsigned int to)
 {
 	int ret;
 
-	WARN_ON(to);	
+	WARN_ON(to);	/* should be none of these left */
 
 	if (!to) {
+		/* if pull is enabled, try first with up, and if that
+		 * fails, try using down */
 
 		ret = s3c_gpio_setpull(pin, S3C_GPIO_PULL_UP);
 		if (ret)
@@ -2839,7 +3119,7 @@ EXPORT_SYMBOL(s3c2410_gpio_pullup);
 
 void s3c2410_gpio_setpin(unsigned int pin, unsigned int to)
 {
-	
+	/* do this via gpiolib until all users removed */
 
 	gpio_request(pin, "temporary");
 	gpio_set_value(pin, to);
@@ -2904,7 +3184,7 @@ int s5p_gpio_set_drvstr(unsigned int pin, s5p_gpio_drvstr_t drvstr)
 	return 0;
 }
 EXPORT_SYMBOL(s5p_gpio_set_drvstr);
-#endif	
+#endif	/* CONFIG_S5P_GPIO_DRVSTR */
 
 #ifdef CONFIG_PLAT_S3C24XX
 unsigned int s3c2410_modify_misccr(unsigned int clear, unsigned int change)

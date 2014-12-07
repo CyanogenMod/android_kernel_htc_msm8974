@@ -25,6 +25,9 @@
 #include "xfs_ag.h"
 #include "xfs_mount.h"
 
+/*
+ * XFS logging functions
+ */
 static void
 __xfs_printk(
 	const char		*level,

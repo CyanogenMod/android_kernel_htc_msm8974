@@ -36,7 +36,38 @@
 
 #include "rds.h"
 
+/*
+ * All of connection management is simplified by serializing it through
+ * work queues that execute in a connection managing thread.
+ *
+ * TCP wants to send acks through sendpage() in response to data_ready(),
+ * but it needs a process context to do so.
+ *
+ * The receive paths need to allocate but can't drop packets (!) so we have
+ * a thread around to block allocating if the receive fast path sees an
+ * allocation failure.
+ */
 
+/* Grand Unified Theory of connection life cycle:
+ * At any point in time, the connection can be in one of these states:
+ * DOWN, CONNECTING, UP, DISCONNECTING, ERROR
+ *
+ * The following transitions are possible:
+ *  ANY		  -> ERROR
+ *  UP		  -> DISCONNECTING
+ *  ERROR	  -> DISCONNECTING
+ *  DISCONNECTING -> DOWN
+ *  DOWN	  -> CONNECTING
+ *  CONNECTING	  -> UP
+ *
+ * Transition to state DISCONNECTING/DOWN:
+ *  -	Inside the shutdown worker; synchronizes with xmit path
+ *	through RDS_IN_XMIT, and with connection management callbacks
+ *	via c_cm_lock.
+ *
+ *	For receive callbacks, we rely on the underlying transport
+ *	(TCP, IB/RDMA) to provide the necessary synchronisation.
+ */
 struct workqueue_struct *rds_wq;
 EXPORT_SYMBOL_GPL(rds_wq);
 
@@ -62,6 +93,24 @@ void rds_connect_complete(struct rds_connection *conn)
 }
 EXPORT_SYMBOL_GPL(rds_connect_complete);
 
+/*
+ * This random exponential backoff is relied on to eventually resolve racing
+ * connects.
+ *
+ * If connect attempts race then both parties drop both connections and come
+ * here to wait for a random amount of time before trying again.  Eventually
+ * the backoff range will be so much greater than the time it takes to
+ * establish a connection that one of the pair will establish the connection
+ * before the other's random delay fires.
+ *
+ * Connection attempts that arrive while a connection is already established
+ * are also considered to be racing connects.  This lets a connection from
+ * a rebooted machine replace an existing stale connection before the transport
+ * notices that the connection has failed.
+ *
+ * We should *always* start with a random backoff; otherwise a broken connection
+ * will always take several iterations to be re-established.
+ */
 void rds_queue_reconnect(struct rds_connection *conn)
 {
 	unsigned long rand;

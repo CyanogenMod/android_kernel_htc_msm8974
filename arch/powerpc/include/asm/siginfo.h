@@ -18,4 +18,4 @@
 #undef NSIGTRAP
 #define NSIGTRAP	4
 
-#endif	
+#endif	/* _ASM_POWERPC_SIGINFO_H */

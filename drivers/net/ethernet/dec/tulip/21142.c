@@ -23,6 +23,8 @@ u16 t21142_csr14[] =	    { 0xFFFF, 0x0705, 0x0705, 0x0000, 0x7F3D, };
 static u16 t21142_csr15[] = { 0x0008, 0x0006, 0x000E, 0x0008, 0x0008, };
 
 
+/* Handle the 21143 uniquely: do autoselect with NWay, not the EEPROM list
+   of available transceivers.  */
 void t21142_media_task(struct work_struct *work)
 {
 	struct tulip_private *tp =
@@ -34,7 +36,7 @@ void t21142_media_task(struct work_struct *work)
 	int new_csr6 = 0;
 	int csr14 = ioread32(ioaddr + CSR14);
 
-	
+	/* CSR12[LS10,LS100] are not reliable during autonegotiation */
 	if ((csr14 & 0x80) && (csr12 & 0x7000) != 0x5000)
 		csr12 |= 6;
 	if (tulip_debug > 2)
@@ -49,7 +51,7 @@ void t21142_media_task(struct work_struct *work)
 			next_tick = 60*HZ;
 		}
 	} else if (tp->nwayset) {
-		
+		/* Don't screw up a negotiated session! */
 		if (tulip_debug > 1)
 			dev_info(&dev->dev,
 				 "Using NWay-set %s media, csr12 %08x\n",
@@ -57,7 +59,7 @@ void t21142_media_task(struct work_struct *work)
 	} else if (tp->medialock) {
 			;
 	} else if (dev->if_port == 3) {
-		if (csr12 & 2) {	
+		if (csr12 & 2) {	/* No 100mbps link beat, revert to 10mbps. */
 			if (tulip_debug > 1)
 				dev_info(&dev->dev,
 					 "No 21143 100baseTx link beat, %08x, trying NWay\n",
@@ -66,12 +68,12 @@ void t21142_media_task(struct work_struct *work)
 			next_tick = 3*HZ;
 		}
 	} else if ((csr12 & 0x7000) != 0x5000) {
-		
+		/* Negotiation failed.  Search media types. */
 		if (tulip_debug > 1)
 			dev_info(&dev->dev,
 				 "21143 negotiation failed, status %08x\n",
 				 csr12);
-		if (!(csr12 & 4)) {		
+		if (!(csr12 & 4)) {		/* 10mbps link beat good. */
 			new_csr6 = 0x82420000;
 			dev->if_port = 0;
 			iowrite32(0, ioaddr + CSR13);
@@ -79,7 +81,7 @@ void t21142_media_task(struct work_struct *work)
 			iowrite16(t21142_csr15[dev->if_port], ioaddr + CSR15);
 			iowrite32(t21142_csr13[dev->if_port], ioaddr + CSR13);
 		} else {
-			
+			/* Select 100mbps port to check for link beat. */
 			new_csr6 = 0x83860000;
 			dev->if_port = 3;
 			iowrite32(0, ioaddr + CSR13);
@@ -99,6 +101,9 @@ void t21142_media_task(struct work_struct *work)
 		next_tick = 3*HZ;
 	}
 
+	/* mod_timer synchronizes us with potential add_timer calls
+	 * from interrupts.
+	 */
 	mod_timer(&tp->timer, RUN_AT(next_tick));
 }
 
@@ -126,7 +131,7 @@ void t21142_start_nway(struct net_device *dev)
 		iowrite32(tp->mtable->csr15val, ioaddr + CSR15);
 	} else
 		iowrite16(0x0008, ioaddr + CSR15);
-	iowrite32(0x1301, ioaddr + CSR12); 		
+	iowrite32(0x1301, ioaddr + CSR12); 		/* Trigger NWAY. */
 }
 
 
@@ -138,7 +143,7 @@ void t21142_lnk_change(struct net_device *dev, int csr5)
 	int csr12 = ioread32(ioaddr + CSR12);
 	int csr14 = ioread32(ioaddr + CSR14);
 
-	
+	/* CSR12[LS10,LS100] are not reliable during autonegotiation */
 	if ((csr14 & 0x80) && (csr12 & 0x7000) != 0x5000)
 		csr12 |= 6;
 	if (tulip_debug > 1)
@@ -146,13 +151,13 @@ void t21142_lnk_change(struct net_device *dev, int csr5)
 			 "21143 link status interrupt %08x, CSR5 %x, %08x\n",
 			 csr12, csr5, csr14);
 
-	
+	/* If NWay finished and we have a negotiated partner capability. */
 	if (tp->nway  &&  !tp->nwayset  &&  (csr12 & 0x7000) == 0x5000) {
 		int setup_done = 0;
 		int negotiated = tp->sym_advertise & (csr12 >> 16);
 		tp->lpar = csr12 >> 16;
 		tp->nwayset = 1;
-		
+		/* If partner cannot negotiate, it is 10Mbps Half Duplex */
 		if (!(csr12 & 0x8000))		dev->if_port = 0;
 		else if (negotiated & 0x0100)	dev->if_port = 5;
 		else if (negotiated & 0x0080)	dev->if_port = 3;
@@ -195,7 +200,7 @@ void t21142_lnk_change(struct net_device *dev, int csr5)
 				tp->csr6 |= 0x0200;
 			iowrite32(1, ioaddr + CSR13);
 		}
-#if 0							
+#if 0							/* Restart shouldn't be needed. */
 		iowrite32(tp->csr6 | RxOn, ioaddr + CSR6);
 		if (tulip_debug > 2)
 			netdev_dbg(dev, " Restarting Tx and Rx, CSR5 is %08x\n",
@@ -210,7 +215,7 @@ void t21142_lnk_change(struct net_device *dev, int csr5)
 		    (dev->if_port == 3  ||  dev->if_port == 5) &&
 		    (csr12 & 2) == 2) ||
 		   (tp->nway && (csr5 & (TPLnkFail)))) {
-		
+		/* Link blew? Maybe restart NWay. */
 		del_timer_sync(&tp->timer);
 		t21142_start_nway(dev);
 		tp->timer.expires = RUN_AT(3*HZ);
@@ -230,7 +235,7 @@ void t21142_lnk_change(struct net_device *dev, int csr5)
 	} else if (dev->if_port == 0  ||  dev->if_port == 4) {
 		if ((csr12 & 4) == 0)
 			dev_info(&dev->dev, "21143 10baseT link beat good\n");
-	} else if (!(csr12 & 4)) {		
+	} else if (!(csr12 & 4)) {		/* 10mbps link beat good. */
 		if (tulip_debug)
 			dev_info(&dev->dev, "21143 10mbps sensed media\n");
 		dev->if_port = 0;
@@ -238,7 +243,7 @@ void t21142_lnk_change(struct net_device *dev, int csr5)
 		if (tulip_debug)
 			dev_info(&dev->dev, "21143 using NWay-set %s, csr6 %08x\n",
 				 medianame[dev->if_port], tp->csr6);
-	} else {		
+	} else {		/* 100mbps link beat good. */
 		if (tulip_debug)
 			dev_info(&dev->dev, "21143 100baseTx sensed media\n");
 		dev->if_port = 3;

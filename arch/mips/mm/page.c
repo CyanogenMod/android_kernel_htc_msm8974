@@ -36,6 +36,7 @@
 
 #include <asm/uasm.h>
 
+/* Registers used in the assembled routines. */
 #define ZERO 0
 #define AT 2
 #define A0 4
@@ -48,6 +49,7 @@
 #define T9 25
 #define RA 31
 
+/* Handle labels (which must be positive integers). */
 enum label_id {
 	label_clear_nopref = 1,
 	label_clear_pref,
@@ -62,12 +64,21 @@ UASM_L_LA(_copy_nopref)
 UASM_L_LA(_copy_pref_both)
 UASM_L_LA(_copy_pref_store)
 
+/* We need one branch and therefore one relocation per target label. */
 static struct uasm_label __cpuinitdata labels[5];
 static struct uasm_reloc __cpuinitdata relocs[5];
 
 #define cpu_is_r4600_v1_x()	((read_c0_prid() & 0xfffffff0) == 0x00002010)
 #define cpu_is_r4600_v2_x()	((read_c0_prid() & 0xfffffff0) == 0x00002020)
 
+/*
+ * Maximum sizes:
+ *
+ * R4000 128 bytes S-cache:		0x058 bytes
+ * R4600 v1.7:				0x05c bytes
+ * R4600 v2.0:				0x060 bytes
+ * With prefetching, 16 word strides	0x120 bytes
+ */
 
 static u32 clear_page_array[0x120 / 4];
 
@@ -79,6 +90,14 @@ void clear_page(void *page) __attribute__((alias("clear_page_array")));
 
 EXPORT_SYMBOL(clear_page);
 
+/*
+ * Maximum sizes:
+ *
+ * R4000 128 bytes S-cache:		0x11c bytes
+ * R4600 v1.7:				0x080 bytes
+ * R4600 v2.0:				0x07c bytes
+ * With prefetching, 16 word strides	0x540 bytes
+ */
 static u32 copy_page_array[0x540 / 4];
 
 #ifdef CONFIG_SIBYTE_DMA_PAGEOPS
@@ -139,20 +158,42 @@ static void __cpuinit set_prefetch_parameters(void)
 	else
 		copy_word_size = 4;
 
+	/*
+	 * The pref's used here are using "streaming" hints, which cause the
+	 * copied data to be kicked out of the cache sooner.  A page copy often
+	 * ends up copying a lot more data than is commonly used, so this seems
+	 * to make sense in terms of reducing cache pollution, but I've no real
+	 * performance data to back this up.
+	 */
 	if (cpu_has_prefetch) {
+		/*
+		 * XXX: Most prefetch bias values in here are based on
+		 * guesswork.
+		 */
 		cache_line_size = cpu_dcache_line_size();
 		switch (current_cpu_type()) {
 		case CPU_R5500:
 		case CPU_TX49XX:
-			
+			/* These processors only support the Pref_Load. */
 			pref_bias_copy_load = 256;
 			break;
 
 		case CPU_RM9000:
+			/*
+			 * As a workaround for erratum G105 which make the
+			 * PrepareForStore hint unusable we fall back to
+			 * StoreRetained on the RM9000.  Once it is known which
+			 * versions of the RM9000 we'll be able to condition-
+			 * alize this.
+			 */
 
 		case CPU_R10000:
 		case CPU_R12000:
 		case CPU_R14000:
+			/*
+			 * Those values have been experimentally tuned for an
+			 * Origin 200.
+			 */
 			pref_bias_clear_store = 512;
 			pref_bias_copy_load = 256;
 			pref_bias_copy_store = 256;
@@ -165,6 +206,10 @@ static void __cpuinit set_prefetch_parameters(void)
 			pref_bias_clear_store = 128;
 			pref_bias_copy_load = 128;
 			pref_bias_copy_store = 128;
+			/*
+			 * SB1 pass1 Pref_LoadStreamed/Pref_StoreStreamed
+			 * hints are broken.
+			 */
 			if (current_cpu_type() == CPU_SB1 &&
 			    (current_cpu_data.processor_id & 0xff) < 0x02) {
 				pref_src_mode = Pref_Load;
@@ -189,6 +234,10 @@ static void __cpuinit set_prefetch_parameters(void)
 		else if (cpu_has_cache_cdex_p)
 			cache_line_size = cpu_dcache_line_size();
 	}
+	/*
+	 * Too much unrolling will overflow the available space in
+	 * clear_space_array / copy_page_array.
+	 */
 	half_clear_loop_size = min(16 * clear_word_size,
 				   max(cache_line_size >> 1,
 				       4 * clear_word_size));
@@ -246,6 +295,11 @@ void __cpuinit build_clear_page(void)
 
 	set_prefetch_parameters();
 
+	/*
+	 * This algorithm makes the following assumptions:
+	 *   - The prefetch bias is a multiple of 2 words.
+	 *   - The prefetch bias is less than one page.
+	 */
 	BUG_ON(pref_bias_clear_store % (2 * clear_word_size));
 	BUG_ON(PAGE_SIZE < pref_bias_clear_store);
 
@@ -383,6 +437,13 @@ void __cpuinit build_copy_page(void)
 
 	set_prefetch_parameters();
 
+	/*
+	 * This algorithm makes the following assumptions:
+	 *   - All prefetch biases are multiples of 8 words.
+	 *   - The prefetch biases are less than one page.
+	 *   - The store prefetch bias isn't greater than the load
+	 *     prefetch bias.
+	 */
 	BUG_ON(pref_bias_copy_load % (8 * copy_word_size));
 	BUG_ON(pref_bias_copy_store % (8 * copy_word_size));
 	BUG_ON(PAGE_SIZE < pref_bias_copy_load);
@@ -550,6 +611,10 @@ void __cpuinit build_copy_page(void)
 
 #ifdef CONFIG_SIBYTE_DMA_PAGEOPS
 
+/*
+ * Pad descriptors to cacheline, since each is exclusively owned by a
+ * particular CPU.
+ */
 struct dmadscr {
 	u64 dscr_a;
 	u64 dscr_b;
@@ -577,7 +642,7 @@ void clear_page(void *page)
 	u64 to_phys = CPHYSADDR((unsigned long)page);
 	unsigned int cpu = smp_processor_id();
 
-	
+	/* if the page is not in KSEG0, use old way */
 	if ((long)KSEGX((unsigned long)page) != (long)CKSEG0)
 		return clear_page_cpu(page);
 
@@ -586,6 +651,10 @@ void clear_page(void *page)
 	page_descr[cpu].dscr_b = V_DM_DSCRB_SRC_LENGTH(PAGE_SIZE);
 	__raw_writeq(1, IOADDR(A_DM_REGISTER(cpu, R_DM_DSCR_COUNT)));
 
+	/*
+	 * Don't really want to do it this way, but there's no
+	 * reliable way to delay completion detection.
+	 */
 	while (!(__raw_readq(IOADDR(A_DM_REGISTER(cpu, R_DM_DSCR_BASE_DEBUG)))
 		 & M_DM_DSCR_BASE_INTERRUPT))
 		;
@@ -598,7 +667,7 @@ void copy_page(void *to, void *from)
 	u64 to_phys = CPHYSADDR((unsigned long)to);
 	unsigned int cpu = smp_processor_id();
 
-	
+	/* if any page is not in KSEG0, use old way */
 	if ((long)KSEGX((unsigned long)to) != (long)CKSEG0
 	    || (long)KSEGX((unsigned long)from) != (long)CKSEG0)
 		return copy_page_cpu(to, from);
@@ -608,10 +677,14 @@ void copy_page(void *to, void *from)
 	page_descr[cpu].dscr_b = from_phys | V_DM_DSCRB_SRC_LENGTH(PAGE_SIZE);
 	__raw_writeq(1, IOADDR(A_DM_REGISTER(cpu, R_DM_DSCR_COUNT)));
 
+	/*
+	 * Don't really want to do it this way, but there's no
+	 * reliable way to delay completion detection.
+	 */
 	while (!(__raw_readq(IOADDR(A_DM_REGISTER(cpu, R_DM_DSCR_BASE_DEBUG)))
 		 & M_DM_DSCR_BASE_INTERRUPT))
 		;
 	__raw_readq(IOADDR(A_DM_REGISTER(cpu, R_DM_DSCR_BASE)));
 }
 
-#endif 
+#endif /* CONFIG_SIBYTE_DMA_PAGEOPS */

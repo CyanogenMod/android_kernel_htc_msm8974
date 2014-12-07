@@ -74,7 +74,7 @@ static int isl29018_write_data(struct i2c_client *client, u8 reg,
 	int ret;
 	struct isl29018_chip *chip = iio_priv(i2c_get_clientdata(client));
 
-	
+	/* don't cache or mask REG_TEST */
 	if (reg < ISL29018_MAX_REGS) {
 		regval = chip->reg_cache[reg];
 		regval &= ~mask;
@@ -85,7 +85,7 @@ static int isl29018_write_data(struct i2c_client *client, u8 reg,
 	if (ret) {
 		dev_err(&client->dev, "Write to device fails status %x\n", ret);
 	} else {
-		
+		/* don't update cache on err */
 		if (reg < ISL29018_MAX_REGS)
 			chip->reg_cache[reg] = regval;
 	}
@@ -140,7 +140,7 @@ static int isl29018_read_sensor_input(struct i2c_client *client, int mode)
 	int lsb;
 	int msb;
 
-	
+	/* Set mode */
 	status = isl29018_write_data(client, ISL29018_REG_ADD_COMMAND1,
 			mode, COMMMAND1_OPMODE_MASK, COMMMAND1_OPMODE_SHIFT);
 	if (status) {
@@ -201,7 +201,7 @@ static int isl29018_read_proximity_ir(struct i2c_client *client, int scheme,
 	int prox_data = -1;
 	int ir_data = -1;
 
-	
+	/* Do proximity sensing with required scheme */
 	status = isl29018_write_data(client, ISL29018_REG_ADD_COMMANDII,
 			scheme, COMMANDII_SCHEME_MASK, COMMANDII_SCHEME_SHIFT);
 	if (status) {
@@ -233,6 +233,8 @@ static int isl29018_read_proximity_ir(struct i2c_client *client, int scheme,
 	return 0;
 }
 
+/* Sysfs interface */
+/* range */
 static ssize_t show_range(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
@@ -274,6 +276,7 @@ static ssize_t store_range(struct device *dev,
 	return count;
 }
 
+/* resolution */
 static ssize_t show_resolution(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
@@ -313,12 +316,15 @@ static ssize_t store_resolution(struct device *dev,
 	return count;
 }
 
+/* proximity scheme */
 static ssize_t show_prox_infrared_supression(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct isl29018_chip *chip = iio_priv(indio_dev);
 
+	/* return the "proximity scheme" i.e. if the chip does on chip
+	infrared supression (1 means perform on chip supression) */
 	return sprintf(buf, "%d\n", chip->prox_scheme);
 }
 
@@ -336,6 +342,8 @@ static ssize_t store_prox_infrared_supression(struct device *dev,
 		return -EINVAL;
 	}
 
+	/* get the  "proximity scheme" i.e. if the chip does on chip
+	infrared supression (1 means perform on chip supression) */
 	mutex_lock(&chip->lock);
 	chip->prox_scheme = (int)lval;
 	mutex_unlock(&chip->lock);
@@ -343,6 +351,7 @@ static ssize_t store_prox_infrared_supression(struct device *dev,
 	return count;
 }
 
+/* Channel IO */
 static int isl29018_write_raw(struct iio_dev *indio_dev,
 			      struct iio_chan_spec const *chan,
 			      int val,
@@ -417,7 +426,7 @@ static const struct iio_chan_spec isl29018_channels[] = {
 		.modified = 1,
 		.channel2 = IIO_MOD_LIGHT_IR,
 	}, {
-		
+		/* Unindexed in current ABI.  But perhaps it should be. */
 		.type = IIO_PROXIMITY,
 	}
 };
@@ -456,6 +465,26 @@ static int isl29018_chip_init(struct i2c_client *client)
 
 	memset(chip->reg_cache, 0, sizeof(chip->reg_cache));
 
+	/* Code added per Intersil Application Note 1534:
+	 *     When VDD sinks to approximately 1.8V or below, some of
+	 * the part's registers may change their state. When VDD
+	 * recovers to 2.25V (or greater), the part may thus be in an
+	 * unknown mode of operation. The user can return the part to
+	 * a known mode of operation either by (a) setting VDD = 0V for
+	 * 1 second or more and then powering back up with a slew rate
+	 * of 0.5V/ms or greater, or (b) via I2C disable all ALS/PROX
+	 * conversions, clear the test registers, and then rewrite all
+	 * registers to the desired values.
+	 * ...
+	 * FOR ISL29011, ISL29018, ISL29021, ISL29023
+	 * 1. Write 0x00 to register 0x08 (TEST)
+	 * 2. Write 0x00 to register 0x00 (CMD1)
+	 * 3. Rewrite all registers to the desired values
+	 *
+	 * ISL29018 Data Sheet (FN6619.1, Feb 11, 2010) essentially says
+	 * the same thing EXCEPT the data sheet asks for a 1ms delay after
+	 * writing the CMD1 register.
+	 */
 	status = isl29018_write_data(client, ISL29018_REG_TEST, 0,
 				ISL29018_TEST_MASK, ISL29018_TEST_SHIFT);
 	if (status < 0) {
@@ -464,6 +493,10 @@ static int isl29018_chip_init(struct i2c_client *client)
 		return status;
 	}
 
+	/* See Intersil AN1534 comments above.
+	 * "Operating Mode" (COMMAND1) register is reprogrammed when
+	 * data is read from the device.
+	 */
 	status = isl29018_write_data(client, ISL29018_REG_ADD_COMMAND1, 0,
 				0xff, 0);
 	if (status < 0) {
@@ -472,9 +505,9 @@ static int isl29018_chip_init(struct i2c_client *client)
 		return status;
 	}
 
-	msleep(1);	
+	msleep(1);	/* per data sheet, page 10 */
 
-	
+	/* set defaults */
 	status = isl29018_set_range(client, chip->range, &new_range);
 	if (status < 0) {
 		dev_err(&client->dev, "Init of isl29018 fails\n");

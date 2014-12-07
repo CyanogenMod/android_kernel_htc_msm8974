@@ -1,3 +1,9 @@
+/*
+ *  linux/fs/sysv/symlink.c
+ *
+ *  Handling of System V filesystem fast symlinks extensions.
+ *  Aug 2001, Christoph Hellwig (hch@infradead.org)
+ */
 
 #include "sysv.h"
 #include <linux/namei.h>

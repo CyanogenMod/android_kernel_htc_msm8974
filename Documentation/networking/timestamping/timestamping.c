@@ -97,7 +97,7 @@ static const unsigned char sync[] = {
 	0x00, 0x00, 0x00, 0x00,
 	0x01, 0x01,
 
-	
+	/* fake uuid */
 	0x00, 0x01,
 	0x02, 0x03, 0x04, 0x05,
 
@@ -109,7 +109,7 @@ static const unsigned char sync[] = {
 	0x00, 0x00, 0x00, 0x00,
 	0x00, 0x01,
 
-	
+	/* fake uuid */
 	0x00, 0x01,
 	0x02, 0x03, 0x04, 0x05,
 
@@ -125,7 +125,7 @@ static const unsigned char sync[] = {
 	0x44, 0x46, 0x4c, 0x54,
 	0x00, 0x01,
 
-	
+	/* fake uuid */
 	0x00, 0x01,
 	0x02, 0x03, 0x04, 0x05,
 
@@ -401,17 +401,17 @@ int main(int argc, char **argv)
 	       hwconfig_requested.tx_type, hwconfig.tx_type,
 	       hwconfig_requested.rx_filter, hwconfig.rx_filter);
 
-	
+	/* bind to PTP port */
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	addr.sin_port = htons(319 );
+	addr.sin_port = htons(319 /* PTP event port */);
 	if (bind(sock,
 		 (struct sockaddr *)&addr,
 		 sizeof(struct sockaddr_in)) < 0)
 		bail("bind");
 
-	
-	inet_aton("224.0.1.130", &iaddr); 
+	/* set multicast group for outgoing packets */
+	inet_aton("224.0.1.130", &iaddr); /* alternate PTP domain 1 */
 	addr.sin_addr = iaddr;
 	imr.imr_multiaddr.s_addr = iaddr.s_addr;
 	imr.imr_interface.s_addr =
@@ -420,7 +420,7 @@ int main(int argc, char **argv)
 		       &imr.imr_interface.s_addr, sizeof(struct in_addr)) < 0)
 		bail("set multicast");
 
-	
+	/* join multicast group, loop our own packet */
 	if (setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,
 		       &imr, sizeof(struct ip_mreq)) < 0)
 		bail("join multicast group");
@@ -430,7 +430,7 @@ int main(int argc, char **argv)
 		bail("loop multicast");
 	}
 
-	
+	/* set socket options for time stamping */
 	if (so_timestamp &&
 		setsockopt(sock, SOL_SOCKET, SO_TIMESTAMP,
 			   &enabled, sizeof(enabled)) < 0)
@@ -447,12 +447,12 @@ int main(int argc, char **argv)
 			   sizeof(so_timestamping_flags)) < 0)
 		bail("setsockopt SO_TIMESTAMPING");
 
-	
+	/* request IP_PKTINFO for debugging purposes */
 	if (setsockopt(sock, SOL_IP, IP_PKTINFO,
 		       &enabled, sizeof(enabled)) < 0)
 		printf("%s: %s\n", "setsockopt IP_PKTINFO", strerror(errno));
 
-	
+	/* verify socket options */
 	len = sizeof(val);
 	if (getsockopt(sock, SOL_SOCKET, SO_TIMESTAMP, &val, &len) < 0)
 		printf("%s: %s\n", "getsockopt SO_TIMESTAMP", strerror(errno));
@@ -475,7 +475,7 @@ int main(int argc, char **argv)
 			       so_timestamping_flags);
 	}
 
-	
+	/* send packets forever every five seconds */
 	gettimeofday(&next, 0);
 	next.tv_sec = (next.tv_sec + 1) / 5 * 5;
 	next.tv_usec = 0;
@@ -490,7 +490,7 @@ int main(int argc, char **argv)
 		delta_us = (long)(next.tv_sec - now.tv_sec) * 1000000 +
 			(long)(next.tv_usec - now.tv_usec);
 		if (delta_us > 0) {
-			
+			/* continue waiting for timeout or data */
 			delta.tv_sec = delta_us / 1000000;
 			delta.tv_usec = delta_us % 1000000;
 
@@ -520,7 +520,7 @@ int main(int argc, char **argv)
 					   siocgstampns);
 			}
 		} else {
-			
+			/* write one packet */
 			sendpacket(sock,
 				   (struct sockaddr *)&addr,
 				   sizeof(addr));

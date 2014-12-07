@@ -18,6 +18,7 @@
 #define STAGE_CFGREG_NUM       8
 #define SYS_CFGREG_NUM         8
 
+/* board information which need be initialized in arch/mach... */
 struct ad714x_slider_plat {
 	int start_stage;
 	int end_stage;

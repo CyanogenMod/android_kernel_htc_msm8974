@@ -23,14 +23,32 @@
 
 #define DRV_NAME "cs5530"
 
+/*
+ * Here are the standard PIO mode 0-4 timings for each "format".
+ * Format-0 uses fast data reg timings, with slower command reg timings.
+ * Format-1 uses fast timings for all registers, but won't work with all drives.
+ */
 static unsigned int cs5530_pio_timings[2][5] = {
 	{0x00009172, 0x00012171, 0x00020080, 0x00032010, 0x00040010},
 	{0xd1329172, 0x71212171, 0x30200080, 0x20102010, 0x00100010}
 };
 
+/*
+ * After chip reset, the PIO timings are set to 0x0000e132, which is not valid.
+ */
 #define CS5530_BAD_PIO(timings) (((timings)&~0x80000000)==0x0000e132)
 #define CS5530_BASEREG(hwif)	(((hwif)->dma_base & ~0xf) + ((hwif)->channel ? 0x30 : 0x20))
 
+/**
+ *	cs5530_set_pio_mode	-	set host controller for PIO mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	Handles setting of PIO mode for the chipset.
+ *
+ *	The init_hwif_cs5530() routine guarantees that all drives
+ *	will have valid default PIO timings set up before we get here.
+ */
 
 static void cs5530_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -41,6 +59,24 @@ static void cs5530_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	outl(cs5530_pio_timings[format][pio], basereg + ((drive->dn & 1)<<3));
 }
 
+/**
+ *	cs5530_udma_filter	-	UDMA filter
+ *	@drive: drive
+ *
+ *	cs5530_udma_filter() does UDMA mask filtering for the given drive
+ *	taking into the consideration capabilities of the mate device.
+ *
+ *	The CS5530 specifies that two drives sharing a cable cannot mix
+ *	UDMA/MDMA.  It has to be one or the other, for the pair, though
+ *	different timings can still be chosen for each drive.  We could
+ *	set the appropriate timing bits on the fly, but that might be
+ *	a bit confusing.  So, for now we statically handle this requirement
+ *	by looking at our mate drive to see what it is capable of, before
+ *	choosing a mode for our own drive.
+ *
+ *	Note: This relies on the fact we never fail from UDMA to MWDMA2
+ *	but instead drop to PIO.
+ */
 
 static u8 cs5530_udma_filter(ide_drive_t *drive)
 {
@@ -78,20 +114,26 @@ static void cs5530_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 		case XFER_MW_DMA_2:	timings = 0x00002020; break;
 	}
 	basereg = CS5530_BASEREG(hwif);
-	reg = inl(basereg + 4);			
-	timings |= reg & 0x80000000;		
-	if ((drive-> dn & 1) == 0) {		
-		outl(timings, basereg + 4);	
+	reg = inl(basereg + 4);			/* get drive0 config register */
+	timings |= reg & 0x80000000;		/* preserve PIO format bit */
+	if ((drive-> dn & 1) == 0) {		/* are we configuring drive0? */
+		outl(timings, basereg + 4);	/* write drive0 config register */
 	} else {
 		if (timings & 0x00100000)
-			reg |=  0x00100000;	
+			reg |=  0x00100000;	/* enable UDMA timings for both drives */
 		else
-			reg &= ~0x00100000;	
-		outl(reg, basereg + 4);		
-		outl(timings, basereg + 12);	
+			reg &= ~0x00100000;	/* disable UDMA timings for both drives */
+		outl(reg, basereg + 4);		/* write drive0 config register */
+		outl(timings, basereg + 12);	/* write drive1 config register */
 	}
 }
 
+/**
+ *	init_chipset_5530	-	set up 5530 bridge
+ *	@dev: PCI device
+ *
+ *	Initialize the cs5530 bridge for reliable IDE DMA operation.
+ */
 
 static int init_chipset_cs5530(struct pci_dev *dev)
 {
@@ -120,22 +162,52 @@ static int init_chipset_cs5530(struct pci_dev *dev)
 		goto out;
 	}
 
+	/*
+	 * Enable BusMaster and MemoryWriteAndInvalidate for the cs5530:
+	 * -->  OR 0x14 into 16-bit PCI COMMAND reg of function 0 of the cs5530
+	 */
 
 	pci_set_master(cs5530_0);
 	pci_try_set_mwi(cs5530_0);
 
+	/*
+	 * Set PCI CacheLineSize to 16-bytes:
+	 * --> Write 0x04 into 8-bit PCI CACHELINESIZE reg of function 0 of the cs5530
+	 */
 
 	pci_write_config_byte(cs5530_0, PCI_CACHE_LINE_SIZE, 0x04);
 
+	/*
+	 * Disable trapping of UDMA register accesses (Win98 hack):
+	 * --> Write 0x5006 into 16-bit reg at offset 0xd0 of function 0 of the cs5530
+	 */
 
 	pci_write_config_word(cs5530_0, 0xd0, 0x5006);
 
+	/*
+	 * Bit-1 at 0x40 enables MemoryWriteAndInvalidate on internal X-bus:
+	 * The other settings are what is necessary to get the register
+	 * into a sane state for IDE DMA operation.
+	 */
 
 	pci_write_config_byte(master_0, 0x40, 0x1e);
 
+	/* 
+	 * Set max PCI burst size (16-bytes seems to work best):
+	 *	   16bytes: set bit-1 at 0x41 (reg value of 0x16)
+	 *	all others: clear bit-1 at 0x41, and do:
+	 *	  128bytes: OR 0x00 at 0x41
+	 *	  256bytes: OR 0x04 at 0x41
+	 *	  512bytes: OR 0x08 at 0x41
+	 *	 1024bytes: OR 0x0c at 0x41
+	 */
 
 	pci_write_config_byte(master_0, 0x41, 0x14);
 
+	/*
+	 * These settings are necessary to get the chip
+	 * into a sane state for IDE DMA operation.
+	 */
 
 	pci_write_config_byte(master_0, 0x42, 0x00);
 	pci_write_config_byte(master_0, 0x43, 0xc1);
@@ -146,6 +218,13 @@ out:
 	return 0;
 }
 
+/**
+ *	init_hwif_cs5530	-	initialise an IDE channel
+ *	@hwif: IDE to initialize
+ *
+ *	This gets invoked by the IDE driver once for each channel. It
+ *	performs channel-specific pre-initialization before drive probing.
+ */
 
 static void __devinit init_hwif_cs5530 (ide_hwif_t *hwif)
 {

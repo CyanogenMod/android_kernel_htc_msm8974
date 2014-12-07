@@ -30,6 +30,10 @@
 
 #include "irq_xen.h"
 
+/***************************************************************************
+ * pv_irq_ops
+ * irq operations
+ */
 
 static int
 xen_assign_irq_vector(int irq)
@@ -78,6 +82,9 @@ struct saved_irq {
 	unsigned int irq;
 	struct irqaction *action;
 };
+/* 16 should be far optimistic value, since only several percpu irqs
+ * are registered early.
+ */
 #define MAX_LATE_IRQ	16
 static struct saved_irq saved_percpu_irqs[MAX_LATE_IRQ];
 static unsigned short late_irq_cnt;
@@ -87,6 +94,10 @@ static int xen_slab_ready;
 #ifdef CONFIG_SMP
 #include <linux/sched.h>
 
+/* Dummy stub. Though we may check XEN_RESCHEDULE_VECTOR before __do_IRQ,
+ * it ends up to issue several memory accesses upon percpu data and
+ * thus adds unnecessary traffic to other paths.
+ */
 static irqreturn_t
 xen_dummy_handler(int irq, void *dev_id)
 {
@@ -119,6 +130,18 @@ static struct irqaction xen_tlb_irqaction = {
 };
 #endif
 
+/*
+ * This is xen version percpu irq registration, which needs bind
+ * to xen specific evtchn sub-system. One trick here is that xen
+ * evtchn binding interface depends on kmalloc because related
+ * port needs to be freed at device/cpu down. So we cache the
+ * registration on BSP before slab is ready and then deal them
+ * at later point. For rest instances happening after slab ready,
+ * we hook them to xen evtchn immediately.
+ *
+ * FIXME: MCA is not supported by far, and thus "nomca" boot param is
+ * required.
+ */
 static void
 __xen_register_percpu_irq(unsigned int cpu, unsigned int vec,
 			struct irqaction *action, int save)
@@ -192,7 +215,7 @@ __xen_register_percpu_irq(unsigned int cpu, unsigned int vec,
 		case IA64_PERFMON_VECTOR:
 		case IA64_MCA_WAKEUP_VECTOR:
 		case IA64_SPURIOUS_INT_VECTOR:
-			
+			/* No need to complain, these aren't supported. */
 			break;
 		default:
 			printk(KERN_WARNING "Percpu irq %d is unsupported "
@@ -202,10 +225,18 @@ __xen_register_percpu_irq(unsigned int cpu, unsigned int vec,
 		BUG_ON(irq < 0);
 
 		if (irq > 0) {
+			/*
+			 * Mark percpu.  Without this, migrate_irqs() will
+			 * mark the interrupt for migrations and trigger it
+			 * on cpu hotplug.
+			 */
 			irq_set_status_flags(irq, IRQ_PER_CPU);
 		}
 	}
 
+	/* For BSP, we cache registered percpu irqs, and then re-walk
+	 * them when initializing APs
+	 */
 	if (!cpu && save) {
 		BUG_ON(saved_irq_cnt == MAX_LATE_IRQ);
 		saved_percpu_irqs[saved_irq_cnt].irq = vec;
@@ -228,12 +259,18 @@ xen_bind_early_percpu_irq(void)
 	int i;
 
 	xen_slab_ready = 1;
+	/* There's no race when accessing this cached array, since only
+	 * BSP will face with such step shortly
+	 */
 	for (i = 0; i < late_irq_cnt; i++)
 		__xen_register_percpu_irq(smp_processor_id(),
 					  saved_percpu_irqs[i].irq,
 					  saved_percpu_irqs[i].action, 0);
 }
 
+/* FIXME: There's no obvious point to check whether slab is ready. So
+ * a hack is used here by utilizing a late time hook.
+ */
 
 #ifdef CONFIG_HOTPLUG_CPU
 static int __devinit
@@ -243,7 +280,7 @@ unbind_evtchn_callback(struct notifier_block *nfb,
 	unsigned int cpu = (unsigned long)hcpu;
 
 	if (action == CPU_DEAD) {
-		
+		/* Unregister evtchn.  */
 		if (per_cpu(xen_cpep_irq, cpu) >= 0) {
 			unbind_from_irqhandler(per_cpu(xen_cpep_irq, cpu),
 					       NULL);
@@ -303,17 +340,17 @@ void xen_smp_intr_init(void)
 	};
 
 	if (cpu == 0) {
-		
+		/* Initialization was already done for boot cpu.  */
 #ifdef CONFIG_HOTPLUG_CPU
-		
+		/* Register the notifier only once.  */
 		register_cpu_notifier(&unbind_evtchn_notifier);
 #endif
 		return;
 	}
 
-	
+	/* This should be piggyback when setup vcpu guest context */
 	BUG_ON(HYPERVISOR_callback_op(CALLBACKOP_register, &event));
-#endif 
+#endif /* CONFIG_SMP */
 }
 
 void __init
@@ -333,12 +370,17 @@ void
 xen_platform_send_ipi(int cpu, int vector, int delivery_mode, int redirect)
 {
 #ifdef CONFIG_SMP
-	
+	/* TODO: we need to call vcpu_up here */
 	if (unlikely(vector == ap_wakeup_vector)) {
+		/* XXX
+		 * This should be in __cpu_up(cpu) in ia64 smpboot.c
+		 * like x86. But don't want to modify it,
+		 * keep it untouched.
+		 */
 		xen_smp_intr_init_early(cpu);
 
 		xen_send_ipi(cpu, vector);
-		
+		/* vcpu_prepare_and_up(cpu); */
 		return;
 	}
 #endif
@@ -357,18 +399,20 @@ xen_platform_send_ipi(int cpu, int vector, int delivery_mode, int redirect)
 		xen_send_IPI_one(cpu, XEN_CPEP_VECTOR);
 		break;
 	case IA64_TIMER_VECTOR: {
+		/* this is used only once by check_sal_cache_flush()
+		   at boot time */
 		static int used = 0;
 		if (!used) {
 			xen_send_ipi(cpu, IA64_TIMER_VECTOR);
 			used = 1;
 			break;
 		}
-		
+		/* fallthrough */
 	}
 	default:
 		printk(KERN_WARNING "Unsupported IPI type 0x%x\n",
 		       vector);
-		notify_remote_via_irq(0); 
+		notify_remote_via_irq(0); /* defaults to 0 irq */
 		break;
 	}
 }

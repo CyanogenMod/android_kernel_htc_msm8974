@@ -13,7 +13,7 @@
 #include <asm/pgtable.h>
 #include <asm/tlbdebug.h>
 
-extern int r3k_have_wired_reg;	
+extern int r3k_have_wired_reg;	/* defined in tlb-r3k.c */
 
 static void dump_tlb(int first, int last)
 {
@@ -33,9 +33,12 @@ static void dump_tlb(int first, int last)
 		entryhi  = read_c0_entryhi();
 		entrylo0 = read_c0_entrylo0();
 
-		
+		/* Unused entries have a virtual address of KSEG0.  */
 		if ((entryhi & 0xffffe000) != 0x80000000
 		    && (entryhi & 0xfc0) == asid) {
+			/*
+			 * Only print entries in use
+			 */
 			printk("Index: %2d ", i);
 
 			printk("va=%08lx asid=%08lx"

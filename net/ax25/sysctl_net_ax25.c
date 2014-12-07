@@ -156,7 +156,7 @@ static const ctl_table ax25_param_table[] = {
 	},
 #endif
 
-	{ }	
+	{ }	/* that's all, folks! */
 };
 
 void ax25_register_sysctl(void)

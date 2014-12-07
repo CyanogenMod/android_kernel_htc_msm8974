@@ -1,3 +1,9 @@
+/*
+ *	xt_u32 - kernel module to match u32 packet content
+ *
+ *	Original author: Don Cohen <don@isis.cs3-inc.com>
+ *	(C) CC Computer Consultants GmbH, 2007
+ */
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -20,6 +26,10 @@ static bool u32_match_it(const struct xt_u32 *data,
 	u_int32_t val;
 	u_int32_t at;
 
+	/*
+	 * Small example: "0 >> 28 == 4 && 8 & 0xFF0000 >> 16 = 6, 17"
+	 * (=IPv4 and (TCP or UDP)). Outer loop runs over the "&&" operands.
+	 */
 	for (testind = 0; testind < data->ntests; ++testind) {
 		ct  = &data->tests[testind];
 		at  = 0;
@@ -33,7 +43,7 @@ static bool u32_match_it(const struct xt_u32 *data,
 		val   = ntohl(n);
 		nnums = ct->nnums;
 
-		
+		/* Inner loop runs over "&", "<<", ">>" and "@" operands */
 		for (i = 1; i < nnums; ++i) {
 			u_int32_t number = ct->location[i].number;
 			switch (ct->location[i].nextop) {
@@ -63,7 +73,7 @@ static bool u32_match_it(const struct xt_u32 *data,
 			}
 		}
 
-		
+		/* Run over the "," and ":" operands */
 		nvals = ct->nvalues;
 		for (i = 0; i < nvals; ++i)
 			if (ct->value[i].min <= val && val <= ct->value[i].max)

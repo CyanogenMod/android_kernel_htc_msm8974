@@ -27,6 +27,7 @@
 #include "ics.h"
 
 
+/* WSP ICS */
 
 struct wsp_ics {
 	struct ics ics;
@@ -56,7 +57,7 @@ struct wsp_ics {
 #define TBL_SELECT_XIST		(1UL << 48)
 #define TBL_SELECT_XIVT		(1UL << 49)
 
-#define IODA_IRQ(irq)		((irq) & (0x7FFULL))	
+#define IODA_IRQ(irq)		((irq) & (0x7FFULL))	/* HRM 5.1.3.4 */
 
 #define XIST_REQUIRED		0x8
 #define XIST_REJECTED		0x4
@@ -69,12 +70,19 @@ struct wsp_ics {
 #define XIVE_PRIORITY_SHIFT	32
 #define XIVE_WRITE_ENABLE	(1ULL << 63)
 
+/*
+ * The docs refer to a 6 bit field called ChipID, which consists of a
+ * 3 bit NodeID and a 3 bit ChipID. On WSP the ChipID is always zero
+ * so we ignore it, and every where we use "chip id" in this code we
+ * mean the NodeID.
+ */
 #define WSP_ICS_CHIP_SHIFT		17
 
 
 static struct wsp_ics *ics_list;
 static int num_ics;
 
+/* ICS Source controller accessors */
 
 static u64 wsp_ics_get_xive(struct wsp_ics *ics, unsigned int irq)
 {
@@ -120,6 +128,7 @@ static u64 xive_set_priority(u64 xive, unsigned int priority)
 
 
 #ifdef CONFIG_SMP
+/* Find logical CPUs within mask on a given chip and store result in ret */
 void cpus_on_chip(int chip_id, cpumask_t *mask, cpumask_t *ret)
 {
 	int cpu, chip;
@@ -149,6 +158,7 @@ void cpus_on_chip(int chip_id, cpumask_t *mask, cpumask_t *ret)
 	}
 }
 
+/* Store a suitable CPU to handle a hwirq in the ics->hwirq_cpu_map cache */
 static int cache_hwirq_map(struct wsp_ics *ics, unsigned int hwirq,
 			   const cpumask_t *affinity)
 {
@@ -167,25 +177,25 @@ static int cache_hwirq_map(struct wsp_ics *ics, unsigned int hwirq,
 		return 0;
 	}
 
-	
+	/* Allocate needed CPU masks */
 	if (!alloc_cpumask_var(&avail, GFP_KERNEL))
 		goto ret;
 	if (!alloc_cpumask_var(&newmask, GFP_KERNEL))
 		goto freeavail;
 
-	
-	nodeid = (hwirq >> WSP_ICS_CHIP_SHIFT) & 0x3; 
+	/* Find PBus attached to the source of this IRQ */
+	nodeid = (hwirq >> WSP_ICS_CHIP_SHIFT) & 0x3; /* 12:14 */
 
-	
+	/* Find CPUs that could handle this IRQ */
 	if (affinity)
 		cpumask_and(avail, cpu_online_mask, affinity);
 	else
 		cpumask_copy(avail, cpu_online_mask);
 
-	
+	/* Narrow selection down to logical CPUs on the same chip */
 	cpus_on_chip(nodeid, avail, newmask);
 
-	
+	/* Ensure we haven't narrowed it down to 0 */
 	if (unlikely(cpumask_empty(newmask))) {
 		if (unlikely(cpumask_empty(avail))) {
 			ret = -1;
@@ -194,7 +204,7 @@ static int cache_hwirq_map(struct wsp_ics *ics, unsigned int hwirq,
 		cpumask_copy(newmask, avail);
 	}
 
-	
+	/* Choose a CPU out of those we narrowed it down to in round robin */
 	target = hwirq % cpumask_weight(newmask);
 	for_each_cpu(cpu, newmask) {
 		if (cpu_rover++ >= target) {
@@ -204,7 +214,7 @@ static int cache_hwirq_map(struct wsp_ics *ics, unsigned int hwirq,
 		}
 	}
 
-	
+	/* Shouldn't happen */
 	WARN_ON(1);
 
 out:
@@ -246,7 +256,7 @@ static int get_irq_server(struct wsp_ics *ics, unsigned int hwirq)
 
 	return ics->hwirq_cpu_map[index];
 }
-#else 
+#else /* !CONFIG_SMP */
 static int cache_hwirq_map(struct wsp_ics *ics, unsigned int hwirq,
 			   const cpumask_t *affinity)
 {
@@ -285,7 +295,7 @@ static void wsp_chip_unmask_irq(struct irq_data *d)
 
 static unsigned int wsp_chip_startup(struct irq_data *d)
 {
-	
+	/* unmask it */
 	wsp_chip_unmask_irq(d);
 	return 0;
 }
@@ -332,6 +342,10 @@ static int wsp_chip_set_affinity(struct irq_data *d,
 		return -1;
 	xive = wsp_ics_get_xive(ics, hw_irq);
 
+	/*
+	 * For the moment only implement delivery to all cpus or one cpu.
+	 * Get current irq_server for the given irq
+	 */
 	ret = cache_hwirq_map(ics, hw_irq, cpumask);
 	if (ret == -1) {
 		char cpulist[128];
@@ -360,6 +374,8 @@ static struct irq_chip wsp_irq_chip = {
 
 static int wsp_ics_host_match(struct ics *ics, struct device_node *dn)
 {
+	/* All ICSs in the system implement a global irq number space,
+	 * so match against them all. */
 	return of_device_is_compatible(dn, "ibm,ppc-xics");
 }
 
@@ -413,6 +429,7 @@ static long wsp_ics_get_server(struct ics *ics, unsigned long hw_irq)
 	return get_irq_server(wsp_ics, hw_irq);
 }
 
+/* HW Number allocation API */
 
 static struct wsp_ics *wsp_ics_find_dn_ics(struct device_node *dn)
 {
@@ -447,7 +464,7 @@ int wsp_ics_alloc_irq(struct device_node *dn, int num)
 	if (!ics)
 		return -ENODEV;
 
-	
+	/* Fast, but overly strict if num isn't a power of two */
 	order = get_count_order(num);
 
 	spin_lock_irq(&ics->lock);
@@ -473,6 +490,7 @@ void wsp_ics_free_irq(struct device_node *dn, unsigned int irq)
 	spin_unlock_irq(&ics->lock);
 }
 
+/* Initialisation */
 
 static int __init wsp_ics_bitmap_setup(struct wsp_ics *ics,
 				      struct device_node *dn)
@@ -492,14 +510,14 @@ static int __init wsp_ics_bitmap_setup(struct wsp_ics *ics,
 
 	p = of_get_property(dn, "available-ranges", &len);
 	if (!p || !len) {
-		
+		/* FIXME this should be a WARN() once mambo is updated */
 		pr_err("wsp_ics: No available-ranges defined for %s\n",
 			dn->full_name);
 		return 0;
 	}
 
 	if (len % (2 * sizeof(u32)) != 0) {
-		
+		/* FIXME this should be a WARN() once mambo is updated */
 		pr_err("wsp_ics: Invalid available-ranges for %s\n",
 			dn->full_name);
 		return 0;
@@ -525,7 +543,7 @@ static int __init wsp_ics_bitmap_setup(struct wsp_ics *ics,
 				(start + j) - ics->hwirq_start, 0);
 	}
 
-	
+	/* Ensure LSIs are not available for allocation */
 	bitmap_allocate_region(ics->bitmap, ics->lsi_base,
 			       get_count_order(ics->lsi_count));
 
@@ -566,12 +584,16 @@ static int __init wsp_ics_setup(struct wsp_ics *ics, struct device_node *dn)
 	if (WARN_ON(ics->chip_id < 0))
 		ics->chip_id = 0;
 
-	
+	/* Get some informations about the critter */
 	caps = in_be64(ICS_INT_CAPS_REG(ics->regs));
 	buid = in_be64(INT_SRC_LAYER_BUID_REG(ics->regs));
 	ics->lsi_count = caps >> 56;
 	msi_count = (caps >> 44) & 0x7ff;
 
+	/* Note: LSI BUID is 9 bits, but really only 3 are BUID and the
+	 * rest is mixed in the interrupt number. We store the whole
+	 * thing though
+	 */
 	lsi_buid = (buid >> 48) & 0x1ff;
 	ics->lsi_base = (ics->chip_id << WSP_ICS_CHIP_SHIFT) | lsi_buid << 5;
 	msi_buid = (buid >> 37) & 0x7;
@@ -587,7 +609,7 @@ static int __init wsp_ics_setup(struct wsp_ics *ics, struct device_node *dn)
 		msi_count, msi_base,
 		msi_base + msi_count - 1);
 
-	
+	/* Let's check the HW config is sane */
 	if (ics->lsi_base < ics->hwirq_start ||
 	    (ics->lsi_base + ics->lsi_count) > (ics->hwirq_start + ics->count))
 		pr_warning("wsp_ics: WARNING ! LSIs out of interrupt-ranges !\n");
@@ -595,6 +617,9 @@ static int __init wsp_ics_setup(struct wsp_ics *ics, struct device_node *dn)
 	    (msi_base + msi_count) > (ics->hwirq_start + ics->count))
 		pr_warning("wsp_ics: WARNING ! MSIs out of interrupt-ranges !\n");
 
+	/* We don't check for overlap between LSI and MSI, which will happen
+	 * if we use the same BUID, I'm not sure yet how legit that is.
+	 */
 
 	rc = wsp_ics_bitmap_setup(ics, dn);
 	if (rc) {
@@ -623,7 +648,7 @@ static void __init wsp_ics_set_default_server(void)
 	struct device_node *np;
 	u32 hwid;
 
-	
+	/* Find the server number for the boot cpu. */
 	np = of_get_cpu_node(boot_cpuid, NULL);
 	BUG_ON(!np);
 
@@ -682,7 +707,7 @@ void __init wsp_init_irq(void)
 	wsp_ics_init();
 	xics_init();
 
-	
+	/* We need to patch our irq chip's EOI to point to the right ICP */
 	wsp_irq_chip.irq_eoi = icp_ops->eoi;
 }
 
@@ -705,6 +730,10 @@ static void wsp_ics_msi_mask_irq(struct irq_data *d)
 	wsp_chip_mask_irq(d);
 }
 
+/*
+ * we do it this way because we reassinge default EOI handling in
+ * irq_init() above
+ */
 static void wsp_ics_eoi(struct irq_data *data)
 {
 	wsp_irq_chip.irq_eoi(data);
@@ -728,4 +757,4 @@ void wsp_ics_set_std_chip(unsigned int irq)
 {
 	irq_set_chip(irq, &wsp_irq_chip);
 }
-#endif 
+#endif /* CONFIG_PCI_MSI */

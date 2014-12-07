@@ -3,10 +3,14 @@
 
 #include <mach/at_hdmac.h>
 
+/**
+ * struct mci_dma_data - DMA data for MCI interface
+ */
 struct mci_dma_data {
 	struct at_dma_slave	sdata;
 };
 
+/* accessor macros */
 #define	slave_data_ptr(s)	(&(s)->sdata)
 #define find_slave_dev(s)	((s)->sdata.dma_dev)
 
@@ -17,4 +21,4 @@ struct mci_dma_data {
 	}					\
 } while (0)
 
-#endif 
+#endif /* __MACH_ATMEL_MCI_H */

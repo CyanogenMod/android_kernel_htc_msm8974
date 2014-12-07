@@ -20,4 +20,4 @@ struct xencons_interface {
     XENCONS_RING_IDX out_cons, out_prod;
 };
 
-#endif 
+#endif /* __XEN_PUBLIC_IO_CONSOLE_H__ */

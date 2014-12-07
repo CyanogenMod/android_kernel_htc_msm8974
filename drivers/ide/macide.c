@@ -23,14 +23,34 @@
 #include <asm/macints.h>
 #include <asm/mac_baboon.h>
 
-#define IDE_BASE 0x50F1A000	
+#define IDE_BASE 0x50F1A000	/* Base address of IDE controller */
 
+/*
+ * Generic IDE registers as offsets from the base
+ * These match MkLinux so they should be correct.
+ */
 
-#define IDE_CONTROL	0x38	
+#define IDE_CONTROL	0x38	/* control/altstatus */
 
+/*
+ * Mac-specific registers
+ */
 
+/*
+ * this register is odd; it doesn't seem to do much and it's
+ * not word-aligned like virtually every other hardware register
+ * on the Mac...
+ */
 
-#define IDE_IFR		0x101	
+#define IDE_IFR		0x101	/* (0x101) IDE interrupt flags on Quadra:
+				 *
+				 * Bit 0+1: some interrupt flags
+				 * Bit 2+3: some interrupt enable
+				 * Bit 4:   ??
+				 * Bit 5:   IDE interrupt flag (any hwif)
+				 * Bit 6:   maybe IDE interrupt enable (any hwif) ??
+				 * Bit 7:   Any interrupt condition
+				 */
 
 volatile unsigned char *ide_ifr = (unsigned char *) (IDE_BASE + IDE_IFR);
 
@@ -76,6 +96,9 @@ static const struct ide_port_info macide_port_info = {
 static const char *mac_ide_name[] =
 	{ "Quadra", "Powerbook", "Powerbook Baboon" };
 
+/*
+ * Probe for a Macintosh IDE interface
+ */
 
 static int __init macide_init(void)
 {

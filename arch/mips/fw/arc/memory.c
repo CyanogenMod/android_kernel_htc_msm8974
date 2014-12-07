@@ -26,6 +26,10 @@
 
 #undef DEBUG
 
+/*
+ * For ARC firmware memory functions the unit of meassuring memory is always
+ * a 4k page of memory
+ */
 #define ARC_PAGE_SHIFT	12
 
 struct linux_mdesc * __init ArcGetMemoryDescriptor(struct linux_mdesc *Current)
@@ -33,7 +37,7 @@ struct linux_mdesc * __init ArcGetMemoryDescriptor(struct linux_mdesc *Current)
 	return (struct linux_mdesc *) ARC_CALL1(get_mdesc, Current);
 }
 
-#ifdef DEBUG 
+#ifdef DEBUG /* convenient for debugging */
 static char *arcs_mtypes[8] = {
 	"Exception Block",
 	"ARCS Romvec Page",
@@ -76,7 +80,7 @@ static inline int memtype_classify_arcs(union linux_memtypes type)
 	default:
 		BUG();
 	}
-	while(1);				
+	while(1);				/* Nuke warning.  */
 }
 
 static inline int memtype_classify_arc(union linux_memtypes type)
@@ -96,12 +100,12 @@ static inline int memtype_classify_arc(union linux_memtypes type)
 	default:
 		BUG();
 	}
-	while(1);				
+	while(1);				/* Nuke warning.  */
 }
 
 static int __init prom_memtype_classify(union linux_memtypes type)
 {
-	if (prom_flags & PROM_FLAG_ARCS)	
+	if (prom_flags & PROM_FLAG_ARCS)	/* SGI is ``different'' ... */
 		return memtype_classify_arcs(type);
 
 	return memtype_classify_arc(type);

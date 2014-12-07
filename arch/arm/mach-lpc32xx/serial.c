@@ -31,6 +31,7 @@
 
 #define LPC32XX_SUART_FIFO_SIZE	64
 
+/* Standard 8250/16550 compatible serial ports */
 static struct plat_serial8250_port serial_std_platform_data[] = {
 #ifdef CONFIG_ARCH_LPC32XX_UART5_SELECT
 	{
@@ -148,7 +149,7 @@ void __init lpc32xx_serial_init(void)
 	unsigned int puart;
 	int i, j;
 
-	
+	/* UART clocks are off, let clock driver manage them */
 	__raw_writel(0, LPC32XX_CLKPWR_UART_CLK_CTRL);
 
 	for (i = 0; i < ARRAY_SIZE(uartinit_data); i++) {
@@ -159,17 +160,21 @@ void __init lpc32xx_serial_init(void)
 				clk_get_rate(clk);
 		}
 
-		
+		/* Fall back on main osc rate if clock rate return fails */
 		if (serial_std_platform_data[i].uartclk == 0)
 			serial_std_platform_data[i].uartclk =
 				LPC32XX_MAIN_OSC_FREQ;
 
-		
+		/* Setup UART clock modes for all UARTs, disable autoclock */
 		clkmodes |= uartinit_data[i].ck_mode_mask;
 
-		
+		/* pre-UART clock divider set to 1 */
 		__raw_writel(0x0101, uartinit_data[i].pdiv_clk_reg);
 
+		/*
+		 * Force a flush of the RX FIFOs to work around a
+		 * HW bug
+		 */
 		puart = uartinit_data[i].mapbase;
 		__raw_writel(0xC1, LPC32XX_UART_IIR_FCR(puart));
 		__raw_writel(0x00, LPC32XX_UART_DLL_FIFO(puart));
@@ -180,10 +185,10 @@ void __init lpc32xx_serial_init(void)
 		__raw_writel(0, LPC32XX_UART_IIR_FCR(puart));
 	}
 
-	
+	/* This needs to be done after all UART clocks are setup */
 	__raw_writel(clkmodes, LPC32XX_UARTCTL_CLKMODE);
 	for (i = 0; i < ARRAY_SIZE(uartinit_data); i++) {
-		
+		/* Force a flush of the RX FIFOs to work around a HW bug */
 		puart = serial_std_platform_data[i].mapbase;
 		__raw_writel(0xC1, LPC32XX_UART_IIR_FCR(puart));
 		__raw_writel(0x00, LPC32XX_UART_DLL_FIFO(puart));
@@ -193,7 +198,7 @@ void __init lpc32xx_serial_init(void)
 		__raw_writel(0, LPC32XX_UART_IIR_FCR(puart));
 	}
 
-	
+	/* Disable UART5->USB transparent mode or USB won't work */
 	tmp = __raw_readl(LPC32XX_UARTCTL_CTRL);
 	tmp &= ~LPC32XX_UART_U5_ROUTE_TO_USB;
 	__raw_writel(tmp, LPC32XX_UARTCTL_CTRL);

@@ -1,3 +1,6 @@
+/*
+ * Dynamic DMA mapping support.
+ */
 
 #include <linux/types.h>
 #include <linux/mm.h>
@@ -31,6 +34,9 @@ int force_iommu __read_mostly;
 int iommu_pass_through;
 int iommu_group_mf;
 
+/* Dummy device used for NULL arguments (normally ISA). Better would
+   be probably a smaller DMA mask, but this is bug-to-bug compatible
+   to i386. */
 struct device fallback_dev = {
 	.init_name = "fallback device",
 	.coherent_dma_mask = DMA_BIT_MASK(32),
@@ -47,6 +53,7 @@ static int __init pci_iommu_init(void)
 	return 0;
 }
 
+/* Must execute after PCI subsystem */
 fs_initcall(pci_iommu_init);
 
 void pci_iommu_shutdown(void)
@@ -62,9 +69,24 @@ iommu_dma_init(void)
 
 int iommu_dma_supported(struct device *dev, u64 mask)
 {
+	/* Copied from i386. Doesn't make much sense, because it will
+	   only work for pci_alloc_coherent.
+	   The caller just has to use GFP_DMA in this case. */
 	if (mask < DMA_BIT_MASK(24))
 		return 0;
 
+	/* Tell the device to use SAC when IOMMU force is on.  This
+	   allows the driver to use cheaper accesses in some cases.
+
+	   Problem with this is that if we overflow the IOMMU area and
+	   return DAC as fallback address the device may not handle it
+	   correctly.
+
+	   As a special case some controllers have a 39bit address
+	   mode that is as efficient as 32bit (aic79xx). Don't force
+	   SAC for these.  Assume all masks <= 40 bits are of this
+	   type. Normally this doesn't make any difference, but gives
+	   more gentle handling of IOMMU overflow. */
 	if (iommu_sac_force && (mask >= DMA_BIT_MASK(40))) {
 		dev_info(dev, "Force SAC with mask %llx\n", mask);
 		return 0;
@@ -84,6 +106,10 @@ void __init pci_iommu_alloc(void)
 	dma_ops->sync_sg_for_device = machvec_dma_sync_sg;
 	dma_ops->dma_supported = iommu_dma_supported;
 
+	/*
+	 * The order of these functions is important for
+	 * fall-back/fail-over reasons
+	 */
 	detect_intel_iommu();
 
 #ifdef CONFIG_SWIOTLB

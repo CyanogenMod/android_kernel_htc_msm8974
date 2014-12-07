@@ -1,3 +1,22 @@
+/*
+ * DECnet       An implementation of the DECnet protocol suite for the LINUX
+ *              operating system.  DECnet is implemented using the  BSD Socket
+ *              interface as the means of communication with the user level.
+ *
+ *              DECnet Routing Forwarding Information Base (Glue/Info List)
+ *
+ * Author:      Steve Whitehouse <SteveW@ACM.org>
+ *
+ *
+ * Changes:
+ *              Alexey Kuznetsov : SMP locking changes
+ *              Steve Whitehouse : Rewrote it... Well to be more correct, I
+ *                                 copied most of it from the ipv4 fib code.
+ *              Steve Whitehouse : Updated it in style and fixed a few bugs
+ *                                 which were fixed in the ipv4 code since
+ *                                 this code was copied from it.
+ *
+ */
 #include <linux/string.h>
 #include <linux/net.h>
 #include <linux/socket.h>
@@ -331,7 +350,7 @@ struct dn_fib_info *dn_fib_create_info(const struct rtmsg *r, struct dn_kern_rta
 	if (r->rtm_scope == RT_SCOPE_HOST) {
 		struct dn_fib_nh *nh = fi->fib_nh;
 
-		
+		/* Local address is added */
 		if (nhs != 1 || nh->nh_gw)
 			goto err_inval;
 		nh->nh_scope = RT_SCOPE_NOWHERE;
@@ -576,7 +595,7 @@ static void dn_fib_add_ifaddr(struct dn_ifaddr *ifa)
 #if 0
 	if (!(dev->flags&IFF_UP))
 		return;
-	
+	/* In the future, we will want to add default routes here */
 
 #endif
 }
@@ -590,7 +609,7 @@ static void dn_fib_del_ifaddr(struct dn_ifaddr *ifa)
 
 	ASSERT_RTNL();
 
-	
+	/* Scan device list */
 	rcu_read_lock();
 	for_each_netdev_rcu(&init_net, dev) {
 		dn_db = rcu_dereference(dev->dn_ptr);
@@ -656,6 +675,12 @@ static int dn_fib_sync_down(__le16 local, struct net_device *dev, int force)
 		scope = -1;
 
 	for_fib_info() {
+		/*
+		 * This makes no sense for DECnet.... we will almost
+		 * certainly have more than one local address the same
+		 * over all our interfaces. It needs thinking about
+		 * some more.
+		 */
 		if (local && fi->fib_prefsrc == local) {
 			fi->fib_flags |= RTNH_F_DEAD;
 			ret++;

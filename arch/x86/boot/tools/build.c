@@ -4,6 +4,16 @@
  *  Copyright (C) 2007 H. Peter Anvin
  */
 
+/*
+ * This file builds a disk-image from two different files:
+ *
+ * - setup: 8086 machine code, sets up system parm
+ * - system: 80386 code for actual system
+ *
+ * It does some checking that all files are of the correct type, and
+ * just writes the result to stdout, removing headers and padding to
+ * the right amount. It also writes some system data to stderr.
+ */
 
 /*
  * Changes by tytso to allow root device specification
@@ -32,12 +42,15 @@ typedef unsigned int   u32;
 #define DEFAULT_MINOR_ROOT 0
 #define DEFAULT_ROOT_DEV (DEFAULT_MAJOR_ROOT << 8 | DEFAULT_MINOR_ROOT)
 
+/* Minimal number of setup sectors */
 #define SETUP_SECT_MIN 5
 #define SETUP_SECT_MAX 64
 
+/* This must be large enough to hold the entire setup */
 u8 buf[SETUP_SECT_MAX*512];
 int is_big_kernel;
 
+/*----------------------------------------------------------------------*/
 
 static const u32 crctab32[] = {
 	0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419,
@@ -137,7 +150,7 @@ int main(int argc, char ** argv)
 	if (argc != 3)
 		usage();
 
-	
+	/* Copy the setup code */
 	file = fopen(argv[1], "r");
 	if (!file)
 		die("Unable to open `%s': %m", argv[1]);
@@ -150,19 +163,19 @@ int main(int argc, char ** argv)
 		die("Boot block hasn't got boot flag (0xAA55)");
 	fclose(file);
 
-	
+	/* Pad unused space with zeros */
 	setup_sectors = (c + 511) / 512;
 	if (setup_sectors < SETUP_SECT_MIN)
 		setup_sectors = SETUP_SECT_MIN;
 	i = setup_sectors*512;
 	memset(buf+c, 0, i-c);
 
-	
+	/* Set the default root device */
 	put_unaligned_le16(DEFAULT_ROOT_DEV, &buf[508]);
 
 	fprintf(stderr, "Setup is %d bytes (padded to %d bytes).\n", c, i);
 
-	
+	/* Open and stat the kernel file */
 	fd = open(argv[2], O_RDONLY);
 	if (fd < 0)
 		die("Unable to open `%s': %m", argv[2]);
@@ -173,10 +186,10 @@ int main(int argc, char ** argv)
 	kernel = mmap(NULL, sz, PROT_READ, MAP_SHARED, fd, 0);
 	if (kernel == MAP_FAILED)
 		die("Unable to mmap '%s': %m", argv[2]);
-	
+	/* Number of 16-byte paragraphs, including space for a 4-byte CRC */
 	sys_size = (sz + 15 + 4) / 16;
 
-	
+	/* Patch the setup code with the appropriate size parameters */
 	buf[0x1f1] = setup_sectors-1;
 	put_unaligned_le32(sys_size, &buf[0x1f4]);
 
@@ -185,49 +198,62 @@ int main(int argc, char ** argv)
 
 	pe_header = get_unaligned_le32(&buf[0x3c]);
 
-	
+	/* Size of code */
 	put_unaligned_le32(file_sz, &buf[pe_header + 0x1c]);
 
-	
+	/* Size of image */
 	put_unaligned_le32(file_sz, &buf[pe_header + 0x50]);
 
 #ifdef CONFIG_X86_32
+	/*
+	 * Address of entry point.
+	 *
+	 * The EFI stub entry point is +16 bytes from the start of
+	 * the .text section.
+	 */
 	put_unaligned_le32(i + 16, &buf[pe_header + 0x28]);
 
-	
+	/* .text size */
 	put_unaligned_le32(file_sz, &buf[pe_header + 0xb0]);
 
-	
+	/* .text size of initialised data */
 	put_unaligned_le32(file_sz, &buf[pe_header + 0xb8]);
 #else
+	/*
+	 * Address of entry point. startup_32 is at the beginning and
+	 * the 64-bit entry point (startup_64) is always 512 bytes
+	 * after. The EFI stub entry point is 16 bytes after that, as
+	 * the first instruction allows legacy loaders to jump over
+	 * the EFI stub initialisation
+	 */
 	put_unaligned_le32(i + 528, &buf[pe_header + 0x28]);
 
-	
+	/* .text size */
 	put_unaligned_le32(file_sz, &buf[pe_header + 0xc0]);
 
-	
+	/* .text size of initialised data */
 	put_unaligned_le32(file_sz, &buf[pe_header + 0xc8]);
 
-#endif 
-#endif 
+#endif /* CONFIG_X86_32 */
+#endif /* CONFIG_EFI_STUB */
 
 	crc = partial_crc32(buf, i, crc);
 	if (fwrite(buf, 1, i, stdout) != i)
 		die("Writing setup failed");
 
-	
+	/* Copy the kernel code */
 	crc = partial_crc32(kernel, sz, crc);
 	if (fwrite(kernel, 1, sz, stdout) != sz)
 		die("Writing kernel failed");
 
-	
+	/* Add padding leaving 4 bytes for the checksum */
 	while (sz++ < (sys_size*16) - 4) {
 		crc = partial_crc32_one('\0', crc);
 		if (fwrite("\0", 1, 1, stdout) != 1)
 			die("Writing padding failed");
 	}
 
-	
+	/* Write the CRC */
 	fprintf(stderr, "CRC %x\n", crc);
 	put_unaligned_le32(crc, buf);
 	if (fwrite(buf, 1, 4, stdout) != 4)
@@ -235,6 +261,6 @@ int main(int argc, char ** argv)
 
 	close(fd);
 
-	
+	/* Everything is OK */
 	return 0;
 }

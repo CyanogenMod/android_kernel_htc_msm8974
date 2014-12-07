@@ -10,4 +10,4 @@ extern asmlinkage long sparc_do_fork(unsigned long clone_flags,
 
 extern asmlinkage int sparc_execve(struct pt_regs *regs);
 
-#endif 
+#endif /* _SPARC64_SYSCALLS_H */

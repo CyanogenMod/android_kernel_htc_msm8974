@@ -1,3 +1,12 @@
+/*
+ * Makes a tree bootable image for IBM Evaluation boards.
+ * Basically, just take a zImage, skip the ELF header, and stuff
+ * a 32 byte header on the front.
+ *
+ * We use htonl, which is a network macro, to make sure we're doing
+ * The Right Thing on an LE machine.  It's non-obvious, but it should
+ * work on anything BSD'ish.
+ */
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -12,13 +21,17 @@
 #include <stdint.h>
 #endif
 
+/* This gets tacked on the front of the image.  There are also a few
+ * bytes allocated after the _start label used by the boot rom (see
+ * head.S for details).
+ */
 typedef struct boot_block {
-	uint32_t bb_magic;		
-	uint32_t bb_dest;		
-	uint32_t bb_num_512blocks;	
-	uint32_t bb_debug_flag;	
-	uint32_t bb_entry_point;	
-	uint32_t bb_checksum;	
+	uint32_t bb_magic;		/* 0x0052504F */
+	uint32_t bb_dest;		/* Target address of the image */
+	uint32_t bb_num_512blocks;	/* Size, rounded-up, in 512 byte blks */
+	uint32_t bb_debug_flag;	/* Run debugger or image after load */
+	uint32_t bb_entry_point;	/* The image address to start */
+	uint32_t bb_checksum;	/* 32 bit checksum including header */
 	uint32_t reserved[2];
 } boot_block_t;
 
@@ -47,15 +60,21 @@ int main(int argc, char *argv[])
 
 	bt.bb_magic = htonl(0x0052504F);
 
-	
+	/* If we have the optional entry point parameter, use it */
 	bt.bb_dest = htonl(strtoul(argv[3], NULL, 0));
 	bt.bb_entry_point = htonl(strtoul(argv[4], NULL, 0));
 
+	/* We know these from the linker command.
+	 * ...and then move it up into memory a little more so the
+	 * relocation can happen.
+	 */
 	bt.bb_num_512blocks = htonl(nblks);
 	bt.bb_debug_flag = 0;
 
 	bt.bb_checksum = 0;
 
+	/* To be neat and tidy :-).
+	*/
 	bt.reserved[0] = 0;
 	bt.reserved[1] = 0;
 
@@ -74,6 +93,8 @@ int main(int argc, char *argv[])
 	for (i = 0; i < sizeof(bt) / sizeof(unsigned int); i++)
 		cksum += *cp++;
 
+	/* Assume zImage is an ELF file, and skip the 64K header.
+	*/
 	if (read(in_fd, tmpbuf, sizeof(tmpbuf)) != sizeof(tmpbuf)) {
 		fprintf(stderr, "%s is too small to be an ELF image\n",
 				argv[1]);
@@ -92,6 +113,8 @@ int main(int argc, char *argv[])
 
 	nblks -= (64 * 1024) / IMGBLK;
 
+	/* And away we go......
+	*/
 	if (write(out_fd, &bt, sizeof(bt)) != sizeof(bt)) {
 		perror("boot-image write");
 		exit(5);
@@ -111,6 +134,8 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	/* rewrite the header with the computed checksum.
+	*/
 	bt.bb_checksum = htonl(cksum);
 	if (lseek(out_fd, 0, SEEK_SET) < 0) {
 		perror("rewrite seek");

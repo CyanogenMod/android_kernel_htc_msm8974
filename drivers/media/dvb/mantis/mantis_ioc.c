@@ -75,6 +75,7 @@ int mantis_get_mac(struct mantis_pci *mantis)
 }
 EXPORT_SYMBOL_GPL(mantis_get_mac);
 
+/* Turn the given bit on or off. */
 void mantis_gpio_set_bits(struct mantis_pci *mantis, u32 bitpos, u8 value)
 {
 	u32 cur;

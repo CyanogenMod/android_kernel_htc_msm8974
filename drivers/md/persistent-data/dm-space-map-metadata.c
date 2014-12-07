@@ -14,6 +14,7 @@
 
 #define DM_MSG_PREFIX "space map metadata"
 
+/*----------------------------------------------------------------*/
 
 /*
  * Space map interface.
@@ -25,6 +26,10 @@
  * service any metadata_ll_disk operation.
  */
 
+/*
+ * FIXME: we should calculate this based on the size of the device.
+ * Only the metadata space map needs this functionality.
+ */
 #define MAX_RECURSIVE_ALLOCATIONS 1024
 
 enum block_op_type {
@@ -94,6 +99,9 @@ static int out(struct sm_metadata *smm)
 {
 	int r = 0;
 
+	/*
+	 * If we're not recursing then very bad things are happening.
+	 */
 	if (!smm->recursion_count) {
 		DMERR("lost track of recursion depth");
 		return -ENOMEM;
@@ -114,6 +122,11 @@ static int out(struct sm_metadata *smm)
 	return r;
 }
 
+/*
+ * When using the out() function above, we often want to combine an error
+ * code for the operation run in the recursive context with that from
+ * out().
+ */
 static int combine_errors(int r1, int r2)
 {
 	return r1 ? r1 : r2;
@@ -163,6 +176,10 @@ static int sm_metadata_get_count(struct dm_space_map *sm, dm_block_t b,
 	struct sm_metadata *smm = container_of(sm, struct sm_metadata, sm);
 	unsigned adjustment = 0;
 
+	/*
+	 * We may have some uncommitted adjustments to add.  This list
+	 * should always be really short.
+	 */
 	for (i = 0; i < smm->nr_uncommitted; i++) {
 		struct block_op *op = smm->uncommitted + i;
 
@@ -196,6 +213,10 @@ static int sm_metadata_count_is_more_than_one(struct dm_space_map *sm,
 	struct sm_metadata *smm = container_of(sm, struct sm_metadata, sm);
 	uint32_t rc;
 
+	/*
+	 * We may have some uncommitted adjustments to add.  This list
+	 * should always be really short.
+	 */
 	for (i = 0; i < smm->nr_uncommitted; i++) {
 		struct block_op *op = smm->uncommitted + i;
 
@@ -223,6 +244,9 @@ static int sm_metadata_count_is_more_than_one(struct dm_space_map *sm,
 		return r;
 
 	if (rc == 3)
+		/*
+		 * We err on the side of caution, and always return true.
+		 */
 		*result = 1;
 	else
 		*result = rc + adjustment > 1;
@@ -374,7 +398,12 @@ static struct dm_space_map ops = {
 	.copy_root = sm_metadata_copy_root
 };
 
+/*----------------------------------------------------------------*/
 
+/*
+ * When a new space map is created that manages its own space.  We use
+ * this tiny bootstrap allocator.
+ */
 static void sm_bootstrap_destroy(struct dm_space_map *sm)
 {
 }
@@ -430,6 +459,9 @@ static int sm_bootstrap_new_block(struct dm_space_map *sm, dm_block_t *b)
 {
 	struct sm_metadata *smm = container_of(sm, struct sm_metadata, sm);
 
+	/*
+	 * We know the entire device is unused.
+	 */
 	if (smm->begin == smm->ll.nr_blocks)
 		return -ENOSPC;
 
@@ -488,6 +520,7 @@ static struct dm_space_map bootstrap_ops = {
 	.copy_root = sm_bootstrap_copy_root
 };
 
+/*----------------------------------------------------------------*/
 
 struct dm_space_map *dm_sm_metadata_init(void)
 {
@@ -529,6 +562,10 @@ int dm_sm_metadata_create(struct dm_space_map *sm,
 
 	memcpy(&smm->sm, &ops, sizeof(smm->sm));
 
+	/*
+	 * Now we need to update the newly created data structures with the
+	 * allocated blocks that they were built from.
+	 */
 	for (i = superblock; !r && i < smm->begin; i++)
 		r = sm_ll_inc(&smm->ll, i, &ev);
 

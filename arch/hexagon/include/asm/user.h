@@ -19,6 +19,13 @@
 #ifndef HEXAGON_ASM_USER_H
 #define HEXAGON_ASM_USER_H
 
+/*
+ * Layout for registers passed in elf core dumps to userspace.
+ *
+ * Basically a rearranged subset of "pt_regs".
+ *
+ * Interested parties:  libc, gdb...
+ */
 
 struct user_regs_struct {
 	unsigned long r0;
@@ -66,9 +73,9 @@ struct user_regs_struct {
 	unsigned long pc;
 	unsigned long cause;
 	unsigned long badva;
-	unsigned long pad1;  
-	unsigned long pad2;  
-	unsigned long pad3;  
+	unsigned long pad1;  /* pad out to 48 words total */
+	unsigned long pad2;  /* pad out to 48 words total */
+	unsigned long pad3;  /* pad out to 48 words total */
 };
 
 #endif

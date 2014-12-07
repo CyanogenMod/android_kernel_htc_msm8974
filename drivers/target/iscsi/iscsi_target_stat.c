@@ -36,6 +36,7 @@
 #define INITIAL_JIFFIES ((unsigned long)(unsigned int) (-300*HZ))
 #endif
 
+/* Instance Attributes Table */
 #define ISCSI_INST_NUM_NODES		1
 #define ISCSI_INST_DESCR		"Storage Engine Target"
 #define ISCSI_INST_LAST_FAILURE_TYPE	0
@@ -45,6 +46,12 @@
 
 #define ISPRINT(a)   ((a >= ' ') && (a <= '~'))
 
+/****************************************************************************
+ * iSCSI MIB Tables
+ ****************************************************************************/
+/*
+ * Instance Attributes Table
+ */
 CONFIGFS_EATTR_STRUCT(iscsi_stat_instance, iscsi_wwn_stat_grps);
 #define ISCSI_STAT_INSTANCE_ATTR(_name, _mode)			\
 static struct iscsi_stat_instance_attribute			\
@@ -212,6 +219,9 @@ struct config_item_type iscsi_stat_instance_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * Instance Session Failure Stats Table
+ */
 CONFIGFS_EATTR_STRUCT(iscsi_stat_sess_err, iscsi_wwn_stat_grps);
 #define ISCSI_STAT_SESS_ERR_ATTR(_name, _mode)			\
 static struct iscsi_stat_sess_err_attribute			\
@@ -291,6 +301,9 @@ struct config_item_type iscsi_stat_sess_err_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * Target Attributes Table
+ */
 CONFIGFS_EATTR_STRUCT(iscsi_stat_tgt_attr, iscsi_wwn_stat_grps);
 #define ISCSI_STAT_TGT_ATTR(_name, _mode)			\
 static struct iscsi_stat_tgt_attr_attribute			\
@@ -453,6 +466,9 @@ struct config_item_type iscsi_stat_tgt_attr_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * Target Login Stats Table
+ */
 CONFIGFS_EATTR_STRUCT(iscsi_stat_login, iscsi_wwn_stat_grps);
 #define ISCSI_STAT_LOGIN(_name, _mode)				\
 static struct iscsi_stat_login_attribute			\
@@ -606,6 +622,9 @@ struct config_item_type iscsi_stat_login_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * Target Logout Stats Table
+ */
 
 CONFIGFS_EATTR_STRUCT(iscsi_stat_logout, iscsi_wwn_stat_grps);
 #define ISCSI_STAT_LOGOUT(_name, _mode)				\
@@ -682,6 +701,9 @@ struct config_item_type iscsi_stat_logout_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * Session Stats Table
+ */
 
 CONFIGFS_EATTR_STRUCT(iscsi_stat_sess, iscsi_node_stat_grps);
 #define ISCSI_STAT_SESS(_name, _mode)				\

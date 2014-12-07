@@ -14,12 +14,15 @@
 #ifndef _W1_DS2781_H
 #define _W1_DS2781_H
 
+/* Function commands */
 #define W1_DS2781_READ_DATA		0x69
 #define W1_DS2781_WRITE_DATA		0x6C
 #define W1_DS2781_COPY_DATA		0x48
 #define W1_DS2781_RECALL_DATA		0xB8
 #define W1_DS2781_LOCK			0x6A
 
+/* Register map */
+/* Register 0x00 Reserved */
 #define DS2781_STATUS			0x01
 #define DS2781_RAAC_MSB			0x02
 #define DS2781_RAAC_LSB			0x03
@@ -47,9 +50,12 @@
 #define DS2781_AE_LSB			0x19
 #define DS2781_SE_MSB			0x1A
 #define DS2781_SE_LSB			0x1B
+/* Register 0x1C - 0x1E Reserved */
 #define DS2781_EEPROM		0x1F
 #define DS2781_EEPROM_BLOCK0_START	0x20
+/* Register 0x20 - 0x2F User EEPROM */
 #define DS2781_EEPROM_BLOCK0_END	0x2F
+/* Register 0x30 - 0x5F Reserved */
 #define DS2781_EEPROM_BLOCK1_START	0x60
 #define DS2781_CONTROL			0x60
 #define DS2781_AB			0x61
@@ -83,29 +89,41 @@
 #define DS2781_TBP23			0x7D
 #define DS2781_TBP12			0x7E
 #define DS2781_EEPROM_BLOCK1_END	0x7F
+/* Register 0x7D - 0xFF Reserved */
 
 #define DS2781_FSGAIN_MSB		0xB0
 #define DS2781_FSGAIN_LSB		0xB1
 
+/* Number of valid register addresses */
 #define DS2781_DATA_SIZE		0xB2
 
+/* Status register bits */
 #define DS2781_STATUS_CHGTF		(1 << 7)
 #define DS2781_STATUS_AEF		(1 << 6)
 #define DS2781_STATUS_SEF		(1 << 5)
 #define DS2781_STATUS_LEARNF		(1 << 4)
+/* Bit 3 Reserved */
 #define DS2781_STATUS_UVF		(1 << 2)
 #define DS2781_STATUS_PORF		(1 << 1)
+/* Bit 0 Reserved */
 
+/* Control register bits */
+/* Bit 7 Reserved */
 #define DS2781_CONTROL_NBEN		(1 << 7)
 #define DS2781_CONTROL_UVEN		(1 << 6)
 #define DS2781_CONTROL_PMOD		(1 << 5)
 #define DS2781_CONTROL_RNAOP		(1 << 4)
 #define DS1781_CONTROL_UVTH		(1 << 3)
+/* Bit 0 - 2 Reserved */
 
+/* Special feature register bits */
+/* Bit 1 - 7 Reserved */
 #define DS2781_SFR_PIOSC		(1 << 0)
 
+/* EEPROM register bits */
 #define DS2781_EEPROM_EEC		(1 << 7)
 #define DS2781_EEPROM_LOCK		(1 << 6)
+/* Bit 2 - 6 Reserved */
 #define DS2781_EEPROM_BL1		(1 << 1)
 #define DS2781_EEPROM_BL0		(1 << 0)
 
@@ -115,4 +133,4 @@ extern int w1_ds2781_io_nolock(struct device *dev, char *buf, int addr,
 			size_t count, int io);
 extern int w1_ds2781_eeprom_cmd(struct device *dev, int addr, int cmd);
 
-#endif 
+#endif /* !_W1_DS2781_H */

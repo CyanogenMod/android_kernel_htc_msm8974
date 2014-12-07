@@ -13,6 +13,7 @@
 #include <linux/spinlock.h>
 #include <linux/timex.h>
 
+/* i8253A PIT registers */
 #define PIT_MODE	0x43
 #define PIT_CH0		0x40
 #define PIT_CH2		0x42
@@ -25,4 +26,4 @@ extern void clockevent_i8253_init(bool oneshot);
 
 extern void setup_pit_timer(void);
 
-#endif 
+#endif /* __LINUX_I8253_H */

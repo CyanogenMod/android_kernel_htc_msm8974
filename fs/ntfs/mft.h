@@ -43,6 +43,15 @@ static inline void unmap_extent_mft_record(ntfs_inode *ni)
 
 #ifdef NTFS_RW
 
+/**
+ * flush_dcache_mft_record_page - flush_dcache_page() for mft records
+ * @ni:		ntfs inode structure of mft record
+ *
+ * Call flush_dcache_page() for the page in which an mft record resides.
+ *
+ * This must be called every time an mft record is modified, just after the
+ * modification.
+ */
 static inline void flush_dcache_mft_record_page(ntfs_inode *ni)
 {
 	flush_dcache_page(ni->page);
@@ -72,6 +81,24 @@ extern int ntfs_sync_mft_mirror(ntfs_volume *vol, const unsigned long mft_no,
 
 extern int write_mft_record_nolock(ntfs_inode *ni, MFT_RECORD *m, int sync);
 
+/**
+ * write_mft_record - write out a mapped (extent) mft record
+ * @ni:		ntfs inode describing the mapped (extent) mft record
+ * @m:		mapped (extent) mft record to write
+ * @sync:	if true, wait for i/o completion
+ *
+ * This is just a wrapper for write_mft_record_nolock() (see mft.c), which
+ * locks the page for the duration of the write.  This ensures that there are
+ * no race conditions between writing the mft record via the dirty inode code
+ * paths and via the page cache write back code paths or between writing
+ * neighbouring mft records residing in the same page.
+ *
+ * Locking the page also serializes us against ->readpage() if the page is not
+ * uptodate.
+ *
+ * On success, clean the mft record and return 0.  On error, leave the mft
+ * record dirty and return -errno.
+ */
 static inline int write_mft_record(ntfs_inode *ni, MFT_RECORD *m, int sync)
 {
 	struct page *page = ni->page;
@@ -92,6 +119,6 @@ extern ntfs_inode *ntfs_mft_record_alloc(ntfs_volume *vol, const int mode,
 		ntfs_inode *base_ni, MFT_RECORD **mrec);
 extern int ntfs_extent_mft_record_free(ntfs_inode *ni, MFT_RECORD *m);
 
-#endif 
+#endif /* NTFS_RW */
 
-#endif 
+#endif /* _LINUX_NTFS_MFT_H */

@@ -30,10 +30,10 @@ struct qe_gpio_chip {
 	unsigned long pin_flags[QE_PIO_PINS];
 #define QE_PIN_REQUESTED 0
 
-	
+	/* shadowed data register to clear/set bits safely */
 	u32 cpdata;
 
-	
+	/* saved_regs used to restore dedicated functions */
 	struct qe_pio_regs saved_regs;
 };
 
@@ -119,10 +119,23 @@ static int qe_gpio_dir_out(struct gpio_chip *gc, unsigned int gpio, int val)
 }
 
 struct qe_pin {
+	/*
+	 * The qe_gpio_chip name is unfortunate, we should change that to
+	 * something like qe_pio_controller. Someday.
+	 */
 	struct qe_gpio_chip *controller;
 	int num;
 };
 
+/**
+ * qe_pin_request - Request a QE pin
+ * @np:		device node to get a pin from
+ * @index:	index of a pin in the device tree
+ * Context:	non-atomic
+ *
+ * This function return qe_pin so that you could use it with the rest of
+ * the QE Pin Multiplexing API.
+ */
 struct qe_pin *qe_pin_request(struct device_node *np, int index)
 {
 	struct qe_pin *qe_pin;
@@ -176,6 +189,14 @@ err0:
 }
 EXPORT_SYMBOL(qe_pin_request);
 
+/**
+ * qe_pin_free - Free a pin
+ * @qe_pin:	pointer to the qe_pin structure
+ * Context:	any
+ *
+ * This function frees the qe_pin structure and makes a pin available
+ * for further qe_pin_request() calls.
+ */
 void qe_pin_free(struct qe_pin *qe_pin)
 {
 	struct qe_gpio_chip *qe_gc = qe_pin->controller;
@@ -190,6 +211,14 @@ void qe_pin_free(struct qe_pin *qe_pin)
 }
 EXPORT_SYMBOL(qe_pin_free);
 
+/**
+ * qe_pin_set_dedicated - Revert a pin to a dedicated peripheral function mode
+ * @qe_pin:	pointer to the qe_pin structure
+ * Context:	any
+ *
+ * This function resets a pin to a dedicated peripheral function that
+ * has been set up by the firmware.
+ */
 void qe_pin_set_dedicated(struct qe_pin *qe_pin)
 {
 	struct qe_gpio_chip *qe_gc = qe_pin->controller;
@@ -223,6 +252,13 @@ void qe_pin_set_dedicated(struct qe_pin *qe_pin)
 }
 EXPORT_SYMBOL(qe_pin_set_dedicated);
 
+/**
+ * qe_pin_set_gpio - Set a pin to the GPIO mode
+ * @qe_pin:	pointer to the qe_pin structure
+ * Context:	any
+ *
+ * This function sets a pin to the GPIO mode.
+ */
 void qe_pin_set_gpio(struct qe_pin *qe_pin)
 {
 	struct qe_gpio_chip *qe_gc = qe_pin->controller;
@@ -231,7 +267,7 @@ void qe_pin_set_gpio(struct qe_pin *qe_pin)
 
 	spin_lock_irqsave(&qe_gc->lock, flags);
 
-	
+	/* Let's make it input by default, GPIO API is able to change that. */
 	__par_io_config_pin(regs, qe_pin->num, QE_PIO_DIR_IN, 0, 0, 0);
 
 	spin_unlock_irqrestore(&qe_gc->lock, flags);
@@ -274,7 +310,7 @@ err:
 		pr_err("%s: registration failed with status %d\n",
 		       np->full_name, ret);
 		kfree(qe_gc);
-		
+		/* try others anyway */
 	}
 	return 0;
 }

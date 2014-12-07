@@ -15,6 +15,10 @@
 #include <asm/pvr.h>
 #include <asm/cpuinfo.h>
 
+/*
+ * Helper macro to map between fields in our struct cpuinfo, and
+ * the PVR macros in pvr.h.
+ */
 
 #define CI(c, p) { ci->c = PVR_##p(pvr); }
 
@@ -29,7 +33,7 @@
 void set_cpuinfo_pvr_full(struct cpuinfo *ci, struct device_node *cpu)
 {
 	struct pvr_s pvr;
-	int temp; 
+	int temp; /* for saving temp value */
 	get_pvr(&pvr);
 
 	CI(ver_code, VERSION);
@@ -110,6 +114,6 @@ void set_cpuinfo_pvr_full(struct cpuinfo *ci, struct device_node *cpu)
 
 	CI(fpga_family_code, TARGET_FAMILY);
 
-	
+	/* take timebase-frequency from DTS */
 	ci->cpu_clock_freq = fcpu(cpu, "timebase-frequency");
 }

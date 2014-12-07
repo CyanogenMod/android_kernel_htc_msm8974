@@ -18,17 +18,17 @@
 static struct msm_panel_info pinfo;
 
 static struct mipi_dsi_phy_ctrl dsi_video_mode_phy_db = {
-	
-	
+	/* 1920*1200, RGB888, 4 Lane 60 fps video mode */
+	/* regulator */
 	{0x03, 0x0a, 0x04, 0x00, 0x20},
-	
+	/* timing */
 	{0x66, 0x26, 0x1F, 0x00, 0x55, 0x9C, 0x16, 0x90,
 	0x23, 0x03, 0x04, 0xa0},
-	
+	/* phy ctrl */
 	{0x5f, 0x00, 0x00, 0x10},
-	
+	/* strength */
 	{0xff, 0x00, 0x06, 0x00},
-	
+	/* pll control */
 	{0x0, 0xD7, 0x1, 0x19, 0x00, 0x50, 0x48, 0x63,
 	0x41, 0x0f, 0x01,
 	0x00, 0x14, 0x03, 0x00, 0x02, 0x00, 0x20, 0x00, 0x01 },
@@ -54,8 +54,8 @@ static int __init mipi_video_toshiba_wuxga_init(void)
 	pinfo.lcdc.v_back_porch = 7;
 	pinfo.lcdc.v_front_porch = 8;
 	pinfo.lcdc.v_pulse_width = 30;
-	pinfo.lcdc.border_clr = 0;	
-	pinfo.lcdc.underflow_clr = 0xff;	
+	pinfo.lcdc.border_clr = 0;	/* blk */
+	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 	pinfo.bl_max = MIPI_TOSHIBA_PWM_LEVEL;
 	pinfo.bl_min = 1;
@@ -80,7 +80,7 @@ static int __init mipi_video_toshiba_wuxga_init(void)
 	pinfo.mipi.tx_eot_append = TRUE;
 	pinfo.mipi.t_clk_post = 0x04;
 	pinfo.mipi.t_clk_pre = 0x1c;
-	pinfo.mipi.stream = 0; 
+	pinfo.mipi.stream = 0; /* dma_p */
 	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.frame_rate = 60;

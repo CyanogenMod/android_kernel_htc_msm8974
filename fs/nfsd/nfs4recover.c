@@ -51,6 +51,7 @@
 
 #define NFSDDBG_FACILITY                NFSDDBG_PROC
 
+/* Declarations */
 struct nfsd4_client_tracking_ops {
 	int (*init)(struct net *);
 	void (*exit)(struct net *);
@@ -60,6 +61,7 @@ struct nfsd4_client_tracking_ops {
 	void (*grace_done)(struct net *, time_t);
 };
 
+/* Globals */
 static struct file *rec_file;
 static char user_recovery_dirname[PATH_MAX] = "/var/lib/nfs/v4recovery";
 static struct nfsd4_client_tracking_ops *client_tracking_ops;
@@ -153,7 +155,7 @@ nfsd4_create_clid_dir(struct nfs4_client *clp)
 		return;
 
 	dir = rec_file->f_path.dentry;
-	
+	/* lock the parent */
 	mutex_lock(&dir->d_inode->i_mutex);
 
 	dentry = lookup_one_len(dname, dir, HEXDIR_LEN-1);
@@ -162,6 +164,14 @@ nfsd4_create_clid_dir(struct nfs4_client *clp)
 		goto out_unlock;
 	}
 	if (dentry->d_inode)
+		/*
+		 * In the 4.1 case, where we're called from
+		 * reclaim_complete(), records from the previous reboot
+		 * may still be left, so this is OK.
+		 *
+		 * In the 4.0 case, we should never get here; but we may
+		 * as well be forgiving and just succeed silently.
+		 */
 		goto out_put;
 	status = mnt_want_write_file(rec_file);
 	if (status)
@@ -315,7 +325,7 @@ purge_old(struct dentry *parent, struct dentry *child)
 	if (status)
 		printk("failed to remove client recovery directory %s\n",
 				child->d_name.name);
-	
+	/* Keep trying, success or failure: */
 	return 0;
 }
 
@@ -345,7 +355,7 @@ load_recdir(struct dentry *parent, struct dentry *child)
 	if (child->d_name.len != HEXDIR_LEN - 1) {
 		printk("nfsd4: illegal name %s in recovery directory\n",
 				child->d_name.name);
-		
+		/* Keep trying; maybe the others are OK: */
 		return 0;
 	}
 	nfs4_client_to_reclaim(child->d_name.name);
@@ -366,6 +376,9 @@ nfsd4_recdir_load(void) {
 	return status;
 }
 
+/*
+ * Hold reference to the recovery directory.
+ */
 
 static int
 nfsd4_init_recdir(void)
@@ -403,7 +416,7 @@ nfsd4_load_reboot_recovery_data(struct net *net)
 {
 	int status;
 
-	
+	/* XXX: The legacy code won't work in a container */
 	if (net != &init_net) {
 		WARN(1, KERN_ERR "NFSD: attempt to initialize legacy client "
 			"tracking in a container!\n");
@@ -436,6 +449,9 @@ nfsd4_legacy_tracking_exit(struct net *net)
 	nfsd4_shutdown_recdir();
 }
 
+/*
+ * Change the NFSv4 recovery directory to recdir.
+ */
 int
 nfs4_reset_recoverydir(char *recdir)
 {
@@ -463,11 +479,11 @@ nfs4_recoverydir(void)
 static int
 nfsd4_check_legacy_client(struct nfs4_client *clp)
 {
-	
+	/* did we already find that this client is stable? */
 	if (test_bit(NFSD4_CLIENT_STABLE, &clp->cl_flags))
 		return 0;
 
-	
+	/* look for it in the reclaim hashtable otherwise */
 	if (nfsd4_find_reclaim_client(clp)) {
 		set_bit(NFSD4_CLIENT_STABLE, &clp->cl_flags);
 		return 0;
@@ -485,9 +501,11 @@ static struct nfsd4_client_tracking_ops nfsd4_legacy_tracking_ops = {
 	.grace_done	= nfsd4_recdir_purge_old,
 };
 
+/* Globals */
 #define NFSD_PIPE_DIR		"nfsd"
 #define NFSD_CLD_PIPE		"cld"
 
+/* per-net-ns structure for holding cld upcall info */
 struct cld_net {
 	struct rpc_pipe		*cn_pipe;
 	spinlock_t		 cn_lock;
@@ -512,6 +530,10 @@ __cld_pipe_upcall(struct rpc_pipe *pipe, struct cld_msg *cmsg)
 	msg.data = cmsg;
 	msg.len = sizeof(*cmsg);
 
+	/*
+	 * Set task state before we queue the upcall. That prevents
+	 * wake_up_process in the downcall from racing with schedule.
+	 */
 	set_current_state(TASK_UNINTERRUPTIBLE);
 	ret = rpc_queue_upcall(pipe, &msg);
 	if (ret < 0) {
@@ -533,6 +555,10 @@ cld_pipe_upcall(struct rpc_pipe *pipe, struct cld_msg *cmsg)
 {
 	int ret;
 
+	/*
+	 * -EAGAIN occurs when pipe is closed and reopened while there are
+	 *  upcalls queued.
+	 */
 	do {
 		ret = __cld_pipe_upcall(pipe, cmsg);
 	} while (ret == -EAGAIN);
@@ -556,13 +582,13 @@ cld_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 		return -EINVAL;
 	}
 
-	
+	/* copy just the xid so we can try to find that */
 	if (copy_from_user(&xid, &cmsg->cm_xid, sizeof(xid)) != 0) {
 		dprintk("%s: error when copying xid from userspace", __func__);
 		return -EFAULT;
 	}
 
-	
+	/* walk the list and find corresponding xid */
 	cup = NULL;
 	spin_lock(&cn->cn_lock);
 	list_for_each_entry(tmp, &cn->cn_list, cu_list) {
@@ -574,7 +600,7 @@ cld_pipe_downcall(struct file *filp, const char __user *src, size_t mlen)
 	}
 	spin_unlock(&cn->cn_lock);
 
-	
+	/* couldn't find upcall? */
 	if (!cup) {
 		dprintk("%s: couldn't find upcall -- xid=%u\n", __func__, xid);
 		return -EINVAL;
@@ -594,7 +620,7 @@ cld_pipe_destroy_msg(struct rpc_pipe_msg *msg)
 	struct cld_upcall *cup = container_of(cmsg, struct cld_upcall,
 						 cu_msg);
 
-	
+	/* errno >= 0 means we got a downcall */
 	if (msg->errno >= 0)
 		return;
 
@@ -653,6 +679,7 @@ nfsd4_cld_unregister_net(struct net *net, struct rpc_pipe *pipe)
 	}
 }
 
+/* Initialize rpc_pipefs pipe for communication with client tracking daemon */
 static int
 nfsd4_init_cld_pipe(struct net *net)
 {
@@ -718,7 +745,7 @@ alloc_cld_upcall(struct cld_net *cn)
 	if (!new)
 		return new;
 
-	
+	/* FIXME: hard cap on number in flight? */
 restart_search:
 	spin_lock(&cn->cn_lock);
 	list_for_each_entry(tmp, &cn->cn_list, cu_list) {
@@ -751,16 +778,17 @@ free_cld_upcall(struct cld_upcall *victim)
 	kfree(victim);
 }
 
+/* Ask daemon to create a new record */
 static void
 nfsd4_cld_create(struct nfs4_client *clp)
 {
 	int ret;
 	struct cld_upcall *cup;
-	
+	/* FIXME: determine net from clp */
 	struct nfsd_net *nn = net_generic(&init_net, nfsd_net_id);
 	struct cld_net *cn = nn->cld_net;
 
-	
+	/* Don't upcall if it's already stored */
 	if (test_bit(NFSD4_CLIENT_STABLE, &clp->cl_flags))
 		return;
 
@@ -788,16 +816,17 @@ out_err:
 				"record on stable storage: %d\n", ret);
 }
 
+/* Ask daemon to create a new record */
 static void
 nfsd4_cld_remove(struct nfs4_client *clp)
 {
 	int ret;
 	struct cld_upcall *cup;
-	
+	/* FIXME: determine net from clp */
 	struct nfsd_net *nn = net_generic(&init_net, nfsd_net_id);
 	struct cld_net *cn = nn->cld_net;
 
-	
+	/* Don't upcall if it's already removed */
 	if (!test_bit(NFSD4_CLIENT_STABLE, &clp->cl_flags))
 		return;
 
@@ -825,16 +854,17 @@ out_err:
 				"record from stable storage: %d\n", ret);
 }
 
+/* Check for presence of a record, and update its timestamp */
 static int
 nfsd4_cld_check(struct nfs4_client *clp)
 {
 	int ret;
 	struct cld_upcall *cup;
-	
+	/* FIXME: determine net from clp */
 	struct nfsd_net *nn = net_generic(&init_net, nfsd_net_id);
 	struct cld_net *cn = nn->cld_net;
 
-	
+	/* Don't upcall if one was already stored during this grace pd */
 	if (test_bit(NFSD4_CLIENT_STABLE, &clp->cl_flags))
 		return 0;
 

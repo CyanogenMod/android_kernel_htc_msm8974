@@ -4,6 +4,9 @@
  * Copyright (C) 1994-1999  Linus Torvalds
  */
 
+/*
+ * The msync() system call.
+ */
 #include <linux/fs.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
@@ -11,6 +14,20 @@
 #include <linux/syscalls.h>
 #include <linux/sched.h>
 
+/*
+ * MS_SYNC syncs the entire file - including mappings.
+ *
+ * MS_ASYNC does not start I/O (it used to, up to 2.5.67).
+ * Nor does it marks the relevant pages dirty (it used to up to 2.6.17).
+ * Now it doesn't do anything, since dirty pages are properly tracked.
+ *
+ * The application may now run fsync() to
+ * write out the dirty pages and wait on the writeout and check the result.
+ * Or the application may run fadvise(FADV_DONTNEED) against the fd to start
+ * async writeout immediately.
+ * So by _not_ starting I/O in MS_ASYNC we provide complete flexibility to
+ * applications.
+ */
 SYSCALL_DEFINE3(msync, unsigned long, start, size_t, len, int, flags)
 {
 	unsigned long end;
@@ -33,23 +50,27 @@ SYSCALL_DEFINE3(msync, unsigned long, start, size_t, len, int, flags)
 	error = 0;
 	if (end == start)
 		goto out;
+	/*
+	 * If the interval [start,end) covers some unmapped address ranges,
+	 * just ignore them, but return -ENOMEM at the end.
+	 */
 	down_read(&mm->mmap_sem);
 	vma = find_vma(mm, start);
 	for (;;) {
 		struct file *file;
 
-		
+		/* Still start < end. */
 		error = -ENOMEM;
 		if (!vma)
 			goto out_unlock;
-		
+		/* Here start < vma->vm_end. */
 		if (start < vma->vm_start) {
 			start = vma->vm_start;
 			if (start >= end)
 				goto out_unlock;
 			unmapped_error = -ENOMEM;
 		}
-		
+		/* Here vma->vm_start <= start < vma->vm_end. */
 		if ((flags & MS_INVALIDATE) &&
 				(vma->vm_flags & VM_LOCKED)) {
 			error = -EBUSY;

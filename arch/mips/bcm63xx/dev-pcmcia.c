@@ -17,13 +17,13 @@
 #include <bcm63xx_regs.h>
 
 static struct resource pcmcia_resources[] = {
-	
+	/* pcmcia registers */
 	{
-		
+		/* start & end filled at runtime */
 		.flags		= IORESOURCE_MEM,
 	},
 
-	
+	/* pcmcia memory zone resources */
 	{
 		.start		= BCM_PCMCIA_COMMON_BASE_PA,
 		.end		= BCM_PCMCIA_COMMON_END_PA,
@@ -40,13 +40,13 @@ static struct resource pcmcia_resources[] = {
 		.flags		= IORESOURCE_MEM,
 	},
 
-	
+	/* PCMCIA irq */
 	{
-		
+		/* start filled at runtime */
 		.flags		= IORESOURCE_IRQ,
 	},
 
-	
+	/* declare PCMCIA IO resource also */
 	{
 		.start		= BCM_PCMCIA_IO_BASE_PA,
 		.end		= BCM_PCMCIA_IO_END_PA,
@@ -108,7 +108,7 @@ int __init bcm63xx_pcmcia_register(void)
 	if (!BCMCPU_IS_6348() && !BCMCPU_IS_6358())
 		return 0;
 
-	
+	/* use correct pcmcia ready gpio depending on processor */
 	switch (bcm63xx_get_cpu_id()) {
 	case BCM6348_CPU_ID:
 		pd.ready_gpio = 22;
@@ -127,7 +127,7 @@ int __init bcm63xx_pcmcia_register(void)
 		RSET_PCMCIA_SIZE - 1;
 	pcmcia_resources[4].start = bcm63xx_get_irq_number(IRQ_PCMCIA);
 
-	
+	/* configure pcmcia chip selects */
 	for (i = 0; i < 3; i++) {
 		ret = config_pcmcia_cs(pcmcia_cs[i].cs,
 				       pcmcia_cs[i].base,

@@ -78,6 +78,10 @@ struct pata_icside_info {
 #define ICS_TYPE_V5	15
 #define ICS_TYPE_NOTYPE	((unsigned int)-1)
 
+/* ---------------- Version 5 PCB Support Functions --------------------- */
+/* Prototype: pata_icside_irqenable_arcin_v5 (struct expansion_card *ec, int irqnr)
+ * Purpose  : enable interrupts from card
+ */
 static void pata_icside_irqenable_arcin_v5 (struct expansion_card *ec, int irqnr)
 {
 	struct pata_icside_state *state = ec->irq_data;
@@ -85,6 +89,9 @@ static void pata_icside_irqenable_arcin_v5 (struct expansion_card *ec, int irqnr
 	writeb(0, state->irq_port + ICS_ARCIN_V5_INTROFFSET);
 }
 
+/* Prototype: pata_icside_irqdisable_arcin_v5 (struct expansion_card *ec, int irqnr)
+ * Purpose  : disable interrupts from card
+ */
 static void pata_icside_irqdisable_arcin_v5 (struct expansion_card *ec, int irqnr)
 {
 	struct pata_icside_state *state = ec->irq_data;
@@ -98,6 +105,10 @@ static const expansioncard_ops_t pata_icside_ops_arcin_v5 = {
 };
 
 
+/* ---------------- Version 6 PCB Support Functions --------------------- */
+/* Prototype: pata_icside_irqenable_arcin_v6 (struct expansion_card *ec, int irqnr)
+ * Purpose  : enable interrupts from card
+ */
 static void pata_icside_irqenable_arcin_v6 (struct expansion_card *ec, int irqnr)
 {
 	struct pata_icside_state *state = ec->irq_data;
@@ -109,6 +120,9 @@ static void pata_icside_irqenable_arcin_v6 (struct expansion_card *ec, int irqnr
 		writeb(0, base + ICS_ARCIN_V6_INTROFFSET_2);
 }
 
+/* Prototype: pata_icside_irqdisable_arcin_v6 (struct expansion_card *ec, int irqnr)
+ * Purpose  : disable interrupts from card
+ */
 static void pata_icside_irqdisable_arcin_v6 (struct expansion_card *ec, int irqnr)
 {
 	struct pata_icside_state *state = ec->irq_data;
@@ -117,6 +131,9 @@ static void pata_icside_irqdisable_arcin_v6 (struct expansion_card *ec, int irqn
 	readb(state->irq_port + ICS_ARCIN_V6_INTROFFSET_2);
 }
 
+/* Prototype: pata_icside_irqprobe(struct expansion_card *ec)
+ * Purpose  : detect an active interrupt from card
+ */
 static int pata_icside_irqpending_arcin_v6(struct expansion_card *ec)
 {
 	struct pata_icside_state *state = ec->irq_data;
@@ -132,7 +149,41 @@ static const expansioncard_ops_t pata_icside_ops_arcin_v6 = {
 };
 
 
+/*
+ * SG-DMA support.
+ *
+ * Similar to the BM-DMA, but we use the RiscPCs IOMD DMA controllers.
+ * There is only one DMA controller per card, which means that only
+ * one drive can be accessed at one time.  NOTE! We do not enforce that
+ * here, but we rely on the main IDE driver spotting that both
+ * interfaces use the same IRQ, which should guarantee this.
+ */
 
+/*
+ * Configure the IOMD to give the appropriate timings for the transfer
+ * mode being requested.  We take the advice of the ATA standards, and
+ * calculate the cycle time based on the transfer mode, and the EIDE
+ * MW DMA specs that the drive provides in the IDENTIFY command.
+ *
+ * We have the following IOMD DMA modes to choose from:
+ *
+ *	Type	Active		Recovery	Cycle
+ *	A	250 (250)	312 (550)	562 (800)
+ *	B	187 (200)	250 (550)	437 (750)
+ *	C	125 (125)	125 (375)	250 (500)
+ *	D	62  (50)	125 (375)	187 (425)
+ *
+ * (figures in brackets are actual measured timings on DIOR/DIOW)
+ *
+ * However, we also need to take care of the read/write active and
+ * recovery timings:
+ *
+ *			Read	Write
+ *  	Mode	Active	-- Recovery --	Cycle	IOMD type
+ *	MW0	215	50	215	480	A
+ *	MW1	80	50	50	150	C
+ *	MW2	70	25	25	120	C
+ */
 static void pata_icside_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
 	struct pata_icside_state *state = ap->host->private_data;
@@ -140,9 +191,16 @@ static void pata_icside_set_dmamode(struct ata_port *ap, struct ata_device *adev
 	unsigned int cycle;
 	char iomd_type;
 
+	/*
+	 * DMA is based on a 16MHz clock
+	 */
 	if (ata_timing_compute(adev, adev->dma_mode, &t, 1000, 1))
 		return;
 
+	/*
+	 * Choose the IOMD cycle timing which ensure that the interface
+	 * satisfies the measured active, recovery and cycle times.
+	 */
 	if (t.active <= 50 && t.recover <= 375 && t.cycle <= 425)
 		iomd_type = 'D', cycle = 187;
 	else if (t.active <= 125 && t.recover <= 375 && t.cycle <= 500)
@@ -164,15 +222,22 @@ static void pata_icside_bmdma_setup(struct ata_queued_cmd *qc)
 	struct pata_icside_state *state = ap->host->private_data;
 	unsigned int write = qc->tf.flags & ATA_TFLAG_WRITE;
 
+	/*
+	 * We are simplex; BUG if we try to fiddle with DMA
+	 * while it's active.
+	 */
 	BUG_ON(dma_channel_active(state->dma));
 
+	/*
+	 * Route the DMA signals to the correct interface
+	 */
 	writeb(state->port[ap->port_no].port_sel, state->ioc_base);
 
 	set_dma_speed(state->dma, state->port[ap->port_no].speed[qc->dev->devno]);
 	set_dma_sg(state->dma, qc->sg, qc->n_elem);
 	set_dma_mode(state->dma, write ? DMA_MODE_WRITE : DMA_MODE_READ);
 
-	
+	/* issue r/w command */
 	ap->ops->sff_exec_command(ap, &qc->tf);
 }
 
@@ -192,7 +257,7 @@ static void pata_icside_bmdma_stop(struct ata_queued_cmd *qc)
 
 	disable_dma(state->dma);
 
-	
+	/* see ata_bmdma_stop */
 	ata_sff_dma_pause(ap);
 }
 
@@ -244,6 +309,11 @@ static void pata_icside_postreset(struct ata_link *link, unsigned int *classes)
 	state->port[ap->port_no].disabled = 1;
 
 	if (state->type == ICS_TYPE_V6) {
+		/*
+		 * Disable interrupts from this port, otherwise we
+		 * receive spurious interrupts from the floating
+		 * interrupt line.
+		 */
 		void __iomem *irq_port = state->irq_port +
 				(ap->port_no ? ICS_ARCIN_V6_INTROFFSET_2 : ICS_ARCIN_V6_INTROFFSET_1);
 		readb(irq_port);
@@ -252,7 +322,7 @@ static void pata_icside_postreset(struct ata_link *link, unsigned int *classes)
 
 static struct ata_port_operations pata_icside_port_ops = {
 	.inherits		= &ata_bmdma_port_ops,
-	
+	/* no need to build any PRD tables for DMA */
 	.qc_prep		= ata_noop_qc_prep,
 	.sff_data_xfer		= ata_sff_data_xfer_noirq,
 	.bmdma_setup		= pata_icside_bmdma_setup,
@@ -264,7 +334,7 @@ static struct ata_port_operations pata_icside_port_ops = {
 	.set_dmamode		= pata_icside_set_dmamode,
 	.postreset		= pata_icside_postreset,
 
-	.port_start		= ATA_OP_NULL,	
+	.port_start		= ATA_OP_NULL,	/* don't need PRD table */
 };
 
 static void __devinit
@@ -339,6 +409,9 @@ static int __devinit pata_icside_register_v6(struct pata_icside_info *info)
 		if (!easi_base)
 			return -ENOMEM;
 
+		/*
+		 * Enable access to the EASI region.
+		 */
 		sel = 1 << 5;
 	}
 
@@ -374,6 +447,9 @@ static int __devinit pata_icside_add_ports(struct pata_icside_info *info)
 	if (info->irqops)
 		ecard_setirq(ec, info->irqops, info->state);
 
+	/*
+	 * Be on the safe side - disable interrupts
+	 */
 	ec->ops->irqdisable(ec, ec->irq);
 
 	host = ata_host_alloc(&ec->dev, info->nr_ports);
@@ -478,10 +554,20 @@ static void pata_icside_shutdown(struct expansion_card *ec)
 	struct ata_host *host = ecard_get_drvdata(ec);
 	unsigned long flags;
 
+	/*
+	 * Disable interrupts from this card.  We need to do
+	 * this before disabling EASI since we may be accessing
+	 * this register via that region.
+	 */
 	local_irq_save(flags);
 	ec->ops->irqdisable(ec, ec->irq);
 	local_irq_restore(flags);
 
+	/*
+	 * Reset the ROM pointer so that we can read the ROM
+	 * after a soft reboot.  This also disables access to
+	 * the IDE taskfile via the EASI region.
+	 */
 	if (host) {
 		struct pata_icside_state *state = host->private_data;
 		if (state->ioc_base)
@@ -498,6 +584,10 @@ static void __devexit pata_icside_remove(struct expansion_card *ec)
 
 	pata_icside_shutdown(ec);
 
+	/*
+	 * don't NULL out the drvdata - devres/libata wants it
+	 * to free the ata_host structure.
+	 */
 	if (state->dma != NO_DMA)
 		free_dma(state->dma);
 

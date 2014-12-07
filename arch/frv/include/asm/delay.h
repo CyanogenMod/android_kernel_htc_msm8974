@@ -15,6 +15,9 @@
 #include <asm/param.h>
 #include <asm/timer-regs.h>
 
+/*
+ * delay loop - runs at __core_clock_speed_HZ / 2 [there are 2 insns in the loop]
+ */
 extern unsigned long __delay_loops_MHz;
 
 static inline void __delay(unsigned long loops)
@@ -27,6 +30,13 @@ static inline void __delay(unsigned long loops)
 		     );
 }
 
+/*
+ * Use only for very small delays ( < 1 msec).  Should probably use a
+ * lookup table, really, as the multiplications take much too long with
+ * short delays.  This is a "reasonable" implementation, though (and the
+ * first constant multiplications gets optimized away if the delay is
+ * a constant)
+ */
 
 extern unsigned long loops_per_jiffy;
 
@@ -37,4 +47,4 @@ static inline void udelay(unsigned long usecs)
 
 #define ndelay(n)	udelay((n) * 5)
 
-#endif 
+#endif /* _ASM_DELAY_H */

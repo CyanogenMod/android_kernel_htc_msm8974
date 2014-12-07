@@ -22,6 +22,17 @@
 #define RTT_ACCESS_TIMEOUT           100
 #define RTT_BAD_VALUE                0x0bad0bad
 
+/*
+ * RTT (Radio Retention Table) hardware implementation information
+ *
+ * There is an internal table (i.e. the rtt) for each chain (or bank).
+ * Each table contains 6 entries and each entry is corresponding to
+ * a specific calibration parameter as depicted below.
+ *  0~2 - DC offset DAC calibration: loop, low, high (offsetI/Q_...)
+ *  3   - Filter cal (filterfc)
+ *  4   - RX gain settings
+ *  5   - Peak detector offset calibration (agc_caldac)
+ */
 
 void ar9003_hw_rtt_enable(struct ath_hw *ah)
 {

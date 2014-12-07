@@ -21,6 +21,11 @@
  * super.c
  */
 
+/*
+ * This file implements code to read the superblock, read and initialise
+ * in-memory structures at mount time, and all the VFS glue code to register
+ * the filesystem.
+ */
 
 #include <linux/fs.h>
 #include <linux/vfs.h>
@@ -96,6 +101,12 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	mutex_init(&msblk->read_data_mutex);
 	mutex_init(&msblk->meta_index_mutex);
 
+	/*
+	 * msblk->bytes_used is checked in squashfs_read_table to ensure reads
+	 * are not beyond filesystem end.  But as we're using
+	 * squashfs_read_table here to read the superblock (including the value
+	 * of bytes_used) we need to set it to an initial sensible dummy value
+	 */
 	msblk->bytes_used = sizeof(*sblk);
 	sblk = squashfs_read_table(sb, SQUASHFS_START, sizeof(*sblk));
 
@@ -108,7 +119,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	err = -EINVAL;
 
-	
+	/* Check it is a SQUASHFS superblock */
 	sb->s_magic = le32_to_cpu(sblk->s_magic);
 	if (sb->s_magic != SQUASHFS_MAGIC) {
 		if (!silent)
@@ -117,7 +128,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 		goto failed_mount;
 	}
 
-	
+	/* Check the MAJOR & MINOR versions and lookup compression type */
 	msblk->decompressor = supported_squashfs_filesystem(
 			le16_to_cpu(sblk->s_major),
 			le16_to_cpu(sblk->s_minor),
@@ -125,32 +136,38 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	if (msblk->decompressor == NULL)
 		goto failed_mount;
 
+	/* Check the filesystem does not extend beyond the end of the
+	   block device */
 	msblk->bytes_used = le64_to_cpu(sblk->bytes_used);
 	if (msblk->bytes_used < 0 || msblk->bytes_used >
 			i_size_read(sb->s_bdev->bd_inode))
 		goto failed_mount;
 
-	
+	/* Check block size for sanity */
 	msblk->block_size = le32_to_cpu(sblk->block_size);
 	if (msblk->block_size > SQUASHFS_FILE_MAX_SIZE)
 		goto failed_mount;
 
+	/*
+	 * Check the system page size is not larger than the filesystem
+	 * block size (by default 128K).  This is currently not supported.
+	 */
 	if (PAGE_CACHE_SIZE > msblk->block_size) {
 		ERROR("Page size > filesystem block size (%d).  This is "
 			"currently not supported!\n", msblk->block_size);
 		goto failed_mount;
 	}
 
-	
+	/* Check block log for sanity */
 	msblk->block_log = le16_to_cpu(sblk->block_log);
 	if (msblk->block_log > SQUASHFS_FILE_MAX_LOG)
 		goto failed_mount;
 
-	
+	/* Check that block_size and block_log match */
 	if (msblk->block_size != (1 << msblk->block_log))
 		goto failed_mount;
 
-	
+	/* Check the root inode for sanity */
 	root_inode = le64_to_cpu(sblk->root_inode);
 	if (SQUASHFS_INODE_OFFSET(root_inode) > SQUASHFS_METADATA_SIZE)
 		goto failed_mount;
@@ -188,7 +205,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	if (msblk->block_cache == NULL)
 		goto failed_mount;
 
-	
+	/* Allocate read_page block */
 	msblk->read_page = squashfs_cache_init("data", 1, msblk->block_size);
 	if (msblk->read_page == NULL) {
 		ERROR("Failed to allocate read_page block\n");
@@ -202,7 +219,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 		goto failed_mount;
 	}
 
-	
+	/* Handle xattrs */
 	sb->s_xattr = squashfs_xattr_handlers;
 	xattr_id_table_start = le64_to_cpu(sblk->xattr_id_table_start);
 	if (xattr_id_table_start == SQUASHFS_INVALID_BLK) {
@@ -210,7 +227,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 		goto allocate_id_index_table;
 	}
 
-	
+	/* Allocate and read xattr id lookup table */
 	msblk->xattr_id_table = squashfs_read_xattr_id_table(sb,
 		xattr_id_table_start, &msblk->xattr_table, &msblk->xattr_ids);
 	if (IS_ERR(msblk->xattr_id_table)) {
@@ -223,7 +240,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	next_table = msblk->xattr_table;
 
 allocate_id_index_table:
-	
+	/* Allocate and read id index table */
 	msblk->id_table = squashfs_read_id_index_table(sb,
 		le64_to_cpu(sblk->id_table_start), next_table,
 		le16_to_cpu(sblk->no_ids));
@@ -235,12 +252,12 @@ allocate_id_index_table:
 	}
 	next_table = le64_to_cpu(msblk->id_table[0]);
 
-	
+	/* Handle inode lookup table */
 	lookup_table_start = le64_to_cpu(sblk->lookup_table_start);
 	if (lookup_table_start == SQUASHFS_INVALID_BLK)
 		goto handle_fragments;
 
-	
+	/* Allocate and read inode lookup table */
 	msblk->inode_lookup_table = squashfs_read_inode_lookup_table(sb,
 		lookup_table_start, next_table, msblk->inodes);
 	if (IS_ERR(msblk->inode_lookup_table)) {
@@ -265,7 +282,7 @@ handle_fragments:
 		goto failed_mount;
 	}
 
-	
+	/* Allocate and read fragment index table */
 	msblk->fragment_index = squashfs_read_fragment_index_table(sb,
 		le64_to_cpu(sblk->fragment_table_start), next_table, fragments);
 	if (IS_ERR(msblk->fragment_index)) {
@@ -277,19 +294,19 @@ handle_fragments:
 	next_table = le64_to_cpu(msblk->fragment_index[0]);
 
 check_directory_table:
-	
+	/* Sanity check directory_table */
 	if (msblk->directory_table > next_table) {
 		err = -EINVAL;
 		goto failed_mount;
 	}
 
-	
+	/* Sanity check inode_table */
 	if (msblk->inode_table >= msblk->directory_table) {
 		err = -EINVAL;
 		goto failed_mount;
 	}
 
-	
+	/* allocate root */
 	root = new_inode(sb);
 	if (!root) {
 		err = -ENOMEM;

@@ -53,6 +53,7 @@ enum taiko_mbhc_analog_pwr_cfg {
 	TAIKO_NUM_ANALOG_PWR_CONFIGS,
 };
 
+/* Number of input and output Slimbus port */
 enum {
 	TAIKO_RX1 = 0,
 	TAIKO_RX2,

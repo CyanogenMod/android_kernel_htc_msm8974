@@ -31,6 +31,9 @@ typedef enum
     ,acsFuture      = 3
 }AviColorSpace_e;
 
+/*
+ * AVI Info Frame Structure
+ */
 typedef struct __attribute__((__packed__)) _avi_info_frame_data_byte_1_t {
 	uint8_t			ScanInfo:2;
 	uint8_t			BarInfo:2;
@@ -101,6 +104,7 @@ typedef struct __attribute__((__packed__)) _hw_avi_named_payload_t {
 	} ifData_u;
 } hw_avi_named_payload_t;
 
+// this union overlays the TPI HW for AVI InfoFrames, starting at REG_TPI_AVI_CHSUM.
 typedef union _hw_avi_payload_t {
 	hw_avi_named_payload_t	namedIfData;
 	uint8_t					ifData[14];
@@ -117,6 +121,7 @@ typedef struct __attribute__((__packed__)) _avi_info_frame_t {
 	avi_payload_t			payLoad;
 } avi_info_frame_t;
 
+// these values determine the interpretation of PB5
 typedef enum
 {
      hvfNoAdditionalHDMIVideoFormatPresent =0
@@ -147,27 +152,27 @@ typedef enum
 
 typedef struct __attribute__((__packed__)) _vendor_specific_payload_t {
 	uint8_t             checksum;
-	uint8_t             IEEERegistrationIdentifier[3];  
+	uint8_t             IEEERegistrationIdentifier[3];  // must be 0x000C03 Little Endian
 	struct __attribute__((__packed__)){
 		unsigned		reserved:5;
 
-		HDMI_Video_Format_e HDMI_Video_Format:3; 
+		HDMI_Video_Format_e HDMI_Video_Format:3; //HDMI_Video_Format_e
 	} pb4;
 	union {
 		uint8_t HDMI_VIC;
 		struct __attribute__((__packed__)) _ThreeDStructure {
 			unsigned	reserved:3;
 			unsigned	ThreeDMetaPresent:1;
-            _3D_structure_e	threeDStructure:4;  
+            _3D_structure_e	threeDStructure:4;  //_3D_structure_e
         } ThreeDStructure;
 	} pb5;
 	struct __attribute__((__packed__)) {
 		uint8_t		reserved:4;
-		uint8_t		threeDExtData:4; 
+		uint8_t		threeDExtData:4; //ThreeDExtData_e
 	} pb6;
 	struct __attribute__((__packed__)) _PB7 {
 		uint8_t		threeDMetaDataLength:5;
-		uint8_t		threeDMetaDataType:3; 
+		uint8_t		threeDMetaDataType:3; //ThreeDMetaDataType_e
 	} pb7;
 } vendor_specific_payload_t;
 
@@ -176,6 +181,10 @@ typedef struct __attribute__((__packed__)) _vendor_specific_info_frame_t {
 	vendor_specific_payload_t	payLoad;
 } vendor_specific_info_frame_t;
 
+/*
+ * MPEG Info Frame Structure
+ * Table 8-11 on page 141 of HDMI Spec v1.4
+ */
 typedef struct __attribute__((__packed__)) {
 	info_frame_header_t	header;
 	uint8_t		checksum;
@@ -198,7 +207,7 @@ typedef struct __attribute__((__packed__)) _info_frame_t {
 
 typedef enum
 {
-        
+        // just define these three for now
      InfoFrameType_AVI
     ,InfoFrameType_VendorSpecific
     ,InfoFrameType_Audio
@@ -206,22 +215,22 @@ typedef enum
 }InfoFrameType_e;
 
 
-#ifdef ENABLE_DUMP_INFOFRAME 
+#ifdef ENABLE_DUMP_INFOFRAME //(
 
 void DumpIncomingInfoFrameImpl(char *pszId,char *pszFile,int iLine,info_frame_t *pInfoFrame,uint8_t length);
 #define DumpIncomingInfoFrame(pData,length) DumpIncomingInfoFrameImpl(#pData,__FILE__,__LINE__,(info_frame_t *)pData,length)
 
-#else 
+#else //)(
 
-#define DumpIncomingInfoFrame(pData,length) 
+#define DumpIncomingInfoFrame(pData,length) /* do nothing */
 
-#endif 
+#endif //)
 
-#ifdef ENABLE_COLOR_SPACE_DEBUG_PRINT 
+#ifdef ENABLE_COLOR_SPACE_DEBUG_PRINT //(
 #define COLOR_SPACE_DEBUG_PRINT_WRAPPER(...) SiiOsDebugPrint(__FILE__,__LINE__,SII_OSAL_DEBUG_TX,__VA_ARGS__)
     #define COLOR_SPACE_DEBUG_PRINT(x)  COLOR_SPACE_DEBUG_PRINT_WRAPPER x
-#else 
-    #define COLOR_SPACE_DEBUG_PRINT(...)	
-#endif 
+#else //)(
+    #define COLOR_SPACE_DEBUG_PRINT(...)	/* nothing */
+#endif //)
 
-#endif 
+#endif /* if !defined(SI_INFOFRAME_H) */

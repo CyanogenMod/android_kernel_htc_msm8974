@@ -30,6 +30,7 @@ static enum {
 	FB_STATE_DRAWING_OK,
 } fb_state;
 
+/* tell userspace to stop drawing, wait for it to stop */
 static void stop_drawing_early_suspend(struct early_suspend *h)
 {
 	int ret;
@@ -48,6 +49,7 @@ static void stop_drawing_early_suspend(struct early_suspend *h)
 			   "userspace to stop drawing\n");
 }
 
+/* tell userspace to start drawing */
 static void start_drawing_late_resume(struct early_suspend *h)
 {
 	unsigned long irq_flags;

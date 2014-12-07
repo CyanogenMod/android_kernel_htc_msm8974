@@ -36,7 +36,7 @@ MODULE_AUTHOR("Wolfgang Grandegger <wg@grandegger.com>");
 MODULE_DESCRIPTION("Socket-CAN driver for SJA1000 on the ISA bus");
 MODULE_LICENSE("GPL v2");
 
-#define CLK_DEFAULT	16000000	
+#define CLK_DEFAULT	16000000	/* 16 MHz */
 #define CDR_DEFAULT	(CDR_CBP | CDR_CLK_OFF)
 #define OCR_DEFAULT	OCR_TX0_PUSHPULL
 

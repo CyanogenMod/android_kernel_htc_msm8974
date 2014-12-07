@@ -8,15 +8,34 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 
+/**
+ * tomoyo_memory_free - Free memory for elements.
+ *
+ * @ptr:  Pointer to allocated memory.
+ *
+ * Returns nothing.
+ *
+ * Caller holds tomoyo_policy_lock mutex.
+ */
 static inline void tomoyo_memory_free(void *ptr)
 {
 	tomoyo_memory_used[TOMOYO_MEMORY_POLICY] -= ksize(ptr);
 	kfree(ptr);
 }
 
+/* The list for "struct tomoyo_io_buffer". */
 static LIST_HEAD(tomoyo_io_buffer_list);
+/* Lock for protecting tomoyo_io_buffer_list. */
 static DEFINE_SPINLOCK(tomoyo_io_buffer_list_lock);
 
+/**
+ * tomoyo_struct_used_by_io_buffer - Check whether the list element is used by /sys/kernel/security/tomoyo/ users or not.
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns true if @element is used by /sys/kernel/security/tomoyo/ users,
+ * false otherwise.
+ */
 static bool tomoyo_struct_used_by_io_buffer(const struct list_head *element)
 {
 	struct tomoyo_io_buffer *head;
@@ -40,6 +59,14 @@ static bool tomoyo_struct_used_by_io_buffer(const struct list_head *element)
 	return in_use;
 }
 
+/**
+ * tomoyo_name_used_by_io_buffer - Check whether the string is used by /sys/kernel/security/tomoyo/ users or not.
+ *
+ * @string: String to check.
+ *
+ * Returns true if @string is used by /sys/kernel/security/tomoyo/ users,
+ * false otherwise.
+ */
 static bool tomoyo_name_used_by_io_buffer(const char *string)
 {
 	struct tomoyo_io_buffer *head;
@@ -69,6 +96,13 @@ static bool tomoyo_name_used_by_io_buffer(const char *string)
 	return in_use;
 }
 
+/**
+ * tomoyo_del_transition_control - Delete members in "struct tomoyo_transition_control".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static inline void tomoyo_del_transition_control(struct list_head *element)
 {
 	struct tomoyo_transition_control *ptr =
@@ -77,6 +111,13 @@ static inline void tomoyo_del_transition_control(struct list_head *element)
 	tomoyo_put_name(ptr->program);
 }
 
+/**
+ * tomoyo_del_aggregator - Delete members in "struct tomoyo_aggregator".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static inline void tomoyo_del_aggregator(struct list_head *element)
 {
 	struct tomoyo_aggregator *ptr =
@@ -85,6 +126,13 @@ static inline void tomoyo_del_aggregator(struct list_head *element)
 	tomoyo_put_name(ptr->aggregated_name);
 }
 
+/**
+ * tomoyo_del_manager - Delete members in "struct tomoyo_manager".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static inline void tomoyo_del_manager(struct list_head *element)
 {
 	struct tomoyo_manager *ptr =
@@ -92,6 +140,13 @@ static inline void tomoyo_del_manager(struct list_head *element)
 	tomoyo_put_name(ptr->manager);
 }
 
+/**
+ * tomoyo_del_acl - Delete members in "struct tomoyo_acl_info".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static void tomoyo_del_acl(struct list_head *element)
 {
 	struct tomoyo_acl_info *acl =
@@ -176,12 +231,26 @@ static void tomoyo_del_acl(struct list_head *element)
 	}
 }
 
+/**
+ * tomoyo_del_domain - Delete members in "struct tomoyo_domain_info".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ *
+ * Caller holds tomoyo_policy_lock mutex.
+ */
 static inline void tomoyo_del_domain(struct list_head *element)
 {
 	struct tomoyo_domain_info *domain =
 		container_of(element, typeof(*domain), list);
 	struct tomoyo_acl_info *acl;
 	struct tomoyo_acl_info *tmp;
+	/*
+	 * Since this domain is referenced from neither
+	 * "struct tomoyo_io_buffer" nor "struct cred"->security, we can delete
+	 * elements without checking for is_deleted flag.
+	 */
 	list_for_each_entry_safe(acl, tmp, &domain->acl_info_list, list) {
 		tomoyo_del_acl(&acl->list);
 		tomoyo_memory_free(acl);
@@ -189,6 +258,13 @@ static inline void tomoyo_del_domain(struct list_head *element)
 	tomoyo_put_name(domain->domainname);
 }
 
+/**
+ * tomoyo_del_condition - Delete members in "struct tomoyo_condition".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 void tomoyo_del_condition(struct list_head *element)
 {
 	struct tomoyo_condition *cond = container_of(element, typeof(*cond),
@@ -221,11 +297,25 @@ void tomoyo_del_condition(struct list_head *element)
 	}
 }
 
+/**
+ * tomoyo_del_name - Delete members in "struct tomoyo_name".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static inline void tomoyo_del_name(struct list_head *element)
 {
-	
+	/* Nothing to do. */
 }
 
+/**
+ * tomoyo_del_path_group - Delete members in "struct tomoyo_path_group".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static inline void tomoyo_del_path_group(struct list_head *element)
 {
 	struct tomoyo_path_group *member =
@@ -233,6 +323,13 @@ static inline void tomoyo_del_path_group(struct list_head *element)
 	tomoyo_put_name(member->member_name);
 }
 
+/**
+ * tomoyo_del_group - Delete "struct tomoyo_group".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static inline void tomoyo_del_group(struct list_head *element)
 {
 	struct tomoyo_group *group =
@@ -240,22 +337,59 @@ static inline void tomoyo_del_group(struct list_head *element)
 	tomoyo_put_name(group->group_name);
 }
 
+/**
+ * tomoyo_del_address_group - Delete members in "struct tomoyo_address_group".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static inline void tomoyo_del_address_group(struct list_head *element)
 {
-	
+	/* Nothing to do. */
 }
 
+/**
+ * tomoyo_del_number_group - Delete members in "struct tomoyo_number_group".
+ *
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static inline void tomoyo_del_number_group(struct list_head *element)
 {
-	
+	/* Nothing to do. */
 }
 
+/**
+ * tomoyo_try_to_gc - Try to kfree() an entry.
+ *
+ * @type:    One of values in "enum tomoyo_policy_id".
+ * @element: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ *
+ * Caller holds tomoyo_policy_lock mutex.
+ */
 static void tomoyo_try_to_gc(const enum tomoyo_policy_id type,
 			     struct list_head *element)
 {
+	/*
+	 * __list_del_entry() guarantees that the list element became no longer
+	 * reachable from the list which the element was originally on (e.g.
+	 * tomoyo_domain_list). Also, synchronize_srcu() guarantees that the
+	 * list element became no longer referenced by syscall users.
+	 */
 	__list_del_entry(element);
 	mutex_unlock(&tomoyo_policy_lock);
 	synchronize_srcu(&tomoyo_ss);
+	/*
+	 * However, there are two users which may still be using the list
+	 * element. We need to defer until both users forget this element.
+	 *
+	 * Don't kfree() until "struct tomoyo_io_buffer"->r.{domain,group,acl}
+	 * and "struct tomoyo_io_buffer"->w.domain forget this element.
+	 */
 	if (tomoyo_struct_used_by_io_buffer(element))
 		goto reinject;
 	switch (type) {
@@ -284,6 +418,10 @@ static void tomoyo_try_to_gc(const enum tomoyo_policy_id type,
 		tomoyo_del_condition(element);
 		break;
 	case TOMOYO_ID_NAME:
+		/*
+		 * Don't kfree() until all "struct tomoyo_io_buffer"->r.w[]
+		 * forget this element.
+		 */
 		if (tomoyo_name_used_by_io_buffer
 		    (container_of(element, typeof(struct tomoyo_name),
 				  head.list)->entry.name))
@@ -294,6 +432,10 @@ static void tomoyo_try_to_gc(const enum tomoyo_policy_id type,
 		tomoyo_del_acl(element);
 		break;
 	case TOMOYO_ID_DOMAIN:
+		/*
+		 * Don't kfree() until all "struct cred"->security forget this
+		 * element.
+		 */
 		if (atomic_read(&container_of
 				(element, typeof(struct tomoyo_domain_info),
 				 list)->users))
@@ -308,10 +450,26 @@ static void tomoyo_try_to_gc(const enum tomoyo_policy_id type,
 	tomoyo_memory_free(element);
 	return;
 reinject:
+	/*
+	 * We can safely reinject this element here bacause
+	 * (1) Appending list elements and removing list elements are protected
+	 *     by tomoyo_policy_lock mutex.
+	 * (2) Only this function removes list elements and this function is
+	 *     exclusively executed by tomoyo_gc_mutex mutex.
+	 * are true.
+	 */
 	mutex_lock(&tomoyo_policy_lock);
 	list_add_rcu(element, element->prev);
 }
 
+/**
+ * tomoyo_collect_member - Delete elements with "struct tomoyo_acl_head".
+ *
+ * @id:          One of values in "enum tomoyo_policy_id".
+ * @member_list: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static void tomoyo_collect_member(const enum tomoyo_policy_id id,
 				  struct list_head *member_list)
 {
@@ -325,6 +483,13 @@ static void tomoyo_collect_member(const enum tomoyo_policy_id id,
 	}
 }
 
+/**
+ * tomoyo_collect_acl - Delete elements in "struct tomoyo_domain_info".
+ *
+ * @list: Pointer to "struct list_head".
+ *
+ * Returns nothing.
+ */
 static void tomoyo_collect_acl(struct list_head *list)
 {
 	struct tomoyo_acl_info *acl;
@@ -337,6 +502,11 @@ static void tomoyo_collect_acl(struct list_head *list)
 	}
 }
 
+/**
+ * tomoyo_collect_entry - Try to kfree() deleted elements.
+ *
+ * Returns nothing.
+ */
 static void tomoyo_collect_entry(void)
 {
 	int i;
@@ -413,9 +583,16 @@ static void tomoyo_collect_entry(void)
 	mutex_unlock(&tomoyo_policy_lock);
 }
 
+/**
+ * tomoyo_gc_thread - Garbage collector thread function.
+ *
+ * @unused: Unused.
+ *
+ * Returns 0.
+ */
 static int tomoyo_gc_thread(void *unused)
 {
-	
+	/* Garbage collector thread is exclusive. */
 	static DEFINE_MUTEX(tomoyo_gc_mutex);
 	if (!mutex_trylock(&tomoyo_gc_mutex))
 		goto out;
@@ -438,10 +615,18 @@ static int tomoyo_gc_thread(void *unused)
 	}
 	mutex_unlock(&tomoyo_gc_mutex);
 out:
-	
+	/* This acts as do_exit(0). */
 	return 0;
 }
 
+/**
+ * tomoyo_notify_gc - Register/unregister /sys/kernel/security/tomoyo/ users.
+ *
+ * @head:        Pointer to "struct tomoyo_io_buffer".
+ * @is_register: True if register, false if unregister.
+ *
+ * Returns nothing.
+ */
 void tomoyo_notify_gc(struct tomoyo_io_buffer *head, const bool is_register)
 {
 	bool is_write = false;

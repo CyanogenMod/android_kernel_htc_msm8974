@@ -21,9 +21,12 @@
 #include "stv0297.h"
 
 
+/* Can we use the specified front-end?  Remember that if we are compiled
+ * into the kernel we can't call code that's in modules.  */
 #define FE_SUPPORTED(fe) (defined(CONFIG_DVB_##fe) || \
 	(defined(CONFIG_DVB_##fe##_MODULE) && defined(MODULE)))
 
+/* lnb control */
 #if FE_SUPPORTED(MT312) || FE_SUPPORTED(STV0299)
 static int flexcop_set_voltage(struct dvb_frontend *fe, fe_sec_voltage_t voltage)
 {
@@ -62,9 +65,11 @@ static int flexcop_sleep(struct dvb_frontend* fe)
 }
 #endif
 
+/* SkyStar2 DVB-S rev 2.3 */
 #if FE_SUPPORTED(MT312) && FE_SUPPORTED(PLL)
 static int flexcop_set_tone(struct dvb_frontend *fe, fe_sec_tone_mode_t tone)
 {
+/* u16 wz_half_period_for_45_mhz[] = { 0x01ff, 0x0154, 0x00ff, 0x00cc }; */
 	struct flexcop_device *fc = fe->dvb->priv;
 	flexcop_ibi_value v;
 	u16 ax;
@@ -83,7 +88,7 @@ static int flexcop_set_tone(struct dvb_frontend *fe, fe_sec_tone_mode_t tone)
 		return -EINVAL;
 	}
 
-	v.lnb_switch_freq_200.LNB_CTLPrescaler_sig = 1; 
+	v.lnb_switch_freq_200.LNB_CTLPrescaler_sig = 1; /* divide by 2 */
 	v.lnb_switch_freq_200.LNB_CTLHighCount_sig = ax;
 	v.lnb_switch_freq_200.LNB_CTLLowCount_sig  = ax == 0 ? 0x1ff : ax;
 	return fc->write_ibi_reg(fc,lnb_switch_freq_200,v);
@@ -176,6 +181,7 @@ static int skystar2_rev23_attach(struct flexcop_device *fc,
 #define skystar2_rev23_attach NULL
 #endif
 
+/* SkyStar2 DVB-S rev 2.6 */
 #if FE_SUPPORTED(STV0299) && FE_SUPPORTED(PLL)
 static int samsung_tbmu24112_set_symbol_rate(struct dvb_frontend *fe,
 	u32 srate, u32 ratio)
@@ -283,6 +289,7 @@ static int skystar2_rev26_attach(struct flexcop_device *fc,
 #define skystar2_rev26_attach NULL
 #endif
 
+/* SkyStar2 DVB-S rev 2.7 */
 #if FE_SUPPORTED(S5H1420) && FE_SUPPORTED(ISL6421) && FE_SUPPORTED(TUNER_ITD1000)
 static struct s5h1420_config skystar2_rev2_7_s5h1420_config = {
 	.demod_address = 0x53,
@@ -301,7 +308,7 @@ static int skystar2_rev27_attach(struct flexcop_device *fc,
 	flexcop_ibi_value r108;
 	struct i2c_adapter *i2c_tuner;
 
-	
+	/* enable no_base_addr - no repeated start when reading */
 	fc->fc_i2c_adap[0].no_base_addr = 1;
 	fc->fe = dvb_attach(s5h1420_attach, &skystar2_rev2_7_s5h1420_config,
 			    i2c);
@@ -315,7 +322,7 @@ static int skystar2_rev27_attach(struct flexcop_device *fc,
 	fc->fe_sleep = fc->fe->ops.sleep;
 	fc->fe->ops.sleep = flexcop_sleep;
 
-	
+	/* enable no_base_addr - no repeated start when reading */
 	fc->fc_i2c_adap[2].no_base_addr = 1;
 	if (!dvb_attach(isl6421_attach, fc->fe, &fc->fc_i2c_adap[2].i2c_adap,
 			0x08, 1, 1)) {
@@ -324,13 +331,13 @@ static int skystar2_rev27_attach(struct flexcop_device *fc,
 	}
 	info("ISL6421 successfully attached");
 
-	
+	/* the ITD1000 requires a lower i2c clock - is it a problem ? */
 	r108.raw = 0x00000506;
 	fc->write_ibi_reg(fc, tw_sm_c_108, r108);
 	if (!dvb_attach(itd1000_attach, fc->fe, i2c_tuner,
 			&skystar2_rev2_7_itd1000_config)) {
 		err("ITD1000 could NOT be attached");
-		
+		/* Should i2c clock be restored? */
 		goto fail_isl;
 	}
 	info("ITD1000 successfully attached");
@@ -340,7 +347,7 @@ static int skystar2_rev27_attach(struct flexcop_device *fc,
 fail_isl:
 	fc->fc_i2c_adap[2].no_base_addr = 0;
 fail:
-	
+	/* for the next devices we need it again */
 	fc->fc_i2c_adap[0].no_base_addr = 0;
 	return 0;
 }
@@ -348,6 +355,7 @@ fail:
 #define skystar2_rev27_attach NULL
 #endif
 
+/* SkyStar2 rev 2.8 */
 #if FE_SUPPORTED(CX24123) && FE_SUPPORTED(ISL6421) && FE_SUPPORTED(TUNER_CX24113)
 static struct cx24123_config skystar2_rev2_8_cx24123_config = {
 	.demod_address = 0x55,
@@ -389,12 +397,15 @@ static int skystar2_rev28_attach(struct flexcop_device *fc,
 		return 0;
 	}
 	info("ISL6421 successfully attached");
+	/* TODO on i2c_adap[1] addr 0x11 (EEPROM) there seems to be an
+	 * IR-receiver (PIC16F818) - but the card has no input for that ??? */
 	return 1;
 }
 #else
 #define skystar2_rev28_attach NULL
 #endif
 
+/* AirStar DVB-T */
 #if FE_SUPPORTED(MT352) && FE_SUPPORTED(PLL)
 static int samsung_tdtc9251dh0_demod_init(struct dvb_frontend *fe)
 {
@@ -432,6 +443,7 @@ static int airstar_dvbt_attach(struct flexcop_device *fc,
 #define airstar_dvbt_attach NULL
 #endif
 
+/* AirStar ATSC 1st generation */
 #if FE_SUPPORTED(BCM3510)
 static int flexcop_fe_request_firmware(struct dvb_frontend *fe,
 	const struct firmware **fw, char* name)
@@ -455,6 +467,7 @@ static int airstar_atsc1_attach(struct flexcop_device *fc,
 #define airstar_atsc1_attach NULL
 #endif
 
+/* AirStar ATSC 2nd generation */
 #if FE_SUPPORTED(NXT200X) && FE_SUPPORTED(PLL)
 static struct nxt200x_config samsung_tbmv_config = {
 	.demod_address = 0x0a,
@@ -474,6 +487,7 @@ static int airstar_atsc2_attach(struct flexcop_device *fc,
 #define airstar_atsc2_attach NULL
 #endif
 
+/* AirStar ATSC 3rd generation */
 #if FE_SUPPORTED(LGDT330X)
 static struct lgdt330x_config air2pc_atsc_hd5000_config = {
 	.demod_address       = 0x59,
@@ -496,6 +510,7 @@ static int airstar_atsc3_attach(struct flexcop_device *fc,
 #define airstar_atsc3_attach NULL
 #endif
 
+/* CableStar2 DVB-C */
 #if FE_SUPPORTED(STV0297) && FE_SUPPORTED(PLL)
 static u8 alps_tdee4_stv0297_inittab[] = {
 	0x80, 0x01,
@@ -583,6 +598,8 @@ static int cablestar2_attach(struct flexcop_device *fc,
 	if (!fc->fe)
 		goto fail;
 
+	/* This tuner doesn't use the stv0297's I2C gate, but instead the
+	 * tuner is connected to a different flexcop I2C adapter.  */
 	if (fc->fe->ops.i2c_gate_ctrl)
 		fc->fe->ops.i2c_gate_ctrl(fc->fe, 0);
 	fc->fe->ops.i2c_gate_ctrl = NULL;
@@ -594,7 +611,7 @@ static int cablestar2_attach(struct flexcop_device *fc,
 	return 1;
 
 fail:
-	
+	/* Reset for next frontend to try */
 	fc->fc_i2c_adap[0].no_base_addr = 0;
 	return 0;
 }
@@ -617,16 +634,19 @@ static struct {
 	{ FC_SKY_REV23, skystar2_rev23_attach },
 };
 
+/* try to figure out the frontend */
 int flexcop_frontend_init(struct flexcop_device *fc)
 {
 	int i;
 	for (i = 0; i < ARRAY_SIZE(flexcop_frontends); i++) {
 		if (!flexcop_frontends[i].attach)
 			continue;
+		/* type needs to be set before, because of some workarounds
+		 * done based on the probed card type */
 		fc->dev_type = flexcop_frontends[i].type;
 		if (flexcop_frontends[i].attach(fc, &fc->fc_i2c_adap[0].i2c_adap))
 			goto fe_found;
-		
+		/* Clean up partially attached frontend */
 		if (fc->fe) {
 			dvb_frontend_detach(fc->fe);
 			fc->fe = NULL;

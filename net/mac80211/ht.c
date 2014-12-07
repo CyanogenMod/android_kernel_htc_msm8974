@@ -47,26 +47,34 @@ void ieee80211_apply_htcap_overrides(struct ieee80211_sub_if_data *sdata,
 	int i;
 
 	if (sdata->vif.type != NL80211_IFTYPE_STATION) {
+		/* AP interfaces call this code when adding new stations,
+		 * so just silently ignore non station interfaces.
+		 */
 		return;
 	}
 
+	/* NOTE:  If you add more over-rides here, update register_hw
+	 * ht_capa_mod_msk logic in main.c as well.
+	 * And, if this method can ever change ht_cap.ht_supported, fix
+	 * the check in ieee80211_add_ht_ie.
+	 */
 
-	
+	/* check for HT over-rides, MCS rates first. */
 	for (i = 0; i < IEEE80211_HT_MCS_MASK_LEN; i++) {
 		u8 m = smask[i];
-		ht_cap->mcs.rx_mask[i] &= ~m; 
-		
+		ht_cap->mcs.rx_mask[i] &= ~m; /* turn off all masked bits */
+		/* Add back rates that are supported */
 		ht_cap->mcs.rx_mask[i] |= (m & scaps[i]);
 	}
 
-	
+	/* Force removal of HT-40 capabilities? */
 	__check_htcap_disable(sdata, ht_cap, IEEE80211_HT_CAP_SUP_WIDTH_20_40);
 	__check_htcap_disable(sdata, ht_cap, IEEE80211_HT_CAP_SGI_40);
 
-	
+	/* Allow user to disable the max-AMSDU bit. */
 	__check_htcap_disable(sdata, ht_cap, IEEE80211_HT_CAP_MAX_AMSDU);
 
-	
+	/* Allow user to decrease AMPDU factor */
 	if (sdata->u.mgd.ht_capa_mask.ampdu_params_info &
 	    IEEE80211_HT_AMPDU_PARM_FACTOR) {
 		u8 n = sdata->u.mgd.ht_capa.ampdu_params_info
@@ -75,7 +83,7 @@ void ieee80211_apply_htcap_overrides(struct ieee80211_sub_if_data *sdata,
 			ht_cap->ampdu_factor = n;
 	}
 
-	
+	/* Allow the user to increase AMPDU density. */
 	if (sdata->u.mgd.ht_capa_mask.ampdu_params_info &
 	    IEEE80211_HT_AMPDU_PARM_DENSITY) {
 		u8 n = (sdata->u.mgd.ht_capa.ampdu_params_info &
@@ -104,6 +112,12 @@ void ieee80211_ht_cap_ie_to_sta_ht_cap(struct ieee80211_sub_if_data *sdata,
 
 	ht_cap->ht_supported = true;
 
+	/*
+	 * The bits listed in this expression should be
+	 * the same for the peer and us, if the station
+	 * advertises more then we can't use those thus
+	 * we mask them out.
+	 */
 	ht_cap->cap = le16_to_cpu(ht_cap_ie->cap_info) &
 		(sband->ht_cap.cap |
 		 ~(IEEE80211_HT_CAP_LDPC_CODING |
@@ -112,6 +126,10 @@ void ieee80211_ht_cap_ie_to_sta_ht_cap(struct ieee80211_sub_if_data *sdata,
 		   IEEE80211_HT_CAP_SGI_20 |
 		   IEEE80211_HT_CAP_SGI_40 |
 		   IEEE80211_HT_CAP_DSSSCCK40));
+	/*
+	 * The STBC bits are asymmetric -- if we don't have
+	 * TX then mask out the peer's RX and vice versa.
+	 */
 	if (!(sband->ht_cap.cap & IEEE80211_HT_CAP_TX_STBC))
 		ht_cap->cap &= ~IEEE80211_HT_CAP_RX_STBC;
 	if (!(sband->ht_cap.cap & IEEE80211_HT_CAP_RX_STBC))
@@ -123,17 +141,17 @@ void ieee80211_ht_cap_ie_to_sta_ht_cap(struct ieee80211_sub_if_data *sdata,
 	ht_cap->ampdu_density =
 		(ampdu_info & IEEE80211_HT_AMPDU_PARM_DENSITY) >> 2;
 
-	
+	/* own MCS TX capabilities */
 	tx_mcs_set_cap = sband->ht_cap.mcs.tx_params;
 
-	
+	/* Copy peer MCS TX capabilities, the driver might need them. */
 	ht_cap->mcs.tx_params = ht_cap_ie->mcs.tx_params;
 
-	
+	/* can we TX with MCS rates? */
 	if (!(tx_mcs_set_cap & IEEE80211_HT_MCS_TX_DEFINED))
 		return;
 
-	
+	/* Counting from 0, therefore +1 */
 	if (tx_mcs_set_cap & IEEE80211_HT_MCS_TX_RX_DIFF)
 		max_tx_streams =
 			((tx_mcs_set_cap & IEEE80211_HT_MCS_TX_MAX_STREAMS_MASK)
@@ -141,6 +159,13 @@ void ieee80211_ht_cap_ie_to_sta_ht_cap(struct ieee80211_sub_if_data *sdata,
 	else
 		max_tx_streams = IEEE80211_HT_MCS_TX_MAX_STREAMS;
 
+	/*
+	 * 802.11n-2009 20.3.5 / 20.6 says:
+	 * - indices 0 to 7 and 32 are single spatial stream
+	 * - 8 to 31 are multiple spatial streams using equal modulation
+	 *   [8..15 for two streams, 16..23 for three and 24..31 for four]
+	 * - remainder are multiple spatial streams using unequal modulation
+	 */
 	for (i = 0; i < max_tx_streams; i++)
 		ht_cap->mcs.rx_mask[i] =
 			sband->ht_cap.mcs.rx_mask[i] & ht_cap_ie->mcs.rx_mask[i];
@@ -152,10 +177,14 @@ void ieee80211_ht_cap_ie_to_sta_ht_cap(struct ieee80211_sub_if_data *sdata,
 				sband->ht_cap.mcs.rx_mask[i] &
 					ht_cap_ie->mcs.rx_mask[i];
 
-	
+	/* handle MCS rate 32 too */
 	if (sband->ht_cap.mcs.rx_mask[32/8] & ht_cap_ie->mcs.rx_mask[32/8] & 1)
 		ht_cap->mcs.rx_mask[32/8] |= 1;
 
+	/*
+	 * If user has specified capability over-rides, take care
+	 * of that here.
+	 */
 	ieee80211_apply_htcap_overrides(sdata, ht_cap);
 }
 
@@ -179,6 +208,12 @@ void ieee80211_ba_session_work(struct work_struct *work)
 	struct tid_ampdu_tx *tid_tx;
 	int tid;
 
+	/*
+	 * When this flag is set, new sessions should be
+	 * blocked, and existing sessions will be torn
+	 * down by the code that set the flag, so this
+	 * need not run.
+	 */
 	if (test_sta_flag(sta, WLAN_STA_BLOCK_BA))
 		return;
 
@@ -197,10 +232,14 @@ void ieee80211_ba_session_work(struct work_struct *work)
 
 		tid_tx = sta->ampdu_mlme.tid_start_tx[tid];
 		if (tid_tx) {
+			/*
+			 * Assign it over to the normal tid_tx array
+			 * where it "goes live".
+			 */
 			spin_lock_bh(&sta->lock);
 
 			sta->ampdu_mlme.tid_start_tx[tid] = NULL;
-			
+			/* could there be a race? */
 			if (sta->ampdu_mlme.tid_tx[tid])
 				kfree(tid_tx);
 			else
@@ -255,8 +294,8 @@ void ieee80211_send_delba(struct ieee80211_sub_if_data *sdata,
 
 	mgmt->u.action.category = WLAN_CATEGORY_BACK;
 	mgmt->u.action.u.delba.action_code = WLAN_ACTION_DELBA;
-	params = (u16)(initiator << 11); 	
-	params |= (u16)(tid << 12); 		
+	params = (u16)(initiator << 11); 	/* bit 11 initiator */
+	params |= (u16)(tid << 12); 		/* bit 15:12 TID number */
 
 	mgmt->u.action.u.delba.params = cpu_to_le16(params);
 	mgmt->u.action.u.delba.reason_code = cpu_to_le16(reason_code);
@@ -280,7 +319,7 @@ void ieee80211_process_delba(struct ieee80211_sub_if_data *sdata,
 		printk(KERN_DEBUG "delba from %pM (%s) tid %d reason code %d\n",
 			mgmt->sa, initiator ? "initiator" : "recipient", tid,
 			le16_to_cpu(mgmt->u.action.u.delba.reason_code));
-#endif 
+#endif /* CONFIG_MAC80211_HT_DEBUG */
 
 	if (initiator == WLAN_BACK_INITIATOR)
 		__ieee80211_stop_rx_ba_session(sta, tid, WLAN_BACK_INITIATOR, 0,
@@ -298,7 +337,7 @@ int ieee80211_send_smps_action(struct ieee80211_sub_if_data *sdata,
 	struct sk_buff *skb;
 	struct ieee80211_mgmt *action_frame;
 
-	
+	/* 27 = header + category + action + smps mode */
 	skb = dev_alloc_skb(27 + local->hw.extra_tx_headroom);
 	if (!skb)
 		return -ENOMEM;
@@ -330,7 +369,7 @@ int ieee80211_send_smps_action(struct ieee80211_sub_if_data *sdata,
 		break;
 	}
 
-	
+	/* we'll do more on status of this frame */
 	IEEE80211_SKB_CB(skb)->flags |= IEEE80211_TX_CTL_REQ_TX_STATUS;
 	ieee80211_tx_skb(sdata, skb);
 
@@ -364,4 +403,5 @@ void ieee80211_request_smps(struct ieee80211_vif *vif,
 	ieee80211_queue_work(&sdata->local->hw,
 			     &sdata->u.mgd.request_smps_work);
 }
+/* this might change ... don't want non-open drivers using it */
 EXPORT_SYMBOL_GPL(ieee80211_request_smps);

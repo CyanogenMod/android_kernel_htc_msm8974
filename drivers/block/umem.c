@@ -34,7 +34,7 @@
  *			 - set initialised bit then.
  */
 
-#undef DEBUG	
+#undef DEBUG	/* #define DEBUG if you want debugging info (pr_debug) */
 #include <linux/fs.h>
 #include <linux/bio.h>
 #include <linux/kernel.h>
@@ -49,8 +49,8 @@
 #include <linux/pci.h>
 #include <linux/dma-mapping.h>
 
-#include <linux/fcntl.h>        
-#include <linux/hdreg.h>  
+#include <linux/fcntl.h>        /* O_ACCMODE */
+#include <linux/hdreg.h>  /* HDIO_GETGEO */
 
 #include "umem.h"
 
@@ -58,11 +58,14 @@
 #include <asm/io.h>
 
 #define MM_MAXCARDS 4
-#define MM_RAHEAD 2      
-#define MM_BLKSIZE 1024  
-#define MM_HARDSECT 512  
-#define MM_SHIFT 6       
+#define MM_RAHEAD 2      /* two sectors */
+#define MM_BLKSIZE 1024  /* 1k blocks */
+#define MM_HARDSECT 512  /* 512-byte hardware sectors */
+#define MM_SHIFT 6       /* max 64 partitions on 4 cards  */
 
+/*
+ * Version Information
+ */
 
 #define DRIVER_NAME	"umem"
 #define DRIVER_VERSION	"v2.3"
@@ -70,6 +73,7 @@
 #define DRIVER_DESC	"Micro Memory(tm) PCI memory board block driver"
 
 static int debug;
+/* #define HW_TRACE(x)     writeb(x,cards[0].csr_remap + MEMCTRLSTATUS_MAGIC) */
 #define HW_TRACE(x)
 
 #define DEBUG_LED_ON_TRANSFER	0x01
@@ -78,11 +82,11 @@ static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug bitmask");
 
-static int pci_read_cmd = 0x0C;		
+static int pci_read_cmd = 0x0C;		/* Read Multiple */
 module_param(pci_read_cmd, int, 0);
 MODULE_PARM_DESC(pci_read_cmd, "PCI read command");
 
-static int pci_write_cmd = 0x0F;	
+static int pci_write_cmd = 0x0F;	/* Write and Invalidate */
 module_param(pci_write_cmd, int, 0);
 MODULE_PARM_DESC(pci_write_cmd, "PCI write command");
 
@@ -97,7 +101,7 @@ struct cardinfo {
 	struct pci_dev	*dev;
 
 	unsigned char	__iomem *csr_remap;
-	unsigned int	mm_size;  
+	unsigned int	mm_size;  /* size in kbytes */
 
 	unsigned int	init_size; /* initial segment, in sectors,
 				    * that we know to
@@ -166,6 +170,9 @@ static int set_userbit(struct cardinfo *card, int bit, unsigned char state)
 	return 0;
 }
 
+/*
+ * NOTE: For the power LED, use the LED_POWER_* macros since they differ
+ */
 static void set_led(struct cardinfo *card, int shift, unsigned char state)
 {
 	unsigned char led;
@@ -223,14 +230,37 @@ static void dump_dmastat(struct cardinfo *card, unsigned int dmastat)
 	printk("\n");
 }
 
+/*
+ * Theory of request handling
+ *
+ * Each bio is assigned to one mm_dma_desc - which may not be enough FIXME
+ * We have two pages of mm_dma_desc, holding about 64 descriptors
+ * each.  These are allocated at init time.
+ * One page is "Ready" and is either full, or can have request added.
+ * The other page might be "Active", which DMA is happening on it.
+ *
+ * Whenever IO on the active page completes, the Ready page is activated
+ * and the ex-Active page is clean out and made Ready.
+ * Otherwise the Ready page is only activated when it becomes full.
+ *
+ * If a request arrives while both pages a full, it is queued, and b_rdev is
+ * overloaded to record whether it was a read or a write.
+ *
+ * The interrupt handler only polls the device to clear the interrupt.
+ * The processing of the result is done in a tasklet.
+ */
 
 static void mm_start_io(struct cardinfo *card)
 {
+	/* we have the lock, we know there is
+	 * no IO active, and we know that card->Active
+	 * is set
+	 */
 	struct mm_dma_desc *desc;
 	struct mm_page *page;
 	int offset;
 
-	
+	/* make the last descriptor end the chain */
 	page = &card->mm_pages[card->Active];
 	pr_debug("start_io: %d %d->%d\n",
 		card->Active, page->headcnt, page->cnt - 1);
@@ -260,10 +290,12 @@ static void mm_start_io(struct cardinfo *card)
 	offset = ((char *)desc) - ((char *)page->desc);
 	writel(cpu_to_le32((page->page_dma+offset) & 0xffffffff),
 	       card->csr_remap + DMA_DESCRIPTOR_ADDR);
+	/* Force the value to u64 before shifting otherwise >> 32 is undefined C
+	 * and on some ports will do nothing ! */
 	writel(cpu_to_le32(((u64)page->page_dma)>>32),
 	       card->csr_remap + DMA_DESCRIPTOR_ADDR + 4);
 
-	
+	/* Go, go, go */
 	writel(cpu_to_le32(DMASCR_GO | DMASCR_CHAIN_EN | pci_cmds),
 	       card->csr_remap + DMA_STATUS_CTRL);
 }
@@ -272,6 +304,11 @@ static int add_bio(struct cardinfo *card);
 
 static void activate(struct cardinfo *card)
 {
+	/* if No page is Active, and Ready is
+	 * not empty, then switch Ready page
+	 * to active and start IO.
+	 * Then add any bh's that are available to Ready
+	 */
 
 	do {
 		while (add_bio(card))
@@ -295,6 +332,11 @@ static inline void reset_page(struct mm_page *page)
 	page->biotail = &page->bio;
 }
 
+/*
+ * If there is room on Ready page, take
+ * one bh off list and add it.
+ * return 1 if there was room, else 0.
+ */
 static int add_bio(struct cardinfo *card)
 {
 	struct mm_page *p;
@@ -376,6 +418,12 @@ static int add_bio(struct cardinfo *card)
 
 static void process_page(unsigned long data)
 {
+	/* check if any of the requests in the page are DMA_COMPLETE,
+	 * and deal with them appropriately.
+	 * If we find a descriptor without DMA_COMPLETE in the semaphore, then
+	 * dma must have hit an error on that descriptor, so use dma_status
+	 * instead and assume that all following descriptors must be re-tried.
+	 */
 	struct mm_page *page;
 	struct bio *return_bio = NULL;
 	struct cardinfo *card = (struct cardinfo *)data;
@@ -411,7 +459,7 @@ static void process_page(unsigned long data)
 				 (control & DMASCR_TRANSFER_READ) ?
 				PCI_DMA_TODEVICE : PCI_DMA_FROMDEVICE);
 		if (control & DMASCR_HARD_ERROR) {
-			
+			/* error */
 			clear_bit(BIO_UPTODATE, &bio->bi_flags);
 			dev_printk(KERN_WARNING, &card->dev->dev,
 				"I/O error on sector %d/%d\n",
@@ -449,7 +497,7 @@ static void process_page(unsigned long data)
 		card->Active = -1;
 		activate(card);
 	} else {
-		
+		/* haven't finished with this one yet */
 		pr_debug("do some more\n");
 		mm_start_io(card);
 	}
@@ -491,11 +539,11 @@ HW_TRACE(0x30);
 	dma_status = le32_to_cpu(readl(card->csr_remap + DMA_STATUS_CTRL));
 
 	if (!(dma_status & (DMASCR_ERROR_MASK | DMASCR_CHAIN_COMPLETE))) {
-		
+		/* interrupt wasn't for me ... */
 		return IRQ_NONE;
 	}
 
-	
+	/* clear COMPLETION interrupts */
 	if (card->flags & UM_FLAG_NO_BYTE_STATUS)
 		writel(cpu_to_le32(DMASCR_DMA_COMPLETE|DMASCR_CHAIN_COMPLETE),
 		       card->csr_remap + DMA_STATUS_CTRL);
@@ -503,7 +551,7 @@ HW_TRACE(0x30);
 		writeb((DMASCR_DMA_COMPLETE|DMASCR_CHAIN_COMPLETE) >> 16,
 		       card->csr_remap + DMA_STATUS_CTRL + 2);
 
-	
+	/* log errors and clear interrupt status */
 	if (dma_status & DMASCR_ANY_ERR) {
 		unsigned int	data_log1, data_log2;
 		unsigned int	addr_log1, addr_log2;
@@ -575,7 +623,7 @@ HW_TRACE(0x30);
 		pci_write_config_word(card->dev, PCI_STATUS, cfg_status);
 	}
 
-	
+	/* and process the DMA descriptors */
 	card->dma_status = dma_status;
 	tasklet_schedule(&card->tasklet);
 
@@ -584,6 +632,12 @@ HW_TRACE(0x36);
 	return IRQ_HANDLED;
 }
 
+/*
+ * If both batteries are good, no LED
+ * If either battery has been warned, solid LED
+ * If both batteries are bad, flash the LED quickly
+ * If either battery is bad, flash the LED semi quickly
+ */
 static void set_fault_to_battery_status(struct cardinfo *card)
 {
 	if (card->battery[0].good && card->battery[1].good)
@@ -629,6 +683,10 @@ static int check_battery(struct cardinfo *card, int battery, int status)
 
 static void check_batteries(struct cardinfo *card)
 {
+	/* NOTE: this must *never* be called while the card
+	 * is doing (bus-to-card) DMA, or you will need the
+	 * reset switch
+	 */
 	unsigned char status;
 	int ret1, ret2;
 
@@ -677,6 +735,14 @@ static void del_battery_timer(void)
 	del_timer(&battery_timer);
 }
 
+/*
+ * Note no locks taken out here.  In a worst case scenario, we could drop
+ * a chunk of system memory.  But that should never happen, since validation
+ * happens at open or mount time, when locks are held.
+ *
+ *	That's crap, since doing that while some partitions are opened
+ * or mounted will give you really nasty results.
+ */
 static int mm_revalidate(struct gendisk *disk)
 {
 	struct cardinfo *card = disk->private_data;
@@ -689,6 +755,11 @@ static int mm_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	struct cardinfo *card = bdev->bd_disk->private_data;
 	int size = card->mm_size * (1024 / MM_HARDSECT);
 
+	/*
+	 * get geometry: we have to fake one...  trim the size to a
+	 * multiple of 2048 (1M): tell we have 32 sectors, 64 heads,
+	 * whatever cylinders.
+	 */
 	geo->heads     = 64;
 	geo->sectors   = 32;
 	geo->cylinders = size / (geo->heads * geo->sectors);
@@ -801,8 +872,8 @@ static int __devinit mm_pci_probe(struct pci_dev *dev,
 	}
 	reset_page(&card->mm_pages[0]);
 	reset_page(&card->mm_pages[1]);
-	card->Ready = 0;	
-	card->Active = -1;	
+	card->Ready = 0;	/* page 0 is ready */
+	card->Active = -1;	/* no page is active */
 	card->bio = NULL;
 	card->biotail = &card->bio;
 
@@ -840,7 +911,7 @@ static int __devinit mm_pci_probe(struct pci_dev *dev,
 		break;
 	}
 
-	
+	/* Clear the LED's we control */
 	set_led(card, LED_REMOVE, LED_OFF);
 	set_led(card, LED_FAULT, LED_OFF);
 
@@ -889,13 +960,13 @@ static int __devinit mm_pci_probe(struct pci_dev *dev,
 
 	pci_set_drvdata(dev, card);
 
-	if (pci_write_cmd != 0x0F) 	
-		pci_write_cmd = 0x07;	
+	if (pci_write_cmd != 0x0F) 	/* If not Memory Write & Invalidate */
+		pci_write_cmd = 0x07;	/* then Memory Write command */
 
-	if (pci_write_cmd & 0x08) { 
+	if (pci_write_cmd & 0x08) { /* use Memory Write and Invalidate */
 		unsigned short cfg_command;
 		pci_read_config_word(dev, PCI_COMMAND, &cfg_command);
-		cfg_command |= 0x10; 
+		cfg_command |= 0x10; /* Memory Write & Invalidate Enable */
 		pci_write_config_word(dev, PCI_COMMAND, cfg_command);
 	}
 	pci_cmds = (pci_read_cmd << 28) | (pci_write_cmd << 24);
@@ -912,7 +983,7 @@ static int __devinit mm_pci_probe(struct pci_dev *dev,
 		card->init_size = card->mm_size;
 	}
 
-	
+	/* Enable ECC */
 	writeb(EDC_STORE_CORRECT, card->csr_remap + MEMCTRLCMD_ERRCTRL);
 
 	return 0;
@@ -969,7 +1040,7 @@ static const struct pci_device_id mm_pci_ids[] = {
 	.subdevice =	0x5460,
 	.class =	0x050000,
 	.class_mask =	0,
-    }, {  }
+    }, { /* end: all zeroes */ }
 };
 
 MODULE_DEVICE_TABLE(pci, mm_pci_ids);
@@ -1017,6 +1088,7 @@ static int __init mm_init(void)
 
 	init_battery_timer();
 	printk(KERN_INFO "MM: desc_per_page = %ld\n", DESC_PER_PAGE);
+/* printk("mm_init: Done. 10-19-01 9:00\n"); */
 	return 0;
 
 out:

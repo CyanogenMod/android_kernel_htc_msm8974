@@ -116,7 +116,7 @@ int ehca_query_device(struct ib_device *ibdev, struct ib_device_attr *props)
 	}
 
 	props->max_pkeys           = 16;
-	
+	/* Some FW versions say 0 here; insert sensible value in that case */
 	props->local_ca_ack_delay  = rblock->local_ca_ack_delay ?
 		min_t(u8, rblock->local_ca_ack_delay, 255) : 12;
 	props->max_raw_ipv6_qp     = limit_uint(rblock->max_raw_ipv6_qp);
@@ -126,7 +126,7 @@ int ehca_query_device(struct ib_device *ibdev, struct ib_device_attr *props)
 	props->max_total_mcast_qp_attach
 		= limit_uint(rblock->max_total_mcast_qp_attach);
 
-	
+	/* translate device capabilities */
 	props->device_cap_flags = IB_DEVICE_SYS_IMAGE_GUID |
 		IB_DEVICE_RC_RNR_NAK_GEN | IB_DEVICE_N_NOTIFY_CQ;
 	for (i = 0; i < ARRAY_SIZE(cap_mapping); i += 2)
@@ -227,6 +227,9 @@ int ehca_query_port(struct ib_device *ibdev,
 		props->active_width    = rblock->phys_width;
 		props->active_speed    = rblock->phys_speed;
 	} else {
+		/* old firmware releases don't report physical
+		 * port info, so use default values
+		 */
 		props->phys_state      = 5;
 		props->state           = rblock->state;
 		props->active_width    = IB_WIDTH_12X;

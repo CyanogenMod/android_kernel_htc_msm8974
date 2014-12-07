@@ -27,7 +27,7 @@ static const char *rclksrc[] = {
 
 static int s5pv210_cfg_i2s(struct platform_device *pdev)
 {
-	
+	/* configure GPIO for i2s port */
 	switch (pdev->id) {
 	case 0:
 		s3c_gpio_cfgpin_range(S5PV210_GPI(0), 7, S3C_GPIO_SFN(2));
@@ -161,6 +161,7 @@ struct platform_device s5pv210_device_iis2 = {
 	},
 };
 
+/* PCM Controller platform_devices */
 
 static int s5pv210_pcm_cfg_gpio(struct platform_device *pdev)
 {
@@ -270,6 +271,7 @@ struct platform_device s5pv210_device_pcm2 = {
 	},
 };
 
+/* AC97 Controller platform devices */
 
 static int s5pv210_ac97_cfg_gpio(struct platform_device *pdev)
 {
@@ -322,6 +324,7 @@ struct platform_device s5pv210_device_ac97 = {
 	},
 };
 
+/* S/PDIF Controller platform_device */
 
 static int s5pv210_spdif_cfg_gpio(struct platform_device *pdev)
 {

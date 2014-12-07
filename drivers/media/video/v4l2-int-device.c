@@ -45,11 +45,11 @@ void v4l2_int_device_try_attach_all(void)
 			if (s->type != v4l2_int_type_slave)
 				continue;
 
-			
+			/* Slave is connected? */
 			if (s->u.slave->master)
 				continue;
 
-			
+			/* Slave wants to attach to master? */
 			if (s->u.slave->attach_to[0] != 0
 			    && strncmp(m->name, s->u.slave->attach_to,
 				       V4L2NAMESIZE))
@@ -111,6 +111,7 @@ void v4l2_int_device_unregister(struct v4l2_int_device *d)
 }
 EXPORT_SYMBOL_GPL(v4l2_int_device_unregister);
 
+/* Adapted from search_extable in extable.c. */
 static v4l2_int_ioctl_func *find_ioctl(struct v4l2_int_slave *slave, int cmd,
 				       v4l2_int_ioctl_func *no_such_ioctl)
 {

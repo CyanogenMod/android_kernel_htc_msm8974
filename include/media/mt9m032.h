@@ -33,4 +33,4 @@ struct mt9m032_platform_data {
 	bool invert_pixclock;
 
 };
-#endif 
+#endif /* MT9M032_H */

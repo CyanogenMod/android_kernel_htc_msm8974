@@ -31,7 +31,7 @@ static inline void autogroup_destroy(struct kref *kref)
 	struct autogroup *ag = container_of(kref, struct autogroup, kref);
 
 #ifdef CONFIG_RT_GROUP_SCHED
-	
+	/* We've redirected RT tasks to the root task group... */
 	ag->tg->rt_se = NULL;
 	ag->tg->rt_rq = NULL;
 #endif
@@ -81,6 +81,14 @@ static inline struct autogroup *autogroup_create(void)
 	ag->id = atomic_inc_return(&autogroup_seq_nr);
 	ag->tg = tg;
 #ifdef CONFIG_RT_GROUP_SCHED
+	/*
+	 * Autogroup RT tasks are redirected to the root task group
+	 * so we don't have to move tasks around upon policy change,
+	 * or flail around trying to allocate bandwidth on the fly.
+	 * A bandwidth exception in __sched_setscheduler() allows
+	 * the policy change to proceed.  Thereafter, task_group()
+	 * returns &root_task_group, so zero bandwidth is required.
+	 */
 	free_rt_sched_group(tg);
 	tg->rt_se = root_task_group.rt_se;
 	tg->rt_rq = root_task_group.rt_rq;
@@ -108,6 +116,10 @@ bool task_wants_autogroup(struct task_struct *p, struct task_group *tg)
 	if (p->sched_class != &fair_sched_class)
 		return false;
 
+	/*
+	 * We can only assume the task group can't go away on us if
+	 * autogroup_move_group() can see us on ->thread_group list.
+	 */
 	if (p->flags & PF_EXITING)
 		return false;
 
@@ -144,16 +156,18 @@ out:
 	autogroup_kref_put(prev);
 }
 
+/* Allocates GFP_KERNEL, cannot be called under any spinlock */
 void sched_autogroup_create_attach(struct task_struct *p)
 {
 	struct autogroup *ag = autogroup_create();
 
 	autogroup_move_group(p, ag);
-	
+	/* drop extra reference added by autogroup_create() */
 	autogroup_kref_put(ag);
 }
 EXPORT_SYMBOL(sched_autogroup_create_attach);
 
+/* Cannot be called under siglock.  Currently has no users */
 void sched_autogroup_detach(struct task_struct *p)
 {
 	autogroup_move_group(p, &autogroup_default);
@@ -197,7 +211,7 @@ int proc_sched_autogroup_set_nice(struct task_struct *p, int nice)
 	if (nice < 0 && !can_nice(current, nice))
 		return -EPERM;
 
-	
+	/* this is a heavy operation taking global locks.. */
 	if (!capable(CAP_SYS_ADMIN) && time_before(jiffies, next))
 		return -EAGAIN;
 
@@ -229,7 +243,7 @@ void proc_sched_autogroup_show_task(struct task_struct *p, struct seq_file *m)
 out:
 	autogroup_kref_put(ag);
 }
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 #ifdef CONFIG_SCHED_DEBUG
 int autogroup_path(struct task_group *tg, char *buf, int buflen)
@@ -239,6 +253,6 @@ int autogroup_path(struct task_group *tg, char *buf, int buflen)
 
 	return snprintf(buf, buflen, "%s-%ld", "/autogroup", tg->autogroup->id);
 }
-#endif 
+#endif /* CONFIG_SCHED_DEBUG */
 
-#endif 
+#endif /* CONFIG_SCHED_AUTOGROUP */

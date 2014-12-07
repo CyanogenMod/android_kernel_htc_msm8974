@@ -85,6 +85,7 @@ struct da9052 {
 	int chip_irq;
 };
 
+/* Device I/O API */
 static inline int da9052_reg_read(struct da9052 *da9052, unsigned char reg)
 {
 	int val, ret;
@@ -125,4 +126,4 @@ void da9052_device_exit(struct da9052 *da9052);
 
 extern struct regmap_config da9052_regmap_config;
 
-#endif 
+#endif /* __MFD_DA9052_DA9052_H */

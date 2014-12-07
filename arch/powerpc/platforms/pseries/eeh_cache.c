@@ -29,6 +29,23 @@
 #include <asm/ppc-pci.h>
 
 
+/**
+ * The pci address cache subsystem.  This subsystem places
+ * PCI device address resources into a red-black tree, sorted
+ * according to the address range, so that given only an i/o
+ * address, the corresponding PCI device can be **quickly**
+ * found. It is safe to perform an address lookup in an interrupt
+ * context; this ability is an important feature.
+ *
+ * Currently, the only customer of this code is the EEH subsystem;
+ * thus, this code has been somewhat tailored to suit EEH better.
+ * In particular, the cache does *not* hold the addresses of devices
+ * for which EEH is not enabled.
+ *
+ * (Implementation Note: The RB tree seems to be better/faster
+ * than any hash algo I could think of for this problem, even
+ * with the penalty of slow pointer chases for d-cache misses).
+ */
 struct pci_io_addr_range {
 	struct rb_node rb_node;
 	unsigned long addr_lo;
@@ -65,6 +82,16 @@ static inline struct pci_dev *__pci_addr_cache_get_device(unsigned long addr)
 	return NULL;
 }
 
+/**
+ * pci_addr_cache_get_device - Get device, given only address
+ * @addr: mmio (PIO) phys address or i/o port number
+ *
+ * Given an mmio phys address, or a port number, find a pci device
+ * that implements this address.  Be sure to pci_dev_put the device
+ * when finished.  I/O port numbers are assumed to be offset
+ * from zero (that is, they do *not* have pci_io_addr added in).
+ * It is safe to call this function within an interrupt.
+ */
 struct pci_dev *pci_addr_cache_get_device(unsigned long addr)
 {
 	struct pci_dev *dev;
@@ -77,6 +104,10 @@ struct pci_dev *pci_addr_cache_get_device(unsigned long addr)
 }
 
 #ifdef DEBUG
+/*
+ * Handy-dandy debug print routine, does nothing more
+ * than print out the contents of our addr cache.
+ */
 static void pci_addr_cache_print(struct pci_io_addr_cache *cache)
 {
 	struct rb_node *n;
@@ -95,6 +126,7 @@ static void pci_addr_cache_print(struct pci_io_addr_cache *cache)
 }
 #endif
 
+/* Insert address range into the rb tree. */
 static struct pci_io_addr_range *
 pci_addr_cache_insert(struct pci_dev *dev, unsigned long alo,
 		      unsigned long ahi, unsigned int flags)
@@ -103,7 +135,7 @@ pci_addr_cache_insert(struct pci_dev *dev, unsigned long alo,
 	struct rb_node *parent = NULL;
 	struct pci_io_addr_range *piar;
 
-	
+	/* Walk tree, find a place to insert into tree */
 	while (*p) {
 		parent = *p;
 		piar = rb_entry(parent, struct pci_io_addr_range, rb_node);
@@ -159,7 +191,7 @@ static void __pci_addr_cache_insert_device(struct pci_dev *dev)
 		return;
 	}
 
-	
+	/* Skip any devices for which EEH is not enabled. */
 	if (!(edev->mode & EEH_MODE_SUPPORTED) ||
 	    edev->mode & EEH_MODE_NOCHECK) {
 #ifdef DEBUG
@@ -169,13 +201,13 @@ static void __pci_addr_cache_insert_device(struct pci_dev *dev)
 		return;
 	}
 
-	
+	/* Walk resources on this device, poke them into the tree */
 	for (i = 0; i < DEVICE_COUNT_RESOURCE; i++) {
 		unsigned long start = pci_resource_start(dev,i);
 		unsigned long end = pci_resource_end(dev,i);
 		unsigned int flags = pci_resource_flags(dev,i);
 
-		
+		/* We are interested only bus addresses, not dma or other stuff */
 		if (0 == (flags & (IORESOURCE_IO | IORESOURCE_MEM)))
 			continue;
 		if (start == 0 || ~start == 0 || end == 0 || ~end == 0)
@@ -184,11 +216,19 @@ static void __pci_addr_cache_insert_device(struct pci_dev *dev)
 	}
 }
 
+/**
+ * pci_addr_cache_insert_device - Add a device to the address cache
+ * @dev: PCI device whose I/O addresses we are interested in.
+ *
+ * In order to support the fast lookup of devices based on addresses,
+ * we maintain a cache of devices that can be quickly searched.
+ * This routine adds a device to that cache.
+ */
 void pci_addr_cache_insert_device(struct pci_dev *dev)
 {
 	unsigned long flags;
 
-	
+	/* Ignore PCI bridges */
 	if ((dev->class >> 16) == PCI_BASE_CLASS_BRIDGE)
 		return;
 
@@ -217,6 +257,15 @@ restart:
 	}
 }
 
+/**
+ * pci_addr_cache_remove_device - remove pci device from addr cache
+ * @dev: device to remove
+ *
+ * Remove a device from the addr-cache tree.
+ * This is potentially expensive, since it will walk
+ * the tree multiple times (once per resource).
+ * But so what; device removal doesn't need to be that fast.
+ */
 void pci_addr_cache_remove_device(struct pci_dev *dev)
 {
 	unsigned long flags;
@@ -226,6 +275,15 @@ void pci_addr_cache_remove_device(struct pci_dev *dev)
 	spin_unlock_irqrestore(&pci_io_addr_cache_root.piar_lock, flags);
 }
 
+/**
+ * pci_addr_cache_build - Build a cache of I/O addresses
+ *
+ * Build a cache of pci i/o addresses.  This cache will be used to
+ * find the pci device that corresponds to a given address.
+ * This routine scans all pci busses to build the cache.
+ * Must be run late in boot process, after the pci controllers
+ * have been scanned for devices (after all device resources are known).
+ */
 void __init pci_addr_cache_build(void)
 {
 	struct device_node *dn;
@@ -245,7 +303,7 @@ void __init pci_addr_cache_build(void)
 		if (!edev)
 			continue;
 
-		pci_dev_get(dev);  
+		pci_dev_get(dev);  /* matching put is in eeh_remove_device() */
 		dev->dev.archdata.edev = edev;
 		edev->pdev = dev;
 
@@ -253,7 +311,7 @@ void __init pci_addr_cache_build(void)
 	}
 
 #ifdef DEBUG
-	
+	/* Verify tree built up above, echo back the list of addrs. */
 	pci_addr_cache_print(&pci_io_addr_cache_root);
 #endif
 }

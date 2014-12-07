@@ -76,7 +76,7 @@ static dma_addr_t octeon_big_phys_to_dma(struct device *dev, phys_addr_t paddr)
 	if (paddr >= 0x410000000ull && paddr < 0x420000000ull)
 		paddr -= 0x400000000ull;
 
-	
+	/* Anything in the BAR1 hole or above goes via BAR2 */
 	if (paddr >= 0xf0000000ull)
 		paddr = OCTEON_BAR2_PCI_ADDRESS + paddr;
 
@@ -99,7 +99,7 @@ static dma_addr_t octeon_small_phys_to_dma(struct device *dev,
 	if (paddr >= 0x410000000ull && paddr < 0x420000000ull)
 		paddr -= 0x400000000ull;
 
-	
+	/* Anything not in the BAR1 range goes via BAR2 */
 	if (paddr >= octeon_bar1_pci_phys && paddr < octeon_bar1_pci_phys + 0x8000000ull)
 		paddr = paddr - octeon_bar1_pci_phys;
 	else
@@ -121,7 +121,7 @@ static phys_addr_t octeon_small_dma_to_phys(struct device *dev,
 	return daddr;
 }
 
-#endif 
+#endif /* CONFIG_PCI */
 
 static dma_addr_t octeon_dma_map_page(struct device *dev, struct page *page,
 	unsigned long offset, size_t size, enum dma_data_direction direction,
@@ -164,7 +164,7 @@ static void *octeon_dma_alloc_coherent(struct device *dev, size_t size,
 	if (dma_alloc_from_coherent(dev, size, dma_handle, &ret))
 		return ret;
 
-	
+	/* ignore region specifiers */
 	gfp &= ~(__GFP_DMA | __GFP_DMA32 | __GFP_HIGHMEM);
 
 #ifdef CONFIG_ZONE_DMA
@@ -181,7 +181,7 @@ static void *octeon_dma_alloc_coherent(struct device *dev, size_t size,
 #endif
 		;
 
-	
+	/* Don't invoke OOM killer */
 	gfp |= __GFP_NORETRY;
 
 	ret = swiotlb_alloc_coherent(dev, size, dma_handle, gfp);
@@ -275,7 +275,7 @@ void __init plat_swiotlb_setup(void)
 		if (e->type != BOOT_MEM_RAM && e->type != BOOT_MEM_INIT_RAM)
 			continue;
 
-		
+		/* These addresses map low for PCI. */
 		if (e->addr > 0x410000000ull && !OCTEON_IS_MODEL(OCTEON_CN6XXX))
 			continue;
 
@@ -289,17 +289,25 @@ void __init plat_swiotlb_setup(void)
 	swiotlbsize = PAGE_SIZE;
 
 #ifdef CONFIG_PCI
+	/*
+	 * For OCTEON_DMA_BAR_TYPE_SMALL, size the iotlb at 1/4 memory
+	 * size to a maximum of 64MB
+	 */
 	if (OCTEON_IS_MODEL(OCTEON_CN31XX)
 	    || OCTEON_IS_MODEL(OCTEON_CN38XX_PASS2)) {
 		swiotlbsize = addr_size / 4;
 		if (swiotlbsize > 64 * (1<<20))
 			swiotlbsize = 64 * (1<<20);
 	} else if (max_addr > 0xf0000000ul) {
+		/*
+		 * Otherwise only allocate a big iotlb if there is
+		 * memory past the BAR1 hole.
+		 */
 		swiotlbsize = 64 * (1<<20);
 	}
 #endif
 #ifdef CONFIG_USB_OCTEON_OHCI
-	
+	/* OCTEON II ohci is only 32-bit. */
 	if (OCTEON_IS_MODEL(OCTEON_CN6XXX) && max_addr >= 0x100000000ul)
 		swiotlbsize = 64 * (1<<20);
 #endif
@@ -358,4 +366,4 @@ void __init octeon_pci_dma_init(void)
 	}
 	octeon_pci_dma_map_ops = &_octeon_pci_dma_map_ops.dma_map_ops;
 }
-#endif 
+#endif /* CONFIG_PCI */

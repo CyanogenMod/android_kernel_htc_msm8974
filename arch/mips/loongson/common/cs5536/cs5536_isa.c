@@ -16,6 +16,7 @@
 #include <cs5536/cs5536.h>
 #include <cs5536/cs5536_pci.h>
 
+/* common variables for PCI_ISA_READ/WRITE_BAR */
 static const u32 divil_msr_reg[6] = {
 	DIVIL_MSR_REG(DIVIL_LBAR_SMB), DIVIL_MSR_REG(DIVIL_LBAR_GPIO),
 	DIVIL_MSR_REG(DIVIL_LBAR_MFGPT), DIVIL_MSR_REG(DIVIL_LBAR_IRQ),
@@ -42,11 +43,20 @@ static const int bar_space_len[6] = {
 	CS5536_IRQ_LENGTH, CS5536_PMS_LENGTH, CS5536_ACPI_LENGTH,
 };
 
+/*
+ * enable the divil module bar space.
+ *
+ * For all the DIVIL module LBAR, you should control the DIVIL LBAR reg
+ * and the RCONFx(0~5) reg to use the modules.
+ */
 static void divil_lbar_enable(void)
 {
 	u32 hi, lo;
 	int offset;
 
+	/*
+	 * The DIVIL IRQ is not used yet. and make the RCONF0 reserved.
+	 */
 
 	for (offset = DIVIL_LBAR_SMB; offset <= DIVIL_LBAR_PMS; offset++) {
 		_rdmsr(DIVIL_MSR_REG(offset), &hi, &lo);
@@ -55,6 +65,9 @@ static void divil_lbar_enable(void)
 	}
 }
 
+/*
+ * disable the divil module bar space.
+ */
 static void divil_lbar_disable(void)
 {
 	u32 hi, lo;
@@ -67,6 +80,9 @@ static void divil_lbar_disable(void)
 	}
 }
 
+/*
+ * BAR write: write value to the n BAR
+ */
 
 void pci_isa_write_bar(int n, u32 value)
 {
@@ -77,12 +93,12 @@ void pci_isa_write_bar(int n, u32 value)
 		lo |= soft_bar_flag[n];
 		_wrmsr(GLCP_MSR_REG(GLCP_SOFT_COM), hi, lo);
 	} else if (value & 0x01) {
-		
+		/* NATIVE reg */
 		hi = 0x0000f001;
 		lo &= bar_space_range[n];
 		_wrmsr(divil_msr_reg[n], hi, lo);
 
-		
+		/* RCONFx is 4bytes in units for I/O space */
 		hi = ((value & 0x000ffffc) << 12) |
 		    ((bar_space_len[n] - 4) << 12) | 0x01;
 		lo = ((value & 0x000ffffc) << 12) | 0x01;
@@ -90,6 +106,9 @@ void pci_isa_write_bar(int n, u32 value)
 	}
 }
 
+/*
+ * BAR read: read the n BAR
+ */
 
 u32 pci_isa_read_bar(int n)
 {
@@ -110,6 +129,11 @@ u32 pci_isa_read_bar(int n)
 	return conf_data;
 }
 
+/*
+ * isa_write: ISA write transfer
+ *
+ * We assume that this is not a bus master transfer.
+ */
 void pci_isa_write_reg(int reg, u32 value)
 {
 	u32 hi = 0, lo = value;
@@ -171,34 +195,39 @@ void pci_isa_write_reg(int reg, u32 value)
 		break;
 	case PCI_UART1_INT_REG:
 		_rdmsr(DIVIL_MSR_REG(PIC_YSEL_HIGH), &hi, &lo);
-		
+		/* disable uart1 interrupt in PIC */
 		lo &= ~(0xf << 24);
-		if (value)	
+		if (value)	/* enable uart1 interrupt in PIC */
 			lo |= (CS5536_UART1_INTR << 24);
 		_wrmsr(DIVIL_MSR_REG(PIC_YSEL_HIGH), hi, lo);
 		break;
 	case PCI_UART2_INT_REG:
 		_rdmsr(DIVIL_MSR_REG(PIC_YSEL_HIGH), &hi, &lo);
-		
+		/* disable uart2 interrupt in PIC */
 		lo &= ~(0xf << 28);
-		if (value)	
+		if (value)	/* enable uart2 interrupt in PIC */
 			lo |= (CS5536_UART2_INTR << 28);
 		_wrmsr(DIVIL_MSR_REG(PIC_YSEL_HIGH), hi, lo);
 		break;
 	case PCI_ISA_FIXUP_REG:
 		if (value) {
-			
+			/* enable the TARGET ABORT/MASTER ABORT etc. */
 			_rdmsr(SB_MSR_REG(SB_ERROR), &hi, &lo);
 			lo |= 0x00000063;
 			_wrmsr(SB_MSR_REG(SB_ERROR), hi, lo);
 		}
 
 	default:
-		
+		/* ALL OTHER PCI CONFIG SPACE HEADER IS NOT IMPLEMENTED. */
 		break;
 	}
 }
 
+/*
+ * isa_read: ISA read transfers
+ *
+ * We assume that this is not a bus master transfer.
+ */
 u32 pci_isa_read_reg(int reg)
 {
 	u32 conf_data = 0;
@@ -210,8 +239,8 @@ u32 pci_isa_read_reg(int reg)
 		    CFG_PCI_VENDOR_ID(CS5536_ISA_DEVICE_ID, CS5536_VENDOR_ID);
 		break;
 	case PCI_COMMAND:
-		
-		
+		/* we just check the first LBAR for the IO enable bit, */
+		/* maybe we should changed later. */
 		_rdmsr(DIVIL_MSR_REG(DIVIL_LBAR_SMB), &hi, &lo);
 		if (hi & 0x01)
 			conf_data |= PCI_COMMAND_IO;
@@ -241,6 +270,10 @@ u32 pci_isa_read_reg(int reg)
 		hi &= 0x000000f8;
 		conf_data = CFG_PCI_CACHE_LINE_SIZE(PCI_BRIDGE_HEADER_TYPE, hi);
 		break;
+		/*
+		 * we only use the LBAR of DIVIL, no RCONF used.
+		 * all of them are IO space.
+		 */
 	case PCI_BAR0_REG:
 		return pci_isa_read_bar(0);
 		break;
@@ -272,7 +305,7 @@ u32 pci_isa_read_reg(int reg)
 		conf_data = PCI_CAPLIST_POINTER;
 		break;
 	case PCI_INTERRUPT_LINE:
-		
+		/* no interrupt used here */
 		conf_data = CFG_PCI_INTERRUPT_LINE(0x00, 0x00);
 		break;
 	default:

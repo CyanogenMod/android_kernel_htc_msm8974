@@ -28,8 +28,33 @@
 
 #include <net/ip_vs.h>
 
+/*
+  This code is to estimate rate in a shorter interval (such as 8
+  seconds) for virtual services and real servers. For measure rate in a
+  long interval, it is easy to implement a user level daemon which
+  periodically reads those statistical counters and measure rate.
+
+  Currently, the measurement is activated by slow timer handler. Hope
+  this measurement will not introduce too much load.
+
+  We measure rate during the last 8 seconds every 2 seconds:
+
+    avgrate = avgrate*(1-W) + rate*W
+
+    where W = 2^(-2)
+
+  NOTES.
+
+  * The stored value for average bps is scaled by 2^5, so that maximal
+    rate is ~2.15Gbits/s, average pps and cps are scaled by 2^10.
+
+  * A lot code is taken from net/sched/estimator.c
+ */
 
 
+/*
+ * Make a summary from each cpu
+ */
 static void ip_vs_read_cpu_stats(struct ip_vs_stats_user *sum,
 				 struct ip_vs_cpu_stats *stats)
 {
@@ -88,7 +113,7 @@ static void estimation_timer(unsigned long arg)
 		n_inbytes = s->ustats.inbytes;
 		n_outbytes = s->ustats.outbytes;
 
-		
+		/* scaled by 2^10, but divided 2 seconds */
 		rate = (n_conns - e->last_conns) << 9;
 		e->last_conns = n_conns;
 		e->cps += ((long)rate - (long)e->cps) >> 2;
@@ -141,7 +166,7 @@ void ip_vs_zero_estimator(struct ip_vs_stats *stats)
 	struct ip_vs_estimator *est = &stats->est;
 	struct ip_vs_stats_user *u = &stats->ustats;
 
-	
+	/* reset counters, caller must hold the stats->lock lock */
 	est->last_inbytes = u->inbytes;
 	est->last_outbytes = u->outbytes;
 	est->last_conns = u->conns;
@@ -154,6 +179,7 @@ void ip_vs_zero_estimator(struct ip_vs_stats *stats)
 	est->outbps = 0;
 }
 
+/* Get decoded rates */
 void ip_vs_read_estimator(struct ip_vs_stats_user *dst,
 			  struct ip_vs_stats *stats)
 {

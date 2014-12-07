@@ -45,22 +45,22 @@
 
 static void __init ecb_at91init_early(void)
 {
-	
+	/* Set cpu type: PQFP */
 	at91rm9200_set_type(ARCH_REVISON_9200_PQFP);
 
-	
+	/* Initialize processor: 18.432 MHz crystal */
 	at91_initialize(18432000);
 
-	
+	/* Setup the LEDs */
 	at91_init_leds(AT91_PIN_PC7, AT91_PIN_PC7);
 
-	
+	/* DBGU on ttyS0. (Rx & Tx only) */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* USART0 on ttyS1. (Rx & Tx only) */
 	at91_register_uart(AT91RM9200_ID_US0, 1, 0);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
@@ -87,7 +87,7 @@ static struct at91_mmc_data __initdata ecb_at91mmc_data = {
 #if defined(CONFIG_MTD_DATAFLASH)
 static struct mtd_partition __initdata my_flash0_partitions[] =
 {
-	{	
+	{	/* 0x8400 */
 		.name	= "Darrell-loader",
 		.offset	= 0,
 		.size	= 12 * 1056,
@@ -97,20 +97,20 @@ static struct mtd_partition __initdata my_flash0_partitions[] =
 		.offset	= MTDPART_OFS_NXTBLK,
 		.size	= 110 * 1056,
 	},
-	{	
+	{	/* 1336 (167 blocks) pages * 1056 bytes = 0x158700 bytes */
 		.name	= "UBoot-env",
 		.offset	= MTDPART_OFS_NXTBLK,
 		.size	= 8 * 1056,
 	},
-	{	
+	{	/* 1336 (167 blocks) pages * 1056 bytes = 0x158700 bytes */
 		.name	= "Kernel",
 		.offset	= MTDPART_OFS_NXTBLK,
 		.size	= 1534 * 1056,
 	},
-	{	
+	{	/* 190200 - jffs2 root filesystem */
 		.name	= "Filesystem",
 		.offset	= MTDPART_OFS_NXTBLK,
-		.size	= MTDPART_SIZ_FULL,	
+		.size	= MTDPART_SIZ_FULL,	/* 26 sectors */
 	}
 };
 
@@ -123,7 +123,7 @@ static struct flash_platform_data __initdata my_flash0_platform = {
 #endif
 
 static struct spi_board_info __initdata ecb_at91spi_devices[] = {
-	{	
+	{	/* DataFlash chip */
 		.modalias	= "mtd_dataflash",
 		.chip_select	= 0,
 		.max_speed_hz	= 10 * 1000 * 1000,
@@ -132,17 +132,17 @@ static struct spi_board_info __initdata ecb_at91spi_devices[] = {
 		.platform_data	= &my_flash0_platform,
 #endif
 	},
-	{	
+	{	/* User accessible spi - cs1 (250KHz) */
 		.modalias	= "spi-cs1",
 		.chip_select	= 1,
 		.max_speed_hz	= 250 * 1000,
 	},
-	{	
+	{	/* User accessible spi - cs2 (1MHz) */
 		.modalias	= "spi-cs2",
 		.chip_select	= 2,
 		.max_speed_hz	= 1 * 1000 * 1000,
 	},
-	{	
+	{	/* User accessible spi - cs3 (10MHz) */
 		.modalias	= "spi-cs3",
 		.chip_select	= 3,
 		.max_speed_hz	= 10 * 1000 * 1000,
@@ -151,27 +151,27 @@ static struct spi_board_info __initdata ecb_at91spi_devices[] = {
 
 static void __init ecb_at91board_init(void)
 {
-	
+	/* Serial */
 	at91_add_device_serial();
 
-	
+	/* Ethernet */
 	at91_add_device_eth(&ecb_at91eth_data);
 
-	
+	/* USB Host */
 	at91_add_device_usbh(&ecb_at91usbh_data);
 
-	
+	/* I2C */
 	at91_add_device_i2c(NULL, 0);
 
-	
+	/* MMC */
 	at91_add_device_mmc(0, &ecb_at91mmc_data);
 
-	
+	/* SPI */
 	at91_add_device_spi(ecb_at91spi_devices, ARRAY_SIZE(ecb_at91spi_devices));
 }
 
 MACHINE_START(ECBAT91, "emQbit's ECB_AT91")
-	
+	/* Maintainer: emQbit.com */
 	.timer		= &at91rm9200_timer,
 	.map_io		= at91_map_io,
 	.init_early	= ecb_at91init_early,

@@ -33,6 +33,7 @@
 #include "ice1712.h"
 #include "hoontech.h"
 
+/* Hoontech-specific setting */
 struct hoontech_spec {
 	unsigned char boxbits[4];
 	unsigned int config;
@@ -85,11 +86,11 @@ static void __devinit snd_ice1712_stdsp24_box_channel(struct snd_ice1712 *ice, i
 
 	mutex_lock(&ice->gpio_mutex);
 
-	
+	/* select box */
 	ICE1712_STDSP24_0_BOX(spec->boxbits, box);
 	snd_ice1712_stdsp24_gpio_write(ice, spec->boxbits[0]);
 
-	
+	/* prepare for write */
 	if (chn == 3)
 		ICE1712_STDSP24_2_CHN4(spec->boxbits, 0);
 	ICE1712_STDSP24_2_MIDI1(spec->boxbits, activate);
@@ -135,7 +136,7 @@ static void __devinit snd_ice1712_stdsp24_box_midi(struct snd_ice1712 *ice, int 
 
 	mutex_lock(&ice->gpio_mutex);
 
-	
+	/* select box */
 	ICE1712_STDSP24_0_BOX(spec->boxbits, box);
 	snd_ice1712_stdsp24_gpio_write(ice, spec->boxbits[0]);
 
@@ -202,8 +203,24 @@ static int __devinit snd_ice1712_hoontech_init(struct snd_ice1712 *ice)
 	ICE1712_STDSP24_3_MUTE(spec->boxbits, 1);
 	ICE1712_STDSP24_3_INSEL(spec->boxbits, 0);
 
-	
+	/* let's go - activate only functions in first box */
 	spec->config = 0;
+			    /* ICE1712_STDSP24_MUTE |
+			       ICE1712_STDSP24_INSEL |
+			       ICE1712_STDSP24_DAREAR; */
+	/*  These boxconfigs have caused problems in the past.
+	 *  The code is not optimal, but should now enable a working config to
+	 *  be achieved.
+	 *  ** MIDI IN can only be configured on one box **
+	 *  ICE1712_STDSP24_BOX_MIDI1 needs to be set for that box.
+	 *  Tests on a ADAC2000 box suggest the box config flags do not
+	 *  work as would be expected, and the inputs are crossed.
+	 *  Setting ICE1712_STDSP24_BOX_MIDI1 and ICE1712_STDSP24_BOX_MIDI2
+	 *  on the same box connects MIDI-In to both 401 uarts; both outputs
+	 *  are then active on all boxes.
+	 *  The default config here sets up everything on the first box.
+	 *  Alan Horstmann  5.2.2008
+	 */
 	spec->boxconfig[0] = ICE1712_STDSP24_BOX_CHN1 |
 				     ICE1712_STDSP24_BOX_CHN2 |
 				     ICE1712_STDSP24_BOX_CHN3 |
@@ -232,7 +249,11 @@ static int __devinit snd_ice1712_hoontech_init(struct snd_ice1712 *ice)
 	return 0;
 }
 
+/*
+ * AK4524 access
+ */
 
+/* start callback for STDSP24 with modified hardware */
 static void stdsp24_ak4524_lock(struct snd_akm4xxx *ak, int chip)
 {
 	struct snd_ice1712 *ice = ak->private_data[0];
@@ -248,7 +269,7 @@ static void stdsp24_ak4524_lock(struct snd_akm4xxx *ak, int chip)
 
 static int __devinit snd_ice1712_value_init(struct snd_ice1712 *ice)
 {
-	
+	/* Hoontech STDSP24 with modified hardware */
 	static struct snd_akm4xxx akm_stdsp24_mv __devinitdata = {
 		.num_adcs = 2,
 		.num_dacs = 2,
@@ -260,7 +281,7 @@ static int __devinit snd_ice1712_value_init(struct snd_ice1712 *ice)
 
 	static struct snd_ak4xxx_private akm_stdsp24_mv_priv __devinitdata = {
 		.caddr = 2,
-		.cif = 1, 
+		.cif = 1, /* CIF high */
 		.data_mask = ICE1712_STDSP24_SERIAL_DATA,
 		.clk_mask = ICE1712_STDSP24_SERIAL_CLOCK,
 		.cs_mask = ICE1712_STDSP24_AK4524_CS,
@@ -272,13 +293,13 @@ static int __devinit snd_ice1712_value_init(struct snd_ice1712 *ice)
 	int err;
 	struct snd_akm4xxx *ak;
 
-	
+	/* set the analog DACs */
 	ice->num_total_dacs = 2;
 
-	
+	/* set the analog ADCs */
 	ice->num_total_adcs = 2;
 	
-	
+	/* analog section */
 	ak = ice->akm = kmalloc(sizeof(struct snd_akm4xxx), GFP_KERNEL);
 	if (! ak)
 		return -ENOMEM;
@@ -288,7 +309,7 @@ static int __devinit snd_ice1712_value_init(struct snd_ice1712 *ice)
 	if (err < 0)
 		return err;
 
-	
+	/* ak4524 controls */
 	err = snd_ice1712_akm4xxx_build_controls(ice);
 	if (err < 0)
 		return err;
@@ -307,6 +328,7 @@ static int __devinit snd_ice1712_ez8_init(struct snd_ice1712 *ice)
 }
 
 
+/* entry point */
 struct snd_ice1712_card_info snd_ice1712_hoontech_cards[] __devinitdata = {
 	{
 		.subvendor = ICE1712_SUBDEVICE_STDSP24,
@@ -317,7 +339,7 @@ struct snd_ice1712_card_info snd_ice1712_hoontech_cards[] __devinitdata = {
 		.mpu401_2_name = "MIDI-2 Hoontech/STA DSP24",
 	},
 	{
-		.subvendor = ICE1712_SUBDEVICE_STDSP24_VALUE,	
+		.subvendor = ICE1712_SUBDEVICE_STDSP24_VALUE,	/* a dummy id */
 		.name = "Hoontech SoundTrack Audio DSP24 Value",
 		.model = "dsp24_value",
 		.chip_init = snd_ice1712_value_init,
@@ -329,10 +351,10 @@ struct snd_ice1712_card_info snd_ice1712_hoontech_cards[] __devinitdata = {
 		.chip_init = snd_ice1712_hoontech_init,
 	},
 	{
-		.subvendor = ICE1712_SUBDEVICE_EVENT_EZ8,	
+		.subvendor = ICE1712_SUBDEVICE_EVENT_EZ8,	/* a dummy id */
 		.name = "Event Electronics EZ8",
 		.model = "ez8",
 		.chip_init = snd_ice1712_ez8_init,
 	},
-	{ } 
+	{ } /* terminator */
 };

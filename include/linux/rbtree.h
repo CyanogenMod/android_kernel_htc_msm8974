@@ -105,7 +105,7 @@ struct rb_node
 	struct rb_node *rb_right;
 	struct rb_node *rb_left;
 } __attribute__((aligned(sizeof(long))));
-    
+    /* The alignment might seem pointless, but allegedly CRIS needs it */
 
 struct rb_root
 {
@@ -155,11 +155,13 @@ extern struct rb_node *rb_augment_erase_begin(struct rb_node *node);
 extern void rb_augment_erase_end(struct rb_node *node,
 				 rb_augment_f func, void *data);
 
+/* Find logical next and previous nodes in a tree */
 extern struct rb_node *rb_next(const struct rb_node *);
 extern struct rb_node *rb_prev(const struct rb_node *);
 extern struct rb_node *rb_first(const struct rb_root *);
 extern struct rb_node *rb_last(const struct rb_root *);
 
+/* Fast replacement of a single node without remove/rebalance/add/rebalance */
 extern void rb_replace_node(struct rb_node *victim, struct rb_node *new, 
 			    struct rb_root *root);
 
@@ -172,4 +174,4 @@ static inline void rb_link_node(struct rb_node * node, struct rb_node * parent,
 	*rb_link = node;
 }
 
-#endif	
+#endif	/* _LINUX_RBTREE_H */

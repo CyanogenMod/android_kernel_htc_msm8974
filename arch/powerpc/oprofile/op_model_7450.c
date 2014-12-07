@@ -53,6 +53,10 @@ static u32 mmcr0_val, mmcr1_val, mmcr2_val, num_pmcs;
 
 #define MMCR0_INIT (MMCR0_FC | MMCR0_FCS | MMCR0_FCP | MMCR0_FCM1 | MMCR0_FCM0)
 
+/* Unfreezes the counters on this CPU, enables the interrupt,
+ * enables the counters to trigger the interrupt, and sets the
+ * counters to only count when the mark bit is not set.
+ */
 static void pmc_start_ctrs(void)
 {
 	u32 mmcr0 = mfspr(SPRN_MMCR0);
@@ -63,6 +67,7 @@ static void pmc_start_ctrs(void)
 	mtspr(SPRN_MMCR0, mmcr0);
 }
 
+/* Disables the counters on this CPU, and freezes them */
 static void pmc_stop_ctrs(void)
 {
 	u32 mmcr0 = mfspr(SPRN_MMCR0);
@@ -73,9 +78,11 @@ static void pmc_stop_ctrs(void)
 	mtspr(SPRN_MMCR0, mmcr0);
 }
 
+/* Configures the counters on this CPU based on the global
+ * settings */
 static int fsl7450_cpu_setup(struct op_counter_config *ctr)
 {
-	
+	/* freeze all counters */
 	pmc_stop_ctrs();
 
 	mtspr(SPRN_MMCR0, mmcr0_val);
@@ -86,6 +93,7 @@ static int fsl7450_cpu_setup(struct op_counter_config *ctr)
 	return 0;
 }
 
+/* Configures the global settings for the countes on all CPUs. */
 static int fsl7450_reg_setup(struct op_counter_config *ctr,
 			     struct op_system_config *sys,
 			     int num_ctrs)
@@ -93,21 +101,26 @@ static int fsl7450_reg_setup(struct op_counter_config *ctr,
 	int i;
 
 	num_pmcs = num_ctrs;
+	/* Our counters count up, and "count" refers to
+	 * how much before the next interrupt, and we interrupt
+	 * on overflow.  So we calculate the starting value
+	 * which will give us "count" until overflow.
+	 * Then we set the events on the enabled counters */
 	for (i = 0; i < num_ctrs; ++i)
 		reset_value[i] = 0x80000000UL - ctr[i].count;
 
-	
+	/* Set events for Counters 1 & 2 */
 	mmcr0_val = MMCR0_INIT | mmcr0_event1(ctr[0].event)
 		| mmcr0_event2(ctr[1].event);
 
-	
+	/* Setup user/kernel bits */
 	if (sys->enable_kernel)
 		mmcr0_val &= ~(MMCR0_FCS);
 
 	if (sys->enable_user)
 		mmcr0_val &= ~(MMCR0_FCP);
 
-	
+	/* Set events for Counters 3-6 */
 	mmcr1_val = mmcr1_event3(ctr[2].event)
 		| mmcr1_event4(ctr[3].event);
 	if (num_ctrs > 4)
@@ -119,6 +132,7 @@ static int fsl7450_reg_setup(struct op_counter_config *ctr,
 	return 0;
 }
 
+/* Sets the counters on this CPU to the chosen values, and starts them */
 static int fsl7450_start(struct op_counter_config *ctr)
 {
 	int i;
@@ -132,6 +146,9 @@ static int fsl7450_start(struct op_counter_config *ctr)
 			classic_ctr_write(i, 0);
 	}
 
+	/* Clear the freeze bit, and enable the interrupt.
+	 * The counters won't actually start until the rfi clears
+	 * the PMM bit */
 	pmc_start_ctrs();
 
 	oprofile_running = 1;
@@ -139,9 +156,10 @@ static int fsl7450_start(struct op_counter_config *ctr)
 	return 0;
 }
 
+/* Stop the counters on this CPU */
 static void fsl7450_stop(void)
 {
-	
+	/* freeze counters */
 	pmc_stop_ctrs();
 
 	oprofile_running = 0;
@@ -150,6 +168,8 @@ static void fsl7450_stop(void)
 }
 
 
+/* Handle the interrupt on this CPU, and log a sample for each
+ * event that triggered the interrupt */
 static void fsl7450_handle_interrupt(struct pt_regs *regs,
 				    struct op_counter_config *ctr)
 {
@@ -158,7 +178,7 @@ static void fsl7450_handle_interrupt(struct pt_regs *regs,
 	int val;
 	int i;
 
-	
+	/* set the PMM bit (see comment below) */
 	mtmsr(mfmsr() | MSR_PMM);
 
 	pc = mfspr(SPRN_SIAR);
@@ -176,7 +196,10 @@ static void fsl7450_handle_interrupt(struct pt_regs *regs,
 		}
 	}
 
-	
+	/* The freeze bit was set by the interrupt. */
+	/* Clear the freeze bit, and reenable the interrupt.
+	 * The counters won't actually start until the rfi clears
+	 * the PM/M bit */
 	pmc_start_ctrs();
 }
 

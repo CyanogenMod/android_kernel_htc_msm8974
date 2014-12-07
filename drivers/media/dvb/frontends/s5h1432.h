@@ -35,24 +35,24 @@
 
 struct s5h1432_config {
 
-	
+	/* serial/parallel output */
 #define S5H1432_PARALLEL_OUTPUT 0
 #define S5H1432_SERIAL_OUTPUT   1
 	u8 output_mode;
 
-	
+	/* GPIO Setting */
 #define S5H1432_GPIO_OFF 0
 #define S5H1432_GPIO_ON  1
 	u8 gpio;
 
-	
+	/* MPEG signal timing */
 #define S5H1432_MPEGTIMING_CONTINOUS_INVERTING_CLOCK       0
 #define S5H1432_MPEGTIMING_CONTINOUS_NONINVERTING_CLOCK    1
 #define S5H1432_MPEGTIMING_NONCONTINOUS_INVERTING_CLOCK    2
 #define S5H1432_MPEGTIMING_NONCONTINOUS_NONINVERTING_CLOCK 3
 	u16 mpeg_timing;
 
-	
+	/* IF Freq for QAM and VSB in KHz */
 #define S5H1432_IF_3250  3250
 #define S5H1432_IF_3500  3500
 #define S5H1432_IF_4000  4000
@@ -63,12 +63,12 @@ struct s5h1432_config {
 	u16 qam_if;
 	u16 vsb_if;
 
-	
+	/* Spectral Inversion */
 #define S5H1432_INVERSION_OFF 0
 #define S5H1432_INVERSION_ON  1
 	u8 inversion;
 
-	
+	/* Return lock status based on tuner lock, or demod lock */
 #define S5H1432_TUNERLOCKING 0
 #define S5H1432_DEMODLOCKING 1
 	u8 status_mode;
@@ -86,6 +86,6 @@ static inline struct dvb_frontend *s5h1432_attach(const struct s5h1432_config
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_s5h1432 */
 
-#endif 
+#endif /* __s5h1432_H__ */

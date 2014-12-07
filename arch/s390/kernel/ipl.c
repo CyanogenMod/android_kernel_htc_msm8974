@@ -43,6 +43,14 @@
 #define DUMP_FCP_STR		"fcp"
 #define DUMP_NONE_STR		"none"
 
+/*
+ * Four shutdown trigger types are supported:
+ * - panic
+ * - halt
+ * - power off
+ * - reipl
+ * - restart
+ */
 #define ON_PANIC_STR		"on_panic"
 #define ON_HALT_STR		"on_halt"
 #define ON_POFF_STR		"on_poff"
@@ -55,6 +63,9 @@ struct shutdown_trigger {
 	struct shutdown_action *action;
 };
 
+/*
+ * The following shutdown action types are supported:
+ */
 #define SHUTDOWN_ACTION_IPL_STR		"ipl"
 #define SHUTDOWN_ACTION_REIPL_STR	"reipl"
 #define SHUTDOWN_ACTION_DUMP_STR	"dump"
@@ -106,6 +117,10 @@ static char *dump_type_str(enum dump_type type)
 	}
 }
 
+/*
+ * Must be in data section since the bss section
+ * is not cleared when these are accessed.
+ */
 static u16 ipl_devno __attribute__((__section__(".data"))) = 0;
 u32 ipl_flags __attribute__((__section__(".data"))) = 0;
 
@@ -166,6 +181,7 @@ int diag308(unsigned long subcode, void *addr)
 }
 EXPORT_SYMBOL_GPL(diag308);
 
+/* SYSFS */
 
 #define DEFINE_IPL_ATTR_RO(_prefix, _name, _format, _value)		\
 static ssize_t sys_##_prefix##_##_name##_show(struct kobject *kobj,	\
@@ -228,6 +244,9 @@ static void make_attrs_ro(struct attribute **attrs)
 	}
 }
 
+/*
+ * ipl section
+ */
 
 static __init enum ipl_type get_ipl_type(void)
 {
@@ -259,6 +278,7 @@ static ssize_t ipl_type_show(struct kobject *kobj, struct kobj_attribute *attr,
 
 static struct kobj_attribute sys_ipl_type_attr = __ATTR_RO(ipl_type);
 
+/* VM IPL PARM routines */
 static size_t reipl_get_ascii_vmparm(char *dest, size_t size,
 				     const struct ipl_parameter_block *ipb)
 {
@@ -272,10 +292,13 @@ static size_t reipl_get_ascii_vmparm(char *dest, size_t size,
 
 		len = min_t(size_t, size - 1, ipb->ipl_info.ccw.vm_parm_len);
 		memcpy(dest, ipb->ipl_info.ccw.vm_parm, len);
+		/* If at least one character is lowercase, we assume mixed
+		 * case; otherwise we convert everything to lowercase.
+		 */
 		for (i = 0; i < len; i++)
-			if ((dest[i] > 0x80 && dest[i] < 0x8a) || 
-			    (dest[i] > 0x90 && dest[i] < 0x9a) || 
-			    (dest[i] > 0xa1 && dest[i] < 0xaa)) { 
+			if ((dest[i] > 0x80 && dest[i] < 0x8a) || /* a-i */
+			    (dest[i] > 0x90 && dest[i] < 0x9a) || /* j-r */
+			    (dest[i] > 0xa1 && dest[i] < 0xaa)) { /* s-z */
 				has_lowercase = 1;
 				break;
 			}
@@ -422,6 +445,7 @@ static struct bin_attribute ipl_scp_data_attr = {
 	.read = ipl_scp_data_read,
 };
 
+/* FCP ipl device attributes */
 
 DEFINE_IPL_ATTR_RO(ipl_fcp, wwpn, "0x%016llx\n", (unsigned long long)
 		   IPL_PARMBLOCK_START->ipl_info.fcp.wwpn);
@@ -446,6 +470,7 @@ static struct attribute_group ipl_fcp_attr_group = {
 	.attrs = ipl_fcp_attrs,
 };
 
+/* CCW ipl device attributes */
 
 static ssize_t ipl_ccw_loadparm_show(struct kobject *kobj,
 				     struct kobj_attribute *attr, char *page)
@@ -486,6 +511,7 @@ static struct attribute_group ipl_ccw_attr_group_lpar = {
 	.attrs = ipl_ccw_attrs_lpar
 };
 
+/* NSS ipl device attributes */
 
 DEFINE_IPL_ATTR_RO(ipl_nss, name, "%s\n", kernel_nss_name);
 
@@ -501,6 +527,7 @@ static struct attribute_group ipl_nss_attr_group = {
 	.attrs = ipl_nss_attrs,
 };
 
+/* UNKNOWN ipl device attributes */
 
 static struct attribute *ipl_unknown_attrs[] = {
 	&sys_ipl_type_attr.attr,
@@ -592,7 +619,11 @@ static struct shutdown_action __refdata ipl_action = {
 	.init	= ipl_init,
 };
 
+/*
+ * reipl shutdown action: Reboot Linux on shutdown.
+ */
 
+/* VM IPL PARM attributes */
 static ssize_t reipl_generic_vmparm_show(struct ipl_parameter_block *ipb,
 					  char *page)
 {
@@ -608,7 +639,7 @@ static ssize_t reipl_generic_vmparm_store(struct ipl_parameter_block *ipb,
 {
 	int i, ip_len;
 
-	
+	/* ignore trailing newline */
 	ip_len = len;
 	if ((len > 0) && (buf[len - 1] == '\n'))
 		ip_len--;
@@ -616,7 +647,7 @@ static ssize_t reipl_generic_vmparm_store(struct ipl_parameter_block *ipb,
 	if (ip_len > vmparm_max)
 		return -EINVAL;
 
-	
+	/* parm is used to store kernel options, check for common chars */
 	for (i = 0; i < ip_len; i++)
 		if (!(isalnum(buf[i]) || isascii(buf[i]) || isprint(buf[i])))
 			return -EINVAL;
@@ -634,6 +665,7 @@ static ssize_t reipl_generic_vmparm_store(struct ipl_parameter_block *ipb,
 	return len;
 }
 
+/* NSS wrapper */
 static ssize_t reipl_nss_vmparm_show(struct kobject *kobj,
 				     struct kobj_attribute *attr, char *page)
 {
@@ -647,6 +679,7 @@ static ssize_t reipl_nss_vmparm_store(struct kobject *kobj,
 	return reipl_generic_vmparm_store(reipl_block_nss, 56, buf, len);
 }
 
+/* CCW wrapper */
 static ssize_t reipl_ccw_vmparm_show(struct kobject *kobj,
 				     struct kobj_attribute *attr, char *page)
 {
@@ -667,6 +700,7 @@ static struct kobj_attribute sys_reipl_ccw_vmparm_attr =
 	__ATTR(parm, S_IRUGO | S_IWUSR, reipl_ccw_vmparm_show,
 					reipl_ccw_vmparm_store);
 
+/* FCP reipl device attributes */
 
 static ssize_t reipl_fcp_scpdata_read(struct file *filp, struct kobject *kobj,
 				      struct bin_attribute *attr,
@@ -745,6 +779,7 @@ static struct attribute_group reipl_fcp_attr_group = {
 	.attrs = reipl_fcp_attrs,
 };
 
+/* CCW reipl device attributes */
 
 DEFINE_IPL_ATTR_RW(reipl_ccw, device, "0.0.%04llx\n", "0.0.%llx\n",
 	reipl_block_ccw->ipl_info.ccw.devno);
@@ -772,28 +807,29 @@ static ssize_t reipl_generic_loadparm_store(struct ipl_parameter_block *ipb,
 {
 	int i, lp_len;
 
-	
+	/* ignore trailing newline */
 	lp_len = len;
 	if ((len > 0) && (buf[len - 1] == '\n'))
 		lp_len--;
-	
+	/* loadparm can have max 8 characters and must not start with a blank */
 	if ((lp_len > LOADPARM_LEN) || ((lp_len > 0) && (buf[0] == ' ')))
 		return -EINVAL;
-	
+	/* loadparm can only contain "a-z,A-Z,0-9,SP,." */
 	for (i = 0; i < lp_len; i++) {
 		if (isalpha(buf[i]) || isdigit(buf[i]) || (buf[i] == ' ') ||
 		    (buf[i] == '.'))
 			continue;
 		return -EINVAL;
 	}
-	
+	/* initialize loadparm with blanks */
 	memset(ipb->ipl_info.ccw.load_parm, ' ', LOADPARM_LEN);
-	
+	/* copy and convert to ebcdic */
 	memcpy(ipb->ipl_info.ccw.load_parm, buf, lp_len);
 	ASCEBC(ipb->ipl_info.ccw.load_parm, LOADPARM_LEN);
 	return len;
 }
 
+/* NSS wrapper */
 static ssize_t reipl_nss_loadparm_show(struct kobject *kobj,
 				       struct kobj_attribute *attr, char *page)
 {
@@ -807,6 +843,7 @@ static ssize_t reipl_nss_loadparm_store(struct kobject *kobj,
 	return reipl_generic_loadparm_store(reipl_block_nss, buf, len);
 }
 
+/* CCW wrapper */
 static ssize_t reipl_ccw_loadparm_show(struct kobject *kobj,
 				       struct kobj_attribute *attr, char *page)
 {
@@ -848,6 +885,7 @@ static struct attribute_group reipl_ccw_attr_group_lpar = {
 };
 
 
+/* NSS reipl device attributes */
 static void reipl_get_ascii_nss_name(char *dst,
 				     struct ipl_parameter_block *ipb)
 {
@@ -871,7 +909,7 @@ static ssize_t reipl_nss_name_store(struct kobject *kobj,
 {
 	int nss_len;
 
-	
+	/* ignore trailing newline */
 	nss_len = len;
 	if ((len > 0) && (buf[len - 1] == '\n'))
 		nss_len--;
@@ -921,6 +959,7 @@ static void set_reipl_block_actual(struct ipl_parameter_block *reipl_block)
 			  reipl_block->hdr.len);
 }
 
+/* reipl type */
 
 static int reipl_set_type(enum ipl_type type)
 {
@@ -1084,17 +1123,17 @@ static void reipl_block_ccw_init(struct ipl_parameter_block *ipb)
 
 static void reipl_block_ccw_fill_parms(struct ipl_parameter_block *ipb)
 {
-	
-	
+	/* LOADPARM */
+	/* check if read scp info worked and set loadparm */
 	if (sclp_ipl_info.is_valid)
 		memcpy(ipb->ipl_info.ccw.load_parm,
 				&sclp_ipl_info.loadparm, LOADPARM_LEN);
 	else
-		
+		/* read scp info failed: set empty loadparm (EBCDIC blanks) */
 		memset(ipb->ipl_info.ccw.load_parm, 0x40, LOADPARM_LEN);
 	ipb->hdr.flags = DIAG308_FLAGS_LP_VALID;
 
-	
+	/* VM PARM */
 	if (MACHINE_IS_VM && diag308_set_works &&
 	    (ipl_block.ipl_info.ccw.vm_flags & DIAG308_VM_FLAGS_VP_VALID)) {
 
@@ -1189,7 +1228,7 @@ static int __init reipl_fcp_init(void)
 	if (!reipl_block_fcp)
 		return -ENOMEM;
 
-	
+	/* sysfs: create fcp kset for mixing attr group and bin attrs */
 	reipl_fcp_kset = kset_create_and_add(IPL_FCP_STR, NULL,
 					     &reipl_kset->kobj);
 	if (!reipl_fcp_kset) {
@@ -1235,6 +1274,9 @@ static int __init reipl_type_init(void)
 	reipl_block = os_info_old_entry(OS_INFO_REIPL_BLOCK, &size);
 	if (!reipl_block)
 		goto out;
+	/*
+	 * If we have an OS info reipl block, this will be used
+	 */
 	if (reipl_block->hdr.pbt == DIAG308_IPL_TYPE_FCP) {
 		memcpy(reipl_block_fcp, reipl_block, size);
 		reipl_type = IPL_TYPE_FCP;
@@ -1276,7 +1318,11 @@ static struct shutdown_action __refdata reipl_action = {
 	.init	= reipl_init,
 };
 
+/*
+ * dump shutdown action: Dump Linux on shutdown.
+ */
 
+/* FCP dump device attributes */
 
 DEFINE_IPL_ATTR_RW(dump_fcp, wwpn, "0x%016llx\n", "%016llx\n",
 		   dump_block_fcp->ipl_info.fcp.wwpn);
@@ -1303,6 +1349,7 @@ static struct attribute_group dump_fcp_attr_group = {
 	.attrs = dump_fcp_attrs,
 };
 
+/* CCW dump device attributes */
 
 DEFINE_IPL_ATTR_RW(dump_ccw, device, "0.0.%04llx\n", "0.0.%llx\n",
 		   dump_block_ccw->ipl_info.ccw.devno);
@@ -1317,6 +1364,7 @@ static struct attribute_group dump_ccw_attr_group = {
 	.attrs = dump_ccw_attrs,
 };
 
+/* dump type */
 
 static int dump_set_type(enum dump_type type)
 {
@@ -1430,7 +1478,7 @@ static int __init dump_fcp_init(void)
 	int rc;
 
 	if (!sclp_ipl_info.has_dump)
-		return 0; 
+		return 0; /* LDIPL DUMP is not installed */
 	if (!diag308_set_works)
 		return 0;
 	dump_block_fcp = (void *) get_zeroed_page(GFP_KERNEL);
@@ -1503,6 +1551,9 @@ static struct shutdown_action __refdata dump_reipl_action = {
 	.init	= dump_reipl_init,
 };
 
+/*
+ * vmcmd shutdown action: Trigger vm command on shutdown.
+ */
 
 static char vmcmd_on_reboot[128];
 static char vmcmd_on_panic[128];
@@ -1574,6 +1625,9 @@ static int vmcmd_init(void)
 static struct shutdown_action vmcmd_action = {SHUTDOWN_ACTION_VMCMD_STR,
 					      vmcmd_run, vmcmd_init};
 
+/*
+ * stop shutdown action: Stop Linux on shutdown.
+ */
 
 static void stop_run(struct shutdown_trigger *trigger)
 {
@@ -1586,12 +1640,16 @@ static void stop_run(struct shutdown_trigger *trigger)
 static struct shutdown_action stop_action = {SHUTDOWN_ACTION_STOP_STR,
 					     stop_run, NULL};
 
+/* action list */
 
 static struct shutdown_action *shutdown_actions_list[] = {
 	&ipl_action, &reipl_action, &dump_reipl_action, &dump_action,
 	&vmcmd_action, &stop_action};
 #define SHUTDOWN_ACTIONS_COUNT (sizeof(shutdown_actions_list) / sizeof(void *))
 
+/*
+ * Trigger section
+ */
 
 static struct kset *shutdown_actions_kset;
 
@@ -1613,6 +1671,7 @@ static int set_trigger(const char *buf, struct shutdown_trigger *trigger,
 	return -EINVAL;
 }
 
+/* on reipl */
 
 static struct shutdown_trigger on_reboot_trigger = {ON_REIPL_STR,
 						    &reipl_action};
@@ -1641,6 +1700,7 @@ static void do_machine_restart(char *__unused)
 }
 void (*_machine_restart)(char *command) = do_machine_restart;
 
+/* on panic */
 
 static struct shutdown_trigger on_panic_trigger = {ON_PANIC_STR, &stop_action};
 
@@ -1667,6 +1727,7 @@ static void do_panic(void)
 	stop_run(&on_panic_trigger);
 }
 
+/* on restart */
 
 static struct shutdown_trigger on_restart_trigger = {ON_RESTART_STR,
 	&stop_action};
@@ -1705,6 +1766,7 @@ void do_restart(void)
 	smp_call_online_cpu(__do_restart, NULL);
 }
 
+/* on halt */
 
 static struct shutdown_trigger on_halt_trigger = {ON_HALT_STR, &stop_action};
 
@@ -1733,6 +1795,7 @@ static void do_machine_halt(void)
 }
 void (*_machine_halt)(void) = do_machine_halt;
 
+/* on power off */
 
 static struct shutdown_trigger on_poff_trigger = {ON_POFF_STR, &stop_action};
 
@@ -1900,7 +1963,7 @@ void __init setup_ipl(void)
 			sizeof(ipl_info.data.nss.name));
 		break;
 	case IPL_TYPE_UNKNOWN:
-		
+		/* We have no info to copy */
 		break;
 	}
 	atomic_notifier_chain_register(&panic_notifier_list, &on_panic_nb);
@@ -1975,29 +2038,29 @@ void s390_reset_system(void (*func)(void *), void *data)
 
 	lc = (struct _lowcore *)(unsigned long) store_prefix();
 
-	
+	/* Stack for interrupt/machine check handler */
 	lc->panic_stack = S390_lowcore.panic_stack;
 
-	
+	/* Save prefix page address for dump case */
 	dump_prefix_page = (u32)(unsigned long) lc;
 
-	
+	/* Disable prefixing */
 	set_prefix(0);
 
-	
+	/* Disable lowcore protection */
 	__ctl_clear_bit(0,28);
 
-	
+	/* Set new machine check handler */
 	S390_lowcore.mcck_new_psw.mask = psw_kernel_bits | PSW_MASK_DAT;
 	S390_lowcore.mcck_new_psw.addr =
 		PSW_ADDR_AMODE | (unsigned long) s390_base_mcck_handler;
 
-	
+	/* Set new program check handler */
 	S390_lowcore.program_new_psw.mask = psw_kernel_bits | PSW_MASK_DAT;
 	S390_lowcore.program_new_psw.addr =
 		PSW_ADDR_AMODE | (unsigned long) s390_base_pgm_handler;
 
-	
+	/* Store status at absolute zero */
 	store_status();
 
 	do_reset_calls();

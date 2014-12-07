@@ -26,45 +26,83 @@
 #define X38_RANKS_PER_CHANNEL	4
 #define X38_CHANNELS		2
 
+/* Intel X38 register addresses - device 0 function 0 - DRAM Controller */
 
-#define X38_MCHBAR_LOW	0x48	
+#define X38_MCHBAR_LOW	0x48	/* MCH Memory Mapped Register BAR */
 #define X38_MCHBAR_HIGH	0x4c
-#define X38_MCHBAR_MASK	0xfffffc000ULL	
+#define X38_MCHBAR_MASK	0xfffffc000ULL	/* bits 35:14 */
 #define X38_MMR_WINDOW_SIZE	16384
 
-#define X38_TOM	0xa0	
-#define X38_TOM_MASK	0x3ff	
-#define X38_TOM_SHIFT 26	
+#define X38_TOM	0xa0	/* Top of Memory (16b)
+				 *
+				 * 15:10 reserved
+				 *  9:0  total populated physical memory
+				 */
+#define X38_TOM_MASK	0x3ff	/* bits 9:0 */
+#define X38_TOM_SHIFT 26	/* 64MiB grain */
 
-#define X38_ERRSTS	0xc8	
+#define X38_ERRSTS	0xc8	/* Error Status Register (16b)
+				 *
+				 * 15    reserved
+				 * 14    Isochronous TBWRR Run Behind FIFO Full
+				 *       (ITCV)
+				 * 13    Isochronous TBWRR Run Behind FIFO Put
+				 *       (ITSTV)
+				 * 12    reserved
+				 * 11    MCH Thermal Sensor Event
+				 *       for SMI/SCI/SERR (GTSE)
+				 * 10    reserved
+				 *  9    LOCK to non-DRAM Memory Flag (LCKF)
+				 *  8    reserved
+				 *  7    DRAM Throttle Flag (DTF)
+				 *  6:2  reserved
+				 *  1    Multi-bit DRAM ECC Error Flag (DMERR)
+				 *  0    Single-bit DRAM ECC Error Flag (DSERR)
+				 */
 #define X38_ERRSTS_UE		0x0002
 #define X38_ERRSTS_CE		0x0001
 #define X38_ERRSTS_BITS	(X38_ERRSTS_UE | X38_ERRSTS_CE)
 
 
+/* Intel  MMIO register space - device 0 function 0 - MMR space */
 
-#define X38_C0DRB	0x200	
-#define X38_C1DRB	0x600	
-#define X38_DRB_MASK	0x3ff	
-#define X38_DRB_SHIFT 26	
+#define X38_C0DRB	0x200	/* Channel 0 DRAM Rank Boundary (16b x 4)
+				 *
+				 * 15:10 reserved
+				 *  9:0  Channel 0 DRAM Rank Boundary Address
+				 */
+#define X38_C1DRB	0x600	/* Channel 1 DRAM Rank Boundary (16b x 4) */
+#define X38_DRB_MASK	0x3ff	/* bits 9:0 */
+#define X38_DRB_SHIFT 26	/* 64MiB grain */
 
-#define X38_C0ECCERRLOG 0x280	
-#define X38_C1ECCERRLOG 0x680	
+#define X38_C0ECCERRLOG 0x280	/* Channel 0 ECC Error Log (64b)
+				 *
+				 * 63:48 Error Column Address (ERRCOL)
+				 * 47:32 Error Row Address (ERRROW)
+				 * 31:29 Error Bank Address (ERRBANK)
+				 * 28:27 Error Rank Address (ERRRANK)
+				 * 26:24 reserved
+				 * 23:16 Error Syndrome (ERRSYND)
+				 * 15: 2 reserved
+				 *    1  Multiple Bit Error Status (MERRSTS)
+				 *    0  Correctable Error Status (CERRSTS)
+				 */
+#define X38_C1ECCERRLOG 0x680	/* Channel 1 ECC Error Log (64b) */
 #define X38_ECCERRLOG_CE	0x1
 #define X38_ECCERRLOG_UE	0x2
 #define X38_ECCERRLOG_RANK_BITS	0x18000000
 #define X38_ECCERRLOG_SYNDROME_BITS	0xff0000
 
-#define X38_CAPID0 0xe0	
+#define X38_CAPID0 0xe0	/* see P.94 of spec for details */
 
 static int x38_channel_num;
 
 static int how_many_channel(struct pci_dev *pdev)
 {
-	unsigned char capid0_8b; 
+	unsigned char capid0_8b; /* 8th byte of CAPID0 */
 
 	pci_read_config_byte(pdev, X38_CAPID0 + 8, &capid0_8b);
-	if (capid0_8b & 0x20) {	
+	if (capid0_8b & 0x20) {	/* check DCD: Dual Channel Disable */
 		debugf0("In single channel mode.\n");
 		x38_channel_num = 1;
 	} else {
@@ -115,6 +153,10 @@ static void x38_clear_error_info(struct mem_ctl_info *mci)
 
 	pdev = to_pci_dev(mci->dev);
 
+	/*
+	 * Clear any error bits.
+	 * (Yes, we really clear bits by writing 1 to them.)
+	 */
 	pci_write_bits16(pdev, X38_ERRSTS, X38_ERRSTS_BITS,
 			 X38_ERRSTS_BITS);
 }
@@ -147,6 +189,12 @@ static void x38_get_and_clear_error_info(struct mem_ctl_info *mci,
 
 	pci_read_config_word(pdev, X38_ERRSTS, &info->errsts2);
 
+	/*
+	 * If the error is the same for both reads then the first set
+	 * of reads is valid.  If there is a change then there is a CE
+	 * with no info and the second set of reads is valid and
+	 * should be UE info.
+	 */
 	if ((info->errsts ^ info->errsts2) & X38_ERRSTS_BITS) {
 		info->eccerrlog[0] = x38_readq(window + X38_C0ECCERRLOG);
 		if (x38_channel_num == 2)
@@ -286,7 +334,7 @@ static int x38_probe1(struct pci_dev *pdev, int dev_idx)
 
 	how_many_channel(pdev);
 
-	
+	/* FIXME: unconventional pvt_info usage */
 	mci = edac_mc_alloc(0, X38_RANKS, x38_channel_num, 0);
 	if (!mci)
 		return -ENOMEM;
@@ -309,6 +357,12 @@ static int x38_probe1(struct pci_dev *pdev, int dev_idx)
 
 	stacked = x38_is_stacked(pdev, drbs);
 
+	/*
+	 * The dram rank boundary (DRB) reg values are boundary addresses
+	 * for each DRAM rank with a granularity of 64MB.  DRB regs are
+	 * cumulative; the last one will contain the total memory
+	 * contained in all ranks.
+	 */
 	last_page = -1UL;
 	for (i = 0; i < mci->nr_csrows; i++) {
 		unsigned long nr_pages;
@@ -342,7 +396,7 @@ static int x38_probe1(struct pci_dev *pdev, int dev_idx)
 		goto fail;
 	}
 
-	
+	/* get this far and it's successful */
 	debugf3("MC: %s(): success\n", __func__);
 	return 0;
 
@@ -392,7 +446,7 @@ static DEFINE_PCI_DEVICE_TABLE(x38_pci_tbl) = {
 	 X38},
 	{
 	 0,
-	 }			
+	 }			/* 0 terminated list. */
 };
 
 MODULE_DEVICE_TABLE(pci, x38_pci_tbl);
@@ -410,7 +464,7 @@ static int __init x38_init(void)
 
 	debugf3("MC: %s()\n", __func__);
 
-	
+	/* Ensure that the OPSTATE is set correctly for POLL or NMI */
 	opstate_init();
 
 	pci_rc = pci_register_driver(&x38_driver);

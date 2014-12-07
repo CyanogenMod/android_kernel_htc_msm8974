@@ -10,10 +10,21 @@
 
 #include <linux/ptrace.h>
 
+/*
+ * BUFMAX defines the maximum number of characters in inbound/outbound buffers.
+ * At least NUMREGBYTES*2 are needed for register packets.
+ * Longer buffer is needed to list all threads.
+ */
 #define BUFMAX 2048
 
+/*
+ * Note that this register image is different from
+ * the register image that Linux produces at interrupt time.
+ *
+ * Linux's register image is defined by struct pt_regs in ptrace.h.
+ */
 enum regnames {
-  
+  /* Core Registers */
   BFIN_R0 = 0,
   BFIN_R1,
   BFIN_R2,
@@ -68,22 +79,23 @@ enum regnames {
   BFIN_RETN,
   BFIN_RETE,
 
-  
+  /* Pseudo Registers */
   BFIN_PC,
   BFIN_CC,
-  BFIN_EXTRA1,		
-  BFIN_EXTRA2,		
-  BFIN_EXTRA3,		
+  BFIN_EXTRA1,		/* Address of .text section.  */
+  BFIN_EXTRA2,		/* Address of .data section.  */
+  BFIN_EXTRA3,		/* Address of .bss section.  */
   BFIN_FDPIC_EXEC,
   BFIN_FDPIC_INTERP,
 
-  
+  /* MMRs */
   BFIN_IPEND,
 
-  
-  BFIN_NUM_REGS		
+  /* LAST ENTRY SHOULD NOT BE CHANGED.  */
+  BFIN_NUM_REGS		/* The number of all registers.  */
 };
 
+/* Number of bytes of registers.  */
 #define NUMREGBYTES BFIN_NUM_REGS*4
 
 static inline void arch_kgdb_breakpoint(void)
@@ -103,6 +115,7 @@ static inline void arch_kgdb_breakpoint(void)
 #define TYPE_INST_WATCHPOINT	0
 #define TYPE_DATA_WATCHPOINT	1
 
+/* Instruction watchpoint address control register bits mask */
 #define WPPWR		0x1
 #define WPIREN01	0x2
 #define WPIRINV01	0x4
@@ -130,6 +143,7 @@ static inline void arch_kgdb_breakpoint(void)
 #define EMUSW5		0x1000000
 #define WPAND		0x2000000
 
+/* Data watchpoint address control register bits mask */
 #define WPDREN01	0x1
 #define WPDRINV01	0x2
 #define WPDAEN0		0x4
@@ -142,6 +156,7 @@ static inline void arch_kgdb_breakpoint(void)
 #define WPDSRC1		0xc00
 #define WPDACC1_OFFSET	12
 
+/* Watchpoint status register bits mask */
 #define STATIA0		0x1
 #define STATIA1		0x2
 #define STATIA2		0x4

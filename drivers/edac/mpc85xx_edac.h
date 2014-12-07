@@ -20,7 +20,11 @@
 #define mpc85xx_mc_printk(mci, level, fmt, arg...) \
 	edac_mc_chipset_printk(mci, level, "MPC85xx", fmt, ##arg)
 
+/*
+ * DRAM error defines
+ */
 
+/* DDR_SDRAM_CFG */
 #define MPC85XX_MC_DDR_SDRAM_CFG	0x0110
 #define MPC85XX_MC_CS_BNDS_0		0x0000
 #define MPC85XX_MC_CS_BNDS_1		0x0008
@@ -55,19 +59,25 @@
 #define DSC_SDTYPE_DDR3		0x07000000
 #define DSC_X32_EN	0x00000020
 
-#define DDR_EIE_MSEE	0x1	
-#define DDR_EIE_SBEE	0x4	
-#define DDR_EIE_MBEE	0x8	
+/* Err_Int_En */
+#define DDR_EIE_MSEE	0x1	/* memory select */
+#define DDR_EIE_SBEE	0x4	/* single-bit ECC error */
+#define DDR_EIE_MBEE	0x8	/* multi-bit ECC error */
 
-#define DDR_EDE_MSE		0x1	
-#define DDR_EDE_SBE		0x4	
-#define DDR_EDE_MBE		0x8	
-#define DDR_EDE_MME		0x80000000	
+/* Err_Detect */
+#define DDR_EDE_MSE		0x1	/* memory select */
+#define DDR_EDE_SBE		0x4	/* single-bit ECC error */
+#define DDR_EDE_MBE		0x8	/* multi-bit ECC error */
+#define DDR_EDE_MME		0x80000000	/* multiple memory errors */
 
-#define DDR_EDI_MSED	0x1	
-#define	DDR_EDI_SBED	0x4	
-#define	DDR_EDI_MBED	0x8	
+/* Err_Disable */
+#define DDR_EDI_MSED	0x1	/* memory select disable */
+#define	DDR_EDI_SBED	0x4	/* single-bit ECC error disable */
+#define	DDR_EDI_MBED	0x8	/* multi-bit ECC error disable */
 
+/*
+ * L2 Err defines
+ */
 #define MPC85XX_L2_ERRINJHI	0x0000
 #define MPC85XX_L2_ERRINJLO	0x0004
 #define MPC85XX_L2_ERRINJCTL	0x0008
@@ -81,6 +91,7 @@
 #define MPC85XX_L2_ERRADDR	0x0050
 #define MPC85XX_L2_ERRCTL	0x0058
 
+/* Error Interrupt Enable */
 #define L2_EIE_L2CFGINTEN	0x1
 #define L2_EIE_SBECCINTEN	0x4
 #define L2_EIE_MBECCINTEN	0x8
@@ -88,6 +99,7 @@
 #define L2_EIE_MASK	(L2_EIE_L2CFGINTEN | L2_EIE_SBECCINTEN | \
 			L2_EIE_MBECCINTEN | L2_EIE_TPARINTEN)
 
+/* Error Detect */
 #define L2_EDE_L2CFGERR		0x1
 #define L2_EDE_SBECCERR		0x4
 #define L2_EDE_MBECCERR		0x8
@@ -100,6 +112,9 @@
 #define L2_EDE_MASK	(L2_EDE_L2CFGERR | L2_EDE_SBECCERR | \
 			L2_EDE_MBECCERR | L2_EDE_TPARERR | L2_EDE_MULL2ERR)
 
+/*
+ * PCI Err defines
+ */
 #define PCI_EDE_TOE			0x00000001
 #define PCI_EDE_SCM			0x00000002
 #define PCI_EDE_IRMSV			0x00000004

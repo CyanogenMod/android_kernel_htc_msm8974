@@ -22,11 +22,18 @@
  *          Adrian Hunter
  */
 
+/* This file implements EXT2-compatible extended attribute ioctl() calls */
 
 #include <linux/compat.h>
 #include <linux/mount.h>
 #include "ubifs.h"
 
+/**
+ * ubifs_set_inode_flags - set VFS inode flags.
+ * @inode: VFS inode to set flags for
+ *
+ * This function propagates flags from UBIFS inode object to VFS inode object.
+ */
 void ubifs_set_inode_flags(struct inode *inode)
 {
 	unsigned int flags = ubifs_inode(inode)->flags;
@@ -42,6 +49,13 @@ void ubifs_set_inode_flags(struct inode *inode)
 		inode->i_flags |= S_DIRSYNC;
 }
 
+/*
+ * ioctl2ubifs - convert ioctl inode flags to UBIFS inode flags.
+ * @ioctl_flags: flags to convert
+ *
+ * This function convert ioctl flags (@FS_COMPR_FL, etc) to UBIFS inode flags
+ * (@UBIFS_COMPR_FL, etc).
+ */
 static int ioctl2ubifs(int ioctl_flags)
 {
 	int ubifs_flags = 0;
@@ -60,6 +74,13 @@ static int ioctl2ubifs(int ioctl_flags)
 	return ubifs_flags;
 }
 
+/*
+ * ubifs2ioctl - convert UBIFS inode flags to ioctl inode flags.
+ * @ubifs_flags: flags to convert
+ *
+ * This function convert UBIFS (@UBIFS_COMPR_FL, etc) to ioctl flags
+ * (@FS_COMPR_FL, etc).
+ */
 static int ubifs2ioctl(int ubifs_flags)
 {
 	int ioctl_flags = 0;
@@ -90,6 +111,10 @@ static int setflags(struct inode *inode, int flags)
 	if (err)
 		return err;
 
+	/*
+	 * The IMMUTABLE and APPEND_ONLY flags can only be changed by
+	 * the relevant capability.
+	 */
 	mutex_lock(&ui->ui_mutex);
 	oldflags = ubifs2ioctl(ui->flags);
 	if ((flags ^ oldflags) & (FS_APPEND_FL | FS_IMMUTABLE_FL)) {
@@ -144,6 +169,10 @@ long ubifs_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (!S_ISDIR(inode->i_mode))
 			flags &= ~FS_DIRSYNC_FL;
 
+		/*
+		 * Make sure the file-system is read-write and make sure it
+		 * will not become read-only while we are changing the flags.
+		 */
 		err = mnt_want_write_file(file);
 		if (err)
 			return err;

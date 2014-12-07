@@ -1,3 +1,4 @@
+/* net/atm/addr.c - Local ATM address registry */
 
 /* Written 1995-2000 by Werner Almesberger, EPFL LRC/ICA */
 
@@ -17,7 +18,7 @@ static int check_addr(const struct sockaddr_atmsvc *addr)
 		return -EAFNOSUPPORT;
 	if (!*addr->sas_addr.pub)
 		return *addr->sas_addr.prv ? 0 : -EINVAL;
-	for (i = 1; i < ATM_E164_LEN + 1; i++)	
+	for (i = 1; i < ATM_E164_LEN + 1; i++)	/* make sure it's \0-terminated */
 		if (!addr->sas_addr.pub[i])
 			return 0;
 	return -EINVAL;

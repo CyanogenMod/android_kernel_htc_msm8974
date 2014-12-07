@@ -21,6 +21,9 @@
 
 #define DLPAR_KOBJ_NAME       "control"
 
+/* Those two have no quotes because they are passed to __ATTR() which
+ * stringifies the argument (yuck !)
+ */
 #define ADD_SLOT_ATTR_NAME    add_slot
 #define REMOVE_SLOT_ATTR_NAME remove_slot
 

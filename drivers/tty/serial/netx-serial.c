@@ -36,6 +36,7 @@
 #include <mach/hardware.h>
 #include <mach/netx-regs.h>
 
+/* We've been assigned a range on the "Low-density serial ports" major */
 #define SERIAL_NX_MAJOR	204
 #define MINOR_START	170
 
@@ -152,6 +153,8 @@ static inline void netx_transmit_buffer(struct uart_port *port)
 	}
 
 	do {
+		/* send xmit->buf[xmit->tail]
+		 * out the port here */
 		writel(xmit->buf[xmit->tail], port->membase + UART_DR);
 		xmit->tail = (xmit->tail + 1) &
 		         (UART_XMIT_SIZE - 1);
@@ -280,7 +283,7 @@ static void netx_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
 	unsigned int val;
 
-	
+	/* FIXME: Locking needed ? */
 	if (mctrl & TIOCM_RTS) {
 		val = readl(port->membase + UART_RTS_CR);
 		writel(val | RTS_CR_RTS, port->membase + UART_RTS_CR);
@@ -378,17 +381,17 @@ netx_set_termios(struct uart_port *port, struct ktermios *termios,
 
 	old_cr = readl(port->membase + UART_CR);
 
-	
+	/* disable interrupts */
 	writel(old_cr & ~(CR_MSIE | CR_RIE | CR_TIE | CR_RTIE),
 		port->membase + UART_CR);
 
-	
+	/* drain transmitter */
 	while (readl(port->membase + UART_FR) & FR_BUSY);
 
-	
+	/* disable UART */
 	writel(old_cr & ~CR_UART_EN, port->membase + UART_CR);
 
-	
+	/* modem status interrupts */
 	old_cr &= ~CR_MSIE;
 	if (UART_ENABLE_MS(port, termios->c_cflag))
 		old_cr |= CR_MSIE;
@@ -399,11 +402,18 @@ netx_set_termios(struct uart_port *port, struct ktermios *termios,
 
 	writel(rts_cr, port->membase + UART_RTS_CR);
 
+	/*
+	 * Characters to ignore
+	 */
 	port->ignore_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		port->ignore_status_mask |= SR_PE;
 	if (termios->c_iflag & IGNBRK) {
 		port->ignore_status_mask |= SR_BE;
+		/*
+		 * If we're ignoring parity and break indicators,
+		 * ignore overruns too (for real raw support).
+		 */
 		if (termios->c_iflag & IGNPAR)
 			port->ignore_status_mask |= SR_PE;
 	}
@@ -588,6 +598,11 @@ netx_console_setup(struct console *co, char *options)
 	int parity = 'n';
 	int flow = 'n';
 
+	/*
+	 * Check whether an invalid uart number has been specified, and
+	 * if so, search for the first available port that does have
+	 * console support.
+	 */
 	if (co->index == -1 || co->index >= ARRAY_SIZE(netx_ports))
 		co->index = 0;
 	sport = &netx_ports[co->index];
@@ -595,6 +610,9 @@ netx_console_setup(struct console *co, char *options)
 	if (options) {
 		uart_parse_options(options, &baud, &parity, &bits, &flow);
 	} else {
+		/* if the UART is enabled, assume it has been correctly setup
+		 * by the bootloader and get the options
+		 */
 		if (readl(sport->port.membase + UART_CR) & CR_UART_EN) {
 			netx_console_get_options(&sport->port, &baud,
 			&parity, &bits, &flow);

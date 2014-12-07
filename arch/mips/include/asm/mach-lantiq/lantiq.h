@@ -10,6 +10,7 @@
 
 #include <linux/irq.h>
 
+/* generic reg access functions */
 #define ltq_r32(reg)		__raw_readl(reg)
 #define ltq_w32(val, reg)	__raw_writel(val, reg)
 #define ltq_w32_mask(clear, set, reg)	\
@@ -17,6 +18,7 @@
 #define ltq_r8(reg)		__raw_readb(reg)
 #define ltq_w8(val, reg)	__raw_writeb(val, reg)
 
+/* register access macros for EBU and CGU */
 #define ltq_ebu_w32(x, y)	ltq_w32((x), ltq_ebu_membase + (y))
 #define ltq_ebu_r32(x)		ltq_r32(ltq_ebu_membase + (x))
 #define ltq_cgu_w32(x, y)	ltq_w32((x), ltq_cgu_membase + (y))
@@ -28,6 +30,7 @@ extern __iomem void *ltq_cgu_membase;
 extern unsigned int ltq_get_cpu_ver(void);
 extern unsigned int ltq_get_soc_type(void);
 
+/* clock speeds */
 #define CLOCK_60M	60000000
 #define CLOCK_83M	83333333
 #define CLOCK_111M	111111111
@@ -38,12 +41,15 @@ extern unsigned int ltq_get_soc_type(void);
 #define CLOCK_333M	333333333
 #define CLOCK_400M	400000000
 
+/* spinlock all ebu i/o */
 extern spinlock_t ebu_lock;
 
+/* some irq helpers */
 extern void ltq_disable_irq(struct irq_data *data);
 extern void ltq_mask_and_ack_irq(struct irq_data *data);
 extern void ltq_enable_irq(struct irq_data *data);
 
+/* find out what caused the last cpu reset */
 extern int ltq_reset_cause(void);
 #define LTQ_RST_CAUSE_WDTRST	0x20
 

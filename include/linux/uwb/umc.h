@@ -42,9 +42,25 @@
 #include <linux/device.h>
 #include <linux/pci.h>
 
-#define UMC_CAP_ID_WHCI_RC      0x00 
-#define UMC_CAP_ID_WHCI_WUSB_HC 0x01 
+/*
+ * UMC capability IDs.
+ *
+ * 0x00 is reserved so use it for the radio controller device.
+ *
+ * [WHCI] table 2-8
+ */
+#define UMC_CAP_ID_WHCI_RC      0x00 /* radio controller */
+#define UMC_CAP_ID_WHCI_WUSB_HC 0x01 /* WUSB host controller */
 
+/**
+ * struct umc_dev - UMC capability device
+ *
+ * @version:  version of the specification this capability conforms to.
+ * @cap_id:   capability ID.
+ * @bar:      PCI Bar (64 bit) where the resource lies
+ * @resource: register space resource.
+ * @irq:      interrupt line.
+ */
 struct umc_dev {
 	u16		version;
 	u8		cap_id;
@@ -56,6 +72,13 @@ struct umc_dev {
 
 #define to_umc_dev(d) container_of(d, struct umc_dev, dev)
 
+/**
+ * struct umc_driver - UMC capability driver
+ * @cap_id: supported capability ID.
+ * @match: driver specific capability matching function.
+ * @match_data: driver specific data for match() (e.g., a
+ * table of pci_device_id's if umc_match_pci_id() is used).
+ */
 struct umc_driver {
 	char *name;
 	u8 cap_id;
@@ -84,13 +107,39 @@ int __must_check __umc_driver_register(struct umc_driver *umc_drv,
 				       struct module *mod,
 				       const char *mod_name);
 
+/**
+ * umc_driver_register - register a UMC capabiltity driver.
+ * @umc_drv:  pointer to the driver.
+ */
 #define umc_driver_register(umc_drv) \
 	__umc_driver_register(umc_drv, THIS_MODULE, KBUILD_MODNAME)
 
 void umc_driver_unregister(struct umc_driver *umc_drv);
 
+/*
+ * Utility function you can use to match (umc_driver->match) against a
+ * null-terminated array of 'struct pci_device_id' in
+ * umc_driver->match_data.
+ */
 int umc_match_pci_id(struct umc_driver *umc_drv, struct umc_dev *umc);
 
+/**
+ * umc_parent_pci_dev - return the UMC's parent PCI device or NULL if none
+ * @umc_dev: UMC device whose parent PCI device we are looking for
+ *
+ * DIRTY!!! DON'T RELY ON THIS
+ *
+ * FIXME: This is as dirty as it gets, but we need some way to check
+ * the correct type of umc_dev->parent (so that for example, we can
+ * cast to pci_dev). Casting to pci_dev is necessary because at some
+ * point we need to request resources from the device. Mapping is
+ * easily over come (ioremap and stuff are bus agnostic), but hooking
+ * up to some error handlers (such as pci error handlers) might need
+ * this.
+ *
+ * THIS might (probably will) be removed in the future, so don't count
+ * on it.
+ */
 static inline struct pci_dev *umc_parent_pci_dev(struct umc_dev *umc_dev)
 {
 	struct pci_dev *pci_dev = NULL;
@@ -99,22 +148,43 @@ static inline struct pci_dev *umc_parent_pci_dev(struct umc_dev *umc_dev)
 	return pci_dev;
 }
 
+/**
+ * umc_dev_get() - reference a UMC device.
+ * @umc_dev: Pointer to UMC device.
+ *
+ * NOTE: we are assuming in this whole scheme that the parent device
+ *       is referenced at _probe() time and unreferenced at _remove()
+ *       time by the parent's subsystem.
+ */
 static inline struct umc_dev *umc_dev_get(struct umc_dev *umc_dev)
 {
 	get_device(&umc_dev->dev);
 	return umc_dev;
 }
 
+/**
+ * umc_dev_put() - unreference a UMC device.
+ * @umc_dev: Pointer to UMC device.
+ */
 static inline void umc_dev_put(struct umc_dev *umc_dev)
 {
 	put_device(&umc_dev->dev);
 }
 
+/**
+ * umc_set_drvdata - set UMC device's driver data.
+ * @umc_dev: Pointer to UMC device.
+ * @data:    Data to set.
+ */
 static inline void umc_set_drvdata(struct umc_dev *umc_dev, void *data)
 {
 	dev_set_drvdata(&umc_dev->dev, data);
 }
 
+/**
+ * umc_get_drvdata - recover UMC device's driver data.
+ * @umc_dev: Pointer to UMC device.
+ */
 static inline void *umc_get_drvdata(struct umc_dev *umc_dev)
 {
 	return dev_get_drvdata(&umc_dev->dev);
@@ -122,4 +192,4 @@ static inline void *umc_get_drvdata(struct umc_dev *umc_dev)
 
 int umc_controller_reset(struct umc_dev *umc);
 
-#endif 
+#endif /* #ifndef _LINUX_UWB_UMC_H_ */

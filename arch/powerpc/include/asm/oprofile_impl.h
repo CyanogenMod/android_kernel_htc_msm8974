@@ -15,22 +15,27 @@
 
 #define OP_MAX_COUNTER 8
 
+/* Per-counter configuration as set via oprofilefs.  */
 struct op_counter_config {
 	unsigned long enabled;
 	unsigned long event;
 	unsigned long count;
-	
+	/* Classic doesn't support per-counter user/kernel selection */
 	unsigned long kernel;
 	unsigned long user;
 	unsigned long unit_mask;
 };
 
+/* System-wide configuration as set via oprofilefs.  */
 struct op_system_config {
 #ifdef CONFIG_PPC64
 	unsigned long mmcr0;
 	unsigned long mmcr1;
 	unsigned long mmcra;
 #ifdef CONFIG_OPROFILE_CELL
+	/* Register for oprofile user tool to check cell kernel profiling
+	 * suport.
+	 */
 	unsigned long cell_support;
 #endif
 #endif
@@ -38,6 +43,7 @@ struct op_system_config {
 	unsigned long enable_user;
 };
 
+/* Per-arch configuration */
 struct op_powerpc_model {
 	int (*reg_setup) (struct op_counter_config *,
 			   struct op_system_config *,
@@ -62,6 +68,7 @@ extern struct op_powerpc_model op_model_cell;
 extern struct op_powerpc_model op_model_pa6t;
 
 
+/* All the classic PPC parts use these */
 static inline unsigned int classic_ctr_read(unsigned int i)
 {
 	switch(i) {
@@ -78,6 +85,7 @@ static inline unsigned int classic_ctr_read(unsigned int i)
 	case 5:
 		return mfspr(SPRN_PMC6);
 
+/* No PPC32 chip has more than 6 so far */
 #ifdef CONFIG_PPC64
 	case 6:
 		return mfspr(SPRN_PMC7);
@@ -111,6 +119,7 @@ static inline void classic_ctr_write(unsigned int i, unsigned int val)
 		mtspr(SPRN_PMC6, val);
 		break;
 
+/* No PPC32 chip has more than 6, yet */
 #ifdef CONFIG_PPC64
 	case 6:
 		mtspr(SPRN_PMC7, val);
@@ -127,5 +136,5 @@ static inline void classic_ctr_write(unsigned int i, unsigned int val)
 
 extern void op_powerpc_backtrace(struct pt_regs * const regs, unsigned int depth);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_OPROFILE_IMPL_H */

@@ -16,6 +16,9 @@ static inline int __debug_locks_off(void)
 	return xchg(&debug_locks, 0);
 }
 
+/*
+ * Generic 'turn off all lock debugging' function:
+ */
 extern int debug_locks_off(void);
 
 #define DEBUG_LOCKS_WARN_ON(c)						\

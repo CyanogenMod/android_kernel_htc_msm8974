@@ -41,4 +41,4 @@ extern struct sh_machine_vector sh_mv;
 #define __initmv \
 	__used __section(.machvec.init)
 
-#endif 
+#endif /* _ASM_SH_MACHVEC_H */

@@ -58,6 +58,9 @@ nv10_fifo_create_context(struct nouveau_channel *chan)
 	if (!chan->user)
 		return -ENOMEM;
 
+	/* Fill entries that are seen filled in dumps of nvidia driver just
+	 * after channel's is put into DMA mode
+	 */
 	nv_wi32(dev, fc +  0, chan->pushbuf_base);
 	nv_wi32(dev, fc +  4, chan->pushbuf_base);
 	nv_wi32(dev, fc + 12, chan->pushbuf->pinst >> 4);
@@ -69,7 +72,7 @@ nv10_fifo_create_context(struct nouveau_channel *chan)
 #endif
 			      0);
 
-	
+	/* enable the fifo dma operation */
 	nv_wr32(dev, NV04_PFIFO_MODE,
 		nv_rd32(dev, NV04_PFIFO_MODE) | (1 << chan->id));
 	return 0;
@@ -121,7 +124,7 @@ nv10_fifo_load_context(struct nouveau_channel *chan)
 		     NV03_PFIFO_CACHE1_PUSH1_DMA | chan->id);
 	nv_wr32(dev, NV04_PFIFO_CACHE1_DMA_PUSH, 1);
 
-	
+	/* Reset NV04_PFIFO_CACHE1_DMA_CTL_AT_INFO to INVALID */
 	tmp = nv_rd32(dev, NV04_PFIFO_CACHE1_DMA_CTL) & ~(1 << 31);
 	nv_wr32(dev, NV04_PFIFO_CACHE1_DMA_CTL, tmp);
 
@@ -193,7 +196,7 @@ nv10_fifo_init_ramxx(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
-	nv_wr32(dev, NV03_PFIFO_RAMHT, (0x03 << 24)  |
+	nv_wr32(dev, NV03_PFIFO_RAMHT, (0x03 << 24) /* search 128 */ |
 				       ((dev_priv->ramht->bits - 9) << 16) |
 				       (dev_priv->ramht->gpuobj->pinst >> 8));
 	nv_wr32(dev, NV03_PFIFO_RAMRO, dev_priv->ramro->pinst >> 8);
@@ -202,8 +205,8 @@ nv10_fifo_init_ramxx(struct drm_device *dev)
 		nv_wr32(dev, NV03_PFIFO_RAMFC, dev_priv->ramfc->pinst >> 8);
 	} else {
 		nv_wr32(dev, NV03_PFIFO_RAMFC, (dev_priv->ramfc->pinst >> 8) |
-					       (1 << 16) );
-		
+					       (1 << 16) /* 64 Bytes entry*/);
+		/* XXX nvidia blob set bit 18, 21,23 for nv20 & nv30 */
 	}
 }
 

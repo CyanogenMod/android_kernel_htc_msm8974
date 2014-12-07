@@ -26,7 +26,7 @@
 struct stv6110x_config {
 	u8	addr;
 	u32	refclk;
-	u8	clk_div; 
+	u8	clk_div; /* divisor value for the output clock */
 };
 
 enum tuner_mode {
@@ -68,6 +68,6 @@ static inline struct stv6110x_devctl *stv6110x_attach(struct dvb_frontend *fe,
 	return NULL;
 }
 
-#endif 
+#endif /* CONFIG_DVB_STV6110x */
 
-#endif 
+#endif /* __STV6110x_H */

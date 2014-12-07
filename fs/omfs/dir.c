@@ -17,6 +17,10 @@ static int omfs_hash(const char *name, int namelen, int mod)
 	return hash % mod;
 }
 
+/*
+ * Finds the bucket for a given name and reads the containing block;
+ * *ofs is set to the offset of the first list entry.
+ */
 static struct buffer_head *omfs_get_bucket(struct inode *dir,
 		const char *name, int namelen, int *ofs)
 {
@@ -115,7 +119,7 @@ static int omfs_add_link(struct dentry *dentry, struct inode *inode)
 	__be64 *entry;
 	int ofs;
 
-	
+	/* just prepend to head of queue in proper bucket */
 	bh = omfs_get_bucket(dir, name, namelen, &ofs);
 	if (!bh)
 		goto out;
@@ -126,7 +130,7 @@ static int omfs_add_link(struct dentry *dentry, struct inode *inode)
 	mark_buffer_dirty(bh);
 	brelse(bh);
 
-	
+	/* now set the sibling and parent pointers on the new inode */
 	bh = omfs_bread(dir->i_sb, inode->i_ino);
 	if (!bh)
 		goto out;
@@ -141,7 +145,7 @@ static int omfs_add_link(struct dentry *dentry, struct inode *inode)
 
 	dir->i_ctime = CURRENT_TIME_SEC;
 
-	
+	/* mark affected inodes dirty to rebuild checksums */
 	mark_inode_dirty(dir);
 	mark_inode_dirty(inode);
 	return 0;
@@ -162,7 +166,7 @@ static int omfs_delete_entry(struct dentry *dentry)
 	int ofs;
 	int err = -ENOMEM;
 
-	
+	/* delete the proper node in the bucket's linked list */
 	bh = omfs_get_bucket(dir, name, namelen, &ofs);
 	if (!bh)
 		goto out;
@@ -181,7 +185,7 @@ static int omfs_delete_entry(struct dentry *dentry)
 	brelse(bh2);
 
 	if (prev != ~0) {
-		
+		/* found in middle of list, get list ptr */
 		brelse(bh);
 		bh = omfs_bread(dir->i_sb, prev);
 		if (!bh)
@@ -308,6 +312,7 @@ static struct dentry *omfs_lookup(struct inode *dir, struct dentry *dentry,
 	return NULL;
 }
 
+/* sanity check block's self pointer */
 int omfs_is_bad(struct omfs_sb_info *sbi, struct omfs_header *header,
 	u64 fsblock)
 {
@@ -332,7 +337,7 @@ static int omfs_fill_chain(struct file *filp, void *dirent, filldir_t filldir,
 	int res = 0;
 	unsigned char d_type;
 
-	
+	/* follow chain in this bucket */
 	while (fsblock != ~0) {
 		bh = omfs_bread(dir->i_sb, fsblock);
 		if (!bh)
@@ -347,7 +352,7 @@ static int omfs_fill_chain(struct file *filp, void *dirent, filldir_t filldir,
 		self = fsblock;
 		fsblock = be64_to_cpu(oi->i_sibling);
 
-		
+		/* skip visited nodes */
 		if (hindex) {
 			hindex--;
 			brelse(bh);
@@ -375,12 +380,14 @@ static int omfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	int err;
 
 	if (new_inode) {
-		
+		/* overwriting existing file/dir */
 		err = omfs_remove(new_dir, new_dentry);
 		if (err)
 			goto out;
 	}
 
+	/* since omfs locates files by name, we need to unlink _before_
+	 * adding the new link or we won't find the old one */
 	err = omfs_delete_entry(old_dentry);
 	if (err)
 		goto out;
@@ -414,18 +421,18 @@ static int omfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 		if (filldir(dirent, ".", 1, 0, dir->i_ino, DT_DIR) < 0)
 			goto success;
 		filp->f_pos++;
-		
+		/* fall through */
 	case 1:
 		if (filldir(dirent, "..", 2, 1,
 		    parent_ino(filp->f_dentry), DT_DIR) < 0)
 			goto success;
 		filp->f_pos = 1 << 20;
-		
+		/* fall through */
 	}
 
 	nbuckets = (dir->i_size - OMFS_DIR_START) / 8;
 
-	
+	/* high 12 bits store bucket + 1 and low 20 bits store hash index */
 	hchain = (filp->f_pos >> 20) - 1;
 	hindex = filp->f_pos & 0xfffff;
 

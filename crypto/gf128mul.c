@@ -88,6 +88,14 @@
 	q(0xf8), q(0xf9), q(0xfa), q(0xfb), q(0xfc), q(0xfd), q(0xfe), q(0xff) \
 }
 
+/*	Given the value i in 0..255 as the byte overflow when a field element
+    in GHASH is multiplied by x^8, this function will return the values that
+    are generated in the lo 16-bit word of the field value by applying the
+    modular polynomial. The values lo_byte and hi_byte are returned via the
+    macro xp_fun(lo_byte, hi_byte) so that the values can be assembled into
+    memory as required by a suitable definition of this macro operating on
+    the table above
+*/
 
 #define xx(p, q)	0x##p##q
 
@@ -108,6 +116,11 @@
 static const u16 gf128mul_table_lle[256] = gf128mul_dat(xda_lle);
 static const u16 gf128mul_table_bbe[256] = gf128mul_dat(xda_bbe);
 
+/* These functions multiply a field element by x, by x^4 and by x^8
+ * in the polynomial field representation. It uses 32-bit word operations
+ * to gain speed but compensates for machine endianess and hence works
+ * correctly on both styles of machine.
+ */
 
 static void gf128mul_x_lle(be128 *r, const be128 *x)
 {
@@ -236,6 +249,20 @@ void gf128mul_bbe(be128 *r, const be128 *b)
 }
 EXPORT_SYMBOL(gf128mul_bbe);
 
+/*      This version uses 64k bytes of table space.
+    A 16 byte buffer has to be multiplied by a 16 byte key
+    value in GF(128).  If we consider a GF(128) value in
+    the buffer's lowest byte, we can construct a table of
+    the 256 16 byte values that result from the 256 values
+    of this byte.  This requires 4096 bytes. But we also
+    need tables for each of the 16 higher bytes in the
+    buffer as well, which makes 64 kbytes in total.
+*/
+/* additional explanation
+ * t[0][BYTE] contains g*BYTE
+ * t[1][BYTE] contains g*x^8*BYTE
+ *  ..
+ * t[15][BYTE] contains g*x^120*BYTE */
 struct gf128mul_64k *gf128mul_init_64k_lle(const be128 *g)
 {
 	struct gf128mul_64k *t;
@@ -356,6 +383,22 @@ void gf128mul_64k_bbe(be128 *a, struct gf128mul_64k *t)
 }
 EXPORT_SYMBOL(gf128mul_64k_bbe);
 
+/*      This version uses 4k bytes of table space.
+    A 16 byte buffer has to be multiplied by a 16 byte key
+    value in GF(128).  If we consider a GF(128) value in a
+    single byte, we can construct a table of the 256 16 byte
+    values that result from the 256 values of this byte.
+    This requires 4096 bytes. If we take the highest byte in
+    the buffer and use this table to get the result, we then
+    have to multiply by x^120 to get the final value. For the
+    next highest byte the result has to be multiplied by x^112
+    and so on. But we can do this by accumulating the result
+    in an accumulator starting with the result for the top
+    byte.  We repeatedly multiply the accumulator value by
+    x^8 and then add in (i.e. xor) the 16 bytes of the next
+    lower byte in the buffer, stopping when we reach the
+    lowest byte. This requires a 4096 byte table.
+*/
 struct gf128mul_4k *gf128mul_init_4k_lle(const be128 *g)
 {
 	struct gf128mul_4k *t;

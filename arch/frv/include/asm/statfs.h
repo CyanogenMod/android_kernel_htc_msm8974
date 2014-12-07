@@ -3,5 +3,5 @@
 
 #include <asm-generic/statfs.h>
 
-#endif 
+#endif /* _ASM_STATFS_H */
 

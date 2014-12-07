@@ -21,4 +21,4 @@
 #define msix_table_size(control) 	((control & PCI_MSIX_FLAGS_QSIZE)+1)
 #define multi_msix_capable(control)	msix_table_size((control))
 
-#endif 
+#endif /* MSI_H */

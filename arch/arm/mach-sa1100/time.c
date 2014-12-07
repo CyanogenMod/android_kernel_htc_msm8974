@@ -31,7 +31,7 @@ static irqreturn_t sa1100_ost0_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *c = dev_id;
 
-	
+	/* Disarm the compare/match, signal the event. */
 	OIER &= ~OIER_E0;
 	OSSR = OSSR_M0;
 	c->event_handler(c);
@@ -126,6 +126,9 @@ static void sa1100_timer_resume(void)
 	OSMR3 = osmr[3];
 	OIER = oier;
 
+	/*
+	 * OSMR0 is the system timer: make sure OSCR is sufficiently behind
+	 */
 	OSCR = OSMR0 - LATCH;
 }
 #else

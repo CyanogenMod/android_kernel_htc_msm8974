@@ -39,6 +39,13 @@ static void gfs2_ail_error(struct gfs2_glock *gl, const struct buffer_head *bh)
 	gfs2_lm_withdraw(gl->gl_sbd, "AIL error\n");
 }
 
+/**
+ * __gfs2_ail_flush - remove all buffers for a given lock from the AIL
+ * @gl: the glock
+ * @fsync: set when called from fsync (not all buffers will be clean)
+ *
+ * None of the buffers should be dirty, locked, or pinned.
+ */
 
 static void __gfs2_ail_flush(struct gfs2_glock *gl, bool fsync)
 {
@@ -60,7 +67,7 @@ static void __gfs2_ail_flush(struct gfs2_glock *gl, bool fsync)
 		}
 		blocknr = bh->b_blocknr;
 		bh->b_private = NULL;
-		gfs2_remove_from_ail(bd); 
+		gfs2_remove_from_ail(bd); /* drops ref on bh */
 
 		bd->bd_bh = NULL;
 		bd->bd_blkno = blocknr;
@@ -84,7 +91,7 @@ static void gfs2_ail_empty_gl(struct gfs2_glock *gl)
 	if (!tr.tr_revokes)
 		return;
 
-	
+	/* A shortened, inline version of gfs2_trans_begin() */
 	tr.tr_reserved = 1 + gfs2_struct2blk(sdp, tr.tr_revokes, sizeof(u64));
 	tr.tr_ip = (unsigned long)__builtin_return_address(0);
 	INIT_LIST_HEAD(&tr.tr_list_buf);
@@ -115,6 +122,14 @@ void gfs2_ail_flush(struct gfs2_glock *gl, bool fsync)
 	gfs2_log_flush(sdp, NULL);
 }
 
+/**
+ * rgrp_go_sync - sync out the metadata for this glock
+ * @gl: the glock
+ *
+ * Called when demoting or unlocking an EX glock.  We must flush
+ * to disk all dirty buffers/pages relating to this glock, and must not
+ * not return to caller to demote/unlock the glock until I/O is complete.
+ */
 
 static void rgrp_go_sync(struct gfs2_glock *gl)
 {
@@ -139,6 +154,15 @@ static void rgrp_go_sync(struct gfs2_glock *gl)
 	spin_unlock(&gl->gl_spin);
 }
 
+/**
+ * rgrp_go_inval - invalidate the metadata for this glock
+ * @gl: the glock
+ * @flags:
+ *
+ * We never used LM_ST_DEFERRED with resource groups, so that we
+ * should always see the metadata flag set here.
+ *
+ */
 
 static void rgrp_go_inval(struct gfs2_glock *gl, int flags)
 {
@@ -154,6 +178,11 @@ static void rgrp_go_inval(struct gfs2_glock *gl, int flags)
 	}
 }
 
+/**
+ * inode_go_sync - Sync the dirty data and/or metadata for an inode glock
+ * @gl: the glock protecting the inode
+ *
+ */
 
 static void inode_go_sync(struct gfs2_glock *gl)
 {
@@ -181,10 +210,24 @@ static void inode_go_sync(struct gfs2_glock *gl)
 	error = filemap_fdatawait(metamapping);
 	mapping_set_error(metamapping, error);
 	gfs2_ail_empty_gl(gl);
+	/*
+	 * Writeback of the data mapping may cause the dirty flag to be set
+	 * so we have to clear it again here.
+	 */
 	smp_mb__before_clear_bit();
 	clear_bit(GLF_DIRTY, &gl->gl_flags);
 }
 
+/**
+ * inode_go_inval - prepare a inode glock to be released
+ * @gl: the glock
+ * @flags:
+ * 
+ * Normally we invlidate everything, but if we are moving into
+ * LM_ST_DEFERRED from LM_ST_SHARED or LM_ST_EXCLUSIVE then we
+ * can keep hold of the metadata, since it won't have changed.
+ *
+ */
 
 static void inode_go_inval(struct gfs2_glock *gl, int flags)
 {
@@ -210,6 +253,12 @@ static void inode_go_inval(struct gfs2_glock *gl, int flags)
 		truncate_inode_pages(ip->i_inode.i_mapping, 0);
 }
 
+/**
+ * inode_go_demote_ok - Check to see if it's ok to unlock an inode glock
+ * @gl: the glock
+ *
+ * Returns: 1 if it's ok
+ */
 
 static int inode_go_demote_ok(const struct gfs2_glock *gl)
 {
@@ -228,9 +277,24 @@ static int inode_go_demote_ok(const struct gfs2_glock *gl)
 	return 1;
 }
 
+/**
+ * gfs2_set_nlink - Set the inode's link count based on on-disk info
+ * @inode: The inode in question
+ * @nlink: The link count
+ *
+ * If the link count has hit zero, it must never be raised, whatever the
+ * on-disk inode might say. When new struct inodes are created the link
+ * count is set to 1, so that we can safely use this test even when reading
+ * in on disk information for the first time.
+ */
 
 static void gfs2_set_nlink(struct inode *inode, u32 nlink)
 {
+	/*
+	 * We will need to review setting the nlink count here in the
+	 * light of the forthcoming ro bind mount work. This is a reminder
+	 * to do that.
+	 */
 	if ((inode->i_nlink != nlink) && (inode->i_nlink != 0)) {
 		if (nlink == 0)
 			clear_nlink(inode);
@@ -277,7 +341,7 @@ static int gfs2_dinode_in(struct gfs2_inode *ip, const void *buf)
 
 	ip->i_diskflags = be32_to_cpu(str->di_flags);
 	ip->i_eattr = be64_to_cpu(str->di_eattr);
-	
+	/* i_diskflags and i_eattr must be set before gfs2_set_inode_flags() */
 	gfs2_set_inode_flags(&ip->i_inode);
 	height = be16_to_cpu(str->di_height);
 	if (unlikely(height > GFS2_MAX_META_HEIGHT))
@@ -299,6 +363,12 @@ corrupt:
 	return -EIO;
 }
 
+/**
+ * gfs2_inode_refresh - Refresh the incore copy of the dinode
+ * @ip: The GFS2 inode
+ *
+ * Returns: errno
+ */
 
 int gfs2_inode_refresh(struct gfs2_inode *ip)
 {
@@ -321,6 +391,13 @@ int gfs2_inode_refresh(struct gfs2_inode *ip)
 	return error;
 }
 
+/**
+ * inode_go_lock - operation done after an inode lock is locked by a process
+ * @gl: the glock
+ * @flags:
+ *
+ * Returns: errno
+ */
 
 static int inode_go_lock(struct gfs2_holder *gh)
 {
@@ -352,6 +429,13 @@ static int inode_go_lock(struct gfs2_holder *gh)
 	return error;
 }
 
+/**
+ * inode_go_dump - print information about an inode
+ * @seq: The iterator
+ * @ip: the inode
+ *
+ * Returns: 0 on success, -ENOBUFS when we run out of space
+ */
 
 static int inode_go_dump(struct seq_file *seq, const struct gfs2_glock *gl)
 {
@@ -367,6 +451,13 @@ static int inode_go_dump(struct seq_file *seq, const struct gfs2_glock *gl)
 	return 0;
 }
 
+/**
+ * trans_go_sync - promote/demote the transaction glock
+ * @gl: the glock
+ * @state: the requested state
+ * @flags:
+ *
+ */
 
 static void trans_go_sync(struct gfs2_glock *gl)
 {
@@ -379,6 +470,11 @@ static void trans_go_sync(struct gfs2_glock *gl)
 	}
 }
 
+/**
+ * trans_go_xmote_bh - After promoting/demoting the transaction glock
+ * @gl: the glock
+ *
+ */
 
 static int trans_go_xmote_bh(struct gfs2_glock *gl, struct gfs2_holder *gh)
 {
@@ -397,7 +493,7 @@ static int trans_go_xmote_bh(struct gfs2_glock *gl, struct gfs2_holder *gh)
 		if (!(head.lh_flags & GFS2_LOG_HEAD_UNMOUNT))
 			gfs2_consist(sdp);
 
-		
+		/*  Initialize some head of the log stuff  */
 		if (!test_bit(SDF_SHUTDOWN, &sdp->sd_flags)) {
 			sdp->sd_log_sequence = head.lh_sequence + 1;
 			gfs2_log_pointers_init(sdp, head.lh_blkno);
@@ -406,12 +502,24 @@ static int trans_go_xmote_bh(struct gfs2_glock *gl, struct gfs2_holder *gh)
 	return 0;
 }
 
+/**
+ * trans_go_demote_ok
+ * @gl: the glock
+ *
+ * Always returns 0
+ */
 
 static int trans_go_demote_ok(const struct gfs2_glock *gl)
 {
 	return 0;
 }
 
+/**
+ * iopen_go_callback - schedule the dcache entry for the inode to be deleted
+ * @gl: the glock
+ *
+ * gl_spin lock is held while calling this
+ */
 static void iopen_go_callback(struct gfs2_glock *gl)
 {
 	struct gfs2_inode *ip = (struct gfs2_inode *)gl->gl_object;

@@ -11,7 +11,7 @@
 struct sigcontext {
 	unsigned long	oldmask;
 
-	
+	/* CPU registers */
 	unsigned long	sr;
 	unsigned long	pc;
 	unsigned long	lr;
@@ -31,4 +31,4 @@ struct sigcontext {
 	unsigned long	r0;
 };
 
-#endif 
+#endif /* __ASM_AVR32_SIGCONTEXT_H */

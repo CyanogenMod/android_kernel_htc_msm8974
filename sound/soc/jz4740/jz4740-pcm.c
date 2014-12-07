@@ -40,6 +40,7 @@ struct jz4740_runtime_data {
 	dma_addr_t fifo_addr;
 };
 
+/* identify hardware playback capabilities */
 static const struct snd_pcm_hardware jz4740_pcm_hardware = {
 	.info = SNDRV_PCM_INFO_MMAP |
 		SNDRV_PCM_INFO_MMAP_VALID |
@@ -195,6 +196,10 @@ static snd_pcm_uframes_t jz4740_pcm_pointer(struct snd_pcm_substream *substream)
 	snd_pcm_uframes_t offset;
 	struct jz4740_dma_chan *dma = prtd->dma;
 
+	/* prtd->dma_pos points to the end of the current transfer. So by
+	 * subtracting prdt->dma_start we get the offset to the end of the
+	 * current period in bytes. By subtracting the residue of the transfer
+	 * we get the current offset in bytes. */
 	byte_offset = prtd->dma_pos - prtd->dma_start;
 	byte_offset -= jz4740_dma_get_residue(dma);
 

@@ -10,6 +10,10 @@
 #ifndef _ASM_MICROBLAZE_CHECKSUM_H
 #define _ASM_MICROBLAZE_CHECKSUM_H
 
+/*
+ * computes the checksum of the TCP/UDP pseudo-header
+ * returns a 16-bit checksum, already complemented
+ */
 #define csum_tcpudp_nofold	csum_tcpudp_nofold
 static inline __wsum
 csum_tcpudp_nofold(__be32 saddr, __be32 daddr, unsigned short len,
@@ -32,4 +36,4 @@ csum_tcpudp_nofold(__be32 saddr, __be32 daddr, unsigned short len,
 
 #include <asm-generic/checksum.h>
 
-#endif 
+#endif /* _ASM_MICROBLAZE_CHECKSUM_H */

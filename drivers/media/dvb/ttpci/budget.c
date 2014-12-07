@@ -64,6 +64,9 @@ static void Set22K (struct budget *budget, int state)
 	saa7146_setgpio(dev, 3, (state ? SAA7146_GPIO_OUTHI : SAA7146_GPIO_OUTLO));
 }
 
+/* Diseqc functions only for TT Budget card */
+/* taken from the Skyvision DVB driver by
+   Ralph Metzler <rjkm@metzlerbros.de> */
 
 static void DiseqcSendBit (struct budget *budget, int data)
 {
@@ -121,6 +124,12 @@ static int SendDiSEqCMsg (struct budget *budget, int len, u8 *msg, unsigned long
 	return 0;
 }
 
+/*
+ *   Routines for the Fujitsu Siemens Activy budget card
+ *   22 kHz tone and DiSEqC are handled by the frontend.
+ *   Voltage must be set here.
+ *   GPIO 1: LNBP EN, GPIO 2: LNBP VSEL
+ */
 static int SetVoltage_Activy (struct budget *budget, fe_sec_voltage_t voltage)
 {
 	struct saa7146_dev *dev=budget->dev;
@@ -217,8 +226,8 @@ static int alps_bsrv2_tuner_set_params(struct dvb_frontend *fe)
 	buf[2] = ((div & 0x18000) >> 10) | 0x95;
 	buf[3] = (pwr << 6) | 0x30;
 
-	
-	
+	// NOTE: since we're using a prescaler of 2, we set the
+	// divisor frequency to 62.5kHz and divide by 125 above
 
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
@@ -478,12 +487,12 @@ static struct isl6423_config tt1600_isl6423_config = {
 
 static void frontend_init(struct budget *budget)
 {
-	(void)alps_bsbe1_config; 
+	(void)alps_bsbe1_config; /* avoid warning */
 
 	switch(budget->dev->pci->subsystem_device) {
-	case 0x1003: 
+	case 0x1003: // Hauppauge/TT Nova budget (stv0299/ALPS BSRU6(tsa5059) OR ves1893/ALPS BSRV2(sp5659))
 	case 0x1013:
-		
+		// try the ALPS BSRV2 first of all
 		budget->dvb_frontend = dvb_attach(ves1x93_attach, &alps_bsrv2_config, &budget->i2c_adap);
 		if (budget->dvb_frontend) {
 			budget->dvb_frontend->ops.tuner_ops.set_params = alps_bsrv2_tuner_set_params;
@@ -493,7 +502,7 @@ static void frontend_init(struct budget *budget)
 			break;
 		}
 
-		
+		// try the ALPS BSRU6 now
 		budget->dvb_frontend = dvb_attach(stv0299_attach, &alps_bsru6_config, &budget->i2c_adap);
 		if (budget->dvb_frontend) {
 			budget->dvb_frontend->ops.tuner_ops.set_params = alps_bsru6_tuner_set_params;
@@ -507,7 +516,7 @@ static void frontend_init(struct budget *budget)
 		}
 		break;
 
-	case 0x1004: 
+	case 0x1004: // Hauppauge/TT DVB-C budget (ves1820/ALPS TDBE2(sp5659))
 
 		budget->dvb_frontend = dvb_attach(ves1820_attach, &alps_tdbe2_config, &budget->i2c_adap, read_pwm(budget));
 		if (budget->dvb_frontend) {
@@ -516,7 +525,7 @@ static void frontend_init(struct budget *budget)
 		}
 		break;
 
-	case 0x1005: 
+	case 0x1005: // Hauppauge/TT Nova-T budget (L64781/Grundig 29504-401(tsa5060))
 
 		budget->dvb_frontend = dvb_attach(l64781_attach, &grundig_29504_401_config, &budget->i2c_adap);
 		if (budget->dvb_frontend) {
@@ -526,15 +535,15 @@ static void frontend_init(struct budget *budget)
 		}
 		break;
 
-	case 0x4f60: 
+	case 0x4f60: /* Fujitsu Siemens Activy Budget-S PCI rev AL (stv0299/tsa5059) */
 	{
 		int subtype = i2c_readreg(&budget->i2c_adap, 0x50, 0x67);
 
 		if (subtype < 0)
 			break;
-		
+		/* fixme: find a better way to identify the card */
 		if (subtype < 0x36) {
-			
+			/* assume ALPS BSRU6 */
 			budget->dvb_frontend = dvb_attach(stv0299_attach, &alps_bsru6_config_activy, &budget->i2c_adap);
 			if (budget->dvb_frontend) {
 				printk(KERN_INFO "budget: tuner ALPS BSRU6 detected\n");
@@ -545,8 +554,8 @@ static void frontend_init(struct budget *budget)
 				break;
 			}
 		} else {
-			
-			
+			/* assume ALPS BSBE1 */
+			/* reset tuner */
 			saa7146_setgpio(budget->dev, 3, SAA7146_GPIO_OUTLO);
 			msleep(50);
 			saa7146_setgpio(budget->dev, 3, SAA7146_GPIO_OUTHI);
@@ -564,7 +573,7 @@ static void frontend_init(struct budget *budget)
 		break;
 	}
 
-	case 0x4f61: 
+	case 0x4f61: // Fujitsu Siemens Activy Budget-S PCI rev GR (tda8083/Grundig 29504-451(tsa5522))
 		budget->dvb_frontend = dvb_attach(tda8083_attach, &grundig_29504_451_config, &budget->i2c_adap);
 		if (budget->dvb_frontend) {
 			budget->dvb_frontend->ops.tuner_ops.set_params = grundig_29504_451_tuner_set_params;
@@ -573,7 +582,7 @@ static void frontend_init(struct budget *budget)
 		}
 		break;
 
-	case 0x5f60: 
+	case 0x5f60: /* Fujitsu Siemens Activy Budget-T PCI rev AL (tda10046/ALPS TDHD1-204A) */
 		budget->dvb_frontend = dvb_attach(tda10046_attach, &alps_tdhd1_204a_config, &budget->i2c_adap);
 		if (budget->dvb_frontend) {
 			budget->dvb_frontend->ops.tuner_ops.set_params = alps_tdhd1_204a_tuner_set_params;
@@ -581,7 +590,7 @@ static void frontend_init(struct budget *budget)
 		}
 		break;
 
-	case 0x5f61: 
+	case 0x5f61: /* Fujitsu Siemens Activy Budget-T PCI rev GR (L64781/Grundig 29504-401(tsa5060)) */
 		budget->dvb_frontend = dvb_attach(l64781_attach, &grundig_29504_401_config_activy, &budget->i2c_adap);
 		if (budget->dvb_frontend) {
 			budget->dvb_frontend->tuner_priv = &tuner_address_grundig_29504_401_activy;
@@ -589,7 +598,7 @@ static void frontend_init(struct budget *budget)
 		}
 		break;
 
-	case 0x1016: 
+	case 0x1016: // Hauppauge/TT Nova-S SE (samsung s5h1420/????(tda8260))
 		budget->dvb_frontend = dvb_attach(s5h1420_attach, &s5h1420_config, &budget->i2c_adap);
 		if (budget->dvb_frontend) {
 			budget->dvb_frontend->ops.tuner_ops.set_params = s5h1420_tuner_set_params;
@@ -600,8 +609,8 @@ static void frontend_init(struct budget *budget)
 			break;
 		}
 
-	case 0x1018: 
-		
+	case 0x1018: // TT Budget-S-1401 (philips tda10086/philips tda8262)
+		// gpio2 is connected to CLB - reset it + leave it high
 		saa7146_setgpio(budget->dev, 2, SAA7146_GPIO_OUTLO);
 		msleep(1);
 		saa7146_setgpio(budget->dev, 2, SAA7146_GPIO_OUTHI);
@@ -618,7 +627,7 @@ static void frontend_init(struct budget *budget)
 			break;
 		}
 
-	case 0x101c: { 
+	case 0x101c: { /* TT S2-1600 */
 			struct stv6110x_devctl *ctl;
 			saa7146_setgpio(budget->dev, 2, SAA7146_GPIO_OUTLO);
 			msleep(50);
@@ -650,6 +659,9 @@ static void frontend_init(struct budget *budget)
 					tt1600_stv090x_config.tuner_set_refclk	  = ctl->tuner_set_refclk;
 					tt1600_stv090x_config.tuner_get_status	  = ctl->tuner_get_status;
 
+					/* call the init function once to initialize
+					   tuner's clock output divider and demod's
+					   master clock */
 					if (budget->dvb_frontend->ops.init)
 						budget->dvb_frontend->ops.init(budget->dvb_frontend);
 

@@ -1,3 +1,4 @@
+/*----------------------------------------------------------------*/
 /*
    Qlogic linux driver - work in progress. No Warranty express or implied.
    Use at your own risk.  Support Tort Reform so you won't have to read all
@@ -39,7 +40,7 @@
 */
 
 #include <linux/module.h>
-#include <linux/blkdev.h>		
+#include <linux/blkdev.h>		/* to get disk capacity */
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/init.h>
@@ -58,15 +59,21 @@
 #include <scsi/scsi_host.h>
 #include "qlogicfas408.h"
 
-static int qlcfg5 = (XTALFREQ << 5);	
+/*----------------------------------------------------------------*/
+static int qlcfg5 = (XTALFREQ << 5);	/* 15625/512 */
 static int qlcfg6 = SYNCXFRPD;
 static int qlcfg7 = SYNCOFFST;
 static int qlcfg8 = (SLOWCABLE << 7) | (QL_ENABLE_PARITY << 4);
 static int qlcfg9 = ((XTALFREQ + 4) / 5);
 static int qlcfgc = (FASTCLK << 3) | (FASTSCSI << 4);
 
+/*----------------------------------------------------------------*/
 
+/*----------------------------------------------------------------*/
+/* local functions */
+/*----------------------------------------------------------------*/
 
+/* error recovery - reset everything */
 
 static void ql_zap(struct qlogicfas408_priv *priv)
 {
@@ -76,46 +83,49 @@ static void ql_zap(struct qlogicfas408_priv *priv)
 
 	x = inb(qbase + 0xd);
 	REG0;
-	outb(3, qbase + 3);	
-	outb(2, qbase + 3);	
+	outb(3, qbase + 3);	/* reset SCSI */
+	outb(2, qbase + 3);	/* reset chip */
 	if (x & 0x80)
 		REG1;
 }
 
+/*
+ *	Do a pseudo-dma tranfer
+ */
  
 static int ql_pdma(struct qlogicfas408_priv *priv, int phase, char *request, int reqlen)
 {
 	int j;
 	int qbase = priv->qbase;
 	j = 0;
-	if (phase & 1) {	
+	if (phase & 1) {	/* in */
 #if QL_TURBO_PDMA
 		rtrc(4)
-		
-		if (reqlen >= 128 && (inb(qbase + 8) & 2)) {	
+		/* empty fifo in large chunks */
+		if (reqlen >= 128 && (inb(qbase + 8) & 2)) {	/* full */
 			insl(qbase + 4, request, 32);
 			reqlen -= 128;
 			request += 128;
 		}
-		while (reqlen >= 84 && !(j & 0xc0))	
+		while (reqlen >= 84 && !(j & 0xc0))	/* 2/3 */
 			if ((j = inb(qbase + 8)) & 4) 
 			{
 				insl(qbase + 4, request, 21);
 				reqlen -= 84;
 				request += 84;
 			}
-		if (reqlen >= 44 && (inb(qbase + 8) & 8)) {	
+		if (reqlen >= 44 && (inb(qbase + 8) & 8)) {	/* 1/3 */
 			insl(qbase + 4, request, 11);
 			reqlen -= 44;
 			request += 44;
 		}
 #endif
-		
+		/* until both empty and int (or until reclen is 0) */
 		rtrc(7)
 		j = 0;
 		while (reqlen && !((j & 0x10) && (j & 0xc0))) 
 		{
-			
+			/* while bytes to receive and not empty */
 			j &= 0xc0;
 			while (reqlen && !((j = inb(qbase + 8)) & 0x10)) 
 			{
@@ -126,31 +136,31 @@ static int ql_pdma(struct qlogicfas408_priv *priv, int phase, char *request, int
 				j = inb(qbase + 8);
 
 		}
-	} else {		
+	} else {		/* out */
 #if QL_TURBO_PDMA
 		rtrc(4)
-		    if (reqlen >= 128 && inb(qbase + 8) & 0x10) {	
+		    if (reqlen >= 128 && inb(qbase + 8) & 0x10) {	/* empty */
 			outsl(qbase + 4, request, 32);
 			reqlen -= 128;
 			request += 128;
 		}
-		while (reqlen >= 84 && !(j & 0xc0))	
+		while (reqlen >= 84 && !(j & 0xc0))	/* 1/3 */
 			if (!((j = inb(qbase + 8)) & 8)) {
 				outsl(qbase + 4, request, 21);
 				reqlen -= 84;
 				request += 84;
 			}
-		if (reqlen >= 40 && !(inb(qbase + 8) & 4)) {	
+		if (reqlen >= 40 && !(inb(qbase + 8) & 4)) {	/* 2/3 */
 			outsl(qbase + 4, request, 10);
 			reqlen -= 40;
 			request += 40;
 		}
 #endif
-		
+		/* until full and int (or until reclen is 0) */
 		rtrc(7)
 		    j = 0;
 		while (reqlen && !((j & 2) && (j & 0xc0))) {
-			
+			/* while bytes to send and not full */
 			while (reqlen && !((j = inb(qbase + 8)) & 2)) 
 			{
 				outb(*request++, qbase + 4);
@@ -160,10 +170,13 @@ static int ql_pdma(struct qlogicfas408_priv *priv, int phase, char *request, int
 				j = inb(qbase + 8);
 		}
 	}
-	
+	/* maybe return reqlen */
 	return inb(qbase + 8) & 0xc0;
 }
 
+/*
+ *	Wait for interrupt flag (polled - not real hardware interrupt) 
+ */
 
 static int ql_wai(struct qlogicfas408_priv *priv)
 {
@@ -191,6 +204,10 @@ static int ql_wai(struct qlogicfas408_priv *priv)
 	return 0;
 }
 
+/*
+ *	Initiate scsi command - queueing handler 
+ *	caller must hold host lock
+ */
 
 static void ql_icmd(struct scsi_cmnd *cmd)
 {
@@ -202,48 +219,52 @@ static void ql_icmd(struct scsi_cmnd *cmd)
 	priv->qabort = 0;
 
 	REG0;
-	
+	/* clearing of interrupts and the fifo is needed */
 
-	inb(qbase + 5);		
-	if (inb(qbase + 5))	
-		outb(2, qbase + 3);	
+	inb(qbase + 5);		/* clear interrupts */
+	if (inb(qbase + 5))	/* if still interrupting */
+		outb(2, qbase + 3);	/* reset chip */
 	else if (inb(qbase + 7) & 0x1f)
-		outb(1, qbase + 3);	
-	while (inb(qbase + 5));	
+		outb(1, qbase + 3);	/* clear fifo */
+	while (inb(qbase + 5));	/* clear ints */
 	REG1;
-	outb(1, qbase + 8);	
-	outb(0, qbase + 0xb);	
-	inb(qbase + 8);		
+	outb(1, qbase + 8);	/* set for PIO pseudo DMA */
+	outb(0, qbase + 0xb);	/* disable ints */
+	inb(qbase + 8);		/* clear int bits */
 	REG0;
-	outb(0x40, qbase + 0xb);	
+	outb(0x40, qbase + 0xb);	/* enable features */
 
-	
+	/* configurables */
 	outb(qlcfgc, qbase + 0xc);
-	
+	/* config: no reset interrupt, (initiator) bus id */
 	outb(0x40 | qlcfg8 | priv->qinitid, qbase + 8);
 	outb(qlcfg7, qbase + 7);
 	outb(qlcfg6, qbase + 6);
-	  outb(qlcfg5, qbase + 5);	
-	outb(qlcfg9 & 7, qbase + 9);	
+	 /**/ outb(qlcfg5, qbase + 5);	/* select timer */
+	outb(qlcfg9 & 7, qbase + 9);	/* prescaler */
+/*	outb(0x99, qbase + 5);	*/
 	outb(scmd_id(cmd), qbase + 4);
 
 	for (i = 0; i < cmd->cmd_len; i++)
 		outb(cmd->cmnd[i], qbase + 2);
 
 	priv->qlcmd = cmd;
-	outb(0x41, qbase + 3);	
+	outb(0x41, qbase + 3);	/* select and send command */
 }
 
+/*
+ *	Process scsi command - usually after interrupt 
+ */
 
 static unsigned int ql_pcmd(struct scsi_cmnd *cmd)
 {
 	unsigned int i, j;
 	unsigned long k;
-	unsigned int result;	
-	unsigned int status;	
-	unsigned int message;	
-	unsigned int phase;	
-	unsigned int reqlen;	
+	unsigned int result;	/* ultimate return result */
+	unsigned int status;	/* scsi returned status */
+	unsigned int message;	/* scsi returned message */
+	unsigned int phase;	/* recorded scsi phase */
+	unsigned int reqlen;	/* total length of transfer */
 	char *buf;
 	struct qlogicfas408_priv *priv = get_priv_by_cmd(cmd);
 	int qbase = priv->qbase;
@@ -255,16 +276,18 @@ static unsigned int ql_pcmd(struct scsi_cmnd *cmd)
 	if (i == 0x20) {
 		return (DID_NO_CONNECT << 16);
 	}
-	i |= inb(qbase + 5);	
+	i |= inb(qbase + 5);	/* the 0x10 bit can be set after the 0x08 */
 	if (i != 0x18) {
 		printk(KERN_ERR "Ql:Bad Interrupt status:%02x\n", i);
 		ql_zap(priv);
 		return (DID_BAD_INTR << 16);
 	}
-	j &= 7;			
+	j &= 7;			/* j = inb( qbase + 7 ) >> 5; */
 
-	
-	
+	/* correct status is supposed to be step 4 */
+	/* it sometimes returns step 3 but with 0 bytes left to send */
+	/* We can try stuffing the FIFO with the max each time, but we will get a
+	   sequence of 3 if any bytes are left (but we do flush the FIFO anyway */
 
 	if (j != 3 && j != 4) {
 		printk(KERN_ERR "Ql:Bad sequence for command %d, int %02X, cmdleft = %d\n",
@@ -273,19 +296,19 @@ static unsigned int ql_pcmd(struct scsi_cmnd *cmd)
 		return (DID_ERROR << 16);
 	}
 	result = DID_OK;
-	if (inb(qbase + 7) & 0x1f)	
-		outb(1, qbase + 3);	
-	
+	if (inb(qbase + 7) & 0x1f)	/* if some bytes in fifo */
+		outb(1, qbase + 3);	/* clear fifo */
+	/* note that request_bufflen is the total xfer size when sg is used */
 	reqlen = scsi_bufflen(cmd);
-	
-	if (reqlen && !((phase = inb(qbase + 4)) & 6)) {	
+	/* note that it won't work if transfers > 16M are requested */
+	if (reqlen && !((phase = inb(qbase + 4)) & 6)) {	/* data phase */
 		struct scatterlist *sg;
 		rtrc(2)
-		outb(reqlen, qbase);	
-		outb(reqlen >> 8, qbase + 1);	
-		outb(reqlen >> 16, qbase + 0xe);	
-		outb(0x90, qbase + 3);	
-		
+		outb(reqlen, qbase);	/* low-mid xfer cnt */
+		outb(reqlen >> 8, qbase + 1);	/* low-mid xfer cnt */
+		outb(reqlen >> 16, qbase + 0xe);	/* high xfer cnt */
+		outb(0x90, qbase + 3);	/* command do xfer */
+		/* PIO pseudo DMA to buffer or sglist */
 		REG1;
 
 		scsi_for_each_sg(cmd, sg, scsi_sg_count(cmd), i) {
@@ -300,49 +323,63 @@ static unsigned int ql_pcmd(struct scsi_cmnd *cmd)
 		}
 		REG0;
 		rtrc(2)
+		/*
+		 *	Wait for irq (split into second state of irq handler
+		 *	if this can take time) 
+		 */
 		if ((k = ql_wai(priv)))
 			return (k << 16);
-		k = inb(qbase + 5);	
+		k = inb(qbase + 5);	/* should be 0x10, bus service */
 	}
 
+	/*
+	 *	Enter Status (and Message In) Phase 
+	 */
 	 
 	k = jiffies + WATCHDOG;
 
 	while (time_before(jiffies, k) && !priv->qabort &&
 						!(inb(qbase + 4) & 6))
-		cpu_relax();	
+		cpu_relax();	/* wait for status phase */
 
 	if (time_after_eq(jiffies, k)) {
 		ql_zap(priv);
 		return (DID_TIME_OUT << 16);
 	}
 
-	
+	/* FIXME: timeout ?? */
 	while (inb(qbase + 5))
-		cpu_relax();	
+		cpu_relax();	/* clear pending ints */
 
 	if (priv->qabort)
 		return ((priv->qabort == 1 ? DID_ABORT : DID_RESET) << 16);
 
-	outb(0x11, qbase + 3);	
+	outb(0x11, qbase + 3);	/* get status and message */
 	if ((k = ql_wai(priv)))
 		return (k << 16);
-	i = inb(qbase + 5);	
-	j = inb(qbase + 7) & 0x1f;	
+	i = inb(qbase + 5);	/* get chip irq stat */
+	j = inb(qbase + 7) & 0x1f;	/* and bytes rec'd */
 	status = inb(qbase + 2);
 	message = inb(qbase + 2);
 
+	/*
+	 *	Should get function complete int if Status and message, else 
+	 *	bus serv if only status 
+	 */
 	if (!((i == 8 && j == 2) || (i == 0x10 && j == 1))) {
 		printk(KERN_ERR "Ql:Error during status phase, int=%02X, %d bytes recd\n", i, j);
 		result = DID_ERROR;
 	}
-	outb(0x12, qbase + 3);	
+	outb(0x12, qbase + 3);	/* done, disconnect */
 	rtrc(1)
 	if ((k = ql_wai(priv)))
 		return (k << 16);
 
+	/*
+	 *	Should get bus service interrupt and disconnect interrupt 
+	 */
 	 
-	i = inb(qbase + 5);	
+	i = inb(qbase + 5);	/* should be bus service */
 	while (!priv->qabort && ((i & 0x20) != 0x20)) {
 		barrier();
 		cpu_relax();
@@ -356,6 +393,9 @@ static unsigned int ql_pcmd(struct scsi_cmnd *cmd)
 	return (result << 16) | (message << 8) | (status & STATUS_MASK);
 }
 
+/*
+ *	Interrupt handler 
+ */
 
 static void ql_ihandl(void *dev_id)
 {
@@ -365,18 +405,22 @@ static void ql_ihandl(void *dev_id)
 	int qbase = priv->qbase;
 	REG0;
 
-	if (!(inb(qbase + 4) & 0x80))	
+	if (!(inb(qbase + 4) & 0x80))	/* false alarm? */
 		return;
 
-	if (priv->qlcmd == NULL) {	
+	if (priv->qlcmd == NULL) {	/* no command to process? */
 		int i;
 		i = 16;
-		while (i-- && inb(qbase + 5));	
+		while (i-- && inb(qbase + 5));	/* maybe also ql_zap() */
 		return;
 	}
 	icmd = priv->qlcmd;
 	icmd->result = ql_pcmd(icmd);
 	priv->qlcmd = NULL;
+	/*
+	 *	If result is CHECK CONDITION done calls qcommand to request 
+	 *	sense 
+	 */
 	(icmd->scsi_done) (icmd);
 }
 
@@ -391,6 +435,9 @@ irqreturn_t qlogicfas408_ihandl(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ *	Queued command
+ */
 
 static int qlogicfas408_queuecommand_lck(struct scsi_cmnd *cmd,
 			      void (*done) (struct scsi_cmnd *))
@@ -403,7 +450,7 @@ static int qlogicfas408_queuecommand_lck(struct scsi_cmnd *cmd,
 	}
 
 	cmd->scsi_done = done;
-	
+	/* wait for the last command's interrupt to finish */
 	while (priv->qlcmd != NULL) {
 		barrier();
 		cpu_relax();
@@ -414,10 +461,14 @@ static int qlogicfas408_queuecommand_lck(struct scsi_cmnd *cmd,
 
 DEF_SCSI_QCMD(qlogicfas408_queuecommand)
 
+/* 
+ *	Return bios parameters 
+ */
 
 int qlogicfas408_biosparam(struct scsi_device *disk, struct block_device *dev,
 			   sector_t capacity, int ip[])
 {
+/* This should mimic the DOS Qlogic driver's behavior exactly */
 	ip[0] = 0x40;
 	ip[1] = 0x20;
 	ip[2] = (unsigned long) capacity / (ip[0] * ip[1]);
@@ -433,6 +484,9 @@ int qlogicfas408_biosparam(struct scsi_device *disk, struct block_device *dev,
 	return 0;
 }
 
+/*
+ *	Abort a command in progress
+ */
  
 int qlogicfas408_abort(struct scsi_cmnd *cmd)
 {
@@ -442,6 +496,11 @@ int qlogicfas408_abort(struct scsi_cmnd *cmd)
 	return SUCCESS;
 }
 
+/* 
+ *	Reset SCSI bus
+ *	FIXME: This function is invoked with cmd = NULL directly by
+ *	the PCMCIA qlogic_stub code. This wants fixing
+ */
 
 int qlogicfas408_bus_reset(struct scsi_cmnd *cmd)
 {
@@ -457,6 +516,9 @@ int qlogicfas408_bus_reset(struct scsi_cmnd *cmd)
 	return SUCCESS;
 }
 
+/*
+ *	Return info string
+ */
 
 const char *qlogicfas408_info(struct Scsi_Host *host)
 {
@@ -464,6 +526,9 @@ const char *qlogicfas408_info(struct Scsi_Host *host)
 	return priv->qinfo;
 }
 
+/*
+ *	Get type of chip
+ */
 
 int qlogicfas408_get_chip_type(int qbase, int int_type)
 {
@@ -471,20 +536,23 @@ int qlogicfas408_get_chip_type(int qbase, int int_type)
 	return inb(qbase + 0xe) & 0xf8;
 }
 
+/*
+ *	Perform initialization tasks
+ */
 
 void qlogicfas408_setup(int qbase, int id, int int_type)
 {
-	outb(1, qbase + 8);	
+	outb(1, qbase + 8);	/* set for PIO pseudo DMA */
 	REG0;
-	outb(0x40 | qlcfg8 | id, qbase + 8);	
-	outb(qlcfg5, qbase + 5);	
-	outb(qlcfg9, qbase + 9);	
+	outb(0x40 | qlcfg8 | id, qbase + 8);	/* (ini) bus id, disable scsi rst */
+	outb(qlcfg5, qbase + 5);	/* select timer */
+	outb(qlcfg9, qbase + 9);	/* prescaler */
 
 #if QL_RESET_AT_START
 	outb(3, qbase + 3);
 
 	REG1;
-	
+	/* FIXME: timeout */
 	while (inb(qbase + 0xf) & 4)
 		cpu_relax();
 
@@ -492,6 +560,9 @@ void qlogicfas408_setup(int qbase, int id, int int_type)
 #endif
 }
 
+/*
+ *	Checks if this is a QLogic FAS 408
+ */
 
 int qlogicfas408_detect(int qbase, int int_type)
 {
@@ -500,6 +571,9 @@ int qlogicfas408_detect(int qbase, int int_type)
 	       ((inb(qbase + 0xe) ^ inb(qbase + 0xe)) == 7));		
 }
 
+/*
+ *	Disable interrupts
+ */
 
 void qlogicfas408_disable_ints(struct qlogicfas408_priv *priv)
 {
@@ -507,9 +581,12 @@ void qlogicfas408_disable_ints(struct qlogicfas408_priv *priv)
 	int int_type = priv->int_type;
 
 	REG1;
-	outb(0, qbase + 0xb);	
+	outb(0, qbase + 0xb);	/* disable ints */
 }
 
+/*
+ *	Init and exit functions
+ */
 
 static int __init qlogicfas408_init(void)
 {

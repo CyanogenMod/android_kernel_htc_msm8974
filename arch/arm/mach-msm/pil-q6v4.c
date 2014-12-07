@@ -101,6 +101,10 @@ int pil_q6v4_power_up(struct q6v4_data *drv)
 		return err;
 	}
 
+	/*
+	 * Q6 hardware requires a two step voltage ramp-up.
+	 * Delay between the steps.
+	 */
 	udelay(100);
 
 	err = regulator_set_voltage(drv->vreg, 1050000, 1050000);
@@ -128,61 +132,61 @@ int pil_q6v4_boot(struct pil_desc *pil)
 	const struct q6v4_data *drv = pil_to_q6v4_data(pil);
 	phys_addr_t start_addr = pil_get_entry_addr(pil);
 
-	
+	/* Enable Q6 ACLK */
 	writel_relaxed(0x10, drv->aclk_reg);
 
-	
+	/* Unhalt bus port */
 	err = msm_bus_axi_portunhalt(drv->bus_port);
 	if (err)
 		dev_err(pil->dev, "Failed to unhalt bus port\n");
 
-	
+	/* Deassert Q6SS_SS_ARES */
 	reg = readl_relaxed(drv->base + QDSP6SS_RESET);
 	reg &= ~(Q6SS_SS_ARES);
 	writel_relaxed(reg, drv->base + QDSP6SS_RESET);
 
-	
+	/* Program boot address */
 	writel_relaxed((start_addr >> 8) & 0xFFFFFF,
 			drv->base + QDSP6SS_RST_EVB);
 
-	
+	/* Program TCM and AHB address ranges */
 	writel_relaxed(drv->strap_tcm_base, drv->base + QDSP6SS_STRAP_TCM);
 	writel_relaxed(drv->strap_ahb_upper | drv->strap_ahb_lower,
 		       drv->base + QDSP6SS_STRAP_AHB);
 
-	
+	/* Turn off Q6 core clock */
 	writel_relaxed(Q6SS_SRC_SWITCH_CLK_OVR,
 		       drv->base + QDSP6SS_GFMUX_CTL);
 
-	
+	/* Put memories to sleep */
 	writel_relaxed(Q6SS_CLAMP_IO, drv->base + QDSP6SS_PWR_CTL);
 
-	
+	/* Assert resets */
 	reg = readl_relaxed(drv->base + QDSP6SS_RESET);
 	reg |= (Q6SS_CORE_ARES | Q6SS_ISDB_ARES | Q6SS_ETM_ARES
 	    | Q6SS_STOP_CORE_ARES);
 	writel_relaxed(reg, drv->base + QDSP6SS_RESET);
 
-	
+	/* Wait 8 AHB cycles for Q6 to be fully reset (AHB = 1.5Mhz) */
 	mb();
 	usleep_range(20, 30);
 
-	
+	/* Turn on Q6 memories */
 	reg = Q6SS_L2DATA_SLP_NRET_N | Q6SS_SLP_RET_N | Q6SS_L1TCM_SLP_NRET_N
 	    | Q6SS_L2TAG_SLP_NRET_N | Q6SS_ETB_SLEEP_NRET_N | Q6SS_ARR_STBY_N
 	    | Q6SS_CLAMP_IO;
 	writel_relaxed(reg, drv->base + QDSP6SS_PWR_CTL);
 
-	
+	/* Turn on Q6 core clock */
 	reg = Q6SS_CLK_ENA | Q6SS_SRC_SWITCH_CLK_OVR;
 	writel_relaxed(reg, drv->base + QDSP6SS_GFMUX_CTL);
 
-	
+	/* Remove Q6SS_CLAMP_IO */
 	reg = readl_relaxed(drv->base + QDSP6SS_PWR_CTL);
 	reg &= ~Q6SS_CLAMP_IO;
 	writel_relaxed(reg, drv->base + QDSP6SS_PWR_CTL);
 
-	
+	/* Bring Q6 core out of reset and start execution. */
 	writel_relaxed(0x0, drv->base + QDSP6SS_RESET);
 
 	return 0;
@@ -194,19 +198,19 @@ int pil_q6v4_shutdown(struct pil_desc *pil)
 	u32 reg;
 	struct q6v4_data *drv = pil_to_q6v4_data(pil);
 
-	
+	/* Make sure bus port is halted */
 	msm_bus_axi_porthalt(drv->bus_port);
 
-	
+	/* Turn off Q6 core clock */
 	writel_relaxed(Q6SS_SRC_SWITCH_CLK_OVR,
 		       drv->base + QDSP6SS_GFMUX_CTL);
 
-	
+	/* Assert resets */
 	reg = (Q6SS_SS_ARES | Q6SS_CORE_ARES | Q6SS_ISDB_ARES
 	     | Q6SS_ETM_ARES | Q6SS_STOP_CORE_ARES | Q6SS_PRIV_ARES);
 	writel_relaxed(reg, drv->base + QDSP6SS_RESET);
 
-	
+	/* Turn off Q6 memories */
 	writel_relaxed(Q6SS_CLAMP_IO, drv->base + QDSP6SS_PWR_CTL);
 
 	return 0;
@@ -230,7 +234,7 @@ int pil_q6v4_boot_trusted(struct pil_desc *pil)
 	if (err)
 		return err;
 
-	
+	/* Unhalt bus port */
 	err = msm_bus_axi_portunhalt(drv->bus_port);
 	if (err)
 		dev_err(pil->dev, "Failed to unhalt bus port\n");
@@ -243,7 +247,7 @@ int pil_q6v4_shutdown_trusted(struct pil_desc *pil)
 	int ret;
 	struct q6v4_data *drv = pil_to_q6v4_data(pil);
 
-	
+	/* Make sure bus port is halted */
 	msm_bus_axi_porthalt(drv->bus_port);
 
 	ret = pas_shutdown(drv->pas_id);

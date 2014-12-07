@@ -47,8 +47,14 @@ static struct i2c_board_info __initdata db78x00_i2c_rtc = {
 
 static void __init db78x00_init(void)
 {
+	/*
+	 * Basic MV78xx0 setup. Needs to be called early.
+	 */
 	mv78xx0_init();
 
+	/*
+	 * Partition on-chip peripherals between the two CPU cores.
+	 */
 	if (mv78xx0_core_index() == 0) {
 		mv78xx0_ehci0_init();
 		mv78xx0_ehci1_init();
@@ -71,6 +77,10 @@ static void __init db78x00_init(void)
 static int __init db78x00_pci_init(void)
 {
 	if (machine_is_db78x00_bp()) {
+		/*
+		 * Assign the x16 PCIe slot on the board to CPU core
+		 * #0, and let CPU core #1 have the four x1 slots.
+		 */
 		if (mv78xx0_core_index() == 0)
 			mv78xx0_pcie_init(0, 1);
 		else
@@ -82,7 +92,7 @@ static int __init db78x00_pci_init(void)
 subsys_initcall(db78x00_pci_init);
 
 MACHINE_START(DB78X00_BP, "Marvell DB-78x00-BP Development Board")
-	
+	/* Maintainer: Lennert Buytenhek <buytenh@marvell.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= db78x00_init,
 	.map_io		= mv78xx0_map_io,

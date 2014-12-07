@@ -40,6 +40,9 @@
 #include "nouveau_mm.h"
 #include "nouveau_vm.h"
 
+/*
+ * NV10-NV40 tiling helpers
+ */
 
 static void
 nv10_mem_update_tile_region(struct drm_device *dev,
@@ -104,7 +107,7 @@ nv10_mem_put_tile_region(struct drm_device *dev, struct nouveau_tile_reg *tile,
 	if (tile) {
 		spin_lock(&dev_priv->tile.lock);
 		if (fence) {
-			
+			/* Mark it as pending. */
 			tile->fence = fence;
 			nouveau_fence_ref(fence);
 		}
@@ -131,7 +134,7 @@ nv10_mem_set_tiling(struct drm_device *dev, uint32_t addr, uint32_t size,
 			continue;
 
 		} else if (tile && tile->pitch) {
-			
+			/* Kill an unused tile region. */
 			nv10_mem_update_tile_region(dev, tile, 0, 0, 0, 0);
 		}
 
@@ -144,6 +147,9 @@ nv10_mem_set_tiling(struct drm_device *dev, uint32_t addr, uint32_t size,
 	return found;
 }
 
+/*
+ * Cleanup everything
+ */
 void
 nouveau_mem_vram_fini(struct drm_device *dev)
 {
@@ -169,6 +175,8 @@ nouveau_mem_gart_fini(struct drm_device *dev)
 	if (drm_core_has_AGP(dev) && dev->agp) {
 		struct drm_agp_mem *entry, *tempe;
 
+		/* Remove AGP resources, but leave dev->agp
+		   intact until drv_cleanup is called. */
 		list_for_each_entry_safe(entry, tempe, &dev->agp->memory, head) {
 			if (entry->bound)
 				drm_unbind_agp(entry->memory);
@@ -200,9 +208,16 @@ get_agp_mode(struct drm_device *dev, unsigned long mode)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
+	/*
+	 * FW seems to be broken on nv18, it makes the card lock up
+	 * randomly.
+	 */
 	if (dev_priv->chipset == 0x18)
 		mode &= ~PCI_AGP_COMMAND_FW;
 
+	/*
+	 * AGP mode set in the command line.
+	 */
 	if (nouveau_agpmode > 0) {
 		bool agpv3 = mode & 0x8;
 		int rate = agpv3 ? nouveau_agpmode / 4 : nouveau_agpmode;
@@ -221,6 +236,9 @@ nouveau_mem_reset_agp(struct drm_device *dev)
 	uint32_t saved_pci_nv_1, pmc_enable;
 	int ret;
 
+	/* First of all, disable fast writes, otherwise if it's
+	 * already enabled in the AGP bridge and we disable the card's
+	 * AGP controller we might be locking ourselves out of it. */
 	if ((nv_rd32(dev, NV04_PBUS_PCI_NV_19) |
 	     dev->agp->mode) & PCI_AGP_COMMAND_FW) {
 		struct drm_agp_info info;
@@ -238,12 +256,12 @@ nouveau_mem_reset_agp(struct drm_device *dev)
 
 	saved_pci_nv_1 = nv_rd32(dev, NV04_PBUS_PCI_NV_1);
 
-	
+	/* clear busmaster bit */
 	nv_wr32(dev, NV04_PBUS_PCI_NV_1, saved_pci_nv_1 & ~0x4);
-	
+	/* disable AGP */
 	nv_wr32(dev, NV04_PBUS_PCI_NV_19, 0);
 
-	
+	/* power cycle pgraph, if enabled */
 	pmc_enable = nv_rd32(dev, NV03_PMC_ENABLE);
 	if (pmc_enable & NV_PMC_ENABLE_PGRAPH) {
 		nv_wr32(dev, NV03_PMC_ENABLE,
@@ -252,7 +270,7 @@ nouveau_mem_reset_agp(struct drm_device *dev)
 				NV_PMC_ENABLE_PGRAPH);
 	}
 
-	
+	/* and restore (gives effect of resetting AGP) */
 	nv_wr32(dev, NV04_PBUS_PCI_NV_1, saved_pci_nv_1);
 #endif
 
@@ -284,7 +302,7 @@ nouveau_mem_init_agp(struct drm_device *dev)
 		return ret;
 	}
 
-	
+	/* see agp.h for the AGPSTAT_* modes available */
 	mode.mode = get_agp_mode(dev, info.mode);
 	ret = drm_agp_enable(dev, mode);
 	if (ret) {
@@ -341,7 +359,7 @@ nouveau_mem_vram_init(struct drm_device *dev)
 		return ret;
 	ret = pci_set_consistent_dma_mask(dev->pdev, DMA_BIT_MASK(dma_bits));
 	if (ret) {
-		
+		/* Reset to default value. */
 		pci_set_consistent_dma_mask(dev->pdev, DMA_BIT_MASK(32));
 	}
 
@@ -388,7 +406,7 @@ nouveau_mem_vram_init(struct drm_device *dev)
 	dev_priv->fb_available_size -= dev_priv->ramin_rsvd_vram;
 	dev_priv->fb_aper_free = dev_priv->fb_available_size;
 
-	
+	/* mappable vram */
 	ret = ttm_bo_init_mm(bdev, TTM_PL_VRAM,
 			     dev_priv->fb_available_size >> PAGE_SHIFT);
 	if (ret) {
@@ -462,6 +480,8 @@ nv40_mem_timing_calc(struct drm_device *dev, u32 freq,
 {
 	t->reg[0] = (e->tRP << 24 | e->tRAS << 16 | e->tRFC << 8 | e->tRC);
 
+	/* XXX: I don't trust the -1's and +1's... they must come
+	 *      from somewhere! */
 	t->reg[1] = (e->tWR + 2 + (t->tCWL - 1)) << 24 |
 		    1 << 16 |
 		    (e->tWTR + 2 + (t->tCWL - 1)) << 8 |
@@ -537,7 +557,7 @@ nv50_mem_timing_calc(struct drm_device *dev, u32 freq,
 
 		t->reg[7] = 0x4000202 | (e->tCL - 1) << 16;
 
-		
+		/* XXX: P.version == 1 only has DDR2 and GDDR3? */
 		if (dev_priv->vram_type == NV_MEM_TYPE_DDR2) {
 			t->reg[5] |= (e->tCL + 3) << 8;
 			t->reg[6] |= (t->tCWL - 2) << 8;
@@ -550,7 +570,7 @@ nv50_mem_timing_calc(struct drm_device *dev, u32 freq,
 	} else {
 		t->reg[1] |= (5 + e->tCL - (t->tCWL));
 
-		
+		/* XXX: 0xb? 0x30? */
 		t->reg[3] = (0x30 + e->tCL) << 24 |
 			    (boot->reg[3] & 0x00ff0000)|
 			    (0xb + e->tCL) << 8 |
@@ -558,7 +578,7 @@ nv50_mem_timing_calc(struct drm_device *dev, u32 freq,
 
 		t->reg[4] |= (unk20 << 24 | unk21 << 16);
 
-		
+		/* XXX: +6? */
 		t->reg[5] |= (t->tCWL + 6) << 8;
 
 		t->reg[6] = (0x5a + e->tCL) << 16 |
@@ -613,6 +633,9 @@ nvc0_mem_timing_calc(struct drm_device *dev, u32 freq,
 	return 0;
 }
 
+/**
+ * MR generation methods
+ */
 
 static int
 nouveau_mem_ddr2_mr(struct drm_device *dev, u32 freq,
@@ -688,7 +711,7 @@ nouveau_mem_ddr3_mr(struct drm_device *dev, u32 freq,
 	}
 
 	t->mr[0] = (boot->mr[0] & 0x180b) |
-		   
+		   /* CAS */
 		   (cl & 0x7) << 4 |
 		   (cl & 0x8) >> 1 |
 		   (nv_mem_wr_lut_ddr3[e->tWR]) << 9;
@@ -738,7 +761,7 @@ nouveau_mem_gddr3_mr(struct drm_device *dev, u32 freq,
 	}
 
 	t->mr[0] = (boot->mr[0] & 0xe0b) |
-		   
+		   /* CAS */
 		   ((nv_mem_cl_lut_gddr3[e->tCL] & 0x7) << 4) |
 		   ((nv_mem_cl_lut_gddr3[e->tCL] & 0x8) >> 2);
 	t->mr[1] = (boot->mr[1] & 0x100f40) | t->drive_strength |
@@ -965,7 +988,7 @@ nouveau_mem_exec(struct nouveau_mem_exec_func *exec,
 		return -ENODEV;
 	}
 
-	
+	/* fetch current MRs */
 	switch (dev_priv->vram_type) {
 	case NV_MEM_TYPE_GDDR3:
 	case NV_MEM_TYPE_DDR3:
@@ -976,14 +999,14 @@ nouveau_mem_exec(struct nouveau_mem_exec_func *exec,
 		break;
 	}
 
-	
+	/* DLL 'on' -> DLL 'off' mode, disable before entering self-refresh  */
 	if (!(mr[1] & mr1_dlloff) && (info->mr[1] & mr1_dlloff)) {
 		exec->precharge(exec);
 		exec->mrs (exec, 1, mr[1] | mr1_dlloff);
 		exec->wait(exec, tMRD);
 	}
 
-	
+	/* enter self-refresh mode */
 	exec->precharge(exec);
 	exec->refresh(exec);
 	exec->refresh(exec);
@@ -991,24 +1014,24 @@ nouveau_mem_exec(struct nouveau_mem_exec_func *exec,
 	exec->refresh_self(exec, true);
 	exec->wait(exec, tCKSRE);
 
-	
+	/* modify input clock frequency */
 	exec->clock_set(exec);
 
-	
+	/* exit self-refresh mode */
 	exec->wait(exec, tCKSRX);
 	exec->precharge(exec);
 	exec->refresh_self(exec, false);
 	exec->refresh_auto(exec, true);
 	exec->wait(exec, tXS);
 
-	
+	/* update MRs */
 	if (mr[2] != info->mr[2]) {
 		exec->mrs (exec, 2, info->mr[2]);
 		exec->wait(exec, tMRD);
 	}
 
 	if (mr[1] != info->mr[1]) {
-		
+		/* need to keep DLL off until later, at least on GDDR3 */
 		exec->mrs (exec, 1, info->mr[1] | (mr[1] & mr1_dlloff));
 		exec->wait(exec, tMRD);
 	}
@@ -1018,10 +1041,10 @@ nouveau_mem_exec(struct nouveau_mem_exec_func *exec,
 		exec->wait(exec, tMRD);
 	}
 
-	
+	/* update PFB timing registers */
 	exec->timing_set(exec);
 
-	
+	/* DLL (enable + ) reset */
 	if (!(info->mr[1] & mr1_dlloff)) {
 		if (mr[1] & mr1_dlloff) {
 			exec->mrs (exec, 1, info->mr[1]);
@@ -1065,14 +1088,14 @@ nouveau_mem_vbios_type(struct drm_device *dev)
 static int
 nouveau_vram_manager_init(struct ttm_mem_type_manager *man, unsigned long psize)
 {
-	
+	/* nothing to do */
 	return 0;
 }
 
 static int
 nouveau_vram_manager_fini(struct ttm_mem_type_manager *man)
 {
-	
+	/* nothing to do */
 	return 0;
 }
 

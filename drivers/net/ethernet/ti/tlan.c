@@ -47,10 +47,12 @@
 #include "tlan.h"
 
 
+/* For removing EISA devices */
 static	struct net_device	*tlan_eisa_devices;
 
 static	int		tlan_devices_installed;
 
+/* Set speed, duplex and aui settings */
 static  int aui[MAX_TLAN_BOARDS];
 static  int duplex[MAX_TLAN_BOARDS];
 static  int speed[MAX_TLAN_BOARDS];
@@ -68,8 +70,10 @@ MODULE_DESCRIPTION("Driver for TI ThunderLAN based ethernet PCI adapters");
 MODULE_LICENSE("GPL");
 
 
+/* Define this to enable Link beat monitoring */
 #undef MONITOR
 
+/* Turn on debugging. See Documentation/networking/tlan.txt for details */
 static  int		debug;
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "ThunderLAN debug mask");
@@ -108,10 +112,10 @@ static struct board {
 	{ "Compaq Netelligent 10/100 TX UTP", TLAN_ADAPTER_ACTIVITY_LED, 0x83 },
 	{ "Compaq Netelligent 10 T/2 PCI UTP/coax", TLAN_ADAPTER_NONE, 0x83 },
 	{ "Compaq NetFlex-3/E",
-	  TLAN_ADAPTER_ACTIVITY_LED |	
+	  TLAN_ADAPTER_ACTIVITY_LED |	/* EISA card */
 	  TLAN_ADAPTER_UNMANAGED_PHY | TLAN_ADAPTER_BIT_RATE_PHY, 0x83 },
 	{ "Compaq NetFlex-3/E",
-	  TLAN_ADAPTER_ACTIVITY_LED, 0x83 }, 
+	  TLAN_ADAPTER_ACTIVITY_LED, 0x83 }, /* EISA card */
 };
 
 static DEFINE_PCI_DEVICE_TABLE(tlan_pci_tbl) = {
@@ -192,6 +196,12 @@ static void	tlan_phy_finish_auto_neg(struct net_device *);
 static void     tlan_phy_monitor(struct net_device *);
 #endif
 
+/*
+  static int	tlan_phy_nop(struct net_device *);
+  static int	tlan_phy_internal_check(struct net_device *);
+  static int	tlan_phy_internal_service(struct net_device *);
+  static int	tlan_phy_dp83840a_check(struct net_device *);
+*/
 
 static bool	tlan_mii_read_reg(struct net_device *, u16, u16, u16 *);
 static void	tlan_mii_send_data(u16, u32, unsigned);
@@ -260,11 +270,34 @@ tlan_set_timer(struct net_device *dev, u32 ticks, u32 type)
 }
 
 
+/*****************************************************************************
+******************************************************************************
+
+ThunderLAN driver primary functions
+
+these functions are more or less common to all linux network drivers.
+
+******************************************************************************
+*****************************************************************************/
 
 
 
 
 
+/***************************************************************
+ *	tlan_remove_one
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		None
+ *
+ *	Goes through the TLanDevices list and frees the device
+ *	structs and memory associated with each device (lists
+ *	and buffers).  It also ureserves the IO port regions
+ *	associated with this device.
+ *
+ **************************************************************/
 
 
 static void __devexit tlan_remove_one(struct pci_dev *pdev)
@@ -292,6 +325,9 @@ static void __devexit tlan_remove_one(struct pci_dev *pdev)
 static void tlan_start(struct net_device *dev)
 {
 	tlan_reset_lists(dev);
+	/* NOTE: It might not be necessary to read the stats before a
+	   reset if you don't care what the values are.
+	*/
 	tlan_read_and_clear_stats(dev, TLAN_IGNORE);
 	tlan_reset_adapter(dev);
 	netif_wake_queue(dev);
@@ -303,7 +339,7 @@ static void tlan_stop(struct net_device *dev)
 
 	tlan_read_and_clear_stats(dev, TLAN_RECORD);
 	outl(TLAN_HC_AD_RST, dev->base_addr + TLAN_HOST_CMD);
-	
+	/* Reset and power down phy */
 	tlan_reset_adapter(dev);
 	if (priv->timer.function != NULL) {
 		del_timer_sync(&priv->timer);
@@ -344,12 +380,12 @@ static int tlan_resume(struct pci_dev *pdev)
 	return 0;
 }
 
-#else 
+#else /* CONFIG_PM */
 
 #define tlan_suspend   NULL
 #define tlan_resume    NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 
 static struct pci_driver tlan_driver = {
@@ -369,6 +405,8 @@ static int __init tlan_probe(void)
 
 	TLAN_DBG(TLAN_DEBUG_PROBE, "Starting PCI Probe....\n");
 
+	/* Use new style PCI probing. Now the kernel will
+	   do most of this for us */
 	rc = pci_register_driver(&tlan_driver);
 
 	if (rc != 0) {
@@ -403,6 +441,24 @@ static int __devinit tlan_init_one(struct pci_dev *pdev,
 }
 
 
+/*
+***************************************************************
+*	tlan_probe1
+*
+*	Returns:
+*		0 on success, error code on error
+*	Parms:
+*		none
+*
+*	The name is lower case to fit in with all the rest of
+*	the netcard_probe names.  This function looks for
+*	another TLan based adapter, setting it up with the
+*	allocated device struct if one is found.
+*	tlan_probe has been ported to the new net API and
+*	now allocates its own device structure. This function
+*	is also used by modules.
+*
+**************************************************************/
 
 static int __devinit tlan_probe1(struct pci_dev *pdev,
 				 long ioaddr, int irq, int rev,
@@ -426,7 +482,7 @@ static int __devinit tlan_probe1(struct pci_dev *pdev,
 			goto err_out;
 		}
 	}
-#endif  
+#endif  /*  CONFIG_PCI  */
 
 	dev = alloc_etherdev(sizeof(struct tlan_priv));
 	if (dev == NULL) {
@@ -440,7 +496,7 @@ static int __devinit tlan_probe1(struct pci_dev *pdev,
 	priv->pci_dev = pdev;
 	priv->dev = dev;
 
-	
+	/* Is this a PCI device? */
 	if (pdev) {
 		u32		   pci_io_base = 0;
 
@@ -473,21 +529,23 @@ static int __devinit tlan_probe1(struct pci_dev *pdev,
 		pci_set_master(pdev);
 		pci_set_drvdata(pdev, dev);
 
-	} else	{     
+	} else	{     /* EISA card */
+		/* This is a hack. We need to know which board structure
+		 * is suited for this adapter */
 		device_id = inw(ioaddr + EISA_ID2);
 		priv->is_eisa = 1;
 		if (device_id == 0x20F1) {
-			priv->adapter = &board_info[13]; 
-			priv->adapter_rev = 23;		
+			priv->adapter = &board_info[13]; /* NetFlex-3/E */
+			priv->adapter_rev = 23;		/* TLAN 2.3 */
 		} else {
 			priv->adapter = &board_info[14];
-			priv->adapter_rev = 10;		
+			priv->adapter_rev = 10;		/* TLAN 1.0 */
 		}
 		dev->base_addr = ioaddr;
 		dev->irq = irq;
 	}
 
-	
+	/* Kernel parameters */
 	if (dev->mem_start) {
 		priv->aui    = dev->mem_start & 0x01;
 		priv->duplex = ((dev->mem_start & 0x06) == 0x06) ? 0
@@ -508,6 +566,8 @@ static int __devinit tlan_probe1(struct pci_dev *pdev,
 		priv->debug = debug;
 	}
 
+	/* This will be used when we get an adapter error from
+	 * within our irq handler */
 	INIT_WORK(&priv->tlan_tqueue, tlan_tx_timeout_work);
 
 	spin_lock_init(&priv->lock);
@@ -528,7 +588,7 @@ static int __devinit tlan_probe1(struct pci_dev *pdev,
 	tlan_devices_installed++;
 	boards_found++;
 
-	
+	/* pdev is NULL if this is an EISA device */
 	if (pdev)
 		tlan_have_pci++;
 	else {
@@ -593,11 +653,24 @@ static void __exit tlan_exit(void)
 }
 
 
+/* Module loading/unloading */
 module_init(tlan_probe);
 module_exit(tlan_exit);
 
 
 
+/**************************************************************
+ *	tlan_eisa_probe
+ *
+ *	Returns: 0 on success, 1 otherwise
+ *
+ *	Parms:	 None
+ *
+ *
+ *	This functions probes for EISA devices and calls
+ *	TLan_probe1 when one is found.
+ *
+ *************************************************************/
 
 static void  __init tlan_eisa_probe(void)
 {
@@ -611,7 +684,7 @@ static void  __init tlan_eisa_probe(void)
 		return;
 	}
 
-	
+	/* Loop through all slots of the EISA bus */
 	for (ioaddr = 0x1000; ioaddr < 0x9000; ioaddr += 0x1000) {
 
 		TLAN_DBG(TLAN_DEBUG_PROBE, "EISA_ID 0x%4x: 0x%4x\n",
@@ -637,7 +710,7 @@ static void  __init tlan_eisa_probe(void)
 			goto out;
 		}
 
-		
+		/* check if adapter is enabled */
 		if (inb(ioaddr + EISA_CR) != 0x1) {
 			release_region(ioaddr, 0x10);
 			goto out2;
@@ -647,7 +720,7 @@ static void  __init tlan_eisa_probe(void)
 			pr_info("Found one\n");
 
 
-		
+		/* Get irq from board */
 		switch (inb(ioaddr + 0xcc0)) {
 		case(0x10):
 			irq = 5;
@@ -666,7 +739,7 @@ static void  __init tlan_eisa_probe(void)
 		}
 
 
-		
+		/* Setup the newly found eisa adapter */
 		rc = tlan_probe1(NULL, ioaddr, irq,
 				 12, NULL);
 		continue;
@@ -712,6 +785,22 @@ static const struct net_device_ops tlan_netdev_ops = {
 
 
 
+/***************************************************************
+ *	tlan_init
+ *
+ *	Returns:
+ *		0 on success, error code otherwise.
+ *	Parms:
+ *		dev	The structure of the device to be
+ *			init'ed.
+ *
+ *	This function completes the initialization of the
+ *	device structure and driver.  It reserves the IO
+ *	addresses, allocates memory for the lists and bounce
+ *	buffers, retrieves the MAC address from the eeprom
+ *	and assignes the device's methods.
+ *
+ **************************************************************/
 
 static int tlan_init(struct net_device *dev)
 {
@@ -755,7 +844,7 @@ static int tlan_init(struct net_device *dev)
 
 	netif_carrier_off(dev);
 
-	
+	/* Device methods */
 	dev->netdev_ops = &tlan_netdev_ops;
 	dev->watchdog_timeo = TX_TIMEOUT;
 
@@ -766,6 +855,22 @@ static int tlan_init(struct net_device *dev)
 
 
 
+/***************************************************************
+ *	tlan_open
+ *
+ *	Returns:
+ *		0 on success, error code otherwise.
+ *	Parms:
+ *		dev	Structure of device to be opened.
+ *
+ *	This routine puts the driver and TLAN adapter in a
+ *	state where it is ready to send and receive packets.
+ *	It allocates the IRQ, resets and brings the adapter
+ *	out of reset, and allows interrupts.  It also delays
+ *	the startup for autonegotiation or sends a Rx GO
+ *	command to the adapter, as appropriate.
+ *
+ **************************************************************/
 
 static int tlan_open(struct net_device *dev)
 {
@@ -795,6 +900,20 @@ static int tlan_open(struct net_device *dev)
 
 
 
+/**************************************************************
+ *	tlan_ioctl
+ *
+ *	Returns:
+ *		0 on success, error code otherwise
+ *	Params:
+ *		dev	structure of device to receive ioctl.
+ *
+ *		rq	ifreq structure to hold userspace data.
+ *
+ *		cmd	ioctl command.
+ *
+ *
+ *************************************************************/
 
 static int tlan_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
@@ -806,17 +925,17 @@ static int tlan_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 		return -EAGAIN;
 
 	switch (cmd) {
-	case SIOCGMIIPHY:		
+	case SIOCGMIIPHY:		/* get address of MII PHY in use. */
 		data->phy_id = phy;
 
 
-	case SIOCGMIIREG:		
+	case SIOCGMIIREG:		/* read MII PHY register. */
 		tlan_mii_read_reg(dev, data->phy_id & 0x1f,
 				  data->reg_num & 0x1f, &data->val_out);
 		return 0;
 
 
-	case SIOCSMIIREG:		
+	case SIOCSMIIREG:		/* write MII PHY register. */
 		tlan_mii_write_reg(dev, data->phy_id & 0x1f,
 				   data->reg_num & 0x1f, data->val_in);
 		return 0;
@@ -826,23 +945,42 @@ static int tlan_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 }
 
 
+/***************************************************************
+ *	tlan_tx_timeout
+ *
+ *	Returns: nothing
+ *
+ *	Params:
+ *		dev	structure of device which timed out
+ *			during transmit.
+ *
+ **************************************************************/
 
 static void tlan_tx_timeout(struct net_device *dev)
 {
 
 	TLAN_DBG(TLAN_DEBUG_GNRL, "%s: Transmit timed out.\n", dev->name);
 
-	
+	/* Ok so we timed out, lets see what we can do about it...*/
 	tlan_free_lists(dev);
 	tlan_reset_lists(dev);
 	tlan_read_and_clear_stats(dev, TLAN_IGNORE);
 	tlan_reset_adapter(dev);
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	netif_wake_queue(dev);
 
 }
 
 
+/***************************************************************
+ *	tlan_tx_timeout_work
+ *
+ *	Returns: nothing
+ *
+ *	Params:
+ *		work	work item of device which timed out
+ *
+ **************************************************************/
 
 static void tlan_tx_timeout_work(struct work_struct *work)
 {
@@ -854,6 +992,26 @@ static void tlan_tx_timeout_work(struct work_struct *work)
 
 
 
+/***************************************************************
+ *	tlan_start_tx
+ *
+ *	Returns:
+ *		0 on success, non-zero on failure.
+ *	Parms:
+ *		skb	A pointer to the sk_buff containing the
+ *			frame to be sent.
+ *		dev	The device to send the data on.
+ *
+ *	This function adds a frame to the Tx list to be sent
+ *	ASAP.  First it	verifies that the adapter is ready and
+ *	there is room in the queue.  Then it sets up the next
+ *	available list, copies the frame to the	corresponding
+ *	buffer.  If the adapter Tx channel is idle, it gives
+ *	the adapter a Tx Go command on the list, otherwise it
+ *	sets the forward address of the previous list to point
+ *	to this one.  Then it frees the sk_buff.
+ *
+ **************************************************************/
 
 static netdev_tx_t tlan_start_tx(struct sk_buff *skb, struct net_device *dev)
 {
@@ -931,6 +1089,25 @@ static netdev_tx_t tlan_start_tx(struct sk_buff *skb, struct net_device *dev)
 
 
 
+/***************************************************************
+ *	tlan_handle_interrupt
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		irq	The line on which the interrupt
+ *			occurred.
+ *		dev_id	A pointer to the device assigned to
+ *			this irq line.
+ *
+ *	This function handles an interrupt generated by its
+ *	assigned TLAN adapter.  The function deactivates
+ *	interrupts on its adapter, records the type of
+ *	interrupt, executes the appropriate subhandler, and
+ *	acknowdges the interrupt to the adapter (thus
+ *	re-enabling adapter interrupts.
+ *
+ **************************************************************/
 
 static irqreturn_t tlan_handle_interrupt(int irq, void *dev_id)
 {
@@ -964,6 +1141,20 @@ static irqreturn_t tlan_handle_interrupt(int irq, void *dev_id)
 
 
 
+/***************************************************************
+ *	tlan_close
+ *
+ *	Returns:
+ *		An error code.
+ *	Parms:
+ *		dev	The device structure of the device to
+ *			close.
+ *
+ *	This function shuts down the adapter.  It records any
+ *	stats, puts the adapter into reset state, deactivates
+ *	its time as needed, and	frees the irq it is using.
+ *
+ **************************************************************/
 
 static int tlan_close(struct net_device *dev)
 {
@@ -983,13 +1174,27 @@ static int tlan_close(struct net_device *dev)
 
 
 
+/***************************************************************
+ *	tlan_get_stats
+ *
+ *	Returns:
+ *		A pointer to the device's statistics structure.
+ *	Parms:
+ *		dev	The device structure to return the
+ *			stats for.
+ *
+ *	This function updates the devices statistics by reading
+ *	the TLAN chip's onboard registers.  Then it returns the
+ *	address of the statistics structure.
+ *
+ **************************************************************/
 
 static struct net_device_stats *tlan_get_stats(struct net_device *dev)
 {
 	struct tlan_priv	*priv = netdev_priv(dev);
 	int i;
 
-	
+	/* Should only read stats if open ? */
 	tlan_read_and_clear_stats(dev, TLAN_RECORD);
 
 	TLAN_DBG(TLAN_DEBUG_RX, "RECEIVE:  %s EOC count = %d\n", dev->name,
@@ -1014,6 +1219,25 @@ static struct net_device_stats *tlan_get_stats(struct net_device *dev)
 
 
 
+/***************************************************************
+ *	tlan_set_multicast_list
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		dev	The device structure to set the
+ *			multicast list for.
+ *
+ *	This function sets the TLAN adaptor to various receive
+ *	modes.  If the IFF_PROMISC flag is set, promiscuous
+ *	mode is acitviated.  Otherwise,	promiscuous mode is
+ *	turned off.  If the IFF_ALLMULTI flag is set, then
+ *	the hash table is set to receive all group addresses.
+ *	Otherwise, the first three multicast addresses are
+ *	stored in AREG_1-3, and the rest are selected via the
+ *	hash table, as necessary.
+ *
+ **************************************************************/
 
 static void tlan_set_multicast_list(struct net_device *dev)
 {
@@ -1066,10 +1290,42 @@ static void tlan_set_multicast_list(struct net_device *dev)
 
 
 
+/*****************************************************************************
+******************************************************************************
+
+ThunderLAN driver interrupt vectors and table
+
+please see chap. 4, "Interrupt Handling" of the "ThunderLAN
+Programmer's Guide" for more informations on handling interrupts
+generated by TLAN based adapters.
+
+******************************************************************************
+*****************************************************************************/
 
 
 
 
+/***************************************************************
+ *	tlan_handle_tx_eof
+ *
+ *	Returns:
+ *		1
+ *	Parms:
+ *		dev		Device assigned the IRQ that was
+ *				raised.
+ *		host_int	The contents of the HOST_INT
+ *				port.
+ *
+ *	This function handles Tx EOF interrupts which are raised
+ *	by the adapter when it has completed sending the
+ *	contents of a buffer.  If detemines which list/buffer
+ *	was completed and resets it.  If the buffer was the last
+ *	in the channel (EOC), then the function checks to see if
+ *	another buffer is ready to send, and if so, sends a Tx
+ *	Go command.  Finally, the driver activates/continues the
+ *	activity LED.
+ *
+ **************************************************************/
 
 static u32 tlan_handle_tx_eof(struct net_device *dev, u16 host_int)
 {
@@ -1151,6 +1407,22 @@ static u32 tlan_handle_tx_eof(struct net_device *dev, u16 host_int)
 
 
 
+/***************************************************************
+ *	TLan_HandleStatOverflow
+ *
+ *	Returns:
+ *		1
+ *	Parms:
+ *		dev		Device assigned the IRQ that was
+ *				raised.
+ *		host_int	The contents of the HOST_INT
+ *				port.
+ *
+ *	This function handles the Statistics Overflow interrupt
+ *	which means that one or more of the TLAN statistics
+ *	registers has reached 1/2 capacity and needs to be read.
+ *
+ **************************************************************/
 
 static u32 tlan_handle_stat_overflow(struct net_device *dev, u16 host_int)
 {
@@ -1163,6 +1435,30 @@ static u32 tlan_handle_stat_overflow(struct net_device *dev, u16 host_int)
 
 
 
+/***************************************************************
+ *	TLan_HandleRxEOF
+ *
+ *	Returns:
+ *		1
+ *	Parms:
+ *		dev		Device assigned the IRQ that was
+ *				raised.
+ *		host_int	The contents of the HOST_INT
+ *				port.
+ *
+ *	This function handles the Rx EOF interrupt which
+ *	indicates a frame has been received by the adapter from
+ *	the net and the frame has been transferred to memory.
+ *	The function determines the bounce buffer the frame has
+ *	been loaded into, creates a new sk_buff big enough to
+ *	hold the frame, and sends it to protocol stack.  It
+ *	then resets the used buffer and appends it to the end
+ *	of the list.  If the frame was the last in the Rx
+ *	channel (EOC), the function restarts the receive channel
+ *	by sending an Rx Go command to the adapter.  Then it
+ *	activates/continues the activity LED.
+ *
+ **************************************************************/
 
 static u32 tlan_handle_rx_eof(struct net_device *dev, u16 host_int)
 {
@@ -1263,6 +1559,22 @@ drop_and_reuse:
 
 
 
+/***************************************************************
+ *	tlan_handle_dummy
+ *
+ *	Returns:
+ *		1
+ *	Parms:
+ *		dev		Device assigned the IRQ that was
+ *				raised.
+ *		host_int	The contents of the HOST_INT
+ *				port.
+ *
+ *	This function handles the Dummy interrupt, which is
+ *	raised whenever a test interrupt is generated by setting
+ *	the Req_Int bit of HOST_CMD to 1.
+ *
+ **************************************************************/
 
 static u32 tlan_handle_dummy(struct net_device *dev, u16 host_int)
 {
@@ -1274,6 +1586,25 @@ static u32 tlan_handle_dummy(struct net_device *dev, u16 host_int)
 
 
 
+/***************************************************************
+ *	tlan_handle_tx_eoc
+ *
+ *	Returns:
+ *		1
+ *	Parms:
+ *		dev		Device assigned the IRQ that was
+ *				raised.
+ *		host_int	The contents of the HOST_INT
+ *				port.
+ *
+ *	This driver is structured to determine EOC occurrences by
+ *	reading the CSTAT member of the list structure.  Tx EOC
+ *	interrupts are disabled via the DIO INTDIS register.
+ *	However, TLAN chips before revision 3.0 didn't have this
+ *	functionality, so process EOC events if this is the
+ *	case.
+ *
+ **************************************************************/
 
 static u32 tlan_handle_tx_eoc(struct net_device *dev, u16 host_int)
 {
@@ -1307,6 +1638,25 @@ static u32 tlan_handle_tx_eoc(struct net_device *dev, u16 host_int)
 
 
 
+/***************************************************************
+ *	tlan_handle_status_check
+ *
+ *	Returns:
+ *		0 if Adapter check, 1 if Network Status check.
+ *	Parms:
+ *		dev		Device assigned the IRQ that was
+ *				raised.
+ *		host_int	The contents of the HOST_INT
+ *				port.
+ *
+ *	This function handles Adapter Check/Network Status
+ *	interrupts generated by the adapter.  It checks the
+ *	vector in the HOST_INT register to determine if it is
+ *	an Adapter Check interrupt.  If so, it resets the
+ *	adapter.  Otherwise it clears the status registers
+ *	and services the PHY.
+ *
+ **************************************************************/
 
 static u32 tlan_handle_status_check(struct net_device *dev, u16 host_int)
 {
@@ -1367,6 +1717,25 @@ static u32 tlan_handle_status_check(struct net_device *dev, u16 host_int)
 
 
 
+/***************************************************************
+ *	tlan_handle_rx_eoc
+ *
+ *	Returns:
+ *		1
+ *	Parms:
+ *		dev		Device assigned the IRQ that was
+ *				raised.
+ *		host_int	The contents of the HOST_INT
+ *				port.
+ *
+ *	This driver is structured to determine EOC occurrences by
+ *	reading the CSTAT member of the list structure.  Rx EOC
+ *	interrupts are disabled via the DIO INTDIS register.
+ *	However, TLAN chips before revision 3.0 didn't have this
+ *	CSTAT member or a INTDIS register, so if this chip is
+ *	pre-3.0, process EOC interrupts normally.
+ *
+ **************************************************************/
 
 static u32 tlan_handle_rx_eoc(struct net_device *dev, u16 host_int)
 {
@@ -1392,8 +1761,44 @@ static u32 tlan_handle_rx_eoc(struct net_device *dev, u16 host_int)
 
 
 
+/*****************************************************************************
+******************************************************************************
+
+ThunderLAN driver timer function
+
+******************************************************************************
+*****************************************************************************/
 
 
+/***************************************************************
+ *	tlan_timer
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		data	A value given to add timer when
+ *			add_timer was called.
+ *
+ *	This function handles timed functionality for the
+ *	TLAN driver.  The two current timer uses are for
+ *	delaying for autonegotionation and driving the ACT LED.
+ *	-	Autonegotiation requires being allowed about
+ *		2 1/2 seconds before attempting to transmit a
+ *		packet.  It would be a very bad thing to hang
+ *		the kernel this long, so the driver doesn't
+ *		allow transmission 'til after this time, for
+ *		certain PHYs.  It would be much nicer if all
+ *		PHYs were interrupt-capable like the internal
+ *		PHY.
+ *	-	The ACT LED, which shows adapter activity, is
+ *		driven by the driver, and so must be left on
+ *		for a short period to power up the LED so it
+ *		can be seen.  This delay can be changed by
+ *		changing the TLAN_TIMER_ACT_DELAY in tlan.h,
+ *		if desired.  100 ms  produces a slightly
+ *		sluggish response.
+ *
+ **************************************************************/
 
 static void tlan_timer(unsigned long data)
 {
@@ -1455,8 +1860,28 @@ static void tlan_timer(unsigned long data)
 
 
 
+/*****************************************************************************
+******************************************************************************
+
+ThunderLAN driver adapter related routines
+
+******************************************************************************
+*****************************************************************************/
 
 
+/***************************************************************
+ *	tlan_reset_lists
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		dev	The device structure with the list
+ *			stuctures to be reset.
+ *
+ *	This routine sets the variables associated with managing
+ *	the TLAN lists to their initial values.
+ *
+ **************************************************************/
 
 static void tlan_reset_lists(struct net_device *dev)
 {
@@ -1502,7 +1927,7 @@ static void tlan_reset_lists(struct net_device *dev)
 		list->forward = list_phys + sizeof(struct tlan_list);
 	}
 
-	
+	/* in case ran out of memory early, clear bits */
 	while (i < TLAN_NUM_RX_LISTS) {
 		tlan_store_skb(priv->rx_list + i, NULL);
 		++i;
@@ -1553,6 +1978,19 @@ static void tlan_free_lists(struct net_device *dev)
 
 
 
+/***************************************************************
+ *	tlan_print_dio
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		io_base		Base IO port of the device of
+ *				which to print DIO registers.
+ *
+ *	This function prints out all the internal (DIO)
+ *	registers of a TLAN chip.
+ *
+ **************************************************************/
 
 static void tlan_print_dio(u16 io_base)
 {
@@ -1573,6 +2011,22 @@ static void tlan_print_dio(u16 io_base)
 
 
 
+/***************************************************************
+ *	TLan_PrintList
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		list	A pointer to the struct tlan_list structure to
+ *			be printed.
+ *		type	A string to designate type of list,
+ *			"Rx" or "Tx".
+ *		num	The index of the list.
+ *
+ *	This function prints out the contents of the list
+ *	pointed to by the list parameter.
+ *
+ **************************************************************/
 
 static void tlan_print_list(struct tlan_list *list, char *type, int num)
 {
@@ -1582,7 +2036,7 @@ static void tlan_print_list(struct tlan_list *list, char *type, int num)
 	pr_info("   Forward    = 0x%08x\n",  list->forward);
 	pr_info("   CSTAT      = 0x%04hx\n", list->c_stat);
 	pr_info("   Frame Size = 0x%04hx\n", list->frame_size);
-	
+	/* for (i = 0; i < 10; i++) { */
 	for (i = 0; i < 2; i++) {
 		pr_info("   Buffer[%d].count, addr = 0x%08x, 0x%08x\n",
 			i, list->buffer[i].count, list->buffer[i].address);
@@ -1593,6 +2047,23 @@ static void tlan_print_list(struct tlan_list *list, char *type, int num)
 
 
 
+/***************************************************************
+ *	tlan_read_and_clear_stats
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		dev	Pointer to device structure of adapter
+ *			to which to read stats.
+ *		record	Flag indicating whether to add
+ *
+ *	This functions reads all the internal status registers
+ *	of the TLAN chip, which clears them as a side effect.
+ *	It then either adds the values to the device's status
+ *	struct, or discards them, depending on whether record
+ *	is TLAN_RECORD (!=0)  or TLAN_IGNORE (==0).
+ *
+ **************************************************************/
 
 static void tlan_read_and_clear_stats(struct net_device *dev, int record)
 {
@@ -1652,6 +2123,22 @@ static void tlan_read_and_clear_stats(struct net_device *dev, int record)
 
 
 
+/***************************************************************
+ *	TLan_Reset
+ *
+ *	Returns:
+ *		0
+ *	Parms:
+ *		dev	Pointer to device structure of adapter
+ *			to be reset.
+ *
+ *	This function resets the adapter and it's physical
+ *	device.  See Chap. 3, pp. 9-10 of the "ThunderLAN
+ *	Programmer's Guide" for details.  The routine tries to
+ *	implement what is detailed there, though adjustments
+ *	have been made.
+ *
+ **************************************************************/
 
 static void
 tlan_reset_adapter(struct net_device *dev)
@@ -1666,6 +2153,7 @@ tlan_reset_adapter(struct net_device *dev)
 	priv->phy_online = 0;
 	netif_carrier_off(dev);
 
+/*  1.	Assert reset bit. */
 
 	data = inl(dev->base_addr + TLAN_HOST_CMD);
 	data |= TLAN_HC_AD_RST;
@@ -1673,28 +2161,34 @@ tlan_reset_adapter(struct net_device *dev)
 
 	udelay(1000);
 
+/*  2.	Turn off interrupts. (Probably isn't necessary) */
 
 	data = inl(dev->base_addr + TLAN_HOST_CMD);
 	data |= TLAN_HC_INT_OFF;
 	outl(data, dev->base_addr + TLAN_HOST_CMD);
 
+/*  3.	Clear AREGs and HASHs. */
 
 	for (i = TLAN_AREG_0; i <= TLAN_HASH_2; i += 4)
 		tlan_dio_write32(dev->base_addr, (u16) i, 0);
 
+/*  4.	Setup NetConfig register. */
 
 	data = TLAN_NET_CFG_1FRAG | TLAN_NET_CFG_1CHAN | TLAN_NET_CFG_PHY_EN;
 	tlan_dio_write16(dev->base_addr, TLAN_NET_CONFIG, (u16) data);
 
+/*  5.	Load Ld_Tmr and Ld_Thr in HOST_CMD. */
 
 	outl(TLAN_HC_LD_TMR | 0x3f, dev->base_addr + TLAN_HOST_CMD);
 	outl(TLAN_HC_LD_THR | 0x9, dev->base_addr + TLAN_HOST_CMD);
 
+/*  6.	Unreset the MII by setting NMRST (in NetSio) to 1. */
 
 	outw(TLAN_NET_SIO, dev->base_addr + TLAN_DIO_ADR);
 	addr = dev->base_addr + TLAN_DIO_DATA + TLAN_NET_SIO;
 	tlan_set_bit(TLAN_NET_SIO_NMRST, addr);
 
+/*  7.	Setup the remaining registers. */
 
 	if (priv->tlan_rev >= 0x30) {
 		data8 = TLAN_ID_TX_EOC | TLAN_ID_RX_EOC;
@@ -1766,7 +2260,7 @@ tlan_finish_reset(struct net_device *dev)
 		udelay(1000);
 		tlan_mii_read_reg(dev, phy, MII_GEN_STS, &status);
 		if ((status & MII_GS_LINK) &&
-		    
+		    /* We only support link info on Nat.Sem. PHY's */
 		    (tlphy_id1 == NAT_SEM_ID1) &&
 		    (tlphy_id2 == NAT_SEM_ID2)) {
 			tlan_mii_read_reg(dev, phy, MII_AN_LPA, &partner);
@@ -1792,9 +2286,9 @@ tlan_finish_reset(struct net_device *dev)
 			tlan_dio_write8(dev->base_addr, TLAN_LED_REG,
 					TLAN_LED_LINK);
 #ifdef MONITOR
-			
+			/* We have link beat..for now anyway */
 			priv->link = 1;
-			
+			/*Enabling link beat monitoring */
 			tlan_set_timer(dev, (10*HZ), TLAN_TIMER_LINK_BEAT);
 #endif
 		} else if (status & MII_GS_LINK)  {
@@ -1835,6 +2329,26 @@ tlan_finish_reset(struct net_device *dev)
 
 
 
+/***************************************************************
+ *	tlan_set_mac
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		dev	Pointer to device structure of adapter
+ *			on which to change the AREG.
+ *		areg	The AREG to set the address in (0 - 3).
+ *		mac	A pointer to an array of chars.  Each
+ *			element stores one byte of the address.
+ *			IE, it isn't in ascii.
+ *
+ *	This function transfers a MAC address to one of the
+ *	TLAN AREGs (address registers).  The TLAN chip locks
+ *	the register on writing to offset 0 and unlocks the
+ *	register after writing to offset 5.  If NULL is passed
+ *	in mac, then the AREG is filled with 0's.
+ *
+ **************************************************************/
 
 static void tlan_set_mac(struct net_device *dev, int areg, char *mac)
 {
@@ -1857,9 +2371,28 @@ static void tlan_set_mac(struct net_device *dev, int areg, char *mac)
 
 
 
+/*****************************************************************************
+******************************************************************************
+
+ThunderLAN driver PHY layer routines
+
+******************************************************************************
+*****************************************************************************/
 
 
 
+/*********************************************************************
+ *	tlan_phy_print
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		dev	A pointer to the device structure of the
+ *			TLAN device having the PHYs to be detailed.
+ *
+ *	This function prints the registers a PHY (aka transceiver).
+ *
+ ********************************************************************/
 
 static void tlan_phy_print(struct net_device *dev)
 {
@@ -1890,6 +2423,22 @@ static void tlan_phy_print(struct net_device *dev)
 
 
 
+/*********************************************************************
+ *	tlan_phy_detect
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		dev	A pointer to the device structure of the adapter
+ *			for which the PHY needs determined.
+ *
+ *	So far I've found that adapters which have external PHYs
+ *	may also use the internal PHY for part of the functionality.
+ *	(eg, AUI/Thinnet).  This function finds out if this TLAN
+ *	chip has an internal PHY, and then finds the first external
+ *	PHY (starting from address 0) if it exists).
+ *
+ ********************************************************************/
 
 static void tlan_phy_detect(struct net_device *dev)
 {
@@ -1956,6 +2505,10 @@ static void tlan_phy_power_down(struct net_device *dev)
 		tlan_mii_write_reg(dev, priv->phy[1], MII_GEN_CTL, value);
 	}
 
+	/* Wait for 50 ms and powerup
+	 * This is abitrary.  It is intended to make sure the
+	 * transceiver settles.
+	 */
 	tlan_set_timer(dev, (HZ/20), TLAN_TIMER_PHY_PUP);
 
 }
@@ -1973,6 +2526,10 @@ static void tlan_phy_power_up(struct net_device *dev)
 	value = MII_GC_LOOPBK;
 	tlan_mii_write_reg(dev, priv->phy[priv->phy_num], MII_GEN_CTL, value);
 	tlan_mii_sync(dev->base_addr);
+	/* Wait for 500 ms and reset the
+	 * transceiver.  The TLAN docs say both 50 ms and
+	 * 500 ms, so do the longer, just in case.
+	 */
 	tlan_set_timer(dev, (HZ/20), TLAN_TIMER_PHY_RESET);
 
 }
@@ -1996,6 +2553,10 @@ static void tlan_phy_reset(struct net_device *dev)
 	while (value & MII_GC_RESET)
 		tlan_mii_read_reg(dev, phy, MII_GEN_CTL, &value);
 
+	/* Wait for 500 ms and initialize.
+	 * I don't remember why I wait this long.
+	 * I've changed this to 50ms, as it seems long enough.
+	 */
 	tlan_set_timer(dev, (HZ/20), TLAN_TIMER_PHY_START_LINK);
 
 }
@@ -2037,13 +2598,18 @@ static void tlan_phy_start_link(struct net_device *dev)
 			tlan_mii_write_reg(dev, phy, MII_GEN_CTL, 0x2100);
 		} else {
 
-			
+			/* Set Auto-Neg advertisement */
 			tlan_mii_write_reg(dev, phy, MII_AN_ADV,
 					   (ability << 5) | 1);
-			
+			/* Enablee Auto-Neg */
 			tlan_mii_write_reg(dev, phy, MII_GEN_CTL, 0x1000);
-			
+			/* Restart Auto-Neg */
 			tlan_mii_write_reg(dev, phy, MII_GEN_CTL, 0x1200);
+			/* Wait for 4 sec for autonegotiation
+			 * to complete.  The max spec time is less than this
+			 * but the card need additional time to start AN.
+			 * .5 sec should be plenty extra.
+			 */
 			netdev_info(dev, "Starting autonegotiation\n");
 			tlan_set_timer(dev, (2*HZ), TLAN_TIMER_PHY_FINISH_AN);
 			return;
@@ -2076,6 +2642,9 @@ static void tlan_phy_start_link(struct net_device *dev)
 		tlan_mii_write_reg(dev, phy, TLAN_TLPHY_CTL, tctl);
 	}
 
+	/* Wait for 2 sec to give the transceiver time
+	 * to establish link.
+	 */
 	tlan_set_timer(dev, (4*HZ), TLAN_TIMER_FINISH_RESET);
 
 }
@@ -2100,6 +2669,9 @@ static void tlan_phy_finish_auto_neg(struct net_device *dev)
 	tlan_mii_read_reg(dev, phy, MII_GEN_STS, &status);
 
 	if (!(status & MII_GS_AUTOCMPLT)) {
+		/* Wait for 8 sec to give the process
+		 * more time.  Perhaps we should fail after a while.
+		 */
 		if (!priv->neg_be_verbose++) {
 			pr_info("Giving autonegotiation more time.\n");
 			pr_info("Please check that your adapter has\n");
@@ -2143,12 +2715,31 @@ static void tlan_phy_finish_auto_neg(struct net_device *dev)
 		}
 	}
 
+	/* Wait for 100 ms.  No reason in partiticular.
+	 */
 	tlan_set_timer(dev, (HZ/10), TLAN_TIMER_FINISH_RESET);
 
 }
 
 #ifdef MONITOR
 
+/*********************************************************************
+ *
+ *     tlan_phy_monitor
+ *
+ *     Returns:
+ *	      None
+ *
+ *     Params:
+ *	      dev	     The device structure of this device.
+ *
+ *
+ *     This function monitors PHY condition by reading the status
+ *     register via the MII bus. This can be used to give info
+ *     about link changes (up/down), and possible switch to alternate
+ *     media.
+ *
+ *******************************************************************/
 
 void tlan_phy_monitor(struct net_device *dev)
 {
@@ -2158,10 +2749,10 @@ void tlan_phy_monitor(struct net_device *dev)
 
 	phy = priv->phy[priv->phy_num];
 
-	
+	/* Get PHY status register */
 	tlan_mii_read_reg(dev, phy, MII_GEN_STS, &phy_status);
 
-	
+	/* Check if link has been lost */
 	if (!(phy_status & MII_GS_LINK)) {
 		if (priv->link) {
 			priv->link = 0;
@@ -2173,7 +2764,7 @@ void tlan_phy_monitor(struct net_device *dev)
 		}
 	}
 
-	
+	/* Link restablished? */
 	if ((phy_status & MII_GS_LINK) && !priv->link) {
 		priv->link = 1;
 		printk(KERN_DEBUG "TLAN: %s has reestablished link\n",
@@ -2181,15 +2772,48 @@ void tlan_phy_monitor(struct net_device *dev)
 		netif_carrier_on(dev);
 	}
 
-	
+	/* Setup a new monitor */
 	tlan_set_timer(dev, (2*HZ), TLAN_TIMER_LINK_BEAT);
 }
 
-#endif 
+#endif /* MONITOR */
 
 
+/*****************************************************************************
+******************************************************************************
+
+ThunderLAN driver MII routines
+
+these routines are based on the information in chap. 2 of the
+"ThunderLAN Programmer's Guide", pp. 15-24.
+
+******************************************************************************
+*****************************************************************************/
 
 
+/***************************************************************
+ *	tlan_mii_read_reg
+ *
+ *	Returns:
+ *		false	if ack received ok
+ *		true	if no ack received or other error
+ *
+ *	Parms:
+ *		dev		The device structure containing
+ *				The io address and interrupt count
+ *				for this device.
+ *		phy		The address of the PHY to be queried.
+ *		reg		The register whose contents are to be
+ *				retrieved.
+ *		val		A pointer to a variable to store the
+ *				retrieved value.
+ *
+ *	This function uses the TLAN's MII bus to retrieve the contents
+ *	of a given register on a PHY.  It sends the appropriate info
+ *	and then reads the 16-bit register value from the MII bus via
+ *	the TLAN SIO register.
+ *
+ **************************************************************/
 
 static bool
 tlan_mii_read_reg(struct net_device *dev, u16 phy, u16 reg, u16 *val)
@@ -2215,28 +2839,28 @@ tlan_mii_read_reg(struct net_device *dev, u16 phy, u16 reg, u16 *val)
 	if (minten)
 		tlan_clear_bit(TLAN_NET_SIO_MINTEN, sio);
 
-	tlan_mii_send_data(dev->base_addr, 0x1, 2);	
-	tlan_mii_send_data(dev->base_addr, 0x2, 2);	
-	tlan_mii_send_data(dev->base_addr, phy, 5);	
-	tlan_mii_send_data(dev->base_addr, reg, 5);	
+	tlan_mii_send_data(dev->base_addr, 0x1, 2);	/* start (01b) */
+	tlan_mii_send_data(dev->base_addr, 0x2, 2);	/* read  (10b) */
+	tlan_mii_send_data(dev->base_addr, phy, 5);	/* device #      */
+	tlan_mii_send_data(dev->base_addr, reg, 5);	/* register #    */
 
 
-	tlan_clear_bit(TLAN_NET_SIO_MTXEN, sio);	
+	tlan_clear_bit(TLAN_NET_SIO_MTXEN, sio);	/* change direction */
 
-	tlan_clear_bit(TLAN_NET_SIO_MCLK, sio);		
+	tlan_clear_bit(TLAN_NET_SIO_MCLK, sio);		/* clock idle bit */
 	tlan_set_bit(TLAN_NET_SIO_MCLK, sio);
-	tlan_clear_bit(TLAN_NET_SIO_MCLK, sio);		
+	tlan_clear_bit(TLAN_NET_SIO_MCLK, sio);		/* wait 300ns */
 
-	nack = tlan_get_bit(TLAN_NET_SIO_MDATA, sio);	
-	tlan_set_bit(TLAN_NET_SIO_MCLK, sio);		
-	if (nack) {					
+	nack = tlan_get_bit(TLAN_NET_SIO_MDATA, sio);	/* check for ACK */
+	tlan_set_bit(TLAN_NET_SIO_MCLK, sio);		/* finish ACK */
+	if (nack) {					/* no ACK, so fake it */
 		for (i = 0; i < 16; i++) {
 			tlan_clear_bit(TLAN_NET_SIO_MCLK, sio);
 			tlan_set_bit(TLAN_NET_SIO_MCLK, sio);
 		}
 		tmp = 0xffff;
 		err = true;
-	} else {					
+	} else {					/* ACK, so read data */
 		for (tmp = 0, i = 0x8000; i; i >>= 1) {
 			tlan_clear_bit(TLAN_NET_SIO_MCLK, sio);
 			if (tlan_get_bit(TLAN_NET_SIO_MDATA, sio))
@@ -2246,7 +2870,7 @@ tlan_mii_read_reg(struct net_device *dev, u16 phy, u16 reg, u16 *val)
 	}
 
 
-	tlan_clear_bit(TLAN_NET_SIO_MCLK, sio);		
+	tlan_clear_bit(TLAN_NET_SIO_MCLK, sio);		/* idle cycle */
 	tlan_set_bit(TLAN_NET_SIO_MCLK, sio);
 
 	if (minten)
@@ -2264,6 +2888,23 @@ tlan_mii_read_reg(struct net_device *dev, u16 phy, u16 reg, u16 *val)
 
 
 
+/***************************************************************
+ *	tlan_mii_send_data
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		base_port	The base IO port of the adapter	in
+ *				question.
+ *		dev		The address of the PHY to be queried.
+ *		data		The value to be placed on the MII bus.
+ *		num_bits	The number of bits in data that are to
+ *				be placed on the MII bus.
+ *
+ *	This function sends on sequence of bits on the MII
+ *	configuration bus.
+ *
+ **************************************************************/
 
 static void tlan_mii_send_data(u16 base_port, u32 data, unsigned num_bits)
 {
@@ -2293,6 +2934,19 @@ static void tlan_mii_send_data(u16 base_port, u32 data, unsigned num_bits)
 
 
 
+/***************************************************************
+ *	TLan_MiiSync
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		base_port	The base IO port of the adapter in
+ *				question.
+ *
+ *	This functions syncs all PHYs in terms of the MII configuration
+ *	bus.
+ *
+ **************************************************************/
 
 static void tlan_mii_sync(u16 base_port)
 {
@@ -2353,15 +3007,15 @@ tlan_mii_write_reg(struct net_device *dev, u16 phy, u16 reg, u16 val)
 	if (minten)
 		tlan_clear_bit(TLAN_NET_SIO_MINTEN, sio);
 
-	tlan_mii_send_data(dev->base_addr, 0x1, 2);	
-	tlan_mii_send_data(dev->base_addr, 0x1, 2);	
-	tlan_mii_send_data(dev->base_addr, phy, 5);	
-	tlan_mii_send_data(dev->base_addr, reg, 5);	
+	tlan_mii_send_data(dev->base_addr, 0x1, 2);	/* start (01b) */
+	tlan_mii_send_data(dev->base_addr, 0x1, 2);	/* write (01b) */
+	tlan_mii_send_data(dev->base_addr, phy, 5);	/* device #      */
+	tlan_mii_send_data(dev->base_addr, reg, 5);	/* register #    */
 
-	tlan_mii_send_data(dev->base_addr, 0x2, 2);	
-	tlan_mii_send_data(dev->base_addr, val, 16);	
+	tlan_mii_send_data(dev->base_addr, 0x2, 2);	/* send ACK */
+	tlan_mii_send_data(dev->base_addr, val, 16);	/* send data */
 
-	tlan_clear_bit(TLAN_NET_SIO_MCLK, sio);	
+	tlan_clear_bit(TLAN_NET_SIO_MCLK, sio);	/* idle cycle */
 	tlan_set_bit(TLAN_NET_SIO_MCLK, sio);
 
 	if (minten)
@@ -2375,8 +3029,34 @@ tlan_mii_write_reg(struct net_device *dev, u16 phy, u16 reg, u16 val)
 
 
 
+/*****************************************************************************
+******************************************************************************
+
+ThunderLAN driver eeprom routines
+
+the Compaq netelligent 10 and 10/100 cards use a microchip 24C02A
+EEPROM.  these functions are based on information in microchip's
+data sheet.  I don't know how well this functions will work with
+other Eeproms.
+
+******************************************************************************
+*****************************************************************************/
 
 
+/***************************************************************
+ *	tlan_ee_send_start
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		io_base		The IO port base address for the
+ *				TLAN device with the EEPROM to
+ *				use.
+ *
+ *	This function sends a start cycle to an EEPROM attached
+ *	to a TLAN chip.
+ *
+ **************************************************************/
 
 static void tlan_ee_send_start(u16 io_base)
 {
@@ -2396,6 +3076,27 @@ static void tlan_ee_send_start(u16 io_base)
 
 
 
+/***************************************************************
+ *	tlan_ee_send_byte
+ *
+ *	Returns:
+ *		If the correct ack was received, 0, otherwise 1
+ *	Parms:	io_base		The IO port base address for the
+ *				TLAN device with the EEPROM to
+ *				use.
+ *		data		The 8 bits of information to
+ *				send to the EEPROM.
+ *		stop		If TLAN_EEPROM_STOP is passed, a
+ *				stop cycle is sent after the
+ *				byte is sent after the ack is
+ *				read.
+ *
+ *	This function sends a byte on the serial EEPROM line,
+ *	driving the clock to send each bit. The function then
+ *	reverses transmission direction and reads an acknowledge
+ *	bit.
+ *
+ **************************************************************/
 
 static int tlan_ee_send_byte(u16 io_base, u8 data, int stop)
 {
@@ -2406,7 +3107,7 @@ static int tlan_ee_send_byte(u16 io_base, u8 data, int stop)
 	outw(TLAN_NET_SIO, io_base + TLAN_DIO_ADR);
 	sio = io_base + TLAN_DIO_DATA + TLAN_NET_SIO;
 
-	
+	/* Assume clock is low, tx is enabled; */
 	for (place = 0x80; place != 0; place >>= 1) {
 		if (place & data)
 			tlan_set_bit(TLAN_NET_SIO_EDATA, sio);
@@ -2422,7 +3123,7 @@ static int tlan_ee_send_byte(u16 io_base, u8 data, int stop)
 	tlan_set_bit(TLAN_NET_SIO_ETXEN, sio);
 
 	if ((!err) && stop) {
-		
+		/* STOP, raise data while clock is high */
 		tlan_clear_bit(TLAN_NET_SIO_EDATA, sio);
 		tlan_set_bit(TLAN_NET_SIO_ECLOK, sio);
 		tlan_set_bit(TLAN_NET_SIO_EDATA, sio);
@@ -2435,6 +3136,29 @@ static int tlan_ee_send_byte(u16 io_base, u8 data, int stop)
 
 
 
+/***************************************************************
+ *	tlan_ee_receive_byte
+ *
+ *	Returns:
+ *		Nothing
+ *	Parms:
+ *		io_base		The IO port base address for the
+ *				TLAN device with the EEPROM to
+ *				use.
+ *		data		An address to a char to hold the
+ *				data sent from the EEPROM.
+ *		stop		If TLAN_EEPROM_STOP is passed, a
+ *				stop cycle is sent after the
+ *				byte is received, and no ack is
+ *				sent.
+ *
+ *	This function receives 8 bits of data from the EEPROM
+ *	over the serial link.  It then sends and ack bit, or no
+ *	ack and a stop bit.  This function is used to retrieve
+ *	data after the address of a byte in the EEPROM has been
+ *	sent.
+ *
+ **************************************************************/
 
 static void tlan_ee_receive_byte(u16 io_base, u8 *data, int stop)
 {
@@ -2445,7 +3169,7 @@ static void tlan_ee_receive_byte(u16 io_base, u8 *data, int stop)
 	sio = io_base + TLAN_DIO_DATA + TLAN_NET_SIO;
 	*data = 0;
 
-	
+	/* Assume clock is low, tx is enabled; */
 	tlan_clear_bit(TLAN_NET_SIO_ETXEN, sio);
 	for (place = 0x80; place; place >>= 1) {
 		tlan_set_bit(TLAN_NET_SIO_ECLOK, sio);
@@ -2456,14 +3180,14 @@ static void tlan_ee_receive_byte(u16 io_base, u8 *data, int stop)
 
 	tlan_set_bit(TLAN_NET_SIO_ETXEN, sio);
 	if (!stop) {
-		tlan_clear_bit(TLAN_NET_SIO_EDATA, sio); 
+		tlan_clear_bit(TLAN_NET_SIO_EDATA, sio); /* ack = 0 */
 		tlan_set_bit(TLAN_NET_SIO_ECLOK, sio);
 		tlan_clear_bit(TLAN_NET_SIO_ECLOK, sio);
 	} else {
-		tlan_set_bit(TLAN_NET_SIO_EDATA, sio);	
+		tlan_set_bit(TLAN_NET_SIO_EDATA, sio);	/* no ack = 1 (?) */
 		tlan_set_bit(TLAN_NET_SIO_ECLOK, sio);
 		tlan_clear_bit(TLAN_NET_SIO_ECLOK, sio);
-		
+		/* STOP, raise data while clock is high */
 		tlan_clear_bit(TLAN_NET_SIO_EDATA, sio);
 		tlan_set_bit(TLAN_NET_SIO_ECLOK, sio);
 		tlan_set_bit(TLAN_NET_SIO_EDATA, sio);
@@ -2474,6 +3198,26 @@ static void tlan_ee_receive_byte(u16 io_base, u8 *data, int stop)
 
 
 
+/***************************************************************
+ *	tlan_ee_read_byte
+ *
+ *	Returns:
+ *		No error = 0, else, the stage at which the error
+ *		occurred.
+ *	Parms:
+ *		io_base		The IO port base address for the
+ *				TLAN device with the EEPROM to
+ *				use.
+ *		ee_addr		The address of the byte in the
+ *				EEPROM whose contents are to be
+ *				retrieved.
+ *		data		An address to a char to hold the
+ *				data obtained from the EEPROM.
+ *
+ *	This function reads a byte of information from an byte
+ *	cell in the EEPROM.
+ *
+ **************************************************************/
 
 static int tlan_ee_read_byte(struct net_device *dev, u8 ee_addr, u8 *data)
 {

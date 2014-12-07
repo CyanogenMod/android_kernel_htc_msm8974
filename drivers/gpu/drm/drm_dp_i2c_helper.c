@@ -30,6 +30,7 @@
 #include "drm_dp_helper.h"
 #include "drmP.h"
 
+/* Run a single AUX_CH I2C transaction, writing/reading data as necessary */
 static int
 i2c_algo_dp_aux_transaction(struct i2c_adapter *adapter, int mode,
 			    uint8_t write_byte, uint8_t *read_byte)
@@ -42,7 +43,15 @@ i2c_algo_dp_aux_transaction(struct i2c_adapter *adapter, int mode,
 	return ret;
 }
 
+/*
+ * I2C over AUX CH
+ */
 
+/*
+ * Send the address. If the I2C link is running, this 'restarts'
+ * the connection with the new address, this is used for doing
+ * a write followed by a read (as needed for DDC)
+ */
 static int
 i2c_algo_dp_aux_address(struct i2c_adapter *adapter, u16 address, bool reading)
 {
@@ -60,6 +69,10 @@ i2c_algo_dp_aux_address(struct i2c_adapter *adapter, u16 address, bool reading)
 	return ret;
 }
 
+/*
+ * Stop the I2C transaction. This closes out the link, sending
+ * a bare address packet with the MOT bit turned off
+ */
 static void
 i2c_algo_dp_aux_stop(struct i2c_adapter *adapter, bool reading)
 {
@@ -76,6 +89,10 @@ i2c_algo_dp_aux_stop(struct i2c_adapter *adapter, bool reading)
 	}
 }
 
+/*
+ * Write a single byte to the current I2C address, the
+ * the I2C link must be running or this returns -EIO
+ */
 static int
 i2c_algo_dp_aux_put_byte(struct i2c_adapter *adapter, u8 byte)
 {
@@ -89,6 +106,10 @@ i2c_algo_dp_aux_put_byte(struct i2c_adapter *adapter, u8 byte)
 	return ret;
 }
 
+/*
+ * Read a single byte from the current I2C address, the
+ * I2C link must be running or this returns -EIO
+ */
 static int
 i2c_algo_dp_aux_get_byte(struct i2c_adapter *adapter, u8 *byte_ret)
 {

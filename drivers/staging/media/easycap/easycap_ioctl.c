@@ -1,3 +1,8 @@
+/******************************************************************************
+*                                                                             *
+*  easycap_ioctl.c                                                            *
+*                                                                             *
+******************************************************************************/
 /*
  *
  *  Copyright (C) 2010 R.M. Thomas  <rmthomas@sciolus.org>
@@ -18,9 +23,22 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
 */
+/*****************************************************************************/
 
 #include "easycap.h"
 
+/*--------------------------------------------------------------------------*/
+/*
+ *  UNLESS THERE IS A PREMATURE ERROR RETURN THIS ROUTINE UPDATES THE
+ *  FOLLOWING:
+ *          peasycap->standard_offset
+ *          peasycap->inputset[peasycap->input].standard_offset
+ *          peasycap->fps
+ *          peasycap->usec
+ *          peasycap->tolerate
+ *          peasycap->skip
+ */
+/*---------------------------------------------------------------------------*/
 int adjust_standard(struct easycap *peasycap, v4l2_std_id std_id)
 {
 	struct easycap_standard const *peasycap_standard;
@@ -109,6 +127,11 @@ int adjust_standard(struct easycap *peasycap, v4l2_std_id std_id)
 		easycap_video_kill_urbs(peasycap);
 	} else
 		resubmit = false;
+/*--------------------------------------------------------------------------*/
+/*
+ *  SAA7113H DATASHEET PAGE 44, TABLE 42
+ */
+/*--------------------------------------------------------------------------*/
 	need = 0;
 	itwas = 0;
 	reg = 0x00;
@@ -156,6 +179,11 @@ int adjust_standard(struct easycap *peasycap, v4l2_std_id std_id)
 				JOM(8, "SAA register 0x%02X changed "
 				    "from 0x%02X to 0x%02X\n", reg, itwas, isnow);
 		}
+/*--------------------------------------------------------------------------*/
+/*
+ *  NOTE:  NO break HERE:  RUN ON TO NEXT CASE
+ */
+/*--------------------------------------------------------------------------*/
 	}
 	case NTSC_M:
 	case PAL_BGHIN: {
@@ -194,6 +222,7 @@ int adjust_standard(struct easycap *peasycap, v4l2_std_id std_id)
 	default:
 		break;
 	}
+/*--------------------------------------------------------------------------*/
 	if (need) {
 		ir = read_saa(peasycap->pusb_device, reg);
 		if (0 > ir)
@@ -214,6 +243,11 @@ int adjust_standard(struct easycap *peasycap, v4l2_std_id std_id)
 				    "from 0x%02X to 0x%02X\n", reg, itwas, isnow);
 		}
 	}
+/*--------------------------------------------------------------------------*/
+/*
+	 *  SAA7113H DATASHEET PAGE 41
+	 */
+/*--------------------------------------------------------------------------*/
 	reg = 0x08;
 	ir = read_saa(peasycap->pusb_device, reg);
 	if (0 > ir)
@@ -239,6 +273,11 @@ int adjust_standard(struct easycap *peasycap, v4l2_std_id std_id)
 				    "from 0x%02X to 0x%02X\n", reg, itwas, isnow);
 		}
 	}
+/*--------------------------------------------------------------------------*/
+/*
+ *  SAA7113H DATASHEET PAGE 51, TABLE 57
+ */
+/*---------------------------------------------------------------------------*/
 	reg = 0x40;
 	ir = read_saa(peasycap->pusb_device, reg);
 	if (0 > ir)
@@ -264,6 +303,11 @@ int adjust_standard(struct easycap *peasycap, v4l2_std_id std_id)
 				    "from 0x%02X to 0x%02X\n", reg, itwas, isnow);
 		}
 	}
+/*--------------------------------------------------------------------------*/
+/*
+	 *  SAA7113H DATASHEET PAGE 53, TABLE 66
+	 */
+/*--------------------------------------------------------------------------*/
 	reg = 0x5A;
 	ir = read_saa(peasycap->pusb_device, reg);
 	if (0 > ir)
@@ -289,6 +333,31 @@ int adjust_standard(struct easycap *peasycap, v4l2_std_id std_id)
 		easycap_video_submit_urbs(peasycap);
 	return 0;
 }
+/*****************************************************************************/
+/*--------------------------------------------------------------------------*/
+/*
+ *  THE ALGORITHM FOR RESPONDING TO THE VIDIO_S_FMT IOCTL REQUIRES
+ *  A VALID VALUE OF peasycap->standard_offset, OTHERWISE -EBUSY IS RETURNED.
+ *
+ *  PROVIDED THE ARGUMENT try IS false AND THERE IS NO PREMATURE ERROR RETURN
+ *  THIS ROUTINE UPDATES THE FOLLOWING:
+ *          peasycap->format_offset
+ *          peasycap->inputset[peasycap->input].format_offset
+ *          peasycap->pixelformat
+ *          peasycap->height
+ *          peasycap->width
+ *          peasycap->bytesperpixel
+ *          peasycap->byteswaporder
+ *          peasycap->decimatepixel
+ *          peasycap->frame_buffer_used
+ *          peasycap->videofieldamount
+ *          peasycap->offerfields
+ *
+ *  IF SUCCESSFUL THE FUNCTION RETURNS THE OFFSET IN easycap_format[]
+ *  IDENTIFYING THE FORMAT WHICH IS TO RETURNED TO THE USER.
+ *  ERRORS RETURN A NEGATIVE NUMBER.
+ */
+/*--------------------------------------------------------------------------*/
 int adjust_format(struct easycap *peasycap,
 		  u32 width, u32 height, u32 pixelformat, int field, bool try)
 {
@@ -427,8 +496,10 @@ int adjust_format(struct easycap *peasycap,
 	}
 	peasycap_format = peasycap_best_format;
 
+/*...........................................................................*/
 	if (try)
 		return peasycap_best_format - easycap_format;
+/*...........................................................................*/
 
 	if (false != try) {
 		SAM("MISTAKE: true==try where is should be false\n");
@@ -489,6 +560,11 @@ int adjust_format(struct easycap *peasycap,
 		easycap_video_kill_urbs(peasycap);
 	} else
 		resubmit = false;
+/*---------------------------------------------------------------------------*/
+/*
+	 *  PAL
+	 */
+/*---------------------------------------------------------------------------*/
 	if (0 == (0x01 & peasycap_format->mask)) {
 		if (((720 == peasycap_format->v4l2_format.fmt.pix.width) &&
 		     (576 == peasycap_format->v4l2_format.fmt.pix.height)) ||
@@ -516,6 +592,11 @@ int adjust_format(struct easycap *peasycap,
 			SAM("MISTAKE: bad format, cannot set resolution\n");
 			return -EINVAL;
 		}
+/*---------------------------------------------------------------------------*/
+/*
+ *  NTSC
+ */
+/*---------------------------------------------------------------------------*/
 	} else {
 		if (((720 == peasycap_format->v4l2_format.fmt.pix.width) &&
 		     (480 == peasycap_format->v4l2_format.fmt.pix.height)) ||
@@ -538,11 +619,13 @@ int adjust_format(struct easycap *peasycap,
 			return -EINVAL;
 		}
 	}
+/*---------------------------------------------------------------------------*/
 	if (resubmit)
 		easycap_video_submit_urbs(peasycap);
 
 	return peasycap_best_format - easycap_format;
 }
+/*****************************************************************************/
 int adjust_brightness(struct easycap *peasycap, int value)
 {
 	unsigned int mood;
@@ -598,6 +681,7 @@ int adjust_brightness(struct easycap *peasycap, int value)
 	SAM("WARNING: failed to adjust brightness: control not found\n");
 	return -ENOENT;
 }
+/*****************************************************************************/
 int adjust_contrast(struct easycap *peasycap, int value)
 {
 	unsigned int mood;
@@ -653,6 +737,7 @@ int adjust_contrast(struct easycap *peasycap, int value)
 	SAM("WARNING: failed to adjust contrast: control not found\n");
 	return -ENOENT;
 }
+/*****************************************************************************/
 int adjust_saturation(struct easycap *peasycap, int value)
 {
 	unsigned int mood;
@@ -709,6 +794,7 @@ int adjust_saturation(struct easycap *peasycap, int value)
 	SAM("WARNING: failed to adjust saturation: control not found\n");
 	return -ENOENT;
 }
+/*****************************************************************************/
 int adjust_hue(struct easycap *peasycap, int value)
 {
 	unsigned int mood;
@@ -761,6 +847,7 @@ int adjust_hue(struct easycap *peasycap, int value)
 	SAM("WARNING: failed to adjust hue: control not found\n");
 	return -ENOENT;
 }
+/*****************************************************************************/
 static int adjust_volume(struct easycap *peasycap, int value)
 {
 	s8 mood;
@@ -805,6 +892,18 @@ static int adjust_volume(struct easycap *peasycap, int value)
 	SAM("WARNING: failed to adjust volume: control not found\n");
 	return -ENOENT;
 }
+/*****************************************************************************/
+/*---------------------------------------------------------------------------*/
+/*
+ *  AN ALTERNATIVE METHOD OF MUTING MIGHT SEEM TO BE:
+ *            usb_set_interface(peasycap->pusb_device,
+ *                              peasycap->audio_interface,
+ *                              peasycap->audio_altsetting_off);
+ *  HOWEVER, AFTER THIS COMMAND IS ISSUED ALL SUBSEQUENT URBS RECEIVE STATUS
+ *  -ESHUTDOWN.  THE HANDLER ROUTINE easyxxx_complete() DECLINES TO RESUBMIT
+ *  THE URB AND THE PIPELINE COLLAPSES IRRETRIEVABLY.  BEWARE.
+ */
+/*---------------------------------------------------------------------------*/
 static int adjust_mute(struct easycap *peasycap, int value)
 {
 	int i1;
@@ -842,6 +941,7 @@ static int adjust_mute(struct easycap *peasycap, int value)
 	SAM("WARNING: failed to adjust mute: control not found\n");
 	return -ENOENT;
 }
+/*---------------------------------------------------------------------------*/
 long easycap_unlocked_ioctl(struct file *file,
 			    unsigned int cmd, unsigned long arg)
 {
@@ -871,6 +971,13 @@ long easycap_unlocked_ioctl(struct file *file,
 			return -ERESTARTSYS;
 		}
 		JOM(4, "locked easycapdc60_dongle[%i].mutex_video\n", kd);
+/*---------------------------------------------------------------------------*/
+/*
+ *  MEANWHILE, easycap_usb_disconnect() MAY HAVE FREED POINTER peasycap,
+ *  IN WHICH CASE A REPEAT CALL TO isdongle() WILL FAIL.
+ *  IF NECESSARY, BAIL OUT.
+ */
+/*---------------------------------------------------------------------------*/
 		if (kd != easycap_isdongle(peasycap))
 			return -ERESTARTSYS;
 		if (!file) {
@@ -890,8 +997,15 @@ long easycap_unlocked_ioctl(struct file *file,
 			return -ERESTARTSYS;
 		}
 	} else {
+/*---------------------------------------------------------------------------*/
+/*
+ *  IF easycap_usb_disconnect() HAS ALREADY FREED POINTER peasycap BEFORE THE
+ *  ATTEMPT TO ACQUIRE THE SEMAPHORE, isdongle() WILL HAVE FAILED.  BAIL OUT.
+ */
+/*---------------------------------------------------------------------------*/
 		return -ERESTARTSYS;
 	}
+/*---------------------------------------------------------------------------*/
 	switch (cmd) {
 	case VIDIOC_QUERYCAP: {
 		struct v4l2_capability v4l2_capability;
@@ -961,6 +1075,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_ENUMINPUT: {
 		struct v4l2_input v4l2_input;
 		u32 index;
@@ -1064,6 +1179,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_G_INPUT: {
 		u32 index;
 
@@ -1076,6 +1192,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_S_INPUT:
 	{
 		u32 index;
@@ -1111,11 +1228,13 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_ENUMAUDIO: {
 		JOM(8, "VIDIOC_ENUMAUDIO\n");
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 		return -EINVAL;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_ENUMAUDOUT: {
 		struct v4l2_audioout v4l2_audioout;
 
@@ -1142,6 +1261,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_QUERYCTRL: {
 		int i1;
 		struct v4l2_queryctrl v4l2_queryctrl;
@@ -1177,11 +1297,13 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_QUERYMENU: {
 		JOM(8, "VIDIOC_QUERYMENU unsupported\n");
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 		return -EINVAL;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_G_CTRL: {
 		struct v4l2_control *pv4l2_control;
 
@@ -1245,6 +1367,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		kfree(pv4l2_control);
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_S_CTRL: {
 		struct v4l2_control v4l2_control;
 
@@ -1309,11 +1432,13 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_S_EXT_CTRLS: {
 		JOM(8, "VIDIOC_S_EXT_CTRLS unsupported\n");
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 		return -EINVAL;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_ENUM_FMT: {
 		u32 index;
 		struct v4l2_fmtdesc v4l2_fmtdesc;
@@ -1388,6 +1513,12 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+/*
+	 *  THE RESPONSE TO VIDIOC_ENUM_FRAMESIZES MUST BE CONDITIONED ON THE
+	 *  THE CURRENT STANDARD, BECAUSE THAT IS WHAT gstreamer EXPECTS.  BEWARE.
+	*/
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_ENUM_FRAMESIZES: {
 		u32 index;
 		struct v4l2_frmsizeenum v4l2_frmsizeenum;
@@ -1518,6 +1649,12 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+/*
+	 *  THE RESPONSE TO VIDIOC_ENUM_FRAMEINTERVALS MUST BE CONDITIONED ON THE
+	 *  THE CURRENT STANDARD, BECAUSE THAT IS WHAT gstreamer EXPECTS.  BEWARE.
+	*/
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_ENUM_FRAMEINTERVALS: {
 		u32 index;
 		int denominator;
@@ -1574,6 +1711,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_G_FMT: {
 		struct v4l2_format *pv4l2_format;
 		struct v4l2_pix_format *pv4l2_pix_format;
@@ -1626,6 +1764,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		kfree(pv4l2_pix_format);
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_TRY_FMT:
 	case VIDIOC_S_FMT: {
 		struct v4l2_format v4l2_format;
@@ -1662,6 +1801,7 @@ long easycap_unlocked_ioctl(struct file *file,
 			mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 			return -ENOENT;
 		}
+/*...........................................................................*/
 		memset(&v4l2_pix_format, 0, sizeof(struct v4l2_pix_format));
 		v4l2_format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
@@ -1677,6 +1817,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_CROPCAP: {
 		struct v4l2_cropcap v4l2_cropcap;
 
@@ -1713,12 +1854,14 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_G_CROP:
 	case VIDIOC_S_CROP: {
 		JOM(8, "VIDIOC_G_CROP|VIDIOC_S_CROP  unsupported\n");
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 		return -EINVAL;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_QUERYSTD: {
 		JOM(8, "VIDIOC_QUERYSTD: "
 		    "EasyCAP is incapable of detecting standard\n");
@@ -1726,8 +1869,14 @@ long easycap_unlocked_ioctl(struct file *file,
 		return -EINVAL;
 		break;
 	}
-	
-	
+	/*-------------------------------------------------------------------*/
+	/*
+	 *  THE MANIPULATIONS INVOLVING last0,last1,last2,last3
+	 *  CONSTITUTE A WORKAROUND *  FOR WHAT APPEARS TO BE
+	 *  A BUG IN 64-BIT mplayer.
+	 *  NOT NEEDED, BUT HOPEFULLY HARMLESS, FOR 32-BIT mplayer.
+	 */
+	/*------------------------------------------------------------------*/
 	case VIDIOC_ENUMSTD: {
 		int last0 = -1, last1 = -1, last2 = -1, last3 = -1;
 		struct v4l2_standard v4l2_standard;
@@ -1783,6 +1932,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_G_STD: {
 		v4l2_std_id std_id;
 		struct easycap_standard const *peasycap_standard;
@@ -1815,6 +1965,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_S_STD: {
 		v4l2_std_id std_id;
 		int rc;
@@ -1839,6 +1990,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_REQBUFS: {
 		int nbuffers;
 		struct v4l2_requestbuffers v4l2_requestbuffers;
@@ -1883,6 +2035,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_QUERYBUF: {
 		u32 index;
 		struct v4l2_buffer v4l2_buffer;
@@ -1940,6 +2093,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_QBUF: {
 		struct v4l2_buffer v4l2_buffer;
 
@@ -1982,6 +2136,7 @@ long easycap_unlocked_ioctl(struct file *file,
 
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_DQBUF:
 	{
 		struct timeval timeval, timeval2;
@@ -2012,8 +2167,12 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 
 		if (peasycap->offerfields) {
-			
-			
+			/*---------------------------------------------------*/
+			/*
+			 *  IN ITS 50 "fps" MODE tvtime SEEMS ALWAYS TO REQUEST
+			 *  V4L2_FIELD_BOTTOM
+			 */
+			/*---------------------------------------------------*/
 			if (V4L2_FIELD_TOP == v4l2_buffer.field)
 				JOM(8, "user wants V4L2_FIELD_TOP\n");
 			else if (V4L2_FIELD_BOTTOM == v4l2_buffer.field)
@@ -2030,8 +2189,15 @@ long easycap_unlocked_ioctl(struct file *file,
 			mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 			return -EIO;
 		}
-	
-	
+	/*-------------------------------------------------------------------*/
+	/*
+	 *  IF THE USER HAS PREVIOUSLY CALLED easycap_poll(),
+	 *  AS DETERMINED BY FINDING
+	 *  THE FLAG peasycap->polled SET, THERE MUST BE
+	 *  NO FURTHER WAIT HERE.  IN THIS
+	 *  CASE, JUST CHOOSE THE FRAME INDICATED BY peasycap->frame_read
+	 */
+	/*-------------------------------------------------------------------*/
 
 		if (!peasycap->polled) {
 			do {
@@ -2125,6 +2291,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		}
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_STREAMON: {
 		int i;
 
@@ -2145,6 +2312,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		peasycap->audio_eof = 0;
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_STREAMOFF: {
 		JOM(8, "VIDIOC_STREAMOFF\n");
 
@@ -2156,12 +2324,19 @@ long easycap_unlocked_ioctl(struct file *file,
 
 		peasycap->video_idle = 1;
 		peasycap->audio_idle = 1;
+/*---------------------------------------------------------------------------*/
+/*
+ *  IF THE WAIT QUEUES ARE NOT CLEARED IN RESPONSE TO THE STREAMOFF COMMAND
+ *  THE USERSPACE PROGRAM, E.G. mplayer, MAY HANG ON EXIT.   BEWARE.
+ */
+/*---------------------------------------------------------------------------*/
 		JOM(8, "calling wake_up on wq_video and wq_audio\n");
 		wake_up_interruptible(&(peasycap->wq_video));
 		if (peasycap->psubstream)
 			snd_pcm_period_elapsed(peasycap->psubstream);
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_G_PARM: {
 		struct v4l2_streamparm *pv4l2_streamparm;
 
@@ -2209,26 +2384,31 @@ long easycap_unlocked_ioctl(struct file *file,
 		kfree(pv4l2_streamparm);
 		break;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_S_PARM: {
 		JOM(8, "VIDIOC_S_PARM unsupported\n");
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 		return -EINVAL;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_G_AUDIO: {
 		JOM(8, "VIDIOC_G_AUDIO unsupported\n");
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 		return -EINVAL;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_S_AUDIO: {
 		JOM(8, "VIDIOC_S_AUDIO unsupported\n");
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 		return -EINVAL;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_S_TUNER: {
 		JOM(8, "VIDIOC_S_TUNER unsupported\n");
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 		return -EINVAL;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_G_FBUF:
 	case VIDIOC_S_FBUF:
 	case VIDIOC_OVERLAY: {
@@ -2236,6 +2416,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 		return -EINVAL;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	case VIDIOC_G_TUNER: {
 		JOM(8, "VIDIOC_G_TUNER unsupported\n");
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
@@ -2247,6 +2428,7 @@ long easycap_unlocked_ioctl(struct file *file,
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
 		return -EINVAL;
 	}
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	default: {
 		JOM(8, "ERROR: unrecognized V4L2 IOCTL command: 0x%08X\n", cmd);
 		mutex_unlock(&easycapdc60_dongle[kd].mutex_video);
@@ -2257,3 +2439,4 @@ long easycap_unlocked_ioctl(struct file *file,
 	JOM(4, "unlocked easycapdc60_dongle[%i].mutex_video\n", kd);
 	return 0;
 }
+/*****************************************************************************/

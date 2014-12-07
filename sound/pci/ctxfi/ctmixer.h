@@ -41,12 +41,13 @@ enum MIXER_PORT_T {
 	NUM_MIX_PORTS
 };
 
+/* alsa mixer descriptor */
 struct ct_mixer {
 	struct ct_atc *atc;
 
-	void **amixers;		
-	void **sums;		
-	unsigned int switch_state; 
+	void **amixers;		/* amixer resources for volume control */
+	void **sums;		/* sum resources for signal collection */
+	unsigned int switch_state; /* A bit-map to indicate state of switches */
 
 	int (*get_output_ports)(struct ct_mixer *mixer, enum MIXER_PORT_T type,
 				  struct rsc **rleft, struct rsc **rright);
@@ -66,4 +67,4 @@ int ct_alsa_mix_create(struct ct_atc *atc,
 int ct_mixer_create(struct ct_atc *atc, struct ct_mixer **rmixer);
 int ct_mixer_destroy(struct ct_mixer *mixer);
 
-#endif 
+#endif /* CTMIXER_H */

@@ -27,12 +27,13 @@
 
 #define MD_FACTOR	1000
 
+/* SPEAr Thermal Sensor Dev Structure */
 struct spear_thermal_dev {
-	
+	/* pointer to base address of the thermal sensor */
 	void __iomem *thermal_base;
-	
+	/* clk structure */
 	struct clk *clk;
-	
+	/* pointer to thermal flags */
 	unsigned int flags;
 };
 
@@ -41,6 +42,10 @@ static inline int thermal_get_temp(struct thermal_zone_device *thermal,
 {
 	struct spear_thermal_dev *stdev = thermal->devdata;
 
+	/*
+	 * Data are ready to be read after 628 usec from POWERDOWN signal
+	 * (PDN) = 1
+	 */
 	*temp = (readl_relaxed(stdev->thermal_base) & 0x7F) * MD_FACTOR;
 	return 0;
 }
@@ -57,7 +62,7 @@ static int spear_thermal_suspend(struct device *dev)
 	struct spear_thermal_dev *stdev = spear_thermal->devdata;
 	unsigned int actual_mask = 0;
 
-	
+	/* Disable SPEAr Thermal Sensor */
 	actual_mask = readl_relaxed(stdev->thermal_base);
 	writel_relaxed(actual_mask & ~stdev->flags, stdev->thermal_base);
 
@@ -81,7 +86,7 @@ static int spear_thermal_resume(struct device *dev)
 		return ret;
 	}
 
-	
+	/* Enable SPEAr Thermal Sensor */
 	actual_mask = readl_relaxed(stdev->thermal_base);
 	writel_relaxed(actual_mask | stdev->flags, stdev->thermal_base);
 
@@ -119,7 +124,7 @@ static int spear_thermal_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Enable thermal sensor */
 	stdev->thermal_base = devm_ioremap(&pdev->dev, stres->start,
 			resource_size(stres));
 	if (!stdev->thermal_base) {
@@ -174,7 +179,7 @@ static int spear_thermal_exit(struct platform_device *pdev)
 	thermal_zone_device_unregister(spear_thermal);
 	platform_set_drvdata(pdev, NULL);
 
-	
+	/* Disable SPEAr Thermal Sensor */
 	actual_mask = readl_relaxed(stdev->thermal_base);
 	writel_relaxed(actual_mask & ~stdev->flags, stdev->thermal_base);
 

@@ -19,20 +19,26 @@
 
 asmlinkage irqreturn_t floppy_hardint(int irq, void *dev_id);
 
+/* constants... */
 
 #undef MAX_DMA_ADDRESS
-#define MAX_DMA_ADDRESS   0x00  
+#define MAX_DMA_ADDRESS   0x00  /* nothing like that */
 
 
+/*
+ * Again, the CMOS information doesn't work on m68k..
+ */
 #define FLOPPY0_TYPE (MACH_IS_Q40 ? 6 : 4)
 #define FLOPPY1_TYPE 0
 
+/* basically PC init + set use_virtual_dma */
 #define  FDC1 m68k_floppy_init()
 
 #define N_FDC 1
 #define N_DRIVE 8
 
 
+/* vdma globals adapted from asm-i386/floppy.h */
 
 static int virtual_dma_count=0;
 static int virtual_dma_residue=0;
@@ -96,14 +102,15 @@ static void fd_free_irq(void)
 #define fd_dma_mem_alloc(size)	vdma_mem_alloc(size)
 #define fd_dma_setup(addr, size, mode, io) vdma_dma_setup(addr, size, mode, io)
 
-#define fd_enable_irq()           
-#define fd_disable_irq()          
+#define fd_enable_irq()           /* nothing... */
+#define fd_disable_irq()          /* nothing... */
 
-#define fd_free_dma()             
+#define fd_free_dma()             /* nothing */
 
+/* No 64k boundary crossing problems on Q40 - no DMA at all */
 #define CROSS_64KB(a,s) (0)
 
-#define DMA_MODE_READ  0x44    
+#define DMA_MODE_READ  0x44    /* i386 look-alike */
 #define DMA_MODE_WRITE 0x48
 
 
@@ -147,6 +154,7 @@ static void _fd_dma_mem_free(unsigned long addr, unsigned long size)
 #define fd_dma_mem_free(addr,size) _fd_dma_mem_free(addr, size)
 
 
+/* choose_dma_mode ???*/
 
 static int vdma_dma_setup(char *addr, unsigned long size, int mode, int io)
 {
@@ -170,6 +178,7 @@ static void fd_disable_dma(void)
 
 
 
+/* this is the only truly Q40 specific function */
 
 asmlinkage irqreturn_t floppy_hardint(int irq, void *dev_id)
 {
@@ -197,7 +206,7 @@ asmlinkage irqreturn_t floppy_hardint(int irq, void *dev_id)
 		register int lcount;
 		register char *lptr;
 
-		
+		/* serve 1st byte fast: */
 
 		st=1;
 		for(lcount=virtual_dma_count, lptr=virtual_dma_addr;

@@ -36,9 +36,20 @@ int (*__pmax_read)(int, void *, int);
 int (*__pmax_close)(int);
 
 
+/*
+ * Detect which PROM the DECSTATION has, and set the callback vectors
+ * appropriately.
+ */
 void __init which_prom(s32 magic, s32 *prom_vec)
 {
+	/*
+	 * No sign of the REX PROM's magic number means we assume a non-REX
+	 * machine (i.e. we're on a DS2100/3100, DS5100 or DS5000/2xx)
+	 */
 	if (prom_is_rex(magic)) {
+		/*
+		 * Set up prom abstraction structure with REX entry points.
+		 */
 		__rex_bootinit =
 			(void *)(long)*(prom_vec + REX_PROM_BOOTINIT);
 		__rex_bootread =
@@ -60,6 +71,9 @@ void __init which_prom(s32 magic, s32 *prom_vec)
 		__rex_clear_cache =
 			(void *)(long)*(prom_vec + REX_PROM_CLEARCACHE);
 	} else {
+		/*
+		 * Set up prom abstraction structure with non-REX entry points.
+		 */
 		__prom_getchar = (void *)PMAX_PROM_GETCHAR;
 		__prom_getenv = (void *)PMAX_PROM_GETENV;
 		__prom_printf = (void *)PMAX_PROM_PRINTF;
@@ -80,15 +94,19 @@ void __init prom_init(void)
 	u32 magic = fw_arg2;
 	s32 *prom_vec = (void *)fw_arg3;
 
+	/*
+	 * Determine which PROM we have
+	 * (and therefore which machine we're on!)
+	 */
 	which_prom(magic, prom_vec);
 
 	if (prom_is_rex(magic))
 		rex_clear_cache();
 
-	
+	/* Register the early console.  */
 	register_prom_console();
 
-	
+	/* Were we compiled with the right CPU option? */
 #if defined(CONFIG_CPU_R3000)
 	if ((current_cpu_type() == CPU_R4000SC) ||
 	    (current_cpu_type() == CPU_R4400SC)) {

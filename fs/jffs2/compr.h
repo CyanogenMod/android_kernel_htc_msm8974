@@ -33,8 +33,8 @@
 #define JFFS2_LZO_PRIORITY       80
 
 
-#define JFFS2_RUBINMIPS_DISABLED 
-#define JFFS2_DYNRUBIN_DISABLED  
+#define JFFS2_RUBINMIPS_DISABLED /* RUBINs will be used only */
+#define JFFS2_DYNRUBIN_DISABLED  /*	   for decompression */
 
 #define JFFS2_COMPR_MODE_NONE       0
 #define JFFS2_COMPR_MODE_PRIORITY   1
@@ -47,17 +47,17 @@
 
 struct jffs2_compressor {
 	struct list_head list;
-	int priority;			
+	int priority;			/* used by prirority comr. mode */
 	char *name;
-	char compr;			
+	char compr;			/* JFFS2_COMPR_XXX */
 	int (*compress)(unsigned char *data_in, unsigned char *cpage_out,
 			uint32_t *srclen, uint32_t *destlen);
 	int (*decompress)(unsigned char *cdata_in, unsigned char *data_out,
 			  uint32_t cdatalen, uint32_t datalen);
 	int usecount;
-	int disabled;		
-	unsigned char *compr_buf;	
-	uint32_t compr_buf_size;	
+	int disabled;		/* if set the compressor won't compress */
+	unsigned char *compr_buf;	/* used by size compr. mode */
+	uint32_t compr_buf_size;	/* used by size compr. mode */
 	uint32_t stat_compr_orig_size;
 	uint32_t stat_compr_new_size;
 	uint32_t stat_compr_blocks;
@@ -80,6 +80,8 @@ int jffs2_decompress(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 
 void jffs2_free_comprbuf(unsigned char *comprbuf, unsigned char *orig);
 
+/* Compressor modules */
+/* These functions will be called by jffs2_compressors_init/exit */
 
 #ifdef CONFIG_JFFS2_RUBIN
 int jffs2_rubinmips_init(void);
@@ -100,4 +102,4 @@ int jffs2_lzo_init(void);
 void jffs2_lzo_exit(void);
 #endif
 
-#endif 
+#endif /* __JFFS2_COMPR_H__ */

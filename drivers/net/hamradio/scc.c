@@ -2,6 +2,13 @@
 
 #define VERSION "3.0"
 
+/*
+ * Please use z8530drv-utils-3.0 with this version.
+ *            ------------------
+ *
+ * You can find a subset of the documentation in 
+ * Documentation/networking/z8530drv.txt.
+ */
 
 /*
    ********************************************************************
@@ -127,17 +134,19 @@
 		www     : http://yaina.de/jreuter
 */
 
+/* ----------------------------------------------------------------------- */
 
-#undef  SCC_LDELAY		
-#undef  SCC_DONT_CHECK		
+#undef  SCC_LDELAY		/* slow it even a bit more down */
+#undef  SCC_DONT_CHECK		/* don't look if the SCCs you specified are available */
 
-#define SCC_MAXCHIPS	4       
-#define SCC_BUFSIZE	384     
+#define SCC_MAXCHIPS	4       /* number of max. supported chips */
+#define SCC_BUFSIZE	384     /* must not exceed 4096 */
 #undef	SCC_DEBUG
 
 #define SCC_DEFAULT_CLOCK	4915200 
-				
+				/* default pclock if nothing is specified */
 
+/* ----------------------------------------------------------------------- */
 
 #include <linux/module.h>
 #include <linux/errno.h>
@@ -208,7 +217,7 @@ static unsigned char SCC_DriverName[] = "scc";
 
 static struct irqflags { unsigned char used : 1; } Ivec[NR_IRQS];
 	
-static struct scc_channel SCC_Info[2 * SCC_MAXCHIPS];	
+static struct scc_channel SCC_Info[2 * SCC_MAXCHIPS];	/* information per channel */
 
 static struct scc_ctrl {
 	io_port chan_A;
@@ -221,9 +230,13 @@ static int Nchips;
 static io_port Vector_Latch;
 
 
+/* ******************************************************************** */
+/* *			Port Access Functions			      * */
+/* ******************************************************************** */
 
+/* These provide interrupt save 2-step access to the Z8530 registers */
 
-static DEFINE_SPINLOCK(iolock);	
+static DEFINE_SPINLOCK(iolock);	/* Guards paired accesses */
 
 static inline unsigned char InReg(io_port port, unsigned char reg)
 {
@@ -275,6 +288,9 @@ static inline void cl(struct scc_channel *scc, unsigned char reg, unsigned char 
 	OutReg(scc->ctrl, reg, (scc->wreg[reg] &= ~val));
 }
 
+/* ******************************************************************** */
+/* *			Some useful macros			      * */
+/* ******************************************************************** */
 
 static inline void scc_discard_buffers(struct scc_channel *scc)
 {
@@ -295,8 +311,12 @@ static inline void scc_discard_buffers(struct scc_channel *scc)
 
 
 
+/* ******************************************************************** */
+/* *			Interrupt Service Routines		      * */
+/* ******************************************************************** */
 
 
+/* ----> subroutines for the interrupt handlers <---- */
 
 static inline void scc_notify(struct scc_channel *scc, int event)
 {
@@ -324,9 +344,9 @@ static inline void flush_rx_FIFO(struct scc_channel *scc)
 	for (k=0; k<3; k++)
 		Inb(scc->data);
 		
-	if(scc->rx_buff != NULL)		
+	if(scc->rx_buff != NULL)		/* did we receive something? */
 	{
-		scc->stat.rxerrs++;  
+		scc->stat.rxerrs++;  /* then count it as an error */
 		dev_kfree_skb_irq(scc->rx_buff);
 		scc->rx_buff = NULL;
 	}
@@ -335,11 +355,14 @@ static inline void flush_rx_FIFO(struct scc_channel *scc)
 static void start_hunt(struct scc_channel *scc)
 {
 	if ((scc->modem.clocksrc != CLK_EXTERNAL))
-		OutReg(scc->ctrl,R14,SEARCH|scc->wreg[R14]); 
-	or(scc,R3,ENT_HM|RxENABLE);  
+		OutReg(scc->ctrl,R14,SEARCH|scc->wreg[R14]); /* DPLL: enter search mode */
+	or(scc,R3,ENT_HM|RxENABLE);  /* enable the receiver, hunt mode */
 }
 
+/* ----> four different interrupt handlers for Tx, Rx, changing of	*/
+/*       DCD/CTS and Rx/Tx errors					*/
 
+/* Transmitter interrupt handler */
 static inline void scc_txint(struct scc_channel *scc)
 {
 	struct sk_buff *skb;
@@ -347,7 +370,7 @@ static inline void scc_txint(struct scc_channel *scc)
 	scc->stat.txints++;
 	skb = scc->tx_buff;
 	
-	
+	/* send first octet */
 	
 	if (skb == NULL)
 	{
@@ -362,7 +385,7 @@ static inline void scc_txint(struct scc_channel *scc)
 			return;
 		}
 		
-		if (skb->len == 0)		
+		if (skb->len == 0)		/* Paranoia... */
 		{
 			dev_kfree_skb_irq(skb);
 			scc->tx_buff = NULL;
@@ -374,35 +397,36 @@ static inline void scc_txint(struct scc_channel *scc)
 		scc->stat.tx_state = TXS_ACTIVE;
 
 		OutReg(scc->ctrl, R0, RES_Tx_CRC);
-						
-		or(scc,R10,ABUNDER);		
-		Outb(scc->data,*skb->data);	
+						/* reset CRC generator */
+		or(scc,R10,ABUNDER);		/* re-install underrun protection */
+		Outb(scc->data,*skb->data);	/* send byte */
 		skb_pull(skb, 1);
 
-		if (!scc->enhanced)		
+		if (!scc->enhanced)		/* reset EOM latch */
 			Outb(scc->ctrl,RES_EOM_L);
 		return;
 	}
 	
-	
+	/* End Of Frame... */
 	
 	if (skb->len == 0)
 	{
-		Outb(scc->ctrl, RES_Tx_P);	
-		cl(scc, R10, ABUNDER);		
+		Outb(scc->ctrl, RES_Tx_P);	/* reset pending int */
+		cl(scc, R10, ABUNDER);		/* send CRC */
 		dev_kfree_skb_irq(skb);
 		scc->tx_buff = NULL;
-		scc->stat.tx_state = TXS_NEWFRAME; 
+		scc->stat.tx_state = TXS_NEWFRAME; /* next frame... */
 		return;
 	} 
 	
-	
+	/* send octet */
 	
 	Outb(scc->data,*skb->data);		
 	skb_pull(skb, 1);
 }
 
 
+/* External/Status interrupt handler */
 static inline void scc_exint(struct scc_channel *scc)
 {
 	unsigned char status,changes,chg_and_stat;
@@ -413,12 +437,12 @@ static inline void scc_exint(struct scc_channel *scc)
 	changes = status ^ scc->status;
 	chg_and_stat = changes & status;
 	
-	
+	/* ABORT: generated whenever DCD drops while receiving */
 
-	if (chg_and_stat & BRK_ABRT)		
+	if (chg_and_stat & BRK_ABRT)		/* Received an ABORT */
 		flush_rx_FIFO(scc);
 
-	
+	/* HUNT: software DCD; on = waiting for SYNC, off = receiving frame */
 
 	if ((changes & SYNC_HUNT) && scc->kiss.softdcd)
 	{
@@ -427,7 +451,7 @@ static inline void scc_exint(struct scc_channel *scc)
 			scc->dcd = 0;
 			flush_rx_FIFO(scc);
 			if ((scc->modem.clocksrc != CLK_EXTERNAL))
-				OutReg(scc->ctrl,R14,SEARCH|scc->wreg[R14]); 
+				OutReg(scc->ctrl,R14,SEARCH|scc->wreg[R14]); /* DPLL: enter search mode */
 		} else {
 			scc->dcd = 1;
 		}
@@ -435,17 +459,17 @@ static inline void scc_exint(struct scc_channel *scc)
 		scc_notify(scc, scc->dcd? HWEV_DCD_OFF:HWEV_DCD_ON);
 	}
 
+	/* DCD: on = start to receive packet, off = ABORT condition */
+	/* (a successfully received packet generates a special condition int) */
 	
-	
-	
-	if((changes & DCD) && !scc->kiss.softdcd) 
+	if((changes & DCD) && !scc->kiss.softdcd) /* DCD input changed state */
 	{
-		if(status & DCD)                
+		if(status & DCD)                /* DCD is now ON */
 		{
 			start_hunt(scc);
 			scc->dcd = 1;
-		} else {                        
-			cl(scc,R3,ENT_HM|RxENABLE); 
+		} else {                        /* DCD is now OFF */
+			cl(scc,R3,ENT_HM|RxENABLE); /* disable the receiver */
 			flush_rx_FIFO(scc);
 			scc->dcd = 0;
 		}
@@ -454,18 +478,23 @@ static inline void scc_exint(struct scc_channel *scc)
 	}
 
 #ifdef notdef
+	/* CTS: use external TxDelay (what's that good for?!)
+	 * Anyway: If we _could_ use it (BayCom USCC uses CTS for
+	 * own purposes) we _should_ use the "autoenable" feature
+	 * of the Z8530 and not this interrupt...
+	 */
 	 
-	if (chg_and_stat & CTS)			
+	if (chg_and_stat & CTS)			/* CTS is now ON */
 	{
-		if (scc->kiss.txdelay == 0)	
+		if (scc->kiss.txdelay == 0)	/* zero TXDELAY = wait for CTS */
 			scc_start_tx_timer(scc, t_txdelay, 0);
 	}
 #endif
 	
 	if (scc->stat.tx_state == TXS_ACTIVE && (status & TxEOM))
 	{
-		scc->stat.tx_under++;	  
-		Outb(scc->ctrl, RES_EXT_INT);	
+		scc->stat.tx_under++;	  /* oops, an underrun! count 'em */
+		Outb(scc->ctrl, RES_EXT_INT);	/* reset ext/status interrupts */
 
 		if (scc->tx_buff != NULL)
 		{
@@ -474,7 +503,7 @@ static inline void scc_exint(struct scc_channel *scc)
 		}
 		
 		or(scc,R10,ABUNDER);
-		scc_start_tx_timer(scc, t_txdelay, 0);	
+		scc_start_tx_timer(scc, t_txdelay, 0);	/* restart transmission */
 	}
 		
 	scc->status = status;
@@ -482,6 +511,7 @@ static inline void scc_exint(struct scc_channel *scc)
 }
 
 
+/* Receiver interrupt handler */
 static inline void scc_rxint(struct scc_channel *scc)
 {
 	struct sk_buff *skb;
@@ -490,8 +520,8 @@ static inline void scc_rxint(struct scc_channel *scc)
 
 	if((scc->wreg[5] & RTS) && scc->kiss.fulldup == KISS_DUPLEX_HALF)
 	{
-		Inb(scc->data);		
-		or(scc,R3,ENT_HM);	
+		Inb(scc->data);		/* discard char */
+		or(scc,R3,ENT_HM);	/* enter hunt mode for next flag */
 		return;
 	}
 
@@ -510,7 +540,7 @@ static inline void scc_rxint(struct scc_channel *scc)
 		}
 		
 		scc->rx_buff = skb;
-		*(skb_put(skb, 1)) = 0;	
+		*(skb_put(skb, 1)) = 0;	/* KISS data */
 	}
 	
 	if (skb->len >= scc->stat.bufsize)
@@ -529,6 +559,7 @@ static inline void scc_rxint(struct scc_channel *scc)
 }
 
 
+/* Receive Special Condition interrupt handler */
 static inline void scc_spint(struct scc_channel *scc)
 {
 	unsigned char status;
@@ -536,33 +567,33 @@ static inline void scc_spint(struct scc_channel *scc)
 
 	scc->stat.spints++;
 
-	status = InReg(scc->ctrl,R1);		
+	status = InReg(scc->ctrl,R1);		/* read receiver status */
 	
-	Inb(scc->data);				
+	Inb(scc->data);				/* throw away Rx byte */
 	skb = scc->rx_buff;
 
-	if(status & Rx_OVR)			
+	if(status & Rx_OVR)			/* receiver overrun */
 	{
-		scc->stat.rx_over++;             
-		or(scc,R3,ENT_HM);               
+		scc->stat.rx_over++;             /* count them */
+		or(scc,R3,ENT_HM);               /* enter hunt mode for next flag */
 		
 		if (skb != NULL) 
 			dev_kfree_skb_irq(skb);
 		scc->rx_buff = skb = NULL;
 	}
 
-	if(status & END_FR && skb != NULL)	
+	if(status & END_FR && skb != NULL)	/* end of frame */
 	{
-		
+		/* CRC okay, frame ends on 8 bit boundary and received something ? */
 		
 		if (!(status & CRC_ERR) && (status & 0xe) == RES8 && skb->len > 0)
 		{
-			
+			/* ignore last received byte (first of the CRC bytes) */
 			skb_trim(skb, skb->len-1);
 			scc_net_rx(scc, skb);
 			scc->rx_buff = NULL;
 			scc->stat.rxframes++;
-		} else {				
+		} else {				/* a bad frame */
 			dev_kfree_skb_irq(skb);
 			scc->rx_buff = NULL;
 			scc->stat.rxerrs++;
@@ -573,6 +604,7 @@ static inline void scc_spint(struct scc_channel *scc)
 }
 
 
+/* ----> interrupt service routine for the Z8530 <---- */
 
 static void scc_isr_dispatch(struct scc_channel *scc, int vector)
 {
@@ -587,6 +619,10 @@ static void scc_isr_dispatch(struct scc_channel *scc, int vector)
 	spin_unlock(&scc->lock);
 }
 
+/* If the card has a latch for the interrupt vector (like the PA0HZP card)
+   use it to get the number of the chip that generated the int.
+   If not: poll all defined chips.
+ */
 
 #define SCC_IRQTIMEOUT 30000
 
@@ -602,9 +638,9 @@ static irqreturn_t scc_isr(int irq, void *dev_id)
 	{
 	    	for(k=0; k < SCC_IRQTIMEOUT; k++)
     		{
-			Outb(Vector_Latch, 0);      
+			Outb(Vector_Latch, 0);      /* Generate INTACK */
         
-			
+			/* Read the vector */
 			if((vector=Inb(Vector_Latch)) >= 16 * Nchips) break; 
 			if (vector & 0x01) break;
         	 
@@ -613,7 +649,7 @@ static irqreturn_t scc_isr(int irq, void *dev_id)
 
 			scc_isr_dispatch(scc, vector);
 
-			OutReg(scc->ctrl,R0,RES_H_IUS);              
+			OutReg(scc->ctrl,R0,RES_H_IUS);              /* Reset Highest IUS */
 		}  
 
 		if (k == SCC_IRQTIMEOUT)
@@ -622,6 +658,9 @@ static irqreturn_t scc_isr(int irq, void *dev_id)
 		return IRQ_HANDLED;
 	}
 
+	/* Find the SCC generating the interrupt by polling all attached SCCs
+	 * reading RR3A (the interrupt pending register)
+	 */
 
 	ctrl = SCC_ctrl;
 	while (ctrl->chan_A)
@@ -635,7 +674,7 @@ static irqreturn_t scc_isr(int irq, void *dev_id)
 		scc = NULL;
 		for (k = 0; InReg(ctrl->chan_A,R3) && k < SCC_IRQTIMEOUT; k++)
 		{
-			vector=InReg(ctrl->chan_B,R2);	
+			vector=InReg(ctrl->chan_B,R2);	/* Read the vector */
 			if (vector & 0x01) break; 
 
 			scc = &SCC_Info[vector >> 3 ^ 0x01];
@@ -650,6 +689,12 @@ static irqreturn_t scc_isr(int irq, void *dev_id)
 			break;
 		}
 
+		/* This looks weird and it is. At least the BayCom USCC doesn't
+		 * use the Interrupt Daisy Chain, thus we'll have to start
+		 * all over again to be sure not to miss an interrupt from 
+		 * (any of) the other chip(s)...
+		 * Honestly, the situation *is* braindamaged...
+		 */
 
 		if (scc != NULL)
 		{
@@ -663,15 +708,19 @@ static irqreturn_t scc_isr(int irq, void *dev_id)
 
 
 
+/* ******************************************************************** */
+/* *			Init Channel					*/
+/* ******************************************************************** */
 
 
+/* ----> set SCC channel speed <---- */
 
 static inline void set_brg(struct scc_channel *scc, unsigned int tc)
 {
-	cl(scc,R14,BRENABL);		
-	wr(scc,R12,tc & 255);		
-	wr(scc,R13,tc >> 8);   		
-	or(scc,R14,BRENABL);		
+	cl(scc,R14,BRENABL);		/* disable baudrate generator */
+	wr(scc,R12,tc & 255);		/* brg rate LOW */
+	wr(scc,R13,tc >> 8);   		/* brg rate HIGH */
+	or(scc,R14,BRENABL);		/* enable baudrate generator */
 }
 
 static inline void set_speed(struct scc_channel *scc)
@@ -679,21 +728,66 @@ static inline void set_speed(struct scc_channel *scc)
 	unsigned long flags;
 	spin_lock_irqsave(&scc->lock, flags);
 
-	if (scc->modem.speed > 0)	
+	if (scc->modem.speed > 0)	/* paranoia... */
 		set_brg(scc, (unsigned) (scc->clock / (scc->modem.speed * 64)) - 2);
 		
 	spin_unlock_irqrestore(&scc->lock, flags);
 }
 
 
+/* ----> initialize a SCC channel <---- */
 
 static inline void init_brg(struct scc_channel *scc)
 {
-	wr(scc, R14, BRSRC);				
-	OutReg(scc->ctrl, R14, SSBR|scc->wreg[R14]);	
-	OutReg(scc->ctrl, R14, SNRZI|scc->wreg[R14]);	
+	wr(scc, R14, BRSRC);				/* BRG source = PCLK */
+	OutReg(scc->ctrl, R14, SSBR|scc->wreg[R14]);	/* DPLL source = BRG */
+	OutReg(scc->ctrl, R14, SNRZI|scc->wreg[R14]);	/* DPLL NRZI mode */
 }
 
+/*
+ * Initialization according to the Z8530 manual (SGS-Thomson's version):
+ *
+ * 1. Modes and constants
+ *
+ * WR9	11000000	chip reset
+ * WR4	XXXXXXXX	Tx/Rx control, async or sync mode
+ * WR1	0XX00X00	select W/REQ (optional)
+ * WR2	XXXXXXXX	program interrupt vector
+ * WR3	XXXXXXX0	select Rx control
+ * WR5	XXXX0XXX	select Tx control
+ * WR6	XXXXXXXX	sync character
+ * WR7	XXXXXXXX	sync character
+ * WR9	000X0XXX	select interrupt control
+ * WR10	XXXXXXXX	miscellaneous control (optional)
+ * WR11	XXXXXXXX	clock control
+ * WR12	XXXXXXXX	time constant lower byte (optional)
+ * WR13	XXXXXXXX	time constant upper byte (optional)
+ * WR14	XXXXXXX0	miscellaneous control
+ * WR14	XXXSSSSS	commands (optional)
+ *
+ * 2. Enables
+ *
+ * WR14	000SSSS1	baud rate enable
+ * WR3	SSSSSSS1	Rx enable
+ * WR5	SSSS1SSS	Tx enable
+ * WR0	10000000	reset Tx CRG (optional)
+ * WR1	XSS00S00	DMA enable (optional)
+ *
+ * 3. Interrupt status
+ *
+ * WR15	XXXXXXXX	enable external/status
+ * WR0	00010000	reset external status
+ * WR0	00010000	reset external status twice
+ * WR1	SSSXXSXX	enable Rx, Tx and Ext/status
+ * WR9	000SXSSS	enable master interrupt enable
+ *
+ * 1 = set to one, 0 = reset to zero
+ * X = user defined, S = same as previous init
+ *
+ *
+ * Note that the implementation differs in some points from above scheme.
+ *
+ */
  
 static void init_channel(struct scc_channel *scc)
 {
@@ -702,18 +796,41 @@ static void init_channel(struct scc_channel *scc)
 
 	disable_irq(scc->irq);
 
-	wr(scc,R4,X1CLK|SDLC);		
-	wr(scc,R1,0);			
-	wr(scc,R3,Rx8|RxCRC_ENAB);		
-	wr(scc,R5,Tx8|DTR|TxCRC_ENAB);	
-	wr(scc,R6,0);			
-	wr(scc,R7,FLAG);		
-	wr(scc,R9,VIS);			
-	wr(scc,R10,(scc->modem.nrz? NRZ : NRZI)|CRCPS|ABUNDER); 
+	wr(scc,R4,X1CLK|SDLC);		/* *1 clock, SDLC mode */
+	wr(scc,R1,0);			/* no W/REQ operation */
+	wr(scc,R3,Rx8|RxCRC_ENAB);	/* RX 8 bits/char, CRC, disabled */	
+	wr(scc,R5,Tx8|DTR|TxCRC_ENAB);	/* TX 8 bits/char, disabled, DTR */
+	wr(scc,R6,0);			/* SDLC address zero (not used) */
+	wr(scc,R7,FLAG);		/* SDLC flag value */
+	wr(scc,R9,VIS);			/* vector includes status */
+	wr(scc,R10,(scc->modem.nrz? NRZ : NRZI)|CRCPS|ABUNDER); /* abort on underrun, preset CRC generator, NRZ(I) */
 	wr(scc,R14, 0);
 
 
-  
+/* set clock sources:
+
+   CLK_DPLL: normal halfduplex operation
+   
+		RxClk: use DPLL
+		TxClk: use DPLL
+		TRxC mode DPLL output
+		
+   CLK_EXTERNAL: external clocking (G3RUH or DF9IC modem)
+   
+  	        BayCom: 		others:
+  	        
+  	        TxClk = pin RTxC	TxClk = pin TRxC
+  	        RxClk = pin TRxC 	RxClk = pin RTxC
+  	     
+
+   CLK_DIVIDER:
+   		RxClk = use DPLL
+   		TxClk = pin RTxC
+   		
+   		BayCom:			others:
+   		pin TRxC = DPLL		pin TRxC = BRG
+   		(RxClk * 1)		(RxClk * 32)
+*/  
 
    		
 	switch(scc->modem.clocksrc)
@@ -735,32 +852,32 @@ static void init_channel(struct scc_channel *scc)
 
 	}
 	
-	set_speed(scc);			
+	set_speed(scc);			/* set baudrate */
 	
 	if(scc->enhanced)
 	{
-		or(scc,R15,SHDLCE|FIFOE);	
+		or(scc,R15,SHDLCE|FIFOE);	/* enable FIFO, SDLC/HDLC Enhancements (From now R7 is R7') */
 		wr(scc,R7,AUTOEOM);
 	}
 
 	if(scc->kiss.softdcd || (InReg(scc->ctrl,R0) & DCD))
-						
+						/* DCD is now ON */
 	{
 		start_hunt(scc);
 	}
 	
-	
+	/* enable ABORT, DCD & SYNC/HUNT interrupts */
 
 	wr(scc,R15, BRKIE|TxUIE|(scc->kiss.softdcd? SYNCIE:DCDIE));
 
-	Outb(scc->ctrl,RES_EXT_INT);	
-	Outb(scc->ctrl,RES_EXT_INT);	
+	Outb(scc->ctrl,RES_EXT_INT);	/* reset ext/status interrupts */
+	Outb(scc->ctrl,RES_EXT_INT);	/* must be done twice */
 
-	or(scc,R1,INT_ALL_Rx|TxINT_ENAB|EXT_INT_ENAB); 
+	or(scc,R1,INT_ALL_Rx|TxINT_ENAB|EXT_INT_ENAB); /* enable interrupts */
 	
-	scc->status = InReg(scc->ctrl,R0);	
+	scc->status = InReg(scc->ctrl,R0);	/* read initial status */
 	
-	or(scc,R9,MIE);			
+	or(scc,R9,MIE);			/* master interrupt enable */
 	
 	scc_init_timer(scc);
 			
@@ -770,8 +887,13 @@ static void init_channel(struct scc_channel *scc)
 
 
 
+/* ******************************************************************** */
+/* *			SCC timer functions			      * */
+/* ******************************************************************** */
 
 
+/* ----> scc_key_trx sets the time constant for the baudrate 
+         generator and keys the transmitter		     <---- */
 
 static void scc_key_trx(struct scc_channel *scc, char tx)
 {
@@ -789,37 +911,37 @@ static void scc_key_trx(struct scc_channel *scc, char tx)
 
 	if (tx)
 	{
-		or(scc, R1, TxINT_ENAB);	
+		or(scc, R1, TxINT_ENAB);	/* t_maxkeyup may have reset these */
 		or(scc, R15, TxUIE);
 	}
 
 	if (scc->modem.clocksrc == CLK_DPLL)
-	{				
+	{				/* force simplex operation */
 		if (tx)
 		{
 #ifdef CONFIG_SCC_TRXECHO
-			cl(scc, R3, RxENABLE|ENT_HM);	
-			cl(scc, R15, DCDIE|SYNCIE);	
+			cl(scc, R3, RxENABLE|ENT_HM);	/* switch off receiver */
+			cl(scc, R15, DCDIE|SYNCIE);	/* No DCD changes, please */
 #endif
-			set_brg(scc, time_const);	
+			set_brg(scc, time_const);	/* reprogram baudrate generator */
 
-			
+			/* DPLL -> Rx clk, BRG -> Tx CLK, TRxC mode output, TRxC = BRG */
 			wr(scc, R11, RCDPLL|TCBR|TRxCOI|TRxCBR);
 			
-			
+			/* By popular demand: tx_inhibit */
 			if (scc->kiss.tx_inhibit)
 			{
 				or(scc,R5, TxENAB);
 				scc->wreg[R5] |= RTS;
 			} else {
-				or(scc,R5,RTS|TxENAB);	
+				or(scc,R5,RTS|TxENAB);	/* set the RTS line and enable TX */
 			}
 		} else {
 			cl(scc,R5,RTS|TxENAB);
 			
-			set_brg(scc, time_const);	
+			set_brg(scc, time_const);	/* reprogram baudrate generator */
 			
-			
+			/* DPLL -> Rx clk, DPLL -> Tx CLK, TRxC mode output, TRxC = DPLL */
 			wr(scc, R11, RCDPLL|TCDPLL|TRxCOI|TRxCDP);
 
 #ifndef CONFIG_SCC_TRXECHO
@@ -846,10 +968,10 @@ static void scc_key_trx(struct scc_channel *scc, char tx)
 				or(scc,R5, TxENAB);
 				scc->wreg[R5] |= RTS;
 			} else {	
-				or(scc,R5,RTS|TxENAB);	
+				or(scc,R5,RTS|TxENAB);	/* enable tx */
 			}
 		} else {
-			cl(scc,R5,RTS|TxENAB);		
+			cl(scc,R5,RTS|TxENAB);		/* disable tx */
 
 			if ((scc->kiss.fulldup == KISS_DUPLEX_HALF) &&
 #ifndef CONFIG_SCC_TRXECHO
@@ -868,6 +990,7 @@ static void scc_key_trx(struct scc_channel *scc, char tx)
 }
 
 
+/* ----> SCC timer interrupt handler and friends. <---- */
 
 static void __scc_start_tx_timer(struct scc_channel *scc, void (*handler)(unsigned long), unsigned long when)
 {
@@ -929,9 +1052,16 @@ static void scc_start_maxkeyup(struct scc_channel *scc)
 	spin_unlock_irqrestore(&scc->lock, flags);
 }
 
+/* 
+ * This is called from scc_txint() when there are no more frames to send.
+ * Not exactly a timer function, but it is a close friend of the family...
+ */
 
 static void scc_tx_done(struct scc_channel *scc)
 {
+	/* 
+	 * trx remains keyed in fulldup mode 2 until t_idle expires.
+	 */
 				 
 	switch (scc->kiss.fulldup)
 	{
@@ -983,16 +1113,23 @@ static inline int is_grouped(struct scc_channel *scc)
 	return 0;
 }
 
+/* DWAIT and SLOTTIME expired
+ *
+ * fulldup == 0:  DCD is active or Rand > P-persistence: start t_busy timer
+ *                else key trx and start txdelay
+ * fulldup == 1:  key trx and start txdelay
+ * fulldup == 2:  mintime expired, reset status or key trx and start txdelay
+ */
 
 static void t_dwait(unsigned long channel)
 {
 	struct scc_channel *scc = (struct scc_channel *) channel;
 	
-	if (scc->stat.tx_state == TXS_WAIT)	
+	if (scc->stat.tx_state == TXS_WAIT)	/* maxkeyup or idle timeout */
 	{
-		if (skb_queue_empty(&scc->tx_queue)) {	
+		if (skb_queue_empty(&scc->tx_queue)) {	/* nothing to send */
 			scc->stat.tx_state = TXS_IDLE;
-			netif_wake_queue(scc->dev);	
+			netif_wake_queue(scc->dev);	/* t_maxkeyup locked it. */
 			return;
 		}
 
@@ -1021,6 +1158,10 @@ static void t_dwait(unsigned long channel)
 }
 
 
+/* TXDELAY expired
+ *
+ * kick transmission by a fake scc_txint(scc), start 'maxkeyup' watchdog.
+ */
 
 static void t_txdelay(unsigned long channel)
 {
@@ -1037,6 +1178,11 @@ static void t_txdelay(unsigned long channel)
 }
 	
 
+/* TAILTIME expired
+ *
+ * switch off transmitter. If we were stopped by Maxkeyup restart
+ * transmission after 'mintime' seconds
+ */
 
 static void t_tail(unsigned long channel)
 {
@@ -1048,7 +1194,7 @@ static void t_tail(unsigned long channel)
  	scc_key_trx(scc, TX_OFF);
 	spin_unlock_irqrestore(&scc->lock, flags);
 
- 	if (scc->stat.tx_state == TXS_TIMEOUT)		
+ 	if (scc->stat.tx_state == TXS_TIMEOUT)		/* we had a timeout? */
  	{
  		scc->stat.tx_state = TXS_WAIT;
 		scc_start_tx_timer(scc, t_dwait, scc->kiss.mintime*100);
@@ -1060,13 +1206,17 @@ static void t_tail(unsigned long channel)
 }
 
 
+/* BUSY timeout
+ *
+ * throw away send buffers if DCD remains active too long.
+ */
 
 static void t_busy(unsigned long channel)
 {
 	struct scc_channel *scc = (struct scc_channel *) channel;
 
 	del_timer(&scc->tx_t);
-	netif_stop_queue(scc->dev);	
+	netif_stop_queue(scc->dev);	/* don't pile on the wabbit! */
 
 	scc_discard_buffers(scc);
 	scc->stat.txerrs++;
@@ -1075,6 +1225,10 @@ static void t_busy(unsigned long channel)
 	netif_wake_queue(scc->dev);	
 }
 
+/* MAXKEYUP timeout
+ *
+ * this is our watchdog.
+ */
 
 static void t_maxkeyup(unsigned long channel)
 {
@@ -1082,14 +1236,18 @@ static void t_maxkeyup(unsigned long channel)
 	unsigned long flags;
 
 	spin_lock_irqsave(&scc->lock, flags);
+	/* 
+	 * let things settle down before we start to
+	 * accept new data.
+	 */
 
 	netif_stop_queue(scc->dev);
 	scc_discard_buffers(scc);
 
 	del_timer(&scc->tx_t);
 
-	cl(scc, R1, TxINT_ENAB);	
-	cl(scc, R15, TxUIE);		
+	cl(scc, R1, TxINT_ENAB);	/* force an ABORT, but don't */
+	cl(scc, R15, TxUIE);		/* count it. */
 	OutReg(scc->ctrl, R0, RES_Tx_P);
 
 	spin_unlock_irqrestore(&scc->lock, flags);
@@ -1099,6 +1257,12 @@ static void t_maxkeyup(unsigned long channel)
 	scc_start_tx_timer(scc, t_tail, scc->kiss.tailtime);
 }
 
+/* IDLE timeout
+ *
+ * in fulldup mode 2 it keys down the transmitter after 'idle' seconds
+ * of inactivity. We will not restart transmission before 'mintime'
+ * expires.
+ */
 
 static void t_idle(unsigned long channel)
 {
@@ -1122,8 +1286,14 @@ static void scc_init_timer(struct scc_channel *scc)
 }
 
 
+/* ******************************************************************** */
+/* *			Set/get L1 parameters			      * */
+/* ******************************************************************** */
 
 
+/*
+ * this will set the "hardware" parameters through KISS commands or ioctl()
+ */
 
 #define CAST(x) (unsigned long)(x)
 
@@ -1136,7 +1306,7 @@ static unsigned int scc_set_param(struct scc_channel *scc, unsigned int cmd, uns
 		case PARAM_SLOTTIME:	scc->kiss.slottime=arg;		break;
 		case PARAM_TXTAIL:	scc->kiss.tailtime=arg;		break;
 		case PARAM_FULLDUP:	scc->kiss.fulldup=arg;		break;
-		case PARAM_DTR:		break; 
+		case PARAM_DTR:		break; /* does someone need this? */
 		case PARAM_GROUP:	scc->kiss.group=arg;		break;
 		case PARAM_IDLE:	scc->kiss.idletime=arg;		break;
 		case PARAM_MIN:		scc->kiss.mintime=arg;		break;
@@ -1164,7 +1334,7 @@ static unsigned int scc_set_param(struct scc_channel *scc, unsigned int cmd, uns
 			else
 				scc->modem.speed=arg;
 
-			if (scc->stat.tx_state == 0)	
+			if (scc->stat.tx_state == 0)	/* only switch baudrate on rx... ;-) */
 				set_speed(scc);
 			break;
 			
@@ -1223,6 +1393,9 @@ static unsigned long scc_get_param(struct scc_channel *scc, unsigned int cmd)
 
 #undef CAST
 
+/* ******************************************************************* */
+/* *			Send calibration pattern		     * */
+/* ******************************************************************* */
 
 static void scc_stop_calibrate(unsigned long channel)
 {
@@ -1234,7 +1407,7 @@ static void scc_stop_calibrate(unsigned long channel)
 	scc_key_trx(scc, TX_OFF);
 	wr(scc, R6, 0);
 	wr(scc, R7, FLAG);
-	Outb(scc->ctrl,RES_EXT_INT);	
+	Outb(scc->ctrl,RES_EXT_INT);	/* reset ext/status interrupts */
 	Outb(scc->ctrl,RES_EXT_INT);
 
 	netif_wake_queue(scc->dev);
@@ -1258,19 +1431,29 @@ scc_start_calibrate(struct scc_channel *scc, int duration, unsigned char pattern
 	scc->tx_wdog.expires = jiffies + HZ*duration;
 	add_timer(&scc->tx_wdog);
 
-		
+	/* This doesn't seem to work. Why not? */	
 	wr(scc, R6, 0);
 	wr(scc, R7, pattern);
 
+	/* 
+	 * Don't know if this works. 
+	 * Damn, where is my Z8530 programming manual...? 
+	 */
 
-	Outb(scc->ctrl,RES_EXT_INT);	
+	Outb(scc->ctrl,RES_EXT_INT);	/* reset ext/status interrupts */
 	Outb(scc->ctrl,RES_EXT_INT);
 
 	scc_key_trx(scc, TX_ON);
 	spin_unlock_irqrestore(&scc->lock, flags);
 }
 
+/* ******************************************************************* */
+/* *		Init channel structures, special HW, etc...	     * */
+/* ******************************************************************* */
 
+/*
+ * Reset the Z8530s and setup special hardware
+ */
 
 static void z8530_init(void)
 {
@@ -1292,30 +1475,30 @@ static void z8530_init(void)
 	printk("\n");
 
 
-	
+	/* reset and pre-init all chips in the system */
 	for (chip = 0; chip < Nchips; chip++)
 	{
 		scc=&SCC_Info[2*chip];
 		if (!scc->ctrl) continue;
 
-		
+		/* Special SCC cards */
 
-		if(scc->brand & EAGLE)			
-			Outb(scc->special,0x08);	
+		if(scc->brand & EAGLE)			/* this is an EAGLE card */
+			Outb(scc->special,0x08);	/* enable interrupt on the board */
 			
-		if(scc->brand & (PC100 | PRIMUS))	
-			Outb(scc->special,scc->option);	
+		if(scc->brand & (PC100 | PRIMUS))	/* this is a PC100/PRIMUS card */
+			Outb(scc->special,scc->option);	/* set the MODEM mode (0x22) */
 
 			
-		
+		/* Reset and pre-init Z8530 */
 
 		spin_lock_irqsave(&scc->lock, flags);
 				
 		Outb(scc->ctrl, 0);
-		OutReg(scc->ctrl,R9,FHWRES);		
-		udelay(100);				
-		wr(scc, R2, chip*16);			
-		wr(scc, R9, VIS);			
+		OutReg(scc->ctrl,R9,FHWRES);		/* force hardware reset */
+		udelay(100);				/* give it 'a bit' more time than required */
+		wr(scc, R2, chip*16);			/* interrupt vector */
+		wr(scc, R9, VIS);			/* vector includes status */
 		spin_unlock_irqrestore(&scc->lock, flags);		
         }
 
@@ -1323,6 +1506,9 @@ static void z8530_init(void)
 	Driver_Initialized = 1;
 }
 
+/*
+ * Allocate device structure, err, instance, and register driver
+ */
 
 static int scc_net_alloc(const char *name, struct scc_channel *scc)
 {
@@ -1353,6 +1539,9 @@ static int scc_net_alloc(const char *name, struct scc_channel *scc)
 
 
 
+/* ******************************************************************** */
+/* *			    Network driver methods		      * */
+/* ******************************************************************** */
 
 static const struct net_device_ops scc_netdev_ops = {
 	.ndo_open            = scc_net_open,
@@ -1363,10 +1552,11 @@ static const struct net_device_ops scc_netdev_ops = {
 	.ndo_do_ioctl        = scc_net_ioctl,
 };
 
+/* ----> Initialize device <----- */
 
 static void scc_net_setup(struct net_device *dev)
 {
-	dev->tx_queue_len    = 16;	
+	dev->tx_queue_len    = 16;	/* should be enough... */
 
 	dev->netdev_ops	     = &scc_netdev_ops;
 	dev->header_ops      = &ax25_header_ops;
@@ -1383,6 +1573,7 @@ static void scc_net_setup(struct net_device *dev)
 
 }
 
+/* ----> open network device <---- */
 
 static int scc_net_open(struct net_device *dev)
 {
@@ -1400,6 +1591,7 @@ static int scc_net_open(struct net_device *dev)
 	return 0;
 }
 
+/* ----> close network device <---- */
 
 static int scc_net_close(struct net_device *dev)
 {
@@ -1410,7 +1602,7 @@ static int scc_net_close(struct net_device *dev)
 
 	spin_lock_irqsave(&scc->lock, flags);	
 	Outb(scc->ctrl,0);		/* Make sure pointer is written */
-	wr(scc,R1,0);			
+	wr(scc,R1,0);			/* disable interrupts */
 	wr(scc,R3,0);
 	spin_unlock_irqrestore(&scc->lock, flags);
 
@@ -1422,6 +1614,7 @@ static int scc_net_close(struct net_device *dev)
 	return 0;
 }
 
+/* ----> receive frame, called from scc_rxint() <---- */
 
 static void scc_net_rx(struct scc_channel *scc, struct sk_buff *skb)
 {
@@ -1438,6 +1631,7 @@ static void scc_net_rx(struct scc_channel *scc, struct sk_buff *skb)
 	netif_rx(skb);
 }
 
+/* ----> transmit frame <---- */
 
 static netdev_tx_t scc_net_tx(struct sk_buff *skb, struct net_device *dev)
 {
@@ -1446,7 +1640,7 @@ static netdev_tx_t scc_net_tx(struct sk_buff *skb, struct net_device *dev)
 	char kisscmd;
 
 	if (skb->len > scc->stat.bufsize || skb->len < 2) {
-		scc->dev_stat.tx_dropped++;	
+		scc->dev_stat.tx_dropped++;	/* bogus frame */
 		dev_kfree_skb(skb);
 		return NETDEV_TX_OK;
 	}
@@ -1475,6 +1669,11 @@ static netdev_tx_t scc_net_tx(struct sk_buff *skb, struct net_device *dev)
 	dev->trans_start = jiffies;
 	
 
+	/*
+	 * Start transmission if the trx state is idle or
+	 * t_idle hasn't expired yet. Use dwait/persistence/slottime
+	 * algorithm for normal halfduplex operation.
+	 */
 
 	if(scc->stat.tx_state == TXS_IDLE || scc->stat.tx_state == TXS_IDLE2) {
 		scc->stat.tx_state = TXS_BUSY;
@@ -1487,7 +1686,18 @@ static netdev_tx_t scc_net_tx(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_OK;
 }
 
+/* ----> ioctl functions <---- */
 
+/*
+ * SIOCSCCCFG		- configure driver	arg: (struct scc_hw_config *) arg
+ * SIOCSCCINI		- initialize driver	arg: ---
+ * SIOCSCCCHANINI	- initialize channel	arg: (struct scc_modem *) arg
+ * SIOCSCCSMEM		- set memory		arg: (struct scc_mem_config *) arg
+ * SIOCSCCGKISS		- get level 1 parameter	arg: (struct scc_kiss_cmd *) arg
+ * SIOCSCCSKISS		- set level 1 parameter arg: (struct scc_kiss_cmd *) arg
+ * SIOCSCCGSTAT		- get driver status	arg: (struct scc_stat *) arg
+ * SIOCSCCCAL		- send calib. pattern	arg: (struct scc_calibrate *) arg
+ */
 
 static int scc_net_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
@@ -1549,7 +1759,7 @@ static int scc_net_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				Outb(hwcfg.ctrl_a, 0);
 				OutReg(hwcfg.ctrl_a, R9, FHWRES);
 				udelay(100);
-				OutReg(hwcfg.ctrl_a,R13,0x55);		
+				OutReg(hwcfg.ctrl_a,R13,0x55);		/* is this chip really there? */
 				udelay(5);
 
 				if (InReg(hwcfg.ctrl_a,R13) != 0x55)
@@ -1628,7 +1838,7 @@ static int scc_net_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			return 0;
 		}
 		
-		return -EINVAL;	
+		return -EINVAL;	/* confuse the user */
 	}
 	
 	if (!scc->init)
@@ -1643,33 +1853,33 @@ static int scc_net_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			if (copy_from_user(&scc->modem, arg, sizeof(struct scc_modem)))
 				return -EINVAL;
 			
-			
+			/* default KISS Params */
 		
 			if (scc->modem.speed < 4800)
 			{
-				scc->kiss.txdelay = 36;		
-				scc->kiss.persist = 42;					
-				scc->kiss.slottime = 16;	
-				scc->kiss.tailtime = 4;		
-				scc->kiss.fulldup = 0;		
-				scc->kiss.waittime = 50;	
-				scc->kiss.maxkeyup = 10;	
-				scc->kiss.mintime = 3;		
-				scc->kiss.idletime = 30;	
-				scc->kiss.maxdefer = 120;	
-				scc->kiss.softdcd = 0;		
+				scc->kiss.txdelay = 36;		/* 360 ms */
+				scc->kiss.persist = 42;		/* 25% persistence */			/* was 25 */
+				scc->kiss.slottime = 16;	/* 160 ms */
+				scc->kiss.tailtime = 4;		/* minimal reasonable value */
+				scc->kiss.fulldup = 0;		/* CSMA */
+				scc->kiss.waittime = 50;	/* 500 ms */
+				scc->kiss.maxkeyup = 10;	/* 10 s */
+				scc->kiss.mintime = 3;		/* 3 s */
+				scc->kiss.idletime = 30;	/* 30 s */
+				scc->kiss.maxdefer = 120;	/* 2 min */
+				scc->kiss.softdcd = 0;		/* hardware dcd */
 			} else {
-				scc->kiss.txdelay = 10;		
-				scc->kiss.persist = 64;					
-				scc->kiss.slottime = 8;		
-				scc->kiss.tailtime = 1;		
-				scc->kiss.fulldup = 0;		
-				scc->kiss.waittime = 50;	
-				scc->kiss.maxkeyup = 7;		
-				scc->kiss.mintime = 3;		
-				scc->kiss.idletime = 30;	
-				scc->kiss.maxdefer = 120;	
-				scc->kiss.softdcd = 0;		
+				scc->kiss.txdelay = 10;		/* 100 ms */
+				scc->kiss.persist = 64;		/* 25% persistence */			/* was 25 */
+				scc->kiss.slottime = 8;		/* 160 ms */
+				scc->kiss.tailtime = 1;		/* minimal reasonable value */
+				scc->kiss.fulldup = 0;		/* CSMA */
+				scc->kiss.waittime = 50;	/* 500 ms */
+				scc->kiss.maxkeyup = 7;		/* 7 s */
+				scc->kiss.mintime = 3;		/* 3 s */
+				scc->kiss.idletime = 30;	/* 30 s */
+				scc->kiss.maxdefer = 120;	/* 2 min */
+				scc->kiss.softdcd = 0;		/* hardware dcd */
 			}
 			
 			scc->tx_buff = NULL;
@@ -1729,6 +1939,7 @@ static int scc_net_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	return -EINVAL;
 }
 
+/* ----> set interface callsign <---- */
 
 static int scc_net_set_mac_address(struct net_device *dev, void *addr)
 {
@@ -1737,6 +1948,7 @@ static int scc_net_set_mac_address(struct net_device *dev, void *addr)
 	return 0;
 }
 
+/* ----> get statistics <---- */
 
 static struct net_device_stats *scc_net_get_stats(struct net_device *dev)
 {
@@ -1750,6 +1962,9 @@ static struct net_device_stats *scc_net_get_stats(struct net_device *dev)
 	return &scc->dev_stat;
 }
 
+/* ******************************************************************** */
+/* *		dump statistics to /proc/net/z8530drv		      * */
+/* ******************************************************************** */
 
 #ifdef CONFIG_PROC_FS
 
@@ -1804,6 +2019,14 @@ static int scc_net_seq_show(struct seq_file *seq, void *v)
 		const struct scc_kiss *kiss = &scc->kiss;
 
 
+		/* dev	data ctrl irq clock brand enh vector special option 
+		 *	baud nrz clocksrc softdcd bufsize
+		 *	rxints txints exints spints
+		 *	rcvd rxerrs over / xmit txerrs under / nospace bufsize
+		 *	txd pers slot tail ful wait min maxk idl defr txof grp
+		 *	W ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+		 *	R ## ## XX ## ## ## ## ## XX ## ## ## ## ## ## ##
+		 */
 
 		seq_printf(seq, "%s\t%3.3lx %3.3lx %d %lu %2.2x %d %3.3lx %3.3lx %d\n",
 				scc->dev->name,
@@ -1872,9 +2095,12 @@ static const struct file_operations scc_net_seq_fops = {
 	.release = seq_release_private,
 };
 
-#endif 
+#endif /* CONFIG_PROC_FS */
 
  
+/* ******************************************************************** */
+/* * 			Init SCC driver 			      * */
+/* ******************************************************************** */
 
 static int __init scc_init_driver (void)
 {
@@ -1910,24 +2136,24 @@ static void __exit scc_cleanup_driver(void)
 		free_netdev(dev);
 	}
 
-	
+	/* Guard against chip prattle */
 	local_irq_disable();
 	
 	for (k = 0; k < Nchips; k++)
 		if ( (ctrl = SCC_ctrl[k].chan_A) )
 		{
 			Outb(ctrl, 0);
-			OutReg(ctrl,R9,FHWRES);	
+			OutReg(ctrl,R9,FHWRES);	/* force hardware reset */
 			udelay(50);
 		}
 		
-	
+	/* To unload the port must be closed so no real IRQ pending */
 	for (k = 0; k < nr_irqs ; k++)
 		if (Ivec[k].used) free_irq(k, NULL);
 		
 	local_irq_enable();
 		
-	
+	/* Now clean up */
 	for (k = 0; k < Nchips*2; k++)
 	{
 		scc = &SCC_Info[k];

@@ -31,6 +31,11 @@
 #include <linux/acpi.h>
 #include <linux/aer.h>
 
+/*
+ * CPER record ID need to be unique even after reboot, because record
+ * ID is used as index for ERST storage, while CPER records from
+ * multiple boot may co-exist in ERST.
+ */
 u64 cper_next_record_id(void)
 {
 	static atomic64_t seq;
@@ -55,6 +60,17 @@ static const char *cper_severity_str(unsigned int severity)
 		cper_severity_strs[severity] : "unknown";
 }
 
+/*
+ * cper_print_bits - print strings for set bits
+ * @pfx: prefix for each line, including log level and prefix string
+ * @bits: bit mask
+ * @strs: string array, indexed by bit position
+ * @strs_size: size of the string array: @strs
+ *
+ * For each set bit in @bits, print the corresponding string in @strs.
+ * If the output length is longer than 80, multiple line will be
+ * printed, with @pfx is printed at the beginning of each line.
+ */
 void cper_print_bits(const char *pfx, unsigned int bits,
 		     const char *strs[], unsigned int strs_size)
 {

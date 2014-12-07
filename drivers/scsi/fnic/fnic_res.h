@@ -39,14 +39,14 @@ static inline void fnic_queue_wq_desc(struct vnic_wq *wq,
 	wq_enet_desc_enc(desc,
 			 (u64)dma_addr | VNIC_PADDR_TARGET,
 			 (u16)len,
-			 0, 
+			 0, /* mss_or_csum_offset */
 			 (u16)fc_eof,
-			 0, 
+			 0, /* offload_mode */
 			 (u8)eop, (u8)cq_entry,
-			 1, 
+			 1, /* fcoe_encap */
 			 (u8)vlan_tag_insert,
 			 (u16)vlan_tag,
-			 0 );
+			 0 /* loopback */);
 
 	vnic_wq_post(wq, os_buf, dma_addr, len, sop, eop);
 }
@@ -63,15 +63,15 @@ static inline void fnic_queue_wq_eth_desc(struct vnic_wq *wq,
 	wq_enet_desc_enc(desc,
 			 (u64)dma_addr | VNIC_PADDR_TARGET,
 			 (u16)len,
-			 0, 
-			 0, 
-			 0, 
-			 1, 
+			 0, /* mss_or_csum_offset */
+			 0, /* fc_eof */
+			 0, /* offload_mode */
+			 1, /* eop */
 			 (u8)cq_entry,
-			 0, 
+			 0, /* fcoe_encap */
 			 (u8)vlan_tag_insert,
 			 (u16)vlan_tag,
-			 0 );
+			 0 /* loopback */);
 
 	vnic_wq_post(wq, os_buf, dma_addr, len, 1, 1);
 }
@@ -90,33 +90,33 @@ static inline void fnic_queue_wq_copy_desc_icmnd_16(struct vnic_wq_copy *wq,
 {
 	struct fcpio_host_req *desc = vnic_wq_copy_next_desc(wq);
 
-	desc->hdr.type = FCPIO_ICMND_16; 
-	desc->hdr.status = 0;            
-	desc->hdr._resvd = 0;            
-	desc->hdr.tag.u.req_id = req_id; 
+	desc->hdr.type = FCPIO_ICMND_16; /* enum fcpio_type */
+	desc->hdr.status = 0;            /* header status entry */
+	desc->hdr._resvd = 0;            /* reserved */
+	desc->hdr.tag.u.req_id = req_id; /* id for this request */
 
-	desc->u.icmnd_16.lunmap_id = lunmap_id; 
-	desc->u.icmnd_16.special_req_flags = spl_flags; 
-	desc->u.icmnd_16._resvd0[0] = 0;        
-	desc->u.icmnd_16._resvd0[1] = 0;        
-	desc->u.icmnd_16._resvd0[2] = 0;        
-	desc->u.icmnd_16.sgl_cnt = sgl_cnt;     
-	desc->u.icmnd_16.sense_len = sense_len; 
-	desc->u.icmnd_16.sgl_addr = sgl_addr;   
-	desc->u.icmnd_16.sense_addr = sns_addr; 
-	desc->u.icmnd_16.crn = crn;             
-	desc->u.icmnd_16.pri_ta = pri_ta; 	
-	desc->u.icmnd_16._resvd1 = 0;           
-	desc->u.icmnd_16.flags = flags;         
+	desc->u.icmnd_16.lunmap_id = lunmap_id; /* index into lunmap table */
+	desc->u.icmnd_16.special_req_flags = spl_flags; /* exch req flags */
+	desc->u.icmnd_16._resvd0[0] = 0;        /* reserved */
+	desc->u.icmnd_16._resvd0[1] = 0;        /* reserved */
+	desc->u.icmnd_16._resvd0[2] = 0;        /* reserved */
+	desc->u.icmnd_16.sgl_cnt = sgl_cnt;     /* scatter-gather list count */
+	desc->u.icmnd_16.sense_len = sense_len; /* sense buffer length */
+	desc->u.icmnd_16.sgl_addr = sgl_addr;   /* scatter-gather list addr */
+	desc->u.icmnd_16.sense_addr = sns_addr; /* sense buffer address */
+	desc->u.icmnd_16.crn = crn;             /* SCSI Command Reference No.*/
+	desc->u.icmnd_16.pri_ta = pri_ta; 	/* SCSI Pri & Task attribute */
+	desc->u.icmnd_16._resvd1 = 0;           /* reserved: should be 0 */
+	desc->u.icmnd_16.flags = flags;         /* command flags */
 	memset(desc->u.icmnd_16.scsi_cdb, 0, CDB_16);
-	memcpy(desc->u.icmnd_16.scsi_cdb, scsi_cdb, cdb_len);    
-	desc->u.icmnd_16.data_len = data_len;   
-	memcpy(desc->u.icmnd_16.lun, lun, LUN_ADDRESS);  
-	desc->u.icmnd_16._resvd2 = 0;          	
-	hton24(desc->u.icmnd_16.d_id, d_id);	
-	desc->u.icmnd_16.mss = mss;            	
-	desc->u.icmnd_16.r_a_tov = ratov; 
-	desc->u.icmnd_16.e_d_tov = edtov; 
+	memcpy(desc->u.icmnd_16.scsi_cdb, scsi_cdb, cdb_len);    /* SCSI CDB */
+	desc->u.icmnd_16.data_len = data_len;   /* length of data expected */
+	memcpy(desc->u.icmnd_16.lun, lun, LUN_ADDRESS);  /* LUN address */
+	desc->u.icmnd_16._resvd2 = 0;          	/* reserved */
+	hton24(desc->u.icmnd_16.d_id, d_id);	/* FC vNIC only: Target D_ID */
+	desc->u.icmnd_16.mss = mss;            	/* FC vNIC only: max burst */
+	desc->u.icmnd_16.r_a_tov = ratov; /*FC vNIC only: Res. Alloc Timeout */
+	desc->u.icmnd_16.e_d_tov = edtov; /*FC vNIC only: Err Detect Timeout */
 
 	vnic_wq_copy_post(wq);
 }
@@ -129,20 +129,20 @@ static inline void fnic_queue_wq_copy_desc_itmf(struct vnic_wq_copy *wq,
 {
 	struct fcpio_host_req *desc = vnic_wq_copy_next_desc(wq);
 
-	desc->hdr.type = FCPIO_ITMF;     
-	desc->hdr.status = 0;            
-	desc->hdr._resvd = 0;            
-	desc->hdr.tag.u.req_id = req_id; 
+	desc->hdr.type = FCPIO_ITMF;     /* enum fcpio_type */
+	desc->hdr.status = 0;            /* header status entry */
+	desc->hdr._resvd = 0;            /* reserved */
+	desc->hdr.tag.u.req_id = req_id; /* id for this request */
 
-	desc->u.itmf.lunmap_id = lunmap_id; 
-	desc->u.itmf.tm_req = tm_req;       
-	desc->u.itmf.t_tag = tm_id;         
+	desc->u.itmf.lunmap_id = lunmap_id; /* index into lunmap table */
+	desc->u.itmf.tm_req = tm_req;       /* SCSI Task Management request */
+	desc->u.itmf.t_tag = tm_id;         /* tag of fcpio to be aborted */
 	desc->u.itmf._resvd = 0;
-	memcpy(desc->u.itmf.lun, lun, LUN_ADDRESS);  
+	memcpy(desc->u.itmf.lun, lun, LUN_ADDRESS);  /* LUN address */
 	desc->u.itmf._resvd1 = 0;
-	hton24(desc->u.itmf.d_id, d_id);    
-	desc->u.itmf.r_a_tov = r_a_tov;     
-	desc->u.itmf.e_d_tov = e_d_tov;     
+	hton24(desc->u.itmf.d_id, d_id);    /* FC vNIC only: Target D_ID */
+	desc->u.itmf.r_a_tov = r_a_tov;     /* FC vNIC only: R_A_TOV in msec */
+	desc->u.itmf.e_d_tov = e_d_tov;     /* FC vNIC only: E_D_TOV in msec */
 
 	vnic_wq_copy_post(wq);
 }
@@ -153,10 +153,10 @@ static inline void fnic_queue_wq_copy_desc_flogi_reg(struct vnic_wq_copy *wq,
 {
 	struct fcpio_host_req *desc = vnic_wq_copy_next_desc(wq);
 
-	desc->hdr.type = FCPIO_FLOGI_REG;     
-	desc->hdr.status = 0;                 
-	desc->hdr._resvd = 0;                 
-	desc->hdr.tag.u.req_id = req_id;      
+	desc->hdr.type = FCPIO_FLOGI_REG;     /* enum fcpio_type */
+	desc->hdr.status = 0;                 /* header status entry */
+	desc->hdr._resvd = 0;                 /* reserved */
+	desc->hdr.tag.u.req_id = req_id;      /* id for this request */
 
 	desc->u.flogi_reg.format = format;
 	desc->u.flogi_reg._resvd = 0;
@@ -173,10 +173,10 @@ static inline void fnic_queue_wq_copy_desc_fip_reg(struct vnic_wq_copy *wq,
 {
 	struct fcpio_host_req *desc = vnic_wq_copy_next_desc(wq);
 
-	desc->hdr.type = FCPIO_FLOGI_FIP_REG; 
-	desc->hdr.status = 0;                 
-	desc->hdr._resvd = 0;                 
-	desc->hdr.tag.u.req_id = req_id;      
+	desc->hdr.type = FCPIO_FLOGI_FIP_REG; /* enum fcpio_type */
+	desc->hdr.status = 0;                 /* header status entry */
+	desc->hdr._resvd = 0;                 /* reserved */
+	desc->hdr.tag.u.req_id = req_id;      /* id for this request */
 
 	desc->u.flogi_fip_reg._resvd0 = 0;
 	hton24(desc->u.flogi_fip_reg.s_id, s_id);
@@ -195,10 +195,10 @@ static inline void fnic_queue_wq_copy_desc_fw_reset(struct vnic_wq_copy *wq,
 {
 	struct fcpio_host_req *desc = vnic_wq_copy_next_desc(wq);
 
-	desc->hdr.type = FCPIO_RESET;     
-	desc->hdr.status = 0;             
-	desc->hdr._resvd = 0;             
-	desc->hdr.tag.u.req_id = req_id;  
+	desc->hdr.type = FCPIO_RESET;     /* enum fcpio_type */
+	desc->hdr.status = 0;             /* header status entry */
+	desc->hdr._resvd = 0;             /* reserved */
+	desc->hdr.tag.u.req_id = req_id;  /* id for this request */
 
 	vnic_wq_copy_post(wq);
 }
@@ -209,13 +209,13 @@ static inline void fnic_queue_wq_copy_desc_lunmap(struct vnic_wq_copy *wq,
 {
 	struct fcpio_host_req *desc = vnic_wq_copy_next_desc(wq);
 
-	desc->hdr.type = FCPIO_LUNMAP_REQ;	
-	desc->hdr.status = 0;			
-	desc->hdr._resvd = 0;			
-	desc->hdr.tag.u.req_id = req_id;	
+	desc->hdr.type = FCPIO_LUNMAP_REQ;	/* enum fcpio_type */
+	desc->hdr.status = 0;			/* header status entry */
+	desc->hdr._resvd = 0;			/* reserved */
+	desc->hdr.tag.u.req_id = req_id;	/* id for this request */
 
-	desc->u.lunmap_req.addr = lunmap_addr;	
-	desc->u.lunmap_req.len = lunmap_len;	
+	desc->u.lunmap_req.addr = lunmap_addr;	/* address of the buffer */
+	desc->u.lunmap_req.len = lunmap_len;	/* len of the buffer */
 
 	vnic_wq_copy_post(wq);
 }
@@ -246,4 +246,4 @@ int fnic_set_nic_config(struct fnic *fnic, u8 rss_default_cpu,
 			u8 rss_enable, u8 tso_ipid_split_en,
 			u8 ig_vlan_strip_en);
 
-#endif 
+#endif /* _FNIC_RES_H_ */

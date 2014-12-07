@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: nsparse - namespace interface to AML parser
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -46,6 +51,18 @@
 #define _COMPONENT          ACPI_NAMESPACE
 ACPI_MODULE_NAME("nsparse")
 
+/*******************************************************************************
+ *
+ * FUNCTION:    ns_one_complete_parse
+ *
+ * PARAMETERS:  pass_number             - 1 or 2
+ *              table_desc              - The table to be parsed.
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Perform one complete parse of an ACPI/AML table.
+ *
+ ******************************************************************************/
 acpi_status
 acpi_ns_one_complete_parse(u32 pass_number,
 			   u32 table_index,
@@ -66,14 +83,14 @@ acpi_ns_one_complete_parse(u32 pass_number,
 		return_ACPI_STATUS(status);
 	}
 
-	
+	/* Create and init a Root Node */
 
 	parse_root = acpi_ps_create_scope_op();
 	if (!parse_root) {
 		return_ACPI_STATUS(AE_NO_MEMORY);
 	}
 
-	
+	/* Create and initialize a new walk state */
 
 	walk_state = acpi_ds_create_walk_state(owner_id, NULL, NULL, NULL);
 	if (!walk_state) {
@@ -88,7 +105,7 @@ acpi_ns_one_complete_parse(u32 pass_number,
 		return_ACPI_STATUS(status);
 	}
 
-	
+	/* Table must consist of at least a complete header */
 
 	if (table->length < sizeof(struct acpi_table_header)) {
 		status = AE_BAD_HEADER;
@@ -105,7 +122,7 @@ acpi_ns_one_complete_parse(u32 pass_number,
 		goto cleanup;
 	}
 
-	
+	/* start_node is the default location to load the table */
 
 	if (start_node && start_node != acpi_gbl_root_node) {
 		status =
@@ -117,7 +134,7 @@ acpi_ns_one_complete_parse(u32 pass_number,
 		}
 	}
 
-	
+	/* Parse the AML */
 
 	ACPI_DEBUG_PRINT((ACPI_DB_PARSE, "*PARSE* pass %u parse\n",
 			  pass_number));
@@ -128,6 +145,18 @@ acpi_ns_one_complete_parse(u32 pass_number,
 	return_ACPI_STATUS(status);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_parse_table
+ *
+ * PARAMETERS:  table_desc      - An ACPI table descriptor for table to parse
+ *              start_node      - Where to enter the table into the namespace
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Parse AML within an ACPI table and return a tree of ops
+ *
+ ******************************************************************************/
 
 acpi_status
 acpi_ns_parse_table(u32 table_index, struct acpi_namespace_node *start_node)
@@ -136,6 +165,16 @@ acpi_ns_parse_table(u32 table_index, struct acpi_namespace_node *start_node)
 
 	ACPI_FUNCTION_TRACE(ns_parse_table);
 
+	/*
+	 * AML Parse, pass 1
+	 *
+	 * In this pass, we load most of the namespace.  Control methods
+	 * are not parsed until later.  A parse tree is not created.  Instead,
+	 * each Parser Op subtree is deleted when it is finished.  This saves
+	 * a great deal of memory, and allows a small cache of parse objects
+	 * to service the entire parse.  The second pass of the parse then
+	 * performs another complete parse of the AML.
+	 */
 	ACPI_DEBUG_PRINT((ACPI_DB_PARSE, "**** Start pass 1\n"));
 	status = acpi_ns_one_complete_parse(ACPI_IMODE_LOAD_PASS1,
 					    table_index, start_node);
@@ -143,6 +182,15 @@ acpi_ns_parse_table(u32 table_index, struct acpi_namespace_node *start_node)
 		return_ACPI_STATUS(status);
 	}
 
+	/*
+	 * AML Parse, pass 2
+	 *
+	 * In this pass, we resolve forward references and other things
+	 * that could not be completed during the first pass.
+	 * Another complete parse of the AML is performed, but the
+	 * overhead of this is compensated for by the fact that the
+	 * parse objects are all cached.
+	 */
 	ACPI_DEBUG_PRINT((ACPI_DB_PARSE, "**** Start pass 2\n"));
 	status = acpi_ns_one_complete_parse(ACPI_IMODE_LOAD_PASS2,
 					    table_index, start_node);

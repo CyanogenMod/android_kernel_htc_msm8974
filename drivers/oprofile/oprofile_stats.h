@@ -22,11 +22,13 @@ struct oprofile_stat_struct {
 
 extern struct oprofile_stat_struct oprofile_stats;
 
+/* reset all stats to zero */
 void oprofile_reset_stats(void);
 
 struct super_block;
 struct dentry;
 
+/* create the stats/ dir */
 void oprofile_create_stats_files(struct super_block *sb, struct dentry *root);
 
-#endif 
+#endif /* OPROFILE_STATS_H */

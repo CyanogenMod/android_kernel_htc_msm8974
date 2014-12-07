@@ -20,13 +20,13 @@
 
 #define PHYS(x)          ((volatile unsigned long *)(UART_BASE + x))
 
-#define UARTDR          PHYS(0x00)      
-#define UARTDLL         PHYS(0x00)      
-#define UARTDLM         PHYS(0x04)      
-#define UARTIER         PHYS(0x04)      
-#define UARTFCR         PHYS(0x08)      
-#define UARTLCR         PHYS(0x0c)      
-#define UARTSR          PHYS(0x14)      
+#define UARTDR          PHYS(0x00)      /* Transmit reg dlab=0 */
+#define UARTDLL         PHYS(0x00)      /* Divisor Latch reg dlab=1*/
+#define UARTDLM         PHYS(0x04)      /* Divisor Latch reg dlab=1*/
+#define UARTIER         PHYS(0x04)      /* Interrupt enable reg */
+#define UARTFCR         PHYS(0x08)      /* FIFO control reg dlab =0*/
+#define UARTLCR         PHYS(0x0c)      /* Control reg */
+#define UARTSR          PHYS(0x14)      /* Status reg */
 
 
 static inline void putc(int c)

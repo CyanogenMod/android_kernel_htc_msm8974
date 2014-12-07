@@ -7,10 +7,13 @@
 #ifndef _CDEF_BF549_H
 #define _CDEF_BF549_H
 
+/* include cdefBF54x_base.h for the set of #defines that are common to all ADSP-BF54x bfin_read_()rocessors */
 #include "cdefBF54x_base.h"
 
+/* The BF549 is like the BF544, but has MXVR */
 #include "cdefBF547.h"
 
+/* MXVR Registers */
 
 #define bfin_read_MXVR_CONFIG()			bfin_read16(MXVR_CONFIG)
 #define bfin_write_MXVR_CONFIG(val)		bfin_write16(MXVR_CONFIG, val)
@@ -41,6 +44,7 @@
 #define bfin_read_MXVR_AADDR()			bfin_read32(MXVR_AADDR)
 #define bfin_write_MXVR_AADDR(val)		bfin_write32(MXVR_AADDR, val)
 
+/* MXVR Allocation Table Registers */
 
 #define bfin_read_MXVR_ALLOC_0()		bfin_read32(MXVR_ALLOC_0)
 #define bfin_write_MXVR_ALLOC_0(val)		bfin_write32(MXVR_ALLOC_0, val)
@@ -73,6 +77,7 @@
 #define bfin_read_MXVR_ALLOC_14()		bfin_read32(MXVR_ALLOC_14)
 #define bfin_write_MXVR_ALLOC_14(val)		bfin_write32(MXVR_ALLOC_14, val)
 
+/* MXVR Channel Assign Registers */
 
 #define bfin_read_MXVR_SYNC_LCHAN_0()		bfin_read32(MXVR_SYNC_LCHAN_0)
 #define bfin_write_MXVR_SYNC_LCHAN_0(val)	bfin_write32(MXVR_SYNC_LCHAN_0, val)
@@ -91,6 +96,7 @@
 #define bfin_read_MXVR_SYNC_LCHAN_7()		bfin_read32(MXVR_SYNC_LCHAN_7)
 #define bfin_write_MXVR_SYNC_LCHAN_7(val)	bfin_write32(MXVR_SYNC_LCHAN_7, val)
 
+/* MXVR DMA0 Registers */
 
 #define bfin_read_MXVR_DMA0_CONFIG()		bfin_read32(MXVR_DMA0_CONFIG)
 #define bfin_write_MXVR_DMA0_CONFIG(val)	bfin_write32(MXVR_DMA0_CONFIG, val)
@@ -103,6 +109,7 @@
 #define bfin_read_MXVR_DMA0_CURR_COUNT()	bfin_read16(MXVR_DMA0_CURR_COUNT)
 #define bfin_write_MXVR_DMA0_CURR_COUNT(val)	bfin_write16(MXVR_DMA0_CURR_COUNT, val)
 
+/* MXVR DMA1 Registers */
 
 #define bfin_read_MXVR_DMA1_CONFIG()		bfin_read32(MXVR_DMA1_CONFIG)
 #define bfin_write_MXVR_DMA1_CONFIG(val)	bfin_write32(MXVR_DMA1_CONFIG, val)
@@ -115,6 +122,7 @@
 #define bfin_read_MXVR_DMA1_CURR_COUNT()	bfin_read16(MXVR_DMA1_CURR_COUNT)
 #define bfin_write_MXVR_DMA1_CURR_COUNT(val)	bfin_write16(MXVR_DMA1_CURR_COUNT, val)
 
+/* MXVR DMA2 Registers */
 
 #define bfin_read_MXVR_DMA2_CONFIG()		bfin_read32(MXVR_DMA2_CONFIG)
 #define bfin_write_MXVR_DMA2_CONFIG(val)	bfin_write32(MXVR_DMA2_CONFIG, val)
@@ -127,6 +135,7 @@
 #define bfin_read_MXVR_DMA2_CURR_COUNT()	bfin_read16(MXVR_DMA2_CURR_COUNT)
 #define bfin_write_MXVR_DMA2_CURR_COUNT(val)	bfin_write16(MXVR_DMA2_CURR_COUNT, val)
 
+/* MXVR DMA3 Registers */
 
 #define bfin_read_MXVR_DMA3_CONFIG()		bfin_read32(MXVR_DMA3_CONFIG)
 #define bfin_write_MXVR_DMA3_CONFIG(val)	bfin_write32(MXVR_DMA3_CONFIG, val)
@@ -139,6 +148,7 @@
 #define bfin_read_MXVR_DMA3_CURR_COUNT()	bfin_read16(MXVR_DMA3_CURR_COUNT)
 #define bfin_write_MXVR_DMA3_CURR_COUNT(val)	bfin_write16(MXVR_DMA3_CURR_COUNT, val)
 
+/* MXVR DMA4 Registers */
 
 #define bfin_read_MXVR_DMA4_CONFIG()		bfin_read32(MXVR_DMA4_CONFIG)
 #define bfin_write_MXVR_DMA4_CONFIG(val)	bfin_write32(MXVR_DMA4_CONFIG, val)
@@ -151,6 +161,7 @@
 #define bfin_read_MXVR_DMA4_CURR_COUNT()	bfin_read16(MXVR_DMA4_CURR_COUNT)
 #define bfin_write_MXVR_DMA4_CURR_COUNT(val)	bfin_write16(MXVR_DMA4_CURR_COUNT, val)
 
+/* MXVR DMA5 Registers */
 
 #define bfin_read_MXVR_DMA5_CONFIG()		bfin_read32(MXVR_DMA5_CONFIG)
 #define bfin_write_MXVR_DMA5_CONFIG(val)	bfin_write32(MXVR_DMA5_CONFIG, val)
@@ -163,6 +174,7 @@
 #define bfin_read_MXVR_DMA5_CURR_COUNT()	bfin_read16(MXVR_DMA5_CURR_COUNT)
 #define bfin_write_MXVR_DMA5_CURR_COUNT(val)	bfin_write16(MXVR_DMA5_CURR_COUNT, val)
 
+/* MXVR DMA6 Registers */
 
 #define bfin_read_MXVR_DMA6_CONFIG()		bfin_read32(MXVR_DMA6_CONFIG)
 #define bfin_write_MXVR_DMA6_CONFIG(val)	bfin_write32(MXVR_DMA6_CONFIG, val)
@@ -175,6 +187,7 @@
 #define bfin_read_MXVR_DMA6_CURR_COUNT()	bfin_read16(MXVR_DMA6_CURR_COUNT)
 #define bfin_write_MXVR_DMA6_CURR_COUNT(val)	bfin_write16(MXVR_DMA6_CURR_COUNT, val)
 
+/* MXVR DMA7 Registers */
 
 #define bfin_read_MXVR_DMA7_CONFIG()		bfin_read32(MXVR_DMA7_CONFIG)
 #define bfin_write_MXVR_DMA7_CONFIG(val)	bfin_write32(MXVR_DMA7_CONFIG, val)
@@ -187,6 +200,7 @@
 #define bfin_read_MXVR_DMA7_CURR_COUNT()	bfin_read16(MXVR_DMA7_CURR_COUNT)
 #define bfin_write_MXVR_DMA7_CURR_COUNT(val)	bfin_write16(MXVR_DMA7_CURR_COUNT, val)
 
+/* MXVR Asynch Packet Registers */
 
 #define bfin_read_MXVR_AP_CTL()			bfin_read16(MXVR_AP_CTL)
 #define bfin_write_MXVR_AP_CTL(val)		bfin_write16(MXVR_AP_CTL, val)
@@ -199,6 +213,7 @@
 #define bfin_read_MXVR_APTB_CURR_ADDR() 	bfin_read32(MXVR_APTB_CURR_ADDR)
 #define bfin_write_MXVR_APTB_CURR_ADDR(val) 	bfin_write32(MXVR_APTB_CURR_ADDR)
 
+/* MXVR Control Message Registers */
 
 #define bfin_read_MXVR_CM_CTL()			bfin_read32(MXVR_CM_CTL)
 #define bfin_write_MXVR_CM_CTL(val)		bfin_write32(MXVR_CM_CTL, val)
@@ -211,12 +226,14 @@
 #define bfin_read_MXVR_CMTB_CURR_ADDR() 	bfin_read32(MXVR_CMTB_CURR_ADDR)
 #define bfin_write_MXVR_CMTB_CURR_ADDR(val) 	bfin_write32(MXVR_CMTB_CURR_ADDR)
 
+/* MXVR Remote Read Registers */
 
 #define bfin_read_MXVR_RRDB_START_ADDR() 	bfin_read32(MXVR_RRDB_START_ADDR)
 #define bfin_write_MXVR_RRDB_START_ADDR(val) 	bfin_write32(MXVR_RRDB_START_ADDR)
 #define bfin_read_MXVR_RRDB_CURR_ADDR() 	bfin_read32(MXVR_RRDB_CURR_ADDR)
 #define bfin_write_MXVR_RRDB_CURR_ADDR(val) 	bfin_write32(MXVR_RRDB_CURR_ADDR)
 
+/* MXVR Pattern Data Registers */
 
 #define bfin_read_MXVR_PAT_DATA_0()		bfin_read32(MXVR_PAT_DATA_0)
 #define bfin_write_MXVR_PAT_DATA_0(val)		bfin_write32(MXVR_PAT_DATA_0, val)
@@ -227,12 +244,14 @@
 #define bfin_read_MXVR_PAT_EN_1()		bfin_read32(MXVR_PAT_EN_1)
 #define bfin_write_MXVR_PAT_EN_1(val)		bfin_write32(MXVR_PAT_EN_1, val)
 
+/* MXVR Frame Counter Registers */
 
 #define bfin_read_MXVR_FRAME_CNT_0()		bfin_read16(MXVR_FRAME_CNT_0)
 #define bfin_write_MXVR_FRAME_CNT_0(val)	bfin_write16(MXVR_FRAME_CNT_0, val)
 #define bfin_read_MXVR_FRAME_CNT_1()		bfin_read16(MXVR_FRAME_CNT_1)
 #define bfin_write_MXVR_FRAME_CNT_1(val)	bfin_write16(MXVR_FRAME_CNT_1, val)
 
+/* MXVR Routing Table Registers */
 
 #define bfin_read_MXVR_ROUTING_0()		bfin_read32(MXVR_ROUTING_0)
 #define bfin_write_MXVR_ROUTING_0(val)		bfin_write32(MXVR_ROUTING_0, val)
@@ -265,6 +284,7 @@
 #define bfin_read_MXVR_ROUTING_14()		bfin_read32(MXVR_ROUTING_14)
 #define bfin_write_MXVR_ROUTING_14(val)		bfin_write32(MXVR_ROUTING_14, val)
 
+/* MXVR Counter-Clock-Control Registers */
 
 #define bfin_read_MXVR_BLOCK_CNT()		bfin_read16(MXVR_BLOCK_CNT)
 #define bfin_write_MXVR_BLOCK_CNT(val)		bfin_write16(MXVR_BLOCK_CNT, val)
@@ -279,4 +299,4 @@
 #define bfin_read_MXVR_SCLK_CNT()		bfin_read16(MXVR_SCLK_CNT)
 #define bfin_write_MXVR_SCLK_CNT(val)		bfin_write16(MXVR_SCLK_CNT, val)
 
-#endif 
+#endif /* _CDEF_BF549_H */

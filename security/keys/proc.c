@@ -60,6 +60,9 @@ static const struct file_operations proc_key_users_fops = {
 	.release	= seq_release,
 };
 
+/*
+ * Declare the /proc files.
+ */
 static int __init key_proc_init(void)
 {
 	struct proc_dir_entry *p;
@@ -79,6 +82,10 @@ static int __init key_proc_init(void)
 
 __initcall(key_proc_init);
 
+/*
+ * Implement "/proc/keys" to provide a list of the keys on the system that
+ * grant View permission to the caller.
+ */
 #ifdef CONFIG_KEYS_DEBUG_PROC_KEYS
 
 static struct rb_node *key_serial_next(struct rb_node *n)
@@ -186,6 +193,9 @@ static int proc_keys_show(struct seq_file *m, void *v)
 
 	key_ref = make_key_ref(key, 0);
 
+	/* determine if the key is possessed by this process (a test we can
+	 * skip if the key does not indicate the possessor can view it
+	 */
 	if (key->perm & KEY_POS_VIEW) {
 		skey_ref = search_my_process_keyrings(key->type, key,
 						      lookup_user_key_possessed,
@@ -196,6 +206,11 @@ static int proc_keys_show(struct seq_file *m, void *v)
 		}
 	}
 
+	/* check whether the current task is allowed to view the key (assuming
+	 * non-possession)
+	 * - the caller holds a spinlock, and thus the RCU read lock, making our
+	 *   access to __current_cred() safe
+	 */
 	rc = key_task_permission(key_ref, cred, KEY_VIEW);
 	if (rc < 0)
 		return 0;
@@ -204,7 +219,7 @@ static int proc_keys_show(struct seq_file *m, void *v)
 
 	rcu_read_lock();
 
-	
+	/* come up with a suitable timeout value */
 	if (key->expiry == 0) {
 		memcpy(xbuf, "perm", 5);
 	} else if (now.tv_sec >= key->expiry) {
@@ -252,7 +267,7 @@ static int proc_keys_show(struct seq_file *m, void *v)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_KEYS_DEBUG_PROC_KEYS */
 
 static struct rb_node *__key_user_next(struct rb_node *n)
 {
@@ -276,6 +291,10 @@ static struct rb_node *key_user_first(struct rb_root *r)
 	return __key_user_next(n);
 }
 
+/*
+ * Implement "/proc/key-users" to provides a list of the key users and their
+ * quotas.
+ */
 static int proc_key_users_open(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &proc_key_users_ops);

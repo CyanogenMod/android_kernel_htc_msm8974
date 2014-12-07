@@ -62,11 +62,18 @@
 #ifndef __WL_VERSION_H__
 #define __WL_VERSION_H__
 
+/*******************************************************************************
+ *  include files
+ ******************************************************************************/
+//#include <linux/config.h>
 
 #ifndef CONFIG_MODVERSIONS
 #define __NO_VERSION__
-#endif  
+#endif  // CONFIG_MODVERSIONS
 
+/*******************************************************************************
+ *  constant definitions
+ ******************************************************************************/
 
 #define VENDOR_NAME         "Agere Systems, http://www.agere.com"
 
@@ -84,61 +91,73 @@
 #define BUS_TYPE            "PCI"
 #else
 err: define bus type;
-#endif  
+#endif  // BUS_XXX
 
 #if defined HERMES25
 #define HW_TYPE				"HII.5"
 #else
 #define HW_TYPE				"HII"
-#endif 
+#endif // HERMES25
 
 #if defined WARP
 #define FW_TYPE				"WARP"
 #else
 #define FW_TYPE				"BEAGLE"
-#endif 
+#endif // WARP
 
 #if defined HERMES25
 #if defined WARP
 #define DRV_VARIANT         3
 #else
 #define DRV_VARIANT         4
-#endif 
+#endif // WARP
 #else
 #define DRV_VARIANT         2
-#endif 
+#endif // HERMES25
 
 #ifdef BUS_PCMCIA
 #if defined HERMES25
 #define MODULE_NAME         DRIVER_NAME "_h25_cs"
 #else
 #define MODULE_NAME         DRIVER_NAME "_h2_cs"
-#endif  
+#endif  /* HERMES25 */
 #elif defined BUS_PCI
 #if defined HERMES25
 #define MODULE_NAME         DRIVER_NAME "_h25"
 #else
 #define MODULE_NAME         DRIVER_NAME "_h2"
-#endif  
-#endif  
+#endif  /* HERMES25 */
+#endif  /* BUS_XXX */
 
 #ifdef DBG
 #define MODULE_DATE         __DATE__ " " __TIME__
 #else
 #define MODULE_DATE         "07/18/2004 13:30:00"
-#endif 
+#endif // DBG
 
+//#define STR2(m) #m
+//#define STR1(m) STR2(m)
+//#define MODULE_NAME			STR1( MOD_NAME )
 
 #define VERSION_INFO        MODULE_NAME " v" DRV_VERSION_STR \
 							" for " BUS_TYPE ", " 											   	 \
 							MODULE_DATE " by " VENDOR_NAME
 
+/* The version of wireless extensions we support */
 #define WIRELESS_SUPPORT    21
 
+//#define DBG_MOD_NAME         DRIVER_NAME ":" BUS_TYPE ":" HW_TYPE ":" FW_TYPE
 #define DBG_MOD_NAME        MODULE_NAME
 
 
 
+/*******************************************************************************
+ *  bus architechture specific defines, includes, etc.
+ ******************************************************************************/
+/*
+ * There doesn't seem to be a difference for PCMCIA and PCI anymore, at least
+ * for PCMCIA the same defines are needed now as previously only used for PCI
+ */
 
 #define NEW_MULTICAST
 #define ALLOC_SKB(len)   dev_alloc_skb(len+2)
@@ -154,4 +173,4 @@ err: define bus type;
 
 
 
-#endif  
+#endif  // __WL_VERSION_H__

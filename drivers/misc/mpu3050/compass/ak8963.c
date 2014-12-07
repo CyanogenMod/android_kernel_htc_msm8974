@@ -17,7 +17,19 @@
   $
  */
 
+/**
+ *  @defgroup   COMPASSDL (Motion Library - Accelerometer Driver Layer)
+ *  @brief      Provides the interface to setup and handle an accelerometers
+ *              connected to the secondary I2C interface of the gyroscope.
+ *
+ *  @{
+ *      @file   AK8963.c
+ *      @brief  Magnetometer setup and handling methods for AKM 8963 compass.
+ */
 
+/* ------------------ */
+/* - Include Files. - */
+/* ------------------ */
 
 #include <string.h>
 
@@ -52,7 +64,7 @@ int ak8963_suspend(void *mlsl_handle,
 	    MLSLSerialWriteSingle(mlsl_handle, pdata->address,
 				  AK8963_REG_CNTL,
 				  AK8963_CNTL_MODE_POWER_DOWN);
-	MLOSSleep(1);		
+	MLOSSleep(1);		/* wait at least 100us */
 	ERROR_CHECK(result);
 	return result;
 }
@@ -85,20 +97,58 @@ int ak8963_read(void *mlsl_handle,
 			   8, regs);
 	ERROR_CHECK(result);
 
+	/*
+	 * ST : data ready -
+	 * Measurement has been completed and data is ready to be read.
+	 */
 	if (*stat & 0x01) {
 		memcpy(data, &regs[1], 6);
 		status = ML_SUCCESS;
 	}
 
+	/*
+	 * ST2 : data error -
+	 * occurs when data read is started outside of a readable period;
+	 * data read would not be correct.
+	 * Valid in continuous measurement mode only.
+	 * In single measurement mode this error should not occour but we
+	 * stil account for it and return an error, since the data would be
+	 * corrupted.
+	 * DERR bit is self-clearing when ST2 register is read.
+	 */
 	if (*stat2 & 0x04)
 		status = ML_ERROR_COMPASS_DATA_ERROR;
+	/*
+	 * ST2 : overflow -
+	 * the sum of the absolute values of all axis |X|+|Y|+|Z| < 2400uT.
+	 * This is likely to happen in presence of an external magnetic
+	 * disturbance; it indicates, the sensor data is incorrect and should
+	 * be ignored.
+	 * An error is returned.
+	 * HOFL bit clears when a new measurement starts.
+	 */
 	if (*stat2 & 0x08)
 		status = ML_ERROR_COMPASS_DATA_OVERFLOW;
+	/*
+	 * ST : overrun -
+	 * the previous sample was not fetched and lost.
+	 * Valid in continuous measurement mode only.
+	 * In single measurement mode this error should not occour and we
+	 * don't consider this condition an error.
+	 * DOR bit is self-clearing when ST2 or any meas. data register is
+	 * read.
+	 */
 	if (*stat & 0x02) {
-		
+		/* status = ML_ERROR_COMPASS_DATA_UNDERFLOW; */
 		status = ML_SUCCESS;
 	}
 
+	/*
+	 * trigger next measurement if:
+	 *    - stat is non zero;
+	 *    - if stat is zero and stat2 is non zero.
+	 * Won't trigger if data is not ready and there was no error.
+	 */
 	if (*stat != 0x00 || *stat2 != 0x00) {
 		result =
 		    MLSLSerialWriteSingle(mlsl_handle, pdata->address,
@@ -181,20 +231,20 @@ static int ak8963_get_config(void *mlsl_handle,
 }
 
 struct ext_slave_descr ak8963_descr = {
-	 NULL,
-	 NULL,
-	 ak8963_suspend,
-	 ak8963_resume,
-	 ak8963_read,
-	 ak8963_config,
-	 ak8963_get_config,
-	 "ak8963",
-	 EXT_SLAVE_TYPE_COMPASS,
-	 COMPASS_ID_AKM8963,
-	 0x01,
-	 9,
-	 EXT_SLAVE_LITTLE_ENDIAN,
-	 {9830, 4000}
+	/*.init             = */ NULL,
+	/*.exit             = */ NULL,
+	/*.suspend          = */ ak8963_suspend,
+	/*.resume           = */ ak8963_resume,
+	/*.read             = */ ak8963_read,
+	/*.config           = */ ak8963_config,
+	/*.get_config       = */ ak8963_get_config,
+	/*.name             = */ "ak8963",
+	/*.type             = */ EXT_SLAVE_TYPE_COMPASS,
+	/*.id               = */ COMPASS_ID_AKM8963,
+	/*.reg              = */ 0x01,
+	/*.len              = */ 9,
+	/*.endian           = */ EXT_SLAVE_LITTLE_ENDIAN,
+	/*.range            = */ {9830, 4000}
 };
 
 struct ext_slave_descr *ak8963_get_slave_descr(void)
@@ -203,3 +253,6 @@ struct ext_slave_descr *ak8963_get_slave_descr(void)
 }
 EXPORT_SYMBOL(ak8963_get_slave_descr);
 
+/**
+ *  @}
+ */

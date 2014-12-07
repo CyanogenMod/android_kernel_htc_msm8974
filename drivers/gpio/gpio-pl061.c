@@ -48,7 +48,12 @@ struct pl061_context_save_regs {
 #endif
 
 struct pl061_gpio {
-	spinlock_t		lock;		
+	/* Each of the two spinlocks protects a different set of hardware
+	 * regiters and data structurs. This decouples the code of the IRQ from
+	 * the GPIO code. This also makes the case of a GPIO routine call from
+	 * the IRQ code simpler.
+	 */
+	spinlock_t		lock;		/* GPIO registers */
 
 	void __iomem		*base;
 	int			irq_base;
@@ -94,6 +99,10 @@ static int pl061_direction_output(struct gpio_chip *gc, unsigned offset,
 	gpiodir |= 1 << offset;
 	writeb(gpiodir, chip->base + GPIODIR);
 
+	/*
+	 * gpio value is set again, because pl061 doesn't allow to set value of
+	 * a gpio pin before configuring it in OUT mode.
+	 */
 	writeb(!!value << offset, chip->base + (1 << (offset + 2)));
 	spin_unlock_irqrestore(&chip->lock, flags);
 
@@ -257,13 +266,16 @@ static int pl061_probe(struct amba_device *dev, const struct amba_id *id)
 	if (ret)
 		goto iounmap;
 
+	/*
+	 * irq_chip support
+	 */
 
 	if (chip->irq_base <= 0)
 		return 0;
 
 	pl061_init_gc(chip, chip->irq_base);
 
-	writeb(0, chip->base + GPIOIE); 
+	writeb(0, chip->base + GPIOIE); /* disable irqs */
 	irq = dev->irq[0];
 	if (irq < 0) {
 		ret = -ENODEV;

@@ -21,6 +21,11 @@
 #include <linux/module.h>
 #include <asm/uaccess.h>
 
+/*
+ * do_IRQ handles all normal device IRQs (the special
+ * SMP cross-CPU interrupts have their own specific
+ * handlers).
+ */
 asmlinkage unsigned int do_IRQ(int irq, struct pt_regs *regs)
 {
 	struct pt_regs *old_regs;
@@ -28,7 +33,7 @@ asmlinkage unsigned int do_IRQ(int irq, struct pt_regs *regs)
 	irq_enter();
 
 #ifdef CONFIG_DEBUG_STACKOVERFLOW
-	
+	/* FIXME M32R */
 #endif
 	generic_handle_irq(irq);
 	irq_exit();

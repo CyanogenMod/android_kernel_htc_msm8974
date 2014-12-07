@@ -1,3 +1,8 @@
+/*
+ *	Access to VGA videoram
+ *
+ *	(c) 1998 Martin Mares <mj@ucw.cz>
+ */
 
 #ifndef _LINUX_ASM_VGA_H_
 #define _LINUX_ASM_VGA_H_
@@ -32,8 +37,12 @@ static inline void scr_memsetw(u16 *s, u16 c, unsigned int count)
 		memsetw(s, c, count);
 }
 
+/* Do not trust that the usage will be correct; analyze the arguments.  */
 extern void scr_memcpyw(u16 *d, const u16 *s, unsigned int count);
 
+/* ??? These are currently only used for downloading character sets.  As
+   such, they don't need memory barriers.  Is this all they are intended
+   to be used for?  */
 #define vga_readb(a)	readb((u8 __iomem *)(a))
 #define vga_writeb(v,a)	writeb(v, (u8 __iomem *)(a))
 
@@ -60,13 +69,13 @@ extern struct pci_controller *pci_vga_hose;
 		(a) += pci_vga_hose->mem_space->start; \
  } while(0)
 
-#else 
+#else /* CONFIG_VGA_HOSE */
 # define pci_vga_hose 0
 # define __is_port_vga(a) 0
 # define __is_mem_vga(a) 0
 # define FIXUP_IOADDR_VGA(a)
 # define FIXUP_MEMADDR_VGA(a)
-#endif 
+#endif /* CONFIG_VGA_HOSE */
 
 #define VGA_MAP_MEM(x,s)	((unsigned long) ioremap(x, s))
 

@@ -50,6 +50,7 @@ struct mdio_ops {
 	unsigned mode_support;
 };
 
+/* PHY interrupt types */
 enum {
 	cphy_cause_link_change = 0x1,
 	cphy_cause_error = 0x2,
@@ -64,6 +65,7 @@ enum {
 
 struct cphy;
 
+/* PHY operations */
 struct cphy_ops {
 	void (*destroy)(struct cphy *);
 	int (*reset)(struct cphy *, int wait);
@@ -86,9 +88,10 @@ struct cphy_ops {
 	u32 mmds;
 };
 
+/* A PHY instance */
 struct cphy {
-	int state;	
-	adapter_t *adapter;                  
+	int state;	/* Link status state machine */
+	adapter_t *adapter;                  /* associated adapter */
 
 	struct delayed_work phy_update;
 
@@ -99,11 +102,12 @@ struct cphy {
 
 	u32 elmer_gpo;
 
-	const struct cphy_ops *ops;            
+	const struct cphy_ops *ops;            /* PHY operations */
 	struct mdio_if_info mdio;
 	struct cphy_instance *instance;
 };
 
+/* Convenience MDIO read/write wrappers */
 static inline int cphy_mdio_read(struct cphy *cphy, int mmd, int reg,
 				 unsigned int *valp)
 {
@@ -132,6 +136,7 @@ static inline int simple_mdio_write(struct cphy *cphy, int reg,
 	return cphy_mdio_write(cphy, MDIO_DEVAD_NONE, reg, val);
 }
 
+/* Convenience initializer */
 static inline void cphy_init(struct cphy *phy, struct net_device *dev,
 			     int phy_addr, struct cphy_ops *phy_ops,
 			     const struct mdio_ops *mdio_ops)
@@ -149,11 +154,16 @@ static inline void cphy_init(struct cphy *phy, struct net_device *dev,
 	phy->mdio.dev = dev;
 }
 
+/* Operations of the PHY-instance factory */
 struct gphy {
-	
+	/* Construct a PHY instance with the given PHY address */
 	struct cphy *(*create)(struct net_device *dev, int phy_addr,
 			       const struct mdio_ops *mdio_ops);
 
+	/*
+	 * Reset the PHY chip.  This resets the whole PHY chip, not individual
+	 * ports.
+	 */
 	int (*reset)(adapter_t *adapter);
 };
 
@@ -162,4 +172,4 @@ extern const struct gphy t1_mv88e1xxx_ops;
 extern const struct gphy t1_vsc8244_ops;
 extern const struct gphy t1_mv88x201x_ops;
 
-#endif 
+#endif /* _CXGB_CPHY_H_ */

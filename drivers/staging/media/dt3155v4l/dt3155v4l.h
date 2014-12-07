@@ -18,6 +18,7 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+/*    DT3155 header file    */
 #ifndef _DT3155_H_
 #define _DT3155_H_
 
@@ -34,6 +35,7 @@
 			__stringify(DT3155_VER_MIN)	"."		\
 			__stringify(DT3155_VER_EXT)
 
+/* DT3155 Base Register offsets (memory mapped) */
 #define EVEN_DMA_START	 0x00
 #define ODD_DMA_START	 0x0C
 #define EVEN_DMA_STRIDE  0x18
@@ -53,6 +55,7 @@
 #define IIC_CSR1	 0x60
 #define IIC_CSR2	 0x64
 
+/*  DT3155 Internal Registers indexes (i2c/IIC mapped) */
 #define CSR2	     0x10
 #define EVEN_CSR     0x11
 #define ODD_CSR      0x12
@@ -69,10 +72,12 @@
 #define PM_LUT_ADDR  0x50
 #define PM_LUT_DATA  0x51
 
+/* AD command register values  */
 #define AD_CMD_REG   0x00
 #define AD_POS_REF   0x01
 #define AD_NEG_REF   0x02
 
+/* CSR1 bit masks */
 #define CRPT_DIS       0x00004000
 #define FLD_CRPT_ODD   0x00000200
 #define FLD_CRPT_EVEN  0x00000100
@@ -80,9 +85,15 @@
 #define SRST	       0x00000040
 #define FLD_DN_ODD     0x00000020
 #define FLD_DN_EVEN    0x00000010
+/*   These should not be used.
+ *   Use CAP_CONT_ODD/EVEN instead
+#define CAP_SNGL_ODD   0x00000008
+#define CAP_SNGL_EVEN  0x00000004
+*/
 #define CAP_CONT_ODD   0x00000002
 #define CAP_CONT_EVEN  0x00000001
 
+/*  INT_CSR bit masks */
 #define FLD_START_EN	 0x00000400
 #define FLD_END_ODD_EN	 0x00000200
 #define FLD_END_EVEN_EN  0x00000100
@@ -90,13 +101,16 @@
 #define FLD_END_ODD	 0x00000002
 #define FLD_END_EVEN	 0x00000001
 
+/* IIC_CSR1 bit masks */
 #define DIRECT_ABORT	 0x00000200
 
+/* IIC_CSR2 bit masks */
 #define NEW_CYCLE   0x01000000
 #define DIR_RD	    0x00010000
 #define IIC_READ    0x01010000
 #define IIC_WRITE   0x01000000
 
+/* CSR2 bit masks */
 #define DISP_PASS     0x40
 #define BUSY_ODD      0x20
 #define BUSY_EVEN     0x10
@@ -106,10 +120,12 @@
 #define CHROM_FILT    0x01
 #define VT_60HZ       0x00
 
+/* CSR_EVEN/ODD bit masks */
 #define CSR_ERROR	0x04
 #define CSR_SNGL	0x02
 #define CSR_DONE	0x01
 
+/* CONFIG bit masks */
 #define PM_LUT_PGM     0x80
 #define PM_LUT_SEL     0x40
 #define CLIP_EN        0x20
@@ -120,6 +136,7 @@
 #define ACQ_MODE_ODD   0x01
 #define ACQ_MODE_EVEN  0x00
 
+/* AD_CMD bit masks */
 #define VIDEO_CNL_1  0x00
 #define VIDEO_CNL_2  0x40
 #define VIDEO_CNL_3  0x80
@@ -133,6 +150,7 @@
 #define SYNC_LVL_3   0x08
 #define SYNC_LVL_4   0x0C
 
+/* DT3155 identificator */
 #define DT3155_ID   0x20
 
 #ifdef CONFIG_DT3155_CCIR
@@ -141,6 +159,14 @@
 #define DMA_STRIDE 640
 #endif
 
+/**
+ * struct dt3155_stats - statistics structure
+ *
+ * @free_bufs_empty:	no free image buffers
+ * @corrupted_fields:	corrupted fields
+ * @dma_map_failed:	dma mapping failed
+ * @start_before_end:	new started before old ended
+ */
 struct dt3155_stats {
 	int free_bufs_empty;
 	int corrupted_fields;
@@ -148,6 +174,24 @@ struct dt3155_stats {
 	int start_before_end;
 };
 
+/*    per board private data structure   */
+/**
+ * struct dt3155_priv - private data structure
+ *
+ * @vdev:		pointer to video_device structure
+ * @pdev:		pointer to pci_dev structure
+ * @q			pointer to vb2_queue structure
+ * @curr_buf:		pointer to curren buffer
+ * @mux:		mutex to protect the instance
+ * @dmaq		queue for dma buffers
+ * @lock		spinlock for dma queue
+ * @field_count		fields counter
+ * @stats:		statistics structure
+ * @users		open count
+ * @regs:		local copy of mmio base register
+ * @csr2:		local copy of csr2 register
+ * @config:		local copy of config register
+ */
 struct dt3155_priv {
 	struct video_device *vdev;
 	struct pci_dev *pdev;
@@ -163,6 +207,6 @@ struct dt3155_priv {
 	u8 csr2, config;
 };
 
-#endif 
+#endif /*  __KERNEL__  */
 
-#endif 
+#endif /*  _DT3155_H_  */

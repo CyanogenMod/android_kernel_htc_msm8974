@@ -1,7 +1,11 @@
+/*
+ * SH7760 DMABRG (USB/Audio) support
+ */
 
 #ifndef _DMABRG_H_
 #define _DMABRG_H_
 
+/* IRQ sources */
 #define DMABRGIRQ_USBDMA	0
 #define DMABRGIRQ_USBDMAERR	1
 #define DMABRGIRQ_A0TXF		2

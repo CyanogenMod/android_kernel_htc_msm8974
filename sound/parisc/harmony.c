@@ -58,8 +58,8 @@
 
 #include "harmony.h"
 
-static int index = SNDRV_DEFAULT_IDX1;	
-static char *id = SNDRV_DEFAULT_STR1;	
+static int index = SNDRV_DEFAULT_IDX1;	/* Index 0-MAX */
+static char *id = SNDRV_DEFAULT_STR1;	/* ID for this card */
 module_param(index, int, 0444);
 MODULE_PARM_DESC(index, "Index value for Harmony driver.");
 module_param(id, charp, 0444);
@@ -67,13 +67,13 @@ MODULE_PARM_DESC(id, "ID string for Harmony driver.");
 
 
 static struct parisc_device_id snd_harmony_devtable[] = {
-	
+	/* bushmaster / flounder */
 	{ HPHW_FIO, HVERSION_REV_ANY_ID, HVERSION_ANY_ID, 0x0007A }, 
-	
+	/* 712 / 715 */
 	{ HPHW_FIO, HVERSION_REV_ANY_ID, HVERSION_ANY_ID, 0x0007B }, 
-	
+	/* pace */
 	{ HPHW_FIO, HVERSION_REV_ANY_ID, HVERSION_ANY_ID, 0x0007E }, 
-	
+	/* outfield / coral II */
 	{ HPHW_FIO, HVERSION_REV_ANY_ID, HVERSION_ANY_ID, 0x0007F },
 	{ 0, }
 };
@@ -206,8 +206,8 @@ snd_harmony_interrupt(int irq, void *dev)
 	if (dstatus & HARMONY_DSTATUS_PN) {
 		if (h->psubs && h->st.playing) {
 			spin_lock(&h->lock);
-			h->pbuf.buf += h->pbuf.count; 
-			h->pbuf.buf %= h->pbuf.size; 
+			h->pbuf.buf += h->pbuf.count; /* PAGE_SIZE */
+			h->pbuf.buf %= h->pbuf.size; /* MAX_BUFS*PAGE_SIZE */
 
 			harmony_write(h, HARMONY_PNXTADD, 
 				      h->pbuf.addr + h->pbuf.buf);
@@ -646,7 +646,7 @@ snd_harmony_pcm_init(struct snd_harmony *h)
 	h->psubs = NULL;
 	h->csubs = NULL;
 	
-	
+	/* initialize graveyard buffer */
 	h->dma.type = SNDRV_DMA_TYPE_DEV;
 	h->dma.dev = &h->dev->dev;
 	err = snd_dma_alloc_pages(h->dma.type,
@@ -658,7 +658,7 @@ snd_harmony_pcm_init(struct snd_harmony *h)
 		return err;
 	}
 	
-	
+	/* initialize silence buffers */
 	err = snd_dma_alloc_pages(h->dma.type,
 				  h->dma.dev,
 				  BUF_SIZE*SILENCE_BUFS,
@@ -668,7 +668,7 @@ snd_harmony_pcm_init(struct snd_harmony *h)
 		return err;
 	}
 
-	
+	/* pre-allocate space for DMA */
 	err = snd_pcm_lib_preallocate_pages_for_all(pcm, h->dma.type,
 						    h->dma.dev,
 						    MAX_BUF_SIZE, 

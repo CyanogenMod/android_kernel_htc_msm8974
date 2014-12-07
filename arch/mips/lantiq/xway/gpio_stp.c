@@ -78,30 +78,33 @@ static struct gpio_chip ltq_stp_chip = {
 
 static int ltq_stp_hw_init(void)
 {
-	
+	/* the 3 pins used to control the external stp */
 	ltq_gpio_request(4, 1, 0, 1, "stp-st");
 	ltq_gpio_request(5, 1, 0, 1, "stp-d");
 	ltq_gpio_request(6, 1, 0, 1, "stp-sh");
 
-	
+	/* sane defaults */
 	ltq_stp_w32(0, LTQ_STP_AR);
 	ltq_stp_w32(0, LTQ_STP_CPU0);
 	ltq_stp_w32(0, LTQ_STP_CPU1);
 	ltq_stp_w32(LTQ_STP_CON_SWU, LTQ_STP_CON0);
 	ltq_stp_w32(0, LTQ_STP_CON1);
 
-	
+	/* rising or falling edge */
 	ltq_stp_w32_mask(LTQ_STP_EDGE_MASK, LTQ_STP_FALLING, LTQ_STP_CON0);
 
-	
+	/* per default stp 15-0 are set */
 	ltq_stp_w32_mask(0, LTQ_STP_GROUP0, LTQ_STP_CON1);
 
-	
+	/* stp are update periodically by the FPI bus */
 	ltq_stp_w32_mask(LTQ_STP_UPD_MASK, LTQ_STP_UPD_FPI, LTQ_STP_CON1);
 
-	
+	/* set stp update speed */
 	ltq_stp_w32_mask(LTQ_STP_SPEED_MASK, LTQ_STP_8HZ, LTQ_STP_CON1);
 
+	/* tell the hardware that pin (led) 0 and 1 are controlled
+	 *  by the dsl arc
+	 */
 	ltq_stp_w32_mask(0, LTQ_STP_ADSL_SRC, LTQ_STP_CON0);
 
 	ltq_pmu_enable(PMU_LED);

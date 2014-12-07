@@ -23,14 +23,32 @@
 #include <linux/audit.h>
 #include <linux/skbuff.h>
 
+/* 0 = no checking
+   1 = put_count checking
+   2 = verbose put_count checking
+*/
 #define AUDIT_DEBUG 0
 
+/* At task start time, the audit_state is set in the audit_context using
+   a per-task filter.  At syscall entry, the audit_state is augmented by
+   the syscall filter. */
 enum audit_state {
-	AUDIT_DISABLED,		
-	AUDIT_BUILD_CONTEXT,	
-	AUDIT_RECORD_CONTEXT	
+	AUDIT_DISABLED,		/* Do not create per-task audit_context.
+				 * No syscall-specific audit records can
+				 * be generated. */
+	AUDIT_BUILD_CONTEXT,	/* Create the per-task audit_context,
+				 * and fill it in at syscall
+				 * entry time.  This makes a full
+				 * syscall record available if some
+				 * other part of the kernel decides it
+				 * should be recorded. */
+	AUDIT_RECORD_CONTEXT	/* Create the per-task audit_context,
+				 * always fill it in at syscall entry
+				 * time, and always write out the audit
+				 * record at syscall exit time.  */
 };
 
+/* Rule lists */
 struct audit_watch;
 struct audit_tree;
 struct audit_chunk;
@@ -80,6 +98,7 @@ extern struct list_head audit_filter_list[];
 
 extern struct audit_entry *audit_dupe_rule(struct audit_krule *old);
 
+/* audit watch functions */
 #ifdef CONFIG_AUDIT_WATCH
 extern void audit_put_watch(struct audit_watch *watch);
 extern void audit_get_watch(struct audit_watch *watch);
@@ -97,7 +116,7 @@ extern int audit_watch_compare(struct audit_watch *watch, unsigned long ino, dev
 #define audit_watch_path(w) ""
 #define audit_watch_compare(w, i, d) 0
 
-#endif 
+#endif /* CONFIG_AUDIT_WATCH */
 
 #ifdef CONFIG_AUDIT_TREE
 extern struct audit_chunk *audit_tree_lookup(const struct inode *);
@@ -118,7 +137,7 @@ extern void audit_kill_trees(struct list_head *);
 #define audit_trim_trees() (void)0
 #define audit_put_tree(tree) (void)0
 #define audit_tag_tree(old, new) -EINVAL
-#define audit_tree_path(rule) ""	
+#define audit_tree_path(rule) ""	/* never called */
 #define audit_kill_trees(list) BUG()
 #endif
 

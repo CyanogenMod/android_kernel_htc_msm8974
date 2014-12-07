@@ -55,6 +55,15 @@ static DEFINE_SPINLOCK(wimax_id_table_lock);
 static struct list_head wimax_id_table = LIST_HEAD_INIT(wimax_id_table);
 
 
+/*
+ * wimax_id_table_add - add a gennetlink familiy ID / wimax_dev mapping
+ *
+ * @wimax_dev: WiMAX device descriptor to associate to the Generic
+ *     Netlink family ID.
+ *
+ * Look for an empty spot in the ID table; if none found, double the
+ * table's size and get the first spot.
+ */
 void wimax_id_table_add(struct wimax_dev *wimax_dev)
 {
 	d_fnstart(3, NULL, "(wimax_dev %p)\n", wimax_dev);
@@ -65,6 +74,16 @@ void wimax_id_table_add(struct wimax_dev *wimax_dev)
 }
 
 
+/*
+ * wimax_get_netdev_by_info - lookup a wimax_dev from the gennetlink info
+ *
+ * The generic netlink family ID has been filled out in the
+ * nlmsghdr->nlmsg_type field, so we pull it from there, look it up in
+ * the mapping table and reference the wimax_dev.
+ *
+ * When done, the reference should be dropped with
+ * 'dev_put(wimax_dev->net_dev)'.
+ */
 struct wimax_dev *wimax_dev_get_by_genl_info(
 	struct genl_info *info, int ifindex)
 {
@@ -89,6 +108,11 @@ found:
 }
 
 
+/*
+ * wimax_id_table_rm - Remove a gennetlink familiy ID / wimax_dev mapping
+ *
+ * @id: family ID to remove from the table
+ */
 void wimax_id_table_rm(struct wimax_dev *wimax_dev)
 {
 	spin_lock(&wimax_id_table_lock);
@@ -97,6 +121,13 @@ void wimax_id_table_rm(struct wimax_dev *wimax_dev)
 }
 
 
+/*
+ * Release the gennetlink family id / mapping table
+ *
+ * On debug, verify that the table is empty upon removal. We want the
+ * code always compiled, to ensure it doesn't bit rot. It will be
+ * compiled out if CONFIG_BUG is disabled.
+ */
 void wimax_id_table_release(void)
 {
 	struct wimax_dev *wimax_dev;

@@ -22,18 +22,37 @@
 #include "io.h"
 #include "workarounds.h"
 
+/**************************************************************************
+ *
+ * Configurable values
+ *
+ **************************************************************************
+ */
 
+/* This is set to 16 for a good reason.  In summary, if larger than
+ * 16, the descriptor cache holds more than a default socket
+ * buffer's worth of packets (for UDP we can only have at most one
+ * socket buffer's worth outstanding).  This combined with the fact
+ * that we only get 1 TX event per descriptor cache means the NIC
+ * goes idle.
+ */
 #define TX_DC_ENTRIES 16
 #define TX_DC_ENTRIES_ORDER 1
 
 #define RX_DC_ENTRIES 64
 #define RX_DC_ENTRIES_ORDER 3
 
+/* If EFX_MAX_INT_ERRORS internal errors occur within
+ * EFX_INT_ERROR_EXPIRE seconds, we consider the NIC broken and
+ * disable it.
+ */
 #define EFX_INT_ERROR_EXPIRE 3600
 #define EFX_MAX_INT_ERRORS 5
 
+/* Depth of RX flush request fifo */
 #define EFX_RX_FLUSH_COUNT 4
 
+/* Driver generated events */
 #define _EFX_CHANNEL_MAGIC_TEST		0x000101
 #define _EFX_CHANNEL_MAGIC_FILL		0x000102
 #define _EFX_CHANNEL_MAGIC_RX_DRAIN	0x000103
@@ -54,6 +73,11 @@
 	_EFX_CHANNEL_MAGIC(_EFX_CHANNEL_MAGIC_TX_DRAIN,			\
 			   (_tx_queue)->queue)
 
+/**************************************************************************
+ *
+ * Solarstorm hardware access
+ *
+ **************************************************************************/
 
 static inline void efx_write_buf_tbl(struct efx_nic *efx, efx_qword_t *value,
 				     unsigned int index)
@@ -62,6 +86,7 @@ static inline void efx_write_buf_tbl(struct efx_nic *efx, efx_qword_t *value,
 			value, index);
 }
 
+/* Read the current event from the event queue */
 static inline efx_qword_t *efx_event(struct efx_channel *channel,
 				     unsigned int index)
 {
@@ -69,6 +94,16 @@ static inline efx_qword_t *efx_event(struct efx_channel *channel,
 		(index & channel->eventq_mask);
 }
 
+/* See if an event is present
+ *
+ * We check both the high and low dword of the event for all ones.  We
+ * wrote all ones when we cleared the event, and no valid event can
+ * have all ones in either its high or low dwords.  This approach is
+ * robust against reordering.
+ *
+ * Note that using a single 64-bit comparison is incorrect; even
+ * though the CPU read will be atomic, the DMA write may not be.
+ */
 static inline int efx_event_present(efx_qword_t *event)
 {
 	return !(EFX_DWORD_IS_ALL_ONES(event->dword[0]) |
@@ -89,7 +124,7 @@ int efx_nic_test_registers(struct efx_nic *efx,
 	unsigned address = 0, i, j;
 	efx_oword_t mask, imask, original, reg, buf;
 
-	
+	/* Falcon should be in loopback to isolate the XMAC from the PHY */
 	WARN_ON(!LOOPBACK_INTERNAL(efx));
 
 	for (i = 0; i < n_regs; ++i) {
@@ -99,12 +134,12 @@ int efx_nic_test_registers(struct efx_nic *efx,
 
 		efx_reado(efx, &original, address);
 
-		
+		/* bit sweep on and off */
 		for (j = 0; j < 128; j++) {
 			if (!EFX_EXTRACT_OWORD32(mask, j, j))
 				continue;
 
-			
+			/* Test this testable bit can be set in isolation */
 			EFX_AND_OWORD(reg, original, mask);
 			EFX_SET_OWORD32(reg, j, j, 1);
 
@@ -114,7 +149,7 @@ int efx_nic_test_registers(struct efx_nic *efx,
 			if (efx_masked_compare_oword(&reg, &buf, &mask))
 				goto fail;
 
-			
+			/* Test this testable bit can be cleared in isolation */
 			EFX_OR_OWORD(reg, original, mask);
 			EFX_SET_OWORD32(reg, j, j, 0);
 
@@ -138,7 +173,21 @@ fail:
 	return -EIO;
 }
 
+/**************************************************************************
+ *
+ * Special buffer handling
+ * Special buffers are used for event queues and the TX and RX
+ * descriptor rings.
+ *
+ *************************************************************************/
 
+/*
+ * Initialise a special buffer
+ *
+ * This will define a buffer (previously allocated via
+ * efx_alloc_special_buffer()) in the buffer table, allowing
+ * it to be used for event queues, descriptor rings etc.
+ */
 static void
 efx_init_special_buffer(struct efx_nic *efx, struct efx_special_buffer *buffer)
 {
@@ -149,7 +198,7 @@ efx_init_special_buffer(struct efx_nic *efx, struct efx_special_buffer *buffer)
 
 	EFX_BUG_ON_PARANOID(!buffer->addr);
 
-	
+	/* Write buffer descriptors to NIC */
 	for (i = 0; i < buffer->entries; i++) {
 		index = buffer->index + i;
 		dma_addr = buffer->dma_addr + (i * EFX_BUF_SIZE);
@@ -164,6 +213,7 @@ efx_init_special_buffer(struct efx_nic *efx, struct efx_special_buffer *buffer)
 	}
 }
 
+/* Unmaps a buffer and clears the buffer table entries */
 static void
 efx_fini_special_buffer(struct efx_nic *efx, struct efx_special_buffer *buffer)
 {
@@ -185,6 +235,15 @@ efx_fini_special_buffer(struct efx_nic *efx, struct efx_special_buffer *buffer)
 	efx_writeo(efx, &buf_tbl_upd, FR_AZ_BUF_TBL_UPD);
 }
 
+/*
+ * Allocate a new special buffer
+ *
+ * This allocates memory for a new buffer, clears it and allocates a
+ * new buffer ID range.  It does not write into the buffer table.
+ *
+ * This call will allocate 4KB buffers, since 8KB buffers can't be
+ * used for event queues and descriptor rings.
+ */
 static int efx_alloc_special_buffer(struct efx_nic *efx,
 				    struct efx_special_buffer *buffer,
 				    unsigned int len)
@@ -199,10 +258,10 @@ static int efx_alloc_special_buffer(struct efx_nic *efx,
 	buffer->entries = len / EFX_BUF_SIZE;
 	BUG_ON(buffer->dma_addr & (EFX_BUF_SIZE - 1));
 
-	
+	/* All zeros is a potentially valid event so memset to 0xff */
 	memset(buffer->addr, 0xff, len);
 
-	
+	/* Select new buffer ID */
 	buffer->index = efx->next_buffer_table;
 	efx->next_buffer_table += buffer->entries;
 #ifdef CONFIG_SFC_SRIOV
@@ -239,6 +298,12 @@ efx_free_special_buffer(struct efx_nic *efx, struct efx_special_buffer *buffer)
 	buffer->entries = 0;
 }
 
+/**************************************************************************
+ *
+ * Generic buffer handling
+ * These buffers are used for interrupt status and MAC stats
+ *
+ **************************************************************************/
 
 int efx_nic_alloc_buffer(struct efx_nic *efx, struct efx_buffer *buffer,
 			 unsigned int len)
@@ -261,13 +326,22 @@ void efx_nic_free_buffer(struct efx_nic *efx, struct efx_buffer *buffer)
 	}
 }
 
+/**************************************************************************
+ *
+ * TX path
+ *
+ **************************************************************************/
 
+/* Returns a pointer to the specified transmit descriptor in the TX
+ * descriptor queue belonging to the specified channel.
+ */
 static inline efx_qword_t *
 efx_tx_desc(struct efx_tx_queue *tx_queue, unsigned int index)
 {
 	return ((efx_qword_t *) (tx_queue->txd.addr)) + index;
 }
 
+/* This writes to the TX_DESC_WPTR; write pointer for TX descriptor ring */
 static inline void efx_notify_tx_desc(struct efx_tx_queue *tx_queue)
 {
 	unsigned write_ptr;
@@ -279,6 +353,7 @@ static inline void efx_notify_tx_desc(struct efx_tx_queue *tx_queue)
 			FR_AZ_TX_DESC_UPD_DWORD_P0, tx_queue->queue);
 }
 
+/* Write pointer and first descriptor for TX descriptor ring */
 static inline void efx_push_tx_desc(struct efx_tx_queue *tx_queue,
 				    const efx_qword_t *txd)
 {
@@ -308,6 +383,10 @@ efx_may_push_tx_desc(struct efx_tx_queue *tx_queue, unsigned int write_count)
 	return ((empty_read_count ^ write_count) & ~EFX_EMPTY_COUNT_VALID) == 0;
 }
 
+/* For each entry inserted into the software descriptor ring, create a
+ * descriptor in the hardware TX descriptor ring (in host memory), and
+ * write a doorbell.
+ */
 void efx_nic_push_buffers(struct efx_tx_queue *tx_queue)
 {
 
@@ -324,7 +403,7 @@ void efx_nic_push_buffers(struct efx_tx_queue *tx_queue)
 		txd = efx_tx_desc(tx_queue, write_ptr);
 		++tx_queue->write_count;
 
-		
+		/* Create TX descriptor ring entry */
 		EFX_POPULATE_QWORD_4(*txd,
 				     FSF_AZ_TX_KER_CONT, buffer->continuation,
 				     FSF_AZ_TX_KER_BYTE_COUNT, buffer->len,
@@ -344,6 +423,7 @@ void efx_nic_push_buffers(struct efx_tx_queue *tx_queue)
 	}
 }
 
+/* Allocate hardware resources for a TX queue */
 int efx_nic_probe_tx(struct efx_tx_queue *tx_queue)
 {
 	struct efx_nic *efx = tx_queue->efx;
@@ -359,10 +439,10 @@ void efx_nic_init_tx(struct efx_tx_queue *tx_queue)
 	struct efx_nic *efx = tx_queue->efx;
 	efx_oword_t reg;
 
-	
+	/* Pin TX descriptor ring */
 	efx_init_special_buffer(efx, &tx_queue->txd);
 
-	
+	/* Push TX descriptor ring to card */
 	EFX_POPULATE_OWORD_10(reg,
 			      FRF_AZ_TX_DESCQ_EN, 1,
 			      FRF_AZ_TX_ISCSI_DDIG_EN, 0,
@@ -388,7 +468,7 @@ void efx_nic_init_tx(struct efx_tx_queue *tx_queue)
 			 tx_queue->queue);
 
 	if (efx_nic_rev(efx) < EFX_REV_FALCON_B0) {
-		
+		/* Only 128 bits in this register */
 		BUILD_BUG_ON(EFX_MAX_TX_QUEUES > 128);
 
 		efx_reado(efx, &reg, FR_AA_TX_CHKSM_CFG);
@@ -426,27 +506,35 @@ void efx_nic_fini_tx(struct efx_tx_queue *tx_queue)
 	struct efx_nic *efx = tx_queue->efx;
 	efx_oword_t tx_desc_ptr;
 
-	
+	/* Remove TX descriptor ring from card */
 	EFX_ZERO_OWORD(tx_desc_ptr);
 	efx_writeo_table(efx, &tx_desc_ptr, efx->type->txd_ptr_tbl_base,
 			 tx_queue->queue);
 
-	
+	/* Unpin TX descriptor ring */
 	efx_fini_special_buffer(efx, &tx_queue->txd);
 }
 
+/* Free buffers backing TX queue */
 void efx_nic_remove_tx(struct efx_tx_queue *tx_queue)
 {
 	efx_free_special_buffer(tx_queue->efx, &tx_queue->txd);
 }
 
+/**************************************************************************
+ *
+ * RX path
+ *
+ **************************************************************************/
 
+/* Returns a pointer to the specified descriptor in the RX descriptor queue */
 static inline efx_qword_t *
 efx_rx_desc(struct efx_rx_queue *rx_queue, unsigned int index)
 {
 	return ((efx_qword_t *) (rx_queue->rxd.addr)) + index;
 }
 
+/* This creates an entry in the RX descriptor queue */
 static inline void
 efx_build_rx_desc(struct efx_rx_queue *rx_queue, unsigned index)
 {
@@ -463,6 +551,9 @@ efx_build_rx_desc(struct efx_rx_queue *rx_queue, unsigned index)
 			     FSF_AZ_RX_KER_BUF_ADDR, rx_buf->dma_addr);
 }
 
+/* This writes to the RX_DESC_WPTR register for the specified receive
+ * descriptor ring.
+ */
 void efx_nic_notify_rx_desc(struct efx_rx_queue *rx_queue)
 {
 	struct efx_nic *efx = rx_queue->efx;
@@ -505,10 +596,10 @@ void efx_nic_init_rx(struct efx_rx_queue *rx_queue)
 		  efx_rx_queue_index(rx_queue), rx_queue->rxd.index,
 		  rx_queue->rxd.index + rx_queue->rxd.entries - 1);
 
-	
+	/* Pin RX descriptor ring */
 	efx_init_special_buffer(efx, &rx_queue->rxd);
 
-	
+	/* Push RX descriptor ring to card */
 	EFX_POPULATE_OWORD_10(rx_desc_ptr,
 			      FRF_AZ_RX_ISCSI_DDIG_EN, iscsi_digest_en,
 			      FRF_AZ_RX_ISCSI_HDIG_EN, iscsi_digest_en,
@@ -520,8 +611,8 @@ void efx_nic_init_rx(struct efx_rx_queue *rx_queue)
 			      efx_rx_queue_index(rx_queue),
 			      FRF_AZ_RX_DESCQ_SIZE,
 			      __ffs(rx_queue->rxd.entries),
-			      FRF_AZ_RX_DESCQ_TYPE, 0  ,
-			      
+			      FRF_AZ_RX_DESCQ_TYPE, 0 /* kernel queue */ ,
+			      /* For >=B0 this is scatter so disable */
 			      FRF_AZ_RX_DESCQ_JUMBO, !is_b0,
 			      FRF_AZ_RX_DESCQ_EN, 1);
 	efx_writeo_table(efx, &rx_desc_ptr, efx->type->rxd_ptr_tbl_base,
@@ -545,24 +636,33 @@ void efx_nic_fini_rx(struct efx_rx_queue *rx_queue)
 	efx_oword_t rx_desc_ptr;
 	struct efx_nic *efx = rx_queue->efx;
 
-	
+	/* Remove RX descriptor ring from card */
 	EFX_ZERO_OWORD(rx_desc_ptr);
 	efx_writeo_table(efx, &rx_desc_ptr, efx->type->rxd_ptr_tbl_base,
 			 efx_rx_queue_index(rx_queue));
 
-	
+	/* Unpin RX descriptor ring */
 	efx_fini_special_buffer(efx, &rx_queue->rxd);
 }
 
+/* Free buffers backing RX queue */
 void efx_nic_remove_rx(struct efx_rx_queue *rx_queue)
 {
 	efx_free_special_buffer(rx_queue->efx, &rx_queue->rxd);
 }
 
+/**************************************************************************
+ *
+ * Flush handling
+ *
+ **************************************************************************/
 
+/* efx_nic_flush_queues() must be woken up when all flushes are completed,
+ * or more RX flushes can be kicked off.
+ */
 static bool efx_flush_wake(struct efx_nic *efx)
 {
-	
+	/* Ensure that all updates are visible to efx_nic_flush_queues() */
 	smp_mb();
 
 	return (atomic_read(&efx->drain_pending) == 0 ||
@@ -570,9 +670,12 @@ static bool efx_flush_wake(struct efx_nic *efx)
 		 && atomic_read(&efx->rxq_flush_pending) > 0));
 }
 
+/* Flush all the transmit queues, and continue flushing receive queues until
+ * they're all flushed. Wait for the DRAIN events to be recieved so that there
+ * are no more RX and TX events left on any channel. */
 int efx_nic_flush_queues(struct efx_nic *efx)
 {
-	unsigned timeout = msecs_to_jiffies(5000); 
+	unsigned timeout = msecs_to_jiffies(5000); /* 5s for all flushes and drains */
 	struct efx_channel *channel;
 	struct efx_rx_queue *rx_queue;
 	struct efx_tx_queue *tx_queue;
@@ -594,12 +697,20 @@ int efx_nic_flush_queues(struct efx_nic *efx)
 	}
 
 	while (timeout && atomic_read(&efx->drain_pending) > 0) {
+		/* If SRIOV is enabled, then offload receive queue flushing to
+		 * the firmware (though we will still have to poll for
+		 * completion). If that fails, fall back to the old scheme.
+		 */
 		if (efx_sriov_enabled(efx)) {
 			rc = efx_mcdi_flush_rxqs(efx);
 			if (!rc)
 				goto wait;
 		}
 
+		/* The hardware supports four concurrent rx flushes, each of
+		 * which may need to be retried if there is an outstanding
+		 * descriptor fetch
+		 */
 		efx_for_each_channel(channel, efx) {
 			efx_for_each_channel_rx_queue(rx_queue, channel) {
 				if (atomic_read(&efx->rxq_flush_outstanding) >=
@@ -637,7 +748,18 @@ int efx_nic_flush_queues(struct efx_nic *efx)
 	return rc;
 }
 
+/**************************************************************************
+ *
+ * Event queue processing
+ * Event queues are processed by per-channel tasklets.
+ *
+ **************************************************************************/
 
+/* Update a channel's event queue's read pointer (RPTR) register
+ *
+ * This writes the EVQ_RPTR_REG register for the specified channel's
+ * event queue.
+ */
 void efx_nic_eventq_read_ack(struct efx_channel *channel)
 {
 	efx_dword_t reg;
@@ -649,6 +771,7 @@ void efx_nic_eventq_read_ack(struct efx_channel *channel)
 			 channel->channel);
 }
 
+/* Use HW to insert a SW defined event */
 void efx_generate_event(struct efx_nic *efx, unsigned int evq,
 			efx_qword_t *event)
 {
@@ -674,6 +797,11 @@ static void efx_magic_event(struct efx_channel *channel, u32 magic)
 	efx_generate_event(channel->efx, channel->channel, &event);
 }
 
+/* Handle a transmit completion event
+ *
+ * The NIC batches TX completion events; the message we receive is of
+ * the form "complete all TX events up to this index".
+ */
 static int
 efx_handle_tx_event(struct efx_channel *channel, efx_qword_t *event)
 {
@@ -687,7 +815,7 @@ efx_handle_tx_event(struct efx_channel *channel, efx_qword_t *event)
 		return 0;
 
 	if (likely(EFX_QWORD_FIELD(*event, FSF_AZ_TX_EV_COMP))) {
-		
+		/* Transmit completion */
 		tx_ev_desc_ptr = EFX_QWORD_FIELD(*event, FSF_AZ_TX_EV_DESC_PTR);
 		tx_ev_q_label = EFX_QWORD_FIELD(*event, FSF_AZ_TX_EV_Q_LABEL);
 		tx_queue = efx_channel_get_tx_queue(
@@ -696,7 +824,7 @@ efx_handle_tx_event(struct efx_channel *channel, efx_qword_t *event)
 			      tx_queue->ptr_mask);
 		efx_xmit_done(tx_queue, tx_ev_desc_ptr);
 	} else if (EFX_QWORD_FIELD(*event, FSF_AZ_TX_EV_WQ_FF_FULL)) {
-		
+		/* Rewrite the FIFO write pointer */
 		tx_ev_q_label = EFX_QWORD_FIELD(*event, FSF_AZ_TX_EV_Q_LABEL);
 		tx_queue = efx_channel_get_tx_queue(
 			channel, tx_ev_q_label % EFX_TXQ_TYPES);
@@ -717,6 +845,7 @@ efx_handle_tx_event(struct efx_channel *channel, efx_qword_t *event)
 	return tx_packets;
 }
 
+/* Detect errors included in the rx_evt_pkt_ok bit. */
 static u16 efx_handle_rx_not_ok(struct efx_rx_queue *rx_queue,
 				const efx_qword_t *event)
 {
@@ -745,11 +874,13 @@ static u16 efx_handle_rx_not_ok(struct efx_rx_queue *rx_queue,
 			  0 : EFX_QWORD_FIELD(*event, FSF_AA_RX_EV_DRIB_NIB));
 	rx_ev_pause_frm = EFX_QWORD_FIELD(*event, FSF_AZ_RX_EV_PAUSE_FRM_ERR);
 
-	
+	/* Every error apart from tobe_disc and pause_frm */
 	rx_ev_other_err = (rx_ev_drib_nib | rx_ev_tcp_udp_chksum_err |
 			   rx_ev_buf_owner_id_err | rx_ev_eth_crc_err |
 			   rx_ev_frm_trunc | rx_ev_ip_hdr_chksum_err);
 
+	/* Count errors that are not in MAC stats.  Ignore expected
+	 * checksum errors during self-test. */
 	if (rx_ev_frm_trunc)
 		++channel->n_rx_frm_trunc;
 	else if (rx_ev_tobe_disc)
@@ -761,6 +892,10 @@ static u16 efx_handle_rx_not_ok(struct efx_rx_queue *rx_queue,
 			++channel->n_rx_tcp_udp_chksum_err;
 	}
 
+	/* TOBE_DISC is expected on unicast mismatches; don't print out an
+	 * error message.  FRM_TRUNC indicates RXDP dropped the packet due
+	 * to a FIFO overflow.
+	 */
 #ifdef DEBUG
 	if (rx_ev_other_err && net_ratelimit()) {
 		netif_dbg(efx, rx_err, efx->net_dev,
@@ -780,12 +915,13 @@ static u16 efx_handle_rx_not_ok(struct efx_rx_queue *rx_queue,
 	}
 #endif
 
-	
+	/* The frame must be discarded if any of these are true. */
 	return (rx_ev_eth_crc_err | rx_ev_frm_trunc | rx_ev_drib_nib |
 		rx_ev_tobe_disc | rx_ev_pause_frm) ?
 		EFX_RX_PKT_DISCARD : 0;
 }
 
+/* Handle receive events that are not in-order. */
 static void
 efx_handle_rx_bad_index(struct efx_rx_queue *rx_queue, unsigned index)
 {
@@ -802,6 +938,13 @@ efx_handle_rx_bad_index(struct efx_rx_queue *rx_queue, unsigned index)
 			   RESET_TYPE_RX_RECOVERY : RESET_TYPE_DISABLE);
 }
 
+/* Handle a packet received event
+ *
+ * The NIC gives a "discard" flag if it's a unicast packet with the
+ * wrong destination address
+ * Also "is multicast" and "matches multicast filter" flags can be used to
+ * discard non-matching multicast packets.
+ */
 static void
 efx_handle_rx_event(struct efx_channel *channel, const efx_qword_t *event)
 {
@@ -816,7 +959,7 @@ efx_handle_rx_event(struct efx_channel *channel, const efx_qword_t *event)
 	if (unlikely(ACCESS_ONCE(efx->reset_pending)))
 		return;
 
-	
+	/* Basic packet information */
 	rx_ev_byte_cnt = EFX_QWORD_FIELD(*event, FSF_AZ_RX_EV_BYTE_CNT);
 	rx_ev_pkt_ok = EFX_QWORD_FIELD(*event, FSF_AZ_RX_EV_PKT_OK);
 	rx_ev_hdr_type = EFX_QWORD_FIELD(*event, FSF_AZ_RX_EV_HDR_TYPE);
@@ -833,6 +976,9 @@ efx_handle_rx_event(struct efx_channel *channel, const efx_qword_t *event)
 		efx_handle_rx_bad_index(rx_queue, rx_ev_desc_ptr);
 
 	if (likely(rx_ev_pkt_ok)) {
+		/* If packet is marked as OK and packet type is TCP/IP or
+		 * UDP/IP, then we can rely on the hardware checksum.
+		 */
 		flags = (rx_ev_hdr_type == FSE_CZ_RX_EV_HDR_TYPE_IPV4V6_TCP ||
 			 rx_ev_hdr_type == FSE_CZ_RX_EV_HDR_TYPE_IPV4V6_UDP) ?
 			EFX_RX_PKT_CSUMMED : 0;
@@ -840,7 +986,7 @@ efx_handle_rx_event(struct efx_channel *channel, const efx_qword_t *event)
 		flags = efx_handle_rx_not_ok(rx_queue, event);
 	}
 
-	
+	/* Detect multicast packets that didn't match the filter */
 	rx_ev_mcast_pkt = EFX_QWORD_FIELD(*event, FSF_AZ_RX_EV_MCAST_PKT);
 	if (rx_ev_mcast_pkt) {
 		unsigned int rx_ev_mcast_hash_match =
@@ -854,10 +1000,14 @@ efx_handle_rx_event(struct efx_channel *channel, const efx_qword_t *event)
 
 	channel->irq_mod_score += 2;
 
-	
+	/* Handle received packet */
 	efx_rx_packet(rx_queue, rx_ev_desc_ptr, rx_ev_byte_cnt, flags);
 }
 
+/* If this flush done event corresponds to a &struct efx_tx_queue, then
+ * send an %EFX_CHANNEL_MAGIC_TX_DRAIN event to drain the event queue
+ * of all transmit completions.
+ */
 static void
 efx_handle_tx_flush_done(struct efx_nic *efx, efx_qword_t *event)
 {
@@ -874,6 +1024,10 @@ efx_handle_tx_flush_done(struct efx_nic *efx, efx_qword_t *event)
 	}
 }
 
+/* If this flush done event corresponds to a &struct efx_rx_queue: If the flush
+ * was succesful then send an %EFX_CHANNEL_MAGIC_RX_DRAIN, otherwise add
+ * the RX queue back to the mask of RX queues in need of flushing.
+ */
 static void
 efx_handle_rx_flush_done(struct efx_nic *efx, efx_qword_t *event)
 {
@@ -931,6 +1085,9 @@ efx_handle_generated_event(struct efx_channel *channel, efx_qword_t *event)
 	if (magic == EFX_CHANNEL_MAGIC_TEST(channel)) {
 		channel->event_test_cpu = raw_smp_processor_id();
 	} else if (rx_queue && magic == EFX_CHANNEL_MAGIC_FILL(rx_queue)) {
+		/* The queue must be empty, so we won't receive any rx
+		 * events, so efx_process_channel() won't refill the
+		 * queue. Refill it here */
 		efx_fast_push_rx_descriptors(rx_queue);
 	} else if (rx_queue && magic == EFX_CHANNEL_MAGIC_RX_DRAIN(rx_queue)) {
 		rx_queue->enabled = false;
@@ -1041,14 +1198,14 @@ int efx_nic_process_eventq(struct efx_channel *channel, int budget)
 		event = *p_event;
 
 		if (!efx_event_present(&event))
-			
+			/* End of events */
 			break;
 
 		netif_vdbg(channel->efx, intr, channel->efx->net_dev,
 			   "channel %d event is "EFX_QWORD_FMT"\n",
 			   channel->channel, EFX_QWORD_VAL(event));
 
-		
+		/* Clear this event by marking it all ones */
 		EFX_SET_QWORD(*p_event);
 
 		++read_ptr;
@@ -1084,7 +1241,7 @@ int efx_nic_process_eventq(struct efx_channel *channel, int budget)
 			if (efx->type->handle_global_event &&
 			    efx->type->handle_global_event(channel, &event))
 				break;
-			
+			/* else fall through */
 		default:
 			netif_err(channel->efx, hw, channel->efx->net_dev,
 				  "channel %d unknown event type %d (data "
@@ -1098,11 +1255,15 @@ out:
 	return spent;
 }
 
+/* Check whether an event is present in the eventq at the current
+ * read pointer.  Only useful for self-test.
+ */
 bool efx_nic_event_present(struct efx_channel *channel)
 {
 	return efx_event_present(efx_event(channel, channel->eventq_read_ptr));
 }
 
+/* Allocate buffer table entries for event queue */
 int efx_nic_probe_eventq(struct efx_channel *channel)
 {
 	struct efx_nic *efx = channel->efx;
@@ -1131,13 +1292,13 @@ void efx_nic_init_eventq(struct efx_channel *channel)
 		efx_writeo_table(efx, &reg, FR_BZ_TIMER_TBL, channel->channel);
 	}
 
-	
+	/* Pin event queue buffer */
 	efx_init_special_buffer(efx, &channel->eventq);
 
-	
+	/* Fill event queue with all ones (i.e. empty events) */
 	memset(channel->eventq.addr, 0xff, channel->eventq.len);
 
-	
+	/* Push event queue to card */
 	EFX_POPULATE_OWORD_3(reg,
 			     FRF_AZ_EVQ_EN, 1,
 			     FRF_AZ_EVQ_SIZE, __ffs(channel->eventq.entries),
@@ -1153,17 +1314,18 @@ void efx_nic_fini_eventq(struct efx_channel *channel)
 	efx_oword_t reg;
 	struct efx_nic *efx = channel->efx;
 
-	
+	/* Remove event queue from card */
 	EFX_ZERO_OWORD(reg);
 	efx_writeo_table(efx, &reg, efx->type->evq_ptr_tbl_base,
 			 channel->channel);
 	if (efx_nic_rev(efx) >= EFX_REV_SIENA_A0)
 		efx_writeo_table(efx, &reg, FR_BZ_TIMER_TBL, channel->channel);
 
-	
+	/* Unpin event queue */
 	efx_fini_special_buffer(efx, &channel->eventq);
 }
 
+/* Free buffers backing event queue */
 void efx_nic_remove_eventq(struct efx_channel *channel)
 {
 	efx_free_special_buffer(channel->efx, &channel->eventq);
@@ -1183,7 +1345,15 @@ void efx_nic_generate_fill_event(struct efx_rx_queue *rx_queue)
 			EFX_CHANNEL_MAGIC_FILL(rx_queue));
 }
 
+/**************************************************************************
+ *
+ * Hardware interrupts
+ * The hardware interrupt handler does very little work; all the event
+ * queue processing is carried out by per-channel tasklets.
+ *
+ **************************************************************************/
 
+/* Enable/disable/generate interrupts */
 static inline void efx_nic_interrupts(struct efx_nic *efx,
 				      bool enabled, bool force)
 {
@@ -1199,17 +1369,21 @@ static inline void efx_nic_interrupts(struct efx_nic *efx,
 void efx_nic_enable_interrupts(struct efx_nic *efx)
 {
 	EFX_ZERO_OWORD(*((efx_oword_t *) efx->irq_status.addr));
-	wmb(); 
+	wmb(); /* Ensure interrupt vector is clear before interrupts enabled */
 
 	efx_nic_interrupts(efx, true, false);
 }
 
 void efx_nic_disable_interrupts(struct efx_nic *efx)
 {
-	
+	/* Disable interrupts */
 	efx_nic_interrupts(efx, false, false);
 }
 
+/* Generate a test interrupt
+ * Interrupt must already have been enabled, otherwise nasty things
+ * may happen.
+ */
 void efx_nic_irq_test_start(struct efx_nic *efx)
 {
 	efx->last_irq_cpu = -1;
@@ -1217,6 +1391,9 @@ void efx_nic_irq_test_start(struct efx_nic *efx)
 	efx_nic_interrupts(efx, true, true);
 }
 
+/* Process a fatal interrupt
+ * Disable bus mastering ASAP and schedule a reset
+ */
 irqreturn_t efx_nic_fatal_interrupt(struct efx_nic *efx)
 {
 	struct falcon_nic_data *nic_data = efx->nic_data;
@@ -1232,7 +1409,7 @@ irqreturn_t efx_nic_fatal_interrupt(struct efx_nic *efx)
 		  EFX_OWORD_VAL(fatal_intr),
 		  error ? "disabling bus mastering" : "no recognised error");
 
-	
+	/* If this is a memory parity error dump which blocks are offending */
 	mem_perr = (EFX_OWORD_FIELD(fatal_intr, FRF_AZ_MEM_PERR_INT_KER) ||
 		    EFX_OWORD_FIELD(fatal_intr, FRF_AZ_SRM_PERR_INT_KER));
 	if (mem_perr) {
@@ -1243,13 +1420,13 @@ irqreturn_t efx_nic_fatal_interrupt(struct efx_nic *efx)
 			  EFX_OWORD_VAL(reg));
 	}
 
-	
+	/* Disable both devices */
 	pci_clear_master(efx->pci_dev);
 	if (efx_nic_is_dual_func(efx))
 		pci_clear_master(nic_data->pci_dev2);
 	efx_nic_disable_interrupts(efx);
 
-	
+	/* Count errors and reset or disable the NIC accordingly */
 	if (efx->int_error_count == 0 ||
 	    time_after(jiffies, efx->int_error_expire)) {
 		efx->int_error_count = 0;
@@ -1270,6 +1447,9 @@ irqreturn_t efx_nic_fatal_interrupt(struct efx_nic *efx)
 	return IRQ_HANDLED;
 }
 
+/* Handle a legacy interrupt
+ * Acknowledges the interrupt and schedule event queue processing.
+ */
 static irqreturn_t efx_legacy_interrupt(int irq, void *dev_id)
 {
 	struct efx_nic *efx = dev_id;
@@ -1280,14 +1460,17 @@ static irqreturn_t efx_legacy_interrupt(int irq, void *dev_id)
 	u32 queues;
 	int syserr;
 
+	/* Could this be ours?  If interrupts are disabled then the
+	 * channel state may not be valid.
+	 */
 	if (!efx->legacy_irq_enabled)
 		return result;
 
-	
+	/* Read the ISR which also ACKs the interrupts */
 	efx_readd(efx, &reg, FR_BZ_INT_ISR0);
 	queues = EFX_EXTRACT_DWORD(reg, 0, 31);
 
-	
+	/* Handle non-event-queue sources */
 	if (queues & (1U << efx->irq_level)) {
 		syserr = EFX_OWORD_FIELD(*int_ker, FSF_AZ_NET_IVEC_FATAL_INT);
 		if (unlikely(syserr))
@@ -1299,7 +1482,7 @@ static irqreturn_t efx_legacy_interrupt(int irq, void *dev_id)
 		if (EFX_WORKAROUND_15783(efx))
 			efx->irq_zero_count = 0;
 
-		
+		/* Schedule processing of any interrupting queues */
 		efx_for_each_channel(channel, efx) {
 			if (queues & 1)
 				efx_schedule_channel_irq(channel);
@@ -1310,10 +1493,12 @@ static irqreturn_t efx_legacy_interrupt(int irq, void *dev_id)
 	} else if (EFX_WORKAROUND_15783(efx)) {
 		efx_qword_t *event;
 
+		/* We can't return IRQ_HANDLED more than once on seeing ISR=0
+		 * because this might be a shared interrupt. */
 		if (efx->irq_zero_count++ == 0)
 			result = IRQ_HANDLED;
 
-		
+		/* Ensure we schedule or rearm all event queues */
 		efx_for_each_channel(channel, efx) {
 			event = efx_event(channel, channel->eventq_read_ptr);
 			if (efx_event_present(event))
@@ -1331,6 +1516,13 @@ static irqreturn_t efx_legacy_interrupt(int irq, void *dev_id)
 	return result;
 }
 
+/* Handle an MSI interrupt
+ *
+ * Handle an MSI hardware interrupt.  This routine schedules event
+ * queue processing.  No interrupt acknowledgement cycle is necessary.
+ * Also, we never need to check that the interrupt is for us, since
+ * MSI interrupts cannot be shared.
+ */
 static irqreturn_t efx_msi_interrupt(int irq, void *dev_id)
 {
 	struct efx_channel *channel = *(struct efx_channel **)dev_id;
@@ -1342,7 +1534,7 @@ static irqreturn_t efx_msi_interrupt(int irq, void *dev_id)
 		   "IRQ %d on CPU %d status " EFX_OWORD_FMT "\n",
 		   irq, raw_smp_processor_id(), EFX_OWORD_VAL(*int_ker));
 
-	
+	/* Handle non-event-queue sources */
 	if (channel->channel == efx->irq_level) {
 		syserr = EFX_OWORD_FIELD(*int_ker, FSF_AZ_NET_IVEC_FATAL_INT);
 		if (unlikely(syserr))
@@ -1350,13 +1542,16 @@ static irqreturn_t efx_msi_interrupt(int irq, void *dev_id)
 		efx->last_irq_cpu = raw_smp_processor_id();
 	}
 
-	
+	/* Schedule processing of the channel */
 	efx_schedule_channel_irq(channel);
 
 	return IRQ_HANDLED;
 }
 
 
+/* Setup RSS indirection table.
+ * This maps from the hash value of the packet to RXQ
+ */
 void efx_nic_push_rx_indir_table(struct efx_nic *efx)
 {
 	size_t i = 0;
@@ -1375,6 +1570,9 @@ void efx_nic_push_rx_indir_table(struct efx_nic *efx)
 	}
 }
 
+/* Hook interrupt handler(s)
+ * Try MSI and then legacy interrupts.
+ */
 int efx_nic_init_interrupt(struct efx_nic *efx)
 {
 	struct efx_channel *channel;
@@ -1398,10 +1596,10 @@ int efx_nic_init_interrupt(struct efx_nic *efx)
 		return 0;
 	}
 
-	
+	/* Hook MSI or MSI-X interrupt */
 	efx_for_each_channel(channel, efx) {
 		rc = request_irq(channel->irq, efx_msi_interrupt,
-				 IRQF_PROBE_SHARED, 
+				 IRQF_PROBE_SHARED, /* Not shared */
 				 efx->channel_name[channel->channel],
 				 &efx->channel[channel->channel]);
 		if (rc) {
@@ -1425,27 +1623,39 @@ void efx_nic_fini_interrupt(struct efx_nic *efx)
 	struct efx_channel *channel;
 	efx_oword_t reg;
 
-	
+	/* Disable MSI/MSI-X interrupts */
 	efx_for_each_channel(channel, efx) {
 		if (channel->irq)
 			free_irq(channel->irq, &efx->channel[channel->channel]);
 	}
 
-	
+	/* ACK legacy interrupt */
 	if (efx_nic_rev(efx) >= EFX_REV_FALCON_B0)
 		efx_reado(efx, &reg, FR_BZ_INT_ISR0);
 	else
 		falcon_irq_ack_a1(efx);
 
-	
+	/* Disable legacy interrupt */
 	if (efx->legacy_irq)
 		free_irq(efx->legacy_irq, efx);
 }
 
+/* Looks at available SRAM resources and works out how many queues we
+ * can support, and where things like descriptor caches should live.
+ *
+ * SRAM is split up as follows:
+ * 0                          buftbl entries for channels
+ * efx->vf_buftbl_base        buftbl entries for SR-IOV
+ * efx->rx_dc_base            RX descriptor caches
+ * efx->tx_dc_base            TX descriptor caches
+ */
 void efx_nic_dimension_resources(struct efx_nic *efx, unsigned sram_lim_qw)
 {
 	unsigned vi_count, buftbl_min;
 
+	/* Account for the buffer table entries backing the datapath channels
+	 * and the descriptor caches for those channels.
+	 */
 	buftbl_min = ((efx->n_rx_channels * EFX_MAX_DMAQ_SIZE +
 		       efx->n_tx_channels * EFX_TXQ_TYPES * EFX_MAX_DMAQ_SIZE +
 		       efx->n_channels * EFX_MAX_EVQ_SIZE)
@@ -1493,24 +1703,27 @@ void efx_nic_init_common(struct efx_nic *efx)
 {
 	efx_oword_t temp;
 
-	
+	/* Set positions of descriptor caches in SRAM. */
 	EFX_POPULATE_OWORD_1(temp, FRF_AZ_SRM_TX_DC_BASE_ADR, efx->tx_dc_base);
 	efx_writeo(efx, &temp, FR_AZ_SRM_TX_DC_CFG);
 	EFX_POPULATE_OWORD_1(temp, FRF_AZ_SRM_RX_DC_BASE_ADR, efx->rx_dc_base);
 	efx_writeo(efx, &temp, FR_AZ_SRM_RX_DC_CFG);
 
-	
+	/* Set TX descriptor cache size. */
 	BUILD_BUG_ON(TX_DC_ENTRIES != (8 << TX_DC_ENTRIES_ORDER));
 	EFX_POPULATE_OWORD_1(temp, FRF_AZ_TX_DC_SIZE, TX_DC_ENTRIES_ORDER);
 	efx_writeo(efx, &temp, FR_AZ_TX_DC_CFG);
 
+	/* Set RX descriptor cache size.  Set low watermark to size-8, as
+	 * this allows most efficient prefetching.
+	 */
 	BUILD_BUG_ON(RX_DC_ENTRIES != (8 << RX_DC_ENTRIES_ORDER));
 	EFX_POPULATE_OWORD_1(temp, FRF_AZ_RX_DC_SIZE, RX_DC_ENTRIES_ORDER);
 	efx_writeo(efx, &temp, FR_AZ_RX_DC_CFG);
 	EFX_POPULATE_OWORD_1(temp, FRF_AZ_RX_DC_PF_LWM, RX_DC_ENTRIES - 8);
 	efx_writeo(efx, &temp, FR_AZ_RX_DC_PF_WM);
 
-	
+	/* Program INT_KER address */
 	EFX_POPULATE_OWORD_2(temp,
 			     FRF_AZ_NORM_INT_VEC_DIS_KER,
 			     EFX_INT_MODE_USE_MSI(efx),
@@ -1518,12 +1731,18 @@ void efx_nic_init_common(struct efx_nic *efx)
 	efx_writeo(efx, &temp, FR_AZ_INT_ADR_KER);
 
 	if (EFX_WORKAROUND_17213(efx) && !EFX_INT_MODE_USE_MSI(efx))
-		
+		/* Use an interrupt level unused by event queues */
 		efx->irq_level = 0x1f;
 	else
-		
+		/* Use a valid MSI-X vector */
 		efx->irq_level = 0;
 
+	/* Enable all the genuinely fatal interrupts.  (They are still
+	 * masked by the overall interrupt mask, controlled by
+	 * falcon_interrupts()).
+	 *
+	 * Note: All other fatal interrupts are enabled
+	 */
 	EFX_POPULATE_OWORD_3(temp,
 			     FRF_AZ_ILL_ADR_INT_KER_EN, 1,
 			     FRF_AZ_RBUF_OWN_INT_KER_EN, 1,
@@ -1535,40 +1754,46 @@ void efx_nic_init_common(struct efx_nic *efx)
 
 	efx_nic_push_rx_indir_table(efx);
 
+	/* Disable the ugly timer-based TX DMA backoff and allow TX DMA to be
+	 * controlled by the RX FIFO fill level. Set arbitration to one pkt/Q.
+	 */
 	efx_reado(efx, &temp, FR_AZ_TX_RESERVED);
 	EFX_SET_OWORD_FIELD(temp, FRF_AZ_TX_RX_SPACER, 0xfe);
 	EFX_SET_OWORD_FIELD(temp, FRF_AZ_TX_RX_SPACER_EN, 1);
 	EFX_SET_OWORD_FIELD(temp, FRF_AZ_TX_ONE_PKT_PER_Q, 1);
 	EFX_SET_OWORD_FIELD(temp, FRF_AZ_TX_PUSH_EN, 1);
 	EFX_SET_OWORD_FIELD(temp, FRF_AZ_TX_DIS_NON_IP_EV, 1);
-	
+	/* Enable SW_EV to inherit in char driver - assume harmless here */
 	EFX_SET_OWORD_FIELD(temp, FRF_AZ_TX_SOFT_EVT_EN, 1);
-	
+	/* Prefetch threshold 2 => fetch when descriptor cache half empty */
 	EFX_SET_OWORD_FIELD(temp, FRF_AZ_TX_PREF_THRESHOLD, 2);
-	
+	/* Disable hardware watchdog which can misfire */
 	EFX_SET_OWORD_FIELD(temp, FRF_AZ_TX_PREF_WD_TMR, 0x3fffff);
-	
+	/* Squash TX of packets of 16 bytes or less */
 	if (efx_nic_rev(efx) >= EFX_REV_FALCON_B0)
 		EFX_SET_OWORD_FIELD(temp, FRF_BZ_TX_FLUSH_MIN_LEN_EN, 1);
 	efx_writeo(efx, &temp, FR_AZ_TX_RESERVED);
 
 	if (efx_nic_rev(efx) >= EFX_REV_FALCON_B0) {
 		EFX_POPULATE_OWORD_4(temp,
-				     
+				     /* Default values */
 				     FRF_BZ_TX_PACE_SB_NOT_AF, 0x15,
 				     FRF_BZ_TX_PACE_SB_AF, 0xb,
 				     FRF_BZ_TX_PACE_FB_BASE, 0,
+				     /* Allow large pace values in the
+				      * fast bin. */
 				     FRF_BZ_TX_PACE_BIN_TH,
 				     FFE_BZ_TX_PACE_RESERVED);
 		efx_writeo(efx, &temp, FR_BZ_TX_PACE);
 	}
 }
 
+/* Register dump */
 
 #define REGISTER_REVISION_A	1
 #define REGISTER_REVISION_B	2
 #define REGISTER_REVISION_C	3
-#define REGISTER_REVISION_Z	3	
+#define REGISTER_REVISION_Z	3	/* latest revision */
 
 struct efx_nic_reg {
 	u32 offset:24;
@@ -1592,8 +1817,8 @@ static const struct efx_nic_reg efx_nic_regs[] = {
 	REGISTER_BZ(INT_EN_CHAR),
 	REGISTER_AZ(INT_ADR_KER),
 	REGISTER_BZ(INT_ADR_CHAR),
-	
-	
+	/* INT_ACK_KER is WO */
+	/* INT_ISR0 is RC */
 	REGISTER_AZ(HW_INIT),
 	REGISTER_CZ(USR_EV_CFG),
 	REGISTER_AB(EE_SPI_HCMD),
@@ -1601,13 +1826,13 @@ static const struct efx_nic_reg efx_nic_regs[] = {
 	REGISTER_AB(EE_SPI_HDATA),
 	REGISTER_AB(EE_BASE_PAGE),
 	REGISTER_AB(EE_VPD_CFG0),
-	
-	
-	
+	/* EE_VPD_SW_CNTL and EE_VPD_SW_DATA are not used */
+	/* PMBX_DBG_IADDR and PBMX_DBG_IDATA are indirect */
+	/* PCIE_CORE_INDIRECT is indirect */
 	REGISTER_AB(NIC_STAT),
 	REGISTER_AB(GPIO_CTL),
 	REGISTER_AB(GLB_CTL),
-	
+	/* FATAL_INTR_KER and FATAL_INTR_CHAR are partly RC */
 	REGISTER_BZ(DP_CTRL),
 	REGISTER_AZ(MEM_STAT),
 	REGISTER_AZ(CS_DEBUG),
@@ -1616,8 +1841,8 @@ static const struct efx_nic_reg efx_nic_regs[] = {
 	REGISTER_AB(PCIE_SD_CTL0123),
 	REGISTER_AB(PCIE_SD_CTL45),
 	REGISTER_AB(PCIE_PCS_CTL_STAT),
-	
-	
+	/* DEBUG_DATA_OUT is not used */
+	/* DRV_EV is WO */
 	REGISTER_AZ(EVQ_CTL),
 	REGISTER_AZ(EVQ_CNT1),
 	REGISTER_AZ(EVQ_CNT2),
@@ -1625,29 +1850,29 @@ static const struct efx_nic_reg efx_nic_regs[] = {
 	REGISTER_AZ(SRM_RX_DC_CFG),
 	REGISTER_AZ(SRM_TX_DC_CFG),
 	REGISTER_AZ(SRM_CFG),
-	
+	/* BUF_TBL_UPD is WO */
 	REGISTER_AZ(SRM_UPD_EVQ),
 	REGISTER_AZ(SRAM_PARITY),
 	REGISTER_AZ(RX_CFG),
 	REGISTER_BZ(RX_FILTER_CTL),
-	
+	/* RX_FLUSH_DESCQ is WO */
 	REGISTER_AZ(RX_DC_CFG),
 	REGISTER_AZ(RX_DC_PF_WM),
 	REGISTER_BZ(RX_RSS_TKEY),
-	
+	/* RX_NODESC_DROP is RC */
 	REGISTER_AA(RX_SELF_RST),
-	
+	/* RX_DEBUG, RX_PUSH_DROP are not used */
 	REGISTER_CZ(RX_RSS_IPV6_REG1),
 	REGISTER_CZ(RX_RSS_IPV6_REG2),
 	REGISTER_CZ(RX_RSS_IPV6_REG3),
-	
+	/* TX_FLUSH_DESCQ is WO */
 	REGISTER_AZ(TX_DC_CFG),
 	REGISTER_AA(TX_CHKSM_CFG),
 	REGISTER_AZ(TX_CFG),
-	
+	/* TX_PUSH_DROP is not used */
 	REGISTER_AZ(TX_RESERVED),
 	REGISTER_BZ(TX_PACE),
-	
+	/* TX_PACE_DROP_QID is RC */
 	REGISTER_BB(TX_VLAN),
 	REGISTER_BZ(TX_IPFIL_PORTEN),
 	REGISTER_AB(MD_TXD),
@@ -1655,7 +1880,7 @@ static const struct efx_nic_reg efx_nic_regs[] = {
 	REGISTER_AB(MD_CS),
 	REGISTER_AB(MD_PHY_ADR),
 	REGISTER_AB(MD_ID),
-	
+	/* MD_STAT is RC */
 	REGISTER_AB(MAC_STAT_DMA),
 	REGISTER_AB(MAC_CTRL),
 	REGISTER_BB(GEN_MODE),
@@ -1663,9 +1888,9 @@ static const struct efx_nic_reg efx_nic_regs[] = {
 	REGISTER_AB(MAC_MC_HASH_REG1),
 	REGISTER_AB(GM_CFG1),
 	REGISTER_AB(GM_CFG2),
-	
+	/* GM_IPG and GM_HD are not used */
 	REGISTER_AB(GM_MAX_FLEN),
-	
+	/* GM_TEST is not used */
 	REGISTER_AB(GM_ADR1),
 	REGISTER_AB(GM_ADR2),
 	REGISTER_AB(GMF_CFG0),
@@ -1685,12 +1910,12 @@ static const struct efx_nic_reg efx_nic_regs[] = {
 	REGISTER_AB(XM_PAUSE_TIME),
 	REGISTER_AB(XM_TX_PARAM),
 	REGISTER_AB(XM_RX_PARAM),
-	
+	/* XM_MGT_INT_MSK (note no 'A') is RC */
 	REGISTER_AB(XX_PWR_RST),
 	REGISTER_AB(XX_SD_CTL),
 	REGISTER_AB(XX_TXDRV_CTL),
-	
-	
+	/* XX_PRBS_CTL, XX_PRBS_CHK and XX_PRBS_ERR are not used */
+	/* XX_CORE_STAT is partly RC */
 };
 
 struct efx_nic_reg_table {
@@ -1724,8 +1949,8 @@ struct efx_nic_reg_table {
 #define REGISTER_TABLE_CZ(name) REGISTER_TABLE(name, C, Z)
 
 static const struct efx_nic_reg_table efx_nic_reg_tables[] = {
-	
-	
+	/* DRIVER is not used */
+	/* EVQ_RPTR, TIMER_COMMAND, USR_EV and {RX,TX}_DESC_UPD are WO */
 	REGISTER_TABLE_BB(TX_IPFIL_TBL),
 	REGISTER_TABLE_BB(TX_SRC_MAC_TBL),
 	REGISTER_TABLE_AA(RX_DESC_PTR_TBL_KER),
@@ -1734,6 +1959,10 @@ static const struct efx_nic_reg_table efx_nic_reg_tables[] = {
 	REGISTER_TABLE_BB_CZ(TX_DESC_PTR_TBL),
 	REGISTER_TABLE_AA(EVQ_PTR_TBL_KER),
 	REGISTER_TABLE_BB_CZ(EVQ_PTR_TBL),
+	/* We can't reasonably read all of the buffer table (up to 8MB!).
+	 * However this driver will only use a few entries.  Reading
+	 * 1K entries allows for some expansion of queue count and
+	 * size before we need to change the version. */
 	REGISTER_TABLE_DIMENSIONS(BUF_FULL_TBL_KER, FR_AA_BUF_FULL_TBL_KER,
 				  A, A, 8, 1024),
 	REGISTER_TABLE_DIMENSIONS(BUF_FULL_TBL, FR_BZ_BUF_FULL_TBL,
@@ -1742,11 +1971,11 @@ static const struct efx_nic_reg_table efx_nic_reg_tables[] = {
 	REGISTER_TABLE_BB_CZ(TIMER_TBL),
 	REGISTER_TABLE_BB_CZ(TX_PACE_TBL),
 	REGISTER_TABLE_BZ(RX_INDIRECTION_TBL),
-	
+	/* TX_FILTER_TBL0 is huge and not used by this driver */
 	REGISTER_TABLE_CZ(TX_MAC_FILTER_TBL0),
 	REGISTER_TABLE_CZ(MC_TREG_SMEM),
-	
-	
+	/* MSIX_PBA_TABLE is not mapped */
+	/* SRM_DBG is not mapped (and is redundant with BUF_FLL_TBL) */
 	REGISTER_TABLE_BZ(RX_FILTER_TBL0),
 };
 
@@ -1801,18 +2030,18 @@ void efx_nic_get_regs(struct efx_nic *efx, void *buf)
 
 		for (i = 0; i < table->rows; i++) {
 			switch (table->step) {
-			case 4: 
+			case 4: /* 32-bit register or SRAM */
 				efx_readd_table(efx, buf, table->offset, i);
 				break;
-			case 8: 
+			case 8: /* 64-bit SRAM */
 				efx_sram_readq(efx,
 					       efx->membase + table->offset,
 					       buf, i);
 				break;
-			case 16: 
+			case 16: /* 128-bit register */
 				efx_reado_table(efx, buf, table->offset, i);
 				break;
-			case 32: 
+			case 32: /* 128-bit register, interleaved */
 				efx_reado_table(efx, buf, table->offset, 2 * i);
 				break;
 			default:

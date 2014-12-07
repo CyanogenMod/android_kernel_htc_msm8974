@@ -46,6 +46,7 @@ static const char *wm8904_supply_names[WM8904_NUM_SUPPLIES] = {
 	"MICVDD",
 };
 
+/* codec private data */
 struct wm8904_priv {
 	struct regmap *regmap;
 
@@ -57,23 +58,23 @@ struct wm8904_priv {
 
 	int deemph;
 
-	
+	/* Platform provided DRC configuration */
 	const char **drc_texts;
 	int drc_cfg;
 	struct soc_enum drc_enum;
 
-	
+	/* Platform provided ReTune mobile configuration */
 	int num_retune_mobile_texts;
 	const char **retune_mobile_texts;
 	int retune_mobile_cfg;
 	struct soc_enum retune_mobile_enum;
 
-	
+	/* FLL setup */
 	int fll_src;
 	int fll_fref;
 	int fll_fout;
 
-	
+	/* Clocking configuration */
 	unsigned int mclk_rate;
 	int sysclk_src;
 	unsigned int sysclk_rate;
@@ -83,104 +84,104 @@ struct wm8904_priv {
 	int bclk;
 	int fs;
 
-	
+	/* DC servo configuration - cached offset values */
 	int dcs_state[WM8904_NUM_DCS_CHANNELS];
 };
 
 static const struct reg_default wm8904_reg_defaults[] = {
-	{ 4,   0x0018 },     
-	{ 5,   0x0000 },     
-	{ 6,   0x0000 },     
-	{ 7,   0x0000 },     
-	{ 8,   0x0001 },     
-	{ 9,   0x9696 },     
-	{ 10,  0x0001 },     
-	{ 12,  0x0000 },     
-	{ 14,  0x0000 },     
-	{ 15,  0x0000 },     
-	{ 18,  0x0000 },     
-	{ 19,  0x945E },     
-	{ 21,  0x0C05 },     
-	{ 22,  0x0006 },     
-	{ 24,  0x0050 },     
-	{ 25,  0x000A },     
-	{ 26,  0x00E4 },     
-	{ 27,  0x0040 },     
-	{ 30,  0x00C0 },     
-	{ 31,  0x00C0 },     
-	{ 32,  0x0000 },     
-	{ 33,  0x0008 },     
-	{ 36,  0x00C0 },     
-	{ 37,  0x00C0 },     
-	{ 38,  0x0010 },     
-	{ 39,  0x0000 },     
-	{ 40,  0x01AF },     
-	{ 41,  0x3248 },     
-	{ 42,  0x0000 },     
-	{ 43,  0x0000 },     
-	{ 44,  0x0085 },     
-	{ 45,  0x0085 },     
-	{ 46,  0x0044 },     
-	{ 47,  0x0044 },     
-	{ 57,  0x002D },     
-	{ 58,  0x002D },     
-	{ 59,  0x0039 },     
-	{ 60,  0x0039 },     
-	{ 61,  0x0000 },     
-	{ 67,  0x0000 },     
-	{ 69,  0xAAAA },     
-	{ 71,  0xAAAA },     
-	{ 72,  0xAAAA },     
-	{ 90,  0x0000 },     
-	{ 94,  0x0000 },     
-	{ 98,  0x0000 },     
-	{ 104, 0x0004 },     
-	{ 108, 0x0000 },     
-	{ 109, 0x0000 },     
-	{ 110, 0x0000 },     
-	{ 111, 0x0000 },     
-	{ 112, 0x0000 },     
-	{ 116, 0x0000 },     
-	{ 117, 0x0007 },     
-	{ 118, 0x0000 },     
-	{ 119, 0x2EE0 },     
-	{ 120, 0x0004 },     
-	{ 121, 0x0014 },     
-	{ 122, 0x0010 },     
-	{ 123, 0x0010 },     
-	{ 124, 0x0000 },     
-	{ 126, 0x0000 },     
-	{ 128, 0xFFFF },     
-	{ 129, 0x0000 },     
-	{ 130, 0x0000 },     
-	{ 134, 0x0000 },     
-	{ 135, 0x000C },     
-	{ 136, 0x000C },     
-	{ 137, 0x000C },     
-	{ 138, 0x000C },     
-	{ 139, 0x000C },     
-	{ 140, 0x0FCA },     
-	{ 141, 0x0400 },     
-	{ 142, 0x00D8 },     
-	{ 143, 0x1EB5 },     
-	{ 144, 0xF145 },     
-	{ 145, 0x0B75 },     
-	{ 146, 0x01C5 },     
-	{ 147, 0x1C58 },     
-	{ 148, 0xF373 },     
-	{ 149, 0x0A54 },     
-	{ 150, 0x0558 },     
-	{ 151, 0x168E },     
-	{ 152, 0xF829 },     
-	{ 153, 0x07AD },     
-	{ 154, 0x1103 },     
-	{ 155, 0x0564 },     
-	{ 156, 0x0559 },     
-	{ 157, 0x4000 },     
-	{ 161, 0x0000 },     
-	{ 204, 0x0000 },     
-	{ 247, 0x0000 },     
-	{ 248, 0x0019 },     
+	{ 4,   0x0018 },     /* R4   - Bias Control 0 */
+	{ 5,   0x0000 },     /* R5   - VMID Control 0 */
+	{ 6,   0x0000 },     /* R6   - Mic Bias Control 0 */
+	{ 7,   0x0000 },     /* R7   - Mic Bias Control 1 */
+	{ 8,   0x0001 },     /* R8   - Analogue DAC 0 */
+	{ 9,   0x9696 },     /* R9   - mic Filter Control */
+	{ 10,  0x0001 },     /* R10  - Analogue ADC 0 */
+	{ 12,  0x0000 },     /* R12  - Power Management 0 */
+	{ 14,  0x0000 },     /* R14  - Power Management 2 */
+	{ 15,  0x0000 },     /* R15  - Power Management 3 */
+	{ 18,  0x0000 },     /* R18  - Power Management 6 */
+	{ 19,  0x945E },     /* R20  - Clock Rates 0 */
+	{ 21,  0x0C05 },     /* R21  - Clock Rates 1 */
+	{ 22,  0x0006 },     /* R22  - Clock Rates 2 */
+	{ 24,  0x0050 },     /* R24  - Audio Interface 0 */
+	{ 25,  0x000A },     /* R25  - Audio Interface 1 */
+	{ 26,  0x00E4 },     /* R26  - Audio Interface 2 */
+	{ 27,  0x0040 },     /* R27  - Audio Interface 3 */
+	{ 30,  0x00C0 },     /* R30  - DAC Digital Volume Left */
+	{ 31,  0x00C0 },     /* R31  - DAC Digital Volume Right */
+	{ 32,  0x0000 },     /* R32  - DAC Digital 0 */
+	{ 33,  0x0008 },     /* R33  - DAC Digital 1 */
+	{ 36,  0x00C0 },     /* R36  - ADC Digital Volume Left */
+	{ 37,  0x00C0 },     /* R37  - ADC Digital Volume Right */
+	{ 38,  0x0010 },     /* R38  - ADC Digital 0 */
+	{ 39,  0x0000 },     /* R39  - Digital Microphone 0 */
+	{ 40,  0x01AF },     /* R40  - DRC 0 */
+	{ 41,  0x3248 },     /* R41  - DRC 1 */
+	{ 42,  0x0000 },     /* R42  - DRC 2 */
+	{ 43,  0x0000 },     /* R43  - DRC 3 */
+	{ 44,  0x0085 },     /* R44  - Analogue Left Input 0 */
+	{ 45,  0x0085 },     /* R45  - Analogue Right Input 0 */
+	{ 46,  0x0044 },     /* R46  - Analogue Left Input 1 */
+	{ 47,  0x0044 },     /* R47  - Analogue Right Input 1 */
+	{ 57,  0x002D },     /* R57  - Analogue OUT1 Left */
+	{ 58,  0x002D },     /* R58  - Analogue OUT1 Right */
+	{ 59,  0x0039 },     /* R59  - Analogue OUT2 Left */
+	{ 60,  0x0039 },     /* R60  - Analogue OUT2 Right */
+	{ 61,  0x0000 },     /* R61  - Analogue OUT12 ZC */
+	{ 67,  0x0000 },     /* R67  - DC Servo 0 */
+	{ 69,  0xAAAA },     /* R69  - DC Servo 2 */
+	{ 71,  0xAAAA },     /* R71  - DC Servo 4 */
+	{ 72,  0xAAAA },     /* R72  - DC Servo 5 */
+	{ 90,  0x0000 },     /* R90  - Analogue HP 0 */
+	{ 94,  0x0000 },     /* R94  - Analogue Lineout 0 */
+	{ 98,  0x0000 },     /* R98  - Charge Pump 0 */
+	{ 104, 0x0004 },     /* R104 - Class W 0 */
+	{ 108, 0x0000 },     /* R108 - Write Sequencer 0 */
+	{ 109, 0x0000 },     /* R109 - Write Sequencer 1 */
+	{ 110, 0x0000 },     /* R110 - Write Sequencer 2 */
+	{ 111, 0x0000 },     /* R111 - Write Sequencer 3 */
+	{ 112, 0x0000 },     /* R112 - Write Sequencer 4 */
+	{ 116, 0x0000 },     /* R116 - FLL Control 1 */
+	{ 117, 0x0007 },     /* R117 - FLL Control 2 */
+	{ 118, 0x0000 },     /* R118 - FLL Control 3 */
+	{ 119, 0x2EE0 },     /* R119 - FLL Control 4 */
+	{ 120, 0x0004 },     /* R120 - FLL Control 5 */
+	{ 121, 0x0014 },     /* R121 - GPIO Control 1 */
+	{ 122, 0x0010 },     /* R122 - GPIO Control 2 */
+	{ 123, 0x0010 },     /* R123 - GPIO Control 3 */
+	{ 124, 0x0000 },     /* R124 - GPIO Control 4 */
+	{ 126, 0x0000 },     /* R126 - Digital Pulls */
+	{ 128, 0xFFFF },     /* R128 - Interrupt Status Mask */
+	{ 129, 0x0000 },     /* R129 - Interrupt Polarity */
+	{ 130, 0x0000 },     /* R130 - Interrupt Debounce */
+	{ 134, 0x0000 },     /* R134 - EQ1 */
+	{ 135, 0x000C },     /* R135 - EQ2 */
+	{ 136, 0x000C },     /* R136 - EQ3 */
+	{ 137, 0x000C },     /* R137 - EQ4 */
+	{ 138, 0x000C },     /* R138 - EQ5 */
+	{ 139, 0x000C },     /* R139 - EQ6 */
+	{ 140, 0x0FCA },     /* R140 - EQ7 */
+	{ 141, 0x0400 },     /* R141 - EQ8 */
+	{ 142, 0x00D8 },     /* R142 - EQ9 */
+	{ 143, 0x1EB5 },     /* R143 - EQ10 */
+	{ 144, 0xF145 },     /* R144 - EQ11 */
+	{ 145, 0x0B75 },     /* R145 - EQ12 */
+	{ 146, 0x01C5 },     /* R146 - EQ13 */
+	{ 147, 0x1C58 },     /* R147 - EQ14 */
+	{ 148, 0xF373 },     /* R148 - EQ15 */
+	{ 149, 0x0A54 },     /* R149 - EQ16 */
+	{ 150, 0x0558 },     /* R150 - EQ17 */
+	{ 151, 0x168E },     /* R151 - EQ18 */
+	{ 152, 0xF829 },     /* R152 - EQ19 */
+	{ 153, 0x07AD },     /* R153 - EQ20 */
+	{ 154, 0x1103 },     /* R154 - EQ21 */
+	{ 155, 0x0564 },     /* R155 - EQ22 */
+	{ 156, 0x0559 },     /* R156 - EQ23 */
+	{ 157, 0x4000 },     /* R157 - EQ24 */
+	{ 161, 0x0000 },     /* R161 - Control Interface Test 1 */
+	{ 204, 0x0000 },     /* R204 - Analogue Output Bias 0 */
+	{ 247, 0x0000 },     /* R247 - FLL NCO Test 0 */
+	{ 248, 0x0019 },     /* R248 - FLL NCO Test 1 */
 };
 
 static bool wm8904_volatile_register(struct device *dev, unsigned int reg)
@@ -323,12 +324,12 @@ static int wm8904_configure_clocking(struct snd_soc_codec *codec)
 	struct wm8904_priv *wm8904 = snd_soc_codec_get_drvdata(codec);
 	unsigned int clock0, clock2, rate;
 
-	
+	/* Gate the clock while we're updating to avoid misclocking */
 	clock2 = snd_soc_read(codec, WM8904_CLOCK_RATES_2);
 	snd_soc_update_bits(codec, WM8904_CLOCK_RATES_2,
 			    WM8904_SYSCLK_SRC, 0);
 
-	
+	/* This should be done on init() for bypass paths */
 	switch (wm8904->sysclk_src) {
 	case WM8904_CLK_MCLK:
 		dev_dbg(codec->dev, "Using %dHz MCLK\n", wm8904->mclk_rate);
@@ -336,7 +337,7 @@ static int wm8904_configure_clocking(struct snd_soc_codec *codec)
 		clock2 &= ~WM8904_SYSCLK_SRC;
 		rate = wm8904->mclk_rate;
 
-		
+		/* Ensure the FLL is stopped */
 		snd_soc_update_bits(codec, WM8904_FLL_CONTROL_1,
 				    WM8904_FLL_OSC_ENA | WM8904_FLL_ENA, 0);
 		break;
@@ -354,7 +355,7 @@ static int wm8904_configure_clocking(struct snd_soc_codec *codec)
 		return -EINVAL;
 	}
 
-	
+	/* SYSCLK shouldn't be over 13.5MHz */
 	if (rate > 13500000) {
 		clock0 = WM8904_MCLK_DIV;
 		wm8904->sysclk_rate = rate / 2;
@@ -380,14 +381,14 @@ static void wm8904_set_drc(struct snd_soc_codec *codec)
 	struct wm8904_pdata *pdata = wm8904->pdata;
 	int save, i;
 
-	
+	/* Save any enables; the configuration should clear them. */
 	save = snd_soc_read(codec, WM8904_DRC_0);
 
 	for (i = 0; i < WM8904_DRC_REGS; i++)
 		snd_soc_update_bits(codec, WM8904_DRC_0 + i, 0xffff,
 				    pdata->drc_cfgs[wm8904->drc_cfg].regs[i]);
 
-	
+	/* Reenable the DRC */
 	snd_soc_update_bits(codec, WM8904_DRC_0,
 			    WM8904_DRC_ENA | WM8904_DRC_DAC_PATH, save);
 }
@@ -430,6 +431,8 @@ static void wm8904_set_retune_mobile(struct snd_soc_codec *codec)
 	if (!pdata || !wm8904->num_retune_mobile_texts)
 		return;
 
+	/* Find the version of the currently selected configuration
+	 * with the nearest sample rate. */
 	cfg = wm8904->retune_mobile_cfg;
 	best = 0;
 	best_val = INT_MAX;
@@ -449,6 +452,9 @@ static void wm8904_set_retune_mobile(struct snd_soc_codec *codec)
 		pdata->retune_mobile_cfgs[best].rate,
 		wm8904->fs);
 
+	/* The EQ will be disabled while reconfiguring it, remember the
+	 * current configuration. 
+	 */
 	save = snd_soc_read(codec, WM8904_EQ1);
 
 	for (i = 0; i < WM8904_EQ_REGS; i++)
@@ -494,6 +500,9 @@ static int wm8904_set_deemph(struct snd_soc_codec *codec)
 	struct wm8904_priv *wm8904 = snd_soc_codec_get_drvdata(codec);
 	int val, i, best;
 
+	/* If we're using deemphasis select the nearest available sample 
+	 * rate.
+	 */
 	if (wm8904->deemph) {
 		best = 1;
 		for (i = 2; i < ARRAY_SIZE(deemph_settings); i++) {
@@ -591,6 +600,7 @@ SOC_DOUBLE_R_TLV("Digital Capture Volume", WM8904_ADC_DIGITAL_VOLUME_LEFT,
 SOC_ENUM("Left Caputure Mode", lin_mode),
 SOC_ENUM("Right Capture Mode", rin_mode),
 
+/* No TLV since it depends on mode */
 SOC_DOUBLE_R("Capture Volume", WM8904_ANALOGUE_LEFT_INPUT_0,
 	     WM8904_ANALOGUE_RIGHT_INPUT_0, 0, 31, 0),
 SOC_DOUBLE_R("Capture Switch", WM8904_ANALOGUE_LEFT_INPUT_0,
@@ -660,7 +670,7 @@ static int cp_event(struct snd_soc_dapm_widget *w,
 {
 	BUG_ON(event != SND_SOC_DAPM_POST_PMU);
 
-	
+	/* Maximum startup time */
 	udelay(500);
 
 	return 0;
@@ -674,6 +684,11 @@ static int sysclk_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		/* If we're using the FLL then we only start it when
+		 * required; we assume that the configuration has been
+		 * done previously and all we need to do is kick it
+		 * off.
+		 */
 		switch (wm8904->sysclk_src) {
 		case WM8904_CLK_FLL:
 			snd_soc_update_bits(codec, WM8904_FLL_CONTROL_1,
@@ -711,6 +726,10 @@ static int out_pga_event(struct snd_soc_dapm_widget *w,
 	int timeout;
 	int pwr_reg;
 
+	/* This code is shared between HP and LINEOUT; we do all our
+	 * power management in stereo pairs to avoid latency issues so
+	 * we reuse shift to identify which rather than strcmp() the
+	 * name. */
 	reg = w->shift;
 
 	switch (reg) {
@@ -737,26 +756,29 @@ static int out_pga_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		
+		/* Power on the PGAs */
 		snd_soc_update_bits(codec, pwr_reg,
 				    WM8904_HPL_PGA_ENA | WM8904_HPR_PGA_ENA,
 				    WM8904_HPL_PGA_ENA | WM8904_HPR_PGA_ENA);
 
-		
+		/* Power on the amplifier */
 		snd_soc_update_bits(codec, reg,
 				    WM8904_HPL_ENA | WM8904_HPR_ENA,
 				    WM8904_HPL_ENA | WM8904_HPR_ENA);
 
 
-		
+		/* Enable the first stage */
 		snd_soc_update_bits(codec, reg,
 				    WM8904_HPL_ENA_DLY | WM8904_HPR_ENA_DLY,
 				    WM8904_HPL_ENA_DLY | WM8904_HPR_ENA_DLY);
 
-		
+		/* Power up the DC servo */
 		snd_soc_update_bits(codec, WM8904_DC_SERVO_0,
 				    dcs_mask, dcs_mask);
 
+		/* Either calibrate the DC servo or restore cached state
+		 * if we have that.
+		 */
 		if (wm8904->dcs_state[dcs_l] || wm8904->dcs_state[dcs_r]) {
 			dev_dbg(codec->dev, "Restoring DC servo state\n");
 
@@ -777,7 +799,7 @@ static int out_pga_event(struct snd_soc_dapm_widget *w,
 			timeout = 500;
 		}
 
-		
+		/* Wait for DC servo to complete */
 		dcs_mask <<= WM8904_DCS_CAL_COMPLETE_SHIFT;
 		do {
 			val = snd_soc_read(codec, WM8904_DC_SERVO_READBACK_0);
@@ -792,14 +814,14 @@ static int out_pga_event(struct snd_soc_dapm_widget *w,
 		else
 			dev_dbg(codec->dev, "DC servo ready\n");
 
-		
+		/* Enable the output stage */
 		snd_soc_update_bits(codec, reg,
 				    WM8904_HPL_ENA_OUTP | WM8904_HPR_ENA_OUTP,
 				    WM8904_HPL_ENA_OUTP | WM8904_HPR_ENA_OUTP);
 		break;
 
 	case SND_SOC_DAPM_POST_PMU:
-		
+		/* Unshort the output itself */
 		snd_soc_update_bits(codec, reg,
 				    WM8904_HPL_RMV_SHORT |
 				    WM8904_HPR_RMV_SHORT,
@@ -809,27 +831,29 @@ static int out_pga_event(struct snd_soc_dapm_widget *w,
 		break;
 
 	case SND_SOC_DAPM_PRE_PMD:
-		
+		/* Short the output */
 		snd_soc_update_bits(codec, reg,
 				    WM8904_HPL_RMV_SHORT |
 				    WM8904_HPR_RMV_SHORT, 0);
 		break;
 
 	case SND_SOC_DAPM_POST_PMD:
+		/* Cache the DC servo configuration; this will be
+		 * invalidated if we change the configuration. */
 		wm8904->dcs_state[dcs_l] = snd_soc_read(codec, dcs_l_reg);
 		wm8904->dcs_state[dcs_r] = snd_soc_read(codec, dcs_r_reg);
 
 		snd_soc_update_bits(codec, WM8904_DC_SERVO_0,
 				    dcs_mask, 0);
 
-		
+		/* Disable the amplifier input and output stages */
 		snd_soc_update_bits(codec, reg,
 				    WM8904_HPL_ENA | WM8904_HPR_ENA |
 				    WM8904_HPL_ENA_DLY | WM8904_HPR_ENA_DLY |
 				    WM8904_HPL_ENA_OUTP | WM8904_HPR_ENA_OUTP,
 				    0);
 
-		
+		/* PGAs too */
 		snd_soc_update_bits(codec, pwr_reg,
 				    WM8904_HPL_PGA_ENA | WM8904_HPR_PGA_ENA,
 				    0);
@@ -1226,7 +1250,7 @@ static struct {
 };
 
 static struct {
-	int div; 
+	int div; /* *10 due to .5s */
 	int bclk_div;
 } bclk_divs[] = {
 	{ 10,  0  },
@@ -1265,7 +1289,7 @@ static int wm8904_hw_params(struct snd_pcm_substream *substream,
 	unsigned int clock1 = 0;
 	unsigned int dac_digital1 = 0;
 
-	
+	/* What BCLK do we need? */
 	wm8904->fs = params_rate(params);
 	if (wm8904->tdm_slots) {
 		dev_dbg(codec->dev, "Configuring for %d %d bit TDM slots\n",
@@ -1300,7 +1324,7 @@ static int wm8904_hw_params(struct snd_pcm_substream *substream,
 	if (ret != 0)
 		return ret;
 
-	
+	/* Select nearest CLK_SYS_RATE */
 	best = 0;
 	best_val = abs((wm8904->sysclk_rate / clk_sys_rates[0].ratio)
 		       - wm8904->fs);
@@ -1317,11 +1341,11 @@ static int wm8904_hw_params(struct snd_pcm_substream *substream,
 	clock1 |= (clk_sys_rates[best].clk_sys_rate
 		   << WM8904_CLK_SYS_RATE_SHIFT);
 
-	
+	/* SAMPLE_RATE */
 	best = 0;
 	best_val = abs(wm8904->fs - sample_rates[0].rate);
 	for (i = 1; i < ARRAY_SIZE(sample_rates); i++) {
-		
+		/* Closest match */
 		cur_val = abs(wm8904->fs - sample_rates[i].rate);
 		if (cur_val < best_val) {
 			best = i;
@@ -1333,17 +1357,17 @@ static int wm8904_hw_params(struct snd_pcm_substream *substream,
 	clock1 |= (sample_rates[best].sample_rate
 		   << WM8904_SAMPLE_RATE_SHIFT);
 
-	
+	/* Enable sloping stopband filter for low sample rates */
 	if (wm8904->fs <= 24000)
 		dac_digital1 |= WM8904_DAC_SB_FILT;
 
-	
+	/* BCLK_DIV */
 	best = 0;
 	best_val = INT_MAX;
 	for (i = 0; i < ARRAY_SIZE(bclk_divs); i++) {
 		cur_val = ((wm8904->sysclk_rate * 10) / bclk_divs[i].div)
 			- wm8904->bclk;
-		if (cur_val < 0) 
+		if (cur_val < 0) /* Table is sorted */
 			break;
 		if (cur_val < best_val) {
 			best = i;
@@ -1355,11 +1379,11 @@ static int wm8904_hw_params(struct snd_pcm_substream *substream,
 		bclk_divs[best].div, wm8904->bclk);
 	aif2 |= bclk_divs[best].bclk_div;
 
-	
+	/* LRCLK is a simple fraction of BCLK */
 	dev_dbg(codec->dev, "LRCLK_RATE is %d\n", wm8904->bclk / wm8904->fs);
 	aif3 |= wm8904->bclk / wm8904->fs;
 
-	
+	/* Apply the settings */
 	snd_soc_update_bits(codec, WM8904_DAC_DIGITAL_1,
 			    WM8904_DAC_SB_FILT, dac_digital1);
 	snd_soc_update_bits(codec, WM8904_AUDIO_INTERFACE_1,
@@ -1372,7 +1396,7 @@ static int wm8904_hw_params(struct snd_pcm_substream *substream,
 			    WM8904_SAMPLE_RATE_MASK |
 			    WM8904_CLK_SYS_RATE_MASK, clock1);
 
-	
+	/* Update filters for the new settings */
 	wm8904_set_retune_mobile(codec);
 	wm8904_set_deemph(codec);
 
@@ -1451,7 +1475,7 @@ static int wm8904_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_DSP_A:
 	case SND_SOC_DAIFMT_DSP_B:
-		
+		/* frame inversion not valid for DSP modes */
 		switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 		case SND_SOC_DAIFMT_NB_NF:
 			break;
@@ -1503,10 +1527,14 @@ static int wm8904_set_tdm_slot(struct snd_soc_dai *dai, unsigned int tx_mask,
 	struct wm8904_priv *wm8904 = snd_soc_codec_get_drvdata(codec);
 	int aif1 = 0;
 
-	
+	/* Don't need to validate anything if we're turning off TDM */
 	if (slots == 0)
 		goto out;
 
+	/* Note that we allow configurations we can't handle ourselves - 
+	 * for example, we can generate clocks for slots 2 and up even if
+	 * we can't use those slots ourselves.
+	 */
 	aif1 |= WM8904_AIFADC_TDM | WM8904_AIFDAC_TDM;
 
 	switch (rx_mask) {
@@ -1549,6 +1577,8 @@ struct _fll_div {
 	u16 k;
 };
 
+/* The size in bits of the FLL divide multiplied by 10
+ * to allow rounding later */
 #define FIXED_FLL_SIZE ((1 << 16) * 10)
 
 static struct {
@@ -1572,7 +1602,7 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 	unsigned int div;
 	int i;
 
-	
+	/* Fref must be <=13.5MHz */
 	div = 1;
 	fll_div->fll_clk_ref_div = 0;
 	while ((Fref / div) > 13500000) {
@@ -1588,10 +1618,10 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 
 	pr_debug("Fref=%u Fout=%u\n", Fref, Fout);
 
-	
+	/* Apply the division for our remaining calculations */
 	Fref /= div;
 
-	
+	/* Fvco should be 90-100MHz; don't check the upper bound */
 	div = 4;
 	while (Fout * div < 90000000) {
 		div++;
@@ -1606,7 +1636,7 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 
 	pr_debug("Fvco=%dHz\n", target);
 
-	
+	/* Find an appropriate FLL_FRATIO and factor it out of the target */
 	for (i = 0; i < ARRAY_SIZE(fll_fratios); i++) {
 		if (fll_fratios[i].min <= Fref && Fref <= fll_fratios[i].max) {
 			fll_div->fll_fratio = fll_fratios[i].fll_fratio;
@@ -1619,14 +1649,14 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 		return -EINVAL;
 	}
 
-	
+	/* Now, calculate N.K */
 	Ndiv = target / Fref;
 
 	fll_div->n = Ndiv;
 	Nmod = target % Fref;
 	pr_debug("Nmod=%d\n", Nmod);
 
-	
+	/* Calculate fractional part - scale up so we can round. */
 	Kpart = FIXED_FLL_SIZE * (long long)Nmod;
 
 	do_div(Kpart, Fref);
@@ -1636,7 +1666,7 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 	if ((K % 10) >= 5)
 		K += 5;
 
-	
+	/* Move down to proper range now rounding is done */
 	fll_div->k = K / 10;
 
 	pr_debug("N=%x K=%x FLL_FRATIO=%x FLL_OUTDIV=%x FLL_CLK_REF_DIV=%x\n",
@@ -1656,7 +1686,7 @@ static int wm8904_set_fll(struct snd_soc_dai *dai, int fll_id, int source,
 	int ret, val;
 	int clock2, fll1;
 
-	
+	/* Any change? */
 	if (source == wm8904->fll_src && Fref == wm8904->fll_fref &&
 	    Fout == wm8904->fll_fout)
 		return 0;
@@ -1669,7 +1699,7 @@ static int wm8904_set_fll(struct snd_soc_dai *dai, int fll_id, int source,
 		wm8904->fll_fref = 0;
 		wm8904->fll_fout = 0;
 
-		
+		/* Gate SYSCLK to avoid glitches */
 		snd_soc_update_bits(codec, WM8904_CLOCK_RATES_2,
 				    WM8904_CLK_SYS_ENA, 0);
 
@@ -1679,7 +1709,7 @@ static int wm8904_set_fll(struct snd_soc_dai *dai, int fll_id, int source,
 		goto out;
 	}
 
-	
+	/* Validate the FLL ID */
 	switch (source) {
 	case WM8904_FLL_MCLK:
 	case WM8904_FLL_LRCLK:
@@ -1691,7 +1721,7 @@ static int wm8904_set_fll(struct snd_soc_dai *dai, int fll_id, int source,
 
 	case WM8904_FLL_FREE_RUNNING:
 		dev_dbg(codec->dev, "Using free running FLL\n");
-		
+		/* Force 12MHz and output/4 for now */
 		Fout = 12000000;
 		Fref = 12000000;
 
@@ -1704,13 +1734,15 @@ static int wm8904_set_fll(struct snd_soc_dai *dai, int fll_id, int source,
 		return -EINVAL;
 	}
 
+	/* Save current state then disable the FLL and SYSCLK to avoid
+	 * misclocking */
 	fll1 = snd_soc_read(codec, WM8904_FLL_CONTROL_1);
 	snd_soc_update_bits(codec, WM8904_CLOCK_RATES_2,
 			    WM8904_CLK_SYS_ENA, 0);
 	snd_soc_update_bits(codec, WM8904_FLL_CONTROL_1,
 			    WM8904_FLL_OSC_ENA | WM8904_FLL_ENA, 0);
 
-	
+	/* Unlock forced oscilator control to switch it on/off */
 	snd_soc_update_bits(codec, WM8904_CONTROL_INTERFACE_TEST_1,
 			    WM8904_USER_KEY, WM8904_USER_KEY);
 
@@ -1770,14 +1802,14 @@ static int wm8904_set_fll(struct snd_soc_dai *dai, int fll_id, int source,
 	wm8904->fll_fout = Fout;
 	wm8904->fll_src = source;
 
-	
+	/* Enable the FLL if it was previously active */
 	snd_soc_update_bits(codec, WM8904_FLL_CONTROL_1,
 			    WM8904_FLL_OSC_ENA, fll1);
 	snd_soc_update_bits(codec, WM8904_FLL_CONTROL_1,
 			    WM8904_FLL_ENA, fll1);
 
 out:
-	
+	/* Reenable SYSCLK if it was previously active */
 	snd_soc_update_bits(codec, WM8904_CLOCK_RATES_2,
 			    WM8904_CLK_SYS_ENA, clock2);
 
@@ -1810,12 +1842,12 @@ static int wm8904_set_bias_level(struct snd_soc_codec *codec,
 		break;
 
 	case SND_SOC_BIAS_PREPARE:
-		
+		/* VMID resistance 2*50k */
 		snd_soc_update_bits(codec, WM8904_VMID_CONTROL_0,
 				    WM8904_VMID_RES_MASK,
 				    0x1 << WM8904_VMID_RES_SHIFT);
 
-		
+		/* Normal bias current */
 		snd_soc_update_bits(codec, WM8904_BIAS_CONTROL_0,
 				    WM8904_ISEL_MASK, 2 << WM8904_ISEL_SHIFT);
 		break;
@@ -1833,41 +1865,46 @@ static int wm8904_set_bias_level(struct snd_soc_codec *codec,
 
 			regcache_sync(wm8904->regmap);
 
-			
+			/* Enable bias */
 			snd_soc_update_bits(codec, WM8904_BIAS_CONTROL_0,
 					    WM8904_BIAS_ENA, WM8904_BIAS_ENA);
 
-			
+			/* Enable VMID, VMID buffering, 2*5k resistance */
 			snd_soc_update_bits(codec, WM8904_VMID_CONTROL_0,
 					    WM8904_VMID_ENA |
 					    WM8904_VMID_RES_MASK,
 					    WM8904_VMID_ENA |
 					    0x3 << WM8904_VMID_RES_SHIFT);
 
-			
+			/* Let VMID ramp */
 			msleep(1);
 		}
 
-		
+		/* Maintain VMID with 2*250k */
 		snd_soc_update_bits(codec, WM8904_VMID_CONTROL_0,
 				    WM8904_VMID_RES_MASK,
 				    0x2 << WM8904_VMID_RES_SHIFT);
 
-		
+		/* Bias current *0.5 */
 		snd_soc_update_bits(codec, WM8904_BIAS_CONTROL_0,
 				    WM8904_ISEL_MASK, 0);
 		break;
 
 	case SND_SOC_BIAS_OFF:
-		
+		/* Turn off VMID */
 		snd_soc_update_bits(codec, WM8904_VMID_CONTROL_0,
 				    WM8904_VMID_RES_MASK | WM8904_VMID_ENA, 0);
 
-		
+		/* Stop bias generation */
 		snd_soc_update_bits(codec, WM8904_BIAS_CONTROL_0,
 				    WM8904_BIAS_ENA, 0);
 
 #ifdef CONFIG_REGULATOR
+		/* Post 2.6.34 we will be able to get a callback when
+		 * the regulators are disabled which we can use but
+		 * for now just assume that the power will be cut if
+		 * the regulator API is in use.
+		 */
 		codec->cache_sync = 1;
 #endif
 
@@ -1944,6 +1981,10 @@ static void wm8904_handle_retune_mobile_pdata(struct snd_soc_codec *codec)
 	int ret, i, j;
 	const char **t;
 
+	/* We need an array of texts for the enum API but the number
+	 * of texts is likely to be less than the number of
+	 * configurations due to the sample rate dependency of the
+	 * configurations. */
 	wm8904->num_retune_mobile_texts = 0;
 	wm8904->retune_mobile_texts = NULL;
 	for (i = 0; i < pdata->num_retune_mobile_cfgs; i++) {
@@ -1956,7 +1997,7 @@ static void wm8904_handle_retune_mobile_pdata(struct snd_soc_codec *codec)
 		if (j != wm8904->num_retune_mobile_texts)
 			continue;
 
-		
+		/* Expand the array... */
 		t = krealloc(wm8904->retune_mobile_texts,
 			     sizeof(char *) * 
 			     (wm8904->num_retune_mobile_texts + 1),
@@ -1964,11 +2005,11 @@ static void wm8904_handle_retune_mobile_pdata(struct snd_soc_codec *codec)
 		if (t == NULL)
 			continue;
 
-		
+		/* ...store the new entry... */
 		t[wm8904->num_retune_mobile_texts] = 
 			pdata->retune_mobile_cfgs[i].name;
 
-		
+		/* ...and remember the new version. */
 		wm8904->num_retune_mobile_texts++;
 		wm8904->retune_mobile_texts = t;
 	}
@@ -2004,7 +2045,7 @@ static void wm8904_handle_pdata(struct snd_soc_codec *codec)
 			SOC_ENUM_EXT("DRC Mode", wm8904->drc_enum,
 				     wm8904_get_drc_enum, wm8904_put_drc_enum);
 
-		
+		/* We need an array of texts for the enum API */
 		wm8904->drc_texts = kmalloc(sizeof(char *)
 					    * pdata->num_drc_cfgs, GFP_KERNEL);
 		if (!wm8904->drc_texts) {
@@ -2109,7 +2150,7 @@ static int wm8904_probe(struct snd_soc_codec *codec)
 		goto err_enable;
 	}
 
-	
+	/* Change some default settings - latch VU and enable ZC */
 	snd_soc_update_bits(codec, WM8904_ADC_DIGITAL_VOLUME_LEFT,
 			    WM8904_ADC_VU, WM8904_ADC_VU);
 	snd_soc_update_bits(codec, WM8904_ADC_DIGITAL_VOLUME_RIGHT,
@@ -2133,7 +2174,7 @@ static int wm8904_probe(struct snd_soc_codec *codec)
 	snd_soc_update_bits(codec, WM8904_CLOCK_RATES_0,
 			    WM8904_SR_MODE, 0);
 
-	
+	/* Apply configuration from the platform data. */
 	if (wm8904->pdata) {
 		for (i = 0; i < WM8904_GPIO_REGS; i++) {
 			if (!pdata->gpio_cfg[i])
@@ -2143,22 +2184,25 @@ static int wm8904_probe(struct snd_soc_codec *codec)
 				= pdata->gpio_cfg[i] & 0xffff;
 		}
 
-		
+		/* Zero is the default value for these anyway */
 		for (i = 0; i < WM8904_MIC_REGS; i++)
 			reg_cache[WM8904_MIC_BIAS_CONTROL_0 + i]
 				= pdata->mic_cfg[i];
 	}
 
+	/* Set Class W by default - this will be managed by the Class
+	 * G widget at runtime where bypass paths are available.
+	 */
 	snd_soc_update_bits(codec, WM8904_CLASS_W_0,
 			    WM8904_CP_DYN_PWR, WM8904_CP_DYN_PWR);
 
-	
+	/* Use normal bias source */
 	snd_soc_update_bits(codec, WM8904_BIAS_CONTROL_0,
 			    WM8904_POBCTRL, 0);
 
 	wm8904_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
-	
+	/* Bias level configuration will have done an extra enable */
 	regulator_bulk_disable(ARRAY_SIZE(wm8904->supplies), wm8904->supplies);
 
 	wm8904_handle_pdata(codec);
@@ -2254,7 +2298,7 @@ static __devexit int wm8904_i2c_remove(struct i2c_client *client)
 static const struct i2c_device_id wm8904_i2c_id[] = {
 	{ "wm8904", WM8904 },
 	{ "wm8912", WM8912 },
-	{ "wm8918", WM8904 },   
+	{ "wm8918", WM8904 },   /* Actually a subset, updates to follow */
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, wm8904_i2c_id);

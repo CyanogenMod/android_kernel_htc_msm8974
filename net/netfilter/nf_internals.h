@@ -12,6 +12,7 @@
 #endif
 
 
+/* core.c */
 extern unsigned int nf_iterate(struct list_head *head,
 				struct sk_buff *skb,
 				unsigned int hook,
@@ -21,6 +22,7 @@ extern unsigned int nf_iterate(struct list_head *head,
 				int (*okfn)(struct sk_buff *),
 				int hook_thresh);
 
+/* nf_queue.c */
 extern int nf_queue(struct sk_buff *skb,
 		    struct list_head *elem,
 		    u_int8_t pf, unsigned int hook,
@@ -30,6 +32,7 @@ extern int nf_queue(struct sk_buff *skb,
 		    unsigned int queuenum);
 extern int __init netfilter_queue_init(void);
 
+/* nf_log.c */
 extern int __init netfilter_log_init(void);
 
 #endif

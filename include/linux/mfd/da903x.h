@@ -1,6 +1,7 @@
 #ifndef __LINUX_PMIC_DA903X_H
 #define __LINUX_PMIC_DA903X_H
 
+/* Unified sub device IDs for DA9030/DA9034/DA9035 */
 enum {
 	DA9030_ID_LED_1,
 	DA9030_ID_LED_2,
@@ -30,8 +31,8 @@ enum {
 	DA9030_ID_LDO17,
 	DA9030_ID_LDO18,
 	DA9030_ID_LDO19,
-	DA9030_ID_LDO_INT,	
-	DA9030_ID_BAT,		
+	DA9030_ID_LDO_INT,	/* LDO Internal */
+	DA9030_ID_BAT,		/* battery charger */
 
 	DA9034_ID_LED_1,
 	DA9034_ID_LED_2,
@@ -60,7 +61,13 @@ enum {
 	DA9035_ID_BUCK3,
 };
 
+/*
+ * DA9030/DA9034 LEDs sub-devices uses generic "struct led_info"
+ * as the platform_data
+ */
 
+/* DA9030 flags for "struct led_info"
+ */
 #define DA9030_LED_RATE_ON	(0 << 5)
 #define DA9030_LED_RATE_052S	(1 << 5)
 #define DA9030_LED_DUTY_1_16	(0 << 3)
@@ -79,48 +86,53 @@ enum {
 #define DA9030_VIBRA_DUTY_50P	(2 << 4)
 #define DA9030_VIBRA_DUTY_25P	(3 << 4)
 
+/* DA9034 flags for "struct led_info" */
 #define DA9034_LED_RAMP		(1 << 7)
 
+/* DA9034 touch screen platform data */
 struct da9034_touch_pdata {
-	int	interval_ms;	
+	int	interval_ms;	/* sampling interval while pen down */
 	int	x_inverted;
 	int	y_inverted;
 };
 
 struct da9034_backlight_pdata {
-	int	output_current;	
+	int	output_current;	/* output current of WLED, from 0-31 (in mA) */
 };
 
+/* DA9030 battery charger data */
 struct power_supply_info;
 
 struct da9030_battery_info {
-	
+	/* battery parameters */
 	struct power_supply_info *battery_info;
 
-	
+	/* current and voltage to use for battery charging */
 	unsigned int charge_milliamp;
 	unsigned int charge_millivolt;
 
-	
+	/* voltage thresholds (in millivolts) */
 	int vbat_low;
 	int vbat_crit;
 	int vbat_charge_start;
 	int vbat_charge_stop;
 	int vbat_charge_restart;
 
-	
+	/* battery nominal minimal and maximal voltages in millivolts */
 	int vcharge_min;
 	int vcharge_max;
 
+	/* Temperature thresholds. These are DA9030 register values
+	   "as is" and should be measured for each battery type */
 	int tbat_low;
 	int tbat_high;
 	int tbat_restart;
 
 
-	
+	/* battery monitor interval (seconds) */
 	unsigned int batmon_interval;
 
-	
+	/* platform callbacks for battery low and critical events */
 	void (*battery_low)(void);
 	void (*battery_critical)(void);
 };
@@ -136,6 +148,7 @@ struct da903x_platform_data {
 	struct da903x_subdev_info *subdevs;
 };
 
+/* bit definitions for DA9030 events */
 #define DA9030_EVENT_ONKEY		(1 << 0)
 #define	DA9030_EVENT_PWREN		(1 << 1)
 #define	DA9030_EVENT_EXTON		(1 << 2)
@@ -159,6 +172,7 @@ struct da903x_platform_data {
 #define	DA9030_EVENT_LDO19		(1 << 20)
 #define	DA9030_EVENT_BUCK2		(1 << 21)
 
+/* bit definitions for DA9034 events */
 #define DA9034_EVENT_ONKEY		(1 << 0)
 #define DA9034_EVENT_EXTON		(1 << 2)
 #define DA9034_EVENT_CHDET		(1 << 3)
@@ -191,6 +205,7 @@ extern int da903x_register_notifier(struct device *dev,
 extern int da903x_unregister_notifier(struct device *dev,
 		struct notifier_block *nb, unsigned int events);
 
+/* Status Query Interface */
 #define DA9030_STATUS_ONKEY		(1 << 0)
 #define DA9030_STATUS_PWREN1		(1 << 1)
 #define DA9030_STATUS_EXTON		(1 << 2)
@@ -219,6 +234,9 @@ extern int da903x_unregister_notifier(struct device *dev,
 extern int da903x_query_status(struct device *dev, unsigned int status);
 
 
+/* NOTE: the functions below are not intended for use outside
+ * of the DA903x sub-device drivers
+ */
 extern int da903x_write(struct device *dev, int reg, uint8_t val);
 extern int da903x_writes(struct device *dev, int reg, int len, uint8_t *val);
 extern int da903x_read(struct device *dev, int reg, uint8_t *val);
@@ -226,4 +244,4 @@ extern int da903x_reads(struct device *dev, int reg, int len, uint8_t *val);
 extern int da903x_update(struct device *dev, int reg, uint8_t val, uint8_t mask);
 extern int da903x_set_bits(struct device *dev, int reg, uint8_t bit_mask);
 extern int da903x_clr_bits(struct device *dev, int reg, uint8_t bit_mask);
-#endif 
+#endif /* __LINUX_PMIC_DA903X_H */

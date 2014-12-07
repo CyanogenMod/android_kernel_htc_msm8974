@@ -87,7 +87,7 @@ void update_vsyscall(struct timespec *wall_time, struct timespec *wtm,
 
 	write_seqcount_begin(&vsyscall_gtod_data.seq);
 
-	
+	/* copy vsyscall data */
 	vsyscall_gtod_data.clock.vclock_mode	= clock->archdata.vclock_mode;
 	vsyscall_gtod_data.clock.cycle_last	= clock->cycle_last;
 	vsyscall_gtod_data.clock.mask		= clock->mask;
@@ -141,12 +141,16 @@ static int addr_to_vsyscall_nr(unsigned long addr)
 
 static bool write_ok_or_segv(unsigned long ptr, size_t size)
 {
+	/*
+	 * XXX: if access_ok, get_user, and put_user handled
+	 * sig_on_uaccess_error, this could go away.
+	 */
 
 	if (!access_ok(VERIFY_WRITE, (void __user *)ptr, size)) {
 		siginfo_t info;
 		struct thread_struct *thread = &current->thread;
 
-		thread->error_code	= 6;  
+		thread->error_code	= 6;  /* user fault, no page, write */
 		thread->cr2		= ptr;
 		thread->trap_nr		= X86_TRAP_PF;
 
@@ -171,6 +175,10 @@ bool emulate_vsyscall(struct pt_regs *regs, unsigned long address)
 	int prev_sig_on_uaccess_error;
 	long ret;
 
+	/*
+	 * No point in checking CS -- the only way to get here is a user mode
+	 * trap to a high address, which means that we're in 64-bit user code.
+	 */
 
 	WARN_ON_ONCE(address != regs->ip);
 
@@ -200,9 +208,19 @@ bool emulate_vsyscall(struct pt_regs *regs, unsigned long address)
 	if (seccomp_mode(&tsk->seccomp))
 		do_exit(SIGKILL);
 
+	/*
+	 * With a real vsyscall, page faults cause SIGSEGV.  We want to
+	 * preserve that behavior to make writing exploits harder.
+	 */
 	prev_sig_on_uaccess_error = current_thread_info()->sig_on_uaccess_error;
 	current_thread_info()->sig_on_uaccess_error = 1;
 
+	/*
+	 * NULL is a valid user pointer (in the access_ok sense) on 32-bit and
+	 * 64-bit, so we don't need to special-case it here.  For all the
+	 * vsyscalls, NULL means "don't write anything" not "write it at
+	 * address 0".
+	 */
 	ret = -EFAULT;
 	switch (vsyscall_nr) {
 	case 0:
@@ -236,20 +254,24 @@ bool emulate_vsyscall(struct pt_regs *regs, unsigned long address)
 	current_thread_info()->sig_on_uaccess_error = prev_sig_on_uaccess_error;
 
 	if (ret == -EFAULT) {
-		
+		/* Bad news -- userspace fed a bad pointer to a vsyscall. */
 		warn_bad_vsyscall(KERN_INFO, regs,
 				  "vsyscall fault (exploit attempt?)");
 
+		/*
+		 * If we failed to generate a signal for any reason,
+		 * generate one here.  (This should be impossible.)
+		 */
 		if (WARN_ON_ONCE(!sigismember(&tsk->pending.signal, SIGBUS) &&
 				 !sigismember(&tsk->pending.signal, SIGSEGV)))
 			goto sigsegv;
 
-		return true;  
+		return true;  /* Don't emulate the ret. */
 	}
 
 	regs->ax = ret;
 
-	
+	/* Emulate a ret instruction. */
 	regs->ip = caller;
 	regs->sp += 8;
 
@@ -260,6 +282,10 @@ sigsegv:
 	return true;
 }
 
+/*
+ * Assume __initcall executes before all user space. Hopefully kmod
+ * doesn't violate that. We'll find out if it does.
+ */
 static void __cpuinit vsyscall_set_cpu(int cpu)
 {
 	unsigned long d;
@@ -270,6 +296,10 @@ static void __cpuinit vsyscall_set_cpu(int cpu)
 	if (cpu_has(&cpu_data(cpu), X86_FEATURE_RDTSCP))
 		write_rdtscp_aux((node << 12) | cpu);
 
+	/*
+	 * Store cpu number in limit so that it can be loaded quickly
+	 * in user space in vgetcpu. (12 bits for the CPU and 8 bits for the node)
+	 */
 	d = 0x0f40000000000ULL;
 	d |= cpu;
 	d |= (node & 0xf) << 12;
@@ -280,7 +310,7 @@ static void __cpuinit vsyscall_set_cpu(int cpu)
 
 static void __cpuinit cpu_vsyscall_init(void *arg)
 {
-	
+	/* preemption should be already off */
 	vsyscall_set_cpu(raw_smp_processor_id());
 }
 
@@ -319,7 +349,7 @@ static int __init vsyscall_init(void)
 	BUG_ON(VSYSCALL_ADDR(0) != __fix_to_virt(VSYSCALL_FIRST_PAGE));
 
 	on_each_cpu(cpu_vsyscall_init, NULL, 1);
-	
+	/* notifier priority > KVM */
 	hotcpu_notifier(cpu_vsyscall_notifier, 30);
 
 	return 0;

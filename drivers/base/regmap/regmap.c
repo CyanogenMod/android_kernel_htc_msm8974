@@ -158,6 +158,17 @@ static unsigned int regmap_parse_32(void *buf)
 	return b[0];
 }
 
+/**
+ * regmap_init(): Initialise register map
+ *
+ * @dev: Device that will be interacted with
+ * @bus: Bus-specific callbacks to use with device
+ * @config: Configuration for register map
+ *
+ * The return value will be an ERR_PTR() on error or a valid pointer to
+ * a struct regmap.  This function should generally not be called
+ * directly, it should be called by bus-specific init functions.
+ */
 struct regmap *regmap_init(struct device *dev,
 			   const struct regmap_bus *bus,
 			   const struct regmap_config *config)
@@ -300,6 +311,18 @@ static void devm_regmap_release(struct device *dev, void *res)
 	regmap_exit(*(struct regmap **)res);
 }
 
+/**
+ * devm_regmap_init(): Initialise managed register map
+ *
+ * @dev: Device that will be interacted with
+ * @bus: Bus-specific callbacks to use with device
+ * @config: Configuration for register map
+ *
+ * The return value will be an ERR_PTR() on error or a valid pointer
+ * to a struct regmap.  This function should generally not be called
+ * directly, it should be called by bus-specific init functions.  The
+ * map will be automatically freed by the device management code.
+ */
 struct regmap *devm_regmap_init(struct device *dev,
 				const struct regmap_bus *bus,
 				const struct regmap_config *config)
@@ -322,6 +345,17 @@ struct regmap *devm_regmap_init(struct device *dev,
 }
 EXPORT_SYMBOL_GPL(devm_regmap_init);
 
+/**
+ * regmap_reinit_cache(): Reinitialise the current register cache
+ *
+ * @map: Register map to operate on.
+ * @config: New configuration.  Only the cache data will be used.
+ *
+ * Discard any existing register cache for the map and initialize a
+ * new cache.  This can be used to restore the cache to defaults or to
+ * update the cache configuration to reflect runtime discovery of the
+ * hardware.
+ */
 int regmap_reinit_cache(struct regmap *map, const struct regmap_config *config)
 {
 	int ret;
@@ -350,6 +384,9 @@ int regmap_reinit_cache(struct regmap *map, const struct regmap_config *config)
 	return ret;
 }
 
+/**
+ * regmap_exit(): Free a previously allocated register map
+ */
 void regmap_exit(struct regmap *map)
 {
 	regcache_exit(map);
@@ -368,7 +405,7 @@ static int _regmap_raw_write(struct regmap *map, unsigned int reg,
 	size_t len;
 	int i;
 
-	
+	/* Check for unwritable registers before we start */
 	if (map->writeable_reg)
 		for (i = 0; i < val_len / map->format.val_bytes; i++)
 			if (!map->writeable_reg(map->dev, reg + i))
@@ -401,6 +438,10 @@ static int _regmap_raw_write(struct regmap *map, unsigned int reg,
 	trace_regmap_hw_write_start(map->dev, reg,
 				    val_len / map->format.val_bytes);
 
+	/* If we're doing a single register write we can probably just
+	 * send the work_buf directly, otherwise try to do a gather
+	 * write.
+	 */
 	if (val == (map->work_buf + map->format.pad_bytes +
 		    map->format.reg_bytes))
 		ret = map->bus->write(map->dev, map->work_buf,
@@ -413,7 +454,7 @@ static int _regmap_raw_write(struct regmap *map, unsigned int reg,
 					     map->format.pad_bytes,
 					     val, val_len);
 
-	
+	/* If that didn't work fall back on linearising by hand. */
 	if (ret == -ENOTSUPP) {
 		len = map->format.reg_bytes + map->format.pad_bytes + val_len;
 		buf = kzalloc(len, GFP_KERNEL);
@@ -555,7 +596,7 @@ int regmap_bulk_write(struct regmap *map, unsigned int reg, const void *val,
 
 	mutex_lock(&map->lock);
 
-	
+	/* No formatting is require if val_byte is 1 */
 	if (val_bytes == 1) {
 		wval = (void *)val;
 	} else {
@@ -587,6 +628,12 @@ static int _regmap_raw_read(struct regmap *map, unsigned int reg, void *val,
 
 	map->format.format_reg(map->work_buf, reg);
 
+	/*
+	 * Some buses or devices flag reads by setting the high bits in the
+	 * register addresss; since it's always the high bits for all
+	 * current formats we can do this here rather than in
+	 * formatting.  This may break if we get interesting formats.
+	 */
 	u8[0] |= map->read_flag_mask;
 
 	trace_regmap_hw_read_start(map->dev, reg,
@@ -628,6 +675,16 @@ static int _regmap_read(struct regmap *map, unsigned int reg,
 	return ret;
 }
 
+/**
+ * regmap_read(): Read a value from a single register
+ *
+ * @map: Register map to write to
+ * @reg: Register to be read from
+ * @val: Pointer to store read value
+ *
+ * A value of zero will be returned on success, a negative errno will
+ * be returned in error cases.
+ */
 int regmap_read(struct regmap *map, unsigned int reg, unsigned int *val)
 {
 	int ret;
@@ -642,6 +699,17 @@ int regmap_read(struct regmap *map, unsigned int reg, unsigned int *val)
 }
 EXPORT_SYMBOL_GPL(regmap_read);
 
+/**
+ * regmap_raw_read(): Read raw data from the device
+ *
+ * @map: Register map to write to
+ * @reg: First register to be read from
+ * @val: Pointer to store read value
+ * @val_len: Size of data to read
+ *
+ * A value of zero will be returned on success, a negative errno will
+ * be returned in error cases.
+ */
 int regmap_raw_read(struct regmap *map, unsigned int reg, void *val,
 		    size_t val_len)
 {
@@ -654,10 +722,13 @@ int regmap_raw_read(struct regmap *map, unsigned int reg, void *val,
 
 	if (regmap_volatile_range(map, reg, val_count) || map->cache_bypass ||
 	    map->cache_type == REGCACHE_NONE) {
-		
+		/* Physical block read if there's no cache involved */
 		ret = _regmap_raw_read(map, reg, val, val_len);
 
 	} else {
+		/* Otherwise go word by word for the cache; should be low
+		 * cost as we expect to hit the cache.
+		 */
 		for (i = 0; i < val_count; i++) {
 			ret = _regmap_read(map, reg + i, &v);
 			if (ret != 0)
@@ -674,6 +745,17 @@ int regmap_raw_read(struct regmap *map, unsigned int reg, void *val,
 }
 EXPORT_SYMBOL_GPL(regmap_raw_read);
 
+/**
+ * regmap_bulk_read(): Read multiple registers from the device
+ *
+ * @map: Register map to write to
+ * @reg: First register to be read from
+ * @val: Pointer to store read value, in native register size for device
+ * @val_count: Number of registers to read
+ *
+ * A value of zero will be returned on success, a negative errno will
+ * be returned in error cases.
+ */
 int regmap_bulk_read(struct regmap *map, unsigned int reg, void *val,
 		     size_t val_count)
 {
@@ -734,6 +816,16 @@ out:
 	return ret;
 }
 
+/**
+ * regmap_update_bits: Perform a read/modify/write cycle on the register map
+ *
+ * @map: Register map to update
+ * @reg: Register to update
+ * @mask: Bitmask to change
+ * @val: New value for bitmask
+ *
+ * Returns zero for success, a negative number on error.
+ */
 int regmap_update_bits(struct regmap *map, unsigned int reg,
 		       unsigned int mask, unsigned int val)
 {
@@ -742,6 +834,18 @@ int regmap_update_bits(struct regmap *map, unsigned int reg,
 }
 EXPORT_SYMBOL_GPL(regmap_update_bits);
 
+/**
+ * regmap_update_bits_check: Perform a read/modify/write cycle on the
+ *                           register map and report if updated
+ *
+ * @map: Register map to update
+ * @reg: Register to update
+ * @mask: Bitmask to change
+ * @val: New value for bitmask
+ * @change: Boolean indicating if a write was done
+ *
+ * Returns zero for success, a negative number on error.
+ */
 int regmap_update_bits_check(struct regmap *map, unsigned int reg,
 			     unsigned int mask, unsigned int val,
 			     bool *change)
@@ -750,13 +854,27 @@ int regmap_update_bits_check(struct regmap *map, unsigned int reg,
 }
 EXPORT_SYMBOL_GPL(regmap_update_bits_check);
 
+/**
+ * regmap_register_patch: Register and apply register updates to be applied
+ *                        on device initialistion
+ *
+ * @map: Register map to apply updates to.
+ * @regs: Values to update.
+ * @num_regs: Number of entries in regs.
+ *
+ * Register a set of register updates to be applied to the device
+ * whenever the device registers are synchronised with the cache and
+ * apply them immediately.  Typically this is used to apply
+ * corrections to be applied to the device defaults on startup, such
+ * as the updates some vendors provide to undocumented registers.
+ */
 int regmap_register_patch(struct regmap *map, const struct reg_default *regs,
 			  int num_regs)
 {
 	int i, ret;
 	bool bypass;
 
-	
+	/* If needed the implementation can be extended to support this */
 	if (map->patch)
 		return -EBUSY;
 
@@ -766,7 +884,7 @@ int regmap_register_patch(struct regmap *map, const struct reg_default *regs,
 
 	map->cache_bypass = true;
 
-	
+	/* Write out first; it's useful to apply even if we fail later. */
 	for (i = 0; i < num_regs; i++) {
 		ret = _regmap_write(map, regs[i].reg, regs[i].def);
 		if (ret != 0) {
@@ -794,6 +912,12 @@ out:
 }
 EXPORT_SYMBOL_GPL(regmap_register_patch);
 
+/*
+ * regmap_get_val_bytes(): Report the size of a register value
+ *
+ * Report the size of a register value, mainly intended to for use by
+ * generic infrastructure built on top of regmap.
+ */
 int regmap_get_val_bytes(struct regmap *map)
 {
 	if (map->format.format_write)

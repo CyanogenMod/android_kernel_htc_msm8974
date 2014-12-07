@@ -1,3 +1,8 @@
+/*
+ *  linux/arch/m68k/sun3x/time.c
+ *
+ *  Sun3x-specific time handling
+ */
 
 #include <linux/types.h>
 #include <linux/kd.h>
@@ -65,6 +70,7 @@ int sun3x_hwclk(int set, struct rtc_time *t)
 
 	return 0;
 }
+/* Not much we can do here */
 unsigned long sun3x_gettimeoffset (void)
 {
     return 0L;
@@ -75,7 +81,7 @@ static void sun3x_timer_tick(int irq, void *dev_id, struct pt_regs *regs)
 {
     void (*vector)(int, void *, struct pt_regs *) = dev_id;
 
-    
+    /* Clear the pending interrupt - pulse the enable line low */
     disable_irq(5);
     enable_irq(5);
 
@@ -89,7 +95,7 @@ void __init sun3x_sched_init(irq_handler_t vector)
 	sun3_disable_interrupts();
 
 
-    
+    /* Pulse enable low to get the clock started */
 	sun3_disable_irq(5);
 	sun3_enable_irq(5);
 	sun3_enable_interrupts();

@@ -61,6 +61,9 @@
 #define DSPS_BW_VOTE_OFF        0x00000800
 #define DSPS_PHYS_ADDR_SET      0x00001000
 
+/*
+ *  Structure contains all state used by the sensors driver
+ */
 struct sns_adsp_control_s {
 	wait_queue_head_t sns_wait;
 	spinlock_t sns_lock;
@@ -88,6 +91,10 @@ struct sns_adsp_control_s {
 
 static struct sns_adsp_control_s sns_ctl;
 
+/*
+ * All asynchronous responses from the OCMEM driver are received
+ * by this function
+ */
 int sns_ocmem_drv_cb(struct notifier_block *self,
 			unsigned long action,
 			void *dev)
@@ -144,6 +151,13 @@ int sns_ocmem_drv_cb(struct notifier_block *self,
 	return 0;
 }
 
+/*
+ * Processes messages received through SMD from the ADSP
+ *
+ * @param hdr The message header
+ * @param msg Message pointer
+ *
+ */
 void sns_ocmem_smd_process(struct sns_ocmem_hdr_s *hdr, void *msg)
 {
 	unsigned long flags;
@@ -191,7 +205,7 @@ void sns_ocmem_smd_process(struct sns_ocmem_hdr_s *hdr, void *msg)
 		}
 	} else if (hdr->msg_id == SNS_OCMEM_BW_VOTE_RESP_V01 &&
 		   hdr->msg_type == SNS_OCMEM_MSG_TYPE_RESP) {
-		
+		/* no need to handle this response msg, just return */
 		pr_debug("%s: Received SNS_OCMEM_BW_VOTE_RESP_V01\n", __func__);
 		spin_unlock_irqrestore(&sns_ctl.sns_lock, flags);
 		return;
@@ -253,6 +267,11 @@ static void sns_ocmem_smd_read(struct work_struct *ws)
 	}
 }
 
+/*
+ * All SMD notifications and messages from Sensors on ADSP are
+ * received by this function
+ *
+ */
 void sns_ocmem_smd_notify_data(void *data, unsigned int event)
 {
 	if (event == SMD_EVENT_DATA) {
@@ -279,6 +298,16 @@ static bool sns_ocmem_is_status_set(uint32_t sns_ocmem_status)
 	return is_set;
 }
 
+/*
+ * Wait for a response from ADSP or OCMEM Driver, timeout if necessary
+ *
+ * @param sns_ocmem_status Status flags to wait for.
+ * @param timeout_sec Seconds to wait before timeout
+ * @param timeout_nsec Nanoseconds to wait.  Total timeout = nsec + sec
+ *
+ * @return 0 If any status flag is set at any time prior to a timeout.
+ *	0 if success or timedout ; <0 for failures
+ */
 static int sns_ocmem_wait(uint32_t sns_ocmem_status,
 			  uint32_t timeout_ms)
 {
@@ -294,7 +323,7 @@ static int sns_ocmem_wait(uint32_t sns_ocmem_status,
 		else if (err < 0)
 			pr_err("%s: interruptible_timeout failed err=%i\n",
 							__func__, err);
-	} else { 
+	} else { /* no timeout */
 		err = wait_event_interruptible(sns_ctl.sns_wait,
 			sns_ocmem_is_status_set(sns_ocmem_status));
 		if (err < 0)
@@ -305,6 +334,15 @@ static int sns_ocmem_wait(uint32_t sns_ocmem_status,
 	return err;
 }
 
+/*
+ * Sends a message to the ADSP via SMD.
+ *
+ * @param hdr Specifies message type and other meta data
+ * @param msg_ptr Pointer to the message contents.
+ *                Must be freed within this function if no error is returned.
+ *
+ * @return 0 upon success; < 0 upon error
+ */
 static int
 sns_ocmem_send_msg(struct sns_ocmem_hdr_s *hdr, void const *msg_ptr)
 {
@@ -355,6 +393,9 @@ out:
 	return rv;
 }
 
+/*
+ * Load ADSP Firmware.
+ */
 
 static int sns_load_adsp(void)
 {
@@ -453,13 +494,19 @@ fail1:
 }
 
 
+/*
+ * Initialize all sensors ocmem driver data fields and register with the
+ * ocmem driver.
+ *
+ * @return 0 upon success; < 0 upon error
+ */
 static int sns_ocmem_init(void)
 {
 	int i, err, ret;
 	struct sns_ocmem_hdr_s addr_req_hdr;
 	struct msm_bus_scale_pdata *sns_ocmem_bus_scale_pdata = NULL;
 
-	
+	/* register from OCMEM callack */
 	sns_ctl.ocmem_handle =
 		ocmem_notifier_register(SNS_OCMEM_CLIENT_ID,
 		&sns_ctl.ocmem_nb);
@@ -468,7 +515,7 @@ static int sns_ocmem_init(void)
 		return -EFAULT;
 	}
 
-	
+	/* populate platform data */
 	ret = sns_ocmem_platform_data_populate(sns_ctl.pdev);
 	if (ret) {
 		dev_err(&sns_ctl.pdev->dev,
@@ -487,12 +534,16 @@ static int sns_ocmem_init(void)
 		return -EFAULT;
 	}
 
-	
+	/* load ADSP first */
 	if (sns_load_adsp() != 0) {
 		pr_err("%s: sns_load_adsp failed\n", __func__);
 		return -EFAULT;
 	}
 
+	/*
+	 * wait before open SMD channel from kernel to ensure
+	 * channel has been openned already from ADSP side
+	 */
 	msleep(1000);
 
 	err = smd_named_open_on_edge(SNS_OCMEM_SMD_CHANNEL,
@@ -506,7 +557,7 @@ static int sns_ocmem_init(void)
 	}
 
 	pr_debug("%s: SMD channel openned successfuly!\n", __func__);
-	
+	/* wait for the channel ready before writing data */
 	msleep(1000);
 	addr_req_hdr.msg_id = SNS_OCMEM_PHYS_ADDR_REQ_V01;
 	addr_req_hdr.msg_type = SNS_OCMEM_MSG_TYPE_REQ;
@@ -543,6 +594,10 @@ static int sns_ocmem_init(void)
 	return 0;
 }
 
+/*
+ * Unmaps memory in ocmem back to DDR, indicates to the ADSP its completion,
+ * and waits for it to finish removing its bandwidth vote.
+ */
 static void sns_ocmem_unmap(void)
 {
 	unsigned long flags;
@@ -585,6 +640,12 @@ static void sns_ocmem_unmap(void)
 				sns_ctl.buf, OCMEM_OFF);
 }
 
+/*
+ * Waits for allocation to succeed.  This may take considerable time if the device
+ * is presently in a high-power use case.
+ *
+ * @return 0 on success; < 0 upon error
+ */
 static int sns_ocmem_wait_for_alloc(void)
 {
 	int err = 0;
@@ -608,6 +669,12 @@ static int sns_ocmem_wait_for_alloc(void)
 	return 0;
 }
 
+/*
+ * Kicks-off the mapping of memory from DDR to ocmem.  Waits for the process
+ * to complete, then indicates so to the ADSP.
+ *
+ * @return 0: Success; < 0: Other error
+ */
 static int sns_ocmem_map(void)
 {
 	int err = 0;
@@ -618,7 +685,7 @@ static int sns_ocmem_map(void)
 			(~SNS_OCMEM_MAP_FAIL & ~SNS_OCMEM_MAP_DONE);
 	spin_unlock_irqrestore(&sns_ctl.sns_lock, flags);
 
-	
+	/* vote for ocmem bus bandwidth */
 	err = msm_bus_scale_client_update_request(
 				sns_ctl.sns_ocmem_bus_client,
 				0);
@@ -680,6 +747,11 @@ static int sns_ocmem_map(void)
 	return err;
 }
 
+/*
+ * Allocates memory in ocmem and maps to it from DDR.
+ *
+ * @return 0 upon success; <0 upon failure;
+ */
 static int sns_ocmem_alloc(void)
 {
 	int err = 0;
@@ -748,6 +820,12 @@ static int sns_ocmem_alloc(void)
 	return err;
 }
 
+/*
+ * Indicate to the ADSP that unmapping has completed, and wait for the response
+ * that its bandwidth vote has been removed.
+ *
+ * @return 0 Upon success; < 0 upon error
+ */
 static int sns_ocmem_unmap_send(void)
 {
 	int err;
@@ -777,6 +855,12 @@ static int sns_ocmem_unmap_send(void)
 	return err;
 }
 
+/*
+ * Indicate to the ADSP that mapping has completed, and wait for the response
+ * that its bandwidth vote has been made.
+ *
+ * @return 0 Upon success; < 0 upon error
+ */
 static int sns_ocmem_map_send(void)
 {
 	int err;
@@ -794,7 +878,7 @@ static int sns_ocmem_map_send(void)
 	vectors = ocmem_get_vectors(SNS_OCMEM_CLIENT_ID, sns_ctl.buf);
 	if ((vectors != NULL)) {
 		memcpy(&msg.vectors, vectors, sizeof(*vectors));
-		
+		/* TODO: set vectors_len */
 		msg.vectors_valid = true;
 		msg.vectors_len = 0;
 	}
@@ -813,6 +897,14 @@ static int sns_ocmem_map_send(void)
 	return err;
 }
 
+/*
+ * Perform the encessary operations to clean-up OCMEM after being notified that
+ * there is no longer a client; if sensors was evicted; or if some error
+ * has occurred.
+ *
+ * @param[i] do_free Whether the memory should be freed (true) or if shrink
+ *                   should be called instead (false).
+ */
 static void sns_ocmem_evicted(bool do_free)
 {
 	int err = 0;
@@ -831,6 +923,12 @@ static void sns_ocmem_evicted(bool do_free)
 		pr_err("sns_ocmem_unmap_send failed %i\n", err);
 }
 
+/*
+ * After mapping has completed and the ADSP has reacted appropriately, wait
+ * for a shrink command or word from the ADSP that it no longer has a client.
+ *
+ * @return 0 If no clients; < 0 upon error;
+ */
 static int sns_ocmem_map_done(void)
 {
 	int err = 0;
@@ -873,6 +971,10 @@ static int sns_ocmem_map_done(void)
 	return err;
 }
 
+/*
+ * Main function.
+ * Initializes sensors ocmem feature, and waits for an ADSP client.
+ */
 static void sns_ocmem_main(struct work_struct *work)
 {
 	int err = 0;
@@ -920,16 +1022,31 @@ static int sensors_adsp_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * Read QTimer clock ticks and scale down to 32KHz clock as used
+ * in DSPS
+ */
 static u32 sns_read_qtimer(void)
 {
 	u64 val;
 	val = arch_counter_get_cntpct();
+	/*
+	 * To convert ticks from 19.2 Mhz clock to 32768 Hz clock:
+	 * x = (value * 32768) / 19200000
+	 * This is same as first left shift the value by 4 bits, i.e. mutiply
+	 * by 16, and then divide by 9375. The latter is preferable since
+	 * QTimer tick (value) is 56-bit, so (value * 32768) could overflow,
+	 * while (value * 16) will never do
+	 */
 	val <<= 4;
 	do_div(val, 9375);
 
 	return (u32)val;
 }
 
+/*
+ * IO Control - handle commands from client.
+ */
 static long sensors_adsp_ioctl(struct file *file,
 			unsigned int cmd, unsigned long arg)
 {
@@ -950,6 +1067,9 @@ static long sensors_adsp_ioctl(struct file *file,
 	return ret;
 }
 
+/*
+ * platform driver
+ */
 const struct file_operations sensors_adsp_fops = {
 	.owner = THIS_MODULE,
 	.open = sensors_adsp_open,
@@ -1083,6 +1203,9 @@ static struct platform_driver sensors_adsp_driver = {
 	.remove = sensors_adsp_remove,
 };
 
+/*
+ * Module Init.
+ */
 static int sensors_adsp_init(void)
 {
 	int rc;
@@ -1099,6 +1222,9 @@ static int sensors_adsp_init(void)
 	return 0;
 }
 
+/*
+ * Module Exit.
+ */
 static void sensors_adsp_exit(void)
 {
 	platform_driver_unregister(&sensors_adsp_driver);

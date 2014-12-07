@@ -67,7 +67,7 @@ enum perf_level {
 };
 
 static const u32 clock_table[][3] = {
-	
+	/*{ARM_CLK, DIVarm, DIVhclk}*/
 	{L0 * 1000, (0 << ARM_DIV_RATIO_SHIFT), (3 << S5P64X0_CLKDIV0_HCLK_SHIFT)},
 	{L1 * 1000, (1 << ARM_DIV_RATIO_SHIFT), (1 << S5P64X0_CLKDIV0_HCLK_SHIFT)},
 	{L2 * 1000, (3 << ARM_DIV_RATIO_SHIFT), (0 << S5P64X0_CLKDIV0_HCLK_SHIFT)},
@@ -78,7 +78,7 @@ static unsigned long s5p64x0_armclk_get_rate(struct clk *clk)
 	unsigned long rate = clk_get_rate(clk->parent);
 	u32 clkdiv;
 
-	
+	/* divisor mask starts at bit0, so no need to shift */
 	clkdiv = __raw_readl(ARM_CLK_DIV) & ARM_DIV_MASK;
 
 	return rate / (clkdiv + 1);
@@ -120,7 +120,7 @@ static int s5p64x0_armclk_set_rate(struct clk *clk, unsigned long rate)
 
 	local_irq_save(flags);
 	if (cur_rate > round_tmp) {
-		
+		/* Frequency Down */
 		clk_div0_tmp = __raw_readl(ARM_CLK_DIV) & ~(ARM_DIV_MASK);
 		clk_div0_tmp |= clock_table[iter][1];
 		__raw_writel(clk_div0_tmp, ARM_CLK_DIV);
@@ -132,7 +132,7 @@ static int s5p64x0_armclk_set_rate(struct clk *clk, unsigned long rate)
 
 
 	} else {
-		
+		/* Frequency Up */
 		clk_div0_tmp = __raw_readl(ARM_CLK_DIV) &
 				~(S5P64X0_CLKDIV0_HCLK_MASK);
 		clk_div0_tmp |= clock_table[iter][2];
@@ -219,7 +219,7 @@ int s5p64x0_clk48m_ctrl(struct clk *clk, int enable)
 	unsigned long flags;
 	u32 val;
 
-	
+	/* can't rely on clock lock, this register has other usages */
 	local_irq_save(flags);
 
 	val = __raw_readl(S5P64X0_OTHERS);

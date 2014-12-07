@@ -42,6 +42,7 @@
 #include <linux/ctype.h>
 #include <linux/textsearch.h>
 
+/* Alphabet size, use ASCII */
 #define ASIZE 256
 
 #if 0
@@ -81,13 +82,13 @@ static unsigned int bm_find(struct ts_config *conf, struct ts_state *state)
 					!= bm->pattern[bm->patlen-1-i])
 				     goto next;
 
-			
+			/* London calling... */
 			DEBUGP("found!\n");
 			return consumed += (shift-(bm->patlen-1));
 
 next:			bs = bm->bad_shift[text[shift-i]];
 
-			
+			/* Now jumping to... */
 			shift = max_t(int, shift-i+bs, shift+bm->good_shift[i]);
 		}
 		consumed += text_len;
@@ -127,6 +128,8 @@ static void compute_prefix_tbl(struct ts_bm *bm, int flags)
 			    = bm->patlen - 1 - i;
 	}
 
+	/* Compute the good shift array, used to match reocurrences 
+	 * of a subpattern */
 	bm->good_shift[0] = 1;
 	for (i = 1; i < bm->patlen; i++)
 		bm->good_shift[i] = bm->patlen;

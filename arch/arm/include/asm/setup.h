@@ -18,6 +18,7 @@
 
 #define COMMAND_LINE_SIZE 1024
 
+/* The list ends with an ATAG_NONE node. */
 #define ATAG_NONE	0x00000000
 
 struct tag_header {
@@ -25,21 +26,24 @@ struct tag_header {
 	__u32 tag;
 };
 
+/* The list must start with an ATAG_CORE node */
 #define ATAG_CORE	0x54410001
 
 struct tag_core {
-	__u32 flags;		
+	__u32 flags;		/* bit 0 = read-only */
 	__u32 pagesize;
 	__u32 rootdev;
 };
 
+/* it is allowed to have multiple ATAG_MEM nodes */
 #define ATAG_MEM	0x54410002
 
 struct tag_mem32 {
 	__u32	size;
-	__u32	start;	
+	__u32	start;	/* physical start address */
 };
 
+/* VGA text type displays */
 #define ATAG_VIDEOTEXT	0x54410003
 
 struct tag_videotext {
@@ -54,23 +58,31 @@ struct tag_videotext {
 	__u16		video_points;
 };
 
+/* describes how the ramdisk will be used in kernel */
 #define ATAG_RAMDISK	0x54410004
 
 struct tag_ramdisk {
-	__u32 flags;	
-	__u32 size;	
-	__u32 start;	
+	__u32 flags;	/* bit 0 = load, bit 1 = prompt */
+	__u32 size;	/* decompressed ramdisk size in _kilo_ bytes */
+	__u32 start;	/* starting block of floppy-based RAM disk image */
 };
 
+/* describes where the compressed ramdisk image lives (virtual address) */
+/*
+ * this one accidentally used virtual addresses - as such,
+ * it's deprecated.
+ */
 #define ATAG_INITRD	0x54410005
 
+/* describes where the compressed ramdisk image lives (physical address) */
 #define ATAG_INITRD2	0x54420005
 
 struct tag_initrd {
-	__u32 start;	
-	__u32 size;	
+	__u32 start;	/* physical start address */
+	__u32 size;	/* size of compressed ramdisk image in bytes */
 };
 
+/* board serial number. "64 bits should be enough for everybody" */
 #define ATAG_SERIAL	0x54410006
 
 struct tag_serialnr {
@@ -78,12 +90,16 @@ struct tag_serialnr {
 	__u32 high;
 };
 
+/* board revision */
 #define ATAG_REVISION	0x54410007
 
 struct tag_revision {
 	__u32 rev;
 };
 
+/* initial values for vesafb-type framebuffers. see struct screen_info
+ * in include/linux/tty.h
+ */
 #define ATAG_VIDEOLFB	0x54410008
 
 struct tag_videolfb {
@@ -103,12 +119,14 @@ struct tag_videolfb {
 	__u8		rsvd_pos;
 };
 
+/* command line: \0 terminated string */
 #define ATAG_CMDLINE	0x54410009
 
 struct tag_cmdline {
-	char	cmdline[1];	
+	char	cmdline[1];	/* this is the minimum size */
 };
 
+/* acorn RiscPC specific information */
 #define ATAG_ACORN	0x41000101
 
 struct tag_acorn {
@@ -118,6 +136,7 @@ struct tag_acorn {
 	__u8 adfsdrives;
 };
 
+/* footbridge memory clock, see arch/arm/mach-footbridge/arch.c */
 #define ATAG_MEMCLK	0x41000402
 
 struct tag_memclk {
@@ -137,8 +156,14 @@ struct tag {
 		struct tag_videolfb	videolfb;
 		struct tag_cmdline	cmdline;
 
+		/*
+		 * Acorn specific
+		 */
 		struct tag_acorn	acorn;
 
+		/*
+		 * DC21285 specific
+		 */
 		struct tag_memclk	memclk;
 	} u;
 };
@@ -164,6 +189,9 @@ struct tagtable {
 #define __tagtable(tag, fn) \
 static const struct tagtable __tagtable_##fn __tag = { tag, fn }
 
+/*
+ * Memory map description
+ */
 #define NR_BANKS	CONFIG_ARM_NR_BANKS
 
 struct membank {
@@ -194,6 +222,6 @@ extern int arm_add_memory(phys_addr_t start, phys_addr_t size);
 extern void early_print(const char *str, ...);
 extern void dump_machine_table(void);
 
-#endif  
+#endif  /*  __KERNEL__  */
 
 #endif

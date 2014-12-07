@@ -34,76 +34,108 @@
 #include <linux/firmware.h>
 #include <asm/reg.h>
 
-#define UCC_SLOW_GUMR_H_SUART   	0x00004000      
+/*
+ * The GUMR flag for Soft UART.  This would normally be defined in qe.h,
+ * but Soft-UART is a hack and we want to keep everything related to it in
+ * this file.
+ */
+#define UCC_SLOW_GUMR_H_SUART   	0x00004000      /* Soft-UART */
 
+/*
+ * soft_uart is 1 if we need to use Soft-UART mode
+ */
 static int soft_uart;
+/*
+ * firmware_loaded is 1 if the firmware has been loaded, 0 otherwise.
+ */
 static int firmware_loaded;
 
+/* Enable this macro to configure all serial ports in internal loopback
+   mode */
+/* #define LOOPBACK */
 
+/* The major and minor device numbers are defined in
+ * http://www.lanana.org/docs/device-list/devices-2.6+.txt.  For the QE
+ * UART, we have major number 204 and minor numbers 46 - 49, which are the
+ * same as for the CPM2.  This decision was made because no Freescale part
+ * has both a CPM and a QE.
+ */
 #define SERIAL_QE_MAJOR 204
 #define SERIAL_QE_MINOR 46
 
+/* Since we only have minor numbers 46 - 49, there is a hard limit of 4 ports */
 #define UCC_MAX_UART    4
 
+/* The number of buffer descriptors for receiving characters. */
 #define RX_NUM_FIFO     4
 
+/* The number of buffer descriptors for transmitting characters. */
 #define TX_NUM_FIFO     4
 
+/* The maximum size of the character buffer for a single RX BD. */
 #define RX_BUF_SIZE     32
 
+/* The maximum size of the character buffer for a single TX BD. */
 #define TX_BUF_SIZE     32
 
+/*
+ * The number of jiffies to wait after receiving a close command before the
+ * device is actually closed.  This allows the last few characters to be
+ * sent over the wire.
+ */
 #define UCC_WAIT_CLOSING 100
 
 struct ucc_uart_pram {
 	struct ucc_slow_pram common;
-	u8 res1[8];     	
-	__be16 maxidl;  	
-	__be16 idlc;    	
-	__be16 brkcr;   	
-	__be16 parec;   	
-	__be16 frmec;   	
-	__be16 nosec;   	
-	__be16 brkec;   	
-	__be16 brkln;   	
-	__be16 uaddr[2];	
-	__be16 rtemp;   	
-	__be16 toseq;   	
-	__be16 cchars[8];       
-	__be16 rccm;    	
-	__be16 rccr;    	
-	__be16 rlbc;    	
-	__be16 res2;    	
-	__be32 res3;    	
-	u8 res4;		
-	u8 res5[3];     	
-	__be32 res6;    	
-	__be32 res7;    	
-	__be32 res8;    	
-	__be32 res9;    	
-	__be32 res10;   	
-	__be32 res11;   	
-	__be32 res12;   	
-	__be32 res13;   	
-	__be16 supsmr;  	
-	__be16 res92;   	
-	__be32 rx_state;	
-	__be32 rx_cnt;  	
-	u8 rx_length;   	
-	u8 rx_bitmark;  	
-	u8 rx_temp_dlst_qe;     
-	u8 res14[0xBC - 0x9F];  
-	__be32 dump_ptr;	
-	__be32 rx_frame_rem;    
-	u8 rx_frame_rem_size;   
-	u8 tx_mode;     	
-	__be16 tx_state;	
-	u8 res15[0xD0 - 0xC8];  
-	__be32 resD0;   	
-	u8 resD4;       	
-	__be16 resD5;   	
+	u8 res1[8];     	/* reserved */
+	__be16 maxidl;  	/* Maximum idle chars */
+	__be16 idlc;    	/* temp idle counter */
+	__be16 brkcr;   	/* Break count register */
+	__be16 parec;   	/* receive parity error counter */
+	__be16 frmec;   	/* receive framing error counter */
+	__be16 nosec;   	/* receive noise counter */
+	__be16 brkec;   	/* receive break condition counter */
+	__be16 brkln;   	/* last received break length */
+	__be16 uaddr[2];	/* UART address character 1 & 2 */
+	__be16 rtemp;   	/* Temp storage */
+	__be16 toseq;   	/* Transmit out of sequence char */
+	__be16 cchars[8];       /* control characters 1-8 */
+	__be16 rccm;    	/* receive control character mask */
+	__be16 rccr;    	/* receive control character register */
+	__be16 rlbc;    	/* receive last break character */
+	__be16 res2;    	/* reserved */
+	__be32 res3;    	/* reserved, should be cleared */
+	u8 res4;		/* reserved, should be cleared */
+	u8 res5[3];     	/* reserved, should be cleared */
+	__be32 res6;    	/* reserved, should be cleared */
+	__be32 res7;    	/* reserved, should be cleared */
+	__be32 res8;    	/* reserved, should be cleared */
+	__be32 res9;    	/* reserved, should be cleared */
+	__be32 res10;   	/* reserved, should be cleared */
+	__be32 res11;   	/* reserved, should be cleared */
+	__be32 res12;   	/* reserved, should be cleared */
+	__be32 res13;   	/* reserved, should be cleared */
+/* The rest is for Soft-UART only */
+	__be16 supsmr;  	/* 0x90, Shadow UPSMR */
+	__be16 res92;   	/* 0x92, reserved, initialize to 0 */
+	__be32 rx_state;	/* 0x94, RX state, initialize to 0 */
+	__be32 rx_cnt;  	/* 0x98, RX count, initialize to 0 */
+	u8 rx_length;   	/* 0x9C, Char length, set to 1+CL+PEN+1+SL */
+	u8 rx_bitmark;  	/* 0x9D, reserved, initialize to 0 */
+	u8 rx_temp_dlst_qe;     /* 0x9E, reserved, initialize to 0 */
+	u8 res14[0xBC - 0x9F];  /* reserved */
+	__be32 dump_ptr;	/* 0xBC, Dump pointer */
+	__be32 rx_frame_rem;    /* 0xC0, reserved, initialize to 0 */
+	u8 rx_frame_rem_size;   /* 0xC4, reserved, initialize to 0 */
+	u8 tx_mode;     	/* 0xC5, mode, 0=AHDLC, 1=UART */
+	__be16 tx_state;	/* 0xC6, TX state */
+	u8 res15[0xD0 - 0xC8];  /* reserved */
+	__be32 resD0;   	/* 0xD0, reserved, initialize to 0 */
+	u8 resD4;       	/* 0xD4, reserved, initialize to 0 */
+	__be16 resD5;   	/* 0xD5, reserved, initialize to 0 */
 } __attribute__ ((packed));
 
+/* SUPSMR definitions, for Soft-UART only */
 #define UCC_UART_SUPSMR_SL      	0x8000
 #define UCC_UART_SUPSMR_RPM_MASK	0x6000
 #define UCC_UART_SUPSMR_RPM_ODD 	0x0000
@@ -137,6 +169,7 @@ struct ucc_uart_pram {
 #define UCC_UART_SIZE_OF_BD     UCC_SLOW_SIZE_OF_BD
 #define NUM_CONTROL_CHARS       8
 
+/* Private per-port data structure */
 struct uart_qe_port {
 	struct uart_port port;
 	struct ucc_slow __iomem *uccp;
@@ -144,7 +177,7 @@ struct uart_qe_port {
 	struct ucc_slow_info us_info;
 	struct ucc_slow_private *us_private;
 	struct device_node *np;
-	unsigned int ucc_num;   
+	unsigned int ucc_num;   /* First ucc is 0, not 1 */
 
 	u16 rx_nrfifos;
 	u16 rx_fifosize;
@@ -158,9 +191,9 @@ struct uart_qe_port {
 	struct qe_bd *tx_cur;
 	unsigned char *tx_buf;
 	unsigned char *rx_buf;
-	void *bd_virt;  	
-	dma_addr_t bd_dma_addr; 
-	unsigned int bd_size;   
+	void *bd_virt;  	/* virtual address of the BD buffers */
+	dma_addr_t bd_dma_addr; /* bus address of the BD buffers */
+	unsigned int bd_size;   /* size of BD buffer space */
 };
 
 static struct uart_driver ucc_uart_driver = {
@@ -172,31 +205,51 @@ static struct uart_driver ucc_uart_driver = {
 	.nr     	= UCC_MAX_UART,
 };
 
+/*
+ * Virtual to physical address translation.
+ *
+ * Given the virtual address for a character buffer, this function returns
+ * the physical (DMA) equivalent.
+ */
 static inline dma_addr_t cpu2qe_addr(void *addr, struct uart_qe_port *qe_port)
 {
 	if (likely((addr >= qe_port->bd_virt)) &&
 	    (addr < (qe_port->bd_virt + qe_port->bd_size)))
 		return qe_port->bd_dma_addr + (addr - qe_port->bd_virt);
 
-	
+	/* something nasty happened */
 	printk(KERN_ERR "%s: addr=%p\n", __func__, addr);
 	BUG();
 	return 0;
 }
 
+/*
+ * Physical to virtual address translation.
+ *
+ * Given the physical (DMA) address for a character buffer, this function
+ * returns the virtual equivalent.
+ */
 static inline void *qe2cpu_addr(dma_addr_t addr, struct uart_qe_port *qe_port)
 {
-	
+	/* sanity check */
 	if (likely((addr >= qe_port->bd_dma_addr) &&
 		   (addr < (qe_port->bd_dma_addr + qe_port->bd_size))))
 		return qe_port->bd_virt + (addr - qe_port->bd_dma_addr);
 
-	
+	/* something nasty happened */
 	printk(KERN_ERR "%s: addr=%llx\n", __func__, (u64)addr);
 	BUG();
 	return NULL;
 }
 
+/*
+ * Return 1 if the QE is done transmitting all buffers for this port
+ *
+ * This function scans each BD in sequence.  If we find a BD that is not
+ * ready (READY=1), then we return 0 indicating that the QE is still sending
+ * data.  If we reach the last BD (WRAP=1), then we know we've scanned
+ * the entire list, and all BDs are done.
+ */
 static unsigned int qe_uart_tx_empty(struct uart_port *port)
 {
 	struct uart_qe_port *qe_port =
@@ -205,25 +258,50 @@ static unsigned int qe_uart_tx_empty(struct uart_port *port)
 
 	while (1) {
 		if (in_be16(&bdp->status) & BD_SC_READY)
-			
+			/* This BD is not done, so return "not done" */
 			return 0;
 
 		if (in_be16(&bdp->status) & BD_SC_WRAP)
+			/*
+			 * This BD is done and it's the last one, so return
+			 * "done"
+			 */
 			return 1;
 
 		bdp++;
 	};
 }
 
+/*
+ * Set the modem control lines
+ *
+ * Although the QE can control the modem control lines (e.g. CTS), we
+ * don't need that support. This function must exist, however, otherwise
+ * the kernel will panic.
+ */
 void qe_uart_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
 }
 
+/*
+ * Get the current modem control line status
+ *
+ * Although the QE can control the modem control lines (e.g. CTS), this
+ * driver currently doesn't support that, so we always return Carrier
+ * Detect, Data Set Ready, and Clear To Send.
+ */
 static unsigned int qe_uart_get_mctrl(struct uart_port *port)
 {
 	return TIOCM_CAR | TIOCM_DSR | TIOCM_CTS;
 }
 
+/*
+ * Disable the transmit interrupt.
+ *
+ * Although this function is called "stop_tx", it does not actually stop
+ * transmission of data.  Instead, it tells the QE to not generate an
+ * interrupt when the UCC is finished sending characters.
+ */
 static void qe_uart_stop_tx(struct uart_port *port)
 {
 	struct uart_qe_port *qe_port =
@@ -232,6 +310,20 @@ static void qe_uart_stop_tx(struct uart_port *port)
 	clrbits16(&qe_port->uccp->uccm, UCC_UART_UCCE_TX);
 }
 
+/*
+ * Transmit as many characters to the HW as possible.
+ *
+ * This function will attempt to stuff of all the characters from the
+ * kernel's transmit buffer into TX BDs.
+ *
+ * A return value of non-zero indicates that it successfully stuffed all
+ * characters from the kernel buffer.
+ *
+ * A return value of zero indicates that there are still characters in the
+ * kernel's buffer that have not been transmitted, but there are no more BDs
+ * available.  This function should be called again after a BD has been made
+ * available.
+ */
 static int qe_uart_tx_pump(struct uart_qe_port *qe_port)
 {
 	struct qe_bd *bdp;
@@ -242,9 +334,9 @@ static int qe_uart_tx_pump(struct uart_qe_port *qe_port)
 
 	bdp = qe_port->rx_cur;
 
-	
+	/* Handle xon/xoff */
 	if (port->x_char) {
-		
+		/* Pick next descriptor and fill from buffer */
 		bdp = qe_port->tx_cur;
 
 		p = qe2cpu_addr(bdp->buf, qe_port);
@@ -252,7 +344,7 @@ static int qe_uart_tx_pump(struct uart_qe_port *qe_port)
 		*p++ = port->x_char;
 		out_be16(&bdp->length, 1);
 		setbits16(&bdp->status, BD_SC_READY);
-		
+		/* Get next BD. */
 		if (in_be16(&bdp->status) & BD_SC_WRAP)
 			bdp = qe_port->tx_bd_base;
 		else
@@ -269,7 +361,7 @@ static int qe_uart_tx_pump(struct uart_qe_port *qe_port)
 		return 0;
 	}
 
-	
+	/* Pick next descriptor and fill from buffer */
 	bdp = qe_port->tx_cur;
 
 	while (!(in_be16(&bdp->status) & BD_SC_READY) &&
@@ -288,7 +380,7 @@ static int qe_uart_tx_pump(struct uart_qe_port *qe_port)
 		out_be16(&bdp->length, count);
 		setbits16(&bdp->status, BD_SC_READY);
 
-		
+		/* Get next BD. */
 		if (in_be16(&bdp->status) & BD_SC_WRAP)
 			bdp = qe_port->tx_bd_base;
 		else
@@ -300,6 +392,9 @@ static int qe_uart_tx_pump(struct uart_qe_port *qe_port)
 		uart_write_wakeup(port);
 
 	if (uart_circ_empty(xmit)) {
+		/* The kernel buffer is empty, so turn off TX interrupts.  We
+		   don't need to be told when the QE is finished transmitting
+		   the data. */
 		qe_uart_stop_tx(port);
 		return 0;
 	}
@@ -307,20 +402,29 @@ static int qe_uart_tx_pump(struct uart_qe_port *qe_port)
 	return 1;
 }
 
+/*
+ * Start transmitting data
+ *
+ * This function will start transmitting any available data, if the port
+ * isn't already transmitting data.
+ */
 static void qe_uart_start_tx(struct uart_port *port)
 {
 	struct uart_qe_port *qe_port =
 		container_of(port, struct uart_qe_port, port);
 
-	
+	/* If we currently are transmitting, then just return */
 	if (in_be16(&qe_port->uccp->uccm) & UCC_UART_UCCE_TX)
 		return;
 
-	
+	/* Otherwise, pump the port and start transmission */
 	if (qe_uart_tx_pump(qe_port))
 		setbits16(&qe_port->uccp->uccm, UCC_UART_UCCE_TX);
 }
 
+/*
+ * Stop transmitting data
+ */
 static void qe_uart_stop_rx(struct uart_port *port)
 {
 	struct uart_qe_port *qe_port =
@@ -329,10 +433,22 @@ static void qe_uart_stop_rx(struct uart_port *port)
 	clrbits16(&qe_port->uccp->uccm, UCC_UART_UCCE_RX);
 }
 
+/*
+ * Enable status change interrupts
+ *
+ * We don't support status change interrupts, but we need to define this
+ * function otherwise the kernel will panic.
+ */
 static void qe_uart_enable_ms(struct uart_port *port)
 {
 }
 
+/* Start or stop sending  break signal
+ *
+ * This function controls the sending of a break signal.  If break_state=1,
+ * then we start sending a break signal.  If break_state=0, then we stop
+ * sending the break signal.
+ */
 static void qe_uart_break_ctl(struct uart_port *port, int break_state)
 {
 	struct uart_qe_port *qe_port =
@@ -344,6 +460,10 @@ static void qe_uart_break_ctl(struct uart_port *port, int break_state)
 		ucc_slow_restart_tx(qe_port->us_private);
 }
 
+/* ISR helper function for receiving character.
+ *
+ * This function is called by the ISR to handling receiving characters
+ */
 static void qe_uart_int_rx(struct uart_qe_port *qe_port)
 {
 	int i;
@@ -354,26 +474,32 @@ static void qe_uart_int_rx(struct uart_qe_port *qe_port)
 	u16 status;
 	unsigned int flg;
 
+	/* Just loop through the closed BDs and copy the characters into
+	 * the buffer.
+	 */
 	bdp = qe_port->rx_cur;
 	while (1) {
 		status = in_be16(&bdp->status);
 
-		
+		/* If this one is empty, then we assume we've read them all */
 		if (status & BD_SC_EMPTY)
 			break;
 
-		
+		/* get number of characters, and check space in RX buffer */
 		i = in_be16(&bdp->length);
 
+		/* If we don't have enough room in RX buffer for the entire BD,
+		 * then we try later, which will be the next RX interrupt.
+		 */
 		if (tty_buffer_request_room(tty, i) < i) {
 			dev_dbg(port->dev, "ucc-uart: no room in RX buffer\n");
 			return;
 		}
 
-		
+		/* get pointer */
 		cp = qe2cpu_addr(bdp->buf, qe_port);
 
-		
+		/* loop through the buffer */
 		while (i-- > 0) {
 			ch = *cp++;
 			port->icount.rx++;
@@ -390,7 +516,7 @@ error_return:
 
 		}
 
-		
+		/* This BD is ready to be used again. Clear status. get next */
 		clrsetbits_be16(&bdp->status, BD_SC_BR | BD_SC_FR | BD_SC_PR |
 			BD_SC_OV | BD_SC_ID, BD_SC_EMPTY);
 		if (in_be16(&bdp->status) & BD_SC_WRAP)
@@ -400,18 +526,18 @@ error_return:
 
 	}
 
-	
+	/* Write back buffer pointer */
 	qe_port->rx_cur = bdp;
 
-	
+	/* Activate BH processing */
 	tty_flip_buffer_push(tty);
 
 	return;
 
-	
+	/* Error processing */
 
 handle_error:
-	
+	/* Statistics */
 	if (status & BD_SC_BR)
 		port->icount.brk++;
 	if (status & BD_SC_PR)
@@ -421,10 +547,10 @@ handle_error:
 	if (status & BD_SC_OV)
 		port->icount.overrun++;
 
-	
+	/* Mask out ignored conditions */
 	status &= port->read_status_mask;
 
-	
+	/* Handle the remaining ones */
 	if (status & BD_SC_BR)
 		flg = TTY_BREAK;
 	else if (status & BD_SC_PR)
@@ -432,7 +558,7 @@ handle_error:
 	else if (status & BD_SC_FR)
 		flg = TTY_FRAME;
 
-	
+	/* Overrun does not affect the current character ! */
 	if (status & BD_SC_OV)
 		tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 #ifdef SUPPORT_SYSRQ
@@ -441,13 +567,17 @@ handle_error:
 	goto error_return;
 }
 
+/* Interrupt handler
+ *
+ * This interrupt handler is called after a BD is processed.
+ */
 static irqreturn_t qe_uart_int(int irq, void *data)
 {
 	struct uart_qe_port *qe_port = (struct uart_qe_port *) data;
 	struct ucc_slow __iomem *uccp = qe_port->uccp;
 	u16 events;
 
-	
+	/* Clear the interrupts */
 	events = in_be16(&uccp->ucce);
 	out_be16(&uccp->ucce, events);
 
@@ -463,12 +593,19 @@ static irqreturn_t qe_uart_int(int irq, void *data)
 	return events ? IRQ_HANDLED : IRQ_NONE;
 }
 
+/* Initialize buffer descriptors
+ *
+ * This function initializes all of the RX and TX buffer descriptors.
+ */
 static void qe_uart_initbd(struct uart_qe_port *qe_port)
 {
 	int i;
 	void *bd_virt;
 	struct qe_bd *bdp;
 
+	/* Set the physical address of the host memory buffers in the buffer
+	 * descriptors, and the virtual address for us to work with.
+	 */
 	bd_virt = qe_port->bd_virt;
 	bdp = qe_port->rx_bd_base;
 	qe_port->rx_cur = qe_port->rx_bd_base;
@@ -480,11 +617,15 @@ static void qe_uart_initbd(struct uart_qe_port *qe_port)
 		bdp++;
 	}
 
-	
+	/* */
 	out_be16(&bdp->status, BD_SC_WRAP | BD_SC_EMPTY | BD_SC_INTRPT);
 	out_be32(&bdp->buf, cpu2qe_addr(bd_virt, qe_port));
 	out_be16(&bdp->length, 0);
 
+	/* Set the physical address of the host memory
+	 * buffers in the buffer descriptors, and the
+	 * virtual address for us to work with.
+	 */
 	bd_virt = qe_port->bd_virt +
 		L1_CACHE_ALIGN(qe_port->rx_nrfifos * qe_port->rx_fifosize);
 	qe_port->tx_cur = qe_port->tx_bd_base;
@@ -497,7 +638,7 @@ static void qe_uart_initbd(struct uart_qe_port *qe_port)
 		bdp++;
 	}
 
-	
+	/* Loopback requires the preamble bit to be set on the first TX BD */
 #ifdef LOOPBACK
 	setbits16(&qe_port->tx_cur->status, BD_SC_P);
 #endif
@@ -507,6 +648,13 @@ static void qe_uart_initbd(struct uart_qe_port *qe_port)
 	out_be16(&bdp->length, 0);
 }
 
+/*
+ * Initialize a UCC for UART.
+ *
+ * This function configures a given UCC to be used as a UART device. Basic
+ * UCC initialization is handled in qe_uart_request_port().  This function
+ * does all the UART-specific stuff.
+ */
 static void qe_uart_init_ucc(struct uart_qe_port *qe_port)
 {
 	u32 cecr_subblock;
@@ -515,10 +663,10 @@ static void qe_uart_init_ucc(struct uart_qe_port *qe_port)
 
 	unsigned int i;
 
-	
+	/* First, disable TX and RX in the UCC */
 	ucc_slow_disable(qe_port->us_private, COMM_DIR_RX_AND_TX);
 
-	
+	/* Program the UCC UART parameter RAM */
 	out_8(&uccup->common.rbmr, UCC_BMR_GBL | UCC_BMR_BO_BE);
 	out_8(&uccup->common.tbmr, UCC_BMR_GBL | UCC_BMR_BO_BE);
 	out_be16(&uccup->common.mrblr, qe_port->rx_fifosize);
@@ -535,9 +683,9 @@ static void qe_uart_init_ucc(struct uart_qe_port *qe_port)
 		out_be16(&uccup->cchars[i], 0xC000);
 	out_be16(&uccup->rccm, 0xc0ff);
 
-	
+	/* Configure the GUMR registers for UART */
 	if (soft_uart) {
-		
+		/* Soft-UART requires a 1X multiplier for TX */
 		clrsetbits_be32(&uccp->gumr_l,
 			UCC_SLOW_GUMR_L_MODE_MASK | UCC_SLOW_GUMR_L_TDCR_MASK |
 			UCC_SLOW_GUMR_L_RDCR_MASK,
@@ -566,12 +714,12 @@ static void qe_uart_init_ucc(struct uart_qe_port *qe_port)
 		UCC_SLOW_GUMR_H_CDS);
 #endif
 
-	
+	/* Disable rx interrupts  and clear all pending events.  */
 	out_be16(&uccp->uccm, 0);
 	out_be16(&uccp->ucce, 0xffff);
 	out_be16(&uccp->udsr, 0x7e7e);
 
-	
+	/* Initialize UPSMR */
 	out_be16(&uccp->upsmr, 0);
 
 	if (soft_uart) {
@@ -585,14 +733,25 @@ static void qe_uart_init_ucc(struct uart_qe_port *qe_port)
 		out_8(&uccup->rx_temp_dlst_qe, 0);
 		out_be32(&uccup->rx_frame_rem, 0);
 		out_8(&uccup->rx_frame_rem_size, 0);
-		
+		/* Soft-UART requires TX to be 1X */
 		out_8(&uccup->tx_mode,
 			UCC_UART_TX_STATE_UART | UCC_UART_TX_STATE_X1);
 		out_be16(&uccup->tx_state, 0);
 		out_8(&uccup->resD4, 0);
 		out_be16(&uccup->resD5, 0);
 
+		/* Set UART mode.
+		 * Enable receive and transmit.
+		 */
 
+		/* From the microcode errata:
+		 * 1.GUMR_L register, set mode=0010 (QMC).
+		 * 2.Set GUMR_H[17] bit. (UART/AHDLC mode).
+		 * 3.Set GUMR_H[19:20] (Transparent mode)
+		 * 4.Clear GUMR_H[26] (RFW)
+		 * ...
+		 * 6.Receiver must use 16x over sampling
+		 */
 		clrsetbits_be32(&uccp->gumr_l,
 			UCC_SLOW_GUMR_L_MODE_MASK | UCC_SLOW_GUMR_L_TDCR_MASK |
 			UCC_SLOW_GUMR_L_RDCR_MASK,
@@ -621,12 +780,19 @@ static void qe_uart_init_ucc(struct uart_qe_port *qe_port)
 	}
 }
 
+/*
+ * Initialize the port.
+ */
 static int qe_uart_startup(struct uart_port *port)
 {
 	struct uart_qe_port *qe_port =
 		container_of(port, struct uart_qe_port, port);
 	int ret;
 
+	/*
+	 * If we're using Soft-UART mode, then we need to make sure the
+	 * firmware has been uploaded first.
+	 */
 	if (soft_uart && !firmware_loaded) {
 		dev_err(port->dev, "Soft-UART firmware not uploaded\n");
 		return -ENODEV;
@@ -635,7 +801,7 @@ static int qe_uart_startup(struct uart_port *port)
 	qe_uart_initbd(qe_port);
 	qe_uart_init_ucc(qe_port);
 
-	
+	/* Install interrupt handler. */
 	ret = request_irq(port->irq, qe_uart_int, IRQF_SHARED, "ucc-uart",
 		qe_port);
 	if (ret) {
@@ -643,13 +809,16 @@ static int qe_uart_startup(struct uart_port *port)
 		return ret;
 	}
 
-	
+	/* Startup rx-int */
 	setbits16(&qe_port->uccp->uccm, UCC_UART_UCCE_RX);
 	ucc_slow_enable(qe_port->us_private, COMM_DIR_RX_AND_TX);
 
 	return 0;
 }
 
+/*
+ * Shutdown the port.
+ */
 static void qe_uart_shutdown(struct uart_port *port)
 {
 	struct uart_qe_port *qe_port =
@@ -657,9 +826,9 @@ static void qe_uart_shutdown(struct uart_port *port)
 	struct ucc_slow __iomem *uccp = qe_port->uccp;
 	unsigned int timeout = 20;
 
-	
+	/* Disable RX and TX */
 
-	
+	/* Wait for all the BDs marked sent */
 	while (!qe_uart_tx_empty(port)) {
 		if (!--timeout) {
 			dev_warn(port->dev, "shutdown timeout\n");
@@ -670,22 +839,25 @@ static void qe_uart_shutdown(struct uart_port *port)
 	}
 
 	if (qe_port->wait_closing) {
-		
+		/* Wait a bit longer */
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		schedule_timeout(qe_port->wait_closing);
 	}
 
-	
+	/* Stop uarts */
 	ucc_slow_disable(qe_port->us_private, COMM_DIR_RX_AND_TX);
 	clrbits16(&uccp->uccm, UCC_UART_UCCE_TX | UCC_UART_UCCE_RX);
 
-	
+	/* Shut them really down and reinit buffer descriptors */
 	ucc_slow_graceful_stop_tx(qe_port->us_private);
 	qe_uart_initbd(qe_port);
 
 	free_irq(port->irq, qe_port);
 }
 
+/*
+ * Set the serial port parameters.
+ */
 static void qe_uart_set_termios(struct uart_port *port,
 				struct ktermios *termios, struct ktermios *old)
 {
@@ -697,10 +869,15 @@ static void qe_uart_set_termios(struct uart_port *port,
 	u16 upsmr = in_be16(&uccp->upsmr);
 	struct ucc_uart_pram __iomem *uccup = qe_port->uccup;
 	u16 supsmr = in_be16(&uccup->supsmr);
-	u8 char_length = 2; 
+	u8 char_length = 2; /* 1 + CL + PEN + 1 + SL */
 
+	/* Character length programmed into the mode register is the
+	 * sum of: 1 start bit, number of data bits, 0 or 1 parity bit,
+	 * 1 or 2 stop bits, minus 1.
+	 * The value 'bits' counts this for us.
+	 */
 
-	
+	/* byte size */
 	upsmr &= UCC_UART_UPSMR_CL_MASK;
 	supsmr &= UCC_UART_SUPSMR_CL_MASK;
 
@@ -720,24 +897,24 @@ static void qe_uart_set_termios(struct uart_port *port,
 		supsmr |= UCC_UART_SUPSMR_CL_7;
 		char_length += 7;
 		break;
-	default:	
+	default:	/* case CS8 */
 		upsmr |= UCC_UART_UPSMR_CL_8;
 		supsmr |= UCC_UART_SUPSMR_CL_8;
 		char_length += 8;
 		break;
 	}
 
-	
+	/* If CSTOPB is set, we want two stop bits */
 	if (termios->c_cflag & CSTOPB) {
 		upsmr |= UCC_UART_UPSMR_SL;
 		supsmr |= UCC_UART_SUPSMR_SL;
-		char_length++;  
+		char_length++;  /* + SL */
 	}
 
 	if (termios->c_cflag & PARENB) {
 		upsmr |= UCC_UART_UPSMR_PEN;
 		supsmr |= UCC_UART_SUPSMR_PEN;
-		char_length++;  
+		char_length++;  /* + PEN */
 
 		if (!(termios->c_cflag & PARODD)) {
 			upsmr &= ~(UCC_UART_UPSMR_RPM_MASK |
@@ -751,29 +928,42 @@ static void qe_uart_set_termios(struct uart_port *port,
 		}
 	}
 
+	/*
+	 * Set up parity check flag
+	 */
 	port->read_status_mask = BD_SC_EMPTY | BD_SC_OV;
 	if (termios->c_iflag & INPCK)
 		port->read_status_mask |= BD_SC_FR | BD_SC_PR;
 	if (termios->c_iflag & (BRKINT | PARMRK))
 		port->read_status_mask |= BD_SC_BR;
 
+	/*
+	 * Characters to ignore
+	 */
 	port->ignore_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		port->ignore_status_mask |= BD_SC_PR | BD_SC_FR;
 	if (termios->c_iflag & IGNBRK) {
 		port->ignore_status_mask |= BD_SC_BR;
+		/*
+		 * If we're ignore parity and break indicators, ignore
+		 * overruns too.  (For real raw support).
+		 */
 		if (termios->c_iflag & IGNPAR)
 			port->ignore_status_mask |= BD_SC_OV;
 	}
+	/*
+	 * !!! ignore all characters if CREAD is not set
+	 */
 	if ((termios->c_cflag & CREAD) == 0)
 		port->read_status_mask &= ~BD_SC_EMPTY;
 
 	baud = uart_get_baud_rate(port, termios, old, 0, 115200);
 
-	
+	/* Do we really need a spinlock here? */
 	spin_lock_irqsave(&port->lock, flags);
 
-	
+	/* Update the per-port timeout. */
 	uart_update_timeout(port, termios->c_cflag, baud);
 
 	out_be16(&uccp->upsmr, upsmr);
@@ -781,7 +971,7 @@ static void qe_uart_set_termios(struct uart_port *port,
 		out_be16(&uccup->supsmr, supsmr);
 		out_8(&uccup->rx_length, char_length);
 
-		
+		/* Soft-UART requires a 1X multiplier for TX */
 		qe_setbrg(qe_port->us_info.rx_clock, baud, 16);
 		qe_setbrg(qe_port->us_info.tx_clock, baud, 1);
 	} else {
@@ -792,11 +982,17 @@ static void qe_uart_set_termios(struct uart_port *port,
 	spin_unlock_irqrestore(&port->lock, flags);
 }
 
+/*
+ * Return a pointer to a string that describes what kind of port this is.
+ */
 static const char *qe_uart_type(struct uart_port *port)
 {
 	return "QE";
 }
 
+/*
+ * Allocate any memory and I/O resources required by the port.
+ */
 static int qe_uart_request_port(struct uart_port *port)
 {
 	int ret;
@@ -821,6 +1017,9 @@ static int qe_uart_request_port(struct uart_port *port)
 	qe_port->rx_bd_base = uccs->rx_bd;
 	qe_port->tx_bd_base = uccs->tx_bd;
 
+	/*
+	 * Allocate the transmit and receive data buffers.
+	 */
 
 	rx_size = L1_CACHE_ALIGN(qe_port->rx_nrfifos * qe_port->rx_fifosize);
 	tx_size = L1_CACHE_ALIGN(qe_port->tx_nrfifos * qe_port->tx_fifosize);
@@ -842,6 +1041,13 @@ static int qe_uart_request_port(struct uart_port *port)
 	return 0;
 }
 
+/*
+ * Configure the port.
+ *
+ * We say we're a CPM-type port because that's mostly true.  Once the device
+ * is configured, this driver operates almost identically to the CPM serial
+ * driver.
+ */
 static void qe_uart_config_port(struct uart_port *port, int flags)
 {
 	if (flags & UART_CONFIG_TYPE) {
@@ -850,6 +1056,10 @@ static void qe_uart_config_port(struct uart_port *port, int flags)
 	}
 }
 
+/*
+ * Release any memory and I/O resources that were allocated in
+ * qe_uart_request_port().
+ */
 static void qe_uart_release_port(struct uart_port *port)
 {
 	struct uart_qe_port *qe_port =
@@ -862,6 +1072,9 @@ static void qe_uart_release_port(struct uart_port *port)
 	ucc_slow_free(uccs);
 }
 
+/*
+ * Verify that the data in serial_struct is suitable for this device.
+ */
 static int qe_uart_verify_port(struct uart_port *port,
 			       struct serial_struct *ser)
 {
@@ -876,6 +1089,10 @@ static int qe_uart_verify_port(struct uart_port *port,
 
 	return 0;
 }
+/* UART operations
+ *
+ * Details on these functions can be found in Documentation/serial/driver
+ */
 static struct uart_ops qe_uart_pops = {
 	.tx_empty       = qe_uart_tx_empty,
 	.set_mctrl      = qe_uart_set_mctrl,
@@ -895,6 +1112,29 @@ static struct uart_ops qe_uart_pops = {
 	.verify_port    = qe_uart_verify_port,
 };
 
+/*
+ * Obtain the SOC model number and revision level
+ *
+ * This function parses the device tree to obtain the SOC model.  It then
+ * reads the SVR register to the revision.
+ *
+ * The device tree stores the SOC model two different ways.
+ *
+ * The new way is:
+ *
+ *      	cpu@0 {
+ *      		compatible = "PowerPC,8323";
+ *      		device_type = "cpu";
+ *      		...
+ *
+ *
+ * The old way is:
+ *      	 PowerPC,8323@0 {
+ *      		device_type = "cpu";
+ *      		...
+ *
+ * This code first checks the new way, and then the old way.
+ */
 static unsigned int soc_info(unsigned int *rev_h, unsigned int *rev_l)
 {
 	struct device_node *np;
@@ -902,21 +1142,21 @@ static unsigned int soc_info(unsigned int *rev_h, unsigned int *rev_l)
 	unsigned int svr;
 	unsigned int soc;
 
-	
+	/* Find the CPU node */
 	np = of_find_node_by_type(NULL, "cpu");
 	if (!np)
 		return 0;
-	
+	/* Find the compatible property */
 	soc_string = of_get_property(np, "compatible", NULL);
 	if (!soc_string)
-		
+		/* No compatible property, so try the name. */
 		soc_string = np->name;
 
-	
+	/* Extract the SOC number from the "PowerPC," string */
 	if ((sscanf(soc_string, "PowerPC,%u", &soc) != 1) || !soc)
 		return 0;
 
-	
+	/* Get the revision from the SVR */
 	svr = mfspr(SPRN_SVR);
 	*rev_h = (svr >> 4) & 0xf;
 	*rev_l = svr & 0xf;
@@ -924,6 +1164,12 @@ static unsigned int soc_info(unsigned int *rev_h, unsigned int *rev_l)
 	return soc;
 }
 
+/*
+ * requst_firmware_nowait() callback function
+ *
+ * This function is called by the kernel when a firmware is made available,
+ * or if it times out waiting for the firmware.
+ */
 static void uart_firmware_cont(const struct firmware *fw, void *context)
 {
 	struct qe_firmware *firmware;
@@ -956,23 +1202,30 @@ static void uart_firmware_cont(const struct firmware *fw, void *context)
 static int ucc_uart_probe(struct platform_device *ofdev)
 {
 	struct device_node *np = ofdev->dev.of_node;
-	const unsigned int *iprop;      
-	const char *sprop;      
+	const unsigned int *iprop;      /* Integer OF properties */
+	const char *sprop;      /* String OF properties */
 	struct uart_qe_port *qe_port = NULL;
 	struct resource res;
 	int ret;
 
+	/*
+	 * Determine if we need Soft-UART mode
+	 */
 	if (of_find_property(np, "soft-uart", NULL)) {
 		dev_dbg(&ofdev->dev, "using Soft-UART mode\n");
 		soft_uart = 1;
 	}
 
+	/*
+	 * If we are using Soft-UART, determine if we need to upload the
+	 * firmware, too.
+	 */
 	if (soft_uart) {
 		struct qe_firmware_info *qe_fw_info;
 
 		qe_fw_info = qe_get_firmware_info();
 
-		
+		/* Check if the firmware has been uploaded. */
 		if (qe_fw_info && strstr(qe_fw_info->id, "Soft-UART")) {
 			firmware_loaded = 1;
 		} else {
@@ -992,6 +1245,13 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 			dev_info(&ofdev->dev, "waiting for firmware %s\n",
 				filename);
 
+			/*
+			 * We call request_firmware_nowait instead of
+			 * request_firmware so that the driver can load and
+			 * initialize the ports without holding up the rest of
+			 * the kernel.  If hotplug support is enabled in the
+			 * kernel, then we use it.
+			 */
 			ret = request_firmware_nowait(THIS_MODULE,
 				FW_ACTION_HOTPLUG, filename, &ofdev->dev,
 				GFP_KERNEL, &ofdev->dev, uart_firmware_cont);
@@ -1010,7 +1270,7 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Search for IRQ and mapbase */
 	ret = of_address_to_resource(np, 0, &res);
 	if (ret) {
 		dev_err(&ofdev->dev, "missing 'reg' property in device tree\n");
@@ -1023,8 +1283,8 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 	}
 	qe_port->port.mapbase = res.start;
 
-	
-	
+	/* Get the UCC number (device ID) */
+	/* UCCs are numbered 1-7 */
 	iprop = of_get_property(np, "cell-index", NULL);
 	if (!iprop) {
 		iprop = of_get_property(np, "device-id", NULL);
@@ -1043,6 +1303,12 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 	}
 	qe_port->ucc_num = *iprop - 1;
 
+	/*
+	 * In the future, we should not require the BRG to be specified in the
+	 * device tree.  If no clock-source is specified, then just pick a BRG
+	 * to use.  This requires a new QE library function that manages BRG
+	 * assignments.
+	 */
 
 	sprop = of_get_property(np, "rx-clock-name", NULL);
 	if (!sprop) {
@@ -1060,7 +1326,7 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 	}
 
 #ifdef LOOPBACK
-	
+	/* In internal loopback mode, TX and RX must use the same clock */
 	qe_port->us_info.tx_clock = qe_port->us_info.rx_clock;
 #else
 	sprop = of_get_property(np, "tx-clock-name", NULL);
@@ -1078,7 +1344,7 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 		goto out_free;
 	}
 
-	
+	/* Get the port number, numbered 0-3 */
 	iprop = of_get_property(np, "port-number", NULL);
 	if (!iprop) {
 		dev_err(&ofdev->dev, "missing port-number in device tree\n");
@@ -1101,6 +1367,10 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 		goto out_free;
 	}
 
+	/*
+	 * Newer device trees have an "fsl,qe" compatible property for the QE
+	 * node, but we still need to support older device trees.
+	 */
 	np = of_find_compatible_node(NULL, NULL, "fsl,qe");
 	if (!np) {
 		np = of_find_node_by_type(NULL, "qe");
@@ -1122,6 +1392,11 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 	if (*iprop)
 		qe_port->port.uartclk = *iprop;
 	else {
+		/*
+		 * Older versions of U-Boot do not initialize the brg-frequency
+		 * property, so in this case we assume the BRG frequency is
+		 * half the QE bus frequency.
+		 */
 		iprop = of_get_property(np, "bus-frequency", NULL);
 		if (!iprop) {
 			dev_err(&ofdev->dev,
@@ -1161,10 +1436,14 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 	qe_port->us_info.rx_bd_ring_len = qe_port->rx_nrfifos;
 	qe_port->us_info.tx_bd_ring_len = qe_port->tx_nrfifos;
 
-	
+	/* Make sure ucc_slow_init() initializes both TX and RX */
 	qe_port->us_info.init_tx = 1;
 	qe_port->us_info.init_rx = 1;
 
+	/* Add the port to the uart sub-system.  This will cause
+	 * qe_uart_config_port() to be called, so the us_info structure must
+	 * be initialized.
+	 */
 	ret = uart_add_one_port(&ucc_uart_driver, &qe_port->port);
 	if (ret) {
 		dev_err(&ofdev->dev, "could not add /dev/ttyQE%u\n",
@@ -1177,7 +1456,7 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 	dev_info(&ofdev->dev, "UCC%u assigned to /dev/ttyQE%u\n",
 		qe_port->ucc_num + 1, qe_port->port.line);
 
-	
+	/* Display the mknod command for this device */
 	dev_dbg(&ofdev->dev, "mknod command is 'mknod /dev/ttyQE%u c %u %u'\n",
 	       qe_port->port.line, SERIAL_QE_MAJOR,
 	       SERIAL_QE_MINOR + qe_port->port.line);

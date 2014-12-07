@@ -4,8 +4,76 @@
 #include <linux/types.h>
 #include <asm/compiler.h>
 
+/*
+ * APECS is the internal name for the 2107x chipset which provides
+ * memory controller and PCI access for the 21064 chip based systems.
+ *
+ * This file is based on:
+ *
+ * DECchip 21071-AA and DECchip 21072-AA Core Logic Chipsets
+ * Data Sheet
+ *
+ * EC-N0648-72
+ *
+ *
+ * david.rusling@reo.mts.dec.com Initial Version.
+ *
+ */
 
+/*
+   An AVANTI *might* be an XL, and an XL has only 27 bits of ISA address
+   that get passed through the PCI<->ISA bridge chip. So we've gotta use
+   both windows to max out the physical memory we can DMA to. Sigh...
 
+   If we try a window at 0 for 1GB as a work-around, we run into conflicts
+   with ISA/PCI bus memory which can't be relocated, like VGA aperture and
+   BIOS ROMs. So we must put the windows high enough to avoid these areas.
+
+   We put window 1 at BUS 64Mb for 64Mb, mapping physical 0 to 64Mb-1,
+   and window 2 at BUS 1Gb for 1Gb, mapping physical 0 to 1Gb-1.
+   Yes, this does map 0 to 64Mb-1 twice, but only window 1 will actually
+   be used for that range (via virt_to_bus()).
+
+   Note that we actually fudge the window 1 maximum as 48Mb instead of 64Mb,
+   to keep virt_to_bus() from returning an address in the first window, for
+   a data area that goes beyond the 64Mb first DMA window.  Sigh...
+   The fudge factor MUST match with <asm/dma.h> MAX_DMA_ADDRESS, but
+   we can't just use that here, because of header file looping... :-(
+
+   Window 1 will be used for all DMA from the ISA bus; yes, that does
+   limit what memory an ISA floppy or sound card or Ethernet can touch, but
+   it's also a known limitation on other platforms as well. We use the
+   same technique that is used on INTEL platforms with similar limitation:
+   set MAX_DMA_ADDRESS and clear some pages' DMAable flags during mem_init().
+   We trust that any ISA bus device drivers will *always* ask for DMAable
+   memory explicitly via kmalloc()/get_free_pages() flags arguments.
+
+   Note that most PCI bus devices' drivers do *not* explicitly ask for
+   DMAable memory; they count on being able to DMA to any memory they
+   get from kmalloc()/get_free_pages(). They will also use window 1 for
+   any physical memory accesses below 64Mb; the rest will be handled by
+   window 2, maxing out at 1Gb of memory. I trust this is enough... :-)
+
+   We hope that the area before the first window is large enough so that
+   there will be no overlap at the top end (64Mb). We *must* locate the
+   PCI cards' memory just below window 1, so that there's still the
+   possibility of being able to access it via SPARSE space. This is
+   important for cards such as the Matrox Millennium, whose Xserver
+   wants to access memory-mapped registers in byte and short lengths.
+
+   Note that the XL is treated differently from the AVANTI, even though
+   for most other things they are identical. It didn't seem reasonable to
+   make the AVANTI support pay for the limitations of the XL. It is true,
+   however, that an XL kernel will run on an AVANTI without problems.
+
+   %%% All of this should be obviated by the ability to route
+   everything through the iommu.
+*/
+
+/*
+ * 21071-DA Control and Status registers.
+ * These are used for PCI memory access.
+ */
 #define APECS_IOC_DCSR                  (IDENT_ADDR + 0x1A0000000UL)
 #define APECS_IOC_PEAR                  (IDENT_ADDR + 0x1A0000020UL)
 #define APECS_IOC_SEAR                  (IDENT_ADDR + 0x1A0000040UL)
@@ -49,6 +117,11 @@
 #define APECS_IOC_TBIA                  (IDENT_ADDR + 0x1A0000400UL)
 
 
+/*
+ * 21071-CA Control and Status registers.
+ * These are used to program memory timing,
+ *  configure memory and initialise the B-Cache.
+ */
 #define APECS_MEM_GCR		        (IDENT_ADDR + 0x180000000UL)
 #define APECS_MEM_EDSR		        (IDENT_ADDR + 0x180000040UL)
 #define APECS_MEM_TAR  		        (IDENT_ADDR + 0x180000060UL)
@@ -63,6 +136,7 @@
 #define APECS_MEM_PDLDR  		(IDENT_ADDR + 0x180000260UL)
 #define APECS_MEM_PDhDR  		(IDENT_ADDR + 0x180000280UL)
 
+/* Bank x Base Address Register */
 #define APECS_MEM_B0BAR  		(IDENT_ADDR + 0x180000800UL)
 #define APECS_MEM_B1BAR  		(IDENT_ADDR + 0x180000820UL)
 #define APECS_MEM_B2BAR  		(IDENT_ADDR + 0x180000840UL)
@@ -73,6 +147,7 @@
 #define APECS_MEM_B7BAR  		(IDENT_ADDR + 0x1800008E0UL)
 #define APECS_MEM_B8BAR  		(IDENT_ADDR + 0x180000900UL)
 
+/* Bank x Configuration Register */
 #define APECS_MEM_B0BCR  		(IDENT_ADDR + 0x180000A00UL)
 #define APECS_MEM_B1BCR  		(IDENT_ADDR + 0x180000A20UL)
 #define APECS_MEM_B2BCR  		(IDENT_ADDR + 0x180000A40UL)
@@ -83,6 +158,7 @@
 #define APECS_MEM_B7BCR  		(IDENT_ADDR + 0x180000AE0UL)
 #define APECS_MEM_B8BCR  		(IDENT_ADDR + 0x180000B00UL)
 
+/* Bank x Timing Register A */
 #define APECS_MEM_B0TRA  		(IDENT_ADDR + 0x180000C00UL)
 #define APECS_MEM_B1TRA  		(IDENT_ADDR + 0x180000C20UL)
 #define APECS_MEM_B2TRA  		(IDENT_ADDR + 0x180000C40UL)
@@ -93,6 +169,7 @@
 #define APECS_MEM_B7TRA  		(IDENT_ADDR + 0x180000CE0UL)
 #define APECS_MEM_B8TRA  		(IDENT_ADDR + 0x180000D00UL)
 
+/* Bank x Timing Register B */
 #define APECS_MEM_B0TRB                 (IDENT_ADDR + 0x180000E00UL)
 #define APECS_MEM_B1TRB  		(IDENT_ADDR + 0x180000E20UL)
 #define APECS_MEM_B2TRB  		(IDENT_ADDR + 0x180000E40UL)
@@ -104,6 +181,9 @@
 #define APECS_MEM_B8TRB  		(IDENT_ADDR + 0x180000F00UL)
 
 
+/*
+ * Memory spaces:
+ */
 #define APECS_IACK_SC		        (IDENT_ADDR + 0x1b0000000UL)
 #define APECS_CONF		        (IDENT_ADDR + 0x1e0000000UL)
 #define APECS_IO			(IDENT_ADDR + 0x1c0000000UL)
@@ -111,6 +191,9 @@
 #define APECS_DENSE_MEM		        (IDENT_ADDR + 0x300000000UL)
 
 
+/*
+ * Bit definitions for I/O Controller status register 0:
+ */
 #define APECS_IOC_STAT0_CMD		0xf
 #define APECS_IOC_STAT0_ERR		(1<<4)
 #define APECS_IOC_STAT0_LOST		(1<<5)
@@ -124,6 +207,9 @@
 #define APECS_HAE_ADDRESS		APECS_IOC_HAXR1
 
 
+/*
+ * Data structure for handling APECS machine checks:
+ */
 
 struct el_apecs_mikasa_sysdata_mcheck
 {
@@ -195,6 +281,7 @@ struct el_apecs_mikasa_sysdata_mcheck
 	unsigned long svr_mgr;
 };
 
+/* This for the normal APECS machines.  */
 struct el_apecs_sysdata_mcheck
 {
 	unsigned long coma_gcr;
@@ -242,26 +329,26 @@ struct el_apecs_sysdata_mcheck
 
 struct el_apecs_procdata
 {
-	unsigned long paltemp[32];  
-	
-	unsigned long exc_addr;     
-	unsigned long exc_sum;      
-	unsigned long exc_mask;     
-	unsigned long iccsr;        
-	unsigned long pal_base;     
-	unsigned long hier;         
-	unsigned long hirr;         
-	unsigned long csr;          
-	unsigned long dc_stat;      
-	unsigned long dc_addr;      
-	unsigned long abox_ctl;     
-	unsigned long biu_stat;     
-	unsigned long biu_addr;     
-	unsigned long biu_ctl;      
-	unsigned long fill_syndrome;
-	unsigned long fill_addr;    
-	unsigned long va;           
-	unsigned long bc_tag;       
+	unsigned long paltemp[32];  /* PAL TEMP REGS. */
+	/* EV4-specific fields */
+	unsigned long exc_addr;     /* Address of excepting instruction. */
+	unsigned long exc_sum;      /* Summary of arithmetic traps. */
+	unsigned long exc_mask;     /* Exception mask (from exc_sum). */
+	unsigned long iccsr;        /* IBox hardware enables. */
+	unsigned long pal_base;     /* Base address for PALcode. */
+	unsigned long hier;         /* Hardware Interrupt Enable. */
+	unsigned long hirr;         /* Hardware Interrupt Request. */
+	unsigned long csr;          /* D-stream fault info. */
+	unsigned long dc_stat;      /* D-cache status (ECC/Parity Err). */
+	unsigned long dc_addr;      /* EV3 Phys Addr for ECC/DPERR. */
+	unsigned long abox_ctl;     /* ABox Control Register. */
+	unsigned long biu_stat;     /* BIU Status. */
+	unsigned long biu_addr;     /* BUI Address. */
+	unsigned long biu_ctl;      /* BIU Control. */
+	unsigned long fill_syndrome;/* For correcting ECC errors. */
+	unsigned long fill_addr;    /* Cache block which was being read */
+	unsigned long va;           /* Effective VA of fault or miss. */
+	unsigned long bc_tag;       /* Backup Cache Tag Probe Results.*/
 };
 
 
@@ -272,6 +359,16 @@ struct el_apecs_procdata
 #define __IO_EXTERN_INLINE
 #endif
 
+/*
+ * I/O functions:
+ *
+ * Unlike Jensen, the APECS machines have no concept of local
+ * I/O---everything goes over the PCI bus.
+ *
+ * There is plenty room for optimization here.  In particular,
+ * the Alpha's insb/insw/extb/extw should be useful in moving
+ * data to/from the right byte-lanes.
+ */
 
 #define vip	volatile int __force *
 #define vuip	volatile unsigned int __force *
@@ -415,6 +512,6 @@ __EXTERN_INLINE int apecs_is_mmio(const volatile void __iomem *addr)
 #undef __IO_EXTERN_INLINE
 #endif
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ALPHA_APECS__H__ */

@@ -10,6 +10,7 @@
 #include "asm/ptrace.h"
 #include "sysrq.h"
 
+/* This is declared by <linux/sched.h> */
 void show_regs(struct pt_regs *regs)
 {
         printk("\n");
@@ -35,12 +36,14 @@ void show_regs(struct pt_regs *regs)
         show_trace(NULL, (unsigned long *) &regs);
 }
 
+/* Copied from i386. */
 static inline int valid_stack_ptr(struct thread_info *tinfo, void *p)
 {
 	return	p > (void *)tinfo &&
 		p < (void *)tinfo + THREAD_SIZE - 3;
 }
 
+/* Adapted from i386 (we also print the address we read from). */
 static inline unsigned long print_context_stack(struct thread_info *tinfo,
 				unsigned long *stack, unsigned long ebp)
 {
@@ -73,7 +76,7 @@ void show_trace(struct task_struct* task, unsigned long * stack)
 	unsigned long ebp;
 	struct thread_info *context;
 
-	
+	/* Turn this into BUG_ON if possible. */
 	if (!stack) {
 		stack = (unsigned long*) &stack;
 		printk("show_trace: got NULL stack, implicit assumption task == current");

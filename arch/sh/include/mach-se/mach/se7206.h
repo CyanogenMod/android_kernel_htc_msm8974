@@ -10,4 +10,4 @@ void init_se7206_IRQ(void);
 #define __IO_PREFIX	se7206
 #include <asm/io_generic.h>
 
-#endif 
+#endif /* __ASM_SH_SE7206_H */

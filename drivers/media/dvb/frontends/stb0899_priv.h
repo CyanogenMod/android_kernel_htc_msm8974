@@ -154,56 +154,56 @@ enum stb0899_fec {
 };
 
 struct stb0899_params {
-	u32	freq;					
-	u32	srate;					
+	u32	freq;					/* Frequency	*/
+	u32	srate;					/* Symbol rate	*/
 	enum fe_code_rate fecrate;
 };
 
 struct stb0899_internal {
 	u32			master_clk;
-	u32			freq;			
-	u32			srate;			
-	enum stb0899_fec	fecrate;		
-	s32			srch_range;		
-	s32			sub_range;		
-	s32			tuner_step;		
-	s32			tuner_offst;		
-	u32			tuner_bw;		
+	u32			freq;			/* Demod internal Frequency		*/
+	u32			srate;			/* Demod internal Symbol rate		*/
+	enum stb0899_fec	fecrate;		/* Demod internal FEC rate		*/
+	s32			srch_range;		/* Demod internal Search Range		*/
+	s32			sub_range;		/* Demod current sub range (Hz)		*/
+	s32			tuner_step;		/* Tuner step (Hz)			*/
+	s32			tuner_offst;		/* Relative offset to carrier (Hz)	*/
+	u32			tuner_bw;		/* Current bandwidth of the tuner (Hz)	*/
 
-	s32			mclk;			
-	s32			rolloff;		
+	s32			mclk;			/* Masterclock Divider factor (binary)	*/
+	s32			rolloff;		/* Current RollOff of the filter (x100)	*/
 
-	s16			derot_freq;		
+	s16			derot_freq;		/* Current derotator frequency (Hz)	*/
 	s16			derot_percent;
 
-	s16			direction;		
-	s16			derot_step;		
-	s16			t_derot;		
-	s16			t_data;			
-	s16			sub_dir;		
+	s16			direction;		/* Current derotator search direction	*/
+	s16			derot_step;		/* Derotator step (binary value)	*/
+	s16			t_derot;		/* Derotator time constant (ms)		*/
+	s16			t_data;			/* Data recovery time constant (ms)	*/
+	s16			sub_dir;		/* Direction of the next sub range	*/
 
-	s16			t_agc1;			
-	s16			t_agc2;			
+	s16			t_agc1;			/* Agc1 time constant (ms)		*/
+	s16			t_agc2;			/* Agc2 time constant (ms)		*/
 
-	u32			lock;			
-	enum stb0899_status	status;			
+	u32			lock;			/* Demod internal lock state		*/
+	enum stb0899_status	status;			/* Demod internal status		*/
 
-	
-	s32			agc_gain;		
-	s32			center_freq;		
-	s32			av_frame_coarse;	
-	s32			av_frame_fine;		
+	/* DVB-S2 */
+	s32			agc_gain;		/* RF AGC Gain				*/
+	s32			center_freq;		/* Nominal carrier frequency		*/
+	s32			av_frame_coarse;	/* Coarse carrier freq search frames	*/
+	s32			av_frame_fine;		/* Fine carrier freq search frames	*/
 
-	s16			step_size;		
+	s16			step_size;		/* Carrier frequency search step size	*/
 
 	enum stb0899_alpha	rrc_alpha;
 	enum stb0899_inversion	inversion;
 	enum stb0899_modcod	modcod;
-	u8			pilots;			
+	u8			pilots;			/* Pilots found				*/
 
 	enum stb0899_frame	frame_length;
-	u8			v_status;		
-	u8			err_ctrl;		
+	u8			v_status;		/* VSTATUS				*/
+	u8			err_ctrl;		/* ERRCTRLn				*/
 };
 
 struct stb0899_state {
@@ -211,17 +211,18 @@ struct stb0899_state {
 	struct stb0899_config		*config;
 	struct dvb_frontend		frontend;
 
-	u32				*verbose;	
+	u32				*verbose;	/* Cached module verbosity level	*/
 
-	struct stb0899_internal		internal;	
+	struct stb0899_internal		internal;	/* Device internal parameters		*/
 
-	
+	/*	cached params from API	*/
 	enum fe_delivery_system		delsys;
 	struct stb0899_params		params;
 
-	u32				rx_freq;	
+	u32				rx_freq;	/* DiSEqC 2.0 receiver freq		*/
 	struct mutex			search_lock;
 };
+/* stb0899.c		*/
 extern int stb0899_read_reg(struct stb0899_state *state,
 			    unsigned int reg);
 
@@ -252,9 +253,11 @@ extern int stb0899_i2c_gate_ctrl(struct dvb_frontend *fe, int enable);
 
 
 #define STB0899_READ_S2REG(DEVICE, REG) 	(_stb0899_read_s2reg(state, DEVICE, STB0899_BASE_##REG, STB0899_OFF0_##REG))
+//#define STB0899_WRITE_S2REG(DEVICE, REG, DATA)	(_stb0899_write_s2reg(state, DEVICE, STB0899_BASE_##REG, STB0899_OFF0_##REG, DATA))
 
+/* stb0899_algo.c	*/
 extern enum stb0899_status stb0899_dvbs_algo(struct stb0899_state *state);
 extern enum stb0899_status stb0899_dvbs2_algo(struct stb0899_state *state);
 extern long stb0899_carr_width(struct stb0899_state *state);
 
-#endif 
+#endif //__STB0899_PRIV_H

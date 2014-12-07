@@ -20,6 +20,10 @@
  *
  */
 
+/*
+#define DEBUG
+#define VERBOSE_DEBUG
+*/
 #include <linux/delay.h>
 #include <linux/highmem.h>
 #include <linux/module.h>
@@ -37,9 +41,11 @@
 
 static unsigned int switchlocked;
 
+/* i/o region */
 #define SDRICOH_PCI_REGION 0
 #define SDRICOH_PCI_REGION_SIZE 0x1000
 
+/* registers */
 #define R104_VERSION     0x104
 #define R200_CMD         0x200
 #define R204_CMD_ARG     0x204
@@ -54,6 +60,7 @@ static unsigned int switchlocked;
 #define R228_POWER       0x228
 #define R230_DATA        0x230
 
+/* flags for the R21C_STATUS register */
 #define STATUS_CMD_FINISHED      0x00000001
 #define STATUS_TRANSFER_FINISHED 0x00000004
 #define STATUS_CARD_INSERTED     0x00000020
@@ -63,13 +70,15 @@ static unsigned int switchlocked;
 #define STATUS_READY_TO_WRITE    0x02000000
 #define STATUS_BUSY              0x40000000
 
+/* timeouts */
 #define INIT_TIMEOUT      100
 #define CMD_TIMEOUT       100000
 #define TRANSFER_TIMEOUT  100000
 #define BUSY_TIMEOUT      32767
 
+/* list of supported pcmcia devices */
 static const struct pcmcia_device_id pcmcia_ids[] = {
-	
+	/* vendor and device strings followed by their crc32 hashes */
 	PCMCIA_DEVICE_PROD_ID12("RICOH", "Bay1Controller", 0xd9f522ed,
 				0xc3901202),
 	PCMCIA_DEVICE_PROD_ID12("RICOH", "Bay Controller", 0xd9f522ed,
@@ -79,14 +88,16 @@ static const struct pcmcia_device_id pcmcia_ids[] = {
 
 MODULE_DEVICE_TABLE(pcmcia, pcmcia_ids);
 
+/* mmc privdata */
 struct sdricoh_host {
 	struct device *dev;
-	struct mmc_host *mmc;	
+	struct mmc_host *mmc;	/* MMC structure */
 	unsigned char __iomem *iobase;
 	struct pci_dev *pci_dev;
 	int app_cmd;
 };
 
+/***************** register i/o helper functions *****************************/
 
 static inline unsigned int sdricoh_readl(struct sdricoh_host *host,
 					 unsigned int reg)
@@ -144,7 +155,7 @@ static int sdricoh_query_status(struct sdricoh_host *host, unsigned int wanted,
 		return -ETIMEDOUT;
 	}
 
-	
+	/* do not do this check in the loop as some commands fail otherwise */
 	if (status & 0x7F0000) {
 		dev_err(dev, "waiting for status bit %x failed\n", wanted);
 		return -EINVAL;
@@ -159,12 +170,12 @@ static int sdricoh_mmc_cmd(struct sdricoh_host *host, unsigned char opcode,
 	unsigned int status;
 	int result = 0;
 	unsigned int loop = 0;
-	
+	/* reset status reg? */
 	sdricoh_writel(host, R21C_STATUS, 0x18);
-	
+	/* fill parameters */
 	sdricoh_writel(host, R204_CMD_ARG, arg);
 	sdricoh_writel(host, R200_CMD, (0x10000 << 8) | opcode);
-	
+	/* wait for command completion */
 	if (opcode) {
 		for (loop = 0; loop < CMD_TIMEOUT; loop++) {
 			status = sdricoh_readl(host, R21C_STATUS);
@@ -172,6 +183,9 @@ static int sdricoh_mmc_cmd(struct sdricoh_host *host, unsigned char opcode,
 			if (status  & STATUS_CMD_FINISHED)
 				break;
 		}
+		/* don't check for timeout in the loop it is not always
+		   reset correctly
+		*/
 		if (loop == CMD_TIMEOUT || status & STATUS_CMD_TIMEOUT)
 			result = -ETIMEDOUT;
 
@@ -194,7 +208,7 @@ static int sdricoh_reset(struct sdricoh_host *host)
 	sdricoh_writel(host, R228_POWER, 0xe0);
 
 
-	
+	/* status register ? */
 	sdricoh_writel(host, R21C_STATUS, 0x18);
 
 	return 0;
@@ -205,13 +219,13 @@ static int sdricoh_blockio(struct sdricoh_host *host, int read,
 {
 	int size;
 	u32 data = 0;
-	
+	/* wait until the data is available */
 	if (read) {
 		if (sdricoh_query_status(host, STATUS_READY_TO_READ,
 						TRANSFER_TIMEOUT))
 			return -ETIMEDOUT;
 		sdricoh_writel(host, R21C_STATUS, 0x18);
-		
+		/* read data */
 		while (len) {
 			data = sdricoh_readl(host, R230_DATA);
 			size = min(len, 4);
@@ -228,7 +242,7 @@ static int sdricoh_blockio(struct sdricoh_host *host, int read,
 						TRANSFER_TIMEOUT))
 			return -ETIMEDOUT;
 		sdricoh_writel(host, R21C_STATUS, 0x18);
-		
+		/* write data */
 		while (len) {
 			size = min(len, 4);
 			len -= size;
@@ -262,14 +276,14 @@ static void sdricoh_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	sdricoh_writel(host, R21C_STATUS, 0x18);
 
-	
+	/* MMC_APP_CMDs need some special handling */
 	if (host->app_cmd) {
 		opcode |= 64;
 		host->app_cmd = 0;
 	} else if (opcode == 55)
 		host->app_cmd = 1;
 
-	
+	/* read/write commands seem to require this */
 	if (data) {
 		sdricoh_writew(host, R226_BLOCKSIZE, data->blksz);
 		sdricoh_writel(host, R208_DATAIO, 0);
@@ -277,10 +291,10 @@ static void sdricoh_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	cmd->error = sdricoh_mmc_cmd(host, opcode, cmd->arg);
 
-	
+	/* read response buffer */
 	if (cmd->flags & MMC_RSP_PRESENT) {
 		if (cmd->flags & MMC_RSP_136) {
-			
+			/* CRC is stripped so we need to do some shifting. */
 			for (i = 0; i < 4; i++) {
 				cmd->resp[i] =
 				    sdricoh_readl(host,
@@ -294,13 +308,13 @@ static void sdricoh_request(struct mmc_host *mmc, struct mmc_request *mrq)
 			cmd->resp[0] = sdricoh_readl(host, R20C_RESP);
 	}
 
-	
+	/* transfer data */
 	if (data && cmd->error == 0) {
 		dev_dbg(dev, "transfer: blksz %i blocks %i sg_len %i "
 			"sg length %i\n", data->blksz, data->blocks,
 			data->sg_len, data->sg->length);
 
-		
+		/* enter data reading mode */
 		sdricoh_writel(host, R21C_STATUS, 0x837f031e);
 		for (i = 0; i < data->blocks; i++) {
 			size_t len = data->blksz;
@@ -332,7 +346,7 @@ static void sdricoh_request(struct mmc_host *mmc, struct mmc_request *mrq)
 			cmd->error = -EINVAL;
 		}
 	}
-	
+	/* FIXME check busy flag */
 
 	mmc_request_done(mmc, mrq);
 	dev_dbg(dev, "=============================\n");
@@ -367,7 +381,7 @@ static int sdricoh_get_ro(struct mmc_host *mmc)
 	status = sdricoh_readl(host, R21C_STATUS);
 	sdricoh_writel(host, R2E4_STATUS_RESP, status);
 
-	
+	/* some notebooks seem to have the locked flag switched */
 	if (switchlocked)
 		return !(status & STATUS_CARD_LOCKED);
 
@@ -380,6 +394,7 @@ static struct mmc_host_ops sdricoh_ops = {
 	.get_ro = sdricoh_get_ro,
 };
 
+/* initialize the control and register it to the mmc framework */
 static int sdricoh_init_mmc(struct pci_dev *pci_dev,
 			    struct pcmcia_device *pcmcia_dev)
 {
@@ -388,7 +403,7 @@ static int sdricoh_init_mmc(struct pci_dev *pci_dev,
 	struct mmc_host *mmc = NULL;
 	struct sdricoh_host *host = NULL;
 	struct device *dev = &pcmcia_dev->dev;
-	
+	/* map iomem */
 	if (pci_resource_len(pci_dev, SDRICOH_PCI_REGION) !=
 	    SDRICOH_PCI_REGION_SIZE) {
 		dev_dbg(dev, "unexpected pci resource len\n");
@@ -400,13 +415,13 @@ static int sdricoh_init_mmc(struct pci_dev *pci_dev,
 		dev_err(dev, "unable to map iobase\n");
 		return -ENODEV;
 	}
-	
+	/* check version? */
 	if (readl(iobase + R104_VERSION) != 0x4000) {
 		dev_dbg(dev, "no supported mmc controller found\n");
 		result = -ENODEV;
 		goto err;
 	}
-	
+	/* allocate privdata */
 	mmc = pcmcia_dev->priv =
 	    mmc_alloc_host(sizeof(struct sdricoh_host), &pcmcia_dev->dev);
 	if (!mmc) {
@@ -422,6 +437,8 @@ static int sdricoh_init_mmc(struct pci_dev *pci_dev,
 
 	mmc->ops = &sdricoh_ops;
 
+	/* FIXME: frequency and voltage handling is done by the controller
+	 */
 	mmc->f_min = 450000;
 	mmc->f_max = 24000000;
 	mmc->ocr_avail = MMC_VDD_32_33 | MMC_VDD_33_34;
@@ -430,7 +447,7 @@ static int sdricoh_init_mmc(struct pci_dev *pci_dev,
 	mmc->max_seg_size = 1024 * 512;
 	mmc->max_blk_size = 512;
 
-	
+	/* reset the controller */
 	if (sdricoh_reset(host)) {
 		dev_dbg(dev, "could not reset\n");
 		result = -EIO;
@@ -454,6 +471,7 @@ err:
 	return result;
 }
 
+/* search for supported mmc controllers */
 static int sdricoh_pcmcia_probe(struct pcmcia_device *pcmcia_dev)
 {
 	struct pci_dev *pci_dev = NULL;
@@ -461,12 +479,12 @@ static int sdricoh_pcmcia_probe(struct pcmcia_device *pcmcia_dev)
 	dev_info(&pcmcia_dev->dev, "Searching MMC controller for pcmcia device"
 		" %s %s ...\n", pcmcia_dev->prod_id[0], pcmcia_dev->prod_id[1]);
 
-	
-	
+	/* search pci cardbus bridge that contains the mmc controller */
+	/* the io region is already claimed by yenta_socket... */
 	while ((pci_dev =
 		pci_get_device(PCI_VENDOR_ID_RICOH, PCI_DEVICE_ID_RICOH_RL5C476,
 			       pci_dev))) {
-		
+		/* try to init the device */
 		if (!sdricoh_init_mmc(pci_dev, pcmcia_dev)) {
 			dev_info(&pcmcia_dev->dev, "MMC controller found\n");
 			return 0;
@@ -483,7 +501,7 @@ static void sdricoh_pcmcia_detach(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "detach\n");
 
-	
+	/* remove mmc host */
 	if (mmc) {
 		struct sdricoh_host *host = mmc_priv(mmc);
 		mmc_remove_host(mmc);
@@ -526,6 +544,11 @@ static struct pcmcia_driver sdricoh_driver = {
 	.resume = sdricoh_pcmcia_resume,
 };
 
+/*****************************************************************************\
+ *                                                                           *
+ * Driver init/exit                                                          *
+ *                                                                           *
+\*****************************************************************************/
 
 static int __init sdricoh_drv_init(void)
 {

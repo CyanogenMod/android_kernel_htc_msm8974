@@ -31,6 +31,8 @@
 
 static void send_outstanding_bcast_packet(struct work_struct *work);
 
+/* send out an already prepared packet to the given address via the
+ * specified batman interface */
 int send_skb_packet(struct sk_buff *skb, struct hard_iface *hard_iface,
 		    const uint8_t *dst_addr)
 {
@@ -48,7 +50,7 @@ int send_skb_packet(struct sk_buff *skb, struct hard_iface *hard_iface,
 		goto send_skb_err;
 	}
 
-	
+	/* push to the ethernet header. */
 	if (my_skb_head_push(skb, sizeof(*ethhdr)) < 0)
 		goto send_skb_err;
 
@@ -65,6 +67,9 @@ int send_skb_packet(struct sk_buff *skb, struct hard_iface *hard_iface,
 
 	skb->dev = hard_iface->net_dev;
 
+	/* dev_queue_xmit() returns a negative result on error.	 However on
+	 * congestion and traffic shaping, it drops and returns NET_XMIT_DROP
+	 * (which is > 0). This will not be treated as an error. */
 
 	return dev_queue_xmit(skb);
 send_skb_err:
@@ -79,7 +84,7 @@ static void realloc_packet_buffer(struct hard_iface *hard_iface,
 
 	new_buff = kmalloc(new_len, GFP_ATOMIC);
 
-	
+	/* keep old buffer if kmalloc should fail */
 	if (new_buff) {
 		memcpy(new_buff, hard_iface->packet_buff,
 		       BATMAN_OGM_LEN);
@@ -90,6 +95,7 @@ static void realloc_packet_buffer(struct hard_iface *hard_iface,
 	}
 }
 
+/* when calling this function (hard_iface == primary_if) has to be true */
 static int prepare_packet_buffer(struct bat_priv *bat_priv,
 				  struct hard_iface *hard_iface)
 {
@@ -98,6 +104,8 @@ static int prepare_packet_buffer(struct bat_priv *bat_priv,
 	new_len = BATMAN_OGM_LEN +
 		  tt_len((uint8_t)atomic_read(&bat_priv->tt_local_changes));
 
+	/* if we have too many changes for one packet don't send any
+	 * and wait for the tt table request which will be fragmented */
 	if (new_len > hard_iface->soft_iface->mtu)
 		new_len = BATMAN_OGM_LEN;
 
@@ -105,7 +113,7 @@ static int prepare_packet_buffer(struct bat_priv *bat_priv,
 
 	atomic_set(&bat_priv->tt_crc, tt_local_crc(bat_priv));
 
-	
+	/* reset the sending counter */
 	atomic_set(&bat_priv->tt_ogm_append_cnt, TT_OGM_APPEND_MAX);
 
 	return tt_changes_fill_buffer(bat_priv,
@@ -130,20 +138,27 @@ void schedule_bat_ogm(struct hard_iface *hard_iface)
 	    (hard_iface->if_status == IF_TO_BE_REMOVED))
 		return;
 
+	/**
+	 * the interface gets activated here to avoid race conditions between
+	 * the moment of activating the interface in
+	 * hardif_activate_interface() where the originator mac is set and
+	 * outdated packets (especially uninitialized mac addresses) in the
+	 * packet queue
+	 */
 	if (hard_iface->if_status == IF_TO_BE_ACTIVATED)
 		hard_iface->if_status = IF_ACTIVE;
 
 	primary_if = primary_if_get_selected(bat_priv);
 
 	if (hard_iface == primary_if) {
-		
+		/* if at least one change happened */
 		if (atomic_read(&bat_priv->tt_local_changes) > 0) {
 			tt_commit_changes(bat_priv);
 			tt_num_changes = prepare_packet_buffer(bat_priv,
 							       hard_iface);
 		}
 
-		
+		/* if the changes have been sent often enough */
 		if (!atomic_dec_not_zero(&bat_priv->tt_ogm_append_cnt))
 			tt_num_changes = reset_packet_buffer(bat_priv,
 							     hard_iface);
@@ -170,18 +185,26 @@ static void _add_bcast_packet_to_list(struct bat_priv *bat_priv,
 {
 	INIT_HLIST_NODE(&forw_packet->list);
 
-	
+	/* add new packet to packet list */
 	spin_lock_bh(&bat_priv->forw_bcast_list_lock);
 	hlist_add_head(&forw_packet->list, &bat_priv->forw_bcast_list);
 	spin_unlock_bh(&bat_priv->forw_bcast_list_lock);
 
-	
+	/* start timer for this packet */
 	INIT_DELAYED_WORK(&forw_packet->delayed_work,
 			  send_outstanding_bcast_packet);
 	queue_delayed_work(bat_event_workqueue, &forw_packet->delayed_work,
 			   send_time);
 }
 
+/* add a broadcast packet to the queue and setup timers. broadcast packets
+ * are sent multiple times to increase probability for being received.
+ *
+ * This function returns NETDEV_TX_OK on success and NETDEV_TX_BUSY on
+ * errors.
+ *
+ * The skb is not consumed, so the caller should make sure that the
+ * skb is freed. */
 int add_bcast_packet_to_list(struct bat_priv *bat_priv,
 			     const struct sk_buff *skb, unsigned long delay)
 {
@@ -208,7 +231,7 @@ int add_bcast_packet_to_list(struct bat_priv *bat_priv,
 	if (!newskb)
 		goto packet_free;
 
-	
+	/* as we have a copy now, it is safe to decrease the TTL */
 	bcast_packet = (struct bcast_packet *)newskb->data;
 	bcast_packet->header.ttl--;
 
@@ -217,7 +240,7 @@ int add_bcast_packet_to_list(struct bat_priv *bat_priv,
 	forw_packet->skb = newskb;
 	forw_packet->if_incoming = primary_if;
 
-	
+	/* how often did we send the bcast packet ? */
 	forw_packet->num_packets = 0;
 
 	_add_bcast_packet_to_list(bat_priv, forw_packet, delay);
@@ -251,13 +274,13 @@ static void send_outstanding_bcast_packet(struct work_struct *work)
 	if (atomic_read(&bat_priv->mesh_state) == MESH_DEACTIVATING)
 		goto out;
 
-	
+	/* rebroadcast packet */
 	rcu_read_lock();
 	list_for_each_entry_rcu(hard_iface, &hardif_list, list) {
 		if (hard_iface->soft_iface != soft_iface)
 			continue;
 
-		
+		/* send a copy of the saved skb */
 		skb1 = skb_clone(forw_packet->skb, GFP_ATOMIC);
 		if (skb1)
 			send_skb_packet(skb1, hard_iface, broadcast_addr);
@@ -266,7 +289,7 @@ static void send_outstanding_bcast_packet(struct work_struct *work)
 
 	forw_packet->num_packets++;
 
-	
+	/* if we still have some more bcasts to send */
 	if (forw_packet->num_packets < 3) {
 		_add_bcast_packet_to_list(bat_priv, forw_packet,
 					  ((5 * HZ) / 1000));
@@ -296,11 +319,16 @@ void send_outstanding_bat_ogm_packet(struct work_struct *work)
 
 	bat_priv->bat_algo_ops->bat_ogm_emit(forw_packet);
 
+	/**
+	 * we have to have at least one packet in the queue
+	 * to determine the queues wake up time unless we are
+	 * shutting down
+	 */
 	if (forw_packet->own)
 		schedule_bat_ogm(forw_packet->if_incoming);
 
 out:
-	
+	/* don't count own packet */
 	if (!forw_packet->own)
 		atomic_inc(&bat_priv->batman_queue_left);
 
@@ -322,17 +350,25 @@ void purge_outstanding_packets(struct bat_priv *bat_priv,
 		bat_dbg(DBG_BATMAN, bat_priv,
 			"purge_outstanding_packets()\n");
 
-	
+	/* free bcast list */
 	spin_lock_bh(&bat_priv->forw_bcast_list_lock);
 	hlist_for_each_entry_safe(forw_packet, tmp_node, safe_tmp_node,
 				  &bat_priv->forw_bcast_list, list) {
 
+		/**
+		 * if purge_outstanding_packets() was called with an argument
+		 * we delete only packets belonging to the given interface
+		 */
 		if ((hard_iface) &&
 		    (forw_packet->if_incoming != hard_iface))
 			continue;
 
 		spin_unlock_bh(&bat_priv->forw_bcast_list_lock);
 
+		/**
+		 * send_outstanding_bcast_packet() will lock the list to
+		 * delete the item from the list
+		 */
 		pending = cancel_delayed_work_sync(&forw_packet->delayed_work);
 		spin_lock_bh(&bat_priv->forw_bcast_list_lock);
 
@@ -343,17 +379,25 @@ void purge_outstanding_packets(struct bat_priv *bat_priv,
 	}
 	spin_unlock_bh(&bat_priv->forw_bcast_list_lock);
 
-	
+	/* free batman packet list */
 	spin_lock_bh(&bat_priv->forw_bat_list_lock);
 	hlist_for_each_entry_safe(forw_packet, tmp_node, safe_tmp_node,
 				  &bat_priv->forw_bat_list, list) {
 
+		/**
+		 * if purge_outstanding_packets() was called with an argument
+		 * we delete only packets belonging to the given interface
+		 */
 		if ((hard_iface) &&
 		    (forw_packet->if_incoming != hard_iface))
 			continue;
 
 		spin_unlock_bh(&bat_priv->forw_bat_list_lock);
 
+		/**
+		 * send_outstanding_bat_packet() will lock the list to
+		 * delete the item from the list
+		 */
 		pending = cancel_delayed_work_sync(&forw_packet->delayed_work);
 		spin_lock_bh(&bat_priv->forw_bat_list_lock);
 

@@ -1,3 +1,10 @@
+/******************************************************************************
+ *
+ * Name: amlcode.h - Definitions for AML, as included in "definition blocks"
+ *                   Declarations and definitions contained herein are derived
+ *                   directly from the ACPI specification.
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -39,6 +46,7 @@
 #ifndef __AMLCODE_H__
 #define __AMLCODE_H__
 
+/* primary opcodes */
 
 #define AML_NULL_CHAR               (u16) 0x00
 
@@ -51,11 +59,11 @@
 #define AML_WORD_OP                 (u16) 0x0b
 #define AML_DWORD_OP                (u16) 0x0c
 #define AML_STRING_OP               (u16) 0x0d
-#define AML_QWORD_OP                (u16) 0x0e	
+#define AML_QWORD_OP                (u16) 0x0e	/* ACPI 2.0 */
 #define AML_SCOPE_OP                (u16) 0x10
 #define AML_BUFFER_OP               (u16) 0x11
 #define AML_PACKAGE_OP              (u16) 0x12
-#define AML_VAR_PACKAGE_OP          (u16) 0x13	
+#define AML_VAR_PACKAGE_OP          (u16) 0x13	/* ACPI 2.0 */
 #define AML_METHOD_OP               (u16) 0x14
 #define AML_DUAL_NAME_PREFIX        (u16) 0x2e
 #define AML_MULTI_NAME_PREFIX_OP    (u16) 0x2f
@@ -101,8 +109,8 @@
 #define AML_FIND_SET_LEFT_BIT_OP    (u16) 0x81
 #define AML_FIND_SET_RIGHT_BIT_OP   (u16) 0x82
 #define AML_DEREF_OF_OP             (u16) 0x83
-#define AML_CONCAT_RES_OP           (u16) 0x84	
-#define AML_MOD_OP                  (u16) 0x85	
+#define AML_CONCAT_RES_OP           (u16) 0x84	/* ACPI 2.0 */
+#define AML_MOD_OP                  (u16) 0x85	/* ACPI 2.0 */
 #define AML_NOTIFY_OP               (u16) 0x86
 #define AML_SIZE_OF_OP              (u16) 0x87
 #define AML_INDEX_OP                (u16) 0x88
@@ -112,21 +120,21 @@
 #define AML_CREATE_BYTE_FIELD_OP    (u16) 0x8c
 #define AML_CREATE_BIT_FIELD_OP     (u16) 0x8d
 #define AML_TYPE_OP                 (u16) 0x8e
-#define AML_CREATE_QWORD_FIELD_OP   (u16) 0x8f	
+#define AML_CREATE_QWORD_FIELD_OP   (u16) 0x8f	/* ACPI 2.0 */
 #define AML_LAND_OP                 (u16) 0x90
 #define AML_LOR_OP                  (u16) 0x91
 #define AML_LNOT_OP                 (u16) 0x92
 #define AML_LEQUAL_OP               (u16) 0x93
 #define AML_LGREATER_OP             (u16) 0x94
 #define AML_LLESS_OP                (u16) 0x95
-#define AML_TO_BUFFER_OP            (u16) 0x96	
-#define AML_TO_DECSTRING_OP         (u16) 0x97	
-#define AML_TO_HEXSTRING_OP         (u16) 0x98	
-#define AML_TO_INTEGER_OP           (u16) 0x99	
-#define AML_TO_STRING_OP            (u16) 0x9c	
-#define AML_COPY_OP                 (u16) 0x9d	
-#define AML_MID_OP                  (u16) 0x9e	
-#define AML_CONTINUE_OP             (u16) 0x9f	
+#define AML_TO_BUFFER_OP            (u16) 0x96	/* ACPI 2.0 */
+#define AML_TO_DECSTRING_OP         (u16) 0x97	/* ACPI 2.0 */
+#define AML_TO_HEXSTRING_OP         (u16) 0x98	/* ACPI 2.0 */
+#define AML_TO_INTEGER_OP           (u16) 0x99	/* ACPI 2.0 */
+#define AML_TO_STRING_OP            (u16) 0x9c	/* ACPI 2.0 */
+#define AML_COPY_OP                 (u16) 0x9d	/* ACPI 2.0 */
+#define AML_MID_OP                  (u16) 0x9e	/* ACPI 2.0 */
+#define AML_CONTINUE_OP             (u16) 0x9f	/* ACPI 2.0 */
 #define AML_IF_OP                   (u16) 0xa0
 #define AML_ELSE_OP                 (u16) 0xa1
 #define AML_WHILE_OP                (u16) 0xa2
@@ -136,8 +144,9 @@
 #define AML_BREAK_POINT_OP          (u16) 0xcc
 #define AML_ONES_OP                 (u16) 0xff
 
+/* prefixed opcodes */
 
-#define AML_EXTENDED_OPCODE         (u16) 0x5b00	
+#define AML_EXTENDED_OPCODE         (u16) 0x5b00	/* prefix for 2-byte opcodes */
 
 #define AML_MUTEX_OP                (u16) 0x5b01
 #define AML_EVENT_OP                (u16) 0x5b02
@@ -145,7 +154,7 @@
 #define AML_SHIFT_LEFT_BIT_OP       (u16) 0x5b11
 #define AML_COND_REF_OF_OP          (u16) 0x5b12
 #define AML_CREATE_FIELD_OP         (u16) 0x5b13
-#define AML_LOAD_TABLE_OP           (u16) 0x5b1f	
+#define AML_LOAD_TABLE_OP           (u16) 0x5b1f	/* ACPI 2.0 */
 #define AML_LOAD_OP                 (u16) 0x5b20
 #define AML_STALL_OP                (u16) 0x5b21
 #define AML_SLEEP_OP                (u16) 0x5b22
@@ -160,7 +169,7 @@
 #define AML_REVISION_OP             (u16) 0x5b30
 #define AML_DEBUG_OP                (u16) 0x5b31
 #define AML_FATAL_OP                (u16) 0x5b32
-#define AML_TIMER_OP                (u16) 0x5b33	
+#define AML_TIMER_OP                (u16) 0x5b33	/* ACPI 3.0 */
 #define AML_REGION_OP               (u16) 0x5b80
 #define AML_FIELD_OP                (u16) 0x5b81
 #define AML_DEVICE_OP               (u16) 0x5b82
@@ -169,17 +178,29 @@
 #define AML_THERMAL_ZONE_OP         (u16) 0x5b85
 #define AML_INDEX_FIELD_OP          (u16) 0x5b86
 #define AML_BANK_FIELD_OP           (u16) 0x5b87
-#define AML_DATA_REGION_OP          (u16) 0x5b88	
+#define AML_DATA_REGION_OP          (u16) 0x5b88	/* ACPI 2.0 */
 
+/*
+ * Combination opcodes (actually two one-byte opcodes)
+ * Used by the disassembler and i_aSL compiler
+ */
 #define AML_LGREATEREQUAL_OP        (u16) 0x9295
 #define AML_LLESSEQUAL_OP           (u16) 0x9294
 #define AML_LNOTEQUAL_OP            (u16) 0x9293
 
+/*
+ * Opcodes for "Field" operators
+ */
 #define AML_FIELD_OFFSET_OP         (u8) 0x00
 #define AML_FIELD_ACCESS_OP         (u8) 0x01
-#define AML_FIELD_CONNECTION_OP     (u8) 0x02	
-#define AML_FIELD_EXT_ACCESS_OP     (u8) 0x03	
+#define AML_FIELD_CONNECTION_OP     (u8) 0x02	/* ACPI 5.0 */
+#define AML_FIELD_EXT_ACCESS_OP     (u8) 0x03	/* ACPI 5.0 */
 
+/*
+ * Internal opcodes
+ * Use only "Unknown" AML opcodes, don't attempt to use
+ * any valid ACPI ASCII values (A-Z, 0-9, '-')
+ */
 #define AML_INT_NAMEPATH_OP         (u16) 0x002d
 #define AML_INT_NAMEDFIELD_OP       (u16) 0x0030
 #define AML_INT_RESERVEDFIELD_OP    (u16) 0x0031
@@ -194,6 +215,12 @@
 
 #define ARG_NONE                    0x0
 
+/*
+ * Argument types for the AML Parser
+ * Each field in the arg_types u32 is 5 bits, allowing for a maximum of 6 arguments.
+ * There can be up to 31 unique argument types
+ * Zero is reserved as end-of-list indicator
+ */
 #define ARGP_BYTEDATA               0x01
 #define ARGP_BYTELIST               0x02
 #define ARGP_CHARLIST               0x03
@@ -213,48 +240,74 @@
 #define ARGP_QWORDDATA              0x11
 #define ARGP_SIMPLENAME             0x12
 
+/*
+ * Resolved argument types for the AML Interpreter
+ * Each field in the arg_types u32 is 5 bits, allowing for a maximum of 6 arguments.
+ * There can be up to 31 unique argument types (0 is end-of-arg-list indicator)
+ *
+ * Note1: These values are completely independent from the ACPI_TYPEs
+ *        i.e., ARGI_INTEGER != ACPI_TYPE_INTEGER
+ *
+ * Note2: If and when 5 bits becomes insufficient, it would probably be best
+ * to convert to a 6-byte array of argument types, allowing 8 bits per argument.
+ */
 
+/* Single, simple types */
 
-#define ARGI_ANYTYPE                0x01	
+#define ARGI_ANYTYPE                0x01	/* Don't care */
 #define ARGI_PACKAGE                0x02
 #define ARGI_EVENT                  0x03
 #define ARGI_MUTEX                  0x04
 #define ARGI_DDBHANDLE              0x05
 
+/* Interchangeable types (via implicit conversion) */
 
 #define ARGI_INTEGER                0x06
 #define ARGI_STRING                 0x07
 #define ARGI_BUFFER                 0x08
-#define ARGI_BUFFER_OR_STRING       0x09	
-#define ARGI_COMPUTEDATA            0x0A	
+#define ARGI_BUFFER_OR_STRING       0x09	/* Used by MID op only */
+#define ARGI_COMPUTEDATA            0x0A	/* Buffer, String, or Integer */
 
+/* Reference objects */
 
 #define ARGI_INTEGER_REF            0x0B
 #define ARGI_OBJECT_REF             0x0C
 #define ARGI_DEVICE_REF             0x0D
 #define ARGI_REFERENCE              0x0E
-#define ARGI_TARGETREF              0x0F	
-#define ARGI_FIXED_TARGET           0x10	
-#define ARGI_SIMPLE_TARGET          0x11	
+#define ARGI_TARGETREF              0x0F	/* Target, subject to implicit conversion */
+#define ARGI_FIXED_TARGET           0x10	/* Target, no implicit conversion */
+#define ARGI_SIMPLE_TARGET          0x11	/* Name, Local, Arg -- no implicit conversion */
 
+/* Multiple/complex types */
 
-#define ARGI_DATAOBJECT             0x12	
-#define ARGI_COMPLEXOBJ             0x13	
-#define ARGI_REF_OR_STRING          0x14	
-#define ARGI_REGION_OR_BUFFER       0x15	
+#define ARGI_DATAOBJECT             0x12	/* Buffer, String, package or reference to a Node - Used only by size_of operator */
+#define ARGI_COMPLEXOBJ             0x13	/* Buffer, String, or package (Used by INDEX op only) */
+#define ARGI_REF_OR_STRING          0x14	/* Reference or String (Used by DEREFOF op only) */
+#define ARGI_REGION_OR_BUFFER       0x15	/* Used by LOAD op only */
 #define ARGI_DATAREFOBJ             0x16
 
+/* Note: types above can expand to 0x1F maximum */
 
 #define ARGI_INVALID_OPCODE         0xFFFFFFFF
 
+/*
+ * hash offsets
+ */
 #define AML_EXTOP_HASH_OFFSET       22
 #define AML_LNOT_HASH_OFFSET        19
 
+/*
+ * opcode groups and types
+ */
 #define OPGRP_NAMED                 0x01
 #define OPGRP_FIELD                 0x02
 #define OPGRP_BYTELIST              0x04
 
+/*
+ * Opcode information
+ */
 
+/* Opcode flags */
 
 #define AML_LOGICAL                 0x0001
 #define AML_LOGICAL_NUMERIC         0x0002
@@ -272,32 +325,38 @@
 #define AML_CONSTANT                0x2000
 #define AML_NO_OPERAND_RESOLVE      0x4000
 
+/* Convenient flag groupings */
 
 #define AML_FLAGS_EXEC_0A_0T_1R                                     AML_HAS_RETVAL
-#define AML_FLAGS_EXEC_1A_0T_0R     AML_HAS_ARGS	
-#define AML_FLAGS_EXEC_1A_0T_1R     AML_HAS_ARGS |                  AML_HAS_RETVAL	
+#define AML_FLAGS_EXEC_1A_0T_0R     AML_HAS_ARGS	/* Monadic1  */
+#define AML_FLAGS_EXEC_1A_0T_1R     AML_HAS_ARGS |                  AML_HAS_RETVAL	/* Monadic2  */
 #define AML_FLAGS_EXEC_1A_1T_0R     AML_HAS_ARGS | AML_HAS_TARGET
-#define AML_FLAGS_EXEC_1A_1T_1R     AML_HAS_ARGS | AML_HAS_TARGET | AML_HAS_RETVAL	
-#define AML_FLAGS_EXEC_2A_0T_0R     AML_HAS_ARGS	
-#define AML_FLAGS_EXEC_2A_0T_1R     AML_HAS_ARGS |                  AML_HAS_RETVAL	
-#define AML_FLAGS_EXEC_2A_1T_1R     AML_HAS_ARGS | AML_HAS_TARGET | AML_HAS_RETVAL	
+#define AML_FLAGS_EXEC_1A_1T_1R     AML_HAS_ARGS | AML_HAS_TARGET | AML_HAS_RETVAL	/* monadic2_r */
+#define AML_FLAGS_EXEC_2A_0T_0R     AML_HAS_ARGS	/* Dyadic1   */
+#define AML_FLAGS_EXEC_2A_0T_1R     AML_HAS_ARGS |                  AML_HAS_RETVAL	/* Dyadic2   */
+#define AML_FLAGS_EXEC_2A_1T_1R     AML_HAS_ARGS | AML_HAS_TARGET | AML_HAS_RETVAL	/* dyadic2_r  */
 #define AML_FLAGS_EXEC_2A_2T_1R     AML_HAS_ARGS | AML_HAS_TARGET | AML_HAS_RETVAL
 #define AML_FLAGS_EXEC_3A_0T_0R     AML_HAS_ARGS
 #define AML_FLAGS_EXEC_3A_1T_1R     AML_HAS_ARGS | AML_HAS_TARGET | AML_HAS_RETVAL
 #define AML_FLAGS_EXEC_6A_0T_1R     AML_HAS_ARGS |                  AML_HAS_RETVAL
 
+/*
+ * The opcode Type is used in a dispatch table, do not change
+ * without updating the table.
+ */
 #define AML_TYPE_EXEC_0A_0T_1R      0x00
-#define AML_TYPE_EXEC_1A_0T_0R      0x01	
-#define AML_TYPE_EXEC_1A_0T_1R      0x02	
+#define AML_TYPE_EXEC_1A_0T_0R      0x01	/* Monadic1  */
+#define AML_TYPE_EXEC_1A_0T_1R      0x02	/* Monadic2  */
 #define AML_TYPE_EXEC_1A_1T_0R      0x03
-#define AML_TYPE_EXEC_1A_1T_1R      0x04	
-#define AML_TYPE_EXEC_2A_0T_0R      0x05	
-#define AML_TYPE_EXEC_2A_0T_1R      0x06	
-#define AML_TYPE_EXEC_2A_1T_1R      0x07	
+#define AML_TYPE_EXEC_1A_1T_1R      0x04	/* monadic2_r */
+#define AML_TYPE_EXEC_2A_0T_0R      0x05	/* Dyadic1   */
+#define AML_TYPE_EXEC_2A_0T_1R      0x06	/* Dyadic2   */
+#define AML_TYPE_EXEC_2A_1T_1R      0x07	/* dyadic2_r  */
 #define AML_TYPE_EXEC_2A_2T_1R      0x08
 #define AML_TYPE_EXEC_3A_0T_0R      0x09
 #define AML_TYPE_EXEC_3A_1T_1R      0x0A
 #define AML_TYPE_EXEC_6A_0T_1R      0x0B
+/* End of types used in dispatch table */
 
 #define AML_TYPE_LITERAL            0x0B
 #define AML_TYPE_CONSTANT           0x0C
@@ -305,9 +364,11 @@
 #define AML_TYPE_LOCAL_VARIABLE     0x0E
 #define AML_TYPE_DATA_TERM          0x0F
 
+/* Generic for an op that returns a value */
 
 #define AML_TYPE_METHOD_CALL        0x10
 
+/* Misc */
 
 #define AML_TYPE_CREATE_FIELD       0x11
 #define AML_TYPE_CREATE_OBJECT      0x12
@@ -321,12 +382,16 @@
 #define AML_TYPE_UNDEFINED          0x19
 #define AML_TYPE_BOGUS              0x1A
 
+/* AML Package Length encodings */
 
 #define ACPI_AML_PACKAGE_TYPE1      0x40
 #define ACPI_AML_PACKAGE_TYPE2      0x4000
 #define ACPI_AML_PACKAGE_TYPE3      0x400000
 #define ACPI_AML_PACKAGE_TYPE4      0x40000000
 
+/*
+ * Opcode classes
+ */
 #define AML_CLASS_EXECUTE           0x00
 #define AML_CLASS_CREATE            0x01
 #define AML_CLASS_ARGUMENT          0x02
@@ -339,6 +404,7 @@
 #define AML_CLASS_METHOD_CALL       0x09
 #define AML_CLASS_UNKNOWN           0x0A
 
+/* Comparison operation codes for match_op operator */
 
 typedef enum {
 	MATCH_MTR = 0,
@@ -351,26 +417,42 @@ typedef enum {
 
 #define MAX_MATCH_OPERATOR          5
 
+/*
+ * field_flags
+ *
+ * This byte is extracted from the AML and includes three separate
+ * pieces of information about the field:
+ * 1) The field access type
+ * 2) The field update rule
+ * 3) The lock rule for the field
+ *
+ * Bits 00 - 03 : access_type (any_acc, byte_acc, etc.)
+ *      04      : lock_rule (1 == Lock)
+ *      05 - 06 : update_rule
+ */
 #define AML_FIELD_ACCESS_TYPE_MASK  0x0F
 #define AML_FIELD_LOCK_RULE_MASK    0x10
 #define AML_FIELD_UPDATE_RULE_MASK  0x60
 
+/* 1) Field Access Types */
 
 typedef enum {
 	AML_FIELD_ACCESS_ANY = 0x00,
 	AML_FIELD_ACCESS_BYTE = 0x01,
 	AML_FIELD_ACCESS_WORD = 0x02,
 	AML_FIELD_ACCESS_DWORD = 0x03,
-	AML_FIELD_ACCESS_QWORD = 0x04,	
-	AML_FIELD_ACCESS_BUFFER = 0x05	
+	AML_FIELD_ACCESS_QWORD = 0x04,	/* ACPI 2.0 */
+	AML_FIELD_ACCESS_BUFFER = 0x05	/* ACPI 2.0 */
 } AML_ACCESS_TYPE;
 
+/* 2) Field Lock Rules */
 
 typedef enum {
 	AML_FIELD_LOCK_NEVER = 0x00,
 	AML_FIELD_LOCK_ALWAYS = 0x10
 } AML_LOCK_RULE;
 
+/* 3) Field Update Rules */
 
 typedef enum {
 	AML_FIELD_UPDATE_PRESERVE = 0x00,
@@ -378,6 +460,11 @@ typedef enum {
 	AML_FIELD_UPDATE_WRITE_AS_ZEROS = 0x40
 } AML_UPDATE_RULE;
 
+/*
+ * Field Access Attributes.
+ * This byte is extracted from the AML via the
+ * access_as keyword
+ */
 typedef enum {
 	AML_FIELD_ATTRIB_QUICK = 0x02,
 	AML_FIELD_ATTRIB_SEND_RCV = 0x04,
@@ -391,9 +478,10 @@ typedef enum {
 	AML_FIELD_ATTRIB_RAW_PROCESS = 0x0F
 } AML_ACCESS_ATTRIBUTE;
 
+/* Bit fields in the AML method_flags byte */
 
 #define AML_METHOD_ARG_COUNT        0x07
 #define AML_METHOD_SERIALIZED       0x08
 #define AML_METHOD_SYNC_LEVEL       0xF0
 
-#endif				
+#endif				/* __AMLCODE_H__ */

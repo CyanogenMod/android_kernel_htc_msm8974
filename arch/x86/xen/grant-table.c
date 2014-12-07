@@ -54,6 +54,10 @@ static int map_pte_fn(pte_t *pte, struct page *pmd_page,
 	return 0;
 }
 
+/*
+ * This function is used to map shared frames to store grant status. It is
+ * different from map_pte_fn above, the frames type here is uint64_t.
+ */
 static int map_pte_fn_status(pte_t *pte, struct page *pmd_page,
 			     unsigned long addr, void *data)
 {
@@ -101,6 +105,8 @@ int arch_gnttab_map_status(uint64_t *frames, unsigned long nr_gframes,
 	grant_status_t *shared = *__shared;
 
 	if (shared == NULL) {
+		/* No need to pass in PTE as we are going to do it
+		 * in apply_to_page_range anyhow. */
 		struct vm_struct *area =
 			alloc_vm_area(PAGE_SIZE * max_nr_gframes, NULL);
 		BUG_ON(area == NULL);

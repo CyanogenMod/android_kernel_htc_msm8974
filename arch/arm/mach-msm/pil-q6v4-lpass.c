@@ -163,7 +163,7 @@ static void lpass_smsm_state_cb(void *data, uint32_t old_state,
 {
 	struct lpass_q6v4 *drv = data;
 
-	
+	/* Ignore if we're the one that set SMSM_RESET */
 	if (drv->crash_shutdown)
 		return;
 
@@ -179,13 +179,13 @@ static void lpass_smsm_state_cb(void *data, uint32_t old_state,
 
 static void send_q6_nmi(void)
 {
-	
+	/* Send NMI to QDSP6 via an SCM call. */
 	uint32_t cmd = 0x1;
 
 	scm_call(SCM_SVC_UTIL, SCM_Q6_NMI_CMD,
 	&cmd, sizeof(cmd), NULL, 0);
 
-	
+	/* Q6 requires worstcase 100ms to dump caches etc.*/
 	mdelay(100);
 	pr_debug("%s: Q6 NMI was sent.\n", __func__);
 }
@@ -281,7 +281,7 @@ static int __devinit pil_q6v4_lpass_driver_probe(struct platform_device *pdev)
 	if (q6->wdog_irq < 0)
 		return q6->wdog_irq;
 
-	drv->loadable = !!pdata; 
+	drv->loadable = !!pdata; /* No pdata = don't use PIL */
 	if (drv->loadable) {
 		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 		q6->base = devm_request_and_ioremap(&pdev->dev, res);

@@ -1,6 +1,10 @@
 #ifndef _LINUX_MAJOR_H
 #define _LINUX_MAJOR_H
 
+/*
+ * This file has definitions for major device numbers.
+ * For the device number assignments, see Documentation/devices.txt.
+ */
 
 #define UNNAMED_MAJOR		0
 #define MEM_MAJOR		1
@@ -20,7 +24,7 @@
 #define MD_MAJOR		9
 #define MISC_MAJOR		10
 #define SCSI_CDROM_MAJOR	11
-#define MUX_MAJOR		11	
+#define MUX_MAJOR		11	/* PA-RISC only */
 #define XT_DISK_MAJOR		13
 #define INPUT_MAJOR		13
 #define SOUND_MAJOR		14
@@ -32,7 +36,7 @@
 #define CYCLADES_MAJOR		19
 #define CYCLADESAUX_MAJOR	20
 #define MITSUMI_X_CDROM_MAJOR	20
-#define MFM_ACORN_MAJOR		21	
+#define MFM_ACORN_MAJOR		21	/* ARM Linux /dev/mfm */
 #define SCSI_GENERIC_MAJOR	21
 #define IDE1_MAJOR		22
 #define DIGICU_MAJOR		22
@@ -49,24 +53,24 @@
 #define STL_SIOMEMMAJOR		28
 #define ACSI_MAJOR		28
 #define AZTECH_CDROM_MAJOR	29
-#define FB_MAJOR		29   
+#define FB_MAJOR		29   /* /dev/fb* framebuffers */
 #define CM206_CDROM_MAJOR	32
 #define IDE2_MAJOR		33
 #define IDE3_MAJOR		34
 #define Z8530_MAJOR		34
-#define XPRAM_MAJOR		35   
+#define XPRAM_MAJOR		35   /* Expanded storage on S/390: "slow ram"*/
 #define NETLINK_MAJOR		36
 #define PS2ESDI_MAJOR		36
 #define IDETAPE_MAJOR		37
 #define Z2RAM_MAJOR		37
-#define APBLOCK_MAJOR		38   
-#define DDV_MAJOR		39   
-#define NBD_MAJOR		43   
+#define APBLOCK_MAJOR		38   /* AP1000 Block device */
+#define DDV_MAJOR		39   /* AP1000 DDV block device */
+#define NBD_MAJOR		43   /* Network block device	*/
 #define RISCOM8_NORMAL_MAJOR	48
-#define DAC960_MAJOR		48   
+#define DAC960_MAJOR		48   /* 48..55 */
 #define RISCOM8_CALLOUT_MAJOR	49
 #define MKISS_MAJOR		55
-#define DSP56K_MAJOR		55   
+#define DSP56K_MAJOR		55   /* DSP56001 processor device */
 
 #define IDE4_MAJOR		56
 #define IDE5_MAJOR		57
@@ -93,9 +97,9 @@
 
 #define AURORA_MAJOR		79
 
-#define I2O_MAJOR		80	
+#define I2O_MAJOR		80	/* 80->87 */
 
-#define SHMIQ_MAJOR		85   
+#define SHMIQ_MAJOR		85   /* Linux/mips, SGI /dev/shmiq */
 #define SCSI_CHANGER_MAJOR      86
 
 #define IDE6_MAJOR		88
@@ -151,16 +155,16 @@
 
 #define MMC_BLOCK_MAJOR		179
 
-#define VXVM_MAJOR		199	
-#define VXSPEC_MAJOR		200	
-#define VXDMP_MAJOR		201	
+#define VXVM_MAJOR		199	/* VERITAS volume i/o driver    */
+#define VXSPEC_MAJOR		200	/* VERITAS volume config driver */
+#define VXDMP_MAJOR		201	/* VERITAS volume multipath driver */
 
-#define XENVBD_MAJOR		202	
+#define XENVBD_MAJOR		202	/* Xen virtual block device */
 
 #define MSR_MAJOR		202
 #define CPUID_MAJOR		203
 
-#define OSST_MAJOR		206	
+#define OSST_MAJOR		206	/* OnStream-SCx0 SCSI tape */
 
 #define IBM_TTY3270_MAJOR	227
 #define IBM_FS3270_MAJOR	228
@@ -168,6 +172,6 @@
 #define VIOTAPE_MAJOR		230
 
 #define BLOCK_EXT_MAJOR		259
-#define SCSI_OSD_MAJOR		260	
+#define SCSI_OSD_MAJOR		260	/* open-osd's OSD scsi device */
 
 #endif

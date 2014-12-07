@@ -82,12 +82,30 @@ static struct platform_device *devices[] __initdata = {
 
 static int __init badge4_sa1111_init(void)
 {
+	/*
+	 * Ensure that the memory bus request/grant signals are setup,
+	 * and the grant is held in its inactive state
+	 */
 	sa1110_mb_disable();
 
+	/*
+	 * Probe for SA1111.
+	 */
 	return platform_add_devices(devices, ARRAY_SIZE(devices));
 }
 
 
+/*
+ * 1 x Intel 28F320C3 Advanced+ Boot Block Flash (32 Mi bit)
+ *   Eight 4 KiW Parameter Bottom Blocks (64 KiB)
+ *   Sixty-three 32 KiW Main Blocks (4032 Ki b)
+ *
+ * <or>
+ *
+ * 1 x Intel 28F640C3 Advanced+ Boot Block Flash (64 Mi bit)
+ *   Eight 4 KiW Parameter Bottom Blocks (64 KiB)
+ *   One-hundred-twenty-seven 32 KiW Main Blocks (8128 Ki b)
+ */
 static struct mtd_partition badge4_partitions[] = {
 	{
 		.name	= "BLOB boot loader",
@@ -130,7 +148,7 @@ static int __init badge4_init(void)
 	if (!machine_is_badge4())
 		return -ENODEV;
 
-	
+	/* LCD */
 	GPCR  = (BADGE4_GPIO_LGP2 | BADGE4_GPIO_LGP3 |
 		 BADGE4_GPIO_LGP4 | BADGE4_GPIO_LGP5 |
 		 BADGE4_GPIO_LGP6 | BADGE4_GPIO_LGP7 |
@@ -145,54 +163,54 @@ static int __init badge4_init(void)
 		 BADGE4_GPIO_GPA_VID | BADGE4_GPIO_GPB_VID |
 		 BADGE4_GPIO_GPC_VID);
 
-	
+	/* SDRAM SPD i2c */
 	GPCR  = (BADGE4_GPIO_SDSDA | BADGE4_GPIO_SDSCL);
 	GPDR |= (BADGE4_GPIO_SDSDA | BADGE4_GPIO_SDSCL);
 
-	
+	/* uart */
 	GPCR  = (BADGE4_GPIO_UART_HS1 | BADGE4_GPIO_UART_HS2);
 	GPDR |= (BADGE4_GPIO_UART_HS1 | BADGE4_GPIO_UART_HS2);
 
-	
+	/* CPLD muxsel0 input for mux/adc chip select */
 	GPCR  = BADGE4_GPIO_MUXSEL0;
 	GPDR |= BADGE4_GPIO_MUXSEL0;
 
-	
+	/* test points: J5, J6 as inputs, J7 outputs */
 	GPDR &= ~(BADGE4_GPIO_TESTPT_J5 | BADGE4_GPIO_TESTPT_J6);
 	GPCR  = BADGE4_GPIO_TESTPT_J7;
 	GPDR |= BADGE4_GPIO_TESTPT_J7;
 
-	
-	GPCR  = BADGE4_GPIO_PCMEN5V;		
+	/* 5V supply rail. */
+	GPCR  = BADGE4_GPIO_PCMEN5V;		/* initially off */
 	GPDR |= BADGE4_GPIO_PCMEN5V;
 
-	
-	
+	/* CPLD sdram type inputs; set up by blob */
+	//GPDR |= (BADGE4_GPIO_SDTYP1 | BADGE4_GPIO_SDTYP0);
 	printk(KERN_DEBUG __FILE__ ": SDRAM CPLD typ1=%d typ0=%d\n",
 		!!(GPLR & BADGE4_GPIO_SDTYP1),
 		!!(GPLR & BADGE4_GPIO_SDTYP0));
 
-	
-	
-	
+	/* SA1111 reset pin; set up by blob */
+	//GPSR  = BADGE4_GPIO_SA1111_NRST;
+	//GPDR |= BADGE4_GPIO_SA1111_NRST;
 
 
-	
+	/* power management cruft */
 	PGSR = 0;
 	PWER = 0;
 	PCFR = 0;
 	PSDR = 0;
 
-	PWER |= PWER_GPIO26;	
-	PWER |= PWER_RTC;	
+	PWER |= PWER_GPIO26;	/* wake up on an edge from TESTPT_J5 */
+	PWER |= PWER_RTC;	/* wake up if rtc fires */
 
-	
+	/* drive sa1111_nrst during sleep */
 	PGSR |= BADGE4_GPIO_SA1111_NRST;
-	
+	/* drive CPLD as is during sleep */
 	PGSR |= (GPLR & (BADGE4_GPIO_SDTYP0|BADGE4_GPIO_SDTYP1));
 
 
-	
+	/* Now bring up the SA-1111. */
 	ret = badge4_sa1111_init();
 	if (ret < 0)
 		printk(KERN_ERR
@@ -200,7 +218,7 @@ static int __init badge4_init(void)
 			__func__, ret);
 
 
-	
+	/* maybe turn on 5v0 from the start */
 	badge4_set_5V(BADGE4_5V_INITIALLY, five_v_on);
 
 	sa11x0_register_mtd(&badge4_flash_data, &badge4_flash_resource, 1);
@@ -228,13 +246,13 @@ void badge4_set_5V(unsigned subsystem, int on)
 		badge4_5V_bitmap &= ~subsystem;
 	}
 
-	
+	/* detect on->off and off->on transitions */
 	if ((!old_5V_bitmap) && (badge4_5V_bitmap)) {
-		
+		/* was off, now on */
 		printk(KERN_INFO "%s: enabling 5V supply rail\n", __func__);
 		GPSR = BADGE4_GPIO_PCMEN5V;
 	} else if ((old_5V_bitmap) && (!badge4_5V_bitmap)) {
-		
+		/* was on, now off */
 		printk(KERN_INFO "%s: disabling 5V supply rail\n", __func__);
 		GPCR = BADGE4_GPIO_PCMEN5V;
 	}
@@ -245,12 +263,12 @@ EXPORT_SYMBOL(badge4_set_5V);
 
 
 static struct map_desc badge4_io_desc[] __initdata = {
-	{	
+	{	/* SRAM  bank 1 */
 		.virtual	= 0xf1000000,
 		.pfn		= __phys_to_pfn(0x08000000),
 		.length		= 0x00100000,
 		.type		= MT_DEVICE
-	}, {	
+	}, {	/* SRAM  bank 2 */
 		.virtual	= 0xf2000000,
 		.pfn		= __phys_to_pfn(0x10000000),
 		.length		= 0x00100000,
@@ -267,8 +285,8 @@ badge4_uart_pm(struct uart_port *port, u_int state, u_int oldstate)
 }
 
 static struct sa1100_port_fns badge4_port_fns __initdata = {
-	
-	
+	//.get_mctrl	= badge4_get_mctrl,
+	//.set_mctrl	= badge4_set_mctrl,
 	.pm		= badge4_uart_pm,
 };
 

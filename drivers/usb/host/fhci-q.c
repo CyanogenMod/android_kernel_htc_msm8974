@@ -25,6 +25,7 @@
 #include <linux/usb/hcd.h>
 #include "fhci.h"
 
+/* maps the hardware error code to the USB error code */
 static int status_to_error(u32 status)
 {
 	if (status == USB_TD_OK)
@@ -115,7 +116,7 @@ struct td *fhci_remove_td_from_ed(struct ed *ed)
 		td = list_entry(ed->td_list.next, struct td, node);
 		list_del_init(ed->td_list.next);
 
-		
+		/* if this TD was the ED's head, find next TD */
 		if (!list_empty(&ed->td_list))
 			ed->td_head = list_entry(ed->td_list.next, struct td,
 						 node);
@@ -147,7 +148,7 @@ void fhci_move_td_from_ed_to_done_list(struct fhci_usb *usb, struct ed *ed)
 	td = ed->td_head;
 	list_del_init(&td->node);
 
-	
+	/* If this TD was the ED's head,find next TD */
 	if (!list_empty(&ed->td_list))
 		ed->td_head = list_entry(ed->td_list.next, struct td, node);
 	else {
@@ -160,6 +161,7 @@ void fhci_move_td_from_ed_to_done_list(struct fhci_usb *usb, struct ed *ed)
 		usb->transfer_confirm(usb->fhci);
 }
 
+/* free done FHCI URB resource such as ED and TD */
 static void free_urb_priv(struct fhci_hcd *fhci, struct urb *urb)
 {
 	int i;
@@ -171,7 +173,7 @@ static void free_urb_priv(struct fhci_hcd *fhci, struct urb *urb)
 		fhci_recycle_empty_td(fhci, urb_priv->tds[i]);
 	}
 
-	
+	/* if this TD was the ED's head,find the next TD */
 	if (!list_empty(&ed->td_list))
 		ed->td_head = list_entry(ed->td_list.next, struct td, node);
 	else
@@ -181,12 +183,13 @@ static void free_urb_priv(struct fhci_hcd *fhci, struct urb *urb)
 	kfree(urb_priv);
 	urb->hcpriv = NULL;
 
-	
+	/* if this TD was the ED's head,find next TD */
 	if (ed->td_head == NULL)
 		list_del_init(&ed->node);
 	fhci->active_urbs--;
 }
 
+/* this routine called to complete and free done URB */
 void fhci_urb_complete_free(struct fhci_hcd *fhci, struct urb *urb)
 {
 	free_urb_priv(fhci, urb);
@@ -208,12 +211,16 @@ void fhci_urb_complete_free(struct fhci_hcd *fhci, struct urb *urb)
 	spin_lock(&fhci->lock);
 }
 
+/*
+ * caculate transfer length/stats and update the urb
+ * Precondition: irqsafe(only for urb-?status locking)
+ */
 void fhci_done_td(struct urb *urb, struct td *td)
 {
 	struct ed *ed = td->ed;
 	u32 cc = td->status;
 
-	
+	/* ISO...drivers see per-TD length/status */
 	if (ed->mode == FHCI_TF_ISO) {
 		u32 len;
 		if (!(urb->transfer_flags & URB_SHORT_NOT_OK &&
@@ -231,13 +238,17 @@ void fhci_done_td(struct urb *urb, struct td *td)
 			status_to_error(cc);
 	}
 
+	/* BULK,INT,CONTROL... drivers see aggregate length/status,
+	 * except that "setup" bytes aren't counted and "short" transfers
+	 * might not be reported as errors.
+	 */
 	else {
 		if (td->error_cnt >= 3)
 			urb->error_count = 3;
 
-		
+		/* control endpoint only have soft stalls */
 
-		
+		/* update packet status if needed(short may be ok) */
 		if (!(urb->transfer_flags & URB_SHORT_NOT_OK) &&
 				cc == USB_TD_RX_DATA_UNDERUN) {
 			ed->state = FHCI_ED_OPER;
@@ -248,12 +259,13 @@ void fhci_done_td(struct urb *urb, struct td *td)
 				urb->status = status_to_error(cc);
 		}
 
-		
+		/* count all non-empty packets except control SETUP packet */
 		if (td->type != FHCI_TA_SETUP || td->iso_index != 0)
 			urb->actual_length += td->actual_len;
 	}
 }
 
+/* there are some pedning request to unlink */
 void fhci_del_ed_list(struct fhci_hcd *fhci, struct ed *ed)
 {
 	struct td *td = peek_td_from_ed(ed);
@@ -262,11 +274,11 @@ void fhci_del_ed_list(struct fhci_hcd *fhci, struct ed *ed)
 
 	if (urb_priv->state == URB_DEL) {
 		td = fhci_remove_td_from_ed(ed);
-		
+		/* HC may have partly processed this TD */
 		if (td->status != USB_TD_INPROGRESS)
 			fhci_done_td(urb, td);
 
-		
+		/* URB is done;clean up */
 		if (++(urb_priv->tds_cnt) == urb_priv->num_of_tds)
 			fhci_urb_complete_free(fhci, urb);
 	}

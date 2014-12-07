@@ -31,20 +31,20 @@
 #include "devices-imx1.h"
 
 static const int mx1ads_pins[] __initconst = {
-	
+	/* UART1 */
 	PC9_PF_UART1_CTS,
 	PC10_PF_UART1_RTS,
 	PC11_PF_UART1_TXD,
 	PC12_PF_UART1_RXD,
-	
+	/* UART2 */
 	PB28_PF_UART2_CTS,
 	PB29_PF_UART2_RTS,
 	PB30_PF_UART2_TXD,
 	PB31_PF_UART2_RXD,
-	
+	/* I2C */
 	PA15_PF_I2C_SDA,
 	PA16_PF_I2C_SCL,
-	
+	/* SPI */
 	PC13_PF_SPI1_SPI_RDY,
 	PC14_PF_SPI1_SCLK,
 	PC15_PF_SPI1_SS,
@@ -52,6 +52,9 @@ static const int mx1ads_pins[] __initconst = {
 	PC17_PF_SPI1_MOSI,
 };
 
+/*
+ * UARTs platform data
+ */
 
 static const struct imxuart_platform_data uart0_pdata __initconst = {
 	.flags = IMXUART_HAVE_RTSCTS,
@@ -61,9 +64,12 @@ static const struct imxuart_platform_data uart1_pdata __initconst = {
 	.flags = IMXUART_HAVE_RTSCTS,
 };
 
+/*
+ * Physmap flash
+ */
 
 static const struct physmap_flash_data mx1ads_flash_data __initconst = {
-	.width		= 4,		
+	.width		= 4,		/* bankwidth in bytes */
 };
 
 static const struct resource flash_resource __initconst = {
@@ -72,6 +78,9 @@ static const struct resource flash_resource __initconst = {
 	.flags	= IORESOURCE_MEM,
 };
 
+/*
+ * I2C
+ */
 static struct pcf857x_platform_data pcf857x_data[] = {
 	{
 		.gpio_base = 4 * 32,
@@ -94,6 +103,9 @@ static struct i2c_board_info mx1ads_i2c_devices[] = {
 	},
 };
 
+/*
+ * Board init
+ */
 static void __init mx1ads_init(void)
 {
 	imx1_soc_init();
@@ -101,16 +113,16 @@ static void __init mx1ads_init(void)
 	mxc_gpio_setup_multiple_pins(mx1ads_pins,
 		ARRAY_SIZE(mx1ads_pins), "mx1ads");
 
-	
+	/* UART */
 	imx1_add_imx_uart0(&uart0_pdata);
 	imx1_add_imx_uart1(&uart1_pdata);
 
-	
+	/* Physmap flash */
 	platform_device_register_resndata(NULL, "physmap-flash", 0,
 			&flash_resource, 1,
 			&mx1ads_flash_data, sizeof(mx1ads_flash_data));
 
-	
+	/* I2C */
 	i2c_register_board_info(0, mx1ads_i2c_devices,
 				ARRAY_SIZE(mx1ads_i2c_devices));
 
@@ -127,7 +139,7 @@ struct sys_timer mx1ads_timer = {
 };
 
 MACHINE_START(MX1ADS, "Freescale MX1ADS")
-	
+	/* Maintainer: Sascha Hauer, Pengutronix */
 	.atag_offset = 0x100,
 	.map_io = mx1_map_io,
 	.init_early = imx1_init_early,

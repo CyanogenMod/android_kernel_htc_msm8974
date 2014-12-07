@@ -41,12 +41,12 @@ void ath79_ddr_wb_flush(u32 reg)
 {
 	void __iomem *flush_reg = ath79_ddr_base + reg;
 
-	
+	/* Flush the DDR write buffer. */
 	__raw_writel(0x1, flush_reg);
 	while (__raw_readl(flush_reg) & 0x1)
 		;
 
-	
+	/* It must be run twice. */
 	__raw_writel(0x1, flush_reg);
 	while (__raw_readl(flush_reg) & 0x1)
 		;

@@ -46,18 +46,18 @@
 #ifdef	CONFIG_USB_GADGET_OMAP
 
 static struct resource udc_resources[] = {
-	
-	{		
+	/* order is significant! */
+	{		/* registers */
 		.start		= UDC_BASE,
 		.end		= UDC_BASE + 0xff,
 		.flags		= IORESOURCE_MEM,
-	}, {		
+	}, {		/* general IRQ */
 		.start		= INT_USB_IRQ_GEN,
 		.flags		= IORESOURCE_IRQ,
-	}, {		
+	}, {		/* PIO IRQ */
 		.start		= INT_USB_IRQ_NISO,
 		.flags		= IORESOURCE_IRQ,
-	}, {		
+	}, {		/* SOF IRQ */
 		.start		= INT_USB_IRQ_ISO,
 		.flags		= IORESOURCE_IRQ,
 	},
@@ -91,6 +91,7 @@ static inline void udc_device_init(struct omap_usb_config *pdata)
 
 #if	defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 
+/* The dmamask must be set for OHCI to work */
 static u64 ohci_dmamask = ~(u32)0;
 
 static struct resource ohci_resources[] = {
@@ -132,7 +133,7 @@ static inline void ohci_device_init(struct omap_usb_config *pdata)
 #if	defined(CONFIG_USB_OTG) && defined(CONFIG_ARCH_OMAP_OTG)
 
 static struct resource otg_resources[] = {
-	
+	/* order is significant! */
 	{
 		.start		= OTG_BASE,
 		.end		= OTG_BASE + 0xff,
@@ -249,9 +250,15 @@ static u32 __init omap2_usb1_init(unsigned nwires)
 	if (nwires == 0)
 		return 0;
 
+	/* NOTE:  board-specific code must set up pin muxing for usb1,
+	 * since each signal could come out on either of two balls.
+	 */
 
 	switch (nwires) {
 	case 2:
+		/* NOTE: board-specific code must override this setting if
+		 * this TLL link is not using DP/DM
+		 */
 		syscon1 = 1;
 		omap2_usb_devconf_set(1, USB_BIDIR_TLL);
 		break;
@@ -279,7 +286,7 @@ static u32 __init omap2_usb2_init(unsigned nwires, unsigned alt_pingroup)
 	omap2_usb2_disable_5pinbitll();
 	alt_pingroup = 0;
 
-	
+	/* NOTE omap1 erratum: must leave USB2_UNI_R set if usb0 in use */
 	if (alt_pingroup || nwires == 0)
 		return 0;
 
@@ -292,6 +299,9 @@ static u32 __init omap2_usb2_init(unsigned nwires, unsigned alt_pingroup)
 
 	switch (nwires) {
 	case 2:
+		/* NOTE: board-specific code must override this setting if
+		 * this TLL link is not using DP/DM
+		 */
 		syscon1 = 1;
 		omap2_usb_devconf_set(2, USB_BIDIR_TLL);
 		break;
@@ -304,6 +314,12 @@ static u32 __init omap2_usb2_init(unsigned nwires, unsigned alt_pingroup)
 		omap2_usb_devconf_set(2, USB_BIDIR);
 		break;
 	case 5:
+		/* NOTE: board-specific code must mux this setting depending
+		 * on TLL link using DP/DM.  Something must also
+		 * set up OTG_SYSCON2.HMC_TLL{ATTACH,SPEED}
+		 * 2420: hdq_sio.usb2_tllse0 or vlynq_rx0.usb2_tllse0
+		 * 2430: hdq_sio.usb2_tllse0 or sdmmc2_dat0.usb2_tllse0
+		 */
 
 		syscon1 = 3;
 		omap2_usb2_enable_5pinunitll();

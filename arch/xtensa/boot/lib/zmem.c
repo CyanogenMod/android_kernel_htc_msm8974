@@ -1,5 +1,6 @@
 #include <linux/zlib.h>
 
+/* bits taken from ppc */
 
 extern void *avail_ram, *end_avail;
 
@@ -15,8 +16,8 @@ void *zalloc(unsigned size)
         size = (size + 7) & -8;
         avail_ram += size;
         if (avail_ram > end_avail) {
-                
-                
+                //puts("oops... out of memory\n");
+                //pause();
                 exit ();
         }
         return p;
@@ -35,11 +36,11 @@ void gunzip (void *dst, int dstlen, unsigned char *src, int *lenp)
 	z_stream s;
 	int r, i, flags;
 
-        
+        /* skip header */
         i = 10;
         flags = src[3];
         if (src[2] != DEFLATED || (flags & RESERVED) != 0) {
-                
+                //puts("bad gzipped data\n");
                 exit();
         }
         if ((flags & EXTRA_FIELD) != 0)
@@ -53,14 +54,14 @@ void gunzip (void *dst, int dstlen, unsigned char *src, int *lenp)
         if ((flags & HEAD_CRC) != 0)
                 i += 2;
         if (i >= *lenp) {
-                
+                //puts("gunzip: ran out of data in header\n");
                 exit();
         }
 
 	s.workspace = zalloc(zlib_inflate_workspacesize());
         r = zlib_inflateInit2(&s, -MAX_WBITS);
         if (r != Z_OK) {
-                
+                //puts("inflateInit2 returned "); puthex(r); puts("\n");
                 exit();
         }
         s.next_in = src + i;
@@ -69,7 +70,7 @@ void gunzip (void *dst, int dstlen, unsigned char *src, int *lenp)
         s.avail_out = dstlen;
         r = zlib_inflate(&s, Z_FINISH);
         if (r != Z_OK && r != Z_STREAM_END) {
-                
+                //puts("inflate returned "); puthex(r); puts("\n");
                 exit();
         }
         *lenp = s.next_out - (unsigned char *) dst;

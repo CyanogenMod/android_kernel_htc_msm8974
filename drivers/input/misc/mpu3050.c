@@ -57,6 +57,7 @@
 #define MPU3050_DEFAULT_POLL_INTERVAL	200
 #define MPU3050_DEFAULT_FS_RANGE	3
 
+/* Register map */
 #define MPU3050_CHIP_ID_REG	0x00
 #define MPU3050_SMPLRT_DIV	0x15
 #define MPU3050_DLPF_FS_SYNC	0x16
@@ -65,7 +66,9 @@
 #define MPU3050_PWR_MGM		0x3E
 #define MPU3050_PWR_MGM_POS	6
 
+/* Register bits */
 
+/* DLPF_FS_SYNC */
 #define MPU3050_EXT_SYNC_NONE		0x00
 #define MPU3050_EXT_SYNC_TEMP		0x20
 #define MPU3050_EXT_SYNC_GYROX		0x40
@@ -89,11 +92,13 @@
 #define MPU3050_DLPF_CFG_5HZ		0x06
 #define MPU3050_DLPF_CFG_2100HZ_NOLPF	0x07
 #define MPU3050_DLPF_CFG_MASK		0x07
+/* INT_CFG */
 #define MPU3050_RAW_RDY_EN		0x01
 #define MPU3050_MPU_RDY_EN		0x04
 #define MPU3050_LATCH_INT_EN		0x20
 #define MPU3050_OPEN_DRAIN		0x40
 #define MPU3050_ACTIVE_LOW		0x80
+/* PWR_MGM */
 #define MPU3050_PWR_MGM_PLL_X		0x01
 #define MPU3050_PWR_MGM_PLL_Y		0x02
 #define MPU3050_PWR_MGM_PLL_Z		0x03
@@ -161,9 +166,9 @@ static const int mpu3050_chip_ids[] = {
 };
 
 struct dlpf_cfg_tb {
-	u8  cfg;	
-	u32 lpf_bw;	
-	u32 sample_rate; 
+	u8  cfg;	/* cfg index */
+	u32 lpf_bw;	/* low pass filter bandwidth in Hz */
+	u32 sample_rate; /* analog sample rate in Khz, 1 or 8 */
 };
 
 static struct dlpf_cfg_tb dlpf_table[] = {
@@ -181,12 +186,15 @@ static u8 interval_to_dlpf_cfg(u32 interval)
 	u32 sample_rate = 1000 / interval;
 	u32 i;
 
+	/* the filter bandwidth needs to be greater or
+	 * equal to half of the sample rate
+	 */
 	for (i = 0; i < sizeof(dlpf_table)/sizeof(dlpf_table[0]); i++) {
 		if (dlpf_table[i].lpf_bw * 2 >= sample_rate)
 			return i;
 	}
 
-	
+	/* return the maximum possible */
 	return --i;
 }
 
@@ -268,7 +276,7 @@ static int mpu3050_poll_delay_set(struct sensors_classdev *sensors_cdev,
 	divider = delay_msec * dlpf_table[dlpf_index].sample_rate - 1;
 
 	if (sensor->dlpf_index != dlpf_index) {
-		
+		/* Set low pass filter and full scale */
 		reg = dlpf_table[dlpf_index].cfg;
 		reg |= MPU3050_DEFAULT_FS_RANGE << 3;
 		reg |= MPU3050_EXT_SYNC_NONE << 5;
@@ -279,7 +287,7 @@ static int mpu3050_poll_delay_set(struct sensors_classdev *sensors_cdev,
 	}
 
 	if (sensor->poll_interval != delay_msec) {
-		
+		/* Output frequency divider. The poll interval */
 		ret = i2c_smbus_write_byte_data(sensor->client,
 				MPU3050_SMPLRT_DIV, divider);
 		if (!ret)
@@ -289,6 +297,9 @@ static int mpu3050_poll_delay_set(struct sensors_classdev *sensors_cdev,
 	return 0;
 }
 
+/**
+ *	mpu3050_attr_get_polling_rate	-	get the sampling rate
+ */
 static ssize_t mpu3050_attr_get_polling_rate(struct device *dev,
 				struct device_attribute *attr,
 				char *buf)
@@ -299,6 +310,9 @@ static ssize_t mpu3050_attr_get_polling_rate(struct device *dev,
 	return snprintf(buf, 8, "%d\n", val);
 }
 
+/**
+ *	mpu3050_attr_set_polling_rate	-	set the sampling rate
+ */
 static ssize_t mpu3050_attr_set_polling_rate(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t size)
@@ -348,6 +362,9 @@ static int mpu3050_enable_set(struct sensors_classdev *sensors_cdev,
 	return 0;
 }
 
+/**
+ *  Set/get enable function is just needed by sensor HAL.
+ */
 
 static ssize_t mpu3050_attr_set_enable(struct device *dev,
 			struct device_attribute *attr,
@@ -409,9 +426,21 @@ static int remove_sysfs_interfaces(struct device *dev)
 	return 0;
 }
 
+/**
+ *	mpu3050_xyz_read_reg	-	read the axes values
+ *	@buffer: provide register addr and get register
+ *	@length: length of register
+ *
+ *	Reads the register values in one transaction or returns a negative
+ *	error code on failure.
+ */
 static int mpu3050_xyz_read_reg(struct i2c_client *client,
 			       u8 *buffer, int length)
 {
+	/*
+	 * Annoying we can't make this const because the i2c layer doesn't
+	 * declare input buffers const.
+	 */
 	char cmd = MPU3050_XOUT_H;
 	struct i2c_msg msg[] = {
 		{
@@ -431,6 +460,13 @@ static int mpu3050_xyz_read_reg(struct i2c_client *client,
 	return i2c_transfer(client->adapter, msg, 2);
 }
 
+/**
+ *	mpu3050_read_xyz	-	get co-ordinates from device
+ *	@client: i2c address of sensor
+ *	@coords: co-ordinates to update
+ *
+ *	Return the converted X Y and Z co-ordinates from the sensor device
+ */
 static void mpu3050_read_xyz(struct i2c_client *client,
 			     struct axis_data *coords)
 {
@@ -444,6 +480,13 @@ static void mpu3050_read_xyz(struct i2c_client *client,
 					coords->x, coords->y, coords->z);
 }
 
+/**
+ *	mpu3050_set_power_mode	-	set the power mode
+ *	@client: i2c client for the sensor
+ *	@val: value to switch on/off of power, 1: normal power, 0: low power
+ *
+ *	Put device to normal-power mode or low-power mode.
+ */
 static void mpu3050_set_power_mode(struct i2c_client *client, u8 val)
 {
 	u8 value;
@@ -470,6 +513,14 @@ static void mpu3050_set_power_mode(struct i2c_client *client, u8 val)
 	}
 }
 
+/**
+ *	mpu3050_interrupt_thread	-	handle an IRQ
+ *	@irq: interrupt numner
+ *	@data: the sensor
+ *
+ *	Called by the kernel single threaded after an interrupt occurs. Read
+ *	the sensor data and generate an input event for it.
+ */
 static irqreturn_t mpu3050_interrupt_thread(int irq, void *data)
 {
 	struct mpu3050_sensor *sensor = data;
@@ -485,6 +536,13 @@ static irqreturn_t mpu3050_interrupt_thread(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/**
+ *	mpu3050_input_work_fn -		polling work
+ *	@work: the work struct
+ *
+ *	Called by the work queue; read sensor data and generate an input
+ *	event
+ */
 static void mpu3050_input_work_fn(struct work_struct *work)
 {
 	struct mpu3050_sensor *sensor;
@@ -505,6 +563,12 @@ static void mpu3050_input_work_fn(struct work_struct *work)
 			msecs_to_jiffies(sensor->poll_interval));
 }
 
+/**
+ *	mpu3050_hw_init	-	initialize hardware
+ *	@sensor: the sensor
+ *
+ *	Called during device probe; configures the sampling method.
+ */
 static int mpu3050_hw_init(struct mpu3050_sensor *sensor)
 {
 	struct i2c_client *client = sensor->client;
@@ -521,13 +585,13 @@ static int mpu3050_hw_init(struct mpu3050_sensor *sensor)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Output frequency divider. The poll interval */
 	ret = i2c_smbus_write_byte_data(client, MPU3050_SMPLRT_DIV,
 					sensor->poll_interval - 1);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Set low pass filter and full scale */
 	reg = MPU3050_DLPF_CFG_42HZ;
 	reg |= MPU3050_DEFAULT_FS_RANGE << 3;
 	reg |= MPU3050_EXT_SYNC_NONE << 5;
@@ -535,7 +599,7 @@ static int mpu3050_hw_init(struct mpu3050_sensor *sensor)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Enable interrupts */
 	if (!sensor->use_poll) {
 		reg = MPU3050_ACTIVE_LOW;
 		reg |= MPU3050_OPEN_DRAIN;
@@ -560,7 +624,7 @@ static int mpu3050_parse_dt(struct device *dev,
 		return rc;
 	}
 
-	
+	/* check gpio_int later, if it is invalid, just use poll */
 	pdata->gpio_int = of_get_named_gpio_flags(dev->of_node,
 				"invn,gpio-int", 0, NULL);
 
@@ -579,6 +643,16 @@ static int mpu3050_parse_dt(struct device *dev,
 }
 #endif
 
+/**
+ *	mpu3050_probe	-	device detection callback
+ *	@client: i2c client of found device
+ *	@id: id match information
+ *
+ *	The I2C layer calls us when it believes a sensor is present at this
+ *	address. Probe to see if this is correct and to validate the device.
+ *
+ *	If present install the relevant sysfs interfaces and input device.
+ */
 static int __devinit mpu3050_probe(struct i2c_client *client,
 				   const struct i2c_device_id *id)
 {
@@ -635,7 +709,7 @@ static int __devinit mpu3050_probe(struct i2c_client *client,
 	}
 
 	sensor->cdev = sensors_cdev;
-	sensor->cdev.min_delay = MPU3050_MIN_POLL_INTERVAL;
+	sensor->cdev.min_delay = MPU3050_MIN_POLL_INTERVAL * 1000;
 	sensor->cdev.delay_msec = sensor->poll_interval;
 	sensor->cdev.sensors_enable = mpu3050_enable_set;
 	sensor->cdev.sensors_poll_delay = mpu3050_poll_delay_set;
@@ -697,7 +771,7 @@ static int __devinit mpu3050_probe(struct i2c_client *client,
 		sensor->use_poll = 0;
 
 		if (gpio_is_valid(sensor->platform_data->gpio_int)) {
-			
+			/* configure interrupt gpio */
 			ret = gpio_request(sensor->platform_data->gpio_int,
 								"gyro_gpio_int");
 			if (ret) {
@@ -773,6 +847,12 @@ err_free_mem:
 	return error;
 }
 
+/**
+ *	mpu3050_remove	-	remove a sensor
+ *	@client: i2c client of sensor being removed
+ *
+ *	Our sensor is going away, clean up the resources.
+ */
 static int __devexit mpu3050_remove(struct i2c_client *client)
 {
 	struct mpu3050_sensor *sensor = i2c_get_clientdata(client);
@@ -794,6 +874,12 @@ static int __devexit mpu3050_remove(struct i2c_client *client)
 }
 
 #ifdef CONFIG_PM
+/**
+ *	mpu3050_suspend		-	called on device suspend
+ *	@dev: device being suspended
+ *
+ *	Put the device into sleep mode before we suspend the machine.
+ */
 static int mpu3050_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -808,6 +894,12 @@ static int mpu3050_suspend(struct device *dev)
 	return 0;
 }
 
+/**
+ *	mpu3050_resume		-	called on device resume
+ *	@dev: device being resumed
+ *
+ *	Put the device into powered mode on resume.
+ */
 static int mpu3050_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -823,6 +915,12 @@ static int mpu3050_resume(struct device *dev)
 	return 0;
 }
 
+/**
+ *	mpu3050_runtime_suspend		-	called on device enters runtime suspend
+ *	@dev: device being suspended
+ *
+ *	Put the device into sleep mode.
+ */
 static int mpu3050_runtime_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -834,6 +932,12 @@ static int mpu3050_runtime_suspend(struct device *dev)
 	return 0;
 }
 
+/**
+ *	mpu3050_runtime_resume		-	called on device enters runtime resume
+ *	@dev: device being resumed
+ *
+ *	Put the device into powered mode.
+ */
 static int mpu3050_runtime_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);

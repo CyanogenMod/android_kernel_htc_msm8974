@@ -64,22 +64,28 @@ static void omap_pcm_dma_irq(int ch, u16 stat, void *data)
 	unsigned long flags;
 
 	if ((cpu_is_omap1510())) {
+		/*
+		 * OMAP1510 doesn't fully support DMA progress counter
+		 * and there is no software emulation implemented yet,
+		 * so have to maintain our own progress counters
+		 * that can be used by omap_pcm_pointer() instead.
+		 */
 		spin_lock_irqsave(&prtd->lock, flags);
 		if ((stat == OMAP_DMA_LAST_IRQ) &&
 				(prtd->period_index == runtime->periods - 1)) {
-			
+			/* we are in sync, do nothing */
 			spin_unlock_irqrestore(&prtd->lock, flags);
 			return;
 		}
 		if (prtd->period_index >= 0) {
 			if (stat & OMAP_DMA_BLOCK_IRQ) {
-				
+				/* end of buffer reached, loop back */
 				prtd->period_index = 0;
 			} else if (stat & OMAP_DMA_LAST_IRQ) {
-				
+				/* update the counter for the last period */
 				prtd->period_index = runtime->periods - 1;
 			} else if (++prtd->period_index >= runtime->periods) {
-				
+				/* end of buffer missed? loop back */
 				prtd->period_index = 0;
 			}
 		}
@@ -89,6 +95,7 @@ static void omap_pcm_dma_irq(int ch, u16 stat, void *data)
 	snd_pcm_period_elapsed(substream);
 }
 
+/* this may get called several times by oss emulation */
 static int omap_pcm_hw_params(struct snd_pcm_substream *substream,
 			      struct snd_pcm_hw_params *params)
 {
@@ -101,6 +108,8 @@ static int omap_pcm_hw_params(struct snd_pcm_substream *substream,
 
 	dma_data = snd_soc_dai_get_dma_data(rtd->cpu_dai, substream);
 
+	/* return if this is a bufferless transfer e.g.
+	 * codec <--> BT codec or GSM modem -- lg FIXME */
 	if (!dma_data)
 		return 0;
 
@@ -113,6 +122,10 @@ static int omap_pcm_hw_params(struct snd_pcm_substream *substream,
 	err = omap_request_dma(dma_data->dma_req, dma_data->name,
 			       omap_pcm_dma_irq, substream, &prtd->dma_ch);
 	if (!err) {
+		/*
+		 * Link channel with itself so DMA doesn't need any
+		 * reprogramming while looping the buffer
+		 */
 		omap_dma_link_lch(prtd->dma_ch, prtd->dma_ch);
 	}
 
@@ -144,6 +157,8 @@ static int omap_pcm_prepare(struct snd_pcm_substream *substream)
 	struct omap_dma_channel_params dma_params;
 	int bytes;
 
+	/* return if this is a bufferless transfer e.g.
+	 * codec <--> BT codec or GSM modem -- lg FIXME */
 	if (!prtd->dma_data)
 		return 0;
 
@@ -168,6 +183,12 @@ static int omap_pcm_prepare(struct snd_pcm_substream *substream)
 		dma_params.src_port		= OMAP_DMA_PORT_MPUI;
 		dma_params.src_fi		= dma_data->packet_size;
 	}
+	/*
+	 * Set DMA transfer frame size equal to ALSA period size and frame
+	 * count as no. of ALSA periods. Then with DMA frame interrupt enabled,
+	 * we can transfer the whole ALSA buffer with single DMA transfer but
+	 * still can get an interrupt at each period bounary
+	 */
 	bytes = snd_pcm_lib_period_bytes(substream);
 	dma_params.elem_count	= bytes >> dma_data->data_type;
 	dma_params.frame_count	= runtime->periods;
@@ -179,6 +200,11 @@ static int omap_pcm_prepare(struct snd_pcm_substream *substream)
 	else if (!substream->runtime->no_period_wakeup)
 		omap_enable_dma_irq(prtd->dma_ch, OMAP_DMA_FRAME_IRQ);
 	else {
+		/*
+		 * No period wakeup:
+		 * we need to disable BLOCK_IRQ, which is enabled by the omap
+		 * dma core at request dma time.
+		 */
 		omap_disable_dma_irq(prtd->dma_ch, OMAP_DMA_BLOCK_IRQ);
 	}
 
@@ -206,7 +232,7 @@ static int omap_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		prtd->period_index = 0;
-		
+		/* Configure McBSP internal buffer usage */
 		if (dma_data->set_threshold)
 			dma_data->set_threshold(substream);
 
@@ -258,7 +284,7 @@ static int omap_pcm_open(struct snd_pcm_substream *substream)
 
 	snd_soc_set_runtime_hwparams(substream, &omap_pcm_hardware);
 
-	
+	/* Ensure that buffer size is a multiple of period size */
 	ret = snd_pcm_hw_constraint_integer(runtime,
 					    SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0)
@@ -375,7 +401,7 @@ static int omap_pcm_new(struct snd_soc_pcm_runtime *rtd)
 	}
 
 out:
-	
+	/* free preallocated buffers in case of error */
 	if (ret)
 		omap_pcm_free_dma_buffers(pcm);
 

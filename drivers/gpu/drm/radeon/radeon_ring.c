@@ -74,11 +74,14 @@ void radeon_ring_write(struct radeon_ring *ring, uint32_t v)
 	ring->ring_free_dw--;
 }
 
+/*
+ * IB.
+ */
 bool radeon_ib_try_free(struct radeon_device *rdev, struct radeon_ib *ib)
 {
 	bool done = false;
 
-	
+	/* only free ib which have been emited */
 	if (ib->fence && ib->fence->emitted) {
 		if (radeon_fence_signaled(ib->fence)) {
 			radeon_fence_unref(&ib->fence);
@@ -97,7 +100,7 @@ int radeon_ib_get(struct radeon_device *rdev, int ring,
 	int r = 0, i, idx;
 
 	*ib = NULL;
-	
+	/* align size on 256 bytes */
 	size = ALIGN(size, 256);
 
 	r = radeon_fence_create(rdev, &fence, ring);
@@ -131,6 +134,10 @@ retry:
 				(*ib)->fence = fence;
 				(*ib)->vm_id = 0;
 				(*ib)->is_const_ib = false;
+				/* ib are most likely to be allocated in a ring fashion
+				 * thus rdev->ib_pool.head_id should be the id of the
+				 * oldest ib
+				 */
 				rdev->ib_pool.head_id = (1 + idx);
 				rdev->ib_pool.head_id &= (RADEON_IB_POOL_SIZE - 1);
 				radeon_mutex_unlock(&rdev->ib_pool.mutex);
@@ -139,13 +146,15 @@ retry:
 		}
 		idx = (idx + 1) & (RADEON_IB_POOL_SIZE - 1);
 	}
+	/* this should be rare event, ie all ib scheduled none signaled yet.
+	 */
 	for (i = 0; i < RADEON_IB_POOL_SIZE; i++) {
 		if (rdev->ib_pool.ibs[idx].fence && rdev->ib_pool.ibs[idx].fence->emitted) {
 			r = radeon_fence_wait(rdev->ib_pool.ibs[idx].fence, false);
 			if (!r) {
 				goto retry;
 			}
-			
+			/* an error happened */
 			break;
 		}
 		idx = (idx + 1) & (RADEON_IB_POOL_SIZE - 1);
@@ -177,12 +186,12 @@ int radeon_ib_schedule(struct radeon_device *rdev, struct radeon_ib *ib)
 	int r = 0;
 
 	if (!ib->length_dw || !ring->ready) {
-		
+		/* TODO: Nothings in the ib we should report. */
 		DRM_ERROR("radeon: couldn't schedule IB(%u).\n", ib->idx);
 		return -EINVAL;
 	}
 
-	
+	/* 64 dwords should be enough for fence too */
 	r = radeon_ring_lock(rdev, ring, 64);
 	if (r) {
 		DRM_ERROR("radeon: scheduling IB failed (%d).\n", r);
@@ -261,9 +270,12 @@ int radeon_ib_pool_suspend(struct radeon_device *rdev)
 	return radeon_sa_bo_manager_suspend(rdev, &rdev->ib_pool.sa_manager);
 }
 
+/*
+ * Ring.
+ */
 int radeon_ring_index(struct radeon_device *rdev, struct radeon_ring *ring)
 {
-	
+	/* r1xx-r5xx only has CP ring */
 	if (rdev->family < CHIP_R600)
 		return RADEON_RING_TYPE_GFX_INDEX;
 
@@ -285,7 +297,7 @@ void radeon_ring_free_size(struct radeon_device *rdev, struct radeon_ring *ring)
 	else
 		rptr = RREG32(ring->rptr_reg);
 	ring->rptr = (rptr & ring->ptr_reg_mask) >> ring->ptr_reg_shift;
-	
+	/* This works because ring_size is a power of 2 */
 	ring->ring_free_dw = (ring->rptr + (ring->ring_size / 4));
 	ring->ring_free_dw -= ring->wptr;
 	ring->ring_free_dw &= ring->ptr_mask;
@@ -299,6 +311,8 @@ int radeon_ring_alloc(struct radeon_device *rdev, struct radeon_ring *ring, unsi
 {
 	int r;
 
+	/* Align requested size with padding so unlock_commit can
+	 * pad safely */
 	ndw = (ndw + ring->align_mask) & ~ring->align_mask;
 	while (ndw > (ring->ring_free_dw - 1)) {
 		radeon_ring_free_size(rdev, ring);
@@ -332,7 +346,7 @@ void radeon_ring_commit(struct radeon_device *rdev, struct radeon_ring *ring)
 	unsigned count_dw_pad;
 	unsigned i;
 
-	
+	/* We pad to match fetch size */
 	count_dw_pad = (ring->align_mask + 1) -
 		       (ring->wptr & ring->align_mask);
 	for (i = 0; i < count_dw_pad; i++) {
@@ -368,7 +382,7 @@ int radeon_ring_init(struct radeon_device *rdev, struct radeon_ring *ring, unsig
 	ring->ptr_reg_shift = ptr_reg_shift;
 	ring->ptr_reg_mask = ptr_reg_mask;
 	ring->nop = nop;
-	
+	/* Allocate ring buffer */
 	if (ring->ring_obj == NULL) {
 		r = radeon_bo_create(rdev, ring->ring_size, PAGE_SIZE, true,
 					RADEON_GEM_DOMAIN_GTT,
@@ -422,6 +436,9 @@ void radeon_ring_fini(struct radeon_device *rdev, struct radeon_ring *ring)
 	}
 }
 
+/*
+ * Debugfs info
+ */
 #if defined(CONFIG_DEBUG_FS)
 
 static int radeon_debugfs_ring_info(struct seq_file *m, void *data)

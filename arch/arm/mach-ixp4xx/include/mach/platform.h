@@ -21,8 +21,18 @@
 #define	REG_OFFSET	3
 #endif
 
+/*
+ * Expansion bus memory regions
+ */
 #define IXP4XX_EXP_BUS_BASE_PHYS	(0x50000000)
 
+/*
+ * The expansion bus on the IXP4xx can be configured for either 16 or
+ * 32MB windows and the CS offset for each region changes based on the
+ * current configuration. This means that we cannot simply hardcode
+ * each offset. ixp4xx_sys_init() looks at the expansion bus configuration
+ * as setup by the bootloader to determine our window size.
+ */
 extern unsigned long ixp4xx_exp_bus_size;
 
 #define	IXP4XX_EXP_BUS_BASE(region)\
@@ -31,6 +41,9 @@ extern unsigned long ixp4xx_exp_bus_size;
 #define IXP4XX_EXP_BUS_END(region)\
 		(IXP4XX_EXP_BUS_BASE(region) + ixp4xx_exp_bus_size - 1)
 
+/* Those macros can be used to adjust timing and configure
+ * other features for each region.
+ */
 
 #define IXP4XX_EXP_BUS_RECOVERY_T(x)	(((x) & 0x0f) << 16)
 #define IXP4XX_EXP_BUS_HOLD_T(x)	(((x) & 0x03) << 20)
@@ -56,9 +69,17 @@ extern unsigned long ixp4xx_exp_bus_size;
 #define IXP4XX_FLASH_DEFAULT	(0xbcd23c40)
 #define IXP4XX_FLASH_WRITE	(0xbcd23c42)
 
-#define IXP4XX_PERIPHERAL_BUS_CLOCK 	(66)  
+/*
+ * Clock Speed Definitions.
+ */
+#define IXP4XX_PERIPHERAL_BUS_CLOCK 	(66) /* 66Mhzi APB BUS   */ 
 #define IXP4XX_UART_XTAL        	14745600
 
+/*
+ * This structure provide a means for the board setup code
+ * to give information to th pata_ixp4xx driver. It is
+ * passed as platform_data.
+ */
 struct ixp4xx_pata_data {
 	volatile u32	*cs0_cfg;
 	volatile u32	*cs1_cfg;
@@ -74,13 +95,15 @@ struct sys_timer;
 #define IXP4XX_ETH_NPEB		0x10
 #define IXP4XX_ETH_NPEC		0x20
 
+/* Information about built-in Ethernet MAC interfaces */
 struct eth_plat_info {
-	u8 phy;		
-	u8 rxq;		
+	u8 phy;		/* MII PHY ID, 0 - 31 */
+	u8 rxq;		/* configurable, currently 0 - 31 only */
 	u8 txreadyq;
 	u8 hwaddr[6];
 };
 
+/* Information about built-in HSS (synchronous serial) interfaces */
 struct hss_plat_info {
 	int (*set_clock)(int port, unsigned int clock_type);
 	int (*open)(int port, void *pdev,
@@ -89,8 +112,14 @@ struct hss_plat_info {
 	u8 txreadyq;
 };
 
+/*
+ * Frequency of clock used for primary clocksource
+ */
 extern unsigned long ixp4xx_timer_freq;
 
+/*
+ * Functions used by platform-level setup code
+ */
 extern void ixp4xx_map_io(void);
 extern void ixp4xx_init_early(void);
 extern void ixp4xx_init_irq(void);
@@ -103,12 +132,21 @@ struct pci_sys_data;
 extern int ixp4xx_setup(int nr, struct pci_sys_data *sys);
 extern struct pci_bus *ixp4xx_scan_bus(int nr, struct pci_sys_data *sys);
 
+/*
+ * GPIO-functions
+ */
+/*
+ * The following converted to the real HW bits the gpio_line_config
+ */
+/* GPIO pin types */
 #define IXP4XX_GPIO_OUT 		0x1
 #define IXP4XX_GPIO_IN  		0x2
 
+/* GPIO signal types */
 #define IXP4XX_GPIO_LOW			0
 #define IXP4XX_GPIO_HIGH		1
 
+/* GPIO Clocks */
 #define IXP4XX_GPIO_CLK_0		14
 #define IXP4XX_GPIO_CLK_1		15
 
@@ -133,5 +171,5 @@ static inline void gpio_line_set(u8 line, int value)
 	    *IXP4XX_GPIO_GPOUTR &= ~(1 << line);
 }
 
-#endif 
+#endif // __ASSEMBLY__
 

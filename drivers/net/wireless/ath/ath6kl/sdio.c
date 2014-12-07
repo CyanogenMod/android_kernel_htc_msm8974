@@ -32,29 +32,29 @@
 struct ath6kl_sdio {
 	struct sdio_func *func;
 
-	
+	/* protects access to bus_req_freeq */
 	spinlock_t lock;
 
-	
+	/* free list */
 	struct list_head bus_req_freeq;
 
-	
+	/* available bus requests */
 	struct bus_request bus_req[BUS_REQUEST_MAX_NUM];
 
 	struct ath6kl *ar;
 
 	u8 *dma_buffer;
 
-	
+	/* protects access to dma_buffer */
 	struct mutex dma_buffer_mutex;
 
-	
+	/* scatter request list head */
 	struct list_head scat_req;
 
 	atomic_t irq_handling;
 	wait_queue_head_t irq_wq;
 
-	
+	/* protects access to scat_req */
 	spinlock_t scat_lock;
 
 	bool scatter_enabled;
@@ -64,7 +64,7 @@ struct ath6kl_sdio {
 	struct work_struct wr_async_work;
 	struct list_head wr_asyncq;
 
-	
+	/* protects access to wr_asyncq */
 	spinlock_t wr_async_lock;
 };
 
@@ -79,6 +79,12 @@ static inline struct ath6kl_sdio *ath6kl_sdio_priv(struct ath6kl *ar)
 	return ar->hif_priv;
 }
 
+/*
+ * Macro to check if DMA buffer is WORD-aligned and DMA-able.
+ * Most host controllers assume the buffer is DMA'able and will
+ * bug-check otherwise (i.e. buffers on the stack). virt_addr_valid
+ * check fails on stack memory.
+ */
 static inline bool buf_needs_bounce(u8 *buf)
 {
 	return ((unsigned long) buf & 0x3) || !virt_addr_valid(buf);
@@ -88,7 +94,7 @@ static void ath6kl_sdio_set_mbox_info(struct ath6kl *ar)
 {
 	struct ath6kl_mbox_info *mbox_info = &ar->mbox_info;
 
-	
+	/* EP1 has an extended range */
 	mbox_info->htc_addr = HIF_MBOX_BASE_ADDR;
 	mbox_info->htc_ext_addr = HIF_MBOX0_EXT_BASE_ADDR;
 	mbox_info->htc_ext_sz = HIF_MBOX0_EXT_WIDTH;
@@ -146,12 +152,12 @@ static int ath6kl_sdio_io(struct sdio_func *func, u32 request, u32 addr,
 	sdio_claim_host(func);
 
 	if (request & HIF_WRITE) {
-		
+		/* FIXME: looks like ugly workaround for something */
 		if (addr >= HIF_MBOX_BASE_ADDR &&
 		    addr <= HIF_MBOX_END_ADDR)
 			addr += (HIF_MBOX_WIDTH - len);
 
-		
+		/* FIXME: this also looks like ugly workaround */
 		if (addr == HIF_MBOX0_EXT_BASE_ADDR)
 			addr += HIF_MBOX0_EXT_WIDTH - len;
 
@@ -227,11 +233,11 @@ static void ath6kl_sdio_setup_scat_data(struct hif_scatter_req *scat_req,
 	data->flags = (scat_req->req & HIF_WRITE) ? MMC_DATA_WRITE :
 						    MMC_DATA_READ;
 
-	
+	/* fill SG entries */
 	sg = scat_req->sgentries;
 	sg_init_table(sg, scat_req->scat_entries);
 
-	
+	/* assemble SG list */
 	for (i = 0; i < scat_req->scat_entries; i++, sg++) {
 		ath6kl_dbg(ATH6KL_DBG_SCATTER, "%d: addr:0x%p, len:%d\n",
 			   i, scat_req->scat_list[i].buf,
@@ -241,7 +247,7 @@ static void ath6kl_sdio_setup_scat_data(struct hif_scatter_req *scat_req,
 			   scat_req->scat_list[i].len);
 	}
 
-	
+	/* set scatter-gather table for request */
 	data->sg = scat_req->sgentries;
 	data->sg_len = scat_req->scat_entries;
 }
@@ -280,16 +286,16 @@ static int ath6kl_sdio_scat_rw(struct ath6kl_sdio *ar_sdio,
 
 	rw = (scat_req->req & HIF_WRITE) ? CMD53_ARG_WRITE : CMD53_ARG_READ;
 
-	
+	/* Fixup the address so that the last byte will fall on MBOX EOM */
 	if (scat_req->req & HIF_WRITE) {
 		if (scat_req->addr == HIF_MBOX_BASE_ADDR)
 			scat_req->addr += HIF_MBOX_WIDTH - scat_req->len;
 		else
-			
+			/* Uses extended address range */
 			scat_req->addr += HIF_MBOX0_EXT_WIDTH - scat_req->len;
 	}
 
-	
+	/* set command argument */
 	ath6kl_sdio_set_cmd53_arg(&cmd.arg, rw, ar_sdio->func->num,
 				  CMD53_ARG_BLOCK_BASIS, opcode, scat_req->addr,
 				  data.blocks);
@@ -303,7 +309,7 @@ static int ath6kl_sdio_scat_rw(struct ath6kl_sdio *ar_sdio,
 	sdio_claim_host(ar_sdio->func);
 
 	mmc_set_data_timeout(&data, ar_sdio->func->card);
-	
+	/* synchronous call to process request */
 	mmc_wait_for_req(ar_sdio->func->card->host, &mmc_req);
 
 	sdio_release_host(ar_sdio->func);
@@ -342,7 +348,7 @@ static int ath6kl_sdio_alloc_prep_scat_req(struct ath6kl_sdio *ar_sdio,
 			  ATH6KL_MAX_TRANSFER_SIZE_PER_SCATTER;
 
 	for (i = 0; i < n_scat_req; i++) {
-		
+		/* allocate the scatter request */
 		s_req = kzalloc(scat_req_sz, GFP_KERNEL);
 		if (!s_req)
 			return -ENOMEM;
@@ -357,7 +363,7 @@ static int ath6kl_sdio_alloc_prep_scat_req(struct ath6kl_sdio *ar_sdio,
 			s_req->virt_dma_buf =
 				(u8 *)L1_CACHE_ALIGN((unsigned long)virt_buf);
 		} else {
-			
+			/* allocate sglist */
 			s_req->sgentries = kzalloc(sg_sz, GFP_KERNEL);
 
 			if (!s_req->sgentries) {
@@ -366,7 +372,7 @@ static int ath6kl_sdio_alloc_prep_scat_req(struct ath6kl_sdio *ar_sdio,
 			}
 		}
 
-		
+		/* allocate a bus request for this scatter request */
 		bus_req = ath6kl_sdio_alloc_busreq(ar_sdio);
 		if (!bus_req) {
 			kfree(s_req->sgentries);
@@ -375,13 +381,13 @@ static int ath6kl_sdio_alloc_prep_scat_req(struct ath6kl_sdio *ar_sdio,
 			return -ENOMEM;
 		}
 
-		
+		/* assign the scatter request to this bus request */
 		bus_req->scat_req = s_req;
 		s_req->busrequest = bus_req;
 
 		s_req->virt_scat = virt_scat;
 
-		
+		/* add it to the scatter pool */
 		hif_scatter_req_add(ar_sdio->ar, s_req);
 	}
 
@@ -466,6 +472,10 @@ static void ath6kl_sdio_irq_handler(struct sdio_func *func)
 
 	ar_sdio = sdio_get_drvdata(func);
 	atomic_set(&ar_sdio->irq_handling, 1);
+	/*
+	 * Release the host during interrups so we can pick it back up when
+	 * we process commands.
+	 */
 	sdio_release_host(ar_sdio->func);
 
 	status = ath6kl_hif_intr_bh_handler(ar_sdio->ar);
@@ -499,6 +509,10 @@ static int ath6kl_sdio_power_on(struct ath6kl *ar)
 
 	sdio_release_host(func);
 
+	/*
+	 * Wait for hardware to initialise. It should take a lot less than
+	 * 10 ms but let's be conservative here.
+	 */
 	msleep(10);
 
 	ar_sdio->is_disabled = false;
@@ -516,7 +530,7 @@ static int ath6kl_sdio_power_off(struct ath6kl *ar)
 
 	ath6kl_dbg(ATH6KL_DBG_BOOT, "sdio power off\n");
 
-	
+	/* Disable the card */
 	sdio_claim_host(ar_sdio->func);
 	ret = sdio_disable_func(ar_sdio->func);
 	sdio_release_host(ar_sdio->func);
@@ -562,7 +576,7 @@ static void ath6kl_sdio_irq_enable(struct ath6kl *ar)
 
 	sdio_claim_host(ar_sdio->func);
 
-	
+	/* Register the isr */
 	ret =  sdio_claim_irq(ar_sdio->func, ath6kl_sdio_irq_handler);
 	if (ret)
 		ath6kl_err("Failed to claim sdio irq: %d\n", ret);
@@ -635,6 +649,7 @@ static void ath6kl_sdio_scatter_req_add(struct ath6kl *ar,
 
 }
 
+/* scatter gather read write request */
 static int ath6kl_sdio_async_rw_scatter(struct ath6kl *ar,
 					struct hif_scatter_req *scat_req)
 {
@@ -661,17 +676,23 @@ static int ath6kl_sdio_async_rw_scatter(struct ath6kl *ar,
 	return status;
 }
 
+/* clean up scatter support */
 static void ath6kl_sdio_cleanup_scatter(struct ath6kl *ar)
 {
 	struct ath6kl_sdio *ar_sdio = ath6kl_sdio_priv(ar);
 	struct hif_scatter_req *s_req, *tmp_req;
 
-	
+	/* empty the free list */
 	spin_lock_bh(&ar_sdio->scat_lock);
 	list_for_each_entry_safe(s_req, tmp_req, &ar_sdio->scat_req, list) {
 		list_del(&s_req->list);
 		spin_unlock_bh(&ar_sdio->scat_lock);
 
+		/*
+		 * FIXME: should we also call completion handler with
+		 * ath6kl_hif_rw_comp_handler() with status -ECANCELED so
+		 * that the packet is properly freed?
+		 */
 		if (s_req->busrequest)
 			ath6kl_sdio_free_bus_req(ar_sdio, s_req->busrequest);
 		kfree(s_req->virt_dma_buf);
@@ -683,6 +704,7 @@ static void ath6kl_sdio_cleanup_scatter(struct ath6kl *ar)
 	spin_unlock_bh(&ar_sdio->scat_lock);
 }
 
+/* setup of HIF scatter resources */
 static int ath6kl_sdio_enable_scatter(struct ath6kl *ar)
 {
 	struct ath6kl_sdio *ar_sdio = ath6kl_sdio_priv(ar);
@@ -695,7 +717,7 @@ static int ath6kl_sdio_enable_scatter(struct ath6kl *ar)
 
 	ar_sdio->scatter_enabled = true;
 
-	
+	/* check if host supports scatter and it meets our requirements */
 	if (ar_sdio->func->card->host->max_segs < MAX_SCATTER_ENTRIES_PER_REQ) {
 		ath6kl_err("host only supports scatter of :%d entries, need: %d\n",
 			   ar_sdio->func->card->host->max_segs,
@@ -756,7 +778,7 @@ static int ath6kl_sdio_config(struct ath6kl *ar)
 
 	if ((ar_sdio->id->device & MANUFACTURER_ID_ATH6KL_BASE_MASK) >=
 	    MANUFACTURER_ID_AR6003_BASE) {
-		
+		/* enable 4-bit ASYNC interrupt on AR6003 or later */
 		ret = ath6kl_sdio_func0_cmd52_wr_byte(func->card,
 						CCCR_SDIO_IRQ_MODE_REG,
 						SDIO_IRQ_MODE_ASYNC_4BIT_IRQ);
@@ -769,7 +791,7 @@ static int ath6kl_sdio_config(struct ath6kl *ar)
 		ath6kl_dbg(ATH6KL_DBG_BOOT, "4-bit async irq mode enabled\n");
 	}
 
-	
+	/* give us some time to enable, in ms */
 	func->enable_timeout = 100;
 
 	ret = sdio_set_block_size(func, HIF_MBOX_BLOCK_SIZE);
@@ -806,7 +828,7 @@ static int ath6kl_set_sdio_pm_caps(struct ath6kl *ar)
 		return ret;
 	}
 
-	
+	/* sdio irq wakes up host */
 	ret = sdio_set_host_pm_flags(func, MMC_PM_WAKE_SDIO_IRQ);
 	if (ret)
 		ath6kl_err("set sdio wake irq flag failed: %d\n", ret);
@@ -871,6 +893,12 @@ static int ath6kl_sdio_suspend(struct ath6kl *ar, struct cfg80211_wowlan *wow)
 		if (ret)
 			goto cut_pwr;
 
+		/*
+		 * Workaround to support Deep Sleep with MSM, set the host pm
+		 * flag as MMC_PM_WAKE_SDIO_IRQ to allow SDCC deiver to disable
+		 * the sdc2_clock and internally allows MSM to enter
+		 * TCXO shutdown properly.
+		 */
 		if ((flags & MMC_PM_WAKE_SDIO_IRQ)) {
 			ret = sdio_set_host_pm_flags(func,
 						MMC_PM_WAKE_SDIO_IRQ);
@@ -898,7 +926,7 @@ static int ath6kl_sdio_resume(struct ath6kl *ar)
 		ath6kl_dbg(ATH6KL_DBG_SUSPEND,
 			   "sdio resume configuring sdio\n");
 
-		
+		/* need to set sdio settings after power is cut from sdio */
 		ath6kl_sdio_config(ar);
 		break;
 
@@ -926,6 +954,7 @@ static int ath6kl_sdio_resume(struct ath6kl *ar)
 	return 0;
 }
 
+/* set the window address register (using 4-byte register access ). */
 static int ath6kl_set_addrwin_reg(struct ath6kl *ar, u32 reg_addr, u32 addr)
 {
 	int status;
@@ -938,8 +967,17 @@ static int ath6kl_set_addrwin_reg(struct ath6kl *ar, u32 reg_addr, u32 addr)
 	 */
 
 	for (i = 1; i <= 3; i++) {
+		/*
+		 * Fill the buffer with the address byte value we want to
+		 * hit 4 times.
+		 */
 		memset(addr_val, ((u8 *)&addr)[i], 4);
 
+		/*
+		 * Hit each byte of the register address with a 4-byte
+		 * write operation to the same address, this is a harmless
+		 * operation.
+		 */
 		status = ath6kl_sdio_read_write_sync(ar, reg_addr + i, addr_val,
 					     4, HIF_WR_SYNC_BYTE_FIX);
 		if (status)
@@ -953,6 +991,12 @@ static int ath6kl_set_addrwin_reg(struct ath6kl *ar, u32 reg_addr, u32 addr)
 		return status;
 	}
 
+	/*
+	 * Write the address register again, this time write the whole
+	 * 4-byte value. The effect here is that the LSB write causes the
+	 * cycle to start, the extra 3 byte write to bytes 1,2,3 has no
+	 * effect since we are writing the same values again
+	 */
 	status = ath6kl_sdio_read_write_sync(ar, reg_addr, (u8 *)(&addr),
 				     4, HIF_WR_SYNC_BYTE_INC);
 
@@ -969,14 +1013,14 @@ static int ath6kl_sdio_diag_read32(struct ath6kl *ar, u32 address, u32 *data)
 {
 	int status;
 
-	
+	/* set window register to start read cycle */
 	status = ath6kl_set_addrwin_reg(ar, WINDOW_READ_ADDR_ADDRESS,
 					address);
 
 	if (status)
 		return status;
 
-	
+	/* read the data */
 	status = ath6kl_sdio_read_write_sync(ar, WINDOW_DATA_ADDRESS,
 				(u8 *)data, sizeof(u32), HIF_RD_SYNC_BYTE_INC);
 	if (status) {
@@ -994,7 +1038,7 @@ static int ath6kl_sdio_diag_write32(struct ath6kl *ar, u32 address,
 	int status;
 	u32 val = (__force u32) data;
 
-	
+	/* set write data */
 	status = ath6kl_sdio_read_write_sync(ar, WINDOW_DATA_ADDRESS,
 				(u8 *) &val, sizeof(u32), HIF_WR_SYNC_BYTE_INC);
 	if (status) {
@@ -1003,7 +1047,7 @@ static int ath6kl_sdio_diag_write32(struct ath6kl *ar, u32 address,
 		return status;
 	}
 
-	
+	/* set window register, which starts the write cycle */
 	return ath6kl_set_addrwin_reg(ar, WINDOW_WRITE_ADDR_ADDRESS,
 				      address);
 }
@@ -1016,12 +1060,18 @@ static int ath6kl_sdio_bmi_credits(struct ath6kl *ar)
 
 	ar->bmi.cmd_credits = 0;
 
-	
+	/* Read the counter register to get the command credits */
 	addr = COUNT_DEC_ADDRESS + (HTC_MAILBOX_NUM_MAX + ENDPOINT1) * 4;
 
 	timeout = jiffies + msecs_to_jiffies(BMI_COMMUNICATION_TIMEOUT);
 	while (time_before(jiffies, timeout) && !ar->bmi.cmd_credits) {
 
+		/*
+		 * Hit the credit counter with a 4-byte access, the first byte
+		 * read will hit the counter and cause a decrement, while the
+		 * remaining 3 bytes has no effect. The rationale behind this
+		 * is to make all HIF accesses 4-byte aligned.
+		 */
 		ret = ath6kl_sdio_read_write_sync(ar, addr,
 					 (u8 *)&ar->bmi.cmd_credits, 4,
 					 HIF_RD_SYNC_BYTE_INC);
@@ -1031,6 +1081,9 @@ static int ath6kl_sdio_bmi_credits(struct ath6kl *ar)
 			return ret;
 		}
 
+		/* The counter is only 8 bits.
+		 * Ignore anything in the upper 3 bytes
+		 */
 		ar->bmi.cmd_credits &= 0xFF;
 	}
 
@@ -1059,7 +1112,7 @@ static int ath6kl_bmi_get_rx_lkahd(struct ath6kl *ar)
 			return ret;
 		}
 
-		 
+		 /* all we really want is one bit */
 		rx_word &= (1 << ENDPOINT1);
 	}
 
@@ -1095,7 +1148,53 @@ static int ath6kl_sdio_bmi_read(struct ath6kl *ar, u8 *buf, u32 len)
 	int ret;
 	u32 addr;
 
-	if (len >= 4) { 
+	/*
+	 * During normal bootup, small reads may be required.
+	 * Rather than issue an HIF Read and then wait as the Target
+	 * adds successive bytes to the FIFO, we wait here until
+	 * we know that response data is available.
+	 *
+	 * This allows us to cleanly timeout on an unexpected
+	 * Target failure rather than risk problems at the HIF level.
+	 * In particular, this avoids SDIO timeouts and possibly garbage
+	 * data on some host controllers.  And on an interconnect
+	 * such as Compact Flash (as well as some SDIO masters) which
+	 * does not provide any indication on data timeout, it avoids
+	 * a potential hang or garbage response.
+	 *
+	 * Synchronization is more difficult for reads larger than the
+	 * size of the MBOX FIFO (128B), because the Target is unable
+	 * to push the 129th byte of data until AFTER the Host posts an
+	 * HIF Read and removes some FIFO data.  So for large reads the
+	 * Host proceeds to post an HIF Read BEFORE all the data is
+	 * actually available to read.  Fortunately, large BMI reads do
+	 * not occur in practice -- they're supported for debug/development.
+	 *
+	 * So Host/Target BMI synchronization is divided into these cases:
+	 *  CASE 1: length < 4
+	 *        Should not happen
+	 *
+	 *  CASE 2: 4 <= length <= 128
+	 *        Wait for first 4 bytes to be in FIFO
+	 *        If CONSERVATIVE_BMI_READ is enabled, also wait for
+	 *        a BMI command credit, which indicates that the ENTIRE
+	 *        response is available in the the FIFO
+	 *
+	 *  CASE 3: length > 128
+	 *        Wait for the first 4 bytes to be in FIFO
+	 *
+	 * For most uses, a small timeout should be sufficient and we will
+	 * usually see a response quickly; but there may be some unusual
+	 * (debug) cases of BMI_EXECUTE where we want an larger timeout.
+	 * For now, we use an unbounded busy loop while waiting for
+	 * BMI_EXECUTE.
+	 *
+	 * If BMI_EXECUTE ever needs to support longer-latency execution,
+	 * especially in production, this code needs to be enhanced to sleep
+	 * and yield.  Also note that BMI_COMMUNICATION_TIMEOUT is currently
+	 * a function of Host processor speed.
+	 */
+	if (len >= 4) { /* NB: Currently, always true */
 		ret = ath6kl_bmi_get_rx_lkahd(ar);
 		if (ret)
 			return ret;
@@ -1119,7 +1218,7 @@ static void ath6kl_sdio_stop(struct ath6kl *ar)
 	struct bus_request *req, *tmp_req;
 	void *context;
 
-	
+	/* FIXME: make sure that wq is not queued again */
 
 	cancel_work_sync(&ar_sdio->wr_async_work);
 
@@ -1129,7 +1228,7 @@ static void ath6kl_sdio_stop(struct ath6kl *ar)
 		list_del(&req->list);
 
 		if (req->scat_req) {
-			
+			/* this is a scatter gather request */
 			req->scat_req->status = -ECANCELED;
 			req->scat_req->complete(ar_sdio->ar->htc_target,
 						req->scat_req);
@@ -1168,6 +1267,10 @@ static const struct ath6kl_hif_ops ath6kl_sdio_ops = {
 
 #ifdef CONFIG_PM_SLEEP
 
+/*
+ * Empty handlers so that mmc subsystem doesn't remove us entirely during
+ * suspend. We instead follow cfg80211 suspend/resume handlers.
+ */
 static int ath6kl_sdio_pm_suspend(struct device *device)
 {
 	ath6kl_dbg(ATH6KL_DBG_SUSPEND, "sdio pm suspend\n");
@@ -1191,7 +1294,7 @@ static SIMPLE_DEV_PM_OPS(ath6kl_sdio_pm_ops, ath6kl_sdio_pm_suspend,
 
 #define ATH6KL_SDIO_PM_OPS NULL
 
-#endif 
+#endif /* CONFIG_PM_SLEEP */
 
 static int ath6kl_sdio_probe(struct sdio_func *func,
 			     const struct sdio_device_id *id)

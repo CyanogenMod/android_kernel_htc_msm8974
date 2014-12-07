@@ -17,13 +17,13 @@ struct mips_vdso {
 	u32 signal_trampoline[2];
 	u32 rt_signal_trampoline[2];
 };
-#else  
+#else  /* !CONFIG_32BIT */
 struct mips_vdso {
 	u32 o32_signal_trampoline[2];
 	u32 o32_rt_signal_trampoline[2];
 	u32 rt_signal_trampoline[2];
 	u32 n32_rt_signal_trampoline[2];
 };
-#endif 
+#endif /* CONFIG_32BIT */
 
-#endif 
+#endif /* __ASM_VDSO_H */

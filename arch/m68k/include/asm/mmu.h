@@ -2,6 +2,7 @@
 #define __MMU_H
 
 #ifdef CONFIG_MMU
+/* Default "unsigned long" context */
 typedef unsigned long mm_context_t;
 #else
 typedef struct {

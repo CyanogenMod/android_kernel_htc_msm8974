@@ -33,41 +33,50 @@
 
 static void __init rsi_ews_init_early(void)
 {
-	
+	/* Initialize processor: 18.432 MHz crystal */
 	at91_initialize(18432000);
 
-	
+	/* Setup the LEDs */
 	at91_init_leds(AT91_PIN_PB6, AT91_PIN_PB9);
 
-	
-	
+	/* DBGU on ttyS0. (Rx & Tx only) */
+	/* This one is for debugging */
 	at91_register_uart(0, 0, 0);
 
-	
-	
+	/* USART1 on ttyS2. (Rx, Tx, CTS, RTS, DTR, DSR, DCD, RI) */
+	/* Dialin/-out modem interface */
 	at91_register_uart(AT91RM9200_ID_US1, 2, ATMEL_UART_CTS | ATMEL_UART_RTS
 			   | ATMEL_UART_DTR | ATMEL_UART_DSR | ATMEL_UART_DCD
 			   | ATMEL_UART_RI);
 
-	
-	
+	/* USART3 on ttyS4. (Rx, Tx, RTS) */
+	/* RS485 communication */
 	at91_register_uart(AT91RM9200_ID_US3, 4, ATMEL_UART_RTS);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
+/*
+ * Ethernet
+ */
 static struct macb_platform_data rsi_ews_eth_data __initdata = {
 	.phy_irq_pin	= AT91_PIN_PC4,
 	.is_rmii	= 1,
 };
 
+/*
+ * USB Host
+ */
 static struct at91_usbh_data rsi_ews_usbh_data __initdata = {
 	.ports		= 1,
 	.vbus_pin	= {-EINVAL, -EINVAL},
 	.overcurrent_pin= {-EINVAL, -EINVAL},
 };
 
+/*
+ * SD/MC
+ */
 static struct at91_mmc_data rsi_ews_mmc_data __initdata = {
 	.slot_b		= 0,
 	.wire4		= 1,
@@ -75,6 +84,9 @@ static struct at91_mmc_data rsi_ews_mmc_data __initdata = {
 	.wp_pin		= AT91_PIN_PB29,
 };
 
+/*
+ * I2C
+ */
 static struct i2c_board_info rsi_ews_i2c_devices[] __initdata = {
 	{
 		I2C_BOARD_INFO("ds1337", 0x68),
@@ -84,6 +96,9 @@ static struct i2c_board_info rsi_ews_i2c_devices[] __initdata = {
 	}
 };
 
+/*
+ * LEDs
+ */
 static struct gpio_led rsi_ews_leds[] = {
 	{
 		.name			= "led0",
@@ -107,19 +122,25 @@ static struct gpio_led rsi_ews_leds[] = {
 	},
 };
 
+/*
+ * DataFlash
+ */
 static struct spi_board_info rsi_ews_spi_devices[] = {
-	{	
+	{	/* DataFlash chip 1*/
 		.modalias	= "mtd_dataflash",
 		.chip_select	= 0,
 		.max_speed_hz	= 5 * 1000 * 1000,
 	},
-	{	
+	{	/* DataFlash chip 2*/
 		.modalias	= "mtd_dataflash",
 		.chip_select	= 1,
 		.max_speed_hz	= 5 * 1000 * 1000,
 	},
 };
 
+/*
+ * NOR flash
+ */
 static struct mtd_partition rsiews_nor_partitions[] = {
 	{
 		.name		= "boot",
@@ -178,31 +199,34 @@ static struct platform_device rsiews_nor_flash = {
 	.num_resources	= ARRAY_SIZE(nor_flash_resources),
 };
 
+/*
+ * Init Func
+ */
 static void __init rsi_ews_board_init(void)
 {
-	
+	/* Serial */
 	at91_add_device_serial();
 	at91_set_gpio_output(AT91_PIN_PA21, 0);
-	
+	/* Ethernet */
 	at91_add_device_eth(&rsi_ews_eth_data);
-	
+	/* USB Host */
 	at91_add_device_usbh(&rsi_ews_usbh_data);
-	
+	/* I2C */
 	at91_add_device_i2c(rsi_ews_i2c_devices,
 			ARRAY_SIZE(rsi_ews_i2c_devices));
-	
+	/* SPI */
 	at91_add_device_spi(rsi_ews_spi_devices,
 			ARRAY_SIZE(rsi_ews_spi_devices));
-	
+	/* MMC */
 	at91_add_device_mmc(0, &rsi_ews_mmc_data);
-	
+	/* NOR Flash */
 	platform_device_register(&rsiews_nor_flash);
-	
+	/* LEDs */
 	at91_gpio_leds(rsi_ews_leds, ARRAY_SIZE(rsi_ews_leds));
 }
 
 MACHINE_START(RSI_EWS, "RSI EWS")
-	
+	/* Maintainer: Josef Holzmayr <holzmayr@rsi-elektrotechnik.de> */
 	.timer		= &at91rm9200_timer,
 	.map_io		= at91_map_io,
 	.init_early	= rsi_ews_init_early,

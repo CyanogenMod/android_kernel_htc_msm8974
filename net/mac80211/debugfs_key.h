@@ -30,4 +30,4 @@ static inline void ieee80211_debugfs_key_sta_del(struct ieee80211_key *key,
 {}
 #endif
 
-#endif 
+#endif /* __MAC80211_DEBUGFS_KEY_H */

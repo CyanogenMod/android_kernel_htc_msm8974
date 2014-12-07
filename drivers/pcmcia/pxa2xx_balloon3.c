@@ -59,10 +59,15 @@ static void balloon3_pcmcia_socket_state(struct soc_pcmcia_socket *skt,
 	uint16_t status;
 	int flip;
 
-	
+	/* This actually reads the STATUS register */
 	status = __raw_readw(BALLOON3_CF_STATUS_REG);
 	flip = (status ^ balloon3_pcmcia_status[skt->nr])
 		& BALLOON3_CF_nSTSCHG_BVD1;
+	/*
+	 * Workaround for STSCHG which can't be deasserted:
+	 * We therefore disable/enable corresponding IRQs
+	 * as needed to avoid IRQ locks.
+	 */
 	if (flip) {
 		balloon3_pcmcia_status[skt->nr] = status;
 		if (status & BALLOON3_CF_nSTSCHG_BVD1)
@@ -73,9 +78,9 @@ static void balloon3_pcmcia_socket_state(struct soc_pcmcia_socket *skt,
 
 	state->ready	= !!(status & BALLOON3_CF_nIRQ);
 	state->bvd1	= !!(status & BALLOON3_CF_nSTSCHG_BVD1);
-	state->bvd2	= 0;	
-	state->vs_3v	= 1;	
-	state->vs_Xv	= 0;	
+	state->bvd2	= 0;	/* not available */
+	state->vs_3v	= 1;	/* Always true its a CF card */
+	state->vs_Xv	= 0;	/* not available */
 }
 
 static int balloon3_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,

@@ -61,6 +61,9 @@ static void _raw_clk_disable(struct clk *clk)
 	}
 }
 
+/*
+ * ref_xtal_clk
+ */
 static unsigned long ref_xtal_clk_get_rate(struct clk *clk)
 {
 	return 24000000;
@@ -70,6 +73,9 @@ static struct clk ref_xtal_clk = {
 	.get_rate = ref_xtal_clk_get_rate,
 };
 
+/*
+ * pll_clk
+ */
 static unsigned long pll_clk_get_rate(struct clk *clk)
 {
 	return 480000000;
@@ -81,6 +87,10 @@ static int pll_clk_enable(struct clk *clk)
 			BM_CLKCTRL_PLLCTRL0_EN_USB_CLKS,
 			CLKCTRL_BASE_ADDR + HW_CLKCTRL_PLLCTRL0_SET);
 
+	/* Only a 10us delay is need. PLLCTRL1 LOCK bitfied is only a timer
+	 * and is incorrect (excessive). Per definition of the PLLCTRL0
+	 * POWER field, waiting at least 10us.
+	 */
 	udelay(10);
 
 	return 0;
@@ -100,6 +110,9 @@ static struct clk pll_clk = {
 	 .parent = &ref_xtal_clk,
 };
 
+/*
+ * ref_clk
+ */
 #define _CLK_GET_RATE_REF(name, sr, ss)					\
 static unsigned long name##_get_rate(struct clk *clk)			\
 {									\
@@ -134,9 +147,14 @@ _DEFINE_CLOCK_REF(ref_emi_clk, FRAC, EMI);
 _DEFINE_CLOCK_REF(ref_pix_clk, FRAC, PIX);
 _DEFINE_CLOCK_REF(ref_io_clk, FRAC, IO);
 
+/*
+ * General clocks
+ *
+ * clk_get_rate
+ */
 static unsigned long rtc_clk_get_rate(struct clk *clk)
 {
-	
+	/* ref_xtal_clk is implemented as the only parent */
 	return clk_get_rate(clk->parent) / 768;
 }
 
@@ -198,6 +216,9 @@ _CLK_GET_RATE_STUB(uart_clk)
 _CLK_GET_RATE_STUB(audio_clk)
 _CLK_GET_RATE_STUB(pwm_clk)
 
+/*
+ * clk_set_rate
+ */
 static int cpu_clk_set_rate(struct clk *clk, unsigned long rate)
 {
 	u32 reg, bm_busy, div_max, d, f, div, frac;
@@ -301,6 +322,9 @@ _CLK_SET_RATE_STUB(audio_clk)
 _CLK_SET_RATE_STUB(pwm_clk)
 _CLK_SET_RATE_STUB(clk32k_clk)
 
+/*
+ * clk_set_parent
+ */
 #define _CLK_SET_PARENT(name, bit)					\
 static int name##_set_parent(struct clk *clk, struct clk *parent)	\
 {									\
@@ -333,6 +357,9 @@ _CLK_SET_PARENT_STUB(audio_clk)
 _CLK_SET_PARENT_STUB(pwm_clk)
 _CLK_SET_PARENT_STUB(clk32k_clk)
 
+/*
+ * clk definition
+ */
 static struct clk cpu_clk = {
 	.get_rate = cpu_clk_get_rate,
 	.set_rate = cpu_clk_set_rate,
@@ -356,6 +383,7 @@ static struct clk rtc_clk = {
 	.parent = &ref_xtal_clk,
 };
 
+/* usb_clk gate is controlled in DIGCTRL other than CLKCTRL */
 static struct clk usb_clk = {
 	.enable_reg = DIGCTRL_BASE_ADDR,
 	.enable_shift = 2,
@@ -393,9 +421,9 @@ _DEFINE_CLOCK(clk32k_clk, XTAL, TIMROT_CLK32K_GATE, &ref_xtal_clk);
 	},
 
 static struct clk_lookup lookups[] = {
-	
+	/* for amba bus driver */
 	_REGISTER_CLOCK("duart", "apb_pclk", xbus_clk)
-	
+	/* for amba-pl011 driver */
 	_REGISTER_CLOCK("duart", NULL, uart_clk)
 	_REGISTER_CLOCK("mxs-auart.0", NULL, uart_clk)
 	_REGISTER_CLOCK("rtc", NULL, rtc_clk)
@@ -419,7 +447,7 @@ static int clk_misc_init(void)
 	u32 reg;
 	int ret;
 
-	
+	/* Fix up parent per register setting */
 	reg = __raw_readl(CLKCTRL_BASE_ADDR + HW_CLKCTRL_CLKSEQ);
 	cpu_clk.parent = (reg & BM_CLKCTRL_CLKSEQ_BYPASS_CPU) ?
 			&ref_xtal_clk : &ref_cpu_clk;
@@ -432,7 +460,7 @@ static int clk_misc_init(void)
 	lcdif_clk.parent = (reg & BM_CLKCTRL_CLKSEQ_BYPASS_PIX) ?
 			&ref_xtal_clk : &ref_pix_clk;
 
-	
+	/* Use int div over frac when both are available */
 	__raw_writel(BM_CLKCTRL_CPU_DIV_XTAL_FRAC_EN,
 			CLKCTRL_BASE_ADDR + HW_CLKCTRL_CPU_CLR);
 	__raw_writel(BM_CLKCTRL_CPU_DIV_CPU_FRAC_EN,
@@ -456,6 +484,11 @@ static int clk_misc_init(void)
 	reg &= ~BM_CLKCTRL_PIX_DIV_FRAC_EN;
 	__raw_writel(reg, CLKCTRL_BASE_ADDR + HW_CLKCTRL_PIX);
 
+	/*
+	 * Set safe hbus clock divider. A divider of 3 ensure that
+	 * the Vddd voltage required for the cpu clock is sufficiently
+	 * high for the hbus clock.
+	 */
 	reg = __raw_readl(CLKCTRL_BASE_ADDR + HW_CLKCTRL_HBUS);
 	reg &= BM_CLKCTRL_HBUS_DIV;
 	reg |= 3 << BP_CLKCTRL_HBUS_DIV;
@@ -463,10 +496,14 @@ static int clk_misc_init(void)
 
 	ret = mxs_clkctrl_timeout(HW_CLKCTRL_HBUS, BM_CLKCTRL_HBUS_BUSY);
 
-	
+	/* Gate off cpu clock in WFI for power saving */
 	__raw_writel(BM_CLKCTRL_CPU_INTERRUPT_WAIT,
 			CLKCTRL_BASE_ADDR + HW_CLKCTRL_CPU_SET);
 
+	/*
+	 * 480 MHz seems too high to be ssp clock source directly,
+	 * so set frac to get a 288 MHz ref_io.
+	 */
 	reg = __raw_readl(CLKCTRL_BASE_ADDR + HW_CLKCTRL_FRAC);
 	reg &= ~BM_CLKCTRL_FRAC_IOFRAC;
 	reg |= 30 << BP_CLKCTRL_FRAC_IOFRAC;
@@ -479,6 +516,10 @@ int __init mx23_clocks_init(void)
 {
 	clk_misc_init();
 
+	/*
+	 * source ssp clock from ref_io than ref_xtal,
+	 * as ref_xtal only provides 24 MHz as maximum.
+	 */
 	clk_set_parent(&ssp_clk, &ref_io_clk);
 
 	clk_prepare_enable(&cpu_clk);

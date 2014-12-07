@@ -78,10 +78,6 @@ static	uint16_t PRL9Konly_table[PRL_TABLE_SZ];
 
 static int radio_initialized; 
 
-static int xpst_count = 0;
-static int xpst_status = 0;
-static int xpst_status_pre = 0;
-
 static int diag2arm9query;
 #define XPST_SMD	0
 #define XPST_SDIO	1
@@ -807,22 +803,6 @@ static int check_modem_task_ready(int channel)
 	driver->debug_dmbytes_recv = DEBUG_DMBYTES_RECV;
 	ret = wait_event_interruptible_timeout(driver->wait_q, radio_initialized != 0, 4 * HZ);
 	DIAG_INFO("%s:modem status=%d %s\n", __func__, radio_initialized, (ret == 0)?"(timeout)":"");
-
-	
-	if (ret == 0) {
-		xpst_status = 1;
-		if (xpst_status == 1 && xpst_status_pre == 1)
-			xpst_count++;
-		xpst_status_pre = 1;
-	} else {
-		xpst_status = 0;
-		xpst_count = 0;
-		xpst_status_pre = 0;
-	}
-	xpst_status = 0;
-	if (xpst_count > 5)
-		BUG();
-	
 
 #if defined(CONFIG_DIAGFWD_BRIDGE_CODE)
 	diagfwd_write_complete_hsic(NULL);

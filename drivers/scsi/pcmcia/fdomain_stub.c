@@ -49,12 +49,15 @@
 #include <pcmcia/cistpl.h>
 #include <pcmcia/ds.h>
 
+/*====================================================================*/
 
+/* Module parameters */
 
 MODULE_AUTHOR("David Hinds <dahinds@users.sourceforge.net>");
 MODULE_DESCRIPTION("Future Domain PCMCIA SCSI driver");
 MODULE_LICENSE("Dual MPL/GPL");
 
+/*====================================================================*/
 
 typedef struct scsi_info_t {
 	struct pcmcia_device	*p_dev;
@@ -72,7 +75,7 @@ static int fdomain_probe(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "fdomain_attach()\n");
 
-	
+	/* Create new SCSI device */
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
@@ -83,8 +86,9 @@ static int fdomain_probe(struct pcmcia_device *link)
 	link->config_regs = PRESENT_OPTION;
 
 	return fdomain_config(link);
-} 
+} /* fdomain_attach */
 
+/*====================================================================*/
 
 static void fdomain_detach(struct pcmcia_device *link)
 {
@@ -93,8 +97,9 @@ static void fdomain_detach(struct pcmcia_device *link)
 	fdomain_release(link);
 
 	kfree(link->priv);
-} 
+} /* fdomain_detach */
 
+/*====================================================================*/
 
 static int fdomain_config_check(struct pcmcia_device *p_dev, void *priv_data)
 {
@@ -125,10 +130,10 @@ static int fdomain_config(struct pcmcia_device *link)
     if (ret)
 	    goto failed;
 
-    
+    /* A bad hack... */
     release_region(link->resource[0]->start, resource_size(link->resource[0]));
 
-    
+    /* Set configuration options for the fdomain driver */
     sprintf(str, "%d,%d", (unsigned int) link->resource[0]->start, link->irq);
     fdomain_setup(str);
 
@@ -149,8 +154,9 @@ static int fdomain_config(struct pcmcia_device *link)
 failed:
     fdomain_release(link);
     return -ENODEV;
-} 
+} /* fdomain_config */
 
+/*====================================================================*/
 
 static void fdomain_release(struct pcmcia_device *link)
 {
@@ -163,6 +169,7 @@ static void fdomain_release(struct pcmcia_device *link)
 	scsi_unregister(info->host);
 }
 
+/*====================================================================*/
 
 static int fdomain_resume(struct pcmcia_device *link)
 {

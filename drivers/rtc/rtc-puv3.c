@@ -33,6 +33,7 @@ static int puv3_rtc_tickno  = IRQ_RTC;
 
 static DEFINE_SPINLOCK(puv3_rtc_pie_lock);
 
+/* IRQ Handlers */
 static irqreturn_t puv3_rtc_alarmirq(int irq, void *id)
 {
 	struct rtc_device *rdev = id;
@@ -51,6 +52,7 @@ static irqreturn_t puv3_rtc_tickirq(int irq, void *id)
 	return IRQ_HANDLED;
 }
 
+/* Update control registers */
 static void puv3_rtc_setaie(int to)
 {
 	unsigned int tmp;
@@ -83,6 +85,7 @@ static int puv3_rtc_setpie(struct device *dev, int enabled)
 	return 0;
 }
 
+/* Time read/write */
 static int puv3_rtc_gettime(struct device *dev, struct rtc_time *rtc_tm)
 {
 	rtc_time_to_tm(readl(RTC_RCNR), rtc_tm);
@@ -188,7 +191,7 @@ static void puv3_rtc_release(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct rtc_device *rtc_dev = platform_get_drvdata(pdev);
 
-	
+	/* do not clear AIE here, it may be needed for wake */
 	puv3_rtc_setpie(dev, 0);
 	free_irq(puv3_rtc_alarmno, rtc_dev);
 	free_irq(puv3_rtc_tickno, rtc_dev);
@@ -209,7 +212,7 @@ static void puv3_rtc_enable(struct platform_device *pdev, int en)
 	if (!en) {
 		writel(readl(RTC_RTSR) & ~RTC_RTSR_HZE, RTC_RTSR);
 	} else {
-		
+		/* re-enable the device, and check it is ok */
 		if ((readl(RTC_RTSR) & RTC_RTSR_HZE) == 0) {
 			dev_info(&pdev->dev, "rtc disabled, re-enabling\n");
 			writel(readl(RTC_RTSR) | RTC_RTSR_HZE, RTC_RTSR);
@@ -241,7 +244,7 @@ static int __devinit puv3_rtc_probe(struct platform_device *pdev)
 
 	pr_debug("%s: probe=%p\n", __func__, pdev);
 
-	
+	/* find the IRQs */
 	puv3_rtc_tickno = platform_get_irq(pdev, 1);
 	if (puv3_rtc_tickno < 0) {
 		dev_err(&pdev->dev, "no irq for rtc tick\n");
@@ -257,7 +260,7 @@ static int __devinit puv3_rtc_probe(struct platform_device *pdev)
 	pr_debug("PKUnity_rtc: tick irq %d, alarm irq %d\n",
 		 puv3_rtc_tickno, puv3_rtc_alarmno);
 
-	
+	/* get the memory region */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (res == NULL) {
 		dev_err(&pdev->dev, "failed to get memory region resource\n");
@@ -275,7 +278,7 @@ static int __devinit puv3_rtc_probe(struct platform_device *pdev)
 
 	puv3_rtc_enable(pdev, 1);
 
-	
+	/* register RTC and exit */
 	rtc = rtc_device_register("pkunity", &pdev->dev, &puv3_rtcops,
 				  THIS_MODULE);
 
@@ -285,7 +288,7 @@ static int __devinit puv3_rtc_probe(struct platform_device *pdev)
 		goto err_nortc;
 	}
 
-	
+	/* platform setup code should have handled this; sigh */
 	if (!device_can_wakeup(&pdev->dev))
 		device_init_wakeup(&pdev->dev, 1);
 
@@ -306,7 +309,7 @@ static int ticnt_save;
 
 static int puv3_rtc_suspend(struct platform_device *pdev, pm_message_t state)
 {
-	
+	/* save RTAR for anyone using periodic interrupts */
 	ticnt_save = readl(RTC_RTAR);
 	puv3_rtc_enable(pdev, 0);
 	return 0;

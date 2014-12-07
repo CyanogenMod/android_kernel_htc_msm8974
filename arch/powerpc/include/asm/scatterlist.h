@@ -14,4 +14,4 @@
 
 #define ARCH_HAS_SG_CHAIN
 
-#endif 
+#endif /* _ASM_POWERPC_SCATTERLIST_H */

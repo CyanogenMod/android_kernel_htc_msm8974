@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -48,6 +48,7 @@ enum mbhc_impedance_detect_stages {
 	PA_DISABLE,
 };
 
+/* Data used by MBHC */
 struct mbhc_internal_cal_data {
 	u16 dce_z;
 	u16 dce_nsc_cs_z;
@@ -77,6 +78,12 @@ enum wcd9xxx_mbhc_plug_type {
 	PLUG_TYPE_HEADPHONE,
 	PLUG_TYPE_HIGH_HPH,
 	PLUG_TYPE_GND_MIC_SWAP,
+	PLUG_TYPE_ANC_HEADPHONE,
+};
+
+enum wcd9xxx_mbhc_micbias_type {
+	MBHC_PRIMARY_MIC_MB,
+	MBHC_ANC_MIC_MB,
 };
 
 enum wcd9xxx_micbias_num {
@@ -85,6 +92,12 @@ enum wcd9xxx_micbias_num {
 	MBHC_MICBIAS2,
 	MBHC_MICBIAS3,
 	MBHC_MICBIAS4,
+};
+
+enum hw_jack_type {
+	FOUR_POLE_JACK = 0,
+	FIVE_POLE_JACK,
+	SIX_POLE_JACK,
 };
 
 enum wcd9xx_mbhc_micbias_enable_bits {
@@ -96,6 +109,7 @@ enum wcd9xx_mbhc_cs_enable_bits {
 	MBHC_CS_ENABLE_POLLING,
 	MBHC_CS_ENABLE_INSERTION,
 	MBHC_CS_ENABLE_REMOVAL,
+	MBHC_CS_ENABLE_DET_ANC,
 };
 
 enum wcd9xxx_mbhc_state {
@@ -122,8 +136,8 @@ enum wcd9xxx_mbhc_clk_freq {
 enum wcd9xxx_mbhc_event_state {
 	MBHC_EVENT_PA_HPHL,
 	MBHC_EVENT_PA_HPHR,
-	MBHC_EVENT_PRE_TX_3_ON,
-	MBHC_EVENT_POST_TX_3_OFF,
+	MBHC_EVENT_PRE_TX_1_3_ON,
+	MBHC_EVENT_POST_TX_1_3_OFF,
 };
 
 struct wcd9xxx_mbhc_general_cfg {
@@ -183,8 +197,8 @@ struct wcd9xxx_mbhc_btn_detect_cfg {
 	s16 v_btn_press_delta_sta;
 	s16 v_btn_press_delta_cic;
 	u16 t_btn0_timeout;
-	s16 _v_btn_low[0]; 
-	s16 _v_btn_high[0]; 
+	s16 _v_btn_low[0]; /* v_btn_low[num_btn] */
+	s16 _v_btn_high[0]; /* v_btn_high[num_btn] */
 	u8 _n_ready[TAIKO_NUM_CLK_FREQS];
 	u8 _n_cic[TAIKO_NUM_CLK_FREQS];
 	u8 _gain[TAIKO_NUM_CLK_FREQS];
@@ -198,30 +212,42 @@ struct wcd9xxx_mbhc_imped_detect_cfg {
 	u16 _t_dac_ramp_time;
 	u16 _rhph_high;
 	u16 _rhph_low;
-	u16 _rload[0]; 
-	u16 _alpha[0]; 
+	u16 _rload[0]; /* rload[n_rload] */
+	u16 _alpha[0]; /* alpha[n_rload] */
 	u16 _beta[3];
 } __packed;
 
 struct wcd9xxx_mbhc_config {
 	bool read_fw_bin;
+	/*
+	 * void* calibration contains:
+	 *  struct wcd9xxx_mbhc_general_cfg generic;
+	 *  struct wcd9xxx_mbhc_plug_detect_cfg plug_det;
+	 *  struct wcd9xxx_mbhc_plug_type_cfg plug_type;
+	 *  struct wcd9xxx_mbhc_btn_detect_cfg btn_det;
+	 *  struct wcd9xxx_mbhc_imped_detect_cfg imped_det;
+	 * Note: various size depends on btn_det->num_btn
+	 */
 	void *calibration;
 	enum wcd9xxx_micbias_num micbias;
+	enum wcd9xxx_micbias_num anc_micbias;
 	int (*mclk_cb_fn) (struct snd_soc_codec*, int, bool);
 	unsigned int mclk_rate;
 	unsigned int gpio;
 	unsigned int gpio_irq;
 	int gpio_level_insert;
-	bool insert_detect; 
+	bool insert_detect; /* codec has own MBHC_INSERT_DETECT */
 	bool detect_extn_cable;
-	
+	/* bit mask of enum wcd9xx_mbhc_micbias_enable_bits */
 	unsigned long micbias_enable_flags;
-	
+	/* swap_gnd_mic returns true if extern GND/MIC swap switch toggled */
 	bool (*swap_gnd_mic) (struct snd_soc_codec *);
 	unsigned long cs_enable_flags;
 	bool use_int_rbias;
 	bool do_recalibration;
 	bool use_vddio_meas;
+	bool enable_anc_mic_detect;
+	enum hw_jack_type hw_jack_type;
 };
 
 struct wcd9xxx_cfilt_mode {
@@ -256,14 +282,14 @@ struct wcd9xxx_mbhc_cb {
 			   enum mbhc_impedance_detect_stages stage);
 	void (*compute_impedance) (s16 *, s16 *, uint32_t *, uint32_t *);
 	void (*enable_mbhc_txfe) (struct snd_soc_codec *, bool);
-	int (*enable_mb_source) (struct snd_soc_codec *, bool);
+	int (*enable_mb_source) (struct snd_soc_codec *, bool, bool);
 	void (*setup_int_rbias) (struct snd_soc_codec *, bool);
 	void (*pull_mb_to_vddio) (struct snd_soc_codec *, bool);
 };
 
 struct wcd9xxx_mbhc {
 	bool polling_active;
-	
+	/* Delayed work to report long button press */
 	struct delayed_work mbhc_btn_dwork;
 	int buttons_pressed;
 	enum wcd9xxx_mbhc_state mbhc_state;
@@ -273,13 +299,15 @@ struct wcd9xxx_mbhc {
 	struct mbhc_internal_cal_data mbhc_data;
 
 	struct mbhc_micbias_regs mbhc_bias_regs;
+	struct mbhc_micbias_regs mbhc_anc_bias_regs;
+
 	bool mbhc_micbias_switched;
 
-	u32 hph_status; 
-	u8 hphlocp_cnt; 
-	u8 hphrocp_cnt; 
+	u32 hph_status; /* track headhpone status */
+	u8 hphlocp_cnt; /* headphone left ocp retry */
+	u8 hphrocp_cnt; /* headphone right ocp retry */
 
-	
+	/* Work to perform MBHC Firmware Read */
 	struct delayed_work mbhc_firmware_dwork;
 	const struct firmware *mbhc_fw;
 
@@ -287,10 +315,15 @@ struct wcd9xxx_mbhc {
 
 	u8 current_plug;
 	struct work_struct correct_plug_swch;
+	/*
+	 * Work to perform polling on microphone voltage
+	 * in order to correct plug type once plug type
+	 * is detected as headphone
+	 */
 	struct work_struct correct_plug_noswch;
 	bool hs_detect_work_stop;
 
-	bool lpi_enabled; 
+	bool lpi_enabled; /* low power insertion detection */
 	bool in_swch_irq_handler;
 
 	struct wcd9xxx_resmgr *resmgr;
@@ -298,11 +331,15 @@ struct wcd9xxx_mbhc {
 
 	bool no_mic_headset_override;
 
-	
+	/* track PA/DAC state to sync with userspace */
 	unsigned long hph_pa_dac_state;
+	/*
+	 * save codec's state with resmgr event notification
+	 * bit flags of enum wcd9xxx_mbhc_event_state
+	 */
 	unsigned long event_state;
 
-	unsigned long mbhc_last_resume; 
+	unsigned long mbhc_last_resume; /* in jiffies */
 
 	bool insert_detect_level_insert;
 
@@ -312,16 +349,19 @@ struct wcd9xxx_mbhc {
 	struct notifier_block nblock;
 
 	bool micbias_enable;
-	int (*micbias_enable_cb) (struct snd_soc_codec*,  bool);
+	int (*micbias_enable_cb) (struct snd_soc_codec*,  bool,
+				  enum wcd9xxx_micbias_num);
 
 	bool impedance_detect;
-	
+	/* impedance of hphl and hphr */
 	uint32_t zl, zr;
 
 	u32 rco_clk_rate;
 
 	bool update_z;
-	
+
+	u8   scaling_mux_in;
+	/* Holds codec specific interrupt mapping */
 	const struct wcd9xxx_mbhc_intr *intr_ids;
 
 #ifdef CONFIG_DEBUG_FS
@@ -360,6 +400,9 @@ struct wcd9xxx_mbhc {
 	       sizeof(WCD9XXX_MBHC_CAL_BTN_DET_PTR(cali)->_v_btn_high[0])))) \
 	)
 
+/* minimum size of calibration data assuming there is only one button and
+ * one rload.
+ */
 #define WCD9XXX_MBHC_CAL_MIN_SIZE ( \
 	    sizeof(struct wcd9xxx_mbhc_general_cfg) + \
 	    sizeof(struct wcd9xxx_mbhc_plug_detect_cfg) + \
@@ -387,7 +430,8 @@ int wcd9xxx_mbhc_start(struct wcd9xxx_mbhc *mbhc,
 void wcd9xxx_mbhc_stop(struct wcd9xxx_mbhc *mbhc);
 int wcd9xxx_mbhc_init(struct wcd9xxx_mbhc *mbhc, struct wcd9xxx_resmgr *resmgr,
 		      struct snd_soc_codec *codec,
-		      int (*micbias_enable_cb) (struct snd_soc_codec*,  bool),
+		      int (*micbias_enable_cb) (struct snd_soc_codec*,  bool,
+						enum wcd9xxx_micbias_num),
 		      const struct wcd9xxx_mbhc_cb *mbhc_cb,
 		      const struct wcd9xxx_mbhc_intr *mbhc_cdc_intr_ids,
 		      int rco_clk_rate,
@@ -398,4 +442,4 @@ void *wcd9xxx_mbhc_cal_btn_det_mp(
 			    const enum wcd9xxx_mbhc_btn_det_mem mem);
 int wcd9xxx_mbhc_get_impedance(struct wcd9xxx_mbhc *mbhc, uint32_t *zl,
 			       uint32_t *zr);
-#endif 
+#endif /* __WCD9XXX_MBHC_H__ */

@@ -35,8 +35,31 @@
 
 #define LSI_DBGLVL			dbglevel
 
+// The smallest dma pool
 #define MRAID_MM_INIT_BUFF_SIZE		4096
 
+/**
+ * mimd_t	: Old style ioctl packet structure (deprecated)
+ *
+ * @inlen	:
+ * @outlen	:
+ * @fca		:
+ * @opcode	:
+ * @subopcode	:
+ * @adapno	:
+ * @buffer	:
+ * @pad		:
+ * @length	:
+ * @mbox	:
+ * @pthru	:
+ * @data	:
+ * @pad		:
+ *
+ * Note		: This structure is DEPRECATED. New applications must use
+ *		: uioc_t structure instead. All new hba drivers use the new
+ *		: format. If we get this mimd packet, we will convert it into
+ *		: new uioc_t format and send it to the hba drivers.
+ */
 
 typedef struct mimd {
 
@@ -60,11 +83,11 @@ typedef struct mimd {
 		} __attribute__ ((packed)) fcs;
 	} __attribute__ ((packed)) ui;
 
-	uint8_t mbox[18];		
+	uint8_t mbox[18];		/* 16 bytes + 2 status bytes */
 	mraid_passthru_t pthru;
 
 #if BITS_PER_LONG == 32
-	char __user *data;		
+	char __user *data;		/* buffer <= 4096 for 0x80 commands */
 	char pad[4];
 #endif
 #if BITS_PER_LONG == 64
@@ -73,5 +96,6 @@ typedef struct mimd {
 
 } __attribute__ ((packed))mimd_t;
 
-#endif 
+#endif // MEGARAID_MM_H
 
+// vi: set ts=8 sw=8 tw=78:

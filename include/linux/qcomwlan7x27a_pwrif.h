@@ -17,4 +17,4 @@
 
 int chip_power_qrf6285(bool on);
 
-#endif 
+#endif /* __QCOM_WLAN_PWRIF_H__ */

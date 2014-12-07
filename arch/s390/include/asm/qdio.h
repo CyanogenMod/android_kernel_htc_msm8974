@@ -13,6 +13,7 @@
 #include <asm/cio.h>
 #include <asm/ccwdev.h>
 
+/* only use 4 queues to save some cachelines */
 #define QDIO_MAX_QUEUES_PER_IRQ		4
 #define QDIO_MAX_BUFFERS_PER_Q		128
 #define QDIO_MAX_BUFFERS_MASK		(QDIO_MAX_BUFFERS_PER_Q - 1)
@@ -23,6 +24,16 @@
 #define QDIO_ZFCP_QFMT			1
 #define QDIO_IQDIO_QFMT			2
 
+/**
+ * struct qdesfmt0 - queue descriptor, format 0
+ * @sliba: storage list information block address
+ * @sla: storage list address
+ * @slsba: storage list state block address
+ * @akey: access key for DLIB
+ * @bkey: access key for SL
+ * @ckey: access key for SBALs
+ * @dkey: access key for SLSB
+ */
 struct qdesfmt0 {
 	u64 sliba;
 	u64 sla;
@@ -37,6 +48,19 @@ struct qdesfmt0 {
 
 #define QDR_AC_MULTI_BUFFER_ENABLE 0x01
 
+/**
+ * struct qdr - queue description record (QDR)
+ * @qfmt: queue format
+ * @pfmt: implementation dependent parameter format
+ * @ac: adapter characteristics
+ * @iqdcnt: input queue descriptor count
+ * @oqdcnt: output queue descriptor count
+ * @iqdsz: inpout queue descriptor size
+ * @oqdsz: output queue descriptor size
+ * @qiba: queue information block address
+ * @qkey: queue information block key
+ * @qdf0: queue descriptions
+ */
 struct qdr {
 	u32 qfmt   : 8;
 	u32 pfmt   : 8;
@@ -50,9 +74,9 @@ struct qdr {
 	u32 iqdsz  : 8;
 	u32	   : 8;
 	u32 oqdsz  : 8;
-	
+	/* private: */
 	u32 res[9];
-	
+	/* public: */
 	u64 qiba;
 	u32	   : 32;
 	u32 qkey   : 4;
@@ -64,6 +88,17 @@ struct qdr {
 #define QIB_RFLAGS_ENABLE_QEBSM		0x80
 #define QIB_RFLAGS_ENABLE_DATA_DIV	0x02
 
+/**
+ * struct qib - queue information block (QIB)
+ * @qfmt: queue format
+ * @pfmt: implementation dependent parameter format
+ * @rflags: QEBSM
+ * @ac: adapter characteristics
+ * @isliba: absolute address of first input SLIB
+ * @osliba: absolute address of first output SLIB
+ * @ebcnam: adapter identifier in EBCDIC
+ * @parm: implementation dependent parameters
+ */
 struct qib {
 	u32 qfmt   : 8;
 	u32 pfmt   : 8;
@@ -75,16 +110,37 @@ struct qib {
 	u32	   : 32;
 	u32	   : 32;
 	u8 ebcnam[8];
-	
+	/* private: */
 	u8 res[88];
-	
+	/* public: */
 	u8 parm[QDIO_MAX_BUFFERS_PER_Q];
 } __attribute__ ((packed, aligned(256)));
 
+/**
+ * struct slibe - storage list information block element (SLIBE)
+ * @parms: implementation dependent parameters
+ */
 struct slibe {
 	u64 parms;
 };
 
+/**
+ * struct qaob - queue asynchronous operation block
+ * @res0: reserved parameters
+ * @res1: reserved parameter
+ * @res2: reserved parameter
+ * @res3: reserved parameter
+ * @aorc: asynchronous operation return code
+ * @flags: internal flags
+ * @cbtbs: control block type
+ * @sb_count: number of storage blocks
+ * @sba: storage block element addresses
+ * @dcount: size of storage block elements
+ * @user0: user defineable value
+ * @res4: reserved paramater
+ * @user1: user defineable value
+ * @user2: user defineable value
+ */
 struct qaob {
 	u64 res0[6];
 	u8 res1;
@@ -102,13 +158,20 @@ struct qaob {
 	u64 user2;
 } __attribute__ ((packed, aligned(256)));
 
+/**
+ * struct slib - storage list information block (SLIB)
+ * @nsliba: next SLIB address (if any)
+ * @sla: SL address
+ * @slsba: SLSB address
+ * @slibe: SLIB elements
+ */
 struct slib {
 	u64 nsliba;
 	u64 sla;
 	u64 slsba;
-	
+	/* private: */
 	u8 res[1000];
-	
+	/* public: */
 	struct slibe slibe[QDIO_MAX_BUFFERS_PER_Q];
 } __attribute__ ((packed, aligned(2048)));
 
@@ -122,6 +185,7 @@ struct slib {
 #define SBAL_SFLAGS0_PCI_REQ		0x40
 #define SBAL_SFLAGS0_DATA_CONTINUATION	0x20
 
+/* Awesome OpenFCP extensions */
 #define SBAL_SFLAGS0_TYPE_STATUS	0x00
 #define SBAL_SFLAGS0_TYPE_WRITE		0x08
 #define SBAL_SFLAGS0_TYPE_READ		0x10
@@ -133,39 +197,63 @@ struct slib {
 #define SBAL_SFLAGS0_MIDDLE_SBAL	SBAL_SFLAGS0_MORE_SBALS
 #define SBAL_SFLAGS0_FIRST_SBAL (SBAL_SFLAGS0_MORE_SBALS | SBAL_SFLAGS0_COMMAND)
 
+/**
+ * struct qdio_buffer_element - SBAL entry
+ * @eflags: SBAL entry flags
+ * @scount: SBAL count
+ * @sflags: whole SBAL flags
+ * @length: length
+ * @addr: address
+*/
 struct qdio_buffer_element {
 	u8 eflags;
-	
+	/* private: */
 	u8 res1;
-	
+	/* public: */
 	u8 scount;
 	u8 sflags;
 	u32 length;
 #ifdef CONFIG_32BIT
-	
+	/* private: */
 	void *res2;
-	
+	/* public: */
 #endif
 	void *addr;
 } __attribute__ ((packed, aligned(16)));
 
+/**
+ * struct qdio_buffer - storage block address list (SBAL)
+ * @element: SBAL entries
+ */
 struct qdio_buffer {
 	struct qdio_buffer_element element[QDIO_MAX_ELEMENTS_PER_BUFFER];
 } __attribute__ ((packed, aligned(256)));
 
+/**
+ * struct sl_element - storage list entry
+ * @sbal: absolute SBAL address
+ */
 struct sl_element {
 #ifdef CONFIG_32BIT
-	
+	/* private: */
 	unsigned long reserved;
-	
+	/* public: */
 #endif
 	unsigned long sbal;
 } __attribute__ ((packed));
 
+/**
+ * struct sl - storage list (SL)
+ * @element: SL entries
+ */
 struct sl {
 	struct sl_element element[QDIO_MAX_BUFFERS_PER_Q];
 } __attribute__ ((packed, aligned(1024)));
 
+/**
+ * struct slsb - storage list state block (SLSB)
+ * @val: state per buffer
+ */
 struct slsb {
 	u8 val[QDIO_MAX_BUFFERS_PER_Q];
 } __attribute__ ((packed, aligned(256)));
@@ -175,6 +263,15 @@ struct slsb {
 #define CHSC_AC2_DATA_DIV_AVAILABLE	0x0010
 #define CHSC_AC2_DATA_DIV_ENABLED	0x0002
 
+/**
+ * struct qdio_outbuf_state - SBAL related asynchronous operation information
+ *   (for communication with upper layer programs)
+ *   (only required for use with completion queues)
+ * @flags: flags indicating state of buffer
+ * @aob: pointer to QAOB used for the particular SBAL
+ * @user: pointer to upper layer program's state information related to SBAL
+ *        (stored in user1 data of QAOB)
+ */
 struct qdio_outbuf_state {
 	u8 flags;
 	struct qaob *aob;
@@ -187,13 +284,14 @@ struct qdio_outbuf_state {
 #define CHSC_AC1_INITIATE_INPUTQ	0x80
 
 
-#define AC1_SIGA_INPUT_NEEDED		0x40	
-#define AC1_SIGA_OUTPUT_NEEDED		0x20	
-#define AC1_SIGA_SYNC_NEEDED		0x10	
-#define AC1_AUTOMATIC_SYNC_ON_THININT	0x08	
-#define AC1_AUTOMATIC_SYNC_ON_OUT_PCI	0x04	
-#define AC1_SC_QEBSM_AVAILABLE		0x02	
-#define AC1_SC_QEBSM_ENABLED		0x01	
+/* qdio adapter-characteristics-1 flag */
+#define AC1_SIGA_INPUT_NEEDED		0x40	/* process input queues */
+#define AC1_SIGA_OUTPUT_NEEDED		0x20	/* process output queues */
+#define AC1_SIGA_SYNC_NEEDED		0x10	/* ask hypervisor to sync */
+#define AC1_AUTOMATIC_SYNC_ON_THININT	0x08	/* set by hypervisor */
+#define AC1_AUTOMATIC_SYNC_ON_OUT_PCI	0x04	/* set by hypervisor */
+#define AC1_SC_QEBSM_AVAILABLE		0x02	/* available for subchannel */
+#define AC1_SC_QEBSM_ENABLED		0x01	/* enabled for subchannel */
 
 #define CHSC_AC2_DATA_DIV_AVAILABLE	0x0010
 #define CHSC_AC2_DATA_DIV_ENABLED	0x0002
@@ -224,18 +322,42 @@ struct qdio_ssqd_desc {
 	u8 mmwc;
 } __attribute__ ((packed));
 
+/* params are: ccw_device, qdio_error, queue_number,
+   first element processed, number of elements processed, int_parm */
 typedef void qdio_handler_t(struct ccw_device *, unsigned int, int,
 			    int, int, unsigned long);
 
+/* qdio errors reported to the upper-layer program */
 #define QDIO_ERROR_SIGA_TARGET			0x02
 #define QDIO_ERROR_SIGA_ACCESS_EXCEPTION	0x10
 #define QDIO_ERROR_SIGA_BUSY			0x20
 #define QDIO_ERROR_ACTIVATE_CHECK_CONDITION	0x40
 #define QDIO_ERROR_SLSB_STATE			0x80
 
+/* for qdio_cleanup */
 #define QDIO_FLAG_CLEANUP_USING_CLEAR		0x01
 #define QDIO_FLAG_CLEANUP_USING_HALT		0x02
 
+/**
+ * struct qdio_initialize - qdio initalization data
+ * @cdev: associated ccw device
+ * @q_format: queue format
+ * @adapter_name: name for the adapter
+ * @qib_param_field_format: format for qib_parm_field
+ * @qib_param_field: pointer to 128 bytes or NULL, if no param field
+ * @qib_rflags: rflags to set
+ * @input_slib_elements: pointer to no_input_qs * 128 words of data or NULL
+ * @output_slib_elements: pointer to no_output_qs * 128 words of data or NULL
+ * @no_input_qs: number of input queues
+ * @no_output_qs: number of output queues
+ * @input_handler: handler to be called for input queues
+ * @output_handler: handler to be called for output queues
+ * @queue_start_poll_array: polling handlers (one per input queue or NULL)
+ * @int_parm: interruption parameter
+ * @input_sbal_addr_array:  address of no_input_qs * 128 pointers
+ * @output_sbal_addr_array: address of no_output_qs * 128 pointers
+ * @output_sbal_state_array: no_output_qs * 128 state info (for CQ or NULL)
+ */
 struct qdio_initialize {
 	struct ccw_device *cdev;
 	unsigned char q_format;
@@ -259,10 +381,10 @@ struct qdio_initialize {
 	struct qdio_outbuf_state *output_sbal_state_array;
 };
 
-#define QDIO_STATE_INACTIVE		0x00000002 
-#define QDIO_STATE_ESTABLISHED		0x00000004 
-#define QDIO_STATE_ACTIVE		0x00000008 
-#define QDIO_STATE_STOPPED		0x00000010 
+#define QDIO_STATE_INACTIVE		0x00000002 /* after qdio_cleanup */
+#define QDIO_STATE_ESTABLISHED		0x00000004 /* after qdio_establish */
+#define QDIO_STATE_ACTIVE		0x00000008 /* after qdio_activate */
+#define QDIO_STATE_STOPPED		0x00000010 /* after queues went down */
 
 #define QDIO_FLAG_SYNC_INPUT		0x01
 #define QDIO_FLAG_SYNC_OUTPUT		0x02
@@ -281,4 +403,4 @@ extern int qdio_shutdown(struct ccw_device *, int);
 extern int qdio_free(struct ccw_device *);
 extern int qdio_get_ssqd_desc(struct ccw_device *, struct qdio_ssqd_desc *);
 
-#endif 
+#endif /* __QDIO_H__ */

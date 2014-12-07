@@ -12,6 +12,9 @@
 #include <linux/types.h>
 #include <linux/module.h>
 
+/*
+ * Helper functions to find the end of a string
+ */
 static inline char *__strend(const char *s)
 {
 	register unsigned long r0 asm("0") = 0;
@@ -33,6 +36,12 @@ static inline char *__strnend(const char *s, size_t n)
 	return (char *) p;
 }
 
+/**
+ * strlen - Find the length of a string
+ * @s: The string to be sized
+ *
+ * returns the length of @s
+ */
 size_t strlen(const char *s)
 {
 #if __GNUC__ < 4
@@ -43,12 +52,26 @@ size_t strlen(const char *s)
 }
 EXPORT_SYMBOL(strlen);
 
+/**
+ * strnlen - Find the length of a length-limited string
+ * @s: The string to be sized
+ * @n: The maximum number of bytes to search
+ *
+ * returns the minimum of the length of @s and @n
+ */
 size_t strnlen(const char * s, size_t n)
 {
 	return __strnend(s, n) - s;
 }
 EXPORT_SYMBOL(strnlen);
 
+/**
+ * strcpy - Copy a %NUL terminated string
+ * @dest: Where to copy the string to
+ * @src: Where to copy the string from
+ *
+ * returns a pointer to @dest
+ */
 char *strcpy(char *dest, const char *src)
 {
 #if __GNUC__ < 4
@@ -66,6 +89,17 @@ char *strcpy(char *dest, const char *src)
 }
 EXPORT_SYMBOL(strcpy);
 
+/**
+ * strlcpy - Copy a %NUL terminated string into a sized buffer
+ * @dest: Where to copy the string to
+ * @src: Where to copy the string from
+ * @size: size of destination buffer
+ *
+ * Compatible with *BSD: the result is always a valid
+ * NUL-terminated string that fits in the buffer (unless,
+ * of course, the buffer size is zero). It does not pad
+ * out the result like strncpy() does.
+ */
 size_t strlcpy(char *dest, const char *src, size_t size)
 {
 	size_t ret = __strend(src) - src;
@@ -79,6 +113,15 @@ size_t strlcpy(char *dest, const char *src, size_t size)
 }
 EXPORT_SYMBOL(strlcpy);
 
+/**
+ * strncpy - Copy a length-limited, %NUL-terminated string
+ * @dest: Where to copy the string to
+ * @src: Where to copy the string from
+ * @n: The maximum number of bytes to copy
+ *
+ * The result is not %NUL-terminated if the source exceeds
+ * @n bytes.
+ */
 char *strncpy(char *dest, const char *src, size_t n)
 {
 	size_t len = __strnend(src, n) - src;
@@ -88,6 +131,13 @@ char *strncpy(char *dest, const char *src, size_t n)
 }
 EXPORT_SYMBOL(strncpy);
 
+/**
+ * strcat - Append one %NUL-terminated string to another
+ * @dest: The string to be appended to
+ * @src: The string to append to it
+ *
+ * returns a pointer to @dest
+ */
 char *strcat(char *dest, const char *src)
 {
 	register int r0 asm("0") = 0;
@@ -104,6 +154,12 @@ char *strcat(char *dest, const char *src)
 }
 EXPORT_SYMBOL(strcat);
 
+/**
+ * strlcat - Append a length-limited, %NUL-terminated string to another
+ * @dest: The string to be appended to
+ * @src: The string to append to it
+ * @n: The size of the destination buffer.
+ */
 size_t strlcat(char *dest, const char *src, size_t n)
 {
 	size_t dsize = __strend(dest) - dest;
@@ -122,6 +178,17 @@ size_t strlcat(char *dest, const char *src, size_t n)
 }
 EXPORT_SYMBOL(strlcat);
 
+/**
+ * strncat - Append a length-limited, %NUL-terminated string to another
+ * @dest: The string to be appended to
+ * @src: The string to append to it
+ * @n: The maximum numbers of bytes to copy
+ *
+ * returns a pointer to @dest
+ *
+ * Note that in contrast to strncpy, strncat ensures the result is
+ * terminated.
+ */
 char *strncat(char *dest, const char *src, size_t n)
 {
 	size_t len = __strnend(src, n) - src;
@@ -133,6 +200,15 @@ char *strncat(char *dest, const char *src, size_t n)
 }
 EXPORT_SYMBOL(strncat);
 
+/**
+ * strcmp - Compare two strings
+ * @cs: One string
+ * @ct: Another string
+ *
+ * returns   0 if @cs and @ct are equal,
+ *         < 0 if @cs is less than @ct
+ *         > 0 if @cs is greater than @ct
+ */
 int strcmp(const char *cs, const char *ct)
 {
 	register int r0 asm("0") = 0;
@@ -151,6 +227,11 @@ int strcmp(const char *cs, const char *ct)
 }
 EXPORT_SYMBOL(strcmp);
 
+/**
+ * strrchr - Find the last occurrence of a character in a string
+ * @s: The string to be searched
+ * @c: The character to search for
+ */
 char * strrchr(const char * s, int c)
 {
        size_t len = __strend(s) - s;
@@ -164,6 +245,11 @@ char * strrchr(const char * s, int c)
 }
 EXPORT_SYMBOL(strrchr);
 
+/**
+ * strstr - Find the first substring in a %NUL terminated string
+ * @s1: The string to be searched
+ * @s2: The string to search for
+ */
 char * strstr(const char * s1,const char * s2)
 {
 	int l1, l2;
@@ -193,6 +279,15 @@ char * strstr(const char * s1,const char * s2)
 }
 EXPORT_SYMBOL(strstr);
 
+/**
+ * memchr - Find a character in an area of memory.
+ * @s: The memory area
+ * @c: The byte to search for
+ * @n: The size of the area.
+ *
+ * returns the address of the first occurrence of @c, or %NULL
+ * if @c is not found
+ */
 void *memchr(const void *s, int c, size_t n)
 {
 	register int r0 asm("0") = (char) c;
@@ -208,6 +303,12 @@ void *memchr(const void *s, int c, size_t n)
 }
 EXPORT_SYMBOL(memchr);
 
+/**
+ * memcmp - Compare two areas of memory
+ * @cs: One area of memory
+ * @ct: Another area of memory
+ * @count: The size of the area.
+ */
 int memcmp(const void *cs, const void *ct, size_t n)
 {
 	register unsigned long r2 asm("2") = (unsigned long) cs;
@@ -228,6 +329,15 @@ int memcmp(const void *cs, const void *ct, size_t n)
 }
 EXPORT_SYMBOL(memcmp);
 
+/**
+ * memscan - Find a character in an area of memory.
+ * @s: The memory area
+ * @c: The byte to search for
+ * @n: The size of the area.
+ *
+ * returns the address of the first occurrence of @c, or 1 byte past
+ * the area if @c is not found
+ */
 void *memscan(void *s, int c, size_t n)
 {
 	register int r0 asm("0") = (char) c;
@@ -240,12 +350,28 @@ void *memscan(void *s, int c, size_t n)
 }
 EXPORT_SYMBOL(memscan);
 
+/**
+ * memcpy - Copy one area of memory to another
+ * @dest: Where to copy to
+ * @src: Where to copy from
+ * @n: The size of the area.
+ *
+ * returns a pointer to @dest
+ */
 void *memcpy(void *dest, const void *src, size_t n)
 {
 	return __builtin_memcpy(dest, src, n);
 }
 EXPORT_SYMBOL(memcpy);
 
+/**
+ * memset - Fill a region of memory with the given value
+ * @s: Pointer to the start of the area.
+ * @c: The byte to fill the area with
+ * @n: The size of the area.
+ *
+ * returns a pointer to @s
+ */
 void *memset(void *s, int c, size_t n)
 {
 	char *xs;

@@ -34,6 +34,10 @@ void qdio_release_aob(struct qaob *aob)
 }
 EXPORT_SYMBOL_GPL(qdio_release_aob);
 
+/*
+ * qebsm is only available under 64bit but the adapter sets the feature
+ * flag anyway, so we manually override it.
+ */
 static inline int qebsm_possible(void)
 {
 #ifdef CONFIG_64BIT
@@ -42,6 +46,10 @@ static inline int qebsm_possible(void)
 	return 0;
 }
 
+/*
+ * qib_param_field: pointer to 128 bytes or NULL, if no param field
+ * nr_input_qs: pointer to nr_queues*128 words of data or NULL
+ */
 static void set_impl_params(struct qdio_irq *irq_ptr,
 			    unsigned int qib_param_field_format,
 			    unsigned char *qib_param_field,
@@ -114,7 +122,7 @@ static void setup_queues_misc(struct qdio_q *q, struct qdio_irq *irq_ptr,
 {
 	struct slib *slib = q->slib;
 
-	
+	/* queue must be cleared for qdio_establish */
 	memset(q, 0, sizeof(*q));
 	memset(slib, 0, PAGE_SIZE);
 	q->slib = slib;
@@ -133,13 +141,13 @@ static void setup_storage_lists(struct qdio_q *q, struct qdio_irq *irq_ptr,
 	DBF_HEX(&q, sizeof(void *));
 	q->sl = (struct sl *)((char *)q->slib + PAGE_SIZE / 2);
 
-	
+	/* fill in sbal */
 	for (j = 0; j < QDIO_MAX_BUFFERS_PER_Q; j++) {
 		q->sbal[j] = *sbals_array++;
 		BUG_ON((unsigned long)q->sbal[j] & 0xff);
 	}
 
-	
+	/* fill in slib */
 	if (i > 0) {
 		prev = (q->is_input_q) ? irq_ptr->input_qs[i - 1]
 			: irq_ptr->output_qs[i - 1];
@@ -149,7 +157,7 @@ static void setup_storage_lists(struct qdio_q *q, struct qdio_irq *irq_ptr,
 	q->slib->sla = (unsigned long)q->sl;
 	q->slib->slsba = (unsigned long)&q->slsb.val[0];
 
-	
+	/* fill in sl */
 	for (j = 0; j < QDIO_MAX_BUFFERS_PER_Q; j++)
 		q->sl->element[j].sbal = (unsigned long)q->sbal[j];
 }
@@ -238,6 +246,10 @@ no_qebsm:
 	DBF_EVENT("noV=V");
 }
 
+/*
+ * If there is a qdio_irq we use the chsc_page and store the information
+ * in the qdio_irq, otherwise we copy it to the specified structure.
+ */
 int qdio_setup_get_ssqd(struct qdio_irq *irq_ptr,
 			struct subchannel_id *schid,
 			struct qdio_ssqd_desc *data)
@@ -291,7 +303,7 @@ void qdio_setup_ssqd_info(struct qdio_irq *irq_ptr)
 	if (rc) {
 		DBF_ERROR("%4x ssqd ERR", irq_ptr->schid.sch_no);
 		DBF_ERROR("rc:%x", rc);
-		
+		/* all flags set, worst case */
 		qdioac = AC1_SIGA_INPUT_NEEDED | AC1_SIGA_OUTPUT_NEEDED |
 			 AC1_SIGA_SYNC_NEEDED;
 	} else
@@ -308,6 +320,10 @@ void qdio_release_memory(struct qdio_irq *irq_ptr)
 	struct qdio_q *q;
 	int i;
 
+	/*
+	 * Must check queue array manually since irq_ptr->nr_input_queues /
+	 * irq_ptr->nr_input_queues may not yet be set.
+	 */
 	for (i = 0; i < QDIO_MAX_QUEUES_PER_IRQ; i++) {
 		q = irq_ptr->input_qs[i];
 		if (q) {
@@ -368,7 +384,7 @@ static void setup_qdr(struct qdio_irq *irq_ptr,
 	irq_ptr->qdr->ac = qdio_init->qdr_ac;
 	irq_ptr->qdr->iqdcnt = qdio_init->no_input_qs;
 	irq_ptr->qdr->oqdcnt = qdio_init->no_output_qs;
-	irq_ptr->qdr->iqdsz = sizeof(struct qdesfmt0) / 4; 
+	irq_ptr->qdr->iqdsz = sizeof(struct qdesfmt0) / 4; /* size in words */
 	irq_ptr->qdr->oqdsz = sizeof(struct qdesfmt0) / 4;
 	irq_ptr->qdr->qiba = (unsigned long)&irq_ptr->qib;
 	irq_ptr->qdr->qkey = PAGE_DEFAULT_KEY >> 4;
@@ -414,7 +430,7 @@ int qdio_setup_irq(struct qdio_initialize *init_data)
 	irq_ptr->debugfs_dev = irq_ptr->debugfs_perf = NULL;
 	irq_ptr->sch_token = irq_ptr->state = irq_ptr->perf_stat_enabled = 0;
 
-	
+	/* wipes qib.ac, required by ar7063 */
 	memset(irq_ptr->qdr, 0, sizeof(struct qdr));
 
 	irq_ptr->int_parm = init_data->int_parm;
@@ -432,12 +448,12 @@ int qdio_setup_irq(struct qdio_initialize *init_data)
 			init_data->input_slib_elements,
 			init_data->output_slib_elements);
 
-	
+	/* fill input and output descriptors */
 	setup_qdr(irq_ptr, init_data);
 
-	
+	/* qdr, qib, sls, slsbs, slibs, sbales are filled now */
 
-	
+	/* get qdio commands */
 	ciw = ccw_device_get_ciw(init_data->cdev, CIW_TYPE_EQUEUE);
 	if (!ciw) {
 		DBF_ERROR("%4x NO EQ", irq_ptr->schid.sch_no);
@@ -454,7 +470,7 @@ int qdio_setup_irq(struct qdio_initialize *init_data)
 	}
 	irq_ptr->aqueue = *ciw;
 
-	
+	/* set new interrupt handler */
 	irq_ptr->orig_handler = init_data->cdev->handler;
 	init_data->cdev->handler = qdio_int_handler;
 	return 0;
@@ -524,11 +540,11 @@ int __init qdio_setup_init(void)
 		goto free_qdio_q_cache;
 	}
 
-	
+	/* Check for OSA/FCP thin interrupts (bit 67). */
 	DBF_EVENT("thinint:%1d",
 		  (css_general_characteristics.aif_osa) ? 1 : 0);
 
-	
+	/* Check for QEBSM support in general (bit 58). */
 	DBF_EVENT("cssQEBSM:%1d", (qebsm_possible()) ? 1 : 0);
 	rc = 0;
 out:

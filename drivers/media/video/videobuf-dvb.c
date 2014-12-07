@@ -26,6 +26,7 @@
 #include <media/videobuf-core.h>
 #include <media/videobuf-dvb.h>
 
+/* ------------------------------------------------------------------ */
 
 MODULE_AUTHOR("Gerd Knorr <kraxel@bytesex.org> [SuSE Labs]");
 MODULE_LICENSE("GPL");
@@ -37,6 +38,7 @@ MODULE_PARM_DESC(debug,"enable debug messages");
 #define dprintk(fmt, arg...)	if (debug)			\
 	printk(KERN_DEBUG "%s/dvb: " fmt, dvb->name , ## arg)
 
+/* ------------------------------------------------------------------ */
 
 static int videobuf_dvb_thread(void *data)
 {
@@ -51,27 +53,27 @@ static int videobuf_dvb_thread(void *data)
 	videobuf_read_start(&dvb->dvbq);
 
 	for (;;) {
-		
+		/* fetch next buffer */
 		buf = list_entry(dvb->dvbq.stream.next,
 				 struct videobuf_buffer, stream);
 		list_del(&buf->stream);
 		err = videobuf_waiton(&dvb->dvbq, buf, 0, 1);
 
-		
+		/* no more feeds left or stop_feed() asked us to quit */
 		if (0 == dvb->nfeeds)
 			break;
 		if (kthread_should_stop())
 			break;
 		try_to_freeze();
 
-		
+		/* feed buffer data to demux */
 		outp = videobuf_queue_to_vaddr(&dvb->dvbq, buf);
 
 		if (buf->state == VIDEOBUF_DONE)
 			dvb_dmx_swfilter(&dvb->demux, outp,
 					 buf->size);
 
-		
+		/* requeue buffer */
 		list_add_tail(&buf->stream,&dvb->dvbq.stream);
 		spin_lock_irqsave(dvb->dvbq.irqlock,flags);
 		dvb->dvbq.ops->buf_queue(&dvb->dvbq,buf);
@@ -81,7 +83,7 @@ static int videobuf_dvb_thread(void *data)
 	videobuf_read_stop(&dvb->dvbq);
 	dprintk("dvb thread stopped\n");
 
-	
+	/* Hmm, linux becomes *very* unhappy without this ... */
 	while (!kthread_should_stop()) {
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
@@ -146,7 +148,7 @@ static int videobuf_dvb_register_adapter(struct videobuf_dvb_frontends *fe,
 
 	mutex_init(&fe->lock);
 
-	
+	/* register adapter */
 	result = dvb_register_adapter(&fe->adapter, adapter_name, module,
 		device, adapter_nr);
 	if (result < 0) {
@@ -165,7 +167,7 @@ static int videobuf_dvb_register_frontend(struct dvb_adapter *adapter,
 {
 	int result;
 
-	
+	/* register frontend */
 	result = dvb_register_frontend(adapter, dvb->frontend);
 	if (result < 0) {
 		printk(KERN_WARNING "%s: dvb_register_frontend failed (errno = %d)\n",
@@ -173,7 +175,7 @@ static int videobuf_dvb_register_frontend(struct dvb_adapter *adapter,
 		goto fail_frontend;
 	}
 
-	
+	/* register demux stuff */
 	dvb->demux.dmx.capabilities =
 		DMX_TS_FILTERING | DMX_SECTION_FILTERING |
 		DMX_MEMORY_BASED_FILTERING;
@@ -223,7 +225,7 @@ static int videobuf_dvb_register_frontend(struct dvb_adapter *adapter,
 		goto fail_fe_conn;
 	}
 
-	
+	/* register network adapter */
 	result = dvb_net_init(adapter, &dvb->net, &dvb->demux.dmx);
 	if (result < 0) {
 		printk(KERN_WARNING "%s: dvb_net_init failed (errno = %d)\n",
@@ -249,6 +251,8 @@ fail_frontend:
 	return result;
 }
 
+/* ------------------------------------------------------------------ */
+/* Register a single adapter and one or more frontends */
 int videobuf_dvb_register_bus(struct videobuf_dvb_frontends *f,
 			  struct module *module,
 			  void *adapter_priv,
@@ -268,7 +272,7 @@ int videobuf_dvb_register_bus(struct videobuf_dvb_frontends *f,
 		return -EINVAL;
 	}
 
-	
+	/* Bring up the adapter */
 	res = videobuf_dvb_register_adapter(f, module, adapter_priv, device,
 		fe->dvb.name, adapter_nr, mfe_shared, fe_ioctl_override);
 	if (res < 0) {
@@ -276,7 +280,7 @@ int videobuf_dvb_register_bus(struct videobuf_dvb_frontends *f,
 		return res;
 	}
 
-	
+	/* Attach all of the frontends to the adapter */
 	mutex_lock(&f->lock);
 	list_for_each_safe(list, q, &f->felist) {
 		fe = list_entry(list, struct videobuf_dvb_frontend, felist);
@@ -390,10 +394,10 @@ void videobuf_dvb_dealloc_frontends(struct videobuf_dvb_frontends *f)
 			dvb_unregister_frontend(fe->dvb.frontend);
 		}
 		if (fe->dvb.frontend)
-			
+			/* always allocated, may have been reset */
 			dvb_frontend_detach(fe->dvb.frontend);
-		list_del(list); 
-		kfree(fe);	
+		list_del(list); /* remove list entry */
+		kfree(fe);	/* free frontend allocation */
 	}
 	mutex_unlock(&f->lock);
 }

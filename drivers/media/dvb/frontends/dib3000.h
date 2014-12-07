@@ -28,13 +28,13 @@
 
 struct dib3000_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 };
 
 struct dib_fe_xfer_ops
 {
-	
+	/* pid and transfer handling is done in the demodulator */
 	int (*pid_parse)(struct dvb_frontend *fe, int onoff);
 	int (*fifo_ctrl)(struct dvb_frontend *fe, int onoff);
 	int (*pid_ctrl)(struct dvb_frontend *fe, int index, int pid, int onoff);
@@ -51,6 +51,6 @@ static inline struct dvb_frontend* dib3000mb_attach(const struct dib3000_config*
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_DIB3000MB
 
-#endif 
+#endif // DIB3000_H

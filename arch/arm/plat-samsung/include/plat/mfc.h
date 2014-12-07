@@ -10,7 +10,18 @@
 #ifndef __PLAT_SAMSUNG_MFC_H
 #define __PLAT_SAMSUNG_MFC_H __FILE__
 
+/**
+ * s5p_mfc_reserve_mem - function to early reserve memory for MFC driver
+ * @rbase:	base address for MFC 'right' memory interface
+ * @rsize:	size of the memory reserved for MFC 'right' interface
+ * @lbase:	base address for MFC 'left' memory interface
+ * @lsize:	size of the memory reserved for MFC 'left' interface
+ *
+ * This function reserves system memory for both MFC device memory
+ * interfaces and registers it to respective struct device entries as
+ * coherent memory.
+ */
 void __init s5p_mfc_reserve_mem(phys_addr_t rbase, unsigned int rsize,
 				phys_addr_t lbase, unsigned int lsize);
 
-#endif 
+#endif /* __PLAT_SAMSUNG_MFC_H */

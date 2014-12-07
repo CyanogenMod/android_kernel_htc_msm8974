@@ -39,7 +39,7 @@
 #define TINY_SPI_STATUS_TXR 0x2
 
 struct tiny_spi {
-	
+	/* bitbang has to be first */
 	struct spi_bitbang bitbang;
 	struct completion done;
 
@@ -129,14 +129,14 @@ static int tiny_spi_txrx_bufs(struct spi_device *spi, struct spi_transfer *t)
 	unsigned int i;
 
 	if (hw->irq >= 0) {
-		
+		/* use intrrupt driven data transfer */
 		hw->len = t->len;
 		hw->txp = t->tx_buf;
 		hw->rxp = t->rx_buf;
 		hw->txc = 0;
 		hw->rxc = 0;
 
-		
+		/* send the first byte */
 		if (t->len > 1) {
 			writeb(hw->txp ? *hw->txp++ : 0,
 			       hw->base + TINY_SPI_TXDATA);
@@ -154,7 +154,7 @@ static int tiny_spi_txrx_bufs(struct spi_device *spi, struct spi_transfer *t)
 
 		wait_for_completion(&hw->done);
 	} else if (txp && rxp) {
-		
+		/* we need to tighten the transfer loop */
 		writeb(*txp++, hw->base + TINY_SPI_TXDATA);
 		if (t->len > 1) {
 			writeb(*txp++, hw->base + TINY_SPI_TXDATA);
@@ -276,12 +276,12 @@ static int __devinit tiny_spi_of_probe(struct platform_device *pdev)
 		hw->baudwidth = be32_to_cpup(val);
 	return 0;
 }
-#else 
+#else /* !CONFIG_OF */
 static int __devinit tiny_spi_of_probe(struct platform_device *pdev)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_OF */
 
 static int __devinit tiny_spi_probe(struct platform_device *pdev)
 {
@@ -296,7 +296,7 @@ static int __devinit tiny_spi_probe(struct platform_device *pdev)
 	if (!master)
 		return err;
 
-	
+	/* setup the master state. */
 	master->bus_num = pdev->id;
 	master->num_chipselect = 255;
 	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
@@ -305,7 +305,7 @@ static int __devinit tiny_spi_probe(struct platform_device *pdev)
 	hw = spi_master_get_devdata(master);
 	platform_set_drvdata(pdev, hw);
 
-	
+	/* setup the state for the bitbang driver */
 	hw->bitbang.master = spi_master_get(master);
 	if (!hw->bitbang.master)
 		return err;
@@ -313,7 +313,7 @@ static int __devinit tiny_spi_probe(struct platform_device *pdev)
 	hw->bitbang.chipselect = tiny_spi_chipselect;
 	hw->bitbang.txrx_bufs = tiny_spi_txrx_bufs;
 
-	
+	/* find and map our resources */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res)
 		goto exit_busy;
@@ -324,7 +324,7 @@ static int __devinit tiny_spi_probe(struct platform_device *pdev)
 					resource_size(res));
 	if (!hw->base)
 		goto exit_busy;
-	
+	/* irq is optional */
 	hw->irq = platform_get_irq(pdev, 0);
 	if (hw->irq >= 0) {
 		init_completion(&hw->done);
@@ -333,7 +333,7 @@ static int __devinit tiny_spi_probe(struct platform_device *pdev)
 		if (err)
 			goto exit;
 	}
-	
+	/* find platform data */
 	if (platp) {
 		hw->gpio_cs_count = platp->gpio_cs_count;
 		hw->gpio_cs = platp->gpio_cs;
@@ -354,7 +354,7 @@ static int __devinit tiny_spi_probe(struct platform_device *pdev)
 	}
 	hw->bitbang.master->num_chipselect = max(1U, hw->gpio_cs_count);
 
-	
+	/* register our spi controller */
 	err = spi_bitbang_start(&hw->bitbang);
 	if (err)
 		goto exit;
@@ -393,9 +393,9 @@ static const struct of_device_id tiny_spi_match[] = {
 	{},
 };
 MODULE_DEVICE_TABLE(of, tiny_spi_match);
-#else 
+#else /* CONFIG_OF */
 #define tiny_spi_match NULL
-#endif 
+#endif /* CONFIG_OF */
 
 static struct platform_driver tiny_spi_driver = {
 	.probe = tiny_spi_probe,

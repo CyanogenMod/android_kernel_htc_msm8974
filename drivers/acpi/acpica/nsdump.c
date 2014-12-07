@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: nsdump - table dumping routines for debug
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -43,6 +48,7 @@
 #define _COMPONENT          ACPI_NAMESPACE
 ACPI_MODULE_NAME("nsdump")
 
+/* Local prototypes */
 #ifdef ACPI_OBSOLETE_FUNCTIONS
 void acpi_ns_dump_root_devices(void);
 
@@ -52,6 +58,18 @@ acpi_ns_dump_one_device(acpi_handle obj_handle,
 #endif
 
 #if defined(ACPI_DEBUG_OUTPUT) || defined(ACPI_DEBUGGER)
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_print_pathname
+ *
+ * PARAMETERS:  num_segments        - Number of ACPI name segments
+ *              Pathname            - The compressed (internal) path
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Print an object's full namespace pathname
+ *
+ ******************************************************************************/
 
 void acpi_ns_print_pathname(u32 num_segments, char *pathname)
 {
@@ -64,7 +82,7 @@ void acpi_ns_print_pathname(u32 num_segments, char *pathname)
 		return;
 	}
 
-	
+	/* Print the entire name */
 
 	ACPI_DEBUG_PRINT((ACPI_DB_NAMES, "["));
 
@@ -85,6 +103,21 @@ void acpi_ns_print_pathname(u32 num_segments, char *pathname)
 	acpi_os_printf("]\n");
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_dump_pathname
+ *
+ * PARAMETERS:  Handle              - Object
+ *              Msg                 - Prefix message
+ *              Level               - Desired debug level
+ *              Component           - Caller's component ID
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Print an object's full namespace pathname
+ *              Manages allocation/freeing of a pathname buffer
+ *
+ ******************************************************************************/
 
 void
 acpi_ns_dump_pathname(acpi_handle handle, char *msg, u32 level, u32 component)
@@ -92,19 +125,34 @@ acpi_ns_dump_pathname(acpi_handle handle, char *msg, u32 level, u32 component)
 
 	ACPI_FUNCTION_TRACE(ns_dump_pathname);
 
-	
+	/* Do this only if the requested debug level and component are enabled */
 
 	if (!(acpi_dbg_level & level) || !(acpi_dbg_layer & component)) {
 		return_VOID;
 	}
 
-	
+	/* Convert handle to a full pathname and print it (with supplied message) */
 
 	acpi_ns_print_node_pathname(handle, msg);
 	acpi_os_printf("\n");
 	return_VOID;
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_dump_one_object
+ *
+ * PARAMETERS:  obj_handle          - Node to be dumped
+ *              Level               - Nesting level of the handle
+ *              Context             - Passed into walk_namespace
+ *              return_value        - Not used
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Dump a single Node
+ *              This procedure is a user_function called by acpi_ns_walk_namespace.
+ *
+ ******************************************************************************/
 
 acpi_status
 acpi_ns_dump_one_object(acpi_handle obj_handle,
@@ -121,7 +169,7 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 
 	ACPI_FUNCTION_NAME(ns_dump_one_object);
 
-	
+	/* Is output enabled? */
 
 	if (!(acpi_dbg_level & info->debug_level)) {
 		return (AE_OK);
@@ -141,7 +189,7 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 
 	type = this_node->type;
 
-	
+	/* Check if the owner matches */
 
 	if ((info->owner_id != ACPI_OWNER_ID_MAX) &&
 	    (info->owner_id != this_node->owner_id)) {
@@ -150,11 +198,11 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 
 	if (!(info->display_type & ACPI_DISPLAY_SHORT)) {
 
-		
+		/* Indent the object according to the level */
 
 		acpi_os_printf("%2d%*s", (u32) level - 1, (int)level * 2, " ");
 
-		
+		/* Check the node type and name */
 
 		if (type > ACPI_TYPE_LOCAL_MAX) {
 			ACPI_WARNING((AE_INFO,
@@ -172,7 +220,7 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 		acpi_os_printf("%4.4s", acpi_ut_get_node_name(this_node));
 	}
 
-	
+	/* Now we can print out the pertinent information */
 
 	acpi_os_printf(" %-12s %p %2.2X ",
 		       acpi_ut_get_type_name(type), this_node,
@@ -183,7 +231,7 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 	obj_desc = acpi_ns_get_attached_object(this_node);
 	acpi_dbg_level = dbg_level;
 
-	
+	/* Temp nodes are those nodes created by a control method */
 
 	if (this_node->flags & ANOBJ_TEMPORARY) {
 		acpi_os_printf("(T) ");
@@ -194,7 +242,7 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 
 		if (!obj_desc) {
 
-			
+			/* No attached object. Some types should always have an object */
 
 			switch (type) {
 			case ACPI_TYPE_INTEGER:
@@ -260,7 +308,7 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 				acpi_os_printf("Len %.2X",
 					       obj_desc->buffer.length);
 
-				
+				/* Dump some of the buffer */
 
 				if (obj_desc->buffer.length > 0) {
 					acpi_os_printf(" =");
@@ -371,7 +419,7 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 			break;
 		}
 
-		
+		/* Common field handling */
 
 		switch (type) {
 		case ACPI_TYPE_BUFFER_FIELD:
@@ -400,7 +448,7 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 		acpi_os_printf("O:%p", obj_desc);
 		if (!obj_desc) {
 
-			
+			/* No attached object, we are done */
 
 			acpi_os_printf("\n");
 			return (AE_OK);
@@ -411,7 +459,7 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 		switch (type) {
 		case ACPI_TYPE_METHOD:
 
-			
+			/* Name is a Method and its AML offset/length are set */
 
 			acpi_os_printf(" M:%p-%X\n", obj_desc->method.aml_start,
 				       obj_desc->method.aml_length);
@@ -448,26 +496,26 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 		break;
 	}
 
-	
+	/* If debug turned off, done */
 
 	if (!(acpi_dbg_level & ACPI_LV_VALUES)) {
 		return (AE_OK);
 	}
 
-	
+	/* If there is an attached object, display it */
 
 	dbg_level = acpi_dbg_level;
 	acpi_dbg_level = 0;
 	obj_desc = acpi_ns_get_attached_object(this_node);
 	acpi_dbg_level = dbg_level;
 
-	
+	/* Dump attached objects */
 
 	while (obj_desc) {
 		obj_type = ACPI_TYPE_INVALID;
 		acpi_os_printf("Attached Object %p: ", obj_desc);
 
-		
+		/* Decode the type of attached object and dump the contents */
 
 		switch (ACPI_GET_DESCRIPTOR_TYPE(obj_desc)) {
 		case ACPI_DESC_TYPE_NAMED:
@@ -502,18 +550,21 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 			break;
 		}
 
-		
+		/* If value is NOT an internal object, we are done */
 
 		if (ACPI_GET_DESCRIPTOR_TYPE(obj_desc) !=
 		    ACPI_DESC_TYPE_OPERAND) {
 			goto cleanup;
 		}
 
-		
+		/* Valid object, get the pointer to next level, if any */
 
 		switch (obj_type) {
 		case ACPI_TYPE_BUFFER:
 		case ACPI_TYPE_STRING:
+			/*
+			 * NOTE: takes advantage of common fields between string/buffer
+			 */
 			bytes_to_dump = obj_desc->string.length;
 			obj_desc = (void *)obj_desc->string.pointer;
 			acpi_os_printf("(Buffer/String pointer %p length %X)\n",
@@ -551,7 +602,7 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 			goto cleanup;
 		}
 
-		obj_type = ACPI_TYPE_INVALID;	
+		obj_type = ACPI_TYPE_INVALID;	/* Terminate loop after next pass */
 	}
 
       cleanup:
@@ -560,6 +611,24 @@ acpi_ns_dump_one_object(acpi_handle obj_handle,
 }
 
 #ifdef ACPI_FUTURE_USAGE
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_dump_objects
+ *
+ * PARAMETERS:  Type                - Object type to be dumped
+ *              display_type        - 0 or ACPI_DISPLAY_SUMMARY
+ *              max_depth           - Maximum depth of dump. Use ACPI_UINT32_MAX
+ *                                    for an effectively unlimited depth.
+ *              owner_id            - Dump only objects owned by this ID. Use
+ *                                    ACPI_UINT32_MAX to match all owners.
+ *              start_handle        - Where in namespace to start/end search
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Dump typed objects within the loaded namespace. Uses
+ *              acpi_ns_walk_namespace in conjunction with acpi_ns_dump_one_object.
+ *
+ ******************************************************************************/
 
 void
 acpi_ns_dump_objects(acpi_object_type type,
@@ -572,6 +641,12 @@ acpi_ns_dump_objects(acpi_object_type type,
 
 	ACPI_FUNCTION_ENTRY();
 
+	/*
+	 * Just lock the entire namespace for the duration of the dump.
+	 * We don't want any changes to the namespace during this time,
+	 * especially the temporary nodes since we are going to display
+	 * them also.
+	 */
 	status = acpi_ut_acquire_mutex(ACPI_MTX_NAMESPACE);
 	if (ACPI_FAILURE(status)) {
 		acpi_os_printf("Could not acquire namespace mutex\n");
@@ -590,8 +665,20 @@ acpi_ns_dump_objects(acpi_object_type type,
 
 	(void)acpi_ut_release_mutex(ACPI_MTX_NAMESPACE);
 }
-#endif				
+#endif				/* ACPI_FUTURE_USAGE */
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_dump_entry
+ *
+ * PARAMETERS:  Handle              - Node to be dumped
+ *              debug_level         - Output level
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Dump a single Node
+ *
+ ******************************************************************************/
 
 void acpi_ns_dump_entry(acpi_handle handle, u32 debug_level)
 {
@@ -607,6 +694,20 @@ void acpi_ns_dump_entry(acpi_handle handle, u32 debug_level)
 }
 
 #ifdef ACPI_ASL_COMPILER
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_dump_tables
+ *
+ * PARAMETERS:  search_base         - Root of subtree to be dumped, or
+ *                                    NS_ALL to dump the entire namespace
+ *              max_depth           - Maximum depth of dump.  Use INT_MAX
+ *                                    for an effectively unlimited depth.
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Dump the name space, or a portion of it.
+ *
+ ******************************************************************************/
 
 void acpi_ns_dump_tables(acpi_handle search_base, u32 max_depth)
 {
@@ -615,6 +716,10 @@ void acpi_ns_dump_tables(acpi_handle search_base, u32 max_depth)
 	ACPI_FUNCTION_TRACE(ns_dump_tables);
 
 	if (!acpi_gbl_root_node) {
+		/*
+		 * If the name space has not been initialized,
+		 * there is nothing to dump.
+		 */
 		ACPI_DEBUG_PRINT((ACPI_DB_TABLES,
 				  "namespace not initialized!\n"));
 		return_VOID;
@@ -622,7 +727,7 @@ void acpi_ns_dump_tables(acpi_handle search_base, u32 max_depth)
 
 	if (ACPI_NS_ALL == search_base) {
 
-		
+		/* Entire namespace */
 
 		search_handle = acpi_gbl_root_node;
 		ACPI_DEBUG_PRINT((ACPI_DB_TABLES, "\\\n"));
@@ -632,5 +737,5 @@ void acpi_ns_dump_tables(acpi_handle search_base, u32 max_depth)
 			     ACPI_OWNER_ID_MAX, search_handle);
 	return_VOID;
 }
-#endif				
-#endif				
+#endif				/* _ACPI_ASL_COMPILER */
+#endif				/* defined(ACPI_DEBUG_OUTPUT) || defined(ACPI_DEBUGGER) */

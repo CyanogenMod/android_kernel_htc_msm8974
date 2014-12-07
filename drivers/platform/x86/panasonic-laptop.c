@@ -143,6 +143,8 @@ MODULE_LICENSE("GPL");
 
 #define LOGPREFIX "pcc_acpi: "
 
+/* Define ACPI PATHs */
+/* Lets note hotkeys */
 #define METHOD_HKEY_QUERY	"HINF"
 #define METHOD_HKEY_SQTY	"SQTY"
 #define METHOD_HKEY_SINF	"SINF"
@@ -155,6 +157,9 @@ MODULE_LICENSE("GPL");
 
 #define ACPI_PCC_INPUT_PHYS	"panasonic/hkey0"
 
+/* LCD_TYPEs: 0 = Normal, 1 = Semi-transparent
+   ENV_STATEs: Normal temp=0x01, High temp=0x81, N/A=0x00
+*/
 enum SINF_BITS { SINF_NUM_BATTERIES = 0,
 		 SINF_LCD_TYPE,
 		 SINF_AC_MAX_BRIGHT,
@@ -168,6 +173,7 @@ enum SINF_BITS { SINF_NUM_BATTERIES = 0,
 		 SINF_ENV_STATE,
 		 SINF_STICKY_KEY = 0x80,
 	};
+/* R1 handles SINF_AC_CUR_BRIGHT as SINF_CUR_BRIGHT, doesn't know AC state */
 
 static int acpi_pcc_hotkey_add(struct acpi_device *device);
 static int acpi_pcc_hotkey_remove(struct acpi_device *device, int type);
@@ -204,7 +210,7 @@ static const struct key_entry panasonic_keymap[] = {
 	{ KE_KEY, 5, { KEY_VOLUMEDOWN } },
 	{ KE_KEY, 6, { KEY_VOLUMEUP } },
 	{ KE_KEY, 7, { KEY_SLEEP } },
-	{ KE_KEY, 8, { KEY_PROG1 } }, 
+	{ KE_KEY, 8, { KEY_PROG1 } }, /* Change CPU boost */
 	{ KE_KEY, 9, { KEY_BATTERY } },
 	{ KE_KEY, 10, { KEY_SUSPEND } },
 	{ KE_END, 0 }
@@ -224,6 +230,7 @@ struct pcc_keyinput {
 	struct acpi_hotkey      *hotkey;
 };
 
+/* method access functions */
 static int acpi_pcc_write_sset(struct pcc_acpi *pcc, int func, int val)
 {
 	union acpi_object in_objs[] = {
@@ -304,7 +311,12 @@ end:
 	return status == AE_OK;
 }
 
+/* backlight API interface functions */
 
+/* This driver currently treats AC and DC brightness identical,
+ * since we don't need to invent an interface to the core ACPI
+ * logic to receive events in case a power supply is plugged in
+ * or removed */
 
 static int bl_get(struct backlight_device *bd)
 {
@@ -348,6 +360,7 @@ static const struct backlight_ops pcc_backlight_ops = {
 };
 
 
+/* sysfs user interface functions */
 
 static ssize_t show_numbatt(struct device *dev, struct device_attribute *attr,
 			    char *buf)
@@ -427,11 +440,12 @@ static struct attribute *pcc_sysfs_entries[] = {
 };
 
 static struct attribute_group pcc_attr_group = {
-	.name	= NULL,		
+	.name	= NULL,		/* put in device directory */
 	.attrs	= pcc_sysfs_entries,
 };
 
 
+/* hotkey input device driver */
 
 static void acpi_pcc_generate_keyinput(struct pcc_acpi *pcc)
 {
@@ -464,7 +478,7 @@ static void acpi_pcc_hotkey_notify(struct acpi_device *device, u32 event)
 		acpi_pcc_generate_keyinput(pcc);
 		break;
 	default:
-		
+		/* nothing to do */
 		break;
 	}
 }
@@ -516,8 +530,13 @@ static void acpi_pcc_destroy_input(struct pcc_acpi *pcc)
 {
 	sparse_keymap_free(pcc->input_dev);
 	input_unregister_device(pcc->input_dev);
+	/*
+	 * No need to input_free_device() since core input API refcounts
+	 * and free()s the device.
+	 */
 }
 
+/* kernel module interface */
 
 static int acpi_pcc_hotkey_resume(struct acpi_device *device)
 {
@@ -581,7 +600,7 @@ static int acpi_pcc_hotkey_add(struct acpi_device *device)
 		result = -EIO;
 		goto out_input;
 	}
-	
+	/* initialize backlight */
 	memset(&props, 0, sizeof(struct backlight_properties));
 	props.type = BACKLIGHT_PLATFORM;
 	props.max_brightness = pcc->sinf[SINF_AC_MAX_BRIGHT];
@@ -592,13 +611,13 @@ static int acpi_pcc_hotkey_add(struct acpi_device *device)
 		goto out_input;
 	}
 
-	
+	/* read the initial brightness setting from the hardware */
 	pcc->backlight->props.brightness = pcc->sinf[SINF_AC_CUR_BRIGHT];
 
-	
+	/* read the initial sticky key mode from the hardware */
 	pcc->sticky_mode = pcc->sinf[SINF_STICKY_KEY];
 
-	
+	/* add sysfs attributes */
 	result = sysfs_create_group(&device->dev.kobj, &pcc_attr_group);
 	if (result)
 		goto out_backlight;

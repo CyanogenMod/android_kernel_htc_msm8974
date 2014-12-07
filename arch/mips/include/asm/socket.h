@@ -11,32 +11,41 @@
 
 #include <asm/sockios.h>
 
+/*
+ * For setsockopt(2)
+ *
+ * This defines are ABI conformant as far as Linux supports these ...
+ */
 #define SOL_SOCKET	0xffff
 
-#define SO_DEBUG	0x0001	
-#define SO_REUSEADDR	0x0004	
-#define SO_KEEPALIVE	0x0008	
-#define SO_DONTROUTE	0x0010	
-#define SO_BROADCAST	0x0020	
-#define SO_LINGER	0x0080	
-#define SO_OOBINLINE 0x0100	
+#define SO_DEBUG	0x0001	/* Record debugging information.  */
+#define SO_REUSEADDR	0x0004	/* Allow reuse of local addresses.  */
+#define SO_KEEPALIVE	0x0008	/* Keep connections alive and send
+				   SIGPIPE when they die.  */
+#define SO_DONTROUTE	0x0010	/* Don't do local routing.  */
+#define SO_BROADCAST	0x0020	/* Allow transmission of
+				   broadcast messages.  */
+#define SO_LINGER	0x0080	/* Block on close of a reliable
+				   socket to transmit pending data.  */
+#define SO_OOBINLINE 0x0100	/* Receive out-of-band data in-band.  */
 #if 0
-To add: #define SO_REUSEPORT 0x0200	
+To add: #define SO_REUSEPORT 0x0200	/* Allow local address and port reuse.  */
 #endif
 
-#define SO_TYPE		0x1008	
-#define SO_STYLE	SO_TYPE	
-#define SO_ERROR	0x1007	
-#define SO_SNDBUF	0x1001	
-#define SO_RCVBUF	0x1002	
-#define SO_SNDLOWAT	0x1003	
-#define SO_RCVLOWAT	0x1004	
-#define SO_SNDTIMEO	0x1005	
-#define SO_RCVTIMEO 	0x1006	
+#define SO_TYPE		0x1008	/* Compatible name for SO_STYLE.  */
+#define SO_STYLE	SO_TYPE	/* Synonym */
+#define SO_ERROR	0x1007	/* get error status and clear */
+#define SO_SNDBUF	0x1001	/* Send buffer size. */
+#define SO_RCVBUF	0x1002	/* Receive buffer. */
+#define SO_SNDLOWAT	0x1003	/* send low-water mark */
+#define SO_RCVLOWAT	0x1004	/* receive low-water mark */
+#define SO_SNDTIMEO	0x1005	/* send timeout */
+#define SO_RCVTIMEO 	0x1006	/* receive timeout */
 #define SO_ACCEPTCONN	0x1009
-#define SO_PROTOCOL	0x1028	
-#define SO_DOMAIN	0x1029	
+#define SO_PROTOCOL	0x1028	/* protocol type */
+#define SO_DOMAIN	0x1029	/* domain/socket family */
 
+/* linux-specific, might as well be the same as on i386 */
 #define SO_NO_CHECK	11
 #define SO_PRIORITY	12
 #define SO_BSDCOMPAT	14
@@ -44,12 +53,14 @@ To add: #define SO_REUSEPORT 0x0200
 #define SO_PASSCRED	17
 #define SO_PEERCRED	18
 
+/* Security levels - as per NRL IPv6 - don't actually do anything */
 #define SO_SECURITY_AUTHENTICATION		22
 #define SO_SECURITY_ENCRYPTION_TRANSPORT	23
 #define SO_SECURITY_ENCRYPTION_NETWORK		24
 
 #define SO_BINDTODEVICE		25
 
+/* Socket filtering */
 #define SO_ATTACH_FILTER        26
 #define SO_DETACH_FILTER        27
 
@@ -75,10 +86,25 @@ To add: #define SO_REUSEPORT 0x0200
 #define SCM_WIFI_STATUS		SO_WIFI_STATUS
 #define SO_PEEK_OFF		42
 
+/* Instruct lower device to use last 4-bytes of skb data as FCS */
 #define SO_NOFCS		43
 
 #ifdef __KERNEL__
 
+/** sock_type - Socket types
+ *
+ * Please notice that for binary compat reasons MIPS has to
+ * override the enum sock_type in include/linux/net.h, so
+ * we define ARCH_HAS_SOCKET_TYPES here.
+ *
+ * @SOCK_DGRAM - datagram (conn.less) socket
+ * @SOCK_STREAM - stream (connection) socket
+ * @SOCK_RAW - raw socket
+ * @SOCK_RDM - reliably-delivered message
+ * @SOCK_SEQPACKET - sequential packet socket
+ * @SOCK_PACKET - linux specific way of getting packets at the dev level.
+ *		  For writing rarp and other similar things on the user level.
+ */
 enum sock_type {
 	SOCK_DGRAM	= 1,
 	SOCK_STREAM	= 2,
@@ -90,13 +116,16 @@ enum sock_type {
 };
 
 #define SOCK_MAX (SOCK_PACKET + 1)
+/* Mask which covers at least up to SOCK_MASK-1.  The
+ *  * remaining bits are used as flags. */
 #define SOCK_TYPE_MASK 0xf
 
+/* Flags for socket, socketpair, paccept */
 #define SOCK_CLOEXEC	O_CLOEXEC
 #define SOCK_NONBLOCK	O_NONBLOCK
 
 #define ARCH_HAS_SOCKET_TYPES 1
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_SOCKET_H */

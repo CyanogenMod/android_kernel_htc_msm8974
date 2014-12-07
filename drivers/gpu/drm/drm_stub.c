@@ -1,3 +1,9 @@
+/**
+ * \file drm_stub.h
+ * Stub support
+ *
+ * \author Rickard E. (Rik) Faith <faith@valinux.com>
+ */
 
 /*
  * Created: Fri Jan 19 10:48:35 2001 by faith@acm.org
@@ -31,13 +37,13 @@
 #include "drmP.h"
 #include "drm_core.h"
 
-unsigned int drm_debug = 0;	
+unsigned int drm_debug = 0;	/* 1 to enable debug output */
 EXPORT_SYMBOL(drm_debug);
 
-unsigned int drm_vblank_offdelay = 5000;    
+unsigned int drm_vblank_offdelay = 5000;    /* Default to 5000 msecs. */
 EXPORT_SYMBOL(drm_vblank_offdelay);
 
-unsigned int drm_timestamp_precision = 20;  
+unsigned int drm_timestamp_precision = 20;  /* Default to 20 usecs. */
 EXPORT_SYMBOL(drm_timestamp_precision);
 
 MODULE_AUTHOR(CORE_AUTHOR);
@@ -273,7 +279,7 @@ int drm_fill_in_dev(struct drm_device *dev,
 		return -ENOMEM;
 	}
 
-	
+	/* the DRM has 6 basic counters */
 	dev->counters = 6;
 	dev->types[0] = _DRM_STAT_LOCK;
 	dev->types[1] = _DRM_STAT_OPENS;
@@ -316,6 +322,17 @@ int drm_fill_in_dev(struct drm_device *dev,
 EXPORT_SYMBOL(drm_fill_in_dev);
 
 
+/**
+ * Get a secondary minor number.
+ *
+ * \param dev device data structure
+ * \param sec-minor structure to hold the assigned minor
+ * \return negative number on failure.
+ *
+ * Search an empty entry and initialize it to the given parameters, and
+ * create the proc init entry via proc_init(). This routines assigns
+ * minor numbers to secondary heads of multi-headed cards
+ */
 int drm_get_minor(struct drm_device *dev, struct drm_minor **minor, int type)
 {
 	struct drm_minor *new_minor;
@@ -383,6 +400,16 @@ err_idr:
 }
 EXPORT_SYMBOL(drm_get_minor);
 
+/**
+ * Put a secondary minor number.
+ *
+ * \param sec_minor - structure to be released
+ * \return always zero
+ *
+ * Cleans up the proc resources. Not legal for this to be the
+ * last minor released.
+ *
+ */
 int drm_put_minor(struct drm_minor **minor_p)
 {
 	struct drm_minor *minor = *minor_p;
@@ -410,6 +437,13 @@ static void drm_unplug_minor(struct drm_minor *minor)
 	drm_sysfs_device_remove(minor);
 }
 
+/**
+ * Called via drm_exit() at module unload time or when pci device is
+ * unplugged.
+ *
+ * Cleans up all DRM device, calling drm_lastclose().
+ *
+ */
 void drm_put_dev(struct drm_device *dev)
 {
 	struct drm_driver *driver;
@@ -469,7 +503,7 @@ EXPORT_SYMBOL(drm_put_dev);
 
 void drm_unplug_dev(struct drm_device *dev)
 {
-	
+	/* for a USB device */
 	if (drm_core_check_feature(dev, DRIVER_MODESET))
 		drm_unplug_minor(dev->control);
 	drm_unplug_minor(dev->primary);

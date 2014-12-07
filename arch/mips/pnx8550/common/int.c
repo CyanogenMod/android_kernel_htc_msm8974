@@ -36,20 +36,22 @@
 #include <int.h>
 #include <uart.h>
 
+/* default prio for interrupts */
+/* first one is a no-no so therefore always prio 0 (disabled) */
 static char gic_prio[PNX8550_INT_GIC_TOTINT] = {
-	0, 1, 1, 1, 1, 15, 1, 1, 1, 1,	
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,	
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,	
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,	
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,	
-	1, 1, 1, 1, 1, 1, 1, 1, 2, 1,	
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,	
-	1			
+	0, 1, 1, 1, 1, 15, 1, 1, 1, 1,	//   0 -  9
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,	//  10 - 19
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,	//  20 - 29
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,	//  30 - 39
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,	//  40 - 49
+	1, 1, 1, 1, 1, 1, 1, 1, 2, 1,	//  50 - 59
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,	//  60 - 69
+	1			//  70
 };
 
 static void hw0_irqdispatch(int irq)
 {
-	
+	/* find out which interrupt */
 	irq = PNX8550_GIC_VECTOR_0 >> 3;
 
 	if (irq == 0) {
@@ -102,13 +104,13 @@ static inline void modify_cp0_intmask(unsigned clr_mask, unsigned set_mask)
 
 static inline void mask_gic_int(unsigned int irq_nr)
 {
-	
-	PNX8550_GIC_REQ(irq_nr) = 1<<28; 
+	/* interrupt disabled, bit 26(WE_ENABLE)=1 and bit 16(enable)=0 */
+	PNX8550_GIC_REQ(irq_nr) = 1<<28; /* set priority to 0 */
 }
 
 static inline void unmask_gic_int(unsigned int irq_nr)
 {
-	
+	/* set prio mask to lower four bits and enable interrupt */
 	PNX8550_GIC_REQ(irq_nr) = (1<<26 | 1<<16) | (1<<28) | gic_prio[irq_nr];
 }
 
@@ -183,33 +185,45 @@ void __init arch_init_irq(void)
 	for (i = 0; i < PNX8550_INT_CP0_TOTINT; i++)
 		irq_set_chip_and_handler(i, &level_irq_type, handle_level_irq);
 
-	
-	
+	/* init of GIC/IPC interrupts */
+	/* should be done before cp0 since cp0 init enables the GIC int */
 	for (i = PNX8550_INT_GIC_MIN; i <= PNX8550_INT_GIC_MAX; i++) {
 		int gic_int_line = i - PNX8550_INT_GIC_MIN;
 		if (gic_int_line == 0 )
-			continue;	
+			continue;	// don't fiddle with int 0
+		/*
+		 * enable change of TARGET, ENABLE and ACTIVE_LOW bits
+		 * set TARGET        0 to route through hw0 interrupt
+		 * set ACTIVE_LOW    0 active high  (correct?)
+		 *
+		 * We really should setup an interrupt description table
+		 * to do this nicely.
+		 * Note, PCI INTA is active low on the bus, but inverted
+		 * in the GIC, so to us it's active high.
+		 */
 		PNX8550_GIC_REQ(i - PNX8550_INT_GIC_MIN) = 0x1E000000;
 
+		/* mask/priority is still 0 so we will not get any
+		 * interrupts until it is unmasked */
 
 		irq_set_chip_and_handler(i, &level_irq_type, handle_level_irq);
 	}
 
-	
+	/* Priority level 0 */
 	PNX8550_GIC_PRIMASK_0 = PNX8550_GIC_PRIMASK_1 = 0;
 
-	
+	/* Set int vector table address */
 	PNX8550_GIC_VECTOR_0 = PNX8550_GIC_VECTOR_1 = 0;
 
 	irq_set_chip_and_handler(MIPS_CPU_GIC_IRQ, &level_irq_type,
 				 handle_level_irq);
 	setup_irq(MIPS_CPU_GIC_IRQ, &gic_action);
 
-	
+	/* init of Timer interrupts */
 	for (i = PNX8550_INT_TIMER_MIN; i <= PNX8550_INT_TIMER_MAX; i++)
 		irq_set_chip_and_handler(i, &level_irq_type, handle_level_irq);
 
-	
+	/* Stop Timer 1-3 */
 	configPR = read_c0_config7();
 	configPR |= 0x00000038;
 	write_c0_config7(configPR);

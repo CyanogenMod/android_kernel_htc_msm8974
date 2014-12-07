@@ -49,8 +49,13 @@
 #include "offline_states.h"
 
 
+/*
+ * The Primary thread of each non-boot processor was started from the OF client
+ * interface by prom_hold_cpus and is spinning on secondary_hold_spinloop.
+ */
 static cpumask_var_t of_spin_mask;
 
+/* Query where a cpu is now.  Return codes #defined in plpar_wrappers.h */
 int smp_query_cpu_stopped(unsigned int pcpu)
 {
 	int cpu_status, status;
@@ -72,6 +77,17 @@ int smp_query_cpu_stopped(unsigned int pcpu)
 	return cpu_status;
 }
 
+/**
+ * smp_startup_cpu() - start the given cpu
+ *
+ * At boot time, there is nothing to do for primary threads which were
+ * started from Open Firmware.  For anything else, call RTAS with the
+ * appropriate start location.
+ *
+ * Returns:
+ *	0	- failure
+ *	1	- success
+ */
 static inline int __devinit smp_startup_cpu(unsigned int lcpu)
 {
 	int status;
@@ -81,23 +97,27 @@ static inline int __devinit smp_startup_cpu(unsigned int lcpu)
 	int start_cpu;
 
 	if (cpumask_test_cpu(lcpu, of_spin_mask))
-		
+		/* Already started by OF and sitting in spin loop */
 		return 1;
 
 	pcpu = get_hard_smp_processor_id(lcpu);
 
-	
+	/* Check to see if the CPU out of FW already for kexec */
 	if (smp_query_cpu_stopped(pcpu) == QCSS_NOT_STOPPED){
 		cpumask_set_cpu(lcpu, of_spin_mask);
 		return 1;
 	}
 
-	
+	/* Fixup atomic count: it exited inside IRQ handler. */
 	task_thread_info(paca[lcpu].__current)->preempt_count	= 0;
 #ifdef CONFIG_HOTPLUG_CPU
 	if (get_cpu_current_state(lcpu) == CPU_STATE_INACTIVE)
 		goto out;
 #endif
+	/* 
+	 * If the RTAS start-cpu token does not exist then presume the
+	 * cpu is already spinning.
+	 */
 	start_cpu = rtas_token("start-cpu");
 	if (start_cpu == RTAS_UNKNOWN_SERVICE)
 		return 1;
@@ -137,6 +157,11 @@ static int __devinit smp_pSeries_kick_cpu(int nr)
 	if (!smp_startup_cpu(nr))
 		return -ENOENT;
 
+	/*
+	 * The processor is currently spinning, waiting for the
+	 * cpu_start field to become non-zero After we set cpu_start,
+	 * the processor will continue on to secondary_start
+	 */
 	paca[nr].cpu_start = 1;
 #ifdef CONFIG_HOTPLUG_CPU
 	set_preferred_offline_state(nr, CPU_STATE_ONLINE);
@@ -158,6 +183,9 @@ static int __devinit smp_pSeries_kick_cpu(int nr)
 
 static int smp_pSeries_cpu_bootable(unsigned int nr)
 {
+	/* Special case - we inhibit secondary thread startup
+	 * during boot if the user requests it.
+	 */
 	if (system_state < SYSTEM_RUNNING && cpu_has_feature(CPU_FTR_SMT)) {
 		if (!smt_enabled_at_boot && cpu_thread_in_core(nr) != 0)
 			return 0;
@@ -177,14 +205,15 @@ static struct smp_ops_t pSeries_mpic_smp_ops = {
 };
 
 static struct smp_ops_t pSeries_xics_smp_ops = {
-	.message_pass	= NULL,	
-	.cause_ipi	= NULL,	
+	.message_pass	= NULL,	/* Use smp_muxed_ipi_message_pass */
+	.cause_ipi	= NULL,	/* Filled at runtime by xics_smp_probe() */
 	.probe		= xics_smp_probe,
 	.kick_cpu	= smp_pSeries_kick_cpu,
 	.setup_cpu	= smp_xics_setup_cpu,
 	.cpu_bootable	= smp_pSeries_cpu_bootable,
 };
 
+/* This is called very early */
 static void __init smp_init_pseries(void)
 {
 	int i;
@@ -193,7 +222,7 @@ static void __init smp_init_pseries(void)
 
 	alloc_bootmem_cpumask_var(&of_spin_mask);
 
-	
+	/* Mark threads which are still spinning in hold loops. */
 	if (cpu_has_feature(CPU_FTR_SMT)) {
 		for_each_present_cpu(i) { 
 			if (cpu_thread_in_core(i) == 0)
@@ -205,7 +234,7 @@ static void __init smp_init_pseries(void)
 
 	cpumask_clear_cpu(boot_cpuid, of_spin_mask);
 
-	
+	/* Non-lpar has additional take/give timebase */
 	if (rtas_token("freeze-time-base") != RTAS_UNKNOWN_SERVICE) {
 		smp_ops->give_timebase = rtas_give_timebase;
 		smp_ops->take_timebase = rtas_take_timebase;

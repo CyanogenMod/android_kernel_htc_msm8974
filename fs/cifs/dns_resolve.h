@@ -25,6 +25,6 @@
 
 #ifdef __KERNEL__
 extern int dns_resolve_server_name_to_ip(const char *unc, char **ip_addr);
-#endif 
+#endif /* KERNEL */
 
-#endif 
+#endif /* _DNS_RESOLVE_H */

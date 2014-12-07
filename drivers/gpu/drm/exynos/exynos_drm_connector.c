@@ -42,6 +42,7 @@ struct exynos_drm_connector {
 	struct exynos_drm_manager *manager;
 };
 
+/* convert exynos_video_timings to drm_display_mode */
 static inline void
 convert_to_display_mode(struct drm_display_mode *mode,
 			struct exynos_drm_panel_info *panel)
@@ -71,6 +72,7 @@ convert_to_display_mode(struct drm_display_mode *mode,
 		mode->flags |= DRM_MODE_FLAG_DBLSCAN;
 }
 
+/* convert drm_display_mode to exynos_video_timings */
 static inline void
 convert_to_video_timing(struct fb_videomode *timing,
 			struct drm_display_mode *mode)
@@ -116,6 +118,14 @@ static int exynos_drm_connector_get_modes(struct drm_connector *connector)
 		return 0;
 	}
 
+	/*
+	 * if get_edid() exists then get_edid() callback of hdmi side
+	 * is called to get edid data through i2c interface else
+	 * get timing from the FIMD driver(display controller).
+	 *
+	 * P.S. in case of lcd panel, count is always 1 if success
+	 * because lcd panel has only one mode.
+	 */
 	if (display_ops->get_edid) {
 		int ret;
 		void *edid;
@@ -227,6 +237,10 @@ static int exynos_drm_connector_fill_modes(struct drm_connector *connector,
 	width = max_width;
 	height = max_height;
 
+	/*
+	 * if specific driver want to find desired_mode using maxmum
+	 * resolution then get max width and height from that driver.
+	 */
 	if (ops && ops->get_max_resol)
 		ops->get_max_resol(manager->dev, &width, &height);
 
@@ -234,6 +248,7 @@ static int exynos_drm_connector_fill_modes(struct drm_connector *connector,
 							height);
 }
 
+/* get detection status of display device. */
 static enum drm_connector_status
 exynos_drm_connector_detect(struct drm_connector *connector, bool force)
 {

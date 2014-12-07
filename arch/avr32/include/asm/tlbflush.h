@@ -10,6 +10,16 @@
 
 #include <asm/mmu.h>
 
+/*
+ * TLB flushing:
+ *
+ *  - flush_tlb() flushes the current mm struct TLBs
+ *  - flush_tlb_all() flushes all processes' TLB entries
+ *  - flush_tlb_mm(mm) flushes the specified mm context TLBs
+ *  - flush_tlb_page(vma, vmaddr) flushes one page
+ *  - flush_tlb_range(vma, start, end) flushes a range of pages
+ *  - flush_tlb_kernel_range(start, end) flushes a range of kernel pages
+ */
 extern void flush_tlb(void);
 extern void flush_tlb_all(void);
 extern void flush_tlb_mm(struct mm_struct *mm);
@@ -19,4 +29,4 @@ extern void flush_tlb_page(struct vm_area_struct *vma, unsigned long page);
 
 extern void flush_tlb_kernel_range(unsigned long start, unsigned long end);
 
-#endif 
+#endif /* __ASM_AVR32_TLBFLUSH_H */

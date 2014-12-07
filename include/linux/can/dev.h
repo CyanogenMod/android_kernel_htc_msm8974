@@ -17,12 +17,18 @@
 #include <linux/can/netlink.h>
 #include <linux/can/error.h>
 
+/*
+ * CAN mode
+ */
 enum can_mode {
 	CAN_MODE_STOP = 0,
 	CAN_MODE_START,
 	CAN_MODE_SLEEP
 };
 
+/*
+ * CAN common private data
+ */
 struct can_priv {
 	struct can_device_stats can_stats;
 
@@ -48,8 +54,16 @@ struct can_priv {
 	struct sk_buff **echo_skb;
 };
 
+/*
+ * get_can_dlc(value) - helper macro to cast a given data length code (dlc)
+ * to __u8 and ensure the dlc value to be max. 8 bytes.
+ *
+ * To be used in the CAN netdriver receive path to ensure conformance with
+ * ISO 11898-1 Chapter 8.4.2.3 (DLC field)
+ */
 #define get_can_dlc(i)	(min_t(__u8, (i), 8))
 
+/* Drop a given socketbuffer if it does not contain a valid CAN frame. */
 static inline int can_dropped_invalid_skb(struct net_device *dev,
 					  struct sk_buff *skb)
 {
@@ -85,4 +99,4 @@ struct sk_buff *alloc_can_skb(struct net_device *dev, struct can_frame **cf);
 struct sk_buff *alloc_can_err_skb(struct net_device *dev,
 				  struct can_frame **cf);
 
-#endif 
+#endif /* CAN_DEV_H */

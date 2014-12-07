@@ -32,50 +32,51 @@
 #include <linux/mutex.h>
 #include <linux/atomic.h>
 #include "radio-iris-commands.h"
-extern const unsigned char MIN_TX_TONE_VAL;
-extern const unsigned char MAX_TX_TONE_VAL;
-extern const unsigned char MIN_HARD_MUTE_VAL;
-extern const unsigned char MAX_HARD_MUTE_VAL;
-extern const unsigned char MIN_SRCH_MODE;
-extern const unsigned char MAX_SRCH_MODE;
-extern const unsigned char MIN_SCAN_DWELL;
-extern const unsigned char MAX_SCAN_DWELL;
-extern const unsigned char MIN_SIG_TH;
-extern const unsigned char MAX_SIG_TH;
-extern const unsigned char MIN_PTY;
-extern const unsigned char MAX_PTY;
-extern const unsigned short MIN_PI;
-extern const unsigned short MAX_PI;
-extern const unsigned char MIN_SRCH_STATIONS_CNT;
-extern const unsigned char MAX_SRCH_STATIONS_CNT;
-extern const unsigned char MIN_CHAN_SPACING;
-extern const unsigned char MAX_CHAN_SPACING;
-extern const unsigned char MIN_EMPHASIS;
-extern const unsigned char MAX_EMPHASIS;
-extern const unsigned char MIN_RDS_STD;
-extern const unsigned char MAX_RDS_STD;
-extern const unsigned char MIN_ANTENNA_VAL;
-extern const unsigned char MAX_ANTENNA_VAL;
-extern const unsigned char MIN_TX_PS_REPEAT_CNT;
-extern const unsigned char MAX_TX_PS_REPEAT_CNT;
-extern const unsigned char MIN_SOFT_MUTE;
-extern const unsigned char MAX_SOFT_MUTE;
-extern const unsigned char MIN_PEEK_ACCESS_LEN;
-extern const unsigned char MAX_PEEK_ACCESS_LEN;
-extern const unsigned char MIN_RESET_CNTR;
-extern const unsigned char MAX_RESET_CNTR;
-extern const unsigned char MIN_HLSI;
-extern const unsigned char MAX_HLSI;
-extern const unsigned char MIN_NOTCH_FILTER;
-extern const unsigned char MAX_NOTCH_FILTER;
-extern const unsigned char MIN_INTF_DET_OUT_LW_TH;
-extern const unsigned char MAX_INTF_DET_OUT_LW_TH;
-extern const unsigned char MIN_INTF_DET_OUT_HG_TH;
-extern const unsigned char MAX_INTF_DET_OUT_HG_TH;
-extern const signed char MIN_SINR_TH;
-extern const signed char MAX_SINR_TH;
-extern const unsigned char MIN_SINR_SAMPLES;
-extern const unsigned char MAX_SINR_SAMPLES;
+
+#define MIN_TX_TONE_VAL 0x00
+#define MAX_TX_TONE_VAL 0x07
+#define MIN_HARD_MUTE_VAL 0x00
+#define MAX_HARD_MUTE_VAL 0x03
+#define MIN_SRCH_MODE 0x00
+#define MAX_SRCH_MODE 0x01
+#define MIN_SCAN_DWELL 0x00
+#define MAX_SCAN_DWELL 0x0F
+#define MIN_SIG_TH 0x00
+#define MAX_SIG_TH 0x03
+#define MIN_PTY 0X00
+#define MAX_PTY 0x1F
+#define MIN_PI 0x0000
+#define MAX_PI 0xFFFF
+#define MIN_SRCH_STATIONS_CNT 0x00
+#define MAX_SRCH_STATIONS_CNT 0x14
+#define MIN_CHAN_SPACING 0x00
+#define MAX_CHAN_SPACING 0x02
+#define MIN_EMPHASIS 0x00
+#define MAX_EMPHASIS 0x01
+#define MIN_RDS_STD 0x00
+#define MAX_RDS_STD 0x02
+#define MIN_ANTENNA_VAL 0x00
+#define MAX_ANTENNA_VAL 0x01
+#define MIN_TX_PS_REPEAT_CNT 0x01
+#define MAX_TX_PS_REPEAT_CNT 0x0F
+#define MIN_SOFT_MUTE 0x00
+#define MAX_SOFT_MUTE 0x01
+#define MIN_PEEK_ACCESS_LEN 0x01
+#define MAX_PEEK_ACCESS_LEN 0xF9
+#define MIN_RESET_CNTR 0x00
+#define MAX_RESET_CNTR 0x01
+#define MIN_HLSI 0x00
+#define MAX_HLSI 0x02
+#define MIN_NOTCH_FILTER 0x00
+#define MAX_NOTCH_FILTER 0x02
+#define MIN_INTF_DET_OUT_LW_TH 0x00
+#define MAX_INTF_DET_OUT_LW_TH 0xFF
+#define MIN_INTF_DET_OUT_HG_TH 0x00
+#define MAX_INTF_DET_OUT_HG_TH 0xFF
+#define MIN_SINR_TH -128
+#define MAX_SINR_TH 127
+#define MIN_SINR_SAMPLES 0x01
+#define MAX_SINR_SAMPLES 0xFF
 
 #define RADIO_HCI_COMMAND_HDR_SIZE sizeof(struct radio_hci_command_hdr)
 #define RADIO_HCI_EVENT_HDR_SIZE   sizeof(struct radio_hci_event_hdr)

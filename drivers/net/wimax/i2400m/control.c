@@ -85,12 +85,13 @@
 #define D_SUBMODULE control
 #include "debug-levels.h"
 
-static int i2400m_idle_mode_disabled;
+static int i2400m_idle_mode_disabled;/* 0 (idle mode enabled) by default */
 module_param_named(idle_mode_disabled, i2400m_idle_mode_disabled, int, 0644);
 MODULE_PARM_DESC(idle_mode_disabled,
 		 "If true, the device will not enable idle mode negotiation "
 		 "with the base station (when connected) to save power.");
 
+/* 0 (power saving enabled) by default */
 static int i2400m_power_save_disabled;
 module_param_named(power_save_disabled, i2400m_power_save_disabled, int, 0644);
 MODULE_PARM_DESC(power_save_disabled,
@@ -99,7 +100,7 @@ MODULE_PARM_DESC(power_save_disabled,
 		 "False by default (so the device is told to do power "
 		 "saving).");
 
-static int i2400m_passive_mode;	
+static int i2400m_passive_mode;	/* 0 (passive mode disabled) by default */
 module_param_named(passive_mode, i2400m_passive_mode, int, 0644);
 MODULE_PARM_DESC(passive_mode,
 		 "If true, the driver will not do any device setup "
@@ -107,11 +108,23 @@ MODULE_PARM_DESC(passive_mode,
 		 "setup.");
 
 
+/*
+ * Return if a TLV is of a give type and size
+ *
+ * @tlv_hdr: pointer to the TLV
+ * @tlv_type: type of the TLV we are looking for
+ * @tlv_size: expected size of the TLV we are looking for (if -1,
+ *            don't check the size). This includes the header
+ * Returns: 0 if the TLV matches
+ *          < 0 if it doesn't match at all
+ *          > 0 total TLV + payload size, if the type matches, but not
+ *              the size
+ */
 static
 ssize_t i2400m_tlv_match(const struct i2400m_tlv_hdr *tlv,
 		     enum i2400m_tlv tlv_type, ssize_t tlv_size)
 {
-	if (le16_to_cpu(tlv->type) != tlv_type)	
+	if (le16_to_cpu(tlv->type) != tlv_type)	/* Not our type? skip */
 		return -1;
 	if (tlv_size != -1
 	    && le16_to_cpu(tlv->length) + sizeof(*tlv) != tlv_size) {
@@ -125,6 +138,25 @@ ssize_t i2400m_tlv_match(const struct i2400m_tlv_hdr *tlv,
 }
 
 
+/*
+ * Given a buffer of TLVs, iterate over them
+ *
+ * @i2400m: device instance
+ * @tlv_buf: pointer to the beginning of the TLV buffer
+ * @buf_size: buffer size in bytes
+ * @tlv_pos: seek position; this is assumed to be a pointer returned
+ *           by i2400m_tlv_buffer_walk() [and thus, validated]. The
+ *           TLV returned will be the one following this one.
+ *
+ * Usage:
+ *
+ * tlv_itr = NULL;
+ * while (tlv_itr = i2400m_tlv_buffer_walk(i2400m, buf, size, tlv_itr))  {
+ *         ...
+ *         // Do stuff with tlv_itr, DON'T MODIFY IT
+ *         ...
+ * }
+ */
 static
 const struct i2400m_tlv_hdr *i2400m_tlv_buffer_walk(
 	struct i2400m *i2400m,
@@ -136,12 +168,12 @@ const struct i2400m_tlv_hdr *i2400m_tlv_buffer_walk(
 	size_t offset, length, avail_size;
 	unsigned type;
 
-	if (tlv_pos == NULL)	
+	if (tlv_pos == NULL)	/* Take the first one? */
 		tlv_pos = tlv_buf;
-	else			
+	else			/* Nope, the next one */
 		tlv_pos = (void *) tlv_pos
 			+ le16_to_cpu(tlv_pos->length) + sizeof(*tlv_pos);
-	if (tlv_pos == tlv_top) {	
+	if (tlv_pos == tlv_top) {	/* buffer done */
 		tlv_pos = NULL;
 		goto error_beyond_end;
 	}
@@ -173,6 +205,21 @@ error_beyond_end:
 }
 
 
+/*
+ * Find a TLV in a buffer of sequential TLVs
+ *
+ * @i2400m: device descriptor
+ * @tlv_hdr: pointer to the first TLV in the sequence
+ * @size: size of the buffer in bytes; all TLVs are assumed to fit
+ *        fully in the buffer (otherwise we'll complain).
+ * @tlv_type: type of the TLV we are looking for
+ * @tlv_size: expected size of the TLV we are looking for (if -1,
+ *            don't check the size). This includes the header
+ *
+ * Returns: NULL if the TLV is not found, otherwise a pointer to
+ *          it. If the sizes don't match, an error is printed and NULL
+ *          returned.
+ */
 static
 const struct i2400m_tlv_hdr *i2400m_tlv_find(
 	struct i2400m *i2400m,
@@ -184,7 +231,7 @@ const struct i2400m_tlv_hdr *i2400m_tlv_find(
 	const struct i2400m_tlv_hdr *tlv = NULL;
 	while ((tlv = i2400m_tlv_buffer_walk(i2400m, tlv_hdr, size, tlv))) {
 		match = i2400m_tlv_match(tlv, tlv_type, tlv_size);
-		if (match == 0)		
+		if (match == 0)		/* found it :) */
 			break;
 		if (match > 0)
 			dev_warn(dev, "TLV type 0x%04x found with size "
@@ -220,6 +267,18 @@ static const struct
 };
 
 
+/*
+ * i2400m_msg_check_status - translate a message's status code
+ *
+ * @i2400m: device descriptor
+ * @l3l4_hdr: message header
+ * @strbuf: buffer to place a formatted error message (unless NULL).
+ * @strbuf_size: max amount of available space; larger messages will
+ * be truncated.
+ *
+ * Returns: errno code corresponding to the status code in @l3l4_hdr
+ *          and a message in @strbuf describing the error.
+ */
 int i2400m_msg_check_status(const struct i2400m_l3l4_hdr *l3l4_hdr,
 			    char *strbuf, size_t strbuf_size)
 {
@@ -242,6 +301,12 @@ int i2400m_msg_check_status(const struct i2400m_l3l4_hdr *l3l4_hdr,
 }
 
 
+/*
+ * Act on a TLV System State reported by the device
+ *
+ * @i2400m: device descriptor
+ * @ss: validated System State TLV
+ */
 static
 void i2400m_report_tlv_system_state(struct i2400m *i2400m,
 				    const struct i2400m_tlv_system_state *ss)
@@ -293,7 +358,7 @@ void i2400m_report_tlv_system_state(struct i2400m *i2400m,
 		break;
 
 	default:
-		
+		/* Huh? just in case, shut it down */
 		dev_err(dev, "HW BUG? unknown state %u: shutting down\n",
 			i2400m_state);
 		i2400m_reset(i2400m, I2400M_RT_WARM);
@@ -304,6 +369,20 @@ void i2400m_report_tlv_system_state(struct i2400m *i2400m,
 }
 
 
+/*
+ * Parse and act on a TLV Media Status sent by the device
+ *
+ * @i2400m: device descriptor
+ * @ms: validated Media Status TLV
+ *
+ * This will set the carrier up on down based on the device's link
+ * report. This is done asides of what the WiMAX stack does based on
+ * the device's state as sometimes we need to do a link-renew (the BS
+ * wants us to renew a DHCP lease, for example).
+ *
+ * In fact, doc says that every time we get a link-up, we should do a
+ * DHCP negotiation...
+ */
 static
 void i2400m_report_tlv_media_status(struct i2400m *i2400m,
 				    const struct i2400m_tlv_media_status *ms)
@@ -322,6 +401,11 @@ void i2400m_report_tlv_media_status(struct i2400m *i2400m,
 	case I2400M_MEDIA_STATUS_LINK_DOWN:
 		netif_carrier_off(net_dev);
 		break;
+	/*
+	 * This is the network telling us we need to retrain the DHCP
+	 * lease -- so far, we are trusting the WiMAX Network Service
+	 * in user space to pick this up and poke the DHCP client.
+	 */
 	case I2400M_MEDIA_STATUS_LINK_RENEW:
 		netif_carrier_on(net_dev);
 		break;
@@ -334,6 +418,16 @@ void i2400m_report_tlv_media_status(struct i2400m *i2400m,
 }
 
 
+/*
+ * Process a TLV from a 'state report'
+ *
+ * @i2400m: device descriptor
+ * @tlv: pointer to the TLV header; it has been already validated for
+ *     consistent size.
+ * @tag: for error messages
+ *
+ * Act on the TLVs from a 'state report'.
+ */
 static
 void i2400m_report_state_parse_tlv(struct i2400m *i2400m,
 				   const struct i2400m_tlv_hdr *tlv,
@@ -370,6 +464,18 @@ void i2400m_report_state_parse_tlv(struct i2400m *i2400m,
 }
 
 
+/*
+ * Parse a 'state report' and extract information
+ *
+ * @i2400m: device descriptor
+ * @l3l4_hdr: pointer to message; it has been already validated for
+ *            consistent size.
+ * @size: size of the message (header + payload). The header length
+ *        declaration is assumed to be congruent with @size (as in
+ *        sizeof(*l3l4_hdr) + l3l4_hdr->length == size)
+ *
+ * Walk over the TLVs in a report state and act on them.
+ */
 static
 void i2400m_report_state_hook(struct i2400m *i2400m,
 			      const struct i2400m_l3l4_hdr *l3l4_hdr,
@@ -391,6 +497,19 @@ void i2400m_report_state_hook(struct i2400m *i2400m,
 }
 
 
+/*
+ * i2400m_report_hook - (maybe) act on a report
+ *
+ * @i2400m: device descriptor
+ * @l3l4_hdr: pointer to message; it has been already validated for
+ *            consistent size.
+ * @size: size of the message (header + payload). The header length
+ *        declaration is assumed to be congruent with @size (as in
+ *        sizeof(*l3l4_hdr) + l3l4_hdr->length == size)
+ *
+ * Extract information we might need (like carrien on/off) from a
+ * device report.
+ */
 void i2400m_report_hook(struct i2400m *i2400m,
 			const struct i2400m_l3l4_hdr *l3l4_hdr, size_t size)
 {
@@ -399,13 +518,17 @@ void i2400m_report_hook(struct i2400m *i2400m,
 
 	d_fnstart(3, dev, "(i2400m %p l3l4_hdr %p size %zu)\n",
 		  i2400m, l3l4_hdr, size);
+	/* Chew on the message, we might need some information from
+	 * here */
 	msg_type = le16_to_cpu(l3l4_hdr->type);
 	switch (msg_type) {
-	case I2400M_MT_REPORT_STATE:	
+	case I2400M_MT_REPORT_STATE:	/* carrier detection... */
 		i2400m_report_state_hook(i2400m,
 					 l3l4_hdr, size, "REPORT STATE");
 		break;
-	case I2400M_MT_REPORT_POWERSAVE_READY:	
+	/* If the device is ready for power save, then ask it to do
+	 * it. */
+	case I2400M_MT_REPORT_POWERSAVE_READY:	/* zzzzz */
 		if (l3l4_hdr->status == cpu_to_le16(I2400M_MS_DONE_OK)) {
 			if (i2400m_power_save_disabled)
 				d_printf(1, dev, "ready for powersave, "
@@ -424,6 +547,19 @@ void i2400m_report_hook(struct i2400m *i2400m,
 }
 
 
+/*
+ * i2400m_msg_ack_hook - process cmd/set/get ack for internal status
+ *
+ * @i2400m: device descriptor
+ * @l3l4_hdr: pointer to message; it has been already validated for
+ *            consistent size.
+ * @size: size of the message
+ *
+ * Extract information we might need from acks to commands and act on
+ * it. This is akin to i2400m_report_hook(). Note most of this
+ * processing should be done in the function that calls the
+ * command. This is here for some cases where it can't happen...
+ */
 static void i2400m_msg_ack_hook(struct i2400m *i2400m,
 				 const struct i2400m_l3l4_hdr *l3l4_hdr,
 				 size_t size)
@@ -433,10 +569,14 @@ static void i2400m_msg_ack_hook(struct i2400m *i2400m,
 	unsigned ack_type, ack_status;
 	char strerr[32];
 
+	/* Chew on the message, we might need some information from
+	 * here */
 	ack_type = le16_to_cpu(l3l4_hdr->type);
 	ack_status = le16_to_cpu(l3l4_hdr->status);
 	switch (ack_type) {
 	case I2400M_MT_CMD_ENTER_POWERSAVE:
+		/* This is just left here for the sake of example, as
+		 * the processing is done somewhere else. */
 		if (0) {
 			result = i2400m_msg_check_status(
 				l3l4_hdr, strerr, sizeof(strerr));
@@ -449,6 +589,12 @@ static void i2400m_msg_ack_hook(struct i2400m *i2400m,
 }
 
 
+/*
+ * i2400m_msg_size_check() - verify message size and header are congruent
+ *
+ * It is ok if the total message size is larger than the expected
+ * size, as there can be padding.
+ */
 int i2400m_msg_size_check(struct i2400m *i2400m,
 			  const struct i2400m_l3l4_hdr *l3l4_hdr,
 			  size_t msg_size)
@@ -482,6 +628,15 @@ error_hdr_size:
 
 
 
+/*
+ * Cancel a wait for a command ACK
+ *
+ * @i2400m: device descriptor
+ * @code: [negative] errno code to cancel with (don't use
+ *     -EINPROGRESS)
+ *
+ * If there is an ack already filled out, free it.
+ */
 void i2400m_msg_to_dev_cancel_wait(struct i2400m *i2400m, int code)
 {
 	struct sk_buff *ack_skb;
@@ -496,6 +651,59 @@ void i2400m_msg_to_dev_cancel_wait(struct i2400m *i2400m, int code)
 }
 
 
+/**
+ * i2400m_msg_to_dev - Send a control message to the device and get a response
+ *
+ * @i2400m: device descriptor
+ *
+ * @msg_skb: an skb  *
+ *
+ * @buf: pointer to the buffer containing the message to be sent; it
+ *           has to start with a &struct i2400M_l3l4_hdr and then
+ *           followed by the payload. Once this function returns, the
+ *           buffer can be reused.
+ *
+ * @buf_len: buffer size
+ *
+ * Returns:
+ *
+ * Pointer to skb containing the ack message. You need to check the
+ * pointer with IS_ERR(), as it might be an error code. Error codes
+ * could happen because:
+ *
+ *  - the message wasn't formatted correctly
+ *  - couldn't send the message
+ *  - failed waiting for a response
+ *  - the ack message wasn't formatted correctly
+ *
+ * The returned skb has been allocated with wimax_msg_to_user_alloc(),
+ * it contains the response in a netlink attribute and is ready to be
+ * passed up to user space with wimax_msg_to_user_send(). To access
+ * the payload and its length, use wimax_msg_{data,len}() on the skb.
+ *
+ * The skb has to be freed with kfree_skb() once done.
+ *
+ * Description:
+ *
+ * This function delivers a message/command to the device and waits
+ * for an ack to be received. The format is described in
+ * linux/wimax/i2400m.h. In summary, a command/get/set is followed by an
+ * ack.
+ *
+ * This function will not check the ack status, that's left up to the
+ * caller.  Once done with the ack skb, it has to be kfree_skb()ed.
+ *
+ * The i2400m handles only one message at the same time, thus we need
+ * the mutex to exclude other players.
+ *
+ * We write the message and then wait for an answer to come back. The
+ * RX path intercepts control messages and handles them in
+ * i2400m_rx_ctl(). Reports (notifications) are (maybe) processed
+ * locally and then forwarded (as needed) to user space on the WiMAX
+ * stack message pipe. Acks are saved and passed back to us through an
+ * skb in i2400m->ack_skb which is ready to be given to generic
+ * netlink if need be.
+ */
 struct sk_buff *i2400m_msg_to_dev(struct i2400m *i2400m,
 				  const void *buf, size_t buf_len)
 {
@@ -512,12 +720,12 @@ struct sk_buff *i2400m_msg_to_dev(struct i2400m *i2400m,
 	d_fnstart(3, dev, "(i2400m %p buf %p len %zu)\n",
 		  i2400m, buf, buf_len);
 
-	rmb();		
+	rmb();		/* Make sure we see what i2400m_dev_reset_handle() */
 	if (i2400m->boot_mode)
 		return ERR_PTR(-EL3RST);
 
 	msg_l3l4_hdr = buf;
-	
+	/* Check msg & payload consistency */
 	result = i2400m_msg_size_check(i2400m, msg_l3l4_hdr, buf_len);
 	if (result < 0)
 		goto error_bad_msg;
@@ -526,6 +734,8 @@ struct sk_buff *i2400m_msg_to_dev(struct i2400m *i2400m,
 		 msg_type, buf_len);
 	d_dump(2, dev, buf, buf_len);
 
+	/* Setup the completion, ack_skb ("we are waiting") and send
+	 * the message to the device */
 	mutex_lock(&i2400m->msg_mutex);
 	spin_lock_irqsave(&i2400m->rx_lock, flags);
 	i2400m->ack_skb = ERR_PTR(-EINPROGRESS);
@@ -538,6 +748,8 @@ struct sk_buff *i2400m_msg_to_dev(struct i2400m *i2400m,
 		goto error_tx;
 	}
 
+	/* Some commands take longer to execute because of crypto ops,
+	 * so we give them some more leeway on timeout */
 	switch (msg_type) {
 	case I2400M_MT_GET_TLS_OPERATION_RESULT:
 	case I2400M_MT_CMD_SEND_EAP_RESPONSE:
@@ -549,6 +761,10 @@ struct sk_buff *i2400m_msg_to_dev(struct i2400m *i2400m,
 
 	if (unlikely(i2400m->trace_msg_from_user))
 		wimax_msg(&i2400m->wimax_dev, "echo", buf, buf_len, GFP_KERNEL);
+	/* The RX path in rx.c will put any response for this message
+	 * in i2400m->ack_skb and wake us up. If we cancel the wait,
+	 * we need to change the value of i2400m->ack_skb to something
+	 * not -EINPROGRESS so RX knows there is no one waiting. */
 	result = wait_for_completion_interruptible_timeout(
 		&i2400m->msg_completion, ack_timeout);
 	if (result == 0) {
@@ -564,6 +780,8 @@ struct sk_buff *i2400m_msg_to_dev(struct i2400m *i2400m,
 		goto error_wait_for_completion;
 	}
 
+	/* Pull out the ack data from i2400m->ack_skb -- see if it is
+	 * an error and act accordingly */
 	spin_lock_irqsave(&i2400m->rx_lock, flags);
 	ack_skb = i2400m->ack_skb;
 	if (IS_ERR(ack_skb))
@@ -576,7 +794,7 @@ struct sk_buff *i2400m_msg_to_dev(struct i2400m *i2400m,
 		goto error_ack_status;
 	ack_l3l4_hdr = wimax_msg_data_len(ack_skb, &ack_len);
 
-	
+	/* Check the ack and deliver it if it is ok */
 	if (unlikely(i2400m->trace_msg_from_user))
 		wimax_msg(&i2400m->wimax_dev, "echo",
 			  ack_l3l4_hdr, ack_len, GFP_KERNEL);
@@ -612,6 +830,17 @@ error_bad_msg:
 }
 
 
+/*
+ * Definitions for the Enter Power Save command
+ *
+ * The Enter Power Save command requests the device to go into power
+ * saving mode. The device will ack or nak the command depending on it
+ * being ready for it. If it acks, we tell the USB subsystem to
+ *
+ * As well, the device might request to go into power saving mode by
+ * sending a report (REPORT_POWERSAVE_READY), in which case, we issue
+ * this command. The hookups in the RX coder allow
+ */
 enum {
 	I2400M_WAKEUP_ENABLED  = 0x01,
 	I2400M_WAKEUP_DISABLED = 0x02,
@@ -625,6 +854,12 @@ struct i2400m_cmd_enter_power_save {
 } __packed;
 
 
+/*
+ * Request entering power save
+ *
+ * This command is (mainly) executed when the device indicates that it
+ * is ready to go into powersave mode via a REPORT_POWERSAVE_READY.
+ */
 int i2400m_cmd_enter_powersave(struct i2400m *i2400m)
 {
 	int result;
@@ -670,10 +905,25 @@ error_alloc:
 EXPORT_SYMBOL_GPL(i2400m_cmd_enter_powersave);
 
 
+/*
+ * Definitions for getting device information
+ */
 enum {
 	I2400M_TLV_DETAILED_DEVICE_INFO = 140
 };
 
+/**
+ * i2400m_get_device_info - Query the device for detailed device information
+ *
+ * @i2400m: device descriptor
+ *
+ * Returns: an skb whose skb->data points to a 'struct
+ *    i2400m_tlv_detailed_device_info'. When done, kfree_skb() it. The
+ *    skb is *guaranteed* to contain the whole TLV data structure.
+ *
+ *    On error, IS_ERR(skb) is true and ERR_PTR(skb) is the error
+ *    code.
+ */
 struct sk_buff *i2400m_get_device_info(struct i2400m *i2400m)
 {
 	int result;
@@ -731,6 +981,7 @@ error_cmd_failed:
 }
 
 
+/* Firmware interface versions we support */
 enum {
 	I2400M_HDIv_MAJOR = 9,
 	I2400M_HDIv_MINOR = 1,
@@ -738,6 +989,23 @@ enum {
 };
 
 
+/**
+ * i2400m_firmware_check - check firmware versions are compatible with
+ * the driver
+ *
+ * @i2400m: device descriptor
+ *
+ * Returns: 0 if ok, < 0 errno code an error and a message in the
+ *    kernel log.
+ *
+ * Long function, but quite simple; first chunk launches the command
+ * and double checks the reply for the right TLV. Then we process the
+ * TLV (where the meat is).
+ *
+ * Once we process the TLV that gives us the firmware's interface
+ * version, we encode it and save it in i2400m->fw_version for future
+ * reference.
+ */
 int i2400m_firmware_check(struct i2400m *i2400m)
 {
 	int result;
@@ -796,7 +1064,7 @@ int i2400m_firmware_check(struct i2400m *i2400m)
 	if (minor < I2400M_HDIv_MINOR_2 && minor > I2400M_HDIv_MINOR)
 		dev_warn(dev, "untested minor fw version %u.%u.%u\n",
 			 major, minor, branch);
-	
+	/* Yes, we ignore the branch -- we don't have to track it */
 	i2400m->fw_version = major << 16 | minor;
 	dev_info(dev, "firmware interface version %u.%u.%u\n",
 		 major, minor, branch);
@@ -811,6 +1079,17 @@ error_alloc:
 }
 
 
+/*
+ * Send an DoExitIdle command to the device to ask it to go out of
+ * basestation-idle mode.
+ *
+ * @i2400m: device descriptor
+ *
+ * This starts a renegotiation with the basestation that might involve
+ * another crypto handshake with user space.
+ *
+ * Returns: 0 if ok, < 0 errno code on error.
+ */
 int i2400m_cmd_exit_idle(struct i2400m *i2400m)
 {
 	int result;
@@ -845,6 +1124,20 @@ error_alloc:
 }
 
 
+/*
+ * Query the device for its state, update the WiMAX stack's idea of it
+ *
+ * @i2400m: device descriptor
+ *
+ * Returns: 0 if ok, < 0 errno code on error.
+ *
+ * Executes a 'Get State' command and parses the returned
+ * TLVs.
+ *
+ * Because this is almost identical to a 'Report State', we use
+ * i2400m_report_state_hook() to parse the answer. This will set the
+ * carrier state, as well as the RF Kill switches state.
+ */
 static int i2400m_cmd_get_state(struct i2400m *i2400m)
 {
 	int result;
@@ -888,6 +1181,16 @@ error_alloc:
 	return result;
 }
 
+/**
+ * Set basic configuration settings
+ *
+ * @i2400m: device descriptor
+ * @args: array of pointers to the TLV headers to send for
+ *     configuration (each followed by its payload).
+ *     TLV headers and payloads must be properly initialized, with the
+ *     right endianess (LE).
+ * @arg_size: number of pointers in the @args array
+ */
 static int i2400m_set_init_config(struct i2400m *i2400m,
 				  const struct i2400m_tlv_hdr **arg,
 				  size_t args)
@@ -905,14 +1208,16 @@ static int i2400m_set_init_config(struct i2400m *i2400m,
 	result = 0;
 	if (args == 0)
 		goto none;
+	/* Compute the size of all the TLVs, so we can alloc a
+	 * contiguous command block to copy them. */
 	argsize = 0;
 	for (argc = 0; argc < args; argc++) {
 		tlv_hdr = arg[argc];
 		argsize += sizeof(*tlv_hdr) + le16_to_cpu(tlv_hdr->length);
 	}
-	WARN_ON(argc >= 9);	
+	WARN_ON(argc >= 9);	/* As per hw spec */
 
-	
+	/* Alloc the space for the command and TLVs*/
 	result = -ENOMEM;
 	buf = kzalloc(sizeof(*cmd) + argsize, GFP_KERNEL);
 	if (buf == NULL)
@@ -922,7 +1227,7 @@ static int i2400m_set_init_config(struct i2400m *i2400m,
 	cmd->length = cpu_to_le16(argsize);
 	cmd->version = cpu_to_le16(I2400M_L3L4_VERSION);
 
-	
+	/* Copy the TLVs */
 	itr = buf + sizeof(*cmd);
 	for (argc = 0; argc < args; argc++) {
 		tlv_hdr = arg[argc];
@@ -931,7 +1236,7 @@ static int i2400m_set_init_config(struct i2400m *i2400m,
 		itr += tlv_size;
 	}
 
-	
+	/* Send the message! */
 	ack_skb = i2400m_msg_to_dev(i2400m, buf, sizeof(*cmd) + argsize);
 	result = PTR_ERR(ack_skb);
 	if (IS_ERR(ack_skb)) {
@@ -956,6 +1261,24 @@ none:
 
 }
 
+/**
+ * i2400m_set_idle_timeout - Set the device's idle mode timeout
+ *
+ * @i2400m: i2400m device descriptor
+ *
+ * @msecs: milliseconds for the timeout to enter idle mode. Between
+ *     100 to 300000 (5m); 0 to disable. In increments of 100.
+ *
+ * After this @msecs of the link being idle (no data being sent or
+ * received), the device will negotiate with the basestation entering
+ * idle mode for saving power. The connection is maintained, but
+ * getting out of it (done in tx.c) will require some negotiation,
+ * possible crypto re-handshake and a possible DHCP re-lease.
+ *
+ * Only available if fw_version >= 0x00090002.
+ *
+ * Returns: 0 if ok, < 0 errno code on error.
+ */
 int i2400m_set_idle_timeout(struct i2400m *i2400m, unsigned msecs)
 {
 	int result;
@@ -1009,6 +1332,19 @@ error_alloc:
 }
 
 
+/**
+ * i2400m_dev_initialize - Initialize the device once communications are ready
+ *
+ * @i2400m: device descriptor
+ *
+ * Returns: 0 if ok, < 0 errno code on error.
+ *
+ * Configures the device to work the way we like it.
+ *
+ * At the point of this call, the device is registered with the WiMAX
+ * and netdev stacks, firmware is uploaded and we can talk to the
+ * device normally.
+ */
 int i2400m_dev_initialize(struct i2400m *i2400m)
 {
 	int result;
@@ -1023,7 +1359,7 @@ int i2400m_dev_initialize(struct i2400m *i2400m)
 	d_fnstart(3, dev, "(i2400m %p)\n", i2400m);
 	if (i2400m_passive_mode)
 		goto out_passive;
-	
+	/* Disable idle mode? (enabled by default) */
 	if (i2400m_idle_mode_disabled) {
 		if (i2400m_le_v1_3(i2400m)) {
 			idle_params.hdr.type =
@@ -1043,7 +1379,7 @@ int i2400m_dev_initialize(struct i2400m *i2400m)
 		}
 	}
 	if (i2400m_ge_v1_4(i2400m)) {
-		
+		/* Enable extended RX data format? */
 		df.hdr.type =
 			cpu_to_le16(I2400M_TLV_CONFIG_D2H_DATA_FORMAT);
 		df.hdr.length = cpu_to_le16(
@@ -1051,6 +1387,8 @@ int i2400m_dev_initialize(struct i2400m *i2400m)
 		df.format = 1;
 		args[argc++] = &df.hdr;
 
+		/* Enable RX data reordering?
+		 * (switch flipped in rx.c:i2400m_rx_setup() after fw upload) */
 		if (i2400m->rx_reorder) {
 			dlhr.hdr.type =
 				cpu_to_le16(I2400M_TLV_CONFIG_DL_HOST_REORDER);
@@ -1064,6 +1402,12 @@ int i2400m_dev_initialize(struct i2400m *i2400m)
 	if (result < 0)
 		goto error;
 out_passive:
+	/*
+	 * Update state: Here it just calls a get state; parsing the
+	 * result (System State TLV and RF Status TLV [done in the rx
+	 * path hooks]) will set the hardware and software RF-Kill
+	 * status.
+	 */
 	result = i2400m_cmd_get_state(i2400m);
 error:
 	if (result < 0)
@@ -1073,6 +1417,16 @@ error:
 }
 
 
+/**
+ * i2400m_dev_shutdown - Shutdown a running device
+ *
+ * @i2400m: device descriptor
+ *
+ * Release resources acquired during the running of the device; in
+ * theory, should also tell the device to go to sleep, switch off the
+ * radio, all that, but at this point, in most cases (driver
+ * disconnection, reset handling) we can't even talk to the device.
+ */
 void i2400m_dev_shutdown(struct i2400m *i2400m)
 {
 	struct device *dev = i2400m_dev(i2400m);

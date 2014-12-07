@@ -10,6 +10,7 @@
  * (at your option) any later version.
  */
 
+/* #define VERBOSE_DEBUG */
 
 #include <linux/slab.h>
 #include <linux/kernel.h>
@@ -47,6 +48,7 @@ static unsigned qlen = 32;
 module_param(qlen, uint, 0);
 MODULE_PARM_DESC(qlenn, "depth of loopback queue");
 
+/*-------------------------------------------------------------------------*/
 
 static struct usb_interface_descriptor loopback_intf = {
 	.bLength =		sizeof loopback_intf,
@@ -54,9 +56,10 @@ static struct usb_interface_descriptor loopback_intf = {
 
 	.bNumEndpoints =	2,
 	.bInterfaceClass =	USB_CLASS_VENDOR_SPEC,
-	
+	/* .iInterface = DYNAMIC */
 };
 
+/* full speed support: */
 
 static struct usb_endpoint_descriptor fs_loop_source_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
@@ -81,6 +84,7 @@ static struct usb_descriptor_header *fs_loopback_descs[] = {
 	NULL,
 };
 
+/* high speed support: */
 
 static struct usb_endpoint_descriptor hs_loop_source_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
@@ -105,6 +109,7 @@ static struct usb_descriptor_header *hs_loopback_descs[] = {
 	NULL,
 };
 
+/* super speed support: */
 
 static struct usb_endpoint_descriptor ss_loop_source_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
@@ -147,14 +152,15 @@ static struct usb_descriptor_header *ss_loopback_descs[] = {
 	NULL,
 };
 
+/* function-specific strings: */
 
 static struct usb_string strings_loopback[] = {
 	[0].s = "loop input to output",
-	{  }			
+	{  }			/* end of list */
 };
 
 static struct usb_gadget_strings stringtab_loop = {
-	.language	= 0x0409,	
+	.language	= 0x0409,	/* en-us */
 	.strings	= strings_loopback,
 };
 
@@ -163,6 +169,7 @@ static struct usb_gadget_strings *loopback_strings[] = {
 	NULL,
 };
 
+/*-------------------------------------------------------------------------*/
 
 static int __init
 loopback_bind(struct usb_configuration *c, struct usb_function *f)
@@ -171,13 +178,13 @@ loopback_bind(struct usb_configuration *c, struct usb_function *f)
 	struct f_loopback	*loop = func_to_loop(f);
 	int			id;
 
-	
+	/* allocate interface ID(s) */
 	id = usb_interface_id(c, f);
 	if (id < 0)
 		return id;
 	loopback_intf.bInterfaceNumber = id;
 
-	
+	/* allocate endpoints */
 
 	loop->in_ep = usb_ep_autoconfig(cdev->gadget, &fs_loop_source_desc);
 	if (!loop->in_ep) {
@@ -186,14 +193,14 @@ autoconf_fail:
 			f->name, cdev->gadget->name);
 		return -ENODEV;
 	}
-	loop->in_ep->driver_data = cdev;	
+	loop->in_ep->driver_data = cdev;	/* claim */
 
 	loop->out_ep = usb_ep_autoconfig(cdev->gadget, &fs_loop_sink_desc);
 	if (!loop->out_ep)
 		goto autoconf_fail;
-	loop->out_ep->driver_data = cdev;	
+	loop->out_ep->driver_data = cdev;	/* claim */
 
-	
+	/* support high speed hardware */
 	if (gadget_is_dualspeed(c->cdev->gadget)) {
 		hs_loop_source_desc.bEndpointAddress =
 				fs_loop_source_desc.bEndpointAddress;
@@ -202,7 +209,7 @@ autoconf_fail:
 		f->hs_descriptors = hs_loopback_descs;
 	}
 
-	
+	/* support super speed hardware */
 	if (gadget_is_superspeed(c->cdev->gadget)) {
 		ss_loop_source_desc.bEndpointAddress =
 				fs_loop_source_desc.bEndpointAddress;
@@ -232,38 +239,43 @@ static void loopback_complete(struct usb_ep *ep, struct usb_request *req)
 
 	switch (status) {
 
-	case 0:				
+	case 0:				/* normal completion? */
 		if (ep == loop->out_ep) {
-			
+			/* loop this OUT packet back IN to the host */
 			req->zero = (req->actual < req->length);
 			req->length = req->actual;
 			status = usb_ep_queue(loop->in_ep, req, GFP_ATOMIC);
 			if (status == 0)
 				return;
 
-			
+			/* "should never get here" */
 			ERROR(cdev, "can't loop %s to %s: %d\n",
 				ep->name, loop->in_ep->name,
 				status);
 		}
 
-		
+		/* queue the buffer for some later OUT packet */
 		req->length = buflen;
 		status = usb_ep_queue(loop->out_ep, req, GFP_ATOMIC);
 		if (status == 0)
 			return;
 
-		
-		
+		/* "should never get here" */
+		/* FALLTHROUGH */
 
 	default:
 		ERROR(cdev, "%s loop complete --> %d, %d/%d\n", ep->name,
 				status, req->actual, req->length);
-		
+		/* FALLTHROUGH */
 
-	case -ECONNABORTED:		
-	case -ECONNRESET:		
-	case -ESHUTDOWN:		
+	/* NOTE:  since this driver doesn't maintain an explicit record
+	 * of requests it submitted (just maintains qlen count), we
+	 * rely on the hardware driver to clean up on disconnect or
+	 * endpoint disable.
+	 */
+	case -ECONNABORTED:		/* hardware forced ep reset */
+	case -ECONNRESET:		/* request dequeued */
+	case -ESHUTDOWN:		/* disconnect from host */
 		free_ep_req(ep, req);
 		return;
 	}
@@ -286,7 +298,7 @@ enable_loopback(struct usb_composite_dev *cdev, struct f_loopback *loop)
 	struct usb_request			*req;
 	unsigned				i;
 
-	
+	/* one endpoint writes data back IN to the host */
 	ep = loop->in_ep;
 	result = config_ep_by_speed(cdev->gadget, &(loop->function), ep);
 	if (result)
@@ -296,7 +308,7 @@ enable_loopback(struct usb_composite_dev *cdev, struct f_loopback *loop)
 		return result;
 	ep->driver_data = loop;
 
-	
+	/* one endpoint just reads OUT packets */
 	ep = loop->out_ep;
 	result = config_ep_by_speed(cdev->gadget, &(loop->function), ep);
 	if (result)
@@ -312,6 +324,10 @@ fail0:
 	}
 	ep->driver_data = loop;
 
+	/* allocate a bunch of read buffers and queue them all at once.
+	 * we buffer at most 'qlen' transfers; fewer if any need more
+	 * than 'buflen' bytes each.
+	 */
 	for (i = 0; i < qlen && result == 0; i++) {
 		req = alloc_ep_req(ep);
 		if (req) {
@@ -338,7 +354,7 @@ static int loopback_set_alt(struct usb_function *f,
 	struct f_loopback	*loop = func_to_loop(f);
 	struct usb_composite_dev *cdev = f->config->cdev;
 
-	
+	/* we know alt is zero */
 	if (loop->in_ep->driver_data)
 		disable_loopback(loop);
 	return enable_loopback(cdev, loop);
@@ -351,6 +367,7 @@ static void loopback_disable(struct usb_function *f)
 	disable_loopback(loop);
 }
 
+/*-------------------------------------------------------------------------*/
 
 static int __init loopback_bind_config(struct usb_configuration *c)
 {
@@ -379,14 +396,18 @@ static struct usb_configuration loopback_driver = {
 	.strings	= loopback_strings,
 	.bConfigurationValue = 2,
 	.bmAttributes	= USB_CONFIG_ATT_SELFPOWER,
-	
+	/* .iConfiguration = DYNAMIC */
 };
 
+/**
+ * loopback_add - add a loopback testing configuration to a device
+ * @cdev: the device to support the loopback configuration
+ */
 int __init loopback_add(struct usb_composite_dev *cdev, bool autoresume)
 {
 	int id;
 
-	
+	/* allocate string ID(s) */
 	id = usb_string_id(cdev);
 	if (id < 0)
 		return id;
@@ -395,11 +416,11 @@ int __init loopback_add(struct usb_composite_dev *cdev, bool autoresume)
 	loopback_intf.iInterface = id;
 	loopback_driver.iConfiguration = id;
 
-	
+	/* support autoresume for remote wakeup testing */
 	if (autoresume)
 		loopback_driver.bmAttributes |= USB_CONFIG_ATT_WAKEUP;
 
-	
+	/* support OTG systems */
 	if (gadget_is_otg(cdev->gadget)) {
 		loopback_driver.descriptors = otg_desc;
 		loopback_driver.bmAttributes |= USB_CONFIG_ATT_WAKEUP;

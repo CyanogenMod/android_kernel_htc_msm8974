@@ -39,6 +39,8 @@ static void wd_stop(struct work_struct *unused)
 			for (j = 0; j < 16 && i < len; j++, i++)
 				out_8(avr_addr + UART_TX, string[i]);
 			if (i == len) {
+				/* Read "OK" back: 4ms for the last "KKKK"
+				   plus a couple bytes back */
 				msleep(7);
 				printk("linkstation: disarming the AVR watchdog: ");
 				while (in_8(avr_addr + UART_LSR) & UART_LSR_DR)
@@ -61,19 +63,19 @@ void avr_uart_configure(void)
 	if (!avr_addr || !avr_clock)
 		return;
 
-	out_8(avr_addr + UART_LCR, cval);			
+	out_8(avr_addr + UART_LCR, cval);			/* initialise UART */
 	out_8(avr_addr + UART_MCR, 0);
 	out_8(avr_addr + UART_IER, 0);
 
 	cval |= UART_LCR_STOP | UART_LCR_PARITY | UART_LCR_EPAR;
 
-	out_8(avr_addr + UART_LCR, cval);			
+	out_8(avr_addr + UART_LCR, cval);			/* Set character format */
 
-	out_8(avr_addr + UART_LCR, cval | UART_LCR_DLAB);	
-	out_8(avr_addr + UART_DLL, quot & 0xff);		
-	out_8(avr_addr + UART_DLM, quot >> 8);			
-	out_8(avr_addr + UART_LCR, cval);			
-	out_8(avr_addr + UART_FCR, UART_FCR_ENABLE_FIFO);	
+	out_8(avr_addr + UART_LCR, cval | UART_LCR_DLAB);	/* set DLAB */
+	out_8(avr_addr + UART_DLL, quot & 0xff);		/* LS of divisor */
+	out_8(avr_addr + UART_DLM, quot >> 8);			/* MS of divisor */
+	out_8(avr_addr + UART_LCR, cval);			/* reset DLAB */
+	out_8(avr_addr + UART_FCR, UART_FCR_ENABLE_FIFO);	/* enable FIFO */
 }
 
 void avr_uart_send(const char c)
@@ -92,13 +94,13 @@ static void __init ls_uart_init(void)
 	local_irq_disable();
 
 #ifndef CONFIG_SERIAL_8250
-	out_8(avr_addr + UART_FCR, UART_FCR_ENABLE_FIFO);	
+	out_8(avr_addr + UART_FCR, UART_FCR_ENABLE_FIFO);	/* enable FIFO */
 	out_8(avr_addr + UART_FCR, UART_FCR_ENABLE_FIFO |
-	      UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT);	
+	      UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT);	/* clear FIFOs */
 	out_8(avr_addr + UART_FCR, 0);
 	out_8(avr_addr + UART_IER, 0);
 
-	
+	/* Clear up interrupts */
 	(void) in_8(avr_addr + UART_LSR);
 	(void) in_8(avr_addr + UART_RX);
 	(void) in_8(avr_addr + UART_IIR);

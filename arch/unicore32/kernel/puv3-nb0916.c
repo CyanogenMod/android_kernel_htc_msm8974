@@ -93,7 +93,7 @@ static irqreturn_t nb0916_lcdcaseoff_handler(int irq, void *dev_id)
 static irqreturn_t nb0916_overheat_handler(int irq, void *dev_id)
 {
 	machine_halt();
-	
+	/* SYSTEM HALT, NO RETURN */
 	return IRQ_HANDLED;
 }
 

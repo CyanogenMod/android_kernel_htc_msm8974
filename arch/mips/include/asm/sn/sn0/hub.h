@@ -9,6 +9,7 @@
 #ifndef _ASM_SN_SN0_HUB_H
 #define _ASM_SN_SN0_HUB_H
 
+/* The secret password; used to release protection */
 #define HUB_PASSWORD		0x53474972756c6573ull
 
 #define CHIPID_HUB		0
@@ -28,10 +29,12 @@
 #include <asm/sn/sn0/hubmd.h>
 #include <asm/sn/sn0/hubio.h>
 #include <asm/sn/sn0/hubni.h>
+//#include <asm/sn/sn0/hubcore.h>
 
+/* Translation of uncached attributes */
 #define	UATTR_HSPEC	0
 #define	UATTR_IO	1
 #define	UATTR_MSPEC	2
 #define	UATTR_UNCAC	3
 
-#endif 
+#endif /* _ASM_SN_SN0_HUB_H */

@@ -41,6 +41,10 @@
 #include "clock3xxx.h"
 #include "clock44xx.h"
 
+/*
+ * The machine specific code may provide the extra mapping besides the
+ * default mapping provided here.
+ */
 
 #if defined(CONFIG_SOC_OMAP2420) || defined(CONFIG_SOC_OMAP2430)
 static struct map_desc omap24xx_io_desc[] __initdata = {
@@ -303,6 +307,16 @@ void __init omap44xx_map_common_io(void)
 }
 #endif
 
+/*
+ * omap2_init_reprogram_sdrc - reprogram SDRC timing parameters
+ *
+ * Sets the CORE DPLL3 M2 divider to the same value that it's at
+ * currently.  This has the effect of setting the SDRC SDRAM AC timing
+ * registers to the values currently defined by the kernel.  Currently
+ * only defined for OMAP3; will return 0 if called on OMAP2.  Returns
+ * -EINVAL if the dpll3_m2_ck cannot be found, 0 if called on OMAP2,
+ * or passes along the return value of clk_set_rate().
+ */
 static int __init _omap2_init_reprogram_sdrc(void)
 {
 	struct clk *dpll3_m2_ck;
@@ -341,7 +355,7 @@ static void __init omap_hwmod_init_postsetup(void)
 {
 	u8 postsetup_state;
 
-	
+	/* Set the default postsetup state for all hwmods */
 #ifdef CONFIG_PM_RUNTIME
 	postsetup_state = _HWMOD_STATE_IDLE;
 #else
@@ -349,6 +363,19 @@ static void __init omap_hwmod_init_postsetup(void)
 #endif
 	omap_hwmod_for_each(_set_hwmod_postsetup_state, &postsetup_state);
 
+	/*
+	 * Set the default postsetup state for unusual modules (like
+	 * MPU WDT).
+	 *
+	 * The postsetup_state is not actually used until
+	 * omap_hwmod_late_init(), so boards that desire full watchdog
+	 * coverage of kernel initialization can reprogram the
+	 * postsetup_state between the calls to
+	 * omap2_init_common_infra() and omap_sdrc_init().
+	 *
+	 * XXX ideally we could detect whether the MPU WDT was currently
+	 * enabled here and make this conditional
+	 */
 	postsetup_state = _HWMOD_STATE_DISABLED;
 	omap_hwmod_for_each_by_class("wd_timer",
 				     _set_hwmod_postsetup_state,
@@ -387,6 +414,10 @@ void __init omap2430_init_early(void)
 }
 #endif
 
+/*
+ * Currently only board-omap3beagle.c should call this because of the
+ * same machine_id for 34xx and 36xx beagle.. Will get fixed with DT.
+ */
 #ifdef CONFIG_ARCH_OMAP3
 void __init omap3_init_early(void)
 {

@@ -20,7 +20,26 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: ni_670x
+Description: National Instruments 670x
+Author: Bart Joris <bjoris@advalvas.be>
+Updated: Wed, 11 Dec 2002 18:25:35 -0800
+Devices: [National Instruments] PCI-6703 (ni_670x), PCI-6704
+Status: unknown
 
+Commands are not supported.
+*/
+
+/*
+	Bart Joris <bjoris@advalvas.be> Last updated on 20/08/2001
+
+	Manuals:
+
+	322110a.pdf	PCI/PXI-6704 User Manual
+	322110b.pdf	PCI/PXI-6703/6704 User Manual
+
+*/
 
 #include <linux/interrupt.h>
 #include <linux/slab.h>
@@ -39,6 +58,7 @@
 #define	MISC_STATUS_OFFSET		0x14
 #define	MISC_CONTROL_OFFSET		0x14
 
+/* Board description*/
 
 struct ni_670x_board {
 	unsigned short dev_id;
@@ -186,7 +206,7 @@ static int ni_670x_attach(struct comedi_device *dev,
 		return -ENOMEM;
 
 	s = dev->subdevices + 0;
-	
+	/* analog output subdevice */
 	s->type = COMEDI_SUBD_AO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->n_chan = thisboard->ao_chans;
@@ -210,7 +230,7 @@ static int ni_670x_attach(struct comedi_device *dev,
 	s->insn_read = &ni_670x_ao_rinsn;
 
 	s = dev->subdevices + 1;
-	
+	/* digital i/o subdevice */
 	s->type = COMEDI_SUBD_DIO;
 	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
 	s->n_chan = 8;
@@ -219,9 +239,9 @@ static int ni_670x_attach(struct comedi_device *dev,
 	s->insn_bits = ni_670x_dio_insn_bits;
 	s->insn_config = ni_670x_dio_insn_config;
 
-	
+	/* Config of misc registers */
 	writel(0x10, devpriv->mite->daq_io_addr + MISC_CONTROL_OFFSET);
-	
+	/* Config of ao registers */
 	writel(0x00, devpriv->mite->daq_io_addr + AO_CONTROL_OFFSET);
 
 	printk(KERN_INFO "attached\n");
@@ -251,12 +271,22 @@ static int ni_670x_ao_winsn(struct comedi_device *dev,
 	int i;
 	int chan = CR_CHAN(insn->chanspec);
 
+	/* Channel number mapping :
+
+	   NI 6703/ NI 6704     | NI 6704 Only
+	   ----------------------------------------------------
+	   vch(0)       :       0       | ich(16)       :       1
+	   vch(1)       :       2       | ich(17)       :       3
+	   .    :       .       |   .                   .
+	   .    :       .       |   .                   .
+	   .    :       .       |   .                   .
+	   vch(15)      :       30      | ich(31)       :       31      */
 
 	for (i = 0; i < insn->n; i++) {
-		
+		/* First write in channel register which channel to use */
 		writel(((chan & 15) << 1) | ((chan & 16) >> 4),
 		       devpriv->mite->daq_io_addr + AO_CHAN_OFFSET);
-		
+		/* write channel value */
 		writel(data[i], devpriv->mite->daq_io_addr + AO_VALUE_OFFSET);
 		devpriv->ao_readback[chan] = data[i];
 	}
@@ -284,6 +314,8 @@ static int ni_670x_dio_insn_bits(struct comedi_device *dev,
 	if (insn->n != 2)
 		return -EINVAL;
 
+	/* The insn data is a mask in data[0] and the new data
+	 * in data[1], each channel cooresponding to a bit. */
 	if (data[0]) {
 		s->state &= ~data[0];
 		s->state |= data[0] & data[1];
@@ -291,6 +323,8 @@ static int ni_670x_dio_insn_bits(struct comedi_device *dev,
 		       devpriv->mite->daq_io_addr + DIO_PORT0_DATA_OFFSET);
 	}
 
+	/* on return, data[1] contains the value of the digital
+	 * input lines. */
 	data[1] = readl(devpriv->mite->daq_io_addr + DIO_PORT0_DATA_OFFSET);
 
 	return 2;

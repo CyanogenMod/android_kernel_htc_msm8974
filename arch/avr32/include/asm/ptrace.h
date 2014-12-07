@@ -11,6 +11,9 @@
 #define PTRACE_GETREGS		12
 #define PTRACE_SETREGS		13
 
+/*
+ * Status Register bits
+ */
 #define SR_H		0x20000000
 #define SR_J		0x10000000
 #define SR_DM		0x08000000
@@ -43,6 +46,7 @@
 #define SR_I0M_BIT	17
 #define SR_GM_BIT	16
 
+/* The user-visible part */
 #define SR_L		0x00000020
 #define SR_Q		0x00000010
 #define SR_V		0x00000008
@@ -57,6 +61,16 @@
 #define SR_Z_BIT	1
 #define SR_C_BIT	0
 
+/*
+ * The order is defined by the stmts instruction. r0 is stored first,
+ * so it gets the highest address.
+ *
+ * Registers 0-12 are general-purpose registers (r12 is normally used for
+ * the function return value).
+ * Register 13 is the stack pointer
+ * Register 14 is the link register
+ * Register 15 is the program counter (retrieved from the RAR sysreg)
+ */
 #define FRAME_SIZE_FULL 72
 #define REG_R12_ORIG	68
 #define REG_R0		64
@@ -81,11 +95,11 @@
 
 #ifndef __ASSEMBLY__
 struct pt_regs {
-	
+	/* These are always saved */
 	unsigned long sr;
 	unsigned long pc;
 
-	
+	/* These are sometimes saved */
 	unsigned long lr;
 	unsigned long sp;
 	unsigned long r12;
@@ -102,7 +116,7 @@ struct pt_regs {
 	unsigned long r1;
 	unsigned long r0;
 
-	
+	/* Only saved on system call */
 	unsigned long r12_orig;
 };
 
@@ -120,16 +134,24 @@ struct pt_regs {
 
 static __inline__ int valid_user_regs(struct pt_regs *regs)
 {
+	/*
+	 * Some of the Java bits might be acceptable if/when we
+	 * implement some support for that stuff...
+	 */
 	if ((regs->sr & 0xffff0000) == 0)
 		return 1;
 
+	/*
+	 * Force status register flags to be sane and report this
+	 * illegal behaviour...
+	 */
 	regs->sr &= 0x0000ffff;
 	return 0;
 }
 
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* ! __ASSEMBLY__ */
 
-#endif 
+#endif /* __ASM_AVR32_PTRACE_H */

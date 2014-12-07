@@ -69,4 +69,4 @@
 #define ID_AHA_39320D_HP		0x8011900500AC0E11ull
 #define ID_AHA_39320D_B_HP		0x801C900500AC0E11ull
 
-#endif 
+#endif /* _AIC79XX_PCI_H_ */

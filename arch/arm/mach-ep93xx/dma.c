@@ -33,6 +33,21 @@
 #define DMA_CHANNEL(_name, _base, _irq) \
 	{ .name = (_name), .base = (_base), .irq = (_irq) }
 
+/*
+ * DMA M2P channels.
+ *
+ * On the EP93xx chip the following peripherals my be allocated to the 10
+ * Memory to Internal Peripheral (M2P) channels (5 transmit + 5 receive).
+ *
+ *	I2S	contains 3 Tx and 3 Rx DMA Channels
+ *	AAC	contains 3 Tx and 3 Rx DMA Channels
+ *	UART1	contains 1 Tx and 1 Rx DMA Channels
+ *	UART2	contains 1 Tx and 1 Rx DMA Channels
+ *	UART3	contains 1 Tx and 1 Rx DMA Channels
+ *	IrDA	contains 1 Tx and 1 Rx DMA Channels
+ *
+ * Registers are mapped statically in ep93xx_map_io().
+ */
 static struct ep93xx_dma_chan_data ep93xx_dma_m2p_channels[] = {
 	DMA_CHANNEL("m2p0", EP93XX_DMA_BASE + 0x0000, IRQ_EP93XX_DMAM2P0),
 	DMA_CHANNEL("m2p1", EP93XX_DMA_BASE + 0x0040, IRQ_EP93XX_DMAM2P1),
@@ -59,6 +74,15 @@ static struct platform_device ep93xx_dma_m2p_device = {
 	},
 };
 
+/*
+ * DMA M2M channels.
+ *
+ * There are 2 M2M channels which support memcpy/memset and in addition simple
+ * hardware requests from/to SSP and IDE. We do not implement an external
+ * hardware requests.
+ *
+ * Registers are mapped statically in ep93xx_map_io().
+ */
 static struct ep93xx_dma_chan_data ep93xx_dma_m2m_channels[] = {
 	DMA_CHANNEL("m2m0", EP93XX_DMA_BASE + 0x0100, IRQ_EP93XX_DMAM2M0),
 	DMA_CHANNEL("m2m1", EP93XX_DMA_BASE + 0x0140, IRQ_EP93XX_DMAM2M1),

@@ -8,4 +8,4 @@ struct xt_length_info {
     __u8	invert;
 };
 
-#endif 
+#endif /*_XT_LENGTH_H*/

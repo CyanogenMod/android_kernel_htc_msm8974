@@ -35,75 +35,79 @@
 
 #ifndef CONFIG_64BIT
 #define ONELONG "%08lx: "
-#else 
+#else /* CONFIG_64BIT */
 #define ONELONG "%016lx: "
-#endif 
+#endif /* CONFIG_64BIT */
 
-#define OPERAND_GPR	0x1	
-#define OPERAND_FPR	0x2	
-#define OPERAND_AR	0x4	
-#define OPERAND_CR	0x8	
-#define OPERAND_DISP	0x10	
-#define OPERAND_BASE	0x20	
-#define OPERAND_INDEX	0x40	
-#define OPERAND_PCREL	0x80	
-#define OPERAND_SIGNED	0x100	
-#define OPERAND_LENGTH	0x200	
+#define OPERAND_GPR	0x1	/* Operand printed as %rx */
+#define OPERAND_FPR	0x2	/* Operand printed as %fx */
+#define OPERAND_AR	0x4	/* Operand printed as %ax */
+#define OPERAND_CR	0x8	/* Operand printed as %cx */
+#define OPERAND_DISP	0x10	/* Operand printed as displacement */
+#define OPERAND_BASE	0x20	/* Operand printed as base register */
+#define OPERAND_INDEX	0x40	/* Operand printed as index register */
+#define OPERAND_PCREL	0x80	/* Operand printed as pc-relative symbol */
+#define OPERAND_SIGNED	0x100	/* Operand printed as signed value */
+#define OPERAND_LENGTH	0x200	/* Operand printed as length (+1) */
 
 enum {
-	UNUSED,	
-	R_8,	
-	R_12,	
-	R_16,	
-	R_20,	
-	R_24,	
-	R_28,	
-	R_32,	
-	F_8,	
-	F_12,	
-	F_16,	
-	F_20,	
-	F_24,	
-	F_28,	
-	F_32,	
-	A_8,	
-	A_12,	
-	A_24,	
-	A_28,	
-	C_8,	
-	C_12,	
-	B_16,	
-	B_32,	
-	X_12,	
-	D_20,	
-	D_36,	
-	D20_20,	
-	L4_8,	
-	L4_12,	
-	L8_8,	
-	U4_8,	
-	U4_12,	
-	U4_16,	
-	U4_20,	
-	U4_32,	
-	U8_8,	
-	U8_16,	
-	U8_24,	
-	U8_32,	
-	I8_8,	
-	I8_32,	
-	I16_16,	
-	I16_32,	
-	U16_16,	
-	U16_32,	
-	J16_16,	
-	J32_16,	
-	I32_16,	
-	U32_16,	
-	M_16,	
-	RO_28,	
+	UNUSED,	/* Indicates the end of the operand list */
+	R_8,	/* GPR starting at position 8 */
+	R_12,	/* GPR starting at position 12 */
+	R_16,	/* GPR starting at position 16 */
+	R_20,	/* GPR starting at position 20 */
+	R_24,	/* GPR starting at position 24 */
+	R_28,	/* GPR starting at position 28 */
+	R_32,	/* GPR starting at position 32 */
+	F_8,	/* FPR starting at position 8 */
+	F_12,	/* FPR starting at position 12 */
+	F_16,	/* FPR starting at position 16 */
+	F_20,	/* FPR starting at position 16 */
+	F_24,	/* FPR starting at position 24 */
+	F_28,	/* FPR starting at position 28 */
+	F_32,	/* FPR starting at position 32 */
+	A_8,	/* Access reg. starting at position 8 */
+	A_12,	/* Access reg. starting at position 12 */
+	A_24,	/* Access reg. starting at position 24 */
+	A_28,	/* Access reg. starting at position 28 */
+	C_8,	/* Control reg. starting at position 8 */
+	C_12,	/* Control reg. starting at position 12 */
+	B_16,	/* Base register starting at position 16 */
+	B_32,	/* Base register starting at position 32 */
+	X_12,	/* Index register starting at position 12 */
+	D_20,	/* Displacement starting at position 20 */
+	D_36,	/* Displacement starting at position 36 */
+	D20_20,	/* 20 bit displacement starting at 20 */
+	L4_8,	/* 4 bit length starting at position 8 */
+	L4_12,	/* 4 bit length starting at position 12 */
+	L8_8,	/* 8 bit length starting at position 8 */
+	U4_8,	/* 4 bit unsigned value starting at 8 */
+	U4_12,	/* 4 bit unsigned value starting at 12 */
+	U4_16,	/* 4 bit unsigned value starting at 16 */
+	U4_20,	/* 4 bit unsigned value starting at 20 */
+	U4_32,	/* 4 bit unsigned value starting at 32 */
+	U8_8,	/* 8 bit unsigned value starting at 8 */
+	U8_16,	/* 8 bit unsigned value starting at 16 */
+	U8_24,	/* 8 bit unsigned value starting at 24 */
+	U8_32,	/* 8 bit unsigned value starting at 32 */
+	I8_8,	/* 8 bit signed value starting at 8 */
+	I8_32,	/* 8 bit signed value starting at 32 */
+	I16_16,	/* 16 bit signed value starting at 16 */
+	I16_32,	/* 32 bit signed value starting at 16 */
+	U16_16,	/* 16 bit unsigned value starting at 16 */
+	U16_32,	/* 32 bit unsigned value starting at 16 */
+	J16_16,	/* PC relative jump offset at 16 */
+	J32_16,	/* PC relative long offset at 16 */
+	I32_16,	/* 32 bit signed value starting at 16 */
+	U32_16,	/* 32 bit unsigned value starting at 16 */
+	M_16,	/* 4 bit optional mask starting at 16 */
+	RO_28,	/* optional GPR starting at position 28 */
 };
 
+/*
+ * Enumeration of the different instruction formats.
+ * For details consult the principles of operation.
+ */
 enum {
 	INSTR_INVALID,
 	INSTR_E,
@@ -142,9 +146,9 @@ enum {
 };
 
 struct operand {
-	int bits;		
-	int shift;		
-	int flags;		
+	int bits;		/* The number of bits in the operand. */
+	int shift;		/* The number of bits to shift. */
+	int flags;		/* One bit syntax flags. */
 };
 
 struct insn {
@@ -1346,13 +1350,14 @@ static struct insn opcode_ed[] = {
 	{ "", 0, INSTR_INVALID }
 };
 
+/* Extracts an operand value from an instruction.  */
 static unsigned int extract_operand(unsigned char *code,
 				    const struct operand *operand)
 {
 	unsigned int val;
 	int bits;
 
-	
+	/* Extract fragments of the operand byte for byte.  */
 	code += operand->shift / 8;
 	bits = (operand->shift & 7) + operand->bits;
 	val = 0;
@@ -1364,20 +1369,20 @@ static unsigned int extract_operand(unsigned char *code,
 	val >>= -bits;
 	val &= ((1U << (operand->bits - 1)) << 1) - 1;
 
-	
+	/* Check for special long displacement case.  */
 	if (operand->bits == 20 && operand->shift == 20)
 		val = (val & 0xff) << 12 | (val & 0xfff00) >> 8;
 
-	
+	/* Sign extend value if the operand is signed or pc relative.  */
 	if ((operand->flags & (OPERAND_SIGNED | OPERAND_PCREL)) &&
 	    (val & (1U << (operand->bits - 1))))
 		val |= (-1U << (operand->bits - 1)) << 1;
 
-	
+	/* Double value if the operand is pc relative.	*/
 	if (operand->flags & OPERAND_PCREL)
 		val <<= 1;
 
-	
+	/* Length x in an instructions has real length x + 1.  */
 	if (operand->flags & OPERAND_LENGTH)
 		val++;
 	return val;
@@ -1482,7 +1487,7 @@ static int print_insn(char *buffer, unsigned char *code, unsigned long addr)
 				       long_insn_name[(int) insn->name[1]]);
 		else
 			ptr += sprintf(ptr, "%.5s\t", insn->name);
-		
+		/* Extract the operands. */
 		separator = 0;
 		for (ops = formats[insn->format] + 1, i = 0;
 		     *ops != 0 && i < 6; ops++, i++) {
@@ -1534,7 +1539,7 @@ void show_code(struct pt_regs *regs)
 	unsigned long addr;
 	int start, end, opsize, hops, i;
 
-	
+	/* Get a snapshot of the 64 bytes surrounding the fault address. */
 	old_fs = get_fs();
 	set_fs((regs->psw.mask & PSW_MASK_PSTATE) ? USER_DS : KERNEL_DS);
 	for (start = 32; start && regs->psw.addr >= 34 - start; start -= 2) {
@@ -1550,12 +1555,12 @@ void show_code(struct pt_regs *regs)
 			break;
 	}
 	set_fs(old_fs);
-	
+	/* Code snapshot useable ? */
 	if ((regs->psw.addr & 1) || start >= end) {
 		printk("%s Code: Bad PSW.\n", mode);
 		return;
 	}
-	
+	/* Find a starting point for the disassembly. */
 	while (start < 32) {
 		for (i = 0, hops = 0; start + i < 32 && hops < 3; hops++) {
 			if (!find_insn(code + start + i))
@@ -1563,11 +1568,11 @@ void show_code(struct pt_regs *regs)
 			i += insn_length(code[start + i]);
 		}
 		if (start + i == 32)
-			
+			/* Looks good, sequence ends at PSW. */
 			break;
 		start += 2;
 	}
-	
+	/* Decode the instructions. */
 	ptr = buffer;
 	ptr += sprintf(ptr, "%s Code:", mode);
 	hops = 0;

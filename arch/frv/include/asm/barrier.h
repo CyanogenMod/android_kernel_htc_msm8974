@@ -26,4 +26,4 @@
 #define set_mb(var, value) \
 	do { var = (value); barrier(); } while (0)
 
-#endif 
+#endif /* _ASM_BARRIER_H */

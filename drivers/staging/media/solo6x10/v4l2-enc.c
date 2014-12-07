@@ -104,7 +104,7 @@ static void solo_motion_toggle(struct solo_enc_dev *solo_enc, int on)
 	else
 		solo_dev->motion_mask &= ~(1 << ch);
 
-	
+	/* Do this regardless of if we are turning on or off */
 	solo_reg_write(solo_enc->solo_dev, SOLO_VI_MOT_CLEAR,
 		       1 << solo_enc->ch);
 	solo_enc->motion_detected = 0;
@@ -121,6 +121,7 @@ static void solo_motion_toggle(struct solo_enc_dev *solo_enc, int on)
 	spin_unlock(&solo_enc->lock);
 }
 
+/* Should be called with solo_enc->lock held */
 static void solo_update_mode(struct solo_enc_dev *solo_enc)
 {
 	struct solo_dev *solo_dev = solo_enc->solo_dev;
@@ -145,6 +146,7 @@ static void solo_update_mode(struct solo_enc_dev *solo_enc)
 	}
 }
 
+/* Should be called with solo_enc->lock held */
 static int solo_enc_on(struct solo_enc_fh *fh)
 {
 	struct solo_enc_dev *solo_enc = fh->enc;
@@ -159,7 +161,7 @@ static int solo_enc_on(struct solo_enc_fh *fh)
 
 	solo_update_mode(solo_enc);
 
-	
+	/* Make sure to bw check on first reader */
 	if (!atomic_read(&solo_enc->readers)) {
 		if (solo_enc->bw_weight > solo_dev->enc_bw_remain)
 			return -EBUSY;
@@ -176,10 +178,10 @@ static int solo_enc_on(struct solo_enc_fh *fh)
 	if (atomic_inc_return(&solo_enc->readers) > 1)
 		return 0;
 
-	
+	/* Disable all encoding for this channel */
 	solo_reg_write(solo_dev, SOLO_CAP_CH_SCALE(ch), 0);
 
-	
+	/* Common for both std and ext encoding */
 	solo_reg_write(solo_dev, SOLO_VE_CH_INTL(ch),
 		       solo_enc->interlaced ? 1 : 0);
 
@@ -188,20 +190,20 @@ static int solo_enc_on(struct solo_enc_fh *fh)
 	else
 		interval = solo_enc->interval;
 
-	
+	/* Standard encoding only */
 	solo_reg_write(solo_dev, SOLO_VE_CH_GOP(ch), solo_enc->gop);
 	solo_reg_write(solo_dev, SOLO_VE_CH_QP(ch), solo_enc->qp);
 	solo_reg_write(solo_dev, SOLO_CAP_CH_INTV(ch), interval);
 
-	
+	/* Extended encoding only */
 	solo_reg_write(solo_dev, SOLO_VE_CH_GOP_E(ch), solo_enc->gop);
 	solo_reg_write(solo_dev, SOLO_VE_CH_QP_E(ch), solo_enc->qp);
 	solo_reg_write(solo_dev, SOLO_CAP_CH_INTV_E(ch), interval);
 
-	
+	/* Enables the standard encoder */
 	solo_reg_write(solo_dev, SOLO_CAP_CH_SCALE(ch), solo_enc->mode);
 
-	
+	/* Settle down Beavis... */
 	mdelay(10);
 
 	return 0;
@@ -236,7 +238,7 @@ static int solo_start_fh_thread(struct solo_enc_fh *fh)
 
 	fh->kthread = kthread_run(solo_enc_thread, fh, SOLO6X10_NAME "_enc");
 
-	
+	/* Oops, we had a problem */
 	if (IS_ERR(fh->kthread)) {
 		spin_lock(&solo_enc->lock);
 		solo_enc_off(fh);
@@ -299,7 +301,7 @@ static int enc_get_mpeg_dma_sg(struct solo_dev *solo_dev,
 				       SOLO_MP4E_EXT_ADDR(solo_dev) + off, size);
 	}
 
-	
+	/* Buffer wrap */
 	ret = solo_p2m_dma_sg(solo_dev, SOLO_P2M_DMA_ID_MP4E, desc, 0,
 			      sglist, skip, SOLO_MP4E_EXT_ADDR(solo_dev) + off,
 			      SOLO_MP4E_EXT_SIZE(solo_dev) - off);
@@ -326,7 +328,7 @@ static int enc_get_mpeg_dma_t(struct solo_dev *solo_dev,
 				      SOLO_MP4E_EXT_ADDR(solo_dev) + off, size);
 	}
 
-	
+	/* Buffer wrap */
 	ret = solo_p2m_dma_t(solo_dev, SOLO_P2M_DMA_ID_MP4E, 0, buf,
 			     SOLO_MP4E_EXT_ADDR(solo_dev) + off,
 			     SOLO_MP4E_EXT_SIZE(solo_dev) - off);
@@ -368,7 +370,7 @@ static int enc_get_jpeg_dma_sg(struct solo_dev *solo_dev,
 				       SOLO_JPEG_EXT_ADDR(solo_dev) + off, size);
 	}
 
-	
+	/* Buffer wrap */
 	ret = solo_p2m_dma_sg(solo_dev, SOLO_P2M_DMA_ID_JPEG, desc, 0,
 			      sglist, skip, SOLO_JPEG_EXT_ADDR(solo_dev) + off,
 			      SOLO_JPEG_EXT_SIZE(solo_dev) - off);
@@ -381,6 +383,7 @@ static int enc_get_jpeg_dma_sg(struct solo_dev *solo_dev,
 	return ret;
 }
 
+/* Returns true of __chk is within the first __range bytes of __off */
 #define OFF_IN_RANGE(__off, __range, __chk) \
 	((__off <= __chk) && ((__off + __range) >= __chk))
 
@@ -421,12 +424,12 @@ static int solo_fill_jpeg(struct solo_enc_fh *fh, struct solo_enc_buf *enc_buf,
 	struct solo_dev *solo_dev = fh->enc->solo_dev;
 	int size = enc_buf->jpeg_size;
 
-	
+	/* Copy the header first (direct write) */
 	solo_jpeg_header(fh->enc, vbuf);
 
 	vb->size = size + sizeof(jpeg_header);
 
-	
+	/* Grab the jpeg frame */
 	return enc_get_jpeg_dma_sg(solo_dev, fh->desc, vbuf->sglist,
 				   sizeof(jpeg_header),
 				   enc_buf->jpeg_off, size);
@@ -452,6 +455,7 @@ static inline u8 vop_vsize(__le32 *vh)
 	return __le32_to_cpu(vh[1]) & 0xFF;
 }
 
+/* must be called with *bits % 8 = 0 */
 static void write_bytes(u8 **out, unsigned *bits, const u8 *src, unsigned count)
 {
 	memcpy(*out, src, count);
@@ -462,18 +466,18 @@ static void write_bytes(u8 **out, unsigned *bits, const u8 *src, unsigned count)
 static void write_bits(u8 **out, unsigned *bits, u32 value, unsigned count)
 {
 
-	value <<= 32 - count; 
+	value <<= 32 - count; // shift to the right
 
 	while (count--) {
 		**out <<= 1;
-		**out |= !!(value & (1 << 31)); 
+		**out |= !!(value & (1 << 31)); /* MSB */
 		value <<= 1;
 		if (++(*bits) % 8 == 0)
 			(*out)++;
 	}
 }
 
-static void write_ue(u8 **out, unsigned *bits, unsigned value) 
+static void write_ue(u8 **out, unsigned *bits, unsigned value) /* H.264 only */
 {
 	uint32_t max = 0, cnt = 0;
 
@@ -485,7 +489,7 @@ static void write_ue(u8 **out, unsigned *bits, unsigned value)
 	write_bits(out, bits, ~(max - value), cnt);
 }
 
-static void write_se(u8 **out, unsigned *bits, int value) 
+static void write_se(u8 **out, unsigned *bits, int value) /* H.264 only */
 {
 	if (value <= 0)
 		write_ue(out, bits, -value * 2);
@@ -496,7 +500,7 @@ static void write_se(u8 **out, unsigned *bits, int value)
 static void write_mpeg4_end(u8 **out, unsigned *bits)
 {
 	write_bits(out, bits, 0, 1);
-	
+	/* align on 32-bit boundary */
 	if (*bits % 32)
 		write_bits(out, bits, 0xFFFFFFFF, 32 - *bits % 32);
 }
@@ -515,8 +519,8 @@ static void mpeg4_write_vol(u8 **out, struct solo_dev *solo_dev,
 			    __le32 *vh, unsigned fps, unsigned interval)
 {
 	static const u8 hdr[] = {
-		0, 0, 1, 0x00 ,
-		0, 0, 1, 0x20 
+		0, 0, 1, 0x00 /* video_object_start_code */,
+		0, 0, 1, 0x20 /* video_object_layer_start_code */
 	};
 	unsigned bits = 0;
 	unsigned width = vop_hsize(vh) << 4;
@@ -524,55 +528,55 @@ static void mpeg4_write_vol(u8 **out, struct solo_dev *solo_dev,
 	unsigned interlaced = vop_interlaced(vh);
 
 	write_bytes(out, &bits, hdr, sizeof(hdr));
-	write_bits(out, &bits,    0,  1); 
-	write_bits(out, &bits, 0x04,  8); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits,    2,  4); 
-	write_bits(out, &bits,    0,  3); 
+	write_bits(out, &bits,    0,  1); /* random_accessible_vol */
+	write_bits(out, &bits, 0x04,  8); /* video_object_type_indication: main */
+	write_bits(out, &bits,    1,  1); /* is_object_layer_identifier */
+	write_bits(out, &bits,    2,  4); /* video_object_layer_verid: table V2-39 */
+	write_bits(out, &bits,    0,  3); /* video_object_layer_priority */
 	if (solo_dev->video_type == SOLO_VO_FMT_TYPE_NTSC)
-		write_bits(out, &bits,  3,  4); 
+		write_bits(out, &bits,  3,  4); /* aspect_ratio_info, assuming 4:3 */
 	else
 		write_bits(out, &bits,  2,  4);
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits,    1,  2); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits,    0,  1); 
-	write_bits(out, &bits,    0,  2); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits,  fps, 16); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits, interval, 15); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits, width, 13); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits, height, 13); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits, interlaced, 1); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits,    0,  2); 
-	write_bits(out, &bits,    0,  1); 
-	write_bits(out, &bits,    1,  0); 
-	write_bits(out, &bits,    0,  1); 
-	write_bits(out, &bits,    0,  1); 
-	write_bits(out, &bits,    0,  1); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits,    1,  1); 
-	write_bits(out, &bits,    0,  1); 
-	write_bits(out, &bits,    0,  1); 
-	write_bits(out, &bits,    0,  1); 
-	write_bits(out, &bits,    0,  1); 
+	write_bits(out, &bits,    1,  1); /* vol_control_parameters */
+	write_bits(out, &bits,    1,  2); /* chroma_format: 4:2:0 */
+	write_bits(out, &bits,    1,  1); /* low_delay */
+	write_bits(out, &bits,    0,  1); /* vbv_parameters */
+	write_bits(out, &bits,    0,  2); /* video_object_layer_shape: rectangular */
+	write_bits(out, &bits,    1,  1); /* marker_bit */
+	write_bits(out, &bits,  fps, 16); /* vop_time_increment_resolution */
+	write_bits(out, &bits,    1,  1); /* marker_bit */
+	write_bits(out, &bits,    1,  1); /* fixed_vop_rate */
+	write_bits(out, &bits, interval, 15); /* fixed_vop_time_increment */
+	write_bits(out, &bits,    1,  1); /* marker_bit */
+	write_bits(out, &bits, width, 13); /* video_object_layer_width */
+	write_bits(out, &bits,    1,  1); /* marker_bit */
+	write_bits(out, &bits, height, 13); /* video_object_layer_height */
+	write_bits(out, &bits,    1,  1); /* marker_bit */
+	write_bits(out, &bits, interlaced, 1); /* interlaced */
+	write_bits(out, &bits,    1,  1); /* obmc_disable */
+	write_bits(out, &bits,    0,  2); /* sprite_enable */
+	write_bits(out, &bits,    0,  1); /* not_8_bit */
+	write_bits(out, &bits,    1,  0); /* quant_type */
+	write_bits(out, &bits,    0,  1); /* load_intra_quant_mat */
+	write_bits(out, &bits,    0,  1); /* load_nonintra_quant_mat */
+	write_bits(out, &bits,    0,  1); /* quarter_sample */
+	write_bits(out, &bits,    1,  1); /* complexity_estimation_disable */
+	write_bits(out, &bits,    1,  1); /* resync_marker_disable */
+	write_bits(out, &bits,    0,  1); /* data_partitioned */
+	write_bits(out, &bits,    0,  1); /* newpred_enable */
+	write_bits(out, &bits,    0,  1); /* reduced_resolution_vop_enable */
+	write_bits(out, &bits,    0,  1); /* scalability */
 	write_mpeg4_end(out, &bits);
 }
 
 static void h264_write_vol(u8 **out, struct solo_dev *solo_dev, __le32 *vh)
 {
 	static const u8 sps[] = {
-		0, 0, 0, 1 , 0x67, 66 ,
-		0 , 30 
+		0, 0, 0, 1 /* start code */, 0x67, 66 /* profile_idc */,
+		0 /* constraints */, 30 /* level_idc */
 	};
 	static const u8 pps[] = {
-		0, 0, 0, 1 , 0x68
+		0, 0, 0, 1 /* start code */, 0x68
 	};
 
 	unsigned bits = 0;
@@ -580,36 +584,36 @@ static void h264_write_vol(u8 **out, struct solo_dev *solo_dev, __le32 *vh)
 	unsigned mbs_h = vop_vsize(vh);
 
 	write_bytes(out, &bits, sps, sizeof(sps));
-	write_ue(out, &bits,   0);	
-	write_ue(out, &bits,   5);	
-	write_ue(out, &bits,   0);	
-	write_ue(out, &bits,   6);	
-	write_ue(out, &bits,   1);	
-	write_bits(out, &bits, 0, 1);	
-	write_ue(out, &bits, mbs_w - 1);	
-	write_ue(out, &bits, mbs_h - 1);	
-	write_bits(out, &bits, 1, 1);	
-	write_bits(out, &bits, 1, 1);	
-	write_bits(out, &bits, 0, 1);	
-	write_bits(out, &bits, 0, 1);	
+	write_ue(out, &bits,   0);	/* seq_parameter_set_id */
+	write_ue(out, &bits,   5);	/* log2_max_frame_num_minus4 */
+	write_ue(out, &bits,   0);	/* pic_order_cnt_type */
+	write_ue(out, &bits,   6);	/* log2_max_pic_order_cnt_lsb_minus4 */
+	write_ue(out, &bits,   1);	/* max_num_ref_frames */
+	write_bits(out, &bits, 0, 1);	/* gaps_in_frame_num_value_allowed_flag */
+	write_ue(out, &bits, mbs_w - 1);	/* pic_width_in_mbs_minus1 */
+	write_ue(out, &bits, mbs_h - 1);	/* pic_height_in_map_units_minus1 */
+	write_bits(out, &bits, 1, 1);	/* frame_mbs_only_flag */
+	write_bits(out, &bits, 1, 1);	/* direct_8x8_frame_field_flag */
+	write_bits(out, &bits, 0, 1);	/* frame_cropping_flag */
+	write_bits(out, &bits, 0, 1);	/* vui_parameters_present_flag */
 	write_h264_end(out, &bits, 0);
 
 	write_bytes(out, &bits, pps, sizeof(pps));
-	write_ue(out, &bits,   0);	
-	write_ue(out, &bits,   0);	
-	write_bits(out, &bits, 0, 1);	
-	write_bits(out, &bits, 0, 1);	
-	write_ue(out, &bits,   0);	
-	write_ue(out, &bits,   0);	
-	write_ue(out, &bits,   0);	
-	write_bits(out, &bits, 0, 1);	
-	write_bits(out, &bits, 0, 2);	
-	write_se(out, &bits,   0);	
-	write_se(out, &bits,   0);	
-	write_se(out, &bits,   2);	
-	write_bits(out, &bits, 0, 1);	
-	write_bits(out, &bits, 1, 1);	
-	write_bits(out, &bits, 0, 1);	
+	write_ue(out, &bits,   0);	/* pic_parameter_set_id */
+	write_ue(out, &bits,   0);	/* seq_parameter_set_id */
+	write_bits(out, &bits, 0, 1);	/* entropy_coding_mode_flag */
+	write_bits(out, &bits, 0, 1);	/* bottom_field_pic_order_in_frame_present_flag */
+	write_ue(out, &bits,   0);	/* num_slice_groups_minus1 */
+	write_ue(out, &bits,   0);	/* num_ref_idx_l0_default_active_minus1 */
+	write_ue(out, &bits,   0);	/* num_ref_idx_l1_default_active_minus1 */
+	write_bits(out, &bits, 0, 1);	/* weighted_pred_flag */
+	write_bits(out, &bits, 0, 2);	/* weighted_bipred_idc */
+	write_se(out, &bits,   0);	/* pic_init_qp_minus26 */
+	write_se(out, &bits,   0);	/* pic_init_qs_minus26 */
+	write_se(out, &bits,   2);	/* chroma_qp_index_offset */
+	write_bits(out, &bits, 0, 1);	/* deblocking_filter_control_present_flag */
+	write_bits(out, &bits, 1, 1);	/* constrained_intra_pred_flag */
+	write_bits(out, &bits, 0, 1);	/* redundant_pic_cnt_present_flag */
 	write_h264_end(out, &bits, 1);
 }
 
@@ -631,7 +635,7 @@ static int solo_fill_mpeg(struct solo_enc_fh *fh, struct solo_enc_buf *enc_buf,
 	if (WARN_ON_ONCE(enc_buf->size <= sizeof(vh)))
 		return -EINVAL;
 
-	
+	/* First get the hardware vop header (not real mpeg) */
 	ret = enc_get_mpeg_dma(solo_dev, vh, enc_buf->off, sizeof(vh));
 	if (WARN_ON_ONCE(ret))
 		return ret;
@@ -643,7 +647,7 @@ static int solo_fill_mpeg(struct solo_enc_fh *fh, struct solo_enc_buf *enc_buf,
 	vb->height = vop_vsize(vh) << 4;
 	vb->size = vop_size(vh);
 
-	
+	/* If this is a key frame, add extra m4v header */
 	if (!enc_buf->vop) {
 		u8 header[MAX_VOL_HEADER_LENGTH], *out = header;
 
@@ -655,11 +659,11 @@ static int solo_fill_mpeg(struct solo_enc_fh *fh, struct solo_enc_buf *enc_buf,
 					solo_enc->interval * 1000);
 		skip = out - header;
 		enc_write_sg(vbuf->sglist, header, skip);
-		
+		/* Adjust the dma buffer past this header */
 		vb->size += skip;
 	}
 
-	
+	/* Now get the actual mpeg payload */
 	frame_off = (enc_buf->off + sizeof(vh)) % SOLO_MP4E_EXT_SIZE(solo_dev);
 	frame_size = enc_buf->size - sizeof(vh);
 
@@ -695,7 +699,7 @@ static void solo_enc_fillbuf(struct solo_enc_fh *fh,
 				break;
 			}
 		} else {
-			
+			/* For mjpeg, keep reading to the newest frame */
 			enc_buf = ebuf;
 		}
 	}
@@ -865,13 +869,13 @@ void solo_enc_v4l2_isr(struct solo_dev *solo_dev)
 			     jpeg_next - jpeg_current) %
 			    SOLO_JPEG_EXT_SIZE(solo_dev);
 
-		
+		/* XXX I think this means we had a ring overflow? */
 		if (mpeg_current > mpeg_next && mpeg_size != reg_mpeg_size) {
 			enc_reset_gop(solo_dev, ch);
 			continue;
 		}
 
-		
+		/* When resetting the GOP, skip frames until I-frame */
 		if (enc_gop_reset(solo_dev, ch, vop_type))
 			continue;
 
@@ -918,7 +922,7 @@ static int solo_enc_buf_prepare(struct videobuf_queue *vq,
 	if (vb->baddr != 0 && vb->bsize < vb->size)
 		return -EINVAL;
 
-	
+	/* These properties only change when queue is idle */
 	vb->width = solo_enc->width;
 	vb->height = solo_enc->height;
 	vb->field  = field;
@@ -1011,7 +1015,7 @@ static ssize_t solo_enc_read(struct file *file, char __user *data,
 	struct solo_enc_fh *fh = file->private_data;
 	struct solo_enc_dev *solo_enc = fh->enc;
 
-	
+	/* Make sure the encoder is on */
 	if (!fh->enc_on) {
 		int ret;
 
@@ -1140,7 +1144,7 @@ static int solo_enc_try_fmt_cap(struct file *file, void *priv,
 	    pix->pixelformat != V4L2_PIX_FMT_MJPEG)
 		return -EINVAL;
 
-	
+	/* We cannot change width/height in mid read */
 	if (atomic_read(&solo_enc->readers) > 0) {
 		if (pix->width != solo_enc->width ||
 		    pix->height != solo_enc->height)
@@ -1149,11 +1153,11 @@ static int solo_enc_try_fmt_cap(struct file *file, void *priv,
 
 	if (pix->width < solo_dev->video_hsize ||
 	    pix->height < solo_dev->video_vsize << 1) {
-		
+		/* Default to CIF 1/2 size */
 		pix->width = solo_dev->video_hsize >> 1;
 		pix->height = solo_dev->video_vsize;
 	} else {
-		
+		/* Full frame */
 		pix->width = solo_dev->video_hsize;
 		pix->height = solo_dev->video_vsize << 1;
 	}
@@ -1163,7 +1167,7 @@ static int solo_enc_try_fmt_cap(struct file *file, void *priv,
 	else if (pix->field != V4L2_FIELD_INTERLACED)
 		pix->field = V4L2_FIELD_INTERLACED;
 
-	
+	/* Just set these */
 	pix->colorspace = V4L2_COLORSPACE_SMPTE170M;
 	pix->sizeimage = FRAME_BUF_SIZE;
 
@@ -1192,7 +1196,7 @@ static int solo_enc_set_fmt_cap(struct file *file, void *priv,
 	else
 		solo_enc->mode = SOLO_ENC_MODE_CIF;
 
-	
+	/* This does not change the encoder at all */
 	fh->fmt = pix->pixelformat;
 
 	if (pix->priv)
@@ -1255,7 +1259,7 @@ static int solo_enc_dqbuf(struct file *file, void *priv,
 	struct solo_enc_dev *solo_enc = fh->enc;
 	int ret;
 
-	
+	/* Make sure the encoder is on */
 	if (!fh->enc_on) {
 		spin_lock(&solo_enc->lock);
 		ret = solo_enc_on(fh);
@@ -1272,7 +1276,7 @@ static int solo_enc_dqbuf(struct file *file, void *priv,
 	if (ret)
 		return ret;
 
-	
+	/* Signal motion detection */
 	if (solo_is_motion_on(solo_enc)) {
 		buf->flags |= V4L2_BUF_FLAG_MOTION_ON;
 		if (solo_enc->motion_detected) {
@@ -1283,7 +1287,7 @@ static int solo_enc_dqbuf(struct file *file, void *priv,
 		}
 	}
 
-	
+	/* Check for key frame on mpeg data */
 	if (fh->fmt == V4L2_PIX_FMT_MPEG) {
 		struct videobuf_dmabuf *vbuf =
 				videobuf_to_dma(fh->vidq.bufs[buf->index]);
@@ -1389,7 +1393,7 @@ static int solo_g_parm(struct file *file, void *priv,
 	cp->timeperframe.numerator = solo_enc->interval;
 	cp->timeperframe.denominator = solo_dev->fps;
 	cp->capturemode = 0;
-	
+	/* XXX: Shouldn't we be able to get/set this from videobuf? */
 	cp->readbuffers = 2;
 
 	return 0;
@@ -1412,7 +1416,7 @@ static int solo_s_parm(struct file *file, void *priv,
 
 	if ((cp->timeperframe.numerator == 0) ||
 	    (cp->timeperframe.denominator == 0)) {
-		
+		/* reset framerate */
 		cp->timeperframe.numerator = 1;
 		cp->timeperframe.denominator = solo_dev->fps;
 	}
@@ -1576,6 +1580,8 @@ static int solo_s_ctrl(struct file *file, void *priv,
 			       solo_enc->gop);
 		break;
 	case V4L2_CID_MOTION_THRESHOLD:
+		/* TODO accept value on lower 16-bits and use high
+		 * 16-bits to assign the value to a specific block */
 		if (ctrl->value < 0 || ctrl->value > 0xffff)
 			return -ERANGE;
 		solo_enc->motion_thresh = ctrl->value;
@@ -1676,29 +1682,29 @@ static const struct v4l2_file_operations solo_enc_fops = {
 static const struct v4l2_ioctl_ops solo_enc_ioctl_ops = {
 	.vidioc_querycap		= solo_enc_querycap,
 	.vidioc_s_std			= solo_enc_s_std,
-	
+	/* Input callbacks */
 	.vidioc_enum_input		= solo_enc_enum_input,
 	.vidioc_s_input			= solo_enc_set_input,
 	.vidioc_g_input			= solo_enc_get_input,
-	
+	/* Video capture format callbacks */
 	.vidioc_enum_fmt_vid_cap	= solo_enc_enum_fmt_cap,
 	.vidioc_try_fmt_vid_cap		= solo_enc_try_fmt_cap,
 	.vidioc_s_fmt_vid_cap		= solo_enc_set_fmt_cap,
 	.vidioc_g_fmt_vid_cap		= solo_enc_get_fmt_cap,
-	
+	/* Streaming I/O */
 	.vidioc_reqbufs			= solo_enc_reqbufs,
 	.vidioc_querybuf		= solo_enc_querybuf,
 	.vidioc_qbuf			= solo_enc_qbuf,
 	.vidioc_dqbuf			= solo_enc_dqbuf,
 	.vidioc_streamon		= solo_enc_streamon,
 	.vidioc_streamoff		= solo_enc_streamoff,
-	
+	/* Frame size and interval */
 	.vidioc_enum_framesizes		= solo_enum_framesizes,
 	.vidioc_enum_frameintervals	= solo_enum_frameintervals,
-	
+	/* Video capture parameters */
 	.vidioc_s_parm			= solo_s_parm,
 	.vidioc_g_parm			= solo_g_parm,
-	
+	/* Controls */
 	.vidioc_queryctrl		= solo_queryctrl,
 	.vidioc_querymenu		= solo_querymenu,
 	.vidioc_g_ctrl			= solo_g_ctrl,
@@ -1798,7 +1804,7 @@ int solo_enc_v4l2_init(struct solo_dev *solo_dev)
 		return ret;
 	}
 
-	
+	/* D1@MAX-FPS * 4 */
 	solo_dev->enc_bw_remain = solo_dev->fps * 4 * 4;
 
 	dev_info(&solo_dev->pdev->dev, "Encoders as /dev/video%d-%d\n",

@@ -26,6 +26,7 @@
 #define AR_PHY_FC_DYN2040_EN        0x00000004
 #define AR_PHY_FC_DYN2040_PRI_ONLY  0x00000008
 #define AR_PHY_FC_DYN2040_PRI_CH    0x00000010
+/* For 25 MHz channel spacing -- not used but supported by hw */
 #define AR_PHY_FC_DYN2040_EXT_CH    0x00000020
 #define AR_PHY_FC_HT_EN             0x00000040
 #define AR_PHY_FC_SHORT_GI_40       0x00000080
@@ -164,20 +165,20 @@
 #define AR_PHY_PLL_CTL_44_2133  0xeb
 #define AR_PHY_PLL_CTL_40_2133  0xea
 
-#define AR_PHY_SPECTRAL_SCAN			0x9910  
+#define AR_PHY_SPECTRAL_SCAN			0x9910  /* AR9280 spectral scan configuration register */
 #define	AR_PHY_SPECTRAL_SCAN_ENABLE		0x1
-#define AR_PHY_SPECTRAL_SCAN_ENA		0x00000001  
-#define AR_PHY_SPECTRAL_SCAN_ENA_S		0  
-#define AR_PHY_SPECTRAL_SCAN_ACTIVE		0x00000002  
-#define AR_PHY_SPECTRAL_SCAN_ACTIVE_S		1  
-#define AR_PHY_SPECTRAL_SCAN_FFT_PERIOD		0x000000F0  
+#define AR_PHY_SPECTRAL_SCAN_ENA		0x00000001  /* Enable spectral scan, reg 68, bit 0 */
+#define AR_PHY_SPECTRAL_SCAN_ENA_S		0  /* Enable spectral scan, reg 68, bit 0 */
+#define AR_PHY_SPECTRAL_SCAN_ACTIVE		0x00000002  /* Activate spectral scan reg 68, bit 1*/
+#define AR_PHY_SPECTRAL_SCAN_ACTIVE_S		1  /* Activate spectral scan reg 68, bit 1*/
+#define AR_PHY_SPECTRAL_SCAN_FFT_PERIOD		0x000000F0  /* Interval for FFT reports, reg 68, bits 4-7*/
 #define AR_PHY_SPECTRAL_SCAN_FFT_PERIOD_S	4
-#define AR_PHY_SPECTRAL_SCAN_PERIOD		0x0000FF00  
+#define AR_PHY_SPECTRAL_SCAN_PERIOD		0x0000FF00  /* Interval for FFT reports, reg 68, bits 8-15*/
 #define AR_PHY_SPECTRAL_SCAN_PERIOD_S		8
-#define AR_PHY_SPECTRAL_SCAN_COUNT		0x00FF0000  
+#define AR_PHY_SPECTRAL_SCAN_COUNT		0x00FF0000  /* Number of reports, reg 68, bits 16-23*/
 #define AR_PHY_SPECTRAL_SCAN_COUNT_S		16
-#define AR_PHY_SPECTRAL_SCAN_SHORT_REPEAT	0x01000000  
-#define AR_PHY_SPECTRAL_SCAN_SHORT_REPEAT_S	24  
+#define AR_PHY_SPECTRAL_SCAN_SHORT_REPEAT	0x01000000  /* Short repeat, reg 68, bit 24*/
+#define AR_PHY_SPECTRAL_SCAN_SHORT_REPEAT_S	24  /* Short repeat, reg 68, bit 24*/
 
 #define AR_PHY_RX_DELAY           0x9914
 #define AR_PHY_SEARCH_START_DELAY 0x9918
@@ -412,6 +413,7 @@
 #define AR_PHY_CCK_DETECT                           0xA208
 #define AR_PHY_CCK_DETECT_WEAK_SIG_THR_CCK          0x0000003F
 #define AR_PHY_CCK_DETECT_WEAK_SIG_THR_CCK_S        0
+/* [12:6] settling time for antenna switch */
 #define AR_PHY_CCK_DETECT_ANT_SWITCH_TIME           0x00001FC0
 #define AR_PHY_CCK_DETECT_ANT_SWITCH_TIME_S         6
 #define AR_PHY_CCK_DETECT_BB_ENABLE_ANT_FAST_DIV    0x2000
@@ -545,6 +547,7 @@
 #define AR_PHY_TPCRG5_PD_GAIN_BOUNDARY_4    0x0FC00000
 #define AR_PHY_TPCRG5_PD_GAIN_BOUNDARY_4_S  22
 
+/* Carrier leak calibration control, do it after AGC calibration */
 #define AR_PHY_CL_CAL_CTL       0xA358
 #define AR_PHY_CL_CAL_ENABLE    0x00000002
 #define AR_PHY_PARALLEL_CAL_ENABLE    0x00000001

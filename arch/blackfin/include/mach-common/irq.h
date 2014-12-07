@@ -9,14 +9,36 @@
 #ifndef _MACH_COMMON_IRQ_H_
 #define _MACH_COMMON_IRQ_H_
 
+/*
+ * Core events interrupt source definitions
+ *
+ *  Event Source       Event Name
+ *  Emulation          EMU            0  (highest priority)
+ *  Reset              RST            1
+ *  NMI                NMI            2
+ *  Exception          EVX            3
+ *  Reserved           --             4
+ *  Hardware Error     IVHW           5
+ *  Core Timer         IVTMR          6
+ *  Peripherals        IVG7           7
+ *  Peripherals        IVG8           8
+ *  Peripherals        IVG9           9
+ *  Peripherals        IVG10         10
+ *  Peripherals        IVG11         11
+ *  Peripherals        IVG12         12
+ *  Peripherals        IVG13         13
+ *  Softirq            IVG14         14
+ *  System Call        IVG15         15  (lowest priority)
+ */
 
-#define IRQ_EMU			0	
-#define IRQ_RST			1	
-#define IRQ_NMI			2	
-#define IRQ_EVX			3	
-#define IRQ_UNUSED		4	
-#define IRQ_HWERR		5	
-#define IRQ_CORETMR		6	
+/* The ABSTRACT IRQ definitions */
+#define IRQ_EMU			0	/* Emulation */
+#define IRQ_RST			1	/* reset */
+#define IRQ_NMI			2	/* Non Maskable */
+#define IRQ_EVX			3	/* Exception */
+#define IRQ_UNUSED		4	/* - unused interrupt */
+#define IRQ_HWERR		5	/* Hardware Error */
+#define IRQ_CORETMR		6	/* Core timer */
 
 #define BFIN_IRQ(x)		((x) + 7)
 

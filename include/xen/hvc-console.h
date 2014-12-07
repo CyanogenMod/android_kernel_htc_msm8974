@@ -15,4 +15,4 @@ static inline __printf(1, 2)
 void xen_raw_printk(const char *fmt, ...) { }
 #endif
 
-#endif	
+#endif	/* XEN_HVC_CONSOLE_H */

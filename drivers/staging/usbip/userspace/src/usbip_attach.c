@@ -116,7 +116,7 @@ static int query_import_device(int sockfd, char *busid)
 	memset(&request, 0, sizeof(request));
 	memset(&reply, 0, sizeof(reply));
 
-	
+	/* send a request */
 	rc = usbip_net_send_op_common(sockfd, OP_REQ_IMPORT, 0);
 	if (rc < 0) {
 		err("send op_common");
@@ -133,7 +133,7 @@ static int query_import_device(int sockfd, char *busid)
 		return -1;
 	}
 
-	
+	/* recieve a reply */
 	rc = usbip_net_recv_op_common(sockfd, &code);
 	if (rc < 0) {
 		err("recv op_common");
@@ -148,13 +148,13 @@ static int query_import_device(int sockfd, char *busid)
 
 	PACK_OP_IMPORT_REPLY(0, &reply);
 
-	
+	/* check the reply */
 	if (strncmp(reply.udev.busid, busid, SYSFS_BUS_ID_SIZE)) {
 		err("recv different busid %s", reply.udev.busid);
 		return -1;
 	}
 
-	
+	/* import a device */
 	return import_device(sockfd, &reply.udev);
 }
 

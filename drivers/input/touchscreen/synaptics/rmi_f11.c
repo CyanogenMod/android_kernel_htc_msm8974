@@ -54,12 +54,12 @@ struct f11_instance_data {
 	unsigned char relDataOffset;
 	unsigned char gestureDataOffset;
 	unsigned char *fingerDataBuffer;
-		
-		
+		/* Last X & Y seen, needed at finger lift.  Was down indicates at least one finger was here. */
+		/* TODO: Eventually we'll need to track this info on a per finger basis. */
 	bool wasdown;
 	unsigned int oldX;
 	unsigned int oldY;
-		
+		/* Transformations to be applied to coordinates before reporting. */
 	bool flipX;
 	bool flipY;
 	int offsetX;
@@ -86,7 +86,7 @@ static ssize_t rmi_fn_11_flip_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(flip, 0664, rmi_fn_11_flip_show, rmi_fn_11_flip_store);     
+DEVICE_ATTR(flip, 0664, rmi_fn_11_flip_show, rmi_fn_11_flip_store);     /* RW attr */
 
 static ssize_t rmi_fn_11_clip_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -95,7 +95,7 @@ static ssize_t rmi_fn_11_clip_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(clip, 0664, rmi_fn_11_clip_show, rmi_fn_11_clip_store);     
+DEVICE_ATTR(clip, 0664, rmi_fn_11_clip_show, rmi_fn_11_clip_store);     /* RW attr */
 
 static ssize_t rmi_fn_11_offset_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -104,7 +104,7 @@ static ssize_t rmi_fn_11_offset_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(offset, 0664, rmi_fn_11_offset_show, rmi_fn_11_offset_store);     
+DEVICE_ATTR(offset, 0664, rmi_fn_11_offset_show, rmi_fn_11_offset_store);     /* RW attr */
 
 static ssize_t rmi_fn_11_swap_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -113,7 +113,7 @@ static ssize_t rmi_fn_11_swap_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(swap, 0664, rmi_fn_11_swap_show, rmi_fn_11_swap_store);     
+DEVICE_ATTR(swap, 0664, rmi_fn_11_swap_show, rmi_fn_11_swap_store);     /* RW attr */
 
 static ssize_t rmi_fn_11_relreport_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -122,7 +122,7 @@ static ssize_t rmi_fn_11_relreport_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(relreport, 0664, rmi_fn_11_relreport_show, rmi_fn_11_relreport_store);     
+DEVICE_ATTR(relreport, 0664, rmi_fn_11_relreport_show, rmi_fn_11_relreport_store);     /* RW attr */
 
 static ssize_t rmi_fn_11_maxPos_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -131,17 +131,28 @@ static ssize_t rmi_fn_11_maxPos_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(maxPos, 0664, rmi_fn_11_maxPos_show, rmi_fn_11_maxPos_store);     
+DEVICE_ATTR(maxPos, 0664, rmi_fn_11_maxPos_show, rmi_fn_11_maxPos_store);     /* RW attr */
 
 
 static void FN_11_relreport(struct rmi_function_info *rmifninfo);
 
+/*
+ * There is no attention function for Fn $11 - it is left NULL
+ * in the function table so it is not called.
+ *
+ */
 
 
+/*
+ * This reads in a sample and reports the function $11 source data to the
+ * input subsystem. It is used for both polling and interrupt driven
+ * operation. This is called a lot so don't put in any informational
+ * printks since they will slow things way down!
+ */
 void FN_11_inthandler(struct rmi_function_info *rmifninfo,
 	unsigned int assertedIRQs)
 {
-	
+	/* number of touch points - fingers down in this case */
 	int fingerDownCount;
 	int finger;
 	struct rmi_function_device *function_device;
@@ -152,7 +163,7 @@ void FN_11_inthandler(struct rmi_function_info *rmifninfo,
 	fingerDownCount = 0;
 	function_device = rmifninfo->function_device;
 
-	
+	/* get 2D sensor finger data */
 
 	if (rmi_read_multiple(rmifninfo->sensor, rmifninfo->funcDescriptor.dataBaseAddr,
 		instanceData->fingerDataBuffer, instanceData->fingerDataBufferSize)) {
@@ -160,15 +171,15 @@ void FN_11_inthandler(struct rmi_function_info *rmifninfo,
 		return;
 	}
 
-	
+	/* First we need to count the fingers and generate some events related to that. */
 	for (finger = 0; finger < instanceData->sensorInfo->numberOfFingers; finger++) {
 		int reg;
 		int fingerShift;
 		int fingerStatus;
 
-		
+		/* determine which data byte the finger status is in */
 		reg = finger/4;
-		
+		/* bit shift to get finger's status */
 		fingerShift = (finger % 4) * 2;
 		fingerStatus = (instanceData->fingerDataBuffer[reg] >> fingerShift) & 3;
 
@@ -186,12 +197,14 @@ void FN_11_inthandler(struct rmi_function_info *rmifninfo,
 		int fingerStatus;
 		int X = 0, Y = 0, Z = 0, Wy = 0, Wx = 0;
 
-		
+		/* determine which data byte the finger status is in */
 		reg = finger/4;
-		
+		/* bit shift to get finger's status */
 		fingerShift = (finger % 4) * 2;
 		fingerStatus = (instanceData->fingerDataBuffer[reg] >> fingerShift) & 3;
 
+		/* if finger status indicates a finger is present then
+		read the finger data and report it */
 		if (fingerStatus == F11_PRESENT || fingerStatus == F11_INACCURATE) {
 
 			if (instanceData->sensorInfo->hasAbs) {
@@ -202,6 +215,8 @@ void FN_11_inthandler(struct rmi_function_info *rmifninfo,
 				X |= (instanceData->fingerDataBuffer[reg+2] & 0x0f);
 				Y = (instanceData->fingerDataBuffer[reg+1] << 4) & 0x0ff0;
 				Y |= ((instanceData->fingerDataBuffer[reg+2] & 0xf0) >> 4) & 0x0f;
+				/* First thing to do is swap axes if needed.
+				 */
 				if (instanceData->swap_axes) {
 					int temp = X;
 					X = Y;
@@ -218,6 +233,8 @@ void FN_11_inthandler(struct rmi_function_info *rmifninfo,
 				Y = Y - instanceData->offsetY;
 				Y = min(max(Y, instanceData->clipYLow), instanceData->clipYHigh);
 
+				/* upper 4 bits of W are Wy,
+				lower 4 of W are Wx */
 				Wy =  (instanceData->fingerDataBuffer[reg+3] >> 4) & 0x0f;
 				Wx = instanceData->fingerDataBuffer[reg+3] & 0x0f;
 				if (instanceData->swap_axes) {
@@ -228,6 +245,13 @@ void FN_11_inthandler(struct rmi_function_info *rmifninfo,
 
 				Z = instanceData->fingerDataBuffer[reg+4];
 
+				/* if this is the first finger report normal
+				ABS_X, ABS_Y, PRESSURE, TOOL_WIDTH events for
+				non-MT apps. Apps that support Multi-touch
+				will ignore these events and use the MT events.
+				Apps that don't support Multi-touch will still
+				function.
+				*/
 				if (fingerDownCount == 1) {
 					instanceData->oldX = X;
 					instanceData->oldY = Y;
@@ -238,28 +262,28 @@ void FN_11_inthandler(struct rmi_function_info *rmifninfo,
 							max(Wx, Wy));
 
 				} else {
-					
+					/* TODO generate non MT events for multifinger situation. */
 				}
 #ifdef CONFIG_SYNA_MULTI_TOUCH
-				
+				/* Report Multi-Touch events for each finger */
 				input_report_abs(function_device->input,
 							ABS_MT_PRESSURE, Z);
 				input_report_abs(function_device->input, ABS_MT_POSITION_X, X);
 				input_report_abs(function_device->input, ABS_MT_POSITION_Y, Y);
 
-				
-				
-				
+				/* TODO: Tracking ID needs to be reported but not used yet. */
+				/* Could be formed by keeping an id per position and assiging */
+				/* a new id when fingerStatus changes for that position.*/
 				input_report_abs(function_device->input, ABS_MT_TRACKING_ID,
 						finger);
-				
+				/* MT sync between fingers */
 				input_mt_sync(function_device->input);
 #endif
 			}
 		}
 	}
 
-	
+	/* if we had a finger down before and now we don't have any send a button up. */
 	if ((fingerDownCount == 0) && instanceData->wasdown) {
 		instanceData->wasdown = false;
 
@@ -271,11 +295,12 @@ void FN_11_inthandler(struct rmi_function_info *rmifninfo,
 	}
 
 	FN_11_relreport(rmifninfo);
-	input_sync(function_device->input); 
+	input_sync(function_device->input); /* sync after groups of events */
 
 }
 EXPORT_SYMBOL(FN_11_inthandler);
 
+/* This function reads in relative data for first finger and send to input system */
 static void FN_11_relreport(struct rmi_function_info *rmifninfo)
 {
 	struct f11_instance_data *instanceData;
@@ -291,7 +316,7 @@ static void FN_11_relreport(struct rmi_function_info *rmifninfo)
 		function_device = rmifninfo->function_device;
 
 		fn11DataBaseAddr = rmifninfo->funcDescriptor.dataBaseAddr;
-		
+		/* Read and report Rel data for primary finger one register for X and one for Y*/
 		X = instanceData->fingerDataBuffer[reg];
 		Y = instanceData->fingerDataBuffer[reg+1];
 		if (instanceData->swap_axes) {
@@ -315,13 +340,18 @@ static void FN_11_relreport(struct rmi_function_info *rmifninfo)
 
 int FN_11_config(struct rmi_function_info *rmifninfo)
 {
+	/* For the data source - print info and do any
+	source specific configuration. */
 	unsigned char data[14];
 	int retval = 0;
 
 	pr_debug("%s: RMI4 function $11 config\n", __func__);
 
-	
+	/* Get and print some info about the data source... */
 
+	/* To Query 2D devices we need to read from the address obtained
+	* from the function descriptor stored in the RMI function info.
+	*/
 	retval = rmi_read_multiple(rmifninfo->sensor, rmifninfo->funcDescriptor.queryBaseAddr,
 		data, 9);
 	if (retval) {
@@ -380,7 +410,7 @@ int FN_11_config(struct rmi_function_info *rmifninfo)
 			return retval;
 		}
 
-		
+		/* Store these for use later...*/
 		sensorMaxX = ((data[6] & 0x1f) << 8) | ((data[7] & 0xff) << 0);
 		sensorMaxY = ((data[8] & 0x1f) << 8) | ((data[9] & 0xff) << 0);
 
@@ -392,9 +422,15 @@ int FN_11_config(struct rmi_function_info *rmifninfo)
 }
 EXPORT_SYMBOL(FN_11_config);
 
+/* This operation is done in a number of places, so we have a handy routine
+ * for it.
+ */
 static void f11_set_abs_params(struct rmi_function_device *function_device)
 {
 	struct f11_instance_data *instance_data = function_device->rfi->fndata;
+	/* Use the max X and max Y read from the device, or the clip values,
+	 * whichever is stricter.
+	 */
 	int xMin = instance_data->clipXLow;
 	int xMax = min((int) instance_data->controlRegisters->sensorMaxXPos, instance_data->clipXHigh);
 	int yMin = instance_data->clipYLow;
@@ -428,6 +464,9 @@ static void f11_set_abs_params(struct rmi_function_device *function_device)
 #endif
 }
 
+/* Initialize any function $11 specific params and settings - input
+ * settings, device settings, etc.
+ */
 int FN_11_init(struct rmi_function_device *function_device)
 {
 	struct f11_instance_data *instanceData = function_device->rfi->fndata;
@@ -435,15 +474,19 @@ int FN_11_init(struct rmi_function_device *function_device)
 	struct rmi_f11_functiondata *functiondata = rmi_sensor_get_functiondata(function_device->sensor, RMI_F11_INDEX);
 	printk(KERN_DEBUG "%s: RMI4 F11 init", __func__);
 
+	/* TODO: Initialize these through some normal kernel mechanism.
+	 */
 	instanceData->flipX = false;
 	instanceData->flipY = false;
 	instanceData->swap_axes = false;
 	instanceData->relReport = true;
 	instanceData->offsetX = instanceData->offsetY = 0;
 	instanceData->clipXLow = instanceData->clipYLow = 0;
-	
+	/* TODO: 65536 should actually be the largest valid RMI4 position coordinate */
 	instanceData->clipXHigh = instanceData->clipYHigh = 65536;
 
+	/* Load any overrides that were specified via platform data.
+	 */
 	if (functiondata) {
 		printk(KERN_DEBUG "%s: found F11 per function platformdata.", __func__);
 		instanceData->flipX = functiondata->flipX;
@@ -474,7 +517,7 @@ int FN_11_init(struct rmi_function_device *function_device)
 		}
 	}
 
-	
+	/* need to init the input abs params for the 2D */
 	set_bit(EV_ABS, function_device->input->evbit);
 	set_bit(EV_SYN, function_device->input->evbit);
 	set_bit(EV_KEY, function_device->input->evbit);
@@ -522,8 +565,8 @@ EXPORT_SYMBOL(FN_11_init);
 int FN_11_detect(struct rmi_function_info *rmifninfo,
 	struct rmi_function_descriptor *fndescr, unsigned int interruptCount)
 {
-	unsigned char fn11Queries[12];   
-	unsigned char fn11Control[12];   
+	unsigned char fn11Queries[12];   /* TODO: Compute size correctly. */
+	unsigned char fn11Control[12];   /* TODO: Compute size correctly. */
 	int i;
 	unsigned short fn11InterruptOffset;
 	unsigned char fn11AbsDataBlockSize;
@@ -556,6 +599,8 @@ int FN_11_detect(struct rmi_function_info *rmifninfo,
 	}
 	rmifninfo->fndata = instanceData;
 
+	/* Store addresses - used elsewhere to read data,
+	* control, query, etc. */
 	rmifninfo->funcDescriptor.queryBaseAddr = fndescr->queryBaseAddr;
 	rmifninfo->funcDescriptor.commandBaseAddr = fndescr->commandBaseAddr;
 	rmifninfo->funcDescriptor.controlBaseAddr = fndescr->controlBaseAddr;
@@ -565,6 +610,9 @@ int FN_11_detect(struct rmi_function_info *rmifninfo,
 
 	rmifninfo->numSources = fndescr->interruptSrcCnt;
 
+	/* need to get number of fingers supported, data size, etc. -
+	to be used when getting data since the number of registers to
+	read depends on the number of fingers supported and data size. */
 	retval = rmi_read_multiple(rmifninfo->sensor, fndescr->queryBaseAddr, fn11Queries,
 			sizeof(fn11Queries));
 	if (retval) {
@@ -574,17 +622,21 @@ int FN_11_detect(struct rmi_function_info *rmifninfo,
 		return retval;
 	}
 
-	
+	/* Extract device data. */
 	instanceData->deviceInfo->hasQuery9 = (fn11Queries[0] & 0x04) != 0;
 	instanceData->deviceInfo->numberOfSensors = (fn11Queries[0] & 0x07) + 1;
 	printk(KERN_DEBUG "%s: F11 device - %d sensors.  Query 9? %d.", __func__, instanceData->deviceInfo->numberOfSensors, instanceData->deviceInfo->hasQuery9);
 
-	
-	instanceData->sensorInfo->numberOfFingers = 2; 
+	/* Extract sensor data. */
+	/* 2D data sources have only 3 bits for the number of fingers
+	supported - so the encoding is a bit wierd. */
+	instanceData->sensorInfo->numberOfFingers = 2; /* default number of fingers supported */
 	if ((fn11Queries[1] & 0x7) <= 4)
-		
+		/* add 1 since zero based */
 		instanceData->sensorInfo->numberOfFingers = (fn11Queries[1] & 0x7) + 1;
 	else {
+		/* a value of 5 is up to 10 fingers - 6 and 7 are reserved
+		(shouldn't get these i int retval;n a normal 2D source). */
 		if ((fn11Queries[1] & 0x7) == 5)
 			instanceData->sensorInfo->numberOfFingers = 10;
 	}
@@ -596,8 +648,12 @@ int FN_11_detect(struct rmi_function_info *rmifninfo,
 	instanceData->sensorInfo->absDataSize = fn11Queries[5] & 0x03;
 	printk(KERN_DEBUG "%s: Number of fingers: %d.", __func__, instanceData->sensorInfo->numberOfFingers);
 
+	/* Need to get interrupt info to be used later when handling
+	interrupts. */
 	rmifninfo->interruptRegister = interruptCount/8;
 
+	/* loop through interrupts for each source in fn $11 and or in a bit
+	to the interrupt mask for each. */
 	fn11InterruptOffset = interruptCount % 8;
 
 	for (i = fn11InterruptOffset;
@@ -605,9 +661,9 @@ int FN_11_detect(struct rmi_function_info *rmifninfo,
 			i++)
 		rmifninfo->interruptMask |= 1 << i;
 
-	
+	/* Figure out just how much data we'll need to read. */
 	instanceData->fingerDataBufferSize = (instanceData->sensorInfo->numberOfFingers + 3) / 4;
-	
+	/* One each for X and Y, one for LSB for X & Y, one for W, one for Z */
 	fn11AbsDataBlockSize = 5;
 	if (instanceData->sensorInfo->absDataSize != 0)
 		printk(KERN_WARNING "%s: Unrecognized abs data size %d ignored.", __func__, instanceData->sensorInfo->absDataSize);
@@ -618,7 +674,7 @@ int FN_11_detect(struct rmi_function_info *rmifninfo,
 	}
 	if (instanceData->sensorInfo->hasRel) {
 		instanceData->relDataOffset = ((instanceData->sensorInfo->numberOfFingers + 3) / 4) +
-			
+			/* absolute data, per finger times number of fingers */
 			(fn11AbsDataBlockSize * instanceData->sensorInfo->numberOfFingers);
 		instanceData->fingerDataBufferSize += instanceData->sensorInfo->numberOfFingers * 2;
 	}
@@ -627,9 +683,14 @@ int FN_11_detect(struct rmi_function_info *rmifninfo,
 		printk(KERN_WARNING "%s: WARNING Need to correctly compute gesture data location.", __func__);
 	}
 
+	/* need to determine the size of data to read - this depends on
+	conditions such as whether Relative data is reported and if Gesture
+	data is reported. */
 	f11_egr_0 = fn11Queries[7];
 	f11_egr_1 = fn11Queries[8];
 
+	/* Get info about what EGR data is supported, whether it has
+	Relative data supported, etc. */
 	fn11HasPinch = f11_egr_0 & 0x40;
 	fn11HasFlick = f11_egr_0 & 0x10;
 	fn11HasTap = f11_egr_0 & 0x01;
@@ -641,16 +702,26 @@ int FN_11_detect(struct rmi_function_info *rmifninfo,
 	fn11HasRotate = f11_egr_1 & 0x02;
 	fn11HasRel = fn11Queries[1] & 0x08;
 
+	/* Size of all data including finger status, absolute data for each
+	finger, relative data and EGR data */
 	fn11AllDataBlockSize =
-		
+		/* finger status, four fingers per register */
 		((instanceData->sensorInfo->numberOfFingers + 3) / 4) +
-		
+		/* absolute data, per finger times number of fingers */
 		(fn11AbsDataBlockSize * instanceData->sensorInfo->numberOfFingers) +
-		
+		/* two relative registers (if relative is being reported) */
 		2 * fn11HasRel +
+		/* F11_2D_Data8 is only present if the egr_0
+		register is non-zero. */
 		!!(f11_egr_0) +
+		/* F11_2D_Data9 is only present if either egr_0 or
+		egr_1 registers are non-zero. */
 		(f11_egr_0 || f11_egr_1) +
+		/* F11_2D_Data10 is only present if EGR_PINCH or EGR_FLICK of
+		egr_0 reports as 1. */
 		!!(fn11HasPinch | fn11HasFlick) +
+		/* F11_2D_Data11 and F11_2D_Data12 are only present if
+		EGR_FLICK of egr_0 reports as 1. */
 		2 * !!(fn11HasFlick);
 	instanceData->fingerDataBuffer = kcalloc(instanceData->fingerDataBufferSize, sizeof(unsigned char), GFP_KERNEL);
 	if (!instanceData->fingerDataBuffer) {
@@ -658,7 +729,7 @@ int FN_11_detect(struct rmi_function_info *rmifninfo,
 		return -ENOMEM;
 	}
 
-	
+	/* Grab a copy of the control registers. */
 	instanceData->controlRegisters = kzalloc(sizeof(struct rmi_F11_control), GFP_KERNEL);
 	if (!instanceData->controlRegisters) {
 		printk(KERN_ERR "%s: Error allocating F11 control registers.\n", __func__);

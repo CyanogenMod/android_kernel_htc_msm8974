@@ -47,9 +47,9 @@ static void __init mpc512x_restart_init(void)
 void mpc512x_restart(char *cmd)
 {
 	if (reset_module_base) {
-		
+		/* Enable software reset "RSTE" */
 		out_be32(&reset_module_base->rpr, 0x52535445);
-		
+		/* Set software hard reset */
 		out_be32(&reset_module_base->rcr, 0x2);
 	} else {
 		pr_err("Restart module not mapped.\n");
@@ -59,8 +59,8 @@ void mpc512x_restart(char *cmd)
 }
 
 struct fsl_diu_shared_fb {
-	u8		gamma[0x300];	
-	struct diu_ad	ad0;		
+	u8		gamma[0x300];	/* 32-bit aligned! */
+	struct diu_ad	ad0;		/* 32-bit aligned! */
 	phys_addr_t	fb_phys;
 	size_t		fb_len;
 	bool		in_use;
@@ -130,18 +130,18 @@ void mpc512x_set_pixel_clock(unsigned int pixclock)
 		return;
 	}
 
-	
+	/* Pixel Clock configuration */
 	pr_debug("DIU: Bus Frequency = %lu\n", busfreq);
-	speed = busfreq * 4; 
+	speed = busfreq * 4; /* DIU_DIV ratio is 4 * CSB_CLK / DIU_CLK */
 
-	
-	
+	/* Calculate the pixel clock with the smallest error */
+	/* calculate the following in steps to avoid overflow */
 	pr_debug("DIU pixclock in ps - %d\n", pixclock);
 	temp = (1000000000 / pixclock) * 1000;
 	pixclock = temp;
 	pr_debug("DIU pixclock freq - %u\n", pixclock);
 
-	temp = temp / 20; 
+	temp = temp / 20; /* pixclock * 0.05 */
 	pr_debug("deviation = %d\n", temp);
 	minpixclock = pixclock - temp;
 	maxpixclock = pixclock + temp;
@@ -173,7 +173,7 @@ void mpc512x_set_pixel_clock(unsigned int pixclock)
 	pr_debug("DIU chose = %lx\n", bestval);
 	pr_debug("DIU error = %ld\n NomPixClk ", err);
 	pr_debug("DIU: Best Freq = %lx\n", bestfreq);
-	
+	/* Modify DIU_DIV in CCM SCFR1 */
 	temp = in_be32(&ccm->scfr1);
 	pr_debug("DIU: Current value of SCFR1: 0x%08x\n", temp);
 	temp &= ~DIU_DIV_MASK;
@@ -222,6 +222,14 @@ void mpc512x_release_bootmem(void)
 }
 #endif
 
+/*
+ * Check if DIU was pre-initialized. If so, perform steps
+ * needed to continue displaying through the whole boot process.
+ * Move area descriptor and gamma table elsewhere, they are
+ * destroyed by bootmem allocator otherwise. The frame buffer
+ * address range will be reserved in setup_arch() after bootmem
+ * allocator is up.
+ */
 void __init mpc512x_init_diu(void)
 {
 	struct device_node *np;
@@ -257,7 +265,7 @@ void __init mpc512x_init_diu(void)
 		goto out;
 	}
 	memcpy(&diu_shared_fb.ad0, vaddr, sizeof(struct diu_ad));
-	
+	/* flush fb area descriptor */
 	dst = (unsigned long)&diu_shared_fb.ad0;
 	flush_dcache_range(dst, dst + sizeof(struct diu_ad) - 1);
 
@@ -277,7 +285,7 @@ void __init mpc512x_init_diu(void)
 		goto out;
 	}
 	memcpy(&diu_shared_fb.gamma, vaddr, sizeof(diu_shared_fb.gamma));
-	
+	/* flush gamma table */
 	dst = (unsigned long)&diu_shared_fb.gamma;
 	flush_dcache_range(dst, dst + sizeof(diu_shared_fb.gamma) - 1);
 
@@ -295,6 +303,16 @@ void __init mpc512x_setup_diu(void)
 {
 	int ret;
 
+	/*
+	 * We do not allocate and configure new area for bitmap buffer
+	 * because it would requere copying bitmap data (splash image)
+	 * and so negatively affect boot time. Instead we reserve the
+	 * already configured frame buffer area so that it won't be
+	 * destroyed. The starting address of the area to reserve and
+	 * also it's length is passed to reserve_bootmem(). It will be
+	 * freed later on first open of fbdev, when splash image is not
+	 * needed any more.
+	 */
 	if (diu_shared_fb.in_use) {
 		ret = reserve_bootmem(diu_shared_fb.fb_phys,
 				      diu_shared_fb.fb_len,
@@ -327,9 +345,16 @@ void __init mpc512x_init_IRQ(void)
 	ipic_init(np, 0);
 	of_node_put(np);
 
+	/*
+	 * Initialize the default interrupt mapping priorities,
+	 * in case the boot rom changed something on us.
+	 */
 	ipic_set_default_priority();
 }
 
+/*
+ * Nodes to do bus probe on, soc and localbus
+ */
 static struct of_device_id __initdata of_bus_ids[] = {
 	{ .compatible = "fsl,mpc5121-immr", },
 	{ .compatible = "fsl,mpc5121-localbus", },
@@ -371,19 +396,20 @@ static unsigned int __init get_fifo_size(struct device_node *np,
 #define FIFOC(_base) ((struct mpc512x_psc_fifo __iomem *) \
 		    ((u32)(_base) + sizeof(struct mpc52xx_psc)))
 
+/* Init PSC FIFO space for TX and RX slices */
 void __init mpc512x_psc_fifo_init(void)
 {
 	struct device_node *np;
 	void __iomem *psc;
 	unsigned int tx_fifo_size;
 	unsigned int rx_fifo_size;
-	int fifobase = 0; 
+	int fifobase = 0; /* current fifo address in 32 bit words */
 
 	for_each_compatible_node(np, NULL, "fsl,mpc5121-psc") {
 		tx_fifo_size = get_fifo_size(np, "fsl,tx-fifo-size");
 		rx_fifo_size = get_fifo_size(np, "fsl,rx-fifo-size");
 
-		
+		/* size in register is in 4 byte units */
 		tx_fifo_size /= 4;
 		rx_fifo_size /= 4;
 		if (!tx_fifo_size)
@@ -398,21 +424,25 @@ void __init mpc512x_psc_fifo_init(void)
 			continue;
 		}
 
-		
+		/* FIFO space is 4KiB, check if requested size is available */
 		if ((fifobase + tx_fifo_size + rx_fifo_size) > 0x1000) {
 			pr_err("%s: no fifo space available for %s\n",
 				__func__, np->full_name);
 			iounmap(psc);
+			/*
+			 * chances are that another device requests less
+			 * fifo space, so we continue.
+			 */
 			continue;
 		}
 
-		
+		/* set tx and rx fifo size registers */
 		out_be32(&FIFOC(psc)->txsz, (fifobase << 16) | tx_fifo_size);
 		fifobase += tx_fifo_size;
 		out_be32(&FIFOC(psc)->rxsz, (fifobase << 16) | rx_fifo_size);
 		fifobase += rx_fifo_size;
 
-		
+		/* reset and enable the slices */
 		out_be32(&FIFOC(psc)->txcmd, 0x80);
 		out_be32(&FIFOC(psc)->txcmd, 0x01);
 		out_be32(&FIFOC(psc)->rxcmd, 0x80);

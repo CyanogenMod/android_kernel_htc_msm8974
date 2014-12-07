@@ -31,6 +31,9 @@ MODULE_AUTHOR("Takashi Iwai");
 MODULE_DESCRIPTION("Routines for control of EMU WaveTable chip");
 MODULE_LICENSE("GPL");
 
+/*
+ * create a new hardware dependent device for Emu8000/Emu10k1
+ */
 int snd_emux_new(struct snd_emux **remu)
 {
 	struct snd_emux *emu;
@@ -61,6 +64,8 @@ int snd_emux_new(struct snd_emux **remu)
 
 EXPORT_SYMBOL(snd_emux_new);
 
+/*
+ */
 static int sf_sample_new(void *private_data, struct snd_sf_sample *sp,
 				  struct snd_util_memhdr *hdr,
 				  const void __user *buf, long count)
@@ -101,7 +106,7 @@ int snd_emux_register(struct snd_emux *emu, struct snd_card *card, int index, ch
 	if (emu->voices == NULL)
 		return -ENOMEM;
 
-	
+	/* create soundfont list */
 	memset(&sf_cb, 0, sizeof(sf_cb));
 	sf_cb.private_data = emu;
 	if (emu->ops.sample_new)
@@ -133,6 +138,8 @@ int snd_emux_register(struct snd_emux *emu, struct snd_card *card, int index, ch
 
 EXPORT_SYMBOL(snd_emux_register);
 
+/*
+ */
 int snd_emux_free(struct snd_emux *emu)
 {
 	unsigned long flags;
@@ -168,6 +175,9 @@ int snd_emux_free(struct snd_emux *emu)
 EXPORT_SYMBOL(snd_emux_free);
 
 
+/*
+ *  INIT part
+ */
 
 static int __init alsa_emux_init(void)
 {

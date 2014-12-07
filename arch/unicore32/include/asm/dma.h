@@ -20,4 +20,4 @@
 extern int isa_dma_bridge_buggy;
 #endif
 
-#endif 
+#endif /* __UNICORE_DMA_H__ */

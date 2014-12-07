@@ -16,10 +16,16 @@
 
 #define _COMPONENT		ACPI_SYSTEM_COMPONENT
 
+/*
+ * this file provides support for:
+ * /proc/acpi/alarm
+ * /proc/acpi/wakeup
+ */
 
 ACPI_MODULE_NAME("sleep")
 
 #if defined(CONFIG_RTC_DRV_CMOS) || defined(CONFIG_RTC_DRV_CMOS_MODULE) || !defined(CONFIG_X86)
+/* use /sys/class/rtc/rtcX/wakealarm instead; it's not ACPI-specific */
 #else
 #define	HAVE_ACPI_LEGACY_ALARM
 #endif
@@ -43,9 +49,9 @@ static int acpi_system_alarm_seq_show(struct seq_file *seq, void *offset)
 	min = cmos_bcd_read(RTC_MINUTES_ALARM, rtc_control);
 	hr = cmos_bcd_read(RTC_HOURS_ALARM, rtc_control);
 
-	
+	/* If we ever get an FACP with proper values... */
 	if (acpi_gbl_FADT.day_alarm) {
-		
+		/* ACPI spec: only low 6 its should be cared */
 		day = CMOS_READ(acpi_gbl_FADT.day_alarm) & 0x3F;
 		if (!(rtc_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD)
 			day = bcd2bin(day);
@@ -64,12 +70,35 @@ static int acpi_system_alarm_seq_show(struct seq_file *seq, void *offset)
 
 	spin_unlock_irqrestore(&rtc_lock, flags);
 
-	
+	/* we're trusting the FADT (see above) */
 	if (!acpi_gbl_FADT.century)
+		/* If we're not trusting the FADT, we should at least make it
+		 * right for _this_ century... ehm, what is _this_ century?
+		 *
+		 * TBD:
+		 *  ASAP: find piece of code in the kernel, e.g. star tracker driver,
+		 *        which we can trust to determine the century correctly. Atom
+		 *        watch driver would be nice, too...
+		 *
+		 *  if that has not happened, change for first release in 2050:
+		 *        if (yr<50)
+		 *                yr += 2100;
+		 *        else
+		 *                yr += 2000;   // current line of code
+		 *
+		 *  if that has not happened either, please do on 2099/12/31:23:59:59
+		 *        s/2000/2100
+		 *
+		 */
 		yr += 2000;
 	else
 		yr += cent * 100;
 
+	/*
+	 * Show correct dates for alarms up to a month into the future.
+	 * This solves issues for nearly all situations with the common
+	 * 30-day alarm clocks in PC hardware.
+	 */
 	if (day < today) {
 		if (mo < 12) {
 			mo += 1;
@@ -100,6 +129,10 @@ static int get_date_field(char **p, u32 * value)
 	char *string_end = NULL;
 	int result = -EINVAL;
 
+	/*
+	 * Try to find delimeter, only to insert null.  The end of the
+	 * string won't have one, but is still valid.
+	 */
 	if (*p == NULL)
 		return result;
 
@@ -109,7 +142,7 @@ static int get_date_field(char **p, u32 * value)
 
 	*value = simple_strtoul(*p, &string_end, 10);
 
-	
+	/* Signal success if we got a good digit */
 	if (string_end != *p)
 		result = 0;
 
@@ -121,6 +154,7 @@ static int get_date_field(char **p, u32 * value)
 	return result;
 }
 
+/* Read a possibly BCD register, always return binary */
 static u32 cmos_bcd_read(int offset, int rtc_control)
 {
 	u32 val = CMOS_READ(offset);
@@ -129,6 +163,7 @@ static u32 cmos_bcd_read(int offset, int rtc_control)
 	return val;
 }
 
+/* Write binary value into possibly BCD register */
 static void cmos_bcd_write(u32 val, int offset, int rtc_control)
 {
 	if (!(rtc_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD)
@@ -155,7 +190,7 @@ acpi_system_write_alarm(struct file *file,
 
 	alarm_string[count] = '\0';
 
-	
+	/* check for time adjustment */
 	if (alarm_string[0] == '+') {
 		p++;
 		adjust = 1;
@@ -211,15 +246,24 @@ acpi_system_write_alarm(struct file *file,
 	}
 
 	spin_lock_irq(&rtc_lock);
+	/*
+	 * Disable alarm interrupt before setting alarm timer or else
+	 * when ACPI_EVENT_RTC is enabled, a spurious ACPI interrupt occurs
+	 */
 	rtc_control &= ~RTC_AIE;
 	CMOS_WRITE(rtc_control, RTC_CONTROL);
 	CMOS_READ(RTC_INTR_FLAGS);
 
-	
+	/* write the fields the rtc knows about */
 	cmos_bcd_write(hr, RTC_HOURS_ALARM, rtc_control);
 	cmos_bcd_write(min, RTC_MINUTES_ALARM, rtc_control);
 	cmos_bcd_write(sec, RTC_SECONDS_ALARM, rtc_control);
 
+	/*
+	 * If the system supports an enhanced alarm it will have non-zero
+	 * offsets into the CMOS RAM here -- which for some reason are pointing
+	 * to the RTC area of memory.
+	 */
 	if (acpi_gbl_FADT.day_alarm)
 		cmos_bcd_write(day, acpi_gbl_FADT.day_alarm, rtc_control);
 	if (acpi_gbl_FADT.month_alarm)
@@ -229,7 +273,7 @@ acpi_system_write_alarm(struct file *file,
 			yr += cmos_bcd_read(acpi_gbl_FADT.century, rtc_control) * 100;
 		cmos_bcd_write(yr / 100, acpi_gbl_FADT.century, rtc_control);
 	}
-	
+	/* enable the rtc alarm interrupt */
 	rtc_control |= RTC_AIE;
 	CMOS_WRITE(rtc_control, RTC_CONTROL);
 	CMOS_READ(RTC_INTR_FLAGS);
@@ -245,7 +289,7 @@ acpi_system_write_alarm(struct file *file,
       end:
 	return result ? result : count;
 }
-#endif				
+#endif				/* HAVE_ACPI_LEGACY_ALARM */
 
 static int
 acpi_system_wakeup_device_seq_show(struct seq_file *seq, void *offset)
@@ -367,21 +411,25 @@ static u32 rtc_handler(void *context)
 
 	return ACPI_INTERRUPT_HANDLED;
 }
-#endif				
+#endif				/* HAVE_ACPI_LEGACY_ALARM */
 
 int __init acpi_sleep_proc_init(void)
 {
 #ifdef	HAVE_ACPI_LEGACY_ALARM
-	
+	/* 'alarm' [R/W] */
 	proc_create("alarm", S_IFREG | S_IRUGO | S_IWUSR,
 		    acpi_root_dir, &acpi_system_alarm_fops);
 
 	acpi_install_fixed_event_handler(ACPI_EVENT_RTC, rtc_handler, NULL);
+	/*
+	 * Disable the RTC event after installing RTC handler.
+	 * Only when RTC alarm is set will it be enabled.
+	 */
 	acpi_clear_event(ACPI_EVENT_RTC);
 	acpi_disable_event(ACPI_EVENT_RTC, 0);
-#endif				
+#endif				/* HAVE_ACPI_LEGACY_ALARM */
 
-	
+	/* 'wakeup device' [R/W] */
 	proc_create("wakeup", S_IFREG | S_IRUGO | S_IWUSR,
 		    acpi_root_dir, &acpi_system_wakeup_device_fops);
 

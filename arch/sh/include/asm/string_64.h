@@ -15,6 +15,6 @@ extern size_t strlen(const char *);
 #define __HAVE_ARCH_STRCPY
 extern char *strcpy(char *__dest, const char *__src);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ASM_SH_STRING_64_H */

@@ -10,7 +10,7 @@
  * published by the Free Software Foundation.
 */
 
-struct platform_device; 
+struct platform_device; /* don't need the contents */
 
 #include <linux/gpio.h>
 #include <plat/iic.h>

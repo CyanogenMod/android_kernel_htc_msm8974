@@ -15,4 +15,4 @@
 
 #define S5PV210_AUDSS_INT_MEM	(0xC0000000)
 
-#endif 
+#endif /* _PLAT_REGS_AUDSS_H */

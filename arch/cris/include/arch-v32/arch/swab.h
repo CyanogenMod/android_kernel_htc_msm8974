@@ -21,4 +21,4 @@ __arch_swab16(__u16 x)
 }
 #define __arch_swab16 __arch_swab16
 
-#endif 
+#endif /* _ASM_CRIS_ARCH_SWAB_H */

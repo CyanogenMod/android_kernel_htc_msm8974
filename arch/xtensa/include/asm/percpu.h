@@ -13,4 +13,4 @@
 
 #include <asm-generic/percpu.h>
 
-#endif 
+#endif /* _XTENSA_PERCPU__ */

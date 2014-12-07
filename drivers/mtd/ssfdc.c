@@ -25,10 +25,11 @@ struct ssfdcr_record {
 	unsigned char heads;
 	unsigned char sectors;
 	unsigned short cylinders;
-	int cis_block;			
-	int erase_size;			
-	unsigned short *logic_block_map; 
-	int map_len;			
+	int cis_block;			/* block n. containing CIS/IDI */
+	int erase_size;			/* phys_block_size */
+	unsigned short *logic_block_map; /* all zones (max 8192 phys blocks on
+					    the 128MiB) */
+	int map_len;			/* n. phys_blocks on the card */
 };
 
 #define SSFDCR_MAJOR		257
@@ -44,6 +45,14 @@ struct ssfdcr_record {
 #define KiB(x)	( (x) * 1024L )
 #define MiB(x)	( KiB(x) * 1024L )
 
+/** CHS Table
+		1MiB	2MiB	4MiB	8MiB	16MiB	32MiB	64MiB	128MiB
+NCylinder	125	125	250	250	500	500	500	500
+NHead		4	4	4	4	4	8	8	16
+NSector		4	8	8	16	16	16	32	32
+SumSector	2,000	4,000	8,000	16,000	32,000	64,000	128,000	256,000
+SectorSize	512	512	512	512	512	512	512	512
+**/
 
 typedef struct {
 	unsigned long size;
@@ -52,6 +61,7 @@ typedef struct {
 	unsigned char sec;
 } chs_entry_t;
 
+/* Must be ordered by size */
 static const chs_entry_t chs_table[] = {
 	{ MiB(  1), 125,  4,  4 },
 	{ MiB(  2), 125,  4,  8 },
@@ -87,10 +97,12 @@ static int get_chs(unsigned long size, unsigned short *cyl, unsigned char *head,
 	return found;
 }
 
+/* These bytes are the signature for the CIS/IDI sector */
 static const uint8_t cis_numbers[] = {
 	0x01, 0x03, 0xD9, 0x01, 0xFF, 0x18, 0x02, 0xDF, 0x01, 0x20
 };
 
+/* Read and check for a valid CIS sector */
 static int get_valid_cis_sector(struct mtd_info *mtd)
 {
 	int ret, k, cis_sector;
@@ -104,18 +116,23 @@ static int get_valid_cis_sector(struct mtd_info *mtd)
 	if (!sect_buf)
 		goto out;
 
+	/*
+	 * Look for CIS/IDI sector on the first GOOD block (give up after 4 bad
+	 * blocks). If the first good block doesn't contain CIS number the flash
+	 * is not SSFDC formatted
+	 */
 	for (k = 0, offset = 0; k < 4; k++, offset += mtd->erasesize) {
 		if (mtd_block_isbad(mtd, offset)) {
 			ret = mtd_read(mtd, offset, SECTOR_SIZE, &retlen,
 				       sect_buf);
 
-			
+			/* CIS pattern match on the sector buffer */
 			if (ret < 0 || retlen != SECTOR_SIZE) {
 				printk(KERN_WARNING
 					"SSFDC_RO:can't read CIS/IDI sector\n");
 			} else if (!memcmp(sect_buf, cis_numbers,
 					sizeof(cis_numbers))) {
-				
+				/* Found */
 				cis_sector = (int)(offset >> SECTOR_SHIFT);
 			} else {
 				pr_debug("SSFDC_RO: CIS/IDI sector not found"
@@ -131,6 +148,7 @@ static int get_valid_cis_sector(struct mtd_info *mtd)
 	return cis_sector;
 }
 
+/* Read physical sector (wrapper to MTD_READ) */
 static int read_physical_sector(struct mtd_info *mtd, uint8_t *sect_buf,
 				int sect_no)
 {
@@ -145,6 +163,7 @@ static int read_physical_sector(struct mtd_info *mtd, uint8_t *sect_buf,
 	return 0;
 }
 
+/* Read redundancy area (wrapper to MTD_READ_OOB */
 static int read_raw_oob(struct mtd_info *mtd, loff_t offs, uint8_t *buf)
 {
 	struct mtd_oob_ops ops;
@@ -163,6 +182,7 @@ static int read_raw_oob(struct mtd_info *mtd, loff_t offs, uint8_t *buf)
 	return 0;
 }
 
+/* Parity calculator on a word of n bit size */
 static int get_parity(int number, int size)
 {
  	int k;
@@ -176,18 +196,24 @@ static int get_parity(int number, int size)
 	return parity;
 }
 
+/* Read and validate the logical block address field stored in the OOB */
 static int get_logical_address(uint8_t *oob_buf)
 {
 	int block_address, parity;
-	int offset[2] = {6, 11}; 
+	int offset[2] = {6, 11}; /* offset of the 2 address fields within OOB */
 	int j;
 	int ok = 0;
 
+	/*
+	 * Look for the first valid logical address
+	 * Valid address has fixed pattern on most significant bits and
+	 * parity check
+	 */
 	for (j = 0; j < ARRAY_SIZE(offset); j++) {
 		block_address = ((int)oob_buf[offset[j]] << 8) |
 			oob_buf[offset[j]+1];
 
-		
+		/* Check for the signature bits in the address field (MSBits) */
 		if ((block_address & ~0x7FF) == 0x1000) {
 			parity = block_address & 0x01;
 			block_address &= 0x7FF;
@@ -213,6 +239,7 @@ static int get_logical_address(uint8_t *oob_buf)
 	return block_address;
 }
 
+/* Build the logic block map */
 static int build_logical_block_map(struct ssfdcr_record *ssfdc)
 {
 	unsigned long offset;
@@ -224,12 +251,12 @@ static int build_logical_block_map(struct ssfdcr_record *ssfdc)
 	      ssfdc->map_len,
 	      (unsigned long)ssfdc->map_len * ssfdc->erase_size / 1024);
 
-	
+	/* Scan every physical block, skip CIS block */
 	for (phys_block = ssfdc->cis_block + 1; phys_block < ssfdc->map_len;
 			phys_block++) {
 		offset = (unsigned long)phys_block * ssfdc->erase_size;
 		if (mtd_block_isbad(mtd, offset))
-			continue;	
+			continue;	/* skip bad blocks */
 
 		ret = read_raw_oob(mtd, offset, oob_buf);
 		if (ret < 0) {
@@ -239,7 +266,7 @@ static int build_logical_block_map(struct ssfdcr_record *ssfdc)
 		}
 		block_address = get_logical_address(oob_buf);
 
-		
+		/* Skip invalid addresses */
 		if (block_address >= 0 &&
 				block_address < MAX_LOGIC_BLK_PER_ZONE) {
 			int zone_index;
@@ -262,12 +289,12 @@ static void ssfdcr_add_mtd(struct mtd_blktrans_ops *tr, struct mtd_info *mtd)
 	struct ssfdcr_record *ssfdc;
 	int cis_sector;
 
-	
+	/* Check for small page NAND flash */
 	if (mtd->type != MTD_NANDFLASH || mtd->oobsize != OOB_SIZE ||
 	    mtd->size > UINT_MAX)
 		return;
 
-	
+	/* Check for SSDFC format by reading CIS/IDI sector */
 	cis_sector = get_valid_cis_sector(mtd);
 	if (cis_sector == -1)
 		return;
@@ -289,7 +316,7 @@ static void ssfdcr_add_mtd(struct mtd_blktrans_ops *tr, struct mtd_info *mtd)
 		ssfdc->cis_block, ssfdc->erase_size, ssfdc->map_len,
 		DIV_ROUND_UP(ssfdc->map_len, MAX_PHYS_BLK_PER_ZONE));
 
-	
+	/* Set geometry */
 	ssfdc->heads = 16;
 	ssfdc->sectors = 32;
 	get_chs(mtd->size, NULL, &ssfdc->heads, &ssfdc->sectors);
@@ -304,7 +331,7 @@ static void ssfdcr_add_mtd(struct mtd_blktrans_ops *tr, struct mtd_info *mtd)
 	ssfdc->mbd.size = (long)ssfdc->heads * (long)ssfdc->cylinders *
 				(long)ssfdc->sectors;
 
-	
+	/* Allocate logical block map */
 	ssfdc->logic_block_map = kmalloc(sizeof(ssfdc->logic_block_map[0]) *
 					 ssfdc->map_len, GFP_KERNEL);
 	if (!ssfdc->logic_block_map)
@@ -312,11 +339,11 @@ static void ssfdcr_add_mtd(struct mtd_blktrans_ops *tr, struct mtd_info *mtd)
 	memset(ssfdc->logic_block_map, 0xff, sizeof(ssfdc->logic_block_map[0]) *
 		ssfdc->map_len);
 
-	
+	/* Build logical block map */
 	if (build_logical_block_map(ssfdc) < 0)
 		goto out_err;
 
-	
+	/* Register device + partitions */
 	if (add_mtd_blktrans_dev(&ssfdc->mbd))
 		goto out_err;
 
@@ -393,6 +420,11 @@ static int ssfdcr_getgeo(struct mtd_blktrans_dev *dev,  struct hd_geometry *geo)
 	return 0;
 }
 
+/****************************************************************************
+ *
+ * Module stuff
+ *
+ ****************************************************************************/
 
 static struct mtd_blktrans_ops ssfdcr_tr = {
 	.name		= "ssfdc",

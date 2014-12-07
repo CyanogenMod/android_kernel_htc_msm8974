@@ -47,12 +47,31 @@
 #define dprintk(args...)
 #endif
 
+/**
+ *	llc_util_ns_inside_rx_window - check if sequence number is in rx window
+ *	@ns: sequence number of received pdu.
+ *	@vr: sequence number which receiver expects to receive.
+ *	@rw: receive window size of receiver.
+ *
+ *	Checks if sequence number of received PDU is in range of receive
+ *	window. Returns 0 for success, 1 otherwise
+ */
 static u16 llc_util_ns_inside_rx_window(u8 ns, u8 vr, u8 rw)
 {
 	return !llc_circular_between(vr, ns,
 				     (vr + rw - 1) % LLC_2_SEQ_NBR_MODULO);
 }
 
+/**
+ *	llc_util_nr_inside_tx_window - check if sequence number is in tx window
+ *	@sk: current connection.
+ *	@nr: N(R) of received PDU.
+ *
+ *	This routine checks if N(R) of received PDU is in range of transmit
+ *	window; on the other hand checks if received PDU acknowledges some
+ *	outstanding PDUs that are in transmit window. Returns 0 for success, 1
+ *	otherwise.
+ */
 static u16 llc_util_nr_inside_tx_window(struct sock *sk, u8 nr)
 {
 	u8 nr1, nr2;
@@ -562,6 +581,12 @@ int llc_conn_ev_tx_buffer_full(struct sock *sk, struct sk_buff *skb)
 	       ev->prim_type == LLC_CONN_EV_TX_BUFF_FULL ? 0 : 1;
 }
 
+/* Event qualifier functions
+ *
+ * these functions simply verify the value of a state flag associated with
+ * the connection and return either a 0 for success or a non-zero value
+ * for not-success; verify the event is the type we expect
+ */
 int llc_conn_ev_qlfy_data_flag_eq_1(struct sock *sk, struct sk_buff *skb)
 {
 	return llc_sk(sk)->data_flag != 1;
@@ -582,11 +607,31 @@ int llc_conn_ev_qlfy_p_flag_eq_1(struct sock *sk, struct sk_buff *skb)
 	return llc_sk(sk)->p_flag != 1;
 }
 
+/**
+ *	conn_ev_qlfy_last_frame_eq_1 - checks if frame is last in tx window
+ *	@sk: current connection structure.
+ *	@skb: current event.
+ *
+ *	This function determines when frame which is sent, is last frame of
+ *	transmit window, if it is then this function return zero else return
+ *	one.  This function is used for sending last frame of transmit window
+ *	as I-format command with p-bit set to one. Returns 0 if frame is last
+ *	frame, 1 otherwise.
+ */
 int llc_conn_ev_qlfy_last_frame_eq_1(struct sock *sk, struct sk_buff *skb)
 {
 	return !(skb_queue_len(&llc_sk(sk)->pdu_unack_q) + 1 == llc_sk(sk)->k);
 }
 
+/**
+ *	conn_ev_qlfy_last_frame_eq_0 - checks if frame isn't last in tx window
+ *	@sk: current connection structure.
+ *	@skb: current event.
+ *
+ *	This function determines when frame which is sent, isn't last frame of
+ *	transmit window, if it isn't then this function return zero else return
+ *	one. Returns 0 if frame isn't last frame, 1 otherwise.
+ */
 int llc_conn_ev_qlfy_last_frame_eq_0(struct sock *sk, struct sk_buff *skb)
 {
 	return skb_queue_len(&llc_sk(sk)->pdu_unack_q) + 1 == llc_sk(sk)->k;

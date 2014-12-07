@@ -14,6 +14,9 @@
  * for more details.
  */
 
+/*
+ * Sets up all exception vectors
+ */
 #include <linux/sched.h>
 #include <linux/kernel.h>
 #include <linux/linkage.h>
@@ -24,6 +27,7 @@
 #include <asm/fpu.h>
 #include <asm/traps.h>
 
+/* assembler routines */
 asmlinkage void system_call(void);
 asmlinkage void buserr(void);
 asmlinkage void trap(void);
@@ -34,10 +38,16 @@ asmlinkage void fpu_emu(void);
 
 e_vector vectors[256];
 
+/* nmi handler for the Amiga */
 asm(".text\n"
     __ALIGN_STR "\n"
     "nmihandler: rte");
 
+/*
+ * this must be called very early as the kernel might
+ * use some instruction that are emulated on the 060
+ * and so we're prepared for early probe attempts (e.g. nf_init).
+ */
 void __init base_trap_init(void)
 {
 	if (MACH_IS_SUN3X) {
@@ -46,11 +56,11 @@ void __init base_trap_init(void)
 		__asm__ volatile ("movec %%vbr, %0" : "=r" (sun3x_prom_vbr));
 	}
 
-	
+	/* setup the exception vector table */
 	__asm__ volatile ("movec %0,%%vbr" : : "r" ((void*)vectors));
 
 	if (CPU_IS_060) {
-		
+		/* set up ISP entry points */
 		asmlinkage void unimp_vec(void) asm ("_060_isp_unimp");
 
 		vectors[VEC_UNIMPII] = unimp_vec;
@@ -81,7 +91,7 @@ void __init trap_init (void)
 #endif
 
 	if (CPU_IS_040 && !FPU_IS_EMU) {
-		
+		/* set up FPSP entry points */
 		asmlinkage void dz_vec(void) asm ("dz");
 		asmlinkage void inex_vec(void) asm ("inex");
 		asmlinkage void ovfl_vec(void) asm ("ovfl");
@@ -104,7 +114,7 @@ void __init trap_init (void)
 	}
 
 	if (CPU_IS_060 && !FPU_IS_EMU) {
-		
+		/* set up IFPSP entry points */
 		asmlinkage void snan_vec6(void) asm ("_060_fpsp_snan");
 		asmlinkage void operr_vec6(void) asm ("_060_fpsp_operr");
 		asmlinkage void ovfl_vec6(void) asm ("_060_fpsp_ovfl");
@@ -126,7 +136,7 @@ void __init trap_init (void)
 		vectors[VEC_UNIMPEA] = effadd_vec6;
 	}
 
-        
+        /* if running on an amiga, make the NMI interrupt do nothing */
 	if (MACH_IS_AMIGA) {
 		vectors[VEC_INT7] = nmihandler;
 	}

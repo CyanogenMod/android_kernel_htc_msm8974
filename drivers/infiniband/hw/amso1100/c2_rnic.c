@@ -62,6 +62,7 @@
 #include "c2.h"
 #include "c2_vq.h"
 
+/* Device capabilities */
 #define C2_MIN_PAGESIZE  1024
 
 #define C2_MAX_MRS       32768
@@ -74,6 +75,9 @@
 #define C2_MAX_CQES      4096
 #define C2_MAX_PDS       16384
 
+/*
+ * Send the adapter INIT message to the amso1100
+ */
 static int c2_adapter_init(struct c2_dev *c2dev)
 {
 	struct c2wr_init_req wr;
@@ -89,12 +93,15 @@ static int c2_adapter_init(struct c2_dev *c2dev)
 	wr.q2_host_shared = cpu_to_be64(c2dev->aeq.shared_dma);
 	wr.q2_host_msg_pool = cpu_to_be64(c2dev->aeq.host_dma);
 
-	
+	/* Post the init message */
 	err = vq_send_wr(c2dev, (union c2wr *) & wr);
 
 	return err;
 }
 
+/*
+ * Send the adapter TERM message to the amso1100
+ */
 static void c2_adapter_term(struct c2_dev *c2dev)
 {
 	struct c2wr_init_req wr;
@@ -103,13 +110,16 @@ static void c2_adapter_term(struct c2_dev *c2dev)
 	c2_wr_set_id(&wr, CCWR_TERM);
 	wr.hdr.context = 0;
 
-	
+	/* Post the init message */
 	vq_send_wr(c2dev, (union c2wr *) & wr);
 	c2dev->init = 0;
 
 	return;
 }
 
+/*
+ * Query the adapter
+ */
 static int c2_rnic_query(struct c2_dev *c2dev, struct ib_device_attr *props)
 {
 	struct c2_vq_req *vq_req;
@@ -196,6 +206,9 @@ static int c2_rnic_query(struct c2_dev *c2dev, struct ib_device_attr *props)
 	return err;
 }
 
+/*
+ * Add an IP address to the RNIC interface
+ */
 int c2_add_addr(struct c2_dev *c2dev, __be32 inaddr, __be32 inmask)
 {
 	struct c2_vq_req *vq_req;
@@ -255,6 +268,9 @@ int c2_add_addr(struct c2_dev *c2dev, __be32 inaddr, __be32 inmask)
 	return err;
 }
 
+/*
+ * Delete an IP address from the RNIC interface
+ */
 int c2_del_addr(struct c2_dev *c2dev, __be32 inaddr, __be32 inmask)
 {
 	struct c2_vq_req *vq_req;
@@ -314,6 +330,10 @@ int c2_del_addr(struct c2_dev *c2dev, __be32 inaddr, __be32 inmask)
 	return err;
 }
 
+/*
+ * Open a single RNIC instance to use with all
+ * low level openib calls
+ */
 static int c2_rnic_open(struct c2_dev *c2dev)
 {
 	struct c2_vq_req *vq_req;
@@ -365,6 +385,9 @@ static int c2_rnic_open(struct c2_dev *c2dev)
 	return err;
 }
 
+/*
+ * Close the RNIC instance
+ */
 static int c2_rnic_close(struct c2_dev *c2dev)
 {
 	struct c2_vq_req *vq_req;
@@ -414,6 +437,11 @@ static int c2_rnic_close(struct c2_dev *c2dev)
 	return err;
 }
 
+/*
+ * Called by c2_probe to initialize the RNIC. This principally
+ * involves initalizing the various limits and resouce pools that
+ * comprise the RNIC instance.
+ */
 int __devinit c2_rnic_init(struct c2_dev *c2dev)
 {
 	int err;
@@ -422,7 +450,7 @@ int __devinit c2_rnic_init(struct c2_dev *c2dev)
 	void *q2_pages;
 	void __iomem *mmio_regs;
 
-	
+	/* Device capabilities */
 	c2dev->device_cap_flags =
 	    (IB_DEVICE_RESIZE_MAX_WR |
 	     IB_DEVICE_CURR_QP_STATE_MOD |
@@ -430,27 +458,33 @@ int __devinit c2_rnic_init(struct c2_dev *c2dev)
 	     IB_DEVICE_LOCAL_DMA_LKEY |
 	     IB_DEVICE_MEM_WINDOW);
 
-	
+	/* Allocate the qptr_array */
 	c2dev->qptr_array = vzalloc(C2_MAX_CQS * sizeof(void *));
 	if (!c2dev->qptr_array) {
 		return -ENOMEM;
 	}
 
-	
+	/* Initialize the qptr_array */
 	c2dev->qptr_array[0] = (void *) &c2dev->req_vq;
 	c2dev->qptr_array[1] = (void *) &c2dev->rep_vq;
 	c2dev->qptr_array[2] = (void *) &c2dev->aeq;
 
-	
+	/* Initialize data structures */
 	init_waitqueue_head(&c2dev->req_vq_wo);
 	spin_lock_init(&c2dev->vqlock);
 	spin_lock_init(&c2dev->lock);
 
+	/* Allocate MQ shared pointer pool for kernel clients. User
+	 * mode client pools are hung off the user context
+	 */
 	err = c2_init_mqsp_pool(c2dev, GFP_KERNEL, &c2dev->kern_mqsp_pool);
 	if (err) {
 		goto bail0;
 	}
 
+	/* Allocate shared pointers for Q0, Q1, and Q2 from
+	 * the shared pointer pool.
+	 */
 
 	c2dev->hint_count = c2_alloc_mqsp(c2dev, c2dev->kern_mqsp_pool,
 					     &c2dev->hint_count_dma,
@@ -470,7 +504,7 @@ int __devinit c2_rnic_init(struct c2_dev *c2dev)
 	}
 
 	mmio_regs = c2dev->kva;
-	
+	/* Initialize the Verbs Request Queue */
 	c2_mq_req_init(&c2dev->req_vq, 0,
 		       be32_to_cpu((__force __be32) readl(mmio_regs + C2_REGS_Q0_QSIZE)),
 		       be32_to_cpu((__force __be32) readl(mmio_regs + C2_REGS_Q0_MSGSIZE)),
@@ -480,7 +514,7 @@ int __devinit c2_rnic_init(struct c2_dev *c2dev)
 		       be32_to_cpu((__force __be32) readl(mmio_regs + C2_REGS_Q0_SHARED)),
 		       C2_MQ_ADAPTER_TARGET);
 
-	
+	/* Initialize the Verbs Reply Queue */
 	qsize = be32_to_cpu((__force __be32) readl(mmio_regs + C2_REGS_Q1_QSIZE));
 	msgsize = be32_to_cpu((__force __be32) readl(mmio_regs + C2_REGS_Q1_MSGSIZE));
 	q1_pages = dma_alloc_coherent(&c2dev->pcidev->dev, qsize * msgsize,
@@ -501,7 +535,7 @@ int __devinit c2_rnic_init(struct c2_dev *c2dev)
 		   be32_to_cpu((__force __be32) readl(mmio_regs + C2_REGS_Q1_SHARED)),
 		   C2_MQ_HOST_TARGET);
 
-	
+	/* Initialize the Asynchronus Event Queue */
 	qsize = be32_to_cpu((__force __be32) readl(mmio_regs + C2_REGS_Q2_QSIZE));
 	msgsize = be32_to_cpu((__force __be32) readl(mmio_regs + C2_REGS_Q2_MSGSIZE));
 	q2_pages = dma_alloc_coherent(&c2dev->pcidev->dev, qsize * msgsize,
@@ -522,35 +556,35 @@ int __devinit c2_rnic_init(struct c2_dev *c2dev)
 		       be32_to_cpu((__force __be32) readl(mmio_regs + C2_REGS_Q2_SHARED)),
 		       C2_MQ_HOST_TARGET);
 
-	
+	/* Initialize the verbs request allocator */
 	err = vq_init(c2dev);
 	if (err)
 		goto bail3;
 
-	
+	/* Enable interrupts on the adapter */
 	writel(0, c2dev->regs + C2_IDIS);
 
-	
+	/* create the WR init message */
 	err = c2_adapter_init(c2dev);
 	if (err)
 		goto bail4;
 	c2dev->init++;
 
-	
+	/* open an adapter instance */
 	err = c2_rnic_open(c2dev);
 	if (err)
 		goto bail4;
 
-	
+	/* Initialize cached the adapter limits */
 	if (c2_rnic_query(c2dev, &c2dev->props))
 		goto bail5;
 
-	
+	/* Initialize the PD pool */
 	err = c2_init_pd_table(c2dev);
 	if (err)
 		goto bail5;
 
-	
+	/* Initialize the QP pool */
 	c2_init_qp_table(c2dev);
 	return 0;
 
@@ -574,43 +608,46 @@ int __devinit c2_rnic_init(struct c2_dev *c2dev)
 	return err;
 }
 
+/*
+ * Called by c2_remove to cleanup the RNIC resources.
+ */
 void __devexit c2_rnic_term(struct c2_dev *c2dev)
 {
 
-	
+	/* Close the open adapter instance */
 	c2_rnic_close(c2dev);
 
-	
+	/* Send the TERM message to the adapter */
 	c2_adapter_term(c2dev);
 
-	
+	/* Disable interrupts on the adapter */
 	writel(1, c2dev->regs + C2_IDIS);
 
-	
+	/* Free the QP pool */
 	c2_cleanup_qp_table(c2dev);
 
-	
+	/* Free the PD pool */
 	c2_cleanup_pd_table(c2dev);
 
-	
+	/* Free the verbs request allocator */
 	vq_term(c2dev);
 
-	
+	/* Free the asynchronus event queue */
 	dma_free_coherent(&c2dev->pcidev->dev,
 			  c2dev->aeq.q_size * c2dev->aeq.msg_size,
 			  c2dev->aeq.msg_pool.host,
 			  dma_unmap_addr(&c2dev->aeq, mapping));
 
-	
+	/* Free the verbs reply queue */
 	dma_free_coherent(&c2dev->pcidev->dev,
 			  c2dev->rep_vq.q_size * c2dev->rep_vq.msg_size,
 			  c2dev->rep_vq.msg_pool.host,
 			  dma_unmap_addr(&c2dev->rep_vq, mapping));
 
-	
+	/* Free the MQ shared pointer pool */
 	c2_free_mqsp_pool(c2dev, c2dev->kern_mqsp_pool);
 
-	
+	/* Free the qptr_array */
 	vfree(c2dev->qptr_array);
 
 	return;

@@ -27,53 +27,81 @@
 #ifndef _CRYSTALHD_FW_IF_H_
 #define _CRYSTALHD_FW_IF_H_
 
+/* TBD: Pull in only required defs into this file.. */
 
+/* User Data Header */
 struct user_data {
 	struct user_data	*next;
 	uint32_t		type;
 	uint32_t		size;
 };
 
+/*------------------------------------------------------*
+ *    MPEG Extension to the PPB			 *
+ *------------------------------------------------------*/
 struct ppb_mpeg {
 	uint32_t		to_be_defined;
 	uint32_t		valid;
 
+	/* Always valid, defaults to picture size if no
+	   sequence display extension in the stream. */
 	uint32_t		display_horizontal_size;
 	uint32_t		display_vertical_size;
 
+	/* MPEG_VALID_PANSCAN
+	   Offsets are a copy values from the MPEG stream. */
 	uint32_t		offset_count;
 	int32_t		horizontal_offset[3];
 	int32_t		vertical_offset[3];
 
+	/* MPEG_VALID_USERDATA
+	   User data is in the form of a linked list. */
 	int32_t		userDataSize;
 	struct user_data	*userData;
 
 };
 
 
+/*------------------------------------------------------*
+ *    VC1 Extension to the PPB			  *
+ *------------------------------------------------------*/
 struct ppb_vc1 {
 	uint32_t		to_be_defined;
 	uint32_t		valid;
 
+	/* Always valid, defaults to picture size if no
+	   sequence display extension in the stream. */
 	uint32_t		display_horizontal_size;
 	uint32_t		display_vertical_size;
 
-	
+	/* VC1 pan scan windows */
 	uint32_t		num_panscan_windows;
 	int32_t		ps_horiz_offset[4];
 	int32_t		ps_vert_offset[4];
 	int32_t		ps_width[4];
 	int32_t		ps_height[4];
 
+	/* VC1_VALID_USERDATA
+	   User data is in the form of a linked list. */
 	int32_t		userDataSize;
 	struct user_data	*userData;
 
 };
 
+/*------------------------------------------------------*
+ *    H.264 Extension to the PPB			*
+ *------------------------------------------------------*/
 
+/**
+ * @brief Film grain SEI message.
+ *
+ * Content of the film grain SEI message.
+ */
 
+/* maximum number of model-values as for Thomson spec(standard says 5) */
 #define MAX_FGT_MODEL_VALUE	 (3)
 
+/* maximum number of intervals(as many as 256 intervals?) */
 #define MAX_FGT_VALUE_INTERVAL	(256)
 
 struct fgt_sei {
@@ -82,102 +110,106 @@ struct fgt_sei {
 	unsigned char upper_bound[3][MAX_FGT_VALUE_INTERVAL];
 	unsigned char lower_bound[3][MAX_FGT_VALUE_INTERVAL];
 
-	unsigned char cancel_flag;	
-	unsigned char model_id;	
+	unsigned char cancel_flag;	/* Cancel flag: 1 no film grain. */
+	unsigned char model_id;	/* Model id. */
 
-	
-	unsigned char color_desc_flag;	
-	unsigned char bit_depth_luma;	
-	unsigned char bit_depth_chroma;	
-	unsigned char full_range_flag;	
-	unsigned char color_primaries;	
-	unsigned char transfer_charact;	
-	unsigned char matrix_coeff;		
-	
+	/* +unused SE based on Thomson spec */
+	unsigned char color_desc_flag;	/* Separate color descrition flag. */
+	unsigned char bit_depth_luma;	/* Bit depth luma minus 8. */
+	unsigned char bit_depth_chroma;	/* Bit depth chroma minus 8. */
+	unsigned char full_range_flag;	/* Full range flag. */
+	unsigned char color_primaries;	/* Color primaries. */
+	unsigned char transfer_charact;	/* Transfer characteristics. */
+	unsigned char matrix_coeff;		/*< Matrix coefficients. */
+	/* -unused SE based on Thomson spec */
 
-	unsigned char blending_mode_id;	
-	unsigned char log2_scale_factor;	
-	unsigned char comp_flag[3];		
-	unsigned char num_intervals_minus1[3]; 
-	unsigned char num_model_values[3];	
-	uint16_t      repetition_period;	
+	unsigned char blending_mode_id;	/* Blending mode. */
+	unsigned char log2_scale_factor;	/* Log2 scale factor (2-7). */
+	unsigned char comp_flag[3];		/* Components [0,2] parameters present flag. */
+	unsigned char num_intervals_minus1[3]; /* Number of intensity level intervals. */
+	unsigned char num_model_values[3];	/* Number of model values. */
+	uint16_t      repetition_period;	/* Repetition period (0-16384) */
 
 };
 
 struct ppb_h264 {
+	/* 'valid' specifies which fields (or sets of
+	 * fields) below are valid.  If the corresponding
+	 * bit in 'valid' is NOT set then that field(s)
+	 * is (are) not initialized. */
 	uint32_t	valid;
 
-	int32_t		poc_top;	
-	int32_t		poc_bottom;	
+	int32_t		poc_top;	/* POC for Top Field/Frame */
+	int32_t		poc_bottom;	/* POC for Bottom Field    */
 	uint32_t		idr_pic_id;
 
-	
+	/* H264_VALID_PANSCAN */
 	uint32_t		pan_scan_count;
 	int32_t		pan_scan_left[3];
 	int32_t		pan_scan_right[3];
 	int32_t		pan_scan_top[3];
 	int32_t		pan_scan_bottom[3];
 
-	
+	/* H264_VALID_CT_TYPE */
 	uint32_t		ct_type_count;
 	uint32_t		ct_type[3];
 
-	
+	/* H264_VALID_SPS_CROP */
 	int32_t		sps_crop_left;
 	int32_t		sps_crop_right;
 	int32_t		sps_crop_top;
 	int32_t		sps_crop_bottom;
 
-	
+	/* H264_VALID_VUI */
 	uint32_t		chroma_top;
 	uint32_t		chroma_bottom;
 
-	
+	/* H264_VALID_USER */
 	uint32_t		user_data_size;
 	struct user_data	*user_data;
 
-	
+	/* H264 VALID FGT */
 	struct fgt_sei	*pfgt;
 
 };
 
 struct ppb {
-	
-	uint32_t	picture_number;	
-	uint32_t	video_buffer;	
-	uint32_t	video_address;	
-	uint32_t	video_address_uv; 
-	uint32_t	video_stripe;	
-	uint32_t	video_width;	
-	uint32_t	video_height;	
+	/* Common fields. */
+	uint32_t	picture_number;	/* Ordinal display number */
+	uint32_t	video_buffer;	/* Video (picbuf) number */
+	uint32_t	video_address;	/* Address of picbuf Y */
+	uint32_t	video_address_uv; /* Address of picbuf UV */
+	uint32_t	video_stripe;	/* Picbuf stripe */
+	uint32_t	video_width;	/* Picbuf width */
+	uint32_t	video_height;	/* Picbuf height */
 
-	uint32_t	channel_id;	
-	uint32_t	status;		
-	uint32_t	width;		
-	uint32_t	height;		
-	uint32_t	chroma_format;	
-	uint32_t	pulldown;	
-	uint32_t	flags;		
-	uint32_t	pts;		
-	uint32_t	protocol;	
+	uint32_t	channel_id;	/* Decoder channel ID */
+	uint32_t	status;		/* reserved */
+	uint32_t	width;		/* pixels */
+	uint32_t	height;		/* pixels */
+	uint32_t	chroma_format;	/* see above */
+	uint32_t	pulldown;	/* see above */
+	uint32_t	flags;		/* see above */
+	uint32_t	pts;		/* 32 LSBs of PTS */
+	uint32_t	protocol;	/* protocolXXX (above) */
 
-	uint32_t	frame_rate;	
-	uint32_t	matrix_coeff;	
-	uint32_t	aspect_ratio;	
-	uint32_t	colour_primaries; 
-	uint32_t	transfer_char;	
-	uint32_t	pcr_offset;	
-	uint32_t	n_drop;		
+	uint32_t	frame_rate;	/* see above */
+	uint32_t	matrix_coeff;	/* see above */
+	uint32_t	aspect_ratio;	/* see above */
+	uint32_t	colour_primaries; /* see above */
+	uint32_t	transfer_char;	/* see above */
+	uint32_t	pcr_offset;	/* 45kHz if PCR type; else 27MHz */
+	uint32_t	n_drop;		/* Number of pictures to be dropped */
 
 	uint32_t	custom_aspect_ratio_width_height;
-	
+	/* upper 16-bits is Y and lower 16-bits is X */
 
-	uint32_t	picture_tag;	
+	uint32_t	picture_tag;	/* Indexing tag from BUD packets */
 	uint32_t	picture_done_payload;
 	uint32_t	picture_meta_payload;
 	uint32_t	reserved[1];
 
-	
+	/* Protocol-specific extensions. */
 	union {
 		struct ppb_h264	h264;
 		struct ppb_mpeg	mpeg;
@@ -217,13 +249,14 @@ struct dec_rsp_channel_start_video {
 
 #define eCMD_C011_CMD_BASE	  (0x73763000)
 
+/* host commands */
 enum  c011_ts_cmd {
-	eCMD_TS_GET_NEXT_PIC	= 0x7376F100, 
-	eCMD_TS_GET_LAST_PIC	= 0x7376F102, 
-	eCMD_TS_READ_WRITE_MEM	= 0x7376F104, 
+	eCMD_TS_GET_NEXT_PIC	= 0x7376F100, /* debug get next picture */
+	eCMD_TS_GET_LAST_PIC	= 0x7376F102, /* debug get last pic status */
+	eCMD_TS_READ_WRITE_MEM	= 0x7376F104, /* debug read write memory */
 
-	
-	
+	/* New API commands */
+	/* General commands */
 	eCMD_C011_INIT		= eCMD_C011_CMD_BASE + 0x01,
 	eCMD_C011_RESET		= eCMD_C011_CMD_BASE + 0x02,
 	eCMD_C011_SELF_TEST		= eCMD_C011_CMD_BASE + 0x03,
@@ -231,7 +264,7 @@ enum  c011_ts_cmd {
 	eCMD_C011_GPIO		= eCMD_C011_CMD_BASE + 0x05,
 	eCMD_C011_DEBUG_SETUP	= eCMD_C011_CMD_BASE + 0x06,
 
-	
+	/* Decoding commands */
 	eCMD_C011_DEC_CHAN_OPEN			= eCMD_C011_CMD_BASE + 0x100,
 	eCMD_C011_DEC_CHAN_CLOSE			= eCMD_C011_CMD_BASE + 0x101,
 	eCMD_C011_DEC_CHAN_ACTIVATE			= eCMD_C011_CMD_BASE + 0x102,
@@ -302,21 +335,21 @@ enum  c011_ts_cmd {
 	eCMD_C011_DEC_CHAN_SET_PARAMETERS_FOR_HARD_RESET_INTERRUPT_TO_HOST
 		= eCMD_C011_CMD_BASE + 0x150,
 
-	
-	eCMD_C011_DEC_CHAN_SET_CSC	= eCMD_C011_CMD_BASE + 0x180, 
+	/* Decoder RevD commands */
+	eCMD_C011_DEC_CHAN_SET_CSC	= eCMD_C011_CMD_BASE + 0x180, /* color space conversion */
 	eCMD_C011_DEC_CHAN_SET_RANGE_REMAP	= eCMD_C011_CMD_BASE + 0x181,
 	eCMD_C011_DEC_CHAN_SET_FGT		= eCMD_C011_CMD_BASE + 0x182,
-	
+	/* Note: 0x183 not implemented yet in Rev D main */
 	eCMD_C011_DEC_CHAN_SET_LASTPICTURE_PADDING = eCMD_C011_CMD_BASE + 0x183,
 
-	
+	/* Decoder 7412 commands (7412-only) */
 	eCMD_C011_DEC_CHAN_SET_CONTENT_KEY	= eCMD_C011_CMD_BASE + 0x190,
 	eCMD_C011_DEC_CHAN_SET_SESSION_KEY	= eCMD_C011_CMD_BASE + 0x191,
 	eCMD_C011_DEC_CHAN_FMT_CHANGE_ACK	= eCMD_C011_CMD_BASE + 0x192,
 
 	eCMD_C011_DEC_CHAN_CUSTOM_VIDOUT    = eCMD_C011_CMD_BASE + 0x1FF,
 
-	
+	/* Encoding commands */
 	eCMD_C011_ENC_CHAN_OPEN		= eCMD_C011_CMD_BASE + 0x200,
 	eCMD_C011_ENC_CHAN_CLOSE		= eCMD_C011_CMD_BASE + 0x201,
 	eCMD_C011_ENC_CHAN_ACTIVATE		= eCMD_C011_CMD_BASE + 0x202,

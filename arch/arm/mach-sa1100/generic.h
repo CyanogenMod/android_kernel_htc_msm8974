@@ -1,3 +1,8 @@
+/*
+ * linux/arch/arm/mach-sa1100/generic.h
+ *
+ * Author: Nicolas Pitre
+ */
 
 struct sys_timer;
 

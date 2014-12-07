@@ -12,6 +12,10 @@
 #include <linux/mm.h>
 #include <asm/cputable.h>
 
+/*
+ * No cache flushing is required when address mappings are changed,
+ * because the caches on PowerPCs are physically addressed.
+ */
 #define flush_cache_all()			do { } while (0)
 #define flush_cache_mm(mm)			do { } while (0)
 #define flush_cache_dup_mm(mm)			do { } while (0)
@@ -40,13 +44,13 @@ extern void __flush_dcache_icache(void *page_va);
 extern void flush_dcache_icache_page(struct page *page);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_BOOKE)
 extern void __flush_dcache_icache_phys(unsigned long physaddr);
-#endif 
+#endif /* CONFIG_PPC32 && !CONFIG_BOOKE */
 
 extern void flush_dcache_range(unsigned long start, unsigned long stop);
 #ifdef CONFIG_PPC32
 extern void clean_dcache_range(unsigned long start, unsigned long stop);
 extern void invalidate_dcache_range(unsigned long start, unsigned long stop);
-#endif 
+#endif /* CONFIG_PPC32 */
 #ifdef CONFIG_PPC64
 extern void flush_inval_dcache_range(unsigned long start, unsigned long stop);
 extern void flush_dcache_phys_range(unsigned long start, unsigned long stop);
@@ -63,9 +67,10 @@ extern void flush_dcache_phys_range(unsigned long start, unsigned long stop);
 
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
+/* internal debugging function */
 void kernel_map_pages(struct page *page, int numpages, int enable);
 #endif
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_POWERPC_CACHEFLUSH_H */

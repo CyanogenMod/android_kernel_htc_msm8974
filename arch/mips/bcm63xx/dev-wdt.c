@@ -13,8 +13,8 @@
 
 static struct resource wdt_resources[] = {
 	{
-		.start		= -1, 
-		.end		= -1, 
+		.start		= -1, /* filled at runtime */
+		.end		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_MEM,
 	},
 };

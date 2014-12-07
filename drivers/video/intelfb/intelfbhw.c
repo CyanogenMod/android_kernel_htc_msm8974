@@ -17,6 +17,7 @@
  *
  */
 
+/* $DHD: intelfb/intelfbhw.c,v 1.9 2003/06/27 15:06:25 dawes Exp $ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -54,13 +55,13 @@ static struct pll_min_max plls[PLLS_MAX] = {
 	  6, 16, 3, 16,
 	  4, 128, 0, 31,
 	  930000, 1400000, 165000, 48000,
-	  4, 2 },		
+	  4, 2 },		/* I8xx */
 
 	{ 75, 120, 10, 20,
 	  5, 9, 4, 7,
 	  5, 80, 1, 8,
 	  1400000, 2800000, 200000, 96000,
-	  10, 5 }		
+	  10, 5 }		/* I9xx */
 };
 
 int intelfbhw_get_chipset(struct pci_dev *pdev, struct intelfb_info *dinfo)
@@ -179,13 +180,13 @@ int intelfbhw_get_memory(struct pci_dev *pdev, int *aperture_size,
 	if (!pdev || !aperture_size || !stolen_size)
 		return 1;
 
-	
+	/* Find the bridge device.  It is always 0:0.0 */
 	if (!(bridge_dev = pci_get_bus_and_slot(0, PCI_DEVFN(0, 0)))) {
 		ERR_MSG("cannot find bridge device\n");
 		return 1;
 	}
 
-	
+	/* Get the fb aperture size and "stolen" memory amount. */
 	tmp = 0;
 	pci_read_config_word(bridge_dev, INTEL_GMCH_CTRL, &tmp);
 	pci_dev_put(bridge_dev);
@@ -198,6 +199,9 @@ int intelfbhw_get_memory(struct pci_dev *pdev, int *aperture_size,
 	case PCI_DEVICE_ID_INTEL_945GME:
 	case PCI_DEVICE_ID_INTEL_965G:
 	case PCI_DEVICE_ID_INTEL_965GM:
+		/* 915, 945 and 965 chipsets support a 256MB aperture.
+		   Aperture size is determined by inspected the
+		   base address of the aperture. */
 		if (pci_resource_start(pdev, 2) & 0x08000000)
 			*aperture_size = MB(128);
 		else
@@ -211,6 +215,8 @@ int intelfbhw_get_memory(struct pci_dev *pdev, int *aperture_size,
 		break;
 	}
 
+	/* Stolen memory size is reduced by the GTT and the popup.
+	   GTT is 1K per MB of aperture size, and popup is 4K. */
 	stolen_overhead = (*aperture_size / MB(1)) + 4;
 	switch(pdev->device) {
 	case PCI_DEVICE_ID_INTEL_830M:
@@ -316,7 +322,7 @@ int intelfbhw_validate_mode(struct intelfb_info *dinfo,
 	if (bytes_per_pixel == 3)
 		bytes_per_pixel = 4;
 
-	
+	/* Check if enough video memory. */
 	tmp = var->yres_virtual * var->xres_virtual * bytes_per_pixel;
 	if (tmp > dinfo->fb.size) {
 		WRN_MSG("Not enough video ram for mode "
@@ -325,7 +331,7 @@ int intelfbhw_validate_mode(struct intelfb_info *dinfo,
 		return 1;
 	}
 
-	
+	/* Check if x/y limits are OK. */
 	if (var->xres - 1 > HACTIVE_MASK) {
 		WRN_MSG("X resolution too large (%d vs %d).\n",
 			var->xres, HACTIVE_MASK + 1);
@@ -345,7 +351,7 @@ int intelfbhw_validate_mode(struct intelfb_info *dinfo,
 		return 1;
 	}
 
-	
+	/* Check for doublescan modes. */
 	if (var->vmode & FB_VMODE_DOUBLE) {
 		WRN_MSG("Mode is double-scan.\n");
 		return 1;
@@ -356,7 +362,7 @@ int intelfbhw_validate_mode(struct intelfb_info *dinfo,
 		return 1;
 	}
 
-	
+	/* Check if clock is OK. */
 	tmp = 1000000000 / var->pixclock;
 	if (tmp < MIN_CLOCK) {
 		WRN_MSG("Pixel clock is too low (%d MHz vs %d MHz).\n",
@@ -405,6 +411,7 @@ int intelfbhw_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 	return 0;
 }
 
+/* Blank the screen. */
 void intelfbhw_do_blank(int blank, struct fb_info *info)
 {
 	struct intelfb_info *dinfo = GET_DINFO(info);
@@ -414,18 +421,18 @@ void intelfbhw_do_blank(int blank, struct fb_info *info)
 	DBG_MSG("intelfbhw_do_blank: blank is %d\n", blank);
 #endif
 
-	
+	/* Turn plane A on or off */
 	tmp = INREG(DSPACNTR);
 	if (blank)
 		tmp &= ~DISPPLANE_PLANE_ENABLE;
 	else
 		tmp |= DISPPLANE_PLANE_ENABLE;
 	OUTREG(DSPACNTR, tmp);
-	
+	/* Flush */
 	tmp = INREG(DSPABASE);
 	OUTREG(DSPABASE, tmp);
 
-	
+	/* Turn off/on the HW cursor */
 #if VERBOSE > 0
 	DBG_MSG("cursor_on is %d\n", dinfo->cursor_on);
 #endif
@@ -438,7 +445,7 @@ void intelfbhw_do_blank(int blank, struct fb_info *info)
 	}
 	dinfo->cursor_blanked = blank;
 
-	
+	/* Set DPMS level */
 	tmp = INREG(ADPA) & ~ADPA_DPMS_CONTROL_MASK;
 	switch (blank) {
 	case FB_BLANK_UNBLANK:
@@ -461,11 +468,12 @@ void intelfbhw_do_blank(int blank, struct fb_info *info)
 }
 
 
+/* Check which pipe is connected to an active display plane. */
 int intelfbhw_active_pipe(const struct intelfb_hwstate *hw)
 {
 	int pipe = -1;
 
-	
+	/* keep old default behaviour - prefer PIPE_A */
 	if (hw->disp_b_ctrl & DISPPLANE_PLANE_ENABLE) {
 		pipe = (hw->disp_b_ctrl >> DISPPLANE_SEL_PIPE_SHIFT);
 		pipe &= PIPE_MASK;
@@ -478,7 +486,7 @@ int intelfbhw_active_pipe(const struct intelfb_hwstate *hw)
 		if (likely(pipe == PIPE_A))
 			return PIPE_A;
 	}
-	
+	/* Impossible that no pipe is selected - return PIPE_A */
 	WARN_ON(pipe == -1);
 	if (unlikely(pipe == -1))
 		pipe = PIPE_A;
@@ -517,7 +525,7 @@ int intelfbhw_read_hw_state(struct intelfb_info *dinfo,
 	if (!hw || !dinfo)
 		return -1;
 
-	
+	/* Read in as much of the HW state as possible. */
 	hw->vga0_divisor = INREG(VGA0_DIVISOR);
 	hw->vga1_divisor = INREG(VGA1_DIVISOR);
 	hw->vga_pd = INREG(VGAPD);
@@ -532,7 +540,7 @@ int intelfbhw_read_hw_state(struct intelfb_info *dinfo,
 		return flag;
 
 #if 0
-	
+	/* This seems to be a problem with the 852GM/855GM */
 	for (i = 0; i < PALETTE_8_ENTRIES; i++) {
 		hw->palette_a[i] = INREG(PALETTE_A + (i << 2));
 		hw->palette_b[i] = INREG(PALETTE_B + (i << 2));
@@ -709,7 +717,7 @@ void intelfbhw_print_hw_state(struct intelfb_info *dinfo,
 
 	if (!hw)
 		return;
-	
+	/* Read in as much of the HW state as possible. */
 	printk("hw state dump start\n");
 	printk("	VGA0_DIVISOR:		0x%08x\n", hw->vga0_divisor);
 	printk("	VGA1_DIVISOR:		0x%08x\n", hw->vga1_divisor);
@@ -866,6 +874,7 @@ void intelfbhw_print_hw_state(struct intelfb_info *dinfo,
 
 
 
+/* Split the M parameter into M1 and M2. */
 static int splitm(int index, unsigned int m, unsigned int *retm1,
 		  unsigned int *retm2)
 {
@@ -873,7 +882,7 @@ static int splitm(int index, unsigned int m, unsigned int *retm1,
 	int testm;
 	struct pll_min_max *pll = &plls[index];
 
-	
+	/* no point optimising too much - brute force m */
 	for (m1 = pll->min_m1; m1 < pll->max_m1 + 1; m1++) {
 		for (m2 = pll->min_m2; m2 < pll->max_m2 + 1; m2++) {
 			testm = (5 * (m1 + 2)) + (m2 + 2);
@@ -887,6 +896,7 @@ static int splitm(int index, unsigned int m, unsigned int *retm1,
 	return 1;
 }
 
+/* Split the P parameter into P1 and P2. */
 static int splitp(int index, unsigned int p, unsigned int *retp1,
 		  unsigned int *retp2)
 {
@@ -932,7 +942,7 @@ static int calc_pll_params(int index, int clock, u32 *retm1, u32 *retm2,
 	u32 p_min, p_max, p_inc, div_max;
 	struct pll_min_max *pll = &plls[index];
 
-	
+	/* Accept 0.5% difference, but aim for 0.1% */
 	err_max = 5 * clock / 1000;
 	err_target = clock / 1000;
 
@@ -975,7 +985,7 @@ static int calc_pll_params(int index, int clock, u32 *retm1, u32 *retm2,
 				}
 				if (clock > f_out)
 					f_err = clock - f_out;
-				else
+				else/* slightly bias the error for bigger clocks */
 					f_err = f_out - clock + 1;
 
 				if (f_err < err_best) {
@@ -1029,6 +1039,7 @@ static __inline__ int check_overflow(u32 value, u32 limit,
 	return 0;
 }
 
+/* It is assumed that hw is filled in with the initial state information. */
 int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 			 struct intelfb_hwstate *hw,
 			 struct fb_var_screeninfo *var)
@@ -1044,10 +1055,10 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 
 	DBG_MSG("intelfbhw_mode_to_hw\n");
 
-	
+	/* Disable VGA */
 	hw->vgacntrl |= VGA_DISABLE;
 
-	
+	/* Set which pipe's registers will be set. */
 	if (pipe == PIPE_B) {
 		dpll = &hw->dpll_b;
 		fp0 = &hw->fpb0;
@@ -1074,10 +1085,10 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 		pipe_conf = &hw->pipe_a_conf;
 	}
 
-	
+	/* Use ADPA register for sync control. */
 	hw->adpa &= ~ADPA_USE_VGA_HVPOLARITY;
 
-	
+	/* sync polarity */
 	hsync_pol = (var->sync & FB_SYNC_HOR_HIGH_ACT) ?
 			ADPA_SYNC_ACTIVE_HIGH : ADPA_SYNC_ACTIVE_LOW;
 	vsync_pol = (var->sync & FB_SYNC_VERT_HIGH_ACT) ?
@@ -1087,11 +1098,11 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 	hw->adpa |= (hsync_pol << ADPA_HSYNC_ACTIVE_SHIFT) |
 		    (vsync_pol << ADPA_VSYNC_ACTIVE_SHIFT);
 
-	
+	/* Connect correct pipe to the analog port DAC */
 	hw->adpa &= ~(PIPE_MASK << ADPA_PIPE_SELECT_SHIFT);
 	hw->adpa |= (pipe << ADPA_PIPE_SELECT_SHIFT);
 
-	
+	/* Set DPMS state to D0 (on) */
 	hw->adpa &= ~ADPA_DPMS_CONTROL_MASK;
 	hw->adpa |= ADPA_DPMS_D0;
 
@@ -1101,7 +1112,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 	*dpll &= ~(DPLL_RATE_SELECT_MASK | DPLL_REFERENCE_SELECT_MASK);
 	*dpll |= (DPLL_REFERENCE_DEFAULT | DPLL_RATE_SELECT_FP0);
 
-	
+	/* Desired clock in kHz */
 	clock_target = 1000000000 / var->pixclock;
 
 	if (calc_pll_params(dinfo->pll_index, clock_target, &m1, &m2,
@@ -1110,7 +1121,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 		return 1;
 	}
 
-	
+	/* Check for overflow. */
 	if (check_overflow(p1, DPLL_P1_MASK, "PLL P1 parameter"))
 		return 1;
 	if (check_overflow(p2, DPLL_P2_MASK, "PLL P2 parameter"))
@@ -1140,7 +1151,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 	hw->dvob &= ~PORT_ENABLE;
 	hw->dvoc &= ~PORT_ENABLE;
 
-	
+	/* Use display plane A. */
 	hw->disp_a_ctrl |= DISPPLANE_PLANE_ENABLE;
 	hw->disp_a_ctrl &= ~DISPPLANE_GAMMA_ENABLE;
 	hw->disp_a_ctrl &= ~DISPPLANE_PIXFORMAT_MASK;
@@ -1161,7 +1172,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 	hw->disp_a_ctrl &= ~(PIPE_MASK << DISPPLANE_SEL_PIPE_SHIFT);
 	hw->disp_a_ctrl |= (pipe << DISPPLANE_SEL_PIPE_SHIFT);
 
-	
+	/* Set CRTC registers. */
 	hactive = var->xres;
 	hsync_start = hactive + var->right_margin;
 	hsync_end = hsync_start + var->hsync_len;
@@ -1175,7 +1186,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 
 	vactive = var->yres;
 	if (var->vmode & FB_VMODE_INTERLACED)
-		vactive--; 
+		vactive--; /* the chip adds 2 halflines automatically */
 	vsync_start = vactive + var->lower_margin;
 	vsync_end = vsync_start + var->vsync_len;
 	vtotal = vsync_end + var->upper_margin;
@@ -1187,7 +1198,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 		vactive, vsync_start, vsync_end, vtotal, vblank_start,
 		vblank_end);
 
-	
+	/* Adjust for register values, and check for overflow. */
 	hactive--;
 	if (check_overflow(hactive, HACTIVE_MASK, "CRTC hactive"))
 		return 1;
@@ -1246,7 +1257,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 
 	hw->disp_a_base += dinfo->fb.offset << 12;
 
-	
+	/* Check stride alignment. */
 	stride_alignment = IS_I9XX(dinfo) ? STRIDE_ALIGNMENT_I9XX :
 					    STRIDE_ALIGNMENT;
 	if (hw->disp_a_stride % stride_alignment != 0) {
@@ -1255,7 +1266,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 		return 1;
 	}
 
-	
+	/* Set the palette to 8-bit mode. */
 	*pipe_conf &= ~PIPECONF_GAMMA;
 
 	if (var->vmode & FB_VMODE_INTERLACED)
@@ -1266,6 +1277,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 	return 0;
 }
 
+/* Program a (non-VGA) video mode. */
 int intelfbhw_program_mode(struct intelfb_info *dinfo,
 			   const struct intelfb_hwstate *hw, int blank)
 {
@@ -1278,13 +1290,13 @@ int intelfbhw_program_mode(struct intelfb_info *dinfo,
 	u32 src_size_reg;
 	u32 count, tmp_val[3];
 
-	
+	/* Assume single pipe */
 
 #if VERBOSE > 0
 	DBG_MSG("intelfbhw_program_mode\n");
 #endif
 
-	
+	/* Disable VGA */
 	tmp = INREG(VGACNTRL);
 	tmp |= VGA_DISABLE;
 	OUTREG(VGACNTRL, tmp);
@@ -1341,7 +1353,7 @@ int intelfbhw_program_mode(struct intelfb_info *dinfo,
 		src_size_reg = SRC_SIZE_A;
 	}
 
-	
+	/* turn off pipe */
 	tmp = INREG(pipe_conf_reg);
 	tmp &= ~PIPECONF_ENABLE;
 	OUTREG(pipe_conf_reg, tmp);
@@ -1362,7 +1374,7 @@ int intelfbhw_program_mode(struct intelfb_info *dinfo,
 
 	OUTREG(ADPA, INREG(ADPA) & ~ADPA_DAC_ENABLE);
 
-	
+	/* Disable planes A and B. */
 	tmp = INREG(DSPACNTR);
 	tmp &= ~DISPPLANE_PLANE_ENABLE;
 	OUTREG(DSPACNTR, tmp);
@@ -1370,46 +1382,46 @@ int intelfbhw_program_mode(struct intelfb_info *dinfo,
 	tmp &= ~DISPPLANE_PLANE_ENABLE;
 	OUTREG(DSPBCNTR, tmp);
 
-	
+	/* Wait for vblank. For now, just wait for a 50Hz cycle (20ms)) */
 	mdelay(20);
 
 	OUTREG(DVOB, INREG(DVOB) & ~PORT_ENABLE);
 	OUTREG(DVOC, INREG(DVOC) & ~PORT_ENABLE);
 	OUTREG(ADPA, INREG(ADPA) & ~ADPA_DAC_ENABLE);
 
-	
+	/* Disable Sync */
 	tmp = INREG(ADPA);
 	tmp &= ~ADPA_DPMS_CONTROL_MASK;
 	tmp |= ADPA_DPMS_D3;
 	OUTREG(ADPA, tmp);
 
-	
+	/* do some funky magic - xyzzy */
 	OUTREG(0x61204, 0xabcd0000);
 
-	
+	/* turn off PLL */
 	tmp = INREG(dpll_reg);
 	tmp &= ~DPLL_VCO_ENABLE;
 	OUTREG(dpll_reg, tmp);
 
-	
+	/* Set PLL parameters */
 	OUTREG(fp0_reg, *fp0);
 	OUTREG(fp1_reg, *fp1);
 
-	
+	/* Enable PLL */
 	OUTREG(dpll_reg, *dpll);
 
-	
+	/* Set DVOs B/C */
 	OUTREG(DVOB, hw->dvob);
 	OUTREG(DVOC, hw->dvoc);
 
-	
+	/* undo funky magic */
 	OUTREG(0x61204, 0x00000000);
 
-	
+	/* Set ADPA */
 	OUTREG(ADPA, INREG(ADPA) | ADPA_DAC_ENABLE);
 	OUTREG(ADPA, (hw->adpa & ~(ADPA_DPMS_CONTROL_MASK)) | ADPA_DPMS_D3);
 
-	
+	/* Set pipe parameters */
 	OUTREG(hsync_reg, *hs);
 	OUTREG(hblank_reg, *hb);
 	OUTREG(htotal_reg, *ht);
@@ -1423,23 +1435,28 @@ int intelfbhw_program_mode(struct intelfb_info *dinfo,
 	case FB_VMODE_INTERLACED | FB_VMODE_ODD_FLD_FIRST:
 		OUTREG(pipe_stat_reg, 0xFFFF | PIPESTAT_FLD_EVT_ODD_EN);
 		break;
-	case FB_VMODE_INTERLACED: 
+	case FB_VMODE_INTERLACED: /* even lines first */
 		OUTREG(pipe_stat_reg, 0xFFFF | PIPESTAT_FLD_EVT_EVEN_EN);
 		break;
-	default:		
-		OUTREG(pipe_stat_reg, 0xFFFF); 
+	default:		/* non-interlaced */
+		OUTREG(pipe_stat_reg, 0xFFFF); /* clear all status bits only */
 	}
-	
+	/* Enable pipe */
 	OUTREG(pipe_conf_reg, *pipe_conf | PIPECONF_ENABLE);
 
-	
+	/* Enable sync */
 	tmp = INREG(ADPA);
 	tmp &= ~ADPA_DPMS_CONTROL_MASK;
 	tmp |= ADPA_DPMS_D0;
 	OUTREG(ADPA, tmp);
 
-	
+	/* setup display plane */
 	if (dinfo->pdev->device == PCI_DEVICE_ID_INTEL_830M) {
+		/*
+		 *      i830M errata: the display plane must be enabled
+		 *      to allow writes to the other bits in the plane
+		 *      control register.
+		 */
 		tmp = INREG(DSPACNTR);
 		if ((tmp & DISPPLANE_PLANE_ENABLE) != DISPPLANE_PLANE_ENABLE) {
 			tmp |= DISPPLANE_PLANE_ENABLE;
@@ -1454,7 +1471,7 @@ int intelfbhw_program_mode(struct intelfb_info *dinfo,
 	OUTREG(DSPASTRIDE, hw->disp_a_stride);
 	OUTREG(DSPABASE, hw->disp_a_base);
 
-	
+	/* Enable plane */
 	if (!blank) {
 		tmp = INREG(DSPACNTR);
 		tmp |= DISPPLANE_PLANE_ENABLE;
@@ -1465,6 +1482,7 @@ int intelfbhw_program_mode(struct intelfb_info *dinfo,
 	return 0;
 }
 
+/* forward declarations */
 static void refresh_ring(struct intelfb_info *dinfo);
 static void reset_state(struct intelfb_info *dinfo);
 static void do_flush(struct intelfb_info *dinfo);
@@ -1509,7 +1527,7 @@ static int wait_ring(struct intelfb_info *dinfo, int n)
 		i++;
 		if (time_before(end, jiffies)) {
 			if (!i) {
-				
+				/* Try again */
 				reset_state(dinfo);
 				refresh_ring(dinfo);
 				do_flush(dinfo);
@@ -1546,6 +1564,11 @@ void intelfbhw_do_sync(struct intelfb_info *dinfo)
 	if (!dinfo->accel)
 		return;
 
+	/*
+	 * Send a flush, then wait until the ring is empty.  This is what
+	 * the XFree86 driver does, and actually it doesn't seem a lot worse
+	 * than the recommended method (both have problems).
+	 */
 	do_flush(dinfo);
 	wait_ring(dinfo, dinfo->ring.size - RING_MIN_FREE);
 	dinfo->ring_space = dinfo->ring.size - RING_MIN_FREE;
@@ -1574,7 +1597,7 @@ static void reset_state(struct intelfb_info *dinfo)
 	for (i = 0; i < FENCE_NUM; i++)
 		OUTREG(FENCE + (i << 2), 0);
 
-	
+	/* Flush the ring buffer if it's enabled. */
 	tmp = INREG(PRI_RING_LENGTH);
 	if (tmp & RING_ENABLE) {
 #if VERBOSE > 0
@@ -1591,6 +1614,7 @@ static void reset_state(struct intelfb_info *dinfo)
 	OUTREG(PRI_RING_START, 0);
 }
 
+/* Stop the 2D engine, and turn off the ring buffer. */
 void intelfbhw_2d_stop(struct intelfb_info *dinfo)
 {
 #if VERBOSE > 0
@@ -1605,6 +1629,11 @@ void intelfbhw_2d_stop(struct intelfb_info *dinfo)
 	reset_state(dinfo);
 }
 
+/*
+ * Enable the ring buffer, and initialise the 2D engine.
+ * It is assumed that the graphics engine has been stopped by previously
+ * calling intelfb_2d_stop().
+ */
 void intelfbhw_2d_start(struct intelfb_info *dinfo)
 {
 #if VERBOSE > 0
@@ -1615,7 +1644,7 @@ void intelfbhw_2d_start(struct intelfb_info *dinfo)
 	if (!dinfo->accel)
 		return;
 
-	
+	/* Initialise the primary ring buffer. */
 	OUTREG(PRI_RING_LENGTH, 0);
 	OUTREG(PRI_RING_TAIL, 0);
 	OUTREG(PRI_RING_HEAD, 0);
@@ -1628,6 +1657,7 @@ void intelfbhw_2d_start(struct intelfb_info *dinfo)
 	dinfo->ring_active = 1;
 }
 
+/* 2D fillrect (solid fill or invert) */
 void intelfbhw_do_fillrect(struct intelfb_info *dinfo, u32 x, u32 y, u32 w,
 			   u32 h, u32 color, u32 pitch, u32 bpp, u32 rop)
 {
@@ -1731,18 +1761,26 @@ int intelfbhw_do_drawglyph(struct intelfb_info *dinfo, u32 fg, u32 bg, u32 w,
 	DBG_MSG("intelfbhw_do_drawglyph: (%d,%d) %dx%d\n", x, y, w, h);
 #endif
 
-	
+	/* size in bytes of a padded scanline */
 	nbytes = ROUND_UP_TO(w, 16) / 8;
 
-	
+	/* Total bytes of padded scanline data to write out. */
 	nbytes = nbytes * h;
 
+	/*
+	 * Check if the glyph data exceeds the immediate mode limit.
+	 * It would take a large font (1K pixels) to hit this limit.
+	 */
 	if (nbytes > MAX_MONO_IMM_SIZE)
 		return 0;
 
-	
+	/* Src data is packaged a dword (32-bit) at a time. */
 	ndwords = ROUND_UP_TO(nbytes, 4) / 4;
 
+	/*
+	 * Ring has to be padded to a quad word. But because the command starts
+	   with 7 bytes, pad only if there is an even number of ndwords
+	 */
 	pad = !(ndwords % 2);
 
 	tmp = (XY_MONO_SRC_IMM_BLT_CMD & DW_LENGTH_MASK) + ndwords;
@@ -1798,6 +1836,7 @@ int intelfbhw_do_drawglyph(struct intelfb_info *dinfo, u32 fg, u32 bg, u32 w,
 	return 1;
 }
 
+/* HW cursor functions. */
 void intelfbhw_cursor_init(struct intelfb_info *dinfo)
 {
 	u32 tmp;
@@ -1845,7 +1884,7 @@ void intelfbhw_cursor_hide(struct intelfb_info *dinfo)
 		tmp &= ~CURSOR_MODE_MASK;
 		tmp |= CURSOR_MODE_DISABLE;
 		OUTREG(CURSOR_A_CONTROL, tmp);
-		
+		/* Flush changes */
 		OUTREG(CURSOR_A_BASEADDR, dinfo->cursor.physical);
 	} else {
 		tmp = INREG(CURSOR_CONTROL);
@@ -1874,7 +1913,7 @@ void intelfbhw_cursor_show(struct intelfb_info *dinfo)
 		tmp &= ~CURSOR_MODE_MASK;
 		tmp |= CURSOR_MODE_64_4C_AX;
 		OUTREG(CURSOR_A_CONTROL, tmp);
-		
+		/* Flush changes */
 		OUTREG(CURSOR_A_BASEADDR, dinfo->cursor.physical);
 	} else {
 		tmp = INREG(CURSOR_CONTROL);
@@ -1891,6 +1930,11 @@ void intelfbhw_cursor_setpos(struct intelfb_info *dinfo, int x, int y)
 	DBG_MSG("intelfbhw_cursor_setpos: (%d, %d)\n", x, y);
 #endif
 
+	/*
+	 * Sets the position. The coordinates are assumed to already
+	 * have any offset adjusted. Assume that the cursor is never
+	 * completely off-screen, and that x, y are always >= 0.
+	 */
 
 	tmp = ((x & CURSOR_POS_MASK) << CURSOR_X_SHIFT) |
 	      ((y & CURSOR_POS_MASK) << CURSOR_Y_SHIFT);
@@ -1973,14 +2017,14 @@ static irqreturn_t intelfbhw_irq(int irq, void *dev_id)
 	if (dinfo->info->var.vmode & FB_VMODE_INTERLACED)
 		tmp &= PIPE_A_EVENT_INTERRUPT;
 	else
-		tmp &= VSYNC_PIPE_A_INTERRUPT; 
+		tmp &= VSYNC_PIPE_A_INTERRUPT; /* non-interlaced */
 
 	if (tmp == 0) {
 		spin_unlock(&dinfo->int_lock);
-		return IRQ_RETVAL(0); 
+		return IRQ_RETVAL(0); /* not us */
 	}
 
-	
+	/* clear status bits 0-15 ASAP and don't touch bits 16-31 */
 	OUTREG(PIPEASTAT, INREG(PIPEASTAT));
 
 	OUTREG16(IIR, tmp);
@@ -2008,7 +2052,7 @@ int intelfbhw_enable_irq(struct intelfb_info *dinfo)
 		}
 
 		spin_lock_irq(&dinfo->int_lock);
-		OUTREG16(HWSTAM, 0xfffe); 
+		OUTREG16(HWSTAM, 0xfffe); /* i830 DRM uses ffff */
 		OUTREG16(IMR, 0);
 	} else
 		spin_lock_irq(&dinfo->int_lock);
@@ -2016,7 +2060,7 @@ int intelfbhw_enable_irq(struct intelfb_info *dinfo)
 	if (dinfo->info->var.vmode & FB_VMODE_INTERLACED)
 		tmp = PIPE_A_EVENT_INTERRUPT;
 	else
-		tmp = VSYNC_PIPE_A_INTERRUPT; 
+		tmp = VSYNC_PIPE_A_INTERRUPT; /* non-interlaced */
 	if (tmp != INREG16(IER)) {
 		DBG_MSG("changing IER to 0x%X\n", tmp);
 		OUTREG16(IER, tmp);
@@ -2038,7 +2082,7 @@ void intelfbhw_disable_irq(struct intelfb_info *dinfo)
 		OUTREG16(IMR, 0xffff);
 		OUTREG16(IER, 0x0);
 
-		OUTREG16(IIR, INREG16(IIR)); 
+		OUTREG16(IIR, INREG16(IIR)); /* clear IRQ requests */
 		spin_unlock_irq(&dinfo->int_lock);
 
 		free_irq(dinfo->pdev->irq, dinfo);

@@ -72,7 +72,7 @@ void *msm_gemini_hw_pingpong_active_buffer(
 }
 
 struct msm_gemini_hw_cmd hw_cmd_irq_get_status[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_GEMINI_HW_CMD_TYPE_READ, 1, HWIO_JPEG_IRQ_STATUS_ADDR,
 		HWIO_JPEG_IRQ_STATUS_RMSK, {0} },
 };
@@ -85,7 +85,7 @@ int msm_gemini_hw_irq_get_status(void)
 }
 
 struct msm_gemini_hw_cmd hw_cmd_encode_output_size[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_GEMINI_HW_CMD_TYPE_READ, 1,
 	HWIO_JPEG_STATUS_ENCODE_OUTPUT_SIZE_ADDR,
 	HWIO_JPEG_STATUS_ENCODE_OUTPUT_SIZE_RMSK, {0} },
@@ -101,7 +101,7 @@ long msm_gemini_hw_encode_output_size(void)
 }
 
 struct msm_gemini_hw_cmd hw_cmd_irq_clear[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_IRQ_CLEAR_ADDR,
 	HWIO_JPEG_IRQ_CLEAR_RMSK, {JPEG_IRQ_CLEAR_ALL} },
 };
@@ -115,7 +115,7 @@ void msm_gemini_hw_irq_clear(uint32_t mask, uint32_t data)
 }
 
 struct msm_gemini_hw_cmd hw_cmd_fe_ping_update[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_FE_BUFFER_CFG_ADDR,
 		HWIO_JPEG_FE_BUFFER_CFG_RMSK, {0} },
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_FE_Y_PING_ADDR_ADDR,
@@ -127,7 +127,7 @@ struct msm_gemini_hw_cmd hw_cmd_fe_ping_update[] = {
 };
 
 struct msm_gemini_hw_cmd hw_cmd_fe_pong_update[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_FE_BUFFER_CFG_ADDR,
 		HWIO_JPEG_FE_BUFFER_CFG_RMSK, {0} },
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_FE_Y_PONG_ADDR_ADDR,
@@ -194,14 +194,14 @@ void msm_gemini_hw_fe_buffer_update(struct msm_gemini_hw_buf *p_input,
 
 		msm_gemini_hw_write(hw_cmd_p);
 	} else {
-		
+		/* shall not get to here */
 	}
 
 	return;
 }
 
 struct msm_gemini_hw_cmd hw_cmd_fe_start[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_FE_CMD_ADDR,
 		HWIO_JPEG_FE_CMD_RMSK, {JPEG_OFFLINE_CMD_START} },
 };
@@ -214,7 +214,7 @@ void msm_gemini_hw_fe_start(void)
 }
 
 struct msm_gemini_hw_cmd hw_cmd_we_buffer_cfg[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_WE_Y_THRESHOLD_ADDR,
 		HWIO_JPEG_WE_Y_THRESHOLD_RMSK, {0} },
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_WE_Y_UB_CFG_ADDR,
@@ -223,11 +223,19 @@ struct msm_gemini_hw_cmd hw_cmd_we_buffer_cfg[] = {
 		HWIO_JPEG_WE_CBCR_THRESHOLD_RMSK, {0} },
 };
 
+/*
+ * first dimension is WE_ASSERT_STALL_TH and WE_DEASSERT_STALL_TH
+ * second dimension is for offline and real-time settings
+ */
 static const uint32_t GEMINI_WE_Y_THRESHOLD[2][2] = {
 	{ 0x00000190, 0x000001ff },
 	{ 0x0000016a, 0x000001ff }
 };
 
+/*
+ * first dimension is WE_ASSERT_STALL_TH and WE_DEASSERT_STALL_TH
+ * second dimension is for offline and real-time settings
+ */
 static const uint32_t GEMINI_WE_CBCR_THRESHOLD[2][2] = {
 	{ 0x00000190, 0x000001ff },
 	{ 0x0000016a, 0x000001ff }
@@ -250,7 +258,7 @@ void msm_gemini_hw_we_buffer_cfg(uint8_t is_realtime)
 
 	msm_gemini_hw_write(hw_cmd_p++);
 
-	
+	/* @todo maybe not for realtime? */
 	n_reg_val = (((GEMINI_WE_CBCR_THRESHOLD[1][is_realtime] <<
 		HWIO_JPEG_WE_CBCR_THRESHOLD_WE_DEASSERT_STALL_TH_SHFT) &
 		HWIO_JPEG_WE_CBCR_THRESHOLD_WE_DEASSERT_STALL_TH_BMSK) |
@@ -264,7 +272,7 @@ void msm_gemini_hw_we_buffer_cfg(uint8_t is_realtime)
 }
 
 struct msm_gemini_hw_cmd hw_cmd_we_ping_update[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_WE_Y_PING_BUFFER_CFG_ADDR,
 		HWIO_JPEG_WE_Y_PING_BUFFER_CFG_RMSK, {0} },
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_WE_Y_PING_ADDR_ADDR,
@@ -272,7 +280,7 @@ struct msm_gemini_hw_cmd hw_cmd_we_ping_update[] = {
 };
 
 struct msm_gemini_hw_cmd hw_cmd_we_pong_update[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_WE_Y_PONG_BUFFER_CFG_ADDR,
 		HWIO_JPEG_WE_Y_PONG_BUFFER_CFG_RMSK, {0} },
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_WE_Y_PONG_ADDR_ADDR,
@@ -313,14 +321,14 @@ void msm_gemini_hw_we_buffer_update(struct msm_gemini_hw_buf *p_input,
 		hw_cmd_p->data = n_reg_val;
 		msm_gemini_hw_write(hw_cmd_p++);
 	} else {
-		
+		/* shall not get to here */
 	}
 
 	return;
 }
 
 struct msm_gemini_hw_cmd hw_cmd_reset[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_IRQ_MASK_ADDR,
 		HWIO_JPEG_IRQ_MASK_RMSK, {JPEG_IRQ_DISABLE_ALL} },
 	{MSM_GEMINI_HW_CMD_TYPE_WRITE, 1, HWIO_JPEG_IRQ_CLEAR_ADDR,
@@ -370,7 +378,7 @@ void msm_gemini_hw_write(struct msm_gemini_hw_cmd *hw_cmd_p)
 	uint32_t *paddr;
 	uint32_t old_data, new_data;
 
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	GMN_DBG("%s:%d] type-%d n-%d offset-0x%4x mask-0x%8x data-0x%8x\n",
 		__func__, __LINE__, hw_cmd_p->type, hw_cmd_p->n,
 		hw_cmd_p->offset, hw_cmd_p->mask, hw_cmd_p->data);
@@ -456,12 +464,12 @@ int msm_gemini_hw_exec_cmds(struct msm_gemini_hw_cmd *hw_cmd_p, uint32_t m_cmds)
 			break;
 
 		case MSM_GEMINI_HW_CMD_TYPE_UDELAY:
-			
+			/* Userspace driver provided delay duration */
 			msm_gemini_hw_delay(hw_cmd_p, 1);
 			break;
 
 		case MSM_GEMINI_HW_CMD_TYPE_MDELAY:
-			
+			/* Userspace driver provided delay duration */
 			msm_gemini_hw_delay(hw_cmd_p, 1000);
 			break;
 

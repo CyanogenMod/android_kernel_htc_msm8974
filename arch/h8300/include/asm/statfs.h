@@ -3,4 +3,4 @@
 
 #include <asm-generic/statfs.h>
 
-#endif 
+#endif /* _H8300_STATFS_H */

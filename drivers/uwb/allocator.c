@@ -84,6 +84,56 @@ static void uwb_rsv_fill_row_alloc(struct uwb_rsv_alloc_info *ai)
 	ai->total_allocated_mases = ai->safe_allocated_mases + ai->unsafe_allocated_mases;
 }
 
+/*
+ * Find the best column set for a given availability, interval, num safe mas and
+ * num unsafe mas.
+ *
+ * The different sets are tried in order as shown below, depending on the interval.
+ *
+ * interval = 16
+ *	deep = 0
+ *		set 1 ->  {  8 }
+ *	deep = 1
+ *		set 1 ->  {  4 }
+ *		set 2 ->  { 12 }
+ *	deep = 2
+ *		set 1 ->  {  2 }
+ *		set 2 ->  {  6 }
+ *		set 3 ->  { 10 }
+ *		set 4 ->  { 14 }
+ *	deep = 3
+ *		set 1 ->  {  1 }
+ *		set 2 ->  {  3 }
+ *		set 3 ->  {  5 }
+ *		set 4 ->  {  7 }
+ *		set 5 ->  {  9 }
+ *		set 6 ->  { 11 }
+ *		set 7 ->  { 13 }
+ *		set 8 ->  { 15 }
+ *
+ * interval = 8
+ *	deep = 0
+ *		set 1 ->  {  4  12 }
+ *	deep = 1
+ *		set 1 ->  {  2  10 }
+ *		set 2 ->  {  6  14 }
+ *	deep = 2
+ *		set 1 ->  {  1   9 }
+ *		set 2 ->  {  3  11 }
+ *		set 3 ->  {  5  13 }
+ *		set 4 ->  {  7  15 }
+ *
+ * interval = 4
+ *	deep = 0
+ *		set 1 ->  {  2   6  10  14 }
+ *	deep = 1
+ *		set 1 ->  {  1   5   9  13 }
+ *		set 2 ->  {  3   7  11  15 }
+ *
+ * interval = 2
+ *	deep = 0
+ *		set 1 ->  {  1   3   5   7   9  11  13  15 }
+ */
 static int uwb_rsv_find_best_column_set(struct uwb_rsv_alloc_info *ai, int interval, 
 					int num_safe_mas, int num_unsafe_mas)
 {
@@ -228,7 +278,7 @@ static int uwb_rsv_find_best_row_alloc(struct uwb_rsv_alloc_info *ai)
 	for (n_rows = max_rows; n_rows >= min_rows; n_rows--) {
 		if (n_rows <= ai->ri.free_rows) {
 			ai->ri.used_rows = n_rows;
-			ai->interval = 1; 
+			ai->interval = 1; /* row reservation */
 			uwb_rsv_fill_row_alloc(ai);
 			return UWB_RSV_ALLOC_FOUND;
 		}
@@ -283,7 +333,7 @@ int uwb_rsv_find_best_allocation(struct uwb_rsv *rsv, struct uwb_mas_bm *availab
 	ai->max_interval = rsv->max_interval;
 
 
-	
+	/* fill the not available vector from the available bm */
 	for_each_clear_bit(bit_index, available->bm, UWB_NUM_MAS)
 		ai->bm[bit_index] = UWB_RSV_MAS_NOT_AVAIL;
 
@@ -304,7 +354,7 @@ int uwb_rsv_find_best_allocation(struct uwb_rsv *rsv, struct uwb_mas_bm *availab
 			goto alloc_found;
 	}
 
-	
+	/* try row reservation if no column is found */
 	get_row_descriptors(ai);
 	if (uwb_rsv_find_best_row_alloc(ai) == UWB_RSV_ALLOC_FOUND)
 		goto alloc_found;
@@ -314,7 +364,7 @@ int uwb_rsv_find_best_allocation(struct uwb_rsv *rsv, struct uwb_mas_bm *availab
   alloc_found:
 	bitmap_zero(result->bm, UWB_NUM_MAS);
 	bitmap_zero(result->unsafe_bm, UWB_NUM_MAS);
-	
+	/* fill the safe and unsafe bitmaps */
 	for (bit_index = 0; bit_index < UWB_NUM_MAS; bit_index++) {
 		if (ai->bm[bit_index] == UWB_RSV_MAS_SAFE)
 			set_bit(bit_index, result->bm);

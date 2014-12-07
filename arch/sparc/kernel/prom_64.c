@@ -48,6 +48,27 @@ void * __init prom_early_alloc(unsigned long size)
 	return ret;
 }
 
+/* The following routines deal with the black magic of fully naming a
+ * node.
+ *
+ * Certain well known named nodes are just the simple name string.
+ *
+ * Actual devices have an address specifier appended to the base name
+ * string, like this "foo@addr".  The "addr" can be in any number of
+ * formats, and the platform plus the type of the node determine the
+ * format and how it is constructed.
+ *
+ * For children of the ROOT node, the naming convention is fixed and
+ * determined by whether this is a sun4u or sun4v system.
+ *
+ * For children of other nodes, it is bus type specific.  So
+ * we walk up the tree until we discover a "device_type" property
+ * we recognize and we go from there.
+ *
+ * As an example, the boot device on my workstation has a full path:
+ *
+ *	/pci@1e,600000/ide@d/disk@0,0:c
+ */
 static void __init sun4v_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct linux_prom64_registers *regs;
@@ -123,6 +144,7 @@ static void __init sun4u_path_component(struct device_node *dp, char *tmp_buf)
 	}
 }
 
+/* "name@slot,offset"  */
 static void __init sbus_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct linux_prom_registers *regs;
@@ -139,6 +161,7 @@ static void __init sbus_path_component(struct device_node *dp, char *tmp_buf)
 		regs->phys_addr);
 }
 
+/* "name@devnum[,func]" */
 static void __init pci_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct linux_prom_pci_registers *regs;
@@ -163,6 +186,7 @@ static void __init pci_path_component(struct device_node *dp, char *tmp_buf)
 	}
 }
 
+/* "name@UPA_PORTID,offset" */
 static void __init upa_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct linux_prom64_registers *regs;
@@ -184,6 +208,7 @@ static void __init upa_path_component(struct device_node *dp, char *tmp_buf)
 		(unsigned int) (regs->phys_addr & 0xffffffffUL));
 }
 
+/* "name@reg" */
 static void __init vdev_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct property *prop;
@@ -198,6 +223,7 @@ static void __init vdev_path_component(struct device_node *dp, char *tmp_buf)
 	sprintf(tmp_buf, "%s@%x", dp->name, *regs);
 }
 
+/* "name@addrhi,addrlo" */
 static void __init ebus_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct linux_prom64_registers *regs;
@@ -215,6 +241,7 @@ static void __init ebus_path_component(struct device_node *dp, char *tmp_buf)
 		(unsigned int) (regs->phys_addr & 0xffffffffUL));
 }
 
+/* "name@bus,addr" */
 static void __init i2c_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct property *prop;
@@ -226,10 +253,14 @@ static void __init i2c_path_component(struct device_node *dp, char *tmp_buf)
 
 	regs = prop->value;
 
+	/* This actually isn't right... should look at the #address-cells
+	 * property of the i2c bus node etc. etc.
+	 */
 	sprintf(tmp_buf, "%s@%x,%x",
 		dp->name, regs[0], regs[1]);
 }
 
+/* "name@reg0[,reg1]" */
 static void __init usb_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct property *prop;
@@ -250,6 +281,7 @@ static void __init usb_path_component(struct device_node *dp, char *tmp_buf)
 	}
 }
 
+/* "name@reg0reg1[,reg2reg3]" */
 static void __init ieee1394_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct property *prop;
@@ -309,10 +341,10 @@ static void __init __build_path_component(struct device_node *dp, char *tmp_buf)
 			vdev_path_component(dp, tmp_buf);
 			return;
 		}
-		
+		/* "isa" is handled with platform naming */
 	}
 
-	
+	/* Use platform naming convention.  */
 	if (tlb_type == hypervisor) {
 		sun4v_path_component(dp, tmp_buf);
 		return;
@@ -428,6 +460,10 @@ static void *fill_in_one_cpu(struct device_node *dp, int cpuid, int arg)
 	}
 
 #ifndef CONFIG_SMP
+	/* On uniprocessor we only want the values for the
+	 * real physical cpu the kernel booted onto, however
+	 * cpu_data() only has one entry at index 0.
+	 */
 	if (cpuid != real_hard_smp_processor_id())
 		return NULL;
 	cpuid = 0;

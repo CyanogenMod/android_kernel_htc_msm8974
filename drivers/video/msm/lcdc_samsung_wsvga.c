@@ -25,6 +25,9 @@
 static struct pwm_device *bl_pwm0;
 static struct pwm_device *bl_pwm1;
 
+/* for samsung panel 300hz was the minimum freq where flickering wasnt
+ * observed as the screen was dimmed
+ */
 
 #define PWM_FREQ_HZ 300
 #define PWM_PERIOD_USEC (USEC_PER_SEC / PWM_FREQ_HZ)
@@ -230,6 +233,8 @@ static int __init lcdc_samsung_panel_init(void)
 	pinfo->xres = 1024;
 	pinfo->yres = 600;
 #ifdef CONFIG_FB_MSM_LCDC_DSUB
+	/* DSUB (VGA) is on the same bus, this allows us to allocate for the
+	 * max resolution of the DSUB display */
 	pinfo->mode2_xres = 1440;
 	pinfo->mode2_yres = 900;
 	pinfo->mode2_bpp = 16;

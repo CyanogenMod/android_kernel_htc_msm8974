@@ -30,6 +30,10 @@ static int cache_seq_show(struct seq_file *file, void *iter)
 	unsigned long ccr;
 	unsigned long addrstart = 0;
 
+	/*
+	 * Go uncached immediately so we don't skew the results any
+	 * more than we already are..
+	 */
 	jump_to_uncached();
 
 	ccr = __raw_readl(CCR);
@@ -50,6 +54,10 @@ static int cache_seq_show(struct seq_file *file, void *iter)
 
 	waysize = cache->sets;
 
+	/*
+	 * If the OC is already in RAM mode, we only have
+	 * half of the entries to consider..
+	 */
 	if ((ccr & CCR_CACHE_ORA) && cache_type == CACHE_TYPE_DCACHE)
 		waysize >>= 1;
 
@@ -68,11 +76,11 @@ static int cache_seq_show(struct seq_file *file, void *iter)
 		     addr += cache->linesz, line++) {
 			unsigned long data = __raw_readl(addr);
 
-			
+			/* Check the V bit, ignore invalid cachelines */
 			if ((data & 1) == 0)
 				continue;
 
-			
+			/* U: Dirty, cache tag is 10 bits up */
 			seq_printf(file, "%3d: %c 0x%lx\n",
 				   line, data & 2 ? 'U' : ' ',
 				   data & 0x1ffffc00);

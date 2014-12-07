@@ -12,6 +12,8 @@ void __init xen_init_vga(const struct dom0_vga_console_info *info, size_t size)
 {
 	struct screen_info *screen_info = &boot_params.screen_info;
 
+	/* This is drawn from a dump from vgacon:startup in
+	 * standard Linux. */
 	screen_info->orig_video_mode = 3;
 	screen_info->orig_video_isVGA = 1;
 	screen_info->orig_video_lines = 25;

@@ -84,6 +84,10 @@ static void hists__calc_col_len(struct hists *hists, struct hist_entry *h)
 
 	if (h->branch_info) {
 		int symlen;
+		/*
+		 * +4 accounts for '[x] ' priv level info
+		 * +2 account of 0x prefix on raw addresses
+		 */
 		if (h->branch_info->from.sym) {
 			symlen = (int)h->branch_info->from.sym->namelen + 4;
 			hists__new_col_len(hists, HISTC_SYMBOL_FROM, symlen);
@@ -161,6 +165,11 @@ static void __hists__decay_entries(struct hists *hists, bool zap_user,
 	while (next) {
 		n = rb_entry(next, struct hist_entry, rb_node);
 		next = rb_next(&n->rb_node);
+		/*
+		 * We may be annotating this, for instance, so keep it here in
+		 * case some it gets new samples, we'll eventually free it when
+		 * the user stops browsing and it agains gets fully decayed.
+		 */
 		if (((zap_user && n->level == '.') ||
 		     (zap_kernel && n->level != '.') ||
 		     hists__decay_entry(hists, n)) &&
@@ -187,6 +196,9 @@ void hists__decay_entries_threaded(struct hists *hists,
 	return __hists__decay_entries(hists, zap_user, zap_kernel, true);
 }
 
+/*
+ * histogram, sorted on item, collects periods
+ */
 
 static struct hist_entry *hist_entry__new(struct hist_entry *template)
 {
@@ -245,6 +257,12 @@ static struct hist_entry *add_hist_entry(struct hists *hists,
 			he->period += period;
 			++he->nr_events;
 
+			/* If the map of an existing hist_entry has
+			 * become out-of-date due to an exec() or
+			 * similar, update it.  Otherwise we will
+			 * mis-adjust symbol addresses when computing
+			 * the history counter to increment.
+			 */
 			if (he->ms.map != entry->ms.map) {
 				he->ms.map = entry->ms.map;
 				if (he->ms.map)
@@ -356,6 +374,9 @@ void hist_entry__free(struct hist_entry *he)
 	free(he);
 }
 
+/*
+ * collapse the histogram
+ */
 
 static bool hists__collapse_insert_entry(struct hists *hists,
 					 struct rb_root *root,
@@ -435,6 +456,11 @@ static void __hists__collapse_resort(struct hists *hists, bool threaded)
 
 		rb_erase(&n->rb_node_in, root);
 		if (hists__collapse_insert_entry(hists, &hists->entries_collapsed, n)) {
+			/*
+			 * If it wasn't combined with one of the entries already
+			 * collapsed, we need to apply the filters that may have
+			 * been set by, say, the hist_browser.
+			 */
 			hists__apply_filters(hists, n);
 		}
 	}
@@ -450,6 +476,9 @@ void hists__collapse_resort_threaded(struct hists *hists)
 	return __hists__collapse_resort(hists, true);
 }
 
+/*
+ * reverse the map, sort on period.
+ */
 
 static void __hists__insert_output_entry(struct rb_root *entries,
 					 struct hist_entry *he,
@@ -614,10 +643,21 @@ static size_t __callchain__fprintf_graph(FILE *fp, struct rb_root *root,
 		cumul = callchain_cumul_hits(child);
 		remaining -= cumul;
 
+		/*
+		 * The depth mask manages the output of pipes that show
+		 * the depth. We don't want to keep the pipes of the current
+		 * level for the last child of this depth.
+		 * Except if we have remaining filtered hits. They will
+		 * supersede the last child
+		 */
 		next = rb_next(node);
 		if (!next && (callchain_param.mode != CHAIN_GRAPH_REL || !remaining))
 			new_depth_mask &= ~(1 << (depth - 1));
 
+		/*
+		 * But we keep the older depth mask for the line separator
+		 * to keep the level link until we reach the last child
+		 */
 		ret += ipchain__fprintf_graph_line(fp, depth, depth_mask,
 						   left_margin);
 		i = 0;
@@ -669,10 +709,20 @@ static size_t callchain__fprintf_graph(FILE *fp, struct rb_root *root,
 	int i = 0;
 	int ret;
 
+	/*
+	 * If have one single callchain root, don't bother printing
+	 * its percentage (100 % in fractal mode and the same percentage
+	 * than the hist in graph mode). This also avoid one level of column.
+	 */
 	node = rb_first(root);
 	if (node && !rb_next(node)) {
 		cnode = rb_entry(node, struct callchain_node, rb_node);
 		list_for_each_entry(chain, &cnode->val, list) {
+			/*
+			 * If we sort by symbol, the first entry is the same than
+			 * the symbol. No need to print it otherwise it appears as
+			 * displayed twice.
+			 */
 			if (!i++ && sort__first_dimension == SORT_SYM)
 				continue;
 			if (!printed) {
@@ -1128,17 +1178,20 @@ out:
 	return ret;
 }
 
+/*
+ * See hists__fprintf to match the column widths
+ */
 unsigned int hists__sort_list_width(struct hists *hists)
 {
 	struct sort_entry *se;
-	int ret = 9; 
+	int ret = 9; /* total % */
 
 	if (symbol_conf.show_cpu_utilization) {
-		ret += 7; 
-		ret += 6; 
+		ret += 7; /* count_sys % */
+		ret += 6; /* count_us % */
 		if (perf_guest) {
-			ret += 13; 
-			ret += 12; 
+			ret += 13; /* count_guest_sys % */
+			ret += 12; /* count_guest_us % */
 		}
 	}
 
@@ -1152,7 +1205,7 @@ unsigned int hists__sort_list_width(struct hists *hists)
 		if (!se->elide)
 			ret += 2 + hists__col_len(hists, se->se_width_idx);
 
-	if (verbose) 
+	if (verbose) /* Addr + origin */
 		ret += 3 + BITS_PER_LONG / 4;
 
 	return ret;

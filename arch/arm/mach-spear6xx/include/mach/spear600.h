@@ -16,6 +16,6 @@
 #ifndef __MACH_SPEAR600_H
 #define __MACH_SPEAR600_H
 
-#endif 
+#endif /* __MACH_SPEAR600_H */
 
-#endif 
+#endif /* CONFIG_MACH_SPEAR600 */

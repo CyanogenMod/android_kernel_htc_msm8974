@@ -75,11 +75,13 @@ static int is_valid_iface(const struct net_device *net_dev)
 	if (net_dev->addr_len != ETH_ALEN)
 		return 0;
 
-	
+	/* no batman over batman */
 	if (softif_is_valid(net_dev))
 		return 0;
 
-	
+	/* Device is being bridged */
+	/* if (net_dev->priv_flags & IFF_BRIDGE_PORT)
+		return 0; */
 
 	return 1;
 }
@@ -184,6 +186,8 @@ int hardif_min_mtu(struct net_device *soft_iface)
 {
 	const struct bat_priv *bat_priv = netdev_priv(soft_iface);
 	const struct hard_iface *hard_iface;
+	/* allow big frames if all devices are capable to do so
+	 * (have MTU > 1500 + BAT_HEADER_LEN) */
 	int min_mtu = ETH_DATA_LEN;
 
 	if (atomic_read(&bat_priv->fragmentation))
@@ -206,6 +210,7 @@ out:
 	return min_mtu;
 }
 
+/* adjusts the MTU if a new interface with a smaller MTU appeared. */
 void update_min_mtu(struct net_device *soft_iface)
 {
 	int min_mtu;
@@ -228,6 +233,10 @@ static void hardif_activate_interface(struct hard_iface *hard_iface)
 	bat_priv->bat_algo_ops->bat_ogm_update_mac(hard_iface);
 	hard_iface->if_status = IF_TO_BE_ACTIVATED;
 
+	/**
+	 * the first active interface becomes our primary interface or
+	 * the next active interface after the old primary interface was removed
+	 */
 	primary_if = primary_if_get_selected(bat_priv);
 	if (!primary_if)
 		primary_if_select(bat_priv, hard_iface);
@@ -269,7 +278,7 @@ int hardif_enable_interface(struct hard_iface *hard_iface,
 	if (!atomic_inc_not_zero(&hard_iface->refcount))
 		goto out;
 
-	
+	/* hard-interface is part of a bridge */
 	if (hard_iface->net_dev->priv_flags & IFF_BRIDGE_PORT)
 		pr_err("You are about to enable batman-adv on '%s' which already is part of a bridge. Unless you know exactly what you are doing this is probably wrong and won't work the way you think it would.\n",
 		       hard_iface->net_dev->name);
@@ -284,7 +293,7 @@ int hardif_enable_interface(struct hard_iface *hard_iface,
 			goto err;
 		}
 
-		
+		/* dev_get_by_name() increases the reference counter for us */
 		dev_hold(soft_iface);
 	}
 
@@ -345,7 +354,7 @@ int hardif_enable_interface(struct hard_iface *hard_iface,
 			"Not using interface %s (retrying later): interface not active\n",
 			hard_iface->net_dev->name);
 
-	
+	/* begin scheduling originator messages on that interface */
 	schedule_bat_ogm(hard_iface);
 
 out:
@@ -389,12 +398,12 @@ void hardif_disable_interface(struct hard_iface *hard_iface)
 	hard_iface->packet_buff = NULL;
 	hard_iface->if_status = IF_NOT_IN_USE;
 
-	
+	/* delete all references to this hard_iface */
 	purge_orig_ref(bat_priv);
 	purge_outstanding_packets(bat_priv, hard_iface);
 	dev_put(hard_iface->soft_iface);
 
-	
+	/* nobody uses this interface anymore */
 	if (!bat_priv->num_ifaces)
 		softif_destroy(hard_iface->soft_iface);
 
@@ -432,7 +441,7 @@ static struct hard_iface *hardif_add_interface(struct net_device *net_dev)
 	hard_iface->soft_iface = NULL;
 	hard_iface->if_status = IF_NOT_IN_USE;
 	INIT_LIST_HEAD(&hard_iface->list);
-	
+	/* extra reference for return */
 	atomic_set(&hard_iface->refcount, 2);
 
 	check_known_mac_addr(hard_iface->net_dev);
@@ -452,7 +461,7 @@ static void hardif_remove_interface(struct hard_iface *hard_iface)
 {
 	ASSERT_RTNL();
 
-	
+	/* first deactivate interface */
 	if (hard_iface->if_status != IF_NOT_IN_USE)
 		hardif_disable_interface(hard_iface);
 
@@ -536,6 +545,8 @@ out:
 	return NOTIFY_DONE;
 }
 
+/* incoming packets with the batman ethertype received on any active hard
+ * interface */
 static int batman_skb_recv(struct sk_buff *skb, struct net_device *dev,
 			   struct packet_type *ptype,
 			   struct net_device *orig_dev)
@@ -548,15 +559,15 @@ static int batman_skb_recv(struct sk_buff *skb, struct net_device *dev,
 	hard_iface = container_of(ptype, struct hard_iface, batman_adv_ptype);
 	skb = skb_share_check(skb, GFP_ATOMIC);
 
-	
+	/* skb was released by skb_share_check() */
 	if (!skb)
 		goto err_out;
 
-	
+	/* packet should hold at least type and version */
 	if (unlikely(!pskb_may_pull(skb, 2)))
 		goto err_free;
 
-	
+	/* expect a valid ethernet header here. */
 	if (unlikely(skb->mac_len != sizeof(struct ethhdr) ||
 		     !skb_mac_header(skb)))
 		goto err_free;
@@ -569,7 +580,7 @@ static int batman_skb_recv(struct sk_buff *skb, struct net_device *dev,
 	if (atomic_read(&bat_priv->mesh_state) != MESH_ACTIVE)
 		goto err_free;
 
-	
+	/* discard frames on not active interfaces */
 	if (hard_iface->if_status != IF_ACTIVE)
 		goto err_free;
 
@@ -582,42 +593,44 @@ static int batman_skb_recv(struct sk_buff *skb, struct net_device *dev,
 		goto err_free;
 	}
 
+	/* all receive handlers return whether they received or reused
+	 * the supplied skb. if not, we have to free the skb. */
 
 	switch (batman_ogm_packet->header.packet_type) {
-		
+		/* batman originator packet */
 	case BAT_OGM:
 		ret = recv_bat_ogm_packet(skb, hard_iface);
 		break;
 
-		
+		/* batman icmp packet */
 	case BAT_ICMP:
 		ret = recv_icmp_packet(skb, hard_iface);
 		break;
 
-		
+		/* unicast packet */
 	case BAT_UNICAST:
 		ret = recv_unicast_packet(skb, hard_iface);
 		break;
 
-		
+		/* fragmented unicast packet */
 	case BAT_UNICAST_FRAG:
 		ret = recv_ucast_frag_packet(skb, hard_iface);
 		break;
 
-		
+		/* broadcast packet */
 	case BAT_BCAST:
 		ret = recv_bcast_packet(skb, hard_iface);
 		break;
 
-		
+		/* vis packet */
 	case BAT_VIS:
 		ret = recv_vis_packet(skb, hard_iface);
 		break;
-		
+		/* Translation table query (request or response) */
 	case BAT_TT_QUERY:
 		ret = recv_tt_query(skb, hard_iface);
 		break;
-		
+		/* Roaming advertisement */
 	case BAT_ROAM_ADV:
 		ret = recv_roam_adv(skb, hard_iface);
 		break;
@@ -628,6 +641,9 @@ static int batman_skb_recv(struct sk_buff *skb, struct net_device *dev,
 	if (ret == NET_RX_DROP)
 		kfree_skb(skb);
 
+	/* return NET_RX_SUCCESS in any case as we
+	 * most probably dropped the packet for
+	 * routing-logical reasons. */
 
 	return NET_RX_SUCCESS;
 
@@ -637,6 +653,8 @@ err_out:
 	return NET_RX_DROP;
 }
 
+/* This function returns true if the interface represented by ifindex is a
+ * 802.11 wireless device */
 bool is_wifi_iface(int ifindex)
 {
 	struct net_device *net_device = NULL;
@@ -650,11 +668,13 @@ bool is_wifi_iface(int ifindex)
 		goto out;
 
 #ifdef CONFIG_WIRELESS_EXT
+	/* pre-cfg80211 drivers have to implement WEXT, so it is possible to
+	 * check for wireless_handlers != NULL */
 	if (net_device->wireless_handlers)
 		ret = true;
 	else
 #endif
-		
+		/* cfg80211 drivers have to set ieee80211_ptr */
 		if (net_device->ieee80211_ptr)
 			ret = true;
 out:

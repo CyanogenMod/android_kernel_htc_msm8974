@@ -33,6 +33,13 @@ struct twl4030_madc_conversion_method {
 #define TWL4030_MADC_MAX_CHANNELS 16
 
 
+/*
+ * twl4030_madc_request- madc request packet for channel conversion
+ * @channels:	16 bit bitmap for individual channels
+ * @do_avgP:	sample the input channel for 4 consecutive cycles
+ * @method:	RT, SW1, SW2
+ * @type:	Polling or interrupt based method
+ */
 
 struct twl4030_madc_request {
 	unsigned long channels;
@@ -75,9 +82,11 @@ enum sample_type {
 #define TWL4030_MADC_RTCH0_LSB		0x17
 #define TWL4030_MADC_GPCH0_LSB		0x37
 
-#define TWL4030_MADC_MADCON	(1 << 0)	
-#define TWL4030_MADC_BUSY	(1 << 0)	
+#define TWL4030_MADC_MADCON	(1 << 0)	/* MADC power on */
+#define TWL4030_MADC_BUSY	(1 << 0)	/* MADC busy */
+/* MADC conversion completion */
 #define TWL4030_MADC_EOC_SW	(1 << 1)
+/* MADC SWx start conversion */
 #define TWL4030_MADC_SW_START	(1 << 5)
 #define TWL4030_MADC_ADCIN0	(1 << 0)
 #define TWL4030_MADC_ADCIN1	(1 << 1)
@@ -96,6 +105,7 @@ enum sample_type {
 #define TWL4030_MADC_ADCIN14	(1 << 14)
 #define TWL4030_MADC_ADCIN15	(1 << 15)
 
+/* Fixed channels */
 #define TWL4030_MADC_BTEMP	TWL4030_MADC_ADCIN1
 #define TWL4030_MADC_VBUS	TWL4030_MADC_ADCIN8
 #define TWL4030_MADC_VBKB	TWL4030_MADC_ADCIN9
@@ -103,6 +113,7 @@ enum sample_type {
 #define TWL4030_MADC_VCHG	TWL4030_MADC_ADCIN11
 #define TWL4030_MADC_VBAT	TWL4030_MADC_ADCIN12
 
+/* Step size and prescaler ratio */
 #define TEMP_STEP_SIZE          147
 #define TEMP_PSR_R              100
 #define CURR_STEP_SIZE		147
@@ -118,6 +129,7 @@ enum sample_type {
 #define REG_BCICTL2             0x024
 #define TWL4030_BCI_ITHSENS	0x007
 
+/* Register and bits for GPBR1 register */
 #define TWL4030_REG_GPBR1		0x0c
 #define TWL4030_GPBR1_MADC_HFCLK_EN	(1 << 7)
 

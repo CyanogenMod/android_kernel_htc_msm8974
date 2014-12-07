@@ -28,11 +28,39 @@
 #define ATOMIC_INIT(i)		{ (i) }
 #define atomic_set(v, i)	((v)->counter = (i))
 
+/**
+ * atomic_read - reads a word, atomically
+ * @v: pointer to atomic value
+ *
+ * Assumes all word reads on our architecture are atomic.
+ */
 #define atomic_read(v)		((v)->counter)
 
+/**
+ * atomic_xchg - atomic
+ * @v: pointer to memory to change
+ * @new: new value (technically passed in a register -- see xchg)
+ */
 #define atomic_xchg(v, new)	(xchg(&((v)->counter), (new)))
 
 
+/**
+ * atomic_cmpxchg - atomic compare-and-exchange values
+ * @v: pointer to value to change
+ * @old:  desired old value to match
+ * @new:  new value to put in
+ *
+ * Parameters are then pointer, value-in-register, value-in-register,
+ * and the output is the old value.
+ *
+ * Apparently this is complicated for archs that don't support
+ * the memw_locked like we do (or it's broken or whatever).
+ *
+ * Kind of the lynchpin of the rest of the generically defined routines.
+ * Remember V2 had that bug with dotnew predicate set by memw_locked.
+ *
+ * "old" is "expected" old val, __oldval is actual old value
+ */
 static inline int atomic_cmpxchg(atomic_t *v, int old, int new)
 {
 	int __oldval;
@@ -88,6 +116,14 @@ static inline int atomic_sub_return(int i, atomic_t *v)
 
 #define atomic_sub(i, v) atomic_sub_return(i, (v))
 
+/**
+ * atomic_add_unless - add unless the number is a given value
+ * @v: pointer to value
+ * @a: amount to add
+ * @u: unless value is equal to u
+ *
+ * Returns 1 if the add happened, 0 if it didn't.
+ */
 static inline int __atomic_add_unless(atomic_t *v, int a, int u)
 {
 	int output, __oldval;

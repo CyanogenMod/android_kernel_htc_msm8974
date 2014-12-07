@@ -10,7 +10,7 @@
 #define __LINUX_SPI_ORION_SPI_H
 
 struct orion_spi_info {
-	u32	tclk;		
+	u32	tclk;		/* no <linux/clk.h> support yet */
 };
 
 

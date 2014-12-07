@@ -12,6 +12,7 @@
  * published by the Free Software Foundation.
 */
 
+/* GPIO bank sizes */
 #define S3C64XX_GPIO_A_NR	(8)
 #define S3C64XX_GPIO_B_NR	(7)
 #define S3C64XX_GPIO_C_NR	(8)
@@ -30,7 +31,12 @@
 #define S3C64XX_GPIO_P_NR	(15)
 #define S3C64XX_GPIO_Q_NR	(9)
 
+/* GPIO bank numbes */
 
+/* CONFIG_S3C_GPIO_SPACE allows the user to select extra
+ * space for debugging purposes so that any accidental
+ * change from one gpio bank to another can be caught.
+*/
 
 #define S3C64XX_GPIO_NEXT(__gpio) \
 	((__gpio##_START) + (__gpio##_NR) + CONFIG_S3C_GPIO_SPACE + 1)
@@ -55,6 +61,7 @@ enum s3c_gpio_number {
 	S3C64XX_GPIO_Q_START = S3C64XX_GPIO_NEXT(S3C64XX_GPIO_P),
 };
 
+/* S3C64XX GPIO number definitions. */
 
 #define S3C64XX_GPA(_nr)	(S3C64XX_GPIO_A_START + (_nr))
 #define S3C64XX_GPB(_nr)	(S3C64XX_GPIO_B_START + (_nr))
@@ -74,9 +81,11 @@ enum s3c_gpio_number {
 #define S3C64XX_GPP(_nr)	(S3C64XX_GPIO_P_START + (_nr))
 #define S3C64XX_GPQ(_nr)	(S3C64XX_GPIO_Q_START + (_nr))
 
+/* the end of the S3C64XX specific gpios */
 #define S3C64XX_GPIO_END	(S3C64XX_GPQ(S3C64XX_GPIO_Q_NR) + 1)
 #define S3C_GPIO_END		S3C64XX_GPIO_END
 
+/* define the number of gpios we need to the one after the GPQ() range */
 #define GPIO_BOARD_START (S3C64XX_GPQ(S3C64XX_GPIO_Q_NR) + 1)
 
 #define BOARD_NR_GPIOS	(16 + CONFIG_SAMSUNG_GPIO_EXTRA)

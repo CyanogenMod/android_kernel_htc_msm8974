@@ -25,6 +25,10 @@
 
 extern void omap_check_revision(void);
 
+/*
+ * The machine specific code may provide the extra mapping besides the
+ * default mapping provided here.
+ */
 static struct map_desc omap_io_desc[] __initdata = {
 	{
 		.virtual	= OMAP1_IO_VIRT,
@@ -82,6 +86,9 @@ static struct map_desc omap16xx_io_desc[] __initdata = {
 };
 #endif
 
+/*
+ * Maps common IO regions for omap1
+ */
 static void __init omap1_map_common_io(void)
 {
 	iotable_init(omap_io_desc, ARRAY_SIZE(omap_io_desc));
@@ -111,18 +118,29 @@ void __init omap16xx_map_io(void)
 }
 #endif
 
+/*
+ * Common low-level hardware init for omap1.
+ */
 void __init omap1_init_early(void)
 {
 	omap_check_revision();
 
+	/* REVISIT: Refer to OMAP5910 Errata, Advisory SYS_1: "Timeout Abort
+	 * on a Posted Write in the TIPB Bridge".
+	 */
 	omap_writew(0x0, MPU_PUBLIC_TIPB_CNTL);
 	omap_writew(0x0, MPU_PRIVATE_TIPB_CNTL);
 
+	/* Must init clocks early to assure that timer interrupt works
+	 */
 	omap1_clk_init();
 	omap1_mux_init();
 	omap_init_consistent_dma_size();
 }
 
+/*
+ * NOTE: Please use ioremap + __raw_read/write where possible instead of these
+ */
 
 u8 omap_readb(u32 pa)
 {

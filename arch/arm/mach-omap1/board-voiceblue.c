@@ -168,9 +168,9 @@ static int panic_event(struct notifier_block *this, unsigned long event,
 	if (test_and_set_bit(MACHINE_PANICED, &machine_state))
 		return NOTIFY_DONE;
 
-	
+	/* Flash power LED */
 	omap_writeb(0x78, OMAP_LPG1_LCR);
-	omap_writeb(0x01, OMAP_LPG1_PMR);	
+	omap_writeb(0x01, OMAP_LPG1_PMR);	/* Enable clock */
 
 	return NOTIFY_DONE;
 }
@@ -184,7 +184,7 @@ static int __init voiceblue_setup(void)
 	if (!machine_is_voiceblue())
 		return -ENODEV;
 
-	
+	/* Setup panic notifier */
 	atomic_notifier_chain_register(&panic_notifier_list, &panic_block);
 
 	return 0;
@@ -220,6 +220,10 @@ void voiceblue_wdt_ping(void)
 
 static void voiceblue_restart(char mode, const char *cmd)
 {
+	/*
+	 * Workaround for 5912/1611b bug mentioned in sprz209d.pdf p. 28
+	 * "Global Software Reset Affects Traffic Controller Frequency".
+	 */
 	if (cpu_is_omap5912()) {
 		omap_writew(omap_readw(DPLL_CTL) & ~(1 << 4), DPLL_CTL);
 		omap_writew(0x8, ARM_RSTCT1);
@@ -236,7 +240,7 @@ EXPORT_SYMBOL(voiceblue_wdt_ping);
 
 static void __init voiceblue_init(void)
 {
-	
+	/* mux pins for uarts */
 	omap_cfg_reg(UART1_TX);
 	omap_cfg_reg(UART1_RTS);
 	omap_cfg_reg(UART2_TX);
@@ -244,20 +248,20 @@ static void __init voiceblue_init(void)
 	omap_cfg_reg(UART3_TX);
 	omap_cfg_reg(UART3_RX);
 
-	
+	/* Watchdog */
 	gpio_request(0, "Watchdog");
-	
+	/* smc91x reset */
 	gpio_request(7, "SMC91x reset");
 	gpio_direction_output(7, 1);
-	udelay(2);	
+	udelay(2);	/* wait at least 100ns */
 	gpio_set_value(7, 0);
-	mdelay(50);	
-	
+	mdelay(50);	/* 50ms until PHY ready */
+	/* smc91x interrupt pin */
 	gpio_request(8, "SMC91x irq");
-	
+	/* 16C554 reset*/
 	gpio_request(6, "16C554 reset");
 	gpio_direction_output(6, 0);
-	
+	/* 16C554 interrupt pins */
 	gpio_request(12, "16C554 irq");
 	gpio_request(13, "16C554 irq");
 	gpio_request(14, "16C554 irq");
@@ -276,12 +280,14 @@ static void __init voiceblue_init(void)
 	omap1_usb_init(&voiceblue_usb_config);
 	omap_register_i2c_bus(1, 100, NULL, 0);
 
+	/* There is a good chance board is going up, so enable power LED
+	 * (it is connected through invertor) */
 	omap_writeb(0x00, OMAP_LPG1_LCR);
-	omap_writeb(0x00, OMAP_LPG1_PMR);	
+	omap_writeb(0x00, OMAP_LPG1_PMR);	/* Disable clock */
 }
 
 MACHINE_START(VOICEBLUE, "VoiceBlue OMAP5910")
-	
+	/* Maintainer: Ladislav Michl <michl@2n.cz> */
 	.atag_offset	= 0x100,
 	.map_io		= omap15xx_map_io,
 	.init_early     = omap1_init_early,

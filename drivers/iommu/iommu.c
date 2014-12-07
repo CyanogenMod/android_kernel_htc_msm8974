@@ -138,6 +138,18 @@ static struct kobj_type iommu_group_ktype = {
 	.release = iommu_group_release,
 };
 
+/**
+ * iommu_group_alloc - Allocate a new group
+ * @name: Optional name to associate with group, visible in sysfs
+ *
+ * This function is called by an iommu driver to allocate a new iommu
+ * group.  The iommu group represents the minimum granularity of the iommu.
+ * Upon successful return, the caller holds a reference to the supplied
+ * group in order to hold the group until devices are added.  Use
+ * iommu_group_put() to release this extra reference count, allowing the
+ * group to be automatically reclaimed once it has no devices or external
+ * references.
+ */
 struct iommu_group *iommu_group_alloc(void)
 {
 	struct iommu_group *group;
@@ -183,22 +195,45 @@ again:
 
 	group->devices_kobj = kobject_create_and_add("devices", &group->kobj);
 	if (!group->devices_kobj) {
-		kobject_put(&group->kobj); 
+		kobject_put(&group->kobj); /* triggers .release & free */
 		return ERR_PTR(-ENOMEM);
 	}
 
+	/*
+	 * The devices_kobj holds a reference on the group kobject, so
+	 * as long as that exists so will the group.  We can therefore
+	 * use the devices_kobj for reference counting.
+	 */
 	kobject_put(&group->kobj);
 
 	return group;
 }
 EXPORT_SYMBOL_GPL(iommu_group_alloc);
 
+/**
+ * iommu_group_get_iommudata - retrieve iommu_data registered for a group
+ * @group: the group
+ *
+ * iommu drivers can store data in the group for use when doing iommu
+ * operations.  This function provides a way to retrieve it.  Caller
+ * should hold a group reference.
+ */
 void *iommu_group_get_iommudata(struct iommu_group *group)
 {
 	return group->iommu_data;
 }
 EXPORT_SYMBOL_GPL(iommu_group_get_iommudata);
 
+/**
+ * iommu_group_set_iommudata - set iommu_data for a group
+ * @group: the group
+ * @iommu_data: new data
+ * @release: release function for iommu_data
+ *
+ * iommu drivers can store data in the group for use when doing iommu
+ * operations.  This function provides a way to set the data after
+ * the group has been allocated.  Caller should hold a group reference.
+ */
 void iommu_group_set_iommudata(struct iommu_group *group, void *iommu_data,
 			       void (*release)(void *iommu_data))
 {
@@ -207,6 +242,14 @@ void iommu_group_set_iommudata(struct iommu_group *group, void *iommu_data,
 }
 EXPORT_SYMBOL_GPL(iommu_group_set_iommudata);
 
+/**
+ * iommu_group_set_name - set name for a group
+ * @group: the group
+ * @name: name
+ *
+ * Allow iommu driver to set a name for a group.  When set it will
+ * appear in a name attribute file under the group in sysfs.
+ */
 int iommu_group_set_name(struct iommu_group *group, const char *name)
 {
 	int ret;
@@ -234,6 +277,14 @@ int iommu_group_set_name(struct iommu_group *group, const char *name)
 }
 EXPORT_SYMBOL_GPL(iommu_group_set_name);
 
+/**
+ * iommu_group_add_device - add a device to an iommu group
+ * @group: the group into which to add the device (reference should be held)
+ * @dev: the device
+ *
+ * This function is called by an iommu driver to add a device into a
+ * group.  Adding a device increments the group reference count.
+ */
 int iommu_group_add_device(struct iommu_group *group, struct device *dev)
 {
 	int ret, i = 0;
@@ -264,6 +315,10 @@ rename:
 	if (ret) {
 		kfree(device->name);
 		if (ret == -EEXIST && i >= 0) {
+			/*
+			 * Account for the slim chance of collision
+			 * and append an instance to the name.
+			 */
 			device->name = kasprintf(GFP_KERNEL, "%s.%d",
 						 kobject_name(&dev->kobj), i++);
 			goto rename;
@@ -282,19 +337,26 @@ rename:
 	list_add_tail(&device->list, &group->devices);
 	mutex_unlock(&group->mutex);
 
-	
+	/* Notify any listeners about change to group. */
 	blocking_notifier_call_chain(&group->notifier,
 				     IOMMU_GROUP_NOTIFY_ADD_DEVICE, dev);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(iommu_group_add_device);
 
+/**
+ * iommu_group_remove_device - remove a device from it's current group
+ * @dev: device to be removed
+ *
+ * This function is called by an iommu driver to remove the device from
+ * it's current group.  This decrements the iommu group reference count.
+ */
 void iommu_group_remove_device(struct device *dev)
 {
 	struct iommu_group *group = dev->iommu_group;
 	struct iommu_device *tmp_device, *device = NULL;
 
-	
+	/* Pre-notify listeners that a device is being removed. */
 	blocking_notifier_call_chain(&group->notifier,
 				     IOMMU_GROUP_NOTIFY_DEL_DEVICE, dev);
 
@@ -321,6 +383,17 @@ void iommu_group_remove_device(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(iommu_group_remove_device);
 
+/**
+ * iommu_group_for_each_dev - iterate over each device in the group
+ * @group: the group
+ * @data: caller opaque data to be passed to callback function
+ * @fn: caller supplied callback function
+ *
+ * This function is called by group users to iterate over group devices.
+ * Callers should hold a reference count to the group during callback.
+ * The group->mutex is held across callbacks, which will block calls to
+ * iommu_group_add/remove_device.
+ */
 int iommu_group_for_each_dev(struct iommu_group *group, void *data,
 			     int (*fn)(struct device *, void *))
 {
@@ -338,6 +411,14 @@ int iommu_group_for_each_dev(struct iommu_group *group, void *data,
 }
 EXPORT_SYMBOL_GPL(iommu_group_for_each_dev);
 
+/**
+ * iommu_group_get - Return the group for a device and increment reference
+ * @dev: get the group that this device belongs to
+ *
+ * This function is called by iommu drivers and users to get the group
+ * for the specified device.  If found, the group is returned and the group
+ * reference in incremented, else NULL.
+ */
 struct iommu_group *iommu_group_get(struct device *dev)
 {
 	struct iommu_group *group = dev->iommu_group;
@@ -349,6 +430,15 @@ struct iommu_group *iommu_group_get(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(iommu_group_get);
 
+/**
+ * iommu_group_find - Find and return the group based on the group name.
+ * Also increment the reference count.
+ * @name: the name of the group
+ *
+ * This function is called by iommu drivers and clients to get the group
+ * by the specified name.  If found, the group is returned and the group
+ * reference is incremented, else NULL.
+ */
 struct iommu_group *iommu_group_find(const char *name)
 {
 	struct iommu_group *group;
@@ -371,6 +461,13 @@ struct iommu_group *iommu_group_find(const char *name)
 }
 EXPORT_SYMBOL_GPL(iommu_group_find);
 
+/**
+ * iommu_group_put - Decrement group reference
+ * @group: the group to use
+ *
+ * This function is called by iommu drivers and users to release the
+ * iommu group.  Once the reference count is zero, the group is released.
+ */
 void iommu_group_put(struct iommu_group *group)
 {
 	if (group)
@@ -378,6 +475,15 @@ void iommu_group_put(struct iommu_group *group)
 }
 EXPORT_SYMBOL_GPL(iommu_group_put);
 
+/**
+ * iommu_group_register_notifier - Register a notifier for group changes
+ * @group: the group to watch
+ * @nb: notifier block to signal
+ *
+ * This function allows iommu group users to track changes in a group.
+ * See include/linux/iommu.h for actions sent via this notifier.  Caller
+ * should hold a reference to the group throughout notifier registration.
+ */
 int iommu_group_register_notifier(struct iommu_group *group,
 				  struct notifier_block *nb)
 {
@@ -385,6 +491,13 @@ int iommu_group_register_notifier(struct iommu_group *group,
 }
 EXPORT_SYMBOL_GPL(iommu_group_register_notifier);
 
+/**
+ * iommu_group_unregister_notifier - Unregister a notifier
+ * @group: the group to watch
+ * @nb: notifier block to signal
+ *
+ * Unregister a previously registered group notifier block.
+ */
 int iommu_group_unregister_notifier(struct iommu_group *group,
 				    struct notifier_block *nb)
 {
@@ -392,6 +505,12 @@ int iommu_group_unregister_notifier(struct iommu_group *group,
 }
 EXPORT_SYMBOL_GPL(iommu_group_unregister_notifier);
 
+/**
+ * iommu_group_id - Return ID for a group
+ * @group: the group to ID
+ *
+ * Return the unique ID for the group matching the sysfs group number.
+ */
 int iommu_group_id(struct iommu_group *group)
 {
 	return group->id;
@@ -420,6 +539,10 @@ static int iommu_bus_notifier(struct notifier_block *nb,
 	struct iommu_group *group;
 	unsigned long group_action = 0;
 
+	/*
+	 * ADD/DEL call into iommu driver ops if provided, which may
+	 * result in ADD/DEL notifiers to group->notifier
+	 */
 	if (action == BUS_NOTIFY_ADD_DEVICE) {
 		if (ops->add_device)
 			return ops->add_device(dev);
@@ -430,6 +553,10 @@ static int iommu_bus_notifier(struct notifier_block *nb,
 		}
 	}
 
+	/*
+	 * Remaining BUS_NOTIFYs get filtered and republished to the
+	 * group, if anyone is listening
+	 */
 	group = iommu_group_get(dev);
 	if (!group)
 		return 0;
@@ -467,6 +594,19 @@ static void iommu_bus_init(struct bus_type *bus, struct iommu_ops *ops)
 	bus_for_each_dev(bus, NULL, ops, add_iommu_group);
 }
 
+/**
+ * bus_set_iommu - set iommu-callbacks for the bus
+ * @bus: bus.
+ * @ops: the callbacks provided by the iommu-driver
+ *
+ * This function is called by an iommu driver to set the iommu methods
+ * used for a particular bus. Drivers for devices on that bus can use
+ * the iommu-api after these ops are registered.
+ * This special function is needed because IOMMUs are usually devices on
+ * the bus itself, so the iommu drivers are not initialized when the bus
+ * is set up. With this function the iommu-driver can set the iommu-ops
+ * afterwards.
+ */
 int bus_set_iommu(struct bus_type *bus, struct iommu_ops *ops)
 {
 	if (bus->iommu_ops != NULL)
@@ -474,7 +614,7 @@ int bus_set_iommu(struct bus_type *bus, struct iommu_ops *ops)
 
 	bus->iommu_ops = ops;
 
-	
+	/* Do IOMMU specific setup for this bus-type */
 	iommu_bus_init(bus, ops);
 
 	return 0;
@@ -487,6 +627,18 @@ bool iommu_present(struct bus_type *bus)
 }
 EXPORT_SYMBOL_GPL(iommu_present);
 
+/**
+ * iommu_set_fault_handler() - set a fault handler for an iommu domain
+ * @domain: iommu domain
+ * @handler: fault handler
+ * @token: user data, will be passed back to the fault handler
+ *
+ * This function should be used by IOMMU users which want to be notified
+ * whenever an IOMMU fault happens.
+ *
+ * The fault handler itself should return 0 on success, and an appropriate
+ * error code otherwise.
+ */
 void iommu_set_fault_handler(struct iommu_domain *domain,
 					iommu_fault_handler_t handler,
 					void *token)
@@ -552,6 +704,16 @@ void iommu_detach_device(struct iommu_domain *domain, struct device *dev)
 }
 EXPORT_SYMBOL_GPL(iommu_detach_device);
 
+/*
+ * IOMMU groups are really the natrual working unit of the IOMMU, but
+ * the IOMMU API works on domains and devices.  Bridge that gap by
+ * iterating over the devices in a group.  Ideally we'd have a single
+ * device which represents the requestor ID of the group, but we also
+ * allow IOMMU drivers to create policy defined minimum sets, where
+ * the physical hardware may be able to distiguish members, but we
+ * wish to group them at a higher level (ex. untrusted multi-function
+ * PCI devices).  Thus we attach each device.
+ */
 static int iommu_group_do_attach_device(struct device *dev, void *data)
 {
 	struct iommu_domain *domain = data;
@@ -612,9 +774,14 @@ int iommu_map(struct iommu_domain *domain, unsigned long iova,
 	if (unlikely(domain->ops->map == NULL))
 		return -ENODEV;
 
-	
+	/* find out the minimum page size supported */
 	min_pagesz = 1 << __ffs(domain->ops->pgsize_bitmap);
 
+	/*
+	 * both the virtual address and the physical one, as well as
+	 * the size of the mapping, must be aligned (at least) to the
+	 * size of the smallest page supported by the hardware
+	 */
 	if (!IS_ALIGNED(iova | paddr | size, min_pagesz)) {
 		pr_err("unaligned: iova 0x%lx pa 0x%lx size 0x%lx min_pagesz "
 			"0x%x\n", iova, (unsigned long)paddr,
@@ -629,27 +796,27 @@ int iommu_map(struct iommu_domain *domain, unsigned long iova,
 		unsigned long pgsize, addr_merge = iova | paddr;
 		unsigned int pgsize_idx;
 
-		
+		/* Max page size that still fits into 'size' */
 		pgsize_idx = __fls(size);
 
-		
+		/* need to consider alignment requirements ? */
 		if (likely(addr_merge)) {
-			
+			/* Max page size allowed by both iova and paddr */
 			unsigned int align_pgsize_idx = __ffs(addr_merge);
 
 			pgsize_idx = min(pgsize_idx, align_pgsize_idx);
 		}
 
-		
+		/* build a mask of acceptable page sizes */
 		pgsize = (1UL << (pgsize_idx + 1)) - 1;
 
-		
+		/* throw away page sizes not supported by the hardware */
 		pgsize &= domain->ops->pgsize_bitmap;
 
-		
+		/* make sure we're still sane */
 		BUG_ON(!pgsize);
 
-		
+		/* pick the biggest page */
 		pgsize_idx = __fls(pgsize);
 		pgsize = 1UL << pgsize_idx;
 
@@ -665,7 +832,7 @@ int iommu_map(struct iommu_domain *domain, unsigned long iova,
 		size -= pgsize;
 	}
 
-	
+	/* unroll mapping in case something went wrong */
 	if (ret)
 		iommu_unmap(domain, orig_iova, orig_size - size);
 
@@ -681,9 +848,14 @@ size_t iommu_unmap(struct iommu_domain *domain, unsigned long iova, size_t size)
 	if (unlikely(domain->ops->unmap == NULL))
 		return -ENODEV;
 
-	
+	/* find out the minimum page size supported */
 	min_pagesz = 1 << __ffs(domain->ops->pgsize_bitmap);
 
+	/*
+	 * The virtual address, as well as the size of the mapping, must be
+	 * aligned (at least) to the size of the smallest page supported
+	 * by the hardware
+	 */
 	if (!IS_ALIGNED(iova | size, min_pagesz)) {
 		pr_err("unaligned: iova 0x%lx size 0x%lx min_pagesz 0x%x\n",
 					iova, (unsigned long)size, min_pagesz);
@@ -693,6 +865,10 @@ size_t iommu_unmap(struct iommu_domain *domain, unsigned long iova, size_t size)
 	pr_debug("unmap this: iova 0x%lx size 0x%lx\n", iova,
 							(unsigned long)size);
 
+	/*
+	 * Keep iterating until we either unmap 'size' bytes (or more)
+	 * or we hit an area that isn't mapped.
+	 */
 	while (unmapped < size) {
 		size_t left = size - unmapped;
 

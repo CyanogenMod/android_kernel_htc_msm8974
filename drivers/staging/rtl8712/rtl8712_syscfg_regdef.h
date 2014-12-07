@@ -52,5 +52,5 @@
 #define EFUSE_CLK_CTRL		(RTL8712_SYSCFG_ + 0x02F8)
 
 
-#endif 
+#endif /*__RTL8712_SYSCFG_REGDEF_H__*/
 

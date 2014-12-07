@@ -32,7 +32,7 @@
 #include <linux/kallsyms.h>
 #include <asm/pgtable.h>
 #include <linux/mmiotrace.h>
-#include <asm/e820.h> 
+#include <asm/e820.h> /* for ISA_START_ADDRESS */
 #include <linux/atomic.h>
 #include <linux/percpu.h>
 #include <linux/cpu.h>
@@ -53,15 +53,27 @@ struct remap_trace {
 	unsigned long id;
 };
 
+/* Accessed per-cpu. */
 static DEFINE_PER_CPU(struct trap_reason, pf_reason);
 static DEFINE_PER_CPU(struct mmiotrace_rw, cpu_trace);
 
 static DEFINE_MUTEX(mmiotrace_mutex);
 static DEFINE_SPINLOCK(trace_lock);
 static atomic_t mmiotrace_enabled;
-static LIST_HEAD(trace_list);		
+static LIST_HEAD(trace_list);		/* struct remap_trace */
 
+/*
+ * Locking in this file:
+ * - mmiotrace_mutex enforces enable/disable_mmiotrace() critical sections.
+ * - mmiotrace_enabled may be modified only when holding mmiotrace_mutex
+ *   and trace_lock.
+ * - Routines depending on is_enabled() must take trace_lock.
+ * - trace_list users must hold trace_lock.
+ * - is_enabled() guarantees that mmio_trace_{rw,mapping} are allowed.
+ * - pre/post callbacks assume the effect of is_enabled() being true.
+ */
 
+/* module parameters */
 static unsigned long	filter_offset;
 static bool		nommiotrace;
 static bool		trace_pc;
@@ -101,6 +113,10 @@ static void print_pte(unsigned long address)
 		(unsigned long long)pte_val(*pte) & _PAGE_PRESENT);
 }
 
+/*
+ * For some reason the pre/post pairs have been called in an
+ * unmatched order. Report and die.
+ */
 static void die_kmmio_nesting_error(struct pt_regs *regs, unsigned long addr)
 {
 	const struct trap_reason *my_reason = &get_cpu_var(pf_reason);
@@ -133,7 +149,7 @@ static void pre(struct kmmio_probe *p, struct pt_regs *regs,
 	const enum reason_type type = get_ins_type(instptr);
 	struct remap_trace *trace = p->private;
 
-	
+	/* it doesn't make sense to have more than one active trace per cpu */
 	if (my_reason->active_traces)
 		die_kmmio_nesting_error(regs, addr);
 	else
@@ -146,11 +162,20 @@ static void pre(struct kmmio_probe *p, struct pt_regs *regs,
 	my_trace->phys = addr - trace->probe.addr + trace->phys;
 	my_trace->map_id = trace->id;
 
+	/*
+	 * Only record the program counter when requested.
+	 * It may taint clean-room reverse engineering.
+	 */
 	if (trace_pc)
 		my_trace->pc = instptr;
 	else
 		my_trace->pc = 0;
 
+	/*
+	 * XXX: the timestamp recorded will be *after* the tracing has been
+	 * done, not at the time we hit the instruction. SMP implications
+	 * on event ordering?
+	 */
 
 	switch (type) {
 	case REG_READ:
@@ -186,7 +211,7 @@ static void post(struct kmmio_probe *p, unsigned long condition,
 	struct trap_reason *my_reason = &get_cpu_var(pf_reason);
 	struct mmiotrace_rw *my_trace = &get_cpu_var(cpu_trace);
 
-	
+	/* this should always return the active_trace count to 0 */
 	my_reason->active_traces--;
 	if (my_reason->active_traces) {
 		pr_emerg("unexpected post handler");
@@ -211,7 +236,7 @@ static void ioremap_trace_core(resource_size_t offset, unsigned long size,
 {
 	static atomic_t next_id;
 	struct remap_trace *trace = kmalloc(sizeof(*trace), GFP_KERNEL);
-	
+	/* These are page-unaligned. */
 	struct mmiotrace_map map = {
 		.phys = offset,
 		.virt = (unsigned long)addr,
@@ -255,7 +280,7 @@ not_enabled:
 void mmiotrace_ioremap(resource_size_t offset, unsigned long size,
 						void __iomem *addr)
 {
-	if (!is_enabled()) 
+	if (!is_enabled()) /* recheck and proper locking in *_core() */
 		return;
 
 	pr_debug("ioremap_*(0x%llx, 0x%lx) = %p\n",
@@ -298,7 +323,7 @@ static void iounmap_trace_core(volatile void __iomem *addr)
 not_enabled:
 	spin_unlock_irq(&trace_lock);
 	if (found_trace) {
-		synchronize_rcu(); 
+		synchronize_rcu(); /* unregister_kmmio_probe() requirement */
 		kfree(found_trace);
 	}
 }
@@ -306,7 +331,7 @@ not_enabled:
 void mmiotrace_iounmap(volatile void __iomem *addr)
 {
 	might_sleep();
-	if (is_enabled()) 
+	if (is_enabled()) /* recheck and proper locking in *_core() */
 		iounmap_trace_core(addr);
 }
 
@@ -332,13 +357,19 @@ static void clear_trace_list(void)
 	struct remap_trace *trace;
 	struct remap_trace *tmp;
 
+	/*
+	 * No locking required, because the caller ensures we are in a
+	 * critical section via mutex, and is_enabled() is false,
+	 * i.e. nothing can traverse or modify this list.
+	 * Caller also ensures is_enabled() cannot change.
+	 */
 	list_for_each_entry(trace, &trace_list, list) {
 		pr_notice("purging non-iounmapped trace @0x%08lx, size 0x%lx.\n",
 			  trace->probe.addr, trace->probe.len);
 		if (!nommiotrace)
 			unregister_kmmio_probe(&trace->probe);
 	}
-	synchronize_rcu(); 
+	synchronize_rcu(); /* unregister_kmmio_probe() requirement */
 
 	list_for_each_entry_safe(trace, tmp, &trace_list, list) {
 		list_del(&trace->list);
@@ -379,6 +410,8 @@ out:
 		pr_warning("multiple CPUs still online, may miss events.\n");
 }
 
+/* __ref because leave_uniprocessor calls cpu_up which is __cpuinit,
+   but this whole function is ifdefed CONFIG_HOTPLUG_CPU */
 static void __ref leave_uniprocessor(void)
 {
 	int cpu;
@@ -396,7 +429,7 @@ static void __ref leave_uniprocessor(void)
 	}
 }
 
-#else 
+#else /* !CONFIG_HOTPLUG_CPU */
 static void enter_uniprocessor(void)
 {
 	if (num_online_cpus() > 1)
@@ -438,7 +471,7 @@ void disable_mmiotrace(void)
 	BUG_ON(is_enabled());
 	spin_unlock_irq(&trace_lock);
 
-	clear_trace_list(); 
+	clear_trace_list(); /* guarantees: no more kmmio callbacks */
 	leave_uniprocessor();
 	kmmio_cleanup();
 	pr_info("disabled.\n");

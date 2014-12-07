@@ -62,16 +62,16 @@ int carl9170_set_rts_cts_rate(struct ar9170 *ar)
 	u32 rts_rate, cts_rate;
 
 	if (conf_is_ht(&ar->hw->conf)) {
-		
+		/* 12 mbit OFDM */
 		rts_rate = 0x1da;
 		cts_rate = 0x10a;
 	} else {
 		if (ar->hw->conf.channel->band == IEEE80211_BAND_2GHZ) {
-			
+			/* 11 mbit CCK */
 			rts_rate = 033;
 			cts_rate = 003;
 		} else {
-			
+			/* 6 mbit OFDM */
 			rts_rate = 0x1bb;
 			cts_rate = 0x10b;
 		}
@@ -121,9 +121,9 @@ int carl9170_set_mac_rates(struct ar9170 *ar)
 	rcu_read_unlock();
 
 	if (ar->hw->conf.channel->band == IEEE80211_BAND_5GHZ)
-		mandatory = 0xff00; 
+		mandatory = 0xff00; /* OFDM 6/9/12/18/24/36/48/54 */
 	else
-		mandatory = 0xff0f; 
+		mandatory = 0xff0f; /* OFDM (6/9../54) + CCK (1/2/5.5/11) */
 
 	carl9170_regwrite_begin(ar);
 	carl9170_regwrite(AR9170_MAC_REG_BASIC_RATE, basic);
@@ -172,7 +172,7 @@ int carl9170_init_mac(struct ar9170 *ar)
 {
 	carl9170_regwrite_begin(ar);
 
-	
+	/* switch MAC to OTUS interface */
 	carl9170_regwrite(0x1c3600, 0x3);
 
 	carl9170_regwrite(AR9170_MAC_REG_ACK_EXTENSION, 0x40);
@@ -182,7 +182,7 @@ int carl9170_init_mac(struct ar9170 *ar)
 	carl9170_regwrite(AR9170_MAC_REG_FRAMETYPE_FILTER,
 			  AR9170_MAC_FTF_MONITOR);
 
-	
+	/* enable MMIC */
 	carl9170_regwrite(AR9170_MAC_REG_SNIFFER,
 			AR9170_MAC_SNIFFER_DEFAULTS);
 
@@ -192,19 +192,19 @@ int carl9170_init_mac(struct ar9170 *ar)
 	carl9170_regwrite(AR9170_MAC_REG_EIFS_AND_SIFS, 0xa144000);
 	carl9170_regwrite(AR9170_MAC_REG_SLOT_TIME, 9 << 10);
 
-	
+	/* CF-END & CF-ACK rate => 24M OFDM */
 	carl9170_regwrite(AR9170_MAC_REG_TID_CFACK_CFEND_RATE, 0x59900000);
 
-	
+	/* NAV protects ACK only (in TXOP) */
 	carl9170_regwrite(AR9170_MAC_REG_TXOP_DURATION, 0x201);
 
-	
-	
+	/* Set Beacon PHY CTRL's TPC to 0x7, TA1=1 */
+	/* OTUS set AM to 0x1 */
 	carl9170_regwrite(AR9170_MAC_REG_BCN_HT1, 0x8000170);
 
 	carl9170_regwrite(AR9170_MAC_REG_BACKOFF_PROTECT, 0x105);
 
-	
+	/* Aggregation MAX number and timeout */
 	carl9170_regwrite(AR9170_MAC_REG_AMPDU_FACTOR, 0x8000a);
 	carl9170_regwrite(AR9170_MAC_REG_AMPDU_DENSITY, 0x140a07);
 
@@ -215,37 +215,37 @@ int carl9170_init_mac(struct ar9170 *ar)
 			  AR9170_MAC_RX_CTRL_DEAGG |
 			  AR9170_MAC_RX_CTRL_SHORT_FILTER);
 
-	
+	/* rate sets */
 	carl9170_regwrite(AR9170_MAC_REG_BASIC_RATE, 0x150f);
 	carl9170_regwrite(AR9170_MAC_REG_MANDATORY_RATE, 0x150f);
 	carl9170_regwrite(AR9170_MAC_REG_RTS_CTS_RATE, 0x0030033);
 
-	
+	/* MIMO response control */
 	carl9170_regwrite(AR9170_MAC_REG_ACK_TPC, 0x4003c1e);
 
 	carl9170_regwrite(AR9170_MAC_REG_AMPDU_RX_THRESH, 0xffff);
 
-	
+	/* set PHY register read timeout (??) */
 	carl9170_regwrite(AR9170_MAC_REG_MISC_680, 0xf00008);
 
-	
+	/* Disable Rx TimeOut, workaround for BB. */
 	carl9170_regwrite(AR9170_MAC_REG_RX_TIMEOUT, 0x0);
 
-	
+	/* Set WLAN DMA interrupt mode: generate int per packet */
 	carl9170_regwrite(AR9170_MAC_REG_TXRX_MPI, 0x110011);
 
 	carl9170_regwrite(AR9170_MAC_REG_FCS_SELECT,
 			AR9170_MAC_FCS_FIFO_PROT);
 
-	
+	/* Disables the CF_END frame, undocumented register */
 	carl9170_regwrite(AR9170_MAC_REG_TXOP_NOT_ENOUGH_IND,
 			0x141e0f48);
 
-	
+	/* reset group hash table */
 	carl9170_regwrite(AR9170_MAC_REG_GROUP_HASH_TBL_L, 0xffffffff);
 	carl9170_regwrite(AR9170_MAC_REG_GROUP_HASH_TBL_H, 0xffffffff);
 
-	
+	/* disable PRETBTT interrupt */
 	carl9170_regwrite(AR9170_MAC_REG_PRETBTT, 0x0);
 	carl9170_regwrite(AR9170_MAC_REG_BCN_PERIOD, 0x0);
 
@@ -325,7 +325,7 @@ int carl9170_set_operating_mode(struct ar9170 *ar)
 		case NL80211_IFTYPE_AP:
 			cam_mode |= AR9170_MAC_CAM_AP;
 
-			
+			/* iwlagn 802.11n STA Workaround */
 			rx_ctrl |= AR9170_MAC_RX_CTRL_PASS_TO_HOST;
 			break;
 		case NL80211_IFTYPE_WDS:

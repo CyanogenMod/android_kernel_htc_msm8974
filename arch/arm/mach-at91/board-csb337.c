@@ -45,16 +45,16 @@
 
 static void __init csb337_init_early(void)
 {
-	
+	/* Initialize processor: 3.6864 MHz crystal */
 	at91_initialize(3686400);
 
-	
+	/* Setup the LEDs */
 	at91_init_leds(AT91_PIN_PB0, AT91_PIN_PB1);
 
-	
+	/* DBGU on ttyS0 */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* make console=ttyS0 the default */
 	at91_set_serial_console(0);
 }
 
@@ -81,11 +81,15 @@ static struct i2c_board_info __initdata csb337_i2c_devices[] = {
 };
 
 static struct at91_cf_data __initdata csb337_cf_data = {
+	/*
+	 * connector P4 on the CSB 337 mates to
+	 * connector P8 on the CSB 300CF
+	 */
 
-	
+	/* CSB337 specific */
 	.det_pin	= AT91_PIN_PC3,
 
-	
+	/* CSB300CF specific */
 	.irq_pin	= AT91_PIN_PA19,
 	.vcc_pin	= AT91_PIN_PD0,
 	.rst_pin	= AT91_PIN_PD2,
@@ -100,7 +104,7 @@ static struct at91_mmc_data __initdata csb337_mmc_data = {
 };
 
 static struct spi_board_info csb337_spi_devices[] = {
-	{	
+	{	/* CAN controller */
 		.modalias	= "sak82c900",
 		.chip_select	= 0,
 		.max_speed_hz	= 6 * 1000 * 1000,
@@ -115,7 +119,7 @@ static struct mtd_partition csb_flash_partitions[] = {
 		.name		= "uMON flash",
 		.offset		= 0,
 		.size		= MTDPART_SIZ_FULL,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* read only */
 	}
 };
 
@@ -143,6 +147,9 @@ static struct platform_device csb_flash = {
 	.num_resources	= ARRAY_SIZE(csb_flash_resources),
 };
 
+/*
+ * GPIO Buttons (on CSB300)
+ */
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 static struct gpio_keys_button csb300_buttons[] = {
 	{
@@ -184,11 +191,11 @@ static struct platform_device csb300_button_device = {
 
 static void __init csb300_add_device_buttons(void)
 {
-	at91_set_gpio_input(AT91_PIN_PB29, 1);	
+	at91_set_gpio_input(AT91_PIN_PB29, 1);	/* sw0 */
 	at91_set_deglitch(AT91_PIN_PB29, 1);
-	at91_set_gpio_input(AT91_PIN_PB28, 1);	
+	at91_set_gpio_input(AT91_PIN_PB28, 1);	/* sw1 */
 	at91_set_deglitch(AT91_PIN_PB28, 1);
-	at91_set_gpio_input(AT91_PIN_PA21, 1);	
+	at91_set_gpio_input(AT91_PIN_PA21, 1);	/* sw2 */
 	at91_set_deglitch(AT91_PIN_PA21, 1);
 
 	platform_device_register(&csb300_button_device);
@@ -198,19 +205,19 @@ static void __init csb300_add_device_buttons(void) {}
 #endif
 
 static struct gpio_led csb_leds[] = {
-	{	
+	{	/* "led0", yellow */
 		.name			= "led0",
 		.gpio			= AT91_PIN_PB2,
 		.active_low		= 1,
 		.default_trigger	= "heartbeat",
 	},
-	{	
+	{	/* "led1", green */
 		.name			= "led1",
 		.gpio			= AT91_PIN_PB1,
 		.active_low		= 1,
 		.default_trigger	= "mmc0",
 	},
-	{	
+	{	/* "led2", yellow */
 		.name			= "led2",
 		.gpio			= AT91_PIN_PB0,
 		.active_low		= 1,
@@ -221,33 +228,33 @@ static struct gpio_led csb_leds[] = {
 
 static void __init csb337_board_init(void)
 {
-	
+	/* Serial */
 	at91_add_device_serial();
-	
+	/* Ethernet */
 	at91_add_device_eth(&csb337_eth_data);
-	
+	/* USB Host */
 	at91_add_device_usbh(&csb337_usbh_data);
-	
+	/* USB Device */
 	at91_add_device_udc(&csb337_udc_data);
-	
+	/* I2C */
 	at91_add_device_i2c(csb337_i2c_devices, ARRAY_SIZE(csb337_i2c_devices));
-	
-	at91_set_gpio_input(AT91_PIN_PB22, 1);		
+	/* Compact Flash */
+	at91_set_gpio_input(AT91_PIN_PB22, 1);		/* IOIS16 */
 	at91_add_device_cf(&csb337_cf_data);
-	
+	/* SPI */
 	at91_add_device_spi(csb337_spi_devices, ARRAY_SIZE(csb337_spi_devices));
-	
+	/* MMC */
 	at91_add_device_mmc(0, &csb337_mmc_data);
-	
+	/* NOR flash */
 	platform_device_register(&csb_flash);
-	
+	/* LEDs */
 	at91_gpio_leds(csb_leds, ARRAY_SIZE(csb_leds));
-	
+	/* Switches on CSB300 */
 	csb300_add_device_buttons();
 }
 
 MACHINE_START(CSB337, "Cogent CSB337")
-	
+	/* Maintainer: Bill Gatliff */
 	.timer		= &at91rm9200_timer,
 	.map_io		= at91_map_io,
 	.init_early	= csb337_init_early,

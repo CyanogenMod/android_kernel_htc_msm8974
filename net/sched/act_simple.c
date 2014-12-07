@@ -45,6 +45,10 @@ static int tcf_simp(struct sk_buff *skb, const struct tc_action *a,
 	d->tcf_tm.lastuse = jiffies;
 	bstats_update(&d->tcf_bstats, skb);
 
+	/* print policy string followed by _ then packet count
+	 * Example if this was the 3rd packet and the string was "hello"
+	 * then it would look like "hello_3" (without quotes)
+	 */
 	pr_info("simple: %s_%d\n",
 	       (char *)d->tcfd_defdata, d->tcf_bstats.packets);
 	spin_unlock(&d->tcf_lock);

@@ -1,18 +1,21 @@
 #ifndef SPEAKUP_TYPES_H
 #define SPEAKUP_TYPES_H
 
+/*
+ * This file includes all of the typedefs and structs used in speakup.
+ */
 
 #include <linux/types.h>
 #include <linux/fs.h>
 #include <linux/errno.h>
 #include <linux/delay.h>
-#include <linux/wait.h>		
-#include <linux/init.h> 
+#include <linux/wait.h>		/* for wait_queue */
+#include <linux/init.h> /* for __init */
 #include <linux/module.h>
 #include <linux/vt_kern.h>
 #include <linux/spinlock.h>
 #include <linux/mutex.h>
-#include <linux/io.h>		
+#include <linux/io.h>		/* for inb_p, outb_p, inb, outb, etc... */
 
 enum var_type_t {
 	VAR_NUM = 0,
@@ -34,7 +37,7 @@ enum var_id_t {
 	KEYMAP, CHARS,
 	PUNC_SOME, PUNC_MOST, PUNC_ALL,
 	DELIM, REPEATS, EXNUMBER,
-	DELAY, TRIGGER, JIFFY, FULL, 
+	DELAY, TRIGGER, JIFFY, FULL, /* all timers must be together */
 	BLEEP_TIME, CURSOR_TIME, BELL_POS,
 SAY_CONTROL, SAY_WORD_CTL, NO_INTERRUPT, KEY_ECHO,
 	SPELL_DELAY, PUNC_LEVEL, READING_PUNC,
@@ -50,15 +53,15 @@ typedef int (*special_func)(struct vc_data *vc, u_char type, u_char ch,
 #define COLOR_BUFFER_SIZE 160
 
 struct spk_highlight_color_track {
-	
+	/* Count of each background color */
 	unsigned int bgcount[8];
-	
+	/* Buffer for characters drawn with each background color */
 	char highbuf[8][COLOR_BUFFER_SIZE];
-	
+	/* Current index into highbuf */
 	unsigned int highsize[8];
-	
+	/* Reading Position for each color */
 	u_long rpos[8], rx[8], ry[8];
-	
+	/* Real Cursor Y Position */
 	ulong cy;
 };
 
@@ -75,6 +78,7 @@ struct st_spk_t {
 	int tty_stopped;
 };
 
+/* now some defines to make these easier to use. */
 #define spk_shut_up (speakup_console[vc->vc_num]->shut_up)
 #define spk_killed (speakup_console[vc->vc_num]->shut_up & 0x40)
 #define spk_x (speakup_console[vc->vc_num]->reading_x)
@@ -99,8 +103,8 @@ struct st_var_header {
 	char *name;
 	enum var_id_t var_id;
 	enum var_type_t var_type;
-	void *p_val; 
-	void *data; 
+	void *p_val; /* ptr to programs variable to store value */
+	void *data; /* ptr to the vars data */
 };
 
 struct num_var_t {
@@ -108,9 +112,9 @@ struct num_var_t {
 	int default_val;
 	int low;
 	int high;
-	short offset, multiplier; 
-	char *out_str; 
-	int value; 
+	short offset, multiplier; /* for fiddling rates etc. */
+	char *out_str; /* if synth needs char representation of number */
+	int value; /* current value */
 };
 
 struct punc_var_t {
@@ -130,7 +134,7 @@ struct var_t {
 	} u;
 };
 
-struct st_bits_data { 
+struct st_bits_data { /* punc, repeats, word delim bits */
 	char *name;
 	char *value;
 	short mask;
@@ -157,7 +161,7 @@ struct spk_synth {
 	int ser;
 	short flags;
 	short startup;
-	const int checkval; 
+	const int checkval; /* for validating a proper synth module */
 	struct var_t *vars;
 	int *default_pitch;
 	int *default_vol;

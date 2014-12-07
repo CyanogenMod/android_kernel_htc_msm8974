@@ -18,12 +18,13 @@
 #include <linux/fb.h>
 #include <linux/gpio.h>
 
+/* Spitz/Akita GPIOs */
 
-#define SPITZ_GPIO_KEY_INT         (0) 
+#define SPITZ_GPIO_KEY_INT         (0) /* Key Interrupt */
 #define SPITZ_GPIO_RESET           (1)
 #define SPITZ_GPIO_nSD_DETECT      (9)
-#define SPITZ_GPIO_TP_INT          (11) 
-#define SPITZ_GPIO_AK_INT          (13) 
+#define SPITZ_GPIO_TP_INT          (11) /* Touch Panel interrupt */
+#define SPITZ_GPIO_AK_INT          (13) /* Remote Control */
 #define SPITZ_GPIO_ADS7846_CS      (14)
 #define SPITZ_GPIO_SYNC            (16)
 #define SPITZ_GPIO_MAX1111_CS      (20)
@@ -48,11 +49,13 @@
 #define SPITZ_GPIO_AC_IN           (115)
 #define SPITZ_GPIO_HP_IN           (116)
 
+/* Spitz Only GPIOs */
 
-#define SPITZ_GPIO_CF2_IRQ         (106) 
+#define SPITZ_GPIO_CF2_IRQ         (106) /* CF slot1 Ready */
 #define SPITZ_GPIO_CF2_CD          (93)
 
 
+/* Spitz/Akita Keyboard Definitions */
 
 #define SPITZ_KEY_STROBE_NUM         (11)
 #define SPITZ_KEY_SENSE_NUM          (7)
@@ -86,15 +89,17 @@
 #define SPITZ_GPIO_KEY_SENSE6        39
 
 
-#define SPITZ_SCP_LED_GREEN     SCOOP_GPCR_PA11  
-#define SPITZ_SCP_JK_B          SCOOP_GPCR_PA12  
-#define SPITZ_SCP_CHRG_ON       SCOOP_GPCR_PA13  
-#define SPITZ_SCP_MUTE_L        SCOOP_GPCR_PA14  
-#define SPITZ_SCP_MUTE_R        SCOOP_GPCR_PA15  
-#define SPITZ_SCP_CF_POWER      SCOOP_GPCR_PA16  
-#define SPITZ_SCP_LED_ORANGE    SCOOP_GPCR_PA17  
-#define SPITZ_SCP_JK_A          SCOOP_GPCR_PA18  
-#define SPITZ_SCP_ADC_TEMP_ON   SCOOP_GPCR_PA19  
+/* Spitz Scoop Device (No. 1) GPIOs */
+/* Suspend States in comments */
+#define SPITZ_SCP_LED_GREEN     SCOOP_GPCR_PA11  /* Keep */
+#define SPITZ_SCP_JK_B          SCOOP_GPCR_PA12  /* Keep */
+#define SPITZ_SCP_CHRG_ON       SCOOP_GPCR_PA13  /* Keep */
+#define SPITZ_SCP_MUTE_L        SCOOP_GPCR_PA14  /* Low */
+#define SPITZ_SCP_MUTE_R        SCOOP_GPCR_PA15  /* Low */
+#define SPITZ_SCP_CF_POWER      SCOOP_GPCR_PA16  /* Keep */
+#define SPITZ_SCP_LED_ORANGE    SCOOP_GPCR_PA17  /* Keep */
+#define SPITZ_SCP_JK_A          SCOOP_GPCR_PA18  /* Low */
+#define SPITZ_SCP_ADC_TEMP_ON   SCOOP_GPCR_PA19  /* Low */
 
 #define SPITZ_SCP_IO_DIR      (SPITZ_SCP_JK_B | SPITZ_SCP_CHRG_ON | \
                                SPITZ_SCP_MUTE_L | SPITZ_SCP_MUTE_R | \
@@ -114,15 +119,17 @@
 #define SPITZ_GPIO_JK_A		(SPITZ_SCP_GPIO_BASE + 7)
 #define SPITZ_GPIO_ADC_TEMP_ON	(SPITZ_SCP_GPIO_BASE + 8)
 
-#define SPITZ_SCP2_IR_ON           SCOOP_GPCR_PA11  
-#define SPITZ_SCP2_AKIN_PULLUP     SCOOP_GPCR_PA12  
-#define SPITZ_SCP2_RESERVED_1      SCOOP_GPCR_PA13  
-#define SPITZ_SCP2_RESERVED_2      SCOOP_GPCR_PA14  
-#define SPITZ_SCP2_RESERVED_3      SCOOP_GPCR_PA15  
-#define SPITZ_SCP2_RESERVED_4      SCOOP_GPCR_PA16  
-#define SPITZ_SCP2_BACKLIGHT_CONT  SCOOP_GPCR_PA17  
-#define SPITZ_SCP2_BACKLIGHT_ON    SCOOP_GPCR_PA18  
-#define SPITZ_SCP2_MIC_BIAS        SCOOP_GPCR_PA19  
+/* Spitz Scoop Device (No. 2) GPIOs */
+/* Suspend States in comments */
+#define SPITZ_SCP2_IR_ON           SCOOP_GPCR_PA11  /* High */
+#define SPITZ_SCP2_AKIN_PULLUP     SCOOP_GPCR_PA12  /* Keep */
+#define SPITZ_SCP2_RESERVED_1      SCOOP_GPCR_PA13  /* High */
+#define SPITZ_SCP2_RESERVED_2      SCOOP_GPCR_PA14  /* Low */
+#define SPITZ_SCP2_RESERVED_3      SCOOP_GPCR_PA15  /* Low */
+#define SPITZ_SCP2_RESERVED_4      SCOOP_GPCR_PA16  /* Low */
+#define SPITZ_SCP2_BACKLIGHT_CONT  SCOOP_GPCR_PA17  /* Low */
+#define SPITZ_SCP2_BACKLIGHT_ON    SCOOP_GPCR_PA18  /* Low */
+#define SPITZ_SCP2_MIC_BIAS        SCOOP_GPCR_PA19  /* Low */
 
 #define SPITZ_SCP2_IO_DIR (SPITZ_SCP2_AKIN_PULLUP | SPITZ_SCP2_RESERVED_1 | \
                            SPITZ_SCP2_RESERVED_2 | SPITZ_SCP2_RESERVED_3 | SPITZ_SCP2_RESERVED_4 | \
@@ -144,6 +151,7 @@
 #define SPITZ_GPIO_BACKLIGHT_ON		(SPITZ_SCP2_GPIO_BASE + 7)
 #define SPITZ_GPIO_MIC_BIAS		(SPITZ_SCP2_GPIO_BASE + 8)
 
+/* Akita IO Expander GPIOs */
 #define AKITA_IOEXP_GPIO_BASE		(PXA_NR_BUILTIN_GPIO + 12)
 #define AKITA_GPIO_RESERVED_0		(AKITA_IOEXP_GPIO_BASE + 0)
 #define AKITA_GPIO_RESERVED_1		(AKITA_IOEXP_GPIO_BASE + 1)
@@ -154,6 +162,7 @@
 #define AKITA_GPIO_IR_ON		(AKITA_IOEXP_GPIO_BASE + 6)
 #define AKITA_GPIO_RESERVED_7		(AKITA_IOEXP_GPIO_BASE + 7)
 
+/* Spitz IRQ Definitions */
 
 #define SPITZ_IRQ_GPIO_KEY_INT        PXA_GPIO_TO_IRQ(SPITZ_GPIO_KEY_INT)
 #define SPITZ_IRQ_GPIO_AC_IN          PXA_GPIO_TO_IRQ(SPITZ_GPIO_AC_IN)
@@ -173,5 +182,8 @@
 #define SPITZ_IRQ_GPIO_nSD_INT        PXA_GPIO_TO_IRQ(SPITZ_GPIO_nSD_INT)
 #define SPITZ_IRQ_GPIO_nSD_DETECT     PXA_GPIO_TO_IRQ(SPITZ_GPIO_nSD_DETECT)
 
+/*
+ * Shared data structures
+ */
 extern struct platform_device spitzssp_device;
 extern struct sharpsl_charger_machinfo spitz_pm_machinfo;

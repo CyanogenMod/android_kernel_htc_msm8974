@@ -39,6 +39,7 @@
 #include "iomap.h"
 #include "common.h"
 
+/* fsample is pretty close to p2-sample */
 
 #define fsample_cpld_read(reg) __raw_readb(reg)
 #define fsample_cpld_write(val, reg) __raw_writeb(val, reg)
@@ -110,7 +111,7 @@ static struct smc91x_platdata smc91x_info = {
 
 static struct resource smc91x_resources[] = {
 	[0] = {
-		.start	= H2P2_DBG_FPGA_ETHR_START,	
+		.start	= H2P2_DBG_FPGA_ETHR_START,	/* Physical */
 		.end	= H2P2_DBG_FPGA_ETHR_START + 0xf,
 		.flags	= IORESOURCE_MEM,
 	},
@@ -131,28 +132,28 @@ static void __init fsample_init_smc91x(void)
 }
 
 static struct mtd_partition nor_partitions[] = {
-	
+	/* bootloader (U-Boot, etc) in first sector */
 	{
 	      .name		= "bootloader",
 	      .offset		= 0,
 	      .size		= SZ_128K,
-	      .mask_flags	= MTD_WRITEABLE, 
+	      .mask_flags	= MTD_WRITEABLE, /* force read-only */
 	},
-	
+	/* bootloader params in the next sector */
 	{
 	      .name		= "params",
 	      .offset		= MTDPART_OFS_APPEND,
 	      .size		= SZ_128K,
 	      .mask_flags	= 0,
 	},
-	
+	/* kernel */
 	{
 	      .name		= "kernel",
 	      .offset		= MTDPART_OFS_APPEND,
 	      .size		= SZ_2M,
 	      .mask_flags	= 0
 	},
-	
+	/* rest of flash is a file system */
 	{
 	      .name		= "rootfs",
 	      .offset		= MTDPART_OFS_APPEND,
@@ -289,19 +290,36 @@ static struct omap_lcd_config fsample_lcd_config = {
 
 static void __init omap_fsample_init(void)
 {
-	
+	/* Early, board-dependent init */
 
+	/*
+	 * Hold GSM Reset until needed
+	 */
 	omap_writew(omap_readw(OMAP7XX_DSP_M_CTL) & ~1, OMAP7XX_DSP_M_CTL);
 
+	/*
+	 * UARTs -> done automagically by 8250 driver
+	 */
 
+	/*
+	 * CSx timings, GPIO Mux ... setup
+	 */
 
-	
+	/* Flash: CS0 timings setup */
 	omap_writel(0x0000fff3, OMAP7XX_FLASH_CFG_0);
 	omap_writel(0x00000088, OMAP7XX_FLASH_ACFG_0);
 
+	/*
+	 * Ethernet support through the debug board
+	 * CS1 timings setup
+	 */
 	omap_writel(0x0000fff3, OMAP7XX_FLASH_CFG_1);
 	omap_writel(0x00000000, OMAP7XX_FLASH_ACFG_1);
 
+	/*
+	 * Configure MPU_EXT_NIRQ IO in IO_CONF9 register,
+	 * It is used as the Ethernet controller interrupt
+	 */
 	omap_writel(omap_readl(OMAP7XX_IO_CONF_9) & 0x1FFFFFFF,
 			OMAP7XX_IO_CONF_9);
 
@@ -314,7 +332,7 @@ static void __init omap_fsample_init(void)
 	omap_cfg_reg(L3_1610_FLASH_CS2B_OE);
 	omap_cfg_reg(M8_1610_FLASH_CS2B_WE);
 
-	
+	/* Mux pins for keypad */
 	omap_cfg_reg(E2_7XX_KBR0);
 	omap_cfg_reg(J7_7XX_KBR1);
 	omap_cfg_reg(E1_7XX_KBR2);
@@ -334,6 +352,7 @@ static void __init omap_fsample_init(void)
 	omapfb_set_lcd_config(&fsample_lcd_config);
 }
 
+/* Only FPGA needs to be mapped here. All others are done with ioremap */
 static struct map_desc omap_fsample_io_desc[] __initdata = {
 	{
 		.virtual	= H2P2_DBG_FPGA_BASE,
@@ -357,6 +376,7 @@ static void __init omap_fsample_map_io(void)
 }
 
 MACHINE_START(OMAP_FSAMPLE, "OMAP730 F-Sample")
+/* Maintainer: Brian Swetland <swetland@google.com> */
 	.atag_offset	= 0x100,
 	.map_io		= omap_fsample_map_io,
 	.init_early	= omap1_init_early,

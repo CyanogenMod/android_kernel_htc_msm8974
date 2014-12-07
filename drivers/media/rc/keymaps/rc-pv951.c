@@ -13,6 +13,7 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Mark Phalan <phalanm@o2.ie> */
 
 static struct rc_map_table pv951[] = {
 	{ 0x00, KEY_0 },
@@ -36,27 +37,27 @@ static struct rc_map_table pv951[] = {
 	{ 0x1d, KEY_PAGEDOWN },
 	{ 0x13, KEY_SOUND },
 
-	{ 0x18, KEY_KPPLUSMINUS },	
-	{ 0x16, KEY_SUBTITLE },		
-	{ 0x0d, KEY_TEXT },		
-	{ 0x0b, KEY_TV },		
-	{ 0x11, KEY_PC },		
-	{ 0x17, KEY_OK },		
-	{ 0x19, KEY_MODE },		
-	{ 0x0c, KEY_SEARCH },		
+	{ 0x18, KEY_KPPLUSMINUS },	/* CH +/- */
+	{ 0x16, KEY_SUBTITLE },		/* CC */
+	{ 0x0d, KEY_TEXT },		/* TTX */
+	{ 0x0b, KEY_TV },		/* AIR/CBL */
+	{ 0x11, KEY_PC },		/* PC/TV */
+	{ 0x17, KEY_OK },		/* CH RTN */
+	{ 0x19, KEY_MODE },		/* FUNC */
+	{ 0x0c, KEY_SEARCH },		/* AUTOSCAN */
 
-	
-	{ 0x0f, KEY_VIDEO },		
-	{ 0x0a, KEY_KPPLUS },		
-	{ 0x14, KEY_EQUAL },		
-	{ 0x1c, KEY_TV },		
+	/* Not sure what to do with these ones! */
+	{ 0x0f, KEY_VIDEO },		/* SOURCE */
+	{ 0x0a, KEY_KPPLUS },		/* +100 */
+	{ 0x14, KEY_EQUAL },		/* SYNC */
+	{ 0x1c, KEY_TV },		/* PC/TV */
 };
 
 static struct rc_map_list pv951_map = {
 	.map = {
 		.scan    = pv951,
 		.size    = ARRAY_SIZE(pv951),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_PV951,
 	}
 };

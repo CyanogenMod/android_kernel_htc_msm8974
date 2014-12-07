@@ -66,7 +66,7 @@ static void xen_vcpu_notify_restore(void *data)
 {
 	unsigned long reason = (unsigned long)data;
 
-	
+	/* Boot processor notified via generic timekeeping_resume() */
 	if ( smp_processor_id() == 0)
 		return;
 

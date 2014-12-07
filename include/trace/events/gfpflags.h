@@ -1,3 +1,13 @@
+/*
+ * The order of these masks is important. Matching masks will be seen
+ * first and the left over flags will end up showing by themselves.
+ *
+ * For example, if we have GFP_KERNEL before GFP_USER we wil get:
+ *
+ *  GFP_KERNEL|GFP_HARDWALL
+ *
+ * Thus most bits set go first.
+ */
 #define show_gfp_flags(flags)						\
 	(flags) ? __print_flags(flags, "|",				\
 	{(unsigned long)GFP_TRANSHUGE,		"GFP_TRANSHUGE"},	\

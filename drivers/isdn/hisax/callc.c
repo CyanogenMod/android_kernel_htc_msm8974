@@ -32,13 +32,27 @@ static void release_b_st(struct Channel *chanp);
 static struct Fsm callcfsm;
 static int chancount;
 
+/* experimental REJECT after ALERTING for CALLBACK to beat the 4s delay */
 #define ALERT_REJECT 0
 
+/* Value to delay the sending of the first B-channel paket after CONNECT
+ * here is no value given by ITU, but experience shows that 300 ms will
+ * work on many networks, if you or your other side is behind local exchanges
+ * a greater value may be recommented. If the delay is to short the first paket
+ * will be lost and autodetect on many comercial routers goes wrong !
+ * You can adjust this value on runtime with
+ * hisaxctrl <id> 2 <value>
+ * value is in milliseconds
+ */
 #define DEFAULT_B_DELAY	300
 
+/* Flags for remembering action done in lli */
 
 #define  FLG_START_B	0
 
+/*
+ * Find card with given driverId
+ */
 static inline struct IsdnCardState *
 hisax_findcard(int driverid)
 {
@@ -65,19 +79,19 @@ static __printf(3, 4) void
 }
 
 enum {
-	ST_NULL,		
-	ST_OUT_DIAL,		
-	ST_IN_WAIT_LL,		
-	ST_IN_ALERT_SENT,	
-	ST_IN_WAIT_CONN_ACK,	
-	ST_WAIT_BCONN,		
-	ST_ACTIVE,		
-	ST_WAIT_BRELEASE,	
-	ST_WAIT_BREL_DISC,	
-	ST_WAIT_DCOMMAND,	
-	ST_WAIT_DRELEASE,	
-	ST_WAIT_D_REL_CNF,	
-	ST_IN_PROCEED_SEND,	
+	ST_NULL,		/*  0 inactive */
+	ST_OUT_DIAL,		/*  1 outgoing, SETUP send; awaiting confirm */
+	ST_IN_WAIT_LL,		/*  2 incoming call received; wait for LL confirm */
+	ST_IN_ALERT_SENT,	/*  3 incoming call received; ALERT send */
+	ST_IN_WAIT_CONN_ACK,	/*  4 incoming CONNECT send; awaiting CONN_ACK */
+	ST_WAIT_BCONN,		/*  5 CONNECT/CONN_ACK received, awaiting b-channel prot. estbl. */
+	ST_ACTIVE,		/*  6 active, b channel prot. established */
+	ST_WAIT_BRELEASE,	/*  7 call clear. (initiator), awaiting b channel prot. rel. */
+	ST_WAIT_BREL_DISC,	/*  8 call clear. (receiver), DISCONNECT req. received */
+	ST_WAIT_DCOMMAND,	/*  9 call clear. (receiver), awaiting DCHANNEL message */
+	ST_WAIT_DRELEASE,	/* 10 DISCONNECT sent, awaiting RELEASE */
+	ST_WAIT_D_REL_CNF,	/* 11 RELEASE sent, awaiting RELEASE confirm */
+	ST_IN_PROCEED_SEND,	/* 12 incoming call, proceeding send */
 };
 
 
@@ -101,29 +115,29 @@ static char *strState[] =
 };
 
 enum {
-	EV_DIAL,		
-	EV_SETUP_CNF,		
-	EV_ACCEPTB,		
-	EV_DISCONNECT_IND,	
-	EV_RELEASE,		
-	EV_LEASED,		
-	EV_LEASED_REL,		
-	EV_SETUP_IND,		
-	EV_ACCEPTD,		
-	EV_SETUP_CMPL_IND,	
-	EV_BC_EST,		
-	EV_WRITEBUF,		
-	EV_HANGUP,		
-	EV_BC_REL,		
-	EV_CINF,		
-	EV_SUSPEND,		
-	EV_RESUME,		
-	EV_NOSETUP_RSP,		
-	EV_SETUP_ERR,		
-	EV_CONNECT_ERR,		
-	EV_PROCEED,		
-	EV_ALERT,		
-	EV_REDIR,		
+	EV_DIAL,		/*  0 */
+	EV_SETUP_CNF,		/*  1 */
+	EV_ACCEPTB,		/*  2 */
+	EV_DISCONNECT_IND,	/*  3 */
+	EV_RELEASE,		/*  4 */
+	EV_LEASED,		/*  5 */
+	EV_LEASED_REL,		/*  6 */
+	EV_SETUP_IND,		/*  7 */
+	EV_ACCEPTD,		/*  8 */
+	EV_SETUP_CMPL_IND,	/*  9 */
+	EV_BC_EST,		/* 10 */
+	EV_WRITEBUF,		/* 11 */
+	EV_HANGUP,		/* 12 */
+	EV_BC_REL,		/* 13 */
+	EV_CINF,		/* 14 */
+	EV_SUSPEND,		/* 15 */
+	EV_RESUME,		/* 16 */
+	EV_NOSETUP_RSP,		/* 17 */
+	EV_SETUP_ERR,		/* 18 */
+	EV_CONNECT_ERR,		/* 19 */
+	EV_PROCEED,		/* 20 */
+	EV_ALERT,		/* 21 */
+	EV_REDIR,		/* 22 */
 };
 
 #define EVENT_COUNT (EV_REDIR + 1)
@@ -230,6 +244,9 @@ lli_leased_in(struct FsmInst *fi, int event, void *arg)
 }
 
 
+/*
+ * Dial out
+ */
 static void
 lli_init_bchan_out(struct FsmInst *fi, int event, void *arg)
 {
@@ -302,7 +319,11 @@ lli_go_active(struct FsmInst *fi, int event, void *arg)
 }
 
 
+/*
+ * RESUME
+ */
 
+/* incoming call */
 
 static void
 lli_deliver_call(struct FsmInst *fi, int event, void *arg)
@@ -312,7 +333,12 @@ lli_deliver_call(struct FsmInst *fi, int event, void *arg)
 	int ret;
 
 	chanp->cs->cardmsg(chanp->cs, MDL_INFO_SETUP, (void *) (long)chanp->chan);
-	if (1) { 
+	/*
+	 * Report incoming calls only once to linklevel, use CallFlags
+	 * which is set to 3 with each broadcast message in isdnl1.c
+	 * and resetted if a interface  answered the STAT_ICALL.
+	 */
+	if (1) { /* for only one TEI */
 		FsmChangeState(fi, ST_IN_WAIT_LL);
 		if (chanp->debug & 1)
 			link_debug(chanp, 0, (chanp->chan < 2) ? "STAT_ICALL" : "STAT_ICALLW");
@@ -320,19 +346,23 @@ lli_deliver_call(struct FsmInst *fi, int event, void *arg)
 		ic.command = ((chanp->chan < 2) ? ISDN_STAT_ICALL : ISDN_STAT_ICALLW);
 
 		ic.arg = chanp->chan;
+		/*
+		 * No need to return "unknown" for calls without OAD,
+		 * cause that's handled in linklevel now (replaced by '0')
+		 */
 		memcpy(&ic.parm.setup, &chanp->proc->para.setup, sizeof(setup_parm));
 		ret = chanp->cs->iif.statcallb(&ic);
 		if (chanp->debug & 1)
 			link_debug(chanp, 1, "statcallb ret=%d", ret);
 
 		switch (ret) {
-		case 1:	
+		case 1:	/* OK, someone likes this call */
 			FsmDelTimer(&chanp->drel_timer, 61);
 			FsmChangeState(fi, ST_IN_ALERT_SENT);
 			chanp->d_st->lli.l4l3(chanp->d_st, CC_ALERTING | REQUEST, chanp->proc);
 			break;
-		case 5: 
-		case 4: 
+		case 5: /* direct redirect */
+		case 4: /* Proceeding desired */
 			FsmDelTimer(&chanp->drel_timer, 61);
 			FsmChangeState(fi, ST_IN_PROCEED_SEND);
 			chanp->d_st->lli.l4l3(chanp->d_st, CC_PROCEED_SEND | REQUEST, chanp->proc);
@@ -341,14 +371,14 @@ lli_deliver_call(struct FsmInst *fi, int event, void *arg)
 				chanp->d_st->lli.l4l3(chanp->d_st, CC_REDIR | REQUEST, chanp->proc);
 			}
 			break;
-		case 2:	
+		case 2:	/* Rejecting Call */
 			break;
-		case 3:	
+		case 3:	/* incomplete number */
 			FsmDelTimer(&chanp->drel_timer, 61);
 			chanp->d_st->lli.l4l3(chanp->d_st, CC_MORE_INFO | REQUEST, chanp->proc);
 			break;
-		case 0:	
-		default:	
+		case 0:	/* OK, nobody likes this call */
+		default:	/* statcallb problems */
 			chanp->d_st->lli.l4l3(chanp->d_st, CC_IGNORE | REQUEST, chanp->proc);
 			chanp->cs->cardmsg(chanp->cs, MDL_INFO_REL, (void *) (long)chanp->chan);
 			FsmChangeState(fi, ST_NULL);
@@ -417,6 +447,7 @@ lli_setup_rsp(struct FsmInst *fi, int event, void *arg)
 	}
 }
 
+/* Call suspend */
 
 static void
 lli_suspend(struct FsmInst *fi, int event, void *arg)
@@ -426,6 +457,7 @@ lli_suspend(struct FsmInst *fi, int event, void *arg)
 	chanp->d_st->lli.l4l3(chanp->d_st, CC_SUSPEND | REQUEST, chanp->proc);
 }
 
+/* Call clearing */
 
 static void
 lli_leased_hup(struct FsmInst *fi, struct Channel *chanp)
@@ -453,7 +485,7 @@ lli_disconnect_req(struct FsmInst *fi, int event, void *arg)
 	} else {
 		FsmChangeState(fi, ST_WAIT_DRELEASE);
 		if (chanp->proc)
-			chanp->proc->para.cause = 0x10;	
+			chanp->proc->para.cause = 0x10;	/* Normal Call Clearing */
 		chanp->d_st->lli.l4l3(chanp->d_st, CC_DISCONNECT | REQUEST,
 				      chanp->proc);
 	}
@@ -469,7 +501,7 @@ lli_disconnect_reject(struct FsmInst *fi, int event, void *arg)
 	} else {
 		FsmChangeState(fi, ST_WAIT_DRELEASE);
 		if (chanp->proc)
-			chanp->proc->para.cause = 0x15;	
+			chanp->proc->para.cause = 0x15;	/* Call Rejected */
 		chanp->d_st->lli.l4l3(chanp->d_st, CC_DISCONNECT | REQUEST,
 				      chanp->proc);
 	}
@@ -502,7 +534,7 @@ lli_reject_req(struct FsmInst *fi, int event, void *arg)
 	}
 #ifndef ALERT_REJECT
 	if (chanp->proc)
-		chanp->proc->para.cause = 0x15;	
+		chanp->proc->para.cause = 0x15;	/* Call Rejected */
 	chanp->d_st->lli.l4l3(chanp->d_st, CC_REJECT | REQUEST, chanp->proc);
 	lli_dhup_close(fi, event, arg);
 #else
@@ -643,6 +675,7 @@ lli_bhup_release_req(struct FsmInst *fi, int event, void *arg)
 }
 
 
+/* processing charge info */
 static void
 lli_charge_info(struct FsmInst *fi, int event, void *arg)
 {
@@ -656,6 +689,7 @@ lli_charge_info(struct FsmInst *fi, int event, void *arg)
 	chanp->cs->iif.statcallb(&ic);
 }
 
+/* error procedures */
 
 static void
 lli_dchan_not_ready(struct FsmInst *fi, int event, void *arg)
@@ -731,6 +765,7 @@ lli_failure_a(struct FsmInst *fi, int event, void *arg)
 	lli_bhup_fail(fi, event, arg);
 }
 
+/* *INDENT-OFF* */
 static struct FsmNode fnlist[] __initdata =
 {
 	{ST_NULL,               EV_DIAL,                lli_prep_dialout},
@@ -793,10 +828,11 @@ static struct FsmNode fnlist[] __initdata =
 	{ST_WAIT_DCOMMAND,      EV_LEASED_REL,          lli_failure_l},
 	{ST_WAIT_DRELEASE,      EV_RELEASE,             lli_dhup_close},
 	{ST_WAIT_DRELEASE,      EV_DIAL,                lli_dchan_not_ready},
-	
+	/* ETS 300-104 16.1 */
 	{ST_WAIT_D_REL_CNF,     EV_RELEASE,             lli_dhup_close},
 	{ST_WAIT_D_REL_CNF,     EV_DIAL,                lli_dchan_not_ready},
 };
+/* *INDENT-ON* */
 
 int __init
 CallcNew(void)
@@ -849,7 +885,7 @@ static struct Channel
 		i = 0;
 
 	if (!bch) {
-		i = 2; 
+		i = 2; /* virtual channel */
 		chanp += 2;
 	}
 
@@ -860,8 +896,8 @@ static struct Channel
 		i++;
 	}
 
-	if (bch)  {
-		i = 2; 
+	if (bch) /* number of channels is limited */ {
+		i = 2; /* virtual channel */
 		chanp = st->lli.userdata;
 		chanp += i;
 		while (i < (2 + MAX_WAITING_CALLS)) {
@@ -882,7 +918,7 @@ static void stat_redir_result(struct IsdnCardState *cs, int chan, ulong result)
 	ic.arg = chan;
 	ic.parm.num[0] = result;
 	cs->iif.statcallb(&ic);
-} 
+} /* stat_redir_result */
 
 static void
 dchan_l3l4(struct PStack *st, int pr, void *arg)
@@ -896,7 +932,7 @@ dchan_l3l4(struct PStack *st, int pr, void *arg)
 
 	if (pr == (CC_SETUP | INDICATION)) {
 		if (!(chanp = selectfreechannel(pc->st, pc->para.bchannel))) {
-			pc->para.cause = 0x11;	
+			pc->para.cause = 0x11;	/* User busy */
 			pc->st->lli.l4l3(pc->st, CC_REJECT | REQUEST, pc);
 		} else {
 			chanp->proc = pc;
@@ -1017,9 +1053,9 @@ init_d_st(struct Channel *chanp)
 	test_and_set_bit(FLG_ORIG, &st->l2.flag);
 	st->l2.maxlen = MAX_DFRAME_LEN;
 	st->l2.window = 1;
-	st->l2.T200 = 1000;	
-	st->l2.N200 = 3;	
-	st->l2.T203 = 10000;	
+	st->l2.T200 = 1000;	/* 1000 milliseconds  */
+	st->l2.N200 = 3;	/* try 3 times        */
+	st->l2.T203 = 10000;	/* 10000 milliseconds */
 	if (test_bit(FLG_TWO_DCHAN, &cs->HW_Flags))
 		sprintf(tmp, "DCh%d Q.921 ", chanp->chan);
 	else
@@ -1261,10 +1297,10 @@ init_b_st(struct Channel *chanp, int incoming)
 	st->l2.maxlen = MAX_DATA_SIZE;
 	if (!incoming)
 		test_and_set_bit(FLG_ORIG, &st->l2.flag);
-	st->l2.T200 = 1000;	
+	st->l2.T200 = 1000;	/* 1000 milliseconds */
 	st->l2.window = 7;
-	st->l2.N200 = 4;	
-	st->l2.T203 = 5000;	
+	st->l2.N200 = 4;	/* try 4 times       */
+	st->l2.T203 = 5000;	/* 5000 milliseconds */
 	st->l3.debug = 0;
 	switch (chanp->l2_active_protocol) {
 	case (ISDN_PROTO_L2_X75I):
@@ -1400,11 +1436,11 @@ lli_got_fac_req(struct Channel *chanp, capi_msg *cm) {
 	if (cm->para[4] != 0)
 		return;
 	switch (cm->para[3]) {
-	case 4: 
+	case 4: /* Suspend */
 		strncpy(chanp->setup.phone, &cm->para[5], cm->para[5] + 1);
 		FsmEvent(&chanp->fi, EV_SUSPEND, cm);
 		break;
-	case 5: 
+	case 5: /* Resume */
 		strncpy(chanp->setup.phone, &cm->para[5], cm->para[5] + 1);
 		if (chanp->fi.state == ST_NULL) {
 			FsmEvent(&chanp->fi, EV_RESUME, cm);
@@ -1427,6 +1463,9 @@ lli_got_manufacturer(struct Channel *chanp, struct IsdnCardState *cs, capi_msg *
 }
 
 
+/***************************************************************/
+/* Limit the available number of channels for the current card */
+/***************************************************************/
 static int
 set_channel_limit(struct IsdnCardState *cs, int chanmax)
 {
@@ -1441,16 +1480,16 @@ set_channel_limit(struct IsdnCardState *cs, int chanmax)
 		ic.command = ISDN_STAT_DISCH;
 		ic.arg = ii;
 		if (ii >= chanmax)
-			ic.parm.num[0] = 0; 
+			ic.parm.num[0] = 0; /* disabled */
 		else
-			ic.parm.num[0] = 1; 
+			ic.parm.num[0] = 1; /* enabled */
 		i = cs->iif.statcallb(&ic);
 		if (i) return (-EINVAL);
 		if (ii < chanmax)
 			cs->chanlimit++;
 	}
 	return (0);
-} 
+} /* set_channel_limit */
 
 int
 HiSax_command(isdn_ctrl *ic)
@@ -1494,6 +1533,8 @@ HiSax_command(isdn_ctrl *ic)
 		memcpy(&chanp->setup, &ic->parm.setup, sizeof(setup_parm));
 		if (!strcmp(chanp->setup.eazmsn, "0"))
 			chanp->setup.eazmsn[0] = '\0';
+		/* this solution is dirty and may be change, if
+		 * we make a callreference based callmanager */
 		if (chanp->fi.state == ST_NULL) {
 			FsmEvent(&chanp->fi, EV_DIAL, NULL);
 		} else {
@@ -1562,7 +1603,7 @@ HiSax_command(isdn_ctrl *ic)
 			printk(KERN_DEBUG "HiSax: delay card %d set to %d ms\n",
 			       csta->cardnr + 1, num);
 			break;
-		case (5):	
+		case (5):	/* set card in leased mode */
 			num = *(unsigned int *) ic->parm.num;
 			if ((num < 1) || (num > 2)) {
 				HiSax_putstatus(csta, "Set LEASED ",
@@ -1582,13 +1623,13 @@ HiSax_command(isdn_ctrl *ic)
 						      DL_ESTABLISH | REQUEST, NULL);
 			}
 			break;
-		case (6):	
+		case (6):	/* set B-channel test loop */
 			num = *(unsigned int *) ic->parm.num;
 			if (csta->stlist)
 				csta->stlist->l2.l2l1(csta->stlist,
 						      PH_TESTLOOP | REQUEST, (void *) (long)num);
 			break;
-		case (7):	
+		case (7):	/* set card in PTP mode */
 			num = *(unsigned int *) ic->parm.num;
 			if (test_bit(FLG_TWO_DCHAN, &csta->HW_Flags)) {
 				printk(KERN_ERR "HiSax PTP mode only with one TEI possible\n");
@@ -1608,7 +1649,7 @@ HiSax_command(isdn_ctrl *ic)
 				printk(KERN_DEBUG "HiSax: set card in PTMP mode\n");
 			}
 			break;
-		case (8):	
+		case (8):	/* set card in FIXED TEI mode */
 			num = *(unsigned int *)ic->parm.num;
 			chanp = csta->channel + (num & 1);
 			num = num >> 1;
@@ -1680,7 +1721,7 @@ HiSax_command(isdn_ctrl *ic)
 		FsmEvent(&chanp->fi, EV_REDIR, NULL);
 		break;
 
-		
+		/* protocol specific io commands */
 	case (ISDN_CMD_PROT_IO):
 		for (st = csta->stlist; st; st = st->next)
 			if (st->protocol == (ic->arg & 0xFF))
@@ -1723,6 +1764,9 @@ HiSax_writebuf_skb(int id, int chan, int ack, struct sk_buff *skb)
 	}
 	if (len) {
 		if ((len + chanp->bcs->tx_cnt) > MAX_DATA_MEM) {
+			/* Must return 0 here, since this is not an error
+			 * but a temporary lack of resources.
+			 */
 			if (chanp->debug & 0x800)
 				link_debug(chanp, 1, "writebuf: no buffers for %d bytes", len);
 			return 0;

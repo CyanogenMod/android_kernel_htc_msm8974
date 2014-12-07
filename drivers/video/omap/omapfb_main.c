@@ -88,6 +88,7 @@ static void omapdss_release(struct device *dev)
 {
 }
 
+/* dummy device for clocks */
 static struct platform_device omapdss_device = {
 	.name		= "omapdss_dss",
 	.id		= -1,
@@ -96,6 +97,11 @@ static struct platform_device omapdss_device = {
 	},
 };
 
+/*
+ * ---------------------------------------------------------------------------
+ * LCD panel
+ * ---------------------------------------------------------------------------
+ */
 extern struct lcd_ctrl hwa742_ctrl;
 
 static const struct lcd_ctrl *ctrls[] = {
@@ -120,6 +126,12 @@ static void omapfb_rqueue_unlock(struct omapfb_device *fbdev)
 	mutex_unlock(&fbdev->rqueue_mutex);
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * LCD controller and LCD DMA
+ * ---------------------------------------------------------------------------
+ */
+/* Lookup table to map elem size to elem type. */
 static const int dma_elem_type[] = {
 	0,
 	OMAP_DMA_DATA_TYPE_S8,
@@ -128,12 +140,18 @@ static const int dma_elem_type[] = {
 	OMAP_DMA_DATA_TYPE_S32,
 };
 
+/*
+ * Allocate resources needed for LCD controller and LCD DMA operations. Video
+ * memory is allocated from system memory according to the virtual display
+ * size, except if a bigger memory size is specified explicitly as a kernel
+ * parameter.
+ */
 static int ctrl_init(struct omapfb_device *fbdev)
 {
 	int r;
 	int i;
 
-	
+	/* kernel/module vram parameters override boot tags/board config */
 	if (def_vram_cnt) {
 		for (i = 0; i < def_vram_cnt; i++)
 			fbdev->mem_desc.region[i].size =
@@ -146,7 +164,7 @@ static int ctrl_init(struct omapfb_device *fbdev)
 		int def_size;
 		int bpp = panel->bpp;
 
-		
+		/* 12 bpp is packed in 16 bits */
 		if (bpp == 12)
 			bpp = 16;
 		def_size = def_vxres * def_vyres * bpp / 8;
@@ -177,6 +195,7 @@ static void ctrl_cleanup(struct omapfb_device *fbdev)
 	fbdev->ctrl->cleanup();
 }
 
+/* Must be called with fbdev->rqueue_mutex held. */
 static int ctrl_change_mode(struct fb_info *fbi)
 {
 	int r;
@@ -212,6 +231,12 @@ static int ctrl_change_mode(struct fb_info *fbi)
 	return r;
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * fbdev framework callbacks and the ioctl interface
+ * ---------------------------------------------------------------------------
+ */
+/* Called each time the omapfb device is opened */
 static int omapfb_open(struct fb_info *info, int user)
 {
 	return 0;
@@ -219,12 +244,18 @@ static int omapfb_open(struct fb_info *info, int user)
 
 static void omapfb_sync(struct fb_info *info);
 
+/* Called when the omapfb device is closed. We make sure that any pending
+ * gfx DMA operations are ended, before we return. */
 static int omapfb_release(struct fb_info *info, int user)
 {
 	omapfb_sync(info);
 	return 0;
 }
 
+/* Store a single color palette entry into a pseudo palette or the hardware
+ * palette if one is available. For now we support only 16bpp and thus store
+ * the entry only to the pseudo palette.
+ */
 static int _setcolreg(struct fb_info *info, u_int regno, u_int red, u_int green,
 			u_int blue, u_int transp, int update_hw_pal)
 {
@@ -246,7 +277,7 @@ static int _setcolreg(struct fb_info *info, u_int regno, u_int red, u_int green,
 		if (fbdev->ctrl->setcolreg)
 			r = fbdev->ctrl->setcolreg(regno, red, green, blue,
 							transp, update_hw_pal);
-		
+		/* Fallthrough */
 	case OMAPFB_COLOR_RGB565:
 	case OMAPFB_COLOR_RGB444:
 		if (r != 0)
@@ -355,6 +386,10 @@ static void omapfb_sync(struct fb_info *fbi)
 	omapfb_rqueue_unlock(fbdev);
 }
 
+/*
+ * Set fb_info.fix fields and also updates fbdev.
+ * When calling this fb_info.var must be set up already.
+ */
 static void set_fb_fix(struct fb_info *fbi, int from_init)
 {
 	struct fb_fix_screeninfo *fix = &fbi->fix;
@@ -384,7 +419,7 @@ static void set_fb_fix(struct fb_info *fbi, int from_init)
 	case 16:
 	case 12:
 		fix->visual = FB_VISUAL_TRUECOLOR;
-		
+		/* 12bpp is stored in 16 bits */
 		bpp = 16;
 		break;
 	case 1:
@@ -446,6 +481,10 @@ static int set_color_mode(struct omapfb_plane_struct *plane,
 	}
 }
 
+/*
+ * Check the values in var against our capabilities and in case of out of
+ * bound values try to adjust them.
+ */
 static int set_fb_var(struct fb_info *fbi,
 		      struct fb_var_screeninfo *var)
 {
@@ -508,16 +547,16 @@ static int set_fb_var(struct fb_info *fbi,
 	max_frame_size = fbdev->mem_desc.region[plane->idx].size;
 	line_size = var->xres_virtual * bpp / 8;
 	if (line_size * var->yres_virtual > max_frame_size) {
-		
+		/* Try to keep yres_virtual first */
 		line_size = max_frame_size / var->yres_virtual;
 		var->xres_virtual = line_size * 8 / bpp;
 		if (var->xres_virtual < var->xres) {
-			
+			/* Still doesn't fit. Shrink yres_virtual too */
 			var->xres_virtual = var->xres;
 			line_size = var->xres * bpp / 8;
 			var->yres_virtual = max_frame_size / line_size;
 		}
-		
+		/* Recheck this, as the virtual size changed. */
 		if (var->xres_virtual < var->xres)
 			var->xres = var->xres_virtual;
 		if (var->yres_virtual < var->yres)
@@ -550,7 +589,7 @@ static int set_fb_var(struct fb_info *fbi,
 	var->width		= -1;
 	var->grayscale		= 0;
 
-	
+	/* pixclock in ps, the rest in pixclock */
 	var->pixclock		= 10000000 / (panel->pixel_clock / 100);
 	var->left_margin	= panel->hfp;
 	var->right_margin	= panel->hbp;
@@ -559,7 +598,7 @@ static int set_fb_var(struct fb_info *fbi,
 	var->hsync_len		= panel->hsw;
 	var->vsync_len		= panel->vsw;
 
-	
+	/* TODO: get these from panel->config */
 	var->vmode		= FB_VMODE_NONINTERLACED;
 	var->sync		= 0;
 
@@ -567,6 +606,7 @@ static int set_fb_var(struct fb_info *fbi,
 }
 
 
+/* Set rotation (0, 90, 180, 270 degree), and switch to the new mode. */
 static void omapfb_rotate(struct fb_info *fbi, int rotate)
 {
 	struct omapfb_plane_struct *plane = fbi->par;
@@ -587,6 +627,10 @@ static void omapfb_rotate(struct fb_info *fbi, int rotate)
 	omapfb_rqueue_unlock(fbdev);
 }
 
+/*
+ * Set new x,y offsets in the virtual display for the visible area and switch
+ * to the new mode.
+ */
 static int omapfb_pan_display(struct fb_var_screeninfo *var,
 			       struct fb_info *fbi)
 {
@@ -614,6 +658,7 @@ static int omapfb_pan_display(struct fb_var_screeninfo *var,
 	return r;
 }
 
+/* Set mirror to vertical axis and switch to the new mode. */
 static int omapfb_mirror(struct fb_info *fbi, int mirror)
 {
 	struct omapfb_plane_struct *plane = fbi->par;
@@ -633,6 +678,10 @@ static int omapfb_mirror(struct fb_info *fbi, int mirror)
 	return r;
 }
 
+/*
+ * Check values in var, try to adjust them in case of out of bound values if
+ * possible, or return error.
+ */
 static int omapfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fbi)
 {
 	struct omapfb_plane_struct *plane = fbi->par;
@@ -648,6 +697,10 @@ static int omapfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fbi)
 	return r;
 }
 
+/*
+ * Switch to a new mode. The parameters for it has been check already by
+ * omapfb_check_var.
+ */
 static int omapfb_set_par(struct fb_info *fbi)
 {
 	struct omapfb_plane_struct *plane = fbi->par;
@@ -765,6 +818,10 @@ static int omapfb_setup_plane(struct fb_info *fbi, struct omapfb_plane_info *pi)
 
 	omapfb_rqueue_lock(fbdev);
 	if (pi->enabled && !fbdev->mem_desc.region[plane->idx].size) {
+		/*
+		 * This plane's memory was freed, can't enable it
+		 * until it's reallocated.
+		 */
 		r = -EINVAL;
 		goto out;
 	}
@@ -822,6 +879,12 @@ static int omapfb_setup_mem(struct fb_info *fbi, struct omapfb_mem_info *mi)
 
 		rg->size = size;
 		rg->type = mi->type;
+		/*
+		 * size == 0 is a special case, for which we
+		 * don't check / adjust the screen parameters.
+		 * This isn't a problem since the plane can't
+		 * be reenabled unless its size is > 0.
+		 */
 		if (old_size != size && size) {
 			if (size) {
 				memcpy(new_var, &fbi->var, sizeof(*new_var));
@@ -835,7 +898,7 @@ static int omapfb_setup_mem(struct fb_info *fbi, struct omapfb_mem_info *mi)
 			fbdev->ctrl->sync();
 		r = fbdev->ctrl->setup_mem(plane->idx, size, mi->type, &paddr);
 		if (r < 0) {
-			
+			/* Revert changes. */
 			rg->size = old_size;
 			rg->type = old_type;
 			goto out;
@@ -847,6 +910,11 @@ static int omapfb_setup_mem(struct fb_info *fbi, struct omapfb_mem_info *mi)
 				memcpy(&fbi->var, new_var, sizeof(fbi->var));
 				set_fb_fix(fbi, 0);
 			} else {
+				/*
+				 * Set these explicitly to indicate that the
+				 * plane memory is dealloce'd, the other
+				 * screen parameters in var / fix are invalid.
+				 */
 				mutex_lock(&fbi->mm_lock);
 				fbi->fix.smem_start = 0;
 				fbi->fix.smem_len = 0;
@@ -958,7 +1026,7 @@ void omapfb_notify_clients(struct omapfb_device *fbdev, unsigned long event)
 	int i;
 
 	if (!notifier_inited)
-		
+		/* no client registered yet */
 		return;
 
 	for (i = 0; i < OMAPFB_PLANE_NUM; i++)
@@ -998,6 +1066,7 @@ static void omapfb_get_caps(struct omapfb_device *fbdev, int plane,
 	caps->ctrl |= fbdev->panel->get_caps(fbdev->panel);
 }
 
+/* For lcd testing */
 void omapfb_write_first_pixel(struct omapfb_device *fbdev, u16 pixval)
 {
 	omapfb_rqueue_lock(fbdev);
@@ -1016,6 +1085,10 @@ void omapfb_write_first_pixel(struct omapfb_device *fbdev, u16 pixval)
 }
 EXPORT_SYMBOL(omapfb_write_first_pixel);
 
+/*
+ * Ioctl interface. Part of the kernel mode frame buffer API is duplicated
+ * here to be accessible by user mode code.
+ */
 static int omapfb_ioctl(struct fb_info *fbi, unsigned int cmd,
 			unsigned long arg)
 {
@@ -1178,6 +1251,10 @@ static int omapfb_mmap(struct fb_info *info, struct vm_area_struct *vma)
 	return r;
 }
 
+/*
+ * Callback table for the frame buffer framework. Some of these pointers
+ * will be changed according to the current setting of fb_info->accel_flags.
+ */
 static struct fb_ops omapfb_ops = {
 	.owner		= THIS_MODULE,
 	.fb_open        = omapfb_open,
@@ -1195,6 +1272,12 @@ static struct fb_ops omapfb_ops = {
 	.fb_pan_display = omapfb_pan_display,
 };
 
+/*
+ * ---------------------------------------------------------------------------
+ * Sysfs interface
+ * ---------------------------------------------------------------------------
+ */
+/* omapfbX sysfs entries */
 static ssize_t omapfb_show_caps_num(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
@@ -1261,6 +1344,7 @@ static ssize_t omapfb_show_caps_text(struct device *dev,
 static DEVICE_ATTR(caps_num, 0444, omapfb_show_caps_num, NULL);
 static DEVICE_ATTR(caps_text, 0444, omapfb_show_caps_text, NULL);
 
+/* panel sysfs entries */
 static ssize_t omapfb_show_panel_name(struct device *dev,
 				      struct device_attribute *attr, char *buf)
 {
@@ -1336,6 +1420,7 @@ static struct attribute_group panel_attr_grp = {
 	.attrs = panel_attrs,
 };
 
+/* ctrl sysfs entries */
 static ssize_t omapfb_show_ctrl_name(struct device *dev,
 				     struct device_attribute *attr, char *buf)
 {
@@ -1393,6 +1478,14 @@ static void omapfb_unregister_sysfs(struct omapfb_device *fbdev)
 	device_remove_file(fbdev->dev, &dev_attr_caps_text);
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * LDM callbacks
+ * ---------------------------------------------------------------------------
+ */
+/* Initialize system fb_info object and set the default video mode.
+ * The frame buffer memory already allocated by lcddma_init
+ */
 static int fbinfo_init(struct omapfb_device *fbdev, struct fb_info *info)
 {
 	struct fb_var_screeninfo	*var = &info->var;
@@ -1424,6 +1517,7 @@ static int fbinfo_init(struct omapfb_device *fbdev, struct fb_info *info)
 	return r;
 }
 
+/* Release the fb_info object */
 static void fbinfo_cleanup(struct omapfb_device *fbdev, struct fb_info *fbi)
 {
 	fb_dealloc_cmap(&fbi->cmap);
@@ -1474,6 +1568,10 @@ static int planes_init(struct omapfb_device *fbdev)
 	return 0;
 }
 
+/*
+ * Free driver resources. Can be called to rollback an aborted initialization
+ * sequence.
+ */
 static void omapfb_free_resources(struct omapfb_device *fbdev, int state)
 {
 	int i;
@@ -1498,7 +1596,7 @@ static void omapfb_free_resources(struct omapfb_device *fbdev, int state)
 		dev_set_drvdata(fbdev->dev, NULL);
 		kfree(fbdev);
 	case 0:
-		
+		/* nothing to free */
 		break;
 	default:
 		BUG();
@@ -1552,6 +1650,19 @@ static void check_required_callbacks(struct omapfb_device *fbdev)
 #undef _C
 }
 
+/*
+ * Called by LDM binding to probe and attach a new device.
+ * Initialization sequence:
+ *   1. allocate system omapfb_device structure
+ *   2. select controller type according to platform configuration
+ *      init LCD panel
+ *   3. init LCD controller and LCD DMA
+ *   4. init system fb_info structure for all planes
+ *   5. setup video mode for first plane and enable it
+ *   6. enable LCD panel
+ *   7. register sysfs attributes
+ *   OMAPFB_ACTIVE: register system fb_info structure for all planes
+ */
 static int omapfb_do_probe(struct platform_device *pdev,
 				struct lcd_panel *panel)
 {
@@ -1629,7 +1740,7 @@ static int omapfb_do_probe(struct platform_device *pdev,
 	init_state++;
 
 #ifdef CONFIG_FB_OMAP_DMA_TUNE
-	
+	/* Set DMA priority for EMIFF access to highest */
 	omap_set_dma_priority(0, OMAP_DMA_PORT_EMIFF, 15);
 #endif
 
@@ -1639,7 +1750,7 @@ static int omapfb_do_probe(struct platform_device *pdev,
 		goto cleanup;
 	}
 
-	
+	/* GFX plane is enabled by default */
 	r = fbdev->ctrl->enable_plane(OMAPFB_PLANE_GFX, 1);
 	if (r)
 		goto cleanup;
@@ -1704,7 +1815,7 @@ static int omapfb_probe(struct platform_device *pdev)
 		return r;
 	}
 
-	
+	/* Delay actual initialization until the LCD is registered */
 	fbdev_pdev = pdev;
 	if (fbdev_panel != NULL)
 		omapfb_do_probe(fbdev_pdev, fbdev_panel);
@@ -1720,12 +1831,13 @@ void omapfb_register_panel(struct lcd_panel *panel)
 		omapfb_do_probe(fbdev_pdev, fbdev_panel);
 }
 
+/* Called when the device is being detached from the driver */
 static int omapfb_remove(struct platform_device *pdev)
 {
 	struct omapfb_device *fbdev = platform_get_drvdata(pdev);
 	enum omapfb_state saved_state = fbdev->state;
 
-	
+	/* FIXME: wait till completion of pending events */
 
 	fbdev->state = OMAPFB_DISABLED;
 	omapfb_free_resources(fbdev, saved_state);
@@ -1736,6 +1848,7 @@ static int omapfb_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* PM suspend */
 static int omapfb_suspend(struct platform_device *pdev, pm_message_t mesg)
 {
 	struct omapfb_device *fbdev = platform_get_drvdata(pdev);
@@ -1745,6 +1858,7 @@ static int omapfb_suspend(struct platform_device *pdev, pm_message_t mesg)
 	return 0;
 }
 
+/* PM resume */
 static int omapfb_resume(struct platform_device *pdev)
 {
 	struct omapfb_device *fbdev = platform_get_drvdata(pdev);
@@ -1767,6 +1881,7 @@ static struct platform_driver omapfb_driver = {
 
 #ifndef MODULE
 
+/* Process kernel command line parameters */
 static int __init omapfb_setup(char *options)
 {
 	char *this_opt = NULL;
@@ -1790,7 +1905,7 @@ static int __init omapfb_setup(char *options)
 			case 'm':
 			case 'M':
 				vram *= 1024;
-				
+				/* Fall through */
 			case 'k':
 			case 'K':
 				vram *= 1024;
@@ -1823,6 +1938,7 @@ static int __init omapfb_setup(char *options)
 
 #endif
 
+/* Register both the driver and the device */
 static int __init omapfb_init(void)
 {
 #ifndef MODULE
@@ -1832,7 +1948,7 @@ static int __init omapfb_init(void)
 		return -ENODEV;
 	omapfb_setup(option);
 #endif
-	
+	/* Register the driver with LDM */
 	if (platform_driver_register(&omapfb_driver)) {
 		pr_debug("failed to register omapfb driver\n");
 		return -ENODEV;

@@ -41,19 +41,20 @@
 
 #ifdef CONFIG_SERIAL_MSM_CLOCK_CONTROL
 enum msm_clk_states_e {
-	MSM_CLK_PORT_OFF,     
-	MSM_CLK_OFF,          
-	MSM_CLK_REQUEST_OFF,  
-	MSM_CLK_ON,           
+	MSM_CLK_PORT_OFF,     /* uart port not in use */
+	MSM_CLK_OFF,          /* clock enabled */
+	MSM_CLK_REQUEST_OFF,  /* disable after TX flushed */
+	MSM_CLK_ON,           /* clock disabled */
 };
 #endif
 
 #ifdef CONFIG_SERIAL_MSM_RX_WAKEUP
+/* optional low power wakeup, typically on a GPIO RX irq */
 struct msm_wakeup {
-	int irq;  
-	unsigned char ignore;  
+	int irq;  /* < 0 indicates low power wakeup disabled */
+	unsigned char ignore;  /* bool */
 
-	
+	/* bool: inject char into rx tty on wakeup */
 	unsigned char inject_rx;
 	char rx_to_inject;
 };
@@ -131,6 +132,7 @@ static void msm_enable_ms(struct uart_port *port)
 }
 
 #ifdef CONFIG_SERIAL_MSM_CLOCK_CONTROL
+/* turn clock off if TX buffer is empty, otherwise reschedule */
 static enum hrtimer_restart msm_serial_clock_off(struct hrtimer *timer) {
 	struct msm_port *msm_port = container_of(timer, struct msm_port,
 						 clk_off_timer);
@@ -163,6 +165,7 @@ static enum hrtimer_restart msm_serial_clock_off(struct hrtimer *timer) {
 	return HRTIMER_NORESTART;
 }
 
+/* request to turn off uart clock once pending TX is flushed */
 void msm_serial_clock_request_off(struct uart_port *port) {
 	unsigned long flags;
 	struct msm_port *msm_port = UART_TO_MSM(port);
@@ -170,12 +173,19 @@ void msm_serial_clock_request_off(struct uart_port *port) {
 	spin_lock_irqsave(&port->lock, flags);
 	if (msm_port->clk_state == MSM_CLK_ON) {
 		msm_port->clk_state = MSM_CLK_REQUEST_OFF;
+		/* turn off TX later. unfortunately not all msm uart's have a
+		 * TXDONE available, and TXLEV does not wait until completely
+		 * flushed, so a timer is our only option
+		 */
 		hrtimer_start(&msm_port->clk_off_timer,
 			      msm_port->clk_off_delay, HRTIMER_MODE_REL);
 	}
 	spin_unlock_irqrestore(&port->lock, flags);
 }
 
+/* request to immediately turn on uart clock.
+ * ignored if there is a pending off request, unless force = 1.
+ */
 void msm_serial_clock_on(struct uart_port *port, int force) {
 	unsigned long flags;
 	struct msm_port *msm_port = UART_TO_MSM(port);
@@ -215,6 +225,8 @@ static irqreturn_t msm_rx_irq(int irq, void *dev_id)
 	spin_lock_irqsave(&port->lock, flags);
 
 	if (msm_port->clk_state == MSM_CLK_OFF) {
+		/* ignore the first irq - it is a pending irq that occured
+		 * before enable_irq() */
 		if (msm_port->wakeup.ignore)
 			msm_port->wakeup.ignore = 0;
 		else
@@ -223,6 +235,8 @@ static irqreturn_t msm_rx_irq(int irq, void *dev_id)
 
 	msm_serial_clock_on(port, 0);
 
+	/* we missed an rx while asleep - it must be a wakeup indicator
+	 */
 	if (inject_wakeup) {
 		struct tty_struct *tty = port->state->port.tty;
 		tty_insert_flip_char(tty, WAKE_UP_IND, TTY_NORMAL);
@@ -239,13 +253,17 @@ static void handle_rx(struct uart_port *port)
 	struct tty_struct *tty = port->state->port.tty;
 	unsigned int sr;
 
+	/*
+	 * Handle overrun. My understanding of the hardware is that overrun
+	 * is not tied to the RX buffer, so we handle the case out of band.
+	 */
 	if ((msm_read(port, UART_SR) & UART_SR_OVERRUN)) {
 		port->icount.overrun++;
 		tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 		msm_write(port, UART_CR_CMD_RESET_ERR, UART_CR);
 	}
 
-	
+	/* and now the main RX loop */
 	while ((sr = msm_read(port, UART_SR)) & UART_SR_RX_READY) {
 		unsigned int c;
 		char flag = TTY_NORMAL;
@@ -262,7 +280,7 @@ static void handle_rx(struct uart_port *port)
 			port->icount.rx++;
 		}
 
-		
+		/* Mask conditions we're ignorning. */
 		sr &= port->read_status_mask;
 
 		if (sr & UART_SR_RX_BREAK) {
@@ -292,7 +310,7 @@ static void handle_tx(struct uart_port *port)
 
 	while (msm_read(port, UART_SR) & UART_SR_TX_READY) {
 		if (uart_circ_empty(xmit)) {
-			
+			/* disable tx interrupts */
 			msm_port->imr &= ~UART_IMR_TXLEV;
 			msm_write(port, msm_port->imr, UART_IMR);
 			break;
@@ -307,7 +325,7 @@ static void handle_tx(struct uart_port *port)
 
 #ifdef CONFIG_SERIAL_MSM_CLOCK_CONTROL
 	if (sent_tx && msm_port->clk_state == MSM_CLK_REQUEST_OFF)
-		
+		/* new TX - restart the timer */
 		if (hrtimer_try_to_cancel(&msm_port->clk_off_timer) == 1)
 			hrtimer_start(&msm_port->clk_off_timer,
 				msm_port->clk_off_delay, HRTIMER_MODE_REL);
@@ -333,7 +351,7 @@ static irqreturn_t msm_irq(int irq, void *dev_id)
 
 	spin_lock_irqsave(&port->lock, flags);
 	misr = msm_read(port, UART_MISR);
-	msm_write(port, 0, UART_IMR); 
+	msm_write(port, 0, UART_IMR); /* disable interrupt */
 
 	if (misr & (UART_IMR_RXLEV | UART_IMR_RXSTALE))
 		handle_rx(port);
@@ -342,7 +360,7 @@ static irqreturn_t msm_irq(int irq, void *dev_id)
 	if (misr & UART_IMR_DELTA_CTS)
 		handle_delta_cts(port);
 
-	msm_write(port, msm_port->imr, UART_IMR); 
+	msm_write(port, msm_port->imr, UART_IMR); /* restore interrupt */
 	spin_unlock_irqrestore(&port->lock, flags);
 
 	return IRQ_HANDLED;
@@ -443,23 +461,23 @@ static void msm_set_baud_rate(struct uart_port *port, unsigned int baud)
 
 	msm_write(port, baud_code, UART_CSR);
 
-	
+	/* RX stale watermark */
 	watermark = UART_IPR_STALE_LSB & rxstale;
 	watermark |= UART_IPR_RXSTALE_LAST;
 	watermark |= UART_IPR_STALE_TIMEOUT_MSB & (rxstale << 2);
 	msm_write(port, watermark, UART_IPR);
 
-	
+	/* set RX watermark */
 	watermark = (port->fifosize * 3) / 4;
 	msm_write(port, watermark, UART_RFWR);
 
-	
+	/* set TX watermark */
 	msm_write(port, 10, UART_TFWR);
 }
 
 static void msm_reset(struct uart_port *port)
 {
-	
+	/* reset everything */
 	msm_write(port, UART_CR_CMD_RESET_RX, UART_CR);
 	msm_write(port, UART_CR_CMD_RESET_TX, UART_CR);
 	msm_write(port, UART_CR_CMD_RESET_ERR, UART_CR);
@@ -492,19 +510,19 @@ static void msm_init_clock(struct uart_port *port)
 			UART_SIM_CFG_SIM_SEL,
 			UART_SIM_CFG);
 
-		
+		/* (TCXO * 16) / (5 * 372) = TCXO * 16 / 1860 */
 		msm_write(port, 0x08, UART_MREG);
 		msm_write(port, 0x19, UART_NREG);
 		msm_write(port, 0xe8, UART_DREG);
 		msm_write(port, 0x0e, UART_MNDREG);
 	} else if (port->uartclk == 19200000) {
-		
+		/* clock is TCXO (19.2MHz) */
 		msm_write(port, 0x06, UART_MREG);
 		msm_write(port, 0xF1, UART_NREG);
 		msm_write(port, 0x0F, UART_DREG);
 		msm_write(port, 0x1A, UART_MNDREG);
 	} else {
-		
+		/* clock must be TCXO/4 */
 		msm_write(port, 0x18, UART_MREG);
 		msm_write(port, 0xF6, UART_NREG);
 		msm_write(port, 0x0F, UART_DREG);
@@ -550,7 +568,7 @@ static int msm_startup(struct uart_port *port)
 	else
 		rfr_level = port->fifosize;
 
-	
+	/* set automatic RFR level */
 	data = msm_read(port, UART_MR1);
 	data &= ~UART_MR1_AUTO_RFR_LEVEL1;
 	data &= ~UART_MR1_AUTO_RFR_LEVEL0;
@@ -558,7 +576,7 @@ static int msm_startup(struct uart_port *port)
 	data |= UART_MR1_AUTO_RFR_LEVEL0 & rfr_level;
 	msm_write(port, data, UART_MR1);
 
-	
+	/* make sure that RXSTALE count is non-zero */
 	data = msm_read(port, UART_IPR);
 	if (unlikely(!data)) {
 		data |= UART_IPR_RXSTALE_LAST;
@@ -568,9 +586,9 @@ static int msm_startup(struct uart_port *port)
 
 	msm_reset(port);
 
-	msm_write(port, 0x05, UART_CR);	
+	msm_write(port, 0x05, UART_CR);	/* enable TX & RX */
 
-	
+	/* turn on RX and CTS interrupts */
 	msm_port->imr = UART_IMR_RXLEV | UART_IMR_RXSTALE |
 			UART_IMR_CURRENT_CTS;
 	msm_write(port, msm_port->imr, UART_IMR);
@@ -602,7 +620,7 @@ static void msm_shutdown(struct uart_port *port)
 			UART_SIM_CFG);
 
 	msm_port->imr = 0;
-	msm_write(port, 0, UART_IMR); 
+	msm_write(port, 0, UART_IMR); /* disable interrupts */
 
 	free_irq(port->irq, port);
 
@@ -629,11 +647,11 @@ static void msm_set_termios(struct uart_port *port, struct ktermios *termios,
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	
+	/* calculate and set baud rate */
 	baud = uart_get_baud_rate(port, termios, old, 300, 115200);
 	msm_set_baud_rate(port, baud);
 
-	
+	/* calculate parity */
 	mr = msm_read(port, UART_MR2);
 	mr &= ~UART_MR2_PARITY_MODE;
 	if (termios->c_cflag & PARENB) {
@@ -645,7 +663,7 @@ static void msm_set_termios(struct uart_port *port, struct ktermios *termios,
 			mr |= UART_MR2_PARITY_MODE_EVEN;
 	}
 
-	
+	/* calculate bits per char */
 	mr &= ~UART_MR2_BITS_PER_CHAR;
 	switch (termios->c_cflag & CSIZE) {
 	case CS5:
@@ -663,17 +681,17 @@ static void msm_set_termios(struct uart_port *port, struct ktermios *termios,
 		break;
 	}
 
-	
+	/* calculate stop bits */
 	mr &= ~(UART_MR2_STOP_BIT_LEN_ONE | UART_MR2_STOP_BIT_LEN_TWO);
 	if (termios->c_cflag & CSTOPB)
 		mr |= UART_MR2_STOP_BIT_LEN_TWO;
 	else
 		mr |= UART_MR2_STOP_BIT_LEN_ONE;
 
-	
+	/* set parity, bits per char, and stop bit */
 	msm_write(port, mr, UART_MR2);
 
-	
+	/* calculate and set hardware flow control */
 	mr = msm_read(port, UART_MR1);
 	mr &= ~(UART_MR1_CTS_CTL | UART_MR1_RX_RDY_CTL);
 	if (termios->c_cflag & CRTSCTS) {
@@ -682,7 +700,7 @@ static void msm_set_termios(struct uart_port *port, struct ktermios *termios,
 	}
 	msm_write(port, mr, UART_MR1);
 
-	
+	/* Configure status bits to ignore based on termio flags. */
 	port->read_status_mask = 0;
 	if (termios->c_iflag & INPCK)
 		port->read_status_mask |= UART_SR_PAR_FRAME_ERR;
@@ -834,11 +852,15 @@ static inline struct uart_port * get_port_from_line(unsigned int line)
 
 #ifdef CONFIG_SERIAL_MSM_CONSOLE
 
+/*
+ *  Wait for transmitter & holding register to empty
+ *  Derived from wait_for_xmitr in 8250 serial driver by Russell King
+ */
 static inline void wait_for_xmitr(struct uart_port *port, int bits)
 {
 	unsigned int status, mr, tmout = 10000;
 
-	
+	/* Wait up to 10ms for the character(s) to be sent. */
 	do {
 		status = msm_read(port, UART_SR);
 
@@ -849,13 +871,13 @@ static inline void wait_for_xmitr(struct uart_port *port, int bits)
 
 	mr = msm_read(port, UART_MR1);
 
-	
+	/* Wait up to 1s for flow control if necessary */
 	if (mr & UART_MR1_CTS_CTL) {
 		unsigned int tmout;
 		for (tmout = 1000000; tmout; tmout--) {
 			unsigned int isr = msm_read(port, UART_ISR);
 
-			
+			/* CTS input is active lo */
 			if (!(isr & UART_IMR_CURRENT_CTS))
 				break;
 			udelay(1);
@@ -867,6 +889,9 @@ static inline void wait_for_xmitr(struct uart_port *port, int bits)
 
 static void msm_console_putchar(struct uart_port *port, int c)
 {
+	/* This call can incur significant delay if CTS flowcontrol is enabled
+	 * on port and no serial cable is attached.
+	 */
 	wait_for_xmitr(port, UART_SR_TX_READY);
 
 	msm_write(port, c, UART_TF);
@@ -884,7 +909,7 @@ static void msm_console_write(struct console *co, const char *s,
 	port = get_port_from_line(co->index);
 	msm_port = UART_TO_MSM(port);
 
-	
+	/* not pretty, but we can end up here via various convoluted paths */
 	if (port->sysrq || oops_in_progress)
 		locked = spin_trylock(&port->lock);
 	else {
@@ -927,7 +952,7 @@ static int __init msm_console_setup(struct console *co, char *options)
 	parity = 'n';
 	flow = 'n';
 	msm_write(port, UART_MR2_BITS_PER_CHAR_8 | UART_MR2_STOP_BIT_LEN_ONE,
-		  UART_MR2);	
+		  UART_MR2);	/* 8N1 */
 
 	if (baud < 300 || baud > 115200)
 		baud = 115200;
@@ -1021,7 +1046,7 @@ static int __init msm_serial_probe(struct platform_device *pdev)
 	msm_port->clk_state = MSM_CLK_PORT_OFF;
 	hrtimer_init(&msm_port->clk_off_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	msm_port->clk_off_timer.function = msm_serial_clock_off;
-	msm_port->clk_off_delay = ktime_set(0, 1000000);  
+	msm_port->clk_off_delay = ktime_set(0, 1000000);  /* 1 ms */
 #endif
 
 	pm_runtime_enable(port->dev);

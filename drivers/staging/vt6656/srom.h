@@ -32,22 +32,26 @@
 
 #include "ttype.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
 #define EEP_MAX_CONTEXT_SIZE    256
 
-#define CB_EEPROM_READBYTE_WAIT 900     
+#define CB_EEPROM_READBYTE_WAIT 900     //us
 
 #define W_MAX_I2CRETRY          0x0fff
 
-#define EEP_OFS_PAR         0x00        
+//
+// Contents in the EEPROM
+//
+#define EEP_OFS_PAR         0x00        // physical address
 #define EEP_OFS_ANTENNA     0x17
 #define EEP_OFS_RADIOCTL    0x18
-#define EEP_OFS_RFTYPE      0x1B        
-#define EEP_OFS_MINCHANNEL  0x1C        
-#define EEP_OFS_MAXCHANNEL  0x1D        
-#define EEP_OFS_SIGNATURE   0x1E        
-#define EEP_OFS_ZONETYPE    0x1F        
-#define EEP_OFS_RFTABLE     0x20        
+#define EEP_OFS_RFTYPE      0x1B        // for select RF
+#define EEP_OFS_MINCHANNEL  0x1C        // Min Channel #
+#define EEP_OFS_MAXCHANNEL  0x1D        // Max Channel #
+#define EEP_OFS_SIGNATURE   0x1E        //
+#define EEP_OFS_ZONETYPE    0x1F        //
+#define EEP_OFS_RFTABLE     0x20        // RF POWER TABLE
 #define EEP_OFS_PWR_CCK     0x20
 #define EEP_OFS_SETPT_CCK   0x21
 #define EEP_OFS_PWR_OFDMG   0x23
@@ -64,46 +68,60 @@
 #define EEP_OFS_OFDM_PWR_TBL    0x40
 #define EEP_OFS_OFDMA_PWR_TBL   0x50
 
+//
+// Bits in EEP_OFS_ANTENNA
+//
 #define EEP_ANTENNA_MAIN    0x01
 #define EEP_ANTENNA_AUX     0x02
 #define EEP_ANTINV          0x04
 
+//
+// Bits in EEP_OFS_RADIOCTL
+//
 #define EEP_RADIOCTL_ENABLE 0x80
 
+/*---------------------  Export Types  ------------------------------*/
 
+// AT24C02 eeprom contents
+//      2048 bits = 256 bytes = 128 words
+//
 typedef struct tagSSromReg {
-    BYTE    abyPAR[6];                  
+    BYTE    abyPAR[6];                  // 0x00 (WORD)
 
-    WORD    wSUB_VID;                   
+    WORD    wSUB_VID;                   // 0x03 (WORD)
     WORD    wSUB_SID;
 
-    BYTE    byBCFG0;                    
+    BYTE    byBCFG0;                    // 0x05 (WORD)
     BYTE    byBCFG1;
 
-    BYTE    byFCR0;                     
+    BYTE    byFCR0;                     // 0x06 (WORD)
     BYTE    byFCR1;
-    BYTE    byPMC0;                     
+    BYTE    byPMC0;                     // 0x07 (WORD)
     BYTE    byPMC1;
-    BYTE    byMAXLAT;                   
+    BYTE    byMAXLAT;                   // 0x08 (WORD)
     BYTE    byMINGNT;
-    BYTE    byCFG0;                     
+    BYTE    byCFG0;                     // 0x09 (WORD)
     BYTE    byCFG1;
-    WORD    wCISPTR;                    
-    WORD    wRsv0;                      
-    WORD    wRsv1;                      
-    BYTE    byBBPAIR;                   
+    WORD    wCISPTR;                    // 0x0A (WORD)
+    WORD    wRsv0;                      // 0x0B (WORD)
+    WORD    wRsv1;                      // 0x0C (WORD)
+    BYTE    byBBPAIR;                   // 0x0D (WORD)
     BYTE    byRFTYPE;
-    BYTE    byMinChannel;               
+    BYTE    byMinChannel;               // 0x0E (WORD)
     BYTE    byMaxChannel;
-    BYTE    bySignature;                
+    BYTE    bySignature;                // 0x0F (WORD)
     BYTE    byCheckSum;
 
-    BYTE    abyReserved0[96];           
-    BYTE    abyCIS[128];                
+    BYTE    abyReserved0[96];           // 0x10 (WORD)
+    BYTE    abyCIS[128];                // 0x80 (WORD)
 } SSromReg, *PSSromReg;
 
+/*---------------------  Export Macros ------------------------------*/
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
-#endif 
+#endif /* __EEPROM_H__ */

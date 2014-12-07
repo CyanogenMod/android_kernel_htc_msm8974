@@ -55,11 +55,11 @@ void __init plat_mem_setup(void)
 {
 	int i;
 
-	
+	/* Map 0xe0000000 -> 0x0:800005C0, 0xe0010000 -> 0x1:30000580 */
 	add_wired_entry(0x02000017, 0x03c00017, 0xe0000000, PM_64K);
-	
+	/* Map 0xe2000000 -> 0x0:900005C0, 0xe3010000 -> 0x0:910005C0 */
 	add_wired_entry(0x02400017, 0x02440017, 0xe2000000, PM_16M);
-	
+	/* Map 0xe4000000 -> 0x0:600005C0, 0xe4100000 -> 400005C0 */
 	add_wired_entry(0x01800017, 0x01000017, 0xe4000000, PM_4M);
 
 	set_io_port_base(JAZZ_PORT_BASE);
@@ -67,11 +67,11 @@ void __init plat_mem_setup(void)
 	EISA_bus = 1;
 #endif
 
-	
+	/* request I/O space for devices used on all i[345]86 PCs */
 	for (i = 0; i < ARRAY_SIZE(jazz_io_resources); i++)
 		request_resource(&ioport_resource, jazz_io_resources + i);
 
-	
+	/* The RTC is outside the port address space */
 
 	_machine_restart = jazz_machine_restart;
 
@@ -89,7 +89,9 @@ void __init plat_mem_setup(void)
 #ifdef CONFIG_OLIVETTI_M700
 #define UART_CLK  1843200
 #else
-#define UART_CLK (8000000 / 16) 
+/* Some Jazz machines seem to have an 8MHz crystal clock but I don't know
+   exactly which ones ... XXX */
+#define UART_CLK (8000000 / 16) /* ( 3072000 / 16) */
 #endif
 
 #define MEMPORT(_base, _irq)				\

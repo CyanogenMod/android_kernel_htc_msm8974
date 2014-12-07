@@ -61,14 +61,36 @@
 #define FLAGS_FAST			BIT(8)
 #define FLAGS_BUSY			9
 
+/*
+ * Defines AES engine Max process bytes size in one go, which takes 1 msec.
+ * AES engine spends about 176 cycles/16-bytes or 11 cycles/byte
+ * The duration CPU can use the BSE to 1 msec, then the number of available
+ * cycles of AVP/BSE is 216K. In this duration, AES can process 216/11 ~= 19KB
+ * Based on this AES_HW_DMA_BUFFER_SIZE_BYTES is configured to 16KB.
+ */
 #define AES_HW_DMA_BUFFER_SIZE_BYTES 0x4000
 
+/*
+ * The key table length is 64 bytes
+ * (This includes first upto 32 bytes key + 16 bytes original initial vector
+ * and 16 bytes updated initial vector)
+ */
 #define AES_HW_KEY_TABLE_LENGTH_BYTES 64
 
+/*
+ * The memory being used is divides as follows:
+ * 1. Key - 32 bytes
+ * 2. Original IV - 16 bytes
+ * 3. Updated IV - 16 bytes
+ * 4. Key schedule - 256 bytes
+ *
+ * 1+2+3 constitute the hw key table.
+ */
 #define AES_HW_IV_SIZE 16
 #define AES_HW_KEYSCHEDULE_LEN 256
 #define AES_IVKEY_SIZE (AES_HW_KEY_TABLE_LENGTH_BYTES + AES_HW_KEYSCHEDULE_LEN)
 
+/* Define commands required for AES operation */
 enum {
 	CMD_BLKSTARTENGINE = 0x0E,
 	CMD_DMASETUP = 0x10,
@@ -77,17 +99,20 @@ enum {
 	CMD_MEMDMAVD = 0x22,
 };
 
+/* Define sub-commands */
 enum {
 	SUBCMD_VRAM_SEL = 0x1,
 	SUBCMD_CRYPTO_TABLE_SEL = 0x3,
 	SUBCMD_KEY_TABLE_SEL = 0x8,
 };
 
-#define MEMDMA_DIR_DTOVRAM		0 
-#define MEMDMA_DIR_VTODRAM		1 
+/* memdma_vd command */
+#define MEMDMA_DIR_DTOVRAM		0 /* sdram -> vram */
+#define MEMDMA_DIR_VTODRAM		1 /* vram -> sdram */
 #define MEMDMA_DIR_SHIFT		25
 #define MEMDMA_NUM_WORDS_SHIFT		12
 
+/* command queue bit shifts */
 enum {
 	CMDQ_KEYTABLEADDR_SHIFT = 0,
 	CMDQ_KEYTABLEID_SHIFT = 17,
@@ -96,12 +121,18 @@ enum {
 	CMDQ_OPCODE_SHIFT = 26,
 };
 
+/*
+ * The secure key slot contains a unique secure key generated
+ * and loaded by the bootloader. This slot is marked as non-accessible
+ * to the kernel.
+ */
 #define SSK_SLOT_NUM		4
 
 #define AES_NR_KEYSLOTS		8
 #define TEGRA_AES_QUEUE_LENGTH	50
 #define DEFAULT_RNG_BLK_SZ	16
 
+/* The command queue depth */
 #define AES_HW_MAX_ICQ_LENGTH	5
 
 struct tegra_aes_slot {
@@ -161,6 +192,7 @@ static struct tegra_aes_ctx rng_ctx = {
 	.keylen = AES_KEYSIZE_128,
 };
 
+/* keep registered devices data here */
 static struct list_head dev_list;
 static DEFINE_SPINLOCK(list_lock);
 static DEFINE_MUTEX(aes_lock);
@@ -188,10 +220,10 @@ static int aes_start_crypt(struct tegra_aes_dev *dd, u32 in_addr, u32 out_addr,
 	int i, eng_busy, icq_empty, ret;
 	u32 value;
 
-	
+	/* reset all the interrupt bits */
 	aes_writel(dd, 0xFFFFFFFF, TEGRA_AES_INTR_STATUS);
 
-	
+	/* enable error, dma xfer complete interrupts */
 	aes_writel(dd, 0x33, TEGRA_AES_INT_ENB);
 
 	cmdq[0] = CMD_DMASETUP << CMDQ_OPCODE_SHIFT;
@@ -200,7 +232,7 @@ static int aes_start_crypt(struct tegra_aes_dev *dd, u32 in_addr, u32 out_addr,
 	cmdq[3] = CMD_DMACOMPLETE << CMDQ_OPCODE_SHIFT;
 
 	value = aes_readl(dd, TEGRA_AES_CMDQUE_CONTROL);
-	
+	/* access SDRAM through AHB */
 	value &= ~TEGRA_AES_CMDQ_CTRL_SRC_STM_SEL_FIELD;
 	value &= ~TEGRA_AES_CMDQ_CTRL_DST_STM_SEL_FIELD;
 	value |= TEGRA_AES_CMDQ_CTRL_SRC_STM_SEL_FIELD |
@@ -299,19 +331,19 @@ static int aes_set_key(struct tegra_aes_dev *dd)
 	int eng_busy, icq_empty, dma_busy;
 	bool use_ssk = false;
 
-	
+	/* use ssk? */
 	if (!dd->ctx->slot) {
 		dev_dbg(dd->dev, "using ssk");
 		dd->ctx->slot = &ssk;
 		use_ssk = true;
 	}
 
-	
+	/* enable key schedule generation in hardware */
 	value = aes_readl(dd, TEGRA_AES_SECURE_CONFIG_EXT);
 	value &= ~TEGRA_AES_SECURE_KEY_SCH_DIS_FIELD;
 	aes_writel(dd, value, TEGRA_AES_SECURE_CONFIG_EXT);
 
-	
+	/* select the key slot */
 	value = aes_readl(dd, TEGRA_AES_SECURE_CONFIG);
 	value &= ~TEGRA_AES_SECURE_KEY_INDEX_FIELD;
 	value |= (ctx->slot->slot_num << TEGRA_AES_SECURE_KEY_INDEX_SHIFT);
@@ -320,7 +352,7 @@ static int aes_set_key(struct tegra_aes_dev *dd)
 	if (use_ssk)
 		return 0;
 
-	
+	/* copy the key table from sdram to vram */
 	cmdq[0] = CMD_MEMDMAVD << CMDQ_OPCODE_SHIFT |
 		MEMDMA_DIR_DTOVRAM << MEMDMA_DIR_SHIFT |
 		AES_HW_KEY_TABLE_LENGTH_BYTES / sizeof(u32) <<
@@ -337,7 +369,7 @@ static int aes_set_key(struct tegra_aes_dev *dd)
 		dma_busy = value & TEGRA_AES_DMA_BUSY_FIELD;
 	} while (eng_busy & (!icq_empty) & dma_busy);
 
-	
+	/* settable command to get key into internal registers */
 	value = CMD_SETTABLE << CMDQ_OPCODE_SHIFT |
 		SUBCMD_CRYPTO_TABLE_SEL << CMDQ_TABLESEL_SHIFT |
 		SUBCMD_VRAM_SEL << CMDQ_VRAMSEL_SHIFT |
@@ -391,10 +423,10 @@ static int tegra_aes_handle_req(struct tegra_aes_dev *dd)
 	if (!req->src || !req->dst)
 		return -EINVAL;
 
-	
+	/* take mutex to access the aes hw */
 	mutex_lock(&aes_lock);
 
-	
+	/* assign new request to device */
 	dd->req = req;
 	dd->total = req->nbytes;
 	dd->in_offset = 0;
@@ -416,12 +448,12 @@ static int tegra_aes_handle_req(struct tegra_aes_dev *dd)
 	dd->iv = (u8 *)req->info;
 	dd->ivlen = crypto_ablkcipher_ivsize(tfm);
 
-	
+	/* assign new context to device */
 	ctx->dd = dd;
 	dd->ctx = ctx;
 
 	if (ctx->flags & FLAGS_NEW_KEY) {
-		
+		/* copy the key */
 		memcpy(dd->ivkey_base, ctx->key, ctx->keylen);
 		memset(dd->ivkey_base + ctx->keylen, 0, AES_HW_KEY_TABLE_LENGTH_BYTES - ctx->keylen);
 		aes_set_key(dd);
@@ -429,6 +461,10 @@ static int tegra_aes_handle_req(struct tegra_aes_dev *dd)
 	}
 
 	if (((dd->flags & FLAGS_CBC) || (dd->flags & FLAGS_OFB)) && dd->iv) {
+		/* set iv to the aes hw slot
+		 * Hw generates updated iv only after iv is set in slot.
+		 * So key and iv is passed asynchronously.
+		 */
 		memcpy(dd->buf_in, dd->iv, dd->ivlen);
 
 		ret = aes_start_crypt(dd, (u32)dd->dma_buf_in,
@@ -540,7 +576,7 @@ static void aes_workqueue_handler(struct work_struct *work)
 	if (ret)
 		BUG_ON("clock enable failed");
 
-	
+	/* empty the crypto queue and then return */
 	do {
 		ret = tegra_aes_handle_req(dd);
 	} while (!ret);
@@ -634,7 +670,7 @@ static int tegra_aes_get_random(struct crypto_rng *tfm, u8 *rdata,
 	int ret, i;
 	u8 *dest = rdata, *dt = dd->dt;
 
-	
+	/* take mutex to access the aes hw */
 	mutex_lock(&aes_lock);
 
 	ret = clk_enable(dd->aes_clk);
@@ -656,7 +692,7 @@ static int tegra_aes_get_random(struct crypto_rng *tfm, u8 *rdata,
 	}
 	memcpy(dest, dd->buf_out, dlen);
 
-	
+	/* update the DT */
 	for (i = DEFAULT_RNG_BLK_SZ - 1; i >= 0; i--) {
 		dt[i] += 1;
 		if (dt[i] != 0)
@@ -693,7 +729,7 @@ static int tegra_aes_rng_reset(struct crypto_rng *tfm, u8 *seed,
 		return -ENOMEM;
 	}
 
-	
+	/* take mutex to access the aes hw */
 	mutex_lock(&aes_lock);
 
 	if (!ctx->slot) {
@@ -713,7 +749,7 @@ static int tegra_aes_rng_reset(struct crypto_rng *tfm, u8 *seed,
 	ctx->keylen = AES_KEYSIZE_128;
 	ctx->flags |= FLAGS_NEW_KEY;
 
-	
+	/* copy the key to the key slot */
 	memcpy(dd->ivkey_base, seed + DEFAULT_RNG_BLK_SZ, AES_KEYSIZE_128);
 	memset(dd->ivkey_base + AES_KEYSIZE_128, 0, AES_HW_KEY_TABLE_LENGTH_BYTES - AES_KEYSIZE_128);
 
@@ -728,7 +764,7 @@ static int tegra_aes_rng_reset(struct crypto_rng *tfm, u8 *seed,
 
 	aes_set_key(dd);
 
-	
+	/* set seed to the aes hw slot */
 	memcpy(dd->buf_in, dd->iv, DEFAULT_RNG_BLK_SZ);
 	ret = aes_start_crypt(dd, (u32)dd->dma_buf_in,
 			      dd->dma_buf_out, 1, FLAGS_CBC, false);
@@ -863,7 +899,7 @@ static int tegra_aes_probe(struct platform_device *pdev)
 	spin_lock_init(&dd->lock);
 	crypto_init_queue(&dd->queue, TEGRA_AES_QUEUE_LENGTH);
 
-	
+	/* Get the module base address */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(dev, "invalid resource type: base\n");
@@ -885,7 +921,7 @@ static int tegra_aes_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	
+	/* Initialize the vde clock */
 	dd->aes_clk = clk_get(dev, "vde");
 	if (IS_ERR(dd->aes_clk)) {
 		dev_err(dev, "iclock intialization failed.\n");
@@ -899,6 +935,11 @@ static int tegra_aes_probe(struct platform_device *pdev)
 		goto out;
 	}
 
+	/*
+	 * the foll contiguous memory is allocated as follows -
+	 * - hardware key table
+	 * - key schedule
+	 */
 	dd->ivkey_base = dma_alloc_coherent(dev, AES_HW_KEY_TABLE_LENGTH_BYTES,
 					    &dd->ivkey_phys_base,
 		GFP_KERNEL);
@@ -931,7 +972,7 @@ static int tegra_aes_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	
+	/* get the irq */
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
 		dev_err(dev, "invalid resource type: base\n");

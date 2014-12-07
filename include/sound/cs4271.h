@@ -18,7 +18,7 @@
 #define __CS4271_H
 
 struct cs4271_platform_data {
-	int gpio_nreset;	
+	int gpio_nreset;	/* GPIO driving Reset pin, if any */
 };
 
-#endif 
+#endif /* __CS4271_H */

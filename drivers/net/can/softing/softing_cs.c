@@ -32,6 +32,9 @@ static spinlock_t softingcs_index_lock;
 static int softingcs_reset(struct platform_device *pdev, int v);
 static int softingcs_enable_irq(struct platform_device *pdev, int v);
 
+/*
+ * platform_data descriptions
+ */
 #define MHZ (1000*1000)
 static const struct softing_platform_data softingcs_platform_data[] = {
 {
@@ -168,6 +171,9 @@ static __devinit const struct softing_platform_data
 	return NULL;
 }
 
+/*
+ * platformdata callbacks
+ */
 static int softingcs_reset(struct platform_device *pdev, int v)
 {
 	struct pcmcia_device *pcmcia = to_pcmcia_dev(pdev->dev.parent);
@@ -184,6 +190,9 @@ static int softingcs_enable_irq(struct platform_device *pdev, int v)
 	return pcmcia_write_config_byte(pcmcia, 0, v ? 0x60 : 0);
 }
 
+/*
+ * pcmcia check
+ */
 static __devinit int softingcs_probe_config(struct pcmcia_device *pcmcia,
 		void *priv_data)
 {
@@ -210,12 +219,16 @@ static __devexit void softingcs_remove(struct pcmcia_device *pcmcia)
 {
 	struct platform_device *pdev = pcmcia->priv;
 
-	
+	/* free bits */
 	platform_device_unregister(pdev);
-	
+	/* release pcmcia stuff */
 	pcmcia_disable_device(pcmcia);
 }
 
+/*
+ * platform_device wrapper
+ * pdev->resource has 2 entries: io & irq
+ */
 static void softingcs_pdev_release(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -233,12 +246,12 @@ static __devinit int softingcs_probe(struct pcmcia_device *pcmcia)
 		struct resource res[2];
 	} *dev;
 
-	
+	/* find matching platform_data */
 	pdat = softingcs_find_platform_data(pcmcia->manf_id, pcmcia->card_id);
 	if (!pdat)
 		return -ENOTTY;
 
-	
+	/* setup pcmcia device */
 	pcmcia->config_flags |= CONF_ENABLE_IRQ | CONF_AUTO_SET_IOMEM |
 		CONF_AUTO_SET_VPP | CONF_AUTO_CHECK_VCC;
 	ret = pcmcia_loop_config(pcmcia, softingcs_probe_config, (void *)pdat);
@@ -255,7 +268,7 @@ static __devinit int softingcs_probe(struct pcmcia_device *pcmcia)
 		goto pcmcia_bad;
 	}
 
-	
+	/* create softing platform device */
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev) {
 		ret = -ENOMEM;
@@ -270,7 +283,7 @@ static __devinit int softingcs_probe(struct pcmcia_device *pcmcia)
 	pdev->dev.parent = &pcmcia->dev;
 	pcmcia->priv = pdev;
 
-	
+	/* platform device resources */
 	pdev->resource[0].flags = IORESOURCE_MEM;
 	pdev->resource[0].start = pres->start;
 	pdev->resource[0].end = pres->end;
@@ -279,7 +292,7 @@ static __devinit int softingcs_probe(struct pcmcia_device *pcmcia)
 	pdev->resource[1].start = pcmcia->irq;
 	pdev->resource[1].end = pdev->resource[1].start;
 
-	
+	/* platform device setup */
 	spin_lock(&softingcs_index_lock);
 	pdev->id = softingcs_index++;
 	spin_unlock(&softingcs_index_lock);
@@ -303,16 +316,16 @@ pcmcia_failed:
 }
 
 static const struct pcmcia_device_id softingcs_ids[] = {
-	
+	/* softing */
 	PCMCIA_DEVICE_MANF_CARD(0x0168, 0x0001),
 	PCMCIA_DEVICE_MANF_CARD(0x0168, 0x0002),
 	PCMCIA_DEVICE_MANF_CARD(0x0168, 0x0004),
 	PCMCIA_DEVICE_MANF_CARD(0x0168, 0x0005),
-	
+	/* vector, manufacturer? */
 	PCMCIA_DEVICE_MANF_CARD(0x0168, 0x0081),
 	PCMCIA_DEVICE_MANF_CARD(0x0168, 0x0084),
 	PCMCIA_DEVICE_MANF_CARD(0x0168, 0x0085),
-	
+	/* EDIC */
 	PCMCIA_DEVICE_MANF_CARD(0x0168, 0x0102),
 	PCMCIA_DEVICE_MANF_CARD(0x0168, 0x0105),
 	PCMCIA_DEVICE_NULL,

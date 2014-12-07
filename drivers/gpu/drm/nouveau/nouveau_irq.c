@@ -25,6 +25,10 @@
  *
  */
 
+/*
+ * Authors:
+ *   Ben Skeggs <darktama@iinet.net.au>
+ */
 
 #include "drmP.h"
 #include "drm.h"
@@ -39,7 +43,7 @@ nouveau_irq_preinstall(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
-	
+	/* Master disable */
 	nv_wr32(dev, NV03_PMC_INTR_EN_0, 0);
 
 	INIT_LIST_HEAD(&dev_priv->vbl_waiting);
@@ -50,7 +54,7 @@ nouveau_irq_postinstall(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
-	
+	/* Master enable */
 	nv_wr32(dev, NV03_PMC_INTR_EN_0, NV_PMC_INTR_EN_0_MASTER_ENABLE);
 	if (dev_priv->msi_enabled)
 		nv_wr08(dev, 0x00088068, 0xff);
@@ -61,7 +65,7 @@ nouveau_irq_postinstall(struct drm_device *dev)
 void
 nouveau_irq_uninstall(struct drm_device *dev)
 {
-	
+	/* Master disable */
 	nv_wr32(dev, NV03_PMC_INTR_EN_0, 0);
 }
 

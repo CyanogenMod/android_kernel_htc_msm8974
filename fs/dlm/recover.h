@@ -30,5 +30,5 @@ void dlm_release_root_list(struct dlm_ls *ls);
 void dlm_clear_toss_list(struct dlm_ls *ls);
 void dlm_recover_rsbs(struct dlm_ls *ls);
 
-#endif				
+#endif				/* __RECOVER_DOT_H__ */
 

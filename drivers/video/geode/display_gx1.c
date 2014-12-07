@@ -62,13 +62,13 @@ int gx1_frame_buffer_size(void)
 		return -ENOMEM;
 
 
-	
+	/* Calculate the total size of both DIMM0 and DIMM1. */
 	bank_cfg = readl(mc_regs + MC_BANK_CFG);
 
 	for (d = 0; d < 2; d++) {
 		if ((bank_cfg & MC_BCFG_DIMM0_PG_SZ_MASK) != MC_BCFG_DIMM0_PG_SZ_NO_DIMM)
 			dram_size += 0x400000 << ((bank_cfg & MC_BCFG_DIMM0_SZ_MASK) >> 8);
-		bank_cfg >>= 16; 
+		bank_cfg >>= 16; /* look at DIMM1 next */
 	}
 
 	fb_base = (readl(mc_regs + MC_GBASE_ADD) & MC_GADD_GBADD_MASK) << 19;
@@ -85,63 +85,69 @@ static void gx1_set_mode(struct fb_info *info)
 	int hactive, hblankstart, hsyncstart, hsyncend, hblankend, htotal;
 	int vactive, vblankstart, vsyncstart, vsyncend, vblankend, vtotal;
 
-	
+	/* Unlock the display controller registers. */
 	readl(par->dc_regs + DC_UNLOCK);
 	writel(DC_UNLOCK_CODE, par->dc_regs + DC_UNLOCK);
 
 	gcfg = readl(par->dc_regs + DC_GENERAL_CFG);
 	tcfg = readl(par->dc_regs + DC_TIMING_CFG);
 
-	
+	/* Blank the display and disable the timing generator. */
 	tcfg &= ~(DC_TCFG_BLKE | DC_TCFG_TGEN);
 	writel(tcfg, par->dc_regs + DC_TIMING_CFG);
 
-	
+	/* Wait for pending memory requests before disabling the FIFO load. */
 	udelay(100);
 
-	
+	/* Disable FIFO load and compression. */
 	gcfg &= ~(DC_GCFG_DFLE | DC_GCFG_CMPE | DC_GCFG_DECE);
 	writel(gcfg, par->dc_regs + DC_GENERAL_CFG);
 
-	
+	/* Setup DCLK and its divisor. */
 	gcfg &= ~DC_GCFG_DCLK_MASK;
 	writel(gcfg, par->dc_regs + DC_GENERAL_CFG);
 
 	par->vid_ops->set_dclk(info);
 
-	dclk_div = DC_GCFG_DCLK_DIV_1; 
+	dclk_div = DC_GCFG_DCLK_DIV_1; /* FIXME: may need to divide DCLK by 2 sometimes? */
 	gcfg |= dclk_div;
 	writel(gcfg, par->dc_regs + DC_GENERAL_CFG);
 
-	udelay(1000); 
+	/* Wait for the clock generatation to settle.  This is needed since
+	 * some of the register writes that follow require that clock to be
+	 * present. */
+	udelay(1000); /* FIXME: seems a little long */
 
+	/*
+	 * Setup new mode.
+	 */
 
-	
+	/* Clear all unused feature bits. */
 	gcfg = DC_GCFG_VRDY | dclk_div;
 
-	
-	
+	/* Set FIFO priority (default 6/5) and enable. */
+	/* FIXME: increase fifo priority for 1280x1024 modes? */
 	gcfg |= (6 << DC_GCFG_DFHPEL_POS) | (5 << DC_GCFG_DFHPSL_POS) | DC_GCFG_DFLE;
 
-	
+	/* FIXME: Set pixel and line double bits if necessary. */
 
-	
+	/* Framebuffer start offset. */
 	writel(0, par->dc_regs + DC_FB_ST_OFFSET);
 
-	
+	/* Line delta and line buffer length. */
 	writel(info->fix.line_length >> 2, par->dc_regs + DC_LINE_DELTA);
 	writel(((info->var.xres * info->var.bits_per_pixel/8) >> 3) + 2,
 	       par->dc_regs + DC_BUF_SIZE);
 
-	
+	/* Output configuration. Enable panel data, set pixel format. */
 	ocfg = DC_OCFG_PCKE | DC_OCFG_PDEL | DC_OCFG_PDEH;
 	if (info->var.bits_per_pixel == 8) ocfg |= DC_OCFG_8BPP;
 
-	
+	/* Enable timing generator, sync and FP data. */
 	tcfg = DC_TCFG_FPPE | DC_TCFG_HSYE | DC_TCFG_VSYE | DC_TCFG_BLKE
 		| DC_TCFG_TGEN;
 
-	
+	/* Horizontal and vertical timings. */
 	hactive = info->var.xres;
 	hblankstart = hactive;
 	hsyncstart = hblankstart + info->var.right_margin;
@@ -172,17 +178,19 @@ static void gx1_set_mode(struct fb_info *info)
 	val = (vsyncstart - 2) | ((vsyncend - 2) << 16);
 	writel(val, par->dc_regs + DC_FP_V_TIMING);
 
-	
+	/* Write final register values. */
 	writel(ocfg, par->dc_regs + DC_OUTPUT_CFG);
 	writel(tcfg, par->dc_regs + DC_TIMING_CFG);
-	udelay(1000); 
+	udelay(1000); /* delay after TIMING_CFG. FIXME: perhaps a little long */
 	writel(gcfg, par->dc_regs + DC_GENERAL_CFG);
 
 	par->vid_ops->configure_display(info);
 
-	
+	/* Relock display controller registers */
 	writel(0, par->dc_regs + DC_UNLOCK);
 
+	/* FIXME: write line_length and bpp to Graphics Pipeline GP_BLT_STATUS
+	 * register. */
 }
 
 static void gx1_set_hw_palette_reg(struct fb_info *info, unsigned regno,
@@ -191,7 +199,7 @@ static void gx1_set_hw_palette_reg(struct fb_info *info, unsigned regno,
 	struct geodefb_par *par = info->par;
 	int val;
 
-	
+	/* Hardware palette is in RGB 6-6-6 format. */
 	val  = (red   <<  2) & 0x3f000;
 	val |= (green >>  4) & 0x00fc0;
 	val |= (blue  >> 10) & 0x0003f;

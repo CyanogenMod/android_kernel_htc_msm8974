@@ -109,6 +109,11 @@ static int pil_lpass_shutdown(struct pil_desc *pil)
 
 	pil_q6v5_halt_axi_port(pil, drv->axi_halt_base);
 
+	/*
+	 * If the shutdown function is called before the reset function, clocks
+	 * will not be enabled yet. Enable them here so that register writes
+	 * performed during the shutdown succeed.
+	 */
 	if (drv->is_booted == false)
 		pil_lpass_enable_clks(drv);
 
@@ -128,7 +133,7 @@ static int pil_lpass_reset(struct pil_desc *pil)
 	phys_addr_t start_addr = pil_get_entry_addr(pil);
 	int ret;
 
-	
+	/* Deassert reset to subsystem and wait for propagation */
 	writel_relaxed(0, drv->restart_reg);
 	mb();
 	udelay(2);
@@ -137,7 +142,7 @@ static int pil_lpass_reset(struct pil_desc *pil)
 	if (ret)
 		return ret;
 
-	
+	/* Program Image Address */
 	writel_relaxed((start_addr >> 4) & 0x0FFFFFF0,
 				drv->reg_base + QDSP6SS_RST_EVB);
 
@@ -291,6 +296,9 @@ static irqreturn_t adsp_err_fatal_intr_handler (int irq, void *dev_id)
 {
 	struct lpass_data *drv = subsys_to_drv(dev_id);
 
+	/* Ignore if we're the one that set the force stop bit in the outbound
+	 * entry
+	 */
 	if (drv->crash_shutdown)
 		return IRQ_HANDLED;
 
@@ -303,7 +311,7 @@ static irqreturn_t adsp_err_fatal_intr_handler (int irq, void *dev_id)
 
 static void send_q6_nmi(void)
 {
-	
+	/* Send NMI to QDSP6 via an SCM call. */
 	scm_call_atomic1(SCM_SVC_UTIL, SCM_Q6_NMI_CMD, 0x1);
 	pr_debug("%s: Q6 NMI was sent.\n", __func__);
 }
@@ -323,7 +331,7 @@ static struct kobj_attribute adsp_state_attribute =
 
 static struct attribute *attrs[] = {
 	&adsp_state_attribute.attr,
-	NULL,   
+	NULL,   /* need to NULL terminate the list of attributes */
 };
 
 static struct attribute_group attr_group = {
@@ -343,7 +351,7 @@ static int adsp_shutdown(const struct subsys_desc *subsys)
 	struct lpass_data *drv = subsys_to_lpass(subsys);
 
 	send_q6_nmi();
-	
+	/* The write needs to go through before the q6 is shutdown. */
 	mb();
 	pil_shutdown(&drv->q6->desc);
 	disable_irq_nosync(drv->subsys_desc.wdog_bite_irq);
@@ -489,6 +497,14 @@ static int __devinit pil_lpass_driver_probe(struct platform_device *pdev)
 	}
 
 #if defined(CONFIG_HTC_FEATURES_SSR)
+	/*LPASS restart condition and ramdump rule would follow below
+	1. LPASS restart default enable
+	- Independent on flag [6]
+	2. LPASS restart default disable
+	- flag [6] 0  -> reboot
+	- flag [6] 20 -> enable restart, no ramdump
+	3. Always disable LPASS SSR if boot_mode != normal
+	*/
 #if defined(CONFIG_HTC_FEATURES_SSR_LPASS_ENABLE)
 	subsys_set_restart_level(drv->subsys, RESET_SUBSYS_COUPLED);
 #else

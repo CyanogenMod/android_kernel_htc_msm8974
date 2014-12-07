@@ -34,14 +34,38 @@
 extern void atari_microwire_cmd(int cmd);
 
 static int is_falcon;
-static int write_sq_ignore_int;	
+static int write_sq_ignore_int;	/* ++TeSche: used for Falcon */
 
-static int expand_bal;	
-static int expand_data;	
-
-
+static int expand_bal;	/* Balance factor for expanding (not volume!) */
+static int expand_data;	/* Data for expanding */
 
 
+/*** Translations ************************************************************/
+
+
+/* ++TeSche: radically changed for new expanding purposes...
+ *
+ * These two routines now deal with copying/expanding/translating the samples
+ * from user space into our buffer at the right frequency. They take care about
+ * how much data there's actually to read, how much buffer space there is and
+ * to convert samples into the right frequency/encoding. They will only work on
+ * complete samples so it may happen they leave some bytes in the input stream
+ * if the user didn't write a multiple of the current sample size. They both
+ * return the number of bytes they've used from both streams so you may detect
+ * such a situation. Luckily all programs should be able to cope with that.
+ *
+ * I think I've optimized anything as far as one can do in plain C, all
+ * variables should fit in registers and the loops are really short. There's
+ * one loop for every possible situation. Writing a more generalized and thus
+ * parameterized loop would only produce slower code. Feel free to optimize
+ * this in assembler if you like. :)
+ *
+ * I think these routines belong here because they're not yet really hardware
+ * independent, especially the fact that the Falcon can play 16bit samples
+ * only in stereo is hardcoded in both of them!
+ *
+ * ++geert: split in even more functions (one per format)
+ */
 
 static ssize_t ata_ct_law(const u_char __user *userPtr, size_t userCount,
 			  u_char frame[], ssize_t *frameUsed,
@@ -87,6 +111,7 @@ static ssize_t ata_ctx_u16le(const u_char __user *userPtr, size_t userCount,
 			     ssize_t frameLeft);
 
 
+/*** Low level stuff *********************************************************/
 
 
 static void *AtaAlloc(unsigned int size, gfp_t flags);
@@ -94,7 +119,7 @@ static void AtaFree(void *, unsigned int size);
 static int AtaIrqInit(void);
 #ifdef MODULE
 static void AtaIrqCleanUp(void);
-#endif 
+#endif /* MODULE */
 static int AtaSetBass(int bass);
 static int AtaSetTreble(int treble);
 static void TTSilence(void);
@@ -110,6 +135,7 @@ static void AtaPlayNextFrame(int index);
 static void AtaPlay(void);
 static irqreturn_t AtaInterrupt(int irq, void *dummy);
 
+/*** Mid level stuff *********************************************************/
 
 static void TTMixerInit(void);
 static void FalconMixerInit(void);
@@ -122,6 +148,7 @@ static int TTStateInfo(char *buffer, size_t space);
 static int FalconStateInfo(char *buffer, size_t space);
 
 
+/*** Translations ************************************************************/
 
 
 static ssize_t ata_ct_law(const u_char __user *userPtr, size_t userCount,
@@ -360,7 +387,7 @@ static ssize_t ata_ctx_law(const u_char __user *userPtr, size_t userCount,
 {
 	char *table = dmasound.soft.format == AFMT_MU_LAW ? dmasound_ulaw2dma8
 							  : dmasound_alaw2dma8;
-	
+	/* this should help gcc to stuff everything into registers */
 	long bal = expand_bal;
 	long hSpeed = dmasound.hard.speed, sSpeed = dmasound.soft.speed;
 	ssize_t used, usedf;
@@ -420,7 +447,7 @@ static ssize_t ata_ctx_s8(const u_char __user *userPtr, size_t userCount,
 			  u_char frame[], ssize_t *frameUsed,
 			  ssize_t frameLeft)
 {
-	
+	/* this should help gcc to stuff everything into registers */
 	long bal = expand_bal;
 	long hSpeed = dmasound.hard.speed, sSpeed = dmasound.soft.speed;
 	ssize_t used, usedf;
@@ -474,7 +501,7 @@ static ssize_t ata_ctx_u8(const u_char __user *userPtr, size_t userCount,
 			  u_char frame[], ssize_t *frameUsed,
 			  ssize_t frameLeft)
 {
-	
+	/* this should help gcc to stuff everything into registers */
 	long bal = expand_bal;
 	long hSpeed = dmasound.hard.speed, sSpeed = dmasound.soft.speed;
 	ssize_t used, usedf;
@@ -530,7 +557,7 @@ static ssize_t ata_ctx_s16be(const u_char __user *userPtr, size_t userCount,
 			     u_char frame[], ssize_t *frameUsed,
 			     ssize_t frameLeft)
 {
-	
+	/* this should help gcc to stuff everything into registers */
 	long bal = expand_bal;
 	long hSpeed = dmasound.hard.speed, sSpeed = dmasound.soft.speed;
 	ssize_t used, usedf;
@@ -586,7 +613,7 @@ static ssize_t ata_ctx_u16be(const u_char __user *userPtr, size_t userCount,
 			     u_char frame[], ssize_t *frameUsed,
 			     ssize_t frameLeft)
 {
-	
+	/* this should help gcc to stuff everything into registers */
 	long bal = expand_bal;
 	long hSpeed = dmasound.hard.speed, sSpeed = dmasound.soft.speed;
 	ssize_t used, usedf;
@@ -644,7 +671,7 @@ static ssize_t ata_ctx_s16le(const u_char __user *userPtr, size_t userCount,
 			     u_char frame[], ssize_t *frameUsed,
 			     ssize_t frameLeft)
 {
-	
+	/* this should help gcc to stuff everything into registers */
 	long bal = expand_bal;
 	long hSpeed = dmasound.hard.speed, sSpeed = dmasound.soft.speed;
 	ssize_t used, usedf;
@@ -702,7 +729,7 @@ static ssize_t ata_ctx_u16le(const u_char __user *userPtr, size_t userCount,
 			     u_char frame[], ssize_t *frameUsed,
 			     ssize_t frameLeft)
 {
-	
+	/* this should help gcc to stuff everything into registers */
 	long bal = expand_bal;
 	long hSpeed = dmasound.hard.speed, sSpeed = dmasound.soft.speed;
 	ssize_t used, usedf;
@@ -793,9 +820,13 @@ static TRANS transFalconExpanding = {
 };
 
 
+/*** Low level stuff *********************************************************/
 
 
 
+/*
+ * Atari (TT/Falcon)
+ */
 
 static void *AtaAlloc(unsigned int size, gfp_t flags)
 {
@@ -809,14 +840,21 @@ static void AtaFree(void *obj, unsigned int size)
 
 static int __init AtaIrqInit(void)
 {
-	st_mfp.tim_ct_a = 0;	
-	st_mfp.tim_dt_a = 1;	
-	st_mfp.tim_ct_a = 8;	
-	
+	/* Set up timer A. Timer A
+	   will receive a signal upon end of playing from the sound
+	   hardware. Furthermore Timer A is able to count events
+	   and will cause an interrupt after a programmed number
+	   of events. So all we need to keep the music playing is
+	   to provide the sound hardware with new data upon
+	   an interrupt from timer A. */
+	st_mfp.tim_ct_a = 0;	/* ++roman: Stop timer before programming! */
+	st_mfp.tim_dt_a = 1;	/* Cause interrupt after first event. */
+	st_mfp.tim_ct_a = 8;	/* Turn on event counting. */
+	/* Register interrupt handler. */
 	if (request_irq(IRQ_MFP_TIMA, AtaInterrupt, IRQ_TYPE_SLOW, "DMA sound",
 			AtaInterrupt))
 		return 0;
-	st_mfp.int_en_a |= 0x20;	
+	st_mfp.int_en_a |= 0x20;	/* Turn interrupt on. */
 	st_mfp.int_mk_a |= 0x20;
 	return 1;
 }
@@ -824,11 +862,11 @@ static int __init AtaIrqInit(void)
 #ifdef MODULE
 static void AtaIrqCleanUp(void)
 {
-	st_mfp.tim_ct_a = 0;		
-	st_mfp.int_en_a &= ~0x20;	
+	st_mfp.tim_ct_a = 0;		/* stop timer */
+	st_mfp.int_en_a &= ~0x20;	/* turn interrupt off */
 	free_irq(IRQ_MFP_TIMA, AtaInterrupt);
 }
-#endif 
+#endif /* MODULE */
 
 
 #define TONE_VOXWARE_TO_DB(v) \
@@ -853,12 +891,15 @@ static int AtaSetTreble(int treble)
 
 
 
+/*
+ * TT
+ */
 
 
 static void TTSilence(void)
 {
 	tt_dmasnd.ctrl = DMASND_CTRL_OFF;
-	atari_microwire_cmd(MW_LM1992_PSG_HIGH); 
+	atari_microwire_cmd(MW_LM1992_PSG_HIGH); /* mix in PSG signal 1:1 */
 }
 
 
@@ -867,10 +908,13 @@ static void TTInit(void)
 	int mode, i, idx;
 	const int freq[4] = {50066, 25033, 12517, 6258};
 
-	
+	/* search a frequency that fits into the allowed error range */
 
 	idx = -1;
 	for (i = 0; i < ARRAY_SIZE(freq); i++)
+		/* this isn't as much useful for a TT than for a Falcon, but
+		 * then it doesn't hurt very much to implement it for a TT too.
+		 */
 		if ((100 * abs(dmasound.soft.speed - freq[i]) / freq[i]) < catchRadius)
 			idx = i;
 	if (idx > -1) {
@@ -883,7 +927,7 @@ static void TTInit(void)
 	dmasound.hard = dmasound.soft;
 
 	if (dmasound.hard.speed > 50066) {
-		
+		/* we would need to squeeze the sound, but we won't do that */
 		dmasound.hard.speed = 50066;
 		mode = DMASND_MODE_50KHZ;
 		dmasound.trans_write = &transTTNormal;
@@ -911,7 +955,7 @@ static void TTInit(void)
 
 static int TTSetFormat(int format)
 {
-	
+	/* TT sound DMA supports only 8bit modes */
 
 	switch (format) {
 	case AFMT_QUERY:
@@ -966,19 +1010,22 @@ static int TTSetGain(int gain)
 
 
 
+/*
+ * Falcon
+ */
 
 
 static void FalconSilence(void)
 {
-	
+	/* stop playback, set sample rate 50kHz for PSG sound */
 	tt_dmasnd.ctrl = DMASND_CTRL_OFF;
 	tt_dmasnd.mode = DMASND_MODE_50KHZ | DMASND_MODE_STEREO | DMASND_MODE_8BIT;
-	tt_dmasnd.int_div = 0; 
+	tt_dmasnd.int_div = 0; /* STE compatible divider */
 	tt_dmasnd.int_ctrl = 0x0;
-	tt_dmasnd.cbar_src = 0x0000; 
-	tt_dmasnd.cbar_dst = 0x0000; 
-	tt_dmasnd.dac_src = 1; 
-	tt_dmasnd.adc_src = 3; 
+	tt_dmasnd.cbar_src = 0x0000; /* no matrix inputs */
+	tt_dmasnd.cbar_dst = 0x0000; /* no matrix outputs */
+	tt_dmasnd.dac_src = 1; /* connect ADC to DAC, disconnect matrix */
+	tt_dmasnd.adc_src = 3; /* ADC Input = PSG */
 }
 
 
@@ -987,10 +1034,14 @@ static void FalconInit(void)
 	int divider, i, idx;
 	const int freq[8] = {49170, 32780, 24585, 19668, 16390, 12292, 9834, 8195};
 
-	
+	/* search a frequency that fits into the allowed error range */
 
 	idx = -1;
 	for (i = 0; i < ARRAY_SIZE(freq); i++)
+		/* if we will tolerate 3% error 8000Hz->8195Hz (2.38%) would
+		 * be playable without expanding, but that now a kernel runtime
+		 * option
+		 */
 		if ((100 * abs(dmasound.soft.speed - freq[i]) / freq[i]) < catchRadius)
 			idx = i;
 	if (idx > -1) {
@@ -1003,12 +1054,12 @@ static void FalconInit(void)
 	dmasound.hard = dmasound.soft;
 
 	if (dmasound.hard.size == 16) {
-		
+		/* the Falcon can play 16bit samples only in stereo */
 		dmasound.hard.stereo = 1;
 	}
 
 	if (dmasound.hard.speed > 49170) {
-		
+		/* we would need to squeeze the sound, but we won't do that */
 		dmasound.hard.speed = 49170;
 		divider = 1;
 		dmasound.trans_write = &transFalconNormal;
@@ -1039,14 +1090,14 @@ static void FalconInit(void)
 	}
 	tt_dmasnd.int_div = divider;
 
-	
-	tt_dmasnd.int_ctrl = 0x4; 
-	tt_dmasnd.track_select = 0x0; 
-	tt_dmasnd.cbar_src = 0x0001; 
+	/* Setup Falcon sound DMA for playback */
+	tt_dmasnd.int_ctrl = 0x4; /* Timer A int at play end */
+	tt_dmasnd.track_select = 0x0; /* play 1 track, track 1 */
+	tt_dmasnd.cbar_src = 0x0001; /* DMA(25MHz) --> DAC */
 	tt_dmasnd.cbar_dst = 0x0000;
 	tt_dmasnd.rec_track_select = 0;
-	tt_dmasnd.dac_src = 2; 
-	tt_dmasnd.adc_src = 0; 
+	tt_dmasnd.dac_src = 2; /* connect matrix to DAC */
+	tt_dmasnd.adc_src = 0; /* ADC Input = Mic */
 
 	tt_dmasnd.mode = (dmasound.hard.stereo ?
 			  DMASND_MODE_STEREO : DMASND_MODE_MONO) |
@@ -1061,7 +1112,7 @@ static void FalconInit(void)
 static int FalconSetFormat(int format)
 {
 	int size;
-	
+	/* Falcon sound DMA supports 8bit and 16bit modes */
 
 	switch (format) {
 	case AFMT_QUERY:
@@ -1078,7 +1129,7 @@ static int FalconSetFormat(int format)
 	case AFMT_U16_LE:
 		size = 16;
 		break;
-	default: 
+	default: /* :-) */
 		size = 8;
 		format = AFMT_S8;
 	}
@@ -1096,6 +1147,9 @@ static int FalconSetFormat(int format)
 }
 
 
+/* This is for the Falcon output *attenuation* in 1.5dB steps,
+ * i.e. output level from 0 to -22.5dB in -1.5dB steps.
+ */
 #define VOLUME_VOXWARE_TO_ATT(v) \
 	((v) < 0 ? 15 : (v) > 100 ? 0 : 15 - (v) * 3 / 20)
 #define VOLUME_ATT_TO_VOXWARE(v) (100 - (v) * 20 / 3)
@@ -1115,12 +1169,17 @@ static void AtaPlayNextFrame(int index)
 {
 	char *start, *end;
 
+	/* used by AtaPlay() if all doubts whether there really is something
+	 * to be played are already wiped out.
+	 */
 	start = write_sq.buffers[write_sq.front];
 	end = start+((write_sq.count == index) ? write_sq.rear_size
 					       : write_sq.block_size);
-	
+	/* end might not be a legal virtual address. */
 	DMASNDSetEnd(virt_to_phys(end - 1) + 1);
 	DMASNDSetBase(virt_to_phys(start));
+	/* Since only an even number of samples per frame can
+	   be played, we might lose one byte here. (TO DO) */
 	write_sq.front = (write_sq.front+1) % write_sq.max_count;
 	write_sq.active++;
 	tt_dmasnd.ctrl = DMASND_CTRL_ON | DMASND_CTRL_REPEAT;
@@ -1129,38 +1188,67 @@ static void AtaPlayNextFrame(int index)
 
 static void AtaPlay(void)
 {
+	/* ++TeSche: Note that write_sq.active is no longer just a flag but
+	 * holds the number of frames the DMA is currently programmed for
+	 * instead, may be 0, 1 (currently being played) or 2 (pre-programmed).
+	 *
+	 * Changes done to write_sq.count and write_sq.active are a bit more
+	 * subtle again so now I must admit I also prefer disabling the irq
+	 * here rather than considering all possible situations. But the point
+	 * is that disabling the irq doesn't have any bad influence on this
+	 * version of the driver as we benefit from having pre-programmed the
+	 * DMA wherever possible: There's no need to reload the DMA at the
+	 * exact time of an interrupt but only at some time while the
+	 * pre-programmed frame is playing!
+	 */
 	atari_disable_irq(IRQ_MFP_TIMA);
 
-	if (write_sq.active == 2 ||	
-	    write_sq.count <= 0) {	
+	if (write_sq.active == 2 ||	/* DMA is 'full' */
+	    write_sq.count <= 0) {	/* nothing to do */
 		atari_enable_irq(IRQ_MFP_TIMA);
 		return;
 	}
 
 	if (write_sq.active == 0) {
+		/* looks like there's nothing 'in' the DMA yet, so try
+		 * to put two frames into it (at least one is available).
+		 */
 		if (write_sq.count == 1 &&
 		    write_sq.rear_size < write_sq.block_size &&
 		    !write_sq.syncing) {
+			/* hmmm, the only existing frame is not
+			 * yet filled and we're not syncing?
+			 */
 			atari_enable_irq(IRQ_MFP_TIMA);
 			return;
 		}
 		AtaPlayNextFrame(1);
 		if (write_sq.count == 1) {
-			
+			/* no more frames */
 			atari_enable_irq(IRQ_MFP_TIMA);
 			return;
 		}
 		if (write_sq.count == 2 &&
 		    write_sq.rear_size < write_sq.block_size &&
 		    !write_sq.syncing) {
+			/* hmmm, there were two frames, but the second
+			 * one is not yet filled and we're not syncing?
+			 */
 			atari_enable_irq(IRQ_MFP_TIMA);
 			return;
 		}
 		AtaPlayNextFrame(2);
 	} else {
+		/* there's already a frame being played so we may only stuff
+		 * one new into the DMA, but even if this may be the last
+		 * frame existing the previous one is still on write_sq.count.
+		 */
 		if (write_sq.count == 2 &&
 		    write_sq.rear_size < write_sq.block_size &&
 		    !write_sq.syncing) {
+			/* hmmm, the only existing frame is not
+			 * yet filled and we're not syncing?
+			 */
 			atari_enable_irq(IRQ_MFP_TIMA);
 			return;
 		}
@@ -1173,26 +1261,40 @@ static void AtaPlay(void)
 static irqreturn_t AtaInterrupt(int irq, void *dummy)
 {
 #if 0
-	
+	/* ++TeSche: if you should want to test this... */
 	static int cnt;
 	if (write_sq.active == 2)
 		if (++cnt == 10) {
-			
+			/* simulate losing an interrupt */
 			cnt = 0;
 			return IRQ_HANDLED;
 		}
 #endif
 	spin_lock(&dmasound.lock);
 	if (write_sq_ignore_int && is_falcon) {
+		/* ++TeSche: Falcon only: ignore first irq because it comes
+		 * immediately after starting a frame. after that, irqs come
+		 * (almost) like on the TT.
+		 */
 		write_sq_ignore_int = 0;
 		goto out;
 	}
 
 	if (!write_sq.active) {
+		/* playing was interrupted and sq_reset() has already cleared
+		 * the sq variables, so better don't do anything here.
+		 */
 		WAKE_UP(write_sq.sync_queue);
 		goto out;
 	}
 
+	/* Probably ;) one frame is finished. Well, in fact it may be that a
+	 * pre-programmed one is also finished because there has been a long
+	 * delay in interrupt delivery and we've completely lost one, but
+	 * there's no way to detect such a situation. In such a case the last
+	 * frame will be played more than once and the situation will recover
+	 * as soon as the irq gets through.
+	 */
 	write_sq.count--;
 	write_sq.active--;
 
@@ -1202,19 +1304,36 @@ static irqreturn_t AtaInterrupt(int irq, void *dummy)
 	}
 
 	WAKE_UP(write_sq.action_queue);
+	/* At least one block of the queue is free now
+	   so wake up a writing process blocked because
+	   of a full queue. */
 
 	if ((write_sq.active != 1) || (write_sq.count != 1))
+		/* We must be a bit carefully here: write_sq.count indicates the
+		 * number of buffers used and not the number of frames to be
+		 * played. If write_sq.count==1 and write_sq.active==1 that
+		 * means the only remaining frame was already programmed
+		 * earlier (and is currently running) so we mustn't call
+		 * AtaPlay() here, otherwise we'll play one frame too much.
+		 */
 		AtaPlay();
 
 	if (!write_sq.active) WAKE_UP(write_sq.sync_queue);
+	/* We are not playing after AtaPlay(), so there
+	   is nothing to play any more. Wake up a process
+	   waiting for audio output to drain. */
 out:
 	spin_unlock(&dmasound.lock);
 	return IRQ_HANDLED;
 }
 
 
+/*** Mid level stuff *********************************************************/
 
 
+/*
+ * /dev/mixer abstraction
+ */
 
 #define RECLEVEL_VOXWARE_TO_GAIN(v)	\
 	((v) < 0 ? 0 : (v) > 100 ? 15 : (v) * 3 / 20)
@@ -1329,7 +1448,7 @@ static int FalconMixerIoctl(u_int cmd, u_long arg)
 		tt_dmasnd.input_gain =
 			RECLEVEL_VOXWARE_TO_GAIN(data & 0xff) << 4 |
 			RECLEVEL_VOXWARE_TO_GAIN(data >> 8 & 0xff);
-		
+		/* fall thru, return set value */
 	    case SOUND_MIXER_READ_MIC:
 		return IOCTL_OUT(arg,
 			RECLEVEL_GAIN_TO_VOXWARE(tt_dmasnd.input_gain >> 4 & 0xf) |
@@ -1383,6 +1502,7 @@ static int FalconStateInfo(char *buffer, size_t space)
 }
 
 
+/*** Machine definitions *****************************************************/
 
 static SETTINGS def_hard_falcon = {
 	.format		= AFMT_S8,
@@ -1414,7 +1534,7 @@ static __initdata MACHINE machTT = {
 	.irqinit	= AtaIrqInit,
 #ifdef MODULE
 	.irqcleanup	= AtaIrqCleanUp,
-#endif 
+#endif /* MODULE */
 	.init		= TTInit,
 	.silence	= TTSilence,
 	.setFormat	= TTSetFormat,
@@ -1430,8 +1550,8 @@ static __initdata MACHINE machTT = {
 	.state_info	= TTStateInfo,
 	.min_dsp_speed	= 6258,
 	.version	= ((DMASOUND_ATARI_REVISION<<8) | DMASOUND_ATARI_EDITION),
-	.hardware_afmts	= AFMT_S8,  
-	.capabilities	=  DSP_CAP_BATCH	
+	.hardware_afmts	= AFMT_S8,  /* h'ware-supported formats *only* here */
+	.capabilities	=  DSP_CAP_BATCH	/* As per SNDCTL_DSP_GETCAPS */
 };
 
 static __initdata MACHINE machFalcon = {
@@ -1442,7 +1562,7 @@ static __initdata MACHINE machFalcon = {
 	.irqinit	= AtaIrqInit,
 #ifdef MODULE
 	.irqcleanup	= AtaIrqCleanUp,
-#endif 
+#endif /* MODULE */
 	.init		= FalconInit,
 	.silence	= FalconSilence,
 	.setFormat	= FalconSetFormat,
@@ -1457,11 +1577,12 @@ static __initdata MACHINE machFalcon = {
 	.state_info	= FalconStateInfo,
 	.min_dsp_speed	= 8195,
 	.version	= ((DMASOUND_ATARI_REVISION<<8) | DMASOUND_ATARI_EDITION),
-	.hardware_afmts	= (AFMT_S8 | AFMT_S16_BE), 
-	.capabilities	=  DSP_CAP_BATCH	
+	.hardware_afmts	= (AFMT_S8 | AFMT_S16_BE), /* h'ware-supported formats *only* here */
+	.capabilities	=  DSP_CAP_BATCH	/* As per SNDCTL_DSP_GETCAPS */
 };
 
 
+/*** Config & Setup **********************************************************/
 
 
 static int __init dmasound_atari_init(void)

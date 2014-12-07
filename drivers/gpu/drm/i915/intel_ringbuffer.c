@@ -34,6 +34,10 @@
 #include "i915_trace.h"
 #include "intel_drv.h"
 
+/*
+ * 965+ support PIPE_CONTROL commands, which provide finer grained control
+ * over cache flushing.
+ */
 struct pipe_control {
 	struct drm_i915_gem_object *obj;
 	volatile u32 *cpu_page;
@@ -57,12 +61,43 @@ render_ring_flush(struct intel_ring_buffer *ring,
 	u32 cmd;
 	int ret;
 
+	/*
+	 * read/write caches:
+	 *
+	 * I915_GEM_DOMAIN_RENDER is always invalidated, but is
+	 * only flushed if MI_NO_WRITE_FLUSH is unset.  On 965, it is
+	 * also flushed at 2d versus 3d pipeline switches.
+	 *
+	 * read-only caches:
+	 *
+	 * I915_GEM_DOMAIN_SAMPLER is flushed on pre-965 if
+	 * MI_READ_FLUSH is set, and is always flushed on 965.
+	 *
+	 * I915_GEM_DOMAIN_COMMAND may not exist?
+	 *
+	 * I915_GEM_DOMAIN_INSTRUCTION, which exists on 965, is
+	 * invalidated when MI_EXE_FLUSH is set.
+	 *
+	 * I915_GEM_DOMAIN_VERTEX, which exists on 965, is
+	 * invalidated with every MI_FLUSH.
+	 *
+	 * TLBs:
+	 *
+	 * On 965, TLBs associated with I915_GEM_DOMAIN_COMMAND
+	 * and I915_GEM_DOMAIN_CPU in are invalidated at PTE write and
+	 * I915_GEM_DOMAIN_RENDER and I915_GEM_DOMAIN_SAMPLER
+	 * are flushed at any MI_FLUSH.
+	 */
 
 	cmd = MI_FLUSH | MI_NO_WRITE_FLUSH;
 	if ((invalidate_domains|flush_domains) &
 	    I915_GEM_DOMAIN_RENDER)
 		cmd &= ~MI_NO_WRITE_FLUSH;
 	if (INTEL_INFO(dev)->gen < 4) {
+		/*
+		 * On the 965, the sampler cache always gets flushed
+		 * and this bit is reserved.
+		 */
 		if (invalidate_domains & I915_GEM_DOMAIN_SAMPLER)
 			cmd |= MI_READ_FLUSH;
 	}
@@ -84,6 +119,43 @@ render_ring_flush(struct intel_ring_buffer *ring,
 	return 0;
 }
 
+/**
+ * Emits a PIPE_CONTROL with a non-zero post-sync operation, for
+ * implementing two workarounds on gen6.  From section 1.4.7.1
+ * "PIPE_CONTROL" of the Sandy Bridge PRM volume 2 part 1:
+ *
+ * [DevSNB-C+{W/A}] Before any depth stall flush (including those
+ * produced by non-pipelined state commands), software needs to first
+ * send a PIPE_CONTROL with no bits set except Post-Sync Operation !=
+ * 0.
+ *
+ * [Dev-SNB{W/A}]: Before a PIPE_CONTROL with Write Cache Flush Enable
+ * =1, a PIPE_CONTROL with any non-zero post-sync-op is required.
+ *
+ * And the workaround for these two requires this workaround first:
+ *
+ * [Dev-SNB{W/A}]: Pipe-control with CS-stall bit set must be sent
+ * BEFORE the pipe-control with a post-sync op and no write-cache
+ * flushes.
+ *
+ * And this last workaround is tricky because of the requirements on
+ * that bit.  From section 1.4.7.2.3 "Stall" of the Sandy Bridge PRM
+ * volume 2 part 1:
+ *
+ *     "1 of the following must also be set:
+ *      - Render Target Cache Flush Enable ([12] of DW1)
+ *      - Depth Cache Flush Enable ([0] of DW1)
+ *      - Stall at Pixel Scoreboard ([1] of DW1)
+ *      - Depth Stall ([13] of DW1)
+ *      - Post-Sync Operation ([13] of DW1)
+ *      - Notify Enable ([8] of DW1)"
+ *
+ * The cache flushes require the workaround flush that triggered this
+ * one, so we can't use it.  Depth stall would trigger the same.
+ * Post-sync nonzero is what triggered this second workaround, so we
+ * can't use that one either.  Notify enable is IRQs, which aren't
+ * really our business.  That leaves only stall at scoreboard.
+ */
 static int
 intel_emit_post_sync_nonzero_flush(struct intel_ring_buffer *ring)
 {
@@ -99,9 +171,9 @@ intel_emit_post_sync_nonzero_flush(struct intel_ring_buffer *ring)
 	intel_ring_emit(ring, GFX_OP_PIPE_CONTROL(5));
 	intel_ring_emit(ring, PIPE_CONTROL_CS_STALL |
 			PIPE_CONTROL_STALL_AT_SCOREBOARD);
-	intel_ring_emit(ring, scratch_addr | PIPE_CONTROL_GLOBAL_GTT); 
-	intel_ring_emit(ring, 0); 
-	intel_ring_emit(ring, 0); 
+	intel_ring_emit(ring, scratch_addr | PIPE_CONTROL_GLOBAL_GTT); /* address */
+	intel_ring_emit(ring, 0); /* low dword */
+	intel_ring_emit(ring, 0); /* high dword */
 	intel_ring_emit(ring, MI_NOOP);
 	intel_ring_advance(ring);
 
@@ -111,7 +183,7 @@ intel_emit_post_sync_nonzero_flush(struct intel_ring_buffer *ring)
 
 	intel_ring_emit(ring, GFX_OP_PIPE_CONTROL(5));
 	intel_ring_emit(ring, PIPE_CONTROL_QW_WRITE);
-	intel_ring_emit(ring, scratch_addr | PIPE_CONTROL_GLOBAL_GTT); 
+	intel_ring_emit(ring, scratch_addr | PIPE_CONTROL_GLOBAL_GTT); /* address */
 	intel_ring_emit(ring, 0);
 	intel_ring_emit(ring, 0);
 	intel_ring_emit(ring, MI_NOOP);
@@ -129,9 +201,13 @@ gen6_render_ring_flush(struct intel_ring_buffer *ring,
 	u32 scratch_addr = pc->gtt_offset + 128;
 	int ret;
 
-	
+	/* Force SNB workarounds for PIPE_CONTROL flushes */
 	intel_emit_post_sync_nonzero_flush(ring);
 
+	/* Just flush everything.  Experiments have shown that reducing the
+	 * number of bits based on the write domains has little performance
+	 * impact.
+	 */
 	flags |= PIPE_CONTROL_RENDER_TARGET_CACHE_FLUSH;
 	flags |= PIPE_CONTROL_INSTRUCTION_CACHE_INVALIDATE;
 	flags |= PIPE_CONTROL_TEXTURE_CACHE_INVALIDATE;
@@ -147,8 +223,8 @@ gen6_render_ring_flush(struct intel_ring_buffer *ring,
 	intel_ring_emit(ring, GFX_OP_PIPE_CONTROL(5));
 	intel_ring_emit(ring, flags);
 	intel_ring_emit(ring, scratch_addr | PIPE_CONTROL_GLOBAL_GTT);
-	intel_ring_emit(ring, 0); 
-	intel_ring_emit(ring, 0); 
+	intel_ring_emit(ring, 0); /* lower dword */
+	intel_ring_emit(ring, 0); /* uppwer dword */
 	intel_ring_emit(ring, MI_NOOP);
 	intel_ring_advance(ring);
 
@@ -177,16 +253,16 @@ static int init_ring_common(struct intel_ring_buffer *ring)
 	struct drm_i915_gem_object *obj = ring->obj;
 	u32 head;
 
-	
+	/* Stop the ring if it's running. */
 	I915_WRITE_CTL(ring, 0);
 	I915_WRITE_HEAD(ring, 0);
 	ring->write_tail(ring, 0);
 
-	
+	/* Initialize the ring. */
 	I915_WRITE_START(ring, obj->gtt_offset);
 	head = I915_READ_HEAD(ring) & HEAD_ADDR;
 
-	
+	/* G45 ring initialization fails to reset head to zero */
 	if (head != 0) {
 		DRM_DEBUG_KMS("%s head not reset to zero "
 			      "ctl %08x head %08x tail %08x start %08x\n",
@@ -213,7 +289,7 @@ static int init_ring_common(struct intel_ring_buffer *ring)
 			((ring->size - PAGE_SIZE) & RING_NR_PAGES)
 			| RING_VALID);
 
-	
+	/* If the head is still not zero, the ring is dead */
 	if ((I915_READ_CTL(ring) & RING_VALID) == 0 ||
 	    I915_READ_START(ring) != obj->gtt_offset ||
 	    (I915_READ_HEAD(ring) & HEAD_ADDR) != 0) {
@@ -324,6 +400,11 @@ static int init_render_ring(struct intel_ring_buffer *ring)
 
 
 	if (IS_GEN6(dev)) {
+		/* From the Sandybridge PRM, volume 1 part 3, page 24:
+		 * "If this bit is set, STCunit will have LRA as replacement
+		 *  policy. [...] This bit must be reset.  LRA replacement
+		 *  policy is not supported."
+		 */
 		I915_WRITE(CACHE_MODE_0,
 			   CM0_STC_EVICT_DISABLE_LRA_SNB << CM0_MASK_SHIFT);
 	}
@@ -357,6 +438,15 @@ update_mboxes(struct intel_ring_buffer *ring,
 	intel_ring_emit(ring, mmio_offset);
 }
 
+/**
+ * gen6_add_request - Update the semaphore mailbox registers
+ * 
+ * @ring - ring that is adding a request
+ * @seqno - return seqno stuck into the ring
+ *
+ * Update the mailbox registers in the *other* rings with the current seqno.
+ * This acts like a signal in the canonical semaphore.
+ */
 static int
 gen6_add_request(struct intel_ring_buffer *ring,
 		 u32 *seqno)
@@ -385,6 +475,13 @@ gen6_add_request(struct intel_ring_buffer *ring,
 	return 0;
 }
 
+/**
+ * intel_ring_sync - sync the waiter to the signaller on seqno
+ *
+ * @waiter - ring that is waiting
+ * @signaller - ring which has, or will signal
+ * @seqno - seqno which the waiter will block on
+ */
 static int
 intel_ring_sync(struct intel_ring_buffer *waiter,
 		struct intel_ring_buffer *signaller,
@@ -409,6 +506,7 @@ intel_ring_sync(struct intel_ring_buffer *waiter,
 	return 0;
 }
 
+/* VCS->RCS (RVSYNC) or BCS->RCS (RBSYNC) */
 int
 render_ring_sync_to(struct intel_ring_buffer *waiter,
 		    struct intel_ring_buffer *signaller,
@@ -421,6 +519,7 @@ render_ring_sync_to(struct intel_ring_buffer *waiter,
 			       seqno);
 }
 
+/* RCS->VCS (VRSYNC) or BCS->VCS (VBSYNC) */
 int
 gen6_bsd_ring_sync_to(struct intel_ring_buffer *waiter,
 		      struct intel_ring_buffer *signaller,
@@ -433,6 +532,7 @@ gen6_bsd_ring_sync_to(struct intel_ring_buffer *waiter,
 			       seqno);
 }
 
+/* RCS->BCS (BRSYNC) or VCS->BCS (BVSYNC) */
 int
 gen6_blt_ring_sync_to(struct intel_ring_buffer *waiter,
 		      struct intel_ring_buffer *signaller,
@@ -465,6 +565,14 @@ pc_render_add_request(struct intel_ring_buffer *ring,
 	u32 scratch_addr = pc->gtt_offset + 128;
 	int ret;
 
+	/* For Ironlake, MI_USER_INTERRUPT was deprecated and apparently
+	 * incoherent with writes to memory, i.e. completely fubar,
+	 * so we need to use PIPE_NOTIFY instead.
+	 *
+	 * However, we also need to workaround the qword write
+	 * incoherence by flushing the 6 PIPE_NOTIFY buffers out to
+	 * memory before requesting an interrupt.
+	 */
 	ret = intel_ring_begin(ring, 32);
 	if (ret)
 		return ret;
@@ -476,7 +584,7 @@ pc_render_add_request(struct intel_ring_buffer *ring,
 	intel_ring_emit(ring, seqno);
 	intel_ring_emit(ring, 0);
 	PIPE_CONTROL_FLUSH(ring, scratch_addr);
-	scratch_addr += 128; 
+	scratch_addr += 128; /* write to separate cachelines */
 	PIPE_CONTROL_FLUSH(ring, scratch_addr);
 	scratch_addr += 128;
 	PIPE_CONTROL_FLUSH(ring, scratch_addr);
@@ -526,6 +634,9 @@ gen6_ring_get_seqno(struct intel_ring_buffer *ring)
 {
 	struct drm_device *dev = ring->dev;
 
+	/* Workaround to force correct ordering between irq and seqno writes on
+	 * ivb (and maybe also on snb) by reading from a CS register (like
+	 * ACTHD) before reading the status page. */
 	if (IS_GEN6(dev) || IS_GEN7(dev))
 		intel_ring_get_active_head(ring);
 	return intel_read_status_page(ring, I915_GEM_HWS_INDEX);
@@ -622,6 +733,9 @@ void intel_ring_setup_status_page(struct intel_ring_buffer *ring)
 	drm_i915_private_t *dev_priv = ring->dev->dev_private;
 	u32 mmio = 0;
 
+	/* The ring status page addresses are no longer next to the rest of
+	 * the ring registers as of gen7.
+	 */
 	if (IS_GEN7(dev)) {
 		switch (ring->id) {
 		case RCS:
@@ -693,6 +807,9 @@ gen6_ring_get_irq(struct intel_ring_buffer *ring, u32 gflag, u32 rflag)
 	if (!dev->irq_enabled)
 	       return false;
 
+	/* It looks like we need to prevent the gt from suspending while waiting
+	 * for an notifiy irq, otherwise irqs seem to get lost on at least the
+	 * blt/bsd rings on ivb. */
 	gen6_gt_force_wake_get(dev_priv);
 
 	spin_lock(&ring->irq_lock);
@@ -927,6 +1044,10 @@ int intel_init_ring_buffer(struct drm_device *dev,
 	if (ret)
 		goto err_unmap;
 
+	/* Workaround an erratum on the i830 which causes a hang if
+	 * the TAIL pointer points to within the last 2 cachelines
+	 * of the buffer.
+	 */
 	ring->effective_size = ring->size;
 	if (IS_I830(ring->dev) || IS_845G(ring->dev))
 		ring->effective_size -= 128;
@@ -953,7 +1074,7 @@ void intel_cleanup_ring_buffer(struct intel_ring_buffer *ring)
 	if (ring->obj == NULL)
 		return;
 
-	
+	/* Disable the ring buffer. The ring must be idle at this point */
 	dev_priv = ring->dev->dev_private;
 	ret = intel_wait_ring_idle(ring);
 	if (ret)
@@ -1004,6 +1125,10 @@ static int intel_ring_wait_seqno(struct intel_ring_buffer *ring, u32 seqno)
 	bool was_interruptible;
 	int ret;
 
+	/* XXX As we have not yet audited all the paths to check that
+	 * they are ready for ERESTARTSYS from intel_ring_begin, do not
+	 * allow us to be interruptible by a signal.
+	 */
 	was_interruptible = dev_priv->mm.interruptible;
 	dev_priv->mm.interruptible = false;
 
@@ -1044,6 +1169,11 @@ static int intel_ring_wait_request(struct intel_ring_buffer *ring, int n)
 			break;
 		}
 
+		/* Consume this request in case we need more space than
+		 * is available and so need to prevent a race between
+		 * updating last_retired_head and direct reads of
+		 * I915_RING_HEAD. It also provides a nice sanity check.
+		 */
 		request->tail = -1;
 	}
 
@@ -1079,6 +1209,11 @@ int intel_wait_ring_buffer(struct intel_ring_buffer *ring, int n)
 
 	trace_i915_ring_wait_begin(ring);
 	if (drm_core_check_feature(dev, DRIVER_GEM))
+		/* With GEM the hangcheck timer should kick us out of the loop,
+		 * leaving it early runs the risk of corrupting GEM state (due
+		 * to running on almost untested codepaths). But on resume
+		 * timers don't work yet, so prevent a complete hang in that
+		 * case by choosing an insanely large timeout. */
 		end = jiffies + 60 * HZ;
 	else
 		end = jiffies + 3 * HZ;
@@ -1158,6 +1293,7 @@ static const struct intel_ring_buffer render_ring = {
 	.signal_mbox		= {GEN6_VRSYNC, GEN6_BRSYNC},
 };
 
+/* ring buffer for bit-stream decoder */
 
 static const struct intel_ring_buffer bsd_ring = {
 	.name                   = "bsd ring",
@@ -1180,7 +1316,7 @@ static void gen6_bsd_ring_write_tail(struct intel_ring_buffer *ring,
 {
 	drm_i915_private_t *dev_priv = ring->dev->dev_private;
 
-       
+       /* Every tail move must follow the sequence below */
 	I915_WRITE(GEN6_BSD_SLEEP_PSMI_CONTROL,
 		GEN6_BSD_SLEEP_PSMI_CONTROL_RC_ILDL_MESSAGE_MODIFY_MASK |
 		GEN6_BSD_SLEEP_PSMI_CONTROL_RC_ILDL_MESSAGE_DISABLE);
@@ -1229,7 +1365,7 @@ gen6_ring_dispatch_execbuffer(struct intel_ring_buffer *ring,
 		return ret;
 
 	intel_ring_emit(ring, MI_BATCH_BUFFER_START | MI_BATCH_NON_SECURE_I965);
-	
+	/* bit0-7 is the length on GEN6+ */
 	intel_ring_emit(ring, offset);
 	intel_ring_advance(ring);
 
@@ -1268,6 +1404,7 @@ gen6_bsd_ring_put_irq(struct intel_ring_buffer *ring)
 				 GEN6_BSD_USER_INTERRUPT);
 }
 
+/* ring buffer for Video Codec for Gen6+ */
 static const struct intel_ring_buffer gen6_bsd_ring = {
 	.name			= "gen6 bsd ring",
 	.id			= VCS,
@@ -1288,6 +1425,7 @@ static const struct intel_ring_buffer gen6_bsd_ring = {
 	.signal_mbox		= {GEN6_RVSYNC, GEN6_BVSYNC},
 };
 
+/* Blitter support (SandyBridge+) */
 
 static bool
 blt_ring_get_irq(struct intel_ring_buffer *ring)

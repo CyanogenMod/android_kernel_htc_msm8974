@@ -78,7 +78,7 @@ const u8 *hdmiphy_preset2conf(u32 preset)
 
 static int hdmiphy_s_power(struct v4l2_subdev *sd, int on)
 {
-	
+	/* to be implemented */
 	return 0;
 }
 
@@ -98,7 +98,7 @@ static int hdmiphy_s_dv_preset(struct v4l2_subdev *sd,
 		return -EINVAL;
 	}
 
-	
+	/* storing configuration to the device */
 	memcpy(buffer, data, 32);
 	ret = i2c_master_send(client, buffer, 32);
 	if (ret != 32) {
@@ -117,7 +117,7 @@ static int hdmiphy_s_stream(struct v4l2_subdev *sd, int enable)
 	int ret;
 
 	dev_info(dev, "s_stream(%d)\n", enable);
-	
+	/* going to/from configuration from/to operation mode */
 	buffer[0] = 0x1f;
 	buffer[1] = enable ? 0x80 : 0x00;
 

@@ -81,7 +81,7 @@ enum {
 	MTHCA_AV_SIZE         =  0x20,
 	MTHCA_MGM_ENTRY_SIZE  = 0x100,
 
-	
+	/* Arbel FW gives us these, but we need them for Tavor */
 	MTHCA_MPT_ENTRY_SIZE  =  0x40,
 	MTHCA_MTT_SEG_SIZE    =  0x40,
 
@@ -297,7 +297,7 @@ struct mthca_dev {
 	u32              rev_id;
 	char             board_id[MTHCA_BOARD_ID_LEN];
 
-	
+	/* firmware info */
 	u64              fw_ver;
 	union {
 		struct {
@@ -369,11 +369,11 @@ extern int mthca_debug_level;
 			dev_printk(KERN_DEBUG, &mdev->pdev->dev, format, ## arg); \
 	} while (0)
 
-#else 
+#else /* CONFIG_INFINIBAND_MTHCA_DEBUG */
 
 #define mthca_dbg(mdev, format, arg...) do { (void) mdev; } while (0)
 
-#endif 
+#endif /* CONFIG_INFINIBAND_MTHCA_DEBUG */
 
 #define mthca_err(mdev, format, arg...) \
 	dev_err(&mdev->pdev->dev, format, ## arg)
@@ -593,4 +593,4 @@ static inline int mthca_is_memfree(struct mthca_dev *dev)
 	return dev->mthca_flags & MTHCA_FLAG_MEMFREE;
 }
 
-#endif 
+#endif /* MTHCA_DEV_H */

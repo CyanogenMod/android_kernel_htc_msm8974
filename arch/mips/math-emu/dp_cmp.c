@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * double precision: common utilities
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
@@ -32,7 +35,7 @@ int ieee754dp_cmp(ieee754dp x, ieee754dp y, int cmp, int sig)
 	EXPLODEYDP;
 	FLUSHXDP;
 	FLUSHYDP;
-	CLEARCX;	
+	CLEARCX;	/* Even clear inexact flag here */
 
 	if (ieee754dp_isnan(x) || ieee754dp_isnan(y)) {
 		if (sig || xc == IEEE754_CLASS_SNAN || yc == IEEE754_CLASS_SNAN)

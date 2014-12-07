@@ -28,16 +28,21 @@ void gic_send_ipi(unsigned int intr)
 	GICWRITE(GIC_REG(SHARED, GIC_SH_WEDGE), 0x80000000 | intr);
 }
 
+/* This is Malta specific and needs to be exported */
 static void __init vpe_local_setup(unsigned int numvpes)
 {
 	int i;
 	unsigned long timer_interrupt = 5, perf_interrupt = 5;
 	unsigned int vpe_ctl;
 
+	/*
+	 * Setup the default performance counter timer interrupts
+	 * for all VPEs
+	 */
 	for (i = 0; i < numvpes; i++) {
 		GICWRITE(GIC_REG(VPE_LOCAL, GIC_VPE_OTHER_ADDR), i);
 
-		
+		/* Are Interrupts locally routable? */
 		GICREAD(GIC_REG(VPE_OTHER, GIC_VPE_CTL), vpe_ctl);
 		if (vpe_ctl & GIC_VPE_CTL_TIMER_RTBL_MSK)
 			GICWRITE(GIC_REG(VPE_OTHER, GIC_VPE_TIMER_MAP),
@@ -55,7 +60,7 @@ unsigned int gic_get_int(void)
 	unsigned long *pending, *intrmask, *pcpu_mask;
 	unsigned long *pending_abs, *intrmask_abs;
 
-	
+	/* Get per-cpu bitmaps */
 	pending = pending_regs[smp_processor_id()].pending;
 	intrmask = intrmask_regs[smp_processor_id()].intrmask;
 	pcpu_mask = pcpu_masks[smp_processor_id()].pcpu_mask;
@@ -124,13 +129,13 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *cpumask,
 	if (cpus_empty(tmp))
 		return -1;
 
-	
+	/* Assumption : cpumask refers to a single CPU */
 	spin_lock_irqsave(&gic_lock, flags);
 	for (;;) {
-		
+		/* Re-route this IRQ */
 		GIC_SH_MAP_TO_VPE_SMASK(irq, first_cpu(tmp));
 
-		
+		/* Update the pcpu_masks */
 		for (i = 0; i < NR_CPUS; i++)
 			clear_bit(irq, pcpu_masks[i].pcpu_mask);
 		set_bit(irq, pcpu_masks[first_cpu(tmp)].pcpu_mask);
@@ -159,10 +164,10 @@ static void __init gic_setup_intr(unsigned int intr, unsigned int cpu,
 	unsigned int pin, unsigned int polarity, unsigned int trigtype,
 	unsigned int flags)
 {
-	
+	/* Setup Intr to Pin mapping */
 	if (pin & GIC_MAP_TO_NMI_MSK) {
 		GICWRITE(GIC_REG_ADDR(SHARED, GIC_SH_MAP_TO_PIN(intr)), pin);
-		
+		/* FIXME: hack to route NMI to all cpu's */
 		for (cpu = 0; cpu < NR_CPUS; cpu += 32) {
 			GICWRITE(GIC_REG_ADDR(SHARED,
 					  GIC_SH_MAP_TO_VPE_REG_OFF(intr, cpu)),
@@ -171,19 +176,19 @@ static void __init gic_setup_intr(unsigned int intr, unsigned int cpu,
 	} else {
 		GICWRITE(GIC_REG_ADDR(SHARED, GIC_SH_MAP_TO_PIN(intr)),
 			 GIC_MAP_TO_PIN_MSK | pin);
-		
+		/* Setup Intr to CPU mapping */
 		GIC_SH_MAP_TO_VPE_SMASK(intr, cpu);
 	}
 
-	
+	/* Setup Intr Polarity */
 	GIC_SET_POLARITY(intr, polarity);
 
-	
+	/* Setup Intr Trigger Type */
 	GIC_SET_TRIGGER(intr, trigtype);
 
-	
+	/* Init Intr Masks */
 	GIC_CLR_INTR_MASK(intr);
-	
+	/* Initialise per-cpu Interrupt software masks */
 	if (flags & GIC_FLAG_IPI)
 		set_bit(intr, pcpu_masks[cpu].pcpu_mask);
 	if (flags & GIC_FLAG_TRANSPARENT)
@@ -197,7 +202,7 @@ static void __init gic_basic_init(int numintrs, int numvpes,
 {
 	unsigned int i, cpu;
 
-	
+	/* Setup defaults */
 	for (i = 0; i < numintrs; i++) {
 		GIC_SET_POLARITY(i, GIC_POL_POS);
 		GIC_SET_TRIGGER(i, GIC_TRIG_LEVEL);
@@ -206,7 +211,7 @@ static void __init gic_basic_init(int numintrs, int numvpes,
 			gic_irq_flags[i] = 0;
 	}
 
-	
+	/* Setup specifics */
 	for (i = 0; i < mapsize; i++) {
 		cpu = intrmap[i].cpunum;
 		if (cpu == GIC_UNUSED)

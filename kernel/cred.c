@@ -29,6 +29,9 @@
 
 static struct kmem_cache *cred_jar;
 
+/*
+ * The common credentials for the initial task's thread group
+ */
 #ifdef CONFIG_KEYS
 static struct thread_group_cred init_tgcred = {
 	.usage	= ATOMIC_INIT(2),
@@ -37,6 +40,9 @@ static struct thread_group_cred init_tgcred = {
 };
 #endif
 
+/*
+ * The initial credentials for the initial task
+ */
 struct cred init_cred = {
 	.usage			= ATOMIC_INIT(4),
 #ifdef CONFIG_DEBUG_CREDENTIALS
@@ -81,6 +87,9 @@ static inline void alter_cred_subscribers(const struct cred *_cred, int n)
 #endif
 }
 
+/*
+ * Dispose of the shared task group credentials
+ */
 #ifdef CONFIG_KEYS
 static void release_tgcred_rcu(struct rcu_head *rcu)
 {
@@ -95,6 +104,9 @@ static void release_tgcred_rcu(struct rcu_head *rcu)
 }
 #endif
 
+/*
+ * Release a set of thread group credentials.
+ */
 static void release_tgcred(struct cred *cred)
 {
 #ifdef CONFIG_KEYS
@@ -105,6 +117,9 @@ static void release_tgcred(struct cred *cred)
 #endif
 }
 
+/*
+ * The RCU callback to actually dispose of a set of credentials
+ */
 static void put_cred_rcu(struct rcu_head *rcu)
 {
 	struct cred *cred = container_of(rcu, struct cred, rcu);
@@ -136,6 +151,12 @@ static void put_cred_rcu(struct rcu_head *rcu)
 	kmem_cache_free(cred_jar, cred);
 }
 
+/**
+ * __put_cred - Destroy a set of credentials
+ * @cred: The record to release
+ *
+ * Destroy a set of credentials on which no references remain.
+ */
 void __put_cred(struct cred *cred)
 {
 	kdebug("__put_cred(%p{%d,%d})", cred,
@@ -155,6 +176,9 @@ void __put_cred(struct cred *cred)
 }
 EXPORT_SYMBOL(__put_cred);
 
+/*
+ * Clean up a task's credentials when it exits
+ */
 void exit_creds(struct task_struct *tsk)
 {
 	struct cred *cred;
@@ -183,6 +207,16 @@ void exit_creds(struct task_struct *tsk)
 	}
 }
 
+/**
+ * get_task_cred - Get another task's objective credentials
+ * @task: The task to query
+ *
+ * Get the objective credentials of a task, pinning them so that they can't go
+ * away.  Accessing a task's credentials directly is not permitted.
+ *
+ * The caller must also make sure task doesn't get deleted, either by holding a
+ * ref on task or by holding tasklist_lock to prevent it from being unlinked.
+ */
 const struct cred *get_task_cred(struct task_struct *task)
 {
 	const struct cred *cred;
@@ -198,6 +232,10 @@ const struct cred *get_task_cred(struct task_struct *task)
 	return cred;
 }
 
+/*
+ * Allocate blank credentials, such that the credentials can be filled in at a
+ * later date without risk of ENOMEM.
+ */
 struct cred *cred_alloc_blank(void)
 {
 	struct cred *new;
@@ -230,6 +268,20 @@ error:
 	return NULL;
 }
 
+/**
+ * prepare_creds - Prepare a new set of credentials for modification
+ *
+ * Prepare a new set of task credentials for modification.  A task's creds
+ * shouldn't generally be modified directly, therefore this function is used to
+ * prepare a new copy, which the caller then modifies and then commits by
+ * calling commit_creds().
+ *
+ * Preparation involves making a copy of the objective creds for modification.
+ *
+ * Returns a pointer to the new creds-to-be if successful, NULL otherwise.
+ *
+ * Call commit_creds() or abort_creds() to clean up.
+ */
 struct cred *prepare_creds(void)
 {
 	struct task_struct *task = current;
@@ -273,6 +325,10 @@ error:
 }
 EXPORT_SYMBOL(prepare_creds);
 
+/*
+ * Prepare credentials for current to perform an execve()
+ * - The caller must hold ->cred_guard_mutex
+ */
 struct cred *prepare_exec_creds(void)
 {
 	struct thread_group_cred *tgcred = NULL;
@@ -291,16 +347,18 @@ struct cred *prepare_exec_creds(void)
 	}
 
 #ifdef CONFIG_KEYS
-	
+	/* newly exec'd tasks don't get a thread keyring */
 	key_put(new->thread_keyring);
 	new->thread_keyring = NULL;
 
+	/* create a new per-thread-group creds for all this set of threads to
+	 * share */
 	memcpy(tgcred, new->tgcred, sizeof(struct thread_group_cred));
 
 	atomic_set(&tgcred->usage, 1);
 	spin_lock_init(&tgcred->lock);
 
-	
+	/* inherit the session keyring; new process keyring */
 	key_get(tgcred->session_keyring);
 	tgcred->process_keyring = NULL;
 
@@ -311,6 +369,15 @@ struct cred *prepare_exec_creds(void)
 	return new;
 }
 
+/*
+ * Copy credentials for the new process created by fork()
+ *
+ * We share if we can, but under some circumstances we have to generate a new
+ * set.
+ *
+ * The new process gets the current process's subjective credentials as its
+ * objective and subjective credentials
+ */
 int copy_creds(struct task_struct *p, unsigned long clone_flags)
 {
 #ifdef CONFIG_KEYS
@@ -347,9 +414,14 @@ int copy_creds(struct task_struct *p, unsigned long clone_flags)
 			goto error_put;
 	}
 
+	/* cache user_ns in cred.  Doesn't need a refcount because it will
+	 * stay pinned by cred->user
+	 */
 	new->user_ns = new->user->user_ns;
 
 #ifdef CONFIG_KEYS
+	/* new threads get their own thread keyrings if their parent already
+	 * had one */
 	if (new->thread_keyring) {
 		key_put(new->thread_keyring);
 		new->thread_keyring = NULL;
@@ -357,6 +429,9 @@ int copy_creds(struct task_struct *p, unsigned long clone_flags)
 			install_thread_keyring_to_cred(new);
 	}
 
+	/* we share the process and session keyrings between all the threads in
+	 * a process - this is slightly icky as we violate COW credentials a
+	 * bit */
 	if (!(clone_flags & CLONE_THREAD)) {
 		tgcred = kmalloc(sizeof(*tgcred), GFP_KERNEL);
 		if (!tgcred) {
@@ -384,6 +459,20 @@ error_put:
 	return ret;
 }
 
+/**
+ * commit_creds - Install new credentials upon the current task
+ * @new: The credentials to be assigned
+ *
+ * Install a new set of credentials to the current task, using RCU to replace
+ * the old set.  Both the objective and the subjective credentials pointers are
+ * updated.  This function may not be called if the subjective credentials are
+ * in an overridden state.
+ *
+ * This function eats the caller's reference to the new credentials.
+ *
+ * Always returns 0 thus allowing this function to be tail-called at the end
+ * of, say, sys_setgid().
+ */
 int commit_creds(struct cred *new)
 {
 	struct task_struct *task = current;
@@ -401,9 +490,9 @@ int commit_creds(struct cred *new)
 #endif
 	BUG_ON(atomic_read(&new->usage) < 1);
 
-	get_cred(new); 
+	get_cred(new); /* we will require a ref for the subj creds too */
 
-	
+	/* dumpability changes */
 	if (old->euid != new->euid ||
 	    old->egid != new->egid ||
 	    old->fsuid != new->fsuid ||
@@ -415,12 +504,16 @@ int commit_creds(struct cred *new)
 		smp_wmb();
 	}
 
-	
+	/* alter the thread keyring */
 	if (new->fsuid != old->fsuid)
 		key_fsuid_changed(task);
 	if (new->fsgid != old->fsgid)
 		key_fsgid_changed(task);
 
+	/* do it
+	 * RLIMIT_NPROC limits on user->processes have already been checked
+	 * in set_user().
+	 */
 	alter_cred_subscribers(new, 2);
 	if (new->user != old->user)
 		atomic_inc(&new->user->processes);
@@ -430,7 +523,7 @@ int commit_creds(struct cred *new)
 		atomic_dec(&old->user->processes);
 	alter_cred_subscribers(old, -2);
 
-	
+	/* send notifications */
 	if (new->uid   != old->uid  ||
 	    new->euid  != old->euid ||
 	    new->suid  != old->suid ||
@@ -443,13 +536,20 @@ int commit_creds(struct cred *new)
 	    new->fsgid != old->fsgid)
 		proc_id_connector(task, PROC_EVENT_GID);
 
-	
+	/* release the old obj and subj refs both */
 	put_cred(old);
 	put_cred(old);
 	return 0;
 }
 EXPORT_SYMBOL(commit_creds);
 
+/**
+ * abort_creds - Discard a set of credentials and unlock the current task
+ * @new: The credentials that were going to be applied
+ *
+ * Discard a set of credentials that were under construction and unlock the
+ * current task.
+ */
 void abort_creds(struct cred *new)
 {
 	kdebug("abort_creds(%p{%d,%d})", new,
@@ -464,6 +564,13 @@ void abort_creds(struct cred *new)
 }
 EXPORT_SYMBOL(abort_creds);
 
+/**
+ * override_creds - Override the current process's subjective credentials
+ * @new: The credentials to be assigned
+ *
+ * Install a set of temporary override subjective credentials on the current
+ * process, returning the old set for later reversion.
+ */
 const struct cred *override_creds(const struct cred *new)
 {
 	const struct cred *old = current->cred;
@@ -486,6 +593,13 @@ const struct cred *override_creds(const struct cred *new)
 }
 EXPORT_SYMBOL(override_creds);
 
+/**
+ * revert_creds - Revert a temporary subjective credentials override
+ * @old: The credentials to be restored
+ *
+ * Revert a temporary set of override subjective credentials to an old set,
+ * discarding the override set.
+ */
 void revert_creds(const struct cred *old)
 {
 	const struct cred *override = current->cred;
@@ -503,13 +617,34 @@ void revert_creds(const struct cred *old)
 }
 EXPORT_SYMBOL(revert_creds);
 
+/*
+ * initialise the credentials stuff
+ */
 void __init cred_init(void)
 {
-	
+	/* allocate a slab in which we can store credentials */
 	cred_jar = kmem_cache_create("cred_jar", sizeof(struct cred),
 				     0, SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
 }
 
+/**
+ * prepare_kernel_cred - Prepare a set of credentials for a kernel service
+ * @daemon: A userspace daemon to be used as a reference
+ *
+ * Prepare a set of credentials for a kernel service.  This can then be used to
+ * override a task's own credentials so that work can be done on behalf of that
+ * task that requires a different subjective context.
+ *
+ * @daemon is used to provide a base for the security record, but can be NULL.
+ * If @daemon is supplied, then the security data will be derived from that;
+ * otherwise they'll be set to 0 and no groups, full capabilities and no keys.
+ *
+ * The caller may change these controls afterwards if desired.
+ *
+ * Returns the new credentials or NULL if out of memory.
+ *
+ * Does not take, and does not return holding current->cred_replace_mutex.
+ */
 struct cred *prepare_kernel_cred(struct task_struct *daemon)
 {
 #ifdef CONFIG_KEYS
@@ -573,12 +708,30 @@ error:
 }
 EXPORT_SYMBOL(prepare_kernel_cred);
 
+/**
+ * set_security_override - Set the security ID in a set of credentials
+ * @new: The credentials to alter
+ * @secid: The LSM security ID to set
+ *
+ * Set the LSM security ID in a set of credentials so that the subjective
+ * security is overridden when an alternative set of credentials is used.
+ */
 int set_security_override(struct cred *new, u32 secid)
 {
 	return security_kernel_act_as(new, secid);
 }
 EXPORT_SYMBOL(set_security_override);
 
+/**
+ * set_security_override_from_ctx - Set the security ID in a set of credentials
+ * @new: The credentials to alter
+ * @secctx: The LSM security context to generate the security ID from.
+ *
+ * Set the LSM security ID in a set of credentials so that the subjective
+ * security is overridden when an alternative set of credentials is used.  The
+ * security ID is specified in string form as a security context to be
+ * interpreted by the LSM.
+ */
 int set_security_override_from_ctx(struct cred *new, const char *secctx)
 {
 	u32 secid;
@@ -592,6 +745,15 @@ int set_security_override_from_ctx(struct cred *new, const char *secctx)
 }
 EXPORT_SYMBOL(set_security_override_from_ctx);
 
+/**
+ * set_create_files_as - Set the LSM file create context in a set of credentials
+ * @new: The credentials to alter
+ * @inode: The inode to take the context from
+ *
+ * Change the LSM file creation context in a set of credentials to be the same
+ * as the object context of the specified inode, so that the new inodes have
+ * the same MAC context as that inode.
+ */
 int set_create_files_as(struct cred *new, struct inode *inode)
 {
 	new->fsuid = inode->i_uid;
@@ -607,6 +769,10 @@ bool creds_are_invalid(const struct cred *cred)
 	if (cred->magic != CRED_MAGIC)
 		return true;
 #ifdef CONFIG_SECURITY_SELINUX
+	/*
+	 * cred->security == NULL if security_cred_alloc_blank() or
+	 * security_prepare_creds() returned an error.
+	 */
 	if (selinux_is_enabled() && cred->security) {
 		if ((unsigned long) cred->security < PAGE_SIZE)
 			return true;
@@ -619,6 +785,9 @@ bool creds_are_invalid(const struct cred *cred)
 }
 EXPORT_SYMBOL(creds_are_invalid);
 
+/*
+ * dump invalid credentials
+ */
 static void dump_invalid_creds(const struct cred *cred, const char *label,
 			       const struct task_struct *tsk)
 {
@@ -647,6 +816,9 @@ static void dump_invalid_creds(const struct cred *cred, const char *label,
 #endif
 }
 
+/*
+ * report use of invalid credentials
+ */
 void __invalid_creds(const struct cred *cred, const char *file, unsigned line)
 {
 	printk(KERN_ERR "CRED: Invalid credentials\n");
@@ -656,6 +828,9 @@ void __invalid_creds(const struct cred *cred, const char *file, unsigned line)
 }
 EXPORT_SYMBOL(__invalid_creds);
 
+/*
+ * check the credentials on a process
+ */
 void __validate_process_creds(struct task_struct *tsk,
 			      const char *file, unsigned line)
 {
@@ -685,6 +860,9 @@ invalid_creds:
 }
 EXPORT_SYMBOL(__validate_process_creds);
 
+/*
+ * check creds for do_exit()
+ */
 void validate_creds_for_do_exit(struct task_struct *tsk)
 {
 	kdebug("validate_creds_for_do_exit(%p,%p{%d,%d})",
@@ -695,4 +873,4 @@ void validate_creds_for_do_exit(struct task_struct *tsk)
 	__validate_process_creds(tsk, __FILE__, __LINE__);
 }
 
-#endif 
+#endif /* CONFIG_DEBUG_CREDENTIALS */

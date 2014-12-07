@@ -43,6 +43,7 @@
 #define EVO_OIMM(c) (0x09 + (c))
 #define EVO_CURS(c) (0x0d + (c))
 
+/* offsets in shared sync bo of various structures */
 #define EVO_SYNC(c, o) ((c) * 0x0100 + (o))
 #define EVO_MAST_NTFY     EVO_SYNC(  0, 0x00)
 #define EVO_FLIP_SEM0(c)  EVO_SYNC((c), 0x00)
@@ -80,6 +81,9 @@ nvd0_display_crtc_get(struct drm_encoder *encoder)
 	return nouveau_encoder(encoder)->crtc;
 }
 
+/******************************************************************************
+ * EVO channel helpers
+ *****************************************************************************/
 static inline int
 evo_icmd(struct drm_device *dev, int id, u32 mthd, u32 data)
 {
@@ -237,6 +241,9 @@ evo_sync(struct drm_device *dev, int ch)
 	return -EBUSY;
 }
 
+/******************************************************************************
+ * Page flipping channel
+ *****************************************************************************/
 struct nouveau_bo *
 nvd0_display_crtc_sema(struct drm_device *dev, int crtc)
 {
@@ -287,7 +294,7 @@ nvd0_display_flip_next(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	if (unlikely(push == NULL))
 		return -EBUSY;
 
-	
+	/* synchronise with the rendering channel, if necessary */
 	if (likely(chan)) {
 		ret = RING_SPACE(chan, 10);
 		if (ret)
@@ -313,7 +320,7 @@ nvd0_display_flip_next(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 		evo_sync(crtc->dev, EVO_MASTER);
 	}
 
-	
+	/* queue the flip */
 	evo_mthd(push, 0x0100, 1);
 	evo_data(push, 0xfffe0000);
 	evo_mthd(push, 0x0084, 1);
@@ -350,6 +357,9 @@ nvd0_display_flip_next(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	return 0;
 }
 
+/******************************************************************************
+ * CRTC
+ *****************************************************************************/
 static int
 nvd0_crtc_set_dither(struct nouveau_crtc *nv_crtc, bool update)
 {
@@ -405,6 +415,9 @@ nvd0_crtc_set_scale(struct nouveau_crtc *nv_crtc, bool update)
 	int mode = DRM_MODE_SCALE_NONE;
 	u32 oX, oY, *push;
 
+	/* start off at the resolution we programmed the crtc for, this
+	 * effectively handles NONE/FULL scaling
+	 */
 	nv_connector = nouveau_crtc_connector_get(nv_crtc);
 	if (nv_connector && nv_connector->native_mode)
 		mode = nv_connector->scaling_mode;
@@ -419,6 +432,10 @@ nvd0_crtc_set_scale(struct nouveau_crtc *nv_crtc, bool update)
 	if (omode->flags & DRM_MODE_FLAG_DBLSCAN)
 		oY *= 2;
 
+	/* add overscan compensation if necessary, will keep the aspect
+	 * ratio the same as the backend mode unless overridden by the
+	 * user setting both hborder and vborder properties.
+	 */
 	if (nv_connector && ( nv_connector->underscan == UNDERSCAN_ON ||
 			     (nv_connector->underscan == UNDERSCAN_AUTO &&
 			      nv_connector->edid &&
@@ -438,11 +455,14 @@ nvd0_crtc_set_scale(struct nouveau_crtc *nv_crtc, bool update)
 		}
 	}
 
+	/* handle CENTER/ASPECT scaling, taking into account the areas
+	 * removed already for overscan compensation
+	 */
 	switch (mode) {
 	case DRM_MODE_SCALE_CENTER:
 		oX = min((u32)umode->hdisplay, oX);
 		oY = min((u32)umode->vdisplay, oY);
-		
+		/* fall-through */
 	case DRM_MODE_SCALE_ASPECT:
 		if (oY < oX) {
 			u32 aspect = (umode->hdisplay << 19) / umode->vdisplay;
@@ -659,10 +679,10 @@ nvd0_crtc_mode_set(struct drm_crtc *crtc, struct drm_display_mode *umode,
 		evo_data(push, (vblanks << 16) | hblanks);
 		evo_data(push, (vblan2e << 16) | vblan2s);
 		evo_mthd(push, 0x042c + (nv_crtc->index * 0x300), 1);
-		evo_data(push, 0x00000000); 
+		evo_data(push, 0x00000000); /* ??? */
 		evo_mthd(push, 0x0450 + (nv_crtc->index * 0x300), 3);
 		evo_data(push, mode->clock * 1000);
-		evo_data(push, 0x00200000); 
+		evo_data(push, 0x00200000); /* ??? */
 		evo_data(push, mode->clock * 1000);
 		evo_mthd(push, 0x04d0 + (nv_crtc->index * 0x300), 2);
 		evo_data(push, 0x00000311);
@@ -895,6 +915,9 @@ out:
 	return ret;
 }
 
+/******************************************************************************
+ * DAC
+ *****************************************************************************/
 static void
 nvd0_dac_dpms(struct drm_encoder *encoder, int mode)
 {
@@ -1061,6 +1084,9 @@ nvd0_dac_create(struct drm_connector *connector, struct dcb_entry *dcbe)
 	return 0;
 }
 
+/******************************************************************************
+ * Audio
+ *****************************************************************************/
 static void
 nvd0_audio_mode_set(struct drm_encoder *encoder, struct drm_display_mode *mode)
 {
@@ -1098,6 +1124,9 @@ nvd0_audio_disconnect(struct drm_encoder *encoder)
 	nv_mask(dev, 0x10ec10 + or, 0x80000003, 0x80000000);
 }
 
+/******************************************************************************
+ * HDMI
+ *****************************************************************************/
 static void
 nvd0_hdmi_mode_set(struct drm_encoder *encoder, struct drm_display_mode *mode)
 {
@@ -1106,7 +1135,7 @@ nvd0_hdmi_mode_set(struct drm_encoder *encoder, struct drm_display_mode *mode)
 	struct nouveau_connector *nv_connector;
 	struct drm_device *dev = encoder->dev;
 	int head = nv_crtc->index * 0x800;
-	u32 rekey = 56; 
+	u32 rekey = 56; /* binary driver, and tegra constant */
 	u32 max_ac_packet;
 
 	nv_connector = nouveau_encoder_connector_get(nv_encoder);
@@ -1115,10 +1144,10 @@ nvd0_hdmi_mode_set(struct drm_encoder *encoder, struct drm_display_mode *mode)
 
 	max_ac_packet  = mode->htotal - mode->hdisplay;
 	max_ac_packet -= rekey;
-	max_ac_packet -= 18; 
+	max_ac_packet -= 18; /* constant from tegra */
 	max_ac_packet /= 32;
 
-	
+	/* AVI InfoFrame */
 	nv_mask(dev, 0x616714 + head, 0x00000001, 0x00000000);
 	nv_wr32(dev, 0x61671c + head, 0x000d0282);
 	nv_wr32(dev, 0x616720 + head, 0x0000006f);
@@ -1127,16 +1156,16 @@ nvd0_hdmi_mode_set(struct drm_encoder *encoder, struct drm_display_mode *mode)
 	nv_wr32(dev, 0x61672c + head, 0x00000000);
 	nv_mask(dev, 0x616714 + head, 0x00000001, 0x00000001);
 
-	
+	/* ??? InfoFrame? */
 	nv_mask(dev, 0x6167a4 + head, 0x00000001, 0x00000000);
 	nv_wr32(dev, 0x6167ac + head, 0x00000010);
 	nv_mask(dev, 0x6167a4 + head, 0x00000001, 0x00000001);
 
-	
+	/* HDMI_CTRL */
 	nv_mask(dev, 0x616798 + head, 0x401f007f, 0x40000000 | rekey |
 						  max_ac_packet << 16);
 
-	
+	/* NFI, audio doesn't work without it though.. */
 	nv_mask(dev, 0x616548 + head, 0x00000070, 0x00000000);
 
 	nvd0_audio_mode_set(encoder, mode);
@@ -1157,6 +1186,9 @@ nvd0_hdmi_disconnect(struct drm_encoder *encoder)
 	nv_mask(dev, 0x616714 + head, 0x00000001, 0x00000000);
 }
 
+/******************************************************************************
+ * SOR
+ *****************************************************************************/
 static inline u32
 nvd0_sor_dp_lane_map(struct drm_device *dev, struct dcb_entry *dcb, u8 lane)
 {
@@ -1560,6 +1592,9 @@ nvd0_sor_create(struct drm_connector *connector, struct dcb_entry *dcbe)
 	return 0;
 }
 
+/******************************************************************************
+ * IRQ
+ *****************************************************************************/
 static struct dcb_entry *
 lookup_dcb(struct drm_device *dev, int id, u32 mc)
 {
@@ -1806,12 +1841,15 @@ nvd0_display_intr(struct drm_device *dev)
 		NV_INFO(dev, "PDISP: unknown intr 0x%08x\n", intr);
 }
 
+/******************************************************************************
+ * Init
+ *****************************************************************************/
 void
 nvd0_display_fini(struct drm_device *dev)
 {
 	int i;
 
-	
+	/* fini cursors + overlays + flips */
 	for (i = 1; i >= 0; i--) {
 		evo_fini_pio(dev, EVO_CURS(i));
 		evo_fini_pio(dev, EVO_OIMM(i));
@@ -1819,7 +1857,7 @@ nvd0_display_fini(struct drm_device *dev)
 		evo_fini_dma(dev, EVO_FLIP(i));
 	}
 
-	
+	/* fini master */
 	evo_fini_dma(dev, EVO_MASTER);
 }
 
@@ -1840,6 +1878,9 @@ nvd0_display_init(struct drm_device *dev)
 		}
 	}
 
+	/* nfi what these are exactly, i do know that SOR_MODE_CTRL won't
+	 * work at all unless you do the SOR part below.
+	 */
 	for (i = 0; i < 3; i++) {
 		u32 dac = nv_rd32(dev, 0x61a000 + (i * 0x800));
 		nv_wr32(dev, 0x6101c0 + (i * 0x800), dac);
@@ -1859,16 +1900,16 @@ nvd0_display_init(struct drm_device *dev)
 		nv_wr32(dev, 0x6101bc + (i * 0x800), crtc2);
 	}
 
-	
+	/* point at our hash table / objects, enable interrupts */
 	nv_wr32(dev, 0x610010, (disp->mem->vinst >> 8) | 9);
 	nv_mask(dev, 0x6100b0, 0x00000307, 0x00000307);
 
-	
+	/* init master */
 	ret = evo_init_dma(dev, EVO_MASTER);
 	if (ret)
 		goto error;
 
-	
+	/* init flips + overlays + cursors */
 	for (i = 0; i < dev->mode_config.num_crtc; i++) {
 		if ((ret = evo_init_dma(dev, EVO_FLIP(i))) ||
 		    (ret = evo_init_dma(dev, EVO_OVLY(i))) ||
@@ -1937,7 +1978,7 @@ nvd0_display_create(struct drm_device *dev)
 		return -ENOMEM;
 	dev_priv->engine.display.priv = disp;
 
-	
+	/* create crtc objects to represent the hw heads */
 	crtcs = nv_rd32(dev, 0x022448);
 	for (i = 0; i < crtcs; i++) {
 		ret = nvd0_crtc_create(dev, i);
@@ -1945,7 +1986,7 @@ nvd0_display_create(struct drm_device *dev)
 			goto out;
 	}
 
-	
+	/* create encoder/connector objects based on VBIOS DCB table */
 	for (i = 0, dcbe = &dcb->entry[0]; i < dcb->entries; i++, dcbe++) {
 		connector = nouveau_connector_create(dev, dcbe->connector);
 		if (IS_ERR(connector))
@@ -1973,7 +2014,7 @@ nvd0_display_create(struct drm_device *dev)
 		}
 	}
 
-	
+	/* cull any connectors we created that don't have an encoder */
 	list_for_each_entry_safe(connector, tmp, &dev->mode_config.connector_list, head) {
 		if (connector->encoder_ids[0])
 			continue;
@@ -1983,11 +2024,11 @@ nvd0_display_create(struct drm_device *dev)
 		connector->funcs->destroy(connector);
 	}
 
-	
+	/* setup interrupt handling */
 	tasklet_init(&disp->tasklet, nvd0_display_bh, (unsigned long)dev);
 	nouveau_irq_register(dev, 26, nvd0_display_intr);
 
-	
+	/* small shared memory area we use for notifiers and semaphores */
 	ret = nouveau_bo_new(dev, 4096, 0x1000, TTM_PL_FLAG_VRAM,
 			     0, 0x0000, &disp->sync);
 	if (!ret) {
@@ -2001,13 +2042,13 @@ nvd0_display_create(struct drm_device *dev)
 	if (ret)
 		goto out;
 
-	
+	/* hash table and dma objects for the memory areas we care about */
 	ret = nouveau_gpuobj_new(dev, NULL, 0x4000, 0x10000,
 				 NVOBJ_FLAG_ZERO_ALLOC, &disp->mem);
 	if (ret)
 		goto out;
 
-	
+	/* create evo dma channels */
 	for (i = 0; i < EVO_DMA_NR; i++) {
 		struct evo *evo = &disp->evo[i];
 		u64 offset = disp->sync->bo.offset;

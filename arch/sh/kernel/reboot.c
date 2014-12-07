@@ -26,17 +26,20 @@ static void native_machine_restart(char * __unused)
 {
 	local_irq_disable();
 
-	
+	/* Destroy all of the TLBs in preparation for reset by MMU */
 	__flush_tlb_global();
 
-	
+	/* Address error with SR.BL=1 first. */
 	trigger_address_error();
 
 #ifdef CONFIG_SUPERH32
-	
+	/* If that fails or is unsupported, go for the watchdog next. */
 	watchdog_trigger_immediate();
 #endif
 
+	/*
+	 * Give up and sleep.
+	 */
 	while (1)
 		cpu_sleep();
 }
@@ -54,10 +57,10 @@ static void native_machine_power_off(void)
 
 static void native_machine_halt(void)
 {
-	
+	/* stop other cpus */
 	machine_shutdown();
 
-	
+	/* stop this cpu */
 	stop_this_cpu(NULL);
 }
 

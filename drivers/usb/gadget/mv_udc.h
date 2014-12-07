@@ -22,6 +22,7 @@
 #define DMA_ADDR_INVALID	(~(dma_addr_t)0)
 
 #define EP0_MAX_PKT_SIZE	64
+/* ep0 transfer state */
 #define WAIT_FOR_SETUP		0
 #define DATA_STATE_XMIT		1
 #define DATA_STATE_NEED_ZLP	2
@@ -33,8 +34,10 @@
 
 #define HCSPARAMS_PPC		(0x10)
 
+/* Frame Index Register Bit Masks */
 #define USB_FRINDEX_MASKS	0x3fff
 
+/* Command Register Bit Masks */
 #define USBCMD_RUN_STOP				(0x00000001)
 #define USBCMD_CTRL_RESET			(0x00000002)
 #define USBCMD_SETUP_TRIPWIRE_SET		(0x00002000)
@@ -43,14 +46,15 @@
 #define USBCMD_ATDTW_TRIPWIRE_SET		(0x00004000)
 #define USBCMD_ATDTW_TRIPWIRE_CLEAR		(~USBCMD_ATDTW_TRIPWIRE_SET)
 
-#define USBCMD_FRAME_SIZE_1024			(0x00000000) 
-#define USBCMD_FRAME_SIZE_512			(0x00000004) 
-#define USBCMD_FRAME_SIZE_256			(0x00000008) 
-#define USBCMD_FRAME_SIZE_128			(0x0000000C) 
-#define USBCMD_FRAME_SIZE_64			(0x00008000) 
-#define USBCMD_FRAME_SIZE_32			(0x00008004) 
-#define USBCMD_FRAME_SIZE_16			(0x00008008) 
-#define USBCMD_FRAME_SIZE_8			(0x0000800C) 
+/* bit 15,3,2 are for frame list size */
+#define USBCMD_FRAME_SIZE_1024			(0x00000000) /* 000 */
+#define USBCMD_FRAME_SIZE_512			(0x00000004) /* 001 */
+#define USBCMD_FRAME_SIZE_256			(0x00000008) /* 010 */
+#define USBCMD_FRAME_SIZE_128			(0x0000000C) /* 011 */
+#define USBCMD_FRAME_SIZE_64			(0x00008000) /* 100 */
+#define USBCMD_FRAME_SIZE_32			(0x00008004) /* 101 */
+#define USBCMD_FRAME_SIZE_16			(0x00008008) /* 110 */
+#define USBCMD_FRAME_SIZE_8			(0x0000800C) /* 111 */
 
 #define EPCTRL_TX_ALL_MASK			(0xFFFF0000)
 #define EPCTRL_RX_ALL_MASK			(0x0000FFFF)
@@ -73,6 +77,7 @@
 
 #define EPCOMPLETE_MAX_ENDPOINTS		(16)
 
+/* endpoint list address bit masks */
 #define USB_EP_LIST_ADDRESS_MASK              0xfffff800
 
 #define PORTSCX_W1C_BITS			0x2a
@@ -87,6 +92,7 @@
 #define PORTSCX_PORT_SPEED_HIGH			0x08000000
 #define PORTSCX_PORT_SPEED_MASK			0x0C000000
 
+/* USB MODE Register Bit Masks */
 #define USBMODE_CTRL_MODE_IDLE			0x00000000
 #define USBMODE_CTRL_MODE_DEVICE		0x00000002
 #define USBMODE_CTRL_MODE_HOST			0x00000003
@@ -94,6 +100,7 @@
 #define USBMODE_SETUP_LOCK_OFF			0x00000008
 #define USBMODE_STREAM_DISABLE			0x00000010
 
+/* USB STS Register Bit Masks */
 #define USBSTS_INT			0x00000001
 #define USBSTS_ERR			0x00000002
 #define USBSTS_PORT_CHANGE		0x00000004
@@ -109,6 +116,7 @@
 #define USBSTS_ASYNC_SCHEDULE		0x00008000
 
 
+/* Interrupt Enable Register Bit Masks */
 #define USBINTR_INT_EN                          (0x00000001)
 #define USBINTR_ERR_INT_EN                      (0x00000002)
 #define USBINTR_PORT_CHANGE_DETECT_EN           (0x00000004)
@@ -126,40 +134,40 @@
 
 struct mv_cap_regs {
 	u32	caplength_hciversion;
-	u32	hcsparams;	
-	u32	hccparams;	
+	u32	hcsparams;	/* HC structural parameters */
+	u32	hccparams;	/* HC Capability Parameters*/
 	u32	reserved[5];
-	u32	dciversion;	
-	u32	dccparams;	
+	u32	dciversion;	/* DC version number and reserved 16 bits */
+	u32	dccparams;	/* DC Capability Parameters */
 };
 
 struct mv_op_regs {
-	u32	usbcmd;		
-	u32	usbsts;		
-	u32	usbintr;	
-	u32	frindex;	
+	u32	usbcmd;		/* Command register */
+	u32	usbsts;		/* Status register */
+	u32	usbintr;	/* Interrupt enable */
+	u32	frindex;	/* Frame index */
 	u32	reserved1[1];
-	u32	deviceaddr;	
-	u32	eplistaddr;	
-	u32	ttctrl;		
-	u32	burstsize;	
-	u32	txfilltuning;	
+	u32	deviceaddr;	/* Device Address */
+	u32	eplistaddr;	/* Endpoint List Address */
+	u32	ttctrl;		/* HOST TT status and control */
+	u32	burstsize;	/* Programmable Burst Size */
+	u32	txfilltuning;	/* Host Transmit Pre-Buffer Packet Tuning */
 	u32	reserved[4];
-	u32	epnak;		
-	u32	epnaken;	
-	u32	configflag;	
-	u32	portsc[VUSBHS_MAX_PORTS]; 
+	u32	epnak;		/* Endpoint NAK */
+	u32	epnaken;	/* Endpoint NAK Enable */
+	u32	configflag;	/* Configured Flag register */
+	u32	portsc[VUSBHS_MAX_PORTS]; /* Port Status/Control x, x = 1..8 */
 	u32	otgsc;
-	u32	usbmode;	
-	u32	epsetupstat;	
-	u32	epprime;	
-	u32	epflush;	
-	u32	epstatus;	
-	u32	epcomplete;	
-	u32	epctrlx[16];	
-	u32	mcr;		
-	u32	isr;		
-	u32	ier;		
+	u32	usbmode;	/* USB Host/Device mode */
+	u32	epsetupstat;	/* Endpoint Setup Status */
+	u32	epprime;	/* Endpoint Initialize */
+	u32	epflush;	/* Endpoint De-initialize */
+	u32	epstatus;	/* Endpoint Status */
+	u32	epcomplete;	/* Endpoint Interrupt On Complete */
+	u32	epctrlx[16];	/* Endpoint Control, where x = 0.. 15 */
+	u32	mcr;		/* Mux Control */
+	u32	isr;		/* Interrupt Status */
+	u32	ier;		/* Interrupt Enable */
 };
 
 struct mv_udc {
@@ -188,9 +196,9 @@ struct mv_udc {
 	struct mv_req			*status_req;
 	struct usb_ctrlrequest		local_setup_buff;
 
-	unsigned int		resume_state;	
-	unsigned int		usb_state;	
-	unsigned int		ep0_state;	
+	unsigned int		resume_state;	/* USB state to resume */
+	unsigned int		usb_state;	/* USB current state */
+	unsigned int		ep0_state;	/* Endpoint zero state */
 	unsigned int		ep0_dir;
 
 	unsigned int		dev_addr;
@@ -204,7 +212,7 @@ struct mv_udc {
 				force_fs:1,
 				clock_gating:1,
 				active:1,
-				stopped:1;      
+				stopped:1;      /* stop bit is setted */
 
 	struct work_struct	vbus_work;
 	struct workqueue_struct *qwork;
@@ -213,11 +221,12 @@ struct mv_udc {
 
 	struct mv_usb_platform_data     *pdata;
 
-	
+	/* some SOC has mutiple clock sources for USB*/
 	unsigned int    clknum;
 	struct clk      *clk[0];
 };
 
+/* endpoint data structure */
 struct mv_ep {
 	struct usb_ep		ep;
 	struct mv_udc		*udc;
@@ -232,6 +241,7 @@ struct mv_ep {
 				ep_num:8;
 };
 
+/* request data structure */
 struct mv_req {
 	struct usb_request	req;
 	struct mv_dtd		*dtd, *head, *tail;
@@ -258,19 +268,19 @@ struct mv_req {
 #define EP_MAX_LENGTH_TRANSFER			0x4000
 
 struct mv_dqh {
-	
+	/* Bits 16..26 Bit 15 is Interrupt On Setup */
 	u32	max_packet_length;
-	u32	curr_dtd_ptr;		
-	u32	next_dtd_ptr;		
-	
+	u32	curr_dtd_ptr;		/* Current dTD Pointer */
+	u32	next_dtd_ptr;		/* Next dTD Pointer */
+	/* Total bytes (16..30), IOC (15), INT (8), STS (0-7) */
 	u32	size_ioc_int_sts;
-	u32	buff_ptr0;		
-	u32	buff_ptr1;		
-	u32	buff_ptr2;		
-	u32	buff_ptr3;		
-	u32	buff_ptr4;		
+	u32	buff_ptr0;		/* Buffer pointer Page 0 (12-31) */
+	u32	buff_ptr1;		/* Buffer pointer Page 1 (12-31) */
+	u32	buff_ptr2;		/* Buffer pointer Page 2 (12-31) */
+	u32	buff_ptr3;		/* Buffer pointer Page 3 (12-31) */
+	u32	buff_ptr4;		/* Buffer pointer Page 4 (12-31) */
 	u32	reserved1;
-	
+	/* 8 bytes of setup data that follows the Setup PID */
 	u8	setup_buffer[8];
 	u32	reserved2[4];
 };
@@ -291,14 +301,14 @@ struct mv_dqh {
 struct mv_dtd {
 	u32	dtd_next;
 	u32	size_ioc_sts;
-	u32	buff_ptr0;		
-	u32	buff_ptr1;		
-	u32	buff_ptr2;		
-	u32	buff_ptr3;		
-	u32	buff_ptr4;		
+	u32	buff_ptr0;		/* Buffer pointer Page 0 */
+	u32	buff_ptr1;		/* Buffer pointer Page 1 */
+	u32	buff_ptr2;		/* Buffer pointer Page 2 */
+	u32	buff_ptr3;		/* Buffer pointer Page 3 */
+	u32	buff_ptr4;		/* Buffer pointer Page 4 */
 	u32	scratch_ptr;
-	
-	dma_addr_t td_dma;		
+	/* 32 bytes */
+	dma_addr_t td_dma;		/* dma address for this td */
 	struct mv_dtd *next_dtd_virt;
 };
 

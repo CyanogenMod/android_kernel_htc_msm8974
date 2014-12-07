@@ -3,6 +3,9 @@
 #include <asm/asm.h>
 #include <asm/dwarf2.h>
 
+/* The annotation hides the frame from the unwinder and makes it look
+   like a ordinary ebp save/restore. This avoids some special cases for
+   frame pointer later */
 #ifdef CONFIG_FRAME_POINTER
 	.macro FRAME
 	__ASM_SIZE(push,_cfi)	%__ASM_REG(bp)
@@ -20,4 +23,4 @@
 	.endm
 #endif
 
-#endif  
+#endif  /*  __ASSEMBLY__  */

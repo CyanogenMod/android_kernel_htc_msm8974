@@ -55,6 +55,11 @@ static int q40fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 			   unsigned blue, unsigned transp,
 			   struct fb_info *info)
 {
+    /*
+     *  Set a single color register. The values supplied have a 16 bit
+     *  magnitude.
+     *  Return != 0 for invalid regno.
+     */
 
     if (regno > 255)
 	    return 1;
@@ -85,7 +90,7 @@ static int __devinit q40fb_probe(struct platform_device *dev)
 	if (!MACH_IS_Q40)
 		return -ENXIO;
 
-	
+	/* mapped in q40/config.c */
 	q40fb_fix.smem_start = Q40_PHYS_SCREEN_ADDR;
 
 	info = framebuffer_alloc(sizeof(u32) * 16, &dev->dev);
@@ -95,7 +100,7 @@ static int __devinit q40fb_probe(struct platform_device *dev)
 	info->var = q40fb_var;
 	info->fix = q40fb_fix;
 	info->fbops = &q40fb_ops;
-	info->flags = FBINFO_DEFAULT;  
+	info->flags = FBINFO_DEFAULT;  /* not as module for now */
 	info->pseudo_palette = info->par;
 	info->par = NULL;
 	info->screen_base = (char *) q40fb_fix.smem_start;

@@ -36,7 +36,7 @@ static volatile u32 *kn0x_chksyn;
 
 static inline void dec_ecc_be_ack(void)
 {
-	*kn0x_erraddr = 0;			
+	*kn0x_erraddr = 0;			/* any write clears the IRQ */
 	iob();
 }
 
@@ -65,14 +65,14 @@ static int dec_ecc_be_backend(struct pt_regs *regs, int is_fixup, int invoker)
 	u32 chksyn = *kn0x_chksyn;
 	int action = MIPS_BE_FATAL;
 
-	
+	/* For non-ECC ack ASAP, so that any subsequent errors get caught. */
 	if ((erraddr & (KN0X_EAR_VALID | KN0X_EAR_ECCERR)) == KN0X_EAR_VALID)
 		dec_ecc_be_ack();
 
 	kind = invoker ? intstr : excstr;
 
 	if (!(erraddr & KN0X_EAR_VALID)) {
-		
+		/* No idea what happened. */
 		printk(KERN_ALERT "Unidentified bus error %s\n", kind);
 		return action;
 	}
@@ -80,22 +80,22 @@ static int dec_ecc_be_backend(struct pt_regs *regs, int is_fixup, int invoker)
 	agent = (erraddr & KN0X_EAR_CPU) ? cpustr : dmastr;
 
 	if (erraddr & KN0X_EAR_ECCERR) {
-		
+		/* An ECC error on a CPU or DMA transaction. */
 		cycle = (erraddr & KN0X_EAR_WRITE) ? mwritstr : mreadstr;
 		event = eccstr;
 	} else {
-		
+		/* A CPU timeout or a DMA overrun. */
 		cycle = (erraddr & KN0X_EAR_WRITE) ? writestr : readstr;
 		event = (erraddr & KN0X_EAR_CPU) ? timestr : overstr;
 	}
 
 	address = erraddr & KN0X_EAR_ADDRESS;
-	
+	/* For ECC errors on reads adjust for MT pipelining. */
 	if ((erraddr & (KN0X_EAR_WRITE | KN0X_EAR_ECCERR)) == KN0X_EAR_ECCERR)
 		address = (address & ~0xfffLL) | ((address - 5) & 0xfffLL);
 	address <<= 2;
 
-	
+	/* Only CPU errors are fixable. */
 	if (erraddr & KN0X_EAR_CPU && is_fixup)
 		action = MIPS_BE_FIXUP;
 
@@ -117,12 +117,12 @@ static int dec_ecc_be_backend(struct pt_regs *regs, int is_fixup, int invoker)
 		static const char mbestr[] = "uncorrectable multiple";
 
 		if (!(address & 0x4))
-			syn = chksyn;			
+			syn = chksyn;			/* Low bank. */
 		else
-			syn = chksyn >> 16;		
+			syn = chksyn >> 16;		/* High bank. */
 
 		if (!(syn & KN0X_ESR_VLDLO)) {
-			
+			/* Ack now, no rewrite will happen. */
 			dec_ecc_be_ack();
 
 			fmt = KERN_ALERT "%s" "invalid\n";
@@ -130,6 +130,10 @@ static int dec_ecc_be_backend(struct pt_regs *regs, int is_fixup, int invoker)
 			sngl = syn & KN0X_ESR_SNGLO;
 			syn &= KN0X_ESR_SYNLO;
 
+			/*
+			 * Multibit errors may be tagged incorrectly;
+			 * check the syndrome explicitly.
+			 */
 			for (i = 0; i < 25; i++)
 				if (syn == data_mbit[i])
 					break;
@@ -142,7 +146,7 @@ static int dec_ecc_be_backend(struct pt_regs *regs, int is_fixup, int invoker)
 				volatile u32 *ptr =
 					(void *)CKSEG1ADDR(address);
 
-				*ptr = *ptr;		
+				*ptr = *ptr;		/* Rewrite. */
 				iob();
 
 				status = sbestr;
@@ -203,12 +207,24 @@ irqreturn_t dec_ecc_be_interrupt(int irq, void *dev_id)
 	if (action == MIPS_BE_DISCARD)
 		return IRQ_HANDLED;
 
+	/*
+	 * FIXME: Find the affected processes and kill them, otherwise
+	 * we must die.
+	 *
+	 * The interrupt is asynchronously delivered thus EPC and RA
+	 * may be irrelevant, but are printed for a reference.
+	 */
 	printk(KERN_ALERT "Fatal bus interrupt, epc == %08lx, ra == %08lx\n",
 	       regs->cp0_epc, regs->regs[31]);
 	die("Unrecoverable bus error", regs);
 }
 
 
+/*
+ * Initialization differs a bit between KN02 and KN03/KN05, so we
+ * need two variants.  Once set up, all systems can be handled the
+ * same way.
+ */
 static inline void dec_kn02_be_init(void)
 {
 	volatile u32 *csr = (void *)CKSEG1ADDR(KN02_SLOT_BASE + KN02_CSR);
@@ -216,12 +232,12 @@ static inline void dec_kn02_be_init(void)
 	kn0x_erraddr = (void *)CKSEG1ADDR(KN02_SLOT_BASE + KN02_ERRADDR);
 	kn0x_chksyn = (void *)CKSEG1ADDR(KN02_SLOT_BASE + KN02_CHKSYN);
 
-	
+	/* Preset write-only bits of the Control Register cache. */
 	cached_kn02_csr = *csr | KN02_CSR_LEDS;
 
-	
+	/* Set normal ECC detection and generation. */
 	cached_kn02_csr &= ~(KN02_CSR_DIAGCHK | KN02_CSR_DIAGGEN);
-	
+	/* Enable ECC correction. */
 	cached_kn02_csr |= KN02_CSR_CORRECT;
 	*csr = cached_kn02_csr;
 	iob();
@@ -235,6 +251,13 @@ static inline void dec_kn03_be_init(void)
 	kn0x_erraddr = (void *)CKSEG1ADDR(KN03_SLOT_BASE + IOASIC_ERRADDR);
 	kn0x_chksyn = (void *)CKSEG1ADDR(KN03_SLOT_BASE + IOASIC_CHKSYN);
 
+	/*
+	 * Set normal ECC detection and generation, enable ECC correction.
+	 * For KN05 we also need to make sure EE (?) is enabled in the MB.
+	 * Otherwise DBE/IBE exceptions would be masked but bus error
+	 * interrupts would still arrive, resulting in an inevitable crash
+	 * if get_dbe() triggers one.
+	 */
 	*mcr = (*mcr & ~(KN03_MCR_DIAGCHK | KN03_MCR_DIAGGEN)) |
 	       KN03_MCR_CORRECT;
 	if (current_cpu_type() == CPU_R4400SC)
@@ -249,6 +272,6 @@ void __init dec_ecc_be_init(void)
 	else
 		dec_kn03_be_init();
 
-	
+	/* Clear any leftover errors from the firmware. */
 	dec_ecc_be_ack();
 }

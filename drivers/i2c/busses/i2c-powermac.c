@@ -34,6 +34,9 @@ MODULE_AUTHOR("Benjamin Herrenschmidt <benh@kernel.crashing.org>");
 MODULE_DESCRIPTION("I2C driver for Apple PowerMac");
 MODULE_LICENSE("GPL");
 
+/*
+ * SMBUS-type transfer entrypoint
+ */
 static s32 i2c_powermac_smbus_xfer(	struct i2c_adapter*	adap,
 					u16			addr,
 					unsigned short		flags,
@@ -80,6 +83,17 @@ static s32 i2c_powermac_smbus_xfer(	struct i2c_adapter*	adap,
 		len = 2;
 	    	break;
 
+	/* Note that these are broken vs. the expected smbus API where
+	 * on reads, the length is actually returned from the function,
+	 * but I think the current API makes no sense and I don't want
+	 * any driver that I haven't verified for correctness to go
+	 * anywhere near a pmac i2c bus anyway ...
+	 *
+	 * I'm also not completely sure what kind of phases to do between
+	 * the actual command and the data (what I am _supposed_ to do that
+	 * is). For now, I assume writes are a single stream and reads have
+	 * a repeat start/addr phase (but not stop in between)
+	 */
         case I2C_SMBUS_BLOCK_DATA:
 		buf = data->block;
 		len = data->block[0] + 1;
@@ -129,6 +143,11 @@ static s32 i2c_powermac_smbus_xfer(	struct i2c_adapter*	adap,
 	return rc;
 }
 
+/*
+ * Generic i2c master transfer entrypoint. This driver only support single
+ * messages (for "lame i2c" transfers). Anything else should use the smbus
+ * entry point
+ */
 static int i2c_powermac_master_xfer(	struct i2c_adapter *adap,
 					struct i2c_msg *msgs,
 					int num)
@@ -183,6 +202,7 @@ static u32 i2c_powermac_func(struct i2c_adapter * adapter)
 		I2C_FUNC_SMBUS_BLOCK_DATA | I2C_FUNC_I2C;
 }
 
+/* For now, we only handle smbus */
 static const struct i2c_algorithm i2c_powermac_algorithm = {
 	.smbus_xfer	= i2c_powermac_smbus_xfer,
 	.master_xfer	= i2c_powermac_master_xfer,
@@ -196,7 +216,7 @@ static int __devexit i2c_powermac_remove(struct platform_device *dev)
 	int			rc;
 
 	rc = i2c_del_adapter(adapter);
-	
+	/* We aren't that prepared to deal with this... */
 	if (rc)
 		printk(KERN_WARNING
 		       "i2c-powermac.c: Failed to remove bus %s !\n",
@@ -220,6 +240,11 @@ static int __devinit i2c_powermac_probe(struct platform_device *dev)
 		return -EINVAL;
 	adapter = pmac_i2c_get_adapter(bus);
 
+	/* Ok, now we need to make up a name for the interface that will
+	 * match what we used to do in the past, that is basically the
+	 * controller's parent device node for keywest. PMU didn't have a
+	 * naming convention and SMU has a different one
+	 */
 	switch(pmac_i2c_get_type(bus)) {
 	case pmac_i2c_bus_keywest:
 		parent = of_get_parent(pmac_i2c_get_controller(bus));
@@ -231,6 +256,9 @@ static int __devinit i2c_powermac_probe(struct platform_device *dev)
 		basename = "pmu";
 		break;
 	case pmac_i2c_bus_smu:
+		/* This is not what we used to do but I'm fixing drivers at
+		 * the same time as this change
+		 */
 		basename = "smu";
 		break;
 	default:
@@ -258,14 +286,14 @@ static int __devinit i2c_powermac_probe(struct platform_device *dev)
 		const u32 *prop;
 		struct i2c_board_info info;
 
-		
+		/* Instantiate I2C motion sensor if present */
 		np = of_find_node_by_name(NULL, "accelerometer");
 		if (np && of_device_is_compatible(np, "AAPL,accelerometer_1") &&
 		    (prop = of_get_property(np, "reg", NULL))) {
 			int i2c_bus;
 			const char *tmp_bus;
 
-			
+			/* look for bus either using "reg" or by path */
 			tmp_bus = strstr(np->full_name, "/i2c-bus@");
 			if (tmp_bus)
 				i2c_bus = *(tmp_bus + 9) - '0';

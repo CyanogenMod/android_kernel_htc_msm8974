@@ -58,18 +58,18 @@ struct rtl8180_tx_ring {
 struct rtl8180_vif {
 	struct ieee80211_hw *dev;
 
-	
+	/* beaconing */
 	struct delayed_work beacon_work;
 	bool enable_beacon;
 };
 
 struct rtl8180_priv {
-	
+	/* common between rtl818x drivers */
 	struct rtl818x_csr __iomem *map;
 	const struct rtl818x_rf_ops *rf;
 	struct ieee80211_vif *vif;
 
-	
+	/* rtl8180 driver specific */
 	spinlock_t lock;
 	struct rtl8180_rx_desc *rx_ring;
 	dma_addr_t rx_ring_dma;
@@ -87,7 +87,7 @@ struct rtl8180_priv {
 	u16 rfparam;
 	u8 csthreshold;
 
-	
+	/* sequence # */
 	u16 seqno;
 };
 
@@ -127,4 +127,4 @@ static inline void rtl818x_iowrite32(struct rtl8180_priv *priv,
 	iowrite32(val, addr);
 }
 
-#endif 
+#endif /* RTL8180_H */

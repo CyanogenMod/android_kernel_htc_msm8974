@@ -18,6 +18,9 @@
 #ifndef _DM355_CCDC_REGS_H
 #define _DM355_CCDC_REGS_H
 
+/**************************************************************************\
+* Register OFFSET Definitions
+\**************************************************************************/
 #define SYNCEN				0x00
 #define MODESET				0x04
 #define HDWIDTH				0x08
@@ -101,6 +104,10 @@
 #define CSCM7                           0x158
 #define DATAOFST			0x15c
 #define CCDC_REG_LAST			DATAOFST
+/**************************************************************
+*	Define for various register bit mask and shifts for CCDC
+*
+**************************************************************/
 #define CCDC_RAW_IP_MODE			0
 #define CCDC_VDHDOUT_INPUT			0
 #define CCDC_YCINSWP_RAW			(0 << 4)
@@ -292,6 +299,7 @@
 #define CCDC_SYNCEN_WEN_MASK			(1 << 1)
 #define CCDC_SYNCEN_WEN_SHIFT			1
 
+/* Power on Defaults in hardware */
 #define MODESET_DEFAULT				0x200
 #define CULH_DEFAULT				0xFFFF
 #define CULV_DEFAULT				0xFF

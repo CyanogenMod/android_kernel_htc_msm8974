@@ -10,6 +10,7 @@
 
 #include "cfg.h"
 
+/* Supported bitrates. Must agree with hw.c */
 static struct ieee80211_rate orinoco_rates[] = {
 	{ .bitrate = 10 },
 	{ .bitrate = 20 },
@@ -19,6 +20,7 @@ static struct ieee80211_rate orinoco_rates[] = {
 
 static const void * const orinoco_wiphy_privid = &orinoco_wiphy_privid;
 
+/* Called after orinoco_private is allocated. */
 void orinoco_wiphy_init(struct wiphy *wiphy)
 {
 	struct orinoco_private *priv = wiphy_priv(wiphy);
@@ -28,6 +30,7 @@ void orinoco_wiphy_init(struct wiphy *wiphy)
 	set_wiphy_dev(wiphy, priv->dev);
 }
 
+/* Called after firmware is initialised */
 int orinoco_wiphy_register(struct wiphy *wiphy)
 {
 	struct orinoco_private *priv = wiphy_priv(wiphy);
@@ -40,6 +43,9 @@ int orinoco_wiphy_register(struct wiphy *wiphy)
 
 	wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION);
 
+	/* TODO: should we set if we only have demo ad-hoc?
+	 *       (priv->has_port3)
+	 */
 	if (priv->has_ibss)
 		wiphy->interface_modes |= BIT(NL80211_IFTYPE_ADHOC);
 
@@ -49,7 +55,7 @@ int orinoco_wiphy_register(struct wiphy *wiphy)
 	priv->band.bitrates = orinoco_rates;
 	priv->band.n_bitrates = ARRAY_SIZE(orinoco_rates);
 
-	
+	/* Only support channels allowed by the card EEPROM */
 	for (i = 0; i < NUM_CHANNELS; i++) {
 		if (priv->channel_mask & (1 << i)) {
 			priv->channels[i].center_freq =
@@ -147,7 +153,7 @@ static int orinoco_scan(struct wiphy *wiphy, struct net_device *dev,
 	priv->scan_request = request;
 
 	err = orinoco_hw_trigger_scan(priv, request->ssids);
-	
+	/* On error the we aren't processing the request */
 	if (err)
 		priv->scan_request = NULL;
 
@@ -184,7 +190,7 @@ static int orinoco_set_channel(struct wiphy *wiphy,
 
 	priv->channel = channel;
 	if (priv->iw_mode == NL80211_IFTYPE_MONITOR) {
-		
+		/* Fast channel change - no commit if successful */
 		struct hermes *hw = &priv->hw;
 		err = hw->ops->cmd_wait(hw, HERMES_CMD_TEST |
 					    HERMES_TEST_SET_CHANNEL,
@@ -203,17 +209,17 @@ static int orinoco_set_wiphy_params(struct wiphy *wiphy, u32 changed)
 	int err = 0;
 
 	if (changed & WIPHY_PARAM_RETRY_SHORT) {
-		
+		/* Setting short retry not supported */
 		err = -EINVAL;
 	}
 
 	if (changed & WIPHY_PARAM_RETRY_LONG) {
-		
+		/* Setting long retry not supported */
 		err = -EINVAL;
 	}
 
 	if (changed & WIPHY_PARAM_FRAG_THRESHOLD) {
-		
+		/* Set fragmentation */
 		if (priv->has_mwo) {
 			if (wiphy->frag_threshold < 0)
 				frag_value = 0;
@@ -231,11 +237,21 @@ static int orinoco_set_wiphy_params(struct wiphy *wiphy, u32 changed)
 				 (wiphy->frag_threshold > 2347))
 				err = -EINVAL;
 			else
+				/* cfg80211 value is 257-2347 (odd only)
+				 * orinoco rid has range 256-2346 (even only) */
 				frag_value = wiphy->frag_threshold & ~0x1;
 		}
 	}
 
 	if (changed & WIPHY_PARAM_RTS_THRESHOLD) {
+		/* Set RTS.
+		 *
+		 * Prism documentation suggests default of 2432,
+		 * and a range of 0-3000.
+		 *
+		 * Current implementation uses 2347 as the default and
+		 * the upper limit.
+		 */
 
 		if (wiphy->rts_threshold < 0)
 			rts_value = 2347;

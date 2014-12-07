@@ -34,7 +34,7 @@ struct ite_config {
 	u8 tuner_id_1;
 	u8 dual_mode;
 	u8 adf;
-	
+	/* option to read SIGNAL_LEVEL */
 	u8 read_slevel;
 };
 
@@ -50,7 +50,7 @@ static inline struct dvb_frontend *it913x_fe_attach(
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_IT913X_FE */
 #define I2C_BASE_ADDR		0x10
 #define DEV_0			0x0
 #define DEV_1			0x10
@@ -146,10 +146,12 @@ static inline struct dvb_frontend *it913x_fe_attach(
 #define ADC_FREQ		0xf1cd
 
 #define TRIGGER_OFSM		0x0000
+/* COEFF Registers start at 0x0001 to 0x0020 */
 #define COEFF_1_2048		0x0001
 #define XTAL_CLK		0x0025
 #define BFS_FCW			0x0029
 
+/* Error Regs */
 #define RSD_ABORT_PKT_LSB	0x0032
 #define RSD_ABORT_PKT_MSB	0x0033
 #define RSD_BIT_ERR_0_7		0x0034
@@ -170,6 +172,7 @@ static inline struct dvb_frontend *it913x_fe_attach(
 #define SUSPEND_FLAG		0x004c
 #define VAR_P_INBAND		0x00f7
 
+/* Build in tuner types */
 #define IT9137 0x38
 #define IT9135_38 0x38
 #define IT9135_51 0x51
@@ -231,4 +234,4 @@ enum {
 	IT9135_V2_FW,
 };
 
-#endif 
+#endif /* IT913X_FE_H */

@@ -18,10 +18,11 @@
 #include <asm/dma.h>
 #include <asm/dvma.h>
 
-#define DMA_CSR		0x00UL	
-#define DMA_ADDR        0x04UL	
-#define DMA_COUNT       0x08UL	
-#define DMA_TEST        0x0cUL	
+/* DMA controller reg offsets */
+#define DMA_CSR		0x00UL	/* rw  DMA control/status register    0x00   */
+#define DMA_ADDR        0x04UL	/* rw  DMA transfer address register  0x04   */
+#define DMA_COUNT       0x08UL	/* rw  DMA transfer count register    0x08   */
+#define DMA_TEST        0x0cUL	/* rw  DMA test/debug register        0x0c   */
 
 #include <scsi/scsi_host.h>
 
@@ -32,6 +33,11 @@
 #define DRV_VERSION		"1.000"
 #define DRV_MODULE_RELDATE	"Nov 1, 2007"
 
+/*
+ * m68k always assumes readl/writel operate on little endian
+ * mmio space; this is wrong at least for Sun3x, so we
+ * need to workaround this until a proper way is found
+ */
 #if 0
 #define dma_read32(REG) \
 	readl(esp->dma_regs + (REG))
@@ -93,7 +99,7 @@ static void sun3x_esp_reset_dma(struct esp *esp)
 	dma_write32(val | DMA_RST_SCSI, DMA_CSR);
 	dma_write32(val & ~DMA_RST_SCSI, DMA_CSR);
 
-	
+	/* Enable interrupts.  */
 	val = dma_read32(DMA_CSR);
 	dma_write32(val | DMA_INT_ENAB, DMA_CSR);
 }
@@ -270,7 +276,7 @@ static int __devexit esp_sun3x_remove(struct platform_device *dev)
 
 	scsi_esp_unregister(esp);
 
-	
+	/* Disable interrupts.  */
 	val = dma_read32(DMA_CSR);
 	dma_write32(val & ~DMA_INT_ENAB, DMA_CSR);
 

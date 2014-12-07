@@ -34,6 +34,9 @@ EXPORT_SYMBOL_GPL(imx_ioremap);
 
 static void __iomem *wdog_base;
 
+/*
+ * Reset the system. It is called by machine_restart().
+ */
 void mxc_restart(char mode, const char *cmd)
 {
 	unsigned int wcr_enable;
@@ -49,18 +52,18 @@ void mxc_restart(char mode, const char *cmd)
 		wcr_enable = (1 << 2);
 	}
 
-	
+	/* Assert SRS signal */
 	__raw_writew(wcr_enable, wdog_base);
 
-	
+	/* wait for reset to assert... */
 	mdelay(500);
 
 	printk(KERN_ERR "Watchdog reset failed to assert reset\n");
 
-	
+	/* delay to allow the serial port to show the message */
 	mdelay(50);
 
-	
+	/* we'll take a jump through zero as a poor second */
 	soft_restart(0);
 }
 

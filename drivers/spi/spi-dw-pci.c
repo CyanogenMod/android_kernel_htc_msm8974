@@ -56,7 +56,7 @@ static int __devinit spi_pci_probe(struct pci_dev *pdev,
 	dwpci->pdev = pdev;
 	dws = &dwpci->dws;
 
-	
+	/* Get basic io resource and map it */
 	dws->paddr = pci_resource_start(pdev, pci_bar);
 	dws->iolen = pci_resource_len(pdev, pci_bar);
 
@@ -76,6 +76,10 @@ static int __devinit spi_pci_probe(struct pci_dev *pdev,
 	dws->num_cs = 4;
 	dws->irq = pdev->irq;
 
+	/*
+	 * Specific handling for Intel MID paltforms, like dma setup,
+	 * clock rate, FIFO depth.
+	 */
 	if (pdev->device == 0x0800) {
 		ret = dw_spi_mid_init(dws);
 		if (ret)
@@ -86,7 +90,7 @@ static int __devinit spi_pci_probe(struct pci_dev *pdev,
 	if (ret)
 		goto err_unmap;
 
-	
+	/* PCI hook and SPI hook use the same drv data */
 	pci_set_drvdata(pdev, dwpci);
 	return 0;
 
@@ -146,7 +150,7 @@ static int spi_resume(struct pci_dev *pdev)
 #endif
 
 static DEFINE_PCI_DEVICE_TABLE(pci_ids) = {
-	
+	/* Intel MID platform SPI controller 0 */
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x0800) },
 	{},
 };

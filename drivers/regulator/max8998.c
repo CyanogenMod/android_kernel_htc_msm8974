@@ -39,10 +39,10 @@ struct max8998_data {
 	struct max8998_dev	*iodev;
 	int			num_regulators;
 	struct regulator_dev	**rdev;
-	u8                      buck1_vol[4]; 
+	u8                      buck1_vol[4]; /* voltages for selection */
 	u8                      buck2_vol[2];
-	unsigned int		buck1_idx; 
-					   
+	unsigned int		buck1_idx; /* index to last changed voltage */
+					   /* value in a set */
 	unsigned int		buck2_idx;
 };
 
@@ -52,6 +52,7 @@ struct voltage_map_desc {
 	int step;
 };
 
+/* Voltage maps */
 static const struct voltage_map_desc ldo23_voltage_map_desc = {
 	.min = 800,	.step = 50,	.max = 1300,
 };
@@ -89,26 +90,26 @@ static const struct voltage_map_desc buck4_voltage_map_desc = {
 static const struct voltage_map_desc *ldo_voltage_map[] = {
 	NULL,
 	NULL,
-	&ldo23_voltage_map_desc,	
-	&ldo23_voltage_map_desc,	
-	&ldo456711_voltage_map_desc,	
-	&ldo456711_voltage_map_desc,	
-	&ldo456711_voltage_map_desc,	
-	&ldo456711_voltage_map_desc,	
-	&ldo8_voltage_map_desc,		
-	&ldo9_voltage_map_desc,		
-	&ldo10_voltage_map_desc,	
-	&ldo456711_voltage_map_desc,	
-	&ldo1213_voltage_map_desc,	
-	&ldo1213_voltage_map_desc,	
-	&ldo1415_voltage_map_desc,	
-	&ldo1415_voltage_map_desc,	
-	&ldo1617_voltage_map_desc,	
-	&ldo1617_voltage_map_desc,	
-	&buck12_voltage_map_desc,	
-	&buck12_voltage_map_desc,	
-	&buck3_voltage_map_desc,	
-	&buck4_voltage_map_desc,	
+	&ldo23_voltage_map_desc,	/* LDO2 */
+	&ldo23_voltage_map_desc,	/* LDO3 */
+	&ldo456711_voltage_map_desc,	/* LDO4 */
+	&ldo456711_voltage_map_desc,	/* LDO5 */
+	&ldo456711_voltage_map_desc,	/* LDO6 */
+	&ldo456711_voltage_map_desc,	/* LDO7 */
+	&ldo8_voltage_map_desc,		/* LDO8 */
+	&ldo9_voltage_map_desc,		/* LDO9 */
+	&ldo10_voltage_map_desc,	/* LDO10 */
+	&ldo456711_voltage_map_desc,	/* LDO11 */
+	&ldo1213_voltage_map_desc,	/* LDO12 */
+	&ldo1213_voltage_map_desc,	/* LDO13 */
+	&ldo1415_voltage_map_desc,	/* LDO14 */
+	&ldo1415_voltage_map_desc,	/* LDO15 */
+	&ldo1617_voltage_map_desc,	/* LDO16 */
+	&ldo1617_voltage_map_desc,	/* LDO17 */
+	&buck12_voltage_map_desc,	/* BUCK1 */
+	&buck12_voltage_map_desc,	/* BUCK2 */
+	&buck3_voltage_map_desc,	/* BUCK3 */
+	&buck4_voltage_map_desc,	/* BUCK4 */
 };
 
 static int max8998_list_voltage(struct regulator_dev *rdev,
@@ -388,8 +389,8 @@ static int max8998_set_voltage_buck(struct regulator_dev *rdev,
 
 	previous_vol = max8998_get_voltage(rdev);
 
-	
-	
+	/* Check if voltage needs to be changed */
+	/* if previous_voltage equal new voltage, return */
 	if (previous_vol == max8998_list_voltage(rdev, i)) {
 		dev_dbg(max8998->dev, "No voltage change, old:%d, new:%d\n",
 			previous_vol, max8998_list_voltage(rdev, i));
@@ -407,8 +408,8 @@ static int max8998_set_voltage_buck(struct regulator_dev *rdev,
 		if (gpio_is_valid(pdata->buck1_set1) &&
 		    gpio_is_valid(pdata->buck1_set2)) {
 
-			
-			
+			/* check if requested voltage */
+			/* value is already defined */
 			for (j = 0; j < ARRAY_SIZE(max8998->buck1_vol); j++) {
 				if (max8998->buck1_vol[j] == i) {
 					max8998->buck1_idx = j;
@@ -421,7 +422,7 @@ static int max8998_set_voltage_buck(struct regulator_dev *rdev,
 			if (pdata->buck_voltage_lock)
 				return -EINVAL;
 
-			
+			/* no predefine regulator found */
 			max8998->buck1_idx = (buck1_last_val % 2) + 2;
 			dev_dbg(max8998->dev, "max8998->buck1_idx:%d\n",
 				max8998->buck1_idx);
@@ -449,8 +450,8 @@ buck1_exit:
 			, i, max8998->buck2_vol[0], max8998->buck2_vol[1]);
 		if (gpio_is_valid(pdata->buck2_set3)) {
 
-			
-			
+			/* check if requested voltage */
+			/* value is already defined */
 			for (j = 0; j < ARRAY_SIZE(max8998->buck2_vol); j++) {
 				if (max8998->buck2_vol[j] == i) {
 					max8998->buck2_idx = j;
@@ -481,11 +482,11 @@ buck2_exit:
 		break;
 	}
 
-	
+	/* Voltage stabilization */
 	max8998_read_reg(i2c, MAX8998_REG_ONOFF4, &val);
 
-	
-	
+	/* lp3974 hasn't got ENRAMP bit - ramp is assumed as true */
+	/* MAX8998 has ENRAMP bit implemented, so test it*/
 	if (max8998->iodev->type == TYPE_MAX8998 && !(val & MAX8998_ENRAMP))
 		return ret;
 
@@ -715,21 +716,21 @@ static __devinit int max8998_pmic_probe(struct platform_device *pdev)
 	max8998->buck1_idx = pdata->buck1_default_idx;
 	max8998->buck2_idx = pdata->buck2_default_idx;
 
-	
-	
-	
+	/* NOTE: */
+	/* For unused GPIO NOT marked as -1 (thereof equal to 0)  WARN_ON */
+	/* will be displayed */
 
-	
+	/* Check if MAX8998 voltage selection GPIOs are defined */
 	if (gpio_is_valid(pdata->buck1_set1) &&
 	    gpio_is_valid(pdata->buck1_set2)) {
-		
+		/* Check if SET1 is not equal to 0 */
 		if (!pdata->buck1_set1) {
 			printk(KERN_ERR "MAX8998 SET1 GPIO defined as 0 !\n");
 			WARN_ON(!pdata->buck1_set1);
 			ret = -EIO;
 			goto err_free_mem;
 		}
-		
+		/* Check if SET2 is not equal to 0 */
 		if (!pdata->buck1_set2) {
 			printk(KERN_ERR "MAX8998 SET2 GPIO defined as 0 !\n");
 			WARN_ON(!pdata->buck1_set2);
@@ -745,7 +746,7 @@ static __devinit int max8998_pmic_probe(struct platform_device *pdev)
 		gpio_request(pdata->buck1_set2, "MAX8998 BUCK1_SET2");
 		gpio_direction_output(pdata->buck1_set2,
 				      (max8998->buck1_idx >> 1) & 0x1);
-		
+		/* Set predefined value for BUCK1 register 1 */
 		i = 0;
 		while (buck12_voltage_map_desc.min +
 		       buck12_voltage_map_desc.step*i
@@ -756,7 +757,7 @@ static __devinit int max8998_pmic_probe(struct platform_device *pdev)
 		if (ret)
 			goto err_free_mem;
 
-		
+		/* Set predefined value for BUCK1 register 2 */
 		i = 0;
 		while (buck12_voltage_map_desc.min +
 		       buck12_voltage_map_desc.step*i
@@ -768,7 +769,7 @@ static __devinit int max8998_pmic_probe(struct platform_device *pdev)
 		if (ret)
 			goto err_free_mem;
 
-		
+		/* Set predefined value for BUCK1 register 3 */
 		i = 0;
 		while (buck12_voltage_map_desc.min +
 		       buck12_voltage_map_desc.step*i
@@ -780,7 +781,7 @@ static __devinit int max8998_pmic_probe(struct platform_device *pdev)
 		if (ret)
 			goto err_free_mem;
 
-		
+		/* Set predefined value for BUCK1 register 4 */
 		i = 0;
 		while (buck12_voltage_map_desc.min +
 		       buck12_voltage_map_desc.step*i
@@ -795,7 +796,7 @@ static __devinit int max8998_pmic_probe(struct platform_device *pdev)
 	}
 
 	if (gpio_is_valid(pdata->buck2_set3)) {
-		
+		/* Check if SET3 is not equal to 0 */
 		if (!pdata->buck2_set3) {
 			printk(KERN_ERR "MAX8998 SET3 GPIO defined as 0 !\n");
 			WARN_ON(!pdata->buck2_set3);
@@ -806,7 +807,7 @@ static __devinit int max8998_pmic_probe(struct platform_device *pdev)
 		gpio_direction_output(pdata->buck2_set3,
 				      max8998->buck2_idx & 0x1);
 
-		
+		/* BUCK2 register 1 */
 		i = 0;
 		while (buck12_voltage_map_desc.min +
 		       buck12_voltage_map_desc.step*i
@@ -817,7 +818,7 @@ static __devinit int max8998_pmic_probe(struct platform_device *pdev)
 		if (ret)
 			goto err_free_mem;
 
-		
+		/* BUCK2 register 2 */
 		i = 0;
 		while (buck12_voltage_map_desc.min +
 		       buck12_voltage_map_desc.step*i

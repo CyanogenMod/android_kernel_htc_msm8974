@@ -28,16 +28,21 @@
 #include <net/irda/irda.h>
 #include <net/irda/irqueue.h>
 
+/* LM-IAS Attribute types */
 #define IAS_MISSING 0
 #define IAS_INTEGER 1
 #define IAS_OCT_SEQ 2
 #define IAS_STRING  3
 
+/* Object ownership of attributes (user or kernel) */
 #define IAS_KERNEL_ATTR	0
 #define IAS_USER_ATTR	1
 
+/*
+ *  LM-IAS Object
+ */
 struct ias_object {
-	irda_queue_t q;     
+	irda_queue_t q;     /* Must be first! */
 	magic_t magic;
 	
 	char  *name;
@@ -45,13 +50,16 @@ struct ias_object {
 	hashbin_t *attribs;
 };
 
+/*
+ *  Values used by LM-IAS attributes
+ */
 struct ias_value {
-        __u8    type;    
-	__u8	owner;	
-	int     charset; 
+        __u8    type;    /* Value description */
+	__u8	owner;	/* Managed from user/kernel space */
+	int     charset; /* Only used by string type */
         int     len;
 	
-	
+	/* Value */
 	union {
 		int integer;
 		char *string;
@@ -59,12 +67,15 @@ struct ias_value {
 	} t;
 };
 
+/*
+ *  Attributes used by LM-IAS objects
+ */
 struct ias_attrib {
-	irda_queue_t q; 
+	irda_queue_t q; /* Must be first! */
 	int magic;
 
-        char *name;   	         
-	struct ias_value *value; 
+        char *name;   	         /* Attribute name */
+	struct ias_value *value; /* Attribute value */
 };
 
 struct ias_object *irias_new_object(char *name, int id);

@@ -32,7 +32,7 @@
 #include "tpm.h"
 
 enum tpm_const {
-	TPM_MINOR = 224,	
+	TPM_MINOR = 224,	/* officially assigned */
 	TPM_BUFSIZE = 4096,
 	TPM_NUM_DEVICES = 256,
 };
@@ -48,6 +48,11 @@ enum tpm_duration {
 #define TPM_MAX_PROTECTED_ORDINAL 12
 #define TPM_PROTECTED_ORDINAL_MASK 0xFF
 
+/*
+ * Bug workaround - some TPM's don't flush the most
+ * recently changed pcr on suspend, so force the flush
+ * with an extend to the selected _unused_ non-volatile pcr.
+ */
 static int tpm_suspend_pcr;
 module_param_named(suspend_pcr, tpm_suspend_pcr, uint, 0644);
 MODULE_PARM_DESC(suspend_pcr,
@@ -57,263 +62,271 @@ static LIST_HEAD(tpm_chip_list);
 static DEFINE_SPINLOCK(driver_lock);
 static DECLARE_BITMAP(dev_mask, TPM_NUM_DEVICES);
 
+/*
+ * Array with one entry per ordinal defining the maximum amount
+ * of time the chip could take to return the result.  The ordinal
+ * designation of short, medium or long is defined in a table in
+ * TCG Specification TPM Main Part 2 TPM Structures Section 17. The
+ * values of the SHORT, MEDIUM, and LONG durations are retrieved
+ * from the chip during initialization with a call to tpm_get_timeouts.
+ */
 static const u8 tpm_protected_ordinal_duration[TPM_MAX_PROTECTED_ORDINAL] = {
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 0 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 5 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 10 */
 	TPM_SHORT,
 };
 
 static const u8 tpm_ordinal_duration[TPM_MAX_ORDINAL] = {
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 0 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 5 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 10 */
 	TPM_SHORT,
 	TPM_MEDIUM,
 	TPM_LONG,
 	TPM_LONG,
-	TPM_MEDIUM,		
+	TPM_MEDIUM,		/* 15 */
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_MEDIUM,
 	TPM_LONG,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 20 */
 	TPM_SHORT,
 	TPM_MEDIUM,
 	TPM_MEDIUM,
 	TPM_MEDIUM,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 25 */
 	TPM_SHORT,
 	TPM_MEDIUM,
 	TPM_SHORT,
 	TPM_SHORT,
-	TPM_MEDIUM,		
+	TPM_MEDIUM,		/* 30 */
 	TPM_LONG,
 	TPM_MEDIUM,
 	TPM_SHORT,
 	TPM_SHORT,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 35 */
 	TPM_MEDIUM,
 	TPM_MEDIUM,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_MEDIUM,		
+	TPM_MEDIUM,		/* 40 */
 	TPM_LONG,
 	TPM_MEDIUM,
 	TPM_SHORT,
 	TPM_SHORT,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 45 */
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_LONG,
-	TPM_MEDIUM,		
+	TPM_MEDIUM,		/* 50 */
 	TPM_MEDIUM,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 55 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_MEDIUM,		
+	TPM_MEDIUM,		/* 60 */
 	TPM_MEDIUM,
 	TPM_MEDIUM,
 	TPM_SHORT,
 	TPM_SHORT,
-	TPM_MEDIUM,		
+	TPM_MEDIUM,		/* 65 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 70 */
 	TPM_SHORT,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 75 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_LONG,		
+	TPM_LONG,		/* 80 */
 	TPM_UNDEFINED,
 	TPM_MEDIUM,
 	TPM_LONG,
 	TPM_SHORT,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 85 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 90 */
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_SHORT,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 95 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_MEDIUM,		
+	TPM_MEDIUM,		/* 100 */
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 105 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 110 */
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_SHORT,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 115 */
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_LONG,		
+	TPM_LONG,		/* 120 */
 	TPM_LONG,
 	TPM_MEDIUM,
 	TPM_UNDEFINED,
 	TPM_SHORT,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 125 */
 	TPM_SHORT,
 	TPM_LONG,
 	TPM_SHORT,
 	TPM_SHORT,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 130 */
 	TPM_MEDIUM,
 	TPM_UNDEFINED,
 	TPM_SHORT,
 	TPM_MEDIUM,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 135 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 140 */
 	TPM_SHORT,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 145 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 150 */
 	TPM_MEDIUM,
 	TPM_MEDIUM,
 	TPM_SHORT,
 	TPM_SHORT,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 155 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 160 */
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 165 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_LONG,		
+	TPM_LONG,		/* 170 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 175 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_MEDIUM,		
+	TPM_MEDIUM,		/* 180 */
 	TPM_SHORT,
 	TPM_MEDIUM,
 	TPM_MEDIUM,
 	TPM_MEDIUM,
-	TPM_MEDIUM,		
+	TPM_MEDIUM,		/* 185 */
 	TPM_SHORT,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 190 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 195 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 200 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_SHORT,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 205 */
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_SHORT,
-	TPM_MEDIUM,		
+	TPM_MEDIUM,		/* 210 */
 	TPM_UNDEFINED,
 	TPM_MEDIUM,
 	TPM_MEDIUM,
 	TPM_MEDIUM,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 215 */
 	TPM_MEDIUM,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_SHORT,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 220 */
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_SHORT,
 	TPM_SHORT,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 225 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 230 */
 	TPM_LONG,
 	TPM_MEDIUM,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_UNDEFINED,		
+	TPM_UNDEFINED,		/* 235 */
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
 	TPM_UNDEFINED,
-	TPM_SHORT,		
+	TPM_SHORT,		/* 240 */
 	TPM_UNDEFINED,
 	TPM_MEDIUM,
 };
@@ -335,6 +348,9 @@ static void timeout_work(struct work_struct *work)
 	mutex_unlock(&chip->buffer_mutex);
 }
 
+/*
+ * Returns max number of jiffies to wait
+ */
 unsigned long tpm_calc_ordinal_duration(struct tpm_chip *chip,
 					   u32 ordinal)
 {
@@ -358,6 +374,9 @@ unsigned long tpm_calc_ordinal_duration(struct tpm_chip *chip,
 }
 EXPORT_SYMBOL_GPL(tpm_calc_ordinal_duration);
 
+/*
+ * Internal kernel interface to transmit TPM commands
+ */
 static ssize_t tpm_transmit(struct tpm_chip *chip, const char *buf,
 			    size_t bufsiz)
 {
@@ -402,7 +421,7 @@ static ssize_t tpm_transmit(struct tpm_chip *chip, const char *buf,
 			goto out;
 		}
 
-		msleep(TPM_TIMEOUT);	
+		msleep(TPM_TIMEOUT);	/* CHECK */
 		rmb();
 	} while (time_before(jiffies, stop));
 
@@ -480,7 +499,7 @@ ssize_t tpm_getcap(struct device *dev, __be32 subcap_id, cap_t *cap,
 	tpm_cmd.header.in = tpm_getcap_header;
 	if (subcap_id == CAP_VERSION_1_1 || subcap_id == CAP_VERSION_1_2) {
 		tpm_cmd.params.getcap_in.cap = subcap_id;
-		
+		/*subcap field not necessary */
 		tpm_cmd.params.getcap_in.subcap_size = cpu_to_be32(0);
 		tpm_cmd.header.in.length -= cpu_to_be32(sizeof(__be32));
 	} else {
@@ -538,10 +557,10 @@ int tpm_get_timeouts(struct tpm_chip *chip)
 		return -EINVAL;
 
 	timeout_cap = &tpm_cmd.params.getcap_out.cap.timeout;
-	
+	/* Don't overwrite default if value is 0 */
 	timeout = be32_to_cpu(timeout_cap->a);
 	if (timeout && timeout < 1000) {
-		
+		/* timeouts in msec rather usec */
 		scale = 1000;
 		chip->vendor.timeout_adjusted = true;
 	}
@@ -581,6 +600,11 @@ duration:
 	chip->vendor.duration[TPM_LONG] =
 	    usecs_to_jiffies(be32_to_cpu(duration_cap->tpm_long));
 
+	/* The Broadcom BCM0102 chipset in a Dell Latitude D820 gets the above
+	 * value wrong and apparently reports msecs rather than usecs. So we
+	 * fix up the resulting too-small TPM_SHORT value to make things work.
+	 * We also scale the TPM_MEDIUM and -_LONG values by 1000.
+	 */
 	if (chip->vendor.duration[TPM_SHORT] < (HZ / 100)) {
 		chip->vendor.duration[TPM_SHORT] = HZ;
 		chip->vendor.duration[TPM_MEDIUM] *= 1000;
@@ -601,6 +625,13 @@ static struct tpm_input_header continue_selftest_header = {
 	.ordinal = cpu_to_be32(TPM_ORD_CONTINUE_SELFTEST),
 };
 
+/**
+ * tpm_continue_selftest -- run TPM's selftest
+ * @chip: TPM chip to use
+ *
+ * Returns 0 on success, < 0 in case of fatal error or a value > 0 representing
+ * a TPM error code.
+ */
 static int tpm_continue_selftest(struct tpm_chip *chip)
 {
 	int rc;
@@ -676,6 +707,9 @@ ssize_t tpm_show_temp_deactivated(struct device * dev,
 }
 EXPORT_SYMBOL_GPL(tpm_show_temp_deactivated);
 
+/*
+ * tpm_chip_find_get - return tpm_chip for given chip number
+ */
 static struct tpm_chip *tpm_chip_find_get(int chip_num)
 {
 	struct tpm_chip *pos, *chip = NULL;
@@ -718,6 +752,17 @@ static int __tpm_pcr_read(struct tpm_chip *chip, int pcr_idx, u8 *res_buf)
 	return rc;
 }
 
+/**
+ * tpm_pcr_read - read a pcr value
+ * @chip_num: 	tpm idx # or ANY
+ * @pcr_idx:	pcr idx to retrieve
+ * @res_buf: 	TPM_PCR value
+ * 		size of res_buf is 20 bytes (or NULL if you don't care)
+ *
+ * The TPM driver should be built-in, but for whatever reason it
+ * isn't, protect against the chip disappearing, by incrementing
+ * the module usage count.
+ */
 int tpm_pcr_read(u32 chip_num, int pcr_idx, u8 *res_buf)
 {
 	struct tpm_chip *chip;
@@ -732,6 +777,16 @@ int tpm_pcr_read(u32 chip_num, int pcr_idx, u8 *res_buf)
 }
 EXPORT_SYMBOL_GPL(tpm_pcr_read);
 
+/**
+ * tpm_pcr_extend - extend pcr value with hash
+ * @chip_num: 	tpm idx # or AN&
+ * @pcr_idx:	pcr idx to extend
+ * @hash: 	hash value used to extend pcr value
+ *
+ * The TPM driver should be built-in, but for whatever reason it
+ * isn't, protect against the chip disappearing, by incrementing
+ * the module usage count.
+ */
 #define TPM_ORD_PCR_EXTEND cpu_to_be32(20)
 #define EXTEND_PCR_RESULT_SIZE 34
 static struct tpm_input_header pcrextend_header = {
@@ -761,6 +816,14 @@ int tpm_pcr_extend(u32 chip_num, int pcr_idx, const u8 *hash)
 }
 EXPORT_SYMBOL_GPL(tpm_pcr_extend);
 
+/**
+ * tpm_do_selftest - have the TPM continue its selftest and wait until it
+ *                   can receive further commands
+ * @chip: TPM chip to use
+ *
+ * Returns 0 on success, < 0 in case of fatal error or a value > 0 representing
+ * a TPM error code.
+ */
 int tpm_do_selftest(struct tpm_chip *chip)
 {
 	int rc;
@@ -775,6 +838,9 @@ int tpm_do_selftest(struct tpm_chip *chip)
 	loops = jiffies_to_msecs(duration) / delay_msec;
 
 	rc = tpm_continue_selftest(chip);
+	/* This may fail if there was no TPM driver during a suspend/resume
+	 * cycle; some may return 10 (BAD_ORDINAL), others 28 (FAILEDSELFTEST)
+	 */
 	if (rc)
 		return rc;
 
@@ -783,6 +849,10 @@ int tpm_do_selftest(struct tpm_chip *chip)
 		if (rc == TPM_ERR_DISABLED || rc == TPM_ERR_DEACTIVATED) {
 			dev_info(chip->dev,
 				 "TPM is disabled/deactivated (0x%X)\n", rc);
+			/* TPM is disabled and/or deactivated; driver can
+			 * proceed and TPM does handle commands for
+			 * suspend/resume correctly
+			 */
 			return 0;
 		}
 		if (rc != TPM_WARN_DOING_SELFTEST)
@@ -864,6 +934,16 @@ ssize_t tpm_show_pubek(struct device *dev, struct device_attribute *attr,
 	if (err)
 		goto out;
 
+	/* 
+	   ignore header 10 bytes
+	   algorithm 32 bits (1 == RSA )
+	   encscheme 16 bits
+	   sigscheme 16 bits
+	   parameters (RSA 12->bytes: keybit, #primes, expbit)  
+	   keylenbytes 32 bits
+	   256 byte modulus
+	   ignore checksum 20 bytes
+	 */
 	data = tpm_cmd.params.readpubek_out_buffer;
 	str +=
 	    sprintf(str,
@@ -998,7 +1078,7 @@ int wait_for_tpm_stat(struct tpm_chip *chip, u8 mask, unsigned long timeout,
 	long rc;
 	u8 status;
 
-	
+	/* check current status */
 	status = chip->vendor.status(chip);
 	if ((status & mask) == mask)
 		return 0;
@@ -1031,6 +1111,13 @@ again:
 	return -ETIME;
 }
 EXPORT_SYMBOL_GPL(wait_for_tpm_stat);
+/*
+ * Device file system interface to the TPM
+ *
+ * It's assured that the chip will be opened just once,
+ * by the check of is_open variable, which is protected
+ * by driver_lock.
+ */
 int tpm_open(struct inode *inode, struct file *file)
 {
 	int minor = iminor(inode);
@@ -1069,6 +1156,9 @@ int tpm_open(struct inode *inode, struct file *file)
 }
 EXPORT_SYMBOL_GPL(tpm_open);
 
+/*
+ * Called on file close
+ */
 int tpm_release(struct inode *inode, struct file *file)
 {
 	struct tpm_chip *chip = file->private_data;
@@ -1090,6 +1180,8 @@ ssize_t tpm_write(struct file *file, const char __user *buf,
 	struct tpm_chip *chip = file->private_data;
 	size_t in_size = size, out_size;
 
+	/* cannot perform a write until the read has cleared
+	   either via tpm_read or a user_read_timer timeout */
 	while (atomic_read(&chip->data_pending) != 0)
 		msleep(TPM_TIMEOUT);
 
@@ -1104,13 +1196,13 @@ ssize_t tpm_write(struct file *file, const char __user *buf,
 		return -EFAULT;
 	}
 
-	
+	/* atomic tpm command send and result receive */
 	out_size = tpm_transmit(chip, chip->data_buffer, TPM_BUFSIZE);
 
 	atomic_set(&chip->data_pending, out_size);
 	mutex_unlock(&chip->buffer_mutex);
 
-	
+	/* Set a timeout by which the reader must come claim the result */
 	mod_timer(&chip->user_read_timer, jiffies + (60 * HZ));
 
 	return in_size;
@@ -1128,7 +1220,7 @@ ssize_t tpm_read(struct file *file, char __user *buf,
 	flush_work_sync(&chip->work);
 	ret_size = atomic_read(&chip->data_pending);
 	atomic_set(&chip->data_pending, 0);
-	if (ret_size > 0) {	
+	if (ret_size > 0) {	/* relay data */
 		ssize_t orig_ret_size = ret_size;
 		if (size < ret_size)
 			ret_size = size;
@@ -1164,7 +1256,7 @@ void tpm_remove_hardware(struct device *dev)
 	sysfs_remove_group(&dev->kobj, chip->vendor.attr_group);
 	tpm_bios_log_teardown(chip->bios_dir);
 
-	
+	/* write it this way to be explicit (chip->dev == dev) */
 	put_device(chip->dev);
 }
 EXPORT_SYMBOL_GPL(tpm_remove_hardware);
@@ -1178,6 +1270,10 @@ static struct tpm_input_header savestate_header = {
 	.ordinal = TPM_ORD_SAVESTATE
 };
 
+/*
+ * We are about to suspend. Save the TPM state
+ * so that it can be restored.
+ */
 int tpm_pm_suspend(struct device *dev, pm_message_t pm_state)
 {
 	struct tpm_chip *chip = dev_get_drvdata(dev);
@@ -1189,7 +1285,7 @@ int tpm_pm_suspend(struct device *dev, pm_message_t pm_state)
 	if (chip == NULL)
 		return -ENODEV;
 
-	
+	/* for buggy tpm, flush pcrs with extend to selected dummy */
 	if (tpm_suspend_pcr) {
 		cmd.header.in = pcrextend_header;
 		cmd.params.pcrextend_in.pcr_idx = cpu_to_be32(tpm_suspend_pcr);
@@ -1199,7 +1295,7 @@ int tpm_pm_suspend(struct device *dev, pm_message_t pm_state)
 				  "extending dummy pcr before suspend");
 	}
 
-	
+	/* now do the actual savestate */
 	cmd.header.in = savestate_header;
 	rc = transmit_cmd(chip, &cmd, SAVESTATE_RESULT_SIZE,
 			  "sending savestate before suspend");
@@ -1207,6 +1303,10 @@ int tpm_pm_suspend(struct device *dev, pm_message_t pm_state)
 }
 EXPORT_SYMBOL_GPL(tpm_pm_suspend);
 
+/*
+ * Resume from a power safe. The BIOS already restored
+ * the TPM state.
+ */
 int tpm_pm_resume(struct device *dev)
 {
 	struct tpm_chip *chip = dev_get_drvdata(dev);
@@ -1218,6 +1318,7 @@ int tpm_pm_resume(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(tpm_pm_resume);
 
+/* In case vendor provided release function, call it too.*/
 
 void tpm_dev_vendor_release(struct tpm_chip *chip)
 {
@@ -1230,6 +1331,10 @@ void tpm_dev_vendor_release(struct tpm_chip *chip)
 EXPORT_SYMBOL_GPL(tpm_dev_vendor_release);
 
 
+/*
+ * Once all references to platform device are down to 0,
+ * release all allocated structures.
+ */
 void tpm_dev_release(struct device *dev)
 {
 	struct tpm_chip *chip = dev_get_drvdata(dev);
@@ -1241,6 +1346,13 @@ void tpm_dev_release(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(tpm_dev_release);
 
+/*
+ * Called from tpm_<specific>.c probe function only for devices 
+ * the driver has determined it should claim.  Prior to calling
+ * this function the specific probe function has called pci_enable_device
+ * upon errant exit from this function specific probe function should call
+ * pci_disable_device
+ */
 struct tpm_chip *tpm_register_hardware(struct device *dev,
 					const struct tpm_vendor_specific *entry)
 {
@@ -1249,7 +1361,7 @@ struct tpm_chip *tpm_register_hardware(struct device *dev,
 	char *devname;
 	struct tpm_chip *chip;
 
-	
+	/* Driver specific per-device data */
 	chip = kzalloc(sizeof(*chip), GFP_KERNEL);
 	devname = kmalloc(DEVNAME_SIZE, GFP_KERNEL);
 
@@ -1306,7 +1418,7 @@ struct tpm_chip *tpm_register_hardware(struct device *dev,
 
 	chip->bios_dir = tpm_bios_log_setup(devname);
 
-	
+	/* Make chip available */
 	spin_lock(&driver_lock);
 	list_add_rcu(&chip->list, &tpm_chip_list);
 	spin_unlock(&driver_lock);

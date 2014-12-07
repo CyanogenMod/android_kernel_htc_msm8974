@@ -131,7 +131,7 @@ hscx_interrupt(struct IsdnCardState *cs, u_char val, u_char hscx)
 	if (!test_bit(BC_FLG_INIT, &bcs->Flag))
 		return;
 
-	if (val & 0x80) {	
+	if (val & 0x80) {	/* RME */
 		r = READHSCX(cs, hscx, HSCX_RSTA);
 		if ((r & 0xf0) != 0xa0) {
 			if (!(r & 0x80)) {
@@ -177,10 +177,10 @@ hscx_interrupt(struct IsdnCardState *cs, u_char val, u_char hscx)
 		bcs->hw.hscx.rcvidx = 0;
 		schedule_event(bcs, B_RCVBUFREADY);
 	}
-	if (val & 0x40) {	
+	if (val & 0x40) {	/* RPF */
 		hscx_empty_fifo(bcs, fifo_size);
 		if (bcs->mode == L1_MODE_TRANS) {
-			
+			/* receive audio data */
 			if (!(skb = dev_alloc_skb(fifo_size)))
 				printk(KERN_WARNING "HiSax: receive out of memory\n");
 			else {
@@ -191,7 +191,7 @@ hscx_interrupt(struct IsdnCardState *cs, u_char val, u_char hscx)
 			schedule_event(bcs, B_RCVBUFREADY);
 		}
 	}
-	if (val & 0x10) {	
+	if (val & 0x10) {	/* XPR */
 		if (bcs->tx_skb) {
 			if (bcs->tx_skb->len) {
 				hscx_fill_fifo(bcs);
@@ -238,6 +238,9 @@ hscx_int_main(struct IsdnCardState *cs, u_char val)
 #ifdef ERROR_STATISTIC
 				bcs->err_tx++;
 #endif
+				/* Here we lost an TX interrupt, so
+				 * restart transmitting the whole frame.
+				 */
 				if (bcs->tx_skb) {
 					skb_push(bcs->tx_skb, bcs->hw.hscx.count);
 					bcs->tx_cnt += bcs->hw.hscx.count;
@@ -262,6 +265,9 @@ hscx_int_main(struct IsdnCardState *cs, u_char val)
 			if (bcs->mode == L1_MODE_TRANS)
 				hscx_fill_fifo(bcs);
 			else {
+				/* Here we lost an TX interrupt, so
+				 * restart transmitting the whole frame.
+				 */
 #ifdef ERROR_STATISTIC
 				bcs->err_tx++;
 #endif

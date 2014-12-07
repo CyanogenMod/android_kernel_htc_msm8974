@@ -66,7 +66,7 @@ struct ib_umem *ib_umem_get(struct ib_ucontext *context, unsigned long addr,
 void ib_umem_release(struct ib_umem *umem);
 int ib_umem_page_count(struct ib_umem *umem);
 
-#else 
+#else /* CONFIG_INFINIBAND_USER_MEM */
 
 #include <linux/err.h>
 
@@ -78,6 +78,6 @@ static inline struct ib_umem *ib_umem_get(struct ib_ucontext *context,
 static inline void ib_umem_release(struct ib_umem *umem) { }
 static inline int ib_umem_page_count(struct ib_umem *umem) { return 0; }
 
-#endif 
+#endif /* CONFIG_INFINIBAND_USER_MEM */
 
-#endif 
+#endif /* IB_UMEM_H */

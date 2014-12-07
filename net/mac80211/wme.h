@@ -26,4 +26,4 @@ u16 ieee80211_downgrade_queue(struct ieee80211_local *local,
                               struct sk_buff *skb);
 
 
-#endif 
+#endif /* _WME_H */

@@ -173,6 +173,10 @@ lqasc_rx_chars(struct uart_port *port)
 		tty_flip_buffer_push(tty);
 		port->icount.rx++;
 
+		/*
+		 * Note that the error handling code is
+		 * out of the main execution path
+		 */
 		if (rsr & ASCSTATE_ANY) {
 			if (rsr & ASCSTATE_PE) {
 				port->icount.parity++;
@@ -201,6 +205,11 @@ lqasc_rx_chars(struct uart_port *port)
 			tty_insert_flip_char(tty, ch, flag);
 
 		if (rsr & ASCSTATE_ROE)
+			/*
+			 * Overrun is special, since it's reported
+			 * immediately, and doesn't affect the current
+			 * character
+			 */
 			tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 	}
 	if (ch != 0)
@@ -258,7 +267,7 @@ lqasc_err_int(int irq, void *_port)
 	unsigned long flags;
 	struct uart_port *port = (struct uart_port *)_port;
 	spin_lock_irqsave(&ltq_asc_lock, flags);
-	
+	/* clear any pending interrupts */
 	ltq_w32_mask(0, ASCWHBSTATE_CLRPE | ASCWHBSTATE_CLRFE |
 		ASCWHBSTATE_CLRROE, port->membase + LTQ_ASC_WHBSTATE);
 	spin_unlock_irqrestore(&ltq_asc_lock, flags);
@@ -403,7 +412,7 @@ lqasc_set_termios(struct uart_port *port,
 		break;
 	}
 
-	cflag &= ~CMSPAR; 
+	cflag &= ~CMSPAR; /* Mark/Space parity is not supported */
 
 	if (cflag & CSTOPB)
 		con |= ASCCON_STP;
@@ -424,6 +433,10 @@ lqasc_set_termios(struct uart_port *port,
 		port->ignore_status_mask |= ASCSTATE_FE | ASCSTATE_PE;
 
 	if (iflag & IGNBRK) {
+		/*
+		 * If we're ignoring parity and break indicators,
+		 * ignore overruns too (for real raw support).
+		 */
 		if (iflag & IGNPAR)
 			port->ignore_status_mask |= ASCSTATE_ROE;
 	}
@@ -431,40 +444,40 @@ lqasc_set_termios(struct uart_port *port,
 	if ((cflag & CREAD) == 0)
 		port->ignore_status_mask |= UART_DUMMY_UER_RX;
 
-	
+	/* set error signals  - framing, parity  and overrun, enable receiver */
 	con |= ASCCON_FEN | ASCCON_TOEN | ASCCON_ROEN;
 
 	spin_lock_irqsave(&ltq_asc_lock, flags);
 
-	
+	/* set up CON */
 	ltq_w32_mask(0, con, port->membase + LTQ_ASC_CON);
 
-	
+	/* Set baud rate - take a divider of 2 into account */
 	baud = uart_get_baud_rate(port, new, old, 0, port->uartclk / 16);
 	divisor = uart_get_divisor(port, baud);
 	divisor = divisor / 2 - 1;
 
-	
+	/* disable the baudrate generator */
 	ltq_w32_mask(ASCCON_R, 0, port->membase + LTQ_ASC_CON);
 
-	
+	/* make sure the fractional divider is off */
 	ltq_w32_mask(ASCCON_FDE, 0, port->membase + LTQ_ASC_CON);
 
-	
+	/* set up to use divisor of 2 */
 	ltq_w32_mask(ASCCON_BRS, 0, port->membase + LTQ_ASC_CON);
 
-	
+	/* now we can write the new baudrate into the register */
 	ltq_w32(divisor, port->membase + LTQ_ASC_BG);
 
-	
+	/* turn the baudrate generator back on */
 	ltq_w32_mask(0, ASCCON_R, port->membase + LTQ_ASC_CON);
 
-	
+	/* enable rx */
 	ltq_w32(ASCWHBSTATE_SETREN, port->membase + LTQ_ASC_WHBSTATE);
 
 	spin_unlock_irqrestore(&ltq_asc_lock, flags);
 
-	
+	/* Don't rewrite B0 */
 	if (tty_termios_baud_rate(new))
 		tty_termios_encode_baud_rate(new, baud, baud);
 
@@ -699,7 +712,7 @@ lqasc_probe(struct platform_device *pdev)
 	port->line	= pdev->id;
 	port->dev	= &pdev->dev;
 
-	port->irq	= tx_irq; 
+	port->irq	= tx_irq; /* unused, just to be backward-compatibe */
 	port->mapbase	= mmres->start;
 
 	ltq_port->clk	= clk;

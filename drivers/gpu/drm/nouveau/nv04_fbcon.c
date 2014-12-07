@@ -161,8 +161,8 @@ nv04_fbcon_accel_init(struct fb_info *info)
 		break;
 	case 32:
 		switch (info->var.transp.length) {
-		case 0: 
-		case 8: 
+		case 0: /* depth 24 */
+		case 8: /* depth 32 */
 			break;
 		default:
 			return -EINVAL;

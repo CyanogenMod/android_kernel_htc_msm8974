@@ -33,8 +33,12 @@
 #include "tether.h"
 #include "desc.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
 
+//
+// USB counter
+//
 typedef struct tagSUSBCounter {
     DWORD dwCrc;
 
@@ -42,10 +46,13 @@ typedef struct tagSUSBCounter {
 
 
 
+//
+// 802.11 counter
+//
 
 
 typedef struct tagSDot11Counters {
-  
+  /* unsigned long Length; // Length of structure */
     unsigned long long   TransmittedFragmentCount;
     unsigned long long   MulticastTransmittedFrameCount;
     unsigned long long   FailedCount;
@@ -67,13 +74,22 @@ typedef struct tagSDot11Counters {
     unsigned long long   CCMPReplays;
     unsigned long long   CCMPDecryptErrors;
     unsigned long long   FourWayHandshakeFailures;
+  /*
+   * unsigned long long   WEPUndecryptableCount;
+   * unsigned long long   WEPICVErrorCount;
+   * unsigned long long   DecryptSuccessCount;
+   * unsigned long long   DecryptFailureCount;
+   */
 } SDot11Counters, *PSDot11Counters;
 
 
+//
+// MIB2 counter
+//
 typedef struct tagSMib2Counter {
     signed long    ifIndex;
-    char    ifDescr[256];               
-                                        
+    char    ifDescr[256];               // max size 255 plus zero ending
+                                        // e.g. "interface 1"
     signed long    ifType;
     signed long    ifMtu;
     DWORD   ifSpeed;
@@ -96,13 +112,19 @@ typedef struct tagSMib2Counter {
     DWORD   ifSpecific;
 } SMib2Counter, *PSMib2Counter;
 
-#define WIRELESSLANIEEE80211b      6           
+// Value in the ifType entry
+//#define ETHERNETCSMACD      6           //
+#define WIRELESSLANIEEE80211b      6           //
 
-#define UP                  1           
-#define DOWN                2           
-#define TESTING             3           
+// Value in the ifAdminStatus/ifOperStatus entry
+#define UP                  1           //
+#define DOWN                2           //
+#define TESTING             3           //
 
 
+//
+// RMON counter
+//
 typedef struct tagSRmonCounter {
     signed long    etherStatsIndex;
     DWORD   etherStatsDataSource;
@@ -127,6 +149,9 @@ typedef struct tagSRmonCounter {
     DWORD   etherStatsStatus;
 } SRmonCounter, *PSRmonCounter;
 
+//
+// Custom counter
+//
 typedef struct tagSCustomCounters {
     unsigned long       Length;
 
@@ -163,6 +188,9 @@ typedef struct tagSCustomCounters {
 } SCustomCounters, *PSCustomCounters;
 
 
+//
+// Custom counter
+//
 typedef struct tagSISRCounters {
     unsigned long   Length;
 
@@ -178,7 +206,7 @@ typedef struct tagSISRCounters {
     DWORD   dwIsrMIBNearfull;
     DWORD   dwIsrRxNoBuf;
 
-    DWORD   dwIsrUnknown;               
+    DWORD   dwIsrUnknown;               // unknown interrupt count
 
     DWORD   dwIsrRx1OK;
     DWORD   dwIsrATIMTxOK;
@@ -187,16 +215,20 @@ typedef struct tagSISRCounters {
     DWORD   dwIsrATIMEnd;
     DWORD   dwIsrSYNCFlushOK;
     DWORD   dwIsrSTIMER1Int;
-    
+    /////////////////////////////////////
 } SISRCounters, *PSISRCounters;
 
 
-#define VALID               1           
-#define CREATE_REQUEST      2           
-#define UNDER_CREATION      3           
-#define INVALID             4           
+// Value in the etherStatsStatus entry
+#define VALID               1           //
+#define CREATE_REQUEST      2           //
+#define UNDER_CREATION      3           //
+#define INVALID             4           //
 
 
+//
+// Tx packet information
+//
 typedef struct tagSTxPktInfo {
     BYTE    byBroadMultiUni;
     WORD    wLength;
@@ -206,15 +238,18 @@ typedef struct tagSTxPktInfo {
 
 
 #define MAX_RATE            12
+//
+// statistic counter
+//
 typedef struct tagSStatCounter {
-    
-    
-    
+    //
+    // ISR status count
+    //
 
     SISRCounters ISRStat;
 
-    
-    
+    // RSR status count
+    //
     DWORD   dwRsrFrmAlgnErr;
     DWORD   dwRsrErr;
     DWORD   dwRsrCRCErr;
@@ -243,10 +278,10 @@ typedef struct tagSStatCounter {
     DWORD   dwRsrBroadcast;
     DWORD   dwRsrMulticast;
     DWORD   dwRsrDirected;
-    
+    // 64-bit OID
     unsigned long long   ullRsrOK;
 
-    
+    // for some optional OIDs (64 bits) and DMI support
     unsigned long long   ullRxBroadcastBytes;
     unsigned long long   ullRxMulticastBytes;
     unsigned long long   ullRxDirectedBytes;
@@ -262,13 +297,13 @@ typedef struct tagSStatCounter {
     DWORD   dwRsrRxFrmLen512_1023;
     DWORD   dwRsrRxFrmLen1024_1518;
 
-    
-    
-    DWORD   dwTsrTotalRetry;        
-    DWORD   dwTsrOnceRetry;         
-    DWORD   dwTsrMoreThanOnceRetry; 
-    DWORD   dwTsrRetry;             
-                                         
+    // TSR status count
+    //
+    DWORD   dwTsrTotalRetry;        // total collision retry count
+    DWORD   dwTsrOnceRetry;         // this packet only occur one collision
+    DWORD   dwTsrMoreThanOnceRetry; // this packet occur more than one collision
+    DWORD   dwTsrRetry;             // this packet has ever occur collision,
+                                         // that is (dwTsrOnceCollision0 + dwTsrMoreThanOnceCollision0)
     DWORD   dwTsrACKData;
     DWORD   dwTsrErr;
     DWORD   dwAllTsrOK;
@@ -281,7 +316,7 @@ typedef struct tagSStatCounter {
     DWORD   dwTsrMulticast;
     DWORD   dwTsrDirected;
 
-    
+    // RD/TD count
     DWORD   dwCntRxFrmLength;
     DWORD   dwCntTxBufLength;
 
@@ -290,16 +325,16 @@ typedef struct tagSStatCounter {
 
 
 
-    
-    DWORD   dwCntRxDataErr;             
-    DWORD   dwCntDecryptErr;            
-    DWORD   dwCntRxICVErr;              
+    // Software check....
+    DWORD   dwCntRxDataErr;             // rx buffer data software compare CRC err count
+    DWORD   dwCntDecryptErr;            // rx buffer data software compare CRC err count
+    DWORD   dwCntRxICVErr;              // rx buffer data software compare CRC err count
 
 
-    
+    // 64-bit OID
     unsigned long long   ullTsrOK;
 
-    
+    // for some optional OIDs (64 bits) and DMI support
     unsigned long long   ullTxBroadcastFrames;
     unsigned long long   ullTxMulticastFrames;
     unsigned long long   ullTxDirectedFrames;
@@ -307,7 +342,7 @@ typedef struct tagSStatCounter {
     unsigned long long   ullTxMulticastBytes;
     unsigned long long   ullTxDirectedBytes;
 
-    
+    // for autorate
     DWORD   dwTxOk[MAX_RATE+1];
     DWORD   dwTxFail[MAX_RATE+1];
     DWORD   dwTxRetryCount[8];
@@ -321,21 +356,24 @@ typedef struct tagSStatCounter {
 
     SCustomCounters CustomStat;
 
-       
-  unsigned long TxNoRetryOkCount;         
-  unsigned long TxRetryOkCount;           
-  unsigned long TxFailCount;              
-      
-  unsigned long RxOkCnt;                  
-  unsigned long RxFcsErrCnt;              
-      
+       //Tx count:
+  unsigned long TxNoRetryOkCount;         /* success tx no retry ! */
+  unsigned long TxRetryOkCount;           /* success tx but retry ! */
+  unsigned long TxFailCount;              /* fail tx ? */
+      //Rx count:
+  unsigned long RxOkCnt;                  /* success rx ! */
+  unsigned long RxFcsErrCnt;              /* fail rx ? */
+      //statistic
     unsigned long SignalStren;
     unsigned long LinkQuality;
 
 } SStatCounter, *PSStatCounter;
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 void STAvClearAllCounter(PSStatCounter pStatistic);
 
@@ -369,4 +407,4 @@ STAvUpdate802_11Counter(
 void STAvClear802_11Counter(PSDot11Counters p802_11Counter);
 void STAvUpdateUSBCounter(PSUSBCounter pUsbCounter, int ntStatus);
 
-#endif 
+#endif /* __MIB_H__ */

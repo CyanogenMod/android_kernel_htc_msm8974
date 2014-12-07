@@ -19,6 +19,12 @@
 #include <mach/common.h>
 #include <mach/mx51.h>
 
+/*
+ * Lookup table for attaching a specific name and platform_data pointer to
+ * devices as they get created by of_platform_populate().  Ideally this table
+ * would not exist, but the current clock implementation depends on some devices
+ * having a specific name.
+ */
 static const struct of_dev_auxdata imx51_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("fsl,imx51-uart", MX51_UART1_BASE_ADDR, "imx21-uart.0", NULL),
 	OF_DEV_AUXDATA("fsl,imx51-uart", MX51_UART2_BASE_ADDR, "imx21-uart.1", NULL),
@@ -35,7 +41,7 @@ static const struct of_dev_auxdata imx51_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("fsl,imx51-i2c", MX51_I2C2_BASE_ADDR, "imx-i2c.1", NULL),
 	OF_DEV_AUXDATA("fsl,imx51-sdma", MX51_SDMA_BASE_ADDR, "imx35-sdma", NULL),
 	OF_DEV_AUXDATA("fsl,imx51-wdt", MX51_WDOG1_BASE_ADDR, "imx2-wdt.0", NULL),
-	{  }
+	{ /* sentinel */ }
 };
 
 static int __init imx51_tzic_add_irq_domain(struct device_node *np,
@@ -59,12 +65,12 @@ static int __init imx51_gpio_add_irq_domain(struct device_node *np,
 static const struct of_device_id imx51_irq_match[] __initconst = {
 	{ .compatible = "fsl,imx51-tzic", .data = imx51_tzic_add_irq_domain, },
 	{ .compatible = "fsl,imx51-gpio", .data = imx51_gpio_add_irq_domain, },
-	{  }
+	{ /* sentinel */ }
 };
 
 static const struct of_device_id imx51_iomuxc_of_match[] __initconst = {
 	{ .compatible = "fsl,imx51-iomuxc-babbage", .data = imx51_babbage_common_init, },
-	{  }
+	{ /* sentinel */ }
 };
 
 static void __init imx51_dt_init(void)

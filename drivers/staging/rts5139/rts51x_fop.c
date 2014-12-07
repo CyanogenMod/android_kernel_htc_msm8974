@@ -70,7 +70,7 @@ static int rts51x_sd_direct_cmnd(struct rts51x_chip *chip,
 
 	switch (dir) {
 	case 0:
-		
+		/* No data */
 		retval = ext_sd_execute_no_data(chip, chip->card2lun[SD_CARD],
 						cmd_idx, standby, acmd,
 						rsp_code, arg);
@@ -79,7 +79,7 @@ static int rts51x_sd_direct_cmnd(struct rts51x_chip *chip,
 		break;
 
 	case 1:
-		
+		/* Read from card */
 		buf = kmalloc(cmnd->buf_len, GFP_KERNEL);
 		if (!buf)
 			TRACE_RET(chip, STATUS_NOMEM);
@@ -104,7 +104,7 @@ static int rts51x_sd_direct_cmnd(struct rts51x_chip *chip,
 		break;
 
 	case 2:
-		
+		/* Write to card */
 		buf = kmalloc(cmnd->buf_len, GFP_KERNEL);
 		if (!buf)
 			TRACE_RET(chip, STATUS_NOMEM);
@@ -191,16 +191,16 @@ int rts51x_open(struct inode *inode, struct file *filp)
 		goto exit;
 	}
 
-	
+	/* Increase our reference to the host */
 	scsi_host_get(rts51x_to_host(chip));
 
-	
+	/* lock the device pointers */
 	mutex_lock(&(chip->usb->dev_mutex));
 
-	
+	/* save our object in the file's private structure */
 	filp->private_data = chip;
 
-	
+	/* unlock the device pointers */
 	mutex_unlock(&chip->usb->dev_mutex);
 
 exit:
@@ -215,6 +215,8 @@ int rts51x_release(struct inode *inode, struct file *filp)
 	if (chip == NULL)
 		return -ENODEV;
 
+	/* Drop our reference to the host; the SCSI core will free it
+	 * (and "chip" along with it) when the refcount becomes 0. */
 	scsi_host_put(rts51x_to_host(chip));
 
 	return 0;
@@ -232,7 +234,7 @@ ssize_t rts51x_write(struct file *filp, const char __user *buf, size_t count,
 	return 0;
 }
 
-#if 0 
+#if 0 /* LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36) */
 int rts51x_ioctl(struct inode *inode, struct file *filp, unsigned int cmd,
 		 unsigned long arg)
 #else
@@ -248,7 +250,7 @@ long rts51x_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	if (chip == NULL)
 		return -ENODEV;
 
-	
+	/* lock the device pointers */
 	mutex_lock(&(chip->usb->dev_mutex));
 
 	switch (cmd) {
@@ -287,7 +289,7 @@ long rts51x_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	}
 
 exit:
-	
+	/* unlock the device pointers */
 	mutex_unlock(&chip->usb->dev_mutex);
 
 	return retval;

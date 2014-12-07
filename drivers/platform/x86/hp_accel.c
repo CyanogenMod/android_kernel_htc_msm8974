@@ -42,13 +42,15 @@
 #define DRIVER_NAME     "hp_accel"
 #define ACPI_MDPS_CLASS "accelerometer"
 
+/* Delayed LEDs infrastructure ------------------------------------ */
 
+/* Special LED class that can defer work */
 struct delayed_led_classdev {
 	struct led_classdev led_classdev;
 	struct work_struct work;
 	enum led_brightness new_brightness;
 
-	unsigned int led;		
+	unsigned int led;		/* For driver */
 	void (*set_brightness)(struct delayed_led_classdev *data, enum led_brightness value);
 };
 
@@ -69,15 +71,23 @@ static inline void delayed_sysfs_set(struct led_classdev *led_cdev,
 	schedule_work(&data->work);
 }
 
+/* HP-specific accelerometer driver ------------------------------------ */
 
+/* For automatic insertion of the module */
 static struct acpi_device_id lis3lv02d_device_ids[] = {
-	{"HPQ0004", 0}, 
-	{"HPQ6000", 0}, 
+	{"HPQ0004", 0}, /* HP Mobile Data Protection System PNP */
+	{"HPQ6000", 0}, /* HP Mobile Data Protection System PNP */
 	{"", 0},
 };
 MODULE_DEVICE_TABLE(acpi, lis3lv02d_device_ids);
 
 
+/**
+ * lis3lv02d_acpi_init - ACPI _INI method: initialize the device.
+ * @lis3: pointer to the device struct
+ *
+ * Returns 0 on success.
+ */
 int lis3lv02d_acpi_init(struct lis3lv02d *lis3)
 {
 	struct acpi_device *dev = lis3->bus_priv;
@@ -88,6 +98,14 @@ int lis3lv02d_acpi_init(struct lis3lv02d *lis3)
 	return 0;
 }
 
+/**
+ * lis3lv02d_acpi_read - ACPI ALRD method: read a register
+ * @lis3: pointer to the device struct
+ * @reg:    the register to read
+ * @ret:    result of the operation
+ *
+ * Returns 0 on success.
+ */
 int lis3lv02d_acpi_read(struct lis3lv02d *lis3, int reg, u8 *ret)
 {
 	struct acpi_device *dev = lis3->bus_priv;
@@ -103,10 +121,18 @@ int lis3lv02d_acpi_read(struct lis3lv02d *lis3, int reg, u8 *ret)
 	return (status != AE_OK) ? -EINVAL : 0;
 }
 
+/**
+ * lis3lv02d_acpi_write - ACPI ALWR method: write to a register
+ * @lis3: pointer to the device struct
+ * @reg:    the register to write to
+ * @val:    the value to write
+ *
+ * Returns 0 on success.
+ */
 int lis3lv02d_acpi_write(struct lis3lv02d *lis3, int reg, u8 val)
 {
 	struct acpi_device *dev = lis3->bus_priv;
-	unsigned long long ret; 
+	unsigned long long ret; /* Not used when writting */
 	union acpi_object in_obj[2];
 	struct acpi_object_list args = { 2, in_obj };
 
@@ -129,6 +155,8 @@ static int lis3lv02d_dmi_matched(const struct dmi_system_id *dmi)
 	return 1;
 }
 
+/* Represents, for each axis seen by userspace, the corresponding hw axis (+1).
+ * If the value is negative, the opposite of the hw value is used. */
 #define DEFINE_CONV(name, x, y, z)			      \
 	static union axis_conversion lis3lv02d_axis_##name = \
 		{ .as_array = { x, y, z } }
@@ -164,7 +192,7 @@ DEFINE_CONV(xy_swap_yz_inverted, 2, -1, -3);
 	.driver_data = &lis3lv02d_axis_##_axis		\
 }
 static struct dmi_system_id lis3lv02d_dmi_ids[] = {
-	
+	/* product names are truncated to match all kinds of a same model */
 	AXIS_DMI_MATCH("NC64x0", "HP Compaq nc64", x_inverted),
 	AXIS_DMI_MATCH("NC84x0", "HP Compaq nc84", z_inverted),
 	AXIS_DMI_MATCH("NX9420", "HP Compaq nx9420", x_inverted),
@@ -184,12 +212,12 @@ static struct dmi_system_id lis3lv02d_dmi_ids[] = {
 	AXIS_DMI_MATCH("NC693xx", "HP EliteBook 853", xy_swap),
 	AXIS_DMI_MATCH("NC854xx", "HP EliteBook 854", y_inverted),
 	AXIS_DMI_MATCH("NC273xx", "HP EliteBook 273", y_inverted),
-	
+	/* Intel-based HP Pavilion dv5 */
 	AXIS_DMI_MATCH2("HPDV5_I",
 			PRODUCT_NAME, "HP Pavilion dv5",
 			BOARD_NAME, "3603",
 			x_inverted),
-	
+	/* AMD-based HP Pavilion dv5 */
 	AXIS_DMI_MATCH2("HPDV5_A",
 			PRODUCT_NAME, "HP Pavilion dv5",
 			BOARD_NAME, "3600",
@@ -209,12 +237,19 @@ static struct dmi_system_id lis3lv02d_dmi_ids[] = {
 	AXIS_DMI_MATCH("HPB64xx", "HP EliteBook 84", xy_swap),
 	AXIS_DMI_MATCH("HPB65xx", "HP ProBook 65", x_inverted),
 	{ NULL, }
+/* Laptop models without axis info (yet):
+ * "NC6910" "HP Compaq 6910"
+ * "NC2400" "HP Compaq nc2400"
+ * "NX74x0" "HP Compaq nx74"
+ * "NX6325" "HP Compaq nx6325"
+ * "NC4400" "HP Compaq nc4400"
+ */
 };
 
 static void hpled_set(struct delayed_led_classdev *led_cdev, enum led_brightness value)
 {
 	struct acpi_device *dev = lis3_dev.bus_priv;
-	unsigned long long ret; 
+	unsigned long long ret; /* Not used when writing */
 	union acpi_object in_obj[1];
 	struct acpi_object_list args = { 1, in_obj };
 
@@ -273,10 +308,10 @@ static int lis3lv02d_add(struct acpi_device *device)
 	strcpy(acpi_device_class(device), ACPI_MDPS_CLASS);
 	device->driver_data = &lis3_dev;
 
-	
+	/* obtain IRQ number of our device from ACPI */
 	lis3lv02d_enum_resources(device);
 
-	
+	/* If possible use a "standard" axes order */
 	if (lis3_dev.ac.x && lis3_dev.ac.y && lis3_dev.ac.z) {
 		pr_info("Using custom axes %d,%d,%d\n",
 			lis3_dev.ac.x, lis3_dev.ac.y, lis3_dev.ac.z);
@@ -285,7 +320,7 @@ static int lis3lv02d_add(struct acpi_device *device)
 		lis3_dev.ac = lis3lv02d_axis_normal;
 	}
 
-	
+	/* call the core layer do its init */
 	ret = lis3lv02d_init_device(&lis3_dev);
 	if (ret)
 		return ret;
@@ -320,7 +355,7 @@ static int lis3lv02d_remove(struct acpi_device *device, int type)
 #ifdef CONFIG_PM
 static int lis3lv02d_suspend(struct acpi_device *device, pm_message_t state)
 {
-	
+	/* make sure the device is off when we suspend */
 	lis3lv02d_poweroff(&lis3_dev);
 	return 0;
 }
@@ -334,6 +369,7 @@ static int lis3lv02d_resume(struct acpi_device *device)
 #define lis3lv02d_resume NULL
 #endif
 
+/* For the HP MDPS aka 3D Driveguard */
 static struct acpi_driver lis3lv02d_driver = {
 	.name  = DRIVER_NAME,
 	.class = ACPI_MDPS_CLASS,

@@ -47,6 +47,12 @@ static inline unsigned long long native_read_tscp(unsigned int *aux)
 	return low | ((u64)high << 32);
 }
 
+/*
+ * both i386 and x86_64 returns 64-bit value in edx:eax, but gcc's "A"
+ * constraint has different meanings. For i386, "A" means exactly
+ * edx:eax, while for x86_64 it doesn't mean rdx:rax or edx:eax. Instead,
+ * it means rax *or* rdx.
+ */
 #ifdef CONFIG_X86_64
 #define DECLARE_ARGS(val, low, high)	unsigned low, high
 #define EAX_EDX_VAL(val, low, high)	((low) | ((u64)(high) << 32))
@@ -89,6 +95,7 @@ static inline void native_write_msr(unsigned int msr,
 	asm volatile("wrmsr" : : "c" (msr), "a"(low), "d" (high) : "memory");
 }
 
+/* Can be uninlined because referenced by paravirt */
 notrace static inline int native_write_msr_safe(unsigned int msr,
 					unsigned low, unsigned high)
 {
@@ -132,6 +139,11 @@ static inline unsigned long long native_read_pmc(int counter)
 #include <asm/paravirt.h>
 #else
 #include <linux/errno.h>
+/*
+ * Access to machine-specific registers (available on 586 and better only)
+ * Note: the rd* operations modify the parameters directly (without using
+ * pointer indirection), this allows gcc to optimize better
+ */
 
 #define rdmsr(msr, val1, val2)					\
 do {								\
@@ -151,11 +163,20 @@ static inline void wrmsr(unsigned msr, unsigned low, unsigned high)
 #define wrmsrl(msr, val)						\
 	native_write_msr((msr), (u32)((u64)(val)), (u32)((u64)(val) >> 32))
 
+/* wrmsr with exception handling */
 static inline int wrmsr_safe(unsigned msr, unsigned low, unsigned high)
 {
 	return native_write_msr_safe(msr, low, high);
 }
 
+/*
+ * rdmsr with exception handling.
+ *
+ * Please note that the exception handling works only after we've
+ * switched to the "smart" #GP handler in trap_init() which knows about
+ * exception tables - using this macro earlier than that causes machine
+ * hangs on boxes which do not implement the @msr in the first argument.
+ */
 #define rdmsr_safe(msr, p1, p2)					\
 ({								\
 	int __err;						\
@@ -232,7 +253,7 @@ do {                                                            \
 
 #define rdtscpll(val, aux) (val) = native_read_tscp(&(aux))
 
-#endif	
+#endif	/* !CONFIG_PARAVIRT */
 
 
 #define checking_wrmsrl(msr, val) wrmsr_safe((msr), (u32)(val),		\
@@ -254,7 +275,7 @@ int rdmsr_safe_on_cpu(unsigned int cpu, u32 msr_no, u32 *l, u32 *h);
 int wrmsr_safe_on_cpu(unsigned int cpu, u32 msr_no, u32 l, u32 h);
 int rdmsr_safe_regs_on_cpu(unsigned int cpu, u32 regs[8]);
 int wrmsr_safe_regs_on_cpu(unsigned int cpu, u32 regs[8]);
-#else  
+#else  /*  CONFIG_SMP  */
 static inline int rdmsr_on_cpu(unsigned int cpu, u32 msr_no, u32 *l, u32 *h)
 {
 	rdmsr(msr_no, *l, *h);
@@ -292,7 +313,7 @@ static inline int wrmsr_safe_regs_on_cpu(unsigned int cpu, u32 regs[8])
 {
 	return wrmsr_safe_regs(regs);
 }
-#endif  
-#endif 
-#endif 
-#endif 
+#endif  /* CONFIG_SMP */
+#endif /* __KERNEL__ */
+#endif /* __ASSEMBLY__ */
+#endif /* _ASM_X86_MSR_H */

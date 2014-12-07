@@ -1,6 +1,7 @@
 #ifndef B43_TABLES_PHY_LCN_H_
 #define B43_TABLES_PHY_LCN_H_
 
+/* The LCN-PHY tables. */
 #define B43_LCNTAB_TYPEMASK		0xF0000000
 #define B43_LCNTAB_8BIT			0x10000000
 #define B43_LCNTAB_16BIT		0x20000000
@@ -20,4 +21,4 @@ void b43_lcntab_write_bulk(struct b43_wldev *dev, u32 offset,
 
 void b43_phy_lcn_tables_init(struct b43_wldev *dev);
 
-#endif 
+#endif /* B43_TABLES_PHY_LCN_H_ */

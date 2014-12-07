@@ -26,8 +26,14 @@ DEFINE_SPINLOCK(smp_cache_lock);
 static unsigned long smp_cache_mask;
 static unsigned long smp_cache_start;
 static unsigned long smp_cache_end;
-static cpumask_t smp_cache_ipi_map;		
+static cpumask_t smp_cache_ipi_map;		/* Bitmask of cache IPI done CPUs */
 
+/**
+ * smp_cache_interrupt - Handle IPI request to flush caches.
+ *
+ * Handle a request delivered by IPI to flush the current CPU's
+ * caches.  The parameters are stored in smp_cache_*.
+ */
 void smp_cache_interrupt(void)
 {
 	unsigned long opr_mask = smp_cache_mask;
@@ -71,6 +77,17 @@ void smp_cache_interrupt(void)
 	cpumask_clear_cpu(smp_processor_id(), &smp_cache_ipi_map);
 }
 
+/**
+ * smp_cache_call - Issue an IPI to request the other CPUs flush caches
+ * @opr_mask: Cache operation flags
+ * @start: Start address of request
+ * @end: End address of request
+ *
+ * Send cache flush IPI to other CPUs.  This invokes smp_cache_interrupt()
+ * above on those other CPUs and then waits for them to finish.
+ *
+ * The caller must hold smp_cache_lock.
+ */
 void smp_cache_call(unsigned long opr_mask,
 		    unsigned long start, unsigned long end)
 {
@@ -83,6 +100,6 @@ void smp_cache_call(unsigned long opr_mask,
 	send_IPI_allbutself(FLUSH_CACHE_IPI);
 
 	while (!cpumask_empty(&smp_cache_ipi_map))
-		
+		/* nothing. lockup detection does not belong here */
 		mb();
 }

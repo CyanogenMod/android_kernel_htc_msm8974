@@ -25,6 +25,9 @@
 
 #include <linux/mfd/stmpe.h>
 
+/* Register layouts and functionalities are identical on all stmpexxx variants
+ * with touchscreen controller
+ */
 #define STMPE_REG_INT_STA		0x0B
 #define STMPE_REG_ADC_CTRL1		0x20
 #define STMPE_REG_ADC_CTRL2		0x21
@@ -98,13 +101,20 @@ static void stmpe_work(struct work_struct *work)
 
 	int_sta = stmpe_reg_read(ts->stmpe, STMPE_REG_INT_STA);
 
+	/*
+	 * touch_det sometimes get desasserted or just get stuck. This appears
+	 * to be a silicon bug, We still have to clearify this with the
+	 * manufacture. As a workaround We release the key anyway if the
+	 * touch_det keeps coming in after 4ms, while the FIFO contains no value
+	 * during the whole time.
+	 */
 	while ((int_sta & (1 << STMPE_IRQ_TOUCH_DET)) && (timeout > 0)) {
 		timeout--;
 		int_sta = stmpe_reg_read(ts->stmpe, STMPE_REG_INT_STA);
 		udelay(100);
 	}
 
-	
+	/* reset the FIFO before we report release event */
 	__stmpe_reset_fifo(ts->stmpe);
 
 	input_report_abs(ts->idev, ABS_PRESSURE, 0);
@@ -117,8 +127,18 @@ static irqreturn_t stmpe_ts_handler(int irq, void *data)
 	int x, y, z;
 	struct stmpe_touch *ts = data;
 
+	/*
+	 * Cancel scheduled polling for release if we have new value
+	 * available. Wait if the polling is already running.
+	 */
 	cancel_delayed_work_sync(&ts->work);
 
+	/*
+	 * The FIFO sometimes just crashes and stops generating interrupts. This
+	 * appears to be a silicon bug. We still have to clearify this with
+	 * the manufacture. As a workaround we disable the TSC while we are
+	 * collecting data and flush the FIFO after reading
+	 */
 	stmpe_set_bits(ts->stmpe, STMPE_REG_TSC_CTRL,
 				STMPE_TSC_CTRL_TSC_EN, 0);
 
@@ -133,14 +153,14 @@ static irqreturn_t stmpe_ts_handler(int irq, void *data)
 	input_report_abs(ts->idev, ABS_PRESSURE, z);
 	input_sync(ts->idev);
 
-       
+       /* flush the FIFO after we have read out our values. */
 	__stmpe_reset_fifo(ts->stmpe);
 
-	
+	/* reenable the tsc */
 	stmpe_set_bits(ts->stmpe, STMPE_REG_TSC_CTRL,
 			STMPE_TSC_CTRL_TSC_EN, STMPE_TSC_CTRL_TSC_EN);
 
-	
+	/* start polling for touch_det to detect release */
 	schedule_delayed_work(&ts->work, HZ / 50);
 
 	return IRQ_HANDLED;
@@ -201,7 +221,7 @@ static int __devinit stmpe_init_hw(struct stmpe_touch *ts)
 		return ret;
 	}
 
-	
+	/* set FIFO to 1 for single point reading */
 	ret = stmpe_reg_write(stmpe, STMPE_REG_FIFO_TH, 1);
 	if (ret) {
 		dev_err(dev, "Could not set FIFO\n");

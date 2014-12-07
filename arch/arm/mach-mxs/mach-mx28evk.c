@@ -44,23 +44,23 @@
 #define MX28EVK_MMC1_SLOT_POWER		MXS_GPIO_NR(3, 29)
 
 static const iomux_cfg_t mx28evk_pads[] __initconst = {
-	
+	/* duart */
 	MX28_PAD_PWM0__DUART_RX | MXS_PAD_CTRL,
 	MX28_PAD_PWM1__DUART_TX | MXS_PAD_CTRL,
 
-	
+	/* auart0 */
 	MX28_PAD_AUART0_RX__AUART0_RX | MXS_PAD_CTRL,
 	MX28_PAD_AUART0_TX__AUART0_TX | MXS_PAD_CTRL,
 	MX28_PAD_AUART0_CTS__AUART0_CTS | MXS_PAD_CTRL,
 	MX28_PAD_AUART0_RTS__AUART0_RTS | MXS_PAD_CTRL,
-	
+	/* auart3 */
 	MX28_PAD_AUART3_RX__AUART3_RX | MXS_PAD_CTRL,
 	MX28_PAD_AUART3_TX__AUART3_TX | MXS_PAD_CTRL,
 	MX28_PAD_AUART3_CTS__AUART3_CTS | MXS_PAD_CTRL,
 	MX28_PAD_AUART3_RTS__AUART3_RTS | MXS_PAD_CTRL,
 
 #define MXS_PAD_FEC	(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP)
-	
+	/* fec0 */
 	MX28_PAD_ENET0_MDC__ENET0_MDC | MXS_PAD_FEC,
 	MX28_PAD_ENET0_MDIO__ENET0_MDIO | MXS_PAD_FEC,
 	MX28_PAD_ENET0_RX_EN__ENET0_RX_EN | MXS_PAD_FEC,
@@ -70,28 +70,28 @@ static const iomux_cfg_t mx28evk_pads[] __initconst = {
 	MX28_PAD_ENET0_TXD0__ENET0_TXD0 | MXS_PAD_FEC,
 	MX28_PAD_ENET0_TXD1__ENET0_TXD1 | MXS_PAD_FEC,
 	MX28_PAD_ENET_CLK__CLKCTRL_ENET | MXS_PAD_FEC,
-	
+	/* fec1 */
 	MX28_PAD_ENET0_CRS__ENET1_RX_EN | MXS_PAD_FEC,
 	MX28_PAD_ENET0_RXD2__ENET1_RXD0 | MXS_PAD_FEC,
 	MX28_PAD_ENET0_RXD3__ENET1_RXD1 | MXS_PAD_FEC,
 	MX28_PAD_ENET0_COL__ENET1_TX_EN | MXS_PAD_FEC,
 	MX28_PAD_ENET0_TXD2__ENET1_TXD0 | MXS_PAD_FEC,
 	MX28_PAD_ENET0_TXD3__ENET1_TXD1 | MXS_PAD_FEC,
-	
+	/* phy power line */
 	MX28_PAD_SSP1_DATA3__GPIO_2_15 | MXS_PAD_CTRL,
-	
+	/* phy reset line */
 	MX28_PAD_ENET0_RX_CLK__GPIO_4_13 | MXS_PAD_CTRL,
 
-	
+	/* flexcan0 */
 	MX28_PAD_GPMI_RDY2__CAN0_TX,
 	MX28_PAD_GPMI_RDY3__CAN0_RX,
-	
+	/* flexcan1 */
 	MX28_PAD_GPMI_CE2N__CAN1_TX,
 	MX28_PAD_GPMI_CE3N__CAN1_RX,
-	
+	/* transceiver power control */
 	MX28_PAD_SSP1_CMD__GPIO_2_13,
 
-	
+	/* mxsfb (lcdif) */
 	MX28_PAD_LCD_D00__LCD_D0 | MXS_PAD_CTRL,
 	MX28_PAD_LCD_D01__LCD_D1 | MXS_PAD_CTRL,
 	MX28_PAD_LCD_D02__LCD_D2 | MXS_PAD_CTRL,
@@ -120,11 +120,11 @@ static const iomux_cfg_t mx28evk_pads[] __initconst = {
 	MX28_PAD_LCD_WR_RWN__LCD_HSYNC | MXS_PAD_CTRL,
 	MX28_PAD_LCD_RS__LCD_DOTCLK | MXS_PAD_CTRL,
 	MX28_PAD_LCD_CS__LCD_ENABLE | MXS_PAD_CTRL,
-	
+	/* LCD panel enable */
 	MX28_PAD_LCD_RESET__GPIO_3_30 | MXS_PAD_CTRL,
-	
+	/* backlight control */
 	MX28_PAD_PWM2__GPIO_3_18 | MXS_PAD_CTRL,
-	
+	/* mmc0 */
 	MX28_PAD_SSP0_DATA0__SSP0_D0 |
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 	MX28_PAD_SSP0_DATA1__SSP0_D1 |
@@ -147,14 +147,14 @@ static const iomux_cfg_t mx28evk_pads[] __initconst = {
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
 	MX28_PAD_SSP0_SCK__SSP0_SCK |
 		(MXS_PAD_12MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
-	
+	/* write protect */
 	MX28_PAD_SSP1_SCK__GPIO_2_12 |
 		(MXS_PAD_4MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
-	
+	/* slot power enable */
 	MX28_PAD_PWM3__GPIO_3_28 |
 		(MXS_PAD_4MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
 
-	
+	/* mmc1 */
 	MX28_PAD_GPMI_D00__SSP1_D0 |
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 	MX28_PAD_GPMI_D01__SSP1_D1 |
@@ -177,23 +177,23 @@ static const iomux_cfg_t mx28evk_pads[] __initconst = {
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
 	MX28_PAD_GPMI_WRN__SSP1_SCK |
 		(MXS_PAD_12MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
-	
+	/* write protect */
 	MX28_PAD_GPMI_RESETN__GPIO_0_28 |
 		(MXS_PAD_4MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
-	
+	/* slot power enable */
 	MX28_PAD_PWM4__GPIO_3_29 |
 		(MXS_PAD_4MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
 
-	
+	/* led */
 	MX28_PAD_AUART1_TX__GPIO_3_5 | MXS_PAD_CTRL,
 
-	
+	/* I2C */
 	MX28_PAD_I2C0_SCL__I2C0_SCL |
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 	MX28_PAD_I2C0_SDA__I2C0_SDA |
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 
-	
+	/* saif0 & saif1 */
 	MX28_PAD_SAIF0_MCLK__SAIF0_MCLK |
 		(MXS_PAD_12MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 	MX28_PAD_SAIF0_LRCLK__SAIF0_LRCLK |
@@ -206,6 +206,7 @@ static const iomux_cfg_t mx28evk_pads[] __initconst = {
 		(MXS_PAD_12MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 };
 
+/* led */
 static const struct gpio_led mx28evk_leds[] __initconst = {
 	{
 		.name = "GPIO-LED",
@@ -219,11 +220,12 @@ static const struct gpio_led_platform_data mx28evk_led_data __initconst = {
 	.num_leds = ARRAY_SIZE(mx28evk_leds),
 };
 
+/* fec */
 static void __init mx28evk_fec_reset(void)
 {
 	struct clk *clk;
 
-	
+	/* Enable fec phy clock */
 	clk = clk_get_sys("pll2", NULL);
 	if (!IS_ERR(clk))
 		clk_prepare_enable(clk);
@@ -235,10 +237,10 @@ static void __init mx28evk_fec_reset(void)
 
 static struct fec_platform_data mx28_fec_pdata[] __initdata = {
 	{
-		
+		/* fec0 */
 		.phy = PHY_INTERFACE_MODE_RMII,
 	}, {
-		
+		/* fec1 */
 		.phy = PHY_INTERFACE_MODE_RMII,
 	},
 };
@@ -252,6 +254,10 @@ static int __init mx28evk_fec_get_mac(void)
 	if (!ocotp)
 		return -ETIMEDOUT;
 
+	/*
+	 * OCOTP only stores the last 4 octets for each mac address,
+	 * so hard-code Freescale OUI (00:04:9f) here.
+	 */
 	for (i = 0; i < 2; i++) {
 		val = ocotp[i];
 		mx28_fec_pdata[i].mac[0] = 0x00;
@@ -265,6 +271,9 @@ static int __init mx28evk_fec_get_mac(void)
 	return 0;
 }
 
+/*
+ * MX28EVK_FLEXCAN_SWITCH is shared between both flexcan controllers
+ */
 static int flexcan0_en, flexcan1_en;
 
 static void mx28evk_flexcan_switch(void)
@@ -296,13 +305,14 @@ static const struct flexcan_platform_data
 	}
 };
 
+/* mxsfb (lcdif) */
 static struct fb_videomode mx28evk_video_modes[] = {
 	{
 		.name		= "Seiko-43WVF1G",
 		.refresh	= 60,
 		.xres		= 800,
 		.yres		= 480,
-		.pixclock	= 29851, 
+		.pixclock	= 29851, /* picosecond (33.5 MHz) */
 		.left_margin	= 89,
 		.right_margin	= 164,
 		.upper_margin	= 23,
@@ -323,11 +333,11 @@ static const struct mxsfb_platform_data mx28evk_mxsfb_pdata __initconst = {
 
 static struct mxs_mmc_platform_data mx28evk_mmc_pdata[] __initdata = {
 	{
-		
+		/* mmc0 */
 		.wp_gpio = MX28EVK_MMC0_WRITE_PROTECT,
 		.flags = SLOTF_8_BIT_CAPABLE,
 	}, {
-		
+		/* mmc1 */
 		.wp_gpio = MX28EVK_MMC1_WRITE_PROTECT,
 		.flags = SLOTF_8_BIT_CAPABLE,
 	},
@@ -389,7 +399,7 @@ static const struct gpio mx28evk_gpios[] __initconst = {
 
 static const struct mxs_saif_platform_data
 			mx28evk_mxs_saif_pdata[] __initconst = {
-	
+	/* working on EXTMSTR0 mode (saif0 master, saif1 slave) */
 	{
 		.master_mode = 1,
 		.master_id = 0,
@@ -456,7 +466,7 @@ static struct sys_timer mx28evk_timer = {
 };
 
 MACHINE_START(MX28EVK, "Freescale MX28 EVK")
-	
+	/* Maintainer: Freescale Semiconductor, Inc. */
 	.map_io		= mx28_map_io,
 	.init_irq	= mx28_init_irq,
 	.timer		= &mx28evk_timer,

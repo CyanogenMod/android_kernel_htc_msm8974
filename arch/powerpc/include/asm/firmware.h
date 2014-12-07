@@ -17,6 +17,7 @@
 #include <asm/asm-compat.h>
 #include <asm/feature-fixups.h>
 
+/* firmware feature bitmask values */
 #define FIRMWARE_MAX_FEATURES 63
 
 #define FW_FEATURE_PFT		ASM_CONST(0x0000000000000001)
@@ -106,12 +107,15 @@ enum {
 #endif
 		FW_FEATURE_POSSIBLE,
 
-#else 
+#else /* CONFIG_PPC64 */
 	FW_FEATURE_POSSIBLE = 0,
 	FW_FEATURE_ALWAYS = 0,
 #endif
 };
 
+/* This is used to identify firmware features which are available
+ * to the kernel.
+ */
 extern unsigned long	powerpc_firmware_features;
 
 #define firmware_has_feature(feature)					\
@@ -121,10 +125,11 @@ extern unsigned long	powerpc_firmware_features;
 extern void system_reset_fwnmi(void);
 extern void machine_check_fwnmi(void);
 
+/* This is true if we are using the firmware NMI handler (typically LPAR) */
 extern int fwnmi_active;
 
 extern unsigned int __start___fw_ftr_fixup, __stop___fw_ftr_fixup;
 
-#endif 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* __KERNEL__ */
+#endif /* __ASM_POWERPC_FIRMWARE_H */

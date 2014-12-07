@@ -849,7 +849,7 @@ static int jmb38x_ms_resume(struct pci_dev *dev)
 #define jmb38x_ms_suspend NULL
 #define jmb38x_ms_resume NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static int jmb38x_ms_count_slots(struct pci_dev *pdev)
 {

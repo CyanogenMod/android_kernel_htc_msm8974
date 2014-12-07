@@ -50,7 +50,7 @@
 
 #define CPM_MAP_SIZE    (0x4000)
 
-cpm8xx_t __iomem *cpmp;  
+cpm8xx_t __iomem *cpmp;  /* Pointer to comm processor space */
 immap_t __iomem *mpc8xx_immr;
 static cpic8xx_t __iomem *cpic_reg;
 
@@ -88,6 +88,9 @@ int cpm_get_irq(void)
 {
 	int cpm_vec;
 
+	/* Get the vector by setting the ACK bit and then reading
+	 * the register.
+	 */
 	out_be16(&cpic_reg->cpic_civr, 1);
 	cpm_vec = in_be16(&cpic_reg->cpic_civr);
 	cpm_vec >>= 11;
@@ -105,6 +108,11 @@ static int cpm_pic_host_map(struct irq_domain *h, unsigned int virq,
 	return 0;
 }
 
+/* The CPM can generate the error interrupt when there is a race condition
+ * between generating and masking interrupts.  All we have to do is ACK it
+ * and return.  This is a no-op function so we don't need any special
+ * tests in the interrupt handler.
+ */
 static irqreturn_t cpm_error_interrupt(int irq, void *dev)
 {
 	return IRQ_HANDLED;
@@ -148,7 +156,7 @@ unsigned int cpm_pic_init(void)
 	if (sirq == NO_IRQ)
 		goto end;
 
-	
+	/* Initialize the CPM interrupt controller. */
 	hwirq = (unsigned int)virq_to_hw(sirq);
 	out_be32(&cpic_reg->cpic_cicr,
 	    (CICR_SCD_SCC4 | CICR_SCC_SCC3 | CICR_SCB_SCC2 | CICR_SCA_SCC1) |
@@ -163,7 +171,7 @@ unsigned int cpm_pic_init(void)
 		goto end;
 	}
 
-	
+	/* Install our own error handler. */
 	np = of_find_compatible_node(NULL, NULL, "fsl,cpm1");
 	if (np == NULL)
 		np = of_find_node_by_type(NULL, "cpm");
@@ -199,8 +207,12 @@ void __init cpm_reset(void)
 	cpmp = &mpc8xx_immr->im_cpm;
 
 #ifndef CONFIG_PPC_EARLY_DEBUG_CPM
+	/* Perform a reset.
+	*/
 	out_be16(&cpmp->cp_cpcr, CPM_CR_RST | CPM_CR_FLG);
 
+	/* Wait for it.
+	*/
 	while (in_be16(&cpmp->cp_cpcr) & CPM_CR_FLG);
 #endif
 
@@ -208,6 +220,12 @@ void __init cpm_reset(void)
 	cpm_load_patch(cpmp);
 #endif
 
+	/* Set SDMA Bus Request priority 5.
+	 * On 860T, this also enables FEC priority 6.  I am not sure
+	 * this is what we really want for some applications, but the
+	 * manual recommends it.
+	 * Bit 25, FAM can also be set to use FEC aggressive mode (860T).
+	 */
 	siu_conf = immr_map(im_siu_conf);
 	out_be32(&siu_conf->sc_sdcr, 1);
 	immr_unmap(siu_conf);
@@ -243,6 +261,11 @@ out:
 }
 EXPORT_SYMBOL(cpm_command);
 
+/* Set a baud rate generator.  This needs lots of work.  There are
+ * four BRGs, any of which can be wired to any channel.
+ * The internal baud rate clock is the system clock divided by 16.
+ * This assumes the baudrate is 16x oversampled by the uart.
+ */
 #define BRG_INT_CLK		(get_brgfreq())
 #define BRG_UART_CLK		(BRG_INT_CLK/16)
 #define BRG_UART_CLK_DIV16	(BRG_UART_CLK/16)
@@ -252,8 +275,13 @@ cpm_setbrg(uint brg, uint rate)
 {
 	u32 __iomem *bp;
 
+	/* This is good enough to get SMCs running.....
+	*/
 	bp = &cpmp->cp_brgc1;
 	bp += brg;
+	/* The BRG has a 12-bit counter.  For really slow baud rates (or
+	 * really fast processors), we may have to further divide by 16.
+	 */
 	if (((BRG_UART_CLK / rate) - 1) < 4096)
 		out_be32(bp, (((BRG_UART_CLK / rate) - 1) << 1) | CPM_BRG_EN);
 	else
@@ -487,13 +515,16 @@ int cpm1_clk_setup(enum cpm_clk_target target, int clock, int mode)
 	return 0;
 }
 
+/*
+ * GPIO LIB API implementation
+ */
 #ifdef CONFIG_8xx_GPIO
 
 struct cpm1_gpio16_chip {
 	struct of_mm_gpio_chip mm_gc;
 	spinlock_t lock;
 
-	
+	/* shadowed data register to clear/set bits safely */
 	u16 cpdata;
 };
 
@@ -614,7 +645,7 @@ struct cpm1_gpio32_chip {
 	struct of_mm_gpio_chip mm_gc;
 	spinlock_t lock;
 
-	
+	/* shadowed data register to clear/set bits safely */
 	u32 cpdata;
 };
 
@@ -747,11 +778,11 @@ static int cpm_init_par_io(void)
 	for_each_compatible_node(np, NULL, "fsl,cpm1-pario-bank-d")
 		cpm1_gpiochip_add16(np);
 
-	
+	/* Port E uses CPM2 layout */
 	for_each_compatible_node(np, NULL, "fsl,cpm1-pario-bank-e")
 		cpm2_gpiochip_add32(np);
 	return 0;
 }
 arch_initcall(cpm_init_par_io);
 
-#endif 
+#endif /* CONFIG_8xx_GPIO */

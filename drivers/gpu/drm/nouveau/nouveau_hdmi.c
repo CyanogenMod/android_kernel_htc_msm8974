@@ -115,20 +115,25 @@ nouveau_audio_mode_set(struct drm_encoder *encoder,
 static void
 nouveau_hdmi_infoframe(struct drm_encoder *encoder, u32 ctrl, u8 *frame)
 {
-	
+	/* calculate checksum for the infoframe */
 	u8 sum = 0, i;
 	for (i = 0; i < frame[2]; i++)
 		sum += frame[i];
 	frame[3] = 256 - sum;
 
-	
+	/* disable infoframe, and write header */
 	hdmi_mask(encoder, ctrl + 0x00, 0x00000001, 0x00000000);
 	hdmi_wr32(encoder, ctrl + 0x08, *(u32 *)frame & 0xffffff);
 
+	/* register scans tell me the audio infoframe has only one set of
+	 * subpack regs, according to tegra (gee nvidia, it'd be nice if we
+	 * could get those docs too!), the hdmi block pads out the rest of
+	 * the packet on its own.
+	 */
 	if (ctrl == 0x020)
 		frame[2] = 6;
 
-	
+	/* write out checksum and data, weird weird 7 byte register pairs */
 	for (i = 0; i < frame[2] + 1; i += 7) {
 		u32 rsubpack = ctrl + 0x0c + ((i / 7) * 8);
 		u32 *subpack = (u32 *)&frame[3 + i];
@@ -136,7 +141,7 @@ nouveau_hdmi_infoframe(struct drm_encoder *encoder, u32 ctrl, u8 *frame)
 		hdmi_wr32(encoder, rsubpack + 4, subpack[1] & 0xffffff);
 	}
 
-	
+	/* enable the infoframe */
 	hdmi_mask(encoder, ctrl, 0x00000001, 0x00000001);
 }
 
@@ -149,9 +154,9 @@ nouveau_hdmi_video_infoframe(struct drm_encoder *encoder,
 	const u8 bar_top = 0, bar_bottom = 0, bar_left = 0, bar_right = 0;
 	u8 frame[20];
 
-	frame[0x00] = 0x82; 
-	frame[0x01] = 0x02; 
-	frame[0x02] = 0x0d; 
+	frame[0x00] = 0x82; /* AVI infoframe */
+	frame[0x01] = 0x02; /* version */
+	frame[0x02] = 0x0d; /* length */
 	frame[0x03] = 0x00;
 	frame[0x04] = (Y << 5) | (A << 4) | (B << 2) | S;
 	frame[0x05] = (C << 6) | (M << 4) | R;
@@ -181,9 +186,9 @@ nouveau_hdmi_audio_infoframe(struct drm_encoder *encoder,
 	const u8 CA = 0x00, DM_INH = 0, LSV = 0x00;
 	u8 frame[12];
 
-	frame[0x00] = 0x84;	
-	frame[0x01] = 0x01;	
-	frame[0x02] = 0x0a;	
+	frame[0x00] = 0x84;	/* Audio infoframe */
+	frame[0x01] = 0x01;	/* version */
+	frame[0x02] = 0x0a;	/* length */
 	frame[0x03] = 0x00;
 	frame[0x04] = (CT << 4) | CC;
 	frame[0x05] = (SF << 2) | ceaSS;
@@ -202,11 +207,11 @@ nouveau_hdmi_disconnect(struct drm_encoder *encoder)
 {
 	nouveau_audio_disconnect(encoder);
 
-	
+	/* disable audio and avi infoframes */
 	hdmi_mask(encoder, 0x000, 0x00000001, 0x00000000);
 	hdmi_mask(encoder, 0x020, 0x00000001, 0x00000000);
 
-	
+	/* disable hdmi */
 	hdmi_mask(encoder, 0x0a4, 0x40000000, 0x00000000);
 }
 
@@ -229,25 +234,25 @@ nouveau_hdmi_mode_set(struct drm_encoder *encoder,
 	nouveau_hdmi_video_infoframe(encoder, mode);
 	nouveau_hdmi_audio_infoframe(encoder, mode);
 
-	hdmi_mask(encoder, 0x0d0, 0x00070001, 0x00010001); 
-	hdmi_mask(encoder, 0x068, 0x00010101, 0x00000000); 
-	hdmi_mask(encoder, 0x078, 0x80000000, 0x80000000); 
+	hdmi_mask(encoder, 0x0d0, 0x00070001, 0x00010001); /* SPARE, HW_CTS */
+	hdmi_mask(encoder, 0x068, 0x00010101, 0x00000000); /* ACR_CTRL, ?? */
+	hdmi_mask(encoder, 0x078, 0x80000000, 0x80000000); /* ACR_0441_ENABLE */
 
-	nv_mask(dev, 0x61733c, 0x00100000, 0x00100000); 
-	nv_mask(dev, 0x61733c, 0x10000000, 0x10000000); 
-	nv_mask(dev, 0x61733c, 0x00100000, 0x00000000); 
+	nv_mask(dev, 0x61733c, 0x00100000, 0x00100000); /* RESETF */
+	nv_mask(dev, 0x61733c, 0x10000000, 0x10000000); /* LOOKUP_EN */
+	nv_mask(dev, 0x61733c, 0x00100000, 0x00000000); /* !RESETF */
 
-	
+	/* value matches nvidia binary driver, and tegra constant */
 	rekey = 56;
 
 	max_ac_packet  = mode->htotal - mode->hdisplay;
 	max_ac_packet -= rekey;
-	max_ac_packet -= 18; 
+	max_ac_packet -= 18; /* constant from tegra */
 	max_ac_packet /= 32;
 
-	
-	hdmi_mask(encoder, 0x0a4, 0x5f1f003f, 0x40000000 | 
-					      0x1f000000 | 
+	/* enable hdmi */
+	hdmi_mask(encoder, 0x0a4, 0x5f1f003f, 0x40000000 | /* enable */
+					      0x1f000000 | /* unknown */
 					      max_ac_packet << 16 |
 					      rekey);
 

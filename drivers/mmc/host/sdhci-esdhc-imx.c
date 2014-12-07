@@ -29,13 +29,31 @@
 #include "sdhci-esdhc.h"
 
 #define	SDHCI_CTRL_D3CD			0x08
+/* VENDOR SPEC register */
 #define SDHCI_VENDOR_SPEC		0xC0
 #define  SDHCI_VENDOR_SPEC_SDIO_QUIRK	0x00000002
 #define SDHCI_WTMK_LVL			0x44
 #define SDHCI_MIX_CTRL			0x48
 
+/*
+ * There is an INT DMA ERR mis-match between eSDHC and STD SDHC SPEC:
+ * Bit25 is used in STD SPEC, and is reserved in fsl eSDHC design,
+ * but bit28 is used as the INT DMA ERR in fsl eSDHC design.
+ * Define this macro DMA error INT for fsl eSDHC
+ */
 #define SDHCI_INT_VENDOR_SPEC_DMA_ERR	0x10000000
 
+/*
+ * The CMDTYPE of the CMD register (offset 0xE) should be set to
+ * "11" when the STOP CMD12 is issued on imx53 to abort one
+ * open ended multi-blk IO. Otherwise the TC INT wouldn't
+ * be generated.
+ * In exact block transfer, the controller doesn't complete the
+ * operations automatically as required at the end of the
+ * transfer and remains on hold if the abort command is not sent.
+ * As a result, the TC flag is not asserted and SW  received timeout
+ * exeception. Bit1 of Vendor Spec registor is used to fix it.
+ */
 #define ESDHC_FLAG_MULTIBLK_NO_INT	(1 << 1)
 
 enum imx_esdhc_type {
@@ -70,7 +88,7 @@ static struct platform_device_id imx_esdhc_devtype[] = {
 		.name = "sdhci-usdhc-imx6q",
 		.driver_data = IMX6Q_USDHC,
 	}, {
-		
+		/* sentinel */
 	}
 };
 MODULE_DEVICE_TABLE(platform, imx_esdhc_devtype);
@@ -81,7 +99,7 @@ static const struct of_device_id imx_esdhc_dt_ids[] = {
 	{ .compatible = "fsl,imx51-esdhc", .data = &imx_esdhc_devtype[IMX51_ESDHC], },
 	{ .compatible = "fsl,imx53-esdhc", .data = &imx_esdhc_devtype[IMX53_ESDHC], },
 	{ .compatible = "fsl,imx6q-usdhc", .data = &imx_esdhc_devtype[IMX6Q_USDHC], },
-	{  }
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, imx_esdhc_dt_ids);
 
@@ -124,20 +142,26 @@ static u32 esdhc_readl_le(struct sdhci_host *host, int reg)
 	struct pltfm_imx_data *imx_data = pltfm_host->priv;
 	struct esdhc_platform_data *boarddata = &imx_data->boarddata;
 
-	
+	/* fake CARD_PRESENT flag */
 	u32 val = readl(host->ioaddr + reg);
 
 	if (unlikely((reg == SDHCI_PRESENT_STATE)
 			&& gpio_is_valid(boarddata->cd_gpio))) {
 		if (gpio_get_value(boarddata->cd_gpio))
-			
+			/* no card, if a valid gpio says so... */
 			val &= ~SDHCI_CARD_PRESENT;
 		else
-			
+			/* ... in all other cases assume card is present */
 			val |= SDHCI_CARD_PRESENT;
 	}
 
 	if (unlikely(reg == SDHCI_CAPABILITIES)) {
+		/* In FSL esdhc IC module, only bit20 is used to indicate the
+		 * ADMA2 capability of esdhc, but this bit is messed up on
+		 * some SOCs (e.g. on MX25, MX35 this bit is set, but they
+		 * don't actually support ADMA2). So set the BROKEN_ADMA
+		 * uirk on MX25/35 platforms.
+		 */
 
 		if (val & SDHCI_CAN_DO_ADMA1) {
 			val &= ~SDHCI_CAN_DO_ADMA1;
@@ -164,9 +188,21 @@ static void esdhc_writel_le(struct sdhci_host *host, u32 val, int reg)
 
 	if (unlikely(reg == SDHCI_INT_ENABLE || reg == SDHCI_SIGNAL_ENABLE)) {
 		if (boarddata->cd_type == ESDHC_CD_GPIO)
+			/*
+			 * These interrupts won't work with a custom
+			 * card_detect gpio (only applied to mx25/35)
+			 */
 			val &= ~(SDHCI_INT_CARD_REMOVE | SDHCI_INT_CARD_INSERT);
 
 		if (val & SDHCI_INT_CARD_INT) {
+			/*
+			 * Clear and then set D3CD bit to avoid missing the
+			 * card interrupt.  This is a eSDHC controller problem
+			 * so we need to apply the following workaround: clear
+			 * and set D3CD bit will make eSDHC re-sample the card
+			 * interrupt. In case a card interrupt was lost,
+			 * re-sample it by the following steps.
+			 */
 			data = readl(host->ioaddr + SDHCI_HOST_CONTROL);
 			data &= ~SDHCI_CTRL_D3CD;
 			writel(data, host->ioaddr + SDHCI_HOST_CONTROL);
@@ -198,6 +234,11 @@ static u16 esdhc_readw_le(struct sdhci_host *host, int reg)
 {
 	if (unlikely(reg == SDHCI_HOST_VERSION)) {
 		u16 val = readw(host->ioaddr + (reg ^ 2));
+		/*
+		 * uSDHC supports SDHCI v3.0, but it's encoded as value
+		 * 0x3 in host controller version register, which violates
+		 * SDHCI_SPEC_300 definition.  Work it around here.
+		 */
 		if ((val & SDHCI_SPEC_VER_MASK) == 3)
 			return --val;
 	}
@@ -212,6 +253,10 @@ static void esdhc_writew_le(struct sdhci_host *host, u16 val, int reg)
 
 	switch (reg) {
 	case SDHCI_TRANSFER_MODE:
+		/*
+		 * Postpone this write, we must do it together with a
+		 * command write that is down below.
+		 */
 		if ((imx_data->flags & ESDHC_FLAG_MULTIBLK_NO_INT)
 				&& (host->cmd->opcode == SD_IO_RW_EXTENDED)
 				&& (host->cmd->data->blocks > 1)
@@ -253,15 +298,19 @@ static void esdhc_writeb_le(struct sdhci_host *host, u8 val, int reg)
 
 	switch (reg) {
 	case SDHCI_POWER_CONTROL:
+		/*
+		 * FSL put some DMA bits here
+		 * If your board has a regulator, code should be here
+		 */
 		return;
 	case SDHCI_HOST_CONTROL:
-		
+		/* FSL messed up here, so we can just keep those three */
 		new_val = val & (SDHCI_CTRL_LED | \
 				SDHCI_CTRL_4BITBUS | \
 				SDHCI_CTRL_D3CD);
-		
+		/* ensure the endianess */
 		new_val |= ESDHC_HOST_CONTROL_LE;
-		
+		/* DMA mode bits are shifted */
 		new_val |= (val & SDHCI_CTRL_DMA_MASK) << 5;
 
 		esdhc_clrset_le(host, 0xffff, new_val, reg);
@@ -269,6 +318,14 @@ static void esdhc_writeb_le(struct sdhci_host *host, u8 val, int reg)
 	}
 	esdhc_clrset_le(host, 0xff, val, reg);
 
+	/*
+	 * The esdhc has a design violation to SDHC spec which tells
+	 * that software reset should not affect card detection circuit.
+	 * But esdhc clears its SYSCTL register bits [0..2] during the
+	 * software reset.  This will stop those clocks that card detection
+	 * circuit relies on.  To work around it, we turn the clocks on back
+	 * to keep card detection circuit functional.
+	 */
 	if ((reg == SDHCI_SOFTWARE_RESET) && (val & 1))
 		esdhc_clrset_le(host, 0x7, 0x7, ESDHC_SYSTEM_CONTROL);
 }
@@ -413,13 +470,17 @@ static int __devinit sdhci_esdhc_imx_probe(struct platform_device *pdev)
 	host->quirks |= SDHCI_QUIRK_BROKEN_TIMEOUT_VAL;
 
 	if (is_imx25_esdhc(imx_data) || is_imx35_esdhc(imx_data))
-		
+		/* Fix errata ENGcm07207 present on i.MX25 and i.MX35 */
 		host->quirks |= SDHCI_QUIRK_NO_MULTIBLOCK
 			| SDHCI_QUIRK_BROKEN_ADMA;
 
 	if (is_imx53_esdhc(imx_data))
 		imx_data->flags |= ESDHC_FLAG_MULTIBLK_NO_INT;
 
+	/*
+	 * The imx6q ROM code will change the default watermark level setting
+	 * to something insane.  Change it back here.
+	 */
 	if (is_imx6q_usdhc(imx_data))
 		writel(0x08100810, host->ioaddr + SDHCI_WTMK_LVL);
 
@@ -434,7 +495,7 @@ static int __devinit sdhci_esdhc_imx_probe(struct platform_device *pdev)
 					host->mmc->parent->platform_data);
 	}
 
-	
+	/* write_protect */
 	if (boarddata->wp_type == ESDHC_WP_GPIO) {
 		err = gpio_request_one(boarddata->wp_gpio, GPIOF_IN, "ESDHC_WP");
 		if (err) {
@@ -446,7 +507,7 @@ static int __devinit sdhci_esdhc_imx_probe(struct platform_device *pdev)
 		boarddata->wp_gpio = -EINVAL;
 	}
 
-	
+	/* card_detect */
 	if (boarddata->cd_type != ESDHC_CD_GPIO)
 		boarddata->cd_gpio = -EINVAL;
 
@@ -466,10 +527,10 @@ static int __devinit sdhci_esdhc_imx_probe(struct platform_device *pdev)
 			dev_err(mmc_dev(host->mmc), "request irq error\n");
 			goto no_card_detect_irq;
 		}
-		
+		/* fall through */
 
 	case ESDHC_CD_CONTROLLER:
-		
+		/* we have a working card_detect back */
 		host->quirks &= ~SDHCI_QUIRK_BROKEN_CARD_DETECTION;
 		break;
 

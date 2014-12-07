@@ -189,7 +189,7 @@ nouveau_ioctl_notifier_alloc(struct drm_device *dev, void *data,
 	struct nouveau_channel *chan;
 	int ret;
 
-	
+	/* completely unnecessary for these chipsets... */
 	if (unlikely(dev_priv->card_type >= NV_C0))
 		return -EINVAL;
 

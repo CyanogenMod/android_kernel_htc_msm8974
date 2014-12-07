@@ -99,7 +99,7 @@ static int ppc4xx_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
 		}
 		dev_dbg(&dev->dev, "%s: virq = %d\n", __func__, virq);
 
-		
+		/* Setup msi address space */
 		msg.address_hi = msi_data->msi_addr_hi;
 		msg.address_lo = msi_data->msi_addr_lo;
 
@@ -150,8 +150,8 @@ static int ppc4xx_setup_pcieh_hw(struct platform_device *dev,
 	if (!sdr_addr)
 		return -1;
 
-	SDR0_WRITE(sdr_addr, (u64)res.start >> 32);	 
-	SDR0_WRITE(sdr_addr + 1, res.start & 0xFFFFFFFF); 
+	SDR0_WRITE(sdr_addr, (u64)res.start >> 32);	 /*HIGH addr */
+	SDR0_WRITE(sdr_addr + 1, res.start & 0xFFFFFFFF); /* Low addr */
 
 
 	msi->msi_dev = of_find_node_by_name(NULL, "ppc4xx-msi");
@@ -171,7 +171,7 @@ static int ppc4xx_setup_pcieh_hw(struct platform_device *dev,
 	msi->msi_addr_lo = (u32) msi_phys;
 	dev_dbg(&dev->dev, "PCIE-MSI: msi address 0x%x\n", msi->msi_addr_lo);
 
-	
+	/* Progam the Interrupt handler Termination addr registers */
 	out_be32(msi->msi_regs + PEIH_TERMADH, msi->msi_addr_hi);
 	out_be32(msi->msi_regs + PEIH_TERMADL, msi->msi_addr_lo);
 
@@ -181,7 +181,7 @@ static int ppc4xx_setup_pcieh_hw(struct platform_device *dev,
 	msi_mask = of_get_property(dev->dev.of_node, "msi-mask", NULL);
 	if (!msi_mask)
 		return -1;
-	
+	/* Program MSI Expected data and Mask bits */
 	out_be32(msi->msi_regs + PEIH_MSIED, *msi_data);
 	out_be32(msi->msi_regs + PEIH_MSIMK, *msi_mask);
 
@@ -215,7 +215,7 @@ static int __devinit ppc4xx_msi_probe(struct platform_device *dev)
 	struct resource res;
 	int err = 0;
 
-	msi = &ppc4xx_msi;
+	msi = &ppc4xx_msi;/*keep the msi data for further use*/
 
 	dev_dbg(&dev->dev, "PCIE-MSI: Setting up MSI support...\n");
 
@@ -226,7 +226,7 @@ static int __devinit ppc4xx_msi_probe(struct platform_device *dev)
 	}
 	dev->dev.platform_data = msi;
 
-	
+	/* Get MSI ranges */
 	err = of_address_to_resource(dev->dev.of_node, 0, &res);
 	if (err) {
 		dev_err(&dev->dev, "%s resource error!\n",

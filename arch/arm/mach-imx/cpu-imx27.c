@@ -17,6 +17,9 @@
  * MA 02110-1301, USA.
  */
 
+/*
+ * i.MX27 specific CPU detection code
+ */
 
 #include <linux/io.h>
 #include <linux/module.h>
@@ -26,11 +29,16 @@
 static int mx27_cpu_rev = -1;
 static int mx27_cpu_partnumber;
 
-#define SYS_CHIP_ID             0x00    
+#define SYS_CHIP_ID             0x00    /* The offset of CHIP ID register */
 
 static int mx27_read_cpu_rev(void)
 {
 	u32 val;
+	/*
+	 * now we have access to the IO registers. As we need
+	 * the silicon revision very early we read it here to
+	 * avoid any further hooks
+	*/
 	val = __raw_readl(MX27_IO_ADDRESS(MX27_SYSCTRL_BASE_ADDR
 				+ SYS_CHIP_ID));
 
@@ -48,6 +56,11 @@ static int mx27_read_cpu_rev(void)
 	}
 }
 
+/*
+ * Returns:
+ *	the silicon revision of the cpu
+ *	-EINVAL - not a mx27
+ */
 int mx27_revision(void)
 {
 	if (mx27_cpu_rev == -1)

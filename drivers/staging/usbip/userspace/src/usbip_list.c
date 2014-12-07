@@ -213,7 +213,7 @@ static int list_devices(bool parsable)
 		goto err_out;
 	}
 
-	
+	/* remove interfaces and root hubs from device list */
 	dlist_filter_sort(devlist, is_device, devcmp);
 
 	if (!parsable) {

@@ -73,6 +73,7 @@
 #define GET_BATCHRSP		0x44
 
 #ifdef SUPPORT_CPRM
+/* SD Pass Through Command Extention */
 #define SD_PASS_THRU_MODE	0xD0
 #define SD_EXECUTE_NO_DATA	0xD1
 #define SD_EXECUTE_READ		0xD2
@@ -82,27 +83,35 @@
 #endif
 
 #ifdef SUPPORT_MAGIC_GATE
-#define CMD_MSPRO_MG_RKEY	0xA4	
-#define CMD_MSPRO_MG_SKEY	0xA3	
+#define CMD_MSPRO_MG_RKEY	0xA4	/* Report Key Command */
+#define CMD_MSPRO_MG_SKEY	0xA3	/* Send Key Command */
 
-#define KC_MG_R_PRO		0xBE	
+/* CBWCB field: key class */
+#define KC_MG_R_PRO		0xBE	/* MG-R PRO */
 
-#define KF_SET_LEAF_ID		0x31	
-#define KF_GET_LOC_EKB		0x32	
-#define KF_CHG_HOST		0x33	
-#define KF_RSP_CHG		0x34	
-#define KF_RSP_HOST		0x35	
-#define KF_GET_ICV		0x36	
-#define KF_SET_ICV		0x37	
+/* CBWCB field: key format */
+#define KF_SET_LEAF_ID		0x31	/* Set Leaf ID */
+#define KF_GET_LOC_EKB		0x32	/* Get Local EKB */
+#define KF_CHG_HOST		0x33	/* Challenge (host) */
+#define KF_RSP_CHG		0x34	/* Response and Challenge (device)  */
+#define KF_RSP_HOST		0x35	/* Response (host) */
+#define KF_GET_ICV		0x36	/* Get ICV */
+#define KF_SET_ICV		0x37	/* SSet ICV */
 #endif
 
 struct rts51x_chip;
 
-#define STOP_MEDIUM			0x00	
-#define MAKE_MEDIUM_READY		0x01	
-#define UNLOAD_MEDIUM			0x02	
-#define LOAD_MEDIUM			0x03	
+/*-----------------------------------
+    Start-Stop-Unit
+-----------------------------------*/
+#define STOP_MEDIUM			0x00	/* access disable */
+#define MAKE_MEDIUM_READY		0x01	/* access enable */
+#define UNLOAD_MEDIUM			0x02	/* unload */
+#define LOAD_MEDIUM			0x03	/* load */
 
+/*-----------------------------------
+    STANDARD_INQUIRY
+-----------------------------------*/
 #define QULIFIRE                0x00
 #define AENC_FNC                0x00
 #define TRML_IOP                0x00
@@ -114,15 +123,15 @@ struct rts51x_chip;
 #define CMD_QUE                 0x00
 #define SFT_RE                  0x00
 
-#define VEN_ID_LEN              8	
-#define PRDCT_ID_LEN            16	
-#define PRDCT_REV_LEN           4	
+#define VEN_ID_LEN              8	/* Vendor ID Length         */
+#define PRDCT_ID_LEN            16	/* Product ID Length        */
+#define PRDCT_REV_LEN           4	/* Product LOT Length       */
 
-#define DRCT_ACCESS_DEV         0x00	
-#define RMB_DISC                0x80	
-#define ANSI_SCSI2              0x02	
+#define DRCT_ACCESS_DEV         0x00	/* Direct Access Device             */
+#define RMB_DISC                0x80	/* The Device is Removable          */
+#define ANSI_SCSI2              0x02	/* Based on ANSI-SCSI2              */
 
-#define SCSI                    0x00	
+#define SCSI                    0x00	/* Interface ID                     */
 
 void scsi_show_command(struct scsi_cmnd *srb);
 void set_sense_type(struct rts51x_chip *chip, unsigned int lun, int sense_type);
@@ -141,7 +150,7 @@ int slave_alloc(struct scsi_device *sdev);
 int slave_configure(struct scsi_device *sdev);
 int proc_info(struct Scsi_Host *host, char *buffer,
 	      char **start, off_t offset, int length, int inout);
-#if 0 
+#if 0 /* LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 37) */
 int queuecommand(struct scsi_cmnd *srb, void (*done) (struct scsi_cmnd *));
 #else
 int queuecommand(struct Scsi_Host *, struct scsi_cmnd *);
@@ -150,4 +159,4 @@ int command_abort(struct scsi_cmnd *srb);
 int device_reset(struct scsi_cmnd *srb);
 int bus_reset(struct scsi_cmnd *srb);
 
-#endif 
+#endif /* __RTS51X_SCSI_H */

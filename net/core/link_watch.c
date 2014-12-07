@@ -108,29 +108,33 @@ static void linkwatch_schedule_work(int urgent)
 	if (test_bit(LW_URGENT, &linkwatch_flags))
 		return;
 
-	
+	/* Minimise down-time: drop delay for up event. */
 	if (urgent) {
 		if (test_and_set_bit(LW_URGENT, &linkwatch_flags))
 			return;
 		delay = 0;
 	}
 
-	
+	/* If we wrap around we'll delay it by at most HZ. */
 	if (delay > HZ)
 		delay = 0;
 
+	/*
+	 * This is true if we've scheduled it immeditately or if we don't
+	 * need an immediate execution and it's already pending.
+	 */
 	if (schedule_delayed_work(&linkwatch_work, delay) == !delay)
 		return;
 
-	
+	/* Don't bother if there is nothing urgent. */
 	if (!test_bit(LW_URGENT, &linkwatch_flags))
 		return;
 
-	
+	/* It's already running which is good enough. */
 	if (!__cancel_delayed_work(&linkwatch_work))
 		return;
 
-	
+	/* Otherwise we reschedule it again for immediate execution. */
 	schedule_delayed_work(&linkwatch_work, 0);
 }
 
@@ -143,6 +147,9 @@ static void linkwatch_do_dev(struct net_device *dev)
 	 */
 	smp_mb__before_clear_bit();
 
+	/* We are about to handle this device,
+	 * so new events can be accepted
+	 */
 	clear_bit(__LINK_STATE_LINKWATCH_PENDING, &dev->state);
 
 	rfc2863_policy(dev);
@@ -162,9 +169,16 @@ static void __linkwatch_run_queue(int urgent_only)
 	struct net_device *dev;
 	LIST_HEAD(wrk);
 
+	/*
+	 * Limit the number of linkwatch events to one
+	 * per second so that a runaway driver does not
+	 * cause a storm of messages on the netlink
+	 * socket.  This limit does not apply to up events
+	 * while the device qdisc is down.
+	 */
 	if (!urgent_only)
 		linkwatch_nextevent = jiffies + HZ;
-	
+	/* Limit wrap-around effect on delay. */
 	else if (time_after(linkwatch_nextevent, jiffies + HZ))
 		linkwatch_nextevent = jiffies;
 
@@ -208,6 +222,7 @@ void linkwatch_forget_dev(struct net_device *dev)
 }
 
 
+/* Must be called with the rtnl semaphore held */
 void linkwatch_run_queue(void)
 {
 	__linkwatch_run_queue(0);

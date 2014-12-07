@@ -1,3 +1,5 @@
+/* i915_drv.c -- i830,i845,i855,i865,i915 driver -*- linux-c -*-
+ */
 /*
  *
  * Copyright 2003 Tungsten Graphics, Inc., Cedar Park, Texas.
@@ -244,40 +246,40 @@ static const struct intel_device_info intel_ivybridge_d_info = {
 static const struct intel_device_info intel_ivybridge_m_info = {
 	.is_ivybridge = 1, .gen = 7, .is_mobile = 1,
 	.need_gfx_hws = 1, .has_hotplug = 1,
-	.has_fbc = 0,	
+	.has_fbc = 0,	/* FBC is not enabled on Ivybridge mobile yet */
 	.has_bsd_ring = 1,
 	.has_blt_ring = 1,
 	.has_llc = 1,
 };
 
-static const struct pci_device_id pciidlist[] = {		
-	INTEL_VGA_DEVICE(0x3577, &intel_i830_info),		
-	INTEL_VGA_DEVICE(0x2562, &intel_845g_info),		
-	INTEL_VGA_DEVICE(0x3582, &intel_i85x_info),		
+static const struct pci_device_id pciidlist[] = {		/* aka */
+	INTEL_VGA_DEVICE(0x3577, &intel_i830_info),		/* I830_M */
+	INTEL_VGA_DEVICE(0x2562, &intel_845g_info),		/* 845_G */
+	INTEL_VGA_DEVICE(0x3582, &intel_i85x_info),		/* I855_GM */
 	INTEL_VGA_DEVICE(0x358e, &intel_i85x_info),
-	INTEL_VGA_DEVICE(0x2572, &intel_i865g_info),		
-	INTEL_VGA_DEVICE(0x2582, &intel_i915g_info),		
-	INTEL_VGA_DEVICE(0x258a, &intel_i915g_info),		
-	INTEL_VGA_DEVICE(0x2592, &intel_i915gm_info),		
-	INTEL_VGA_DEVICE(0x2772, &intel_i945g_info),		
-	INTEL_VGA_DEVICE(0x27a2, &intel_i945gm_info),		
-	INTEL_VGA_DEVICE(0x27ae, &intel_i945gm_info),		
-	INTEL_VGA_DEVICE(0x2972, &intel_i965g_info),		
-	INTEL_VGA_DEVICE(0x2982, &intel_i965g_info),		
-	INTEL_VGA_DEVICE(0x2992, &intel_i965g_info),		
-	INTEL_VGA_DEVICE(0x29a2, &intel_i965g_info),		
-	INTEL_VGA_DEVICE(0x29b2, &intel_g33_info),		
-	INTEL_VGA_DEVICE(0x29c2, &intel_g33_info),		
-	INTEL_VGA_DEVICE(0x29d2, &intel_g33_info),		
-	INTEL_VGA_DEVICE(0x2a02, &intel_i965gm_info),		
-	INTEL_VGA_DEVICE(0x2a12, &intel_i965gm_info),		
-	INTEL_VGA_DEVICE(0x2a42, &intel_gm45_info),		
-	INTEL_VGA_DEVICE(0x2e02, &intel_g45_info),		
-	INTEL_VGA_DEVICE(0x2e12, &intel_g45_info),		
-	INTEL_VGA_DEVICE(0x2e22, &intel_g45_info),		
-	INTEL_VGA_DEVICE(0x2e32, &intel_g45_info),		
-	INTEL_VGA_DEVICE(0x2e42, &intel_g45_info),		
-	INTEL_VGA_DEVICE(0x2e92, &intel_g45_info),		
+	INTEL_VGA_DEVICE(0x2572, &intel_i865g_info),		/* I865_G */
+	INTEL_VGA_DEVICE(0x2582, &intel_i915g_info),		/* I915_G */
+	INTEL_VGA_DEVICE(0x258a, &intel_i915g_info),		/* E7221_G */
+	INTEL_VGA_DEVICE(0x2592, &intel_i915gm_info),		/* I915_GM */
+	INTEL_VGA_DEVICE(0x2772, &intel_i945g_info),		/* I945_G */
+	INTEL_VGA_DEVICE(0x27a2, &intel_i945gm_info),		/* I945_GM */
+	INTEL_VGA_DEVICE(0x27ae, &intel_i945gm_info),		/* I945_GME */
+	INTEL_VGA_DEVICE(0x2972, &intel_i965g_info),		/* I946_GZ */
+	INTEL_VGA_DEVICE(0x2982, &intel_i965g_info),		/* G35_G */
+	INTEL_VGA_DEVICE(0x2992, &intel_i965g_info),		/* I965_Q */
+	INTEL_VGA_DEVICE(0x29a2, &intel_i965g_info),		/* I965_G */
+	INTEL_VGA_DEVICE(0x29b2, &intel_g33_info),		/* Q35_G */
+	INTEL_VGA_DEVICE(0x29c2, &intel_g33_info),		/* G33_G */
+	INTEL_VGA_DEVICE(0x29d2, &intel_g33_info),		/* Q33_G */
+	INTEL_VGA_DEVICE(0x2a02, &intel_i965gm_info),		/* I965_GM */
+	INTEL_VGA_DEVICE(0x2a12, &intel_i965gm_info),		/* I965_GME */
+	INTEL_VGA_DEVICE(0x2a42, &intel_gm45_info),		/* GM45_G */
+	INTEL_VGA_DEVICE(0x2e02, &intel_g45_info),		/* IGD_E_G */
+	INTEL_VGA_DEVICE(0x2e12, &intel_g45_info),		/* Q45_G */
+	INTEL_VGA_DEVICE(0x2e22, &intel_g45_info),		/* G45_G */
+	INTEL_VGA_DEVICE(0x2e32, &intel_g45_info),		/* G41_G */
+	INTEL_VGA_DEVICE(0x2e42, &intel_g45_info),		/* B43_G */
+	INTEL_VGA_DEVICE(0x2e92, &intel_g45_info),		/* B43_G.1 */
 	INTEL_VGA_DEVICE(0xa001, &intel_pineview_info),
 	INTEL_VGA_DEVICE(0xa011, &intel_pineview_info),
 	INTEL_VGA_DEVICE(0x0042, &intel_ironlake_d_info),
@@ -289,12 +291,12 @@ static const struct pci_device_id pciidlist[] = {
 	INTEL_VGA_DEVICE(0x0116, &intel_sandybridge_m_info),
 	INTEL_VGA_DEVICE(0x0126, &intel_sandybridge_m_info),
 	INTEL_VGA_DEVICE(0x010A, &intel_sandybridge_d_info),
-	INTEL_VGA_DEVICE(0x0156, &intel_ivybridge_m_info), 
-	INTEL_VGA_DEVICE(0x0166, &intel_ivybridge_m_info), 
-	INTEL_VGA_DEVICE(0x0152, &intel_ivybridge_d_info), 
-	INTEL_VGA_DEVICE(0x0162, &intel_ivybridge_d_info), 
-	INTEL_VGA_DEVICE(0x015a, &intel_ivybridge_d_info), 
-	INTEL_VGA_DEVICE(0x016a, &intel_ivybridge_d_info), 
+	INTEL_VGA_DEVICE(0x0156, &intel_ivybridge_m_info), /* GT1 mobile */
+	INTEL_VGA_DEVICE(0x0166, &intel_ivybridge_m_info), /* GT2 mobile */
+	INTEL_VGA_DEVICE(0x0152, &intel_ivybridge_d_info), /* GT1 desktop */
+	INTEL_VGA_DEVICE(0x0162, &intel_ivybridge_d_info), /* GT2 desktop */
+	INTEL_VGA_DEVICE(0x015a, &intel_ivybridge_d_info), /* GT1 server */
+	INTEL_VGA_DEVICE(0x016a, &intel_ivybridge_d_info), /* GT2 server */
 	{0, 0, 0}
 };
 
@@ -312,6 +314,12 @@ void intel_detect_pch(struct drm_device *dev)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct pci_dev *pch;
 
+	/*
+	 * The reason to probe ISA bridge instead of Dev31:Fun0 is to
+	 * make graphics device passthrough work easy for VMM, that only
+	 * need to expose ISA bridge to let driver know the real hardware
+	 * underneath. This is a requirement from virtualization team.
+	 */
 	pch = pci_get_class(PCI_CLASS_BRIDGE_ISA << 8, NULL);
 	if (pch) {
 		if (pch->vendor == PCI_VENDOR_ID_INTEL) {
@@ -325,7 +333,7 @@ void intel_detect_pch(struct drm_device *dev)
 				dev_priv->pch_type = PCH_CPT;
 				DRM_DEBUG_KMS("Found CougarPoint PCH\n");
 			} else if (id == INTEL_PCH_PPT_DEVICE_ID_TYPE) {
-				
+				/* PantherPoint is CPT compatible */
 				dev_priv->pch_type = PCH_CPT;
 				DRM_DEBUG_KMS("Found PatherPoint PCH\n");
 			}
@@ -366,6 +374,12 @@ void __gen6_gt_force_wake_mt_get(struct drm_i915_private *dev_priv)
 		udelay(10);
 }
 
+/*
+ * Generally this is called implicitly by the register read function. However,
+ * if some sequence requires the GT to not power down then this function should
+ * be called at the beginning of the sequence followed by a call to
+ * gen6_gt_force_wake_put() at the end of the sequence.
+ */
 void gen6_gt_force_wake_get(struct drm_i915_private *dev_priv)
 {
 	unsigned long irqflags;
@@ -388,17 +402,20 @@ static void gen6_gt_check_fifodbg(struct drm_i915_private *dev_priv)
 void __gen6_gt_force_wake_put(struct drm_i915_private *dev_priv)
 {
 	I915_WRITE_NOTRACE(FORCEWAKE, 0);
-	
+	/* The below doubles as a POSTING_READ */
 	gen6_gt_check_fifodbg(dev_priv);
 }
 
 void __gen6_gt_force_wake_mt_put(struct drm_i915_private *dev_priv)
 {
 	I915_WRITE_NOTRACE(FORCEWAKE_MT, (1<<16) | 0);
-	
+	/* The below doubles as a POSTING_READ */
 	gen6_gt_check_fifodbg(dev_priv);
 }
 
+/*
+ * see gen6_gt_force_wake_get()
+ */
 void gen6_gt_force_wake_put(struct drm_i915_private *dev_priv)
 {
 	unsigned long irqflags;
@@ -437,7 +454,7 @@ static int i915_drm_freeze(struct drm_device *dev)
 
 	pci_save_state(dev->pdev);
 
-	
+	/* If KMS is active, we do the leavevt stuff here */
 	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
 		int error = i915_gem_idle(dev);
 		if (error) {
@@ -452,7 +469,7 @@ static int i915_drm_freeze(struct drm_device *dev)
 
 	intel_opregion_fini(dev);
 
-	
+	/* Modeset on resume, not lid events */
 	dev_priv->modeset_on_lid = 0;
 
 	console_lock();
@@ -484,7 +501,7 @@ int i915_suspend(struct drm_device *dev, pm_message_t state)
 		return error;
 
 	if (state.event == PM_EVENT_SUSPEND) {
-		
+		/* Shut down the device */
 		pci_disable_device(dev->pdev);
 		pci_set_power_state(dev->pdev, PCI_D3hot);
 	}
@@ -506,7 +523,7 @@ static int i915_drm_thaw(struct drm_device *dev)
 	i915_restore_state(dev);
 	intel_opregion_setup(dev);
 
-	
+	/* KMS EnterVT equivalent */
 	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
 		mutex_lock(&dev->struct_mutex);
 		dev_priv->mm.suspended = 0;
@@ -520,7 +537,7 @@ static int i915_drm_thaw(struct drm_device *dev)
 		drm_mode_config_reset(dev);
 		drm_irq_install(dev);
 
-		
+		/* Resume the modeset for every activated CRTC */
 		mutex_lock(&dev->mode_config.mutex);
 		drm_helper_resume_force_mode(dev);
 		mutex_unlock(&dev->mode_config.mutex);
@@ -600,6 +617,11 @@ static int i965_do_reset(struct drm_device *dev, u8 flags)
 {
 	u8 gdrst;
 
+	/*
+	 * Set the domains we want to reset (GRDOM/bits 2 and 3) as
+	 * well as the reset bit (GR/bit 0).  Setting the GR bit
+	 * triggers the reset; when done, the hardware will clear it.
+	 */
 	pci_read_config_byte(dev->pdev, I965_GDRST, &gdrst);
 	pci_write_config_byte(dev->pdev, I965_GDRST, gdrst | flags | 0x1);
 
@@ -620,31 +642,58 @@ static int gen6_do_reset(struct drm_device *dev, u8 flags)
 	int	ret;
 	unsigned long irqflags;
 
+	/* Hold gt_lock across reset to prevent any register access
+	 * with forcewake not set correctly
+	 */
 	spin_lock_irqsave(&dev_priv->gt_lock, irqflags);
 
-	
+	/* Reset the chip */
 
+	/* GEN6_GDRST is not in the gt power well, no need to check
+	 * for fifo space for the write or forcewake the chip for
+	 * the read
+	 */
 	I915_WRITE_NOTRACE(GEN6_GDRST, GEN6_GRDOM_FULL);
 
-	
+	/* Spin waiting for the device to ack the reset request */
 	ret = wait_for((I915_READ_NOTRACE(GEN6_GDRST) & GEN6_GRDOM_FULL) == 0, 500);
 
-	
+	/* If reset with a user forcewake, try to restore, otherwise turn it off */
 	if (dev_priv->forcewake_count)
 		dev_priv->display.force_wake_get(dev_priv);
 	else
 		dev_priv->display.force_wake_put(dev_priv);
 
-	
+	/* Restore fifo count */
 	dev_priv->gt_fifo_count = I915_READ_NOTRACE(GT_FIFO_FREE_ENTRIES);
 
 	spin_unlock_irqrestore(&dev_priv->gt_lock, irqflags);
 	return ret;
 }
 
+/**
+ * i915_reset - reset chip after a hang
+ * @dev: drm device to reset
+ * @flags: reset domains
+ *
+ * Reset the chip.  Useful if a hang is detected. Returns zero on successful
+ * reset or otherwise an error code.
+ *
+ * Procedure is fairly simple:
+ *   - reset the chip using the reset reg
+ *   - re-init context state
+ *   - re-init hardware status page
+ *   - re-init ring buffer
+ *   - re-init interrupt state
+ *   - re-init display
+ */
 int i915_reset(struct drm_device *dev, u8 flags)
 {
 	drm_i915_private_t *dev_priv = dev->dev_private;
+	/*
+	 * We really should only reset the display subsystem if we actually
+	 * need to
+	 */
 	bool need_display = true;
 	int ret;
 
@@ -681,8 +730,20 @@ int i915_reset(struct drm_device *dev, u8 flags)
 		return ret;
 	}
 
-	
+	/* Ok, now get things going again... */
 
+	/*
+	 * Everything depends on having the GTT running, so we need to start
+	 * there.  Fortunately we don't need to do this unless we reset the
+	 * chip at a PCI level.
+	 *
+	 * Next we need to restore the context, but we don't use those
+	 * yet either...
+	 *
+	 * Ring buffer needs to be re-initialized in the KMS case, or if X
+	 * was running at the time of the reset (i.e. we weren't VT
+	 * switched away).
+	 */
 	if (drm_core_check_feature(dev, DRIVER_MODESET) ||
 			!dev_priv->mm.suspended) {
 		dev_priv->mm.suspended = 0;
@@ -706,6 +767,11 @@ int i915_reset(struct drm_device *dev, u8 flags)
 
 	mutex_unlock(&dev->struct_mutex);
 
+	/*
+	 * Perform a full modeset as on later generations, e.g. Ironlake, we may
+	 * need to retrain the display link and cannot just restore the register
+	 * values.
+	 */
 	if (need_display) {
 		mutex_lock(&dev->mode_config.mutex);
 		drm_helper_resume_force_mode(dev);
@@ -719,6 +785,11 @@ int i915_reset(struct drm_device *dev, u8 flags)
 static int __devinit
 i915_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
+	/* Only bind to function 0 of the device. Early generations
+	 * used function 1 as a placeholder for multi-head. This causes
+	 * us confusion instead, especially on the systems where both
+	 * functions have the same PCI-ID!
+	 */
 	if (PCI_FUNC(pdev->devfn))
 		return -ENODEV;
 
@@ -825,8 +896,11 @@ static const struct file_operations i915_driver_fops = {
 };
 
 static struct drm_driver driver = {
+	/* Don't use MTRRs here; the Xserver or userspace app should
+	 * deal with them for Intel hardware.
+	 */
 	.driver_features =
-	    DRIVER_USE_AGP | DRIVER_REQUIRE_AGP | 
+	    DRIVER_USE_AGP | DRIVER_REQUIRE_AGP | /* DRIVER_USE_MTRR |*/
 	    DRIVER_HAVE_IRQ | DRIVER_IRQ_SHARED | DRIVER_GEM,
 	.load = i915_driver_load,
 	.unload = i915_driver_unload,
@@ -835,7 +909,7 @@ static struct drm_driver driver = {
 	.preclose = i915_driver_preclose,
 	.postclose = i915_driver_postclose,
 
-	
+	/* Used in place of i915_pm_ops for non-DRIVER_MODESET */
 	.suspend = i915_suspend,
 	.resume = i915_resume,
 
@@ -880,6 +954,15 @@ static int __init i915_init(void)
 
 	driver.num_ioctls = i915_max_ioctl;
 
+	/*
+	 * If CONFIG_DRM_I915_KMS is set, default to KMS unless
+	 * explicitly disabled with the module pararmeter.
+	 *
+	 * Otherwise, just follow the parameter (defaulting to off).
+	 *
+	 * Allow optional vga_text_mode_force boot option to override
+	 * the default behavior.
+	 */
 #if defined(CONFIG_DRM_I915_KMS)
 	if (i915_modeset != 0)
 		driver.driver_features |= DRIVER_MODESET;

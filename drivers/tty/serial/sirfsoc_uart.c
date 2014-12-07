@@ -379,19 +379,19 @@ static void sirfsoc_uart_set_termios(struct uart_port *port,
 	spin_lock_irqsave(&port->lock, flags);
 	port->read_status_mask = SIRFUART_RX_OFLOW_INT;
 	port->ignore_status_mask = 0;
-	
+	/* read flags */
 	if (termios->c_iflag & INPCK)
 		port->read_status_mask |=
 			SIRFUART_FRM_ERR_INT | SIRFUART_PARITY_ERR_INT;
 	if (termios->c_iflag & (BRKINT | PARMRK))
 		port->read_status_mask |= SIRFUART_RXD_BREAK_INT;
-	
+	/* ignore flags */
 	if (termios->c_iflag & IGNPAR)
 		port->ignore_status_mask |=
 			SIRFUART_FRM_ERR_INT | SIRFUART_PARITY_ERR_INT;
 	if ((termios->c_cflag & CREAD) == 0)
 		port->ignore_status_mask |= SIRFUART_DUMMY_READ;
-	
+	/* enable parity if PARENB is set*/
 	if (termios->c_cflag & PARENB) {
 		if (termios->c_cflag & CMSPAR) {
 			if (termios->c_cflag & PARODD)
@@ -404,7 +404,7 @@ static void sirfsoc_uart_set_termios(struct uart_port *port,
 			config_reg |= SIRFUART_STICK_BIT_EVEN;
 		}
 	}
-	
+	/* Hardware Flow Control Settings */
 	if (UART_ENABLE_MS(port, termios->c_cflag)) {
 		if (!sirfport->ms_enabled)
 			sirfsoc_uart_enable_ms(port);
@@ -413,12 +413,12 @@ static void sirfsoc_uart_set_termios(struct uart_port *port,
 			sirfsoc_uart_disable_ms(port);
 	}
 
-	
+	/* common rate: fast calculation */
 	for (ic = 0; ic < SIRF_BAUD_RATE_SUPPORT_NR; ic++)
 		if (baud_rate == baudrate_to_regv[ic].baud_rate)
 			clk_div_reg = baudrate_to_regv[ic].reg_val;
 	setted_baud = baud_rate;
-	
+	/* arbitary rate setting */
 	if (unlikely(clk_div_reg == 0))
 		clk_div_reg = sirfsoc_calc_sample_div(baud_rate, ioclk_rate,
 								&setted_baud);
@@ -427,7 +427,7 @@ static void sirfsoc_uart_set_termios(struct uart_port *port,
 	if (tty_termios_baud_rate(termios))
 		tty_termios_encode_baud_rate(termios, setted_baud, setted_baud);
 
-	
+	/* set receive timeout */
 	rx_time_out = SIRFSOC_UART_RX_TIMEOUT(baud_rate, 20000);
 	rx_time_out = (rx_time_out > 0xFFFF) ? 0xFFFF : rx_time_out;
 	config_reg |= SIRFUART_RECV_TIMEOUT(rx_time_out);
@@ -439,7 +439,7 @@ static void sirfsoc_uart_set_termios(struct uart_port *port,
 	wr_regl(port, SIRFUART_RX_DMA_IO_CTRL, SIRFUART_RX_MODE_IO);
 	wr_regl(port, SIRFUART_LINE_CTRL, config_reg);
 
-	
+	/* Reset Rx/Tx FIFO Threshold level for proper baudrate */
 	if (baud_rate < 1000000)
 		threshold_div = 1;
 	else

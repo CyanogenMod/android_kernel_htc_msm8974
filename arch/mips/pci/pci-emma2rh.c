@@ -55,7 +55,7 @@ static struct pci_controller emma2rh_pci_controller = {
 
 static void __init emma2rh_pci_init(void)
 {
-	
+	/* setup PCI interface */
 	emma2rh_out32(EMMA2RH_PCI_ARBIT_CTR, 0x70f);
 
 	emma2rh_out32(EMMA2RH_PCI_IWIN0_CTR, 0x80000a18);

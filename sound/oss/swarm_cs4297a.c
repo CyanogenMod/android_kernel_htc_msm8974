@@ -100,30 +100,49 @@ static void start_dac(struct cs4297a_state *s);
 static void start_adc(struct cs4297a_state *s);
 #undef OSS_DOCUMENTED_MIXER_SEMANTICS
 
+// --------------------------------------------------------------------- 
 
 #define CS4297a_MAGIC           0xf00beef1
 
+// buffer order determines the size of the dma buffer for the driver.
+// under Linux, a smaller buffer allows more responsiveness from many of the 
+// applications (e.g. games).  A larger buffer allows some of the apps (esound) 
+// to not underrun the dma buffer as easily.  As default, use 32k (order=3)
+// rather than 64k as some of the games work more responsively.
+// log base 2( buff sz = 32k).
 
+//
+// Turn on/off debugging compilation by commenting out "#define CSDEBUG"
+//
 #define CSDEBUG 0
 #if CSDEBUG
 #define CSDEBUG_INTERFACE 1
 #else
 #undef CSDEBUG_INTERFACE
 #endif
-#define CS_INIT	 	0x00000001	
-#define CS_ERROR 	0x00000002	
-#define CS_INTERRUPT	0x00000004	
-#define CS_FUNCTION 	0x00000008	
-#define CS_WAVE_WRITE 	0x00000010	
-#define CS_WAVE_READ 	0x00000020	
-#define CS_AC97         0x00000040      
-#define CS_DESCR        0x00000080      
-#define CS_OPEN		0x00000400	
-#define CS_RELEASE	0x00000800	
-#define CS_PARMS	0x00001000	
-#define CS_IOCTL	0x00002000	
-#define CS_TMP		0x10000000	
+//
+// cs_debugmask areas
+//
+#define CS_INIT	 	0x00000001	// initialization and probe functions
+#define CS_ERROR 	0x00000002	// tmp debugging bit placeholder
+#define CS_INTERRUPT	0x00000004	// interrupt handler (separate from all other)
+#define CS_FUNCTION 	0x00000008	// enter/leave functions
+#define CS_WAVE_WRITE 	0x00000010	// write information for wave
+#define CS_WAVE_READ 	0x00000020	// read information for wave
+#define CS_AC97         0x00000040      // AC97 register access
+#define CS_DESCR        0x00000080      // descriptor management
+#define CS_OPEN		0x00000400	// all open functions in the driver
+#define CS_RELEASE	0x00000800	// all release functions in the driver
+#define CS_PARMS	0x00001000	// functional and operational parameters
+#define CS_IOCTL	0x00002000	// ioctl (non-mixer)
+#define CS_TMP		0x10000000	// tmp debug mask bit
 
+//
+// CSDEBUG is usual mode is set to 1, then use the
+// cs_debuglevel and cs_debugmask to turn on or off debugging.
+// Debug level of 1 has been defined to be kernel errors and info
+// that should be printed on any released driver.
+//
 #if CSDEBUG
 #define CS_DBGOUT(mask,level,x) if((cs_debuglevel >= (level)) && ((mask) & cs_debugmask) ) {x;}
 #else
@@ -131,8 +150,8 @@ static void start_adc(struct cs4297a_state *s);
 #endif
 
 #if CSDEBUG
-static unsigned long cs_debuglevel = 4;	
-static unsigned long cs_debugmask = CS_INIT ;
+static unsigned long cs_debuglevel = 4;	// levels range from 1-9
+static unsigned long cs_debugmask = CS_INIT /*| CS_IOCTL*/;
 module_param(cs_debuglevel, int, 0);
 module_param(cs_debugmask, int, 0);
 #endif
@@ -150,14 +169,19 @@ module_param(cs_debugmask, int, 0);
 #define FRAME_BYTES            32
 #define FRAME_SAMPLE_BYTES      4
 
+/* Should this be variable? */
 #define SAMPLE_BUF_SIZE        (16*1024)
 #define SAMPLE_FRAME_COUNT     (SAMPLE_BUF_SIZE / FRAME_SAMPLE_BYTES)
+/* The driver can explode/shrink the frames to/from a smaller sample
+   buffer */
 #define DMA_BLOAT_FACTOR       1
 #define DMA_DESCR              (SAMPLE_FRAME_COUNT / DMA_BLOAT_FACTOR)
 #define DMA_BUF_SIZE           (DMA_DESCR * FRAME_BYTES)
 
+/* Use the maxmium count (255 == 5.1 ms between interrupts) */
 #define DMA_INT_CNT            ((1 << S_DMA_INT_PKTCNT) - 1)
 
+/* Figure this out: how many TX DMAs ahead to schedule a reg access */
 #define REG_LATENCY            150
 
 #define FRAME_TX_US             20
@@ -193,61 +217,62 @@ typedef struct serdma_s {
         serdma_descr_t  *descr_add;
         serdma_descr_t  *descr_rem;
         
-        u64  *dma_buf;           
+        u64  *dma_buf;           // buffer for DMA contents (frames)
         paddr_t          dma_buf_phys;
-        u16  *sample_buf;		
+        u16  *sample_buf;		// tmp buffer for sample conversions
         u16  *sb_swptr;
         u16  *sb_hwptr;
         u16  *sb_end;
 
         dma_addr_t dmaaddr;
-        unsigned numfrag;	
-        unsigned fragshift;	
+//        unsigned buforder;	// Log base 2 of 'dma_buf' size in bytes..
+        unsigned numfrag;	// # of 'fragments' in the buffer.
+        unsigned fragshift;	// Log base 2 of fragment size.
         unsigned hwptr, swptr;
-        unsigned total_bytes;	
-        unsigned blocks;	
-        unsigned wakeup;	
+        unsigned total_bytes;	// # bytes process since open.
+        unsigned blocks;	// last returned blocks value GETOPTR
+        unsigned wakeup;	// interrupt occurred on block 
         int count;
-        unsigned underrun;	
-        unsigned error;	
+        unsigned underrun;	// underrun flag
+        unsigned error;	// over/underrun 
         wait_queue_head_t wait;
         wait_queue_head_t reg_wait;
-        
-        unsigned fragsize;	
-        unsigned sbufsz;	
+        // redundant, but makes calculations easier 
+        unsigned fragsize;	// 2**fragshift..
+        unsigned sbufsz;	// 2**buforder.
         unsigned fragsamples;
-        
-        unsigned mapped:1;	
-        unsigned ready:1;	
+        // OSS stuff 
+        unsigned mapped:1;	// Buffer mapped in cs4297a_mmap()?
+        unsigned ready:1;	// prog_dmabuf_dac()/adc() successful?
         unsigned endcleared:1;
-        unsigned type:1;	
+        unsigned type:1;	// adc or dac buffer (CS_TYPE_XXX)
         unsigned ossfragshift;
         int ossmaxfrags;
         unsigned subdivision;
 } serdma_t;
 
 struct cs4297a_state {
-	
+	// magic 
 	unsigned int magic;
 
 	struct list_head list;
 
-	
+	// soundcore stuff 
 	int dev_audio;
 	int dev_mixer;
 
-	
+	// hardware resources 
 	unsigned int irq;
 
         struct {
-                unsigned int rx_ovrrn; 
-                unsigned int rx_overflow; 
+                unsigned int rx_ovrrn; /* FIFO */
+                unsigned int rx_overflow; /* staging buffer */
                 unsigned int tx_underrun;
                 unsigned int rx_bad;
                 unsigned int rx_good;
         } stats;
 
-	
+	// mixer registers 
 	struct {
 		unsigned short vol[10];
 		unsigned int recsrc;
@@ -255,14 +280,14 @@ struct cs4297a_state {
 		unsigned short micpreamp;
 	} mix;
 
-	
+	// wave stuff   
 	struct properties {
 		unsigned fmt;
-		unsigned fmt_original;	
+		unsigned fmt_original;	// original requested format
 		unsigned channels;
 		unsigned rate;
 	} prop_dac, prop_adc;
-	unsigned conversion:1;	
+	unsigned conversion:1;	// conversion from 16 to 8 bit in progress
 	unsigned ena;
 	spinlock_t lock;
 	struct mutex open_mutex;
@@ -274,7 +299,7 @@ struct cs4297a_state {
 	wait_queue_head_t open_wait_dac;
 
 	dma_addr_t dmaaddr_sample_buf;
-	unsigned buforder_sample_buf;	
+	unsigned buforder_sample_buf;	// Log base 2 of 'dma_buf' size in bytes..
 
         serdma_t dma_dac, dma_adc;
 
@@ -318,6 +343,7 @@ static void clear_advance(void *buf, unsigned bsize, unsigned bptr,
 
 #if CSDEBUG
 
+// DEBUG ROUTINES
 
 #define SOUND_MIXER_CS_GETDBGLEVEL 	_SIOWR('M',120, int)
 #define SOUND_MIXER_CS_SETDBGLEVEL 	_SIOWR('M',121, int)
@@ -328,19 +354,19 @@ static void cs_printioctl(unsigned int x)
 {
 	unsigned int i;
 	unsigned char vidx;
-	
-	
-	
+	// Index of mixtable1[] member is Device ID 
+	// and must be <= SOUND_MIXER_NRDEVICES.
+	// Value of array member is index into s->mix.vol[]
 	static const unsigned char mixtable1[SOUND_MIXER_NRDEVICES] = {
-		[SOUND_MIXER_PCM] = 1,	
-		[SOUND_MIXER_LINE1] = 2,	
-		[SOUND_MIXER_CD] = 3,	
-		[SOUND_MIXER_LINE] = 4,	
-		[SOUND_MIXER_SYNTH] = 5,	
-		[SOUND_MIXER_MIC] = 6,	
-		[SOUND_MIXER_SPEAKER] = 7,	
-		[SOUND_MIXER_RECLEV] = 8,	
-		[SOUND_MIXER_VOLUME] = 9	
+		[SOUND_MIXER_PCM] = 1,	// voice 
+		[SOUND_MIXER_LINE1] = 2,	// AUX
+		[SOUND_MIXER_CD] = 3,	// CD 
+		[SOUND_MIXER_LINE] = 4,	// Line 
+		[SOUND_MIXER_SYNTH] = 5,	// FM
+		[SOUND_MIXER_MIC] = 6,	// Mic 
+		[SOUND_MIXER_SPEAKER] = 7,	// Speaker 
+		[SOUND_MIXER_RECLEV] = 8,	// Recording level 
+		[SOUND_MIXER_VOLUME] = 9	// Master Volume 
 	};
 
 	switch (x) {
@@ -546,12 +572,12 @@ static int ser_init(struct cs4297a_state *s)
         __raw_writeq(4, SS_CSR(R_SER_TX_WR_THRSH));
         __raw_writeq(8, SS_CSR(R_SER_RX_RD_THRSH));
 
-        
+        /* This looks good from experimentation */
         __raw_writeq((M_SYNCSER_TXSYNC_INT | V_SYNCSER_TXSYNC_DLY(0) | M_SYNCSER_TXCLK_EXT |
                M_SYNCSER_RXSYNC_INT | V_SYNCSER_RXSYNC_DLY(1) | M_SYNCSER_RXCLK_EXT | M_SYNCSER_RXSYNC_EDGE),
               SS_CSR(R_SER_LINE_MODE));
 
-        
+        /* This looks good from experimentation */
         __raw_writeq(V_SYNCSER_SEQ_COUNT(14) | M_SYNCSER_SEQ_ENABLE | M_SYNCSER_SEQ_STROBE,
               SS_TXTBL(0));
         __raw_writeq(V_SYNCSER_SEQ_COUNT(15) | M_SYNCSER_SEQ_ENABLE | M_SYNCSER_SEQ_BYTE,
@@ -571,7 +597,7 @@ static int ser_init(struct cs4297a_state *s)
               M_SYNCSER_SEQ_LAST, SS_RXTBL(3));
 
         for (i=4; i<16; i++) {
-                
+                /* Just in case... */
                 __raw_writeq(M_SYNCSER_SEQ_LAST, SS_TXTBL(i));
                 __raw_writeq(M_SYNCSER_SEQ_LAST, SS_RXTBL(i));
         }
@@ -585,7 +611,7 @@ static int init_serdma(serdma_t *dma)
                   printk(KERN_ERR "cs4297a: desc - %d sbufsize - %d dbufsize - %d\n",
                          DMA_DESCR, SAMPLE_BUF_SIZE, DMA_BUF_SIZE));
 
-        
+        /* Descriptors */
         dma->ringsz = DMA_DESCR;
         dma->descrtab = kzalloc(dma->ringsz * sizeof(serdma_descr_t), GFP_KERNEL);
         if (!dma->descrtab) {
@@ -593,11 +619,11 @@ static int init_serdma(serdma_t *dma)
                 return -1;
         }
         dma->descrtab_end = dma->descrtab + dma->ringsz;
-	
+	/* XXX bloddy mess, use proper DMA API here ...  */
 	dma->descrtab_phys = CPHYSADDR((long)dma->descrtab);
         dma->descr_add = dma->descr_rem = dma->descrtab;
 
-        
+        /* Frame buffer area */
         dma->dma_buf = kzalloc(DMA_BUF_SIZE, GFP_KERNEL);
         if (!dma->dma_buf) {
                 printk(KERN_ERR "cs4297a: kzalloc dma_buf failed\n");
@@ -606,7 +632,7 @@ static int init_serdma(serdma_t *dma)
         }
         dma->dma_buf_phys = CPHYSADDR((long)dma->dma_buf);
 
-        
+        /* Samples buffer area */
         dma->sbufsz = SAMPLE_BUF_SIZE;
         dma->sample_buf = kmalloc(dma->sbufsz, GFP_KERNEL);
         if (!dma->sample_buf) {
@@ -643,6 +669,8 @@ static int dma_init(struct cs4297a_state *s)
                 panic("DMA state corrupted?!");
         }
 
+        /* Initialize now - the descr/buffer pairings will never
+           change... */
         for (i=0; i<DMA_DESCR; i++) {
                 s->dma_dac.descrtab[i].descr_a = M_DMA_SERRX_SOP | V_DMA_DSCRA_A_SIZE(1) | 
                         (s->dma_dac.dma_buf_phys + i*FRAME_BYTES);
@@ -662,7 +690,7 @@ static int dma_init(struct cs4297a_state *s)
         __raw_writeq(M_DMA_L2CA | M_DMA_NO_DSCR_UPDT, SS_CSR(R_SER_DMA_CONFIG1_TX));
         __raw_writeq(s->dma_dac.descrtab_phys, SS_CSR(R_SER_DMA_DSCR_BASE_TX));
 
-        
+        /* Prep the receive DMA descriptor ring */
         __raw_writeq(DMA_DESCR, SS_CSR(R_SER_DMA_DSCR_COUNT_RX));
 
         __raw_writeq(M_SYNCSER_DMA_RX_EN | M_SYNCSER_DMA_TX_EN, SS_CSR(R_SER_DMA_ENABLE));
@@ -670,11 +698,14 @@ static int dma_init(struct cs4297a_state *s)
         __raw_writeq((M_SYNCSER_RX_SYNC_ERR | M_SYNCSER_RX_OVERRUN | M_SYNCSER_RX_EOP_COUNT),
               SS_CSR(R_SER_INT_MASK));
 
+        /* Enable the rx/tx; let the codec warm up to the sync and
+           start sending good frames before the receive FIFO is
+           enabled */
         __raw_writeq(M_SYNCSER_CMD_TX_EN, SS_CSR(R_SER_CMD));
         udelay(1000);
         __raw_writeq(M_SYNCSER_CMD_RX_EN | M_SYNCSER_CMD_TX_EN, SS_CSR(R_SER_CMD));
 
-        
+        /* XXXKW is this magic? (the "1" part) */
         while ((__raw_readq(SS_CSR(R_SER_STATUS)) & 0xf1) != 1)
                 ;
 
@@ -699,10 +730,14 @@ static int serdma_reg_access(struct cs4297a_state *s, u64 data)
         }
 
         if (s->ena & FMODE_WRITE) {
+                /* Since a writer has the DSP open, we have to mux the
+                   request in */
                 s->reg_request = data;
                 interruptible_sleep_on(&s->dma_dac.reg_wait);
+                /* XXXKW how can I deal with the starvation case where
+                   the opener isn't writing? */
         } else {
-                
+                /* Be safe when changing ring pointers */
 		spin_lock_irqsave(&s->lock, flags);
                 if (d->hwptr != d->swptr) {
                         printk(KERN_ERR "cs4297a: reg access found bookkeeping error (hw/sw = %d/%d\n",
@@ -729,6 +764,9 @@ static int serdma_reg_access(struct cs4297a_state *s, u64 data)
         return 0;
 }
 
+//****************************************************************************
+// "cs4297a_read_ac97" -- Reads an AC97 register
+//****************************************************************************
 static int cs4297a_read_ac97(struct cs4297a_state *s, u32 offset,
 			    u32 * value)
 {
@@ -746,6 +784,9 @@ static int cs4297a_read_ac97(struct cs4297a_state *s, u32 offset,
 }
 
 
+//****************************************************************************
+// "cs4297a_write_ac97()"-- writes an AC97 register
+//****************************************************************************
 static int cs4297a_write_ac97(struct cs4297a_state *s, u32 offset,
 			     u32 value)
 {
@@ -762,6 +803,9 @@ static void stop_dac(struct cs4297a_state *s)
 	spin_lock_irqsave(&s->lock, flags);
 	s->ena &= ~FMODE_WRITE;
 #if 0
+        /* XXXKW what do I really want here?  My theory for now is
+           that I just flip the "ena" bit, and the interrupt handler
+           will stop processing the xmit channel */
         __raw_writeq((s->ena & FMODE_READ) ? M_SYNCSER_DMA_RX_EN : 0,
               SS_CSR(R_SER_DMA_ENABLE));
 #endif
@@ -780,6 +824,10 @@ static void start_dac(struct cs4297a_state *s)
 					(s->dma_dac.count > 0
 	    				&& s->dma_dac.ready))) {
 		s->ena |= FMODE_WRITE;
+                /* XXXKW what do I really want here?  My theory for
+                   now is that I just flip the "ena" bit, and the
+                   interrupt handler will start processing the xmit
+                   channel */
 
 		CS_DBGOUT(CS_WAVE_WRITE | CS_PARMS, 8, printk(KERN_INFO
 			"cs4297a: start_dac(): start dma\n"));
@@ -805,6 +853,8 @@ static void stop_adc(struct cs4297a_state *s)
 		s->conversion = 0;
 		s->prop_adc.fmt = s->prop_adc.fmt_original;
 	}
+        /* Nothing to do really, I need to keep the DMA going
+           XXXKW when do I get here, and is there more I should do? */
 	spin_unlock_irqrestore(&s->lock, flags);
 	CS_DBGOUT(CS_FUNCTION, 3,
 		  printk(KERN_INFO "cs4297a: stop_adc()-\n"));
@@ -823,12 +873,12 @@ static void start_adc(struct cs4297a_state *s)
 	     (signed) (s->dma_adc.sbufsz - 2 * s->dma_adc.fragsize))
 	    && s->dma_adc.ready) {
 		if (s->prop_adc.fmt & AFMT_S8 || s->prop_adc.fmt & AFMT_U8) {
-			
-			
-			
-			
-			
-			
+			// 
+			// now only use 16 bit capture, due to truncation issue
+			// in the chip, noticeable distortion occurs.
+			// allocate buffer and then convert from 16 bit to 
+			// 8 bit for the user buffer.
+			//
 			s->prop_adc.fmt_original = s->prop_adc.fmt;
 			if (s->prop_adc.fmt & AFMT_S8) {
 				s->prop_adc.fmt &= ~AFMT_S8;
@@ -838,10 +888,10 @@ static void start_adc(struct cs4297a_state *s)
 				s->prop_adc.fmt &= ~AFMT_U8;
 				s->prop_adc.fmt |= AFMT_U16_LE;
 			}
-			
-			
-			
-			
+			//
+			// prog_dmabuf_adc performs a stop_adc() but that is
+			// ok since we really haven't started the DMA yet.
+			//
 			prog_codec(s, CS_TYPE_ADC);
 
                         prog_dmabuf_adc(s);
@@ -849,6 +899,9 @@ static void start_adc(struct cs4297a_state *s)
 		}
 		spin_lock_irqsave(&s->lock, flags);
 		s->ena |= FMODE_READ;
+                /* Nothing to do really, I am probably already
+                   DMAing...  XXXKW when do I get here, and is there
+                   more I should do? */
 		spin_unlock_irqrestore(&s->lock, flags);
 
 		CS_DBGOUT(CS_PARMS, 6, printk(KERN_INFO
@@ -860,6 +913,7 @@ static void start_adc(struct cs4297a_state *s)
 }
 
 
+// call with spinlock held! 
 static void cs4297a_update_ptr(struct cs4297a_state *s, int intflag)
 {
 	int good_diff, diff, diff2;
@@ -870,7 +924,7 @@ static void cs4297a_update_ptr(struct cs4297a_state *s, int intflag)
         serdma_t *d;
         serdma_descr_t *descr;
 
-	
+	// update ADC pointer 
         status = intflag ? __raw_readq(SS_CSR(R_SER_STATUS)) : 0;
 
 	if ((s->ena & FMODE_READ) || (status & (M_SYNCSER_RX_EOP_COUNT))) {
@@ -882,7 +936,7 @@ static void cs4297a_update_ptr(struct cs4297a_state *s, int intflag)
                         CS_DBGOUT(CS_FUNCTION, 2, 
                                   printk(KERN_INFO "cs4297a: upd_rcv sw->hw->hw %x/%x/%x (int-%d)n",
                                          d->swptr, d->hwptr, hwptr, intflag));
-                        
+                        /* Number of DMA buffers available for software: */
                         diff2 = diff = (d->ringsz + hwptr - d->hwptr) % d->ringsz;
                         d->hwptr = hwptr;
                         good_diff = 0;
@@ -950,6 +1004,9 @@ static void cs4297a_update_ptr(struct cs4297a_state *s, int intflag)
                                 }
                         }
                 } else {
+                        /* Receive is going even if no one is
+                           listening (for register accesses and to
+                           avoid FIFO overrun) */
                         diff2 = diff = (hwptr + d->ringsz - d->hwptr) % d->ringsz;
                         if (!diff) {
                                 printk(KERN_ERR "cs4297a: RX full or empty?\n");
@@ -958,6 +1015,9 @@ static void cs4297a_update_ptr(struct cs4297a_state *s, int intflag)
                         descr = &d->descrtab[d->swptr];
                         data_p = &d->dma_buf[d->swptr*4];
 
+                        /* Force this to happen at least once; I got
+                           here because of an interrupt, so there must
+                           be a buffer to process. */
                         do {
 				data = be64_to_cpu(*data_p);
                                 if ((descr->descr_a & M_DMA_DSCRA_A_ADDR) != CPHYSADDR((long)data_p)) {
@@ -1001,12 +1061,15 @@ static void cs4297a_update_ptr(struct cs4297a_state *s, int intflag)
 				d->total_bytes, d->count));
 	}
 
+        /* XXXKW worry about s->reg_request -- there is a starvation
+           case if s->ena has FMODE_WRITE on, but the client isn't
+           doing writes */
 
-	
-	
-	
-	
-	
+	// update DAC pointer 
+	//
+	// check for end of buffer, means that we are going to wait for another interrupt
+	// to allow silence to fill the fifos on the part, to keep pops down to a minimum.
+	//
 	if (s->ena & FMODE_WRITE) {
                 serdma_t *d = &s->dma_dac;
                 hwptr = (unsigned) (((__raw_readq(SS_CSR(R_SER_DMA_CUR_DSCR_ADDR_TX)) & M_DMA_CURDSCR_ADDR) -
@@ -1016,7 +1079,7 @@ static void cs4297a_update_ptr(struct cs4297a_state *s, int intflag)
                                                    "cs4297a: cs4297a_update_ptr(): hw/hw/sw %x/%x/%x diff %d count %d\n",
                                                    d->hwptr, hwptr, d->swptr, diff, d->count));
                 d->hwptr = hwptr;
-                
+                /* XXXKW stereo? conversion? Just assume 2 16-bit samples for now */
                 d->total_bytes += diff * FRAME_SAMPLE_BYTES;
 		if (d->mapped) {
 			d->count += diff * FRAME_SAMPLE_BYTES;
@@ -1029,10 +1092,10 @@ static void cs4297a_update_ptr(struct cs4297a_state *s, int intflag)
 		} else {
 			d->count -= diff * FRAME_SAMPLE_BYTES;
 			if (d->count <= 0) {
-				
-				
-				
-				
+				//
+				// fill with silence, and do not shut down the DAC.
+				// Continue to play silence until the _release.
+				//
 				CS_DBGOUT(CS_WAVE_WRITE, 6, printk(KERN_INFO
 					"cs4297a: cs4297a_update_ptr(): memset %d at 0x%.8x for %d size \n",
 						(unsigned)(s->prop_dac.fmt & 
@@ -1050,7 +1113,7 @@ static void cs4297a_update_ptr(struct cs4297a_state *s, int intflag)
 			} else if (d->count <=
 				   (signed) d->fragsize
 				   && !d->endcleared) {
-                          
+                          /* XXXKW what is this for? */
 				clear_advance(d->dma_buf,
 					      d->sbufsz,
 					      d->swptr,
@@ -1076,26 +1139,26 @@ static void cs4297a_update_ptr(struct cs4297a_state *s, int intflag)
 static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
 		       unsigned long arg)
 {
-	
-	
+	// Index to mixer_src[] is value of AC97 Input Mux Select Reg.
+	// Value of array member is recording source Device ID Mask.
 	static const unsigned int mixer_src[8] = {
 		SOUND_MASK_MIC, SOUND_MASK_CD, 0, SOUND_MASK_LINE1,
 		SOUND_MASK_LINE, SOUND_MASK_VOLUME, 0, 0
 	};
 
-	
-	
-	
+	// Index of mixtable1[] member is Device ID 
+	// and must be <= SOUND_MIXER_NRDEVICES.
+	// Value of array member is index into s->mix.vol[]
 	static const unsigned char mixtable1[SOUND_MIXER_NRDEVICES] = {
-		[SOUND_MIXER_PCM] = 1,	
-		[SOUND_MIXER_LINE1] = 2,	
-		[SOUND_MIXER_CD] = 3,	
-		[SOUND_MIXER_LINE] = 4,	
-		[SOUND_MIXER_SYNTH] = 5,	
-		[SOUND_MIXER_MIC] = 6,	
-		[SOUND_MIXER_SPEAKER] = 7,	
-		[SOUND_MIXER_RECLEV] = 8,	
-		[SOUND_MIXER_VOLUME] = 9	
+		[SOUND_MIXER_PCM] = 1,	// voice 
+		[SOUND_MIXER_LINE1] = 2,	// AUX
+		[SOUND_MIXER_CD] = 3,	// CD 
+		[SOUND_MIXER_LINE] = 4,	// Line 
+		[SOUND_MIXER_SYNTH] = 5,	// FM
+		[SOUND_MIXER_MIC] = 6,	// Mic 
+		[SOUND_MIXER_SPEAKER] = 7,	// Speaker 
+		[SOUND_MIXER_RECLEV] = 8,	// Recording level 
+		[SOUND_MIXER_VOLUME] = 9	// Master Volume 
 	};
 
 	static const unsigned mixreg[] = {
@@ -1157,7 +1220,7 @@ static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
                 return -EINVAL;
 	}
 	if (cmd == SOUND_MIXER_PRIVATE2) {
-		
+		// enable/disable/query spatializer 
 		if (get_user(val, (int *) arg))
 			return -EFAULT;
 		if (val != -1) {
@@ -1196,25 +1259,25 @@ static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
 	if (_IOC_TYPE(cmd) != 'M' || _SIOC_SIZE(cmd) != sizeof(int))
 		return -EINVAL;
 
-	
-	
+	// If ioctl has only the SIOC_READ bit(bit 31)
+	// on, process the only-read commands. 
 	if (_SIOC_DIR(cmd) == _SIOC_READ) {
 		switch (_IOC_NR(cmd)) {
-		case SOUND_MIXER_RECSRC:	
+		case SOUND_MIXER_RECSRC:	// Arg contains a bit for each recording source 
 			cs4297a_read_ac97(s, AC97_RECORD_SELECT,
 					 &temp1);
 			return put_user(mixer_src[temp1 & 7], (int *) arg);
 
-		case SOUND_MIXER_DEVMASK:	
+		case SOUND_MIXER_DEVMASK:	// Arg contains a bit for each supported device 
 			return put_user(SOUND_MASK_PCM | SOUND_MASK_LINE |
 					SOUND_MASK_VOLUME | SOUND_MASK_RECLEV,
                                         (int *) arg);
 
-		case SOUND_MIXER_RECMASK:	
+		case SOUND_MIXER_RECMASK:	// Arg contains a bit for each supported recording source 
 			return put_user(SOUND_MASK_LINE | SOUND_MASK_VOLUME,
                                         (int *) arg);
 
-		case SOUND_MIXER_STEREODEVS:	
+		case SOUND_MIXER_STEREODEVS:	// Mixer channels supporting stereo 
 			return put_user(SOUND_MASK_PCM | SOUND_MASK_LINE |
 					SOUND_MASK_VOLUME | SOUND_MASK_RECLEV,
                                         (int *) arg);
@@ -1230,22 +1293,22 @@ static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
 			return put_user(s->mix.vol[vidx - 1], (int *) arg);
 		}
 	}
-	
-	
+	// If ioctl doesn't have both the SIOC_READ and 
+	// the SIOC_WRITE bit set, return invalid.
 	if (_SIOC_DIR(cmd) != (_SIOC_READ | _SIOC_WRITE))
 		return -EINVAL;
 
-	
+	// Increment the count of volume writes.
 	s->mix.modcnt++;
 
-	
+	// Isolate the command; it must be a write.
 	switch (_IOC_NR(cmd)) {
 
-	case SOUND_MIXER_RECSRC:	
+	case SOUND_MIXER_RECSRC:	// Arg contains a bit for each recording source 
 		if (get_user(val, (int *) arg))
 			return -EFAULT;
-		i = hweight32(val);	
-		if (i != 1)	
+		i = hweight32(val);	// i = # bits on in val.
+		if (i != 1)	// One & only 1 bit must be on.
 			return 0;
 		for (i = 0; i < sizeof(mixer_src) / sizeof(int); i++) {
 			if (val == mixer_src[i]) {
@@ -1263,24 +1326,24 @@ static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
 			return -EFAULT;
 		l = val & 0xff;
 		if (l > 100)
-			l = 100;	
+			l = 100;	// Max soundcard.h vol is 100.
 		if (l < 6) {
 			rl = 63;
 			l = 0;
 		} else
-			rl = attentbl[(10 * l) / 100];	
+			rl = attentbl[(10 * l) / 100];	// Convert 0-100 vol to 63-0 atten.
 
 		r = (val >> 8) & 0xff;
 		if (r > 100)
-			r = 100;	
+			r = 100;	// Max right volume is 100, too
 		if (r < 6) {
 			rr = 63;
 			r = 0;
 		} else
-			rr = attentbl[(10 * r) / 100];	
+			rr = attentbl[(10 * r) / 100];	// Convert volume to attenuation.
 
-		if ((rl > 60) && (rr > 60))	
-			temp1 = 0x8000;	
+		if ((rl > 60) && (rr > 60))	// If both l & r are 'low',          
+			temp1 = 0x8000;	//  turn on the mute bit.
 		else
 			temp1 = 0;
 
@@ -1306,7 +1369,7 @@ static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
 			rl = 0;
 			l = 0;
 		} else {
-			rl = (l * 2 - 5) / 13;	
+			rl = (l * 2 - 5) / 13;	// Convert 0-100 range to 0-15.
 			l = (rl * 13 + 5) / 2;
 		}
 
@@ -1315,7 +1378,7 @@ static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
 			rl = 0;
 		} else
 			temp1 = 0;
-		rl = 15 - rl;	
+		rl = 15 - rl;	// Convert volume to attenuation.
 		temp1 |= rl << 1;
 		cs4297a_write_ac97(s, AC97_PCBEEP_VOL, temp1);
 
@@ -1335,7 +1398,7 @@ static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
 		r = (val >> 8) & 0xff;
 		if (r > 100)
 			r = 100;
-		rl = (l * 2 - 5) / 13;	
+		rl = (l * 2 - 5) / 13;	// Convert 0-100 scale to 0-15.
 		rr = (r * 2 - 5) / 13;
 		if (rl < 3 && rr < 3)
 			temp1 = 0x8000;
@@ -1362,16 +1425,16 @@ static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
 			l = 0;
 			rl = 0;
 		} else {
-			rl = ((unsigned) l * 5 - 4) / 16;	
+			rl = ((unsigned) l * 5 - 4) / 16;	// Convert 0-100 range to 0-31.
 			l = (rl * 16 + 4) / 5;
 		}
 		cs4297a_read_ac97(s, AC97_MIC_VOL, &temp1);
-		temp1 &= 0x40;	
+		temp1 &= 0x40;	// Isolate 20db gain bit.
 		if (rl < 3) {
 			temp1 |= 0x8000;
 			rl = 0;
 		}
-		rl = 31 - rl;	
+		rl = 31 - rl;	// Convert volume to attenuation.
 		temp1 |= rl;
 		cs4297a_write_ac97(s, AC97_MIC_VOL, temp1);
 
@@ -1394,19 +1457,21 @@ static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
 		r = (val >> 8) & 0xff;
 		if (r > 100)
 			r = 100;
-		rl = (l * 2 - 11) / 3;	
+		rl = (l * 2 - 11) / 3;	// Convert 0-100 range to 0-63.
 		rr = (r * 2 - 11) / 3;
-		if (rl < 3)	
-			temp1 = 0x0080;	
+		if (rl < 3)	// If l is low, turn on
+			temp1 = 0x0080;	//  the mute bit.
 		else
 			temp1 = 0;
 
-		rl = 63 - rl;	
-		if (rr < 3)	
-			temp1 = 0x0080;	
+		rl = 63 - rl;	// Convert vol to attenuation.
+//		writel(temp1 | rl, s->pBA0 + FMLVC);
+		if (rr < 3)	//  If rr is low, turn on
+			temp1 = 0x0080;	//   the mute bit.
 		else
 			temp1 = 0;
-		rr = 63 - rr;	
+		rr = 63 - rr;	// Convert vol to attenuation.
+//		writel(temp1 | rr, s->pBA0 + FMRVC);
 
 #ifdef OSS_DOCUMENTED_MIXER_SEMANTICS
 		s->mix.vol[4] = (r << 8) | l;
@@ -1459,6 +1524,7 @@ static int mixer_ioctl(struct cs4297a_state *s, unsigned int cmd,
 }
 
 
+// --------------------------------------------------------------------- 
 
 static int cs4297a_open_mixdev(struct inode *inode, struct file *file)
 {
@@ -1517,6 +1583,9 @@ static int cs4297a_ioctl_mixdev(struct file *file,
 }
 
 
+// ******************************************************************************************
+//   Mixer file operations struct.
+// ******************************************************************************************
 static const struct file_operations cs4297a_mixer_fops = {
 	.owner		= THIS_MODULE,
 	.llseek		= no_llseek,
@@ -1525,10 +1594,15 @@ static const struct file_operations cs4297a_mixer_fops = {
 	.release	= cs4297a_release_mixdev,
 };
 
+// --------------------------------------------------------------------- 
 
 
 static int drain_adc(struct cs4297a_state *s, int nonblock)
 {
+        /* This routine serves no purpose currently - any samples
+           sitting in the receive queue will just be processed by the
+           background consumer.  This would be different if DMA
+           actually stopped when there were no clients. */
 	return 0;
 }
 
@@ -1549,15 +1623,15 @@ static int drain_dac(struct cs4297a_state *s, int nonblock)
                (s->dma_dac.count > 0)) {
                 if (!signal_pending(current)) {
                         set_current_state(TASK_INTERRUPTIBLE);
-                        
+                        /* XXXKW is this calculation working? */
                         tmo = ((count * FRAME_TX_US) * HZ) / 1000000;
                         schedule_timeout(tmo + 1);
                 } else {
-                        
+                        /* XXXKW do I care if there is a signal pending? */
                 }
         }
         spin_lock_irqsave(&s->lock, flags);
-        
+        /* Reset the bookkeeping */
         hwptr = (int)(((__raw_readq(SS_CSR(R_SER_DMA_CUR_DSCR_ADDR_TX)) & M_DMA_CURDSCR_ADDR) -
                        s->dma_dac.descrtab_phys) / sizeof(serdma_descr_t));
         s->dma_dac.hwptr = s->dma_dac.swptr = hwptr;
@@ -1568,6 +1642,7 @@ static int drain_dac(struct cs4297a_state *s, int nonblock)
 }
 
 
+// --------------------------------------------------------------------- 
 
 static ssize_t cs4297a_read(struct file *file, char *buffer, size_t count,
 			   loff_t * ppos)
@@ -1590,6 +1665,15 @@ static ssize_t cs4297a_read(struct file *file, char *buffer, size_t count,
 	if (!access_ok(VERIFY_WRITE, buffer, count))
 		return -EFAULT;
 	ret = 0;
+//
+// "count" is the amount of bytes to read (from app), is decremented each loop
+//      by the amount of bytes that have been returned to the user buffer.
+// "cnt" is the running total of each read from the buffer (changes each loop)
+// "buffer" points to the app's buffer
+// "ret" keeps a running total of the amount of bytes that have been copied
+//      to the user buffer.
+// "copied" is the total bytes copied into the user buffer for each loop.
+//
 	while (count > 0) {
 		CS_DBGOUT(CS_WAVE_READ, 8, printk(KERN_INFO
 			"_read() count>0 count=%d .count=%d .swptr=%d .hwptr=%d \n",
@@ -1597,23 +1681,26 @@ static ssize_t cs4297a_read(struct file *file, char *buffer, size_t count,
 				s->dma_adc.swptr, s->dma_adc.hwptr));
 		spin_lock_irqsave(&s->lock, flags);
 
+                /* cnt will be the number of available samples (16-bit
+                   stereo); it starts out as the maxmimum consequetive
+                   samples */
 		cnt = (s->dma_adc.sb_end - s->dma_adc.sb_swptr) / 2;
                 count_fr = s->dma_adc.count / FRAME_SAMPLE_BYTES;
 
-		
-		
-		
-		
-		
+		// dma_adc.count is the current total bytes that have not been read.
+		// if the amount of unread bytes from the current sw pointer to the
+		// end of the buffer is greater than the current total bytes that
+		// have not been read, then set the "cnt" (unread bytes) to the
+		// amount of unread bytes.  
 
 		if (count_fr < cnt)
 			cnt = count_fr;
                 cnt_by = cnt * FRAME_SAMPLE_BYTES;
 		spin_unlock_irqrestore(&s->lock, flags);
-		
-		
-		
-		
+		//
+		// if we are converting from 8/16 then we need to copy
+		// twice the number of 16 bit bytes then 8 bit bytes.
+		// 
 		if (s->conversion) {
 			if (cnt_by > (count * 2)) {
 				cnt = (count * 2) / FRAME_SAMPLE_BYTES;
@@ -1625,16 +1712,16 @@ static ssize_t cs4297a_read(struct file *file, char *buffer, size_t count,
                                 cnt_by = count;
                         }
 		}
-		
-		
-		
-		
-		
-		
+		//
+		// "cnt" NOW is the smaller of the amount that will be read,
+		// and the amount that is requested in this read (or partial).
+		// if there are no bytes in the buffer to read, then start the
+		// ADC and wait for the interrupt handler to wake us up.
+		//
 		if (cnt <= 0) {
 
-			
-			
+			// start up the dma engine and then continue back to the top of
+			// the loop when wake up occurs.
 			start_adc(s);
 			if (file->f_flags & O_NONBLOCK)
 				return ret ? ret : -EAGAIN;
@@ -1643,11 +1730,11 @@ static ssize_t cs4297a_read(struct file *file, char *buffer, size_t count,
 				return ret ? ret : -ERESTARTSYS;
 			continue;
 		}
-		
-		
-		
-		
-		
+		// there are bytes in the buffer to read.
+		// copy from the hw buffer over to the user buffer.
+		// user buffer is designated by "buffer"
+		// virtual address to copy from is dma_buf+swptr
+		// the "cnt" is the number of bytes to read.
 
 		CS_DBGOUT(CS_WAVE_READ, 2, printk(KERN_INFO
 			"_read() copy_to cnt=%d count=%d ", cnt_by, count));
@@ -1660,7 +1747,7 @@ static ssize_t cs4297a_read(struct file *file, char *buffer, size_t count,
 			return ret ? ret : -EFAULT;
                 copied = cnt_by;
 
-                
+                /* Return the descriptors */
 		spin_lock_irqsave(&s->lock, flags);
                 CS_DBGOUT(CS_FUNCTION, 2, 
                           printk(KERN_INFO "cs4297a: upd_rcv sw->hw %x/%x\n", s->dma_adc.swptr, s->dma_adc.hwptr));
@@ -1710,7 +1797,7 @@ static ssize_t cs4297a_write(struct file *file, const char *buffer,
                 u32 left, right;
                 int swap = (s->prop_dac.fmt == AFMT_S16_LE) || (s->prop_dac.fmt == AFMT_U16_LE);
                 
-                
+                /* XXXXXX this is broken for BLOAT_FACTOR */
 		spin_lock_irqsave(&s->lock, flags);
 		if (d->count < 0) {
 			d->count = 0;
@@ -1724,7 +1811,7 @@ static ssize_t cs4297a_write(struct file *file, const char *buffer,
 		}
 		swptr = d->swptr;
 		cnt = d->sbufsz - (swptr * FRAME_SAMPLE_BYTES);
-                
+                /* Will this write fill up the buffer? */
 		if (d->count + cnt > d->sbufsz)
 			cnt = d->sbufsz - d->count;
 		spin_unlock_irqrestore(&s->lock, flags);
@@ -1746,7 +1833,7 @@ static ssize_t cs4297a_write(struct file *file, const char *buffer,
                 s_tmpl = (u32 *)d->sample_buf;
                 t_tmpl = (u32 *)(d->dma_buf + (swptr * 4));
 
-                
+                /* XXXKW assuming 16-bit stereo! */
                 do {
 			u32 tmp;
 
@@ -1768,7 +1855,7 @@ static ssize_t cs4297a_write(struct file *file, const char *buffer,
                         copy_cnt -= 4;
                 } while (copy_cnt);
 
-                
+                /* Mux in any pending read/write accesses */
                 if (s->reg_request) {
 			*(u64 *)(d->dma_buf + (swptr * 4)) |=
 				cpu_to_be64(s->reg_request);
@@ -1860,7 +1947,7 @@ static unsigned int cs4297a_poll(struct file *file,
 
 static int cs4297a_mmap(struct file *file, struct vm_area_struct *vma)
 {
-        
+        /* XXXKW currently no mmap support */
         return -EINVAL;
 	return 0;
 }
@@ -1897,7 +1984,7 @@ static int cs4297a_ioctl(struct file *file,
 			 "cs4297a: cs4297a_ioctl(): DSP_SYNC\n"));
 		if (file->f_mode & FMODE_WRITE)
 			return drain_dac(s,
-					 0 
+					 0 /*file->f_flags & O_NONBLOCK */
 					 );
 		return 0;
 
@@ -1989,7 +2076,7 @@ static int cs4297a_ioctl(struct file *file,
 
 		return put_user(val, (int *) arg);
 
-	case SNDCTL_DSP_GETFMTS:	
+	case SNDCTL_DSP_GETFMTS:	// Returns a mask 
 		CS_DBGOUT(CS_IOCTL | CS_PARMS, 4, printk(KERN_INFO
 			"cs4297a: cs4297a_ioctl(): DSP_GETFMT val=0x%.8x\n",
 				 AFMT_S16_LE | AFMT_U16_LE | AFMT_S8 |
@@ -2209,7 +2296,7 @@ static int cs4297a_ioctl(struct file *file,
 	case SNDCTL_DSP_SETFRAGMENT:
 		if (get_user(val, (int *) arg))
 			return -EFAULT;
-		return 0;	
+		return 0;	// Say OK, but do nothing.
 
 	case SNDCTL_DSP_SUBDIVIDE:
 		if ((file->f_mode & FMODE_READ && s->dma_adc.subdivision)
@@ -2330,7 +2417,7 @@ static int cs4297a_locked_open(struct inode *inode, struct file *file)
 	VALIDATE_STATE(s);
 	file->private_data = s;
 
-	
+	// wait for device to become free 
 	if (!(file->f_mode & (FMODE_WRITE | FMODE_READ))) {
 		CS_DBGOUT(CS_FUNCTION | CS_OPEN | CS_ERROR, 2, printk(KERN_INFO
 			 "cs4297a: cs4297a_open(): Error - must open READ and/or WRITE\n"));
@@ -2429,6 +2516,9 @@ static int cs4297a_open(struct inode *inode, struct file *file)
 	return ret;
 }
 
+// ******************************************************************************************
+//   Wave (audio) file operations struct.
+// ******************************************************************************************
 static const struct file_operations cs4297a_audio_fops = {
 	.owner		= THIS_MODULE,
 	.llseek		= no_llseek,
@@ -2452,7 +2542,7 @@ static void cs4297a_interrupt(int irq, void *dev_id)
                  "cs4297a: cs4297a_interrupt() HISR=0x%.8x\n", status));
 
 #if 0
-        
+        /* XXXKW what check *should* be done here? */
         if (!(status & (M_SYNCSER_RX_EOP_COUNT | M_SYNCSER_RX_OVERRUN | M_SYNCSER_RX_SYNC_ERR))) {
                 status = __raw_readq(SS_CSR(R_SER_STATUS));
                 printk(KERN_ERR "cs4297a: unexpected interrupt (status %08x)\n", status);
@@ -2471,6 +2561,8 @@ static void cs4297a_interrupt(int irq, void *dev_id)
                 s->stats.rx_ovrrn++;
                 printk(KERN_ERR "cs4297a: receive FIFO overrun\n");
 
+                /* Fix things up: get the receive descriptor pool
+                   clean and give them back to the hardware */
                 while (__raw_readq(SS_CSR(R_SER_DMA_DSCR_COUNT_RX)))
                         ;
                 newptr = (unsigned) (((__raw_readq(SS_CSR(R_SER_DMA_CUR_DSCR_ADDR_RX)) & M_DMA_CURDSCR_ADDR) -
@@ -2528,7 +2620,7 @@ static int __init cs4297a_init(void)
         mdio_val = __raw_readq(KSEG1 + A_MAC_REGISTER(2, R_MAC_MDIO)) &
                 (M_MAC_MDIO_DIR|M_MAC_MDIO_OUT);
 
-        
+        /* Check syscfg for synchronous serial on port 1 */
         cfg = __raw_readq(KSEG1 + A_SCD_SYSTEM_CFG);
         if (!(cfg & M_SYS_SER1_ENABLE)) {
                 __raw_writeq(cfg | M_SYS_SER1_ENABLE, KSEG1+A_SCD_SYSTEM_CFG);
@@ -2540,13 +2632,15 @@ static int __init cs4297a_init(void)
 
                 printk(KERN_INFO "cs4297a: serial port 1 switching to synchronous operation\n");
                 
+                /* Force the codec (on SWARM) to reset by clearing
+                   GENO, preserving MDIO (no effect on CSWARM) */
                 __raw_writeq(mdio_val, KSEG1+A_MAC_REGISTER(2, R_MAC_MDIO));
                 udelay(10);
         }
 
-        
+        /* Now set GENO */
         __raw_writeq(mdio_val | M_MAC_GENC, KSEG1+A_MAC_REGISTER(2, R_MAC_MDIO));
-        
+        /* Give the codec some time to finish resetting (start the bit clock) */
         udelay(100);
 #endif
 
@@ -2611,8 +2705,9 @@ static int __init cs4297a_init(void)
                         val = initvol[i].vol;
                         mixer_ioctl(s, initvol[i].mixch, (unsigned long) &val);
                 }
+//                cs4297a_write_ac97(s, 0x18, 0x0808);
 #else
-                
+                //                cs4297a_write_ac97(s, 0x5e, 0x180);
                 cs4297a_write_ac97(s, 0x02, 0x0808);
                 cs4297a_write_ac97(s, 0x18, 0x0808);
 #endif
@@ -2650,14 +2745,24 @@ static int __init cs4297a_init(void)
 
 static void __exit cs4297a_cleanup(void)
 {
+        /*
+          XXXKW 
+           disable_irq, free_irq
+           drain DMA queue
+           disable DMA
+           disable TX/RX
+           free memory
+        */
 	CS_DBGOUT(CS_INIT | CS_FUNCTION, 2,
 		  printk(KERN_INFO "cs4297a: cleanup_cs4297a() finished\n"));
 }
 
+// --------------------------------------------------------------------- 
 
 MODULE_AUTHOR("Kip Walker, Broadcom Corp.");
 MODULE_DESCRIPTION("Cirrus Logic CS4297a Driver for Broadcom SWARM board");
 
+// --------------------------------------------------------------------- 
 
 module_init(cs4297a_init);
 module_exit(cs4297a_cleanup);

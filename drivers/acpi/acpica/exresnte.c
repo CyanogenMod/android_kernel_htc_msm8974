@@ -1,4 +1,9 @@
 
+/******************************************************************************
+ *
+ * Module Name: exresnte - AML Interpreter object resolution
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -46,6 +51,31 @@
 #define _COMPONENT          ACPI_EXECUTER
 ACPI_MODULE_NAME("exresnte")
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ex_resolve_node_to_value
+ *
+ * PARAMETERS:  object_ptr      - Pointer to a location that contains
+ *                                a pointer to a NS node, and will receive a
+ *                                pointer to the resolved object.
+ *              walk_state      - Current state.  Valid only if executing AML
+ *                                code.  NULL if simply resolving an object
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Resolve a Namespace node to a valued object
+ *
+ * Note: for some of the data types, the pointer attached to the Node
+ * can be either a pointer to an actual internal object or a pointer into the
+ * AML stream itself.  These types are currently:
+ *
+ *      ACPI_TYPE_INTEGER
+ *      ACPI_TYPE_STRING
+ *      ACPI_TYPE_BUFFER
+ *      ACPI_TYPE_MUTEX
+ *      ACPI_TYPE_PACKAGE
+ *
+ ******************************************************************************/
 acpi_status
 acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 			      struct acpi_walk_state *walk_state)
@@ -58,6 +88,10 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 
 	ACPI_FUNCTION_TRACE(ex_resolve_node_to_value);
 
+	/*
+	 * The stack pointer points to a struct acpi_namespace_node (Node).  Get the
+	 * object that is attached to the Node.
+	 */
 	node = *object_ptr;
 	source_desc = acpi_ns_get_attached_object(node);
 	entry_type = acpi_ns_get_type((acpi_handle) node);
@@ -69,7 +103,7 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 	if ((entry_type == ACPI_TYPE_LOCAL_ALIAS) ||
 	    (entry_type == ACPI_TYPE_LOCAL_METHOD_ALIAS)) {
 
-		
+		/* There is always exactly one level of indirection */
 
 		node = ACPI_CAST_PTR(struct acpi_namespace_node, node->object);
 		source_desc = acpi_ns_get_attached_object(node);
@@ -77,6 +111,12 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 		*object_ptr = node;
 	}
 
+	/*
+	 * Several object types require no further processing:
+	 * 1) Device/Thermal objects don't have a "real" subobject, return the Node
+	 * 2) Method locals and arguments have a pseudo-Node
+	 * 3) 10/2007: Added method type to assist with Package construction.
+	 */
 	if ((entry_type == ACPI_TYPE_DEVICE) ||
 	    (entry_type == ACPI_TYPE_THERMAL) ||
 	    (entry_type == ACPI_TYPE_METHOD) ||
@@ -89,6 +129,10 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 		return_ACPI_STATUS(AE_AML_NO_OPERAND);
 	}
 
+	/*
+	 * Action is based on the type of the Node, which indicates the type
+	 * of the attached object or pointer
+	 */
 	switch (entry_type) {
 	case ACPI_TYPE_PACKAGE:
 
@@ -101,7 +145,7 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 		status = acpi_ds_get_package_arguments(source_desc);
 		if (ACPI_SUCCESS(status)) {
 
-			
+			/* Return an additional reference to the object */
 
 			obj_desc = source_desc;
 			acpi_ut_add_reference(obj_desc);
@@ -119,7 +163,7 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 		status = acpi_ds_get_buffer_arguments(source_desc);
 		if (ACPI_SUCCESS(status)) {
 
-			
+			/* Return an additional reference to the object */
 
 			obj_desc = source_desc;
 			acpi_ut_add_reference(obj_desc);
@@ -134,7 +178,7 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 			return_ACPI_STATUS(AE_AML_OPERAND_TYPE);
 		}
 
-		
+		/* Return an additional reference to the object */
 
 		obj_desc = source_desc;
 		acpi_ut_add_reference(obj_desc);
@@ -148,7 +192,7 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 			return_ACPI_STATUS(AE_AML_OPERAND_TYPE);
 		}
 
-		
+		/* Return an additional reference to the object */
 
 		obj_desc = source_desc;
 		acpi_ut_add_reference(obj_desc);
@@ -168,7 +212,7 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 						 &obj_desc);
 		break;
 
-		
+		/* For these objects, just return the object attached to the Node */
 
 	case ACPI_TYPE_MUTEX:
 	case ACPI_TYPE_POWER:
@@ -176,36 +220,36 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 	case ACPI_TYPE_EVENT:
 	case ACPI_TYPE_REGION:
 
-		
+		/* Return an additional reference to the object */
 
 		obj_desc = source_desc;
 		acpi_ut_add_reference(obj_desc);
 		break;
 
-		
+		/* TYPE_ANY is untyped, and thus there is no object associated with it */
 
 	case ACPI_TYPE_ANY:
 
 		ACPI_ERROR((AE_INFO,
 			    "Untyped entry %p, no attached object!", node));
 
-		return_ACPI_STATUS(AE_AML_OPERAND_TYPE);	
+		return_ACPI_STATUS(AE_AML_OPERAND_TYPE);	/* Cannot be AE_TYPE */
 
 	case ACPI_TYPE_LOCAL_REFERENCE:
 
 		switch (source_desc->reference.class) {
-		case ACPI_REFCLASS_TABLE:	
+		case ACPI_REFCLASS_TABLE:	/* This is a ddb_handle */
 		case ACPI_REFCLASS_REFOF:
 		case ACPI_REFCLASS_INDEX:
 
-			
+			/* Return an additional reference to the object */
 
 			obj_desc = source_desc;
 			acpi_ut_add_reference(obj_desc);
 			break;
 
 		default:
-			
+			/* No named references are allowed here */
 
 			ACPI_ERROR((AE_INFO,
 				    "Unsupported Reference type 0x%X",
@@ -217,7 +261,7 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 
 	default:
 
-		
+		/* Default case is for unknown types */
 
 		ACPI_ERROR((AE_INFO,
 			    "Node %p - Unknown object type 0x%X",
@@ -225,9 +269,9 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 
 		return_ACPI_STATUS(AE_AML_OPERAND_TYPE);
 
-	}			
+	}			/* switch (entry_type) */
 
-	
+	/* Return the object descriptor */
 
 	*object_ptr = (void *)obj_desc;
 	return_ACPI_STATUS(status);

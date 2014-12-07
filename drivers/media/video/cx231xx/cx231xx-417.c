@@ -38,10 +38,12 @@
 #include <linux/usb.h>
 
 #include "cx231xx.h"
+/*#include "cx23885-ioctl.h"*/
 
 #define CX231xx_FIRM_IMAGE_SIZE 376836
 #define CX231xx_FIRM_IMAGE_NAME "v4l-cx23885-enc.fw"
 
+/* for polaris ITVC */
 #define ITVC_WRITE_DIR          0x03FDFC00
 #define ITVC_READ_DIR            0x0001FC00
 
@@ -64,6 +66,7 @@
 
 #define  MCI_REGISTER_MODE              0x70
 
+/* Read and write modes for polaris ITVC */
 #define  MCI_MODE_REGISTER_READ         0x000
 #define  MCI_MODE_REGISTER_WRITE        0x100
 #define  MCI_MODE_MEMORY_READ           0x000
@@ -127,6 +130,7 @@ static struct cx231xx_tvnorm cx231xx_tvnorms[] = {
 	}
 };
 
+/* ------------------------------------------------------------------ */
 enum cx231xx_capture_type {
 	CX231xx_MPEG_CAPTURE,
 	CX231xx_RAW_CAPTURE,
@@ -141,12 +145,12 @@ enum cx231xx_capture_bits {
 	CX231xx_RAW_BITS_TO_HOST_CAPTURE  = 0x10
 };
 enum cx231xx_capture_end {
-	CX231xx_END_AT_GOP, 
-	CX231xx_END_NOW, 
+	CX231xx_END_AT_GOP, /* stop at the end of gop, generate irq */
+	CX231xx_END_NOW, /* stop immediately, no irq */
 };
 enum cx231xx_framerate {
-	CX231xx_FRAMERATE_NTSC_30, 
-	CX231xx_FRAMERATE_PAL_25   
+	CX231xx_FRAMERATE_NTSC_30, /* NTSC: 30fps */
+	CX231xx_FRAMERATE_PAL_25   /* PAL: 25fps */
 };
 enum cx231xx_stream_port {
 	CX231xx_OUTPUT_PORT_MEMORY,
@@ -202,14 +206,14 @@ enum cx231xx_notification_mailbox {
 	CX231xx_NOTIFICATION_NO_MAILBOX = -1,
 };
 enum cx231xx_field1_lines {
-	CX231xx_FIELD1_SAA7114 = 0x00EF, 
-	CX231xx_FIELD1_SAA7115 = 0x00F0, 
-	CX231xx_FIELD1_MICRONAS = 0x0105, 
+	CX231xx_FIELD1_SAA7114 = 0x00EF, /* 239 */
+	CX231xx_FIELD1_SAA7115 = 0x00F0, /* 240 */
+	CX231xx_FIELD1_MICRONAS = 0x0105, /* 261 */
 };
 enum cx231xx_field2_lines {
-	CX231xx_FIELD2_SAA7114 = 0x00EF, 
-	CX231xx_FIELD2_SAA7115 = 0x00F0, 
-	CX231xx_FIELD2_MICRONAS = 0x0106, 
+	CX231xx_FIELD2_SAA7114 = 0x00EF, /* 239 */
+	CX231xx_FIELD2_SAA7115 = 0x00F0, /* 240 */
+	CX231xx_FIELD2_MICRONAS = 0x0106, /* 262 */
 };
 enum cx231xx_custom_data_type {
 	CX231xx_CUSTOM_EXTENSION_USR_DATA,
@@ -230,10 +234,14 @@ enum cx231xx_mute_video_shift {
 	CX231xx_MUTE_VIDEO_Y_SHIFT = 24,
 };
 
+/* defines below are from ivtv-driver.h */
 #define IVTV_CMD_HW_BLOCKS_RST 0xFFFFFFFF
 
+/* Firmware API commands */
 #define IVTV_API_STD_TIMEOUT 500
 
+/* Registers */
+/* IVTV_REG_OFFSET */
 #define IVTV_REG_ENC_SDRAM_REFRESH (0x07F8)
 #define IVTV_REG_ENC_SDRAM_PRECHARGE (0x07FC)
 #define IVTV_REG_SPU (0x9050)
@@ -241,6 +249,22 @@ enum cx231xx_mute_video_shift {
 #define IVTV_REG_VPU (0x9058)
 #define IVTV_REG_APU (0xA064)
 
+/*
+ * Bit definitions for MC417_RWD and MC417_OEN registers
+ *
+ * bits 31-16
+ *+-----------+
+ *| Reserved  |
+ *|+-----------+
+ *|  bit 15  bit 14  bit 13 bit 12  bit 11  bit 10  bit 9   bit 8
+ *|+-------+-------+-------+-------+-------+-------+-------+-------+
+ *|| MIWR# | MIRD# | MICS# |MIRDY# |MIADDR3|MIADDR2|MIADDR1|MIADDR0|
+ *|+-------+-------+-------+-------+-------+-------+-------+-------+
+ *| bit 7   bit 6   bit 5   bit 4   bit 3   bit 2   bit 1   bit 0
+ *|+-------+-------+-------+-------+-------+-------+-------+-------+
+ *||MIDATA7|MIDATA6|MIDATA5|MIDATA4|MIDATA3|MIDATA2|MIDATA1|MIDATA0|
+ *|+-------+-------+-------+-------+-------+-------+-------+-------+
+ */
 #define MC417_MIWR	0x8000
 #define MC417_MIRD	0x4000
 #define MC417_MICS	0x2000
@@ -249,14 +273,22 @@ enum cx231xx_mute_video_shift {
 #define MC417_MIDATA	0x00FF
 
 
+/* Bit definitions for MC417_CTL register ****
+ *bits 31-6   bits 5-4   bit 3    bits 2-1       Bit 0
+ *+--------+-------------+--------+--------------+------------+
+ *|Reserved|MC417_SPD_CTL|Reserved|MC417_GPIO_SEL|UART_GPIO_EN|
+ *+--------+-------------+--------+--------------+------------+
+ */
 #define MC417_SPD_CTL(x)	(((x) << 4) & 0x00000030)
 #define MC417_GPIO_SEL(x)	(((x) << 1) & 0x00000006)
 #define MC417_UART_GPIO_EN	0x00000001
 
+/* Values for speed control */
 #define MC417_SPD_CTL_SLOW	0x1
 #define MC417_SPD_CTL_MEDIUM	0x0
-#define MC417_SPD_CTL_FAST	0x3     
+#define MC417_SPD_CTL_FAST	0x3     /* b'1x, but we use b'11 */
 
+/* Values for GPIO select */
 #define MC417_GPIO_SEL_GPIO3	0x3
 #define MC417_GPIO_SEL_GPIO2	0x2
 #define MC417_GPIO_SEL_GPIO1	0x1
@@ -321,42 +353,42 @@ static int mc417_register_write(struct cx231xx *dev, u16 address, u32 value)
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write data byte 1;*/
 	temp = 0x82|MCI_REGISTER_DATA_BYTE1|(value&0x0000FF00);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write data byte 2;*/
 	temp = 0x82|MCI_REGISTER_DATA_BYTE2|((value&0x00FF0000)>>8);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write data byte 3;*/
 	temp = 0x82|MCI_REGISTER_DATA_BYTE3|((value&0xFF000000)>>16);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write address byte 0;*/
 	temp = 0x82|MCI_REGISTER_ADDRESS_BYTE0|((address&0x000000FF)<<8);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write address byte 1;*/
 	temp = 0x82|MCI_REGISTER_ADDRESS_BYTE1|(address&0x0000FF00);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*Write that the mode is write.*/
 	temp = 0x82 | MCI_REGISTER_MODE | MCI_MODE_REGISTER_WRITE;
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
@@ -368,7 +400,7 @@ static int mc417_register_write(struct cx231xx *dev, u16 address, u32 value)
 
 static int mc417_register_read(struct cx231xx *dev, u16 address, u32 *value)
 {
-	
+	/*write address byte 0;*/
 	u32 temp;
 	u32 return_value = 0;
 	int ret = 0;
@@ -379,25 +411,27 @@ static int mc417_register_read(struct cx231xx *dev, u16 address, u32 *value)
 	temp = temp | ((0x05) << 10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write address byte 1;*/
 	temp = 0x82 | MCI_REGISTER_ADDRESS_BYTE1 | (address & 0xFF00);
 	temp = temp << 10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp | ((0x05) << 10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write that the mode is read;*/
 	temp = 0x82 | MCI_REGISTER_MODE | MCI_MODE_REGISTER_READ;
 	temp = temp << 10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp | ((0x05) << 10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
+	/*wait for the MIRDY line to be asserted ,
+	signalling that the read is done;*/
 	ret = waitForMciComplete(dev);
 
-	
+	/*switch the DATA- GPIO to input mode;*/
 
-	
+	/*Read data byte 0;*/
 	temp = (0x82 | MCI_REGISTER_DATA_BYTE0) << 10;
 	setITVCReg(dev, ITVC_READ_DIR, temp);
 	temp = ((0x81 | MCI_REGISTER_DATA_BYTE0) << 10);
@@ -406,7 +440,7 @@ static int mc417_register_read(struct cx231xx *dev, u16 address, u32 *value)
 	return_value |= ((temp & 0x03FC0000) >> 18);
 	setITVCReg(dev, ITVC_READ_DIR, (0x87 << 10));
 
-	
+	/* Read data byte 1;*/
 	temp = (0x82 | MCI_REGISTER_DATA_BYTE1) << 10;
 	setITVCReg(dev, ITVC_READ_DIR, temp);
 	temp = ((0x81 | MCI_REGISTER_DATA_BYTE1) << 10);
@@ -416,7 +450,7 @@ static int mc417_register_read(struct cx231xx *dev, u16 address, u32 *value)
 	return_value |= ((temp & 0x03FC0000) >> 10);
 	setITVCReg(dev, ITVC_READ_DIR, (0x87 << 10));
 
-	
+	/*Read data byte 2;*/
 	temp = (0x82 | MCI_REGISTER_DATA_BYTE2) << 10;
 	setITVCReg(dev, ITVC_READ_DIR, temp);
 	temp = ((0x81 | MCI_REGISTER_DATA_BYTE2) << 10);
@@ -425,7 +459,7 @@ static int mc417_register_read(struct cx231xx *dev, u16 address, u32 *value)
 	return_value |= ((temp & 0x03FC0000) >> 2);
 	setITVCReg(dev, ITVC_READ_DIR, (0x87 << 10));
 
-	
+	/*Read data byte 3;*/
 	temp = (0x82 | MCI_REGISTER_DATA_BYTE3) << 10;
 	setITVCReg(dev, ITVC_READ_DIR, temp);
 	temp = ((0x81 | MCI_REGISTER_DATA_BYTE3) << 10);
@@ -442,7 +476,7 @@ static int mc417_register_read(struct cx231xx *dev, u16 address, u32 *value)
 
 static int mc417_memory_write(struct cx231xx *dev, u32 address, u32 value)
 {
-	
+	/*write data byte 0;*/
 
 	u32 temp;
 	int ret = 0;
@@ -455,28 +489,28 @@ static int mc417_memory_write(struct cx231xx *dev, u32 address, u32 value)
 	temp = temp | ((0x05) << 10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write data byte 1;*/
 	temp = 0x82 | MCI_MEMORY_DATA_BYTE1 | (value & 0x0000FF00);
 	temp = temp << 10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp | ((0x05) << 10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write data byte 2;*/
 	temp = 0x82|MCI_MEMORY_DATA_BYTE2|((value&0x00FF0000)>>8);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write data byte 3;*/
 	temp = 0x82|MCI_MEMORY_DATA_BYTE3|((value&0xFF000000)>>16);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/* write address byte 2;*/
 	temp = 0x82|MCI_MEMORY_ADDRESS_BYTE2 | MCI_MODE_MEMORY_WRITE |
 		((address & 0x003F0000)>>8);
 	temp = temp<<10;
@@ -484,21 +518,21 @@ static int mc417_memory_write(struct cx231xx *dev, u32 address, u32 value)
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/* write address byte 1;*/
 	temp = 0x82|MCI_MEMORY_ADDRESS_BYTE1 | (address & 0xFF00);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/* write address byte 0;*/
 	temp = 0x82|MCI_MEMORY_ADDRESS_BYTE0|((address & 0x00FF)<<8);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*wait for MIRDY line;*/
 	waitForMciComplete(dev);
 
 	return 0;
@@ -510,7 +544,7 @@ static int mc417_memory_read(struct cx231xx *dev, u32 address, u32 *value)
 	u32 return_value = 0;
 	int ret = 0;
 
-	
+	/*write address byte 2;*/
 	temp = 0x82|MCI_MEMORY_ADDRESS_BYTE2 | MCI_MODE_MEMORY_READ |
 		((address & 0x003F0000)>>8);
 	temp = temp<<10;
@@ -520,25 +554,25 @@ static int mc417_memory_read(struct cx231xx *dev, u32 address, u32 *value)
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write address byte 1*/
 	temp = 0x82|MCI_MEMORY_ADDRESS_BYTE1 | (address & 0xFF00);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*write address byte 0*/
 	temp = 0x82|MCI_MEMORY_ADDRESS_BYTE0 | ((address & 0x00FF)<<8);
 	temp = temp<<10;
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 	temp = temp|((0x05)<<10);
 	setITVCReg(dev, ITVC_WRITE_DIR, temp);
 
-	
+	/*Wait for MIRDY line*/
 	ret = waitForMciComplete(dev);
 
 
-	
+	/*Read data byte 3;*/
 	temp = (0x82|MCI_MEMORY_DATA_BYTE3)<<10;
 	setITVCReg(dev, ITVC_READ_DIR, temp);
 	temp = ((0x81|MCI_MEMORY_DATA_BYTE3)<<10);
@@ -547,7 +581,7 @@ static int mc417_memory_read(struct cx231xx *dev, u32 address, u32 *value)
 	return_value |= ((temp&0x03FC0000)<<6);
 	setITVCReg(dev, ITVC_READ_DIR, (0x87<<10));
 
-	
+	/*Read data byte 2;*/
 	temp = (0x82|MCI_MEMORY_DATA_BYTE2)<<10;
 	setITVCReg(dev, ITVC_READ_DIR, temp);
 	temp = ((0x81|MCI_MEMORY_DATA_BYTE2)<<10);
@@ -556,7 +590,7 @@ static int mc417_memory_read(struct cx231xx *dev, u32 address, u32 *value)
 	return_value |= ((temp&0x03FC0000)>>2);
 	setITVCReg(dev, ITVC_READ_DIR, (0x87<<10));
 
-	
+	/* Read data byte 1;*/
 	temp = (0x82|MCI_MEMORY_DATA_BYTE1)<<10;
 	setITVCReg(dev, ITVC_READ_DIR, temp);
 	temp = ((0x81|MCI_MEMORY_DATA_BYTE1)<<10);
@@ -565,7 +599,7 @@ static int mc417_memory_read(struct cx231xx *dev, u32 address, u32 *value)
 	return_value |= ((temp&0x03FC0000)>>10);
 	setITVCReg(dev, ITVC_READ_DIR, (0x87<<10));
 
-	
+	/*Read data byte 0;*/
 	temp = (0x82|MCI_MEMORY_DATA_BYTE0)<<10;
 	setITVCReg(dev, ITVC_READ_DIR, temp);
 	temp = ((0x81|MCI_MEMORY_DATA_BYTE0)<<10);
@@ -578,7 +612,9 @@ static int mc417_memory_read(struct cx231xx *dev, u32 address, u32 *value)
 	return ret;
 }
 
+/* ------------------------------------------------------------------ */
 
+/* MPEG encoder API */
 static char *cmd_to_str(int cmd)
 {
 	switch (cmd) {
@@ -681,6 +717,8 @@ static int cx231xx_mbox_func(void *priv,
 	dprintk(3, "%s: command(0x%X) = %s\n", __func__, command,
 		cmd_to_str(command));
 
+	/* this may not be 100% safe if we can't read any memory location
+	   without side effects */
 	mc417_memory_read(dev, dev->cx23417_mailbox - 4, &value);
 	if (value != 0x12345678) {
 		dprintk(3,
@@ -690,6 +728,9 @@ static int cx231xx_mbox_func(void *priv,
 		return -1;
 	}
 
+	/* This read looks at 32 bits, but flag is only 8 bits.
+	 * Seems we also bail if CMD or TIMEOUT bytes are set???
+	 */
 	mc417_memory_read(dev, dev->cx23417_mailbox, &flag);
 	if (flag) {
 		dprintk(3, "ERROR: Mailbox appears to be in use "
@@ -697,14 +738,14 @@ static int cx231xx_mbox_func(void *priv,
 		return -1;
 	}
 
-	flag |= 1; 
+	flag |= 1; /* tell 'em we're working on it */
 	mc417_memory_write(dev, dev->cx23417_mailbox, flag);
 
-	
-	
+	/* write command + args + fill remaining with zeros */
+	/* command code */
 	mc417_memory_write(dev, dev->cx23417_mailbox + 1, command);
 	mc417_memory_write(dev, dev->cx23417_mailbox + 3,
-		IVTV_API_STD_TIMEOUT); 
+		IVTV_API_STD_TIMEOUT); /* timeout */
 	for (i = 0; i < in; i++) {
 		mc417_memory_write(dev, dev->cx23417_mailbox + 4 + i, data[i]);
 		dprintk(3, "API Input %d = %d\n", i, data[i]);
@@ -712,10 +753,10 @@ static int cx231xx_mbox_func(void *priv,
 	for (; i < CX2341X_MBOX_MAX_DATA; i++)
 		mc417_memory_write(dev, dev->cx23417_mailbox + 4 + i, 0);
 
-	flag |= 3; 
+	flag |= 3; /* tell 'em we're done writing */
 	mc417_memory_write(dev, dev->cx23417_mailbox, flag);
 
-	
+	/* wait for firmware to handle the API command */
 	timeout = jiffies + msecs_to_jiffies(10);
 	for (;;) {
 		mc417_memory_read(dev, dev->cx23417_mailbox, &flag);
@@ -728,7 +769,7 @@ static int cx231xx_mbox_func(void *priv,
 		udelay(10);
 	}
 
-	
+	/* read output values */
 	for (i = 0; i < out; i++) {
 		mc417_memory_read(dev, dev->cx23417_mailbox + 4 + i, data + i);
 		dprintk(3, "API Output %d = %d\n", i, data[i]);
@@ -743,6 +784,9 @@ static int cx231xx_mbox_func(void *priv,
 	return retval;
 }
 
+/* We don't need to call the API often, so using just one
+ * mailbox will probably suffice
+ */
 static int cx231xx_api_cmd(struct cx231xx *dev,
 			   u32 command,
 			   u32 inputcnt,
@@ -781,7 +825,7 @@ static int cx231xx_find_mailbox(struct cx231xx *dev)
 
 	dprintk(2, "%s()\n", __func__);
 
-	for (i = 0; i < 0x100; i++) {
+	for (i = 0; i < 0x100; i++) {/*CX231xx_FIRM_IMAGE_SIZE*/
 		ret = mc417_memory_read(dev, i, &value);
 		if (ret < 0)
 			return ret;
@@ -813,7 +857,7 @@ static void mciWriteMemoryToGPIO(struct cx231xx *dev, u32 address, u32 value,
 	*p_fw_image = temp;
 	p_fw_image++;
 
-	
+	/*write data byte 1;*/
 	temp = 0x82|MCI_MEMORY_DATA_BYTE1|(value&0x0000FF00);
 	temp = temp<<10;
 	*p_fw_image = temp;
@@ -822,7 +866,7 @@ static void mciWriteMemoryToGPIO(struct cx231xx *dev, u32 address, u32 value,
 	*p_fw_image = temp;
 	p_fw_image++;
 
-	
+	/*write data byte 2;*/
 	temp = 0x82|MCI_MEMORY_DATA_BYTE2|((value&0x00FF0000)>>8);
 	temp = temp<<10;
 	*p_fw_image = temp;
@@ -831,7 +875,7 @@ static void mciWriteMemoryToGPIO(struct cx231xx *dev, u32 address, u32 value,
 	*p_fw_image = temp;
 	p_fw_image++;
 
-	
+	/*write data byte 3;*/
 	temp = 0x82|MCI_MEMORY_DATA_BYTE3|((value&0xFF000000)>>16);
 	temp = temp<<10;
 	*p_fw_image = temp;
@@ -840,7 +884,7 @@ static void mciWriteMemoryToGPIO(struct cx231xx *dev, u32 address, u32 value,
 	*p_fw_image = temp;
 	p_fw_image++;
 
-	
+	/* write address byte 2;*/
 	temp = 0x82|MCI_MEMORY_ADDRESS_BYTE2 | MCI_MODE_MEMORY_WRITE |
 		((address & 0x003F0000)>>8);
 	temp = temp<<10;
@@ -850,7 +894,7 @@ static void mciWriteMemoryToGPIO(struct cx231xx *dev, u32 address, u32 value,
 	*p_fw_image = temp;
 	p_fw_image++;
 
-	
+	/* write address byte 1;*/
 	temp = 0x82|MCI_MEMORY_ADDRESS_BYTE1 | (address & 0xFF00);
 	temp = temp<<10;
 	*p_fw_image = temp;
@@ -859,7 +903,7 @@ static void mciWriteMemoryToGPIO(struct cx231xx *dev, u32 address, u32 value,
 	*p_fw_image = temp;
 	p_fw_image++;
 
-	
+	/* write address byte 0;*/
 	temp = 0x82|MCI_MEMORY_ADDRESS_BYTE0|((address & 0x00FF)<<8);
 	temp = temp<<10;
 	*p_fw_image = temp;
@@ -884,12 +928,12 @@ static int cx231xx_load_firmware(struct cx231xx *dev)
 	int i, retval = 0;
 	u32 value = 0;
 	u32 gpio_output = 0;
-	
-	
+	/*u32 checksum = 0;*/
+	/*u32 *dataptr;*/
 	u32 transfer_size = 0;
 	u32 fw_data = 0;
 	u32 address = 0;
-	
+	/*u32 current_fw[800];*/
 	u32 *p_current_fw, *p_fw;
 	u32 *p_fw_data;
 	int frame = 0;
@@ -911,7 +955,7 @@ static int cx231xx_load_firmware(struct cx231xx *dev)
 
 	dprintk(2, "%s()\n", __func__);
 
-	
+	/* Save GPIO settings before reset of APU */
 	retval |= mc417_memory_read(dev, 0x9020, &gpio_output);
 	retval |= mc417_memory_read(dev, 0x900C, &value);
 
@@ -961,7 +1005,7 @@ static int cx231xx_load_firmware(struct cx231xx *dev)
 
 	initGPIO(dev);
 
-	
+	/* transfer to the chip */
 	dprintk(2, "Loading firmware to GPIO...\n");
 	p_fw_data = (u32 *)firmware->data;
 	dprintk(2, "firmware->size=%zd\n", firmware->size);
@@ -975,7 +1019,7 @@ static int cx231xx_load_firmware(struct cx231xx *dev)
 		p_fw_data += 1;
 	}
 
-	
+	/*download the firmware by ep5-out*/
 
 	for (frame = 0; frame < (int)(CX231xx_FIRM_IMAGE_SIZE*20/_buffer_size);
 	     frame++) {
@@ -1005,7 +1049,7 @@ static int cx231xx_load_firmware(struct cx231xx *dev)
 			__func__);
 		return retval;
 	}
-	
+	/* F/W power up disturbs the GPIOs, restore state */
 	retval |= mc417_register_write(dev, 0x9020, gpio_output);
 	retval |= mc417_register_write(dev, 0x900C, value);
 
@@ -1034,7 +1078,7 @@ static void cx231xx_codec_settings(struct cx231xx *dev)
 {
 	dprintk(1, "%s()\n", __func__);
 
-	
+	/* assign frame size */
 	cx231xx_api_cmd(dev, CX2341X_ENC_SET_FRAME_SIZE, 2, 0,
 				dev->ts1.height, dev->ts1.width);
 
@@ -1056,7 +1100,7 @@ static int cx231xx_initialize_codec(struct cx231xx *dev)
 
 	dprintk(1, "%s()\n", __func__);
 	cx231xx_disable656(dev);
-	retval = cx231xx_api_cmd(dev, CX2341X_ENC_PING_FW, 0, 0); 
+	retval = cx231xx_api_cmd(dev, CX2341X_ENC_PING_FW, 0, 0); /* ping */
 	if (retval < 0) {
 		dprintk(2, "%s() PING OK\n", __func__);
 		retval = cx231xx_load_firmware(dev);
@@ -1097,31 +1141,54 @@ static int cx231xx_initialize_codec(struct cx231xx *dev)
 	}
 
 	cx231xx_enable656(dev);
-			
+			/* stop mpeg capture */
 			cx231xx_api_cmd(dev, CX2341X_ENC_STOP_CAPTURE,
 				 3, 0, 1, 3, 4);
 
 	cx231xx_codec_settings(dev);
 	msleep(60);
 
-	
+/*	cx231xx_api_cmd(dev, CX2341X_ENC_SET_NUM_VSYNC_LINES, 2, 0,
+		CX231xx_FIELD1_SAA7115, CX231xx_FIELD2_SAA7115);
+	cx231xx_api_cmd(dev, CX2341X_ENC_SET_PLACEHOLDER, 12, 0,
+		CX231xx_CUSTOM_EXTENSION_USR_DATA, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0);
+*/
+	/* Setup to capture VBI */
 	data[0] = 0x0001BD00;
-	data[1] = 1;          
-	data[2] = 4;          
-	data[3] = 0x91559155; 
-	data[4] = 0x206080C0; 
-	data[5] = 6;          
-	data[6] = 64;         
-	
+	data[1] = 1;          /* frames per interrupt */
+	data[2] = 4;          /* total bufs */
+	data[3] = 0x91559155; /* start codes */
+	data[4] = 0x206080C0; /* stop codes */
+	data[5] = 6;          /* lines */
+	data[6] = 64;         /* BPL */
+/*
+	cx231xx_api_cmd(dev, CX2341X_ENC_SET_VBI_CONFIG, 7, 0, data[0], data[1],
+		data[2], data[3], data[4], data[5], data[6]);
+
+	for (i = 2; i <= 24; i++) {
+		int valid;
+
+		valid = ((i >= 19) && (i <= 21));
+		cx231xx_api_cmd(dev, CX2341X_ENC_SET_VBI_LINE, 5, 0, i,
+				valid, 0 , 0, 0);
+		cx231xx_api_cmd(dev, CX2341X_ENC_SET_VBI_LINE, 5, 0,
+				i | 0x80000000, valid, 0, 0, 0);
+	}
+*/
+/*	cx231xx_api_cmd(dev, CX2341X_ENC_MUTE_AUDIO, 1, 0, CX231xx_UNMUTE);
+	msleep(60);
+*/
+	/* initialize the video input */
 	retval = cx231xx_api_cmd(dev, CX2341X_ENC_INITIALIZE_INPUT, 0, 0);
 	if (retval < 0)
 		return retval;
 	msleep(60);
 
-	
+	/* Enable VIP style pixel invalidation so we work with scaled mode */
 	mc417_memory_write(dev, 2120, 0x00000080);
 
-	
+	/* start capturing to the host interface */
 	retval = cx231xx_api_cmd(dev, CX2341X_ENC_START_CAPTURE, 2, 0,
 		CX231xx_MPEG_CAPTURE, CX231xx_RAW_BITS_NONE);
 	if (retval < 0)
@@ -1136,6 +1203,7 @@ static int cx231xx_initialize_codec(struct cx231xx *dev)
 	return 0;
 }
 
+/* ------------------------------------------------------------------ */
 
 static int bb_buf_setup(struct videobuf_queue *q,
 	unsigned int *count, unsigned int *size)
@@ -1190,7 +1258,7 @@ static void buffer_copy(struct cx231xx *dev, char *data, int len, struct urb *ur
 			dev->video_mode.isoc_ctl.buf = buf;
 			dma_q->mpeg_buffer_done = 1;
 		}
-		
+		/* Fill buffer */
 		buf = dev->video_mode.isoc_ctl.buf;
 		vbuf = videobuf_to_vmalloc(&buf->vb);
 
@@ -1249,7 +1317,7 @@ static void buffer_filled(char *data, int len, struct urb *urb,
 				 struct cx231xx_buffer, vb.queue);
 
 
-		
+		/* Fill buffer */
 		vbuf = videobuf_to_vmalloc(&buf->vb);
 		memcpy(vbuf, data, len);
 		buf->vb.state = VIDEOBUF_DONE;
@@ -1288,8 +1356,8 @@ static inline int cx231xx_isoc_copy(struct cx231xx *dev, struct urb *urb)
 static inline int cx231xx_bulk_copy(struct cx231xx *dev, struct urb *urb)
 {
 
-	
-	
+	/*char *outp;*/
+	/*struct cx231xx_buffer *buf;*/
 	struct cx231xx_dmaqueue *dma_q = urb->context;
 	unsigned char *p_buffer, *buffer;
 	u32 buffer_size = 0;
@@ -1342,6 +1410,8 @@ static int bb_buf_prepare(struct videobuf_queue *q,
 		if (!dev->video_mode.bulk_ctl.num_bufs)
 			urb_init = 1;
 	}
+	/*cx231xx_info("urb_init=%d dev->video_mode.max_pkt_size=%d\n",
+		urb_init, dev->video_mode.max_pkt_size);*/
 	dev->mode_tv = 1;
 
 	if (urb_init) {
@@ -1392,8 +1462,8 @@ static void bb_buf_release(struct videobuf_queue *q,
 {
 	struct cx231xx_buffer *buf =
 	    container_of(vb, struct cx231xx_buffer, vb);
-	
-	
+	/*struct cx231xx_fh *fh = q->priv_data;*/
+	/*struct cx231xx *dev = (struct cx231xx *)fh->dev;*/
 
 	free_buffer(q, buf);
 }
@@ -1405,6 +1475,7 @@ static struct videobuf_queue_ops cx231xx_qops = {
 	.buf_release  = bb_buf_release,
 };
 
+/* ------------------------------------------------------------------ */
 
 static const u32 *ctrl_classes[] = {
 	cx2341x_mpeg_ctrls,
@@ -1418,7 +1489,7 @@ static int cx231xx_queryctrl(struct cx231xx *dev,
 	if (qctrl->id == 0)
 		return -EINVAL;
 
-	
+	/* MPEG V4L2 controls */
 	if (cx2341x_ctrl_query(&dev->mpeg_params, qctrl))
 		qctrl->flags |= V4L2_CTRL_FLAG_DISABLED;
 
@@ -1469,7 +1540,7 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
 		dev->mpeg_params.is_50hz = 1;
 	}
 	call_all(dev, core, s_std, dev->norm);
-	
+	/* do mode control overrides */
 	cx231xx_do_mode_ctrl_overrides(dev);
 
 	dprintk(3, "exit vidioc_s_std() i=0x%x\n", i);
@@ -1528,6 +1599,8 @@ static int vidioc_enum_input(struct file *file, void *priv,
 	if (input->type == 0)
 		return -EINVAL;
 
+	/* FIXME
+	 * strcpy(i->name, input->name); */
 
 	n = i->index;
 	strcpy(i->name, iname[INPUT(n)->type]);
@@ -1600,7 +1673,7 @@ static int vidioc_s_ctrl(struct file *file, void *priv,
 	struct cx231xx_fh  *fh  = file->private_data;
 	struct cx231xx *dev = fh->dev;
 	dprintk(3, "enter vidioc_s_ctrl()\n");
-	
+	/* Update the A/V core */
 	call_all(dev, core, s_ctrl, ctl);
 	dprintk(3, "exit vidioc_s_ctrl()\n");
 	return 0;
@@ -1841,9 +1914,9 @@ static int mpeg_open(struct file *file)
 {
 	int minor = video_devdata(file)->minor;
 	struct cx231xx *h, *dev = NULL;
-	
+	/*struct list_head *list;*/
 	struct cx231xx_fh *fh;
-	
+	/*u32 value = 0;*/
 
 	dprintk(2, "%s()\n", __func__);
 
@@ -1857,7 +1930,7 @@ static int mpeg_open(struct file *file)
 
 	mutex_lock(&dev->lock);
 
-	
+	/* allocate + initialize per filehandle data */
 	fh = kzalloc(sizeof(*fh), GFP_KERNEL);
 	if (NULL == fh) {
 		mutex_unlock(&dev->lock);
@@ -1872,6 +1945,14 @@ static int mpeg_open(struct file *file)
 			    NULL, &dev->video_mode.slock,
 			    V4L2_BUF_TYPE_VIDEO_CAPTURE, V4L2_FIELD_INTERLACED,
 			    sizeof(struct cx231xx_buffer), fh, NULL);
+/*
+	videobuf_queue_sg_init(&fh->vidq, &cx231xx_qops,
+			    &dev->udev->dev, &dev->ts1.slock,
+			    V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			    V4L2_FIELD_INTERLACED,
+			    sizeof(struct cx231xx_buffer),
+			    fh, NULL);
+*/
 
 
 	cx231xx_set_alt_setting(dev, INDEX_VANC, 1);
@@ -1901,7 +1982,7 @@ static int mpeg_release(struct file *file)
 
 	cx231xx_stop_TS1(dev);
 
-		
+		/* do this before setting alternate! */
 		if (dev->USE_ISO)
 			cx231xx_uninit_isoc(dev);
 		else
@@ -1912,11 +1993,11 @@ static int mpeg_release(struct file *file)
 				CX231xx_END_NOW, CX231xx_MPEG_CAPTURE,
 				CX231xx_RAW_BITS_NONE);
 
-	
-	
+	/* FIXME: Review this crap */
+	/* Shut device down on last close */
 	if (atomic_cmpxchg(&fh->v4l_reading, 1, 0) == 1) {
 		if (atomic_dec_return(&dev->v4l_reader_count) == 0) {
-			
+			/* stop mpeg capture */
 
 			msleep(500);
 			cx231xx_417_check_encoder(dev);
@@ -1943,8 +2024,8 @@ static ssize_t mpeg_read(struct file *file, char __user *data,
 	struct cx231xx *dev = fh->dev;
 
 
-	
-	
+	/* Deal w/ A/V decoder * and mpeg encoder sync issues. */
+	/* Start mpeg encoder on first read. */
 	if (atomic_cmpxchg(&fh->v4l_reading, 0, 1) == 0) {
 		if (atomic_inc_return(&dev->v4l_reader_count) == 1) {
 			if (cx231xx_initialize_codec(dev) < 0)
@@ -1960,9 +2041,9 @@ static unsigned int mpeg_poll(struct file *file,
 	struct poll_table_struct *wait)
 {
 	struct cx231xx_fh *fh = file->private_data;
-	
+	/*struct cx231xx *dev = fh->dev;*/
 
-	
+	/*dprintk(2, "%s\n", __func__);*/
 
 	return videobuf_poll_stream(file, &fh->vidq, wait);
 }
@@ -2017,7 +2098,10 @@ static const struct v4l2_ioctl_ops mpeg_ioctl_ops = {
 	.vidioc_log_status	 = vidioc_log_status,
 	.vidioc_querymenu	 = vidioc_querymenu,
 	.vidioc_queryctrl	 = vidioc_queryctrl,
+/*	.vidioc_g_chip_ident	 = cx231xx_g_chip_ident,*/
 #ifdef CONFIG_VIDEO_ADV_DEBUG
+/*	.vidioc_g_register	 = cx231xx_g_register,*/
+/*	.vidioc_s_register	 = cx231xx_s_register,*/
 #endif
 };
 
@@ -2070,13 +2154,13 @@ static struct video_device *cx231xx_video_dev_alloc(
 
 int cx231xx_417_register(struct cx231xx *dev)
 {
-	
+	/* FIXME: Port1 hardcoded here */
 	int err = -ENODEV;
 	struct cx231xx_tsport *tsport = &dev->ts1;
 
 	dprintk(1, "%s()\n", __func__);
 
-	
+	/* Set default TV standard */
 	dev->encodernorm = cx231xx_tvnorms[0];
 
 	if (dev->encodernorm.id & V4L2_STD_525_60)
@@ -2090,7 +2174,7 @@ int cx231xx_417_register(struct cx231xx *dev)
 
 	dev->mpeg_params.port = CX2341X_PORT_SERIAL;
 
-	
+	/* Allocate and initialize V4L video device */
 	dev->v4l_device = cx231xx_video_dev_alloc(dev,
 		dev->udev, &cx231xx_mpeg_template, "mpeg");
 	err = video_register_device(dev->v4l_device,

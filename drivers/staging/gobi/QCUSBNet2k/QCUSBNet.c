@@ -38,19 +38,43 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 
 ===========================================================================*/
 
+//---------------------------------------------------------------------------
+// Include Files
+//---------------------------------------------------------------------------
 
 #include "Structs.h"
 #include "QMIDevice.h"
 #include "QMI.h"
 
+//-----------------------------------------------------------------------------
+// Definitions
+//-----------------------------------------------------------------------------
 
+// Version Information
 #define DRIVER_VERSION "1.0.110"
 #define DRIVER_DESC "QCUSBNet2k"
 
+// Debug flag
 int debug;
 
+// Class should be created during module init, so needs to be global
 static struct class * gpClass;
 
+/*===========================================================================
+METHOD:
+   QCSuspend (Public Method)
+
+DESCRIPTION:
+   Stops QMI traffic while device is suspended
+
+PARAMETERS
+   pIntf          [ I ] - Pointer to interface
+   powerEvent     [ I ] - Power management event
+
+RETURN VALUE:
+   int - 0 for success
+         negative errno for failure
+===========================================================================*/
 int QCSuspend( 
    struct usb_interface *     pIntf,
    pm_message_t               powerEvent )
@@ -82,8 +106,8 @@ int QCSuspend(
       return -ENXIO;
    }
 
-   
-   
+   // Is this autosuspend or system suspend?
+   //    do we allow remote wakeup?
 #if (LINUX_VERSION_CODE < KERNEL_VERSION( 2,6,33 ))
    if (pDev->udev->auto_pm == 0)
 #else
@@ -101,23 +125,37 @@ int QCSuspend(
 
    if (powerEvent.event & PM_EVENT_SUSPEND)
    {
-      
+      // Stop QMI read callbacks
       KillRead( pQCDev );
       pDev->udev->reset_resume = 0;
       
-      
+      // Store power state to avoid duplicate resumes
       pIntf->dev.power.power_state.event = powerEvent.event;
    }
    else
    {
-      
+      // Other power modes cause QMI connection to be lost
       pDev->udev->reset_resume = 1;
    }
    
-   
+   // Run usbnet's suspend function
    return usbnet_suspend( pIntf, powerEvent );
 }
    
+/*===========================================================================
+METHOD:
+   QCResume (Public Method)
+
+DESCRIPTION:
+   Resume QMI traffic or recreate QMI device
+
+PARAMETERS
+   pIntf          [ I ] - Pointer to interface
+
+RETURN VALUE:
+   int - 0 for success
+         negative errno for failure
+===========================================================================*/
 int QCResume( struct usb_interface * pIntf )
 {
    struct usbnet * pDev;
@@ -155,7 +193,7 @@ int QCResume( struct usb_interface * pIntf )
 
    if (oldPowerState & PM_EVENT_SUSPEND)
    {
-      
+      // It doesn't matter if this is autoresume or system resume
       QClearDownReason( pQCDev, DRIVER_SUSPENDED );
    
       nRet = usbnet_resume( pIntf );
@@ -165,7 +203,7 @@ int QCResume( struct usb_interface * pIntf )
          return nRet;
       }
 
-      
+      // Restart QMI read callbacks
       nRet = StartRead( pQCDev );
       if (nRet != 0)
       {
@@ -173,7 +211,7 @@ int QCResume( struct usb_interface * pIntf )
          return nRet;
       }
 
-      
+      // Kick Auto PM thread to process any queued URBs
       up( &pQCDev->mAutoPM.mThreadDoWork );
    }
    else
@@ -185,6 +223,21 @@ int QCResume( struct usb_interface * pIntf )
    return nRet;
 }
 
+/*===========================================================================
+METHOD:
+   QCNetDriverBind (Public Method)
+
+DESCRIPTION:
+   Setup in and out pipes
+
+PARAMETERS
+   pDev           [ I ] - Pointer to usbnet device
+   pIntf          [ I ] - Pointer to interface
+
+RETURN VALUE:
+   int - 0 for success
+         Negative errno for error
+===========================================================================*/
 static int QCNetDriverBind( 
    struct usbnet *         pDev, 
    struct usb_interface *  pIntf )
@@ -195,14 +248,14 @@ static int QCNetDriverBind(
    struct usb_host_endpoint * pIn = NULL;
    struct usb_host_endpoint * pOut = NULL;
    
-   
+   // Verify one altsetting
    if (pIntf->num_altsetting != 1)
    {
       DBG( "invalid num_altsetting %u\n", pIntf->num_altsetting );
       return -EINVAL;
    }
 
-   
+   // Verify correct interface (0)
    if (pIntf->cur_altsetting->desc.bInterfaceNumber != 0)
    {
       DBG( "invalid interface %d\n", 
@@ -210,7 +263,7 @@ static int QCNetDriverBind(
       return -EINVAL;
    }
    
-   
+   // Collect In and Out endpoints
    numEndpoints = pIntf->cur_altsetting->desc.bNumEndpoints;
    for (endpointIndex = 0; endpointIndex < numEndpoints; endpointIndex++)
    {
@@ -255,7 +308,7 @@ static int QCNetDriverBind(
         pIn->desc.bEndpointAddress, 
         pOut->desc.bEndpointAddress );
 
-   
+   // In later versions of the kernel, usbnet helps with this
 #if (LINUX_VERSION_CODE <= KERNEL_VERSION( 2,6,23 ))
    pIntf->dev.platform_data = (void *)pDev;
 #endif
@@ -263,13 +316,27 @@ static int QCNetDriverBind(
    return 0;
 }
 
+/*===========================================================================
+METHOD:
+   QCNetDriverUnbind (Public Method)
+
+DESCRIPTION:
+   Deregisters QMI device (Registration happened in the probe function)
+
+PARAMETERS
+   pDev           [ I ] - Pointer to usbnet device
+   pIntfUnused    [ I ] - Pointer to interface
+
+RETURN VALUE:
+   None
+===========================================================================*/
 static void QCNetDriverUnbind( 
    struct usbnet *         pDev, 
    struct usb_interface *  pIntf)
 {
    sQCUSBNet * pQCDev = (sQCUSBNet *)pDev->data[0];
 
-   
+   // Should already be down, but just in case...
    netif_carrier_off( pDev->net );
 
    DeregisterQMIDevice( pQCDev );
@@ -287,27 +354,40 @@ static void QCNetDriverUnbind(
    pQCDev = NULL;
 }
 
+/*===========================================================================
+METHOD:
+   QCUSBNetURBCallback (Public Method)
+
+DESCRIPTION:
+   Write is complete, cleanup and signal that we're ready for next packet
+
+PARAMETERS
+   pURB     [ I ] - Pointer to sAutoPM struct
+
+RETURN VALUE:
+   None
+===========================================================================*/
 void QCUSBNetURBCallback( struct urb * pURB )
 {
    unsigned long activeURBflags;
    sAutoPM * pAutoPM = (sAutoPM *)pURB->context;
    if (pAutoPM == NULL)
    {
-      
+      // Should never happen
       DBG( "bad context\n" );
       return;
    }
 
    if (pURB->status != 0)
    {
-      
+      // Note that in case of an error, the behaviour is no different
       DBG( "urb finished with error %d\n", pURB->status );
    }
 
-   
+   // Remove activeURB (memory to be freed later)
    spin_lock_irqsave( &pAutoPM->mActiveURBLock, activeURBflags );
 
-   
+   // EAGAIN used to signify callback is done
    pAutoPM->mpActiveURB = ERR_PTR( -EAGAIN );
 
    spin_unlock_irqrestore( &pAutoPM->mActiveURBLock, activeURBflags );
@@ -317,6 +397,19 @@ void QCUSBNetURBCallback( struct urb * pURB )
    usb_free_urb( pURB );
 }
 
+/*===========================================================================
+METHOD:
+   QCUSBNetTXTimeout (Public Method)
+
+DESCRIPTION:
+   Timeout declared by the net driver.  Stop all transfers
+
+PARAMETERS
+   pNet     [ I ] - Pointer to net device
+
+RETURN VALUE:
+   None
+===========================================================================*/
 void QCUSBNetTXTimeout( struct net_device * pNet )
 {
    struct sQCUSBNet * pQCDev;
@@ -341,7 +434,7 @@ void QCUSBNetTXTimeout( struct net_device * pNet )
 
    DBG( "\n" );
 
-   
+   // Stop activeURB
    spin_lock_irqsave( &pAutoPM->mActiveURBLock, activeURBflags );
 
    if (pAutoPM->mpActiveURB != NULL)
@@ -351,7 +444,7 @@ void QCUSBNetTXTimeout( struct net_device * pNet )
 
    spin_unlock_irqrestore( &pAutoPM->mActiveURBLock, activeURBflags );
 
-   
+   // Cleanup URB List
    spin_lock_irqsave( &pAutoPM->mURBListLock, URBListFlags );
 
    pURBListEntry = pAutoPM->mpURBList;
@@ -370,6 +463,21 @@ void QCUSBNetTXTimeout( struct net_device * pNet )
    return;
 }
 
+/*===========================================================================
+METHOD:
+   QCUSBNetAutoPMThread (Public Method)
+
+DESCRIPTION:
+   Handle device Auto PM state asynchronously
+   Handle network packet transmission asynchronously
+
+PARAMETERS
+   pData     [ I ] - Pointer to sAutoPM struct
+
+RETURN VALUE:
+   int - 0 for success
+         Negative errno for error
+===========================================================================*/
 static int QCUSBNetAutoPMThread( void * pData )
 {
    unsigned long activeURBflags, URBListFlags;
@@ -389,24 +497,24 @@ static int QCUSBNetAutoPMThread( void * pData )
 
    while (pAutoPM->mbExit == false)
    {
-      
+      // Wait for someone to poke us
       down( &pAutoPM->mThreadDoWork );
 
-      
+      // Time to exit?
       if (pAutoPM->mbExit == true)
       {
-         
+         // Stop activeURB
          spin_lock_irqsave( &pAutoPM->mActiveURBLock, activeURBflags );
 
          if (pAutoPM->mpActiveURB != NULL)
          {
             usb_kill_urb( pAutoPM->mpActiveURB );
          }
-         
+         // Will be freed in callback function
 
          spin_unlock_irqrestore( &pAutoPM->mActiveURBLock, activeURBflags );
 
-         
+         // Cleanup URB List
          spin_lock_irqsave( &pAutoPM->mURBListLock, URBListFlags );
 
          pURBListEntry = pAutoPM->mpURBList;
@@ -423,58 +531,58 @@ static int QCUSBNetAutoPMThread( void * pData )
          break;
       }
       
-      
+      // Is our URB active?
       spin_lock_irqsave( &pAutoPM->mActiveURBLock, activeURBflags );
 
-      
+      // EAGAIN used to signify callback is done
       if (IS_ERR( pAutoPM->mpActiveURB ) 
       &&  PTR_ERR( pAutoPM->mpActiveURB ) == -EAGAIN )
       {
          pAutoPM->mpActiveURB = NULL;
 
-         
+         // Restore IRQs so task can sleep
          spin_unlock_irqrestore( &pAutoPM->mActiveURBLock, activeURBflags );
          
-         
+         // URB is done, decrement the Auto PM usage count
          usb_autopm_put_interface( pAutoPM->mpIntf );
 
-         
+         // Lock ActiveURB again
          spin_lock_irqsave( &pAutoPM->mActiveURBLock, activeURBflags );
       }
 
       if (pAutoPM->mpActiveURB != NULL)
       {
-         
+         // There is already a URB active, go back to sleep
          spin_unlock_irqrestore( &pAutoPM->mActiveURBLock, activeURBflags );
          continue;
       }
       
-      
+      // Is there a URB waiting to be submitted?
       spin_lock_irqsave( &pAutoPM->mURBListLock, URBListFlags );
       if (pAutoPM->mpURBList == NULL)
       {
-         
+         // No more URBs to submit, go back to sleep
          spin_unlock_irqrestore( &pAutoPM->mURBListLock, URBListFlags );
          spin_unlock_irqrestore( &pAutoPM->mActiveURBLock, activeURBflags );
          continue;
       }
 
-      
+      // Pop an element
       pURBListEntry = pAutoPM->mpURBList;
       pAutoPM->mpURBList = pAutoPM->mpURBList->mpNext;
       spin_unlock_irqrestore( &pAutoPM->mURBListLock, URBListFlags );
 
-      
+      // Set ActiveURB
       pAutoPM->mpActiveURB = pURBListEntry->mpURB;
       spin_unlock_irqrestore( &pAutoPM->mActiveURBLock, activeURBflags );
 
-      
+      // Tell autopm core we need device woken up
       status = usb_autopm_get_interface( pAutoPM->mpIntf );
       if (status < 0)
       {
          DBG( "unable to autoresume interface: %d\n", status );
 
-         
+         // likely caused by device going from autosuspend -> full suspend
          if (status == -EPERM)
          {
 #if (LINUX_VERSION_CODE < KERNEL_VERSION( 2,6,33 ))
@@ -483,7 +591,7 @@ static int QCUSBNetAutoPMThread( void * pData )
             QCSuspend( pAutoPM->mpIntf, PMSG_SUSPEND );
          }
 
-         
+         // Add pURBListEntry back onto pAutoPM->mpURBList
          spin_lock_irqsave( &pAutoPM->mURBListLock, URBListFlags );
          pURBListEntry->mpNext = pAutoPM->mpURBList;
          pAutoPM->mpURBList = pURBListEntry;
@@ -493,15 +601,15 @@ static int QCUSBNetAutoPMThread( void * pData )
          pAutoPM->mpActiveURB = NULL;
          spin_unlock_irqrestore( &pAutoPM->mActiveURBLock, activeURBflags );
          
-         
+         // Go back to sleep
          continue;
       }
 
-      
+      // Submit URB
       status = usb_submit_urb( pAutoPM->mpActiveURB, GFP_KERNEL );
       if (status < 0)
       {
-         
+         // Could happen for a number of reasons
          DBG( "Failed to submit URB: %d.  Packet dropped\n", status );
          spin_lock_irqsave( &pAutoPM->mActiveURBLock, activeURBflags );
          usb_free_urb( pAutoPM->mpActiveURB );
@@ -509,7 +617,7 @@ static int QCUSBNetAutoPMThread( void * pData )
          spin_unlock_irqrestore( &pAutoPM->mActiveURBLock, activeURBflags );
          usb_autopm_put_interface( pAutoPM->mpIntf );
 
-         
+         // Loop again
          up( &pAutoPM->mThreadDoWork );
       }
       
@@ -521,6 +629,20 @@ static int QCUSBNetAutoPMThread( void * pData )
    return 0;
 }      
 
+/*===========================================================================
+METHOD:
+   QCUSBNetStartXmit (Public Method)
+
+DESCRIPTION:
+   Convert sk_buff to usb URB and queue for transmit
+
+PARAMETERS
+   pNet     [ I ] - Pointer to net device
+
+RETURN VALUE:
+   NETDEV_TX_OK on success
+   NETDEV_TX_BUSY on error
+===========================================================================*/
 int QCUSBNetStartXmit( 
    struct sk_buff *     pSKB,
    struct net_device *  pNet )
@@ -550,15 +672,15 @@ int QCUSBNetStartXmit(
    
    if (QTestDownReason( pQCDev, DRIVER_SUSPENDED ) == true)
    {
-      
+      // Should not happen
       DBG( "device is suspended\n" );
       dump_stack();
       return NETDEV_TX_BUSY;
    }
    
-   
+   // Convert the sk_buff into a URB
 
-   
+   // Allocate URBListEntry
    pURBListEntry = kmalloc( sizeof( sURBList ), GFP_ATOMIC );
    if (pURBListEntry == NULL)
    {
@@ -567,7 +689,7 @@ int QCUSBNetStartXmit(
    }
    pURBListEntry->mpNext = NULL;
 
-   
+   // Allocate URB
    pURBListEntry->mpURB = usb_alloc_urb( 0, GFP_ATOMIC );
    if (pURBListEntry->mpURB == NULL)
    {
@@ -575,14 +697,14 @@ int QCUSBNetStartXmit(
       return NETDEV_TX_BUSY;
    }
 
-   
+   // Allocate URB transfer_buffer
    pURBData = kmalloc( pSKB->len, GFP_ATOMIC );
    if (pURBData == NULL)
    {
       DBG( "unable to allocate URB data\n" );
       return NETDEV_TX_BUSY;
    }
-   
+   // Fill will SKB's data
    memcpy( pURBData, pSKB->data, pSKB->len );
 
    usb_fill_bulk_urb( pURBListEntry->mpURB,
@@ -593,10 +715,10 @@ int QCUSBNetStartXmit(
                       QCUSBNetURBCallback,
                       pAutoPM );
    
-   
+   // Aquire lock on URBList
    spin_lock_irqsave( &pAutoPM->mURBListLock, URBListFlags );
    
-   
+   // Add URB to end of list
    ppURBListEnd = &pAutoPM->mpURBList;
    while ((*ppURBListEnd) != NULL)
    {
@@ -608,14 +730,29 @@ int QCUSBNetStartXmit(
 
    up( &pAutoPM->mThreadDoWork );
 
-   
+   // Start transfer timer
    pNet->trans_start = jiffies;
-   
+   // Free SKB
    dev_kfree_skb_any( pSKB );
 
    return NETDEV_TX_OK;
 }
 
+/*===========================================================================
+METHOD:
+   QCUSBNetOpen (Public Method)
+
+DESCRIPTION:
+   Wrapper to usbnet_open, correctly handling autosuspend
+   Start AutoPM thread
+
+PARAMETERS
+   pNet     [ I ] - Pointer to net device
+
+RETURN VALUE:
+   int - 0 for success
+         Negative errno for error
+===========================================================================*/
 int QCUSBNetOpen( struct net_device * pNet )
 {
    int status = 0;
@@ -637,7 +774,7 @@ int QCUSBNetOpen( struct net_device * pNet )
 
    DBG( "\n" );
 
-   
+   // Start the AutoPM thread
    pQCDev->mAutoPM.mpIntf = pQCDev->mpIntf;
    pQCDev->mAutoPM.mbExit = false;
    pQCDev->mAutoPM.mpURBList = NULL;
@@ -655,15 +792,15 @@ int QCUSBNetOpen( struct net_device * pNet )
       return PTR_ERR( pQCDev->mAutoPM.mpThread );
    }
 
-   
+   // Allow traffic
    QClearDownReason( pQCDev, NET_IFACE_STOPPED );
 
-   
+   // Pass to usbnet_open if defined
    if (pQCDev->mpUSBNetOpen != NULL)
    {
       status = pQCDev->mpUSBNetOpen( pNet );
    
-      
+      // If usbnet_open was successful enable Auto PM
       if (status == 0)
       {
 #if (LINUX_VERSION_CODE < KERNEL_VERSION( 2,6,33 ))
@@ -681,6 +818,21 @@ int QCUSBNetOpen( struct net_device * pNet )
    return status;
 }
 
+/*===========================================================================
+METHOD:
+   QCUSBNetStop (Public Method)
+
+DESCRIPTION:
+   Wrapper to usbnet_stop, correctly handling autosuspend
+   Stop AutoPM thread
+
+PARAMETERS
+   pNet     [ I ] - Pointer to net device
+
+RETURN VALUE:
+   int - 0 for success
+         Negative errno for error
+===========================================================================*/
 int QCUSBNetStop( struct net_device * pNet )
 {
    struct sQCUSBNet * pQCDev;
@@ -699,21 +851,21 @@ int QCUSBNetStop( struct net_device * pNet )
       return -ENXIO;
    }
 
-   
+   // Stop traffic
    QSetDownReason( pQCDev, NET_IFACE_STOPPED );
 
-   
+   // Tell traffic thread to exit
    pQCDev->mAutoPM.mbExit = true;
    up( &pQCDev->mAutoPM.mThreadDoWork );
    
-   
+   // Wait for it to exit
    while( pQCDev->mAutoPM.mpThread != NULL )
    {
       msleep( 100 );
    }
    DBG( "thread stopped\n" );
 
-   
+   // Pass to usbnet_stop, if defined
    if (pQCDev->mpUSBNetStop != NULL)
    {
       return pQCDev->mpUSBNetStop( pNet );
@@ -724,6 +876,9 @@ int QCUSBNetStop( struct net_device * pNet )
    }
 }
 
+/*=========================================================================*/
+// Struct driver_info
+/*=========================================================================*/
 static const struct driver_info QCNetInfo = 
 {
    .description   = "QCUSBNet Ethernet Device",
@@ -733,145 +888,164 @@ static const struct driver_info QCNetInfo =
    .data          = 0,
 };
 
+/*=========================================================================*/
+// Qualcomm Gobi 2000 VID/PIDs
+/*=========================================================================*/
 static const struct usb_device_id QCVIDPIDTable [] =
 {
-   
+   // Acer Gobi 2000
    {
       USB_DEVICE( 0x05c6, 0x9215 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Asus Gobi 2000
    {
       USB_DEVICE( 0x05c6, 0x9265 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // CMOTech Gobi 2000
    {
       USB_DEVICE( 0x16d8, 0x8002 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Dell Gobi 2000
    {
       USB_DEVICE( 0x413c, 0x8186 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Entourage Gobi 2000
    {
       USB_DEVICE( 0x1410, 0xa010 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Entourage Gobi 2000
    {
       USB_DEVICE( 0x1410, 0xa011 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Entourage Gobi 2000
    {
       USB_DEVICE( 0x1410, 0xa012 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Entourage Gobi 2000
    {
       USB_DEVICE( 0x1410, 0xa013 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // HP Gobi 2000
    { 
       USB_DEVICE( 0x03f0, 0x251d ),
       .driver_info = (unsigned long)&QCNetInfo 
    },
-   
+   // Lenovo Gobi 2000
    {
       USB_DEVICE( 0x05c6, 0x9205 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Panasonic Gobi 2000
    {
       USB_DEVICE( 0x04da, 0x250f ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Samsung Gobi 2000
    {
       USB_DEVICE( 0x05c6, 0x9245 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sierra Wireless Gobi 2000
    {
       USB_DEVICE( 0x1199, 0x9001 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sierra Wireless Gobi 2000
    {
       USB_DEVICE( 0x1199, 0x9002 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sierra Wireless Gobi 2000
    {
       USB_DEVICE( 0x1199, 0x9003 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sierra Wireless Gobi 2000
    {
       USB_DEVICE( 0x1199, 0x9004 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sierra Wireless Gobi 2000
    {
       USB_DEVICE( 0x1199, 0x9005 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sierra Wireless Gobi 2000
    {
       USB_DEVICE( 0x1199, 0x9006 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sierra Wireless Gobi 2000
    {
       USB_DEVICE( 0x1199, 0x9007 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sierra Wireless Gobi 2000
    {
       USB_DEVICE( 0x1199, 0x9008 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sierra Wireless Gobi 2000
    {
       USB_DEVICE( 0x1199, 0x9009 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sierra Wireless Gobi 2000
    {
       USB_DEVICE( 0x1199, 0x900a ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Sony Gobi 2000
    {
       USB_DEVICE( 0x05c6, 0x9225 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Top Global Gobi 2000
    {
       USB_DEVICE( 0x05c6, 0x9235 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // iRex Technologies Gobi 2000
    {
       USB_DEVICE( 0x05c6, 0x9275 ),
       .driver_info = (unsigned long)&QCNetInfo
    },
-   
+   // Generic Gobi 2000
    {
       USB_DEVICE( 0x5c6, 0x920B ),
       .driver_info = (unsigned long)&QCNetInfo
    },
 
-   
+   //Terminating entry
    { }
 };
 
 MODULE_DEVICE_TABLE( usb, QCVIDPIDTable );
 
+/*===========================================================================
+METHOD:
+   QCUSBNetProbe (Public Method)
+
+DESCRIPTION:
+   Run usbnet_probe
+   Setup QMI device
+
+PARAMETERS
+   pIntf        [ I ] - Pointer to interface
+   pVIDPIDs     [ I ] - Pointer to VID/PID table
+
+RETURN VALUE:
+   int - 0 for success
+         Negative errno for error
+===========================================================================*/
 int QCUSBNetProbe( 
    struct usb_interface *        pIntf, 
    const struct usb_device_id *  pVIDPIDs )
@@ -913,7 +1087,7 @@ int QCUSBNetProbe(
    
    pQCDev->mpNetDev = pDev;
 
-   
+   // Overload PM related network functions
 #if (LINUX_VERSION_CODE < KERNEL_VERSION( 2,6,29 ))
    pQCDev->mpUSBNetOpen = pDev->net->open;
    pDev->net->open = QCUSBNetOpen;
@@ -960,21 +1134,21 @@ int QCUSBNetProbe(
    sema_init( &pQCDev->mAutoPM.mThreadDoWork, 0 );
    spin_lock_init( &pQCDev->mQMIDev.mClientMemLock );
 
-   
+   // Default to device down
    pQCDev->mDownReason = 0;
    QSetDownReason( pQCDev, NO_NDIS_CONNECTION );
    QSetDownReason( pQCDev, NET_IFACE_STOPPED );
 
-   
+   // Register QMI
    status = RegisterQMIDevice( pQCDev );
    if (status != 0)
    {
-      
+      // Clean up
       DeregisterQMIDevice( pQCDev );
       return status;
    }
    
-   
+   // Success
    return status;
 }
 
@@ -991,6 +1165,19 @@ static struct usb_driver QCUSBNet =
    .supports_autosuspend = true,
 };
 
+/*===========================================================================
+METHOD:
+   QCUSBNetModInit (Public Method)
+
+DESCRIPTION:
+   Initialize module
+   Create device class
+   Register out usb_driver struct
+
+RETURN VALUE:
+   int - 0 for success
+         Negative errno for error
+===========================================================================*/
 static int __init QCUSBNetModInit( void )
 {
    gpClass = class_create( THIS_MODULE, "QCQMI" );
@@ -1001,13 +1188,24 @@ static int __init QCUSBNetModInit( void )
       return -ENOMEM;
    }
 
-   
+   // This will be shown whenever driver is loaded
    printk( KERN_INFO "%s: %s\n", DRIVER_DESC, DRIVER_VERSION );
 
    return usb_register( &QCUSBNet );
 }
 module_init( QCUSBNetModInit );
 
+/*===========================================================================
+METHOD:
+   QCUSBNetModExit (Public Method)
+
+DESCRIPTION:
+   Deregister module
+   Destroy device class
+
+RETURN VALUE:
+   void
+===========================================================================*/
 static void __exit QCUSBNetModExit( void )
 {
    usb_deregister( &QCUSBNet );

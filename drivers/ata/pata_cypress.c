@@ -1,3 +1,12 @@
+/*
+ * pata_cypress.c 	- Cypress PATA for new ATA layer
+ *			  (C) 2006 Red Hat Inc
+ *			  Alan Cox
+ *
+ * Based heavily on
+ * linux/drivers/ide/pci/cy82c693.c		Version 0.40	Sep. 10, 2002
+ *
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -11,6 +20,7 @@
 #define DRV_NAME "pata_cypress"
 #define DRV_VERSION "0.1.5"
 
+/* here are the offset definitions for the registers */
 
 enum {
 	CY82_IDE_CMDREG		= 0x04,
@@ -31,6 +41,13 @@ enum {
 	CY82_INDEX_TIMEOUT	= 0x32
 };
 
+/**
+ *	cy82c693_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Called to do the PIO mode setup.
+ */
 
 static void cy82c693_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -53,7 +70,7 @@ static void cy82c693_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	if (adev->devno == 0) {
 		pci_read_config_dword(pdev, CY82_IDE_ADDRSETUP, &addr);
 
-		addr &= ~0x0F;	
+		addr &= ~0x0F;	/* Mask bits */
 		addr |= clamp_val(t.setup - 1, 0, 15);
 
 		pci_write_config_dword(pdev, CY82_IDE_ADDRSETUP, addr);
@@ -63,7 +80,7 @@ static void cy82c693_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	} else {
 		pci_read_config_dword(pdev, CY82_IDE_ADDRSETUP, &addr);
 
-		addr &= ~0xF0;	
+		addr &= ~0xF0;	/* Mask bits */
 		addr |= (clamp_val(t.setup - 1, 0, 15) << 4);
 
 		pci_write_config_dword(pdev, CY82_IDE_ADDRSETUP, addr);
@@ -73,16 +90,23 @@ static void cy82c693_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	}
 }
 
+/**
+ *	cy82c693_set_dmamode	-	set initial DMA mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Called to do the DMA mode setup.
+ */
 
 static void cy82c693_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
 	int reg = CY82_INDEX_CHANNEL0 + ap->port_no;
 
-	
+	/* Be afraid, be very afraid. Magic registers  in low I/O space */
 	outb(reg, 0x22);
 	outb(adev->dma_mode - XFER_MW_DMA_0, 0x23);
 
-	
+	/* 0x50 gives the best behaviour on the Alpha's using this chip */
 	outb(CY82_INDEX_TIMEOUT, 0x22);
 	outb(0x50, 0x23);
 }
@@ -108,6 +132,8 @@ static int cy82c693_init_one(struct pci_dev *pdev, const struct pci_device_id *i
 	};
 	const struct ata_port_info *ppi[] = { &info, &ata_dummy_port_info };
 
+	/* Devfn 1 is the ATA primary. The secondary is magic and on devfn2.
+	   For the moment we don't handle the secondary. FIXME */
 
 	if (PCI_FUNC(pdev->devfn) != 1)
 		return -ENODEV;

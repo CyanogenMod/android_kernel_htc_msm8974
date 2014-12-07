@@ -33,6 +33,7 @@
 
 #include <linux/platform_data/omap4-keypad.h>
 
+/* OMAP4 registers */
 #define OMAP4_KBD_REVISION		0x00
 #define OMAP4_KBD_SYSCONFIG		0x10
 #define OMAP4_KBD_SYSSTATUS		0x14
@@ -50,6 +51,7 @@
 #define OMAP4_KBD_FULLCODE31_0		0x44
 #define OMAP4_KBD_FULLCODE63_32		0x48
 
+/* OMAP4 bit definitions */
 #define OMAP4_DEF_IRQENABLE_EVENTEN	(1 << 0)
 #define OMAP4_DEF_IRQENABLE_LONGKEY	(1 << 1)
 #define OMAP4_DEF_IRQENABLE_TIMEOUTEN	(1 << 2)
@@ -59,6 +61,7 @@
 #define OMAP4_DEF_CTRLPTVVALUE		(1 << 2)
 #define OMAP4_DEF_CTRLPTV		(1 << 1)
 
+/* OMAP4 values */
 #define OMAP4_VAL_IRQDISABLE		0x00
 #define OMAP4_VAL_DEBOUNCINGTIME	0x07
 #define OMAP4_VAL_FUNCTIONALCFG		0x1E
@@ -78,6 +81,7 @@ struct omap4_keypad {
 	unsigned short keymap[];
 };
 
+/* Interrupt handler */
 static irqreturn_t omap4_keypad_interrupt(int irq, void *dev_id)
 {
 	struct omap4_keypad *keypad_data = dev_id;
@@ -86,7 +90,7 @@ static irqreturn_t omap4_keypad_interrupt(int irq, void *dev_id)
 	unsigned int col, row, code, changed;
 	u32 *new_state = (u32 *) key_state;
 
-	
+	/* Disable interrupts */
 	__raw_writel(OMAP4_VAL_IRQDISABLE,
 		     keypad_data->base + OMAP4_KBD_IRQENABLE);
 
@@ -116,11 +120,11 @@ static irqreturn_t omap4_keypad_interrupt(int irq, void *dev_id)
 	memcpy(keypad_data->key_state, key_state,
 		sizeof(keypad_data->key_state));
 
-	
+	/* clear pending interrupts */
 	__raw_writel(__raw_readl(keypad_data->base + OMAP4_KBD_IRQSTATUS),
 			keypad_data->base + OMAP4_KBD_IRQSTATUS);
 
-	
+	/* enable interrupts */
 	__raw_writel(OMAP4_DEF_IRQENABLE_EVENTEN | OMAP4_DEF_IRQENABLE_LONGKEY,
 			keypad_data->base + OMAP4_KBD_IRQENABLE);
 
@@ -157,11 +161,11 @@ static void omap4_keypad_close(struct input_dev *input)
 
 	disable_irq(keypad_data->irq);
 
-	
+	/* Disable interrupts */
 	__raw_writel(OMAP4_VAL_IRQDISABLE,
 		     keypad_data->base + OMAP4_KBD_IRQENABLE);
 
-	
+	/* clear pending interrupts */
 	__raw_writel(__raw_readl(keypad_data->base + OMAP4_KBD_IRQSTATUS),
 			keypad_data->base + OMAP4_KBD_IRQSTATUS);
 
@@ -181,7 +185,7 @@ static int __devinit omap4_keypad_probe(struct platform_device *pdev)
 	int irq;
 	int error;
 
-	
+	/* platform data */
 	pdata = pdev->dev.platform_data;
 	if (!pdata) {
 		dev_err(&pdev->dev, "no platform data defined\n");
@@ -237,7 +241,7 @@ static int __devinit omap4_keypad_probe(struct platform_device *pdev)
 	keypad_data->rows = pdata->rows;
 	keypad_data->cols = pdata->cols;
 
-	
+	/* input device allocation */
 	keypad_data->input = input_dev = input_allocate_device();
 	if (!input_dev) {
 		error = -ENOMEM;

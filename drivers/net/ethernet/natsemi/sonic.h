@@ -23,6 +23,9 @@
 #define SONIC_H
 
 
+/*
+ * SONIC register offsets
+ */
 
 #define SONIC_CMD              0x00
 #define SONIC_DCR              0x01
@@ -58,6 +61,7 @@
 #define SONIC_SR               0x28
 
 
+/* test-only registers */
 
 #define SONIC_TPS		0x08
 #define SONIC_TFC		0x09
@@ -81,6 +85,9 @@
 #define SONIC_ADDR0		0x1d
 #define SONIC_ADDR1		0x1e
 
+/*
+ * Error counters
+ */
 
 #define SONIC_CRCT              0x2c
 #define SONIC_FAET              0x2d
@@ -88,6 +95,9 @@
 
 #define SONIC_DCR2              0x3f
 
+/*
+ * SONIC command bits
+ */
 
 #define SONIC_CR_LCAM           0x0200
 #define SONIC_CR_RRRA           0x0100
@@ -99,6 +109,9 @@
 #define SONIC_CR_TXP            0x0002
 #define SONIC_CR_HTX            0x0001
 
+/*
+ * SONIC data configuration bits
+ */
 
 #define SONIC_DCR_EXBUS         0x8000
 #define SONIC_DCR_LBR           0x2000
@@ -116,6 +129,9 @@
 #define SONIC_DCR_TFT1          0x0002
 #define SONIC_DCR_TFT0          0x0001
 
+/*
+ * Constants for the SONIC receive control register.
+ */
 
 #define SONIC_RCR_ERR           0x8000
 #define SONIC_RCR_RNT           0x4000
@@ -140,10 +156,14 @@
 #define SONIC_RCR_LB_ENDEC      SONIC_RCR_LB1
 #define SONIC_RCR_LB_TRANS      (SONIC_RCR_LB0 | SONIC_RCR_LB1)
 
+/* default RCR setup */
 
 #define SONIC_RCR_DEFAULT       (SONIC_RCR_BRD)
 
 
+/*
+ * SONIC Transmit Control register bits
+ */
 
 #define SONIC_TCR_PINTR         0x8000
 #define SONIC_TCR_POWC          0x4000
@@ -161,6 +181,10 @@
 
 #define SONIC_TCR_DEFAULT       0x0000
 
+/*
+ * Constants for the SONIC_INTERRUPT_MASK and
+ * SONIC_INTERRUPT_STATUS registers.
+ */
 
 #define SONIC_INT_BR		0x4000
 #define SONIC_INT_HBL		0x2000
@@ -179,6 +203,9 @@
 #define SONIC_INT_RFO		0x0001
 
 
+/*
+ * The interrupts we allow.
+ */
 
 #define SONIC_IMR_DEFAULT     ( SONIC_INT_BR | \
                                 SONIC_INT_LCD | \
@@ -196,10 +223,12 @@
 #define SONIC_EOL       0x0001
 #define CAM_DESCRIPTORS 16
 
+/* Offsets in the various DMA buffers accessed by the SONIC */
 
 #define SONIC_BITMODE16 0
 #define SONIC_BITMODE32 1
 #define SONIC_BUS_SCALE(bitmode) ((bitmode) ? 4 : 2)
+/* Note!  These are all measured in bus-size units, so use SONIC_BUS_SCALE */
 #define SIZEOF_SONIC_RR 4
 #define SONIC_RR_BUFADR_L  0
 #define SONIC_RR_BUFADR_H  1
@@ -234,52 +263,68 @@
 #define SIZEOF_SONIC_CDA ((CAM_DESCRIPTORS * SIZEOF_SONIC_CD) + 1)
 #define SONIC_CDA_CAM_ENABLE   (CAM_DESCRIPTORS * SIZEOF_SONIC_CD)
 
-#define SONIC_NUM_RRS   16            
-#define SONIC_NUM_RDS   SONIC_NUM_RRS 
-#define SONIC_NUM_TDS   16            
+/*
+ * Some tunables for the buffer areas. Power of 2 is required
+ * the current driver uses one receive buffer for each descriptor.
+ *
+ * MSch: use more buffer space for the slow m68k Macs!
+ */
+#define SONIC_NUM_RRS   16            /* number of receive resources */
+#define SONIC_NUM_RDS   SONIC_NUM_RRS /* number of receive descriptors */
+#define SONIC_NUM_TDS   16            /* number of transmit descriptors */
 
 #define SONIC_RDS_MASK  (SONIC_NUM_RDS-1)
 #define SONIC_TDS_MASK  (SONIC_NUM_TDS-1)
 
-#define SONIC_RBSIZE	1520          
+#define SONIC_RBSIZE	1520          /* size of one resource buffer */
 
+/* Again, measured in bus size units! */
 #define SIZEOF_SONIC_DESC (SIZEOF_SONIC_CDA	\
 	+ (SIZEOF_SONIC_TD * SONIC_NUM_TDS)	\
 	+ (SIZEOF_SONIC_RD * SONIC_NUM_RDS)	\
 	+ (SIZEOF_SONIC_RR * SONIC_NUM_RRS))
 
+/* Information that need to be kept for each board. */
 struct sonic_local {
-	
+	/* Bus size.  0 == 16 bits, 1 == 32 bits. */
 	int dma_bitmode;
+	/* Register offset within the longword (independent of endianness,
+	   and varies from one type of Macintosh SONIC to another
+	   (Aarrgh)) */
 	int reg_offset;
 	void *descriptors;
-	void *cda;  
-	void *tda;  
-	void *rra;  
-	void *rda;  
-	struct sk_buff* volatile rx_skb[SONIC_NUM_RRS];	
-	struct sk_buff* volatile tx_skb[SONIC_NUM_TDS];	
-	unsigned int tx_len[SONIC_NUM_TDS]; 
+	/* Crud.  These areas have to be within the same 64K.  Therefore
+       we allocate a desriptors page, and point these to places within it. */
+	void *cda;  /* CAM descriptor area */
+	void *tda;  /* Transmit descriptor area */
+	void *rra;  /* Receive resource area */
+	void *rda;  /* Receive descriptor area */
+	struct sk_buff* volatile rx_skb[SONIC_NUM_RRS];	/* packets to be received */
+	struct sk_buff* volatile tx_skb[SONIC_NUM_TDS];	/* packets to be transmitted */
+	unsigned int tx_len[SONIC_NUM_TDS]; /* lengths of tx DMA mappings */
+	/* Logical DMA addresses on MIPS, bus addresses on m68k
+	 * (so "laddr" is a bit misleading) */
 	dma_addr_t descriptors_laddr;
-	u32 cda_laddr;              
-	u32 tda_laddr;              
-	u32 rra_laddr;              
-	u32 rda_laddr;              
-	dma_addr_t rx_laddr[SONIC_NUM_RRS]; 
-	dma_addr_t tx_laddr[SONIC_NUM_TDS]; 
+	u32 cda_laddr;              /* logical DMA address of CDA */
+	u32 tda_laddr;              /* logical DMA address of TDA */
+	u32 rra_laddr;              /* logical DMA address of RRA */
+	u32 rda_laddr;              /* logical DMA address of RDA */
+	dma_addr_t rx_laddr[SONIC_NUM_RRS]; /* logical DMA addresses of rx skbuffs */
+	dma_addr_t tx_laddr[SONIC_NUM_TDS]; /* logical DMA addresses of tx skbuffs */
 	unsigned int rra_end;
 	unsigned int cur_rwp;
 	unsigned int cur_rx;
-	unsigned int cur_tx;           
+	unsigned int cur_tx;           /* first unacked transmit packet */
 	unsigned int eol_rx;
-	unsigned int eol_tx;           
-	unsigned int next_tx;          
-	struct device *device;         
+	unsigned int eol_tx;           /* last unacked transmit packet */
+	unsigned int next_tx;          /* next free TD */
+	struct device *device;         /* generic device */
 	struct net_device_stats stats;
 };
 
 #define TX_TIMEOUT (3 * HZ)
 
+/* Index to functions, as function prototypes. */
 
 static int sonic_open(struct net_device *dev);
 static int sonic_send_packet(struct sk_buff *skb, struct net_device *dev);
@@ -291,6 +336,11 @@ static void sonic_multicast_list(struct net_device *dev);
 static int sonic_init(struct net_device *dev);
 static void sonic_tx_timeout(struct net_device *dev);
 
+/* Internal inlines for reading/writing DMA buffers.  Note that bus
+   size and endianness matter here, whereas they don't for registers,
+   as far as we can tell. */
+/* OpenBSD calls this "SWO".  I'd like to think that sonic_buf_put()
+   is a much better name. */
 static inline void sonic_buf_put(void* base, int bitmode,
 				 int offset, __u16 val)
 {
@@ -317,6 +367,7 @@ static inline __u16 sonic_buf_get(void* base, int bitmode,
 		return ((volatile __u16 *) base)[offset];
 }
 
+/* Inlines that you should actually use for reading/writing DMA buffers */
 static inline void sonic_cda_put(struct net_device* dev, int entry,
 				 int offset, __u16 val)
 {
@@ -396,4 +447,4 @@ static inline __u16 sonic_rra_get(struct net_device* dev, int entry,
 static const char *version =
     "sonic.c:v0.92 20.9.98 tsbogend@alpha.franken.de\n";
 
-#endif 
+#endif /* SONIC_H */

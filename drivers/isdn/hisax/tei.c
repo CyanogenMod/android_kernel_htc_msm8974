@@ -157,7 +157,7 @@ tei_id_assign(struct FsmInst *fi, int event, void *arg)
 	if (st->ma.debug)
 		st->ma.tei_m.printdebug(&st->ma.tei_m,
 					"identity assign ri %d tei %d", ri, tei);
-	if ((ost = findtei(st, tei))) {	
+	if ((ost = findtei(st, tei))) {	/* same tei is in use */
 		if (ri != ost->ma.ri) {
 			st->ma.tei_m.printdebug(&st->ma.tei_m,
 						"possible duplicate assignment tei %d", tei);
@@ -184,8 +184,8 @@ tei_id_test_dup(struct FsmInst *fi, int event, void *arg)
 	if (st->ma.debug)
 		st->ma.tei_m.printdebug(&st->ma.tei_m,
 					"foreign identity assign ri %d tei %d", ri, tei);
-	if ((ost = findtei(st, tei))) {	
-		if (ri != ost->ma.ri) {	
+	if ((ost = findtei(st, tei))) {	/* same tei is in use */
+		if (ri != ost->ma.ri) {	/* and it wasn't our request */
 			st->ma.tei_m.printdebug(&st->ma.tei_m,
 						"possible duplicate assignment tei %d", tei);
 			FsmEvent(&ost->ma.tei_m, EV_VERIFY, NULL);
@@ -335,7 +335,7 @@ tei_l1l2(struct PStack *st, int pr, void *arg)
 				st->ma.tei_m.printdebug(&st->ma.tei_m,
 							"short mgr frame %ld/5", skb->len);
 			} else if (skb->data[0] != TEI_ENTITY_ID) {
-				
+				/* wrong management entity identifier, ignore */
 				st->ma.tei_m.printdebug(&st->ma.tei_m,
 							"tei handler wrong entity id %x",
 							skb->data[0]);
@@ -405,7 +405,7 @@ void
 setstack_tei(struct PStack *st)
 {
 	st->l2.l2tei = tei_l2tei;
-	st->ma.T202 = 2000;	
+	st->ma.T202 = 2000;	/* T202  2000 milliseconds */
 	st->l1.l1tei = tei_l1l2;
 	st->ma.debug = 1;
 	st->ma.tei_m.fsm = &teifsm;

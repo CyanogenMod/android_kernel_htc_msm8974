@@ -34,7 +34,7 @@ struct of_flash_list {
 
 struct of_flash {
 	struct mtd_info		*cmtd;
-	int list_size; 
+	int list_size; /* number of elements in of_flash_list */
 	struct of_flash_list	list[0];
 };
 
@@ -74,6 +74,9 @@ static int of_flash_remove(struct platform_device *dev)
 	return 0;
 }
 
+/* Helper function to handle probing of the obsolete "direct-mapped"
+ * compatible binding, which has an extra "probe-type" property
+ * describing the type of flash probe necessary. */
 static struct mtd_info * __devinit obsolete_probe(struct platform_device *dev,
 						  struct map_info *map)
 {
@@ -107,6 +110,10 @@ static struct mtd_info * __devinit obsolete_probe(struct platform_device *dev,
 	}
 }
 
+/* When partitions are set we look for a linux,part-probe property which
+   specifies the list of partition probers to use. If none is given then the
+   default is use. These take precedence over other device tree
+   information. */
 static const char *part_probe_types_def[] = { "cmdlinepart", "RedBoot",
 					"ofpart", "ofoldpart", NULL };
 static const char ** __devinit of_get_probes(struct device_node *dp)
@@ -170,6 +177,12 @@ static int __devinit of_flash_probe(struct platform_device *dev)
 
 	reg_tuple_size = (of_n_addr_cells(dp) + of_n_size_cells(dp)) * sizeof(u32);
 
+	/*
+	 * Get number of "reg" tuples. Scan for MTD devices on area's
+	 * described by each "reg" region. This makes it possible (including
+	 * the concat support) to support the Intel P30 48F4400 chips which
+	 * consists internally of 2 non-identical NOR chips on one die.
+	 */
 	p = of_get_property(dp, "reg", &count);
 	if (count % reg_tuple_size != 0) {
 		dev_err(&dev->dev, "Malformed reg property on %s\n",
@@ -194,6 +207,10 @@ static int __devinit of_flash_probe(struct platform_device *dev)
 	for (i = 0; i < count; i++) {
 		err = -ENXIO;
 		if (of_address_to_resource(dp, i, &res)) {
+			/*
+			 * Continue with next register tuple if this
+			 * one is not mappable
+			 */
 			continue;
 		}
 
@@ -254,6 +271,9 @@ static int __devinit of_flash_probe(struct platform_device *dev)
 	if (info->list_size == 1) {
 		info->cmtd = info->list[0].mtd;
 	} else if (info->list_size > 1) {
+		/*
+		 * We detected multiple devices. Concatenate them together.
+		 */
 		info->cmtd = mtd_concat_create(mtd_list, info->list_size,
 					       dev_name(&dev->dev));
 		if (info->cmtd == NULL)
@@ -286,6 +306,13 @@ static struct of_device_id of_flash_match[] = {
 		.data		= (void *)"cfi_probe",
 	},
 	{
+		/* FIXME: JEDEC chips can't be safely and reliably
+		 * probed, although the mtd code gets it right in
+		 * practice most of the time.  We should use the
+		 * vendor and device ids specified by the binding to
+		 * bypass the heuristic probe code, but the mtd layer
+		 * provides, at present, no interface for doing so
+		 * :(. */
 		.compatible	= "jedec-flash",
 		.data		= (void *)"jedec_probe",
 	},

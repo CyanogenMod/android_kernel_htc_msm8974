@@ -22,7 +22,7 @@
 #include <media/rc-map.h>
 
 static struct rc_map_table snapstream_firefly[] = {
-	{ 0x2c, KEY_ZOOM },       
+	{ 0x2c, KEY_ZOOM },       /* Maximize */
 	{ 0x02, KEY_CLOSE },
 
 	{ 0x0d, KEY_1 },
@@ -36,14 +36,14 @@ static struct rc_map_table snapstream_firefly[] = {
 	{ 0x15, KEY_9 },
 	{ 0x17, KEY_0 },
 	{ 0x16, KEY_BACK },
-	{ 0x18, KEY_KPENTER },    
+	{ 0x18, KEY_KPENTER },    /* ent */
 
 	{ 0x09, KEY_VOLUMEUP },
 	{ 0x08, KEY_VOLUMEDOWN },
 	{ 0x0a, KEY_MUTE },
 	{ 0x0b, KEY_CHANNELUP },
 	{ 0x0c, KEY_CHANNELDOWN },
-	{ 0x00, KEY_VENDOR },     
+	{ 0x00, KEY_VENDOR },     /* firefly */
 
 	{ 0x2e, KEY_INFO },
 	{ 0x2f, KEY_OPTION },
@@ -66,14 +66,14 @@ static struct rc_map_table snapstream_firefly[] = {
 	{ 0x2b, KEY_PREVIOUS },
 	{ 0x2a, KEY_NEXT },
 
-	{ 0x06, KEY_AUDIO },      
-	{ 0x05, KEY_IMAGES },     
+	{ 0x06, KEY_AUDIO },      /* Music */
+	{ 0x05, KEY_IMAGES },     /* Photos */
 	{ 0x04, KEY_DVD },
 	{ 0x03, KEY_TV },
 	{ 0x07, KEY_VIDEO },
 
 	{ 0x01, KEY_HELP },
-	{ 0x2d, KEY_MODE },       
+	{ 0x2d, KEY_MODE },       /* Mouse */
 
 	{ 0x19, KEY_A },
 	{ 0x1b, KEY_B },

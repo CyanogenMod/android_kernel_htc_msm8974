@@ -19,6 +19,7 @@
 #define RGB_16	2
 #define NR_RGB	3
 
+/* These are the bitfields for each display depth that we support. */
 struct sa1100fb_rgb {
 	struct fb_bitfield	red;
 	struct fb_bitfield	green;
@@ -26,6 +27,7 @@ struct sa1100fb_rgb {
 	struct fb_bitfield	transp;
 };
 
+/* This structure describes the machine which we are running on. */
 struct sa1100fb_mach_info {
 	u_long		pixclock;
 
@@ -50,7 +52,7 @@ struct sa1100fb_mach_info {
 	u_int		lccr0;
 	u_int		lccr3;
 
-	
+	/* Overrides for the default RGB maps */
 	const struct sa1100fb_rgb *rgb[NR_RGB];
 
 	void (*backlight_power)(int);

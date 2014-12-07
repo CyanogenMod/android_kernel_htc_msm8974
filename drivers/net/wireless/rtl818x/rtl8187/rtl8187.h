@@ -20,9 +20,9 @@
 
 #define RTL8187_EEPROM_TXPWR_BASE	0x05
 #define RTL8187_EEPROM_MAC_ADDR		0x07
-#define RTL8187_EEPROM_TXPWR_CHAN_1	0x16	
-#define RTL8187_EEPROM_TXPWR_CHAN_6	0x1B	
-#define RTL8187_EEPROM_TXPWR_CHAN_4	0x3D	
+#define RTL8187_EEPROM_TXPWR_CHAN_1	0x16	/* 3 channels */
+#define RTL8187_EEPROM_TXPWR_CHAN_6	0x1B	/* 2 channels */
+#define RTL8187_EEPROM_TXPWR_CHAN_4	0x3D	/* 2 channels */
 #define RTL8187_EEPROM_SELECT_GPIO	0x3B
 
 #define RTL8187_REQT_READ	0xC0
@@ -63,6 +63,7 @@ struct rtl8187b_rx_hdr {
 	u8 fot;
 } __packed;
 
+/* {rtl8187,rtl8187b}_tx_info is in skb */
 
 struct rtl8187_tx_hdr {
 	__le32 flags;
@@ -91,20 +92,23 @@ enum {
 struct rtl8187_vif {
 	struct ieee80211_hw *dev;
 
-	
+	/* beaconing */
 	struct delayed_work beacon_work;
 	bool enable_beacon;
 };
 
 struct rtl8187_priv {
-	
+	/* common between rtl818x drivers */
 	struct rtl818x_csr *map;
 	const struct rtl818x_rf_ops *rf;
 	struct ieee80211_vif *vif;
 
+	/* The mutex protects the TX loopback state.
+	 * Any attempt to set channels concurrently locks the device.
+	 */
 	struct mutex conf_mutex;
 
-	
+	/* rtl8187 specific */
 	struct ieee80211_channel channels[14];
 	struct ieee80211_rate rates[12];
 	struct ieee80211_supported_band band;
@@ -137,7 +141,7 @@ struct rtl8187_priv {
 	struct {
 		__le64 buf;
 		struct sk_buff_head queue;
-	} b_tx_status; 
+	} b_tx_status; /* This queue is used by both -b and non-b devices */
 	struct mutex io_mutex;
 	union {
 		u8 bits8;
@@ -275,4 +279,4 @@ static inline void rtl818x_iowrite32(struct rtl8187_priv *priv, __le32 *addr,
 	rtl818x_iowrite32_idx(priv, addr, val, 0);
 }
 
-#endif 
+#endif /* RTL8187_H */

@@ -15,6 +15,13 @@
 #include <linux/module.h>
 #include <linux/utsname.h>
 
+/*
+ * kbuild is not very cooperative with respect to linking separately
+ * compiled library objects into one module.  So for now we won't use
+ * separate compilation ... ensuring init/exit sections work to shrink
+ * the runtime footprint, and giving us at least some parts of what
+ * a "gcc --combine ... part1.c part2.c part3.c ... " build would.
+ */
 
 #include "composite.c"
 #include "usbstring.c"
@@ -57,8 +64,8 @@ MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_AUTHOR("Michal Nazarewicz");
 MODULE_LICENSE("GPL");
 
-#define GFS_VENDOR_ID	0x1d6b	
-#define GFS_PRODUCT_ID	0x0105	
+#define GFS_VENDOR_ID	0x1d6b	/* Linux Foundation */
+#define GFS_PRODUCT_ID	0x0105	/* FunctionFS Gadget */
 
 static struct usb_device_descriptor gfs_dev_desc = {
 	.bLength		= sizeof gfs_dev_desc,
@@ -84,12 +91,17 @@ static const struct usb_descriptor_header *gfs_otg_desc[] = {
 		.bLength		= sizeof(struct usb_otg_descriptor),
 		.bDescriptorType	= USB_DT_OTG,
 
+		/*
+		 * REVISIT SRP-only hardware is possible, although
+		 * it would not be called "OTG" ...
+		 */
 		.bmAttributes		= USB_OTG_SRP | USB_OTG_HNP,
 	},
 
 	NULL
 };
 
+/* String IDs are assigned dynamically */
 static struct usb_string gfs_strings[] = {
 #ifdef CONFIG_USB_FUNCTIONFS_RNDIS
 	{ .s = "FunctionFS + RNDIS" },
@@ -100,12 +112,12 @@ static struct usb_string gfs_strings[] = {
 #ifdef CONFIG_USB_FUNCTIONFS_GENERIC
 	{ .s = "FunctionFS" },
 #endif
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings *gfs_dev_strings[] = {
 	&(struct usb_gadget_strings) {
-		.language	= 0x0409,	
+		.language	= 0x0409,	/* en-us */
 		.strings	= gfs_strings,
 	},
 	NULL,
@@ -246,6 +258,14 @@ static int gfs_unbind(struct usb_composite_dev *cdev)
 {
 	ENTER();
 
+	/*
+	 * We may have been called in an error recovery from
+	 * composite_bind() after gfs_unbind() failure so we need to
+	 * check if gfs_ffs_data is not NULL since gfs_bind() handles
+	 * all error recovery itself.  I'd rather we werent called
+	 * from composite on orror recovery, but what you're gonna
+	 * do...?
+	 */
 	if (gfs_ffs_data) {
 		gether_cleanup();
 		functionfs_unbind(gfs_ffs_data);
@@ -279,6 +299,16 @@ static int gfs_do_config(struct usb_configuration *c)
 	if (unlikely(ret < 0))
 		return ret;
 
+	/*
+	 * After previous do_configs there may be some invalid
+	 * pointers in c->interface array.  This happens every time
+	 * a user space function with fewer interfaces than a user
+	 * space function that was run before the new one is run.  The
+	 * compasit's set_config() assumes that if there is no more
+	 * then MAX_CONFIG_INTERFACES interfaces in a configuration
+	 * then there is a NULL pointer after the last interface in
+	 * c->interface array.  We need to make sure this is true.
+	 */
 	if (c->next_interface_id < ARRAY_SIZE(c->interface))
 		c->interface[c->next_interface_id] = NULL;
 

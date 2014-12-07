@@ -47,5 +47,10 @@ enum mxl111sf_mux_config {
 int mxl111sf_config_pin_mux_modes(struct mxl111sf_state *state,
 				  enum mxl111sf_mux_config pin_mux_config);
 
-#endif 
+#endif /* _DVB_USB_MXL111SF_GPIO_H_ */
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

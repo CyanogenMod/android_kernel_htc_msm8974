@@ -17,8 +17,8 @@ int register_control_device_interface(PMINI_ADAPTER ps_adapter);
 
 void unregister_control_device_interface(PMINI_ADAPTER Adapter);
 
-INT CopyBufferToControlPacket(PMINI_ADAPTER Adapter,
-									  PVOID ioBuffer
+INT CopyBufferToControlPacket(PMINI_ADAPTER Adapter,/**<Logical Adapter*/
+									  PVOID ioBuffer/**<Control Packet Buffer*/
 									  );
 
 VOID SortPackInfo(PMINI_ADAPTER Adapter);
@@ -38,16 +38,16 @@ BOOLEAN MatchDestPort(S_CLASSIFIER_RULE *pstClassifierRule,USHORT ushSrcPort);
 BOOLEAN MatchProtocol(S_CLASSIFIER_RULE *pstClassifierRule,UCHAR ucProtocol);
 
 
-INT SetupNextSend(PMINI_ADAPTER Adapter, 
-					struct sk_buff *Packet, 
+INT SetupNextSend(PMINI_ADAPTER Adapter, /**<Logical Adapter*/
+					struct sk_buff *Packet, /**<data buffer*/
 					USHORT Vcid)	;
 
 VOID LinkMessage(PMINI_ADAPTER Adapter);
 
 VOID transmit_packets(PMINI_ADAPTER Adapter);
 
-INT SendControlPacket(PMINI_ADAPTER Adapter, 
-							char *pControlPacket
+INT SendControlPacket(PMINI_ADAPTER Adapter, /**<Logical Adapter*/
+							char *pControlPacket/**<Control Packet*/
 							);
 
 

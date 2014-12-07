@@ -25,14 +25,19 @@
 #include <linux/hwmon-sysfs.h>
 #include <linux/delay.h>
 
+/* Internal reference voltage (VREF, x 1000 */
 #define SMM665_VREF_ADC_X1000	1250
 
+/* module parameters */
 static int vref = SMM665_VREF_ADC_X1000;
 module_param(vref, int, 0);
 MODULE_PARM_DESC(vref, "Reference voltage in mV");
 
 enum chips { smm465, smm665, smm665c, smm764, smm766 };
 
+/*
+ * ADC channel addresses
+ */
 #define	SMM665_MISC16_ADC_DATA_A	0x00
 #define	SMM665_MISC16_ADC_DATA_B	0x01
 #define	SMM665_MISC16_ADC_DATA_C	0x02
@@ -45,6 +50,9 @@ enum chips { smm465, smm665, smm665c, smm764, smm766 };
 #define	SMM665_MISC16_ADC_DATA_AIN1	0x09
 #define	SMM665_MISC16_ADC_DATA_AIN2	0x0a
 
+/*
+ * Command registers
+ */
 #define	SMM665_MISC8_CMD_STS		0x80
 #define	SMM665_MISC8_STATUS1		0x81
 #define	SMM665_MISC8_STATUSS2		0x82
@@ -55,9 +63,15 @@ enum chips { smm465, smm665, smm665c, smm764, smm766 };
 #define	SMM665_MISC8_WRITE_PROT		0x87
 #define	SMM665_MISC8_STS_TRACK		0x88
 
+/*
+ * Configuration registers and register groups
+ */
 #define SMM665_ADOC_ENABLE		0x0d
-#define SMM665_LIMIT_BASE		0x80	
+#define SMM665_LIMIT_BASE		0x80	/* First limit register */
 
+/*
+ * Limit register bit masks
+ */
 #define SMM665_TRIGGER_RST		0x8000
 #define SMM665_TRIGGER_HEALTHY		0x4000
 #define SMM665_TRIGGER_POWEROFF		0x2000
@@ -67,6 +81,11 @@ enum chips { smm465, smm665, smm665c, smm764, smm766 };
 #define smm665_is_critical(lim)	((lim) & (SMM665_TRIGGER_RST \
 					| SMM665_TRIGGER_POWEROFF \
 					| SMM665_TRIGGER_SHUTDOWN))
+/*
+ * Fault register bit definitions
+ * Values are merged from status registers 1/2,
+ * with status register 1 providing the upper 8 bits.
+ */
 #define SMM665_FAULT_A		0x0001
 #define SMM665_FAULT_B		0x0002
 #define SMM665_FAULT_C		0x0004
@@ -79,36 +98,54 @@ enum chips { smm465, smm665, smm665c, smm764, smm766 };
 #define SMM665_FAULT_AIN1	0x0200
 #define SMM665_FAULT_AIN2	0x0400
 
+/*
+ * I2C Register addresses
+ *
+ * The configuration register needs to be the configured base register.
+ * The command/status register address is derived from it.
+ */
 #define SMM665_REGMASK		0x78
 #define SMM665_CMDREG_BASE	0x48
 #define SMM665_CONFREG_BASE	0x50
 
+/*
+ *  Equations given by chip manufacturer to calculate voltage/temperature values
+ *  vref = Reference voltage on VREF_ADC pin (module parameter)
+ *  adc  = 10bit ADC value read back from registers
+ */
 
+/* Voltage A-F and VDD */
 #define SMM665_VMON_ADC_TO_VOLTS(adc)  ((adc) * vref / 256)
 
+/* Voltage 12VIN */
 #define SMM665_12VIN_ADC_TO_VOLTS(adc) ((adc) * vref * 3 / 256)
 
+/* Voltage AIN1, AIN2 */
 #define SMM665_AIN_ADC_TO_VOLTS(adc)   ((adc) * vref / 512)
 
+/* Temp Sensor */
 #define SMM665_TEMP_ADC_TO_CELSIUS(adc) (((adc) <= 511) ?		   \
 					 ((int)(adc) * 1000 / 4) :	   \
 					 (((int)(adc) - 0x400) * 1000 / 4))
 
 #define SMM665_NUM_ADC		11
 
+/*
+ * Chip dependent ADC conversion time, in uS
+ */
 #define SMM665_ADC_WAIT_SMM665	70
 #define SMM665_ADC_WAIT_SMM766	185
 
 struct smm665_data {
 	enum chips type;
-	int conversion_time;		
+	int conversion_time;		/* ADC conversion time */
 	struct device *hwmon_dev;
 	struct mutex update_lock;
 	bool valid;
-	unsigned long last_updated;	
-	u16 adc[SMM665_NUM_ADC];	
-	u16 faults;			
-	
+	unsigned long last_updated;	/* in jiffies */
+	u16 adc[SMM665_NUM_ADC];	/* adc values (raw) */
+	u16 faults;			/* fault status */
+	/* The following values are in mV */
 	int critical_min_limit[SMM665_NUM_ADC];
 	int alarm_min_limit[SMM665_NUM_ADC];
 	int critical_max_limit[SMM665_NUM_ADC];
@@ -116,6 +153,11 @@ struct smm665_data {
 	struct i2c_client *cmdreg;
 };
 
+/*
+ * smm665_read16()
+ *
+ * Read 16 bit value from <reg>, <reg+1>. Upper 8 bits are in <reg>.
+ */
 static int smm665_read16(struct i2c_client *client, int reg)
 {
 	int rv, val;
@@ -131,14 +173,35 @@ static int smm665_read16(struct i2c_client *client, int reg)
 	return val;
 }
 
+/*
+ * Read adc value.
+ */
 static int smm665_read_adc(struct smm665_data *data, int adc)
 {
 	struct i2c_client *client = data->cmdreg;
 	int rv;
 	int radc;
 
+	/*
+	 * Algorithm for reading ADC, per SMM665 datasheet
+	 *
+	 *  {[S][addr][W][Ack]} {[offset][Ack]} {[S][addr][R][Nack]}
+	 * [wait conversion time]
+	 *  {[S][addr][R][Ack]} {[datahi][Ack]} {[datalo][Ack][P]}
+	 *
+	 * To implement the first part of this exchange,
+	 * do a full read transaction and expect a failure/Nack.
+	 * This sets up the address pointer on the SMM665
+	 * and starts the ADC conversion.
+	 * Then do a two-byte read transaction.
+	 */
 	rv = i2c_smbus_read_byte_data(client, adc << 3);
 	if (rv != -ENXIO) {
+		/*
+		 * We expect ENXIO to reflect NACK
+		 * (per Documentation/i2c/fault-codes).
+		 * Everything else is an error.
+		 */
 		dev_dbg(&client->dev,
 			"Unexpected return code %d when setting ADC index", rv);
 		return (rv < 0) ? rv : -EIO;
@@ -146,11 +209,23 @@ static int smm665_read_adc(struct smm665_data *data, int adc)
 
 	udelay(data->conversion_time);
 
+	/*
+	 * Now read two bytes.
+	 *
+	 * Neither i2c_smbus_read_byte() nor
+	 * i2c_smbus_read_block_data() worked here,
+	 * so use i2c_smbus_read_word_swapped() instead.
+	 * We could also try to use i2c_master_recv(),
+	 * but that is not always supported.
+	 */
 	rv = i2c_smbus_read_word_swapped(client, 0);
 	if (rv < 0) {
 		dev_dbg(&client->dev, "Failed to read ADC value: error %d", rv);
 		return -1;
 	}
+	/*
+	 * Validate/verify readback adc channel (in bit 11..14).
+	 */
 	radc = (rv >> 11) & 0x0f;
 	if (radc != adc) {
 		dev_dbg(&client->dev, "Unexpected RADC: Expected %d got %d",
@@ -172,6 +247,9 @@ static struct smm665_data *smm665_update_device(struct device *dev)
 	if (time_after(jiffies, data->last_updated + HZ) || !data->valid) {
 		int i, val;
 
+		/*
+		 * read status registers
+		 */
 		val = smm665_read16(client, SMM665_MISC8_STATUS1);
 		if (unlikely(val < 0)) {
 			ret = ERR_PTR(val);
@@ -179,7 +257,7 @@ static struct smm665_data *smm665_update_device(struct device *dev)
 		}
 		data->faults = val;
 
-		
+		/* Read adc registers */
 		for (i = 0; i < SMM665_NUM_ADC; i++) {
 			val = smm665_read_adc(data, i);
 			if (unlikely(val < 0)) {
@@ -196,6 +274,7 @@ abort:
 	return ret;
 }
 
+/* Return converted value from given adc */
 static int smm665_convert(u16 adcval, int index)
 {
 	int val = 0;
@@ -225,7 +304,7 @@ static int smm665_convert(u16 adcval, int index)
 		break;
 
 	default:
-		
+		/* If we get here, the developer messed up */
 		WARN_ON_ONCE(1);
 		break;
 	}
@@ -310,12 +389,19 @@ SMM665_SHOW(max);
 SMM665_SHOW(lcrit);
 SMM665_SHOW(crit);
 
+/*
+ * These macros are used below in constructing device attribute objects
+ * for use with sysfs_create_group() to make a sysfs device file
+ * for each register.
+ */
 
 #define SMM665_ATTR(name, type, cmd_idx) \
 	static SENSOR_DEVICE_ATTR(name##_##type, S_IRUGO, \
 				  smm665_show_##type, NULL, cmd_idx)
 
+/* Construct a sensor_device_attribute structure for each register */
 
+/* Input voltages */
 SMM665_ATTR(in1, input, SMM665_MISC16_ADC_DATA_12V);
 SMM665_ATTR(in2, input, SMM665_MISC16_ADC_DATA_VDD);
 SMM665_ATTR(in3, input, SMM665_MISC16_ADC_DATA_A);
@@ -327,6 +413,7 @@ SMM665_ATTR(in8, input, SMM665_MISC16_ADC_DATA_F);
 SMM665_ATTR(in9, input, SMM665_MISC16_ADC_DATA_AIN1);
 SMM665_ATTR(in10, input, SMM665_MISC16_ADC_DATA_AIN2);
 
+/* Input voltages min */
 SMM665_ATTR(in1, min, SMM665_MISC16_ADC_DATA_12V);
 SMM665_ATTR(in2, min, SMM665_MISC16_ADC_DATA_VDD);
 SMM665_ATTR(in3, min, SMM665_MISC16_ADC_DATA_A);
@@ -338,6 +425,7 @@ SMM665_ATTR(in8, min, SMM665_MISC16_ADC_DATA_F);
 SMM665_ATTR(in9, min, SMM665_MISC16_ADC_DATA_AIN1);
 SMM665_ATTR(in10, min, SMM665_MISC16_ADC_DATA_AIN2);
 
+/* Input voltages max */
 SMM665_ATTR(in1, max, SMM665_MISC16_ADC_DATA_12V);
 SMM665_ATTR(in2, max, SMM665_MISC16_ADC_DATA_VDD);
 SMM665_ATTR(in3, max, SMM665_MISC16_ADC_DATA_A);
@@ -349,6 +437,7 @@ SMM665_ATTR(in8, max, SMM665_MISC16_ADC_DATA_F);
 SMM665_ATTR(in9, max, SMM665_MISC16_ADC_DATA_AIN1);
 SMM665_ATTR(in10, max, SMM665_MISC16_ADC_DATA_AIN2);
 
+/* Input voltages lcrit */
 SMM665_ATTR(in1, lcrit, SMM665_MISC16_ADC_DATA_12V);
 SMM665_ATTR(in2, lcrit, SMM665_MISC16_ADC_DATA_VDD);
 SMM665_ATTR(in3, lcrit, SMM665_MISC16_ADC_DATA_A);
@@ -360,6 +449,7 @@ SMM665_ATTR(in8, lcrit, SMM665_MISC16_ADC_DATA_F);
 SMM665_ATTR(in9, lcrit, SMM665_MISC16_ADC_DATA_AIN1);
 SMM665_ATTR(in10, lcrit, SMM665_MISC16_ADC_DATA_AIN2);
 
+/* Input voltages crit */
 SMM665_ATTR(in1, crit, SMM665_MISC16_ADC_DATA_12V);
 SMM665_ATTR(in2, crit, SMM665_MISC16_ADC_DATA_VDD);
 SMM665_ATTR(in3, crit, SMM665_MISC16_ADC_DATA_A);
@@ -371,6 +461,7 @@ SMM665_ATTR(in8, crit, SMM665_MISC16_ADC_DATA_F);
 SMM665_ATTR(in9, crit, SMM665_MISC16_ADC_DATA_AIN1);
 SMM665_ATTR(in10, crit, SMM665_MISC16_ADC_DATA_AIN2);
 
+/* critical alarms */
 SMM665_ATTR(in1, crit_alarm, SMM665_FAULT_12V);
 SMM665_ATTR(in2, crit_alarm, SMM665_FAULT_VDD);
 SMM665_ATTR(in3, crit_alarm, SMM665_FAULT_A);
@@ -382,6 +473,7 @@ SMM665_ATTR(in8, crit_alarm, SMM665_FAULT_F);
 SMM665_ATTR(in9, crit_alarm, SMM665_FAULT_AIN1);
 SMM665_ATTR(in10, crit_alarm, SMM665_FAULT_AIN2);
 
+/* Temperature */
 SMM665_ATTR(temp1, input, SMM665_MISC16_ADC_DATA_INT_TEMP);
 SMM665_ATTR(temp1, min, SMM665_MISC16_ADC_DATA_INT_TEMP);
 SMM665_ATTR(temp1, max, SMM665_MISC16_ADC_DATA_INT_TEMP);
@@ -389,6 +481,10 @@ SMM665_ATTR(temp1, lcrit, SMM665_MISC16_ADC_DATA_INT_TEMP);
 SMM665_ATTR(temp1, crit, SMM665_MISC16_ADC_DATA_INT_TEMP);
 SMM665_ATTR(temp1, crit_alarm, SMM665_FAULT_TEMP);
 
+/*
+ * Finally, construct an array of pointers to members of the above objects,
+ * as required for sysfs_create_group()
+ */
 static struct attribute *smm665_attributes[] = {
 	&sensor_dev_attr_in1_input.dev_attr.attr,
 	&sensor_dev_attr_in1_min.dev_attr.attr,
@@ -517,6 +613,25 @@ static int smm665_probe(struct i2c_client *client,
 	if (i2c_smbus_read_byte_data(data->cmdreg, SMM665_MISC8_CMD_STS) < 0)
 		goto out_unregister;
 
+	/*
+	 * Read limits.
+	 *
+	 * Limit registers start with register SMM665_LIMIT_BASE.
+	 * Each channel uses 8 registers, providing four limit values
+	 * per channel. Each limit value requires two registers, with the
+	 * high byte in the first register and the low byte in the second
+	 * register. The first two limits are under limit values, followed
+	 * by two over limit values.
+	 *
+	 * Limit register order matches the ADC register order, so we use
+	 * ADC register defines throughout the code to index limit registers.
+	 *
+	 * We save the first retrieved value both as "critical" and "alarm"
+	 * value. The second value overwrites either the critical or the
+	 * alarm value, depending on its configuration. This ensures that both
+	 * critical and alarm values are initialized, even if both registers are
+	 * configured as critical or non-critical.
+	 */
 	for (i = 0; i < SMM665_NUM_ADC; i++) {
 		int val;
 
@@ -546,7 +661,7 @@ static int smm665_probe(struct i2c_client *client,
 			data->alarm_max_limit[i] = smm665_convert(val, i);
 	}
 
-	
+	/* Register sysfs hooks */
 	ret = sysfs_create_group(&client->dev.kobj, &smm665_group);
 	if (ret)
 		goto out_unregister;
@@ -588,6 +703,7 @@ static const struct i2c_device_id smm665_id[] = {
 
 MODULE_DEVICE_TABLE(i2c, smm665_id);
 
+/* This is the driver that will be inserted */
 static struct i2c_driver smm665_driver = {
 	.driver = {
 		   .name = "smm665",

@@ -33,8 +33,10 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = { 0x2C, 0x2E, 0x2F, I2C_CLIENT_END };
 
+/* ADT7470 registers */
 #define ADT7470_REG_BASE_ADDR			0x20
 #define ADT7470_REG_TEMP_BASE_ADDR		0x20
 #define ADT7470_REG_TEMP_MAX_ADDR		0x29
@@ -116,18 +118,25 @@ static const unsigned short normal_i2c[] = { 0x2C, 0x2E, 0x2F, I2C_CLIENT_END };
 
 #define ADT7470_VENDOR		0x41
 #define ADT7470_DEVICE		0x70
+/* datasheet only mentions a revision 2 */
 #define ADT7470_REVISION	0x02
 
+/* "all temps" according to hwmon sysfs interface spec */
 #define ADT7470_PWM_ALL_TEMPS	0x3FF
 
+/* How often do we reread sensors values? (In jiffies) */
 #define SENSOR_REFRESH_INTERVAL	(5 * HZ)
 
+/* How often do we reread sensor limit values? (In jiffies) */
 #define LIMIT_REFRESH_INTERVAL	(60 * HZ)
 
+/* Wait at least 200ms per sensor for 10 sensors */
 #define TEMP_COLLECTION_TIME	2000
 
+/* auto update thing won't fire more than every 2s */
 #define AUTO_UPDATE_INTERVAL	2000
 
+/* datasheet says to divide this number by the fan reading to get fan rpm */
 #define FAN_PERIOD_TO_RPM(x)	((90000 * 60) / (x))
 #define FAN_RPM_TO_PERIOD	FAN_PERIOD_TO_RPM
 #define FAN_PERIOD_INVALID	65535
@@ -139,10 +148,10 @@ struct adt7470_data {
 	struct mutex		lock;
 	char			sensors_valid;
 	char			limits_valid;
-	unsigned long		sensors_last_updated;	
-	unsigned long		limits_last_updated;	
+	unsigned long		sensors_last_updated;	/* In jiffies */
+	unsigned long		limits_last_updated;	/* In jiffies */
 
-	int			num_temp_sensors;	
+	int			num_temp_sensors;	/* -1 = probe */
 	int			temperatures_probed;
 
 	s8			temp[ADT7470_TEMP_COUNT];
@@ -190,6 +199,10 @@ static struct i2c_driver adt7470_driver = {
 	.address_list	= normal_i2c,
 };
 
+/*
+ * 16-bit registers on the ADT7470 are low-byte first.  The data sheet says
+ * that the low byte must be read before the high byte.
+ */
 static inline int adt7470_read_word_data(struct i2c_client *client, u8 reg)
 {
 	u16 foo;
@@ -212,11 +225,12 @@ static void adt7470_init_client(struct i2c_client *client)
 	if (reg < 0) {
 		dev_err(&client->dev, "cannot read configuration register\n");
 	} else {
-		
+		/* start monitoring (and do a self-test) */
 		i2c_smbus_write_byte_data(client, ADT7470_REG_CFG, reg | 3);
 	}
 }
 
+/* Probe for temperature sensors.  Assumes lock is held */
 static int adt7470_read_temperatures(struct i2c_client *client,
 				     struct adt7470_data *data)
 {
@@ -224,40 +238,40 @@ static int adt7470_read_temperatures(struct i2c_client *client,
 	int i;
 	u8 cfg, pwm[4], pwm_cfg[2];
 
-	
+	/* save pwm[1-4] config register */
 	pwm_cfg[0] = i2c_smbus_read_byte_data(client, ADT7470_REG_PWM_CFG(0));
 	pwm_cfg[1] = i2c_smbus_read_byte_data(client, ADT7470_REG_PWM_CFG(2));
 
-	
+	/* set manual pwm to whatever it is set to now */
 	for (i = 0; i < ADT7470_FAN_COUNT; i++)
 		pwm[i] = i2c_smbus_read_byte_data(client, ADT7470_REG_PWM(i));
 
-	
+	/* put pwm in manual mode */
 	i2c_smbus_write_byte_data(client, ADT7470_REG_PWM_CFG(0),
 		pwm_cfg[0] & ~(ADT7470_PWM_AUTO_MASK));
 	i2c_smbus_write_byte_data(client, ADT7470_REG_PWM_CFG(2),
 		pwm_cfg[1] & ~(ADT7470_PWM_AUTO_MASK));
 
-	
+	/* write pwm control to whatever it was */
 	for (i = 0; i < ADT7470_FAN_COUNT; i++)
 		i2c_smbus_write_byte_data(client, ADT7470_REG_PWM(i), pwm[i]);
 
-	
+	/* start reading temperature sensors */
 	cfg = i2c_smbus_read_byte_data(client, ADT7470_REG_CFG);
 	cfg |= 0x80;
 	i2c_smbus_write_byte_data(client, ADT7470_REG_CFG, cfg);
 
-	
+	/* Delay is 200ms * number of temp sensors. */
 	res = msleep_interruptible((data->num_temp_sensors >= 0 ?
 				    data->num_temp_sensors * 200 :
 				    TEMP_COLLECTION_TIME));
 
-	
+	/* done reading temperature sensors */
 	cfg = i2c_smbus_read_byte_data(client, ADT7470_REG_CFG);
 	cfg &= ~0x80;
 	i2c_smbus_write_byte_data(client, ADT7470_REG_CFG, cfg);
 
-	
+	/* restore pwm[1-4] config registers */
 	i2c_smbus_write_byte_data(client, ADT7470_REG_PWM_CFG(0), pwm_cfg[0]);
 	i2c_smbus_write_byte_data(client, ADT7470_REG_PWM_CFG(2), pwm_cfg[1]);
 
@@ -266,7 +280,7 @@ static int adt7470_read_temperatures(struct i2c_client *client,
 		return -EAGAIN;
 	}
 
-	
+	/* Only count fans if we have to */
 	if (data->num_temp_sensors >= 0)
 		return 0;
 
@@ -308,6 +322,11 @@ static struct adt7470_data *adt7470_update_device(struct device *dev)
 	int need_sensors = 1;
 	int need_limits = 1;
 
+	/*
+	 * Figure out if we need to update the shadow registers.
+	 * Lockless means that we may occasionally report out of
+	 * date data.
+	 */
 	if (time_before(local_jiffies, data->sensors_last_updated +
 			SENSOR_REFRESH_INTERVAL) &&
 	    data->sensors_valid)
@@ -780,7 +799,7 @@ static ssize_t show_pwm_tmax(struct device *dev,
 {
 	struct sensor_device_attribute *attr = to_sensor_dev_attr(devattr);
 	struct adt7470_data *data = adt7470_update_device(dev);
-	
+	/* the datasheet says that tmax = tmin + 20C */
 	return sprintf(buf, "%d\n", 1000 * (20 + data->pwm_tmin[attr->index]));
 }
 
@@ -1204,6 +1223,7 @@ static struct attribute *adt7470_attr[] = {
 	NULL
 };
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int adt7470_detect(struct i2c_client *client,
 			  struct i2c_board_info *info)
 {
@@ -1250,10 +1270,10 @@ static int adt7470_probe(struct i2c_client *client,
 
 	dev_info(&client->dev, "%s chip found\n", client->name);
 
-	
+	/* Initialize the ADT7470 chip */
 	adt7470_init_client(client);
 
-	
+	/* Register sysfs hooks */
 	data->attrs.attrs = adt7470_attr;
 	err = sysfs_create_group(&client->dev.kobj, &data->attrs);
 	if (err)

@@ -46,7 +46,7 @@
 #define ALTERA_SPI_CONTROL_SSO_MSK	0x400
 
 struct altera_spi {
-	
+	/* bitbang has to be first */
 	struct spi_bitbang bitbang;
 	struct completion done;
 
@@ -57,7 +57,7 @@ struct altera_spi {
 	int bytes_per_word;
 	unsigned long imr;
 
-	
+	/* data buffers */
 	const unsigned char *tx;
 	unsigned char *rx;
 };
@@ -138,19 +138,19 @@ static int altera_spi_txrx(struct spi_device *spi, struct spi_transfer *t)
 	hw->len = t->len / hw->bytes_per_word;
 
 	if (hw->irq >= 0) {
-		
+		/* enable receive interrupt */
 		hw->imr |= ALTERA_SPI_CONTROL_IRRDY_MSK;
 		writel(hw->imr, hw->base + ALTERA_SPI_CONTROL);
 
-		
+		/* send the first byte */
 		writel(hw_txbyte(hw, 0), hw->base + ALTERA_SPI_TXDATA);
 
 		wait_for_completion(&hw->done);
-		
+		/* disable receive interrupt */
 		hw->imr &= ~ALTERA_SPI_CONTROL_IRRDY_MSK;
 		writel(hw->imr, hw->base + ALTERA_SPI_CONTROL);
 	} else {
-		
+		/* send the first byte */
 		writel(hw_txbyte(hw, 0), hw->base + ALTERA_SPI_TXDATA);
 
 		while (1) {
@@ -227,7 +227,7 @@ static int __devinit altera_spi_probe(struct platform_device *pdev)
 	if (!master)
 		return err;
 
-	
+	/* setup the master state. */
 	master->bus_num = pdev->id;
 	master->num_chipselect = 16;
 	master->mode_bits = SPI_CS_HIGH;
@@ -236,7 +236,7 @@ static int __devinit altera_spi_probe(struct platform_device *pdev)
 	hw = spi_master_get_devdata(master);
 	platform_set_drvdata(pdev, hw);
 
-	
+	/* setup the state for the bitbang driver */
 	hw->bitbang.master = spi_master_get(master);
 	if (!hw->bitbang.master)
 		return err;
@@ -244,7 +244,7 @@ static int __devinit altera_spi_probe(struct platform_device *pdev)
 	hw->bitbang.chipselect = altera_spi_chipsel;
 	hw->bitbang.txrx_bufs = altera_spi_txrx;
 
-	
+	/* find and map our resources */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res)
 		goto exit_busy;
@@ -255,13 +255,13 @@ static int __devinit altera_spi_probe(struct platform_device *pdev)
 					resource_size(res));
 	if (!hw->base)
 		goto exit_busy;
-	
-	hw->imr = 0;		
+	/* program defaults into the registers */
+	hw->imr = 0;		/* disable spi interrupts */
 	writel(hw->imr, hw->base + ALTERA_SPI_CONTROL);
-	writel(0, hw->base + ALTERA_SPI_STATUS);	
+	writel(0, hw->base + ALTERA_SPI_STATUS);	/* clear status reg */
 	if (readl(hw->base + ALTERA_SPI_STATUS) & ALTERA_SPI_STATUS_RRDY_MSK)
-		readl(hw->base + ALTERA_SPI_RXDATA);	
-	
+		readl(hw->base + ALTERA_SPI_RXDATA);	/* flush rxdata */
+	/* irq is optional */
 	hw->irq = platform_get_irq(pdev, 0);
 	if (hw->irq >= 0) {
 		init_completion(&hw->done);
@@ -270,11 +270,11 @@ static int __devinit altera_spi_probe(struct platform_device *pdev)
 		if (err)
 			goto exit;
 	}
-	
+	/* find platform data */
 	if (!platp)
 		hw->bitbang.master->dev.of_node = pdev->dev.of_node;
 
-	
+	/* register our spi controller */
 	err = spi_bitbang_start(&hw->bitbang);
 	if (err)
 		goto exit;
@@ -307,9 +307,9 @@ static const struct of_device_id altera_spi_match[] = {
 	{},
 };
 MODULE_DEVICE_TABLE(of, altera_spi_match);
-#else 
+#else /* CONFIG_OF */
 #define altera_spi_match NULL
-#endif 
+#endif /* CONFIG_OF */
 
 static struct platform_driver altera_spi_driver = {
 	.probe = altera_spi_probe,

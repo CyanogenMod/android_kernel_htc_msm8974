@@ -31,7 +31,7 @@ int sunserial_register_minors(struct uart_driver *drv, int count)
 
 	drv->minor = sunserial_current_minor;
 	drv->nr += count;
-	
+	/* Register the driver on the first call */
 	if (drv->nr == count)
 		err = uart_register_driver(drv);
 	if (err == 0) {
@@ -125,7 +125,7 @@ void sunserial_console_termios(struct console *con, struct device_node *uart_dp)
 	s = strchr(s, ',');
 	stop = simple_strtoul(++s, NULL, 0);
 	s = strchr(s, ',');
-	
+	/* XXX handshake is not handled here. */
 
 	switch (baud) {
 		case 150: cflag |= B150; break;
@@ -166,6 +166,7 @@ void sunserial_console_termios(struct console *con, struct device_node *uart_dp)
 	con->cflag = cflag;
 }
 
+/* Sun serial MOUSE auto baud rate detection.  */
 static struct mouse_baud_cflag {
 	int baud;
 	unsigned int cflag;
@@ -196,16 +197,22 @@ unsigned int suncore_mouse_baud_cflag_next(unsigned int cflag, int *new_baud)
 
 EXPORT_SYMBOL(suncore_mouse_baud_cflag_next);
 
+/* Basically, when the baud rate is wrong the mouse spits out
+ * breaks to us.
+ */
 int suncore_mouse_baud_detection(unsigned char ch, int is_break)
 {
 	static int mouse_got_break = 0;
 	static int ctr = 0;
 
 	if (is_break) {
+		/* Let a few normal bytes go by before we jump the gun
+		 * and say we need to try another baud rate.
+		 */
 		if (mouse_got_break && ctr < 8)
 			return 1;
 
-		
+		/* Ok, we need to try another baud. */
 		ctr = 0;
 		mouse_got_break = 1;
 		return 2;
@@ -213,7 +220,7 @@ int suncore_mouse_baud_detection(unsigned char ch, int is_break)
 	if (mouse_got_break) {
 		ctr++;
 		if (ch == 0x87) {
-			
+			/* Correct baud rate determined. */
 			mouse_got_break = 0;
 		}
 		return 1;

@@ -44,6 +44,11 @@ static void *sun4u_config_mkaddr(struct pci_pbm_info *pbm,
 	return (void *)	(pbm->config_space | bus | devfn | reg);
 }
 
+/* At least on Sabre, it is necessary to access all PCI host controller
+ * registers at their natural size, otherwise zeros are returned.
+ * Strange but true, and I see no language in the UltraSPARC-IIi
+ * programmer's manual that mentions this even indirectly.
+ */
 static int sun4u_read_pci_cfg_host(struct pci_pbm_info *pbm,
 				   unsigned char bus, unsigned int devfn,
 				   int where, int size, u32 *value)
@@ -292,8 +297,12 @@ static int sun4v_write_pci_cfg(struct pci_bus *bus_dev, unsigned int devfn,
 	unsigned int func = PCI_FUNC(devfn);
 
 	if (config_out_of_range(pbm, bus, devfn, where)) {
-		
+		/* Do nothing. */
 	} else {
+		/* We don't check for hypervisor errors here, but perhaps
+		 * we should and influence our return value depending upon
+		 * what kind of error is thrown.
+		 */
 		pci_sun4v_config_put(devhandle,
 				     HV_PCI_DEVICE_BUILD(bus, device, func),
 				     where, size, value);
@@ -325,7 +334,7 @@ static void pci_register_legacy_regions(struct resource *io_res,
 {
 	struct resource *p;
 
-	
+	/* VGA Video RAM. */
 	p = kzalloc(sizeof(*p), GFP_KERNEL);
 	if (!p)
 		return;
@@ -422,12 +431,12 @@ void pci_determine_mem_io_space(struct pci_pbm_info *pbm)
 
 		switch (type) {
 		case 0:
-			
+			/* PCI config space, 16MB */
 			pbm->config_space = a;
 			break;
 
 		case 1:
-			
+			/* 16-bit IO space, 16MB */
 			pbm->io_space.start = a;
 			pbm->io_space.end = a + size - 1UL;
 			pbm->io_space.flags = IORESOURCE_IO;
@@ -435,7 +444,7 @@ void pci_determine_mem_io_space(struct pci_pbm_info *pbm)
 			break;
 
 		case 2:
-			
+			/* 32-bit MEM space, 2GB */
 			pbm->mem_space.start = a;
 			pbm->mem_space.end = a + size - 1UL;
 			pbm->mem_space.flags = IORESOURCE_MEM;
@@ -443,7 +452,7 @@ void pci_determine_mem_io_space(struct pci_pbm_info *pbm)
 			break;
 
 		case 3:
-			
+			/* XXX 64-bit MEM handling XXX */
 
 		default:
 			break;
@@ -472,6 +481,7 @@ void pci_determine_mem_io_space(struct pci_pbm_info *pbm)
 	pci_register_iommu_region(pbm);
 }
 
+/* Generic helper routines for PCI error reporting. */
 void pci_scan_for_target_abort(struct pci_pbm_info *pbm,
 			       struct pci_bus *pbus)
 {

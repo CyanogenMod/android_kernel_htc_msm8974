@@ -24,7 +24,7 @@ static int jack_detect_kctl_get(struct snd_kcontrol *kcontrol,
 }
 
 static struct snd_kcontrol_new jack_detect_kctl = {
-	
+	/* name is filled later */
 	.iface = SNDRV_CTL_ELEM_IFACE_CARD,
 	.access = SNDRV_CTL_ELEM_ACCESS_READ,
 	.info = jack_detect_kctl_info,

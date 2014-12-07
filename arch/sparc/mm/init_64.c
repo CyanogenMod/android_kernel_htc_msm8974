@@ -53,9 +53,17 @@
 
 unsigned long kern_linear_pte_xor[2] __read_mostly;
 
+/* A bitmap, one bit for every 256MB of physical memory.  If the bit
+ * is clear, we should use a 4MB page (via kern_linear_pte_xor[0]) else
+ * if set we should use a 256MB page (via kern_linear_pte_xor[1]).
+ */
 unsigned long kpte_linear_bitmap[KPTE_BITMAP_BYTES / sizeof(unsigned long)];
 
 #ifndef CONFIG_DEBUG_PAGEALLOC
+/* A special kernel TSB for 4MB and 256MB linear mappings.
+ * Space is allocated for this right after the trap table
+ * in arch/sparc64/kernel/head.S
+ */
 extern struct tsb swapper_4m_tsb[KERNEL_TSB4M_NENTRIES];
 #endif
 
@@ -97,6 +105,9 @@ static void __init read_obp_memory(const char *property,
 		prom_halt();
 	}
 
+	/* Sanitize what we got from the firmware, by page aligning
+	 * everything.
+	 */
 	for (i = 0; i < ents; i++) {
 		unsigned long base, size;
 
@@ -113,6 +124,10 @@ static void __init read_obp_memory(const char *property,
 			base = new_base;
 		}
 		if (size == 0UL) {
+			/* If it is empty, simply get rid of it.
+			 * This simplifies the logic of the other
+			 * functions that process these arrays.
+			 */
 			memmove(&regs[i], &regs[i + 1],
 				(ents - i - 1) * sizeof(regs[0]));
 			i--;
@@ -133,9 +148,11 @@ unsigned long sparc64_valid_addr_bitmap[VALID_ADDR_BITMAP_BYTES /
 					sizeof(unsigned long)];
 EXPORT_SYMBOL(sparc64_valid_addr_bitmap);
 
+/* Kernel physical address base and size in bytes.  */
 unsigned long kern_base __read_mostly;
 unsigned long kern_size __read_mostly;
 
+/* Initial ramdisk setup */
 extern unsigned long sparc_ramdisk_image64;
 extern unsigned int sparc_ramdisk_image;
 extern unsigned int sparc_ramdisk_size;
@@ -200,7 +217,7 @@ static inline void set_dcache_dirty(struct page *page, int this_cpu)
 			     "cmp	%%g7, %%g1\n\t"
 			     "bne,pn	%%xcc, 1b\n\t"
 			     " nop"
-			     : 
+			     : /* no outputs */
 			     : "r" (mask), "r" (non_cpu_bits), "r" (&page->flags)
 			     : "g1", "g7");
 }
@@ -222,7 +239,7 @@ static inline void clear_dcache_dirty_cpu(struct page *page, unsigned long cpu)
 			     "bne,pn	%%xcc, 1b\n\t"
 			     " nop\n"
 			     "2:"
-			     : 
+			     : /* no outputs */
 			     : "r" (cpu), "r" (mask), "r" (&page->flags),
 			       "i" (PG_dcache_cpu_mask),
 			       "i" (PG_dcache_cpu_shift)
@@ -256,6 +273,9 @@ static void flush_dcache(unsigned long pfn)
 				   PG_dcache_cpu_mask);
 			int this_cpu = get_cpu();
 
+			/* This is just to optimize away some function calls
+			 * in the SMP case.
+			 */
 			if (cpu == this_cpu)
 				flush_dcache_page_impl(page);
 			else
@@ -319,6 +339,10 @@ void flush_dcache_page(struct page *page)
 	if (tlb_type == hypervisor)
 		return;
 
+	/* Do not bother with the expensive D-cache flush if it
+	 * is merely the zero page.  The 'bigcore' testcase in GDB
+	 * causes this case to run millions of times.
+	 */
 	if (page == ZERO_PAGE(0))
 		return;
 
@@ -336,6 +360,11 @@ void flush_dcache_page(struct page *page)
 		}
 		set_dcache_dirty(page, this_cpu);
 	} else {
+		/* We could delay the flush for the !page_mapping
+		 * case too.  But that case is for exec env/arg
+		 * pages and those are %99 certainly going to get
+		 * faulted into the tlb (and thus flushed) anyways.
+		 */
 		flush_dcache_page_impl(page);
 	}
 
@@ -346,10 +375,13 @@ EXPORT_SYMBOL(flush_dcache_page);
 
 void __kprobes flush_icache_range(unsigned long start, unsigned long end)
 {
-	
+	/* Cheetah and Hypervisor platform cpus have coherent I-cache. */
 	if (tlb_type == spitfire) {
 		unsigned long kaddr;
 
+		/* This code only runs on Spitfire cpus so this is
+		 * why we can assume _PAGE_PADDR_4U.
+		 */
 		for (kaddr = start; kaddr < end; kaddr += PAGE_SIZE) {
 			unsigned long paddr, mask = _PAGE_PADDR_4U;
 
@@ -388,8 +420,8 @@ void mmu_info(struct seq_file *m)
 #ifdef CONFIG_SMP
 	seq_printf(m, "DCPageFlushesXC\t: %d\n",
 		   atomic_read(&dcpage_flushes_xcall));
-#endif 
-#endif 
+#endif /* CONFIG_SMP */
+#endif /* CONFIG_DEBUG_DCFLUSH */
 }
 
 struct linux_prom_translation prom_trans[512] __read_mostly;
@@ -397,6 +429,10 @@ unsigned int prom_trans_ents __read_mostly;
 
 unsigned long kern_locked_tte_data;
 
+/* The obp translations are saved based on 8k pagesize, since obp can
+ * use a mixture of pagesizes. Misses to the LOW_OBP_ADDRESS ->
+ * HI_OBP_ADDRESS range are handled in ktlb.S.
+ */
 static inline int in_obp_range(unsigned long vaddr)
 {
 	return (vaddr >= LOW_OBP_ADDRESS &&
@@ -414,6 +450,7 @@ static int cmp_ptrans(const void *a, const void *b)
 	return 0;
 }
 
+/* Read OBP translations property into 'prom_trans[]'.  */
 static void __init read_obp_translations(void)
 {
 	int n, node, ents, first, last, i;
@@ -443,7 +480,7 @@ static void __init read_obp_translations(void)
 	sort(prom_trans, ents, sizeof(struct linux_prom_translation),
 	     cmp_ptrans, NULL);
 
-	
+	/* Now kick out all the non-OBP entries.  */
 	for (i = 0; i < ents; i++) {
 		if (in_obp_range(prom_trans[i].virt))
 			break;
@@ -469,12 +506,12 @@ static void __init read_obp_translations(void)
 	prom_trans_ents = last - first;
 
 	if (tlb_type == spitfire) {
-		
+		/* Clear diag TTE bits. */
 		for (i = 0; i < prom_trans_ents; i++)
 			prom_trans[i].data &= ~0x0003fe0000000000UL;
 	}
 
-	
+	/* Force execute bit on.  */
 	for (i = 0; i < prom_trans_ents; i++)
 		prom_trans[i].data |= (tlb_type == hypervisor ?
 				       _PAGE_EXEC_4V : _PAGE_EXEC_4U);
@@ -506,7 +543,7 @@ static void __init remap_kernel(void)
 
 	kern_locked_tte_data = tte_data;
 
-	
+	/* Now lock us into the TLBs via Hypervisor or OBP. */
 	if (tlb_type == hypervisor) {
 		for (i = 0; i < num_kernel_image_mappings; i++) {
 			hypervisor_tlb_lock(tte_vaddr, tte_data, HV_MMU_DMMU);
@@ -534,7 +571,7 @@ static void __init remap_kernel(void)
 
 static void __init inherit_prom_mappings(void)
 {
-	
+	/* Now fixup OBP's idea about where we really are mapped. */
 	printk("Remapping the kernel... ");
 	remap_kernel();
 	printk("done.\n");
@@ -566,19 +603,30 @@ void __flush_dcache_range(unsigned long start, unsigned long end)
 		for (va = start; va < end; va += 32)
 			__asm__ __volatile__("stxa %%g0, [%0] %1\n\t"
 					     "membar #Sync"
-					     : 
+					     : /* no outputs */
 					     : "r" (va),
 					       "i" (ASI_DCACHE_INVALIDATE));
 	}
 }
 EXPORT_SYMBOL(__flush_dcache_range);
 
+/* get_new_mmu_context() uses "cache + 1".  */
 DEFINE_SPINLOCK(ctx_alloc_lock);
 unsigned long tlb_context_cache = CTX_FIRST_VERSION - 1;
 #define MAX_CTX_NR	(1UL << CTX_NR_BITS)
 #define CTX_BMAP_SLOTS	BITS_TO_LONGS(MAX_CTX_NR)
 DECLARE_BITMAP(mmu_context_bmap, MAX_CTX_NR);
 
+/* Caller does TLB context flushing on local CPU if necessary.
+ * The caller also ensures that CTX_VALID(mm->context) is false.
+ *
+ * We must be careful about boundary cases so that we never
+ * let the user have CTX 0 (nucleus) or we ever use a CTX
+ * version of zero (and thus NO_CONTEXT would not be caught
+ * by version mis-match tests in mmu_context.h).
+ *
+ * Always invoked with interrupts disabled.
+ */
 void get_new_mmu_context(struct mm_struct *mm)
 {
 	unsigned long ctx, new_ctx;
@@ -600,6 +648,9 @@ void get_new_mmu_context(struct mm_struct *mm)
 			if (new_ctx == 1)
 				new_ctx = CTX_FIRST_VERSION;
 
+			/* Don't call memset, for 16 entries that's just
+			 * plain silly...
+			 */
 			mmu_context_bmap[0] = 3;
 			mmu_context_bmap[1] = 0;
 			mmu_context_bmap[2] = 0;
@@ -654,10 +705,22 @@ static void __init find_ramdisk(unsigned long phys_base)
 	if (sparc_ramdisk_image || sparc_ramdisk_image64) {
 		unsigned long ramdisk_image;
 
+		/* Older versions of the bootloader only supported a
+		 * 32-bit physical address for the ramdisk image
+		 * location, stored at sparc_ramdisk_image.  Newer
+		 * SILO versions set sparc_ramdisk_image to zero and
+		 * provide a full 64-bit physical address at
+		 * sparc_ramdisk_image64.
+		 */
 		ramdisk_image = sparc_ramdisk_image;
 		if (!ramdisk_image)
 			ramdisk_image = sparc_ramdisk_image64;
 
+		/* Another bootloader quirk.  The bootloader normalizes
+		 * the physical address to KERNBASE, so we have to
+		 * factor that back out and add in the lowest valid
+		 * physical page address to get the true physical address.
+		 */
 		ramdisk_image -= KERNBASE;
 		ramdisk_image += phys_base;
 
@@ -691,7 +754,7 @@ cpumask_t numa_cpumask_lookup_table[MAX_NUMNODES];
 struct mdesc_mblock {
 	u64	base;
 	u64	size;
-	u64	offset; 
+	u64	offset; /* RA-to-PA */
 };
 static struct mdesc_mblock *mblocks;
 static int num_mblocks;
@@ -751,6 +814,10 @@ static u64 memblock_nid_range(u64 start, u64 end, int *nid)
 }
 #endif
 
+/* This must be invoked after performing all of the necessary
+ * memblock_set_node() calls for 'nid'.  We need to be able to get
+ * correct data from get_pfn_range_for_nid().
+ */
 static void __init allocate_node_data(int nid)
 {
 	unsigned long paddr, num_pages, start_pfn, end_pfn;
@@ -873,6 +940,10 @@ int of_node_to_nid(struct device_node *dp)
 	int count, nid;
 	u64 grp;
 
+	/* This is the right thing to do on currently supported
+	 * SUN4U NUMA platforms as well, as the PCI controller does
+	 * not sit behind any particular memory controller.
+	 */
 	if (!mlgroups)
 		return -1;
 
@@ -1142,6 +1213,9 @@ static int __init numa_parse_jbus(void)
 {
 	unsigned long cpu, index;
 
+	/* NUMA node id is encoded in bits 36 and higher, and there is
+	 * a 1-to-1 mapping from CPU ID to NUMA node ID.
+	 */
 	index = 0;
 	for_each_present_cpu(cpu) {
 		numa_cpu_lookup_table[cpu] = index;
@@ -1295,7 +1369,7 @@ static unsigned long __init bootmem_init(unsigned long phys_base)
 	if (bootmem_init_numa() < 0)
 		bootmem_init_nonnuma();
 
-	
+	/* XXX cpu notifier XXX */
 
 	for_each_online_node(nid)
 		bootmem_init_one_node(nid);
@@ -1365,7 +1439,7 @@ static unsigned long __ref kernel_map_range(unsigned long pstart,
 }
 
 extern unsigned int kvmap_linear_patch[1];
-#endif 
+#endif /* CONFIG_DEBUG_PAGEALLOC */
 
 static void __init mark_kpte_bitmap(unsigned long start, unsigned long end)
 {
@@ -1428,7 +1502,7 @@ static void __init kernel_physical_mapping_init(void)
 	printk("Allocated %ld bytes for kernel page tables.\n",
 	       mem_alloced);
 
-	kvmap_linear_patch[0] = 0x01000000; 
+	kvmap_linear_patch[0] = 0x01000000; /* nop */
 	flushi(&kvmap_linear_patch[0]);
 
 	__flush_tlb_all();
@@ -1447,6 +1521,9 @@ void kernel_map_pages(struct page *page, int numpages, int enable)
 	flush_tsb_kernel_range(PAGE_OFFSET + phys_start,
 			       PAGE_OFFSET + phys_end);
 
+	/* we should perform an IPI and flush all tlbs,
+	 * but that can deadlock->flush only current cpu.
+	 */
 	__flush_tlb_kernel_range(PAGE_OFFSET + phys_start,
 				 PAGE_OFFSET + phys_end);
 }
@@ -1479,7 +1556,7 @@ static void __init tsb_phys_patch(void)
 			*(unsigned int *) addr = pquad->sun4u_insn;
 		wmb();
 		__asm__ __volatile__("flush	%0"
-				     : 
+				     : /* no outputs */
 				     : "r" (addr));
 
 		pquad++;
@@ -1492,13 +1569,14 @@ static void __init tsb_phys_patch(void)
 		*(unsigned int *) addr = p->insn;
 		wmb();
 		__asm__ __volatile__("flush	%0"
-				     : 
+				     : /* no outputs */
 				     : "r" (addr));
 
 		p++;
 	}
 }
 
+/* Don't mark as init, we give this to the Hypervisor.  */
 #ifndef CONFIG_DEBUG_PAGEALLOC
 #define NUM_KTSB_DESCR	2
 #else
@@ -1549,7 +1627,7 @@ static void __init sun4v_ktsb_init(void)
 {
 	unsigned long ktsb_pa;
 
-	
+	/* First KTSB for PAGE_SIZE mappings.  */
 	ktsb_pa = kern_base + ((unsigned long)&swapper_tsb[0] - KERNBASE);
 
 	switch (PAGE_SIZE) {
@@ -1582,7 +1660,7 @@ static void __init sun4v_ktsb_init(void)
 	ktsb_descr[0].resv = 0;
 
 #ifndef CONFIG_DEBUG_PAGEALLOC
-	
+	/* Second KTSB for 4MB/256MB mappings.  */
 	ktsb_pa = (kern_base +
 		   ((unsigned long)&swapper_4m_tsb[0] - KERNBASE));
 
@@ -1611,6 +1689,7 @@ void __cpuinit sun4v_ktsb_register(void)
 	}
 }
 
+/* paging_init() sets up the page tables */
 
 static unsigned long last_valid_pfn;
 pgd_t swapper_pg_dir[2048];
@@ -1623,9 +1702,26 @@ void __init paging_init(void)
 	unsigned long end_pfn, shift, phys_base;
 	unsigned long real_end, i;
 
+	/* These build time checkes make sure that the dcache_dirty_cpu()
+	 * page->flags usage will work.
+	 *
+	 * When a page gets marked as dcache-dirty, we store the
+	 * cpu number starting at bit 32 in the page->flags.  Also,
+	 * functions like clear_dcache_dirty_cpu use the cpu mask
+	 * in 13-bit signed-immediate instruction fields.
+	 */
 
+	/*
+	 * Page flags must not reach into upper 32 bits that are used
+	 * for the cpu number
+	 */
 	BUILD_BUG_ON(NR_PAGEFLAGS > 32);
 
+	/*
+	 * The bit fields placed in the high range must not reach below
+	 * the 32 bit boundary. Otherwise we cannot place the cpu field
+	 * at the 32 bit boundary.
+	 */
 	BUILD_BUG_ON(SECTIONS_WIDTH + NODES_WIDTH + ZONES_WIDTH +
 		ilog2(roundup_pow_of_two(NR_CPUS)) > 32);
 
@@ -1634,7 +1730,7 @@ void __init paging_init(void)
 	kern_base = (prom_boot_mapping_phys_low >> 22UL) << 22UL;
 	kern_size = (unsigned long)&_end - (unsigned long)KERNBASE;
 
-	
+	/* Invalidate both kernel TSBs.  */
 	memset(swapper_tsb, 0x40, sizeof(swapper_tsb));
 #ifndef CONFIG_DEBUG_PAGEALLOC
 	memset(swapper_4m_tsb, 0x40, sizeof(swapper_4m_tsb));
@@ -1656,6 +1752,14 @@ void __init paging_init(void)
 		sun4v_ktsb_init();
 	}
 
+	/* Find available physical memory...
+	 *
+	 * Read it twice in order to work around a bug in openfirmware.
+	 * The call to grab this table itself can cause openfirmware to
+	 * allocate memory, which in turn can take away some space from
+	 * the list of available memory.  Reading it twice makes sure
+	 * we really do get the final value.
+	 */
 	read_obp_translations();
 	read_obp_memory("reg", &pall[0], &pall_ents);
 	read_obp_memory("available", &pavail[0], &pavail_ents);
@@ -1685,11 +1789,14 @@ void __init paging_init(void)
 	printk("Kernel: Using %d locked TLB entries for main kernel image.\n",
 	       num_kernel_image_mappings);
 
+	/* Set kernel pgd to upper alias so physical page computations
+	 * work.
+	 */
 	init_mm.pgd += ((shift) / (sizeof(pgd_t)));
 	
 	memset(swapper_low_pmd_dir, 0, sizeof(swapper_low_pmd_dir));
 
-	
+	/* Now can init the kernel/bad page tables. */
 	pud_set(pud_offset(&swapper_pg_dir[0], 0),
 		swapper_low_pmd_dir + (shift / sizeof(pgd_t)));
 	
@@ -1697,7 +1804,7 @@ void __init paging_init(void)
 	
 	init_kpte_bitmap();
 
-	
+	/* Ok, we can use our TLB miss and window trap handlers safely.  */
 	setup_tba();
 
 	__flush_tlb_all();
@@ -1719,13 +1826,17 @@ void __init paging_init(void)
 #endif
 	}
 
+	/* Once the OF device tree and MDESC have been setup, we know
+	 * the list of possible cpus.  Therefore we can allocate the
+	 * IRQ stacks.
+	 */
 	for_each_possible_cpu(i) {
-		
+		/* XXX Use node local allocations... XXX */
 		softirq_stack[i] = __va(memblock_alloc(THREAD_SIZE, THREAD_SIZE));
 		hardirq_stack[i] = __va(memblock_alloc(THREAD_SIZE, THREAD_SIZE));
 	}
 
-	
+	/* Setup bootmem... */
 	last_valid_pfn = end_pfn = bootmem_init(phys_base);
 
 #ifndef CONFIG_NEED_MULTIPLE_NODES
@@ -1775,6 +1886,12 @@ int __devinit page_in_phys_avail(unsigned long paddr)
 static struct linux_prom64_registers pavail_rescan[MAX_BANKS] __initdata;
 static int pavail_rescan_ents __initdata;
 
+/* Certain OBP calls, such as fetching "available" properties, can
+ * claim physical memory.  So, along with initializing the valid
+ * address bitmap, what we do here is refetch the physical available
+ * memory list again, and make sure it provides at least as much
+ * memory as 'pavail' does.
+ */
 static void __init setup_valid_addr_bitmap_from_pavail(unsigned long *bitmap)
 {
 	int i;
@@ -1861,9 +1978,16 @@ void __init mem_init(void)
 	totalram_pages = free_all_bootmem();
 #endif
 
+	/* We subtract one to account for the mem_map_zero page
+	 * allocated below.
+	 */
 	totalram_pages -= 1;
 	num_physpages = totalram_pages;
 
+	/*
+	 * Set up the zero page, mark it reserved, so that page count
+	 * is not manipulated when freeing the page from user ptes.
+	 */
 	mem_map_zero = alloc_pages(GFP_KERNEL|__GFP_ZERO, 0);
 	if (mem_map_zero == NULL) {
 		prom_printf("paging_init: Cannot alloc zero page.\n");
@@ -1894,9 +2018,17 @@ void free_initmem(void)
 	unsigned long addr, initend;
 	int do_free = 1;
 
+	/* If the physical memory maps were trimmed by kernel command
+	 * line options, don't even try freeing this initmem stuff up.
+	 * The kernel image could have been in the trimmed out region
+	 * and if so the freeing below will free invalid page structs.
+	 */
 	if (cmdline_memory_size)
 		do_free = 0;
 
+	/*
+	 * The init section is aligned to 8k in vmlinux.lds. Page align for >8k pagesizes.
+	 */
 	addr = PAGE_ALIGN((unsigned long)(__init_begin));
 	initend = (unsigned long)(__init_end) & PAGE_MASK;
 	for (; addr < initend; addr += PAGE_SIZE) {
@@ -2006,7 +2138,7 @@ int __meminit vmemmap_populate(struct page *start, unsigned long nr, int node)
 	}
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SPARSEMEM_VMEMMAP */
 
 static void prot_init_common(unsigned long page_none,
 			     unsigned long page_shared,
@@ -2066,7 +2198,7 @@ static void __init sun4u_pgprot_init(void)
 	kern_linear_pte_xor[0] |= (_PAGE_CP_4U | _PAGE_CV_4U |
 				   _PAGE_P_4U | _PAGE_W_4U);
 
-	
+	/* XXX Should use 256MB on Panther. XXX */
 	kern_linear_pte_xor[1] = kern_linear_pte_xor[0];
 
 	_PAGE_SZBITS = _PAGE_SZBITS_4U;
@@ -2202,6 +2334,7 @@ static unsigned long kern_large_tte(unsigned long paddr)
 	return val | paddr;
 }
 
+/* If not locked, zap it. */
 void __flush_tlb_all(void)
 {
 	unsigned long pstate;
@@ -2216,32 +2349,38 @@ void __flush_tlb_all(void)
 		sun4v_mmu_demap_all();
 	} else if (tlb_type == spitfire) {
 		for (i = 0; i < 64; i++) {
-			
+			/* Spitfire Errata #32 workaround */
+			/* NOTE: Always runs on spitfire, so no
+			 *       cheetah+ page size encodings.
+			 */
 			__asm__ __volatile__("stxa	%0, [%1] %2\n\t"
 					     "flush	%%g6"
-					     : 
+					     : /* No outputs */
 					     : "r" (0),
 					     "r" (PRIMARY_CONTEXT), "i" (ASI_DMMU));
 
 			if (!(spitfire_get_dtlb_data(i) & _PAGE_L_4U)) {
 				__asm__ __volatile__("stxa %%g0, [%0] %1\n\t"
 						     "membar #Sync"
-						     : 
+						     : /* no outputs */
 						     : "r" (TLB_TAG_ACCESS), "i" (ASI_DMMU));
 				spitfire_put_dtlb_data(i, 0x0UL);
 			}
 
-			
+			/* Spitfire Errata #32 workaround */
+			/* NOTE: Always runs on spitfire, so no
+			 *       cheetah+ page size encodings.
+			 */
 			__asm__ __volatile__("stxa	%0, [%1] %2\n\t"
 					     "flush	%%g6"
-					     : 
+					     : /* No outputs */
 					     : "r" (0),
 					     "r" (PRIMARY_CONTEXT), "i" (ASI_DMMU));
 
 			if (!(spitfire_get_itlb_data(i) & _PAGE_L_4U)) {
 				__asm__ __volatile__("stxa %%g0, [%0] %1\n\t"
 						     "membar #Sync"
-						     : 
+						     : /* no outputs */
 						     : "r" (TLB_TAG_ACCESS), "i" (ASI_IMMU));
 				spitfire_put_itlb_data(i, 0x0UL);
 			}

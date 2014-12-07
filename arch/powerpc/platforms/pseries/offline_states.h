@@ -1,6 +1,7 @@
 #ifndef _OFFLINE_STATES_H_
 #define _OFFLINE_STATES_H_
 
+/* Cpu offline states go here */
 enum cpu_state_vals {
 	CPU_STATE_OFFLINE,
 	CPU_STATE_INACTIVE,

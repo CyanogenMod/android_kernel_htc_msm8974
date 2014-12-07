@@ -104,6 +104,12 @@ int mc13xxx_get_best_voltage_index(struct regulator_dev *rdev,
 	int bestmatch;
 	int bestindex;
 
+	/*
+	 * Locate the minimum voltage fitting the criteria on
+	 * this regulator. The switchable voltages are not
+	 * in strict falling order so we need to check them
+	 * all for the best match.
+	 */
 	bestmatch = INT_MAX;
 	bestindex = -1;
 	for (i = 0; i < mc13xxx_regulators[reg_id].desc.n_voltages; i++) {
@@ -134,7 +140,7 @@ static int mc13xxx_regulator_set_voltage(struct regulator_dev *rdev, int min_uV,
 	dev_dbg(rdev_get_dev(rdev), "%s id: %d min_uV: %d max_uV: %d\n",
 		__func__, id, min_uV, max_uV);
 
-	
+	/* Find the best index */
 	value = mc13xxx_get_best_voltage_index(rdev, min_uV, max_uV);
 	dev_dbg(rdev_get_dev(rdev), "%s best value: %d\n", __func__, value);
 	if (value < 0)

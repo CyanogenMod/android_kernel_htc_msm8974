@@ -13,5 +13,5 @@
 
 #include <asm-generic/statfs.h>
 
-#endif	
+#endif	/* _XTENSA_STATFS_H */
 

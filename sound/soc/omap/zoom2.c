@@ -31,6 +31,7 @@
 #include <mach/board-zoom.h>
 #include <plat/mcbsp.h>
 
+/* Register descriptions for twl4030 codec part */
 #include <linux/mfd/twl4030-audio.h>
 #include <linux/module.h>
 
@@ -46,7 +47,7 @@ static int zoom2_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 	int ret;
 
-	
+	/* Set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, 0, 26000000,
 					SND_SOC_CLOCK_IN);
 	if (ret < 0) {
@@ -61,6 +62,7 @@ static struct snd_soc_ops zoom2_ops = {
 	.hw_params = zoom2_hw_params,
 };
 
+/* Zoom2 machine DAPM */
 static const struct snd_soc_dapm_widget zoom2_twl4030_dapm_widgets[] = {
 	SND_SOC_DAPM_MIC("Ext Mic", NULL),
 	SND_SOC_DAPM_SPK("Ext Spk", NULL),
@@ -70,25 +72,25 @@ static const struct snd_soc_dapm_widget zoom2_twl4030_dapm_widgets[] = {
 };
 
 static const struct snd_soc_dapm_route audio_map[] = {
-	
+	/* External Mics: MAINMIC, SUBMIC with bias*/
 	{"MAINMIC", NULL, "Mic Bias 1"},
 	{"SUBMIC", NULL, "Mic Bias 2"},
 	{"Mic Bias 1", NULL, "Ext Mic"},
 	{"Mic Bias 2", NULL, "Ext Mic"},
 
-	
+	/* External Speakers: HFL, HFR */
 	{"Ext Spk", NULL, "HFL"},
 	{"Ext Spk", NULL, "HFR"},
 
-	
+	/* Headset Stereophone:  HSOL, HSOR */
 	{"Headset Stereophone", NULL, "HSOL"},
 	{"Headset Stereophone", NULL, "HSOR"},
 
-	
+	/* Headset Mic: HSMIC with bias */
 	{"HSMIC", NULL, "Headset Mic Bias"},
 	{"Headset Mic Bias", NULL, "Headset Mic"},
 
-	
+	/* Aux In: AUXL, AUXR */
 	{"Aux In", NULL, "AUXL"},
 	{"Aux In", NULL, "AUXR"},
 };
@@ -98,7 +100,7 @@ static int zoom2_twl4030_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-	
+	/* TWL4030 not connected pins */
 	snd_soc_dapm_nc_pin(dapm, "CARKITMIC");
 	snd_soc_dapm_nc_pin(dapm, "DIGIMIC0");
 	snd_soc_dapm_nc_pin(dapm, "DIGIMIC1");
@@ -116,7 +118,7 @@ static int zoom2_twl4030_voice_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_codec *codec = rtd->codec;
 	unsigned short reg;
 
-	
+	/* Enable voice interface */
 	reg = codec->driver->read(codec, TWL4030_REG_VOICE_IF);
 	reg |= TWL4030_VIF_DIN_EN | TWL4030_VIF_DOUT_EN | TWL4030_VIF_EN;
 	codec->driver->write(codec, TWL4030_REG_VOICE_IF, reg);
@@ -124,6 +126,7 @@ static int zoom2_twl4030_voice_init(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+/* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link zoom2_dai[] = {
 	{
 		.name = "TWL4030 I2S",
@@ -151,6 +154,7 @@ static struct snd_soc_dai_link zoom2_dai[] = {
 	},
 };
 
+/* Audio machine driver */
 static struct snd_soc_card snd_soc_zoom2 = {
 	.name = "Zoom2",
 	.owner = THIS_MODULE,

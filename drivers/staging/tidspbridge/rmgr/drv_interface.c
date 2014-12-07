@@ -27,13 +27,17 @@
 #include <linux/moduleparam.h>
 #include <linux/cdev.h>
 
+/*  ----------------------------------- DSP/BIOS Bridge */
 #include <dspbridge/dbdefs.h>
 
+/*  ----------------------------------- OS Adaptation Layer */
 #include <dspbridge/clk.h>
 
+/*  ----------------------------------- Platform Manager */
 #include <dspbridge/dspapi.h>
 #include <dspbridge/dspdrv.h>
 
+/*  ----------------------------------- Resource Manager */
 #include <dspbridge/pwr.h>
 
 #include <dspbridge/resourcecleanup.h>
@@ -44,12 +48,14 @@
 #include <mach-omap2/omap3-opp.h>
 #endif
 
+/*  ----------------------------------- Globals */
 #define DSPBRIDGE_VERSION	"0.3"
 s32 dsp_debug;
 
 struct platform_device *omap_dspbridge_dev;
 struct device *bridge;
 
+/* This is a test variable used by Bridge to test different sleep states */
 s32 dsp_test_sleepstate;
 
 static struct cdev bridge_cdev;
@@ -60,11 +66,11 @@ static u32 driver_context;
 static s32 driver_major;
 static char *base_img;
 char *iva_img;
-static s32 shm_size = 0x500000;	
-static int tc_wordswapon;	
+static s32 shm_size = 0x500000;	/* 5 MB */
+static int tc_wordswapon;	/* Default value is always false */
 #ifdef CONFIG_TIDSPBRIDGE_RECOVERY
-#define REC_TIMEOUT 5000	
-static atomic_t bridge_cref;	
+#define REC_TIMEOUT 5000	/*recovery timeout in msecs */
+static atomic_t bridge_cref;	/* number of bridge open handles */
 static struct workqueue_struct *bridge_rec_queue;
 static struct work_struct bridge_recovery_work;
 static DECLARE_COMPLETION(bridge_comp);
@@ -111,11 +117,19 @@ MODULE_AUTHOR("Texas Instruments");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(DSPBRIDGE_VERSION);
 
+/*
+ * This function is called when an application opens handle to the
+ * bridge driver.
+ */
 static int bridge_open(struct inode *ip, struct file *filp)
 {
 	int status = 0;
 	struct process_context *pr_ctxt = NULL;
 
+	/*
+	 * Allocate a new process context and insert it into global
+	 * process context list.
+	 */
 
 #ifdef CONFIG_TIDSPBRIDGE_RECOVERY
 	if (recover) {
@@ -164,6 +178,10 @@ err1:
 	return status;
 }
 
+/*
+ * This function is called when an application closes handle to the bridge
+ * driver.
+ */
 static int bridge_release(struct inode *ip, struct file *filp)
 {
 	int status = 0;
@@ -192,6 +210,7 @@ err:
 	return status;
 }
 
+/* This function provides IO interface to the bridge driver. */
 static long bridge_ioctl(struct file *filp, unsigned int code,
 			 unsigned long args)
 {
@@ -237,6 +256,7 @@ err:
 	return status;
 }
 
+/* This function maps kernel space memory to user space memory. */
 static int bridge_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	u32 status;
@@ -272,18 +292,20 @@ static u32 time_out = 1000;
 s32 dsp_max_opps = VDD1_OPP5;
 #endif
 
+/* Maximum Opps that can be requested by IVA */
+/*vdd1 rate table */
 #ifdef CONFIG_TIDSPBRIDGE_DVFS
 const struct omap_opp vdd1_rate_table_bridge[] = {
 	{0, 0, 0},
-	
+	/*OPP1 */
 	{S125M, VDD1_OPP1, 0},
-	
+	/*OPP2 */
 	{S250M, VDD1_OPP2, 0},
-	
+	/*OPP3 */
 	{S500M, VDD1_OPP3, 0},
-	
+	/*OPP4 */
 	{S550M, VDD1_OPP4, 0},
-	
+	/*OPP5 */
 	{S600M, VDD1_OPP5, 0},
 };
 #endif
@@ -293,15 +315,15 @@ struct omap_dsp_platform_data *omap_dspbridge_pdata;
 
 u32 vdd1_dsp_freq[6][4] = {
 	{0, 0, 0, 0},
-	
+	/*OPP1 */
 	{0, 90000, 0, 86000},
-	
+	/*OPP2 */
 	{0, 180000, 80000, 170000},
-	
+	/*OPP3 */
 	{0, 360000, 160000, 340000},
-	
+	/*OPP4 */
 	{0, 396000, 325000, 376000},
-	
+	/*OPP5 */
 	{0, 430000, 355000, 430000},
 };
 
@@ -351,6 +373,13 @@ static struct notifier_block iva_clk_notifier = {
 };
 #endif
 
+/**
+ * omap3_bridge_startup() - perform low lever initializations
+ * @pdev:      pointer to platform device
+ *
+ * Initializes recovery, PM and DVFS required data, before calling
+ * clk and memory init routines.
+ */
 static int omap3_bridge_startup(struct platform_device *pdev)
 {
 	struct omap_dsp_platform_data *pdata = pdev->dev.platform_data;
@@ -365,7 +394,7 @@ static int omap3_bridge_startup(struct platform_device *pdev)
 #endif
 
 #ifdef CONFIG_PM
-	
+	/* Initialize the wait queue */
 	bridge_suspend_data.suspended = 0;
 	init_waitqueue_head(&bridge_suspend_data.suspend_wq);
 
@@ -403,7 +432,7 @@ static int omap3_bridge_startup(struct platform_device *pdev)
 
 	dev_set_drvdata(bridge, drv_datap);
 
-	if (shm_size < 0x10000) {	
+	if (shm_size < 0x10000) {	/* 64 KB */
 		err = -EINVAL;
 		pr_err("%s: shm size must be at least 64 KB\n", __func__);
 		goto err3;
@@ -452,15 +481,15 @@ static int __devinit omap34_xx_bridge_probe(struct platform_device *pdev)
 
 	omap_dspbridge_dev = pdev;
 
-	
+	/* Global bridge device */
 	bridge = &omap_dspbridge_dev->dev;
 
-	
+	/* Bridge low level initializations */
 	err = omap3_bridge_startup(pdev);
 	if (err)
 		goto err1;
 
-	
+	/* use 2.6 device model */
 	err = alloc_chrdev_region(&dev, 0, 1, "DspBridge");
 	if (err) {
 		pr_err("%s: Can't get major %d\n", __func__, driver_major);
@@ -476,7 +505,7 @@ static int __devinit omap34_xx_bridge_probe(struct platform_device *pdev)
 		goto err2;
 	}
 
-	
+	/* udev support */
 	bridge_class = class_create(THIS_MODULE, "ti_bridge");
 	if (IS_ERR(bridge_class)) {
 		pr_err("%s: Error creating bridge class\n", __func__);
@@ -504,7 +533,7 @@ static int __devexit omap34_xx_bridge_remove(struct platform_device *pdev)
 	int status = 0;
 	struct drv_data *drv_datap = dev_get_drvdata(bridge);
 
-	
+	/* Retrieve the Object handle from the driver data */
 	if (!drv_datap || !drv_datap->drv_object) {
 		status = -ENODATA;
 		pr_err("%s: Failed to retrieve the object handle\n", __func__);
@@ -516,10 +545,10 @@ static int __devexit omap34_xx_bridge_remove(struct platform_device *pdev)
 					CPUFREQ_TRANSITION_NOTIFIER))
 		pr_err("%s: cpufreq_unregister_notifier failed for iva2_ck\n",
 		       __func__);
-#endif 
+#endif /* #ifdef CONFIG_TIDSPBRIDGE_DVFS */
 
 	if (driver_context) {
-		
+		/* Put the DSP in reset state */
 		dsp_deinit(driver_context);
 		driver_context = 0;
 	}
@@ -536,7 +565,7 @@ func_cont:
 	cdev_del(&bridge_cdev);
 	unregister_chrdev_region(devno, 1);
 	if (bridge_class) {
-		
+		/* remove the device from sysfs */
 		device_destroy(bridge_class, MKDEV(driver_major, 0));
 		class_destroy(bridge_class);
 
@@ -594,6 +623,8 @@ static void __exit bridge_exit(void)
 	platform_driver_unregister(&bridge_driver);
 }
 
+/* To remove all process resources before removing the process from the
+ * process context list */
 int drv_remove_all_resources(void *process_ctxt)
 {
 	int status = 0;
@@ -605,5 +636,6 @@ int drv_remove_all_resources(void *process_ctxt)
 	return status;
 }
 
+/* Bridge driver initialization and de-initialization functions */
 module_init(bridge_init);
 module_exit(bridge_exit);

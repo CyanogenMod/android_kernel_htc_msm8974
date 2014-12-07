@@ -27,12 +27,14 @@
 #define N_HCI	15
 #endif
 
+/* Ioctls */
 #define HCIUARTSETPROTO		_IOW('U', 200, int)
 #define HCIUARTGETPROTO		_IOR('U', 201, int)
 #define HCIUARTGETDEVICE	_IOR('U', 202, int)
 #define HCIUARTSETFLAGS		_IOW('U', 203, int)
 #define HCIUARTGETFLAGS		_IOR('U', 204, int)
 
+/* UART protocols */
 #define HCI_UART_MAX_PROTO	7
 
 #define HCI_UART_H4	0
@@ -72,9 +74,11 @@ struct hci_uart {
 	spinlock_t		rx_lock;
 };
 
+/* HCI_UART proto flag bits */
 #define HCI_UART_PROTO_SET			0
 #define HCI_UART_PROTO_SET_IN_PROGRESS		1
 
+/* TX states  */
 #define HCI_UART_SENDING	1
 #define HCI_UART_TX_WAKEUP	2
 

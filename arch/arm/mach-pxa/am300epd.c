@@ -52,7 +52,7 @@ static unsigned long am300_pin_config[] __initdata = {
 	GPIO76_GPIO,
 	GPIO77_GPIO,
 
-	
+	/* this is the 16-bit hdb bus 58-73 */
 	GPIO58_GPIO,
 	GPIO59_GPIO,
 	GPIO60_GPIO,
@@ -74,6 +74,7 @@ static unsigned long am300_pin_config[] __initdata = {
 	GPIO73_GPIO,
 };
 
+/* register offsets for gpio control */
 #define PWR_GPIO_PIN	16
 #define CFG_GPIO_PIN	17
 #define RDY_GPIO_PIN	32
@@ -85,6 +86,7 @@ static unsigned long am300_pin_config[] __initdata = {
 #define CS_GPIO_PIN	76
 #define IRQ_GPIO_PIN	77
 
+/* hdb bus */
 #define DB0_GPIO_PIN	58
 #define DB15_GPIO_PIN	73
 
@@ -96,7 +98,7 @@ static char *gpio_names[] = { "PWR", "CFG", "RDY", "DC", "RST", "RD", "WR",
 
 static int am300_wait_event(struct broadsheetfb_par *par)
 {
-	
+	/* todo: improve err recovery */
 	wait_event(par->waitq, gpio_get_value(RDY_GPIO_PIN));
 	return 0;
 }
@@ -116,7 +118,7 @@ static int am300_init_gpio_regs(struct broadsheetfb_par *par)
 		}
 	}
 
-	
+	/* we also need to take care of the hdb bus */
 	for (i = DB0_GPIO_PIN; i <= DB15_GPIO_PIN; i++) {
 		sprintf(dbname, "DB%d", i);
 		err = gpio_request(i, dbname);
@@ -127,7 +129,7 @@ static int am300_init_gpio_regs(struct broadsheetfb_par *par)
 		}
 	}
 
-	
+	/* setup the outputs and init values */
 	gpio_direction_output(PWR_GPIO_PIN, 0);
 	gpio_direction_output(CFG_GPIO_PIN, 1);
 	gpio_direction_output(DC_GPIO_PIN, 0);
@@ -136,15 +138,15 @@ static int am300_init_gpio_regs(struct broadsheetfb_par *par)
 	gpio_direction_output(CS_GPIO_PIN, 1);
 	gpio_direction_output(RST_GPIO_PIN, 0);
 
-	
+	/* setup the inputs */
 	gpio_direction_input(RDY_GPIO_PIN);
 	gpio_direction_input(IRQ_GPIO_PIN);
 
-	
+	/* start the hdb bus as an input */
 	for (i = DB0_GPIO_PIN; i <= DB15_GPIO_PIN; i++)
 		gpio_direction_output(i, 0);
 
-	
+	/* go into command mode */
 	gpio_set_value(CFG_GPIO_PIN, 1);
 	gpio_set_value(RST_GPIO_PIN, 0);
 	msleep(10);
@@ -265,14 +267,14 @@ int __init am300_init(void)
 
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(am300_pin_config));
 
-	
+	/* request our platform independent driver */
 	request_module("broadsheetfb");
 
 	am300_device = platform_device_alloc("broadsheetfb", -1);
 	if (!am300_device)
 		return -ENOMEM;
 
-	
+	/* the am300_board that will be seen by broadsheetfb is a copy */
 	platform_device_add_data(am300_device, &am300_board,
 					sizeof(am300_board));
 

@@ -13,6 +13,7 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+/* ****************** SDIO CARD Interface Functions **************************/
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -51,6 +52,7 @@ static void brcmf_sdioh_irqhandler(struct sdio_func *func)
 	sdio_claim_host(func);
 }
 
+/* dummy handler for SDIO function 2 interrupt */
 static void brcmf_sdioh_dummy_irq_handler(struct sdio_func *func)
 {
 }
@@ -87,7 +89,7 @@ u8 brcmf_sdcard_cfg_read(struct brcmf_sdio_dev *sdiodev, uint fnc_num, u32 addr,
 	u8 data = 0;
 
 	do {
-		if (retry)	
+		if (retry)	/* wait for 1 ms till bus get settled down */
 			udelay(1000);
 		status = brcmf_sdioh_request_byte(sdiodev, SDIOH_READ, fnc_num,
 						  addr, (u8 *) &data);
@@ -110,7 +112,7 @@ brcmf_sdcard_cfg_write(struct brcmf_sdio_dev *sdiodev, uint fnc_num, u32 addr,
 	s32 retry = 0;
 
 	do {
-		if (retry)	
+		if (retry)	/* wait for 1 ms till bus get settled down */
 			udelay(1000);
 		status = brcmf_sdioh_request_byte(sdiodev, SDIOH_WRITE, fnc_num,
 						  addr, (u8 *) &data);
@@ -169,7 +171,7 @@ u32 brcmf_sdcard_reg_read(struct brcmf_sdio_dev *sdiodev, u32 addr, uint size)
 
 	brcmf_dbg(INFO, "u32data = 0x%x\n", word);
 
-	
+	/* if ok, return appropriately masked word */
 	if (status == 0) {
 		switch (size) {
 		case sizeof(u8):
@@ -184,7 +186,7 @@ u32 brcmf_sdcard_reg_read(struct brcmf_sdio_dev *sdiodev, u32 addr, uint size)
 		}
 	}
 
-	
+	/* otherwise, bad sdio access or invalid size */
 	brcmf_dbg(ERROR, "error reading addr 0x%04x size %d\n", addr, size);
 	return 0xFFFFFFFF;
 }
@@ -234,7 +236,7 @@ static int brcmf_sdcard_recv_prepare(struct brcmf_sdio_dev *sdiodev, uint fn,
 	uint bar0 = *addr & ~SBSDIO_SB_OFT_ADDR_MASK;
 	int err = 0;
 
-	
+	/* Async not implemented yet */
 	if (flags & SDIO_REQ_ASYNC)
 		return -ENOTSUPP;
 
@@ -355,7 +357,7 @@ brcmf_sdcard_send_pkt(struct brcmf_sdio_dev *sdiodev, u32 addr, uint fn,
 	brcmf_dbg(INFO, "fun = %d, addr = 0x%x, size = %d\n",
 		  fn, addr, pkt->len);
 
-	
+	/* Async not implemented yet */
 	if (flags & SDIO_REQ_ASYNC)
 		return -ENOTSUPP;
 
@@ -395,14 +397,14 @@ int brcmf_sdcard_rwdata(struct brcmf_sdio_dev *sdiodev, uint rw, u32 addr,
 		return -EIO;
 	}
 
-	
+	/* For a write, copy the buffer data into the packet. */
 	if (write)
 		memcpy(mypkt->data, buf, nbytes);
 
 	err = brcmf_sdioh_request_buffer(sdiodev, SDIOH_DATA_INC, write,
 					 SDIO_FUNC_1, addr, mypkt);
 
-	
+	/* For a read, copy the packet data back to the buffer. */
 	if (!err && !write)
 		memcpy(buf, mypkt->data, nbytes);
 
@@ -415,7 +417,7 @@ int brcmf_sdcard_abort(struct brcmf_sdio_dev *sdiodev, uint fn)
 	char t_func = (char)fn;
 	brcmf_dbg(TRACE, "Enter\n");
 
-	
+	/* issue abort cmd52 command through F0 */
 	brcmf_sdioh_request_byte(sdiodev, SDIOH_WRITE, SDIO_FUNC_0,
 				 SDIO_CCCR_ABORT, &t_func);
 
@@ -434,10 +436,10 @@ int brcmf_sdio_probe(struct brcmf_sdio_dev *sdiodev)
 
 	regs = SI_ENUM_BASE;
 
-	
+	/* Report the BAR, to fix if needed */
 	sdiodev->sbwad = SI_ENUM_BASE;
 
-	
+	/* try to attach to the target device */
 	sdiodev->bus = brcmf_sdbrcm_probe(regs, sdiodev);
 	if (!sdiodev->bus) {
 		brcmf_dbg(ERROR, "device attach failed\n");

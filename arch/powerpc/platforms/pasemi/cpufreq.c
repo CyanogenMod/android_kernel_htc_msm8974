@@ -41,9 +41,11 @@
 #define SDCPWR_PWST0_REG	0x0000
 #define SDCPWR_GIZTIME_REG	0x0440
 
+/* SDCPWR_GIZTIME_REG fields */
 #define SDCPWR_GIZTIME_GR	0x80000000
 #define SDCPWR_GIZTIME_LONGLOCK	0x000000ff
 
+/* Offset of ASR registers from SDC base */
 #define SDCASR_OFFSET		0x120000
 
 static void __iomem *sdcpwr_mapbase;
@@ -51,8 +53,13 @@ static void __iomem *sdcasr_mapbase;
 
 static DEFINE_MUTEX(pas_switch_mutex);
 
+/* Current astate, is used when waking up from power savings on
+ * one core, in case the other core has switched states during
+ * the idle time.
+ */
 static int current_astate;
 
+/* We support 5(A0-A4) power states excluding turbo(A5-A6) modes */
 static struct cpufreq_frequency_table pas_freqs[] = {
 	{0,	0},
 	{1,	0},
@@ -67,6 +74,9 @@ static struct freq_attr *pas_cpu_freqs_attr[] = {
 	NULL,
 };
 
+/*
+ * hardware specific functions
+ */
 
 static int get_astate_freq(int astate)
 {
@@ -92,7 +102,7 @@ static int get_gizmo_latency(void)
 
 	giztime = in_le32(sdcpwr_mapbase + SDCPWR_GIZTIME_REG);
 
-	
+	/* just provide the upper bound */
 	if (giztime & SDCPWR_GIZTIME_GR)
 		ret = (giztime & SDCPWR_GIZTIME_LONGLOCK) * 128000;
 	else
@@ -105,7 +115,7 @@ static void set_astate(int cpu, unsigned int astate)
 {
 	unsigned long flags;
 
-	
+	/* Return if called before init has run */
 	if (unlikely(!sdcasr_mapbase))
 		return;
 
@@ -126,6 +136,9 @@ void restore_astate(int cpu)
 	set_astate(cpu, current_astate);
 }
 
+/*
+ * cpufreq functions
+ */
 
 static int pas_cpufreq_cpu_init(struct cpufreq_policy *policy)
 {
@@ -183,13 +196,13 @@ static int pas_cpufreq_cpu_init(struct cpufreq_policy *policy)
 		goto out_unmap_sdcpwr;
 	}
 
-	
+	/* we need the freq in kHz */
 	max_freq = *max_freqp / 1000;
 
 	pr_debug("max clock-frequency is at %u kHz\n", max_freq);
 	pr_debug("initializing frequency table\n");
 
-	
+	/* initialize frequency table */
 	for (i=0; pas_freqs[i].frequency!=CPUFREQ_TABLE_END; i++) {
 		pas_freqs[i].frequency = get_astate_freq(pas_freqs[i].index) * 100000;
 		pr_debug("%d: %d\n", i, pas_freqs[i].frequency);
@@ -207,6 +220,9 @@ static int pas_cpufreq_cpu_init(struct cpufreq_policy *policy)
 
 	cpufreq_frequency_table_get_attr(pas_freqs, policy->cpu);
 
+	/* this ensures that policy->cpuinfo_min and policy->cpuinfo_max
+	 * are set correctly
+	 */
 	return cpufreq_frequency_table_cpuinfo(policy, pas_freqs);
 
 out_unmap_sdcpwr:
@@ -283,6 +299,9 @@ static struct cpufreq_driver pas_cpufreq_driver = {
 	.attr		= pas_cpu_freqs_attr,
 };
 
+/*
+ * module init and destoy
+ */
 
 static int __init pas_cpufreq_init(void)
 {

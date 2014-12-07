@@ -33,6 +33,9 @@
 
 #define WATCHDOG_NAME "bfin-wdt"
 
+/* The BF561 has two watchdogs (one per core), but since Linux
+ * only runs on core A, we'll just work with that one.
+ */
 #ifdef BF561_FAMILY
 # define bfin_read_WDOG_CTL()    bfin_read_WDOGA_CTL()
 # define bfin_read_WDOG_CNT()    bfin_read_WDOGA_CNT()
@@ -42,6 +45,7 @@
 # define bfin_write_WDOG_STAT(x) bfin_write_WDOGA_STAT(x)
 #endif
 
+/* some defaults */
 #define WATCHDOG_TIMEOUT 20
 
 static unsigned int timeout = WATCHDOG_TIMEOUT;
@@ -51,6 +55,11 @@ static unsigned long open_check;
 static char expect_close;
 static DEFINE_SPINLOCK(bfin_wdt_spinlock);
 
+/**
+ *	bfin_wdt_keepalive - Keep the Userspace Watchdog Alive
+ *
+ *	The Userspace watchdog got a KeepAlive: schedule the next timeout.
+ */
 static int bfin_wdt_keepalive(void)
 {
 	stampit();
@@ -58,6 +67,11 @@ static int bfin_wdt_keepalive(void)
 	return 0;
 }
 
+/**
+ *	bfin_wdt_stop - Stop the Watchdog
+ *
+ *	Stops the on-chip watchdog.
+ */
 static int bfin_wdt_stop(void)
 {
 	stampit();
@@ -65,6 +79,12 @@ static int bfin_wdt_stop(void)
 	return 0;
 }
 
+/**
+ *	bfin_wdt_start - Start the Watchdog
+ *
+ *	Starts the on-chip watchdog.  Automatically loads WDOG_CNT
+ *	into WDOG_STAT for us.
+ */
 static int bfin_wdt_start(void)
 {
 	stampit();
@@ -72,12 +92,24 @@ static int bfin_wdt_start(void)
 	return 0;
 }
 
+/**
+ *	bfin_wdt_running - Check Watchdog status
+ *
+ *	See if the watchdog is running.
+ */
 static int bfin_wdt_running(void)
 {
 	stampit();
 	return ((bfin_read_WDOG_CTL() & WDEN_MASK) != WDEN_DISABLE);
 }
 
+/**
+ *	bfin_wdt_set_timeout - Set the Userspace Watchdog timeout
+ *	@t: new timeout value (in seconds)
+ *
+ *	Translate the specified timeout in seconds into System Clock
+ *	terms which is what the on-chip Watchdog requires.
+ */
 static int bfin_wdt_set_timeout(unsigned long t)
 {
 	u32 cnt, max_t, sclk;
@@ -108,6 +140,13 @@ static int bfin_wdt_set_timeout(unsigned long t)
 	return 0;
 }
 
+/**
+ *	bfin_wdt_open - Open the Device
+ *	@inode: inode of device
+ *	@file: file handle of device
+ *
+ *	Watchdog device is opened and started.
+ */
 static int bfin_wdt_open(struct inode *inode, struct file *file)
 {
 	stampit();
@@ -124,6 +163,13 @@ static int bfin_wdt_open(struct inode *inode, struct file *file)
 	return nonseekable_open(inode, file);
 }
 
+/**
+ *	bfin_wdt_close - Close the Device
+ *	@inode: inode of device
+ *	@file: file handle of device
+ *
+ *	Watchdog device is closed and stopped.
+ */
 static int bfin_wdt_release(struct inode *inode, struct file *file)
 {
 	stampit();
@@ -139,6 +185,15 @@ static int bfin_wdt_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/**
+ *	bfin_wdt_write - Write to Device
+ *	@file: file handle of device
+ *	@buf: buffer to write
+ *	@count: length of buffer
+ *	@ppos: offset
+ *
+ *	Pings the watchdog on write.
+ */
 static ssize_t bfin_wdt_write(struct file *file, const char __user *data,
 						size_t len, loff_t *ppos)
 {
@@ -148,7 +203,7 @@ static ssize_t bfin_wdt_write(struct file *file, const char __user *data,
 		if (!nowayout) {
 			size_t i;
 
-			
+			/* In case it was set long ago */
 			expect_close = 0;
 
 			for (i = 0; i != len; i++) {
@@ -165,6 +220,15 @@ static ssize_t bfin_wdt_write(struct file *file, const char __user *data,
 	return len;
 }
 
+/**
+ *	bfin_wdt_ioctl - Query Device
+ *	@file: file handle of device
+ *	@cmd: watchdog command
+ *	@arg: argument
+ *
+ *	Query basic information from the device or ping it, as outlined by the
+ *	watchdog API.
+ */
 static long bfin_wdt_ioctl(struct file *file,
 				unsigned int cmd, unsigned long arg)
 {
@@ -212,7 +276,7 @@ static long bfin_wdt_ioctl(struct file *file,
 		if (bfin_wdt_set_timeout(new_timeout))
 			return -EINVAL;
 	}
-	
+	/* Fall */
 	case WDIOC_GETTIMEOUT:
 		return put_user(timeout, p);
 	default:
@@ -223,6 +287,15 @@ static long bfin_wdt_ioctl(struct file *file,
 #ifdef CONFIG_PM
 static int state_before_suspend;
 
+/**
+ *	bfin_wdt_suspend - suspend the watchdog
+ *	@pdev: device being suspended
+ *	@state: requested suspend state
+ *
+ *	Remember if the watchdog was running and stop it.
+ *	TODO: is this even right?  Doesn't seem to be any
+ *	      standard in the watchdog world ...
+ */
 static int bfin_wdt_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	stampit();
@@ -233,6 +306,12 @@ static int bfin_wdt_suspend(struct platform_device *pdev, pm_message_t state)
 	return 0;
 }
 
+/**
+ *	bfin_wdt_resume - resume the watchdog
+ *	@pdev: device being resumed
+ *
+ *	If the watchdog was running, turn it back on.
+ */
 static int bfin_wdt_resume(struct platform_device *pdev)
 {
 	stampit();
@@ -271,6 +350,12 @@ static const struct watchdog_info bfin_wdt_info = {
 		    WDIOF_MAGICCLOSE,
 };
 
+/**
+ *	bfin_wdt_probe - Initialize module
+ *
+ *	Registers the misc device.  Actual device
+ *	initialization is handled by bfin_wdt_open().
+ */
 static int __devinit bfin_wdt_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -288,12 +373,23 @@ static int __devinit bfin_wdt_probe(struct platform_device *pdev)
 	return 0;
 }
 
+/**
+ *	bfin_wdt_remove - Initialize module
+ *
+ *	Unregisters the misc device.  Actual device
+ *	deinitialization is handled by bfin_wdt_close().
+ */
 static int __devexit bfin_wdt_remove(struct platform_device *pdev)
 {
 	misc_deregister(&bfin_wdt_miscdev);
 	return 0;
 }
 
+/**
+ *	bfin_wdt_shutdown - Soft Shutdown Handler
+ *
+ *	Handles the soft shutdown event.
+ */
 static void bfin_wdt_shutdown(struct platform_device *pdev)
 {
 	stampit();
@@ -315,16 +411,25 @@ static struct platform_driver bfin_wdt_driver = {
 	},
 };
 
+/**
+ *	bfin_wdt_init - Initialize module
+ *
+ *	Checks the module params and registers the platform device & driver.
+ *	Real work is in the platform probe function.
+ */
 static int __init bfin_wdt_init(void)
 {
 	int ret;
 
 	stampit();
 
-	
+	/* Check that the timeout value is within range */
 	if (bfin_wdt_set_timeout(timeout))
 		return -EINVAL;
 
+	/* Since this is an on-chip device and needs no board-specific
+	 * resources, we'll handle all the platform device stuff here.
+	 */
 	ret = platform_driver_register(&bfin_wdt_driver);
 	if (ret) {
 		pr_err("unable to register driver\n");
@@ -342,6 +447,12 @@ static int __init bfin_wdt_init(void)
 	return 0;
 }
 
+/**
+ *	bfin_wdt_exit - Deinitialize module
+ *
+ *	Back out the platform device & driver steps.  Real work is in the
+ *	platform remove function.
+ */
 static void __exit bfin_wdt_exit(void)
 {
 	platform_device_unregister(bfin_wdt_device);

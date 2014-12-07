@@ -23,7 +23,7 @@ static inline void arch_local_irq_disable(void)
 		"move	%/sr,%%d0	\n\t"
 		"ori.l	#0x0700,%%d0	\n\t"
 		"move	%%d0,%/sr	\n"
-		: 
+		: /* no outputs */
 		:
 		: "cc", "%d0", "memory");
 #else
@@ -38,7 +38,7 @@ static inline void arch_local_irq_enable(void)
 		"move	%/sr,%%d0	\n\t"
 		"andi.l	#0xf8ff,%%d0	\n\t"
 		"move	%%d0,%/sr	\n"
-		: 
+		: /* no outputs */
 		:
 		: "cc", "%d0", "memory");
 #else
@@ -75,4 +75,4 @@ static inline bool arch_irqs_disabled(void)
 	return arch_irqs_disabled_flags(arch_local_save_flags());
 }
 
-#endif 
+#endif /* _M68K_IRQFLAGS_H */

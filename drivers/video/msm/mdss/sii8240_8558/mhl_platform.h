@@ -8,4 +8,4 @@ void si_d2_to_d3(void);
 int mhl_detect_register_notifier(struct t_mhl_status_notifier *notifier);
 #endif
 
-#endif 
+#endif /* if !defined(HTC_PLATFORM_H) */

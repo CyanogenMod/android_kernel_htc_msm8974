@@ -89,7 +89,7 @@ static void bcma_pmu_resources_init(struct bcma_drv_cc *cc)
 			bus->chipinfo.id);
 	}
 
-	
+	/* Set the resource masks. */
 	if (min_msk)
 		bcma_cc_write32(cc, BCMA_CC_PMU_MINRES_MSK, min_msk);
 	if (max_msk)
@@ -112,6 +112,7 @@ void bcma_pmu_swreg_init(struct bcma_drv_cc *cc)
 	}
 }
 
+/* Disable to allow reading SPROM. Don't know the adventages of enabling it. */
 void bcma_chipco_bcm4331_ext_pa_lines_ctl(struct bcma_drv_cc *cc, bool enable)
 {
 	struct bcma_bus *bus = cc->core->bus;
@@ -138,7 +139,7 @@ void bcma_pmu_workarounds(struct bcma_drv_cc *cc)
 		bcma_chipco_chipctl_maskset(cc, 0, ~0, 0x7);
 		break;
 	case 0x4331:
-		
+		/* BCM4331 workaround is SPROM-related, we put it in sprom.c */
 		break;
 	case 43224:
 		if (bus->chipinfo.rev == 0) {
@@ -195,11 +196,11 @@ u32 bcma_pmu_alp_clock(struct bcma_drv_cc *cc)
 	case 0x5357:
 	case 0x4749:
 	case 53572:
-		
+		/* always 20Mhz */
 		return 20000 * 1000;
 	case 0x5356:
 	case 0x5300:
-		
+		/* always 25Mhz */
 		return 25000 * 1000;
 	default:
 		pr_warn("No ALP clock specified for %04X device, "
@@ -209,6 +210,9 @@ u32 bcma_pmu_alp_clock(struct bcma_drv_cc *cc)
 	return BCMA_CC_PMU_ALP_CLOCK;
 }
 
+/* Find the output of the "m" pll divider given pll controls that start with
+ * pllreg "pll0" i.e. 12 for main 6 for phy, 0 for misc.
+ */
 static u32 bcma_pmu_clock(struct bcma_drv_cc *cc, u32 pll0, u32 m)
 {
 	u32 tmp, div, ndiv, p1, p2, fc;
@@ -219,7 +223,7 @@ static u32 bcma_pmu_clock(struct bcma_drv_cc *cc, u32 pll0, u32 m)
 	BUG_ON(!m || m > 4);
 
 	if (bus->chipinfo.id == 0x5357 || bus->chipinfo.id == 0x4749) {
-		
+		/* Detect failure in clock setting */
 		tmp = bcma_cc_read32(cc, BCMA_CC_CHIPSTAT);
 		if (tmp & 0x40000)
 			return 133 * 1000000;
@@ -236,14 +240,15 @@ static u32 bcma_pmu_clock(struct bcma_drv_cc *cc, u32 pll0, u32 m)
 	tmp = bcma_chipco_pll_read(cc, pll0 + BCMA_CC_PPL_NM5_OFF);
 	ndiv = (tmp & BCMA_CC_PPL_NDIV_MASK) >> BCMA_CC_PPL_NDIV_SHIFT;
 
-	
+	/* Do calculation in Mhz */
 	fc = bcma_pmu_alp_clock(cc) / 1000000;
 	fc = (p1 * ndiv * fc) / p2;
 
-	
+	/* Return clock in Hertz */
 	return (fc / div) * 1000000;
 }
 
+/* query bus clock frequency for PMU-enabled chipcommon */
 u32 bcma_pmu_get_clockcontrol(struct bcma_drv_cc *cc)
 {
 	struct bcma_bus *bus = cc->core->bus;
@@ -274,6 +279,7 @@ u32 bcma_pmu_get_clockcontrol(struct bcma_drv_cc *cc)
 	return BCMA_CC_PMU_HT_CLOCK;
 }
 
+/* query cpu clock frequency for PMU-enabled chipcommon */
 u32 bcma_pmu_get_clockcpu(struct bcma_drv_cc *cc)
 {
 	struct bcma_bus *bus = cc->core->bus;
@@ -296,6 +302,8 @@ u32 bcma_pmu_get_clockcpu(struct bcma_drv_cc *cc)
 			break;
 		}
 
+		/* TODO: if (bus->chipinfo.id == 0x5300)
+		  return si_4706_pmu_clock(sih, osh, cc, PMU4706_MAINPLL_PLL0, PMU5_MAINPLL_CPU); */
 		return bcma_pmu_clock(cc, pll, BCMA_CC_PMU5_MAINPLL_CPU);
 	}
 

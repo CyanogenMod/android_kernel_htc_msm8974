@@ -52,6 +52,9 @@
 #define DRV_NAME	"acard-ahci"
 #define DRV_VERSION	"1.0"
 
+/*
+  Received FIS structure limited to 80h.
+*/
 
 #define ACARD_AHCI_RX_FIS_SZ 128
 
@@ -67,7 +70,7 @@ struct acard_sg {
 	__le32			addr;
 	__le32			addr_hi;
 	__le32			reserved;
-	__le32			size;	 
+	__le32			size;	 /* bit 31 (EOT) max==0x10000 (64k) */
 };
 
 static void acard_ahci_qc_prep(struct ata_queued_cmd *qc);
@@ -105,10 +108,10 @@ static const struct ata_port_info acard_ahci_port_info[] = {
 };
 
 static const struct pci_device_id acard_ahci_pci_tbl[] = {
-	
-	{ PCI_VDEVICE(ARTOP, 0x000d), board_acard_ahci }, 
+	/* ACard */
+	{ PCI_VDEVICE(ARTOP, 0x000d), board_acard_ahci }, /* ATP8620 */
 
-	{ }    
+	{ }    /* terminate list */
 };
 
 static struct pci_driver acard_ahci_pci_driver = {
@@ -138,10 +141,14 @@ static int acard_ahci_pci_device_suspend(struct pci_dev *pdev, pm_message_t mesg
 	}
 
 	if (mesg.event & PM_EVENT_SLEEP) {
+		/* AHCI spec rev1.1 section 8.3.3:
+		 * Software must disable interrupts prior to requesting a
+		 * transition of the HBA to D3 state.
+		 */
 		ctl = readl(mmio + HOST_CTL);
 		ctl &= ~HOST_IRQ_EN;
 		writel(ctl, mmio + HOST_CTL);
-		readl(mmio + HOST_CTL); 
+		readl(mmio + HOST_CTL); /* flush */
 	}
 
 	return ata_pci_device_suspend(pdev, mesg);
@@ -228,17 +235,25 @@ static unsigned int acard_ahci_fill_sg(struct ata_queued_cmd *qc, void *cmd_tbl)
 
 	VPRINTK("ENTER\n");
 
+	/*
+	 * Next, the S/G list.
+	 */
 	for_each_sg(qc->sg, sg, qc->n_elem, si) {
 		dma_addr_t addr = sg_dma_address(sg);
 		u32 sg_len = sg_dma_len(sg);
 
+		/*
+		 * ACard note:
+		 * We must set an end-of-table (EOT) bit,
+		 * and the segment cannot exceed 64k (0x10000)
+		 */
 		acard_sg[si].addr = cpu_to_le32(addr & 0xffffffff);
 		acard_sg[si].addr_hi = cpu_to_le32((addr >> 16) >> 16);
 		acard_sg[si].size = cpu_to_le32(sg_len);
 		last_si = si;
 	}
 
-	acard_sg[last_si].size |= cpu_to_le32(1 << 31);	
+	acard_sg[last_si].size |= cpu_to_le32(1 << 31);	/* set EOT */
 
 	return si;
 }
@@ -250,9 +265,13 @@ static void acard_ahci_qc_prep(struct ata_queued_cmd *qc)
 	int is_atapi = ata_is_atapi(qc->tf.protocol);
 	void *cmd_tbl;
 	u32 opts;
-	const u32 cmd_fis_len = 5; 
+	const u32 cmd_fis_len = 5; /* five dwords */
 	unsigned int n_elem;
 
+	/*
+	 * Fill in command table information.  First, the header,
+	 * a SATA Register - Host to Device command FIS.
+	 */
 	cmd_tbl = pp->cmd_tbl + qc->tag * AHCI_CMD_TBL_SZ;
 
 	ata_tf_to_fis(&qc->tf, qc->dev->link->pmp, 1, cmd_tbl);
@@ -265,6 +284,11 @@ static void acard_ahci_qc_prep(struct ata_queued_cmd *qc)
 	if (qc->flags & ATA_QCFLAG_DMAMAP)
 		n_elem = acard_ahci_fill_sg(qc, cmd_tbl);
 
+	/*
+	 * Fill in command slot information.
+	 *
+	 * ACard note: prd table length not filled in
+	 */
 	opts = cmd_fis_len | (qc->dev->link->pmp << 12);
 	if (qc->tf.flags & ATA_TFLAG_WRITE)
 		opts |= AHCI_CMD_WRITE;
@@ -282,6 +306,12 @@ static bool acard_ahci_qc_fill_rtf(struct ata_queued_cmd *qc)
 	if (pp->fbs_enabled)
 		rx_fis += qc->dev->link->pmp * ACARD_AHCI_RX_FIS_SZ;
 
+	/*
+	 * After a successful execution of an ATA PIO data-in command,
+	 * the device doesn't send D2H Reg FIS to update the TF and
+	 * the host should take TF and E_Status from the preceding PIO
+	 * Setup FIS.
+	 */
 	if (qc->tf.protocol == ATA_PROT_PIO && qc->dma_dir == DMA_FROM_DEVICE &&
 	    !(qc->flags & ATA_QCFLAG_FAILED)) {
 		ata_tf_from_fis(rx_fis + RX_FIS_PIO_SETUP, &qc->result_tf);
@@ -305,7 +335,7 @@ static int acard_ahci_port_start(struct ata_port *ap)
 	if (!pp)
 		return -ENOMEM;
 
-	
+	/* check FBS capability */
 	if ((hpriv->cap & HOST_CAP_FBS) && sata_pmp_supported(ap)) {
 		void __iomem *port_mmio = ahci_port_base(ap);
 		u32 cmd = readl(port_mmio + PORT_CMD);
@@ -333,26 +363,41 @@ static int acard_ahci_port_start(struct ata_port *ap)
 		return -ENOMEM;
 	memset(mem, 0, dma_sz);
 
+	/*
+	 * First item in chunk of DMA memory: 32-slot command table,
+	 * 32 bytes each in size
+	 */
 	pp->cmd_slot = mem;
 	pp->cmd_slot_dma = mem_dma;
 
 	mem += AHCI_CMD_SLOT_SZ;
 	mem_dma += AHCI_CMD_SLOT_SZ;
 
+	/*
+	 * Second item: Received-FIS area
+	 */
 	pp->rx_fis = mem;
 	pp->rx_fis_dma = mem_dma;
 
 	mem += rx_fis_sz;
 	mem_dma += rx_fis_sz;
 
+	/*
+	 * Third item: data area for storing a single command
+	 * and its scatter-gather table
+	 */
 	pp->cmd_tbl = mem;
 	pp->cmd_tbl_dma = mem_dma;
 
+	/*
+	 * Save off initial list of interrupts to be enabled.
+	 * This could be changed later
+	 */
 	pp->intr_mask = DEF_PORT_IRQ;
 
 	ap->private_data = pp;
 
-	
+	/* engage engines, captain */
 	return ahci_port_resume(ap);
 }
 
@@ -372,11 +417,14 @@ static int acard_ahci_init_one(struct pci_dev *pdev, const struct pci_device_id 
 
 	ata_print_version_once(&pdev->dev, DRV_VERSION);
 
-	
+	/* acquire resources */
 	rc = pcim_enable_device(pdev);
 	if (rc)
 		return rc;
 
+	/* AHCI controllers often implement SFF compatible interface.
+	 * Grab all PCI BARs just in case.
+	 */
 	rc = pcim_iomap_regions_request_all(pdev, 1 << AHCI_PCI_BAR, DRV_NAME);
 	if (rc == -EBUSY)
 		pcim_pin_device(pdev);
@@ -393,10 +441,10 @@ static int acard_ahci_init_one(struct pci_dev *pdev, const struct pci_device_id 
 
 	hpriv->mmio = pcim_iomap_table(pdev)[AHCI_PCI_BAR];
 
-	
+	/* save initial config */
 	ahci_save_initial_config(&pdev->dev, hpriv, 0, 0);
 
-	
+	/* prepare host */
 	if (hpriv->cap & HOST_CAP_NCQ)
 		pi.flags |= ATA_FLAG_NCQ;
 
@@ -405,6 +453,11 @@ static int acard_ahci_init_one(struct pci_dev *pdev, const struct pci_device_id 
 
 	ahci_set_em_messages(hpriv, &pi);
 
+	/* CAP.NP sometimes indicate the index of the last enabled
+	 * port, at other times, that of the last possible port, so
+	 * determining the maximum port number requires looking at
+	 * both CAP.NP and port_map.
+	 */
 	n_ports = max(ahci_nr_ports(hpriv->cap), fls(hpriv->port_map));
 
 	host = ata_host_alloc_pinfo(&pdev->dev, ppi, n_ports);
@@ -424,13 +477,16 @@ static int acard_ahci_init_one(struct pci_dev *pdev, const struct pci_device_id 
 		ata_port_pbar_desc(ap, AHCI_PCI_BAR,
 				   0x100 + ap->port_no * 0x80, "port");
 
-		
-		
+		/* set initial link pm policy */
+		/*
+		ap->pm_policy = NOT_AVAILABLE;
+		*/
+		/* disabled/not-implemented port */
 		if (!(hpriv->port_map & (1 << i)))
 			ap->ops = &ata_dummy_port_ops;
 	}
 
-	
+	/* initialize adapter */
 	rc = acard_ahci_configure_dma_masks(pdev, hpriv->cap & HOST_CAP_64);
 	if (rc)
 		return rc;

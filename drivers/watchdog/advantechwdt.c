@@ -45,12 +45,23 @@
 
 #define DRV_NAME "advantechwdt"
 #define WATCHDOG_NAME "Advantech WDT"
-#define WATCHDOG_TIMEOUT 60		
+#define WATCHDOG_TIMEOUT 60		/* 60 sec default timeout */
 
+/* the watchdog platform device */
 static struct platform_device *advwdt_platform_device;
 static unsigned long advwdt_is_open;
 static char adv_expect_close;
 
+/*
+ *	You must set these - there is no sane way to probe for this board.
+ *
+ *	To enable or restart, write the timeout value in seconds (1 to 63)
+ *	to I/O port wdt_start.  To disable, read I/O port wdt_stop.
+ *	Both are 0x443 for most boards (tested on a PCA-6276VE-00B1), but
+ *	check your manual (at least the PCA-6159 seems to be different -
+ *	the manual says wdt_stop is 0x43, not 0x443).
+ *	(0x43 is also a write-only control register for the 8254 timer!)
+ */
 
 static int wdt_stop = 0x443;
 module_param(wdt_stop, int, 0);
@@ -60,7 +71,7 @@ static int wdt_start = 0x443;
 module_param(wdt_start, int, 0);
 MODULE_PARM_DESC(wdt_start, "Advantech WDT 'start' io port (default 0x443)");
 
-static int timeout = WATCHDOG_TIMEOUT;	
+static int timeout = WATCHDOG_TIMEOUT;	/* in seconds */
 module_param(timeout, int, 0);
 MODULE_PARM_DESC(timeout,
 	"Watchdog timeout in seconds. 1<= timeout <=63, default="
@@ -72,10 +83,13 @@ MODULE_PARM_DESC(nowayout,
 	"Watchdog cannot be stopped once started (default="
 		__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
+/*
+ *	Watchdog Operations
+ */
 
 static void advwdt_ping(void)
 {
-	
+	/* Write a watchdog value */
 	outb_p(timeout, wdt_start);
 }
 
@@ -92,6 +106,9 @@ static int advwdt_set_heartbeat(int t)
 	return 0;
 }
 
+/*
+ *	/dev/watchdog handling
+ */
 
 static ssize_t advwdt_write(struct file *file, const char __user *buf,
 						size_t count, loff_t *ppos)
@@ -164,7 +181,7 @@ static long advwdt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (advwdt_set_heartbeat(new_timeout))
 			return -EINVAL;
 		advwdt_ping();
-		
+		/* Fall */
 	case WDIOC_GETTIMEOUT:
 		return put_user(timeout, p);
 	default:
@@ -177,6 +194,9 @@ static int advwdt_open(struct inode *inode, struct file *file)
 {
 	if (test_and_set_bit(0, &advwdt_is_open))
 		return -EBUSY;
+	/*
+	 *	Activate
+	 */
 
 	advwdt_ping();
 	return nonseekable_open(inode, file);
@@ -195,6 +215,9 @@ static int advwdt_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ *	Kernel Interfaces
+ */
 
 static const struct file_operations advwdt_fops = {
 	.owner		= THIS_MODULE,
@@ -211,6 +234,9 @@ static struct miscdevice advwdt_miscdev = {
 	.fops	= &advwdt_fops,
 };
 
+/*
+ *	Init & exit routines
+ */
 
 static int __devinit advwdt_probe(struct platform_device *dev)
 {
@@ -231,6 +257,8 @@ static int __devinit advwdt_probe(struct platform_device *dev)
 		goto unreg_stop;
 	}
 
+	/* Check that the heartbeat value is within it's range ;
+	 * if not reset to the default */
 	if (advwdt_set_heartbeat(timeout)) {
 		advwdt_set_heartbeat(WATCHDOG_TIMEOUT);
 		pr_info("timeout value must be 1<=x<=63, using %d\n", timeout);
@@ -266,7 +294,7 @@ static int __devexit advwdt_remove(struct platform_device *dev)
 
 static void advwdt_shutdown(struct platform_device *dev)
 {
-	
+	/* Turn the WDT off if we have a soft shutdown */
 	advwdt_disable();
 }
 

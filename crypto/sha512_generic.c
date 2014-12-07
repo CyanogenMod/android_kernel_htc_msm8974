@@ -84,17 +84,17 @@ sha512_transform(u64 *state, const u8 *input)
 	int i;
 	u64 W[16];
 
-	
+	/* load the state into our registers */
 	a=state[0];   b=state[1];   c=state[2];   d=state[3];
 	e=state[4];   f=state[5];   g=state[6];   h=state[7];
 
-	
+	/* now iterate */
 	for (i=0; i<80; i+=8) {
 		if (!(i & 8)) {
 			int j;
 
 			if (i < 16) {
-				
+				/* load the input */
 				for (j = 0; j < 16; j++)
 					LOAD_OP(i + j, W, input);
 			} else {
@@ -125,7 +125,7 @@ sha512_transform(u64 *state, const u8 *input)
 	state[0] += a; state[1] += b; state[2] += c; state[3] += d;
 	state[4] += e; state[5] += f; state[6] += g; state[7] += h;
 
-	
+	/* erase our data */
 	a = b = c = d = e = f = g = h = t1 = t2 = 0;
 }
 
@@ -170,16 +170,16 @@ sha512_update(struct shash_desc *desc, const u8 *data, unsigned int len)
 
 	unsigned int i, index, part_len;
 
-	
+	/* Compute number of bytes mod 128 */
 	index = sctx->count[0] & 0x7f;
 
-	
+	/* Update number of bytes */
 	if ((sctx->count[0] += len) < len)
 		sctx->count[1]++;
 
         part_len = 128 - index;
 
-	
+	/* Transform as many times as possible. */
 	if (len >= part_len) {
 		memcpy(&sctx->buf[index], data, part_len);
 		sha512_transform(sctx->state, sctx->buf);
@@ -192,7 +192,7 @@ sha512_update(struct shash_desc *desc, const u8 *data, unsigned int len)
 		i = 0;
 	}
 
-	
+	/* Buffer remaining input */
 	memcpy(&sctx->buf[index], &data[i], len - i);
 
 	return 0;
@@ -208,23 +208,23 @@ sha512_final(struct shash_desc *desc, u8 *hash)
 	unsigned int index, pad_len;
 	int i;
 
-	
+	/* Save number of bits */
 	bits[1] = cpu_to_be64(sctx->count[0] << 3);
 	bits[0] = cpu_to_be64(sctx->count[1] << 3 | sctx->count[0] >> 61);
 
-	
+	/* Pad out to 112 mod 128. */
 	index = sctx->count[0] & 0x7f;
 	pad_len = (index < 112) ? (112 - index) : ((128+112) - index);
 	sha512_update(desc, padding, pad_len);
 
-	
+	/* Append length (before padding) */
 	sha512_update(desc, (const u8 *)bits, sizeof(bits));
 
-	
+	/* Store state in digest */
 	for (i = 0; i < 8; i++)
 		dst[i] = cpu_to_be64(sctx->state[i]);
 
-	
+	/* Zeroize sensitive information. */
 	memset(sctx, 0, sizeof(struct sha512_state));
 
 	return 0;

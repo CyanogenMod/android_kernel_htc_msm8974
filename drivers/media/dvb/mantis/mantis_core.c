@@ -107,25 +107,25 @@ struct mantis_hwconfig unknown_device = {
 static void mantis_load_config(struct mantis_pci *mantis)
 {
 	switch (mantis->subsystem_device) {
-	case MANTIS_VP_1033_DVB_S:	
+	case MANTIS_VP_1033_DVB_S:	/* VP-1033 */
 		mantis->hwconfig = &vp1033_mantis_config;
 		break;
-	case MANTIS_VP_1034_DVB_S:	
+	case MANTIS_VP_1034_DVB_S:	/* VP-1034 */
 		mantis->hwconfig = &vp1034_mantis_config;
 		break;
-	case MANTIS_VP_1041_DVB_S2:	
+	case MANTIS_VP_1041_DVB_S2:	/* VP-1041 */
 	case TECHNISAT_SKYSTAR_HD2:
 		mantis->hwconfig = &vp1041_mantis_config;
 		break;
-	case MANTIS_VP_2033_DVB_C:	
+	case MANTIS_VP_2033_DVB_C:	/* VP-2033 */
 		mantis->hwconfig = &vp2033_mantis_config;
 		break;
-	case MANTIS_VP_2040_DVB_C:	
-	case TERRATEC_CINERGY_C_PCI:	
+	case MANTIS_VP_2040_DVB_C:	/* VP-2040 */
+	case TERRATEC_CINERGY_C_PCI:	/* VP-2040 clone */
 	case TECHNISAT_CABLESTAR_HD2:
 		mantis->hwconfig = &vp2040_mantis_config;
 		break;
-	case MANTIS_VP_3030_DVB_T:	
+	case MANTIS_VP_3030_DVB_T:	/* VP-3030 */
 		mantis->hwconfig = &vp3030_mantis_config;
 		break;
 	default:
@@ -197,6 +197,7 @@ int mantis_core_exit(struct mantis_pci *mantis)
 	return 0;
 }
 
+/* Turn the given bit on or off. */
 void gpio_set_bits(struct mantis_pci *mantis, u32 bitpos, u8 value)
 {
 	u32 cur;
@@ -212,6 +213,7 @@ void gpio_set_bits(struct mantis_pci *mantis, u32 bitpos, u8 value)
 	udelay(100);
 }
 
+/* direction = 0 , no CI passthrough ; 1 , CI passthrough */
 void mantis_set_direction(struct mantis_pci *mantis, int direction)
 {
 	u32 reg;
@@ -219,7 +221,7 @@ void mantis_set_direction(struct mantis_pci *mantis, int direction)
 	reg = mmread(0x28);
 	dprintk(verbose, MANTIS_DEBUG, 1, "TS direction setup");
 	if (direction == 0x01) {
-		
+		/* to CI */
 		reg |= 0x04;
 		mmwrite(reg, 0x28);
 		reg &= 0xff - 0x04;

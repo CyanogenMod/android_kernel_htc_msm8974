@@ -15,6 +15,7 @@
 #include <linux/acpi_io.h>
 #include <acpi/acpiosxf.h>
 
+/* ACPI NVS regions, APEI may use it */
 
 struct nvs_region {
 	__u64 phys_start;
@@ -64,6 +65,11 @@ int acpi_nvs_for_each_region(int (*func)(__u64 start, __u64 size, void *data),
 
 
 #ifdef CONFIG_ACPI_SLEEP
+/*
+ * Platforms, like ACPI, may want us to save some memory used by them during
+ * suspend and to restore the contents of this memory during the subsequent
+ * resume.  The code below implements a mechanism allowing us to do that.
+ */
 
 struct nvs_page {
 	unsigned long phys_start;
@@ -76,6 +82,15 @@ struct nvs_page {
 
 static LIST_HEAD(nvs_list);
 
+/**
+ *	suspend_nvs_register - register platform NVS memory region to save
+ *	@start - physical address of the region
+ *	@size - size of the region
+ *
+ *	The NVS region need not be page-aligned (both ends) and we arrange
+ *	things so that the data from page-aligned addresses in this region will
+ *	be copied into separate RAM pages.
+ */
 static int suspend_nvs_register(unsigned long start, unsigned long size)
 {
 	struct nvs_page *entry, *next;
@@ -108,6 +123,9 @@ static int suspend_nvs_register(unsigned long start, unsigned long size)
 	return -ENOMEM;
 }
 
+/**
+ *	suspend_nvs_free - free data pages allocated for saving NVS regions
+ */
 void suspend_nvs_free(void)
 {
 	struct nvs_page *entry;
@@ -129,6 +147,9 @@ void suspend_nvs_free(void)
 		}
 }
 
+/**
+ *	suspend_nvs_alloc - allocate memory necessary for saving NVS regions
+ */
 int suspend_nvs_alloc(void)
 {
 	struct nvs_page *entry;
@@ -143,6 +164,9 @@ int suspend_nvs_alloc(void)
 	return 0;
 }
 
+/**
+ *	suspend_nvs_save - save NVS memory regions
+ */
 int suspend_nvs_save(void)
 {
 	struct nvs_page *entry;
@@ -169,6 +193,12 @@ int suspend_nvs_save(void)
 	return 0;
 }
 
+/**
+ *	suspend_nvs_restore - restore NVS memory regions
+ *
+ *	This function is going to be called with interrupts disabled, so it
+ *	cannot iounmap the virtual addresses used to access the NVS region.
+ */
 void suspend_nvs_restore(void)
 {
 	struct nvs_page *entry;

@@ -23,13 +23,13 @@
 
 static struct rc_map_table msi_digivox_ii[] = {
 	{ 0x0002, KEY_2 },
-	{ 0x0003, KEY_UP },              
+	{ 0x0003, KEY_UP },              /* up */
 	{ 0x0004, KEY_3 },
 	{ 0x0005, KEY_CHANNELDOWN },
 	{ 0x0008, KEY_5 },
 	{ 0x0009, KEY_0 },
 	{ 0x000b, KEY_8 },
-	{ 0x000d, KEY_DOWN },            
+	{ 0x000d, KEY_DOWN },            /* down */
 	{ 0x0010, KEY_9 },
 	{ 0x0011, KEY_7 },
 	{ 0x0014, KEY_VOLUMEUP },

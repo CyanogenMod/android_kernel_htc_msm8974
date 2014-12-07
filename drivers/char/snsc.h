@@ -8,6 +8,10 @@
  * Copyright (C) 2004-2006 Silicon Graphics, Inc. All rights reserved.
  */
 
+/*
+ * This file contains macros and data types for communication with the
+ * system controllers in SGI SN systems.
+ */
 
 #ifndef _SN_SYSCTL_H_
 #define _SN_SYSCTL_H_
@@ -22,32 +26,37 @@
 
 #define CHUNKSIZE 127
 
+/* This structure is used to track an open subchannel. */
 struct subch_data_s {
-	nasid_t sd_nasid;	
-	int sd_subch;		
-	spinlock_t sd_rlock;	
-	spinlock_t sd_wlock;	
-	wait_queue_head_t sd_rq;	
-	wait_queue_head_t sd_wq;	
-	struct semaphore sd_rbs;	
-	struct semaphore sd_wbs;	
+	nasid_t sd_nasid;	/* node on which the subchannel was opened */
+	int sd_subch;		/* subchannel number */
+	spinlock_t sd_rlock;	/* monitor lock for rsv */
+	spinlock_t sd_wlock;	/* monitor lock for wsv */
+	wait_queue_head_t sd_rq;	/* wait queue for readers */
+	wait_queue_head_t sd_wq;	/* wait queue for writers */
+	struct semaphore sd_rbs;	/* semaphore for read buffer */
+	struct semaphore sd_wbs;	/* semaphore for write buffer */
 
-	char sd_rb[CHUNKSIZE];	
-	char sd_wb[CHUNKSIZE];	
+	char sd_rb[CHUNKSIZE];	/* read buffer */
+	char sd_wb[CHUNKSIZE];	/* write buffer */
 };
 
 struct sysctl_data_s {
-	struct cdev scd_cdev;	
-	nasid_t scd_nasid;	
+	struct cdev scd_cdev;	/* Character device info */
+	nasid_t scd_nasid;	/* Node on which subchannels are opened. */
 };
 
 
-#define IR_ARG_INT              0x00    
-#define IR_ARG_ASCII            0x01    
-#define IR_ARG_UNKNOWN          0x80    
+/* argument types */
+#define IR_ARG_INT              0x00    /* 4-byte integer (big-endian)  */
+#define IR_ARG_ASCII            0x01    /* null-terminated ASCII string */
+#define IR_ARG_UNKNOWN          0x80    /* unknown data type.  The low
+                                         * 7 bits will contain the data
+                                         * length.                      */
 #define IR_ARG_UNKNOWN_LENGTH_MASK	0x7f
 
 
+/* system controller event codes */
 #define EV_CLASS_MASK		0xf000ul
 #define EV_SEVERITY_MASK	0x0f00ul
 #define EV_COMPONENT_MASK	0x00fful
@@ -60,6 +69,7 @@ struct sysctl_data_s {
 #define EV_CLASS_TEST_WARNING	0x6000ul
 #define EV_CLASS_PWRD_NOTIFY	0x8000ul
 
+/* ENV class codes */
 #define ENV_PWRDN_PEND		0x4101ul
 
 #define EV_SEVERITY_POWER_STABLE	0x0000ul
@@ -79,4 +89,4 @@ struct sysctl_data_s {
 
 void scdrv_event_init(struct sysctl_data_s *);
 
-#endif 
+#endif /* _SN_SYSCTL_H_ */

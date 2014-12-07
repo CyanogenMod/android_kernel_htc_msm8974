@@ -21,6 +21,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ******************************************************************************/
 
+/*
+ * The NFSv4.1 callback service helper routines.
+ * They implement the transport level processing required to send the
+ * reply over an existing open connection previously established by the client.
+ */
 
 #include <linux/module.h>
 
@@ -30,10 +35,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #define RPCDBG_FACILITY	RPCDBG_SVCDSP
 
+/* Empty callback ops */
 static const struct rpc_call_ops nfs41_callback_ops = {
 };
 
 
+/*
+ * Send the callback reply
+ */
 int bc_send(struct rpc_rqst *req)
 {
 	struct rpc_task *task;

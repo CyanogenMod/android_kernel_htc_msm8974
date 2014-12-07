@@ -43,6 +43,7 @@
 #define RB500_CF_REG_BASE	0x0800
 #define RB500_CF_REG_ERR	0x080D
 #define RB500_CF_REG_CTRL	0x080E
+/* 32bit buffered data register offset */
 #define RB500_CF_REG_DBUF32	0x0C00
 
 struct rb532_cf_info {
@@ -51,6 +52,7 @@ struct rb532_cf_info {
 	unsigned int	irq;
 };
 
+/* ------------------------------------------------------------------------ */
 
 static irqreturn_t rb532_pata_irq_handler(int irq, void *dev_instance)
 {
@@ -72,11 +74,13 @@ static struct ata_port_operations rb532_pata_port_ops = {
 	.sff_data_xfer		= ata_sff_data_xfer32,
 };
 
+/* ------------------------------------------------------------------------ */
 
 static struct scsi_host_template rb532_pata_sht = {
 	ATA_PIO_SHT(DRV_NAME),
 };
 
+/* ------------------------------------------------------------------------ */
 
 static void rb532_pata_setup_ports(struct ata_host *ah)
 {
@@ -131,7 +135,7 @@ static __devinit int rb532_pata_driver_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	
+	/* allocate host */
 	ah = ata_host_alloc(&pdev->dev, RB500_CF_MAXPORTS);
 	if (!ah)
 		return -ENOMEM;

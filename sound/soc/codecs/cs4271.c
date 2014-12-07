@@ -35,19 +35,25 @@
 			    SNDRV_PCM_FMTBIT_S32_LE)
 #define CS4271_PCM_RATES SNDRV_PCM_RATE_8000_192000
 
-#define CS4271_MODE1	0x2001	
-#define CS4271_DACCTL	0x2002	
-#define CS4271_DACVOL	0x2003	
-#define CS4271_VOLA	0x2004	
-#define CS4271_VOLB	0x2005	
-#define CS4271_ADCCTL	0x2006	
-#define CS4271_MODE2	0x2007	
-#define CS4271_CHIPID	0x2008	
+/*
+ * CS4271 registers
+ * High byte represents SPI chip address (0x10) + write command (0)
+ * Low byte - codec register address
+ */
+#define CS4271_MODE1	0x2001	/* Mode Control 1 */
+#define CS4271_DACCTL	0x2002	/* DAC Control */
+#define CS4271_DACVOL	0x2003	/* DAC Volume & Mixing Control */
+#define CS4271_VOLA	0x2004	/* DAC Channel A Volume Control */
+#define CS4271_VOLB	0x2005	/* DAC Channel B Volume Control */
+#define CS4271_ADCCTL	0x2006	/* ADC Control */
+#define CS4271_MODE2	0x2007	/* Mode Control 2 */
+#define CS4271_CHIPID	0x2008	/* Chip ID */
 
 #define CS4271_FIRSTREG	CS4271_MODE1
 #define CS4271_LASTREG	CS4271_MODE2
 #define CS4271_NR_REGS	((CS4271_LASTREG & 0xFF) + 1)
 
+/* Bit masks for the CS4271 registers */
 #define CS4271_MODE1_MODE_MASK	0xC0
 #define CS4271_MODE1_MODE_1X	0x00
 #define CS4271_MODE1_MODE_2X	0x80
@@ -130,6 +136,12 @@
 #define CS4271_CHIPID_PART_MASK	0xF0
 #define CS4271_CHIPID_REV_MASK	0x0F
 
+/*
+ * Default CS4271 power-up configuration
+ * Array contains non-existing in hw register at address 0
+ * Array do not include Chip ID, as codec driver does not use
+ * registers read operations at all
+ */
 static const u8 cs4271_dflt_reg[CS4271_NR_REGS] = {
 	0,
 	0,
@@ -142,19 +154,24 @@ static const u8 cs4271_dflt_reg[CS4271_NR_REGS] = {
 };
 
 struct cs4271_private {
-	
+	/* SND_SOC_I2C or SND_SOC_SPI */
 	enum snd_soc_control_type	bus_type;
 	unsigned int			mclk;
 	bool				master;
 	bool				deemph;
-	
+	/* Current sample rate for de-emphasis control */
 	int				rate;
-	
+	/* GPIO driving Reset pin, if any */
 	int				gpio_nreset;
-	
+	/* GPIO that disable serial bus, if any */
 	int				gpio_disable;
 };
 
+/*
+ * @freq is the desired MCLK rate
+ * MCLK rate should (c) be the sample rate, multiplied by one of the
+ * ratios listed in cs4271_mclk_fs_ratios table
+ */
 static int cs4271_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 				 int clk_id, unsigned int freq, int dir)
 {
@@ -222,7 +239,7 @@ static int cs4271_set_deemph(struct snd_soc_codec *codec)
 	int val = CS4271_DACCTL_DEM_DIS;
 
 	if (cs4271->deemph) {
-		
+		/* Find closest de-emphasis freq */
 		val = 1;
 		for (i = 2; i < ARRAY_SIZE(cs4271_deemph); i++)
 			if (abs(cs4271_deemph[i] - cs4271->rate) <
@@ -259,10 +276,10 @@ static int cs4271_put_deemph(struct snd_kcontrol *kcontrol,
 }
 
 struct cs4271_clk_cfg {
-	bool		master;		
-	u8		speed_mode;	
-	unsigned short	ratio;		
-	u8		ratio_mask;	
+	bool		master;		/* codec mode */
+	u8		speed_mode;	/* codec speed mode: 1x, 2x, 4x */
+	unsigned short	ratio;		/* MCLK / sample rate */
+	u8		ratio_mask;	/* ratio bit mask for Master mode */
 };
 
 static struct cs4271_clk_cfg cs4271_clk_tab[] = {
@@ -309,7 +326,7 @@ static int cs4271_hw_params(struct snd_pcm_substream *substream,
 
 	cs4271->rate = params_rate(params);
 
-	
+	/* Configure DAC */
 	if (cs4271->rate < 50000)
 		val = CS4271_MODE1_MODE_1X;
 	else if (cs4271->rate < 100000)
@@ -361,6 +378,7 @@ static int cs4271_digital_mute(struct snd_soc_dai *dai, int mute)
 	return 0;
 }
 
+/* CS4271 controls */
 static DECLARE_TLV_DB_SCALE(cs4271_dac_tlv, -12700, 100, 0);
 
 static const struct snd_kcontrol_new cs4271_snd_controls[] = {
@@ -415,7 +433,7 @@ static struct snd_soc_dai_driver cs4271_dai = {
 static int cs4271_soc_suspend(struct snd_soc_codec *codec)
 {
 	int ret;
-	
+	/* Set power-down bit */
 	ret = snd_soc_update_bits(codec, CS4271_MODE2, CS4271_MODE2_PDN,
 				  CS4271_MODE2_PDN);
 	if (ret < 0)
@@ -426,11 +444,11 @@ static int cs4271_soc_suspend(struct snd_soc_codec *codec)
 static int cs4271_soc_resume(struct snd_soc_codec *codec)
 {
 	int ret;
-	
+	/* Restore codec state */
 	ret = snd_soc_cache_sync(codec);
 	if (ret < 0)
 		return ret;
-	
+	/* then disable the power-down bit */
 	ret = snd_soc_update_bits(codec, CS4271_MODE2, CS4271_MODE2_PDN, 0);
 	if (ret < 0)
 		return ret;
@@ -439,7 +457,7 @@ static int cs4271_soc_resume(struct snd_soc_codec *codec)
 #else
 #define cs4271_soc_suspend	NULL
 #define cs4271_soc_resume	NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static int cs4271_probe(struct snd_soc_codec *codec)
 {
@@ -455,16 +473,24 @@ static int cs4271_probe(struct snd_soc_codec *codec)
 		if (gpio_request(gpio_nreset, "CS4271 Reset"))
 			gpio_nreset = -EINVAL;
 	if (gpio_nreset >= 0) {
-		
+		/* Reset codec */
 		gpio_direction_output(gpio_nreset, 0);
 		udelay(1);
 		gpio_set_value(gpio_nreset, 1);
-		
+		/* Give the codec time to wake up */
 		udelay(1);
 	}
 
 	cs4271->gpio_nreset = gpio_nreset;
 
+	/*
+	 * In case of I2C, chip address specified in board data.
+	 * So cache IO operations use 8 bit codec register address.
+	 * In case of SPI, chip address and register address
+	 * passed together as 16 bit value.
+	 * Anyway, register address is masked with 0xFF inside
+	 * soc-cache code.
+	 */
 	if (cs4271->bus_type == SND_SOC_SPI)
 		ret = snd_soc_codec_set_cache_io(codec, 16, 8,
 			cs4271->bus_type);
@@ -484,7 +510,7 @@ static int cs4271_probe(struct snd_soc_codec *codec)
 	ret = snd_soc_update_bits(codec, CS4271_MODE2, CS4271_MODE2_PDN, 0);
 	if (ret < 0)
 		return ret;
-	
+	/* Power-up sequence requires 85 uS */
 	udelay(85);
 
 	return snd_soc_add_codec_controls(codec, cs4271_snd_controls,
@@ -499,7 +525,7 @@ static int cs4271_remove(struct snd_soc_codec *codec)
 	gpio_nreset = cs4271->gpio_nreset;
 
 	if (gpio_is_valid(gpio_nreset)) {
-		
+		/* Set codec to the reset state */
 		gpio_set_value(gpio_nreset, 0);
 		gpio_free(gpio_nreset);
 	}
@@ -548,7 +574,7 @@ static struct spi_driver cs4271_spi_driver = {
 	.probe		= cs4271_spi_probe,
 	.remove		= __devexit_p(cs4271_spi_remove),
 };
-#endif 
+#endif /* defined(CONFIG_SPI_MASTER) */
 
 #if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
 static const struct i2c_device_id cs4271_i2c_id[] = {
@@ -588,8 +614,15 @@ static struct i2c_driver cs4271_i2c_driver = {
 	.probe		= cs4271_i2c_probe,
 	.remove		= __devexit_p(cs4271_i2c_remove),
 };
-#endif 
+#endif /* defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE) */
 
+/*
+ * We only register our serial bus driver here without
+ * assignment to particular chip. So if any of the below
+ * fails, there is some problem with I2C or SPI subsystem.
+ * In most cases this module will be compiled with support
+ * of only one serial bus.
+ */
 static int __init cs4271_modinit(void)
 {
 	int ret;

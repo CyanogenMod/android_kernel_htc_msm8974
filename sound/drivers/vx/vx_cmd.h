@@ -78,8 +78,8 @@ enum {
 	CMD_READ_BOARD_FREQ,
 	CMD_GET_STREAM_LEVELS,
 	CMD_PURGE_PIPE_DCMDS,
-	
-	
+	// CMD_SET_STREAM_OUT_EFFECTS,
+	// CMD_GET_STREAM_OUT_EFFECTS,
 	CMD_CONNECT_MONITORING,
 	CMD_STREAM2_OUT_SET_N_LEVELS,
 	CMD_CANCEL_R_BUFFERS,
@@ -89,12 +89,13 @@ enum {
 };
 
 struct vx_cmd_info {
-	unsigned int opcode;	
-	int length;		
-	int st_type;		
-	int st_length;		
+	unsigned int opcode;	/* command word */
+	int length;		/* command length (in words) */
+	int st_type;		/* status type (RMH_SSIZE_XXX) */
+	int st_length;		/* fixed length */
 };
 
+/* Family and code op of some DSP requests. */
 #define CODE_OP_PIPE_TIME                       0x004e0000
 #define CODE_OP_START_STREAM                    0x00800000
 #define CODE_OP_PAUSE_STREAM                    0x00810000
@@ -109,6 +110,7 @@ struct vx_cmd_info {
 
 #define NOTIFY_LAST_COMMAND     0x00400000
 
+/* Values for a user delay */
 #define DC_DIFFERED_DELAY       (1<<BIT_DIFFERED_COMMAND)
 #define DC_NOTIFY_DELAY         (1<<BIT_NOTIFIED_COMMAND)
 #define DC_HBUFFER_DELAY        (1<<BIT_TIME_RELATIVE_TO_BUFFER)
@@ -116,6 +118,9 @@ struct vx_cmd_info {
 #define DC_STREAM_TIME_DELAY    (1<<BIT_STREAM_TIME)
 #define DC_CANCELLED_DELAY      (1<<BIT_CANCELLED_COMMAND)
 
+/* Values for tiDelayed field in TIME_INFO structure,
+ * and for pbPause field in PLAY_BUFFER_INFO structure
+ */
 #define BIT_DIFFERED_COMMAND                0
 #define BIT_NOTIFIED_COMMAND                1
 #define BIT_TIME_RELATIVE_TO_BUFFER         2
@@ -123,16 +128,19 @@ struct vx_cmd_info {
 #define BIT_STREAM_TIME                     4
 #define BIT_CANCELLED_COMMAND               5
 
+/* Access to the "Size" field of the response of the CMD_GET_NOTIFY_EVENT request. */
 #define GET_NOTIFY_EVENT_SIZE_FIELD_MASK    0x000000ff
 
+/* DSP commands general masks */
 #define OPCODE_MASK                 0x00ff0000
 #define DSP_DIFFERED_COMMAND_MASK   0x0000C000
 
-#define ALL_CMDS_NOTIFIED                   0x0000  
+/* Notifications (NOTIFY_INFO) */
+#define ALL_CMDS_NOTIFIED                   0x0000  // reserved
 #define START_STREAM_NOTIFIED               0x0001
 #define PAUSE_STREAM_NOTIFIED               0x0002
 #define OUT_STREAM_LEVEL_NOTIFIED           0x0003
-#define OUT_STREAM_PARAMETER_NOTIFIED       0x0004  
+#define OUT_STREAM_PARAMETER_NOTIFIED       0x0004  // left for backward compatibility
 #define OUT_STREAM_FORMAT_NOTIFIED          0x0004
 #define PIPE_TIME_NOTIFIED                  0x0005
 #define OUT_AUDIO_LEVEL_NOTIFIED            0x0006
@@ -141,6 +149,7 @@ struct vx_cmd_info {
 #define OUT_STREAM_EXTRAPARAMETER_NOTIFIED  0x0009
 #define UNKNOWN_COMMAND_NOTIFIED            0xffff
 
+/* Output pipe parameters setting */
 #define MASK_VALID_PIPE_MPEG_PARAM      0x000040
 #define MASK_VALID_PIPE_BACKWARD_PARAM  0x000020
 #define MASK_SET_PIPE_MPEG_PARAM        0x000002
@@ -154,6 +163,7 @@ struct vx_cmd_info {
 
 #define COMMAND_RECORD_MASK     0x000800
 
+/* PipeManagement definition bits (PIPE_DECL_INFO) */
 #define P_UNDERRUN_SKIP_SOUND_MASK				0x01
 #define P_PREPARE_FOR_MPEG3_MASK				0x02
 #define P_DO_NOT_RESET_ANALOG_LEVELS			0x04
@@ -161,25 +171,33 @@ struct vx_cmd_info {
 #define P_DATA_MODE_MASK				0x10
 #define P_ASIO_BUFFER_MANAGEMENT_MASK			0x20
 
-#define BIT_SKIP_SOUND					0x08	
-#define BIT_DATA_MODE					0x10	
+#define BIT_SKIP_SOUND					0x08	// bit 3
+#define BIT_DATA_MODE					0x10	// bit 4
     
+/* Bits in the CMD_MODIFY_CLOCK request. */
 #define CMD_MODIFY_CLOCK_FD_BIT     0x00000001
 #define CMD_MODIFY_CLOCK_T_BIT      0x00000002
 #define CMD_MODIFY_CLOCK_S_BIT      0x00000004
 
+/* Access to the results of the CMD_GET_TIME_CODE RMH. */
 #define TIME_CODE_V_MASK            0x00800000
 #define TIME_CODE_N_MASK            0x00400000
 #define TIME_CODE_B_MASK            0x00200000
 #define TIME_CODE_W_MASK            0x00100000
 
+/* Values for the CMD_MANAGE_SIGNAL RMH. */
 #define MANAGE_SIGNAL_TIME_CODE     0x01
 #define MANAGE_SIGNAL_MIDI          0x02
 
+/* Values for the CMD_CONFIG_TIME_CODE RMH. */
 #define CONFIG_TIME_CODE_CANCEL     0x00001000
     
+/* Mask to get only the effective time from the
+ * high word out of the 2 returned by the DSP
+ */
 #define PCX_TIME_HI_MASK        0x000fffff
 
+/* Values for setting a H-Buffer time */
 #define HBUFFER_TIME_HIGH       0x00200000
 #define HBUFFER_TIME_LOW        0x00000000
 
@@ -188,8 +206,18 @@ struct vx_cmd_info {
 #define STREAM_MASK_TIME_HIGH   0x00800000
 
 
+/*
+ *
+ */
 void vx_init_rmh(struct vx_rmh *rmh, unsigned int cmd);
 
+/**
+ * vx_send_pipe_cmd_params - fill first command word for pipe commands
+ * @rmh: the rmh to be modified
+ * @is_capture: 0 = playback, 1 = capture operation
+ * @param1: first pipe-parameter
+ * @param2: second pipe-parameter
+ */
 static inline void vx_set_pipe_cmd_params(struct vx_rmh *rmh, int is_capture,
 					  int param1, int param2)
 {
@@ -202,6 +230,12 @@ static inline void vx_set_pipe_cmd_params(struct vx_rmh *rmh, int is_capture,
 	
 }
 
+/**
+ * vx_set_stream_cmd_params - fill first command word for stream commands
+ * @rmh: the rmh to be modified
+ * @is_capture: 0 = playback, 1 = capture operation
+ * @pipe: the pipe index (zero-based)
+ */
 static inline void vx_set_stream_cmd_params(struct vx_rmh *rmh, int is_capture, int pipe)
 {
 	if (is_capture)
@@ -209,4 +243,4 @@ static inline void vx_set_stream_cmd_params(struct vx_rmh *rmh, int is_capture, 
 	rmh->Cmd[0] |= (((u32)pipe & MASK_FIRST_FIELD) << FIELD_SIZE) & MASK_DSP_WORD;
 }
 
-#endif 
+#endif /* __VX_CMD_H */

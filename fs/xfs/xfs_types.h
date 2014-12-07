@@ -20,6 +20,9 @@
 
 #ifdef __KERNEL__
 
+/*
+ * Additional type declarations for XFS
+ */
 typedef signed char		__int8_t;
 typedef unsigned char		__uint8_t;
 typedef signed short int	__int16_t;
@@ -30,16 +33,17 @@ typedef signed long long int	__int64_t;
 typedef unsigned long long int	__uint64_t;
 
 typedef enum { B_FALSE,B_TRUE }	boolean_t;
-typedef __uint32_t		prid_t;		
-typedef __uint32_t		inst_t;		
+typedef __uint32_t		prid_t;		/* project ID */
+typedef __uint32_t		inst_t;		/* an instruction */
 
-typedef __s64			xfs_off_t;	
-typedef unsigned long long	xfs_ino_t;	
-typedef __s64			xfs_daddr_t;	
-typedef char *			xfs_caddr_t;	
+typedef __s64			xfs_off_t;	/* <file offset> type */
+typedef unsigned long long	xfs_ino_t;	/* <inode> type */
+typedef __s64			xfs_daddr_t;	/* <disk address> type */
+typedef char *			xfs_caddr_t;	/* <core address> type */
 typedef __u32			xfs_dev_t;
 typedef __u32			xfs_nlink_t;
 
+/* __psint_t is the same size as a pointer */
 #if (BITS_PER_LONG == 32)
 typedef __int32_t __psint_t;
 typedef __uint32_t __psunsigned_t;
@@ -50,46 +54,56 @@ typedef __uint64_t __psunsigned_t;
 #error BITS_PER_LONG must be 32 or 64
 #endif
 
-#endif	
+#endif	/* __KERNEL__ */
 
-typedef __uint32_t	xfs_agblock_t;	
-typedef	__uint32_t	xfs_extlen_t;	
-typedef	__uint32_t	xfs_agnumber_t;	
-typedef __int32_t	xfs_extnum_t;	
-typedef __int16_t	xfs_aextnum_t;	
-typedef	__int64_t	xfs_fsize_t;	
-typedef __uint64_t	xfs_ufsize_t;	
+typedef __uint32_t	xfs_agblock_t;	/* blockno in alloc. group */
+typedef	__uint32_t	xfs_extlen_t;	/* extent length in blocks */
+typedef	__uint32_t	xfs_agnumber_t;	/* allocation group number */
+typedef __int32_t	xfs_extnum_t;	/* # of extents in a file */
+typedef __int16_t	xfs_aextnum_t;	/* # extents in an attribute fork */
+typedef	__int64_t	xfs_fsize_t;	/* bytes in a file */
+typedef __uint64_t	xfs_ufsize_t;	/* unsigned bytes in a file */
 
-typedef	__int32_t	xfs_suminfo_t;	
-typedef	__int32_t	xfs_rtword_t;	
+typedef	__int32_t	xfs_suminfo_t;	/* type of bitmap summary info */
+typedef	__int32_t	xfs_rtword_t;	/* word type for bitmap manipulations */
 
-typedef	__int64_t	xfs_lsn_t;	
-typedef	__int32_t	xfs_tid_t;	
+typedef	__int64_t	xfs_lsn_t;	/* log sequence number */
+typedef	__int32_t	xfs_tid_t;	/* transaction identifier */
 
-typedef	__uint32_t	xfs_dablk_t;	
-typedef	__uint32_t	xfs_dahash_t;	
+typedef	__uint32_t	xfs_dablk_t;	/* dir/attr block number (in file) */
+typedef	__uint32_t	xfs_dahash_t;	/* dir/attr hash value */
 
-typedef __uint64_t	xfs_dfsbno_t;	
-typedef __uint64_t	xfs_drfsbno_t;	
-typedef	__uint64_t	xfs_drtbno_t;	
-typedef	__uint64_t	xfs_dfiloff_t;	
-typedef	__uint64_t	xfs_dfilblks_t;	
+/*
+ * These types are 64 bits on disk but are either 32 or 64 bits in memory.
+ * Disk based types:
+ */
+typedef __uint64_t	xfs_dfsbno_t;	/* blockno in filesystem (agno|agbno) */
+typedef __uint64_t	xfs_drfsbno_t;	/* blockno in filesystem (raw) */
+typedef	__uint64_t	xfs_drtbno_t;	/* extent (block) in realtime area */
+typedef	__uint64_t	xfs_dfiloff_t;	/* block number in a file */
+typedef	__uint64_t	xfs_dfilblks_t;	/* number of blocks in a file */
 
+/*
+ * Memory based types are conditional.
+ */
 #if XFS_BIG_BLKNOS
-typedef	__uint64_t	xfs_fsblock_t;	
-typedef __uint64_t	xfs_rfsblock_t;	
-typedef __uint64_t	xfs_rtblock_t;	
-typedef	__int64_t	xfs_srtblock_t;	
+typedef	__uint64_t	xfs_fsblock_t;	/* blockno in filesystem (agno|agbno) */
+typedef __uint64_t	xfs_rfsblock_t;	/* blockno in filesystem (raw) */
+typedef __uint64_t	xfs_rtblock_t;	/* extent (block) in realtime area */
+typedef	__int64_t	xfs_srtblock_t;	/* signed version of xfs_rtblock_t */
 #else
-typedef	__uint32_t	xfs_fsblock_t;	
-typedef __uint32_t	xfs_rfsblock_t;	
-typedef __uint32_t	xfs_rtblock_t;	
-typedef	__int32_t	xfs_srtblock_t;	
+typedef	__uint32_t	xfs_fsblock_t;	/* blockno in filesystem (agno|agbno) */
+typedef __uint32_t	xfs_rfsblock_t;	/* blockno in filesystem (raw) */
+typedef __uint32_t	xfs_rtblock_t;	/* extent (block) in realtime area */
+typedef	__int32_t	xfs_srtblock_t;	/* signed version of xfs_rtblock_t */
 #endif
-typedef __uint64_t	xfs_fileoff_t;	
-typedef __int64_t	xfs_sfiloff_t;	
-typedef __uint64_t	xfs_filblks_t;	
+typedef __uint64_t	xfs_fileoff_t;	/* block number in a file */
+typedef __int64_t	xfs_sfiloff_t;	/* signed block number in a file */
+typedef __uint64_t	xfs_filblks_t;	/* number of blocks in a file */
 
+/*
+ * Null values for the types.
+ */
 #define	NULLDFSBNO	((xfs_dfsbno_t)-1)
 #define	NULLDRFSBNO	((xfs_drfsbno_t)-1)
 #define	NULLDRTBNO	((xfs_drtbno_t)-1)
@@ -106,13 +120,23 @@ typedef __uint64_t	xfs_filblks_t;
 
 #define NULLCOMMITLSN	((xfs_lsn_t)-1)
 
-#define	MAXEXTLEN	((xfs_extlen_t)0x001fffff)	
-#define	MAXEXTNUM	((xfs_extnum_t)0x7fffffff)	
-#define	MAXAEXTNUM	((xfs_aextnum_t)0x7fff)		
+/*
+ * Max values for extlen, extnum, aextnum.
+ */
+#define	MAXEXTLEN	((xfs_extlen_t)0x001fffff)	/* 21 bits */
+#define	MAXEXTNUM	((xfs_extnum_t)0x7fffffff)	/* signed int */
+#define	MAXAEXTNUM	((xfs_aextnum_t)0x7fff)		/* signed short */
 
+/*
+ * Min numbers of data/attr fork btree root pointers.
+ */
 #define MINDBTPTRS	3
 #define MINABTPTRS	2
 
+/*
+ * MAXNAMELEN is the length (including the terminating null) of
+ * the longest permissible file (component) name.
+ */
 #define MAXNAMELEN	256
 
 typedef enum {
@@ -129,4 +153,4 @@ struct xfs_name {
 	int			len;
 };
 
-#endif	
+#endif	/* __XFS_TYPES_H__ */

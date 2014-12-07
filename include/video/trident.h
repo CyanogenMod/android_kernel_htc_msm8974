@@ -14,11 +14,12 @@
 #define Kb	(1024)
 #define Mb	(Kb*Kb)
 
+/* PCI IDS of supported cards temporarily here */
 
 #define CYBER9320	0x9320
 #define CYBER9388	0x9388
-#define CYBER9382	0x9382		
-#define CYBER9385	0x9385				
+#define CYBER9382	0x9382		/* the real PCI id for this is 9660 */
+#define CYBER9385	0x9385		/* ditto */		
 #define CYBER9397	0x9397
 #define CYBER9397DVD	0x939A
 #define CYBER9520	0x9520
@@ -40,12 +41,15 @@
 #define CYBERBLADEXPm8  0x9910
 #define CYBERBLADEXPm16 0x9930
 
+/* these defines are for 'lcd' variable */
 #define LCD_STRETCH	0
 #define LCD_CENTER	1
 #define LCD_BIOS	2
 
-#define SPR	0x1F		
+/* General Registers */
+#define SPR	0x1F		/* Software Programming Register (videoram) */
 
+/* 3C4 */
 #define RevisionID 0x09
 #define OldOrNew 0x0B	
 #define ConfPort1 0x0C
@@ -61,6 +65,7 @@
 #define SKey 0x37
 #define SPKey 0x57
 
+/* 3x4 */
 #define CRTCModuleTest 0x1E
 #define FIFOControl 0x20
 #define LinearAddReg 0x21
@@ -107,6 +112,7 @@
 #define ClockControl 0xCF
 
 
+/* 3CE */
 #define MiscExtFunc 0x0F
 #define PowerStatus 0x23
 #define MiscIntContReg 0x2F
@@ -118,6 +124,7 @@
 #define BiosMode     0x5c
 #define BiosReg      0x5d
 
+/* Graphics Engine */
 #define STATUS	0x2120
 #define OLDCMD	0x2124
 #define DRAWFL	0x2128

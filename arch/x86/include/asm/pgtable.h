@@ -6,6 +6,9 @@
 
 #include <asm/pgtable_types.h>
 
+/*
+ * Macro to mark a page protection value as UC-
+ */
 #define pgprot_noncached(prot)					\
 	((boot_cpu_data.x86 > 3)				\
 	 ? (__pgprot(pgprot_val(prot) | _PAGE_CACHE_UC_MINUS))	\
@@ -15,6 +18,10 @@
 
 #include <asm/x86_init.h>
 
+/*
+ * ZERO_PAGE is a global shared page that is always zero: used
+ * for zero-mapped memory areas etc..
+ */
 extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 #define ZERO_PAGE(vaddr) (virt_to_page(empty_zero_page))
 
@@ -25,7 +32,7 @@ extern struct mm_struct *pgd_page_get_mm(struct page *page);
 
 #ifdef CONFIG_PARAVIRT
 #include <asm/paravirt.h>
-#else  
+#else  /* !CONFIG_PARAVIRT */
 #define set_pte(ptep, pte)		native_set_pte(ptep, pte)
 #define set_pte_at(mm, addr, ptep, pte)	native_set_pte_at(mm, addr, ptep, pte)
 #define set_pmd_at(mm, addr, pmdp, pmd)	native_set_pmd_at(mm, addr, pmdp, pmd)
@@ -74,8 +81,12 @@ extern struct mm_struct *pgd_page_get_mm(struct page *page);
 
 #define arch_end_context_switch(prev)	do {} while(0)
 
-#endif	
+#endif	/* CONFIG_PARAVIRT */
 
+/*
+ * The following only work if pte_present() is true.
+ * Undefined behaviour if not..
+ */
 static inline int pte_dirty(pte_t pte)
 {
 	return pte_flags(pte) & _PAGE_DIRTY;
@@ -154,7 +165,7 @@ static inline int has_transparent_hugepage(void)
 {
 	return cpu_has_pse;
 }
-#endif 
+#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 
 static inline pte_t pte_set_flags(pte_t pte, pteval_t set)
 {
@@ -279,6 +290,10 @@ static inline pmd_t pmd_mknotpresent(pmd_t pmd)
 	return pmd_clear_flags(pmd, _PAGE_PRESENT);
 }
 
+/*
+ * Mask out unsupported bits in a present pgprot.  Non-present pgprots
+ * can use those bits for other purposes, so leave them be.
+ */
 static inline pgprotval_t massage_pgprot(pgprot_t pgprot)
 {
 	pgprotval_t protval = pgprot_val(pgprot);
@@ -305,6 +320,10 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 {
 	pteval_t val = pte_val(pte);
 
+	/*
+	 * Chop off the NX bit (if present), and add the NX portion of
+	 * the newprot (if present):
+	 */
 	val &= _PAGE_CHG_MASK;
 	val |= massage_pgprot(newprot) & ~_PAGE_CHG_MASK;
 
@@ -321,6 +340,7 @@ static inline pmd_t pmd_modify(pmd_t pmd, pgprot_t newprot)
 	return __pmd(val);
 }
 
+/* mprotect needs to preserve PAT bits when updating vm_page_prot */
 #define pgprot_modify pgprot_modify
 static inline pgprot_t pgprot_modify(pgprot_t oldprot, pgprot_t newprot)
 {
@@ -337,9 +357,18 @@ static inline int is_new_memtype_allowed(u64 paddr, unsigned long size,
 					 unsigned long flags,
 					 unsigned long new_flags)
 {
+	/*
+	 * PAT type is always WB for untracked ranges, so no need to check.
+	 */
 	if (x86_platform.is_untracked_pat_range(paddr, paddr + size))
 		return 1;
 
+	/*
+	 * Certain new memtypes are not allowed with certain
+	 * requested memtype:
+	 * - request is uncached, return cannot be write-back
+	 * - request is write-combine, return cannot be write-back
+	 */
 	if ((flags == _PAGE_CACHE_UC_MINUS &&
 	     new_flags == _PAGE_CACHE_WB) ||
 	    (flags == _PAGE_CACHE_WC &&
@@ -352,7 +381,7 @@ static inline int is_new_memtype_allowed(u64 paddr, unsigned long size,
 
 pmd_t *populate_extra_pmd(unsigned long vaddr);
 pte_t *populate_extra_pte(unsigned long vaddr);
-#endif	
+#endif	/* __ASSEMBLY__ */
 
 #ifdef CONFIG_X86_32
 # include "pgtable_32.h"
@@ -391,6 +420,8 @@ static inline int pmd_present(pmd_t pmd)
 
 static inline int pmd_none(pmd_t pmd)
 {
+	/* Only check low word on 32-bit platforms, since it might be
+	   out of sync with upper half. */
 	return (unsigned long)native_pmd_val(pmd) == 0;
 }
 
@@ -399,15 +430,38 @@ static inline unsigned long pmd_page_vaddr(pmd_t pmd)
 	return (unsigned long)__va(pmd_val(pmd) & PTE_PFN_MASK);
 }
 
+/*
+ * Currently stuck as a macro due to indirect forward reference to
+ * linux/mmzone.h's __section_mem_map_addr() definition:
+ */
 #define pmd_page(pmd)	pfn_to_page((pmd_val(pmd) & PTE_PFN_MASK) >> PAGE_SHIFT)
 
+/*
+ * the pmd page can be thought of an array like this: pmd_t[PTRS_PER_PMD]
+ *
+ * this macro returns the index of the entry in the pmd page which would
+ * control the given virtual address
+ */
 static inline unsigned long pmd_index(unsigned long address)
 {
 	return (address >> PMD_SHIFT) & (PTRS_PER_PMD - 1);
 }
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ *
+ * (Currently stuck as a macro because of indirect forward reference
+ * to linux/mm.h:page_to_nid())
+ */
 #define mk_pte(page, pgprot)   pfn_pte(page_to_pfn(page), (pgprot))
 
+/*
+ * the pte page can be thought of an array like this: pte_t[PTRS_PER_PTE]
+ *
+ * this function returns the index of the entry in the pte page which would
+ * control the given virtual address
+ */
 static inline unsigned long pte_index(unsigned long address)
 {
 	return (address >> PAGE_SHIFT) & (PTRS_PER_PTE - 1);
@@ -447,8 +501,13 @@ static inline unsigned long pud_page_vaddr(pud_t pud)
 	return (unsigned long)__va((unsigned long)pud_val(pud) & PTE_PFN_MASK);
 }
 
+/*
+ * Currently stuck as a macro due to indirect forward reference to
+ * linux/mmzone.h's __section_mem_map_addr() definition:
+ */
 #define pud_page(pud)		pfn_to_page(pud_val(pud) >> PAGE_SHIFT)
 
+/* Find an entry in the second-level page table.. */
 static inline pmd_t *pmd_offset(pud_t *pud, unsigned long address)
 {
 	return (pmd_t *)pud_page_vaddr(*pud) + pmd_index(address);
@@ -469,7 +528,7 @@ static inline int pud_large(pud_t pud)
 {
 	return 0;
 }
-#endif	
+#endif	/* PAGETABLE_LEVELS > 2 */
 
 #if PAGETABLE_LEVELS > 3
 static inline int pgd_present(pgd_t pgd)
@@ -482,8 +541,13 @@ static inline unsigned long pgd_page_vaddr(pgd_t pgd)
 	return (unsigned long)__va((unsigned long)pgd_val(pgd) & PTE_PFN_MASK);
 }
 
+/*
+ * Currently stuck as a macro due to indirect forward reference to
+ * linux/mmzone.h's __section_mem_map_addr() definition:
+ */
 #define pgd_page(pgd)		pfn_to_page(pgd_val(pgd) >> PAGE_SHIFT)
 
+/* to find an entry in a page-table-directory. */
 static inline unsigned long pud_index(unsigned long address)
 {
 	return (address >> PUD_SHIFT) & (PTRS_PER_PUD - 1);
@@ -503,13 +567,27 @@ static inline int pgd_none(pgd_t pgd)
 {
 	return !native_pgd_val(pgd);
 }
-#endif	
+#endif	/* PAGETABLE_LEVELS > 3 */
 
-#endif	
+#endif	/* __ASSEMBLY__ */
 
+/*
+ * the pgd page can be thought of an array like this: pgd_t[PTRS_PER_PGD]
+ *
+ * this macro returns the index of the entry in the pgd page which would
+ * control the given virtual address
+ */
 #define pgd_index(address) (((address) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))
 
+/*
+ * pgd_offset() returns a (pgd_t *)
+ * pgd_index() is used get the offset into the pgd page's array of pgd_t's;
+ */
 #define pgd_offset(mm, address) ((mm)->pgd + pgd_index((address)))
+/*
+ * a shortcut which implies the use of the kernel's pgd, instead
+ * of a process's
+ */
 #define pgd_offset_k(address) pgd_offset(&init_mm, (address))
 
 
@@ -520,11 +598,12 @@ static inline int pgd_none(pgd_t pgd)
 
 extern int direct_gbpages;
 
+/* local pte updates need not use xchg for locking */
 static inline pte_t native_local_ptep_get_and_clear(pte_t *ptep)
 {
 	pte_t res = *ptep;
 
-	
+	/* Pure native function needs no input for mm, addr */
 	native_pte_clear(NULL, 0, ptep);
 	return res;
 }
@@ -550,10 +629,30 @@ static inline void native_set_pmd_at(struct mm_struct *mm, unsigned long addr,
 }
 
 #ifndef CONFIG_PARAVIRT
+/*
+ * Rules for using pte_update - it must be called after any PTE update which
+ * has not been done using the set_pte / clear_pte interfaces.  It is used by
+ * shadow mode hypervisors to resynchronize the shadow page tables.  Kernel PTE
+ * updates should either be sets, clears, or set_pte_atomic for P->P
+ * transitions, which means this hook should only be called for user PTEs.
+ * This hook implies a P->P protection or access change has taken place, which
+ * requires a subsequent TLB flush.  The notification can optionally be delayed
+ * until the TLB flush event by using the pte_update_defer form of the
+ * interface, but care must be taken to assure that the flush happens while
+ * still holding the same page table lock so that the shadow and primary pages
+ * do not become out of sync on SMP.
+ */
 #define pte_update(mm, addr, ptep)		do { } while (0)
 #define pte_update_defer(mm, addr, ptep)	do { } while (0)
 #endif
 
+/*
+ * We only update the dirty/accessed state if we set
+ * the dirty bit by hand in the kernel, since the hardware
+ * will do the accessed bit for us, and we don't want to
+ * race with other CPU's that might be updating the dirty
+ * bit at the same time.
+ */
 struct vm_area_struct;
 
 #define  __HAVE_ARCH_PTEP_SET_ACCESS_FLAGS
@@ -585,6 +684,10 @@ static inline pte_t ptep_get_and_clear_full(struct mm_struct *mm,
 {
 	pte_t pte;
 	if (full) {
+		/*
+		 * Full address destruction in progress; paravirt does not
+		 * care about updates and native needs no locking
+		 */
 		pte = native_local_ptep_get_and_clear(ptep);
 	} else {
 		pte = ptep_get_and_clear(mm, addr, ptep);
@@ -645,6 +748,16 @@ static inline void pmdp_set_wrprotect(struct mm_struct *mm,
 	pmd_update(mm, addr, pmdp);
 }
 
+/*
+ * clone_pgd_range(pgd_t *dst, pgd_t *src, int count);
+ *
+ *  dst - pointer to pgd range anwhere on a pgd page
+ *  src - ""
+ *  count - the number of pgds to copy.
+ *
+ * dst and src can be on the same page, but the range must not overlap,
+ * and must not cross a page boundary.
+ */
 static inline void clone_pgd_range(pgd_t *dst, pgd_t *src, int count)
 {
        memcpy(dst, src, count * sizeof(pgd_t));
@@ -652,6 +765,6 @@ static inline void clone_pgd_range(pgd_t *dst, pgd_t *src, int count)
 
 
 #include <asm-generic/pgtable.h>
-#endif	
+#endif	/* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_X86_PGTABLE_H */

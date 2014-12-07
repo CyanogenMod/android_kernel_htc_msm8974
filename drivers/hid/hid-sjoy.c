@@ -24,6 +24,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
+/* #define DEBUG */
 
 #include <linux/input.h>
 #include <linux/slab.h>
@@ -51,7 +52,7 @@ static int hid_sjoyff_play(struct input_dev *dev, void *data,
 	dev_dbg(&dev->dev, "called with 0x%08x 0x%08x\n", left, right);
 
 	left = left * 0xff / 0xffff;
-	right = (right != 0); 
+	right = (right != 0); /* on/off only */
 
 	sjoyff->report->field[0]->value[1] = right;
 	sjoyff->report->field[0]->value[2] = left;

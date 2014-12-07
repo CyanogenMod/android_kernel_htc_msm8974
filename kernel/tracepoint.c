@@ -30,22 +30,38 @@
 extern struct tracepoint * const __start___tracepoints_ptrs[];
 extern struct tracepoint * const __stop___tracepoints_ptrs[];
 
+/* Set to 1 to enable tracepoint debug output */
 static const int tracepoint_debug;
 
+/*
+ * Tracepoints mutex protects the builtin and module tracepoints and the hash
+ * table, as well as the local module list.
+ */
 static DEFINE_MUTEX(tracepoints_mutex);
 
 #ifdef CONFIG_MODULES
+/* Local list of struct module */
 static LIST_HEAD(tracepoint_module_list);
-#endif 
+#endif /* CONFIG_MODULES */
 
+/*
+ * Tracepoint hash table, containing the active tracepoints.
+ * Protected by tracepoints_mutex.
+ */
 #define TRACEPOINT_HASH_BITS 6
 #define TRACEPOINT_TABLE_SIZE (1 << TRACEPOINT_HASH_BITS)
 static struct hlist_head tracepoint_table[TRACEPOINT_TABLE_SIZE];
 
+/*
+ * Note about RCU :
+ * It is used to delay the free of multiple probes array until a quiescent
+ * state is reached.
+ * Tracepoint entries modifications are protected by the tracepoints_mutex.
+ */
 struct tracepoint_entry {
 	struct hlist_node hlist;
 	struct tracepoint_func *funcs;
-	int refcount;	
+	int refcount;	/* Number of times armed. 0 if disarmed. */
 	char name[0];
 };
 
@@ -101,13 +117,13 @@ tracepoint_entry_add_probe(struct tracepoint_entry *entry,
 	debug_print_probes(entry);
 	old = entry->funcs;
 	if (old) {
-		
+		/* (N -> N+1), (N != 0, 1) probes */
 		for (nr_probes = 0; old[nr_probes].func; nr_probes++)
 			if (old[nr_probes].func == probe &&
 			    old[nr_probes].data == data)
 				return ERR_PTR(-EEXIST);
 	}
-	
+	/* + 2 : one for new probe, one for NULL func */
 	new = allocate_probes(nr_probes + 2);
 	if (new == NULL)
 		return ERR_PTR(-ENOMEM);
@@ -135,7 +151,7 @@ tracepoint_entry_remove_probe(struct tracepoint_entry *entry,
 		return ERR_PTR(-ENOENT);
 
 	debug_print_probes(entry);
-	
+	/* (N -> M), (N > 1, M >= 0) probes */
 	for (nr_probes = 0; old[nr_probes].func; nr_probes++) {
 		if (!probe ||
 		    (old[nr_probes].func == probe &&
@@ -144,15 +160,15 @@ tracepoint_entry_remove_probe(struct tracepoint_entry *entry,
 	}
 
 	if (nr_probes - nr_del == 0) {
-		
+		/* N -> 0, (N > 1) */
 		entry->funcs = NULL;
 		entry->refcount = 0;
 		debug_print_probes(entry);
 		return old;
 	} else {
 		int j = 0;
-		
-		
+		/* N -> M, (N > 1, M > 0) */
+		/* + 1 for NULL */
 		new = allocate_probes(nr_probes - nr_del + 1);
 		if (new == NULL)
 			return ERR_PTR(-ENOMEM);
@@ -168,6 +184,11 @@ tracepoint_entry_remove_probe(struct tracepoint_entry *entry,
 	return old;
 }
 
+/*
+ * Get tracepoint if the tracepoint is present in the tracepoint hash table.
+ * Must be called with tracepoints_mutex held.
+ * Returns NULL if not present.
+ */
 static struct tracepoint_entry *get_tracepoint(const char *name)
 {
 	struct hlist_head *head;
@@ -183,6 +204,10 @@ static struct tracepoint_entry *get_tracepoint(const char *name)
 	return NULL;
 }
 
+/*
+ * Add the tracepoint to the tracepoint hash table. Must be called with
+ * tracepoints_mutex held.
+ */
 static struct tracepoint_entry *add_tracepoint(const char *name)
 {
 	struct hlist_head *head;
@@ -196,9 +221,13 @@ static struct tracepoint_entry *add_tracepoint(const char *name)
 		if (!strcmp(name, e->name)) {
 			printk(KERN_NOTICE
 				"tracepoint %s busy\n", name);
-			return ERR_PTR(-EEXIST);	
+			return ERR_PTR(-EEXIST);	/* Already there */
 		}
 	}
+	/*
+	 * Using kmalloc here to allocate a variable length element. Could
+	 * cause some memory fragmentation if overused.
+	 */
 	e = kmalloc(sizeof(struct tracepoint_entry) + name_len, GFP_KERNEL);
 	if (!e)
 		return ERR_PTR(-ENOMEM);
@@ -209,12 +238,19 @@ static struct tracepoint_entry *add_tracepoint(const char *name)
 	return e;
 }
 
+/*
+ * Remove the tracepoint from the tracepoint hash table. Must be called with
+ * mutex_lock held.
+ */
 static inline void remove_tracepoint(struct tracepoint_entry *e)
 {
 	hlist_del(&e->hlist);
 	kfree(e);
 }
 
+/*
+ * Sets the probe callback corresponding to one tracepoint.
+ */
 static void set_tracepoint(struct tracepoint_entry **entry,
 	struct tracepoint *elem, int active)
 {
@@ -225,6 +261,13 @@ static void set_tracepoint(struct tracepoint_entry **entry,
 	else if (elem->unregfunc && static_key_enabled(&elem->key) && !active)
 		elem->unregfunc();
 
+	/*
+	 * rcu_assign_pointer has a smp_wmb() which makes sure that the new
+	 * probe callbacks array is consistent before setting a pointer to it.
+	 * This array is referenced by __DO_TRACE from
+	 * include/linux/tracepoints.h. A matching smp_read_barrier_depends()
+	 * is used.
+	 */
 	rcu_assign_pointer(elem->funcs, (*entry)->funcs);
 	if (active && !static_key_enabled(&elem->key))
 		static_key_slow_inc(&elem->key);
@@ -232,6 +275,12 @@ static void set_tracepoint(struct tracepoint_entry **entry,
 		static_key_slow_dec(&elem->key);
 }
 
+/*
+ * Disable a tracepoint and its probe callback.
+ * Note: only waiting an RCU period after setting elem->call to the empty
+ * function insures that the original callback is not used anymore. This insured
+ * by preempt_disable around the call site.
+ */
 static void disable_tracepoint(struct tracepoint *elem)
 {
 	if (elem->unregfunc && static_key_enabled(&elem->key))
@@ -242,6 +291,14 @@ static void disable_tracepoint(struct tracepoint *elem)
 	rcu_assign_pointer(elem->funcs, NULL);
 }
 
+/**
+ * tracepoint_update_probe_range - Update a probe range
+ * @begin: beginning of the range
+ * @end: end of the range
+ *
+ * Updates the probe callback corresponding to a range of tracepoints.
+ * Called with tracepoints_mutex held.
+ */
 static void tracepoint_update_probe_range(struct tracepoint * const *begin,
 					  struct tracepoint * const *end)
 {
@@ -271,19 +328,23 @@ void module_update_tracepoints(void)
 		tracepoint_update_probe_range(tp_mod->tracepoints_ptrs,
 			tp_mod->tracepoints_ptrs + tp_mod->num_tracepoints);
 }
-#else 
+#else /* CONFIG_MODULES */
 void module_update_tracepoints(void)
 {
 }
-#endif 
+#endif /* CONFIG_MODULES */
 
 
+/*
+ * Update probes, removing the faulty probes.
+ * Called with tracepoints_mutex held.
+ */
 static void tracepoint_update_probes(void)
 {
-	
+	/* Core kernel tracepoints */
 	tracepoint_update_probe_range(__start___tracepoints_ptrs,
 		__stop___tracepoints_ptrs);
-	
+	/* tracepoints in modules. */
 	module_update_tracepoints();
 }
 
@@ -305,6 +366,14 @@ tracepoint_add_probe(const char *name, void *probe, void *data)
 	return old;
 }
 
+/**
+ * tracepoint_probe_register -  Connect a probe to a tracepoint
+ * @name: tracepoint name
+ * @probe: probe handler
+ *
+ * Returns 0 if ok, error value on error.
+ * The probe address must at least be aligned on the architecture pointer size.
+ */
 int tracepoint_probe_register(const char *name, void *probe, void *data)
 {
 	struct tracepoint_func *old;
@@ -315,7 +384,7 @@ int tracepoint_probe_register(const char *name, void *probe, void *data)
 		mutex_unlock(&tracepoints_mutex);
 		return PTR_ERR(old);
 	}
-	tracepoint_update_probes();		
+	tracepoint_update_probes();		/* may update entry */
 	mutex_unlock(&tracepoints_mutex);
 	release_probes(old);
 	return 0;
@@ -339,6 +408,16 @@ tracepoint_remove_probe(const char *name, void *probe, void *data)
 	return old;
 }
 
+/**
+ * tracepoint_probe_unregister -  Disconnect a probe from a tracepoint
+ * @name: tracepoint name
+ * @probe: probe function pointer
+ *
+ * We do not need to call a synchronize_sched to make sure the probes have
+ * finished running before doing a module unload, because the module unload
+ * itself uses stop_machine(), which insures that every preempt disabled section
+ * have finished.
+ */
 int tracepoint_probe_unregister(const char *name, void *probe, void *data)
 {
 	struct tracepoint_func *old;
@@ -349,7 +428,7 @@ int tracepoint_probe_unregister(const char *name, void *probe, void *data)
 		mutex_unlock(&tracepoints_mutex);
 		return PTR_ERR(old);
 	}
-	tracepoint_update_probes();		
+	tracepoint_update_probes();		/* may update entry */
 	mutex_unlock(&tracepoints_mutex);
 	release_probes(old);
 	return 0;
@@ -369,6 +448,13 @@ static void tracepoint_add_old_probes(void *old)
 	}
 }
 
+/**
+ * tracepoint_probe_register_noupdate -  register a probe but not connect
+ * @name: tracepoint name
+ * @probe: probe handler
+ *
+ * caller must call tracepoint_probe_update_all()
+ */
 int tracepoint_probe_register_noupdate(const char *name, void *probe,
 				       void *data)
 {
@@ -386,6 +472,13 @@ int tracepoint_probe_register_noupdate(const char *name, void *probe,
 }
 EXPORT_SYMBOL_GPL(tracepoint_probe_register_noupdate);
 
+/**
+ * tracepoint_probe_unregister_noupdate -  remove a probe but not disconnect
+ * @name: tracepoint name
+ * @probe: probe function pointer
+ *
+ * caller must call tracepoint_probe_update_all()
+ */
 int tracepoint_probe_unregister_noupdate(const char *name, void *probe,
 					 void *data)
 {
@@ -403,6 +496,9 @@ int tracepoint_probe_unregister_noupdate(const char *name, void *probe,
 }
 EXPORT_SYMBOL_GPL(tracepoint_probe_unregister_noupdate);
 
+/**
+ * tracepoint_probe_update_all -  update tracepoints
+ */
 void tracepoint_probe_update_all(void)
 {
 	LIST_HEAD(release_probes);
@@ -425,6 +521,16 @@ void tracepoint_probe_update_all(void)
 }
 EXPORT_SYMBOL_GPL(tracepoint_probe_update_all);
 
+/**
+ * tracepoint_get_iter_range - Get a next tracepoint iterator given a range.
+ * @tracepoint: current tracepoints (in), next tracepoint (out)
+ * @begin: beginning of the range
+ * @end: end of the range
+ *
+ * Returns whether a next tracepoint has been found (1) or not (0).
+ * Will return the first tracepoint in the range if the input tracepoint is
+ * NULL.
+ */
 static int tracepoint_get_iter_range(struct tracepoint * const **tracepoint,
 	struct tracepoint * const *begin, struct tracepoint * const *end)
 {
@@ -443,7 +549,7 @@ static void tracepoint_get_iter(struct tracepoint_iter *iter)
 	int found = 0;
 	struct tp_module *iter_mod;
 
-	
+	/* Core kernel tracepoints */
 	if (!iter->module) {
 		found = tracepoint_get_iter_range(&iter->tracepoint,
 				__start___tracepoints_ptrs,
@@ -451,9 +557,12 @@ static void tracepoint_get_iter(struct tracepoint_iter *iter)
 		if (found)
 			goto end;
 	}
-	
+	/* Tracepoints in modules */
 	mutex_lock(&tracepoints_mutex);
 	list_for_each_entry(iter_mod, &tracepoint_module_list, list) {
+		/*
+		 * Sorted module list
+		 */
 		if (iter_mod < iter->module)
 			continue;
 		else if (iter_mod > iter->module)
@@ -472,19 +581,19 @@ end:
 	if (!found)
 		tracepoint_iter_reset(iter);
 }
-#else 
+#else /* CONFIG_MODULES */
 static void tracepoint_get_iter(struct tracepoint_iter *iter)
 {
 	int found = 0;
 
-	
+	/* Core kernel tracepoints */
 	found = tracepoint_get_iter_range(&iter->tracepoint,
 			__start___tracepoints_ptrs,
 			__stop___tracepoints_ptrs);
 	if (!found)
 		tracepoint_iter_reset(iter);
 }
-#endif 
+#endif /* CONFIG_MODULES */
 
 void tracepoint_iter_start(struct tracepoint_iter *iter)
 {
@@ -495,6 +604,11 @@ EXPORT_SYMBOL_GPL(tracepoint_iter_start);
 void tracepoint_iter_next(struct tracepoint_iter *iter)
 {
 	iter->tracepoint++;
+	/*
+	 * iter->tracepoint may be invalid because we blindly incremented it.
+	 * Make sure it is valid by marshalling on the tracepoints, getting the
+	 * tracepoints from following modules if necessary.
+	 */
 	tracepoint_get_iter(iter);
 }
 EXPORT_SYMBOL_GPL(tracepoint_iter_next);
@@ -508,7 +622,7 @@ void tracepoint_iter_reset(struct tracepoint_iter *iter)
 {
 #ifdef CONFIG_MODULES
 	iter->module = NULL;
-#endif 
+#endif /* CONFIG_MODULES */
 	iter->tracepoint = NULL;
 }
 EXPORT_SYMBOL_GPL(tracepoint_iter_reset);
@@ -535,15 +649,20 @@ static int tracepoint_module_coming(struct module *mod)
 	tp_mod->num_tracepoints = mod->num_tracepoints;
 	tp_mod->tracepoints_ptrs = mod->tracepoints_ptrs;
 
+	/*
+	 * tracepoint_module_list is kept sorted by struct module pointer
+	 * address for iteration on tracepoints from a seq_file that can release
+	 * the mutex between calls.
+	 */
 	list_for_each_entry_reverse(iter, &tracepoint_module_list, list) {
-		BUG_ON(iter == tp_mod);	
+		BUG_ON(iter == tp_mod);	/* Should never be in the list twice */
 		if (iter < tp_mod) {
-			
+			/* We belong to the location right after iter. */
 			list_add(&tp_mod->list, &iter->list);
 			goto module_added;
 		}
 	}
-	
+	/* We belong to the beginning of the list */
 	list_add(&tp_mod->list, &tracepoint_module_list);
 module_added:
 	tracepoint_update_probe_range(mod->tracepoints_ptrs,
@@ -567,6 +686,12 @@ static int tracepoint_module_going(struct module *mod)
 			break;
 		}
 	}
+	/*
+	 * In the case of modules that were tainted at "coming", we'll simply
+	 * walk through the list without finding it. We cannot use the "tainted"
+	 * flag on "going", in case a module taints the kernel only after being
+	 * loaded.
+	 */
 	mutex_unlock(&tracepoints_mutex);
 	return 0;
 }
@@ -600,10 +725,11 @@ static int init_tracepoints(void)
 	return register_module_notifier(&tracepoint_module_nb);
 }
 __initcall(init_tracepoints);
-#endif 
+#endif /* CONFIG_MODULES */
 
 #ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
 
+/* NB: reg/unreg are called while guarded with the tracepoints_mutex */
 static int sys_tracepoint_refcount;
 
 void syscall_regfunc(void)
@@ -614,7 +740,7 @@ void syscall_regfunc(void)
 	if (!sys_tracepoint_refcount) {
 		read_lock_irqsave(&tasklist_lock, flags);
 		do_each_thread(g, t) {
-			
+			/* Skip kernel threads. */
 			if (t->mm)
 				set_tsk_thread_flag(t, TIF_SYSCALL_TRACEPOINT);
 		} while_each_thread(g, t);

@@ -60,6 +60,8 @@ static hpi_handler_func *hpi_lookup_entry_point_function(const struct hpi_pci
 			pci_info->pci_dev->subsystem_device)
 			continue;
 
+		/* HPI_DEBUG_LOG(DEBUG, " %x,%lx\n", i,
+		   asihpi_pci_tbl[i].driver_data); */
 		return (hpi_handler_func *) asihpi_pci_tbl[i].driver_data;
 	}
 
@@ -136,6 +138,7 @@ struct asi_open_state {
 #pragma pack(pop)
 #endif
 
+/* Globals */
 static struct hpi_adapter_response rESP_HPI_ADAPTER_OPEN[HPI_MAX_ADAPTERS];
 
 static struct hpi_stream_response
@@ -148,6 +151,7 @@ static struct hpi_mixer_response rESP_HPI_MIXER_OPEN[HPI_MAX_ADAPTERS];
 
 static struct adapter_info aDAPTER_INFO[HPI_MAX_ADAPTERS];
 
+/* use these to keep track of opens from user mode apps/DLLs */
 static struct asi_open_state
 	outstream_user_open[HPI_MAX_ADAPTERS][HPI_MAX_STREAMS];
 
@@ -166,28 +170,28 @@ static void subsys_message(struct hpi_message *phm, struct hpi_response *phr,
 	case HPI_SUBSYS_GET_VERSION:
 		hpi_init_response(phr, HPI_OBJ_SUBSYSTEM,
 			HPI_SUBSYS_GET_VERSION, 0);
-		phr->u.s.version = HPI_VER >> 8;	
-		phr->u.s.data = HPI_VER;	
+		phr->u.s.version = HPI_VER >> 8;	/* return major.minor */
+		phr->u.s.data = HPI_VER;	/* return major.minor.release */
 		break;
 	case HPI_SUBSYS_OPEN:
-		
+		/*do not propagate the message down the chain */
 		hpi_init_response(phr, HPI_OBJ_SUBSYSTEM, HPI_SUBSYS_OPEN, 0);
 		break;
 	case HPI_SUBSYS_CLOSE:
-		
+		/*do not propagate the message down the chain */
 		hpi_init_response(phr, HPI_OBJ_SUBSYSTEM, HPI_SUBSYS_CLOSE,
 			0);
 		HPIMSGX__cleanup(HPIMSGX_ALLADAPTERS, h_owner);
 		break;
 	case HPI_SUBSYS_DRIVER_LOAD:
-		
+		/* Initialize this module's internal state */
 		hpios_msgxlock_init(&msgx_lock);
 		memset(&hpi_entry_points, 0, sizeof(hpi_entry_points));
-		
+		/* Init subsys_findadapters response to no-adapters */
 		HPIMSGX__reset(HPIMSGX_ALLADAPTERS);
 		hpi_init_response(phr, HPI_OBJ_SUBSYSTEM,
 			HPI_SUBSYS_DRIVER_LOAD, 0);
-		
+		/* individual HPIs dont implement driver load */
 		HPI_COMMON(phm, phr);
 		break;
 	case HPI_SUBSYS_DRIVER_UNLOAD:
@@ -207,7 +211,7 @@ static void subsys_message(struct hpi_message *phm, struct hpi_response *phr,
 		break;
 
 	default:
-		
+		/* Must explicitly handle every subsys message in this switch */
 		hpi_init_response(phr, HPI_OBJ_SUBSYSTEM, phm->function,
 			HPI_ERROR_INVALID_FUNC);
 		break;
@@ -302,6 +306,9 @@ static void instream_message(struct hpi_message *phm,
 	}
 }
 
+/* NOTE: HPI_Message() must be defined in the driver as a wrapper for
+ * HPI_MessageEx so that functions in hpifunc.c compile.
+ */
 void hpi_send_recv_ex(struct hpi_message *phm, struct hpi_response *phr,
 	void *h_owner)
 {
@@ -397,7 +404,7 @@ static void instream_open(struct hpi_message *phm, struct hpi_response *phr,
 			obj_index].open_flag = 1;
 		hpios_msgxlock_unlock(&msgx_lock);
 
-		
+		/* issue a reset */
 		hpi_init_message_response(&hm, &hr, HPI_OBJ_ISTREAM,
 			HPI_ISTREAM_RESET);
 		hm.adapter_index = phm->adapter_index;
@@ -436,10 +443,13 @@ static void instream_close(struct hpi_message *phm, struct hpi_response *phr,
 	if (h_owner ==
 		instream_user_open[phm->adapter_index][phm->
 			obj_index].h_owner) {
+		/* HPI_DEBUG_LOG(INFO,"closing adapter %d "
+		   "instream %d owned by %p\n",
+		   phm->wAdapterIndex, phm->wObjIndex, hOwner); */
 		instream_user_open[phm->adapter_index][phm->
 			obj_index].h_owner = NULL;
 		hpios_msgxlock_unlock(&msgx_lock);
-		
+		/* issue a reset */
 		hpi_init_message_response(&hm, &hr, HPI_OBJ_ISTREAM,
 			HPI_ISTREAM_RESET);
 		hm.adapter_index = phm->adapter_index;
@@ -491,7 +501,7 @@ static void outstream_open(struct hpi_message *phm, struct hpi_response *phr,
 			obj_index].open_flag = 1;
 		hpios_msgxlock_unlock(&msgx_lock);
 
-		
+		/* issue a reset */
 		hpi_init_message_response(&hm, &hr, HPI_OBJ_OSTREAM,
 			HPI_OSTREAM_RESET);
 		hm.adapter_index = phm->adapter_index;
@@ -531,10 +541,13 @@ static void outstream_close(struct hpi_message *phm, struct hpi_response *phr,
 	if (h_owner ==
 		outstream_user_open[phm->adapter_index][phm->
 			obj_index].h_owner) {
+		/* HPI_DEBUG_LOG(INFO,"closing adapter %d "
+		   "outstream %d owned by %p\n",
+		   phm->wAdapterIndex, phm->wObjIndex, hOwner); */
 		outstream_user_open[phm->adapter_index][phm->
 			obj_index].h_owner = NULL;
 		hpios_msgxlock_unlock(&msgx_lock);
-		
+		/* issue a reset */
 		hpi_init_message_response(&hm, &hr, HPI_OBJ_OSTREAM,
 			HPI_OSTREAM_RESET);
 		hm.adapter_index = phm->adapter_index;
@@ -567,10 +580,10 @@ static u16 adapter_prepare(u16 adapter)
 	struct hpi_message hm;
 	struct hpi_response hr;
 
-	
+	/* Open the adapter and streams */
 	u16 i;
 
-	
+	/* call to HPI_ADAPTER_OPEN */
 	hpi_init_message_response(&hm, &hr, HPI_OBJ_ADAPTER,
 		HPI_ADAPTER_OPEN);
 	hm.adapter_index = adapter;
@@ -580,7 +593,7 @@ static u16 adapter_prepare(u16 adapter)
 	if (hr.error)
 		return hr.error;
 
-	
+	/* call to HPI_ADAPTER_GET_INFO */
 	hpi_init_message_response(&hm, &hr, HPI_OBJ_ADAPTER,
 		HPI_ADAPTER_GET_INFO);
 	hm.adapter_index = adapter;
@@ -592,7 +605,7 @@ static u16 adapter_prepare(u16 adapter)
 	aDAPTER_INFO[adapter].num_instreams = hr.u.ax.info.num_instreams;
 	aDAPTER_INFO[adapter].type = hr.u.ax.info.adapter_type;
 
-	
+	/* call to HPI_OSTREAM_OPEN */
 	for (i = 0; i < aDAPTER_INFO[adapter].num_outstreams; i++) {
 		hpi_init_message_response(&hm, &hr, HPI_OBJ_OSTREAM,
 			HPI_OSTREAM_OPEN);
@@ -605,7 +618,7 @@ static u16 adapter_prepare(u16 adapter)
 		outstream_user_open[adapter][i].h_owner = NULL;
 	}
 
-	
+	/* call to HPI_ISTREAM_OPEN */
 	for (i = 0; i < aDAPTER_INFO[adapter].num_instreams; i++) {
 		hpi_init_message_response(&hm, &hr, HPI_OBJ_ISTREAM,
 			HPI_ISTREAM_OPEN);
@@ -618,7 +631,7 @@ static u16 adapter_prepare(u16 adapter)
 		instream_user_open[adapter][i].h_owner = NULL;
 	}
 
-	
+	/* call to HPI_MIXER_OPEN */
 	hpi_init_message_response(&hm, &hr, HPI_OBJ_MIXER, HPI_MIXER_OPEN);
 	hm.adapter_index = adapter;
 	hw_entry_point(&hm, &hr);
@@ -679,16 +692,16 @@ static void HPIMSGX__reset(u16 adapter_index)
 }
 
 static u16 HPIMSGX__init(struct hpi_message *phm,
-	
-	
+	/* HPI_SUBSYS_CREATE_ADAPTER structure with */
+	/* resource list or NULL=find all */
 	struct hpi_response *phr
-	
+	/* response from HPI_ADAPTER_GET_INFO */
 	)
 {
 	hpi_handler_func *entry_point_func;
 	struct hpi_response hr;
 
-	
+	/* Init response here so we can pass in previous adapter list */
 	hpi_init_response(&hr, phm->object, phm->function,
 		HPI_ERROR_INVALID_OBJ);
 
@@ -703,8 +716,10 @@ static u16 HPIMSGX__init(struct hpi_message *phm,
 		return phr->error;
 	}
 	if (hr.error == 0) {
+		/* the adapter was created successfully
+		   save the mapping for future use */
 		hpi_entry_points[hr.u.s.adapter_index] = entry_point_func;
-		
+		/* prepare adapter (pre-open streams etc.) */
 		HPI_DEBUG_LOG(DEBUG,
 			"HPI_SUBSYS_CREATE_ADAPTER successful,"
 			" preparing adapter\n");
@@ -730,7 +745,7 @@ static void HPIMSGX__cleanup(u16 adapter_index, void *h_owner)
 	}
 
 	for (; adapter < adapter_limit; adapter++) {
-		
+		/*      printk(KERN_INFO "Cleanup adapter #%d\n",wAdapter); */
 		for (i = 0; i < HPI_MAX_STREAMS; i++) {
 			if (h_owner ==
 				outstream_user_open[adapter][i].h_owner) {

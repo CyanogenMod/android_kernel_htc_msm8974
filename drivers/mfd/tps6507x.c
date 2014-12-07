@@ -39,13 +39,13 @@ static int tps6507x_i2c_read_device(struct tps6507x_dev *tps6507x, char reg,
 	struct i2c_msg xfer[2];
 	int ret;
 
-	
+	/* Write register */
 	xfer[0].addr = i2c->addr;
 	xfer[0].flags = 0;
 	xfer[0].len = 1;
 	xfer[0].buf = &reg;
 
-	
+	/* Read data */
 	xfer[1].addr = i2c->addr;
 	xfer[1].flags = I2C_M_RD;
 	xfer[1].len = bytes;
@@ -64,7 +64,7 @@ static int tps6507x_i2c_write_device(struct tps6507x_dev *tps6507x, char reg,
 				   int bytes, void *src)
 {
 	struct i2c_client *i2c = tps6507x->i2c_client;
-	
+	/* we add 1 byte for device register */
 	u8 msg[TPS6507X_MAX_REGISTER + 1];
 	int ret;
 
@@ -144,6 +144,7 @@ static int __init tps6507x_i2c_init(void)
 {
 	return i2c_add_driver(&tps6507x_i2c_driver);
 }
+/* init early so consumer devices can complete system boot */
 subsys_initcall(tps6507x_i2c_init);
 
 static void __exit tps6507x_i2c_exit(void)

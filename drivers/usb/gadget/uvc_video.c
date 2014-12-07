@@ -21,6 +21,9 @@
 #include "uvc.h"
 #include "uvc_queue.h"
 
+/* --------------------------------------------------------------------------
+ * Video codecs
+ */
 
 static int
 uvc_video_encode_header(struct uvc_video *video, struct uvc_buffer *buf,
@@ -43,7 +46,7 @@ uvc_video_encode_data(struct uvc_video *video, struct uvc_buffer *buf,
 	unsigned int nbytes;
 	void *mem;
 
-	
+	/* Copy video data to the USB buffer. */
 	mem = queue->mem + buf->buf.m.offset + queue->buf_used;
 	nbytes = min((unsigned int)len, buf->buf.bytesused - queue->buf_used);
 
@@ -61,7 +64,7 @@ uvc_video_encode_bulk(struct usb_request *req, struct uvc_video *video,
 	int len = video->req_size;
 	int ret;
 
-	
+	/* Add a header at the beginning of the payload. */
 	if (video->payload_size == 0) {
 		ret = uvc_video_encode_header(video, buf, mem, len);
 		video->payload_size += ret;
@@ -69,7 +72,7 @@ uvc_video_encode_bulk(struct usb_request *req, struct uvc_video *video,
 		len -= ret;
 	}
 
-	
+	/* Process video data. */
 	len = min((int)(video->max_payload_size - video->payload_size), len);
 	ret = uvc_video_encode_data(video, buf, mem, len);
 
@@ -101,12 +104,12 @@ uvc_video_encode_isoc(struct usb_request *req, struct uvc_video *video,
 	int len = video->req_size;
 	int ret;
 
-	
+	/* Add the header. */
 	ret = uvc_video_encode_header(video, buf, mem, len);
 	mem += ret;
 	len -= ret;
 
-	
+	/* Process video data. */
 	ret = uvc_video_encode_data(video, buf, mem, len);
 	len -= ret;
 
@@ -120,7 +123,40 @@ uvc_video_encode_isoc(struct usb_request *req, struct uvc_video *video,
 	}
 }
 
+/* --------------------------------------------------------------------------
+ * Request handling
+ */
 
+/*
+ * I somehow feel that synchronisation won't be easy to achieve here. We have
+ * three events that control USB requests submission:
+ *
+ * - USB request completion: the completion handler will resubmit the request
+ *   if a video buffer is available.
+ *
+ * - USB interface setting selection: in response to a SET_INTERFACE request,
+ *   the handler will start streaming if a video buffer is available and if
+ *   video is not currently streaming.
+ *
+ * - V4L2 buffer queueing: the driver will start streaming if video is not
+ *   currently streaming.
+ *
+ * Race conditions between those 3 events might lead to deadlocks or other
+ * nasty side effects.
+ *
+ * The "video currently streaming" condition can't be detected by the irqqueue
+ * being empty, as a request can still be in flight. A separate "queue paused"
+ * flag is thus needed.
+ *
+ * The paused flag will be set when we try to retrieve the irqqueue head if the
+ * queue is empty, and cleared when we queue a buffer.
+ *
+ * The USB request completion handler will get the buffer at the irqqueue head
+ * under protection of the queue spinlock. If the queue is empty, the streaming
+ * paused flag will be set. Right after releasing the spinlock a userspace
+ * application can queue a buffer. The flag will then cleared, and the ioctl
+ * handler will restart the video stream.
+ */
 static void
 uvc_video_complete(struct usb_ep *ep, struct usb_request *req)
 {
@@ -224,7 +260,16 @@ error:
 	return ret;
 }
 
+/* --------------------------------------------------------------------------
+ * Video streaming
+ */
 
+/*
+ * uvc_video_pump - Pump video data into the USB requests
+ *
+ * This function fills the available USB requests (listed in req_free) with
+ * video data from the queued buffers.
+ */
 static int
 uvc_video_pump(struct uvc_video *video)
 {
@@ -233,8 +278,14 @@ uvc_video_pump(struct uvc_video *video)
 	unsigned long flags;
 	int ret;
 
+	/* FIXME TODO Race between uvc_video_pump and requests completion
+	 * handler ???
+	 */
 
 	while (1) {
+		/* Retrieve the first available USB request, protected by the
+		 * request lock.
+		 */
 		spin_lock_irqsave(&video->req_lock, flags);
 		if (list_empty(&video->req_free)) {
 			spin_unlock_irqrestore(&video->req_lock, flags);
@@ -245,6 +296,9 @@ uvc_video_pump(struct uvc_video *video)
 		list_del(&req->list);
 		spin_unlock_irqrestore(&video->req_lock, flags);
 
+		/* Retrieve the first available video buffer and fill the
+		 * request, protected by the video queue irqlock.
+		 */
 		spin_lock_irqsave(&video->queue.irqlock, flags);
 		buf = uvc_queue_head(&video->queue);
 		if (buf == NULL) {
@@ -254,7 +308,7 @@ uvc_video_pump(struct uvc_video *video)
 
 		video->encode(req, video, buf);
 
-		
+		/* Queue the USB request */
 		if ((ret = usb_ep_queue(video->ep, req, GFP_KERNEL)) < 0) {
 			printk(KERN_INFO "Failed to queue request (%d)\n", ret);
 			usb_ep_set_halt(video->ep);
@@ -270,6 +324,9 @@ uvc_video_pump(struct uvc_video *video)
 	return 0;
 }
 
+/*
+ * Enable or disable the video stream.
+ */
 static int
 uvc_video_enable(struct uvc_video *video, int enable)
 {
@@ -306,6 +363,9 @@ uvc_video_enable(struct uvc_video *video, int enable)
 	return uvc_video_pump(video);
 }
 
+/*
+ * Initialize the UVC video stream.
+ */
 static int
 uvc_video_init(struct uvc_video *video)
 {
@@ -318,7 +378,7 @@ uvc_video_init(struct uvc_video *video)
 	video->height = 240;
 	video->imagesize = 320 * 240 * 2;
 
-	
+	/* Initialize the video buffers queue. */
 	uvc_queue_init(&video->queue, V4L2_BUF_TYPE_VIDEO_OUTPUT);
 	return 0;
 }

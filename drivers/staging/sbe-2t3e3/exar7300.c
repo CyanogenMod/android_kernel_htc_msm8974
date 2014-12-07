@@ -17,7 +17,7 @@ void exar7300_init(struct channel *sc)
 {
 	exar7300_write(sc, SBE_2T3E3_LIU_REG_REG1, 0);
 
-	
+	/* enable line decodeer and encoder */
 	exar7300_write(sc, SBE_2T3E3_LIU_REG_REG2, 0);
 	exar7300_write(sc, SBE_2T3E3_LIU_REG_REG3, 0);
 	exar7300_write(sc, SBE_2T3E3_LIU_REG_REG4,
@@ -45,7 +45,7 @@ void exar7300_set_loopback(struct channel *sc, u32 mode)
 	exar7300_write(sc, SBE_2T3E3_LIU_REG_REG4, val);
 
 #if 0
-	
+	/* TODO - is it necessary? idea from 2T3E3_HW_Test_code */
 	switch (mode) {
 	case SBE_2T3E3_LIU_VAL_LOOPBACK_OFF:
 		break;
@@ -162,6 +162,7 @@ void exar7300_line_build_out_onoff(struct channel *sc, u32 mode)
 	sc->p.line_build_out = mode;
 }
 
+/* TODO - what about encoder in raw mode??? disable it too? */
 void exar7300_unipolar_onoff(struct channel *sc, u32 mode)
 {
 	switch (mode) {

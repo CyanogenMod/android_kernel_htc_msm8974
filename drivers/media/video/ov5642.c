@@ -27,6 +27,7 @@
 #include <media/v4l2-chip-ident.h>
 #include <media/v4l2-subdev.h>
 
+/* OV5642 registers */
 #define REG_CHIP_ID_HIGH		0x300a
 #define REG_CHIP_ID_LOW			0x300b
 
@@ -53,18 +54,36 @@
 #define REG_AVG_WINDOW_END_Y_HIGH	0x5686
 #define REG_AVG_WINDOW_END_Y_LOW	0x5687
 
+/* active pixel array size */
 #define OV5642_SENSOR_SIZE_X	2592
 #define OV5642_SENSOR_SIZE_Y	1944
 
+/*
+ * About OV5642 resolution, cropping and binning:
+ * This sensor supports it all, at least in the feature description.
+ * Unfortunately, no combination of appropriate registers settings could make
+ * the chip work the intended way. As it works with predefined register lists,
+ * some undocumented registers are presumably changed there to achieve their
+ * goals.
+ * This driver currently only works for resolutions up to 720 lines with a
+ * 1:1 scale. Hopefully these restrictions will be removed in the future.
+ */
 #define OV5642_MAX_WIDTH	OV5642_SENSOR_SIZE_X
 #define OV5642_MAX_HEIGHT	720
 
+/* default sizes */
 #define OV5642_DEFAULT_WIDTH	1280
 #define OV5642_DEFAULT_HEIGHT	OV5642_MAX_HEIGHT
 
+/* minimum extra blanking */
 #define BLANKING_EXTRA_WIDTH		500
 #define BLANKING_EXTRA_HEIGHT		20
 
+/*
+ * the sensor's autoexposure is buggy when setting total_height low.
+ * It tries to expose longer than 1 frame period without taking care of it
+ * and this leads to weird output. So we set 1000 lines as minimum.
+ */
 #define BLANKING_MIN_HEIGHT		1000
 
 struct regval_list {
@@ -566,7 +585,7 @@ static struct regval_list ov5642_default_regs_finalise[] = {
 	{ 0x3818, 0xc1 },
 	{ 0x501f, 0x0  },
 	{ 0x5002, 0xe0 },
-	{ 0x4300, 0x32 }, 
+	{ 0x4300, 0x32 }, /* UYVY */
 	{ 0x3002, 0x1c },
 	{ 0x4800, 0x14 },
 	{ 0x4801, 0xf  },
@@ -592,7 +611,7 @@ struct ov5642 {
 	const struct ov5642_datafmt	*fmt;
 	struct v4l2_rect                crop_rect;
 
-	
+	/* blanking information */
 	int total_width;
 	int total_height;
 };
@@ -606,6 +625,7 @@ static struct ov5642 *to_ov5642(const struct i2c_client *client)
 	return container_of(i2c_get_clientdata(client), struct ov5642, subdev);
 }
 
+/* Find a data format by a pixel code in an array */
 static const struct ov5642_datafmt
 			*ov5642_find_datafmt(enum v4l2_mbus_pixelcode code)
 {
@@ -621,7 +641,7 @@ static const struct ov5642_datafmt
 static int reg_read(struct i2c_client *client, u16 reg, u8 *val)
 {
 	int ret;
-	
+	/* We have 16-bit i2c addresses - care for endianess */
 	unsigned char data[2] = { reg >> 8, reg & 0xff };
 
 	ret = i2c_master_send(client, data, 2);
@@ -655,6 +675,10 @@ static int reg_write(struct i2c_client *client, u16 reg, u8 val)
 	return 0;
 }
 
+/*
+ * convenience function to write 16 bit register values that are split up
+ * into two consecutive high and low parts
+ */
 static int reg_write16(struct i2c_client *client, u16 reg, u16 val16)
 {
 	int ret;
@@ -720,6 +744,10 @@ static int ov5642_set_resolution(struct v4l2_subdev *sd)
 	int start_y = (OV5642_SENSOR_SIZE_Y - height) / 2;
 	int ret;
 
+	/*
+	 * This should set the starting point for cropping.
+	 * Doesn't work so far.
+	 */
 	ret = reg_write16(client, REG_WINDOW_START_X_HIGH, start_x);
 	if (!ret)
 		ret = reg_write16(client, REG_WINDOW_START_Y_HIGH, start_y);
@@ -737,18 +765,18 @@ static int ov5642_set_resolution(struct v4l2_subdev *sd)
 	priv->crop_rect.width = width;
 	priv->crop_rect.height = height;
 
-	
+	/* Set the output window size. Only 1:1 scale is supported so far. */
 	ret = reg_write16(client, REG_OUT_WIDTH_HIGH, width);
 	if (!ret)
 		ret = reg_write16(client, REG_OUT_HEIGHT_HIGH, height);
 
-	
+	/* Total width = output size + blanking */
 	if (!ret)
 		ret = reg_write16(client, REG_OUT_TOTAL_WIDTH_HIGH, total_width);
 	if (!ret)
 		ret = reg_write16(client, REG_OUT_TOTAL_HEIGHT_HIGH, total_height);
 
-	
+	/* Sets the window for AWB calculations */
 	if (!ret)
 		ret = reg_write16(client, REG_AVG_WINDOW_END_X_HIGH, width);
 	if (!ret)
@@ -783,7 +811,7 @@ static int ov5642_s_fmt(struct v4l2_subdev *sd,
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct ov5642 *priv = to_ov5642(client);
 
-	
+	/* MIPI CSI could have changed the format, double-check */
 	if (!ov5642_find_datafmt(mf->code))
 		return -EINVAL;
 
@@ -952,7 +980,7 @@ static int ov5642_video_probe(struct i2c_client *client)
 	u8 id_high, id_low;
 	u16 id;
 
-	
+	/* Read sensor Model ID */
 	ret = reg_read(client, REG_CHIP_ID_HIGH, &id_high);
 	if (ret < 0)
 		return ret;

@@ -100,6 +100,8 @@ static inline u32 vdaccfg_write(struct v4l2_subdev *sd, u32 val)
 
 #define VDAC_COMPONENT	0x543
 #define VDAC_S_VIDEO	0x210
+/* This function sets the dac of the VPBE for various outputs
+ */
 static int venc_set_dac(struct v4l2_subdev *sd, u32 out_index)
 {
 	switch (out_index) {
@@ -145,17 +147,17 @@ static void venc_enabledigitaloutput(struct v4l2_subdev *sd, int benable)
 
 	} else {
 		venc_write(sd, VENC_VMOD, 0);
-		
+		/* disable VCLK output pin enable */
 		venc_write(sd, VENC_VIDCTL, 0x141);
 
-		
+		/* Disable output sync pins */
 		venc_write(sd, VENC_SYNCCTL, 0);
 
-		
+		/* Disable DCLOCK */
 		venc_write(sd, VENC_DCLKCTL, 0);
 		venc_write(sd, VENC_DRGBX1, 0x0000057C);
 
-		
+		/* Disable LCD output control (accepting default polarity) */
 		venc_write(sd, VENC_LCDOUT, 0);
 		if (pdata->venc_type != VPBE_VERSION_3)
 			venc_write(sd, VENC_CMPNT, 0x100);
@@ -175,7 +177,7 @@ static void venc_enabledigitaloutput(struct v4l2_subdev *sd, int benable)
 		venc_write(sd, VENC_YCCCTL, 0);
 		venc_write(sd, VENC_VSTARTA, 0);
 
-		
+		/* Set OSD clock and OSD Sync Adavance registers */
 		venc_write(sd, VENC_OSDCLK0, 1);
 		venc_write(sd, VENC_OSDCLK1, 2);
 	}
@@ -183,6 +185,9 @@ static void venc_enabledigitaloutput(struct v4l2_subdev *sd, int benable)
 
 #define VDAC_CONFIG_SD_V3	0x0E21A6B6
 #define VDAC_CONFIG_SD_V2	0x081141CF
+/*
+ * setting NTSC mode
+ */
 static int venc_set_ntsc(struct v4l2_subdev *sd)
 {
 	u32 val;
@@ -191,7 +196,7 @@ static int venc_set_ntsc(struct v4l2_subdev *sd)
 
 	v4l2_dbg(debug, 2, sd, "venc_set_ntsc\n");
 
-	
+	/* Setup clock at VPSS & VENC for SD */
 	vpss_enable_clock(VPSS_VENC_CLOCK_SEL, 1);
 	if (pdata->setup_clock(VPBE_ENC_STD, V4L2_STD_525_60) < 0)
 		return -EINVAL;
@@ -207,9 +212,9 @@ static int venc_set_ntsc(struct v4l2_subdev *sd)
 		venc_write(sd, VENC_VIDCTL, 0);
 		vdaccfg_write(sd, VDAC_CONFIG_SD_V2);
 	} else {
-		
+		/* to set VENC CLK DIV to 1 - final clock is 54 MHz */
 		venc_modify(sd, VENC_VIDCTL, 0, 1 << 1);
-		
+		/* Set REC656 Mode */
 		venc_write(sd, VENC_YCCCTL, 0x1);
 		venc_modify(sd, VENC_VDPRO, 0, VENC_VDPRO_DAFRQ);
 		venc_modify(sd, VENC_VDPRO, 0, VENC_VDPRO_DAUPS);
@@ -227,6 +232,9 @@ static int venc_set_ntsc(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/*
+ * setting PAL mode
+ */
 static int venc_set_pal(struct v4l2_subdev *sd)
 {
 	struct venc_state *venc = to_state(sd);
@@ -234,7 +242,7 @@ static int venc_set_pal(struct v4l2_subdev *sd)
 
 	v4l2_dbg(debug, 2, sd, "venc_set_pal\n");
 
-	
+	/* Setup clock at VPSS & VENC for SD */
 	vpss_enable_clock(VPSS_VENC_CLOCK_SEL, 1);
 	if (venc->pdata->setup_clock(VPBE_ENC_STD, V4L2_STD_625_50) < 0)
 		return -EINVAL;
@@ -250,9 +258,9 @@ static int venc_set_pal(struct v4l2_subdev *sd)
 		venc_write(sd, VENC_VIDCTL, 0);
 		vdaccfg_write(sd, VDAC_CONFIG_SD_V2);
 	} else {
-		
+		/* to set VENC CLK DIV to 1 - final clock is 54 MHz */
 		venc_modify(sd, VENC_VIDCTL, 0, 1 << 1);
-		
+		/* Set REC656 Mode */
 		venc_write(sd, VENC_YCCCTL, 0x1);
 	}
 
@@ -274,6 +282,11 @@ static int venc_set_pal(struct v4l2_subdev *sd)
 }
 
 #define VDAC_CONFIG_HD_V2	0x081141EF
+/*
+ * venc_set_480p59_94
+ *
+ * This function configures the video encoder to EDTV(525p) component setting.
+ */
 static int venc_set_480p59_94(struct v4l2_subdev *sd)
 {
 	struct venc_state *venc = to_state(sd);
@@ -284,7 +297,7 @@ static int venc_set_480p59_94(struct v4l2_subdev *sd)
 	    (pdata->venc_type != VPBE_VERSION_2))
 		return -EINVAL;
 
-	
+	/* Setup clock at VPSS & VENC for SD */
 	if (pdata->setup_clock(VPBE_ENC_DV_PRESET, V4L2_DV_480P59_94) < 0)
 		return -EINVAL;
 
@@ -316,6 +329,11 @@ static int venc_set_480p59_94(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/*
+ * venc_set_625p
+ *
+ * This function configures the video encoder to HDTV(625p) component setting
+ */
 static int venc_set_576p50(struct v4l2_subdev *sd)
 {
 	struct venc_state *venc = to_state(sd);
@@ -326,7 +344,7 @@ static int venc_set_576p50(struct v4l2_subdev *sd)
 	if ((pdata->venc_type != VPBE_VERSION_1) &&
 	  (pdata->venc_type != VPBE_VERSION_2))
 		return -EINVAL;
-	
+	/* Setup clock at VPSS & VENC for SD */
 	if (pdata->setup_clock(VPBE_ENC_DV_PRESET, V4L2_DV_576P50) < 0)
 		return -EINVAL;
 
@@ -359,6 +377,9 @@ static int venc_set_576p50(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/*
+ * venc_set_720p60_internal - Setup 720p60 in venc for dm365 only
+ */
 static int venc_set_720p60_internal(struct v4l2_subdev *sd)
 {
 	struct venc_state *venc = to_state(sd);
@@ -373,7 +394,7 @@ static int venc_set_720p60_internal(struct v4l2_subdev *sd)
 	venc_write(sd, VENC_OSDCLK1, 1);
 
 	venc_write(sd, VENC_VMOD, 0);
-	
+	/* DM365 component HD mode */
 	venc_modify(sd, VENC_VMOD, (1 << VENC_VMOD_VIE_SHIFT),
 	    VENC_VMOD_VIE);
 	venc_modify(sd, VENC_VMOD, VENC_VMOD_HDMD, VENC_VMOD_HDMD);
@@ -384,6 +405,9 @@ static int venc_set_720p60_internal(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/*
+ * venc_set_1080i30_internal - Setup 1080i30 in venc for dm365 only
+ */
 static int venc_set_1080i30_internal(struct v4l2_subdev *sd)
 {
 	struct venc_state *venc = to_state(sd);
@@ -399,7 +423,7 @@ static int venc_set_1080i30_internal(struct v4l2_subdev *sd)
 
 
 	venc_write(sd, VENC_VMOD, 0);
-	
+	/* DM365 component HD mode */
 	venc_modify(sd, VENC_VMOD, (1 << VENC_VMOD_VIE_SHIFT),
 		    VENC_VMOD_VIE);
 	venc_modify(sd, VENC_VMOD, VENC_VMOD_HDMD, VENC_VMOD_HDMD);
@@ -436,16 +460,16 @@ static int venc_s_dv_preset(struct v4l2_subdev *sd,
 		return venc_set_480p59_94(sd);
 	else if ((dv_preset->preset == V4L2_DV_720P60) &&
 			(venc->pdata->venc_type == VPBE_VERSION_2)) {
-		
+		/* TBD setup internal 720p mode here */
 		ret = venc_set_720p60_internal(sd);
-		
+		/* for DM365 VPBE, there is DAC inside */
 		vdaccfg_write(sd, VDAC_CONFIG_HD_V2);
 		return ret;
 	} else if ((dv_preset->preset == V4L2_DV_1080I30) &&
 		(venc->pdata->venc_type == VPBE_VERSION_2)) {
-		
+		/* TBD setup internal 1080i mode here */
 		ret = venc_set_1080i30_internal(sd);
-		
+		/* for DM365 VPBE, there is DAC inside */
 		vdaccfg_write(sd, VDAC_CONFIG_HD_V2);
 		return ret;
 	}
@@ -507,7 +531,7 @@ static int venc_initialize(struct v4l2_subdev *sd)
 	struct venc_state *venc = to_state(sd);
 	int ret;
 
-	
+	/* Set default to output to composite and std to NTSC */
 	venc->output = 0;
 	venc->std = V4L2_STD_525_60;
 

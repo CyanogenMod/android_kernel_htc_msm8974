@@ -36,5 +36,5 @@
 #include "rtl8712_interrupt_bitdef.h"
 #include "rtl8712_debugctrl_bitdef.h"
 
-#endif 
+#endif /* __RTL8712_BITDEF_H__ */
 

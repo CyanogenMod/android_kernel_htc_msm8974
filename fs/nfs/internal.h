@@ -1,3 +1,6 @@
+/*
+ * NFS internal definitions
+ */
 
 #include "nfs4_fs.h"
 #include <linux/mount.h>
@@ -7,14 +10,23 @@
 
 struct nfs_string;
 
+/* Maximum number of readahead requests
+ * FIXME: this should really be a sysctl so that users may tune it to suit
+ *        their needs. People that do NFS over a slow network, might for
+ *        instance want to reduce it to something closer to 1 for improved
+ *        interactive response.
+ */
 #define NFS_MAX_READAHEAD	(RPC_DEF_SLOT_TABLE - 1)
 
+/*
+ * Determine if sessions are in use.
+ */
 static inline int nfs4_has_session(const struct nfs_client *clp)
 {
 #ifdef CONFIG_NFS_V4_1
 	if (clp->cl_session)
 		return 1;
-#endif 
+#endif /* CONFIG_NFS_V4_1 */
 	return 0;
 }
 
@@ -23,7 +35,7 @@ static inline int nfs4_has_persistent_session(const struct nfs_client *clp)
 #ifdef CONFIG_NFS_V4_1
 	if (nfs4_has_session(clp))
 		return (clp->cl_session->flags & SESSION4_PERSIST);
-#endif 
+#endif /* CONFIG_NFS_V4_1 */
 	return 0;
 }
 
@@ -56,12 +68,26 @@ struct nfs_clone_mount {
 	rpc_authflavor_t authflavor;
 };
 
+/*
+ * Note: RFC 1813 doesn't limit the number of auth flavors that
+ * a server can return, so make something up.
+ */
 #define NFS_MAX_SECFLAVORS	(12)
 
+/*
+ * Value used if the user did not specify a port value.
+ */
 #define NFS_UNSPEC_PORT		(-1)
 
+/*
+ * Maximum number of pages that readdir can use for creating
+ * a vmapped array of pages.
+ */
 #define NFS_MAX_READDIR_PAGES 8
 
+/*
+ * In-kernel mount arguments
+ */
 struct nfs_parsed_mount_data {
 	int			flags;
 	int			rsize, wsize;
@@ -100,6 +126,7 @@ struct nfs_parsed_mount_data {
 	struct net		*net;
 };
 
+/* mount_clnt.c */
 struct nfs_mount_request {
 	struct sockaddr		*sap;
 	size_t			salen;
@@ -117,6 +144,7 @@ struct nfs_mount_request {
 extern int nfs_mount(struct nfs_mount_request *info);
 extern void nfs_umount(const struct nfs_mount_request *info);
 
+/* client.c */
 extern const struct rpc_program nfs_program;
 extern void nfs_clients_init(struct net *net);
 
@@ -157,6 +185,7 @@ static inline void nfs_fs_proc_exit(void)
 }
 #endif
 
+/* nfs4namespace.c */
 #ifdef CONFIG_NFS_V4
 extern struct vfsmount *nfs_do_refmount(struct rpc_clnt *client, struct dentry *dentry);
 #else
@@ -167,9 +196,11 @@ struct vfsmount *nfs_do_refmount(struct rpc_clnt *client, struct dentry *dentry)
 }
 #endif
 
+/* callback_xdr.c */
 extern struct svc_version nfs4_callback_version1;
 extern struct svc_version nfs4_callback_version4;
 
+/* pagelist.c */
 extern int __init nfs_init_nfspagecache(void);
 extern void nfs_destroy_nfspagecache(void);
 extern int __init nfs_init_readpagecache(void);
@@ -180,15 +211,18 @@ extern void nfs_destroy_writepagecache(void);
 extern int __init nfs_init_directcache(void);
 extern void nfs_destroy_directcache(void);
 
+/* nfs2xdr.c */
 extern int nfs_stat_to_errno(enum nfs_stat);
 extern struct rpc_procinfo nfs_procedures[];
 extern int nfs2_decode_dirent(struct xdr_stream *,
 				struct nfs_entry *, int);
 
+/* nfs3xdr.c */
 extern struct rpc_procinfo nfs3_procedures[];
 extern int nfs3_decode_dirent(struct xdr_stream *,
 				struct nfs_entry *, int);
 
+/* nfs4xdr.c */
 #ifdef CONFIG_NFS_V4
 extern int nfs4_decode_dirent(struct xdr_stream *,
 				struct nfs_entry *, int);
@@ -198,21 +232,25 @@ extern const u32 nfs41_maxread_overhead;
 extern const u32 nfs41_maxwrite_overhead;
 #endif
 
+/* nfs4proc.c */
 #ifdef CONFIG_NFS_V4
 extern struct rpc_procinfo nfs4_procedures[];
 #endif
 
 extern int nfs4_init_ds_session(struct nfs_client *clp);
 
+/* proc.c */
 void nfs_close_context(struct nfs_open_context *ctx, int is_sync);
 extern int nfs_init_client(struct nfs_client *clp,
 			   const struct rpc_timeout *timeparms,
 			   const char *ip_addr, rpc_authflavor_t authflavour,
 			   int noresvport);
 
+/* dir.c */
 extern int nfs_access_cache_shrinker(struct shrinker *shrink,
 					struct shrink_control *sc);
 
+/* inode.c */
 extern struct workqueue_struct *nfsiod_workqueue;
 extern struct inode *nfs_alloc_inode(struct super_block *sb);
 extern void nfs_destroy_inode(struct inode *);
@@ -224,6 +262,7 @@ extern void nfs4_evict_inode(struct inode *);
 void nfs_zap_acl_cache(struct inode *inode);
 extern int nfs_wait_bit_killable(void *word);
 
+/* super.c */
 extern struct file_system_type nfs_xdev_fs_type;
 #ifdef CONFIG_NFS_V4
 extern struct file_system_type nfs4_xdev_fs_type;
@@ -237,6 +276,7 @@ extern void __exit unregister_nfs_fs(void);
 extern void nfs_sb_active(struct super_block *sb);
 extern void nfs_sb_deactive(struct super_block *sb);
 
+/* namespace.c */
 extern char *nfs_path(char **p, struct dentry *dentry,
 		      char *buffer, ssize_t buflen);
 extern struct vfsmount *nfs_d_automount(struct path *path);
@@ -244,6 +284,7 @@ extern struct vfsmount *nfs_d_automount(struct path *path);
 rpc_authflavor_t nfs_find_best_sec(struct nfs4_secinfo_flavors *);
 #endif
 
+/* getroot.c */
 extern struct dentry *nfs_get_root(struct super_block *, struct nfs_fh *,
 				   const char *);
 #ifdef CONFIG_NFS_V4
@@ -254,6 +295,7 @@ extern int nfs4_get_rootfh(struct nfs_server *server, struct nfs_fh *mntfh);
 #endif
 
 struct nfs_pageio_descriptor;
+/* read.c */
 extern int nfs_initiate_read(struct nfs_read_data *data, struct rpc_clnt *clnt,
 			     const struct rpc_call_ops *call_ops);
 extern void nfs_read_prepare(struct rpc_task *task, void *calldata);
@@ -265,6 +307,7 @@ extern void nfs_pageio_init_read_mds(struct nfs_pageio_descriptor *pgio,
 extern void nfs_pageio_reset_read_mds(struct nfs_pageio_descriptor *pgio);
 extern void nfs_readdata_release(struct nfs_read_data *rdata);
 
+/* write.c */
 extern int nfs_generic_flush(struct nfs_pageio_descriptor *desc,
 		struct list_head *head);
 extern void nfs_pageio_init_write_mds(struct nfs_pageio_descriptor *pgio,
@@ -299,6 +342,7 @@ extern int nfs_migrate_page(struct address_space *,
 #define nfs_migrate_page NULL
 #endif
 
+/* nfs4proc.c */
 extern void __nfs4_read_done_cb(struct nfs_read_data *);
 extern void nfs4_reset_read(struct rpc_task *task, struct nfs_read_data *data);
 extern int nfs4_init_client(struct nfs_client *clp,
@@ -320,6 +364,9 @@ extern int _nfs4_call_sync_session(struct rpc_clnt *clnt,
 				   struct nfs4_sequence_res *res,
 				   int cache_reply);
 
+/*
+ * Determine the device name as a string
+ */
 static inline char *nfs_devname(struct dentry *dentry,
 				char *buffer, ssize_t buflen)
 {
@@ -327,10 +374,13 @@ static inline char *nfs_devname(struct dentry *dentry,
 	return nfs_path(&dummy, dentry, buffer, buflen);
 }
 
+/*
+ * Determine the actual block size (and log2 thereof)
+ */
 static inline
 unsigned long nfs_block_bits(unsigned long bsize, unsigned char *nrbitsp)
 {
-	
+	/* make sure blocksize is a power of two */
 	if ((bsize & (bsize - 1)) || nrbitsp) {
 		unsigned char	nrbits;
 
@@ -344,12 +394,18 @@ unsigned long nfs_block_bits(unsigned long bsize, unsigned char *nrbitsp)
 	return bsize;
 }
 
+/*
+ * Calculate the number of 512byte blocks used.
+ */
 static inline blkcnt_t nfs_calc_block_size(u64 tsize)
 {
 	blkcnt_t used = (tsize + 511) >> 9;
 	return (used > ULONG_MAX) ? ULONG_MAX : used;
 }
 
+/*
+ * Compute and set NFS server blocksize
+ */
 static inline
 unsigned long nfs_block_size(unsigned long bsize, unsigned char *nrbitsp)
 {
@@ -361,6 +417,9 @@ unsigned long nfs_block_size(unsigned long bsize, unsigned char *nrbitsp)
 	return nfs_block_bits(bsize, nrbitsp);
 }
 
+/*
+ * Determine the maximum file size for a superblock
+ */
 static inline
 void nfs_super_set_maxbytes(struct super_block *sb, __u64 maxfilesize)
 {
@@ -369,6 +428,9 @@ void nfs_super_set_maxbytes(struct super_block *sb, __u64 maxfilesize)
 		sb->s_maxbytes = MAX_LFS_FILESIZE;
 }
 
+/*
+ * Determine the number of bytes of data the page contains
+ */
 static inline
 unsigned int nfs_page_length(struct page *page)
 {
@@ -384,12 +446,19 @@ unsigned int nfs_page_length(struct page *page)
 	return 0;
 }
 
+/*
+ * Convert a umode to a dirent->d_type
+ */
 static inline
 unsigned char nfs_umode_to_dtype(umode_t mode)
 {
 	return (mode >> 12) & 15;
 }
 
+/*
+ * Determine the number of pages in an array of length 'len' and
+ * with a base offset of 'base'
+ */
 static inline
 unsigned int nfs_page_array_len(unsigned int base, size_t len)
 {

@@ -35,6 +35,7 @@
 #include <asm/irq.h>
 #include <asm/mach-types.h>
 
+//#include <asm/debug-ll.h>
 #include <mach/regs-gpio.h>
 #include <plat/regs-serial.h>
 #include <plat/iic.h>
@@ -49,7 +50,7 @@
 #include "common.h"
 
 static struct map_desc nexcoder_iodesc[] __initdata = {
-	
+	/* nothing here yet */
 };
 
 #define UCON S3C2410_UCON_DEFAULT
@@ -80,6 +81,7 @@ static struct s3c2410_uartcfg nexcoder_uartcfgs[] __initdata = {
 	}
 };
 
+/* NOR Flash on NexVision NexCoder 2440 board */
 
 static struct resource nexcoder_nor_resource[] = {
 	[0] = {
@@ -104,6 +106,7 @@ static struct platform_device nexcoder_device_nor = {
 	}
 };
 
+/* Standard Nexcoder devices */
 
 static struct platform_device *nexcoder_devices[] __initdata = {
 	&s3c_device_ohci,
@@ -120,17 +123,17 @@ static struct platform_device *nexcoder_devices[] __initdata = {
 
 static void __init nexcoder_sensorboard_init(void)
 {
-	
-	s3c2410_gpio_setpin(S3C2410_GPE(14), 1); 
+	// Initialize SCCB bus
+	s3c2410_gpio_setpin(S3C2410_GPE(14), 1); // IICSCL
 	s3c_gpio_cfgpin(S3C2410_GPE(14), S3C2410_GPIO_OUTPUT);
-	s3c2410_gpio_setpin(S3C2410_GPE(15), 1); 
+	s3c2410_gpio_setpin(S3C2410_GPE(15), 1); // IICSDA
 	s3c_gpio_cfgpin(S3C2410_GPE(15), S3C2410_GPIO_OUTPUT);
 
-	
+	// Power up the sensor board
 	s3c2410_gpio_setpin(S3C2410_GPF(1), 1);
-	s3c_gpio_cfgpin(S3C2410_GPF(1), S3C2410_GPIO_OUTPUT); 
+	s3c_gpio_cfgpin(S3C2410_GPF(1), S3C2410_GPIO_OUTPUT); // CAM_GPIO7 => nLDO_PWRDN
 	s3c2410_gpio_setpin(S3C2410_GPF(2), 0);
-	s3c_gpio_cfgpin(S3C2410_GPF(2), S3C2410_GPIO_OUTPUT); 
+	s3c_gpio_cfgpin(S3C2410_GPF(2), S3C2410_GPIO_OUTPUT); // CAM_GPIO6 => CAM_PWRDN
 }
 
 static void __init nexcoder_map_io(void)
@@ -149,7 +152,7 @@ static void __init nexcoder_init(void)
 };
 
 MACHINE_START(NEXCODER_2440, "NexVision - Nexcoder 2440")
-	
+	/* Maintainer: Guillaume GOURAT <guillaume.gourat@nexvision.tv> */
 	.atag_offset	= 0x100,
 	.map_io		= nexcoder_map_io,
 	.init_machine	= nexcoder_init,

@@ -78,5 +78,5 @@ static inline void aead_givcrypt_complete(struct aead_givcrypt_request *req,
 	aead_request_complete(&req->areq, err);
 }
 
-#endif	
+#endif	/* _CRYPTO_INTERNAL_AEAD_H */
 

@@ -34,33 +34,43 @@
 #include <linux/slab.h>
 #include <linux/atomic.h>
 
+/* Commands */
 #define SHT15_MEASURE_TEMP		0x03
 #define SHT15_MEASURE_RH		0x05
 #define SHT15_WRITE_STATUS		0x06
 #define SHT15_READ_STATUS		0x07
 #define SHT15_SOFT_RESET		0x1E
 
-#define SHT15_TSCKL			100	
-#define SHT15_TSCKH			100	
-#define SHT15_TSU			150	
-#define SHT15_TSRST			11	
+/* Min timings */
+#define SHT15_TSCKL			100	/* (nsecs) clock low */
+#define SHT15_TSCKH			100	/* (nsecs) clock high */
+#define SHT15_TSU			150	/* (nsecs) data setup time */
+#define SHT15_TSRST			11	/* (msecs) soft reset time */
 
+/* Status Register Bits */
 #define SHT15_STATUS_LOW_RESOLUTION	0x01
 #define SHT15_STATUS_NO_OTP_RELOAD	0x02
 #define SHT15_STATUS_HEATER		0x04
 #define SHT15_STATUS_LOW_BATTERY	0x40
 
+/* Actions the driver may be doing */
 enum sht15_state {
 	SHT15_READING_NOTHING,
 	SHT15_READING_TEMP,
 	SHT15_READING_HUMID
 };
 
+/**
+ * struct sht15_temppair - elements of voltage dependent temp calc
+ * @vdd:	supply voltage in microvolts
+ * @d1:		see data sheet
+ */
 struct sht15_temppair {
-	int vdd; 
+	int vdd; /* microvolts */
 	int d1;
 };
 
+/* Table 9 from datasheet - relates temperature calculation to supply voltage */
 static const struct sht15_temppair temppoints[] = {
 	{ 2500000, -39400 },
 	{ 3000000, -39600 },
@@ -69,6 +79,7 @@ static const struct sht15_temppair temppoints[] = {
 	{ 5000000, -40100 },
 };
 
+/* Table from CRC datasheet, section 2.4 */
 static const u8 sht15_crc8_table[] = {
 	0,	49,	98,	83,	196,	245,	166,	151,
 	185,	136,	219,	234,	125,	76,	31,	46,
@@ -104,6 +115,35 @@ static const u8 sht15_crc8_table[] = {
 	59,	10,	89,	104,	255,	206,	157,	172
 };
 
+/**
+ * struct sht15_data - device instance specific data
+ * @pdata:		platform data (gpio's etc).
+ * @read_work:		bh of interrupt handler.
+ * @wait_queue:		wait queue for getting values from device.
+ * @val_temp:		last temperature value read from device.
+ * @val_humid:		last humidity value read from device.
+ * @val_status:		last status register value read from device.
+ * @checksum_ok:	last value read from the device passed CRC validation.
+ * @checksumming:	flag used to enable the data validation with CRC.
+ * @state:		state identifying the action the driver is doing.
+ * @measurements_valid:	are the current stored measures valid (start condition).
+ * @status_valid:	is the current stored status valid (start condition).
+ * @last_measurement:	time of last measure.
+ * @last_status:	time of last status reading.
+ * @read_lock:		mutex to ensure only one read in progress at a time.
+ * @dev:		associate device structure.
+ * @hwmon_dev:		device associated with hwmon subsystem.
+ * @reg:		associated regulator (if specified).
+ * @nb:			notifier block to handle notifications of voltage
+ *                      changes.
+ * @supply_uV:		local copy of supply voltage used to allow use of
+ *                      regulator consumer if available.
+ * @supply_uV_valid:	indicates that an updated value has not yet been
+ *			obtained from the regulator and so any calculations
+ *			based upon it will be invalid.
+ * @update_supply_work:	work struct that is used to update the supply_uV.
+ * @interrupt_handled:	flag used to indicate a handler has been scheduled.
+ */
 struct sht15_data {
 	struct sht15_platform_data	*pdata;
 	struct work_struct		read_work;
@@ -129,6 +169,10 @@ struct sht15_data {
 	atomic_t			interrupt_handled;
 };
 
+/**
+ * sht15_reverse() - reverse a byte
+ * @byte:    byte to reverse.
+ */
 static u8 sht15_reverse(u8 byte)
 {
 	u8 i, c;
@@ -138,6 +182,13 @@ static u8 sht15_reverse(u8 byte)
 	return c;
 }
 
+/**
+ * sht15_crc8() - compute crc8
+ * @data:	sht15 specific data.
+ * @value:	sht15 retrieved data.
+ *
+ * This implements section 2 of the CRC datasheet.
+ */
 static u8 sht15_crc8(struct sht15_data *data,
 		const u8 *value,
 		int len)
@@ -152,6 +203,12 @@ static u8 sht15_crc8(struct sht15_data *data,
 	return crc;
 }
 
+/**
+ * sht15_connection_reset() - reset the comms interface
+ * @data:	sht15 specific data
+ *
+ * This implements section 3.4 of the data sheet
+ */
 static void sht15_connection_reset(struct sht15_data *data)
 {
 	int i;
@@ -168,6 +225,11 @@ static void sht15_connection_reset(struct sht15_data *data)
 	}
 }
 
+/**
+ * sht15_send_bit() - send an individual bit to the device
+ * @data:	device state data
+ * @val:	value of bit to be sent
+ */
 static inline void sht15_send_bit(struct sht15_data *data, int val)
 {
 	gpio_set_value(data->pdata->gpio_data, val);
@@ -175,12 +237,20 @@ static inline void sht15_send_bit(struct sht15_data *data, int val)
 	gpio_set_value(data->pdata->gpio_sck, 1);
 	ndelay(SHT15_TSCKH);
 	gpio_set_value(data->pdata->gpio_sck, 0);
-	ndelay(SHT15_TSCKL); 
+	ndelay(SHT15_TSCKL); /* clock low time */
 }
 
+/**
+ * sht15_transmission_start() - specific sequence for new transmission
+ * @data:	device state data
+ *
+ * Timings for this are not documented on the data sheet, so very
+ * conservative ones used in implementation. This implements
+ * figure 12 on the data sheet.
+ */
 static void sht15_transmission_start(struct sht15_data *data)
 {
-	
+	/* ensure data is high and output */
 	gpio_direction_output(data->pdata->gpio_data, 1);
 	ndelay(SHT15_TSU);
 	gpio_set_value(data->pdata->gpio_sck, 0);
@@ -199,6 +269,11 @@ static void sht15_transmission_start(struct sht15_data *data)
 	ndelay(SHT15_TSCKL);
 }
 
+/**
+ * sht15_send_byte() - send a single byte to the device
+ * @data:	device state
+ * @byte:	value to be sent
+ */
 static void sht15_send_byte(struct sht15_data *data, u8 byte)
 {
 	int i;
@@ -209,6 +284,10 @@ static void sht15_send_byte(struct sht15_data *data, u8 byte)
 	}
 }
 
+/**
+ * sht15_wait_for_response() - checks for ack from device
+ * @data:	device state
+ */
 static int sht15_wait_for_response(struct sht15_data *data)
 {
 	gpio_direction_input(data->pdata->gpio_data);
@@ -225,6 +304,14 @@ static int sht15_wait_for_response(struct sht15_data *data)
 	return 0;
 }
 
+/**
+ * sht15_send_cmd() - Sends a command to the device.
+ * @data:	device state
+ * @cmd:	command byte to be sent
+ *
+ * On entry, sck is output low, data is output pull high
+ * and the interrupt disabled.
+ */
 static int sht15_send_cmd(struct sht15_data *data, u8 cmd)
 {
 	int ret = 0;
@@ -235,6 +322,12 @@ static int sht15_send_cmd(struct sht15_data *data, u8 cmd)
 	return ret;
 }
 
+/**
+ * sht15_soft_reset() - send a soft reset command
+ * @data:	sht15 specific data.
+ *
+ * As described in section 3.2 of the datasheet.
+ */
 static int sht15_soft_reset(struct sht15_data *data)
 {
 	int ret;
@@ -243,12 +336,19 @@ static int sht15_soft_reset(struct sht15_data *data)
 	if (ret)
 		return ret;
 	msleep(SHT15_TSRST);
-	
+	/* device resets default hardware status register value */
 	data->val_status = 0;
 
 	return ret;
 }
 
+/**
+ * sht15_ack() - send a ack
+ * @data:	sht15 specific data.
+ *
+ * Each byte of data is acknowledged by pulling the data line
+ * low for one clock pulse.
+ */
 static void sht15_ack(struct sht15_data *data)
 {
 	gpio_direction_output(data->pdata->gpio_data, 0);
@@ -262,6 +362,12 @@ static void sht15_ack(struct sht15_data *data)
 	gpio_direction_input(data->pdata->gpio_data);
 }
 
+/**
+ * sht15_end_transmission() - notify device of end of transmission
+ * @data:	device state.
+ *
+ * This is basically a NAK (single clock pulse, data high).
+ */
 static void sht15_end_transmission(struct sht15_data *data)
 {
 	gpio_direction_output(data->pdata->gpio_data, 1);
@@ -272,6 +378,10 @@ static void sht15_end_transmission(struct sht15_data *data)
 	ndelay(SHT15_TSCKL);
 }
 
+/**
+ * sht15_read_byte() - Read a byte back from the device
+ * @data:	device state.
+ */
 static u8 sht15_read_byte(struct sht15_data *data)
 {
 	int i;
@@ -288,6 +398,13 @@ static u8 sht15_read_byte(struct sht15_data *data)
 	return byte;
 }
 
+/**
+ * sht15_send_status() - write the status register byte
+ * @data:	sht15 specific data.
+ * @status:	the byte to set the status register with.
+ *
+ * As described in figure 14 and table 5 of the datasheet.
+ */
 static int sht15_send_status(struct sht15_data *data, u8 status)
 {
 	int ret;
@@ -306,6 +423,12 @@ static int sht15_send_status(struct sht15_data *data, u8 status)
 	return 0;
 }
 
+/**
+ * sht15_update_status() - get updated status register from device if too old
+ * @data:	device instance specific data.
+ *
+ * As described in figure 15 and table 5 of the datasheet.
+ */
 static int sht15_update_status(struct sht15_data *data)
 {
 	int ret = 0;
@@ -334,6 +457,11 @@ static int sht15_update_status(struct sht15_data *data)
 
 		sht15_end_transmission(data);
 
+		/*
+		 * Perform checksum validation on the received data.
+		 * Specification mentions that in case a checksum verification
+		 * fails, a soft reset command must be sent to the device.
+		 */
 		if (data->checksumming && !data->checksum_ok) {
 			previous_config = data->val_status & 0x07;
 			ret = sht15_soft_reset(data);
@@ -362,6 +490,13 @@ error_ret:
 	return ret;
 }
 
+/**
+ * sht15_measurement() - get a new value from device
+ * @data:		device instance specific data
+ * @command:		command sent to request value
+ * @timeout_msecs:	timeout after which comms are assumed
+ *			to have failed are reset.
+ */
 static int sht15_measurement(struct sht15_data *data,
 			     int command,
 			     int timeout_msecs)
@@ -379,19 +514,24 @@ static int sht15_measurement(struct sht15_data *data,
 	enable_irq(gpio_to_irq(data->pdata->gpio_data));
 	if (gpio_get_value(data->pdata->gpio_data) == 0) {
 		disable_irq_nosync(gpio_to_irq(data->pdata->gpio_data));
-		
+		/* Only relevant if the interrupt hasn't occurred. */
 		if (!atomic_read(&data->interrupt_handled))
 			schedule_work(&data->read_work);
 	}
 	ret = wait_event_timeout(data->wait_queue,
 				 (data->state == SHT15_READING_NOTHING),
 				 msecs_to_jiffies(timeout_msecs));
-	if (ret == 0) {
+	if (ret == 0) {/* timeout occurred */
 		disable_irq_nosync(gpio_to_irq(data->pdata->gpio_data));
 		sht15_connection_reset(data);
 		return -ETIME;
 	}
 
+	/*
+	 *  Perform checksum validation on the received data.
+	 *  Specification mentions that in case a checksum verification fails,
+	 *  a soft reset command must be sent to the device.
+	 */
 	if (data->checksumming && !data->checksum_ok) {
 		previous_config = data->val_status & 0x07;
 		ret = sht15_soft_reset(data);
@@ -412,6 +552,10 @@ static int sht15_measurement(struct sht15_data *data,
 	return 0;
 }
 
+/**
+ * sht15_update_measurements() - get updated measures from device if too old
+ * @data:	device state
+ */
 static int sht15_update_measurements(struct sht15_data *data)
 {
 	int ret = 0;
@@ -437,6 +581,12 @@ error_ret:
 	return ret;
 }
 
+/**
+ * sht15_calc_temp() - convert the raw reading to a temperature
+ * @data:	device state
+ *
+ * As per section 4.3 of the data sheet.
+ */
 static inline int sht15_calc_temp(struct sht15_data *data)
 {
 	int d1 = temppoints[0].d1;
@@ -444,7 +594,7 @@ static inline int sht15_calc_temp(struct sht15_data *data)
 	int i;
 
 	for (i = ARRAY_SIZE(temppoints) - 1; i > 0; i--)
-		
+		/* Find pointer to interpolate */
 		if (data->supply_uV > temppoints[i - 1].vdd) {
 			d1 = (data->supply_uV - temppoints[i - 1].vdd)
 				* (temppoints[i].d1 - temppoints[i - 1].d1)
@@ -456,21 +606,31 @@ static inline int sht15_calc_temp(struct sht15_data *data)
 	return data->val_temp * d2 + d1;
 }
 
+/**
+ * sht15_calc_humid() - using last temperature convert raw to humid
+ * @data:	device state
+ *
+ * This is the temperature compensated version as per section 4.2 of
+ * the data sheet.
+ *
+ * The sensor is assumed to be V3, which is compatible with V4.
+ * Humidity conversion coefficients are shown in table 7 of the datasheet.
+ */
 static inline int sht15_calc_humid(struct sht15_data *data)
 {
-	int rh_linear; 
+	int rh_linear; /* milli percent */
 	int temp = sht15_calc_temp(data);
 	int c2, c3;
 	int t2;
 	const int c1 = -4;
 
 	if (data->val_status & SHT15_STATUS_LOW_RESOLUTION) {
-		c2 = 648000; 
-		c3 = -7200;  
+		c2 = 648000; /* x 10 ^ -6 */
+		c3 = -7200;  /* x 10 ^ -7 */
 		t2 = 1280;
 	} else {
-		c2 = 40500;  
-		c3 = -28;    
+		c2 = 40500;  /* x 10 ^ -6 */
+		c3 = -28;    /* x 10 ^ -7 */
 		t2 = 80;
 	}
 
@@ -504,6 +664,16 @@ static ssize_t sht15_show_status(struct device *dev,
 	return ret ? ret : sprintf(buf, "%d\n", !!(data->val_status & bit));
 }
 
+/**
+ * sht15_store_heater() - change heater state via sysfs
+ * @dev:	device.
+ * @attr:	device attribute.
+ * @buf:	sysfs buffer to read the new heater state from.
+ * @count:	length of the data.
+ *
+ * Will be called on write access to heater_enable sysfs attribute.
+ * Returns number of bytes actually decoded, negative errno on error.
+ */
 static ssize_t sht15_store_heater(struct device *dev,
 				  struct device_attribute *attr,
 				  const char *buf, size_t count)
@@ -545,7 +715,7 @@ static ssize_t sht15_show_temp(struct device *dev,
 	int ret;
 	struct sht15_data *data = dev_get_drvdata(dev);
 
-	
+	/* Technically no need to read humidity as well */
 	ret = sht15_update_measurements(data);
 
 	return ret ? ret : sprintf(buf, "%d\n",
@@ -610,10 +780,10 @@ static irqreturn_t sht15_interrupt_fired(int irq, void *d)
 {
 	struct sht15_data *data = d;
 
-	
+	/* First disable the interrupt */
 	disable_irq_nosync(irq);
 	atomic_inc(&data->interrupt_handled);
-	
+	/* Then schedule a reading work struct */
 	if (data->state != SHT15_READING_NOTHING)
 		schedule_work(&data->read_work);
 	return IRQ_HANDLED;
@@ -628,23 +798,31 @@ static void sht15_bh_read_data(struct work_struct *work_s)
 		= container_of(work_s, struct sht15_data,
 			       read_work);
 
-	
+	/* Firstly, verify the line is low */
 	if (gpio_get_value(data->pdata->gpio_data)) {
+		/*
+		 * If not, then start the interrupt again - care here as could
+		 * have gone low in meantime so verify it hasn't!
+		 */
 		atomic_set(&data->interrupt_handled, 0);
 		enable_irq(gpio_to_irq(data->pdata->gpio_data));
-		
+		/* If still not occurred or another handler was scheduled */
 		if (gpio_get_value(data->pdata->gpio_data)
 		    || atomic_read(&data->interrupt_handled))
 			return;
 	}
 
-	
+	/* Read the data back from the device */
 	val = sht15_read_byte(data);
 	val <<= 8;
 	sht15_ack(data);
 	val |= sht15_read_byte(data);
 
 	if (data->checksumming) {
+		/*
+		 * Ask the device for a checksum and read it back.
+		 * Note: the device sends the checksum byte reversed.
+		 */
 		sht15_ack(data);
 		dev_checksum = sht15_reverse(sht15_read_byte(data));
 		checksum_vals[0] = (data->state == SHT15_READING_TEMP) ?
@@ -655,7 +833,7 @@ static void sht15_bh_read_data(struct work_struct *work_s)
 			= (sht15_crc8(data, checksum_vals, 3) == dev_checksum);
 	}
 
-	
+	/* Tell the device we are done */
 	sht15_end_transmission(data);
 
 	switch (data->state) {
@@ -681,6 +859,15 @@ static void sht15_update_voltage(struct work_struct *work_s)
 	data->supply_uV = regulator_get_voltage(data->reg);
 }
 
+/**
+ * sht15_invalidate_voltage() - mark supply voltage invalid when notified by reg
+ * @nb:		associated notification structure
+ * @event:	voltage regulator state change event code
+ * @ignored:	function parameter - ignored here
+ *
+ * Note that as the notification code holds the regulator lock, we have
+ * to schedule an update of the supply voltage rather than getting it directly.
+ */
 static int sht15_invalidate_voltage(struct notifier_block *nb,
 				    unsigned long event,
 				    void *ignored)
@@ -727,6 +914,10 @@ static int __devinit sht15_probe(struct platform_device *pdev)
 	if (data->pdata->low_resolution)
 		status |= SHT15_STATUS_LOW_RESOLUTION;
 
+	/*
+	 * If a regulator is available,
+	 * query what the supply voltage actually is!
+	 */
 	data->reg = regulator_get(data->dev, "vcc");
 	if (!IS_ERR(data->reg)) {
 		int voltage;
@@ -736,6 +927,10 @@ static int __devinit sht15_probe(struct platform_device *pdev)
 			data->supply_uV = voltage;
 
 		regulator_enable(data->reg);
+		/*
+		 * Setup a notifier block to update this if another device
+		 * causes the voltage to change
+		 */
 		data->nb.notifier_call = &sht15_invalidate_voltage;
 		ret = regulator_register_notifier(data->reg, &data->nb);
 		if (ret) {
@@ -747,7 +942,7 @@ static int __devinit sht15_probe(struct platform_device *pdev)
 		}
 	}
 
-	
+	/* Try requesting the GPIOs */
 	ret = gpio_request(data->pdata->gpio_sck, "SHT15 sck");
 	if (ret) {
 		dev_err(&pdev->dev, "gpio request failed\n");
@@ -776,7 +971,7 @@ static int __devinit sht15_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_release_irq;
 
-	
+	/* write status with platform data options */
 	if (status) {
 		ret = sht15_send_status(data, status);
 		if (ret)
@@ -821,6 +1016,10 @@ static int __devexit sht15_remove(struct platform_device *pdev)
 {
 	struct sht15_data *data = platform_get_drvdata(pdev);
 
+	/*
+	 * Make sure any reads from the device are done and
+	 * prevent new ones beginning
+	 */
 	mutex_lock(&data->read_lock);
 	if (sht15_soft_reset(data)) {
 		mutex_unlock(&data->read_lock);
@@ -843,6 +1042,11 @@ static int __devexit sht15_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/*
+ * sht_drivers simultaneously refers to __devinit and __devexit function
+ * which causes spurious section mismatch warning. So use __refdata to
+ * get rid from this.
+ */
 static struct platform_driver __refdata sht_drivers[] = {
 	{
 		.driver = {

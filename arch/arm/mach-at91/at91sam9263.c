@@ -26,7 +26,13 @@
 #include "clock.h"
 #include "sam9_smc.h"
 
+/* --------------------------------------------------------------------
+ *  Clocks
+ * -------------------------------------------------------------------- */
 
+/*
+ * The peripheral clocks.
+ */
 static struct clk pioA_clk = {
 	.name		= "pioA_clk",
 	.pmc_mask	= 1 << AT91SAM9263_ID_PIOA,
@@ -173,11 +179,11 @@ static struct clk *periph_clocks[] __initdata = {
 	&lcdc_clk,
 	&dma_clk,
 	&ohci_clk,
-	
+	// irq0 .. irq1
 };
 
 static struct clk_lookup periph_clocks_lookups[] = {
-	
+	/* One additional fake clock for macb_hclk */
 	CLKDEV_CON_ID("hclk", &macb_clk),
 	CLKDEV_CON_DEV_ID("pclk", "ssc.0", &ssc0_clk),
 	CLKDEV_CON_DEV_ID("pclk", "ssc.1", &ssc1_clk),
@@ -186,7 +192,7 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("spi_clk", "atmel_spi.0", &spi0_clk),
 	CLKDEV_CON_DEV_ID("spi_clk", "atmel_spi.1", &spi1_clk),
 	CLKDEV_CON_DEV_ID("t0_clk", "atmel_tcb.0", &tcb_clk),
-	
+	/* fake hclk clock */
 	CLKDEV_CON_DEV_ID("hclk", "at91_ohci", &ohci_clk),
 	CLKDEV_CON_ID("pioA", &pioA_clk),
 	CLKDEV_CON_ID("pioB", &pioB_clk),
@@ -202,6 +208,10 @@ static struct clk_lookup usart_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("usart", "atmel_usart.3", &usart2_clk),
 };
 
+/*
+ * The four programmable clocks.
+ * You must configure pin multiplexing to bring these signals out.
+ */
 static struct clk pck0 = {
 	.name		= "pck0",
 	.pmc_mask	= AT91_PMC_PCK0,
@@ -257,6 +267,9 @@ void __init at91sam9263_set_console_clock(int id)
 	clkdev_add(&console_clock_lookup);
 }
 
+/* --------------------------------------------------------------------
+ *  GPIO
+ * -------------------------------------------------------------------- */
 
 static struct at91_gpio_bank at91sam9263_gpio[] __initdata = {
 	{
@@ -277,6 +290,9 @@ static struct at91_gpio_bank at91sam9263_gpio[] __initdata = {
 	}
 };
 
+/* --------------------------------------------------------------------
+ *  AT91SAM9263 processor initialization
+ * -------------------------------------------------------------------- */
 
 static void __init at91sam9263_map_io(void)
 {
@@ -302,44 +318,50 @@ static void __init at91sam9263_initialize(void)
 	arm_pm_restart = at91sam9_alt_restart;
 	at91_extern_irq = (1 << AT91SAM9263_ID_IRQ0) | (1 << AT91SAM9263_ID_IRQ1);
 
-	
+	/* Register GPIO subsystem */
 	at91_gpio_init(at91sam9263_gpio, 5);
 }
 
+/* --------------------------------------------------------------------
+ *  Interrupt initialization
+ * -------------------------------------------------------------------- */
 
+/*
+ * The default interrupt priority levels (0 = lowest, 7 = highest).
+ */
 static unsigned int at91sam9263_default_irq_priority[NR_AIC_IRQS] __initdata = {
-	7,	
-	7,	
-	1,	
-	1,	
-	1,	
+	7,	/* Advanced Interrupt Controller (FIQ) */
+	7,	/* System Peripherals */
+	1,	/* Parallel IO Controller A */
+	1,	/* Parallel IO Controller B */
+	1,	/* Parallel IO Controller C, D and E */
 	0,
 	0,
-	5,	
-	5,	
-	5,	
-	0,	
-	0,	
-	3,	
-	6,	
-	5,	
-	5,	
-	4,	
-	4,	
-	5,	
-	0,	
-	0,	
-	3,	
+	5,	/* USART 0 */
+	5,	/* USART 1 */
+	5,	/* USART 2 */
+	0,	/* Multimedia Card Interface 0 */
+	0,	/* Multimedia Card Interface 1 */
+	3,	/* CAN */
+	6,	/* Two-Wire Interface */
+	5,	/* Serial Peripheral Interface 0 */
+	5,	/* Serial Peripheral Interface 1 */
+	4,	/* Serial Synchronous Controller 0 */
+	4,	/* Serial Synchronous Controller 1 */
+	5,	/* AC97 Controller */
+	0,	/* Timer Counter 0, 1 and 2 */
+	0,	/* Pulse Width Modulation Controller */
+	3,	/* Ethernet */
 	0,
-	0,	
-	2,	
-	0,	
-	3,	
-	0,	
+	0,	/* 2D Graphic Engine */
+	2,	/* USB Device Port */
+	0,	/* Image Sensor Interface */
+	3,	/* LDC Controller */
+	0,	/* DMA Controller */
 	0,
-	2,	
-	0,	
-	0,	
+	2,	/* USB Host port */
+	0,	/* Advanced Interrupt Controller (IRQ0) */
+	0,	/* Advanced Interrupt Controller (IRQ1) */
 };
 
 struct at91_init_soc __initdata at91sam9263_soc = {

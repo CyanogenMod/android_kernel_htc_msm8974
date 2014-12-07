@@ -11,8 +11,8 @@
 #include <linux/compiler.h>
 #include <asm/intrinsics.h>
 
-extern void * sn_io_addr(unsigned long port) __attribute_const__; 
-extern void __sn_mmiowb(void); 
+extern void * sn_io_addr(unsigned long port) __attribute_const__; /* Forward definition */
+extern void __sn_mmiowb(void); /* Forward definition */
 
 extern int num_cnodes;
 
@@ -35,12 +35,23 @@ extern void sn_dma_flush(unsigned long);
 #define __sn_readl_relaxed ___sn_readl_relaxed
 #define __sn_readq_relaxed ___sn_readq_relaxed
 
+/*
+ * Convenience macros for setting/clearing bits using the above accessors
+ */
 
 #define __sn_setq_relaxed(addr, val) \
 	writeq((__sn_readq_relaxed(addr) | (val)), (addr))
 #define __sn_clrq_relaxed(addr, val) \
 	writeq((__sn_readq_relaxed(addr) & ~(val)), (addr))
 
+/*
+ * The following routines are SN Platform specific, called when
+ * a reference is made to inX/outX set macros.  SN Platform
+ * inX set of macros ensures that Posted DMA writes on the
+ * Bridge is flushed.
+ *
+ * The routines should be self explainatory.
+ */
 
 static inline unsigned int
 ___sn_inb (unsigned long port)
@@ -117,6 +128,14 @@ ___sn_outl (unsigned int val, unsigned long port)
 	}
 }
 
+/*
+ * The following routines are SN Platform specific, called when 
+ * a reference is made to readX/writeX set macros.  SN Platform 
+ * readX set of macros ensures that Posted DMA writes on the 
+ * Bridge is flushed.
+ * 
+ * The routines should be self explainatory.
+ */
 
 static inline unsigned char
 ___sn_readb (const volatile void __iomem *addr)
@@ -162,6 +181,14 @@ ___sn_readq (const volatile void __iomem *addr)
         return val;
 }
 
+/*
+ * For generic and SN2 kernels, we have a set of fast access
+ * PIO macros.	These macros are provided on SN Platform
+ * because the normal inX and readX macros perform an
+ * additional task of flushing Post DMA request on the Bridge.
+ *
+ * These routines should be self explainatory.
+ */
 
 static inline unsigned int
 sn_inb_fast (unsigned long port)
@@ -230,18 +257,18 @@ sn_pci_set_vchan(struct pci_dev *pci_dev, unsigned long *addr, int vchan)
 		return -1;
 	}
 
-	if (!(*addr >> 32))	
-		return 0;	
+	if (!(*addr >> 32))	/* Using a mask here would be cleaner */
+		return 0;	/* but this generates better code */
 
 	if (vchan == 1) {
-		
+		/* Set Bit 57 */
 		*addr |= (1UL << 57);
 	} else {
-		
+		/* Clear Bit 57 */
 		*addr &= ~(1UL << 57);
 	}
 
 	return 0;
 }
 
-#endif	
+#endif	/* _ASM_SN_IO_H */

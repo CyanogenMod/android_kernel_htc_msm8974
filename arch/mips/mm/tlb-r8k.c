@@ -23,6 +23,7 @@ extern void build_tlb_refill_handler(void);
 #define TFP_TLB_SIZE		384
 #define TFP_TLB_SET_SHIFT	7
 
+/* CP0 hazard avoidance. */
 #define BARRIER __asm__ __volatile__(".set noreorder\n\t" \
 				     "nop; nop; nop; nop; nop; nop;\n\t" \
 				     ".set reorder\n\t")
@@ -34,7 +35,7 @@ void local_flush_tlb_all(void)
 	int entry;
 
 	local_irq_save(flags);
-	
+	/* Save old context and create impossible VPN2 value */
 	old_ctx = read_c0_entryhi();
 	write_c0_entrylo(0);
 
@@ -107,6 +108,7 @@ out_restore:
 	local_irq_restore(flags);
 }
 
+/* Usable for KV1 addresses only! */
 void local_flush_tlb_kernel_range(unsigned long start, unsigned long end)
 {
 	unsigned long size, flags;
@@ -174,6 +176,11 @@ finish:
 	local_irq_restore(flags);
 }
 
+/*
+ * We will need multiple versions of update_mmu_cache(), one that just
+ * updates the TLB with the new pte(s), and another which also checks
+ * for the R4k "end of page" hardware bug and does the needy.
+ */
 void __update_tlb(struct vm_area_struct * vma, unsigned long address, pte_t pte)
 {
 	unsigned long flags;
@@ -182,6 +189,9 @@ void __update_tlb(struct vm_area_struct * vma, unsigned long address, pte_t pte)
 	pte_t *ptep;
 	int pid;
 
+	/*
+	 * Handle debugger faulting in for debugee.
+	 */
 	if (current->active_mm != vma->vm_mm)
 		return;
 
@@ -207,7 +217,7 @@ static void __cpuinit probe_tlb(unsigned long config)
 {
 	struct cpuinfo_mips *c = &current_cpu_data;
 
-	c->tlbsize = 3 * 128;		
+	c->tlbsize = 3 * 128;		/* 3 sets each 128 entries */
 }
 
 void __cpuinit tlb_init(void)

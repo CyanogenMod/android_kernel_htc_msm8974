@@ -18,6 +18,7 @@
 
 #include "clock.h"
 
+/* clksel_rate data common to 24xx/343x */
 const struct clksel_rate gpt_32k_rates[] = {
 	 { .div = 1, .val = 0, .flags = RATE_IN_24XX | RATE_IN_3XXX },
 	 { .div = 0 }

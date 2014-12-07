@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,7 +24,6 @@
 #include <linux/reboot.h>
 #include <linux/of.h>
 #include <linux/kmemleak.h>
-#include <mach/msm_rtb.h>
 #ifdef CONFIG_DIAG_OVER_USB
 #include <mach/usbdiag.h>
 #endif
@@ -43,9 +42,6 @@
 #include "diag_dci.h"
 #include "diag_masks.h"
 #include "diagfwd_bridge.h"
-
-#define MODE_CMD		41
-#define RESET_ID		2
 
 #define STM_CMD_VERSION_OFFSET	4
 #define STM_CMD_MASK_OFFSET	5
@@ -456,10 +452,6 @@ int diag_process_smd_read_data(struct diag_smd_info *smd_info, void *buf,
 			DIAGFWD_7K_RAWDATA(buf, "modem", DIAG_DBG_READ);
 #if DIAG_XPST && !defined(CONFIG_DIAGFWD_BRIDGE_CODE)
 			type = checkcmd_modem_epst(buf);
-			if ((smd_info->in_busy_1 == 1) || (smd_info->in_busy_2 == 1))
-				
-				pr_info("%s:type=%d, in_busy_1=%d, in_busy_2=%d\n",
-					__func__, type, smd_info->in_busy_1, smd_info->in_busy_2);
 			if (type) {
 				modem_to_userspace(buf, total_recd, type, 0);
 				return 0;
@@ -476,8 +468,6 @@ int diag_process_smd_read_data(struct diag_smd_info *smd_info, void *buf,
 			err = diag_device_write(buf, smd_info->peripheral,
 						write_ptr_modem);
 			if (err) {
-				
-				*in_busy_ptr = 0;
 				pr_err_ratelimited("diag: In %s, diag_device_write error: %d\n",
 					__func__, err);
 			}
@@ -518,7 +508,6 @@ int diag_process_smd_read_data(struct diag_smd_info *smd_info, void *buf,
 							smd_info->peripheral,
 							write_ptr_modem);
 					if (err) {
-						*in_busy_ptr = 0;
 						pr_err_ratelimited("diag: In %s, diag_device_write error: %d\n",
 								__func__, err);
 					}
@@ -619,6 +608,7 @@ void diag_smd_send_req(struct diag_smd_info *smd_info)
 	int buf_size = 0;
 	int resize_success = 0;
 	int buf_full = 0;
+	static unsigned long buf_status_time;
 
 	if (!smd_info) {
 		pr_err("diag: In %s, no smd info. Not able to read.\n",
@@ -626,9 +616,17 @@ void diag_smd_send_req(struct diag_smd_info *smd_info)
 		return;
 	}
 	
-	if (smd_info->in_busy_1 == 1 && smd_info->in_busy_2 ==1)
-		pr_info("%s: All in_busy flags were set, can't receive any packet from SMD\n", __func__);
-
+	if (smd_info->type == SMD_DATA_TYPE) {
+		if (smd_info->in_busy_1 && smd_info->in_busy_2) {
+			smd_info->buf_full++;
+			if (printk_timed_ratelimit(&buf_status_time, 5000)) {
+				printk("%s: buffer status(data_type:full:release)= %d:%d:%d,\n",
+						__func__, smd_info->type, smd_info->buf_full, smd_info->buf_release);
+			}
+		}
+		else if (!smd_info->in_busy_1 || !smd_info->in_busy_2)
+			smd_info->buf_release++;
+	}
 
 	
 	if (smd_info->type == SMD_DATA_TYPE) {
@@ -670,16 +668,15 @@ void diag_smd_send_req(struct diag_smd_info *smd_info)
 
 	if (!buf && (smd_info->type == SMD_DCI_TYPE ||
 					smd_info->type == SMD_DCI_CMD_TYPE))
-		diag_dci_try_deactivate_wakeup_source(smd_info->ch);
+		diag_dci_try_deactivate_wakeup_source();
 
 drop:
 	if (smd_info->ch && buf) {
-		pkt_len = smd_cur_packet_size(smd_info->ch);
 
+		pkt_len = smd_cur_packet_size(smd_info->ch);
 		if (pkt_len == 0 && (smd_info->type == SMD_DCI_TYPE ||
 					smd_info->type == SMD_DCI_CMD_TYPE))
-			diag_dci_try_deactivate_wakeup_source(smd_info->ch);
-
+			diag_dci_try_deactivate_wakeup_source();
 		if (pkt_len > buf_size)
 			resize_success = diag_smd_resize_buf(smd_info, &buf,
 							&buf_size, pkt_len);
@@ -797,7 +794,7 @@ drop:
 fail_return:
 	if (smd_info->type == SMD_DCI_TYPE ||
 					smd_info->type == SMD_DCI_CMD_TYPE)
-		diag_dci_try_deactivate_wakeup_source(smd_info->ch);
+		diag_dci_try_deactivate_wakeup_source();
 	return;
 }
 
@@ -854,10 +851,9 @@ int diag_device_write(void *buf, int data_type, struct diag_request *write_ptr)
 					driver->buf_tbl[i].length =
 								 driver->used;
 #ifdef DIAG_DEBUG
-					pr_debug("diag: ENQUEUE buf ptr"
-						   " and length is %x , %d\n",
-						   (unsigned int)(driver->buf_
-				tbl[i].buf), driver->buf_tbl[i].length);
+					pr_debug("diag: ENQUEUE buf ptr and length is %p , %d\n",
+						 driver->buf_tbl[i].buf,
+						 driver->buf_tbl[i].length);
 #endif
 					break;
 				}
@@ -1061,17 +1057,46 @@ int diag_device_write(void *buf, int data_type, struct diag_request *write_ptr)
     return err;
 }
 
-static void diag_update_pkt_buffer(unsigned char *buf)
+void diag_update_pkt_buffer(unsigned char *buf, int type)
 {
-	unsigned char *ptr = driver->pkt_buf;
+	unsigned char *ptr = NULL;
 	unsigned char *temp = buf;
+	unsigned int length;
+	int *in_busy = NULL;
 
+	if (!buf) {
+		pr_err("diag: Invalid buffer in %s\n", __func__);
+		return;
+	}
+
+	switch (type) {
+	case PKT_TYPE:
+		ptr = driver->pkt_buf;
+		length = driver->pkt_length;
+		in_busy = &driver->in_busy_pktdata;
+		break;
+	case DCI_PKT_TYPE:
+		ptr = driver->dci_pkt_buf;
+		length = driver->dci_pkt_length;
+		in_busy = &driver->in_busy_dcipktdata;
+		break;
+	default:
+		pr_err("diag: Invalid type %d in %s\n", type, __func__);
+		return;
+	}
+
+	if (!ptr || length == 0) {
+		pr_err("diag: Invalid ptr %p and length %d in %s",
+						ptr, length, __func__);
+		return;
+	}
 	mutex_lock(&driver->diagchar_mutex);
-	if (CHK_OVERFLOW(ptr, ptr, ptr + PKT_SIZE, driver->pkt_length)) {
-		memcpy(ptr, temp , driver->pkt_length);
-		driver->in_busy_pktdata = 1;
-	} else
+	if (CHK_OVERFLOW(ptr, ptr, ptr + PKT_SIZE, length)) {
+		memcpy(ptr, temp , length);
+		*in_busy = 1;
+	} else {
 		printk(KERN_CRIT " Not enough buffer space for PKT_RESP\n");
+	}
 	mutex_unlock(&driver->diagchar_mutex);
 }
 
@@ -1120,7 +1145,7 @@ int diag_send_data(struct diag_master_table entry, unsigned char *buf,
 	if (entry.process_id != NON_APPS_PROC) {
 		
 		if (type != MODEM_DATA) {
-			diag_update_pkt_buffer(buf);
+			diag_update_pkt_buffer(buf, PKT_TYPE);
 			diag_update_sleeping_process(entry.process_id,
 							PKT_TYPE);
 		}
@@ -1194,15 +1219,23 @@ void diag_process_stm_mask(uint8_t cmd, uint8_t data_mask, int data_type,
 	}
 }
 
-int diag_process_stm_cmd(unsigned char *buf)
+int diag_process_stm_cmd(unsigned char *buf, unsigned char *dest_buf)
 {
-	uint8_t version = *(buf+STM_CMD_VERSION_OFFSET);
-	uint8_t mask = *(buf+STM_CMD_MASK_OFFSET);
-	uint8_t cmd = *(buf+STM_CMD_DATA_OFFSET);
+	uint8_t version, mask, cmd;
 	uint8_t rsp_supported = 0;
 	uint8_t rsp_smd_comply = 0;
 	int valid_command = 1;
 	int i;
+
+	if (!buf || !dest_buf) {
+		pr_err("diag: Invalid pointers buf: %p, dest_buf %p in %s\n",
+		       buf, dest_buf, __func__);
+		return -EIO;
+	}
+
+	version = *(buf + STM_CMD_VERSION_OFFSET);
+	mask = *(buf + STM_CMD_MASK_OFFSET);
+	cmd = *(buf + STM_CMD_DATA_OFFSET);
 
 	
 	if ((version != 1) || (mask == 0) || (0 != (mask >> 4)) ||
@@ -1227,15 +1260,13 @@ int diag_process_stm_cmd(unsigned char *buf)
 	}
 
 	for (i = 0; i < STM_CMD_NUM_BYTES; i++)
-		driver->apps_rsp_buf[i] = *(buf+i);
+		dest_buf[i] = *(buf + i);
 
-	driver->apps_rsp_buf[STM_RSP_VALID_INDEX] = valid_command;
-	driver->apps_rsp_buf[STM_RSP_SUPPORTED_INDEX] = rsp_supported;
-	driver->apps_rsp_buf[STM_RSP_SMD_COMPLY_INDEX] = rsp_smd_comply;
+	dest_buf[STM_RSP_VALID_INDEX] = valid_command;
+	dest_buf[STM_RSP_SUPPORTED_INDEX] = rsp_supported;
+	dest_buf[STM_RSP_SMD_COMPLY_INDEX] = rsp_smd_comply;
 
-	encode_rsp_and_send(STM_RSP_NUM_BYTES-1);
-
-	return 0;
+	return STM_RSP_NUM_BYTES;
 }
 
 int diag_apps_responds()
@@ -1313,10 +1344,23 @@ int diag_process_apps_pkt(unsigned char *buf, int len)
 						 cmd_code &&
 						 entry.
 						cmd_code_hi >= cmd_code) {
-					status = diag_send_data(entry, buf, len,
-								 data_type);
-					if (status)
-						packet_type = 0;
+					if (cmd_code == 238)
+					{
+						int cmdID = (int)(*(char*)(buf+2));
+						if(entry.process_id!=NON_APPS_PROC)
+						{
+							diag_send_data(entry, buf, len, data_type);
+							printk(KERN_INFO "%s .. CCI FTM cmdID[0x%2X] for APP handling\n", __func__, cmdID);
+							packet_type = 0;
+							return 0;
+						}
+					}
+					else
+					{
+						status = diag_send_data(entry, buf, len, data_type);
+						if (status)
+							packet_type = 0;
+					}
 				}
 			}
 		}
@@ -1332,7 +1376,12 @@ int diag_process_apps_pkt(unsigned char *buf, int len)
 		return 0;
 	} else if ((*buf == 0x4b) && (*(buf+1) == 0x12) &&
 		(*(uint16_t *)(buf+2) == 0x020E)) {
-		return diag_process_stm_cmd(buf);
+		len = diag_process_stm_cmd(buf, driver->apps_rsp_buf);
+		if (len > 0) {
+			encode_rsp_and_send(len - 1);
+			return 0;
+		}
+		return len;
 	}
 	
 	else if (diag_apps_responds() && *buf == 0x81) {
@@ -1901,7 +1950,6 @@ int diagfwd_connect(void)
 		printk(KERN_ERR "diag: unable to alloc USB req on legacy ch");
 		goto exit;
 	}
-
 	driver->usb_connected = 1;
 	driver->qxdmusb_drop = 0;
 	diag_reset_smd_data(RESET_AND_QUEUE);
@@ -1927,7 +1975,6 @@ int diagfwd_connect(void)
 exit:
 	pr_err("diag: unable to alloc USB req on legacy ch, err: %d", err);
 	return err;
-
 }
 
 int diagfwd_disconnect(void)
@@ -1939,7 +1986,6 @@ int diagfwd_disconnect(void)
 	printk(KERN_INFO "diag: USB disconnected\n");
 	driver->usb_connected = 0;
 	driver->debug_flag = 1;
-	usb_diag_free_req(driver->legacy_ch);
 	if (driver->logging_mode == USB_MODE) {
 		driver->qxdmusb_drop = 1;
 		for (i = 1; i < NUM_SMD_DATA_CHANNELS; i++) {
@@ -2132,7 +2178,6 @@ void diag_usb_legacy_notifier(void *priv, unsigned event,
 		break;
 	}
 }
-
 #endif 
 
 void diag_smd_notify(void *ctxt, unsigned event)
@@ -2189,7 +2234,7 @@ void diag_smd_notify(void *ctxt, unsigned event)
 	if (smd_info->type == SMD_DCI_TYPE ||
 					smd_info->type == SMD_DCI_CMD_TYPE) {
 		if (event == SMD_EVENT_DATA)
-			diag_dci_try_activate_wakeup_source(smd_info->ch);
+			diag_dci_try_activate_wakeup_source();
 		queue_work(driver->diag_dci_wq,
 				&(smd_info->diag_read_smd_work));
 	} else if (smd_info->type == SMD_DATA_TYPE) {
@@ -2674,6 +2719,12 @@ void diagfwd_init(void)
 			 GFP_KERNEL)) == NULL)
 		goto err;
 	kmemleak_not_leak(driver->pkt_buf);
+	if (driver->dci_pkt_buf == NULL) {
+		driver->dci_pkt_buf = kzalloc(PKT_SIZE, GFP_KERNEL);
+		if (!driver->dci_pkt_buf)
+			goto err;
+	}
+	kmemleak_not_leak(driver->dci_pkt_buf);
 	if (driver->apps_rsp_buf == NULL) {
 		driver->apps_rsp_buf = kzalloc(APPS_BUF_SIZE, GFP_KERNEL);
 		if (driver->apps_rsp_buf == NULL)
@@ -2727,6 +2778,7 @@ err:
 	kfree(driver->data_ready);
 	kfree(driver->table);
 	kfree(driver->pkt_buf);
+	kfree(driver->dci_pkt_buf);
 	kfree(driver->usb_read_ptr);
 	kfree(driver->apps_rsp_buf);
 	kfree(driver->user_space_data_buf);
@@ -2744,8 +2796,6 @@ void diagfwd_exit(void)
 		diag_smd_destructor(&driver->smd_data[i]);
 
 #ifdef CONFIG_DIAG_OVER_USB
-	if (driver->usb_connected)
-		usb_diag_free_req(driver->legacy_ch);
 	usb_diag_close(driver->legacy_ch);
 #endif
 	platform_driver_unregister(&msm_smd_ch1_driver);
@@ -2769,6 +2819,7 @@ void diagfwd_exit(void)
 	kfree(driver->data_ready);
 	kfree(driver->table);
 	kfree(driver->pkt_buf);
+	kfree(driver->dci_pkt_buf);
 	kfree(driver->usb_read_ptr);
 	kfree(driver->apps_rsp_buf);
 	kfree(driver->user_space_data_buf);

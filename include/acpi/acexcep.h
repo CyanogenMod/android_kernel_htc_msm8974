@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Name: acexcep.h - Exception codes returned by the ACPI subsystem
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2011, Intel Corp.
@@ -39,6 +44,9 @@
 #ifndef __ACEXCEP_H__
 #define __ACEXCEP_H__
 
+/*
+ * Exceptions returned by external ACPI interfaces
+ */
 #define AE_CODE_ENVIRONMENTAL           0x0000
 #define AE_CODE_PROGRAMMER              0x1000
 #define AE_CODE_ACPI_TABLES             0x2000
@@ -52,6 +60,9 @@
 #define ACPI_SKIP(a)                    (a == AE_CTRL_SKIP)
 #define AE_OK                           (acpi_status) 0x0000
 
+/*
+ * Environmental exceptions
+ */
 #define AE_ERROR                        (acpi_status) (0x0001 | AE_CODE_ENVIRONMENTAL)
 #define AE_NO_ACPI_TABLES               (acpi_status) (0x0002 | AE_CODE_ENVIRONMENTAL)
 #define AE_NO_NAMESPACE                 (acpi_status) (0x0003 | AE_CODE_ENVIRONMENTAL)
@@ -83,6 +94,9 @@
 
 #define AE_CODE_ENV_MAX                 0x001C
 
+/*
+ * Programmer exceptions
+ */
 #define AE_BAD_PARAMETER                (acpi_status) (0x0001 | AE_CODE_PROGRAMMER)
 #define AE_BAD_CHARACTER                (acpi_status) (0x0002 | AE_CODE_PROGRAMMER)
 #define AE_BAD_PATHNAME                 (acpi_status) (0x0003 | AE_CODE_PROGRAMMER)
@@ -95,6 +109,9 @@
 
 #define AE_CODE_PGM_MAX                 0x0009
 
+/*
+ * Acpi table exceptions
+ */
 #define AE_BAD_SIGNATURE                (acpi_status) (0x0001 | AE_CODE_ACPI_TABLES)
 #define AE_BAD_HEADER                   (acpi_status) (0x0002 | AE_CODE_ACPI_TABLES)
 #define AE_BAD_CHECKSUM                 (acpi_status) (0x0003 | AE_CODE_ACPI_TABLES)
@@ -103,6 +120,10 @@
 
 #define AE_CODE_TBL_MAX                 0x0005
 
+/*
+ * AML exceptions.  These are caused by problems with
+ * the actual AML byte stream
+ */
 #define AE_AML_BAD_OPCODE               (acpi_status) (0x0001 | AE_CODE_AML)
 #define AE_AML_NO_OPERAND               (acpi_status) (0x0002 | AE_CODE_AML)
 #define AE_AML_OPERAND_TYPE             (acpi_status) (0x0003 | AE_CODE_AML)
@@ -139,6 +160,9 @@
 
 #define AE_CODE_AML_MAX                 0x0021
 
+/*
+ * Internal exceptions used for control
+ */
 #define AE_CTRL_RETURN_VALUE            (acpi_status) (0x0001 | AE_CODE_CONTROL)
 #define AE_CTRL_PENDING                 (acpi_status) (0x0002 | AE_CODE_CONTROL)
 #define AE_CTRL_TERMINATE               (acpi_status) (0x0003 | AE_CODE_CONTROL)
@@ -155,9 +179,14 @@
 
 #define AE_CODE_CTRL_MAX                0x000D
 
+/* Exception strings for acpi_format_exception */
 
 #ifdef DEFINE_ACPI_GLOBALS
 
+/*
+ * String versions of the exception codes above
+ * These strings must match the corresponding defines exactly
+ */
 char const *acpi_gbl_exception_names_env[] = {
 	"AE_OK",
 	"AE_ERROR",
@@ -266,6 +295,6 @@ char const *acpi_gbl_exception_names_ctrl[] = {
 	"AE_CTRL_PARSE_PENDING"
 };
 
-#endif				
+#endif				/* ACPI GLOBALS */
 
-#endif				
+#endif				/* __ACEXCEP_H__ */

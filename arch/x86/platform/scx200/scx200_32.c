@@ -14,6 +14,7 @@
 #include <linux/scx200.h>
 #include <linux/scx200_gpio.h>
 
+/* Verify that the configuration block really is there */
 #define scx200_cb_probe(base) (inw((base) + SCx200_CBA) == (base))
 
 MODULE_AUTHOR("Christer Weinigel <wingel@nano-system.com>");
@@ -48,7 +49,7 @@ static void __devinit scx200_init_shadow(void)
 {
 	int bank;
 
-	
+	/* read the current values driven on the GPIO signals */
 	for (bank = 0; bank < 2; ++bank)
 		scx200_gpio_shadow[bank] = inl(scx200_gpio_base + 0x10 * bank);
 }
@@ -72,7 +73,7 @@ static int __devinit scx200_probe(struct pci_dev *pdev, const struct pci_device_
 		scx200_init_shadow();
 
 	} else {
-		
+		/* find the base of the Configuration Block */
 		if (scx200_cb_probe(SCx200_CB_BASE_FIXED)) {
 			scx200_cb_base = SCx200_CB_BASE_FIXED;
 		} else {

@@ -26,8 +26,9 @@ asmlinkage int sys_execve(const char *ufilename, char **uargv,
 			  unsigned long r6, unsigned long r7,
 			  struct pt_regs *pregs);
 
+/* Misc syscall related bits */
 asmlinkage long long do_syscall_trace_enter(struct pt_regs *regs);
 asmlinkage void do_syscall_trace_leave(struct pt_regs *regs);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_SH_SYSCALLS_64_H */

@@ -16,6 +16,9 @@
  * www.brocade.com
  */
 
+/**
+ * @file bfa_msgq.c MSGQ module source file.
+ */
 
 #include "bfi.h"
 #include "bfa_msgq.h"
@@ -80,7 +83,7 @@ cmdq_sm_stopped(struct bfa_msgq_cmdq *cmdq, enum cmdq_event event)
 
 	case CMDQ_E_STOP:
 	case CMDQ_E_FAIL:
-		
+		/* No-op */
 		break;
 
 	case CMDQ_E_POST:
@@ -238,7 +241,7 @@ bfa_msgq_cmdq_ci_update(struct bfa_msgq_cmdq *cmdq, struct bfi_mbmsg *mb)
 
 	cmdq->consumer_index = ntohs(dbell->idx.cmdq_ci);
 
-	
+	/* Walk through pending list to see if the command can be posted */
 	while (!list_empty(&cmdq->pending_q)) {
 		cmd =
 		(struct bfa_msgq_cmd_entry *)bfa_q_first(&cmdq->pending_q);
@@ -349,7 +352,7 @@ rspq_sm_stopped(struct bfa_msgq_rspq *rspq, enum rspq_event event)
 
 	case RSPQ_E_STOP:
 	case RSPQ_E_FAIL:
-		
+		/* No-op */
 		break;
 
 	default:

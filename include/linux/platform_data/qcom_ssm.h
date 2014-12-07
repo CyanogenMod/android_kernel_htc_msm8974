@@ -18,4 +18,4 @@ struct ssm_platform_data {
 	const char *channel_name;
 };
 
-#endif 
+#endif /* __QCOM_SSM_H_ */

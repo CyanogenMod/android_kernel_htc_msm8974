@@ -62,6 +62,14 @@ static struct dentry *ufs_lookup(struct inode * dir, struct dentry *dentry, stru
 	return d_splice_alias(inode, dentry);
 }
 
+/*
+ * By the time this is called, we already have created
+ * the directory cache entry for the new file, but it
+ * is so far negative - it has no inode.
+ *
+ * If the create succeeds, we fill in the inode information
+ * with d_instantiate(). 
+ */
 static int ufs_create (struct inode * dir, struct dentry * dentry, umode_t mode,
 		struct nameidata *nd)
 {
@@ -125,14 +133,14 @@ static int ufs_symlink (struct inode * dir, struct dentry * dentry,
 		goto out;
 
 	if (l > UFS_SB(sb)->s_uspi->s_maxsymlinklen) {
-		
+		/* slow symlink */
 		inode->i_op = &ufs_symlink_inode_operations;
 		inode->i_mapping->a_ops = &ufs_aops;
 		err = page_symlink(inode, symname, l);
 		if (err)
 			goto out_fail;
 	} else {
-		
+		/* fast symlink */
 		inode->i_op = &ufs_fast_symlink_inode_operations;
 		memcpy(UFS_I(inode)->i_u1.i_symlink, symname, l);
 		inode->i_size = l-1;
@@ -297,6 +305,10 @@ static int ufs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			inode_inc_link_count(new_dir);
 	}
 
+	/*
+	 * Like most other Unix systems, set the ctime for inodes on a
+ 	 * rename.
+	 */
 	old_inode->i_ctime = CURRENT_TIME_SEC;
 
 	ufs_delete_entry(old_dir, old_de, old_page);

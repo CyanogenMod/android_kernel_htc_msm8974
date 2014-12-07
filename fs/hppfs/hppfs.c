@@ -437,7 +437,7 @@ static int hppfs_open(struct inode *inode, struct file *file)
 	proc_dentry = HPPFS_I(inode)->proc_dentry;
 	proc_mnt = inode->i_sb->s_fs_info;
 
-	
+	/* XXX This isn't closed anywhere */
 	data->proc_file = dentry_open(dget(proc_dentry), mntget(proc_mnt),
 				      file_mode(file->f_mode), cred);
 	err = PTR_ERR(data->proc_file);

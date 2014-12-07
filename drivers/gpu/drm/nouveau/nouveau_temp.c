@@ -43,23 +43,23 @@ nouveau_temp_vbios_parse(struct drm_device *dev, u8 *temp)
 		return;
 	}
 
-	
+	/* Set the default sensor's contants */
 	sensor->offset_constant = 0;
 	sensor->offset_mult = 0;
 	sensor->offset_div = 1;
 	sensor->slope_mult = 1;
 	sensor->slope_div = 1;
 
-	
+	/* Set the default temperature thresholds */
 	temps->critical = 110;
 	temps->down_clock = 100;
 	temps->fan_boost = 90;
 
-	
+	/* Set the default range for the pwm fan */
 	pm->fan.min_duty = 30;
 	pm->fan.max_duty = 100;
 
-	
+	/* Set the known default values to setup the temperature sensor */
 	if (dev_priv->card_type >= NV_40) {
 		switch (dev_priv->chipset) {
 		case 0x43:
@@ -120,7 +120,7 @@ nouveau_temp_vbios_parse(struct drm_device *dev, u8 *temp)
 	entries = temp[3];
 	temp = temp + headerlen;
 
-	
+	/* Read the entries from the table */
 	for (i = 0; i < entries; i++) {
 		s16 value = ROM16(temp[1]);
 
@@ -131,17 +131,17 @@ nouveau_temp_vbios_parse(struct drm_device *dev, u8 *temp)
 			break;
 
 		case 0x04:
-			if ((value & 0xf00f) == 0xa000) 
+			if ((value & 0xf00f) == 0xa000) /* core */
 				temps->critical = (value&0x0ff0) >> 4;
 			break;
 
 		case 0x07:
-			if ((value & 0xf00f) == 0xa000) 
+			if ((value & 0xf00f) == 0xa000) /* core */
 				temps->down_clock = (value&0x0ff0) >> 4;
 			break;
 
 		case 0x08:
-			if ((value & 0xf00f) == 0xa000) 
+			if ((value & 0xf00f) == 0xa000) /* core */
 				temps->fan_boost = (value&0x0ff0) >> 4;
 			break;
 
@@ -173,7 +173,7 @@ nouveau_temp_vbios_parse(struct drm_device *dev, u8 *temp)
 
 	nouveau_temp_safety_checks(dev);
 
-	
+	/* check the fan min/max settings */
 	if (pm->fan.min_duty < 10)
 		pm->fan.min_duty = 10;
 	if (pm->fan.max_duty > 100)
@@ -191,7 +191,7 @@ nv40_sensor_setup(struct drm_device *dev)
 	s32 offset = sensor->offset_mult / sensor->offset_div;
 	s32 sensor_calibration;
 
-	
+	/* set up the sensors */
 	sensor_calibration = 120 - offset - sensor->offset_constant;
 	sensor_calibration = sensor_calibration * sensor->slope_div /
 				sensor->slope_mult;
@@ -203,10 +203,10 @@ nv40_sensor_setup(struct drm_device *dev)
 
 	nv_wr32(dev, 0x0015b0, sensor_calibration);
 
-	
+	/* Wait for the sensor to update */
 	msleep(5);
 
-	
+	/* read */
 	return nv_rd32(dev, 0x0015b4) & 0x1fff;
 }
 
@@ -223,7 +223,7 @@ nv40_temp_get(struct drm_device *dev)
 		core_temp = nv_rd32(dev, 0x20008);
 	} else {
 		core_temp = nv_rd32(dev, 0x0015b4) & 0x1fff;
-		
+		/* Setup the sensor if the temperature is 0 */
 		if (core_temp == 0)
 			core_temp = nv40_sensor_setup(dev);
 	}

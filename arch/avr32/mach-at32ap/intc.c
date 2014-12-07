@@ -30,6 +30,10 @@ struct intc {
 
 extern struct platform_device at32_intc0_device;
 
+/*
+ * TODO: We may be able to implement mask/unmask by setting IxM flags
+ * in the status register.
+ */
 static void intc_mask_irq(struct irq_data *d)
 {
 
@@ -48,6 +52,9 @@ static struct intc intc0 = {
 	},
 };
 
+/*
+ * All interrupts go via intc at some point.
+ */
 asmlinkage void do_IRQ(int level, struct pt_regs *regs)
 {
 	struct pt_regs *old_regs;
@@ -63,6 +70,12 @@ asmlinkage void do_IRQ(int level, struct pt_regs *regs)
 	irq = intc_readl(&intc0, INTCAUSE0 - 4 * level);
 	generic_handle_irq(irq);
 
+	/*
+	 * Clear all interrupt level masks so that we may handle
+	 * interrupts during softirq processing.  If this is a nested
+	 * interrupt, interrupts must stay globally disabled until we
+	 * return.
+	 */
 	status_reg = sysreg_read(SR);
 	status_reg &= ~(SYSREG_BIT(I0M) | SYSREG_BIT(I1M)
 			| SYSREG_BIT(I2M) | SYSREG_BIT(I3M));
@@ -102,6 +115,12 @@ void __init init_IRQ(void)
 		goto fail;
 	}
 
+	/*
+	 * Initialize all interrupts to level 0 (lowest priority). The
+	 * priority level may be changed by calling
+	 * irq_set_priority().
+	 *
+	 */
 	offset = (unsigned long)&irq_level0 - (unsigned long)&_evba;
 	for (i = 0; i < NR_INTERNAL_IRQS; i++) {
 		intc_writel(&intc0, INTPR0 + 4 * i, offset);
@@ -111,7 +130,7 @@ void __init init_IRQ(void)
 						 handle_simple_irq);
 	}
 
-	
+	/* Unmask all interrupt levels */
 	sysreg_write(SR, (sysreg_read(SR)
 			  & ~(SR_I3M | SR_I2M | SR_I1M | SR_I0M)));
 

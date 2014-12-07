@@ -33,12 +33,17 @@
  *
  **************************************************************************/
 
+/*
+ * FILENAME: slichw.h
+ *
+ * This header file contains definitions that are common to our hardware.
+ */
 #ifndef __SLICHW_H__
 #define __SLICHW_H__
 
 #define PCI_VENDOR_ID_ALACRITECH	0x139A
 #define SLIC_1GB_DEVICE_ID		0x0005
-#define SLIC_2GB_DEVICE_ID		0x0007	
+#define SLIC_2GB_DEVICE_ID		0x0007	/* Oasis Device ID */
 
 #define SLIC_1GB_CICADA_SUBSYS_ID	0x0008
 
@@ -214,7 +219,7 @@
 #define SLIC_EEPROM_ID		0xA5A5
 #define SLIC_SRAM_SIZE2GB	(64 * 1024)
 #define SLIC_SRAM_SIZE1GB	(32 * 1024)
-#define SLIC_HOSTID_DEFAULT	0xFFFF		
+#define SLIC_HOSTID_DEFAULT	0xFFFF		/* uninitialized hostid */
 #define SLIC_NBR_MACS		4
 
 struct slic_rcvbuf {
@@ -285,202 +290,213 @@ struct slic_rspbuf {
 };
 
 struct slic_regs {
-	u32	slic_reset;	
+	u32	slic_reset;	/* Reset Register */
 	u32	pad0;
 
-	u32	slic_icr;	
+	u32	slic_icr;	/* Interrupt Control Register */
 	u32	pad2;
 #define SLIC_ICR		0x0008
 
-	u32	slic_isp;	
+	u32	slic_isp;	/* Interrupt status pointer */
 	u32	pad1;
 #define SLIC_ISP		0x0010
 
-	u32	slic_isr;	
+	u32	slic_isr;	/* Interrupt status */
 	u32	pad3;
 #define SLIC_ISR		0x0018
 
-	u32	slic_hbar;	
+	u32	slic_hbar;	/* Header buffer address reg */
 	u32	pad4;
+	/* 31-8 - phy addr of set of contiguous hdr buffers
+	    7-0 - number of buffers passed
+	   Buffers are 256 bytes long on 256-byte boundaries. */
 #define SLIC_HBAR		0x0020
 #define SLIC_HBAR_CNT_MSK	0x000000FF
 
-	u32	slic_dbar;	
+	u32	slic_dbar;	/* Data buffer handle & address reg */
 	u32	pad5;
 
-	
+	/* 4 sets of registers; Buffers are 2K bytes long 2 per 4K page. */
 #define SLIC_DBAR		0x0028
 #define SLIC_DBAR_SIZE		2048
 
-	u32	slic_cbar;	
+	u32	slic_cbar;	/* Xmt Cmd buf addr regs.*/
+	/* 1 per XMT interface
+	   31-5 - phy addr of host command buffer
+	    4-0 - length of cmd in multiples of 32 bytes
+	   Buffers are 32 bytes up to 512 bytes long */
 #define SLIC_CBAR		0x0030
 #define SLIC_CBAR_LEN_MSK	0x0000001F
 #define SLIC_CBAR_ALIGN		0x00000020
 
-	u32	slic_wcs;	
+	u32	slic_wcs;	/* write control store*/
 #define	SLIC_WCS		0x0034
-#define SLIC_WCS_START		0x80000000	
-#define SLIC_WCS_COMPARE	0x40000000	
+#define SLIC_WCS_START		0x80000000	/*Start the SLIC (Jump to WCS)*/
+#define SLIC_WCS_COMPARE	0x40000000	/* Compare with value in WCS*/
 
-	u32	slic_rbar;	
+	u32	slic_rbar;	/* Response buffer address reg.*/
 	u32	pad7;
+	 /*31-8 - phy addr of set of contiguous response buffers
+	  7-0 - number of buffers passed
+	 Buffers are 32 bytes long on 32-byte boundaries.*/
 #define SLIC_RBAR		0x0038
 #define SLIC_RBAR_CNT_MSK	0x000000FF
 #define SLIC_RBAR_SIZE		32
 
-	u32	slic_stats;	
+	u32	slic_stats;	/* read statistics (UPR) */
 	u32	pad8;
 #define	SLIC_RSTAT		0x0040
 
-	u32	slic_rlsr;	
+	u32	slic_rlsr;	/* read link status */
 	u32	pad9;
 #define SLIC_LSTAT		0x0048
 
-	u32	slic_wmcfg;	
+	u32	slic_wmcfg;	/* Write Mac Config */
 	u32	pad10;
 #define	SLIC_WMCFG		0x0050
 
-	u32	slic_wphy;	
+	u32	slic_wphy;	/* Write phy register */
 	u32	pad11;
 #define SLIC_WPHY		0x0058
 
-	u32	slic_rcbar;	
+	u32	slic_rcbar;	/* Rcv Cmd buf addr reg */
 	u32	pad12;
 #define	SLIC_RCBAR		0x0060
 
-	u32	slic_rconfig;	
+	u32	slic_rconfig;	/* Read SLIC Config*/
 	u32	pad13;
 #define SLIC_RCONFIG	0x0068
 
-	u32	slic_intagg;	
+	u32	slic_intagg;	/* Interrupt aggregation time */
 	u32	pad14;
 #define SLIC_INTAGG		0x0070
 
-	u32	slic_wxcfg;	
+	u32	slic_wxcfg;	/* Write XMIT config reg*/
 	u32	pad16;
 #define	SLIC_WXCFG		0x0078
 
-	u32	slic_wrcfg;	
+	u32	slic_wrcfg;	/* Write RCV config reg*/
 	u32	pad17;
 #define	SLIC_WRCFG		0x0080
 
-	u32	slic_wraddral;	
+	u32	slic_wraddral;	/* Write rcv addr a low*/
 	u32	pad18;
 #define	SLIC_WRADDRAL	0x0088
 
-	u32	slic_wraddrah;	
+	u32	slic_wraddrah;	/* Write rcv addr a high*/
 	u32	pad19;
 #define	SLIC_WRADDRAH	0x0090
 
-	u32	slic_wraddrbl;	
+	u32	slic_wraddrbl;	/* Write rcv addr b low*/
 	u32	pad20;
 #define	SLIC_WRADDRBL	0x0098
 
-	u32	slic_wraddrbh;	
+	u32	slic_wraddrbh;	/* Write rcv addr b high*/
 	u32		pad21;
 #define	SLIC_WRADDRBH	0x00a0
 
-	u32	slic_mcastlow;	
+	u32	slic_mcastlow;	/* Low bits of mcast mask*/
 	u32		pad22;
 #define	SLIC_MCASTLOW	0x00a8
 
-	u32	slic_mcasthigh;	
+	u32	slic_mcasthigh;	/* High bits of mcast mask*/
 	u32		pad23;
 #define	SLIC_MCASTHIGH	0x00b0
 
-	u32	slic_ping;	
+	u32	slic_ping;	/* Ping the card*/
 	u32	pad24;
 #define SLIC_PING		0x00b8
 
-	u32	slic_dump_cmd;	
+	u32	slic_dump_cmd;	/* Dump command */
 	u32	pad25;
 #define SLIC_DUMP_CMD	0x00c0
 
-	u32	slic_dump_data;	
+	u32	slic_dump_data;	/* Dump data pointer */
 	u32	pad26;
 #define SLIC_DUMP_DATA	0x00c8
 
-	u32	slic_pcistatus;	
+	u32	slic_pcistatus;	/* Read card's pci_status register */
 	u32	pad27;
 #define	SLIC_PCISTATUS	0x00d0
 
-	u32	slic_wrhostid;	
+	u32	slic_wrhostid;	/* Write hostid field */
 	u32		pad28;
 #define SLIC_WRHOSTID		 0x00d8
 #define SLIC_RDHOSTID_1GB	 0x1554
 #define SLIC_RDHOSTID_2GB	 0x1554
 
-	u32	slic_low_power;	
+	u32	slic_low_power;	/* Put card in a low power state */
 	u32	pad29;
 #define SLIC_LOW_POWER	0x00e0
 
-	u32	slic_quiesce;	
+	u32	slic_quiesce;	/* force slic into quiescent state
+				   before soft reset */
 	u32	pad30;
 #define SLIC_QUIESCE	0x00e8
 
-	u32	slic_reset_iface;
+	u32	slic_reset_iface;/* reset interface queues */
 	u32	pad31;
 #define SLIC_RESET_IFACE 0x00f0
 
-	u32	slic_addr_upper;
+	u32	slic_addr_upper;/* Bits 63-32 for host i/f addrs */
 	u32	pad32;
 #define SLIC_ADDR_UPPER	0x00f8 /*Register is only written when it has changed*/
 
-	u32	slic_hbar64;	
+	u32	slic_hbar64;	/* 64 bit Header buffer address reg */
 	u32	pad33;
 #define SLIC_HBAR64		0x0100
 
-	u32	slic_dbar64;	
+	u32	slic_dbar64;	/* 64 bit Data buffer handle & address reg */
 	u32	pad34;
 #define SLIC_DBAR64		0x0108
 
-	u32	slic_cbar64; 	
+	u32	slic_cbar64; 	/* 64 bit Xmt Cmd buf addr regs. */
 	u32	pad35;
 #define SLIC_CBAR64		0x0110
 
-	u32	slic_rbar64;	
+	u32	slic_rbar64;	/* 64 bit Response buffer address reg.*/
 	u32	pad36;
 #define SLIC_RBAR64		0x0118
 
-	u32	slic_rcbar64;	
+	u32	slic_rcbar64;	/* 64 bit Rcv Cmd buf addr reg*/
 	u32	pad37;
 #define	SLIC_RCBAR64	0x0120
 
-	u32	slic_stats64;	
+	u32	slic_stats64;	/* read statistics (64 bit UPR) */
 	u32	pad38;
 #define	SLIC_RSTAT64	0x0128
 
-	u32	slic_rcv_wcs;	
+	u32	slic_rcv_wcs;	/*Download Gigabit RCV sequencer ucode*/
 	u32	pad39;
 #define SLIC_RCV_WCS	0x0130
 #define SLIC_RCVWCS_BEGIN	0x40000000
 #define SLIC_RCVWCS_FINISH	0x80000000
 
-	u32	slic_wrvlanid;	
+	u32	slic_wrvlanid;	/* Write VlanId field */
 	u32	pad40;
 #define SLIC_WRVLANID	0x0138
 
-	u32	slic_read_xf_info;	
+	u32	slic_read_xf_info;	/* Read Transformer info */
 	u32	pad41;
 #define SLIC_READ_XF_INFO 	0x0140
 
-	u32	slic_write_xf_info;	
+	u32	slic_write_xf_info;	/* Write Transformer info */
 	u32	pad42;
 #define SLIC_WRITE_XF_INFO 	0x0148
 
-	u32	RSVD1;		
+	u32	RSVD1;		/* TOE Only */
 	u32	pad43;
 
-	u32	RSVD2;		
+	u32	RSVD2;		/* TOE Only */
 	u32	pad44;
 
-	u32	RSVD3;		
+	u32	RSVD3;		/* TOE Only */
 	u32	pad45;
 
-	u32	RSVD4;		
+	u32	RSVD4;		/* TOE Only */
 	u32	pad46;
 
-	u32	slic_ticks_per_sec; 
+	u32	slic_ticks_per_sec; /* Write card ticks per second */
 	u32	pad47;
 #define SLIC_TICKS_PER_SEC	0x0170
 };
@@ -678,108 +694,126 @@ union oemfru {
 	struct vendor4_fru vendor4_fru;
 };
 
+/*
+ * SLIC EEPROM structure for Mojave
+ */
 struct slic_eeprom {
-	u16 Id;			
-	u16 EecodeSize;		
-	u16 FlashSize;		
-	u16 EepromSize;		
-	u16 VendorId;		
-	u16 DeviceId;		
-	u8 RevisionId;		
-	u8 ClassCode[3];	
-	u8 DbgIntPin;		
-	u8 NetIntPin0;		
-	u8 MinGrant;		
-	u8 MaxLat;		
-	u16 PciStatus;		
-	u16 SubSysVId;		
-	u16 SubSysId;		
-	u16 DbgDevId;		
-	u16 DramRomFn;		
-	u16 DSize2Pci;		
-	u16 RSize2Pci;		
-	u8 NetIntPin1;		
-	u8 NetIntPin2;		
+	u16 Id;			/* 00 EEPROM/FLASH Magic code 'A5A5'*/
+	u16 EecodeSize;		/* 01 Size of EEPROM Codes (bytes * 4)*/
+	u16 FlashSize;		/* 02 Flash size */
+	u16 EepromSize;		/* 03 EEPROM Size */
+	u16 VendorId;		/* 04 Vendor ID */
+	u16 DeviceId;		/* 05 Device ID */
+	u8 RevisionId;		/* 06 Revision ID */
+	u8 ClassCode[3];	/* 07 Class Code */
+	u8 DbgIntPin;		/* 08 Debug Interrupt pin */
+	u8 NetIntPin0;		/*    Network Interrupt Pin */
+	u8 MinGrant;		/* 09 Minimum grant */
+	u8 MaxLat;		/*    Maximum Latency */
+	u16 PciStatus;		/* 10 PCI Status */
+	u16 SubSysVId;		/* 11 Subsystem Vendor Id */
+	u16 SubSysId;		/* 12 Subsystem ID */
+	u16 DbgDevId;		/* 13 Debug Device Id */
+	u16 DramRomFn;		/* 14 Dram/Rom function */
+	u16 DSize2Pci;		/* 15 DRAM size to PCI (bytes * 64K) */
+	u16 RSize2Pci;		/* 16 ROM extension size to PCI (bytes * 4k) */
+	u8 NetIntPin1;		/* 17 Network Interface Pin 1
+				    (simba/leone only) */
+	u8 NetIntPin2;		/* Network Interface Pin 2 (simba/leone only)*/
 	union {
-		u8 NetIntPin3;	
-		u8 FreeTime;	
+		u8 NetIntPin3;	/* 18 Network Interface Pin 3 (simba only) */
+		u8 FreeTime;	/* FreeTime setting (leone/mojave only) */
 	} u1;
-	u8 TBIctl;		
-	u16 DramSize;		
+	u8 TBIctl;		/* 10-bit interface control (Mojave only) */
+	u16 DramSize;		/* 19 DRAM size (bytes * 64k) */
 	union {
 		struct {
-			
+			/* Mac Interface Specific portions */
 			struct slic_config_mac	MacInfo[SLIC_NBR_MACS];
-		} mac;				
+		} mac;				/* MAC access for all boards */
 		struct {
-			
+			/* use above struct for MAC access */
 			struct slic_config_mac	pad[SLIC_NBR_MACS - 1];
-			u16 DeviceId2;	
-			u8 IntPin2;	
-			u8 ClassCode2[3]; 
-		} mojave;	
+			u16 DeviceId2;	/* Device ID for 2nd PCI function */
+			u8 IntPin2;	/* Interrupt pin for 2nd PCI function */
+			u8 ClassCode2[3]; /* Class Code for 2nd PCI function */
+		} mojave;	/* 2nd function access for gigabit board */
 	} u2;
-	u16 CfgByte6;		
-	u16 PMECapab;		
-	u16 NwClkCtrls;		
-	u8 FruFormat;		
-	struct atk_fru  AtkFru;	
-	u8 OemFruFormat;	
-	union oemfru OemFru;	
-	u8	Pad[4];		
+	u16 CfgByte6;		/* Config Byte 6 */
+	u16 PMECapab;		/* Power Mgment capabilities */
+	u16 NwClkCtrls;		/* NetworkClockControls */
+	u8 FruFormat;		/* Alacritech FRU format type */
+	struct atk_fru  AtkFru;	/* Alacritech FRU information */
+	u8 OemFruFormat;	/* optional OEM FRU format type */
+	union oemfru OemFru;	/* optional OEM FRU information */
+	u8	Pad[4];		/* Pad to 128 bytes - includes 2 cksum bytes
+				 * (if OEM FRU info exists) and two unusable
+				 * bytes at the end */
 };
 
+/* SLIC EEPROM structure for Oasis */
 struct oslic_eeprom {
-	u16 Id;			
-	u16 EecodeSize;		
-	u16 FlashConfig0;	
-	u16 FlashConfig1;	
-	u16 VendorId;		
-	u16 DeviceId;		
-	u8 RevisionId;		
-	u8 ClassCode[3];	
-	u8 IntPin1;		
-	u8 ClassCode2[3];	
-	u8 IntPin2;		
-	u8 IntPin0;		
-	u8 MinGrant;		
-	u8 MaxLat;		
-	u16 SubSysVId;		
-	u16 SubSysId;		
-	u16 FlashSize;		
-	u16 DSize2Pci;		
-	u16 RSize2Pci;		
-	u16 DeviceId1;		
-	u16 DeviceId2;		
-	u16 CfgByte6;		
-	u16 PMECapab;		
-	u8 MSICapab;		
-	u8 ClockDivider;	
-	u16 PciStatusLow;	
-	u16 PciStatusHigh;	
-	u16 DramConfigLow;	
-	u16 DramConfigHigh;	
-	u16 DramSize;		
-	u16 GpioTbiCtl;		
-	u16 EepromSize;		
-	struct slic_config_mac MacInfo[2];	
-	u8 FruFormat;		
-	struct atk_fru	AtkFru;	
-	u8 OemFruFormat;	
-	union oemfru OemFru;	
-	u8 Pad[4];		
+	u16 Id;			/* 00 EEPROM/FLASH Magic code 'A5A5' */
+	u16 EecodeSize;		/* 01 Size of EEPROM Codes (bytes * 4)*/
+	u16 FlashConfig0;	/* 02 Flash Config for SPI device 0 */
+	u16 FlashConfig1;	/* 03 Flash Config for SPI device 1 */
+	u16 VendorId;		/* 04 Vendor ID */
+	u16 DeviceId;		/* 05 Device ID (function 0) */
+	u8 RevisionId;		/* 06 Revision ID */
+	u8 ClassCode[3];	/* 07 Class Code for PCI function 0 */
+	u8 IntPin1;		/* 08 Interrupt pin for PCI function 1*/
+	u8 ClassCode2[3];	/* 09 Class Code for PCI function 1 */
+	u8 IntPin2;		/* 10 Interrupt pin for PCI function 2*/
+	u8 IntPin0;		/*    Interrupt pin for PCI function 0*/
+	u8 MinGrant;		/* 11 Minimum grant */
+	u8 MaxLat;		/*    Maximum Latency */
+	u16 SubSysVId;		/* 12 Subsystem Vendor Id */
+	u16 SubSysId;		/* 13 Subsystem ID */
+	u16 FlashSize;		/* 14 Flash size (bytes / 4K) */
+	u16 DSize2Pci;		/* 15 DRAM size to PCI (bytes / 64K) */
+	u16 RSize2Pci;		/* 16 Flash (ROM extension) size to PCI
+					(bytes / 4K) */
+	u16 DeviceId1;		/* 17 Device Id (function 1) */
+	u16 DeviceId2;		/* 18 Device Id (function 2) */
+	u16 CfgByte6;		/* 19 Device Status Config Bytes 6-7 */
+	u16 PMECapab;		/* 20 Power Mgment capabilities */
+	u8 MSICapab;		/* 21 MSI capabilities */
+	u8 ClockDivider;	/*    Clock divider */
+	u16 PciStatusLow;	/* 22 PCI Status bits 15:0 */
+	u16 PciStatusHigh;	/* 23 PCI Status bits 31:16 */
+	u16 DramConfigLow;	/* 24 DRAM Configuration bits 15:0 */
+	u16 DramConfigHigh;	/* 25 DRAM Configuration bits 31:16 */
+	u16 DramSize;		/* 26 DRAM size (bytes / 64K) */
+	u16 GpioTbiCtl;		/* 27 GPIO/TBI controls for functions 1/0 */
+	u16 EepromSize;		/* 28 EEPROM Size */
+	struct slic_config_mac MacInfo[2];	/* 29 MAC addresses (2 ports) */
+	u8 FruFormat;		/* 35 Alacritech FRU format type */
+	struct atk_fru	AtkFru;	/* Alacritech FRU information */
+	u8 OemFruFormat;	/* optional OEM FRU format type */
+	union oemfru OemFru;	/* optional OEM FRU information */
+	u8 Pad[4];		/* Pad to 128 bytes - includes 2 checksum bytes
+				 * (if OEM FRU info exists) and two unusable
+				 * bytes at the end
+				 */
 };
 
 #define	MAX_EECODE_SIZE	sizeof(struct slic_eeprom)
-#define MIN_EECODE_SIZE	0x62	
+#define MIN_EECODE_SIZE	0x62	/* code size without optional OEM FRU stuff */
 
+/*
+ * SLIC CONFIG structure
+ *
+ * This structure lives in the CARD structure and is valid for all board types.
+ * It is filled in from the appropriate EEPROM structure by
+ * SlicGetConfigData()
+ */
 struct slic_config {
-	bool EepromValid;	
-	u16 DramSize;		
-	struct slic_config_mac MacInfo[SLIC_NBR_MACS]; 
-	u8 FruFormat;		
-	struct atk_fru	AtkFru;	
-	u8 OemFruFormat;	
+	bool EepromValid;	/* Valid EEPROM flag (checksum good?) */
+	u16 DramSize;		/* DRAM size (bytes / 64K) */
+	struct slic_config_mac MacInfo[SLIC_NBR_MACS]; /* MAC addresses */
+	u8 FruFormat;		/* Alacritech FRU format type */
+	struct atk_fru	AtkFru;	/* Alacritech FRU information */
+	u8 OemFruFormat;	/* optional OEM FRU format type */
 	union {
 		struct vendor1_fru vendor1_fru;
 		struct vendor2_fru vendor2_fru;

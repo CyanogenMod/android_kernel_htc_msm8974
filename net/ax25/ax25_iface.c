@@ -41,6 +41,10 @@ static struct listen_struct {
 } *listen_list = NULL;
 static DEFINE_SPINLOCK(listen_lock);
 
+/*
+ * Do not register the internal protocols AX25_P_TEXT, AX25_P_SEGMENT,
+ * AX25_P_IP or AX25_P_ARP ...
+ */
 void ax25_register_pid(struct ax25_protocol *ap)
 {
 	write_lock_bh(&protocol_list_lock);

@@ -23,6 +23,7 @@
 #include "usbip_common.h"
 #include "vhci.h"
 
+/* get URB from transmitted urb queue. caller must hold vdev->priv_lock */
 struct urb *pickup_urb_and_free_priv(struct vhci_device *vdev, __u32 seqnum)
 {
 	struct vhci_priv *priv, *tmp;
@@ -37,7 +38,7 @@ struct urb *pickup_urb_and_free_priv(struct vhci_device *vdev, __u32 seqnum)
 			usbip_dbg_vhci_rx("find urb %p vurb %p seqnum %u\n",
 					  urb, priv, seqnum);
 
-			
+			/* TODO: fix logic here to improve indent situtation */
 			if (status != -EINPROGRESS) {
 				if (status == -ENOENT ||
 				    status == -ECONNRESET)
@@ -81,18 +82,18 @@ static void vhci_recv_ret_submit(struct vhci_device *vdev,
 		return;
 	}
 
-	
+	/* unpack the pdu to a urb */
 	usbip_pack_pdu(pdu, urb, USBIP_RET_SUBMIT, 0);
 
-	
+	/* recv transfer buffer */
 	if (usbip_recv_xbuff(ud, urb) < 0)
 		return;
 
-	
+	/* recv iso_packet_descriptor */
 	if (usbip_recv_iso(ud, urb) < 0)
 		return;
 
-	
+	/* restore the padding in iso packets */
 	usbip_pad_iso(ud, urb);
 
 	if (usbip_dbg_flag_vhci_rx)
@@ -156,12 +157,17 @@ static void vhci_recv_ret_unlink(struct vhci_device *vdev,
 	spin_unlock(&vdev->priv_lock);
 
 	if (!urb) {
+		/*
+		 * I get the result of a unlink request. But, it seems that I
+		 * already received the result of its submit result and gave
+		 * back the URB.
+		 */
 		pr_info("the urb (seqnum %d) was already given backed\n",
 			pdu->base.seqnum);
 	} else {
 		usbip_dbg_vhci_rx("now giveback urb %p\n", urb);
 
-		
+		/* If unlink is succeed, status is -ECONNRESET */
 		urb->status = pdu->u.ret_unlink.status;
 		pr_info("urb->status %d\n", urb->status);
 
@@ -187,6 +193,7 @@ static int vhci_priv_tx_empty(struct vhci_device *vdev)
 	return empty;
 }
 
+/* recv a pdu */
 static void vhci_rx_pdu(struct usbip_device *ud)
 {
 	int ret;
@@ -197,13 +204,13 @@ static void vhci_rx_pdu(struct usbip_device *ud)
 
 	memset(&pdu, 0, sizeof(pdu));
 
-	
+	/* 1. receive a pdu header */
 	ret = usbip_recv(ud->tcp_socket, &pdu, sizeof(pdu));
 	if (ret < 0) {
 		if (ret == -ECONNRESET)
 			pr_info("connection reset by peer\n");
 		else if (ret == -EAGAIN) {
-			
+			/* ignore if connection was idle */
 			if (vhci_priv_tx_empty(vdev))
 				return;
 			pr_info("connection timed out with pending urbs\n");
@@ -238,7 +245,7 @@ static void vhci_rx_pdu(struct usbip_device *ud)
 		vhci_recv_ret_unlink(vdev, &pdu);
 		break;
 	default:
-		
+		/* NOT REACHED */
 		pr_err("unknown pdu %u\n", pdu.base.command);
 		usbip_dump_header(&pdu);
 		usbip_event_add(ud, VDEV_EVENT_ERROR_TCP);

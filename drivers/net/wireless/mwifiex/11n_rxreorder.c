@@ -26,6 +26,14 @@
 #include "11n.h"
 #include "11n_rxreorder.h"
 
+/*
+ * This function dispatches all packets in the Rx reorder table until the
+ * start window.
+ *
+ * There could be holes in the buffer, which are skipped by the function.
+ * Since the buffer is linear, the function uses rotation to simulate
+ * circular buffer.
+ */
 static void
 mwifiex_11n_dispatch_pkt(struct mwifiex_private *priv,
 			 struct mwifiex_rx_reorder_tbl *tbl, int start_win)
@@ -51,6 +59,10 @@ mwifiex_11n_dispatch_pkt(struct mwifiex_private *priv,
 	}
 
 	spin_lock_irqsave(&priv->rx_pkt_lock, flags);
+	/*
+	 * We don't have a circular buffer, hence use rotation to simulate
+	 * circular buffer
+	 */
 	for (i = 0; i < tbl->win_size - pkt_to_send; ++i) {
 		tbl->rx_reorder_ptr[i] = tbl->rx_reorder_ptr[pkt_to_send + i];
 		tbl->rx_reorder_ptr[pkt_to_send + i] = NULL;
@@ -60,6 +72,14 @@ mwifiex_11n_dispatch_pkt(struct mwifiex_private *priv,
 	spin_unlock_irqrestore(&priv->rx_pkt_lock, flags);
 }
 
+/*
+ * This function dispatches all packets in the Rx reorder table until
+ * a hole is found.
+ *
+ * The start window is adjusted automatically when a hole is located.
+ * Since the buffer is linear, the function uses rotation to simulate
+ * circular buffer.
+ */
 static void
 mwifiex_11n_scan_and_dispatch(struct mwifiex_private *priv,
 			      struct mwifiex_rx_reorder_tbl *tbl)
@@ -81,6 +101,10 @@ mwifiex_11n_scan_and_dispatch(struct mwifiex_private *priv,
 	}
 
 	spin_lock_irqsave(&priv->rx_pkt_lock, flags);
+	/*
+	 * We don't have a circular buffer, hence use rotation to simulate
+	 * circular buffer
+	 */
 	if (i > 0) {
 		xchg = tbl->win_size - i;
 		for (j = 0; j < xchg; ++j) {
@@ -92,6 +116,12 @@ mwifiex_11n_scan_and_dispatch(struct mwifiex_private *priv,
 	spin_unlock_irqrestore(&priv->rx_pkt_lock, flags);
 }
 
+/*
+ * This function deletes the Rx reorder table and frees the memory.
+ *
+ * The function stops the associated timer and dispatches all the
+ * pending packets in the Rx reorder table before deletion.
+ */
 static void
 mwifiex_del_rx_reorder_entry(struct mwifiex_private *priv,
 			     struct mwifiex_rx_reorder_tbl *tbl)
@@ -114,6 +144,10 @@ mwifiex_del_rx_reorder_entry(struct mwifiex_private *priv,
 	kfree(tbl);
 }
 
+/*
+ * This function returns the pointer to an entry in Rx reordering
+ * table which matches the given TA/TID pair.
+ */
 static struct mwifiex_rx_reorder_tbl *
 mwifiex_11n_get_rx_reorder_tbl(struct mwifiex_private *priv, int tid, u8 *ta)
 {
@@ -133,6 +167,10 @@ mwifiex_11n_get_rx_reorder_tbl(struct mwifiex_private *priv, int tid, u8 *ta)
 	return NULL;
 }
 
+/*
+ * This function finds the last sequence number used in the packets
+ * buffered in Rx reordering table.
+ */
 static int
 mwifiex_11n_find_last_seq_num(struct mwifiex_rx_reorder_tbl *rx_reorder_tbl_ptr)
 {
@@ -145,6 +183,13 @@ mwifiex_11n_find_last_seq_num(struct mwifiex_rx_reorder_tbl *rx_reorder_tbl_ptr)
 	return -1;
 }
 
+/*
+ * This function flushes all the packets in Rx reordering table.
+ *
+ * The function checks if any packets are currently buffered in the
+ * table or not. In case there are packets available, it dispatches
+ * them and then dumps the Rx reordering table.
+ */
 static void
 mwifiex_flush_data(unsigned long context)
 {
@@ -163,6 +208,16 @@ mwifiex_flush_data(unsigned long context)
 				 (MAX_TID_VALUE - 1));
 }
 
+/*
+ * This function creates an entry in Rx reordering table for the
+ * given TA/TID.
+ *
+ * The function also initializes the entry with sequence number, window
+ * size as well as initializes the timer.
+ *
+ * If the received TA/TID pair is already present, all the packets are
+ * dispatched and the window size is moved until the SSN.
+ */
 static void
 mwifiex_11n_create_rx_reorder_tbl(struct mwifiex_private *priv, u8 *ta,
 				  int tid, int win_size, int seq_num)
@@ -172,12 +227,16 @@ mwifiex_11n_create_rx_reorder_tbl(struct mwifiex_private *priv, u8 *ta,
 	u16 last_seq = 0;
 	unsigned long flags;
 
+	/*
+	 * If we get a TID, ta pair which is already present dispatch all the
+	 * the packets and move the window size until the ssn
+	 */
 	tbl = mwifiex_11n_get_rx_reorder_tbl(priv, tid, ta);
 	if (tbl) {
 		mwifiex_11n_dispatch_pkt(priv, tbl, seq_num);
 		return;
 	}
-	
+	/* if !tbl then create one */
 	new_node = kzalloc(sizeof(struct mwifiex_rx_reorder_tbl), GFP_KERNEL);
 	if (!new_node) {
 		dev_err(priv->adapter->dev, "%s: failed to alloc new_node\n",
@@ -190,7 +249,7 @@ mwifiex_11n_create_rx_reorder_tbl(struct mwifiex_private *priv, u8 *ta,
 	memcpy(new_node->ta, ta, ETH_ALEN);
 	new_node->start_win = seq_num;
 	if (mwifiex_queuing_ra_based(priv))
-		
+		/* TODO for adhoc */
 		dev_dbg(priv->adapter->dev,
 			"info: ADHOC:last_seq=%d start_win=%d\n",
 			last_seq, new_node->start_win);
@@ -227,6 +286,14 @@ mwifiex_11n_create_rx_reorder_tbl(struct mwifiex_private *priv, u8 *ta,
 	spin_unlock_irqrestore(&priv->rx_reorder_tbl_lock, flags);
 }
 
+/*
+ * This function prepares command for adding a BA request.
+ *
+ * Preparation includes -
+ *      - Setting command ID and proper size
+ *      - Setting add BA request buffer
+ *      - Ensuring correct endian-ness
+ */
 int mwifiex_cmd_11n_addba_req(struct host_cmd_ds_command *cmd, void *data_buf)
 {
 	struct host_cmd_ds_11n_addba_req *add_ba_req =
@@ -240,6 +307,14 @@ int mwifiex_cmd_11n_addba_req(struct host_cmd_ds_command *cmd, void *data_buf)
 	return 0;
 }
 
+/*
+ * This function prepares command for adding a BA response.
+ *
+ * Preparation includes -
+ *      - Setting command ID and proper size
+ *      - Setting add BA response buffer
+ *      - Ensuring correct endian-ness
+ */
 int mwifiex_cmd_11n_addba_rsp_gen(struct mwifiex_private *priv,
 				  struct host_cmd_ds_command *cmd,
 				  struct host_cmd_ds_11n_addba_req
@@ -266,7 +341,7 @@ int mwifiex_cmd_11n_addba_rsp_gen(struct mwifiex_private *priv,
 		>> BLOCKACKPARAM_TID_POS;
 	add_ba_rsp->status_code = cpu_to_le16(ADDBA_RSP_STATUS_ACCEPT);
 	block_ack_param_set &= ~IEEE80211_ADDBA_PARAM_BUF_SIZE_MASK;
-	
+	/* We donot support AMSDU inside AMPDU, hence reset the bit */
 	block_ack_param_set &= ~BLOCKACKPARAM_AMSDU_SUPP_MASK;
 	block_ack_param_set |= (priv->add_ba_param.rx_win_size <<
 					     BLOCKACKPARAM_WINSIZE_POS);
@@ -282,6 +357,14 @@ int mwifiex_cmd_11n_addba_rsp_gen(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * This function prepares command for deleting a BA request.
+ *
+ * Preparation includes -
+ *      - Setting command ID and proper size
+ *      - Setting del BA request buffer
+ *      - Ensuring correct endian-ness
+ */
 int mwifiex_cmd_11n_delba(struct host_cmd_ds_command *cmd, void *data_buf)
 {
 	struct host_cmd_ds_11n_delba *del_ba = (struct host_cmd_ds_11n_delba *)
@@ -294,6 +377,19 @@ int mwifiex_cmd_11n_delba(struct host_cmd_ds_command *cmd, void *data_buf)
 	return 0;
 }
 
+/*
+ * This function identifies if Rx reordering is needed for a received packet.
+ *
+ * In case reordering is required, the function will do the reordering
+ * before sending it to kernel.
+ *
+ * The Rx reorder table is checked first with the received TID/TA pair. If
+ * not found, the received packet is dispatched immediately. But if found,
+ * the packet is reordered and all the packets in the updated Rx reordering
+ * table is dispatched until a hole is found.
+ *
+ * For sequence number less than the starting window, the packet is dropped.
+ */
 int mwifiex_11n_rx_reorder_pkt(struct mwifiex_private *priv,
 				u16 seq_num, u16 tid,
 				u8 *ta, u8 pkt_type, void *payload)
@@ -316,7 +412,11 @@ int mwifiex_11n_rx_reorder_pkt(struct mwifiex_private *priv,
 	mod_timer(&tbl->timer_context.timer,
 		  jiffies + (MIN_FLUSH_TIMER_MS * win_size * HZ) / 1000);
 
-	if ((start_win + TWOPOW11) > (MAX_TID_VALUE - 1)) {
+	/*
+	 * If seq_num is less then starting win then ignore and drop the
+	 * packet
+	 */
+	if ((start_win + TWOPOW11) > (MAX_TID_VALUE - 1)) {/* Wrap */
 		if (seq_num >= ((start_win + TWOPOW11) &
 				(MAX_TID_VALUE - 1)) && (seq_num < start_win))
 			return -1;
@@ -325,6 +425,10 @@ int mwifiex_11n_rx_reorder_pkt(struct mwifiex_private *priv,
 		return -1;
 	}
 
+	/*
+	 * If this packet is a BAR we adjust seq_num as
+	 * WinStart = seq_num
+	 */
 	if (pkt_type == PKT_TYPE_BAR)
 		seq_num = ((seq_num + win_size) - 1) & (MAX_TID_VALUE - 1);
 
@@ -353,11 +457,20 @@ int mwifiex_11n_rx_reorder_pkt(struct mwifiex_private *priv,
 		tbl->rx_reorder_ptr[pkt_index] = payload;
 	}
 
+	/*
+	 * Dispatch all packets sequentially from start_win until a
+	 * hole is found and adjust the start_win appropriately
+	 */
 	mwifiex_11n_scan_and_dispatch(priv, tbl);
 
 	return 0;
 }
 
+/*
+ * This function deletes an entry for a given TID/TA pair.
+ *
+ * The TID/TA are taken from del BA event body.
+ */
 void
 mwifiex_del_ba_tbl(struct mwifiex_private *priv, int tid, u8 *peer_mac,
 		   u8 type, int initiator)
@@ -398,6 +511,12 @@ mwifiex_del_ba_tbl(struct mwifiex_private *priv, int tid, u8 *peer_mac,
 	}
 }
 
+/*
+ * This function handles the command response of an add BA response.
+ *
+ * Handling includes changing the header fields into CPU format and
+ * creating the stream, provided the add BA is accepted.
+ */
 int mwifiex_ret_11n_addba_resp(struct mwifiex_private *priv,
 			       struct host_cmd_ds_command *resp)
 {
@@ -412,6 +531,10 @@ int mwifiex_ret_11n_addba_resp(struct mwifiex_private *priv,
 
 	tid = (block_ack_param_set & IEEE80211_ADDBA_PARAM_TID_MASK)
 		>> BLOCKACKPARAM_TID_POS;
+	/*
+	 * Check if we had rejected the ADDBA, if yes then do not create
+	 * the stream
+	 */
 	if (le16_to_cpu(add_ba_rsp->status_code) == BA_RESULT_SUCCESS) {
 		win_size = (block_ack_param_set &
 			IEEE80211_ADDBA_PARAM_BUF_SIZE_MASK)
@@ -434,6 +557,10 @@ int mwifiex_ret_11n_addba_resp(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * This function handles BA stream timeout event by preparing and sending
+ * a command to the firmware.
+ */
 void mwifiex_11n_ba_stream_timeout(struct mwifiex_private *priv,
 				   struct host_cmd_ds_11n_batimeout *event)
 {
@@ -450,6 +577,10 @@ void mwifiex_11n_ba_stream_timeout(struct mwifiex_private *priv,
 	mwifiex_send_cmd_async(priv, HostCmd_CMD_11N_DELBA, 0, 0, &delba);
 }
 
+/*
+ * This function cleans up the Rx reorder table by deleting all the entries
+ * and re-initializing.
+ */
 void mwifiex_11n_cleanup_reorder_tbl(struct mwifiex_private *priv)
 {
 	struct mwifiex_rx_reorder_tbl *del_tbl_ptr, *tmp_node;

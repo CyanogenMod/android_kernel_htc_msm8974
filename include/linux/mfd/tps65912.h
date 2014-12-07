@@ -15,9 +15,13 @@
 #ifndef __LINUX_MFD_TPS65912_H
 #define __LINUX_MFD_TPS65912_H
 
+/* TPS regulator type list */
 #define REGULATOR_LDO		0
 #define REGULATOR_DCDC		1
 
+/*
+ * List of registers for TPS65912
+ */
 
 #define TPS65912_DCDC1_CTRL		0x00
 #define TPS65912_DCDC2_CTRL		0x01
@@ -122,6 +126,7 @@
 #define TPS65912_VERNUM			0x64
 #define TPS6591X_MAX_REGISTER		0x64
 
+/* IRQ Definitions */
 #define TPS65912_IRQ_PWRHOLD_F		0
 #define TPS65912_IRQ_VMON		1
 #define TPS65912_IRQ_PWRON		2
@@ -155,6 +160,7 @@
 
 #define TPS65912_NUM_IRQ		30
 
+/* GPIO 1 and 2 Register Definitions */
 #define GPIO_SLEEP_MASK			0x80
 #define GPIO_SLEEP_SHIFT		7
 #define GPIO_DEB_MASK			0x10
@@ -166,6 +172,7 @@
 #define GPIO_SET_MASK			0x01
 #define GPIO_SET_SHIFT			0
 
+/* GPIO 3 Register Definitions */
 #define GPIO3_SLEEP_MASK		0x80
 #define GPIO3_SLEEP_SHIFT		7
 #define GPIO3_SEL_MASK			0x40
@@ -183,6 +190,7 @@
 #define GPIO3_SET_MASK			0x01
 #define GPIO3_SET_SHIFT			0
 
+/* GPIO 4 Register Definitions */
 #define GPIO4_SLEEP_MASK		0x80
 #define GPIO4_SLEEP_SHIFT		7
 #define GPIO4_SEL_MASK			0x40
@@ -200,6 +208,7 @@
 #define GPIO4_SET_MASK			0x01
 #define GPIO4_SET_SHIFT			0
 
+/* Register THERM  (0x80) register.RegisterDescription */
 #define THERM_THERM_HD_MASK		0x20
 #define THERM_THERM_HD_SHIFT		5
 #define THERM_THERM_TS_MASK		0x10
@@ -211,6 +220,7 @@
 #define THERM_THERM_STATE_MASK		0x01
 #define THERM_THERM_STATE_SHIFT		0
 
+/* Register DCDCCTRL1 register.RegisterDescription */
 #define DCDCCTRL_VCON_ENABLE_MASK	0x80
 #define DCDCCTRL_VCON_ENABLE_SHIFT	7
 #define DCDCCTRL_VCON_RANGE1_MASK	0x40
@@ -226,6 +236,7 @@
 #define DCDCCTRL_DCDC1_MODE_MASK	0x02
 #define DCDCCTRL_DCDC1_MODE_SHIFT	1
 
+/* Register DCDCCTRL2 and DCDCCTRL3 register.RegisterDescription */
 #define DCDCCTRL_TSTEP2_MASK		0x10
 #define DCDCCTRL_TSTEP2_SHIFT		4
 #define DCDCCTRL_TSTEP1_MASK		0x08
@@ -237,19 +248,26 @@
 #define DCDCCTRL_RSVD0_MASK		0x01
 #define DCDCCTRL_RSVD0_SHIFT		0
 
+/* Register DCDCCTRL4 register.RegisterDescription */
 #define DCDCCTRL_RAMP_TIME_MASK		0x01
 #define DCDCCTRL_RAMP_TIME_SHIFT	0
 
+/* Register DCDCx_AVS */
 #define DCDC_AVS_ENABLE_MASK		0x80
 #define DCDC_AVS_ENABLE_SHIFT		7
 #define DCDC_AVS_ECO_MASK		0x40
 #define DCDC_AVS_ECO_SHIFT		6
 
+/* Register DCDCx_LIMIT */
 #define DCDC_LIMIT_RANGE_MASK		0xC0
 #define DCDC_LIMIT_RANGE_SHIFT		6
 #define DCDC_LIMIT_MAX_SEL_MASK		0x3F
 #define DCDC_LIMIT_MAX_SEL_SHIFT	0
 
+/**
+ * struct tps65912_board
+ * Board platform dat may be used to initialize regulators.
+ */
 struct tps65912_board {
 	int is_dcdc1_avs;
 	int is_dcdc2_avs;
@@ -261,25 +279,28 @@ struct tps65912_board {
 	struct regulator_init_data *tps65912_pmic_init_data;
 };
 
+/**
+ * struct tps65912 - tps65912 sub-driver chip access routines
+ */
 
 struct tps65912 {
 	struct device *dev;
-	
+	/* for read/write acces */
 	struct mutex io_mutex;
 
-	
+	/* For device IO interfaces: I2C or SPI */
 	void *control_data;
 
 	int (*read)(struct tps65912 *tps65912, u8 reg, int size, void *dest);
 	int (*write)(struct tps65912 *tps65912, u8 reg, int size, void *src);
 
-	
+	/* Client devices */
 	struct tps65912_pmic *pmic;
 
-	
+	/* GPIO Handling */
 	struct gpio_chip gpio;
 
-	
+	/* IRQ Handling */
 	struct mutex irq_lock;
 	int chip_irq;
 	int irq_base;
@@ -303,4 +324,4 @@ void tps65912_device_exit(struct tps65912 *tps65912);
 int tps65912_irq_init(struct tps65912 *tps65912, int irq,
 			struct tps65912_platform_data *pdata);
 
-#endif 
+#endif /*  __LINUX_MFD_TPS65912_H */

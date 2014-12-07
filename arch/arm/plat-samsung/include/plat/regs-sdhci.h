@@ -84,4 +84,4 @@
 
 #define S3C64XX_SDHCI_CONTROL4_BUSY		(1)
 
-#endif 
+#endif /* __PLAT_S3C_SDHCI_REGS_H */

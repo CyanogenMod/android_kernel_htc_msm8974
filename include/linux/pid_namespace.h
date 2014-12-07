@@ -33,7 +33,7 @@ struct pid_namespace {
 #endif
 	gid_t pid_gid;
 	int hide_pid;
-	int reboot;	
+	int reboot;	/* group exit code if this pidns was rebooted */
 };
 
 extern struct pid_namespace init_pid_ns;
@@ -57,7 +57,7 @@ static inline void put_pid_ns(struct pid_namespace *ns)
 		kref_put(&ns->kref, free_pid_ns);
 }
 
-#else 
+#else /* !CONFIG_PID_NS */
 #include <linux/err.h>
 
 static inline struct pid_namespace *get_pid_ns(struct pid_namespace *ns)
@@ -86,10 +86,10 @@ static inline int reboot_pid_ns(struct pid_namespace *pid_ns, int cmd)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PID_NS */
 
 extern struct pid_namespace *task_active_pid_ns(struct task_struct *tsk);
 void pidhash_init(void);
 void pidmap_init(void);
 
-#endif 
+#endif /* _LINUX_PID_NS_H */

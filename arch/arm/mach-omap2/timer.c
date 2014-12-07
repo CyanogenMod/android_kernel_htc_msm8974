@@ -48,6 +48,7 @@
 
 #include "powerdomain.h"
 
+/* Parent clocks, eventually these will come from the clock framework */
 
 #define OMAP2_MPU_SOURCE	"sys_ck"
 #define OMAP3_MPU_SOURCE	OMAP2_MPU_SOURCE
@@ -68,10 +69,12 @@
 #define OMAP3_SECURE_TIMER	1
 #endif
 
+/* MAX_GPTIMER_ID: number of GPTIMERs on the chip */
 #define MAX_GPTIMER_ID		12
 
 static u32 sys_timer_reserved;
 
+/* Clockevent code */
 
 static struct omap_dm_timer clkev;
 static struct clock_event_device clockevent_gpt;
@@ -112,7 +115,7 @@ static void omap2_gp_timer_set_mode(enum clock_event_mode mode,
 	case CLOCK_EVT_MODE_PERIODIC:
 		period = clkev.rate / HZ;
 		period -= 1;
-		
+		/* Looks like we need to first set the load value separately */
 		__omap_dm_timer_write(&clkev, OMAP_TIMER_LOAD_REG,
 					0xffffffff - period, 1);
 		__omap_dm_timer_load_start(&clkev,
@@ -140,7 +143,7 @@ static int __init omap_dm_timer_init_one(struct omap_dm_timer *timer,
 						int gptimer_id,
 						const char *fck_source)
 {
-	char name[10]; 
+	char name[10]; /* 10 = sizeof("gptXX_Xck0") */
 	struct omap_hwmod *oh;
 	size_t size;
 	int res = 0;
@@ -155,12 +158,12 @@ static int __init omap_dm_timer_init_one(struct omap_dm_timer *timer,
 	timer->phys_base = oh->slaves[0]->addr->pa_start;
 	size = oh->slaves[0]->addr->pa_end - timer->phys_base;
 
-	
+	/* Static mapping, never released */
 	timer->io_base = ioremap(timer->phys_base, size);
 	if (!timer->io_base)
 		return -ENXIO;
 
-	
+	/* After the dmtimer is using hwmod these clocks won't be needed */
 	sprintf(name, "gpt%d_fck", gptimer_id);
 	timer->fclk = clk_get(NULL, name);
 	if (IS_ERR(timer->fclk))
@@ -221,7 +224,7 @@ static void __init omap2_gp_clockevent_init(int gptimer_id,
 		clockevent_delta2ns(0xffffffff, &clockevent_gpt);
 	clockevent_gpt.min_delta_ns =
 		clockevent_delta2ns(3, &clockevent_gpt);
-		
+		/* Timer internal resynch latency. */
 
 	clockevent_gpt.cpumask = cpumask_of(0);
 	clockevents_register_device(&clockevent_gpt);
@@ -230,8 +233,14 @@ static void __init omap2_gp_clockevent_init(int gptimer_id,
 		gptimer_id, clkev.rate);
 }
 
+/* Clocksource code */
 
 #ifdef CONFIG_OMAP_32K_TIMER
+/*
+ * When 32k-timer is enabled, don't use GPTimer for clocksource
+ * instead, just leave default clocksource which uses the 32k
+ * sync counter.  See clocksource setup in plat-omap/counter_32k.c
+ */
 
 static void __init omap2_gp_clocksource_init(int unused, const char *dummy)
 {
@@ -242,6 +251,9 @@ static void __init omap2_gp_clocksource_init(int unused, const char *dummy)
 
 static struct omap_dm_timer clksrc;
 
+/*
+ * clocksource
+ */
 static cycle_t clocksource_read_cycles(struct clocksource *cs)
 {
 	return (cycle_t)__omap_dm_timer_read_counter(&clksrc, 1);
@@ -263,6 +275,7 @@ static u32 notrace dmtimer_read_sched_clock(void)
 	return 0;
 }
 
+/* Setup free-running counter for clocksource */
 static void __init omap2_gp_clocksource_init(int gptimer_id,
 						const char *fck_source)
 {
@@ -322,7 +335,7 @@ static void __init omap4_timer_init(void)
 	omap2_gp_clockevent_init(1, OMAP4_CLKEV_SOURCE);
 	omap2_gp_clocksource_init(2, OMAP4_MPU_SOURCE);
 #ifdef CONFIG_LOCAL_TIMERS
-	
+	/* Local timers are not supprted on OMAP4430 ES1.0 */
 	if (omap_rev() != OMAP4430_REV_ES1_0) {
 		int err;
 
@@ -335,6 +348,11 @@ static void __init omap4_timer_init(void)
 OMAP_SYS_TIMER(4)
 #endif
 
+/**
+ * omap2_dm_timer_set_src - change the timer input clock source
+ * @pdev:	timer platform device pointer
+ * @source:	array index of parent clock source
+ */
 static int omap2_dm_timer_set_src(struct platform_device *pdev, int source)
 {
 	int ret;
@@ -390,6 +408,18 @@ static int omap2_dm_timer_set_src(struct platform_device *pdev, int source)
 	return ret;
 }
 
+/**
+ * omap_timer_init - build and register timer device with an
+ * associated timer hwmod
+ * @oh:	timer hwmod pointer to be used to build timer device
+ * @user:	parameter that can be passed from calling hwmod API
+ *
+ * Called by omap_hwmod_for_each_by_class to register each of the timer
+ * devices present in the system. The number of timer devices is known
+ * by parsing through the hwmod database for a given class name. At the
+ * end of function call memory is allocated for timer device and it is
+ * registered to the framework ready to be proved by the driver.
+ */
 static int __init omap_timer_init(struct omap_hwmod *oh, void *unused)
 {
 	int id;
@@ -402,7 +432,7 @@ static int __init omap_timer_init(struct omap_hwmod *oh, void *unused)
 
 	pr_debug("%s: %s\n", __func__, oh->name);
 
-	
+	/* on secure device, do not register secure timer */
 	timer_dev_attr = oh->dev_attr;
 	if (omap_type() != OMAP2_DEVICE_TYPE_GP && timer_dev_attr)
 		if (timer_dev_attr->timer_capability == OMAP_TIMER_SECURE)
@@ -414,12 +444,22 @@ static int __init omap_timer_init(struct omap_hwmod *oh, void *unused)
 		return -ENOMEM;
 	}
 
+	/*
+	 * Extract the IDs from name field in hwmod database
+	 * and use the same for constructing ids' for the
+	 * timer devices. In a way, we are avoiding usage of
+	 * static variable witin the function to do the same.
+	 * CAUTION: We have to be careful and make sure the
+	 * name in hwmod database does not change in which case
+	 * we might either make corresponding change here or
+	 * switch back static variable mechanism.
+	 */
 	sscanf(oh->name, "timer%2d", &id);
 
 	pdata->set_timer_src = omap2_dm_timer_set_src;
 	pdata->timer_ip_version = oh->class->rev;
 
-	
+	/* Mark clocksource and clockevent timers as reserved */
 	if ((sys_timer_reserved >> (id - 1)) & 0x1)
 		pdata->reserved = 1;
 
@@ -442,6 +482,12 @@ static int __init omap_timer_init(struct omap_hwmod *oh, void *unused)
 	return ret;
 }
 
+/**
+ * omap2_dm_timer_init - top level regular device initialization
+ *
+ * Uses dedicated hwmod api to parse through hwmod database for
+ * given class name and then build and register the timer device.
+ */
 static int __init omap2_dm_timer_init(void)
 {
 	int ret;

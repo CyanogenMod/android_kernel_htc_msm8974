@@ -22,4 +22,4 @@ int __init swiotlb_setup_bus_notifier(void);
 
 extern void pci_dma_dev_setup_swiotlb(struct pci_dev *pdev);
 
-#endif 
+#endif /* __ASM_SWIOTLB_H */

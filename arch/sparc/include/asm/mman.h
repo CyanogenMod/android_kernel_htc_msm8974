@@ -3,24 +3,25 @@
 
 #include <asm-generic/mman-common.h>
 
+/* SunOS'ified... */
 
-#define MAP_RENAME      MAP_ANONYMOUS   
-#define MAP_NORESERVE   0x40            
-#define MAP_INHERIT     0x80            
-#define MAP_LOCKED      0x100           
-#define _MAP_NEW        0x80000000      
+#define MAP_RENAME      MAP_ANONYMOUS   /* In SunOS terminology */
+#define MAP_NORESERVE   0x40            /* don't reserve swap pages */
+#define MAP_INHERIT     0x80            /* SunOS doesn't do this, but... */
+#define MAP_LOCKED      0x100           /* lock the mapping */
+#define _MAP_NEW        0x80000000      /* Binary compatibility is fun... */
 
-#define MAP_GROWSDOWN	0x0200		
-#define MAP_DENYWRITE	0x0800		
-#define MAP_EXECUTABLE	0x1000		
+#define MAP_GROWSDOWN	0x0200		/* stack-like segment */
+#define MAP_DENYWRITE	0x0800		/* ETXTBSY */
+#define MAP_EXECUTABLE	0x1000		/* mark it as an executable */
 
-#define MCL_CURRENT     0x2000          
-#define MCL_FUTURE      0x4000          
+#define MCL_CURRENT     0x2000          /* lock all currently mapped pages */
+#define MCL_FUTURE      0x4000          /* lock all additions to address space */
 
-#define MAP_POPULATE	0x8000		
-#define MAP_NONBLOCK	0x10000		
-#define MAP_STACK	0x20000		
-#define MAP_HUGETLB	0x40000		
+#define MAP_POPULATE	0x8000		/* populate (prefault) pagetables */
+#define MAP_NONBLOCK	0x10000		/* do not block on IO */
+#define MAP_STACK	0x20000		/* give out an address that is best suited for process/thread stacks */
+#define MAP_HUGETLB	0x40000		/* create a huge page mapping */
 
 #ifdef __KERNEL__
 #ifndef __ASSEMBLY__
@@ -29,4 +30,4 @@ int sparc_mmap_check(unsigned long addr, unsigned long len);
 #endif
 #endif
 
-#endif 
+#endif /* __SPARC_MMAN_H__ */

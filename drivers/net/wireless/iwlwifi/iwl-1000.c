@@ -45,12 +45,15 @@
 #include "iwl-cfg.h"
 #include "iwl-prph.h"
 
+/* Highest firmware API version supported */
 #define IWL1000_UCODE_API_MAX 5
 #define IWL100_UCODE_API_MAX 5
 
+/* Oldest version we won't warn about */
 #define IWL1000_UCODE_API_OK 5
 #define IWL100_UCODE_API_OK 5
 
+/* Lowest firmware API version supported */
 #define IWL1000_UCODE_API_MIN 1
 #define IWL100_UCODE_API_MIN 5
 
@@ -61,22 +64,33 @@
 #define IWL100_MODULE_FIRMWARE(api) IWL100_FW_PRE __stringify(api) ".ucode"
 
 
+/*
+ * For 1000, use advance thermal throttling critical temperature threshold,
+ * but legacy thermal management implementation for now.
+ * This is for the reason of 1000 uCode using advance thermal throttling API
+ * but not implement ct_kill_exit based on ct_kill exit temperature
+ * so the thermal throttling will still based on legacy thermal throttling
+ * management.
+ * The code here need to be modified once 1000 uCode has the advanced thermal
+ * throttling algorithm in place
+ */
 static void iwl1000_set_ct_threshold(struct iwl_priv *priv)
 {
-	
+	/* want Celsius */
 	hw_params(priv).ct_kill_threshold = CT_KILL_THRESHOLD_LEGACY;
 	hw_params(priv).ct_kill_exit_threshold = CT_KILL_EXIT_THRESHOLD;
 }
 
+/* NIC configuration for 1000 series */
 static void iwl1000_nic_config(struct iwl_priv *priv)
 {
-	
+	/* set CSR_HW_CONFIG_REG for uCode use */
 	iwl_set_bit(trans(priv), CSR_HW_IF_CONFIG_REG,
 		    CSR_HW_IF_CONFIG_REG_BIT_RADIO_SI |
 		    CSR_HW_IF_CONFIG_REG_BIT_MAC_SI);
 
-	
-	
+	/* Setting digital SVR for 1000 card to 1.32V */
+	/* locking is acquired in iwl_set_bits_mask_prph() function */
 	iwl_set_bits_mask_prph(trans(priv), APMG_DIGITAL_SVR_REG,
 				APMG_SVR_DIGITAL_VOLTAGE_1_32,
 				~APMG_SVR_VOLTAGE_CONFIG_BIT_MSK);
@@ -120,7 +134,7 @@ static void iwl1000_hw_set_hw_params(struct iwl_priv *priv)
 
 	iwl1000_set_ct_threshold(priv);
 
-	
+	/* Set initial sensitivity parameters */
 	hw_params(priv).sens = &iwl1000_sensitivity;
 }
 
@@ -159,7 +173,7 @@ static const struct iwl_base_params iwl1000_base_params = {
 
 static const struct iwl_ht_params iwl1000_ht_params = {
 	.ht_greenfield_support = true,
-	.use_rts_for_aggregation = true, 
+	.use_rts_for_aggregation = true, /* use rts/cts protection */
 	.smps_mode = IEEE80211_SMPS_DYNAMIC,
 };
 

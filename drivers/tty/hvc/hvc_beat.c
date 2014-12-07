@@ -38,6 +38,7 @@ extern int64_t beat_put_term_char(uint64_t, uint64_t, uint64_t, uint64_t);
 
 struct hvc_struct *hvc_beat_dev = NULL;
 
+/* bug: only one queue is available regardless of vtermno */
 static int hvc_beat_get_chars(uint32_t vtermno, char *buf, int cnt)
 {
 	static unsigned char q[sizeof(unsigned long) * 2]
@@ -52,7 +53,7 @@ again:
 			qlen -= cnt;
 			memmove(q + cnt, q, qlen);
 			return cnt;
-		} else {	
+		} else {	/* qlen <= cnt */
 			int	r;
 
 			memcpy(buf, q, qlen);
@@ -104,6 +105,7 @@ static int __init hvc_beat_console_init(void)
 	return 0;
 }
 
+/* temp */
 static int __init hvc_beat_init(void)
 {
 	struct hvc_struct *hp;

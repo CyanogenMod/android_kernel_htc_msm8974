@@ -13,9 +13,13 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/*
+ * Keytable for MK-F12 IR remote provided together with Pixelview
+ * Ultra Pro Remote Controller. Uses NEC extended format.
+ */
 static struct rc_map_table pixelview_mk12[] = {
-	{ 0x866b03, KEY_TUNER },	
-	{ 0x866b1e, KEY_POWER2 },	
+	{ 0x866b03, KEY_TUNER },	/* Timeshift */
+	{ 0x866b1e, KEY_POWER2 },	/* power */
 
 	{ 0x866b01, KEY_1 },
 	{ 0x866b0b, KEY_2 },
@@ -28,19 +32,19 @@ static struct rc_map_table pixelview_mk12[] = {
 	{ 0x866b12, KEY_9 },
 	{ 0x866b02, KEY_0 },
 
-	{ 0x866b13, KEY_AGAIN },	
-	{ 0x866b10, KEY_DIGITS },	
+	{ 0x866b13, KEY_AGAIN },	/* loop */
+	{ 0x866b10, KEY_DIGITS },	/* +100 */
 
-	{ 0x866b00, KEY_VIDEO },		
-	{ 0x866b18, KEY_MUTE },		
-	{ 0x866b19, KEY_CAMERA },	
-	{ 0x866b1a, KEY_SEARCH },	
+	{ 0x866b00, KEY_VIDEO },		/* source */
+	{ 0x866b18, KEY_MUTE },		/* mute */
+	{ 0x866b19, KEY_CAMERA },	/* snapshot */
+	{ 0x866b1a, KEY_SEARCH },	/* scan */
 
-	{ 0x866b16, KEY_CHANNELUP },	
-	{ 0x866b14, KEY_CHANNELDOWN },	
-	{ 0x866b1f, KEY_VOLUMEUP },	
-	{ 0x866b17, KEY_VOLUMEDOWN },	
-	{ 0x866b1c, KEY_ZOOM },		
+	{ 0x866b16, KEY_CHANNELUP },	/* chn + */
+	{ 0x866b14, KEY_CHANNELDOWN },	/* chn - */
+	{ 0x866b1f, KEY_VOLUMEUP },	/* vol + */
+	{ 0x866b17, KEY_VOLUMEDOWN },	/* vol - */
+	{ 0x866b1c, KEY_ZOOM },		/* zoom */
 
 	{ 0x866b04, KEY_REWIND },
 	{ 0x866b0e, KEY_RECORD },
@@ -51,7 +55,7 @@ static struct rc_map_table pixelview_mk12[] = {
 	{ 0x866b0f, KEY_PAUSE },
 
 	{ 0x866b0d, KEY_TV },
-	{ 0x866b07, KEY_RADIO },	
+	{ 0x866b07, KEY_RADIO },	/* FM */
 };
 
 static struct rc_map_list pixelview_map = {

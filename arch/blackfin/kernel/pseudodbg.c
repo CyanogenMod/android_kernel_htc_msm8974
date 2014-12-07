@@ -25,13 +25,24 @@ static const char *get_allreg_name(int grp, int reg)
 	return greg_names[(grp << 3) | reg];
 }
 
+/*
+ * Unfortunately, the pt_regs structure is not laid out the same way as the
+ * hardware register file, so we need to do some fix ups.
+ *
+ * CYCLES is not stored in the pt_regs structure - so, we just read it from
+ * the hardware.
+ *
+ * Don't support:
+ *  - All reserved registers
+ *  - All in group 7 are (supervisors only)
+ */
 
 static bool fix_up_reg(struct pt_regs *fp, long *value, int grp, int reg)
 {
 	long *val = &fp->r0;
 	unsigned long tmp;
 
-	
+	/* Only do Dregs and Pregs for now */
 	if (grp == 5 ||
 	   (grp == 4 && (reg == 4 || reg == 5)) ||
 	   (grp == 7))
@@ -89,6 +100,9 @@ static bool fix_up_reg(struct pt_regs *fp, long *value, int grp, int reg)
 #define PseudoDbg_Assert_code_bits      27
 #define PseudoDbg_Assert_code_mask      0x1f
 
+/*
+ * DBGA - debug assert
+ */
 bool execute_pseudodbg_assert(struct pt_regs *fp, unsigned int opcode)
 {
 	int expected = ((opcode >> PseudoDbg_Assert_expected_bits) & PseudoDbg_Assert_expected_mask);
@@ -104,8 +118,8 @@ bool execute_pseudodbg_assert(struct pt_regs *fp, unsigned int opcode)
 		return false;
 
 	if (dbgop == 0 || dbgop == 2) {
-		
-		
+		/* DBGA ( regs_lo , uimm16 ) */
+		/* DBGAL ( regs , uimm16 ) */
 		if (expected != (value & 0xFFFF)) {
 			pr_notice("DBGA (%s.L,0x%x) failure, got 0x%x\n",
 				get_allreg_name(grp, regtest),
@@ -114,8 +128,8 @@ bool execute_pseudodbg_assert(struct pt_regs *fp, unsigned int opcode)
 		}
 
 	} else if (dbgop == 1 || dbgop == 3) {
-		
-		
+		/* DBGA ( regs_hi , uimm16 ) */
+		/* DBGAH ( regs , uimm16 ) */
 		if (expected != ((value >> 16) & 0xFFFF)) {
 			pr_notice("DBGA (%s.H,0x%x) failure, got 0x%x\n",
 				get_allreg_name(grp, regtest),
@@ -138,6 +152,9 @@ bool execute_pseudodbg_assert(struct pt_regs *fp, unsigned int opcode)
 #define PseudoDbg_code_bits     8
 #define PseudoDbg_code_mask     0xff
 
+/*
+ * DBG - debug (dump a register value out)
+ */
 bool execute_pseudodbg(struct pt_regs *fp, unsigned int opcode)
 {
 	int grp, fn, reg;

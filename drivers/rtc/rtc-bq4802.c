@@ -101,7 +101,7 @@ static int bq4802_set_time(struct device *dev, struct rtc_time *tm)
 	century = year / 100;
 	yrs = year % 100;
 
-	mon = tm->tm_mon + 1;   
+	mon = tm->tm_mon + 1;   /* tm_mon starts at zero */
 	day = tm->tm_mday;
 	hrs = tm->tm_hour;
 	min = tm->tm_min;
@@ -206,6 +206,7 @@ static int __devexit bq4802_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:rtc-bq4802");
 
 static struct platform_driver bq4802_driver = {

@@ -38,13 +38,14 @@
 #include <linux/device.h>
 #include <linux/input/cyttsp.h>
 
-#define CY_NUM_RETRY		16 
+#define CY_NUM_RETRY		16 /* max number of retries for read ops */
 
 struct cyttsp_tch {
 	__be16 x, y;
 	u8 z;
 } __packed;
 
+/* TrueTouch Standard Product Gen3 interface definition */
 struct cyttsp_xydata {
 	u8 hst_mode;
 	u8 tt_mode;
@@ -63,6 +64,7 @@ struct cyttsp_xydata {
 } __packed;
 
 
+/* TTSP System Information interface definition */
 struct cyttsp_sysinfo_data {
 	u8 hst_mode;
 	u8 mfg_cmd;
@@ -85,6 +87,7 @@ struct cyttsp_sysinfo_data {
 	u8 lp_intrvl;
 };
 
+/* TTSP Bootloader Register Map interface definition */
 #define CY_BL_CHKSUM_OK 0x01
 struct cyttsp_bootloader_data {
 	u8 bl_file;
@@ -143,4 +146,4 @@ void cyttsp_remove(struct cyttsp *ts);
 
 extern const struct dev_pm_ops cyttsp_pm_ops;
 
-#endif 
+#endif /* __CYTTSP_CORE_H__ */

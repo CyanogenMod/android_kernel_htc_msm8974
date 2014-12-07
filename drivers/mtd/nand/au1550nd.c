@@ -32,6 +32,12 @@ struct au1550nd_ctx {
 	void (*write_byte)(struct mtd_info *, u_char);
 };
 
+/**
+ * au_read_byte -  read one byte from the chip
+ * @mtd:	MTD device structure
+ *
+ * read function for 8bit buswidth
+ */
 static u_char au_read_byte(struct mtd_info *mtd)
 {
 	struct nand_chip *this = mtd->priv;
@@ -40,6 +46,13 @@ static u_char au_read_byte(struct mtd_info *mtd)
 	return ret;
 }
 
+/**
+ * au_write_byte -  write one byte to the chip
+ * @mtd:	MTD device structure
+ * @byte:	pointer to data byte to write
+ *
+ * write function for 8it buswidth
+ */
 static void au_write_byte(struct mtd_info *mtd, u_char byte)
 {
 	struct nand_chip *this = mtd->priv;
@@ -47,6 +60,12 @@ static void au_write_byte(struct mtd_info *mtd, u_char byte)
 	au_sync();
 }
 
+/**
+ * au_read_byte16 -  read one byte endianness aware from the chip
+ * @mtd:	MTD device structure
+ *
+ * read function for 16bit buswidth with endianness conversion
+ */
 static u_char au_read_byte16(struct mtd_info *mtd)
 {
 	struct nand_chip *this = mtd->priv;
@@ -55,6 +74,13 @@ static u_char au_read_byte16(struct mtd_info *mtd)
 	return ret;
 }
 
+/**
+ * au_write_byte16 -  write one byte endianness aware to the chip
+ * @mtd:	MTD device structure
+ * @byte:	pointer to data byte to write
+ *
+ * write function for 16bit buswidth with endianness conversion
+ */
 static void au_write_byte16(struct mtd_info *mtd, u_char byte)
 {
 	struct nand_chip *this = mtd->priv;
@@ -62,6 +88,12 @@ static void au_write_byte16(struct mtd_info *mtd, u_char byte)
 	au_sync();
 }
 
+/**
+ * au_read_word -  read one word from the chip
+ * @mtd:	MTD device structure
+ *
+ * read function for 16bit buswidth without endianness conversion
+ */
 static u16 au_read_word(struct mtd_info *mtd)
 {
 	struct nand_chip *this = mtd->priv;
@@ -70,6 +102,14 @@ static u16 au_read_word(struct mtd_info *mtd)
 	return ret;
 }
 
+/**
+ * au_write_buf -  write buffer to chip
+ * @mtd:	MTD device structure
+ * @buf:	data buffer
+ * @len:	number of bytes to write
+ *
+ * write function for 8bit buswidth
+ */
 static void au_write_buf(struct mtd_info *mtd, const u_char *buf, int len)
 {
 	int i;
@@ -81,6 +121,14 @@ static void au_write_buf(struct mtd_info *mtd, const u_char *buf, int len)
 	}
 }
 
+/**
+ * au_read_buf -  read chip data into buffer
+ * @mtd:	MTD device structure
+ * @buf:	buffer to store date
+ * @len:	number of bytes to read
+ *
+ * read function for 8bit buswidth
+ */
 static void au_read_buf(struct mtd_info *mtd, u_char *buf, int len)
 {
 	int i;
@@ -92,6 +140,14 @@ static void au_read_buf(struct mtd_info *mtd, u_char *buf, int len)
 	}
 }
 
+/**
+ * au_verify_buf -  Verify chip data against buffer
+ * @mtd:	MTD device structure
+ * @buf:	buffer containing the data to compare
+ * @len:	number of bytes to compare
+ *
+ * verify function for 8bit buswidth
+ */
 static int au_verify_buf(struct mtd_info *mtd, const u_char *buf, int len)
 {
 	int i;
@@ -106,6 +162,14 @@ static int au_verify_buf(struct mtd_info *mtd, const u_char *buf, int len)
 	return 0;
 }
 
+/**
+ * au_write_buf16 -  write buffer to chip
+ * @mtd:	MTD device structure
+ * @buf:	data buffer
+ * @len:	number of bytes to write
+ *
+ * write function for 16bit buswidth
+ */
 static void au_write_buf16(struct mtd_info *mtd, const u_char *buf, int len)
 {
 	int i;
@@ -120,6 +184,14 @@ static void au_write_buf16(struct mtd_info *mtd, const u_char *buf, int len)
 
 }
 
+/**
+ * au_read_buf16 -  read chip data into buffer
+ * @mtd:	MTD device structure
+ * @buf:	buffer to store date
+ * @len:	number of bytes to read
+ *
+ * read function for 16bit buswidth
+ */
 static void au_read_buf16(struct mtd_info *mtd, u_char *buf, int len)
 {
 	int i;
@@ -133,6 +205,14 @@ static void au_read_buf16(struct mtd_info *mtd, u_char *buf, int len)
 	}
 }
 
+/**
+ * au_verify_buf16 -  Verify chip data against buffer
+ * @mtd:	MTD device structure
+ * @buf:	buffer containing the data to compare
+ * @len:	number of bytes to compare
+ *
+ * verify function for 16bit buswidth
+ */
 static int au_verify_buf16(struct mtd_info *mtd, const u_char *buf, int len)
 {
 	int i;
@@ -148,11 +228,17 @@ static int au_verify_buf16(struct mtd_info *mtd, const u_char *buf, int len)
 	return 0;
 }
 
+/* Select the chip by setting nCE to low */
 #define NAND_CTL_SETNCE		1
+/* Deselect the chip by setting nCE to high */
 #define NAND_CTL_CLRNCE		2
+/* Select the command latch by setting CLE to high */
 #define NAND_CTL_SETCLE		3
+/* Deselect the command latch by setting CLE to low */
 #define NAND_CTL_CLRCLE		4
+/* Select the address latch by setting ALE to high */
 #define NAND_CTL_SETALE		5
+/* Deselect the address latch by setting ALE to low */
 #define NAND_CTL_CLRALE		6
 
 static void au1550_hwcontrol(struct mtd_info *mtd, int cmd)
@@ -176,23 +262,25 @@ static void au1550_hwcontrol(struct mtd_info *mtd, int cmd)
 
 	case NAND_CTL_CLRALE:
 		this->IO_ADDR_W = ctx->base + MEM_STNAND_DATA;
+		/* FIXME: Nobody knows why this is necessary,
+		 * but it works only that way */
 		udelay(1);
 		break;
 
 	case NAND_CTL_SETNCE:
-		
+		/* assert (force assert) chip enable */
 		au_writel((1 << (4 + ctx->cs)), MEM_STNDCTL);
 		break;
 
 	case NAND_CTL_CLRNCE:
-		
+		/* deassert chip enable */
 		au_writel(0, MEM_STNDCTL);
 		break;
 	}
 
 	this->IO_ADDR_R = this->IO_ADDR_W;
 
-	
+	/* Drain the writebuffer */
 	au_sync();
 }
 
@@ -203,10 +291,29 @@ int au1550_device_ready(struct mtd_info *mtd)
 	return ret;
 }
 
+/**
+ * au1550_select_chip - control -CE line
+ *	Forbid driving -CE manually permitting the NAND controller to do this.
+ *	Keeping -CE asserted during the whole sector reads interferes with the
+ *	NOR flash and PCMCIA drivers as it causes contention on the static bus.
+ *	We only have to hold -CE low for the NAND read commands since the flash
+ *	chip needs it to be asserted during chip not ready time but the NAND
+ *	controller keeps it released.
+ *
+ * @mtd:	MTD device structure
+ * @chip:	chipnumber to select, -1 for deselect
+ */
 static void au1550_select_chip(struct mtd_info *mtd, int chip)
 {
 }
 
+/**
+ * au1550_command - Send command to NAND device
+ * @mtd:	MTD device structure
+ * @command:	the command to be sent
+ * @column:	the column address for this command, -1 if none
+ * @page_addr:	the page address for this command, -1 if none
+ */
 static void au1550_command(struct mtd_info *mtd, unsigned command, int column, int page_addr)
 {
 	struct au1550nd_ctx *ctx = container_of(mtd, struct au1550nd_ctx, info);
@@ -214,17 +321,20 @@ static void au1550_command(struct mtd_info *mtd, unsigned command, int column, i
 	int ce_override = 0, i;
 	unsigned long flags = 0;
 
-	
+	/* Begin command latch cycle */
 	au1550_hwcontrol(mtd, NAND_CTL_SETCLE);
+	/*
+	 * Write out the command to the device.
+	 */
 	if (command == NAND_CMD_SEQIN) {
 		int readcmd;
 
 		if (column >= mtd->writesize) {
-			
+			/* OOB area */
 			column -= mtd->writesize;
 			readcmd = NAND_CMD_READOOB;
 		} else if (column < 256) {
-			
+			/* First 256 bytes --> READ0 */
 			readcmd = NAND_CMD_READ0;
 		} else {
 			column -= 256;
@@ -234,15 +344,15 @@ static void au1550_command(struct mtd_info *mtd, unsigned command, int column, i
 	}
 	ctx->write_byte(mtd, command);
 
-	
+	/* Set ALE and clear CLE to start address cycle */
 	au1550_hwcontrol(mtd, NAND_CTL_CLRCLE);
 
 	if (column != -1 || page_addr != -1) {
 		au1550_hwcontrol(mtd, NAND_CTL_SETALE);
 
-		
+		/* Serially input address */
 		if (column != -1) {
-			
+			/* Adjust columns for 16 bit buswidth */
 			if (this->options & NAND_BUSWIDTH_16)
 				column >>= 1;
 			ctx->write_byte(mtd, column);
@@ -268,15 +378,19 @@ static void au1550_command(struct mtd_info *mtd, unsigned command, int column, i
 
 			ctx->write_byte(mtd, (u8)(page_addr >> 8));
 
-			
+			/* One more address cycle for devices > 32MiB */
 			if (this->chipsize > (32 << 20))
 				ctx->write_byte(mtd,
 						((page_addr >> 16) & 0x0f));
 		}
-		
+		/* Latch in address */
 		au1550_hwcontrol(mtd, NAND_CTL_CLRALE);
 	}
 
+	/*
+	 * Program and erase have their own busy handlers.
+	 * Status and sequential in need no delay.
+	 */
 	switch (command) {
 
 	case NAND_CMD_PAGEPROG:
@@ -292,22 +406,22 @@ static void au1550_command(struct mtd_info *mtd, unsigned command, int column, i
 	case NAND_CMD_READ0:
 	case NAND_CMD_READ1:
 	case NAND_CMD_READOOB:
-		
+		/* Check if we're really driving -CE low (just in case) */
 		if (unlikely(!ce_override))
 			break;
 
-		
+		/* Apply a short delay always to ensure that we do wait tWB. */
 		ndelay(100);
-		
+		/* Wait for a chip to become ready... */
 		for (i = this->chip_delay; !this->dev_ready(mtd) && i > 0; --i)
 			udelay(1);
 
-		
+		/* Release -CE and re-enable interrupts. */
 		au1550_hwcontrol(mtd, NAND_CTL_CLRNCE);
 		local_irq_restore(flags);
 		return;
 	}
-	
+	/* Apply this short delay always to ensure that we do wait tWB. */
 	ndelay(100);
 
 	while(!this->dev_ready(mtd));
@@ -321,9 +435,9 @@ static int __devinit find_nand_cs(unsigned long nand_base)
 	int i;
 
 	for (i = 0; i < 4; i++) {
-		addr = 0x1000 + (i * 0x10);			
-		staddr = __raw_readl(base + addr + 0x08);	
-		
+		addr = 0x1000 + (i * 0x10);			/* CSx */
+		staddr = __raw_readl(base + addr + 0x08);	/* STADDRx */
+		/* figure out the decoded range of this CS */
 		start = (staddr << 4) & 0xfffc0000;
 		mask = (staddr << 18) & 0xfffc0000;
 		end = (start | (start - 1)) & ~(start ^ mask);
@@ -377,7 +491,7 @@ static int __devinit au1550nd_probe(struct platform_device *pdev)
 	ctx->info.priv = this;
 	ctx->info.owner = THIS_MODULE;
 
-	
+	/* figure out which CS# r->start belongs to */
 	cs = find_nand_cs(r->start);
 	if (cs < 0) {
 		dev_err(&pdev->dev, "cannot detect NAND chipselect\n");
@@ -390,7 +504,7 @@ static int __devinit au1550nd_probe(struct platform_device *pdev)
 	this->select_chip = au1550_select_chip;
 	this->cmdfunc = au1550_command;
 
-	
+	/* 30 us command delay time */
 	this->chip_delay = 30;
 	this->ecc.mode = NAND_ECC_SOFT;
 

@@ -50,8 +50,8 @@
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
 
-#define TIMER_MARGIN	60		
-static unsigned int soft_margin = TIMER_MARGIN;	
+#define TIMER_MARGIN	60		/* Default is 60 seconds */
+static unsigned int soft_margin = TIMER_MARGIN;	/* in seconds */
 module_param(soft_margin, uint, 0);
 MODULE_PARM_DESC(soft_margin,
 	"Watchdog soft_margin in seconds. (0 < soft_margin < 65536, default="
@@ -73,12 +73,18 @@ module_param(soft_panic, int, 0);
 MODULE_PARM_DESC(soft_panic,
 	"Softdog action, set to 1 to panic, 0 to reboot (default=0)");
 
+/*
+ *	Our timer
+ */
 
 static void watchdog_fire(unsigned long);
 
 static struct timer_list watchdog_ticktock =
 		TIMER_INITIALIZER(watchdog_fire, 0, 0);
 
+/*
+ *	If the timer expires..
+ */
 
 static void watchdog_fire(unsigned long data)
 {
@@ -94,6 +100,9 @@ static void watchdog_fire(unsigned long data)
 	}
 }
 
+/*
+ *	Softdog operations
+ */
 
 static int softdog_ping(struct watchdog_device *w)
 {
@@ -113,16 +122,22 @@ static int softdog_set_timeout(struct watchdog_device *w, unsigned int t)
 	return 0;
 }
 
+/*
+ *	Notifier for system down
+ */
 
 static int softdog_notify_sys(struct notifier_block *this, unsigned long code,
 	void *unused)
 {
 	if (code == SYS_DOWN || code == SYS_HALT)
-		
+		/* Turn the WDT off */
 		softdog_stop(NULL);
 	return NOTIFY_DONE;
 }
 
+/*
+ *	Kernel Interfaces
+ */
 
 static struct notifier_block softdog_notifier = {
 	.notifier_call	= softdog_notify_sys,
@@ -152,6 +167,8 @@ static int __init watchdog_init(void)
 {
 	int ret;
 
+	/* Check that the soft_margin value is within it's range;
+	   if not reset to the default */
 	if (soft_margin < 1 || soft_margin > 65535) {
 		pr_info("soft_margin must be 0 < soft_margin < 65536, using %d\n",
 			TIMER_MARGIN);

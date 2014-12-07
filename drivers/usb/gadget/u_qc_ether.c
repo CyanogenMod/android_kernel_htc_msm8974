@@ -19,6 +19,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+/* #define VERBOSE_DEBUG */
 
 #include <linux/kernel.h>
 #include <linux/gfp.h>
@@ -30,10 +31,36 @@
 #include "u_ether.h"
 
 
+/*
+ * This component encapsulates the Ethernet link glue needed to provide
+ * one (!) network link through the USB gadget stack, normally "usb0".
+ *
+ * The control and data models are handled by the function driver which
+ * connects to this code; such as CDC Ethernet (ECM or EEM),
+ * "CDC Subset", or RNDIS.  That includes all descriptor and endpoint
+ * management.
+ *
+ * Link level addressing is handled by this component using module
+ * parameters; if no such parameters are provided, random link level
+ * addresses are used.  Each end of the link uses one address.  The
+ * host end address is exported in various ways, and is often recorded
+ * in configuration databases.
+ *
+ * The driver which assembles each configuration using such a link is
+ * responsible for ensuring that each configuration includes at most one
+ * instance of is network link.  (The network layer provides ways for
+ * this single "physical" link to be used by multiple virtual links.)
+ *
+ * This utilities is based on Ethernet-over-USB link layer utilities and
+ * contains MSM specific implementation.
+ */
 
 #define UETH__VERSION	"29-May-2008"
 
 struct eth_qc_dev {
+	/* lock is held while accessing port_usb
+	 * or updating its backlink port_usb->ioport
+	 */
 	spinlock_t		lock;
 	struct qc_gether	*port_usb;
 
@@ -46,6 +73,7 @@ struct eth_qc_dev {
 	u8			host_mac[ETH_ALEN];
 };
 
+/*-------------------------------------------------------------------------*/
 
 #undef DBG
 #undef VDBG
@@ -62,28 +90,30 @@ struct eth_qc_dev {
 #else
 #define DBG(dev, fmt, args...) \
 	do { } while (0)
-#endif 
+#endif /* DEBUG */
 
 #ifdef VERBOSE_DEBUG
 #define VDBG	DBG
 #else
 #define VDBG(dev, fmt, args...) \
 	do { } while (0)
-#endif 
+#endif /* DEBUG */
 
 #define ERROR(dev, fmt, args...) \
 	xprintk(dev , KERN_ERR , fmt , ## args)
 #define INFO(dev, fmt, args...) \
 	xprintk(dev , KERN_INFO , fmt , ## args)
 
+/*-------------------------------------------------------------------------*/
 
+/* NETWORK DRIVER HOOKUP (to the layer above this driver) */
 static int ueth_qc_change_mtu(struct net_device *net, int new_mtu)
 {
 	struct eth_qc_dev	*dev = netdev_priv(net);
 	unsigned long	flags;
 	int		status = 0;
 
-	
+	/* don't change MTU on "live" link (peer won't know) */
 	spin_lock_irqsave(&dev->lock, flags);
 	if (dev->port_usb)
 		status = -EBUSY;
@@ -125,6 +155,9 @@ static int eth_qc_open(struct net_device *net)
 
 	DBG(dev, "%s\n", __func__);
 	if (netif_carrier_ok(dev->net)) {
+		/* Force the netif to send the RTM_NEWLINK event
+		 * that in use to notify on the USB cable status.
+		 */
 		netif_carrier_off(dev->net);
 		netif_carrier_on(dev->net);
 		netif_wake_queue(dev->net);
@@ -156,11 +189,14 @@ static int eth_qc_stop(struct net_device *net)
 	return 0;
 }
 
+/*-------------------------------------------------------------------------*/
 
+/* initial value, changed by "ifconfig usb0 hw ether xx:xx:xx:xx:xx:xx" */
 static char *qc_dev_addr;
 module_param(qc_dev_addr, charp, S_IRUGO);
 MODULE_PARM_DESC(qc_dev_addr, "QC Device Ethernet Address");
 
+/* this address is invisible to ifconfig */
 static char *qc_host_addr;
 module_param(qc_host_addr, charp, S_IRUGO);
 MODULE_PARM_DESC(qc_host_addr, "QC Host Ethernet Address");
@@ -207,11 +243,38 @@ void gether_qc_get_macs(u8 dev_mac[ETH_ALEN], u8 host_mac[ETH_ALEN])
 		pr_debug("using random host_mac ethernet address\n");
 }
 
+/**
+ * gether_qc_setup - initialize one ethernet-over-usb link
+ * @g: gadget to associated with these links
+ * @ethaddr: NULL, or a buffer in which the ethernet address of the
+ *	host side of the link is recorded
+ * Context: may sleep
+ *
+ * This sets up the single network link that may be exported by a
+ * gadget driver using this framework.  The link layer addresses are
+ * set up using module parameters.
+ *
+ * Returns negative errno, or zero on success
+ */
 int gether_qc_setup(struct usb_gadget *g, u8 ethaddr[ETH_ALEN])
 {
 	return gether_qc_setup_name(g, ethaddr, "usb");
 }
 
+/**
+ * gether_qc_setup_name - initialize one ethernet-over-usb link
+ * @g: gadget to associated with these links
+ * @ethaddr: NULL, or a buffer in which the ethernet address of the
+ *	host side of the link is recorded
+ * @netname: name for network device (for example, "usb")
+ * Context: may sleep
+ *
+ * This sets up the single network link that may be exported by a
+ * gadget driver using this framework.  The link layer addresses are
+ * set up using module parameters.
+ *
+ * Returns negative errno, or zero on success
+ */
 int gether_qc_setup_name(struct usb_gadget *g, u8 ethaddr[ETH_ALEN],
 		const char *netname)
 {
@@ -226,7 +289,7 @@ int gether_qc_setup_name(struct usb_gadget *g, u8 ethaddr[ETH_ALEN],
 	dev = netdev_priv(net);
 	spin_lock_init(&dev->lock);
 
-	
+	/* network device setup */
 	dev->net = net;
 	snprintf(net->name, sizeof(net->name), "%s%%d", netname);
 
@@ -263,11 +326,18 @@ int gether_qc_setup_name(struct usb_gadget *g, u8 ethaddr[ETH_ALEN],
 	return status;
 }
 
+/**
+ * gether_qc_cleanup_name - remove Ethernet-over-USB device
+ * @netname: name for network device (for example, "usb")
+ * Context: may sleep
+ *
+ * This is called to free all resources allocated by @gether_qc_setup().
+ */
 void gether_qc_cleanup_name(const char *netname)
 {
 	struct net_device *net_dev;
 
-	
+	/* Extract the eth_qc_dev from the net device */
 	net_dev = dev_get_by_name(&init_net, netname);
 
 	if (net_dev) {
@@ -277,13 +347,25 @@ void gether_qc_cleanup_name(const char *netname)
 	}
 }
 
+/**
+ * gether_qc_connect_name - notify network layer that USB link
+ * is active
+ * @link: the USB link, set up with endpoints, descriptors matching
+ *	current device speed, and any framing wrapper(s) set up.
+ * @netname: name for network device (for example, "usb")
+ * Context: irqs blocked
+ * @netif_enable: if true, net interface will be turned on
+ *
+ * This is called to let the network layer know the connection
+ * is active ("carrier detect").
+ */
 struct net_device *gether_qc_connect_name(struct qc_gether *link,
 		const char *netname, bool netif_enable)
 {
 	struct net_device *net_dev;
 	struct eth_qc_dev *dev;
 
-	
+	/* Extract the eth_qc_dev from the net device */
 	net_dev = dev_get_by_name(&init_net, netname);
 	if (!net_dev)
 		return ERR_PTR(-EINVAL);
@@ -318,12 +400,24 @@ struct net_device *gether_qc_connect_name(struct qc_gether *link,
 	return dev->net;
 }
 
+/**
+ * gether_qc_disconnect_name - notify network layer that USB
+ * link is inactive
+ * @link: the USB link, on which gether_connect() was called
+ * @netname: name for network device (for example, "usb")
+ * Context: irqs blocked
+ *
+ * This is called to let the network layer know the connection
+ * went inactive ("no carrier").
+ *
+ * On return, the state is as if gether_connect() had never been called.
+ */
 void gether_qc_disconnect_name(struct qc_gether *link, const char *netname)
 {
 	struct net_device *net_dev;
 	struct eth_qc_dev *dev;
 
-	
+	/* Extract the eth_qc_dev from the net device */
 	net_dev = dev_get_by_name(&init_net, netname);
 	if (!net_dev)
 		return;

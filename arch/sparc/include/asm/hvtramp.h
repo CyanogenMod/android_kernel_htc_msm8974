@@ -34,4 +34,4 @@ extern void hv_cpu_startup(unsigned long hvdescr_pa);
 #define HVTRAMP_MAPPING_TTE		0x08
 #define HVTRAMP_MAPPING_SIZE		0x10
 
-#endif 
+#endif /* _SPARC64_HVTRAP_H */

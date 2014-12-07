@@ -49,5 +49,5 @@ void ixgbe_enable_sriov(struct ixgbe_adapter *adapter,
 #endif
 
 
-#endif 
+#endif /* _IXGBE_SRIOV_H_ */
 

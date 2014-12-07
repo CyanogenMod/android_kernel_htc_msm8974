@@ -38,6 +38,28 @@
 
 #include "rds.h"
 
+/*
+ * This file implements a getsockopt() call which copies a set of fixed
+ * sized structs into a user-specified buffer as a means of providing
+ * read-only information about RDS.
+ *
+ * For a given information source there are a given number of fixed sized
+ * structs at a given time.  The structs are only copied if the user-specified
+ * buffer is big enough.  The destination pages that make up the buffer
+ * are pinned for the duration of the copy.
+ *
+ * This gives us the following benefits:
+ *
+ * - simple implementation, no copy "position" across multiple calls
+ * - consistent snapshot of an info source
+ * - atomic copy works well with whatever locking info source has
+ * - one portable tool to get rds info across implementations
+ * - long-lived tool can get info without allocating
+ *
+ * at the following costs:
+ *
+ * - info source copy must be pinned, may be "large"
+ */
 
 struct rds_info_iterator {
 	struct page **pages;
@@ -74,6 +96,11 @@ void rds_info_deregister_func(int optname, rds_info_func func)
 }
 EXPORT_SYMBOL_GPL(rds_info_deregister_func);
 
+/*
+ * Typically we hold an atomic kmap across multiple rds_info_copy() calls
+ * because the kmap is so expensive.  This must be called before using blocking
+ * operations while holding the mapping and as the iterator is torn down.
+ */
 void rds_info_iter_unmap(struct rds_info_iterator *iter)
 {
 	if (iter->addr) {
@@ -82,6 +109,9 @@ void rds_info_iter_unmap(struct rds_info_iterator *iter)
 	}
 }
 
+/*
+ * get_user_pages() called flush_dcache_page() on the pages for us.
+ */
 void rds_info_copy(struct rds_info_iterator *iter, void *data,
 		   unsigned long bytes)
 {
@@ -113,6 +143,18 @@ void rds_info_copy(struct rds_info_iterator *iter, void *data,
 }
 EXPORT_SYMBOL_GPL(rds_info_copy);
 
+/*
+ * @optval points to the userspace buffer that the information snapshot
+ * will be copied into.
+ *
+ * @optlen on input is the size of the buffer in userspace.  @optlen
+ * on output is the size of the requested snapshot in bytes.
+ *
+ * This function returns -errno if there is a failure, particularly -ENOSPC
+ * if the given userspace buffer was not large enough to fit the snapshot.
+ * On success it returns the positive number of bytes of each array element
+ * in the snapshot.
+ */
 int rds_info_getsockopt(struct socket *sock, int optname, char __user *optval,
 			int __user *optlen)
 {
@@ -132,14 +174,14 @@ int rds_info_getsockopt(struct socket *sock, int optname, char __user *optval,
 		goto out;
 	}
 
-	
+	/* check for all kinds of wrapping and the like */
 	start = (unsigned long)optval;
 	if (len < 0 || len + PAGE_SIZE - 1 < len || start + len < start) {
 		ret = -EINVAL;
 		goto out;
 	}
 
-	
+	/* a 0 len call is just trying to probe its length */
 	if (len == 0)
 		goto call_func;
 
@@ -157,7 +199,7 @@ int rds_info_getsockopt(struct socket *sock, int optname, char __user *optval,
 			nr_pages = ret;
 		else
 			nr_pages = 0;
-		ret = -EAGAIN; 
+		ret = -EAGAIN; /* XXX ? */
 		goto out;
 	}
 

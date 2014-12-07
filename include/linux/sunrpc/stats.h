@@ -81,4 +81,4 @@ static inline void svc_seq_show(struct seq_file *seq,
 				const struct svc_stat *st) {}
 #endif
 
-#endif 
+#endif /* _LINUX_SUNRPC_STATS_H */

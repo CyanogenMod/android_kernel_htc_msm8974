@@ -56,6 +56,20 @@ static int debug_log(struct ipc_log_context *ilctxt,
 	return i;
 }
 
+/*
+ * VFS Read operation helper which dispatches the call to the debugfs
+ * read command stored in file->private_data.
+ *
+ * @file  File structure
+ * @buff   user buffer
+ * @count size of user buffer
+ * @ppos  file position to read from (only a value of 0 is accepted)
+ * @cont  1 = continuous mode (don't return 0 to signal end-of-file)
+ *
+ * @returns ==0 end of file
+ *           >0 number of bytes read
+ *           <0 error
+ */
 static ssize_t debug_read_helper(struct file *file, char __user *buff,
 				 size_t count, loff_t *ppos, int cont)
 {
@@ -121,7 +135,7 @@ static void dfunc_string(struct encode_context *ectxt,
 	tsv_timestamp_read(ectxt, dctxt, " ");
 	tsv_byte_array_read(ectxt, dctxt, "");
 
-	
+	/* add trailing \n if necessary */
 	if (*(dctxt->buff - 1) != '\n') {
 		if (dctxt->size) {
 			++dctxt->buff;

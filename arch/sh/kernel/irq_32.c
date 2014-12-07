@@ -20,7 +20,7 @@ void notrace arch_local_irq_restore(unsigned long flags)
 			"or	#0xf0, %0\n\t"
 			"ldc	%0, sr\n\t"
 			: "=&z" (__dummy0)
-			: 
+			: /* no inputs */
 			: "memory"
 		);
 	} else {
@@ -48,7 +48,7 @@ unsigned long notrace arch_local_save_flags(void)
 		"stc	sr, %0\n\t"
 		"and	#0xf0, %0\n\t"
 		: "=&z" (flags)
-		: 
+		: /* no inputs */
 		: "memory"
 	);
 

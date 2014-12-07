@@ -1,8 +1,26 @@
+/*
+ * PKUnity AHB-PCI Bridge Registers
+ */
 
+/*
+ * AHB/PCI fixed physical address for pci addess configuration
+ */
+/*
+ * PCICFG Bridge Base Reg.
+ */
 #define PCICFG_BRIBASE          (PKUNITY_PCICFG_BASE + 0x0000)
+/*
+ * PCICFG Address Reg.
+ */
 #define PCICFG_ADDR             (PKUNITY_PCICFG_BASE + 0x0004)
+/*
+ * PCICFG Address Reg.
+ */
 #define PCICFG_DATA             (PKUNITY_PCICFG_BASE + 0x0008)
 
+/*
+ * PCI Bridge configuration space
+ */
 #define PCIBRI_ID		(PKUNITY_PCIBRI_BASE + 0x0000)
 #define PCIBRI_CMD		(PKUNITY_PCIBRI_BASE + 0x0004)
 #define PCIBRI_CLASS		(PKUNITY_PCIBRI_BASE + 0x0008)

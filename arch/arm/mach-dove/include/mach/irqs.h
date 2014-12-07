@@ -11,6 +11,9 @@
 #ifndef __ASM_ARCH_IRQS_H
 #define __ASM_ARCH_IRQS_H
 
+/*
+ * Dove Low Interrupt Controller
+ */
 #define IRQ_DOVE_BRIDGE		0
 #define IRQ_DOVE_H2C		1
 #define IRQ_DOVE_C2H		2
@@ -44,6 +47,9 @@
 #define IRQ_DOVE_GE00_ERR	30
 #define IRQ_DOVE_CRYPTO		31
 
+/*
+ * Dove High Interrupt Controller
+ */
 #define IRQ_DOVE_AC97		32
 #define IRQ_DOVE_PMU		33
 #define IRQ_DOVE_CAM		34
@@ -71,9 +77,15 @@
 #define IRQ_DOVE_HIGH_GPIO	61
 #define IRQ_DOVE_SATA		62
 
+/*
+ * DOVE General Purpose Pins
+ */
 #define IRQ_DOVE_GPIO_START	64
 #define NR_GPIO_IRQS		64
 
+/*
+ * PMU interrupts
+ */
 #define IRQ_DOVE_PMU_START	(IRQ_DOVE_GPIO_START + NR_GPIO_IRQS)
 #define NR_PMU_IRQS		7
 #define IRQ_DOVE_RTC		(IRQ_DOVE_PMU_START + 5)

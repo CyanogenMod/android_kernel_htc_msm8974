@@ -18,6 +18,6 @@ static inline long regs_return_value(struct pt_regs *regs)
 	return regs->regs[3];
 }
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ASM_SH_PTRACE_64_H */

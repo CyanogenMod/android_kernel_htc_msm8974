@@ -4,16 +4,30 @@
 #include <asm/ptrace.h>
 #include <asm/string.h>
 
+/*
+ * KEXEC_SOURCE_MEMORY_LIMIT maximum page get_free_page can return.
+ * I.e. Maximum page that is mapped directly into kernel memory,
+ * and kmap is not required.
+ *
+ * Someone correct me if FIXADDR_START - PAGEOFFSET is not the correct
+ * calculation for the amount of memory directly mappable into the
+ * kernel memory space.
+ */
 
+/* Maximum physical address we can use pages from */
 #define KEXEC_SOURCE_MEMORY_LIMIT (-1UL)
+/* Maximum address we can reach in physical address mode */
 #define KEXEC_DESTINATION_MEMORY_LIMIT (-1UL)
+/* Maximum address we can use for the control code buffer */
 #define KEXEC_CONTROL_MEMORY_LIMIT TASK_SIZE
 
 #define KEXEC_CONTROL_PAGE_SIZE	4096
 
+/* The native architecture */
 #define KEXEC_ARCH KEXEC_ARCH_SH
 
 #ifdef CONFIG_KEXEC
+/* arch/sh/kernel/machine_kexec.c */
 void reserve_crashkernel(void);
 
 static inline void crash_setup_regs(struct pt_regs *newregs,
@@ -51,6 +65,6 @@ static inline void crash_setup_regs(struct pt_regs *newregs,
 }
 #else
 static inline void reserve_crashkernel(void) { }
-#endif 
+#endif /* CONFIG_KEXEC */
 
-#endif 
+#endif /* __ASM_SH_KEXEC_H */

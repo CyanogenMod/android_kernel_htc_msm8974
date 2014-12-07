@@ -79,6 +79,10 @@ static int davinci_target(struct cpufreq_policy *policy,
 	struct davinci_cpufreq_config *pdata = cpufreq.dev->platform_data;
 	struct clk *armclk = cpufreq.armclk;
 
+	/*
+	 * Ensure desired rate is within allowed range.  Some govenors
+	 * (ondemand) will just pass target_freq=0 to get the minimum.
+	 */
 	if (target_freq < policy->cpuinfo.min_freq)
 		target_freq = policy->cpuinfo.min_freq;
 	if (target_freq > policy->cpuinfo.max_freq)
@@ -100,7 +104,7 @@ static int davinci_target(struct cpufreq_policy *policy,
 
 	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
-	
+	/* if moving to higher frequency, up the voltage beforehand */
 	if (pdata->set_voltage && freqs.new > freqs.old) {
 		ret = pdata->set_voltage(idx);
 		if (ret)
@@ -117,7 +121,7 @@ static int davinci_target(struct cpufreq_policy *policy,
 			goto out;
 	}
 
-	
+	/* if moving to lower freq, lower the voltage after lowering freq */
 	if (pdata->set_voltage && freqs.new < freqs.old)
 		pdata->set_voltage(idx);
 
@@ -136,7 +140,7 @@ static int davinci_cpu_init(struct cpufreq_policy *policy)
 	if (policy->cpu != 0)
 		return -EINVAL;
 
-	
+	/* Finish platform specific initialization */
 	if (pdata->init) {
 		result = pdata->init();
 		if (result)
@@ -159,6 +163,12 @@ static int davinci_cpu_init(struct cpufreq_policy *policy)
 	policy->max = policy->cpuinfo.max_freq;
 	policy->cur = davinci_getspeed(0);
 
+	/*
+	 * Time measurement across the target() function yields ~1500-1800us
+	 * time taken with no drivers on notification list.
+	 * Setting the latency to 2000 us to accommodate addition of drivers
+	 * to pre/post change notification list.
+	 */
 	policy->cpuinfo.transition_latency = 2000 * 1000;
 	return 0;
 }

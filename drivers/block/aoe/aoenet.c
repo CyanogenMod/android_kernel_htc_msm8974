@@ -1,4 +1,8 @@
 /* Copyright (c) 2007 Coraid, Inc.  See COPYING for GPL terms. */
+/*
+ * aoenet.c
+ * Ethernet portion of AoE driver
+ */
 
 #include <linux/gfp.h>
 #include <linux/hdreg.h>
@@ -55,7 +59,7 @@ is_aoe_netif(struct net_device *ifp)
 		if (q != p)
 			len = q - p;
 		else
-			len = strlen(p); 
+			len = strlen(p); /* last token in aoe_iflist */
 
 		if (strlen(ifp->name) == len && !strncmp(ifp->name, p, len))
 			return 1;
@@ -91,6 +95,9 @@ aoenet_xmit(struct sk_buff_head *queue)
 	}
 }
 
+/* 
+ * (1) len doesn't include the header by default.  I want this. 
+ */
 static int
 aoenet_rcv(struct sk_buff *skb, struct net_device *ifp, struct packet_type *pt, struct net_device *orig_dev)
 {
@@ -107,7 +114,7 @@ aoenet_rcv(struct sk_buff *skb, struct net_device *ifp, struct packet_type *pt, 
 		goto exit;
 	if (!is_aoe_netif(ifp))
 		goto exit;
-	skb_push(skb, ETH_HLEN);	
+	skb_push(skb, ETH_HLEN);	/* (1) */
 
 	h = (struct aoe_hdr *) skb_mac_header(skb);
 	n = get_unaligned_be32(&h->tag);
@@ -137,7 +144,7 @@ aoenet_rcv(struct sk_buff *skb, struct net_device *ifp, struct packet_type *pt, 
 		break;
 	default:
 		if (h->cmd >= AOECMD_VEND_MIN)
-			break;	
+			break;	/* don't complain about vendor commands */
 		printk(KERN_INFO "aoe: unknown cmd %d\n", h->cmd);
 	}
 exit:

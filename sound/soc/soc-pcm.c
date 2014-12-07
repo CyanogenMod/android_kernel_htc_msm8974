@@ -32,6 +32,11 @@
 #include <sound/soc-dpcm.h>
 #include <sound/initval.h>
 
+#undef pr_info
+#undef pr_err
+#define pr_info(fmt, ...) pr_aud_info(fmt, ##__VA_ARGS__)
+#define pr_err(fmt, ...) pr_aud_err(fmt, ##__VA_ARGS__)
+
 /* ASoC no host IO hardware.
  * TODO: fine tune these values for all host less transfers.
  */
@@ -1102,6 +1107,7 @@ int dpcm_be_dai_startup(struct snd_soc_pcm_runtime *fe, int stream)
 		if (!snd_soc_dpcm_be_can_update(fe, be, stream))
 			continue;
 
+		
 		/* first time the dpcm_params is open ? */
 		if (be->dpcm[stream].users == DPCM_MAX_BE_USERS)
 			dev_err(be->dev, "too many users %s at open - state %d\n",
@@ -1852,7 +1858,7 @@ int soc_dpcm_fe_dai_prepare(struct snd_pcm_substream *substream)
 						fe->dai_link->name);
 		goto out;
 	}
-
+	
 	if (!(fe->dai_link->async_ops & ASYNC_DPCM_SND_SOC_PREPARE)) {
 		ret = dpcm_be_dai_prepare(fe, substream->stream);
 		if (ret < 0)
@@ -1875,7 +1881,6 @@ int soc_dpcm_fe_dai_prepare(struct snd_pcm_substream *substream)
 			dev_err(fe->dev, "ASoC: prepare FE %s failed\n",
 					fe->dai_link->name);
 		}
-
 		async_synchronize_full_domain(&async_domain);
 
 		/* check if any BE failed */
@@ -1891,7 +1896,7 @@ int soc_dpcm_fe_dai_prepare(struct snd_pcm_substream *substream)
 		/* check if FE failed */
 		if (fe->err_ops < 0) {
 			ret = fe->err_ops;
-			goto out;
+ 			goto out;
 		}
 	}
 
@@ -2600,9 +2605,11 @@ int soc_dpcm_fe_dai_open(struct snd_pcm_substream *fe_substream)
 	mutex_lock(&fe->card->dpcm_mutex);
 	fe->dpcm[stream].runtime = fe_substream->runtime;
 
-	if (dpcm_path_get(fe, stream, &list) <= 0) {
+	if ((ret = dpcm_path_get(fe, stream, &list)) <= 0) {
 		dev_warn(fe->dev, "asoc: %s no valid %s route from source to sink\n",
 			fe->dai_link->name, stream ? "capture" : "playback");
+		if(ret == 0 && list)
+			dpcm_path_put(&list);
 		mutex_unlock(&fe->card->dpcm_mutex);
 		return -EINVAL;
 	}

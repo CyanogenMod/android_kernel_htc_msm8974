@@ -9,8 +9,8 @@
 #ifndef _BLACKFIN_CACHEFLUSH_H
 #define _BLACKFIN_CACHEFLUSH_H
 
-#include <asm/blackfin.h>	
-#include <asm/sections.h>	
+#include <asm/blackfin.h>	/* for SSYNC() */
+#include <asm/sections.h>	/* for _ramend */
 #ifdef CONFIG_SMP
 #include <asm/smp.h>
 #endif
@@ -48,6 +48,14 @@ static inline void flush_icache_range(unsigned start, unsigned end)
 		blackfin_dcache_flush_range(start, end);
 #endif
 
+	/* Make sure all write buffers in the data side of the core
+	 * are flushed before trying to invalidate the icache.  This
+	 * needs to be after the data flush and before the icache
+	 * flush so that the SSYNC does the right thing in preventing
+	 * the instruction prefetcher from hitting things in cached
+	 * memory at the wrong time -- it runs much further ahead than
+	 * the pipeline.
+	 */
 	SSYNC();
 #if defined(CONFIG_BFIN_EXTMEM_ICACHEABLE)
 	if (end <= physical_mem_end) {
@@ -107,4 +115,4 @@ static inline int bfin_addr_dcacheable(unsigned long addr)
 	return 0;
 }
 
-#endif				
+#endif				/* _BLACKFIN_ICACHEFLUSH_H */

@@ -34,6 +34,28 @@
 #include <linux/rpmsg.h>
 #include <linux/mutex.h>
 
+/**
+ * struct virtproc_info - virtual remote processor state
+ * @vdev:	the virtio device
+ * @rvq:	rx virtqueue
+ * @svq:	tx virtqueue
+ * @rbufs:	kernel address of rx buffers
+ * @sbufs:	kernel address of tx buffers
+ * @last_sbuf:	index of last tx buffer used
+ * @bufs_dma:	dma base addr of the buffers
+ * @tx_lock:	protects svq, sbufs and sleepers, to allow concurrent senders.
+ *		sending a message might require waking up a dozing remote
+ *		processor, which involves sleeping, hence the mutex.
+ * @endpoints:	idr of local endpoints, allows fast retrieval
+ * @endpoints_lock: lock of the endpoints set
+ * @sendq:	wait queue of sending contexts waiting for a tx buffers
+ * @sleepers:	number of senders that are waiting for a tx buffer
+ * @ns_ept:	the bus's name service endpoint
+ *
+ * This structure stores the rpmsg state of a given virtio remote processor
+ * device (there might be several virtio proc devices for each physical
+ * remote processor).
+ */
 struct virtproc_info {
 	struct virtio_device *vdev;
 	struct virtqueue *rvq, *svq;
@@ -48,6 +70,12 @@ struct virtproc_info {
 	struct rpmsg_endpoint *ns_ept;
 };
 
+/**
+ * struct rpmsg_channel_info - internal channel info representation
+ * @name: name of service
+ * @src: local address
+ * @dst: destination address
+ */
 struct rpmsg_channel_info {
 	char name[RPMSG_NAME_SIZE];
 	u32 src;
@@ -57,14 +85,38 @@ struct rpmsg_channel_info {
 #define to_rpmsg_channel(d) container_of(d, struct rpmsg_channel, dev)
 #define to_rpmsg_driver(d) container_of(d, struct rpmsg_driver, drv)
 
+/*
+ * We're allocating 512 buffers of 512 bytes for communications, and then
+ * using the first 256 buffers for RX, and the last 256 buffers for TX.
+ *
+ * Each buffer will have 16 bytes for the msg header and 496 bytes for
+ * the payload.
+ *
+ * This will require a total space of 256KB for the buffers.
+ *
+ * We might also want to add support for user-provided buffers in time.
+ * This will allow bigger buffer size flexibility, and can also be used
+ * to achieve zero-copy messaging.
+ *
+ * Note that these numbers are purely a decision of this driver - we
+ * can change this without changing anything in the firmware of the remote
+ * processor.
+ */
 #define RPMSG_NUM_BUFS		(512)
 #define RPMSG_BUF_SIZE		(512)
 #define RPMSG_TOTAL_BUF_SPACE	(RPMSG_NUM_BUFS * RPMSG_BUF_SIZE)
 
+/*
+ * Local addresses are dynamically allocated on-demand.
+ * We do not dynamically assign addresses from the low 1024 range,
+ * in order to reserve that address range for predefined services.
+ */
 #define RPMSG_RESERVED_ADDRESSES	(1024)
 
+/* Address 53 is reserved for advertising remote services */
 #define RPMSG_NS_ADDR			(53)
 
+/* sysfs show configuration fields */
 #define rpmsg_show_attr(field, path, format_string)			\
 static ssize_t								\
 field##_show(struct device *dev,					\
@@ -75,11 +127,18 @@ field##_show(struct device *dev,					\
 	return sprintf(buf, format_string, rpdev->path);		\
 }
 
+/* for more info, see Documentation/ABI/testing/sysfs-bus-rpmsg */
 rpmsg_show_attr(name, id.name, "%s\n");
 rpmsg_show_attr(src, src, "0x%x\n");
 rpmsg_show_attr(dst, dst, "0x%x\n");
 rpmsg_show_attr(announce, announce ? "true" : "false", "%s\n");
 
+/*
+ * Unique (and free running) index for rpmsg devices.
+ *
+ * Yeah, we're not recycling those numbers (yet?). will be easy
+ * to change if/when we want to.
+ */
 static unsigned int rpmsg_dev_index;
 
 static ssize_t modalias_show(struct device *dev,
@@ -99,12 +158,14 @@ static struct device_attribute rpmsg_dev_attrs[] = {
 	__ATTR_NULL
 };
 
+/* rpmsg devices and drivers are matched using the service name */
 static inline int rpmsg_id_match(const struct rpmsg_channel *rpdev,
 				  const struct rpmsg_device_id *id)
 {
 	return strncmp(id->name, rpdev->id.name, RPMSG_NAME_SIZE) == 0;
 }
 
+/* match rpmsg channel and rpmsg driver */
 static int rpmsg_dev_match(struct device *dev, struct device_driver *drv)
 {
 	struct rpmsg_channel *rpdev = to_rpmsg_channel(dev);
@@ -127,6 +188,7 @@ static int rpmsg_uevent(struct device *dev, struct kobj_uevent_env *env)
 					rpdev->id.name);
 }
 
+/* for more info, see below documentation of rpmsg_create_ept() */
 static struct rpmsg_endpoint *__rpmsg_create_ept(struct virtproc_info *vrp,
 		struct rpmsg_channel *rpdev, rpmsg_rx_cb_t cb,
 		void *priv, u32 addr)
@@ -148,19 +210,19 @@ static struct rpmsg_endpoint *__rpmsg_create_ept(struct virtproc_info *vrp,
 	ept->cb = cb;
 	ept->priv = priv;
 
-	
+	/* do we need to allocate a local address ? */
 	request = addr == RPMSG_ADDR_ANY ? RPMSG_RESERVED_ADDRESSES : addr;
 
 	mutex_lock(&vrp->endpoints_lock);
 
-	
+	/* bind the endpoint to an rpmsg address (and allocate one if needed) */
 	err = idr_get_new_above(&vrp->endpoints, ept, request, &tmpaddr);
 	if (err) {
 		dev_err(dev, "idr_get_new_above failed: %d\n", err);
 		goto free_ept;
 	}
 
-	
+	/* make sure the user's address request is fulfilled, if relevant */
 	if (addr != RPMSG_ADDR_ANY && tmpaddr != addr) {
 		dev_err(dev, "address 0x%x already in use\n", addr);
 		goto rem_idr;
@@ -180,6 +242,46 @@ free_ept:
 	return NULL;
 }
 
+/**
+ * rpmsg_create_ept() - create a new rpmsg_endpoint
+ * @rpdev: rpmsg channel device
+ * @cb: rx callback handler
+ * @priv: private data for the driver's use
+ * @addr: local rpmsg address to bind with @cb
+ *
+ * Every rpmsg address in the system is bound to an rx callback (so when
+ * inbound messages arrive, they are dispatched by the rpmsg bus using the
+ * appropriate callback handler) by means of an rpmsg_endpoint struct.
+ *
+ * This function allows drivers to create such an endpoint, and by that,
+ * bind a callback, and possibly some private data too, to an rpmsg address
+ * (either one that is known in advance, or one that will be dynamically
+ * assigned for them).
+ *
+ * Simple rpmsg drivers need not call rpmsg_create_ept, because an endpoint
+ * is already created for them when they are probed by the rpmsg bus
+ * (using the rx callback provided when they registered to the rpmsg bus).
+ *
+ * So things should just work for simple drivers: they already have an
+ * endpoint, their rx callback is bound to their rpmsg address, and when
+ * relevant inbound messages arrive (i.e. messages which their dst address
+ * equals to the src address of their rpmsg channel), the driver's handler
+ * is invoked to process it.
+ *
+ * That said, more complicated drivers might do need to allocate
+ * additional rpmsg addresses, and bind them to different rx callbacks.
+ * To accomplish that, those drivers need to call this function.
+ *
+ * Drivers should provide their @rpdev channel (so the new endpoint would belong
+ * to the same remote processor their channel belongs to), an rx callback
+ * function, an optional private data (which is provided back when the
+ * rx callback is invoked), and an address they want to bind with the
+ * callback. If @addr is RPMSG_ADDR_ANY, then rpmsg_create_ept will
+ * dynamically assign them an available rpmsg address (drivers should have
+ * a very good reason why not to always use RPMSG_ADDR_ANY here).
+ *
+ * Returns a pointer to the endpoint on success, or NULL on error.
+ */
 struct rpmsg_endpoint *rpmsg_create_ept(struct rpmsg_channel *rpdev,
 				rpmsg_rx_cb_t cb, void *priv, u32 addr)
 {
@@ -187,6 +289,16 @@ struct rpmsg_endpoint *rpmsg_create_ept(struct rpmsg_channel *rpdev,
 }
 EXPORT_SYMBOL(rpmsg_create_ept);
 
+/**
+ * __rpmsg_destroy_ept() - destroy an existing rpmsg endpoint
+ * @vrp: virtproc which owns this ept
+ * @ept: endpoing to destroy
+ *
+ * An internal function which destroy an ept without assuming it is
+ * bound to an rpmsg channel. This is needed for handling the internal
+ * name service endpoint, which isn't bound to an rpmsg channel.
+ * See also __rpmsg_create_ept().
+ */
 static void
 __rpmsg_destroy_ept(struct virtproc_info *vrp, struct rpmsg_endpoint *ept)
 {
@@ -197,12 +309,27 @@ __rpmsg_destroy_ept(struct virtproc_info *vrp, struct rpmsg_endpoint *ept)
 	kfree(ept);
 }
 
+/**
+ * rpmsg_destroy_ept() - destroy an existing rpmsg endpoint
+ * @ept: endpoing to destroy
+ *
+ * Should be used by drivers to destroy an rpmsg endpoint previously
+ * created with rpmsg_create_ept().
+ */
 void rpmsg_destroy_ept(struct rpmsg_endpoint *ept)
 {
 	__rpmsg_destroy_ept(ept->rpdev->vrp, ept);
 }
 EXPORT_SYMBOL(rpmsg_destroy_ept);
 
+/*
+ * when an rpmsg driver is probed with a channel, we seamlessly create
+ * it an endpoint, binding its rx callback to a unique local rpmsg
+ * address.
+ *
+ * if we need to, we also announce about this channel to the remote
+ * processor (needed in case the driver is exposing an rpmsg service).
+ */
 static int rpmsg_dev_probe(struct device *dev)
 {
 	struct rpmsg_channel *rpdev = to_rpmsg_channel(dev);
@@ -228,7 +355,7 @@ static int rpmsg_dev_probe(struct device *dev)
 		goto out;
 	}
 
-	
+	/* need to tell remote processor's name service about this channel ? */
 	if (rpdev->announce &&
 			virtio_has_feature(vrp->vdev, VIRTIO_RPMSG_F_NS)) {
 		struct rpmsg_ns_msg nsm;
@@ -253,7 +380,7 @@ static int rpmsg_dev_remove(struct device *dev)
 	struct virtproc_info *vrp = rpdev->vrp;
 	int err = 0;
 
-	
+	/* tell remote processor's name service we're removing this channel */
 	if (rpdev->announce &&
 			virtio_has_feature(vrp->vdev, VIRTIO_RPMSG_F_NS)) {
 		struct rpmsg_ns_msg nsm;
@@ -283,6 +410,12 @@ static struct bus_type rpmsg_bus = {
 	.remove		= rpmsg_dev_remove,
 };
 
+/**
+ * register_rpmsg_driver() - register an rpmsg driver with the rpmsg bus
+ * @rpdrv: pointer to a struct rpmsg_driver
+ *
+ * Returns 0 on success, and an appropriate error value on failure.
+ */
 int register_rpmsg_driver(struct rpmsg_driver *rpdrv)
 {
 	rpdrv->drv.bus = &rpmsg_bus;
@@ -290,6 +423,12 @@ int register_rpmsg_driver(struct rpmsg_driver *rpdrv)
 }
 EXPORT_SYMBOL(register_rpmsg_driver);
 
+/**
+ * unregister_rpmsg_driver() - unregister an rpmsg driver from the rpmsg bus
+ * @rpdrv: pointer to a struct rpmsg_driver
+ *
+ * Returns 0 on success, and an appropriate error value on failure.
+ */
 void unregister_rpmsg_driver(struct rpmsg_driver *rpdrv)
 {
 	driver_unregister(&rpdrv->drv);
@@ -303,6 +442,11 @@ static void rpmsg_release_device(struct device *dev)
 	kfree(rpdev);
 }
 
+/*
+ * match an rpmsg channel with a channel info struct.
+ * this is used to make sure we're not creating rpmsg devices for channels
+ * that already exist.
+ */
 static int rpmsg_channel_match(struct device *dev, void *data)
 {
 	struct rpmsg_channel_info *chinfo = data;
@@ -317,10 +461,15 @@ static int rpmsg_channel_match(struct device *dev, void *data)
 	if (strncmp(chinfo->name, rpdev->id.name, RPMSG_NAME_SIZE))
 		return 0;
 
-	
+	/* found a match ! */
 	return 1;
 }
 
+/*
+ * create an rpmsg channel using its name and address info.
+ * this function will be used to create both static and dynamic
+ * channels.
+ */
 static struct rpmsg_channel *rpmsg_create_channel(struct virtproc_info *vrp,
 				struct rpmsg_channel_info *chinfo)
 {
@@ -328,10 +477,10 @@ static struct rpmsg_channel *rpmsg_create_channel(struct virtproc_info *vrp,
 	struct device *tmp, *dev = &vrp->vdev->dev;
 	int ret;
 
-	
+	/* make sure a similar channel doesn't already exist */
 	tmp = device_find_child(dev, chinfo, rpmsg_channel_match);
 	if (tmp) {
-		
+		/* decrement the matched device's refcount back */
 		put_device(tmp);
 		dev_err(dev, "channel %s:%x:%x already exist\n",
 				chinfo->name, chinfo->src, chinfo->dst);
@@ -348,11 +497,15 @@ static struct rpmsg_channel *rpmsg_create_channel(struct virtproc_info *vrp,
 	rpdev->src = chinfo->src;
 	rpdev->dst = chinfo->dst;
 
+	/*
+	 * rpmsg server channels has predefined local address (for now),
+	 * and their existence needs to be announced remotely
+	 */
 	rpdev->announce = rpdev->src != RPMSG_ADDR_ANY ? true : false;
 
 	strncpy(rpdev->id.name, chinfo->name, RPMSG_NAME_SIZE);
 
-	
+	/* very simple device indexing plumbing which is enough for now */
 	dev_set_name(&rpdev->dev, "rpmsg%d", rpmsg_dev_index++);
 
 	rpdev->dev.parent = &vrp->vdev->dev;
@@ -369,6 +522,10 @@ static struct rpmsg_channel *rpmsg_create_channel(struct virtproc_info *vrp,
 	return rpdev;
 }
 
+/*
+ * find an existing channel using its name + address properties,
+ * and destroy it
+ */
 static int rpmsg_destroy_channel(struct virtproc_info *vrp,
 					struct rpmsg_channel_info *chinfo)
 {
@@ -386,17 +543,22 @@ static int rpmsg_destroy_channel(struct virtproc_info *vrp,
 	return 0;
 }
 
+/* super simple buffer "allocator" that is just enough for now */
 static void *get_a_tx_buf(struct virtproc_info *vrp)
 {
 	unsigned int len;
 	void *ret;
 
-	
+	/* support multiple concurrent senders */
 	mutex_lock(&vrp->tx_lock);
 
+	/*
+	 * either pick the next unused tx buffer
+	 * (half of our buffers are used for sending messages)
+	 */
 	if (vrp->last_sbuf < RPMSG_NUM_BUFS / 2)
 		ret = vrp->sbufs + RPMSG_BUF_SIZE * vrp->last_sbuf++;
-	
+	/* or recycle a used one */
 	else
 		ret = virtqueue_get_buf(vrp->svq, &len);
 
@@ -405,32 +567,96 @@ static void *get_a_tx_buf(struct virtproc_info *vrp)
 	return ret;
 }
 
+/**
+ * rpmsg_upref_sleepers() - enable "tx-complete" interrupts, if needed
+ * @vrp: virtual remote processor state
+ *
+ * This function is called before a sender is blocked, waiting for
+ * a tx buffer to become available.
+ *
+ * If we already have blocking senders, this function merely increases
+ * the "sleepers" reference count, and exits.
+ *
+ * Otherwise, if this is the first sender to block, we also enable
+ * virtio's tx callbacks, so we'd be immediately notified when a tx
+ * buffer is consumed (we rely on virtio's tx callback in order
+ * to wake up sleeping senders as soon as a tx buffer is used by the
+ * remote processor).
+ */
 static void rpmsg_upref_sleepers(struct virtproc_info *vrp)
 {
-	
+	/* support multiple concurrent senders */
 	mutex_lock(&vrp->tx_lock);
 
-	
+	/* are we the first sleeping context waiting for tx buffers ? */
 	if (atomic_inc_return(&vrp->sleepers) == 1)
-		
+		/* enable "tx-complete" interrupts before dozing off */
 		virtqueue_enable_cb(vrp->svq);
 
 	mutex_unlock(&vrp->tx_lock);
 }
 
+/**
+ * rpmsg_downref_sleepers() - disable "tx-complete" interrupts, if needed
+ * @vrp: virtual remote processor state
+ *
+ * This function is called after a sender, that waited for a tx buffer
+ * to become available, is unblocked.
+ *
+ * If we still have blocking senders, this function merely decreases
+ * the "sleepers" reference count, and exits.
+ *
+ * Otherwise, if there are no more blocking senders, we also disable
+ * virtio's tx callbacks, to avoid the overhead incurred with handling
+ * those (now redundant) interrupts.
+ */
 static void rpmsg_downref_sleepers(struct virtproc_info *vrp)
 {
-	
+	/* support multiple concurrent senders */
 	mutex_lock(&vrp->tx_lock);
 
-	
+	/* are we the last sleeping context waiting for tx buffers ? */
 	if (atomic_dec_and_test(&vrp->sleepers))
-		
+		/* disable "tx-complete" interrupts */
 		virtqueue_disable_cb(vrp->svq);
 
 	mutex_unlock(&vrp->tx_lock);
 }
 
+/**
+ * rpmsg_send_offchannel_raw() - send a message across to the remote processor
+ * @rpdev: the rpmsg channel
+ * @src: source address
+ * @dst: destination address
+ * @data: payload of message
+ * @len: length of payload
+ * @wait: indicates whether caller should block in case no TX buffers available
+ *
+ * This function is the base implementation for all of the rpmsg sending API.
+ *
+ * It will send @data of length @len to @dst, and say it's from @src. The
+ * message will be sent to the remote processor which the @rpdev channel
+ * belongs to.
+ *
+ * The message is sent using one of the TX buffers that are available for
+ * communication with this remote processor.
+ *
+ * If @wait is true, the caller will be blocked until either a TX buffer is
+ * available, or 15 seconds elapses (we don't want callers to
+ * sleep indefinitely due to misbehaving remote processors), and in that
+ * case -ERESTARTSYS is returned. The number '15' itself was picked
+ * arbitrarily; there's little point in asking drivers to provide a timeout
+ * value themselves.
+ *
+ * Otherwise, if @wait is false, and there are no TX buffers available,
+ * the function will immediately fail, and -ENOMEM will be returned.
+ *
+ * Normally drivers shouldn't use this function directly; instead, drivers
+ * should use the appropriate rpmsg_{try}send{to, _offchannel} API
+ * (see include/linux/rpmsg.h).
+ *
+ * Returns 0 on success and an appropriate error value on failure.
+ */
 int rpmsg_send_offchannel_raw(struct rpmsg_channel *rpdev, u32 src, u32 dst,
 					void *data, int len, bool wait)
 {
@@ -440,35 +666,50 @@ int rpmsg_send_offchannel_raw(struct rpmsg_channel *rpdev, u32 src, u32 dst,
 	struct rpmsg_hdr *msg;
 	int err;
 
-	
+	/* bcasting isn't allowed */
 	if (src == RPMSG_ADDR_ANY || dst == RPMSG_ADDR_ANY) {
 		dev_err(dev, "invalid addr (src 0x%x, dst 0x%x)\n", src, dst);
 		return -EINVAL;
 	}
 
+	/*
+	 * We currently use fixed-sized buffers, and therefore the payload
+	 * length is limited.
+	 *
+	 * One of the possible improvements here is either to support
+	 * user-provided buffers (and then we can also support zero-copy
+	 * messaging), or to improve the buffer allocator, to support
+	 * variable-length buffer sizes.
+	 */
 	if (len > RPMSG_BUF_SIZE - sizeof(struct rpmsg_hdr)) {
 		dev_err(dev, "message is too big (%d)\n", len);
 		return -EMSGSIZE;
 	}
 
-	
+	/* grab a buffer */
 	msg = get_a_tx_buf(vrp);
 	if (!msg && !wait)
 		return -ENOMEM;
 
-	
+	/* no free buffer ? wait for one (but bail after 15 seconds) */
 	while (!msg) {
-		
+		/* enable "tx-complete" interrupts, if not already enabled */
 		rpmsg_upref_sleepers(vrp);
 
+		/*
+		 * sleep until a free buffer is available or 15 secs elapse.
+		 * the timeout period is not configurable because there's
+		 * little point in asking drivers to specify that.
+		 * if later this happens to be required, it'd be easy to add.
+		 */
 		err = wait_event_interruptible_timeout(vrp->sendq,
 					(msg = get_a_tx_buf(vrp)),
 					msecs_to_jiffies(15000));
 
-		
+		/* disable "tx-complete" interrupts if we're the last sleeper */
 		rpmsg_downref_sleepers(vrp);
 
-		
+		/* timeout ? */
 		if (!err) {
 			dev_err(dev, "timeout waiting for a tx buffer\n");
 			return -ERESTARTSYS;
@@ -492,14 +733,19 @@ int rpmsg_send_offchannel_raw(struct rpmsg_channel *rpdev, u32 src, u32 dst,
 
 	mutex_lock(&vrp->tx_lock);
 
-	
+	/* add message to the remote processor's virtqueue */
 	err = virtqueue_add_buf(vrp->svq, &sg, 1, 0, msg, GFP_KERNEL);
 	if (err < 0) {
+		/*
+		 * need to reclaim the buffer here, otherwise it's lost
+		 * (memory won't leak, but rpmsg won't use it again for TX).
+		 * this will wait for a buffer management overhaul.
+		 */
 		dev_err(dev, "virtqueue_add_buf failed: %d\n", err);
 		goto out;
 	}
 
-	
+	/* tell the remote processor it has a pending message to read */
 	virtqueue_kick(vrp->svq);
 
 	err = 0;
@@ -509,6 +755,7 @@ out:
 }
 EXPORT_SYMBOL(rpmsg_send_offchannel_raw);
 
+/* called when an rx buffer is used, and it's time to digest a message */
 static void rpmsg_recv_done(struct virtqueue *rvq)
 {
 	struct rpmsg_hdr *msg;
@@ -531,13 +778,17 @@ static void rpmsg_recv_done(struct virtqueue *rvq)
 	print_hex_dump(KERN_DEBUG, "rpmsg_virtio RX: ", DUMP_PREFIX_NONE, 16, 1,
 					msg, sizeof(*msg) + msg->len, true);
 
+	/*
+	 * We currently use fixed-sized buffers, so trivially sanitize
+	 * the reported payload length.
+	 */
 	if (len > RPMSG_BUF_SIZE ||
 		msg->len > (len - sizeof(struct rpmsg_hdr))) {
 		dev_warn(dev, "inbound msg too big: (%d, %d)\n", len, msg->len);
 		return;
 	}
 
-	
+	/* use the dst addr to fetch the callback of the appropriate user */
 	mutex_lock(&vrp->endpoints_lock);
 	ept = idr_find(&vrp->endpoints, msg->dst);
 	mutex_unlock(&vrp->endpoints_lock);
@@ -547,30 +798,38 @@ static void rpmsg_recv_done(struct virtqueue *rvq)
 	else
 		dev_warn(dev, "msg received with no recepient\n");
 
-	
+	/* publish the real size of the buffer */
 	sg_init_one(&sg, msg, RPMSG_BUF_SIZE);
 
-	
+	/* add the buffer back to the remote processor's virtqueue */
 	err = virtqueue_add_buf(vrp->rvq, &sg, 0, 1, msg, GFP_KERNEL);
 	if (err < 0) {
 		dev_err(dev, "failed to add a virtqueue buffer: %d\n", err);
 		return;
 	}
 
-	
+	/* tell the remote processor we added another available rx buffer */
 	virtqueue_kick(vrp->rvq);
 }
 
+/*
+ * This is invoked whenever the remote processor completed processing
+ * a TX msg we just sent it, and the buffer is put back to the used ring.
+ *
+ * Normally, though, we suppress this "tx complete" interrupt in order to
+ * avoid the incurred overhead.
+ */
 static void rpmsg_xmit_done(struct virtqueue *svq)
 {
 	struct virtproc_info *vrp = svq->vdev->priv;
 
 	dev_dbg(&svq->vdev->dev, "%s\n", __func__);
 
-	
+	/* wake up potential senders that are waiting for a tx buffer */
 	wake_up_interruptible(&vrp->sendq);
 }
 
+/* invoked when a name service announcement arrives */
 static void rpmsg_ns_cb(struct rpmsg_channel *rpdev, void *data, int len,
 							void *priv, u32 src)
 {
@@ -590,12 +849,18 @@ static void rpmsg_ns_cb(struct rpmsg_channel *rpdev, void *data, int len,
 		return;
 	}
 
+	/*
+	 * the name service ept does _not_ belong to a real rpmsg channel,
+	 * and is handled by the rpmsg bus itself.
+	 * for sanity reasons, make sure a valid rpdev has _not_ sneaked
+	 * in somehow.
+	 */
 	if (rpdev) {
 		dev_err(dev, "anomaly: ns ept has an rpdev handle\n");
 		return;
 	}
 
-	
+	/* don't trust the remote processor for null terminating the name */
 	msg->name[RPMSG_NAME_SIZE - 1] = '\0';
 
 	dev_info(dev, "%sing channel %s addr 0x%x\n",
@@ -637,7 +902,7 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	mutex_init(&vrp->tx_lock);
 	init_waitqueue_head(&vrp->sendq);
 
-	
+	/* We expect two virtqueues, rx and tx (and in this order) */
 	err = vdev->config->find_vqs(vdev, 2, vqs, vq_cbs, names);
 	if (err)
 		goto free_vrp;
@@ -645,7 +910,7 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	vrp->rvq = vqs[0];
 	vrp->svq = vqs[1];
 
-	
+	/* allocate coherent memory for the buffers */
 	bufs_va = dma_alloc_coherent(vdev->dev.parent, RPMSG_TOTAL_BUF_SPACE,
 				&vrp->bufs_dma, GFP_KERNEL);
 	if (!bufs_va)
@@ -654,13 +919,13 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	dev_dbg(&vdev->dev, "buffers: va %p, dma 0x%llx\n", bufs_va,
 					(unsigned long long)vrp->bufs_dma);
 
-	
+	/* half of the buffers is dedicated for RX */
 	vrp->rbufs = bufs_va;
 
-	
+	/* and half is dedicated for TX */
 	vrp->sbufs = bufs_va + RPMSG_TOTAL_BUF_SPACE / 2;
 
-	
+	/* set up the receive buffers */
 	for (i = 0; i < RPMSG_NUM_BUFS / 2; i++) {
 		struct scatterlist sg;
 		void *cpu_addr = vrp->rbufs + i * RPMSG_BUF_SIZE;
@@ -669,17 +934,17 @@ static int rpmsg_probe(struct virtio_device *vdev)
 
 		err = virtqueue_add_buf(vrp->rvq, &sg, 0, 1, cpu_addr,
 								GFP_KERNEL);
-		WARN_ON(err < 0); 
+		WARN_ON(err < 0); /* sanity check; this can't really happen */
 	}
 
-	
+	/* suppress "tx-complete" interrupts */
 	virtqueue_disable_cb(vrp->svq);
 
 	vdev->priv = vrp;
 
-	
+	/* if supported by the remote processor, enable the name service */
 	if (virtio_has_feature(vdev, VIRTIO_RPMSG_F_NS)) {
-		
+		/* a dedicated endpoint handles the name service msgs */
 		vrp->ns_ept = __rpmsg_create_ept(vrp, NULL, rpmsg_ns_cb,
 						vrp, RPMSG_NS_ADDR);
 		if (!vrp->ns_ept) {
@@ -689,7 +954,7 @@ static int rpmsg_probe(struct virtio_device *vdev)
 		}
 	}
 
-	
+	/* tell the remote processor it can start sending messages */
 	virtqueue_kick(vrp->rvq);
 
 	dev_info(&vdev->dev, "rpmsg host is online\n");

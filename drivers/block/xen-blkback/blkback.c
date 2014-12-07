@@ -46,13 +46,30 @@
 #include <asm/xen/hypercall.h>
 #include "common.h"
 
+/*
+ * These are rather arbitrary. They are fairly large because adjacent requests
+ * pulled from a communication ring are quite likely to end up being part of
+ * the same scatter/gather request at the disc.
+ *
+ * ** TRY INCREASING 'xen_blkif_reqs' IF WRITE SPEEDS SEEM TOO LOW **
+ *
+ * This will increase the chances of being able to write whole tracks.
+ * 64 should be enough to keep us competitive with Linux.
+ */
 static int xen_blkif_reqs = 64;
 module_param_named(reqs, xen_blkif_reqs, int, 0);
 MODULE_PARM_DESC(reqs, "Number of blkback requests to allocate");
 
+/* Run-time switchable: /sys/module/blkback/parameters/ */
 static unsigned int log_stats;
 module_param(log_stats, int, 0644);
 
+/*
+ * Each outstanding request that we've passed to the lower device layers has a
+ * 'pending_req' allocated to it. Each buffer_head that completes decrements
+ * the pendcnt towards zero. When it hits zero, the specified domain has a
+ * response queued for it, with the saved 'id' passed back.
+ */
 struct pending_req {
 	struct xen_blkif	*blkif;
 	u64			id;
@@ -67,19 +84,25 @@ struct pending_req {
 
 struct xen_blkbk {
 	struct pending_req	*pending_reqs;
-	
+	/* List of all 'pending_req' available */
 	struct list_head	pending_free;
-	
+	/* And its spinlock. */
 	spinlock_t		pending_free_lock;
 	wait_queue_head_t	pending_free_wq;
-	
+	/* The list of all pages that are available. */
 	struct page		**pending_pages;
-	
+	/* And the grant handles that are available. */
 	grant_handle_t		*pending_grant_handles;
 };
 
 static struct xen_blkbk *blkbk;
 
+/*
+ * Little helpful macro to figure out the index and virtual address of the
+ * pending_pages[..]. For each 'pending_req' we have have up to
+ * BLKIF_MAX_SEGMENTS_PER_REQUEST (11) pages. The seg would be from 0 through
+ * 10 and would index in the pending_pages[..].
+ */
 static inline int vaddr_pagenr(struct pending_req *req, int seg)
 {
 	return (req - blkbk->pending_reqs) *
@@ -105,6 +128,9 @@ static int dispatch_rw_block_io(struct xen_blkif *blkif,
 static void make_response(struct xen_blkif *blkif, u64 id,
 			  unsigned short op, int st);
 
+/*
+ * Retrieve from the 'pending_reqs' a free pending_req structure to be used.
+ */
 static struct pending_req *alloc_req(void)
 {
 	struct pending_req *req = NULL;
@@ -120,6 +146,10 @@ static struct pending_req *alloc_req(void)
 	return req;
 }
 
+/*
+ * Return the 'pending_req' structure back to the freepool. We also
+ * wake up the thread if it was waiting for a free page.
+ */
 static void free_req(struct pending_req *req)
 {
 	unsigned long flags;
@@ -133,6 +163,9 @@ static void free_req(struct pending_req *req)
 		wake_up(&blkbk->pending_free_wq);
 }
 
+/*
+ * Routines for managing virtual block devices (vbds).
+ */
 static int xen_vbd_translate(struct phys_req *req, struct xen_blkif *blkif,
 			     int operation)
 {
@@ -183,6 +216,11 @@ again:
 		pr_warn(DRV_PFX "Error writing new size");
 		goto abort;
 	}
+	/*
+	 * Write the current state; we will use this to synchronize
+	 * the front-end. If the current state is "connected" the
+	 * front-end will get the new size information online.
+	 */
 	err = xenbus_printf(xbt, dev->nodename, "state", "%d", dev->state);
 	if (err) {
 		pr_warn(DRV_PFX "Error writing the state");
@@ -199,6 +237,9 @@ abort:
 	xenbus_transaction_end(xbt, 1);
 }
 
+/*
+ * Notification from the guest OS.
+ */
 static void blkif_notify_work(struct xen_blkif *blkif)
 {
 	blkif->waiting_reqs = 1;
@@ -211,6 +252,9 @@ irqreturn_t xen_blkif_be_int(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * SCHEDULER FUNCTIONS
+ */
 
 static void print_stats(struct xen_blkif *blkif)
 {
@@ -248,7 +292,7 @@ int xen_blkif_schedule(void *arg)
 			kthread_should_stop());
 
 		blkif->waiting_reqs = 0;
-		smp_mb(); 
+		smp_mb(); /* clear flag *before* checking for work */
 
 		if (do_block_io_op(blkif))
 			blkif->waiting_reqs = 1;
@@ -270,6 +314,10 @@ struct seg_buf {
 	unsigned long buf;
 	unsigned int nsec;
 };
+/*
+ * Unmap the grant references, and also remove the M2P over-rides
+ * used in the 'pending_req'.
+ */
 static void xen_blkbk_unmap(struct pending_req *req)
 {
 	struct gnttab_unmap_grant_ref unmap[BLKIF_MAX_SEGMENTS_PER_REQUEST];
@@ -302,6 +350,11 @@ static int xen_blkbk_map(struct blkif_request *req,
 	int nseg = req->u.rw.nr_segments;
 	int ret = 0;
 
+	/*
+	 * Fill out preq.nr_sects with proper amount of sectors, and setup
+	 * assign map[..] with the PFN of the page in our domain with the
+	 * corresponding grant reference for each page.
+	 */
 	for (i = 0; i < nseg; i++) {
 		uint32_t flags;
 
@@ -316,6 +369,11 @@ static int xen_blkbk_map(struct blkif_request *req,
 	ret = gnttab_map_refs(map, NULL, &blkbk->pending_page(pending_req, 0), nseg);
 	BUG_ON(ret);
 
+	/*
+	 * Now swizzle the MFN in our domain with the MFN from the other domain
+	 * so that when we access vaddr(pending_req,i) it has the contents of
+	 * the page from the other domain.
+	 */
 	for (i = 0; i < nseg; i++) {
 		if (unlikely(map[i].status != 0)) {
 			pr_debug(DRV_PFX "invalid buffer -- could not remap it\n");
@@ -368,6 +426,8 @@ static void xen_blk_drain_io(struct xen_blkif *blkif)
 {
 	atomic_set(&blkif->drain, 1);
 	do {
+		/* The initial value is one, and one refcnt taken at the
+		 * start of the xen_blkif_schedule thread. */
 		if (atomic_read(&blkif->refcnt) <= 2)
 			break;
 		wait_for_completion_interruptible_timeout(
@@ -379,10 +439,13 @@ static void xen_blk_drain_io(struct xen_blkif *blkif)
 	atomic_set(&blkif->drain, 0);
 }
 
+/*
+ * Completion callback on the bio's. Called as bh->b_end_io()
+ */
 
 static void __end_block_io_op(struct pending_req *pending_req, int error)
 {
-	
+	/* An error fails the entire request. */
 	if ((pending_req->operation == BLKIF_OP_FLUSH_DISKCACHE) &&
 	    (error == -EOPNOTSUPP)) {
 		pr_debug(DRV_PFX "flush diskcache op failed, not supported\n");
@@ -399,6 +462,11 @@ static void __end_block_io_op(struct pending_req *pending_req, int error)
 		pending_req->status = BLKIF_RSP_ERROR;
 	}
 
+	/*
+	 * If all of the bio's have completed it is time to unmap
+	 * the grant references associated with 'request' and provide
+	 * the proper response on the ring.
+	 */
 	if (atomic_dec_and_test(&pending_req->pendcnt)) {
 		xen_blkbk_unmap(pending_req);
 		make_response(pending_req->blkif, pending_req->id,
@@ -412,6 +480,9 @@ static void __end_block_io_op(struct pending_req *pending_req, int error)
 	}
 }
 
+/*
+ * bio callback.
+ */
 static void end_block_io_op(struct bio *bio, int error)
 {
 	__end_block_io_op(bio->bi_private, error);
@@ -420,6 +491,11 @@ static void end_block_io_op(struct bio *bio, int error)
 
 
 
+/*
+ * Function to copy the from the ring buffer the 'struct blkif_request'
+ * (which has the sectors we want, number of them, grant references, etc),
+ * and transmute  it to the block API to hand it over to the proper block disk.
+ */
 static int
 __do_block_io_op(struct xen_blkif *blkif)
 {
@@ -431,7 +507,7 @@ __do_block_io_op(struct xen_blkif *blkif)
 
 	rc = blk_rings->common.req_cons;
 	rp = blk_rings->common.sring->req_prod;
-	rmb(); 
+	rmb(); /* Ensure we see queued requests up to 'rp'. */
 
 	while (rc != rp) {
 
@@ -463,9 +539,9 @@ __do_block_io_op(struct xen_blkif *blkif)
 		default:
 			BUG();
 		}
-		blk_rings->common.req_cons = ++rc; 
+		blk_rings->common.req_cons = ++rc; /* before make_response() */
 
-		
+		/* Apply all sanity checks to /private copy/ of request. */
 		barrier();
 		if (unlikely(req.operation == BLKIF_OP_DISCARD)) {
 			free_req(pending_req);
@@ -474,7 +550,7 @@ __do_block_io_op(struct xen_blkif *blkif)
 		} else if (dispatch_rw_block_io(blkif, &req, pending_req))
 			break;
 
-		
+		/* Yield point for this unbounded loop. */
 		cond_resched();
 	}
 
@@ -497,6 +573,10 @@ do_block_io_op(struct xen_blkif *blkif)
 
 	return more_to_do;
 }
+/*
+ * Transmutation of the 'struct blkif_request' to a proper 'struct bio'
+ * and call the 'submit_bio' to pass it to the underlying storage.
+ */
 static int dispatch_rw_block_io(struct xen_blkif *blkif,
 				struct blkif_request *req,
 				struct pending_req *pending_req)
@@ -527,19 +607,19 @@ static int dispatch_rw_block_io(struct xen_blkif *blkif,
 		operation = WRITE_FLUSH;
 		break;
 	default:
-		operation = 0; 
+		operation = 0; /* make gcc happy */
 		goto fail_response;
 		break;
 	}
 
-	
+	/* Check that the number of segments is sane. */
 	nseg = req->u.rw.nr_segments;
 
 	if (unlikely(nseg == 0 && operation != WRITE_FLUSH) ||
 	    unlikely(nseg > BLKIF_MAX_SEGMENTS_PER_REQUEST)) {
 		pr_debug(DRV_PFX "Bad number of segments in request (%d)\n",
 			 nseg);
-		
+		/* Haven't submitted any bio's yet. */
 		goto fail_response;
 	}
 
@@ -571,6 +651,10 @@ static int dispatch_rw_block_io(struct xen_blkif *blkif,
 		goto fail_response;
 	}
 
+	/*
+	 * This check _MUST_ be done after xen_vbd_translate as the preq.bdev
+	 * is set there.
+	 */
 	for (i = 0; i < nseg; i++) {
 		if (((int)preq.sector_number|(int)seg[i].nsec) &
 		    ((bdev_logical_block_size(preq.bdev) >> 9) - 1)) {
@@ -580,12 +664,25 @@ static int dispatch_rw_block_io(struct xen_blkif *blkif,
 		}
 	}
 
+	/* Wait on all outstanding I/O's and once that has been completed
+	 * issue the WRITE_FLUSH.
+	 */
 	if (drain)
 		xen_blk_drain_io(pending_req->blkif);
 
+	/*
+	 * If we have failed at this point, we need to undo the M2P override,
+	 * set gnttab_set_unmap_op on all of the grant references and perform
+	 * the hypercall to unmap the grants - that is all done in
+	 * xen_blkbk_unmap.
+	 */
 	if (xen_blkbk_map(req, pending_req, seg))
 		goto fail_flush;
 
+	/*
+	 * This corresponding xen_blkif_put is done in __end_block_io_op, or
+	 * below (in "!bio") if we are handling a BLKIF_OP_DISCARD.
+	 */
 	xen_blkif_get(blkif);
 
 	for (i = 0; i < nseg; i++) {
@@ -609,7 +706,7 @@ static int dispatch_rw_block_io(struct xen_blkif *blkif,
 		preq.sector_number += seg[i].nsec;
 	}
 
-	
+	/* This will be hit if the operation was a flush or discard. */
 	if (!bio) {
 		BUG_ON(operation != WRITE_FLUSH);
 
@@ -623,15 +720,19 @@ static int dispatch_rw_block_io(struct xen_blkif *blkif,
 		bio->bi_end_io  = end_block_io_op;
 	}
 
+	/*
+	 * We set it one so that the last submit_bio does not have to call
+	 * atomic_inc.
+	 */
 	atomic_set(&pending_req->pendcnt, nbio);
 
-	
+	/* Get a reference count for the disk queue and start sending I/O */
 	blk_start_plug(&plug);
 
 	for (i = 0; i < nbio; i++)
 		submit_bio(operation, biolist[i]);
 
-	
+	/* Let the I/Os go.. */
 	blk_finish_plug(&plug);
 
 	if (operation == READ)
@@ -644,22 +745,25 @@ static int dispatch_rw_block_io(struct xen_blkif *blkif,
  fail_flush:
 	xen_blkbk_unmap(pending_req);
  fail_response:
-	
+	/* Haven't submitted any bio's yet. */
 	make_response(blkif, req->u.rw.id, req->operation, BLKIF_RSP_ERROR);
 	free_req(pending_req);
-	msleep(1); 
+	msleep(1); /* back off a bit */
 	return -EIO;
 
  fail_put_bio:
 	for (i = 0; i < nbio; i++)
 		bio_put(biolist[i]);
 	__end_block_io_op(pending_req, -EINVAL);
-	msleep(1); 
+	msleep(1); /* back off a bit */
 	return -EIO;
 }
 
 
 
+/*
+ * Put a response on the ring on how the operation fared.
+ */
 static void make_response(struct xen_blkif *blkif, u64 id,
 			  unsigned short op, int st)
 {
@@ -673,7 +777,7 @@ static void make_response(struct xen_blkif *blkif, u64 id,
 	resp.status    = st;
 
 	spin_lock_irqsave(&blkif->blk_ring_lock, flags);
-	
+	/* Place on the response ring for the relevant domain. */
 	switch (blkif->blk_protocol) {
 	case BLKIF_PROTOCOL_NATIVE:
 		memcpy(RING_GET_RESPONSE(&blk_rings->native, blk_rings->native.rsp_prod_pvt),

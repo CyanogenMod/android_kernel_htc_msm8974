@@ -17,10 +17,24 @@
 
 #include <asm/byteorder.h>
 
+/*
+ * clear_bit() doesn't provide any barrier for the compiler.
+ */
 #define smp_mb__before_clear_bit() barrier()
 #define smp_mb__after_clear_bit()  barrier()
 
+/*
+ * We are lucky, DSP is perfect for bitops: do it in 3 cycles
+ */
 
+/**
+ * __ffs - find first bit in word.
+ * @word: The word to search
+ *
+ * Undefined if no bit exists, so code should check against 0 first.
+ * Note __ffs(0) = undef, __ffs(1) = 0, __ffs(0x80000000) = 31.
+ *
+ */
 static inline unsigned long __ffs(unsigned long x)
 {
 	asm (" bitr  .M1  %0,%0\n"
@@ -31,8 +45,21 @@ static inline unsigned long __ffs(unsigned long x)
 	return x;
 }
 
+/*
+ * ffz - find first zero in word.
+ * @word: The word to search
+ *
+ * Undefined if no zero exists, so code should check against ~0UL first.
+ */
 #define ffz(x) __ffs(~(x))
 
+/**
+ * fls - find last (most-significant) bit set
+ * @x: the word to search
+ *
+ * This is defined the same way as ffs.
+ * Note fls(0) = 0, fls(1) = 1, fls(0x80000000) = 32.
+ */
 static inline int fls(int x)
 {
 	if (!x)
@@ -43,6 +70,15 @@ static inline int fls(int x)
 	return 32 - x;
 }
 
+/**
+ * ffs - find first bit set
+ * @x: the word to search
+ *
+ * This is defined the same way as
+ * the libc and compiler builtin ffs routines, therefore
+ * differs in spirit from the above ffz (man ffs).
+ * Note ffs(0) = 0, ffs(1) = 1, ffs(0x80000000) = 32.
+ */
 static inline int ffs(int x)
 {
 	if (!x)
@@ -64,5 +100,5 @@ static inline int ffs(int x)
 #include <asm-generic/bitops/le.h>
 #include <asm-generic/bitops/ext2-atomic.h>
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_C6X_BITOPS_H */

@@ -53,9 +53,9 @@ static int omap2_clkdm_clear_all_wkdeps(struct clockdomain *clkdm)
 
 	for (cd = clkdm->wkdep_srcs; cd && cd->clkdm_name; cd++) {
 		if (!cd->clkdm)
-			continue; 
+			continue; /* only happens if data is erroneous */
 
-		
+		/* PRM accesses are slow, so minimize them */
 		mask |= 1 << cd->clkdm->dep_bit;
 		atomic_set(&cd->wkdep_usecount, 0);
 	}
@@ -97,9 +97,9 @@ static int omap3_clkdm_clear_all_sleepdeps(struct clockdomain *clkdm)
 
 	for (cd = clkdm->sleepdep_srcs; cd && cd->clkdm_name; cd++) {
 		if (!cd->clkdm)
-			continue; 
+			continue; /* only happens if data is erroneous */
 
-		
+		/* PRM accesses are slow, so minimize them */
 		mask |= 1 << cd->clkdm->dep_bit;
 		atomic_set(&cd->sleepdep_usecount, 0);
 	}
@@ -174,7 +174,7 @@ static int omap2_clkdm_clk_enable(struct clockdomain *clkdm)
 				clkdm->clktrctrl_mask);
 
 	if (hwsup) {
-		
+		/* Disable HW transitions when we are changing deps */
 		_disable_hwsup(clkdm);
 		_clkdm_add_autodeps(clkdm);
 		_enable_hwsup(clkdm);
@@ -197,7 +197,7 @@ static int omap2_clkdm_clk_disable(struct clockdomain *clkdm)
 				clkdm->clktrctrl_mask);
 
 	if (hwsup) {
-		
+		/* Disable HW transitions when we are changing deps */
 		_disable_hwsup(clkdm);
 		_clkdm_del_autodeps(clkdm);
 		_enable_hwsup(clkdm);

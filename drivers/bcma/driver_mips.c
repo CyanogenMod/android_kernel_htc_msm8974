@@ -19,12 +19,14 @@
 #include <linux/serial_reg.h>
 #include <linux/time.h>
 
+/* The 47162a0 hangs when reading MIPS DMP registers registers */
 static inline bool bcma_core_mips_bcm47162a0_quirk(struct bcma_device *dev)
 {
 	return dev->bus->chipinfo.id == 47162 && dev->bus->chipinfo.rev == 0 &&
 	       dev->id.id == BCMA_CORE_MIPS_74K;
 }
 
+/* The 5357b0 hangs when reading USB20H DMP registers */
 static inline bool bcma_core_mips_bcm5357b0_quirk(struct bcma_device *dev)
 {
 	return (dev->bus->chipinfo.id == 0x5357 ||
@@ -75,6 +77,9 @@ static u32 bcma_core_mips_irqflag(struct bcma_device *dev)
 	return flag & 0x1F;
 }
 
+/* Get the MIPS IRQ assignment for a specified device.
+ * If unassigned, 0 is returned.
+ */
 unsigned int bcma_core_mips_irq(struct bcma_device *dev)
 {
 	struct bcma_device *mdev = dev->bus->drv_mips.core;
@@ -104,7 +109,7 @@ static void bcma_core_mips_set_irq(struct bcma_device *dev, unsigned int irq)
 
 	dev->irq = irq + 2;
 
-	
+	/* clear the old irq */
 	if (oldirq == 0)
 		bcma_write32(mdev, BCMA_MIPS_MIPS74K_INTMASK(0),
 			    bcma_read32(mdev, BCMA_MIPS_MIPS74K_INTMASK(0)) &
@@ -112,7 +117,7 @@ static void bcma_core_mips_set_irq(struct bcma_device *dev, unsigned int irq)
 	else
 		bcma_write32(mdev, BCMA_MIPS_MIPS74K_INTMASK(irq), 0);
 
-	
+	/* assign the new one */
 	if (irq == 0) {
 		bcma_write32(mdev, BCMA_MIPS_MIPS74K_INTMASK(0),
 			    bcma_read32(mdev, BCMA_MIPS_MIPS74K_INTMASK(0)) |
@@ -123,6 +128,9 @@ static void bcma_core_mips_set_irq(struct bcma_device *dev, unsigned int irq)
 		if (oldirqflag) {
 			struct bcma_device *core;
 
+			/* backplane irq line is in use, find out who uses
+			 * it and set user to irq 0
+			 */
 			list_for_each_entry_reverse(core, &bus->cores, list) {
 				if ((1 << bcma_core_mips_irqflag(core)) ==
 				    oldirqflag) {
@@ -206,7 +214,7 @@ void bcma_core_mips_init(struct bcma_drv_mips *mcore)
 	if (!mcore->setup_done)
 		mcore->assigned_irqs = 1;
 
-	
+	/* Assign IRQs to all cores on the bus */
 	list_for_each_entry_reverse(core, &bus->cores, list) {
 		int mips_irq;
 		if (core->irq)
@@ -227,6 +235,9 @@ void bcma_core_mips_init(struct bcma_drv_mips *mcore)
 		case BCMA_CORE_MAC_GBIT:
 		case BCMA_CORE_80211:
 		case BCMA_CORE_USB20_HOST:
+			/* These devices get their own IRQ line if available,
+			 * the rest goes on IRQ0
+			 */
 			if (mcore->assigned_irqs <= 4)
 				bcma_core_mips_set_irq(core,
 						       mcore->assigned_irqs++);

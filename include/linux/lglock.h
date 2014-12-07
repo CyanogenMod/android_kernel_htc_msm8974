@@ -24,6 +24,7 @@
 #include <linux/percpu.h>
 #include <linux/cpu.h>
 
+/* can make br locks by using local lock for read side, global lock for write */
 #define br_lock_init(name)	name##_lock_init()
 #define br_read_lock(name)	name##_local_lock()
 #define br_read_unlock(name)	name##_local_unlock()

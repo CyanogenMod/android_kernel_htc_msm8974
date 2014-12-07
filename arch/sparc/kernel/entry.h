@@ -5,9 +5,11 @@
 #include <linux/types.h>
 #include <linux/init.h>
 
+/* irq */
 extern void handler_irq(int irq, struct pt_regs *regs);
 
 #ifdef CONFIG_SPARC32
+/* traps */
 extern void do_hw_interrupt(struct pt_regs *regs, unsigned long type);
 extern void do_illegal_instruction(struct pt_regs *regs, unsigned long pc,
                                    unsigned long npc, unsigned long psr);
@@ -34,11 +36,12 @@ extern void handle_cp_exception(struct pt_regs *regs, unsigned long pc,
 
 
 
+/* entry.S */
 extern void fpsave(unsigned long *fpregs, unsigned long *fsr,
                    void *fpqueue, unsigned long *fpqdepth);
 extern void fpload(unsigned long *fpregs, unsigned long *fsr);
 
-#else 
+#else /* CONFIG_SPARC32 */
 
 #include <asm/trap_block.h>
 
@@ -175,43 +178,65 @@ extern void hypervisor_tlbop_error(unsigned long err,
 extern void hypervisor_tlbop_error_xcall(unsigned long err,
 					 unsigned long op);
 
+/* WARNING: The error trap handlers in assembly know the precise
+ *	    layout of the following structure.
+ *
+ * C-level handlers in traps.c use this information to log the
+ * error and then determine how to recover (if possible).
+ */
 struct cheetah_err_info {
-u64 afsr;
-u64 afar;
+/*0x00*/u64 afsr;
+/*0x08*/u64 afar;
 
-	
-u64 dcache_data[4];	
-u64 dcache_index;	
-u64 dcache_tag;		
-u64 dcache_utag;	
-u64 dcache_stag;	
+	/* D-cache state */
+/*0x10*/u64 dcache_data[4];	/* The actual data	*/
+/*0x30*/u64 dcache_index;	/* D-cache index	*/
+/*0x38*/u64 dcache_tag;		/* D-cache tag/valid	*/
+/*0x40*/u64 dcache_utag;	/* D-cache microtag	*/
+/*0x48*/u64 dcache_stag;	/* D-cache snooptag	*/
 
-	
-u64 icache_data[8];	
-u64 icache_index;	
-u64 icache_tag;		
-u64 icache_utag;	
-u64 icache_stag;	
-u64 icache_upper;	
-u64 icache_lower;	
+	/* I-cache state */
+/*0x50*/u64 icache_data[8];	/* The actual insns + predecode	*/
+/*0x90*/u64 icache_index;	/* I-cache index	*/
+/*0x98*/u64 icache_tag;		/* I-cache phys tag	*/
+/*0xa0*/u64 icache_utag;	/* I-cache microtag	*/
+/*0xa8*/u64 icache_stag;	/* I-cache snooptag	*/
+/*0xb0*/u64 icache_upper;	/* I-cache upper-tag	*/
+/*0xb8*/u64 icache_lower;	/* I-cache lower-tag	*/
 
-	
-u64 ecache_data[4];	
-u64 ecache_index;	
-u64 ecache_tag;		
+	/* E-cache state */
+/*0xc0*/u64 ecache_data[4];	/* 32 bytes from staging registers */
+/*0xe0*/u64 ecache_index;	/* E-cache index	*/
+/*0xe8*/u64 ecache_tag;		/* E-cache tag/state	*/
 
-u64 __pad[32 - 30];
+/*0xf0*/u64 __pad[32 - 30];
 };
 #define CHAFSR_INVALID		((u64)-1L)
 
+/* This is allocated at boot time based upon the largest hardware
+ * cpu ID in the system.  We allocate two entries per cpu, one for
+ * TL==0 logging and one for TL >= 1 logging.
+ */
 extern struct cheetah_err_info *cheetah_error_log;
 
+/* UPA nodes send interrupt packet to UltraSparc with first data reg
+ * value low 5 (7 on Starfire) bits holding the IRQ identifier being
+ * delivered.  We must translate this into a non-vector IRQ so we can
+ * set the softint on this cpu.
+ *
+ * To make processing these packets efficient and race free we use
+ * an array of irq buckets below.  The interrupt vector handler in
+ * entry.S feeds incoming packets into per-cpu pil-indexed lists.
+ *
+ * If you make changes to ino_bucket, please update hand coded assembler
+ * of the vectored interrupt trap handler(s) in entry.S and sun4v_ivec.S
+ */
 struct ino_bucket {
-unsigned long __irq_chain_pa;
+/*0x00*/unsigned long __irq_chain_pa;
 
-	
-unsigned int __irq;
-unsigned int __pad;
+	/* Interrupt number assigned to this INO.  */
+/*0x08*/unsigned int __irq;
+/*0x0c*/unsigned int __pad;
 };
 
 extern struct ino_bucket *ivector_table;
@@ -220,5 +245,5 @@ extern unsigned long ivector_table_pa;
 extern void init_irqwork_curcpu(void);
 extern void __cpuinit sun4v_register_mondo_queues(int this_cpu);
 
-#endif 
-#endif 
+#endif /* CONFIG_SPARC32 */
+#endif /* _ENTRY_H */

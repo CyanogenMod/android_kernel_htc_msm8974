@@ -134,6 +134,10 @@ static int handshake_failure(struct vio_driver_state *vio)
 {
 	struct vio_dring_state *dr;
 
+	/* XXX Put policy here...  Perhaps start a timer to fire
+	 * XXX in 100 ms, which will bring the link up and retry
+	 * XXX the handshake.
+	 */
 
 	viodbg(HS, "HANDSHAKE FAILURE\n");
 
@@ -247,7 +251,7 @@ static int process_ver_info(struct vio_driver_state *vio,
 	       pkt->major, pkt->minor, pkt->dev_class);
 
 	if (vio->hs_state != VIO_HS_INVALID) {
-		
+		/* XXX Perhaps invoke start_handshake? XXX */
 		memset(&vio->ver, 0, sizeof(vio->ver));
 		vio->hs_state = VIO_HS_INVALID;
 	}
@@ -646,16 +650,24 @@ void vio_conn_reset(struct vio_driver_state *vio)
 }
 EXPORT_SYMBOL(vio_conn_reset);
 
+/* The issue is that the Solaris virtual disk server just mirrors the
+ * SID values it gets from the client peer.  So we work around that
+ * here in vio_{validate,send}_sid() so that the drivers don't need
+ * to be aware of this crap.
+ */
 int vio_validate_sid(struct vio_driver_state *vio, struct vio_msg_tag *tp)
 {
 	u32 sid;
 
+	/* Always let VERSION+INFO packets through unchecked, they
+	 * define the new SID.
+	 */
 	if (tp->type == VIO_TYPE_CTRL &&
 	    tp->stype == VIO_SUBTYPE_INFO &&
 	    tp->stype_env == VIO_VER_INFO)
 		return 0;
 
-	
+	/* Ok, now figure out which SID to use.  */
 	switch (vio->dev_class) {
 	case VDEV_NETWORK:
 	case VDEV_NETWORK_SWITCH:

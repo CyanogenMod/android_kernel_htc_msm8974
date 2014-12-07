@@ -16,8 +16,16 @@
 #include "yaffs_trace.h"
 #include "yaffs_tagsvalidity.h"
 
+/* This code packs a set of extended tags into a binary structure for
+ * NAND storage
+ */
 
+/* Some of the information is "extra" struff which can be packed in to
+ * speed scanning
+ * This is defined by having the EXTRA_HEADER_INFO_FLAG set.
+ */
 
+/* Extra flags applied to chunk_id */
 
 #define EXTRA_HEADER_INFO_FLAG	0x80000000
 #define EXTRA_SHRINK_FLAG	0x40000000
@@ -26,6 +34,7 @@
 
 #define ALL_EXTRA_FLAGS		0xF0000000
 
+/* Also, the top 4 bits of the object Id are set to the object type. */
 #define EXTRA_OBJECT_TYPE_SHIFT (28)
 #define EXTRA_OBJECT_TYPE_MASK  ((0x0F) << EXTRA_OBJECT_TYPE_SHIFT)
 
@@ -61,8 +70,8 @@ void yaffs_pack_tags2_tags_only(struct yaffs_packed_tags2_tags_only *ptt,
 	ptt->obj_id = t->obj_id;
 
 	if (t->chunk_id == 0 && t->extra_available) {
-		
-		
+		/* Store the extra header info instead */
+		/* We save the parent object in the chunk_id */
 		ptt->chunk_id = EXTRA_HEADER_INFO_FLAG | t->extra_parent_id;
 		if (t->extra_is_shrink)
 			ptt->chunk_id |= EXTRA_SHRINK_FLAG;
@@ -114,7 +123,7 @@ void yaffs_unpack_tags2_tags_only(struct yaffs_ext_tags *t,
 		t->serial_number = 0;
 		t->seq_number = ptt->seq_number;
 
-		
+		/* Do extra header info stuff */
 
 		if (ptt->chunk_id & EXTRA_HEADER_INFO_FLAG) {
 			t->chunk_id = 0;
@@ -150,7 +159,7 @@ void yaffs_unpack_tags2(struct yaffs_ext_tags *t, struct yaffs_packed_tags2 *pt,
 	enum yaffs_ecc_result ecc_result = YAFFS_ECC_RESULT_NO_ERROR;
 
 	if (pt->t.seq_number != 0xFFFFFFFF && tags_ecc) {
-		
+		/* Chunk is in use and we need to do ECC */
 
 		struct yaffs_ecc_other ecc;
 		int result;

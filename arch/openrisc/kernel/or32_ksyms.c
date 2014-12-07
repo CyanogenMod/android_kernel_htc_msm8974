@@ -33,6 +33,7 @@
 
 #define DECLARE_EXPORT(name) extern void name(void); EXPORT_SYMBOL(name)
 
+/* compiler generated symbols */
 DECLARE_EXPORT(__udivsi3);
 DECLARE_EXPORT(__divsi3);
 DECLARE_EXPORT(__umodsi3);

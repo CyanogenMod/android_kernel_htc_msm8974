@@ -47,6 +47,7 @@ typedef u8 kprobe_opcode_t;
 
 #define flush_insn_slot(p)	do { } while (0)
 
+/* optinsn template addresses */
 extern kprobe_opcode_t optprobe_template_entry;
 extern kprobe_opcode_t optprobe_template_val;
 extern kprobe_opcode_t optprobe_template_call;
@@ -62,21 +63,31 @@ extern const int kretprobe_blacklist_size;
 void arch_remove_kprobe(struct kprobe *p);
 void kretprobe_trampoline(void);
 
+/* Architecture specific copy of original instruction*/
 struct arch_specific_insn {
-	
+	/* copy of the original instruction */
 	kprobe_opcode_t *insn;
+	/*
+	 * boostable = -1: This instruction type is not boostable.
+	 * boostable = 0: This instruction type is boostable.
+	 * boostable = 1: This instruction has been boosted: we have
+	 * added a relative jump after the instruction copy in insn,
+	 * so no single-step and fixup are needed (unless there's
+	 * a post_handler or break_handler).
+	 */
 	int boostable;
 };
 
 struct arch_optimized_insn {
-	
+	/* copy of the original instructions */
 	kprobe_opcode_t copied_insn[RELATIVE_ADDR_SIZE];
-	
+	/* detour code buffer */
 	kprobe_opcode_t *insn;
-	
+	/* the size of instructions copied to detour code buffer */
 	size_t size;
 };
 
+/* Return true (!0) if optinsn is prepared for optimization. */
 static inline int arch_prepared_optinsn(struct arch_optimized_insn *optinsn)
 {
 	return optinsn->size;
@@ -89,6 +100,7 @@ struct prev_kprobe {
 	unsigned long saved_flags;
 };
 
+/* per-cpu kprobe control block */
 struct kprobe_ctlblk {
 	unsigned long kprobe_status;
 	unsigned long kprobe_old_flags;
@@ -102,4 +114,4 @@ struct kprobe_ctlblk {
 extern int kprobe_fault_handler(struct pt_regs *regs, int trapnr);
 extern int kprobe_exceptions_notify(struct notifier_block *self,
 				    unsigned long val, void *data);
-#endif 
+#endif /* _ASM_X86_KPROBES_H */

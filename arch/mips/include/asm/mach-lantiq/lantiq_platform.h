@@ -12,6 +12,7 @@
 #include <linux/mtd/partitions.h>
 #include <linux/socket.h>
 
+/* struct used to pass info to the pci core */
 enum {
 	PCI_CLOCK_INT = 0,
 	PCI_CLOCK_EXT
@@ -43,6 +44,7 @@ struct ltq_pci_data {
 	int irq[16];
 };
 
+/* struct used to pass info to network drivers */
 struct ltq_eth_data {
 	struct sockaddr mac;
 	int mii_mode;

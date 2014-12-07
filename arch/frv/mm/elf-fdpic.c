@@ -15,6 +15,10 @@
 #include <linux/elf-fdpic.h>
 #include <asm/mman.h>
 
+/*****************************************************************************/
+/*
+ * lay out the userspace VM according to our grand design
+ */
 #ifdef CONFIG_MMU
 void elf_fdpic_arch_lay_out_mm(struct elf_fdpic_params *exec_params,
 			       struct elf_fdpic_params *interp_params,
@@ -23,6 +27,9 @@ void elf_fdpic_arch_lay_out_mm(struct elf_fdpic_params *exec_params,
 {
 	*start_stack = 0x02200000UL;
 
+	/* if the only executable is a shared object, assume that it is an interpreter rather than
+	 * a true executable, and map it such that "ld.so --list" comes out right
+	 */
 	if (!(interp_params->flags & ELF_FDPIC_FLAG_PRESENT) &&
 	    exec_params->hdr.e_type != ET_EXEC
 	    ) {
@@ -41,9 +48,14 @@ void elf_fdpic_arch_lay_out_mm(struct elf_fdpic_params *exec_params,
 		}
 	}
 
-} 
+} /* end elf_fdpic_arch_lay_out_mm() */
 #endif
 
+/*****************************************************************************/
+/*
+ * place non-fixed mmaps firstly in the bottom part of memory, working up, and then in the top part
+ * of memory, working down
+ */
 unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsigned long len,
 				     unsigned long pgoff, unsigned long flags)
 {
@@ -53,11 +65,11 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 	if (len > TASK_SIZE)
 		return -ENOMEM;
 
-	
+	/* handle MAP_FIXED */
 	if (flags & MAP_FIXED)
 		return addr;
 
-	
+	/* only honour a hint if we're not going to clobber something doing so */
 	if (addr) {
 		addr = PAGE_ALIGN(addr);
 		vma = find_vma(current->mm, addr);
@@ -66,7 +78,7 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 			goto success;
 	}
 
-	
+	/* search between the bottom of user VM and the stack grow area */
 	addr = PAGE_SIZE;
 	limit = (current->mm->start_stack - 0x00200000);
 	if (addr + len <= limit) {
@@ -84,7 +96,7 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 		}
 	}
 
-	
+	/* search from just above the WorkRAM area to the top of memory */
 	addr = PAGE_ALIGN(0x80000000);
 	limit = TASK_SIZE - len;
 	if (addr <= limit) {
@@ -113,4 +125,4 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 	       len, addr, filp ? filp->f_path.dentry->d_name.name : "");
 #endif
 	return addr;
-} 
+} /* end arch_get_unmapped_area() */

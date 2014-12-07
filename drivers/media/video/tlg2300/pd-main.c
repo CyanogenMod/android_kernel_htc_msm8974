@@ -57,6 +57,9 @@ static const char *firmware_name = "tlg2300_firmware.bin";
 static struct usb_driver poseidon_driver;
 static LIST_HEAD(pd_device_list);
 
+/*
+ * send set request to USB firmware.
+ */
 s32 send_set_req(struct poseidon *pd, u8 cmdid, s32 param, s32 *cmd_status)
 {
 	s32 ret;
@@ -71,7 +74,7 @@ s32 send_set_req(struct poseidon *pd, u8 cmdid, s32 param, s32 *cmd_status)
 	if (param == 0) {
 		upper_16 = lower_16 = 0;
 	} else {
-		
+		/* send 32 bit param as  two 16 bit param,little endian */
 		lower_16 = (unsigned short)(param & 0xffff);
 		upper_16 = (unsigned short)((param >> 16) & 0xffff);
 	}
@@ -88,12 +91,15 @@ s32 send_set_req(struct poseidon *pd, u8 cmdid, s32 param, s32 *cmd_status)
 	if (!ret) {
 		return -ENXIO;
 	} else {
-		
+		/*  1st 4 bytes into cmd_status   */
 		memcpy((char *)cmd_status, &(data[0]), sizeof(*cmd_status));
 	}
 	return 0;
 }
 
+/*
+ * send get request to Poseidon firmware.
+ */
 s32 send_get_req(struct poseidon *pd, u8 cmdid, s32 param,
 			void *buf, s32 *cmd_status, s32 datalen)
 {
@@ -108,7 +114,7 @@ s32 send_get_req(struct poseidon *pd, u8 cmdid, s32 param,
 	if (param == 0) {
 		upper_16 = lower_16 = 0;
 	} else {
-		
+		/*send 32 bit param as two 16 bit param, little endian */
 		lower_16 = (unsigned short)(param & 0xffff);
 		upper_16 = (unsigned short)((param >> 16) & 0xffff);
 	}
@@ -125,7 +131,7 @@ s32 send_get_req(struct poseidon *pd, u8 cmdid, s32 param,
 	if (ret < 0) {
 		return -ENXIO;
 	} else {
-		
+		/* 1st 4 bytes into cmd_status, remaining data into cmd_data */
 		memcpy((char *)cmd_status, &data[0], sizeof(*cmd_status));
 		memcpy((char *)buf, &data[sizeof(*cmd_status)], datalen);
 	}
@@ -149,7 +155,7 @@ static int pm_notifier_block(struct notifier_block *nb,
 			udev = pd->udev;
 			iface = pd->interface;
 
-			
+			/* It will cause the system to reload the firmware */
 			rc = usb_lock_device_for_reset(udev, iface);
 			if (rc >= 0) {
 				usb_reset_device(udev);
@@ -190,7 +196,7 @@ void poseidon_delete(struct kref *kref)
 	list_del_init(&pd->device_list);
 
 	pd_dvb_usb_device_cleanup(pd);
-	
+	/* clean_audio_data(&pd->audio_data);*/
 
 	if (pd->udev) {
 		usb_put_dev(pd->udev);
@@ -232,7 +238,7 @@ static int firmware_download(struct usb_device *udev)
 	for (offset = 0; offset < fwlength; offset += max_packet_size) {
 		actual_length = 0;
 		ret = usb_bulk_msg(udev,
-				usb_sndbulkpipe(udev, 0x01), 
+				usb_sndbulkpipe(udev, 0x01), /* ep 1 */
 				fwbuf + offset,
 				min(max_packet_size, fwlength - offset),
 				&actual_length,
@@ -252,6 +258,7 @@ static inline struct poseidon *get_pd(struct usb_interface *intf)
 }
 
 #ifdef CONFIG_PM
+/* one-to-one map : poseidon{} <----> usb_device{}'s port */
 static inline void set_map_flags(struct poseidon *pd, struct usb_device *udev)
 {
 	pd->portnum = udev->portnum;
@@ -263,16 +270,17 @@ static inline int get_autopm_ref(struct poseidon *pd)
 		+ atomic_read(&pd->dvb_data.users) + pd->radio_data.users;
 }
 
+/* fixup something for poseidon */
 static inline struct poseidon *fixup(struct poseidon *pd)
 {
 	int count;
 
-	
+	/* old udev and interface have gone, so put back reference . */
 	count = get_autopm_ref(pd);
 	log("count : %d, ref count : %d", count, get_pm_count(pd));
 	while (count--)
 		usb_autopm_put_interface(pd->interface);
-	
+	/*usb_autopm_set_interface(pd->interface); */
 
 	usb_put_dev(pd->udev);
 	usb_put_intf(pd->interface);
@@ -291,6 +299,7 @@ static struct poseidon *find_old_poseidon(struct usb_device *udev)
 	return NULL;
 }
 
+/* Is the card working now ? */
 static inline int is_working(struct poseidon *pd)
 {
 	return get_pm_count(pd) > 0;
@@ -305,12 +314,12 @@ static int poseidon_suspend(struct usb_interface *intf, pm_message_t msg)
 	if (!is_working(pd)) {
 		if (get_pm_count(pd) <= 0 && !in_hibernation(pd)) {
 			pd->msg.event = PM_EVENT_AUTO_SUSPEND;
-			pd->pm_resume = NULL; 
+			pd->pm_resume = NULL; /*  a good guard */
 			printk(KERN_DEBUG "\n\t+ TLG2300 auto suspend +\n\n");
 		}
 		return 0;
 	}
-	pd->msg = msg; 
+	pd->msg = msg; /* save it here */
 	logpm(pd);
 	return pd->pm_suspend ? pd->pm_suspend(pd) : 0;
 }
@@ -341,20 +350,20 @@ static void hibernation_resume(struct work_struct *w)
 	struct poseidon *pd = container_of(w, struct poseidon, pm_work);
 	int count;
 
-	pd->msg.event = 0; 
+	pd->msg.event = 0; /* clear it here */
 	pd->state &= ~POSEIDON_STATE_DISCONNECT;
 
-	
+	/* set the new interface's reference */
 	count = get_autopm_ref(pd);
 	while (count--)
 		usb_autopm_get_interface(pd->interface);
 
-	
+	/* resume the context */
 	logpm(pd);
 	if (pd->pm_resume)
 		pd->pm_resume(pd);
 }
-#else 
+#else /* CONFIG_PM is not enabled: */
 static inline struct poseidon *find_old_poseidon(struct usb_device *udev)
 {
 	return NULL;
@@ -400,12 +409,12 @@ static int poseidon_probe(struct usb_interface *interface,
 	int ret = 0;
 	int new_one = 0;
 
-	
+	/* download firmware */
 	check_firmware(udev, &ret);
 	if (ret)
 		return 0;
 
-	
+	/* Do I recovery from the hibernate ? */
 	pd = find_old_poseidon(udev);
 	if (!pd) {
 		pd = kzalloc(sizeof(*pd), GFP_KERNEL);
@@ -426,12 +435,12 @@ static int poseidon_probe(struct usb_interface *interface,
 		logpm(pd);
 		mutex_init(&pd->lock);
 
-		
+		/* register v4l2 device */
 		snprintf(pd->v4l2_dev.name, sizeof(pd->v4l2_dev.name), "%s %s",
 			dev->driver->name, dev_name(dev));
 		ret = v4l2_device_register(NULL, &pd->v4l2_dev);
 
-		
+		/* register devices in directory /dev */
 		ret = pd_video_init(pd);
 		poseidon_audio_init(pd);
 		poseidon_fm_init(pd);
@@ -469,11 +478,11 @@ static void poseidon_disconnect(struct usb_interface *interface)
 	pd->state |= POSEIDON_STATE_DISCONNECT;
 	mutex_unlock(&pd->lock);
 
-	
+	/* stop urb transferring */
 	stop_all_video_stream(pd);
 	dvb_stop_streaming(&pd->dvb_data);
 
-	
+	/*unregister v4l2 device */
 	v4l2_device_unregister(&pd->v4l2_dev);
 
 	pd_dvb_usb_device_exit(pd);

@@ -23,17 +23,23 @@
 #include "ata.h"
 
 
+/* ======================================================================== */
+/* Task image/var/inc                                                       */
+/* ======================================================================== */
 
+/* ata task image */
 extern u32 bcom_ata_task[];
 
+/* ata task vars that need to be set before enabling the task */
 struct bcom_ata_var {
-	u32 enable;		
-	u32 bd_base;		
-	u32 bd_last;		
-	u32 bd_start;		
-	u32 buffer_size;	
+	u32 enable;		/* (u16*) address of task's control register */
+	u32 bd_base;		/* (struct bcom_bd*) beginning of ring buffer */
+	u32 bd_last;		/* (struct bcom_bd*) end of ring buffer */
+	u32 bd_start;		/* (struct bcom_bd*) current bd */
+	u32 buffer_size;	/* size of receive buffer */
 };
 
+/* ata task incs that need to be set before enabling the task */
 struct bcom_ata_inc {
 	u16 pad0;
 	s16 incr_bytes;
@@ -44,6 +50,9 @@ struct bcom_ata_inc {
 };
 
 
+/* ======================================================================== */
+/* Task support code                                                        */
+/* ======================================================================== */
 
 struct bcom_task *
 bcom_ata_init(int queue_len, int maxbufsize)
@@ -52,7 +61,7 @@ bcom_ata_init(int queue_len, int maxbufsize)
 	struct bcom_ata_var *var;
 	struct bcom_ata_inc *inc;
 
-	
+	/* Prefetch breaks ATA DMA.  Turn it off for ATA DMA */
 	bcom_disable_prefetch();
 
 	tsk = bcom_task_alloc(queue_len, sizeof(struct bcom_ata_bd), 0);
@@ -78,14 +87,14 @@ bcom_ata_init(int queue_len, int maxbufsize)
 	var->bd_start	= tsk->bd_pa;
 	var->buffer_size = maxbufsize;
 
-	
+	/* Configure some stuff */
 	bcom_set_task_pragma(tsk->tasknum, BCOM_ATA_PRAGMA);
 	bcom_set_task_auto_start(tsk->tasknum, tsk->tasknum);
 
 	out_8(&bcom_eng->regs->ipr[BCOM_INITIATOR_ATA_RX], BCOM_IPR_ATA_RX);
 	out_8(&bcom_eng->regs->ipr[BCOM_INITIATOR_ATA_TX], BCOM_IPR_ATA_TX);
 
-	out_be32(&bcom_eng->regs->IntPend, 1<<tsk->tasknum); 
+	out_be32(&bcom_eng->regs->IntPend, 1<<tsk->tasknum); /* Clear ints */
 
 	return tsk;
 }
@@ -123,7 +132,7 @@ void bcom_ata_reset_bd(struct bcom_task *tsk)
 {
 	struct bcom_ata_var *var;
 
-	
+	/* Reset all BD */
 	memset(tsk->bd, 0x00, tsk->num_bd * tsk->bd_size);
 
 	tsk->index = 0;
@@ -136,7 +145,7 @@ EXPORT_SYMBOL_GPL(bcom_ata_reset_bd);
 
 void bcom_ata_release(struct bcom_task *tsk)
 {
-	
+	/* Nothing special for the ATA tasks */
 	bcom_task_free(tsk);
 }
 EXPORT_SYMBOL_GPL(bcom_ata_release);

@@ -41,9 +41,12 @@
 #include <asm/pgtable.h>
 #include <mach/time.h>
 
+/*
+ * N2100 timer tick configuration.
+ */
 static void __init n2100_timer_init(void)
 {
-	
+	/* 33.000 MHz crystal.  */
 	iop_init_time(198000000);
 }
 
@@ -52,8 +55,11 @@ static struct sys_timer n2100_timer = {
 };
 
 
+/*
+ * N2100 I/O.
+ */
 static struct map_desc n2100_io_desc[] __initdata = {
-	{	
+	{	/* on-board devices */
 		.virtual	= N2100_UART,
 		.pfn		= __phys_to_pfn(N2100_UART),
 		.length		= 0x00100000,
@@ -68,31 +74,34 @@ void __init n2100_map_io(void)
 }
 
 
+/*
+ * N2100 PCI.
+ */
 static int __init
 n2100_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	int irq;
 
 	if (PCI_SLOT(dev->devfn) == 1) {
-		
+		/* RTL8110SB #1 */
 		irq = IRQ_IOP32X_XINT0;
 	} else if (PCI_SLOT(dev->devfn) == 2) {
-		
+		/* RTL8110SB #2 */
 		irq = IRQ_IOP32X_XINT3;
 	} else if (PCI_SLOT(dev->devfn) == 3) {
-		
+		/* Sil3512 */
 		irq = IRQ_IOP32X_XINT2;
 	} else if (PCI_SLOT(dev->devfn) == 4 && pin == 1) {
-		
+		/* VT6212 INTA */
 		irq = IRQ_IOP32X_XINT1;
 	} else if (PCI_SLOT(dev->devfn) == 4 && pin == 2) {
-		
+		/* VT6212 INTB */
 		irq = IRQ_IOP32X_XINT0;
 	} else if (PCI_SLOT(dev->devfn) == 4 && pin == 3) {
-		
+		/* VT6212 INTC */
 		irq = IRQ_IOP32X_XINT2;
 	} else if (PCI_SLOT(dev->devfn) == 5) {
-		
+		/* Mini-PCI slot */
 		irq = IRQ_IOP32X_XINT3;
 	} else {
 		printk(KERN_ERR "n2100_pci_map_irq() called for unknown "
@@ -113,6 +122,11 @@ static struct hw_pci n2100_pci __initdata = {
 	.map_irq	= n2100_pci_map_irq,
 };
 
+/*
+ * Both r8169 chips on the n2100 exhibit PCI parity problems.  Set
+ * the ->broken_parity_status flag for both ports so that the r8169
+ * driver knows it should ignore error interrupts.
+ */
 static void n2100_fixup_r8169(struct pci_dev *dev)
 {
 	if (dev->bus->number == 0 &&
@@ -133,6 +147,9 @@ static int __init n2100_pci_init(void)
 subsys_initcall(n2100_pci_init);
 
 
+/*
+ * N2100 machine initialisation.
+ */
 static struct physmap_flash_data n2100_flash_data = {
 	.width		= 2,
 };
@@ -212,8 +229,8 @@ static struct pca9532_platform_data n2100_leds = {
 		.type = PCA9532_TYPE_LED,
 	},
 
-	{	.type = PCA9532_TYPE_NONE }, 
-	{	.type = PCA9532_TYPE_NONE }, 
+	{	.type = PCA9532_TYPE_NONE }, /* power OFF gpio */
+	{	.type = PCA9532_TYPE_NONE }, /* reset gpio */
 	{	.type = PCA9532_TYPE_NONE },
 	{	.type = PCA9532_TYPE_NONE },
 
@@ -249,21 +266,24 @@ static struct i2c_board_info __initdata n2100_i2c_devices[] = {
 	},
 };
 
+/*
+ * Pull PCA9532 GPIO #8 low to power off the machine.
+ */
 static void n2100_power_off(void)
 {
 	local_irq_disable();
 
-	
+	/* Start condition, I2C address of PCA9532, write transaction.  */
 	*IOP3XX_IDBR0 = 0xc0;
 	*IOP3XX_ICR0 = 0xe9;
 	mdelay(1);
 
-	
+	/* Write address 0x08.  */
 	*IOP3XX_IDBR0 = 0x08;
 	*IOP3XX_ICR0 = 0xe8;
 	mdelay(1);
 
-	
+	/* Write data 0x01, stop condition.  */
 	*IOP3XX_IDBR0 = 0x01;
 	*IOP3XX_ICR0 = 0xea;
 
@@ -314,7 +334,7 @@ static void __init n2100_init_machine(void)
 }
 
 MACHINE_START(N2100, "Thecus N2100")
-	
+	/* Maintainer: Lennert Buytenhek <buytenh@wantstofly.org> */
 	.atag_offset	= 0x100,
 	.map_io		= n2100_map_io,
 	.init_irq	= iop32x_init_irq,

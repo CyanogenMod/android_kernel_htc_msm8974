@@ -13,4 +13,4 @@
 
 #define set_mb(var, value) 		do {var = value; wmb(); } while (0)
 
-#endif 
+#endif /* _ASM_SCORE_BARRIER_H */

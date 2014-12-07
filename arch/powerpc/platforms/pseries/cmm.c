@@ -52,6 +52,10 @@
 #define CMM_MIN_MEM_MB		256
 #define KB2PAGES(_p)		((_p)>>(PAGE_SHIFT-10))
 #define PAGES2KB(_p)		((_p)<<(PAGE_SHIFT-10))
+/*
+ * The priority level tries to ensure that this notifier is called as
+ * late as possible to reduce thrashing in the shared memory pool.
+ */
 #define CMM_MEM_HOTPLUG_PRI	1
 #define CMM_MEM_ISOLATE_PRI	15
 
@@ -103,10 +107,17 @@ static struct cmm_page_array *cmm_page_list;
 static DEFINE_SPINLOCK(cmm_lock);
 
 static DEFINE_MUTEX(hotplug_mutex);
-static int hotplug_occurred; 
+static int hotplug_occurred; /* protected by the hotplug mutex */
 
 static struct task_struct *cmm_thread_ptr;
 
+/**
+ * cmm_alloc_pages - Allocate pages and mark them as loaned
+ * @nr:	number of pages to allocate
+ *
+ * Return value:
+ * 	number of pages requested to be allocated which were not
+ **/
 static long cmm_alloc_pages(long nr)
 {
 	struct cmm_page_array *pa, *npa;
@@ -116,7 +127,7 @@ static long cmm_alloc_pages(long nr)
 	cmm_dbg("Begin request for %ld pages\n", nr);
 
 	while (nr) {
-		
+		/* Exit if a hotplug operation is in progress or occurred */
 		if (mutex_trylock(&hotplug_mutex)) {
 			if (hotplug_occurred) {
 				mutex_unlock(&hotplug_mutex);
@@ -134,7 +145,7 @@ static long cmm_alloc_pages(long nr)
 		spin_lock(&cmm_lock);
 		pa = cmm_page_list;
 		if (!pa || pa->index >= CMM_NR_PAGES) {
-			
+			/* Need a new page for the page list. */
 			spin_unlock(&cmm_lock);
 			npa = (struct cmm_page_array *)__get_free_page(
 					GFP_NOIO | __GFP_NOWARN |
@@ -174,6 +185,13 @@ static long cmm_alloc_pages(long nr)
 	return nr;
 }
 
+/**
+ * cmm_free_pages - Free pages and mark them as active
+ * @nr:	number of pages to free
+ *
+ * Return value:
+ * 	number of pages requested to be freed which were not
+ **/
 static long cmm_free_pages(long nr)
 {
 	struct cmm_page_array *pa;
@@ -204,6 +222,15 @@ static long cmm_free_pages(long nr)
 	return nr;
 }
 
+/**
+ * cmm_oom_notify - OOM notifier
+ * @self:	notifier block struct
+ * @dummy:	not used
+ * @parm:	returned - number of pages freed
+ *
+ * Return value:
+ * 	NOTIFY_OK
+ **/
 static int cmm_oom_notify(struct notifier_block *self,
 			  unsigned long dummy, void *parm)
 {
@@ -219,6 +246,14 @@ static int cmm_oom_notify(struct notifier_block *self,
 	return NOTIFY_OK;
 }
 
+/**
+ * cmm_get_mpp - Read memory performance parameters
+ *
+ * Makes hcall to query the current page loan request from the hypervisor.
+ *
+ * Return value:
+ * 	nothing
+ **/
 static void cmm_get_mpp(void)
 {
 	int rc;
@@ -262,6 +297,13 @@ static struct notifier_block cmm_oom_nb = {
 	.notifier_call = cmm_oom_notify
 };
 
+/**
+ * cmm_thread - CMM task thread
+ * @dummy:	not used
+ *
+ * Return value:
+ * 	0
+ **/
 static int cmm_thread(void *dummy)
 {
 	unsigned long timeleft;
@@ -351,6 +393,12 @@ static struct bus_type cmm_subsys = {
 	.dev_name = "cmm",
 };
 
+/**
+ * cmm_sysfs_register - Register with sysfs
+ *
+ * Return value:
+ * 	0 on success / other on failure
+ **/
 static int cmm_sysfs_register(struct device *dev)
 {
 	int i, rc;
@@ -380,6 +428,10 @@ subsys_unregister:
 	return rc;
 }
 
+/**
+ * cmm_unregister_sysfs - Unregister from sysfs
+ *
+ **/
 static void cmm_unregister_sysfs(struct device *dev)
 {
 	int i;
@@ -390,6 +442,10 @@ static void cmm_unregister_sysfs(struct device *dev)
 	bus_unregister(&cmm_subsys);
 }
 
+/**
+ * cmm_reboot_notifier - Make sure pages are not still marked as "loaned"
+ *
+ **/
 static int cmm_reboot_notifier(struct notifier_block *nb,
 			       unsigned long action, void *unused)
 {
@@ -406,6 +462,14 @@ static struct notifier_block cmm_reboot_nb = {
 	.notifier_call = cmm_reboot_notifier,
 };
 
+/**
+ * cmm_count_pages - Count the number of pages loaned in a particular range.
+ *
+ * @arg: memory_isolate_notify structure with address range and count
+ *
+ * Return value:
+ *      0 on success
+ **/
 static unsigned long cmm_count_pages(void *arg)
 {
 	struct memory_isolate_notify *marg = arg;
@@ -428,6 +492,15 @@ static unsigned long cmm_count_pages(void *arg)
 	return 0;
 }
 
+/**
+ * cmm_memory_isolate_cb - Handle memory isolation notifier calls
+ * @self:	notifier block struct
+ * @action:	action to take
+ * @arg:	struct memory_isolate_notify data for handler
+ *
+ * Return value:
+ *	NOTIFY_OK or notifier error based on subfunction return value
+ **/
 static int cmm_memory_isolate_cb(struct notifier_block *self,
 				 unsigned long action, void *arg)
 {
@@ -444,6 +517,13 @@ static struct notifier_block cmm_mem_isolate_nb = {
 	.priority = CMM_MEM_ISOLATE_PRI
 };
 
+/**
+ * cmm_mem_going_offline - Unloan pages where memory is to be removed
+ * @arg: memory_notify structure with page range to be offlined
+ *
+ * Return value:
+ *	0 on success
+ **/
 static int cmm_mem_going_offline(void *arg)
 {
 	struct memory_notify *marg = arg;
@@ -457,7 +537,7 @@ static int cmm_mem_going_offline(void *arg)
 			start_page, marg->nr_pages);
 	spin_lock(&cmm_lock);
 
-	
+	/* Search the page list for pages in the range to be offlined */
 	pa_last = pa_curr = cmm_page_list;
 	while (pa_curr) {
 		for (idx = (pa_curr->index - 1); (idx + 1) > 0; idx--) {
@@ -483,7 +563,7 @@ static int cmm_mem_going_offline(void *arg)
 		pa_curr = pa_curr->next;
 	}
 
-	
+	/* Search for page list structures in the range to be offlined */
 	pa_last = NULL;
 	pa_curr = cmm_page_list;
 	while (pa_curr) {
@@ -519,6 +599,16 @@ static int cmm_mem_going_offline(void *arg)
 	return 0;
 }
 
+/**
+ * cmm_memory_cb - Handle memory hotplug notifier calls
+ * @self:	notifier block struct
+ * @action:	action to take
+ * @arg:	struct memory_notify data for handler
+ *
+ * Return value:
+ *	NOTIFY_OK or notifier error based on subfunction return value
+ *
+ **/
 static int cmm_memory_cb(struct notifier_block *self,
 			unsigned long action, void *arg)
 {
@@ -549,6 +639,12 @@ static struct notifier_block cmm_mem_nb = {
 	.priority = CMM_MEM_HOTPLUG_PRI
 };
 
+/**
+ * cmm_init - Module initialization
+ *
+ * Return value:
+ * 	0 on success / other on failure
+ **/
 static int cmm_init(void)
 {
 	int rc = -ENOMEM;
@@ -591,6 +687,12 @@ out_oom_notifier:
 	return rc;
 }
 
+/**
+ * cmm_exit - Module exit
+ *
+ * Return value:
+ * 	nothing
+ **/
 static void cmm_exit(void)
 {
 	if (cmm_thread_ptr)
@@ -603,6 +705,12 @@ static void cmm_exit(void)
 	cmm_unregister_sysfs(&cmm_dev);
 }
 
+/**
+ * cmm_set_disable - Disable/Enable CMM
+ *
+ * Return value:
+ * 	0 on success / other on failure
+ **/
 static int cmm_set_disable(const char *val, struct kernel_param *kp)
 {
 	int disable = simple_strtoul(val, NULL, 10);

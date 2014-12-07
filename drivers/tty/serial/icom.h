@@ -48,69 +48,72 @@ static int icom_acfg_baud[] = {
 };
 
 struct icom_regs {
-	u32 control;		
-	u32 interrupt;		
-	u32 int_mask;		
-	u32 int_pri;		
-	u32 int_reg_b;		
+	u32 control;		/* Adapter Control Register     */
+	u32 interrupt;		/* Adapter Interrupt Register   */
+	u32 int_mask;		/* Adapter Interrupt Mask Reg   */
+	u32 int_pri;		/* Adapter Interrupt Priority r */
+	u32 int_reg_b;		/* Adapter non-masked Interrupt */
 	u32 resvd01;
 	u32 resvd02;
 	u32 resvd03;
-	u32 control_2;		
-	u32 interrupt_2;	
-	u32 int_mask_2;		
-	u32 int_pri_2;		
-	u32 int_reg_2b;		
+	u32 control_2;		/* Adapter Control Register 2   */
+	u32 interrupt_2;	/* Adapter Interrupt Register 2 */
+	u32 int_mask_2;		/* Adapter Interrupt Mask 2     */
+	u32 int_pri_2;		/* Adapter Interrupt Prior 2    */
+	u32 int_reg_2b;		/* Adapter non-masked 2         */
 };
 
 struct func_dram {
-	u32 reserved[108];	
-	u32 RcvStatusAddr;	
-	u8 RcvStnAddr;		
-	u8 IdleState;		
-	u8 IdleMonitor;		
-	u8 FlagFillIdleTimer;	
-	u32 XmitStatusAddr;	
-	u8 StartXmitCmd;	
-	u8 HDLCConfigReg;	
-	u8 CauseCode;		
-	u8 xchar;		
-	u32 reserved3;		
-	u8 PrevCmdReg;		
-	u8 CmdReg;		
-	u8 async_config2;	
-	u8 async_config3;	
-	u8 dce_resvd[20];	
-	u8 dce_resvd21;		
-	u8 misc_flags;		
+	u32 reserved[108];	/* 0-1B0   reserved by personality code */
+	u32 RcvStatusAddr;	/* 1B0-1B3 Status Address for Next rcv */
+	u8 RcvStnAddr;		/* 1B4     Receive Station Addr */
+	u8 IdleState;		/* 1B5     Idle State */
+	u8 IdleMonitor;		/* 1B6     Idle Monitor */
+	u8 FlagFillIdleTimer;	/* 1B7     Flag Fill Idle Timer */
+	u32 XmitStatusAddr;	/* 1B8-1BB Transmit Status Address */
+	u8 StartXmitCmd;	/* 1BC     Start Xmit Command */
+	u8 HDLCConfigReg;	/* 1BD     Reserved */
+	u8 CauseCode;		/* 1BE     Cause code for fatal error */
+	u8 xchar;		/* 1BF     High priority send */
+	u32 reserved3;		/* 1C0-1C3 Reserved */
+	u8 PrevCmdReg;		/* 1C4     Reserved */
+	u8 CmdReg;		/* 1C5     Command Register */
+	u8 async_config2;	/* 1C6     Async Config Byte 2 */
+	u8 async_config3;	/* 1C7     Async Config Byte 3 */
+	u8 dce_resvd[20];	/* 1C8-1DB DCE Rsvd           */
+	u8 dce_resvd21;		/* 1DC     DCE Rsvd (21st byte */
+	u8 misc_flags;		/* 1DD     misc flags         */
 #define V2_HARDWARE     0x40
 #define ICOM_HDW_ACTIVE 0x01
-	u8 call_length;		
-	u8 call_length2;	
-	u32 call_addr;		
-	u16 timer_value;	
-	u8 timer_command;	
-	u8 dce_command;		
-	u8 dce_cmd_status;	
-	u8 x21_r1_ioff;		
-	u8 x21_r0_ioff;		
-	u8 x21_ralt_ioff;	
-	u8 x21_r1_ion;		
-	u8 rsvd_ier;		
-	u8 ier;			
-	u8 isr;			
-	u8 osr;			
-	u8 reset;		
-	u8 disable;		
-	u8 sync;		
-	u8 error_stat;		
-	u8 cable_id;		
-	u8 cs_length;		
-	u8 mac_length;		
-	u32 cs_load_addr;	
-	u32 mac_load_addr;	
+	u8 call_length;		/* 1DE     Phone #/CFI buff ln */
+	u8 call_length2;	/* 1DF     Upper byte (unused) */
+	u32 call_addr;		/* 1E0-1E3 Phn #/CFI buff addr */
+	u16 timer_value;	/* 1E4-1E5 general timer value */
+	u8 timer_command;	/* 1E6     general timer cmd  */
+	u8 dce_command;		/* 1E7     dce command reg    */
+	u8 dce_cmd_status;	/* 1E8     dce command stat   */
+	u8 x21_r1_ioff;		/* 1E9     dce ready counter  */
+	u8 x21_r0_ioff;		/* 1EA     dce not ready ctr  */
+	u8 x21_ralt_ioff;	/* 1EB     dce CNR counter    */
+	u8 x21_r1_ion;		/* 1EC     dce ready I on ctr */
+	u8 rsvd_ier;		/* 1ED     Rsvd for IER (if ne */
+	u8 ier;			/* 1EE     Interrupt Enable   */
+	u8 isr;			/* 1EF     Input Signal Reg   */
+	u8 osr;			/* 1F0     Output Signal Reg  */
+	u8 reset;		/* 1F1     Reset/Reload Reg   */
+	u8 disable;		/* 1F2     Disable Reg        */
+	u8 sync;		/* 1F3     Sync Reg           */
+	u8 error_stat;		/* 1F4     Error Status       */
+	u8 cable_id;		/* 1F5     Cable ID           */
+	u8 cs_length;		/* 1F6     CS Load Length     */
+	u8 mac_length;		/* 1F7     Mac Load Length    */
+	u32 cs_load_addr;	/* 1F8-1FB Call Load PCI Addr */
+	u32 mac_load_addr;	/* 1FC-1FF Mac Load PCI Addr  */
 };
 
+/*
+ * adapter defines and structures
+ */
 #define ICOM_CONTROL_START_A         0x00000008
 #define ICOM_CONTROL_STOP_A          0x00000004
 #define ICOM_CONTROL_START_B         0x00000002
@@ -177,41 +180,41 @@ struct func_dram {
 #define RCV_BUFF_SZ 0x0200
 #define XMIT_BUFF_SZ 0x1000
 struct statusArea {
-    
-	
-    
+    /**********************************************/
+	/* Transmit Status Area                       */
+    /**********************************************/
 	struct xmit_status_area{
-		u32 leNext;	
+		u32 leNext;	/* Next entry in Little Endian on Adapter */
 		u32 leNextASD;
-		u32 leBuffer;	
+		u32 leBuffer;	/* Buffer for entry in LE for Adapter */
 		u16 leLengthASD;
 		u16 leOffsetASD;
-		u16 leLength;	
+		u16 leLength;	/* Length of data in segment */
 		u16 flags;
-#define SA_FLAGS_DONE           0x0080	
-#define SA_FLAGS_CONTINUED      0x8000	
-#define SA_FLAGS_IDLE           0x4000	
+#define SA_FLAGS_DONE           0x0080	/* Done with Segment */
+#define SA_FLAGS_CONTINUED      0x8000	/* More Segments */
+#define SA_FLAGS_IDLE           0x4000	/* Mark IDLE after frm */
 #define SA_FLAGS_READY_TO_XMIT  0x0800
 #define SA_FLAGS_STAT_MASK      0x007F
 	} xmit[NUM_XBUFFS];
 
-    
-	
-    
+    /**********************************************/
+	/* Receive Status Area                        */
+    /**********************************************/
 	struct {
-		u32 leNext;	
+		u32 leNext;	/* Next entry in Little Endian on Adapter */
 		u32 leNextASD;
-		u32 leBuffer;	
-		u16 WorkingLength;	
+		u32 leBuffer;	/* Buffer for entry in LE for Adapter */
+		u16 WorkingLength;	/* size of segment */
 		u16 reserv01;
-		u16 leLength;	
+		u16 leLength;	/* Length of data in segment */
 		u16 flags;
-#define SA_FL_RCV_DONE           0x0010	
+#define SA_FL_RCV_DONE           0x0010	/* Data ready */
 #define SA_FLAGS_OVERRUN         0x0040
 #define SA_FLAGS_PARITY_ERROR    0x0080
 #define SA_FLAGS_FRAME_ERROR     0x0001
 #define SA_FLAGS_FRAME_TRUNC     0x0002
-#define SA_FLAGS_BREAK_DET       0x0004	
+#define SA_FLAGS_BREAK_DET       0x0004	/* set conditionally by device driver, not hardware */
 #define SA_FLAGS_RCV_MASK        0xFFE6
 	} rcv[NUM_RBUFFS];
 };
@@ -246,8 +249,8 @@ struct icom_port {
 	int next_rcv;
 	int put_length;
 	int status;
-#define ICOM_PORT_ACTIVE	1	
-#define ICOM_PORT_OFF		0	
+#define ICOM_PORT_ACTIVE	1	/* Port exists. */
+#define ICOM_PORT_OFF		0	/* Port does not exist. */
 	int load_in_progress;
 	struct icom_adapter *adapter;
 };
@@ -270,6 +273,7 @@ struct icom_adapter {
 	struct kref kref;
 };
 
+/* prototype */
 extern void iCom_sercons_init(void);
 
 struct lookup_proc_table {

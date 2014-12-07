@@ -1,3 +1,11 @@
+/*
+ *  linux/arch/h8300/kernel/timer/tpu.c
+ *
+ *  Yoshinori Sato <ysato@users.sourceforge.jp>
+ *
+ *  TPU Timer Handler
+ *
+ */
 
 #include <linux/errno.h>
 #include <linux/sched.h>
@@ -14,6 +22,7 @@
 #include <asm/irq.h>
 #include <asm/regs267x.h>
 
+/* TPU */
 #if CONFIG_H8300_TPU_CH == 0
 #define TPUBASE	0xffffd0
 #define TPUIRQ	40
@@ -78,7 +87,7 @@ void __init h8300_timer_setup(void)
 
 	setup_irq(TPUIRQ, &tpu_irq);
 
-	
+	/* TPU module enabled */
 	ctrl_bclr(3, MSTPCRH);
 
 	ctrl_outb(0, TSTR);

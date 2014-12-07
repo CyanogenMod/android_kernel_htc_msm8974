@@ -1,3 +1,8 @@
+/*
+ *  linux/arch/arm/mach-shark/arch.c
+ *
+ *  Architecture specific stuff.
+ */
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -25,7 +30,7 @@
 static void shark_restart(char mode, const char *cmd)
 {
         short temp;
-        
+        /* Reset the Machine via pc[3] of the sequoia chipset */
         outw(0x09,0x24);
         temp=inw(0x26);
         temp = temp | (1<<3) | (1<<10);
@@ -129,10 +134,13 @@ static struct irqaction shark_timer_irq = {
 	.handler	= shark_timer_interrupt,
 };
 
+/*
+ * Set up timer interrupt, and return the current time in seconds.
+ */
 static void __init shark_timer_init(void)
 {
-	outb(0x34, 0x43);               
-	outb(HZ_TIME & 0xff, 0x40);     
+	outb(0x34, 0x43);               /* binary, mode 0, LSB/MSB, Ch 0 */
+	outb(HZ_TIME & 0xff, 0x40);     /* LSB of count */
 	outb(HZ_TIME >> 8, 0x40);
 
 	setup_irq(IRQ_TIMER, &shark_timer_irq);
@@ -148,7 +156,7 @@ static void shark_init_early(void)
 }
 
 MACHINE_START(SHARK, "Shark")
-	
+	/* Maintainer: Alexander Schulz */
 	.atag_offset	= 0x3000,
 	.map_io		= shark_map_io,
 	.init_early	= shark_init_early,

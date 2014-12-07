@@ -33,46 +33,93 @@
 
 #include <asm/mach-powertv/ioremap.h>
 
+/*
+ * Define the sizes of and masks for grains in physical and DMA space. The
+ * values are the same but the types are not.
+ */
 #define IOR_PHYS_GRAIN		((phys_addr_t) 1 << IOR_LSBITS)
 #define IOR_PHYS_GRAIN_MASK	(IOR_PHYS_GRAIN - 1)
 
 #define IOR_DMA_GRAIN		((dma_addr_t) 1 << IOR_LSBITS)
 #define IOR_DMA_GRAIN_MASK	(IOR_DMA_GRAIN - 1)
 
+/*
+ * Values that, when accessed by an index derived from a phys_addr_t and
+ * added to phys_addr_t value, yield a DMA address
+ */
 struct ior_phys_to_dma _ior_phys_to_dma[IOR_NUM_PHYS_TO_DMA];
 EXPORT_SYMBOL(_ior_phys_to_dma);
 
+/*
+ * Values that, when accessed by an index derived from a dma_addr_t and
+ * added to that dma_addr_t value, yield a physical address
+ */
 struct ior_dma_to_phys _ior_dma_to_phys[IOR_NUM_DMA_TO_PHYS];
 EXPORT_SYMBOL(_ior_dma_to_phys);
 
+/**
+ * setup_dma_to_phys - set up conversion from DMA to physical addresses
+ * @dma_idx:	Top IOR_LSBITS bits of the DMA address, i.e. an index
+ *		into the array _dma_to_phys.
+ * @delta:	Value that, when added to the DMA address, will yield the
+ *		physical address
+ * @s:		Number of bytes in the section of memory with the given delta
+ *		between DMA and physical addresses.
+ */
 static void setup_dma_to_phys(dma_addr_t dma, phys_addr_t delta, dma_addr_t s)
 {
 	int dma_idx, first_idx, last_idx;
 	phys_addr_t first, last;
 
+	/*
+	 * Calculate the first and last indices, rounding the first up and
+	 * the second down.
+	 */
 	first = dma & ~IOR_DMA_GRAIN_MASK;
 	last = (dma + s - 1) & ~IOR_DMA_GRAIN_MASK;
-	first_idx = first >> IOR_LSBITS;		
+	first_idx = first >> IOR_LSBITS;		/* Convert to indices */
 	last_idx = last >> IOR_LSBITS;
 
 	for (dma_idx = first_idx; dma_idx <= last_idx; dma_idx++)
 		_ior_dma_to_phys[dma_idx].offset = delta >> IOR_DMA_SHIFT;
 }
 
+/**
+ * setup_phys_to_dma - set up conversion from DMA to physical addresses
+ * @phys_idx:	Top IOR_LSBITS bits of the DMA address, i.e. an index
+ *		into the array _phys_to_dma.
+ * @delta:	Value that, when added to the DMA address, will yield the
+ *		physical address
+ * @s:		Number of bytes in the section of memory with the given delta
+ *		between DMA and physical addresses.
+ */
 static void setup_phys_to_dma(phys_addr_t phys, dma_addr_t delta, phys_addr_t s)
 {
 	int phys_idx, first_idx, last_idx;
 	phys_addr_t first, last;
 
+	/*
+	 * Calculate the first and last indices, rounding the first up and
+	 * the second down.
+	 */
 	first = phys & ~IOR_PHYS_GRAIN_MASK;
 	last = (phys + s - 1) & ~IOR_PHYS_GRAIN_MASK;
-	first_idx = first >> IOR_LSBITS;		
+	first_idx = first >> IOR_LSBITS;		/* Convert to indices */
 	last_idx = last >> IOR_LSBITS;
 
 	for (phys_idx = first_idx; phys_idx <= last_idx; phys_idx++)
 		_ior_phys_to_dma[phys_idx].offset = delta >> IOR_PHYS_SHIFT;
 }
 
+/**
+ * ioremap_add_map - add to the physical and DMA address conversion arrays
+ * @phys:	Process's view of the address of the start of the memory chunk
+ * @dma:	DMA address of the start of the memory chunk
+ * @size:	Size, in bytes, of the chunk of memory
+ *
+ * NOTE: It might be obvious, but the assumption is that all @size bytes have
+ * the same offset between the physical address and the DMA address.
+ */
 void ioremap_add_map(phys_addr_t phys, phys_addr_t dma, phys_addr_t size)
 {
 	if (size == 0)

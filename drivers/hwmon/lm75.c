@@ -30,8 +30,11 @@
 #include "lm75.h"
 
 
+/*
+ * This driver handles the LM75 and compatible digital temperature sensors.
+ */
 
-enum lm75_type {		
+enum lm75_type {		/* keep sorted in alphabetical order */
 	adt75,
 	ds1775,
 	ds75,
@@ -50,24 +53,30 @@ enum lm75_type {
 	tmp75,
 };
 
+/* Addresses scanned */
 static const unsigned short normal_i2c[] = { 0x48, 0x49, 0x4a, 0x4b, 0x4c,
 					0x4d, 0x4e, 0x4f, I2C_CLIENT_END };
 
 
+/* The LM75 registers */
 #define LM75_REG_CONF		0x01
 static const u8 LM75_REG_TEMP[3] = {
-	0x00,		
-	0x03,		
-	0x02,		
+	0x00,		/* input */
+	0x03,		/* max */
+	0x02,		/* hyst */
 };
 
+/* Each client has this additional data */
 struct lm75_data {
 	struct device		*hwmon_dev;
 	struct mutex		update_lock;
 	u8			orig_conf;
-	char			valid;		
-	unsigned long		last_updated;	
-	u16			temp[3];	
+	char			valid;		/* !=0 if registers are valid */
+	unsigned long		last_updated;	/* In jiffies */
+	u16			temp[3];	/* Register values,
+						   0 = input
+						   1 = max
+						   2 = hyst */
 };
 
 static int lm75_read_value(struct i2c_client *client, u8 reg);
@@ -75,7 +84,9 @@ static int lm75_write_value(struct i2c_client *client, u8 reg, u16 value);
 static struct lm75_data *lm75_update_device(struct device *dev);
 
 
+/*-----------------------------------------------------------------------*/
 
+/* sysfs attributes for hwmon */
 
 static ssize_t show_temp(struct device *dev, struct device_attribute *da,
 			 char *buf)
@@ -129,7 +140,9 @@ static const struct attribute_group lm75_group = {
 	.attrs = lm75_attributes,
 };
 
+/*-----------------------------------------------------------------------*/
 
+/* device probe and removal */
 
 static int
 lm75_probe(struct i2c_client *client, const struct i2c_device_id *id)
@@ -150,11 +163,14 @@ lm75_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
+	/* Set to LM75 resolution (9 bits, 1/2 degree C) and range.
+	 * Then tweak to be more precise when appropriate.
+	 */
 	set_mask = 0;
-	clr_mask = (1 << 0)			
-		| (1 << 6) | (1 << 5);		
+	clr_mask = (1 << 0)			/* continuous conversions */
+		| (1 << 6) | (1 << 5);		/* 9-bit mode */
 
-	
+	/* configure as specified */
 	status = lm75_read_value(client, LM75_REG_CONF);
 	if (status < 0) {
 		dev_dbg(&client->dev, "Can't read config? %d\n", status);
@@ -167,7 +183,7 @@ lm75_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		lm75_write_value(client, LM75_REG_CONF, new);
 	dev_dbg(&client->dev, "Config %02x\n", new);
 
-	
+	/* Register sysfs hooks */
 	status = sysfs_create_group(&client->dev.kobj, &lm75_group);
 	if (status)
 		goto exit_free;
@@ -218,12 +234,13 @@ static const struct i2c_device_id lm75_ids[] = {
 	{ "tmp175", tmp175, },
 	{ "tmp275", tmp275, },
 	{ "tmp75", tmp75, },
-	{  }
+	{ /* LIST END */ }
 };
 MODULE_DEVICE_TABLE(i2c, lm75_ids);
 
 #define LM75A_ID 0xA1
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int lm75_detect(struct i2c_client *new_client,
 		       struct i2c_board_info *info)
 {
@@ -236,14 +253,40 @@ static int lm75_detect(struct i2c_client *new_client,
 				     I2C_FUNC_SMBUS_WORD_DATA))
 		return -ENODEV;
 
+	/*
+	 * Now, we do the remaining detection. There is no identification-
+	 * dedicated register so we have to rely on several tricks:
+	 * unused bits, registers cycling over 8-address boundaries,
+	 * addresses 0x04-0x07 returning the last read value.
+	 * The cycling+unused addresses combination is not tested,
+	 * since it would significantly slow the detection down and would
+	 * hardly add any value.
+	 *
+	 * The National Semiconductor LM75A is different than earlier
+	 * LM75s.  It has an ID byte of 0xaX (where X is the chip
+	 * revision, with 1 being the only revision in existence) in
+	 * register 7, and unused registers return 0xff rather than the
+	 * last read value.
+	 *
+	 * Note that this function only detects the original National
+	 * Semiconductor LM75 and the LM75A. Clones from other vendors
+	 * aren't detected, on purpose, because they are typically never
+	 * found on PC hardware. They are found on embedded designs where
+	 * they can be instantiated explicitly so detection is not needed.
+	 * The absence of identification registers on all these clones
+	 * would make their exhaustive detection very difficult and weak,
+	 * and odds are that the driver would bind to unsupported devices.
+	 */
 
-	
+	/* Unused bits */
 	conf = i2c_smbus_read_byte_data(new_client, 1);
 	if (conf & 0xe0)
 		return -ENODEV;
 
-	
+	/* First check for LM75A */
 	if (i2c_smbus_read_byte_data(new_client, 7) == LM75A_ID) {
+		/* LM75A returns 0xff on unused registers so
+		   just to be sure we check for that too. */
 		if (i2c_smbus_read_byte_data(new_client, 4) != 0xff
 		 || i2c_smbus_read_byte_data(new_client, 5) != 0xff
 		 || i2c_smbus_read_byte_data(new_client, 6) != 0xff)
@@ -251,8 +294,8 @@ static int lm75_detect(struct i2c_client *new_client,
 		is_lm75a = 1;
 		hyst = i2c_smbus_read_byte_data(new_client, 2);
 		os = i2c_smbus_read_byte_data(new_client, 3);
-	} else { 
-		
+	} else { /* Traditional style LM75 detection */
+		/* Unused addresses */
 		hyst = i2c_smbus_read_byte_data(new_client, 2);
 		if (i2c_smbus_read_byte_data(new_client, 4) != hyst
 		 || i2c_smbus_read_byte_data(new_client, 5) != hyst
@@ -267,7 +310,7 @@ static int lm75_detect(struct i2c_client *new_client,
 			return -ENODEV;
 	}
 
-	
+	/* Addresses cycling */
 	for (i = 8; i <= 248; i += 40) {
 		if (i2c_smbus_read_byte_data(new_client, i + 1) != conf
 		 || i2c_smbus_read_byte_data(new_client, i + 2) != hyst
@@ -319,7 +362,7 @@ static const struct dev_pm_ops lm75_dev_pm_ops = {
 #define LM75_DEV_PM_OPS (&lm75_dev_pm_ops)
 #else
 #define LM75_DEV_PM_OPS NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static struct i2c_driver lm75_driver = {
 	.class		= I2C_CLASS_HWMON,
@@ -334,8 +377,15 @@ static struct i2c_driver lm75_driver = {
 	.address_list	= normal_i2c,
 };
 
+/*-----------------------------------------------------------------------*/
 
+/* register access */
 
+/*
+ * All registers are word-sized, except for the configuration register.
+ * LM75 uses a high-byte first convention, which is exactly opposite to
+ * the SMBus standard.
+ */
 static int lm75_read_value(struct i2c_client *client, u8 reg)
 {
 	if (reg == LM75_REG_CONF)

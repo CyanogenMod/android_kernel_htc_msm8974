@@ -173,7 +173,7 @@ static struct platform_device pandora_keys_gpio = {
 };
 
 static const uint32_t board_keymap[] = {
-	
+	/* row, col, code */
 	KEY(0, 0, KEY_9),
 	KEY(0, 1, KEY_8),
 	KEY(0, 2, KEY_I),
@@ -259,6 +259,10 @@ static struct omap_dss_board_info pandora_dss_data = {
 
 static void pandora_wl1251_init_card(struct mmc_card *card)
 {
+	/*
+	 * We have TI wl1251 attached to MMC3. Pass this information to
+	 * SDIO core because it can't be probed by normal methods.
+	 */
 	card->quirks |= MMC_QUIRK_NONSTD_SDIO;
 	card->cccr.wide_bus = 1;
 	card->cis.vendor = 0x104c;
@@ -292,7 +296,7 @@ static struct omap2_hsmmc_info omap3pandora_mmc[] = {
 		.gpio_wp	= -EINVAL,
 		.init_card	= pandora_wl1251_init_card,
 	},
-	{}	
+	{}	/* Terminator */
 };
 
 static int omap3pandora_twl_gpio_setup(struct device *dev,
@@ -300,12 +304,12 @@ static int omap3pandora_twl_gpio_setup(struct device *dev,
 {
 	int ret, gpio_32khz;
 
-	
+	/* gpio + {0,1} is "mmc{0,1}_cd" (input/IRQ) */
 	omap3pandora_mmc[0].gpio_cd = gpio + 0;
 	omap3pandora_mmc[1].gpio_cd = gpio + 1;
 	omap_hsmmc_late_init(omap3pandora_mmc);
 
-	
+	/* gpio + 13 drives 32kHz buffer for wifi module */
 	gpio_32khz = gpio + 13;
 	ret = gpio_request_one(gpio_32khz, GPIOF_OUT_INIT_HIGH, "wifi 32kHz");
 	if (ret < 0) {
@@ -349,6 +353,7 @@ static struct regulator_consumer_supply pandora_usb_phy_supply[] = {
 	REGULATOR_SUPPLY("hsusb1", "ehci-omap.0"),
 };
 
+/* ads7846 on SPI and 2 nub controllers on I2C */
 static struct regulator_consumer_supply pandora_vaux4_supplies[] = {
 	REGULATOR_SUPPLY("vcc", "spi1.0"),
 	REGULATOR_SUPPLY("vcc", "3-0066"),
@@ -359,6 +364,7 @@ static struct regulator_consumer_supply pandora_adac_supply[] = {
 	REGULATOR_SUPPLY("vcc", "soc-audio"),
 };
 
+/* VMMC1 for MMC1 pins CMD, CLK, DAT0..DAT3 (20 mA, plus card == max 220 mA) */
 static struct regulator_init_data pandora_vmmc1 = {
 	.constraints = {
 		.min_uV			= 1850000,
@@ -373,6 +379,7 @@ static struct regulator_init_data pandora_vmmc1 = {
 	.consumer_supplies	= pandora_vmmc1_supply,
 };
 
+/* VMMC2 for MMC2 pins CMD, CLK, DAT0..DAT3 (max 100 mA) */
 static struct regulator_init_data pandora_vmmc2 = {
 	.constraints = {
 		.min_uV			= 1850000,
@@ -387,6 +394,7 @@ static struct regulator_init_data pandora_vmmc2 = {
 	.consumer_supplies	= pandora_vmmc2_supply,
 };
 
+/* VAUX1 for LCD */
 static struct regulator_init_data pandora_vaux1 = {
 	.constraints = {
 		.min_uV			= 3000000,
@@ -401,6 +409,7 @@ static struct regulator_init_data pandora_vaux1 = {
 	.consumer_supplies	= pandora_vcc_lcd_supply,
 };
 
+/* VAUX2 for USB host PHY */
 static struct regulator_init_data pandora_vaux2 = {
 	.constraints = {
 		.min_uV			= 1800000,
@@ -415,6 +424,7 @@ static struct regulator_init_data pandora_vaux2 = {
 	.consumer_supplies	= pandora_usb_phy_supply,
 };
 
+/* VAUX4 for ads7846 and nubs */
 static struct regulator_init_data pandora_vaux4 = {
 	.constraints = {
 		.min_uV			= 2800000,
@@ -429,6 +439,7 @@ static struct regulator_init_data pandora_vaux4 = {
 	.consumer_supplies	= pandora_vaux4_supplies,
 };
 
+/* VSIM for audio DAC */
 static struct regulator_init_data pandora_vsim = {
 	.constraints = {
 		.min_uV			= 2800000,
@@ -443,6 +454,7 @@ static struct regulator_init_data pandora_vsim = {
 	.consumer_supplies	= pandora_adac_supply,
 };
 
+/* Fixed regulator internal to Wifi module */
 static struct regulator_init_data pandora_vmmc3 = {
 	.constraints = {
 		.valid_ops_mask		= REGULATOR_CHANGE_STATUS,
@@ -453,9 +465,9 @@ static struct regulator_init_data pandora_vmmc3 = {
 
 static struct fixed_voltage_config pandora_vwlan = {
 	.supply_name		= "vwlan",
-	.microvolts		= 1800000, 
+	.microvolts		= 1800000, /* 1.8V */
 	.gpio			= PANDORA_WIFI_NRESET_GPIO,
-	.startup_delay		= 50000, 
+	.startup_delay		= 50000, /* 50ms */
 	.enable_high		= 1,
 	.enabled_at_boot	= 0,
 	.init_data		= &pandora_vmmc3,
@@ -509,7 +521,7 @@ static int __init omap3pandora_i2c_init(void)
 	omap3pandora_twldata.vpll2->consumer_supplies = pandora_vdds_supplies;
 
 	omap3_pmic_init("tps65950", &omap3pandora_twldata);
-	
+	/* i2c2 pins are not connected */
 	omap_register_i2c_bus(3, 100, omap3pandora_i2c3_boardinfo,
 			ARRAY_SIZE(omap3pandora_i2c3_boardinfo));
 	return 0;
@@ -597,7 +609,7 @@ static void __init omap3pandora_init(void)
 	usb_musb_init(NULL);
 	gpmc_nand_init(&pandora_nand_data);
 
-	
+	/* Ensure SDRC pins are mux'd for self-refresh */
 	omap_mux_init_signal("sdrc_cke0", OMAP_PIN_OUTPUT);
 	omap_mux_init_signal("sdrc_cke1", OMAP_PIN_OUTPUT);
 }

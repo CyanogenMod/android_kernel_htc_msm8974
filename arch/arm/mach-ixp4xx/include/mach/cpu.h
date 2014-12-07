@@ -16,13 +16,14 @@
 
 #include <asm/cputype.h>
 
-#define IXP42X_PROCESSOR_ID_VALUE	0x690541c0 
+/* Processor id value in CP15 Register 0 */
+#define IXP42X_PROCESSOR_ID_VALUE	0x690541c0 /* including unused 0x690541Ex */
 #define IXP42X_PROCESSOR_ID_MASK	0xffffffc0
 
 #define IXP43X_PROCESSOR_ID_VALUE	0x69054040
 #define IXP43X_PROCESSOR_ID_MASK	0xfffffff0
 
-#define IXP46X_PROCESSOR_ID_VALUE	0x69054200 
+#define IXP46X_PROCESSOR_ID_VALUE	0x69054200 /* including IXP455 */
 #define IXP46X_PROCESSOR_ID_MASK	0xfffffff0
 
 #define cpu_is_ixp42x_rev_a0() ((read_cpuid_id() & (IXP42X_PROCESSOR_ID_MASK | 0xF)) == \
@@ -53,4 +54,4 @@ static inline void ixp4xx_write_feature_bits(u32 value)
 	*IXP4XX_EXP_CFG2 = ~value;
 }
 
-#endif  
+#endif  /* _ASM_ARCH_CPU_H */

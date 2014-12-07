@@ -28,6 +28,7 @@
 #include <linux/earlysuspend.h>
 #endif
 
+/* marimba configuration block: TS_CTL0 */
 #define TS_CTL0			0xFF
 #define TS_CTL0_RESET		BIT(0)
 #define TS_CTL0_CLK_EN		BIT(1)
@@ -35,6 +36,7 @@
 #define TS_CTL0_EOC_EN		BIT(3)
 #define TS_CTL0_PENIRQ_EN	BIT(4)
 
+/* TSADC registers */
 #define SSBI_PRESET		0x00
 #define TSHK_DIG_CONFIG		0x4F
 #define TSHK_INTF_CONFIG	0x50
@@ -115,22 +117,22 @@ static int marimba_tsadc_shutdown(struct marimba_tsadc *tsadc)
 	u8 val;
 	int rc;
 
-	
+	/* force reset */
 	val = TS_CTL0_XO_EN | TS_CTL0_EOC_EN | TS_CTL0_PENIRQ_EN |
 				TS_CTL0_CLK_EN;
 	rc = marimba_write_u8(tsadc, TS_CTL0, val);
 	if (rc < 0)
 		return rc;
 
-	
+	/* disable xo, clock */
 	val = TS_CTL0_PENIRQ_EN | TS_CTL0_EOC_EN;
 	rc = marimba_write_u8(tsadc, TS_CTL0, val);
 	if (rc < 0)
 		return rc;
 
-	
+	/* de-vote S2 1.3v */
 	if (tsadc->pdata->level_vote)
-		
+		/* REVISIT: Ignore error for level_vote(0) for now*/
 		tsadc->pdata->level_vote(0);
 
 	return 0;
@@ -141,31 +143,31 @@ static int marimba_tsadc_startup(struct marimba_tsadc *tsadc)
 	u8 val;
 	int rc = 0;
 
-	
+	/* vote for S2 1.3v */
 	if (tsadc->pdata->level_vote) {
 		rc = tsadc->pdata->level_vote(1);
 		if (rc < 0)
 			return rc;
 	}
 
-	
+	/* disable XO, clock and output enables */
 	rc = marimba_write_u8(tsadc, TS_CTL0, 0x00);
 	if (rc < 0)
 		goto fail_marimba_write;
 
-	
+	/* Enable output enables */
 	val = TS_CTL0_XO_EN | TS_CTL0_EOC_EN | TS_CTL0_PENIRQ_EN;
 	rc = marimba_write_u8(tsadc, TS_CTL0, val);
 	if (rc < 0)
 		goto fail_marimba_write;
 
-	
+	/* Enable clock */
 	val = val | TS_CTL0_CLK_EN;
 	rc = marimba_write_u8(tsadc, TS_CTL0, val);
 	if (rc < 0)
 		goto fail_marimba_write;
 
-	
+	/* remove reset */
 	val = val | TS_CTL0_RESET;
 	rc = marimba_write_u8(tsadc, TS_CTL0, val);
 	if (rc < 0)
@@ -175,7 +177,7 @@ static int marimba_tsadc_startup(struct marimba_tsadc *tsadc)
 
 fail_marimba_write:
 	if (tsadc->pdata->level_vote)
-		
+		/* REVISIT: Ignore error for level_vote(0) for now*/
 		tsadc->pdata->level_vote(0);
 	return rc;
 }
@@ -195,42 +197,42 @@ static int marimba_tsadc_configure(struct marimba_tsadc *tsadc)
 	if (!tsadc->pdata)
 		return -EINVAL;
 
-	
+	/* Configure RSV1 register*/
 	if (tsadc->pdata->tsadc_prechg_en == true)
 		rsv1 |= TSHK_RSV1_PRECHARGE_EN;
 	else
 		rsv1 &= ~TSHK_RSV1_PRECHARGE_EN;
 
-	
+	/*  Set RSV1 register*/
 	rc = marimba_tsadc_write(tsadc, TSHK_RSV1, rsv1);
 	if (rc < 0)
 		return rc;
 
-	
-	
+	/* Configure PARAM2 register */
+	/* Input clk */
 	val = tsadc->pdata->params2.input_clk_khz;
 	param2 &= TSHK_INPUT_CLK_MASK;
 	val /= 600;
 	if (val >= 1 && val <= 8 && !(val & (val - 1))) {
-		
+		/* Input clk can be .6, 1.2, 2.4, 4.8Mhz */
 		if (val % 4 != 0)
 			param2 = (4 - (val % 4)) << TSHK_INPUT_CLK_SHIFT;
 		else
 			param2 = ((val / 4) - 1) << TSHK_INPUT_CLK_SHIFT;
-	} else 
+	} else /* Configure the default clk 2.4Mhz */
 		param2 = 0x00 << TSHK_INPUT_CLK_SHIFT;
 
-	
+	/* Sample period */
 	param2 &= TSHK_SAMPLE_PRD_MASK;
 	param2 |=  tsadc->pdata->params2.sample_prd << TSHK_SAMPLE_PRD_SHIFT;
 
-	
+	/* Write PARAM2 register */
 	rc = marimba_tsadc_write(tsadc, TSHK_PARAM2, param2);
 	if (rc < 0)
 		return rc;
 
-	
-	
+	/* REVISIT: If Precharge time, stabilization time  > 409.6us */
+	/* Configure PARAM3 register */
 	val = tsadc->pdata->params3.prechg_time_nsecs;
 	param3 &= TSHK_PRECHG_TIME_MASK;
 	val /= 6400;
@@ -239,7 +241,7 @@ static int marimba_tsadc_configure(struct marimba_tsadc *tsadc)
 		while ((val = val >> 1) != 0)
 			count++;
 		param3 |= count << TSHK_PARAM3_PRE_CHG_SHIFT;
-	} else	
+	} else	/* Set default value if the input is wrong */
 		param3 |= 0x00 << TSHK_PARAM3_PRE_CHG_SHIFT;
 
 	val = tsadc->pdata->params3.stable_time_nsecs;
@@ -250,10 +252,10 @@ static int marimba_tsadc_configure(struct marimba_tsadc *tsadc)
 		while ((val = val >> 1) != 0)
 			count++;
 		param3 |= count << TSHK_PARAM3_STABIZ_SHIFT;
-	} else 
+	} else /* Set default value if the input is wrong */
 		param3 |=  0x00 << TSHK_PARAM3_STABIZ_SHIFT;
 
-	
+	/* Get TSADC mode */
 	val = tsadc->pdata->params3.tsadc_test_mode;
 	param3 &= TSHK_PARAM3_MODE_MASK;
 	if (val == 0)
@@ -265,14 +267,14 @@ static int marimba_tsadc_configure(struct marimba_tsadc *tsadc)
 				break;
 			}
 		}
-	if (i == 3) 
+	if (i == 3) /* Set to normal mode if input is wrong */
 		param3 |= 0x00;
 
 	rc = marimba_tsadc_write(tsadc, TSHK_PARAM3, param3);
 	if (rc < 0)
 		return rc;
 
-	
+	/* Configure TSHK SETUP Register */
 	if (tsadc->pdata->setup.pen_irq_en == true)
 		setup |= TSHK_SETUP_EN_PIRQ;
 	else
@@ -283,7 +285,7 @@ static int marimba_tsadc_configure(struct marimba_tsadc *tsadc)
 	else
 		setup &= ~TSHK_SETUP_EN_ADC;
 
-	
+	/* Enable signals to ADC, pen irq assertion */
 	rc = marimba_tsadc_write(tsadc, TSHK_SETUP, setup);
 	if (rc < 0)
 		return rc;
@@ -306,7 +308,7 @@ int marimba_tsadc_start(struct marimba_tsadc_client *client)
 		return -ENODEV;
 	}
 
-	
+	/* REVISIT - add locks */
 	if (client->is_ts) {
 		rc = marimba_tsadc_startup(tsadc_dev);
 		if (rc < 0)

@@ -33,11 +33,13 @@
 #include <pcmcia/cistpl.h>
 #include <pcmcia/ds.h>
 
+/*====================================================================*/
 
 MODULE_AUTHOR("Wai Chan");
 MODULE_DESCRIPTION("FT1000 PCMCIA driver");
 MODULE_LICENSE("GPL");
 
+/*====================================================================*/
 
 static int ft1000_config(struct pcmcia_device *link);
 static void ft1000_detach(struct pcmcia_device *link);
@@ -45,6 +47,7 @@ static int ft1000_attach(struct pcmcia_device *link);
 
 #include "ft1000.h"
 
+/*====================================================================*/
 
 static void ft1000_reset(struct pcmcia_device *link)
 {
@@ -75,6 +78,13 @@ static int ft1000_confcheck(struct pcmcia_device *link, void *priv_data)
 	return pcmcia_request_io(link);
 }
 
+/*======================================================================
+
+    ft1000_config() is scheduled to run after a CARD_INSERTION event
+    is received, to configure the PCMCIA socket, and to make the
+    device available to the system.
+
+======================================================================*/
 
 static int ft1000_config(struct pcmcia_device *link)
 {
@@ -82,14 +92,14 @@ static int ft1000_config(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "ft1000_cs: ft1000_config(0x%p)\n", link);
 
-	
+	/* setup IO window */
 	ret = pcmcia_loop_config(link, ft1000_confcheck, NULL);
 	if (ret) {
 		printk(KERN_INFO "ft1000: Could not configure pcmcia\n");
 		return -ENODEV;
 	}
 
-	
+	/* configure device */
 	ret = pcmcia_enable_device(link);
 	if (ret) {
 		printk(KERN_INFO "ft1000: could not enable pcmcia\n");
@@ -102,7 +112,7 @@ static int ft1000_config(struct pcmcia_device *link)
 		goto failed;
 	}
 
-	
+	/* Finally, report what we've done */
 
 	return 0;
 failed:
@@ -124,6 +134,7 @@ static int ft1000_resume(struct pcmcia_device *link)
 	return 0;
 }
 
+/*====================================================================*/
 
 static const struct pcmcia_device_id ft1000_ids[] = {
 	PCMCIA_DEVICE_MANF_CARD(0x02cc, 0x0100),

@@ -49,6 +49,11 @@ int __init isa_dma_add(unsigned int chan, dma_t *dma)
 	return 0;
 }
 
+/*
+ * Request DMA channel
+ *
+ * On certain platforms, we have to allocate an interrupt as well...
+ */
 int request_dma(unsigned int chan, const char *device_id)
 {
 	dma_t *dma = dma_channel(chan);
@@ -82,6 +87,11 @@ busy:
 }
 EXPORT_SYMBOL(request_dma);
 
+/*
+ * Free DMA channel
+ *
+ * On certain platforms, we have to free interrupt as well...
+ */
 void free_dma(unsigned int chan)
 {
 	dma_t *dma = dma_channel(chan);
@@ -109,6 +119,8 @@ bad_dma:
 }
 EXPORT_SYMBOL(free_dma);
 
+/* Set DMA Scatter-Gather list
+ */
 void set_dma_sg (unsigned int chan, struct scatterlist *sg, int nr_sg)
 {
 	dma_t *dma = dma_channel(chan);
@@ -123,6 +135,10 @@ void set_dma_sg (unsigned int chan, struct scatterlist *sg, int nr_sg)
 }
 EXPORT_SYMBOL(set_dma_sg);
 
+/* Set DMA address
+ *
+ * Copy address to the structure, and set the invalid bit
+ */
 void __set_dma_addr (unsigned int chan, void *addr)
 {
 	dma_t *dma = dma_channel(chan);
@@ -137,6 +153,10 @@ void __set_dma_addr (unsigned int chan, void *addr)
 }
 EXPORT_SYMBOL(__set_dma_addr);
 
+/* Set DMA byte count
+ *
+ * Copy address to the structure, and set the invalid bit
+ */
 void set_dma_count (unsigned int chan, unsigned long count)
 {
 	dma_t *dma = dma_channel(chan);
@@ -151,6 +171,8 @@ void set_dma_count (unsigned int chan, unsigned long count)
 }
 EXPORT_SYMBOL(set_dma_count);
 
+/* Set DMA direction mode
+ */
 void set_dma_mode (unsigned int chan, unsigned int mode)
 {
 	dma_t *dma = dma_channel(chan);
@@ -164,6 +186,8 @@ void set_dma_mode (unsigned int chan, unsigned int mode)
 }
 EXPORT_SYMBOL(set_dma_mode);
 
+/* Enable DMA channel
+ */
 void enable_dma (unsigned int chan)
 {
 	dma_t *dma = dma_channel(chan);
@@ -183,6 +207,8 @@ free_dma:
 }
 EXPORT_SYMBOL(enable_dma);
 
+/* Disable DMA channel
+ */
 void disable_dma (unsigned int chan)
 {
 	dma_t *dma = dma_channel(chan);
@@ -202,6 +228,9 @@ free_dma:
 }
 EXPORT_SYMBOL(disable_dma);
 
+/*
+ * Is the specified DMA channel active?
+ */
 int dma_channel_active(unsigned int chan)
 {
 	dma_t *dma = dma_channel(chan);

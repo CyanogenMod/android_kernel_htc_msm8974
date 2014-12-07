@@ -70,6 +70,9 @@ int32_t msm_camera_cci_i2c_read_seq(struct msm_camera_i2c_client *client,
 	unsigned char *buf = NULL;
 	int i;
 	struct msm_camera_cci_ctrl cci_ctrl;
+	
+	cci_ctrl.status = 0;
+	
 
 	if ((client->addr_type != MSM_CAMERA_I2C_BYTE_ADDR
 		&& client->addr_type != MSM_CAMERA_I2C_WORD_ADDR)
@@ -143,6 +146,9 @@ int32_t msm_camera_cci_i2c_write_seq(struct msm_camera_i2c_client *client,
 	uint8_t i = 0;
 	struct msm_camera_cci_ctrl cci_ctrl;
 	struct msm_camera_i2c_reg_array reg_conf_tbl[num_byte];
+	
+	cci_ctrl.status = 0;
+	
 
 	if ((client->addr_type != MSM_CAMERA_I2C_BYTE_ADDR
 		&& client->addr_type != MSM_CAMERA_I2C_WORD_ADDR)
@@ -181,6 +187,7 @@ int32_t msm_camera_cci_i2c_write_table(
 	int32_t rc = -EFAULT;
 	struct msm_camera_cci_ctrl cci_ctrl;
     
+
 	int i;
 	struct msm_camera_i2c_reg_array *reg_setting;
 	uint16_t client_addr_type;
@@ -271,6 +278,7 @@ int32_t msm_camera_cci_i2c_write_table(
 			    }
 			    else
 			    {
+				
 			        rc = msm_camera_cci_i2c_write(client, reg_setting->reg_addr,
 			        reg_setting->reg_data, write_setting->data_type);
 			        if (rc < 0)

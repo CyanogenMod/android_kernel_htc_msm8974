@@ -23,6 +23,11 @@
 #include "bfa_cee.h"
 #include "bfa_msgq.h"
 
+/**
+ *
+ * Forward declarations
+ *
+ */
 
 struct bna_mcam_handle;
 struct bna_txq;
@@ -35,6 +40,11 @@ struct bna_enet;
 struct bna;
 struct bnad;
 
+/**
+ *
+ * Enums, primitive data types
+ *
+ */
 
 enum bna_status {
 	BNA_STATUS_T_DISABLED	= 0,
@@ -105,21 +115,21 @@ enum bna_tx_res_req_type {
 };
 
 enum bna_rx_mem_type {
-	BNA_RX_RES_MEM_T_CCB		= 0,	
-	BNA_RX_RES_MEM_T_RCB		= 1,	
-	BNA_RX_RES_MEM_T_UNMAPQ		= 2,	
-	BNA_RX_RES_MEM_T_CQPT		= 3,	
-	BNA_RX_RES_MEM_T_CSWQPT		= 4,	
-	BNA_RX_RES_MEM_T_CQPT_PAGE	= 5,	
-	BNA_RX_RES_MEM_T_HQPT		= 6,	
-	BNA_RX_RES_MEM_T_DQPT		= 7,	
-	BNA_RX_RES_MEM_T_HSWQPT		= 8,	
-	BNA_RX_RES_MEM_T_DSWQPT		= 9,	
-	BNA_RX_RES_MEM_T_DPAGE		= 10,	
-	BNA_RX_RES_MEM_T_HPAGE		= 11,	
+	BNA_RX_RES_MEM_T_CCB		= 0,	/* CQ context */
+	BNA_RX_RES_MEM_T_RCB		= 1,	/* CQ context */
+	BNA_RX_RES_MEM_T_UNMAPQ		= 2,	/* UnmapQ for RxQs */
+	BNA_RX_RES_MEM_T_CQPT		= 3,	/* CQ QPT */
+	BNA_RX_RES_MEM_T_CSWQPT		= 4,	/* S/W QPT */
+	BNA_RX_RES_MEM_T_CQPT_PAGE	= 5,	/* CQPT page */
+	BNA_RX_RES_MEM_T_HQPT		= 6,	/* RX QPT */
+	BNA_RX_RES_MEM_T_DQPT		= 7,	/* RX QPT */
+	BNA_RX_RES_MEM_T_HSWQPT		= 8,	/* RX s/w QPT */
+	BNA_RX_RES_MEM_T_DSWQPT		= 9,	/* RX s/w QPT */
+	BNA_RX_RES_MEM_T_DPAGE		= 10,	/* RX s/w QPT */
+	BNA_RX_RES_MEM_T_HPAGE		= 11,	/* RX s/w QPT */
 	BNA_RX_RES_MEM_T_IBIDX		= 12,
 	BNA_RX_RES_MEM_T_RIT		= 13,
-	BNA_RX_RES_T_INTR		= 14,	
+	BNA_RX_RES_T_INTR		= 14,	/* Rx interrupts */
 	BNA_RX_RES_T_MAX		= 15
 };
 
@@ -239,20 +249,20 @@ enum bna_pkt_rates {
 };
 
 enum bna_dim_load_types {
-	BNA_LOAD_T_HIGH_4		= 0, 
-	BNA_LOAD_T_HIGH_3		= 1, 
-	BNA_LOAD_T_HIGH_2		= 2, 
-	BNA_LOAD_T_HIGH_1		= 3, 
-	BNA_LOAD_T_LOW_1		= 4, 
-	BNA_LOAD_T_LOW_2		= 5, 
-	BNA_LOAD_T_LOW_3		= 6, 
-	BNA_LOAD_T_LOW_4		= 7, 
+	BNA_LOAD_T_HIGH_4		= 0, /* 80K <= r */
+	BNA_LOAD_T_HIGH_3		= 1, /* 60K <= r < 80K */
+	BNA_LOAD_T_HIGH_2		= 2, /* 50K <= r < 60K */
+	BNA_LOAD_T_HIGH_1		= 3, /* 40K <= r < 50K */
+	BNA_LOAD_T_LOW_1		= 4, /* 30K <= r < 40K */
+	BNA_LOAD_T_LOW_2		= 5, /* 20K <= r < 30K */
+	BNA_LOAD_T_LOW_3		= 6, /* 10K <= r < 20K */
+	BNA_LOAD_T_LOW_4		= 7, /* r < 10K */
 	BNA_LOAD_T_MAX			= 8
 };
 
 enum bna_dim_bias_types {
-	BNA_BIAS_T_SMALL		= 0, 
-	BNA_BIAS_T_LARGE		= 1, 
+	BNA_BIAS_T_SMALL		= 0, /* small pkts > (large pkts * 2) */
+	BNA_BIAS_T_LARGE		= 1, /* Not BNA_BIAS_T_SMALL */
 	BNA_BIAS_T_MAX			= 2
 };
 
@@ -263,7 +273,7 @@ struct bna_ident {
 };
 
 struct bna_mac {
-	
+	/* This should be the first one */
 	struct list_head			qe;
 	u8			addr[ETH_ALEN];
 	struct bna_mcam_handle *handle;
@@ -279,9 +289,9 @@ struct bna_mem_info {
 	enum bna_mem_type mem_type;
 	u32		len;
 	u32		num;
-	u32		align_sz; 
+	u32		align_sz; /* 0/1 = no alignment */
 	struct bna_mem_descr *mdl;
-	void			*cookie; 
+	void			*cookie; /* For bnad to unmap dma later */
 };
 
 struct bna_intr_descr {
@@ -304,6 +314,7 @@ struct bna_res_info {
 	union bna_res_u		res_u;
 };
 
+/* HW QPT */
 struct bna_qpt {
 	struct bna_dma_addr hw_qpt_ptr;
 	void		*kv_qpt_ptr;
@@ -320,6 +331,11 @@ struct bna_attr {
 	int			max_rit_size;
 };
 
+/**
+ *
+ * IOCEth
+ *
+ */
 
 struct bna_ioceth {
 	bfa_fsm_t		fsm;
@@ -335,7 +351,13 @@ struct bna_ioceth {
 	struct bna *bna;
 };
 
+/**
+ *
+ * Enet
+ *
+ */
 
+/* Pause configuration */
 struct bna_pause_config {
 	enum bna_status tx_pause;
 	enum bna_status rx_pause;
@@ -350,14 +372,14 @@ struct bna_enet {
 	struct bna_pause_config pause_config;
 	int			mtu;
 
-	
+	/* Callback for bna_enet_disable(), enet_stop() */
 	void (*stop_cbfn)(void *);
 	void			*stop_cbarg;
 
-	
+	/* Callback for bna_enet_pause_config() */
 	void (*pause_cbfn)(struct bnad *);
 
-	
+	/* Callback for bna_enet_mtu_set() */
 	void (*mtu_cbfn)(struct bnad *);
 
 	struct bfa_wc		chld_stop_wc;
@@ -368,6 +390,11 @@ struct bna_enet {
 	struct bna *bna;
 };
 
+/**
+ *
+ * Ethport
+ *
+ */
 
 struct bna_ethport {
 	bfa_fsm_t		fsm;
@@ -392,12 +419,19 @@ struct bna_ethport {
 	struct bna *bna;
 };
 
+/**
+ *
+ * Interrupt Block
+ *
+ */
 
+/* Doorbell structure */
 struct bna_ib_dbell {
 	void __iomem   *doorbell_addr;
 	u32		doorbell_ack;
 };
 
+/* IB structure */
 struct bna_ib {
 	struct bna_dma_addr ib_seg_host_addr;
 	void		*ib_seg_host_addr_kva;
@@ -407,16 +441,22 @@ struct bna_ib {
 	enum bna_intr_type	intr_type;
 	int			intr_vector;
 
-	u8			coalescing_timeo;    
+	u8			coalescing_timeo;    /* Unit is 5usec. */
 
 	int			interpkt_count;
 	int			interpkt_timeo;
 };
 
+/**
+ *
+ * Tx object
+ *
+ */
 
+/* Tx datapath control structure */
 #define BNA_Q_NAME_SIZE		16
 struct bna_tcb {
-	
+	/* Fast path */
 	void			**sw_qpt;
 	void			*unmap_q;
 	u32		producer_index;
@@ -427,20 +467,21 @@ struct bna_tcb {
 	struct bna_ib_dbell *i_dbell;
 	int			page_idx;
 	int			page_count;
-	
+	/* Control path */
 	struct bna_txq *txq;
 	struct bnad *bnad;
-	void			*priv; 
+	void			*priv; /* BNAD's cookie */
 	enum bna_intr_type intr_type;
 	int			intr_vector;
-	u8			priority; 
-	unsigned long		flags; 
+	u8			priority; /* Current priority */
+	unsigned long		flags; /* Used by bnad as required */
 	int			id;
 	char			name[BNA_Q_NAME_SIZE];
 };
 
+/* TxQ QPT and configuration */
 struct bna_txq {
-	
+	/* This should be the first one */
 	struct list_head			qe;
 
 	u8			priority;
@@ -457,8 +498,9 @@ struct bna_txq {
 	u64		tx_bytes;
 };
 
+/* Tx object */
 struct bna_tx {
-	
+	/* This should be the first one */
 	struct list_head			qe;
 	int			rid;
 	int			hw_id;
@@ -472,18 +514,18 @@ struct bna_tx {
 	struct list_head			txq_q;
 	u16			txf_vlan_id;
 
-	
+	/* Tx event handlers */
 	void (*tcb_setup_cbfn)(struct bnad *, struct bna_tcb *);
 	void (*tcb_destroy_cbfn)(struct bnad *, struct bna_tcb *);
 	void (*tx_stall_cbfn)(struct bnad *, struct bna_tx *);
 	void (*tx_resume_cbfn)(struct bnad *, struct bna_tx *);
 	void (*tx_cleanup_cbfn)(struct bnad *, struct bna_tx *);
 
-	
+	/* callback for bna_tx_disable(), bna_tx_stop() */
 	void (*stop_cbfn)(void *arg, struct bna_tx *tx);
 	void			*stop_cbarg;
 
-	
+	/* callback for bna_tx_prio_set() */
 	void (*prio_change_cbfn)(struct bnad *bnad, struct bna_tx *tx);
 
 	struct bfa_msgq_cmd_entry msgq_cmd;
@@ -494,9 +536,10 @@ struct bna_tx {
 	} bfi_enet_cmd;
 
 	struct bna *bna;
-	void			*priv;	
+	void			*priv;	/* bnad's cookie */
 };
 
+/* Tx object configuration used during creation */
 struct bna_tx_config {
 	int			num_txq;
 	int			txq_depth;
@@ -505,25 +548,26 @@ struct bna_tx_config {
 };
 
 struct bna_tx_event_cbfn {
-	
+	/* Optional */
 	void (*tcb_setup_cbfn)(struct bnad *, struct bna_tcb *);
 	void (*tcb_destroy_cbfn)(struct bnad *, struct bna_tcb *);
-	
+	/* Mandatory */
 	void (*tx_stall_cbfn)(struct bnad *, struct bna_tx *);
 	void (*tx_resume_cbfn)(struct bnad *, struct bna_tx *);
 	void (*tx_cleanup_cbfn)(struct bnad *, struct bna_tx *);
 };
 
+/* Tx module - keeps track of free, active tx objects */
 struct bna_tx_mod {
-	struct bna_tx *tx;		
-	struct bna_txq *txq;		
+	struct bna_tx *tx;		/* BFI_MAX_TXQ entries */
+	struct bna_txq *txq;		/* BFI_MAX_TXQ entries */
 
 	struct list_head			tx_free_q;
 	struct list_head			tx_active_q;
 
 	struct list_head			txq_free_q;
 
-	
+	/* callback for bna_tx_mod_stop() */
 	void (*stop_cbfn)(struct bna_enet *enet);
 
 	struct bfa_wc		tx_stop_wc;
@@ -541,9 +585,15 @@ struct bna_tx_mod {
 	struct bna *bna;
 };
 
+/**
+ *
+ * Rx object
+ *
+ */
 
+/* Rx datapath control structure */
 struct bna_rcb {
-	
+	/* Fast path */
 	void			**sw_qpt;
 	void			*unmap_q;
 	u32		producer_index;
@@ -552,15 +602,16 @@ struct bna_rcb {
 	void __iomem   *q_dbell;
 	int			page_idx;
 	int			page_count;
-	
+	/* Control path */
 	struct bna_rxq *rxq;
 	struct bna_ccb *ccb;
 	struct bnad *bnad;
-	void			*priv; 
+	void			*priv; /* BNAD's cookie */
 	unsigned long		flags;
 	int			id;
 };
 
+/* RxQ structure - QPT, configuration */
 struct bna_rxq {
 	struct list_head			qe;
 
@@ -581,6 +632,7 @@ struct bna_rxq {
 	u64		rxbuf_alloc_failed;
 };
 
+/* RxQ pair */
 union bna_rxq_u {
 	struct {
 		struct bna_rxq *hdr;
@@ -596,35 +648,38 @@ union bna_rxq_u {
 	} single;
 };
 
+/* Packet rate for Dynamic Interrupt Moderation */
 struct bna_pkt_rate {
 	u32		small_pkt_cnt;
 	u32		large_pkt_cnt;
 };
 
+/* Completion control structure */
 struct bna_ccb {
-	
+	/* Fast path */
 	void			**sw_qpt;
 	u32		producer_index;
 	volatile u32	*hw_producer_index;
 	u32		q_depth;
 	struct bna_ib_dbell *i_dbell;
 	struct bna_rcb *rcb[2];
-	void			*ctrl; 
+	void			*ctrl; /* For bnad */
 	struct bna_pkt_rate pkt_rate;
 	int			page_idx;
 	int			page_count;
 
-	
+	/* Control path */
 	struct bna_cq *cq;
 	struct bnad *bnad;
-	void			*priv; 
+	void			*priv; /* BNAD's cookie */
 	enum bna_intr_type intr_type;
 	int			intr_vector;
-	u8			rx_coalescing_timeo; 
+	u8			rx_coalescing_timeo; /* For NAPI */
 	int			id;
 	char			name[BNA_Q_NAME_SIZE];
 };
 
+/* CQ QPT, configuration  */
 struct bna_cq {
 	struct bna_qpt qpt;
 	struct bna_ccb *ccb;
@@ -645,6 +700,7 @@ struct bna_hds_config {
 	int			forced_offset;
 };
 
+/* Rx object configuration used during creation */
 struct bna_rx_config {
 	enum bna_rx_type rx_type;
 	int			num_paths;
@@ -652,6 +708,11 @@ struct bna_rx_config {
 	int			paused;
 	int			q_depth;
 	int			coalescing_timeo;
+	/*
+	 * Small/Large (or Header/Data) buffer size to be configured
+	 * for SLR and HDS queue type. Large buffer size comes from
+	 * enet->mtu.
+	 */
 	int			small_buff_size;
 
 	enum bna_status rss_status;
@@ -662,8 +723,9 @@ struct bna_rx_config {
 	enum bna_status vlan_strip_status;
 };
 
+/* Rx Path structure - one per MSIX vector/CPU */
 struct bna_rxp {
-	
+	/* This should be the first one */
 	struct list_head			qe;
 
 	enum bna_rxp_type type;
@@ -672,11 +734,12 @@ struct bna_rxp {
 
 	struct bna_rx *rx;
 
-	
+	/* MSI-x vector number for configuring RSS */
 	int			vector;
 	int			hw_id;
 };
 
+/* RxF structure (hardware Rx Function) */
 struct bna_rxf {
 	bfa_fsm_t		fsm;
 	enum bna_rxf_flags flags;
@@ -692,42 +755,49 @@ struct bna_rxf {
 		struct bfi_enet_ucast_req ucast_req;
 	} bfi_enet_cmd;
 
-	
+	/* callback for bna_rxf_start() */
 	void (*start_cbfn) (struct bna_rx *rx);
 	struct bna_rx *start_cbarg;
 
-	
+	/* callback for bna_rxf_stop() */
 	void (*stop_cbfn) (struct bna_rx *rx);
 	struct bna_rx *stop_cbarg;
 
-	
+	/* callback for bna_rx_receive_pause() / bna_rx_receive_resume() */
 	void (*oper_state_cbfn) (struct bnad *bnad, struct bna_rx *rx);
 	struct bnad *oper_state_cbarg;
 
+	/**
+	 * callback for:
+	 *	bna_rxf_ucast_set()
+	 *	bna_rxf_{ucast/mcast}_add(),
+	 *	bna_rxf_{ucast/mcast}_del(),
+	 *	bna_rxf_mode_set()
+	 */
 	void (*cam_fltr_cbfn)(struct bnad *bnad, struct bna_rx *rx);
 	struct bnad *cam_fltr_cbarg;
 
-	
+	/* List of unicast addresses yet to be applied to h/w */
 	struct list_head			ucast_pending_add_q;
 	struct list_head			ucast_pending_del_q;
 	struct bna_mac *ucast_pending_mac;
 	int			ucast_pending_set;
-	
+	/* ucast addresses applied to the h/w */
 	struct list_head			ucast_active_q;
 	struct bna_mac ucast_active_mac;
 	int			ucast_active_set;
 
-	
+	/* List of multicast addresses yet to be applied to h/w */
 	struct list_head			mcast_pending_add_q;
 	struct list_head			mcast_pending_del_q;
-	
+	/* multicast addresses applied to the h/w */
 	struct list_head			mcast_active_q;
 	struct list_head			mcast_handle_q;
 
-	
+	/* Rx modes yet to be applied to h/w */
 	enum bna_rxmode rxmode_pending;
 	enum bna_rxmode rxmode_pending_bitmask;
-	
+	/* Rx modes applied to h/w */
 	enum bna_rxmode rxmode_active;
 
 	u8			vlan_pending_bitmask;
@@ -745,8 +815,9 @@ struct bna_rxf {
 	struct bna_rx		*rx;
 };
 
+/* Rx object */
 struct bna_rx {
-	
+	/* This should be the first one */
 	struct list_head			qe;
 	int			rid;
 	int			hw_id;
@@ -771,7 +842,7 @@ struct bna_rx {
 		struct bfi_enet_rx_cfg_rsp	cfg_rsp;
 	} bfi_enet_cmd;
 
-	
+	/* Rx event handlers */
 	void (*rcb_setup_cbfn)(struct bnad *, struct bna_rcb *);
 	void (*rcb_destroy_cbfn)(struct bnad *, struct bna_rcb *);
 	void (*ccb_setup_cbfn)(struct bnad *, struct bna_ccb *);
@@ -780,31 +851,32 @@ struct bna_rx {
 	void (*rx_cleanup_cbfn)(struct bnad *, struct bna_rx *);
 	void (*rx_post_cbfn)(struct bnad *, struct bna_rx *);
 
-	
+	/* callback for bna_rx_disable(), bna_rx_stop() */
 	void (*stop_cbfn)(void *arg, struct bna_rx *rx);
 	void			*stop_cbarg;
 
 	struct bna *bna;
-	void			*priv; 
+	void			*priv; /* bnad's cookie */
 };
 
 struct bna_rx_event_cbfn {
-	
+	/* Optional */
 	void (*rcb_setup_cbfn)(struct bnad *, struct bna_rcb *);
 	void (*rcb_destroy_cbfn)(struct bnad *, struct bna_rcb *);
 	void (*ccb_setup_cbfn)(struct bnad *, struct bna_ccb *);
 	void (*ccb_destroy_cbfn)(struct bnad *, struct bna_ccb *);
 	void (*rx_stall_cbfn)(struct bnad *, struct bna_rx *);
-	
+	/* Mandatory */
 	void (*rx_cleanup_cbfn)(struct bnad *, struct bna_rx *);
 	void (*rx_post_cbfn)(struct bnad *, struct bna_rx *);
 };
 
+/* Rx module - keeps track of free, active rx objects */
 struct bna_rx_mod {
-	struct bna *bna;		
-	struct bna_rx *rx;		
-	struct bna_rxp *rxp;		
-	struct bna_rxq *rxq;		
+	struct bna *bna;		/* back pointer to parent */
+	struct bna_rx *rx;		/* BFI_MAX_RXQ entries */
+	struct bna_rxp *rxp;		/* BFI_MAX_RXQ entries */
+	struct bna_rxq *rxq;		/* BFI_MAX_RXQ entries */
 
 	struct list_head			rx_free_q;
 	struct list_head			rx_active_q;
@@ -818,7 +890,7 @@ struct bna_rx_mod {
 
 	enum bna_rx_mod_flags flags;
 
-	
+	/* callback for bna_rx_mod_stop() */
 	void (*stop_cbfn)(struct bna_enet *enet);
 
 	struct bfa_wc		rx_stop_wc;
@@ -826,30 +898,40 @@ struct bna_rx_mod {
 	u32		rid_mask;
 };
 
+/**
+ *
+ * CAM
+ *
+ */
 
 struct bna_ucam_mod {
-	struct bna_mac *ucmac;		
+	struct bna_mac *ucmac;		/* BFI_MAX_UCMAC entries */
 	struct list_head			free_q;
 
 	struct bna *bna;
 };
 
 struct bna_mcam_handle {
-	
+	/* This should be the first one */
 	struct list_head			qe;
 	int			handle;
 	int			refcnt;
 };
 
 struct bna_mcam_mod {
-	struct bna_mac *mcmac;		
-	struct bna_mcam_handle *mchandle;	
+	struct bna_mac *mcmac;		/* BFI_MAX_MCMAC entries */
+	struct bna_mcam_handle *mchandle;	/* BFI_MAX_MCMAC entries */
 	struct list_head			free_q;
 	struct list_head			free_handle_q;
 
 	struct bna *bna;
 };
 
+/**
+ *
+ * Statistics
+ *
+ */
 
 struct bna_stats {
 	struct bna_dma_addr	hw_stats_dma;
@@ -867,6 +949,11 @@ struct bna_stats_mod {
 	struct bfi_enet_stats_req stats_clr;
 };
 
+/**
+ *
+ * BNA
+ *
+ */
 
 struct bna {
 	struct bna_ident ident;
@@ -898,4 +985,4 @@ struct bna {
 
 	struct bnad *bnad;
 };
-#endif	
+#endif	/* __BNA_TYPES_H__ */

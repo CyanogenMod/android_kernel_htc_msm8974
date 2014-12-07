@@ -16,6 +16,7 @@
 
 #include <linux/regulator/machine.h>
 
+/* Device IDs */
 #define FS_GFX2D0	0
 #define FS_GFX2D1	1
 #define FS_GFX3D	2

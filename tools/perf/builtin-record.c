@@ -1,3 +1,10 @@
+/*
+ * builtin-record.c
+ *
+ * Builtin record command: Record the profile of a workload
+ * (or a CPU, or a PID) into the perf.data output file - for
+ * later analysis via perf report.
+ */
 #define _FILE_OFFSET_BITS 64
 
 #include "builtin.h"
@@ -182,6 +189,18 @@ static void perf_record__open(struct perf_record *rec)
 	list_for_each_entry(pos, &evlist->entries, node) {
 		struct perf_event_attr *attr = &pos->attr;
 		struct xyarray *group_fd = NULL;
+		/*
+		 * Check if parse_single_tracepoint_event has already asked for
+		 * PERF_SAMPLE_TIME.
+		 *
+		 * XXX this is kludgy but short term fix for problems introduced by
+		 * eac23d1c that broke 'perf script' by having different sample_types
+		 * when using multiple tracepoint events when we use a perf binary
+		 * that tries to use sample_id_all on an older kernel.
+		 *
+		 * We need to move counter creation to perf_session, support
+		 * different sample_types, etc.
+		 */
 		bool time_needed = attr->sample_type & PERF_SAMPLE_TIME;
 
 		if (opts->group && pos != first)
@@ -210,6 +229,9 @@ try_again:
 					opts->exclude_guest_missing = true;
 					goto fallback_missing_features;
 				} else if (!opts->sample_id_all_missing) {
+					/*
+					 * Old kernel, no attr->sample_id_type_all field
+					 */
 					opts->sample_id_all_missing = true;
 					if (!opts->sample_time && !opts->raw_samples && !time_needed)
 						attr->sample_type &= ~PERF_SAMPLE_TIME;
@@ -218,6 +240,11 @@ try_again:
 				}
 			}
 
+			/*
+			 * If it's cycles then fall back to hrtimer
+			 * based cpu-clock-tick sw counter, which
+			 * is always available even if no PMU support:
+			 */
 			if (attr->type == PERF_TYPE_HARDWARE
 					&& attr->config == PERF_COUNT_HW_CPU_CYCLES) {
 
@@ -320,12 +347,24 @@ static void perf_event__synthesize_guest_os(struct machine *machine, void *data)
 	if (machine__is_host(machine))
 		return;
 
+	/*
+	 *As for guest kernel when processing subcommand record&report,
+	 *we arrange module mmap prior to guest kernel mmap and trigger
+	 *a preload dso because default guest module symbols are loaded
+	 *from guest kallsyms instead of /lib/modules/XXX/XXX. This
+	 *method is used to avoid symbol missing when the first addr is
+	 *in module instead of in guest kernel.
+	 */
 	err = perf_event__synthesize_modules(tool, process_synthesized_event,
 					     machine);
 	if (err < 0)
 		pr_err("Couldn't record guest kernel [%d]'s reference"
 		       " relocation symbol.\n", machine->pid);
 
+	/*
+	 * We use _stext for guest kernel because guest kernel's /proc/kallsyms
+	 * have no _text sometimes.
+	 */
 	err = perf_event__synthesize_kernel_mmap(tool, process_synthesized_event,
 						 machine, "_text");
 	if (err < 0)
@@ -453,6 +492,9 @@ static int __cmd_record(struct perf_record *rec, int argc, const char **argv)
 
 	perf_record__open(rec);
 
+	/*
+	 * perf_session__delete(session) will be called at perf_record__exit()
+	 */
 	on_exit(perf_record__exit, rec);
 
 	if (opts->pipe_output) {
@@ -497,6 +539,14 @@ static int __cmd_record(struct perf_record *rec, int argc, const char **argv)
 		}
 
 		if (have_tracepoints(&evsel_list->entries)) {
+			/*
+			 * FIXME err <= 0 here actually means that
+			 * there were no tracepoints so its not really
+			 * an error, just that we don't need to
+			 * synthesize anything.  We really have to
+			 * return this more properly and also
+			 * propagate errors that now are calling die()
+			 */
 			err = perf_event__synthesize_tracing_data(tool, output, evsel_list,
 								  process_synthesized_event);
 			if (err <= 0) {
@@ -548,6 +598,9 @@ static int __cmd_record(struct perf_record *rec, int argc, const char **argv)
 
 	perf_evlist__enable(evsel_list);
 
+	/*
+	 * Let the child rip
+	 */
 	if (forks)
 		perf_evlist__start_workload(evsel_list);
 
@@ -572,6 +625,9 @@ static int __cmd_record(struct perf_record *rec, int argc, const char **argv)
 
 	fprintf(stderr, "[ perf record: Woken up %ld times to write data ]\n", waking);
 
+	/*
+	 * Approximate RIP event size: 24 bytes.
+	 */
 	fprintf(stderr,
 		"[ perf record: Captured and wrote %.3f MB %s (~%" PRIu64 " samples) ]\n",
 		(double)rec->bytes_written / 1024.0 / 1024.0,
@@ -622,12 +678,15 @@ parse_branch_stack(const struct option *opt, const char *str, int unset)
 	if (unset)
 		return 0;
 
+	/*
+	 * cannot set it twice, -b + --branch-filter for instance
+	 */
 	if (*mode)
 		return -1;
 
-	
+	/* str may be NULL in case no arg is passed to -b */
 	if (str) {
-		
+		/* because str is read-only */
 		s = os = strdup(str);
 		if (!s)
 			return -1;
@@ -657,7 +716,7 @@ parse_branch_stack(const struct option *opt, const char *str, int unset)
 	}
 	ret = 0;
 
-	
+	/* default to any branch */
 	if ((*mode & ~ONLY_PLM) == 0) {
 		*mode = PERF_SAMPLE_BRANCH_ANY;
 	}
@@ -672,6 +731,16 @@ static const char * const record_usage[] = {
 	NULL
 };
 
+/*
+ * XXX Ideally would be local to cmd_record() and passed to a perf_record__new
+ * because we need to have access to it in perf_record__exit, that is called
+ * after cmd_record() exits, but since record_options need to be accessible to
+ * builtin-script, leave it here.
+ *
+ * At least we don't ouch it in all the other functions here directly.
+ *
+ * Just say no to tons of global variables, sigh.
+ */
 static struct perf_record record = {
 	.opts = {
 		.mmap_pages	     = UINT_MAX,
@@ -683,6 +752,13 @@ static struct perf_record record = {
 	.file_new   = true,
 };
 
+/*
+ * XXX Will stay a global variable till we fix builtin-script.c to stop messing
+ * with it and switch to use the library functions in perf_evlist that came
+ * from builtin-record.c, i.e. use perf_record_opts,
+ * perf_evlist__prepare_workload, etc instead of fork+exec'in 'perf record',
+ * using pipes, etc.
+ */
 const struct option record_options[] = {
 	OPT_CALLBACK('e', "event", &record.evlist, "event",
 		     "event selector. use 'perf list' to list available events",
@@ -830,6 +906,9 @@ int cmd_record(int argc, const char **argv, const char *prefix __used)
 	if (rec->opts.user_freq != UINT_MAX)
 		rec->opts.freq = rec->opts.user_freq;
 
+	/*
+	 * User specified count overrides default frequency.
+	 */
 	if (rec->opts.default_interval)
 		rec->opts.freq = 0;
 	else if (rec->opts.freq) {

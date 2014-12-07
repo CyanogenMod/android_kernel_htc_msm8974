@@ -33,9 +33,22 @@
 #include "device.h"
 #include "wcmd.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
+/*
+void
+vGenerateMACHeader(PSDevice pDevice, unsigned long dwTxBufferAddr, unsigned char *pbySkbData,
+	unsigned int cbPacketSize, bool bDMA0Used, unsigned int *pcbHeadSize,
+	unsigned int *pcbAppendPayload);
+
+void
+vProcessRxMACHeader(PSDevice pDevice, unsigned long dwRxBufferAddr, unsigned int cbPacketSize,
+	bool bIsWEP, unsigned int *pcbHeadSize);
+*/
 
 
 void
@@ -71,4 +84,4 @@ void vDMA0_tx_80211(PSDevice  pDevice, struct sk_buff *skb, unsigned char *pbMPD
 CMD_STATUS csMgmt_xmit(PSDevice pDevice, PSTxMgmtPacket pPacket);
 CMD_STATUS csBeacon_xmit(PSDevice pDevice, PSTxMgmtPacket pPacket);
 
-#endif 
+#endif // __RXTX_H__

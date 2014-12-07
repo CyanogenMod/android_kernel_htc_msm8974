@@ -21,12 +21,25 @@
 
 static u8 parse_mpdudensity(u8 mpdudensity)
 {
+	/*
+	 * 802.11n D2.0 defined values for "Minimum MPDU Start Spacing":
+	 *   0 for no restriction
+	 *   1 for 1/4 us
+	 *   2 for 1/2 us
+	 *   3 for 1 us
+	 *   4 for 2 us
+	 *   5 for 4 us
+	 *   6 for 8 us
+	 *   7 for 16 us
+	 */
 	switch (mpdudensity) {
 	case 0:
 		return 0;
 	case 1:
 	case 2:
 	case 3:
+		/* Our lower layer calculations limit our precision to
+		   1 microsecond */
 		return 1;
 	case 4:
 		return 2;
@@ -79,6 +92,11 @@ void ath9k_ps_wakeup(struct ath_softc *sc)
 	power_mode = sc->sc_ah->power_mode;
 	ath9k_hw_setpower(sc->sc_ah, ATH9K_PM_AWAKE);
 
+	/*
+	 * While the hardware is asleep, the cycle counters contain no
+	 * useful data. Better clear them now so that they don't mess up
+	 * survey data results.
+	 */
 	if (power_mode != ATH9K_PM_AWAKE) {
 		spin_lock(&common->cc_lock);
 		ath_hw_cycle_counters_update(common);
@@ -154,6 +172,11 @@ static void ath_update_survey_nf(struct ath_softc *sc, int channel)
 	}
 }
 
+/*
+ * Updates the survey statistics and returns the busy time since last
+ * update in %, if the measurement duration was long enough for the
+ * result to be useful, -1 otherwise.
+ */
 static int ath_update_survey_stats(struct ath_softc *sc)
 {
 	struct ath_hw *ah = sc->sc_ah;
@@ -331,6 +354,11 @@ out:
 }
 
 
+/*
+ * Set/change channels.  If the channel is really being changed, it's done
+ * by reseting the chip.  To accomplish this we must first cleanup any pending
+ * DMA, then restart stuff.
+*/
 static int ath_set_channel(struct ath_softc *sc, struct ieee80211_hw *hw,
 		    struct ath9k_channel *hchan)
 {
@@ -487,6 +515,13 @@ fail_paprd:
 	ath9k_ps_restore(sc);
 }
 
+/*
+ *  This routine performs the periodic noise floor calibration function
+ *  that is used to adjust and optimize the chip performance.  This
+ *  takes environmental changes (location, temperature) into account.
+ *  When the task is complete, it reschedules itself depending on the
+ *  appropriate interval that was calculated.
+ */
 void ath_ani_calibrate(unsigned long data)
 {
 	struct ath_softc *sc = (struct ath_softc *)data;
@@ -507,19 +542,19 @@ void ath_ani_calibrate(unsigned long data)
 	short_cal_interval = (ah->opmode == NL80211_IFTYPE_AP) ?
 		ATH_AP_SHORT_CALINTERVAL : ATH_STA_SHORT_CALINTERVAL;
 
-	
+	/* Only calibrate if awake */
 	if (sc->sc_ah->power_mode != ATH9K_PM_AWAKE)
 		goto set_timer;
 
 	ath9k_ps_wakeup(sc);
 
-	
+	/* Long calibration runs independently of short calibration. */
 	if ((timestamp - common->ani.longcal_timer) >= long_cal_interval) {
 		longcal = true;
 		common->ani.longcal_timer = timestamp;
 	}
 
-	
+	/* Short calibration applies only while caldone is false */
 	if (!common->ani.caldone) {
 		if ((timestamp - common->ani.shortcal_timer) >= short_cal_interval) {
 			shortcal = true;
@@ -535,7 +570,7 @@ void ath_ani_calibrate(unsigned long data)
 		}
 	}
 
-	
+	/* Verify whether we must check ANI */
 	if (sc->sc_ah->config.enable_ani
 	    && (timestamp - common->ani.checkani_timer) >=
 	    ah->config.ani_poll_interval) {
@@ -543,7 +578,7 @@ void ath_ani_calibrate(unsigned long data)
 		common->ani.checkani_timer = timestamp;
 	}
 
-	
+	/* Call ANI routine if necessary */
 	if (aniflag) {
 		spin_lock_irqsave(&common->cc_lock, flags);
 		ath9k_hw_ani_monitor(ah, ah->curchan);
@@ -551,7 +586,7 @@ void ath_ani_calibrate(unsigned long data)
 		spin_unlock_irqrestore(&common->cc_lock, flags);
 	}
 
-	
+	/* Perform calibration if necessary */
 	if (longcal || shortcal) {
 		common->ani.caldone =
 			ath9k_hw_calibrate(ah, ah->curchan,
@@ -567,6 +602,11 @@ void ath_ani_calibrate(unsigned long data)
 	ath9k_ps_restore(sc);
 
 set_timer:
+	/*
+	* Set timer interval based on previous results.
+	* The interval must be the shortest necessary to satisfy ANI,
+	* short calibration and long calibration.
+	*/
 	ath9k_debug_samp_bb_mac(sc);
 	cal_interval = ATH_LONG_CALINTERVAL;
 	if (sc->sc_ah->config.enable_ani)
@@ -650,11 +690,22 @@ void ath9k_tasklet(unsigned long data)
 		goto out;
 	}
 
+	/*
+	 * Only run the baseband hang check if beacons stop working in AP or
+	 * IBSS mode, because it has a high false positive rate. For station
+	 * mode it should not be necessary, since the upper layers will detect
+	 * this through a beacon miss automatically and the following channel
+	 * change will trigger a hardware reset anyway
+	 */
 	if (ath9k_hw_numtxpending(ah, sc->beacon.beaconq) != 0 &&
 	    !ath9k_hw_check_alive(ah))
 		ieee80211_queue_work(sc->hw, &sc->hw_check_work);
 
 	if ((status & ATH9K_INT_TSFOOR) && sc->ps_enabled) {
+		/*
+		 * TSF sync does not look correct; remain awake to sync with
+		 * the next Beacon.
+		 */
 		ath_dbg(common, PS, "TSFOOR - Sync with next Beacon\n");
 		sc->ps_flags |= PS_WAIT_FOR_BEACON | PS_BEACON_SYNC;
 	}
@@ -666,7 +717,7 @@ void ath9k_tasklet(unsigned long data)
 		rxmask = (ATH9K_INT_RX | ATH9K_INT_RXEOL | ATH9K_INT_RXORN);
 
 	if (status & rxmask) {
-		
+		/* Check for high priority Rx first */
 		if ((ah->caps.hw_caps & ATH9K_HW_CAP_EDMA) &&
 		    (status & ATH9K_INT_RXHP))
 			ath_rx_tasklet(sc, 0, true);
@@ -684,7 +735,7 @@ void ath9k_tasklet(unsigned long data)
 	ath9k_btcoex_handle_interrupt(sc, status);
 
 out:
-	
+	/* re-enable hardware interrupt */
 	ath9k_hw_enable_interrupts(ah);
 
 	spin_unlock(&sc->sc_pcu_lock);
@@ -714,27 +765,46 @@ irqreturn_t ath_isr(int irq, void *dev)
 	enum ath9k_int status;
 	bool sched = false;
 
+	/*
+	 * The hardware is not ready/present, don't
+	 * touch anything. Note this can happen early
+	 * on if the IRQ is shared.
+	 */
 	if (sc->sc_flags & SC_OP_INVALID)
 		return IRQ_NONE;
 
 
-	
+	/* shared irq, not for us */
 
 	if (!ath9k_hw_intrpend(ah))
 		return IRQ_NONE;
 
-	ath9k_hw_getisr(ah, &status);	
-	status &= ah->imask;	
+	/*
+	 * Figure out the reason(s) for the interrupt.  Note
+	 * that the hal returns a pseudo-ISR that may include
+	 * bits we haven't explicitly enabled so we mask the
+	 * value to insure we only process bits we requested.
+	 */
+	ath9k_hw_getisr(ah, &status);	/* NB: clears ISR too */
+	status &= ah->imask;	/* discard unasked-for bits */
 
+	/*
+	 * If there are no status bits set, then this interrupt was not
+	 * for me (should have been caught above).
+	 */
 	if (!status)
 		return IRQ_NONE;
 
-	
+	/* Cache the status */
 	sc->intrstatus = status;
 
 	if (status & SCHED_INTR)
 		sched = true;
 
+	/*
+	 * If a FATAL or RXORN interrupt is received, we have to reset the
+	 * chip immediately.
+	 */
 	if ((status & ATH9K_INT_FATAL) || ((status & ATH9K_INT_RXORN) &&
 	    !(ah->caps.hw_caps & ATH9K_HW_CAP_EDMA)))
 		goto chip_reset;
@@ -762,7 +832,17 @@ irqreturn_t ath_isr(int irq, void *dev)
 	}
 
 	if (status & ATH9K_INT_MIB) {
+		/*
+		 * Disable interrupts until we service the MIB
+		 * interrupt; otherwise it will continue to
+		 * fire.
+		 */
 		ath9k_hw_disable_interrupts(ah);
+		/*
+		 * Let the hal handle the event. We assume
+		 * it will clear whatever condition caused
+		 * the interrupt.
+		 */
 		spin_lock(&common->cc_lock);
 		ath9k_hw_proc_mib_event(ah);
 		spin_unlock(&common->cc_lock);
@@ -773,6 +853,8 @@ irqreturn_t ath_isr(int irq, void *dev)
 		if (status & ATH9K_INT_TIM_TIMER) {
 			if (ATH_DBG_WARN_ON_ONCE(sc->ps_idle))
 				goto chip_reset;
+			/* Clear RxAbort bit so that we can
+			 * receive frames */
 			ath9k_setpower(sc, ATH9K_PM_AWAKE);
 			ath9k_hw_setrxabort(sc->sc_ah, 0);
 			sc->ps_flags |= PS_WAIT_FOR_BEACON;
@@ -783,7 +865,7 @@ chip_reset:
 	ath_debug_stat_interrupt(sc, status);
 
 	if (sched) {
-		
+		/* turn off every interrupt */
 		ath9k_hw_disable_interrupts(ah);
 		tasklet_schedule(&sc->intr_tq);
 	}
@@ -862,7 +944,7 @@ static void ath_hw_pll_rx_hang_check(struct ath_softc *sc, u32 pll_sqsum)
 	if (pll_sqsum >= 0x40000) {
 		count++;
 		if (count == 3) {
-			
+			/* Rx is hung for more than 500ms. Reset it */
 			ath_dbg(common, RESET, "Possible RX hang, resetting\n");
 			RESET_STAT_INC(sc, RESET_TYPE_PLL_HANG);
 			ieee80211_queue_work(sc->hw, &sc->hw_reset_work);
@@ -890,6 +972,9 @@ void ath_hw_pll_work(struct work_struct *work)
 	}
 }
 
+/**********************/
+/* mac80211 callbacks */
+/**********************/
 
 static int ath9k_start(struct ieee80211_hw *hw)
 {
@@ -909,9 +994,16 @@ static int ath9k_start(struct ieee80211_hw *hw)
 
 	init_channel = ath9k_cmn_get_curchannel(hw, ah);
 
-	
+	/* Reset SERDES registers */
 	ath9k_hw_configpcipowersave(ah, false);
 
+	/*
+	 * The basic interface to setting the hardware in a good
+	 * state is ``reset''.  On return the hardware is known to
+	 * be powered up and with interrupts disabled.  This must
+	 * be followed by initialization of the appropriate bits
+	 * and then setup of the interrupt mask.
+	 */
 	spin_lock_bh(&sc->sc_pcu_lock);
 
 	atomic_set(&ah->intr_ref_cnt, -1);
@@ -925,7 +1017,7 @@ static int ath9k_start(struct ieee80211_hw *hw)
 		goto mutex_unlock;
 	}
 
-	
+	/* Setup our intr mask. */
 	ah->imask = ATH9K_INT_TX | ATH9K_INT_RXEOL |
 		    ATH9K_INT_RXORN | ATH9K_INT_FATAL |
 		    ATH9K_INT_GLOBAL;
@@ -960,6 +1052,10 @@ static int ath9k_start(struct ieee80211_hw *hw)
 		ath9k_hw_set_gpio(ah, ah->led_pin, 0);
 	}
 
+	/*
+	 * Reset key cache to sane defaults (all entries cleared) instead of
+	 * semi-random values after suspend/resume.
+	 */
 	ath9k_cmn_init_crypto(sc->sc_ah);
 
 	spin_unlock_bh(&sc->sc_pcu_lock);
@@ -985,6 +1081,10 @@ static void ath9k_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 
 	if (sc->ps_enabled) {
+		/*
+		 * mac80211 does not set PM field for normal data frames, so we
+		 * need to update that based on the current PS mode.
+		 */
 		if (ieee80211_is_data(hdr->frame_control) &&
 		    !ieee80211_is_nullfunc(hdr->frame_control) &&
 		    !ieee80211_has_pm(hdr->frame_control)) {
@@ -994,10 +1094,19 @@ static void ath9k_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 		}
 	}
 
+	/*
+	 * Cannot tx while the hardware is in full sleep, it first needs a full
+	 * chip reset to recover from that
+	 */
 	if (unlikely(sc->sc_ah->power_mode == ATH9K_PM_FULL_SLEEP))
 		goto exit;
 
 	if (unlikely(sc->sc_ah->power_mode != ATH9K_PM_AWAKE)) {
+		/*
+		 * We are using PS-Poll and mac80211 can request TX while in
+		 * power save mode. Need to wake up hardware for the TX to be
+		 * completed and if needed, also for RX of buffered frames.
+		 */
 		ath9k_ps_wakeup(sc);
 		if (!(sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_AUTOSLEEP))
 			ath9k_hw_setrxabort(sc->sc_ah, 0);
@@ -1009,6 +1118,11 @@ static void ath9k_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 			ath_dbg(common, PS, "Wake up to complete TX\n");
 			sc->ps_flags |= PS_WAIT_FOR_TX_ACK;
 		}
+		/*
+		 * The actual restore operation will happen only after
+		 * the sc_flags bit is cleared. We are just dropping
+		 * the ps_usecount here.
+		 */
 		ath9k_ps_restore(sc);
 	}
 
@@ -1044,20 +1158,24 @@ static void ath9k_stop(struct ieee80211_hw *hw)
 		return;
 	}
 
-	
+	/* Ensure HW is awake when we try to shut it down. */
 	ath9k_ps_wakeup(sc);
 
 	ath9k_stop_btcoex(sc);
 
 	spin_lock_bh(&sc->sc_pcu_lock);
 
-	
+	/* prevent tasklets to enable interrupts once we disable them */
 	ah->imask &= ~ATH9K_INT_GLOBAL;
 
+	/* make sure h/w will not generate any interrupt
+	 * before setting the invalid flag. */
 	ath9k_hw_disable_interrupts(ah);
 
 	spin_unlock_bh(&sc->sc_pcu_lock);
 
+	/* we can now sync irq and kill any running tasklets, since we already
+	 * disabled interrupts and not holding a spin lock */
 	synchronize_irq(sc->irq);
 	tasklet_kill(&sc->intr_tq);
 	tasklet_kill(&sc->bcon_tasklet);
@@ -1153,6 +1271,7 @@ static void ath9k_vif_iter(void *data, u8 *mac, struct ieee80211_vif *vif)
 	}
 }
 
+/* Called with sc->mutex held. */
 void ath9k_calculate_iter_data(struct ieee80211_hw *hw,
 			       struct ieee80211_vif *vif,
 			       struct ath9k_vif_iter_data *iter_data)
@@ -1161,6 +1280,10 @@ void ath9k_calculate_iter_data(struct ieee80211_hw *hw,
 	struct ath_hw *ah = sc->sc_ah;
 	struct ath_common *common = ath9k_hw_common(ah);
 
+	/*
+	 * Use the hardware MAC address as reference, the hardware uses it
+	 * together with the BSSID mask when matching addresses.
+	 */
 	memset(iter_data, 0, sizeof(*iter_data));
 	iter_data->hw_macaddr = common->macaddr;
 	memset(&iter_data->mask, 0xff, ETH_ALEN);
@@ -1168,11 +1291,12 @@ void ath9k_calculate_iter_data(struct ieee80211_hw *hw,
 	if (vif)
 		ath9k_vif_iter(iter_data, vif->addr, vif);
 
-	
+	/* Get list of all active MAC addresses */
 	ieee80211_iterate_active_interfaces_atomic(sc->hw, ath9k_vif_iter,
 						   iter_data);
 }
 
+/* Called with sc->mutex held. */
 static void ath9k_calculate_summary_state(struct ieee80211_hw *hw,
 					  struct ieee80211_vif *vif)
 {
@@ -1183,11 +1307,11 @@ static void ath9k_calculate_summary_state(struct ieee80211_hw *hw,
 
 	ath9k_calculate_iter_data(hw, vif, &iter_data);
 
-	
+	/* Set BSSID mask. */
 	memcpy(common->bssidmask, iter_data.mask, ETH_ALEN);
 	ath_hw_setbssidmask(common);
 
-	
+	/* Set op-mode & TSF */
 	if (iter_data.naps > 0) {
 		ath9k_hw_set_tsfadjust(ah, 1);
 		sc->sc_flags |= SC_OP_TSF_RESET;
@@ -1206,6 +1330,9 @@ static void ath9k_calculate_summary_state(struct ieee80211_hw *hw,
 			ah->opmode = NL80211_IFTYPE_STATION;
 	}
 
+	/*
+	 * Enable MIB interrupts when there are hardware phy counters.
+	 */
 	if ((iter_data.nstations + iter_data.nadhocs + iter_data.nmeshes) > 0) {
 		if (ah->config.enable_ani)
 			ah->imask |= ATH9K_INT_MIB;
@@ -1217,7 +1344,7 @@ static void ath9k_calculate_summary_state(struct ieee80211_hw *hw,
 
 	ath9k_hw_set_interrupts(ah);
 
-	
+	/* Set up ANI */
 	if (iter_data.naps > 0) {
 		sc->sc_ah->stats.avgbrssi = ATH_RSSI_DUMMY_MARKER;
 
@@ -1232,6 +1359,7 @@ static void ath9k_calculate_summary_state(struct ieee80211_hw *hw,
 	}
 }
 
+/* Called with sc->mutex held, vif counts set up properly. */
 static void ath9k_do_vif_add_setup(struct ieee80211_hw *hw,
 				   struct ieee80211_vif *vif)
 {
@@ -1241,6 +1369,12 @@ static void ath9k_do_vif_add_setup(struct ieee80211_hw *hw,
 
 	if (ath9k_uses_beacons(vif->type)) {
 		int error;
+		/* This may fail because upper levels do not have beacons
+		 * properly configured yet.  That's OK, we assume it
+		 * will be properly configured and then we will be notified
+		 * in the info_changed method and set up beacons properly
+		 * there.
+		 */
 		ath9k_set_beaconing_status(sc, false);
 		error = ath_beacon_alloc(sc, vif);
 		if (!error)
@@ -1318,7 +1452,7 @@ static int ath9k_change_interface(struct ieee80211_hw *hw,
 	mutex_lock(&sc->mutex);
 	ath9k_ps_wakeup(sc);
 
-	
+	/* See if new interface type is valid. */
 	if ((new_type == NL80211_IFTYPE_ADHOC) &&
 	    (sc->nvifs > 1)) {
 		ath_err(common, "When using ADHOC, it must be the only"
@@ -1336,11 +1470,11 @@ static int ath9k_change_interface(struct ieee80211_hw *hw,
 		}
 	}
 
-	
+	/* Clean up old vif stuff */
 	if (ath9k_uses_beacons(vif->type))
 		ath9k_reclaim_beacon(sc, vif);
 
-	
+	/* Add new settings */
 	vif->type = new_type;
 	vif->p2p = p2p;
 
@@ -1364,7 +1498,7 @@ static void ath9k_remove_interface(struct ieee80211_hw *hw,
 
 	sc->nvifs--;
 
-	
+	/* Reclaim beacon resources */
 	if (ath9k_uses_beacons(vif->type))
 		ath9k_reclaim_beacon(sc, vif);
 
@@ -1424,9 +1558,19 @@ static int ath9k_config(struct ieee80211_hw *hw, u32 changed)
 		if (sc->ps_idle)
 			ath_cancel_work(sc);
 		else
+			/*
+			 * The chip needs a reset to properly wake up from
+			 * full sleep
+			 */
 			reset_channel = ah->chip_fullsleep;
 	}
 
+	/*
+	 * We just prepare to enable PS. We have to wait until our AP has
+	 * ACK'd our null data frame to disable RX otherwise we'll ignore
+	 * those ACKs and end up retransmitting the same null data frames.
+	 * IEEE80211_CONF_CHANGE_PS is only passed by mac80211 for STA mode.
+	 */
 	if (changed & IEEE80211_CONF_CHANGE_PS) {
 		unsigned long flags;
 		spin_lock_irqsave(&sc->sc_pm_lock, flags);
@@ -1464,17 +1608,27 @@ static int ath9k_config(struct ieee80211_hw *hw, u32 changed)
 		ath_dbg(common, CONFIG, "Set channel: %d MHz type: %d\n",
 			curchan->center_freq, conf->channel_type);
 
-		
+		/* update survey stats for the old channel before switching */
 		spin_lock_irqsave(&common->cc_lock, flags);
 		ath_update_survey_stats(sc);
 		spin_unlock_irqrestore(&common->cc_lock, flags);
 
+		/*
+		 * Preserve the current channel values, before updating
+		 * the same channel
+		 */
 		if (ah->curchan && (old_pos == pos))
 			ath9k_hw_getnf(ah, ah->curchan);
 
 		ath9k_cmn_update_ichannel(&sc->sc_ah->channels[pos],
 					  curchan, conf->channel_type);
 
+		/*
+		 * If the operating channel changes, change the survey in-use flags
+		 * along with it.
+		 * Reset the survey data for the new channel, unless we're switching
+		 * back to the operating channel from an off-channel operation.
+		 */
 		if (!(hw->conf.flags & IEEE80211_CONF_OFFCHANNEL) &&
 		    sc->cur_survey != &sc->survey[pos]) {
 
@@ -1495,6 +1649,11 @@ static int ath9k_config(struct ieee80211_hw *hw, u32 changed)
 			return -EINVAL;
 		}
 
+		/*
+		 * The most recent snapshot of channel->noisefloor for the old
+		 * channel is only available after the hardware reset. Copy it to
+		 * the survey stats now.
+		 */
 		if (old_pos >= 0)
 			ath_update_survey_nf(sc, old_pos);
 	}
@@ -1522,6 +1681,7 @@ static int ath9k_config(struct ieee80211_hw *hw, u32 changed)
 	FIF_PROBE_REQ |				\
 	FIF_FCSFAIL)
 
+/* FIXME: sc->sc_full_reset ? */
 static void ath9k_configure_filter(struct ieee80211_hw *hw,
 				   unsigned int changed_flags,
 				   unsigned int *total_flags,
@@ -1674,6 +1834,13 @@ static int ath9k_set_key(struct ieee80211_hw *hw,
 	    (key->cipher == WLAN_CIPHER_SUITE_TKIP ||
 	     key->cipher == WLAN_CIPHER_SUITE_CCMP) &&
 	    !(key->flags & IEEE80211_KEY_FLAG_PAIRWISE)) {
+		/*
+		 * For now, disable hw crypto for the RSN IBSS group keys. This
+		 * could be optimized in the future to use a modified key cache
+		 * design to support per-STA RX GTK, but until that gets
+		 * implemented, use of software crypto for group addressed
+		 * frames is a acceptable to allow RSN IBSS to be used.
+		 */
 		return -EOPNOTSUPP;
 	}
 
@@ -1689,7 +1856,7 @@ static int ath9k_set_key(struct ieee80211_hw *hw,
 		ret = ath_key_config(common, vif, sta, key);
 		if (ret >= 0) {
 			key->hw_key_idx = ret;
-			
+			/* push IV and Michael MIC generation to stack */
 			key->flags |= IEEE80211_KEY_FLAG_GENERATE_IV;
 			if (key->cipher == WLAN_CIPHER_SUITE_TKIP)
 				key->flags |= IEEE80211_KEY_FLAG_GENERATE_MMIC;
@@ -1718,6 +1885,10 @@ static void ath9k_bss_iter(void *data, u8 *mac, struct ieee80211_vif *vif)
 	struct ieee80211_bss_conf *bss_conf = &vif->bss_conf;
 	struct ath_vif *avp = (void *)vif->drv_priv;
 
+	/*
+	 * Skip iteration if primary station vif's bss info
+	 * was not changed
+	 */
 	if (sc->sc_flags & SC_OP_PRIM_STA_VIF)
 		return;
 
@@ -1730,8 +1901,13 @@ static void ath9k_bss_iter(void *data, u8 *mac, struct ieee80211_vif *vif)
 		ath_dbg(common, CONFIG, "Bss Info ASSOC %d, bssid: %pM\n",
 			bss_conf->aid, common->curbssid);
 		ath_beacon_config(sc, vif);
+		/*
+		 * Request a re-configuration of Beacon related timers
+		 * on the receipt of the first Beacon frame (i.e.,
+		 * after time sync with the AP).
+		 */
 		sc->ps_flags |= PS_BEACON_SYNC | PS_WAIT_FOR_BEACON;
-		
+		/* Reset rssi stats */
 		sc->last_rssi = ATH_RSSI_DUMMY_MARKER;
 		sc->sc_ah->stats.avgbrssi = ATH_RSSI_DUMMY_MARKER;
 
@@ -1752,7 +1928,7 @@ static void ath9k_config_bss(struct ath_softc *sc, struct ieee80211_vif *vif)
 	if (sc->sc_ah->opmode != NL80211_IFTYPE_STATION)
 		return;
 
-	
+	/* Reconfigure bss info */
 	if (avp->primary_sta_vif && !bss_conf->assoc) {
 		ath_dbg(common, CONFIG, "Bss Info DISASSOC %d, bssid %pM\n",
 			common->curaid, common->curbssid);
@@ -1765,9 +1941,13 @@ static void ath9k_config_bss(struct ath_softc *sc, struct ieee80211_vif *vif)
 	ieee80211_iterate_active_interfaces_atomic(
 			sc->hw, ath9k_bss_iter, sc);
 
+	/*
+	 * None of station vifs are associated.
+	 * Clear bssid & aid
+	 */
 	if (!(sc->sc_flags & SC_OP_PRIM_STA_VIF)) {
 		ath9k_hw_write_associd(sc->sc_ah);
-		
+		/* Stop ANI */
 		sc->sc_flags &= ~SC_OP_ANI_RUN;
 		del_timer_sync(&common->ani.timer);
 		memset(&sc->caldata, 0, sizeof(sc->caldata));
@@ -1797,7 +1977,7 @@ static void ath9k_bss_info_changed(struct ieee80211_hw *hw,
 	}
 
 	if (changed & BSS_CHANGED_IBSS) {
-		
+		/* There can be only one vif available */
 		memcpy(common->curbssid, bss_conf->bssid, ETH_ALEN);
 		common->curaid = bss_conf->aid;
 		ath9k_hw_write_associd(sc->sc_ah);
@@ -1816,7 +1996,7 @@ static void ath9k_bss_info_changed(struct ieee80211_hw *hw,
 		}
 	}
 
-	
+	/* Enable transmission of beacons (AP, IBSS, MESH) */
 	if ((changed & BSS_CHANGED_BEACON) ||
 	    ((changed & BSS_CHANGED_BEACON_ENABLED) && bss_conf->enable_beacon)) {
 		ath9k_set_beaconing_status(sc, false);
@@ -1832,6 +2012,11 @@ static void ath9k_bss_info_changed(struct ieee80211_hw *hw,
 		else
 			slottime = 20;
 		if (vif->type == NL80211_IFTYPE_AP) {
+			/*
+			 * Defer update, so that connected stations can adjust
+			 * their settings at the same time.
+			 * See beacon.c for more details
+			 */
 			sc->beacon.slottime = slottime;
 			sc->beacon.updateslot = UPDATE;
 		} else {
@@ -1840,7 +2025,7 @@ static void ath9k_bss_info_changed(struct ieee80211_hw *hw,
 		}
 	}
 
-	
+	/* Disable transmission of beacons */
 	if ((changed & BSS_CHANGED_BEACON_ENABLED) &&
 	    !bss_conf->enable_beacon) {
 		ath9k_set_beaconing_status(sc, false);
@@ -1849,6 +2034,10 @@ static void ath9k_bss_info_changed(struct ieee80211_hw *hw,
 	}
 
 	if (changed & BSS_CHANGED_BEACON_INT) {
+		/*
+		 * In case of AP mode, the HW TSF has to be reset
+		 * when the beacon interval changes.
+		 */
 		if (vif->type == NL80211_IFTYPE_AP) {
 			sc->sc_flags |= SC_OP_TSF_RESET;
 			ath9k_set_beaconing_status(sc, false);
@@ -2004,7 +2193,7 @@ static void ath9k_flush(struct ieee80211_hw *hw, bool drop)
 	struct ath_softc *sc = hw->priv;
 	struct ath_hw *ah = sc->sc_ah;
 	struct ath_common *common = ath9k_hw_common(ah);
-	int timeout = 200; 
+	int timeout = 200; /* ms */
 	int i, j;
 	bool drain_txq;
 
@@ -2161,7 +2350,7 @@ static int ath9k_set_antenna(struct ieee80211_hw *hw, u32 tx_ant, u32 rx_ant)
 	if (ah->caps.rx_chainmask == 1)
 		return 0;
 
-	
+	/* AR9100 runs into calibration issues if not all rx chains are enabled */
 	if (AR_SREV_9100(ah))
 		ah->rxchainmask = 0x7;
 	else

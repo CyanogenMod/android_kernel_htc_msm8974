@@ -35,6 +35,7 @@
 #define MAX_SCAN_DELAY		128
 #define MIN_SCAN_DELAY		1
 
+/* in nanoseconds */
 #define MAX_ROW_HOLD_DELAY	122000
 #define MIN_ROW_HOLD_DELAY	30500
 
@@ -73,11 +74,27 @@
 
 #define KEYP_TEST_DBG_SELECT_SHIFT	1
 
+/* bits of these registers represent
+ * '0' for key press
+ * '1' for key release
+ */
 #define KEYP_RECENT_DATA		0x14B
 #define KEYP_OLD_DATA			0x14C
 
 #define KEYP_CLOCK_FREQ			32768
 
+/**
+ * struct pmic8xxx_kp - internal keypad data structure
+ * @pdata - keypad platform data pointer
+ * @input - input device pointer for keypad
+ * @key_sense_irq - key press/release irq number
+ * @key_stuck_irq - key stuck notification irq number
+ * @keycodes - array to hold the key codes
+ * @dev - parent device pointer
+ * @keystate - present key press/release state
+ * @stuckstate - present state when key stuck irq
+ * @ctrl_reg - control register value
+ */
 struct pmic8xxx_kp {
 	const struct pm8xxx_keypad_platform_data *pdata;
 	struct input_dev *input;
@@ -132,13 +149,25 @@ static int pmic8xxx_kp_read_u8(struct pmic8xxx_kp *kp,
 
 static u8 pmic8xxx_col_state(struct pmic8xxx_kp *kp, u8 col)
 {
-	
+	/* all keys pressed on that particular row? */
 	if (col == 0x00)
 		return 1 << kp->pdata->num_cols;
 	else
 		return col & ((1 << kp->pdata->num_cols) - 1);
 }
 
+/*
+ * Synchronous read protocol for RevB0 onwards:
+ *
+ * 1. Write '1' to ReadState bit in KEYP_SCAN register
+ * 2. Wait 2*32KHz clocks, so that HW can successfully enter read mode
+ *    synchronously
+ * 3. Read rows in old array first if events are more than one
+ * 4. Read rows in recent array
+ * 5. Wait 4*32KHz clocks
+ * 6. Write '0' to ReadState bit of KEYP_SCAN register so that hw can
+ *    synchronously exit read mode.
+ */
 static int pmic8xxx_chk_sync_read(struct pmic8xxx_kp *kp)
 {
 	int rc;
@@ -158,7 +187,7 @@ static int pmic8xxx_chk_sync_read(struct pmic8xxx_kp *kp)
 		return rc;
 	}
 
-	
+	/* 2 * 32KHz clocks */
 	udelay((2 * DIV_ROUND_UP(USEC_PER_SEC, KEYP_CLOCK_FREQ)) + 1);
 
 	return rc;
@@ -214,7 +243,7 @@ static int pmic8xxx_kp_read_matrix(struct pmic8xxx_kp *kp, u16 *new_state,
 		return rc;
 	}
 
-	
+	/* 4 * 32KHz clocks */
 	udelay((4 * DIV_ROUND_UP(USEC_PER_SEC, KEYP_CLOCK_FREQ)) + 1);
 
 	rc = pmic8xxx_kp_read_u8(kp, &scan_val, KEYP_SCAN);
@@ -298,13 +327,13 @@ static int pmic8xxx_kp_scan_matrix(struct pmic8xxx_kp *kp, unsigned int events)
 		if (rc < 0)
 			return rc;
 
-		
+		/* detecting ghost key is not an error */
 		if (pmic8xxx_detect_ghost_keys(kp, new_state))
 			return 0;
 		__pmic8xxx_kp_scan_matrix(kp, new_state, kp->keystate);
 		memcpy(kp->keystate, new_state, sizeof(new_state));
 	break;
-	case 0x3: 
+	case 0x3: /* two events - eventcounter is gray-coded */
 		rc = pmic8xxx_kp_read_matrix(kp, new_state, old_state);
 		if (rc < 0)
 			return rc;
@@ -328,6 +357,17 @@ static int pmic8xxx_kp_scan_matrix(struct pmic8xxx_kp *kp, unsigned int events)
 	return rc;
 }
 
+/*
+ * NOTE: We are reading recent and old data registers blindly
+ * whenever key-stuck interrupt happens, because events counter doesn't
+ * get updated when this interrupt happens due to key stuck doesn't get
+ * considered as key state change.
+ *
+ * We are not using old data register contents after they are being read
+ * because it might report the key which was pressed before the key being stuck
+ * as stuck key because it's pressed status is stored in the old data
+ * register.
+ */
 static irqreturn_t pmic8xxx_kp_stuck_irq(int irq, void *data)
 {
 	u16 new_state[PM8XXX_MAX_ROWS];
@@ -375,7 +415,7 @@ static int __devinit pmic8xxx_kpd_init(struct pmic8xxx_kp *kp)
 		0, 1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 7, 7, 7,
 	};
 
-	
+	/* Find column bits */
 	if (kp->pdata->num_cols < KEYP_CTRL_SCAN_COLS_MIN)
 		bits = 0;
 	else
@@ -383,7 +423,7 @@ static int __devinit pmic8xxx_kpd_init(struct pmic8xxx_kp *kp)
 	ctrl_val = (bits & KEYP_CTRL_SCAN_COLS_BITS) <<
 		KEYP_CTRL_SCAN_COLS_SHIFT;
 
-	
+	/* Find row bits */
 	if (kp->pdata->num_rows < KEYP_CTRL_SCAN_ROWS_MIN)
 		bits = 0;
 	else
@@ -404,7 +444,7 @@ static int __devinit pmic8xxx_kpd_init(struct pmic8xxx_kp *kp)
 	bits = fls(kp->pdata->scan_delay_ms) - 1;
 	scan_val |= (bits << KEYP_SCAN_PAUSE_SHIFT);
 
-	
+	/* Row hold time is a multiple of 32KHz cycles. */
 	cycles = (kp->pdata->row_hold_ns * KEYP_CLOCK_FREQ) / NSEC_PER_SEC;
 
 	scan_val |= (cycles << KEYP_SCAN_ROW_HOLD_SHIFT);
@@ -478,6 +518,16 @@ static void pmic8xxx_kp_close(struct input_dev *dev)
 	pmic8xxx_kp_disable(kp);
 }
 
+/*
+ * keypad controller should be initialized in the following sequence
+ * only, otherwise it might get into FSM stuck state.
+ *
+ * - Initialize keypad control parameters, like no. of rows, columns,
+ *   timing values etc.,
+ * - configure rows and column gpios pull up/down.
+ * - set irq edge type.
+ * - enable the keypad controller.
+ */
 static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 {
 	const struct pm8xxx_keypad_platform_data *pdata =
@@ -603,7 +653,7 @@ static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 	input_set_capability(kp->input, EV_MSC, MSC_SCAN);
 	input_set_drvdata(kp->input, kp);
 
-	
+	/* initialize keypad state */
 	memset(kp->keystate, 0xff, sizeof(kp->keystate));
 	memset(kp->stuckstate, 0xff, sizeof(kp->stuckstate));
 

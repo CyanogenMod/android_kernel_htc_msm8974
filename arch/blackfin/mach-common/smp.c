@@ -36,6 +36,10 @@
 #include <asm/time.h>
 #include <linux/err.h>
 
+/*
+ * Anomaly notes:
+ * 05000120 - we always define corelock as 32-bit integer in L2
+ */
 struct corelock_slot corelock __attribute__ ((__section__(".l2.bss")));
 
 #ifdef CONFIG_ICACHE_FLUSH_L1
@@ -73,12 +77,14 @@ struct ipi_message {
 	struct smp_call_struct call_struct;
 };
 
+/* A magic number - stress test shows this is safe for common cases */
 #define BFIN_IPI_MSGQ_LEN 5
 
+/* Simple FIFO buffer, overflow leads to panic */
 struct ipi_message_queue {
 	spinlock_t lock;
 	unsigned long count;
-	unsigned long head; 
+	unsigned long head; /* head of the queue */
 	struct ipi_message ipi_message[BFIN_IPI_MSGQ_LEN];
 };
 
@@ -103,12 +109,23 @@ static void ipi_flush_icache(void *info)
 {
 	struct blackfin_flush_data *fdata = info;
 
-	
+	/* Invalidate the memory holding the bounds of the flushed region. */
 	blackfin_dcache_invalidate_range((unsigned long)fdata,
 					 (unsigned long)fdata + sizeof(*fdata));
 
+	/* Make sure all write buffers in the data side of the core
+	 * are flushed before trying to invalidate the icache.  This
+	 * needs to be after the data flush and before the icache
+	 * flush so that the SSYNC does the right thing in preventing
+	 * the instruction prefetcher from hitting things in cached
+	 * memory at the wrong time -- it runs much further ahead than
+	 * the pipeline.
+	 */
 	SSYNC();
 
+	/* ipi_flaush_icache is invoked by generic flush_icache_range,
+	 * so call blackfin arch icache flush directly here.
+	 */
 	blackfin_icache_flush_range(fdata->start, fdata->end);
 }
 
@@ -123,12 +140,20 @@ static void ipi_call_function(unsigned int cpu, struct ipi_message *msg)
 	func(info);
 	if (wait) {
 #ifdef __ARCH_SYNC_CORE_DCACHE
+		/*
+		 * 'wait' usually means synchronization between CPUs.
+		 * Invalidate D cache in case shared data was changed
+		 * by func() to ensure cache coherence.
+		 */
 		resync_core_dcache();
 #endif
 		cpumask_clear_cpu(cpu, msg->call_struct.waitmask);
 	}
 }
 
+/* Use IRQ_SUPPLE_0 to request reschedule.
+ * When returning from interrupt to user space,
+ * there is chance to reschedule */
 static irqreturn_t ipi_handler_int0(int irq, void *dev_instance)
 {
 	unsigned int cpu = smp_processor_id();
@@ -205,7 +230,7 @@ static inline void smp_send_message(cpumask_t callmap, unsigned long type,
 	struct ipi_message_queue *msg_queue;
 	struct ipi_message *msg;
 	unsigned long flags, next_msg;
-	cpumask_t waitmask; 
+	cpumask_t waitmask; /* waitmask is shared by all cpus */
 
 	cpumask_copy(&waitmask, &callmap);
 	for_each_cpu(cpu, &callmap) {
@@ -235,6 +260,10 @@ static inline void smp_send_message(cpumask_t callmap, unsigned long type,
 				(unsigned long)(&waitmask),
 				(unsigned long)(&waitmask));
 #ifdef __ARCH_SYNC_CORE_DCACHE
+		/*
+		 * Invalidate D cache in case shared data was changed by
+		 * other processors to ensure cache coherence.
+		 */
 		resync_core_dcache();
 #endif
 	}
@@ -276,7 +305,7 @@ EXPORT_SYMBOL_GPL(smp_call_function_single);
 void smp_send_reschedule(int cpu)
 {
 	cpumask_t callmap;
-	
+	/* simply trigger an ipi */
 
 	cpumask_clear(&callmap);
 	cpumask_set_cpu(cpu, &callmap);
@@ -352,6 +381,8 @@ static void __cpuinit setup_secondary(unsigned int cpu)
 	bfin_write_ILAT(ilat);
 	CSYNC();
 
+	/* Enable interrupt levels IVG7-15. IARs have been already
+	 * programmed by the boot CPU.  */
 	bfin_irq_flags |= IMASK_IVG15 |
 	    IMASK_IVG14 | IMASK_IVG13 | IMASK_IVG12 | IMASK_IVG11 |
 	    IMASK_IVG10 | IMASK_IVG9 | IMASK_IVG8 | IMASK_IVG7 | IMASK_IVGHW;
@@ -377,11 +408,16 @@ void __cpuinit secondary_start_kernel(void)
 			initial_pda_coreb.retx);
 	}
 
+	/*
+	 * We want the D-cache to be enabled early, in case the atomic
+	 * support code emulates cache coherence (see
+	 * __ARCH_SYNC_CORE_DCACHE).
+	 */
 	init_exception_vectors();
 
 	local_irq_disable();
 
-	
+	/* Attach the new idle task to the global mm. */
 	atomic_inc(&mm->mm_users);
 	atomic_inc(&mm->mm_count);
 	current->active_mm = mm;
@@ -392,7 +428,7 @@ void __cpuinit secondary_start_kernel(void)
 
 	platform_secondary_init(cpu);
 
-	
+	/* setup local core timer */
 	bfin_local_timer_setup();
 
 	local_irq_enable();
@@ -400,6 +436,11 @@ void __cpuinit secondary_start_kernel(void)
 	bfin_setup_caches(cpu);
 
 	notify_cpu_starting(cpu);
+	/*
+	 * Calibrate loops per jiffy value.
+	 * IRQs need to be enabled here - D-cache can be invalidated
+	 * in timer irq handler, so core B can read correct jiffies.
+	 */
 	calibrate_delay();
 
 	cpu_idle();

@@ -172,4 +172,4 @@ int nfc_deactivate_target(struct nfc_dev *dev, u32 target_idx);
 int nfc_data_exchange(struct nfc_dev *dev, u32 target_idx, struct sk_buff *skb,
 		      data_exchange_cb_t cb, void *cb_context);
 
-#endif 
+#endif /* __LOCAL_NFC_H */

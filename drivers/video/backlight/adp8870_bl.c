@@ -23,64 +23,65 @@
 #define ADP8870_USE_LEDS
 
 
-#define ADP8870_MFDVID	0x00  
-#define ADP8870_MDCR	0x01  
-#define ADP8870_INT_STAT 0x02  
-#define ADP8870_INT_EN	0x03  
-#define ADP8870_CFGR	0x04  
-#define ADP8870_BLSEL	0x05  
-#define ADP8870_PWMLED	0x06  
-#define ADP8870_BLOFF	0x07  
-#define ADP8870_BLDIM	0x08  
-#define ADP8870_BLFR	0x09  
-#define ADP8870_BLMX1	0x0A  
-#define ADP8870_BLDM1	0x0B  
-#define ADP8870_BLMX2	0x0C  
-#define ADP8870_BLDM2	0x0D  
-#define ADP8870_BLMX3	0x0E  
-#define ADP8870_BLDM3	0x0F  
-#define ADP8870_BLMX4	0x10  
-#define ADP8870_BLDM4	0x11  
-#define ADP8870_BLMX5	0x12  
-#define ADP8870_BLDM5	0x13  
-#define ADP8870_ISCLAW	0x1A  
-#define ADP8870_ISCC	0x1B  
-#define ADP8870_ISCT1	0x1C  
-#define ADP8870_ISCT2	0x1D  
-#define ADP8870_ISCF	0x1E  
-#define ADP8870_ISC1	0x1F  
-#define ADP8870_ISC2	0x20  
-#define ADP8870_ISC3	0x21  
-#define ADP8870_ISC4	0x22  
-#define ADP8870_ISC5	0x23  
-#define ADP8870_ISC6	0x24  
-#define ADP8870_ISC7	0x25  
-#define ADP8870_ISC7_L2	0x26  
-#define ADP8870_ISC7_L3	0x27  
-#define ADP8870_ISC7_L4	0x28  
-#define ADP8870_ISC7_L5	0x29  
-#define ADP8870_CMP_CTL	0x2D  
-#define ADP8870_ALS1_EN	0x2E  
-#define ADP8870_ALS2_EN	0x2F  
-#define ADP8870_ALS1_STAT 0x30  
-#define ADP8870_ALS2_STAT 0x31  
-#define ADP8870_L2TRP	0x32  
-#define ADP8870_L2HYS	0x33  
-#define ADP8870_L3TRP	0x34  
-#define ADP8870_L3HYS	0x35  
-#define ADP8870_L4TRP	0x36  
-#define ADP8870_L4HYS	0x37  
-#define ADP8870_L5TRP	0x38  
-#define ADP8870_L5HYS	0x39  
-#define ADP8870_PH1LEVL	0x40  
-#define ADP8870_PH1LEVH	0x41  
-#define ADP8870_PH2LEVL	0x42  
-#define ADP8870_PH2LEVH	0x43  
+#define ADP8870_MFDVID	0x00  /* Manufacturer and device ID */
+#define ADP8870_MDCR	0x01  /* Device mode and status */
+#define ADP8870_INT_STAT 0x02  /* Interrupts status */
+#define ADP8870_INT_EN	0x03  /* Interrupts enable */
+#define ADP8870_CFGR	0x04  /* Configuration register */
+#define ADP8870_BLSEL	0x05  /* Sink enable backlight or independent */
+#define ADP8870_PWMLED	0x06  /* PWM Enable Selection Register */
+#define ADP8870_BLOFF	0x07  /* Backlight off timeout */
+#define ADP8870_BLDIM	0x08  /* Backlight dim timeout */
+#define ADP8870_BLFR	0x09  /* Backlight fade in and out rates */
+#define ADP8870_BLMX1	0x0A  /* Backlight (Brightness Level 1-daylight) maximum current */
+#define ADP8870_BLDM1	0x0B  /* Backlight (Brightness Level 1-daylight) dim current */
+#define ADP8870_BLMX2	0x0C  /* Backlight (Brightness Level 2-bright) maximum current */
+#define ADP8870_BLDM2	0x0D  /* Backlight (Brightness Level 2-bright) dim current */
+#define ADP8870_BLMX3	0x0E  /* Backlight (Brightness Level 3-office) maximum current */
+#define ADP8870_BLDM3	0x0F  /* Backlight (Brightness Level 3-office) dim current */
+#define ADP8870_BLMX4	0x10  /* Backlight (Brightness Level 4-indoor) maximum current */
+#define ADP8870_BLDM4	0x11  /* Backlight (Brightness Level 4-indoor) dim current */
+#define ADP8870_BLMX5	0x12  /* Backlight (Brightness Level 5-dark) maximum current */
+#define ADP8870_BLDM5	0x13  /* Backlight (Brightness Level 5-dark) dim current */
+#define ADP8870_ISCLAW	0x1A  /* Independent sink current fade law register */
+#define ADP8870_ISCC	0x1B  /* Independent sink current control register */
+#define ADP8870_ISCT1	0x1C  /* Independent Sink Current Timer Register LED[7:5] */
+#define ADP8870_ISCT2	0x1D  /* Independent Sink Current Timer Register LED[4:1] */
+#define ADP8870_ISCF	0x1E  /* Independent sink current fade register */
+#define ADP8870_ISC1	0x1F  /* Independent Sink Current LED1 */
+#define ADP8870_ISC2	0x20  /* Independent Sink Current LED2 */
+#define ADP8870_ISC3	0x21  /* Independent Sink Current LED3 */
+#define ADP8870_ISC4	0x22  /* Independent Sink Current LED4 */
+#define ADP8870_ISC5	0x23  /* Independent Sink Current LED5 */
+#define ADP8870_ISC6	0x24  /* Independent Sink Current LED6 */
+#define ADP8870_ISC7	0x25  /* Independent Sink Current LED7 (Brightness Level 1-daylight) */
+#define ADP8870_ISC7_L2	0x26  /* Independent Sink Current LED7 (Brightness Level 2-bright) */
+#define ADP8870_ISC7_L3	0x27  /* Independent Sink Current LED7 (Brightness Level 3-office) */
+#define ADP8870_ISC7_L4	0x28  /* Independent Sink Current LED7 (Brightness Level 4-indoor) */
+#define ADP8870_ISC7_L5	0x29  /* Independent Sink Current LED7 (Brightness Level 5-dark) */
+#define ADP8870_CMP_CTL	0x2D  /* ALS Comparator Control Register */
+#define ADP8870_ALS1_EN	0x2E  /* Main ALS comparator level enable */
+#define ADP8870_ALS2_EN	0x2F  /* Second ALS comparator level enable */
+#define ADP8870_ALS1_STAT 0x30  /* Main ALS Comparator Status Register */
+#define ADP8870_ALS2_STAT 0x31  /* Second ALS Comparator Status Register */
+#define ADP8870_L2TRP	0x32  /* L2 comparator reference */
+#define ADP8870_L2HYS	0x33  /* L2 hysteresis */
+#define ADP8870_L3TRP	0x34  /* L3 comparator reference */
+#define ADP8870_L3HYS	0x35  /* L3 hysteresis */
+#define ADP8870_L4TRP	0x36  /* L4 comparator reference */
+#define ADP8870_L4HYS	0x37  /* L4 hysteresis */
+#define ADP8870_L5TRP	0x38  /* L5 comparator reference */
+#define ADP8870_L5HYS	0x39  /* L5 hysteresis */
+#define ADP8870_PH1LEVL	0x40  /* First phototransistor ambient light level-low byte register */
+#define ADP8870_PH1LEVH	0x41  /* First phototransistor ambient light level-high byte register */
+#define ADP8870_PH2LEVL	0x42  /* Second phototransistor ambient light level-low byte register */
+#define ADP8870_PH2LEVH	0x43  /* Second phototransistor ambient light level-high byte register */
 
-#define ADP8870_MANUFID		0x3  
+#define ADP8870_MANUFID		0x3  /* Analog Devices AD8870 Manufacturer and device ID */
 #define ADP8870_DEVID(x)	((x) & 0xF)
 #define ADP8870_MANID(x)	((x) >> 4)
 
+/* MDCR Device mode and status */
 #define D7ALSEN			(1 << 7)
 #define INT_CFG			(1 << 6)
 #define NSTBY			(1 << 5)
@@ -90,6 +91,7 @@
 #define CMP_AUTOEN		(1 << 1)
 #define BLEN			(1 << 0)
 
+/* ADP8870_ALS1_EN Main ALS comparator level enable */
 #define L5_EN			(1 << 3)
 #define L4_EN			(1 << 2)
 #define L3_EN			(1 << 1)
@@ -186,6 +188,9 @@ static int adp8870_clr_bits(struct i2c_client *client, int reg, uint8_t bit_mask
 	return ret;
 }
 
+/*
+ * Independent sink / LED
+ */
 #if defined(ADP8870_USE_LEDS)
 static void adp8870_led_work(struct work_struct *work)
 {
@@ -201,6 +206,9 @@ static void adp8870_led_set(struct led_classdev *led_cdev,
 
 	led = container_of(led_cdev, struct adp8870_led, cdev);
 	led->new_brightness = value;
+	/*
+	 * Use workqueue for IO since I2C operations can sleep.
+	 */
 	schedule_work(&led->work);
 }
 
@@ -350,7 +358,7 @@ static int adp8870_bl_set(struct backlight_device *bl, int brightness)
 
 	if (data->pdata->en_ambl_sens) {
 		if ((brightness > 0) && (brightness < ADP8870_MAX_BRIGHTNESS)) {
-			
+			/* Disable Ambient Light auto adjust */
 			ret = adp8870_clr_bits(client, ADP8870_MDCR,
 					CMP_AUTOEN);
 			if (ret)
@@ -359,6 +367,10 @@ static int adp8870_bl_set(struct backlight_device *bl, int brightness)
 			if (ret)
 				return ret;
 		} else {
+			/*
+			 * MAX_BRIGHTNESS -> Enable Ambient Light auto adjust
+			 * restore daylight l1 sysfs brightness
+			 */
 			ret = adp8870_write(client, ADP8870_BLMX1,
 					 data->cached_daylight_max);
 			if (ret)
@@ -527,6 +539,9 @@ static int adp8870_bl_setup(struct backlight_device *bl)
 			pdata->bl_fade_out));
 	if (ret)
 		return ret;
+	/*
+	 * ADP8870 Rev0 requires GDWN_DIS bit set
+	 */
 
 	ret = adp8870_set_bits(client, ADP8870_MDCR, BLEN | DIM_EN | NSTBY |
 			(data->revid == 0 ? GDWN_DIS : 0));
@@ -744,7 +759,7 @@ static ssize_t adp8870_bl_ambient_light_level_show(struct device *dev,
 	if (error < 0)
 		return error;
 
-	
+	/* Return 13-bit conversion value for the first light sensor */
 	ret_val += (reg_val & 0x1F) << 8;
 
 	return sprintf(buf, "%u\n", ret_val);
@@ -784,13 +799,13 @@ static ssize_t adp8870_bl_ambient_light_zone_store(struct device *dev,
 		return ret;
 
 	if (val == 0) {
-		
+		/* Enable automatic ambient light sensing */
 		adp8870_set_bits(data->client, ADP8870_MDCR, CMP_AUTOEN);
 	} else if ((val > 0) && (val < 6)) {
-		
+		/* Disable automatic ambient light sensing */
 		adp8870_clr_bits(data->client, ADP8870_MDCR, CMP_AUTOEN);
 
-		
+		/* Set user supplied ambient light zone */
 		mutex_lock(&data->lock);
 		adp8870_read(data->client, ADP8870_CFGR, &reg_val);
 		reg_val &= ~(CFGR_BLV_MASK << CFGR_BLV_SHIFT);

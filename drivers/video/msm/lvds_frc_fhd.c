@@ -14,9 +14,9 @@
 
 static struct lvds_panel_platform_data *frc_pdata;
 static struct platform_device *frc_fbpdev;
-static int gpio_update;		
-static int gpio_reset;	
-static int gpio_pwr;		
+static int gpio_update;		/* 268 */
+static int gpio_reset;	/* 269 */
+static int gpio_pwr;		/* 270 */
 
 static int lvds_frc_panel_on(struct platform_device *pdev)
 {
@@ -171,6 +171,10 @@ static int __init lvds_frc_fhd_init(void)
 	pinfo->bl_max = 255;
 	pinfo->bl_min = 1;
 
+	/*
+	 * use hdmi 1080p60 setting, for dual channel mode,
+	 * horizontal length is half.
+	 */
 	pinfo->lcdc.h_back_porch = 148/2;
 	pinfo->lcdc.h_front_porch = 88/2;
 	pinfo->lcdc.h_pulse_width = 44/2;
@@ -182,7 +186,7 @@ static int __init lvds_frc_fhd_init(void)
 	pinfo->lvds.channel_mode = LVDS_DUAL_CHANNEL_MODE;
 	pinfo->lcdc.is_sync_active_high = TRUE;
 
-	
+	/* Set border color, padding only for reducing active display region */
 	pinfo->lcdc.border_clr = 0x0;
 	pinfo->lcdc.xres_pad = 0;
 	pinfo->lcdc.yres_pad = 0;

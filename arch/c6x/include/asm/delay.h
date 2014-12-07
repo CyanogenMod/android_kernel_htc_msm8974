@@ -19,7 +19,7 @@ static inline void __delay(unsigned long loops)
 {
 	uint32_t tmp;
 
-	
+	/* 6 cycles per loop */
 	asm volatile ("        mv    .s1  %0,%1\n"
 		      "0: [%1] b     .s1  0b\n"
 		      "        add   .l1  -6,%0,%0\n"
@@ -43,6 +43,7 @@ static inline void _c6x_tickdelay(unsigned int x)
 		      : "=b"(cnt), "+a"(x), "=b"(endcnt) : : "B0");
 }
 
+/* use scaled math to avoid slow division */
 #define C6X_NDELAY_SCALE 10
 
 static inline void _ndelay(unsigned int n)
@@ -63,4 +64,4 @@ static inline void _udelay(unsigned int n)
 #define udelay(x) _udelay((unsigned int)(x))
 #define ndelay(x) _ndelay((unsigned int)(x))
 
-#endif 
+#endif /* _ASM_C6X_DELAY_H */

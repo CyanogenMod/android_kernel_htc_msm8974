@@ -6,39 +6,42 @@
  * the GNU General Public License.
  */
 
+/*
+ * Show the command data of a command
+ */
 static const char unknown[] = "UNKNOWN";
 
 static const char * group_0_commands[] = {
- "Test Unit Ready", "Rezero Unit", unknown, "Request Sense",
- "Format Unit", "Read Block Limits", unknown, "Reassign Blocks",
- "Read (6)", unknown, "Write (6)", "Seek (6)", unknown, unknown,
- unknown, "Read Reverse", "Write Filemarks", "Space", "Inquiry",  
- unknown, "Recover Buffered Data", "Mode Select", "Reserve",
- "Release", "Copy", "Erase", "Mode Sense", "Start/Stop Unit",
- "Receive Diagnostic", "Send Diagnostic", 
- "Prevent/Allow Medium Removal", unknown,
+/* 00-03 */ "Test Unit Ready", "Rezero Unit", unknown, "Request Sense",
+/* 04-07 */ "Format Unit", "Read Block Limits", unknown, "Reassign Blocks",
+/* 08-0d */ "Read (6)", unknown, "Write (6)", "Seek (6)", unknown, unknown,
+/* 0e-12 */ unknown, "Read Reverse", "Write Filemarks", "Space", "Inquiry",  
+/* 13-16 */ unknown, "Recover Buffered Data", "Mode Select", "Reserve",
+/* 17-1b */ "Release", "Copy", "Erase", "Mode Sense", "Start/Stop Unit",
+/* 1c-1d */ "Receive Diagnostic", "Send Diagnostic", 
+/* 1e-1f */ "Prevent/Allow Medium Removal", unknown,
 };
 
 
 static const char *group_1_commands[] = {
-  unknown, unknown, unknown,
- unknown, unknown, "Read Capacity", unknown, unknown, "Read (10)",
- unknown, "Write (10)", "Seek (10)", unknown, unknown,
- "Write Verify","Verify", "Search High", "Search Equal",
- "Search Low", "Set Limits", "Prefetch or Read Position", 
- "Synchronize Cache","Lock/Unlock Cache", "Read Defect Data",
- "Medium Scan", "Compare","Copy Verify", "Write Buffer", "Read Buffer",
- "Update Block", "Read Long",  "Write Long",
+/* 20-22 */  unknown, unknown, unknown,
+/* 23-28 */ unknown, unknown, "Read Capacity", unknown, unknown, "Read (10)",
+/* 29-2d */ unknown, "Write (10)", "Seek (10)", unknown, unknown,
+/* 2e-31 */ "Write Verify","Verify", "Search High", "Search Equal",
+/* 32-34 */ "Search Low", "Set Limits", "Prefetch or Read Position", 
+/* 35-37 */ "Synchronize Cache","Lock/Unlock Cache", "Read Defect Data",
+/* 38-3c */ "Medium Scan", "Compare","Copy Verify", "Write Buffer", "Read Buffer",
+/* 3d-3f */ "Update Block", "Read Long",  "Write Long",
 };
 
 
 static const char *group_2_commands[] = {
- "Change Definition", "Write Same", 
- "Read Sub-Ch(cd)", "Read TOC", "Read Header(cd)", "Play Audio(cd)", unknown, "Play Audio MSF(cd)", "Play Audio Track/Index(cd)", 
- "Play Track Relative(10)(cd)", unknown, "Pause/Resume(cd)", "Log Select", "Log Sense", unknown, unknown,
- unknown, unknown, unknown, unknown, unknown, "Mode Select (10)",
- unknown, unknown, unknown, unknown, "Mode Sense (10)", unknown,
- unknown, unknown, unknown,
+/* 40-41 */ "Change Definition", "Write Same", 
+/* 42-48 */ "Read Sub-Ch(cd)", "Read TOC", "Read Header(cd)", "Play Audio(cd)", unknown, "Play Audio MSF(cd)", "Play Audio Track/Index(cd)", 
+/* 49-4f */ "Play Track Relative(10)(cd)", unknown, "Pause/Resume(cd)", "Log Select", "Log Sense", unknown, unknown,
+/* 50-55 */ unknown, unknown, unknown, unknown, unknown, "Mode Select (10)",
+/* 56-5b */ unknown, unknown, unknown, unknown, "Mode Sense (10)", unknown,
+/* 5c-5f */ unknown, unknown, unknown,
 };
 
 #define group(opcode) (((opcode) >> 5) & 7)
@@ -83,11 +86,12 @@ static void print_opcodek(unsigned char opcode)
 static void print_commandk (unsigned char *command)
 {
 	int i,s;
+//	printk(KERN_DEBUG);
 	print_opcodek(command[0]);
-	
+	/*printk(KERN_DEBUG "%s ", __func__);*/
 	if ((command[0] >> 5) == 6 ||
 	    (command[0] >> 5) == 7 ) {
-		s = 12; 
+		s = 12; /* vender specific */
 	} else {
 		s = COMMAND_SIZE(command[0]);
 	}
@@ -256,3 +260,4 @@ static void nsp32_print_register(int base)
 	}
 }
 
+/* end */

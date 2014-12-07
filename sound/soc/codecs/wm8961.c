@@ -30,259 +30,259 @@
 #define WM8961_MAX_REGISTER                     0xFC
 
 static u16 wm8961_reg_defaults[] = {
-	0x009F,     
-	0x009F,     
-	0x0000,     
-	0x0000,     
-	0x0020,     
-	0x0008,     
-	0x0000,     
-	0x000A,     
-	0x01F4,     
-	0x0000,     
-	0x00FF,     
-	0x00FF,     
-	0x0000,     
-	0x0000,     
-	0x0040,     
-	0x0000,     
-	0x0000,     
-	0x007B,     
-	0x0000,     
-	0x0032,     
-	0x0000,     
-	0x00C0,     
-	0x00C0,     
-	0x0120,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x005F,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0023,     
-	0x0000,     
-	0x0000,     
-	0x0003,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0106,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x015E,     
-	0x0010,     
-	0x0010,     
-	0x0000,     
-	0x0001,     
-	0x0003,     
-	0x0000,     
-	0x0060,     
-	0x01FB,     
-	0x0000,     
-	0x0065,     
-	0x005F,     
-	0x0059,     
-	0x006B,     
-	0x0038,     
-	0x000C,     
-	0x000A,     
-	0x006B,     
-	0x0000,     
-	0x0000,     
-	0x0087,     
-	0x0000,     
-	0x005C,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0030,     
-	0x0006,     
-	0x0000,     
-	0x0060,     
-	0x0000,     
-	0x003F,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0001,     
-	0x0000,     
-	0x0181,     
-	0x0005,     
-	0x0008,     
-	0x0008,     
-	0x0000,     
-	0x013B,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0070,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0003,     
-	0x0000,     
-	0x0000,     
-	0x0001,     
-	0x0008,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0004,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0080,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0052,     
-	0x0110,     
-	0x0040,     
-	0x0000,     
-	0x0030,     
-	0x0000,     
-	0x0000,     
-	0x0001,     
+	0x009F,     /* R0   - Left Input volume */
+	0x009F,     /* R1   - Right Input volume */
+	0x0000,     /* R2   - LOUT1 volume */
+	0x0000,     /* R3   - ROUT1 volume */
+	0x0020,     /* R4   - Clocking1 */
+	0x0008,     /* R5   - ADC & DAC Control 1 */
+	0x0000,     /* R6   - ADC & DAC Control 2 */
+	0x000A,     /* R7   - Audio Interface 0 */
+	0x01F4,     /* R8   - Clocking2 */
+	0x0000,     /* R9   - Audio Interface 1 */
+	0x00FF,     /* R10  - Left DAC volume */
+	0x00FF,     /* R11  - Right DAC volume */
+	0x0000,     /* R12 */
+	0x0000,     /* R13 */
+	0x0040,     /* R14  - Audio Interface 2 */
+	0x0000,     /* R15  - Software Reset */
+	0x0000,     /* R16 */
+	0x007B,     /* R17  - ALC1 */
+	0x0000,     /* R18  - ALC2 */
+	0x0032,     /* R19  - ALC3 */
+	0x0000,     /* R20  - Noise Gate */
+	0x00C0,     /* R21  - Left ADC volume */
+	0x00C0,     /* R22  - Right ADC volume */
+	0x0120,     /* R23  - Additional control(1) */
+	0x0000,     /* R24  - Additional control(2) */
+	0x0000,     /* R25  - Pwr Mgmt (1) */
+	0x0000,     /* R26  - Pwr Mgmt (2) */
+	0x0000,     /* R27  - Additional Control (3) */
+	0x0000,     /* R28  - Anti-pop */
+	0x0000,     /* R29 */
+	0x005F,     /* R30  - Clocking 3 */
+	0x0000,     /* R31 */
+	0x0000,     /* R32  - ADCL signal path */
+	0x0000,     /* R33  - ADCR signal path */
+	0x0000,     /* R34 */
+	0x0000,     /* R35 */
+	0x0000,     /* R36 */
+	0x0000,     /* R37 */
+	0x0000,     /* R38 */
+	0x0000,     /* R39 */
+	0x0000,     /* R40  - LOUT2 volume */
+	0x0000,     /* R41  - ROUT2 volume */
+	0x0000,     /* R42 */
+	0x0000,     /* R43 */
+	0x0000,     /* R44 */
+	0x0000,     /* R45 */
+	0x0000,     /* R46 */
+	0x0000,     /* R47  - Pwr Mgmt (3) */
+	0x0023,     /* R48  - Additional Control (4) */
+	0x0000,     /* R49  - Class D Control 1 */
+	0x0000,     /* R50 */
+	0x0003,     /* R51  - Class D Control 2 */
+	0x0000,     /* R52 */
+	0x0000,     /* R53 */
+	0x0000,     /* R54 */
+	0x0000,     /* R55 */
+	0x0106,     /* R56  - Clocking 4 */
+	0x0000,     /* R57  - DSP Sidetone 0 */
+	0x0000,     /* R58  - DSP Sidetone 1 */
+	0x0000,     /* R59 */
+	0x0000,     /* R60  - DC Servo 0 */
+	0x0000,     /* R61  - DC Servo 1 */
+	0x0000,     /* R62 */
+	0x015E,     /* R63  - DC Servo 3 */
+	0x0010,     /* R64 */
+	0x0010,     /* R65  - DC Servo 5 */
+	0x0000,     /* R66 */
+	0x0001,     /* R67 */
+	0x0003,     /* R68  - Analogue PGA Bias */
+	0x0000,     /* R69  - Analogue HP 0 */
+	0x0060,     /* R70 */
+	0x01FB,     /* R71  - Analogue HP 2 */
+	0x0000,     /* R72  - Charge Pump 1 */
+	0x0065,     /* R73 */
+	0x005F,     /* R74 */
+	0x0059,     /* R75 */
+	0x006B,     /* R76 */
+	0x0038,     /* R77 */
+	0x000C,     /* R78 */
+	0x000A,     /* R79 */
+	0x006B,     /* R80 */
+	0x0000,     /* R81 */
+	0x0000,     /* R82  - Charge Pump B */
+	0x0087,     /* R83 */
+	0x0000,     /* R84 */
+	0x005C,     /* R85 */
+	0x0000,     /* R86 */
+	0x0000,     /* R87  - Write Sequencer 1 */
+	0x0000,     /* R88  - Write Sequencer 2 */
+	0x0000,     /* R89  - Write Sequencer 3 */
+	0x0000,     /* R90  - Write Sequencer 4 */
+	0x0000,     /* R91  - Write Sequencer 5 */
+	0x0000,     /* R92  - Write Sequencer 6 */
+	0x0000,     /* R93  - Write Sequencer 7 */
+	0x0000,     /* R94 */
+	0x0000,     /* R95 */
+	0x0000,     /* R96 */
+	0x0000,     /* R97 */
+	0x0000,     /* R98 */
+	0x0000,     /* R99 */
+	0x0000,     /* R100 */
+	0x0000,     /* R101 */
+	0x0000,     /* R102 */
+	0x0000,     /* R103 */
+	0x0000,     /* R104 */
+	0x0000,     /* R105 */
+	0x0000,     /* R106 */
+	0x0000,     /* R107 */
+	0x0000,     /* R108 */
+	0x0000,     /* R109 */
+	0x0000,     /* R110 */
+	0x0000,     /* R111 */
+	0x0000,     /* R112 */
+	0x0000,     /* R113 */
+	0x0000,     /* R114 */
+	0x0000,     /* R115 */
+	0x0000,     /* R116 */
+	0x0000,     /* R117 */
+	0x0000,     /* R118 */
+	0x0000,     /* R119 */
+	0x0000,     /* R120 */
+	0x0000,     /* R121 */
+	0x0000,     /* R122 */
+	0x0000,     /* R123 */
+	0x0000,     /* R124 */
+	0x0000,     /* R125 */
+	0x0000,     /* R126 */
+	0x0000,     /* R127 */
+	0x0000,     /* R128 */
+	0x0000,     /* R129 */
+	0x0000,     /* R130 */
+	0x0000,     /* R131 */
+	0x0000,     /* R132 */
+	0x0000,     /* R133 */
+	0x0000,     /* R134 */
+	0x0000,     /* R135 */
+	0x0000,     /* R136 */
+	0x0000,     /* R137 */
+	0x0000,     /* R138 */
+	0x0000,     /* R139 */
+	0x0000,     /* R140 */
+	0x0000,     /* R141 */
+	0x0000,     /* R142 */
+	0x0000,     /* R143 */
+	0x0000,     /* R144 */
+	0x0000,     /* R145 */
+	0x0000,     /* R146 */
+	0x0000,     /* R147 */
+	0x0000,     /* R148 */
+	0x0000,     /* R149 */
+	0x0000,     /* R150 */
+	0x0000,     /* R151 */
+	0x0000,     /* R152 */
+	0x0000,     /* R153 */
+	0x0000,     /* R154 */
+	0x0000,     /* R155 */
+	0x0000,     /* R156 */
+	0x0000,     /* R157 */
+	0x0000,     /* R158 */
+	0x0000,     /* R159 */
+	0x0000,     /* R160 */
+	0x0000,     /* R161 */
+	0x0000,     /* R162 */
+	0x0000,     /* R163 */
+	0x0000,     /* R164 */
+	0x0000,     /* R165 */
+	0x0000,     /* R166 */
+	0x0000,     /* R167 */
+	0x0000,     /* R168 */
+	0x0000,     /* R169 */
+	0x0000,     /* R170 */
+	0x0000,     /* R171 */
+	0x0000,     /* R172 */
+	0x0000,     /* R173 */
+	0x0000,     /* R174 */
+	0x0000,     /* R175 */
+	0x0000,     /* R176 */
+	0x0000,     /* R177 */
+	0x0000,     /* R178 */
+	0x0000,     /* R179 */
+	0x0000,     /* R180 */
+	0x0000,     /* R181 */
+	0x0000,     /* R182 */
+	0x0000,     /* R183 */
+	0x0000,     /* R184 */
+	0x0000,     /* R185 */
+	0x0000,     /* R186 */
+	0x0000,     /* R187 */
+	0x0000,     /* R188 */
+	0x0000,     /* R189 */
+	0x0000,     /* R190 */
+	0x0000,     /* R191 */
+	0x0000,     /* R192 */
+	0x0000,     /* R193 */
+	0x0000,     /* R194 */
+	0x0000,     /* R195 */
+	0x0030,     /* R196 */
+	0x0006,     /* R197 */
+	0x0000,     /* R198 */
+	0x0060,     /* R199 */
+	0x0000,     /* R200 */
+	0x003F,     /* R201 */
+	0x0000,     /* R202 */
+	0x0000,     /* R203 */
+	0x0000,     /* R204 */
+	0x0001,     /* R205 */
+	0x0000,     /* R206 */
+	0x0181,     /* R207 */
+	0x0005,     /* R208 */
+	0x0008,     /* R209 */
+	0x0008,     /* R210 */
+	0x0000,     /* R211 */
+	0x013B,     /* R212 */
+	0x0000,     /* R213 */
+	0x0000,     /* R214 */
+	0x0000,     /* R215 */
+	0x0000,     /* R216 */
+	0x0070,     /* R217 */
+	0x0000,     /* R218 */
+	0x0000,     /* R219 */
+	0x0000,     /* R220 */
+	0x0000,     /* R221 */
+	0x0000,     /* R222 */
+	0x0003,     /* R223 */
+	0x0000,     /* R224 */
+	0x0000,     /* R225 */
+	0x0001,     /* R226 */
+	0x0008,     /* R227 */
+	0x0000,     /* R228 */
+	0x0000,     /* R229 */
+	0x0000,     /* R230 */
+	0x0000,     /* R231 */
+	0x0004,     /* R232 */
+	0x0000,     /* R233 */
+	0x0000,     /* R234 */
+	0x0000,     /* R235 */
+	0x0000,     /* R236 */
+	0x0000,     /* R237 */
+	0x0080,     /* R238 */
+	0x0000,     /* R239 */
+	0x0000,     /* R240 */
+	0x0000,     /* R241 */
+	0x0000,     /* R242 */
+	0x0000,     /* R243 */
+	0x0000,     /* R244 */
+	0x0052,     /* R245 */
+	0x0110,     /* R246 */
+	0x0040,     /* R247 */
+	0x0000,     /* R248 */
+	0x0030,     /* R249 */
+	0x0000,     /* R250 */
+	0x0000,     /* R251 */
+	0x0001,     /* R252 - General test 1 */
 };
 
 struct wm8961_priv {
@@ -308,6 +308,10 @@ static int wm8961_reset(struct snd_soc_codec *codec)
 	return snd_soc_write(codec, WM8961_SOFTWARE_RESET, 0);
 }
 
+/*
+ * The headphone output supports special anti-pop sequences giving
+ * silent power up and power down.
+ */
 static int wm8961_hp_event(struct snd_soc_dapm_widget *w,
 			   struct snd_kcontrol *kcontrol, int event)
 {
@@ -319,28 +323,28 @@ static int wm8961_hp_event(struct snd_soc_dapm_widget *w,
 	int timeout = 500;
 
 	if (event & SND_SOC_DAPM_POST_PMU) {
-		
+		/* Make sure the output is shorted */
 		hp_reg &= ~(WM8961_HPR_RMV_SHORT | WM8961_HPL_RMV_SHORT);
 		snd_soc_write(codec, WM8961_ANALOGUE_HP_0, hp_reg);
 
-		
+		/* Enable the charge pump */
 		cp_reg |= WM8961_CP_ENA;
 		snd_soc_write(codec, WM8961_CHARGE_PUMP_1, cp_reg);
 		mdelay(5);
 
-		
+		/* Enable the PGA */
 		pwr_reg |= WM8961_LOUT1_PGA | WM8961_ROUT1_PGA;
 		snd_soc_write(codec, WM8961_PWR_MGMT_2, pwr_reg);
 
-		
+		/* Enable the amplifier */
 		hp_reg |= WM8961_HPR_ENA | WM8961_HPL_ENA;
 		snd_soc_write(codec, WM8961_ANALOGUE_HP_0, hp_reg);
 
-		
+		/* Second stage enable */
 		hp_reg |= WM8961_HPR_ENA_DLY | WM8961_HPL_ENA_DLY;
 		snd_soc_write(codec, WM8961_ANALOGUE_HP_0, hp_reg);
 
-		
+		/* Enable the DC servo & trigger startup */
 		dcs_reg |=
 			WM8961_DCS_ENA_CHAN_HPR | WM8961_DCS_TRIG_STARTUP_HPR |
 			WM8961_DCS_ENA_CHAN_HPL | WM8961_DCS_TRIG_STARTUP_HPL;
@@ -359,39 +363,39 @@ static int wm8961_hp_event(struct snd_soc_dapm_widget *w,
 		else
 			dev_dbg(codec->dev, "DC servo startup complete\n");
 
-		
+		/* Enable the output stage */
 		hp_reg |= WM8961_HPR_ENA_OUTP | WM8961_HPL_ENA_OUTP;
 		snd_soc_write(codec, WM8961_ANALOGUE_HP_0, hp_reg);
 
-		
+		/* Remove the short on the output stage */
 		hp_reg |= WM8961_HPR_RMV_SHORT | WM8961_HPL_RMV_SHORT;
 		snd_soc_write(codec, WM8961_ANALOGUE_HP_0, hp_reg);
 	}
 
 	if (event & SND_SOC_DAPM_PRE_PMD) {
-		
+		/* Short the output */
 		hp_reg &= ~(WM8961_HPR_RMV_SHORT | WM8961_HPL_RMV_SHORT);
 		snd_soc_write(codec, WM8961_ANALOGUE_HP_0, hp_reg);
 
-		
+		/* Disable the output stage */
 		hp_reg &= ~(WM8961_HPR_ENA_OUTP | WM8961_HPL_ENA_OUTP);
 		snd_soc_write(codec, WM8961_ANALOGUE_HP_0, hp_reg);
 
-		
+		/* Disable DC offset cancellation */
 		dcs_reg &= ~(WM8961_DCS_ENA_CHAN_HPR |
 			     WM8961_DCS_ENA_CHAN_HPL);
 		snd_soc_write(codec, WM8961_DC_SERVO_1, dcs_reg);
 
-		
+		/* Finish up */
 		hp_reg &= ~(WM8961_HPR_ENA_DLY | WM8961_HPR_ENA |
 			    WM8961_HPL_ENA_DLY | WM8961_HPL_ENA);
 		snd_soc_write(codec, WM8961_ANALOGUE_HP_0, hp_reg);
 
-		
+		/* Disable the PGA */
 		pwr_reg &= ~(WM8961_LOUT1_PGA | WM8961_ROUT1_PGA);
 		snd_soc_write(codec, WM8961_PWR_MGMT_2, pwr_reg);
 
-		
+		/* Disable the charge pump */
 		dev_dbg(codec->dev, "Disabling charge pump\n");
 		snd_soc_write(codec, WM8961_CHARGE_PUMP_1,
 			     cp_reg & ~WM8961_CP_ENA);
@@ -408,21 +412,21 @@ static int wm8961_spk_event(struct snd_soc_dapm_widget *w,
 	u16 spk_reg = snd_soc_read(codec, WM8961_CLASS_D_CONTROL_1);
 
 	if (event & SND_SOC_DAPM_POST_PMU) {
-		
+		/* Enable the PGA */
 		pwr_reg |= WM8961_SPKL_PGA | WM8961_SPKR_PGA;
 		snd_soc_write(codec, WM8961_PWR_MGMT_2, pwr_reg);
 
-		
+		/* Enable the amplifier */
 		spk_reg |= WM8961_SPKL_ENA | WM8961_SPKR_ENA;
 		snd_soc_write(codec, WM8961_CLASS_D_CONTROL_1, spk_reg);
 	}
 
 	if (event & SND_SOC_DAPM_PRE_PMD) {
-		
+		/* Disable the amplifier */
 		spk_reg &= ~(WM8961_SPKL_ENA | WM8961_SPKR_ENA);
 		snd_soc_write(codec, WM8961_CLASS_D_CONTROL_1, spk_reg);
 
-		
+		/* Disable the PGA */
 		pwr_reg &= ~(WM8961_SPKL_PGA | WM8961_SPKR_PGA);
 		snd_soc_write(codec, WM8961_PWR_MGMT_2, pwr_reg);
 	}
@@ -534,6 +538,7 @@ SND_SOC_DAPM_MUX("DACR Sidetone", SND_SOC_NOPM, 0, 0, &dacr_mux),
 SND_SOC_DAPM_DAC("DACL", "HiFi Playback", WM8961_PWR_MGMT_2, 8, 0),
 SND_SOC_DAPM_DAC("DACR", "HiFi Playback", WM8961_PWR_MGMT_2, 7, 0),
 
+/* Handle as a mono path for DCS */
 SND_SOC_DAPM_PGA_E("Headphone Output", SND_SOC_NOPM,
 		   4, 0, NULL, 0, wm8961_hp_event,
 		   SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
@@ -585,6 +590,7 @@ static const struct snd_soc_dapm_route audio_paths[] = {
 
 };
 
+/* Values for CLK_SYS_RATE */
 static struct {
 	int ratio;
 	u16 val;
@@ -601,6 +607,7 @@ static struct {
 	{ 1536, 9 },
 };
 
+/* Values for SAMPLE_RATE */
 static struct {
 	int rate;
 	u16 val;
@@ -632,7 +639,7 @@ static int wm8961_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	
+	/* Find the closest sample rate for the filters */
 	best = 0;
 	for (i = 0; i < ARRAY_SIZE(wm8961_srate); i++) {
 		if (abs(wm8961_srate[i].rate - fs) <
@@ -646,7 +653,7 @@ static int wm8961_hw_params(struct snd_pcm_substream *substream,
 	dev_dbg(codec->dev, "Selected SRATE %dHz for %dHz\n",
 		wm8961_srate[best].rate, fs);
 
-	
+	/* Select a CLK_SYS/fs ratio equal to or higher than required */
 	target = wm8961->sysclk / fs;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK && target < 64) {
@@ -696,7 +703,7 @@ static int wm8961_hw_params(struct snd_pcm_substream *substream,
 	}
 	snd_soc_write(codec, WM8961_AUDIO_INTERFACE_0, reg);
 
-	
+	/* Sloping stop-band filter is recommended for <= 24kHz */
 	reg = snd_soc_read(codec, WM8961_ADC_DAC_CONTROL_2);
 	if (fs <= 24000)
 		reg |= WM8961_DACSLOPE;
@@ -862,18 +869,23 @@ static int wm8961_set_bias_level(struct snd_soc_codec *codec,
 {
 	u16 reg;
 
+	/* This is all slightly unusual since we have no bypass paths
+	 * and the output amplifier structure means we can just slam
+	 * the biases straight up rather than having to ramp them
+	 * slowly.
+	 */
 	switch (level) {
 	case SND_SOC_BIAS_ON:
 		break;
 
 	case SND_SOC_BIAS_PREPARE:
 		if (codec->dapm.bias_level == SND_SOC_BIAS_STANDBY) {
-			
+			/* Enable bias generation */
 			reg = snd_soc_read(codec, WM8961_ANTI_POP);
 			reg |= WM8961_BUFIOEN | WM8961_BUFDCOPEN;
 			snd_soc_write(codec, WM8961_ANTI_POP, reg);
 
-			
+			/* VMID=2*50k, VREF */
 			reg = snd_soc_read(codec, WM8961_PWR_MGMT_1);
 			reg &= ~WM8961_VMIDSEL_MASK;
 			reg |= (1 << WM8961_VMIDSEL_SHIFT) | WM8961_VREF;
@@ -883,17 +895,17 @@ static int wm8961_set_bias_level(struct snd_soc_codec *codec,
 
 	case SND_SOC_BIAS_STANDBY:
 		if (codec->dapm.bias_level == SND_SOC_BIAS_PREPARE) {
-			
+			/* VREF off */
 			reg = snd_soc_read(codec, WM8961_PWR_MGMT_1);
 			reg &= ~WM8961_VREF;
 			snd_soc_write(codec, WM8961_PWR_MGMT_1, reg);
 
-			
+			/* Bias generation off */
 			reg = snd_soc_read(codec, WM8961_ANTI_POP);
 			reg &= ~(WM8961_BUFIOEN | WM8961_BUFDCOPEN);
 			snd_soc_write(codec, WM8961_ANTI_POP, reg);
 
-			
+			/* VMID off */
 			reg = snd_soc_read(codec, WM8961_PWR_MGMT_1);
 			reg &= ~WM8961_VMIDSEL_MASK;
 			snd_soc_write(codec, WM8961_PWR_MGMT_1, reg);
@@ -960,7 +972,7 @@ static int wm8961_probe(struct snd_soc_codec *codec)
 		return -EINVAL;
 	}
 
-	
+	/* This isn't volatile - readback doesn't correspond to write */
 	codec->cache_bypass = 1;
 	reg = snd_soc_read(codec, WM8961_RIGHT_INPUT_VOLUME);
 	codec->cache_bypass = 0;
@@ -975,11 +987,13 @@ static int wm8961_probe(struct snd_soc_codec *codec)
 		return ret;
 	}
 
-	
+	/* Enable class W */
 	reg = snd_soc_read(codec, WM8961_CHARGE_PUMP_B);
 	reg |= WM8961_CP_DYN_PWR_MASK;
 	snd_soc_write(codec, WM8961_CHARGE_PUMP_B, reg);
 
+	/* Latch volume update bits (right channel only, we always
+	 * write both out) and default ZC on. */
 	reg = snd_soc_read(codec, WM8961_ROUT1_VOLUME);
 	snd_soc_write(codec, WM8961_ROUT1_VOLUME,
 		     reg | WM8961_LO1ZC | WM8961_OUT1VU);
@@ -994,11 +1008,14 @@ static int wm8961_probe(struct snd_soc_codec *codec)
 	reg = snd_soc_read(codec, WM8961_RIGHT_INPUT_VOLUME);
 	snd_soc_write(codec, WM8961_RIGHT_INPUT_VOLUME, reg | WM8961_IPVU);
 
-	
+	/* Use soft mute by default */
 	reg = snd_soc_read(codec, WM8961_ADC_DAC_CONTROL_2);
 	reg |= WM8961_DACSMM;
 	snd_soc_write(codec, WM8961_ADC_DAC_CONTROL_2, reg);
 
+	/* Use automatic clocking mode by default; for now this is all
+	 * we support.
+	 */
 	reg = snd_soc_read(codec, WM8961_CLOCKING_3);
 	reg &= ~WM8961_MANUAL_MODE;
 	snd_soc_write(codec, WM8961_CLOCKING_3, reg);

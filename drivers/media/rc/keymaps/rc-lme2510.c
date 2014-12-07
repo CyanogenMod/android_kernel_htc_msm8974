@@ -14,7 +14,7 @@
 
 
 static struct rc_map_table lme2510_rc[] = {
-	
+	/* Type 1 - 26 buttons */
 	{ 0x10ed45, KEY_0 },
 	{ 0x10ed5f, KEY_1 },
 	{ 0x10ed50, KEY_2 },
@@ -41,7 +41,7 @@ static struct rc_map_table lme2510_rc[] = {
 	{ 0x10ed18, KEY_RECORD },
 	{ 0x10ed07, KEY_EPG },
 	{ 0x10ed01, KEY_STOP },
-	
+	/* Type 2 - 20 buttons */
 	{ 0xbf15, KEY_0 },
 	{ 0xbf08, KEY_1 },
 	{ 0xbf09, KEY_2 },
@@ -53,16 +53,16 @@ static struct rc_map_table lme2510_rc[] = {
 	{ 0xbf11, KEY_8 },
 	{ 0xbf12, KEY_9 },
 	{ 0xbf00, KEY_POWER },
-	{ 0xbf04, KEY_MEDIA_REPEAT}, 
-	{ 0xbf1a, KEY_PAUSE }, 
-	{ 0xbf02, KEY_VOLUMEUP }, 
-	{ 0xbf06, KEY_VOLUMEDOWN }, 
+	{ 0xbf04, KEY_MEDIA_REPEAT}, /* Recall */
+	{ 0xbf1a, KEY_PAUSE }, /* Timeshift */
+	{ 0xbf02, KEY_VOLUMEUP }, /* 2 x -/+ Keys not marked */
+	{ 0xbf06, KEY_VOLUMEDOWN }, /* Volume defined as right hand*/
 	{ 0xbf01, KEY_CHANNELUP },
 	{ 0xbf05, KEY_CHANNELDOWN },
 	{ 0xbf14, KEY_ZOOM },
 	{ 0xbf18, KEY_RECORD },
 	{ 0xbf16, KEY_STOP },
-	
+	/* Type 3 - 20 buttons */
 	{ 0x1c, KEY_0 },
 	{ 0x07, KEY_1 },
 	{ 0x15, KEY_2 },
@@ -74,10 +74,10 @@ static struct rc_map_table lme2510_rc[] = {
 	{ 0x18, KEY_8 },
 	{ 0x5e, KEY_9 },
 	{ 0x45, KEY_POWER },
-	{ 0x44, KEY_MEDIA_REPEAT}, 
-	{ 0x4a, KEY_PAUSE }, 
-	{ 0x47, KEY_VOLUMEUP }, 
-	{ 0x43, KEY_VOLUMEDOWN }, 
+	{ 0x44, KEY_MEDIA_REPEAT}, /* Recall */
+	{ 0x4a, KEY_PAUSE }, /* Timeshift */
+	{ 0x47, KEY_VOLUMEUP }, /* 2 x -/+ Keys not marked */
+	{ 0x43, KEY_VOLUMEDOWN }, /* Volume defined as right hand*/
 	{ 0x46, KEY_CHANNELUP },
 	{ 0x40, KEY_CHANNELDOWN },
 	{ 0x08, KEY_ZOOM },

@@ -51,7 +51,7 @@ static int tps65910_gpio_output(struct gpio_chip *gc, unsigned offset,
 {
 	struct tps65910 *tps65910 = container_of(gc, struct tps65910, gpio);
 
-	
+	/* Set the initial value */
 	tps65910_gpio_set(gc, offset, value);
 
 	return tps65910_set_bits(tps65910, TPS65910_GPIO0 + offset,
@@ -96,7 +96,7 @@ void tps65910_gpio_init(struct tps65910 *tps65910, int gpio_base)
 	tps65910->gpio.set		= tps65910_gpio_set;
 	tps65910->gpio.get		= tps65910_gpio_get;
 
-	
+	/* Configure sleep control for gpios */
 	board_data = dev_get_platdata(tps65910->dev);
 	if (board_data) {
 		int i;

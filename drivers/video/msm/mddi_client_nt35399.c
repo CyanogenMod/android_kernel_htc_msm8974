@@ -46,7 +46,7 @@ nt35399_request_vsync(struct msm_panel_data *panel_data,
 	panel->fb_callback = callback;
 	if (panel->nt35399_got_int) {
 		panel->nt35399_got_int = 0;
-		client_data->activate_link(client_data); 
+		client_data->activate_link(client_data); /* clears interrupt */
 	}
 }
 
@@ -58,7 +58,7 @@ static void nt35399_wait_vsync(struct msm_panel_data *panel_data)
 
 	if (panel->nt35399_got_int) {
 		panel->nt35399_got_int = 0;
-		client_data->activate_link(client_data); 
+		client_data->activate_link(client_data); /* clears interrupt */
 	}
 
 	if (wait_event_timeout(nt35399_vsync_wait, panel->nt35399_got_int,
@@ -66,7 +66,7 @@ static void nt35399_wait_vsync(struct msm_panel_data *panel_data)
 		printk(KERN_ERR "timeout waiting for VSYNC\n");
 
 	panel->nt35399_got_int = 0;
-	
+	/* interrupt clears when screen dma starts */
 }
 
 static int nt35399_suspend(struct msm_panel_data *panel_data)

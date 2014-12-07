@@ -39,6 +39,9 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * SD/MMC card controller
+ ******************************************************************************/
 #if defined(CONFIG_MMC_PXA) || defined(CONFIG_MMC_PXA_MODULE)
 static struct pxamci_platform_data palm27x_mci_platform_data = {
 	.ocr_mask		= MMC_VDD_32_33 | MMC_VDD_33_34,
@@ -57,19 +60,29 @@ void __init palm27x_mmc_init(int detect, int ro, int power,
 }
 #endif
 
+/******************************************************************************
+ * Power management - standby
+ ******************************************************************************/
 #if defined(CONFIG_SUSPEND)
 void __init palm27x_pm_init(unsigned long str_base)
 {
 	static const unsigned long resume[] = {
-		0xe3a00101,	
-		0xe380060f,	
-		0xe590f008,	
+		0xe3a00101,	/* mov	r0,	#0x40000000 */
+		0xe380060f,	/* orr	r0, r0, #0x00f00000 */
+		0xe590f008,	/* ldr	pc, [r0, #0x08] */
 	};
 
+	/*
+	 * Copy the bootloader.
+	 * NOTE: PalmZ72 uses a different wakeup method!
+	 */
 	memcpy(phys_to_virt(str_base), resume, sizeof(resume));
 }
 #endif
 
+/******************************************************************************
+ * Framebuffer
+ ******************************************************************************/
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 struct pxafb_mode_info palm_320x480_lcd_mode = {
 	.pixclock	= 57692,
@@ -148,6 +161,9 @@ void __init palm27x_lcd_init(int power, struct pxafb_mode_info *mode)
 }
 #endif
 
+/******************************************************************************
+ * USB Gadget
+ ******************************************************************************/
 #if	defined(CONFIG_USB_PXA27X) || \
 	defined(CONFIG_USB_PXA27X_MODULE)
 static struct gpio_vbus_mach_info palm27x_udc_info = {
@@ -180,6 +196,9 @@ void __init palm27x_udc_init(int vbus, int pullup, int vbus_inverted)
 }
 #endif
 
+/******************************************************************************
+ * IrDA
+ ******************************************************************************/
 #if defined(CONFIG_IRDA) || defined(CONFIG_IRDA_MODULE)
 static struct pxaficp_platform_data palm27x_ficp_platform_data = {
 	.transceiver_cap	= IR_SIRMODE | IR_OFF,
@@ -192,6 +211,9 @@ void __init palm27x_irda_init(int pwdn)
 }
 #endif
 
+/******************************************************************************
+ * WM97xx audio, battery
+ ******************************************************************************/
 #if	defined(CONFIG_TOUCHSCREEN_WM97XX) || \
 	defined(CONFIG_TOUCHSCREEN_WM97XX_MODULE)
 static struct wm97xx_batt_pdata palm27x_batt_pdata = {
@@ -244,6 +266,9 @@ void __init palm27x_ac97_init(int minv, int maxv, int jack, int reset)
 }
 #endif
 
+/******************************************************************************
+ * Backlight
+ ******************************************************************************/
 #if defined(CONFIG_BACKLIGHT_PWM) || defined(CONFIG_BACKLIGHT_PWM_MODULE)
 static int palm_bl_power;
 static int palm_lcd_power;
@@ -318,6 +343,9 @@ void __init palm27x_pwm_init(int bl, int lcd)
 }
 #endif
 
+/******************************************************************************
+ * Power supply
+ ******************************************************************************/
 #if defined(CONFIG_PDA_POWER) || defined(CONFIG_PDA_POWER_MODULE)
 static int palm_ac_state;
 static int palm_usb_state;
@@ -395,6 +423,9 @@ void __init palm27x_power_init(int ac, int usb)
 }
 #endif
 
+/******************************************************************************
+ * Core power regulator
+ ******************************************************************************/
 #if defined(CONFIG_REGULATOR_MAX1586) || \
     defined(CONFIG_REGULATOR_MAX1586_MODULE)
 static struct regulator_consumer_supply palm27x_max1587a_consumers[] = {
@@ -426,7 +457,7 @@ static struct max1586_subdev_data palm27x_max1587a_subdevs[] = {
 static struct max1586_platform_data palm27x_max1587a_info = {
 	.subdevs     = palm27x_max1587a_subdevs,
 	.num_subdevs = ARRAY_SIZE(palm27x_max1587a_subdevs),
-	.v3_gain     = MAX1586_GAIN_R24_3k32, 
+	.v3_gain     = MAX1586_GAIN_R24_3k32, /* 730..1550 mV */
 };
 
 static struct i2c_board_info __initdata palm27x_pi2c_board_info[] = {

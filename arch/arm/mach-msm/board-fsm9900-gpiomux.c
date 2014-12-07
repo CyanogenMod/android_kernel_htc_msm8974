@@ -37,61 +37,61 @@ static struct gpiomux_setting blsp_i2c_config = {
 
 static struct msm_gpiomux_config fsm_blsp_configs[] __initdata = {
 	{
-		.gpio      = 0,	       
+		.gpio      = 0,	       /* BLSP UART1 TX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &blsp_uart_no_pull_config,
 		},
 	},
 	{
-		.gpio      = 1,	       
+		.gpio      = 1,	       /* BLSP UART1 RX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &blsp_uart_pull_up_config,
 		},
 	},
 	{
-		.gpio      = 2,	       
+		.gpio      = 2,	       /* BLSP I2C SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &blsp_i2c_config,
 		},
 	},
 	{
-		.gpio      = 3,	       
+		.gpio      = 3,	       /* BLSP I2C SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &blsp_i2c_config,
 		},
 	},
 	{
-		.gpio      = 6,	       
+		.gpio      = 6,	       /* BLSP I2C SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &blsp_i2c_config,
 		},
 	},
 	{
-		.gpio      = 7,	       
+		.gpio      = 7,	       /* BLSP I2C SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &blsp_i2c_config,
 		},
 	},
 	{
-		.gpio      = 36,       
+		.gpio      = 36,       /* BLSP UART10 TX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &blsp_uart_no_pull_config,
 		},
 	},
 	{
-		.gpio      = 37,       
+		.gpio      = 37,       /* BLSP UART10 RX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &blsp_uart_pull_up_config,
 		},
 	},
 	{
-		.gpio      = 38,       
+		.gpio      = 38,       /* BLSP I2C10 SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &blsp_i2c_config,
 		},
 	},
 	{
-		.gpio      = 39,       
+		.gpio      = 39,       /* BLSP I2C10 SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &blsp_i2c_config,
 		},
@@ -113,61 +113,61 @@ static struct gpiomux_setting geni_func5_config = {
 
 static struct msm_gpiomux_config fsm_geni_configs[] __initdata = {
 	{
-		.gpio      = 8,	       
+		.gpio      = 8,	       /* GENI7 DATA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &geni_func4_config,
 		},
 	},
 	{
-		.gpio      = 9,	       
+		.gpio      = 9,	       /* GENI1 DATA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &geni_func4_config,
 		},
 	},
 	{
-		.gpio      = 10,       
+		.gpio      = 10,       /* GENI2 DATA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &geni_func4_config,
 		},
 	},
 	{
-		.gpio      = 11,       
+		.gpio      = 11,       /* GENI7 CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &geni_func4_config,
 		},
 	},
 	{
-		.gpio      = 20,       
+		.gpio      = 20,       /* GENI3 DATA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &geni_func5_config,
 		},
 	},
 	{
-		.gpio      = 21,       
+		.gpio      = 21,       /* GENI4 DATA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &geni_func5_config,
 		},
 	},
 	{
-		.gpio      = 22,       
+		.gpio      = 22,       /* GENI6 DATA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &geni_func5_config,
 		},
 	},
 	{
-		.gpio      = 23,       
+		.gpio      = 23,       /* GENI6 CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &geni_func5_config,
 		},
 	},
 	{
-		.gpio      = 30,       
+		.gpio      = 30,       /* GENI5 DATA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &geni_func4_config,
 		},
 	},
 	{
-		.gpio      = 31,       
+		.gpio      = 31,       /* GENI5 CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &geni_func4_config,
 		},
@@ -189,61 +189,61 @@ static struct gpiomux_setting dan_spi_func1_config = {
 
 static struct msm_gpiomux_config fsm_dan_spi_configs[] __initdata = {
 	{
-		.gpio      = 12,       
+		.gpio      = 12,       /* BLSP DAN0 SPI_MOSI */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &dan_spi_func4_config,
 		},
 	},
 	{
-		.gpio      = 13,       
+		.gpio      = 13,       /* BLSP DAN0 SPI_MISO */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &dan_spi_func4_config,
 		},
 	},
 	{
-		.gpio      = 14,       
+		.gpio      = 14,       /* BLSP DAN0 SPI_CS */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &dan_spi_func4_config,
 		},
 	},
 	{
-		.gpio      = 15,       
+		.gpio      = 15,       /* BLSP DAN0 SPI_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &dan_spi_func4_config,
 		},
 	},
 	{
-		.gpio      = 16,       
+		.gpio      = 16,       /* BLSP DAN1 SPI_MOSI */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &dan_spi_func4_config,
 		},
 	},
 	{
-		.gpio      = 17,       
+		.gpio      = 17,       /* BLSP DAN1 SPI_MISO */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &dan_spi_func4_config,
 		},
 	},
 	{
-		.gpio      = 18,       
+		.gpio      = 18,       /* BLSP DAN1 SPI_CS */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &dan_spi_func4_config,
 		},
 	},
 	{
-		.gpio      = 19,       
+		.gpio      = 19,       /* BLSP DAN1 SPI_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &dan_spi_func4_config,
 		},
 	},
 	{
-		.gpio      = 81,       
+		.gpio      = 81,       /* BLSP DAN1 SPI_CS0 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &dan_spi_func1_config,
 		},
 	},
 	{
-		.gpio      = 82,       
+		.gpio      = 82,       /* BLSP DAN1 SPI_CS1 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &dan_spi_func1_config,
 		},
@@ -258,25 +258,25 @@ static struct gpiomux_setting uim_config = {
 
 static struct msm_gpiomux_config fsm_uim_configs[] __initdata = {
 	{
-		.gpio      = 24,       
+		.gpio      = 24,       /* UIM_DATA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &uim_config,
 		},
 	},
 	{
-		.gpio      = 25,       
+		.gpio      = 25,       /* UIM_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &uim_config,
 		},
 	},
 	{
-		.gpio      = 26,       
+		.gpio      = 26,       /* UIM_RESET */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &uim_config,
 		},
 	},
 	{
-		.gpio      = 27,       
+		.gpio      = 27,       /* UIM_PRESENT */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &uim_config,
 		},
@@ -291,13 +291,13 @@ static struct gpiomux_setting pcie_config = {
 
 static struct msm_gpiomux_config fsm_pcie_configs[] __initdata = {
 	{
-		.gpio      = 28,       
+		.gpio      = 28,       /* BLSP PCIE1_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &pcie_config,
 		},
 	},
 	{
-		.gpio      = 32,       
+		.gpio      = 32,       /* BLSP PCIE0_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &pcie_config,
 		},
@@ -329,25 +329,25 @@ static struct gpiomux_setting gps_nav_tlmm_blank_config = {
 };
 static struct msm_gpiomux_config fsm_gps_configs[] __initdata = {
 	{
-		.gpio      = 40,       
+		.gpio      = 40,       /* GPS_PPS_OUT */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &pps_out_config,
 		},
 	},
 	{
-		.gpio      = 41,       
+		.gpio      = 41,       /* GPS_PPS_IN */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &pps_in_config,
 		},
 	},
 	{
-		.gpio      = 43,       
+		.gpio      = 43,       /* GPS_CLK_IN */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gps_clk_in_config,
 		},
 	},
 	{
-		.gpio      = 120,      
+		.gpio      = 120,      /* GPS_NAV_TLMM_BLANK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gps_nav_tlmm_blank_config,
 		},
@@ -368,13 +368,13 @@ static struct gpiomux_setting sd_wp_config = {
 
 static struct msm_gpiomux_config fsm_sd_configs[] __initdata = {
 	{
-		.gpio      = 42,       
+		.gpio      = 42,       /* SD_CARD_DET */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &sd_detect_config,
 		},
 	},
 	{
-		.gpio      = 122,      
+		.gpio      = 122,      /* BLSP SD WRITE PROTECT */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &sd_wp_config,
 		},

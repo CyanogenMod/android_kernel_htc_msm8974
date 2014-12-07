@@ -35,7 +35,13 @@ static struct map_desc at91rm9200_io_desc[] __initdata = {
 	},
 };
 
+/* --------------------------------------------------------------------
+ *  Clocks
+ * -------------------------------------------------------------------- */
 
+/*
+ * The peripheral clocks.
+ */
 static struct clk udc_clk = {
 	.name		= "udc_clk",
 	.pmc_mask	= 1 << AT91RM9200_ID_UDP,
@@ -176,7 +182,7 @@ static struct clk *periph_clocks[] __initdata = {
 	&tc5_clk,
 	&ohci_clk,
 	&ether_clk,
-	
+	// irq0 .. irq6
 };
 
 static struct clk_lookup periph_clocks_lookups[] = {
@@ -189,7 +195,7 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("pclk", "ssc.0", &ssc0_clk),
 	CLKDEV_CON_DEV_ID("pclk", "ssc.1", &ssc1_clk),
 	CLKDEV_CON_DEV_ID("pclk", "ssc.2", &ssc2_clk),
-	
+	/* fake hclk clock */
 	CLKDEV_CON_DEV_ID("hclk", "at91_ohci", &ohci_clk),
 	CLKDEV_CON_ID("pioA", &pioA_clk),
 	CLKDEV_CON_ID("pioB", &pioB_clk),
@@ -205,6 +211,10 @@ static struct clk_lookup usart_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("usart", "atmel_usart.4", &usart3_clk),
 };
 
+/*
+ * The four programmable clocks.
+ * You must configure pin multiplexing to bring these signals out.
+ */
 static struct clk pck0 = {
 	.name		= "pck0",
 	.pmc_mask	= AT91_PMC_PCK0,
@@ -260,6 +270,9 @@ void __init at91rm9200_set_console_clock(int id)
 	clkdev_add(&console_clock_lookup);
 }
 
+/* --------------------------------------------------------------------
+ *  GPIO
+ * -------------------------------------------------------------------- */
 
 static struct at91_gpio_bank at91rm9200_gpio[] __initdata = {
 	{
@@ -279,18 +292,28 @@ static struct at91_gpio_bank at91rm9200_gpio[] __initdata = {
 
 static void at91rm9200_idle(void)
 {
+	/*
+	 * Disable the processor clock.  The processor will be automatically
+	 * re-enabled by an interrupt or by a reset.
+	 */
 	at91_pmc_write(AT91_PMC_SCDR, AT91_PMC_PCK);
 }
 
 static void at91rm9200_restart(char mode, const char *cmd)
 {
+	/*
+	 * Perform a hardware reset with the use of the Watchdog timer.
+	 */
 	at91_st_write(AT91_ST_WDMR, AT91_ST_RSTEN | AT91_ST_EXTEN | 1);
 	at91_st_write(AT91_ST_CR, AT91_ST_WDRST);
 }
 
+/* --------------------------------------------------------------------
+ *  AT91RM9200 processor initialization
+ * -------------------------------------------------------------------- */
 static void __init at91rm9200_map_io(void)
 {
-	
+	/* Map peripherals */
 	at91_init_sram(0, AT91RM9200_SRAM_BASE, AT91RM9200_SRAM_SIZE);
 	iotable_init(at91rm9200_io_desc, ARRAY_SIZE(at91rm9200_io_desc));
 }
@@ -310,46 +333,52 @@ static void __init at91rm9200_initialize(void)
 			| (1 << AT91RM9200_ID_IRQ4) | (1 << AT91RM9200_ID_IRQ5)
 			| (1 << AT91RM9200_ID_IRQ6);
 
-	
+	/* Initialize GPIO subsystem */
 	at91_gpio_init(at91rm9200_gpio,
 		cpu_is_at91rm9200_bga() ? AT91RM9200_BGA : AT91RM9200_PQFP);
 }
 
 
+/* --------------------------------------------------------------------
+ *  Interrupt initialization
+ * -------------------------------------------------------------------- */
 
+/*
+ * The default interrupt priority levels (0 = lowest, 7 = highest).
+ */
 static unsigned int at91rm9200_default_irq_priority[NR_AIC_IRQS] __initdata = {
-	7,	
-	7,	
-	1,	
-	1,	
-	1,	
-	1,	
-	5,	
-	5,	
-	5,	
-	5,	
-	0,	
-	2,	
-	6,	
-	5,	
-	4,	
-	4,	
-	4,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	2,	
-	3,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0	
+	7,	/* Advanced Interrupt Controller (FIQ) */
+	7,	/* System Peripherals */
+	1,	/* Parallel IO Controller A */
+	1,	/* Parallel IO Controller B */
+	1,	/* Parallel IO Controller C */
+	1,	/* Parallel IO Controller D */
+	5,	/* USART 0 */
+	5,	/* USART 1 */
+	5,	/* USART 2 */
+	5,	/* USART 3 */
+	0,	/* Multimedia Card Interface */
+	2,	/* USB Device Port */
+	6,	/* Two-Wire Interface */
+	5,	/* Serial Peripheral Interface */
+	4,	/* Serial Synchronous Controller 0 */
+	4,	/* Serial Synchronous Controller 1 */
+	4,	/* Serial Synchronous Controller 2 */
+	0,	/* Timer Counter 0 */
+	0,	/* Timer Counter 1 */
+	0,	/* Timer Counter 2 */
+	0,	/* Timer Counter 3 */
+	0,	/* Timer Counter 4 */
+	0,	/* Timer Counter 5 */
+	2,	/* USB Host port */
+	3,	/* Ethernet MAC */
+	0,	/* Advanced Interrupt Controller (IRQ0) */
+	0,	/* Advanced Interrupt Controller (IRQ1) */
+	0,	/* Advanced Interrupt Controller (IRQ2) */
+	0,	/* Advanced Interrupt Controller (IRQ3) */
+	0,	/* Advanced Interrupt Controller (IRQ4) */
+	0,	/* Advanced Interrupt Controller (IRQ5) */
+	0	/* Advanced Interrupt Controller (IRQ6) */
 };
 
 struct at91_init_soc __initdata at91rm9200_soc = {

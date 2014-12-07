@@ -13,6 +13,7 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+/* ***** SDIO interface chip backplane handle functions ***** */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -31,8 +32,13 @@
 #include "sdio_host.h"
 #include "sdio_chip.h"
 
+/* chip core base & ramsize */
+/* bcm4329 */
+/* SDIO device core, ID 0x829 */
 #define BCM4329_CORE_BUS_BASE		0x18011000
+/* internal memory core, ID 0x80e */
 #define BCM4329_CORE_SOCRAM_BASE	0x18003000
+/* ARM Cortex M3 core, ID 0x82a */
 #define BCM4329_CORE_ARM_BASE		0x18002000
 #define BCM4329_RAMSIZE			0x48000
 
@@ -40,17 +46,21 @@
 	((((sbidh) & SSB_IDHIGH_RCHI) >> SSB_IDHIGH_RCHI_SHIFT) | \
 	  ((sbidh) & SSB_IDHIGH_RCLO))
 
+/* SOC Interconnect types (aka chip types) */
 #define SOCI_SB		0
 #define SOCI_AI		1
 
+/* EROM CompIdentB */
 #define CIB_REV_MASK		0xff000000
 #define CIB_REV_SHIFT		24
 
 #define SDIOD_DRVSTR_KEY(chip, pmu)     (((chip) << 16) | (pmu))
+/* SDIO Pad drive strength to select value mappings */
 struct sdiod_drive_str {
-	u8 strength;	
-	u8 sel;		
+	u8 strength;	/* Pad Drive Strength in mA */
+	u8 sel;		/* Chip-specific select value */
 };
+/* SDIO Drive Strength to sel value table for PMU Rev 11 (1.8V) */
 static const struct sdiod_drive_str sdiod_drvstr_tab1_1v8[] = {
 	{32, 0x6},
 	{26, 0x7},
@@ -154,6 +164,10 @@ brcmf_sdio_sb_coredisable(struct brcmf_sdio_dev *sdiodev,
 	regdata = brcmf_sdcard_reg_read(sdiodev,
 		CORE_SB(ci->c_inf[idx].base, sbtmstatelow), 4);
 	if ((regdata & SSB_TMSLOW_CLOCK) != 0) {
+		/*
+		 * set target reject and spin until busy is clear
+		 * (preserve core-specific bits)
+		 */
 		regdata = brcmf_sdcard_reg_read(sdiodev,
 			CORE_SB(ci->c_inf[idx].base, sbtmstatelow), 4);
 		brcmf_sdcard_reg_write(sdiodev,
@@ -189,7 +203,7 @@ brcmf_sdio_sb_coredisable(struct brcmf_sdio_dev *sdiodev,
 				SSB_IMSTATE_BUSY), 100000);
 		}
 
-		
+		/* set reset and reject while enabling the clocks */
 		brcmf_sdcard_reg_write(sdiodev,
 			CORE_SB(ci->c_inf[idx].base, sbtmstatelow), 4,
 			(SSB_TMSLOW_FGC | SSB_TMSLOW_CLOCK |
@@ -198,7 +212,7 @@ brcmf_sdio_sb_coredisable(struct brcmf_sdio_dev *sdiodev,
 			CORE_SB(ci->c_inf[idx].base, sbtmstatelow), 4);
 		udelay(10);
 
-		
+		/* clear the initiator reject bit */
 		regdata = brcmf_sdcard_reg_read(sdiodev,
 			CORE_SB(ci->c_inf[idx].base, sbidlow), 4);
 		if (regdata & SSB_IDLOW_INITIATOR) {
@@ -211,7 +225,7 @@ brcmf_sdio_sb_coredisable(struct brcmf_sdio_dev *sdiodev,
 		}
 	}
 
-	
+	/* leave reset and reject asserted */
 	brcmf_sdcard_reg_write(sdiodev,
 		CORE_SB(ci->c_inf[idx].base, sbtmstatelow), 4,
 		(SSB_TMSLOW_REJECT | SSB_TMSLOW_RESET));
@@ -227,7 +241,7 @@ brcmf_sdio_ai_coredisable(struct brcmf_sdio_dev *sdiodev,
 
 	idx = brcmf_sdio_chip_getinfidx(ci, coreid);
 
-	
+	/* if core is already in reset, just return */
 	regdata = brcmf_sdcard_reg_read(sdiodev,
 					ci->c_inf[idx].wrapbase+BCMA_RESET_CTL,
 					4);
@@ -254,8 +268,17 @@ brcmf_sdio_sb_resetcore(struct brcmf_sdio_dev *sdiodev,
 
 	idx = brcmf_sdio_chip_getinfidx(ci, coreid);
 
+	/*
+	 * Must do the disable sequence first to work for
+	 * arbitrary current core state.
+	 */
 	brcmf_sdio_sb_coredisable(sdiodev, ci, coreid);
 
+	/*
+	 * Now do the initialization sequence.
+	 * set reset while enabling the clock and
+	 * forcing them on throughout the core
+	 */
 	brcmf_sdcard_reg_write(sdiodev,
 			CORE_SB(ci->c_inf[idx].base, sbtmstatelow), 4,
 			SSB_TMSLOW_FGC | SSB_TMSLOW_CLOCK | SSB_TMSLOW_RESET);
@@ -263,7 +286,7 @@ brcmf_sdio_sb_resetcore(struct brcmf_sdio_dev *sdiodev,
 				CORE_SB(ci->c_inf[idx].base, sbtmstatelow), 4);
 	udelay(1);
 
-	
+	/* clear any serror */
 	regdata = brcmf_sdcard_reg_read(sdiodev,
 				CORE_SB(ci->c_inf[idx].base, sbtmstatehigh), 4);
 	if (regdata & SSB_TMSHIGH_SERR)
@@ -277,7 +300,7 @@ brcmf_sdio_sb_resetcore(struct brcmf_sdio_dev *sdiodev,
 			CORE_SB(ci->c_inf[idx].base, sbimstate), 4,
 			regdata & ~(SSB_IMSTATE_IBE | SSB_IMSTATE_TO));
 
-	
+	/* clear reset and allow it to propagate throughout the core */
 	brcmf_sdcard_reg_write(sdiodev,
 		CORE_SB(ci->c_inf[idx].base, sbtmstatelow), 4,
 		SSB_TMSLOW_FGC | SSB_TMSLOW_CLOCK);
@@ -285,7 +308,7 @@ brcmf_sdio_sb_resetcore(struct brcmf_sdio_dev *sdiodev,
 				CORE_SB(ci->c_inf[idx].base, sbtmstatelow), 4);
 	udelay(1);
 
-	
+	/* leave clock enabled */
 	brcmf_sdcard_reg_write(sdiodev,
 			       CORE_SB(ci->c_inf[idx].base, sbtmstatelow),
 			       4, SSB_TMSLOW_CLOCK);
@@ -303,10 +326,10 @@ brcmf_sdio_ai_resetcore(struct brcmf_sdio_dev *sdiodev,
 
 	idx = brcmf_sdio_chip_getinfidx(ci, coreid);
 
-	
+	/* must disable first to work for arbitrary current core state */
 	brcmf_sdio_ai_coredisable(sdiodev, ci, coreid);
 
-	
+	/* now do initialization sequence */
 	brcmf_sdcard_reg_write(sdiodev, ci->c_inf[idx].wrapbase+BCMA_IOCTL,
 			       4, BCMA_IOCTL_FGC | BCMA_IOCTL_CLK);
 	regdata = brcmf_sdcard_reg_read(sdiodev,
@@ -327,6 +350,12 @@ static int brcmf_sdio_chip_recognition(struct brcmf_sdio_dev *sdiodev,
 {
 	u32 regdata;
 
+	/*
+	 * Get CC core rev
+	 * Chipid is assume to be at offset 0 from regs arg
+	 * For different chiptypes or old sdio hosts w/o chipcommon,
+	 * other ways of recognition should be added here.
+	 */
 	ci->c_inf[0].id = BCMA_CORE_CHIPCOMMON;
 	ci->c_inf[0].base = regs;
 	regdata = brcmf_sdcard_reg_read(sdiodev,
@@ -337,7 +366,7 @@ static int brcmf_sdio_chip_recognition(struct brcmf_sdio_dev *sdiodev,
 
 	brcmf_dbg(INFO, "chipid=0x%x chiprev=%d\n", ci->chip, ci->chiprev);
 
-	
+	/* Address of cores for new chips should be added here */
 	switch (ci->chip) {
 	case BCM4329_CHIP_ID:
 		ci->c_inf[1].id = BCMA_CORE_SDIO_DEV;
@@ -397,7 +426,7 @@ brcmf_sdio_chip_buscoreprep(struct brcmf_sdio_dev *sdiodev)
 	int err = 0;
 	u8 clkval, clkset;
 
-	
+	/* Try forcing SDIO core to do ALPAvail request only */
 	clkset = SBSDIO_FORCE_HW_CLKREQ_OFF | SBSDIO_ALP_AVAIL_REQ;
 	brcmf_sdcard_cfg_write(sdiodev, SDIO_FUNC_1,
 			       SBSDIO_FUNC1_CHIPCLKCSR,	clkset, &err);
@@ -406,8 +435,8 @@ brcmf_sdio_chip_buscoreprep(struct brcmf_sdio_dev *sdiodev)
 		return err;
 	}
 
-	
-	
+	/* If register supported, wait for ALPAvail and then force ALP */
+	/* This may take up to 15 milliseconds */
 	clkval = brcmf_sdcard_cfg_read(sdiodev, SDIO_FUNC_1,
 				       SBSDIO_FUNC1_CHIPCLKCSR, NULL);
 
@@ -432,7 +461,7 @@ brcmf_sdio_chip_buscoreprep(struct brcmf_sdio_dev *sdiodev)
 			       SBSDIO_FUNC1_CHIPCLKCSR, clkset, &err);
 	udelay(65);
 
-	
+	/* Also, disable the extra SDIO pull-ups */
 	brcmf_sdcard_cfg_write(sdiodev, SDIO_FUNC_1,
 			       SBSDIO_FUNC1_SDIOPULLUP, 0, NULL);
 
@@ -443,15 +472,15 @@ static void
 brcmf_sdio_chip_buscoresetup(struct brcmf_sdio_dev *sdiodev,
 			     struct chip_info *ci)
 {
-	
+	/* get chipcommon rev */
 	ci->c_inf[0].rev = ci->corerev(sdiodev, ci, ci->c_inf[0].id);
 
-	
+	/* get chipcommon capabilites */
 	ci->c_inf[0].caps =
 		brcmf_sdcard_reg_read(sdiodev,
 		CORE_CC_REG(ci->c_inf[0].base, capabilities), 4);
 
-	
+	/* get pmu caps & rev */
 	if (ci->c_inf[0].caps & CC_CAP_PMU) {
 		ci->pmucaps = brcmf_sdcard_reg_read(sdiodev,
 			CORE_CC_REG(ci->c_inf[0].base, pmucapabilities), 4);
@@ -464,6 +493,10 @@ brcmf_sdio_chip_buscoresetup(struct brcmf_sdio_dev *sdiodev,
 		  ci->c_inf[0].rev, ci->pmurev,
 		  ci->c_inf[1].rev, ci->c_inf[1].id);
 
+	/*
+	 * Make sure any on-chip ARM is off (in case strapping is wrong),
+	 * or downloaded code was already running.
+	 */
 	ci->coredisable(sdiodev, ci, BCMA_CORE_ARM_CM3);
 }
 
@@ -475,7 +508,7 @@ int brcmf_sdio_chip_attach(struct brcmf_sdio_dev *sdiodev,
 
 	brcmf_dbg(TRACE, "Enter\n");
 
-	
+	/* alloc chip_info_t */
 	ci = kzalloc(sizeof(struct chip_info), GFP_ATOMIC);
 	if (!ci)
 		return -ENOMEM;

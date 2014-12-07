@@ -41,6 +41,10 @@ static inline int led_regulator_get_max_brightness(struct regulator *supply)
 	if (voltage <= 0)
 		return 1;
 
+	/* even if regulator can't change voltages,
+	 * we still assume it can change status
+	 * and the LED can be turned on and off.
+	 */
 	ret = regulator_set_voltage(supply, voltage, voltage);
 	if (ret < 0)
 		return 1;
@@ -174,7 +178,7 @@ static int __devinit regulator_led_probe(struct platform_device *pdev)
 	led->cdev.flags |= LED_CORE_SUSPENDRESUME;
 	led->vcc = vcc;
 
-	
+	/* to handle correctly an already enabled regulator */
 	if (regulator_is_enabled(led->vcc))
 		led->enabled = 1;
 
@@ -189,10 +193,10 @@ static int __devinit regulator_led_probe(struct platform_device *pdev)
 		goto err_led;
 	}
 
-	
+	/* to expose the default value to userspace */
 	led->cdev.brightness = led->value;
 
-	
+	/* Set the default led status */
 	regulator_led_set_value(led);
 
 	return 0;

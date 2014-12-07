@@ -21,14 +21,21 @@
 #include <msp_regs.h>
 
 
+/*
+ * Convenience Macro.  Should be somewhere generic.
+ */
 #define get_current_vpe()	\
 	((read_c0_tcbind() >> TCBIND_CURVPE_SHIFT) & TCBIND_CURVPE)
 
 #ifdef CONFIG_SMP
+/*
+ * The PER registers must be protected from concurrent access.
+ */
 
 static DEFINE_SPINLOCK(per_lock);
 #endif
 
+/* ensure writes to per are completed */
 
 static inline void per_wmb(void)
 {
@@ -69,6 +76,11 @@ static inline void mask_per_irq(struct irq_data *d)
 static inline void msp_per_irq_ack(struct irq_data *d)
 {
 	mask_per_irq(d);
+	/*
+	 * In the PER interrupt controller, only bits 11 and 10
+	 * are write-to-clear, (SPI TX complete, SPI RX complete).
+	 * It does nothing for any others.
+	 */
 	*PER_INT_STS_REG = (1 << (d->irq - MSP_PER_INTBASE));
 }
 
@@ -76,7 +88,7 @@ static inline void msp_per_irq_ack(struct irq_data *d)
 static int msp_per_irq_set_affinity(struct irq_data *d,
 				    const struct cpumask *affinity, bool force)
 {
-	
+	/* WTF is this doing ????? */
 	unmask_per_irq(d);
 	return 0;
 }
@@ -95,10 +107,10 @@ static struct irq_chip msp_per_irq_controller = {
 void __init msp_per_irq_init(void)
 {
 	int i;
-	
+	/* Mask/clear interrupts. */
 	*PER_INT_MSK_REG  = 0x00000000;
 	*PER_INT_STS_REG  = 0xFFFFFFFF;
-	
+	/* initialize all the IRQ descriptors */
 	for (i = MSP_PER_INTBASE; i < MSP_PER_INTBASE + 32; i++) {
 		irq_set_chip(i, &msp_per_irq_controller);
 #ifdef CONFIG_MIPS_MT_SMTC

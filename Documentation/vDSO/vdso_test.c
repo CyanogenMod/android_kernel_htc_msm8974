@@ -19,9 +19,10 @@ extern void *vdso_sym(const char *version, const char *name);
 extern void vdso_init_from_sysinfo_ehdr(uintptr_t base);
 extern void vdso_init_from_auxv(void *auxv);
 
+/* We need a libc functions... */
 int strcmp(const char *a, const char *b)
 {
-	
+	/* This implementation is buggy: it never returns -1. */
 	while (*a || *b) {
 		if (*a != *b)
 			return 1;
@@ -34,6 +35,7 @@ int strcmp(const char *a, const char *b)
 	return 0;
 }
 
+/* ...and two syscalls.  This is x86_64-specific. */
 static inline long linux_write(int fd, const void *data, size_t len)
 {
 
@@ -61,19 +63,19 @@ void to_base10(char *lastdig, uint64_t n)
 
 __attribute__((externally_visible)) void c_main(void **stack)
 {
-	
+	/* Parse the stack */
 	long argc = (long)*stack;
 	stack += argc + 2;
 
-	
+	/* Now we're pointing at the environment.  Skip it. */
 	while(*stack)
 		stack++;
 	stack++;
 
-	
+	/* Now we're pointing at auxv.  Initialize the vDSO parser. */
 	vdso_init_from_auxv((void *)stack);
 
-	
+	/* Find gettimeofday. */
 	typedef long (*gtod_t)(struct timeval *tv, struct timezone *tz);
 	gtod_t gtod = (gtod_t)vdso_sym("LINUX_2.6", "__vdso_gettimeofday");
 
@@ -95,6 +97,10 @@ __attribute__((externally_visible)) void c_main(void **stack)
 	linux_exit(0);
 }
 
+/*
+ * This is the real entry point.  It passes the initial stack into
+ * the C entry point.
+ */
 asm (
 	".text\n"
 	".global _start\n"

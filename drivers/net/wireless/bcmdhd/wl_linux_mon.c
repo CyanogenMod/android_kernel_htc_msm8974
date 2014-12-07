@@ -53,6 +53,9 @@ int dhd_del_monitor(struct net_device *ndev);
 int dhd_monitor_init(void *dhd_pub);
 int dhd_monitor_uninit(void);
 
+/**
+ * Local declarations and defintions (not exposed)
+ */
 #ifndef DHD_MAX_IFS
 #define DHD_MAX_IFS 16
 #endif
@@ -61,7 +64,7 @@ int dhd_monitor_uninit(void);
 
 typedef struct monitor_interface {
 	int radiotap_enabled;
-	struct net_device* real_ndev;	
+	struct net_device* real_ndev;	/* The real interface that the monitor is on */
 	struct net_device* mon_ndev;
 } monitor_interface;
 
@@ -69,7 +72,7 @@ typedef struct dhd_linux_monitor {
 	void *dhd_pub;
 	monitor_states_t monitor_state;
 	monitor_interface mon_if[DHD_MAX_IFS];
-	struct mutex lock;		
+	struct mutex lock;		/* lock to protect mon_if */
 } dhd_linux_monitor_t;
 
 static dhd_linux_monitor_t g_monitor;
@@ -94,7 +97,13 @@ static const struct net_device_ops dhd_mon_if_ops = {
 	.ndo_set_mac_address 	= dhd_mon_if_change_mac,
 };
 
+/**
+ * Local static function defintions
+ */
 
+/* Look up dhd's net device table to find a match (e.g. interface "eth0" is a match for "mon.eth0"
+ * "p2p-eth0-0" is a match for "mon.p2p-eth0-0")
+ */
 static struct net_device* lookup_real_netdev(char *name)
 {
 	struct net_device *ndev_found = NULL;
@@ -104,12 +113,22 @@ static struct net_device* lookup_real_netdev(char *name)
 	int last_name_len = 0;
 	struct net_device *ndev;
 
+	/* We need to find interface "p2p-p2p-0" corresponding to monitor interface "mon-p2p-0",
+	 * Once mon iface name reaches IFNAMSIZ, it is reset to p2p0-0 and corresponding mon
+	 * iface would be mon-p2p0-0.
+	 */
 	for (i = 0; i < DHD_MAX_IFS; i++) {
 		ndev = dhd_idx2net(g_monitor.dhd_pub, i);
 
+		/* Skip "p2p" and look for "-p2p0-x" in monitor interface name. If it
+		 * it matches, then this netdev is the corresponding real_netdev.
+		 */
 		if (ndev && strstr(ndev->name, "p2p-p2p0")) {
 			len = strlen("p2p");
 		} else {
+		/* if p2p- is not present, then the IFNAMSIZ have reached and name
+		 * would have got reset. In this casse,look for p2p0-x in mon-p2p0-x
+		 */
 			len = 0;
 		}
 		if (ndev && strstr(name, (ndev->name + len))) {
@@ -187,13 +206,16 @@ static int dhd_mon_if_subif_start_xmit(struct sk_buff *skb, struct net_device *n
 
 	MON_PRINT("radiotap len (should be 14): %d\n", rtap_len);
 
-	
+	/* Skip the ratio tap header */
 	skb_pull(skb, rtap_len);
 
 	dot11_hdr = (struct ieee80211_hdr *)skb->data;
 	frame_ctl = le16_to_cpu(dot11_hdr->frame_control);
-	
+	/* Check if the QoS bit is set */
 	if ((frame_ctl & IEEE80211_FCTL_FTYPE) == IEEE80211_FTYPE_DATA) {
+		/* Check if this ia a Wireless Distribution System (WDS) frame
+		 * which has 4 MAC addresses
+		 */
 		if (dot11_hdr->frame_control & 0x0080)
 			qos_len = 2;
 		if ((dot11_hdr->frame_control & 0x0300) == 0x0300)
@@ -202,6 +224,9 @@ static int dhd_mon_if_subif_start_xmit(struct sk_buff *skb, struct net_device *n
 		memcpy(dst_mac_addr, dot11_hdr->addr1, sizeof(dst_mac_addr));
 		memcpy(src_mac_addr, dot11_hdr->addr2, sizeof(src_mac_addr));
 
+		/* Skip the 802.11 header, QoS (if any) and SNAP, but leave spaces for
+		 * for two MAC addresses
+		 */
 		skb_pull(skb, dot11_hdr_len + qos_len + snap_len - sizeof(src_mac_addr) * 2);
 		pdata = (unsigned char*)skb->data;
 		memcpy(pdata, dst_mac_addr, sizeof(dst_mac_addr));
@@ -210,7 +235,7 @@ static int dhd_mon_if_subif_start_xmit(struct sk_buff *skb, struct net_device *n
 
 		MON_PRINT("if name: %s, matched if name %s\n", ndev->name, mon_if->real_ndev->name);
 
-		
+		/* Use the real net device to transmit the packet */
 		ret = dhd_start_xmit(skb, mon_if->real_ndev);
 
 		return ret;
@@ -248,6 +273,9 @@ static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr)
 	return ret;
 }
 
+/**
+ * Global function definitions (declared in dhd_linux_mon.h)
+ */
 
 int dhd_add_monitor(char *name, struct net_device **new_ndev)
 {
@@ -266,6 +294,9 @@ int dhd_add_monitor(char *name, struct net_device **new_ndev)
 		goto out;
 	}
 
+	/*
+	 * Find a vacancy
+	 */
 	for (i = 0; i < DHD_MAX_IFS; i++)
 		if (g_monitor.mon_if[i].mon_ndev == NULL) {
 			idx = i;

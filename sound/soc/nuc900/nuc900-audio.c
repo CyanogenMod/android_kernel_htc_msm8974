@@ -48,7 +48,7 @@ static int __init nuc900evb_audio_init(void)
 	if (!nuc900evb_asoc_dev)
 		goto out;
 
-	
+	/* nuc900 board audio device */
 	platform_set_drvdata(nuc900evb_asoc_dev, &nuc900evb_audio_machine);
 
 	ret = platform_device_add(nuc900evb_asoc_dev);

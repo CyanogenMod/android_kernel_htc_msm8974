@@ -9,23 +9,36 @@
 #include <linux/uaccess.h>
 #include "oztrace.h"
 #include "ozevent.h"
+/*------------------------------------------------------------------------------
+ */
 unsigned long g_evt_mask = 0xffffffff;
-#define OZ_MAX_EVTS	2048	
+/*------------------------------------------------------------------------------
+ */
+#define OZ_MAX_EVTS	2048	/* Must be power of 2 */
 DEFINE_SPINLOCK(g_eventlock);
 static int g_evt_in;
 static int g_evt_out;
 static int g_missed_events;
 static struct oz_event g_events[OZ_MAX_EVTS];
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 void oz_event_init(void)
 {
 	oz_trace("Event tracing initialized\n");
 	g_evt_in = g_evt_out = 0;
 	g_missed_events = 0;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 void oz_event_term(void)
 {
 	oz_trace("Event tracing terminated\n");
 }
+/*------------------------------------------------------------------------------
+ * Context: any
+ */
 void oz_event_log2(u8 evt, u8 ctx1, u16 ctx2, void *ctx3, unsigned ctx4)
 {
 	unsigned long irqstate;
@@ -46,6 +59,9 @@ void oz_event_log2(u8 evt, u8 ctx1, u16 ctx2, void *ctx3, unsigned ctx4)
 	}
 	spin_unlock_irqrestore(&g_eventlock, irqstate);
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 int oz_events_copy(struct oz_evtlist __user *lst)
 {
 	int first;
@@ -85,6 +101,9 @@ int oz_events_copy(struct oz_evtlist __user *lst)
 	g_evt_out = ix;
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 void oz_events_clear(void)
 {
 	unsigned long irqstate;
@@ -93,5 +112,5 @@ void oz_events_clear(void)
 	g_missed_events = 0;
 	spin_unlock_irqrestore(&g_eventlock, irqstate);
 }
-#endif 
+#endif /* WANT_EVENT_TRACE */
 

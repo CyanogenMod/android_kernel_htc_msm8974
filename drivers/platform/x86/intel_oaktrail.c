@@ -57,6 +57,17 @@
 #define DRIVER_NAME	"intel_oaktrail"
 #define DRIVER_VERSION	"0.4ac1"
 
+/*
+ * This is the devices status address in EC space, and the control bits
+ * definition:
+ *
+ * (1 << 0):	Camera enable/disable, RW.
+ * (1 << 1):	Bluetooth enable/disable, RW.
+ * (1 << 2):	GPS enable/disable, RW.
+ * (1 << 3):	WiFi enable/disable, RW.
+ * (1 << 4):	WWAN (3G) enable/disalbe, RW.
+ * (1 << 5):	Touchscreen enable/disable, Read Only.
+ */
 #define OT_EC_DEVICE_STATE_ADDRESS	0xD6
 
 #define OT_EC_CAMERA_MASK	(1 << 0)
@@ -66,6 +77,18 @@
 #define OT_EC_WWAN_MASK		(1 << 4)
 #define OT_EC_TS_MASK		(1 << 5)
 
+/*
+ * This is the address in EC space and commands used to control LCD backlight:
+ *
+ * Two steps needed to change the LCD backlight:
+ *   1. write the backlight percentage into OT_EC_BL_BRIGHTNESS_ADDRESS;
+ *   2. write OT_EC_BL_CONTROL_ON_DATA into OT_EC_BL_CONTROL_ADDRESS.
+ *
+ * To read the LCD back light, just read out the value from
+ * OT_EC_BL_BRIGHTNESS_ADDRESS.
+ *
+ * LCD backlight brightness range: 0 - 100 (OT_EC_BL_BRIGHTNESS_MAX)
+ */
 #define OT_EC_BL_BRIGHTNESS_ADDRESS	0x44
 #define OT_EC_BL_BRIGHTNESS_MAX		100
 #define OT_EC_BL_CONTROL_ADDRESS	0x3A
@@ -84,6 +107,7 @@ static struct rfkill *wifi_rfkill;
 static struct rfkill *wwan_rfkill;
 
 
+/* rfkill */
 static int oaktrail_rfkill_set(void *data, bool blocked)
 {
 	u8 value;
@@ -194,6 +218,7 @@ cleanup:
 }
 
 
+/* backlight */
 static int get_backlight_brightness(struct backlight_device *b)
 {
 	u8 value;

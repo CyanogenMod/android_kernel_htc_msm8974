@@ -18,15 +18,18 @@
 #include <mach/msm_smd.h>
 #include <mach/subsystem_notif.h>
 
+/**
+ * enum subsys_id - Destination subsystems for events.
+ */
 enum subsys_id {
-	
+	/* SMD subsystems */
 	SYSMON_SS_MODEM     = SMD_APPS_MODEM,
 	SYSMON_SS_LPASS     = SMD_APPS_QDSP,
 	SYSMON_SS_WCNSS     = SMD_APPS_WCNSS,
 	SYSMON_SS_DSPS      = SMD_APPS_DSPS,
 	SYSMON_SS_Q6FW      = SMD_APPS_Q6FW,
 
-	
+	/* Non-SMD subsystems */
 	SYSMON_SS_EXT_MODEM = SMD_NUM_TYPE,
 	SYSMON_NUM_SS
 };

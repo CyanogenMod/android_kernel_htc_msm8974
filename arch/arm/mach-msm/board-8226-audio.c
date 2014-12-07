@@ -259,6 +259,7 @@ static int clk_users;
 static int ext_spk_amp_gpio = -1;
 #endif
 static int vdd_spkr_gpio = -1;
+static int top_SPK_muted = 0;
 static int msm_proxy_rx_ch = 2;
 static int slim0_rx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
 
@@ -376,10 +377,43 @@ static void htc_spk_amp_ctl(int enable)
 	for(i = 0; i < ARRAY_SIZE(htc_spk_config.gpio); i++) {
 
 		pr_info("%s: gpio = %d, gpio name = %s value %d\n", __func__,
-		htc_spk_config.gpio[i].gpio_no, htc_spk_config.gpio[i].gpio_name,value);
+			htc_spk_config.gpio[i].gpio_no, htc_spk_config.gpio[i].gpio_name, value);
+		if (top_SPK_muted && i == 0) {
+			pr_info("top_SPK_muted = 1,do nothing for top speaker");
+		} else {
+			gpio_set_value(htc_spk_config.gpio[i].gpio_no, value);
+		}
 
-		gpio_set_value(htc_spk_config.gpio[i].gpio_no, value);
 	}
+
+}
+
+static int mute_left_SPK_set(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	pr_info("%s: gpio = %d, spk_amp_on = %d value %ld\n", __func__,
+		htc_spk_config.gpio[1].gpio_no, spk_amp_on,
+		ucontrol->value.integer.value[0]);
+
+	if (ucontrol->value.integer.value[0]) {
+		pr_info("%s: value is %ld to mute left SPK\n", __func__ ,
+			ucontrol->value.integer.value[0]);
+		if (spk_amp_on == 1) {
+			gpio_set_value(htc_spk_config.gpio[0].gpio_no, 0);
+		}
+		top_SPK_muted = 1;
+	} else if (ucontrol->value.integer.value[0] == 0) {
+		pr_info("%s: value is %ld to unmute left SPK\n", __func__ ,
+			ucontrol->value.integer.value[0]);
+		if (spk_amp_on == 1) {
+			gpio_set_value(htc_spk_config.gpio[0].gpio_no, 1);
+		} else {
+			gpio_set_value(htc_spk_config.gpio[0].gpio_no, 0);
+                }
+		top_SPK_muted = 0;
+	}
+
+	return 0;
 
 }
 
@@ -1054,6 +1088,13 @@ static const struct soc_enum msm_snd_enum[] = {
 	SOC_ENUM_SINGLE_EXT(8, proxy_rx_ch_text),
 };
 
+
+static const char *const mute_left_SPK_text[] = {"disable", "enable"};
+static const struct soc_enum mute_left_SPK_enum[] = {
+		SOC_ENUM_SINGLE_EXT(2, mute_left_SPK_text),
+};
+
+
 static const struct snd_kcontrol_new msm_snd_controls[] = {
 	SOC_ENUM_EXT("SLIM_0_RX Channels", msm_snd_enum[0],
 		     msm_slim_0_rx_ch_get, msm_slim_0_rx_ch_put),
@@ -1067,6 +1108,8 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 			msm_proxy_rx_ch_get, msm_proxy_rx_ch_put),
 	SOC_ENUM_EXT("SLIM_0_RX Format", msm_snd_enum[3],
 			slim0_rx_bit_format_get, slim0_rx_bit_format_put),
+	SOC_ENUM_EXT("Mute_Left_SPK", mute_left_SPK_enum[0],
+			NULL, mute_left_SPK_set),
 
 };
 
@@ -1935,7 +1978,7 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 	{
 		.name = "Listen Audio Service",
 		.stream_name = "Listen Audio Service",
-		.cpu_dai_name = "LSM",
+		.cpu_dai_name = "LSM1",
 		.platform_name = "msm-lsm-client",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
@@ -2335,6 +2378,19 @@ static struct snd_soc_dai_link msm8226_9306_dai[] = {
 		.be_id = MSM_BACKEND_DAI_TERTIARY_MI2S_TX,
 		.be_hw_params_fixup = msm_be_mi2s_hw_params_fixup,
 		.ops = &msm8226_mi2s_be_ops,
+	},
+	{
+		.name = "MI2S TX Hostless Capture",
+		.stream_name = "MI2S TX Hostless Capture",
+		.cpu_dai_name	= "MI2S_TX_HOSTLESS",
+		.platform_name  = "msm-pcm-hostless",
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1, 
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
 	},
 };
 

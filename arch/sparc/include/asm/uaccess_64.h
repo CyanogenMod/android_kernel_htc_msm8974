@@ -1,6 +1,9 @@
 #ifndef _ASM_UACCESS_H
 #define _ASM_UACCESS_H
 
+/*
+ * User space memory access functions
+ */
 
 #ifdef __KERNEL__
 #include <linux/errno.h>
@@ -14,9 +17,21 @@
 
 #ifndef __ASSEMBLY__
 
+/*
+ * Sparc64 is segmented, though more like the M68K than the I386.
+ * We use the secondary ASI to address user memory, which references a
+ * completely different VM map, thus there is zero chance of the user
+ * doing something queer and tricking us into poking kernel memory.
+ *
+ * What is left here is basically what is needed for the other parts of
+ * the kernel that expect to be able to manipulate, erum, "segments".
+ * Or perhaps more properly, permissions.
+ *
+ * "For historical reasons, these macros are grossly misnamed." -Linus
+ */
 
 #define KERNEL_DS   ((mm_segment_t) { ASI_P })
-#define USER_DS     ((mm_segment_t) { ASI_AIUS })	
+#define USER_DS     ((mm_segment_t) { ASI_AIUS })	/* har har har */
 
 #define VERIFY_READ	0
 #define VERIFY_WRITE	1
@@ -42,6 +57,18 @@ static inline int access_ok(int type, const void __user * addr, unsigned long si
 	return 1;
 }
 
+/*
+ * The exception table consists of pairs of addresses: the first is the
+ * address of an instruction that is allowed to fault, and the second is
+ * the address at which the program should continue.  No registers are
+ * modified, so it is entirely up to the continuation code to figure out
+ * what to do.
+ *
+ * All the routines below use bits of fixup code that are out of line
+ * with the main instruction path.  This means when everything is well,
+ * we don't even have to jump over them.  Further, they do not intrude
+ * on our cache or tlb entries.
+ */
 
 struct exception_table_entry {
         unsigned int insn, fixup;
@@ -50,6 +77,15 @@ struct exception_table_entry {
 extern void __ret_efault(void);
 extern void __retl_efault(void);
 
+/* Uh, these should become the main single-value transfer routines..
+ * They automatically use the right size if we just have the right
+ * pointer type..
+ *
+ * This gets kind of ugly. We want to return _two_ values in "get_user()"
+ * and yet we don't want to do any pointers, because that is too much
+ * of a performance impact. Thus we have a few rather ugly macros here,
+ * and hide all the ugliness from the user.
+ */
 #define put_user(x,ptr) ({ \
 unsigned long __pu_addr = (unsigned long)(ptr); \
 __chk_user_ptr(ptr); \
@@ -233,6 +269,6 @@ extern long __strnlen_user(const char __user *, long len);
 #define __copy_to_user_inatomic ___copy_to_user
 #define __copy_from_user_inatomic ___copy_from_user
 
-#endif  
+#endif  /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_UACCESS_H */

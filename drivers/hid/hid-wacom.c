@@ -49,6 +49,7 @@ struct wacom_data {
 };
 
 #ifdef CONFIG_HID_WACOM_POWER_SUPPLY
+/*percent of battery capacity, 0 means AC online*/
 static unsigned short batcap[8] = { 1, 15, 25, 35, 50, 70, 100, 0 };
 
 static enum power_supply_property wacom_battery_props[] = {
@@ -80,7 +81,7 @@ static int wacom_battery_get_property(struct power_supply *psy,
 		val->intval = POWER_SUPPLY_SCOPE_DEVICE;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
-		
+		/* show 100% battery capacity when charging */
 		if (power_state == 0)
 			val->intval = 100;
 		else
@@ -103,7 +104,7 @@ static int wacom_ac_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_PRESENT:
-		
+		/* fall through */
 	case POWER_SUPPLY_PROP_ONLINE:
 		if (power_state == 0)
 			val->intval = 1;
@@ -126,7 +127,7 @@ static void wacom_set_features(struct hid_device *hdev)
 	int ret;
 	__u8 rep_data[2];
 
-	
+	/*set high speed, tablet mode*/
 	rep_data[0] = 0x03;
 	rep_data[1] = 0x20;
 	ret = hdev->hid_output_raw_report(hdev, rep_data, 2,
@@ -166,6 +167,10 @@ static void wacom_poke(struct hid_device *hdev, u8 speed)
 		}
 	}
 
+	/*
+	 * Note that if the raw queries fail, it's not a hard failure and it
+	 * is safe to continue
+	 */
 	hid_warn(hdev, "failed to poke device, command %d, err %d\n",
 		 rep_data[0], ret);
 	return;
@@ -207,36 +212,36 @@ static int wacom_gr_parse_report(struct hid_device *hdev,
 	int tool, x, y, rw;
 
 	tool = 0;
-	
+	/* Get X & Y positions */
 	x = le16_to_cpu(*(__le16 *) &data[2]);
 	y = le16_to_cpu(*(__le16 *) &data[4]);
 
-	
-	if (data[1] & 0x90) { 
+	/* Get current tool identifier */
+	if (data[1] & 0x90) { /* If pen is in the in/active area */
 		switch ((data[1] >> 5) & 3) {
-		case 0:	
+		case 0:	/* Pen */
 			tool = BTN_TOOL_PEN;
 			break;
 
-		case 1: 
+		case 1: /* Rubber */
 			tool = BTN_TOOL_RUBBER;
 			break;
 
-		case 2: 
-		case 3: 
+		case 2: /* Mouse with wheel */
+		case 3: /* Mouse without wheel */
 			tool = BTN_TOOL_MOUSE;
 			break;
 		}
 
-		
+		/* Reset tool if out of active tablet area */
 		if (!(data[1] & 0x10))
 			tool = 0;
 	}
 
-	
+	/* If tool changed, notify input subsystem */
 	if (wdata->tool != tool) {
 		if (wdata->tool) {
-			
+			/* Completely reset old tool state */
 			if (wdata->tool == BTN_TOOL_MOUSE) {
 				input_report_key(input, BTN_LEFT, 0);
 				input_report_key(input, BTN_RIGHT, 0);
@@ -262,17 +267,17 @@ static int wacom_gr_parse_report(struct hid_device *hdev,
 		input_report_abs(input, ABS_Y, y);
 
 		switch ((data[1] >> 5) & 3) {
-		case 2: 
+		case 2: /* Mouse with wheel */
 			input_report_key(input, BTN_MIDDLE, data[1] & 0x04);
 			rw = (data[6] & 0x01) ? -1 :
 				(data[6] & 0x02) ? 1 : 0;
 			input_report_rel(input, REL_WHEEL, rw);
-			
+			/* fall through */
 
-		case 3: 
+		case 3: /* Mouse without wheel */
 			input_report_key(input, BTN_LEFT, data[1] & 0x01);
 			input_report_key(input, BTN_RIGHT, data[1] & 0x02);
-			
+			/* Compute distance between mouse and tablet */
 			rw = 44 - (data[6] >> 2);
 			if (rw < 0)
 				rw = 0;
@@ -293,6 +298,8 @@ static int wacom_gr_parse_report(struct hid_device *hdev,
 		input_sync(input);
 	}
 
+	/* Report the state of the two buttons at the top of the tablet
+	 * as two extra fingerpad keys (buttons 4 & 5). */
 	rw = data[7] & 0x03;
 	if (rw != wdata->butstate) {
 		wdata->butstate = rw;
@@ -304,7 +311,7 @@ static int wacom_gr_parse_report(struct hid_device *hdev,
 	}
 
 #ifdef CONFIG_HID_WACOM_POWER_SUPPLY
-	
+	/* Store current battery capacity */
 	rw = (data[7] >> 2 & 0x07);
 	if (rw != wdata->battery_capacity)
 		wdata->battery_capacity = rw;
@@ -364,7 +371,7 @@ static void wacom_i4_parse_pen_report(struct wacom_data *wdata,
 	__u8 distance;
 
 	switch (data[1]) {
-	case 0x80: 
+	case 0x80: /* Out of proximity report */
 		input_report_key(input, BTN_TOUCH, 0);
 		input_report_abs(input, ABS_PRESSURE, 0);
 		input_report_key(input, BTN_STYLUS, 0);
@@ -375,7 +382,7 @@ static void wacom_i4_parse_pen_report(struct wacom_data *wdata,
 		wdata->tool = 0;
 		input_sync(input);
 		break;
-	case 0xC2: 
+	case 0xC2: /* Tool report */
 		wdata->id = ((data[2] << 4) | (data[3] >> 4) |
 			((data[7] & 0x0f) << 20) |
 			((data[8] & 0xf0) << 12));
@@ -392,7 +399,7 @@ static void wacom_i4_parse_pen_report(struct wacom_data *wdata,
 			break;
 		}
 		break;
-	default: 
+	default: /* Position/pressure report */
 		x = data[2] << 9 | data[3] << 1 | ((data[9] & 0x02) >> 1);
 		y = data[4] << 9 | data[5] << 1 | (data[9] & 0x01);
 		pressure = (data[6] << 3) | ((data[7] & 0xC0) >> 5)
@@ -423,15 +430,15 @@ static void wacom_i4_parse_report(struct hid_device *hdev,
 			struct input_dev *input, unsigned char *data)
 {
 	switch (data[0]) {
-	case 0x00: 
+	case 0x00: /* Empty report */
 		break;
-	case 0x02: 
+	case 0x02: /* Pen report */
 		wacom_i4_parse_pen_report(wdata, input, data);
 		break;
-	case 0x03: 
+	case 0x03: /* Features Report */
 		wdata->features = data[2];
 		break;
-	case 0x0C: 
+	case 0x0C: /* Button report */
 		wacom_i4_parse_button_report(wdata, input, data);
 		break;
 	default:
@@ -455,7 +462,7 @@ static int wacom_raw_event(struct hid_device *hdev, struct hid_report *report,
 	hidinput = list_entry(hdev->inputs.next, struct hid_input, list);
 	input = hidinput->input;
 
-	
+	/* Check if this is a tablet report */
 	if (data[0] != 0x03)
 		return 0;
 
@@ -470,7 +477,7 @@ static int wacom_raw_event(struct hid_device *hdev, struct hid_report *report,
 		case 0x04:
 			wacom_i4_parse_report(hdev, wdata, input, data + i);
 			i += 10;
-			
+			/* fall through */
 		case 0x03:
 			wacom_i4_parse_report(hdev, wdata, input, data + i);
 			i += 10;
@@ -493,7 +500,7 @@ static int wacom_input_mapped(struct hid_device *hdev, struct hid_input *hi,
 
 	__set_bit(INPUT_PROP_POINTER, input->propbit);
 
-	
+	/* Basics */
 	input->evbit[0] |= BIT(EV_KEY) | BIT(EV_ABS) | BIT(EV_REL);
 
 	__set_bit(REL_WHEEL, input->relbit);
@@ -506,14 +513,14 @@ static int wacom_input_mapped(struct hid_device *hdev, struct hid_input *hi,
 	__set_bit(BTN_RIGHT, input->keybit);
 	__set_bit(BTN_MIDDLE, input->keybit);
 
-	
+	/* Pad */
 	input_set_capability(input, EV_MSC, MSC_SERIAL);
 
 	__set_bit(BTN_0, input->keybit);
 	__set_bit(BTN_1, input->keybit);
 	__set_bit(BTN_TOOL_FINGER, input->keybit);
 
-	
+	/* Distance, rubber and mouse */
 	__set_bit(BTN_TOOL_RUBBER, input->keybit);
 	__set_bit(BTN_TOOL_MOUSE, input->keybit);
 
@@ -559,7 +566,7 @@ static int wacom_probe(struct hid_device *hdev,
 
 	hid_set_drvdata(hdev, wdata);
 
-	
+	/* Parse the HID report now */
 	ret = hid_parse(hdev);
 	if (ret) {
 		hid_err(hdev, "parse failed\n");
@@ -579,7 +586,7 @@ static int wacom_probe(struct hid_device *hdev,
 
 	switch (hdev->product) {
 	case USB_DEVICE_ID_WACOM_GRAPHIRE_BLUETOOTH:
-		
+		/* Set Wacom mode 2 with high reporting speed */
 		wacom_poke(hdev, 1);
 		break;
 	case USB_DEVICE_ID_WACOM_INTUOS4_BLUETOOTH:

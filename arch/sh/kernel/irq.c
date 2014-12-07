@@ -22,6 +22,11 @@
 
 atomic_t irq_err_count;
 
+/*
+ * 'what should we do if we get a hw irq event on an illegal vector'.
+ * each architecture has to answer this themselves, it doesn't deserve
+ * a generic callback i think.
+ */
 void ack_bad_irq(unsigned int irq)
 {
 	atomic_inc(&irq_err_count);
@@ -29,6 +34,9 @@ void ack_bad_irq(unsigned int irq)
 }
 
 #if defined(CONFIG_PROC_FS)
+/*
+ * /proc/interrupts printing for arch specific interrupts
+ */
 int arch_show_interrupts(struct seq_file *p, int prec)
 {
 	int j;
@@ -45,6 +53,9 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 #endif
 
 #ifdef CONFIG_IRQSTACKS
+/*
+ * per-CPU IRQ handling contexts (thread information and stack)
+ */
 union irq_ctx {
 	struct thread_info	tinfo;
 	u32			stack[THREAD_SIZE/sizeof(u32)];
@@ -63,6 +74,12 @@ static inline void handle_one_irq(unsigned int irq)
 	curctx = (union irq_ctx *)current_thread_info();
 	irqctx = hardirq_ctx[smp_processor_id()];
 
+	/*
+	 * this is where we switch to the IRQ stack. However, if we are
+	 * already using the IRQ stack (because we interrupted a hardirq
+	 * handler) we can't do that and just have to keep using the
+	 * current stack (which is the irq stack already after all)
+	 */
 	if (curctx != irqctx) {
 		u32 *isp;
 
@@ -70,6 +87,10 @@ static inline void handle_one_irq(unsigned int irq)
 		irqctx->tinfo.task = curctx->tinfo.task;
 		irqctx->tinfo.previous_sp = current_stack_pointer;
 
+		/*
+		 * Copy the softirq bits in preempt_count so that the
+		 * softirq checks work in the hardirq context.
+		 */
 		irqctx->tinfo.preempt_count =
 			(irqctx->tinfo.preempt_count & ~SOFTIRQ_MASK) |
 			(curctx->tinfo.preempt_count & SOFTIRQ_MASK);
@@ -78,11 +99,11 @@ static inline void handle_one_irq(unsigned int irq)
 			"mov	%0, r4		\n"
 			"mov	r15, r8		\n"
 			"jsr	@%1		\n"
-			
+			/* swith to the irq stack */
 			" mov	%2, r15		\n"
-			
+			/* restore the stack (ring zero) */
 			"mov	r8, r15		\n"
-			: 
+			: /* no outputs */
 			: "r" (irq), "r" (generic_handle_irq), "r" (isp)
 			: "memory", "r0", "r1", "r2", "r3", "r4",
 			  "r5", "r6", "r7", "r8", "t", "pr"
@@ -91,6 +112,9 @@ static inline void handle_one_irq(unsigned int irq)
 		generic_handle_irq(irq);
 }
 
+/*
+ * allocate per-cpu stacks for hardirq and for softirq processing
+ */
 void irq_ctx_init(int cpu)
 {
 	union irq_ctx *irqctx;
@@ -143,22 +167,25 @@ asmlinkage void do_softirq(void)
 		irqctx->tinfo.task = curctx->task;
 		irqctx->tinfo.previous_sp = current_stack_pointer;
 
-		
+		/* build the stack frame on the softirq stack */
 		isp = (u32 *)((char *)irqctx + sizeof(*irqctx));
 
 		__asm__ __volatile__ (
 			"mov	r15, r9		\n"
 			"jsr	@%0		\n"
-			
+			/* switch to the softirq stack */
 			" mov	%1, r15		\n"
-			
+			/* restore the thread stack */
 			"mov	r9, r15		\n"
-			: 
+			: /* no outputs */
 			: "r" (__do_softirq), "r" (isp)
 			: "memory", "r0", "r1", "r2", "r3", "r4",
 			  "r5", "r6", "r7", "r8", "r9", "r15", "t", "pr"
 		);
 
+		/*
+		 * Shouldn't happen, we returned above if in_interrupt():
+		 */
 		WARN_ON_ONCE(softirq_count());
 	}
 
@@ -195,7 +222,7 @@ void __init init_IRQ(void)
 {
 	plat_irq_setup();
 
-	
+	/* Perform the machine specific initialisation */
 	if (sh_mv.mv_init_irq)
 		sh_mv.mv_init_irq();
 
@@ -226,6 +253,11 @@ static void route_irq(struct irq_data *data, unsigned int irq, unsigned int cpu)
 	raw_spin_unlock_irq(&desc->lock);
 }
 
+/*
+ * The CPU has been marked offline.  Migrate IRQs off this CPU.  If
+ * the affinity settings do not allow other CPUs, force them onto any
+ * available CPU.
+ */
 void migrate_irqs(void)
 {
 	unsigned int irq, cpu = smp_processor_id();

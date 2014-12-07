@@ -28,10 +28,12 @@
 #ifndef __NCI_H
 #define __NCI_H
 
+/* NCI constants */
 #define NCI_MAX_NUM_MAPPING_CONFIGS				10
 #define NCI_MAX_NUM_RF_CONFIGS					10
 #define NCI_MAX_NUM_CONN					10
 
+/* NCI Status Codes */
 #define NCI_STATUS_OK						0x00
 #define NCI_STATUS_REJECTED					0x01
 #define NCI_STATUS_RF_FRAME_CORRUPTED				0x02
@@ -43,17 +45,21 @@
 #define NCI_STATUS_UNKNOWN_OID					0x08
 #define NCI_STATUS_INVALID_PARAM				0x09
 #define NCI_STATUS_MESSAGE_SIZE_EXCEEDED			0x0a
+/* Discovery Specific Status Codes */
 #define NCI_STATUS_DISCOVERY_ALREADY_STARTED			0xa0
 #define NCI_STATUS_DISCOVERY_TARGET_ACTIVATION_FAILED		0xa1
 #define NCI_STATUS_DISCOVERY_TEAR_DOWN				0xa2
+/* RF Interface Specific Status Codes */
 #define NCI_STATUS_RF_TRANSMISSION_ERROR			0xb0
 #define NCI_STATUS_RF_PROTOCOL_ERROR				0xb1
 #define NCI_STATUS_RF_TIMEOUT_ERROR				0xb2
+/* NFCEE Interface Specific Status Codes */
 #define NCI_STATUS_NFCEE_INTERFACE_ACTIVATION_FAILED		0xc0
 #define NCI_STATUS_NFCEE_TRANSMISSION_ERROR			0xc1
 #define NCI_STATUS_NFCEE_PROTOCOL_ERROR				0xc2
 #define NCI_STATUS_NFCEE_TIMEOUT_ERROR				0xc3
 
+/* NCI RF Technology and Mode */
 #define NCI_NFC_A_PASSIVE_POLL_MODE				0x00
 #define NCI_NFC_B_PASSIVE_POLL_MODE				0x01
 #define NCI_NFC_F_PASSIVE_POLL_MODE				0x02
@@ -67,11 +73,13 @@
 #define NCI_NFC_F_ACTIVE_LISTEN_MODE				0x85
 #define NCI_NFC_15693_PASSIVE_LISTEN_MODE			0x86
 
+/* NCI RF Technologies */
 #define NCI_NFC_RF_TECHNOLOGY_A					0x00
 #define NCI_NFC_RF_TECHNOLOGY_B					0x01
 #define NCI_NFC_RF_TECHNOLOGY_F					0x02
 #define NCI_NFC_RF_TECHNOLOGY_15693				0x03
 
+/* NCI Bit Rates */
 #define NCI_NFC_BIT_RATE_106					0x00
 #define NCI_NFC_BIT_RATE_212					0x01
 #define NCI_NFC_BIT_RATE_424					0x02
@@ -80,6 +88,7 @@
 #define NCI_NFC_BIT_RATE_3390					0x05
 #define NCI_NFC_BIT_RATE_6780					0x06
 
+/* NCI RF Protocols */
 #define NCI_RF_PROTOCOL_UNKNOWN					0x00
 #define NCI_RF_PROTOCOL_T1T					0x01
 #define NCI_RF_PROTOCOL_T2T					0x02
@@ -87,30 +96,38 @@
 #define NCI_RF_PROTOCOL_ISO_DEP					0x04
 #define NCI_RF_PROTOCOL_NFC_DEP					0x05
 
+/* NCI RF Interfaces */
 #define NCI_RF_INTERFACE_NFCEE_DIRECT				0x00
 #define NCI_RF_INTERFACE_FRAME					0x01
 #define NCI_RF_INTERFACE_ISO_DEP				0x02
 #define NCI_RF_INTERFACE_NFC_DEP				0x03
 
+/* NCI Reset types */
 #define NCI_RESET_TYPE_KEEP_CONFIG				0x00
 #define NCI_RESET_TYPE_RESET_CONFIG				0x01
 
+/* NCI Static RF connection ID */
 #define NCI_STATIC_RF_CONN_ID					0x00
 
+/* NCI Data Flow Control */
 #define NCI_DATA_FLOW_CONTROL_NOT_USED				0xff
 
+/* NCI RF_DISCOVER_MAP_CMD modes */
 #define NCI_DISC_MAP_MODE_POLL					0x01
 #define NCI_DISC_MAP_MODE_LISTEN				0x02
 
+/* NCI Discover Notification Type */
 #define NCI_DISCOVER_NTF_TYPE_LAST				0x00
 #define NCI_DISCOVER_NTF_TYPE_LAST_NFCC				0x01
 #define NCI_DISCOVER_NTF_TYPE_MORE				0x02
 
+/* NCI Deactivation Type */
 #define NCI_DEACTIVATE_TYPE_IDLE_MODE				0x00
 #define NCI_DEACTIVATE_TYPE_SLEEP_MODE				0x01
 #define NCI_DEACTIVATE_TYPE_SLEEP_AF_MODE			0x02
 #define NCI_DEACTIVATE_TYPE_DISCOVERY				0x03
 
+/* Message Type (MT) */
 #define NCI_MT_DATA_PKT						0x00
 #define NCI_MT_CMD_PKT						0x01
 #define NCI_MT_RSP_PKT						0x02
@@ -119,42 +136,51 @@
 #define nci_mt(hdr)			(((hdr)[0]>>5)&0x07)
 #define nci_mt_set(hdr, mt)		((hdr)[0] |= (__u8)(((mt)&0x07)<<5))
 
+/* Packet Boundary Flag (PBF) */
 #define NCI_PBF_LAST						0x00
 #define NCI_PBF_CONT						0x01
 
 #define nci_pbf(hdr)			(__u8)(((hdr)[0]>>4)&0x01)
 #define nci_pbf_set(hdr, pbf)		((hdr)[0] |= (__u8)(((pbf)&0x01)<<4))
 
+/* Control Opcode manipulation */
 #define nci_opcode_pack(gid, oid)	(__u16)((((__u16)((gid)&0x0f))<<8)|\
 					((__u16)((oid)&0x3f)))
 #define nci_opcode(hdr)			nci_opcode_pack(hdr[0], hdr[1])
 #define nci_opcode_gid(op)		(__u8)(((op)&0x0f00)>>8)
 #define nci_opcode_oid(op)		(__u8)((op)&0x003f)
 
+/* Payload Length */
 #define nci_plen(hdr)			(__u8)((hdr)[2])
 
+/* Connection ID */
 #define nci_conn_id(hdr)		(__u8)(((hdr)[0])&0x0f)
 
+/* GID values */
 #define NCI_GID_CORE						0x0
 #define NCI_GID_RF_MGMT						0x1
 #define NCI_GID_NFCEE_MGMT					0x2
 #define NCI_GID_PROPRIETARY					0xf
 
+/* ---- NCI Packet structures ---- */
 #define NCI_CTRL_HDR_SIZE					3
 #define NCI_DATA_HDR_SIZE					3
 
 struct nci_ctrl_hdr {
-	__u8	gid;		
+	__u8	gid;		/* MT & PBF & GID */
 	__u8	oid;
 	__u8	plen;
 } __packed;
 
 struct nci_data_hdr {
-	__u8	conn_id;	
+	__u8	conn_id;	/* MT & PBF & ConnID */
 	__u8	rfu;
 	__u8	plen;
 } __packed;
 
+/* ------------------------ */
+/* -----  NCI Commands ---- */
+/* ------------------------ */
 #define NCI_OP_CORE_RESET_CMD		nci_opcode_pack(NCI_GID_CORE, 0x00)
 struct nci_core_reset_cmd {
 	__u8	reset_type;
@@ -198,6 +224,9 @@ struct nci_rf_deactivate_cmd {
 	__u8	type;
 } __packed;
 
+/* ----------------------- */
+/* ---- NCI Responses ---- */
+/* ----------------------- */
 #define NCI_OP_CORE_RESET_RSP		nci_opcode_pack(NCI_GID_CORE, 0x00)
 struct nci_core_reset_rsp {
 	__u8	status;
@@ -210,8 +239,8 @@ struct nci_core_init_rsp_1 {
 	__u8	status;
 	__le32	nfcc_features;
 	__u8	num_supported_rf_interfaces;
-	__u8	supported_rf_interfaces[0];	
-	
+	__u8	supported_rf_interfaces[0];	/* variable size array */
+	/* continuted in nci_core_init_rsp_2 */
 } __packed;
 
 struct nci_core_init_rsp_2 {
@@ -231,6 +260,9 @@ struct nci_core_init_rsp_2 {
 
 #define NCI_OP_RF_DEACTIVATE_RSP	nci_opcode_pack(NCI_GID_RF_MGMT, 0x06)
 
+/* --------------------------- */
+/* ---- NCI Notifications ---- */
+/* --------------------------- */
 #define NCI_OP_CORE_CONN_CREDITS_NTF	nci_opcode_pack(NCI_GID_CORE, 0x06)
 struct conn_credit_entry {
 	__u8	conn_id;
@@ -253,21 +285,21 @@ struct nci_core_intf_error_ntf {
 #define NCI_OP_RF_DISCOVER_NTF		nci_opcode_pack(NCI_GID_RF_MGMT, 0x03)
 struct rf_tech_specific_params_nfca_poll {
 	__u16	sens_res;
-	__u8	nfcid1_len;	
+	__u8	nfcid1_len;	/* 0, 4, 7, or 10 Bytes */
 	__u8	nfcid1[10];
-	__u8	sel_res_len;	
+	__u8	sel_res_len;	/* 0 or 1 Bytes */
 	__u8	sel_res;
 } __packed;
 
 struct rf_tech_specific_params_nfcb_poll {
 	__u8	sensb_res_len;
-	__u8	sensb_res[12];	
+	__u8	sensb_res[12];	/* 11 or 12 Bytes */
 } __packed;
 
 struct rf_tech_specific_params_nfcf_poll {
 	__u8	bit_rate;
 	__u8	sensf_res_len;
-	__u8	sensf_res[18];	
+	__u8	sensf_res[18];	/* 16 or 18 Bytes */
 } __packed;
 
 struct nci_rf_discover_ntf {
@@ -329,4 +361,4 @@ struct nci_rf_deactivate_ntf {
 	__u8	reason;
 } __packed;
 
-#endif 
+#endif /* __NCI_H */

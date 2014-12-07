@@ -51,7 +51,7 @@ static struct resource smc91x_resources[] = {
 		.flags		= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* Filled in by ilsel */
 		.flags		= IORESOURCE_IRQ,
 	},
 };
@@ -78,7 +78,7 @@ static struct resource r8a66597_usb_host_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* Filled in by ilsel */
 		.flags	= IORESOURCE_IRQ | IRQF_TRIGGER_LOW,
 	},
 };
@@ -87,7 +87,7 @@ static struct platform_device r8a66597_usb_host_device = {
 	.name		= "r8a66597_hcd",
 	.id		= -1,
 	.dev = {
-		.dma_mask		= NULL,		
+		.dma_mask		= NULL,		/* don't use dma */
 		.coherent_dma_mask	= 0xffffffff,
 		.platform_data		= &r8a66597_data,
 	},
@@ -109,7 +109,7 @@ static struct resource m66592_usb_peripheral_resources[] = {
 	},
 	[1] = {
 		.name	= "m66592_udc",
-		
+		/* Filled in by ilsel */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -118,7 +118,7 @@ static struct platform_device m66592_usb_peripheral_device = {
 	.name		= "m66592_udc",
 	.id		= -1,
 	.dev = {
-		.dma_mask		= NULL,		
+		.dma_mask		= NULL,		/* don't use dma */
 		.coherent_dma_mask	= 0xffffffff,
 		.platform_data		= &usbf_platdata,
 	},
@@ -221,7 +221,7 @@ static void __init x3proto_init_irq(void)
 {
 	plat_irq_setup_pins(IRQ_MODE_IRL3210);
 
-	
+	/* Set ICR0.LVLMODE */
 	__raw_writel(__raw_readl(0xfe410000) | (1 << 21), 0xfe410000);
 }
 
@@ -229,12 +229,22 @@ static int __init x3proto_devices_setup(void)
 {
 	int ret, i;
 
+	/*
+	 * IRLs are only needed for ILSEL mappings, so flip over the INTC
+	 * pins at a later point to enable the GPIOs to settle.
+	 */
 	x3proto_init_irq();
 
+	/*
+	 * Now that ILSELs are available, set up the baseboard GPIOs.
+	 */
 	ret = x3proto_gpio_setup();
 	if (unlikely(ret))
 		return ret;
 
+	/*
+	 * Propagate dynamic GPIOs for the baseboard button device.
+	 */
 	for (i = 0; i < ARRAY_SIZE(baseboard_buttons); i++)
 		baseboard_buttons[i].gpio = x3proto_gpio_chip.base + i;
 

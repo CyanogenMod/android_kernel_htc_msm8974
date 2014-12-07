@@ -104,6 +104,7 @@ static struct platform_device tsmac_device[] = {
 #define msp_eth_devs	tsmac_device
 
 #else
+/* If it is not TSMAC assume MSP_ETH (100Mbps) */
 #define MSP_ETH_ID	"pmc_mspeth"
 #define MSP_ETH_SIZE	0xE0
 static struct resource msp_eth0_resources[] = {
@@ -156,12 +157,12 @@ int __init msp_eth_setup(void)
 {
 	int i, ret = 0;
 
-	
+	/* Configure the GPIO and take the ethernet PHY out of reset */
 	msp_gpio_pin_mode(MSP_GPIO_OUTPUT, MSP_ETHERNET_GPIO0);
 	msp_gpio_pin_hi(MSP_ETHERNET_GPIO0);
 
 #ifdef CONFIG_MSP_HAS_TSMAC
-	
+	/* 3 phys on boards with TSMAC */
 	msp_gpio_pin_mode(MSP_GPIO_OUTPUT, MSP_ETHERNET_GPIO1);
 	msp_gpio_pin_hi(MSP_ETHERNET_GPIO1);
 

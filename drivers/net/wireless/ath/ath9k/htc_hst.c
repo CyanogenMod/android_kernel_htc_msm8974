@@ -214,6 +214,7 @@ err:
 	return -EINVAL;
 }
 
+/* HTC APIs */
 
 int htc_init(struct htc_target *target)
 {
@@ -235,7 +236,7 @@ int htc_connect_service(struct htc_target *target,
 	struct htc_conn_svc_msg *conn_msg;
 	int ret, time_left;
 
-	
+	/* Find an available endpoint */
 	endpoint = get_next_avail_ep(target->endpoint);
 	if (!endpoint) {
 		dev_err(target->dev, "Endpoint is not available for"
@@ -346,13 +347,20 @@ void ath9k_htc_txcompletion_cb(struct htc_target *htc_handle,
 
 	return;
 ret:
-	
+	/* HTC-generated packets are freed here. */
 	if (htc_hdr && htc_hdr->endpoint_id != ENDPOINT0)
 		dev_kfree_skb_any(skb);
 	else
 		kfree_skb(skb);
 }
 
+/*
+ * HTC Messages are handled directly here and the obtained SKB
+ * is freed.
+ *
+ * Service messages (Data, WMI) passed to the corresponding
+ * endpoint RX handlers, which have to free the SKB.
+ */
 void ath9k_htc_rx_msg(struct htc_target *htc_handle,
 		      struct sk_buff *skb, u32 len, u8 pipe_id)
 {
@@ -377,18 +385,18 @@ void ath9k_htc_rx_msg(struct htc_target *htc_handle,
 
 	if (epid == ENDPOINT0) {
 
-		
+		/* Handle trailer */
 		if (htc_hdr->flags & HTC_FLAGS_RECV_TRAILER) {
 			if (be32_to_cpu(*(__be32 *) skb->data) == 0x00C60000)
-				
+				/* Move past the Watchdog pattern */
 				htc_hdr = (struct htc_frame_hdr *)(skb->data + 4);
 		}
 
-		
+		/* Get the message ID */
 		msg_id = (__be16 *) ((void *) htc_hdr +
 				     sizeof(struct htc_frame_hdr));
 
-		
+		/* Now process HTC messages */
 		switch (be16_to_cpu(*msg_id)) {
 		case HTC_MSG_READY_ID:
 			htc_process_target_rdy(htc_handle, htc_hdr);
@@ -433,7 +441,7 @@ struct htc_target *ath9k_htc_hw_alloc(void *hif_handle,
 	target->hif_dev = hif_handle;
 	target->dev = dev;
 
-	
+	/* Assign control endpoint pipe IDs */
 	endpoint = &target->endpoint[ENDPOINT0];
 	endpoint->ul_pipeid = hif->control_ul_pipe;
 	endpoint->dl_pipeid = hif->control_dl_pipe;

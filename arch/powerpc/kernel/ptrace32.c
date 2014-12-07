@@ -34,18 +34,26 @@
 #include <asm/pgtable.h>
 #include <asm/switch_to.h>
 
+/*
+ * does not yet catch signals sent when the child dies.
+ * in exit.c or in signal.c.
+ */
 
+/*
+ * Here are the old "legacy" powerpc specific getregs/setregs ptrace calls,
+ * we mark them as obsolete now, they will be removed in a future version
+ */
 static long compat_ptrace_old(struct task_struct *child, long request,
 			      long addr, long data)
 {
 	switch (request) {
-	case PPC_PTRACE_GETREGS:	
+	case PPC_PTRACE_GETREGS:	/* Get GPRs 0 - 31. */
 		return copy_regset_to_user(child,
 					   task_user_regset_view(current), 0,
 					   0, 32 * sizeof(compat_long_t),
 					   compat_ptr(data));
 
-	case PPC_PTRACE_SETREGS:	
+	case PPC_PTRACE_SETREGS:	/* Set GPRs 0 - 31. */
 		return copy_regset_from_user(child,
 					     task_user_regset_view(current), 0,
 					     0, 32 * sizeof(compat_long_t),
@@ -55,6 +63,7 @@ static long compat_ptrace_old(struct task_struct *child, long request,
 	return -EPERM;
 }
 
+/* Macros to workout the correct index for the FPR in the thread struct */
 #define FPRNUMBER(i) (((i) - PT_FPR0) >> 1)
 #define FPRHALF(i) (((i) - PT_FPR0) & 1)
 #define FPRINDEX(i) TS_FPRWIDTH * FPRNUMBER(i) * 2 + FPRHALF(i)
@@ -68,6 +77,15 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 	int ret;
 
 	switch (request) {
+	/*
+	 * Read 4 bytes of the other process' storage
+	 *  data is a pointer specifying where the user wants the
+	 *	4 bytes copied into
+	 *  addr is a pointer in the user's storage that contains an 8 byte
+	 *	address in the other process of the 4 bytes that is to be read
+	 * (this is run in a 32-bit process looking at a 64-bit process)
+	 * when I and D space are separate, these will need to be fixed.
+	 */
 	case PPC_PTRACE_PEEKTEXT_3264:
 	case PPC_PTRACE_PEEKDATA_3264: {
 		u32 tmp;
@@ -76,7 +94,7 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 
 		ret = -EIO;
 
-		
+		/* Get the addr in the other process that we want to read */
 		if (get_user(addrOthers, (u32 __user * __user *)addr) != 0)
 			break;
 
@@ -88,13 +106,13 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		break;
 	}
 
-	
+	/* Read a register (specified by ADDR) out of the "user area" */
 	case PTRACE_PEEKUSR: {
 		int index;
 		unsigned long tmp;
 
 		ret = -EIO;
-		
+		/* convert to index and check */
 		index = (unsigned long) addr >> 2;
 		if ((addr & 3) || (index > PT_FPSCR32))
 			break;
@@ -104,6 +122,11 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 			tmp = ptrace_get_reg(child, index);
 		} else {
 			flush_fp_to_thread(child);
+			/*
+			 * the user space code considers the floating point
+			 * to be an array of unsigned int (32 bits) - the
+			 * index passed in is based on this assumption.
+			 */
 			tmp = ((unsigned int *)child->thread.fpr)
 				[FPRINDEX(index)];
 		}
@@ -111,6 +134,14 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		break;
 	}
   
+	/*
+	 * Read 4 bytes out of the other process' pt_regs area
+	 *  data is a pointer specifying where the user wants the
+	 *	4 bytes copied into
+	 *  addr is the offset into the other process' pt_regs structure
+	 *	that is to be read
+	 * (this is run in a 32-bit process looking at a 64-bit process)
+	 */
 	case PPC_PTRACE_PEEKUSR_3264: {
 		u32 index;
 		u32 reg32bits;
@@ -119,25 +150,28 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		u32 part;
 
 		ret = -EIO;
-		
+		/* Determine which register the user wants */
 		index = (u64)addr >> 2;
 		numReg = index / 2;
-		
+		/* Determine which part of the register the user wants */
 		if (index % 2)
-			part = 1;  
+			part = 1;  /* want the 2nd half of the register (right-most). */
 		else
-			part = 0;  
+			part = 0;  /* want the 1st half of the register (left-most). */
 
+		/* Validate the input - check to see if address is on the wrong boundary
+		 * or beyond the end of the user area
+		 */
 		if ((addr & 3) || numReg > PT_FPSCR)
 			break;
 
 		CHECK_FULL_REGS(child->thread.regs);
 		if (numReg >= PT_FPR0) {
 			flush_fp_to_thread(child);
-			
+			/* get 64 bit FPR */
 			tmp = ((u64 *)child->thread.fpr)
 				[FPRINDEX_3264(numReg)];
-		} else { 
+		} else { /* register within PT_REGS struct */
 			tmp = ptrace_get_reg(child, numReg);
 		} 
 		reg32bits = ((u32*)&tmp)[part];
@@ -159,7 +193,7 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		u32 tmp = data;
 		u32 __user * addrOthers;
 
-		
+		/* Get the addr in the other process that we want to write into */
 		ret = -EIO;
 		if (get_user(addrOthers, (u32 __user * __user *)addr) != 0)
 			break;
@@ -171,12 +205,12 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		break;
 	}
 
-	
+	/* write the word at location addr in the USER area */
 	case PTRACE_POKEUSR: {
 		unsigned long index;
 
 		ret = -EIO;
-		
+		/* convert to index and check */
 		index = (unsigned long) addr >> 2;
 		if ((addr & 3) || (index > PT_FPSCR32))
 			break;
@@ -186,6 +220,11 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 			ret = ptrace_put_reg(child, index, data);
 		} else {
 			flush_fp_to_thread(child);
+			/*
+			 * the user space code considers the floating point
+			 * to be an array of unsigned int (32 bits) - the
+			 * index passed in is based on this assumption.
+			 */
 			((unsigned int *)child->thread.fpr)
 				[FPRINDEX(index)] = data;
 			ret = 0;
@@ -205,10 +244,14 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		u32 numReg;
 
 		ret = -EIO;
-		
+		/* Determine which register the user wants */
 		index = (u64)addr >> 2;
 		numReg = index / 2;
 
+		/*
+		 * Validate the input - check to see if address is on the
+		 * wrong boundary or beyond the end of the user area
+		 */
 		if ((addr & 3) || (numReg > PT_FPSCR))
 			break;
 		CHECK_FULL_REGS(child->thread.regs);
@@ -222,10 +265,10 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		} else {
 			u64 *tmp;
 			flush_fp_to_thread(child);
-			
+			/* get 64 bit FPR ... */
 			tmp = &(((u64 *)child->thread.fpr)
 				[FPRINDEX_3264(numReg)]);
-			
+			/* ... write the 32 bit part we want */
 			((u32 *)tmp)[index % 2] = data;
 			ret = 0;
 		}
@@ -234,7 +277,7 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 
 	case PTRACE_GET_DEBUGREG: {
 		ret = -EINVAL;
-		
+		/* We only support one DABR and no IABRS at the moment */
 		if (addr > 0)
 			break;
 #ifdef CONFIG_PPC_ADV_DEBUG_REGS
@@ -245,13 +288,13 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		break;
 	}
 
-	case PTRACE_GETREGS:	
+	case PTRACE_GETREGS:	/* Get all pt_regs from the child. */
 		return copy_regset_to_user(
 			child, task_user_regset_view(current), 0,
 			0, PT_REGS_COUNT * sizeof(compat_long_t),
 			compat_ptr(data));
 
-	case PTRACE_SETREGS:	
+	case PTRACE_SETREGS:	/* Set all gp regs in the child. */
 		return copy_regset_from_user(
 			child, task_user_regset_view(current), 0,
 			0, PT_REGS_COUNT * sizeof(compat_long_t),
@@ -279,9 +322,9 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		ret = arch_ptrace(child, request, addr, data);
 		break;
 
-	
-	case PPC_PTRACE_GETREGS: 
-	case PPC_PTRACE_SETREGS: 
+	/* Old reverse args ptrace callss */
+	case PPC_PTRACE_GETREGS: /* Get GPRs 0 - 31. */
+	case PPC_PTRACE_SETREGS: /* Set GPRs 0 - 31. */
 		ret = compat_ptrace_old(child, request, addr, data);
 		break;
 

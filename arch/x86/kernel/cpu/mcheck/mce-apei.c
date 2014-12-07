@@ -41,13 +41,13 @@ void apei_mce_report_mem_error(int corrected, struct cper_sec_mem_err *mem_err)
 {
 	struct mce m;
 
-	
+	/* Only corrected MC is reported */
 	if (!corrected)
 		return;
 
 	mce_setup(&m);
 	m.bank = 1;
-	
+	/* Fake a memory read corrected error with unknown channel */
 	m.status = MCI_STATUS_VAL | MCI_STATUS_EN | MCI_STATUS_ADDRV | 0x9f;
 	m.addr = mem_err->physical_addr;
 	mce_log(&m);
@@ -62,6 +62,10 @@ EXPORT_SYMBOL_GPL(apei_mce_report_mem_error);
 	UUID_LE(0xfe08ffbe, 0x95e4, 0x4be7, 0xbc, 0x73, 0x40, 0x96,	\
 		0x04, 0x4a, 0x38, 0xfc)
 
+/*
+ * CPER specification (in UEFI specification 2.3 appendix N) requires
+ * byte-packed.
+ */
 struct cper_mce_record {
 	struct cper_record_header hdr;
 	struct cper_section_descriptor sec_hdr;
@@ -78,7 +82,7 @@ int apei_write_mce(struct mce *m)
 	rcd.hdr.signature_end = CPER_SIG_END;
 	rcd.hdr.section_count = 1;
 	rcd.hdr.error_severity = CPER_SEV_FATAL;
-	
+	/* timestamp, platform_id, partition_id are all invalid */
 	rcd.hdr.validation_bits = 0;
 	rcd.hdr.record_length = sizeof(rcd);
 	rcd.hdr.creator_id = CPER_CREATOR_MCE;
@@ -89,7 +93,7 @@ int apei_write_mce(struct mce *m)
 	rcd.sec_hdr.section_offset = (void *)&rcd.mce - (void *)&rcd;
 	rcd.sec_hdr.section_length = sizeof(rcd.mce);
 	rcd.sec_hdr.revision = CPER_SEC_REV;
-	
+	/* fru_id and fru_text is invalid */
 	rcd.sec_hdr.validation_bits = 0;
 	rcd.sec_hdr.flags = CPER_SEC_PRIMARY;
 	rcd.sec_hdr.section_type = CPER_SECTION_TYPE_MCE;
@@ -112,16 +116,16 @@ retry:
 	rc = erst_get_record_id_next(&pos, record_id);
 	if (rc)
 		goto out;
-	
+	/* no more record */
 	if (*record_id == APEI_ERST_INVALID_RECORD_ID)
 		goto out;
 	rc = erst_read(*record_id, &rcd.hdr, sizeof(rcd));
-	
+	/* someone else has cleared the record, try next one */
 	if (rc == -ENOENT)
 		goto retry;
 	else if (rc < 0)
 		goto out;
-	
+	/* try to skip other type records in storage */
 	else if (rc != sizeof(rcd) ||
 		 uuid_le_cmp(rcd.hdr.creator_id, CPER_CREATOR_MCE))
 		goto retry;
@@ -133,6 +137,7 @@ out:
 	return rc;
 }
 
+/* Check whether there is record in ERST */
 int apei_check_mce(void)
 {
 	return erst_get_record_count();

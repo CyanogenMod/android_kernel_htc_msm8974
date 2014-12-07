@@ -76,6 +76,9 @@ static pte_t __ref *vmem_pte_alloc(unsigned long address)
 	return pte;
 }
 
+/*
+ * Add a physical memory range to the 1:1 mapping.
+ */
 static int vmem_add_mem(unsigned long start, unsigned long size, int ro)
 {
 	unsigned long address;
@@ -132,6 +135,10 @@ out:
 	return ret;
 }
 
+/*
+ * Remove a physical memory range from the 1:1 mapping.
+ * Currently only invalidates page table entries.
+ */
 static void vmem_remove_range(unsigned long start, unsigned long size)
 {
 	unsigned long address;
@@ -163,6 +170,9 @@ static void vmem_remove_range(unsigned long start, unsigned long size)
 	flush_tlb_kernel_range(start, start + size);
 }
 
+/*
+ * Add a backed mem_map array to the virtual mem_map array.
+ */
 int __meminit vmemmap_populate(struct page *start, unsigned long nr, int node)
 {
 	unsigned long address, start_addr, end_addr;
@@ -219,6 +229,10 @@ out:
 	return ret;
 }
 
+/*
+ * Add memory segment to the segment list if it doesn't overlap with
+ * an already present segment.
+ */
 static int insert_memory_segment(struct memory_segment *seg)
 {
 	struct memory_segment *tmp;
@@ -238,6 +252,9 @@ static int insert_memory_segment(struct memory_segment *seg)
 	return 0;
 }
 
+/*
+ * Remove memory segment from the segment list.
+ */
 static void remove_memory_segment(struct memory_segment *seg)
 {
 	list_del(&seg->list);
@@ -304,6 +321,11 @@ out:
 	return ret;
 }
 
+/*
+ * map whole physical memory to virtual memory (identity mapping)
+ * we reserve enough space in the vmalloc area for vmemmap to hotplug
+ * additional memory segments.
+ */
 void __init vmem_map_init(void)
 {
 	unsigned long ro_start, ro_end;
@@ -336,6 +358,10 @@ void __init vmem_map_init(void)
 	}
 }
 
+/*
+ * Convert memory chunk array to a memory segment list so there is a single
+ * list that contains both r/w memory and shared memory segments.
+ */
 static int __init vmem_convert_memory_chunk(void)
 {
 	struct memory_segment *seg;

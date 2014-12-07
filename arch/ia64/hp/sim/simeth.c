@@ -27,6 +27,13 @@
 
 #define SIMETH_RECV_MAX	10
 
+/*
+ * Maximum possible received frame for Ethernet.
+ * We preallocate an sk_buff of that size to avoid costly
+ * memcpy for temporary buffer into sk_buff. We do basically
+ * what's done in other drivers, like eepro with a ring.
+ * The difference is, of course, that we don't have real DMA !!!
+ */
 #define SIMETH_FRAME_SIZE	ETH_FRAME_LEN
 
 
@@ -34,7 +41,7 @@
 
 struct simeth_local {
 	struct net_device_stats stats;
-	int 			simfd;	 
+	int 			simfd;	 /* descriptor in the simulator */
 };
 
 static int simeth_probe1(void);
@@ -49,19 +56,42 @@ static int simeth_device_event(struct notifier_block *this,unsigned long event, 
 
 static char *simeth_version="0.3";
 
-static char *simeth_device="eth0";	 
+/*
+ * This variable is used to establish a mapping between the Linux/ia64 kernel
+ * and the host linux kernel.
+ *
+ * As of today, we support only one card, even though most of the code
+ * is ready for many more. The mapping is then:
+ *	linux/ia64 -> linux/x86
+ * 	   eth0    -> eth1
+ *
+ * In the future, we some string operations, we could easily support up
+ * to 10 cards (0-9).
+ *
+ * The default mapping can be changed on the kernel command line by
+ * specifying simeth=ethX (or whatever string you want).
+ */
+static char *simeth_device="eth0";	 /* default host interface to use */
 
 
 
-static volatile unsigned int card_count; 
-static int simeth_debug;		
+static volatile unsigned int card_count; /* how many cards "found" so far */
+static int simeth_debug;		/* set to 1 to get debug information */
 
+/*
+ * Used to catch IFF_UP & IFF_DOWN events
+ */
 static struct notifier_block simeth_dev_notifier = {
 	simeth_device_event,
 	NULL
 };
 
 
+/*
+ * Function used when using a kernel command line option.
+ *
+ * Format: simeth=interface_name (like eth0)
+ */
 static int __init
 simeth_setup(char *str)
 {
@@ -71,6 +101,10 @@ simeth_setup(char *str)
 
 __setup("simeth=", simeth_setup);
 
+/*
+ * Function used to probe for simeth devices when not installed
+ * as a loadable module
+ */
 
 int __init
 simeth_probe (void)
@@ -96,7 +130,7 @@ netdev_probe(char *name, unsigned char *ether)
 static inline int
 netdev_attach(int fd, int irq, unsigned int ipaddr)
 {
-	
+	/* this puts the host interface in the right mode (start interrupting) */
 	return ia64_ssc(fd, ipaddr, 0,0, SSC_NETDEV_ATTACH);
 }
 
@@ -104,6 +138,8 @@ netdev_attach(int fd, int irq, unsigned int ipaddr)
 static inline int
 netdev_detach(int fd)
 {
+	/*
+	 * inactivate the host interface (don't interrupt anymore) */
 	return ia64_ssc(fd, 0,0,0, SSC_NETDEV_DETACH);
 }
 
@@ -124,10 +160,21 @@ static const struct net_device_ops simeth_netdev_ops = {
 	.ndo_stop		= simeth_close,
 	.ndo_start_xmit		= simeth_tx,
 	.ndo_get_stats		= simeth_get_stats,
-	.ndo_set_rx_mode	= set_multicast_list, 
+	.ndo_set_rx_mode	= set_multicast_list, /* not yet used */
 
 };
 
+/*
+ * Function shared with module code, so cannot be in init section
+ *
+ * So far this function "detects" only one card (test_&_set) but could
+ * be extended easily.
+ *
+ * Return:
+ * 	- -ENODEV is no device found
+ *	- -ENOMEM is no more memory
+ *	- 0 otherwise
+ */
 static int
 simeth_probe1(void)
 {
@@ -136,9 +183,16 @@ simeth_probe1(void)
 	struct net_device *dev;
 	int fd, err, rc;
 
+	/*
+	 * XXX Fix me
+	 * let's support just one card for now
+	 */
 	if (test_and_set_bit(0, &card_count))
 		return -ENODEV;
 
+	/*
+	 * check with the simulator for the device
+	 */
 	fd = netdev_probe(simeth_device, mac_addr);
 	if (fd == -1)
 		return -ENODEV;
@@ -150,7 +204,7 @@ simeth_probe1(void)
 	memcpy(dev->dev_addr, mac_addr, sizeof(mac_addr));
 
 	local = netdev_priv(dev);
-	local->simfd = fd; 
+	local->simfd = fd; /* keep track of underlying file descriptor */
 
 	dev->netdev_ops = &simeth_netdev_ops;
 
@@ -160,6 +214,10 @@ simeth_probe1(void)
 		return err;
 	}
 
+	/*
+	 * attach the interrupt in the simulator, this does enable interrupts
+	 * until a netdev_attach() is called
+	 */
 	if ((rc = hpsim_get_irq(NETWORK_INTR)) < 0)
 		panic("%s: out of interrupt vectors!\n", __func__);
 	dev->irq = rc;
@@ -170,6 +228,9 @@ simeth_probe1(void)
 	return 0;
 }
 
+/*
+ * actually binds the device to an interrupt vector
+ */
 static int
 simeth_open(struct net_device *dev)
 {
@@ -183,12 +244,27 @@ simeth_open(struct net_device *dev)
 	return 0;
 }
 
+/* copied from lapbether.c */
 static __inline__ int dev_is_ethdev(struct net_device *dev)
 {
        return ( dev->type == ARPHRD_ETHER && strncmp(dev->name, "dummy", 5));
 }
 
 
+/*
+ * Handler for IFF_UP or IFF_DOWN
+ *
+ * The reason for that is that we don't want to be interrupted when the
+ * interface is down. There is no way to unconnect in the simualtor. Instead
+ * we use this function to shutdown packet processing in the frame filter
+ * in the simulator. Thus no interrupts are generated
+ *
+ *
+ * That's also the place where we pass the IP address of this device to the
+ * simulator so that that we can start filtering packets for it
+ *
+ * There may be a better way of doing this, but I don't know which yet.
+ */
 static int
 simeth_device_event(struct notifier_block *this,unsigned long event, void *ptr)
 {
@@ -210,6 +286,12 @@ simeth_device_event(struct notifier_block *this,unsigned long event, void *ptr)
 
 	if ( event != NETDEV_UP && event != NETDEV_DOWN ) return NOTIFY_DONE;
 
+	/*
+	 * Check whether or not it's for an ethernet device
+	 *
+	 * XXX Fixme: This works only as long as we support one
+	 * type of ethernet device.
+	 */
 	if ( !dev_is_ethdev(dev) ) return NOTIFY_DONE;
 
 	if ((in_dev=dev->ip_ptr) != NULL) {
@@ -224,9 +306,14 @@ simeth_device_event(struct notifier_block *this,unsigned long event, void *ptr)
 	printk(KERN_INFO "simeth_device_event: %s ipaddr=0x%x\n",
 	       dev->name, ntohl(ifa->ifa_local));
 
+	/*
+	 * XXX Fix me
+	 * if the device was up, and we're simply reconfiguring it, not sure
+	 * we get DOWN then UP.
+	 */
 
 	local = netdev_priv(dev);
-	
+	/* now do it for real */
 	r = event == NETDEV_UP ?
 		netdev_attach(local->simfd, dev->irq, ntohl(ifa->ifa_local)):
 		netdev_detach(local->simfd);
@@ -247,6 +334,9 @@ simeth_close(struct net_device *dev)
 	return 0;
 }
 
+/*
+ * Only used for debug
+ */
 static void
 frame_print(unsigned char *from, unsigned char *frame, int len)
 {
@@ -270,16 +360,23 @@ frame_print(unsigned char *from, unsigned char *frame, int len)
 }
 
 
+/*
+ * Function used to transmit of frame, very last one on the path before
+ * going to the simulator.
+ */
 static int
 simeth_tx(struct sk_buff *skb, struct net_device *dev)
 {
 	struct simeth_local *local = netdev_priv(dev);
 
 #if 0
-	
+	/* ensure we have at least ETH_ZLEN bytes (min frame size) */
 	unsigned int length = ETH_ZLEN < skb->len ? skb->len : ETH_ZLEN;
-	
+	/* Where do the extra padding bytes comes from inthe skbuff ? */
 #else
+	/* the real driver in the host system is going to take care of that
+	 * or maybe it's the NIC itself.
+	 */
 	unsigned int length = skb->len;
 #endif
 
@@ -291,6 +388,10 @@ simeth_tx(struct sk_buff *skb, struct net_device *dev)
 
 	netdev_send(local->simfd, skb->data, length);
 
+	/*
+	 * we are synchronous on write, so we don't simulate a
+	 * trasnmit complete interrupt, thus we don't need to arm a tx
+	 */
 
 	dev_kfree_skb(skb);
 	return NETDEV_TX_OK;
@@ -301,19 +402,26 @@ make_new_skb(struct net_device *dev)
 {
 	struct sk_buff *nskb;
 
+	/*
+	 * The +2 is used to make sure that the IP header is nicely
+	 * aligned (on 4byte boundary I assume 14+2=16)
+	 */
 	nskb = dev_alloc_skb(SIMETH_FRAME_SIZE + 2);
 	if ( nskb == NULL ) {
 		printk(KERN_NOTICE "%s: memory squeeze. dropping packet.\n", dev->name);
 		return NULL;
 	}
 
-	skb_reserve(nskb, 2);	
+	skb_reserve(nskb, 2);	/* Align IP on 16 byte boundaries */
 
 	skb_put(nskb,SIMETH_FRAME_SIZE);
 
 	return nskb;
 }
 
+/*
+ * called from interrupt handler to process a received frame
+ */
 static int
 simeth_rx(struct net_device *dev)
 {
@@ -323,12 +431,21 @@ simeth_rx(struct net_device *dev)
 	int			rcv_count = SIMETH_RECV_MAX;
 
 	local = netdev_priv(dev);
+	/*
+	 * the loop concept has been borrowed from other drivers
+	 * looks to me like it's a throttling thing to avoid pushing to many
+	 * packets at one time into the stack. Making sure we can process them
+	 * upstream and make forward progress overall
+	 */
 	do {
 		if ( (skb=make_new_skb(dev)) == NULL ) {
 			printk(KERN_NOTICE "%s: memory squeeze. dropping packet.\n", dev->name);
 			local->stats.rx_dropped++;
 			return 0;
 		}
+		/*
+		 * Read only one frame at a time
+		 */
 		len = netdev_read(local->simfd, skb->data, SIMETH_FRAME_SIZE);
 		if ( len == 0 ) {
 			if ( simeth_debug > 0 ) printk(KERN_WARNING "%s: count=%d netdev_read=0\n",
@@ -336,12 +453,19 @@ simeth_rx(struct net_device *dev)
 			break;
 		}
 #if 0
+		/*
+		 * XXX Fix me
+		 * Should really do a csum+copy here
+		 */
 		skb_copy_to_linear_data(skb, frame, len);
 #endif
 		skb->protocol = eth_type_trans(skb, dev);
 
 		if ( simeth_debug > 6 ) frame_print("simeth_rx", skb->data, len);
 
+		/*
+		 * push the packet up & trigger software interrupt
+		 */
 		netif_rx(skb);
 
 		local->stats.rx_packets++;
@@ -349,14 +473,20 @@ simeth_rx(struct net_device *dev)
 
 	} while ( --rcv_count );
 
-	return len; 
+	return len; /* 0 = nothing left to read, otherwise, we can try again */
 }
 
+/*
+ * Interrupt handler (Yes, we can do it too !!!)
+ */
 static irqreturn_t
 simeth_interrupt(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
 
+	/*
+	 * very simple loop because we get interrupts only when receiving
+	 */
 	while (simeth_rx(dev));
 	return IRQ_HANDLED;
 }
@@ -369,6 +499,7 @@ simeth_get_stats(struct net_device *dev)
 	return &local->stats;
 }
 
+/* fake multicast ability */
 static void
 set_multicast_list(struct net_device *dev)
 {

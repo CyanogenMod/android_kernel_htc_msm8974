@@ -20,4 +20,4 @@ bool irq_work_queue(struct irq_work *work);
 void irq_work_run(void);
 void irq_work_sync(struct irq_work *work);
 
-#endif 
+#endif /* _LINUX_IRQ_WORK_H */

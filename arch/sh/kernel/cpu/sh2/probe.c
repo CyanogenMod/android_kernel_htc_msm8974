@@ -24,6 +24,9 @@ void __cpuinit cpu_probe(void)
 	boot_cpu_data.dcache.linesz		= L1_CACHE_BYTES;
 	boot_cpu_data.dcache.flags		= 0;
 #endif
+	/*
+	 * SH-2 doesn't have separate caches
+	 */
 	boot_cpu_data.dcache.flags |= SH_CACHE_COMBINED;
 	boot_cpu_data.icache = boot_cpu_data.dcache;
 	boot_cpu_data.family = CPU_FAMILY_SH2;

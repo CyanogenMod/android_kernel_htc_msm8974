@@ -34,9 +34,55 @@
  * 1+ (800) 334-5454
  */
 
+/* 
+ * TODO : flesh out DMA support, find some one actually using this (I have
+ * 	a memory mapped Trantor board that works fine)
+ */
 
+/*
+ * Options :
+ *
+ * PARITY - enable parity checking.  Not supported.
+ *
+ * SCSI2 - enable support for SCSI-II tagged queueing.  Untested.
+ *
+ * USLEEP - enable support for devices that don't disconnect.  Untested.
+ *
+ * The card is detected and initialized in one of several ways : 
+ * 1.  With command line overrides - NCR5380=port,irq may be 
+ *     used on the LILO command line to override the defaults.
+ *
+ * 2.  With the GENERIC_NCR5380_OVERRIDE compile time define.  This is 
+ *     specified as an array of address, irq, dma, board tuples.  Ie, for
+ *     one board at 0x350, IRQ5, no dma, I could say  
+ *     -DGENERIC_NCR5380_OVERRIDE={{0xcc000, 5, DMA_NONE, BOARD_NCR5380}}
+ * 
+ * -1 should be specified for no or DMA interrupt, -2 to autoprobe for an 
+ * 	IRQ line if overridden on the command line.
+ *
+ * 3.  When included as a module, with arguments passed on the command line:
+ *         ncr_irq=xx	the interrupt
+ *         ncr_addr=xx  the port or base address (for port or memory
+ *              	mapped, resp.)
+ *         ncr_dma=xx	the DMA
+ *         ncr_5380=1	to set up for a NCR5380 board
+ *         ncr_53c400=1	to set up for a NCR53C400 board
+ *     e.g.
+ *     modprobe g_NCR5380 ncr_irq=5 ncr_addr=0x350 ncr_5380=1
+ *       for a port mapped NCR5380 board or
+ *     modprobe g_NCR5380 ncr_irq=255 ncr_addr=0xc8000 ncr_53c400=1
+ *       for a memory mapped NCR53C400 board with interrupts disabled.
+ * 
+ * 255 should be specified for no or DMA interrupt, 254 to autoprobe for an 
+ * 	IRQ line if overridden on the command line.
+ *     
+ */
 
+/*
+ * $Log: generic_NCR5380.c,v $
+ */
 
+/* settings for DTC3181E card with only Mustek scanner attached */
 #define USLEEP
 #define USLEEP_POLL	1
 #define USLEEP_SLEEP	20
@@ -81,7 +127,7 @@ static struct override {
 	NCR5380_map_type NCR5380_map_name;
 	int irq;
 	int dma;
-	int board;		
+	int board;		/* Use NCR53c400, Ricoh, etc. extensions ? */
 } overrides
 #ifdef GENERIC_NCR5380_OVERRIDE
 [] __initdata = GENERIC_NCR5380_OVERRIDE;
@@ -93,6 +139,17 @@ static struct override {
 
 #ifndef MODULE
 
+/**
+ *	internal_setup		-	handle lilo command string override
+ *	@board:	BOARD_* identifier for the board
+ *	@str: unused
+ *	@ints: numeric parameters
+ *
+ * 	Do LILO command line initialization of the overrides array. Display
+ *	errors when needed
+ *
+ *	Locks: none
+ */
 
 static void __init internal_setup(int board, char *str, int *ints)
 {
@@ -137,6 +194,13 @@ static void __init internal_setup(int board, char *str, int *ints)
 }
 
 
+/**
+ * 	do_NCR53C80_setup		-	set up entry point
+ *	@str: unused
+ *
+ *	Setup function invoked at boot to parse the ncr5380= command
+ *	line.
+ */
 
 static int __init do_NCR5380_setup(char *str)
 {
@@ -147,6 +211,14 @@ static int __init do_NCR5380_setup(char *str)
 	return 1;
 }
 
+/**
+ * 	do_NCR53C400_setup		-	set up entry point
+ *	@str: unused
+ *	@ints: integer parameters from kernel setup code
+ *
+ *	Setup function invoked at boot to parse the ncr53c400= command
+ *	line.
+ */
 
 static int __init do_NCR53C400_setup(char *str)
 {
@@ -157,6 +229,14 @@ static int __init do_NCR53C400_setup(char *str)
 	return 1;
 }
 
+/**
+ * 	do_NCR53C400A_setup	-	set up entry point
+ *	@str: unused
+ *	@ints: integer parameters from kernel setup code
+ *
+ *	Setup function invoked at boot to parse the ncr53c400a= command
+ *	line.
+ */
 
 static int __init do_NCR53C400A_setup(char *str)
 {
@@ -167,6 +247,14 @@ static int __init do_NCR53C400A_setup(char *str)
 	return 1;
 }
 
+/**
+ * 	do_DTC3181E_setup	-	set up entry point
+ *	@str: unused
+ *	@ints: integer parameters from kernel setup code
+ *
+ *	Setup function invoked at boot to parse the dtc3181e= command
+ *	line.
+ */
 
 static int __init do_DTC3181E_setup(char *str)
 {
@@ -179,6 +267,19 @@ static int __init do_DTC3181E_setup(char *str)
 
 #endif
 
+/**
+ * 	generic_NCR5380_detect	-	look for NCR5380 controllers
+ *	@tpnt: the scsi template
+ *
+ *	Scan for the present of NCR5380, NCR53C400, NCR53C400A, DTC3181E
+ *	and DTC436(ISAPnP) controllers. If overrides have been set we use
+ *	them.
+ *
+ *	The caller supplied NCR5380_init function is invoked from here, before
+ *	the interrupt line is taken.
+ *
+ *	Locks: none
+ */
 
 int __init generic_NCR5380_detect(struct scsi_host_template * tpnt)
 {
@@ -275,9 +376,9 @@ int __init generic_NCR5380_detect(struct scsi_host_template * tpnt)
 
 #ifndef SCSI_G_NCR5380_MEM
 		if (ports) {
-			
+			/* wakeup sequence for the NCR53C400A and DTC3181E */
 
-			
+			/* Disable the adapter and look for a free io port */
 			outb(0x59, 0x779);
 			outb(0xb9, 0x379);
 			outb(0xc5, 0x379);
@@ -301,13 +402,13 @@ int __init generic_NCR5380_detect(struct scsi_host_template * tpnt)
 					release_region(ports[i], 16);
 				}
 			if (ports[i]) {
-				
+				/* At this point we have our region reserved */
 				outb(0x59, 0x779);
 				outb(0xb9, 0x379);
 				outb(0xc5, 0x379);
 				outb(0xae, 0x379);
 				outb(0xa6, 0x379);
-				outb(0x80 | i, 0x379);	
+				outb(0x80 | i, 0x379);	/* set io port to be used */
 				outb(0xc0, ports[i] + 9);
 				if (inb(ports[i] + 9) != 0x80)
 					continue;
@@ -318,7 +419,7 @@ int __init generic_NCR5380_detect(struct scsi_host_template * tpnt)
 		}
 		else
 		{
-			
+			/* Not a 53C400A style setup - just grab */
 			if(!(request_region(overrides[current_override].NCR5380_map_name, NCR5380_region_size, "ncr5380")))
 				continue;
 			region_size = NCR5380_region_size;
@@ -385,6 +486,12 @@ int __init generic_NCR5380_detect(struct scsi_host_template * tpnt)
 	return count;
 }
 
+/**
+ *	generic_NCR5380_info	-	reporting string
+ *	@host: NCR5380 to report on
+ *
+ *	Report driver information for the NCR5380
+ */
  	
 const char *generic_NCR5380_info(struct Scsi_Host *host)
 {
@@ -392,6 +499,14 @@ const char *generic_NCR5380_info(struct Scsi_Host *host)
 	return string;
 }
 
+/**
+ *	generic_NCR5380_release_resources	-	free resources
+ *	@instance: host adapter to clean up 
+ *
+ *	Free the generic interface resources from this adapter.
+ *
+ *	Locks: none
+ */
  
 int generic_NCR5380_release_resources(struct Scsi_Host *instance)
 {
@@ -414,6 +529,22 @@ int generic_NCR5380_release_resources(struct Scsi_Host *instance)
 }
 
 #ifdef BIOSPARAM
+/**
+ *	generic_NCR5380_biosparam
+ *	@disk: disk to compute geometry for
+ *	@dev: device identifier for this disk
+ *	@ip: sizes to fill in
+ *
+ *	Generates a BIOS / DOS compatible H-C-S mapping for the specified 
+ *	device / size.
+ * 
+ * 	XXX Most SCSI boards use this mapping, I could be incorrect.  Someone
+ *	using hard disks on a trantor should verify that this mapping
+ *	corresponds to that used by the BIOS / ASPI driver by running the linux
+ *	fdisk program and matching the H_C_S coordinates to what DOS uses.
+ *
+ *	Locks: none
+ */
 
 static int
 generic_NCR5380_biosparam(struct scsi_device *sdev, struct block_device *bdev,
@@ -428,6 +559,15 @@ generic_NCR5380_biosparam(struct scsi_device *sdev, struct block_device *bdev,
 
 #ifdef NCR53C400_PSEUDO_DMA
 
+/**
+ *	NCR5380_pread		-	pseudo DMA read
+ *	@instance: adapter to read from
+ *	@dst: buffer to read into
+ *	@len: buffer length
+ *
+ *	Perform a pseudo DMA mode read from an NCR53C400 or equivalent
+ *	controller
+ */
  
 static inline int NCR5380_pread(struct Scsi_Host *instance, unsigned char *dst, int len)
 {
@@ -457,7 +597,7 @@ static inline int NCR5380_pread(struct Scsi_Host *instance, unsigned char *dst, 
 				dst[start + i] = NCR5380_read(C400_HOST_BUFFER);
 		}
 #else
-		
+		/* implies SCSI_G_NCR5380_MEM */
 		memcpy_fromio(dst + start, iomem + NCR53C400_host_buffer, 128);
 #endif
 		start += 128;
@@ -467,7 +607,7 @@ static inline int NCR5380_pread(struct Scsi_Host *instance, unsigned char *dst, 
 	if (blocks) {
 		while (NCR5380_read(C400_CONTROL_STATUS_REG) & CSR_HOST_BUF_NOT_RDY)
 		{
-			
+			// FIXME - no timeout
 		}
 
 #ifndef SCSI_G_NCR5380_MEM
@@ -477,7 +617,7 @@ static inline int NCR5380_pread(struct Scsi_Host *instance, unsigned char *dst, 
 				dst[start + i] = NCR5380_read(C400_HOST_BUFFER);
 		}
 #else
-		
+		/* implies SCSI_G_NCR5380_MEM */
 		memcpy_fromio(dst + start, iomem + NCR53C400_host_buffer, 128);
 #endif
 		start += 128;
@@ -488,6 +628,9 @@ static inline int NCR5380_pread(struct Scsi_Host *instance, unsigned char *dst, 
 		printk("53C400r: no 53C80 gated irq after transfer");
 
 #if 0
+	/*
+	 *	DON'T DO THIS - THEY NEVER ARRIVE!
+	 */
 	printk("53C400r: Waiting for 53C80 registers\n");
 	while (NCR5380_read(C400_CONTROL_STATUS_REG) & CSR_53C80_REG)
 		;
@@ -500,6 +643,15 @@ static inline int NCR5380_pread(struct Scsi_Host *instance, unsigned char *dst, 
 	return 0;
 }
 
+/**
+ *	NCR5380_write		-	pseudo DMA write
+ *	@instance: adapter to read from
+ *	@dst: buffer to read into
+ *	@len: buffer length
+ *
+ *	Perform a pseudo DMA mode read from an NCR53C400 or equivalent
+ *	controller
+ */
 
 static inline int NCR5380_pwrite(struct Scsi_Host *instance, unsigned char *src, int len)
 {
@@ -523,14 +675,14 @@ static inline int NCR5380_pwrite(struct Scsi_Host *instance, unsigned char *src,
 			break;
 		}
 		while (NCR5380_read(C400_CONTROL_STATUS_REG) & CSR_HOST_BUF_NOT_RDY)
-			; 
+			; // FIXME - timeout
 #ifndef SCSI_G_NCR5380_MEM
 		{
 			for (i = 0; i < 128; i++)
 				NCR5380_write(C400_HOST_BUFFER, src[start + i]);
 		}
 #else
-		
+		/* implies SCSI_G_NCR5380_MEM */
 		memcpy_toio(iomem + NCR53C400_host_buffer, src + start, 128);
 #endif
 		start += 128;
@@ -538,7 +690,7 @@ static inline int NCR5380_pwrite(struct Scsi_Host *instance, unsigned char *src,
 	}
 	if (blocks) {
 		while (NCR5380_read(C400_CONTROL_STATUS_REG) & CSR_HOST_BUF_NOT_RDY)
-			; 
+			; // FIXME - no timeout
 
 #ifndef SCSI_G_NCR5380_MEM
 		{
@@ -546,7 +698,7 @@ static inline int NCR5380_pwrite(struct Scsi_Host *instance, unsigned char *src,
 				NCR5380_write(C400_HOST_BUFFER, src[start + i]);
 		}
 #else
-		
+		/* implies SCSI_G_NCR5380_MEM */
 		memcpy_toio(iomem + NCR53C400_host_buffer, src + start, 128);
 #endif
 		start += 128;
@@ -559,10 +711,17 @@ static inline int NCR5380_pwrite(struct Scsi_Host *instance, unsigned char *src,
 	printk("53C400w: Got em\n");
 #endif
 
-	
+	/* Let's wait for this instead - could be ugly */
+	/* All documentation says to check for this. Maybe my hardware is too
+	 * fast. Waiting for it seems to work fine! KLL
+	 */
 	while (!(i = NCR5380_read(C400_CONTROL_STATUS_REG) & CSR_GATED_53C80_IRQ))
-		;	
+		;	// FIXME - no timeout
 
+	/*
+	 * I know. i is certainly != 0 here but the loop is new. See previous
+	 * comment.
+	 */
 	if (i) {
 		if (!((i = NCR5380_read(BUS_AND_STATUS_REG)) & BASR_END_DMA_TRANSFER))
 			printk(KERN_ERR "53C400w: No END OF DMA bit - WHOOPS! BASR=%0x\n", i);
@@ -575,11 +734,14 @@ static inline int NCR5380_pwrite(struct Scsi_Host *instance, unsigned char *src,
 	}
 #endif
 	while (!(NCR5380_read(TARGET_COMMAND_REG) & TCR_LAST_BYTE_SENT))
-		; 	
+		; 	// TIMEOUT
 	return 0;
 }
-#endif				
+#endif				/* PSEUDO_DMA */
 
+/*
+ *	Include the NCR5380 core code that we build our driver around	
+ */
  
 #include "NCR5380.c"
 
@@ -603,6 +765,14 @@ static int sprint_command(char *buffer, int len, unsigned char *command)
 	return len - start;
 }
 
+/**
+ *	sprintf_Scsi_Cmnd	-	print a scsi command
+ *	@buffer: buffr to print into
+ *	@len: buffer length
+ *	@cmd: SCSI command block
+ *	
+ *	Print out the target and command data in hex
+ */
 
 static int sprint_Scsi_Cmnd(char *buffer, int len, Scsi_Cmnd * cmd)
 {
@@ -613,6 +783,22 @@ static int sprint_Scsi_Cmnd(char *buffer, int len, Scsi_Cmnd * cmd)
 	return len - start;
 }
 
+/**
+ *	generic_NCR5380_proc_info	-	/proc for NCR5380 driver
+ *	@buffer: buffer to print into
+ *	@start: start position
+ *	@offset: offset into buffer
+ *	@len: length
+ *	@hostno: instance to affect
+ *	@inout: read/write
+ *
+ *	Provide the procfs information for the 5380 controller. We fill
+ *	this with useful debugging information including the commands
+ *	being executed, disconnected command queue and the statistical
+ *	data
+ *
+ *	Locks: global cli/lock for queue walk
+ */
  
 static int generic_NCR5380_proc_info(struct Scsi_Host *scsi_ptr, char *buffer, char **start, off_t offset, int length, int inout)
 {

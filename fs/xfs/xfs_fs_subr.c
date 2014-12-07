@@ -21,6 +21,10 @@
 #include "xfs_inode.h"
 #include "xfs_trace.h"
 
+/*
+ * note: all filemap functions return negative error codes. These
+ * need to be inverted before returning to the xfs core functions.
+ */
 void
 xfs_tosspages(
 	xfs_inode_t	*ip,
@@ -28,7 +32,7 @@ xfs_tosspages(
 	xfs_off_t	last,
 	int		fiopt)
 {
-	
+	/* can't toss partial tail pages, so mask them out */
 	last &= ~(PAGE_SIZE - 1);
 	truncate_inode_pages_range(VFS_I(ip)->i_mapping, first, last - 1);
 }

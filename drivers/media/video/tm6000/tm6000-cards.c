@@ -68,16 +68,16 @@ static unsigned long tm6000_devused;
 
 struct tm6000_board {
 	char            *name;
-	char		eename[16];		
-	unsigned	eename_size;		
-	unsigned	eename_pos;		
+	char		eename[16];		/* EEPROM name */
+	unsigned	eename_size;		/* size of EEPROM name */
+	unsigned	eename_pos;		/* Position where it appears at ROM */
 
 	struct tm6000_capabilities caps;
 
-	enum		tm6000_devtype type;	
-	int             tuner_type;     
-	int             tuner_addr;     
-	int             demod_addr;     
+	enum		tm6000_devtype type;	/* variant of the chipset */
+	int             tuner_type;     /* type of the tuner */
+	int             tuner_addr;     /* tuner address */
+	int             demod_addr;     /* demodulator address */
 
 	struct tm6000_gpio gpio;
 
@@ -285,7 +285,7 @@ static struct tm6000_board tm6000_boards[] = {
 	},
 	[TM6000_BOARD_FREECOM_AND_SIMILAR] = {
 		.name         = "Freecom Hybrid Stick / Moka DVB-T Receiver Dual",
-		.tuner_type   = TUNER_XC2028, 
+		.tuner_type   = TUNER_XC2028, /* has a XC3028 */
 		.tuner_addr   = 0xc2 >> 1,
 		.demod_addr   = 0x1e >> 1,
 		.caps = {
@@ -315,7 +315,7 @@ static struct tm6000_board tm6000_boards[] = {
 	},
 	[TM6000_BOARD_ADSTECH_MINI_DUAL_TV] = {
 		.name         = "ADSTECH Mini Dual TV USB",
-		.tuner_type   = TUNER_XC2028, 
+		.tuner_type   = TUNER_XC2028, /* has a XC3028 */
 		.tuner_addr   = 0xc8 >> 1,
 		.demod_addr   = 0x1e >> 1,
 		.caps = {
@@ -347,7 +347,7 @@ static struct tm6000_board tm6000_boards[] = {
 		.eename       = { 'H', 0, 'V', 0, 'R', 0, '9', 0, '0', 0, '0', 0, 'H', 0 },
 		.eename_size  = 14,
 		.eename_pos   = 0x42,
-		.tuner_type   = TUNER_XC2028, 
+		.tuner_type   = TUNER_XC2028, /* has a XC3028 */
 		.tuner_addr   = 0xc2 >> 1,
 		.demod_addr   = 0x1e >> 1,
 		.type         = TM6010,
@@ -459,7 +459,7 @@ static struct tm6000_board tm6000_boards[] = {
 	},
 	[TM6010_BOARD_TERRATEC_CINERGY_HYBRID_XE] = {
 		.name         = "Terratec Cinergy Hybrid XE / Cinergy Hybrid-Stick",
-		.tuner_type   = TUNER_XC2028, 
+		.tuner_type   = TUNER_XC2028, /* has a XC3028 */
 		.tuner_addr   = 0xc2 >> 1,
 		.demod_addr   = 0x1e >> 1,
 		.type         = TM6010,
@@ -521,7 +521,7 @@ static struct tm6000_board tm6000_boards[] = {
 	},
 	[TM6010_BOARD_TWINHAN_TU501] = {
 		.name         = "Twinhan TU501(704D1)",
-		.tuner_type   = TUNER_XC2028, 
+		.tuner_type   = TUNER_XC2028, /* has a XC3028 */
 		.tuner_addr   = 0xc2 >> 1,
 		.demod_addr   = 0x1e >> 1,
 		.type         = TM6010,
@@ -616,6 +616,7 @@ static struct tm6000_board tm6000_boards[] = {
 	},
 };
 
+/* table of devices that work with this driver */
 static struct usb_device_id tm6000_id_table[] = {
 	{ USB_DEVICE(0x6000, 0x0001), .driver_info = TM5600_BOARD_GENERIC },
 	{ USB_DEVICE(0x6000, 0x0002), .driver_info = TM6010_BOARD_GENERIC },
@@ -641,13 +642,14 @@ static struct usb_device_id tm6000_id_table[] = {
 };
 MODULE_DEVICE_TABLE(usb, tm6000_id_table);
 
+/* Control power led for show some activity */
 void tm6000_flash_led(struct tm6000_core *dev, u8 state)
 {
-	
+	/* Power LED unconfigured */
 	if (!dev->gpio.power_led)
 		return;
 
-	
+	/* ON Power LED */
 	if (state) {
 		switch (dev->model) {
 		case TM6010_BOARD_HAUPPAUGE_900H:
@@ -665,7 +667,7 @@ void tm6000_flash_led(struct tm6000_core *dev, u8 state)
 			break;
 		}
 	}
-	
+	/* OFF Power LED */
 	else {
 		switch (dev->model) {
 		case TM6010_BOARD_HAUPPAUGE_900H:
@@ -685,6 +687,7 @@ void tm6000_flash_led(struct tm6000_core *dev, u8 state)
 	}
 }
 
+/* Tuner callback to provide the proper gpio changes needed for xc5000 */
 int tm6000_xc5000_callback(void *ptr, int component, int command, int arg)
 {
 	int rc = 0;
@@ -709,6 +712,7 @@ int tm6000_xc5000_callback(void *ptr, int component, int command, int arg)
 }
 EXPORT_SYMBOL_GPL(tm6000_xc5000_callback);
 
+/* Tuner callback to provide the proper gpio changes needed for xc2028 */
 
 int tm6000_tuner_callback(void *ptr, int component, int command, int arg)
 {
@@ -728,10 +732,10 @@ int tm6000_tuner_callback(void *ptr, int component, int command, int arg)
 		rc = tm6000_i2c_reset(dev, 10);
 		break;
 	case XC2028_TUNER_RESET:
-		
+		/* Reset codes during load firmware */
 		switch (arg) {
 		case 0:
-			
+			/* newer tuner can faster reset */
 			switch (dev->model) {
 			case TM5600_BOARD_10MOONS_UT821:
 				tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN,
@@ -795,44 +799,53 @@ EXPORT_SYMBOL_GPL(tm6000_tuner_callback);
 
 int tm6000_cards_setup(struct tm6000_core *dev)
 {
+	/*
+	 * Board-specific initialization sequence. Handles all GPIO
+	 * initialization sequences that are board-specific.
+	 * Up to now, all found devices use GPIO1 and GPIO4 at the same way.
+	 * Probably, they're all based on some reference device. Due to that,
+	 * there's a common routine at the end to handle those GPIO's. Devices
+	 * that use different pinups or init sequences can just return at
+	 * the board-specific session.
+	 */
 	switch (dev->model) {
 	case TM6010_BOARD_HAUPPAUGE_900H:
 	case TM6010_BOARD_TERRATEC_CINERGY_HYBRID_XE:
 	case TM6010_BOARD_TWINHAN_TU501:
 	case TM6010_BOARD_GENERIC:
-		
+		/* Turn xceive 3028 on */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.tuner_on, 0x01);
 		msleep(15);
-		
+		/* Turn zarlink zl10353 on */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.demod_on, 0x00);
 		msleep(15);
-		
+		/* Reset zarlink zl10353 */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.demod_reset, 0x00);
 		msleep(50);
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.demod_reset, 0x01);
 		msleep(15);
-		
+		/* Turn zarlink zl10353 off */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.demod_on, 0x01);
 		msleep(15);
-		
+		/* ir ? */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.ir, 0x01);
 		msleep(15);
-		
+		/* Power led on (blue) */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.power_led, 0x00);
 		msleep(15);
-		
+		/* DVB led off (orange) */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.dvb_led, 0x01);
 		msleep(15);
-		
+		/* Turn zarlink zl10353 on */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.demod_on, 0x00);
 		msleep(15);
 		break;
 	case TM6010_BOARD_BEHOLD_WANDER:
 	case TM6010_BOARD_BEHOLD_WANDER_LITE:
-		
+		/* Power led on (blue) */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.power_led, 0x01);
 		msleep(15);
-		
+		/* Reset zarlink zl10353 */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.demod_reset, 0x00);
 		msleep(50);
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.demod_reset, 0x01);
@@ -840,7 +853,7 @@ int tm6000_cards_setup(struct tm6000_core *dev)
 		break;
 	case TM6010_BOARD_BEHOLD_VOYAGER:
 	case TM6010_BOARD_BEHOLD_VOYAGER_LITE:
-		
+		/* Power led on (blue) */
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN, dev->gpio.power_led, 0x01);
 		msleep(15);
 		break;
@@ -848,6 +861,13 @@ int tm6000_cards_setup(struct tm6000_core *dev)
 		break;
 	}
 
+	/*
+	 * Default initialization. Most of the devices seem to use GPIO1
+	 * and GPIO4.on the same way, so, this handles the common sequence
+	 * used by most devices.
+	 * If a device uses a different sequence or different GPIO pins for
+	 * reset, just add the code at the board-specific part
+	 */
 
 	if (dev->gpio.tuner_reset) {
 		int rc;
@@ -861,7 +881,7 @@ int tm6000_cards_setup(struct tm6000_core *dev)
 				return rc;
 			}
 
-			msleep(10); 
+			msleep(10); /* Just to be conservative */
 			rc = tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN,
 						dev->gpio.tuner_reset, 0x01);
 			if (rc < 0) {
@@ -883,7 +903,7 @@ static void tm6000_config_tuner(struct tm6000_core *dev)
 {
 	struct tuner_setup tun_setup;
 
-	
+	/* Load tuner module */
 	v4l2_i2c_new_subdev(&dev->v4l2_dev, &dev->i2c_adap,
 		"tuner", dev->tuner_addr, NULL);
 
@@ -982,7 +1002,7 @@ static int fill_board_specific_data(struct tm6000_core *dev)
 	dev->vinput[2] = tm6000_boards[dev->model].vinput[2];
 	dev->rinput = tm6000_boards[dev->model].rinput;
 
-	
+	/* setup per-model quirks */
 	switch (dev->model) {
 	case TM6010_BOARD_TERRATEC_CINERGY_HYBRID_XE:
 	case TM6010_BOARD_HAUPPAUGE_900H:
@@ -993,7 +1013,7 @@ static int fill_board_specific_data(struct tm6000_core *dev)
 		break;
 	}
 
-	
+	/* initialize hardware */
 	rc = tm6000_init(dev);
 	if (rc < 0)
 		return rc;
@@ -1059,7 +1079,7 @@ static void flush_request_modules(struct tm6000_core *dev)
 #else
 #define request_modules(dev)
 #define flush_request_modules(dev)
-#endif 
+#endif /* CONFIG_MODULES */
 
 static int tm6000_init_dev(struct tm6000_core *dev)
 {
@@ -1074,12 +1094,12 @@ static int tm6000_init_dev(struct tm6000_core *dev)
 		if (rc < 0)
 			goto err;
 
-		
+		/* register i2c bus */
 		rc = tm6000_i2c_register(dev);
 		if (rc < 0)
 			goto err;
 	} else {
-		
+		/* register i2c bus */
 		rc = tm6000_i2c_register(dev);
 		if (rc < 0)
 			goto err;
@@ -1091,21 +1111,21 @@ static int tm6000_init_dev(struct tm6000_core *dev)
 			goto err;
 	}
 
-	
+	/* Default values for STD and resolutions */
 	dev->width = 720;
 	dev->height = 480;
 	dev->norm = V4L2_STD_PAL_M;
 
-	
+	/* Configure tuner */
 	tm6000_config_tuner(dev);
 
-	
+	/* Set video standard */
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, s_std, dev->norm);
 
-	
+	/* Set tuner frequency - also loads firmware on xc2028/xc3028 */
 	f.tuner = 0;
 	f.type = V4L2_TUNER_ANALOG_TV;
-	f.frequency = 3092;	
+	f.frequency = 3092;	/* 193.25 MHz */
 	dev->freq = f.frequency;
 	v4l2_device_call_all(&dev->v4l2_dev, 0, tuner, s_frequency, &f);
 
@@ -1113,7 +1133,7 @@ static int tm6000_init_dev(struct tm6000_core *dev)
 		v4l2_i2c_new_subdev(&dev->v4l2_dev, &dev->i2c_adap,
 			"tvaudio", I2C_ADDR_TDA9874, NULL);
 
-	
+	/* register and initialize V4L2 */
 	rc = tm6000_v4l2_register(dev);
 	if (rc < 0)
 		goto err;
@@ -1133,6 +1153,7 @@ err:
 	return rc;
 }
 
+/* high bandwidth multiplier, as encoded in highspeed endpoint descriptors */
 #define hb_mult(wMaxPacketSize) (1 + (((wMaxPacketSize) >> 11) & 0x03))
 
 static void get_max_endpoint(struct usb_device *udev,
@@ -1159,6 +1180,10 @@ static void get_max_endpoint(struct usb_device *udev,
 	}
 }
 
+/*
+ * tm6000_usb_probe()
+ * checks for supported devices
+ */
 static int tm6000_usb_probe(struct usb_interface *interface,
 			    const struct usb_device_id *id)
 {
@@ -1170,12 +1195,12 @@ static int tm6000_usb_probe(struct usb_interface *interface,
 
 	usbdev = usb_get_dev(interface_to_usbdev(interface));
 
-	
+	/* Selects the proper interface */
 	rc = usb_set_interface(usbdev, 0, 1);
 	if (rc < 0)
 		goto err;
 
-	
+	/* Check to see next free device and mark as used */
 	nr = find_first_zero_bit(&tm6000_devused, TM6000_MAXBOARDS);
 	if (nr >= TM6000_MAXBOARDS) {
 		printk(KERN_ERR "tm6000: Supports only %i tm60xx boards.\n", TM6000_MAXBOARDS);
@@ -1183,7 +1208,7 @@ static int tm6000_usb_probe(struct usb_interface *interface,
 		return -ENOMEM;
 	}
 
-	
+	/* Create and initialize dev struct */
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (dev == NULL) {
 		printk(KERN_ERR "tm6000" ": out of memory!\n");
@@ -1193,7 +1218,7 @@ static int tm6000_usb_probe(struct usb_interface *interface,
 	spin_lock_init(&dev->slock);
 	mutex_init(&dev->usb_lock);
 
-	
+	/* Increment usage count */
 	set_bit(nr, &tm6000_devused);
 	snprintf(dev->name, 29, "tm6000 #%d", nr);
 
@@ -1219,7 +1244,7 @@ static int tm6000_usb_probe(struct usb_interface *interface,
 		speed = "unknown";
 	}
 
-	
+	/* Get endpoints */
 	for (i = 0; i < interface->num_altsetting; i++) {
 		int ep;
 
@@ -1288,6 +1313,7 @@ static int tm6000_usb_probe(struct usb_interface *interface,
 		le16_to_cpu(dev->udev->descriptor.idProduct),
 		interface->altsetting->desc.bInterfaceNumber);
 
+/* check if the the device has the iso in endpoint at the correct place */
 	if (!dev->isoc_in.endp) {
 		printk(KERN_ERR "tm6000: probing error: no IN ISOC endpoint!\n");
 		rc = -ENODEV;
@@ -1295,7 +1321,7 @@ static int tm6000_usb_probe(struct usb_interface *interface,
 		goto err;
 	}
 
-	
+	/* save our data pointer in this interface device */
 	usb_set_intfdata(interface, dev);
 
 	printk(KERN_INFO "tm6000: Found %s\n", tm6000_boards[dev->model].name);
@@ -1316,6 +1342,11 @@ err:
 	return rc;
 }
 
+/*
+ * tm6000_usb_disconnect()
+ * called when the device gets diconencted
+ * video device will be unregistered on v4l2_close in case it is still open
+ */
 static void tm6000_usb_disconnect(struct usb_interface *interface)
 {
 	struct tm6000_core *dev = usb_get_intfdata(interface);
@@ -1335,7 +1366,7 @@ static void tm6000_usb_disconnect(struct usb_interface *interface)
 		case TM6010_BOARD_HAUPPAUGE_900H:
 		case TM6010_BOARD_TERRATEC_CINERGY_HYBRID_XE:
 		case TM6010_BOARD_TWINHAN_TU501:
-			
+			/* Power led off */
 			tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN,
 				dev->gpio.power_led, 0x01);
 			msleep(15);
@@ -1344,7 +1375,7 @@ static void tm6000_usb_disconnect(struct usb_interface *interface)
 		case TM6010_BOARD_BEHOLD_VOYAGER:
 		case TM6010_BOARD_BEHOLD_WANDER_LITE:
 		case TM6010_BOARD_BEHOLD_VOYAGER_LITE:
-			
+			/* Power led off */
 			tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN,
 				dev->gpio.power_led, 0x00);
 			msleep(15);

@@ -40,15 +40,24 @@
 #include <linux/hwmon-sysfs.h>
 #include <linux/err.h>
 
+/*
+ * Insmod parameters
+ */
 
+/* fan_voltage: 5=5V fan, 12=12V fan, 0=don't change */
 static int fan_voltage;
+/* prescaler: Possible values are 1, 2, 4, 8, 16 or 0 for don't change */
 static int prescaler;
+/* clock: The clock frequency of the chip the driver should assume */
 static int clock = 254000;
 
 module_param(fan_voltage, int, S_IRUGO);
 module_param(prescaler, int, S_IRUGO);
 module_param(clock, int, S_IRUGO);
 
+/*
+ * MAX 6650/6651 registers
+ */
 
 #define MAX6650_REG_SPEED	0x00
 #define MAX6650_REG_CONFIG	0x02
@@ -63,6 +72,9 @@ module_param(clock, int, S_IRUGO);
 #define MAX6650_REG_GPIO_STAT	0x14
 #define MAX6650_REG_COUNT	0x16
 
+/*
+ * Config register bits
+ */
 
 #define MAX6650_CFG_V12			0x08
 #define MAX6650_CFG_PRESCALER_MASK	0x07
@@ -77,6 +89,9 @@ module_param(clock, int, S_IRUGO);
 #define MAX6650_CFG_MODE_OPEN_LOOP	0x30
 #define MAX6650_COUNT_MASK		0x03
 
+/*
+ * Alarm status register bits
+ */
 
 #define MAX6650_ALRM_MAX	0x01
 #define MAX6650_ALRM_MIN	0x02
@@ -84,6 +99,7 @@ module_param(clock, int, S_IRUGO);
 #define MAX6650_ALRM_GPIO1	0x08
 #define MAX6650_ALRM_GPIO2	0x10
 
+/* Minimum and maximum values of the FAN-RPM */
 #define FAN_RPM_MIN 240
 #define FAN_RPM_MAX 30000
 
@@ -95,6 +111,9 @@ static int max6650_init_client(struct i2c_client *client);
 static int max6650_remove(struct i2c_client *client);
 static struct max6650_data *max6650_update_device(struct device *dev);
 
+/*
+ * Driver data (common to all clients)
+ */
 
 static const struct i2c_device_id max6650_id[] = {
 	{ "max6650", 1 },
@@ -112,15 +131,18 @@ static struct i2c_driver max6650_driver = {
 	.id_table	= max6650_id,
 };
 
+/*
+ * Client data (each client gets its own)
+ */
 
 struct max6650_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
 	int nr_fans;
-	char valid; 
-	unsigned long last_updated; 
+	char valid; /* zero until following fields are valid */
+	unsigned long last_updated; /* in jiffies */
 
-	
+	/* register values */
 	u8 speed;
 	u8 config;
 	u8 tach[4];
@@ -136,11 +158,59 @@ static ssize_t get_fan(struct device *dev, struct device_attribute *devattr,
 	struct max6650_data *data = max6650_update_device(dev);
 	int rpm;
 
+	/*
+	 * Calculation details:
+	 *
+	 * Each tachometer counts over an interval given by the "count"
+	 * register (0.25, 0.5, 1 or 2 seconds). This module assumes
+	 * that the fans produce two pulses per revolution (this seems
+	 * to be the most common).
+	 */
 
 	rpm = ((data->tach[attr->index] * 120) / DIV_FROM_REG(data->count));
 	return sprintf(buf, "%d\n", rpm);
 }
 
+/*
+ * Set the fan speed to the specified RPM (or read back the RPM setting).
+ * This works in closed loop mode only. Use pwm1 for open loop speed setting.
+ *
+ * The MAX6650/1 will automatically control fan speed when in closed loop
+ * mode.
+ *
+ * Assumptions:
+ *
+ * 1) The MAX6650/1 internal 254kHz clock frequency is set correctly. Use
+ *    the clock module parameter if you need to fine tune this.
+ *
+ * 2) The prescaler (low three bits of the config register) has already
+ *    been set to an appropriate value. Use the prescaler module parameter
+ *    if your BIOS doesn't initialize the chip properly.
+ *
+ * The relevant equations are given on pages 21 and 22 of the datasheet.
+ *
+ * From the datasheet, the relevant equation when in regulation is:
+ *
+ *    [fCLK / (128 x (KTACH + 1))] = 2 x FanSpeed / KSCALE
+ *
+ * where:
+ *
+ *    fCLK is the oscillator frequency (either the 254kHz internal
+ *         oscillator or the externally applied clock)
+ *
+ *    KTACH is the value in the speed register
+ *
+ *    FanSpeed is the speed of the fan in rps
+ *
+ *    KSCALE is the prescaler value (1, 2, 4, 8, or 16)
+ *
+ * When reading, we need to solve for FanSpeed. When writing, we need to
+ * solve for KTACH.
+ *
+ * Note: this tachometer is completely separate from the tachometers
+ * used to measure the fan speeds. Only one fan's speed (fan1) is
+ * controlled.
+ */
 
 static ssize_t get_target(struct device *dev, struct device_attribute *devattr,
 			 char *buf)
@@ -148,6 +218,13 @@ static ssize_t get_target(struct device *dev, struct device_attribute *devattr,
 	struct max6650_data *data = max6650_update_device(dev);
 	int kscale, ktach, rpm;
 
+	/*
+	 * Use the datasheet equation:
+	 *
+	 *    FanSpeed = KSCALE x fCLK / [256 x (KTACH + 1)]
+	 *
+	 * then multiply by 60 to give rpm.
+	 */
 
 	kscale = DIV_FROM_REG(data->config);
 	ktach = data->speed;
@@ -170,6 +247,12 @@ static ssize_t set_target(struct device *dev, struct device_attribute *devattr,
 
 	rpm = SENSORS_LIMIT(rpm, FAN_RPM_MIN, FAN_RPM_MAX);
 
+	/*
+	 * Divide the required speed by 60 to get from rpm to rps, then
+	 * use the datasheet equation:
+	 *
+	 *     KTACH = [(fCLK x KSCALE) / (256 x FanSpeed)] - 1
+	 */
 
 	mutex_lock(&data->update_lock);
 
@@ -188,6 +271,14 @@ static ssize_t set_target(struct device *dev, struct device_attribute *devattr,
 	return count;
 }
 
+/*
+ * Get/set the fan speed in open loop mode using pwm1 sysfs file.
+ * Speed is given as a relative value from 0 to 255, where 255 is maximum
+ * speed. Note that this is done by writing directly to the chip's DAC,
+ * it won't change the closed loop speed set by fan1_target.
+ * Also note that due to rounding errors it is possible that you don't read
+ * back exactly the value you have set.
+ */
 
 static ssize_t get_pwm(struct device *dev, struct device_attribute *devattr,
 		       char *buf)
@@ -195,6 +286,10 @@ static ssize_t get_pwm(struct device *dev, struct device_attribute *devattr,
 	int pwm;
 	struct max6650_data *data = max6650_update_device(dev);
 
+	/*
+	 * Useful range for dac is 0-180 for 12V fans and 0-76 for 5V fans.
+	 * Lower DAC values mean higher speeds.
+	 */
 	if (data->config & MAX6650_CFG_V12)
 		pwm = 255 - (255 * (int)data->dac)/180;
 	else
@@ -234,6 +329,13 @@ static ssize_t set_pwm(struct device *dev, struct device_attribute *devattr,
 	return count;
 }
 
+/*
+ * Get/Set controller mode:
+ * Possible values:
+ * 0 = Fan always on
+ * 1 = Open loop, Voltage is set according to speed, not regulated.
+ * 2 = Closed loop, RPM for all fans regulated by fan1 tachometer
+ */
 
 static ssize_t get_enable(struct device *dev, struct device_attribute *devattr,
 			  char *buf)
@@ -274,6 +376,18 @@ static ssize_t set_enable(struct device *dev, struct device_attribute *devattr,
 	return count;
 }
 
+/*
+ * Read/write functions for fan1_div sysfs file. The MAX6650 has no such
+ * divider. We handle this by converting between divider and counttime:
+ *
+ * (counttime == k) <==> (divider == 2^k), k = 0, 1, 2, or 3
+ *
+ * Lower values of k allow to connect a faster fan without the risk of
+ * counter overflow. The price is lower resolution. You can also set counttime
+ * using the module parameter. Note that the module parameter "prescaler" also
+ * influences the behaviour. Unfortunately, there's no sysfs attribute
+ * defined for that. See the data sheet for details.
+ */
 
 static ssize_t get_div(struct device *dev, struct device_attribute *devattr,
 		       char *buf)
@@ -320,6 +434,12 @@ static ssize_t set_div(struct device *dev, struct device_attribute *devattr,
 	return count;
 }
 
+/*
+ * Get alarm stati:
+ * Possible values:
+ * 0 = no alarm
+ * 1 = alarm
+ */
 
 static ssize_t get_alarm(struct device *dev, struct device_attribute *devattr,
 			 char *buf)
@@ -368,6 +488,9 @@ static umode_t max6650_attrs_visible(struct kobject *kobj, struct attribute *a,
 	u8 alarm_en = i2c_smbus_read_byte_data(client, MAX6650_REG_ALARM_EN);
 	struct device_attribute *devattr;
 
+	/*
+	 * Hide the alarms that have not been enabled by the firmware
+	 */
 
 	devattr = container_of(a, struct device_attribute, attr);
 	if (devattr == &sensor_dev_attr_fan1_max_alarm.dev_attr
@@ -412,6 +535,9 @@ static const struct attribute_group max6651_attr_grp = {
 	.attrs = max6651_attrs,
 };
 
+/*
+ * Real code
+ */
 
 static int max6650_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
@@ -429,6 +555,9 @@ static int max6650_probe(struct i2c_client *client,
 	mutex_init(&data->update_lock);
 	data->nr_fans = id->driver_data;
 
+	/*
+	 * Initialize the max6650 chip
+	 */
 	err = max6650_init_client(client);
 	if (err)
 		goto err_free;
@@ -436,7 +565,7 @@ static int max6650_probe(struct i2c_client *client,
 	err = sysfs_create_group(&client->dev.kobj, &max6650_attr_grp);
 	if (err)
 		goto err_free;
-	
+	/* 3 additional fan inputs for the MAX6651 */
 	if (data->nr_fans == 4) {
 		err = sysfs_create_group(&client->dev.kobj, &max6651_attr_grp);
 		if (err)
@@ -530,6 +659,11 @@ static int max6650_init_client(struct i2c_client *client)
 	dev_info(&client->dev, "Prescaler is set to %d.\n",
 		 1 << (config & MAX6650_CFG_PRESCALER_MASK));
 
+	/*
+	 * If mode is set to "full off", we change it to "open loop" and
+	 * set DAC to 255, which has the same effect. We do this because
+	 * there's no "full off" mode defined in hwmon specifcations.
+	 */
 
 	if ((config & MAX6650_CFG_MODE_MASK) == MAX6650_CFG_MODE_OFF) {
 		dev_dbg(&client->dev, "Change mode to open loop, full off.\n");
@@ -580,6 +714,11 @@ static struct max6650_data *max6650_update_device(struct device *dev)
 							MAX6650_REG_COUNT);
 		data->dac = i2c_smbus_read_byte_data(client, MAX6650_REG_DAC);
 
+		/*
+		 * Alarms are cleared on read in case the condition that
+		 * caused the alarm is removed. Keep the value latched here
+		 * for providing the register through different alarm files.
+		 */
 		data->alarm |= i2c_smbus_read_byte_data(client,
 							MAX6650_REG_ALARM);
 

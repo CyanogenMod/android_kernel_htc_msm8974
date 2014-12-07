@@ -24,6 +24,9 @@
 #define MAX_FROM_IOP_MESSAGES (255)
 
 
+/*
+ * SCSI interface function Prototypes
+ */
 
 static int adpt_detect(struct scsi_host_template * sht);
 static int adpt_queue(struct Scsi_Host *h, struct scsi_cmnd * cmd);
@@ -40,6 +43,9 @@ static int adpt_bus_reset(struct scsi_cmnd* cmd);
 static int adpt_device_reset(struct scsi_cmnd* cmd);
 
 
+/*
+ * struct scsi_host_template (see scsi/scsi_host.h)
+ */
 
 #define DPT_DRIVER_NAME	"Adaptec I2O RAID"
 
@@ -61,11 +67,12 @@ static int adpt_device_reset(struct scsi_cmnd* cmd);
 
 #define DPT_DRIVER	"dpt_i2o"
 #define DPTI_I2O_MAJOR	(151)
-#define DPT_ORGANIZATION_ID (0x1B)        
+#define DPT_ORGANIZATION_ID (0x1B)        /* For Private Messages */
 #define DPTI_MAX_HBA	(16)
-#define MAX_CHANNEL     (5)	
-#define MAX_ID        	(128)	
+#define MAX_CHANNEL     (5)	// Maximum Channel # Supported
+#define MAX_ID        	(128)	// Maximum Target ID Supported
 
+/* Sizes in 4 byte words */
 #define REPLY_FRAME_SIZE  (17)
 #define MAX_MESSAGE_SIZE  (128)
 #define SG_LIST_ELEMENTS  (56)
@@ -73,17 +80,19 @@ static int adpt_device_reset(struct scsi_cmnd* cmd);
 #define EMPTY_QUEUE           0xffffffff
 #define I2O_INTERRUPT_PENDING_B   (0x08)
 
-#define PCI_DPT_VENDOR_ID         (0x1044)	
-#define PCI_DPT_DEVICE_ID         (0xA501)	
+#define PCI_DPT_VENDOR_ID         (0x1044)	// DPT PCI Vendor ID
+#define PCI_DPT_DEVICE_ID         (0xA501)	// DPT PCI I2O Device ID
 #define PCI_DPT_RAPTOR_DEVICE_ID  (0xA511)	
 
+/* Debugging macro from Linux Device Drivers - Rubini */
 #undef PDEBUG
 #ifdef DEBUG
+//TODO add debug level switch
 #  define PDEBUG(fmt, args...)  printk(KERN_DEBUG "dpti: " fmt, ##args)
 #  define PDEBUGV(fmt, args...) printk(KERN_DEBUG "dpti: " fmt, ##args)
 #else
-# define PDEBUG(fmt, args...) 
-# define PDEBUGV(fmt, args...) 
+# define PDEBUG(fmt, args...) /* not debugging: nothing */
+# define PDEBUGV(fmt, args...) /* not debugging: nothing */
 #endif
 
 #define PERROR(fmt, args...) printk(KERN_ERR fmt, ##args)
@@ -93,6 +102,7 @@ static int adpt_device_reset(struct scsi_cmnd* cmd);
 
 #define SHUTDOWN_SIGS	(sigmask(SIGKILL)|sigmask(SIGINT)|sigmask(SIGTERM))
 
+// Command timeouts
 #define FOREVER			(0)
 #define TMOUT_INQUIRY 		(20)
 #define TMOUT_FLUSH		(360/45)
@@ -153,12 +163,13 @@ static int adpt_device_reset(struct scsi_cmnd* cmd);
 #define FALSE                 0
 #endif
 
-#define HBA_FLAGS_INSTALLED_B       0x00000001	
-#define HBA_FLAGS_BLINKLED_B        0x00000002	
-#define HBA_FLAGS_IN_RESET	0x00000040	
-#define HBA_HOSTRESET_FAILED	0x00000080	
+#define HBA_FLAGS_INSTALLED_B       0x00000001	// Adapter Was Installed
+#define HBA_FLAGS_BLINKLED_B        0x00000002	// Adapter In Blink LED State
+#define HBA_FLAGS_IN_RESET	0x00000040	/* in reset */
+#define HBA_HOSTRESET_FAILED	0x00000080	/* adpt_resethost failed */
 
 
+// Device state flags
 #define DPTI_DEV_ONLINE    0x00
 #define DPTI_DEV_UNSCANNED 0x01
 #define DPTI_DEV_RESET	   0x02
@@ -181,7 +192,7 @@ struct adpt_device {
 };
 
 struct adpt_channel {
-	struct adpt_device* device[MAX_ID];	
+	struct adpt_device* device[MAX_ID];	/* used as an array of 128 scsi ids */
 	u8	scsi_id;
 	u8	type;
 	u16	tid;
@@ -189,6 +200,7 @@ struct adpt_channel {
 	struct i2o_device* pI2o_dev;
 };
 
+// HBA state flags
 #define DPTI_STATE_RESET	(0x01)
 #define DPTI_STATE_IOCTL	(0x02)
 
@@ -199,9 +211,9 @@ typedef struct _adpt_hba {
 	u32 state;
 	spinlock_t state_lock;
 	int unit;
-	int host_no;		
+	int host_no;		/* SCSI host number */
 	u8 initialized;
-	u8 in_use;		
+	u8 in_use;		/* is the management node open*/
 
 	char name[32];
 	char detail[55];
@@ -217,7 +229,7 @@ typedef struct _adpt_hba {
 	u32  reply_fifo_size;
 	u32* reply_pool;
 	dma_addr_t reply_pool_pa;
-	u32  sg_tablesize;	
+	u32  sg_tablesize;	// Scatter/Gather List Size.       
 	u8  top_scsi_channel;
 	u8  top_scsi_id;
 	u8  top_scsi_lun;
@@ -232,14 +244,14 @@ typedef struct _adpt_hba {
 	uint lct_size;
 	struct i2o_device* devices;
 	struct adpt_channel channel[MAX_CHANNEL];
-	struct proc_dir_entry* proc_entry;	
+	struct proc_dir_entry* proc_entry;	/* /proc dir */
 
-	void __iomem *FwDebugBuffer_P;	
-	u32   FwDebugBufferSize;	
-	void __iomem *FwDebugStrLength_P;
-	void __iomem *FwDebugFlags_P;	
-	void __iomem *FwDebugBLEDflag_P;
-	void __iomem *FwDebugBLEDvalue_P;
+	void __iomem *FwDebugBuffer_P;	// Virtual Address Of FW Debug Buffer
+	u32   FwDebugBufferSize;	// FW Debug Buffer Size In Bytes
+	void __iomem *FwDebugStrLength_P;// Virtual Addr Of FW Debug String Len
+	void __iomem *FwDebugFlags_P;	// Virtual Address Of FW Debug Flags 
+	void __iomem *FwDebugBLEDflag_P;// Virtual Addr Of FW Debug BLED
+	void __iomem *FwDebugBLEDvalue_P;// Virtual Addr Of FW Debug BLED
 	u32 FwDebugFlags;
 	u32 *ioctl_reply_context[4];
 } adpt_hba;
@@ -249,6 +261,9 @@ struct sg_simple_element {
    u32 addr_bus;
 }; 
 
+/*
+ * Function Prototypes
+ */
 
 static void adpt_i2o_sys_shutdown(void);
 static int adpt_init(void);
@@ -303,20 +318,20 @@ static void adpt_delay(int millisec);
 
 #define PRINT_BUFFER_SIZE     512
 
-#define HBA_FLAGS_DBG_FLAGS_MASK         0xffff0000	
-#define HBA_FLAGS_DBG_KERNEL_PRINT_B     0x00010000	
-#define HBA_FLAGS_DBG_FW_PRINT_B         0x00020000	
-#define HBA_FLAGS_DBG_FUNCTION_ENTRY_B   0x00040000	
-#define HBA_FLAGS_DBG_FUNCTION_EXIT_B    0x00080000	
-#define HBA_FLAGS_DBG_ERROR_B            0x00100000	
-#define HBA_FLAGS_DBG_INIT_B             0x00200000	
-#define HBA_FLAGS_DBG_OS_COMMANDS_B      0x00400000	
-#define HBA_FLAGS_DBG_SCAN_B             0x00800000	
+#define HBA_FLAGS_DBG_FLAGS_MASK         0xffff0000	// Mask for debug flags
+#define HBA_FLAGS_DBG_KERNEL_PRINT_B     0x00010000	// Kernel Debugger Print
+#define HBA_FLAGS_DBG_FW_PRINT_B         0x00020000	// Firmware Debugger Print
+#define HBA_FLAGS_DBG_FUNCTION_ENTRY_B   0x00040000	// Function Entry Point
+#define HBA_FLAGS_DBG_FUNCTION_EXIT_B    0x00080000	// Function Exit
+#define HBA_FLAGS_DBG_ERROR_B            0x00100000	// Error Conditions
+#define HBA_FLAGS_DBG_INIT_B             0x00200000	// Init Prints
+#define HBA_FLAGS_DBG_OS_COMMANDS_B      0x00400000	// OS Command Info
+#define HBA_FLAGS_DBG_SCAN_B             0x00800000	// Device Scan
 
 #define FW_DEBUG_STR_LENGTH_OFFSET 0
 #define FW_DEBUG_FLAGS_OFFSET      4
 #define FW_DEBUG_BLED_OFFSET       8
 
 #define FW_DEBUG_FLAGS_NO_HEADERS_B    0x01
-#endif				
-#endif				
+#endif				/* !HOSTS_C */
+#endif				/* _DPT_H */

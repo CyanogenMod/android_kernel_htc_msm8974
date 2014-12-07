@@ -41,7 +41,7 @@ static struct mtd_partition flash_parts[] = {
 	{
 		.name           = "u-boot",
 		.offset         = 0x00000000,
-		.size           = 0x00020000,           
+		.size           = 0x00020000,           /* 128 KiB */
 		.mask_flags     = MTD_WRITEABLE,
 	},
 	{
@@ -79,6 +79,7 @@ static struct platform_device flash_device = {
 	},
 };
 
+/* This needs to be called after the SMC has been initialized */
 static int __init atngw100_flash_init(void)
 {
 	int ret;

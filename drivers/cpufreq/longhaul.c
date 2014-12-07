@@ -53,6 +53,7 @@
 #define	CPU_NEHEMIAH	5
 #define	CPU_NEHEMIAH_C	6
 
+/* Flags */
 #define USE_ACPI_C3		(1 << 1)
 #define USE_NORTHBRIDGE		(1 << 2)
 
@@ -63,7 +64,7 @@ static unsigned int fsb;
 static const struct mV_pos *vrm_mV_table;
 static const unsigned char *mV_vrm_table;
 
-static unsigned int highest_speed, lowest_speed; 
+static unsigned int highest_speed, lowest_speed; /* kHz */
 static unsigned int minmult, maxmult;
 static int can_scale_voltage;
 static struct acpi_processor *pr;
@@ -72,11 +73,13 @@ static u32 acpi_regs_addr;
 static u8 longhaul_flags;
 static unsigned int longhaul_index;
 
+/* Module parameters */
 static int scale_voltage;
 static int disable_acpi_c3;
 static int revid_errata;
 
 
+/* Clock ratios multiplied by 10 */
 static int mults[32];
 static int eblcr[32];
 static int longhaul_version;
@@ -127,31 +130,33 @@ static int longhaul_get_cpu_mult(void)
 	return eblcr[invalue];
 }
 
+/* For processor with BCR2 MSR */
 
 static void do_longhaul1(unsigned int mults_index)
 {
 	union msr_bcr2 bcr2;
 
 	rdmsrl(MSR_VIA_BCR2, bcr2.val);
-	
+	/* Enable software clock multiplier */
 	bcr2.bits.ESOFTBF = 1;
 	bcr2.bits.CLOCKMUL = mults_index & 0xff;
 
-	
+	/* Sync to timer tick */
 	safe_halt();
-	
+	/* Change frequency on next halt or sleep */
 	wrmsrl(MSR_VIA_BCR2, bcr2.val);
-	
+	/* Invoke transition */
 	ACPI_FLUSH_CPU_CACHE();
 	halt();
 
-	
+	/* Disable software clock multiplier */
 	local_irq_disable();
 	rdmsrl(MSR_VIA_BCR2, bcr2.val);
 	bcr2.bits.ESOFTBF = 0;
 	wrmsrl(MSR_VIA_BCR2, bcr2.val);
 }
 
+/* For processor with Longhaul MSR */
 
 static void do_powersaver(int cx_address, unsigned int mults_index,
 			  unsigned int dir)
@@ -160,37 +165,39 @@ static void do_powersaver(int cx_address, unsigned int mults_index,
 	u32 t;
 
 	rdmsrl(MSR_VIA_LONGHAUL, longhaul.val);
-	
+	/* Setup new frequency */
 	if (!revid_errata)
 		longhaul.bits.RevisionKey = longhaul.bits.RevisionID;
 	else
 		longhaul.bits.RevisionKey = 0;
 	longhaul.bits.SoftBusRatio = mults_index & 0xf;
 	longhaul.bits.SoftBusRatio4 = (mults_index & 0x10) >> 4;
-	
+	/* Setup new voltage */
 	if (can_scale_voltage)
 		longhaul.bits.SoftVID = (mults_index >> 8) & 0x1f;
-	
+	/* Sync to timer tick */
 	safe_halt();
-	
+	/* Raise voltage if necessary */
 	if (can_scale_voltage && dir) {
 		longhaul.bits.EnableSoftVID = 1;
 		wrmsrl(MSR_VIA_LONGHAUL, longhaul.val);
-		
+		/* Change voltage */
 		if (!cx_address) {
 			ACPI_FLUSH_CPU_CACHE();
 			halt();
 		} else {
 			ACPI_FLUSH_CPU_CACHE();
-			
+			/* Invoke C3 */
 			inb(cx_address);
+			/* Dummy op - must do something useless after P_LVL3
+			 * read */
 			t = inl(acpi_gbl_FADT.xpm_timer_block.address);
 		}
 		longhaul.bits.EnableSoftVID = 0;
 		wrmsrl(MSR_VIA_LONGHAUL, longhaul.val);
 	}
 
-	
+	/* Change frequency on next halt or sleep */
 	longhaul.bits.EnableSoftBusRatio = 1;
 	wrmsrl(MSR_VIA_LONGHAUL, longhaul.val);
 	if (!cx_address) {
@@ -198,27 +205,29 @@ static void do_powersaver(int cx_address, unsigned int mults_index,
 		halt();
 	} else {
 		ACPI_FLUSH_CPU_CACHE();
-		
+		/* Invoke C3 */
 		inb(cx_address);
-		
+		/* Dummy op - must do something useless after P_LVL3 read */
 		t = inl(acpi_gbl_FADT.xpm_timer_block.address);
 	}
-	
+	/* Disable bus ratio bit */
 	longhaul.bits.EnableSoftBusRatio = 0;
 	wrmsrl(MSR_VIA_LONGHAUL, longhaul.val);
 
-	
+	/* Reduce voltage if necessary */
 	if (can_scale_voltage && !dir) {
 		longhaul.bits.EnableSoftVID = 1;
 		wrmsrl(MSR_VIA_LONGHAUL, longhaul.val);
-		
+		/* Change voltage */
 		if (!cx_address) {
 			ACPI_FLUSH_CPU_CACHE();
 			halt();
 		} else {
 			ACPI_FLUSH_CPU_CACHE();
-			
+			/* Invoke C3 */
 			inb(cx_address);
+			/* Dummy op - must do something useless after P_LVL3
+			 * read */
 			t = inl(acpi_gbl_FADT.xpm_timer_block.address);
 		}
 		longhaul.bits.EnableSoftVID = 0;
@@ -226,6 +235,12 @@ static void do_powersaver(int cx_address, unsigned int mults_index,
 	}
 }
 
+/**
+ * longhaul_set_cpu_frequency()
+ * @mults_index : bitpattern of the new multiplier.
+ *
+ * Sets a new clock ratio.
+ */
 
 static void longhaul_setstate(unsigned int table_index)
 {
@@ -239,20 +254,20 @@ static void longhaul_setstate(unsigned int table_index)
 	unsigned int dir = 0;
 
 	mults_index = longhaul_table[table_index].index;
-	
+	/* Safety precautions */
 	mult = mults[mults_index & 0x1f];
 	if (mult == -1)
 		return;
 	speed = calc_speed(mult);
 	if ((speed > highest_speed) || (speed < lowest_speed))
 		return;
-	
+	/* Voltage transition before frequency transition? */
 	if (can_scale_voltage && longhaul_index < table_index)
 		dir = 1;
 
 	freqs.old = calc_speed(longhaul_get_cpu_mult());
 	freqs.new = speed;
-	freqs.cpu = 0; 
+	freqs.cpu = 0; /* longhaul.c is UP only driver */
 
 	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
@@ -263,11 +278,11 @@ retry_loop:
 	local_irq_save(flags);
 
 	pic2_mask = inb(0xA1);
-	pic1_mask = inb(0x21);	
-	outb(0xFF, 0xA1);	
-	outb(0xFE, 0x21);	
+	pic1_mask = inb(0x21);	/* works on C3. save mask. */
+	outb(0xFF, 0xA1);	/* Overkill */
+	outb(0xFE, 0x21);	/* TMR0 only */
 
-	
+	/* Wait while PCI bus is busy. */
 	if (acpi_regs_addr && (longhaul_flags & USE_NORTHBRIDGE
 	    || ((pr != NULL) && pr->flags.bm_control))) {
 		bm_status = inw(acpi_regs_addr);
@@ -281,22 +296,33 @@ retry_loop:
 	}
 
 	if (longhaul_flags & USE_NORTHBRIDGE) {
-		
+		/* Disable AGP and PCI arbiters */
 		outb(3, 0x22);
 	} else if ((pr != NULL) && pr->flags.bm_control) {
-		
+		/* Disable bus master arbitration */
 		acpi_write_bit_register(ACPI_BITREG_ARB_DISABLE, 1);
 	}
 	switch (longhaul_version) {
 
+	/*
+	 * Longhaul v1. (Samuel[C5A] and Samuel2 stepping 0[C5B])
+	 * Software controlled multipliers only.
+	 */
 	case TYPE_LONGHAUL_V1:
 		do_longhaul1(mults_index);
 		break;
 
+	/*
+	 * Longhaul v2 appears in Samuel2 Steppings 1->7 [C5B] and Ezra [C5C]
+	 *
+	 * Longhaul v3 (aka Powersaver). (Ezra-T [C5M] & Nehemiah [C5N])
+	 * Nehemiah can do FSB scaling too, but this has never been proven
+	 * to work in practice.
+	 */
 	case TYPE_LONGHAUL_V2:
 	case TYPE_POWERSAVER:
 		if (longhaul_flags & USE_ACPI_C3) {
-			
+			/* Don't allow wakeup */
 			acpi_write_bit_register(ACPI_BITREG_BUS_MASTER_RLD, 0);
 			do_powersaver(cx->address, mults_index, dir);
 		} else {
@@ -306,22 +332,26 @@ retry_loop:
 	}
 
 	if (longhaul_flags & USE_NORTHBRIDGE) {
-		
+		/* Enable arbiters */
 		outb(0, 0x22);
 	} else if ((pr != NULL) && pr->flags.bm_control) {
-		
+		/* Enable bus master arbitration */
 		acpi_write_bit_register(ACPI_BITREG_ARB_DISABLE, 0);
 	}
-	outb(pic2_mask, 0xA1);	
+	outb(pic2_mask, 0xA1);	/* restore mask */
 	outb(pic1_mask, 0x21);
 
 	local_irq_restore(flags);
 	preempt_enable();
 
 	freqs.new = calc_speed(longhaul_get_cpu_mult());
-	
+	/* Check if requested frequency is set. */
 	if (unlikely(freqs.new != speed)) {
 		printk(KERN_INFO PFX "Failed to set requested frequency!\n");
+		/* Revision ID = 1 but processor is expecting revision key
+		 * equal to 0. Jumpers at the bottom of processor will change
+		 * multiplier and FSB, but will not change bits in Longhaul
+		 * MSR nor enable voltage scaling. */
 		if (!revid_errata) {
 			printk(KERN_INFO PFX "Enabling \"Ignore Revision ID\" "
 						"option.\n");
@@ -329,6 +359,10 @@ retry_loop:
 			msleep(200);
 			goto retry_loop;
 		}
+		/* Why ACPI C3 sometimes doesn't work is a mystery for me.
+		 * But it does happen. Processor is entering ACPI C3 state,
+		 * but it doesn't change frequency. I tried poking various
+		 * bits in northbridge registers, but without success. */
 		if (longhaul_flags & USE_ACPI_C3) {
 			printk(KERN_INFO PFX "Disabling ACPI C3 support.\n");
 			longhaul_flags &= ~USE_ACPI_C3;
@@ -340,6 +374,10 @@ retry_loop:
 			msleep(200);
 			goto retry_loop;
 		}
+		/* This shouldn't happen. Longhaul ver. 2 was reported not
+		 * working on processors without voltage scaling, but with
+		 * RevID = 1. RevID errata will make things right. Just
+		 * to be 100% sure. */
 		if (longhaul_version == TYPE_LONGHAUL_V2) {
 			printk(KERN_INFO PFX "Switching to Longhaul ver. 1\n");
 			longhaul_version = TYPE_LONGHAUL_V1;
@@ -347,7 +385,7 @@ retry_loop:
 			goto retry_loop;
 		}
 	}
-	
+	/* Report true CPU frequency */
 	cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 
 	if (!bm_timeout)
@@ -355,6 +393,14 @@ retry_loop:
 				"idle PCI bus.\n");
 }
 
+/*
+ * Centaur decided to make life a little more tricky.
+ * Only longhaul v1 is allowed to read EBLCR BSEL[0:1].
+ * Samuel2 and above have to try and guess what the FSB is.
+ * We do this by assuming we booted at maximum multiplier, and interpolate
+ * between that value multiplied by possible FSBs and cpu_mhz which
+ * was calculated at boot time. Really ugly, but no other way to do this.
+ */
 
 #define ROUNDING	0xf
 
@@ -382,7 +428,7 @@ static int __cpuinit longhaul_get_ranges(void)
 	unsigned int ratio;
 	int mult;
 
-	
+	/* Get current frequency */
 	mult = longhaul_get_cpu_mult();
 	if (mult == -1) {
 		printk(KERN_INFO PFX "Invalid (reserved) multiplier!\n");
@@ -393,8 +439,11 @@ static int __cpuinit longhaul_get_ranges(void)
 		printk(KERN_INFO PFX "Invalid (reserved) FSB!\n");
 		return -EINVAL;
 	}
+	/* Get max multiplier - as we always did.
+	 * Longhaul MSR is useful only when voltage scaling is enabled.
+	 * C3 is booting at max anyway. */
 	maxmult = mult;
-	
+	/* Get min multiplier */
 	switch (cpu_model) {
 	case CPU_NEHEMIAH:
 		minmult = 50;
@@ -445,7 +494,7 @@ static int __cpuinit longhaul_get_ranges(void)
 		kfree(longhaul_table);
 		return -ENODEV;
 	}
-	
+	/* Sort */
 	for (j = 0; j < k - 1; j++) {
 		unsigned int min_f, min_i;
 		min_f = longhaul_table[j].frequency;
@@ -466,7 +515,7 @@ static int __cpuinit longhaul_get_ranges(void)
 
 	longhaul_table[k].frequency = CPUFREQ_TABLE_END;
 
-	
+	/* Find index we are running on */
 	for (j = 0; j < k; j++) {
 		if (mults[longhaul_table[j].index & 0x1f] == mult) {
 			longhaul_index = j;
@@ -521,7 +570,7 @@ static void __cpuinit longhaul_setup_voltagescaling(void)
 		return;
 	}
 
-	
+	/* How many voltage steps*/
 	numvscales = maxvid.pos - minvid.pos + 1;
 	printk(KERN_INFO PFX
 		"Max VID=%d.%03d  "
@@ -531,7 +580,7 @@ static void __cpuinit longhaul_setup_voltagescaling(void)
 		minvid.mV/1000, minvid.mV%1000,
 		numvscales);
 
-	
+	/* Calculate max frequency at min voltage */
 	j = longhaul.bits.MinMHzBR;
 	if (longhaul.bits.MinMHzBR4)
 		j += 16;
@@ -554,7 +603,7 @@ static void __cpuinit longhaul_setup_voltagescaling(void)
 	}
 	if (min_vid_speed >= highest_speed)
 		return;
-	
+	/* Calculate kHz for one voltage step */
 	kHz_step = (highest_speed - min_vid_speed) / numvscales;
 
 	j = 0;
@@ -594,13 +643,18 @@ static int longhaul_target(struct cpufreq_policy *policy,
 				relation, &table_index))
 		return -EINVAL;
 
-	
+	/* Don't set same frequency again */
 	if (longhaul_index == table_index)
 		return 0;
 
 	if (!can_scale_voltage)
 		longhaul_setstate(table_index);
 	else {
+		/* On test system voltage transitions exceeding single
+		 * step up or down were turning motherboard off. Both
+		 * "ondemand" and "userspace" are unsafe. C7 is doing
+		 * this in hardware, C3 is old and we need to do this
+		 * in software. */
 		i = longhaul_index;
 		current_vid = (longhaul_table[longhaul_index].index >> 8);
 		current_vid &= 0x1f;
@@ -645,6 +699,7 @@ static acpi_status longhaul_walk_callback(acpi_handle obj_handle,
 	return 1;
 }
 
+/* VIA don't support PM2 reg, but have something similar */
 static int enable_arbiter_disable(void)
 {
 	struct pci_dev *dev;
@@ -652,25 +707,25 @@ static int enable_arbiter_disable(void)
 	int reg;
 	u8 pci_cmd;
 
-	
+	/* Find PLE133 host bridge */
 	reg = 0x78;
 	dev = pci_get_device(PCI_VENDOR_ID_VIA, PCI_DEVICE_ID_VIA_8601_0,
 			     NULL);
-	
+	/* Find PM133/VT8605 host bridge */
 	if (dev == NULL)
 		dev = pci_get_device(PCI_VENDOR_ID_VIA,
 				     PCI_DEVICE_ID_VIA_8605_0, NULL);
-	
+	/* Find CLE266 host bridge */
 	if (dev == NULL) {
 		reg = 0x76;
 		dev = pci_get_device(PCI_VENDOR_ID_VIA,
 				     PCI_DEVICE_ID_VIA_862X_0, NULL);
-		
+		/* Find CN400 V-Link host bridge */
 		if (dev == NULL)
 			dev = pci_get_device(PCI_VENDOR_ID_VIA, 0x7259, NULL);
 	}
 	if (dev != NULL) {
-		
+		/* Enable access to port 0x22 */
 		pci_read_config_byte(dev, reg, &pci_cmd);
 		if (!(pci_cmd & 1<<7)) {
 			pci_cmd |= 1<<7;
@@ -693,14 +748,14 @@ static int longhaul_setup_southbridge(void)
 	struct pci_dev *dev;
 	u8 pci_cmd;
 
-	
+	/* Find VT8235 southbridge */
 	dev = pci_get_device(PCI_VENDOR_ID_VIA, PCI_DEVICE_ID_VIA_8235, NULL);
 	if (dev == NULL)
-		
+		/* Find VT8237 southbridge */
 		dev = pci_get_device(PCI_VENDOR_ID_VIA,
 				     PCI_DEVICE_ID_VIA_8237, NULL);
 	if (dev != NULL) {
-		
+		/* Set transition time to max */
 		pci_read_config_byte(dev, 0xec, &pci_cmd);
 		pci_cmd &= ~(1 << 2);
 		pci_write_config_byte(dev, 0xec, pci_cmd);
@@ -710,7 +765,7 @@ static int longhaul_setup_southbridge(void)
 		pci_read_config_byte(dev, 0xe5, &pci_cmd);
 		pci_cmd |= 1 << 7;
 		pci_write_config_byte(dev, 0xe5, pci_cmd);
-		
+		/* Get address of ACPI registers block*/
 		pci_read_config_byte(dev, 0x81, &pci_cmd);
 		if (pci_cmd & 1 << 7) {
 			pci_read_config_dword(dev, 0x88, &acpi_regs_addr);
@@ -732,7 +787,7 @@ static int __cpuinit longhaul_cpu_init(struct cpufreq_policy *policy)
 	int ret;
 	u32 lo, hi;
 
-	
+	/* Check what we have on this motherboard */
 	switch (c->x86_model) {
 	case 6:
 		cpu_model = CPU_SAMUEL;
@@ -748,6 +803,8 @@ static int __cpuinit longhaul_cpu_init(struct cpufreq_policy *policy)
 			longhaul_version = TYPE_LONGHAUL_V1;
 			cpu_model = CPU_SAMUEL2;
 			cpuname = "C3 'Samuel 2' [C5B]";
+			/* Note, this is not a typo, early Samuel2's had
+			 * Samuel1 ratios. */
 			memcpy(mults, samuel1_mults, sizeof(samuel1_mults));
 			memcpy(eblcr, samuel2_eblcr, sizeof(samuel2_eblcr));
 			break;
@@ -800,11 +857,11 @@ static int __cpuinit longhaul_cpu_init(struct cpufreq_policy *policy)
 		cpuname = "Unknown";
 		break;
 	}
-	
+	/* Check Longhaul ver. 2 */
 	if (longhaul_version == TYPE_LONGHAUL_V2) {
 		rdmsr(MSR_VIA_LONGHAUL, lo, hi);
 		if (lo == 0 && hi == 0)
-			
+			/* Looks like MSR isn't present */
 			longhaul_version = TYPE_LONGHAUL_V1;
 	}
 
@@ -819,28 +876,28 @@ static int __cpuinit longhaul_cpu_init(struct cpufreq_policy *policy)
 		break;
 	};
 
-	
+	/* Doesn't hurt */
 	longhaul_setup_southbridge();
 
-	
+	/* Find ACPI data for processor */
 	acpi_walk_namespace(ACPI_TYPE_PROCESSOR, ACPI_ROOT_OBJECT,
 				ACPI_UINT32_MAX, &longhaul_walk_callback, NULL,
 				NULL, (void *)&pr);
 
-	
+	/* Check ACPI support for C3 state */
 	if (pr != NULL && longhaul_version == TYPE_POWERSAVER) {
 		cx = &pr->power.states[ACPI_STATE_C3];
 		if (cx->address > 0 && cx->latency <= 1000)
 			longhaul_flags |= USE_ACPI_C3;
 	}
-	
+	/* Disable if it isn't working */
 	if (disable_acpi_c3)
 		longhaul_flags &= ~USE_ACPI_C3;
-	
+	/* Check if northbridge is friendly */
 	if (enable_arbiter_disable())
 		longhaul_flags |= USE_NORTHBRIDGE;
 
-	
+	/* Check ACPI support for bus master arbiter disable */
 	if (!(longhaul_flags & USE_ACPI_C3
 	     || longhaul_flags & USE_NORTHBRIDGE)
 	    && ((pr == NULL) || !(pr->flags.bm_control))) {
@@ -861,7 +918,7 @@ static int __cpuinit longhaul_cpu_init(struct cpufreq_policy *policy)
 	if ((longhaul_version != TYPE_LONGHAUL_V1) && (scale_voltage != 0))
 		longhaul_setup_voltagescaling();
 
-	policy->cpuinfo.transition_latency = 200000;	
+	policy->cpuinfo.transition_latency = 200000;	/* nsec */
 	policy->cur = calc_speed(longhaul_get_cpu_mult());
 
 	ret = cpufreq_frequency_table_cpuinfo(policy, longhaul_table);
@@ -950,10 +1007,18 @@ static void __exit longhaul_exit(void)
 	kfree(longhaul_table);
 }
 
+/* Even if BIOS is exporting ACPI C3 state, and it is used
+ * with success when CPU is idle, this state doesn't
+ * trigger frequency transition in some cases. */
 module_param(disable_acpi_c3, int, 0644);
 MODULE_PARM_DESC(disable_acpi_c3, "Don't use ACPI C3 support");
+/* Change CPU voltage with frequency. Very useful to save
+ * power, but most VIA C3 processors aren't supporting it. */
 module_param(scale_voltage, int, 0644);
 MODULE_PARM_DESC(scale_voltage, "Scale voltage of processor");
+/* Force revision key to 0 for processors which doesn't
+ * support voltage scaling, but are introducing itself as
+ * such. */
 module_param(revid_errata, int, 0644);
 MODULE_PARM_DESC(revid_errata, "Ignore CPU Revision ID");
 

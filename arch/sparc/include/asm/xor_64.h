@@ -28,6 +28,7 @@ extern void xor_vis_4(unsigned long, unsigned long *, unsigned long *,
 extern void xor_vis_5(unsigned long, unsigned long *, unsigned long *,
 		      unsigned long *, unsigned long *, unsigned long *);
 
+/* XXX Ugh, write cheetah versions... -DaveM */
 
 static struct xor_block_template xor_block_VIS = {
         .name	= "VIS",
@@ -60,6 +61,7 @@ static struct xor_block_template xor_block_niagara = {
 		xor_speed(&xor_block_niagara);		\
 	} while (0)
 
+/* For VIS for everything except Niagara.  */
 #define XOR_SELECT_TEMPLATE(FASTEST) \
 	((tlb_type == hypervisor && \
 	  (sun4v_chip_type == SUN4V_CHIP_NIAGARA1 || \

@@ -3,8 +3,9 @@
 
 #include <int.h>
 
+/* early macros for kgdb use. fixme: clean this up */
 
-#define UART_BASE		0xbbe4a000	
+#define UART_BASE		0xbbe4a000	/* PNX8550 */
 
 #define PNX8550_UART_PORT0	(UART_BASE)
 #define PNX8550_UART_PORT1	(UART_BASE + 0x1000)
@@ -12,6 +13,7 @@
 #define PNX8550_UART_INT(x)		(PNX8550_INT_GIC_MIN+19+x)
 #define IRQ_TO_UART(x)			(x-PNX8550_INT_GIC_MIN-19)
 
+/* early macros needed for prom/kgdb */
 
 #define ip3106_lcr(base, port)    *(volatile u32 *)(base+(port*0x1000) + 0x000)
 #define ip3106_mcr(base, port)   *(volatile u32 *)(base+(port*0x1000) + 0x004)

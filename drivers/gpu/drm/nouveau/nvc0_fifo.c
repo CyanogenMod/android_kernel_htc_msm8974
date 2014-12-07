@@ -114,7 +114,7 @@ nvc0_fifo_create_context(struct nouveau_channel *chan)
 		return -ENOMEM;
 	fifoch = chan->fifo_priv;
 
-	
+	/* allocate vram for control regs, map into polling area */
 	ret = nouveau_gpuobj_new(dev, NULL, 0x1000, 0x1000,
 				 NVOBJ_FLAG_ZERO_ALLOC, &fifoch->user);
 	if (ret)
@@ -131,7 +131,7 @@ nvc0_fifo_create_context(struct nouveau_channel *chan)
 		goto error;
 	}
 
-	
+	/* ramfc */
 	ret = nouveau_gpuobj_new_fake(dev, chan->ramin->pinst,
 				      chan->ramin->vinst, 0x100,
 				      NVOBJ_FLAG_ZERO_ALLOC, &fifoch->ramfc);
@@ -153,8 +153,8 @@ nvc0_fifo_create_context(struct nouveau_channel *chan)
 	nv_wo32(fifoch->ramfc, 0xa8, 0x1f1f1f1f);
 	nv_wo32(fifoch->ramfc, 0xac, 0x0000001f);
 	nv_wo32(fifoch->ramfc, 0xb8, 0xf8000000);
-	nv_wo32(fifoch->ramfc, 0xf8, 0x10003080); 
-	nv_wo32(fifoch->ramfc, 0xfc, 0x10000010); 
+	nv_wo32(fifoch->ramfc, 0xf8, 0x10003080); /* 0x002310 */
+	nv_wo32(fifoch->ramfc, 0xfc, 0x10000010); /* 0x002350 */
 	pinstmem->flush(dev);
 
 	nv_wr32(dev, 0x003000 + (chan->id * 8), 0xc0000000 |
@@ -278,7 +278,7 @@ nvc0_fifo_create(struct drm_device *dev)
 		goto error;
 
 	nouveau_irq_register(dev, 8, nvc0_fifo_isr);
-	NVOBJ_CLASS(dev, 0x506e, SW); 
+	NVOBJ_CLASS(dev, 0x506e, SW); /* nvsw */
 	return 0;
 
 error:
@@ -302,7 +302,7 @@ nvc0_fifo_init(struct drm_device *dev)
 	}
 	priv = pfifo->priv;
 
-	
+	/* reset PFIFO, enable all available PSUBFIFO areas */
 	nv_mask(dev, 0x000200, 0x00000100, 0x00000000);
 	nv_mask(dev, 0x000200, 0x00000100, 0x00000100);
 	nv_wr32(dev, 0x000204, 0xffffffff);
@@ -311,31 +311,31 @@ nvc0_fifo_init(struct drm_device *dev)
 	priv->spoon_nr = hweight32(nv_rd32(dev, 0x002204));
 	NV_DEBUG(dev, "PFIFO: %d subfifo(s)\n", priv->spoon_nr);
 
-	
+	/* assign engines to subfifos */
 	if (priv->spoon_nr >= 3) {
-		nv_wr32(dev, 0x002208, ~(1 << 0)); 
-		nv_wr32(dev, 0x00220c, ~(1 << 1)); 
-		nv_wr32(dev, 0x002210, ~(1 << 1)); 
-		nv_wr32(dev, 0x002214, ~(1 << 1)); 
-		nv_wr32(dev, 0x002218, ~(1 << 2)); 
-		nv_wr32(dev, 0x00221c, ~(1 << 1)); 
+		nv_wr32(dev, 0x002208, ~(1 << 0)); /* PGRAPH */
+		nv_wr32(dev, 0x00220c, ~(1 << 1)); /* PVP */
+		nv_wr32(dev, 0x002210, ~(1 << 1)); /* PPP */
+		nv_wr32(dev, 0x002214, ~(1 << 1)); /* PBSP */
+		nv_wr32(dev, 0x002218, ~(1 << 2)); /* PCE0 */
+		nv_wr32(dev, 0x00221c, ~(1 << 1)); /* PCE1 */
 	}
 
-	
+	/* PSUBFIFO[n] */
 	for (i = 0; i < priv->spoon_nr; i++) {
 		nv_mask(dev, 0x04013c + (i * 0x2000), 0x10000100, 0x00000000);
-		nv_wr32(dev, 0x040108 + (i * 0x2000), 0xffffffff); 
-		nv_wr32(dev, 0x04010c + (i * 0x2000), 0xfffffeff); 
+		nv_wr32(dev, 0x040108 + (i * 0x2000), 0xffffffff); /* INTR */
+		nv_wr32(dev, 0x04010c + (i * 0x2000), 0xfffffeff); /* INTR_EN */
 	}
 
 	nv_mask(dev, 0x002200, 0x00000001, 0x00000001);
 	nv_wr32(dev, 0x002254, 0x10000000 | priv->user_vma.offset >> 12);
 
-	nv_wr32(dev, 0x002a00, 0xffffffff); 
+	nv_wr32(dev, 0x002a00, 0xffffffff); /* clears PFIFO.INTR bit 30 */
 	nv_wr32(dev, 0x002100, 0xffffffff);
 	nv_wr32(dev, 0x002140, 0xbfffffff);
 
-	
+	/* restore PFIFO context table */
 	for (i = 0; i < 128; i++) {
 		chan = dev_priv->channels.ptr[i];
 		if (!chan || !chan->fifo_priv)
@@ -406,6 +406,7 @@ struct nouveau_enum nvc0_fifo_fault_gpcclient[] = {
 };
 
 struct nouveau_bitfield nvc0_fifo_subfifo_intr[] = {
+/*	{ 0x00008000, "" }	seen with null ib push */
 	{ 0x00200000, "ILLEGAL_MTHD" },
 	{ 0x00800000, "EMPTY_SUBC" },
 	{}

@@ -19,92 +19,136 @@
 
 #include <linux/uuid.h>
 
+/*
+ * Timeouts
+ */
 #define MEI_INTEROP_TIMEOUT    (HZ * 7)
-#define MEI_CONNECT_TIMEOUT		3	
+#define MEI_CONNECT_TIMEOUT		3	/* at least 2 seconds */
 
-#define CONNECT_TIMEOUT        15	
-#define INIT_CLIENTS_TIMEOUT   15	
+#define CONNECT_TIMEOUT        15	/* HPS definition */
+#define INIT_CLIENTS_TIMEOUT   15	/* HPS definition */
 
-#define IAMTHIF_STALL_TIMER		12	
-#define IAMTHIF_READ_TIMER		10000	
+#define IAMTHIF_STALL_TIMER		12	/* seconds */
+#define IAMTHIF_READ_TIMER		10000	/* ms */
 
+/*
+ * Internal Clients Number
+ */
 #define MEI_WD_HOST_CLIENT_ID          1
 #define MEI_IAMTHIF_HOST_CLIENT_ID     2
 
-#define    MEI_DEV_ID_82946GZ	0x2974  
-#define    MEI_DEV_ID_82G35	0x2984  
-#define    MEI_DEV_ID_82Q965	0x2994  
-#define    MEI_DEV_ID_82G965	0x29A4  
+/*
+ * MEI device IDs
+ */
+#define    MEI_DEV_ID_82946GZ	0x2974  /* 82946GZ/GL */
+#define    MEI_DEV_ID_82G35	0x2984  /* 82G35 Express */
+#define    MEI_DEV_ID_82Q965	0x2994  /* 82Q963/Q965 */
+#define    MEI_DEV_ID_82G965	0x29A4  /* 82P965/G965 */
 
-#define    MEI_DEV_ID_82GM965	0x2A04  
-#define    MEI_DEV_ID_82GME965	0x2A14  
+#define    MEI_DEV_ID_82GM965	0x2A04  /* Mobile PM965/GM965 */
+#define    MEI_DEV_ID_82GME965	0x2A14  /* Mobile GME965/GLE960 */
 
-#define    MEI_DEV_ID_ICH9_82Q35 0x29B4  
-#define    MEI_DEV_ID_ICH9_82G33 0x29C4  
-#define    MEI_DEV_ID_ICH9_82Q33 0x29D4  
-#define    MEI_DEV_ID_ICH9_82X38 0x29E4  
-#define    MEI_DEV_ID_ICH9_3200  0x29F4  
+#define    MEI_DEV_ID_ICH9_82Q35 0x29B4  /* 82Q35 Express */
+#define    MEI_DEV_ID_ICH9_82G33 0x29C4  /* 82G33/G31/P35/P31 Express */
+#define    MEI_DEV_ID_ICH9_82Q33 0x29D4  /* 82Q33 Express */
+#define    MEI_DEV_ID_ICH9_82X38 0x29E4  /* 82X38/X48 Express */
+#define    MEI_DEV_ID_ICH9_3200  0x29F4  /* 3200/3210 Server */
 
-#define    MEI_DEV_ID_ICH9_6	0x28B4  
-#define    MEI_DEV_ID_ICH9_7	0x28C4  
-#define    MEI_DEV_ID_ICH9_8	0x28D4  
-#define    MEI_DEV_ID_ICH9_9    0x28E4  
-#define    MEI_DEV_ID_ICH9_10	0x28F4  
+#define    MEI_DEV_ID_ICH9_6	0x28B4  /* Bearlake */
+#define    MEI_DEV_ID_ICH9_7	0x28C4  /* Bearlake */
+#define    MEI_DEV_ID_ICH9_8	0x28D4  /* Bearlake */
+#define    MEI_DEV_ID_ICH9_9    0x28E4  /* Bearlake */
+#define    MEI_DEV_ID_ICH9_10	0x28F4  /* Bearlake */
 
-#define    MEI_DEV_ID_ICH9M_1	0x2A44  
-#define    MEI_DEV_ID_ICH9M_2	0x2A54  
-#define    MEI_DEV_ID_ICH9M_3	0x2A64  
-#define    MEI_DEV_ID_ICH9M_4	0x2A74  
+#define    MEI_DEV_ID_ICH9M_1	0x2A44  /* Cantiga */
+#define    MEI_DEV_ID_ICH9M_2	0x2A54  /* Cantiga */
+#define    MEI_DEV_ID_ICH9M_3	0x2A64  /* Cantiga */
+#define    MEI_DEV_ID_ICH9M_4	0x2A74  /* Cantiga */
 
-#define    MEI_DEV_ID_ICH10_1	0x2E04  
-#define    MEI_DEV_ID_ICH10_2	0x2E14  
-#define    MEI_DEV_ID_ICH10_3	0x2E24  
-#define    MEI_DEV_ID_ICH10_4	0x2E34  
+#define    MEI_DEV_ID_ICH10_1	0x2E04  /* Eaglelake */
+#define    MEI_DEV_ID_ICH10_2	0x2E14  /* Eaglelake */
+#define    MEI_DEV_ID_ICH10_3	0x2E24  /* Eaglelake */
+#define    MEI_DEV_ID_ICH10_4	0x2E34  /* Eaglelake */
 
-#define    MEI_DEV_ID_IBXPK_1	0x3B64  
-#define    MEI_DEV_ID_IBXPK_2	0x3B65  
+#define    MEI_DEV_ID_IBXPK_1	0x3B64  /* Calpella */
+#define    MEI_DEV_ID_IBXPK_2	0x3B65  /* Calpella */
 
-#define    MEI_DEV_ID_CPT_1	0x1C3A    
-#define    MEI_DEV_ID_PBG_1	0x1D3A    
+#define    MEI_DEV_ID_CPT_1	0x1C3A    /* Cougerpoint */
+#define    MEI_DEV_ID_PBG_1	0x1D3A    /* PBG */
 
-#define    MEI_DEV_ID_PPT_1	0x1E3A    
-#define    MEI_DEV_ID_PPT_2	0x1CBA    
-#define    MEI_DEV_ID_PPT_3	0x1DBA    
+#define    MEI_DEV_ID_PPT_1	0x1E3A    /* Pantherpoint PPT */
+#define    MEI_DEV_ID_PPT_2	0x1CBA    /* Pantherpoint PPT */
+#define    MEI_DEV_ID_PPT_3	0x1DBA    /* Pantherpoint PPT */
 
 
+/*
+ * MEI HW Section
+ */
 
+/* MEI registers */
+/* H_CB_WW - Host Circular Buffer (CB) Write Window register */
 #define H_CB_WW    0
+/* H_CSR - Host Control Status register */
 #define H_CSR      4
+/* ME_CB_RW - ME Circular Buffer Read Window register (read only) */
 #define ME_CB_RW   8
+/* ME_CSR_HA - ME Control Status Host Access register (read only) */
 #define ME_CSR_HA  0xC
 
 
+/* register bits of H_CSR (Host Control Status register) */
+/* Host Circular Buffer Depth - maximum number of 32-bit entries in CB */
 #define H_CBD             0xFF000000
+/* Host Circular Buffer Write Pointer */
 #define H_CBWP            0x00FF0000
+/* Host Circular Buffer Read Pointer */
 #define H_CBRP            0x0000FF00
+/* Host Reset */
 #define H_RST             0x00000010
+/* Host Ready */
 #define H_RDY             0x00000008
+/* Host Interrupt Generate */
 #define H_IG              0x00000004
+/* Host Interrupt Status */
 #define H_IS              0x00000002
+/* Host Interrupt Enable */
 #define H_IE              0x00000001
 
 
+/* register bits of ME_CSR_HA (ME Control Status Host Access register) */
+/* ME CB (Circular Buffer) Depth HRA (Host Read Access) - host read only
+access to ME_CBD */
 #define ME_CBD_HRA        0xFF000000
+/* ME CB Write Pointer HRA - host read only access to ME_CBWP */
 #define ME_CBWP_HRA       0x00FF0000
+/* ME CB Read Pointer HRA - host read only access to ME_CBRP */
 #define ME_CBRP_HRA       0x0000FF00
+/* ME Reset HRA - host read only access to ME_RST */
 #define ME_RST_HRA        0x00000010
+/* ME Ready HRA - host read only access to ME_RDY */
 #define ME_RDY_HRA        0x00000008
+/* ME Interrupt Generate HRA - host read only access to ME_IG */
 #define ME_IG_HRA         0x00000004
+/* ME Interrupt Status HRA - host read only access to ME_IS */
 #define ME_IS_HRA         0x00000002
+/* ME Interrupt Enable HRA - host read only access to ME_IE */
 #define ME_IE_HRA         0x00000001
 
+/*
+ * MEI Version
+ */
 #define HBM_MINOR_VERSION                   0
 #define HBM_MAJOR_VERSION                   1
-#define HBM_TIMEOUT                         1	
+#define HBM_TIMEOUT                         1	/* 1 second */
 
+/* Host bus message command opcode */
 #define MEI_HBM_CMD_OP_MSK                  0x7f
+/* Host bus message command RESPONSE */
 #define MEI_HBM_CMD_RES_MSK                 0x80
 
+/*
+ * MEI Bus Message Command IDs
+ */
 #define HOST_START_REQ_CMD                  0x01
 #define HOST_START_RES_CMD                  0x81
 
@@ -127,6 +171,10 @@
 
 #define MEI_FLOW_CONTROL_CMD                0x08
 
+/*
+ * MEI Stop Reason
+ * used by hbm_host_stop_request.reason
+ */
 enum mei_stop_reason_types {
 	DRIVER_STOP_REQUEST = 0x00,
 	DEVICE_D1_ENTRY = 0x01,
@@ -139,6 +187,10 @@ enum mei_stop_reason_types {
 	SYSTEM_S5_ENTRY = 0x08
 };
 
+/*
+ * Client Connect Status
+ * used by hbm_client_connect_response.status
+ */
 enum client_connect_status_types {
 	CCS_SUCCESS = 0x00,
 	CCS_NOT_FOUND = 0x01,
@@ -147,10 +199,16 @@ enum client_connect_status_types {
 	CCS_MESSAGE_SMALL = 0x04
 };
 
+/*
+ * Client Disconnect Status
+ */
 enum client_disconnect_status_types {
 	CDS_SUCCESS = 0x00
 };
 
+/*
+ *  MEI BUS Interface Section
+ */
 struct mei_msg_hdr {
 	u32 me_addr:8;
 	u32 host_addr:8;

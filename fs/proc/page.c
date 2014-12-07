@@ -15,6 +15,11 @@
 #define KPMSIZE sizeof(u64)
 #define KPMMASK (KPMSIZE - 1)
 
+/* /proc/kpagecount - an array exposing page counts
+ *
+ * Each entry is a u64 representing the corresponding
+ * physical page count.
+ */
 static ssize_t kpagecount_read(struct file *file, char __user *buf,
 			     size_t count, loff_t *ppos)
 {
@@ -61,6 +66,11 @@ static const struct file_operations proc_kpagecount_operations = {
 	.read = kpagecount_read,
 };
 
+/* /proc/kpageflags - an array exposing page flags
+ *
+ * Each entry is a u64 representing the corresponding
+ * physical page flags.
+ */
 
 static inline u64 kpf_copy_bit(u64 kflags, int ubit, int kbit)
 {
@@ -72,12 +82,22 @@ u64 stable_page_flags(struct page *page)
 	u64 k;
 	u64 u;
 
+	/*
+	 * pseudo flag: KPF_NOPAGE
+	 * it differentiates a memory hole from a page with no flags
+	 */
 	if (!page)
 		return 1 << KPF_NOPAGE;
 
 	k = page->flags;
 	u = 0;
 
+	/*
+	 * pseudo flags for the well known (anonymous) memory mapped pages
+	 *
+	 * Note that page->_mapcount is overloaded in SLOB/SLUB/SLQB, so the
+	 * simple test in page_mapped() is not enough.
+	 */
 	if (!PageSlab(page) && page_mapped(page))
 		u |= 1 << KPF_MMAP;
 	if (PageAnon(page))
@@ -85,6 +105,10 @@ u64 stable_page_flags(struct page *page)
 	if (PageKsm(page))
 		u |= 1 << KPF_KSM;
 
+	/*
+	 * compound pages: export both head/tail info
+	 * they together define a compound page's start/end pos and order
+	 */
 	if (PageHead(page))
 		u |= 1 << KPF_COMPOUND_HEAD;
 	if (PageTail(page))
@@ -94,6 +118,11 @@ u64 stable_page_flags(struct page *page)
 	else if (PageTransCompound(page))
 		u |= 1 << KPF_THP;
 
+	/*
+	 * Caveats on high order pages: page->_count will only be set
+	 * -1 on the head page; SLUB/SLQB do the same for PG_slab;
+	 * SLOB won't set PG_slab at all on compound pages.
+	 */
 	if (PageBuddy(page))
 		u |= 1 << KPF_BUDDY;
 

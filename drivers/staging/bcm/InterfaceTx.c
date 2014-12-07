@@ -1,6 +1,7 @@
 #include "headers.h"
 
-static void write_bulk_callback(struct urb *urb)
+/*this is transmit call-back(BULK OUT)*/
+static void write_bulk_callback(struct urb *urb/*, struct pt_regs *regs*/)
 {
 	PUSB_TCB pTcb= (PUSB_TCB)urb->context;
 	PS_INTERFACE_ADAPTER psIntfAdapter = pTcb->psIntfAdapter;
@@ -38,12 +39,12 @@ static void write_bulk_callback(struct urb *urb)
 
 		{
 			bpowerDownMsg = TRUE ;
-			
+			//This covers the bus err while Idle Request msg sent down.
 			if(urb->status != STATUS_SUCCESS)
 			{
 				psAdapter->bPreparingForLowPowerMode = FALSE ;
 				BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, NEXT_SEND, DBG_LVL_ALL,"Idle Mode Request msg failed to reach to Modem");
-				
+				//Signalling the cntrl pkt path in Ioctl
 				wake_up(&psAdapter->lowpower_mode_wait_queue);
 				StartInterruptUrb(psIntfAdapter);
 				goto err_exit;
@@ -52,11 +53,11 @@ static void write_bulk_callback(struct urb *urb)
 			if(psAdapter->bDoSuspend == FALSE)
 			{
 				psAdapter->IdleMode = TRUE;
-				
+				//since going in Idle mode completed hence making this var false;
 				psAdapter->bPreparingForLowPowerMode = FALSE ;
 
 				BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, NEXT_SEND, DBG_LVL_ALL, "Host Entered in Idle Mode State...");
-				
+				//Signalling the cntrl pkt path in Ioctl
 				wake_up(&psAdapter->lowpower_mode_wait_queue);
 			}
 
@@ -66,12 +67,12 @@ static void write_bulk_callback(struct urb *urb)
 			(pControlMsg->szData[1] == LINK_SHUTDOWN_REQ_FROM_FIRMWARE)  &&
 			(pControlMsg->szData[2] == SHUTDOWN_ACK_FROM_DRIVER))
 		{
-			
+			//This covers the bus err while shutdown Request msg sent down.
 			if(urb->status != STATUS_SUCCESS)
 			{
 				psAdapter->bPreparingForLowPowerMode = FALSE ;
 				BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, NEXT_SEND, DBG_LVL_ALL,"Shutdown Request Msg failed to reach to Modem");
-				
+				//Signalling the cntrl pkt path in Ioctl
 				wake_up(&psAdapter->lowpower_mode_wait_queue);
 				StartInterruptUrb(psIntfAdapter);
 				goto err_exit;
@@ -81,17 +82,17 @@ static void write_bulk_callback(struct urb *urb)
 			if(psAdapter->bDoSuspend == FALSE)
 			{
 				psAdapter->bShutStatus = TRUE;
-				
+				//since going in shutdown mode completed hence making this var false;
 				psAdapter->bPreparingForLowPowerMode = FALSE ;
 				BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, NEXT_SEND, DBG_LVL_ALL,"Host Entered in shutdown Mode State...");
-				
+				//Signalling the cntrl pkt path in Ioctl
 				wake_up(&psAdapter->lowpower_mode_wait_queue);
 			}
 		}
 
 		if(psAdapter->bDoSuspend && bpowerDownMsg)
 		{
-			
+			//issuing bus suspend request
 			BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, NEXT_SEND, DBG_LVL_ALL,"Issuing the Bus suspend request to USB stack");
 			psIntfAdapter->bPreparingForBusSuspend = TRUE;
 			schedule_work(&psIntfAdapter->usbSuspendWork);
@@ -144,7 +145,7 @@ static int TransmitTcb(PS_INTERFACE_ADAPTER psIntfAdapter, PUSB_TCB pTcb, PVOID 
 	urb->transfer_buffer_length = len;
 
 	BCM_DEBUG_PRINT(psIntfAdapter->psAdapter,DBG_TYPE_TX, NEXT_SEND, DBG_LVL_ALL, "Sending Bulk out packet\n");
-	
+	//For T3B,INT OUT end point will be used as bulk out end point
 	if((psIntfAdapter->psAdapter->chip_id == T3B) && (psIntfAdapter->bHighSpeedDevice == TRUE))
 	{
 		usb_fill_int_urb(urb, psIntfAdapter->udev,
@@ -158,7 +159,7 @@ static int TransmitTcb(PS_INTERFACE_ADAPTER psIntfAdapter, PUSB_TCB pTcb, PVOID 
 		  psIntfAdapter->sBulkOut.bulk_out_pipe,
 		  urb->transfer_buffer, len, write_bulk_callback, pTcb);
 	}
-	urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP; 
+	urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP; /* For DMA transfer */
 
 	if(FALSE == psIntfAdapter->psAdapter->device_removed &&
 	   FALSE == psIntfAdapter->psAdapter->bEndPointHalted &&

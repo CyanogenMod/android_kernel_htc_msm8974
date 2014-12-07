@@ -13,14 +13,17 @@
 #include <asm/uaccess.h>
 
 struct thread_info {
-	struct task_struct	*task;		
-	struct exec_domain	*exec_domain;	
-	unsigned long		flags;		
-	__u32			cpu;		
-	int			preempt_count;  
-	mm_segment_t		addr_limit;	
+	struct task_struct	*task;		/* main task structure */
+	struct exec_domain	*exec_domain;	/* execution domain */
+	unsigned long		flags;		/* low level flags */
+	__u32			cpu;		/* current CPU */
+	int			preempt_count;  /* 0 => preemptable,
+						   <0 => BUG */
+	mm_segment_t		addr_limit;	/* thread address space:
+					 	   0-0xBFFFFFFF for user
+						   0-0xFFFFFFFF for kernel */
 	struct restart_block    restart_block;
-	struct thread_info	*real_thread;    
+	struct thread_info	*real_thread;    /* Points to non-IRQ stack */
 };
 
 #define INIT_THREAD_INFO(tsk)			\
@@ -41,6 +44,7 @@ struct thread_info {
 #define init_stack		(init_thread_union.stack)
 
 #define THREAD_SIZE ((1 << CONFIG_KERNEL_STACK_ORDER) * PAGE_SIZE)
+/* how to get the thread information struct from C */
 static inline struct thread_info *current_thread_info(void)
 {
 	struct thread_info *ti;
@@ -58,12 +62,13 @@ static inline struct thread_info *current_thread_info(void)
 
 #define PREEMPT_ACTIVE		0x10000000
 
-#define TIF_SYSCALL_TRACE	0	
-#define TIF_SIGPENDING		1	
-#define TIF_NEED_RESCHED	2	
-#define TIF_POLLING_NRFLAG      3       
+#define TIF_SYSCALL_TRACE	0	/* syscall trace active */
+#define TIF_SIGPENDING		1	/* signal pending */
+#define TIF_NEED_RESCHED	2	/* rescheduling necessary */
+#define TIF_POLLING_NRFLAG      3       /* true if poll_idle() is polling
+					 * TIF_NEED_RESCHED */
 #define TIF_RESTART_BLOCK	4
-#define TIF_MEMDIE		5	
+#define TIF_MEMDIE		5	/* is terminating due to OOM killer */
 #define TIF_SYSCALL_AUDIT	6
 #define TIF_RESTORE_SIGMASK	7
 

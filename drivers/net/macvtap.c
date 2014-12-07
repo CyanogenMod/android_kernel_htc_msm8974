@@ -22,6 +22,20 @@
 #include <net/sock.h>
 #include <linux/virtio_net.h>
 
+/*
+ * A macvtap queue is the central object of this driver, it connects
+ * an open character device to a macvlan interface. There can be
+ * multiple queues on one interface, which map back to queues
+ * implemented in hardware on the underlying device.
+ *
+ * macvtap_proto is used to allocate queues through the sock allocation
+ * mechanism.
+ *
+ * TODO: multiqueue support is currently not implemented, even though
+ * macvtap is basically prepared for that. We will need to add this
+ * here as well as in virtio-net and qemu to get line rate on 10gbit
+ * adapters from a guest.
+ */
 struct macvtap_queue {
 	struct sock sk;
 	struct socket sock;
@@ -38,6 +52,9 @@ static struct proto macvtap_proto = {
 	.obj_size = sizeof (struct macvtap_queue),
 };
 
+/*
+ * Variables for dealing with macvtaps device numbers.
+ */
 static dev_t macvtap_major;
 #define MACVTAP_NUM_DEVS (1U << MINORBITS)
 static DEFINE_MUTEX(minor_lock);
@@ -49,8 +66,29 @@ static struct cdev macvtap_cdev;
 
 static const struct proto_ops macvtap_socket_ops;
 
+/*
+ * RCU usage:
+ * The macvtap_queue and the macvlan_dev are loosely coupled, the
+ * pointers from one to the other can only be read while rcu_read_lock
+ * or macvtap_lock is held.
+ *
+ * Both the file and the macvlan_dev hold a reference on the macvtap_queue
+ * through sock_hold(&q->sk). When the macvlan_dev goes away first,
+ * q->vlan becomes inaccessible. When the files gets closed,
+ * macvtap_get_queue() fails.
+ *
+ * There may still be references to the struct sock inside of the
+ * queue from outbound SKBs, but these never reference back to the
+ * file or the dev. The data structure is freed through __sk_free
+ * when both our references and any pending SKBs are gone.
+ */
 static DEFINE_SPINLOCK(macvtap_lock);
 
+/*
+ * get_slot: return a [unused/occupied] slot in vlan->taps[]:
+ *	- if 'q' is NULL, return the first empty slot;
+ *	- otherwise, return the slot this pointer occupies.
+ */
 static int get_slot(struct macvlan_dev *vlan, struct macvtap_queue *q)
 {
 	int i;
@@ -60,7 +98,7 @@ static int get_slot(struct macvlan_dev *vlan, struct macvtap_queue *q)
 			return i;
 	}
 
-	
+	/* Should never happen */
 	BUG_ON(1);
 }
 
@@ -91,6 +129,14 @@ out:
 	return err;
 }
 
+/*
+ * The file owning the queue got closed, give up both
+ * the reference that the files holds as well as the
+ * one from the macvlan_dev if that still exists.
+ *
+ * Using the spinlock makes sure that we don't get
+ * to the queue again after destroying it.
+ */
 static void macvtap_put_queue(struct macvtap_queue *q)
 {
 	struct macvlan_dev *vlan;
@@ -113,6 +159,13 @@ static void macvtap_put_queue(struct macvtap_queue *q)
 	sock_put(&q->sk);
 }
 
+/*
+ * Select a queue based on the rxq of the device on which this packet
+ * arrived. If the incoming device is not mq, calculate a flow hash
+ * to select a queue. If all fails, find the first available queue.
+ * Cache vlan->numvtaps since it can become zero during the execution
+ * of this function.
+ */
 static struct macvtap_queue *macvtap_get_queue(struct net_device *dev,
 					       struct sk_buff *skb)
 {
@@ -124,7 +177,7 @@ static struct macvtap_queue *macvtap_get_queue(struct net_device *dev,
 	if (!numvtaps)
 		goto out;
 
-	
+	/* Check if we can use flow to select a queue */
 	rxq = skb_get_rxhash(skb);
 	if (rxq) {
 		tap = rcu_dereference(vlan->taps[rxq % numvtaps]);
@@ -143,7 +196,7 @@ static struct macvtap_queue *macvtap_get_queue(struct net_device *dev,
 			goto out;
 	}
 
-	
+	/* Everything failed - find first available queue */
 	for (rxq = 0; rxq < MAX_MACVTAP_QUEUES; rxq++) {
 		tap = rcu_dereference(vlan->taps[rxq]);
 		if (tap)
@@ -154,13 +207,18 @@ out:
 	return tap;
 }
 
+/*
+ * The net_device is going away, give up the reference
+ * that it holds on all queues and safely set the pointer
+ * from the queues to NULL.
+ */
 static void macvtap_del_queues(struct net_device *dev)
 {
 	struct macvlan_dev *vlan = netdev_priv(dev);
 	struct macvtap_queue *q, *qlist[MAX_MACVTAP_QUEUES];
 	int i, j = 0;
 
-	
+	/* macvtap_put_queue can free some slots, so go through all slots */
 	spin_lock(&macvtap_lock);
 	for (i = 0; i < MAX_MACVTAP_QUEUES && vlan->numvtaps; i++) {
 		q = rcu_dereference_protected(vlan->taps[i],
@@ -173,7 +231,7 @@ static void macvtap_del_queues(struct net_device *dev)
 		}
 	}
 	BUG_ON(vlan->numvtaps != 0);
-	
+	/* guarantee that any future macvtap_set_queue will fail */
 	vlan->numvtaps = MAX_MACVTAP_QUEUES;
 	spin_unlock(&macvtap_lock);
 
@@ -183,6 +241,11 @@ static void macvtap_del_queues(struct net_device *dev)
 		sock_put(&qlist[j]->sk);
 }
 
+/*
+ * Forward happens for data that gets sent from one macvlan
+ * endpoint to another one in bridge mode. We just take
+ * the skb and put it into the receive queue.
+ */
 static int macvtap_forward(struct net_device *dev, struct sk_buff *skb)
 {
 	struct macvtap_queue *q = macvtap_get_queue(dev, skb);
@@ -201,6 +264,11 @@ drop:
 	return NET_RX_DROP;
 }
 
+/*
+ * Receive is for data from the external interface (lowerdev),
+ * in case of macvtap, we can treat that the same way as
+ * forward, which macvlan cannot.
+ */
 static int macvtap_receive(struct sk_buff *skb)
 {
 	skb_push(skb, ETH_HLEN);
@@ -264,6 +332,9 @@ static int macvtap_newlink(struct net *src_net,
 			   struct nlattr *tb[],
 			   struct nlattr *data[])
 {
+	/* Don't put anything that may fail after macvlan_common_newlink
+	 * because we can't undo what it does.
+	 */
 	return macvlan_common_newlink(src_net, dev, tb, data,
 				      macvtap_receive, macvtap_forward);
 }
@@ -336,6 +407,13 @@ static int macvtap_open(struct inode *inode, struct file *file)
 	q->flags = IFF_VNET_HDR | IFF_NO_PI | IFF_TAP;
 	q->vnet_hdr_sz = sizeof(struct virtio_net_hdr);
 
+	/*
+	 * so far only KVM virtio_net uses macvtap, enable zero copy between
+	 * guest kernel and host kernel when lower device supports zerocopy
+	 *
+	 * The macvlan supports zerocopy iff the lower device supports zero
+	 * copy so we don't have to look at the lower device directly.
+	 */
 	if ((dev->features & NETIF_F_HIGHDMA) && (dev->features & NETIF_F_SG))
 		sock_set_flag(&q->sk, SOCK_ZEROCOPY);
 
@@ -386,7 +464,7 @@ static inline struct sk_buff *macvtap_alloc_skb(struct sock *sk, size_t prepad,
 {
 	struct sk_buff *skb;
 
-	
+	/* Under a page?  Don't bother with paged skb. */
 	if (prepad + len < PAGE_SIZE || !linear)
 		linear = len;
 
@@ -403,6 +481,7 @@ static inline struct sk_buff *macvtap_alloc_skb(struct sock *sk, size_t prepad,
 	return skb;
 }
 
+/* set skb frags from iovec, this can move to core network code for reuse */
 static int zerocopy_sg_from_iovec(struct sk_buff *skb, const struct iovec *from,
 				  int offset, size_t count)
 {
@@ -411,14 +490,14 @@ static int zerocopy_sg_from_iovec(struct sk_buff *skb, const struct iovec *from,
 	int size, offset1 = 0;
 	int i = 0;
 
-	
+	/* Skip over from offset */
 	while (count && (offset >= from->iov_len)) {
 		offset -= from->iov_len;
 		++from;
 		--count;
 	}
 
-	
+	/* copy up to skb headlen */
 	while (count && (copy > 0)) {
 		size = min_t(unsigned int, copy, from->iov_len - offset);
 		if (copy_from_user(skb->data + offset1, from->iov_base + offset,
@@ -452,7 +531,7 @@ static int zerocopy_sg_from_iovec(struct sk_buff *skb, const struct iovec *from,
 		num_pages = get_user_pages_fast(base, size, 0, &page[i]);
 		if ((num_pages != size) ||
 		    (num_pages > MAX_SKB_FRAGS - skb_shinfo(skb)->nr_frags))
-			
+			/* put_page is in skb free */
 			return -EFAULT;
 		skb->data_len += len;
 		skb->len += len;
@@ -463,7 +542,7 @@ static int zerocopy_sg_from_iovec(struct sk_buff *skb, const struct iovec *from,
 			int size = min_t(int, len, PAGE_SIZE - off);
 			__skb_fill_page_desc(skb, i, page[i], off, size);
 			skb_shinfo(skb)->nr_frags++;
-			
+			/* increase sk_wmem_alloc */
 			base += size;
 			len -= size;
 			i++;
@@ -474,6 +553,10 @@ static int zerocopy_sg_from_iovec(struct sk_buff *skb, const struct iovec *from,
 	return 0;
 }
 
+/*
+ * macvtap_skb_from_vnet_hdr and macvtap_skb_to_vnet_hdr should
+ * be shared with the tun/tap driver.
+ */
 static int macvtap_skb_from_vnet_hdr(struct sk_buff *skb,
 				     struct virtio_net_hdr *vnet_hdr)
 {
@@ -510,7 +593,7 @@ static int macvtap_skb_from_vnet_hdr(struct sk_buff *skb,
 		skb_shinfo(skb)->gso_size = vnet_hdr->gso_size;
 		skb_shinfo(skb)->gso_type = gso_type;
 
-		
+		/* Header must be checked, and gso_segs computed. */
 		skb_shinfo(skb)->gso_type |= SKB_GSO_DODGY;
 		skb_shinfo(skb)->gso_segs = 0;
 	}
@@ -525,7 +608,7 @@ static int macvtap_skb_to_vnet_hdr(const struct sk_buff *skb,
 	if (skb_is_gso(skb)) {
 		struct skb_shared_info *sinfo = skb_shinfo(skb);
 
-		
+		/* This is a hint as to how much should be linear. */
 		vnet_hdr->hdr_len = skb_headlen(skb);
 		vnet_hdr->gso_size = sinfo->gso_size;
 		if (sinfo->gso_type & SKB_GSO_TCPV4)
@@ -547,12 +630,13 @@ static int macvtap_skb_to_vnet_hdr(const struct sk_buff *skb,
 		vnet_hdr->csum_offset = skb->csum_offset;
 	} else if (skb->ip_summed == CHECKSUM_UNNECESSARY) {
 		vnet_hdr->flags = VIRTIO_NET_HDR_F_DATA_VALID;
-	} 
+	} /* else everything is zero */
 
 	return 0;
 }
 
 
+/* Get packet from user space buffer */
 static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 				const struct iovec *iv, unsigned long total_len,
 				size_t count, int noblock)
@@ -596,6 +680,10 @@ static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 		zerocopy = true;
 
 	if (zerocopy) {
+		/* There are 256 bytes to be copied in skb, so there is enough
+		 * room for skb expand head in case it is used.
+		 * The rest buffer is mapped from userspace.
+		 */
 		copylen = vnet_hdr.hdr_len;
 		if (!copylen)
 			copylen = GOODCOPY_LEN;
@@ -628,7 +716,7 @@ static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 
 	rcu_read_lock_bh();
 	vlan = rcu_dereference_bh(q->vlan);
-	
+	/* copy skb_ubuf_info for callback when skb has no error */
 	if (zerocopy)
 		skb_shinfo(skb)->destructor_arg = m->msg_control;
 	if (vlan)
@@ -664,6 +752,7 @@ static ssize_t macvtap_aio_write(struct kiocb *iocb, const struct iovec *iv,
 	return result;
 }
 
+/* Put packet to the user space buffer */
 static ssize_t macvtap_put_user(struct macvtap_queue *q,
 				const struct sk_buff *skb,
 				const struct iovec *iv, int len)
@@ -743,7 +832,7 @@ static ssize_t macvtap_do_read(struct macvtap_queue *q, struct kiocb *iocb,
 	while (len) {
 		current->state = TASK_INTERRUPTIBLE;
 
-		
+		/* Read frames from the queue */
 		skb = skb_dequeue(&q->sk.sk_receive_queue);
 		if (!skb) {
 			if (noblock) {
@@ -754,7 +843,7 @@ static ssize_t macvtap_do_read(struct macvtap_queue *q, struct kiocb *iocb,
 				ret = -ERESTARTSYS;
 				break;
 			}
-			
+			/* Nothing to read, let's sleep */
 			schedule();
 			continue;
 		}
@@ -782,11 +871,14 @@ static ssize_t macvtap_aio_read(struct kiocb *iocb, const struct iovec *iv,
 	}
 
 	ret = macvtap_do_read(q, iocb, iv, len, file->f_flags & O_NONBLOCK);
-	ret = min_t(ssize_t, ret, len); 
+	ret = min_t(ssize_t, ret, len); /* XXX copied from tun.c. Why? */
 out:
 	return ret;
 }
 
+/*
+ * provide compatibility with generic tun/tap interface
+ */
 static long macvtap_ioctl(struct file *file, unsigned int cmd,
 			  unsigned long arg)
 {
@@ -802,7 +894,7 @@ static long macvtap_ioctl(struct file *file, unsigned int cmd,
 
 	switch (cmd) {
 	case TUNSETIFF:
-		
+		/* ignore the name, just look at flags */
 		if (get_user(u, &ifr->ifr_flags))
 			return -EFAULT;
 
@@ -859,11 +951,13 @@ static long macvtap_ioctl(struct file *file, unsigned int cmd,
 		return 0;
 
 	case TUNSETOFFLOAD:
-		
+		/* let the user check for future flags */
 		if (arg & ~(TUN_F_CSUM | TUN_F_TSO4 | TUN_F_TSO6 |
 			    TUN_F_TSO_ECN | TUN_F_UFO))
 			return -EINVAL;
 
+		/* TODO: only accept frames with the features that
+			 got enabled for forwarded frames */
 		if (!(q->flags & IFF_VNET_HDR))
 			return  -EINVAL;
 		return 0;
@@ -920,11 +1014,16 @@ static int macvtap_recvmsg(struct kiocb *iocb, struct socket *sock,
 	return ret;
 }
 
+/* Ops structure to mimic raw sockets with tun */
 static const struct proto_ops macvtap_socket_ops = {
 	.sendmsg = macvtap_sendmsg,
 	.recvmsg = macvtap_recvmsg,
 };
 
+/* Get an underlying socket object from tun file.  Returns error unless file is
+ * attached to a device.  The returned object works like a packet socket, it
+ * can be used for sock_sendmsg/sock_recvmsg.  The caller is responsible for
+ * holding a reference to the file for as long as the socket is in use. */
 struct socket *macvtap_get_socket(struct file *file)
 {
 	struct macvtap_queue *q;
@@ -953,6 +1052,10 @@ static int macvtap_device_event(struct notifier_block *unused,
 
 	switch (event) {
 	case NETDEV_REGISTER:
+		/* Create the device node here after the network device has
+		 * been registered but before register_netdevice has
+		 * finished running.
+		 */
 		err = macvtap_get_minor(vlan);
 		if (err)
 			return notifier_from_errno(err);

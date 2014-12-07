@@ -28,6 +28,7 @@
 struct atl1c_adapter;
 struct atl1c_hw;
 
+/* function prototype */
 void atl1c_phy_disable(struct atl1c_hw *hw);
 void atl1c_hw_set_mac_addr(struct atl1c_hw *hw);
 int atl1c_phy_reset(struct atl1c_hw *hw);
@@ -42,6 +43,7 @@ int atl1c_phy_init(struct atl1c_hw *hw);
 int atl1c_check_eeprom_exist(struct atl1c_hw *hw);
 int atl1c_restart_autoneg(struct atl1c_hw *hw);
 int atl1c_phy_power_saving(struct atl1c_hw *hw);
+/* register definition */
 #define REG_DEVICE_CAP              	0x5C
 #define DEVICE_CAP_MAX_PAYLOAD_MASK     0x7
 #define DEVICE_CAP_MAX_PAYLOAD_SHIFT    0
@@ -82,7 +84,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define PCIE_UC_SERVRITY_UR		0x00100000
 
 #define REG_DEV_SERIALNUM_CTRL		0x200
-#define REG_DEV_MAC_SEL_MASK		0x0 
+#define REG_DEV_MAC_SEL_MASK		0x0 /* 0:EUI; 1:MAC */
 #define REG_DEV_MAC_SEL_SHIFT		0
 #define REG_DEV_SERIAL_NUM_EN_MASK	0x1
 #define REG_DEV_SERIAL_NUM_EN_SHIFT	1
@@ -168,6 +170,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 
 #define REG_LTSSM_ID_CTRL		0x12FC
 #define LTSSM_ID_EN_WRO			0x1000
+/* Selene Master Control Register */
 #define REG_MASTER_CTRL			0x1400
 #define MASTER_CTRL_SOFT_RST            0x1
 #define MASTER_CTRL_TEST_MODE_MASK	0x3
@@ -188,8 +191,10 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define MASTER_CTRL_DEV_ID_MASK		0x7f
 #define MASTER_CTRL_OTP_SEL		0x80000000
 
+/* Timer Initial Value Register */
 #define REG_MANUAL_TIMER_INIT       	0x1404
 
+/* IRQ ModeratorTimer Initial Value Register */
 #define REG_IRQ_MODRT_TIMER_INIT     	0x1408
 #define IRQ_MODRT_TIMER_MASK		0xffff
 #define IRQ_MODRT_TX_TIMER_SHIFT    	0
@@ -231,6 +236,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 		GPHY_CTRL_HIB_PULSE	|\
 		GPHY_CTRL_PWDOWN_HW	|\
 		GPHY_CTRL_PHY_IDDQ)
+/* Block IDLE Status Register */
 #define REG_IDLE_STATUS  		0x1410
 #define IDLE_STATUS_MASK		0x00FF
 #define IDLE_STATUS_RXMAC_NO_IDLE      	0x1
@@ -242,14 +248,21 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define IDLE_STATUS_SMB_NO_IDLE        	0x40
 #define IDLE_STATUS_CMB_NO_IDLE        	0x80
 
+/* MDIO Control Register */
 #define REG_MDIO_CTRL           	0x1414
-#define MDIO_DATA_MASK          	0xffff  
-#define MDIO_DATA_SHIFT         	0       
-#define MDIO_REG_ADDR_MASK      	0x1f    
+#define MDIO_DATA_MASK          	0xffff  /* On MDIO write, the 16-bit
+						 * control data to write to PHY
+						 * MII management register */
+#define MDIO_DATA_SHIFT         	0       /* On MDIO read, the 16-bit
+						 * status data that was read
+						 * from the PHY MII management register */
+#define MDIO_REG_ADDR_MASK      	0x1f    /* MDIO register address */
 #define MDIO_REG_ADDR_SHIFT     	16
-#define MDIO_RW                 	0x200000  
-#define MDIO_SUP_PREAMBLE       	0x400000  
-#define MDIO_START              	0x800000  
+#define MDIO_RW                 	0x200000  /* 1: read, 0: write */
+#define MDIO_SUP_PREAMBLE       	0x400000  /* Suppress preamble */
+#define MDIO_START              	0x800000  /* Write 1 to initiate the MDIO
+						   * master. And this bit is self
+						   * cleared after one cycle */
 #define MDIO_CLK_SEL_SHIFT      	24
 #define MDIO_CLK_25_4           	0
 #define MDIO_CLK_25_6           	2
@@ -262,25 +275,34 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define MDIO_AP_EN              	0x10000000
 #define MDIO_WAIT_TIMES         	10
 
+/* MII PHY Status Register */
 #define REG_PHY_STATUS           	0x1418
 #define PHY_GENERAL_STATUS_MASK		0xFFFF
 #define PHY_STATUS_RECV_ENABLE		0x0001
 #define PHY_OE_PWSP_STATUS_MASK		0x07FF
 #define PHY_OE_PWSP_STATUS_SHIFT	16
 #define PHY_STATUS_LPW_STATE		0x80000000
+/* BIST Control and Status Register0 (for the Packet Memory) */
 #define REG_BIST0_CTRL              	0x141c
 #define BIST0_NOW                   	0x1
-#define BIST0_SRAM_FAIL             	0x2 
+#define BIST0_SRAM_FAIL             	0x2 /* 1: The SRAM failure is
+					     * un-repairable  because
+					     * it has address decoder
+					     * failure or more than 1 cell
+					     * stuck-to-x failure */
 #define BIST0_FUSE_FLAG             	0x4
 
+/* BIST Control and Status Register1(for the retry buffer of PCI Express) */
 #define REG_BIST1_CTRL			0x1420
 #define BIST1_NOW                   	0x1
 #define BIST1_SRAM_FAIL             	0x2
 #define BIST1_FUSE_FLAG             	0x4
 
+/* SerDes Lock Detect Control and Status Register */
 #define REG_SERDES_LOCK            	0x1424
-#define SERDES_LOCK_DETECT          	0x1  
-#define SERDES_LOCK_DETECT_EN       	0x2  
+#define SERDES_LOCK_DETECT          	0x1  /* SerDes lock detected. This signal
+					      * comes from Analog SerDes */
+#define SERDES_LOCK_DETECT_EN       	0x2  /* 1: Enable SerDes Lock detect function */
 #define SERDES_LOCK_STS_SELFB_PLL_SHIFT 0xE
 #define SERDES_LOCK_STS_SELFB_PLL_MASK  0x3
 #define SERDES_OVCLK_18_25		0x0
@@ -290,6 +312,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define SERDES_MAC_CLK_SLOWDOWN		0x20000
 #define SERDES_PYH_CLK_SLOWDOWN		0x40000
 
+/* MAC Control Register  */
 #define REG_MAC_CTRL         		0x1480
 #define MAC_CTRL_TX_EN			0x1
 #define MAC_CTRL_RX_EN			0x2
@@ -321,36 +344,47 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define MAC_CTRL_HASH_ALG_CRC32		0x20000000
 #define MAC_CTRL_SPEED_MODE_SW		0x40000000
 
+/* MAC IPG/IFG Control Register  */
 #define REG_MAC_IPG_IFG             	0x1484
-#define MAC_IPG_IFG_IPGT_SHIFT      	0 	
+#define MAC_IPG_IFG_IPGT_SHIFT      	0 	/* Desired back to back
+						 * inter-packet gap. The
+						 * default is 96-bit time */
 #define MAC_IPG_IFG_IPGT_MASK       	0x7f
-#define MAC_IPG_IFG_MIFG_SHIFT      	8       
-#define MAC_IPG_IFG_MIFG_MASK       	0xff  	
-#define MAC_IPG_IFG_IPGR1_SHIFT     	16   	
+#define MAC_IPG_IFG_MIFG_SHIFT      	8       /* Minimum number of IFG to
+						 * enforce in between RX frames */
+#define MAC_IPG_IFG_MIFG_MASK       	0xff  	/* Frame gap below such IFP is dropped */
+#define MAC_IPG_IFG_IPGR1_SHIFT     	16   	/* 64bit Carrier-Sense window */
 #define MAC_IPG_IFG_IPGR1_MASK      	0x7f
-#define MAC_IPG_IFG_IPGR2_SHIFT     	24    	
+#define MAC_IPG_IFG_IPGR2_SHIFT     	24    	/* 96-bit IPG window */
 #define MAC_IPG_IFG_IPGR2_MASK      	0x7f
 
+/* MAC STATION ADDRESS  */
 #define REG_MAC_STA_ADDR		0x1488
 
+/* Hash table for multicast address */
 #define REG_RX_HASH_TABLE		0x1490
 
+/* MAC Half-Duplex Control Register */
 #define REG_MAC_HALF_DUPLX_CTRL     	0x1498
-#define MAC_HALF_DUPLX_CTRL_LCOL_SHIFT  0      
+#define MAC_HALF_DUPLX_CTRL_LCOL_SHIFT  0      /* Collision Window */
 #define MAC_HALF_DUPLX_CTRL_LCOL_MASK   0x3ff
 #define MAC_HALF_DUPLX_CTRL_RETRY_SHIFT 12
 #define MAC_HALF_DUPLX_CTRL_RETRY_MASK  0xf
 #define MAC_HALF_DUPLX_CTRL_EXC_DEF_EN  0x10000
 #define MAC_HALF_DUPLX_CTRL_NO_BACK_C   0x20000
-#define MAC_HALF_DUPLX_CTRL_NO_BACK_P   0x40000 
-#define MAC_HALF_DUPLX_CTRL_ABEBE        0x80000 
-#define MAC_HALF_DUPLX_CTRL_ABEBT_SHIFT  20      
+#define MAC_HALF_DUPLX_CTRL_NO_BACK_P   0x40000 /* No back-off on backpressure,
+						 * immediately start the
+						 * transmission after back pressure */
+#define MAC_HALF_DUPLX_CTRL_ABEBE        0x80000 /* 1: Alternative Binary Exponential Back-off Enabled */
+#define MAC_HALF_DUPLX_CTRL_ABEBT_SHIFT  20      /* Maximum binary exponential number */
 #define MAC_HALF_DUPLX_CTRL_ABEBT_MASK   0xf
-#define MAC_HALF_DUPLX_CTRL_JAMIPG_SHIFT 24      
-#define MAC_HALF_DUPLX_CTRL_JAMIPG_MASK  0xf     
+#define MAC_HALF_DUPLX_CTRL_JAMIPG_SHIFT 24      /* IPG to start JAM for collision based flow control in half-duplex */
+#define MAC_HALF_DUPLX_CTRL_JAMIPG_MASK  0xf     /* mode. In unit of 8-bit time */
 
+/* Maximum Frame Length Control Register   */
 #define REG_MTU                     	0x149c
 
+/* Wake-On-Lan control register */
 #define REG_WOL_CTRL                	0x14a0
 #define WOL_PATTERN_EN              	0x00000001
 #define WOL_PATTERN_PME_EN              0x00000002
@@ -370,6 +404,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define WOL_PT5_EN                      0x00200000
 #define WOL_PT6_EN                      0x00400000
 
+/* WOL Length ( 2 DWORD ) */
 #define REG_WOL_PATTERN_LEN         	0x14a4
 #define WOL_PT_LEN_MASK                 0x7f
 #define WOL_PT0_LEN_SHIFT               0
@@ -380,6 +415,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define WOL_PT5_LEN_SHIFT               8
 #define WOL_PT6_LEN_SHIFT               16
 
+/* Internal SRAM Partition Register */
 #define RFDX_HEAD_ADDR_MASK		0x03FF
 #define RFDX_HARD_ADDR_SHIFT		0
 #define RFDX_TAIL_ADDR_MASK		0x03FF
@@ -390,7 +426,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define REG_SRAM_RFD2_INFO		0x1508
 #define	REG_SRAM_RFD3_INFO		0x150C
 
-#define REG_RFD_NIC_LEN			0x1510 
+#define REG_RFD_NIC_LEN			0x1510 /* In 8-bytes */
 #define RFD_NIC_LEN_MASK		0x03FF
 
 #define REG_SRAM_TRD_ADDR           	0x1518
@@ -399,7 +435,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define TPD_TAIL_ADDR_MASK		0x03FF
 #define TPD_TAIL_ADDR_SHIFT		16
 
-#define REG_SRAM_TRD_LEN            	0x151C 
+#define REG_SRAM_TRD_LEN            	0x151C /* In 8-bytes */
 #define TPD_NIC_LEN_MASK		0x03FF
 
 #define REG_SRAM_RXF_ADDR          	0x1520
@@ -409,8 +445,17 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define REG_SRAM_TCPH_ADDR          	0x1530
 #define REG_SRAM_PKTH_ADDR          	0x1532
 
+/*
+ * Load Ptr Register
+ * Software sets this bit after the initialization of the head and tail */
 #define REG_LOAD_PTR                	0x1534
 
+/*
+ * addresses of all descriptors, as well as the following descriptor
+ * control register, which triggers each function block to load the head
+ * pointer to prepare for the operation. This bit is then self-cleared
+ * after one cycle.
+ */
 #define REG_RX_BASE_ADDR_HI		0x1540
 #define REG_TX_BASE_ADDR_HI		0x1544
 #define REG_SMB_BASE_ADDR_HI		0x1548
@@ -435,6 +480,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define TPD_RING_SIZE_MASK		0xFFFF
 #define REG_CMB_BASE_ADDR_LO		0x1588
 
+/* RSS about */
 #define REG_RSS_KEY0                    0x14B0
 #define REG_RSS_KEY1                    0x14B4
 #define REG_RSS_KEY2                    0x14B8
@@ -458,6 +504,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define REG_RSS_HASH_FLAG               0x15B4
 #define REG_BASE_CPU_NUMBER             0x15B8
 
+/* TXQ Control Register */
 #define REG_TXQ_CTRL                	0x1590
 #define	TXQ_NUM_TPD_BURST_MASK     	0xF
 #define TXQ_NUM_TPD_BURST_SHIFT    	0
@@ -468,10 +515,11 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define TXQ_TXF_BURST_NUM_SHIFT    	16
 #define TXQ_TXF_BURST_NUM_MASK     	0xFFFF
 
-#define REG_TX_TSO_OFFLOAD_THRESH	0x1594 
+/* Jumbo packet Threshold for task offload */
+#define REG_TX_TSO_OFFLOAD_THRESH	0x1594 /* In 8-bytes */
 #define TX_TSO_OFFLOAD_THRESH_MASK	0x07FF
 
-#define	REG_TXF_WATER_MARK		0x1598 
+#define	REG_TXF_WATER_MARK		0x1598 /* In 8-bytes */
 #define TXF_WATER_MARK_MASK		0x0FFF
 #define TXF_LOW_WATER_MARK_SHIFT	0
 #define TXF_HIGH_WATER_MARK_SHIFT 	16
@@ -482,6 +530,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define THRUPUT_MON_RATE_SHIFT		0
 #define THRUPUT_MON_EN			0x80
 
+/* RXQ Control Register */
 #define REG_RXQ_CTRL                	0x15A0
 #define ASPM_THRUPUT_LIMIT_MASK		0x3
 #define ASPM_THRUPUT_LIMIT_SHIFT	0
@@ -514,6 +563,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define RFD_FREE_HI_THRESH_SHIFT	0
 #define RFD_FREE_LO_THRESH_SHIFT	6
 
+/* RXF flow control register */
 #define REG_RXQ_RXF_PAUSE_THRESH    	0x15A8
 #define RXQ_RXF_PAUSE_TH_HI_SHIFT       0
 #define RXQ_RXF_PAUSE_TH_HI_MASK        0x0FFF
@@ -521,11 +571,12 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define RXQ_RXF_PAUSE_TH_LO_MASK        0x0FFF
 
 #define REG_RXD_DMA_CTRL		0x15AC
-#define RXD_DMA_THRESH_MASK		0x0FFF	
+#define RXD_DMA_THRESH_MASK		0x0FFF	/* In 8-bytes */
 #define RXD_DMA_THRESH_SHIFT		0
 #define RXD_DMA_DOWN_TIMER_MASK		0xFFFF
 #define RXD_DMA_DOWN_TIMER_SHIFT	16
 
+/* DMA Engine Control Register */
 #define REG_DMA_CTRL                	0x15C0
 #define DMA_CTRL_DMAR_IN_ORDER          0x1
 #define DMA_CTRL_DMAR_ENH_ORDER         0x2
@@ -546,13 +597,15 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define MAC_CTRL_SMB_DIS		0x1000000
 #define DMA_CTRL_SMB_NOW		0x80000000
 
-#define REG_SMB_STAT_TIMER		0x15C4	
+/* CMB/SMB Control Register */
+#define REG_SMB_STAT_TIMER		0x15C4	/* 2us resolution */
 #define SMB_STAT_TIMER_MASK		0xFFFFFF
 #define REG_CMB_TPD_THRESH		0x15C8
 #define CMB_TPD_THRESH_MASK		0xFFFF
-#define REG_CMB_TX_TIMER		0x15CC	
+#define REG_CMB_TX_TIMER		0x15CC	/* 2us resolution */
 #define CMB_TX_TIMER_MASK		0xFFFF
 
+/* Mail box */
 #define MB_RFDX_PROD_IDX_MASK		0xFFFF
 #define REG_MB_RFD0_PROD_IDX		0x15E0
 #define REG_MB_RFD1_PROD_IDX		0x15E4
@@ -576,12 +629,17 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define MB_RFD2_CONS_IDX_MASK		0x0000FFFF
 #define MB_RFD3_CONS_IDX_MASK		0xFFFF0000
 
+/* Interrupt Status Register */
 #define REG_ISR    			0x1600
 #define ISR_SMB				0x00000001
 #define ISR_TIMER			0x00000002
+/*
+ * Software manual interrupt, for debug. Set when SW_MAN_INT_EN is set
+ * in Table 51 Selene Master Control Register (Offset 0x1400).
+ */
 #define ISR_MANUAL         		0x00000004
-#define ISR_HW_RXF_OV          		0x00000008 
-#define ISR_RFD0_UR			0x00000010 
+#define ISR_HW_RXF_OV          		0x00000008 /* RXF overflow interrupt */
+#define ISR_RFD0_UR			0x00000010 /* RFD0 under run */
 #define ISR_RFD1_UR			0x00000020
 #define ISR_RFD2_UR			0x00000040
 #define ISR_RFD3_UR			0x00000080
@@ -590,6 +648,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define ISR_DMAW_TO_RST			0x00000400
 #define ISR_TX_CREDIT			0x00000800
 #define ISR_GPHY			0x00001000
+/* GPHY low power state interrupt */
 #define ISR_GPHY_LPW           		0x00002000
 #define ISR_TXQ_TO_RST			0x00004000
 #define ISR_TX_PKT			0x00008000
@@ -606,6 +665,7 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define ISR_PHY_LINKDOWN		0x04000000
 #define ISR_DIS_INT			0x80000000
 
+/* Interrupt Mask Register */
 #define REG_IMR				0x1604
 
 #define IMR_NORMAL_MASK		(\
@@ -672,51 +732,59 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 				 CLK_GATING_TXMAC_EN|\
 				 CLK_GATING_RXMAC_EN)
 
+/* DEBUG ADDR */
 #define REG_DEBUG_DATA0 		0x1900
 #define REG_DEBUG_DATA1 		0x1904
 
-#define L1D_MPW_PHYID1			0xD01C  
-#define L1D_MPW_PHYID2			0xD01D  
-#define L1D_MPW_PHYID3			0xD01E  
+#define L1D_MPW_PHYID1			0xD01C  /* V7 */
+#define L1D_MPW_PHYID2			0xD01D  /* V1-V6 */
+#define L1D_MPW_PHYID3			0xD01E  /* V8 */
 
 
+/* Autoneg Advertisement Register */
 #define ADVERTISE_DEFAULT_CAP \
 	(ADVERTISE_ALL | ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM)
 
-#define GIGA_CR_1000T_REPEATER_DTE	0x0400  
+/* 1000BASE-T Control Register */
+#define GIGA_CR_1000T_REPEATER_DTE	0x0400  /* 1=Repeater/switch device port 0=DTE device */
 
-#define GIGA_CR_1000T_MS_VALUE		0x0800  
-#define GIGA_CR_1000T_MS_ENABLE		0x1000  
-#define GIGA_CR_1000T_TEST_MODE_NORMAL	0x0000  
-#define GIGA_CR_1000T_TEST_MODE_1	0x2000  
-#define GIGA_CR_1000T_TEST_MODE_2	0x4000  
-#define GIGA_CR_1000T_TEST_MODE_3	0x6000  
-#define GIGA_CR_1000T_TEST_MODE_4	0x8000	
+#define GIGA_CR_1000T_MS_VALUE		0x0800  /* 1=Configure PHY as Master 0=Configure PHY as Slave */
+#define GIGA_CR_1000T_MS_ENABLE		0x1000  /* 1=Master/Slave manual config value 0=Automatic Master/Slave config */
+#define GIGA_CR_1000T_TEST_MODE_NORMAL	0x0000  /* Normal Operation */
+#define GIGA_CR_1000T_TEST_MODE_1	0x2000  /* Transmit Waveform test */
+#define GIGA_CR_1000T_TEST_MODE_2	0x4000  /* Master Transmit Jitter test */
+#define GIGA_CR_1000T_TEST_MODE_3	0x6000  /* Slave Transmit Jitter test */
+#define GIGA_CR_1000T_TEST_MODE_4	0x8000	/* Transmitter Distortion test */
 #define GIGA_CR_1000T_SPEED_MASK	0x0300
 #define GIGA_CR_1000T_DEFAULT_CAP	0x0300
 
+/* PHY Specific Status Register */
 #define MII_GIGA_PSSR			0x11
-#define GIGA_PSSR_SPD_DPLX_RESOLVED	0x0800  
-#define GIGA_PSSR_DPLX			0x2000  
-#define GIGA_PSSR_SPEED			0xC000  
-#define GIGA_PSSR_10MBS			0x0000  
-#define GIGA_PSSR_100MBS		0x4000  
-#define GIGA_PSSR_1000MBS		0x8000  
+#define GIGA_PSSR_SPD_DPLX_RESOLVED	0x0800  /* 1=Speed & Duplex resolved */
+#define GIGA_PSSR_DPLX			0x2000  /* 1=Duplex 0=Half Duplex */
+#define GIGA_PSSR_SPEED			0xC000  /* Speed, bits 14:15 */
+#define GIGA_PSSR_10MBS			0x0000  /* 00=10Mbs */
+#define GIGA_PSSR_100MBS		0x4000  /* 01=100Mbs */
+#define GIGA_PSSR_1000MBS		0x8000  /* 10=1000Mbs */
 
+/* PHY Interrupt Enable Register */
 #define MII_IER				0x12
 #define IER_LINK_UP			0x0400
 #define IER_LINK_DOWN			0x0800
 
+/* PHY Interrupt Status Register */
 #define MII_ISR				0x13
 #define ISR_LINK_UP			0x0400
 #define ISR_LINK_DOWN			0x0800
 
+/* Cable-Detect-Test Control Register */
 #define MII_CDTC			0x16
-#define CDTC_EN_OFF			0   
+#define CDTC_EN_OFF			0   /* sc */
 #define CDTC_EN_BITS			1
 #define CDTC_PAIR_OFF			8
 #define CDTC_PAIR_BIT			2
 
+/* Cable-Detect-Test Status Register */
 #define MII_CDTS			0x1C
 #define CDTS_STATUS_OFF			8
 #define CDTS_STATUS_BITS		2
@@ -797,4 +865,4 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define ANA_BP_BAD_LINK_ACCUM		0x4000
 #define ANA_BP_SMALL_BW			0x8000
 
-#endif 
+#endif /*_ATL1C_HW_H_*/

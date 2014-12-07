@@ -73,7 +73,7 @@ int v4l2_event_dequeue(struct v4l2_fh *fh, struct v4l2_event *event,
 	if (nonblocking)
 		return __v4l2_event_dequeue(fh, event);
 
-	
+	/* Release the vdev lock while waiting */
 	if (fh->vdev->lock)
 		mutex_unlock(fh->vdev->lock);
 
@@ -93,6 +93,7 @@ int v4l2_event_dequeue(struct v4l2_fh *fh, struct v4l2_event *event,
 }
 EXPORT_SYMBOL_GPL(v4l2_event_dequeue);
 
+/* Caller must hold fh->vdev->fh_lock! */
 static struct v4l2_subscribed_event *v4l2_event_subscribed(
 		struct v4l2_fh *fh, u32 type, u32 id)
 {
@@ -114,17 +115,17 @@ static void __v4l2_event_queue_fh(struct v4l2_fh *fh, const struct v4l2_event *e
 	struct v4l2_kevent *kev;
 	bool copy_payload = true;
 
-	
+	/* Are we subscribed? */
 	sev = v4l2_event_subscribed(fh, ev->type, ev->id);
 	if (sev == NULL)
 		return;
 
-	
+	/* Increase event sequence number on fh. */
 	fh->sequence++;
 
-	
+	/* Do we have any free events? */
 	if (sev->in_use == sev->elems) {
-		
+		/* no, remove the oldest one */
 		kev = sev->events + sev_pos(sev, 0);
 		list_del(&kev->list);
 		sev->in_use--;
@@ -142,7 +143,7 @@ static void __v4l2_event_queue_fh(struct v4l2_fh *fh, const struct v4l2_event *e
 		}
 	}
 
-	
+	/* Take one and fill it. */
 	kev = sev->events + sev_pos(sev, sev->in_use);
 	kev->event.type = ev->type;
 	if (copy_payload)
@@ -247,7 +248,7 @@ int v4l2_event_subscribe(struct v4l2_fh *fh,
 		list_add(&sev->list, &fh->subscribed);
 	spin_unlock_irqrestore(&fh->vdev->fh_lock, flags);
 
-	
+	/* v4l2_ctrl_add_event uses a mutex, so do this outside the spin lock */
 	if (found_ev)
 		kfree(sev);
 	else if (ctrl)
@@ -296,7 +297,7 @@ int v4l2_event_unsubscribe(struct v4l2_fh *fh,
 
 	sev = v4l2_event_subscribed(fh, sub->type, sub->id);
 	if (sev != NULL) {
-		
+		/* Remove any pending events for this subscription */
 		for (i = 0; i < sev->in_use; i++) {
 			list_del(&sev->events[sev_pos(sev, i)].list);
 			fh->navailable--;

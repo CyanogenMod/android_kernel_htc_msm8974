@@ -18,6 +18,7 @@
 #include <linux/mtd/cfi.h>
 #include <linux/mtd/gen_probe.h>
 
+//#define DEBUG_CFI
 
 #ifdef DEBUG_CFI
 static void print_cfi_ident(struct cfi_ident *);
@@ -31,6 +32,7 @@ struct mtd_info *cfi_probe(struct map_info *map);
 
 #ifdef CONFIG_MTD_XIP
 
+/* only needed for short periods, so this is rather simple */
 #define xip_disable()	local_irq_disable()
 
 #define xip_allowed(base, map) \
@@ -61,6 +63,10 @@ do { \
 
 #endif
 
+/* check for QRY.
+   in: interleave,type,mode
+   ret: table index, <0 for error
+ */
 
 static int __xipram cfi_probe_chip(struct map_info *map, __u32 base,
 				   unsigned long *chip_map, struct cfi_private *cfi)
@@ -87,28 +93,37 @@ static int __xipram cfi_probe_chip(struct map_info *map, __u32 base,
 	}
 
 	if (!cfi->numchips) {
+		/* This is the first time we're called. Set up the CFI
+		   stuff accordingly and return */
 		return cfi_chip_setup(map, cfi);
 	}
 
-	
+	/* Check each previous chip to see if it's an alias */
  	for (i=0; i < (base >> cfi->chipshift); i++) {
  		unsigned long start;
  		if(!test_bit(i, chip_map)) {
-			
+			/* Skip location; no valid chip at this address */
  			continue;
  		}
  		start = i << cfi->chipshift;
+		/* This chip should be in read mode if it's one
+		   we've already touched. */
 		if (cfi_qry_present(map, start, cfi)) {
+			/* Eep. This chip also had the QRY marker.
+			 * Is it an alias for the new one? */
 			cfi_qry_mode_off(start, map, cfi);
 
-			
+			/* If the QRY marker goes away, it's an alias */
 			if (!cfi_qry_present(map, start, cfi)) {
 				xip_allowed(base, map);
 				printk(KERN_DEBUG "%s: Found an alias at 0x%x for the chip at 0x%lx\n",
 				       map->name, base, start);
 				return 0;
 			}
-			
+			/* Yes, it's actually got QRY for data. Most
+			 * unfortunate. Stick the new chip in read mode
+			 * too and if it's the same, assume it's an alias. */
+			/* FIXME: Use other modes to do a proper check */
 			cfi_qry_mode_off(base, map, cfi);
 
 			if (cfi_qry_present(map, base, cfi)) {
@@ -120,10 +135,12 @@ static int __xipram cfi_probe_chip(struct map_info *map, __u32 base,
 		}
 	}
 
-	set_bit((base >> cfi->chipshift), chip_map); 
+	/* OK, if we got to here, then none of the previous chips appear to
+	   be aliases for the current one. */
+	set_bit((base >> cfi->chipshift), chip_map); /* Update chip map */
 	cfi->numchips++;
 
-	
+	/* Put it back into Read Mode */
 	cfi_qry_mode_off(base, map, cfi);
 	xip_allowed(base, map);
 
@@ -162,12 +179,12 @@ static int __xipram cfi_chip_setup(struct map_info *map,
 
 	cfi->sector_erase_cmd = CMD(0x30);
 
-	
+	/* Read the CFI info structure */
 	xip_disable_qry(base, map, cfi);
 	for (i=0; i<(sizeof(struct cfi_ident) + num_erase_regions * 4); i++)
 		((unsigned char *)cfi->cfiq)[i] = cfi_read_query(map,base + (0x10 + i)*ofs_factor);
 
-	
+	/* Do any necessary byteswapping */
 	cfi->cfiq->P_ID = le16_to_cpu(cfi->cfiq->P_ID);
 
 	cfi->cfiq->P_ADR = le16_to_cpu(cfi->cfiq->P_ADR);
@@ -177,7 +194,7 @@ static int __xipram cfi_chip_setup(struct map_info *map,
 	cfi->cfiq->MaxBufWriteSize = le16_to_cpu(cfi->cfiq->MaxBufWriteSize);
 
 #ifdef DEBUG_CFI
-	
+	/* Dump the information therein */
 	print_cfi_ident(cfi->cfiq);
 #endif
 
@@ -196,6 +213,14 @@ static int __xipram cfi_chip_setup(struct map_info *map,
 		addr_unlock2 = 0x2AAA;
 	}
 
+	/*
+	 * Note we put the device back into Read Mode BEFORE going into Auto
+	 * Select Mode, as some devices support nesting of modes, others
+	 * don't. This way should always work.
+	 * On cmdset 0001 the writes of 0xaa and 0x55 are not needed, and
+	 * so should be treated as nops or illegal (and so put the device
+	 * back into Read Mode, which is a nop in this case).
+	 */
 	cfi_send_gen_cmd(0xf0,     0, base, map, cfi, cfi->device_type, NULL);
 	cfi_send_gen_cmd(0xaa, addr_unlock1, base, map, cfi, cfi->device_type, NULL);
 	cfi_send_gen_cmd(0x55, addr_unlock2, base, map, cfi, cfi->device_type, NULL);
@@ -203,12 +228,12 @@ static int __xipram cfi_chip_setup(struct map_info *map,
 	cfi->mfr = cfi_read_query16(map, base);
 	cfi->id = cfi_read_query16(map, base + ofs_factor);
 
-	
+	/* Get AMD/Spansion extended JEDEC ID */
 	if (cfi->mfr == CFI_MFR_AMD && (cfi->id & 0xff) == 0x7e)
 		cfi->id = cfi_read_query(map, base + 0xe * ofs_factor) << 8 |
 			  cfi_read_query(map, base + 0xf * ofs_factor);
 
-	
+	/* Put it back into Read Mode */
 	cfi_qry_mode_off(base, map, cfi);
 	xip_allowed(base, map);
 
@@ -356,7 +381,7 @@ static void print_cfi_ident(struct cfi_ident *cfip)
 	printk("Number of Erase Block Regions: %d\n", cfip->NumEraseRegions);
 
 }
-#endif 
+#endif /* DEBUG_CFI */
 
 static struct chip_probe cfi_chip_probe = {
 	.name		= "CFI",
@@ -365,6 +390,10 @@ static struct chip_probe cfi_chip_probe = {
 
 struct mtd_info *cfi_probe(struct map_info *map)
 {
+	/*
+	 * Just use the generic probe stuff to call our CFI-specific
+	 * chip_probe routine in all the possible permutations, etc.
+	 */
 	return mtd_do_chip_probe(map, &cfi_chip_probe);
 }
 

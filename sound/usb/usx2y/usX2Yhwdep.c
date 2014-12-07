@@ -63,12 +63,12 @@ static int snd_us428ctls_mmap(struct snd_hwdep * hw, struct file *filp, struct v
 	unsigned long	size = (unsigned long)(area->vm_end - area->vm_start);
 	struct usX2Ydev	*us428 = hw->private_data;
 
-	
-	
+	// FIXME this hwdep interface is used twice: fpga download and mmap for controlling Lights etc. Maybe better using 2 hwdep devs?
+	// so as long as the device isn't fully initialised yet we return -EBUSY here.
  	if (!(us428->chip_status & USX2Y_STAT_CHIP_INIT))
 		return -EBUSY;
 
-	 
+	/* if userspace tries to mmap beyond end of our buffer, fail */ 
         if (size > PAGE_ALIGN(sizeof(struct us428ctls_sharedmem))) {
 		snd_printd( "%lu > %lu\n", size, (unsigned long)sizeof(struct us428ctls_sharedmem)); 
                 return -EINVAL;
@@ -129,7 +129,7 @@ static int snd_usX2Y_hwdep_dsp_status(struct snd_hwdep *hw,
 	if (0 > id)
 		return -ENODEV;
 	strcpy(info->id, type_ids[id]);
-	info->num_dsps = 2;		
+	info->num_dsps = 2;		// 0: Prepad Data, 1: FPGA Code
 	if (us428->chip_status & USX2Y_STAT_CHIP_INIT)
 		info->chip_ready = 1;
  	info->version = USX2Y_DRIVER_VERSION; 
@@ -220,7 +220,7 @@ static int snd_usX2Y_hwdep_dsp_load(struct snd_hwdep *hw,
 	if (err)
 		return err;
 	if (dsp->index == 1) {
-		msleep(250);				
+		msleep(250);				// give the device some time
 		err = usX2Y_AsyncSeq04_init(priv);
 		if (err) {
 			snd_printk(KERN_ERR "usX2Y_AsyncSeq04_init error \n");

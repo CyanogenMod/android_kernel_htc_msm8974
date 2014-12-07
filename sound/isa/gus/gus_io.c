@@ -34,7 +34,14 @@ void snd_gf1_delay(struct snd_gus_card * gus)
 	}
 }
 
+/*
+ *  =======================================================================
+ */
 
+/*
+ *  ok.. stop of control registers (wave & ramp) need some special things..
+ *       big UltraClick (tm) elimination...
+ */
 
 static inline void __snd_gf1_ctrl_stop(struct snd_gus_card * gus, unsigned char reg)
 {
@@ -126,6 +133,9 @@ static inline unsigned int __snd_gf1_read_addr(struct snd_gus_card * gus,
 }
 
 
+/*
+ *  =======================================================================
+ */
 
 void snd_gf1_ctrl_stop(struct snd_gus_card * gus, unsigned char reg)
 {
@@ -176,6 +186,9 @@ unsigned int snd_gf1_read_addr(struct snd_gus_card * gus,
 	return __snd_gf1_read_addr(gus, reg, w_16bit);
 }
 
+/*
+
+ */
 
 void snd_gf1_i_ctrl_stop(struct snd_gus_card * gus, unsigned char reg)
 {
@@ -253,7 +266,7 @@ void snd_gf1_i_write_addr(struct snd_gus_card * gus, unsigned char reg,
 	spin_unlock_irqrestore(&gus->reg_lock, flags);
 }
 
-#endif  
+#endif  /*  0  */
 
 #ifdef CONFIG_SND_DEBUG
 static unsigned int snd_gf1_i_read_addr(struct snd_gus_card * gus,
@@ -269,6 +282,9 @@ static unsigned int snd_gf1_i_read_addr(struct snd_gus_card * gus,
 }
 #endif
 
+/*
+
+ */
 
 void snd_gf1_dram_addr(struct snd_gus_card * gus, unsigned int addr)
 {
@@ -396,7 +412,7 @@ void snd_gf1_dram_setmem(struct snd_gus_card * gus, unsigned int addr,
 	spin_unlock_irqrestore(&gus->reg_lock, flags);
 }
 
-#endif  
+#endif  /*  0  */
 
 void snd_gf1_select_active_voices(struct snd_gus_card * gus)
 {
@@ -438,10 +454,10 @@ void snd_gf1_print_voice_registers(struct snd_gus_card * gus)
 	printk(KERN_INFO " -%i- GF1  ramp start, end, rate  = 0x%x, 0x%x, 0x%x\n", voice, snd_gf1_i_read8(gus, 7), snd_gf1_i_read8(gus, 8), snd_gf1_i_read8(gus, 6));
 	printk(KERN_INFO" -%i- GF1  volume                 = 0x%x\n", voice, snd_gf1_i_read16(gus, 9));
 	printk(KERN_INFO " -%i- GF1  position               = 0x%x (0x%x)\n", voice, snd_gf1_i_read_addr(gus, 0x0a, ctrl & 4), snd_gf1_i_read_addr(gus, 0x0a, (ctrl & 4) ^ 4));
-	if (gus->interwave && snd_gf1_i_read8(gus, 0x19) & 0x01) {	
+	if (gus->interwave && snd_gf1_i_read8(gus, 0x19) & 0x01) {	/* enhanced mode */
 		mode = snd_gf1_i_read8(gus, 0x15);
 		printk(KERN_INFO " -%i- GFA1 mode                   = 0x%x\n", voice, mode);
-		if (mode & 0x01) {	
+		if (mode & 0x01) {	/* Effect processor */
 			printk(KERN_INFO " -%i- GFA1 effect address         = 0x%x\n", voice, snd_gf1_i_read_addr(gus, 0x11, ctrl & 4));
 			printk(KERN_INFO " -%i- GFA1 effect volume          = 0x%x\n", voice, snd_gf1_i_read16(gus, 0x16));
 			printk(KERN_INFO " -%i- GFA1 effect volume final    = 0x%x\n", voice, snd_gf1_i_read16(gus, 0x1d));
@@ -469,7 +485,7 @@ void snd_gf1_print_global_registers(struct snd_gus_card * gus)
 		global_mode = snd_gf1_i_read8(gus, SNDRV_GF1_GB_GLOBAL_MODE);
 		printk(KERN_INFO " -G- GF1 global mode              = 0x%x\n", global_mode);
 	}
-	if (global_mode & 0x02)	
+	if (global_mode & 0x02)	/* LFO enabled? */
 		printk(KERN_INFO " -G- GF1 LFO base                 = 0x%x\n", snd_gf1_i_look16(gus, SNDRV_GF1_GW_LFO_BASE));
 	printk(KERN_INFO " -G- GF1 voices IRQ read          = 0x%x\n", snd_gf1_i_look8(gus, SNDRV_GF1_GB_VOICES_IRQ_READ));
 	printk(KERN_INFO " -G- GF1 DRAM DMA control         = 0x%x\n", snd_gf1_i_look8(gus, SNDRV_GF1_GB_DRAM_DMA_CONTROL));
@@ -519,6 +535,6 @@ void snd_gf1_peek_print_block(struct snd_gus_card * gus, unsigned int addr, int 
 	}
 }
 
-#endif  
+#endif  /*  0  */
 
 #endif

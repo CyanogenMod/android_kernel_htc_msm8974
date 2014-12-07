@@ -71,13 +71,14 @@ static const char *scx200_acb_state_name[] = {
 	"write",
 };
 
+/* Physical interface */
 struct scx200_acb_iface {
 	struct scx200_acb_iface *next;
 	struct i2c_adapter adapter;
 	unsigned base;
 	struct mutex mutex;
 
-	
+	/* State machine data */
 	enum scx200_acb_state state;
 	int result;
 	u8 address_byte;
@@ -87,12 +88,13 @@ struct scx200_acb_iface {
 	unsigned len;
 };
 
+/* Register Definitions */
 #define ACBSDA		(iface->base + 0)
 #define ACBST		(iface->base + 1)
-#define    ACBST_SDAST		0x40 
+#define    ACBST_SDAST		0x40 /* SDA Status */
 #define    ACBST_BER		0x20
-#define    ACBST_NEGACK		0x10 
-#define    ACBST_STASTR		0x08 
+#define    ACBST_NEGACK		0x10 /* Negative Acknowledge */
+#define    ACBST_STASTR		0x08 /* Stall After Start */
 #define    ACBST_MASTER		0x02
 #define ACBCST		(iface->base + 2)
 #define    ACBCST_BB		0x02
@@ -106,6 +108,7 @@ struct scx200_acb_iface {
 #define ACBCTL2		(iface->base + 5)
 #define    ACBCTL2_ENABLE	0x01
 
+/************************************************************************/
 
 static void scx200_acb_machine(struct scx200_acb_iface *iface, u8 status)
 {
@@ -132,7 +135,7 @@ static void scx200_acb_machine(struct scx200_acb_iface *iface, u8 status)
 		outb(inb(ACBCTL1) | ACBCTL1_STOP, ACBCTL1);
 		outb(ACBST_STASTR | ACBST_NEGACK, ACBST);
 
-		
+		/* Reset the status register */
 		outb(0, ACBST);
 		return;
 	}
@@ -143,7 +146,7 @@ static void scx200_acb_machine(struct scx200_acb_iface *iface, u8 status)
 		break;
 
 	case state_address:
-		
+		/* Do a pointer write first */
 		outb(iface->address_byte & ~1, ACBSDA);
 
 		iface->state = state_command;
@@ -160,7 +163,7 @@ static void scx200_acb_machine(struct scx200_acb_iface *iface, u8 status)
 
 	case state_repeat_start:
 		outb(inb(ACBCTL1) | ACBCTL1_START, ACBCTL1);
-		
+		/* fallthrough */
 
 	case state_quick:
 		if (iface->address_byte & 1) {
@@ -179,7 +182,7 @@ static void scx200_acb_machine(struct scx200_acb_iface *iface, u8 status)
 		break;
 
 	case state_read:
-		
+		/* Set ACK if _next_ byte will be the last one */
 		if (iface->len == 2)
 			outb(inb(ACBCTL1) | ACBCTL1_ACK, ACBCTL1);
 		else
@@ -232,7 +235,7 @@ static void scx200_acb_poll(struct scx200_acb_iface *iface)
 	while (1) {
 		status = inb(ACBST);
 
-		
+		/* Reset the status register to avoid the hang */
 		outb(0, ACBST);
 
 		if ((status & (ACBST_SDAST|ACBST_BER|ACBST_NEGACK)) != 0) {
@@ -255,20 +258,22 @@ static void scx200_acb_poll(struct scx200_acb_iface *iface)
 
 static void scx200_acb_reset(struct scx200_acb_iface *iface)
 {
+	/* Disable the ACCESS.bus device and Configure the SCL
+	   frequency: 16 clock cycles */
 	outb(0x70, ACBCTL2);
-	
+	/* Polling mode */
 	outb(0, ACBCTL1);
-	
+	/* Disable slave address */
 	outb(0, ACBADDR);
-	
+	/* Enable the ACCESS.bus device */
 	outb(inb(ACBCTL2) | ACBCTL2_ENABLE, ACBCTL2);
-	
+	/* Free STALL after START */
 	outb(inb(ACBCTL1) & ~(ACBCTL1_STASTRE | ACBCTL1_NMINTE), ACBCTL1);
-	
+	/* Send a STOP */
 	outb(inb(ACBCTL1) | ACBCTL1_STOP, ACBCTL1);
-	
+	/* Clear BER, NEGACK and STASTR bits */
 	outb(ACBST_BER | ACBST_NEGACK | ACBST_STASTR, ACBST);
-	
+	/* Clear BB bit */
 	outb(inb(ACBCST) | ACBCST_BB, ACBCST);
 }
 
@@ -375,6 +380,7 @@ static u32 scx200_acb_func(struct i2c_adapter *adapter)
 	       I2C_FUNC_SMBUS_I2C_BLOCK;
 }
 
+/* For now, we only handle combined mode (smbus) */
 static const struct i2c_algorithm scx200_acb_algorithm = {
 	.smbus_xfer	= scx200_acb_smbus_xfer,
 	.functionality	= scx200_acb_func,
@@ -387,6 +393,8 @@ static __devinit int scx200_acb_probe(struct scx200_acb_iface *iface)
 {
 	u8 val;
 
+	/* Disable the ACCESS.bus device and Configure the SCL
+	   frequency: 16 clock cycles */
 	outb(0x70, ACBCTL2);
 
 	if (inb(ACBCTL2) != 0x70) {
@@ -463,7 +471,7 @@ static int __devinit scx200_acb_create(struct scx200_acb_iface *iface)
 	}
 
 	if (!adapter->dev.parent) {
-		
+		/* If there's no dev, we're tracking (ISA) ifaces manually */
 		mutex_lock(&scx200_acb_list_mutex);
 		iface->next = scx200_acb_list;
 		scx200_acb_list = iface;
@@ -568,7 +576,7 @@ static __init void scx200_scan_isa(void)
 		if (base[i] == 0)
 			continue;
 
-		
+		/* XXX: should we care about failures? */
 		scx200_create_dev("SCx200", base[i], i, NULL);
 	}
 }
@@ -577,14 +585,14 @@ static int __init scx200_acb_init(void)
 {
 	pr_debug(NAME ": NatSemi SCx200 ACCESS.bus Driver\n");
 
-	
-	scx200_scan_isa();	
+	/* First scan for ISA-based devices */
+	scx200_scan_isa();	/* XXX: should we care about errors? */
 
-	
+	/* If at least one bus was created, init must succeed */
 	if (scx200_acb_list)
 		return 0;
 
-	
+	/* No ISA devices; register the platform driver for PCI-based devices */
 	return platform_driver_register(&scx200_pci_driver);
 }
 

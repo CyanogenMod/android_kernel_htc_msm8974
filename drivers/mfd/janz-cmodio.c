@@ -25,10 +25,13 @@
 
 #define DRV_NAME "janz-cmodio"
 
+/* Size of each MODULbus module in PCI BAR4 */
 #define CMODIO_MODULBUS_SIZE	0x200
 
+/* Maximum number of MODULbus modules on a CMOD-IO carrier board */
 #define CMODIO_MAX_MODULES	4
 
+/* Module Parameters */
 static unsigned int num_modules = CMODIO_MAX_MODULES;
 static char *modules[CMODIO_MAX_MODULES] = {
 	"empty", "empty", "empty", "empty",
@@ -37,24 +40,28 @@ static char *modules[CMODIO_MAX_MODULES] = {
 module_param_array(modules, charp, &num_modules, S_IRUGO);
 MODULE_PARM_DESC(modules, "MODULbus modules attached to the carrier board");
 
+/* Unique Device Id */
 static unsigned int cmodio_id;
 
 struct cmodio_device {
-	
+	/* Parent PCI device */
 	struct pci_dev *pdev;
 
-	
+	/* PLX control registers */
 	struct janz_cmodio_onboard_regs __iomem *ctrl;
 
-	
+	/* hex switch position */
 	u8 hex;
 
-	
+	/* mfd-core API */
 	struct mfd_cell cells[CMODIO_MAX_MODULES];
 	struct resource resources[3 * CMODIO_MAX_MODULES];
 	struct janz_platform_data pdata[CMODIO_MAX_MODULES];
 };
 
+/*
+ * Subdevices using the mfd-core API
+ */
 
 static int __devinit cmodio_setup_subdevice(struct cmodio_device *priv,
 					    char *name, unsigned int devno,
@@ -74,28 +81,35 @@ static int __devinit cmodio_setup_subdevice(struct cmodio_device *priv,
 	cell->resources = res;
 	cell->num_resources = 3;
 
-	
+	/* Setup the subdevice ID -- must be unique */
 	cell->id = cmodio_id++;
 
-	
+	/* Add platform data */
 	pdata->modno = modno;
 	cell->platform_data = pdata;
 	cell->pdata_size = sizeof(*pdata);
 
-	
+	/* MODULbus registers -- PCI BAR3 is big-endian MODULbus access */
 	res->flags = IORESOURCE_MEM;
 	res->parent = &pci->resource[3];
 	res->start = pci->resource[3].start + (CMODIO_MODULBUS_SIZE * modno);
 	res->end = res->start + CMODIO_MODULBUS_SIZE - 1;
 	res++;
 
-	
+	/* PLX Control Registers -- PCI BAR4 is interrupt and other registers */
 	res->flags = IORESOURCE_MEM;
 	res->parent = &pci->resource[4];
 	res->start = pci->resource[4].start;
 	res->end = pci->resource[4].end;
 	res++;
 
+	/*
+	 * IRQ
+	 *
+	 * The start and end fields are used as an offset to the irq_base
+	 * parameter passed into the mfd_add_devices() function call. All
+	 * devices share the same IRQ.
+	 */
 	res->flags = IORESOURCE_IRQ;
 	res->parent = NULL;
 	res->start = 0;
@@ -105,6 +119,7 @@ static int __devinit cmodio_setup_subdevice(struct cmodio_device *priv,
 	return 0;
 }
 
+/* Probe each submodule using kernel parameters */
 static int __devinit cmodio_probe_submodules(struct cmodio_device *priv)
 {
 	struct pci_dev *pdev = priv->pdev;
@@ -122,7 +137,7 @@ static int __devinit cmodio_probe_submodules(struct cmodio_device *priv)
 		num_probed++;
 	}
 
-	
+	/* print an error message if no modules were probed */
 	if (num_probed == 0) {
 		dev_err(&priv->pdev->dev, "no MODULbus modules specified, "
 					  "please set the ``modules'' kernel "
@@ -135,6 +150,9 @@ static int __devinit cmodio_probe_submodules(struct cmodio_device *priv)
 			       num_probed, NULL, pdev->irq);
 }
 
+/*
+ * SYSFS Attributes
+ */
 
 static ssize_t mbus_show(struct device *dev, struct device_attribute *attr,
 			 char *buf)
@@ -155,6 +173,9 @@ static const struct attribute_group cmodio_sysfs_attr_group = {
 	.attrs = cmodio_sysfs_attrs,
 };
 
+/*
+ * PCI Driver
+ */
 
 static int __devinit cmodio_pci_probe(struct pci_dev *dev,
 				      const struct pci_device_id *id)
@@ -172,7 +193,7 @@ static int __devinit cmodio_pci_probe(struct pci_dev *dev,
 	pci_set_drvdata(dev, priv);
 	priv->pdev = dev;
 
-	
+	/* Hardware Initialization */
 	ret = pci_enable_device(dev);
 	if (ret) {
 		dev_err(&dev->dev, "unable to enable device\n");
@@ -186,7 +207,7 @@ static int __devinit cmodio_pci_probe(struct pci_dev *dev,
 		goto out_pci_disable_device;
 	}
 
-	
+	/* Onboard configuration registers */
 	priv->ctrl = pci_ioremap_bar(dev, 4);
 	if (!priv->ctrl) {
 		dev_err(&dev->dev, "unable to remap onboard regs\n");
@@ -194,19 +215,23 @@ static int __devinit cmodio_pci_probe(struct pci_dev *dev,
 		goto out_pci_release_regions;
 	}
 
-	
+	/* Read the hex switch on the carrier board */
 	priv->hex = ioread8(&priv->ctrl->int_enable);
 
-	
+	/* Add the MODULbus number (hex switch value) to the device's sysfs */
 	ret = sysfs_create_group(&dev->dev.kobj, &cmodio_sysfs_attr_group);
 	if (ret) {
 		dev_err(&dev->dev, "unable to create sysfs attributes\n");
 		goto out_unmap_ctrl;
 	}
 
+	/*
+	 * Disable all interrupt lines, each submodule will enable its
+	 * own interrupt line if needed
+	 */
 	iowrite8(0xf, &priv->ctrl->int_disable);
 
-	
+	/* Register drivers for all submodules */
 	ret = cmodio_probe_submodules(priv);
 	if (ret) {
 		dev_err(&dev->dev, "unable to probe submodules\n");
@@ -243,6 +268,7 @@ static void __devexit cmodio_pci_remove(struct pci_dev *dev)
 
 #define PCI_VENDOR_ID_JANZ		0x13c3
 
+/* The list of devices that this module will support */
 static DEFINE_PCI_DEVICE_TABLE(cmodio_pci_ids) = {
 	{ PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9030, PCI_VENDOR_ID_JANZ, 0x0101 },
 	{ PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9050, PCI_VENDOR_ID_JANZ, 0x0100 },
@@ -257,6 +283,9 @@ static struct pci_driver cmodio_pci_driver = {
 	.remove   = __devexit_p(cmodio_pci_remove),
 };
 
+/*
+ * Module Init / Exit
+ */
 
 static int __init cmodio_init(void)
 {

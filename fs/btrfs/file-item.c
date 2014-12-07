@@ -61,7 +61,7 @@ int btrfs_insert_file_extent(struct btrfs_trans_handle *trans,
 				      sizeof(*item));
 	if (ret < 0)
 		goto out;
-	BUG_ON(ret); 
+	BUG_ON(ret); /* Can't happen */
 	leaf = path->nodes[0];
 	item = btrfs_item_ptr(leaf, path->slots[0],
 			      struct btrfs_file_extent_item);
@@ -177,6 +177,12 @@ static int __btrfs_lookup_bio_sums(struct btrfs_root *root,
 
 	WARN_ON(bio->bi_vcnt <= 0);
 
+	/*
+	 * the free space stuff is only read when it hasn't been
+	 * updated in the current transaction.  So, we can safely
+	 * read from the commit root and sidestep a nasty deadlock
+	 * between reading the free space cache and updating the csum tree.
+	 */
 	if (btrfs_is_free_space_inode(root, inode)) {
 		path->search_commit_root = 1;
 		path->skip_locking = 1;
@@ -234,6 +240,10 @@ static int __btrfs_lookup_bio_sums(struct btrfs_root *root,
 			item = btrfs_item_ptr(path->nodes[0], path->slots[0],
 					      struct btrfs_csum_item);
 		}
+		/*
+		 * this byte range must be able to fit inside
+		 * a single leaf so it will also fit inside a u32
+		 */
 		diff = disk_bytenr - item_start_offset;
 		diff = diff / root->sectorsize;
 		diff = diff * csum_size;
@@ -423,7 +433,7 @@ int btrfs_csum_one_bio(struct btrfs_root *root, struct inode *inode,
 		offset = page_offset(bvec->bv_page) + bvec->bv_offset;
 
 	ordered = btrfs_lookup_ordered_extent(inode, offset);
-	BUG_ON(!ordered); 
+	BUG_ON(!ordered); /* Logic error */
 	sums->bytenr = ordered->start;
 
 	while (bio_index < bio->bi_vcnt) {
@@ -442,11 +452,11 @@ int btrfs_csum_one_bio(struct btrfs_root *root, struct inode *inode,
 
 			sums = kzalloc(btrfs_ordered_sum_size(root, bytes_left),
 				       GFP_NOFS);
-			BUG_ON(!sums); 
+			BUG_ON(!sums); /* -ENOMEM */
 			sector_sum = sums->sums;
 			sums->len = bytes_left;
 			ordered = btrfs_lookup_ordered_extent(inode, offset);
-			BUG_ON(!ordered); 
+			BUG_ON(!ordered); /* Logic error */
 			sums->bytenr = ordered->start;
 		}
 
@@ -475,6 +485,17 @@ int btrfs_csum_one_bio(struct btrfs_root *root, struct inode *inode,
 	return 0;
 }
 
+/*
+ * helper function for csum removal, this expects the
+ * key to describe the csum pointed to by the path, and it expects
+ * the csum to overlap the range [bytenr, len]
+ *
+ * The csum should not be entirely contained in the range and the
+ * range should not be entirely contained in the csum.
+ *
+ * This calls btrfs_truncate_item with the correct args based on the
+ * overlap, and fixes up the key as required.
+ */
 static noinline void truncate_one_csum(struct btrfs_trans_handle *trans,
 				       struct btrfs_root *root,
 				       struct btrfs_path *path,
@@ -493,11 +514,23 @@ static noinline void truncate_one_csum(struct btrfs_trans_handle *trans,
 	csum_end += key->offset;
 
 	if (key->offset < bytenr && csum_end <= end_byte) {
+		/*
+		 *         [ bytenr - len ]
+		 *         [   ]
+		 *   [csum     ]
+		 *   A simple truncate off the end of the item
+		 */
 		u32 new_size = (bytenr - key->offset) >> blocksize_bits;
 		new_size *= csum_size;
 		btrfs_truncate_item(trans, root, path, new_size, 1);
 	} else if (key->offset >= bytenr && csum_end > end_byte &&
 		   end_byte > key->offset) {
+		/*
+		 *         [ bytenr - len ]
+		 *                 [ ]
+		 *                 [csum     ]
+		 * we need to truncate from the beginning of the csum
+		 */
 		u32 new_size = (csum_end - end_byte) >> blocksize_bits;
 		new_size *= csum_size;
 
@@ -510,6 +543,10 @@ static noinline void truncate_one_csum(struct btrfs_trans_handle *trans,
 	}
 }
 
+/*
+ * deletes the csum items from the csum tree for a given
+ * range of bytes.
+ */
 int btrfs_del_csums(struct btrfs_trans_handle *trans,
 		    struct btrfs_root *root, u64 bytenr, u64 len)
 {
@@ -558,11 +595,11 @@ int btrfs_del_csums(struct btrfs_trans_handle *trans,
 		csum_end <<= blocksize_bits;
 		csum_end += key.offset;
 
-		
+		/* this csum ends before we start, we're done */
 		if (csum_end <= bytenr)
 			break;
 
-		
+		/* delete the entire item, it is inside our range */
 		if (key.offset >= bytenr && csum_end <= end_byte) {
 			ret = btrfs_del_item(trans, root, path);
 			if (ret)
@@ -573,6 +610,24 @@ int btrfs_del_csums(struct btrfs_trans_handle *trans,
 			unsigned long offset;
 			unsigned long shift_len;
 			unsigned long item_offset;
+			/*
+			 *        [ bytenr - len ]
+			 *     [csum                ]
+			 *
+			 * Our bytes are in the middle of the csum,
+			 * we need to split this item and insert a new one.
+			 *
+			 * But we can't drop the path because the
+			 * csum could change, get removed, extended etc.
+			 *
+			 * The trick here is the max size of a csum item leaves
+			 * enough room in the tree block for a single
+			 * item header.  So, we split the item in place,
+			 * adding a new header pointing to the existing
+			 * bytes.  Then we loop around again and we have
+			 * a nicely formed csum item that we can neatly
+			 * truncate.
+			 */
 			offset = (bytenr - key.offset) >> blocksize_bits;
 			offset *= csum_size;
 
@@ -585,6 +640,10 @@ int btrfs_del_csums(struct btrfs_trans_handle *trans,
 					     shift_len);
 			key.offset = bytenr;
 
+			/*
+			 * btrfs_split_item returns -EAGAIN when the
+			 * item changed size or key
+			 */
 			ret = btrfs_split_item(trans, root, path, &key, offset);
 			if (ret && ret != -EAGAIN) {
 				btrfs_abort_transaction(trans, root, ret);
@@ -651,17 +710,17 @@ again:
 
 	if (ret == -EFBIG) {
 		u32 item_size;
-		
+		/* we found one, but it isn't big enough yet */
 		leaf = path->nodes[0];
 		item_size = btrfs_item_size_nr(leaf, path->slots[0]);
 		if ((item_size / csum_size) >=
 		    MAX_CSUM_ITEMS(root, csum_size)) {
-			
+			/* already at max size, make a new one */
 			goto insert;
 		}
 	} else {
 		int slot = path->slots[0] + 1;
-		
+		/* we didn't find a csum item, insert one */
 		nritems = btrfs_header_nritems(path->nodes[0]);
 		if (path->slots[0] >= nritems - 1) {
 			ret = btrfs_next_leaf(root, path);
@@ -682,6 +741,10 @@ again:
 		goto insert;
 	}
 
+	/*
+	 * at this point, we know the tree has an item, but it isn't big
+	 * enough yet to put our csum in.  Grow it
+	 */
 	btrfs_release_path(path);
 	ret = btrfs_search_slot(trans, root, &file_key, path,
 				csum_size, 1);
@@ -709,6 +772,10 @@ again:
 	    csum_size) {
 		u32 diff = (csum_offset + 1) * csum_size;
 
+		/*
+		 * is the item big enough already?  we dropped our lock
+		 * before and need to recheck
+		 */
 		if (diff < btrfs_item_size_nr(leaf, path->slots[0]))
 			goto csum;
 

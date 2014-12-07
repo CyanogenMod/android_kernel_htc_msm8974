@@ -30,6 +30,31 @@
 #include <linux/dma-buf.h>
 #include "drmP.h"
 
+/*
+ * DMA-BUF/GEM Object references and lifetime overview:
+ *
+ * On the export the dma_buf holds a reference to the exporting GEM
+ * object. It takes this reference in handle_to_fd_ioctl, when it
+ * first calls .prime_export and stores the exporting GEM object in
+ * the dma_buf priv. This reference is released when the dma_buf
+ * object goes away in the driver .release function.
+ *
+ * On the import the importing GEM object holds a reference to the
+ * dma_buf (which in turn holds a ref to the exporting GEM object).
+ * It takes that reference in the fd_to_handle ioctl.
+ * It calls dma_buf_get, creates an attachment to it and stores the
+ * attachment in the GEM object. When this attachment is destroyed
+ * when the imported object is destroyed, we remove the attachment
+ * and drop the reference to the dma_buf.
+ *
+ * Thus the chain of references always flows in one direction
+ * (avoiding loops): importing_gem -> dmabuf -> exporting_gem
+ *
+ * Self-importing: if userspace is using PRIME as a replacement for flink
+ * then it will get a fd->handle request for a GEM object that it created.
+ * Drivers should detect this situation and return back the gem object
+ * from the dma-buf private.
+ */
 
 struct drm_prime_member {
 	struct list_head entry;
@@ -49,7 +74,7 @@ int drm_gem_prime_handle_to_fd(struct drm_device *dev,
 		return -ENOENT;
 
 	mutex_lock(&file_priv->prime.lock);
-	
+	/* re-export the original imported object */
 	if (obj->import_attach) {
 		get_dma_buf(obj->import_attach->dmabuf);
 		*prime_fd = dma_buf_fd(obj->import_attach->dmabuf, flags);
@@ -65,6 +90,9 @@ int drm_gem_prime_handle_to_fd(struct drm_device *dev,
 	} else {
 		buf = dev->driver->gem_prime_export(dev, obj, flags);
 		if (IS_ERR(buf)) {
+			/* normally the created dma-buf takes ownership of the ref,
+			 * but if that fails then drop the ref
+			 */
 			drm_gem_object_unreference_unlocked(obj);
 			mutex_unlock(&file_priv->prime.lock);
 			return PTR_ERR(buf);
@@ -97,7 +125,7 @@ int drm_gem_prime_fd_to_handle(struct drm_device *dev,
 		goto out_put;
 	}
 
-	
+	/* never seen this one, need to import */
 	obj = dev->driver->gem_prime_import(dev, dma_buf);
 	if (IS_ERR(obj)) {
 		ret = PTR_ERR(obj);
@@ -118,6 +146,9 @@ int drm_gem_prime_fd_to_handle(struct drm_device *dev,
 	return 0;
 
 fail:
+	/* hmm, if driver attached, we are relying on the free-object path
+	 * to detach.. which seems ok..
+	 */
 	drm_gem_object_handle_unreference_unlocked(obj);
 out_put:
 	dma_buf_put(dma_buf);
@@ -138,11 +169,11 @@ int drm_prime_handle_to_fd_ioctl(struct drm_device *dev, void *data,
 	if (!dev->driver->prime_handle_to_fd)
 		return -ENOSYS;
 
-	
+	/* check flags are valid */
 	if (args->flags & ~DRM_CLOEXEC)
 		return -EINVAL;
 
-	
+	/* we only want to pass DRM_CLOEXEC which is == O_CLOEXEC */
 	flags = args->flags & DRM_CLOEXEC;
 
 	return dev->driver->prime_handle_to_fd(dev, file_priv,
@@ -164,6 +195,13 @@ int drm_prime_fd_to_handle_ioctl(struct drm_device *dev, void *data,
 			args->fd, &args->handle);
 }
 
+/*
+ * drm_prime_pages_to_sg
+ *
+ * this helper creates an sg table object from a set of pages
+ * the driver is responsible for mapping the pages into the
+ * importers address space
+ */
 struct sg_table *drm_prime_pages_to_sg(struct page **pages, int nr_pages)
 {
 	struct sg_table *sg = NULL;
@@ -189,6 +227,7 @@ out:
 }
 EXPORT_SYMBOL(drm_prime_pages_to_sg);
 
+/* helper function to cleanup a GEM/prime object */
 void drm_prime_gem_destroy(struct drm_gem_object *obj, struct sg_table *sg)
 {
 	struct dma_buf_attachment *attach;
@@ -198,7 +237,7 @@ void drm_prime_gem_destroy(struct drm_gem_object *obj, struct sg_table *sg)
 		dma_buf_unmap_attachment(attach, sg, DMA_BIDIRECTIONAL);
 	dma_buf = attach->dmabuf;
 	dma_buf_detach(attach->dmabuf, attach);
-	
+	/* remove the reference */
 	dma_buf_put(dma_buf);
 }
 EXPORT_SYMBOL(drm_prime_gem_destroy);

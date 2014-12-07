@@ -1,6 +1,9 @@
 #ifndef _ASM_X86_PERF_EVENT_H
 #define _ASM_X86_PERF_EVENT_H
 
+/*
+ * Performance event hw details:
+ */
 
 #define X86_PMC_MAX_GENERIC				       32
 #define X86_PMC_MAX_FIXED					3
@@ -57,6 +60,10 @@
 #define ARCH_PERFMON_BRANCH_MISSES_RETIRED		6
 #define ARCH_PERFMON_EVENTS_COUNT			7
 
+/*
+ * Intel "Architectural Performance Monitoring" CPUID
+ * detection/enumeration details:
+ */
 union cpuid10_eax {
 	struct {
 		unsigned int version_id:8;
@@ -99,25 +106,51 @@ struct x86_pmu_capability {
 	int		events_mask_len;
 };
 
+/*
+ * Fixed-purpose performance events:
+ */
 
+/*
+ * All 3 fixed-mode PMCs are configured via this single MSR:
+ */
 #define MSR_ARCH_PERFMON_FIXED_CTR_CTRL	0x38d
 
+/*
+ * The counts are available in three separate MSRs:
+ */
 
+/* Instr_Retired.Any: */
 #define MSR_ARCH_PERFMON_FIXED_CTR0	0x309
 #define X86_PMC_IDX_FIXED_INSTRUCTIONS	(X86_PMC_IDX_FIXED + 0)
 
+/* CPU_CLK_Unhalted.Core: */
 #define MSR_ARCH_PERFMON_FIXED_CTR1	0x30a
 #define X86_PMC_IDX_FIXED_CPU_CYCLES	(X86_PMC_IDX_FIXED + 1)
 
+/* CPU_CLK_Unhalted.Ref: */
 #define MSR_ARCH_PERFMON_FIXED_CTR2	0x30b
 #define X86_PMC_IDX_FIXED_REF_CYCLES	(X86_PMC_IDX_FIXED + 2)
 #define X86_PMC_MSK_FIXED_REF_CYCLES	(1ULL << X86_PMC_IDX_FIXED_REF_CYCLES)
 
+/*
+ * We model BTS tracing as another fixed-mode PMC.
+ *
+ * We choose a value in the middle of the fixed event range, since lower
+ * values are used by actual fixed events and higher values are used
+ * to indicate other overflow conditions in the PERF_GLOBAL_STATUS msr.
+ */
 #define X86_PMC_IDX_FIXED_BTS				(X86_PMC_IDX_FIXED + 16)
 
+/*
+ * IBS cpuid feature detection
+ */
 
 #define IBS_CPUID_FEATURES		0x8000001b
 
+/*
+ * Same bit mask as for IBS cpuid feature flags (Fn8000_001B_EAX), but
+ * bit 0 is used to indicate the existence of IBS.
+ */
 #define IBS_CAPS_AVAIL			(1U<<0)
 #define IBS_CAPS_FETCHSAM		(1U<<1)
 #define IBS_CAPS_OPSAM			(1U<<2)
@@ -130,27 +163,37 @@ struct x86_pmu_capability {
 					 | IBS_CAPS_FETCHSAM	\
 					 | IBS_CAPS_OPSAM)
 
+/*
+ * IBS APIC setup
+ */
 #define IBSCTL				0x1cc
 #define IBSCTL_LVT_OFFSET_VALID		(1ULL<<8)
 #define IBSCTL_LVT_OFFSET_MASK		0x0F
 
+/* IbsFetchCtl bits/masks */
 #define IBS_FETCH_RAND_EN	(1ULL<<57)
 #define IBS_FETCH_VAL		(1ULL<<49)
 #define IBS_FETCH_ENABLE	(1ULL<<48)
 #define IBS_FETCH_CNT		0xFFFF0000ULL
 #define IBS_FETCH_MAX_CNT	0x0000FFFFULL
 
+/* IbsOpCtl bits */
 #define IBS_OP_CNT_CTL		(1ULL<<19)
 #define IBS_OP_VAL		(1ULL<<18)
 #define IBS_OP_ENABLE		(1ULL<<17)
 #define IBS_OP_MAX_CNT		0x0000FFFFULL
-#define IBS_OP_MAX_CNT_EXT	0x007FFFFFULL	
+#define IBS_OP_MAX_CNT_EXT	0x007FFFFFULL	/* not a register bit mask */
 
 extern u32 get_ibs_caps(void);
 
 #ifdef CONFIG_PERF_EVENTS
 extern void perf_events_lapic_init(void);
 
+/*
+ * Abuse bit 3 of the cpu eflags register to indicate proper PEBS IP fixups.
+ * This flag is otherwise unused and ABI specified to be 0, so nobody should
+ * care what we do with it.
+ */
 #define PERF_EFLAGS_EXACT	(1UL << 3)
 
 struct pt_regs;
@@ -160,6 +203,10 @@ extern unsigned long perf_misc_flags(struct pt_regs *regs);
 
 #include <asm/stacktrace.h>
 
+/*
+ * We abuse bit 3 from flags to pass exact information, see perf_misc_flags
+ * and the comment with PERF_EFLAGS_EXACT.
+ */
 #define perf_arch_fetch_caller_regs(regs, __ip)		{	\
 	(regs)->ip = (__ip);					\
 	(regs)->bp = caller_frame_pointer();			\
@@ -202,4 +249,4 @@ static inline void perf_events_lapic_init(void)	{ }
  static inline void amd_pmu_disable_virt(void) { }
 #endif
 
-#endif 
+#endif /* _ASM_X86_PERF_EVENT_H */

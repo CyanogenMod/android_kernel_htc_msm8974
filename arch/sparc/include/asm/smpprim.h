@@ -10,6 +10,10 @@
 #ifndef __SPARC_SMPPRIM_H
 #define __SPARC_SMPPRIM_H
 
+/* Test and set the unsigned byte at ADDR to 1.  Returns the previous
+ * value.  On the Sparc we use the ldstub instruction since it is
+ * atomic.
+ */
 
 static inline __volatile__ char test_and_set(void *addr)
 {
@@ -22,26 +26,29 @@ static inline __volatile__ char test_and_set(void *addr)
 	return state;
 }
 
+/* Initialize a spin-lock. */
 static inline __volatile__ smp_initlock(void *spinlock)
 {
-	
+	/* Unset the lock. */
 	*((unsigned char *) spinlock) = 0;
 
 	return;
 }
 
+/* This routine spins until it acquires the lock at ADDR. */
 static inline __volatile__ smp_lock(void *addr)
 {
 	while(test_and_set(addr) == 0xff)
 		;
 
-	
+	/* We now have the lock */
 	return;
 }
 
+/* This routine releases the lock at ADDR. */
 static inline __volatile__ smp_unlock(void *addr)
 {
 	*((unsigned char *) addr) = 0;
 }
 
-#endif 
+#endif /* !(__SPARC_SMPPRIM_H) */

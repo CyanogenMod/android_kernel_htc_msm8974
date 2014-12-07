@@ -34,4 +34,4 @@ extern void s5pv210_init_uarts(struct s3c2410_uartcfg *cfg, int no);
 #define s5pv210_init NULL
 #endif
 
-#endif 
+#endif /* __ARCH_ARM_MACH_S5PV210_COMMON_H */

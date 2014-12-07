@@ -26,6 +26,7 @@
 #include "mcdi.h"
 #include "mcdi_pcol.h"
 
+/* Hardware control for SFC9000 family including SFL9021 (aka Siena). */
 
 static void siena_init_wol(struct efx_nic *efx);
 
@@ -84,24 +85,25 @@ static int siena_mdio_read(struct net_device *net_dev,
 	return (int)value;
 }
 
+/* This call is responsible for hooking in the MAC and PHY operations */
 static int siena_probe_port(struct efx_nic *efx)
 {
 	int rc;
 
-	
+	/* Hook in PHY operations table */
 	efx->phy_op = &efx_mcdi_phy_ops;
 
-	
+	/* Set up MDIO structure for PHY */
 	efx->mdio.mode_support = MDIO_SUPPORTS_C45 | MDIO_EMULATE_C22;
 	efx->mdio.mdio_read = siena_mdio_read;
 	efx->mdio.mdio_write = siena_mdio_write;
 
-	
+	/* Fill out MDIO structure, loopback modes, and initial link state */
 	rc = efx->phy_op->probe(efx);
 	if (rc != 0)
 		return rc;
 
-	
+	/* Allocate buffer for stats */
 	rc = efx_nic_alloc_buffer(efx, &efx->stats_buffer,
 				  MC_CMD_MAC_NSTATS * sizeof(u64));
 	if (rc)
@@ -158,6 +160,12 @@ static int siena_test_registers(struct efx_nic *efx)
 				      ARRAY_SIZE(siena_register_tests));
 }
 
+/**************************************************************************
+ *
+ * Device reset
+ *
+ **************************************************************************
+ */
 
 static enum reset_type siena_map_reset_reason(enum reset_type reason)
 {
@@ -184,7 +192,7 @@ static int siena_map_reset_flags(u32 *flags)
 		return RESET_TYPE_ALL;
 	}
 
-	
+	/* no invisible reset implemented */
 
 	return -EINVAL;
 }
@@ -193,7 +201,7 @@ static int siena_reset_hw(struct efx_nic *efx, enum reset_type method)
 {
 	int rc;
 
-	
+	/* Recover from a failed assertion pre-reset */
 	rc = efx_mcdi_handle_assertion(efx);
 	if (rc)
 		return rc;
@@ -213,12 +221,16 @@ static int siena_probe_nvconfig(struct efx_nic *efx)
 
 	efx->timer_quantum_ns =
 		(caps & (1 << MC_CMD_CAPABILITIES_TURBO_ACTIVE_LBN)) ?
-		3072 : 6144; 
+		3072 : 6144; /* 768 cycles */
 	return rc;
 }
 
 static void siena_dimension_resources(struct efx_nic *efx)
 {
+	/* Each port has a small block of internal SRAM dedicated to
+	 * the buffer table and descriptor caches.  In theory we can
+	 * map both blocks to one port, but we don't.
+	 */
 	efx_nic_dimension_resources(efx, FR_CZ_BUF_FULL_TBL_ROWS / 2);
 }
 
@@ -229,7 +241,7 @@ static int siena_probe_nic(struct efx_nic *efx)
 	efx_oword_t reg;
 	int rc;
 
-	
+	/* Allocate storage for hardware specific data */
 	nic_data = kzalloc(sizeof(struct siena_nic_data), GFP_KERNEL);
 	if (!nic_data)
 		return -ENOMEM;
@@ -247,11 +259,13 @@ static int siena_probe_nic(struct efx_nic *efx)
 
 	efx_mcdi_init(efx);
 
-	
+	/* Recover from a failed assertion before probing */
 	rc = efx_mcdi_handle_assertion(efx);
 	if (rc)
 		goto fail1;
 
+	/* Let the BMC know that the driver is now in charge of link and
+	 * filter settings. We must do this before we reset the NIC */
 	rc = efx_mcdi_drv_attach(efx, true, &already_attached);
 	if (rc) {
 		netif_err(efx, probe, efx->net_dev,
@@ -259,11 +273,11 @@ static int siena_probe_nic(struct efx_nic *efx)
 		goto fail2;
 	}
 	if (already_attached)
-		
+		/* Not a fatal error */
 		netif_err(efx, probe, efx->net_dev,
 			  "Host already registered with MCPU\n");
 
-	
+	/* Now we can reset the NIC */
 	rc = siena_reset_hw(efx, RESET_TYPE_ALL);
 	if (rc) {
 		netif_err(efx, probe, efx->net_dev, "failed to reset NIC\n");
@@ -272,7 +286,7 @@ static int siena_probe_nic(struct efx_nic *efx)
 
 	siena_init_wol(efx);
 
-	
+	/* Allocate memory for INT_KER */
 	rc = efx_nic_alloc_buffer(efx, &efx->irq_status, sizeof(efx_oword_t));
 	if (rc)
 		goto fail4;
@@ -284,7 +298,7 @@ static int siena_probe_nic(struct efx_nic *efx)
 		  efx->irq_status.addr,
 		  (unsigned long long)virt_to_phys(efx->irq_status.addr));
 
-	
+	/* Read in the non-volatile configuration */
 	rc = siena_probe_nvconfig(efx);
 	if (rc == -EINVAL) {
 		netif_err(efx, probe, efx->net_dev,
@@ -314,21 +328,28 @@ fail1:
 	return rc;
 }
 
+/* This call performs hardware-specific global initialisation, such as
+ * defining the descriptor cache sizes and number of RSS channels.
+ * It does not set up any buffers, descriptor rings or event queues.
+ */
 static int siena_init_nic(struct efx_nic *efx)
 {
 	efx_oword_t temp;
 	int rc;
 
-	
+	/* Recover from a failed assertion post-reset */
 	rc = efx_mcdi_handle_assertion(efx);
 	if (rc)
 		return rc;
 
-	
+	/* Squash TX of packets of 16 bytes or less */
 	efx_reado(efx, &temp, FR_AZ_TX_RESERVED);
 	EFX_SET_OWORD_FIELD(temp, FRF_BZ_TX_FLUSH_MIN_LEN_EN, 1);
 	efx_writeo(efx, &temp, FR_AZ_TX_RESERVED);
 
+	/* Do not enable TX_NO_EOP_DISC_EN, since it limits packets to 16
+	 * descriptors (which is bad).
+	 */
 	efx_reado(efx, &temp, FR_AZ_TX_CFG);
 	EFX_SET_OWORD_FIELD(temp, FRF_AZ_TX_NO_EOP_DISC_EN, 0);
 	EFX_SET_OWORD_FIELD(temp, FRF_CZ_TX_FILTER_EN_BIT, 1);
@@ -337,16 +358,19 @@ static int siena_init_nic(struct efx_nic *efx)
 	efx_reado(efx, &temp, FR_AZ_RX_CFG);
 	EFX_SET_OWORD_FIELD(temp, FRF_BZ_RX_DESC_PUSH_EN, 0);
 	EFX_SET_OWORD_FIELD(temp, FRF_BZ_RX_INGR_EN, 1);
+	/* Enable hash insertion. This is broken for the 'Falcon' hash
+	 * if IPv6 hashing is also enabled, so also select Toeplitz
+	 * TCP/IPv4 and IPv4 hashes. */
 	EFX_SET_OWORD_FIELD(temp, FRF_BZ_RX_HASH_INSRT_HDR, 1);
 	EFX_SET_OWORD_FIELD(temp, FRF_BZ_RX_HASH_ALG, 1);
 	EFX_SET_OWORD_FIELD(temp, FRF_BZ_RX_IP_HASH, 1);
 	efx_writeo(efx, &temp, FR_AZ_RX_CFG);
 
-	
+	/* Set hash key for IPv4 */
 	memcpy(&temp, efx->rx_hash_key, sizeof(temp));
 	efx_writeo(efx, &temp, FR_BZ_RX_RSS_TKEY);
 
-	
+	/* Enable IPv6 RSS */
 	BUILD_BUG_ON(sizeof(efx->rx_hash_key) <
 		     2 * sizeof(temp) + FRF_CZ_RX_RSS_IPV6_TKEY_HI_WIDTH / 8 ||
 		     FRF_CZ_RX_RSS_IPV6_TKEY_HI_LBN != 0);
@@ -360,12 +384,12 @@ static int siena_init_nic(struct efx_nic *efx)
 	       FRF_CZ_RX_RSS_IPV6_TKEY_HI_WIDTH / 8);
 	efx_writeo(efx, &temp, FR_CZ_RX_RSS_IPV6_REG3);
 
-	
+	/* Enable event logging */
 	rc = efx_mcdi_log_ctrl(efx, true, false, 0);
 	if (rc)
 		return rc;
 
-	
+	/* Set destination of both TX and RX Flush events */
 	EFX_POPULATE_OWORD_1(temp, FRF_BZ_FLS_EVQ_ID, 0);
 	efx_writeo(efx, &temp, FR_BZ_DP_CTRL);
 
@@ -384,10 +408,10 @@ static void siena_remove_nic(struct efx_nic *efx)
 
 	siena_reset_hw(efx, RESET_TYPE_ALL);
 
-	
+	/* Relinquish the device back to the BMC */
 	efx_mcdi_drv_attach(efx, false, NULL);
 
-	
+	/* Tear down the private nic state */
 	kfree(efx->nic_data);
 	efx->nic_data = NULL;
 }
@@ -496,13 +520,15 @@ static void siena_update_nic_stats(struct efx_nic *efx)
 {
 	int retry;
 
+	/* If we're unlucky enough to read statistics wduring the DMA, wait
+	 * up to 10ms for it to finish (typically takes <500us) */
 	for (retry = 0; retry < 100; ++retry) {
 		if (siena_try_update_nic_stats(efx) == 0)
 			return;
 		udelay(100);
 	}
 
-	
+	/* Use the old values instead */
 }
 
 static void siena_start_nic_stats(struct efx_nic *efx)
@@ -520,6 +546,12 @@ static void siena_stop_nic_stats(struct efx_nic *efx)
 	efx_mcdi_mac_stats(efx, efx->stats_buffer.dma_addr, 0, 0, 0);
 }
 
+/**************************************************************************
+ *
+ * Wake on LAN
+ *
+ **************************************************************************
+ */
 
 static void siena_get_wol(struct efx_nic *efx, struct ethtool_wolinfo *wol)
 {
@@ -576,6 +608,8 @@ static void siena_init_wol(struct efx_nic *efx)
 	rc = efx_mcdi_wol_filter_get_magic(efx, &nic_data->wol_filter_id);
 
 	if (rc != 0) {
+		/* If it failed, attempt to get into a synchronised
+		 * state with MC by resetting any set WoL filters */
 		efx_mcdi_wol_filter_reset(efx);
 		nic_data->wol_filter_id = -1;
 	} else if (nic_data->wol_filter_id != -1) {
@@ -584,6 +618,12 @@ static void siena_init_wol(struct efx_nic *efx)
 }
 
 
+/**************************************************************************
+ *
+ * Revision-dependent attributes used by efx.c and nic.c
+ *
+ **************************************************************************
+ */
 
 const struct efx_nic_type siena_a0_nic_type = {
 	.probe = siena_probe_nic,
@@ -624,7 +664,9 @@ const struct efx_nic_type siena_a0_nic_type = {
 	.rx_buffer_hash_size = 0x10,
 	.rx_buffer_padding = 0,
 	.max_interrupt_mode = EFX_INT_MODE_MSIX,
-	.phys_addr_channels = 32, 
+	.phys_addr_channels = 32, /* Hardware limit is 64, but the legacy
+				   * interrupt handler only supports 32
+				   * channels */
 	.timer_period_max = 1 << FRF_CZ_TC_TIMER_VAL_WIDTH,
 	.offload_features = (NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
 			     NETIF_F_RXHASH | NETIF_F_NTUPLE),

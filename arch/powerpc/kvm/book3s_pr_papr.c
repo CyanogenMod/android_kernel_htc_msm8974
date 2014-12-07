@@ -144,6 +144,8 @@ int kvmppc_h_pr(struct kvm_vcpu *vcpu, unsigned long cmd)
 	case H_PROTECT:
 		return kvmppc_h_pr_protect(vcpu);
 	case H_BULK_REMOVE:
+		/* We just flush all PTEs, so user space can
+		   handle the HPT modifications */
 		kvmppc_mmu_pte_flush(vcpu, 0, 0);
 		break;
 	case H_CEDE:

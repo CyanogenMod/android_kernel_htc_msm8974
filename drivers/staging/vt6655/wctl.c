@@ -38,12 +38,33 @@
 #include "device.h"
 #include "card.h"
 
+/*---------------------  Static Definitions -------------------------*/
+
+/*---------------------  Static Classes  ----------------------------*/
+
+/*---------------------  Static Variables  --------------------------*/
+// static int          msglevel                =MSG_LEVEL_INFO;
+/*---------------------  Static Functions  --------------------------*/
+
+/*---------------------  Export Variables  --------------------------*/
 
 
 
-
-
-
+/*
+ * Description:
+ *      Scan Rx cache.  Return true if packet is duplicate, else
+ *      inserts in receive cache and returns false.
+ *
+ * Parameters:
+ *  In:
+ *      pCache      - Receive packets history
+ *      pMACHeader  - 802.11 MAC Header of received packet
+ *  Out:
+ *      none
+ *
+ * Return Value: true if packet duplicate; otherwise false
+ *
+ */
 
 bool WCTLbIsDuplicate (PSCache pCache, PS802_11Header pMACHeader)
 {
@@ -59,13 +80,13 @@ bool WCTLbIsDuplicate (PSCache pCache, PS802_11Header pMACHeader)
             if ((pCacheEntry->wFmSequence == pMACHeader->wSeqCtl) &&
                 (!compare_ether_addr(&(pCacheEntry->abyAddr2[0]), &(pMACHeader->abyAddr2[0])))
                 ) {
-                
+                /* Duplicate match */
                 return true;
             }
             ADD_ONE_WITH_WRAP_AROUND(uIndex, DUPLICATE_RX_CACHE_LENGTH);
         }
     }
-    
+    /* Not fount in cache - insert */
     pCacheEntry = &pCache->asCacheEntry[pCache->uInPtr];
     pCacheEntry->wFmSequence = pMACHeader->wSeqCtl;
     memcpy(&(pCacheEntry->abyAddr2[0]), &(pMACHeader->abyAddr2[0]), ETH_ALEN);
@@ -73,6 +94,20 @@ bool WCTLbIsDuplicate (PSCache pCache, PS802_11Header pMACHeader)
     return false;
 }
 
+/*
+ * Description:
+ *      Found if sequence number of received fragment packet in Defragment Database
+ *
+ * Parameters:
+ *  In:
+ *      pDevice     - Pointer to adapter
+ *      pMACHeader  - 802.11 MAC Header of received packet
+ *  Out:
+ *      none
+ *
+ * Return Value: index number in Defragment Database
+ *
+ */
 unsigned int WCTLuSearchDFCB (PSDevice pDevice, PS802_11Header pMACHeader)
 {
 unsigned int ii;
@@ -81,7 +116,7 @@ unsigned int ii;
         if ((pDevice->sRxDFCB[ii].bInUse == true) &&
             (!compare_ether_addr(&(pDevice->sRxDFCB[ii].abyAddr2[0]), &(pMACHeader->abyAddr2[0])))
             ) {
-            
+            //
             return(ii);
         }
     }
@@ -89,6 +124,20 @@ unsigned int ii;
 }
 
 
+/*
+ * Description:
+ *      Insert received fragment packet in Defragment Database
+ *
+ * Parameters:
+ *  In:
+ *      pDevice     - Pointer to adapter
+ *      pMACHeader  - 802.11 MAC Header of received packet
+ *  Out:
+ *      none
+ *
+ * Return Value: index number in Defragment Database
+ *
+ */
 unsigned int WCTLuInsertDFCB (PSDevice pDevice, PS802_11Header pMACHeader)
 {
 unsigned int ii;
@@ -110,6 +159,22 @@ unsigned int ii;
 }
 
 
+/*
+ * Description:
+ *      Handle received fragment packet
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - Pointer to adapter
+ *      pMACHeader      - 802.11 MAC Header of received packet
+ *      cbFrameLength   - Frame length
+ *      bWEP            - is WEP packet
+ *  Out:
+ *      none
+ *
+ * Return Value: true if it is valid fragment packet and we have resource to defragment; otherwise false
+ *
+ */
 bool WCTLbHandleFragment (PSDevice pDevice, PS802_11Header pMACHeader, unsigned int cbFrameLength, bool bWEP, bool bExtIV)
 {
 unsigned int uHeaderSize;
@@ -118,7 +183,7 @@ unsigned int uHeaderSize;
     if (bWEP == true) {
         uHeaderSize = 28;
         if (bExtIV)
-        
+        // ExtIV
             uHeaderSize +=4;
     }
     else {
@@ -128,7 +193,7 @@ unsigned int uHeaderSize;
     if (IS_FIRST_FRAGMENT_PKT(pMACHeader)) {
         pDevice->uCurrentDFCBIdx = WCTLuSearchDFCB(pDevice, pMACHeader);
         if (pDevice->uCurrentDFCBIdx < pDevice->cbDFCB) {
-            
+            // duplicate, we must flush previous DCB
             pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].uLifetime = pDevice->dwMaxReceiveLifetime;
             pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].wSequence = (pMACHeader->wSeqCtl >> 4);
             pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].wFragNum = (pMACHeader->wSeqCtl & 0x000F);
@@ -139,13 +204,13 @@ unsigned int uHeaderSize;
                 return(false);
             }
         }
-        
+        // reserve 4 byte to match MAC RX Buffer
         pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].pbyRxBuffer = (unsigned char *) (pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].skb->data + 4);
         memcpy(pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].pbyRxBuffer, pMACHeader, cbFrameLength);
         pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].cbFrameLength = cbFrameLength;
         pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].pbyRxBuffer += cbFrameLength;
         pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].wFragNum++;
-        
+        //DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO "First pDevice->uCurrentDFCBIdx= %d\n", pDevice->uCurrentDFCBIdx);
         return(false);
     }
     else {
@@ -159,10 +224,10 @@ unsigned int uHeaderSize;
                 pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].cbFrameLength += (cbFrameLength - uHeaderSize);
                 pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].pbyRxBuffer += (cbFrameLength - uHeaderSize);
                 pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].wFragNum++;
-                
+                //DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO "Second pDevice->uCurrentDFCBIdx= %d\n", pDevice->uCurrentDFCBIdx);
             }
             else {
-                
+                // seq error or frag # error flush DFCB
                 pDevice->cbFreeDFCB++;
                 pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].bInUse = false;
                 return(false);
@@ -172,10 +237,10 @@ unsigned int uHeaderSize;
             return(false);
         }
         if (IS_LAST_FRAGMENT_PKT(pMACHeader)) {
-            
+            //enq defragcontrolblock
             pDevice->cbFreeDFCB++;
             pDevice->sRxDFCB[pDevice->uCurrentDFCBIdx].bInUse = false;
-            
+            //DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO "Last pDevice->uCurrentDFCBIdx= %d\n", pDevice->uCurrentDFCBIdx);
             return(true);
         }
         return(false);

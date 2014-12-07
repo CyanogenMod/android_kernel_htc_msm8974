@@ -40,6 +40,8 @@ static void __iomem *audmux_base;
 #ifdef CONFIG_DEBUG_FS
 static struct dentry *audmux_debugfs_root;
 
+/* There is an annoying discontinuity in the SSI numbering with regard
+ * to the Linux number of the devices */
 static const char *audmux_port_string(int port)
 {
 	switch (port) {
@@ -189,7 +191,7 @@ static struct platform_device_id imx_audmux_ids[] = {
 		.name = "imx31-audmux",
 		.driver_data = IMX31_AUDMUX,
 	}, {
-		
+		/* sentinel */
 	}
 };
 MODULE_DEVICE_TABLE(platform, imx_audmux_ids);
@@ -197,7 +199,7 @@ MODULE_DEVICE_TABLE(platform, imx_audmux_ids);
 static const struct of_device_id imx_audmux_dt_ids[] = {
 	{ .compatible = "fsl,imx21-audmux", .data = &imx_audmux_ids[0], },
 	{ .compatible = "fsl,imx31-audmux", .data = &imx_audmux_ids[1], },
-	{  }
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, imx_audmux_dt_ids);
 

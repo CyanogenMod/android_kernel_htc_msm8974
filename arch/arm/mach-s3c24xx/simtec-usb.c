@@ -39,6 +39,9 @@
 
 #include "simtec.h"
 
+/* control power and monitor over-current events on various Simtec
+ * designed boards.
+*/
 
 static unsigned int power_state[2];
 
@@ -120,7 +123,7 @@ int usb_simtec_init(void)
 		return ret;
 	}
 
-	
+	/* turn power on */
 	gpio_direction_output(S3C2410_GPB(4), 1);
 	gpio_direction_input(S3C2410_GPG(10));
 

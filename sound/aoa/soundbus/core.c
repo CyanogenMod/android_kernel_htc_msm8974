@@ -73,7 +73,7 @@ static int soundbus_uevent(struct device *dev, struct kobj_uevent_env *env)
 
 	of = &soundbus_dev->ofdev;
 
-	
+	/* stuff we want to pass to /sbin/hotplug */
 	retval = add_uevent_var(env, "OF_NAME=%s", of->dev.of_node->name);
 	if (retval)
 		return retval;
@@ -82,6 +82,9 @@ static int soundbus_uevent(struct device *dev, struct kobj_uevent_env *env)
 	if (retval)
 		return retval;
 
+	/* Since the compatible field can contain pretty much anything
+	 * it's not really legal to split it out with commas. We split it
+	 * up using a number of environment variables instead. */
 
 	compat = of_get_property(of->dev.of_node, "compatible", &cplen);
 	while (compat && cplen > 0) {
@@ -145,7 +148,7 @@ static int soundbus_device_resume(struct device * dev)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PM */
 
 static struct bus_type soundbus_bus_type = {
 	.name		= "aoa-soundbus",
@@ -164,7 +167,7 @@ int soundbus_add_one(struct soundbus_dev *dev)
 {
 	static int devcount;
 
-	
+	/* sanity checks */
 	if (!dev->attach_codec ||
 	    !dev->ofdev.dev.of_node ||
 	    dev->pcmname ||
@@ -187,11 +190,11 @@ EXPORT_SYMBOL_GPL(soundbus_remove_one);
 
 int soundbus_register_driver(struct soundbus_driver *drv)
 {
-	
+	/* initialize common driver fields */
 	drv->driver.name = drv->name;
 	drv->driver.bus = &soundbus_bus_type;
 
-	
+	/* register with core */
 	return driver_register(&drv->driver);
 }
 EXPORT_SYMBOL_GPL(soundbus_register_driver);

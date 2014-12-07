@@ -20,6 +20,9 @@
 #define RWSEM_ACTIVE_READ_BIAS		RWSEM_ACTIVE_BIAS
 #define RWSEM_ACTIVE_WRITE_BIAS		(RWSEM_WAITING_BIAS + RWSEM_ACTIVE_BIAS)
 
+/*
+ * lock for reading
+ */
 static inline void __down_read(struct rw_semaphore *sem)
 {
 	if (unlikely(atomic64_inc_return((atomic64_t *)(&sem->count)) <= 0L))
@@ -39,6 +42,9 @@ static inline int __down_read_trylock(struct rw_semaphore *sem)
 	return 0;
 }
 
+/*
+ * lock for writing
+ */
 static inline void __down_write_nested(struct rw_semaphore *sem, int subclass)
 {
 	long tmp;
@@ -63,6 +69,9 @@ static inline int __down_write_trylock(struct rw_semaphore *sem)
 	return tmp == RWSEM_UNLOCKED_VALUE;
 }
 
+/*
+ * unlock after reading
+ */
 static inline void __up_read(struct rw_semaphore *sem)
 {
 	long tmp;
@@ -72,6 +81,9 @@ static inline void __up_read(struct rw_semaphore *sem)
 		rwsem_wake(sem);
 }
 
+/*
+ * unlock after writing
+ */
 static inline void __up_write(struct rw_semaphore *sem)
 {
 	if (unlikely(atomic64_sub_return(RWSEM_ACTIVE_WRITE_BIAS,
@@ -79,11 +91,17 @@ static inline void __up_write(struct rw_semaphore *sem)
 		rwsem_wake(sem);
 }
 
+/*
+ * implement atomic add functionality
+ */
 static inline void rwsem_atomic_add(long delta, struct rw_semaphore *sem)
 {
 	atomic64_add(delta, (atomic64_t *)(&sem->count));
 }
 
+/*
+ * downgrade write lock to read lock
+ */
 static inline void __downgrade_write(struct rw_semaphore *sem)
 {
 	long tmp;
@@ -93,11 +111,14 @@ static inline void __downgrade_write(struct rw_semaphore *sem)
 		rwsem_downgrade_wake(sem);
 }
 
+/*
+ * implement exchange and add functionality
+ */
 static inline long rwsem_atomic_update(long delta, struct rw_semaphore *sem)
 {
 	return atomic64_add_return(delta, (atomic64_t *)(&sem->count));
 }
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _SPARC64_RWSEM_H */

@@ -28,6 +28,7 @@
 
 #include "p54.h"
 
+/* Bit 15 is read/write bit; ON = READ, OFF = WRITE */
 #define SPI_ADRS_READ_BIT_15		0x8000
 
 #define SPI_ADRS_ARM_INTERRUPTS		0x00
@@ -40,7 +41,7 @@
 #define SPI_ADRS_GEN_PURP_1		0x14
 #define SPI_ADRS_GEN_PURP_2		0x18
 
-#define SPI_ADRS_DEV_CTRL_STAT		0x26    
+#define SPI_ADRS_DEV_CTRL_STAT		0x26    /* high word */
 
 #define SPI_ADRS_DMA_DATA		0x28
 
@@ -62,7 +63,7 @@
 #define SPI_DMA_READ_CTRL_ENABLE	0x0001
 #define HOST_ALLOWED			(1 << 7)
 
-#define SPI_TIMEOUT			100         
+#define SPI_TIMEOUT			100         /* msec */
 
 #define SPI_MAX_TX_PACKETS		32
 
@@ -80,8 +81,10 @@
 #define SPI_HOST_INT_SW_UPDATE		0x00000004
 #define SPI_HOST_INT_UPDATE		0x10000000
 
+/* clear to send */
 #define SPI_HOST_INT_CR			0x00004000
 
+/* data ready */
 #define SPI_HOST_INT_DR			0x00008000
 
 #define SPI_HOST_INTS_DEFAULT 						    \
@@ -100,7 +103,7 @@ struct p54s_tx_info {
 };
 
 struct p54s_priv {
-	
+	/* p54_common has to be the first entry */
 	struct p54_common common;
 	struct ieee80211_hw *hw;
 	struct spi_device *spi;
@@ -112,11 +115,11 @@ struct p54s_priv {
 
 	spinlock_t tx_lock;
 
-	
+	/* protected by tx_lock */
 	struct list_head tx_pending;
 
 	enum fw_state fw_state;
 	const struct firmware *firmware;
 };
 
-#endif 
+#endif /* P54SPI_H */

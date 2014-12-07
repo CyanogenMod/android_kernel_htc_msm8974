@@ -42,6 +42,10 @@
 
 #include "dvbdev.h"
 
+/*
+ * Maximum number of Delivery systems per frontend. It
+ * should be smaller or equal to 32
+ */
 #define MAX_DELSYS	8
 
 struct dvb_frontend_tune_settings {
@@ -117,6 +121,31 @@ enum tuner_param {
 	DVBFE_TUNER_DUMMY		= (1 << 31)
 };
 
+/*
+ * ALGO_HW: (Hardware Algorithm)
+ * ----------------------------------------------------------------
+ * Devices that support this algorithm do everything in hardware
+ * and no software support is needed to handle them.
+ * Requesting these devices to LOCK is the only thing required,
+ * device is supposed to do everything in the hardware.
+ *
+ * ALGO_SW: (Software Algorithm)
+ * ----------------------------------------------------------------
+ * These are dumb devices, that require software to do everything
+ *
+ * ALGO_CUSTOM: (Customizable Agorithm)
+ * ----------------------------------------------------------------
+ * Devices having this algorithm can be customized to have specific
+ * algorithms in the frontend driver, rather than simply doing a
+ * software zig-zag. In this case the zigzag maybe hardware assisted
+ * or it maybe completely done in hardware. In all cases, usage of
+ * this algorithm, in conjunction with the search and track
+ * callbacks, utilizes the driver specific algorithm.
+ *
+ * ALGO_RECOVERY: (Recovery Algorithm)
+ * ----------------------------------------------------------------
+ * These devices have AUTO recovery capabilities from LOCK failure
+ */
 enum dvbfe_algo {
 	DVBFE_ALGO_HW			= (1 <<  0),
 	DVBFE_ALGO_SW			= (1 <<  1),
@@ -133,6 +162,28 @@ struct tuner_state {
 	u32 refclock;
 };
 
+/*
+ * search callback possible return status
+ *
+ * DVBFE_ALGO_SEARCH_SUCCESS
+ * The frontend search algorithm completed and returned successfully
+ *
+ * DVBFE_ALGO_SEARCH_ASLEEP
+ * The frontend search algorithm is sleeping
+ *
+ * DVBFE_ALGO_SEARCH_FAILED
+ * The frontend search for a signal failed
+ *
+ * DVBFE_ALGO_SEARCH_INVALID
+ * The frontend search algorith was probably supplied with invalid
+ * parameters and the search is an invalid one
+ *
+ * DVBFE_ALGO_SEARCH_ERROR
+ * The frontend search algorithm failed due to some error
+ *
+ * DVBFE_ALGO_SEARCH_AGAIN
+ * The frontend search algorithm was requested to search again
+ */
 enum dvbfe_search {
 	DVBFE_ALGO_SEARCH_SUCCESS	= (1 <<  0),
 	DVBFE_ALGO_SEARCH_ASLEEP	= (1 <<  1),
@@ -151,14 +202,14 @@ struct dvb_tuner_ops {
 	int (*init)(struct dvb_frontend *fe);
 	int (*sleep)(struct dvb_frontend *fe);
 
-	
+	/** This is for simple PLLs - set all parameters in one go. */
 	int (*set_params)(struct dvb_frontend *fe);
 	int (*set_analog_params)(struct dvb_frontend *fe, struct analog_parameters *p);
 
-	
+	/** This is support for demods like the mt352 - fills out the supplied buffer with what to write. */
 	int (*calc_regs)(struct dvb_frontend *fe, u8 *buf, int buf_len);
 
-	
+	/** This is to allow setting tuner-specific configs */
 	int (*set_config)(struct dvb_frontend *fe, void *priv_cfg);
 
 	int (*get_frequency)(struct dvb_frontend *fe, u32 *frequency);
@@ -170,9 +221,15 @@ struct dvb_tuner_ops {
 	int (*get_status)(struct dvb_frontend *fe, u32 *status);
 	int (*get_rf_strength)(struct dvb_frontend *fe, u16 *strength);
 
+	/** These are provided separately from set_params in order to facilitate silicon
+	 * tuners which require sophisticated tuning loops, controlling each parameter separately. */
 	int (*set_frequency)(struct dvb_frontend *fe, u32 frequency);
 	int (*set_bandwidth)(struct dvb_frontend *fe, u32 bandwidth);
 
+	/*
+	 * These are provided separately from set_params in order to facilitate silicon
+	 * tuners which require sophisticated tuning loops, controlling each parameter separately.
+	 */
 	int (*set_state)(struct dvb_frontend *fe, enum tuner_param param, struct tuner_state *state);
 	int (*get_state)(struct dvb_frontend *fe, enum tuner_param param, struct tuner_state *state);
 };
@@ -194,7 +251,7 @@ struct analog_demod_ops {
 	void (*release)(struct dvb_frontend *fe);
 	int  (*i2c_gate_ctrl)(struct dvb_frontend *fe, int enable);
 
-	
+	/** This is to allow setting tuner-specific configuration */
 	int (*set_config)(struct dvb_frontend *fe, void *priv_cfg);
 };
 
@@ -214,16 +271,16 @@ struct dvb_frontend_ops {
 
 	int (*write)(struct dvb_frontend* fe, const u8 buf[], int len);
 
-	
+	/* if this is set, it overrides the default swzigzag */
 	int (*tune)(struct dvb_frontend* fe,
 		    bool re_tune,
 		    unsigned int mode_flags,
 		    unsigned int *delay,
 		    fe_status_t *status);
-	
+	/* get frontend tuning algorithm from the module */
 	enum dvbfe_algo (*get_frontend_algo)(struct dvb_frontend *fe);
 
-	
+	/* these two are only used for the swzigzag code */
 	int (*set_frontend)(struct dvb_frontend *fe);
 	int (*get_tune_settings)(struct dvb_frontend* fe, struct dvb_frontend_tune_settings* settings);
 
@@ -246,6 +303,9 @@ struct dvb_frontend_ops {
 	int (*i2c_gate_ctrl)(struct dvb_frontend* fe, int enable);
 	int (*ts_bus_ctrl)(struct dvb_frontend* fe, int acquire);
 
+	/* These callbacks are for devices that implement their own
+	 * tuning algorithms, rather than a simple swzigzag
+	 */
 	enum dvbfe_search (*search)(struct dvb_frontend *fe);
 
 	struct dvb_tuner_ops tuner_ops;
@@ -270,7 +330,7 @@ struct dvb_fe_events {
 
 struct dtv_frontend_properties {
 
-	
+	/* Cache State */
 	u32			state;
 
 	u32			frequency;
@@ -281,7 +341,7 @@ struct dtv_frontend_properties {
 	fe_spectral_inversion_t	inversion;
 	fe_code_rate_t		fec_inner;
 	fe_transmit_mode_t	transmission_mode;
-	u32			bandwidth_hz;	
+	u32			bandwidth_hz;	/* 0 = AUTO */
 	fe_guard_interval_t	guard_interval;
 	fe_hierarchy_t		hierarchy;
 	u32			symbol_rate;
@@ -293,7 +353,7 @@ struct dtv_frontend_properties {
 
 	fe_delivery_system_t	delivery_system;
 
-	
+	/* ISDB-T specifics */
 	u8			isdbt_partial_reception;
 	u8			isdbt_sb_mode;
 	u8			isdbt_sb_subchannel;
@@ -307,10 +367,10 @@ struct dtv_frontend_properties {
 	    u8			interleaving;
 	} layer[3];
 
-	
+	/* ISDB-T specifics */
 	u32			isdbs_ts_id;
 
-	
+	/* DVB-T2 specifics */
 	u32                     dvbt2_plp_id;
 };
 

@@ -16,6 +16,7 @@
 		rval; \
 	})
 
+/* 440GP/440GX SDRAM controller DCRs */
 #define DCRN_SDRAM0_CFGADDR				0x010
 #define DCRN_SDRAM0_CFGDATA				0x011
 
@@ -39,6 +40,7 @@ static const unsigned long sdram_bxcr[] = { SDRAM0_B0CR, SDRAM0_B1CR,
 #define			SDRAM_CONFIG_BANK_SIZE(reg)	\
 	(0x00400000 << ((reg & SDRAM_CONFIG_SIZE_MASK) >> 17))
 
+/* 440GP External Bus Controller (EBC) */
 #define DCRN_EBC0_CFGADDR				0x012
 #define DCRN_EBC0_CFGDATA				0x013
 #define   EBC_NUM_BANKS					  8
@@ -75,6 +77,7 @@ static const unsigned long sdram_bxcr[] = { SDRAM0_B0CR, SDRAM0_B1CR,
 #define   EBC_CFG					  0x23
 #define   EBC_CID					  0x24
 
+/* 440GP Clock, PM, chip control */
 #define DCRN_CPC0_SR					0x0b0
 #define DCRN_CPC0_ER					0x0b1
 #define DCRN_CPC0_FR					0x0b2
@@ -85,6 +88,8 @@ static const unsigned long sdram_bxcr[] = { SDRAM0_B0CR, SDRAM0_B1CR,
 #define	  CPC0_SYS0_FWDVB_MASK				  0x00007000
 #define	  CPC0_SYS0_OPDV_MASK				  0x00000c00
 #define	  CPC0_SYS0_EPDV_MASK				  0x00000300
+/* Helper macros to compute the actual clock divider values from the
+ * encodings in the CPC0 register */
 #define	  CPC0_SYS0_FBDV(reg) \
 		((((((reg) & CPC0_SYS0_FBDV_MASK) >> 18) - 1) & 0xf) + 1)
 #define	  CPC0_SYS0_FWDVA(reg) \
@@ -133,6 +138,7 @@ static const unsigned long sdram_bxcr[] = { SDRAM0_B0CR, SDRAM0_B1CR,
 #define DCRN_MAL0_CFG					0x180
 #define MAL_RESET 0x80000000
 
+/* 440EP Clock/Power-on Reset regs */
 #define DCRN_CPR0_ADDR	0xc
 #define DCRN_CPR0_DATA	0xd
 #define CPR0_PLLD0	0x60
@@ -142,15 +148,18 @@ static const unsigned long sdram_bxcr[] = { SDRAM0_B0CR, SDRAM0_B1CR,
 #define CPR0_SCPID	0x120
 #define CPR0_PLLC0	0x40
 
+/* 405GP Clocking/Power Management/Chip Control regs */
 #define DCRN_CPC0_PLLMR 0xb0
 #define DCRN_405_CPC0_CR0 0xb1
 #define DCRN_405_CPC0_CR1 0xb2
 #define DCRN_405_CPC0_PSR 0xb4
 
+/* 405EP Clocking/Power Management/Chip Control regs */
 #define DCRN_CPC0_PLLMR0  0xf0
 #define DCRN_CPC0_PLLMR1  0xf4
 #define DCRN_CPC0_UCR     0xf5
 
+/* 440GX/405EX Clock Control reg */
 #define DCRN_CPR0_CLKUPD				0x020
 #define DCRN_CPR0_PLLC					0x040
 #define DCRN_CPR0_PLLD					0x060
@@ -163,6 +172,7 @@ static const unsigned long sdram_bxcr[] = { SDRAM0_B0CR, SDRAM0_B1CR,
 #define DCRN_SDR0_CONFIG_ADDR 	0xe
 #define DCRN_SDR0_CONFIG_DATA	0xf
 
+/* SDR read/write helper macros */
 #define SDR0_READ(offset) ({\
 	mtdcr(DCRN_SDR0_CONFIG_ADDR, offset); \
 	mfdcr(DCRN_SDR0_CONFIG_DATA); })
@@ -176,6 +186,7 @@ static const unsigned long sdram_bxcr[] = { SDRAM0_B0CR, SDRAM0_B1CR,
 #define DCRN_SDR0_UART3		0x0123
 
 
+/* CPRs read/write helper macros - based off include/asm-ppc/ibm44x.h */
 
 #define DCRN_CPR0_CFGADDR				0xc
 #define DCRN_CPR0_CFGDATA				0xd
@@ -189,4 +200,4 @@ static const unsigned long sdram_bxcr[] = { SDRAM0_B0CR, SDRAM0_B1CR,
 
 
 
-#endif	
+#endif	/* _PPC_BOOT_DCR_H_ */

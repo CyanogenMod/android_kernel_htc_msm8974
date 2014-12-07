@@ -25,22 +25,28 @@
 #include "11n.h"
 #include "cfg80211.h"
 
+/* The maximum number of channels the firmware can scan per command */
 #define MWIFIEX_MAX_CHANNELS_PER_SPECIFIC_SCAN   14
 
 #define MWIFIEX_CHANNELS_PER_SCAN_CMD            4
 
+/* Memory needed to store a max sized Channel List TLV for a firmware scan */
 #define CHAN_TLV_MAX_SIZE  (sizeof(struct mwifiex_ie_types_header)         \
 				+ (MWIFIEX_MAX_CHANNELS_PER_SPECIFIC_SCAN     \
 				*sizeof(struct mwifiex_chan_scan_param_set)))
 
+/* Memory needed to store supported rate */
 #define RATE_TLV_MAX_SIZE   (sizeof(struct mwifiex_ie_types_rates_param_set) \
 				+ HOSTCMD_SUPPORTED_RATES)
 
+/* Memory needed to store a max number/size WildCard SSID TLV for a firmware
+	scan */
 #define WILDCARD_SSID_TLV_MAX_SIZE  \
 	(MWIFIEX_MAX_SSID_LIST_LENGTH *					\
 		(sizeof(struct mwifiex_ie_types_wildcard_ssid_params)	\
 			+ IEEE80211_MAX_SSID_LEN))
 
+/* Maximum memory needed for a mwifiex_scan_cmd_config with all TLVs at max */
 #define MAX_SCAN_CFG_ALLOC (sizeof(struct mwifiex_scan_cmd_config)        \
 				+ sizeof(struct mwifiex_ie_types_num_probes)   \
 				+ sizeof(struct mwifiex_ie_types_htcap)       \
@@ -50,9 +56,9 @@
 
 
 union mwifiex_scan_cmd_config_tlv {
-	
+	/* Scan configuration (variable length) */
 	struct mwifiex_scan_cmd_config config;
-	
+	/* Max allocated block */
 	u8 config_alloc_buf[MAX_SCAN_CFG_ALLOC];
 };
 
@@ -62,14 +68,20 @@ enum cipher_suite {
 	CIPHER_SUITE_MAX
 };
 static u8 mwifiex_wpa_oui[CIPHER_SUITE_MAX][4] = {
-	{ 0x00, 0x50, 0xf2, 0x02 },	
-	{ 0x00, 0x50, 0xf2, 0x04 },	
+	{ 0x00, 0x50, 0xf2, 0x02 },	/* TKIP */
+	{ 0x00, 0x50, 0xf2, 0x04 },	/* AES  */
 };
 static u8 mwifiex_rsn_oui[CIPHER_SUITE_MAX][4] = {
-	{ 0x00, 0x0f, 0xac, 0x02 },	
-	{ 0x00, 0x0f, 0xac, 0x04 },	
+	{ 0x00, 0x0f, 0xac, 0x02 },	/* TKIP */
+	{ 0x00, 0x0f, 0xac, 0x04 },	/* AES  */
 };
 
+/*
+ * This function parses a given IE for a given OUI.
+ *
+ * This is used to parse a WPA/RSN IE to find if it has
+ * a given oui in PTK.
+ */
 static u8
 mwifiex_search_oui_in_ie(struct ie_body *iebody, u8 *oui)
 {
@@ -77,6 +89,10 @@ mwifiex_search_oui_in_ie(struct ie_body *iebody, u8 *oui)
 
 	count = iebody->ptk_cnt[0];
 
+	/* There could be multiple OUIs for PTK hence
+	   1) Take the length.
+	   2) Check all the OUIs for AES.
+	   3) If one of them is AES then pass success. */
 	while (count) {
 		if (!memcmp(iebody->ptk_body, oui, sizeof(iebody->ptk_body)))
 			return MWIFIEX_OUI_PRESENT;
@@ -91,6 +107,13 @@ mwifiex_search_oui_in_ie(struct ie_body *iebody, u8 *oui)
 	return MWIFIEX_OUI_NOT_PRESENT;
 }
 
+/*
+ * This function checks if a given OUI is present in a RSN IE.
+ *
+ * The function first checks if a RSN IE is present or not in the
+ * BSS descriptor. It tries to locate the OUI only if such an IE is
+ * present.
+ */
 static u8
 mwifiex_is_rsn_oui_present(struct mwifiex_bssdescriptor *bss_desc, u32 cipher)
 {
@@ -111,6 +134,13 @@ mwifiex_is_rsn_oui_present(struct mwifiex_bssdescriptor *bss_desc, u32 cipher)
 	return ret;
 }
 
+/*
+ * This function checks if a given OUI is present in a WPA IE.
+ *
+ * The function first checks if a WPA IE is present or not in the
+ * BSS descriptor. It tries to locate the OUI only if such an IE is
+ * present.
+ */
 static u8
 mwifiex_is_wpa_oui_present(struct mwifiex_bssdescriptor *bss_desc, u32 cipher)
 {
@@ -130,6 +160,9 @@ mwifiex_is_wpa_oui_present(struct mwifiex_bssdescriptor *bss_desc, u32 cipher)
 	return ret;
 }
 
+/*
+ * This function compares two SSIDs and checks if they match.
+ */
 s32
 mwifiex_ssid_cmp(struct cfg80211_ssid *ssid1, struct cfg80211_ssid *ssid2)
 {
@@ -138,6 +171,10 @@ mwifiex_ssid_cmp(struct cfg80211_ssid *ssid1, struct cfg80211_ssid *ssid2)
 	return memcmp(ssid1->ssid, ssid2->ssid, ssid1->ssid_len);
 }
 
+/*
+ * This function checks if wapi is enabled in driver and scanned network is
+ * compatible with it.
+ */
 static bool
 mwifiex_is_bss_wapi(struct mwifiex_private *priv,
 		    struct mwifiex_bssdescriptor *bss_desc)
@@ -151,6 +188,10 @@ mwifiex_is_bss_wapi(struct mwifiex_private *priv,
 	return false;
 }
 
+/*
+ * This function checks if driver is configured with no security mode and
+ * scanned network is compatible with it.
+ */
 static bool
 mwifiex_is_bss_no_sec(struct mwifiex_private *priv,
 		      struct mwifiex_bssdescriptor *bss_desc)
@@ -168,6 +209,10 @@ mwifiex_is_bss_no_sec(struct mwifiex_private *priv,
 	return false;
 }
 
+/*
+ * This function checks if static WEP is enabled in driver and scanned network
+ * is compatible with it.
+ */
 static bool
 mwifiex_is_bss_static_wep(struct mwifiex_private *priv,
 			  struct mwifiex_bssdescriptor *bss_desc)
@@ -179,6 +224,10 @@ mwifiex_is_bss_static_wep(struct mwifiex_private *priv,
 	return false;
 }
 
+/*
+ * This function checks if wpa is enabled in driver and scanned network is
+ * compatible with it.
+ */
 static bool
 mwifiex_is_bss_wpa(struct mwifiex_private *priv,
 		   struct mwifiex_bssdescriptor *bss_desc)
@@ -186,6 +235,10 @@ mwifiex_is_bss_wpa(struct mwifiex_private *priv,
 	if (!priv->sec_info.wep_enabled && priv->sec_info.wpa_enabled &&
 	    !priv->sec_info.wpa2_enabled && ((bss_desc->bcn_wpa_ie) &&
 	    ((*(bss_desc->bcn_wpa_ie)).vend_hdr.element_id == WLAN_EID_WPA))
+	   /*
+	    * Privacy bit may NOT be set in some APs like
+	    * LinkSys WRT54G && bss_desc->privacy
+	    */
 	 ) {
 		dev_dbg(priv->adapter->dev, "info: %s: WPA:"
 			" wpa_ie=%#x wpa2_ie=%#x WEP=%s WPA=%s WPA2=%s "
@@ -206,6 +259,10 @@ mwifiex_is_bss_wpa(struct mwifiex_private *priv,
 	return false;
 }
 
+/*
+ * This function checks if wpa2 is enabled in driver and scanned network is
+ * compatible with it.
+ */
 static bool
 mwifiex_is_bss_wpa2(struct mwifiex_private *priv,
 		    struct mwifiex_bssdescriptor *bss_desc)
@@ -215,6 +272,10 @@ mwifiex_is_bss_wpa2(struct mwifiex_private *priv,
 	    priv->sec_info.wpa2_enabled &&
 	    ((bss_desc->bcn_rsn_ie) &&
 	     ((*(bss_desc->bcn_rsn_ie)).ieee_hdr.element_id == WLAN_EID_RSN))) {
+		/*
+		 * Privacy bit may NOT be set in some APs like
+		 * LinkSys WRT54G && bss_desc->privacy
+		 */
 		dev_dbg(priv->adapter->dev, "info: %s: WPA2: "
 			" wpa_ie=%#x wpa2_ie=%#x WEP=%s WPA=%s WPA2=%s "
 			"EncMode=%#x privacy=%#x\n", __func__,
@@ -234,6 +295,10 @@ mwifiex_is_bss_wpa2(struct mwifiex_private *priv,
 	return false;
 }
 
+/*
+ * This function checks if adhoc AES is enabled in driver and scanned network is
+ * compatible with it.
+ */
 static bool
 mwifiex_is_bss_adhoc_aes(struct mwifiex_private *priv,
 			 struct mwifiex_bssdescriptor *bss_desc)
@@ -250,6 +315,10 @@ mwifiex_is_bss_adhoc_aes(struct mwifiex_private *priv,
 	return false;
 }
 
+/*
+ * This function checks if dynamic WEP is enabled in driver and scanned network
+ * is compatible with it.
+ */
 static bool
 mwifiex_is_bss_dynamic_wep(struct mwifiex_private *priv,
 			   struct mwifiex_bssdescriptor *bss_desc)
@@ -278,6 +347,24 @@ mwifiex_is_bss_dynamic_wep(struct mwifiex_private *priv,
 	return false;
 }
 
+/*
+ * This function checks if a scanned network is compatible with the driver
+ * settings.
+ *
+ *   WEP     WPA    WPA2   ad-hoc encrypt                  Network
+ * enabled enabled enabled  AES    mode   Privacy WPA WPA2 Compatible
+ *    0       0       0      0     NONE      0     0   0   yes No security
+ *    0       1       0      0      x        1x    1   x   yes WPA (disable
+ *                                                         HT if no AES)
+ *    0       0       1      0      x        1x    x   1   yes WPA2 (disable
+ *                                                         HT if no AES)
+ *    0       0       0      1     NONE      1     0   0   yes Ad-hoc AES
+ *    1       0       0      0     NONE      1     0   0   yes Static WEP
+ *                                                         (disable HT)
+ *    0       0       0      0    !=NONE     1     0   0   yes Dynamic WEP
+ *
+ * Compatibility is not matched while roaming, except for mode.
+ */
 static s32
 mwifiex_is_network_compatible(struct mwifiex_private *priv,
 			      struct mwifiex_bssdescriptor *bss_desc, u32 mode)
@@ -286,7 +373,7 @@ mwifiex_is_network_compatible(struct mwifiex_private *priv,
 
 	bss_desc->disable_11n = false;
 
-	
+	/* Don't check for compatibility if roaming */
 	if (priv->media_connected &&
 	    (priv->bss_mode == NL80211_IFTYPE_STATION) &&
 	    (bss_desc->bss_mode == NL80211_IFTYPE_STATION))
@@ -305,15 +392,15 @@ mwifiex_is_network_compatible(struct mwifiex_private *priv,
 
 	if (bss_desc->bss_mode == mode) {
 		if (mwifiex_is_bss_no_sec(priv, bss_desc)) {
-			
+			/* No security */
 			return 0;
 		} else if (mwifiex_is_bss_static_wep(priv, bss_desc)) {
-			
+			/* Static WEP enabled */
 			dev_dbg(adapter->dev, "info: Disable 11n in WEP mode.\n");
 			bss_desc->disable_11n = true;
 			return 0;
 		} else if (mwifiex_is_bss_wpa(priv, bss_desc)) {
-			
+			/* WPA enabled */
 			if (((priv->adapter->config_bands & BAND_GN ||
 			      priv->adapter->config_bands & BAND_AN) &&
 			     bss_desc->bcn_ht_cap) &&
@@ -332,7 +419,7 @@ mwifiex_is_network_compatible(struct mwifiex_private *priv,
 			}
 			return 0;
 		} else if (mwifiex_is_bss_wpa2(priv, bss_desc)) {
-			
+			/* WPA2 enabled */
 			if (((priv->adapter->config_bands & BAND_GN ||
 			      priv->adapter->config_bands & BAND_AN) &&
 			     bss_desc->bcn_ht_cap) &&
@@ -351,14 +438,14 @@ mwifiex_is_network_compatible(struct mwifiex_private *priv,
 			}
 			return 0;
 		} else if (mwifiex_is_bss_adhoc_aes(priv, bss_desc)) {
-			
+			/* Ad-hoc AES enabled */
 			return 0;
 		} else if (mwifiex_is_bss_dynamic_wep(priv, bss_desc)) {
-			
+			/* Dynamic WEP enabled */
 			return 0;
 		}
 
-		
+		/* Security doesn't match */
 		dev_dbg(adapter->dev,
 			"info: %s: failed: wpa_ie=%#x wpa2_ie=%#x WEP=%s "
 			"WPA=%s WPA2=%s EncMode=%#x privacy=%#x\n", __func__,
@@ -373,10 +460,17 @@ mwifiex_is_network_compatible(struct mwifiex_private *priv,
 		return -1;
 	}
 
-	
+	/* Mode doesn't match */
 	return -1;
 }
 
+/*
+ * This function creates a channel list for the driver to scan, based
+ * on region/band information.
+ *
+ * This routine is used for any scan that is not provided with a
+ * specific channel list to scan.
+ */
 static void
 mwifiex_scan_create_channel_list(struct mwifiex_private *priv,
 				 const struct mwifiex_user_scan_cfg
@@ -436,6 +530,15 @@ mwifiex_scan_create_channel_list(struct mwifiex_private *priv,
 	}
 }
 
+/*
+ * This function constructs and sends multiple scan config commands to
+ * the firmware.
+ *
+ * Previous routines in the code flow have created a scan command configuration
+ * with any requested TLVs.  This function splits the channel TLV into maximum
+ * channels supported per scan lists and sends the portion of the channel TLV,
+ * along with the other TLVs, to the firmware.
+ */
 static int
 mwifiex_scan_channel_list(struct mwifiex_private *priv,
 			  u32 max_chan_per_scan, u8 filtered_scan,
@@ -461,8 +564,13 @@ mwifiex_scan_channel_list(struct mwifiex_private *priv,
 
 	chan_tlv_out->header.type = cpu_to_le16(TLV_TYPE_CHANLIST);
 
+	/* Set the temp channel struct pointer to the start of the desired
+	   list */
 	tmp_chan_list = scan_chan_list;
 
+	/* Loop through the desired channel list, sending a new firmware scan
+	   commands for each max_chan_per_scan channels (or for 1,6,11
+	   individually if configured accordingly) */
 	while (tmp_chan_list->chan_number) {
 
 		tlv_idx = 0;
@@ -471,6 +579,15 @@ mwifiex_scan_channel_list(struct mwifiex_private *priv,
 		start_chan = tmp_chan_list;
 		done_early = false;
 
+		/*
+		 * Construct the Channel TLV for the scan command.  Continue to
+		 * insert channel TLVs until:
+		 *   - the tlv_idx hits the maximum configured per scan command
+		 *   - the next channel to insert is 0 (end of desired channel
+		 *     list)
+		 *   - done_early is set (controlling individual scanning of
+		 *     1,6,11)
+		 */
 		while (tlv_idx < max_chan_per_scan &&
 		       tmp_chan_list->chan_number && !done_early) {
 
@@ -485,37 +602,59 @@ mwifiex_scan_channel_list(struct mwifiex_private *priv,
 				 & MWIFIEX_DISABLE_CHAN_FILT) >> 1,
 				le16_to_cpu(tmp_chan_list->max_scan_time));
 
+			/* Copy the current channel TLV to the command being
+			   prepared */
 			memcpy(chan_tlv_out->chan_scan_param + tlv_idx,
 			       tmp_chan_list,
 			       sizeof(chan_tlv_out->chan_scan_param));
 
+			/* Increment the TLV header length by the size
+			   appended */
 			chan_tlv_out->header.len =
 			cpu_to_le16(le16_to_cpu(chan_tlv_out->header.len) +
 			(sizeof(chan_tlv_out->chan_scan_param)));
 
+			/*
+			 * The tlv buffer length is set to the number of bytes
+			 * of the between the channel tlv pointer and the start
+			 * of the tlv buffer.  This compensates for any TLVs
+			 * that were appended before the channel list.
+			 */
 			scan_cfg_out->tlv_buf_len = (u32) ((u8 *) chan_tlv_out -
 							scan_cfg_out->tlv_buf);
 
+			/* Add the size of the channel tlv header and the data
+			   length */
 			scan_cfg_out->tlv_buf_len +=
 				(sizeof(chan_tlv_out->header)
 				 + le16_to_cpu(chan_tlv_out->header.len));
 
+			/* Increment the index to the channel tlv we are
+			   constructing */
 			tlv_idx++;
 
-			
+			/* Count the total scan time per command */
 			total_scan_time +=
 				le16_to_cpu(tmp_chan_list->max_scan_time);
 
 			done_early = false;
 
+			/* Stop the loop if the *current* channel is in the
+			   1,6,11 set and we are not filtering on a BSSID
+			   or SSID. */
 			if (!filtered_scan &&
 			    (tmp_chan_list->chan_number == 1 ||
 			     tmp_chan_list->chan_number == 6 ||
 			     tmp_chan_list->chan_number == 11))
 				done_early = true;
 
+			/* Increment the tmp pointer to the next channel to
+			   be scanned */
 			tmp_chan_list++;
 
+			/* Stop the loop if the *next* channel is in the 1,6,11
+			   set.  This will cause it to be the only channel
+			   scanned on the next interation */
 			if (!filtered_scan &&
 			    (tmp_chan_list->chan_number == 1 ||
 			     tmp_chan_list->chan_number == 6 ||
@@ -523,6 +662,8 @@ mwifiex_scan_channel_list(struct mwifiex_private *priv,
 				done_early = true;
 		}
 
+		/* The total scan time should be less than scan command timeout
+		   value */
 		if (total_scan_time > MWIFIEX_MAX_TOTAL_SCAN_TIME) {
 			dev_err(priv->adapter->dev, "total scan time %dms"
 				" is over limit (%dms), scan skipped\n",
@@ -533,6 +674,8 @@ mwifiex_scan_channel_list(struct mwifiex_private *priv,
 
 		priv->adapter->scan_channels = start_chan;
 
+		/* Send the scan command to the firmware with the specified
+		   cfg */
 		ret = mwifiex_send_cmd_async(priv, HostCmd_CMD_802_11_SCAN,
 					     HostCmd_ACT_GEN_SET, 0,
 					     scan_cfg_out);
@@ -546,6 +689,26 @@ mwifiex_scan_channel_list(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * This function constructs a scan command configuration structure to use
+ * in scan commands.
+ *
+ * Application layer or other functions can invoke network scanning
+ * with a scan configuration supplied in a user scan configuration structure.
+ * This structure is used as the basis of one or many scan command configuration
+ * commands that are sent to the command processing module and eventually to the
+ * firmware.
+ *
+ * This function creates a scan command configuration structure  based on the
+ * following user supplied parameters (if present):
+ *      - SSID filter
+ *      - BSSID filter
+ *      - Number of Probes to be sent
+ *      - Channel list
+ *
+ * If the SSID or BSSID filter is not present, the filter is disabled/cleared.
+ * If the number of probes is not set, adapter default setting is used.
+ */
 static void
 mwifiex_config_scan(struct mwifiex_private *priv,
 		    const struct mwifiex_user_scan_cfg *user_scan_in,
@@ -574,26 +737,51 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 	u32 rates_size;
 	struct mwifiex_ie_types_htcap *ht_cap;
 
+	/* The tlv_buf_len is calculated for each scan command.  The TLVs added
+	   in this routine will be preserved since the routine that sends the
+	   command will append channelTLVs at *chan_list_out.  The difference
+	   between the *chan_list_out and the tlv_buf start will be used to
+	   calculate the size of anything we add in this routine. */
 	scan_cfg_out->tlv_buf_len = 0;
 
+	/* Running tlv pointer.  Assigned to chan_list_out at end of function
+	   so later routines know where channels can be added to the command
+	   buf */
 	tlv_pos = scan_cfg_out->tlv_buf;
 
+	/* Initialize the scan as un-filtered; the flag is later set to TRUE
+	   below if a SSID or BSSID filter is sent in the command */
 	*filtered_scan = false;
 
+	/* Initialize the scan as not being only on the current channel.  If
+	   the channel list is customized, only contains one channel, and is
+	   the active channel, this is set true and data flow is not halted. */
 	*scan_current_only = false;
 
 	if (user_scan_in) {
 
+		/* Default the ssid_filter flag to TRUE, set false under
+		   certain wildcard conditions and qualified by the existence
+		   of an SSID list before marking the scan as filtered */
 		ssid_filter = true;
 
+		/* Set the BSS type scan filter, use Adapter setting if
+		   unset */
 		scan_cfg_out->bss_mode =
 			(user_scan_in->bss_mode ? (u8) user_scan_in->
 			 bss_mode : (u8) adapter->scan_mode);
 
+		/* Set the number of probes to send, use Adapter setting
+		   if unset */
 		num_probes =
 			(user_scan_in->num_probes ? user_scan_in->
 			 num_probes : adapter->scan_probes);
 
+		/*
+		 * Set the BSSID filter to the incoming configuration,
+		 * if non-zero.  If not set, it will remain disabled
+		 * (all zeros).
+		 */
 		memcpy(scan_cfg_out->specific_bssid,
 		       user_scan_in->specific_bssid,
 		       sizeof(scan_cfg_out->specific_bssid));
@@ -610,6 +798,12 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 				(u16) (ssid_len + sizeof(wildcard_ssid_tlv->
 							 max_ssid_length)));
 
+			/*
+			 * max_ssid_length = 0 tells firmware to perform
+			 * specific scan for the SSID filled, whereas
+			 * max_ssid_length = IEEE80211_MAX_SSID_LEN is for
+			 * wildcard scan.
+			 */
 			if (ssid_len)
 				wildcard_ssid_tlv->max_ssid_length = 0;
 			else
@@ -626,10 +820,20 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 				i, wildcard_ssid_tlv->ssid,
 				wildcard_ssid_tlv->max_ssid_length);
 
+			/* Empty wildcard ssid with a maxlen will match many or
+			   potentially all SSIDs (maxlen == 32), therefore do
+			   not treat the scan as
+			   filtered. */
 			if (!ssid_len && wildcard_ssid_tlv->max_ssid_length)
 				ssid_filter = false;
 		}
 
+		/*
+		 *  The default number of channels sent in the command is low to
+		 *  ensure the response buffer from the firmware does not
+		 *  truncate scan results.  That is not an issue with an SSID
+		 *  or BSSID filter applied to the scan results in the firmware.
+		 */
 		if ((i && ssid_filter) ||
 		    memcmp(scan_cfg_out->specific_bssid, &zero_mac,
 			   sizeof(zero_mac)))
@@ -639,11 +843,17 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 		num_probes = adapter->scan_probes;
 	}
 
+	/*
+	 *  If a specific BSSID or SSID is used, the number of channels in the
+	 *  scan command will be increased to the absolute maximum.
+	 */
 	if (*filtered_scan)
 		*max_chan_per_scan = MWIFIEX_MAX_CHANNELS_PER_SPECIFIC_SCAN;
 	else
 		*max_chan_per_scan = MWIFIEX_CHANNELS_PER_SCAN_CMD;
 
+	/* If the input config or adapter has the number of Probes set,
+	   add tlv */
 	if (num_probes) {
 
 		dev_dbg(adapter->dev, "info: scan: num_probes = %d\n",
@@ -660,7 +870,7 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 
 	}
 
-	
+	/* Append rates tlv */
 	memset(rates, 0, sizeof(rates));
 
 	rates_size = mwifiex_get_supported_rates(priv, rates);
@@ -687,9 +897,15 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 		tlv_pos += sizeof(struct mwifiex_ie_types_htcap);
 	}
 
-	
+	/* Append vendor specific IE TLV */
 	mwifiex_cmd_append_vsie_tlv(priv, MWIFIEX_VSIE_MASK_SCAN, &tlv_pos);
 
+	/*
+	 * Set the output for the channel TLV to the address in the tlv buffer
+	 *   past any TLVs that were added in this function (SSID, num_probes).
+	 *   Channel TLVs will be added past this for each scan command,
+	 *   preserving the TLVs that were previously added.
+	 */
 	*chan_list_out =
 		(struct mwifiex_ie_types_chan_list_param_set *) tlv_pos;
 
@@ -738,7 +954,7 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 				cpu_to_le16(scan_dur);
 		}
 
-		
+		/* Check if we are only scanning the current channel */
 		if ((chan_idx == 1) &&
 		    (user_scan_in->chan_list[0].chan_number ==
 		     priv->curr_bss_params.bss_descriptor.channel)) {
@@ -756,6 +972,15 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 	}
 }
 
+/*
+ * This function inspects the scan response buffer for pointers to
+ * expected TLVs.
+ *
+ * TLVs can be included at the end of the scan response BSS information.
+ *
+ * Data in the buffer is parsed pointers to TLVs that can potentially
+ * be passed back in the response.
+ */
 static void
 mwifiex_ret_802_11_scan_get_tlv_ptrs(struct mwifiex_adapter *adapter,
 				     struct mwifiex_ie_types_data *tlv,
@@ -802,7 +1027,7 @@ mwifiex_ret_802_11_scan_get_tlv_ptrs(struct mwifiex_adapter *adapter,
 				dev_err(adapter->dev,
 					"SCAN_RESP: unhandled TLV = %d\n",
 				       tlv_type);
-				
+				/* Give up, this seems corrupted */
 				return;
 			}
 		}
@@ -816,9 +1041,13 @@ mwifiex_ret_802_11_scan_get_tlv_ptrs(struct mwifiex_adapter *adapter,
 			(struct mwifiex_ie_types_data *) (current_tlv->data +
 							  tlv_len);
 
-	}			
+	}			/* while */
 }
 
+/*
+ * This function parses provided beacon buffer and updates
+ * respective fields in bss descriptor structure.
+ */
 int
 mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 				struct mwifiex_bssdescriptor *bss_entry,
@@ -849,7 +1078,7 @@ mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 	bss_entry->beacon_buf = ie_buf;
 	bss_entry->beacon_buf_size = ie_len;
 
-	
+	/* Process variable IE */
 	while (bytes_left >= 2) {
 		element_id = *current_ptr;
 		element_len = *(current_ptr + 1);
@@ -920,6 +1149,12 @@ mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 			break;
 
 		case WLAN_EID_EXT_SUPP_RATES:
+			/*
+			 * Only process extended supported rate
+			 * if data rate is already found.
+			 * Data rate IE should come before
+			 * extended supported rate IE
+			 */
 			if (found_data_rate_ie) {
 				if ((element_len + rate_size) >
 				    MWIFIEX_SUPPORTED_RATES)
@@ -957,6 +1192,11 @@ mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 				    sizeof(struct ieee_types_wmm_parameter) ||
 				    total_ie_len ==
 				    sizeof(struct ieee_types_wmm_info))
+					/*
+					 * Only accept and copy the WMM IE if
+					 * it matches the size expected for the
+					 * WMM Info IE or the WMM Parameter IE.
+					 */
 					memcpy((u8 *) &bss_entry->wmm_ie,
 					       current_ptr, total_ie_len);
 			}
@@ -1009,13 +1249,17 @@ mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 
 		current_ptr += element_len + 2;
 
-		
+		/* Need to account for IE ID and IE Len */
 		bytes_left -= (element_len + 2);
 
-	}	
+	}	/* while (bytes_left > 2) */
 	return ret;
 }
 
+/*
+ * This function converts radio type scan parameter to a band configuration
+ * to be used in join command.
+ */
 static u8
 mwifiex_radio_type_to_band(u8 radio_type)
 {
@@ -1028,6 +1272,14 @@ mwifiex_radio_type_to_band(u8 radio_type)
 	}
 }
 
+/*
+ * This is an internal function used to start a scan based on an input
+ * configuration.
+ *
+ * This uses the input user scan configuration information when provided in
+ * order to send the appropriate scan commands to firmware to populate or
+ * update the internal driver scan table.
+ */
 static int mwifiex_scan_networks(struct mwifiex_private *priv,
 		const struct mwifiex_user_scan_cfg *user_scan_in)
 {
@@ -1082,7 +1334,7 @@ static int mwifiex_scan_networks(struct mwifiex_private *priv,
 					&scan_cfg_out->config, chan_list_out,
 					scan_chan_list);
 
-	
+	/* Get scan command from scan_pending_q and put to cmd_pending_q */
 	if (!ret) {
 		spin_lock_irqsave(&adapter->scan_pending_q_lock, flags);
 		if (!list_empty(&adapter->scan_pending_q)) {
@@ -1109,6 +1361,15 @@ static int mwifiex_scan_networks(struct mwifiex_private *priv,
 	return ret;
 }
 
+/*
+ * Sends IOCTL request to start a scan with user configurations.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ *
+ * Upon completion, it also generates a wireless event to notify
+ * applications.
+ */
 int mwifiex_set_user_scan_ioctl(struct mwifiex_private *priv,
 				struct mwifiex_user_scan_cfg *scan_req)
 {
@@ -1120,12 +1381,26 @@ int mwifiex_set_user_scan_ioctl(struct mwifiex_private *priv,
 	return status;
 }
 
+/*
+ * This function prepares a scan command to be sent to the firmware.
+ *
+ * This uses the scan command configuration sent to the command processing
+ * module in command preparation stage to configure a scan command structure
+ * to send to firmware.
+ *
+ * The fixed fields specifying the BSS type and BSSID filters as well as a
+ * variable number/length of TLVs are sent in the command to firmware.
+ *
+ * Preparation also includes -
+ *      - Setting command ID, and proper size
+ *      - Ensuring correct endian-ness
+ */
 int mwifiex_cmd_802_11_scan(struct host_cmd_ds_command *cmd,
 			    struct mwifiex_scan_cmd_config *scan_cfg)
 {
 	struct host_cmd_ds_802_11_scan *scan_cmd = &cmd->params.scan;
 
-	
+	/* Set fixed field variables in scan command */
 	scan_cmd->bss_mode = scan_cfg->bss_mode;
 	memcpy(scan_cmd->bssid, scan_cfg->specific_bssid,
 	       sizeof(scan_cmd->bssid));
@@ -1133,7 +1408,7 @@ int mwifiex_cmd_802_11_scan(struct host_cmd_ds_command *cmd,
 
 	cmd->command = cpu_to_le16(HostCmd_CMD_802_11_SCAN);
 
-	
+	/* Size is equal to the sizeof(fixed portions) + the TLV len + header */
 	cmd->size = cpu_to_le16((u16) (sizeof(scan_cmd->bss_mode)
 					  + sizeof(scan_cmd->bssid)
 					  + scan_cfg->tlv_buf_len + S_DS_GEN));
@@ -1141,6 +1416,10 @@ int mwifiex_cmd_802_11_scan(struct host_cmd_ds_command *cmd,
 	return 0;
 }
 
+/*
+ * This function checks compatibility of requested network with current
+ * driver settings.
+ */
 int mwifiex_check_network_compatibility(struct mwifiex_private *priv,
 					struct mwifiex_bssdescriptor *bss_desc)
 {
@@ -1178,7 +1457,7 @@ mwifiex_update_curr_bss_params(struct mwifiex_private *priv, u8 *bssid,
 	unsigned long flags;
 	u8 *beacon_ie;
 
-	
+	/* Allocate and fill new bss descriptor */
 	bss_desc = kzalloc(sizeof(struct mwifiex_bssdescriptor),
 			GFP_KERNEL);
 	if (!bss_desc) {
@@ -1203,7 +1482,7 @@ mwifiex_update_curr_bss_params(struct mwifiex_private *priv, u8 *bssid,
 	if (ret)
 		goto done;
 
-	
+	/* Update current bss descriptor parameters */
 	spin_lock_irqsave(&priv->curr_bcn_buf_lock, flags);
 	priv->curr_bss_params.bss_descriptor.bcn_wpa_ie = NULL;
 	priv->curr_bss_params.bss_descriptor.wpa_offset = 0;
@@ -1227,7 +1506,7 @@ mwifiex_update_curr_bss_params(struct mwifiex_private *priv, u8 *bssid,
 	priv->curr_bss_params.bss_descriptor.beacon_buf_size =
 		0;
 
-	
+	/* Make a copy of current BSSID descriptor */
 	memcpy(&priv->curr_bss_params.bss_descriptor, bss_desc,
 	       sizeof(priv->curr_bss_params.bss_descriptor));
 	mwifiex_save_curr_bcn(priv);
@@ -1239,6 +1518,25 @@ done:
 	return 0;
 }
 
+/*
+ * This function handles the command response of scan.
+ *
+ * The response buffer for the scan command has the following
+ * memory layout:
+ *
+ *      .-------------------------------------------------------------.
+ *      |  Header (4 * sizeof(t_u16)):  Standard command response hdr |
+ *      .-------------------------------------------------------------.
+ *      |  BufSize (t_u16) : sizeof the BSS Description data          |
+ *      .-------------------------------------------------------------.
+ *      |  NumOfSet (t_u8) : Number of BSS Descs returned             |
+ *      .-------------------------------------------------------------.
+ *      |  BSSDescription data (variable, size given in BufSize)      |
+ *      .-------------------------------------------------------------.
+ *      |  TLV data (variable, size calculated using Header->Size,    |
+ *      |            BufSize and sizeof the fixed fields above)       |
+ *      .-------------------------------------------------------------.
+ */
 int mwifiex_ret_802_11_scan(struct mwifiex_private *priv,
 			    struct host_cmd_ds_command *resp)
 {
@@ -1287,6 +1585,12 @@ int mwifiex_ret_802_11_scan(struct mwifiex_private *priv,
 
 	bss_info = scan_rsp->bss_desc_and_tlv_buffer;
 
+	/*
+	 * The size of the TLV buffer is equal to the entire command response
+	 *   size (scan_resp_size) minus the fixed fields (sizeof()'s), the
+	 *   BSS Descriptions (bss_descript_size as bytesLef) and the command
+	 *   response header (S_DS_GEN)
+	 */
 	tlv_buf_size = scan_resp_size - (bytes_left
 					 + sizeof(scan_rsp->bss_descript_size)
 					 + sizeof(scan_rsp->number_of_sets)
@@ -1296,11 +1600,15 @@ int mwifiex_ret_802_11_scan(struct mwifiex_private *priv,
 						 bss_desc_and_tlv_buffer +
 						 bytes_left);
 
+	/* Search the TLV buffer space in the scan response for any valid
+	   TLVs */
 	mwifiex_ret_802_11_scan_get_tlv_ptrs(adapter, tlv_data, tlv_buf_size,
 					     TLV_TYPE_TSFTIMESTAMP,
 					     (struct mwifiex_ie_types_data **)
 					     &tsf_tlv);
 
+	/* Search the TLV buffer space in the scan response for any valid
+	   TLVs */
 	mwifiex_ret_802_11_scan_get_tlv_ptrs(adapter, tlv_data, tlv_buf_size,
 					     TLV_TYPE_CHANNELBANDLIST,
 					     (struct mwifiex_ie_types_data **)
@@ -1322,7 +1630,7 @@ int mwifiex_ret_802_11_scan(struct mwifiex_private *priv,
 		struct mwifiex_bcn_param *bcn_param;
 
 		if (bytes_left >= sizeof(beacon_size)) {
-			
+			/* Extract & convert beacon size from command buffer */
 			memcpy(&beacon_size, bss_info, sizeof(beacon_size));
 			bytes_left -= sizeof(beacon_size);
 			bss_info += sizeof(beacon_size);
@@ -1334,14 +1642,20 @@ int mwifiex_ret_802_11_scan(struct mwifiex_private *priv,
 			return -1;
 		}
 
+		/* Initialize the current working beacon pointer for this BSS
+		 * iteration */
 		current_ptr = bss_info;
 
-		
+		/* Advance the return beacon pointer past the current beacon */
 		bss_info += beacon_size;
 		bytes_left -= beacon_size;
 
 		curr_bcn_bytes = beacon_size;
 
+		/*
+		 * First 5 fields are bssid, RSSI, time stamp, beacon interval,
+		 *   and capability information
+		 */
 		if (curr_bcn_bytes < sizeof(struct mwifiex_bcn_param)) {
 			dev_err(adapter->dev,
 				"InterpretIE: not enough bytes left\n");
@@ -1362,7 +1676,7 @@ int mwifiex_ret_802_11_scan(struct mwifiex_private *priv,
 		dev_dbg(adapter->dev, "info: InterpretIE: capabilities=0x%X\n",
 			cap_info_bitmap);
 
-		
+		/* Rest of the current buffer are IE's */
 		ie_buf = current_ptr;
 		ie_len = curr_bcn_bytes;
 		dev_dbg(adapter->dev,
@@ -1393,6 +1707,12 @@ int mwifiex_ret_802_11_scan(struct mwifiex_private *priv,
 					sizeof(struct ieee_types_header);
 		}
 
+		/*
+		 * If the TSF TLV was appended to the scan results, save this
+		 * entry's TSF value in the networkTSF field.The networkTSF is
+		 * the firmware's TSF value at the time the beacon or probe
+		 * response was received.
+		 */
 		if (tsf_tlv)
 			memcpy(&network_tsf,
 			       &tsf_tlv->tsf_data[idx * TSF_DATA_SIZE],
@@ -1447,7 +1767,7 @@ int mwifiex_ret_802_11_scan(struct mwifiex_private *priv,
 		adapter->scan_processing = false;
 		spin_unlock_irqrestore(&adapter->mwifiex_cmd_lock, flags);
 
-		
+		/* Need to indicate IOCTL complete */
 		if (adapter->curr_cmd->wait_q_enabled) {
 			adapter->cmd_wait_q.status = 0;
 			mwifiex_complete_cmd(adapter, adapter->curr_cmd);
@@ -1468,6 +1788,8 @@ int mwifiex_ret_802_11_scan(struct mwifiex_private *priv,
 			priv->user_scan_cfg = NULL;
 		}
 	} else {
+		/* Get scan command from scan_pending_q and put to
+		   cmd_pending_q */
 		cmd_node = list_first_entry(&adapter->scan_pending_q,
 					    struct cmd_ctrl_node, list);
 		list_del(&cmd_node->list);
@@ -1480,6 +1802,14 @@ done:
 	return ret;
 }
 
+/*
+ * This function prepares command for background scan query.
+ *
+ * Preparation includes -
+ *      - Setting command ID and proper size
+ *      - Setting background scan flush parameter
+ *      - Ensuring correct endian-ness
+ */
 int mwifiex_cmd_802_11_bg_scan_query(struct host_cmd_ds_command *cmd)
 {
 	struct host_cmd_ds_802_11_bg_scan_query *bg_query =
@@ -1494,6 +1824,9 @@ int mwifiex_cmd_802_11_bg_scan_query(struct host_cmd_ds_command *cmd)
 	return 0;
 }
 
+/*
+ * This function inserts scan command node to the scan pending queue.
+ */
 void
 mwifiex_queue_scan_cmd(struct mwifiex_private *priv,
 		       struct cmd_ctrl_node *cmd_node)
@@ -1508,6 +1841,10 @@ mwifiex_queue_scan_cmd(struct mwifiex_private *priv,
 	spin_unlock_irqrestore(&adapter->scan_pending_q_lock, flags);
 }
 
+/*
+ * This function sends a scan command for all available channels to the
+ * firmware, filtered on a specific SSID.
+ */
 static int mwifiex_scan_specific_ssid(struct mwifiex_private *priv,
 				      struct cfg80211_ssid *req_ssid)
 {
@@ -1544,6 +1881,15 @@ static int mwifiex_scan_specific_ssid(struct mwifiex_private *priv,
 	return ret;
 }
 
+/*
+ * Sends IOCTL request to start a scan.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ *
+ * Scan command can be issued for both normal scan and specific SSID
+ * scan, depending upon whether an SSID is provided or not.
+ */
 int mwifiex_request_scan(struct mwifiex_private *priv,
 			 struct cfg80211_ssid *req_ssid)
 {
@@ -1559,10 +1905,10 @@ int mwifiex_request_scan(struct mwifiex_private *priv,
 	priv->adapter->scan_wait_q_woken = false;
 
 	if (req_ssid && req_ssid->ssid_len != 0)
-		
+		/* Specific SSID scan */
 		ret = mwifiex_scan_specific_ssid(priv, req_ssid);
 	else
-		
+		/* Normal scan */
 		ret = mwifiex_scan_networks(priv, NULL);
 
 	if (!ret)
@@ -1576,6 +1922,9 @@ int mwifiex_request_scan(struct mwifiex_private *priv,
 	return ret;
 }
 
+/*
+ * This function appends the vendor specific IE TLV to a buffer.
+ */
 int
 mwifiex_cmd_append_vsie_tlv(struct mwifiex_private *priv,
 			    u16 vsie_mask, u8 **buffer)
@@ -1588,6 +1937,10 @@ mwifiex_cmd_append_vsie_tlv(struct mwifiex_private *priv,
 	if (!(*buffer))
 		return 0;
 
+	/*
+	 * Traverse through the saved vendor specific IE array and append
+	 * the selected(scan/assoc/adhoc) IE as TLV to the command
+	 */
 	for (id = 0; id < MWIFIEX_MAX_VSIE_NUM; id++) {
 		if (priv->vs_ie[id].mask & vsie_mask) {
 			vs_param_set =
@@ -1609,6 +1962,15 @@ mwifiex_cmd_append_vsie_tlv(struct mwifiex_private *priv,
 	return ret_len;
 }
 
+/*
+ * This function saves a beacon buffer of the current BSS descriptor.
+ *
+ * The current beacon buffer is saved so that it can be restored in the
+ * following cases that makes the beacon buffer not to contain the current
+ * ssid's beacon buffer.
+ *      - The current ssid was not found somehow in the last scan.
+ *      - The current ssid was the last entry of the scan table and overloaded.
+ */
 void
 mwifiex_save_curr_bcn(struct mwifiex_private *priv)
 {
@@ -1618,7 +1980,7 @@ mwifiex_save_curr_bcn(struct mwifiex_private *priv)
 	if (!curr_bss->beacon_buf_size)
 		return;
 
-	
+	/* allocate beacon buffer at 1st time; or if it's size has changed */
 	if (!priv->curr_bcn_buf ||
 	    priv->curr_bcn_size != curr_bss->beacon_buf_size) {
 		priv->curr_bcn_size = curr_bss->beacon_buf_size;
@@ -1640,7 +2002,7 @@ mwifiex_save_curr_bcn(struct mwifiex_private *priv)
 
 	curr_bss->beacon_buf = priv->curr_bcn_buf;
 
-	
+	/* adjust the pointers in the current BSS descriptor */
 	if (curr_bss->bcn_wpa_ie)
 		curr_bss->bcn_wpa_ie =
 			(struct ieee_types_vendor_specific *)
@@ -1672,6 +2034,9 @@ mwifiex_save_curr_bcn(struct mwifiex_private *priv)
 				curr_bss->ext_cap_offset);
 }
 
+/*
+ * This function frees the current BSS descriptor beacon buffer.
+ */
 void
 mwifiex_free_curr_bcn(struct mwifiex_private *priv)
 {

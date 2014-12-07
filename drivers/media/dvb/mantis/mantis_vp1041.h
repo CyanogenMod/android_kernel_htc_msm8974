@@ -30,4 +30,4 @@
 
 extern struct mantis_hwconfig vp1041_config;
 
-#endif 
+#endif /* __MANTIS_VP1041_H */

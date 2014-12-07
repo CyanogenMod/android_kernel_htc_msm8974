@@ -81,8 +81,17 @@
 #include "iwl-prph.h"
 
 
+/* Periphery registers absolute lower bound. This is used in order to
+ * differentiate registery access through HBUS_TARG_PRPH_* and
+ * HBUS_TARG_MEM_* accesses.
+ */
 #define IWL_TM_ABS_PRPH_START (0xA00000)
 
+/* The TLVs used in the gnl message policy between the kernel module and
+ * user space application. iwl_testmode_gnl_msg_policy is to be carried
+ * through the NL80211_CMD_TESTMODE channel regulated by nl80211.
+ * See iwl-testmode.h
+ */
 static
 struct nla_policy iwl_testmode_gnl_msg_policy[IWL_TM_ATTR_MAX] = {
 	[IWL_TM_ATTR_COMMAND] = { .type = NLA_U32, },
@@ -120,6 +129,10 @@ struct nla_policy iwl_testmode_gnl_msg_policy[IWL_TM_ATTR_MAX] = {
 	[IWL_TM_ATTR_ENABLE_NOTIFICATION] = {.type = NLA_FLAG, },
 };
 
+/*
+ * See the struct iwl_rx_packet in iwl-commands.h for the format of the
+ * received events from the device
+ */
 static inline int get_event_length(struct iwl_rx_cmd_buffer *rxb)
 {
 	struct iwl_rx_packet *pkt = rxb_addr(rxb);
@@ -130,6 +143,25 @@ static inline int get_event_length(struct iwl_rx_cmd_buffer *rxb)
 }
 
 
+/*
+ * This function multicasts the spontaneous messages from the device to the
+ * user space. It is invoked whenever there is a received messages
+ * from the device. This function is called within the ISR of the rx handlers
+ * in iwlagn driver.
+ *
+ * The parsing of the message content is left to the user space application,
+ * The message content is treated as unattacked raw data and is encapsulated
+ * with IWL_TM_ATTR_UCODE_RX_PKT multicasting to the user space.
+ *
+ * @priv: the instance of iwlwifi device
+ * @rxb: pointer to rx data content received by the ISR
+ *
+ * See the message policies and TLVs in iwl_testmode_gnl_msg_policy[].
+ * For the messages multicasting to the user application, the mandatory
+ * TLV fields are :
+ *	IWL_TM_ATTR_COMMAND must be IWL_TM_CMD_DEV2APP_UCODE_RX_PKT
+ *	IWL_TM_ATTR_UCODE_RX_PKT for carrying the message content
+ */
 
 static void iwl_testmode_ucode_rx_pkt(struct iwl_priv *priv,
 				      struct iwl_rx_cmd_buffer *rxb)
@@ -153,7 +185,7 @@ static void iwl_testmode_ucode_rx_pkt(struct iwl_priv *priv,
 		return;
 	}
 	NLA_PUT_U32(skb, IWL_TM_ATTR_COMMAND, IWL_TM_CMD_DEV2APP_UCODE_RX_PKT);
-	
+	/* the length doesn't include len_n_flags field, so add it manually */
 	NLA_PUT(skb, IWL_TM_ATTR_UCODE_RX_PKT, length + sizeof(__le32), data);
 	cfg80211_testmode_event(skb, GFP_ATOMIC);
 	return;
@@ -207,6 +239,22 @@ void iwl_testmode_cleanup(struct iwl_priv *priv)
 }
 
 
+/*
+ * This function handles the user application commands to the ucode.
+ *
+ * It retrieves the mandatory fields IWL_TM_ATTR_UCODE_CMD_ID and
+ * IWL_TM_ATTR_UCODE_CMD_DATA and calls to the handler to send the
+ * host command to the ucode.
+ *
+ * If any mandatory field is missing, -ENOMSG is replied to the user space
+ * application; otherwise, waits for the host command to be sent and checks
+ * the return code. In case or error, it is returned, otherwise a reply is
+ * allocated and the reply RX packet
+ * is returned.
+ *
+ * @hw: ieee80211_hw object that represents the device
+ * @tb: gnl message fields from the user space
+ */
 static int iwl_testmode_ucode(struct ieee80211_hw *hw, struct nlattr **tb)
 {
 	struct iwl_priv *priv = IWL_MAC80211_GET_DVM(hw);
@@ -246,7 +294,7 @@ static int iwl_testmode_ucode(struct ieee80211_hw *hw, struct nlattr **tb)
 	if (!cmd_want_skb)
 		return ret;
 
-	
+	/* Handling return of SKB to the user */
 	pkt = cmd.resp_pkt;
 	if (!pkt) {
 		IWL_ERR(priv, "HCMD received a null response packet\n");
@@ -262,7 +310,7 @@ static int iwl_testmode_ucode(struct ieee80211_hw *hw, struct nlattr **tb)
 		return -ENOMEM;
 	}
 
-	
+	/* The reply is in a page, that we cannot send to user space. */
 	memcpy(reply_buf, &(pkt->hdr), reply_len);
 	iwl_free_resp(&cmd);
 
@@ -276,6 +324,23 @@ nla_put_failure:
 }
 
 
+/*
+ * This function handles the user application commands for register access.
+ *
+ * It retrieves command ID carried with IWL_TM_ATTR_COMMAND and calls to the
+ * handlers respectively.
+ *
+ * If it's an unknown commdn ID, -ENOSYS is returned; or -ENOMSG if the
+ * mandatory fields(IWL_TM_ATTR_REG_OFFSET,IWL_TM_ATTR_REG_VALUE32,
+ * IWL_TM_ATTR_REG_VALUE8) are missing; Otherwise 0 is replied indicating
+ * the success of the command execution.
+ *
+ * If IWL_TM_ATTR_COMMAND is IWL_TM_CMD_APP2DEV_REG_READ32, the register read
+ * value is returned with IWL_TM_ATTR_REG_VALUE32.
+ *
+ * @hw: ieee80211_hw object that represents the device
+ * @tb: gnl message fields from the user space
+ */
 static int iwl_testmode_reg(struct ieee80211_hw *hw, struct nlattr **tb)
 {
 	struct iwl_priv *priv = IWL_MAC80211_GET_DVM(hw);
@@ -291,6 +356,9 @@ static int iwl_testmode_reg(struct ieee80211_hw *hw, struct nlattr **tb)
 	ofs = nla_get_u32(tb[IWL_TM_ATTR_REG_OFFSET]);
 	IWL_INFO(priv, "testmode register access command offset 0x%x\n", ofs);
 
+	/* Allow access only to FH/CSR/HBUS in direct mode.
+	Since we don't have the upper bounds for the CSR and HBUS segments,
+	we will use only the upper bound of FH for sanity check. */
 	cmd = nla_get_u32(tb[IWL_TM_ATTR_COMMAND]);
 	if ((cmd == IWL_TM_CMD_APP2DEV_DIRECT_REG_READ32 ||
 		cmd == IWL_TM_CMD_APP2DEV_DIRECT_REG_WRITE32 ||
@@ -374,6 +442,22 @@ cfg_init_calib_error:
 	return ret;
 }
 
+/*
+ * This function handles the user application commands for driver.
+ *
+ * It retrieves command ID carried with IWL_TM_ATTR_COMMAND and calls to the
+ * handlers respectively.
+ *
+ * If it's an unknown commdn ID, -ENOSYS is replied; otherwise, the returned
+ * value of the actual command execution is replied to the user application.
+ *
+ * If there's any message responding to the user space, IWL_TM_ATTR_SYNC_RSP
+ * is used for carry the message while IWL_TM_ATTR_COMMAND must set to
+ * IWL_TM_CMD_DEV2APP_SYNC_RSP.
+ *
+ * @hw: ieee80211_hw object that represents the device
+ * @tb: gnl message fields from the user space
+ */
 static int iwl_testmode_driver(struct ieee80211_hw *hw, struct nlattr **tb)
 {
 	struct iwl_priv *priv = IWL_MAC80211_GET_DVM(hw);
@@ -538,6 +622,18 @@ nla_put_failure:
 }
 
 
+/*
+ * This function handles the user application commands for uCode trace
+ *
+ * It retrieves command ID carried with IWL_TM_ATTR_COMMAND and calls to the
+ * handlers respectively.
+ *
+ * If it's an unknown commdn ID, -ENOSYS is replied; otherwise, the returned
+ * value of the actual command execution is replied to the user application.
+ *
+ * @hw: ieee80211_hw object that represents the device
+ * @tb: gnl message fields from the user space
+ */
 static int iwl_testmode_trace(struct ieee80211_hw *hw, struct nlattr **tb)
 {
 	struct iwl_priv *priv = IWL_MAC80211_GET_DVM(hw);
@@ -642,6 +738,21 @@ static int iwl_testmode_trace_dump(struct ieee80211_hw *hw,
 	return -ENOBUFS;
 }
 
+/*
+ * This function handles the user application switch ucode ownership.
+ *
+ * It retrieves the mandatory fields IWL_TM_ATTR_UCODE_OWNER and
+ * decide who the current owner of the uCode
+ *
+ * If the current owner is OWNERSHIP_TM, then the only host command
+ * can deliver to uCode is from testmode, all the other host commands
+ * will dropped.
+ *
+ * default driver is the owner of uCode in normal operational mode
+ *
+ * @hw: ieee80211_hw object that represents the device
+ * @tb: gnl message fields from the user space
+ */
 static int iwl_testmode_ownership(struct ieee80211_hw *hw, struct nlattr **tb)
 {
 	struct iwl_priv *priv = IWL_MAC80211_GET_DVM(hw);
@@ -680,7 +791,7 @@ static int iwl_testmode_indirect_read(struct iwl_priv *priv, u32 addr, u32 size)
 	if (priv->testmode_mem.buff_addr == NULL)
 		return -ENOMEM;
 
-	
+	/* Hard-coded periphery absolute address */
 	if (IWL_TM_ABS_PRPH_START <= addr &&
 		addr < IWL_TM_ABS_PRPH_START + PRPH_END) {
 			spin_lock_irqsave(&trans->reg_lock, flags);
@@ -692,7 +803,7 @@ static int iwl_testmode_indirect_read(struct iwl_priv *priv, u32 addr, u32 size)
 					iwl_read32(trans, HBUS_TARG_PRPH_RDAT);
 			iwl_release_nic_access(trans);
 			spin_unlock_irqrestore(&trans->reg_lock, flags);
-	} else { 
+	} else { /* target memory (SRAM) */
 		_iwl_read_targ_mem_words(trans, addr,
 			priv->testmode_mem.buff_addr,
 			priv->testmode_mem.buff_size / 4);
@@ -714,7 +825,7 @@ static int iwl_testmode_indirect_write(struct iwl_priv *priv, u32 addr,
 
 	if (IWL_TM_ABS_PRPH_START <= addr &&
 		addr < IWL_TM_ABS_PRPH_START + PRPH_END) {
-			
+			/* Periphery writes can be 1-3 bytes long, or DWORDs */
 			if (size < 4) {
 				memcpy(&val, buf, size);
 				spin_lock_irqsave(&trans->reg_lock, flags);
@@ -724,7 +835,7 @@ static int iwl_testmode_indirect_write(struct iwl_priv *priv, u32 addr,
 					    ((size - 1) << 24));
 				iwl_write32(trans, HBUS_TARG_PRPH_WDAT, val);
 				iwl_release_nic_access(trans);
-				
+				/* needed after consecutive writes w/o read */
 				mmiowb();
 				spin_unlock_irqrestore(&trans->reg_lock, flags);
 			} else {
@@ -743,6 +854,22 @@ static int iwl_testmode_indirect_write(struct iwl_priv *priv, u32 addr,
 	return 0;
 }
 
+/*
+ * This function handles the user application commands for SRAM data dump
+ *
+ * It retrieves the mandatory fields IWL_TM_ATTR_SRAM_ADDR and
+ * IWL_TM_ATTR_SRAM_SIZE to decide the memory area for SRAM data reading
+ *
+ * Several error will be retured, -EBUSY if the SRAM data retrieved by
+ * previous command has not been delivered to userspace, or -ENOMSG if
+ * the mandatory fields (IWL_TM_ATTR_SRAM_ADDR,IWL_TM_ATTR_SRAM_SIZE)
+ * are missing, or -ENOMEM if the buffer allocation fails.
+ *
+ * Otherwise 0 is replied indicating the success of the SRAM reading.
+ *
+ * @hw: ieee80211_hw object that represents the device
+ * @tb: gnl message fields from the user space
+ */
 static int iwl_testmode_indirect_mem(struct ieee80211_hw *hw,
 	struct nlattr **tb)
 {
@@ -750,7 +877,7 @@ static int iwl_testmode_indirect_mem(struct ieee80211_hw *hw,
 	u32 addr, size, cmd;
 	unsigned char *buf;
 
-	
+	/* Both read and write should be blocked, for atomicity */
 	if (priv->testmode_mem.read_in_progress)
 		return -EBUSY;
 
@@ -823,6 +950,25 @@ static int iwl_testmode_notifications(struct ieee80211_hw *hw,
 }
 
 
+/* The testmode gnl message handler that takes the gnl message from the
+ * user space and parses it per the policy iwl_testmode_gnl_msg_policy, then
+ * invoke the corresponding handlers.
+ *
+ * This function is invoked when there is user space application sending
+ * gnl message through the testmode tunnel NL80211_CMD_TESTMODE regulated
+ * by nl80211.
+ *
+ * It retrieves the mandatory field, IWL_TM_ATTR_COMMAND, before
+ * dispatching it to the corresponding handler.
+ *
+ * If IWL_TM_ATTR_COMMAND is missing, -ENOMSG is replied to user application;
+ * -ENOSYS is replied to the user application if the command is unknown;
+ * Otherwise, the command is dispatched to the respective handler.
+ *
+ * @hw: ieee80211_hw object that represents the device
+ * @data: pointer to user space message
+ * @len: length in byte of @data
+ */
 int iwlagn_mac_testmode_cmd(struct ieee80211_hw *hw, void *data, int len)
 {
 	struct nlattr *tb[IWL_TM_ATTR_MAX];
@@ -836,12 +982,12 @@ int iwlagn_mac_testmode_cmd(struct ieee80211_hw *hw, void *data, int len)
 		return result;
 	}
 
-	
+	/* IWL_TM_ATTR_COMMAND is absolutely mandatory */
 	if (!tb[IWL_TM_ATTR_COMMAND]) {
 		IWL_ERR(priv, "Missing testmode command type\n");
 		return -ENOMSG;
 	}
-	
+	/* in case multiple accesses to the device happens */
 	mutex_lock(&priv->mutex);
 
 	switch (nla_get_u32(tb[IWL_TM_ATTR_COMMAND])) {
@@ -914,7 +1060,7 @@ int iwlagn_mac_testmode_dump(struct ieee80211_hw *hw, struct sk_buff *skb,
 	u32 cmd;
 
 	if (cb->args[3]) {
-		
+		/* offset by 1 since commands start at 0 */
 		cmd = cb->args[3] - 1;
 	} else {
 		result = nla_parse(tb, IWL_TM_ATTR_MAX - 1, data, len,
@@ -925,7 +1071,7 @@ int iwlagn_mac_testmode_dump(struct ieee80211_hw *hw, struct sk_buff *skb,
 			return result;
 		}
 
-		
+		/* IWL_TM_ATTR_COMMAND is absolutely mandatory */
 		if (!tb[IWL_TM_ATTR_COMMAND]) {
 			IWL_ERR(priv, "Missing testmode command type\n");
 			return -ENOMSG;
@@ -934,7 +1080,7 @@ int iwlagn_mac_testmode_dump(struct ieee80211_hw *hw, struct sk_buff *skb,
 		cb->args[3] = cmd + 1;
 	}
 
-	
+	/* in case multiple accesses to the device happens */
 	mutex_lock(&priv->mutex);
 	switch (cmd) {
 	case IWL_TM_CMD_APP2DEV_READ_TRACE:

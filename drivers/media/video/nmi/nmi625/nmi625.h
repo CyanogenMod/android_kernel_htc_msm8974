@@ -62,7 +62,9 @@ typedef struct {
 #define IOCTL_DMB_POWER_OFF		_IO( IOCTL_MAGIC, 21 )
 
 
+///+
 #define IOCTL_DMB_ANTENNA_SELECT 	_IOW( IOCTL_MAGIC, 26, ioctl_info )
+///-
 
 typedef struct {
 	long		index;
@@ -76,5 +78,5 @@ typedef struct {
 
 extern int oneseg_power(int on);
 
-#endif 
+#endif // __NMI_HW_H__
 

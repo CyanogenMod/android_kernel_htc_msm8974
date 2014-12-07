@@ -22,10 +22,10 @@
 #include <linux/list.h>
 
 struct imapper {
-	unsigned short slot; 
-	unsigned short user; 
-	unsigned short addr; 
-	unsigned short next; 
+	unsigned short slot; /* the id of the slot containing input data */
+	unsigned short user; /* the id of the user resource consuming data */
+	unsigned short addr; /* the input mapper ram id */
+	unsigned short next; /* the next input mapper ram id */
 	struct list_head	list;
 };
 
@@ -37,4 +37,4 @@ int input_mapper_delete(struct list_head *mappers, struct imapper *entry,
 
 void free_input_mapper_list(struct list_head *mappers);
 
-#endif 
+#endif /* CTIMAP_H */

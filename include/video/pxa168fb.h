@@ -14,6 +14,7 @@
 #include <linux/fb.h>
 #include <linux/interrupt.h>
 
+/* Dumb interface */
 #define PIN_MODE_DUMB_24		0
 #define PIN_MODE_DUMB_18_SPI		1
 #define PIN_MODE_DUMB_18_GPIO		2
@@ -24,6 +25,7 @@
 #define PIN_MODE_SMART_16_SPI		7
 #define PIN_MODE_SMART_8_SPI_GPIO	8
 
+/* Dumb interface pin allocation */
 #define DUMB_MODE_RGB565		0
 #define DUMB_MODE_RGB565_UPPER		1
 #define DUMB_MODE_RGB666		2
@@ -32,8 +34,14 @@
 #define DUMB_MODE_RGB444_UPPER		5
 #define DUMB_MODE_RGB888		6
 
+/* default fb buffer size WVGA-32bits */
 #define DEFAULT_FB_SIZE	(800 * 480 * 4)
 
+/*
+ * Buffer pixel format
+ * bit0 is for rb swap.
+ * bit12 is for Y UorV swap
+ */
 #define PIX_FMT_RGB565		0
 #define PIX_FMT_BGR565		1
 #define PIX_FMT_RGB1555		2
@@ -53,6 +61,9 @@
 #define PIX_FMT_PSEUDOCOLOR	20
 #define PIX_FMT_UYVY422PACK	(0x1000|PIX_FMT_YUV422PACK)
 
+/*
+ * PXA LCD controller private state.
+ */
 struct pxa168fb_info {
 	struct device		*dev;
 	struct clk		*clk;
@@ -68,22 +79,41 @@ struct pxa168fb_info {
 	unsigned		active:1;
 };
 
+/*
+ * PXA fb machine information
+ */
 struct pxa168fb_mach_info {
 	char	id[16];
 
 	int		num_modes;
 	struct fb_videomode *modes;
 
+	/*
+	 * Pix_fmt
+	 */
 	unsigned	pix_fmt;
 
+	/*
+	 * I/O pin allocation.
+	 */
 	unsigned	io_pin_allocation_mode:4;
 
+	/*
+	 * Dumb panel -- assignment of R/G/B component info to the 24
+	 * available external data lanes.
+	 */
 	unsigned	dumb_mode:4;
 	unsigned	panel_rgb_reverse_lanes:1;
 
+	/*
+	 * Dumb panel -- GPIO output data.
+	 */
 	unsigned	gpio_output_mask:8;
 	unsigned	gpio_output_data:8;
 
+	/*
+	 * Dumb panel -- configurable output signal polarity.
+	 */
 	unsigned	invert_composite_blank:1;
 	unsigned	invert_pix_val_ena:1;
 	unsigned	invert_pixclock:1;
@@ -92,4 +122,4 @@ struct pxa168fb_mach_info {
 	unsigned	enable_lcd:1;
 };
 
-#endif 
+#endif /* __ASM_MACH_PXA168FB_H */

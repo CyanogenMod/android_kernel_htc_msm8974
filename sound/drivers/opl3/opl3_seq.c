@@ -72,7 +72,7 @@ int snd_opl3_synth_setup(struct snd_opl3 * opl3)
 	opl3->use_time = 0;
 	opl3->connection_reg = 0x00;
 	if (opl3->hardware >= OPL3_HW_OPL3) {
-		
+		/* Clear 4-op connections */
 		opl3->command(opl3, OPL3_RIGHT | OPL3_REG_CONNECTION_SELECT,
 				 opl3->connection_reg);
 		opl3->max_voices = MAX_OPL3_VOICES;
@@ -85,7 +85,7 @@ void snd_opl3_synth_cleanup(struct snd_opl3 * opl3)
 	unsigned long flags;
 	struct snd_hwdep *hwdep;
 
-	
+	/* Stop system timer */
 	spin_lock_irqsave(&opl3->sys_timer_lock, flags);
 	if (opl3->sys_timer_status) {
 		del_timer(&opl3->tlist);
@@ -110,7 +110,7 @@ static int snd_opl3_synth_use(void *private_data, struct snd_seq_port_subscribe 
 		return err;
 
 	if (use_internal_drums) {
-		
+		/* Percussion mode */
 		opl3->voices[6].state = opl3->voices[7].state = 
 			opl3->voices[8].state = SNDRV_OPL3_ST_NOT_AVAIL;
 		snd_opl3_load_drums(opl3);
@@ -139,6 +139,9 @@ static int snd_opl3_synth_unuse(void *private_data, struct snd_seq_port_subscrib
 	return 0;
 }
 
+/*
+ * MIDI emulation operators
+ */
 struct snd_midi_op opl3_ops = {
 	.note_on =		snd_opl3_note_on,
 	.note_off =		snd_opl3_note_off,
@@ -158,6 +161,7 @@ static int snd_opl3_synth_event_input(struct snd_seq_event * ev, int direct,
 	return 0;
 }
 
+/* ------------------------------ */
 
 static void snd_opl3_synth_free_port(void *private_data)
 {
@@ -210,6 +214,7 @@ static int snd_opl3_synth_create_port(struct snd_opl3 * opl3)
 	return 0;
 }
 
+/* ------------------------------ */
 
 static int snd_opl3_seq_new_device(struct snd_seq_device *dev)
 {
@@ -226,7 +231,7 @@ static int snd_opl3_seq_new_device(struct snd_seq_device *dev)
 
 	opl3->seq_client = -1;
 
-	
+	/* allocate new client */
 	opl_ver = (opl3->hardware & OPL3_HW_MASK) >> 8;
 	sprintf(name, "OPL%i FM synth", opl_ver);
 	client = opl3->seq_client =
@@ -241,7 +246,7 @@ static int snd_opl3_seq_new_device(struct snd_seq_device *dev)
 		return err;
 	}
 
-	
+	/* setup system timer */
 	init_timer(&opl3->tlist);
 	opl3->tlist.function = snd_opl3_timer_func;
 	opl3->tlist.data = (unsigned long) opl3;

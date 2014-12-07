@@ -26,4 +26,4 @@
 #endif
 
 
-#endif 
+#endif /* __ASM_AVR32_BARRIER_H */

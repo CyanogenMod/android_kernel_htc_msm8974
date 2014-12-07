@@ -58,14 +58,14 @@ static char * __init of_pdt_build_full_name(struct device_node *dp)
 	return n;
 }
 
-#else 
+#else /* CONFIG_SPARC */
 
 static inline void of_pdt_incr_unique_id(void *p) { }
 static inline void irq_trans_init(struct device_node *dp) { }
 
 static char * __init of_pdt_build_full_name(struct device_node *dp)
 {
-	static int failsafe_id = 0; 
+	static int failsafe_id = 0; /* for generating unique names on failure */
 	char *buf;
 	int len;
 
@@ -87,7 +87,7 @@ static char * __init of_pdt_build_full_name(struct device_node *dp)
 	return buf;
 }
 
-#endif 
+#endif /* !CONFIG_SPARC */
 
 static struct property * __init of_pdt_build_one_prop(phandle node, char *prev,
 					       char *special_name,
@@ -251,6 +251,6 @@ void __init of_pdt_build_devicetree(phandle root_node, struct of_pdt_ops *ops)
 	allnodes->child = of_pdt_build_tree(allnodes,
 			of_pdt_prom_ops->getchild(allnodes->phandle), &nextp);
 
-	
+	/* Get pointer to "/chosen" and "/aliasas" nodes for use everywhere */
 	of_alias_scan(kernel_tree_alloc);
 }

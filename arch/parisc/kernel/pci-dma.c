@@ -29,18 +29,18 @@
 #include <linux/export.h>
 
 #include <asm/cacheflush.h>
-#include <asm/dma.h>    
+#include <asm/dma.h>    /* for DMA_CHUNK_SIZE */
 #include <asm/io.h>
-#include <asm/page.h>	
+#include <asm/page.h>	/* get_order */
 #include <asm/pgalloc.h>
 #include <asm/uaccess.h>
-#include <asm/tlbflush.h>	
+#include <asm/tlbflush.h>	/* for purge_tlb_*() macros */
 
 static struct proc_dir_entry * proc_gsc_root __read_mostly = NULL;
 static unsigned long pcxl_used_bytes __read_mostly = 0;
 static unsigned long pcxl_used_pages __read_mostly = 0;
 
-extern unsigned long pcxl_dma_start; 
+extern unsigned long pcxl_dma_start; /* Start of pcxl dma mapping area */
 static spinlock_t   pcxl_res_lock;
 static char    *pcxl_res_map;
 static int     pcxl_res_hint;
@@ -53,6 +53,9 @@ static int     pcxl_res_size;
 #endif
 
 
+/*
+** Dump a hex representation of the resource map.
+*/
 
 #ifdef DUMP_RESMAP
 static
@@ -285,14 +288,20 @@ resource_found:
 
 	dump_resmap();
 
+	/* 
+	** return the corresponding vaddr in the pcxl dma map
+	*/
 	return (pcxl_dma_start + (res_idx << (PAGE_SHIFT + 3)));
 }
 
 #define PCXL_FREE_MAPPINGS(idx, m, size) \
 		u##size *res_ptr = (u##size *)&(pcxl_res_map[(idx) + (((size >> 3) - 1) & (~((size >> 3) - 1)))]); \
-		 \
+		/* BUG_ON((*res_ptr & m) != m); */ \
 		*res_ptr &= ~m;
 
+/*
+** clear bits in the pcxl resource map
+*/
 static void
 pcxl_free_range(unsigned long vaddr, size_t size)
 {
@@ -333,7 +342,7 @@ static int proc_pcxl_dma_show(struct seq_file *m, void *v)
 	u_long i = 0;
 	unsigned long *res_ptr = (u_long *)pcxl_res_map;
 #endif
-	unsigned long total_pages = pcxl_res_size << 3;   
+	unsigned long total_pages = pcxl_res_size << 3;   /* 8 bits per byte */
 
 	seq_printf(m, "\nDMA Mapping Area size    : %d bytes (%ld pages)\n",
 		PCXL_DMA_MAP_SIZE, total_pages);
@@ -420,6 +429,10 @@ static void * pa11_dma_alloc_consistent (struct device *dev, size_t size, dma_ad
 	*dma_handle = (dma_addr_t) paddr;
 
 #if 0
+/* This probably isn't needed to support EISA cards.
+** ISA cards will certainly only support 24-bit DMA addressing.
+** Not clear if we can, want, or need to support ISA.
+*/
 	if (!dev || *dev->coherent_dma_mask < 0xffffffff)
 		gfp |= GFP_DMA;
 #endif
@@ -452,6 +465,11 @@ static void pa11_dma_unmap_single(struct device *dev, dma_addr_t dma_handle, siz
 	if (direction == DMA_TO_DEVICE)
 	    return;
 
+	/*
+	 * For PCI_DMA_FROMDEVICE this flush is not necessary for the
+	 * simple map/unmap case. However, it IS necessary if if
+	 * pci_dma_sync_single_* has been called and the buffer reused.
+	 */
 
 	flush_kernel_dcache_range((unsigned long) phys_to_virt(dma_handle), size);
 	return;
@@ -481,7 +499,7 @@ static void pa11_dma_unmap_sg(struct device *dev, struct scatterlist *sglist, in
 	if (direction == DMA_TO_DEVICE)
 	    return;
 
-	
+	/* once we do combining we'll need to use phys_to_virt(sg_dma_address(sglist)) */
 
 	for (i = 0; i < nents; i++, sglist++ )
 		flush_kernel_dcache_range(sg_virt_addr(sglist), sglist->length);
@@ -506,7 +524,7 @@ static void pa11_dma_sync_sg_for_cpu(struct device *dev, struct scatterlist *sgl
 {
 	int i;
 
-	
+	/* once we do combining we'll need to use phys_to_virt(sg_dma_address(sglist)) */
 
 	for (i = 0; i < nents; i++, sglist++ )
 		flush_kernel_dcache_range(sg_virt_addr(sglist), sglist->length);
@@ -516,7 +534,7 @@ static void pa11_dma_sync_sg_for_device(struct device *dev, struct scatterlist *
 {
 	int i;
 
-	
+	/* once we do combining we'll need to use phys_to_virt(sg_dma_address(sglist)) */
 
 	for (i = 0; i < nents; i++, sglist++ )
 		flush_kernel_dcache_range(sg_virt_addr(sglist), sglist->length);

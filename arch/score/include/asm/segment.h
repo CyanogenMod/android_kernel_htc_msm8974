@@ -17,5 +17,5 @@ typedef struct {
 
 # define segment_eq(a, b)	((a).seg == (b).seg)
 
-# endif 
-#endif 
+# endif /* __ASSEMBLY__ */
+#endif /* _ASM_SCORE_SEGMENT_H */

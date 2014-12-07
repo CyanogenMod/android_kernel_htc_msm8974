@@ -2,11 +2,23 @@
 #ifndef _ASM_X86_DESC_DEFS_H
 #define _ASM_X86_DESC_DEFS_H
 
+/*
+ * Segment descriptor structure definitions, usable from both x86_64 and i386
+ * archs.
+ */
 
 #ifndef __ASSEMBLY__
 
 #include <linux/types.h>
 
+/*
+ * FIXME: Accessing the desc_struct through its fields is more elegant,
+ * and should be the one valid thing to do. However, a lot of open code
+ * still touches the a and b accessors, and doing this allow us to do it
+ * incrementally. We keep the signature as a struct, rather than an union,
+ * so we can get rid of it transparently in the future -- glommer
+ */
+/* 8 byte segment descriptor */
 struct desc_struct {
 	union {
 		struct {
@@ -35,6 +47,7 @@ enum {
 	GATE_TASK = 0x5,
 };
 
+/* 16byte gate */
 struct gate_struct64 {
 	u16 offset_low;
 	u16 segment;
@@ -51,9 +64,10 @@ struct gate_struct64 {
 enum {
 	DESC_TSS = 0x9,
 	DESC_LDT = 0x2,
-	DESCTYPE_S = 0x10,	
+	DESCTYPE_S = 0x10,	/* !system */
 };
 
+/* LDT or TSS descriptor in the GDT. 16 bytes. */
 struct ldttss_desc64 {
 	u16 limit0;
 	u16 base0;
@@ -82,6 +96,6 @@ struct desc_ptr {
 	unsigned long address;
 } __attribute__((packed)) ;
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_X86_DESC_DEFS_H */

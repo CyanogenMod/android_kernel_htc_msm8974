@@ -22,6 +22,8 @@
 
 #include <asm/ptrace.h>
 
+/* Arthur doesn't have many signals, and a lot of those that it does
+   have don't map easily to any Linux equivalent.  Never mind.  */
 
 #define ARTHUR_SIGABRT		1
 #define ARTHUR_SIGFPE		2
@@ -57,7 +59,7 @@ static void arthur_lcall7(int nr, struct pt_regs *regs)
 	struct siginfo info;
 	info.si_signo = SIGSWI;
 	info.si_errno = nr;
-	
+	/* Bounce it to the emulator */
 	send_sig_info(SIGSWI, &info, current);
 }
 
@@ -71,6 +73,10 @@ static struct exec_domain arthur_exec_domain = {
 	.module		= THIS_MODULE,
 };
 
+/*
+ * We could do with some locking to stop Arthur being removed while
+ * processes are using it.
+ */
 
 static int __init arthur_init(void)
 {

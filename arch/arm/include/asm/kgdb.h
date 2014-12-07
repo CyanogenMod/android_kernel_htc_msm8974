@@ -12,6 +12,25 @@
 
 #include <linux/ptrace.h>
 
+/*
+ * GDB assumes that we're a user process being debugged, so
+ * it will send us an SWI command to write into memory as the
+ * debug trap. When an SWI occurs, the next instruction addr is
+ * placed into R14_svc before jumping to the vector trap.
+ * This doesn't work for kernel debugging as we are already in SVC
+ * we would loose the kernel's LR, which is a bad thing. This
+ * is  bad thing.
+ *
+ * By doing this as an undefined instruction trap, we force a mode
+ * switch from SVC to UND mode, allowing us to save full kernel state.
+ *
+ * We also define a KGDB_COMPILED_BREAK which can be used to compile
+ * in breakpoints. This is important for things like sysrq-G and for
+ * the initial breakpoint from trap_init().
+ *
+ * Note to ARM HW designers: Add real trap support like SH && PPC to
+ * make our lives much much simpler. :)
+ */
 #define BREAK_INSTR_SIZE	4
 #define GDB_BREAKINST		0xef9f0001
 #define KGDB_BREAKINST		0xe7ffdefe
@@ -28,8 +47,26 @@ static inline void arch_kgdb_breakpoint(void)
 extern void kgdb_handle_bus_error(void);
 extern int kgdb_fault_expected;
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/*
+ * From Kevin Hilman:
+ *
+ * gdb is expecting the following registers layout.
+ *
+ * r0-r15: 1 long word each
+ * f0-f7:  unused, 3 long words each !!
+ * fps:    unused, 1 long word
+ * cpsr:   1 long word
+ *
+ * Even though f0-f7 and fps are not used, they need to be
+ * present in the registers sent for correct processing in
+ * the host-side gdb.
+ *
+ * In particular, it is crucial that CPSR is in the right place,
+ * otherwise gdb will not be able to correctly interpret stepping over
+ * conditional branches.
+ */
 #define _GP_REGS		16
 #define _FP_REGS		8
 #define _EXTRA_REGS		2
@@ -59,6 +96,10 @@ extern int kgdb_fault_expected;
 #define _PC			15
 #define _CPSR			(GDB_MAX_REGS - 1)
 
+/*
+ * So that we can denote the end of a frame for tracing,
+ * in the simple case:
+ */
 #define CFI_END_FRAME(func)	__CFI_END_FRAME(_PC, _SPT, func)
 
-#endif 
+#endif /* __ASM_KGDB_H__ */

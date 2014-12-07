@@ -12,8 +12,11 @@
 #include <asm/sn/pcibus_provider_defs.h>
 #include <asm/sn/pcidev.h>
 
-int pcibr_invalidate_ate;	
+int pcibr_invalidate_ate;	/* by default don't invalidate ATE on free */
 
+/*
+ * mark_ate: Mark the ate as either free or inuse.
+ */
 static void mark_ate(struct ate_resource *ate_resource, int start, int number,
 		     u64 value)
 {
@@ -25,6 +28,10 @@ static void mark_ate(struct ate_resource *ate_resource, int start, int number,
 		ate[index] = value;
 }
 
+/*
+ * find_free_ate:  Find the first free ate index starting from the given
+ *		   index for the desired consecutive count.
+ */
 static int find_free_ate(struct ate_resource *ate_resource, int start,
 			 int count)
 {
@@ -37,9 +44,9 @@ static int find_free_ate(struct ate_resource *ate_resource, int start,
 			int i;
 			int free;
 			free = 0;
-			start_free = index;	
+			start_free = index;	/* Found start free ate */
 			for (i = start_free; i < ate_resource->num_ate; i++) {
-				if (!ate[i]) {	
+				if (!ate[i]) {	/* This is free */
 					if (++free == count)
 						return start_free;
 				} else {
@@ -50,12 +57,15 @@ static int find_free_ate(struct ate_resource *ate_resource, int start,
 			if (i >= ate_resource->num_ate)
 				return -1;
 		} else
-			index++;	
+			index++;	/* Try next ate */
 	}
 
 	return -1;
 }
 
+/*
+ * free_ate_resource:  Free the requested number of ATEs.
+ */
 static inline void free_ate_resource(struct ate_resource *ate_resource,
 				     int start)
 {
@@ -65,14 +75,23 @@ static inline void free_ate_resource(struct ate_resource *ate_resource,
 		ate_resource->lowest_free_index = start;
 }
 
+/*
+ * alloc_ate_resource:  Allocate the requested number of ATEs.
+ */
 static inline int alloc_ate_resource(struct ate_resource *ate_resource,
 				     int ate_needed)
 {
 	int start_index;
 
+	/*
+	 * Check for ate exhaustion.
+	 */
 	if (ate_resource->lowest_free_index < 0)
 		return -1;
 
+	/*
+	 * Find the required number of free consecutive ates.
+	 */
 	start_index =
 	    find_free_ate(ate_resource, ate_resource->lowest_free_index,
 			  ate_needed);
@@ -85,6 +104,14 @@ static inline int alloc_ate_resource(struct ate_resource *ate_resource,
 	return start_index;
 }
 
+/*
+ * Allocate "count" contiguous Bridge Address Translation Entries
+ * on the specified bridge to be used for PCI to XTALK mappings.
+ * Indices in rm map range from 1..num_entries.  Indices returned
+ * to caller range from 0..num_entries-1.
+ *
+ * Return the start index on success, -1 on failure.
+ */
 int pcibr_ate_alloc(struct pcibus_info *pcibus_info, int count)
 {
 	int status;
@@ -97,6 +124,10 @@ int pcibr_ate_alloc(struct pcibus_info *pcibus_info, int count)
 	return status;
 }
 
+/*
+ * Setup an Address Translation Entry as specified.  Use either the Bridge
+ * internal maps or the external map RAM, as appropriate.
+ */
 static inline u64 __iomem *pcibr_ate_addr(struct pcibus_info *pcibus_info,
 				       int ate_index)
 {
@@ -106,6 +137,9 @@ static inline u64 __iomem *pcibr_ate_addr(struct pcibus_info *pcibus_info,
 	panic("pcibr_ate_addr: invalid ate_index 0x%x", ate_index);
 }
 
+/*
+ * Update the ate.
+ */
 void inline
 ate_write(struct pcibus_info *pcibus_info, int ate_index, int count,
 	  volatile u64 ate)
@@ -120,7 +154,7 @@ ate_write(struct pcibus_info *pcibus_info, int ate_index, int count,
 		ate += IOPGSIZE;
 	}
 
-	pcireg_tflush_get(pcibus_info);	
+	pcireg_tflush_get(pcibus_info);	/* wait until Bridge PIO complete */
 }
 
 void pcibr_ate_free(struct pcibus_info *pcibus_info, int index)
@@ -131,7 +165,7 @@ void pcibr_ate_free(struct pcibus_info *pcibus_info, int index)
 	unsigned long flags;
 
 	if (pcibr_invalidate_ate) {
-		
+		/* For debugging purposes, clear the valid bit in the ATE */
 		ate = *pcibr_ate_addr(pcibus_info, index);
 		count = pcibus_info->pbi_int_ate_resource.ate[index];
 		ate_write(pcibus_info, index, count, (ate & ~PCI32_ATE_V));

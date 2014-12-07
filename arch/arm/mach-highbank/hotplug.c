@@ -29,6 +29,10 @@ int platform_cpu_kill(unsigned int cpu)
 	return 1;
 }
 
+/*
+ * platform-specific code to shutdown a CPU
+ *
+ */
 void platform_cpu_die(unsigned int cpu)
 {
 	flush_cache_all();
@@ -38,11 +42,15 @@ void platform_cpu_die(unsigned int cpu)
 
 	cpu_do_idle();
 
-	
+	/* We should never return from idle */
 	panic("highbank: cpu %d unexpectedly exit from shutdown\n", cpu);
 }
 
 int platform_cpu_disable(unsigned int cpu)
 {
+	/*
+	 * CPU0 should not be shut down via hotplug.  cpu_idle can WFI
+	 * or a proper shutdown or hibernate should be used.
+	 */
 	return cpu == 0 ? -EPERM : 0;
 }

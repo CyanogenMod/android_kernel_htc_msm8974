@@ -51,6 +51,10 @@ static int netback_remove(struct xenbus_device *dev)
 }
 
 
+/**
+ * Entry point to this code when a new device is created.  Allocate the basic
+ * structures and switch to InitWait.
+ */
 static int netback_probe(struct xenbus_device *dev,
 			 const struct xenbus_device_id *id)
 {
@@ -91,7 +95,7 @@ static int netback_probe(struct xenbus_device *dev,
 			goto abort_transaction;
 		}
 
-		
+		/* We support rx-copy path. */
 		err = xenbus_printf(xbt, dev->nodename,
 				    "feature-rx-copy", "%d", 1);
 		if (err) {
@@ -99,6 +103,10 @@ static int netback_probe(struct xenbus_device *dev,
 			goto abort_transaction;
 		}
 
+		/*
+		 * We don't support rx-flip path (except old guests who don't
+		 * grok this feature flag).
+		 */
 		err = xenbus_printf(xbt, dev->nodename,
 				    "feature-rx-flip", "%d", 0);
 		if (err) {
@@ -118,7 +126,7 @@ static int netback_probe(struct xenbus_device *dev,
 	if (err)
 		goto fail;
 
-	
+	/* This kicks hotplug scripts, so do it immediately. */
 	backend_create_xenvif(be);
 
 	return 0;
@@ -133,6 +141,11 @@ fail:
 }
 
 
+/*
+ * Handle the creation of the hotplug script environment.  We add the script
+ * and vif variables to the environment, for the benefit of the vif-* hotplug
+ * scripts.
+ */
 static int netback_uevent(struct xenbus_device *xdev,
 			  struct kobj_uevent_env *env)
 {
@@ -197,6 +210,9 @@ static void disconnect_backend(struct xenbus_device *dev)
 	}
 }
 
+/**
+ * Callback received when the frontend's state changes.
+ */
 static void frontend_changed(struct xenbus_device *dev,
 			     enum xenbus_state frontend_state)
 {
@@ -237,7 +253,7 @@ static void frontend_changed(struct xenbus_device *dev,
 		xenbus_switch_state(dev, XenbusStateClosed);
 		if (xenbus_dev_is_online(dev))
 			break;
-		
+		/* fall through if not online */
 	case XenbusStateUnknown:
 		device_unregister(&dev->dev);
 		break;
@@ -257,7 +273,7 @@ static void xen_net_read_rate(struct xenbus_device *dev,
 	unsigned long b, u;
 	char *ratestr;
 
-	
+	/* Default to unlimited bandwidth. */
 	*bytes = ~0UL;
 	*usec = 0;
 
@@ -332,7 +348,7 @@ static void hotplug_status_changed(struct xenbus_watch *watch,
 		return;
 	if (len == sizeof("connected")-1 && !memcmp(str, "connected", len)) {
 		xenbus_switch_state(be->dev, XenbusStateConnected);
-		
+		/* Not interested in this watch anymore. */
 		unregister_hotplug_status_watch(be);
 	}
 	kfree(str);
@@ -362,7 +378,7 @@ static void connect(struct backend_info *be)
 				   hotplug_status_changed,
 				   "%s/%s", dev->nodename, "hotplug-status");
 	if (err) {
-		
+		/* Switch now, since we can't do a watch. */
 		xenbus_switch_state(dev, XenbusStateConnected);
 	} else {
 		be->have_hotplug_status_watch = 1;
@@ -413,7 +429,7 @@ static int connect_rings(struct backend_info *be)
 		if (val)
 			vif->can_queue = 1;
 		else
-			
+			/* Must be non-zero for pfifo_fast to work. */
 			vif->dev->tx_queue_len = 1;
 	}
 
@@ -437,7 +453,7 @@ static int connect_rings(struct backend_info *be)
 		val = 0;
 	vif->csum = !val;
 
-	
+	/* Map the shared frame, irq etc. */
 	err = xenvif_connect(vif, tx_ring_ref, rx_ring_ref, evtchn);
 	if (err) {
 		xenbus_dev_fatal(dev, err,
@@ -449,6 +465,7 @@ static int connect_rings(struct backend_info *be)
 }
 
 
+/* ** Driver Registration ** */
 
 
 static const struct xenbus_device_id netback_ids[] = {

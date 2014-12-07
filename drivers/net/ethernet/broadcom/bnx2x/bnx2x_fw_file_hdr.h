@@ -35,4 +35,4 @@ struct bnx2x_fw_file_hdr {
 	struct bnx2x_fw_file_section fw_version;
 };
 
-#endif 
+#endif /* BNX2X_INIT_FILE_HDR_H */

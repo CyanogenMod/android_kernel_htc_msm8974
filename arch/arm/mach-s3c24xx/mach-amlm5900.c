@@ -78,7 +78,7 @@ static struct mtd_partition amlm5900_mtd_partitions[] = {
 		.name		= "System",
 		.size		= 0x240000,
 		.offset		= 0,
-		.mask_flags 	= MTD_WRITEABLE,  
+		.mask_flags 	= MTD_WRITEABLE,  /* force read-only */
 	}, {
 		.name		= "Kernel",
 		.size		= 0x100000,
@@ -174,7 +174,7 @@ static struct s3c2410fb_display __initdata amlm5900_lcd_info = {
 
 	.type		= S3C2410_LCDCON1_STN4,
 
-	.pixclock	= 680000, 
+	.pixclock	= 680000, /* HCLK = 100MHz */
 	.xres		= 160,
 	.yres		= 160,
 	.bpp		= 4,
@@ -222,7 +222,7 @@ static void amlm5900_init_pm(void)
 		printk(KERN_ERR "AML-M5900: no wakeup irq, %d?\n", ret);
 	} else {
 		enable_irq_wake(IRQ_EINT9);
-		
+		/* configure the suspend/resume status pin */
 		s3c_gpio_cfgpin(S3C2410_GPF(2), S3C2410_GPIO_OUTPUT);
 		s3c_gpio_setpull(S3C2410_GPF(2), S3C_GPIO_PULL_UP);
 	}

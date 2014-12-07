@@ -85,6 +85,9 @@ static int ceph_x_decrypt(struct ceph_crypto_key *secret,
 	return olen;
 }
 
+/*
+ * get existing (or insert new) ticket handler
+ */
 static struct ceph_x_ticket_handler *
 get_ticket_handler(struct ceph_auth_client *ac, int service)
 {
@@ -103,7 +106,7 @@ get_ticket_handler(struct ceph_auth_client *ac, int service)
 			return th;
 	}
 
-	
+	/* add it */
 	th = kzalloc(sizeof(*th), GFP_NOFS);
 	if (!th)
 		return ERR_PTR(-ENOMEM);
@@ -184,7 +187,7 @@ static int ceph_x_proc_ticket_reply(struct ceph_auth_client *ac,
 			goto out;
 		}
 
-		
+		/* blob for me */
 		dlen = ceph_x_decrypt(secret, &p, end, dbuf,
 				      TEMP_TICKET_BUF_LEN);
 		if (dlen <= 0) {
@@ -211,11 +214,11 @@ static int ceph_x_proc_ticket_reply(struct ceph_auth_client *ac,
 		dout(" expires=%lu renew_after=%lu\n", new_expires,
 		     new_renew_after);
 
-		
+		/* ticket blob for service */
 		ceph_decode_8_safe(&p, end, is_enc, bad);
 		tp = ticket_buf;
 		if (is_enc) {
-			
+			/* encrypted */
 			dout(" encrypted ticket\n");
 			dlen = ceph_x_decrypt(&old_key, &p, end, ticket_buf,
 					      TEMP_TICKET_BUF_LEN);
@@ -225,7 +228,7 @@ static int ceph_x_proc_ticket_reply(struct ceph_auth_client *ac,
 			}
 			dlen = ceph_decode_32(&tp);
 		} else {
-			
+			/* unencrypted */
 			ceph_decode_32_safe(&p, end, dlen, bad);
 			ceph_decode_need(&p, end, dlen, bad);
 			ceph_decode_copy(&p, ticket_buf, dlen);
@@ -239,7 +242,7 @@ static int ceph_x_proc_ticket_reply(struct ceph_auth_client *ac,
 		if (ret)
 			goto out;
 
-		
+		/* all is well, update our ticket */
 		ceph_crypto_key_destroy(&th->session_key);
 		if (th->ticket_blob)
 			ceph_buffer_put(th->ticket_blob);
@@ -418,7 +421,7 @@ static int ceph_x_build_request(struct ceph_auth_client *ac,
 		dout(" get_auth_session_key\n");
 		head->op = cpu_to_le16(CEPHX_GET_AUTH_SESSION_KEY);
 
-		
+		/* encrypt and hash */
 		get_random_bytes(&auth->client_challenge, sizeof(u64));
 		tmp.client_challenge = auth->client_challenge;
 		tmp.server_challenge = cpu_to_le64(xi->server_challenge);
@@ -435,7 +438,7 @@ static int ceph_x_build_request(struct ceph_auth_client *ac,
 		     xi->server_challenge, le64_to_cpu(auth->client_challenge),
 		     le64_to_cpu(auth->key));
 
-		
+		/* now encode the old ticket if exists */
 		ret = ceph_x_encode_ticket(th, &p, end);
 		if (ret < 0)
 			return ret;
@@ -477,10 +480,10 @@ static int ceph_x_handle_reply(struct ceph_auth_client *ac, int result,
 	int ret;
 
 	if (result)
-		return result;  
+		return result;  /* XXX hmm? */
 
 	if (xi->starting) {
-		
+		/* it's a hello */
 		struct ceph_x_server_challenge *sc = buf;
 
 		if (len != sizeof(*sc))
@@ -498,7 +501,7 @@ static int ceph_x_handle_reply(struct ceph_auth_client *ac, int result,
 	dout("handle_reply op %d result %d\n", op, result);
 	switch (op) {
 	case CEPHX_GET_AUTH_SESSION_KEY:
-		
+		/* verify auth key */
 		ret = ceph_x_proc_ticket_reply(ac, &xi->secret,
 					       buf + sizeof(*head), end);
 		break;

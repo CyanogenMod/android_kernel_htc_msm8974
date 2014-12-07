@@ -118,23 +118,93 @@ struct cwq_final_entry {
 #define  OPCODE_ENCRYPT			0x40ULL
 #define  OPCODE_AUTH_MAC		0x41ULL
 
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
+/* NCS v2.0 hypervisor interfaces */
 #define HV_NCS_QTYPE_MAU		0x01
 #define HV_NCS_QTYPE_CWQ		0x02
 
+/* ncs_qconf()
+ * TRAP:	HV_FAST_TRAP
+ * FUNCTION:	HV_FAST_NCS_QCONF
+ * ARG0:	Queue type (HV_NCS_QTYPE_{MAU,CWQ})
+ * ARG1:	Real address of queue, or handle for unconfigure
+ * ARG2:	Number of entries in queue, zero for unconfigure
+ * RET0:	status
+ * RET1:	queue handle
+ *
+ * Configure a queue in the stream processing unit.
+ *
+ * The real address given as the base must be 64-byte
+ * aligned.
+ *
+ * The queue size can range from a minimum of 2 to a maximum
+ * of 64.  The queue size must be a power of two.
+ *
+ * To unconfigure a queue, specify a length of zero and place
+ * the queue handle into ARG1.
+ *
+ * On configure success the hypervisor will set the FIRST, HEAD,
+ * and TAIL registers to the address of the first entry in the
+ * queue.  The LAST register will be set to point to the last
+ * entry in the queue.
+ */
 #define HV_FAST_NCS_QCONF		0x111
 
+/* ncs_qinfo()
+ * TRAP:	HV_FAST_TRAP
+ * FUNCTION:	HV_FAST_NCS_QINFO
+ * ARG0:	Queue handle
+ * RET0:	status
+ * RET1:	Queue type (HV_NCS_QTYPE_{MAU,CWQ})
+ * RET2:	Queue base address
+ * RET3:	Number of entries
+ */
 #define HV_FAST_NCS_QINFO		0x112
 
+/* ncs_gethead()
+ * TRAP:	HV_FAST_TRAP
+ * FUNCTION:	HV_FAST_NCS_GETHEAD
+ * ARG0:	Queue handle
+ * RET0:	status
+ * RET1:	queue head offset
+ */
 #define HV_FAST_NCS_GETHEAD		0x113
 
+/* ncs_gettail()
+ * TRAP:	HV_FAST_TRAP
+ * FUNCTION:	HV_FAST_NCS_GETTAIL
+ * ARG0:	Queue handle
+ * RET0:	status
+ * RET1:	queue tail offset
+ */
 #define HV_FAST_NCS_GETTAIL		0x114
 
+/* ncs_settail()
+ * TRAP:	HV_FAST_TRAP
+ * FUNCTION:	HV_FAST_NCS_SETTAIL
+ * ARG0:	Queue handle
+ * ARG1:	New tail offset
+ * RET0:	status
+ */
 #define HV_FAST_NCS_SETTAIL		0x115
 
+/* ncs_qhandle_to_devino()
+ * TRAP:	HV_FAST_TRAP
+ * FUNCTION:	HV_FAST_NCS_QHANDLE_TO_DEVINO
+ * ARG0:	Queue handle
+ * RET0:	status
+ * RET1:	devino
+ */
 #define HV_FAST_NCS_QHANDLE_TO_DEVINO	0x116
 
+/* ncs_sethead_marker()
+ * TRAP:	HV_FAST_TRAP
+ * FUNCTION:	HV_FAST_NCS_SETHEAD_MARKER
+ * ARG0:	Queue handle
+ * ARG1:	New head offset
+ * RET0:	status
+ */
 #define HV_FAST_NCS_SETHEAD_MARKER	0x117
 
 #ifndef __ASSEMBLY__
@@ -156,6 +226,6 @@ extern unsigned long sun4v_ncs_qhandle_to_devino(unsigned long qhandle,
 						 unsigned long *devino);
 extern unsigned long sun4v_ncs_sethead_marker(unsigned long qhandle,
 					      unsigned long head);
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
-#endif 
+#endif /* _N2_CORE_H */

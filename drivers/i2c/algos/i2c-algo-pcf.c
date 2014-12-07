@@ -38,13 +38,17 @@
 
 
 #define DEB2(x) if (i2c_debug >= 2) x
-#define DEB3(x) if (i2c_debug >= 3) x 
+#define DEB3(x) if (i2c_debug >= 3) x /* print several statistical values */
 #define DEBPROTO(x) if (i2c_debug >= 9) x;
-	
+	/* debug the protocol by showing transferred bits */
 #define DEF_TIMEOUT 16
 
+/*
+ * module parameters:
+ */
 static int i2c_debug;
 
+/* setting states on the bus with the right timing: */
 
 #define set_pcf(adap, ctl, val) adap->setpcf(adap->data, ctl, val)
 #define get_pcf(adap, ctl) adap->getpcf(adap->data, ctl)
@@ -53,6 +57,7 @@ static int i2c_debug;
 #define i2c_outb(adap, val) adap->setpcf(adap->data, 0, val)
 #define i2c_inb(adap) adap->getpcf(adap->data, 0)
 
+/* other auxiliary functions */
 
 static void i2c_start(struct i2c_algo_pcf_data *adap)
 {
@@ -77,8 +82,23 @@ static void handle_lab(struct i2c_algo_pcf_data *adap, const int *status)
 	DEB2(printk(KERN_INFO
 		"i2c-algo-pcf.o: lost arbitration (CSR 0x%02x)\n",
 		*status));
+	/*
+	 * Cleanup from LAB -- reset and enable ESO.
+	 * This resets the PCF8584; since we've lost the bus, no
+	 * further attempts should be made by callers to clean up
+	 * (no i2c_stop() etc.)
+	 */
 	set_pcf(adap, 1, I2C_PCF_PIN);
 	set_pcf(adap, 1, I2C_PCF_ESO);
+	/*
+	 * We pause for a time period sufficient for any running
+	 * I2C transaction to complete -- the arbitration logic won't
+	 * work properly until the next START is seen.
+	 * It is assumed the bus driver or client has set a proper value.
+	 *
+	 * REVISIT: should probably use msleep instead of mdelay if we
+	 * know we can sleep.
+	 */
 	if (adap->lab_mdelay)
 		mdelay(adap->lab_mdelay);
 
@@ -96,7 +116,7 @@ static int wait_for_bb(struct i2c_algo_pcf_data *adap)
 	status = get_pcf(adap, 1);
 
 	while (!(status & I2C_PCF_BB) && --timeout) {
-		udelay(100); 
+		udelay(100); /* wait for 100 us */
 		status = get_pcf(adap, 1);
 	}
 
@@ -130,6 +150,17 @@ static int wait_for_pin(struct i2c_algo_pcf_data *adap, int *status)
 	return 0;
 }
 
+/*
+ * This should perform the 'PCF8584 initialization sequence' as described
+ * in the Philips IC12 data book (1995, Aug 29).
+ * There should be a 30 clock cycle wait after reset, I assume this
+ * has been fulfilled.
+ * There should be a delay at the end equal to the longest I2C message
+ * to synchronize the BB-bit (in multimaster systems). How long is
+ * this? I assume 1 second is always long enough.
+ *
+ * vdovikin: added detect code for PCF8584
+ */
 static int pcf_init_8584 (struct i2c_algo_pcf_data *adap)
 {
 	unsigned char temp;
@@ -137,14 +168,18 @@ static int pcf_init_8584 (struct i2c_algo_pcf_data *adap)
 	DEB3(printk(KERN_DEBUG "i2c-algo-pcf.o: PCF state 0x%02x\n",
 				get_pcf(adap, 1)));
 
-	
+	/* S1=0x80: S0 selected, serial interface off */
 	set_pcf(adap, 1, I2C_PCF_PIN);
+	/*
+	 * check to see S1 now used as R/W ctrl -
+	 * PCF8584 does that when ESO is zero
+	 */
 	if (((temp = get_pcf(adap, 1)) & 0x7f) != (0)) {
 		DEB2(printk(KERN_ERR "i2c-algo-pcf.o: PCF detection failed -- can't select S0 (0x%02x).\n", temp));
-		return -ENXIO; 
+		return -ENXIO; /* definitely not PCF8584 */
 	}
 
-	
+	/* load own address in S0, effective address is (own << 1) */
 	i2c_outb(adap, get_own(adap));
 	/* check it's really written */
 	if ((temp = i2c_inb(adap)) != get_own(adap)) {
@@ -152,15 +187,15 @@ static int pcf_init_8584 (struct i2c_algo_pcf_data *adap)
 		return -ENXIO;
 	}
 
-	
+	/* S1=0xA0, next byte in S2 */
 	set_pcf(adap, 1, I2C_PCF_PIN | I2C_PCF_ES1);
-	
+	/* check to see S2 now selected */
 	if (((temp = get_pcf(adap, 1)) & 0x7f) != I2C_PCF_ES1) {
 		DEB2(printk(KERN_ERR "i2c-algo-pcf.o: PCF detection failed -- can't select S2 (0x%02x).\n", temp));
 		return -ENXIO;
 	}
 
-	
+	/* load clock register S2 */
 	i2c_outb(adap, get_clock(adap));
 	/* check it's really written, the only 5 lowest bits does matter */
 	if (((temp = i2c_inb(adap)) & 0x1f) != get_clock(adap)) {
@@ -168,10 +203,10 @@ static int pcf_init_8584 (struct i2c_algo_pcf_data *adap)
 		return -ENXIO;
 	}
 
-	
+	/* Enable serial interface, idle, S0 selected */
 	set_pcf(adap, 1, I2C_PCF_IDLE);
 
-	
+	/* check to see PCF is really idled and we can access status register */
 	if ((temp = get_pcf(adap, 1)) != (I2C_PCF_PIN | I2C_PCF_BB)) {
 		DEB2(printk(KERN_ERR "i2c-algo-pcf.o: PCF detection failed -- can't select S1` (0x%02x).\n", temp));
 		return -ENXIO;
@@ -195,16 +230,16 @@ static int pcf_sendbytes(struct i2c_adapter *i2c_adap, const char *buf,
 		timeout = wait_for_pin(adap, &status);
 		if (timeout) {
 			if (timeout == -EINTR)
-				return -EINTR; 
+				return -EINTR; /* arbitration lost */
 
 			i2c_stop(adap);
 			dev_err(&i2c_adap->dev, "i2c_write: error - timeout.\n");
-			return -EREMOTEIO; 
+			return -EREMOTEIO; /* got a better one ?? */
 		}
 		if (status & I2C_PCF_LRB) {
 			i2c_stop(adap);
 			dev_err(&i2c_adap->dev, "i2c_write: error - no ack.\n");
-			return -EREMOTEIO; 
+			return -EREMOTEIO; /* got a better one ?? */
 		}
 	}
 	if (last)
@@ -222,12 +257,12 @@ static int pcf_readbytes(struct i2c_adapter *i2c_adap, char *buf,
 	struct i2c_algo_pcf_data *adap = i2c_adap->algo_data;
 	int wfp;
 
-	
+	/* increment number of bytes to read by one -- read dummy byte */
 	for (i = 0; i <= count; i++) {
 
 		if ((wfp = wait_for_pin(adap, &status))) {
 			if (wfp == -EINTR)
-				return -EINTR; 
+				return -EINTR; /* arbitration lost */
 
 			i2c_stop(adap);
 			dev_err(&i2c_adap->dev, "pcf_readbytes timed out.\n");
@@ -252,7 +287,7 @@ static int pcf_readbytes(struct i2c_adapter *i2c_adap, char *buf,
 		if (i)
 			buf[i - 1] = i2c_inb(adap);
 		else
-			i2c_inb(adap); 
+			i2c_inb(adap); /* dummy read */
 	}
 
 	return i - 1;
@@ -287,7 +322,7 @@ static int pcf_xfer(struct i2c_adapter *i2c_adap,
 	if (adap->xfer_begin)
 		adap->xfer_begin(adap->data);
 
-	
+	/* Check for bus busy */
 	timeout = wait_for_bb(adap);
 	if (timeout) {
 		DEB2(printk(KERN_ERR "i2c-algo-pcf.o: "
@@ -305,15 +340,15 @@ static int pcf_xfer(struct i2c_adapter *i2c_adap,
 
 		ret = pcf_doAddress(adap, pmsg);
 
-		
+		/* Send START */
 		if (i == 0)
 			i2c_start(adap);
 
-		
+		/* Wait for PIN (pending interrupt NOT) */
 		timeout = wait_for_pin(adap, &status);
 		if (timeout) {
 			if (timeout == -EINTR) {
-				
+				/* arbitration lost */
 				i = -EINTR;
 				goto out;
 			}
@@ -324,7 +359,7 @@ static int pcf_xfer(struct i2c_adapter *i2c_adap,
 			goto out;
 		}
 
-		
+		/* Check LRB (last rcvd bit - slave ack) */
 		if (status & I2C_PCF_LRB) {
 			i2c_stop(adap);
 			DEB2(printk(KERN_ERR "i2c-algo-pcf.o: No LRB(1) in pcf_xfer\n");)
@@ -370,11 +405,15 @@ static u32 pcf_func(struct i2c_adapter *adap)
 	       I2C_FUNC_PROTOCOL_MANGLING;
 }
 
+/* exported algorithm data: */
 static const struct i2c_algorithm pcf_algo = {
 	.master_xfer	= pcf_xfer,
 	.functionality	= pcf_func,
 };
 
+/*
+ * registering functions to load algorithms at runtime
+ */
 int i2c_pcf_add_bus(struct i2c_adapter *adap)
 {
 	struct i2c_algo_pcf_data *pcf_adap = adap->algo_data;
@@ -382,7 +421,7 @@ int i2c_pcf_add_bus(struct i2c_adapter *adap)
 
 	DEB2(dev_dbg(&adap->dev, "hw routines registered.\n"));
 
-	
+	/* register new adapter to i2c module... */
 	adap->algo = &pcf_algo;
 
 	if ((rval = pcf_init_8584(pcf_adap)))

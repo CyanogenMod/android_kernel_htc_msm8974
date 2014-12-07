@@ -14,6 +14,17 @@
  * your option) any later version.
  */
 
+/*
+ * Note: Although this driver assumes a 16550A-like UART implementation,
+ * it is not possible to leverage the common 8250/16550 driver, nor the
+ * core UART infrastructure, as they assumes direct access to the hardware
+ * registers, often under a spinlock.  This is not possible in the SDIO
+ * context as SDIO access functions must be able to sleep.
+ *
+ * Because we need to lock the SDIO host to ensure an exclusive access to
+ * the card, we simply rely on that lock to also prevent and serialize
+ * concurrent access to the same port.
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -34,7 +45,7 @@
 #include <linux/mmc/sdio_ids.h>
 
 
-#define UART_NR		8	
+#define UART_NR		8	/* Number of UARTs this driver can handle */
 
 
 #define FIFO_SIZE	PAGE_SIZE
@@ -142,6 +153,13 @@ static void sdio_uart_port_remove(struct sdio_uart_port *port)
 	sdio_uart_table[port->index] = NULL;
 	spin_unlock(&sdio_uart_table_lock);
 
+	/*
+	 * We're killing a port that potentially still is in use by
+	 * the tty layer. Be careful to prevent any further access
+	 * to the SDIO function and arrange for the tty layer to
+	 * give up on that port ASAP.
+	 * Beware: the lock ordering is critical.
+	 */
 	mutex_lock(&port->port.mutex);
 	mutex_lock(&port->func_lock);
 	func = port->func;
@@ -149,7 +167,7 @@ static void sdio_uart_port_remove(struct sdio_uart_port *port)
 	port->func = NULL;
 	mutex_unlock(&port->func_lock);
 	tty = tty_port_tty_get(&port->port);
-	
+	/* tty_hangup is async so is this safe as is ?? */
 	if (tty) {
 		tty_hangup(tty);
 		tty_kref_put(tty);
@@ -198,6 +216,8 @@ static unsigned int sdio_uart_get_mctrl(struct sdio_uart_port *port)
 	unsigned char status;
 	unsigned int ret;
 
+	/* FIXME: What stops this losing the delta bits and breaking
+	   sdio_uart_check_modem_status ? */
 	status = sdio_in(port, UART_MSR);
 
 	ret = 0;
@@ -278,9 +298,13 @@ static void sdio_uart_change_speed(struct sdio_uart_port *port,
 	for (;;) {
 		baud = tty_termios_baud_rate(termios);
 		if (baud == 0)
-			baud = 9600;  
+			baud = 9600;  /* Special case: B0 rate. */
 		if (baud <= port->uartclk)
 			break;
+		/*
+		 * Oops, the quotient was zero.  Try again with the old
+		 * baud rate if possible, otherwise default to 9600.
+		 */
 		termios->c_cflag &= ~CBAUD;
 		if (old) {
 			termios->c_cflag |= old->c_cflag & CBAUD;
@@ -301,18 +325,31 @@ static void sdio_uart_change_speed(struct sdio_uart_port *port,
 	if (termios->c_iflag & (BRKINT | PARMRK))
 		port->read_status_mask |= UART_LSR_BI;
 
+	/*
+	 * Characters to ignore
+	 */
 	port->ignore_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		port->ignore_status_mask |= UART_LSR_PE | UART_LSR_FE;
 	if (termios->c_iflag & IGNBRK) {
 		port->ignore_status_mask |= UART_LSR_BI;
+		/*
+		 * If we're ignoring parity and break indicators,
+		 * ignore overruns too (for real raw support).
+		 */
 		if (termios->c_iflag & IGNPAR)
 			port->ignore_status_mask |= UART_LSR_OE;
 	}
 
+	/*
+	 * ignore all characters if CREAD is not set
+	 */
 	if ((termios->c_cflag & CREAD) == 0)
 		port->ignore_status_mask |= UART_LSR_DR;
 
+	/*
+	 * CTS flow control flag and modem status interrupts
+	 */
 	port->ier &= ~UART_IER_MSI;
 	if ((termios->c_cflag & CRTSCTS) || !(termios->c_cflag & CLOCAL))
 		port->ier |= UART_IER_MSI;
@@ -366,6 +403,9 @@ static void sdio_uart_receive_chars(struct sdio_uart_port *port,
 
 		if (unlikely(*status & (UART_LSR_BI | UART_LSR_PE |
 					UART_LSR_FE | UART_LSR_OE))) {
+			/*
+			 * For statistics only
+			 */
 			if (*status & UART_LSR_BI) {
 				*status &= ~(UART_LSR_FE | UART_LSR_PE);
 				port->icount.brk++;
@@ -376,6 +416,9 @@ static void sdio_uart_receive_chars(struct sdio_uart_port *port,
 			if (*status & UART_LSR_OE)
 				port->icount.overrun++;
 
+			/*
+			 * Mask off conditions which should be ignored.
+			 */
 			*status &= port->read_status_mask;
 			if (*status & UART_LSR_BI)
 				flag = TTY_BREAK;
@@ -389,6 +432,10 @@ static void sdio_uart_receive_chars(struct sdio_uart_port *port,
 			if (tty)
 				tty_insert_flip_char(tty, ch, flag);
 
+		/*
+		 * Overrun is special.  Since it's reported immediately,
+		 * it doesn't affect the current character.
+		 */
 		if (*status & ~port->ignore_status_mask & UART_LSR_OE)
 			if (tty)
 				tty_insert_flip_char(tty, 0, TTY_OVERRUN);
@@ -456,11 +503,11 @@ static void sdio_uart_check_modem_status(struct sdio_uart_port *port)
 		port->icount.dsr++;
 	if (status & UART_MSR_DDCD) {
 		port->icount.dcd++;
-		
+		/* DCD raise - wake for open */
 		if (status & UART_MSR_DCD)
 			wake_up_interruptible(&port->port.open_wait);
 		else {
-			
+			/* DCD drop - hang up if tty attached */
 			tty = tty_port_tty_get(&port->port);
 			if (tty) {
 				tty_hangup(tty);
@@ -490,11 +537,22 @@ static void sdio_uart_check_modem_status(struct sdio_uart_port *port)
 	}
 }
 
+/*
+ * This handles the interrupt from one port.
+ */
 static void sdio_uart_irq(struct sdio_func *func)
 {
 	struct sdio_uart_port *port = sdio_get_drvdata(func);
 	unsigned int iir, lsr;
 
+	/*
+	 * In a few places sdio_uart_irq() is called directly instead of
+	 * waiting for the actual interrupt to be raised and the SDIO IRQ
+	 * thread scheduled in order to reduce latency.  However, some
+	 * interaction with the tty core may end up calling us back
+	 * (serial echo, flow control, etc.) through those same places
+	 * causing undesirable effects.  Let's stop the recursion here.
+	 */
 	if (unlikely(port->in_sdio_uart_irq == current))
 		return;
 
@@ -517,7 +575,7 @@ static int uart_carrier_raised(struct tty_port *tport)
 	struct sdio_uart_port *port =
 			container_of(tport, struct sdio_uart_port, port);
 	unsigned int ret = sdio_uart_claim_func(port);
-	if (ret)	
+	if (ret)	/* Missing hardware shouldn't block for carrier */
 		return 1;
 	ret = sdio_uart_get_mctrl(port);
 	sdio_uart_release_func(port);
@@ -526,6 +584,14 @@ static int uart_carrier_raised(struct tty_port *tport)
 	return 0;
 }
 
+/**
+ *	uart_dtr_rts		-	 port helper to set uart signals
+ *	@tport: tty port to be updated
+ *	@onoff: set to turn on DTR/RTS
+ *
+ *	Called by the tty port helpers when the modem signals need to be
+ *	adjusted during an open, close and hangup.
+ */
 
 static void uart_dtr_rts(struct tty_port *tport, int onoff)
 {
@@ -541,6 +607,20 @@ static void uart_dtr_rts(struct tty_port *tport, int onoff)
 	sdio_uart_release_func(port);
 }
 
+/**
+ *	sdio_uart_activate	-	start up hardware
+ *	@tport: tty port to activate
+ *	@tty: tty bound to this port
+ *
+ *	Activate a tty port. The port locking guarantees us this will be
+ *	run exactly once per set of opens, and if successful will see the
+ *	shutdown method run exactly once to match. Start up and shutdown are
+ *	protected from each other by the internal locking and will not run
+ *	at the same time even during a hangup event.
+ *
+ *	If we successfully start up the port we take an extra kref as we
+ *	will keep it around until shutdown when the kref is dropped.
+ */
 
 static int sdio_uart_activate(struct tty_port *tport, struct tty_struct *tty)
 {
@@ -548,6 +628,10 @@ static int sdio_uart_activate(struct tty_port *tport, struct tty_struct *tty)
 			container_of(tport, struct sdio_uart_port, port);
 	int ret;
 
+	/*
+	 * Set the TTY IO error marker - we will only clear this
+	 * once we have successfully opened the port.
+	 */
 	set_bit(TTY_IO_ERROR, &tty->flags);
 
 	kfifo_reset(&port->xmit_fifo);
@@ -562,16 +646,26 @@ static int sdio_uart_activate(struct tty_port *tport, struct tty_struct *tty)
 	if (ret)
 		goto err2;
 
+	/*
+	 * Clear the FIFO buffers and disable them.
+	 * (they will be reenabled in sdio_change_speed())
+	 */
 	sdio_out(port, UART_FCR, UART_FCR_ENABLE_FIFO);
 	sdio_out(port, UART_FCR, UART_FCR_ENABLE_FIFO |
 		       UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT);
 	sdio_out(port, UART_FCR, 0);
 
+	/*
+	 * Clear the interrupt registers.
+	 */
 	(void) sdio_in(port, UART_LSR);
 	(void) sdio_in(port, UART_RX);
 	(void) sdio_in(port, UART_IIR);
 	(void) sdio_in(port, UART_MSR);
 
+	/*
+	 * Now, initialize the UART
+	 */
 	sdio_out(port, UART_LCR, UART_LCR_WLEN8);
 
 	port->ier = UART_IER_RLSI|UART_IER_RDI|UART_IER_RTOIE|UART_IER_UUE;
@@ -588,7 +682,7 @@ static int sdio_uart_activate(struct tty_port *tport, struct tty_struct *tty)
 
 	clear_bit(TTY_IO_ERROR, &tty->flags);
 
-	
+	/* Kick the IRQ handler once while we're still holding the host lock */
 	sdio_uart_irq(port->func);
 
 	sdio_uart_release_func(port);
@@ -601,6 +695,15 @@ err1:
 	return ret;
 }
 
+/**
+ *	sdio_uart_shutdown	-	stop hardware
+ *	@tport: tty port to shut down
+ *
+ *	Deactivate a tty port. The port locking guarantees us this will be
+ *	run only if a successful matching activate already ran. The two are
+ *	protected from each other by the internal locking and will not run
+ *	at the same time even during a hangup event.
+ */
 
 static void sdio_uart_shutdown(struct tty_port *tport)
 {
@@ -614,14 +717,14 @@ static void sdio_uart_shutdown(struct tty_port *tport)
 
 	sdio_uart_stop_rx(port);
 
-	
+	/* Disable interrupts from this port */
 	sdio_release_irq(port->func);
 	port->ier = 0;
 	sdio_out(port, UART_IER, 0);
 
 	sdio_uart_clear_mctrl(port, TIOCM_OUT2);
 
-	
+	/* Disable break condition and FIFOs. */
 	port->lcr &= ~UART_LCR_SBC;
 	sdio_out(port, UART_LCR, port->lcr);
 	sdio_out(port, UART_FCR, UART_FCR_ENABLE_FIFO |
@@ -634,6 +737,14 @@ static void sdio_uart_shutdown(struct tty_port *tport)
 	sdio_uart_release_func(port);
 }
 
+/**
+ *	sdio_uart_install	-	install method
+ *	@driver: the driver in use (sdio_uart in our case)
+ *	@tty: the tty being bound
+ *
+ *	Look up and bind the tty and the driver together. Initialize
+ *	any needed private data (in our case the termios)
+ */
 
 static int sdio_uart_install(struct tty_driver *driver, struct tty_struct *tty)
 {
@@ -642,21 +753,31 @@ static int sdio_uart_install(struct tty_driver *driver, struct tty_struct *tty)
 	int ret = tty_standard_install(driver, tty);
 
 	if (ret == 0)
-		
+		/* This is the ref sdio_uart_port get provided */
 		tty->driver_data = port;
 	else
 		sdio_uart_port_put(port);
 	return ret;
 }
 
+/**
+ *	sdio_uart_cleanup	-	called on the last tty kref drop
+ *	@tty: the tty being destroyed
+ *
+ *	Called asynchronously when the last reference to the tty is dropped.
+ *	We cannot destroy the tty->driver_data port kref until this point
+ */
 
 static void sdio_uart_cleanup(struct tty_struct *tty)
 {
 	struct sdio_uart_port *port = tty->driver_data;
-	tty->driver_data = NULL;	
+	tty->driver_data = NULL;	/* Bug trap */
 	sdio_uart_port_put(port);
 }
 
+/*
+ *	Open/close/hangup is now entirely boilerplate
+ */
 
 static int sdio_uart_open(struct tty_struct *tty, struct file *filp)
 {
@@ -784,11 +905,11 @@ static void sdio_uart_set_termios(struct tty_struct *tty,
 
 	sdio_uart_change_speed(port, tty->termios, old_termios);
 
-	
+	/* Handle transition to B0 status */
 	if ((old_termios->c_cflag & CBAUD) && !(cflag & CBAUD))
 		sdio_uart_clear_mctrl(port, TIOCM_RTS | TIOCM_DTR);
 
-	
+	/* Handle transition away from B0 status */
 	if (!(old_termios->c_cflag & CBAUD) && (cflag & CBAUD)) {
 		unsigned int mask = TIOCM_DTR;
 		if (!(cflag & CRTSCTS) || !test_bit(TTY_THROTTLED, &tty->flags))
@@ -796,13 +917,13 @@ static void sdio_uart_set_termios(struct tty_struct *tty,
 		sdio_uart_set_mctrl(port, mask);
 	}
 
-	
+	/* Handle turning off CRTSCTS */
 	if ((old_termios->c_cflag & CRTSCTS) && !(cflag & CRTSCTS)) {
 		tty->hw_stopped = 0;
 		sdio_uart_start_tx(port);
 	}
 
-	
+	/* Handle turning on CRTSCTS */
 	if (!(old_termios->c_cflag & CRTSCTS) && (cflag & CRTSCTS)) {
 		if (!(sdio_uart_get_mctrl(port) & TIOCM_CTS)) {
 			tty->hw_stopped = 1;
@@ -963,13 +1084,17 @@ static int sdio_uart_probe(struct sdio_func *func,
 		kfree(port);
 		return -ENOSYS;
 	} else if (func->class == SDIO_CLASS_GPS) {
+		/*
+		 * We need tuple 0x91.  It contains SUBTPL_SIOREG
+		 * and SUBTPL_RCVCAPS.
+		 */
 		struct sdio_func_tuple *tpl;
 		for (tpl = func->tuples; tpl; tpl = tpl->next) {
 			if (tpl->code != 0x91)
 				continue;
 			if (tpl->size < 10)
 				continue;
-			if (tpl->data[1] == 0)  
+			if (tpl->data[1] == 0)  /* SUBTPL_SIOREG */
 				break;
 		}
 		if (!tpl) {
@@ -1029,7 +1154,7 @@ static void sdio_uart_remove(struct sdio_func *func)
 static const struct sdio_device_id sdio_uart_ids[] = {
 	{ SDIO_DEVICE_CLASS(SDIO_CLASS_UART)		},
 	{ SDIO_DEVICE_CLASS(SDIO_CLASS_GPS)		},
-	{ 				},
+	{ /* end: all zeroes */				},
 };
 
 MODULE_DEVICE_TABLE(sdio, sdio_uart_ids);
@@ -1052,7 +1177,7 @@ static int __init sdio_uart_init(void)
 
 	tty_drv->driver_name = "sdio_uart";
 	tty_drv->name =   "ttySDIO";
-	tty_drv->major = 0;  
+	tty_drv->major = 0;  /* dynamically allocated */
 	tty_drv->minor_start = 0;
 	tty_drv->type = TTY_DRIVER_TYPE_SERIAL;
 	tty_drv->subtype = SERIAL_TYPE_NORMAL;

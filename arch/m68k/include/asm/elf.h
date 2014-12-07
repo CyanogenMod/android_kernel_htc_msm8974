@@ -1,10 +1,16 @@
 #ifndef __ASMm68k_ELF_H
 #define __ASMm68k_ELF_H
 
+/*
+ * ELF register definitions..
+ */
 
 #include <asm/ptrace.h>
 #include <asm/user.h>
 
+/*
+ * 68k ELF relocation types
+ */
 #define R_68K_NONE	0
 #define R_68K_32	1
 #define R_68K_16	2
@@ -36,12 +42,21 @@ typedef elf_greg_t elf_gregset_t[ELF_NGREG];
 
 typedef struct user_m68kfp_struct elf_fpregset_t;
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 #define elf_check_arch(x) ((x)->e_machine == EM_68K)
 
+/*
+ * These are used to set parameters in the core dumps.
+ */
 #define ELF_CLASS	ELFCLASS32
 #define ELF_DATA	ELFDATA2MSB
 #define ELF_ARCH	EM_68K
 
+/* For SVR4/m68k the function pointer to be registered with `atexit' is
+   passed in %a1.  Although my copy of the ABI has no such statement, it
+   is actually used on ASV.  */
 #define ELF_PLAT_INIT(_r, load_addr)	_r->a1 = 0
 
 #if defined(CONFIG_SUN3) || defined(CONFIG_COLDFIRE)
@@ -50,6 +65,10 @@ typedef struct user_m68kfp_struct elf_fpregset_t;
 #define ELF_EXEC_PAGESIZE	4096
 #endif
 
+/* This is the location that an ET_DYN program is loaded if exec'ed.  Typical
+   use of this is to invoke "./ld.so someprog" to test out a new version of
+   the loader.  We need to make sure that it is out of the way of the program
+   that it will "exec", and that there is sufficient room for the brk.  */
 
 #ifndef CONFIG_SUN3
 #define ELF_ET_DYN_BASE         0xD0000000UL
@@ -58,7 +77,7 @@ typedef struct user_m68kfp_struct elf_fpregset_t;
 #endif
 
 #define ELF_CORE_COPY_REGS(pr_reg, regs)				\
-								\
+	/* Bleech. */							\
 	pr_reg[0] = regs->d1;						\
 	pr_reg[1] = regs->d2;						\
 	pr_reg[2] = regs->d3;						\
@@ -83,9 +102,14 @@ typedef struct user_m68kfp_struct elf_fpregset_t;
 	  pr_reg[13] = sw->a6;						\
 	}
 
+/* This yields a mask that user programs can use to figure out what
+   instruction set this cpu supports.  */
 
 #define ELF_HWCAP	(0)
 
+/* This yields a string that ld.so will use to load implementation
+   specific libraries for optimization.  This is more specific in
+   intent than poking at uname or /proc/cpuinfo.  */
 
 #define ELF_PLATFORM  (NULL)
 

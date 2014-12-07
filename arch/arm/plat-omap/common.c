@@ -35,6 +35,8 @@ static const void *__init get_config(u16 tag, size_t len,
 	struct omap_board_config_kernel *kinfo = NULL;
 	int i;
 
+	/* Try to find the config from the board-specific structures
+	 * in the kernel. */
 	for (i = 0; i < omap_board_config_size; i++) {
 		if (omap_board_config[i].tag == tag) {
 			if (skip == 0) {

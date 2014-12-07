@@ -29,9 +29,11 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
+/* Addresses to scan */
 static unsigned short max1668_addr_list[] = {
 	0x18, 0x19, 0x1a, 0x29, 0x2a, 0x2b, 0x4c, 0x4d, 0x4e, I2C_CLIENT_END };
 
+/* max1668 registers */
 
 #define MAX1668_REG_TEMP(nr)	(nr)
 #define MAX1668_REG_STAT1	0x05
@@ -39,17 +41,24 @@ static unsigned short max1668_addr_list[] = {
 #define MAX1668_REG_MAN_ID	0xfe
 #define MAX1668_REG_DEV_ID	0xff
 
+/* limits */
 
+/* write high limits */
 #define MAX1668_REG_LIMH_WR(nr)	(0x13 + 2 * (nr))
+/* write low limits */
 #define MAX1668_REG_LIML_WR(nr)	(0x14 + 2 * (nr))
+/* read high limits */
 #define MAX1668_REG_LIMH_RD(nr)	(0x08 + 2 * (nr))
+/* read low limits */
 #define MAX1668_REG_LIML_RD(nr)	(0x09 + 2 * (nr))
 
+/* manufacturer and device ID Constants */
 #define MAN_ID_MAXIM		0x4d
 #define DEV_ID_MAX1668		0x3
 #define DEV_ID_MAX1805		0x5
 #define DEV_ID_MAX1989		0xb
 
+/* read only mode module parameter */
 static bool read_only;
 module_param(read_only, bool, 0);
 MODULE_PARM_DESC(read_only, "Don't set any values, read only mode");
@@ -61,10 +70,10 @@ struct max1668_data {
 	enum chips type;
 
 	struct mutex update_lock;
-	char valid;		
-	unsigned long last_updated;	
+	char valid;		/* !=0 if following fields are valid */
+	unsigned long last_updated;	/* In jiffies */
 
-	
+	/* 1x local and 4x remote */
 	s8 temp_max[5];
 	s8 temp_min[5];
 	s8 temp[5];
@@ -283,6 +292,7 @@ static SENSOR_DEVICE_ATTR(temp3_fault, S_IRUGO, show_fault, NULL, 2);
 static SENSOR_DEVICE_ATTR(temp4_fault, S_IRUGO, show_fault, NULL, 3);
 static SENSOR_DEVICE_ATTR(temp5_fault, S_IRUGO, show_fault, NULL, 4);
 
+/* Attributes common to MAX1668, MAX1989 and MAX1805 */
 static struct attribute *max1668_attribute_common[] = {
 	&sensor_dev_attr_temp1_max.dev_attr.attr,
 	&sensor_dev_attr_temp1_min.dev_attr.attr,
@@ -306,6 +316,7 @@ static struct attribute *max1668_attribute_common[] = {
 	NULL
 };
 
+/* Attributes not present on MAX1805 */
 static struct attribute *max1668_attribute_unique[] = {
 	&sensor_dev_attr_temp4_max.dev_attr.attr,
 	&sensor_dev_attr_temp4_min.dev_attr.attr,
@@ -354,6 +365,7 @@ static const struct attribute_group max1668_group_unique = {
 	.is_visible = max1668_attribute_mode
 };
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int max1668_detect(struct i2c_client *client,
 			  struct i2c_board_info *info)
 {
@@ -364,7 +376,7 @@ static int max1668_detect(struct i2c_client *client,
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
-	
+	/* Check for unsupported part */
 	man_id = i2c_smbus_read_byte_data(client, MAX1668_REG_MAN_ID);
 	if (man_id != MAN_ID_MAXIM)
 		return -ENODEV;
@@ -407,7 +419,7 @@ static int max1668_probe(struct i2c_client *client,
 	data->type = id->driver_data;
 	mutex_init(&data->update_lock);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&client->dev.kobj, &max1668_group_common);
 	if (err)
 		goto error_free;
@@ -459,6 +471,7 @@ static const struct i2c_device_id max1668_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, max1668_id);
 
+/* This is the driver that will be inserted */
 static struct i2c_driver max1668_driver = {
 	.class = I2C_CLASS_HWMON,
 	.driver = {

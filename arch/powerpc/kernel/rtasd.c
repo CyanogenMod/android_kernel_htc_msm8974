@@ -44,14 +44,23 @@ static int surveillance_timeout = -1;
 static unsigned int rtas_error_log_max;
 static unsigned int rtas_error_log_buffer_max;
 
+/* RTAS service tokens */
 static unsigned int event_scan;
 static unsigned int rtas_event_scan_rate;
 
 static int full_rtas_msgs = 0;
 
-static int logging_enabled; 
+/* Stop logging to nvram after first fatal error */
+static int logging_enabled; /* Until we initialize everything,
+                             * make sure we don't try logging
+                             * anything */
 static int error_log_cnt;
 
+/*
+ * Since we use 32 bit RTAS, the physical address of this must be below
+ * 4G or else bad things happen. Allocate this in the kernel data and
+ * make it big enough.
+ */
 static unsigned char logdata[RTAS_ERROR_LOG_MAX];
 
 static char *rtas_type[] = {
@@ -83,6 +92,19 @@ static char *rtas_event_type(int type)
 	return rtas_type[0];
 }
 
+/* To see this info, grep RTAS /var/log/messages and each entry
+ * will be collected together with obvious begin/end.
+ * There will be a unique identifier on the begin and end lines.
+ * This will persist across reboots.
+ *
+ * format of error logs returned from RTAS:
+ * bytes	(size)	: contents
+ * --------------------------------------------------------
+ * 0-7		(8)	: rtas_error_log
+ * 8-47		(40)	: extended info
+ * 48-51	(4)	: vendor id
+ * 52-1023 (vendor specific) : location code and debug data
+ */
 static void printk_log_rtas(char *buf, int len)
 {
 
@@ -95,6 +117,12 @@ static void printk_log_rtas(char *buf, int len)
 		printk(RTAS_DEBUG "%d -------- %s begin --------\n",
 		       error_log_cnt, str);
 
+		/*
+		 * Print perline bytes on each line, each line will start
+		 * with RTAS and a changing number, so syslogd will
+		 * print lines that are otherwise the same.  Separate every
+		 * 4 bytes with a space.
+		 */
 		for (i = 0; i < len; i++) {
 			j = i % perline;
 			if (j == 0) {
@@ -129,12 +157,12 @@ static int log_rtas_len(char * buf)
 	int len;
 	struct rtas_error_log *err;
 
-	
+	/* rtas fixed header */
 	len = 8;
 	err = (struct rtas_error_log *)buf;
 	if (err->extended && err->extended_log_length) {
 
-		
+		/* extended header */
 		len += err->extended_log_length;
 	}
 
@@ -173,7 +201,7 @@ void pSeries_log_error(char *buf, unsigned int err_type, int fatal)
 
 	spin_lock_irqsave(&rtasd_log_lock, s);
 
-	
+	/* get length and increase count */
 	switch (err_type & ERR_TYPE_MASK) {
 	case ERR_TYPE_RTAS_LOG:
 		len = log_rtas_len(buf);
@@ -182,38 +210,43 @@ void pSeries_log_error(char *buf, unsigned int err_type, int fatal)
 		break;
 	case ERR_TYPE_KERNEL_PANIC:
 	default:
-		WARN_ON_ONCE(!irqs_disabled()); 
+		WARN_ON_ONCE(!irqs_disabled()); /* @@@ DEBUG @@@ */
 		spin_unlock_irqrestore(&rtasd_log_lock, s);
 		return;
 	}
 
 #ifdef CONFIG_PPC64
-	
+	/* Write error to NVRAM */
 	if (logging_enabled && !(err_type & ERR_FLAG_BOOT))
 		nvram_write_error_log(buf, len, err_type, error_log_cnt);
-#endif 
+#endif /* CONFIG_PPC64 */
 
+	/*
+	 * rtas errors can occur during boot, and we do want to capture
+	 * those somewhere, even if nvram isn't ready (why not?), and even
+	 * if rtasd isn't ready. Put them into the boot log, at least.
+	 */
 	if ((err_type & ERR_TYPE_MASK) == ERR_TYPE_RTAS_LOG)
 		printk_log_rtas(buf, len);
 
-	
+	/* Check to see if we need to or have stopped logging */
 	if (fatal || !logging_enabled) {
 		logging_enabled = 0;
-		WARN_ON_ONCE(!irqs_disabled()); 
+		WARN_ON_ONCE(!irqs_disabled()); /* @@@ DEBUG @@@ */
 		spin_unlock_irqrestore(&rtasd_log_lock, s);
 		return;
 	}
 
-	
+	/* call type specific method for error */
 	switch (err_type & ERR_TYPE_MASK) {
 	case ERR_TYPE_RTAS_LOG:
 		offset = rtas_error_log_buffer_max *
 			((rtas_log_start+rtas_log_size) & LOG_NUMBER_MASK);
 
-		
+		/* First copy over sequence number */
 		memcpy(&rtas_log_buf[offset], (void *) &error_log_cnt, sizeof(int));
 
-		
+		/* Second copy over error log data */
 		offset += sizeof(int);
 		memcpy(&rtas_log_buf[offset], buf, len);
 
@@ -222,13 +255,13 @@ void pSeries_log_error(char *buf, unsigned int err_type, int fatal)
 		else
 			rtas_log_start += 1;
 
-		WARN_ON_ONCE(!irqs_disabled()); 
+		WARN_ON_ONCE(!irqs_disabled()); /* @@@ DEBUG @@@ */
 		spin_unlock_irqrestore(&rtasd_log_lock, s);
 		wake_up_interruptible(&rtas_log_wait);
 		break;
 	case ERR_TYPE_KERNEL_PANIC:
 	default:
-		WARN_ON_ONCE(!irqs_disabled()); 
+		WARN_ON_ONCE(!irqs_disabled()); /* @@@ DEBUG @@@ */
 		spin_unlock_irqrestore(&rtasd_log_lock, s);
 		return;
 	}
@@ -245,6 +278,10 @@ static int rtas_log_release(struct inode * inode, struct file * file)
 	return 0;
 }
 
+/* This will check if all events are logged, if they are then, we
+ * know that we can safely clear the events in NVRAM.
+ * Next we'll sit and wait for something else to log.
+ */
 static ssize_t rtas_log_read(struct file * file, char __user * buf,
 			 size_t count, loff_t *ppos)
 {
@@ -267,7 +304,7 @@ static ssize_t rtas_log_read(struct file * file, char __user * buf,
 
 	spin_lock_irqsave(&rtasd_log_lock, s);
 
-	
+	/* if it's 0, then we know we got the last one (the one in NVRAM) */
 	while (rtas_log_size == 0) {
 		if (file->f_flags & O_NONBLOCK) {
 			spin_unlock_irqrestore(&rtasd_log_lock, s);
@@ -282,7 +319,7 @@ static ssize_t rtas_log_read(struct file * file, char __user * buf,
 		}
 #ifdef CONFIG_PPC64
 		nvram_clear_error_log();
-#endif 
+#endif /* CONFIG_PPC64 */
 
 		spin_unlock_irqrestore(&rtasd_log_lock, s);
 		error = wait_event_interruptible(rtas_log_wait, rtas_log_size);
@@ -360,6 +397,10 @@ static void do_event_scan(void)
 static void rtas_event_scan(struct work_struct *w);
 DECLARE_DELAYED_WORK(event_scan_work, rtas_event_scan);
 
+/*
+ * Delay should be at least one second since some machines have problems if
+ * we call event-scan too quickly.
+ */
 static unsigned long event_scan_delay = 1*HZ;
 static int first_pass = 1;
 
@@ -371,7 +412,7 @@ static void rtas_event_scan(struct work_struct *w)
 
 	get_online_cpus();
 
-	
+	/* raw_ OK because just using CPU as starting point. */
 	cpu = cpumask_next(raw_smp_processor_id(), cpu_online_mask);
         if (cpu >= nr_cpu_ids) {
 		cpu = cpumask_first(cpu_online_mask);
@@ -400,11 +441,11 @@ static void retreive_nvram_error_log(void)
 	unsigned int err_type ;
 	int rc ;
 
-	
+	/* See if we have any error stored in NVRAM */
 	memset(logdata, 0, rtas_error_log_max);
 	rc = nvram_read_error_log(logdata, rtas_error_log_max,
 	                          &err_type, &error_log_cnt);
-	
+	/* We can use rtas_log_buf now */
 	logging_enabled = 1;
 	if (!rc) {
 		if (err_type != ERR_FLAG_ALREADY_LOGGED) {
@@ -412,11 +453,11 @@ static void retreive_nvram_error_log(void)
 		}
 	}
 }
-#else 
+#else /* CONFIG_PPC64 */
 static void retreive_nvram_error_log(void)
 {
 }
-#endif 
+#endif /* CONFIG_PPC64 */
 
 static void start_event_scan(void)
 {
@@ -424,13 +465,14 @@ static void start_event_scan(void)
 	pr_debug("rtasd: will sleep for %d milliseconds\n",
 		 (30000 / rtas_event_scan_rate));
 
-	
+	/* Retrieve errors from nvram if any */
 	retreive_nvram_error_log();
 
 	schedule_delayed_work_on(cpumask_first(cpu_online_mask),
 				 &event_scan_work, event_scan_delay);
 }
 
+/* Cancel the rtas event scan work */
 void rtas_cancel_event_scan(void)
 {
 	cancel_delayed_work_sync(&event_scan_work);
@@ -444,7 +486,7 @@ static int __init rtas_init(void)
 	if (!machine_is(pseries) && !machine_is(chrp))
 		return 0;
 
-	
+	/* No RTAS */
 	event_scan = rtas_token("event-scan");
 	if (event_scan == RTAS_UNKNOWN_SERVICE) {
 		printk(KERN_INFO "rtasd: No event-scan on system\n");
@@ -458,12 +500,12 @@ static int __init rtas_init(void)
 	}
 
 	if (!rtas_event_scan_rate) {
-		
+		/* Broken firmware: take a rate of zero to mean don't scan */
 		printk(KERN_DEBUG "rtasd: scan rate is 0, not scanning\n");
 		return 0;
 	}
 
-	
+	/* Make room for the sequence number */
 	rtas_error_log_max = rtas_get_error_log_max();
 	rtas_error_log_buffer_max = rtas_error_log_max + sizeof(int);
 
@@ -488,7 +530,7 @@ static int __init surveillance_setup(char *str)
 {
 	int i;
 
-	
+	/* We only do surveillance on pseries */
 	if (!machine_is(pseries))
 		return 0;
 

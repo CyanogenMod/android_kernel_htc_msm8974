@@ -1,3 +1,4 @@
+/* This file isn't really needed right now. */
 
 #if 0
 
@@ -25,6 +26,7 @@ void iss_serial_puts( char *s )
     __simc( SYS_write, 1, s, strlen(s) );
 }
 
+/*#error Need I/O ports to specific hardware!*/
 
 #endif
 

@@ -31,7 +31,7 @@
 
 static void tosh_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
-	static const u16 pio[6] = {	
+	static const u16 pio[6] = {	/* For reg 0x50 low word & E088 */
 		0x0566, 0x0433, 0x0311, 0x0201, 0x0200, 0x0100
 	};
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
@@ -47,12 +47,12 @@ static void tosh_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	u32 conf;
 	pci_read_config_dword(pdev, 0x5C, &conf);
-	conf &= 0x78FFE088;	
+	conf &= 0x78FFE088;	/* Keep the other bits */
 	if (adev->dma_mode >= XFER_UDMA_0) {
 		int udma = adev->dma_mode - XFER_UDMA_0;
 		conf |= 0x80000000;
 		conf |= (udma + 2) << 28;
-		conf |= (2 - udma) * 0x111;	
+		conf |= (2 - udma) * 0x111;	/* spread into three nibbles */
 	} else {
 		static const u32 mwdma[4] = {
 			0x0655, 0x0200, 0x0200, 0x0100
@@ -74,6 +74,15 @@ static struct ata_port_operations tosh_port_ops = {
 	.set_dmamode	= tosh_set_dmamode
 };
 
+/**
+ *	ata_tosh_init		-	attach generic IDE
+ *	@dev: PCI device found
+ *	@id: match entry
+ *
+ *	Called each time a matching IDE interface is found. We check if the
+ *	interface is one we wish to claim and if so we perform any chip
+ *	specific hacks then let the ATA layer do the heavy lifting.
+ */
 
 static int ata_tosh_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
@@ -85,7 +94,7 @@ static int ata_tosh_init_one(struct pci_dev *dev, const struct pci_device_id *id
 		.port_ops = &tosh_port_ops
 	};
 	const struct ata_port_info *ppi[] = { &info, &ata_dummy_port_info };
-	
+	/* Just one port for the moment */
 	return ata_pci_bmdma_init_one(dev, ppi, &tosh_sht, NULL, 0);
 }
 

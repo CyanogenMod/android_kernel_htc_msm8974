@@ -5,6 +5,9 @@
  *  Copyright (C) 1997, 1998 Jakub Jelinek   (jj@sunsite.mff.cuni.cz)
  */
 
+/*
+ * This file handles the architecture-dependent parts of process handling..
+ */
 
 #include <stdarg.h>
 
@@ -60,7 +63,7 @@ static void sparc64_yield(int cpu)
 	while (!need_resched() && !cpu_is_offline(cpu)) {
 		unsigned long pstate;
 
-		
+		/* Disable interrupts. */
 		__asm__ __volatile__(
 			"rdpr %%pstate, %0\n\t"
 			"andn %0, %1, %0\n\t"
@@ -71,7 +74,7 @@ static void sparc64_yield(int cpu)
 		if (!need_resched() && !cpu_is_offline(cpu))
 			sun4v_cpu_yield();
 
-		
+		/* Re-enable interrupts. */
 		__asm__ __volatile__(
 			"rdpr %%pstate, %0\n\t"
 			"or %0, %1, %0\n\t"
@@ -83,6 +86,7 @@ static void sparc64_yield(int cpu)
 	set_thread_flag(TIF_POLLING_NRFLAG);
 }
 
+/* The idle loop on sparc64. */
 void cpu_idle(void)
 {
 	int cpu = smp_processor_id();
@@ -232,6 +236,11 @@ static void __global_reg_self(struct thread_info *tp, struct pt_regs *regs,
 	global_reg_snapshot[this_cpu].thread = tp;
 }
 
+/* In order to avoid hangs we do not try to synchronize with the
+ * global register dump client cpus.  The last store they make is to
+ * the thread pointer, so do a short poll waiting for that to become
+ * non-NULL.
+ */
 static void __global_reg_poll(struct global_reg_snapshot *gp)
 {
 	int limit = 0;
@@ -332,6 +341,7 @@ unsigned long thread_saved_pc(struct task_struct *tsk)
 	return ret;
 }
 
+/* Free current thread data structures etc.. */
 void exit_thread(void)
 {
 	struct thread_info *t = current_thread_info();
@@ -355,10 +365,11 @@ void flush_thread(void)
 
 	set_thread_wsaved(0);
 
-	
+	/* Clear FPU register state. */
 	t->fpsaved[0] = 0;
 }
 
+/* It's a bit more tricky when 64-bit tasks are involved... */
 static unsigned long clone_stackframe(unsigned long csp, unsigned long psp)
 {
 	unsigned long fp, distance, rval;
@@ -371,6 +382,10 @@ static unsigned long clone_stackframe(unsigned long csp, unsigned long psp)
 	} else
 		__get_user(fp, &(((struct reg_window32 __user *)psp)->ins[6]));
 
+	/* Now align the stack as this is mandatory in the Sparc ABI
+	 * due to how register windows work.  This hides the
+	 * restriction from thread libraries etc.
+	 */
 	csp &= ~15UL;
 
 	distance = fp - psp;
@@ -392,6 +407,7 @@ static unsigned long clone_stackframe(unsigned long csp, unsigned long psp)
 	return rval;
 }
 
+/* Standard stuff. */
 static inline void shift_window_buffer(int first_win, int last_win,
 				       struct thread_info *t)
 {
@@ -505,12 +521,22 @@ asmlinkage long sparc_do_fork(unsigned long clone_flags,
 		      regs, stack_size,
 		      parent_tid_ptr, child_tid_ptr);
 
+	/* If we get an error and potentially restart the system
+	 * call, we're screwed because copy_thread() clobbered
+	 * the parent's %o1.  So detect that case and restore it
+	 * here.
+	 */
 	if ((unsigned long)ret >= -ERESTART_RESTARTBLOCK)
 		regs->u_regs[UREG_I1] = orig_i1;
 
 	return ret;
 }
 
+/* Copy a Sparc thread.  The fork() return value conventions
+ * under SunOS are nothing short of bletcherous:
+ * Parent -->  %o0 == childs  pid, %o1 == 0
+ * Child  -->  %o0 == parents pid, %o1 == 1
+ */
 int copy_thread(unsigned long clone_flags, unsigned long sp,
 		unsigned long unused,
 		struct task_struct *p, struct pt_regs *regs)
@@ -524,7 +550,7 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 	kernel_thread = (regs->tstate & TSTATE_PRIV) ? 1 : 0;
 	parent_sf = ((struct sparc_stackf *) regs) - 1;
 
-	
+	/* Calculate offset to stack_frame & pt_regs */
 	child_stack_sz = ((STACKFRAME_SZ + TRACEREG_SZ) +
 			  (kernel_thread ? STACKFRAME_SZ : 0));
 	child_trap_frame = (task_stack_page(p) +
@@ -544,7 +570,7 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 		struct sparc_stackf *child_sf = (struct sparc_stackf *)
 			(child_trap_frame + (STACKFRAME_SZ + TRACEREG_SZ));
 
-		
+		/* Zero terminate the stack backtrace.  */
 		child_sf->fp = NULL;
 		t->kregs->u_regs[UREG_FP] =
 		  ((unsigned long) child_sf) - STACK_BIAS;
@@ -571,11 +597,11 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 			t->utraps[0]++;
 	}
 
-	
+	/* Set the return value for the child. */
 	t->kregs->u_regs[UREG_I0] = current->pid;
 	t->kregs->u_regs[UREG_I1] = 1;
 
-	
+	/* Set the second return value for the parent. */
 	regs->u_regs[UREG_I1] = 0;
 
 	if (clone_flags & CLONE_SETTLS)
@@ -584,23 +610,36 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 	return 0;
 }
 
+/*
+ * This is the mechanism for creating a new kernel thread.
+ *
+ * NOTE! Only a kernel-only process(ie the swapper or direct descendants
+ * who haven't done an "execve()") should use this: it will work within
+ * a system call from a "real" process, but the process memory space will
+ * not be freed until both the parent and the child have exited.
+ */
 pid_t kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
 	long retval;
 
-	__asm__ __volatile__("mov %4, %%g2\n\t"	   
-			     "mov %5, %%g3\n\t"	   
-			     "mov %1, %%g1\n\t"	   
-			     "mov %2, %%o0\n\t"	   
-			     "mov 0, %%o1\n\t"	   
-			     "t 0x6d\n\t"	   
-			     "brz,a,pn %%o1, 1f\n\t" 
+	/* If the parent runs before fn(arg) is called by the child,
+	 * the input registers of this function can be clobbered.
+	 * So we stash 'fn' and 'arg' into global registers which
+	 * will not be modified by the parent.
+	 */
+	__asm__ __volatile__("mov %4, %%g2\n\t"	   /* Save FN into global */
+			     "mov %5, %%g3\n\t"	   /* Save ARG into global */
+			     "mov %1, %%g1\n\t"	   /* Clone syscall nr. */
+			     "mov %2, %%o0\n\t"	   /* Clone flags. */
+			     "mov 0, %%o1\n\t"	   /* usp arg == 0 */
+			     "t 0x6d\n\t"	   /* Linux/Sparc clone(). */
+			     "brz,a,pn %%o1, 1f\n\t" /* Parent, just return. */
 			     " mov %%o0, %0\n\t"
-			     "jmpl %%g2, %%o7\n\t"   
-			     " mov %%g3, %%o0\n\t"   
+			     "jmpl %%g2, %%o7\n\t"   /* Call the function. */
+			     " mov %%g3, %%o0\n\t"   /* Set arg in delay. */
 			     "mov %3, %%g1\n\t"
-			     "t 0x6d\n\t"	   
-			     
+			     "t 0x6d\n\t"	   /* Linux/Sparc exit(). */
+			     /* Notreached by child. */
 			     "1:" :
 			     "=r" (retval) :
 			     "i" (__NR_clone), "r" (flags | CLONE_VM | CLONE_UNTRACED),
@@ -623,6 +662,9 @@ typedef struct {
 	unsigned int	pr_q[64];
 } elf_fpregset_t32;
 
+/*
+ * fill in the fpu structure for a core dump.
+ */
 int dump_fpu (struct pt_regs * regs, elf_fpregset_t * fpregs)
 {
 	unsigned long *kfpregs = current_thread_info()->fpregs;
@@ -673,14 +715,18 @@ int dump_fpu (struct pt_regs * regs, elf_fpregset_t * fpregs)
 }
 EXPORT_SYMBOL(dump_fpu);
 
+/*
+ * sparc_execve() executes a new program after the asm stub has set
+ * things up for us.  This should basically do what I want it to.
+ */
 asmlinkage int sparc_execve(struct pt_regs *regs)
 {
 	int error, base = 0;
 	char *filename;
 
-	
+	/* User register window flush is done by entry.S */
 
-	
+	/* Check for indirect call. */
 	if (regs->u_regs[UREG_G1] == 0)
 		base = 1;
 

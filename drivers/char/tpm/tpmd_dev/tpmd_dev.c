@@ -51,17 +51,21 @@ MODULE_AUTHOR("Mario Strasser <mast@gmx.net>");
 MODULE_DESCRIPTION("Trusted Platform Module (TPM) Emulator");
 MODULE_SUPPORTED_DEVICE(TPM_DEVICE_ID);
 
+/* module parameters */
 char *tpmd_socket_name = TPM_SOCKET_NAME;
 module_param(tpmd_socket_name, charp, 0444);
 MODULE_PARM_DESC(tpmd_socket_name, " Sets the name of the TPM daemon socket.");
 
+/* TPM lock */
 static struct semaphore tpm_mutex;
 
+/* TPM command response */
 static struct {
   uint8_t *data;
   uint32_t size;
 } tpm_response;
 
+/* module state */
 static uint32_t module_state;
 static struct socket *tpmd_sock;
 static struct sockaddr_un addr;
@@ -100,7 +104,7 @@ static int tpmd_handle_command(const uint8_t *in, uint32_t in_size)
   mm_segment_t oldmm;
   struct msghdr msg;
   struct iovec iov;
-  
+  /* send command to tpmd */
   memset(&msg, 0, sizeof(msg));
   iov.iov_base = (void*)in;
   iov.iov_len = in_size;
@@ -111,7 +115,7 @@ static int tpmd_handle_command(const uint8_t *in, uint32_t in_size)
     error("sock_sendmsg() failed: %d\n", res);
     return res;
   }
-  
+  /* receive response from tpmd */
   tpm_response.size = TPM_CMD_BUF_SIZE;
   tpm_response.data = kmalloc(tpm_response.size, GFP_KERNEL);
   if (tpm_response.data == NULL) return -1;
@@ -247,7 +251,7 @@ int __init init_tpm_module(void)
     error("misc_register() failed for minor %d\n", TPM_DEVICE_MINOR);
     return res;
   }
-  
+  /* initialize variables */
   sema_init(&tpm_mutex, 1);
   module_state = 0;
   tpm_response.data = NULL;

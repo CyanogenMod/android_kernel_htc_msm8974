@@ -12,7 +12,14 @@
  *
  ******************************************************************************/
 
+/*
+ * defines for all SMT attributes
+ */
 
+/*
+ * this boring file was produced by perl
+ * thanks Larry !
+ */
 #define	SMT_P0012	0x0012
 
 #define	SMT_P0015	0x0015

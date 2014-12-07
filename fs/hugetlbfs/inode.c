@@ -9,7 +9,7 @@
 #include <linux/module.h>
 #include <linux/thread_info.h>
 #include <asm/current.h>
-#include <linux/sched.h>		
+#include <linux/sched.h>		/* remove ASAP */
 #include <linux/fs.h>
 #include <linux/mount.h>
 #include <linux/file.h>
@@ -62,7 +62,7 @@ static inline struct hugetlbfs_inode_info *HUGETLBFS_I(struct inode *inode)
 
 static struct backing_dev_info hugetlbfs_backing_dev_info = {
 	.name		= "hugetlbfs",
-	.ra_pages	= 0,	
+	.ra_pages	= 0,	/* No readahead */
 	.capabilities	= BDI_CAP_NO_ACCT_AND_WRITEBACK,
 };
 
@@ -102,6 +102,14 @@ static int hugetlbfs_file_mmap(struct file *file, struct vm_area_struct *vma)
 	int ret;
 	struct hstate *h = hstate_file(file);
 
+	/*
+	 * vma address alignment (but not the pgoff alignment) has
+	 * already been checked by prepare_hugepage_range.  If you add
+	 * any error returns here, do so after setting VM_HUGETLB, so
+	 * is_vm_hugetlb_page tests below unmap_region go the right
+	 * way when do_mmap_pgoff unwinds (may be important on powerpc
+	 * and ia64).
+	 */
 	vma->vm_flags |= VM_HUGETLB | VM_RESERVED;
 	vma->vm_ops = &hugetlb_vm_ops;
 
@@ -132,6 +140,9 @@ out:
 	return ret;
 }
 
+/*
+ * Called under down_write(mmap_sem).
+ */
 
 #ifndef HAVE_ARCH_HUGETLB_UNMAPPED_AREA
 static unsigned long
@@ -173,8 +184,12 @@ full_search:
 	addr = ALIGN(start_addr, huge_page_size(h));
 
 	for (vma = find_vma(mm, addr); ; vma = vma->vm_next) {
-		
+		/* At this point:  (!vma || addr < vma->vm_end). */
 		if (TASK_SIZE - len < addr) {
+			/*
+			 * Start a new search - just in case we missed
+			 * some holes.
+			 */
 			if (start_addr != TASK_UNMAPPED_BASE) {
 				start_addr = TASK_UNMAPPED_BASE;
 				mm->cached_hole_size = 0;
@@ -206,7 +221,7 @@ hugetlbfs_read_actor(struct page *page, unsigned long offset,
 	if (size > count)
 		size = count;
 
-	
+	/* Find which 4k chunk and offset with in that chunk */
 	i = offset >> PAGE_CACHE_SHIFT;
 	offset = offset & ~PAGE_CACHE_MASK;
 
@@ -232,6 +247,11 @@ hugetlbfs_read_actor(struct page *page, unsigned long offset,
 	return copied ? copied : -EFAULT;
 }
 
+/*
+ * Support for read() - Find the page attached to f_mapping and copy out the
+ * data. Its *very* similar to do_generic_mapping_read(), we can't use that
+ * since it has PAGE_CACHE_SIZE assumptions.
+ */
 static ssize_t hugetlbfs_read(struct file *filp, char __user *buf,
 			      size_t len, loff_t *ppos)
 {
@@ -244,7 +264,7 @@ static ssize_t hugetlbfs_read(struct file *filp, char __user *buf,
 	loff_t isize;
 	ssize_t retval = 0;
 
-	
+	/* validate length */
 	if (len == 0)
 		goto out;
 
@@ -253,7 +273,7 @@ static ssize_t hugetlbfs_read(struct file *filp, char __user *buf,
 		unsigned long nr, ret;
 		int ra;
 
-		
+		/* nr is the maximum number of bytes to copy from this page */
 		nr = huge_page_size(h);
 		isize = i_size_read(inode);
 		if (!isize)
@@ -268,9 +288,13 @@ static ssize_t hugetlbfs_read(struct file *filp, char __user *buf,
 		}
 		nr = nr - offset;
 
-		
+		/* Find the page */
 		page = find_lock_page(mapping, index);
 		if (unlikely(page == NULL)) {
+			/*
+			 * We have a HOLE, zero out the user-buffer for the
+			 * length of the hole or request.
+			 */
 			ret = len < nr ? len : nr;
 			if (clear_user(buf, ret))
 				ra = -EFAULT;
@@ -279,6 +303,9 @@ static ssize_t hugetlbfs_read(struct file *filp, char __user *buf,
 		} else {
 			unlock_page(page);
 
+			/*
+			 * We have the page, copy it to user space buffer.
+			 */
 			ra = hugetlbfs_read_actor(page, offset, buf, len, nr);
 			ret = ra;
 			page_cache_release(page);
@@ -295,7 +322,7 @@ static ssize_t hugetlbfs_read(struct file *filp, char __user *buf,
 		index += offset >> huge_page_shift(h);
 		offset &= ~huge_page_mask(h);
 
-		
+		/* short read or no more work */
 		if ((ret != nr) || (len == 0))
 			break;
 	}
@@ -322,7 +349,7 @@ static int hugetlbfs_write_end(struct file *file, struct address_space *mapping,
 
 static void truncate_huge_page(struct page *page)
 {
-	cancel_dirty_page(page, 0);
+	cancel_dirty_page(page, /* No IO accounting for huge pages? */0);
 	ClearPageUptodate(page);
 	delete_from_page_cache(page);
 }
@@ -378,6 +405,12 @@ hugetlb_vmtruncate_list(struct prio_tree_root *root, pgoff_t pgoff)
 	vma_prio_tree_foreach(vma, &iter, root, pgoff, ULONG_MAX) {
 		unsigned long v_offset;
 
+		/*
+		 * Can the expression below overflow on 32-bit arches?
+		 * No, because the prio_tree returns us only those vmas
+		 * which overlap the truncated area starting at pgoff,
+		 * and no vma on a 32-bit arch can span beyond the 4GB.
+		 */
 		if (vma->vm_pgoff < pgoff)
 			v_offset = (pgoff - vma->vm_pgoff) << PAGE_SHIFT;
 		else
@@ -450,7 +483,7 @@ static struct inode *hugetlbfs_get_root(struct super_block *sb,
 		mpol_shared_policy_init(&info->policy, NULL);
 		inode->i_op = &hugetlbfs_dir_inode_operations;
 		inode->i_fop = &simple_dir_operations;
-		
+		/* directory inodes start off with i_nlink == 2 (for "." entry) */
 		inc_nlink(inode);
 		lockdep_annotate_inode_mutex_key(inode);
 	}
@@ -473,6 +506,13 @@ static struct inode *hugetlbfs_get_inode(struct super_block *sb,
 		inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 		INIT_LIST_HEAD(&inode->i_mapping->private_list);
 		info = HUGETLBFS_I(inode);
+		/*
+		 * The policy is initialized here even if we are creating a
+		 * private inode because initialization simply creates an
+		 * an empty rb tree and calls spin_lock_init(), later when we
+		 * call mpol_free_shared_policy() it will just return because
+		 * the rb tree will still be empty.
+		 */
 		mpol_shared_policy_init(&info->policy, NULL);
 		switch (mode & S_IFMT) {
 		default:
@@ -486,7 +526,7 @@ static struct inode *hugetlbfs_get_inode(struct super_block *sb,
 			inode->i_op = &hugetlbfs_dir_inode_operations;
 			inode->i_fop = &simple_dir_operations;
 
-			
+			/* directory inodes start off with i_nlink == 2 (for "." entry) */
 			inc_nlink(inode);
 			break;
 		case S_IFLNK:
@@ -498,6 +538,9 @@ static struct inode *hugetlbfs_get_inode(struct super_block *sb,
 	return inode;
 }
 
+/*
+ * File creation. Allocate an inode, and we're done..
+ */
 static int hugetlbfs_mknod(struct inode *dir,
 			struct dentry *dentry, umode_t mode, dev_t dev)
 {
@@ -508,7 +551,7 @@ static int hugetlbfs_mknod(struct inode *dir,
 	if (inode) {
 		dir->i_ctime = dir->i_mtime = CURRENT_TIME;
 		d_instantiate(dentry, inode);
-		dget(dentry);	
+		dget(dentry);	/* Extra count - pin the dentry in core */
 		error = 0;
 	}
 	return error;
@@ -548,6 +591,9 @@ static int hugetlbfs_symlink(struct inode *dir,
 	return error;
 }
 
+/*
+ * mark the head page dirty
+ */
 static int hugetlbfs_set_page_dirty(struct page *page)
 {
 	struct page *head = compound_head(page);
@@ -579,6 +625,8 @@ static int hugetlbfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_bsize = huge_page_size(h);
 	if (sbinfo) {
 		spin_lock(&sbinfo->stat_lock);
+		/* If no limits set, just report 0 for max/free/used
+		 * blocks, like simple_statfs() */
 		if (sbinfo->spool) {
 			long free_pages;
 
@@ -753,7 +801,7 @@ hugetlbfs_parse_options(char *options, struct hugetlbfs_config *pconfig)
 			break;
 
 		case Opt_size: {
-			
+			/* memparse() will accept a K/M/G without a digit */
 			if (!isdigit(*args[0].from))
 				goto bad_val;
 			size = memparse(args[0].from, &rest);
@@ -764,7 +812,7 @@ hugetlbfs_parse_options(char *options, struct hugetlbfs_config *pconfig)
 		}
 
 		case Opt_nr_inodes:
-			
+			/* memparse() will accept a K/M/G without a digit */
 			if (!isdigit(*args[0].from))
 				goto bad_val;
 			pconfig->nr_inodes = memparse(args[0].from, &rest);
@@ -791,7 +839,7 @@ hugetlbfs_parse_options(char *options, struct hugetlbfs_config *pconfig)
 		}
 	}
 
-	
+	/* Do size after hstate is set up */
 	if (setsize > NO_SIZE) {
 		struct hstate *h = pconfig->hstate;
 		if (setsize == SIZE_PERCENT) {
@@ -819,8 +867,8 @@ hugetlbfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	save_mount_options(sb, data);
 
-	config.nr_blocks = -1; 
-	config.nr_inodes = -1; 
+	config.nr_blocks = -1; /* No limit on size by default */
+	config.nr_inodes = -1; /* No limit on number of inodes by default */
 	config.uid = current_fsuid();
 	config.gid = current_fsgid();
 	config.mode = 0755;
@@ -940,7 +988,7 @@ struct file *hugetlb_file_setup(const char *name, unsigned long addr,
 	file = alloc_file(&path, FMODE_WRITE | FMODE_READ,
 			&hugetlbfs_file_operations);
 	if (!file)
-		goto out_dentry; 
+		goto out_dentry; /* inode is already attached */
 
 	return file;
 

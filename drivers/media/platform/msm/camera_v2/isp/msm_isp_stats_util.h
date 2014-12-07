@@ -22,4 +22,4 @@ void msm_isp_stats_stream_update(struct vfe_device *vfe_dev);
 int msm_isp_cfg_stats_stream(struct vfe_device *vfe_dev, void *arg);
 int msm_isp_release_stats_stream(struct vfe_device *vfe_dev, void *arg);
 int msm_isp_request_stats_stream(struct vfe_device *vfe_dev, void *arg);
-#endif 
+#endif /* __MSM_ISP_STATS_UTIL_H__ */

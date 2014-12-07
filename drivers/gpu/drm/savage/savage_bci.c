@@ -26,8 +26,10 @@
 #include "savage_drm.h"
 #include "savage_drv.h"
 
-#define SAVAGE_DEFAULT_USEC_TIMEOUT	1000000	
-#define SAVAGE_EVENT_USEC_TIMEOUT	5000000	
+/* Need a long timeout for shadow status updates can take a while
+ * and so can waiting for events when the queue is full. */
+#define SAVAGE_DEFAULT_USEC_TIMEOUT	1000000	/* 1s */
+#define SAVAGE_EVENT_USEC_TIMEOUT	5000000	/* 5s */
 #define SAVAGE_FREELIST_DEBUG		0
 
 static int savage_do_cleanup_bci(struct drm_device *dev);
@@ -103,6 +105,17 @@ savage_bci_wait_fifo_s4(drm_savage_private_t * dev_priv, unsigned int n)
 	return -EBUSY;
 }
 
+/*
+ * Waiting for events.
+ *
+ * The BIOSresets the event tag to 0 on mode changes. Therefore we
+ * never emit 0 to the event tag. If we find a 0 event tag we know the
+ * BIOS stomped on it and return success assuming that the BIOS waited
+ * for engine idle.
+ *
+ * Note: if the Xserver uses the event tag it has to follow the same
+ * rule. Otherwise there may be glitches every 2^16 events.
+ */
 static int
 savage_bci_wait_event_shadow(drm_savage_private_t * dev_priv, uint16_t e)
 {
@@ -155,7 +168,7 @@ uint16_t savage_bci_emit_event(drm_savage_private_t * dev_priv,
 	BCI_LOCALS;
 
 	if (dev_priv->status_ptr) {
-		
+		/* coordinate with Xserver */
 		count = dev_priv->status_ptr[1023];
 		if (count < dev_priv->event_counter)
 			dev_priv->event_wrap++;
@@ -164,7 +177,7 @@ uint16_t savage_bci_emit_event(drm_savage_private_t * dev_priv,
 	}
 	count = (count + 1) & 0xffff;
 	if (count == 0) {
-		count++;	
+		count++;	/* See the comment above savage_wait_event_*. */
 		dev_priv->event_wrap++;
 	}
 	dev_priv->event_counter = count;
@@ -187,6 +200,9 @@ uint16_t savage_bci_emit_event(drm_savage_private_t * dev_priv,
 	return count;
 }
 
+/*
+ * Freelist management
+ */
 static int savage_freelist_init(struct drm_device * dev)
 {
 	drm_savage_private_t *dev_priv = dev->dev_private;
@@ -235,7 +251,7 @@ static struct drm_buf *savage_freelist_get(struct drm_device * dev)
 		event = SAVAGE_READ(SAVAGE_STATUS_WORD1) & 0xffff;
 	wrap = dev_priv->event_wrap;
 	if (event > dev_priv->event_counter)
-		wrap--;		
+		wrap--;		/* hardware hasn't passed the last wrap yet */
 
 	DRM_DEBUG("   tail=0x%04x %d\n", tail->age.event, tail->age.wrap);
 	DRM_DEBUG("   head=0x%04x %d\n", event, wrap);
@@ -273,6 +289,9 @@ void savage_freelist_put(struct drm_device * dev, struct drm_buf * buf)
 	entry->next = next;
 }
 
+/*
+ * Command DMA
+ */
 static int savage_dma_init(drm_savage_private_t * dev_priv)
 {
 	unsigned int i;
@@ -317,7 +336,7 @@ void savage_dma_wait(drm_savage_private_t * dev_priv, unsigned int page)
 	uint16_t event;
 	unsigned int wrap;
 
-	
+	/* Faked DMA buffer pages don't age. */
 	if (dev_priv->cmd_dma == &dev_priv->fake_dma)
 		return;
 
@@ -328,7 +347,7 @@ void savage_dma_wait(drm_savage_private_t * dev_priv, unsigned int page)
 		event = SAVAGE_READ(SAVAGE_STATUS_WORD1) & 0xffff;
 	wrap = dev_priv->event_wrap;
 	if (event > dev_priv->event_counter)
-		wrap--;		
+		wrap--;		/* hardware hasn't passed the last wrap yet */
 
 	if (dev_priv->dma_pages[page].age.wrap > wrap ||
 	    (dev_priv->dma_pages[page].age.wrap == wrap &&
@@ -409,6 +428,8 @@ static void savage_dma_flush(drm_savage_private_t * dev_priv)
 	    dev_priv->dma_pages[cur].used == dev_priv->dma_pages[cur].flushed)
 		return;
 
+	/* pad length to multiples of 2 entries
+	 * align start of next DMA block to multiles of 8 entries */
 	pad = -dev_priv->dma_pages[cur].used & 1;
 	align = -(dev_priv->dma_pages[cur].used + pad) & 7;
 
@@ -417,7 +438,7 @@ static void savage_dma_flush(drm_savage_private_t * dev_priv)
 		  first, cur, dev_priv->dma_pages[first].flushed,
 		  dev_priv->dma_pages[cur].used, pad, align);
 
-	
+	/* pad with noops */
 	if (pad) {
 		uint32_t *dma_ptr = (uint32_t *) dev_priv->cmd_dma->handle +
 		    cur * SAVAGE_DMA_PAGE_SIZE + dev_priv->dma_pages[cur].used;
@@ -430,7 +451,7 @@ static void savage_dma_flush(drm_savage_private_t * dev_priv)
 
 	DRM_MEMORYBARRIER();
 
-	
+	/* do flush ... */
 	phys_addr = dev_priv->cmd_dma->offset +
 	    (first * SAVAGE_DMA_PAGE_SIZE +
 	     dev_priv->dma_pages[first].flushed) * 4;
@@ -445,10 +466,10 @@ static void savage_dma_flush(drm_savage_private_t * dev_priv)
 	BCI_WRITE(phys_addr | dev_priv->dma_type);
 	BCI_DMA(len);
 
-	
+	/* fix alignment of the start of the next block */
 	dev_priv->dma_pages[cur].used += align;
 
-	
+	/* age DMA pages */
 	event = savage_bci_emit_event(dev_priv, 0);
 	wrap = dev_priv->event_wrap;
 	for (i = first; i < cur; ++i) {
@@ -456,12 +477,12 @@ static void savage_dma_flush(drm_savage_private_t * dev_priv)
 		dev_priv->dma_pages[i].used = 0;
 		dev_priv->dma_pages[i].flushed = 0;
 	}
-	
+	/* age the current page only when it's full */
 	if (dev_priv->dma_pages[cur].used == SAVAGE_DMA_PAGE_SIZE) {
 		SET_AGE(&dev_priv->dma_pages[cur].age, event, wrap);
 		dev_priv->dma_pages[cur].used = 0;
 		dev_priv->dma_pages[cur].flushed = 0;
-		
+		/* advance to next page */
 		cur++;
 		if (cur == dev_priv->nr_dma_pages)
 			cur = 0;
@@ -496,7 +517,7 @@ static void savage_fake_dma_flush(drm_savage_private_t * dev_priv)
 		uint32_t *dma_ptr = (uint32_t *) dev_priv->cmd_dma->handle +
 		    i * SAVAGE_DMA_PAGE_SIZE;
 #if SAVAGE_DMA_DEBUG
-		
+		/* Sanity check: all pages except the last one must be full. */
 		if (i < dev_priv->current_dma_page &&
 		    dev_priv->dma_pages[i].used != SAVAGE_DMA_PAGE_SIZE) {
 			DRM_ERROR("partial DMA page %u: used=%u",
@@ -510,7 +531,7 @@ static void savage_fake_dma_flush(drm_savage_private_t * dev_priv)
 		dev_priv->dma_pages[i].used = 0;
 	}
 
-	
+	/* reset to first page */
 	dev_priv->first_dma_page = dev_priv->current_dma_page = 0;
 }
 
@@ -530,10 +551,20 @@ int savage_driver_load(struct drm_device *dev, unsigned long chipset)
 }
 
 
+/*
+ * Initialize mappings. On Savage4 and SavageIX the alignment
+ * and size of the aperture is not suitable for automatic MTRR setup
+ * in drm_addmap. Therefore we add them manually before the maps are
+ * initialized, and tear them down on last close.
+ */
 int savage_driver_firstopen(struct drm_device *dev)
 {
 	drm_savage_private_t *dev_priv = dev->dev_private;
 	unsigned long mmio_base, fb_base, fb_size, aperture_base;
+	/* fb_rsrc and aper_rsrc aren't really used currently, but still exist
+	 * in case we decide we need information on the BAR for BSD in the
+	 * future.
+	 */
 	unsigned int fb_rsrc, aper_rsrc;
 	int ret = 0;
 
@@ -547,8 +578,10 @@ int savage_driver_firstopen(struct drm_device *dev)
 		mmio_base = fb_base + SAVAGE_FB_SIZE_S3;
 		aper_rsrc = 0;
 		aperture_base = fb_base + SAVAGE_APERTURE_OFFSET;
-		
+		/* this should always be true */
 		if (pci_resource_len(dev->pdev, 0) == 0x08000000) {
+			/* Don't make MMIO write-cobining! We need 3
+			 * MTRRs. */
 			dev_priv->mtrr[0].base = fb_base;
 			dev_priv->mtrr[0].size = 0x01000000;
 			dev_priv->mtrr[0].handle =
@@ -577,8 +610,10 @@ int savage_driver_firstopen(struct drm_device *dev)
 		fb_size = SAVAGE_FB_SIZE_S4;
 		aper_rsrc = 1;
 		aperture_base = fb_base + SAVAGE_APERTURE_OFFSET;
-		
+		/* this should always be true */
 		if (pci_resource_len(dev->pdev, 1) == 0x08000000) {
+			/* Can use one MTRR to cover both fb and
+			 * aperture. */
 			dev_priv->mtrr[0].base = fb_base;
 			dev_priv->mtrr[0].size = 0x08000000;
 			dev_priv->mtrr[0].handle =
@@ -596,7 +631,7 @@ int savage_driver_firstopen(struct drm_device *dev)
 		fb_size = pci_resource_len(dev->pdev, 1);
 		aper_rsrc = 2;
 		aperture_base = pci_resource_start(dev->pdev, 2);
-		
+		/* Automatic MTRR setup will do the right thing. */
 	}
 
 	ret = drm_addmap(dev, mmio_base, SAVAGE_MMIO_SIZE, _DRM_REGISTERS,
@@ -615,6 +650,9 @@ int savage_driver_firstopen(struct drm_device *dev)
 	return ret;
 }
 
+/*
+ * Delete MTRRs and free device-private data.
+ */
 void savage_driver_lastclose(struct drm_device *dev)
 {
 	drm_savage_private_t *dev_priv = dev->dev_private;
@@ -779,7 +817,7 @@ static int savage_do_init_bci(struct drm_device * dev, drm_savage_init_t * init)
 	    (drm_savage_sarea_t *) ((uint8_t *) dev_priv->sarea->handle +
 				    init->sarea_priv_offset);
 
-	
+	/* setup bitmap descriptors */
 	{
 		unsigned int color_tile_format;
 		unsigned int depth_tile_format;
@@ -811,7 +849,7 @@ static int savage_do_init_bci(struct drm_device * dev, drm_savage_init_t * init)
 		    (depth_tile_format << SAVAGE_BD_TILE_SHIFT);
 	}
 
-	
+	/* setup status and bci ptr */
 	dev_priv->event_counter = 0;
 	dev_priv->event_wrap = 0;
 	dev_priv->bci_ptr = (volatile uint32_t *)
@@ -837,7 +875,7 @@ static int savage_do_init_bci(struct drm_device * dev, drm_savage_init_t * init)
 		dev_priv->wait_evnt = savage_bci_wait_event_reg;
 	}
 
-	
+	/* cliprect functions */
 	if (S3_SAVAGE3D_SERIES(dev_priv->chipset))
 		dev_priv->emit_clip_rect = savage_emit_clip_rect_s3d;
 	else
@@ -872,6 +910,9 @@ static int savage_do_cleanup_bci(struct drm_device * dev)
 	if (dev_priv->dma_type == SAVAGE_DMA_AGP &&
 	    dev->agp_buffer_map && dev->agp_buffer_map->handle) {
 		drm_core_ioremapfree(dev->agp_buffer_map, dev);
+		/* make sure the next instance (which may be running
+		 * in PCI mode) doesn't try to use an old
+		 * agp_buffer_map. */
 		dev->agp_buffer_map = NULL;
 	}
 
@@ -927,17 +968,24 @@ static int savage_bci_event_wait(struct drm_device *dev, void *data, struct drm_
 		hw_e = SAVAGE_READ(SAVAGE_STATUS_WORD1) & 0xffff;
 	hw_w = dev_priv->event_wrap;
 	if (hw_e > dev_priv->event_counter)
-		hw_w--;		
+		hw_w--;		/* hardware hasn't passed the last wrap yet */
 
 	event_e = event->count & 0xffff;
 	event_w = event->count >> 16;
 
+	/* Don't need to wait if
+	 * - event counter wrapped since the event was emitted or
+	 * - the hardware has advanced up to or over the event to wait for.
+	 */
 	if (event_w < hw_w || (event_w == hw_w && event_e <= hw_e))
 		return 0;
 	else
 		return dev_priv->wait_evnt(dev_priv, event_e);
 }
 
+/*
+ * DMA buffer management
+ */
 
 static int savage_bci_get_buffers(struct drm_device *dev,
 				  struct drm_file *file_priv,
@@ -973,12 +1021,16 @@ int savage_bci_buffers(struct drm_device *dev, void *data, struct drm_file *file
 
 	LOCK_TEST_WITH_RETURN(dev, file_priv);
 
+	/* Please don't send us buffers.
+	 */
 	if (d->send_count != 0) {
 		DRM_ERROR("Process %d trying to send %d buffers via drmDMA\n",
 			  DRM_CURRENTPID, d->send_count);
 		return -EINVAL;
 	}
 
+	/* We'll send you buffers.
+	 */
 	if (d->request_count < 0 || d->request_count > dma->buf_count) {
 		DRM_ERROR("Process %d trying to get %d buffers (of %d max)\n",
 			  DRM_CURRENTPID, d->request_count, dma->buf_count);
@@ -1007,7 +1059,7 @@ void savage_reclaim_buffers(struct drm_device *dev, struct drm_file *file_priv)
 	if (!dma->buflist)
 		return;
 
-	
+	/*i830_flush_queue(dev); */
 
 	for (i = 0; i < dma->buf_count; i++) {
 		struct drm_buf *buf = dma->buflist[i];

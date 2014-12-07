@@ -57,7 +57,7 @@ static struct cpufreq_frequency_table pll_vals_12MHz[] = {
     { .frequency = 192000000, .index = PLLVAL(88, 1, 1),   },
     { .frequency = 203000000, .index = PLLVAL(161, 3, 1),  },
 
-    
+    /* 2410A extras */
 
     { .frequency = 210000000, .index = PLLVAL(132, 2, 1),  },
     { .frequency = 226000000, .index = PLLVAL(105, 1, 1),  },

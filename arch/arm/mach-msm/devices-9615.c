@@ -43,6 +43,7 @@
 #include "rpm_stats.h"
 #include "rpm_log.h"
 
+/* Address of GSBI blocks */
 #define MSM_GSBI1_PHYS          0x16000000
 #define MSM_GSBI2_PHYS          0x16100000
 #define MSM_GSBI3_PHYS          0x16200000
@@ -51,6 +52,7 @@
 
 #define MSM_UART4DM_PHYS	(MSM_GSBI4_PHYS + 0x40000)
 
+/* GSBI QUP devices */
 #define MSM_GSBI1_QUP_PHYS      (MSM_GSBI1_PHYS + 0x80000)
 #define MSM_GSBI2_QUP_PHYS      (MSM_GSBI2_PHYS + 0x80000)
 #define MSM_GSBI3_QUP_PHYS      (MSM_GSBI3_PHYS + 0x80000)
@@ -58,6 +60,7 @@
 #define MSM_GSBI5_QUP_PHYS      (MSM_GSBI5_PHYS + 0x80000)
 #define MSM_QUP_SIZE            SZ_4K
 
+/* Address of SSBI CMD */
 #define MSM_PMIC1_SSBI_CMD_PHYS	0x00500000
 #define MSM_PMIC_SSBI_SIZE	SZ_4K
 
@@ -387,6 +390,7 @@ struct platform_device msm9615_device_qup_spi_gsbi3 = {
 #define LPASS_SLIMBUS_PHYS	0x28080000
 #define LPASS_SLIMBUS_BAM_PHYS	0x28084000
 #define LPASS_SLIMBUS_SLEW	(MSM9615_TLMM_PHYS + 0x207C)
+/* Board info for the slimbus slave device */
 static struct resource slimbus_res[] = {
 	{
 		.start	= LPASS_SLIMBUS_PHYS,
@@ -465,6 +469,10 @@ struct platform_device msm_cpudai_bt_tx = {
 	.id     = 0x3001,
 };
 
+/*
+ * Machine specific data for AUX PCM Interface
+ * which the driver will  be unware of.
+ */
 struct msm_dai_auxpcm_pdata auxpcm_pdata = {
 	.clk = "pcm_clk",
 	.mode_8k = {
@@ -770,6 +778,7 @@ struct platform_device msm_9615_q6_mss = {
 };
 
 #ifdef CONFIG_HW_RANDOM_MSM
+/* PRNG device */
 #define MSM_PRNG_PHYS		0x1A500000
 static struct resource rng_resources = {
 	.flags = IORESOURCE_MEM,
@@ -1041,11 +1050,14 @@ static int __init l2x0_cache_init(void)
 {
 	int aux_ctrl = 0;
 
-	
+	/* Way Size 010(0x2) 32KB */
 	aux_ctrl = (0x1 << L2X0_AUX_CTRL_SHARE_OVERRIDE_SHIFT) | \
 		   (0x2 << L2X0_AUX_CTRL_WAY_SIZE_SHIFT) | \
 		   (0x1 << L2X0_AUX_CTRL_EVNT_MON_BUS_EN_SHIFT);
 
+	/* L2 Latency setting required by hardware. Default is 0x20
+	   which is no good.
+	 */
 	writel_relaxed(0x220, MSM_L2CC_BASE + L2X0_DATA_LATENCY_CTRL);
 	l2x0_init(MSM_L2CC_BASE, aux_ctrl, L2X0_AUX_CTRL_MASK);
 
@@ -1440,8 +1452,8 @@ static struct msm_rpm_log_platform_data msm_rpm_log_pdata = {
 		[MSM_RPM_LOG_PAGE_BUFFER]  = 0x000000A0,
 	},
 	.phys_size = SZ_8K,
-	.log_len = 4096,		  
-	.log_len_mask = (4096 >> 2) - 1,  
+	.log_len = 4096,		  /* log's buffer length in bytes */
+	.log_len_mask = (4096 >> 2) - 1,  /* length mask in units of u32 */
 };
 
 struct platform_device msm9615_rpm_log_device = {

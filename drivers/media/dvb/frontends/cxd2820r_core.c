@@ -25,6 +25,7 @@ int cxd2820r_debug;
 module_param_named(debug, cxd2820r_debug, int, 0644);
 MODULE_PARM_DESC(debug, "Turn on/off frontend debugging (default:off).");
 
+/* write multiple registers */
 static int cxd2820r_wr_regs_i2c(struct cxd2820r_priv *priv, u8 i2c, u8 reg,
 	u8 *val, int len)
 {
@@ -52,6 +53,7 @@ static int cxd2820r_wr_regs_i2c(struct cxd2820r_priv *priv, u8 i2c, u8 reg,
 	return ret;
 }
 
+/* read multiple registers */
 static int cxd2820r_rd_regs_i2c(struct cxd2820r_priv *priv, u8 i2c, u8 reg,
 	u8 *val, int len)
 {
@@ -83,6 +85,7 @@ static int cxd2820r_rd_regs_i2c(struct cxd2820r_priv *priv, u8 i2c, u8 reg,
 	return ret;
 }
 
+/* write multiple registers */
 int cxd2820r_wr_regs(struct cxd2820r_priv *priv, u32 reginfo, u8 *val,
 	int len)
 {
@@ -92,13 +95,13 @@ int cxd2820r_wr_regs(struct cxd2820r_priv *priv, u32 reginfo, u8 *val,
 	u8 bank = (reginfo >> 8) & 0xff;
 	u8 i2c = (reginfo >> 16) & 0x01;
 
-	
+	/* select I2C */
 	if (i2c)
-		i2c_addr = priv->cfg.i2c_address | (1 << 1); 
+		i2c_addr = priv->cfg.i2c_address | (1 << 1); /* DVB-C */
 	else
-		i2c_addr = priv->cfg.i2c_address; 
+		i2c_addr = priv->cfg.i2c_address; /* DVB-T/T2 */
 
-	
+	/* switch bank if needed */
 	if (bank != priv->bank[i2c]) {
 		ret = cxd2820r_wr_regs_i2c(priv, i2c_addr, 0x00, &bank, 1);
 		if (ret)
@@ -108,6 +111,7 @@ int cxd2820r_wr_regs(struct cxd2820r_priv *priv, u32 reginfo, u8 *val,
 	return cxd2820r_wr_regs_i2c(priv, i2c_addr, reg, val, len);
 }
 
+/* read multiple registers */
 int cxd2820r_rd_regs(struct cxd2820r_priv *priv, u32 reginfo, u8 *val,
 	int len)
 {
@@ -117,13 +121,13 @@ int cxd2820r_rd_regs(struct cxd2820r_priv *priv, u32 reginfo, u8 *val,
 	u8 bank = (reginfo >> 8) & 0xff;
 	u8 i2c = (reginfo >> 16) & 0x01;
 
-	
+	/* select I2C */
 	if (i2c)
-		i2c_addr = priv->cfg.i2c_address | (1 << 1); 
+		i2c_addr = priv->cfg.i2c_address | (1 << 1); /* DVB-C */
 	else
-		i2c_addr = priv->cfg.i2c_address; 
+		i2c_addr = priv->cfg.i2c_address; /* DVB-T/T2 */
 
-	
+	/* switch bank if needed */
 	if (bank != priv->bank[i2c]) {
 		ret = cxd2820r_wr_regs_i2c(priv, i2c_addr, 0x00, &bank, 1);
 		if (ret)
@@ -133,16 +137,19 @@ int cxd2820r_rd_regs(struct cxd2820r_priv *priv, u32 reginfo, u8 *val,
 	return cxd2820r_rd_regs_i2c(priv, i2c_addr, reg, val, len);
 }
 
+/* write single register */
 int cxd2820r_wr_reg(struct cxd2820r_priv *priv, u32 reg, u8 val)
 {
 	return cxd2820r_wr_regs(priv, reg, &val, 1);
 }
 
+/* read single register */
 int cxd2820r_rd_reg(struct cxd2820r_priv *priv, u32 reg, u8 *val)
 {
 	return cxd2820r_rd_regs(priv, reg, val, 1);
 }
 
+/* write single register with mask */
 int cxd2820r_wr_reg_mask(struct cxd2820r_priv *priv, u32 reg, u8 val,
 	u8 mask)
 {
@@ -185,26 +192,26 @@ int cxd2820r_gpio(struct dvb_frontend *fe)
 		goto error;
 	}
 
-	
+	/* update GPIOs only when needed */
 	if (!memcmp(gpio, priv->gpio, sizeof(priv->gpio)))
 		return 0;
 
 	tmp0 = 0x00;
 	tmp1 = 0x00;
 	for (i = 0; i < sizeof(priv->gpio); i++) {
-		
+		/* enable / disable */
 		if (gpio[i] & CXD2820R_GPIO_E)
 			tmp0 |= (2 << 6) >> (2 * i);
 		else
 			tmp0 |= (1 << 6) >> (2 * i);
 
-		
+		/* input / output */
 		if (gpio[i] & CXD2820R_GPIO_I)
 			tmp1 |= (1 << (3 + i));
 		else
 			tmp1 |= (0 << (3 + i));
 
-		
+		/* high / low */
 		if (gpio[i] & CXD2820R_GPIO_H)
 			tmp1 |= (1 << (0 + i));
 		else
@@ -215,12 +222,12 @@ int cxd2820r_gpio(struct dvb_frontend *fe)
 
 	dbg("%s: wr gpio=%02x %02x", __func__, tmp0, tmp1);
 
-	
+	/* write bits [7:2] */
 	ret = cxd2820r_wr_reg_mask(priv, 0x00089, tmp0, 0xfc);
 	if (ret)
 		goto error;
 
-	
+	/* write bits [5:0] */
 	ret = cxd2820r_wr_reg_mask(priv, 0x0008e, tmp1, 0x3f);
 	if (ret)
 		goto error;
@@ -233,6 +240,7 @@ error:
 	return ret;
 }
 
+/* 64 bit div with round closest, like DIV_ROUND_CLOSEST but 64 bit */
 u32 cxd2820r_div_u64_round_closest(u64 dividend, u32 divisor)
 {
 	return div_u64(dividend + (divisor / 2), divisor);
@@ -472,7 +480,7 @@ static enum dvbfe_search cxd2820r_search(struct dvb_frontend *fe)
 	fe_status_t status = 0;
 	dbg("%s: delsys=%d", __func__, fe->dtv_property_cache.delivery_system);
 
-	
+	/* switch between DVB-T and DVB-T2 when tune fails */
 	if (priv->last_tune_failed) {
 		if (priv->delivery_system == SYS_DVBT) {
 			ret = cxd2820r_sleep_t(fe);
@@ -489,13 +497,13 @@ static enum dvbfe_search cxd2820r_search(struct dvb_frontend *fe)
 		}
 	}
 
-	
+	/* set frontend */
 	ret = cxd2820r_set_frontend(fe);
 	if (ret)
 		goto error;
 
 
-	
+	/* frontend lock wait loop count */
 	switch (priv->delivery_system) {
 	case SYS_DVBT:
 	case SYS_DVBC_ANNEX_A:
@@ -510,7 +518,7 @@ static enum dvbfe_search cxd2820r_search(struct dvb_frontend *fe)
 		break;
 	}
 
-	
+	/* wait frontend lock */
 	for (; i > 0; i--) {
 		dbg("%s: LOOP=%d", __func__, i);
 		msleep(50);
@@ -522,7 +530,7 @@ static enum dvbfe_search cxd2820r_search(struct dvb_frontend *fe)
 			break;
 	}
 
-	
+	/* check if we have a valid signal */
 	if (status) {
 		priv->last_tune_failed = 0;
 		return DVBFE_ALGO_SEARCH_SUCCESS;
@@ -555,13 +563,13 @@ static int cxd2820r_i2c_gate_ctrl(struct dvb_frontend *fe, int enable)
 	struct cxd2820r_priv *priv = fe->demodulator_priv;
 	dbg("%s: %d", __func__, enable);
 
-	
+	/* Bit 0 of reg 0xdb in bank 0x00 controls I2C repeater */
 	return cxd2820r_wr_reg_mask(priv, 0xdb, enable ? 1 : 0, 0x1);
 }
 
 static const struct dvb_frontend_ops cxd2820r_ops = {
 	.delsys = { SYS_DVBT, SYS_DVBT2, SYS_DVBC_ANNEX_A },
-	
+	/* default: DVB-T/T2 */
 	.info = {
 		.name = "Sony CXD2820R",
 

@@ -21,6 +21,7 @@
 #include <linux/ptrace.h>
 #include <hv/hypervisor.h>
 
+/* Check for compatible compiler early in the build. */
 #ifdef CONFIG_TILEGX
 # ifndef __tilegx__
 #  error Can only build TILE-Gx configurations with tilegx compiler

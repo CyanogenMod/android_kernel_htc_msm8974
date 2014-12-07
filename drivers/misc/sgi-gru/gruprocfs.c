@@ -284,6 +284,7 @@ static int gru_open(struct inode *inode, struct file *file)
 	return seq_open(file, &gru_seq_ops);
 }
 
+/* *INDENT-OFF* */
 static const struct file_operations statistics_fops = {
 	.open 		= statistics_open,
 	.read 		= seq_read,
@@ -334,6 +335,7 @@ static struct proc_entry {
 	{"gru_status", 0444, &gru_fops},
 	{NULL}
 };
+/* *INDENT-ON* */
 
 static struct proc_dir_entry *proc_gru __read_mostly;
 

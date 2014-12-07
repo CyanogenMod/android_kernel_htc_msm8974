@@ -33,9 +33,13 @@
 #include "ttype.h"
 #include "device.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 int PIPEnsControlOut(
      PSDevice     pDevice,
@@ -68,4 +72,4 @@ int PIPEnsInterruptRead(PSDevice pDevice);
 int PIPEnsBulkInUsbRead(PSDevice pDevice, PRCB pRCB);
 int PIPEnsSendBulkOut(PSDevice pDevice, PUSB_SEND_CONTEXT pContext);
 
-#endif 
+#endif /* __USBPIPE_H__ */

@@ -13,6 +13,14 @@
 #ifndef __ASM_ARCH_MSM_IOMAP_FSM9XXX_H
 #define __ASM_ARCH_MSM_IOMAP_FSM9XXX_H
 
+/* Physical base address and size of peripherals.
+ * Ordered by the virtual base addresses they will be mapped at.
+ *
+ * If you add or remove entries here, you'll want to edit the
+ * msm_io_desc array in arch/arm/mach-msm/io.c to reflect your
+ * changes.
+ *
+ */
 
 #define MSM_VIC_BASE          IOMEM(0xFA000000)
 #define MSM_VIC_PHYS          0x9C080000

@@ -25,6 +25,8 @@
 #define GRACKLE_PICR1_STG		0x00000040
 #define GRACKLE_PICR1_LOOPSNOOP		0x00000010
 
+/* N.B. this is called before bridges is initialized, so we can't
+   use grackle_pcibios_{read,write}_config_dword. */
 static inline void grackle_set_stg(struct pci_controller* bp, int enable)
 {
 	unsigned int val;
@@ -58,7 +60,7 @@ void __init setup_grackle(struct pci_controller *hose)
 		pci_add_flags(PCI_REASSIGN_ALL_BUS);
 	if (of_machine_is_compatible("AAPL,PowerBook1998"))
 		grackle_set_loop_snoop(hose, 1);
-#if 0	
+#if 0	/* Disabled for now, HW problems ??? */
 	grackle_set_stg(hose, 1);
 #endif
 }

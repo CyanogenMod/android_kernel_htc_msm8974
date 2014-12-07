@@ -73,6 +73,23 @@ static bool sg_dwiter_get_next_block(struct sg_mapping_iter *miter, uint32_t **p
 	return false;
 }
 
+/**
+ * cb710_sg_dwiter_read_next_block() - get next 32-bit word from sg buffer
+ * @miter: sg mapping iterator used for reading
+ *
+ * Description:
+ *   Returns 32-bit word starting at byte pointed to by @miter@
+ *   handling any alignment issues.  Bytes past the buffer's end
+ *   are not accessed (read) but are returned as zeroes.  @miter@
+ *   is advanced by 4 bytes or to the end of buffer whichever is
+ *   closer.
+ *
+ * Context:
+ *   Same requirements as in sg_miter_next().
+ *
+ * Returns:
+ *   32-bit word just read.
+ */
 uint32_t cb710_sg_dwiter_read_next_block(struct sg_mapping_iter *miter)
 {
 	uint32_t *ptr = NULL;

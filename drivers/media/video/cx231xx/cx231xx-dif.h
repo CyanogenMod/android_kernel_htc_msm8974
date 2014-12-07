@@ -31,6 +31,8 @@ struct dif_settings{
 
 static struct dif_settings Dif_set_array[] = {
 
+/*case 3000000:*/
+/* BEGIN - DIF BPF register values from 30_quant.dat*/
 {3000000, DIF_BPF_COEFF01,    0x00000002},
 {3000000, DIF_BPF_COEFF23,    0x00080012},
 {3000000, DIF_BPF_COEFF45,    0x001e0024},
@@ -50,8 +52,11 @@ static struct dif_settings Dif_set_array[] = {
 {3000000, DIF_BPF_COEFF3233,  0x0105070f},
 {3000000, DIF_BPF_COEFF3435,  0x0c460fce},
 {3000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 30_quant.dat*/
 
 
+/*case 3100000:*/
+/* BEGIN - DIF BPF register values from 31_quant.dat*/
 {3100000, DIF_BPF_COEFF01,    0x00000001},
 {3100000, DIF_BPF_COEFF23,    0x00070012},
 {3100000, DIF_BPF_COEFF45,    0x00220032},
@@ -71,8 +76,11 @@ static struct dif_settings Dif_set_array[] = {
 {3100000, DIF_BPF_COEFF3233,  0x0034067d},
 {3100000, DIF_BPF_COEFF3435,  0x0bfb0fb9},
 {3100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 31_quant.dat*/
 
 
+/*case 3200000:*/
+/* BEGIN - DIF BPF register values from 32_quant.dat*/
 {3200000, DIF_BPF_COEFF01,    0x00000000},
 {3200000, DIF_BPF_COEFF23,    0x0004000e},
 {3200000, DIF_BPF_COEFF45,    0x00200038},
@@ -92,8 +100,11 @@ static struct dif_settings Dif_set_array[] = {
 {3200000, DIF_BPF_COEFF3233,  0xff6405e8},
 {3200000, DIF_BPF_COEFF3435,  0x0bae0fa4},
 {3200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 32_quant.dat*/
 
 
+/*case 3300000:*/
+/* BEGIN - DIF BPF register values from 33_quant.dat*/
 {3300000, DIF_BPF_COEFF01,    0x0000ffff},
 {3300000, DIF_BPF_COEFF23,    0x00000008},
 {3300000, DIF_BPF_COEFF45,    0x001a0036},
@@ -113,8 +124,11 @@ static struct dif_settings Dif_set_array[] = {
 {3300000, DIF_BPF_COEFF3233,  0xfe930552},
 {3300000, DIF_BPF_COEFF3435,  0x0b5f0f8f},
 {3300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 33_quant.dat*/
 
 
+/*case 3400000:*/
+/* BEGIN - DIF BPF register values from 34_quant.dat*/
 {3400000, DIF_BPF_COEFF01,    0xfffffffe},
 {3400000, DIF_BPF_COEFF23,    0xfffd0001},
 {3400000, DIF_BPF_COEFF45,    0x000f002c},
@@ -134,8 +148,11 @@ static struct dif_settings Dif_set_array[] = {
 {3400000, DIF_BPF_COEFF3233,  0xfdc404b9},
 {3400000, DIF_BPF_COEFF3435,  0x0b0e0f78},
 {3400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 34_quant.dat*/
 
 
+/*case 3500000:*/
+/* BEGIN - DIF BPF register values from 35_quant.dat*/
 {3500000, DIF_BPF_COEFF01,    0xfffffffd},
 {3500000, DIF_BPF_COEFF23,    0xfffafff9},
 {3500000, DIF_BPF_COEFF45,    0x0002001b},
@@ -155,8 +172,11 @@ static struct dif_settings Dif_set_array[] = {
 {3500000, DIF_BPF_COEFF3233,  0xfcf6041f},
 {3500000, DIF_BPF_COEFF3435,  0x0abc0f61},
 {3500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 35_quant.dat*/
 
 
+/*case 3600000:*/
+/* BEGIN - DIF BPF register values from 36_quant.dat*/
 {3600000, DIF_BPF_COEFF01,    0xfffffffd},
 {3600000, DIF_BPF_COEFF23,    0xfff8fff3},
 {3600000, DIF_BPF_COEFF45,    0xfff50006},
@@ -176,8 +196,11 @@ static struct dif_settings Dif_set_array[] = {
 {3600000, DIF_BPF_COEFF3233,  0xfc2a0384},
 {3600000, DIF_BPF_COEFF3435,  0x0a670f4a},
 {3600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 36_quant.dat*/
 
 
+/*case 3700000:*/
+/* BEGIN - DIF BPF register values from 37_quant.dat*/
 {3700000, DIF_BPF_COEFF01,    0x0000fffd},
 {3700000, DIF_BPF_COEFF23,    0xfff7ffef},
 {3700000, DIF_BPF_COEFF45,    0xffe9fff1},
@@ -197,8 +220,11 @@ static struct dif_settings Dif_set_array[] = {
 {3700000, DIF_BPF_COEFF3233,  0xfb6102e7},
 {3700000, DIF_BPF_COEFF3435,  0x0a110f32},
 {3700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 37_quant.dat*/
 
 
+/*case 3800000:*/
+/* BEGIN - DIF BPF register values from 38_quant.dat*/
 {3800000, DIF_BPF_COEFF01,    0x0000fffe},
 {3800000, DIF_BPF_COEFF23,    0xfff9ffee},
 {3800000, DIF_BPF_COEFF45,    0xffe1ffdd},
@@ -218,8 +244,11 @@ static struct dif_settings Dif_set_array[] = {
 {3800000, DIF_BPF_COEFF3233,  0xfa9b0249},
 {3800000, DIF_BPF_COEFF3435,  0x09ba0f19},
 {3800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 38_quant.dat*/
 
 
+/*case 3900000:*/
+/* BEGIN - DIF BPF register values from 39_quant.dat*/
 {3900000, DIF_BPF_COEFF01,    0x00000000},
 {3900000, DIF_BPF_COEFF23,    0xfffbfff0},
 {3900000, DIF_BPF_COEFF45,    0xffdeffcf},
@@ -239,8 +268,11 @@ static struct dif_settings Dif_set_array[] = {
 {3900000, DIF_BPF_COEFF3233,  0xf9d801aa},
 {3900000, DIF_BPF_COEFF3435,  0x09600eff},
 {3900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 39_quant.dat*/
 
 
+/*case 4000000:*/
+/* BEGIN - DIF BPF register values from 40_quant.dat*/
 {4000000, DIF_BPF_COEFF01,    0x00000001},
 {4000000, DIF_BPF_COEFF23,    0xfffefff4},
 {4000000, DIF_BPF_COEFF45,    0xffe1ffc8},
@@ -260,8 +292,11 @@ static struct dif_settings Dif_set_array[] = {
 {4000000, DIF_BPF_COEFF3233,  0xf919010a},
 {4000000, DIF_BPF_COEFF3435,  0x09060ee5},
 {4000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 40_quant.dat*/
 
 
+/*case 4100000:*/
+/* BEGIN - DIF BPF register values from 41_quant.dat*/
 {4100000, DIF_BPF_COEFF01,    0x00010002},
 {4100000, DIF_BPF_COEFF23,    0x0002fffb},
 {4100000, DIF_BPF_COEFF45,    0xffe8ffca},
@@ -281,8 +316,11 @@ static struct dif_settings Dif_set_array[] = {
 {4100000, DIF_BPF_COEFF3233,  0xf85e006b},
 {4100000, DIF_BPF_COEFF3435,  0x08aa0ecb},
 {4100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 41_quant.dat*/
 
 
+/*case 4200000:*/
+/* BEGIN - DIF BPF register values from 42_quant.dat*/
 {4200000, DIF_BPF_COEFF01,    0x00010003},
 {4200000, DIF_BPF_COEFF23,    0x00050003},
 {4200000, DIF_BPF_COEFF45,    0xfff3ffd3},
@@ -302,8 +340,11 @@ static struct dif_settings Dif_set_array[] = {
 {4200000, DIF_BPF_COEFF3233,  0xf7a9ffcb},
 {4200000, DIF_BPF_COEFF3435,  0x084c0eaf},
 {4200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 42_quant.dat*/
 
 
+/*case 4300000:*/
+/* BEGIN - DIF BPF register values from 43_quant.dat*/
 {4300000, DIF_BPF_COEFF01,    0x00010003},
 {4300000, DIF_BPF_COEFF23,    0x0008000a},
 {4300000, DIF_BPF_COEFF45,    0x0000ffe4},
@@ -323,8 +364,11 @@ static struct dif_settings Dif_set_array[] = {
 {4300000, DIF_BPF_COEFF3233,  0xf6f9ff2b},
 {4300000, DIF_BPF_COEFF3435,  0x07ed0e94},
 {4300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 43_quant.dat*/
 
 
+/*case 4400000:*/
+/* BEGIN - DIF BPF register values from 44_quant.dat*/
 {4400000, DIF_BPF_COEFF01,    0x00000003},
 {4400000, DIF_BPF_COEFF23,    0x0009000f},
 {4400000, DIF_BPF_COEFF45,    0x000efff8},
@@ -344,8 +388,11 @@ static struct dif_settings Dif_set_array[] = {
 {4400000, DIF_BPF_COEFF3233,  0xf64efe8b},
 {4400000, DIF_BPF_COEFF3435,  0x078d0e77},
 {4400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 44_quant.dat*/
 
 
+/*case 4500000:*/
+/* BEGIN - DIF BPF register values from 45_quant.dat*/
 {4500000, DIF_BPF_COEFF01,    0x00000002},
 {4500000, DIF_BPF_COEFF23,    0x00080012},
 {4500000, DIF_BPF_COEFF45,    0x0019000e},
@@ -365,8 +412,11 @@ static struct dif_settings Dif_set_array[] = {
 {4500000, DIF_BPF_COEFF3233,  0xf5aafdec},
 {4500000, DIF_BPF_COEFF3435,  0x072b0e5a},
 {4500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 45_quant.dat*/
 
 
+/*case 4600000:*/
+/* BEGIN - DIF BPF register values from 46_quant.dat*/
 {4600000, DIF_BPF_COEFF01,    0x00000001},
 {4600000, DIF_BPF_COEFF23,    0x00060012},
 {4600000, DIF_BPF_COEFF45,    0x00200022},
@@ -386,8 +436,11 @@ static struct dif_settings Dif_set_array[] = {
 {4600000, DIF_BPF_COEFF3233,  0xf50dfd4e},
 {4600000, DIF_BPF_COEFF3435,  0x06c90e3d},
 {4600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 46_quant.dat*/
 
 
+/*case 4700000:*/
+/* BEGIN - DIF BPF register values from 47_quant.dat*/
 {4700000, DIF_BPF_COEFF01,    0x0000ffff},
 {4700000, DIF_BPF_COEFF23,    0x0003000f},
 {4700000, DIF_BPF_COEFF45,    0x00220030},
@@ -407,8 +460,11 @@ static struct dif_settings Dif_set_array[] = {
 {4700000, DIF_BPF_COEFF3233,  0xf477fcb1},
 {4700000, DIF_BPF_COEFF3435,  0x06650e1e},
 {4700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 47_quant.dat*/
 
 
+/*case 4800000:*/
+/* BEGIN - DIF BPF register values from 48_quant.dat*/
 {4800000, DIF_BPF_COEFF01,    0xfffffffe},
 {4800000, DIF_BPF_COEFF23,    0xffff0009},
 {4800000, DIF_BPF_COEFF45,    0x001e0038},
@@ -428,8 +484,11 @@ static struct dif_settings Dif_set_array[] = {
 {4800000, DIF_BPF_COEFF3233,  0xf3e8fc14},
 {4800000, DIF_BPF_COEFF3435,  0x06000e00},
 {4800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 48_quant.dat*/
 
 
+/*case 4900000:*/
+/* BEGIN - DIF BPF register values from 49_quant.dat*/
 {4900000, DIF_BPF_COEFF01,    0xfffffffd},
 {4900000, DIF_BPF_COEFF23,    0xfffc0002},
 {4900000, DIF_BPF_COEFF45,    0x00160037},
@@ -449,8 +508,11 @@ static struct dif_settings Dif_set_array[] = {
 {4900000, DIF_BPF_COEFF3233,  0xf361fb7a},
 {4900000, DIF_BPF_COEFF3435,  0x059b0de0},
 {4900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 49_quant.dat*/
 
 
+/*case 5000000:*/
+/* BEGIN - DIF BPF register values from 50_quant.dat*/
 {5000000, DIF_BPF_COEFF01,    0xfffffffd},
 {5000000, DIF_BPF_COEFF23,    0xfff9fffa},
 {5000000, DIF_BPF_COEFF45,    0x000a002d},
@@ -470,8 +532,11 @@ static struct dif_settings Dif_set_array[] = {
 {5000000, DIF_BPF_COEFF3233,  0xf2e2fae1},
 {5000000, DIF_BPF_COEFF3435,  0x05340dc0},
 {5000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 50_quant.dat*/
 
 
+/*case 5100000:*/
+/* BEGIN - DIF BPF register values from 51_quant.dat*/
 {5100000, DIF_BPF_COEFF01,    0x0000fffd},
 {5100000, DIF_BPF_COEFF23,    0xfff8fff4},
 {5100000, DIF_BPF_COEFF45,    0xfffd001e},
@@ -491,8 +556,11 @@ static struct dif_settings Dif_set_array[] = {
 {5100000, DIF_BPF_COEFF3233,  0xf26cfa4a},
 {5100000, DIF_BPF_COEFF3435,  0x04cd0da0},
 {5100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 51_quant.dat*/
 
 
+/*case 5200000:*/
+/* BEGIN - DIF BPF register values from 52_quant.dat*/
 {5200000, DIF_BPF_COEFF01,    0x0000fffe},
 {5200000, DIF_BPF_COEFF23,    0xfff8ffef},
 {5200000, DIF_BPF_COEFF45,    0xfff00009},
@@ -512,8 +580,11 @@ static struct dif_settings Dif_set_array[] = {
 {5200000, DIF_BPF_COEFF3233,  0xf1fef9b5},
 {5200000, DIF_BPF_COEFF3435,  0x04640d7f},
 {5200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 52_quant.dat*/
 
 
+/*case 5300000:*/
+/* BEGIN - DIF BPF register values from 53_quant.dat*/
 {5300000, DIF_BPF_COEFF01,    0x0000ffff},
 {5300000, DIF_BPF_COEFF23,    0xfff9ffee},
 {5300000, DIF_BPF_COEFF45,    0xffe6fff3},
@@ -533,8 +604,11 @@ static struct dif_settings Dif_set_array[] = {
 {5300000, DIF_BPF_COEFF3233,  0xf19af922},
 {5300000, DIF_BPF_COEFF3435,  0x03fb0d5e},
 {5300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 53_quant.dat*/
 
 
+/*case 5400000:*/
+/* BEGIN - DIF BPF register values from 54_quant.dat*/
 {5400000, DIF_BPF_COEFF01,    0x00000001},
 {5400000, DIF_BPF_COEFF23,    0xfffcffef},
 {5400000, DIF_BPF_COEFF45,    0xffe0ffe0},
@@ -554,8 +628,11 @@ static struct dif_settings Dif_set_array[] = {
 {5400000, DIF_BPF_COEFF3233,  0xf13ff891},
 {5400000, DIF_BPF_COEFF3435,  0x03920d3b},
 {5400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 54_quant.dat*/
 
 
+/*case 5500000:*/
+/* BEGIN - DIF BPF register values from 55_quant.dat*/
 {5500000, DIF_BPF_COEFF01,    0x00010002},
 {5500000, DIF_BPF_COEFF23,    0xfffffff3},
 {5500000, DIF_BPF_COEFF45,    0xffdeffd1},
@@ -575,8 +652,11 @@ static struct dif_settings Dif_set_array[] = {
 {5500000, DIF_BPF_COEFF3233,  0xf0edf804},
 {5500000, DIF_BPF_COEFF3435,  0x03280d19},
 {5500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 55_quant.dat*/
 
 
+/*case 5600000:*/
+/* BEGIN - DIF BPF register values from 56_quant.dat*/
 {5600000, DIF_BPF_COEFF01,    0x00010003},
 {5600000, DIF_BPF_COEFF23,    0x0003fffa},
 {5600000, DIF_BPF_COEFF45,    0xffe3ffc9},
@@ -596,8 +676,11 @@ static struct dif_settings Dif_set_array[] = {
 {5600000, DIF_BPF_COEFF3233,  0xf0a5f779},
 {5600000, DIF_BPF_COEFF3435,  0x02bd0cf6},
 {5600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 56_quant.dat*/
 
 
+/*case 5700000:*/
+/* BEGIN - DIF BPF register values from 57_quant.dat*/
 {5700000, DIF_BPF_COEFF01,    0x00010003},
 {5700000, DIF_BPF_COEFF23,    0x00060001},
 {5700000, DIF_BPF_COEFF45,    0xffecffc9},
@@ -617,8 +700,11 @@ static struct dif_settings Dif_set_array[] = {
 {5700000, DIF_BPF_COEFF3233,  0xf067f6f2},
 {5700000, DIF_BPF_COEFF3435,  0x02520cd2},
 {5700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 57_quant.dat*/
 
 
+/*case 5800000:*/
+/* BEGIN - DIF BPF register values from 58_quant.dat*/
 {5800000, DIF_BPF_COEFF01,    0x00000003},
 {5800000, DIF_BPF_COEFF23,    0x00080009},
 {5800000, DIF_BPF_COEFF45,    0xfff8ffd2},
@@ -638,8 +724,11 @@ static struct dif_settings Dif_set_array[] = {
 {5800000, DIF_BPF_COEFF3233,  0xf033f66d},
 {5800000, DIF_BPF_COEFF3435,  0x01e60cae},
 {5800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 58_quant.dat*/
 
 
+/*case 5900000:*/
+/* BEGIN - DIF BPF register values from 59_quant.dat*/
 {5900000, DIF_BPF_COEFF01,    0x00000002},
 {5900000, DIF_BPF_COEFF23,    0x0009000e},
 {5900000, DIF_BPF_COEFF45,    0x0005ffe1},
@@ -659,8 +748,11 @@ static struct dif_settings Dif_set_array[] = {
 {5900000, DIF_BPF_COEFF3233,  0xf00af5ec},
 {5900000, DIF_BPF_COEFF3435,  0x017b0c89},
 {5900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 59_quant.dat*/
 
 
+/*case 6000000:*/
+/* BEGIN - DIF BPF register values from 60_quant.dat*/
 {6000000, DIF_BPF_COEFF01,    0x00000001},
 {6000000, DIF_BPF_COEFF23,    0x00070012},
 {6000000, DIF_BPF_COEFF45,    0x0012fff5},
@@ -680,8 +772,11 @@ static struct dif_settings Dif_set_array[] = {
 {6000000, DIF_BPF_COEFF3233,  0xefeaf56f},
 {6000000, DIF_BPF_COEFF3435,  0x010f0c64},
 {6000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 60_quant.dat*/
 
 
+/*case 6100000:*/
+/* BEGIN - DIF BPF register values from 61_quant.dat*/
 {6100000, DIF_BPF_COEFF01,    0xffff0000},
 {6100000, DIF_BPF_COEFF23,    0x00050012},
 {6100000, DIF_BPF_COEFF45,    0x001c000b},
@@ -701,8 +796,11 @@ static struct dif_settings Dif_set_array[] = {
 {6100000, DIF_BPF_COEFF3233,  0xefd5f4f6},
 {6100000, DIF_BPF_COEFF3435,  0x00a20c3e},
 {6100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 61_quant.dat*/
 
 
+/*case 6200000:*/
+/* BEGIN - DIF BPF register values from 62_quant.dat*/
 {6200000, DIF_BPF_COEFF01,    0xfffffffe},
 {6200000, DIF_BPF_COEFF23,    0x0002000f},
 {6200000, DIF_BPF_COEFF45,    0x0021001f},
@@ -722,8 +820,11 @@ static struct dif_settings Dif_set_array[] = {
 {6200000, DIF_BPF_COEFF3233,  0xefcbf481},
 {6200000, DIF_BPF_COEFF3435,  0x00360c18},
 {6200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 62_quant.dat*/
 
 
+/*case 6300000:*/
+/* BEGIN - DIF BPF register values from 63_quant.dat*/
 {6300000, DIF_BPF_COEFF01,    0xfffffffd},
 {6300000, DIF_BPF_COEFF23,    0xfffe000a},
 {6300000, DIF_BPF_COEFF45,    0x0021002f},
@@ -743,8 +844,11 @@ static struct dif_settings Dif_set_array[] = {
 {6300000, DIF_BPF_COEFF3233,  0xefcbf410},
 {6300000, DIF_BPF_COEFF3435,  0xffca0bf2},
 {6300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 63_quant.dat*/
 
 
+/*case 6400000:*/
+/* BEGIN - DIF BPF register values from 64_quant.dat*/
 {6400000, DIF_BPF_COEFF01,    0xfffffffd},
 {6400000, DIF_BPF_COEFF23,    0xfffb0003},
 {6400000, DIF_BPF_COEFF45,    0x001c0037},
@@ -764,8 +868,11 @@ static struct dif_settings Dif_set_array[] = {
 {6400000, DIF_BPF_COEFF3233,  0xefd5f3a3},
 {6400000, DIF_BPF_COEFF3435,  0xff5e0bca},
 {6400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 64_quant.dat*/
 
 
+/*case 6500000:*/
+/* BEGIN - DIF BPF register values from 65_quant.dat*/
 {6500000, DIF_BPF_COEFF01,    0x0000fffd},
 {6500000, DIF_BPF_COEFF23,    0xfff9fffb},
 {6500000, DIF_BPF_COEFF45,    0x00120037},
@@ -785,8 +892,11 @@ static struct dif_settings Dif_set_array[] = {
 {6500000, DIF_BPF_COEFF3233,  0xefeaf33b},
 {6500000, DIF_BPF_COEFF3435,  0xfef10ba3},
 {6500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 65_quant.dat*/
 
 
+/*case 6600000:*/
+/* BEGIN - DIF BPF register values from 66_quant.dat*/
 {6600000, DIF_BPF_COEFF01,    0x0000fffe},
 {6600000, DIF_BPF_COEFF23,    0xfff7fff5},
 {6600000, DIF_BPF_COEFF45,    0x0005002f},
@@ -806,8 +916,11 @@ static struct dif_settings Dif_set_array[] = {
 {6600000, DIF_BPF_COEFF3233,  0xf00af2d7},
 {6600000, DIF_BPF_COEFF3435,  0xfe850b7b},
 {6600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 66_quant.dat*/
 
 
+/*case 6700000:*/
+/* BEGIN - DIF BPF register values from 67_quant.dat*/
 {6700000, DIF_BPF_COEFF01,    0x0000ffff},
 {6700000, DIF_BPF_COEFF23,    0xfff8fff0},
 {6700000, DIF_BPF_COEFF45,    0xfff80020},
@@ -827,8 +940,11 @@ static struct dif_settings Dif_set_array[] = {
 {6700000, DIF_BPF_COEFF3233,  0xf033f278},
 {6700000, DIF_BPF_COEFF3435,  0xfe1a0b52},
 {6700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 67_quant.dat*/
 
 
+/*case 6800000:*/
+/* BEGIN - DIF BPF register values from 68_quant.dat*/
 {6800000, DIF_BPF_COEFF01,    0x00010000},
 {6800000, DIF_BPF_COEFF23,    0xfffaffee},
 {6800000, DIF_BPF_COEFF45,    0xffec000c},
@@ -848,8 +964,11 @@ static struct dif_settings Dif_set_array[] = {
 {6800000, DIF_BPF_COEFF3233,  0xf067f21e},
 {6800000, DIF_BPF_COEFF3435,  0xfdae0b29},
 {6800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 68_quant.dat*/
 
 
+/*case 6900000:*/
+/* BEGIN - DIF BPF register values from 69_quant.dat*/
 {6900000, DIF_BPF_COEFF01,    0x00010001},
 {6900000, DIF_BPF_COEFF23,    0xfffdffef},
 {6900000, DIF_BPF_COEFF45,    0xffe3fff6},
@@ -869,8 +988,11 @@ static struct dif_settings Dif_set_array[] = {
 {6900000, DIF_BPF_COEFF3233,  0xf0a5f1c9},
 {6900000, DIF_BPF_COEFF3435,  0xfd430b00},
 {6900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 69_quant.dat*/
 
 
+/*case 7000000:*/
+/* BEGIN - DIF BPF register values from 70_quant.dat*/
 {7000000, DIF_BPF_COEFF01,    0x00010002},
 {7000000, DIF_BPF_COEFF23,    0x0001fff3},
 {7000000, DIF_BPF_COEFF45,    0xffdeffe2},
@@ -890,8 +1012,11 @@ static struct dif_settings Dif_set_array[] = {
 {7000000, DIF_BPF_COEFF3233,  0xf0edf17a},
 {7000000, DIF_BPF_COEFF3435,  0xfcd80ad6},
 {7000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 70_quant.dat*/
 
 
+/*case 7100000:*/
+/* BEGIN - DIF BPF register values from 71_quant.dat*/
 {7100000, DIF_BPF_COEFF01,    0x00000003},
 {7100000, DIF_BPF_COEFF23,    0x0004fff9},
 {7100000, DIF_BPF_COEFF45,    0xffe0ffd2},
@@ -911,8 +1036,11 @@ static struct dif_settings Dif_set_array[] = {
 {7100000, DIF_BPF_COEFF3233,  0xf13ff12f},
 {7100000, DIF_BPF_COEFF3435,  0xfc6e0aab},
 {7100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 71_quant.dat*/
 
 
+/*case 7200000:*/
+/* BEGIN - DIF BPF register values from 72_quant.dat*/
 {7200000, DIF_BPF_COEFF01,    0x00000003},
 {7200000, DIF_BPF_COEFF23,    0x00070000},
 {7200000, DIF_BPF_COEFF45,    0xffe6ffc9},
@@ -932,8 +1060,11 @@ static struct dif_settings Dif_set_array[] = {
 {7200000, DIF_BPF_COEFF3233,  0xf19af0ea},
 {7200000, DIF_BPF_COEFF3435,  0xfc050a81},
 {7200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 72_quant.dat*/
 
 
+/*case 7300000:*/
+/* BEGIN - DIF BPF register values from 73_quant.dat*/
 {7300000, DIF_BPF_COEFF01,    0x00000002},
 {7300000, DIF_BPF_COEFF23,    0x00080008},
 {7300000, DIF_BPF_COEFF45,    0xfff0ffc9},
@@ -953,8 +1084,11 @@ static struct dif_settings Dif_set_array[] = {
 {7300000, DIF_BPF_COEFF3233,  0xf1fef0ab},
 {7300000, DIF_BPF_COEFF3435,  0xfb9c0a55},
 {7300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 73_quant.dat*/
 
 
+/*case 7400000:*/
+/* BEGIN - DIF BPF register values from 74_quant.dat*/
 {7400000, DIF_BPF_COEFF01,    0x00000001},
 {7400000, DIF_BPF_COEFF23,    0x0008000e},
 {7400000, DIF_BPF_COEFF45,    0xfffdffd0},
@@ -974,8 +1108,11 @@ static struct dif_settings Dif_set_array[] = {
 {7400000, DIF_BPF_COEFF3233,  0xf26cf071},
 {7400000, DIF_BPF_COEFF3435,  0xfb330a2a},
 {7400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 74_quant.dat*/
 
 
+/*case 7500000:*/
+/* BEGIN - DIF BPF register values from 75_quant.dat*/
 {7500000, DIF_BPF_COEFF01,    0xffff0000},
 {7500000, DIF_BPF_COEFF23,    0x00070011},
 {7500000, DIF_BPF_COEFF45,    0x000affdf},
@@ -995,8 +1132,11 @@ static struct dif_settings Dif_set_array[] = {
 {7500000, DIF_BPF_COEFF3233,  0xf2e2f03c},
 {7500000, DIF_BPF_COEFF3435,  0xfacc09fe},
 {7500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 75_quant.dat*/
 
 
+/*case 7600000:*/
+/* BEGIN - DIF BPF register values from 76_quant.dat*/
 {7600000, DIF_BPF_COEFF01,    0xffffffff},
 {7600000, DIF_BPF_COEFF23,    0x00040012},
 {7600000, DIF_BPF_COEFF45,    0x0016fff3},
@@ -1016,8 +1156,11 @@ static struct dif_settings Dif_set_array[] = {
 {7600000, DIF_BPF_COEFF3233,  0xf361f00e},
 {7600000, DIF_BPF_COEFF3435,  0xfa6509d1},
 {7600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 76_quant.dat*/
 
 
+/*case 7700000:*/
+/* BEGIN - DIF BPF register values from 77_quant.dat*/
 {7700000, DIF_BPF_COEFF01,    0xfffffffe},
 {7700000, DIF_BPF_COEFF23,    0x00010010},
 {7700000, DIF_BPF_COEFF45,    0x001e0008},
@@ -1037,8 +1180,11 @@ static struct dif_settings Dif_set_array[] = {
 {7700000, DIF_BPF_COEFF3233,  0xf3e8efe5},
 {7700000, DIF_BPF_COEFF3435,  0xfa0009a4},
 {7700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 77_quant.dat*/
 
 
+/*case 7800000:*/
+/* BEGIN - DIF BPF register values from 78_quant.dat*/
 {7800000, DIF_BPF_COEFF01,    0x0000fffd},
 {7800000, DIF_BPF_COEFF23,    0xfffd000b},
 {7800000, DIF_BPF_COEFF45,    0x0022001d},
@@ -1058,8 +1204,11 @@ static struct dif_settings Dif_set_array[] = {
 {7800000, DIF_BPF_COEFF3233,  0xf477efc2},
 {7800000, DIF_BPF_COEFF3435,  0xf99b0977},
 {7800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 78_quant.dat*/
 
 
+/*case 7900000:*/
+/* BEGIN - DIF BPF register values from 79_quant.dat*/
 {7900000, DIF_BPF_COEFF01,    0x0000fffd},
 {7900000, DIF_BPF_COEFF23,    0xfffa0004},
 {7900000, DIF_BPF_COEFF45,    0x0020002d},
@@ -1079,8 +1228,11 @@ static struct dif_settings Dif_set_array[] = {
 {7900000, DIF_BPF_COEFF3233,  0xf50defa5},
 {7900000, DIF_BPF_COEFF3435,  0xf937094a},
 {7900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 79_quant.dat*/
 
 
+/*case 8000000:*/
+/* BEGIN - DIF BPF register values from 80_quant.dat*/
 {8000000, DIF_BPF_COEFF01,    0x0000fffe},
 {8000000, DIF_BPF_COEFF23,    0xfff8fffd},
 {8000000, DIF_BPF_COEFF45,    0x00190036},
@@ -1100,8 +1252,11 @@ static struct dif_settings Dif_set_array[] = {
 {8000000, DIF_BPF_COEFF3233,  0xf5aaef8e},
 {8000000, DIF_BPF_COEFF3435,  0xf8d5091c},
 {8000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 80_quant.dat*/
 
 
+/*case 8100000:*/
+/* BEGIN - DIF BPF register values from 81_quant.dat*/
 {8100000, DIF_BPF_COEFF01,    0x0000ffff},
 {8100000, DIF_BPF_COEFF23,    0xfff7fff6},
 {8100000, DIF_BPF_COEFF45,    0x000e0038},
@@ -1121,8 +1276,11 @@ static struct dif_settings Dif_set_array[] = {
 {8100000, DIF_BPF_COEFF3233,  0xf64eef7d},
 {8100000, DIF_BPF_COEFF3435,  0xf87308ed},
 {8100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 81_quant.dat*/
 
 
+/*case 8200000:*/
+/* BEGIN - DIF BPF register values from 82_quant.dat*/
 {8200000, DIF_BPF_COEFF01,    0x00010000},
 {8200000, DIF_BPF_COEFF23,    0xfff8fff0},
 {8200000, DIF_BPF_COEFF45,    0x00000031},
@@ -1142,8 +1300,11 @@ static struct dif_settings Dif_set_array[] = {
 {8200000, DIF_BPF_COEFF3233,  0xf6f9ef72},
 {8200000, DIF_BPF_COEFF3435,  0xf81308bf},
 {8200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 82_quant.dat*/
 
 
+/*case 8300000:*/
+/* BEGIN - DIF BPF register values from 83_quant.dat*/
 {8300000, DIF_BPF_COEFF01,    0x00010001},
 {8300000, DIF_BPF_COEFF23,    0xfffbffee},
 {8300000, DIF_BPF_COEFF45,    0xfff30022},
@@ -1163,8 +1324,11 @@ static struct dif_settings Dif_set_array[] = {
 {8300000, DIF_BPF_COEFF3233,  0xf7a9ef6d},
 {8300000, DIF_BPF_COEFF3435,  0xf7b40890},
 {8300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 83_quant.dat*/
 
 
+/*case 8400000:*/
+/* BEGIN - DIF BPF register values from 84_quant.dat*/
 {8400000, DIF_BPF_COEFF01,    0x00010002},
 {8400000, DIF_BPF_COEFF23,    0xfffeffee},
 {8400000, DIF_BPF_COEFF45,    0xffe8000f},
@@ -1184,8 +1348,11 @@ static struct dif_settings Dif_set_array[] = {
 {8400000, DIF_BPF_COEFF3233,  0xf85eef6e},
 {8400000, DIF_BPF_COEFF3435,  0xf7560860},
 {8400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 84_quant.dat*/
 
 
+/*case 8500000:*/
+/* BEGIN - DIF BPF register values from 85_quant.dat*/
 {8500000, DIF_BPF_COEFF01,    0x00000003},
 {8500000, DIF_BPF_COEFF23,    0x0002fff2},
 {8500000, DIF_BPF_COEFF45,    0xffe1fff9},
@@ -1205,8 +1372,11 @@ static struct dif_settings Dif_set_array[] = {
 {8500000, DIF_BPF_COEFF3233,  0xf919ef75},
 {8500000, DIF_BPF_COEFF3435,  0xf6fa0830},
 {8500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 85_quant.dat*/
 
 
+/*case 8600000:*/
+/* BEGIN - DIF BPF register values from 86_quant.dat*/
 {8600000, DIF_BPF_COEFF01,    0x00000003},
 {8600000, DIF_BPF_COEFF23,    0x0005fff8},
 {8600000, DIF_BPF_COEFF45,    0xffdeffe4},
@@ -1226,8 +1396,11 @@ static struct dif_settings Dif_set_array[] = {
 {8600000, DIF_BPF_COEFF3233,  0xf9d8ef82},
 {8600000, DIF_BPF_COEFF3435,  0xf6a00800},
 {8600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 86_quant.dat*/
 
 
+/*case 8700000:*/
+/* BEGIN - DIF BPF register values from 87_quant.dat*/
 {8700000, DIF_BPF_COEFF01,    0x00000003},
 {8700000, DIF_BPF_COEFF23,    0x0007ffff},
 {8700000, DIF_BPF_COEFF45,    0xffe1ffd4},
@@ -1247,8 +1420,11 @@ static struct dif_settings Dif_set_array[] = {
 {8700000, DIF_BPF_COEFF3233,  0xfa9bef95},
 {8700000, DIF_BPF_COEFF3435,  0xf64607d0},
 {8700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 87_quant.dat*/
 
 
+/*case 8800000:*/
+/* BEGIN - DIF BPF register values from 88_quant.dat*/
 {8800000, DIF_BPF_COEFF01,    0x00000002},
 {8800000, DIF_BPF_COEFF23,    0x00090007},
 {8800000, DIF_BPF_COEFF45,    0xffe9ffca},
@@ -1268,8 +1444,11 @@ static struct dif_settings Dif_set_array[] = {
 {8800000, DIF_BPF_COEFF3233,  0xfb61efae},
 {8800000, DIF_BPF_COEFF3435,  0xf5ef079f},
 {8800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 88_quant.dat*/
 
 
+/*case 8900000:*/
+/* BEGIN - DIF BPF register values from 89_quant.dat*/
 {8900000, DIF_BPF_COEFF01,    0xffff0000},
 {8900000, DIF_BPF_COEFF23,    0x0008000d},
 {8900000, DIF_BPF_COEFF45,    0xfff5ffc8},
@@ -1289,8 +1468,11 @@ static struct dif_settings Dif_set_array[] = {
 {8900000, DIF_BPF_COEFF3233,  0xfc2aefcd},
 {8900000, DIF_BPF_COEFF3435,  0xf599076e},
 {8900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 89_quant.dat*/
 
 
+/*case 9000000:*/
+/* BEGIN - DIF BPF register values from 90_quant.dat*/
 {9000000, DIF_BPF_COEFF01,    0xffffffff},
 {9000000, DIF_BPF_COEFF23,    0x00060011},
 {9000000, DIF_BPF_COEFF45,    0x0002ffcf},
@@ -1310,8 +1492,11 @@ static struct dif_settings Dif_set_array[] = {
 {9000000, DIF_BPF_COEFF3233,  0xfcf6eff2},
 {9000000, DIF_BPF_COEFF3435,  0xf544073d},
 {9000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 90_quant.dat*/
 
 
+/*case 9100000:*/
+/* BEGIN - DIF BPF register values from 91_quant.dat*/
 {9100000, DIF_BPF_COEFF01,    0xfffffffe},
 {9100000, DIF_BPF_COEFF23,    0x00030012},
 {9100000, DIF_BPF_COEFF45,    0x000fffdd},
@@ -1331,8 +1516,11 @@ static struct dif_settings Dif_set_array[] = {
 {9100000, DIF_BPF_COEFF3233,  0xfdc4f01d},
 {9100000, DIF_BPF_COEFF3435,  0xf4f2070b},
 {9100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 91_quant.dat*/
 
 
+/*case 9200000:*/
+/* BEGIN - DIF BPF register values from 92_quant.dat*/
 {9200000, DIF_BPF_COEFF01,    0x0000fffd},
 {9200000, DIF_BPF_COEFF23,    0x00000010},
 {9200000, DIF_BPF_COEFF45,    0x001afff0},
@@ -1352,8 +1540,11 @@ static struct dif_settings Dif_set_array[] = {
 {9200000, DIF_BPF_COEFF3233,  0xfe93f04d},
 {9200000, DIF_BPF_COEFF3435,  0xf4a106d9},
 {9200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 92_quant.dat*/
 
 
+/*case 9300000:*/
+/* BEGIN - DIF BPF register values from 93_quant.dat*/
 {9300000, DIF_BPF_COEFF01,    0x0000fffd},
 {9300000, DIF_BPF_COEFF23,    0xfffc000c},
 {9300000, DIF_BPF_COEFF45,    0x00200006},
@@ -1373,8 +1564,11 @@ static struct dif_settings Dif_set_array[] = {
 {9300000, DIF_BPF_COEFF3233,  0xff64f083},
 {9300000, DIF_BPF_COEFF3435,  0xf45206a7},
 {9300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 93_quant.dat*/
 
 
+/*case 9400000:*/
+/* BEGIN - DIF BPF register values from 94_quant.dat*/
 {9400000, DIF_BPF_COEFF01,    0x0000fffd},
 {9400000, DIF_BPF_COEFF23,    0xfff90005},
 {9400000, DIF_BPF_COEFF45,    0x0022001a},
@@ -1394,8 +1588,11 @@ static struct dif_settings Dif_set_array[] = {
 {9400000, DIF_BPF_COEFF3233,  0x0034f0bf},
 {9400000, DIF_BPF_COEFF3435,  0xf4050675},
 {9400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 94_quant.dat*/
 
 
+/*case 9500000:*/
+/* BEGIN - DIF BPF register values from 95_quant.dat*/
 {9500000, DIF_BPF_COEFF01,    0x0000fffe},
 {9500000, DIF_BPF_COEFF23,    0xfff8fffe},
 {9500000, DIF_BPF_COEFF45,    0x001e002b},
@@ -1415,8 +1612,11 @@ static struct dif_settings Dif_set_array[] = {
 {9500000, DIF_BPF_COEFF3233,  0x0105f101},
 {9500000, DIF_BPF_COEFF3435,  0xf3ba0642},
 {9500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 95_quant.dat*/
 
 
+/*case 9600000:*/
+/* BEGIN - DIF BPF register values from 96_quant.dat*/
 {9600000, DIF_BPF_COEFF01,    0x0001ffff},
 {9600000, DIF_BPF_COEFF23,    0xfff8fff7},
 {9600000, DIF_BPF_COEFF45,    0x00150036},
@@ -1436,8 +1636,11 @@ static struct dif_settings Dif_set_array[] = {
 {9600000, DIF_BPF_COEFF3233,  0x01d4f147},
 {9600000, DIF_BPF_COEFF3435,  0xf371060f},
 {9600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 96_quant.dat*/
 
 
+/*case 9700000:*/
+/* BEGIN - DIF BPF register values from 97_quant.dat*/
 {9700000, DIF_BPF_COEFF01,    0x00010001},
 {9700000, DIF_BPF_COEFF23,    0xfff9fff1},
 {9700000, DIF_BPF_COEFF45,    0x00090038},
@@ -1457,8 +1660,11 @@ static struct dif_settings Dif_set_array[] = {
 {9700000, DIF_BPF_COEFF3233,  0x02a3f194},
 {9700000, DIF_BPF_COEFF3435,  0xf32905dc},
 {9700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 97_quant.dat*/
 
 
+/*case 9800000:*/
+/* BEGIN - DIF BPF register values from 98_quant.dat*/
 {9800000, DIF_BPF_COEFF01,    0x00010002},
 {9800000, DIF_BPF_COEFF23,    0xfffcffee},
 {9800000, DIF_BPF_COEFF45,    0xfffb0032},
@@ -1478,8 +1684,11 @@ static struct dif_settings Dif_set_array[] = {
 {9800000, DIF_BPF_COEFF3233,  0x0370f1e5},
 {9800000, DIF_BPF_COEFF3435,  0xf2e405a8},
 {9800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 98_quant.dat*/
 
 
+/*case 9900000:*/
+/* BEGIN - DIF BPF register values from 99_quant.dat*/
 {9900000, DIF_BPF_COEFF01,    0x00000003},
 {9900000, DIF_BPF_COEFF23,    0xffffffee},
 {9900000, DIF_BPF_COEFF45,    0xffef0024},
@@ -1499,8 +1708,11 @@ static struct dif_settings Dif_set_array[] = {
 {9900000, DIF_BPF_COEFF3233,  0x043bf23c},
 {9900000, DIF_BPF_COEFF3435,  0xf2a10575},
 {9900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 99_quant.dat*/
 
 
+/*case 10000000:*/
+/* BEGIN - DIF BPF register values from 100_quant.dat*/
 {10000000, DIF_BPF_COEFF01,    0x00000003},
 {10000000, DIF_BPF_COEFF23,    0x0003fff1},
 {10000000, DIF_BPF_COEFF45,    0xffe50011},
@@ -1520,8 +1732,11 @@ static struct dif_settings Dif_set_array[] = {
 {10000000, DIF_BPF_COEFF3233,  0x0503f297},
 {10000000, DIF_BPF_COEFF3435,  0xf2610541},
 {10000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 100_quant.dat*/
 
 
+/*case 10100000:*/
+/* BEGIN - DIF BPF register values from 101_quant.dat*/
 {10100000, DIF_BPF_COEFF01,    0x00000003},
 {10100000, DIF_BPF_COEFF23,    0x0006fff7},
 {10100000, DIF_BPF_COEFF45,    0xffdffffc},
@@ -1541,8 +1756,11 @@ static struct dif_settings Dif_set_array[] = {
 {10100000, DIF_BPF_COEFF3233,  0x05c7f2f8},
 {10100000, DIF_BPF_COEFF3435,  0xf222050d},
 {10100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 101_quant.dat*/
 
 
+/*case 10200000:*/
+/* BEGIN - DIF BPF register values from 102_quant.dat*/
 {10200000, DIF_BPF_COEFF01,    0x00000002},
 {10200000, DIF_BPF_COEFF23,    0x0008fffe},
 {10200000, DIF_BPF_COEFF45,    0xffdfffe7},
@@ -1562,8 +1780,11 @@ static struct dif_settings Dif_set_array[] = {
 {10200000, DIF_BPF_COEFF3233,  0x0688f35d},
 {10200000, DIF_BPF_COEFF3435,  0xf1e604d8},
 {10200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 102_quant.dat*/
 
 
+/*case 10300000:*/
+/* BEGIN - DIF BPF register values from 103_quant.dat*/
 {10300000, DIF_BPF_COEFF01,    0xffff0001},
 {10300000, DIF_BPF_COEFF23,    0x00090005},
 {10300000, DIF_BPF_COEFF45,    0xffe4ffd6},
@@ -1583,8 +1804,11 @@ static struct dif_settings Dif_set_array[] = {
 {10300000, DIF_BPF_COEFF3233,  0x0745f3c7},
 {10300000, DIF_BPF_COEFF3435,  0xf1ac04a4},
 {10300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 103_quant.dat*/
 
 
+/*case 10400000:*/
+/* BEGIN - DIF BPF register values from 104_quant.dat*/
 {10400000, DIF_BPF_COEFF01,    0xffffffff},
 {10400000, DIF_BPF_COEFF23,    0x0008000c},
 {10400000, DIF_BPF_COEFF45,    0xffedffcb},
@@ -1604,8 +1828,11 @@ static struct dif_settings Dif_set_array[] = {
 {10400000, DIF_BPF_COEFF3233,  0x07fdf435},
 {10400000, DIF_BPF_COEFF3435,  0xf174046f},
 {10400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 104_quant.dat*/
 
 
+/*case 10500000:*/
+/* BEGIN - DIF BPF register values from 105_quant.dat*/
 {10500000, DIF_BPF_COEFF01,    0xfffffffe},
 {10500000, DIF_BPF_COEFF23,    0x00050011},
 {10500000, DIF_BPF_COEFF45,    0xfffaffc8},
@@ -1625,8 +1852,11 @@ static struct dif_settings Dif_set_array[] = {
 {10500000, DIF_BPF_COEFF3233,  0x08b0f4a7},
 {10500000, DIF_BPF_COEFF3435,  0xf13f043a},
 {10500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 105_quant.dat*/
 
 
+/*case 10600000:*/
+/* BEGIN - DIF BPF register values from 106_quant.dat*/
 {10600000, DIF_BPF_COEFF01,    0x0000fffd},
 {10600000, DIF_BPF_COEFF23,    0x00020012},
 {10600000, DIF_BPF_COEFF45,    0x0007ffcd},
@@ -1646,8 +1876,11 @@ static struct dif_settings Dif_set_array[] = {
 {10600000, DIF_BPF_COEFF3233,  0x095df51e},
 {10600000, DIF_BPF_COEFF3435,  0xf10c0405},
 {10600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 106_quant.dat*/
 
 
+/*case 10700000:*/
+/* BEGIN - DIF BPF register values from 107_quant.dat*/
 {10700000, DIF_BPF_COEFF01,    0x0000fffd},
 {10700000, DIF_BPF_COEFF23,    0xffff0011},
 {10700000, DIF_BPF_COEFF45,    0x0014ffdb},
@@ -1667,8 +1900,11 @@ static struct dif_settings Dif_set_array[] = {
 {10700000, DIF_BPF_COEFF3233,  0x0a04f599},
 {10700000, DIF_BPF_COEFF3435,  0xf0db03d0},
 {10700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 107_quant.dat*/
 
 
+/*case 10800000:*/
+/* BEGIN - DIF BPF register values from 108_quant.dat*/
 {10800000, DIF_BPF_COEFF01,    0x0000fffd},
 {10800000, DIF_BPF_COEFF23,    0xfffb000d},
 {10800000, DIF_BPF_COEFF45,    0x001dffed},
@@ -1688,8 +1924,11 @@ static struct dif_settings Dif_set_array[] = {
 {10800000, DIF_BPF_COEFF3233,  0x0aa5f617},
 {10800000, DIF_BPF_COEFF3435,  0xf0ad039b},
 {10800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 108_quant.dat*/
 
 
+/*case 10900000:*/
+/* BEGIN - DIF BPF register values from 109_quant.dat*/
 {10900000, DIF_BPF_COEFF01,    0x0000fffe},
 {10900000, DIF_BPF_COEFF23,    0xfff90006},
 {10900000, DIF_BPF_COEFF45,    0x00210003},
@@ -1709,8 +1948,11 @@ static struct dif_settings Dif_set_array[] = {
 {10900000, DIF_BPF_COEFF3233,  0x0b3ff699},
 {10900000, DIF_BPF_COEFF3435,  0xf0810365},
 {10900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 109_quant.dat*/
 
 
+/*case 11000000:*/
+/* BEGIN - DIF BPF register values from 110_quant.dat*/
 {11000000, DIF_BPF_COEFF01,    0x0001ffff},
 {11000000, DIF_BPF_COEFF23,    0xfff8ffff},
 {11000000, DIF_BPF_COEFF45,    0x00210018},
@@ -1730,8 +1972,11 @@ static struct dif_settings Dif_set_array[] = {
 {11000000, DIF_BPF_COEFF3233,  0x0bd1f71e},
 {11000000, DIF_BPF_COEFF3435,  0xf058032f},
 {11000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 110_quant.dat*/
 
 
+/*case 11100000:*/
+/* BEGIN - DIF BPF register values from 111_quant.dat*/
 {11100000, DIF_BPF_COEFF01,    0x00010000},
 {11100000, DIF_BPF_COEFF23,    0xfff8fff8},
 {11100000, DIF_BPF_COEFF45,    0x001b0029},
@@ -1751,8 +1996,11 @@ static struct dif_settings Dif_set_array[] = {
 {11100000, DIF_BPF_COEFF3233,  0x0c5cf7a7},
 {11100000, DIF_BPF_COEFF3435,  0xf03102fa},
 {11100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 111_quant.dat*/
 
 
+/*case 11200000:*/
+/* BEGIN - DIF BPF register values from 112_quant.dat*/
 {11200000, DIF_BPF_COEFF01,    0x00010002},
 {11200000, DIF_BPF_COEFF23,    0xfffafff2},
 {11200000, DIF_BPF_COEFF45,    0x00110035},
@@ -1772,8 +2020,11 @@ static struct dif_settings Dif_set_array[] = {
 {11200000, DIF_BPF_COEFF3233,  0x0cdff833},
 {11200000, DIF_BPF_COEFF3435,  0xf00d02c4},
 {11200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 112_quant.dat*/
 
 
+/*case 11300000:*/
+/* BEGIN - DIF BPF register values from 113_quant.dat*/
 {11300000, DIF_BPF_COEFF01,    0x00000003},
 {11300000, DIF_BPF_COEFF23,    0xfffdffee},
 {11300000, DIF_BPF_COEFF45,    0x00040038},
@@ -1793,8 +2044,11 @@ static struct dif_settings Dif_set_array[] = {
 {11300000, DIF_BPF_COEFF3233,  0x0d5af8c1},
 {11300000, DIF_BPF_COEFF3435,  0xefec028e},
 {11300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 113_quant.dat*/
 
 
+/*case 11400000:*/
+/* BEGIN - DIF BPF register values from 114_quant.dat*/
 {11400000, DIF_BPF_COEFF01,    0x00000003},
 {11400000, DIF_BPF_COEFF23,    0x0000ffee},
 {11400000, DIF_BPF_COEFF45,    0xfff60033},
@@ -1814,8 +2068,11 @@ static struct dif_settings Dif_set_array[] = {
 {11400000, DIF_BPF_COEFF3233,  0x0dccf952},
 {11400000, DIF_BPF_COEFF3435,  0xefcd0258},
 {11400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 114_quant.dat*/
 
 
+/*case 11500000:*/
+/* BEGIN - DIF BPF register values from 115_quant.dat*/
 {11500000, DIF_BPF_COEFF01,    0x00000003},
 {11500000, DIF_BPF_COEFF23,    0x0004fff1},
 {11500000, DIF_BPF_COEFF45,    0xffea0026},
@@ -1835,8 +2092,11 @@ static struct dif_settings Dif_set_array[] = {
 {11500000, DIF_BPF_COEFF3233,  0x0e35f9e6},
 {11500000, DIF_BPF_COEFF3435,  0xefb10221},
 {11500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 115_quant.dat*/
 
 
+/*case 11600000:*/
+/* BEGIN - DIF BPF register values from 116_quant.dat*/
 {11600000, DIF_BPF_COEFF01,    0x00000002},
 {11600000, DIF_BPF_COEFF23,    0x0007fff6},
 {11600000, DIF_BPF_COEFF45,    0xffe20014},
@@ -1856,8 +2116,11 @@ static struct dif_settings Dif_set_array[] = {
 {11600000, DIF_BPF_COEFF3233,  0x0e95fa7c},
 {11600000, DIF_BPF_COEFF3435,  0xef9701eb},
 {11600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 116_quant.dat*/
 
 
+/*case 11700000:*/
+/* BEGIN - DIF BPF register values from 117_quant.dat*/
 {11700000, DIF_BPF_COEFF01,    0xffff0001},
 {11700000, DIF_BPF_COEFF23,    0x0008fffd},
 {11700000, DIF_BPF_COEFF45,    0xffdeffff},
@@ -1877,8 +2140,11 @@ static struct dif_settings Dif_set_array[] = {
 {11700000, DIF_BPF_COEFF3233,  0x0eebfb14},
 {11700000, DIF_BPF_COEFF3435,  0xef8001b5},
 {11700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 117_quant.dat*/
 
 
+/*case 11800000:*/
+/* BEGIN - DIF BPF register values from 118_quant.dat*/
 {11800000, DIF_BPF_COEFF01,    0xffff0000},
 {11800000, DIF_BPF_COEFF23,    0x00080004},
 {11800000, DIF_BPF_COEFF45,    0xffe0ffe9},
@@ -1898,8 +2164,11 @@ static struct dif_settings Dif_set_array[] = {
 {11800000, DIF_BPF_COEFF3233,  0x0f38fbad},
 {11800000, DIF_BPF_COEFF3435,  0xef6c017e},
 {11800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 118_quant.dat*/
 
 
+/*case 11900000:*/
+/* BEGIN - DIF BPF register values from 119_quant.dat*/
 {11900000, DIF_BPF_COEFF01,    0xffffffff},
 {11900000, DIF_BPF_COEFF23,    0x0007000b},
 {11900000, DIF_BPF_COEFF45,    0xffe7ffd8},
@@ -1919,8 +2188,11 @@ static struct dif_settings Dif_set_array[] = {
 {11900000, DIF_BPF_COEFF3233,  0x0f7bfc48},
 {11900000, DIF_BPF_COEFF3435,  0xef5a0148},
 {11900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 119_quant.dat*/
 
 
+/*case 12000000:*/
+/* BEGIN - DIF BPF register values from 120_quant.dat*/
 {12000000, DIF_BPF_COEFF01,    0x0000fffe},
 {12000000, DIF_BPF_COEFF23,    0x00050010},
 {12000000, DIF_BPF_COEFF45,    0xfff2ffcc},
@@ -1940,8 +2212,11 @@ static struct dif_settings Dif_set_array[] = {
 {12000000, DIF_BPF_COEFF3233,  0x0fb4fce5},
 {12000000, DIF_BPF_COEFF3435,  0xef4b0111},
 {12000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 120_quant.dat*/
 
 
+/*case 12100000:*/
+/* BEGIN - DIF BPF register values from 121_quant.dat*/
 {12100000, DIF_BPF_COEFF01,    0x0000fffd},
 {12100000, DIF_BPF_COEFF23,    0x00010012},
 {12100000, DIF_BPF_COEFF45,    0xffffffc8},
@@ -1961,8 +2236,11 @@ static struct dif_settings Dif_set_array[] = {
 {12100000, DIF_BPF_COEFF3233,  0x0fe3fd83},
 {12100000, DIF_BPF_COEFF3435,  0xef3f00db},
 {12100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 121_quant.dat*/
 
 
+/*case 12200000:*/
+/* BEGIN - DIF BPF register values from 122_quant.dat*/
 {12200000, DIF_BPF_COEFF01,    0x0000fffd},
 {12200000, DIF_BPF_COEFF23,    0xfffe0011},
 {12200000, DIF_BPF_COEFF45,    0x000cffcc},
@@ -1982,8 +2260,11 @@ static struct dif_settings Dif_set_array[] = {
 {12200000, DIF_BPF_COEFF3233,  0x1007fe21},
 {12200000, DIF_BPF_COEFF3435,  0xef3600a4},
 {12200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 122_quant.dat*/
 
 
+/*case 12300000:*/
+/* BEGIN - DIF BPF register values from 123_quant.dat*/
 {12300000, DIF_BPF_COEFF01,    0x0000fffe},
 {12300000, DIF_BPF_COEFF23,    0xfffa000e},
 {12300000, DIF_BPF_COEFF45,    0x0017ffd9},
@@ -2003,8 +2284,11 @@ static struct dif_settings Dif_set_array[] = {
 {12300000, DIF_BPF_COEFF3233,  0x1021fec0},
 {12300000, DIF_BPF_COEFF3435,  0xef2f006d},
 {12300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 123_quant.dat*/
 
 
+/*case 12400000:*/
+/* BEGIN - DIF BPF register values from 124_quant.dat*/
 {12400000, DIF_BPF_COEFF01,    0x0001ffff},
 {12400000, DIF_BPF_COEFF23,    0xfff80007},
 {12400000, DIF_BPF_COEFF45,    0x001fffeb},
@@ -2024,8 +2308,11 @@ static struct dif_settings Dif_set_array[] = {
 {12400000, DIF_BPF_COEFF3233,  0x1031ff60},
 {12400000, DIF_BPF_COEFF3435,  0xef2b0037},
 {12400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 124_quant.dat*/
 
 
+/*case 12500000:*/
+/* BEGIN - DIF BPF register values from 125_quant.dat*/
 {12500000, DIF_BPF_COEFF01,    0x00010000},
 {12500000, DIF_BPF_COEFF23,    0xfff70000},
 {12500000, DIF_BPF_COEFF45,    0x00220000},
@@ -2045,8 +2332,11 @@ static struct dif_settings Dif_set_array[] = {
 {12500000, DIF_BPF_COEFF3233,  0x10360000},
 {12500000, DIF_BPF_COEFF3435,  0xef290000},
 {12500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 125_quant.dat*/
 
 
+/*case 12600000:*/
+/* BEGIN - DIF BPF register values from 126_quant.dat*/
 {12600000, DIF_BPF_COEFF01,    0x00010001},
 {12600000, DIF_BPF_COEFF23,    0xfff8fff9},
 {12600000, DIF_BPF_COEFF45,    0x001f0015},
@@ -2066,8 +2356,11 @@ static struct dif_settings Dif_set_array[] = {
 {12600000, DIF_BPF_COEFF3233,  0x103100a0},
 {12600000, DIF_BPF_COEFF3435,  0xef2bffc9},
 {12600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 126_quant.dat*/
 
 
+/*case 12700000:*/
+/* BEGIN - DIF BPF register values from 127_quant.dat*/
 {12700000, DIF_BPF_COEFF01,    0x00000002},
 {12700000, DIF_BPF_COEFF23,    0xfffafff2},
 {12700000, DIF_BPF_COEFF45,    0x00170027},
@@ -2087,8 +2380,11 @@ static struct dif_settings Dif_set_array[] = {
 {12700000, DIF_BPF_COEFF3233,  0x10210140},
 {12700000, DIF_BPF_COEFF3435,  0xef2fff93},
 {12700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 127_quant.dat*/
 
 
+/*case 12800000:*/
+/* BEGIN - DIF BPF register values from 128_quant.dat*/
 {12800000, DIF_BPF_COEFF01,    0x00000003},
 {12800000, DIF_BPF_COEFF23,    0xfffeffef},
 {12800000, DIF_BPF_COEFF45,    0x000c0034},
@@ -2108,8 +2404,11 @@ static struct dif_settings Dif_set_array[] = {
 {12800000, DIF_BPF_COEFF3233,  0x100701df},
 {12800000, DIF_BPF_COEFF3435,  0xef36ff5c},
 {12800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 128_quant.dat*/
 
 
+/*case 12900000:*/
+/* BEGIN - DIF BPF register values from 129_quant.dat*/
 {12900000, DIF_BPF_COEFF01,    0x00000003},
 {12900000, DIF_BPF_COEFF23,    0x0001ffee},
 {12900000, DIF_BPF_COEFF45,    0xffff0038},
@@ -2129,8 +2428,11 @@ static struct dif_settings Dif_set_array[] = {
 {12900000, DIF_BPF_COEFF3233,  0x0fe3027d},
 {12900000, DIF_BPF_COEFF3435,  0xef3fff25},
 {12900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 129_quant.dat*/
 
 
+/*case 113000000:*/
+/* BEGIN - DIF BPF register values from 130_quant.dat*/
 {13000000, DIF_BPF_COEFF01,    0x00000002},
 {13000000, DIF_BPF_COEFF23,    0x0005fff0},
 {13000000, DIF_BPF_COEFF45,    0xfff20034},
@@ -2150,8 +2452,11 @@ static struct dif_settings Dif_set_array[] = {
 {13000000, DIF_BPF_COEFF3233,  0x0fb4031b},
 {13000000, DIF_BPF_COEFF3435,  0xef4bfeef},
 {13000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 130_quant.dat*/
 
 
+/*case 13100000:*/
+/* BEGIN - DIF BPF register values from 131_quant.dat*/
 {13100000, DIF_BPF_COEFF01,    0xffff0001},
 {13100000, DIF_BPF_COEFF23,    0x0007fff5},
 {13100000, DIF_BPF_COEFF45,    0xffe70028},
@@ -2171,8 +2476,11 @@ static struct dif_settings Dif_set_array[] = {
 {13100000, DIF_BPF_COEFF3233,  0x0f7b03b8},
 {13100000, DIF_BPF_COEFF3435,  0xef5afeb8},
 {13100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 131_quant.dat*/
 
 
+/*case 13200000:*/
+/* BEGIN - DIF BPF register values from 132_quant.dat*/
 {13200000, DIF_BPF_COEFF01,    0xffff0000},
 {13200000, DIF_BPF_COEFF23,    0x0008fffc},
 {13200000, DIF_BPF_COEFF45,    0xffe00017},
@@ -2192,8 +2500,11 @@ static struct dif_settings Dif_set_array[] = {
 {13200000, DIF_BPF_COEFF3233,  0x0f380453},
 {13200000, DIF_BPF_COEFF3435,  0xef6cfe82},
 {13200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 132_quant.dat*/
 
 
+/*case 13300000:*/
+/* BEGIN - DIF BPF register values from 133_quant.dat*/
 {13300000, DIF_BPF_COEFF01,    0xffffffff},
 {13300000, DIF_BPF_COEFF23,    0x00080003},
 {13300000, DIF_BPF_COEFF45,    0xffde0001},
@@ -2213,8 +2524,11 @@ static struct dif_settings Dif_set_array[] = {
 {13300000, DIF_BPF_COEFF3233,  0x0eeb04ec},
 {13300000, DIF_BPF_COEFF3435,  0xef80fe4b},
 {13300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 133_quant.dat*/
 
 
+/*case 13400000:*/
+/* BEGIN - DIF BPF register values from 134_quant.dat*/
 {13400000, DIF_BPF_COEFF01,    0x0000fffe},
 {13400000, DIF_BPF_COEFF23,    0x0007000a},
 {13400000, DIF_BPF_COEFF45,    0xffe2ffec},
@@ -2234,8 +2548,11 @@ static struct dif_settings Dif_set_array[] = {
 {13400000, DIF_BPF_COEFF3233,  0x0e950584},
 {13400000, DIF_BPF_COEFF3435,  0xef97fe15},
 {13400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 134_quant.dat*/
 
 
+/*case 13500000:*/
+/* BEGIN - DIF BPF register values from 135_quant.dat*/
 {13500000, DIF_BPF_COEFF01,    0x0000fffd},
 {13500000, DIF_BPF_COEFF23,    0x0004000f},
 {13500000, DIF_BPF_COEFF45,    0xffeaffda},
@@ -2255,8 +2572,11 @@ static struct dif_settings Dif_set_array[] = {
 {13500000, DIF_BPF_COEFF3233,  0x0e35061a},
 {13500000, DIF_BPF_COEFF3435,  0xefb1fddf},
 {13500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 135_quant.dat*/
 
 
+/*case 13600000:*/
+/* BEGIN - DIF BPF register values from 136_quant.dat*/
 {13600000, DIF_BPF_COEFF01,    0x0000fffd},
 {13600000, DIF_BPF_COEFF23,    0x00000012},
 {13600000, DIF_BPF_COEFF45,    0xfff6ffcd},
@@ -2276,8 +2596,11 @@ static struct dif_settings Dif_set_array[] = {
 {13600000, DIF_BPF_COEFF3233,  0x0dcc06ae},
 {13600000, DIF_BPF_COEFF3435,  0xefcdfda8},
 {13600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 136_quant.dat*/
 
 
+/*case 13700000:*/
+/* BEGIN - DIF BPF register values from 137_quant.dat*/
 {13700000, DIF_BPF_COEFF01,    0x0000fffd},
 {13700000, DIF_BPF_COEFF23,    0xfffd0012},
 {13700000, DIF_BPF_COEFF45,    0x0004ffc8},
@@ -2297,8 +2620,11 @@ static struct dif_settings Dif_set_array[] = {
 {13700000, DIF_BPF_COEFF3233,  0x0d5a073f},
 {13700000, DIF_BPF_COEFF3435,  0xefecfd72},
 {13700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 137_quant.dat*/
 
 
+/*case 13800000:*/
+/* BEGIN - DIF BPF register values from 138_quant.dat*/
 {13800000, DIF_BPF_COEFF01,    0x0001fffe},
 {13800000, DIF_BPF_COEFF23,    0xfffa000e},
 {13800000, DIF_BPF_COEFF45,    0x0011ffcb},
@@ -2318,8 +2644,11 @@ static struct dif_settings Dif_set_array[] = {
 {13800000, DIF_BPF_COEFF3233,  0x0cdf07cd},
 {13800000, DIF_BPF_COEFF3435,  0xf00dfd3c},
 {13800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 138_quant.dat*/
 
 
+/*case 13900000:*/
+/* BEGIN - DIF BPF register values from 139_quant.dat*/
 {13900000, DIF_BPF_COEFF01,    0x00010000},
 {13900000, DIF_BPF_COEFF23,    0xfff80008},
 {13900000, DIF_BPF_COEFF45,    0x001bffd7},
@@ -2339,8 +2668,11 @@ static struct dif_settings Dif_set_array[] = {
 {13900000, DIF_BPF_COEFF3233,  0x0c5c0859},
 {13900000, DIF_BPF_COEFF3435,  0xf031fd06},
 {13900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 139_quant.dat*/
 
 
+/*case 14000000:*/
+/* BEGIN - DIF BPF register values from 140_quant.dat*/
 {14000000, DIF_BPF_COEFF01,    0x00010001},
 {14000000, DIF_BPF_COEFF23,    0xfff80001},
 {14000000, DIF_BPF_COEFF45,    0x0021ffe8},
@@ -2360,8 +2692,11 @@ static struct dif_settings Dif_set_array[] = {
 {14000000, DIF_BPF_COEFF3233,  0x0bd108e2},
 {14000000, DIF_BPF_COEFF3435,  0xf058fcd1},
 {14000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 140_quant.dat*/
 
 
+/*case 14100000:*/
+/* BEGIN - DIF BPF register values from 141_quant.dat*/
 {14100000, DIF_BPF_COEFF01,    0x00000002},
 {14100000, DIF_BPF_COEFF23,    0xfff9fffa},
 {14100000, DIF_BPF_COEFF45,    0x0021fffd},
@@ -2381,8 +2716,11 @@ static struct dif_settings Dif_set_array[] = {
 {14100000, DIF_BPF_COEFF3233,  0x0b3f0967},
 {14100000, DIF_BPF_COEFF3435,  0xf081fc9b},
 {14100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 141_quant.dat*/
 
 
+/*case 14200000:*/
+/* BEGIN - DIF BPF register values from 142_quant.dat*/
 {14200000, DIF_BPF_COEFF01,    0x00000003},
 {14200000, DIF_BPF_COEFF23,    0xfffbfff3},
 {14200000, DIF_BPF_COEFF45,    0x001d0013},
@@ -2402,8 +2740,11 @@ static struct dif_settings Dif_set_array[] = {
 {14200000, DIF_BPF_COEFF3233,  0x0aa509e9},
 {14200000, DIF_BPF_COEFF3435,  0xf0adfc65},
 {14200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 142_quant.dat*/
 
 
+/*case 14300000:*/
+/* BEGIN - DIF BPF register values from 143_quant.dat*/
 {14300000, DIF_BPF_COEFF01,    0x00000003},
 {14300000, DIF_BPF_COEFF23,    0xffffffef},
 {14300000, DIF_BPF_COEFF45,    0x00140025},
@@ -2423,8 +2764,11 @@ static struct dif_settings Dif_set_array[] = {
 {14300000, DIF_BPF_COEFF3233,  0x0a040a67},
 {14300000, DIF_BPF_COEFF3435,  0xf0dbfc30},
 {14300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 143_quant.dat*/
 
 
+/*case 14400000:*/
+/* BEGIN - DIF BPF register values from 144_quant.dat*/
 {14400000, DIF_BPF_COEFF01,    0x00000003},
 {14400000, DIF_BPF_COEFF23,    0x0002ffee},
 {14400000, DIF_BPF_COEFF45,    0x00070033},
@@ -2444,8 +2788,11 @@ static struct dif_settings Dif_set_array[] = {
 {14400000, DIF_BPF_COEFF3233,  0x095d0ae2},
 {14400000, DIF_BPF_COEFF3435,  0xf10cfbfb},
 {14400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 144_quant.dat*/
 
 
+/*case 14500000:*/
+/* BEGIN - DIF BPF register values from 145_quant.dat*/
 {14500000, DIF_BPF_COEFF01,    0xffff0002},
 {14500000, DIF_BPF_COEFF23,    0x0005ffef},
 {14500000, DIF_BPF_COEFF45,    0xfffa0038},
@@ -2465,8 +2812,11 @@ static struct dif_settings Dif_set_array[] = {
 {14500000, DIF_BPF_COEFF3233,  0x08b00b59},
 {14500000, DIF_BPF_COEFF3435,  0xf13ffbc6},
 {14500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 145_quant.dat*/
 
 
+/*case 14600000:*/
+/* BEGIN - DIF BPF register values from 146_quant.dat*/
 {14600000, DIF_BPF_COEFF01,    0xffff0001},
 {14600000, DIF_BPF_COEFF23,    0x0008fff4},
 {14600000, DIF_BPF_COEFF45,    0xffed0035},
@@ -2486,8 +2836,11 @@ static struct dif_settings Dif_set_array[] = {
 {14600000, DIF_BPF_COEFF3233,  0x07fd0bcb},
 {14600000, DIF_BPF_COEFF3435,  0xf174fb91},
 {14600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 146_quant.dat*/
 
 
+/*case 14700000:*/
+/* BEGIN - DIF BPF register values from 147_quant.dat*/
 {14700000, DIF_BPF_COEFF01,    0xffffffff},
 {14700000, DIF_BPF_COEFF23,    0x0009fffb},
 {14700000, DIF_BPF_COEFF45,    0xffe4002a},
@@ -2507,8 +2860,11 @@ static struct dif_settings Dif_set_array[] = {
 {14700000, DIF_BPF_COEFF3233,  0x07450c39},
 {14700000, DIF_BPF_COEFF3435,  0xf1acfb5c},
 {14700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 147_quant.dat*/
 
 
+/*case 14800000:*/
+/* BEGIN - DIF BPF register values from 148_quant.dat*/
 {14800000, DIF_BPF_COEFF01,    0x0000fffe},
 {14800000, DIF_BPF_COEFF23,    0x00080002},
 {14800000, DIF_BPF_COEFF45,    0xffdf0019},
@@ -2528,8 +2884,11 @@ static struct dif_settings Dif_set_array[] = {
 {14800000, DIF_BPF_COEFF3233,  0x06880ca3},
 {14800000, DIF_BPF_COEFF3435,  0xf1e6fb28},
 {14800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 148_quant.dat*/
 
 
+/*case 14900000:*/
+/* BEGIN - DIF BPF register values from 149_quant.dat*/
 {14900000, DIF_BPF_COEFF01,    0x0000fffd},
 {14900000, DIF_BPF_COEFF23,    0x00060009},
 {14900000, DIF_BPF_COEFF45,    0xffdf0004},
@@ -2549,8 +2908,11 @@ static struct dif_settings Dif_set_array[] = {
 {14900000, DIF_BPF_COEFF3233,  0x05c70d08},
 {14900000, DIF_BPF_COEFF3435,  0xf222faf3},
 {14900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 149_quant.dat*/
 
 
+/*case 15000000:*/
+/* BEGIN - DIF BPF register values from 150_quant.dat*/
 {15000000, DIF_BPF_COEFF01,    0x0000fffd},
 {15000000, DIF_BPF_COEFF23,    0x0003000f},
 {15000000, DIF_BPF_COEFF45,    0xffe5ffef},
@@ -2570,8 +2932,11 @@ static struct dif_settings Dif_set_array[] = {
 {15000000, DIF_BPF_COEFF3233,  0x05030d69},
 {15000000, DIF_BPF_COEFF3435,  0xf261fabf},
 {15000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 150_quant.dat*/
 
 
+/*case 15100000:*/
+/* BEGIN - DIF BPF register values from 151_quant.dat*/
 {15100000, DIF_BPF_COEFF01,    0x0000fffd},
 {15100000, DIF_BPF_COEFF23,    0xffff0012},
 {15100000, DIF_BPF_COEFF45,    0xffefffdc},
@@ -2591,8 +2956,11 @@ static struct dif_settings Dif_set_array[] = {
 {15100000, DIF_BPF_COEFF3233,  0x043b0dc4},
 {15100000, DIF_BPF_COEFF3435,  0xf2a1fa8b},
 {15100000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 151_quant.dat*/
 
 
+/*case 15200000:*/
+/* BEGIN - DIF BPF register values from 152_quant.dat*/
 {15200000, DIF_BPF_COEFF01,    0x0001fffe},
 {15200000, DIF_BPF_COEFF23,    0xfffc0012},
 {15200000, DIF_BPF_COEFF45,    0xfffbffce},
@@ -2612,8 +2980,11 @@ static struct dif_settings Dif_set_array[] = {
 {15200000, DIF_BPF_COEFF3233,  0x03700e1b},
 {15200000, DIF_BPF_COEFF3435,  0xf2e4fa58},
 {15200000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 152_quant.dat*/
 
 
+/*case 115300000:*/
+/* BEGIN - DIF BPF register values from 153_quant.dat*/
 {15300000, DIF_BPF_COEFF01,    0x0001ffff},
 {15300000, DIF_BPF_COEFF23,    0xfff9000f},
 {15300000, DIF_BPF_COEFF45,    0x0009ffc8},
@@ -2633,8 +3004,11 @@ static struct dif_settings Dif_set_array[] = {
 {15300000, DIF_BPF_COEFF3233,  0x02a30e6c},
 {15300000, DIF_BPF_COEFF3435,  0xf329fa24},
 {15300000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 153_quant.dat*/
 
 
+/*case 115400000:*/
+/* BEGIN - DIF BPF register values from 154_quant.dat*/
 {15400000, DIF_BPF_COEFF01,    0x00010001},
 {15400000, DIF_BPF_COEFF23,    0xfff80009},
 {15400000, DIF_BPF_COEFF45,    0x0015ffca},
@@ -2654,8 +3028,11 @@ static struct dif_settings Dif_set_array[] = {
 {15400000, DIF_BPF_COEFF3233,  0x01d40eb9},
 {15400000, DIF_BPF_COEFF3435,  0xf371f9f1},
 {15400000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 154_quant.dat*/
 
 
+/*case 115500000:*/
+/* BEGIN - DIF BPF register values from 155_quant.dat*/
 {15500000, DIF_BPF_COEFF01,    0x00000002},
 {15500000, DIF_BPF_COEFF23,    0xfff80002},
 {15500000, DIF_BPF_COEFF45,    0x001effd5},
@@ -2675,8 +3052,11 @@ static struct dif_settings Dif_set_array[] = {
 {15500000, DIF_BPF_COEFF3233,  0x01050eff},
 {15500000, DIF_BPF_COEFF3435,  0xf3baf9be},
 {15500000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 155_quant.dat*/
 
 
+/*case 115600000:*/
+/* BEGIN - DIF BPF register values from 156_quant.dat*/
 {15600000, DIF_BPF_COEFF01,    0x00000003},
 {15600000, DIF_BPF_COEFF23,    0xfff9fffb},
 {15600000, DIF_BPF_COEFF45,    0x0022ffe6},
@@ -2696,8 +3076,11 @@ static struct dif_settings Dif_set_array[] = {
 {15600000, DIF_BPF_COEFF3233,  0x00340f41},
 {15600000, DIF_BPF_COEFF3435,  0xf405f98b},
 {15600000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 156_quant.dat*/
 
 
+/*case 115700000:*/
+/* BEGIN - DIF BPF register values from 157_quant.dat*/
 {15700000, DIF_BPF_COEFF01,    0x00000003},
 {15700000, DIF_BPF_COEFF23,    0xfffcfff4},
 {15700000, DIF_BPF_COEFF45,    0x0020fffa},
@@ -2717,8 +3100,11 @@ static struct dif_settings Dif_set_array[] = {
 {15700000, DIF_BPF_COEFF3233,  0xff640f7d},
 {15700000, DIF_BPF_COEFF3435,  0xf452f959},
 {15700000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 157_quant.dat*/
 
 
+/*case 115800000:*/
+/* BEGIN - DIF BPF register values from 158_quant.dat*/
 {15800000, DIF_BPF_COEFF01,    0x00000003},
 {15800000, DIF_BPF_COEFF23,    0x0000fff0},
 {15800000, DIF_BPF_COEFF45,    0x001a0010},
@@ -2738,8 +3124,11 @@ static struct dif_settings Dif_set_array[] = {
 {15800000, DIF_BPF_COEFF3233,  0xfe930fb3},
 {15800000, DIF_BPF_COEFF3435,  0xf4a1f927},
 {15800000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 158_quant.dat*/
 
 
+/*case 115900000:*/
+/* BEGIN - DIF BPF register values from 159_quant.dat*/
 {15900000, DIF_BPF_COEFF01,    0xffff0002},
 {15900000, DIF_BPF_COEFF23,    0x0003ffee},
 {15900000, DIF_BPF_COEFF45,    0x000f0023},
@@ -2759,8 +3148,11 @@ static struct dif_settings Dif_set_array[] = {
 {15900000, DIF_BPF_COEFF3233,  0xfdc40fe3},
 {15900000, DIF_BPF_COEFF3435,  0xf4f2f8f5},
 {15900000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 159_quant.dat*/
 
 
+/*case 116000000:*/
+/* BEGIN - DIF BPF register values from 160_quant.dat*/
 {16000000, DIF_BPF_COEFF01,    0xffff0001},
 {16000000, DIF_BPF_COEFF23,    0x0006ffef},
 {16000000, DIF_BPF_COEFF45,    0x00020031},
@@ -2780,6 +3172,7 @@ static struct dif_settings Dif_set_array[] = {
 {16000000, DIF_BPF_COEFF3233,  0xfcf6100e},
 {16000000, DIF_BPF_COEFF3435,  0xf544f8c3},
 {16000000, DIF_BPF_COEFF36,    0x110d0000},
+/* END - DIF BPF register values from 160_quant.dat*/
 };
 
 #endif

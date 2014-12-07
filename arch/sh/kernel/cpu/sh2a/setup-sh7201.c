@@ -18,7 +18,7 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7,
 	PINT0, PINT1, PINT2, PINT3, PINT4, PINT5, PINT6, PINT7,
 
@@ -45,7 +45,7 @@ enum {
 
 	TMR0, TMR1,
 
-	
+	/* interrupt groups */
 	PINT,
 };
 
@@ -151,25 +151,25 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xfffe9418, 0, 16, 4,  { IRQ0, IRQ1, IRQ2, IRQ3 } },
-	{ 0xfffe941a, 0, 16, 4,  { IRQ4, IRQ5, IRQ6, IRQ7 } },
-	{ 0xfffe9420, 0, 16, 4,  { PINT, 0, ADC_ADI, 0 } },
-	{ 0xfffe9800, 0, 16, 4,  { 0, MTU20_ABCD, MTU20_VEF, MTU21_AB } },
-	{ 0xfffe9802, 0, 16, 4,  { MTU21_VU, MTU22_AB, MTU22_VU,  MTU23_ABCD } },
-	{ 0xfffe9804, 0, 16, 4,  { MTU2_TCI3V, MTU24_ABCD, MTU2_TCI4V, MTU25_UVW } },
+	{ 0xfffe9418, 0, 16, 4, /* IPR01 */ { IRQ0, IRQ1, IRQ2, IRQ3 } },
+	{ 0xfffe941a, 0, 16, 4, /* IPR02 */ { IRQ4, IRQ5, IRQ6, IRQ7 } },
+	{ 0xfffe9420, 0, 16, 4, /* IPR05 */ { PINT, 0, ADC_ADI, 0 } },
+	{ 0xfffe9800, 0, 16, 4, /* IPR06 */ { 0, MTU20_ABCD, MTU20_VEF, MTU21_AB } },
+	{ 0xfffe9802, 0, 16, 4, /* IPR07 */ { MTU21_VU, MTU22_AB, MTU22_VU,  MTU23_ABCD } },
+	{ 0xfffe9804, 0, 16, 4, /* IPR08 */ { MTU2_TCI3V, MTU24_ABCD, MTU2_TCI4V, MTU25_UVW } },
 
-	{ 0xfffe9806, 0, 16, 4,  { RTC, WDT, IIC30, 0 } },
-	{ 0xfffe9808, 0, 16, 4,  { IIC31, IIC32, DMAC0_DMINT0, DMAC1_DMINT1 } },
-	{ 0xfffe980a, 0, 16, 4,  { DMAC2_DMINT2, DMAC3_DMINT3, SCIF0, SCIF1 } },
-	{ 0xfffe980c, 0, 16, 4,  { SCIF2, SCIF3, SCIF4, SCIF5 } },
-	{ 0xfffe980e, 0, 16, 4,  { SCIF6, SCIF7, DMAC0_DMINTA, DMAC4_DMINT4  } },
-	{ 0xfffe9810, 0, 16, 4,  { DMAC5_DMINT5, DMAC6_DMINT6, DMAC7_DMINT7, 0 } },
-	{ 0xfffe9812, 0, 16, 4,  { 0, RCAN0, RCAN1, 0 } },
-	{ 0xfffe9814, 0, 16, 4,  { SSI0_SSII, SSI1_SSII, TMR0, TMR1 } },
+	{ 0xfffe9806, 0, 16, 4, /* IPR09 */ { RTC, WDT, IIC30, 0 } },
+	{ 0xfffe9808, 0, 16, 4, /* IPR10 */ { IIC31, IIC32, DMAC0_DMINT0, DMAC1_DMINT1 } },
+	{ 0xfffe980a, 0, 16, 4, /* IPR11 */ { DMAC2_DMINT2, DMAC3_DMINT3, SCIF0, SCIF1 } },
+	{ 0xfffe980c, 0, 16, 4, /* IPR12 */ { SCIF2, SCIF3, SCIF4, SCIF5 } },
+	{ 0xfffe980e, 0, 16, 4, /* IPR13 */ { SCIF6, SCIF7, DMAC0_DMINTA, DMAC4_DMINT4  } },
+	{ 0xfffe9810, 0, 16, 4, /* IPR14 */ { DMAC5_DMINT5, DMAC6_DMINT6, DMAC7_DMINT7, 0 } },
+	{ 0xfffe9812, 0, 16, 4, /* IPR15 */ { 0, RCAN0, RCAN1, 0 } },
+	{ 0xfffe9814, 0, 16, 4, /* IPR16 */ { SSI0_SSII, SSI1_SSII, TMR0, TMR1 } },
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xfffe9408, 0, 16, 
+	{ 0xfffe9408, 0, 16, /* PINTER */
 	  { 0, 0, 0, 0, 0, 0, 0, 0,
 	    PINT7, PINT6, PINT5, PINT4, PINT3, PINT2, PINT1, PINT0 } },
 };
@@ -320,7 +320,7 @@ static struct resource rtc_resources[] = {
 		.flags	= IORESOURCE_IO,
 	},
 	[1] = {
-		
+		/* Shared Period/Carry/Alarm IRQ */
 		.start	= 152,
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -462,7 +462,7 @@ static struct platform_device *sh7201_early_devices[] __initdata = {
 
 void __init plat_early_device_setup(void)
 {
-	
+	/* enable MTU2 clock */
 	__raw_writeb(__raw_readb(STBCR3) & ~0x20, STBCR3);
 
 	early_platform_add_devices(sh7201_early_devices,

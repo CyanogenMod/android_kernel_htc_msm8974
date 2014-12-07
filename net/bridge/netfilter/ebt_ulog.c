@@ -1,3 +1,32 @@
+/*
+ * netfilter module for userspace bridged Ethernet frames logging daemons
+ *
+ *	Authors:
+ *	Bart De Schuymer <bdschuym@pandora.be>
+ *	Harald Welte <laforge@netfilter.org>
+ *
+ *  November, 2004
+ *
+ * Based on ipt_ULOG.c, which is
+ * (C) 2000-2002 by Harald Welte <laforge@netfilter.org>
+ *
+ * This module accepts two parameters:
+ *
+ * nlbufsiz:
+ *   The parameter specifies how big the buffer for each netlink multicast
+ * group is. e.g. If you say nlbufsiz=8192, up to eight kb of packets will
+ * get accumulated in the kernel until they are sent to userspace. It is
+ * NOT possible to allocate more than 128kB, and it is strongly discouraged,
+ * because atomically allocating 128kB inside the network rx softirq is not
+ * reliable. Please also keep in mind that this buffer size is allocated for
+ * each nlgroup you are using, so the total kernel memory usage increases
+ * by that factor.
+ *
+ * flushtimeout:
+ *   Specify, after how many hundredths of a second the queue should be
+ *   flushed even if it is not full yet.
+ *
+ */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -26,16 +55,17 @@ MODULE_PARM_DESC(flushtimeout, "buffer flush timeout (hundredths ofa second) "
 			       "(defaults to 10)");
 
 typedef struct {
-	unsigned int qlen;		
-	struct nlmsghdr *lastnlh;	
-	struct sk_buff *skb;		
-	struct timer_list timer;	
-	spinlock_t lock;		
+	unsigned int qlen;		/* number of nlmsgs' in the skb */
+	struct nlmsghdr *lastnlh;	/* netlink header of last msg in skb */
+	struct sk_buff *skb;		/* the pre-allocated skb */
+	struct timer_list timer;	/* the timer function */
+	spinlock_t lock;		/* the per-queue lock */
 } ebt_ulog_buff_t;
 
 static ebt_ulog_buff_t ulog_buffers[EBT_ULOG_MAXNLGROUPS];
 static struct sock *ebtulognl;
 
+/* send one ulog_buff_t to userspace */
 static void ulog_send(unsigned int nlgroup)
 {
 	ebt_ulog_buff_t *ub = &ulog_buffers[nlgroup];
@@ -46,7 +76,7 @@ static void ulog_send(unsigned int nlgroup)
 	if (!ub->skb)
 		return;
 
-	
+	/* last nlmsg needs NLMSG_DONE */
 	if (ub->qlen > 1)
 		ub->lastnlh->nlmsg_type = NLMSG_DONE;
 
@@ -57,6 +87,7 @@ static void ulog_send(unsigned int nlgroup)
 	ub->skb = NULL;
 }
 
+/* timer function to flush queue in flushtimeout time */
 static void ulog_timer(unsigned long data)
 {
 	spin_lock_bh(&ulog_buffers[data].lock);
@@ -74,6 +105,8 @@ static struct sk_buff *ulog_alloc_skb(unsigned int size)
 	skb = alloc_skb(n, GFP_ATOMIC | __GFP_NOWARN);
 	if (!skb) {
 		if (n > size) {
+			/* try to allocate only as much as we need for
+			 * current packet */
 			skb = alloc_skb(size, GFP_ATOMIC);
 			if (!skb)
 				pr_debug("cannot even allocate buffer of size %ub\n",
@@ -126,7 +159,7 @@ static void ebt_ulog_packet(unsigned int hooknr, const struct sk_buff *skb,
 
 	pm = NLMSG_DATA(nlh);
 
-	
+	/* Fill in the ulog data */
 	pm->version = EBT_ULOG_VERSION;
 	kt = ktime_get_real();
 	pm->stamp = ktime_to_timeval(kt);
@@ -142,9 +175,9 @@ static void ebt_ulog_packet(unsigned int hooknr, const struct sk_buff *skb,
 
 	if (in) {
 		strcpy(pm->physindev, in->name);
-		
+		/* If in isn't a bridge, then physindev==indev */
 		if (br_port_exists(in))
-			
+			/* rcu_read_lock()ed by nf_hook_slow */
 			strcpy(pm->indev, br_port_get_rcu(in)->br->dev->name);
 		else
 			strcpy(pm->indev, in->name);
@@ -152,9 +185,9 @@ static void ebt_ulog_packet(unsigned int hooknr, const struct sk_buff *skb,
 		pm->indev[0] = pm->physindev[0] = '\0';
 
 	if (out) {
-		
+		/* If out exists, then out is a bridge port */
 		strcpy(pm->physoutdev, out->name);
-		
+		/* rcu_read_lock()ed by nf_hook_slow */
 		strcpy(pm->outdev, br_port_get_rcu(out)->br->dev->name);
 	} else
 		pm->outdev[0] = pm->physoutdev[0] = '\0';
@@ -186,6 +219,7 @@ alloc_failure:
 	goto unlock;
 }
 
+/* this function is registered with the netfilter core */
 static void ebt_log_packet(u_int8_t pf, unsigned int hooknum,
    const struct sk_buff *skb, const struct net_device *in,
    const struct net_device *out, const struct nf_loginfo *li,
@@ -258,7 +292,7 @@ static int __init ebt_ulog_init(void)
 		return -EINVAL;
 	}
 
-	
+	/* initialize ulog_buffers */
 	for (i = 0; i < EBT_ULOG_MAXNLGROUPS; i++) {
 		setup_timer(&ulog_buffers[i].timer, ulog_timer, i);
 		spin_lock_init(&ulog_buffers[i].lock);

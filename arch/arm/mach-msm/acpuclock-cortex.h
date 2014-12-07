@@ -11,6 +11,7 @@
  * GNU General Public License for more details.
  */
 
+/* Corner type vreg VDD values */
 #define LVL_NONE        RPM_REGULATOR_CORNER_NONE
 #define LVL_LOW         RPM_REGULATOR_CORNER_SVS_SOC
 #define LVL_NOM         RPM_REGULATOR_CORNER_NORMAL
@@ -75,6 +76,7 @@ struct bin_info {
 	int speed;
 };
 
+/* Instantaneous bandwidth requests in MB/s. */
 #define BW_MBPS(_bw) \
 	{ \
 		.vectors = &(struct msm_bus_vectors){ \

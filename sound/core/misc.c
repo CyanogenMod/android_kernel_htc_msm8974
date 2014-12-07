@@ -39,7 +39,7 @@ static int debug = DEFAULT_DEBUG_LEVEL;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug level (0 = disable)");
 
-#endif 
+#endif /* CONFIG_SND_DEBUG */
 
 void release_and_free_resource(struct resource *res)
 {
@@ -52,6 +52,7 @@ void release_and_free_resource(struct resource *res)
 EXPORT_SYMBOL(release_and_free_resource);
 
 #ifdef CONFIG_SND_VERBOSE_PRINTK
+/* strip the leading path if the given path is absolute */
 static const char *sanity_file_name(const char *path)
 {
 	if (*path == '/')
@@ -96,6 +97,18 @@ EXPORT_SYMBOL_GPL(__snd_printk);
 
 #ifdef CONFIG_PCI
 #include <linux/pci.h>
+/**
+ * snd_pci_quirk_lookup_id - look up a PCI SSID quirk list
+ * @vendor: PCI SSV id
+ * @device: PCI SSD id
+ * @list: quirk list, terminated by a null entry
+ *
+ * Look through the given quirk list and finds a matching entry
+ * with the same PCI SSID.  When subdevice is 0, all subdevice
+ * values may match.
+ *
+ * Returns the matched entry pointer, or NULL if nothing matched.
+ */
 const struct snd_pci_quirk *
 snd_pci_quirk_lookup_id(u16 vendor, u16 device,
 			const struct snd_pci_quirk *list)
@@ -113,6 +126,17 @@ snd_pci_quirk_lookup_id(u16 vendor, u16 device,
 }
 EXPORT_SYMBOL(snd_pci_quirk_lookup_id);
 
+/**
+ * snd_pci_quirk_lookup - look up a PCI SSID quirk list
+ * @pci: pci_dev handle
+ * @list: quirk list, terminated by a null entry
+ *
+ * Look through the given quirk list and finds a matching entry
+ * with the same PCI SSID.  When subdevice is 0, all subdevice
+ * values may match.
+ *
+ * Returns the matched entry pointer, or NULL if nothing matched.
+ */
 const struct snd_pci_quirk *
 snd_pci_quirk_lookup(struct pci_dev *pci, const struct snd_pci_quirk *list)
 {

@@ -33,4 +33,4 @@ void o2quo_conn_up(u8 node);
 void o2quo_conn_err(u8 node);
 void o2quo_disk_timeout(void);
 
-#endif 
+#endif /* O2CLUSTER_QUORUM_H */

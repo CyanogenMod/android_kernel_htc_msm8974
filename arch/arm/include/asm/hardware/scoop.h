@@ -48,9 +48,10 @@ struct scoop_config {
 	int gpio_base;
 };
 
+/* Structure for linking scoop devices to PCMCIA sockets */
 struct scoop_pcmcia_dev {
-	struct device *dev;     
-	int	irq;                
+	struct device *dev;     /* Pointer to this socket's scoop device */
+	int	irq;                /* irq for socket */
 	int cd_irq;
 	const char *cd_irq_str;
 	unsigned char keep_vs;

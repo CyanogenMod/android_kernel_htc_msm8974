@@ -12,6 +12,7 @@
 #ifndef __88PM860X_H
 #define __88PM860X_H
 
+/* The offset of these registers are 0xb0 */
 #define PM860X_PCM_IFACE_1		0x00
 #define PM860X_PCM_IFACE_2		0x01
 #define PM860X_PCM_IFACE_3		0x02
@@ -77,6 +78,7 @@
 #define PM860X_PLL_ADJ_1		0x3c
 #define PM860X_PLL_ADJ_2		0x3d
 
+/* bits definition */
 #define PM860X_CLK_DIR_IN		0
 #define PM860X_CLK_DIR_OUT		1
 
@@ -92,4 +94,4 @@ extern int pm860x_hs_jack_detect(struct snd_soc_codec *, struct snd_soc_jack *,
 extern int pm860x_mic_jack_detect(struct snd_soc_codec *, struct snd_soc_jack *,
 				  int);
 
-#endif	
+#endif	/* __88PM860X_H */

@@ -84,7 +84,7 @@ struct tiger_hw {
 	size_t			base_s;
 	dma_addr_t		dma;
 	void			*dma_p;
-	spinlock_t		lock;	
+	spinlock_t		lock;	/* lock HW */
 	struct isac_hw		isac;
 	struct tiger_dma	send;
 	struct tiger_dma	recv;
@@ -98,7 +98,7 @@ struct tiger_hw {
 };
 
 static LIST_HEAD(Cards);
-static DEFINE_RWLOCK(card_lock); 
+static DEFINE_RWLOCK(card_lock); /* protect Cards */
 static u32 debug;
 static int nj_cnt;
 
@@ -220,7 +220,7 @@ mode_tiger(struct tiger_ch *bc, u32 protocol)
 			break;
 		fill_mem(bc, 0, card->send.size, 0xff);
 		bc->bch.state = protocol;
-		
+		/* only stop dma and interrupts if both channels NULL */
 		if ((card->bc[0].bch.state == ISDN_P_NONE) &&
 		    (card->bc[1].bch.state == ISDN_P_NONE)) {
 			card->dmactrl = 0;
@@ -285,19 +285,19 @@ mode_tiger(struct tiger_ch *bc, u32 protocol)
 static void
 nj_reset(struct tiger_hw *card)
 {
-	outb(0xff, card->base + NJ_CTRL); 
+	outb(0xff, card->base + NJ_CTRL); /* Reset On */
 	mdelay(1);
 
-	
-	
-	if (card->typ == NETJET_S_TJ320) 
-		card->ctrlreg = 0x40;  
+	/* now edge triggered for TJ320 GE 13/07/00 */
+	/* see comment in IRQ function */
+	if (card->typ == NETJET_S_TJ320) /* TJ320 */
+		card->ctrlreg = 0x40;  /* Reset Off and status read clear */
 	else
-		card->ctrlreg = 0x00;  
+		card->ctrlreg = 0x00;  /* Reset Off and status read clear */
 	outb(card->ctrlreg, card->base + NJ_CTRL);
 	mdelay(10);
 
-	
+	/* configure AUX pins (all output except ISAC IRQ pin) */
 	card->auxd = 0;
 	card->dmactrl = 0;
 	outb(~NJ_ISACIRQ, card->base + NJ_AUXCTRL);
@@ -419,7 +419,7 @@ next_frame:
 	if (test_bit(FLG_HDLC, &bc->bch.Flags)) {
 		stat = isdnhdlc_decode(&bc->hrecv, pn, cnt, &i,
 				       bc->bch.rx_skb->data, bc->bch.maxlen);
-		if (stat > 0) 
+		if (stat > 0) /* valid frame received */
 			p = skb_put(bc->bch.rx_skb, stat);
 		else if (stat == -HDLC_CRC_ERROR)
 			pr_info("%s: B%1d receive frame CRC error\n",
@@ -465,7 +465,7 @@ recv_tiger(struct tiger_hw *card, u8 irq_stat)
 	u32 idx;
 	int cnt = card->recv.size / 2;
 
-	
+	/* Note receive is via the WRITE DMA channel */
 	card->last_is0 &= ~NJ_IRQM0_WR_MASK;
 	card->last_is0 |= (irq_stat & NJ_IRQM0_WR_MASK);
 
@@ -480,6 +480,7 @@ recv_tiger(struct tiger_hw *card, u8 irq_stat)
 		read_dma(&card->bc[1], idx, cnt);
 }
 
+/* sync with current DMA address at start or after exception */
 static void
 resync(struct tiger_ch *bc, struct tiger_hw *card)
 {
@@ -487,6 +488,10 @@ resync(struct tiger_ch *bc, struct tiger_hw *card)
 	card->send.idx = (card->send.dmacur - card->send.dmastart) >> 2;
 	if (bc->free > card->send.size / 2)
 		bc->free = card->send.size / 2;
+	/* currently we simple sync to the next complete free area
+	 * this hast the advantage that we have always maximum time to
+	 * handle TX irq
+	 */
 	if (card->send.idx < ((card->send.size / 2) - 1))
 		bc->idx = (card->recv.size / 2) - 1;
 	else
@@ -594,7 +599,7 @@ bc_next_frame(struct tiger_ch *bc)
 		fill_dma(bc);
 	else {
 		if (bc->bch.tx_skb) {
-			
+			/* send confirm, on trans, free on hdlc. */
 			if (test_bit(FLG_TRANSPARENT, &bc->bch.Flags))
 				confirm_Bsend(&bc->bch);
 			dev_kfree_skb(bc->bch.tx_skb);
@@ -642,7 +647,7 @@ send_tiger(struct tiger_hw *card, u8 irq_stat)
 {
 	int i;
 
-	
+	/* Note send is via the READ DMA channel */
 	if ((irq_stat & card->last_is0) & NJ_IRQM0_RD_MASK) {
 		pr_info("%s: tiger warn write double dma %x/%x\n",
 			card->name, irq_stat, card->last_is0);
@@ -667,7 +672,7 @@ nj_irq(int intno, void *dev_id)
 	s0val = inb(card->base | NJ_IRQSTAT0);
 	s1val = inb(card->base | NJ_IRQSTAT1);
 	if ((s1val & NJ_ISACIRQ) && (s0val == 0)) {
-		
+		/* shared IRQ */
 		spin_unlock(&card->lock);
 		return IRQ_NONE;
 	}
@@ -680,38 +685,38 @@ nj_irq(int intno, void *dev_id)
 	}
 
 	if (s0val)
-		
+		/* write to clear */
 		outb(s0val, card->base | NJ_IRQSTAT0);
 	else
 		goto end;
 	s1val = s0val;
-	
+	/* set bits in sval to indicate which page is free */
 	card->recv.dmacur = inl(card->base | NJ_DMA_WRITE_ADR);
 	card->recv.idx = (card->recv.dmacur - card->recv.dmastart) >> 2;
 	if (card->recv.dmacur < card->recv.dmairq)
-		s0val = 0x08;	
+		s0val = 0x08;	/* the 2nd write area is free */
 	else
-		s0val = 0x04;	
+		s0val = 0x04;	/* the 1st write area is free */
 
 	card->send.dmacur = inl(card->base | NJ_DMA_READ_ADR);
 	card->send.idx = (card->send.dmacur - card->send.dmastart) >> 2;
 	if (card->send.dmacur < card->send.dmairq)
-		s0val |= 0x02;	
+		s0val |= 0x02;	/* the 2nd read area is free */
 	else
-		s0val |= 0x01;	
+		s0val |= 0x01;	/* the 1st read area is free */
 
 	pr_debug("%s: DMA Status %02x/%02x/%02x %d/%d\n", card->name,
 		 s1val, s0val, card->last_is0,
 		 card->recv.idx, card->send.idx);
-	
+	/* test if we have a DMA interrupt */
 	if (s0val != card->last_is0) {
 		if ((s0val & NJ_IRQM0_RD_MASK) !=
 		    (card->last_is0 & NJ_IRQM0_RD_MASK))
-			
+			/* got a write dma int */
 			send_tiger(card, s0val);
 		if ((s0val & NJ_IRQM0_WR_MASK) !=
 		    (card->last_is0 & NJ_IRQM0_WR_MASK))
-			
+			/* got a read dma int */
 			recv_tiger(card, s0val);
 	}
 end:
@@ -734,8 +739,8 @@ nj_l2l1B(struct mISDNchannel *ch, struct sk_buff *skb)
 	case PH_DATA_REQ:
 		spin_lock_irqsave(&card->lock, flags);
 		ret = bchannel_senddata(bch, skb);
-		if (ret > 0) { 
-			id = hh->id; 
+		if (ret > 0) { /* direct TX */
+			id = hh->id; /* skb can be freed */
 			fill_dma(bc);
 			ret = 0;
 			spin_unlock_irqrestore(&card->lock, flags);
@@ -780,7 +785,7 @@ channel_bctrl(struct tiger_ch *bc, struct mISDN_ctrl_req *cq)
 	case MISDN_CTRL_GETOP:
 		cq->op = 0;
 		break;
-		
+		/* Nothing implemented yet */
 	case MISDN_CTRL_FILL_EMPTY:
 	default:
 		pr_info("%s: %s unknown Op %x\n", card->name, __func__, cq->op);
@@ -835,7 +840,7 @@ channel_ctrl(struct tiger_hw *card, struct mISDN_ctrl_req *cq)
 		cq->op = MISDN_CTRL_LOOP;
 		break;
 	case MISDN_CTRL_LOOP:
-		
+		/* cq->channel: 0 disable, 1 B1 loop 2 B2 loop, 3 both */
 		if (cq->channel < 0 || cq->channel > 3) {
 			ret = -EINVAL;
 			break;
@@ -861,13 +866,16 @@ open_bchannel(struct tiger_hw *card, struct channel_req *rq)
 		return -EINVAL;
 	bch = &card->bc[rq->adr.channel - 1].bch;
 	if (test_and_set_bit(FLG_OPEN, &bch->Flags))
-		return -EBUSY; 
+		return -EBUSY; /* b-channel can be only open once */
 	test_and_clear_bit(FLG_FILLEMPTY, &bch->Flags);
 	bch->ch.protocol = rq->protocol;
 	rq->ch = &bch->ch;
 	return 0;
 }
 
+/*
+ * device control function
+ */
 static int
 nj_dctrl(struct mISDNchannel *ch, u32 cmd, void *arg)
 {
@@ -1090,6 +1098,10 @@ nj_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	pci_set_master(pdev);
 
+	/* the TJ300 and TJ320 must be detected, the IRQ handling is different
+	 * unfortunately the chips use the same device ID, but the TJ320 has
+	 * the bit20 in status PCI cfg register set
+	 */
 	pci_read_config_dword(pdev, 0x04, &cfg);
 	if (cfg & 0x00100000)
 		card->typ = NETJET_S_TJ320;
@@ -1117,6 +1129,9 @@ static void __devexit nj_remove(struct pci_dev *pdev)
 		pr_info("%s drvdata already removed\n", __func__);
 }
 
+/* We cannot select cards with PCI_SUB... IDs, since here are cards with
+ * SUB IDs set to PCI_ANY_ID, so we need to match all and reject
+ * known other cards which not work with this driver - see probe function */
 static struct pci_device_id nj_pci_ids[] __devinitdata = {
 	{ PCI_VENDOR_ID_TIGERJET, PCI_DEVICE_ID_TIGERJET_300,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},

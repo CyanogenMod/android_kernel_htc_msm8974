@@ -33,24 +33,28 @@ static struct gpiomux_setting gpio_eth_config = {
 };
 #endif
 
+/* The SPI configurations apply to GSBI 5*/
 static struct gpiomux_setting gpio_spi_config = {
 	.func = GPIOMUX_FUNC_2,
 	.drv = GPIOMUX_DRV_12MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
 
+/* The SPI configurations apply to GSBI 5 chip select 2*/
 static struct gpiomux_setting gpio_spi_cs2_config = {
 	.func = GPIOMUX_FUNC_3,
 	.drv = GPIOMUX_DRV_12MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
 
+/* Chip selects for SPI clients */
 static struct gpiomux_setting gpio_spi_cs_config = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_12MA,
 	.pull = GPIOMUX_PULL_UP,
 };
 
+/* Chip selects for EPM SPI clients */
 static struct gpiomux_setting gpio_epm_spi_cs_config = {
 	.func = GPIOMUX_FUNC_6,
 	.drv = GPIOMUX_DRV_12MA,
@@ -308,11 +312,13 @@ static struct gpiomux_setting cdc_mclk = {
 };
 
 static struct gpiomux_setting audio_auxpcm[] = {
+/* Suspended state */
 	{
 		.func = GPIOMUX_FUNC_GPIO,
 		.drv = GPIOMUX_DRV_2MA,
 		.pull = GPIOMUX_PULL_NONE,
 	},
+/* Active state */
 	{
 		.func = GPIOMUX_FUNC_1,
 		.drv = GPIOMUX_DRV_2MA,
@@ -483,14 +489,14 @@ static struct gpiomux_setting cyts_int_sus_cfg = {
 };
 
 static struct msm_gpiomux_config cyts_gpio_configs[] __initdata = {
-	{	
+	{	/* TS INTERRUPT */
 		.gpio = 6,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &cyts_int_act_cfg,
 			[GPIOMUX_SUSPENDED] = &cyts_int_sus_cfg,
 		},
 	},
-	{	
+	{	/* TS SLEEP */
 		.gpio = 33,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &cyts_sleep_act_cfg,
@@ -499,14 +505,14 @@ static struct msm_gpiomux_config cyts_gpio_configs[] __initdata = {
 	},
 };
 static struct msm_gpiomux_config cyts_gpio_alt_config[] __initdata = {
-	{	
+	{	/* TS INTERRUPT */
 		.gpio = 6,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &cyts_int_act_cfg,
 			[GPIOMUX_SUSPENDED] = &cyts_int_sus_cfg,
 		},
 	},
-	{	
+	{	/* TS SLEEP */
 		.gpio = 12,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &cyts_sleep_act_cfg,
@@ -544,21 +550,21 @@ static struct gpiomux_setting hsic_wakeup_sus_cfg = {
 
 static struct msm_gpiomux_config apq8064_hsic_configs[] = {
 	{
-		.gpio = 88,               
+		.gpio = 88,               /*HSIC_STROBE */
 		.settings = {
 			[GPIOMUX_ACTIVE] = &hsic_act_cfg,
 			[GPIOMUX_SUSPENDED] = &hsic_sus_cfg,
 		},
 	},
 	{
-		.gpio = 89,               
+		.gpio = 89,               /* HSIC_DATA */
 		.settings = {
 			[GPIOMUX_ACTIVE] = &hsic_act_cfg,
 			[GPIOMUX_SUSPENDED] = &hsic_sus_cfg,
 		},
 	},
 	{
-		.gpio = 47,              
+		.gpio = 47,              /* wake up */
 		.settings = {
 			[GPIOMUX_ACTIVE] = &hsic_wakeup_act_cfg,
 			[GPIOMUX_SUSPENDED] = &hsic_wakeup_sus_cfg,
@@ -641,81 +647,81 @@ static struct msm_gpiomux_config apq8064_mhl_configs[] __initdata = {
 
 static struct msm_gpiomux_config apq8064_gsbi_configs[] __initdata = {
 	{
-		.gpio      = 8,			
+		.gpio      = 8,			/* GSBI3 I2C QUP SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi3_suspended_cfg,
 			[GPIOMUX_ACTIVE] = &gsbi3_active_cfg,
 		},
 	},
 	{
-		.gpio      = 9,			
+		.gpio      = 9,			/* GSBI3 I2C QUP SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi3_suspended_cfg,
 			[GPIOMUX_ACTIVE] = &gsbi3_active_cfg,
 		},
 	},
 	{
-		.gpio      = 18,		
+		.gpio      = 18,		/* GSBI1 UART TX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi1_uart_config,
 		},
 	},
 	{
-		.gpio      = 19,		
+		.gpio      = 19,		/* GSBI1 UART RX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi1_uart_config,
 		},
 	},
 	{
-		.gpio      = 51,		
+		.gpio      = 51,		/* GSBI5 QUP SPI_DATA_MOSI */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_config,
 		},
 	},
 	{
-		.gpio      = 52,		
+		.gpio      = 52,		/* GSBI5 QUP SPI_DATA_MISO */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_config,
 		},
 	},
 	{
-		.gpio      = 53,		
+		.gpio      = 53,		/* Funny CS0 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_config,
 		},
 	},
 	{
-		.gpio      = 31,		
+		.gpio      = 31,		/* GSBI5 QUP SPI_CS2_N */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_cs2_config,
 		},
 	},
 	{
-		.gpio      = 54,		
+		.gpio      = 54,		/* GSBI5 QUP SPI_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_config,
 		},
 	},
 	{
-		.gpio      = 30,		
+		.gpio      = 30,		/* FP CS */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_cs_config,
 		},
 	},
 	{
-		.gpio      = 53,		
+		.gpio      = 53,		/* NOR CS */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_cs_config,
 		},
 	},
 	{
-		.gpio      = 82,	
+		.gpio      = 82,	/* GSBI7 UART2 TX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi7_func2_cfg,
 		},
 	},
 	{
-		.gpio      = 83,	
+		.gpio      = 83,	/* GSBI7 UART2 RX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi7_func1_cfg,
 		},
@@ -724,67 +730,67 @@ static struct msm_gpiomux_config apq8064_gsbi_configs[] __initdata = {
 
 static struct msm_gpiomux_config fsm8064_ep_gsbi_configs[] __initdata = {
 	{
-		.gpio      = 10,	
+		.gpio      = 10,	/* GSBI4 UART TX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi4_uart_config,
 		},
 	},
 	{
-		.gpio      = 11,	
+		.gpio      = 11,	/* GSBI4 UART RX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi4_uart_config,
 		},
 	},
 	{
-		.gpio      = 18,	
+		.gpio      = 18,	/* GSBI1 UART TX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi1_uart_config,
 		},
 	},
 	{
-		.gpio      = 19,	
+		.gpio      = 19,	/* GSBI1 UART RX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi1_uart_config,
 		},
 	},
 	{
-		.gpio      = 22,	
+		.gpio      = 22,	/* GSBI2 UART TX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi2_uart_config,
 		},
 	},
 	{
-		.gpio      = 23,	
+		.gpio      = 23,	/* GSBI7 UART2 RX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi2_uart_config,
 		},
 	},
 	{
-		.gpio      = 51,	
+		.gpio      = 51,	/* GSBI5 QUP SPI_DATA_MOSI */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_config,
 		},
 	},
 	{
-		.gpio      = 52,	
+		.gpio      = 52,	/* GSBI5 QUP SPI_DATA_MISO */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_config,
 		},
 	},
 	{
-		.gpio      = 53,	
+		.gpio      = 53,	/* Funny CS0 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_config,
 		},
 	},
 	{
-		.gpio      = 54,	
+		.gpio      = 54,	/* GSBI5 QUP SPI_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_config,
 		},
 	},
 	{
-		.gpio      = 53,	
+		.gpio      = 53,	/* NOR CS */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_spi_cs_config,
 		},
@@ -793,7 +799,7 @@ static struct msm_gpiomux_config fsm8064_ep_gsbi_configs[] __initdata = {
 
 static struct msm_gpiomux_config apq8064_non_mi2s_gsbi_configs[] __initdata = {
 	{
-		.gpio      = 32,		
+		.gpio      = 32,		/* EPM CS */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_epm_spi_cs_config,
 		},
@@ -802,14 +808,14 @@ static struct msm_gpiomux_config apq8064_non_mi2s_gsbi_configs[] __initdata = {
 
 static struct msm_gpiomux_config apq8064_gsbi1_i2c_2ma_configs[] __initdata = {
 	{
-		.gpio      = 21,		
+		.gpio      = 21,		/* GSBI1 QUP I2C_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_i2c_config_sus,
 			[GPIOMUX_ACTIVE] = &gpio_i2c_2ma_config,
 		},
 	},
 	{
-		.gpio      = 20,		
+		.gpio      = 20,		/* GSBI1 QUP I2C_DATA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_i2c_config_sus,
 			[GPIOMUX_ACTIVE] = &gpio_i2c_2ma_config,
@@ -819,14 +825,14 @@ static struct msm_gpiomux_config apq8064_gsbi1_i2c_2ma_configs[] __initdata = {
 
 static struct msm_gpiomux_config apq8064_gsbi1_i2c_8ma_configs[] __initdata = {
 	{
-		.gpio      = 21,		
+		.gpio      = 21,		/* GSBI1 QUP I2C_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_i2c_config_sus,
 			[GPIOMUX_ACTIVE] = &gpio_i2c_config,
 		},
 	},
 	{
-		.gpio      = 20,		
+		.gpio      = 20,		/* GSBI1 QUP I2C_DATA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gpio_i2c_config_sus,
 			[GPIOMUX_ACTIVE] = &gpio_i2c_config,
@@ -836,13 +842,13 @@ static struct msm_gpiomux_config apq8064_gsbi1_i2c_8ma_configs[] __initdata = {
 
 static struct msm_gpiomux_config apq8064_slimbus_config[] __initdata = {
 	{
-		.gpio   = 40,           
+		.gpio   = 40,           /* slimbus clk */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &slimbus,
 		},
 	},
 	{
-		.gpio   = 41,           
+		.gpio   = 41,           /* slimbus data */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &slimbus,
 		},
@@ -857,25 +863,25 @@ static struct gpiomux_setting spkr_i2s = {
 
 static struct msm_gpiomux_config mpq8064_spkr_i2s_config[] __initdata = {
 	{
-		.gpio   = 47,           
+		.gpio   = 47,           /* spkr i2c sck */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &spkr_i2s,
 		},
 	},
 	{
-		.gpio   = 48,           
+		.gpio   = 48,           /* spkr_i2s_ws */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &spkr_i2s,
 		},
 	},
 	{
-		.gpio   = 49,           
+		.gpio   = 49,           /* spkr_i2s_dout */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &spkr_i2s,
 		},
 	},
 	{
-		.gpio   = 50,           
+		.gpio   = 50,           /* spkr_i2s_mclk */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &spkr_i2s,
 		},
@@ -928,6 +934,7 @@ static struct msm_gpiomux_config mpq8064_audio_auxpcm_configs[] __initdata = {
 	},
 };
 
+/* External 3.3 V regulator enable */
 static struct msm_gpiomux_config apq8064_ext_regulator_configs[] __initdata = {
 	{
 		.gpio = APQ8064_EXT_3P3V_REG_EN_GPIO,
@@ -974,14 +981,14 @@ static struct gpiomux_setting ap2mdm_wakeup = {
 };
 
 static struct msm_gpiomux_config mdm_configs[] __initdata = {
-	
+	/* AP2MDM_STATUS */
 	{
 		.gpio = 48,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_cfg,
 		}
 	},
-	
+	/* MDM2AP_STATUS */
 	{
 		.gpio = 49,
 		.settings = {
@@ -989,35 +996,35 @@ static struct msm_gpiomux_config mdm_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &mdm2ap_status_cfg,
 		}
 	},
-	
+	/* MDM2AP_ERRFATAL */
 	{
 		.gpio = 19,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &mdm2ap_errfatal_cfg,
 		}
 	},
-	
+	/* AP2MDM_ERRFATAL */
 	{
 		.gpio = 18,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_cfg,
 		}
 	},
-	
+	/* AP2MDM_SOFT_RESET, aka AP2MDM_PON_RESET_N */
 	{
 		.gpio = 27,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_soft_reset_cfg,
 		}
 	},
-	
+	/* AP2MDM_WAKEUP */
 	{
 		.gpio = 35,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_wakeup,
 		}
 	},
-	
+	/* MDM2AP_PBL_READY*/
 	{
 		.gpio = 46,
 		.settings = {
@@ -1027,49 +1034,49 @@ static struct msm_gpiomux_config mdm_configs[] __initdata = {
 };
 
 static struct msm_gpiomux_config mdm_i2s_configs[] __initdata = {
-	
+	/* AP2MDM_STATUS */
 	{
 		.gpio = 48,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_cfg,
 		}
 	},
-	
+	/* MDM2AP_STATUS */
 	{
 		.gpio = 49,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &mdm2ap_status_cfg,
 		}
 	},
-	
+	/* MDM2AP_ERRFATAL */
 	{
 		.gpio = 19,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &mdm2ap_errfatal_cfg,
 		}
 	},
-	
+	/* AP2MDM_ERRFATAL */
 	{
 		.gpio = 18,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_cfg,
 		}
 	},
-	
+	/* AP2MDM_SOFT_RESET, aka AP2MDM_PON_RESET_N */
 	{
 		.gpio = 0,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_soft_reset_cfg,
 		}
 	},
-	
+	/* AP2MDM_WAKEUP */
 	{
 		.gpio = 44,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_wakeup,
 		}
 	},
-	
+	/* MDM2AP_PBL_READY*/
 	{
 		.gpio = 81,
 		.settings = {
@@ -1098,43 +1105,28 @@ static struct gpiomux_setting i2s_sus_cfg = {
 
 static struct msm_gpiomux_config mpq8064_mi2s_configs[] __initdata = {
 	{
-		.gpio	= 27,		
+		.gpio	= 27,		/* mi2s ws */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
 		},
 	},
 	{
-		.gpio	= 28,		
+		.gpio	= 28,		/* mi2s sclk */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
 		},
 	},
 	{
-		.gpio	= 29,		
+		.gpio	= 29,		/* mi2s dout3 */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
 		},
 	},
 	{
-		.gpio	= 30,		
-		.settings = {
-			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
-			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
-		},
-	},
-
-	{
-		.gpio	= 31,		
-		.settings = {
-			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
-			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
-		},
-	},
-	{
-		.gpio	= 32,		
+		.gpio	= 30,		/* mi2s dout2 */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
@@ -1142,7 +1134,22 @@ static struct msm_gpiomux_config mpq8064_mi2s_configs[] __initdata = {
 	},
 
 	{
-		.gpio	= 33,		
+		.gpio	= 31,		/* mi2s dout1 */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
+			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
+		},
+	},
+	{
+		.gpio	= 32,		/* mi2s dout0 */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
+			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
+		},
+	},
+
+	{
+		.gpio	= 33,		/* mi2s mclk */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
@@ -1152,28 +1159,28 @@ static struct msm_gpiomux_config mpq8064_mi2s_configs[] __initdata = {
 
 static struct msm_gpiomux_config apq8064_mi2s_configs[] __initdata = {
 	{
-		.gpio	= 27,		
+		.gpio	= 27,		/* mi2s ws */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
 		},
 	},
 	{
-		.gpio	= 28,		
+		.gpio	= 28,		/* mi2s sclk */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
 		},
 	},
 	{
-		.gpio	= 29,		
+		.gpio	= 29,		/* mi2s dout3 - TX*/
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
 		},
 	},
 	{
-		.gpio	= 32,		
+		.gpio	= 32,		/* mi2s dout0 - RX */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
@@ -1181,7 +1188,7 @@ static struct msm_gpiomux_config apq8064_mi2s_configs[] __initdata = {
 	},
 
 	{
-		.gpio	= 33,		
+		.gpio	= 33,		/* mi2s mclk */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
@@ -1191,21 +1198,21 @@ static struct msm_gpiomux_config apq8064_mi2s_configs[] __initdata = {
 
 static struct msm_gpiomux_config apq8064_mic_i2s_configs[] __initdata = {
 	{
-		.gpio	= 35,		
+		.gpio	= 35,		/* mic i2s sclk */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
 		},
 	},
 	{
-		.gpio	= 36,		
+		.gpio	= 36,		/* mic i2s ws */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
 		},
 	},
 	{
-		.gpio	= 37,		
+		.gpio	= 37,		/* mic i2s din0 */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
@@ -1216,21 +1223,21 @@ static struct msm_gpiomux_config apq8064_mic_i2s_configs[] __initdata = {
 
 static struct msm_gpiomux_config apq8064_spkr_i2s_configs[] __initdata = {
 	{
-		.gpio	= 40,		
+		.gpio	= 40,		/* spkr i2s sclk */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_func_2_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
 		},
 	},
 	{
-		.gpio	= 41,		
+		.gpio	= 41,		/* spkr i2s dout */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_func_2_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
 		},
 	},
 	{
-		.gpio	= 42,		
+		.gpio	= 42,		/* spkr i2s ws */
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &i2s_act_cfg,
 			[GPIOMUX_SUSPENDED] = &i2s_sus_cfg,
@@ -1240,14 +1247,14 @@ static struct msm_gpiomux_config apq8064_spkr_i2s_configs[] __initdata = {
 
 
 static struct msm_gpiomux_config apq8064_mxt_configs[] __initdata = {
-	{	
+	{	/* TS INTERRUPT */
 		.gpio = 6,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &mxt_int_act_cfg,
 			[GPIOMUX_SUSPENDED] = &mxt_int_sus_cfg,
 		},
 	},
-	{	
+	{	/* TS RESET */
 		.gpio = 33,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &mxt_reset_act_cfg,
@@ -1296,14 +1303,14 @@ static struct msm_gpiomux_config wcnss_5wire_interface[] = {
 
 static struct msm_gpiomux_config mpq8064_gsbi5_i2c_configs[] __initdata = {
 	{
-		.gpio      = 53,			
+		.gpio      = 53,			/* GSBI5 I2C QUP SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi5_suspended_cfg,
 			[GPIOMUX_ACTIVE] = &gsbi5_active_cfg,
 		},
 	},
 	{
-		.gpio      = 54,			
+		.gpio      = 54,			/* GSBI5 I2C QUP SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi5_suspended_cfg,
 			[GPIOMUX_ACTIVE] = &gsbi5_active_cfg,
@@ -1325,7 +1332,7 @@ static struct gpiomux_setting ir_active_cfg = {
 
 static struct msm_gpiomux_config mpq8064_ir_configs[] __initdata = {
 	{
-		.gpio      = 88,			
+		.gpio      = 88,			/* GPIO IR */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ir_suspended_cfg,
 			[GPIOMUX_ACTIVE] = &ir_active_cfg,
@@ -1517,28 +1524,28 @@ static struct gpiomux_setting gsbi6_uartdm_suspended = {
 };
 
 static struct msm_gpiomux_config mpq8064_uartdm_configs[] __initdata = {
-	{ 
+	{ /* UARTDM_TX */
 		.gpio      = 14,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &gsbi6_uartdm_active,
 			[GPIOMUX_SUSPENDED] = &gsbi6_uartdm_suspended,
 		},
 	},
-	{ 
+	{ /* UARTDM_RX */
 		.gpio      = 15,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &gsbi6_uartdm_active,
 			[GPIOMUX_SUSPENDED] = &gsbi6_uartdm_suspended,
 		},
 	},
-	{ 
+	{ /* UARTDM_CTS */
 		.gpio      = 16,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &gsbi6_uartdm_active,
 			[GPIOMUX_SUSPENDED] = &gsbi6_uartdm_suspended,
 		},
 	},
-	{ 
+	{ /* UARTDM_RFR */
 		.gpio      = 17,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &gsbi6_uartdm_active,
@@ -1549,25 +1556,25 @@ static struct msm_gpiomux_config mpq8064_uartdm_configs[] __initdata = {
 
 static struct msm_gpiomux_config mpq8064_gsbi6_spi_configs[] __initdata = {
 	{
-		.gpio      = 17,        
+		.gpio      = 17,        /* GSBI6_0 SPI CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi6_spi_cfg,
 		},
 	},
 	{
-		.gpio      = 16,        
+		.gpio      = 16,        /* GSBI6_1 SPI CS */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi6_spi_cfg,
 		},
 	},
 	{
-		.gpio      = 15,        
+		.gpio      = 15,        /* GSBI6_2 SPI MISO */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi6_spi_cfg,
 		},
 	},
 	{
-		.gpio      = 14,        
+		.gpio      = 14,        /* GSBI6_3 SPI_MOSI */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi6_spi_cfg,
 		},
@@ -1576,13 +1583,13 @@ static struct msm_gpiomux_config mpq8064_gsbi6_spi_configs[] __initdata = {
 
 static struct msm_gpiomux_config mpq8064_gsbi5_uart_configs[] __initdata = {
 	{
-		.gpio      = 51,        
+		.gpio      = 51,        /* GSBI5 UART TX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi5_uart_cfg,
 		},
 	},
 	{
-		.gpio      = 52,        
+		.gpio      = 52,        /* GSBI5 UART RX */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi5_uart_cfg,
 		},
@@ -1708,13 +1715,13 @@ static struct gpiomux_setting fsm8064_ep_uim_pwr_sel_cfg = {
 
 static struct msm_gpiomux_config fsm8064_ep_uim_configs[] __initdata = {
 	{
-		.gpio      = 49,	
+		.gpio      = 49,	/* UIM_RST */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_uim_rst_cfg,
 		},
 	},
 	{
-		.gpio      = 55,	
+		.gpio      = 55,	/* UIM_PWR_SEL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_uim_pwr_sel_cfg,
 		},
@@ -1729,25 +1736,25 @@ static struct gpiomux_setting fsm8064_ep_sync_input_cfg = {
 
 static struct msm_gpiomux_config fsm8064_ep_sync_configs[] __initdata = {
 	{
-		.gpio      = 6,		
+		.gpio      = 6,		/* GPSPPSIN_DRSYNC */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_sync_input_cfg,
 		},
 	},
 	{
-		.gpio      = 7,		
+		.gpio      = 7,		/* KRAIT_PPS_INPUT */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_sync_input_cfg,
 		},
 	},
 	{
-		.gpio      = 8,		
+		.gpio      = 8,		/* QDSP_PPS_INPUT */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_sync_input_cfg,
 		},
 	},
 	{
-		.gpio      = 9,		
+		.gpio      = 9,		/* DAN_TTI_INPUT */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_sync_input_cfg,
 		},
@@ -1763,61 +1770,61 @@ static struct gpiomux_setting fsm8064_ep_led_cfg = {
 
 static struct msm_gpiomux_config fsm8064_ep_led_configs[] __initdata = {
 	{
-		.gpio      = 58,		
+		.gpio      = 58,		/* RED1 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_led_cfg,
 		},
 	},
 	{
-		.gpio      = 59,		
+		.gpio      = 59,		/* GREEN1 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_led_cfg,
 		},
 	},
 	{
-		.gpio      = 60,		
+		.gpio      = 60,		/* RED2 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_led_cfg,
 		},
 	},
 	{
-		.gpio      = 61,		
+		.gpio      = 61,		/* GREEN2 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_led_cfg,
 		},
 	},
 	{
-		.gpio      = 69,		
+		.gpio      = 69,		/* RED3 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_led_cfg,
 		},
 	},
 	{
-		.gpio      = 70,		
+		.gpio      = 70,		/* GREEN3 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_led_cfg,
 		},
 	},
 	{
-		.gpio      = 71,		
+		.gpio      = 71,		/* RED4 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_led_cfg,
 		},
 	},
 	{
-		.gpio      = 72,		
+		.gpio      = 72,		/* GREEN4 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_led_cfg,
 		},
 	},
 	{
-		.gpio      = 77,		
+		.gpio      = 77,		/* RED5 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_led_cfg,
 		},
 	},
 	{
-		.gpio      = 80,		
+		.gpio      = 80,		/* GREEN5 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &fsm8064_ep_led_cfg,
 		},

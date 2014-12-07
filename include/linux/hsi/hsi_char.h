@@ -60,4 +60,4 @@ struct hsc_tx_config {
 	uint32_t arb_mode;
 };
 
-#endif 
+#endif /* __HSI_CHAR_H */

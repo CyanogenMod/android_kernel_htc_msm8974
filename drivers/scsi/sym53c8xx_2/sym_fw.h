@@ -39,6 +39,9 @@
 
 #ifndef	SYM_FW_H
 #define	SYM_FW_H
+/*
+ *  Macro used to generate interfaces for script A.
+ */
 #define SYM_GEN_FW_A(s)							\
 	SYM_GEN_A(s, start)		SYM_GEN_A(s, getjob_begin)	\
 	SYM_GEN_A(s, getjob_end)					\
@@ -55,6 +58,9 @@
 	SYM_GEN_A(s, data_out)		SYM_GEN_A(s, data_out2)		\
 	SYM_GEN_A(s, pm0_data)		SYM_GEN_A(s, pm1_data)
 
+/*
+ *  Macro used to generate interfaces for script B.
+ */
 #define SYM_GEN_FW_B(s)							\
 	SYM_GEN_B(s, no_data)						\
 	SYM_GEN_B(s, sel_for_abort)	SYM_GEN_B(s, sel_for_abort_1)	\
@@ -68,9 +74,16 @@
 	SYM_GEN_B(s, bad_i_t_l)		SYM_GEN_B(s, bad_i_t_l_q)	\
 	SYM_GEN_B(s, wsr_ma_helper)
 
+/*
+ *  Macro used to generate interfaces for script Z.
+ */
 #define SYM_GEN_FW_Z(s)							\
 	SYM_GEN_Z(s, snooptest)		SYM_GEN_Z(s, snoopend)
 
+/*
+ *  Generates structure interface that contains 
+ *  offsets within script A, B and Z.
+ */
 #define	SYM_GEN_A(s, label)	s label;
 #define	SYM_GEN_B(s, label)	s label;
 #define	SYM_GEN_Z(s, label)	s label;
@@ -86,6 +99,10 @@ struct sym_fwz_ofs {
 	SYM_GEN_FW_Z(u_short)
 };
 
+/*
+ *  Generates structure interface that contains 
+ *  bus addresses within script A, B and Z.
+ */
 struct sym_fwa_ba {
 	SYM_GEN_FW_A(u32)
 };
@@ -101,28 +118,37 @@ struct sym_fwz_ba {
 #undef	SYM_GEN_B
 #undef	SYM_GEN_Z
 
+/*
+ *  Let cc know about the name of the controller data structure.
+ *  We need this for function prototype declarations just below.
+ */
 struct sym_hcb;
 
- 
+/*
+ *  Generic structure that defines a firmware.
+ */ 
 struct sym_fw {
-	char	*name;		
-	u32	*a_base;	
-	int	a_size;		
+	char	*name;		/* Name we want to print out	*/
+	u32	*a_base;	/* Pointer to script A template	*/
+	int	a_size;		/* Size of script A		*/
 	struct	sym_fwa_ofs
-		*a_ofs;		
-	u32	*b_base;	
-	int	b_size;		
+		*a_ofs;		/* Useful offsets in script A	*/
+	u32	*b_base;	/* Pointer to script B template	*/
+	int	b_size;		/* Size of script B		*/
 	struct	sym_fwb_ofs
-		*b_ofs;		
-	u32	*z_base;	
-	int	z_size;		
+		*b_ofs;		/* Useful offsets in script B	*/
+	u32	*z_base;	/* Pointer to script Z template	*/
+	int	z_size;		/* Size of script Z		*/
 	struct	sym_fwz_ofs
-		*z_ofs;		
-	
+		*z_ofs;		/* Useful offsets in script Z	*/
+	/* Setup and patch methods for this firmware */
 	void	(*setup)(struct sym_hcb *, struct sym_fw *);
 	void	(*patch)(struct Scsi_Host *);
 };
 
+/*
+ *  Macro used to declare a firmware.
+ */
 #define SYM_FW_ENTRY(fw, name)					\
 {								\
 	name,							\
@@ -132,10 +158,32 @@ struct sym_fw {
 	fw##_setup, fw##_patch					\
 }
 
+/*
+ *  Macros used from the C code to get useful
+ *  SCRIPTS bus addresses.
+ */
 #define SCRIPTA_BA(np, label)	(np->fwa_bas.label)
 #define SCRIPTB_BA(np, label)	(np->fwb_bas.label)
 #define SCRIPTZ_BA(np, label)	(np->fwz_bas.label)
 
+/*
+ *  Macros used by scripts definitions.
+ *
+ *  HADDR_1 generates a reference to a field of the controller data.
+ *  HADDR_2 generates a reference to a field of the controller data
+ *          with offset.
+ *  RADDR_1 generates a reference to a script processor register.
+ *  RADDR_2 generates a reference to a script processor register
+ *          with offset.
+ *  PADDR_A generates a reference to another part of script A.
+ *  PADDR_B generates a reference to another part of script B.
+ *
+ *  SYM_GEN_PADDR_A and SYM_GEN_PADDR_B are used to define respectively 
+ *  the PADDR_A and PADDR_B macros for each firmware by setting argument 
+ *  `s' to the name of the corresponding structure.
+ *
+ *  SCR_DATA_ZERO is used to allocate a DWORD of data in scripts areas.
+ */
 
 #define	RELOC_SOFTC	0x40000000
 #define	RELOC_LABEL_A	0x50000000
@@ -154,4 +202,4 @@ struct sym_fw {
 
 #define SCR_DATA_ZERO	0xf00ff00f
 
-#endif	
+#endif	/* SYM_FW_H */

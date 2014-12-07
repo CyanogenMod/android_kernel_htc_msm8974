@@ -70,16 +70,19 @@ int diva_get_trace_filter(int max_length, char *filter);
 #define DITRACE_WRITE_SELECTIVE_TRACE_FILTER 6
 #define DITRACE_READ_SELECTIVE_TRACE_FILTER  7
 
-#define DIVA_MGT_DBG_TRACE          0x00000001 
-#define DIVA_MGT_DBG_DCHAN          0x00000002 
-#define DIVA_MGT_DBG_MDM_PROGRESS   0x00000004 
-#define DIVA_MGT_DBG_FAX_PROGRESS   0x00000008 
-#define DIVA_MGT_DBG_IFC_STATISTICS 0x00000010 
-#define DIVA_MGT_DBG_MDM_STATISTICS 0x00000020 
-#define DIVA_MGT_DBG_FAX_STATISTICS 0x00000040 
-#define DIVA_MGT_DBG_LINE_EVENTS    0x00000080 
-#define DIVA_MGT_DBG_IFC_EVENTS     0x00000100 
-#define DIVA_MGT_DBG_IFC_BCHANNEL   0x00000200 
-#define DIVA_MGT_DBG_IFC_AUDIO      0x00000400 
+/*
+  Trace lavels for debug via management interface
+*/
+#define DIVA_MGT_DBG_TRACE          0x00000001 /* All trace messages from the card */
+#define DIVA_MGT_DBG_DCHAN          0x00000002 /* All D-channel relater trace messages */
+#define DIVA_MGT_DBG_MDM_PROGRESS   0x00000004 /* Modem progress events */
+#define DIVA_MGT_DBG_FAX_PROGRESS   0x00000008 /* Fax progress events */
+#define DIVA_MGT_DBG_IFC_STATISTICS 0x00000010 /* Interface call statistics */
+#define DIVA_MGT_DBG_MDM_STATISTICS 0x00000020 /* Global modem statistics   */
+#define DIVA_MGT_DBG_FAX_STATISTICS 0x00000040 /* Global call statistics    */
+#define DIVA_MGT_DBG_LINE_EVENTS    0x00000080 /* Line state events */
+#define DIVA_MGT_DBG_IFC_EVENTS     0x00000100 /* Interface/L1/L2 state events */
+#define DIVA_MGT_DBG_IFC_BCHANNEL   0x00000200 /* B-Channel trace for all channels */
+#define DIVA_MGT_DBG_IFC_AUDIO      0x00000400 /* Audio Tap trace for all channels */
 
-# endif 
+# endif /* DEBUG_IF___H */

@@ -89,10 +89,15 @@ MODULE_AUTHOR("Xiong Huang <xiong.huang@atheros.com>, "
 MODULE_LICENSE("GPL");
 MODULE_VERSION(ATLX_DRIVER_VERSION);
 
+/* Temporary hack for merging atl1 and atl2 */
 #include "atlx.c"
 
 static const struct ethtool_ops atl1_ethtool_ops;
 
+/*
+ * This is the only thing that needs to be changed to adjust the
+ * maximum number of ports that the driver can manage.
+ */
 #define ATL1_MAX_NIC 4
 
 #define OPTION_UNSET    -1
@@ -101,13 +106,20 @@ static const struct ethtool_ops atl1_ethtool_ops;
 
 #define ATL1_PARAM_INIT { [0 ... ATL1_MAX_NIC] = OPTION_UNSET }
 
+/*
+ * Interrupt Moderate Timer in units of 2 us
+ *
+ * Valid Range: 10-65535
+ *
+ * Default Value: 100 (200us)
+ */
 static int __devinitdata int_mod_timer[ATL1_MAX_NIC+1] = ATL1_PARAM_INIT;
 static unsigned int num_int_mod_timer;
 module_param_array_named(int_mod_timer, int_mod_timer, int,
 	&num_int_mod_timer, 0);
 MODULE_PARM_DESC(int_mod_timer, "Interrupt moderator timer");
 
-#define DEFAULT_INT_MOD_CNT	100	
+#define DEFAULT_INT_MOD_CNT	100	/* 200us */
 #define MAX_INT_MOD_CNT		65000
 #define MIN_INT_MOD_CNT		50
 
@@ -117,11 +129,11 @@ struct atl1_option {
 	char *err;
 	int def;
 	union {
-		struct {	
+		struct {	/* range_option info */
 			int min;
 			int max;
 		} r;
-		struct {	
+		struct {	/* list_option info */
 			int nr;
 			struct atl1_opt_list {
 				int i;
@@ -183,6 +195,15 @@ static int __devinit atl1_validate_option(int *value, struct atl1_option *opt,
 	return -1;
 }
 
+/*
+ * atl1_check_options - Range Checking for Command Line Parameters
+ * @adapter: board private structure
+ *
+ * This routine checks all command line parameters for valid user
+ * input.  If an invalid value is given, or if no user specified
+ * value exists, a default value is used.  The final value is stored
+ * in a variable in the adapter structure.
+ */
 static void __devinit atl1_check_options(struct atl1_adapter *adapter)
 {
 	struct pci_dev *pdev = adapter->pdev;
@@ -191,7 +212,7 @@ static void __devinit atl1_check_options(struct atl1_adapter *adapter)
 		dev_notice(&pdev->dev, "no configuration for board#%i\n", bd);
 		dev_notice(&pdev->dev, "using defaults for all values\n");
 	}
-	{			
+	{			/* Interrupt Moderate Timer */
 		struct atl1_option opt = {
 			.type = range_option,
 			.name = "Interrupt Moderator Timer",
@@ -211,9 +232,12 @@ static void __devinit atl1_check_options(struct atl1_adapter *adapter)
 	}
 }
 
+/*
+ * atl1_pci_tbl - PCI Device ID Table
+ */
 static DEFINE_PCI_DEVICE_TABLE(atl1_pci_tbl) = {
 	{PCI_DEVICE(PCI_VENDOR_ID_ATTANSIC, PCI_DEVICE_ID_ATTANSIC_L1)},
-	
+	/* required last entry */
 	{0,}
 };
 MODULE_DEVICE_TABLE(pci, atl1_pci_tbl);
@@ -225,6 +249,11 @@ static int debug = -1;
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "Message level (0=none,...,16=all)");
 
+/*
+ * Reset the transmit and receive units; mask and clear all interrupts.
+ * hw - Struct containing variables accessed by shared code
+ * return : 0  or  idle status (if error)
+ */
 static s32 atl1_reset_hw(struct atl1_hw *hw)
 {
 	struct pci_dev *pdev = hw->back->pdev;
@@ -232,24 +261,38 @@ static s32 atl1_reset_hw(struct atl1_hw *hw)
 	u32 icr;
 	int i;
 
+	/*
+	 * Clear Interrupt mask to stop board from generating
+	 * interrupts & Clear any pending interrupt events
+	 */
+	/*
+	 * iowrite32(0, hw->hw_addr + REG_IMR);
+	 * iowrite32(0xffffffff, hw->hw_addr + REG_ISR);
+	 */
 
+	/*
+	 * Issue Soft Reset to the MAC.  This will reset the chip's
+	 * transmit, receive, DMA.  It will not effect
+	 * the current PCI configuration.  The global reset bit is self-
+	 * clearing, and should clear within a microsecond.
+	 */
 	iowrite32(MASTER_CTRL_SOFT_RST, hw->hw_addr + REG_MASTER_CTRL);
 	ioread32(hw->hw_addr + REG_MASTER_CTRL);
 
 	iowrite16(1, hw->hw_addr + REG_PHY_ENABLE);
 	ioread16(hw->hw_addr + REG_PHY_ENABLE);
 
-	
+	/* delay about 1ms */
 	msleep(1);
 
-	
+	/* Wait at least 10ms for All module to be Idle */
 	for (i = 0; i < 10; i++) {
 		icr = ioread32(hw->hw_addr + REG_IDLE_STATUS);
 		if (!icr)
 			break;
-		
+		/* delay 1 ms */
 		msleep(1);
-		
+		/* FIXME: still the right way to do this? */
 		cpu_relax();
 	}
 
@@ -262,6 +305,11 @@ static s32 atl1_reset_hw(struct atl1_hw *hw)
 	return 0;
 }
 
+/* function about EEPROM
+ *
+ * check_eeprom_exist
+ * return 0 if eeprom exist
+ */
 static int atl1_check_eeprom_exist(struct atl1_hw *hw)
 {
 	u32 value;
@@ -281,7 +329,7 @@ static bool atl1_read_eeprom(struct atl1_hw *hw, u32 offset, u32 *p_value)
 	u32 control;
 
 	if (offset & 3)
-		
+		/* address do not align */
 		return false;
 
 	iowrite32(0, hw->hw_addr + REG_VPD_DATA);
@@ -299,10 +347,15 @@ static bool atl1_read_eeprom(struct atl1_hw *hw, u32 offset, u32 *p_value)
 		*p_value = ioread32(hw->hw_addr + REG_VPD_DATA);
 		return true;
 	}
-	
+	/* timeout */
 	return false;
 }
 
+/*
+ * Reads the value from a PHY register
+ * hw - Struct containing variables accessed by shared code
+ * reg_addr - address of the PHY register to read
+ */
 static s32 atl1_read_phy_reg(struct atl1_hw *hw, u16 reg_addr, u16 *phy_data)
 {
 	u32 val;
@@ -375,6 +428,10 @@ static bool atl1_spi_read(struct atl1_hw *hw, u32 addr, u32 *buf)
 	return true;
 }
 
+/*
+ * get_permanent_address
+ * return 0 if get valid mac address,
+ */
 static int atl1_get_permanent_address(struct atl1_hw *hw)
 {
 	u32 addr[2];
@@ -386,13 +443,13 @@ static int atl1_get_permanent_address(struct atl1_hw *hw)
 	if (is_valid_ether_addr(hw->perm_mac_addr))
 		return 0;
 
-	
+	/* init */
 	addr[0] = addr[1] = 0;
 
 	if (!atl1_check_eeprom_exist(hw)) {
 		reg = 0;
 		key_valid = false;
-		
+		/* Read out all EEPROM content */
 		i = 0;
 		while (1) {
 			if (atl1_read_eeprom(hw, i + 0x100, &control)) {
@@ -408,7 +465,7 @@ static int atl1_get_permanent_address(struct atl1_hw *hw)
 				} else
 					break;
 			} else
-				
+				/* read error */
 				break;
 			i += 4;
 		}
@@ -421,7 +478,7 @@ static int atl1_get_permanent_address(struct atl1_hw *hw)
 		}
 	}
 
-	
+	/* see if SPI FLAGS exist ? */
 	addr[0] = addr[1] = 0;
 	reg = 0;
 	key_valid = false;
@@ -438,10 +495,10 @@ static int atl1_get_permanent_address(struct atl1_hw *hw)
 				key_valid = true;
 				reg = (u16) (control >> 16);
 			} else
-				
+				/* data end */
 				break;
 		} else
-			
+			/* read error */
 			break;
 		i += 4;
 	}
@@ -471,6 +528,10 @@ static int atl1_get_permanent_address(struct atl1_hw *hw)
 	return 1;
 }
 
+/*
+ * Reads the adapter's MAC address from the EEPROM
+ * hw - Struct containing variables accessed by shared code
+ */
 static s32 atl1_read_mac_addr(struct atl1_hw *hw)
 {
 	s32 ret = 0;
@@ -486,6 +547,18 @@ static s32 atl1_read_mac_addr(struct atl1_hw *hw)
 	return ret;
 }
 
+/*
+ * Hashes an address to determine its location in the multicast table
+ * hw - Struct containing variables accessed by shared code
+ * mc_addr - the multicast address to hash
+ *
+ * atl1_hash_mc_addr
+ *  purpose
+ *      set hash value for a multicast address
+ *      hash calcu processing :
+ *          1. calcu 32bit CRC for multicast address
+ *          2. reverse crc with MSB to LSB
+ */
 static u32 atl1_hash_mc_addr(struct atl1_hw *hw, u8 *mc_addr)
 {
 	u32 crc32, value = 0;
@@ -498,11 +571,25 @@ static u32 atl1_hash_mc_addr(struct atl1_hw *hw, u8 *mc_addr)
 	return value;
 }
 
+/*
+ * Sets the bit in the multicast table corresponding to the hash value.
+ * hw - Struct containing variables accessed by shared code
+ * hash_value - Multicast address hash value
+ */
 static void atl1_hash_set(struct atl1_hw *hw, u32 hash_value)
 {
 	u32 hash_bit, hash_reg;
 	u32 mta;
 
+	/*
+	 * The HASH Table  is a register array of 2 32-bit registers.
+	 * It is treated like an array of 64 bits.  We want to set
+	 * bit BitArray[hash_value]. So we figure out what register
+	 * the bit is in, read it, OR in the new bit, then write
+	 * back the new value.  The register is determined by the
+	 * upper 7 bits of the hash value and the bit within that
+	 * register are determined by the lower 5 bits of the value.
+	 */
 	hash_reg = (hash_value >> 31) & 0x1;
 	hash_bit = (hash_value >> 26) & 0x1F;
 	mta = ioread32((hw->hw_addr + REG_RX_HASH_TABLE) + (hash_reg << 2));
@@ -510,6 +597,12 @@ static void atl1_hash_set(struct atl1_hw *hw, u32 hash_value)
 	iowrite32(mta, (hw->hw_addr + REG_RX_HASH_TABLE) + (hash_reg << 2));
 }
 
+/*
+ * Writes a value to a PHY register
+ * hw - Struct containing variables accessed by shared code
+ * reg_addr - address of the PHY register to write
+ * data - data to write to the PHY
+ */
 static s32 atl1_write_phy_reg(struct atl1_hw *hw, u32 reg_addr, u16 phy_data)
 {
 	int i;
@@ -535,6 +628,12 @@ static s32 atl1_write_phy_reg(struct atl1_hw *hw, u32 reg_addr, u16 phy_data)
 	return ATLX_ERR_PHY;
 }
 
+/*
+ * Make L001's PHY out of Power Saving State (bug)
+ * hw - Struct containing variables accessed by shared code
+ * when power on, L001's PHY always on Power saving State
+ * (Gigabit Link forbidden)
+ */
 static s32 atl1_phy_leave_power_saving(struct atl1_hw *hw)
 {
 	s32 ret;
@@ -544,6 +643,12 @@ static s32 atl1_phy_leave_power_saving(struct atl1_hw *hw)
 	return atl1_write_phy_reg(hw, 30, 0);
 }
 
+/*
+ * Resets the PHY and make all config validate
+ * hw - Struct containing variables accessed by shared code
+ *
+ * Sets bit 15 and 12 of the MII Control regiser (for F001 bug)
+ */
 static s32 atl1_phy_reset(struct atl1_hw *hw)
 {
 	struct pci_dev *pdev = hw->back->pdev;
@@ -569,7 +674,7 @@ static s32 atl1_phy_reset(struct atl1_hw *hw)
 			    MII_CR_FULL_DUPLEX | MII_CR_SPEED_10 | MII_CR_RESET;
 			break;
 		default:
-			
+			/* MEDIA_TYPE_10M_HALF: */
 			phy_data = MII_CR_SPEED_10 | MII_CR_RESET;
 			break;
 		}
@@ -579,7 +684,7 @@ static s32 atl1_phy_reset(struct atl1_hw *hw)
 	if (ret_val) {
 		u32 val;
 		int i;
-		
+		/* pcie serdes link may be down! */
 		if (netif_msg_hw(adapter))
 			dev_dbg(&pdev->dev, "pcie phy link down\n");
 
@@ -600,21 +705,34 @@ static s32 atl1_phy_reset(struct atl1_hw *hw)
 	return 0;
 }
 
+/*
+ * Configures PHY autoneg and flow control advertisement settings
+ * hw - Struct containing variables accessed by shared code
+ */
 static s32 atl1_phy_setup_autoneg_adv(struct atl1_hw *hw)
 {
 	s32 ret_val;
 	s16 mii_autoneg_adv_reg;
 	s16 mii_1000t_ctrl_reg;
 
-	
+	/* Read the MII Auto-Neg Advertisement Register (Address 4). */
 	mii_autoneg_adv_reg = MII_AR_DEFAULT_CAP_MASK;
 
-	
+	/* Read the MII 1000Base-T Control Register (Address 9). */
 	mii_1000t_ctrl_reg = MII_ATLX_CR_1000T_DEFAULT_CAP_MASK;
 
+	/*
+	 * First we clear all the 10/100 mb speed bits in the Auto-Neg
+	 * Advertisement Register (Address 4) and the 1000 mb speed bits in
+	 * the  1000Base-T Control Register (Address 9).
+	 */
 	mii_autoneg_adv_reg &= ~MII_AR_SPEED_MASK;
 	mii_1000t_ctrl_reg &= ~MII_ATLX_CR_1000T_SPEED_MASK;
 
+	/*
+	 * Need to parse media_type  and set up
+	 * the appropriate PHY registers.
+	 */
 	switch (hw->media_type) {
 	case MEDIA_TYPE_AUTO_SENSOR:
 		mii_autoneg_adv_reg |= (MII_AR_10T_HD_CAPS |
@@ -645,7 +763,7 @@ static s32 atl1_phy_setup_autoneg_adv(struct atl1_hw *hw)
 		break;
 	}
 
-	
+	/* flow control fixed to enable all */
 	mii_autoneg_adv_reg |= (MII_AR_ASM_DIR | MII_AR_PAUSE);
 
 	hw->mii_autoneg_adv_reg = mii_autoneg_adv_reg;
@@ -662,12 +780,24 @@ static s32 atl1_phy_setup_autoneg_adv(struct atl1_hw *hw)
 	return 0;
 }
 
+/*
+ * Configures link settings.
+ * hw - Struct containing variables accessed by shared code
+ * Assumes the hardware has previously been reset and the
+ * transmitter and receiver are not enabled.
+ */
 static s32 atl1_setup_link(struct atl1_hw *hw)
 {
 	struct pci_dev *pdev = hw->back->pdev;
 	struct atl1_adapter *adapter = hw->back;
 	s32 ret_val;
 
+	/*
+	 * Options:
+	 *  PHY will advertise value(s) parsed from
+	 *  autoneg_advertised and fc
+	 *  no matter what autoneg is , We will not wait link result.
+	 */
 	ret_val = atl1_phy_setup_autoneg_adv(hw);
 	if (ret_val) {
 		if (netif_msg_link(adapter))
@@ -675,7 +805,7 @@ static s32 atl1_setup_link(struct atl1_hw *hw)
 				"error setting up autonegotiation\n");
 		return ret_val;
 	}
-	
+	/* SW.Reset , En-Auto-Neg if needed */
 	ret_val = atl1_phy_reset(hw);
 	if (ret_val) {
 		if (netif_msg_link(adapter))
@@ -689,10 +819,10 @@ static s32 atl1_setup_link(struct atl1_hw *hw)
 static void atl1_init_flash_opcode(struct atl1_hw *hw)
 {
 	if (hw->flash_vendor >= ARRAY_SIZE(flash_table))
-		
+		/* Atmel */
 		hw->flash_vendor = 0;
 
-	
+	/* Init OP table */
 	iowrite8(flash_table[hw->flash_vendor].cmd_program,
 		hw->hw_addr + REG_SPI_FLASH_OP_PROGRAM);
 	iowrite8(flash_table[hw->flash_vendor].cmd_sector_erase,
@@ -711,32 +841,46 @@ static void atl1_init_flash_opcode(struct atl1_hw *hw)
 		hw->hw_addr + REG_SPI_FLASH_OP_READ);
 }
 
+/*
+ * Performs basic configuration of the adapter.
+ * hw - Struct containing variables accessed by shared code
+ * Assumes that the controller has previously been reset and is in a
+ * post-reset uninitialized state. Initializes multicast table,
+ * and  Calls routines to setup link
+ * Leaves the transmit and receive units disabled and uninitialized.
+ */
 static s32 atl1_init_hw(struct atl1_hw *hw)
 {
 	u32 ret_val = 0;
 
-	
+	/* Zero out the Multicast HASH table */
 	iowrite32(0, hw->hw_addr + REG_RX_HASH_TABLE);
-	
+	/* clear the old settings from the multicast hash table */
 	iowrite32(0, (hw->hw_addr + REG_RX_HASH_TABLE) + (1 << 2));
 
 	atl1_init_flash_opcode(hw);
 
 	if (!hw->phy_configured) {
-		
+		/* enable GPHY LinkChange Interrupt */
 		ret_val = atl1_write_phy_reg(hw, 18, 0xC00);
 		if (ret_val)
 			return ret_val;
-		
+		/* make PHY out of power-saving state */
 		ret_val = atl1_phy_leave_power_saving(hw);
 		if (ret_val)
 			return ret_val;
-		
+		/* Call a subroutine to configure the link */
 		ret_val = atl1_setup_link(hw);
 	}
 	return ret_val;
 }
 
+/*
+ * Detects the current speed and duplex settings of the hardware.
+ * hw - Struct containing variables accessed by shared code
+ * speed - Speed of the connection
+ * duplex - Duplex setting of the connection
+ */
 static s32 atl1_get_speed_and_duplex(struct atl1_hw *hw, u16 *speed, u16 *duplex)
 {
 	struct pci_dev *pdev = hw->back->pdev;
@@ -744,7 +888,7 @@ static s32 atl1_get_speed_and_duplex(struct atl1_hw *hw, u16 *speed, u16 *duplex
 	s32 ret_val;
 	u16 phy_data;
 
-	
+	/* ; --- Read   PHY Specific Status Register (17) */
 	ret_val = atl1_read_phy_reg(hw, MII_ATLX_PSSR, &phy_data);
 	if (ret_val)
 		return ret_val;
@@ -779,15 +923,28 @@ static s32 atl1_get_speed_and_duplex(struct atl1_hw *hw, u16 *speed, u16 *duplex
 static void atl1_set_mac_addr(struct atl1_hw *hw)
 {
 	u32 value;
+	/*
+	 * 00-0B-6A-F6-00-DC
+	 * 0:  6AF600DC   1: 000B
+	 * low dword
+	 */
 	value = (((u32) hw->mac_addr[2]) << 24) |
 	    (((u32) hw->mac_addr[3]) << 16) |
 	    (((u32) hw->mac_addr[4]) << 8) | (((u32) hw->mac_addr[5]));
 	iowrite32(value, hw->hw_addr + REG_MAC_STA_ADDR);
-	
+	/* high dword */
 	value = (((u32) hw->mac_addr[0]) << 8) | (((u32) hw->mac_addr[1]));
 	iowrite32(value, (hw->hw_addr + REG_MAC_STA_ADDR) + (1 << 2));
 }
 
+/*
+ * atl1_sw_init - Initialize general software structures (struct atl1_adapter)
+ * @adapter: board private structure to initialize
+ *
+ * atl1_sw_init initializes the Adapter private data structure.
+ * Fields are initialized based on PCI device information and
+ * OS network device settings (MTU size).
+ */
 static int __devinit atl1_sw_init(struct atl1_adapter *adapter)
 {
 	struct atl1_hw *hw = &adapter->hw;
@@ -799,8 +956,8 @@ static int __devinit atl1_sw_init(struct atl1_adapter *adapter)
 	adapter->wol = 0;
 	device_set_wakeup_enable(&adapter->pdev->dev, false);
 	adapter->rx_buffer_len = (hw->max_frame_size + 7) & ~7;
-	adapter->ict = 50000;		
-	adapter->link_speed = SPEED_0;	
+	adapter->ict = 50000;		/* 100ms */
+	adapter->link_speed = SPEED_0;	/* hardware init */
 	adapter->link_duplex = FULL_DUPLEX;
 
 	hw->phy_configured = false;
@@ -829,9 +986,9 @@ static int __devinit atl1_sw_init(struct atl1_adapter *adapter)
 	hw->dmaw_block = atl1_dma_req_256;
 	hw->cmb_rrd = 4;
 	hw->cmb_tpd = 4;
-	hw->cmb_rx_timer = 1;	
-	hw->cmb_tx_timer = 1;	
-	hw->smb_timer = 100000;	
+	hw->cmb_rx_timer = 1;	/* about 2us */
+	hw->cmb_tx_timer = 1;	/* about 2us */
+	hw->smb_timer = 100000;	/* about 200ms */
 
 	spin_lock_init(&adapter->lock);
 	spin_lock_init(&adapter->mb_lock);
@@ -857,6 +1014,12 @@ static void mdio_write(struct net_device *netdev, int phy_id, int reg_num,
 	atl1_write_phy_reg(&adapter->hw, reg_num, val);
 }
 
+/*
+ * atl1_mii_ioctl -
+ * @netdev:
+ * @ifreq:
+ * @cmd:
+ */
 static int atl1_mii_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 {
 	struct atl1_adapter *adapter = netdev_priv(netdev);
@@ -873,6 +1036,12 @@ static int atl1_mii_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 	return retval;
 }
 
+/*
+ * atl1_setup_mem_resources - allocate Tx / RX descriptor resources
+ * @adapter: board private structure
+ *
+ * Return 0 on success, negative on failure
+ */
 static s32 atl1_setup_ring_resources(struct atl1_adapter *adapter)
 {
 	struct atl1_tpd_ring *tpd_ring = &adapter->tpd_ring;
@@ -894,6 +1063,11 @@ static s32 atl1_setup_ring_resources(struct atl1_adapter *adapter)
 	rfd_ring->buffer_info =
 		(struct atl1_buffer *)(tpd_ring->buffer_info + tpd_ring->count);
 
+	/*
+	 * real ring DMA buffer
+	 * each ring/block may need up to 8 bytes for alignment, hence the
+	 * additional 40 bytes tacked onto the end.
+	 */
 	ring_header->size = size =
 		sizeof(struct tx_packet_desc) * tpd_ring->count
 		+ sizeof(struct rx_free_desc) * rfd_ring->count
@@ -912,14 +1086,14 @@ static s32 atl1_setup_ring_resources(struct atl1_adapter *adapter)
 
 	memset(ring_header->desc, 0, ring_header->size);
 
-	
+	/* init TPD ring */
 	tpd_ring->dma = ring_header->dma;
 	offset = (tpd_ring->dma & 0x7) ? (8 - (ring_header->dma & 0x7)) : 0;
 	tpd_ring->dma += offset;
 	tpd_ring->desc = (u8 *) ring_header->desc + offset;
 	tpd_ring->size = sizeof(struct tx_packet_desc) * tpd_ring->count;
 
-	
+	/* init RFD ring */
 	rfd_ring->dma = tpd_ring->dma + tpd_ring->size;
 	offset = (rfd_ring->dma & 0x7) ? (8 - (rfd_ring->dma & 0x7)) : 0;
 	rfd_ring->dma += offset;
@@ -927,7 +1101,7 @@ static s32 atl1_setup_ring_resources(struct atl1_adapter *adapter)
 	rfd_ring->size = sizeof(struct rx_free_desc) * rfd_ring->count;
 
 
-	
+	/* init RRD ring */
 	rrd_ring->dma = rfd_ring->dma + rfd_ring->size;
 	offset = (rrd_ring->dma & 0x7) ? (8 - (rrd_ring->dma & 0x7)) : 0;
 	rrd_ring->dma += offset;
@@ -935,14 +1109,14 @@ static s32 atl1_setup_ring_resources(struct atl1_adapter *adapter)
 	rrd_ring->size = sizeof(struct rx_return_desc) * rrd_ring->count;
 
 
-	
+	/* init CMB */
 	adapter->cmb.dma = rrd_ring->dma + rrd_ring->size;
 	offset = (adapter->cmb.dma & 0x7) ? (8 - (adapter->cmb.dma & 0x7)) : 0;
 	adapter->cmb.dma += offset;
 	adapter->cmb.cmb = (struct coals_msg_block *)
 		((u8 *) rrd_ring->desc + (rrd_ring->size + offset));
 
-	
+	/* init SMB */
 	adapter->smb.dma = adapter->cmb.dma + sizeof(struct coals_msg_block);
 	offset = (adapter->smb.dma & 0x7) ? (8 - (adapter->smb.dma & 0x7)) : 0;
 	adapter->smb.dma += offset;
@@ -973,6 +1147,10 @@ static void atl1_init_ring_ptrs(struct atl1_adapter *adapter)
 	atomic_set(&rrd_ring->next_to_clean, 0);
 }
 
+/*
+ * atl1_clean_rx_ring - Free RFD Buffers
+ * @adapter: board private structure
+ */
 static void atl1_clean_rx_ring(struct atl1_adapter *adapter)
 {
 	struct atl1_rfd_ring *rfd_ring = &adapter->rfd_ring;
@@ -982,7 +1160,7 @@ static void atl1_clean_rx_ring(struct atl1_adapter *adapter)
 	unsigned long size;
 	unsigned int i;
 
-	
+	/* Free all the Rx ring sk_buffs */
 	for (i = 0; i < rfd_ring->count; i++) {
 		buffer_info = &rfd_ring->buffer_info[i];
 		if (buffer_info->dma) {
@@ -999,7 +1177,7 @@ static void atl1_clean_rx_ring(struct atl1_adapter *adapter)
 	size = sizeof(struct atl1_buffer) * rfd_ring->count;
 	memset(rfd_ring->buffer_info, 0, size);
 
-	
+	/* Zero out the descriptor ring */
 	memset(rfd_ring->desc, 0, rfd_ring->size);
 
 	rfd_ring->next_to_clean = 0;
@@ -1009,6 +1187,10 @@ static void atl1_clean_rx_ring(struct atl1_adapter *adapter)
 	atomic_set(&rrd_ring->next_to_clean, 0);
 }
 
+/*
+ * atl1_clean_tx_ring - Free Tx Buffers
+ * @adapter: board private structure
+ */
 static void atl1_clean_tx_ring(struct atl1_adapter *adapter)
 {
 	struct atl1_tpd_ring *tpd_ring = &adapter->tpd_ring;
@@ -1017,7 +1199,7 @@ static void atl1_clean_tx_ring(struct atl1_adapter *adapter)
 	unsigned long size;
 	unsigned int i;
 
-	
+	/* Free all the Tx ring sk_buffs */
 	for (i = 0; i < tpd_ring->count; i++) {
 		buffer_info = &tpd_ring->buffer_info[i];
 		if (buffer_info->dma) {
@@ -1038,13 +1220,19 @@ static void atl1_clean_tx_ring(struct atl1_adapter *adapter)
 	size = sizeof(struct atl1_buffer) * tpd_ring->count;
 	memset(tpd_ring->buffer_info, 0, size);
 
-	
+	/* Zero out the descriptor ring */
 	memset(tpd_ring->desc, 0, tpd_ring->size);
 
 	atomic_set(&tpd_ring->next_to_use, 0);
 	atomic_set(&tpd_ring->next_to_clean, 0);
 }
 
+/*
+ * atl1_free_ring_resources - Free Tx / RX descriptor Resources
+ * @adapter: board private structure
+ *
+ * Free all transmit software resources
+ */
 static void atl1_free_ring_resources(struct atl1_adapter *adapter)
 {
 	struct pci_dev *pdev = adapter->pdev;
@@ -1083,31 +1271,35 @@ static void atl1_setup_mac_ctrl(struct atl1_adapter *adapter)
 	u32 value;
 	struct atl1_hw *hw = &adapter->hw;
 	struct net_device *netdev = adapter->netdev;
-	
+	/* Config MAC CTRL Register */
 	value = MAC_CTRL_TX_EN | MAC_CTRL_RX_EN;
-	
+	/* duplex */
 	if (FULL_DUPLEX == adapter->link_duplex)
 		value |= MAC_CTRL_DUPLX;
-	
+	/* speed */
 	value |= ((u32) ((SPEED_1000 == adapter->link_speed) ?
 			 MAC_CTRL_SPEED_1000 : MAC_CTRL_SPEED_10_100) <<
 		  MAC_CTRL_SPEED_SHIFT);
-	
+	/* flow control */
 	value |= (MAC_CTRL_TX_FLOW | MAC_CTRL_RX_FLOW);
-	
+	/* PAD & CRC */
 	value |= (MAC_CTRL_ADD_CRC | MAC_CTRL_PAD);
-	
+	/* preamble length */
 	value |= (((u32) adapter->hw.preamble_len
 		   & MAC_CTRL_PRMLEN_MASK) << MAC_CTRL_PRMLEN_SHIFT);
-	
+	/* vlan */
 	__atlx_vlan_mode(netdev->features, &value);
-	
+	/* rx checksum
+	   if (adapter->rx_csum)
+	   value |= MAC_CTRL_RX_CHKSUM_EN;
+	 */
+	/* filter mode */
 	value |= MAC_CTRL_BC_EN;
 	if (netdev->flags & IFF_PROMISC)
 		value |= MAC_CTRL_PROMIS_EN;
 	else if (netdev->flags & IFF_ALLMULTI)
 		value |= MAC_CTRL_MC_ALL_EN;
-	
+	/* value |= MAC_CTRL_LOOPBACK; */
 	iowrite32(value, hw->hw_addr + REG_MAC_CTRL);
 }
 
@@ -1119,13 +1311,13 @@ static u32 atl1_check_link(struct atl1_adapter *adapter)
 	u16 speed, duplex, phy_data;
 	int reconfig = 0;
 
-	
+	/* MII_BMSR must read twice */
 	atl1_read_phy_reg(hw, MII_BMSR, &phy_data);
 	atl1_read_phy_reg(hw, MII_BMSR, &phy_data);
 	if (!(phy_data & BMSR_LSTATUS)) {
-		
+		/* link down */
 		if (netif_carrier_ok(netdev)) {
-			
+			/* old link state: Up */
 			if (netif_msg_link(adapter))
 				dev_info(&adapter->pdev->dev, "link is down\n");
 			adapter->link_speed = SPEED_0;
@@ -1134,7 +1326,7 @@ static u32 atl1_check_link(struct atl1_adapter *adapter)
 		return 0;
 	}
 
-	
+	/* Link Up */
 	ret_val = atl1_get_speed_and_duplex(hw, &speed, &duplex);
 	if (ret_val)
 		return ret_val;
@@ -1162,7 +1354,7 @@ static u32 atl1_check_link(struct atl1_adapter *adapter)
 		break;
 	}
 
-	
+	/* link result is our setting */
 	if (!reconfig) {
 		if (adapter->link_speed != speed ||
 		    adapter->link_duplex != duplex) {
@@ -1177,13 +1369,13 @@ static u32 atl1_check_link(struct atl1_adapter *adapter)
 					"full duplex" : "half duplex");
 		}
 		if (!netif_carrier_ok(netdev)) {
-			
+			/* Link down -> Up */
 			netif_carrier_on(netdev);
 		}
 		return 0;
 	}
 
-	
+	/* change original link status */
 	if (netif_carrier_ok(netdev)) {
 		adapter->link_speed = SPEED_0;
 		netif_carrier_off(netdev);
@@ -1205,7 +1397,7 @@ static u32 atl1_check_link(struct atl1_adapter *adapter)
 			    MII_CR_FULL_DUPLEX | MII_CR_SPEED_10 | MII_CR_RESET;
 			break;
 		default:
-			
+			/* MEDIA_TYPE_10M_HALF: */
 			phy_data = MII_CR_SPEED_10 | MII_CR_RESET;
 			break;
 		}
@@ -1213,7 +1405,7 @@ static u32 atl1_check_link(struct atl1_adapter *adapter)
 		return 0;
 	}
 
-	
+	/* auto-neg, insert timer to re-config phy */
 	if (!adapter->phy_timer_pending) {
 		adapter->phy_timer_pending = true;
 		mod_timer(&adapter->phy_config_timer,
@@ -1227,7 +1419,7 @@ static void set_flow_ctrl_old(struct atl1_adapter *adapter)
 {
 	u32 hi, lo, value;
 
-	
+	/* RFD Flow Control */
 	value = adapter->rfd_ring.count;
 	hi = value / 16;
 	if (hi < 2)
@@ -1238,7 +1430,7 @@ static void set_flow_ctrl_old(struct atl1_adapter *adapter)
 		((lo & RXQ_RXF_PAUSE_TH_LO_MASK) << RXQ_RXF_PAUSE_TH_LO_SHIFT);
 	iowrite32(value, adapter->hw.hw_addr + REG_RXQ_RXF_PAUSE_THRESH);
 
-	
+	/* RRD Flow Control */
 	value = adapter->rrd_ring.count;
 	lo = value / 16;
 	hi = value * 7 / 8;
@@ -1253,7 +1445,7 @@ static void set_flow_ctrl_new(struct atl1_hw *hw)
 {
 	u32 hi, lo, value;
 
-	
+	/* RXF Flow Control */
 	value = ioread32(hw->hw_addr + REG_SRAM_RXF_LEN);
 	lo = value / 16;
 	if (lo < 192)
@@ -1265,7 +1457,7 @@ static void set_flow_ctrl_new(struct atl1_hw *hw)
 		((lo & RXQ_RXF_PAUSE_TH_LO_MASK) << RXQ_RXF_PAUSE_TH_LO_SHIFT);
 	iowrite32(value, hw->hw_addr + REG_RXQ_RXF_PAUSE_THRESH);
 
-	
+	/* RRD Flow Control */
 	value = ioread32(hw->hw_addr + REG_SRAM_RRD_LEN);
 	lo = value / 8;
 	hi = value * 7 / 8;
@@ -1278,15 +1470,21 @@ static void set_flow_ctrl_new(struct atl1_hw *hw)
 	iowrite32(value, hw->hw_addr + REG_RXQ_RRD_PAUSE_THRESH);
 }
 
+/*
+ * atl1_configure - Configure Transmit&Receive Unit after Reset
+ * @adapter: board private structure
+ *
+ * Configure the Tx /Rx unit of the MAC after a reset.
+ */
 static u32 atl1_configure(struct atl1_adapter *adapter)
 {
 	struct atl1_hw *hw = &adapter->hw;
 	u32 value;
 
-	
+	/* clear interrupt status */
 	iowrite32(0xffffffff, adapter->hw.hw_addr + REG_ISR);
 
-	
+	/* set MAC Address */
 	value = (((u32) hw->mac_addr[2]) << 24) |
 		(((u32) hw->mac_addr[3]) << 16) |
 		(((u32) hw->mac_addr[4]) << 8) |
@@ -1295,12 +1493,12 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 	value = (((u32) hw->mac_addr[0]) << 8) | (((u32) hw->mac_addr[1]));
 	iowrite32(value, hw->hw_addr + (REG_MAC_STA_ADDR + 4));
 
-	
+	/* tx / rx ring */
 
-	
+	/* HI base address */
 	iowrite32((u32) ((adapter->tpd_ring.dma & 0xffffffff00000000ULL) >> 32),
 		hw->hw_addr + REG_DESC_BASE_ADDR_HI);
-	
+	/* LO base address */
 	iowrite32((u32) (adapter->rfd_ring.dma & 0x00000000ffffffffULL),
 		hw->hw_addr + REG_DESC_RFD_ADDR_LO);
 	iowrite32((u32) (adapter->rrd_ring.dma & 0x00000000ffffffffULL),
@@ -1312,7 +1510,7 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 	iowrite32((u32) (adapter->smb.dma & 0x00000000ffffffffULL),
 		hw->hw_addr + REG_DESC_SMB_ADDR_LO);
 
-	
+	/* element count */
 	value = adapter->rrd_ring.count;
 	value <<= 16;
 	value += adapter->rfd_ring.count;
@@ -1320,10 +1518,10 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 	iowrite32(adapter->tpd_ring.count, hw->hw_addr +
 		REG_DESC_TPD_RING_SIZE);
 
-	
+	/* Load Ptr */
 	iowrite32(1, hw->hw_addr + REG_LOAD_PTR);
 
-	
+	/* config Mailbox */
 	value = ((atomic_read(&adapter->tpd_ring.next_to_use)
 		  & MB_TPD_PROD_INDX_MASK) << MB_TPD_PROD_INDX_SHIFT) |
 		((atomic_read(&adapter->rrd_ring.next_to_clean)
@@ -1332,7 +1530,7 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 		& MB_RFD_PROD_INDX_MASK) << MB_RFD_PROD_INDX_SHIFT);
 	iowrite32(value, hw->hw_addr + REG_MAILBOX);
 
-	
+	/* config IPG/IFG */
 	value = (((u32) hw->ipgt & MAC_IPG_IFG_IPGT_MASK)
 		 << MAC_IPG_IFG_IPGT_SHIFT) |
 		(((u32) hw->min_ifg & MAC_IPG_IFG_MIFG_MASK)
@@ -1343,7 +1541,7 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 		<< MAC_IPG_IFG_IPGR2_SHIFT);
 	iowrite32(value, hw->hw_addr + REG_MAC_IPG_IFG);
 
-	
+	/* config  Half-Duplex Control */
 	value = ((u32) hw->lcol & MAC_HALF_DUPLX_CTRL_LCOL_MASK) |
 		(((u32) hw->max_retry & MAC_HALF_DUPLX_CTRL_RETRY_MASK)
 		<< MAC_HALF_DUPLX_CTRL_RETRY_SHIFT) |
@@ -1353,17 +1551,17 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 		<< MAC_HALF_DUPLX_CTRL_JAMIPG_SHIFT);
 	iowrite32(value, hw->hw_addr + REG_MAC_HALF_DUPLX_CTRL);
 
-	
+	/* set Interrupt Moderator Timer */
 	iowrite16(adapter->imt, hw->hw_addr + REG_IRQ_MODU_TIMER_INIT);
 	iowrite32(MASTER_CTRL_ITIMER_EN, hw->hw_addr + REG_MASTER_CTRL);
 
-	
+	/* set Interrupt Clear Timer */
 	iowrite16(adapter->ict, hw->hw_addr + REG_CMBDISDMA_TIMER);
 
-	
+	/* set max frame size hw will accept */
 	iowrite32(hw->max_frame_size, hw->hw_addr + REG_MTU);
 
-	
+	/* jumbo size & rrd retirement timer */
 	value = (((u32) hw->rx_jumbo_th & RXQ_JMBOSZ_TH_MASK)
 		 << RXQ_JMBOSZ_TH_SHIFT) |
 		(((u32) hw->rx_jumbo_lkah & RXQ_JMBO_LKAH_MASK)
@@ -1372,7 +1570,7 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 		<< RXQ_RRD_TIMER_SHIFT);
 	iowrite32(value, hw->hw_addr + REG_RXQ_JMBOSZ_RRDTIM);
 
-	
+	/* Flow Control */
 	switch (hw->dev_rev) {
 	case 0x8001:
 	case 0x9001:
@@ -1385,7 +1583,7 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 		break;
 	}
 
-	
+	/* config TXQ */
 	value = (((u32) hw->tpd_burst & TXQ_CTRL_TPD_BURST_NUM_MASK)
 		 << TXQ_CTRL_TPD_BURST_NUM_SHIFT) |
 		(((u32) hw->txf_burst & TXQ_CTRL_TXF_BURST_NUM_MASK)
@@ -1395,14 +1593,14 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 		TXQ_CTRL_EN;
 	iowrite32(value, hw->hw_addr + REG_TXQ_CTRL);
 
-	
+	/* min tpd fetch gap & tx jumbo packet size threshold for taskoffload */
 	value = (((u32) hw->tx_jumbo_task_th & TX_JUMBO_TASK_TH_MASK)
 		<< TX_JUMBO_TASK_TH_SHIFT) |
 		(((u32) hw->tpd_fetch_gap & TX_TPD_MIN_IPG_MASK)
 		<< TX_TPD_MIN_IPG_SHIFT);
 	iowrite32(value, hw->hw_addr + REG_TX_JUMBO_TASK_TH_TPD_IPG);
 
-	
+	/* config RXQ */
 	value = (((u32) hw->rfd_burst & RXQ_CTRL_RFD_BURST_NUM_MASK)
 		<< RXQ_CTRL_RFD_BURST_NUM_SHIFT) |
 		(((u32) hw->rrd_burst & RXQ_CTRL_RRD_BURST_THRESH_MASK)
@@ -1412,7 +1610,7 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 		RXQ_CTRL_EN;
 	iowrite32(value, hw->hw_addr + REG_RXQ_CTRL);
 
-	
+	/* config DMA Engine */
 	value = ((((u32) hw->dmar_block) & DMA_CTRL_DMAR_BURST_LEN_MASK)
 		<< DMA_CTRL_DMAR_BURST_LEN_SHIFT) |
 		((((u32) hw->dmaw_block) & DMA_CTRL_DMAW_BURST_LEN_MASK)
@@ -1423,7 +1621,7 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 		value |= DMA_CTRL_RCB_VALUE;
 	iowrite32(value, hw->hw_addr + REG_DMA_CTRL);
 
-	
+	/* config CMB / SMB */
 	value = (hw->cmb_tpd > adapter->tpd_ring.count) ?
 		hw->cmb_tpd : adapter->tpd_ring.count;
 	value <<= 16;
@@ -1433,35 +1631,44 @@ static u32 atl1_configure(struct atl1_adapter *adapter)
 	iowrite32(value, hw->hw_addr + REG_CMB_WRITE_TIMER);
 	iowrite32(hw->smb_timer, hw->hw_addr + REG_SMB_TIMER);
 
-	
+	/* --- enable CMB / SMB */
 	value = CSMB_CTRL_CMB_EN | CSMB_CTRL_SMB_EN;
 	iowrite32(value, hw->hw_addr + REG_CSMB_CTRL);
 
 	value = ioread32(adapter->hw.hw_addr + REG_ISR);
 	if (unlikely((value & ISR_PHY_LINKDOWN) != 0))
-		value = 1;	
+		value = 1;	/* config failed */
 	else
 		value = 0;
 
-	
+	/* clear all interrupt status */
 	iowrite32(0x3fffffff, adapter->hw.hw_addr + REG_ISR);
 	iowrite32(0, adapter->hw.hw_addr + REG_ISR);
 	return value;
 }
 
+/*
+ * atl1_pcie_patch - Patch for PCIE module
+ */
 static void atl1_pcie_patch(struct atl1_adapter *adapter)
 {
 	u32 value;
 
-	
+	/* much vendor magic here */
 	value = 0x6500;
 	iowrite32(value, adapter->hw.hw_addr + 0x12FC);
-	
+	/* pcie flow control mode change */
 	value = ioread32(adapter->hw.hw_addr + 0x1008);
 	value |= 0x8000;
 	iowrite32(value, adapter->hw.hw_addr + 0x1008);
 }
 
+/*
+ * When ACPI resume on some VIA MotherBoard, the Interrupt Disable bit/0x400
+ * on PCI Command register is disable.
+ * The function enable this bit.
+ * Brackett, 2006/03/15
+ */
 static void atl1_via_workaround(struct atl1_adapter *adapter)
 {
 	unsigned long value;
@@ -1477,7 +1684,7 @@ static void atl1_inc_smb(struct atl1_adapter *adapter)
 	struct net_device *netdev = adapter->netdev;
 	struct stats_msg_block *smb = adapter->smb.smb;
 
-	
+	/* Fill out the OS statistics structure */
 	adapter->soft_stats.rx_packets += smb->rx_ok;
 	adapter->soft_stats.tx_packets += smb->tx_ok;
 	adapter->soft_stats.rx_bytes += smb->rx_byte_cnt;
@@ -1486,7 +1693,7 @@ static void atl1_inc_smb(struct atl1_adapter *adapter)
 	adapter->soft_stats.collisions += (smb->tx_1_col + smb->tx_2_col * 2 +
 		smb->tx_late_col + smb->tx_abort_col * adapter->hw.max_retry);
 
-	
+	/* Rx Errors */
 	adapter->soft_stats.rx_errors += (smb->rx_frag + smb->rx_fcs_err +
 		smb->rx_len_err + smb->rx_sz_ov + smb->rx_rxf_ov +
 		smb->rx_rrd_ov + smb->rx_align_err);
@@ -1501,7 +1708,7 @@ static void atl1_inc_smb(struct atl1_adapter *adapter)
 	adapter->soft_stats.rx_rrd_ov += smb->rx_rrd_ov;
 	adapter->soft_stats.rx_trunc += smb->rx_sz_ov;
 
-	
+	/* Tx Errors */
 	adapter->soft_stats.tx_errors += (smb->tx_late_col +
 		smb->tx_abort_col + smb->tx_underrun + smb->tx_trunc);
 	adapter->soft_stats.tx_fifo_errors += smb->tx_underrun;
@@ -1590,7 +1797,7 @@ static void atl1_update_rfd_index(struct atl1_adapter *adapter,
 	num_buf = (rrd->xsz.xsum_sz.pkt_size + adapter->rx_buffer_len - 1) /
 		adapter->rx_buffer_len;
 	if (rrd->num_buf == num_buf)
-		
+		/* clean alloc flag for bad rrd */
 		atl1_clean_alloc_flag(adapter, rrd, num_buf);
 }
 
@@ -1599,6 +1806,16 @@ static void atl1_rx_checksum(struct atl1_adapter *adapter,
 {
 	struct pci_dev *pdev = adapter->pdev;
 
+	/*
+	 * The L1 hardware contains a bug that erroneously sets the
+	 * PACKET_FLAG_ERR and ERR_FLAG_L4_CHKSUM bits whenever a
+	 * fragmented IP packet is received, even though the packet
+	 * is perfectly valid and its checksum is correct. There's
+	 * no way to distinguish between one of these good packets
+	 * and a packet that actually contains a TCP/UDP checksum
+	 * error, so all we can do is allow it to be handed up to
+	 * the higher layers and let it be sorted out there.
+	 */
 
 	skb_checksum_none_assert(skb);
 
@@ -1613,12 +1830,12 @@ static void atl1_rx_checksum(struct atl1_adapter *adapter,
 		}
 	}
 
-	
+	/* not IPv4 */
 	if (!(rrd->pkt_flg & PACKET_FLAG_IPV4))
-		
+		/* checksum is invalid, but it's not an IPv4 pkt, so ok */
 		return;
 
-	
+	/* IPv4 packet */
 	if (likely(!(rrd->err_flg &
 		(ERR_FLAG_IP_CHKSUM | ERR_FLAG_L4_CHKSUM)))) {
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
@@ -1627,6 +1844,10 @@ static void atl1_rx_checksum(struct atl1_adapter *adapter,
 	}
 }
 
+/*
+ * atl1_alloc_rx_buffers - Replace used receive buffers
+ * @adapter: address of board private structure
+ */
 static u16 atl1_alloc_rx_buffers(struct atl1_adapter *adapter)
 {
 	struct atl1_rfd_ring *rfd_ring = &adapter->rfd_ring;
@@ -1656,7 +1877,7 @@ static u16 atl1_alloc_rx_buffers(struct atl1_adapter *adapter)
 		skb = netdev_alloc_skb_ip_align(adapter->netdev,
 						adapter->rx_buffer_len);
 		if (unlikely(!skb)) {
-			
+			/* Better luck next round */
 			adapter->netdev->stats.rx_dropped++;
 			break;
 		}
@@ -1684,6 +1905,12 @@ next:
 	}
 
 	if (num_alloc) {
+		/*
+		 * Force memory writes to complete before letting h/w
+		 * know there are new descriptors to fetch.  (Only
+		 * applicable for weak-ordered memory model archs,
+		 * such as IA-64).
+		 */
 		wmb();
 		atomic_set(&rfd_ring->next_to_use, (int)rfd_next_to_use);
 	}
@@ -1709,9 +1936,9 @@ static void atl1_intr_rx(struct atl1_adapter *adapter)
 	while (1) {
 		rrd = ATL1_RRD_DESC(rrd_ring, rrd_next_to_clean);
 		i = 1;
-		if (likely(rrd->xsz.valid)) {	
+		if (likely(rrd->xsz.valid)) {	/* packet valid */
 chk_rrd:
-			
+			/* check rrd status */
 			if (likely(rrd->num_buf == 1))
 				goto rrd_ok;
 			else if (netif_msg_rx_err(adapter)) {
@@ -1737,39 +1964,39 @@ chk_rrd:
 					rrd->vlan_tag);
 			}
 
-			
+			/* rrd seems to be bad */
 			if (unlikely(i-- > 0)) {
-				
+				/* rrd may not be DMAed completely */
 				udelay(1);
 				goto chk_rrd;
 			}
-			
+			/* bad rrd */
 			if (netif_msg_rx_err(adapter))
 				dev_printk(KERN_DEBUG, &adapter->pdev->dev,
 					"bad RRD\n");
-			
+			/* see if update RFD index */
 			if (rrd->num_buf > 1)
 				atl1_update_rfd_index(adapter, rrd);
 
-			
+			/* update rrd */
 			rrd->xsz.valid = 0;
 			if (++rrd_next_to_clean == rrd_ring->count)
 				rrd_next_to_clean = 0;
 			count++;
 			continue;
-		} else {	
+		} else {	/* current rrd still not be updated */
 
 			break;
 		}
 rrd_ok:
-		
+		/* clean alloc flag for bad rrd */
 		atl1_clean_alloc_flag(adapter, rrd, 0);
 
 		buffer_info = &rfd_ring->buffer_info[rrd->buf_indx];
 		if (++rfd_ring->next_to_clean == rfd_ring->count)
 			rfd_ring->next_to_clean = 0;
 
-		
+		/* update rrd next to clean */
 		if (++rrd_next_to_clean == rrd_ring->count)
 			rrd_next_to_clean = 0;
 		count++;
@@ -1778,14 +2005,14 @@ rrd_ok:
 			if (!(rrd->err_flg &
 				(ERR_FLAG_IP_CHKSUM | ERR_FLAG_L4_CHKSUM
 				| ERR_FLAG_LEN))) {
-				
+				/* packet error, don't need upstream */
 				buffer_info->alloced = 0;
 				rrd->xsz.valid = 0;
 				continue;
 			}
 		}
 
-		
+		/* Good Receive */
 		pci_unmap_page(adapter->pdev, buffer_info->dma,
 			       buffer_info->length, PCI_DMA_FROMDEVICE);
 		buffer_info->dma = 0;
@@ -1794,7 +2021,7 @@ rrd_ok:
 
 		skb_put(skb, length - ETH_FCS_LEN);
 
-		
+		/* Receive Checksum Offload */
 		atl1_rx_checksum(adapter, rrd, skb);
 		skb->protocol = eth_type_trans(skb, adapter->netdev);
 
@@ -1807,7 +2034,7 @@ rrd_ok:
 		}
 		netif_rx(skb);
 
-		
+		/* let protocol layer free skb */
 		buffer_info->skb = NULL;
 		buffer_info->alloced = 0;
 		rrd->xsz.valid = 0;
@@ -1817,7 +2044,7 @@ rrd_ok:
 
 	atl1_alloc_rx_buffers(adapter);
 
-	
+	/* update mailbox ? */
 	if (count) {
 		u32 tpd_next_to_use;
 		u32 rfd_next_to_use;
@@ -1925,7 +2152,7 @@ static int atl1_tso(struct atl1_adapter *adapter, struct sk_buff *skb,
 					iph->daddr, 0, IPPROTO_TCP, 0);
 			ip_off = (unsigned char *)iph -
 				(unsigned char *) skb_network_header(skb);
-			if (ip_off == 8) 
+			if (ip_off == 8) /* 802.3-SNAP frame */
 				ptpd->word3 |= 1 << TPD_ETHTYPE_SHIFT;
 			else if (ip_off != 0)
 				return -2;
@@ -1952,7 +2179,7 @@ static int atl1_tx_csum(struct atl1_adapter *adapter, struct sk_buff *skb,
 		css = skb_checksum_start_offset(skb);
 		cso = css + (u8) skb->csum_offset;
 		if (unlikely(css & 0x1)) {
-			
+			/* L1 hardware requires an even number here */
 			if (netif_msg_tx_err(adapter))
 				dev_printk(KERN_DEBUG, &adapter->pdev->dev,
 					"payload offset not an even number\n");
@@ -1988,12 +2215,12 @@ static void atl1_tx_map(struct atl1_adapter *adapter, struct sk_buff *skb,
 	next_to_use = atomic_read(&tpd_ring->next_to_use);
 	buffer_info = &tpd_ring->buffer_info[next_to_use];
 	BUG_ON(buffer_info->skb);
-	
+	/* put skb in last TPD */
 	buffer_info->skb = NULL;
 
 	retval = (ptpd->word3 >> TPD_SEGMENT_EN_SHIFT) & TPD_SEGMENT_EN_MASK;
 	if (retval) {
-		
+		/* TSO */
 		hdr_len = skb_transport_offset(skb) + tcp_hdrlen(skb);
 		buffer_info->length = hdr_len;
 		page = virt_to_page(skb->data);
@@ -2032,7 +2259,7 @@ static void atl1_tx_map(struct atl1_adapter *adapter, struct sk_buff *skb,
 			}
 		}
 	} else {
-		
+		/* not TSO */
 		buffer_info->length = buf_len;
 		page = virt_to_page(skb->data);
 		offset = (unsigned long)skb->data & ~PAGE_MASK;
@@ -2068,7 +2295,7 @@ static void atl1_tx_map(struct atl1_adapter *adapter, struct sk_buff *skb,
 		}
 	}
 
-	
+	/* last tpd's buffer-info */
 	buffer_info->skb = skb;
 }
 
@@ -2092,6 +2319,10 @@ static void atl1_tx_queue(struct atl1_adapter *adapter, u16 count,
 		tpd->word2 |= (cpu_to_le16(buffer_info->length) &
 			TPD_BUFLEN_MASK) << TPD_BUFLEN_SHIFT;
 
+		/*
+		 * if this is the first packet in a TSO chain, set
+		 * TPD_HDRFLAG, otherwise, clear it.
+		 */
 		val = (tpd->word3 >> TPD_SEGMENT_EN_SHIFT) &
 			TPD_SEGMENT_EN_MASK;
 		if (val) {
@@ -2107,6 +2338,12 @@ static void atl1_tx_queue(struct atl1_adapter *adapter, u16 count,
 		if (++next_to_use == tpd_ring->count)
 			next_to_use = 0;
 	}
+	/*
+	 * Force memory writes to complete before letting h/w
+	 * know there are new descriptors to fetch.  (Only
+	 * applicable for weak-ordered memory model archs,
+	 * such as IA-64).
+	 */
 	wmb();
 
 	atomic_set(&tpd_ring->next_to_use, next_to_use);
@@ -2151,7 +2388,7 @@ static netdev_tx_t atl1_xmit_frame(struct sk_buff *skb,
 				dev_kfree_skb_any(skb);
 				return NETDEV_TX_OK;
 			}
-			
+			/* need additional TPD ? */
 			if (proto_hdr_len != len)
 				count += (len - proto_hdr_len +
 					ATL1_MAX_TX_BUF_LEN - 1) /
@@ -2160,7 +2397,7 @@ static netdev_tx_t atl1_xmit_frame(struct sk_buff *skb,
 	}
 
 	if (atl1_tpd_avail(&adapter->tpd_ring) < count) {
-		
+		/* not enough descriptors */
 		netif_stop_queue(netdev);
 		if (netif_msg_tx_queued(adapter))
 			dev_printk(KERN_DEBUG, &adapter->pdev->dev,
@@ -2202,6 +2439,12 @@ static netdev_tx_t atl1_xmit_frame(struct sk_buff *skb,
 	return NETDEV_TX_OK;
 }
 
+/*
+ * atl1_intr - Interrupt Handler
+ * @irq: interrupt number
+ * @data: pointer to a network interface device structure
+ * @pt_regs: CPU registers structure
+ */
 static irqreturn_t atl1_intr(int irq, void *data)
 {
 	struct atl1_adapter *adapter = netdev_priv(data);
@@ -2213,32 +2456,32 @@ static irqreturn_t atl1_intr(int irq, void *data)
 		return IRQ_NONE;
 
 	do {
-		
+		/* clear CMB interrupt status at once */
 		adapter->cmb.cmb->int_stats = 0;
 
-		if (status & ISR_GPHY)	
+		if (status & ISR_GPHY)	/* clear phy status */
 			atlx_clear_phy_int(adapter);
 
-		
+		/* clear ISR status, and Enable CMB DMA/Disable Interrupt */
 		iowrite32(status | ISR_DIS_INT, adapter->hw.hw_addr + REG_ISR);
 
-		
+		/* check if SMB intr */
 		if (status & ISR_SMB)
 			atl1_inc_smb(adapter);
 
-		
+		/* check if PCIE PHY Link down */
 		if (status & ISR_PHY_LINKDOWN) {
 			if (netif_msg_intr(adapter))
 				dev_printk(KERN_DEBUG, &adapter->pdev->dev,
 					"pcie phy link down %x\n", status);
-			if (netif_running(adapter->netdev)) {	
+			if (netif_running(adapter->netdev)) {	/* reset MAC */
 				iowrite32(0, adapter->hw.hw_addr + REG_IMR);
 				schedule_work(&adapter->reset_dev_task);
 				return IRQ_HANDLED;
 			}
 		}
 
-		
+		/* check if DMA read/write error ? */
 		if (status & (ISR_DMAR_TO_RST | ISR_DMAW_TO_RST)) {
 			if (netif_msg_intr(adapter))
 				dev_printk(KERN_DEBUG, &adapter->pdev->dev,
@@ -2249,17 +2492,17 @@ static irqreturn_t atl1_intr(int irq, void *data)
 			return IRQ_HANDLED;
 		}
 
-		
+		/* link event */
 		if (status & ISR_GPHY) {
 			adapter->soft_stats.tx_carrier_errors++;
 			atl1_check_for_link(adapter);
 		}
 
-		
+		/* transmit event */
 		if (status & ISR_CMB_TX)
 			atl1_intr_tx(adapter);
 
-		
+		/* rx exception */
 		if (unlikely(status & (ISR_RXF_OV | ISR_RFD_UNRUN |
 			ISR_RRD_OV | ISR_HOST_RFD_UNRUN |
 			ISR_HOST_RRD_OV | ISR_CMB_RX))) {
@@ -2279,12 +2522,16 @@ static irqreturn_t atl1_intr(int irq, void *data)
 
 	} while ((status = adapter->cmb.cmb->int_stats));
 
-	
+	/* re-enable Interrupt */
 	iowrite32(ISR_DIS_SMB | ISR_DIS_DMA, adapter->hw.hw_addr + REG_ISR);
 	return IRQ_HANDLED;
 }
 
 
+/*
+ * atl1_phy_config - Timer Call-back
+ * @data: pointer to netdev cast into an unsigned long
+ */
 static void atl1_phy_config(unsigned long data)
 {
 	struct atl1_adapter *adapter = (struct atl1_adapter *)data;
@@ -2299,6 +2546,16 @@ static void atl1_phy_config(unsigned long data)
 	spin_unlock_irqrestore(&adapter->lock, flags);
 }
 
+/*
+ * Orphaned vendor comment left intact here:
+ * <vendor comment>
+ * If TPD Buffer size equal to 0, PCIE DMAR_TO_INT
+ * will assert. We do soft reset <0x1400=1> according
+ * with the SPEC. BUT, it seemes that PCIE or DMA
+ * state-machine will not be reset. DMAR_TO_INT will
+ * assert again and again.
+ * </vendor comment>
+ */
 
 static int atl1_reset(struct atl1_adapter *adapter)
 {
@@ -2315,13 +2572,13 @@ static s32 atl1_up(struct atl1_adapter *adapter)
 	int err;
 	int irq_flags = 0;
 
-	
+	/* hardware has been reset, we need to reload some things */
 	atlx_set_multi(netdev);
 	atl1_init_ring_ptrs(adapter);
 	atlx_restore_vlan(adapter);
 	err = atl1_alloc_rx_buffers(adapter);
 	if (unlikely(!err))
-		
+		/* no RX BUFFER allocated */
 		return -ENOMEM;
 
 	if (unlikely(atl1_configure(adapter))) {
@@ -2349,7 +2606,7 @@ static s32 atl1_up(struct atl1_adapter *adapter)
 
 err_up:
 	pci_disable_msi(adapter->pdev);
-	
+	/* free rx_buffers */
 	atl1_clean_rx_ring(adapter);
 	return err;
 }
@@ -2388,6 +2645,13 @@ static void atl1_reset_dev_task(struct work_struct *work)
 	netif_device_attach(netdev);
 }
 
+/*
+ * atl1_change_mtu - Change the Maximum Transfer Unit
+ * @netdev: network interface device structure
+ * @new_mtu: new value for maximum frame size
+ *
+ * Returns 0 on success, negative on failure
+ */
 static int atl1_change_mtu(struct net_device *netdev, int new_mtu)
 {
 	struct atl1_adapter *adapter = netdev_priv(netdev);
@@ -2415,6 +2679,18 @@ static int atl1_change_mtu(struct net_device *netdev, int new_mtu)
 	return 0;
 }
 
+/*
+ * atl1_open - Called when a network interface is made active
+ * @netdev: network interface device structure
+ *
+ * Returns 0 on success, negative value on failure
+ *
+ * The open entry point is called when a network interface is made
+ * active by the system (IFF_UP).  At this point all resources needed
+ * for transmit and receive operations are allocated, the interrupt
+ * handler is registered with the OS, the watchdog timer is started,
+ * and the stack is notified that the interface is ready.
+ */
 static int atl1_open(struct net_device *netdev)
 {
 	struct atl1_adapter *adapter = netdev_priv(netdev);
@@ -2422,7 +2698,7 @@ static int atl1_open(struct net_device *netdev)
 
 	netif_carrier_off(netdev);
 
-	
+	/* allocate transmit descriptors */
 	err = atl1_setup_ring_resources(adapter);
 	if (err)
 		return err;
@@ -2438,6 +2714,17 @@ err_up:
 	return err;
 }
 
+/*
+ * atl1_close - Disables a network interface
+ * @netdev: network interface device structure
+ *
+ * Returns 0, this is not allowed to fail
+ *
+ * The close entry point is called when an interface is de-activated
+ * by the OS.  The hardware is still under the drivers control, but
+ * needs to be disabled.  A global MAC reset is issued to stop the
+ * hardware, and all transmit and receive resources are freed.
+ */
 static int atl1_close(struct net_device *netdev)
 {
 	struct atl1_adapter *adapter = netdev_priv(netdev);
@@ -2482,13 +2769,13 @@ static int atl1_suspend(struct device *dev)
 
 		ctrl = 0;
 
-		
+		/* enable magic packet WOL */
 		if (wufc & ATLX_WUFC_MAG)
 			ctrl |= (WOL_MAGIC_EN | WOL_MAGIC_PME_EN);
 		iowrite32(ctrl, hw->hw_addr + REG_WOL_CTRL);
 		ioread32(hw->hw_addr + REG_WOL_CTRL);
 
-		
+		/* configure the mac */
 		ctrl = MAC_CTRL_RX_EN;
 		ctrl |= ((u32)((speed == SPEED_1000) ? MAC_CTRL_SPEED_1000 :
 			MAC_CTRL_SPEED_10_100) << MAC_CTRL_SPEED_SHIFT);
@@ -2502,7 +2789,7 @@ static int atl1_suspend(struct device *dev)
 		iowrite32(ctrl, hw->hw_addr + REG_MAC_CTRL);
 		ioread32(hw->hw_addr + REG_MAC_CTRL);
 
-		
+		/* poke the PHY */
 		ctrl = ioread32(hw->hw_addr + REG_PCIE_PHYMISC);
 		ctrl |= PCIE_PHYMISC_FORCE_RCV_DET;
 		iowrite32(ctrl, hw->hw_addr + REG_PCIE_PHYMISC);
@@ -2595,6 +2882,17 @@ static const struct net_device_ops atl1_netdev_ops = {
 #endif
 };
 
+/*
+ * atl1_probe - Device Initialization Routine
+ * @pdev: PCI device information struct
+ * @ent: entry in atl1_pci_tbl
+ *
+ * Returns 0 on success, negative on failure
+ *
+ * atl1_probe initializes an adapter identified by a pci_dev structure.
+ * The OS initialization, configuring of the adapter private structure,
+ * and a hardware reset occur.
+ */
 static int __devinit atl1_probe(struct pci_dev *pdev,
 	const struct pci_device_id *ent)
 {
@@ -2607,15 +2905,33 @@ static int __devinit atl1_probe(struct pci_dev *pdev,
 	if (err)
 		return err;
 
+	/*
+	 * The atl1 chip can DMA to 64-bit addresses, but it uses a single
+	 * shared register for the high 32 bits, so only a single, aligned,
+	 * 4 GB physical address range can be used at a time.
+	 *
+	 * Supporting 64-bit DMA on this hardware is more trouble than it's
+	 * worth.  It is far easier to limit to 32-bit DMA than update
+	 * various kernel subsystems to support the mechanics required by a
+	 * fixed-high-32-bit system.
+	 */
 	err = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (err) {
 		dev_err(&pdev->dev, "no usable DMA configuration\n");
 		goto err_dma;
 	}
+	/*
+	 * Mark all PCI regions associated with PCI device
+	 * pdev as being reserved by owner atl1_driver_name
+	 */
 	err = pci_request_regions(pdev, ATLX_DRIVER_NAME);
 	if (err)
 		goto err_request_regions;
 
+	/*
+	 * Enables bus-mastering on the device and calls
+	 * pcibios_set_master to do the needed arch specific settings
+	 */
 	pci_set_master(pdev);
 
 	netdev = alloc_etherdev(sizeof(struct atl1_adapter));
@@ -2637,13 +2953,13 @@ static int __devinit atl1_probe(struct pci_dev *pdev,
 		err = -EIO;
 		goto err_pci_iomap;
 	}
-	
+	/* get device revision number */
 	adapter->hw.dev_rev = ioread16(adapter->hw.hw_addr +
 		(REG_MASTER_CTRL + 2));
 	if (netif_msg_probe(adapter))
 		dev_info(&pdev->dev, "version %s\n", ATLX_DRIVER_VERSION);
 
-	
+	/* set default ring resource counts */
 	adapter->rfd_ring.count = adapter->rrd_ring.count = ATL1_DEFAULT_RFD;
 	adapter->tpd_ring.count = ATL1_DEFAULT_TPD;
 
@@ -2659,7 +2975,7 @@ static int __devinit atl1_probe(struct pci_dev *pdev,
 	netdev->ethtool_ops = &atl1_ethtool_ops;
 	adapter->bd_number = cards_found;
 
-	
+	/* setup the private structure */
 	err = atl1_sw_init(adapter);
 	if (err)
 		goto err_common;
@@ -2671,22 +2987,31 @@ static int __devinit atl1_probe(struct pci_dev *pdev,
 	netdev->hw_features = NETIF_F_HW_CSUM | NETIF_F_SG | NETIF_F_TSO |
 			      NETIF_F_HW_VLAN_RX;
 
-	
+	/* is this valid? see atl1_setup_mac_ctrl() */
 	netdev->features |= NETIF_F_RXCSUM;
 
-	
+	/*
+	 * patch for some L1 of old version,
+	 * the final version of L1 may not need these
+	 * patches
+	 */
+	/* atl1_pcie_patch(adapter); */
 
-	
+	/* really reset GPHY core */
 	iowrite16(0, adapter->hw.hw_addr + REG_PHY_ENABLE);
 
+	/*
+	 * reset the controller to
+	 * put the device in a known good starting state
+	 */
 	if (atl1_reset_hw(&adapter->hw)) {
 		err = -EIO;
 		goto err_common;
 	}
 
-	
+	/* copy the MAC address out of the EEPROM */
 	if (atl1_read_mac_addr(&adapter->hw)) {
-		
+		/* mark random mac */
 		netdev->addr_assign_type |= NET_ADDR_RANDOM;
 	}
 	memcpy(netdev->dev_addr, adapter->hw.mac_addr, netdev->addr_len);
@@ -2698,7 +3023,7 @@ static int __devinit atl1_probe(struct pci_dev *pdev,
 
 	atl1_check_options(adapter);
 
-	
+	/* pre-init the MAC, and setup link */
 	err = atl1_init_hw(&adapter->hw);
 	if (err) {
 		err = -EIO;
@@ -2706,7 +3031,7 @@ static int __devinit atl1_probe(struct pci_dev *pdev,
 	}
 
 	atl1_pcie_patch(adapter);
-	
+	/* assume we have no link for now */
 	netif_carrier_off(netdev);
 
 	setup_timer(&adapter->phy_config_timer, atl1_phy_config,
@@ -2737,16 +3062,30 @@ err_request_regions:
 	return err;
 }
 
+/*
+ * atl1_remove - Device Removal Routine
+ * @pdev: PCI device information struct
+ *
+ * atl1_remove is called by the PCI subsystem to alert the driver
+ * that it should release a PCI device.  The could be caused by a
+ * Hot-Plug event, or because the driver is going to be removed from
+ * memory.
+ */
 static void __devexit atl1_remove(struct pci_dev *pdev)
 {
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct atl1_adapter *adapter;
-	
+	/* Device not available. Return. */
 	if (!netdev)
 		return;
 
 	adapter = netdev_priv(netdev);
 
+	/*
+	 * Some atl1 boards lack persistent storage for their MAC, and get it
+	 * from the BIOS during POST.  If we've been messing with the MAC
+	 * address, we need to save the permanent one.
+	 */
 	if (memcmp(adapter->hw.mac_addr, adapter->hw.perm_mac_addr, ETH_ALEN)) {
 		memcpy(adapter->hw.mac_addr, adapter->hw.perm_mac_addr,
 			ETH_ALEN);
@@ -2770,11 +3109,23 @@ static struct pci_driver atl1_driver = {
 	.driver.pm = ATL1_PM_OPS,
 };
 
+/*
+ * atl1_exit_module - Driver Exit Cleanup Routine
+ *
+ * atl1_exit_module is called just before the driver is removed
+ * from memory.
+ */
 static void __exit atl1_exit_module(void)
 {
 	pci_unregister_driver(&atl1_driver);
 }
 
+/*
+ * atl1_init_module - Driver Registration Routine
+ *
+ * atl1_init_module is the first routine called when the driver is
+ * loaded. All it does is register with the PCI subsystem.
+ */
 static int __init atl1_init_module(void)
 {
 	return pci_register_driver(&atl1_driver);
@@ -2986,7 +3337,7 @@ static int atl1_set_settings(struct net_device *netdev,
 			    MII_CR_FULL_DUPLEX | MII_CR_SPEED_10 | MII_CR_RESET;
 			break;
 		default:
-			
+			/* MEDIA_TYPE_10M_HALF: */
 			phy_data = MII_CR_SPEED_10 | MII_CR_RESET;
 			break;
 		}
@@ -3077,6 +3428,10 @@ static void atl1_get_regs(struct net_device *netdev, struct ethtool_regs *regs,
 	u32 *regbuf = p;
 
 	for (i = 0; i < ATL1_REG_COUNT; i++) {
+		/*
+		 * This switch statement avoids reserved regions
+		 * of register space.
+		 */
 		switch (i) {
 		case 6 ... 9:
 		case 14:
@@ -3100,11 +3455,11 @@ static void atl1_get_regs(struct net_device *netdev, struct ethtool_regs *regs,
 		case 1402 ... 1403:
 		case 1410 ... 1471:
 		case 1522 ... 1535:
-			
+			/* reserved region; don't read it */
 			regbuf[i] = 0;
 			break;
 		default:
-			
+			/* unreserved region */
 			regbuf[i] = ioread32(hw->hw_addr + (i * sizeof(u32)));
 		}
 	}
@@ -3159,11 +3514,15 @@ static int atl1_set_ringparam(struct net_device *netdev,
 	tpdr->count = (tpdr->count + 3) & ~3;
 
 	if (netif_running(adapter->netdev)) {
-		
+		/* try to get new resources before deleting old */
 		err = atl1_setup_ring_resources(adapter);
 		if (err)
 			goto err_setup_ring;
 
+		/*
+		 * save the new, restore the old in order to free it,
+		 * then restore the new back again
+		 */
 
 		rfd_new = adapter->rfd_ring;
 		rrd_new = adapter->rrd_ring;
@@ -3173,6 +3532,10 @@ static int atl1_set_ringparam(struct net_device *netdev,
 		adapter->rrd_ring = rrd_old;
 		adapter->tpd_ring = tpd_old;
 		adapter->ring_header = rhdr_old;
+		/*
+		 * Save SMB and CMB, since atl1_free_ring_resources
+		 * will clear them.
+		 */
 		smb = adapter->smb;
 		cmb = adapter->cmb;
 		atl1_free_ring_resources(adapter);
@@ -3276,7 +3639,7 @@ static int atl1_nway_reset(struct net_device *netdev)
 					MII_CR_SPEED_10 | MII_CR_RESET;
 				break;
 			default:
-				
+				/* MEDIA_TYPE_10M_HALF */
 				phy_data = MII_CR_SPEED_10 | MII_CR_RESET;
 			}
 		}

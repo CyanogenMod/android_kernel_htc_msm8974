@@ -35,6 +35,18 @@ struct nilfs_shadow_map {
 	struct list_head frozen_buffers;
 };
 
+/**
+ * struct nilfs_mdt_info - on-memory private data of meta data files
+ * @mi_sem: reader/writer semaphore for meta data operations
+ * @mi_bgl: per-blockgroup locking
+ * @mi_entry_size: size of an entry
+ * @mi_first_entry_offset: offset to the first entry
+ * @mi_entries_per_block: number of entries in a block
+ * @mi_palloc_cache: persistent object allocator cache
+ * @mi_shadow: shadow of bmap and page caches
+ * @mi_blocks_per_group: number of blocks in a group
+ * @mi_blocks_per_desc_block: number of blocks per descriptor block
+ */
 struct nilfs_mdt_info {
 	struct rw_semaphore	mi_sem;
 	struct blockgroup_lock *mi_bgl;
@@ -52,6 +64,7 @@ static inline struct nilfs_mdt_info *NILFS_MDT(const struct inode *inode)
 	return inode->i_private;
 }
 
+/* Default GFP flags using highmem */
 #define NILFS_MDT_GFP      (__GFP_WAIT | __GFP_IO | __GFP_HIGHMEM)
 
 int nilfs_mdt_get_block(struct inode *, unsigned long, int,
@@ -94,4 +107,4 @@ static inline __u64 nilfs_mdt_cno(struct inode *inode)
 #define nilfs_mdt_bgl_lock(inode, bg) \
 	(&NILFS_MDT(inode)->mi_bgl->locks[(bg) & (NR_BG_LOCKS-1)].lock)
 
-#endif 
+#endif /* _NILFS_MDT_H */

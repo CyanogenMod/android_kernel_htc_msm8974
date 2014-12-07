@@ -29,6 +29,7 @@
 #define DEBUGP(fmt...)
 #endif
 
+/* Allocate the GOT at the end of the core sections.  */
 
 struct got_entry {
 	struct got_entry *next;
@@ -65,6 +66,9 @@ process_reloc_for_got(Elf64_Rela *rela,
 	chains[r_sym].next = g;
 
  found_entry:
+	/* Trick: most of the ELF64_R_TYPE field is unused.  There are
+	   42 valid relocation types, and a 32-bit field.  Co-opt the
+	   bits above 256 to store the got offset for this reloc.  */
 	rela->r_info |= g->got_offset << 8;
 }
 
@@ -80,6 +84,9 @@ module_frob_arch_sections(Elf64_Ehdr *hdr, Elf64_Shdr *sechdrs,
 	esechdrs = sechdrs + hdr->e_shnum;
 	symtab = got = NULL;
 
+	/* Find out how large the symbol table is.  Allocate one got_entry
+	   head per symbol.  Normally this will be enough, but not always.
+	   We'll chain different offsets for the symbol down each head.  */
 	for (s = sechdrs; s < esechdrs; ++s)
 		if (s->sh_type == SHT_SYMTAB)
 			symtab = s;
@@ -110,6 +117,8 @@ module_frob_arch_sections(Elf64_Ehdr *hdr, Elf64_Shdr *sechdrs,
 	got->sh_addralign = 8;
 	got->sh_type = SHT_NOBITS;
 
+	/* Examine all LITERAL relocations to find out what GOT entries
+	   are required.  This sizes the GOT section as well.  */
 	for (s = sechdrs; s < esechdrs; ++s)
 		if (s->sh_type == SHT_RELA) {
 			nrela = s->sh_size / sizeof(Elf64_Rela);
@@ -119,7 +128,7 @@ module_frob_arch_sections(Elf64_Ehdr *hdr, Elf64_Shdr *sechdrs,
 						      &got->sh_size);
 		}
 
-	
+	/* Free the memory we allocated.  */
 	for (i = 0; i < nsyms; ++i) {
 		struct got_entry *g, *n;
 		for (g = chains[i].next; g ; g = n) {
@@ -149,6 +158,8 @@ apply_relocate_add(Elf64_Shdr *sechdrs, const char *strtab,
 	base = (void *)sechdrs[sechdrs[relsec].sh_info].sh_addr;
 	symtab = (Elf64_Sym *)sechdrs[symindex].sh_addr;
 
+	/* The small sections were sorted to the end of the segment.
+	   The following should definitely cover them.  */
 	gp = (u64)me->module_core + me->core_size - 0x8000;
 	got = sechdrs[me->arch.gotsecindex].sh_addr;
 
@@ -159,9 +170,11 @@ apply_relocate_add(Elf64_Shdr *sechdrs, const char *strtab,
 		unsigned long value, hi, lo;
 		r_type &= 0xff;
 
-		
+		/* This is where to make the change.  */
 		location = base + rela[i].r_offset;
 
+		/* This is the symbol it is referring to.  Note that all
+		   unresolved symbols have been resolved.  */
 		sym = symtab + r_sym;
 		value = sym->st_value + rela[i].r_addend;
 
@@ -169,7 +182,7 @@ apply_relocate_add(Elf64_Shdr *sechdrs, const char *strtab,
 		case R_ALPHA_NONE:
 			break;
 		case R_ALPHA_REFQUAD:
-			
+			/* BUG() can produce misaligned relocations. */
 			((u32 *)location)[0] = value;
 			((u32 *)location)[1] = value >> 32;
 			break;
@@ -199,13 +212,16 @@ apply_relocate_add(Elf64_Shdr *sechdrs, const char *strtab,
 			*(u16 *)(location + rela[i].r_addend) = lo;
 			break;
 		case R_ALPHA_BRSGP:
+			/* BRSGP is only allowed to bind to local symbols.
+			   If the section is undef, this means that the
+			   value was resolved from somewhere else.  */
 			if (sym->st_shndx == SHN_UNDEF)
 				goto reloc_overflow;
 			if ((sym->st_other & STO_ALPHA_STD_GPLOAD) ==
 			    STO_ALPHA_STD_GPLOAD)
-				
+				/* Omit the prologue. */
 				value += 8;
-			
+			/* FALLTHRU */
 		case R_ALPHA_BRADDR:
 			value -= (u64)location + 4;
 			if (value & 3)

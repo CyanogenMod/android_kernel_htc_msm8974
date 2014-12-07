@@ -64,4 +64,4 @@ static inline bool arch_irqs_disabled(void)
 	return arch_irqs_disabled_flags(getipl());
 }
 
-#endif 
+#endif /* __ALPHA_IRQFLAGS_H */

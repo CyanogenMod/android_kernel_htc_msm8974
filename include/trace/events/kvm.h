@@ -140,7 +140,7 @@ TRACE_EVENT(kvm_ack_irq,
 
 
 
-#endif 
+#endif /* defined(__KVM_HAVE_IOAPIC) */
 
 #define KVM_TRACE_MMIO_READ_UNSATISFIED 0
 #define KVM_TRACE_MMIO_READ 1
@@ -306,6 +306,7 @@ TRACE_EVENT(
 
 #endif
 
-#endif 
+#endif /* _TRACE_KVM_MAIN_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

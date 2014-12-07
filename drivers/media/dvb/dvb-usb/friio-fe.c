@@ -22,6 +22,8 @@ struct jdvbt90502_state {
 	struct jdvbt90502_config config;
 };
 
+/* NOTE: TC90502 has 16bit register-address? */
+/* register 0x0100 is used for reading PLL status, so reg is u16 here */
 static int jdvbt90502_reg_read(struct jdvbt90502_state *state,
 			       const u16 reg, u8 *buf, const size_t count)
 {
@@ -51,6 +53,7 @@ static int jdvbt90502_reg_read(struct jdvbt90502_state *state,
 	return 0;
 }
 
+/* currently 16bit register-address is not used, so reg is u8 here */
 static int jdvbt90502_single_reg_write(struct jdvbt90502_state *state,
 				       const u8 reg, const u8 val)
 {
@@ -86,11 +89,13 @@ static int _jdvbt90502_write(struct dvb_frontend *fe, const u8 buf[], int len)
 	return 0;
 }
 
+/* read pll status byte via the demodulator's I2C register */
+/* note: Win box reads it by 8B block at the I2C addr 0x30 from reg:0x80 */
 static int jdvbt90502_pll_read(struct jdvbt90502_state *state, u8 *result)
 {
 	int ret;
 
-	
+	/* +1 for reading */
 	u8 pll_addr_byte = (state->config.pll_address << 1) + 1;
 
 	*result = 0;
@@ -113,6 +118,7 @@ error:
 }
 
 
+/* set pll frequency via the demodulator's I2C register */
 static int jdvbt90502_pll_set_freq(struct jdvbt90502_state *state, u32 freq)
 {
 	int ret;
@@ -127,20 +133,20 @@ static int jdvbt90502_pll_set_freq(struct jdvbt90502_state *state, u32 freq)
 
 	deb_fe("%s: freq=%d, step=%d\n", __func__, freq,
 	       state->frontend.ops.info.frequency_stepsize);
-	
-	
+	/* freq -> oscilator frequency conversion. */
+	/* freq: 473,000,000 + n*6,000,000 [+ 142857 (center freq. shift)] */
 	f = freq / state->frontend.ops.info.frequency_stepsize;
-	
+	/* add 399[1/7 MHZ] = 57MHz for the IF  */
 	f += 399;
-	
+	/* add center frequency shift if necessary */
 	if (f % 7 == 0)
 		f++;
-	pll_freq_cmd[DEMOD_REDIRECT_REG] = JDVBT90502_2ND_I2C_REG; 
+	pll_freq_cmd[DEMOD_REDIRECT_REG] = JDVBT90502_2ND_I2C_REG; /* 0xFE */
 	pll_freq_cmd[ADDRESS_BYTE] = state->config.pll_address << 1;
 	pll_freq_cmd[DIVIDER_BYTE1] = (f >> 8) & 0x7F;
 	pll_freq_cmd[DIVIDER_BYTE2] = f & 0xFF;
-	pll_freq_cmd[CONTROL_BYTE] = 0xB2; 
-	pll_freq_cmd[BANDSWITCH_BYTE] = 0x08;	
+	pll_freq_cmd[CONTROL_BYTE] = 0xB2; /* ref.divider:28, 4MHz/28=1/7MHz */
+	pll_freq_cmd[BANDSWITCH_BYTE] = 0x08;	/* UHF band */
 
 	msg[0].addr = state->config.demod_address;
 	msg[0].flags = 0;
@@ -157,9 +163,9 @@ static int jdvbt90502_pll_set_freq(struct jdvbt90502_state *state, u32 freq)
 	pll_agc_cmd[ADDRESS_BYTE] = pll_freq_cmd[ADDRESS_BYTE];
 	pll_agc_cmd[DIVIDER_BYTE1] = pll_freq_cmd[DIVIDER_BYTE1];
 	pll_agc_cmd[DIVIDER_BYTE2] = pll_freq_cmd[DIVIDER_BYTE2];
-	pll_agc_cmd[CONTROL_BYTE] = 0x9A; 
+	pll_agc_cmd[CONTROL_BYTE] = 0x9A; /*  AGC_CTRL instead of BANDSWITCH */
 	pll_agc_cmd[AGC_CTRL_BYTE] = 0x50;
-	
+	/* AGC Time Constant 2s, AGC take-over point:103dBuV(lowest) */
 
 	msg[1].addr = msg[0].addr;
 	msg[1].flags = 0;
@@ -170,21 +176,21 @@ static int jdvbt90502_pll_set_freq(struct jdvbt90502_state *state, u32 freq)
 	if (ret != 1)
 		goto error;
 
-	
-	
+	/* I don't know what these cmds are for,  */
+	/* but the USB log on a windows box contains them */
 	ret = jdvbt90502_single_reg_write(state, 0x01, 0x40);
 	ret |= jdvbt90502_single_reg_write(state, 0x01, 0x00);
 	if (ret)
 		goto error;
 	udelay(100);
 
-	
+	/* wait for the demod to be ready? */
 #define RETRY_COUNT 5
 	for (retry = 0; retry < RETRY_COUNT; retry++) {
 		ret = jdvbt90502_reg_read(state, 0x0096, &res1, 1);
 		if (ret)
 			goto error;
-		
+		/* if (res1 != 0x00) goto error; */
 		ret = jdvbt90502_reg_read(state, 0x00B0, res2, sizeof(res2));
 		if (ret)
 			goto error;
@@ -236,8 +242,8 @@ static int jdvbt90502_read_signal_strength(struct dvb_frontend *fe,
 
 	*strength = 0;
 
-	
-	
+	/* status register (incl. signal strength) : 0x89  */
+	/* TODO: read just the necessary registers [0x8B..0x8D]? */
 	ret = jdvbt90502_reg_read(fe->demodulator_priv, 0x0089,
 				  rbuf, sizeof(rbuf));
 
@@ -246,7 +252,7 @@ static int jdvbt90502_read_signal_strength(struct dvb_frontend *fe,
 		return -EREMOTEIO;
 	}
 
-	
+	/* signal_strength: rbuf[2-4] (24bit BE), use lower 16bit for now. */
 	*strength = (rbuf[3] << 8) + rbuf[4];
 	if (rbuf[2])
 		*strength = 0xffff;
@@ -255,6 +261,7 @@ static int jdvbt90502_read_signal_strength(struct dvb_frontend *fe,
 }
 
 
+/* filter out un-supported properties to notify users */
 static int jdvbt90502_set_property(struct dvb_frontend *fe,
 				   struct dtv_property *tvp)
 {
@@ -293,13 +300,18 @@ static int jdvbt90502_set_frontend(struct dvb_frontend *fe)
 {
 	struct dtv_frontend_properties *p = &fe->dtv_property_cache;
 
+	/**
+	 * NOTE: ignore all the parameters except frequency.
+	 *       others should be fixed to the proper value for ISDB-T,
+	 *       but don't check here.
+	 */
 
 	struct jdvbt90502_state *state = fe->demodulator_priv;
 	int ret;
 
 	deb_fe("%s: Freq:%d\n", __func__, p->frequency);
 
-	
+	/* for recovery from DTV_CLEAN */
 	fe->dtv_property_cache.delivery_system = SYS_ISDBT;
 
 	ret = jdvbt90502_pll_set_freq(state, p->frequency);
@@ -312,6 +324,10 @@ static int jdvbt90502_set_frontend(struct dvb_frontend *fe)
 }
 
 
+/**
+ * (reg, val) commad list to initialize this module.
+ *  captured on a Windows box.
+ */
 static u8 init_code[][2] = {
 	{0x01, 0x40},
 	{0x04, 0x38},
@@ -398,16 +414,16 @@ struct dvb_frontend *jdvbt90502_attach(struct dvb_usb_device *d)
 
 	deb_info("%s called.\n", __func__);
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct jdvbt90502_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->i2c = &d->i2c_adap;
 	memcpy(&state->config, &friio_fe_config, sizeof(friio_fe_config));
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &jdvbt90502_ops,
 	       sizeof(jdvbt90502_ops));
 	state->frontend.demodulator_priv = state;
@@ -426,12 +442,12 @@ static struct dvb_frontend_ops jdvbt90502_ops = {
 	.delsys = { SYS_ISDBT },
 	.info = {
 		.name			= "Comtech JDVBT90502 ISDB-T",
-		.frequency_min		= 473000000, 
-		.frequency_max		= 767142857, 
+		.frequency_min		= 473000000, /* UHF 13ch, center */
+		.frequency_max		= 767142857, /* UHF 62ch, center */
 		.frequency_stepsize	= JDVBT90502_PLL_CLK / JDVBT90502_PLL_DIVIDER,
 		.frequency_tolerance	= 0,
 
-		
+		/* NOTE: this driver ignores all parameters but frequency. */
 		.caps = FE_CAN_INVERSION_AUTO |
 			FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 			FE_CAN_FEC_4_5 | FE_CAN_FEC_5_6 | FE_CAN_FEC_6_7 |

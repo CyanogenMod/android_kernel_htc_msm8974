@@ -21,9 +21,11 @@
 #include <linux/delay.h>
 #include "../rio.h"
 
+/* Global (broadcast) route registers */
 #define SPBC_ROUTE_CFG_DESTID	0x10070
 #define SPBC_ROUTE_CFG_PORT	0x10074
 
+/* Per port route registers */
 #define SPP_ROUTE_CFG_DESTID(n)	(0x11070 + 0x100*n)
 #define SPP_ROUTE_CFG_PORT(n)	(0x11074 + 0x100*n)
 
@@ -116,7 +118,7 @@ tsi568_em_init(struct rio_dev *rdev)
 
 	pr_debug("TSI568 %s [%d:%d]\n", __func__, rdev->destid, rdev->hopcount);
 
-	
+	/* Make sure that Port-Writes are disabled (for all ports) */
 	for (portnum = 0;
 	     portnum < RIO_GET_TOTAL_PORTS(rdev->swpinfo); portnum++) {
 		rio_read_config_32(rdev, TSI568_SP_MODE(portnum), &regval);

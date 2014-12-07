@@ -1,4 +1,9 @@
 
+/******************************************************************************
+ *
+ * Name: acpixf.h - External interfaces to the ACPI subsystem
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2011, Intel Corp.
@@ -40,6 +45,7 @@
 #ifndef __ACXFACE_H__
 #define __ACXFACE_H__
 
+/* Current ACPICA subsystem version in YYYYMMDD format */
 
 #define ACPI_CA_VERSION                 0x20120320
 
@@ -49,6 +55,10 @@
 
 extern u8 acpi_gbl_permanent_mmap;
 
+/*
+ * Globals that are publicly available, allowing for
+ * run time configuration
+ */
 extern u32 acpi_dbg_level;
 extern u32 acpi_dbg_layer;
 extern u8 acpi_gbl_enable_interpreter_slack;
@@ -62,6 +72,11 @@ extern u8 acpi_gbl_copy_dsdt_locally;
 extern u8 acpi_gbl_truncate_io_addresses;
 extern u8 acpi_gbl_disable_auto_repair;
 
+/*
+ * Hardware-reduced prototypes. All interfaces that use these macros will
+ * be configured out of the ACPICA build if the ACPI_REDUCED_HARDWARE flag
+ * is set to TRUE.
+ */
 #if (!ACPI_REDUCED_HARDWARE)
 #define ACPI_HW_DEPENDENT_RETURN_STATUS(prototype) \
 	prototype;
@@ -82,14 +97,17 @@ extern u8 acpi_gbl_disable_auto_repair;
 #define ACPI_HW_DEPENDENT_RETURN_VOID(prototype) \
 	static ACPI_INLINE prototype {}
 
-#endif				
+#endif				/* !ACPI_REDUCED_HARDWARE */
 
 extern u32 acpi_current_gpe_count;
 extern struct acpi_table_fadt acpi_gbl_FADT;
 extern u8 acpi_gbl_system_awake_and_running;
-extern u8 acpi_gbl_reduced_hardware;	
+extern u8 acpi_gbl_reduced_hardware;	/* ACPI 5.0 */
 
 extern u32 acpi_rsdt_forced;
+/*
+ * Global interfaces
+ */
 acpi_status
 acpi_initialize_tables(struct acpi_table_desc *initial_storage,
 		       u32 initial_table_count, u8 allow_resize);
@@ -126,12 +144,18 @@ acpi_check_address_range(acpi_adr_space_type space_id,
 			 acpi_physical_address address,
 			 acpi_size length, u8 warn);
 
+/*
+ * ACPI Memory management
+ */
 void *acpi_allocate(u32 size);
 
 void *acpi_callocate(u32 size);
 
 void acpi_free(void *address);
 
+/*
+ * ACPI table manipulation interfaces
+ */
 acpi_status acpi_reallocate_root_table(void);
 
 acpi_status acpi_find_root_pointer(acpi_size *rsdp_address);
@@ -164,6 +188,9 @@ acpi_install_table_handler(acpi_tbl_handler handler, void *context);
 
 acpi_status acpi_remove_table_handler(acpi_tbl_handler handler);
 
+/*
+ * Namespace and name interfaces
+ */
 acpi_status
 acpi_walk_namespace(acpi_object_type type,
 		    acpi_handle start_object,
@@ -196,6 +223,9 @@ acpi_get_data(acpi_handle object, acpi_object_handler handler, void **data);
 acpi_status
 acpi_debug_trace(char *name, u32 debug_level, u32 debug_layer, u32 flags);
 
+/*
+ * Object manipulation and enumeration
+ */
 acpi_status
 acpi_evaluate_object(acpi_handle object,
 		     acpi_string pathname,
@@ -226,6 +256,9 @@ acpi_status acpi_get_id(acpi_handle object, acpi_owner_id * out_type);
 
 acpi_status acpi_get_parent(acpi_handle object, acpi_handle * out_handle);
 
+/*
+ * Handler interfaces
+ */
 acpi_status
 acpi_install_initialization_handler(acpi_init_handler handler, u32 function);
 
@@ -283,17 +316,26 @@ acpi_status acpi_install_exception_handler(acpi_exception_handler handler);
 
 acpi_status acpi_install_interface_handler(acpi_interface_handler handler);
 
+/*
+ * Global Lock interfaces
+ */
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
 				acpi_acquire_global_lock(u16 timeout,
 							 u32 *handle))
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
 				acpi_release_global_lock(u32 handle))
 
+/*
+ * Interfaces to AML mutex objects
+ */
 acpi_status
 acpi_acquire_mutex(acpi_handle handle, acpi_string pathname, u16 timeout);
 
 acpi_status acpi_release_mutex(acpi_handle handle, acpi_string pathname);
 
+/*
+ * Fixed Event interfaces
+ */
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
 				acpi_enable_event(u32 event, u32 flags))
 
@@ -306,6 +348,9 @@ ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
 				acpi_get_event_status(u32 event,
 						      acpi_event_status
 						      *event_status))
+/*
+ * General Purpose Event (GPE) Interfaces
+ */
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status acpi_update_all_gpes(void))
 
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
@@ -361,6 +406,9 @@ ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
 				 acpi_remove_gpe_block(acpi_handle gpe_device))
 
+/*
+ * Resource interfaces
+ */
 typedef
 acpi_status(*acpi_walk_resource_callback) (struct acpi_resource * resource,
 					   void *context);
@@ -403,6 +451,9 @@ acpi_buffer_to_resource(u8 *aml_buffer,
 			u16 aml_buffer_length,
 			struct acpi_resource **resource_ptr);
 
+/*
+ * Hardware (ACPI device) interfaces
+ */
 acpi_status acpi_reset(void);
 
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
@@ -427,6 +478,9 @@ acpi_status acpi_read(u64 *value, struct acpi_generic_address *reg);
 
 acpi_status acpi_write(u64 value, struct acpi_generic_address *reg);
 
+/*
+ * Sleep/Wake interfaces
+ */
 acpi_status
 acpi_get_sleep_type_data(u8 sleep_state, u8 * slp_typ_a, u8 * slp_typ_b);
 
@@ -440,6 +494,9 @@ acpi_status acpi_leave_sleep_state_prep(u8 sleep_state, u8 flags);
 
 acpi_status acpi_leave_sleep_state(u8 sleep_state);
 
+/*
+ * ACPI Timer interfaces
+ */
 #ifdef ACPI_FUTURE_USAGE
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
 				acpi_get_timer_resolution(u32 *resolution))
@@ -450,8 +507,11 @@ ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
 				acpi_get_timer_duration(u32 start_ticks,
 							u32 end_ticks,
 							u32 *time_elapsed))
-#endif				
+#endif				/* ACPI_FUTURE_USAGE */
 
+/*
+ * Error/Warning output
+ */
 void ACPI_INTERNAL_VAR_XFACE
 acpi_error(const char *module_name,
 	   u32 line_number, const char *format, ...) ACPI_PRINTF_LIKE(3);
@@ -469,6 +529,9 @@ void ACPI_INTERNAL_VAR_XFACE
 acpi_info(const char *module_name,
 	  u32 line_number, const char *format, ...) ACPI_PRINTF_LIKE(3);
 
+/*
+ * Debug output
+ */
 #ifdef ACPI_DEBUG_OUTPUT
 
 void ACPI_INTERNAL_VAR_XFACE
@@ -487,4 +550,4 @@ acpi_debug_print_raw(u32 requested_debug_level,
 		     const char *format, ...) ACPI_PRINTF_LIKE(6);
 #endif
 
-#endif				
+#endif				/* __ACXFACE_H__ */

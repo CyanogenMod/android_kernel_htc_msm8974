@@ -65,6 +65,7 @@ struct epson1355_par {
 	u32 pseudo_palette[16];
 };
 
+/* ------------------------------------------------------------------------- */
 
 #if defined(CONFIG_ARM)
 
@@ -99,6 +100,7 @@ static inline void epson1355_write_reg(struct epson1355_par *par, u8 data, int i
 #define EPSON1355FB_FB_PHYS	(EPSON1355FB_BASE_PHYS + EPSON1355FB_FB_OFS)
 #define EPSON1355FB_FB_LEN	(2 * 1024 * 1024)
 
+/* ------------------------------------------------------------------------- */
 
 static inline u16 epson1355_read_reg16(struct epson1355_par *par, int index)
 {
@@ -137,6 +139,7 @@ static inline void epson1355_write_reg20(struct epson1355_par *par, u32 data, in
 	epson1355_write_reg(par, b2, index + 2);
 }
 
+/* ------------------------------------------------------------------------- */
 
 static void set_lut(struct epson1355_par *par, u8 index, u8 r, u8 g, u8 b)
 {
@@ -147,6 +150,17 @@ static void set_lut(struct epson1355_par *par, u8 index, u8 r, u8 g, u8 b)
 }
 
 
+/**
+ *  	epson1355fb_setcolreg - sets a color register.
+ *      @regno: Which register in the CLUT we are programming
+ *      @red: The red value which can be up to 16 bits wide
+ *	@green: The green value which can be up to 16 bits wide
+ *	@blue:  The blue value which can be up to 16 bits wide.
+ *	@transp: If supported the alpha value which can be up to 16 bits wide.
+ *      @info: frame buffer info structure
+ *
+ *	Returns negative errno on error, or zero on success.
+ */
 static int epson1355fb_setcolreg(unsigned regno, unsigned r, unsigned g,
 				 unsigned b, unsigned transp,
 				 struct fb_info *info)
@@ -178,14 +192,26 @@ static int epson1355fb_setcolreg(unsigned regno, unsigned r, unsigned g,
 	return 0;
 }
 
+/* ------------------------------------------------------------------------- */
 
+/**
+ *      epson1355fb_pan_display - Pans the display.
+ *      @var: frame buffer variable screen structure
+ *      @info: frame buffer structure that represents a single frame buffer
+ *
+ *	Pan (or wrap, depending on the `vmode' field) the display using the
+ *  	`xoffset' and `yoffset' fields of the `var' structure.
+ *  	If the values don't fit, return -EINVAL.
+ *
+ *      Returns negative errno on error, or zero on success.
+ */
 static int epson1355fb_pan_display(struct fb_var_screeninfo *var,
 				   struct fb_info *info)
 {
 	struct epson1355_par *par = info->par;
 	u32 start;
 
-	if (var->xoffset != 0)	
+	if (var->xoffset != 0)	/* not yet ... */
 		return -EINVAL;
 
 	if (var->yoffset + info->var.yres > info->var.yres_virtual)
@@ -198,6 +224,7 @@ static int epson1355fb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static void lcd_enable(struct epson1355_par *par, int enable)
 {
@@ -214,7 +241,7 @@ static void lcd_enable(struct epson1355_par *par, int enable)
 #if defined(CONFIG_ARCH_CEIVA)
 static void backlight_enable(int enable)
 {
-	
+	/* ### this should be protected by a spinlock ... */
 	u8 pddr = clps_readb(PDDR);
 	if (enable)
 		pddr |= (1 << 5);
@@ -229,6 +256,22 @@ static void backlight_enable(int enable)
 #endif
 
 
+/**
+ *      epson1355fb_blank - blanks the display.
+ *      @blank_mode: the blank mode we want.
+ *      @info: frame buffer structure that represents a single frame buffer
+ *
+ *      Blank the screen if blank_mode != 0, else unblank. Return 0 if
+ *      blanking succeeded, != 0 if un-/blanking failed due to e.g. a
+ *      video mode which doesn't support it. Implements VESA suspend
+ *      and powerdown modes on hardware that supports disabling hsync/vsync:
+ *      blank_mode == 2: suspend vsync
+ *      blank_mode == 3: suspend hsync
+ *      blank_mode == 4: powerdown
+ *
+ *      Returns negative errno on error, or zero on success.
+ *
+ */
 static int epson1355fb_blank(int blank_mode, struct fb_info *info)
 {
 	struct epson1355_par *par = info->par;
@@ -251,11 +294,17 @@ static int epson1355fb_blank(int blank_mode, struct fb_info *info)
 		return -EINVAL;
 	}
 
-	
+	/* let fbcon do a soft blank for us */
 	return (blank_mode == FB_BLANK_NORMAL) ? 1 : 0;
 }
 
+/* ------------------------------------------------------------------------- */
 
+/*
+ * We can't use the cfb generic routines, as we have to limit
+ * ourselves to 16-bit or 8-bit loads and stores to this 16-bit
+ * chip.
+ */
 
 static inline void epson1355fb_fb_writel(unsigned long v, unsigned long *a)
 {
@@ -279,6 +328,7 @@ static inline unsigned long epson1355fb_fb_readl(const unsigned long *a)
 #define FB_READL epson1355fb_fb_readl
 #define FB_WRITEL epson1355fb_fb_writel
 
+/* ------------------------------------------------------------------------- */
 
 static inline unsigned long copy_from_user16(void *to, const void *from,
 					     unsigned long n)
@@ -371,7 +421,7 @@ epson1355fb_write(struct fb_info *info, const char *buf,
 	unsigned long p = *ppos;
 	int err;
 
-	
+	/* from fbmem.c except for our own copy_*_user */
 	if (p > info->fix.smem_len)
 		return -ENOSPC;
 	if (count >= info->fix.smem_len)
@@ -395,6 +445,7 @@ epson1355fb_write(struct fb_info *info, const char *buf,
 	return err;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static struct fb_ops epson1355fb_fbops = {
 	.owner 		= THIS_MODULE,
@@ -408,13 +459,14 @@ static struct fb_ops epson1355fb_fbops = {
 	.fb_write 	= epson1355fb_write,
 };
 
+/* ------------------------------------------------------------------------- */
 
 static __init unsigned int get_fb_size(struct fb_info *info)
 {
 	unsigned int size = 2 * 1024 * 1024;
 	char *p = info->screen_base;
 
-	
+	/* the 512k framebuffer is aliased at start + 0x80000 * n */
 	fb_writeb(1, p);
 	fb_writeb(0, p + 0x80000);
 	if (!fb_readb(p))
@@ -454,7 +506,7 @@ static void __init fetch_hw_state(struct fb_info *info, struct epson1355_par *pa
 		var->red.length = var->green.length = var->blue.length = 8;
 		break;
 	case 16:
-		
+		/* 5-6-5 RGB */
 		fix->visual = FB_VISUAL_TRUECOLOR;
 		var->bits_per_pixel = 16;
 		var->red.offset = 11;
@@ -492,7 +544,7 @@ static void __init fetch_hw_state(struct fb_info *info, struct epson1355_par *pa
 
 	fix->line_length = offset * 2;
 
-	fix->xpanstep = 0;	
+	fix->xpanstep = 0;	/* no pan yet */
 	fix->ypanstep = 1;
 	fix->ywrapstep = 0;
 	fix->accel = FB_ACCEL_NONE;
@@ -613,9 +665,12 @@ int __devinit epson1355fb_probe(struct platform_device *dev)
 	info->fbops = &epson1355fb_fbops;
 	info->flags = FBINFO_DEFAULT | FBINFO_HWACCEL_YPAN;
 
+	/* we expect the boot loader to have initialized the chip
+	   with appropriate parameters from which we can determinte
+	   the flavor of lcd panel attached */
 	fetch_hw_state(info, default_par);
 
-	
+	/* turn this puppy on ... */
 	clearfb16(info);
 	backlight_enable(1);
 	lcd_enable(default_par, 1);
@@ -624,6 +679,9 @@ int __devinit epson1355fb_probe(struct platform_device *dev)
 		rc = -EINVAL;
 		goto bail;
 	}
+	/*
+	 * Our driver data.
+	 */
 	platform_set_drvdata(dev, info);
 
 	printk(KERN_INFO "fb%d: %s frame buffer device\n",
@@ -681,6 +739,7 @@ static void __exit epson1355fb_exit(void)
 	platform_driver_unregister(&epson1355fb_driver);
 }
 
+/* ------------------------------------------------------------------------- */
 
 module_exit(epson1355fb_exit);
 #endif

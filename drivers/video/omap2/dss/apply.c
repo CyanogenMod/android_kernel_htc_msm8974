@@ -27,6 +27,34 @@
 #include "dss.h"
 #include "dss_features.h"
 
+/*
+ * We have 4 levels of cache for the dispc settings. First two are in SW and
+ * the latter two in HW.
+ *
+ *       set_info()
+ *          v
+ * +--------------------+
+ * |     user_info      |
+ * +--------------------+
+ *          v
+ *        apply()
+ *          v
+ * +--------------------+
+ * |       info         |
+ * +--------------------+
+ *          v
+ *      write_regs()
+ *          v
+ * +--------------------+
+ * |  shadow registers  |
+ * +--------------------+
+ *          v
+ * VFP or lcd/digit_enable
+ *          v
+ * +--------------------+
+ * |      registers     |
+ * +--------------------+
+ */
 
 struct ovl_priv_data {
 
@@ -45,6 +73,10 @@ struct ovl_priv_data {
 	enum omap_channel channel;
 	u32 fifo_low, fifo_high;
 
+	/*
+	 * True if overlay is to be enabled. Used to check and calculate configs
+	 * for the overlay before it is enabled in the HW.
+	 */
 	bool enabling;
 };
 
@@ -62,10 +94,10 @@ struct mgr_priv_data {
 	 * Never true for manual update displays */
 	bool busy;
 
-	
+	/* If true, dispc output is enabled */
 	bool updating;
 
-	
+	/* If true, a display is enabled using this manager */
 	bool enabled;
 };
 
@@ -79,7 +111,9 @@ static struct {
 	bool irq_enabled;
 } dss_data;
 
+/* protects dss_data */
 static spinlock_t data_lock;
+/* lock for blocking functions */
 static DEFINE_MUTEX(apply_lock);
 static DECLARE_COMPLETION(extra_updated_completion);
 
@@ -158,7 +192,7 @@ static int dss_check_settings_low(struct omap_overlay_manager *mgr,
 	else
 		mi = &mp->info;
 
-	
+	/* collect the infos to be tested into the array */
 	list_for_each_entry(ovl, &mgr->overlays, list) {
 		op = get_ovl_priv(ovl);
 
@@ -175,12 +209,19 @@ static int dss_check_settings_low(struct omap_overlay_manager *mgr,
 	return dss_mgr_check(mgr, dssdev, mi, ois);
 }
 
+/*
+ * check manager and overlay settings using overlay_info from data->info
+ */
 static int dss_check_settings(struct omap_overlay_manager *mgr,
 		struct omap_dss_device *dssdev)
 {
 	return dss_check_settings_low(mgr, dssdev, false);
 }
 
+/*
+ * check manager and overlay settings using overlay_info from ovl->info if
+ * dirty and from data->info otherwise
+ */
 static int dss_check_settings_apply(struct omap_overlay_manager *mgr,
 		struct omap_dss_device *dssdev)
 {
@@ -204,19 +245,19 @@ static bool need_isr(void)
 			continue;
 
 		if (mgr_manual_update(mgr)) {
-			
+			/* to catch FRAMEDONE */
 			if (mp->updating)
 				return true;
 		} else {
-			
+			/* to catch GO bit going down */
 			if (mp->busy)
 				return true;
 
-			
+			/* to write new values to registers */
 			if (mp->info_dirty)
 				return true;
 
-			
+			/* to set GO bit */
 			if (mp->shadow_info_dirty)
 				return true;
 
@@ -231,22 +272,22 @@ static bool need_isr(void)
 				 * always written.
 				 */
 
-				
+				/* to write new values to registers */
 				if (op->extra_info_dirty)
 					return true;
 
-				
+				/* to set GO bit */
 				if (op->shadow_extra_info_dirty)
 					return true;
 
 				if (!op->enabled)
 					continue;
 
-				
+				/* to write new values to registers */
 				if (op->info_dirty)
 					return true;
 
-				
+				/* to set GO bit */
 				if (op->shadow_info_dirty)
 					return true;
 			}
@@ -276,6 +317,7 @@ static bool need_go(struct omap_overlay_manager *mgr)
 	return false;
 }
 
+/* returns true if an extra_info field is currently being updated */
 static bool extra_info_update_ongoing(void)
 {
 	const int num_ovls = omap_dss_get_num_overlays();
@@ -306,6 +348,7 @@ static bool extra_info_update_ongoing(void)
 	return false;
 }
 
+/* wait until no extra_info updates are pending */
 static void wait_pending_extra_info_updates(void)
 {
 	bool updating;
@@ -371,6 +414,11 @@ int dss_mgr_wait_for_go(struct omap_overlay_manager *mgr)
 			break;
 		}
 
+		/* 4 iterations is the worst case:
+		 * 1 - initial iteration, dirty = true (between VFP and VSYNC)
+		 * 2 - first VSYNC, dirty = true
+		 * 3 - dirty = false, shadow_dirty = true
+		 * 4 - shadow_dirty = false */
 		if (i++ == 3) {
 			DSSERR("mgr(%d)->wait_for_go() not finishing\n",
 					mgr->id);
@@ -435,6 +483,11 @@ int dss_mgr_wait_for_go_ovl(struct omap_overlay *ovl)
 			break;
 		}
 
+		/* 4 iterations is the worst case:
+		 * 1 - initial iteration, dirty = true (between VFP and VSYNC)
+		 * 2 - first VSYNC, dirty = true
+		 * 3 - dirty = false, shadow_dirty = true
+		 * 4 - shadow_dirty = false */
 		if (i++ == 3) {
 			DSSERR("ovl(%d)->wait_for_go() not finishing\n",
 					ovl->id);
@@ -478,9 +531,13 @@ static void dss_ovl_write_regs(struct omap_overlay *ovl)
 
 	r = dispc_ovl_setup(ovl->id, oi, ilace, replication);
 	if (r) {
+		/*
+		 * We can't do much here, as this function can be called from
+		 * vsync interrupt.
+		 */
 		DSSERR("dispc_ovl_setup failed for ovl %d\n", ovl->id);
 
-		
+		/* This will leave fifo configurations in a nonoptimal state */
 		op->enabled = false;
 		dispc_ovl_enable(ovl->id, false);
 		return;
@@ -503,6 +560,8 @@ static void dss_ovl_write_regs_extra(struct omap_overlay *ovl)
 	if (!op->extra_info_dirty)
 		return;
 
+	/* note: write also when op->enabled == false, so that the ovl gets
+	 * disabled */
 
 	dispc_ovl_enable(ovl->id, op->enabled);
 	dispc_ovl_set_channel_out(ovl->id, op->channel);
@@ -527,7 +586,7 @@ static void dss_mgr_write_regs(struct omap_overlay_manager *mgr)
 
 	WARN_ON(mp->busy);
 
-	
+	/* Commit overlay settings */
 	list_for_each_entry(ovl, &mgr->overlays, list) {
 		dss_ovl_write_regs(ovl);
 		dss_ovl_write_regs_extra(ovl);
@@ -723,7 +782,7 @@ static void dss_apply_irq_handler(void *data, u32 mask)
 
 	spin_lock(&data_lock);
 
-	
+	/* clear busy, updating flags, shadow_dirty flags */
 	for (i = 0; i < num_mgrs; i++) {
 		struct omap_overlay_manager *mgr;
 		struct mgr_priv_data *mp;
@@ -805,11 +864,11 @@ int omap_dss_mgr_apply(struct omap_overlay_manager *mgr)
 		return r;
 	}
 
-	
+	/* Configure overlays */
 	list_for_each_entry(ovl, &mgr->overlays, list)
 		omap_dss_mgr_apply_ovl(ovl);
 
-	
+	/* Configure manager */
 	omap_dss_mgr_apply_mgr(mgr);
 
 	dss_write_regs();
@@ -960,6 +1019,17 @@ static bool get_use_fifo_merge(void)
 	if (!dss_has_feature(FEAT_FIFO_MERGE))
 		return false;
 
+	/*
+	 * In theory the only requirement for fifomerge is enabled_ovls <= 1.
+	 * However, if we have two managers enabled and set/unset the fifomerge,
+	 * we need to set the GO bits in particular sequence for the managers,
+	 * and wait in between.
+	 *
+	 * This is rather difficult as new apply calls can happen at any time,
+	 * so we simplify the problem by requiring also that enabled_mgrs <= 1.
+	 * In practice this shouldn't matter, because when only one overlay is
+	 * enabled, most likely only one output is enabled.
+	 */
 
 	return enabled_mgrs <= 1 && enabled_ovls <= 1;
 }
@@ -987,7 +1057,7 @@ int dss_mgr_enable(struct omap_overlay_manager *mgr)
 		goto err;
 	}
 
-	
+	/* step 1: setup fifos/fifomerge before enabling the manager */
 
 	fifo_merge = get_use_fifo_merge();
 	dss_setup_fifos(fifo_merge);
@@ -998,10 +1068,10 @@ int dss_mgr_enable(struct omap_overlay_manager *mgr)
 
 	spin_unlock_irqrestore(&data_lock, flags);
 
-	
+	/* wait until fifo config is in */
 	wait_pending_extra_info_updates();
 
-	
+	/* step 2: enable the manager */
 	spin_lock_irqsave(&data_lock, flags);
 
 	if (!mgr_manual_update(mgr))
@@ -1135,6 +1205,10 @@ int dss_mgr_unset_device(struct omap_overlay_manager *mgr)
 		goto err;
 	}
 
+	/*
+	 * Don't allow currently enabled displays to have the overlay manager
+	 * pulled out from underneath them
+	 */
 	if (mgr->device->state != OMAP_DSS_DISPLAY_DISABLED) {
 		r = -EINVAL;
 		goto err;
@@ -1222,6 +1296,18 @@ int dss_ovl_set_manager(struct omap_overlay *ovl,
 
 	spin_unlock_irqrestore(&data_lock, flags);
 
+	/* XXX: When there is an overlay on a DSI manual update display, and
+	 * the overlay is first disabled, then moved to tv, and enabled, we
+	 * seem to get SYNC_LOST_DIGIT error.
+	 *
+	 * Waiting doesn't seem to help, but updating the manual update display
+	 * after disabling the overlay seems to fix this. This hints that the
+	 * overlay is perhaps somehow tied to the LCD output until the output
+	 * is updated.
+	 *
+	 * Userspace workaround for this is to update the LCD after disabling
+	 * the overlay, but before moving the overlay to TV.
+	 */
 
 	mutex_unlock(&apply_lock);
 
@@ -1314,7 +1400,7 @@ int dss_ovl_enable(struct omap_overlay *ovl)
 		goto err2;
 	}
 
-	
+	/* step 1: configure fifos/fifomerge for currently enabled ovls */
 
 	fifo_merge = get_use_fifo_merge();
 	dss_setup_fifos(fifo_merge);
@@ -1325,10 +1411,10 @@ int dss_ovl_enable(struct omap_overlay *ovl)
 
 	spin_unlock_irqrestore(&data_lock, flags);
 
-	
+	/* wait for fifo configs to go in */
 	wait_pending_extra_info_updates();
 
-	
+	/* step 2: enable the overlay */
 	spin_lock_irqsave(&data_lock, flags);
 
 	op->enabling = false;
@@ -1339,7 +1425,7 @@ int dss_ovl_enable(struct omap_overlay *ovl)
 
 	spin_unlock_irqrestore(&data_lock, flags);
 
-	
+	/* wait for overlay to be enabled */
 	wait_pending_extra_info_updates();
 
 	mutex_unlock(&apply_lock);
@@ -1372,7 +1458,7 @@ int dss_ovl_disable(struct omap_overlay *ovl)
 		goto err;
 	}
 
-	
+	/* step 1: disable the overlay */
 	spin_lock_irqsave(&data_lock, flags);
 
 	dss_apply_ovl_enable(ovl, false);
@@ -1382,10 +1468,10 @@ int dss_ovl_disable(struct omap_overlay *ovl)
 
 	spin_unlock_irqrestore(&data_lock, flags);
 
-	
+	/* wait for the overlay to be disabled */
 	wait_pending_extra_info_updates();
 
-	
+	/* step 2: configure fifos/fifomerge */
 	spin_lock_irqsave(&data_lock, flags);
 
 	fifo_merge = get_use_fifo_merge();
@@ -1397,7 +1483,7 @@ int dss_ovl_disable(struct omap_overlay *ovl)
 
 	spin_unlock_irqrestore(&data_lock, flags);
 
-	
+	/* wait for fifo config to go in */
 	wait_pending_extra_info_updates();
 
 	mutex_unlock(&apply_lock);

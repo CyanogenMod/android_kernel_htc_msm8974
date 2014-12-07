@@ -12,6 +12,7 @@
 #include <linux/const.h>
 #include <asm/types.h>
 
+/* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT      12
 #define PAGE_SIZE	(_AC(1,UL) << PAGE_SHIFT)
 #define PAGE_MASK       (~(PAGE_SIZE-1))
@@ -84,6 +85,9 @@ static inline void copy_page(void *to, void *from)
 	alloc_page_vma(GFP_HIGHUSER | __GFP_ZERO | movableflags, vma, vaddr)
 #define __HAVE_ARCH_ALLOC_ZEROED_USER_HIGHPAGE
 
+/*
+ * These are used to make use of C type-checking..
+ */
 
 typedef struct { unsigned long pgprot; } pgprot_t;
 typedef struct { unsigned long pgste; } pgste_t;
@@ -136,11 +140,19 @@ static inline int page_reset_referenced(unsigned long addr)
 	return !!(ipm & 0x20000000);
 }
 
-#define _PAGE_CHANGED		0x02	
-#define _PAGE_REFERENCED	0x04	
-#define _PAGE_FP_BIT		0x08	
-#define _PAGE_ACC_BITS		0xf0	
+/* Bits int the storage key */
+#define _PAGE_CHANGED		0x02	/* HW changed bit		*/
+#define _PAGE_REFERENCED	0x04	/* HW referenced bit		*/
+#define _PAGE_FP_BIT		0x08	/* HW fetch protection bit	*/
+#define _PAGE_ACC_BITS		0xf0	/* HW access control bits	*/
 
+/*
+ * Test and clear dirty bit in storage key.
+ * We can't clear the changed bit atomically. This is a potential
+ * race against modification of the referenced bit. This function
+ * should therefore only be called if it is not mapped in any
+ * address space.
+ */
 #define __HAVE_ARCH_PAGE_TEST_AND_CLEAR_DIRTY
 static inline int page_test_and_clear_dirty(unsigned long pfn, int mapped)
 {
@@ -153,6 +165,9 @@ static inline int page_test_and_clear_dirty(unsigned long pfn, int mapped)
 	return 1;
 }
 
+/*
+ * Test and clear referenced bit in storage key.
+ */
 #define __HAVE_ARCH_PAGE_TEST_AND_CLEAR_YOUNG
 static inline int page_test_and_clear_young(unsigned long pfn)
 {
@@ -172,7 +187,7 @@ static inline int devmem_is_allowed(unsigned long pfn)
 #define HAVE_ARCH_FREE_PAGE
 #define HAVE_ARCH_ALLOC_PAGE
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #define __PAGE_OFFSET           0x0UL
 #define PAGE_OFFSET             0x0UL
@@ -190,4 +205,4 @@ static inline int devmem_is_allowed(unsigned long pfn)
 
 #define __HAVE_ARCH_GATE_AREA 1
 
-#endif 
+#endif /* _S390_PAGE_H */

@@ -6,6 +6,11 @@
 #define pgd_ERROR(e) \
 	printk("%s:%d: bad pgd %08lx.\n", __FILE__, __LINE__, pgd_val(e))
 
+/*
+ * Certain architectures need to do special things when PTEs
+ * within a page table are directly modified.  Thus, the following
+ * hook is made available.
+ */
 static inline void native_set_pte(pte_t *ptep , pte_t pte)
 {
 	*ptep = pte;
@@ -50,6 +55,10 @@ static inline pmd_t native_pmdp_get_and_clear(pmd_t *xp)
 #define native_pmdp_get_and_clear(xp) native_local_pmdp_get_and_clear(xp)
 #endif
 
+/*
+ * Bits _PAGE_BIT_PRESENT, _PAGE_BIT_FILE and _PAGE_BIT_PROTNONE are taken,
+ * split up the 29 bits of offset into this range:
+ */
 #define PTE_FILE_MAX_BITS	29
 #define PTE_FILE_SHIFT1		(_PAGE_BIT_PRESENT + 1)
 #if _PAGE_BIT_FILE < _PAGE_BIT_PROTNONE
@@ -79,6 +88,7 @@ static inline pmd_t native_pmdp_get_and_clear(pmd_t *xp)
 	    << PTE_FILE_SHIFT3)						\
 	 + _PAGE_FILE })
 
+/* Encode and de-code a swap entry */
 #if _PAGE_BIT_FILE < _PAGE_BIT_PROTNONE
 #define SWP_TYPE_BITS (_PAGE_BIT_FILE - _PAGE_BIT_PRESENT - 1)
 #define SWP_OFFSET_SHIFT (_PAGE_BIT_PROTNONE + 1)
@@ -98,4 +108,4 @@ static inline pmd_t native_pmdp_get_and_clear(pmd_t *xp)
 #define __pte_to_swp_entry(pte)		((swp_entry_t) { (pte).pte_low })
 #define __swp_entry_to_pte(x)		((pte_t) { .pte = (x).val })
 
-#endif 
+#endif /* _ASM_X86_PGTABLE_2LEVEL_H */

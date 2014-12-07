@@ -13,6 +13,7 @@
 #ifndef __MSM_HDMI_AUDIO_H
 #define __MSM_HDMI_AUDIO_H
 
+/* Supported HDMI Audio channels */
 #define MSM_HDMI_AUDIO_CHANNEL_2		0
 #define MSM_HDMI_AUDIO_CHANNEL_4		1
 #define MSM_HDMI_AUDIO_CHANNEL_6		2
@@ -48,4 +49,4 @@ static inline int hdmi_msm_audio_info_setup(bool enabled,
 	return 0;
 }
 #endif
-#endif 
+#endif /* __MSM_HDMI_AUDIO_H*/

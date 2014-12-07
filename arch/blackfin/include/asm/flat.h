@@ -22,6 +22,8 @@ extern unsigned long bfin_get_addr_from_rp (unsigned long *ptr,
 extern void bfin_put_addr_at_rp(unsigned long *ptr, unsigned long addr,
 		                unsigned long relval);
 
+/* The amount by which a relocation can exceed the program image limits
+   without being regarded as an error.  */
 
 #define	flat_reloc_valid(reloc, size)	((reloc) <= (size))
 
@@ -30,10 +32,11 @@ extern void bfin_put_addr_at_rp(unsigned long *ptr, unsigned long addr,
 #define	flat_put_addr_at_rp(rp, val, relval)	\
 	bfin_put_addr_at_rp(rp, val, relval)
 
+/* Convert a relocation entry into an address.  */
 static inline unsigned long
 flat_get_relocate_addr (unsigned long relval)
 {
-	return relval & 0x03ffffff; 
+	return relval & 0x03ffffff; /* Mask out top 6 bits */
 }
 
 static inline int flat_set_persistent(unsigned long relval,
@@ -52,4 +55,4 @@ static inline int flat_addr_absolute(unsigned long relval)
 	return (relval & (1 << 29)) != 0;
 }
 
-#endif				
+#endif				/* __BLACKFIN_FLAT_H__ */

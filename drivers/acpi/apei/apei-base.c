@@ -46,6 +46,10 @@
 
 #define APEI_PFX "APEI: "
 
+/*
+ * APEI ERST (Error Record Serialization Table) and EINJ (Error
+ * INJection) interpreter framework.
+ */
 
 #define APEI_EXEC_PRESERVE_REGISTER	0x1
 
@@ -149,6 +153,10 @@ int apei_exec_noop(struct apei_exec_context *ctx,
 }
 EXPORT_SYMBOL_GPL(apei_exec_noop);
 
+/*
+ * Interpret the specified action. Go through whole action table,
+ * execute all instructions belong to the action.
+ */
 int __apei_exec_run(struct apei_exec_context *ctx, u8 action,
 		    bool optional)
 {
@@ -159,6 +167,12 @@ int __apei_exec_run(struct apei_exec_context *ctx, u8 action,
 
 	ctx->ip = 0;
 
+	/*
+	 * "ip" is the instruction pointer of current instruction,
+	 * "ctx->ip" specifies the next instruction to executed,
+	 * instruction "run" function may change the "ctx->ip" to
+	 * implement "goto" semantics.
+	 */
 rewind:
 	ip = 0;
 	for (i = 0; i < ctx->entries; i++) {
@@ -234,6 +248,10 @@ static int pre_map_gar_callback(struct apei_exec_context *ctx,
 	return 0;
 }
 
+/*
+ * Pre-map all GARs in action table to make it possible to access them
+ * in NMI handler.
+ */
 int apei_exec_pre_map_gars(struct apei_exec_context *ctx)
 {
 	int rc, end;
@@ -263,6 +281,7 @@ static int post_unmap_gar_callback(struct apei_exec_context *ctx,
 	return 0;
 }
 
+/* Post-unmap all GAR in action table. */
 int apei_exec_post_unmap_gars(struct apei_exec_context *ctx)
 {
 	return apei_exec_for_each_entry(ctx, post_unmap_gar_callback,
@@ -270,12 +289,16 @@ int apei_exec_post_unmap_gars(struct apei_exec_context *ctx)
 }
 EXPORT_SYMBOL_GPL(apei_exec_post_unmap_gars);
 
+/*
+ * Resource management for GARs in APEI
+ */
 struct apei_res {
 	struct list_head list;
 	unsigned long start;
 	unsigned long end;
 };
 
+/* Collect all resources requested, to avoid conflict */
 struct apei_resources apei_resources_all = {
 	.iomem = LIST_HEAD_INIT(apei_resources_all.iomem),
 	.ioport = LIST_HEAD_INIT(apei_resources_all.ioport),
@@ -409,6 +432,11 @@ int apei_resources_add(struct apei_resources *resources,
 }
 EXPORT_SYMBOL_GPL(apei_resources_add);
 
+/*
+ * EINJ has two groups of GARs (EINJ table entry and trigger table
+ * entry), so common resources are subtracted from the trigger table
+ * resources before the second requesting.
+ */
 int apei_resources_sub(struct apei_resources *resources1,
 		       struct apei_resources *resources2)
 {
@@ -432,6 +460,11 @@ static int apei_get_nvs_resources(struct apei_resources *resources)
 	return acpi_nvs_for_each_region(apei_get_nvs_callback, resources);
 }
 
+/*
+ * IO memory/port resource management mechanism is used to check
+ * whether memory/port area used by GARs conflicts with normal memory
+ * or IO memory/port of devices.
+ */
 int apei_resources_request(struct apei_resources *resources,
 			   const char *desc)
 {
@@ -444,6 +477,11 @@ int apei_resources_request(struct apei_resources *resources,
 	if (rc)
 		return rc;
 
+	/*
+	 * Some firmware uses ACPI NVS region, that has been marked as
+	 * busy, so exclude it from APEI resources to avoid false
+	 * conflict.
+	 */
 	apei_resources_init(&nvs_resources);
 	rc = apei_get_nvs_resources(&nvs_resources);
 	if (rc)
@@ -529,7 +567,7 @@ static int apei_check_gar(struct acpi_generic_address *reg, u64 *paddr,
 	bit_offset = reg->bit_offset;
 	access_size_code = reg->access_width;
 	space_id = reg->space_id;
-	
+	/* Handle possible alignment issues */
 	memcpy(paddr, &reg->address, sizeof(*paddr));
 	if (!*paddr) {
 		pr_warning(FW_BUG APEI_PFX
@@ -568,6 +606,7 @@ static int apei_check_gar(struct acpi_generic_address *reg, u64 *paddr,
 	return 0;
 }
 
+/* read GAR in interrupt (including NMI) or process context */
 int apei_read(u64 *val, struct acpi_generic_address *reg)
 {
 	int rc;
@@ -601,6 +640,7 @@ int apei_read(u64 *val, struct acpi_generic_address *reg)
 }
 EXPORT_SYMBOL_GPL(apei_read);
 
+/* write GAR in interrupt (including NMI) or process context */
 int apei_write(u64 val, struct acpi_generic_address *reg)
 {
 	int rc;
@@ -662,6 +702,10 @@ static int collect_res_callback(struct apei_exec_context *ctx,
 	}
 }
 
+/*
+ * Same register may be used by multiple instructions in GARs, so
+ * resources are collected before requesting.
+ */
 int apei_exec_collect_resources(struct apei_exec_context *ctx,
 				struct apei_resources *resources)
 {

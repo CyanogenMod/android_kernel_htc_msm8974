@@ -37,30 +37,36 @@
 #include "tether.h"
 #include "device.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
 #define PREAMBLE_LONG   0
 #define PREAMBLE_SHORT  1
 
+//
+// Registers in the BASEBAND
+//
 #define BB_MAX_CONTEXT_SIZE 256
 
-#define C_SIFS_A      16      
+#define C_SIFS_A      16      // micro sec.
 #define C_SIFS_BG     10
 
-#define C_EIFS      80      
+#define C_EIFS      80      // micro sec.
 
 
-#define C_SLOT_SHORT   9      
+#define C_SLOT_SHORT   9      // micro sec.
 #define C_SLOT_LONG   20
 
-#define C_CWMIN_A     15       
+#define C_CWMIN_A     15       // slot time
 #define C_CWMIN_B     31
 
-#define C_CWMAX      1023     
+#define C_CWMAX      1023     // slot time
 
+//0:11A 1:11B 2:11G
 #define BB_TYPE_11A    0
 #define BB_TYPE_11B    1
 #define BB_TYPE_11G    2
 
+//0:11a,1:11b,2:11gb(only CCK in BasicRate),3:11ga(OFDM in Basic Rate)
 #define PK_TYPE_11A     0
 #define PK_TYPE_11B     1
 #define PK_TYPE_11GB    2
@@ -80,10 +86,15 @@
 #define TOP_RATE_1M         0x00100000
 
 
+/*---------------------  Export Types  ------------------------------*/
 
+/*---------------------  Export Macros ------------------------------*/
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 unsigned int
 BBuGetFrameTime(
@@ -101,6 +112,7 @@ void BBvCaculateParameter(PSDevice pDevice,
 			  PBYTE pbyPhySrv,
 			  PBYTE pbyPhySgn);
 
+// timer for antenna diversity
 
 void TimerSQ3CallBack(void *hDeviceContext);
 void TimerSQ3Tmax3CallBack(void *hDeviceContext);
@@ -121,4 +133,4 @@ void BBvUpdatePreEDThreshold(
        BOOL        bScanning
      );
 
-#endif 
+#endif /* __BASEBAND_H__ */

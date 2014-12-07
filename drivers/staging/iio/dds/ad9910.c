@@ -88,6 +88,7 @@
 #define REFCLK_RST	(1 << 6)
 #define REFCLK_BYP	(1 << 7)
 
+/* Register format: 1 byte addr + value */
 struct ad9910_config {
 	u8 auxdac[5];
 	u8 ioupd[5];

@@ -3,4 +3,4 @@
 
 #include <asm-generic/ioctl.h>
 
-#endif 
+#endif /* _ASM_SCORE_IOCTL_H */

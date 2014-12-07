@@ -73,6 +73,7 @@
 
 #include "common.h"
 
+/* serial port setup */
 
 #define UCON (S3C2410_UCON_DEFAULT | S3C2410_UCON_UCLK)
 #define ULCON (S3C2410_LCON_CS8 | S3C2410_LCON_PNONE | S3C2410_LCON_STOPB)
@@ -113,7 +114,7 @@ static struct platform_pwm_backlight_data crag6410_backlight_data = {
 	.pwm_id		= 0,
 	.max_brightness	= 1000,
 	.dft_brightness	= 600,
-	.pwm_period_ns	= 100000,	
+	.pwm_period_ns	= 100000,	/* about 1kHz */
 };
 
 static struct platform_device crag6410_backlight_device = {
@@ -148,8 +149,9 @@ static struct platform_device crag6410_lcd_powerdev = {
 	},
 };
 
+/* 640x480 URT */
 static struct s3c_fb_pd_win crag6410_fb_win0 = {
-	
+	/* this is to ensure we use win0 */
 	.win_mode	= {
 		.left_margin	= 150,
 		.right_margin	= 80,
@@ -166,6 +168,7 @@ static struct s3c_fb_pd_win crag6410_fb_win0 = {
 	.virtual_x	= 640,
 };
 
+/* 405566 clocks per frame => 60Hz refresh requires 24333960Hz clock */
 static struct s3c_fb_platdata crag6410_lcd_pdata __initdata = {
 	.setup_gpio	= s3c64xx_fb_gpio_setup_24bpp,
 	.win[0]		= &crag6410_fb_win0,
@@ -173,9 +176,10 @@ static struct s3c_fb_platdata crag6410_lcd_pdata __initdata = {
 	.vidcon1	= VIDCON1_INV_HSYNC | VIDCON1_INV_VSYNC,
 };
 
+/* 2x6 keypad */
 
 static uint32_t crag6410_keymap[] __initdata = {
-	
+	/* KEY(row, col, keycode) */
 	KEY(0, 0, KEY_VOLUMEUP),
 	KEY(0, 1, KEY_HOME),
 	KEY(0, 2, KEY_VOLUMEDOWN),
@@ -204,14 +208,14 @@ static struct samsung_keypad_platdata crag6410_keypad_data __initdata = {
 static struct gpio_keys_button crag6410_gpio_keys[] = {
 	[0] = {
 		.code	= KEY_SUSPEND,
-		.gpio	= S3C64XX_GPL(10),	
+		.gpio	= S3C64XX_GPL(10),	/* EINT 18 */
 		.type	= EV_KEY,
 		.wakeup	= 1,
 		.active_low = 1,
 	},
 	[1] = {
 		.code	= SW_FRONT_PROXIMITY,
-		.gpio	= S3C64XX_GPN(11),	
+		.gpio	= S3C64XX_GPN(11),	/* EINT 11 */
 		.type	= EV_SW,
 	},
 };
@@ -358,6 +362,7 @@ static struct pca953x_platform_data crag6410_pca_data = {
 	.irq_base	= -1,
 };
 
+/* VDDARM is controlled by DVS1 connected to GPK(0) */
 static struct wm831x_buckv_pdata vddarm_pdata = {
 	.dvs_control_src = 1,
 	.dvs_gpio = S3C64XX_GPK(0),
@@ -494,8 +499,8 @@ static struct regulator_init_data vddalive __initdata = {
 
 static struct wm831x_backup_pdata banff_backup_pdata __initdata = {
 	.charger_enable = 1,
-	.vlim = 2500,  
-	.ilim = 200,   
+	.vlim = 2500,  /* mV */
+	.ilim = 200,   /* uA */
 };
 
 static struct wm831x_status_pdata banff_red_led __initdata = {
@@ -522,32 +527,32 @@ static struct wm831x_pdata crag_pmic_pdata __initdata = {
 	.backup = &banff_backup_pdata,
 
 	.gpio_defaults = {
-		
+		/* GPIO5: DVS1_REQ - CMOS, DBVDD, active high */
 		[4] = WM831X_GPN_DIR | WM831X_GPN_POL | WM831X_GPN_ENA | 0x8,
-		
+		/* GPIO11: Touchscreen data - CMOS, DBVDD, active high*/
 		[10] = WM831X_GPN_POL | WM831X_GPN_ENA | 0x6,
-		
+		/* GPIO12: Touchscreen pen down - CMOS, DBVDD, active high*/
 		[11] = WM831X_GPN_POL | WM831X_GPN_ENA | 0x7,
 	},
 
 	.dcdc = {
-		&vddarm,  
-		&vddint,  
-		&vddmem,  
+		&vddarm,  /* DCDC1 */
+		&vddint,  /* DCDC2 */
+		&vddmem,  /* DCDC3 */
 	},
 
 	.ldo = {
-		&vddsys,   
-		&vddmmc,   
-		NULL,      
-		&vddotgi,  
-		&vddotg,   
-		&vddhi,    
-		&vddadc,   
-		&vddmem0,  
-		&vddpll,   
-		&vddlcd,   
-		&vddalive, 
+		&vddsys,   /* LDO1 */
+		&vddmmc,   /* LDO2 */
+		NULL,      /* LDO3 */
+		&vddotgi,  /* LDO4 */
+		&vddotg,   /* LDO5 */
+		&vddhi,    /* LDO6 */
+		&vddadc,   /* LDO7 */
+		&vddmem0,  /* LDO8 */
+		&vddpll,   /* LDO9 */
+		&vddlcd,   /* LDO10 */
+		&vddalive, /* LDO11 */
 	},
 
 	.status = {
@@ -634,16 +639,16 @@ static struct wm831x_pdata glenfarclas_pmic_pdata __initdata = {
 	.soft_shutdown = true,
 
 	.gpio_defaults = {
-		
+		/* GPIO1-3: IRQ inputs, rising edge triggered, CMOS */
 		[0] = WM831X_GPN_DIR | WM831X_GPN_POL | WM831X_GPN_ENA,
 		[1] = WM831X_GPN_DIR | WM831X_GPN_POL | WM831X_GPN_ENA,
 		[2] = WM831X_GPN_DIR | WM831X_GPN_POL | WM831X_GPN_ENA,
 	},
 
 	.dcdc = {
-		&pvdd_1v2,  
-		&pvdd_1v8,  
-		&pvdd_3v3,  
+		&pvdd_1v2,  /* DCDC1 */
+		&pvdd_1v8,  /* DCDC2 */
+		&pvdd_3v3,  /* DCDC3 */
 	},
 
 	.disable_touch = true,
@@ -683,7 +688,7 @@ static void __init crag6410_map_io(void)
 	s3c24xx_init_clocks(12000000);
 	s3c24xx_init_uarts(crag6410_uartcfgs, ARRAY_SIZE(crag6410_uartcfgs));
 
-	
+	/* LCD type and Bypass set by bootloader */
 }
 
 static struct s3c_sdhci_platdata crag6410_hsmmc2_pdata = {
@@ -694,10 +699,10 @@ static struct s3c_sdhci_platdata crag6410_hsmmc2_pdata = {
 
 static void crag6410_cfg_sdhci0(struct platform_device *dev, int width)
 {
-	
+	/* Set all the necessary GPG pins to special-function 2 */
 	s3c_gpio_cfgrange_nopull(S3C64XX_GPG(0), 2 + width, S3C_GPIO_SFN(2));
 
-	
+	/* force card-detected for prototype 0 */
 	s3c_gpio_setpull(S3C64XX_GPG(6), S3C_GPIO_PULL_DOWN);
 }
 
@@ -760,7 +765,7 @@ static struct s3c_hsotg_plat crag6410_hsotg_pdata;
 
 static void __init crag6410_machine_init(void)
 {
-	
+	/* Open drain IRQs need pullups */
 	s3c_gpio_setpull(S3C64XX_GPM(0), S3C_GPIO_PULL_UP);
 	s3c_gpio_setpull(S3C64XX_GPN(0), S3C_GPIO_PULL_UP);
 
@@ -768,7 +773,7 @@ static void __init crag6410_machine_init(void)
 	gpio_direction_output(S3C64XX_GPB(0), 0);
 
 	gpio_request(S3C64XX_GPF(14), "LCD PWM");
-	gpio_direction_output(S3C64XX_GPF(14), 0);  
+	gpio_direction_output(S3C64XX_GPF(14), 0);  /* turn off */
 
 	gpio_request(S3C64XX_GPB(1), "SD power");
 	gpio_direction_output(S3C64XX_GPB(1), 0);
@@ -800,7 +805,7 @@ static void __init crag6410_machine_init(void)
 }
 
 MACHINE_START(WLF_CRAGG_6410, "Wolfson Cragganmore 6410")
-	
+	/* Maintainer: Mark Brown <broonie@opensource.wolfsonmicro.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= s3c6410_init_irq,
 	.handle_irq	= vic_handle_irq,

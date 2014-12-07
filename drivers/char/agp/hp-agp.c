@@ -21,8 +21,9 @@
 
 #include "agp.h"
 
-#define HP_ZX1_IOC_OFFSET	0x1000  
+#define HP_ZX1_IOC_OFFSET	0x1000  /* ACPI reports SBA, we want IOC */
 
+/* HP ZX1 IOC registers */
 #define HP_ZX1_IBASE		0x300
 #define HP_ZX1_IMASK		0x308
 #define HP_ZX1_PCOM		0x310
@@ -40,13 +41,14 @@
 #define AGP8X_MODE_BIT		3
 #define AGP8X_MODE		(1 << AGP8X_MODE_BIT)
 
+/* AGP bridge need not be PCI device, but DRM thinks it is. */
 static struct pci_dev fake_bridge_dev;
 
 static int hp_zx1_gart_found;
 
 static struct aper_size_info_fixed hp_zx1_sizes[] =
 {
-	{0, 0, 0},		
+	{0, 0, 0},		/* filled in by hp_zx1_fetch_size() */
 };
 
 static struct gatt_mask hp_zx1_masks[] =
@@ -58,17 +60,17 @@ static struct _hp_private {
 	volatile u8 __iomem *ioc_regs;
 	volatile u8 __iomem *lba_regs;
 	int lba_cap_offset;
-	u64 *io_pdir;		
-	u64 *gatt;		
+	u64 *io_pdir;		// PDIR for entire IOVA
+	u64 *gatt;		// PDIR just for GART (subset of above)
 	u64 gatt_entries;
 	u64 iova_base;
 	u64 gart_base;
 	u64 gart_size;
 	u64 io_pdir_size;
-	int io_pdir_owner;	
+	int io_pdir_owner;	// do we own it, or share it with sba_iommu?
 	int io_page_size;
 	int io_tlb_shift;
-	int io_tlb_ps;		
+	int io_tlb_ps;		// IOC ps config
 	int io_pages_per_kpage;
 } hp_private;
 
@@ -78,6 +80,12 @@ static int __init hp_zx1_ioc_shared(void)
 
 	printk(KERN_INFO PFX "HP ZX1 IOC: IOPDIR shared with sba_iommu\n");
 
+	/*
+	 * IOC already configured by sba_iommu module; just use
+	 * its setup.  We assume:
+	 *	- IOVA space is 1Gb in size
+	 *	- first 512Mb is IOMMU, second 512Mb is GART
+	 */
 	hp->io_tlb_ps = readq(hp->ioc_regs+HP_ZX1_TCNFG);
 	switch (hp->io_tlb_ps) {
 		case 0: hp->io_tlb_shift = 12; break;
@@ -104,7 +112,7 @@ static int __init hp_zx1_ioc_shared(void)
 	hp->gatt = &hp->io_pdir[HP_ZX1_IOVA_TO_PDIR(hp->gart_base)];
 
 	if (hp->gatt[0] != HP_ZX1_SBA_IOMMU_COOKIE) {
-		
+		/* Normal case when no AGP device in system */
 		hp->gatt = NULL;
 		hp->gatt_entries = 0;
 		printk(KERN_ERR PFX "No reserved IO PDIR entry found; "
@@ -122,6 +130,9 @@ hp_zx1_ioc_owner (void)
 
 	printk(KERN_INFO PFX "HP ZX1 IOC: IOPDIR dedicated to GART\n");
 
+	/*
+	 * Select an IOV page size no larger than system page size.
+	 */
 	if (PAGE_SIZE >= KB(64)) {
 		hp->io_tlb_shift = 16;
 		hp->io_tlb_ps = 3;
@@ -157,6 +168,10 @@ hp_zx1_ioc_init (u64 hpa)
 	if (!hp->ioc_regs)
 		return -ENOMEM;
 
+	/*
+	 * If the IOTLB is currently disabled, we can take it over.
+	 * Otherwise, we have to share with sba_iommu.
+	 */
 	hp->io_pdir_owner = (readq(hp->ioc_regs+HP_ZX1_IBASE) & 0x1) == 0;
 
 	if (hp->io_pdir_owner)
@@ -470,14 +485,14 @@ zx1_gart_probe (acpi_handle obj, u32 depth, void *context, void **ret)
 
 	status = hp_acpi_csr_space(obj, &lba_hpa, &length);
 	if (ACPI_FAILURE(status))
-		return AE_OK; 
+		return AE_OK; /* keep looking for another bridge */
 
-	
+	/* Look for an enclosing IOC scope and find its CSR space */
 	handle = obj;
 	do {
 		status = acpi_get_object_info(handle, &info);
 		if (ACPI_SUCCESS(status) && (info->valid & ACPI_VALID_HID)) {
-			
+			/* TBD check _CID also */
 			match = (strcmp(info->hardware_id.string, "HWP0001") == 0);
 			kfree(info);
 			if (match) {
@@ -497,7 +512,7 @@ zx1_gart_probe (acpi_handle obj, u32 depth, void *context, void **ret)
 	} while (ACPI_SUCCESS(status));
 
 	if (ACPI_FAILURE(status))
-		return AE_OK;	
+		return AE_OK;	/* found no enclosing IOC */
 
 	if (hp_zx1_setup(sba_hpa + HP_ZX1_IOC_OFFSET, lba_hpa))
 		return AE_OK;
@@ -507,7 +522,7 @@ zx1_gart_probe (acpi_handle obj, u32 depth, void *context, void **ret)
 		sba_hpa + HP_ZX1_IOC_OFFSET, lba_hpa);
 
 	hp_zx1_gart_found = 1;
-	return AE_CTRL_TERMINATE; 
+	return AE_CTRL_TERMINATE; /* we only support one bridge; quit looking */
 }
 
 static int __init

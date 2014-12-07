@@ -5,5 +5,5 @@ void nmdk_timer_init(void __iomem *base);
 void nmdk_clkevt_reset(void);
 void nmdk_clksrc_reset(void);
 
-#endif 
+#endif /* __PLAT_MTU_H */
 

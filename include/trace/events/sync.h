@@ -76,6 +76,7 @@ TRACE_EVENT(sync_pt,
 	    TP_printk("name=%s value=%s", __get_str(timeline), __entry->value)
 	);
 
-#endif 
+#endif /* if !defined(_TRACE_SYNC_H) || defined(TRACE_HEADER_MULTI_READ) */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

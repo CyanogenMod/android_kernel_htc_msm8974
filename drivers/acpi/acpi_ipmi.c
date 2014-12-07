@@ -49,18 +49,19 @@ MODULE_LICENSE("GPL");
 #define ACPI_IPMI_OK			0
 #define ACPI_IPMI_TIMEOUT		0x10
 #define ACPI_IPMI_UNKNOWN		0x07
+/* the IPMI timeout is 5s */
 #define IPMI_TIMEOUT			(5 * HZ)
 
 struct acpi_ipmi_device {
-	
+	/* the device list attached to driver_data.ipmi_devices */
 	struct list_head head;
-	
+	/* the IPMI request message list */
 	struct list_head tx_msg_list;
 	struct mutex	tx_msg_lock;
 	acpi_handle handle;
 	struct pnp_dev *pnp_dev;
 	ipmi_user_t	user_interface;
-	int ipmi_ifnum; 
+	int ipmi_ifnum; /* IPMI interface number */
 	long curr_msgid;
 	unsigned long flags;
 	struct ipmi_smi_info smi_data;
@@ -75,13 +76,20 @@ struct ipmi_driver_data {
 
 struct acpi_ipmi_msg {
 	struct list_head head;
+	/*
+	 * General speaking the addr type should be SI_ADDR_TYPE. And
+	 * the addr channel should be BMC.
+	 * In fact it can also be IPMB type. But we will have to
+	 * parse it from the Netfn command buffer. It is so complex
+	 * that it is skipped.
+	 */
 	struct ipmi_addr addr;
 	long tx_msgid;
-	
+	/* it is used to track whether the IPMI message is finished */
 	struct completion tx_complete;
 	struct kernel_ipmi_msg tx_message;
 	int	msg_done;
-	
+	/* tx data . And copy it from ACPI object buffer */
 	u8	tx_data[64];
 	int	tx_len;
 	u8	rx_data[64];
@@ -89,6 +97,7 @@ struct acpi_ipmi_msg {
 	struct acpi_ipmi_device *device;
 };
 
+/* IPMI request/response buffer per ACPI 4.0, sec 5.5.2.4.3.2 */
 struct acpi_ipmi_buffer {
 	u8 status;
 	u8 length;
@@ -140,18 +149,33 @@ static void acpi_format_ipmi_msg(struct acpi_ipmi_msg *tx_msg,
 	struct acpi_ipmi_device *device;
 
 	msg = &tx_msg->tx_message;
+	/*
+	 * IPMI network function and command are encoded in the address
+	 * within the IPMI OpRegion; see ACPI 4.0, sec 5.5.2.4.3.
+	 */
 	msg->netfn = IPMI_OP_RGN_NETFN(address);
 	msg->cmd = IPMI_OP_RGN_CMD(address);
 	msg->data = tx_msg->tx_data;
+	/*
+	 * value is the parameter passed by the IPMI opregion space handler.
+	 * It points to the IPMI request message buffer
+	 */
 	buffer = (struct acpi_ipmi_buffer *)value;
-	
+	/* copy the tx message data */
 	msg->data_len = buffer->length;
 	memcpy(tx_msg->tx_data, buffer->data, msg->data_len);
+	/*
+	 * now the default type is SYSTEM_INTERFACE and channel type is BMC.
+	 * If the netfn is APP_REQUEST and the cmd is SEND_MESSAGE,
+	 * the addr type should be changed to IPMB. Then we will have to parse
+	 * the IPMI request message buffer to get the IPMB address.
+	 * If so, please fix me.
+	 */
 	tx_msg->addr.addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
 	tx_msg->addr.channel = IPMI_BMC_CHANNEL;
 	tx_msg->addr.data[0] = 0;
 
-	
+	/* Get the msgid */
 	device = tx_msg->device;
 	mutex_lock(&device->tx_msg_lock);
 	device->curr_msgid++;
@@ -164,15 +188,28 @@ static void acpi_format_ipmi_response(struct acpi_ipmi_msg *msg,
 {
 	struct acpi_ipmi_buffer *buffer;
 
+	/*
+	 * value is also used as output parameter. It represents the response
+	 * IPMI message returned by IPMI command.
+	 */
 	buffer = (struct acpi_ipmi_buffer *)value;
 	if (!rem_time && !msg->msg_done) {
 		buffer->status = ACPI_IPMI_TIMEOUT;
 		return;
 	}
+	/*
+	 * If the flag of msg_done is not set or the recv length is zero, it
+	 * means that the IPMI command is not executed correctly.
+	 * The status code will be ACPI_IPMI_UNKNOWN.
+	 */
 	if (!msg->msg_done || !msg->rx_len) {
 		buffer->status = ACPI_IPMI_UNKNOWN;
 		return;
 	}
+	/*
+	 * If the IPMI response message is obtained correctly, the status code
+	 * will be ACPI_IPMI_OK
+	 */
 	buffer->status = ACPI_IPMI_OK;
 	buffer->length = msg->rx_len;
 	memcpy(buffer->data, msg->rx_data, msg->rx_len);
@@ -185,11 +222,11 @@ static void ipmi_flush_tx_msg(struct acpi_ipmi_device *ipmi)
 	struct pnp_dev *pnp_dev = ipmi->pnp_dev;
 
 	list_for_each_entry_safe(tx_msg, temp, &ipmi->tx_msg_list, head) {
-		
+		/* wake up the sleep thread on the Tx msg */
 		complete(&tx_msg->tx_complete);
 	}
 
-	
+	/* wait for about 100ms to flush the tx message list */
 	while (count--) {
 		if (list_empty(&ipmi->tx_msg_list))
 			break;
@@ -230,7 +267,7 @@ static void ipmi_msg_handler(struct ipmi_recv_msg *msg, void *user_msg_data)
 	}
 
 	if (msg->msg.data_len) {
-		
+		/* copy the response data to Rx_data buffer */
 		memcpy(tx_msg->rx_data, msg->msg_data, msg->msg.data_len);
 		tx_msg->rx_len = msg->msg.data_len;
 		tx_msg->msg_done = 1;
@@ -262,6 +299,10 @@ static void ipmi_register_bmc(int iface, struct device *dev)
 
 	mutex_lock(&driver_data.ipmi_lock);
 	list_for_each_entry(temp, &driver_data.ipmi_devices, head) {
+		/*
+		 * if the corresponding ACPI handle is already added
+		 * to the device list, don't add it again.
+		 */
 		if (temp->handle == handle)
 			goto out;
 	}
@@ -312,6 +353,21 @@ static void ipmi_bmc_gone(int iface)
 	}
 	mutex_unlock(&driver_data.ipmi_lock);
 }
+/* --------------------------------------------------------------------------
+ *			Address Space Management
+ * -------------------------------------------------------------------------- */
+/*
+ * This is the IPMI opregion space handler.
+ * @function: indicates the read/write. In fact as the IPMI message is driven
+ * by command, only write is meaningful.
+ * @address: This contains the netfn/command of IPMI request message.
+ * @bits   : not used.
+ * @value  : it is an in/out parameter. It points to the IPMI message buffer.
+ *	     Before the IPMI message is sent, it represents the actual request
+ *	     IPMI message. After the IPMI message is finished, it represents
+ *	     the response IPMI message returned by IPMI command.
+ * @handler_context: IPMI device context.
+ */
 
 static acpi_status
 acpi_ipmi_space_handler(u32 function, acpi_physical_address address,
@@ -410,11 +466,15 @@ static void acpi_add_ipmi_device(struct acpi_ipmi_device *ipmi_device)
 
 static void acpi_remove_ipmi_device(struct acpi_ipmi_device *ipmi_device)
 {
+	/*
+	 * If the IPMI user interface is created, it should be
+	 * destroyed.
+	 */
 	if (ipmi_device->user_interface) {
 		ipmi_destroy_user(ipmi_device->user_interface);
 		ipmi_device->user_interface = NULL;
 	}
-	
+	/* flush the Tx_msg list */
 	if (!list_empty(&ipmi_device->tx_msg_list))
 		ipmi_flush_tx_msg(ipmi_device);
 
@@ -445,6 +505,12 @@ static void __exit acpi_ipmi_exit(void)
 
 	ipmi_smi_watcher_unregister(&driver_data.bmc_events);
 
+	/*
+	 * When one smi_watcher is unregistered, it is only deleted
+	 * from the smi_watcher list. But the smi_gone callback function
+	 * is not called. So explicitly uninstall the ACPI IPMI oregion
+	 * handler and free it.
+	 */
 	mutex_lock(&driver_data.ipmi_lock);
 	list_for_each_entry_safe(ipmi_device, temp,
 				&driver_data.ipmi_devices, head) {

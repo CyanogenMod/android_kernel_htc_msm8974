@@ -1,6 +1,12 @@
 #ifndef _M68K_IRQ_H_
 #define _M68K_IRQ_H_
 
+/*
+ * This should be the same as the max(NUM_X_SOURCES) for all the
+ * different m68k hosts compiled into the kernel.
+ * Currently the Atari has 72 and the Amiga 24, but if both are
+ * supported in the kernel it is better to make room for 72.
+ */
 #if defined(CONFIG_COLDFIRE)
 #define NR_IRQS 256
 #elif defined(CONFIG_VME) || defined(CONFIG_SUN3) || defined(CONFIG_SUN3X)
@@ -22,16 +28,25 @@
 #if defined(CONFIG_M68020) || defined(CONFIG_M68030) || \
     defined(CONFIG_M68040) || defined(CONFIG_M68060)
 
+/*
+ * Interrupt source definitions
+ * General interrupt sources are the level 1-7.
+ * Adding an interrupt service routine for one of these sources
+ * results in the addition of that routine to a chain of routines.
+ * Each one is called in succession.  Each individual interrupt
+ * service routine should determine if the device associated with
+ * that routine requires service.
+ */
 
 #define IRQ_SPURIOUS	0
 
-#define IRQ_AUTO_1	1	
-#define IRQ_AUTO_2	2	
-#define IRQ_AUTO_3	3	
-#define IRQ_AUTO_4	4	
-#define IRQ_AUTO_5	5	
-#define IRQ_AUTO_6	6	
-#define IRQ_AUTO_7	7	
+#define IRQ_AUTO_1	1	/* level 1 interrupt */
+#define IRQ_AUTO_2	2	/* level 2 interrupt */
+#define IRQ_AUTO_3	3	/* level 3 interrupt */
+#define IRQ_AUTO_4	4	/* level 4 interrupt */
+#define IRQ_AUTO_5	5	/* level 5 interrupt */
+#define IRQ_AUTO_6	6	/* level 6 interrupt */
+#define IRQ_AUTO_7	7	/* level 7 interrupt (non-maskable) */
 
 #define IRQ_USER	8
 
@@ -53,9 +68,9 @@ extern unsigned int irq_canonicalize(unsigned int irq);
 
 #else
 #define irq_canonicalize(irq)  (irq)
-#endif 
+#endif /* !(CONFIG_M68020 || CONFIG_M68030 || CONFIG_M68040 || CONFIG_M68060) */
 
 asmlinkage void do_IRQ(int irq, struct pt_regs *regs);
 extern atomic_t irq_err_count;
 
-#endif 
+#endif /* _M68K_IRQ_H_ */

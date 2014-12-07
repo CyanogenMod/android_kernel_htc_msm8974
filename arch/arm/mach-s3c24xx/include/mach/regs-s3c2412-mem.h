@@ -28,10 +28,12 @@
 #define S3C2412_REFRESH			S3C2412_MEMREG(0x10)
 #define S3C2412_TIMEOUT			S3C2412_MEMREG(0x14)
 
+/* EBI control registers */
 
 #define S3C2412_EBI_PR			S3C2412_EBIREG(0x00)
 #define S3C2412_EBI_BANKCFG		S3C2412_EBIREG(0x04)
 
+/* SSMC control registers */
 
 #define S3C2412_SSMC_BANK(x)		S3C2412_SSMC(x, 0x00)
 #define S3C2412_SMIDCYR(x)		S3C2412_SSMC(x, 0x00)
@@ -43,4 +45,4 @@
 #define S3C2412_SMBSR(x)		S3C2412_SSMC(x, 0x18)
 #define S3C2412_SMBWSTBRDR(x)		S3C2412_SSMC(x, 0x1C)
 
-#endif 
+#endif /*  __ASM_ARM_REGS_S3C2412_MEM */

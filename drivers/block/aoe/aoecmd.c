@@ -1,4 +1,8 @@
 /* Copyright (c) 2007 Coraid, Inc.  See COPYING for GPL terms. */
+/*
+ * aoecmd.c
+ * Filesystem request handling methods
+ */
 
 #include <linux/ata.h>
 #include <linux/slab.h>
@@ -48,6 +52,11 @@ getframe(struct aoetgt *t, int tag)
 	return NULL;
 }
 
+/*
+ * Leave the top bit clear so we have tagspace for userland.
+ * The bottom 16 bits are the xmit tick for rexmit/rttavg processing.
+ * This driver reserves tag -1 to mean "unused frame."
+ */
 static int
 newtag(struct aoetgt *t)
 {
@@ -119,6 +128,7 @@ skb_pool_get(struct aoedev *d)
 	return NULL;
 }
 
+/* freeframe is where we do our load balancing so it's a little hairy. */
 static struct frame *
 freeframe(struct aoedev *d)
 {
@@ -126,7 +136,7 @@ freeframe(struct aoedev *d)
 	struct aoetgt **t;
 	struct sk_buff *skb;
 
-	if (d->targets[0] == NULL) {	
+	if (d->targets[0] == NULL) {	/* shouldn't happen, but I'm paranoid */
 		printk(KERN_ERR "aoe: NULL TARGETS!\n");
 		return NULL;
 	}
@@ -160,8 +170,11 @@ gotone:				skb_shinfo(skb)->nr_frags = skb->data_len = 0;
 				ifrotate(*t);
 				return f;
 			}
+			/* Work can be done, but the network layer is
+			   holding our precious packets.  Try to grab
+			   one from the pool. */
 			f = rf;
-			if (f == NULL) {	
+			if (f == NULL) {	/* more paranoia */
 				printk(KERN_ERR
 					"aoe: freeframe: %s.\n",
 					"unexpected null rf");
@@ -178,7 +191,7 @@ gotone:				skb_shinfo(skb)->nr_frags = skb->data_len = 0;
 			if ((*t)->nout == 0)
 				d->flags |= DEVFL_KICKME;
 		}
-		if (t == d->tgt)	
+		if (t == d->tgt)	/* we've looped and found nada */
 			break;
 		t++;
 		if (t >= &d->targets[NTARGETS] || !*t)
@@ -214,7 +227,7 @@ aoecmd_ata_rw(struct aoedev *d)
 		bcnt = DEFAULTBCNT;
 	if (bcnt > buf->bv_resid)
 		bcnt = buf->bv_resid;
-	
+	/* initialize the headers & frame */
 	skb = f->skb;
 	h = (struct aoe_hdr *) skb_mac_header(skb);
 	ah = (struct aoe_atahdr *) (h+1);
@@ -228,7 +241,7 @@ aoecmd_ata_rw(struct aoedev *d)
 	f->bcnt = bcnt;
 	f->lba = buf->sector;
 
-	
+	/* set up ata header */
 	ah->scnt = bcnt >> 9;
 	put_lba(ah, buf->sector);
 	if (d->flags & DEVFL_EXT) {
@@ -236,7 +249,7 @@ aoecmd_ata_rw(struct aoedev *d)
 	} else {
 		extbit = 0;
 		ah->lba3 &= 0x0f;
-		ah->lba3 |= 0xe0;	
+		ah->lba3 |= 0xe0;	/* LBA bit + obsolete 0xa0 */
 	}
 	if (bio_data_dir(buf->bio) == WRITE) {
 		skb_fill_page_desc(skb, 0, bv->bv_page, buf->bv_off, bcnt);
@@ -251,7 +264,7 @@ aoecmd_ata_rw(struct aoedev *d)
 
 	ah->cmdstat = ATA_CMD_PIO_READ | writebit | extbit;
 
-	
+	/* mark all tracking fields and load out */
 	buf->nframesout += 1;
 	buf->bv_off += bcnt;
 	buf->bv_resid -= bcnt;
@@ -273,6 +286,9 @@ aoecmd_ata_rw(struct aoedev *d)
 	return 1;
 }
 
+/* some callers cannot sleep, and they can call this function,
+ * transmitting the packets later, when interrupts are on
+ */
 static void
 aoecmd_cfg_pkts(ushort aoemajor, unsigned char aoeminor, struct sk_buff_head *queue)
 {
@@ -441,7 +457,7 @@ sthtith(struct aoedev *d)
 		(*d->tgt)->nout++;
 		resend(d, *d->tgt, nf);
 	}
-	
+	/* he's clean, he's useless.  take away his interfaces */
 	memset(ht->ifs, 0, sizeof ht->ifs);
 	d->htgt = NULL;
 	return 1;
@@ -470,7 +486,7 @@ rexmit_timer(ulong vp)
 
 	d = (struct aoedev *) vp;
 
-	
+	/* timeout is always ~150% of the moving average */
 	timeout = d->rttavg;
 	timeout += timeout >> 1;
 
@@ -493,12 +509,12 @@ rexmit_timer(ulong vp)
 			n = f->waited += timeout;
 			n /= HZ;
 			if (n > aoe_deadsecs) {
-				
+				/* waited too long.  device failure. */
 				aoedev_downdev(d);
 				break;
 			}
 
-			if (n > HELPWAIT 
+			if (n > HELPWAIT /* see if another target can help */
 			&& (tt != d->targets || d->targets[1]))
 				d->htgt = tt;
 
@@ -531,7 +547,7 @@ rexmit_timer(ulong vp)
 			resend(d, t, f);
 		}
 
-		
+		/* window check */
 		if (t->nout == t->maxout
 		&& t->maxout < t->nframes
 		&& (jiffies - t->lastwadj)/HZ > 10) {
@@ -562,6 +578,7 @@ rexmit_timer(ulong vp)
 	aoenet_xmit(&queue);
 }
 
+/* enters with d->lock held */
 void
 aoecmd_work(struct aoedev *d)
 {
@@ -580,6 +597,8 @@ loop:
 		goto loop;
 }
 
+/* this function performs work that has been deferred until sleeping is OK
+ */
 void
 aoecmd_sleepwork(struct work_struct *work)
 {
@@ -615,19 +634,19 @@ ataid_complete(struct aoedev *d, struct aoetgt *t, unsigned char *id)
 	u64 ssize;
 	u16 n;
 
-	
+	/* word 83: command set supported */
 	n = get_unaligned_le16(&id[83 << 1]);
 
-	
+	/* word 86: command set/feature enabled */
 	n |= get_unaligned_le16(&id[86 << 1]);
 
-	if (n & (1<<10)) {	
+	if (n & (1<<10)) {	/* bit 10: LBA 48 */
 		d->flags |= DEVFL_EXT;
 
-		
+		/* word 100: number lba48 sectors */
 		ssize = get_unaligned_le64(&id[100 << 1]);
 
-		
+		/* set as in ide-disk.c:init_idedisk_capacity */
 		d->geo.cylinders = ssize;
 		d->geo.cylinders /= (255 * 63);
 		d->geo.heads = 255;
@@ -635,10 +654,10 @@ ataid_complete(struct aoedev *d, struct aoetgt *t, unsigned char *id)
 	} else {
 		d->flags &= ~DEVFL_EXT;
 
-		
+		/* number lba28 sectors */
 		ssize = get_unaligned_le32(&id[60 << 1]);
 
-		
+		/* NOTE: obsolete in ATA 6 */
 		d->geo.cylinders = get_unaligned_le16(&id[54 << 1]);
 		d->geo.heads = get_unaligned_le16(&id[55 << 1]);
 		d->geo.sectors = get_unaligned_le16(&id[56 << 1]);
@@ -680,7 +699,7 @@ calc_rttavg(struct aoedev *d, int rtt)
 	else if (n > MAXTIMER)
 		n = MAXTIMER;
 
-	
+	/* g == .25; cf. Congestion Avoidance and Control, Jacobson & Karels; 1988 */
 	n -= d->rttavg;
 	d->rttavg += n >> 2;
 }
@@ -776,7 +795,7 @@ aoecmd_ata_rsp(struct sk_buff *skb)
 	ahout = (struct aoe_atahdr *) (hout+1);
 	buf = f->buf;
 
-	if (ahin->cmdstat & 0xa9) {	
+	if (ahin->cmdstat & 0xa9) {	/* these bits cleared on success */
 		printk(KERN_ERR
 			"aoe: ata error cmd=%2.2Xh stat=%2.2Xh from e%ld.%d\n",
 			ahout->cmdstat, ahin->cmdstat,
@@ -784,7 +803,7 @@ aoecmd_ata_rsp(struct sk_buff *skb)
 		if (buf)
 			buf->flags |= BUFFL_FAIL;
 	} else {
-		if (d->htgt && t == *d->htgt) 
+		if (d->htgt && t == *d->htgt) /* I'll help myself, thank you. */
 			d->htgt = NULL;
 		n = ahout->scnt << 9;
 		switch (ahout->cmdstat) {
@@ -794,7 +813,7 @@ aoecmd_ata_rsp(struct sk_buff *skb)
 				printk(KERN_ERR
 					"aoe: %s.  skb->len=%d need=%ld\n",
 					"runt data size in read", skb->len, n);
-				
+				/* fail frame f?  just returning will rexmit. */
 				spin_unlock_irqrestore(&d->lock, flags);
 				return;
 			}
@@ -882,7 +901,7 @@ aoecmd_ata_id(struct aoedev *d)
 
 	t = *d->tgt;
 
-	
+	/* initialize the headers & frame */
 	skb = f->skb;
 	h = (struct aoe_hdr *) skb_mac_header(skb);
 	ah = (struct aoe_atahdr *) (h+1);
@@ -892,7 +911,7 @@ aoecmd_ata_id(struct aoedev *d)
 	t->nout++;
 	f->waited = 0;
 
-	
+	/* set up ata header */
 	ah->scnt = 1;
 	ah->cmdstat = ATA_CMD_ID_ATA;
 	ah->lba3 = 0xa0;
@@ -956,6 +975,10 @@ aoecmd_cfg_rsp(struct sk_buff *skb)
 	h = (struct aoe_hdr *) skb_mac_header(skb);
 	ch = (struct aoe_cfghdr *) (h+1);
 
+	/*
+	 * Enough people have their dip switches set backwards to
+	 * warrant a loud message for this special case.
+	 */
 	aoemajor = get_unaligned_be16(&h->major);
 	if (aoemajor == 0xfff) {
 		printk(KERN_ERR "aoe: Warning: shelf address is all ones.  "
@@ -971,7 +994,7 @@ aoecmd_cfg_rsp(struct sk_buff *skb)
 	}
 
 	n = be16_to_cpu(ch->bufcnt);
-	if (n > aoe_maxout)	
+	if (n > aoe_maxout)	/* keep it reasonable */
 		n = aoe_maxout;
 
 	d = aoedev_by_sysminor_m(sysminor);
@@ -1018,7 +1041,7 @@ aoecmd_cfg_rsp(struct sk_buff *skb)
 		}
 	}
 
-	
+	/* don't change users' perspective */
 	if (d->nopen) {
 		spin_unlock_irqrestore(&d->lock, flags);
 		return;

@@ -43,4 +43,4 @@ static inline void *nubus_remap_fullcache(unsigned long physaddr,
 #define nubus_iounmap iounmap
 #define nubus_ioremap nubus_remap_nocache_ser
 
-#endif 
+#endif /* _ASM_NUBUS_H */

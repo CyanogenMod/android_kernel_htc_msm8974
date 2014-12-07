@@ -74,7 +74,7 @@ static u32 picoxcell_read_sched_clock(void)
 
 static const struct of_device_id picoxcell_rtc_ids[] __initconst = {
 	{ .compatible = "picochip,pc3x2-rtc" },
-	{  },
+	{ /* Sentinel */ },
 };
 
 static void picoxcell_init_sched_clock(void)

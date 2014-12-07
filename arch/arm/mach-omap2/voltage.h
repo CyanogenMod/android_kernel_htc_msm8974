@@ -21,18 +21,48 @@
 
 struct powerdomain;
 
+/* XXX document */
 #define VOLTSCALE_VPFORCEUPDATE		1
 #define VOLTSCALE_VCBYPASS		2
 
+/*
+ * OMAP3 GENERIC setup times. Revisit to see if these needs to be
+ * passed from board or PMIC file
+ */
 #define OMAP3_CLKSETUP		0xff
 #define OMAP3_VOLTOFFSET	0xff
 #define OMAP3_VOLTSETUP2	0xff
 
+/**
+ * struct omap_vfsm_instance - per-voltage manager FSM register/bitfield
+ * data
+ * @voltsetup_mask: SETUP_TIME* bitmask in the PRM_VOLTSETUP* register
+ * @voltsetup_reg: register offset of PRM_VOLTSETUP from PRM base
+ *
+ * XXX What about VOLTOFFSET/VOLTCTRL?
+ */
 struct omap_vfsm_instance {
 	u32 voltsetup_mask;
 	u8 voltsetup_reg;
 };
 
+/**
+ * struct voltagedomain - omap voltage domain global structure.
+ * @name: Name of the voltage domain which can be used as a unique identifier.
+ * @scalable: Whether or not this voltage domain is scalable
+ * @node: list_head linking all voltage domains
+ * @pwrdm_list: list_head linking all powerdomains in this voltagedomain
+ * @vc: pointer to VC channel associated with this voltagedomain
+ * @vp: pointer to VP associated with this voltagedomain
+ * @read: read a VC/VP register
+ * @write: write a VC/VP register
+ * @read: read-modify-write a VC/VP register
+ * @sys_clk: system clock name/frequency, used for various timing calculations
+ * @scale: function used to scale the voltage of the voltagedomain
+ * @nominal_volt: current nominal voltage for this voltage domain
+ * @volt_data: voltage table having the distinct voltages supported
+ *             by the domain and other associated per voltage data.
+ */
 struct voltagedomain {
 	char *name;
 	bool scalable;
@@ -43,7 +73,7 @@ struct voltagedomain {
 	struct omap_vp_instance *vp;
 	struct omap_voltdm_pmic *pmic;
 
-	
+	/* VC/VP register access functions: SoC specific */
 	u32 (*read) (u8 offset);
 	void (*write) (u32 val, u8 offset);
 	u32 (*rmw)(u32 mask, u32 bits, u8 offset);
@@ -60,6 +90,18 @@ struct voltagedomain {
 	struct omap_volt_data *volt_data;
 };
 
+/**
+ * struct omap_volt_data - Omap voltage specific data.
+ * @voltage_nominal:	The possible voltage value in uV
+ * @sr_efuse_offs:	The offset of the efuse register(from system
+ *			control module base address) from where to read
+ *			the n-target value for the smartreflex module.
+ * @sr_errminlimit:	Error min limit value for smartreflex. This value
+ *			differs at differnet opp and thus is linked
+ *			with voltage.
+ * @vp_errorgain:	Error gain value for the voltage processor. This
+ *			field also differs according to the voltage/opp.
+ */
 struct omap_volt_data {
 	u32	volt_nominal;
 	u32	sr_efuse_offs;
@@ -67,6 +109,18 @@ struct omap_volt_data {
 	u8	vp_errgain;
 };
 
+/**
+ * struct omap_voltdm_pmic - PMIC specific data required by voltage driver.
+ * @slew_rate:	PMIC slew rate (in uv/us)
+ * @step_size:	PMIC voltage step size (in uv)
+ * @i2c_slave_addr: I2C slave address of PMIC
+ * @volt_reg_addr: voltage configuration register address
+ * @cmd_reg_addr: command (on, on-LP, ret, off) configuration register address
+ * @i2c_high_speed: whether VC uses I2C high-speed mode to PMIC
+ * @i2c_mcode: master code value for I2C high-speed preamble transmission
+ * @vsel_to_uv:	PMIC API to convert vsel value to actual voltage in uV.
+ * @uv_to_vsel:	PMIC API to convert voltage in uV to vsel value.
+ */
 struct omap_voltdm_pmic {
 	int slew_rate;
 	int step_size;

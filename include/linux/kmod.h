@@ -29,7 +29,9 @@
 #define KMOD_PATH_LEN 256
 
 #ifdef CONFIG_MODULES
-extern char modprobe_path[]; 
+extern char modprobe_path[]; /* for sysctl */
+/* modprobe exit status on success, -ve on error.  Return value
+ * usually useless though. */
 extern __printf(2, 3)
 int __request_module(bool wait, const char *name, ...);
 #define request_module(mod...) __request_module(true, mod)
@@ -46,10 +48,10 @@ static inline int request_module_nowait(const char *name, ...) { return -ENOSYS;
 struct cred;
 struct file;
 
-#define UMH_NO_WAIT	0	
-#define UMH_WAIT_EXEC	1	
-#define UMH_WAIT_PROC	2	
-#define UMH_KILLABLE	4	
+#define UMH_NO_WAIT	0	/* don't wait at all */
+#define UMH_WAIT_EXEC	1	/* wait for the exec, but not the process */
+#define UMH_WAIT_PROC	2	/* wait for the process to complete */
+#define UMH_KILLABLE	4	/* wait for EXEC/PROC killable */
 
 struct subprocess_info {
 	struct work_struct work;
@@ -64,16 +66,21 @@ struct subprocess_info {
 	void *data;
 };
 
+/* Allocate a subprocess_info structure */
 struct subprocess_info *call_usermodehelper_setup(char *path, char **argv,
 						  char **envp, gfp_t gfp_mask);
 
+/* Set various pieces of state into the subprocess_info structure */
 void call_usermodehelper_setfns(struct subprocess_info *info,
 		    int (*init)(struct subprocess_info *info, struct cred *new),
 		    void (*cleanup)(struct subprocess_info *info),
 		    void *data);
 
+/* Actually execute the sub-process */
 int call_usermodehelper_exec(struct subprocess_info *info, int wait);
 
+/* Free the subprocess_info. This is only needed if you're not going
+   to call call_usermodehelper_exec */
 void call_usermodehelper_freeinfo(struct subprocess_info *info);
 
 static inline int
@@ -128,4 +135,4 @@ extern int usermodehelper_read_trylock(void);
 extern long usermodehelper_read_lock_wait(long timeout);
 extern void usermodehelper_read_unlock(void);
 
-#endif 
+#endif /* __LINUX_KMOD_H__ */

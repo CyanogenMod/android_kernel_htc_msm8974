@@ -53,6 +53,9 @@ static const u32 saa7164_v4l2_ctrls[] = {
 	0
 };
 
+/* Take the encoder configuration form the port struct and
+ * flush it to the hardware.
+ */
 static void saa7164_encoder_configure(struct saa7164_port *port)
 {
 	struct saa7164_dev *dev = port->dev;
@@ -63,13 +66,13 @@ static void saa7164_encoder_configure(struct saa7164_port *port)
 	port->encoder_params.is_50hz =
 		(port->encodernorm.id & V4L2_STD_625_50) != 0;
 
-	
+	/* Set up the DIF (enable it) for analog mode by default */
 	saa7164_api_initialize_dif(port);
 
-	
+	/* Configure the correct video standard */
 	saa7164_api_configure_dif(port, port->encodernorm.id);
 
-	
+	/* Ensure the audio decoder is correct configured */
 	saa7164_api_set_audio_std(port);
 }
 
@@ -80,7 +83,7 @@ static int saa7164_encoder_buffers_dealloc(struct saa7164_port *port)
 	struct saa7164_buffer *buf;
 	struct saa7164_user_buffer *ubuf;
 
-	
+	/* Remove any allocated buffers */
 	mutex_lock(&port->dmaqueue_lock);
 
 	dprintk(DBGLVL_ENC, "%s(port=%d) dmaqueue\n", __func__, port->nr);
@@ -110,6 +113,7 @@ static int saa7164_encoder_buffers_dealloc(struct saa7164_port *port)
 	return 0;
 }
 
+/* Dynamic buffer switch at encoder start time */
 static int saa7164_encoder_buffers_alloc(struct saa7164_port *port)
 {
 	struct saa7164_dev *dev = port->dev;
@@ -145,14 +149,14 @@ static int saa7164_encoder_buffers_alloc(struct saa7164_port *port)
 	} else
 		BUG();
 
-	
+	/* Init and establish defaults */
 	params->bitspersample = 8;
 	params->linethreshold = 0;
 	params->pagetablelistvirt = NULL;
 	params->pagetablelistphys = NULL;
 	params->numpagetableentries = port->hwcfg.buffercount;
 
-	
+	/* Allocate the PCI resources, buffers (hard) */
 	for (i = 0; i < port->hwcfg.buffercount; i++) {
 		buf = saa7164_buffer_alloc(port,
 			params->numberoflines *
@@ -173,6 +177,9 @@ static int saa7164_encoder_buffers_alloc(struct saa7164_port *port)
 		}
 	}
 
+	/* Allocate some kernel buffers for copying
+	 * to userpsace.
+	 */
 	len = params->numberoflines * params->pitch;
 
 	if (encoder_buffers < 16)
@@ -203,6 +210,7 @@ static int saa7164_encoder_initialize(struct saa7164_port *port)
 	return 0;
 }
 
+/* -- V4L2 --------------------------------------------------------- */
 static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
 {
 	struct saa7164_encoder_fh *fh = file->private_data;
@@ -221,6 +229,9 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
 
 	port->encodernorm = saa7164_tvnorms[i];
 
+	/* Update the audio decoder while is not running in
+	 * auto detect mode.
+	 */
 	saa7164_api_set_audio_std(port);
 
 	dprintk(DBGLVL_ENC, "%s(id=0x%x) OK\n", __func__, (u32)*id);
@@ -309,7 +320,7 @@ static int vidioc_g_tuner(struct file *file, void *priv,
 static int vidioc_s_tuner(struct file *file, void *priv,
 	struct v4l2_tuner *t)
 {
-	
+	/* Update the A/V core */
 	return 0;
 }
 
@@ -334,7 +345,7 @@ static int vidioc_s_frequency(struct file *file, void *priv,
 	struct saa7164_port *tsport;
 	struct dvb_frontend *fe;
 
-	
+	/* TODO: Pull this for the std */
 	struct analog_parameters params = {
 		.mode      = V4L2_TUNER_ANALOG_TV,
 		.audmode   = V4L2_TUNER_MODE_STEREO,
@@ -342,7 +353,7 @@ static int vidioc_s_frequency(struct file *file, void *priv,
 		.frequency = f->frequency
 	};
 
-	
+	/* Stop the encoder */
 	dprintk(DBGLVL_ENC, "%s() frequency=%d tuner=%d\n", __func__,
 		f->frequency, f->tuner);
 
@@ -354,7 +365,7 @@ static int vidioc_s_frequency(struct file *file, void *priv,
 
 	port->freq = f->frequency;
 
-	
+	/* Update the hardware */
 	if (port->nr == SAA7164_PORT_ENC1)
 		tsport = &dev->ports[SAA7164_PORT_TS1];
 	else
@@ -654,7 +665,7 @@ static int saa7164_set_ctrl(struct saa7164_port *port,
 		return -EINVAL;
 	}
 
-	
+	/* TODO: Update the hardware */
 
 	return ret;
 }
@@ -916,6 +927,12 @@ static int saa7164_encoder_pause_port(struct saa7164_port *port)
 	return ret;
 }
 
+/* Firmware is very windows centric, meaning you have to transition
+ * the part through AVStream / KS Windows stages, forwards or backwards.
+ * States are: stopped, acquired (h/w), paused, started.
+ * We have to leave here will all of the soft buffers on the free list,
+ * else the cfg_post() func won't have soft buffers to correctly configure.
+ */
 static int saa7164_encoder_stop_streaming(struct saa7164_port *port)
 {
 	struct saa7164_dev *dev = port->dev;
@@ -933,10 +950,10 @@ static int saa7164_encoder_stop_streaming(struct saa7164_port *port)
 	dprintk(DBGLVL_ENC, "%s(port=%d) Hardware stopped\n", __func__,
 		port->nr);
 
-	
+	/* Reset the state of any allocated buffer resources */
 	mutex_lock(&port->dmaqueue_lock);
 
-	
+	/* Reset the hard and soft buffer state */
 	list_for_each_safe(c, n, &port->dmaqueue.list) {
 		buf = list_entry(c, struct saa7164_buffer, list);
 		buf->flags = SAA7164_BUFFER_FREE;
@@ -951,7 +968,7 @@ static int saa7164_encoder_stop_streaming(struct saa7164_port *port)
 
 	mutex_unlock(&port->dmaqueue_lock);
 
-	
+	/* Free any allocated resources */
 	saa7164_encoder_buffers_dealloc(port);
 
 	dprintk(DBGLVL_ENC, "%s(port=%d) Released\n", __func__, port->nr);
@@ -968,22 +985,26 @@ static int saa7164_encoder_start_streaming(struct saa7164_port *port)
 
 	port->done_first_interrupt = 0;
 
+	/* allocate all of the PCIe DMA buffer resources on the fly,
+	 * allowing switching between TS and PS payloads without
+	 * requiring a complete driver reload.
+	 */
 	saa7164_encoder_buffers_alloc(port);
 
-	
+	/* Configure the encoder with any cache values */
 	saa7164_api_set_encoder(port);
 	saa7164_api_get_encoder(port);
 
-	
+	/* Place the empty buffers on the hardware */
 	saa7164_buffer_cfg_port(port);
 
-	
+	/* Acquire the hardware */
 	result = saa7164_api_transition_port(port, SAA_DMASTATE_ACQUIRE);
 	if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 		printk(KERN_ERR "%s() acquire transition failed, res = 0x%x\n",
 			__func__, result);
 
-		
+		/* Stop the hardware, regardless */
 		result = saa7164_api_transition_port(port, SAA_DMASTATE_STOP);
 		if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 			printk(KERN_ERR "%s() acquire/forced stop transition "
@@ -994,13 +1015,13 @@ static int saa7164_encoder_start_streaming(struct saa7164_port *port)
 	} else
 		dprintk(DBGLVL_ENC, "%s()   Acquired\n", __func__);
 
-	
+	/* Pause the hardware */
 	result = saa7164_api_transition_port(port, SAA_DMASTATE_PAUSE);
 	if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 		printk(KERN_ERR "%s() pause transition failed, res = 0x%x\n",
 				__func__, result);
 
-		
+		/* Stop the hardware, regardless */
 		result = saa7164_api_transition_port(port, SAA_DMASTATE_STOP);
 		if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 			printk(KERN_ERR "%s() pause/forced stop transition "
@@ -1012,13 +1033,13 @@ static int saa7164_encoder_start_streaming(struct saa7164_port *port)
 	} else
 		dprintk(DBGLVL_ENC, "%s()   Paused\n", __func__);
 
-	
+	/* Start the hardware */
 	result = saa7164_api_transition_port(port, SAA_DMASTATE_RUN);
 	if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 		printk(KERN_ERR "%s() run transition failed, result = 0x%x\n",
 				__func__, result);
 
-		
+		/* Stop the hardware, regardless */
 		result = saa7164_api_transition_port(port, SAA_DMASTATE_STOP);
 		if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 			printk(KERN_ERR "%s() run/forced stop transition "
@@ -1047,7 +1068,7 @@ static int fops_open(struct file *file)
 
 	dprintk(DBGLVL_ENC, "%s()\n", __func__);
 
-	
+	/* allocate + initialize per filehandle data */
 	fh = kzalloc(sizeof(*fh), GFP_KERNEL);
 	if (NULL == fh)
 		return -ENOMEM;
@@ -1066,10 +1087,10 @@ static int fops_release(struct file *file)
 
 	dprintk(DBGLVL_ENC, "%s()\n", __func__);
 
-	
+	/* Shut device down on last close */
 	if (atomic_cmpxchg(&fh->v4l_reading, 1, 0) == 1) {
 		if (atomic_dec_return(&port->v4l_reader_count) == 0) {
-			
+			/* stop mpeg capture then cancel buffers */
 			saa7164_encoder_stop_streaming(port);
 		}
 	}
@@ -1146,7 +1167,7 @@ static ssize_t fops_read(struct file *file, char __user *buffer,
 		}
 	}
 
-	
+	/* blocking wait for buffer */
 	if ((file->f_flags & O_NONBLOCK) == 0) {
 		if (wait_event_interruptible(port->wait_read,
 			saa7164_enc_next_buf(port))) {
@@ -1155,12 +1176,12 @@ static ssize_t fops_read(struct file *file, char __user *buffer,
 		}
 	}
 
-	
+	/* Pull the first buffer from the used list */
 	ubuf = saa7164_enc_next_buf(port);
 
 	while ((count > 0) && ubuf) {
 
-		
+		/* set remaining bytes to copy */
 		rem = ubuf->actual_size - ubuf->pos;
 		cnt = rem > count ? count : rem;
 
@@ -1189,16 +1210,16 @@ static ssize_t fops_read(struct file *file, char __user *buffer,
 
 		if (ubuf->pos == ubuf->actual_size) {
 
-			
+			/* finished with current buffer, take next buffer */
 
-			
+			/* Requeue the buffer on the free list */
 			ubuf->pos = 0;
 
 			mutex_lock(&port->dmaqueue_lock);
 			list_move_tail(&ubuf->list, &port->list_buf_free.list);
 			mutex_unlock(&port->dmaqueue_lock);
 
-			
+			/* Dequeue next */
 			if ((file->f_flags & O_NONBLOCK) == 0) {
 				if (wait_event_interruptible(port->wait_read,
 					saa7164_enc_next_buf(port))) {
@@ -1242,7 +1263,7 @@ static unsigned int fops_poll(struct file *file, poll_table *wait)
 		}
 	}
 
-	
+	/* blocking wait for buffer */
 	if ((file->f_flags & O_NONBLOCK) == 0) {
 		if (wait_event_interruptible(port->wait_read,
 			saa7164_enc_next_buf(port))) {
@@ -1250,7 +1271,7 @@ static unsigned int fops_poll(struct file *file, poll_table *wait)
 		}
 	}
 
-	
+	/* Pull the first buffer from the used list */
 	if (!list_empty(&port->list_buf_used.list))
 		mask |= POLLIN | POLLRDNORM;
 
@@ -1372,7 +1393,7 @@ int saa7164_encoder_register(struct saa7164_port *port)
 	if (port->type != SAA7164_MPEG_ENCODER)
 		BUG();
 
-	
+	/* Sanity check that the PCI configuration space is active */
 	if (port->hwcfg.BARLocation == 0) {
 		printk(KERN_ERR "%s() failed "
 		       "(errno = %d), NO PCI configuration\n",
@@ -1381,11 +1402,11 @@ int saa7164_encoder_register(struct saa7164_port *port)
 		goto failed;
 	}
 
-	
-	
+	/* Establish encoder defaults here */
+	/* Set default TV standard */
 	port->encodernorm = saa7164_tvnorms[0];
 	port->width = 720;
-	port->mux_input = 1; 
+	port->mux_input = 1; /* Composite */
 	port->video_format = EU_VIDEO_FORMAT_MPEG_2;
 	port->audio_format = 0;
 	port->video_resolution = 0;
@@ -1408,7 +1429,7 @@ int saa7164_encoder_register(struct saa7164_port *port)
 	else
 		port->height = 576;
 
-	
+	/* Allocate and register the video device node */
 	port->v4l_device = saa7164_encoder_alloc(port,
 		dev->pci, &saa7164_mpeg_template, "mpeg");
 
@@ -1425,13 +1446,16 @@ int saa7164_encoder_register(struct saa7164_port *port)
 	if (result < 0) {
 		printk(KERN_INFO "%s: can't register mpeg device\n",
 			dev->name);
+		/* TODO: We're going to leak here if we don't dealloc
+		 The buffers above. The unreg function can't deal wit it.
+		*/
 		goto failed;
 	}
 
 	printk(KERN_INFO "%s: registered device video%d [mpeg]\n",
 		dev->name, port->v4l_device->num);
 
-	
+	/* Configure the hardware defaults */
 	saa7164_api_set_videomux(port);
 	saa7164_api_set_usercontrol(port, PU_BRIGHTNESS_CONTROL);
 	saa7164_api_set_usercontrol(port, PU_CONTRAST_CONTROL);
@@ -1442,7 +1466,7 @@ int saa7164_encoder_register(struct saa7164_port *port)
 	saa7164_api_set_audio_volume(port, 20);
 	saa7164_api_set_aspect_ratio(port);
 
-	
+	/* Disable audio standard detection, it's buggy */
 	saa7164_api_set_audio_detection(port, 0);
 
 	saa7164_api_set_encoder(port);

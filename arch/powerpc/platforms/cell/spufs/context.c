@@ -41,6 +41,9 @@ struct spu_context *alloc_spu_context(struct spu_gang *gang)
 	ctx = kzalloc(sizeof *ctx, GFP_KERNEL);
 	if (!ctx)
 		goto out;
+	/* Binding to physical processor deferred
+	 * until spu_activate().
+	 */
 	if (spu_init_csa(&ctx->csa))
 		goto out_free;
 	spin_lock_init(&ctx->mmio_lock);
@@ -106,10 +109,16 @@ int put_spu_context(struct spu_context *ctx)
 	return kref_put(&ctx->kref, &destroy_spu_context);
 }
 
+/* give up the mm reference when the context is about to be destroyed */
 void spu_forget(struct spu_context *ctx)
 {
 	struct mm_struct *mm;
 
+	/*
+	 * This is basically an open-coded spu_acquire_saved, except that
+	 * we don't acquire the state mutex interruptible, and we don't
+	 * want this context to be rescheduled on release.
+	 */
 	mutex_lock(&ctx->state_mutex);
 	if (ctx->state != SPU_STATE_SAVED)
 		spu_deactivate(ctx);
@@ -140,6 +149,10 @@ void spu_unmap_mappings(struct spu_context *ctx)
 	mutex_unlock(&ctx->mapping_lock);
 }
 
+/**
+ * spu_acquire_saved - lock spu contex and make sure it is in saved state
+ * @ctx:	spu contex to lock
+ */
 int spu_acquire_saved(struct spu_context *ctx)
 {
 	int ret;
@@ -158,6 +171,10 @@ int spu_acquire_saved(struct spu_context *ctx)
 	return 0;
 }
 
+/**
+ * spu_release_saved - unlock spu context and return it to the runqueue
+ * @ctx:	context to unlock
+ */
 void spu_release_saved(struct spu_context *ctx)
 {
 	BUG_ON(ctx->state != SPU_STATE_SAVED);

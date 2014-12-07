@@ -23,7 +23,7 @@
 #include <asm/spr-regs.h>
 #include <asm/mb-regs.h>
 
-#define NR_TLB_LINES		64	
+#define NR_TLB_LINES		64	/* number of lines in the TLB */
 
 #ifndef __ASSEMBLY__
 
@@ -37,6 +37,7 @@
 #define HIGHMEM_DEBUG 0
 #endif
 
+/* declarations for highmem.c */
 extern unsigned long highstart_pfn, highend_pfn;
 
 #define kmap_prot PAGE_KERNEL
@@ -45,6 +46,11 @@ extern pte_t *pkmap_page_table;
 
 #define flush_cache_kmaps()  do { } while (0)
 
+/*
+ * Right now we initialize only a single pte table. It can be extended
+ * easily, subsequent pte tables have to be allocated in one physical
+ * chunk of RAM.
+ */
 #define LAST_PKMAP	PTRS_PER_PTE
 #define LAST_PKMAP_MASK	(LAST_PKMAP - 1)
 #define PKMAP_NR(virt)	((virt - PKMAP_BASE) >> PAGE_SHIFT)
@@ -58,8 +64,14 @@ extern void kunmap(struct page *page);
 
 extern struct page *kmap_atomic_to_page(void *ptr);
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/*
+ * The use of kmap_atomic/kunmap_atomic is discouraged - kmap/kunmap
+ * gives a more generic (and caching) interface. But kmap_atomic can
+ * be used in IRQ contexts, so in some (very limited) cases we need
+ * it.
+ */
 #define KMAP_ATOMIC_CACHE_DAMR		8
 
 #ifndef __ASSEMBLY__
@@ -80,7 +92,7 @@ extern struct page *kmap_atomic_to_page(void *ptr);
 												\
 	asm("movsg damlr"#ampr",%0" : "=r"(damlr));						\
 												\
-			\
+	/*printk("DAMR"#ampr": PRIM sl=%d L=%08lx P=%08lx\n", type, damlr, dampr);*/		\
 												\
 	(void *) damlr;										\
 })
@@ -95,7 +107,7 @@ extern struct page *kmap_atomic_to_page(void *ptr);
 		     "tlbpr %0,gr0,#2,#1"							  \
 		     : : "r"(damlr), "r"(dampr) : "memory");					  \
 												  \
-				  \
+	/*printk("TLB: SECN sl=%d L=%08lx P=%08lx\n", slot, damlr, dampr);*/			  \
 												  \
 	(void *) damlr;										  \
 })
@@ -148,8 +160,8 @@ static inline void kunmap_atomic_primary(void *kvaddr, enum km_type type)
 void *kmap_atomic(struct page *page);
 void __kunmap_atomic(void *kvaddr);
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_HIGHMEM_H */

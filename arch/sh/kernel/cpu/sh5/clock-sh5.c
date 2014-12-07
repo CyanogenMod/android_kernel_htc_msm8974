@@ -16,6 +16,7 @@
 
 static int ifc_table[] = { 2, 4, 6, 8, 10, 12, 16, 24 };
 
+/* Clock, Power and Reset Controller */
 #define	CPRC_BLOCK_OFF	0x01010000
 #define CPRC_BASE	(PHYS_PERIPHERAL_BLOCK + CPRC_BLOCK_OFF)
 

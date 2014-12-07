@@ -164,6 +164,11 @@ static int objdump_line__print(struct objdump_line *oline, struct symbol *sym,
 
 		color = get_percent_color(percent);
 
+		/*
+		 * Also color the filename and line if needed, with
+		 * the same color than the percentage. Don't print it
+		 * twice for close colored addr with the same filename:line
+		 */
 		if (path) {
 			if (!prev_line || strcmp(prev_line, path)
 				       || color != prev_color) {
@@ -215,6 +220,9 @@ static int symbol__parse_objdump_line(struct symbol *sym, struct map *map,
 
 	line_ip = -1;
 
+	/*
+	 * Strip leading spaces:
+	 */
 	tmp = line;
 	while (*tmp) {
 		if (*tmp != ' ')
@@ -223,6 +231,9 @@ static int symbol__parse_objdump_line(struct symbol *sym, struct map *map,
 	}
 
 	if (*tmp) {
+		/*
+		 * Parse hexa addresses followed by ':'
+		 */
 		line_ip = strtoull(tmp, &tmp2, 16);
 		if (*tmp2 != ':' || tmp == tmp2 || tmp2[1] == '\0')
 			line_ip = -1;
@@ -274,6 +285,11 @@ int symbol__annotate(struct symbol *sym, struct map *map, size_t privsize)
 		   access(symfs_filename, R_OK)) {
 		free(filename);
 fallback:
+		/*
+		 * If we don't have build-ids or the build-id file isn't in the
+		 * cache, or is just a kallsyms file, well, lets hope that this
+		 * DSO is the same as when 'perf record' ran.
+		 */
 		filename = dso->long_name;
 		snprintf(symfs_filename, sizeof(symfs_filename), "%s%s",
 			 symbol_conf.symfs, filename);
@@ -373,6 +389,7 @@ static void symbol__free_source_line(struct symbol *sym, int len)
 	notes->src->lines = NULL;
 }
 
+/* Get the filename:line for the colored entries */
 static int symbol__get_source_line(struct symbol *sym, struct map *map,
 				   int evidx, struct rb_root *root, int len,
 				   const char *filename)
@@ -510,11 +527,15 @@ int symbol__annotate_printf(struct symbol *sym, struct map *map, int evidx,
 			}
 			break;
 		case 1:
-			
+			/* filtered by max_lines */
 			++more;
 			break;
 		case -1:
 		default:
+			/*
+			 * Filtered by min_pcnt or non IP lines when
+			 * context != 0
+			 */
 			if (!context)
 				break;
 			if (queue_len == context)

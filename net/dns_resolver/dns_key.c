@@ -46,6 +46,18 @@ const struct cred *dns_resolver_cache;
 
 #define	DNS_ERRORNO_OPTION	"dnserror"
 
+/*
+ * Instantiate a user defined key for dns_resolver.
+ *
+ * The data must be a NUL-terminated string, with the NUL char accounted in
+ * datalen.
+ *
+ * If the data contains a '#' characters, then we take the clause after each
+ * one to be an option of the form 'key=value'.  The actual data of interest is
+ * the string leading up to the first '#'.  For instance:
+ *
+ *        "ip1,ip2,...#foo=bar"
+ */
 static int
 dns_resolver_instantiate(struct key *key, const void *_data, size_t datalen)
 {
@@ -63,11 +75,11 @@ dns_resolver_instantiate(struct key *key, const void *_data, size_t datalen)
 		return -EINVAL;
 	datalen--;
 
-	
+	/* deal with any options embedded in the data */
 	end = data + datalen;
 	opt = memchr(data, '#', datalen);
 	if (!opt) {
-		
+		/* no options: the entire data is the result */
 		kdebug("no options");
 		result_len = datalen;
 	} else {
@@ -92,12 +104,14 @@ dns_resolver_instantiate(struct key *key, const void *_data, size_t datalen)
 			eq = memchr(opt, '=', opt_len) ?: end;
 			opt_nlen = eq - opt;
 			eq++;
-			opt_vlen = next_opt - eq; 
+			opt_vlen = next_opt - eq; /* will be -1 if no value */
 
 			tmp = opt_vlen >= 0 ? opt_vlen : 0;
 			kdebug("option '%*.*s' val '%*.*s'",
 			       opt_nlen, opt_nlen, opt, tmp, tmp, eq);
 
+			/* see if it's an error number representing a DNS error
+			 * that's to be recorded as the result in this key */
 			if (opt_nlen == sizeof(DNS_ERRORNO_OPTION) - 1 &&
 			    memcmp(opt, DNS_ERRORNO_OPTION, opt_nlen) == 0) {
 				kdebug("dns error number option");
@@ -125,6 +139,8 @@ dns_resolver_instantiate(struct key *key, const void *_data, size_t datalen)
 		} while (opt = next_opt + 1, opt < end);
 	}
 
+	/* don't cache the result if we're caching an error saying there's no
+	 * result */
 	if (key->type_data.x[0]) {
 		kleave(" = 0 [h_error %ld]", key->type_data.x[0]);
 		return 0;
@@ -150,6 +166,12 @@ dns_resolver_instantiate(struct key *key, const void *_data, size_t datalen)
 	return 0;
 }
 
+/*
+ * The description is of the form "[<type>:]<domain_name>"
+ *
+ * The domain name may be a simple name or an absolute domain name (which
+ * should end with a period).  The domain name is case-independent.
+ */
 static int
 dns_resolver_match(const struct key *key, const void *description)
 {
@@ -182,6 +204,9 @@ no_match:
 	return ret;
 }
 
+/*
+ * Describe a DNS key
+ */
 static void dns_resolver_describe(const struct key *key, struct seq_file *m)
 {
 	int err = key->type_data.x[0];
@@ -195,6 +220,10 @@ static void dns_resolver_describe(const struct key *key, struct seq_file *m)
 	}
 }
 
+/*
+ * read the DNS data
+ * - the key's semaphore is read-locked
+ */
 static long dns_resolver_read(const struct key *key,
 			      char __user *buffer, size_t buflen)
 {
@@ -223,6 +252,12 @@ static int __init init_dns_resolver(void)
 	printk(KERN_NOTICE "Registering the %s key type\n",
 	       key_type_dns_resolver.name);
 
+	/* create an override credential set with a special thread keyring in
+	 * which DNS requests are cached
+	 *
+	 * this is used to prevent malicious redirections from being installed
+	 * with add_key().
+	 */
 	cred = prepare_kernel_cred(NULL);
 	if (!cred)
 		return -ENOMEM;
@@ -244,6 +279,8 @@ static int __init init_dns_resolver(void)
 	if (ret < 0)
 		goto failed_put_key;
 
+	/* instruct request_key() to use this special keyring as a cache for
+	 * the results it looks up */
 	set_bit(KEY_FLAG_ROOT_CAN_CLEAR, &keyring->flags);
 	cred->thread_keyring = keyring;
 	cred->jit_keyring = KEY_REQKEY_DEFL_THREAD_KEYRING;

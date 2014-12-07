@@ -51,7 +51,7 @@ static __be16 gprs_type_trans(struct sk_buff *skb)
 	pvfc = skb_header_pointer(skb, 0, 1, &buf);
 	if (!pvfc)
 		return htons(0);
-	
+	/* Look at IP version field */
 	switch (*pvfc >> 4) {
 	case 4:
 		return htons(ETH_P_IP);
@@ -69,6 +69,9 @@ static void gprs_writeable(struct gprs_dev *gp)
 		netif_wake_queue(dev);
 }
 
+/*
+ * Socket callbacks
+ */
 
 static void gprs_state_change(struct sock *sk)
 {
@@ -97,6 +100,10 @@ static int gprs_recv(struct gprs_dev *gp, struct sk_buff *skb)
 		struct sk_buff *rskb, *fs;
 		int flen = 0;
 
+		/* Phonet Pipe data header may be misaligned (3 bytes),
+		 * so wrap the IP packet as a single fragment of an head-less
+		 * socket buffer. The network stack will pull what it needs,
+		 * but at least, the whole IP payload is not memcpy'd. */
 		rskb = netdev_alloc_skb(dev, 0);
 		if (!rskb) {
 			err = -ENOBUFS;
@@ -107,7 +114,7 @@ static int gprs_recv(struct gprs_dev *gp, struct sk_buff *skb)
 		rskb->data_len += rskb->len;
 		rskb->truesize += rskb->len;
 
-		
+		/* Avoid nested fragments */
 		skb_walk_frags(skb, fs)
 			flen += fs->len;
 		skb->next = skb_shinfo(skb)->frag_list;
@@ -158,6 +165,9 @@ static void gprs_write_space(struct sock *sk)
 		gprs_writeable(gp);
 }
 
+/*
+ * Network device callbacks
+ */
 
 static int gprs_open(struct net_device *dev)
 {
@@ -238,7 +248,14 @@ static void gprs_setup(struct net_device *dev)
 	dev->destructor		= free_netdev;
 }
 
+/*
+ * External interface
+ */
 
+/*
+ * Attach a GPRS interface to a datagram socket.
+ * Returns the interface index on success, negative error code on error.
+ */
 int gprs_attach(struct sock *sk)
 {
 	static const char ifname[] = "gprs%d";
@@ -247,9 +264,9 @@ int gprs_attach(struct sock *sk)
 	int err;
 
 	if (unlikely(sk->sk_type == SOCK_STREAM))
-		return -EINVAL; 
+		return -EINVAL; /* need packet boundaries */
 
-	
+	/* Create net device */
 	dev = alloc_netdev(sizeof(*gp), ifname, gprs_setup);
 	if (!dev)
 		return -ENOMEM;

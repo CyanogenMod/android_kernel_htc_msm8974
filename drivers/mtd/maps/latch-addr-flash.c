@@ -30,7 +30,7 @@ struct latch_addr_flash_info {
 	void			(*set_window)(unsigned long offset, void *data);
 	void			*data;
 
-	
+	/* cache; could be found out of res */
 	unsigned long		win_mask;
 
 	spinlock_t		lock;

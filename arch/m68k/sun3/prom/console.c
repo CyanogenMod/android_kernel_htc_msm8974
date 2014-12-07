@@ -12,6 +12,9 @@
 #include <asm/oplib.h>
 #include <linux/string.h>
 
+/* Non blocking get character from console input device, returns -1
+ * if no input was taken.  This can be used for polling.
+ */
 int
 prom_nbgetchar(void)
 {
@@ -21,9 +24,12 @@ prom_nbgetchar(void)
 	local_irq_save(flags);
 		i = (*(romvec->pv_nbgetchar))();
 	local_irq_restore(flags);
-	return i; 
+	return i; /* Ugh, we could spin forever on unsupported proms ;( */
 }
 
+/* Non blocking put character to console device, returns -1 if
+ * unsuccessful.
+ */
 int
 prom_nbputchar(char c)
 {
@@ -33,9 +39,10 @@ prom_nbputchar(char c)
 	local_irq_save(flags);
 		i = (*(romvec->pv_nbputchar))(c);
 	local_irq_restore(flags);
-	return i; 
+	return i; /* Ugh, we could spin forever on unsupported proms ;( */
 }
 
+/* Blocking version of get character routine above. */
 char
 prom_getchar(void)
 {
@@ -44,6 +51,7 @@ prom_getchar(void)
 	return (char) character;
 }
 
+/* Blocking version of put character routine above. */
 void
 prom_putchar(char c)
 {
@@ -51,6 +59,7 @@ prom_putchar(char c)
 	return;
 }
 
+/* Query for input device type */
 #if 0
 enum prom_input_device
 prom_query_input_device()
@@ -98,6 +107,7 @@ prom_query_input_device()
 }
 #endif
 
+/* Query for output device type */
 
 #if 0
 enum prom_output_device
@@ -146,7 +156,7 @@ prom_query_output_device()
 			}
 			return PROMDEV_O_UNK;
 		} else {
-			
+			/* This works on SS-2 (an early OpenFirmware) still. */
 			switch(*romvec->pv_stdin) {
 			case PROMDEV_TTYA:	return PROMDEV_OTTYA;
 			case PROMDEV_TTYB:	return PROMDEV_OTTYB;

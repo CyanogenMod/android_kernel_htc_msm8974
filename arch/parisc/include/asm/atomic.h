@@ -8,16 +8,29 @@
 #include <linux/types.h>
 #include <asm/cmpxchg.h>
 
+/*
+ * Atomic operations that C can't guarantee us.  Useful for
+ * resource counting etc..
+ *
+ * And probably incredibly slow on parisc.  OTOH, we don't
+ * have to write any serious assembly.   prumpf
+ */
 
 #ifdef CONFIG_SMP
 #include <asm/spinlock.h>
-#include <asm/cache.h>		
+#include <asm/cache.h>		/* we use L1_CACHE_BYTES */
 
+/* Use an array of spinlocks for our atomic_ts.
+ * Hash function to index into a different SPINLOCK.
+ * Since "a" is usually an address, use one spinlock per cacheline.
+ */
 #  define ATOMIC_HASH_SIZE 4
 #  define ATOMIC_HASH(a) (&(__atomic_hash[ (((unsigned long) (a))/L1_CACHE_BYTES) & (ATOMIC_HASH_SIZE-1) ]))
 
 extern arch_spinlock_t __atomic_hash[ATOMIC_HASH_SIZE] __lock_aligned;
 
+/* Can't use raw_spin_lock_irq because of #include problems, so
+ * this is the substitute */
 #define _atomic_spin_lock_irqsave(l,f) do {	\
 	arch_spinlock_t *s = ATOMIC_HASH(l);		\
 	local_irq_save(f);			\
@@ -36,7 +49,15 @@ extern arch_spinlock_t __atomic_hash[ATOMIC_HASH_SIZE] __lock_aligned;
 #  define _atomic_spin_unlock_irqrestore(l,f) do { local_irq_restore(f); } while (0)
 #endif
 
+/*
+ * Note that we need not lock read accesses - aligned word writes/reads
+ * are atomic, so a reader never sees inconsistent values.
+ */
 
+/* It's possible to reduce all atomic operations to either
+ * __atomic_add_return, atomic_set and atomic_read (the latter
+ * is there only for consistency).
+ */
 
 static __inline__ int __atomic_add_return(int i, atomic_t *v)
 {
@@ -65,9 +86,19 @@ static __inline__ int atomic_read(const atomic_t *v)
 	return (*(volatile int *)&(v)->counter);
 }
 
+/* exported interface */
 #define atomic_cmpxchg(v, o, n) (cmpxchg(&((v)->counter), (o), (n)))
 #define atomic_xchg(v, new) (xchg(&((v)->counter), new))
 
+/**
+ * __atomic_add_unless - add unless the number is a given value
+ * @v: pointer of type atomic_t
+ * @a: the amount to add to v...
+ * @u: ...unless v is equal to u.
+ *
+ * Atomically adds @a to @v, so long as it was not @u.
+ * Returns the old value of @v.
+ */
 static __inline__ int __atomic_add_unless(atomic_t *v, int a, int u)
 {
 	int c, old;
@@ -96,6 +127,14 @@ static __inline__ int __atomic_add_unless(atomic_t *v, int a, int u)
 
 #define atomic_add_negative(a, v)	(atomic_add_return((a), (v)) < 0)
 
+/*
+ * atomic_inc_and_test - increment and test
+ * @v: pointer of type atomic_t
+ *
+ * Atomically increments @v by 1
+ * and returns true if the result is zero, or false for all
+ * other cases.
+ */
 #define atomic_inc_and_test(v) (atomic_inc_return(v) == 0)
 
 #define atomic_dec_and_test(v)	(atomic_dec_return(v) == 0)
@@ -159,10 +198,20 @@ atomic64_read(const atomic64_t *v)
 #define atomic64_dec_and_test(v)	(atomic64_dec_return(v) == 0)
 #define atomic64_sub_and_test(i,v)	(atomic64_sub_return((i),(v)) == 0)
 
+/* exported interface */
 #define atomic64_cmpxchg(v, o, n) \
 	((__typeof__((v)->counter))cmpxchg(&((v)->counter), (o), (n)))
 #define atomic64_xchg(v, new) (xchg(&((v)->counter), new))
 
+/**
+ * atomic64_add_unless - add unless the number is a given value
+ * @v: pointer of type atomic64_t
+ * @a: the amount to add to v...
+ * @u: ...unless v is equal to u.
+ *
+ * Atomically adds @a to @v, so long as it was not @u.
+ * Returns the old value of @v.
+ */
 static __inline__ int atomic64_add_unless(atomic64_t *v, long a, long u)
 {
 	long c, old;
@@ -180,7 +229,7 @@ static __inline__ int atomic64_add_unless(atomic64_t *v, long a, long u)
 
 #define atomic64_inc_not_zero(v) atomic64_add_unless((v), 1, 0)
 
-#endif 
+#endif /* !CONFIG_64BIT */
 
 
-#endif 
+#endif /* _ASM_PARISC_ATOMIC_H_ */

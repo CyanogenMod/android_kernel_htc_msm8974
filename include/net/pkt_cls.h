@@ -5,6 +5,7 @@
 #include <net/sch_generic.h>
 #include <net/act_api.h>
 
+/* Basic packet classifier frontend definitions. */
 
 struct tcf_walker {
 	int	stop;
@@ -65,11 +66,21 @@ struct tcf_exts {
 #endif
 };
 
+/* Map to export classifier specific extension TLV types to the
+ * generic extensions API. Unsupported extensions must be set to 0.
+ */
 struct tcf_ext_map {
 	int action;
 	int police;
 };
 
+/**
+ * tcf_exts_is_predicative - check if a predicative extension is present
+ * @exts: tc filter extensions handle
+ *
+ * Returns 1 if a predicative extension is present, i.e. an extension which
+ * might cause further actions and thus overrule the regular tcf_result.
+ */
 static inline int
 tcf_exts_is_predicative(struct tcf_exts *exts)
 {
@@ -80,13 +91,30 @@ tcf_exts_is_predicative(struct tcf_exts *exts)
 #endif
 }
 
+/**
+ * tcf_exts_is_available - check if at least one extension is present
+ * @exts: tc filter extensions handle
+ *
+ * Returns 1 if at least one extension is present.
+ */
 static inline int
 tcf_exts_is_available(struct tcf_exts *exts)
 {
-	
+	/* All non-predicative extensions must be added here. */
 	return tcf_exts_is_predicative(exts);
 }
 
+/**
+ * tcf_exts_exec - execute tc filter extensions
+ * @skb: socket buffer
+ * @exts: tc filter extensions handle
+ * @res: desired result
+ *
+ * Executes all configured extensions. Returns 0 on a normal execution,
+ * a negative number if the filter must be considered unmatched or
+ * a positive action code (TC_ACT_*) which must be returned to the
+ * underlying layer.
+ */
 static inline int
 tcf_exts_exec(struct sk_buff *skb, struct tcf_exts *exts,
 	       struct tcf_result *res)
@@ -109,6 +137,9 @@ extern int tcf_exts_dump(struct sk_buff *skb, struct tcf_exts *exts,
 extern int tcf_exts_dump_stats(struct sk_buff *skb, struct tcf_exts *exts,
 	                       const struct tcf_ext_map *map);
 
+/**
+ * struct tcf_pkt_info - packet information
+ */
 struct tcf_pkt_info {
 	unsigned char *		ptr;
 	int			nexthdr;
@@ -118,6 +149,15 @@ struct tcf_pkt_info {
 
 struct tcf_ematch_ops;
 
+/**
+ * struct tcf_ematch - extended match (ematch)
+ * 
+ * @matchid: identifier to allow userspace to reidentify a match
+ * @flags: flags specifying attributes and the relation to other matches
+ * @ops: the operations lookup table of the corresponding ematch module
+ * @datalen: length of the ematch specific configuration data
+ * @data: ematch specific data
+ */
 struct tcf_ematch {
 	struct tcf_ematch_ops * ops;
 	unsigned long		data;
@@ -160,12 +200,30 @@ static inline int tcf_em_early_end(struct tcf_ematch *em, int result)
 	return 0;
 }
 	
+/**
+ * struct tcf_ematch_tree - ematch tree handle
+ *
+ * @hdr: ematch tree header supplied by userspace
+ * @matches: array of ematches
+ */
 struct tcf_ematch_tree {
 	struct tcf_ematch_tree_hdr hdr;
 	struct tcf_ematch *	matches;
 	
 };
 
+/**
+ * struct tcf_ematch_ops - ematch module operations
+ * 
+ * @kind: identifier (kind) of this ematch module
+ * @datalen: length of expected configuration data (optional)
+ * @change: called during validation (optional)
+ * @match: called during ematch tree evaluation, must return 1/0
+ * @destroy: called during destroyage (optional)
+ * @dump: called during dumping process (optional)
+ * @owner: owner, must be set to THIS_MODULE
+ * @link: link to previous/next ematch module (internal use)
+ */
 struct tcf_ematch_ops {
 	int			kind;
 	int			datalen;
@@ -189,6 +247,17 @@ extern int tcf_em_tree_dump(struct sk_buff *, struct tcf_ematch_tree *, int);
 extern int __tcf_em_tree_match(struct sk_buff *, struct tcf_ematch_tree *,
 			       struct tcf_pkt_info *);
 
+/**
+ * tcf_em_tree_change - replace ematch tree of a running classifier
+ *
+ * @tp: classifier kind handle
+ * @dst: destination ematch tree variable
+ * @src: source ematch tree (temporary tree from tcf_em_tree_validate)
+ *
+ * This functions replaces the ematch tree in @dst with the ematch
+ * tree in @src. The classifier in charge of the ematch tree may be
+ * running.
+ */
 static inline void tcf_em_tree_change(struct tcf_proto *tp,
 				      struct tcf_ematch_tree *dst,
 				      struct tcf_ematch_tree *src)
@@ -198,6 +267,20 @@ static inline void tcf_em_tree_change(struct tcf_proto *tp,
 	tcf_tree_unlock(tp);
 }
 
+/**
+ * tcf_em_tree_match - evaulate an ematch tree
+ *
+ * @skb: socket buffer of the packet in question
+ * @tree: ematch tree to be used for evaluation
+ * @info: packet information examined by classifier
+ *
+ * This function matches @skb against the ematch tree in @tree by going
+ * through all ematches respecting their logic relations returning
+ * as soon as the result is obvious.
+ *
+ * Returns 1 if the ematch tree as-one matches, no ematches are configured
+ * or ematch is not enabled in the kernel, otherwise 0 is returned.
+ */
 static inline int tcf_em_tree_match(struct sk_buff *skb,
 				    struct tcf_ematch_tree *tree,
 				    struct tcf_pkt_info *info)
@@ -210,7 +293,7 @@ static inline int tcf_em_tree_match(struct sk_buff *skb,
 
 #define MODULE_ALIAS_TCF_EMATCH(kind)	MODULE_ALIAS("ematch-kind-" __stringify(kind))
 
-#else 
+#else /* CONFIG_NET_EMATCH */
 
 struct tcf_ematch_tree {
 };
@@ -221,7 +304,7 @@ struct tcf_ematch_tree {
 #define tcf_em_tree_change(tp, dst, src) do { } while(0)
 #define tcf_em_tree_match(skb, t, info) ((void)(info), 1)
 
-#endif 
+#endif /* CONFIG_NET_EMATCH */
 
 static inline unsigned char * tcf_get_base_ptr(struct sk_buff *skb, int layer)
 {
@@ -271,6 +354,6 @@ tcf_match_indev(struct sk_buff *skb, char *indev)
 
 	return 1;
 }
-#endif 
+#endif /* CONFIG_NET_CLS_IND */
 
 #endif

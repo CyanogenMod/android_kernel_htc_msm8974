@@ -1,6 +1,9 @@
 #ifndef _DMA_REMAPPING_H
 #define _DMA_REMAPPING_H
 
+/*
+ * VT-d hardware uses 4KiB page size regardless of host page size.
+ */
 #define VTD_PAGE_SHIFT		(12)
 #define VTD_PAGE_SIZE		(1UL << VTD_PAGE_SHIFT)
 #define VTD_PAGE_MASK		(((u64)-1) << VTD_PAGE_SHIFT)

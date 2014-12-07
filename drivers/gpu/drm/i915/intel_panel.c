@@ -30,7 +30,7 @@
 
 #include "intel_drv.h"
 
-#define PCI_LBPC 0xf4 
+#define PCI_LBPC 0xf4 /* legacy/combination backlight modes */
 
 void
 intel_fixed_panel_mode(struct drm_display_mode *fixed_mode,
@@ -49,6 +49,7 @@ intel_fixed_panel_mode(struct drm_display_mode *fixed_mode,
 	adjusted_mode->clock = fixed_mode->clock;
 }
 
+/* adjusted_mode has been preset to be the panel's fixed mode */
 void
 intel_pch_panel_fitting(struct drm_device *dev,
 			int fitting_mode,
@@ -60,7 +61,7 @@ intel_pch_panel_fitting(struct drm_device *dev,
 
 	x = y = width = height = 0;
 
-	
+	/* Native modes don't need fitting */
 	if (adjusted_mode->hdisplay == mode->hdisplay &&
 	    adjusted_mode->vdisplay == mode->vdisplay)
 		goto done;
@@ -74,18 +75,18 @@ intel_pch_panel_fitting(struct drm_device *dev,
 		break;
 
 	case DRM_MODE_SCALE_ASPECT:
-		
+		/* Scale but preserve the aspect ratio */
 		{
 			u32 scaled_width = adjusted_mode->hdisplay * mode->vdisplay;
 			u32 scaled_height = mode->hdisplay * adjusted_mode->vdisplay;
-			if (scaled_width > scaled_height) { 
+			if (scaled_width > scaled_height) { /* pillar */
 				width = scaled_height / mode->vdisplay;
 				if (width & 1)
 					width++;
 				x = (adjusted_mode->hdisplay - width + 1) / 2;
 				y = 0;
 				height = adjusted_mode->vdisplay;
-			} else if (scaled_width < scaled_height) { 
+			} else if (scaled_width < scaled_height) { /* letter */
 				height = scaled_width / mode->hdisplay;
 				if (height & 1)
 				    height++;
@@ -130,7 +131,7 @@ static u32 i915_read_blc_pwm_ctl(struct drm_i915_private *dev_priv)
 {
 	u32 val;
 
-	
+	/* Restore the CTL value if it lost, e.g. GPU reset */
 
 	if (HAS_PCH_SPLIT(dev_priv->dev)) {
 		val = I915_READ(BLC_PWM_PCH_CTL2);
@@ -165,6 +166,9 @@ u32 intel_panel_get_max_backlight(struct drm_device *dev)
 
 	max = i915_read_blc_pwm_ctl(dev_priv);
 	if (max == 0) {
+		/* XXX add code here to query mode clock or hardware clock
+		 * and program max PWM appropriately.
+		 */
 		printk_once(KERN_WARNING "fixme: max PWM is zero.\n");
 		return 1;
 	}
@@ -290,8 +294,10 @@ intel_panel_detect(struct drm_device *dev)
 			connector_status_connected :
 			connector_status_disconnected;
 
+	/* opregion lid state on HP 2540p is wrong at boot up,
+	 * appears to be either the BIOS or Linux ACPI fault */
 #if 0
-	
+	/* Assume that the BIOS does not lie through the OpRegion... */
 	if (dev_priv->opregion.lid_state)
 		return ioread32(dev_priv->opregion.lid_state) & 0x1 ?
 			connector_status_connected :

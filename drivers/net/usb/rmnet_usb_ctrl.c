@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,20 +25,20 @@ static char *rmnet_dev_names[MAX_RMNET_DEVS] = {"hsicctl"};
 module_param_array(rmnet_dev_names, charp, NULL, S_IRUGO | S_IWUSR);
 
 #define DEFAULT_READ_URB_LENGTH		0x1000
-#define UNLINK_TIMEOUT_MS		500 
+#define UNLINK_TIMEOUT_MS		500 /*random value*/
 
+/*Output control lines.*/
 #define ACM_CTRL_DTR		BIT(0)
 #define ACM_CTRL_RTS		BIT(1)
 
 
+/*Input control lines.*/
 #define ACM_CTRL_DSR		BIT(0)
 #define ACM_CTRL_CTS		BIT(1)
 #define ACM_CTRL_RI		BIT(2)
 #define ACM_CTRL_CD		BIT(3)
 
-#define HS_INTERVAL		7
-#define FS_LS_INTERVAL		3
-
+/*echo modem_wait > /sys/class/hsicctl/hsicctlx/modem_wait*/
 static ssize_t modem_wait_store(struct device *d, struct device_attribute *attr,
 		const char *buf, size_t n)
 {
@@ -90,9 +90,11 @@ do { \
 				pr_info(x); \
 		} while (0)
 
+/* passed in rmnet_usb_ctrl_init */
 static int num_devs;
 static int insts_per_dev;
 
+/* dynamically allocated 2-D array of num_devs*insts_per_dev ctrl_devs */
 static struct rmnet_ctrl_dev **ctrl_devs;
 static struct class	*ctrldev_classp[MAX_RMNET_DEVS];
 static dev_t		ctrldev_num[MAX_RMNET_DEVS];
@@ -153,7 +155,7 @@ static void rmnet_usb_ctrl_mux(unsigned int id, struct ctrl_pkt *cpkt)
 	hdr->mux_id = id + 1;
 	len = cpkt->data_size - sizeof(struct mux_hdr) - MAX_PAD_BYTES(4);
 
-	
+	/*add padding if len is not 4 byte aligned*/
 	pad_len =  ALIGN(len, 4) - len;
 
 	hdr->pkt_len_w_padding = cpu_to_le16(len + pad_len);
@@ -204,7 +206,7 @@ static void get_encap_work(struct work_struct *w)
 	return;
 
 resubmit_int_urb:
-	
+	/*check if it is already submitted in resume*/
 	if (!dev->inturb->anchor) {
 		usb_anchor_urb(dev->inturb, &dev->rx_submitted);
 		status = usb_submit_urb(dev->inturb, GFP_KERNEL);
@@ -229,22 +231,22 @@ static void notification_available_cb(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-	
+	/*if non zero lenght of data received while unlink*/
 	case -ENOENT:
-		
+		/*success*/
 		break;
 
-	
+	/*do not resubmit*/
 	case -ESHUTDOWN:
 	case -ECONNRESET:
 	case -EPROTO:
 		return;
 	case -EPIPE:
 		pr_err_ratelimited("%s: Stall on int endpoint\n", __func__);
-		
+		/* TBD : halt to be cleared in work */
 		return;
 
-	
+	/*resubmit*/
 	case -EOVERFLOW:
 		pr_err_ratelimited("%s: Babble error happened\n", __func__);
 	default:
@@ -262,6 +264,9 @@ static void notification_available_cb(struct urb *urb)
 	case USB_CDC_NOTIFY_RESPONSE_AVAILABLE:
 		dev->resp_avail_cnt++;
 
+		/* If MUX is not enabled, wakeup up the open process
+		 * upon first notify response available.
+		 */
 		if (!test_bit(RMNET_CTRL_DEV_READY, &dev->status)) {
 			set_bit(RMNET_CTRL_DEV_READY, &dev->status);
 			wake_up(&dev->open_wait_queue);
@@ -305,17 +310,17 @@ static void resp_avail_cb(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-		
+		/*success*/
 		break;
 
-	
+	/*do not resubmit*/
 	case -ESHUTDOWN:
 	case -ENOENT:
 	case -ECONNRESET:
 	case -EPROTO:
 		return;
 
-	
+	/*resubmit*/
 	case -EOVERFLOW:
 		pr_err_ratelimited("%s: Babble error happened\n", __func__);
 	default:
@@ -373,7 +378,7 @@ static void resp_avail_cb(struct urb *urb)
 	wake_up(&rx_dev->read_wait_queue);
 
 resubmit_int_urb:
-	
+	/*check if it is already submitted in resume*/
 	if (!dev->inturb->anchor) {
 		usb_mark_last_busy(udev);
 		usb_anchor_urb(dev->inturb, &dev->rx_submitted);
@@ -495,7 +500,7 @@ static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev,
 		return -ENOMEM;
 	}
 
-	
+	/* CDC Send Encapsulated Request packet */
 	out_ctlreq->bRequestType = (USB_DIR_OUT | USB_TYPE_CLASS |
 			     USB_RECIP_INTERFACE);
 	out_ctlreq->bRequest = USB_CDC_SEND_ENCAPSULATED_COMMAND;
@@ -513,6 +518,10 @@ static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev,
 		dev_dbg(dev->devicep, "%s: Unable to resume interface: %d\n",
 			__func__, result);
 
+		/*
+		* Revisit:  if (result == -EPERM)
+		*		rmnet_usb_suspend(dev->intf, PMSG_SUSPEND);
+		*/
 
 		usb_free_urb(sndurb);
 		kfree(out_ctlreq);
@@ -781,10 +790,18 @@ static int rmnet_ctrl_tiocmset(struct rmnet_ctrl_dev *dev, unsigned int set,
 	if (set & TIOCM_DTR)
 		dev->cbits_tomdm |= ACM_CTRL_DTR;
 
+	/*
+	 * TBD if (set & TIOCM_RTS)
+	 *	dev->cbits_tomdm |= ACM_CTRL_RTS;
+	 */
 
 	if (clear & TIOCM_DTR)
 		dev->cbits_tomdm &= ~ACM_CTRL_DTR;
 
+	/*
+	 * (clear & TIOCM_RTS)
+	 *	dev->cbits_tomdm &= ~ACM_CTRL_RTS;
+	 */
 
 	mutex_unlock(&dev->dev_lock);
 
@@ -807,7 +824,15 @@ static int rmnet_ctrl_tiocmget(struct rmnet_ctrl_dev *dev)
 
 	mutex_lock(&dev->dev_lock);
 	ret =
+	/*
+	 * TBD(dev->cbits_tolocal & ACM_CTRL_DSR ? TIOCM_DSR : 0) |
+	 * (dev->cbits_tolocal & ACM_CTRL_CTS ? TIOCM_CTS : 0) |
+	 */
 	(dev->cbits_tolocal & ACM_CTRL_CD ? TIOCM_CD : 0) |
+	/*
+	 * TBD (dev->cbits_tolocal & ACM_CTRL_RI ? TIOCM_RI : 0) |
+	 *(dev->cbits_tomdm & ACM_CTRL_RTS ? TIOCM_RTS : 0) |
+	*/
 	(dev->cbits_tomdm & ACM_CTRL_DTR ? TIOCM_DTR : 0);
 	mutex_unlock(&dev->dev_lock);
 
@@ -861,7 +886,7 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 	int				interval;
 	int				ret = 0, n;
 
-	
+	/* Find next available ctrl_dev */
 	for (n = 0; n < insts_per_dev; n++) {
 		dev = &ctrl_devs[rmnet_devnum][n];
 		if (!dev->claimed)
@@ -893,7 +918,7 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 		return -ENOMEM;
 	}
 
-	
+	/*use max pkt size from ep desc*/
 	ep = &dev->intf->cur_altsetting->endpoint[0].desc;
 	wMaxPacketSize = le16_to_cpu(ep->wMaxPacketSize);
 
@@ -912,9 +937,7 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 		dev->intf->cur_altsetting->desc.bInterfaceNumber;
 	dev->in_ctlreq->wLength = cpu_to_le16(DEFAULT_READ_URB_LENGTH);
 
-	interval = max((int)int_in->desc.bInterval,
-			(udev->speed == USB_SPEED_HIGH) ? HS_INTERVAL
-							: FS_LS_INTERVAL);
+	interval = int_in->desc.bInterval;
 
 	usb_fill_int_urb(dev->inturb, udev,
 			 dev->int_pipe,
@@ -931,13 +954,13 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 
 	dev->claimed = true;
 
-	
+	/*mux info is passed to data parameter*/
 	if (*data)
 		set_bit(RMNET_CTRL_DEV_MUX_EN, &dev->status);
 
 	*data = (unsigned long)dev;
 
-	
+	/* If MUX is enabled, wakeup the open process here */
 	if (test_bit(RMNET_CTRL_DEV_MUX_EN, &dev->status)) {
 		set_bit(RMNET_CTRL_DEV_READY, &dev->status);
 		wake_up(&dev->open_wait_queue);
@@ -953,7 +976,7 @@ void rmnet_usb_ctrl_disconnect(struct rmnet_ctrl_dev *dev)
 	clear_bit(RMNET_CTRL_DEV_READY, &dev->status);
 
 	mutex_lock(&dev->dev_lock);
-	
+	/*TBD: for now just update CD status*/
 	dev->cbits_tolocal = ~ACM_CTRL_CD;
 	dev->cbits_tomdm = ~ACM_CTRL_DTR;
 	mutex_unlock(&dev->dev_lock);
@@ -1119,7 +1142,7 @@ int rmnet_usb_ctrl_init(int no_rmnet_devs, int no_rmnet_insts_per_dev)
 		for (n = 0; n < insts_per_dev; n++) {
 			dev = &ctrl_devs[i][n];
 
-			
+			/*for debug purpose*/
 			snprintf(dev->name, CTRL_DEV_MAX_LEN, "%s%d",
 				 rmnet_dev_names[i], n);
 
@@ -1166,7 +1189,7 @@ int rmnet_usb_ctrl_init(int no_rmnet_devs, int no_rmnet_insts_per_dev)
 				return PTR_ERR(dev->devicep);
 			}
 
-			
+			/*create /sys/class/hsicctl/hsicctlx/modem_wait*/
 			status = device_create_file(dev->devicep,
 						    &dev_attr_modem_wait);
 			if (status) {

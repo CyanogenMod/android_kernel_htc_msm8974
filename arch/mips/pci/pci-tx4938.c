@@ -72,9 +72,9 @@ int __init tx4938_pciclk66_setup(void)
 {
 	int pciclk;
 
-	
+	/* Assert M66EN */
 	tx4938_ccfg_set(TX4938_CCFG_PCI66);
-	
+	/* Double PCICLK (if possible) */
 	if (__raw_readq(&tx4938_ccfgptr->pcfg) & TX4938_PCFG_PCICLKEN_ALL) {
 		unsigned int pcidivmode = 0;
 		u64 ccfg = __raw_readq(&tx4938_ccfgptr->ccfg);

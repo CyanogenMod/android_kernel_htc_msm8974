@@ -57,15 +57,17 @@ static unsigned int verbose = 5;
 module_param(verbose, int, 0644);
 MODULE_PARM_DESC(verbose, "verbose startup messages, default is 1 (yes)");
 
+/*	Need some more work	*/
 static int ca_set_slot_descr(void)
 {
-	
+	/*	We could make this more graceful ?	*/
 	return -EOPNOTSUPP;
 }
 
+/*	Need some more work	*/
 static int ca_set_pid(void)
 {
-	
+	/*	We could make this more graceful ?	*/
 	return -EOPNOTSUPP;
 }
 
@@ -112,7 +114,7 @@ static int dst_ci_command(struct dst_state* state, u8 * data, u8 *ca_string, u8 
 			dprintk(verbose, DST_CA_NOTICE, 1, " 8820 not ready");
 			goto error;
 		}
-		if (read_dst(state, ca_string, 128) < 0) {	
+		if (read_dst(state, ca_string, 128) < 0) {	/*	Try to make this dynamic	*/
 			dprintk(verbose, DST_CA_INFO, 1, " Read not successful, trying to recover");
 			dst_error_recovery(state);
 			goto error;
@@ -133,9 +135,9 @@ static int dst_put_ci(struct dst_state *state, u8 *data, int len, u8 *ca_string,
 
 	while (dst_ca_comm_err < RETRIES) {
 		dprintk(verbose, DST_CA_NOTICE, 1, " Put Command");
-		if (dst_ci_command(state, data, ca_string, len, read)) {	
+		if (dst_ci_command(state, data, ca_string, len, read)) {	// If error
 			dst_error_recovery(state);
-			dst_ca_comm_err++; 
+			dst_ca_comm_err++; // work required here.
 		} else {
 			break;
 		}
@@ -166,7 +168,7 @@ static int ca_get_app_info(struct dst_state *state)
 		(state->messages[10] << 8) | state->messages[11], __func__, (char *)(&state->messages[12]));
 	dprintk(verbose, DST_CA_INFO, 1, " ==================================================================================================");
 
-	
+	// Transform dst message to correct application_info message
 	length = state->messages[5];
 	str_length = length - 6;
 	if (str_length < 0) {
@@ -174,13 +176,13 @@ static int ca_get_app_info(struct dst_state *state)
 		dprintk(verbose, DST_CA_ERROR, 1, "Invalid string length returned in ca_get_app_info(). Recovering.");
 	}
 
-	
+	// First, the command and length fields
 	put_command_and_length(&state->messages[0], CA_APP_INFO, length);
 
-	
+	// Copy application_type, application_manufacturer and manufacturer_code
 	memcpy(&state->messages[4], &state->messages[7], 5);
 
-	
+	// Set string length and copy string
 	state->messages[9] = str_length;
 	memcpy(&state->messages[10], &state->messages[12], str_length);
 
@@ -200,14 +202,14 @@ static int ca_get_ca_info(struct dst_state *state)
 	}
 	dprintk(verbose, DST_CA_INFO, 1, " -->dst_put_ci SUCCESS !");
 
-	
+	// Print raw data
 	dprintk(verbose, DST_CA_INFO, 0, " DST data = [");
 	for (i = 0; i < state->messages[0] + 1; i++) {
 		dprintk(verbose, DST_CA_INFO, 0, " 0x%02x", state->messages[i]);
 	}
 	dprintk(verbose, DST_CA_INFO, 0, "]\n");
 
-	
+	// Set the command and length of the output
 	num_ids = state->messages[in_num_ids_pos];
 	if (num_ids >= 100) {
 		num_ids = 100;
@@ -220,7 +222,7 @@ static int ca_get_ca_info(struct dst_state *state)
 	dstPtr = out_system_id_pos;
 	for(i = 0; i < num_ids; i++) {
 		dprintk(verbose, DST_CA_INFO, 0, " 0x%02x%02x", state->messages[srcPtr + 0], state->messages[srcPtr + 1]);
-		
+		// Append to output
 		state->messages[dstPtr + 0] = state->messages[srcPtr + 0];
 		state->messages[dstPtr + 1] = state->messages[srcPtr + 1];
 		srcPtr += 2;
@@ -244,7 +246,7 @@ static int ca_get_slot_caps(struct dst_state *state, struct ca_caps *p_ca_caps, 
 	}
 	dprintk(verbose, DST_CA_NOTICE, 1, " -->dst_put_ci SUCCESS !");
 
-	
+	/*	Will implement the rest soon		*/
 
 	dprintk(verbose, DST_CA_INFO, 1, " Slot cap = [%d]", slot_cap[7]);
 	dprintk(verbose, DST_CA_INFO, 0, "===================================\n");
@@ -263,6 +265,7 @@ static int ca_get_slot_caps(struct dst_state *state, struct ca_caps *p_ca_caps, 
 	return 0;
 }
 
+/*	Need some more work	*/
 static int ca_get_slot_descr(struct dst_state *state, struct ca_msg *p_ca_message, void __user *arg)
 {
 	return -EOPNOTSUPP;
@@ -283,7 +286,7 @@ static int ca_get_slot_info(struct dst_state *state, struct ca_slot_info *p_ca_s
 	}
 	dprintk(verbose, DST_CA_INFO, 1, " -->dst_put_ci SUCCESS !");
 
-	
+	/*	Will implement the rest soon		*/
 
 	dprintk(verbose, DST_CA_INFO, 1, " Slot info = [%d]", slot_info[3]);
 	dprintk(verbose, DST_CA_INFO, 0, "===================================\n");
@@ -347,8 +350,8 @@ static int ca_get_message(struct dst_state *state, struct ca_msg *p_ca_message, 
 static int handle_dst_tag(struct dst_state *state, struct ca_msg *p_ca_message, struct ca_msg *hw_buffer, u32 length)
 {
 	if (state->dst_hw_cap & DST_TYPE_HAS_SESSION) {
-		hw_buffer->msg[2] = p_ca_message->msg[1];	
-		hw_buffer->msg[3] = p_ca_message->msg[2];	
+		hw_buffer->msg[2] = p_ca_message->msg[1];	/*	MSB	*/
+		hw_buffer->msg[3] = p_ca_message->msg[2];	/*	LSB	*/
 	} else {
 		if (length > 247) {
 			dprintk(verbose, DST_CA_ERROR, 1, " Message too long ! *** Bailing Out *** !");
@@ -362,6 +365,10 @@ static int handle_dst_tag(struct dst_state *state, struct ca_msg *p_ca_message, 
 		hw_buffer->msg[5] = length & 0xff;
 		hw_buffer->msg[6] = 0x00;
 
+		/*
+		 *	Need to compute length for EN50221 section 8.3.2, for the time being
+		 *	assuming 8.3.2 is not applicable
+		 */
 		memcpy(&hw_buffer->msg[7], &p_ca_message->msg[4], length);
 	}
 
@@ -422,45 +429,46 @@ static int ca_set_pmt(struct dst_state *state, struct ca_msg *p_ca_message, stru
 
 	length = asn_1_decode(&p_ca_message->msg[3]);
 	dprintk(verbose, DST_CA_DEBUG, 1, " CA Message length=[%d]", length);
-	debug_string(&p_ca_message->msg[4], length, 0); 
+	debug_string(&p_ca_message->msg[4], length, 0); /*	length is excluding tag & length	*/
 
 	memset(hw_buffer->msg, '\0', length);
 	handle_dst_tag(state, p_ca_message, hw_buffer, length);
 	put_checksum(hw_buffer->msg, hw_buffer->msg[0]);
 
-	debug_string(hw_buffer->msg, (length + tag_length), 0); 
+	debug_string(hw_buffer->msg, (length + tag_length), 0); /*	tags too	*/
 	write_to_8820(state, hw_buffer, (length + tag_length), reply);
 
 	return 0;
 }
 
 
+/*	Board supports CA PMT reply ?		*/
 static int dst_check_ca_pmt(struct dst_state *state, struct ca_msg *p_ca_message, struct ca_msg *hw_buffer)
 {
 	int ca_pmt_reply_test = 0;
 
-	
-	
+	/*	Do test board			*/
+	/*	Not there yet but soon		*/
 
-	
+	/*	CA PMT Reply capable		*/
 	if (ca_pmt_reply_test) {
 		if ((ca_set_pmt(state, p_ca_message, hw_buffer, 1, GET_REPLY)) < 0) {
 			dprintk(verbose, DST_CA_ERROR, 1, " ca_set_pmt.. failed !");
 			return -1;
 		}
 
-	
-	
+	/*	Process CA PMT Reply		*/
+	/*	will implement soon		*/
 		dprintk(verbose, DST_CA_ERROR, 1, " Not there yet");
 	}
-	
+	/*	CA PMT Reply not capable	*/
 	if (!ca_pmt_reply_test) {
 		if ((ca_set_pmt(state, p_ca_message, hw_buffer, 0, NO_REPLY)) < 0) {
 			dprintk(verbose, DST_CA_ERROR, 1, " ca_set_pmt.. failed !");
 			return -1;
 		}
 		dprintk(verbose, DST_CA_NOTICE, 1, " ca_set_pmt.. success !");
-	
+	/*	put a dummy message		*/
 
 	}
 	return 0;
@@ -488,8 +496,8 @@ static int ca_send_message(struct dst_state *state, struct ca_msg *p_ca_message,
 
 
 	if (p_ca_message->msg) {
-		ca_message_header_len = p_ca_message->length;	
-		
+		ca_message_header_len = p_ca_message->length;	/*	Restore it back when you are done	*/
+		/*	EN50221 tag	*/
 		command = 0;
 
 		for (i = 0; i < 3; i++) {
@@ -502,7 +510,7 @@ static int ca_send_message(struct dst_state *state, struct ca_msg *p_ca_message,
 		switch (command) {
 		case CA_PMT:
 			dprintk(verbose, DST_CA_DEBUG, 1, "Command = SEND_CA_PMT");
-			if ((ca_set_pmt(state, p_ca_message, hw_buffer, 0, 0)) < 0) {	
+			if ((ca_set_pmt(state, p_ca_message, hw_buffer, 0, 0)) < 0) {	// code simplification started
 				dprintk(verbose, DST_CA_ERROR, 1, " -->CA_PMT Failed !");
 				result = -1;
 				goto free_mem_and_exit;
@@ -511,7 +519,7 @@ static int ca_send_message(struct dst_state *state, struct ca_msg *p_ca_message,
 			break;
 		case CA_PMT_REPLY:
 			dprintk(verbose, DST_CA_INFO, 1, "Command = CA_PMT_REPLY");
-			
+			/*      Have to handle the 2 basic types of cards here  */
 			if ((dst_check_ca_pmt(state, p_ca_message, hw_buffer)) < 0) {
 				dprintk(verbose, DST_CA_ERROR, 1, " -->CA_PMT_REPLY Failed !");
 				result = -1;
@@ -519,7 +527,7 @@ static int ca_send_message(struct dst_state *state, struct ca_msg *p_ca_message,
 			}
 			dprintk(verbose, DST_CA_INFO, 1, " -->CA_PMT_REPLY Success !");
 			break;
-		case CA_APP_INFO_ENQUIRY:		
+		case CA_APP_INFO_ENQUIRY:		// only for debugging
 			dprintk(verbose, DST_CA_INFO, 1, " Getting Cam Application information");
 
 			if ((ca_get_app_info(state)) < 0) {
@@ -569,7 +577,7 @@ static long dst_ca_ioctl(struct file *file, unsigned int cmd, unsigned long ioct
 		goto free_mem_and_exit;
 	}
 
-	
+	/*	We have now only the standard ioctl's, the driver is upposed to handle internals.	*/
 	switch (cmd) {
 	case CA_SEND_MSG:
 		dprintk(verbose, DST_CA_INFO, 1, " Sending message");

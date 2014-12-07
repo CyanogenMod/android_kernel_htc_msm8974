@@ -9,6 +9,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * Qualcomm Secure Service Module(SSM) driver
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -30,6 +33,7 @@
 #include "qseecom_kernel.h"
 #include "ssm.h"
 
+/* Macros */
 #define SSM_DEV_NAME			"ssm"
 #define MPSS_SUBSYS			0
 #define SSM_INFO_CMD_ID			1
@@ -41,6 +45,7 @@
 #define TZAPP_NAME			"SsmApp"
 #define CHANNEL_NAME			"SSM_RTR_MODEM_APPS"
 
+/* SSM driver structure.*/
 struct ssm_driver {
 	int32_t app_status;
 	int32_t update_status;
@@ -68,6 +73,9 @@ static unsigned int getint(char *buff, unsigned long *res)
 	return kstrtoul(skip_spaces(value), 10, res);
 }
 
+/*
+ * Setup CMD/RSP pointers.
+ */
 static void setup_cmd_rsp_buffers(struct qseecom_handle *handle, void **cmd,
 		int *cmd_len, void **resp, int *resp_len)
 {
@@ -80,6 +88,9 @@ static void setup_cmd_rsp_buffers(struct qseecom_handle *handle, void **cmd,
 		*resp_len = QSEECOM_ALIGN(*resp_len);
 }
 
+/*
+ * Send packet to modem over SMD channel.
+ */
 static int update_modem(enum ssm_ipc_req ipc_req, struct ssm_driver *ssm,
 		int length, char *data)
 {
@@ -105,6 +116,16 @@ out:
 	return rc;
 }
 
+/*
+ * Header Format
+ * Each member of header is of 10 byte (ASCII).
+ * Each entry is separated by '|' delimiter.
+ * |<-10 bytes->|<-10 bytes->|
+ * |-------------------------|
+ * | IPC code   | error code |
+ * |-------------------------|
+ *
+ */
 static int decode_packet(char *buffer, struct ssm_common_msg *pkt)
 {
 	int rc;
@@ -145,6 +166,9 @@ static void process_message(struct ssm_common_msg pkt, struct ssm_driver *ssm)
 	};
 }
 
+/*
+ * Work function to handle and process packets coming from modem.
+ */
 static void ssm_app_modem_work_fn(struct work_struct *work)
 {
 	int sz, rc;
@@ -182,6 +206,9 @@ unlock:
 	mutex_unlock(&ssm->mutex);
 }
 
+/*
+ * MODEM-APPS smd channel callback function.
+ */
 static void modem_request(void *ctxt, unsigned event)
 {
 	struct ssm_driver *ssm;
@@ -200,11 +227,14 @@ static void modem_request(void *ctxt, unsigned event)
 	};
 }
 
+/*
+ * Load SSM application in TZ and start application:
+ */
 static int ssm_load_app(struct ssm_driver *ssm)
 {
 	int rc;
 
-	
+	/* Load the APP */
 	rc = qseecom_start_app(&ssm->qseecom_handle, TZAPP_NAME, SZ_4K);
 	if (rc < 0) {
 		dev_err(ssm->dev, "Unable to load SSM app\n");
@@ -263,7 +293,7 @@ static int __devinit ssm_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Allocate response buffer */
 	drv->resp = devm_kzalloc(&pdev->dev,
 			sizeof(struct tzapp_get_mode_info_rsp),
 			GFP_KERNEL);
@@ -272,7 +302,7 @@ static int __devinit ssm_probe(struct platform_device *pdev)
 		goto exit;
 	}
 
-	
+	/* Initialize the driver structure */
 	drv->app_status = RETRY;
 	drv->ready = false;
 	drv->update_status = FAILED;
@@ -281,7 +311,7 @@ static int __devinit ssm_probe(struct platform_device *pdev)
 	drv->channel_name = (char *)pdata->channel_name;
 	INIT_WORK(&drv->ipc_work, ssm_app_modem_work_fn);
 
-	
+	/* Allocate memory for smd buffer */
 	drv->smd_buffer = devm_kzalloc(&pdev->dev,
 			(sizeof(char) * ATOM_MSG_LEN), GFP_KERNEL);
 	if (!drv->smd_buffer) {
@@ -308,11 +338,17 @@ static int __devexit ssm_remove(struct platform_device *pdev)
 
 	if (!ssm_drv)
 		return 0;
+	/*
+	 * Step to exit
+	 * 1. set ready to 0 (oem access closed).
+	 * 2. Close SMD modem connection closed.
+	 * 3. cleanup ion.
+	 */
 	ssm_drv->ready = false;
 	smd_close(ssm_drv->ch);
 	flush_work_sync(&ssm_drv->ipc_work);
 
-	
+	/* Shutdown tzapp */
 	dev_dbg(&pdev->dev, "Shutting down TZapp\n");
 	qseecom_shutdown_app(&ssm_drv->qseecom_handle);
 
@@ -337,20 +373,28 @@ static struct platform_driver ssm_pdriver = {
 };
 module_platform_driver(ssm_pdriver);
 
+/*
+ * Interface for external OEM driver.
+ * This interface supports following functionalities:
+ * 1. Set mode (encrypted mode and it's length is passed as parameter).
+ * 2. Set mode from TZ (read encrypted mode from TZ)
+ * 3. Get status of mode update.
+ *
+ */
 int ssm_oem_driver_intf(int cmd, char *mode, int len)
 {
 	int rc, req_len, resp_len;
 	struct tzapp_get_mode_info_req *get_mode_req;
 	struct tzapp_get_mode_info_rsp *get_mode_resp;
 
-	
+	/* If ssm_drv is NULL, probe failed */
 	if (!ssm_drv)
 		return -ENODEV;
 
 	mutex_lock(&ssm_drv->mutex);
 
 	if (ssm_drv->app_status == RETRY) {
-		
+		/* Load TZAPP */
 		rc = ssm_load_app(ssm_drv);
 		if (rc) {
 			rc = -ENODEV;
@@ -361,7 +405,7 @@ int ssm_oem_driver_intf(int cmd, char *mode, int len)
 		goto unlock;
 	}
 
-	
+	/* Open modem SMD interface */
 	if (!ssm_drv->ready) {
 		rc = smd_open(ssm_drv->channel_name, &ssm_drv->ch, ssm_drv,
 							modem_request);
@@ -372,13 +416,13 @@ int ssm_oem_driver_intf(int cmd, char *mode, int len)
 			ssm_drv->ready = true;
 	}
 
-	
+	/* Try again modem key-exchange not yet done.*/
 	if (!ssm_drv->key_status) {
 		rc = -EAGAIN;
 		goto unlock;
 	}
 
-	
+	/* Set return status to success */
 	rc = 0;
 
 	switch (cmd) {
@@ -387,7 +431,7 @@ int ssm_oem_driver_intf(int cmd, char *mode, int len)
 
 	case SSM_MODE_INFO_READY:
 		ssm_drv->update_status = RETRY;
-		
+		/* Fill command structure */
 		req_len = sizeof(struct tzapp_get_mode_info_req);
 		resp_len = sizeof(struct tzapp_get_mode_info_rsp);
 		setup_cmd_rsp_buffers(ssm_drv->qseecom_handle,
@@ -422,7 +466,7 @@ int ssm_oem_driver_intf(int cmd, char *mode, int len)
 			rc = -EINVAL;
 			break;
 		}
-		
+		/* Send mode_info to modem */
 		rc = update_modem(SSM_ATOM_MODE_UPDATE, ssm_drv,
 				get_mode_resp->enc_mode_len,
 				get_mode_resp->enc_mode_info);
@@ -441,7 +485,7 @@ int ssm_oem_driver_intf(int cmd, char *mode, int len)
 		memcpy(ssm_drv->resp->enc_mode_info, mode, len);
 		ssm_drv->resp->enc_mode_len = len;
 
-		
+		/* Send mode_info to modem */
 		rc = update_modem(SSM_ATOM_MODE_UPDATE, ssm_drv,
 				ssm_drv->resp->enc_mode_len,
 				ssm_drv->resp->enc_mode_info);

@@ -145,13 +145,13 @@ void __init ks8695_init_irq(void)
 {
 	unsigned int irq;
 
-	
+	/* Disable all interrupts initially */
 	__raw_writel(0, KS8695_IRQ_VA + KS8695_INTMC);
 	__raw_writel(0, KS8695_IRQ_VA + KS8695_INTEN);
 
 	for (irq = 0; irq < NR_IRQS; irq++) {
 		switch (irq) {
-			
+			/* Level-triggered interrupts */
 			case KS8695_IRQ_BUS_ERROR:
 			case KS8695_IRQ_UART_MODEM_STATUS:
 			case KS8695_IRQ_UART_LINE_STATUS:
@@ -163,9 +163,9 @@ void __init ks8695_init_irq(void)
 							 handle_level_irq);
 				break;
 
-			
+			/* Edge-triggered interrupts */
 			default:
-				
+				/* clear pending bit */
 				ks8695_irq_ack(irq_get_irq_data(irq));
 				irq_set_chip_and_handler(irq,
 							 &ks8695_irq_edge_chip,

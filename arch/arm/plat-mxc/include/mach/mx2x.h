@@ -23,7 +23,9 @@
 #ifndef __MACH_MX2x_H__
 #define __MACH_MX2x_H__
 
+/* The following addresses are common between i.MX21 and i.MX27 */
 
+/* Register offsets */
 #define MX2x_AIPI_BASE_ADDR		0x10000000
 #define MX2x_AIPI_SIZE			SZ_1M
 #define MX2x_DMA_BASE_ADDR			(MX2x_AIPI_BASE_ADDR + 0x01000)
@@ -65,6 +67,7 @@
 #define MX2x_SAHB1_SIZE			SZ_1M
 #define MX2x_CSI_BASE_ADDR			(MX2x_SAHB1_BASE_ADDR + 0x0000)
 
+/* fixed interrupt numbers */
 #define MX2x_INT_CSPI3		6
 #define MX2x_INT_GPIO		8
 #define MX2x_INT_SDHC2		10
@@ -109,6 +112,7 @@
 #define MX2x_INT_SLCDC		60
 #define MX2x_INT_LCDC		61
 
+/* fixed DMA request numbers */
 #define MX2x_DMA_REQ_CSPI3_RX	1
 #define MX2x_DMA_REQ_CSPI3_TX	2
 #define MX2x_DMA_REQ_EXT	3
@@ -137,4 +141,4 @@
 #define MX2x_DMA_REQ_CSI_STAT	30
 #define MX2x_DMA_REQ_CSI_RX	31
 
-#endif 
+#endif /* ifndef __MACH_MX2x_H__ */

@@ -40,7 +40,7 @@ long probe_kernel_read(void *dst, const void *src, size_t size)
 		case BFIN_MEM_ACCESS_CORE:
 		case BFIN_MEM_ACCESS_CORE_ONLY:
 			return __probe_kernel_read(dst, src, size);
-			
+			/* XXX: should support IDMA here with SMP */
 		case BFIN_MEM_ACCESS_DMA:
 			if (dma_memcpy(dst, src, size))
 				return 0;
@@ -81,7 +81,7 @@ long probe_kernel_write(void *dst, const void *src, size_t size)
 		case BFIN_MEM_ACCESS_CORE:
 		case BFIN_MEM_ACCESS_CORE_ONLY:
 			return __probe_kernel_write(dst, src, size);
-			
+			/* XXX: should support IDMA here with SMP */
 		case BFIN_MEM_ACCESS_DMA:
 			if (dma_memcpy(dst, src, size))
 				return 0;

@@ -24,16 +24,18 @@
 #define ECHOCARD_HAS_VMIXER
 #define ECHOCARD_HAS_STEREO_BIG_ENDIAN32
 
-#define PX_ANALOG_OUT	0	
-#define PX_DIGITAL_OUT	8	
-#define PX_ANALOG_IN	8	
-#define PX_DIGITAL_IN	10	
+/* Pipe indexes */
+#define PX_ANALOG_OUT	0	/* 8 */
+#define PX_DIGITAL_OUT	8	/* 0 */
+#define PX_ANALOG_IN	8	/* 2 */
+#define PX_DIGITAL_IN	10	/* 0 */
 #define PX_NUM		10
 
-#define BX_ANALOG_OUT	0	
-#define BX_DIGITAL_OUT	2	
-#define BX_ANALOG_IN	2	
-#define BX_DIGITAL_IN	4	
+/* Bus indexes */
+#define BX_ANALOG_OUT	0	/* 2 */
+#define BX_DIGITAL_OUT	2	/* 0 */
+#define BX_ANALOG_IN	2	/* 2 */
+#define BX_DIGITAL_IN	4	/* 0 */
 #define BX_NUM		4
 
 
@@ -68,7 +70,7 @@ static const struct firmware card_fw[] = {
 };
 
 static DEFINE_PCI_DEVICE_TABLE(snd_echo_ids) = {
-	{0x1057, 0x3410, 0xECC0, 0x00D0, 0, 0, 0},	
+	{0x1057, 0x3410, 0xECC0, 0x00D0, 0, 0, 0},	/* Indigo IOx */
 	{0,}
 };
 

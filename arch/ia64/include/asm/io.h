@@ -21,11 +21,17 @@
 
 #include <asm/unaligned.h>
 
+/* We don't use IO slowdowns on the ia64, but.. */
 #define __SLOW_DOWN_IO	do { } while (0)
 #define SLOW_DOWN_IO	do { } while (0)
 
 #define __IA64_UNCACHED_OFFSET	RGN_BASE(RGN_UNCACHED)
 
+/*
+ * The legacy I/O space defined by the ia64 architecture supports only 65536 ports, but
+ * large machines may have multiple other I/O spaces so we can't place any a priori limit
+ * on IO_SPACE_LIMIT.  These additional spaces are described in ACPI.
+ */
 #define IO_SPACE_LIMIT		0xffffffffffffffffUL
 
 #define MAX_IO_SPACES_BITS		8
@@ -40,7 +46,7 @@
 #define IO_SPACE_SPARSE_ENCODING(p)	((((p) >> 2) << 12) | ((p) & 0xfff))
 
 struct io_space {
-	unsigned long mmio_base;	
+	unsigned long mmio_base;	/* base in MMIO space */
 	int sparse;
 };
 
@@ -49,6 +55,14 @@ extern unsigned int num_io_spaces;
 
 # ifdef __KERNEL__
 
+/*
+ * All MMIO iomem cookies are in region 6; anything less is a PIO cookie:
+ *	0xCxxxxxxxxxxxxxxx	MMIO cookie (return from ioremap)
+ *	0x000000001SPPPPPP	PIO cookie (S=space number, P..P=port)
+ *
+ * ioread/writeX() uses the leading 1 in PIO cookies (PIO_OFFSET) to catch
+ * code that uses bare port numbers without the prerequisite pci_iomap().
+ */
 #define PIO_OFFSET		(1UL << (MAX_IO_SPACES_BITS + IO_SPACE_BITS))
 #define PIO_MASK		(PIO_OFFSET - 1)
 #define PIO_RESERVED		__IA64_UNCACHED_OFFSET
@@ -59,6 +73,9 @@ extern unsigned int num_io_spaces;
 #include <asm/page.h>
 #include <asm-generic/iomap.h>
 
+/*
+ * Change virtual addresses to physical addresses and vv.
+ */
 static inline unsigned long
 virt_to_phys (volatile void *address)
 {
@@ -73,17 +90,34 @@ phys_to_virt (unsigned long address)
 
 #define ARCH_HAS_VALID_PHYS_ADDR_RANGE
 extern u64 kern_mem_attribute (unsigned long phys_addr, unsigned long size);
-extern int valid_phys_addr_range (unsigned long addr, size_t count); 
+extern int valid_phys_addr_range (unsigned long addr, size_t count); /* efi.c */
 extern int valid_mmap_phys_addr_range (unsigned long pfn, size_t count);
 
+/*
+ * The following two macros are deprecated and scheduled for removal.
+ * Please use the PCI-DMA interface defined in <asm/pci.h> instead.
+ */
 #define bus_to_virt	phys_to_virt
 #define virt_to_bus	virt_to_phys
 #define page_to_bus	page_to_phys
 
-# endif 
+# endif /* KERNEL */
 
+/*
+ * Memory fence w/accept.  This should never be used in code that is
+ * not IA-64 specific.
+ */
 #define __ia64_mf_a()	ia64_mfa()
 
+/**
+ * ___ia64_mmiowb - I/O write barrier
+ *
+ * Ensure ordering of I/O space writes.  This will make sure that writes
+ * following the barrier will arrive after all previous writes.  For most
+ * ia64 platforms, this is a simple 'mf.a' instruction.
+ *
+ * See Documentation/DocBook/deviceiobook.tmpl for more information.
+ */
 static inline void ___ia64_mmiowb(void)
 {
 	ia64_mfa();
@@ -125,6 +159,13 @@ __ia64_mk_io_addr (unsigned long port)
 #define __ia64_writeq	___ia64_writeq
 #define __ia64_mmiowb	___ia64_mmiowb
 
+/*
+ * For the in/out routines, we need to do "mf.a" _after_ doing the I/O access to ensure
+ * that the access has completed before executing other I/O accesses.  Since we're doing
+ * the accesses through an uncachable (UC) translation, the CPU will execute them in
+ * program order.  However, we still need to tell the compiler not to shuffle them around
+ * during optimization, which is why we use "volatile" pointers.
+ */
 
 static inline unsigned int
 ___ia64_inb (unsigned long port)
@@ -240,6 +281,11 @@ __outsl (unsigned long port, const void *src, unsigned long count)
 		platform_outl(get_unaligned(sp++), port);
 }
 
+/*
+ * Unfortunately, some platforms are broken and do not follow the IA-64 architecture
+ * specification regarding legacy I/O support.  Thus, we have to make these operations
+ * platform dependent...
+ */
 #define __inb		platform_inb
 #define __inw		platform_inw
 #define __inl		platform_inl
@@ -262,6 +308,14 @@ __outsl (unsigned long port, const void *src, unsigned long count)
 #define outsl(p,s,c)	__outsl(p,s,c)
 #define mmiowb()	__mmiowb()
 
+/*
+ * The address passed to these functions are ioremap()ped already.
+ *
+ * We need these to be machine vectors since some platforms don't provide
+ * DMA coherence via PIO reads (PCI drivers and the spec imply that this is
+ * a good idea).  Writes are ok though for all existing ia64 platforms (and
+ * hopefully it'll stay that way).
+ */
 static inline unsigned char
 ___ia64_readb (const volatile void __iomem *addr)
 {
@@ -377,10 +431,13 @@ static inline void __iomem * ioremap_cache (unsigned long phys_addr, unsigned lo
 }
 
 
+/*
+ * String version of IO memory access ops:
+ */
 extern void memcpy_fromio(void *dst, const volatile void __iomem *src, long n);
 extern void memcpy_toio(volatile void __iomem *dst, const void *src, long n);
 extern void memset_io(volatile void __iomem *s, int c, long n);
 
-# endif 
+# endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_IA64_IO_H */

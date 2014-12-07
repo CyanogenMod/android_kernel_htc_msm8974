@@ -12,19 +12,21 @@
 #include <asm/qdio.h>
 #include "qdio.h"
 
+/* that gives us 15 characters in the text event views */
 #define QDIO_DBF_LEN	16
 
 extern debug_info_t *qdio_dbf_setup;
 extern debug_info_t *qdio_dbf_error;
 
+/* sort out low debug levels early to avoid wasted sprints */
 static inline int qdio_dbf_passes(debug_info_t *dbf_grp, int level)
 {
 	return (level <= dbf_grp->level);
 }
 
-#define DBF_ERR		3	
-#define DBF_WARN	4	
-#define DBF_INFO	6	
+#define DBF_ERR		3	/* error conditions	*/
+#define DBF_WARN	4	/* warning conditions	*/
+#define DBF_INFO	6	/* informational	*/
 
 #undef DBF_EVENT
 #undef DBF_ERROR

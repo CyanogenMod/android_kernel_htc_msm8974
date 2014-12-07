@@ -13,16 +13,19 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Terratec Cinergy Hybrid T USB XS FM
+   Mauro Carvalho Chehab <mchehab@redhat.com>
+ */
 
 static struct rc_map_table nec_terratec_cinergy_xs[] = {
 
-	
+	/* Terratec Grey IR, with most keys in orange */
 	{ 0x1441, KEY_HOME},
 	{ 0x1401, KEY_POWER2},
 
-	{ 0x1442, KEY_MENU},		
+	{ 0x1442, KEY_MENU},		/* DVD menu */
 	{ 0x1443, KEY_SUBTITLE},
-	{ 0x1444, KEY_TEXT},		
+	{ 0x1444, KEY_TEXT},		/* Teletext */
 	{ 0x1445, KEY_DELETE},
 
 	{ 0x1402, KEY_1},
@@ -36,14 +39,14 @@ static struct rc_map_table nec_terratec_cinergy_xs[] = {
 	{ 0x140a, KEY_9},
 	{ 0x140c, KEY_0},
 
-	{ 0x140b, KEY_TUNER},		
-	{ 0x140d, KEY_MODE},		
+	{ 0x140b, KEY_TUNER},		/* AV */
+	{ 0x140d, KEY_MODE},		/* A.B */
 
 	{ 0x1446, KEY_TV},
 	{ 0x1447, KEY_DVD},
 	{ 0x1449, KEY_VIDEO},
-	{ 0x144a, KEY_RADIO},		
-	{ 0x144b, KEY_CAMERA},		
+	{ 0x144a, KEY_RADIO},		/* Music */
+	{ 0x144b, KEY_CAMERA},		/* PIC */
 
 	{ 0x1410, KEY_UP},
 	{ 0x1411, KEY_LEFT},
@@ -78,7 +81,7 @@ static struct rc_map_table nec_terratec_cinergy_xs[] = {
 	{ 0x144f, KEY_FASTFORWARD},
 	{ 0x145c, KEY_NEXT},
 
-	
+	/* Terratec Black IR, with most keys in black */
 	{ 0x04eb01, KEY_POWER2},
 
 	{ 0x04eb02, KEY_1},
@@ -92,8 +95,8 @@ static struct rc_map_table nec_terratec_cinergy_xs[] = {
 	{ 0x04eb0a, KEY_9},
 	{ 0x04eb0c, KEY_0},
 
-	{ 0x04eb0b, KEY_TEXT},		
-	{ 0x04eb0d, KEY_REFRESH},	
+	{ 0x04eb0b, KEY_TEXT},		/* TXT */
+	{ 0x04eb0d, KEY_REFRESH},	/* Refresh */
 
 	{ 0x04eb0e, KEY_HOME},
 	{ 0x04eb0f, KEY_EPG},

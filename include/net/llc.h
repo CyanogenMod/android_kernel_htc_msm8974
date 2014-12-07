@@ -40,6 +40,17 @@ struct llc_addr {
 #define LLC_SK_LADDR_HASH_BITS 6
 #define LLC_SK_LADDR_HASH_ENTRIES (1<<LLC_SK_LADDR_HASH_BITS)
 
+/**
+ * struct llc_sap - Defines the SAP component
+ *
+ * @station - station this sap belongs to
+ * @state - sap state
+ * @p_bit - only lowest-order bit used
+ * @f_bit - only lowest-order bit used
+ * @laddr - SAP value in this 'lsap'
+ * @node - entry in station sap_list
+ * @sk_list - LLC sockets this one manages
+ */
 struct llc_sap {
 	unsigned char	 state;
 	unsigned char	 p_bit;
@@ -77,9 +88,9 @@ struct hlist_nulls_head *llc_sk_laddr_hash(struct llc_sap *sap,
 	return &sap->sk_laddr_hash[llc_sk_laddr_hashfn(sap, laddr)];
 }
 
-#define LLC_DEST_INVALID         0      
-#define LLC_DEST_SAP             1      
-#define LLC_DEST_CONN            2      
+#define LLC_DEST_INVALID         0      /* Invalid LLC PDU type */
+#define LLC_DEST_SAP             1      /* Type 1 goes here */
+#define LLC_DEST_CONN            2      /* Type 2 goes here */
 
 extern struct list_head llc_sap_list;
 extern spinlock_t llc_sap_list_lock;
@@ -131,7 +142,7 @@ extern void llc_proc_exit(void);
 #else
 #define llc_proc_init()	(0)
 #define llc_proc_exit()	do { } while(0)
-#endif 
+#endif /* CONFIG_PROC_FS */
 #ifdef CONFIG_SYSCTL
 extern int llc_sysctl_init(void);
 extern void llc_sysctl_exit(void);
@@ -144,5 +155,5 @@ extern int sysctl_llc_station_ack_timeout;
 #else
 #define llc_sysctl_init() (0)
 #define llc_sysctl_exit() do { } while(0)
-#endif 
-#endif 
+#endif /* CONFIG_SYSCTL */
+#endif /* LLC_H */

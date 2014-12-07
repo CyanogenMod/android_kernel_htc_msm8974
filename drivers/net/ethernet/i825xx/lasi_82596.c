@@ -1,4 +1,32 @@
+/* lasi_82596.c -- driver for the intel 82596 ethernet controller, as
+   munged into HPPA boxen .
 
+   This driver is based upon 82596.c, original credits are below...
+   but there were too many hoops which HP wants jumped through to
+   keep this code in there in a sane manner.
+
+   3 primary sources of the mess --
+   1) hppa needs *lots* of cacheline flushing to keep this kind of
+   MMIO running.
+
+   2) The 82596 needs to see all of its pointers as their physical
+   address.  Thus virt_to_bus/bus_to_virt are *everywhere*.
+
+   3) The implementation HP is using seems to be significantly pickier
+   about when and how the command and RX units are started.  some
+   command ordering was changed.
+
+   Examination of the mach driver leads one to believe that there
+   might be a saner way to pull this off...  anyone who feels like a
+   full rewrite can be my guest.
+
+   Split 02/13/2000 Sam Creasey (sammy@oh.verio.com)
+
+   02/01/2000  Initial modifications for parisc by Helge Deller (deller@gmx.de)
+   03/02/2000  changes for better/correct(?) cache-flushing (deller)
+*/
+
+/* 82596.c: A generic 82596 ethernet driver for linux. */
 /*
    Based on Apricot.c
    Written 1994 by Mark Evans.
@@ -63,11 +91,11 @@
 
 #define LASI_82596_DRIVER_VERSION "LASI 82596 driver - Revision: 1.30"
 
-#define PA_I82596_RESET		0	
+#define PA_I82596_RESET		0	/* Offsets relative to LASI-LAN-Addr.*/
 #define PA_CPU_PORT_L_ACCESS	4
 #define PA_CHANNEL_ATTENTION	8
 
-#define OPT_SWAP_PORT	0x0001	
+#define OPT_SWAP_PORT	0x0001	/* Need to wordswp on the MPU port */
 
 #define DMA_ALLOC                        dma_alloc_noncoherent
 #define DMA_FREE                         dma_free_noncoherent
@@ -82,6 +110,7 @@
 
 #define SYSBUS      0x0000006c;
 
+/* big endian CPU, 82596 "big" endian mode */
 #define SWAP32(x)   (((u32)(x)<<16) | ((((u32)(x)))>>16))
 #define SWAP16(x)   (x)
 

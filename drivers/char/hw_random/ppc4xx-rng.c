@@ -57,7 +57,7 @@ static int ppc4xx_rng_enable(int enable)
 	int err = 0;
 	u32 val;
 
-	
+	/* Find the main crypto device node and map it to turn the TRNG on */
 	ctrl = of_find_compatible_node(NULL, NULL, "amcc,ppc4xx-crypto");
 	if (!ctrl)
 		return -ENODEV;

@@ -18,6 +18,10 @@
 
 #include "ad7606.h"
 
+/**
+ * ad7606_trigger_handler_th() th/bh of trigger launched polling to ring buffer
+ *
+ **/
 static irqreturn_t ad7606_trigger_handler_th_bh(int irq, void *p)
 {
 	struct iio_poll_func *pf = p;
@@ -28,6 +32,15 @@ static irqreturn_t ad7606_trigger_handler_th_bh(int irq, void *p)
 	return IRQ_HANDLED;
 }
 
+/**
+ * ad7606_poll_bh_to_ring() bh of trigger launched polling to ring buffer
+ * @work_s:	the work struct through which this was scheduled
+ *
+ * Currently there is no option in this driver to disable the saving of
+ * timestamps within the ring.
+ * I think the one copy of this at a time was to avoid problems if the
+ * trigger was set far too high and the reads then locked up the computer.
+ **/
 static void ad7606_poll_bh_to_ring(struct work_struct *work_s)
 {
 	struct ad7606_state *st = container_of(work_s, struct ad7606_state,
@@ -48,6 +61,11 @@ static void ad7606_poll_bh_to_ring(struct work_struct *work_s)
 		if (ret)
 			goto done;
 		if (!gpio_get_value(st->pdata->gpio_frstdata)) {
+			/* This should never happen. However
+			 * some signal glitch caused by bad PCB desgin or
+			 * electrostatic discharge, could cause an extra read
+			 * or clock. This allows recovery.
+			 */
 			ad7606_reset(st);
 			goto done;
 		}
@@ -104,14 +122,14 @@ int ad7606_register_ring_funcs_and_init(struct iio_dev *indio_dev)
 		goto error_deallocate_sw_rb;
 	}
 
-	
+	/* Ring buffer functions - here trigger setup related */
 
 	indio_dev->setup_ops = &ad7606_ring_setup_ops;
 	indio_dev->buffer->scan_timestamp = true ;
 
 	INIT_WORK(&st->poll_work, &ad7606_poll_bh_to_ring);
 
-	
+	/* Flag that polled ring buffering is possible */
 	indio_dev->modes |= INDIO_BUFFER_TRIGGERED;
 	return 0;
 

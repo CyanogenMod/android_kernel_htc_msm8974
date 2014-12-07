@@ -21,18 +21,21 @@ MODULE_DESCRIPTION("PROM version reporting for /proc");
 MODULE_AUTHOR("Chad Talbott");
 MODULE_LICENSE("GPL");
 
-#define FIT_ENTRY_FIT_HEADER	0x00	
-#define FIT_ENTRY_PAL_B		0x01	
-#define FIT_ENTRY_PAL_A_PROC	0x0E	
-#define FIT_ENTRY_PAL_A		0x0F	
-#define FIT_ENTRY_PAL_A_GEN	0x0F	
-#define FIT_ENTRY_UNUSED	0x7F	
-#define FIT_ENTRY_SAL_A		0x10	
-#define FIT_ENTRY_SAL_B		0x11	
-#define FIT_ENTRY_SALRUNTIME	0x12	
-#define FIT_ENTRY_EFI		0x1F	
-#define FIT_ENTRY_FPSWA		0x20	
-#define FIT_ENTRY_VMLINUX	0x21	
+/* Standard Intel FIT entry types */
+#define FIT_ENTRY_FIT_HEADER	0x00	/* FIT header entry */
+#define FIT_ENTRY_PAL_B		0x01	/* PAL_B entry */
+/* Entries 0x02 through 0x0D reserved by Intel */
+#define FIT_ENTRY_PAL_A_PROC	0x0E	/* Processor-specific PAL_A entry */
+#define FIT_ENTRY_PAL_A		0x0F	/* PAL_A entry, same as... */
+#define FIT_ENTRY_PAL_A_GEN	0x0F	/* ...Generic PAL_A entry */
+#define FIT_ENTRY_UNUSED	0x7F	/* Unused (reserved by Intel?) */
+/* OEM-defined entries range from 0x10 to 0x7E. */
+#define FIT_ENTRY_SAL_A		0x10	/* SAL_A entry */
+#define FIT_ENTRY_SAL_B		0x11	/* SAL_B entry */
+#define FIT_ENTRY_SALRUNTIME	0x12	/* SAL runtime entry */
+#define FIT_ENTRY_EFI		0x1F	/* EFI entry */
+#define FIT_ENTRY_FPSWA		0x20	/* embedded fpswa entry */
+#define FIT_ENTRY_VMLINUX	0x21	/* embedded vmlinux entry */
 
 #define FIT_MAJOR_SHIFT	(32 + 8)
 #define FIT_MAJOR_MASK	((1 << 8) - 1)
@@ -95,6 +98,9 @@ get_fit_entry(unsigned long nasid, int index, unsigned long *fentry,
 }
 
 
+/*
+ * These two routines display the FIT table for each node.
+ */
 static int dump_fit_entry(char *page, unsigned long *fentry)
 {
 	unsigned type;
@@ -105,11 +111,19 @@ static int dump_fit_entry(char *page, unsigned long *fentry)
 		       fit_type_name(type),
 		       FIT_MAJOR(fentry[1]), FIT_MINOR(fentry[1]),
 		       fentry[0],
-		       
+		       /* mult by sixteen to get size in bytes */
 		       (unsigned)(fentry[1] & 0xffffff) * 16);
 }
 
 
+/*
+ * We assume that the fit table will be small enough that we can print
+ * the whole thing into one page.  (This is true for our default 16kB
+ * pages -- each entry is about 60 chars wide when printed.)  I read
+ * somewhere that the maximum size of the FIT is 128 entries, so we're
+ * OK except for 4kB pages (and no one is going to do that on SN
+ * anyway).
+ */
 static int
 dump_fit(char *page, unsigned long nasid)
 {
@@ -154,6 +168,7 @@ dump_version(char *page, unsigned long nasid)
 	return len;
 }
 
+/* same as in proc_misc.c */
 static int
 proc_calc_metrics(char *page, char **start, off_t off, int count, int *eof,
 		  int len)
@@ -175,7 +190,7 @@ read_version_entry(char *page, char **start, off_t off, int count, int *eof,
 {
 	int len;
 
-	
+	/* data holds the NASID of the node */
 	len = dump_version(page, (unsigned long)data);
 	len = proc_calc_metrics(page, start, off, count, eof, len);
 	return len;
@@ -187,13 +202,14 @@ read_fit_entry(char *page, char **start, off_t off, int count, int *eof,
 {
 	int len;
 
-	
+	/* data holds the NASID of the node */
 	len = dump_fit(page, (unsigned long)data);
 	len = proc_calc_metrics(page, start, off, count, eof, len);
 
 	return len;
 }
 
+/* module entry points */
 int __init prominfo_init(void);
 void __exit prominfo_exit(void);
 

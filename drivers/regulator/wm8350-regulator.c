@@ -24,8 +24,10 @@
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 
+/* Maximum value possible for VSEL */
 #define WM8350_DCDC_MAX_VSEL 0x66
 
+/* Microamps */
 static const int isink_cur[] = {
 	4,
 	5,
@@ -187,6 +189,7 @@ static int wm8350_isink_get_current(struct regulator_dev *rdev)
 	return isink_cur[val];
 }
 
+/* turn on ISINK followed by DCDC */
 static int wm8350_isink_enable(struct regulator_dev *rdev)
 {
 	struct wm8350 *wm8350 = rdev_get_drvdata(rdev);
@@ -369,7 +372,7 @@ static int wm8350_dcdc_set_voltage(struct regulator_dev *rdev, int min_uV,
 	if (max_mV < 850 || max_mV > 4025)
 		return -EINVAL;
 
-	
+	/* step size is 25mV */
 	mV = (min_mV - 826) / 25;
 	if (wm8350_dcdc_val_to_mvolts(mV) > max_mV)
 		return -EINVAL;
@@ -396,7 +399,7 @@ static int wm8350_dcdc_set_voltage(struct regulator_dev *rdev, int min_uV,
 
 	*selector = mV;
 
-	
+	/* all DCDCs have same mV bits */
 	val = wm8350_reg_read(wm8350, volt_reg) & ~WM8350_DC1_VSEL_MASK;
 	wm8350_reg_write(wm8350, volt_reg, val | mV);
 	return 0;
@@ -426,7 +429,7 @@ static int wm8350_dcdc_get_voltage_sel(struct regulator_dev *rdev)
 		return -EINVAL;
 	}
 
-	
+	/* all DCDCs have same mV bits */
 	return wm8350_reg_read(wm8350, volt_reg) & WM8350_DC1_VSEL_MASK;
 }
 
@@ -474,7 +477,7 @@ static int wm8350_dcdc_set_suspend_voltage(struct regulator_dev *rdev, int uV)
 		return -EINVAL;
 	}
 
-	
+	/* all DCDCs have same mV bits */
 	val = wm8350_reg_read(wm8350, volt_reg) & ~WM8350_DC1_VSEL_MASK;
 	wm8350_reg_write(wm8350, volt_reg,
 			 val | wm8350_dcdc_mvolts_to_val(mV));
@@ -685,7 +688,7 @@ static int wm8350_ldo_set_suspend_voltage(struct regulator_dev *rdev, int uV)
 		return -EINVAL;
 	}
 
-	
+	/* all LDOs have same mV bits */
 	val = wm8350_reg_read(wm8350, volt_reg) & ~WM8350_LDO1_VSEL_MASK;
 	wm8350_reg_write(wm8350, volt_reg,
 			 val | wm8350_ldo_mvolts_to_val(mV));
@@ -715,7 +718,7 @@ static int wm8350_ldo_set_suspend_enable(struct regulator_dev *rdev)
 		return -EINVAL;
 	}
 
-	
+	/* all LDOs have same mV bits */
 	val = wm8350_reg_read(wm8350, volt_reg) & ~WM8350_LDO1_HIB_MODE_MASK;
 	wm8350_reg_write(wm8350, volt_reg, val);
 	return 0;
@@ -744,7 +747,7 @@ static int wm8350_ldo_set_suspend_disable(struct regulator_dev *rdev)
 		return -EINVAL;
 	}
 
-	
+	/* all LDOs have same mV bits */
 	val = wm8350_reg_read(wm8350, volt_reg) & ~WM8350_LDO1_HIB_MODE_MASK;
 	wm8350_reg_write(wm8350, volt_reg, val | WM8350_LDO1_HIB_MODE_DIS);
 	return 0;
@@ -764,13 +767,13 @@ static int wm8350_ldo_set_voltage(struct regulator_dev *rdev, int min_uV,
 		return -EINVAL;
 
 	if (min_mV < 1800) {
-		
+		/* step size is 50mV < 1800mV */
 		mV = (min_mV - 851) / 50;
 		if (wm8350_ldo_val_to_mvolts(mV) > max_mV)
 			return -EINVAL;
 		BUG_ON(wm8350_ldo_val_to_mvolts(mV) < min_mV);
 	} else {
-		
+		/* step size is 100mV > 1800mV */
 		mV = ((min_mV - 1701) / 100) + 16;
 		if (wm8350_ldo_val_to_mvolts(mV) > max_mV)
 			return -EINVAL;
@@ -796,7 +799,7 @@ static int wm8350_ldo_set_voltage(struct regulator_dev *rdev, int min_uV,
 
 	*selector = mV;
 
-	
+	/* all LDOs have same mV bits */
 	val = wm8350_reg_read(wm8350, volt_reg) & ~WM8350_LDO1_VSEL_MASK;
 	wm8350_reg_write(wm8350, volt_reg, val | mV);
 	return 0;
@@ -824,7 +827,7 @@ static int wm8350_ldo_get_voltage_sel(struct regulator_dev *rdev)
 		return -EINVAL;
 	}
 
-	
+	/* all LDOs have same mV bits */
 	return wm8350_reg_read(wm8350, volt_reg) & WM8350_LDO1_VSEL_MASK;
 }
 
@@ -845,7 +848,7 @@ int wm8350_dcdc_set_slot(struct wm8350 *wm8350, int dcdc, u16 start,
 	dev_dbg(wm8350->dev, "%s %d start %d stop %d\n",
 		__func__, dcdc, start, stop);
 
-	
+	/* slot valid ? */
 	if (start > 15 || stop > 15)
 		return -EINVAL;
 
@@ -892,7 +895,7 @@ int wm8350_ldo_set_slot(struct wm8350 *wm8350, int ldo, u16 start, u16 stop)
 	dev_dbg(wm8350->dev, "%s %d start %d stop %d\n",
 		__func__, ldo, start, stop);
 
-	
+	/* slot valid ? */
 	if (start > 15 || stop > 15)
 		return -EINVAL;
 
@@ -1059,25 +1062,25 @@ static int wm8350_dcdc_set_mode(struct regulator_dev *rdev, unsigned int mode)
 
 	switch (mode) {
 	case REGULATOR_MODE_FAST:
-		
+		/* force continuous mode */
 		wm8350_set_bits(wm8350, WM8350_DCDC_ACTIVE_OPTIONS, val);
 		wm8350_clear_bits(wm8350, WM8350_DCDC_SLEEP_OPTIONS, val);
 		force_continuous_enable(wm8350, dcdc, 1);
 		break;
 	case REGULATOR_MODE_NORMAL:
-		
+		/* active / pulse skipping */
 		wm8350_set_bits(wm8350, WM8350_DCDC_ACTIVE_OPTIONS, val);
 		wm8350_clear_bits(wm8350, WM8350_DCDC_SLEEP_OPTIONS, val);
 		force_continuous_enable(wm8350, dcdc, 0);
 		break;
 	case REGULATOR_MODE_IDLE:
-		
+		/* standby mode */
 		force_continuous_enable(wm8350, dcdc, 0);
 		wm8350_clear_bits(wm8350, WM8350_DCDC_SLEEP_OPTIONS, val);
 		wm8350_clear_bits(wm8350, WM8350_DCDC_ACTIVE_OPTIONS, val);
 		break;
 	case REGULATOR_MODE_STANDBY:
-		
+		/* LDO mode */
 		force_continuous_enable(wm8350, dcdc, 0);
 		wm8350_set_bits(wm8350, WM8350_DCDC_SLEEP_OPTIONS, val);
 		break;
@@ -1144,16 +1147,16 @@ struct wm8350_dcdc_efficiency {
 };
 
 static const struct wm8350_dcdc_efficiency dcdc1_6_efficiency[] = {
-	{0, 10000, REGULATOR_MODE_STANDBY},       
-	{10000, 100000, REGULATOR_MODE_IDLE},     
-	{100000, 1000000, REGULATOR_MODE_NORMAL}, 
+	{0, 10000, REGULATOR_MODE_STANDBY},       /* 0 - 10mA - LDO */
+	{10000, 100000, REGULATOR_MODE_IDLE},     /* 10mA - 100mA - Standby */
+	{100000, 1000000, REGULATOR_MODE_NORMAL}, /* > 100mA - Active */
 	{-1, -1, REGULATOR_MODE_NORMAL},
 };
 
 static const struct wm8350_dcdc_efficiency dcdc3_4_efficiency[] = {
-	{0, 10000, REGULATOR_MODE_STANDBY},      
-	{10000, 100000, REGULATOR_MODE_IDLE},    
-	{100000, 800000, REGULATOR_MODE_NORMAL}, 
+	{0, 10000, REGULATOR_MODE_STANDBY},      /* 0 - 10mA - LDO */
+	{10000, 100000, REGULATOR_MODE_IDLE},    /* 10mA - 100mA - Standby */
+	{100000, 800000, REGULATOR_MODE_NORMAL}, /* > 100mA - Active */
 	{-1, -1, REGULATOR_MODE_NORMAL},
 };
 
@@ -1168,6 +1171,10 @@ static unsigned int get_mode(int uA, const struct wm8350_dcdc_efficiency *eff)
 	return REGULATOR_MODE_NORMAL;
 }
 
+/* Query the regulator for it's most efficient mode @ uV,uA
+ * WM8350 regulator efficiency is pretty similar over
+ * different input and output uV.
+ */
 static unsigned int wm8350_dcdc_get_optimum_mode(struct regulator_dev *rdev,
 						 int input_uV, int output_uV,
 						 int output_uA)
@@ -1398,7 +1405,7 @@ static int wm8350_regulator_probe(struct platform_device *pdev)
 	if (pdev->id < WM8350_DCDC_1 || pdev->id > WM8350_ISINK_B)
 		return -ENODEV;
 
-	
+	/* do any regulatior specific init */
 	switch (pdev->id) {
 	case WM8350_DCDC_1:
 		val = wm8350_reg_read(wm8350, WM8350_DCDC1_LOW_POWER);
@@ -1418,7 +1425,7 @@ static int wm8350_regulator_probe(struct platform_device *pdev)
 		break;
 	}
 
-	
+	/* register regulator */
 	rdev = regulator_register(&wm8350_reg[pdev->id], &pdev->dev,
 				  pdev->dev.platform_data,
 				  dev_get_drvdata(&pdev->dev), NULL);
@@ -1428,7 +1435,7 @@ static int wm8350_regulator_probe(struct platform_device *pdev)
 		return PTR_ERR(rdev);
 	}
 
-	
+	/* register regulator IRQ */
 	ret = wm8350_register_irq(wm8350, wm8350_reg[pdev->id].irq,
 				  pmic_uv_handler, 0, "UV", rdev);
 	if (ret < 0) {
@@ -1496,6 +1503,22 @@ int wm8350_register_regulator(struct wm8350 *wm8350, int reg,
 }
 EXPORT_SYMBOL_GPL(wm8350_register_regulator);
 
+/**
+ * wm8350_register_led - Register a WM8350 LED output
+ *
+ * @param wm8350 The WM8350 device to configure.
+ * @param lednum LED device index to create.
+ * @param dcdc The DCDC to use for the LED.
+ * @param isink The ISINK to use for the LED.
+ * @param pdata Configuration for the LED.
+ *
+ * The WM8350 supports the use of an ISINK together with a DCDC to
+ * provide a power-efficient LED driver.  This function registers the
+ * regulators and instantiates the platform device for a LED.  The
+ * operating modes for the LED regulators must be configured using
+ * wm8350_isink_set_flash(), wm8350_dcdc25_set_mode() and
+ * wm8350_dcdc_set_slot() prior to calling this function.
+ */
 int wm8350_register_led(struct wm8350 *wm8350, int lednum, int dcdc, int isink,
 			struct wm8350_led_platform_data *pdata)
 {
@@ -1593,6 +1616,7 @@ static void __exit wm8350_regulator_exit(void)
 }
 module_exit(wm8350_regulator_exit);
 
+/* Module information */
 MODULE_AUTHOR("Liam Girdwood");
 MODULE_DESCRIPTION("WM8350 voltage and current regulator driver");
 MODULE_LICENSE("GPL");

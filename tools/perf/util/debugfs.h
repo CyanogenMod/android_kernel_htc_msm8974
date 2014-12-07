@@ -9,4 +9,4 @@ void debugfs_set_path(const char *mountpoint);
 extern char debugfs_mountpoint[];
 extern char tracing_events_path[];
 
-#endif 
+#endif /* __DEBUGFS_H__ */

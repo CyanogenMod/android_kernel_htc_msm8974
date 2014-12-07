@@ -34,7 +34,7 @@ static void alchemy_8250_pm(struct uart_port *port, unsigned int state,
 		alchemy_uart_enable(CPHYSADDR(port->membase));
 		serial8250_do_pm(port, state, old_state);
 		break;
-	case 3:		
+	case 3:		/* power off */
 		serial8250_do_pm(port, state, old_state);
 		alchemy_uart_disable(CPHYSADDR(port->membase));
 		break;
@@ -110,7 +110,7 @@ static void __init alchemy_setup_uarts(int ctype)
 	memcpy(ports, au1x00_uart_data[ctype], s * c);
 	au1xx0_uart_device.dev.platform_data = ports;
 
-	
+	/* Fill up uartclk. */
 	for (s = 0; s < c; s++)
 		ports[s].uartclk = uartclk;
 	if (platform_device_register(&au1xx0_uart_device))
@@ -118,6 +118,7 @@ static void __init alchemy_setup_uarts(int ctype)
 }
 
 
+/* The dmamask must be set for OHCI/EHCI to work */
 static u64 alchemy_ohci_dmamask = DMA_BIT_MASK(32);
 static u64 __maybe_unused alchemy_ehci_dmamask = DMA_BIT_MASK(32);
 
@@ -158,7 +159,7 @@ static void __init alchemy_setup_usb(int ctype)
 	struct resource *res;
 	struct platform_device *pdev;
 
-	
+	/* setup OHCI0.  Every variant has one */
 	if (_new_usbres(&res, &pdev))
 		return;
 
@@ -176,7 +177,7 @@ static void __init alchemy_setup_usb(int ctype)
 		printk(KERN_INFO "Alchemy USB: cannot add OHCI0\n");
 
 
-	
+	/* setup EHCI0: Au1200/Au1300 */
 	if ((ctype == ALCHEMY_CPU_AU1200) || (ctype == ALCHEMY_CPU_AU1300)) {
 		if (_new_usbres(&res, &pdev))
 			return;
@@ -195,7 +196,7 @@ static void __init alchemy_setup_usb(int ctype)
 			printk(KERN_INFO "Alchemy USB: cannot add EHCI0\n");
 	}
 
-	
+	/* Au1300: OHCI1 */
 	if (ctype == ALCHEMY_CPU_AU1300) {
 		if (_new_usbres(&res, &pdev))
 			return;
@@ -215,7 +216,8 @@ static void __init alchemy_setup_usb(int ctype)
 	}
 }
 
-#define MAC_RES_COUNT	4	
+/* Macro to help defining the Ethernet MAC resources */
+#define MAC_RES_COUNT	4	/* MAC regs, MAC en, MAC INT, MACDMA regs */
 #define MAC_RES(_base, _enable, _irq, _macdma)		\
 	{						\
 		.start	= _base,			\
@@ -328,7 +330,7 @@ static void __init alchemy_setup_macs(int ctype)
 	unsigned char ethaddr[6];
 	struct resource *macres;
 
-	
+	/* Handle 1st MAC */
 	if (alchemy_get_macs(ctype) < 1)
 		return;
 
@@ -350,7 +352,7 @@ static void __init alchemy_setup_macs(int ctype)
 		printk(KERN_INFO "Alchemy: failed to register MAC0\n");
 
 
-	
+	/* Handle 2nd MAC */
 	if (alchemy_get_macs(ctype) < 2)
 		return;
 
@@ -363,11 +365,11 @@ static void __init alchemy_setup_macs(int ctype)
 	       sizeof(struct resource) * MAC_RES_COUNT);
 	au1xxx_eth1_device.resource = macres;
 
-	ethaddr[5] += 1;	
+	ethaddr[5] += 1;	/* next addr for 2nd MAC */
 	if (!i && !is_valid_ether_addr(au1xxx_eth1_platform_data.mac))
 		memcpy(au1xxx_eth1_platform_data.mac, ethaddr, 6);
 
-	
+	/* Register second MAC if enabled in pinfunc */
 	if (!(au_readl(SYS_PINFUNC) & (u32)SYS_PF_NI2)) {
 		ret = platform_device_register(&au1xxx_eth1_device);
 		if (ret)

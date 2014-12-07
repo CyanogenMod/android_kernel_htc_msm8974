@@ -32,4 +32,4 @@ struct hsi_cl_info {
 
 extern struct list_head hsi_board_list;
 
-#endif 
+#endif /* __LINUX_HSI_CORE_H__ */

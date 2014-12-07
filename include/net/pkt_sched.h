@@ -20,10 +20,27 @@ static inline void *qdisc_priv(struct Qdisc *q)
 	return (char *) q + QDISC_ALIGN(sizeof(struct Qdisc));
 }
 
+/* 
+   Timer resolution MUST BE < 10% of min_schedulable_packet_size/bandwidth
+   
+   Normal IP packet size ~ 512byte, hence:
+
+   0.5Kbyte/1Mbyte/sec = 0.5msec, so that we need 50usec timer for
+   10Mbit ethernet.
+
+   10msec resolution -> <50Kbit/sec.
+   
+   The result: [34]86 is not good choice for QoS router :-(
+
+   The things are not so bad, because we may use artificial
+   clock evaluated by integration of network data flow
+   in the most critical places.
+ */
 
 typedef u64	psched_time_t;
 typedef long	psched_tdiff_t;
 
+/* Avoid doing 64 bit divide */
 #define PSCHED_SHIFT			6
 #define PSCHED_TICKS2NS(x)		((s64)(x) << PSCHED_SHIFT)
 #define PSCHED_NS2TICKS(x)		((x) >> PSCHED_SHIFT)
@@ -88,6 +105,9 @@ extern int tc_classify(struct sk_buff *skb, const struct tcf_proto *tp,
 		       struct tcf_result *res);
 extern void tc_qdisc_flow_control(struct net_device *dev, u32 tcm_handle,
 				  int flow_enable);
+/* Calculate maximal size of packet seen by hard_start_xmit
+   routine of this device.
+ */
 static inline unsigned psched_mtu(const struct net_device *dev)
 {
 	return dev->mtu + dev->hard_header_len;

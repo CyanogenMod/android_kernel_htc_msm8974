@@ -23,14 +23,14 @@ struct statfs {
 	long		f_type;
 #define f_fstyp f_type
 	long		f_bsize;
-	long		f_frsize;	
+	long		f_frsize;	/* Fragment size - unsupported */
 	long		f_blocks;
 	long		f_bfree;
 	long		f_files;
 	long		f_ffree;
 	long		f_bavail;
 
-	
+	/* Linux specials */
 	__kernel_fsid_t	f_fsid;
 	long		f_namelen;
 	long		f_flags;
@@ -39,10 +39,13 @@ struct statfs {
 
 #if (_MIPS_SIM == _MIPS_SIM_ABI32) || (_MIPS_SIM == _MIPS_SIM_NABI32)
 
+/*
+ * Unlike the traditional version the LFAPI version has none of the ABI junk
+ */
 struct statfs64 {
 	__u32	f_type;
 	__u32	f_bsize;
-	__u32	f_frsize;	
+	__u32	f_frsize;	/* Fragment size - unsupported */
 	__u32	__pad;
 	__u64	f_blocks;
 	__u64	f_bfree;
@@ -55,21 +58,21 @@ struct statfs64 {
 	__u32	f_spare[5];
 };
 
-#endif 
+#endif /* _MIPS_SIM == _MIPS_SIM_ABI32 */
 
 #if _MIPS_SIM == _MIPS_SIM_ABI64
 
-struct statfs64 {			
+struct statfs64 {			/* Same as struct statfs */
 	long		f_type;
 	long		f_bsize;
-	long		f_frsize;	
+	long		f_frsize;	/* Fragment size - unsupported */
 	long		f_blocks;
 	long		f_bfree;
 	long		f_files;
 	long		f_ffree;
 	long		f_bavail;
 
-	
+	/* Linux specials */
 	__kernel_fsid_t	f_fsid;
 	long		f_namelen;
 	long		f_flags;
@@ -79,7 +82,7 @@ struct statfs64 {
 struct compat_statfs64 {
 	__u32	f_type;
 	__u32	f_bsize;
-	__u32	f_frsize;	
+	__u32	f_frsize;	/* Fragment size - unsupported */
 	__u32	__pad;
 	__u64	f_blocks;
 	__u64	f_bfree;
@@ -92,6 +95,6 @@ struct compat_statfs64 {
 	__u32	f_spare[5];
 };
 
-#endif 
+#endif /* _MIPS_SIM == _MIPS_SIM_ABI64 */
 
-#endif 
+#endif /* _ASM_STATFS_H */

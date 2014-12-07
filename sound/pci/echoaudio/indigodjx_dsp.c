@@ -49,6 +49,8 @@ static int init_hw(struct echoaudio *chip, u16 device_id, u16 subdevice_id)
 	chip->subdevice_id = subdevice_id;
 	chip->bad_board = TRUE;
 	chip->dsp_code_to_load = FW_INDIGO_DJX_DSP;
+	/* Since this card has no ASIC, mark it as loaded so everything
+	   works OK */
 	chip->asic_loaded = TRUE;
 	chip->input_clock_types = ECHO_CLOCK_BIT_INTERNAL;
 

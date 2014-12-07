@@ -70,7 +70,8 @@ module_param(mpq_sdmx_scramble_even, int, S_IRUGO | S_IWUSR);
 static int mpq_sdmx_scramble_odd = 0x3;
 module_param(mpq_sdmx_scramble_odd, int, S_IRUGO | S_IWUSR);
 
-static int mpq_bypass_sdmx = 1;
+static int mpq_bypass_sdmx = 0;
+
 module_param(mpq_bypass_sdmx, int, S_IRUGO | S_IWUSR);
 
 static int mpq_sdmx_proc_limit = MAX_TS_PACKETS_FOR_SDMX_PROCESS;

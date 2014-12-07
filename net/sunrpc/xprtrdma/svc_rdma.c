@@ -51,6 +51,7 @@
 
 #define RPCDBG_FACILITY	RPCDBG_SVCXPRT
 
+/* RPC/RDMA parameters */
 unsigned int svcrdma_ord = RPCRDMA_ORD;
 static unsigned int min_ord = 1;
 static unsigned int max_ord = 4096;
@@ -71,11 +72,18 @@ atomic_t rdma_stat_rq_prod;
 atomic_t rdma_stat_sq_poll;
 atomic_t rdma_stat_sq_prod;
 
+/* Temporary NFS request map and context caches */
 struct kmem_cache *svc_rdma_map_cachep;
 struct kmem_cache *svc_rdma_ctxt_cachep;
 
 struct workqueue_struct *svc_rdma_wq;
 
+/*
+ * This function implements reading and resetting an atomic_t stat
+ * variable through read/write to a proc file. Any write to the file
+ * resets the associated statistic to zero. Any read returns it's
+ * current value.
+ */
 static int read_reset_stat(ctl_table *table, int write,
 			   void __user *buffer, size_t *lenp,
 			   loff_t *ppos)
@@ -254,7 +262,7 @@ int svc_rdma_init(void)
 		svcrdma_table_header =
 			register_sysctl_table(svcrdma_root_table);
 
-	
+	/* Create the temporary map cache */
 	svc_rdma_map_cachep = kmem_cache_create("svc_rdma_map_cache",
 						sizeof(struct svc_rdma_req_map),
 						0,
@@ -265,7 +273,7 @@ int svc_rdma_init(void)
 		goto err0;
 	}
 
-	
+	/* Create the temporary context cache */
 	svc_rdma_ctxt_cachep =
 		kmem_cache_create("svc_rdma_ctxt_cache",
 				  sizeof(struct svc_rdma_op_ctxt),
@@ -277,7 +285,7 @@ int svc_rdma_init(void)
 		goto err1;
 	}
 
-	
+	/* Register RDMA with the SVC transport switch */
 	svc_reg_xprt_class(&svc_rdma_class);
 	return 0;
  err1:

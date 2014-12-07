@@ -10,4 +10,4 @@ static inline void ftrace_nmi_enter(void) { }
 static inline void ftrace_nmi_exit(void) { }
 #endif
 
-#endif 
+#endif /* _LINUX_FTRACE_IRQ_H */

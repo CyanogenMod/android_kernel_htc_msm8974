@@ -48,14 +48,46 @@
 #include <linux/slab.h>
 #include "ubifs.h"
 
+/*
+ * nothing_to_commit - check if there is nothing to commit.
+ * @c: UBIFS file-system description object
+ *
+ * This is a helper function which checks if there is anything to commit. It is
+ * used as an optimization to avoid starting the commit if it is not really
+ * necessary. Indeed, the commit operation always assumes flash I/O (e.g.,
+ * writing the commit start node to the log), and it is better to avoid doing
+ * this unnecessarily. E.g., 'ubifs_sync_fs()' runs the commit, but if there is
+ * nothing to commit, it is more optimal to avoid any flash I/O.
+ *
+ * This function has to be called with @c->commit_sem locked for writing -
+ * this function does not take LPT/TNC locks because the @c->commit_sem
+ * guarantees that we have exclusive access to the TNC and LPT data structures.
+ *
+ * This function returns %1 if there is nothing to commit and %0 otherwise.
+ */
 static int nothing_to_commit(struct ubifs_info *c)
 {
+	/*
+	 * During mounting or remounting from R/O mode to R/W mode we may
+	 * commit for various recovery-related reasons.
+	 */
 	if (c->mounting || c->remounting_rw)
 		return 0;
 
+	/*
+	 * If the root TNC node is dirty, we definitely have something to
+	 * commit.
+	 */
 	if (c->zroot.znode && ubifs_zn_dirty(c->zroot.znode))
 		return 0;
 
+	/*
+	 * Even though the TNC is clean, the LPT tree may have dirty nodes. For
+	 * example, this may happen if the budgeting subsystem invoked GC to
+	 * make some free space, and the GC found an LEB with only dirty and
+	 * free space. In this case GC would just change the lprops of this
+	 * LEB (by turning all space into free space) and unmap it.
+	 */
 	if (c->nroot && test_bit(DIRTY_CNODE, &c->nroot->flags))
 		return 0;
 
@@ -66,6 +98,14 @@ static int nothing_to_commit(struct ubifs_info *c)
 	return 1;
 }
 
+/**
+ * do_commit - commit the journal.
+ * @c: UBIFS file-system description object
+ *
+ * This function implements UBIFS commit. It has to be called with commit lock
+ * locked. Returns zero in case of success and a negative error code in case of
+ * failure.
+ */
 static int do_commit(struct ubifs_info *c)
 {
 	int err, new_ltail_lnum, old_ltail_lnum, i;
@@ -86,7 +126,7 @@ static int do_commit(struct ubifs_info *c)
 		goto out_cancel;
 	}
 
-	
+	/* Sync all write buffers (necessary for recovery) */
 	for (i = 0; i < c->jhead_cnt; i++) {
 		err = ubifs_wbuf_sync(&c->jheads[i].wbuf);
 		if (err)
@@ -198,9 +238,20 @@ out:
 	return err;
 }
 
+/**
+ * run_bg_commit - run background commit if it is needed.
+ * @c: UBIFS file-system description object
+ *
+ * This function runs background commit if it is needed. Returns zero in case
+ * of success and a negative error code in case of failure.
+ */
 static int run_bg_commit(struct ubifs_info *c)
 {
 	spin_lock(&c->cs_lock);
+	/*
+	 * Run background commit only if background commit was requested or if
+	 * commit is required.
+	 */
 	if (c->cmt_state != COMMIT_BACKGROUND &&
 	    c->cmt_state != COMMIT_REQUIRED)
 		goto out;
@@ -225,6 +276,18 @@ out:
 	return 0;
 }
 
+/**
+ * ubifs_bg_thread - UBIFS background thread function.
+ * @info: points to the file-system description object
+ *
+ * This function implements various file-system background activities:
+ * o when a write-buffer timer expires it synchronizes the appropriate
+ *   write-buffer;
+ * o when the journal is about to be full, it starts in-advance commit.
+ *
+ * Note, other stuff like background garbage collection may be added here in
+ * future.
+ */
 int ubifs_bg_thread(void *info)
 {
 	int err;
@@ -242,8 +305,13 @@ int ubifs_bg_thread(void *info)
 			continue;
 
 		set_current_state(TASK_INTERRUPTIBLE);
-		
+		/* Check if there is something to do */
 		if (!c->need_bgt) {
+			/*
+			 * Nothing prevents us from going sleep now and
+			 * be never woken up and block the task which
+			 * could wait in 'kthread_stop()' forever.
+			 */
 			if (kthread_should_stop())
 				break;
 			schedule();
@@ -264,6 +332,13 @@ int ubifs_bg_thread(void *info)
 	return 0;
 }
 
+/**
+ * ubifs_commit_required - set commit state to "required".
+ * @c: UBIFS file-system description object
+ *
+ * This function is called if a commit is required but cannot be done from the
+ * calling function, so it is just flagged instead.
+ */
 void ubifs_commit_required(struct ubifs_info *c)
 {
 	spin_lock(&c->cs_lock);
@@ -287,6 +362,13 @@ void ubifs_commit_required(struct ubifs_info *c)
 	spin_unlock(&c->cs_lock);
 }
 
+/**
+ * ubifs_request_bg_commit - notify the background thread to do a commit.
+ * @c: UBIFS file-system description object
+ *
+ * This function is called if the journal is full enough to make a commit
+ * worthwhile, so background thread is kicked to start it.
+ */
 void ubifs_request_bg_commit(struct ubifs_info *c)
 {
 	spin_lock(&c->cs_lock);
@@ -300,16 +382,36 @@ void ubifs_request_bg_commit(struct ubifs_info *c)
 		spin_unlock(&c->cs_lock);
 }
 
+/**
+ * wait_for_commit - wait for commit.
+ * @c: UBIFS file-system description object
+ *
+ * This function sleeps until the commit operation is no longer running.
+ */
 static int wait_for_commit(struct ubifs_info *c)
 {
 	dbg_cmt("pid %d goes sleep", current->pid);
 
+	/*
+	 * The following sleeps if the condition is false, and will be woken
+	 * when the commit ends. It is possible, although very unlikely, that we
+	 * will wake up and see the subsequent commit running, rather than the
+	 * one we were waiting for, and go back to sleep.  However, we will be
+	 * woken again, so there is no danger of sleeping forever.
+	 */
 	wait_event(c->cmt_wq, c->cmt_state != COMMIT_RUNNING_BACKGROUND &&
 			      c->cmt_state != COMMIT_RUNNING_REQUIRED);
 	dbg_cmt("commit finished, pid %d woke up", current->pid);
 	return 0;
 }
 
+/**
+ * ubifs_run_commit - run or wait for commit.
+ * @c: UBIFS file-system description object
+ *
+ * This function runs commit and returns zero in case of success and a negative
+ * error code in case of failure.
+ */
 int ubifs_run_commit(struct ubifs_info *c)
 {
 	int err = 0;
@@ -321,6 +423,10 @@ int ubifs_run_commit(struct ubifs_info *c)
 	}
 
 	if (c->cmt_state == COMMIT_RUNNING_BACKGROUND)
+		/*
+		 * We set the commit state to 'running required' to indicate
+		 * that we want it to complete as quickly as possible.
+		 */
 		c->cmt_state = COMMIT_RUNNING_REQUIRED;
 
 	if (c->cmt_state == COMMIT_RUNNING_REQUIRED) {
@@ -329,10 +435,14 @@ int ubifs_run_commit(struct ubifs_info *c)
 	}
 	spin_unlock(&c->cs_lock);
 
-	
+	/* Ok, the commit is indeed needed */
 
 	down_write(&c->commit_sem);
 	spin_lock(&c->cs_lock);
+	/*
+	 * Since we unlocked 'c->cs_lock', the state may have changed, so
+	 * re-check it.
+	 */
 	if (c->cmt_state == COMMIT_BROKEN) {
 		err = -EROFS;
 		goto out_cmt_unlock;
@@ -359,6 +469,17 @@ out:
 	return err;
 }
 
+/**
+ * ubifs_gc_should_commit - determine if it is time for GC to run commit.
+ * @c: UBIFS file-system description object
+ *
+ * This function is called by garbage collection to determine if commit should
+ * be run. If commit state is @COMMIT_BACKGROUND, which means that the journal
+ * is full enough to start commit, this function returns true. It is not
+ * absolutely necessary to commit yet, but it feels like this should be better
+ * then to keep doing GC. This function returns %1 if GC has to initiate commit
+ * and %0 if not.
+ */
 int ubifs_gc_should_commit(struct ubifs_info *c)
 {
 	int ret = 0;
@@ -377,6 +498,16 @@ int ubifs_gc_should_commit(struct ubifs_info *c)
 
 #ifdef CONFIG_UBIFS_FS_DEBUG
 
+/**
+ * struct idx_node - hold index nodes during index tree traversal.
+ * @list: list
+ * @iip: index in parent (slot number of this indexing node in the parent
+ *       indexing node)
+ * @upper_key: all keys in this indexing node have to be less or equivalent to
+ *             this key
+ * @idx: index node (8-byte aligned because all node structures must be 8-byte
+ *       aligned)
+ */
 struct idx_node {
 	struct list_head list;
 	int iip;
@@ -384,6 +515,16 @@ struct idx_node {
 	struct ubifs_idx_node idx __attribute__((aligned(8)));
 };
 
+/**
+ * dbg_old_index_check_init - get information for the next old index check.
+ * @c: UBIFS file-system description object
+ * @zroot: root of the index
+ *
+ * This function records information about the index that will be needed for the
+ * next old index check i.e. 'dbg_check_old_index()'.
+ *
+ * This function returns %0 on success and a negative error code on failure.
+ */
 int dbg_old_index_check_init(struct ubifs_info *c, struct ubifs_zbranch *zroot)
 {
 	struct ubifs_idx_node *idx;
@@ -410,6 +551,19 @@ out:
 	return err;
 }
 
+/**
+ * dbg_check_old_index - check the old copy of the index.
+ * @c: UBIFS file-system description object
+ * @zroot: root of the new index
+ *
+ * In order to be able to recover from an unclean unmount, a complete copy of
+ * the index must exist on flash. This is the "old" index. The commit process
+ * must write the "new" index to flash without overwriting or destroying any
+ * part of the old index. This function is run at commit end in order to check
+ * that the old index does indeed exist completely intact.
+ *
+ * This function returns %0 on success and a negative error code on failure.
+ */
 int dbg_check_old_index(struct ubifs_info *c, struct ubifs_zbranch *zroot)
 {
 	int lnum, offs, len, err = 0, uninitialized_var(last_level), child_cnt;
@@ -430,30 +584,34 @@ int dbg_check_old_index(struct ubifs_info *c, struct ubifs_zbranch *zroot)
 	sz = sizeof(struct idx_node) + ubifs_idx_node_sz(c, c->fanout) -
 	     UBIFS_IDX_NODE_SZ;
 
-	
+	/* Start at the old zroot */
 	lnum = d->old_zroot.lnum;
 	offs = d->old_zroot.offs;
 	len = d->old_zroot.len;
 	iip = 0;
 
+	/*
+	 * Traverse the index tree preorder depth-first i.e. do a node and then
+	 * its subtrees from left to right.
+	 */
 	while (1) {
 		struct ubifs_branch *br;
 
-		
+		/* Get the next index node */
 		i = kmalloc(sz, GFP_NOFS);
 		if (!i) {
 			err = -ENOMEM;
 			goto out_free;
 		}
 		i->iip = iip;
-		
+		/* Keep the index nodes on our path in a linked list */
 		list_add_tail(&i->list, &list);
-		
+		/* Read the index node */
 		idx = &i->idx;
 		err = ubifs_read_node(c, idx, UBIFS_IDX_NODE, len, lnum, offs);
 		if (err)
 			goto out_free;
-		
+		/* Validate index node */
 		child_cnt = le16_to_cpu(idx->child_cnt);
 		if (child_cnt < 1 || child_cnt > c->fanout) {
 			err = 1;
@@ -461,7 +619,7 @@ int dbg_check_old_index(struct ubifs_info *c, struct ubifs_zbranch *zroot)
 		}
 		if (first) {
 			first = 0;
-			
+			/* Check root level and sqnum */
 			if (le16_to_cpu(idx->level) != d->old_zroot_level) {
 				err = 2;
 				goto out_dump;
@@ -470,7 +628,7 @@ int dbg_check_old_index(struct ubifs_info *c, struct ubifs_zbranch *zroot)
 				err = 3;
 				goto out_dump;
 			}
-			
+			/* Set last values as though root had a parent */
 			last_level = le16_to_cpu(idx->level) + 1;
 			last_sqnum = le64_to_cpu(idx->ch.sqnum) + 1;
 			key_read(c, ubifs_idx_key(c, idx), &lower_key);
@@ -489,7 +647,7 @@ int dbg_check_old_index(struct ubifs_info *c, struct ubifs_zbranch *zroot)
 			err = 4;
 			goto out_dump;
 		}
-		
+		/* Check key range */
 		key_read(c, ubifs_idx_key(c, idx), &l_key);
 		br = ubifs_idx_branch(c, idx, child_cnt - 1);
 		key_read(c, &br->key, &u_key);
@@ -506,31 +664,35 @@ int dbg_check_old_index(struct ubifs_info *c, struct ubifs_zbranch *zroot)
 				err = 7;
 				goto out_dump;
 			}
-		
+		/* Go to next index node */
 		if (le16_to_cpu(idx->level) == 0) {
-			
+			/* At the bottom, so go up until can go right */
 			while (1) {
-				
+				/* Drop the bottom of the list */
 				list_del(&i->list);
 				kfree(i);
-				
+				/* No more list means we are done */
 				if (list_empty(&list))
 					goto out;
-				
+				/* Look at the new bottom */
 				i = list_entry(list.prev, struct idx_node,
 					       list);
 				idx = &i->idx;
-				
+				/* Can we go right */
 				if (iip + 1 < le16_to_cpu(idx->child_cnt)) {
 					iip = iip + 1;
 					break;
 				} else
-					
+					/* Nope, so go up again */
 					iip = i->iip;
 			}
 		} else
-			
+			/* Go down left */
 			iip = 0;
+		/*
+		 * We have the parent in 'idx' and now we set up for reading the
+		 * child pointed to by slot 'iip'.
+		 */
 		last_level = le16_to_cpu(idx->level);
 		last_sqnum = le64_to_cpu(idx->ch.sqnum);
 		br = ubifs_idx_branch(c, idx, iip);
@@ -573,4 +735,4 @@ out_free:
 	return err;
 }
 
-#endif 
+#endif /* CONFIG_UBIFS_FS_DEBUG */

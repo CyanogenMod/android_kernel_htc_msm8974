@@ -19,11 +19,19 @@
 #                             Imaging Division
 ################################################################################
 ********************************************************************************/
+/*!
+ * \file	ilp0100_ST_debugging.c
+ * \brief	Internal Ilp0100 functions for device debugging
+ * \author	sheena jain
+ */
 
+//! \defgroup	Debugging_Functions
 
 #include "ilp0100_ST_debugging.h"
 
+//! \defgroup	Debugging_Functions
 
+// Defines for internal use
 
 #define ILP0100_DEBUG_NONE		0
 #define ILP0100_DEBUG_BYTE		1
@@ -48,11 +56,13 @@
 
 
 
+/* private functions for debugging */
 ilp0100_error Ilp0100_dumpParameters(const char* pFunctionName, void **pFuncArguments);
 ilp0100_error Ilp0100_dumpParameter(const char* pParamName, const uint16_t ParamLength, const uint8_t *pParamValues, const uint8_t ParamType);
 ilp0100_error Ilp0100_isApiCoreFunction(const char* pFunctionName, bool_t* isCoreFunc);
 
 
+/* Global variables used only by debug system */
 uint8_t* pIlp0100DebugBuffer=0;
 uint32_t Ilp0100DebugLogSize=0;
 bool_t	 Ilp0100DebugStarted=FALSE;
@@ -60,11 +70,20 @@ bool_t	 Ilp0100DebugStarted=FALSE;
 int8_t	 CurrentLevel=0;
 char	 FunctionsLevel[20][45];
 
+/**************************************************************/
+/*	Debugging Functions										  */
+/**************************************************************/
+/*!
+ * \fn			Ilp0100_loggingOpen()
+ * \brief		Initialize debug sequence
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingOpen()
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
-	
-	
+	/* Creates the buffer */
+	/* With maximum allowable size */
 	pIlp0100DebugBuffer = (uint8_t *)ILP0100_BUFFERCREATE(ILP0100_MAX_DEBUG_BUFFER_SIZE);
 	Ilp0100DebugLogSize = 0;
 	CurrentLevel = 0;
@@ -74,7 +93,7 @@ ilp0100_error Ilp0100_loggingOpen()
 	}
 
 	if(Status == ILP0100_ERROR_NONE){
-		
+		/* Write header file of debugging file */
 		ILP0100_DEBUG_WRITE_IN_LOG("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n");
 		ILP0100_DEBUG_WRITE_IN_LOG("<Ilp0100_Logging>\n");
 	} else {
@@ -83,6 +102,13 @@ ilp0100_error Ilp0100_loggingOpen()
 	return ILP0100_ERROR_NONE;
 }
 
+/*!
+ * \fn			Ilp0100_loggingClose()
+ * \brief		Initialize debug sequence
+ * \ingroup		Debugging_Functions
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingClose()
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
@@ -90,7 +116,7 @@ ilp0100_error Ilp0100_loggingClose()
 		Status = Ilp0100_loggingStop();
 	}
 	if(Status == ILP0100_ERROR_NONE){
-		
+		/* Free buffer */
 		ILP0100_BUFFERFREE(pIlp0100DebugBuffer);
 		pIlp0100DebugBuffer=0;
 	}
@@ -98,13 +124,21 @@ ilp0100_error Ilp0100_loggingClose()
 	return Status;
 }
 
+/*!
+ * \fn			Ilp0100_loggingStart(uint8_t DebugLevel)
+ * \brief		Start logging all ILP activities
+ * \ingroup		Debugging_Functions
+ * \param[in]	DebugLevel
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingStart(uint8_t DebugLevel)
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
 	uint32_t CurrentTime;
 
 	if(pIlp0100DebugBuffer==0) {
-		
+		/* Log buffer not created yet, create it first */
 		Status = Ilp0100_loggingOpen();
 	}
 
@@ -118,13 +152,20 @@ ilp0100_error Ilp0100_loggingStart(uint8_t DebugLevel)
 		ILP0100_DEBUG_WRITE_IN_LOG("<Ilp0100_DebugStart TimeStamp=\"%.8d\"/>\n", CurrentTime);
 	}
 
-	
+	/* TODO: Add ILP0100 Status dump */
 
 	CurrentLevel = 0;
 
 	return ILP0100_ERROR_NONE;
 }
 
+/*!
+ * \fn			Ilp0100_loggingStop()
+ * \brief		Stop logging all ILP activities
+ * \ingroup		Debugging_Functions
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingStop()
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
@@ -141,6 +182,14 @@ ilp0100_error Ilp0100_loggingStop()
 	return ILP0100_ERROR_NONE;
 }
 
+/*!
+ * \fn			Ilp0100_logDebugMessageStar(const char* pFunctionName)
+ * \brief		Write start section to log debug message
+ * \ingroup		Debugging_Functions
+ * \param[in]	pFunctionName
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_logDebugMessageStart(const char* pFunctionName)
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
@@ -156,6 +205,13 @@ ilp0100_error Ilp0100_logDebugMessageStart(const char* pFunctionName)
 	return Status;
 }
 
+/*!
+ * \fn			Ilp0100_logDebugMessageEnd(
+ * \brief		Write end section to log debug message
+ * \ingroup		Debugging_Functions
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_logDebugMessageEnd()
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
@@ -165,6 +221,14 @@ ilp0100_error Ilp0100_logDebugMessageEnd()
 	return Status;
 }
 
+/*!
+ * \fn			Ilp0100_logErrorMessageStart(const char* pFunctionName)
+ * \brief		Write start section to log error message
+ * \ingroup		Debugging_Functions
+ * \param[in]	pFunctionName
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_logErrorMessageStart(const char* pFunctionName)
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
@@ -180,6 +244,14 @@ ilp0100_error Ilp0100_logErrorMessageStart(const char* pFunctionName)
 	return Status;
 }
 
+/*!
+ * \fn			Ilp0100_logErrorMessageEnd()
+ * \brief		Write end section to log error message
+ * \ingroup		Debugging_Functions
+ * \param[in]	pMessage
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_logErrorMessageEnd()
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
@@ -191,13 +263,30 @@ ilp0100_error Ilp0100_logErrorMessageEnd()
 	return Status;
 }
 
+/*!
+ * \fn			Ilp0100_loggingGetSize(uint32_t* pLogSize)
+ * \brief		return current size of the log sequence
+ * \ingroup		Debugging_Functions
+ * \param[in]	pLogSize
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingGetSize(uint32_t* pLogSize)
 {
-	
+	/* Return current log size plus size of file footer*/
 	*pLogSize = Ilp0100DebugLogSize+20;
 	return ILP0100_ERROR_NONE;
 }
 
+/*!
+ * \fn			Ilp0100_loggingReadBack(uint8_t* pDebugLog, uint32_t* pLogSize)
+ * \brief		return a copy of the buffer
+ * \ingroup		Debugging_Functions
+ * \param[in]	pDebugLog
+ * \param[in]	pLogSize
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingReadBack(uint8_t* pDebugLog, uint32_t* pLogSize)
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
@@ -208,23 +297,23 @@ ilp0100_error Ilp0100_loggingReadBack(uint8_t* pDebugLog, uint32_t* pLogSize)
 	{
 		if(pIlp0100DebugBuffer!=0)
 		{
-			
+			/* Write end of xml file */
 			if(Status == ILP0100_ERROR_NONE){
 				CurrentLogSize=Ilp0100DebugLogSize;
 				ILP0100_DEBUG_WRITE_IN_LOG("</Ilp0100_Logging>\n");
 			 }
 
 
-			
+			/* Copy of the buffer */
 			for(i=0; i<Ilp0100DebugLogSize; i++)
 			{
 				*(pDebugLog+i) = *(pIlp0100DebugBuffer+i);
 			}
 
-			
+			/* Copy of buffer size */
 			*pLogSize = Ilp0100DebugLogSize;
 
-			
+			/* Change log size to go back before footer */
 			Ilp0100DebugLogSize = CurrentLogSize;
 		}
 		else
@@ -239,6 +328,15 @@ ilp0100_error Ilp0100_loggingReadBack(uint8_t* pDebugLog, uint32_t* pLogSize)
 	return Status;
 }
 
+/*!
+ * \fn			Ilp0100_loggingFunctionStart(char* FunctionName, void *pFuncArguments)
+ * \brief		log start of an API function
+ * \ingroup		Debugging_Functions
+ * \param[in]	FunctionName
+ * \param[in]	pFuncArguments
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingFunctionStart(const char* pFunctionName, void **pFuncArguments)
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
@@ -253,7 +351,7 @@ ilp0100_error Ilp0100_loggingFunctionStart(const char* pFunctionName, void **pFu
 				ILP0100_DEBUG_WRITE_IN_LOG("<Exec_Start TimeStamp=\"%.8d\">\n", CurrentTime);
 				ILP0100_DEBUG_WRITE_IN_LOG("<API_Function_Name>%s</API_Function_Name>\n", pFunctionName);
 
-				
+				/* Check if we are starting to log an API core function */
 				Ilp0100_isApiCoreFunction(pFunctionName, &isCoreFunc);
 				if(isCoreFunc && CurrentLevel==0)
 				{
@@ -280,6 +378,16 @@ ilp0100_error Ilp0100_loggingFunctionStart(const char* pFunctionName, void **pFu
 	return Status;
 }
 
+/*!
+ * \fn			Ilp0100_loggingFunctionEnd(char* FunctionName, void *pFuncArguments)
+ * \brief		log end of an API function
+ * \ingroup		Debugging_Functions
+ * \param[in]	FunctionName
+ * \param[in]	ReturnedValue
+ * \param[in]	pFuncArguments
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingFunctionEnd(const char* pFunctionName, ilp0100_error ReturnedValue, void **pFuncArguments)
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
@@ -312,6 +420,18 @@ ilp0100_error Ilp0100_loggingFunctionEnd(const char* pFunctionName, ilp0100_erro
 	return Status;
 }
 
+/*!
+ * \fn			Ilp0100_loggingFunctionIlpAccess(const char* pFunctionName, uint16_t RegisterName, uint16_t Count, uint8_t *pData)
+ * \brief		log an SPI access (Read or Write) of the ILP
+ * \ingroup		Debugging_Functions
+ * \param[in]	FunctionName
+ * \param[in]	RegisterName
+ * \param[in]	Count
+ * \param[in]	pData
+ * \param[in]	ReturnedValue
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingFunctionIlpAccess(const char* pFunctionName, uint16_t RegisterName, uint16_t Count, uint8_t *pData, ilp0100_error ReturnedValue)
 {
 	ilp0100_error Status = ILP0100_ERROR_NONE;
@@ -350,7 +470,7 @@ ilp0100_error Ilp0100_isApiCoreFunction(const char* pFunctionName, bool_t* isCor
 	}
 	functionRoot[i]=0;
 
-	
+	/* Test Equality */
 	Status = Ilp0100_core_strCmpr(functionRoot, corefunctionRoot, isCoreFunc);
 
 	return Status;
@@ -362,7 +482,7 @@ ilp0100_error Ilp0100_dumpParameters(const char* pFunctionName, void **pFuncArgu
 	ilp0100_error Status = ILP0100_ERROR_NONE;
 	uint8_t	FuncStrEqual;
 
-	
+	/* API FUNCTINONS */
 	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_init", FuncStrEqual){
 		DUMP_PARAM_STRUCT(Ilp0100_structInit, 			*(pFuncArguments+0));
 		DUMP_PARAM_STRUCT(Ilp0100_structInitFirmware, 	*(pFuncArguments+1));
@@ -372,7 +492,7 @@ ilp0100_error Ilp0100_dumpParameters(const char* pFunctionName, void **pFuncArgu
 		DUMP_PARAM_STRUCT(Ilp0100_structFrameFormat,	*(pFuncArguments+0));
 	}
 
-	
+	/* IQ functions */
 	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_configDefcorShortOrNormal", FuncStrEqual){
 		DUMP_PARAM_STRUCT(Ilp0100_structDefcorConfig,	*(pFuncArguments+0));
 	}
@@ -417,7 +537,7 @@ ilp0100_error Ilp0100_dumpParameters(const char* pFunctionName, void **pFuncArgu
 	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_updateToneMapping", FuncStrEqual){
 		DUMP_PARAM_STRUCT(Ilp0100_structToneMappingParams,	*(pFuncArguments+0));
 	}
-	
+	/* End IQ functions */
 
 	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_configGlaceShortOrNormal", FuncStrEqual){
 		DUMP_PARAM_STRUCT(Ilp0100_structGlaceConfig,	*(pFuncArguments+0));
@@ -461,7 +581,7 @@ ilp0100_error Ilp0100_dumpParameters(const char* pFunctionName, void **pFuncArgu
 		DUMP_PARAM(HDRFactor,	    *(pFuncArguments+0), ILP0100_DEBUG_UINT8);
 	}
 
-	
+	/* Interrupt functions */
 	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_interruptEnable", FuncStrEqual){
 		DUMP_PARAM(InterruptSetMask,*(pFuncArguments+0), ILP0100_DEBUG_UINT32);
 		DUMP_PARAM(Pin,				*(pFuncArguments+1), ILP0100_DEBUG_UINT8);
@@ -478,7 +598,7 @@ ilp0100_error Ilp0100_dumpParameters(const char* pFunctionName, void **pFuncArgu
 		DUMP_PARAM(pInterruptId,	*(pFuncArguments+0), ILP0100_DEBUG_UINT32);
 		DUMP_PARAM(Pin,				*(pFuncArguments+1), ILP0100_DEBUG_UINT8);
 	}
-	
+	/* End Interrupt functions */
 
 	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_getApiVersionNumber", FuncStrEqual){
 		DUMP_PARAM_PTR(pMajorNumber, *(pFuncArguments+0), 1, ILP0100_DEBUG_UINT8);
@@ -506,12 +626,30 @@ ilp0100_error Ilp0100_dumpParameters(const char* pFunctionName, void **pFuncArgu
 	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_disableIlp0100SensorClock", FuncStrEqual){
 		DUMP_PARAM(SensorInterface,	*(pFuncArguments+0), ILP0100_DEBUG_BOOL);
 	}
-	
+	/* END API FUNCTINONS */
 
-	
-	
+	/* API CORE FUNCTIONS */
+	/* Not needed as now API user interface function are defined
+	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_core_interruptEnable", FuncStrEqual){
+		DUMP_PARAM(InterruptSetMask,*(pFuncArguments+0), ILP0100_DEBUG_UINT32);
+		DUMP_PARAM(Pin,				*(pFuncArguments+1), ILP0100_DEBUG_UINT8);
+	}
+	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_core_interruptDisable", FuncStrEqual){
+		DUMP_PARAM(InterruptClrMask,*(pFuncArguments+0), ILP0100_DEBUG_UINT32);
+		DUMP_PARAM(Pin,				*(pFuncArguments+1), ILP0100_DEBUG_UINT8);
+	}
+	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "lp0100_core_interruptReadStatus", FuncStrEqual){
+		DUMP_PARAM(pInterruptId,	*(pFuncArguments+0), ILP0100_DEBUG_UINT32);
+		DUMP_PARAM(Pin,				*(pFuncArguments+1), ILP0100_DEBUG_UINT8);
+	}
+	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_core_interruptClearStatus", FuncStrEqual){
+		DUMP_PARAM(pInterruptId,	*(pFuncArguments+0), ILP0100_DEBUG_UINT32);
+		DUMP_PARAM(Pin,				*(pFuncArguments+1), ILP0100_DEBUG_UINT8);
+	}
+	*/
+	/* END API CORE FUNCTIONS */
 
-	
+	/* ILP ACCESS FUNCTIONS */
 	ILP0100_DEBUG_TEST_STR_EQUALITY(pFunctionName, "Ilp0100_core_readRegister", FuncStrEqual){
 		DUMP_PARAM(RegisterName,	*(pFuncArguments+0), ILP0100_DEBUG_UINT16);
 		DUMP_PARAM(Count, 	  		*(pFuncArguments+1), ILP0100_DEBUG_UINT16);
@@ -522,7 +660,7 @@ ilp0100_error Ilp0100_dumpParameters(const char* pFunctionName, void **pFuncArgu
 		DUMP_PARAM(Count, 	  		*(pFuncArguments+1), ILP0100_DEBUG_UINT16);
 		DUMP_PARAM_PTR(pData, 		*(pFuncArguments+2), *((uint16_t*)*(pFuncArguments+1)), ILP0100_DEBUG_UINT8);
 	}
-	
+	/* END ILP ACCESS FUNCTIONS */
 	return Status;
 }
 
@@ -594,8 +732,8 @@ ilp0100_error Ilp0100_dumpParameter(const char* pParamName, const uint16_t Param
 			DUMP_STRUCTPARAM(Ilp0100_structFrameParams, pParamValues, DigitalGainCodeBlue, 		ILP0100_DEBUG_UINT16);
 		}
 
-		
-		
+		/* IQ Structures */
+		/* DefCor */
 		ILP0100_DEBUG_TEST_STR_EQUALITY(pParamName, "Ilp0100_structDefcorConfig", ParamStrEqual){
 			ILP0100_DEBUG_WRITE_IN_LOG("\n");
 			DUMP_STRUCTPARAM(Ilp0100_structDefcorConfig, pParamValues, Mode, 			ILP0100_DEBUG_UINT8);
@@ -607,7 +745,7 @@ ilp0100_error Ilp0100_dumpParameter(const char* pParamName, const uint16_t Param
 			DUMP_STRUCTPARAM(Ilp0100_structDefcorParams, pParamValues, BlackStrength, 		ILP0100_DEBUG_UINT8);
 			DUMP_STRUCTPARAM(Ilp0100_structDefcorParams, pParamValues, WhiteStrength, 		ILP0100_DEBUG_UINT8);
 		}
-		
+		/* Channel Offset */
 		ILP0100_DEBUG_TEST_STR_EQUALITY(pParamName, "Ilp0100_structChannelOffsetConfig", ParamStrEqual){
 			ILP0100_DEBUG_WRITE_IN_LOG("\n");
 			DUMP_STRUCTPARAM(Ilp0100_structChannelOffsetConfig, pParamValues, Enable, 			ILP0100_DEBUG_BOOL);
@@ -619,7 +757,7 @@ ilp0100_error Ilp0100_dumpParameter(const char* pParamName, const uint16_t Param
 			DUMP_STRUCTPARAM(Ilp0100_structChannelOffsetParams, pParamValues, SensorPedestalBlue, 		ILP0100_DEBUG_UINT16);
 			DUMP_STRUCTPARAM(Ilp0100_structChannelOffsetParams, pParamValues, SensorPedestalGreenBlue, 	ILP0100_DEBUG_UINT16);
 		}
-		
+		/* HDR Merge */
 		ILP0100_DEBUG_TEST_STR_EQUALITY(pParamName, "Ilp0100_structHdrMergeConfig", ParamStrEqual){
 			ILP0100_DEBUG_WRITE_IN_LOG("\n");
 			DUMP_STRUCTPARAM(Ilp0100_structHdrMergeConfig, pParamValues, Mode, 			ILP0100_DEBUG_UINT8);
@@ -629,7 +767,7 @@ ilp0100_error Ilp0100_dumpParameter(const char* pParamName, const uint16_t Param
 			DUMP_STRUCTPARAM(Ilp0100_structHdrMergeParams, pParamValues, Method, 			ILP0100_DEBUG_UINT8);
 			DUMP_STRUCTPARAM(Ilp0100_structHdrMergeParams, pParamValues, ImageCodes, 		ILP0100_DEBUG_UINT8);
 		}
-		
+		/* Color Lens Shading */
 		ILP0100_DEBUG_TEST_STR_EQUALITY(pParamName, "Ilp0100_structClsConfig", ParamStrEqual){
 			ILP0100_DEBUG_WRITE_IN_LOG("\n");
 			DUMP_STRUCTPARAM(Ilp0100_structClsConfig, pParamValues, Enable, 			ILP0100_DEBUG_BOOL);
@@ -639,7 +777,7 @@ ilp0100_error Ilp0100_dumpParameter(const char* pParamName, const uint16_t Param
 			DUMP_STRUCTPARAM(Ilp0100_structClsParams, pParamValues, BowlerCornerGain, 	ILP0100_DEBUG_UINT8);
 			DUMP_STRUCTPARAM(Ilp0100_structClsParams, pParamValues, ColorTempKelvin, 	ILP0100_DEBUG_UINT16);
 		}
-		
+		/* Tone Mapping */
 		ILP0100_DEBUG_TEST_STR_EQUALITY(pParamName, "Ilp0100_structToneMappingConfig", ParamStrEqual){
 			ILP0100_DEBUG_WRITE_IN_LOG("\n");
 			DUMP_STRUCTPARAM(Ilp0100_structToneMappingConfig, pParamValues, Enable, 				ILP0100_DEBUG_BOOL);
@@ -650,7 +788,7 @@ ilp0100_error Ilp0100_dumpParameter(const char* pParamName, const uint16_t Param
 			DUMP_STRUCTPARAM(		Ilp0100_structToneMappingParams, pParamValues, Strength, 					ILP0100_DEBUG_UINT8);
 			DUMP_STRUCTPARAM_ARRAY(	Ilp0100_structToneMappingParams, pParamValues, UserDefinedCurve,	256,	ILP0100_DEBUG_UINT16);
 		}
-		
+		/* End IQ Structures */
 
 		ILP0100_DEBUG_TEST_STR_EQUALITY(pParamName, "Ilp0100_structGlaceConfig", ParamStrEqual){
 			ILP0100_DEBUG_WRITE_IN_LOG("\n");
@@ -716,7 +854,7 @@ ilp0100_error Ilp0100_dumpParameter(const char* pParamName, const uint16_t Param
 			switch(ParamType)
 			{
 				case ILP0100_DEBUG_NONE:
-					
+					/* SHOULD NEVER ENTER HERE */
 					break;
 				case ILP0100_DEBUG_BYTE:
 					ILP0100_DEBUG_WRITE_IN_LOG("0x%02x",(uint8_t)*(pParamValues+I));

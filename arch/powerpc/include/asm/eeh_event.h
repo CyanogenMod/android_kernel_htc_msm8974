@@ -20,13 +20,19 @@
 #define ASM_POWERPC_EEH_EVENT_H
 #ifdef __KERNEL__
 
+/*
+ * structure holding pci controller data that describes a
+ * change in the isolation status of a PCI slot.  A pointer
+ * to this struct is passed as the data pointer in a notify
+ * callback.
+ */
 struct eeh_event {
-	struct list_head	list;	
-	struct eeh_dev		*edev;	
+	struct list_head	list;	/* to form event queue	*/
+	struct eeh_dev		*edev;	/* EEH device		*/
 };
 
 int eeh_send_failure_event(struct eeh_dev *edev);
 struct eeh_dev *handle_eeh_events(struct eeh_event *);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* ASM_POWERPC_EEH_EVENT_H */

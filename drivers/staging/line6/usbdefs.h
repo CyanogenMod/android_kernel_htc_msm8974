@@ -16,6 +16,9 @@
 
 #define USB_INTERVALS_PER_SECOND 1000
 
+/*
+	Device ids.
+*/
 #define LINE6_DEVID_BASSPODXT     0x4250
 #define LINE6_DEVID_BASSPODXTLIVE 0x4642
 #define LINE6_DEVID_BASSPODXTPRO  0x4252
@@ -87,8 +90,11 @@ enum {
 	LINE6_BITS_BASSPODXTALL	= LINE6_BIT_BASSPODXT |	LINE6_BIT_BASSPODXTLIVE | LINE6_BIT_BASSPODXTPRO
 };
 
+/* device supports settings parameter via USB */
 #define LINE6_BIT_CONTROL (1 << 0)
+/* device supports PCM input/output via USB */
 #define LINE6_BIT_PCM (1 << 1)
+/* device support hardware monitoring */
 #define LINE6_BIT_HWMON (1 << 2)
 
 #define LINE6_BIT_CONTROL_PCM_HWMON	(LINE6_BIT_CONTROL |	\

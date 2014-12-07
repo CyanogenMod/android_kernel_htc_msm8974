@@ -33,15 +33,32 @@ void user_enable_single_step(struct task_struct *tsk)
 	pr_debug("user_enable_single_step: pid=%u, PC=0x%08lx, SR=0x%08lx\n",
 		 tsk->pid, task_pt_regs(tsk)->pc, task_pt_regs(tsk)->sr);
 
+	/*
+	 * We can't schedule in Debug mode, so when TIF_BREAKPOINT is
+	 * set, the system call or exception handler will do a
+	 * breakpoint to enter monitor mode before returning to
+	 * userspace.
+	 *
+	 * The monitor code will then notice that TIF_SINGLE_STEP is
+	 * set and return to userspace with single stepping enabled.
+	 * The CPU will then enter monitor mode again after exactly
+	 * one instruction has been executed, and the monitor code
+	 * will then send a SIGTRAP to the process.
+	 */
 	set_tsk_thread_flag(tsk, TIF_BREAKPOINT);
 	set_tsk_thread_flag(tsk, TIF_SINGLE_STEP);
 }
 
 void user_disable_single_step(struct task_struct *child)
 {
-	
+	/* XXX(hch): a no-op here seems wrong.. */
 }
 
+/*
+ * Called by kernel/ptrace.c when detaching
+ *
+ * Make sure any single step bits, etc. are not set
+ */
 void ptrace_disable(struct task_struct *child)
 {
 	clear_tsk_thread_flag(child, TIF_SINGLE_STEP);
@@ -49,6 +66,10 @@ void ptrace_disable(struct task_struct *child)
 	ocd_disable(child);
 }
 
+/*
+ * Read the word at offset "offset" into the task's "struct user". We
+ * actually access the pt_regs struct stored on the kernel stack.
+ */
 static int ptrace_read_user(struct task_struct *tsk, unsigned long offset,
 			    unsigned long __user *data)
 {
@@ -72,6 +93,11 @@ static int ptrace_read_user(struct task_struct *tsk, unsigned long offset,
 	return put_user(value, data);
 }
 
+/*
+ * Write the word "value" to offset "offset" into the task's "struct
+ * user". We actually access the pt_regs struct stored on the kernel
+ * stack.
+ */
 static int ptrace_write_user(struct task_struct *tsk, unsigned long offset,
 			     unsigned long value)
 {
@@ -127,7 +153,7 @@ long arch_ptrace(struct task_struct *child, long request,
 	void __user *datap = (void __user *) data;
 
 	switch (request) {
-	
+	/* Read the word at location addr in the child process */
 	case PTRACE_PEEKTEXT:
 	case PTRACE_PEEKDATA:
 		ret = generic_ptrace_peekdata(child, addr, data);
@@ -137,7 +163,7 @@ long arch_ptrace(struct task_struct *child, long request,
 		ret = ptrace_read_user(child, addr, datap);
 		break;
 
-	
+	/* Write the word in data at location addr */
 	case PTRACE_POKETEXT:
 	case PTRACE_POKEDATA:
 		ret = generic_ptrace_pokedata(child, addr, data);
@@ -170,9 +196,16 @@ asmlinkage void syscall_trace(void)
 	if (!(current->ptrace & PT_PTRACED))
 		return;
 
+	/* The 0x80 provides a way for the tracing parent to
+	 * distinguish between a syscall stop and SIGTRAP delivery */
 	ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD)
 				 ? 0x80 : 0));
 
+	/*
+	 * this isn't the same as continuing with a signal, but it
+	 * will do for normal use.  strace only continues with a
+	 * signal if the stopping signal is not SIGTRAP.  -brl
+	 */
 	if (current->exit_code) {
 		pr_debug("syscall_trace: sending signal %d to PID %u\n",
 			 current->exit_code, current->pid);
@@ -181,6 +214,21 @@ asmlinkage void syscall_trace(void)
 	}
 }
 
+/*
+ * debug_trampoline() is an assembly stub which will store all user
+ * registers on the stack and execute a breakpoint instruction.
+ *
+ * If we single-step into an exception handler which runs with
+ * interrupts disabled the whole time so it doesn't have to check for
+ * pending work, its return address will be modified so that it ends
+ * up returning to debug_trampoline.
+ *
+ * If the exception handler decides to store the user context and
+ * enable interrupts after all, it will restore the original return
+ * address and status register value. Before it returns, it will
+ * notice that TIF_BREAKPOINT is set and execute a breakpoint
+ * instruction.
+ */
 extern void debug_trampoline(void);
 
 asmlinkage struct pt_regs *do_debug(struct pt_regs *regs)
@@ -211,6 +259,13 @@ asmlinkage struct pt_regs *do_debug(struct pt_regs *regs)
 		if ((status & (1 << OCD_DS_SWB_BIT))
 				&& test_and_clear_ti_thread_flag(
 					ti, TIF_BREAKPOINT)) {
+			/*
+			 * Explicit breakpoint from trampoline or
+			 * exception/syscall/interrupt handler.
+			 *
+			 * The real saved regs are on the stack right
+			 * after the ones we saved on entry.
+			 */
 			regs++;
 			pr_debug("  -> TIF_BREAKPOINT done, adjusted regs:"
 					"PC=0x%08lx SR=0x%08lx\n",
@@ -222,6 +277,10 @@ asmlinkage struct pt_regs *do_debug(struct pt_regs *regs)
 				return regs;
 			}
 
+			/*
+			 * No TIF_SINGLE_STEP means we're done
+			 * stepping over a syscall. Do the trap now.
+			 */
 			code = TRAP_TRACE;
 		} else if ((status & (1 << OCD_DS_SSS_BIT))
 				&& test_ti_thread_flag(ti, TIF_SINGLE_STEP)) {
@@ -230,6 +289,17 @@ asmlinkage struct pt_regs *do_debug(struct pt_regs *regs)
 					"setting TIF_BREAKPOINT...\n");
 			set_ti_thread_flag(ti, TIF_BREAKPOINT);
 
+			/*
+			 * We stepped into an exception, interrupt or
+			 * syscall handler. Some exception handlers
+			 * don't check for pending work, so we need to
+			 * set up a trampoline just in case.
+			 *
+			 * The exception entry code will undo the
+			 * trampoline stuff if it does a full context
+			 * save (which also means that it'll check for
+			 * pending work later.)
+			 */
 			if ((regs->sr & MODE_MASK) == MODE_EXCEPTION) {
 				trampoline_addr
 					= (unsigned long)&debug_trampoline;
@@ -243,6 +313,13 @@ asmlinkage struct pt_regs *do_debug(struct pt_regs *regs)
 				BUG_ON(ti->rsr_saved & MODE_MASK);
 			}
 
+			/*
+			 * If we stepped into a system call, we
+			 * shouldn't do a single step after we return
+			 * since the return address is right after the
+			 * "scall" instruction we were told to step
+			 * over.
+			 */
 			if ((regs->sr & MODE_MASK) == MODE_SUPERVISOR) {
 				pr_debug("Supervisor; no single step\n");
 				clear_ti_thread_flag(ti, TIF_SINGLE_STEP);
@@ -261,7 +338,7 @@ asmlinkage struct pt_regs *do_debug(struct pt_regs *regs)
 					regs, SIGTRAP);
 		}
 	} else if (status & (1 << OCD_DS_SSS_BIT)) {
-		
+		/* Single step in user mode */
 		code = TRAP_TRACE;
 
 		ctrl = ocd_read(DC);

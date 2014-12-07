@@ -31,14 +31,21 @@
 #define DIRTY_ENABLED(conf)	((conf) & 0x0020)
 #define SYNC_ENABLED(conf) 	((conf) & 0x0004)
 
+/* Display 1 & 2 Write Timing Configuration */
 #define PNX4008_DUM_WT_CFG		0x00372000
 
+/* Display 1 & 2 Read Timing Configuration */
 #define PNX4008_DUM_RT_CFG		0x00003A47
 
-#define PNX4008_DUM_T_CFG		0x1D	
+/* DUM Transit State Timing Configuration */
+#define PNX4008_DUM_T_CFG		0x1D	/* 29 HCLK cycles */
 
+/* DUM Sync count clock divider */
 #define PNX4008_DUM_CLK_DIV		0x02DD
 
+/* Memory size for framebuffer, allocated through dma_alloc_writecombine().
+ * Must be PAGE aligned
+ */
 #define FB_DMA_SIZE (PAGE_ALIGN(SZ_1M + PAGE_SIZE))
 
 #define OFFSET_RGBBUFFER (0xB0000)
@@ -47,13 +54,14 @@
 #define YUVBUFFER (lcd_video_start + OFFSET_YUVBUFFER)
 #define RGBBUFFER (lcd_video_start + OFFSET_RGBBUFFER)
 
-#define CMDSTRING_BASEADDR	(0x00C000)	
+#define CMDSTRING_BASEADDR	(0x00C000)	/* iram */
 #define BYTES_PER_CMDSTRING	(0x80)
 #define NR_OF_CMDSTRINGS	(64)
 
 #define MAX_NR_PRESTRINGS (0x40)
 #define MAX_NR_POSTSTRINGS (0x40)
 
+/* various mask definitions */
 #define DUM_CLK_ENABLE 0x01
 #define DUM_CLK_DISABLE 0
 #define DUM_DECODE_MASK 0x1FFFFFFF

@@ -25,11 +25,20 @@
 #include "common.h"
 #include "mpp.h"
 
+/*****************************************************************************
+ * Linkstation LS-HGL Info
+ ****************************************************************************/
 
+/*
+ * 256K NOR flash Device bus boot chip select
+ */
 
 #define LS_HGL_NOR_BOOT_BASE	0xf4000000
 #define LS_HGL_NOR_BOOT_SIZE	SZ_256K
 
+/*****************************************************************************
+ * 256KB NOR Flash on BOOT Device
+ ****************************************************************************/
 
 static struct physmap_flash_data ls_hgl_nor_flash_data = {
 	.width		= 1,
@@ -51,16 +60,25 @@ static struct platform_device ls_hgl_nor_flash = {
 	.resource		= &ls_hgl_nor_flash_resource,
 };
 
+/*****************************************************************************
+ * Ethernet
+ ****************************************************************************/
 
 static struct mv643xx_eth_platform_data ls_hgl_eth_data = {
 	.phy_addr	= 8,
 };
 
+/*****************************************************************************
+ * RTC 5C372a on I2C bus
+ ****************************************************************************/
 
 static struct i2c_board_info __initdata ls_hgl_i2c_rtc = {
 	I2C_BOARD_INFO("rs5c372a", 0x32),
 };
 
+/*****************************************************************************
+ * LEDs attached to GPIO
+ ****************************************************************************/
 
 #define LS_HGL_GPIO_LED_ALARM   2
 #define LS_HGL_GPIO_LED_INFO    3
@@ -100,6 +118,9 @@ static struct platform_device ls_hgl_leds = {
 	},
 };
 
+/****************************************************************************
+ * GPIO Attached Keys
+ ****************************************************************************/
 #define LS_HGL_GPIO_KEY_FUNC       15
 #define LS_HGL_GPIO_KEY_POWER      8
 #define LS_HGL_GPIO_KEY_AUTOPOWER  10
@@ -143,11 +164,24 @@ static struct platform_device ls_hgl_button_device = {
 };
 
 
+/*****************************************************************************
+ * SATA
+ ****************************************************************************/
 static struct mv_sata_platform_data ls_hgl_sata_data = {
 	.n_ports	= 2,
 };
 
 
+/*****************************************************************************
+ * Linkstation LS-HGL specific power off method: reboot
+ ****************************************************************************/
+/*
+ * On the Linkstation LS-HGL, the shutdown process is following:
+ * - Userland monitors key events until the power switch goes to off position
+ * - The board reboots
+ * - U-boot starts and goes into an idle mode waiting for the user
+ *   to move the switch to ON position
+ */
 
 static void ls_hgl_power_off(void)
 {
@@ -155,6 +189,9 @@ static void ls_hgl_power_off(void)
 }
 
 
+/*****************************************************************************
+ * General Setup
+ ****************************************************************************/
 
 #define LS_HGL_GPIO_USB_POWER	9
 #define LS_HGL_GPIO_AUTO_POWER	10
@@ -163,24 +200,24 @@ static void ls_hgl_power_off(void)
 #define LS_HGL_GPIO_HDD_POWER	1
 
 static unsigned int ls_hgl_mpp_modes[] __initdata = {
-	MPP0_GPIO, 
-	MPP1_GPIO, 
-	MPP2_GPIO, 
-	MPP3_GPIO, 
+	MPP0_GPIO, /* LED_PWR */
+	MPP1_GPIO, /* HDD_PWR */
+	MPP2_GPIO, /* LED_ALARM */
+	MPP3_GPIO, /* LED_INFO */
 	MPP4_UNUSED,
 	MPP5_UNUSED,
-	MPP6_GPIO, 
-	MPP7_GPIO, 
-	MPP8_GPIO, 
-	MPP9_GPIO, 
-	MPP10_GPIO, 
-	MPP11_UNUSED, 
+	MPP6_GPIO, /* FAN_LCK */
+	MPP7_GPIO, /* INIT */
+	MPP8_GPIO, /* POWER */
+	MPP9_GPIO, /* USB_PWR */
+	MPP10_GPIO, /* AUTO_POWER */
+	MPP11_UNUSED, /* LED_ETH (dummy) */
 	MPP12_UNUSED,
 	MPP13_UNUSED,
 	MPP14_UNUSED,
-	MPP15_GPIO, 
+	MPP15_GPIO, /* FUNC */
 	MPP16_UNUSED,
-	MPP17_GPIO, 
+	MPP17_GPIO, /* LED_FUNC */
 	MPP18_UNUSED,
 	MPP19_UNUSED,
 	0,
@@ -188,10 +225,16 @@ static unsigned int ls_hgl_mpp_modes[] __initdata = {
 
 static void __init ls_hgl_init(void)
 {
+	/*
+	 * Setup basic Orion functions. Need to be called early.
+	 */
 	orion5x_init();
 
 	orion5x_mpp_conf(ls_hgl_mpp_modes);
 
+	/*
+	 * Configure peripherals.
+	 */
 	orion5x_ehci0_init();
 	orion5x_ehci1_init();
 	orion5x_eth_init(&ls_hgl_eth_data);
@@ -210,17 +253,17 @@ static void __init ls_hgl_init(void)
 
 	i2c_register_board_info(0, &ls_hgl_i2c_rtc, 1);
 
-	
+	/* enable USB power */
 	gpio_set_value(LS_HGL_GPIO_USB_POWER, 1);
 
-	
+	/* register power-off method */
 	pm_power_off = ls_hgl_power_off;
 
 	pr_info("%s: finished\n", __func__);
 }
 
 MACHINE_START(LINKSTATION_LS_HGL, "Buffalo Linkstation LS-HGL")
-	
+	/* Maintainer: Zhu Qingsen <zhuqs@cn.fujistu.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= ls_hgl_init,
 	.map_io		= orion5x_map_io,

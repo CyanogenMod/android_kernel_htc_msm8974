@@ -49,13 +49,13 @@ static int sierra_set_ms_mode(struct usb_device *udev, __u16 eSWocMode)
 	int result;
 	US_DEBUGP("SWIMS: %s", "DEVICE MODE SWITCH\n");
 	result = usb_control_msg(udev, usb_sndctrlpipe(udev, 0),
-			SWIMS_USB_REQUEST_SetSwocMode,	
-			USB_TYPE_VENDOR | USB_DIR_OUT,	
-			eSWocMode,			
-			0x0000,				
-			NULL,				
-			0,				
-			USB_CTRL_SET_TIMEOUT);		
+			SWIMS_USB_REQUEST_SetSwocMode,	/* __u8 request      */
+			USB_TYPE_VENDOR | USB_DIR_OUT,	/* __u8 request type */
+			eSWocMode,			/* __u16 value       */
+			0x0000,				/* __u16 index       */
+			NULL,				/* void *data        */
+			0,				/* __u16 size 	     */
+			USB_CTRL_SET_TIMEOUT);		/* int timeout       */
 	return result;
 }
 
@@ -68,13 +68,13 @@ static int sierra_get_swoc_info(struct usb_device *udev,
 	US_DEBUGP("SWIMS: Attempting to get TRU-Install info.\n");
 
 	result = usb_control_msg(udev, usb_rcvctrlpipe(udev, 0),
-			SWIMS_USB_REQUEST_GetSwocInfo,	
-			USB_TYPE_VENDOR | USB_DIR_IN,	
-			0,				
-			0,				
-			(void *) swocInfo,		
-			sizeof(struct swoc_info),	
-			USB_CTRL_SET_TIMEOUT);		
+			SWIMS_USB_REQUEST_GetSwocInfo,	/* __u8 request      */
+			USB_TYPE_VENDOR | USB_DIR_IN,	/* __u8 request type */
+			0,				/* __u16 value       */
+			0,				/* __u16 index       */
+			(void *) swocInfo,		/* void *data        */
+			sizeof(struct swoc_info),	/* __u16 size 	     */
+			USB_CTRL_SET_TIMEOUT);		/* int timeout 	     */
 
 	swocInfo->LinuxSKU = le16_to_cpu(swocInfo->LinuxSKU);
 	swocInfo->LinuxVer = le16_to_cpu(swocInfo->LinuxVer);
@@ -141,7 +141,7 @@ int sierra_ms_init(struct us_data *us)
 
 	US_DEBUGP("SWIMS: sierra_ms_init called\n");
 
-	
+	/* Force Modem mode */
 	if (swi_tru_install == TRU_FORCE_MODEM) {
 		US_DEBUGP("SWIMS: %s", "Forcing Modem Mode\n");
 		result = sierra_set_ms_mode(udev, SWIMS_SET_MODE_Modem);
@@ -149,12 +149,12 @@ int sierra_ms_init(struct us_data *us)
 			US_DEBUGP("SWIMS: Failed to switch to modem mode.\n");
 		return -EIO;
 	}
-	
+	/* Force Mass Storage mode (keep CD-Rom) */
 	else if (swi_tru_install == TRU_FORCE_MS) {
 		US_DEBUGP("SWIMS: %s", "Forcing Mass Storage Mode\n");
 		goto complete;
 	}
-	
+	/* Normal TRU-Install Logic */
 	else {
 		US_DEBUGP("SWIMS: %s", "Normal SWoC Logic\n");
 
@@ -184,6 +184,9 @@ int sierra_ms_init(struct us_data *us)
 
 		debug_swoc(swocInfo);
 
+		/* If there is not Linux software on the TRU-Install device
+		 * then switch to modem mode
+		 */
 		if (!containsFullLinuxPackage(swocInfo)) {
 			US_DEBUGP("SWIMS: %s",
 				"Switching to Modem Mode\n");

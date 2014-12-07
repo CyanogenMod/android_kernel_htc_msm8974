@@ -67,6 +67,7 @@
 #define set_xen_guest_handle(hnd, val)	do { (hnd).p = val; } while (0)
 
 #ifndef __ASSEMBLY__
+/* Guest handles for primitive C types. */
 __DEFINE_GUEST_HANDLE(uchar, unsigned char);
 __DEFINE_GUEST_HANDLE(uint, unsigned int);
 __DEFINE_GUEST_HANDLE(ulong, unsigned long);
@@ -83,10 +84,14 @@ DEFINE_GUEST_HANDLE(xen_pfn_t);
 #define PRI_xen_pfn	"lx"
 #endif
 
-#define VIRQ_ITC	VIRQ_ARCH_0	
-#define VIRQ_MCA_CMC	VIRQ_ARCH_1	
-#define VIRQ_MCA_CPE	VIRQ_ARCH_2	
+/* Arch specific VIRQs definition */
+#define VIRQ_ITC	VIRQ_ARCH_0	/* V. Virtual itc timer */
+#define VIRQ_MCA_CMC	VIRQ_ARCH_1	/* MCA cmc interrupt */
+#define VIRQ_MCA_CPE	VIRQ_ARCH_2	/* MCA cpe interrupt */
 
+/* Maximum number of virtual CPUs in multi-processor guests. */
+/* keep sizeof(struct shared_page) <= PAGE_SIZE.
+ * this is checked in arch/ia64/xen/hypervisor.c. */
 #define MAX_VIRT_CPUS	64
 
 #ifndef __ASSEMBLY__
@@ -129,11 +134,13 @@ struct mapped_regs {
 	unsigned long reserved2[95];
 	union {
 		unsigned long vgr[16];
-		unsigned long bank1_regs[16];	
+		unsigned long bank1_regs[16];	/* bank1 regs (r16-r31)
+						   when bank0 active */
 	};
 	union {
 		unsigned long vbgr[16];
-		unsigned long bank0_regs[16];	
+		unsigned long bank0_regs[16];	/* bank0 regs (r16-r31)
+						   when bank1 active */
 	};
 	unsigned long vnat;
 	unsigned long vbnat;
@@ -145,13 +152,13 @@ struct mapped_regs {
 	union {
 		unsigned long vcr[128];
 		struct {
-			unsigned long dcr;	
+			unsigned long dcr;	/* CR0 */
 			unsigned long itm;
 			unsigned long iva;
 			unsigned long rsv1[5];
-			unsigned long pta;	
+			unsigned long pta;	/* CR8 */
 			unsigned long rsv2[7];
-			unsigned long ipsr;	
+			unsigned long ipsr;	/* CR16 */
 			unsigned long isr;
 			unsigned long rsv3;
 			unsigned long iip;
@@ -159,19 +166,19 @@ struct mapped_regs {
 			unsigned long itir;
 			unsigned long iipa;
 			unsigned long ifs;
-			unsigned long iim;	
+			unsigned long iim;	/* CR24 */
 			unsigned long iha;
 			unsigned long rsv4[38];
-			unsigned long lid;	
+			unsigned long lid;	/* CR64 */
 			unsigned long ivr;
 			unsigned long tpr;
 			unsigned long eoi;
 			unsigned long irr[4];
-			unsigned long itv;	
+			unsigned long itv;	/* CR72 */
 			unsigned long pmv;
 			unsigned long cmcv;
 			unsigned long rsv5[5];
-			unsigned long lrr0;	
+			unsigned long lrr0;	/* CR80 */
 			unsigned long lrr1;
 			unsigned long rsv6[46];
 		};
@@ -180,9 +187,15 @@ struct mapped_regs {
 		unsigned long reserved5[128];
 		struct {
 			unsigned long precover_ifs;
-			unsigned long unat;	
-			int interrupt_collection_enabled; 
+			unsigned long unat;	/* not sure if this is needed
+						   until NaT arch is done */
+			int interrupt_collection_enabled; /* virtual psr.ic */
 
+			/* virtual interrupt deliverable flag is
+			 * evtchn_upcall_mask in shared info area now.
+			 * interrupt_mask_addr is the address
+			 * of evtchn_upcall_mask for current vcpu
+			 */
 			unsigned char *interrupt_mask_addr;
 			int pending_interruption;
 			unsigned char vpsr_pp;
@@ -190,12 +203,21 @@ struct mapped_regs {
 			unsigned char hpsr_dfh;
 			unsigned char hpsr_mfh;
 			unsigned long reserved5_1[4];
-			int metaphysical_mode;	
-			int banknum;		
-			unsigned long rrs[8];	
-			unsigned long krs[8];	
-			unsigned long tmp[16];	
+			int metaphysical_mode;	/* 1 = use metaphys mapping
+						   0 = use virtual */
+			int banknum;		/* 0 or 1, which virtual
+						   register bank is active */
+			unsigned long rrs[8];	/* region registers */
+			unsigned long krs[8];	/* kernel registers */
+			unsigned long tmp[16];	/* temp registers
+						   (e.g. for hyperprivops) */
 
+			/* itc paravirtualization
+			 * vAR.ITC = mAR.ITC + itc_offset
+			 * itc_last is one which was lastly passed to
+			 * the guest OS in order to prevent it from
+			 * going backwords.
+			 */
 			unsigned long itc_offset;
 			unsigned long itc_last;
 		};
@@ -203,25 +225,34 @@ struct mapped_regs {
 };
 
 struct arch_vcpu_info {
-	
+	/* nothing */
 };
 
+/*
+ * This structure is used for magic page in domain pseudo physical address
+ * space and the result of XENMEM_machine_memory_map.
+ * As the XENMEM_machine_memory_map result,
+ * xen_memory_map::nr_entries indicates the size in bytes
+ * including struct xen_ia64_memmap_info. Not the number of entries.
+ */
 struct xen_ia64_memmap_info {
-	uint64_t efi_memmap_size;	
-	uint64_t efi_memdesc_size;	
-	uint32_t efi_memdesc_version;	
-	void *memdesc[0];		
+	uint64_t efi_memmap_size;	/* size of EFI memory map */
+	uint64_t efi_memdesc_size;	/* size of an EFI memory map
+					 * descriptor */
+	uint32_t efi_memdesc_version;	/* memory descriptor version */
+	void *memdesc[0];		/* array of efi_memory_desc_t */
 };
 
 struct arch_shared_info {
-	
+	/* PFN of the start_info page.	*/
 	unsigned long start_info_pfn;
 
-	
+	/* Interrupt vector for event channel.	*/
 	int evtchn_vector;
 
-	
-	unsigned int memmap_info_num_pages;	
+	/* PFN of memmap_info page */
+	unsigned int memmap_info_num_pages;	/* currently only = 1 case is
+						   supported. */
 	unsigned long memmap_info_pfn;
 
 	uint64_t pad[31];
@@ -232,14 +263,18 @@ struct xen_callback {
 };
 typedef struct xen_callback xen_callback_t;
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/* Size of the shared_info area (this is not related to page size).  */
 #define XSI_SHIFT			14
 #define XSI_SIZE			(1 << XSI_SHIFT)
+/* Log size of mapped_regs area (64 KB - only 4KB is used).  */
 #define XMAPPEDREGS_SHIFT		12
 #define XMAPPEDREGS_SIZE		(1 << XMAPPEDREGS_SHIFT)
+/* Offset of XASI (Xen arch shared info) wrt XSI_BASE.	*/
 #define XMAPPEDREGS_OFS			XSI_SIZE
 
+/* Hyperprivops.  */
 #define HYPERPRIVOP_START		0x1
 #define HYPERPRIVOP_RFI			(HYPERPRIVOP_START + 0x0)
 #define HYPERPRIVOP_RSM_DT		(HYPERPRIVOP_START + 0x1)
@@ -269,37 +304,54 @@ typedef struct xen_callback xen_callback_t;
 #define HYPERPRIVOP_SET_RR0_TO_RR4	(HYPERPRIVOP_START + 0x19)
 #define HYPERPRIVOP_MAX			(0x1a)
 
+/* Fast and light hypercalls.  */
 #define __HYPERVISOR_ia64_fast_eoi	__HYPERVISOR_arch_1
 
+/* Xencomm macros.  */
 #define XENCOMM_INLINE_MASK		0xf800000000000000UL
 #define XENCOMM_INLINE_FLAG		0x8000000000000000UL
 
 #ifndef __ASSEMBLY__
 
+/*
+ * Optimization features.
+ * The hypervisor may do some special optimizations for guests. This hypercall
+ * can be used to switch on/of these special optimizations.
+ */
 #define __HYPERVISOR_opt_feature	0x700UL
 
 #define XEN_IA64_OPTF_OFF		0x0
 #define XEN_IA64_OPTF_ON		0x1
 
+/*
+ * If this feature is switched on, the hypervisor inserts the
+ * tlb entries without calling the guests traphandler.
+ * This is useful in guests using region 7 for identity mapping
+ * like the linux kernel does.
+ */
 #define XEN_IA64_OPTF_IDENT_MAP_REG7	1
 
+/* Identity mapping of region 4 addresses in HVM. */
 #define XEN_IA64_OPTF_IDENT_MAP_REG4	2
 
+/* Identity mapping of region 5 addresses in HVM. */
 #define XEN_IA64_OPTF_IDENT_MAP_REG5	3
 
 #define XEN_IA64_OPTF_IDENT_MAP_NOT_SET	 (0)
 
 struct xen_ia64_opt_feature {
-	unsigned long cmd;	
-	unsigned char on;	
+	unsigned long cmd;	/* Which feature */
+	unsigned char on;	/* Switch feature on/off */
 	union {
 		struct {
+			/* The page protection bit mask of the pte.
+			 * This will be or'ed with the pte. */
 			unsigned long pgprot;
-			unsigned long key;	
+			unsigned long key;	/* A protection key for itir.*/
 		};
 	};
 };
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_IA64_XEN_INTERFACE_H */

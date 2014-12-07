@@ -63,4 +63,4 @@ static inline int omap_vrfb_map_angle(struct vrfb *vrfb, u16 height, u8 rot)
 		{ return 0; }
 static inline void omap_vrfb_restore_context(void) {}
 #endif
-#endif 
+#endif /* __VRFB_H */

@@ -16,6 +16,21 @@
 
 #include <linux/debugfs.h>
 
+/**
+ * Unit test assertion for logging test cases.
+ *
+ * @a lval
+ * @b rval
+ * @cmp comparison operator
+ *
+ * Assertion fails if (@a cmp @b) is not true which then
+ * logs the function and line number where the error occurred
+ * along with the values of @a and @b.
+ *
+ * Assumes that the following local variables exist:
+ * @s - sequential output file pointer
+ * @failed - set to true if test fails
+ */
 #define UT_ASSERT_INT(a, cmp, b) \
 	{ \
 	int a_tmp = (a); \
@@ -72,6 +87,22 @@
 	} \
 	}
 
+/**
+ * In-range unit test assertion for test cases.
+ *
+ * @a lval
+ * @minv Minimum value
+ * @maxv Maximum value
+ *
+ * Assertion fails if @a is not on the exclusive range minv, maxv
+ * ((@a < @minv) or (@a > @maxv)).  In the failure case, the macro
+ * logs the function and line number where the error occurred along
+ * with the values of @a and @minv, @maxv.
+ *
+ * Assumes that the following local variables exist:
+ * @s - sequential output file pointer
+ * @failed - set to true if test fails
+ */
 #define UT_ASSERT_INT_IN_RANGE(a, minv, maxv) \
 	{ \
 	int a_tmp = (a); \
@@ -88,12 +119,13 @@
 	} \
 	}
 
+/* Structure to track state changes for the notifier callback. */
 struct mock_cb_data {
 	bool initialized;
 	spinlock_t lock;
 	struct notifier_block nb;
 
-	
+	/* events */
 	struct completion cb_completion;
 	int cb_count;
 	int event_open;
@@ -105,6 +137,11 @@ void smp2p_debug_create(const char *name, void (*show)(struct seq_file *));
 static inline int smp2p_test_notify(struct notifier_block *self,
 	unsigned long event, void *data);
 
+/**
+ * Reset mock callback data to default values.
+ *
+ * @cb:  Mock callback data
+ */
 static inline void mock_cb_data_reset(struct mock_cb_data *cb)
 {
 	INIT_COMPLETION(cb->cb_completion);
@@ -116,6 +153,11 @@ static inline void mock_cb_data_reset(struct mock_cb_data *cb)
 }
 
 
+/**
+ * Initialize mock callback data.
+ *
+ * @cb:  Mock callback data
+ */
 static inline void mock_cb_data_init(struct mock_cb_data *cb)
 {
 	if (!cb->initialized) {
@@ -129,6 +171,14 @@ static inline void mock_cb_data_init(struct mock_cb_data *cb)
 	mock_cb_data_reset(cb);
 }
 
+/**
+ * Notifier function passed into SMP2P for testing.
+ *
+ * @self:       Pointer to calling notifier block
+ * @event:	    Event
+ * @data:       Event-specific data
+ * @returns:    0
+ */
 static inline int smp2p_test_notify(struct notifier_block *self,
 		unsigned long event, void *data)
 {
@@ -164,4 +214,4 @@ static inline int smp2p_test_notify(struct notifier_block *self,
 	spin_unlock_irqrestore(&cb_data_ptr->lock, flags);
 	return 0;
 }
-#endif 
+#endif /* _ARCH_ARM_MACH_MSM_SMP2P_TEST_COMMON_H_ */

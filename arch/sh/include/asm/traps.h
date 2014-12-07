@@ -18,4 +18,4 @@ BUILD_TRAP_HANDLER(fpu_error);
 BUILD_TRAP_HANDLER(fpu_state_restore);
 BUILD_TRAP_HANDLER(nmi);
 
-#endif 
+#endif /* __ASM_SH_TRAPS_H */

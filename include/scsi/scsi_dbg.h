@@ -21,4 +21,4 @@ extern void scsi_print_status(unsigned char);
 extern const char *scsi_sense_key_string(unsigned char);
 extern const char *scsi_extd_sense_format(unsigned char, unsigned char);
 
-#endif 
+#endif /* _SCSI_SCSI_DBG_H */

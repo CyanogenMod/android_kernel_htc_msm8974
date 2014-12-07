@@ -6,6 +6,10 @@
  * Copyright (C) 2003-2005 Silicon Graphics, Inc.  All Rights Reserved.
  */
 
+/*
+ * SGI TIOCA AGPGART routines.
+ *
+ */
 
 #include <linux/acpi.h>
 #include <linux/module.h>
@@ -25,6 +29,11 @@ extern uint32_t tioca_gart_found;
 extern struct list_head tioca_list;
 static struct agp_bridge_data **sgi_tioca_agp_bridges;
 
+/*
+ * The aperature size and related information is set up at TIOCA init time.
+ * Values for this table will be extracted and filled in at
+ * sgi_tioca_fetch_size() time.
+ */
 
 static struct aper_size_info_fixed sgi_tioca_sizes[] = {
 	{0, 0, 0},
@@ -47,12 +56,20 @@ static struct page *sgi_tioca_alloc_page(struct agp_bridge_data *bridge)
 	return page;
 }
 
+/*
+ * Flush GART tlb's.  Cannot selectively flush based on memory so the mem
+ * arg is ignored.
+ */
 
 static void sgi_tioca_tlbflush(struct agp_memory *mem)
 {
 	tioca_tlbflush(mem->bridge->dev_private_data);
 }
 
+/*
+ * Given an address of a host physical page, turn it into a valid gart
+ * entry.
+ */
 static unsigned long
 sgi_tioca_mask_memory(struct agp_bridge_data *bridge, dma_addr_t addr,
 		      int type)
@@ -65,12 +82,20 @@ static void sgi_tioca_agp_enable(struct agp_bridge_data *bridge, u32 mode)
 	tioca_fastwrite_enable(bridge->dev_private_data);
 }
 
+/*
+ * sgi_tioca_configure() doesn't have anything to do since the base CA driver
+ * has alreay set up the GART.
+ */
 
 static int sgi_tioca_configure(void)
 {
 	return 0;
 }
 
+/*
+ * Determine gfx aperature size.  This has already been determined by the
+ * CA driver init, so just need to set agp_bridge values accordingly.
+ */
 
 static int sgi_tioca_fetch_size(void)
 {
@@ -203,6 +228,9 @@ static void sgi_tioca_cache_flush(void)
 {
 }
 
+/*
+ * Cleanup.  Nothing to do as the CA driver owns the GART.
+ */
 
 static void sgi_tioca_cleanup(void)
 {
@@ -283,12 +311,12 @@ static int __devinit agp_sgi_init(void)
 			sgi_tioca_agp_bridges[j]->driver = &sgi_tioca_driver;
 			sgi_tioca_agp_bridges[j]->gart_bus_addr =
 			    info->ca_gfxap_base;
-			sgi_tioca_agp_bridges[j]->mode = (0x7D << 24) |	
-			    (0x1 << 9) |	
-			    (0x1 << 5) |	
-			    (0x1 << 4) |	
-			    (0x1 << 3) |	
-			    0x2;	
+			sgi_tioca_agp_bridges[j]->mode = (0x7D << 24) |	/* 126 requests */
+			    (0x1 << 9) |	/* SBA supported */
+			    (0x1 << 5) |	/* 64-bit addresses supported */
+			    (0x1 << 4) |	/* FW supported */
+			    (0x1 << 3) |	/* AGP 3.0 mode */
+			    0x2;	/* 8x transfer only */
 			sgi_tioca_agp_bridges[j]->current_size =
 			    sgi_tioca_agp_bridges[j]->previous_size =
 			    (void *)&sgi_tioca_sizes[0];

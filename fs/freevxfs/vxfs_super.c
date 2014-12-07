@@ -27,6 +27,9 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * Veritas filesystem driver - superblock related routines.
+ */
 #include <linux/init.h>
 #include <linux/module.h>
 
@@ -49,7 +52,7 @@ MODULE_AUTHOR("Christoph Hellwig");
 MODULE_DESCRIPTION("Veritas Filesystem (VxFS) driver");
 MODULE_LICENSE("Dual BSD/GPL");
 
-MODULE_ALIAS("vxfs"); 
+MODULE_ALIAS("vxfs"); /* makes mount -t vxfs autoload the module */
 
 
 static void		vxfs_put_super(struct super_block *);
@@ -63,6 +66,14 @@ static const struct super_operations vxfs_super_ops = {
 	.remount_fs =		vxfs_remount,
 };
 
+/**
+ * vxfs_put_super - free superblock resources
+ * @sbp:	VFS superblock.
+ *
+ * Description:
+ *   vxfs_put_super frees all resources allocated for @sbp
+ *   after the last instance of the filesystem is unmounted.
+ */
 
 static void
 vxfs_put_super(struct super_block *sbp)
@@ -77,6 +88,24 @@ vxfs_put_super(struct super_block *sbp)
 	kfree(infp);
 }
 
+/**
+ * vxfs_statfs - get filesystem information
+ * @dentry:	VFS dentry to locate superblock
+ * @bufp:	output buffer
+ *
+ * Description:
+ *   vxfs_statfs fills the statfs buffer @bufp with information
+ *   about the filesystem described by @dentry.
+ *
+ * Returns:
+ *   Zero.
+ *
+ * Locking:
+ *   No locks held.
+ *
+ * Notes:
+ *   This is everything but complete...
+ */
 static int
 vxfs_statfs(struct dentry *dentry, struct kstatfs *bufp)
 {
@@ -100,6 +129,22 @@ static int vxfs_remount(struct super_block *sb, int *flags, char *data)
 	return 0;
 }
 
+/**
+ * vxfs_read_super - read superblock into memory and initialize filesystem
+ * @sbp:		VFS superblock (to fill)
+ * @dp:			fs private mount data
+ * @silent:		do not complain loudly when sth is wrong
+ *
+ * Description:
+ *   We are called on the first mount of a filesystem to read the
+ *   superblock into memory and do some basic setup.
+ *
+ * Returns:
+ *   The superblock on success, else %NULL.
+ *
+ * Locking:
+ *   We are under @sbp->s_lock.
+ */
 static int vxfs_fill_super(struct super_block *sbp, void *dp, int silent)
 {
 	struct vxfs_sb_info	*infp;
@@ -197,6 +242,9 @@ out:
 	return ret;
 }
 
+/*
+ * The usual module blurb.
+ */
 static struct dentry *vxfs_mount(struct file_system_type *fs_type,
 	int flags, const char *dev_name, void *data)
 {

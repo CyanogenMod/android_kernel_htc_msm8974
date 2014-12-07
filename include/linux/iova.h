@@ -16,18 +16,21 @@
 #include <linux/rbtree.h>
 #include <linux/dma-mapping.h>
 
+/* IO virtual address start page frame number */
 #define IOVA_START_PFN		(1)
 
+/* iova structure */
 struct iova {
 	struct rb_node	node;
-	unsigned long	pfn_hi; 
-	unsigned long	pfn_lo; 
+	unsigned long	pfn_hi; /* IOMMU dish out addr hi */
+	unsigned long	pfn_lo; /* IOMMU dish out addr lo */
 };
 
+/* holds all the iova translations for a domain */
 struct iova_domain {
-	spinlock_t	iova_rbtree_lock; 
-	struct rb_root	rbroot;		
-	struct rb_node	*cached32_node; 
+	spinlock_t	iova_rbtree_lock; /* Lock to protect update of rbtree */
+	struct rb_root	rbroot;		/* iova domain rbtree root */
+	struct rb_node	*cached32_node; /* Save last alloced node */
 	unsigned long	dma_32bit_pfn;
 };
 

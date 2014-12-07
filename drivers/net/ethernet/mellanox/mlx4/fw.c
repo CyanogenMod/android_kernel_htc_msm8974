@@ -175,16 +175,16 @@ int mlx4_QUERY_FUNC_CAP_wrapper(struct mlx4_dev *dev, int slave,
 		field = vhcr->in_modifier;
 		MLX4_PUT(outbox->buf, field, QUERY_FUNC_CAP_PHYS_PORT_OFFSET);
 
-		field = 0; 
+		field = 0; /* ensure fvl bit is not set */
 		MLX4_PUT(outbox->buf, field, QUERY_FUNC_CAP_ETH_PROPS_OFFSET);
 	} else if (vhcr->op_modifier == 0) {
-		field = 1 << 7; 
+		field = 1 << 7; /* enable only ethernet interface */
 		MLX4_PUT(outbox->buf, field, QUERY_FUNC_CAP_FLAGS_OFFSET);
 
 		field = dev->caps.num_ports;
 		MLX4_PUT(outbox->buf, field, QUERY_FUNC_CAP_NUM_PORTS_OFFSET);
 
-		size = 0; 
+		size = 0; /* no PF behavious is set for now */
 		MLX4_PUT(outbox->buf, size, QUERY_FUNC_CAP_PF_BHVR_OFFSET);
 
 		size = dev->caps.num_qps;
@@ -299,6 +299,12 @@ int mlx4_QUERY_FUNC_CAP(struct mlx4_dev *dev, struct mlx4_func_cap *func_cap)
 		func_cap->physical_port[i] = field;
 	}
 
+	/* All other resources are allocated by the master, but we still report
+	 * 'num' and 'reserved' capabilities as follows:
+	 * - num remains the maximum resource index
+	 * - 'num - reserved' is the total available objects of a resource, but
+	 *   resource indices may be less than 'reserved'
+	 * TODO: set per-resource quotas */
 
 out:
 	mlx4_free_cmd_mailbox(dev, mailbox);
@@ -591,6 +597,11 @@ int mlx4_QUERY_DEV_CAP(struct mlx4_dev *dev, struct mlx4_dev_cap *dev_cap)
 	mlx4_dbg(dev, "Base MM extensions: flags %08x, rsvd L_Key %08x\n",
 		 dev_cap->bmme_flags, dev_cap->reserved_lkey);
 
+	/*
+	 * Each UAR has 4 EQ doorbells; so if a UAR is reserved, then
+	 * we can't use any EQs whose doorbell falls on that page,
+	 * even if the EQ itself isn't reserved.
+	 */
 	dev_cap->reserved_eqs = max(dev_cap->reserved_uars * 4,
 				    dev_cap->reserved_eqs);
 
@@ -651,19 +662,19 @@ int mlx4_QUERY_PORT_wrapper(struct mlx4_dev *dev, int slave,
 			   MLX4_CMD_NATIVE);
 
 	if (!err && dev->caps.function != slave) {
-		
+		/* set slave default_mac address */
 		MLX4_GET(def_mac, outbox->buf, QUERY_PORT_MAC_OFFSET);
 		def_mac += slave << 8;
 		MLX4_PUT(outbox->buf, def_mac, QUERY_PORT_MAC_OFFSET);
 
-		
+		/* get port type - currently only eth is enabled */
 		MLX4_GET(port_type, outbox->buf,
 			 QUERY_PORT_SUPPORTED_TYPE_OFFSET);
 
-		
+		/* Allow only Eth port, no link sensing allowed */
 		port_type &= MLX4_VF_PORT_ETH_ONLY_MASK;
 
-		
+		/* check eth is enabled for this port */
 		if (!(port_type & 2))
 			mlx4_dbg(dev, "QUERY PORT: eth not supported by host");
 
@@ -694,6 +705,11 @@ int mlx4_map_cmd(struct mlx4_dev *dev, u16 op, struct mlx4_icm *icm, u64 virt)
 	for (mlx4_icm_first(icm, &iter);
 	     !mlx4_icm_last(&iter);
 	     mlx4_icm_next(&iter)) {
+		/*
+		 * We have to pass pages that are aligned to their
+		 * size, so find the least significant 1 in the
+		 * address or size and use that as our log2 size.
+		 */
 		lg = ffs(mlx4_icm_addr(&iter) | mlx4_icm_size(&iter)) - 1;
 		if (lg < MLX4_ICM_PAGE_SHIFT) {
 			mlx4_warn(dev, "Got FW area not aligned to %d (%llx/%lx).\n",
@@ -807,6 +823,10 @@ int mlx4_QUERY_FW(struct mlx4_dev *dev)
 		goto out;
 
 	MLX4_GET(fw_ver, outbox, QUERY_FW_VER_OFFSET);
+	/*
+	 * FW subminor version is at more significant bits than minor
+	 * version, so swap here.
+	 */
 	dev->caps.fw_ver = (fw_ver & 0xffff00000000ull) |
 		((fw_ver & 0xffff0000ull) >> 16) |
 		((fw_ver & 0x0000ffffull) << 16);
@@ -862,6 +882,10 @@ int mlx4_QUERY_FW(struct mlx4_dev *dev)
 		 fw->comm_bar, fw->comm_base);
 	mlx4_dbg(dev, "FW size %d KB\n", fw->fw_pages >> 2);
 
+	/*
+	 * Round up number of system pages needed in case
+	 * MLX4_ICM_PAGE_SIZE < PAGE_SIZE.
+	 */
 	fw->fw_pages =
 		ALIGN(fw->fw_pages, PAGE_SIZE / MLX4_ICM_PAGE_SIZE) >>
 		(PAGE_SHIFT - MLX4_ICM_PAGE_SHIFT);
@@ -891,6 +915,11 @@ static void get_board_id(void *vsd, char *board_id)
 	    be16_to_cpup(vsd + VSD_OFFSET_SIG2) == VSD_SIGNATURE_TOPSPIN) {
 		strlcpy(board_id, vsd + VSD_OFFSET_TS_BOARD_ID, MLX4_BOARD_ID_LEN);
 	} else {
+		/*
+		 * The board ID is a string but the firmware byte
+		 * swaps each 4-byte word before passing it back to
+		 * us.  Therefore we need to swab it before printing.
+		 */
 		for (i = 0; i < 4; ++i)
 			((u32 *) board_id)[i] =
 				swab32(*(u32 *) (vsd + VSD_OFFSET_MLX_BOARD_ID + i * 4));
@@ -986,22 +1015,22 @@ int mlx4_INIT_HCA(struct mlx4_dev *dev, struct mlx4_init_hca_param *param)
 #else
 #error Host endianness not defined
 #endif
-	
+	/* Check port for UD address vector: */
 	*(inbox + INIT_HCA_FLAGS_OFFSET / 4) |= cpu_to_be32(1);
 
-	
+	/* Enable IPoIB checksumming if we can: */
 	if (dev->caps.flags & MLX4_DEV_CAP_FLAG_IPOIB_CSUM)
 		*(inbox + INIT_HCA_FLAGS_OFFSET / 4) |= cpu_to_be32(1 << 3);
 
-	
+	/* Enable QoS support if module parameter set */
 	if (enable_qos)
 		*(inbox + INIT_HCA_FLAGS_OFFSET / 4) |= cpu_to_be32(1 << 2);
 
-	
+	/* enable counters */
 	if (dev->caps.flags & MLX4_DEV_CAP_FLAG_COUNTERS)
 		*(inbox + INIT_HCA_FLAGS_OFFSET / 4) |= cpu_to_be32(1 << 4);
 
-	
+	/* QPC/EEC/CQC/EQC/RDMARC attributes */
 
 	MLX4_PUT(inbox, param->qpc_base,      INIT_HCA_QPC_BASE_OFFSET);
 	MLX4_PUT(inbox, param->log_num_qps,   INIT_HCA_LOG_QP_OFFSET);
@@ -1016,7 +1045,7 @@ int mlx4_INIT_HCA(struct mlx4_dev *dev, struct mlx4_init_hca_param *param)
 	MLX4_PUT(inbox, param->rdmarc_base,   INIT_HCA_RDMARC_BASE_OFFSET);
 	MLX4_PUT(inbox, param->log_rd_per_qp, INIT_HCA_LOG_RD_OFFSET);
 
-	
+	/* multicast attributes */
 
 	MLX4_PUT(inbox, param->mc_base,		INIT_HCA_MC_BASE_OFFSET);
 	MLX4_PUT(inbox, param->log_mc_entry_sz, INIT_HCA_LOG_MC_ENTRY_SZ_OFFSET);
@@ -1025,14 +1054,14 @@ int mlx4_INIT_HCA(struct mlx4_dev *dev, struct mlx4_init_hca_param *param)
 		MLX4_PUT(inbox, (u8) (1 << 3),	INIT_HCA_UC_STEERING_OFFSET);
 	MLX4_PUT(inbox, param->log_mc_table_sz, INIT_HCA_LOG_MC_TABLE_SZ_OFFSET);
 
-	
+	/* TPT attributes */
 
 	MLX4_PUT(inbox, param->dmpt_base,  INIT_HCA_DMPT_BASE_OFFSET);
 	MLX4_PUT(inbox, param->log_mpt_sz, INIT_HCA_LOG_MPT_SZ_OFFSET);
 	MLX4_PUT(inbox, param->mtt_base,   INIT_HCA_MTT_BASE_OFFSET);
 	MLX4_PUT(inbox, param->cmpt_base,  INIT_HCA_CMPT_BASE_OFFSET);
 
-	
+	/* UAR attributes */
 
 	MLX4_PUT(inbox, param->uar_page_sz,	INIT_HCA_UAR_PAGE_SZ_OFFSET);
 	MLX4_PUT(inbox, param->log_uar_sz,      INIT_HCA_LOG_UAR_SZ_OFFSET);
@@ -1070,7 +1099,7 @@ int mlx4_QUERY_HCA(struct mlx4_dev *dev,
 
 	MLX4_GET(param->global_caps, outbox, QUERY_HCA_GLOBAL_CAPS_OFFSET);
 
-	
+	/* QPC/EEC/CQC/EQC/RDMARC attributes */
 
 	MLX4_GET(param->qpc_base,      outbox, INIT_HCA_QPC_BASE_OFFSET);
 	MLX4_GET(param->log_num_qps,   outbox, INIT_HCA_LOG_QP_OFFSET);
@@ -1085,7 +1114,7 @@ int mlx4_QUERY_HCA(struct mlx4_dev *dev,
 	MLX4_GET(param->rdmarc_base,   outbox, INIT_HCA_RDMARC_BASE_OFFSET);
 	MLX4_GET(param->log_rd_per_qp, outbox, INIT_HCA_LOG_RD_OFFSET);
 
-	
+	/* multicast attributes */
 
 	MLX4_GET(param->mc_base,         outbox, INIT_HCA_MC_BASE_OFFSET);
 	MLX4_GET(param->log_mc_entry_sz, outbox,
@@ -1095,14 +1124,14 @@ int mlx4_QUERY_HCA(struct mlx4_dev *dev,
 	MLX4_GET(param->log_mc_table_sz, outbox,
 		 INIT_HCA_LOG_MC_TABLE_SZ_OFFSET);
 
-	
+	/* TPT attributes */
 
 	MLX4_GET(param->dmpt_base,  outbox, INIT_HCA_DMPT_BASE_OFFSET);
 	MLX4_GET(param->log_mpt_sz, outbox, INIT_HCA_LOG_MPT_SZ_OFFSET);
 	MLX4_GET(param->mtt_base,   outbox, INIT_HCA_MTT_BASE_OFFSET);
 	MLX4_GET(param->cmpt_base,  outbox, INIT_HCA_CMPT_BASE_OFFSET);
 
-	
+	/* UAR attributes */
 
 	MLX4_GET(param->uar_page_sz, outbox, INIT_HCA_UAR_PAGE_SZ_OFFSET);
 	MLX4_GET(param->log_uar_sz, outbox, INIT_HCA_LOG_UAR_SZ_OFFSET);
@@ -1129,7 +1158,7 @@ int mlx4_INIT_PORT_wrapper(struct mlx4_dev *dev, int slave,
 	if (dev->caps.port_mask[port] == MLX4_PORT_TYPE_IB)
 		return -ENODEV;
 
-	
+	/* Enable port only if it was previously disabled */
 	if (!priv->mfunc.master.init_port_ref[port]) {
 		err = mlx4_cmd(dev, 0, port, 0, MLX4_CMD_INIT_PORT,
 			       MLX4_CMD_TIME_CLASS_A, MLX4_CMD_NATIVE);
@@ -1244,6 +1273,10 @@ int mlx4_SET_ICM_SIZE(struct mlx4_dev *dev, u64 icm_size, u64 *aux_pages)
 	if (ret)
 		return ret;
 
+	/*
+	 * Round up number of system pages needed in case
+	 * MLX4_ICM_PAGE_SIZE < PAGE_SIZE.
+	 */
 	*aux_pages = ALIGN(*aux_pages, PAGE_SIZE / MLX4_ICM_PAGE_SIZE) >>
 		(PAGE_SHIFT - MLX4_ICM_PAGE_SHIFT);
 
@@ -1252,7 +1285,7 @@ int mlx4_SET_ICM_SIZE(struct mlx4_dev *dev, u64 icm_size, u64 *aux_pages)
 
 int mlx4_NOP(struct mlx4_dev *dev)
 {
-	
+	/* Input modifier of 0x1f means "finish as soon as possible." */
 	return mlx4_cmd(dev, 0, 0x1f, 0, MLX4_CMD_NOP, 100, MLX4_CMD_NATIVE);
 }
 

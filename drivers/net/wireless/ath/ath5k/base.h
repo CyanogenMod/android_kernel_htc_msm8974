@@ -35,6 +35,9 @@
  *
  */
 
+/*
+ * Definitions for the Atheros Wireless LAN controller driver.
+ */
 #ifndef _DEV_ATH5K_BASE_H
 #define _DEV_ATH5K_BASE_H
 
@@ -59,23 +62,23 @@ struct ath5k_srev_name {
 
 struct ath5k_buf {
 	struct list_head	list;
-	struct ath5k_desc	*desc;	
-	dma_addr_t		daddr;	
-	struct sk_buff		*skb;	
-	dma_addr_t		skbaddr;
+	struct ath5k_desc	*desc;	/* virtual addr of desc */
+	dma_addr_t		daddr;	/* physical addr of desc */
+	struct sk_buff		*skb;	/* skbuff for buf */
+	dma_addr_t		skbaddr;/* physical addr of skb data */
 };
 
 struct ath5k_vif {
-	bool			assoc; 
+	bool			assoc; /* are we associated or not */
 	enum nl80211_iftype	opmode;
 	int			bslot;
-	struct ath5k_buf	*bbuf; 
+	struct ath5k_buf	*bbuf; /* beacon buffer */
 };
 
 struct ath5k_vif_iter_data {
 	const u8	*hw_macaddr;
 	u8		mask[ETH_ALEN];
-	u8		active_mac[ETH_ALEN]; 
+	u8		active_mac[ETH_ALEN]; /* first active MAC */
 	bool		need_set_hw_addr;
 	bool		found_active;
 	bool		any_assoc;
@@ -107,8 +110,10 @@ const char *ath5k_chip_name(enum ath5k_srev_type type, u_int16_t val);
 int ath5k_init_ah(struct ath5k_hw *ah, const struct ath_bus_ops *bus_ops);
 void ath5k_deinit_ah(struct ath5k_hw *ah);
 
+/* Check whether BSSID mask is supported */
 #define ath5k_hw_hasbssidmask(_ah) (ah->ah_version == AR5K_AR5212)
 
+/* Check whether virtual EOL is supported */
 #define ath5k_hw_hasveol(_ah) (ah->ah_version != AR5K_AR5210)
 
-#endif	
+#endif	/* _DEV_ATH5K_BASE_H */

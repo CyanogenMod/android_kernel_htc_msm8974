@@ -60,6 +60,14 @@ static u32 __devinit mpc52xx_can_get_clock(struct platform_device *ofdev,
 
 	pvr = mfspr(SPRN_PVR);
 
+	/*
+	 * Either the oscillator clock (SYS_XTAL_IN) or the IP bus clock
+	 * (IP_CLK) can be selected as MSCAN clock source. According to
+	 * the MPC5200 user's manual, the oscillator clock is the better
+	 * choice as it has less jitter. For this reason, it is selected
+	 * by default. Unfortunately, it can not be selected for the old
+	 * MPC5200 Rev. A chips due to a hardware bug (check errata).
+	 */
 	if (clock_name && strcmp(clock_name, "ip") == 0)
 		*mscan_clksrc = MSCAN_CLKSRC_BUS;
 	else
@@ -72,7 +80,7 @@ static u32 __devinit mpc52xx_can_get_clock(struct platform_device *ofdev,
 	if (*mscan_clksrc == MSCAN_CLKSRC_BUS || pvr == 0x80822011)
 		return freq;
 
-	
+	/* Determine SYS_XTAL_IN frequency from the clock domain settings */
 	np_cdm = of_find_matching_node(NULL, mpc52xx_cdm_ids);
 	if (!np_cdm) {
 		dev_err(&ofdev->dev, "can't get clock node!\n");
@@ -92,28 +100,28 @@ static u32 __devinit mpc52xx_can_get_clock(struct platform_device *ofdev,
 
 	return freq;
 }
-#else 
+#else /* !CONFIG_PPC_MPC52xx */
 static u32 __devinit mpc52xx_can_get_clock(struct platform_device *ofdev,
 					   const char *clock_name,
 					   int *mscan_clksrc)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PPC_MPC52xx */
 
 #ifdef CONFIG_PPC_MPC512x
 struct mpc512x_clockctl {
-	u32 spmr;		
-	u32 sccr[2];		
-	u32 scfr1;		
-	u32 scfr2;		
+	u32 spmr;		/* System PLL Mode Reg */
+	u32 sccr[2];		/* System Clk Ctrl Reg 1 & 2 */
+	u32 scfr1;		/* System Clk Freq Reg 1 */
+	u32 scfr2;		/* System Clk Freq Reg 2 */
 	u32 reserved;
-	u32 bcr;		
-	u32 pccr[12];		
-	u32 spccr;		
-	u32 cccr;		
-	u32 dccr;		
-	u32 mccr[4];		
+	u32 bcr;		/* Bread Crumb Reg */
+	u32 pccr[12];		/* PSC Clk Ctrl Reg 0-11 */
+	u32 spccr;		/* SPDIF Clk Ctrl Reg */
+	u32 cccr;		/* CFM Clk Ctrl Reg */
+	u32 dccr;		/* DIU Clk Cnfg Reg */
+	u32 mccr[4];		/* MSCAN Clk Ctrl Reg 1-3 */
 };
 
 static struct of_device_id __devinitdata mpc512x_clock_ids[] = {
@@ -143,13 +151,21 @@ static u32 __devinit mpc512x_can_get_clock(struct platform_device *ofdev,
 		goto exit_put;
 	}
 
-	
+	/* Determine the MSCAN device index from the physical address */
 	pval = of_get_property(ofdev->dev.of_node, "reg", &plen);
 	BUG_ON(!pval || plen < sizeof(*pval));
 	clockidx = (*pval & 0x80) ? 1 : 0;
 	if (*pval & 0x2000)
 		clockidx += 2;
 
+	/*
+	 * Clock source and divider selection: 3 different clock sources
+	 * can be selected: "ip", "ref" or "sys". For the latter two, a
+	 * clock divider can be defined as well. If the clock source is
+	 * not specified by the device tree, we first try to find an
+	 * optimal CAN source clock based on the system clock. If that
+	 * is not posslible, the reference clock will be used.
+	 */
 	if (clock_name && !strcmp(clock_name, "ip")) {
 		*mscan_clksrc = MSCAN_CLKSRC_IPS;
 		freq = mpc5xxx_get_bus_frequency(ofdev->dev.of_node);
@@ -169,12 +185,12 @@ static u32 __devinit mpc512x_can_get_clock(struct platform_device *ofdev,
 				dev_err(&ofdev->dev, "couldn't get sys_clk\n");
 				goto exit_unmap;
 			}
-			
+			/* Get and round up/down sys clock rate */
 			sys_freq = 1000000 *
 				((clk_get_rate(sys_clk) + 499999) / 1000000);
 
 			if (!clock_name) {
-				
+				/* A multiple of 16 MHz would be optimal */
 				if ((sys_freq % 16000000) == 0) {
 					clocksrc = 0;
 					clockdiv = sys_freq / 16000000;
@@ -197,17 +213,17 @@ static u32 __devinit mpc512x_can_get_clock(struct platform_device *ofdev,
 		}
 	}
 
-	
+	/* Disable clock */
 	out_be32(&clockctl->mccr[clockidx], 0x0);
 	if (clocksrc >= 0) {
-		
+		/* Set source and divider */
 		val = (clocksrc << 14) | ((clockdiv - 1) << 17);
 		out_be32(&clockctl->mccr[clockidx], val);
-		
+		/* Enable clock */
 		out_be32(&clockctl->mccr[clockidx], val | 0x10000);
 	}
 
-	
+	/* Enable MSCAN clock domain */
 	val = in_be32(&clockctl->sccr[1]);
 	if (!(val & (1 << 25)))
 		out_be32(&clockctl->sccr[1], val | (1 << 25));
@@ -222,14 +238,14 @@ exit_put:
 	of_node_put(np_clock);
 	return freq;
 }
-#else 
+#else /* !CONFIG_PPC_MPC512x */
 static u32 __devinit mpc512x_can_get_clock(struct platform_device *ofdev,
 					   const char *clock_name,
 					   int *mscan_clksrc)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PPC_MPC512x */
 
 static struct of_device_id mpc5xxx_can_table[];
 static int __devinit mpc5xxx_can_probe(struct platform_device *ofdev)
@@ -350,7 +366,7 @@ static int mpc5xxx_can_resume(struct platform_device *ofdev)
 	regs->canbtr1 = saved_regs.canbtr1;
 	regs->canidac = saved_regs.canidac;
 
-	
+	/* restore masks, buffers etc. */
 	_memcpy_toio(&regs->canidar1_0, (void *)&saved_regs.canidar1_0,
 		     sizeof(*regs) - offsetof(struct mscan_regs, canidar1_0));
 
@@ -376,7 +392,7 @@ static struct mpc5xxx_can_data __devinitdata mpc5121_can_data = {
 
 static struct of_device_id __devinitdata mpc5xxx_can_table[] = {
 	{ .compatible = "fsl,mpc5200-mscan", .data = &mpc5200_can_data, },
-	
+	/* Note that only MPC5121 Rev. 2 (and later) is supported */
 	{ .compatible = "fsl,mpc5121-mscan", .data = &mpc5121_can_data, },
 	{},
 };

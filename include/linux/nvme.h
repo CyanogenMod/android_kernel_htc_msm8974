@@ -22,17 +22,17 @@
 #include <linux/types.h>
 
 struct nvme_bar {
-	__u64			cap;	
-	__u32			vs;	
-	__u32			intms;	
-	__u32			intmc;	
-	__u32			cc;	
-	__u32			rsvd1;	
-	__u32			csts;	
-	__u32			rsvd2;	
-	__u32			aqa;	
-	__u64			asq;	
-	__u64			acq;	
+	__u64			cap;	/* Controller Capabilities */
+	__u32			vs;	/* Version */
+	__u32			intms;	/* Interrupt Mask Set */
+	__u32			intmc;	/* Interrupt Mask Clear */
+	__u32			cc;	/* Controller Configuration */
+	__u32			rsvd1;	/* Reserved */
+	__u32			csts;	/* Controller Status */
+	__u32			rsvd2;	/* Reserved */
+	__u32			aqa;	/* Admin Queue Attributes */
+	__u64			asq;	/* Admin SQ Base Address */
+	__u64			acq;	/* Admin CQ Base Address */
 };
 
 #define NVME_CAP_TIMEOUT(cap)	(((cap) >> 24) & 0xff)
@@ -58,10 +58,10 @@ enum {
 };
 
 struct nvme_id_power_state {
-	__le16			max_power;	
+	__le16			max_power;	/* centiwatts */
 	__u16			rsvd2;
-	__le32			entry_lat;	
-	__le32			exit_lat;	
+	__le32			entry_lat;	/* microseconds */
+	__le32			exit_lat;	/* microseconds */
 	__u8			read_tput;
 	__u8			read_lat;
 	__u8			write_tput;
@@ -155,6 +155,7 @@ enum {
 	NVME_LBART_ATTRIB_HIDE	= 1 << 1,
 };
 
+/* I/O commands */
 
 enum nvme_opcode {
 	nvme_cmd_flush		= 0x00,
@@ -215,6 +216,7 @@ enum {
 	NVME_RW_DSM_COMPRESSED		= 1 << 7,
 };
 
+/* Admin commands */
 
 enum nvme_admin_opcode {
 	nvme_admin_delete_sq		= 0x00,
@@ -381,12 +383,12 @@ enum {
 };
 
 struct nvme_completion {
-	__le32	result;		
+	__le32	result;		/* Used by admin commands to return data */
 	__u32	rsvd;
-	__le16	sq_head;	
-	__le16	sq_id;		
-	__u16	command_id;	
-	__le16	status;		
+	__le16	sq_head;	/* how much of this queue may be reclaimed */
+	__le16	sq_id;		/* submission queue that generated this entry */
+	__u16	command_id;	/* of the command which completed */
+	__le16	status;		/* did the command fail, and if so, why? */
 };
 
 struct nvme_user_io {
@@ -429,4 +431,4 @@ struct nvme_admin_cmd {
 #define NVME_IOCTL_ADMIN_CMD	_IOWR('N', 0x41, struct nvme_admin_cmd)
 #define NVME_IOCTL_SUBMIT_IO	_IOW('N', 0x42, struct nvme_user_io)
 
-#endif 
+#endif /* _LINUX_NVME_H */

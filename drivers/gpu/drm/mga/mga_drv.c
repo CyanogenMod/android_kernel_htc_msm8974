@@ -110,10 +110,30 @@ MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL and additional rights");
 
+/**
+ * Determine if the device really is AGP or not.
+ *
+ * In addition to the usual tests performed by \c drm_device_is_agp, this
+ * function detects PCI G450 cards that appear to the system exactly like
+ * AGP G450 cards.
+ *
+ * \param dev   The device to be tested.
+ *
+ * \returns
+ * If the device is a PCI G450, zero is returned.  Otherwise 2 is returned.
+ */
 static int mga_driver_device_is_agp(struct drm_device *dev)
 {
 	const struct pci_dev *const pdev = dev->pdev;
 
+	/* There are PCI versions of the G450.  These cards have the
+	 * same PCI ID as the AGP G450, but have an additional PCI-to-PCI
+	 * bridge chip.  We detect these cards, which are not currently
+	 * supported by this driver, by looking at the device ID of the
+	 * bus the "card" is on.  If vendor is 0x3388 (Hint Corp) and the
+	 * device is 0x0021 (HB6 Universal PCI-PCI bridge), we reject the
+	 * device.
+	 */
 
 	if ((pdev->device == 0x0525) && pdev->bus->self
 	    && (pdev->bus->self->vendor == 0x3388)

@@ -6,6 +6,24 @@
  * Copyright IBM Corporation 2002, 2010
  */
 
+/*
+ * Driver authors:
+ *            Martin Peschke (originator of the driver)
+ *            Raimund Schroeder
+ *            Aron Zeh
+ *            Wolfgang Taphorn
+ *            Stefan Bader
+ *            Heiko Carstens (kernel 2.6 port of the driver)
+ *            Andreas Herrmann
+ *            Maxim Shchetynin
+ *            Volker Sameske
+ *            Ralph Wuerthner
+ *            Michael Loehr
+ *            Swen Schillig
+ *            Christof Schmitt
+ *            Martin Petermann
+ *            Sven Schuetz
+ */
 
 #define KMSG_COMPONENT "zfcp"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
@@ -73,7 +91,7 @@ static void __init zfcp_init_device_setup(char *devstr)
 	char busid[ZFCP_BUS_ID_SIZE];
 	u64 wwpn, lun;
 
-	
+	/* duplicate devstr and keep the original for sysfs presentation*/
 	str_saved = kstrdup(devstr, GFP_KERNEL);
 	str = str_saved;
 	if (!str)
@@ -165,6 +183,13 @@ static void __exit zfcp_module_exit(void)
 
 module_exit(zfcp_module_exit);
 
+/**
+ * zfcp_get_port_by_wwpn - find port in port list of adapter by wwpn
+ * @adapter: pointer to adapter to search for port
+ * @wwpn: wwpn to search for
+ *
+ * Returns: pointer to zfcp_port or NULL
+ */
 struct zfcp_port *zfcp_get_port_by_wwpn(struct zfcp_adapter *adapter,
 					u64 wwpn)
 {
@@ -248,6 +273,15 @@ static void zfcp_free_low_mem_buffers(struct zfcp_adapter *adapter)
 		mempool_destroy(adapter->pool.gid_pn);
 }
 
+/**
+ * zfcp_status_read_refill - refill the long running status_read_requests
+ * @adapter: ptr to struct zfcp_adapter for which the buffers should be refilled
+ *
+ * Returns: 0 on success, 1 otherwise
+ *
+ * if there are 16 or more status_read requests missing an adapter_reopen
+ * is triggered
+ */
 int zfcp_status_read_refill(struct zfcp_adapter *adapter)
 {
 	while (atomic_read(&adapter->stat_miss) > 0)
@@ -300,6 +334,15 @@ static void zfcp_destroy_adapter_work_queue(struct zfcp_adapter *adapter)
 
 }
 
+/**
+ * zfcp_adapter_enqueue - enqueue a new adapter to the list
+ * @ccw_device: pointer to the struct cc_device
+ *
+ * Returns:	struct zfcp_adapter*
+ * Enqueues an adapter at the end of the adapter list in the driver data.
+ * All adapter internal structures are set up.
+ * Proc-fs entries are also created.
+ */
 struct zfcp_adapter *zfcp_adapter_enqueue(struct ccw_device *ccw_device)
 {
 	struct zfcp_adapter *adapter;
@@ -368,7 +411,7 @@ struct zfcp_adapter *zfcp_adapter_enqueue(struct ccw_device *ccw_device)
 			       &zfcp_sysfs_adapter_attrs))
 		goto failed;
 
-	
+	/* report size limit per scatter-gather segment */
 	adapter->dma_parms.max_segment_size = ZFCP_QDIO_SBALE_LEN;
 	adapter->ccw_device->dev.dma_parms = &adapter->dma_parms;
 
@@ -397,9 +440,14 @@ void zfcp_adapter_unregister(struct zfcp_adapter *adapter)
 	zfcp_dbf_adapter_unregister(adapter);
 	zfcp_qdio_destroy(adapter->qdio);
 
-	zfcp_ccw_adapter_put(adapter); 
+	zfcp_ccw_adapter_put(adapter); /* final put to release */
 }
 
+/**
+ * zfcp_adapter_release - remove the adapter from the resource list
+ * @ref: pointer to struct kref
+ * locks:	adapter list write lock is assumed to be held by caller
+ */
 void zfcp_adapter_release(struct kref *ref)
 {
 	struct zfcp_adapter *adapter = container_of(ref, struct zfcp_adapter,
@@ -416,6 +464,13 @@ void zfcp_adapter_release(struct kref *ref)
 	put_device(&cdev->dev);
 }
 
+/**
+ * zfcp_device_unregister - remove port, unit from system
+ * @dev: reference to device which is to be removed
+ * @grp: related reference to attribute group
+ *
+ * Helper function to unregister port, unit from system
+ */
 void zfcp_device_unregister(struct device *dev,
 			    const struct attribute_group *grp)
 {
@@ -431,6 +486,18 @@ static void zfcp_port_release(struct device *dev)
 	kfree(port);
 }
 
+/**
+ * zfcp_port_enqueue - enqueue port to port list of adapter
+ * @adapter: adapter where remote port is added
+ * @wwpn: WWPN of the remote port to be enqueued
+ * @status: initial status for the port
+ * @d_id: destination id of the remote port to be enqueued
+ * Returns: pointer to enqueued port on success, ERR_PTR on error
+ *
+ * All port internal structures are set up and the sysfs entry is generated.
+ * d_id is used to enqueue ports with a well known address like the Directory
+ * Service for nameserver lookup.
+ */
 struct zfcp_port *zfcp_port_enqueue(struct zfcp_adapter *adapter, u64 wwpn,
 				     u32 status, u32 d_id)
 {
@@ -494,6 +561,12 @@ err_out:
 	return ERR_PTR(retval);
 }
 
+/**
+ * zfcp_sg_free_table - free memory used by scatterlists
+ * @sg: pointer to scatterlist
+ * @count: number of scatterlist which are to be free'ed
+ * the scatterlist are expected to reference pages always
+ */
 void zfcp_sg_free_table(struct scatterlist *sg, int count)
 {
 	int i;
@@ -505,6 +578,14 @@ void zfcp_sg_free_table(struct scatterlist *sg, int count)
 			break;
 }
 
+/**
+ * zfcp_sg_setup_table - init scatterlist and allocate, assign buffers
+ * @sg: pointer to struct scatterlist
+ * @count: number of scatterlists which should be assigned with buffers
+ * of size page
+ *
+ * Returns: 0 on success, -ENOMEM otherwise
+ */
 int zfcp_sg_setup_table(struct scatterlist *sg, int count)
 {
 	void *addr;

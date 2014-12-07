@@ -3,10 +3,11 @@
 
 #ifdef CONFIG_FUNCTION_TRACER
 #define MCOUNT_ADDR		((long)(_mcount))
-#define MCOUNT_INSN_SIZE	4 
+#define MCOUNT_INSN_SIZE	4 /* sizeof mcount call */
 
 #ifdef __ASSEMBLY__
 
+/* Based off of objdump optput from glibc */
 
 #define MCOUNT_SAVE_FRAME			\
 	stwu	r1,-48(r1);			\
@@ -41,21 +42,21 @@
 	lwz	r10,40(r1);			\
 	addi	r1, r1, 48
 
-#else 
+#else /* !__ASSEMBLY__ */
 extern void _mcount(void);
 
 #ifdef CONFIG_DYNAMIC_FTRACE
 static inline unsigned long ftrace_call_adjust(unsigned long addr)
 {
-       
+       /* reloction of mcount call site is the same as the address */
        return addr;
 }
 
 struct dyn_arch_ftrace {
 	struct module *mod;
 };
-#endif 
-#endif 
+#endif /*  CONFIG_DYNAMIC_FTRACE */
+#endif /* __ASSEMBLY__ */
 
 #endif
 
@@ -63,8 +64,14 @@ struct dyn_arch_ftrace {
 #define ARCH_HAS_SYSCALL_MATCH_SYM_NAME
 static inline bool arch_syscall_match_sym_name(const char *sym, const char *name)
 {
+	/*
+	 * Compare the symbol name with the system call name. Skip the .sys or .SyS
+	 * prefix from the symbol name and the sys prefix from the system call name and
+	 * just match the rest. This is only needed on ppc64 since symbol names on
+	 * 32bit do not start with a period so the generic function will work.
+	 */
 	return !strcmp(sym + 4, name + 3);
 }
-#endif 
+#endif /* CONFIG_FTRACE_SYSCALLS && CONFIG_PPC64 && !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_POWERPC_FTRACE */

@@ -1,3 +1,8 @@
+/*
+ * consolemap.h
+ *
+ * Interface between console.c, selection.c  and consolemap.c
+ */
 #ifndef __LINUX_CONSOLEMAP_H__
 #define __LINUX_CONSOLEMAP_H__
 
@@ -24,6 +29,6 @@ void console_map_init(void);
 #define conv_8bit_to_uni(c) ((uint32_t)(c))
 #define conv_uni_to_8bit(c) ((int) ((c) & 0xff))
 #define console_map_init(c) do { ; } while (0)
-#endif 
+#endif /* CONFIG_CONSOLE_TRANSLATIONS */
 
-#endif 
+#endif /* __LINUX_CONSOLEMAP_H__ */

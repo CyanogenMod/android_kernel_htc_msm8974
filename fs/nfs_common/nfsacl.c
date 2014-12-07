@@ -4,6 +4,21 @@
  *  Copyright (C) 2002-2003 Andreas Gruenbacher <agruen@suse.de>
  */
 
+/*
+ * The Solaris nfsacl protocol represents some ACLs slightly differently
+ * than POSIX 1003.1e draft 17 does (and we do):
+ *
+ *  - Minimal ACLs always have an ACL_MASK entry, so they have
+ *    four instead of three entries.
+ *  - The ACL_MASK entry in such minimal ACLs always has the same
+ *    permissions as the ACL_GROUP_OBJ entry. (In extended ACLs
+ *    the ACL_MASK and ACL_GROUP_OBJ entries may differ.)
+ *  - The identifier fields of the ACL_USER_OBJ and ACL_GROUP_OBJ
+ *    entries contain the identifiers of the owner and owning group.
+ *    (In POSIX ACLs we always set them to ACL_UNDEFINED_ID).
+ *  - ACL entries in the kernel are kept sorted in ascending order
+ *    of (e_tag, e_id). Solaris ACLs are unsorted.
+ */
 
 #include <linux/module.h>
 #include <linux/fs.h>
@@ -54,7 +69,7 @@ xdr_nfsace_encode(struct xdr_array2_desc *desc, void *elem)
 		case ACL_GROUP:
 			*p++ = htonl(entry->e_id);
 			break;
-		default:  
+		default:  /* Solaris depends on that! */
 			*p++ = 0;
 			break;
 	}
@@ -62,6 +77,18 @@ xdr_nfsace_encode(struct xdr_array2_desc *desc, void *elem)
 	return 0;
 }
 
+/**
+ * nfsacl_encode - Encode an NFSv3 ACL
+ *
+ * @buf: destination xdr_buf to contain XDR encoded ACL
+ * @base: byte offset in xdr_buf where XDR'd ACL begins
+ * @inode: inode of file whose ACL this is
+ * @acl: posix_acl to encode
+ * @encode_entries: whether to encode ACEs as well
+ * @typeflag: ACL type: NFS_ACL_DEFAULT or zero
+ *
+ * Returns size of encoded ACL in bytes or a negative errno value.
+ */
 int nfsacl_encode(struct xdr_buf *buf, unsigned int base, struct inode *inode,
 		  struct posix_acl *acl, int encode_entries, int typeflag)
 {
@@ -86,13 +113,19 @@ int nfsacl_encode(struct xdr_buf *buf, unsigned int base, struct inode *inode,
 	if (encode_entries && acl && acl->a_count == 3) {
 		struct posix_acl *acl2 = &aclbuf.acl;
 
+		/* Avoid the use of posix_acl_alloc().  nfsacl_encode() is
+		 * invoked in contexts where a memory allocation failure is
+		 * fatal.  Fortunately this fake ACL is small enough to
+		 * construct on the stack. */
 		posix_acl_init(acl2, 4);
 
-		acl2->a_entries[0] = acl->a_entries[0];  
-		acl2->a_entries[1] = acl->a_entries[1];  
-		acl2->a_entries[2] = acl->a_entries[1];  
+		/* Insert entries in canonical order: other orders seem
+		 to confuse Solaris VxFS. */
+		acl2->a_entries[0] = acl->a_entries[0];  /* ACL_USER_OBJ */
+		acl2->a_entries[1] = acl->a_entries[1];  /* ACL_GROUP_OBJ */
+		acl2->a_entries[2] = acl->a_entries[1];  /* ACL_MASK */
 		acl2->a_entries[2].e_tag = ACL_MASK;
-		acl2->a_entries[3] = acl->a_entries[2];  
+		acl2->a_entries[3] = acl->a_entries[2];  /* ACL_OTHER */
 		nfsacl_desc.acl = acl2;
 	}
 	err = xdr_encode_array2(buf, base + 4, &nfsacl_desc.desc);
@@ -140,7 +173,7 @@ xdr_nfsace_decode(struct xdr_array2_desc *desc, void *elem)
 				return -EINVAL;
 			break;
 		case ACL_MASK:
-			
+			/* Solaris sometimes sets additional bits in the mask */
 			entry->e_perm &= S_IRWXO;
 			break;
 		default:
@@ -165,6 +198,9 @@ cmp_acl_entry(const void *x, const void *y)
 		return 0;
 }
 
+/*
+ * Convert from a Solaris ACL to a POSIX 1003.1e draft 17 ACL.
+ */
 static int
 posix_acl_from_nfsacl(struct posix_acl *acl)
 {
@@ -177,6 +213,8 @@ posix_acl_from_nfsacl(struct posix_acl *acl)
 	sort(acl->a_entries, acl->a_count, sizeof(struct posix_acl_entry),
 	     cmp_acl_entry, NULL);
 
+	/* Clear undefined identifier fields and find the ACL_GROUP_OBJ
+	   and ACL_MASK entries. */
 	FOREACH_ACL_ENTRY(pa, acl, pe) {
 		switch(pa->e_tag) {
 			case ACL_USER_OBJ:
@@ -188,7 +226,7 @@ posix_acl_from_nfsacl(struct posix_acl *acl)
 				break;
 			case ACL_MASK:
 				mask = pa;
-				
+				/* fall through */
 			case ACL_OTHER:
 				pa->e_id = ACL_UNDEFINED_ID;
 				break;
@@ -196,7 +234,7 @@ posix_acl_from_nfsacl(struct posix_acl *acl)
 	}
 	if (acl->a_count == 4 && group_obj && mask &&
 	    mask->e_perm == group_obj->e_perm) {
-		
+		/* remove bogus ACL_MASK entry */
 		memmove(mask, mask+1, (3 - (mask - acl->a_entries)) *
 				      sizeof(struct posix_acl_entry));
 		acl->a_count = 3;
@@ -204,6 +242,16 @@ posix_acl_from_nfsacl(struct posix_acl *acl)
 	return 0;
 }
 
+/**
+ * nfsacl_decode - Decode an NFSv3 ACL
+ *
+ * @buf: xdr_buf containing XDR'd ACL data to decode
+ * @base: byte offset in xdr_buf where XDR'd ACL begins
+ * @aclcnt: count of ACEs in decoded posix_acl
+ * @pacl: buffer in which to place decoded posix_acl
+ *
+ * Returns the length of the decoded ACL in bytes, or a negative errno value.
+ */
 int nfsacl_decode(struct xdr_buf *buf, unsigned int base, unsigned int *aclcnt,
 		  struct posix_acl **pacl)
 {

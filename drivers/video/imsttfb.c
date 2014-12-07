@@ -38,57 +38,58 @@
 #endif
 
 #ifndef __powerpc__
-#define eieio()		
+#define eieio()		/* Enforce In-order Execution of I/O */
 #endif
 
+/* TwinTurbo (Cosmo) registers */
 enum {
-	S1SA	=  0, 
-	S2SA	=  1, 
-	SP	=  2, 
-	DSA	=  3, 
-	CNT	=  4, 
-	DP_OCTL	=  5, 
-	CLR	=  6, 
-	BI	=  8, 
-	MBC	=  9, 
-	BLTCTL	= 10, 
+	S1SA	=  0, /* 0x00 */
+	S2SA	=  1, /* 0x04 */
+	SP	=  2, /* 0x08 */
+	DSA	=  3, /* 0x0C */
+	CNT	=  4, /* 0x10 */
+	DP_OCTL	=  5, /* 0x14 */
+	CLR	=  6, /* 0x18 */
+	BI	=  8, /* 0x20 */
+	MBC	=  9, /* 0x24 */
+	BLTCTL	= 10, /* 0x28 */
 
-	
-	HES	= 12, 
-	HEB	= 13, 
-	HSB	= 14, 
-	HT	= 15, 
-	VES	= 16, 
-	VEB	= 17, 
-	VSB	= 18, 
-	VT	= 19, 
-	HCIV	= 20, 
-	VCIV	= 21, 
-	TCDR	= 22, 
-	VIL	= 23, 
-	STGCTL	= 24, 
+	/* Scan Timing Generator Registers */
+	HES	= 12, /* 0x30 */
+	HEB	= 13, /* 0x34 */
+	HSB	= 14, /* 0x38 */
+	HT	= 15, /* 0x3C */
+	VES	= 16, /* 0x40 */
+	VEB	= 17, /* 0x44 */
+	VSB	= 18, /* 0x48 */
+	VT	= 19, /* 0x4C */
+	HCIV	= 20, /* 0x50 */
+	VCIV	= 21, /* 0x54 */
+	TCDR	= 22, /* 0x58 */
+	VIL	= 23, /* 0x5C */
+	STGCTL	= 24, /* 0x60 */
 
-	
-	SSR	= 25, 
-	HRIR	= 26, 
-	SPR	= 27, 
-	CMR	= 28, 
-	SRGCTL	= 29, 
+	/* Screen Refresh Generator Registers */
+	SSR	= 25, /* 0x64 */
+	HRIR	= 26, /* 0x68 */
+	SPR	= 27, /* 0x6C */
+	CMR	= 28, /* 0x70 */
+	SRGCTL	= 29, /* 0x74 */
 
-	
-	RRCIV	= 30, 
-	RRSC	= 31, 
-	RRCR	= 34, 
+	/* RAM Refresh Generator Registers */
+	RRCIV	= 30, /* 0x78 */
+	RRSC	= 31, /* 0x7C */
+	RRCR	= 34, /* 0x88 */
 
-	
-	GIOE	= 32, 
-	GIO	= 33, 
-	SCR	= 35, 
-	SSTATUS	= 36, 
-	PRC	= 37, 
+	/* System Registers */
+	GIOE	= 32, /* 0x80 */
+	GIO	= 33, /* 0x84 */
+	SCR	= 35, /* 0x8C */
+	SSTATUS	= 36, /* 0x90 */
+	PRC	= 37, /* 0x94 */
 
 #if 0	
-	
+	/* PCI Registers */
 	DVID	= 0x00000000L,
 	SC	= 0x00000004L,
 	CCR	= 0x00000008L,
@@ -98,6 +99,7 @@ enum {
 #endif
 };
 
+/* IBM 624 RAMDAC Direct Registers */
 enum {
 	PADDRW	= 0x00,
 	PDATA	= 0x04,
@@ -109,107 +111,114 @@ enum {
 	PIDXCTL	= 0x1c
 };
 
+/* IBM 624 RAMDAC Indirect Registers */
 enum {
-	CLKCTL		= 0x02,	
-	SYNCCTL		= 0x03,	
-	HSYNCPOS	= 0x04,	
-	PWRMNGMT	= 0x05,	
-	DACOP		= 0x06,	
-	PALETCTL	= 0x07,	
-	SYSCLKCTL	= 0x08,	
-	PIXFMT		= 0x0a,	
-	BPP8		= 0x0b,	
-	BPP16		= 0x0c, 
-	BPP24		= 0x0d,	
-	BPP32		= 0x0e,	
-	PIXCTL1		= 0x10, 
-	PIXCTL2		= 0x11,	
-	SYSCLKN		= 0x15,	
-	SYSCLKM		= 0x16,	
-	SYSCLKP		= 0x17,	
-	SYSCLKC		= 0x18,	
-	PIXM0		= 0x20,	
-	PIXN0		= 0x21,	
-	PIXP0		= 0x22,	
-	PIXC0		= 0x23,	
-	CURSCTL		= 0x30,	
-	CURSXLO		= 0x31,	
-	CURSXHI		= 0x32,	
-	CURSYLO		= 0x33,	
-	CURSYHI		= 0x34,	
-	CURSHOTX	= 0x35,	
-	CURSHOTY	= 0x36,	
-	CURSACCTL	= 0x37,	
-	CURSACATTR	= 0x38,	
-	CURS1R		= 0x40,	
-	CURS1G		= 0x41,	
-	CURS1B		= 0x42,	
-	CURS2R		= 0x43,	
-	CURS2G		= 0x44,	
-	CURS2B		= 0x45,	
-	CURS3R		= 0x46,	
-	CURS3G		= 0x47,	
-	CURS3B		= 0x48,	
-	BORDR		= 0x60,	
-	BORDG		= 0x61,	
-	BORDB		= 0x62,	
-	MISCTL1		= 0x70,	
-	MISCTL2		= 0x71,	
-	MISCTL3		= 0x72,	
-	KEYCTL		= 0x78	
+	CLKCTL		= 0x02,	/* (0x01) Miscellaneous Clock Control */
+	SYNCCTL		= 0x03,	/* (0x00) Sync Control */
+	HSYNCPOS	= 0x04,	/* (0x00) Horizontal Sync Position */
+	PWRMNGMT	= 0x05,	/* (0x00) Power Management */
+	DACOP		= 0x06,	/* (0x02) DAC Operation */
+	PALETCTL	= 0x07,	/* (0x00) Palette Control */
+	SYSCLKCTL	= 0x08,	/* (0x01) System Clock Control */
+	PIXFMT		= 0x0a,	/* () Pixel Format  [bpp >> 3 + 2] */
+	BPP8		= 0x0b,	/* () 8 Bits/Pixel Control */
+	BPP16		= 0x0c, /* () 16 Bits/Pixel Control  [bit 1=1 for 565] */
+	BPP24		= 0x0d,	/* () 24 Bits/Pixel Control */
+	BPP32		= 0x0e,	/* () 32 Bits/Pixel Control */
+	PIXCTL1		= 0x10, /* (0x05) Pixel PLL Control 1 */
+	PIXCTL2		= 0x11,	/* (0x00) Pixel PLL Control 2 */
+	SYSCLKN		= 0x15,	/* () System Clock N (System PLL Reference Divider) */
+	SYSCLKM		= 0x16,	/* () System Clock M (System PLL VCO Divider) */
+	SYSCLKP		= 0x17,	/* () System Clock P */
+	SYSCLKC		= 0x18,	/* () System Clock C */
+	/*
+	 * Dot clock rate is 20MHz * (m + 1) / ((n + 1) * (p ? 2 * p : 1)
+	 * c is charge pump bias which depends on the VCO frequency  
+	 */
+	PIXM0		= 0x20,	/* () Pixel M 0 */
+	PIXN0		= 0x21,	/* () Pixel N 0 */
+	PIXP0		= 0x22,	/* () Pixel P 0 */
+	PIXC0		= 0x23,	/* () Pixel C 0 */
+	CURSCTL		= 0x30,	/* (0x00) Cursor Control */
+	CURSXLO		= 0x31,	/* () Cursor X position, low 8 bits */
+	CURSXHI		= 0x32,	/* () Cursor X position, high 8 bits */
+	CURSYLO		= 0x33,	/* () Cursor Y position, low 8 bits */
+	CURSYHI		= 0x34,	/* () Cursor Y position, high 8 bits */
+	CURSHOTX	= 0x35,	/* () Cursor Hot Spot X */
+	CURSHOTY	= 0x36,	/* () Cursor Hot Spot Y */
+	CURSACCTL	= 0x37,	/* () Advanced Cursor Control Enable */
+	CURSACATTR	= 0x38,	/* () Advanced Cursor Attribute */
+	CURS1R		= 0x40,	/* () Cursor 1 Red */
+	CURS1G		= 0x41,	/* () Cursor 1 Green */
+	CURS1B		= 0x42,	/* () Cursor 1 Blue */
+	CURS2R		= 0x43,	/* () Cursor 2 Red */
+	CURS2G		= 0x44,	/* () Cursor 2 Green */
+	CURS2B		= 0x45,	/* () Cursor 2 Blue */
+	CURS3R		= 0x46,	/* () Cursor 3 Red */
+	CURS3G		= 0x47,	/* () Cursor 3 Green */
+	CURS3B		= 0x48,	/* () Cursor 3 Blue */
+	BORDR		= 0x60,	/* () Border Color Red */
+	BORDG		= 0x61,	/* () Border Color Green */
+	BORDB		= 0x62,	/* () Border Color Blue */
+	MISCTL1		= 0x70,	/* (0x00) Miscellaneous Control 1 */
+	MISCTL2		= 0x71,	/* (0x00) Miscellaneous Control 2 */
+	MISCTL3		= 0x72,	/* (0x00) Miscellaneous Control 3 */
+	KEYCTL		= 0x78	/* (0x00) Key Control/DB Operation */
 };
 
+/* TI TVP 3030 RAMDAC Direct Registers */
 enum {
-	TVPADDRW = 0x00,	
-	TVPPDATA = 0x04,	
-	TVPPMASK = 0x08,	
-	TVPPADRR = 0x0c,	
-	TVPCADRW = 0x10,	
-	TVPCDATA = 0x14,	
-				
-	TVPCADRR = 0x1c,	
-				
-	TVPDCCTL = 0x24,	
-	TVPIDATA = 0x28,	
-	TVPCRDAT = 0x2c,	
-	TVPCXPOL = 0x30,	
-	TVPCXPOH = 0x34,	
-	TVPCYPOL = 0x38,	
-	TVPCYPOH = 0x3c,	
+	TVPADDRW = 0x00,	/* 0  Palette/Cursor RAM Write Address/Index */
+	TVPPDATA = 0x04,	/* 1  Palette Data RAM Data */
+	TVPPMASK = 0x08,	/* 2  Pixel Read-Mask */
+	TVPPADRR = 0x0c,	/* 3  Palette/Cursor RAM Read Address */
+	TVPCADRW = 0x10,	/* 4  Cursor/Overscan Color Write Address */
+	TVPCDATA = 0x14,	/* 5  Cursor/Overscan Color Data */
+				/* 6  reserved */
+	TVPCADRR = 0x1c,	/* 7  Cursor/Overscan Color Read Address */
+				/* 8  reserved */
+	TVPDCCTL = 0x24,	/* 9  Direct Cursor Control */
+	TVPIDATA = 0x28,	/* 10 Index Data */
+	TVPCRDAT = 0x2c,	/* 11 Cursor RAM Data */
+	TVPCXPOL = 0x30,	/* 12 Cursor-Position X LSB */
+	TVPCXPOH = 0x34,	/* 13 Cursor-Position X MSB */
+	TVPCYPOL = 0x38,	/* 14 Cursor-Position Y LSB */
+	TVPCYPOH = 0x3c,	/* 15 Cursor-Position Y MSB */
 };
 
+/* TI TVP 3030 RAMDAC Indirect Registers */
 enum {
-	TVPIRREV = 0x01,	
-	TVPIRICC = 0x06,	
-	TVPIRBRC = 0x07,	
-	TVPIRLAC = 0x0f,	
-	TVPIRTCC = 0x18,	
-	TVPIRMXC = 0x19,	
-	TVPIRCLS = 0x1a,	
-	TVPIRPPG = 0x1c,	
-	TVPIRGEC = 0x1d,	
-	TVPIRMIC = 0x1e,	
-	TVPIRPLA = 0x2c,	
-	TVPIRPPD = 0x2d,	
-	TVPIRMPD = 0x2e,	
-	TVPIRLPD = 0x2f,	
-	TVPIRCKL = 0x30,	
-	TVPIRCKH = 0x31,	
-	TVPIRCRL = 0x32,	
-	TVPIRCRH = 0x33,	
-	TVPIRCGL = 0x34,	
-	TVPIRCGH = 0x35,	
-	TVPIRCBL = 0x36,	
-	TVPIRCBH = 0x37,	
-	TVPIRCKC = 0x38,	
-	TVPIRMLC = 0x39,	
-	TVPIRSEN = 0x3a,	
-	TVPIRTMD = 0x3b,	
-	TVPIRRML = 0x3c,	
-	TVPIRRMM = 0x3d,	
-	TVPIRRMS = 0x3e,	
-	TVPIRDID = 0x3f,	
-	TVPIRRES = 0xff		
+	TVPIRREV = 0x01,	/* Silicon Revision [RO] */
+	TVPIRICC = 0x06,	/* Indirect Cursor Control 	(0x00) */
+	TVPIRBRC = 0x07,	/* Byte Router Control 	(0xe4) */
+	TVPIRLAC = 0x0f,	/* Latch Control 		(0x06) */
+	TVPIRTCC = 0x18,	/* True Color Control  	(0x80) */
+	TVPIRMXC = 0x19,	/* Multiplex Control		(0x98) */
+	TVPIRCLS = 0x1a,	/* Clock Selection		(0x07) */
+	TVPIRPPG = 0x1c,	/* Palette Page		(0x00) */
+	TVPIRGEC = 0x1d,	/* General Control 		(0x00) */
+	TVPIRMIC = 0x1e,	/* Miscellaneous Control	(0x00) */
+	TVPIRPLA = 0x2c,	/* PLL Address */
+	TVPIRPPD = 0x2d,	/* Pixel Clock PLL Data */
+	TVPIRMPD = 0x2e,	/* Memory Clock PLL Data */
+	TVPIRLPD = 0x2f,	/* Loop Clock PLL Data */
+	TVPIRCKL = 0x30,	/* Color-Key Overlay Low */
+	TVPIRCKH = 0x31,	/* Color-Key Overlay High */
+	TVPIRCRL = 0x32,	/* Color-Key Red Low */
+	TVPIRCRH = 0x33,	/* Color-Key Red High */
+	TVPIRCGL = 0x34,	/* Color-Key Green Low */
+	TVPIRCGH = 0x35,	/* Color-Key Green High */
+	TVPIRCBL = 0x36,	/* Color-Key Blue Low */
+	TVPIRCBH = 0x37,	/* Color-Key Blue High */
+	TVPIRCKC = 0x38,	/* Color-Key Control 		(0x00) */
+	TVPIRMLC = 0x39,	/* MCLK/Loop Clock Control	(0x18) */
+	TVPIRSEN = 0x3a,	/* Sense Test			(0x00) */
+	TVPIRTMD = 0x3b,	/* Test Mode Data */
+	TVPIRRML = 0x3c,	/* CRC Remainder LSB [RO] */
+	TVPIRRMM = 0x3d,	/* CRC Remainder MSB [RO] */
+	TVPIRRMS = 0x3e,	/* CRC  Bit Select [WO] */
+	TVPIRDID = 0x3f,	/* Device ID [RO] 		(0x30) */
+	TVPIRRES = 0xff		/* Software Reset [WO] */
 };
 
 struct initvalues {
@@ -225,6 +234,12 @@ static struct initvalues ibm_initregs[] __devinitdata = {
 	{ PALETCTL,	0x00 },
 	{ SYSCLKCTL,	0x01 },
 
+	/*
+	 * Note that colors in X are correct only if all video data is
+	 * passed through the palette in the DAC.  That is, "indirect
+	 * color" must be configured.  This is the case for the IBM DAC
+	 * used in the 2MB and 4MB cards, at least.
+	 */
 	{ BPP8,		0x00 },
 	{ BPP16,	0x01 },
 	{ BPP24,	0x00 },
@@ -294,9 +309,9 @@ struct imstt_regvals {
 	__u32 pitch;
 	__u16 hes, heb, hsb, ht, ves, veb, vsb, vt, vil;
 	__u8 pclk_m, pclk_n, pclk_p;
-	
-	__u8 mlc[3];	
-	__u8 lckl_p[3];	
+	/* Values of the tvp which change depending on colormode x resolution */
+	__u8 mlc[3];	/* Memory Loop Config 0x39 */
+	__u8 lckl_p[3];	/* P value of LCKL PLL */
 };
 
 struct imstt_par {
@@ -380,9 +395,15 @@ static struct imstt_regvals tvp_reg_init_20 = {
 	{ 0x38, 0x38, 0x38 }, { 0xf3, 0xf2, 0xf1 }
 };
 
+/*
+ * PCI driver prototypes
+ */
 static int imsttfb_probe(struct pci_dev *pdev, const struct pci_device_id *ent);
 static void imsttfb_remove(struct pci_dev *pdev);
 
+/*
+ * Register access
+ */
 static inline u32 read_reg_le32(volatile u32 __iomem *base, int regindex)
 {
 #ifdef __powerpc__
@@ -454,11 +475,11 @@ compute_imstt_regvals_ibm(struct imstt_par *par, int xres, int yres)
 	switch (xres) {
 		case 640:
 			hes = 0x0008; heb = 0x0012; veb = 0x002a; htp = 10; vtp = 2;
-			MHz = 30  ;
+			MHz = 30 /* .25 */ ;
 			break;
 		case 832:
 			hes = 0x0005; heb = 0x0020; veb = 0x0028; htp = 8; vtp = 3;
-			MHz = 57  ;
+			MHz = 57 /* .27_ */ ;
 			break;
 		case 1024:
 			hes = 0x000a; heb = 0x001c; veb = 0x0020; htp = 8; vtp = 3;
@@ -466,7 +487,7 @@ compute_imstt_regvals_ibm(struct imstt_par *par, int xres, int yres)
 			break;
 		case 1152:
 			hes = 0x0012; heb = 0x0022; veb = 0x0031; htp = 4; vtp = 3;
-			MHz = 101  ;
+			MHz = 101 /* .6_ */ ;
 			break;
 		case 1280:
 			hes = 0x0012; heb = 0x002f; veb = 0x0029; htp = 4; vtp = 1;
@@ -643,6 +664,17 @@ set_imstt_regvals (struct fb_info *info, u_int bpp)
 	else
 		set_imstt_regvals_tvp(par, bpp);
 
+  /*
+   * From what I (jsk) can gather poking around with MacsBug,
+   * bits 8 and 9 in the SCR register control endianness
+   * correction (byte swapping).  These bits must be set according
+   * to the color depth as follows:
+   *     Color depth    Bit 9   Bit 8
+   *     ==========     =====   =====
+   *        8bpp          0       0
+   *       16bpp          0       1
+   *       32bpp          1       1
+   */
 	switch (bpp) {
 		default:
 		case 8:
@@ -699,6 +731,8 @@ set_imstt_regvals (struct fb_info *info, u_int bpp)
 		case 0x200000:
 			scr = 0x059d | byteswap;
 			break;
+		/* case 0x400000:
+		   case 0x800000: */
 		default:
 			pitch >>= 1;
 			scr = 0x150dd | byteswap;
@@ -770,7 +804,7 @@ imsttfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 			var->transp.offset = 0;
 			var->transp.length = 0;
 			break;
-		case 16:	
+		case 16:	/* RGB 555 or 565 */
 			if (var->green.length != 6)
 				var->red.offset = 10;
 			var->red.length = 5;
@@ -782,7 +816,7 @@ imsttfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 			var->transp.offset = 0;
 			var->transp.length = 0;
 			break;
-		case 24:	
+		case 24:	/* RGB 888 */
 			var->red.offset = 16;
 			var->red.length = 8;
 			var->green.offset = 8;
@@ -792,7 +826,7 @@ imsttfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 			var->transp.offset = 0;
 			var->transp.length = 0;
 			break;
-		case 32:	
+		case 32:	/* RGBA 8888 */
 			var->red.offset = 16;
 			var->red.length = 8;
 			var->green.offset = 8;
@@ -855,8 +889,8 @@ imsttfb_setcolreg (u_int regno, u_int red, u_int green, u_int blue,
 	green >>= 8;
 	blue >>= 8;
 
-	
-	if (0 && bpp == 16)	
+	/* PADDRW/PDATA are the same as TVPPADDRW/TVPPDATA */
+	if (0 && bpp == 16)	/* screws up X */
 		par->cmap_regs[PADDRW] = regno << 3;
 	else
 		par->cmap_regs[PADDRW] = regno;
@@ -981,7 +1015,7 @@ imsttfb_fillrect(struct fb_info *info, const struct fb_fillrect *rect)
 		write_reg_le32(par->dc_regs, BI, 0xffffffff);
 		write_reg_le32(par->dc_regs, MBC, 0xffffffff);
 		write_reg_le32(par->dc_regs, CLR, bgc);
-		write_reg_le32(par->dc_regs, BLTCTL, 0x840); 
+		write_reg_le32(par->dc_regs, BLTCTL, 0x840); /* 0x200000 */
 		while(read_reg_le32(par->dc_regs, SSTATUS) & 0x80);
 		while(read_reg_le32(par->dc_regs, SSTATUS) & 0x40);
 	} else {
@@ -1332,12 +1366,12 @@ init_imstt(struct fb_info *info)
 	while (ip < end)
 		*ip++ = 0;
 
-	
+	/* initialize the card */
 	tmp = read_reg_le32(par->dc_regs, STGCTL);
 	write_reg_le32(par->dc_regs, STGCTL, tmp & ~0x1);
 	write_reg_le32(par->dc_regs, SSR, 0);
 
-	
+	/* set default values for DAC registers */
 	if (par->ramdac == IBM) {
 		par->cmap_regs[PPMASK] = 0xff;
 		eieio();
@@ -1404,6 +1438,8 @@ init_imstt(struct fb_info *info)
 
 	info->var.accel_flags = FB_ACCELF_TEXT;
 
+//	if (par->ramdac == IBM)
+//		imstt_cursor_init(info);
 	if (info->var.green.length == 6)
 		set_565(par);
 	else
@@ -1444,7 +1480,7 @@ imsttfb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		printk(KERN_INFO "%s: OF name %s\n",__func__, dp->name);
 	else
 		printk(KERN_ERR "imsttfb: no OF node for pci device\n");
-#endif 
+#endif /* CONFIG_PPC_OF */
 
 	info = framebuffer_alloc(sizeof(struct imstt_par), &pdev->dev);
 
@@ -1465,15 +1501,15 @@ imsttfb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	}
 
 	switch (pdev->device) {
-		case PCI_DEVICE_ID_IMS_TT128: 
+		case PCI_DEVICE_ID_IMS_TT128: /* IMS,tt128mbA */
 			par->ramdac = IBM;
 #ifdef CONFIG_PPC_OF
 			if (dp && ((strcmp(dp->name, "IMS,tt128mb8") == 0) ||
 				   (strcmp(dp->name, "IMS,tt128mb8A") == 0)))
 				par->ramdac = TVP;
-#endif 
+#endif /* CONFIG_PPC_OF */
 			break;
-		case PCI_DEVICE_ID_IMS_TT3D:  
+		case PCI_DEVICE_ID_IMS_TT3D:  /* IMS,tt3d */
 			par->ramdac = TVP;
 			break;
 		default:
@@ -1566,7 +1602,7 @@ imsttfb_setup(char *options)
 	return 0;
 }
 
-#endif 
+#endif /* MODULE */
 
 static int __init imsttfb_init(void)
 {

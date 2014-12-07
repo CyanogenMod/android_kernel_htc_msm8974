@@ -72,7 +72,7 @@ static int nouveau_optimus_dsm(acpi_handle handle, int func, int arg, uint32_t *
 	params[2].integer.value = func;
 	params[3].type = ACPI_TYPE_BUFFER;
 	params[3].buffer.length = 4;
-	
+	/* ACPI is little endian, AABBCCDD becomes {DD,CC,BB,AA} */
 	for (i = 0; i < 4; i++)
 		args_buff[i] = (arg >> i * 8) & 0xFF;
 	params[3].buffer.pointer = args_buff;
@@ -150,15 +150,20 @@ static int nouveau_dsm(acpi_handle handle, int func, int arg, uint32_t *result)
 	return 0;
 }
 
+/* Returns 1 if a DSM function is usable and 0 otherwise */
 static int nouveau_test_dsm(acpi_handle test_handle,
 	int (*dsm_func)(acpi_handle, int, int, uint32_t *),
 	int sfnc)
 {
 	u32 result = 0;
 
+	/* Function 0 returns a Buffer containing available functions. The args
+	 * parameter is ignored for function 0, so just put 0 in it */
 	if (dsm_func(test_handle, 0, 0, &result))
 		return 0;
 
+	/* ACPI Spec v4 9.14.1: if bit 0 is zero, no function is supported. If
+	 * the n-th bit is enabled, function n is supported */
 	return result & 1 && result & (1 << sfnc);
 }
 
@@ -182,6 +187,8 @@ static int nouveau_dsm_set_discrete_state(acpi_handle handle, enum vga_switchero
 
 static int nouveau_dsm_switchto(enum vga_switcheroo_client_id id)
 {
+	/* perhaps the _DSM functions are mutually exclusive, but prepare for
+	 * the future */
 	if (!nouveau_dsm_priv.dsm_detected && nouveau_dsm_priv.optimus_detected)
 		return 0;
 	if (id == VGA_SWITCHEROO_IGD)
@@ -196,6 +203,8 @@ static int nouveau_dsm_power_state(enum vga_switcheroo_client_id id,
 	if (id == VGA_SWITCHEROO_IGD)
 		return 0;
 
+	/* Optimus laptops have the card already disabled in
+	 * nouveau_switcheroo_set_state */
 	if (!nouveau_dsm_priv.dsm_detected && nouveau_dsm_priv.optimus_detected)
 		return 0;
 
@@ -209,11 +218,11 @@ static int nouveau_dsm_init(void)
 
 static int nouveau_dsm_get_client_id(struct pci_dev *pdev)
 {
-	
+	/* easy option one - intel vendor ID means Integrated */
 	if (pdev->vendor == PCI_VENDOR_ID_INTEL)
 		return VGA_SWITCHEROO_IGD;
 
-	
+	/* is this device on Bus 0? - this may need improving */
 	if (pdev->bus->number == 0)
 		return VGA_SWITCHEROO_IGD;
 
@@ -267,13 +276,13 @@ static bool nouveau_dsm_detect(void)
 	int retval;
 	bool ret = false;
 
-	
+	/* lookup the MXM GUID */
 	guid_valid = mxm_wmi_supported();
 
 	if (guid_valid)
 		printk("MXM: GUID detected in BIOS\n");
 
-	
+	/* now do DSM detection */
 	while ((pdev = pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, pdev)) != NULL) {
 		vga_count++;
 
@@ -316,6 +325,7 @@ void nouveau_register_dsm_handler(void)
 	vga_switcheroo_register_handler(&nouveau_dsm_handler);
 }
 
+/* Must be called for Optimus models before the card can be turned off */
 void nouveau_switcheroo_optimus_dsm(void)
 {
 	u32 result = 0;
@@ -331,6 +341,7 @@ void nouveau_unregister_dsm_handler(void)
 	vga_switcheroo_unregister_handler();
 }
 
+/* retrieve the ROM in 4k blocks */
 static int nouveau_rom_call(acpi_handle rom_handle, uint8_t *bios,
 			    int offset, int len)
 {

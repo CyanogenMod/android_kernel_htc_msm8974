@@ -1,5 +1,8 @@
 #ifndef _ASM_PARISC_COMPAT_H
 #define _ASM_PARISC_COMPAT_H
+/*
+ * Architecture specific compatibility types
+ */
 #include <linux/types.h>
 #include <linux/sched.h>
 #include <linux/thread_info.h>
@@ -45,12 +48,12 @@ struct compat_timeval {
 };
 
 struct compat_stat {
-	compat_dev_t		st_dev;	
-	compat_ino_t		st_ino;	
-	compat_mode_t		st_mode;	
-	compat_nlink_t  	st_nlink;	
-	u16			st_reserved1;	
-	u16			st_reserved2;	
+	compat_dev_t		st_dev;	/* dev_t is 32 bits on parisc */
+	compat_ino_t		st_ino;	/* 32 bits */
+	compat_mode_t		st_mode;	/* 16 bits */
+	compat_nlink_t  	st_nlink;	/* 16 bits */
+	u16			st_reserved1;	/* old st_uid */
+	u16			st_reserved2;	/* old st_gid */
 	compat_dev_t		st_rdev;
 	compat_off_t		st_size;
 	compat_time_t		st_atime;
@@ -61,11 +64,11 @@ struct compat_stat {
 	u32			st_ctime_nsec;
 	s32			st_blksize;
 	s32			st_blocks;
-	u32			__unused1;	
-	compat_dev_t		__unused2;	
-	compat_ino_t		__unused3;	
-	u32			__unused4;	
-	u16			__unused5;	
+	u32			__unused1;	/* ACL stuff */
+	compat_dev_t		__unused2;	/* network */
+	compat_ino_t		__unused3;	/* network */
+	u32			__unused4;	/* cnodes */
+	u16			__unused5;	/* netsite */
 	short			st_fstype;
 	compat_dev_t		st_realdev;
 	u16			st_basemode;
@@ -108,16 +111,16 @@ struct compat_statfs {
 
 struct compat_sigcontext {
 	compat_int_t sc_flags;
-	compat_int_t sc_gr[32]; 
+	compat_int_t sc_gr[32]; /* PSW in sc_gr[0] */
 	u64 sc_fr[32];
 	compat_int_t sc_iasq[2];
 	compat_int_t sc_iaoq[2];
-	compat_int_t sc_sar; 
+	compat_int_t sc_sar; /* cr11 */
 };
 
 #define COMPAT_RLIM_INFINITY 0xffffffff
 
-typedef u32		compat_old_sigset_t;	
+typedef u32		compat_old_sigset_t;	/* at least 32 bits */
 
 #define _COMPAT_NSIG		64
 #define _COMPAT_NSIG_BPW	32
@@ -127,6 +130,12 @@ typedef u32		compat_sigset_word;
 #define COMPAT_OFF_T_MAX	0x7fffffff
 #define COMPAT_LOFF_T_MAX	0x7fffffffffffffffL
 
+/*
+ * A pointer passed in from user mode. This should not
+ * be used for syscall parameters, just declare them
+ * as pointers because the syscall entry code will have
+ * appropriately converted them already.
+ */
 typedef	u32		compat_uptr_t;
 
 static inline void __user *compat_ptr(compat_uptr_t uptr)
@@ -155,4 +164,4 @@ static inline int is_compat_task(void)
 	return __is_compat_task(current);
 }
 
-#endif 
+#endif /* _ASM_PARISC_COMPAT_H */

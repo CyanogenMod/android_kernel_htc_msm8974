@@ -35,8 +35,8 @@ static int __devinit ps3_ohci_hc_start(struct usb_hcd *hcd)
 	int result;
 	struct ohci_hcd *ohci = hcd_to_ohci(hcd);
 
-	
-	
+	/* Handle root hub init quirk in spider south bridge. */
+	/* Also set PwrOn2PwrGood to 0x7f (254ms). */
 
 	ohci_writel(ohci, 0x7f000000 | RH_A_PSM | RH_A_OCPM,
 		&ohci->regs->roothub.a);
@@ -126,7 +126,7 @@ static int __devinit ps3_ohci_probe(struct ps3_system_bus_device *dev)
 		goto fail_irq;
 	}
 
-	dev->core.dma_mask = &dummy_mask; 
+	dev->core.dma_mask = &dummy_mask; /* FIXME: for improper usb code */
 
 	hcd = usb_create_hcd(&ps3_ohci_hc_driver, &dev->core, dev_name(&dev->core));
 

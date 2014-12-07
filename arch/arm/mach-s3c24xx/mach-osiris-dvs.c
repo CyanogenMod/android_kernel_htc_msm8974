@@ -31,7 +31,7 @@ static void osiris_dvs_tps_setdvs(bool on)
 
 	if (!on) {
 		vdcdc2 = TPS_VCORE_DISCH | TPS_LP_COREOFF;
-		vregs1 = TPS_LDO1_OFF;	
+		vregs1 = TPS_LDO1_OFF;	/* turn off in low-power mode */
 	}
 
 	dvs_en = on;
@@ -44,10 +44,11 @@ static void osiris_dvs_tps_setdvs(bool on)
 
 static bool is_dvs(struct s3c_freq *f)
 {
-	
+	/* at the moment, we assume ARMCLK = HCLK => DVS */
 	return f->armclk == f->hclk;
 }
 
+/* keep track of current state */
 static bool cur_dvs = false;
 
 static int osiris_dvs_notify(struct notifier_block *nb,
@@ -104,7 +105,7 @@ static int __devinit osiris_dvs_probe(struct platform_device *pdev)
 		goto err_nogpio;
 	}
 
-	
+	/* start with dvs disabled */
 	gpio_direction_output(OSIRIS_GPIO_DVS, 1);
 
 	ret = cpufreq_register_notifier(&osiris_dvs_nb,
@@ -129,7 +130,7 @@ static int __devexit osiris_dvs_remove(struct platform_device *pdev)
 {
 	dev_info(&pdev->dev, "exiting\n");
 
-	
+	/* disable any current dvs */
 	gpio_set_value(OSIRIS_GPIO_DVS, 1);
 	osiris_dvs_tps_setdvs(false);
 
@@ -141,6 +142,8 @@ static int __devexit osiris_dvs_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* the CONFIG_PM block is so small, it isn't worth actaully compiling it
+ * out if the configuration isn't set. */
 
 static int osiris_dvs_suspend(struct device *dev)
 {

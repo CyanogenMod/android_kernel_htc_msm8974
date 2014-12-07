@@ -30,4 +30,4 @@
 
 extern const struct export_operations ocfs2_export_ops;
 
-#endif 
+#endif /* OCFS2_EXPORT_H */

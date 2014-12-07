@@ -27,6 +27,7 @@
 #include <linux/blkdev.h>
 #endif
 
+/* for the Smart Array 42XX cards */
 #define S42XX_REQUEST_PORT_OFFSET	0x40
 #define S42XX_REPLY_INTR_MASK_OFFSET	0x34
 #define S42XX_REPLY_PORT_OFFSET		0x44
@@ -345,4 +346,4 @@ typedef struct {
 #define WRITE_FLASH_ROM			0xf7
 #pragma pack()	
 
-#endif 
+#endif /* ARRAYCMD_H */

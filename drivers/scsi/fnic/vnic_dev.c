@@ -98,7 +98,7 @@ static int vnic_dev_discover_res(struct vnic_dev *vdev,
 
 		r++;
 
-		if (bar_num != 0)  
+		if (bar_num != 0)  /* only mapping in BAR0 resources */
 			continue;
 
 		switch (type) {
@@ -106,7 +106,7 @@ static int vnic_dev_discover_res(struct vnic_dev *vdev,
 		case RES_TYPE_RQ:
 		case RES_TYPE_CQ:
 		case RES_TYPE_INTR_CTRL:
-			
+			/* each count is stride bytes long */
 			len = count * VNIC_RES_STRIDE;
 			if (len + bar_offset > bar->len) {
 				printk(KERN_ERR "vNIC BAR0 resource %d "
@@ -161,6 +161,11 @@ unsigned int vnic_dev_desc_ring_size(struct vnic_dev_ring *ring,
 				     unsigned int desc_count,
 				     unsigned int desc_size)
 {
+	/* The base address of the desc rings must be 512 byte aligned.
+	 * Descriptor count is aligned to groups of 32 descriptors.  A
+	 * count of 0 means the maximum 4096 descriptors.  Descriptor
+	 * size is aligned to 16 bytes.
+	 */
 
 	unsigned int count_align = 32;
 	unsigned int desc_align = 16;
@@ -231,12 +236,12 @@ int vnic_dev_cmd(struct vnic_dev *vdev, enum vnic_devcmd_cmd cmd,
 	int delay;
 	u32 status;
 	int dev_cmd_err[] = {
-		
-		0,	
-		EINVAL,	
-		EFAULT,	
-		EPERM,	
-		EBUSY,  
+		/* convert from fw's version of error.h to host's version */
+		0,	/* ERR_SUCCESS */
+		EINVAL,	/* ERR_EINVAL */
+		EFAULT,	/* ERR_EFAULT */
+		EPERM,	/* ERR_EPERM */
+		EBUSY,  /* ERR_EBUSY */
 	};
 	int err;
 
@@ -301,7 +306,7 @@ int vnic_dev_fw_info(struct vnic_dev *vdev,
 
 		a0 = vdev->fw_info_pa;
 
-		
+		/* only get fw_info once and cache it */
 		err = vnic_dev_cmd(vdev, CMD_MCPU_FW_INFO, &a0, &a1, wait);
 	}
 
@@ -543,8 +548,8 @@ void vnic_dev_notify_unset(struct vnic_dev *vdev)
 	u64 a0, a1;
 	int wait = 1000;
 
-	a0 = 0;  
-	a1 = 0x0000ffff00000000ULL; 
+	a0 = 0;  /* paddr = 0 to unset notify buffer */
+	a1 = 0x0000ffff00000000ULL; /* intr num = -1 to unreg for intr */
 	a1 += sizeof(struct vnic_devcmd_notify);
 
 	vnic_dev_cmd(vdev, CMD_NOTIFY, &a0, &a1, wait);

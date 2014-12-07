@@ -8,11 +8,11 @@ struct xen_memory_region {
 	phys_addr_t size;
 };
 
-#define XEN_EXTRA_MEM_MAX_REGIONS 128 
+#define XEN_EXTRA_MEM_MAX_REGIONS 128 /* == E820MAX */
 
 extern __initdata
 struct xen_memory_region xen_extra_mem[XEN_EXTRA_MEM_MAX_REGIONS];
 
 extern unsigned long xen_released_pages;
 
-#endif	
+#endif	/* _XEN_PAGE_H */

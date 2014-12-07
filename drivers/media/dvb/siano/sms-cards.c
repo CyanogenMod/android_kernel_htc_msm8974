@@ -90,12 +90,12 @@ static struct sms_board sms_boards[] = {
 		.lna_ctrl  = -1,
 	},
 	[SMS1XXX_BOARD_SIANO_NICE] = {
-	
+	/* 11 */
 		.name = "Siano Nice Digital Receiver",
 		.type = SMS_NOVA_B0,
 	},
 	[SMS1XXX_BOARD_SIANO_VENICE] = {
-	
+	/* 12 */
 		.name = "Siano Venice Digital Receiver",
 		.type = SMS_VEGA,
 	},
@@ -125,46 +125,46 @@ int sms_board_event(struct smscore_device_t *coredev,
 	sms_gpio_assign_11xx_default_led_config(&MyGpioConfig);
 
 	switch (gevent) {
-	case BOARD_EVENT_POWER_INIT: 
-		break; 
+	case BOARD_EVENT_POWER_INIT: /* including hotplug */
+		break; /* BOARD_EVENT_BIND */
 
 	case BOARD_EVENT_POWER_SUSPEND:
-		break; 
+		break; /* BOARD_EVENT_POWER_SUSPEND */
 
 	case BOARD_EVENT_POWER_RESUME:
-		break; 
+		break; /* BOARD_EVENT_POWER_RESUME */
 
 	case BOARD_EVENT_BIND:
-		break; 
+		break; /* BOARD_EVENT_BIND */
 
 	case BOARD_EVENT_SCAN_PROG:
-		break; 
+		break; /* BOARD_EVENT_SCAN_PROG */
 	case BOARD_EVENT_SCAN_COMP:
-		break; 
+		break; /* BOARD_EVENT_SCAN_COMP */
 	case BOARD_EVENT_EMERGENCY_WARNING_SIGNAL:
-		break; 
+		break; /* BOARD_EVENT_EMERGENCY_WARNING_SIGNAL */
 	case BOARD_EVENT_FE_LOCK:
-		break; 
+		break; /* BOARD_EVENT_FE_LOCK */
 	case BOARD_EVENT_FE_UNLOCK:
-		break; 
+		break; /* BOARD_EVENT_FE_UNLOCK */
 	case BOARD_EVENT_DEMOD_LOCK:
-		break; 
+		break; /* BOARD_EVENT_DEMOD_LOCK */
 	case BOARD_EVENT_DEMOD_UNLOCK:
-		break; 
+		break; /* BOARD_EVENT_DEMOD_UNLOCK */
 	case BOARD_EVENT_RECEPTION_MAX_4:
-		break; 
+		break; /* BOARD_EVENT_RECEPTION_MAX_4 */
 	case BOARD_EVENT_RECEPTION_3:
-		break; 
+		break; /* BOARD_EVENT_RECEPTION_3 */
 	case BOARD_EVENT_RECEPTION_2:
-		break; 
+		break; /* BOARD_EVENT_RECEPTION_2 */
 	case BOARD_EVENT_RECEPTION_1:
-		break; 
+		break; /* BOARD_EVENT_RECEPTION_1 */
 	case BOARD_EVENT_RECEPTION_LOST_0:
-		break; 
+		break; /* BOARD_EVENT_RECEPTION_LOST_0 */
 	case BOARD_EVENT_MULTIPLEX_OK:
-		break; 
+		break; /* BOARD_EVENT_MULTIPLEX_OK */
 	case BOARD_EVENT_MULTIPLEX_ERRORS:
-		break; 
+		break; /* BOARD_EVENT_MULTIPLEX_ERRORS */
 
 	default:
 		sms_err("Unknown SMS board event");
@@ -190,7 +190,7 @@ static int sms_set_gpio(struct smscore_device_t *coredev, int pin, int enable)
 		return -EINVAL;
 
 	if (pin < 0) {
-		
+		/* inverted gpio */
 		gpio = pin * -1;
 		lvl = enable ? 0 : 1;
 	} else {
@@ -212,14 +212,14 @@ int sms_board_setup(struct smscore_device_t *coredev)
 
 	switch (board_id) {
 	case SMS1XXX_BOARD_HAUPPAUGE_WINDHAM:
-		
+		/* turn off all LEDs */
 		sms_set_gpio(coredev, board->led_power, 0);
 		sms_set_gpio(coredev, board->led_hi, 0);
 		sms_set_gpio(coredev, board->led_lo, 0);
 		break;
 	case SMS1XXX_BOARD_HAUPPAUGE_TIGER_MINICARD_R2:
 	case SMS1XXX_BOARD_HAUPPAUGE_TIGER_MINICARD:
-		
+		/* turn off LNA */
 		sms_set_gpio(coredev, board->lna_ctrl, 0);
 		break;
 	}
@@ -234,13 +234,13 @@ int sms_board_power(struct smscore_device_t *coredev, int onoff)
 
 	switch (board_id) {
 	case SMS1XXX_BOARD_HAUPPAUGE_WINDHAM:
-		
+		/* power LED */
 		sms_set_gpio(coredev,
 			     board->led_power, onoff ? 1 : 0);
 		break;
 	case SMS1XXX_BOARD_HAUPPAUGE_TIGER_MINICARD_R2:
 	case SMS1XXX_BOARD_HAUPPAUGE_TIGER_MINICARD:
-		
+		/* LNA */
 		if (!onoff)
 			sms_set_gpio(coredev, board->lna_ctrl, 0);
 		break;
@@ -254,7 +254,7 @@ int sms_board_led_feedback(struct smscore_device_t *coredev, int led)
 	int board_id = smscore_get_board_id(coredev);
 	struct sms_board *board = sms_get_board(board_id);
 
-	
+	/* dont touch GPIO if LEDs are already set */
 	if (smscore_led_state(coredev, -1) == led)
 		return 0;
 
@@ -303,7 +303,7 @@ int sms_board_load_modules(int id)
 		request_module("smsdvb");
 		break;
 	default:
-		
+		/* do nothing */
 		break;
 	}
 	return 0;

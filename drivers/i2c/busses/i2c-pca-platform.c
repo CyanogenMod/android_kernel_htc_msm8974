@@ -29,7 +29,7 @@
 
 struct i2c_pca_pf_data {
 	void __iomem			*reg_base;
-	int				irq;	
+	int				irq;	/* if 0, use polling */
 	int				gpio;
 	wait_queue_head_t		wait;
 	struct i2c_adapter		adap;
@@ -38,6 +38,7 @@ struct i2c_pca_pf_data {
 	unsigned long			io_size;
 };
 
+/* Read/Write functions for different register alignments */
 
 static int i2c_pca_pf_readbyte8(void *pd, int reg)
 {
@@ -87,7 +88,7 @@ static int i2c_pca_pf_waitforcompletion(void *pd)
 			i2c->algo_data.read_byte(i2c, I2C_PCA_CON)
 			& I2C_PCA_CON_SI, i2c->adap.timeout);
 	} else {
-		
+		/* Do polling */
 		timeout = jiffies + i2c->adap.timeout;
 		do {
 			ret = time_before(jiffies, timeout);
@@ -141,7 +142,7 @@ static int __devinit i2c_pca_pf_probe(struct platform_device *pdev)
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	irq = platform_get_irq(pdev, 0);
-	
+	/* If irq is 0, we do polling. */
 
 	if (res == NULL) {
 		ret = -ENODEV;
@@ -208,7 +209,7 @@ static int __devinit i2c_pca_pf_probe(struct platform_device *pdev)
 		break;
 	}
 
-	
+	/* Use gpio_is_valid() when in mainline */
 	if (i2c->gpio > -1) {
 		ret = gpio_request(i2c->gpio, i2c->adap.name);
 		if (ret == 0) {

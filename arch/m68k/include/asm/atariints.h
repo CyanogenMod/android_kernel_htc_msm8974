@@ -21,6 +21,10 @@
 #include <asm/irq.h>
 #include <asm/atarihw.h>
 
+/*
+** Atari Interrupt sources.
+**
+*/
 
 #define STMFP_SOURCE_BASE  8
 #define TTMFP_SOURCE_BASE  24
@@ -30,14 +34,18 @@
 
 #define NUM_ATARI_SOURCES   (VME_SOURCE_BASE+VME_MAX_SOURCES-STMFP_SOURCE_BASE)
 
+/* convert vector number to int source number */
 #define IRQ_VECTOR_TO_SOURCE(v)	((v) - ((v) < 0x20 ? 0x18 : (0x40-8)))
 
+/* convert irq_handler index to vector number */
 #define IRQ_SOURCE_TO_VECTOR(i)	((i) + ((i) < 8 ? 0x18 : (0x40-8)))
 
+/* interrupt service types */
 #define IRQ_TYPE_SLOW     0
 #define IRQ_TYPE_FAST     1
 #define IRQ_TYPE_PRIO     2
 
+/* ST-MFP interrupts */
 #define IRQ_MFP_BUSY      (8)
 #define IRQ_MFP_DCD       (9)
 #define IRQ_MFP_CTS	  (10)
@@ -58,6 +66,7 @@
 #define IRQ_MFP_RI        (22)
 #define IRQ_MFP_MMD       (23)
 
+/* TT-MFP interrupts */
 #define IRQ_TT_MFP_IO0       (24)
 #define IRQ_TT_MFP_IO1       (25)
 #define IRQ_TT_MFP_SCC	     (26)
@@ -75,6 +84,7 @@
 #define IRQ_TT_MFP_RTC       (38)
 #define IRQ_TT_MFP_SCSI      (39)
 
+/* SCC interrupts */
 #define IRQ_SCCB_TX	     (40)
 #define IRQ_SCCB_STAT	     (42)
 #define IRQ_SCCB_RX	     (44)
@@ -85,8 +95,8 @@
 #define IRQ_SCCA_SPCOND	     (54)
 
 
-#define INT_CLK   24576	    
-#define INT_TICKS 246	    
+#define INT_CLK   24576	    /* CLK while int_clk =2.456MHz and divide = 100 */
+#define INT_TICKS 246	    /* to make sched_time = 99.902... HZ */
 
 
 #define MFP_ENABLE	0
@@ -94,6 +104,9 @@
 #define MFP_SERVICE	2
 #define MFP_MASK	3
 
+/* Utility functions for setting/clearing bits in the interrupt registers of
+ * the MFP. 'type' should be constant, if 'irq' is constant, too, code size is
+ * reduced. set_mfp_bit() is nonsense for PENDING and SERVICE registers. */
 
 static inline int get_mfp_bit( unsigned irq, int type )
 
@@ -131,6 +144,11 @@ static inline void clear_mfp_bit( unsigned irq, int type )
 				      : : "di" (mask), "m" (*reg) : "memory" );
 }
 
+/*
+ * {en,dis}able_irq have the usual semantics of temporary blocking the
+ * interrupt, but not losing requests that happen between disabling and
+ * enabling. This is done with the MFP mask registers.
+ */
 
 static inline void atari_enable_irq( unsigned irq )
 
@@ -146,6 +164,10 @@ static inline void atari_disable_irq( unsigned irq )
 	clear_mfp_bit( irq, MFP_MASK );
 }
 
+/*
+ * In opposite to {en,dis}able_irq, requests between turn{off,on}_irq are not
+ * "stored"
+ */
 
 static inline void atari_turnon_irq( unsigned irq )
 
@@ -179,4 +201,4 @@ static inline int atari_irq_pending( unsigned irq )
 unsigned long atari_register_vme_int( void );
 void atari_unregister_vme_int( unsigned long );
 
-#endif 
+#endif /* linux/atariints.h */

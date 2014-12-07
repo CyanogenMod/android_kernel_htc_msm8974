@@ -45,28 +45,28 @@
 
 static void __init kb9202_init_early(void)
 {
-	
+	/* Set cpu type: PQFP */
 	at91rm9200_set_type(ARCH_REVISON_9200_PQFP);
 
-	
+	/* Initialize processor: 10 MHz crystal */
 	at91_initialize(10000000);
 
-	
+	/* Set up the LEDs */
 	at91_init_leds(AT91_PIN_PC19, AT91_PIN_PC18);
 
-	
+	/* DBGU on ttyS0. (Rx & Tx only) */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* USART0 on ttyS1 (Rx & Tx only) */
 	at91_register_uart(AT91RM9200_ID_US0, 1, 0);
 
-	
+	/* USART1 on ttyS2 (Rx & Tx only) - IRDA (optional) */
 	at91_register_uart(AT91RM9200_ID_US1, 2, 0);
 
-	
+	/* USART3 on ttyS3 (Rx, Tx, CTS, RTS) - RS485 (optional) */
 	at91_register_uart(AT91RM9200_ID_US3, 3, ATMEL_UART_CTS | ATMEL_UART_RTS);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
@@ -115,26 +115,26 @@ static struct atmel_nand_data __initdata kb9202_nand_data = {
 
 static void __init kb9202_board_init(void)
 {
-	
+	/* Serial */
 	at91_add_device_serial();
-	
+	/* Ethernet */
 	at91_add_device_eth(&kb9202_eth_data);
-	
+	/* USB Host */
 	at91_add_device_usbh(&kb9202_usbh_data);
-	
+	/* USB Device */
 	at91_add_device_udc(&kb9202_udc_data);
-	
+	/* MMC */
 	at91_add_device_mmc(0, &kb9202_mmc_data);
-	
+	/* I2C */
 	at91_add_device_i2c(NULL, 0);
-	
+	/* SPI */
 	at91_add_device_spi(NULL, 0);
-	
+	/* NAND */
 	at91_add_device_nand(&kb9202_nand_data);
 }
 
 MACHINE_START(KB9200, "KB920x")
-	
+	/* Maintainer: KwikByte, Inc. */
 	.timer		= &at91rm9200_timer,
 	.map_io		= at91_map_io,
 	.init_early	= kb9202_init_early,

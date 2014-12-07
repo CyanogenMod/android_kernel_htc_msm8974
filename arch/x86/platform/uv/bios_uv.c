@@ -34,6 +34,9 @@ s64 uv_bios_call(enum uv_bios_cmd which, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5)
 	s64 ret;
 
 	if (!tab->function)
+		/*
+		 * BIOS does not support UV systab
+		 */
 		return BIOS_STATUS_UNIMPLEMENTED;
 
 	ret = efi_call6((void *)__va(tab->function), (u64)which,
@@ -114,6 +117,9 @@ uv_bios_mq_watchlist_alloc(unsigned long addr, unsigned int mq_size,
 	u64 watchlist;
 	s64 ret;
 
+	/*
+	 * bios returns watchlist number or negative error number.
+	 */
 	ret = (int)uv_bios_call_irqsave(UV_BIOS_WATCHLIST_ALLOC, addr,
 			mq_size, (u64)intr_mmr_offset,
 			(u64)&watchlist, 0);
@@ -158,6 +164,18 @@ s64 uv_bios_freq_base(u64 clock_type, u64 *ticks_per_second)
 }
 EXPORT_SYMBOL_GPL(uv_bios_freq_base);
 
+/*
+ * uv_bios_set_legacy_vga_target - Set Legacy VGA I/O Target
+ * @decode: true to enable target, false to disable target
+ * @domain: PCI domain number
+ * @bus: PCI bus number
+ *
+ * Returns:
+ *    0: Success
+ *    -EINVAL: Invalid domain or bus number
+ *    -ENOSYS: Capability not available
+ *    -EBUSY: Legacy VGA I/O cannot be retargeted at this time
+ */
 int uv_bios_set_legacy_vga_target(bool decode, int domain, int bus)
 {
 	return uv_bios_call(UV_BIOS_SET_LEGACY_VGA_TARGET,
@@ -183,13 +201,16 @@ void uv_bios_init(void)
 	if (strncmp(tab->signature, "UVST", 4) != 0)
 		printk(KERN_ERR "bad signature in UV system table!");
 
+	/*
+	 * Copy table to permanent spot for later use.
+	 */
 	memcpy(&uv_systab, tab, sizeof(struct uv_systab));
 	iounmap(tab);
 
 	printk(KERN_INFO "EFI UV System Table Revision %d\n",
 					uv_systab.revision);
 }
-#else	
+#else	/* !CONFIG_EFI */
 
 void uv_bios_init(void) { }
 #endif

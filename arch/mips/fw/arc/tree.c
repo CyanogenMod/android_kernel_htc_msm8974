@@ -124,4 +124,4 @@ prom_testtree(void)
 	}
 }
 
-#endif 
+#endif /* DEBUG_PROM_TREE  */

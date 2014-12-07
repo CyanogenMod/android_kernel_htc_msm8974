@@ -60,6 +60,7 @@ do { *(volatile unsigned long *)(0xfeff9430 + 8 * (T)) = (V); mb(); } while(0)
 #define __set_TCSR_DATA(T,V) __set_TCSR(T, (V) << 24)
 #define __set_TxCKSL_DATA(T,V) __set_TxCKSL(T, TxCKSL_EIGHT | __TxCKSL_SELECT((V)))
 
+/* clock control register */
 #define CLKC_CMODE		0x0f000000
 #define CLKC_SLPL		0x000f0000
 #define CLKC_P0			0x00000100
@@ -67,6 +68,7 @@ do { *(volatile unsigned long *)(0xfeff9430 + 8 * (T)) = (V); mb(); } while(0)
 
 #define CLKC_CMODE_s		24
 
+/* timer control register - non-readback mode */
 #define TCTR_MODE_0		0x00000000
 #define TCTR_MODE_2		0x04000000
 #define TCTR_MODE_4		0x08000000
@@ -79,6 +81,7 @@ do { *(volatile unsigned long *)(0xfeff9430 + 8 * (T)) = (V); mb(); } while(0)
 #define TCTR_SC_CTR1		0x40000000
 #define TCTR_SC_CTR2		0x80000000
 
+/* timer control register - readback mode */
 #define TCTR_CNT0		0x02000000
 #define TCTR_CNT1		0x04000000
 #define TCTR_CNT2		0x08000000
@@ -86,15 +89,18 @@ do { *(volatile unsigned long *)(0xfeff9430 + 8 * (T)) = (V); mb(); } while(0)
 #define TCTR_NCOUNT		0x20000000
 #define TCTR_SC_READBACK	0xc0000000
 
+/* timer control status registers - non-readback mode */
 #define TCSRx_DATA		0xff000000
 
+/* timer control status registers - readback mode */
 #define TCSRx_OUTPUT		0x80000000
 #define TCSRx_NULLCOUNT		0x40000000
 #define TCSRx_RL		0x30000000
 #define TCSRx_MODE		0x07000000
 
+/* timer clock select registers */
 #define TxCKSL_SELECT		0x0f000000
 #define __TxCKSL_SELECT(X)	((X) << 24)
 #define TxCKSL_EIGHT		0xf0000000
 
-#endif 
+#endif /* _ASM_TIMER_REGS_H */

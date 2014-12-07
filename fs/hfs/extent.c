@@ -13,7 +13,11 @@
 #include "hfs_fs.h"
 #include "btree.h"
 
+/*================ File-local functions ================*/
 
+/*
+ * build_key
+ */
 static void hfs_ext_build_key(hfs_btree_key *key, u32 cnid, u16 block, u8 type)
 {
 	key->key_len = 7;
@@ -22,6 +26,27 @@ static void hfs_ext_build_key(hfs_btree_key *key, u32 cnid, u16 block, u8 type)
 	key->ext.FABN = cpu_to_be16(block);
 }
 
+/*
+ * hfs_ext_compare()
+ *
+ * Description:
+ *   This is the comparison function used for the extents B-tree.  In
+ *   comparing extent B-tree entries, the file id is the most
+ *   significant field (compared as unsigned ints); the fork type is
+ *   the second most significant field (compared as unsigned chars);
+ *   and the allocation block number field is the least significant
+ *   (compared as unsigned ints).
+ * Input Variable(s):
+ *   struct hfs_ext_key *key1: pointer to the first key to compare
+ *   struct hfs_ext_key *key2: pointer to the second key to compare
+ * Output Variable(s):
+ *   NONE
+ * Returns:
+ *   int: negative if key1<key2, positive if key1>key2, and 0 if key1==key2
+ * Preconditions:
+ *   key1 and key2 point to "valid" (struct hfs_ext_key)s.
+ * Postconditions:
+ *   This function has no side-effects */
 int hfs_ext_keycmp(const btree_key *key1, const btree_key *key2)
 {
 	__be32 fnum1, fnum2;
@@ -41,6 +66,11 @@ int hfs_ext_keycmp(const btree_key *key1, const btree_key *key2)
 	return be16_to_cpu(block1) < be16_to_cpu(block2) ? -1 : 1;
 }
 
+/*
+ * hfs_ext_find_block
+ *
+ * Find a block within an extent record
+ */
 static u16 hfs_ext_find_block(struct hfs_extent *ext, u16 off)
 {
 	int i;
@@ -52,7 +82,7 @@ static u16 hfs_ext_find_block(struct hfs_extent *ext, u16 off)
 			return be16_to_cpu(ext->block) + off;
 		off -= count;
 	}
-	
+	/* panic? */
 	return 0;
 }
 
@@ -196,7 +226,7 @@ static int hfs_add_extent(struct hfs_extent *extent, u16 offset,
 			break;
 		offset -= count;
 	}
-	
+	/* panic? */
 	return -EIO;
 }
 
@@ -215,7 +245,7 @@ static int hfs_free_extents(struct super_block *sb, struct hfs_extent *extent,
 			break;
 		offset -= count;
 	}
-	
+	/* panic? */
 	return -EIO;
 found:
 	for (;;) {
@@ -283,6 +313,9 @@ int hfs_free_fork(struct super_block *sb, struct hfs_cat_file *file, int type)
 	return res;
 }
 
+/*
+ * hfs_get_block
+ */
 int hfs_get_block(struct inode *inode, sector_t block,
 		  struct buffer_head *bh_result, int create)
 {
@@ -291,7 +324,7 @@ int hfs_get_block(struct inode *inode, sector_t block,
 	int res;
 
 	sb = inode->i_sb;
-	
+	/* Convert inode block to disk allocation block */
 	ablock = (u32)block / HFS_SB(sb)->fs_div;
 
 	if (block >= HFS_I(inode)->fs_blocks) {
@@ -363,12 +396,12 @@ int hfs_extend_file(struct inode *inode)
 	if (HFS_I(inode)->alloc_blocks == HFS_I(inode)->first_blocks) {
 		if (!HFS_I(inode)->first_blocks) {
 			dprint(DBG_EXTENT, "first extents\n");
-			
+			/* no extents yet */
 			HFS_I(inode)->first_extents[0].block = cpu_to_be16(start);
 			HFS_I(inode)->first_extents[0].count = cpu_to_be16(len);
 			res = 0;
 		} else {
-			
+			/* try to append to extents in inode */
 			res = hfs_add_extent(HFS_I(inode)->first_extents,
 					     HFS_I(inode)->alloc_blocks,
 					     start, len);
@@ -435,7 +468,7 @@ void hfs_file_truncate(struct inode *inode)
 		struct page *page;
 		int res;
 
-		
+		/* XXX: Can use generic_cont_expand? */
 		size = inode->i_size - 1;
 		res = pagecache_write_begin(NULL, mapping, size+1, 0,
 				AOP_FLAG_UNINTERRUPTIBLE, &page, &fsdata);

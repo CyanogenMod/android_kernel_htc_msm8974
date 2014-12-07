@@ -66,11 +66,11 @@ void prom_putchar(unsigned char c)
 
 static void gpr_reset(char *c)
 {
-	
+	/* switch System-LED to orange (red# and green# on) */
 	alchemy_gpio_direction_output(4, 0);
 	alchemy_gpio_direction_output(5, 0);
 
-	
+	/* trigger watchdog to reset board in 200ms */
 	printk(KERN_EMERG "Triggering watchdog soft reset...\n");
 	raw_local_irq_disable();
 	alchemy_gpio_direction_output(1, 0);
@@ -94,14 +94,17 @@ void __init board_setup(void)
 	_machine_halt = gpr_power_off;
 	_machine_restart = gpr_reset;
 
-	
+	/* Enable UART1/3 */
 	alchemy_uart_enable(AU1000_UART3_PHYS_ADDR);
 	alchemy_uart_enable(AU1000_UART1_PHYS_ADDR);
 
-	
+	/* Take away Reset of UMTS-card */
 	alchemy_gpio_direction_output(215, 1);
 }
 
+/*
+ * Watchdog
+ */
 static struct resource gpr_wdt_resource[] = {
 	[0] = {
 		.start	= 1,
@@ -118,6 +121,16 @@ static struct platform_device gpr_wdt_device = {
 	.resource = gpr_wdt_resource,
 };
 
+/*
+ * FLASH
+ *
+ * 0x00000000-0x00200000 : "kernel"
+ * 0x00200000-0x00a00000 : "rootfs"
+ * 0x01d00000-0x01f00000 : "config"
+ * 0x01c00000-0x01d00000 : "yamon"
+ * 0x01d00000-0x01d40000 : "yamon env vars"
+ * 0x00000000-0x00a00000 : "kernel+rootfs"
+ */
 static struct mtd_partition gpr_mtd_partitions[] = {
 	{
 		.name	= "kernel",
@@ -173,13 +186,16 @@ static struct platform_device gpr_mtd_device = {
 	.resource	= &gpr_mtd_resource,
 };
 
+/*
+ * LEDs
+ */
 static struct gpio_led gpr_gpio_leds[] = {
-	{	
+	{	/* green */
 		.name			= "gpr:green",
 		.gpio			= 4,
 		.active_low		= 1,
 	},
-	{	
+	{	/* red */
 		.name			= "gpr:red",
 		.gpio			= 5,
 		.active_low		= 1,
@@ -199,12 +215,15 @@ static struct platform_device gpr_led_devices = {
 	}
 };
 
+/*
+ * I2C
+ */
 static struct i2c_gpio_platform_data gpr_i2c_data = {
 	.sda_pin		= 209,
 	.sda_is_open_drain	= 1,
 	.scl_pin		= 210,
 	.scl_is_open_drain	= 1,
-	.udelay			= 2,		
+	.udelay			= 2,		/* ~100 kHz */
 	.timeout		= HZ,
 };
 
@@ -271,6 +290,7 @@ static int __init gpr_pci_init(void)
 {
 	return platform_device_register(&gpr_pci_host_dev);
 }
+/* must be arch_initcall; MIPS PCI scans busses in a subsys_initcall */
 arch_initcall(gpr_pci_init);
 
 

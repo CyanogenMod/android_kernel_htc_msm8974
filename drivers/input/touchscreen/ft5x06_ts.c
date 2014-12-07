@@ -37,6 +37,7 @@
 
 #elif defined(CONFIG_HAS_EARLYSUSPEND)
 #include <linux/earlysuspend.h>
+/* Early-suspend level */
 #define FT_SUSPEND_LEVEL 1
 #endif
 
@@ -58,6 +59,7 @@
 #define FT_TOUCH_DOWN		0
 #define FT_TOUCH_CONTACT	2
 
+/*register address*/
 #define FT_REG_DEV_MODE		0x00
 #define FT_DEV_MODE_REG_CAL	0x02
 #define FT_REG_ID		0xA3
@@ -71,6 +73,7 @@
 #define FT_REG_FW_MIN_VER	0xB2
 #define FT_REG_FW_SUB_MIN_VER	0xB3
 
+/* power register bits*/
 #define FT_PMODE_ACTIVE		0x00
 #define FT_PMODE_MONITOR	0x01
 #define FT_PMODE_STANDBY	0x02
@@ -108,6 +111,7 @@
 #define FT_FW_MIN_SIZE		8
 #define FT_FW_MAX_SIZE		32768
 
+/* Firmware file is not supporting minor and sub minor so use 0 */
 #define FT_FW_FILE_MAJ_VER(x)	((x)->data[(x)->size - 2])
 #define FT_FW_FILE_MIN_VER(x)	0
 #define FT_FW_FILE_SUB_MIN_VER(x) 0
@@ -344,7 +348,7 @@ static irqreturn_t ft5x06_ts_interrupt(int irq, void *dev_id)
 
 		num_touches = buf[FT_TD_STATUS] & FT_STATUS_NUM_TP_MASK;
 
-		
+		/* invalid combination */
 		if (!num_touches && !status && !id)
 			break;
 
@@ -493,7 +497,7 @@ static int ft5x06_ts_suspend(struct device *dev)
 
 	disable_irq(data->client->irq);
 
-	
+	/* release all touches */
 	for (i = 0; i < data->pdata->num_max_touches; i++) {
 		input_mt_slot(data->input_dev, i);
 		input_mt_report_slot_state(data->input_dev, MT_TOOL_FINGER, 0);
@@ -627,31 +631,31 @@ static int ft5x06_auto_cal(struct i2c_client *client)
 	struct ft5x06_ts_data *data = i2c_get_clientdata(client);
 	u8 temp = 0, i;
 
-	
+	/* set to factory mode */
 	msleep(2 * data->pdata->soft_rst_dly);
 	ft5x0x_write_reg(client, FT_REG_DEV_MODE, FT_FACTORYMODE_VALUE);
 	msleep(data->pdata->soft_rst_dly);
 
-	
+	/* start calibration */
 	ft5x0x_write_reg(client, FT_DEV_MODE_REG_CAL, FT_CAL_START);
 	msleep(2 * data->pdata->soft_rst_dly);
 	for (i = 0; i < FT_CAL_RETRY; i++) {
 		ft5x0x_read_reg(client, FT_REG_CAL, &temp);
-		
+		/*return to normal mode, calibration finish */
 		if (((temp & FT_CAL_MASK) >> FT_4BIT_SHIFT) == FT_CAL_FIN)
 			break;
 	}
 
-	
+	/*calibration OK */
 	msleep(2 * data->pdata->soft_rst_dly);
 	ft5x0x_write_reg(client, FT_REG_DEV_MODE, FT_FACTORYMODE_VALUE);
 	msleep(data->pdata->soft_rst_dly);
 
-	
+	/* store calibration data */
 	ft5x0x_write_reg(client, FT_DEV_MODE_REG_CAL, FT_CAL_STORE);
 	msleep(2 * data->pdata->soft_rst_dly);
 
-	
+	/* set to normal mode */
 	ft5x0x_write_reg(client, FT_REG_DEV_MODE, FT_WORKMODE_VALUE);
 	msleep(2 * data->pdata->soft_rst_dly);
 
@@ -672,7 +676,7 @@ static int ft5x06_fw_upgrade_start(struct i2c_client *client,
 	u8 is_5336_fwsize_30 = false;
 	u8 fw_ecc;
 
-	
+	/* determine firmware size */
 	if (*(data + data_len - FT_BLOADER_SIZE_OFF) == FT_BLOADER_NEW_SIZE)
 		is_5336_fwsize_30 = true;
 	else
@@ -680,7 +684,7 @@ static int ft5x06_fw_upgrade_start(struct i2c_client *client,
 
 	for (i = 0, j = 0; i < FT_UPGRADE_LOOP; i++) {
 		msleep(FT_EARSE_DLY_MS);
-		
+		/* reset - write 0xaa and 0x55 to reset register */
 		if (ts_data->family_id == FT6X06_ID)
 			reset_reg = FT_RST_CMD_REG2;
 		else
@@ -695,14 +699,14 @@ static int ft5x06_fw_upgrade_start(struct i2c_client *client,
 		else
 			msleep(info.delay_55 - (i - (FT_UPGRADE_LOOP / 2)) * 2);
 
-		
+		/* Enter upgrade mode */
 		w_buf[0] = FT_UPGRADE_55;
 		ft5x06_i2c_write(client, w_buf, 1);
 		usleep(FT_55_AA_DLY_NS);
 		w_buf[0] = FT_UPGRADE_AA;
 		ft5x06_i2c_write(client, w_buf, 1);
 
-		
+		/* check READ_ID */
 		msleep(info.delay_readid);
 		w_buf[0] = FT_READ_ID_REG;
 		w_buf[1] = 0x00;
@@ -743,9 +747,9 @@ static int ft5x06_fw_upgrade_start(struct i2c_client *client,
 
 	dev_dbg(&client->dev, "bootloader type=%d, r_buf=0x%x, family_id=0x%x\n",
 		is_5336_new_bootloader, r_buf[0], ts_data->family_id);
-	
+	/* is_5336_new_bootloader = FT_BLOADER_VERSION_GZF; */
 
-	
+	/* erase app and panel paramenter area */
 	w_buf[0] = FT_ERASE_APP_REG;
 	ft5x06_i2c_write(client, w_buf, 1);
 	msleep(info.delay_erase_flash);
@@ -756,7 +760,7 @@ static int ft5x06_fw_upgrade_start(struct i2c_client *client,
 	}
 	msleep(FT_EARSE_DLY_MS);
 
-	
+	/* program firmware */
 	if (is_5336_new_bootloader == FT_BLOADER_VERSION_LZ4
 		|| is_5336_new_bootloader == FT_BLOADER_VERSION_Z7)
 		data_len = data_len - FT_DATA_LEN_OFF_OLD_FW;
@@ -786,7 +790,7 @@ static int ft5x06_fw_upgrade_start(struct i2c_client *client,
 		msleep(FT_FW_PKT_DLY_MS);
 	}
 
-	
+	/* send remaining bytes */
 	if ((data_len) % FT_FW_PKT_LEN > 0) {
 		temp = pkt_num * FT_FW_PKT_LEN;
 		pkt_buf[2] = (u8) (temp >> FT_8BIT_SHIFT);
@@ -804,7 +808,7 @@ static int ft5x06_fw_upgrade_start(struct i2c_client *client,
 		msleep(FT_FW_PKT_DLY_MS);
 	}
 
-	
+	/* send the finishing packet */
 	if (is_5336_new_bootloader == FT_BLOADER_VERSION_LZ4 ||
 		is_5336_new_bootloader == FT_BLOADER_VERSION_Z7) {
 		for (i = 0; i < FT_FINISHING_PKT_LEN_OLD_FW; i++) {
@@ -846,7 +850,7 @@ static int ft5x06_fw_upgrade_start(struct i2c_client *client,
 		}
 	}
 
-	
+	/* verify checksum */
 	w_buf[0] = FT_REG_ECC;
 	ft5x06_i2c_read(client, w_buf, 1, r_buf, 1);
 	if (r_buf[0] != fw_ecc) {
@@ -855,7 +859,7 @@ static int ft5x06_fw_upgrade_start(struct i2c_client *client,
 		return -EIO;
 	}
 
-	
+	/* reset */
 	w_buf[0] = FT_REG_RESET_FW;
 	ft5x06_i2c_write(client, w_buf, 1);
 	msleep(ts_data->pdata->soft_rst_dly);
@@ -913,7 +917,7 @@ static int ft5x06_fw_upgrade(struct device *dev, bool force)
 		goto rel_fw;
 	}
 
-	
+	/* start firmware upgrade */
 	if (FT_FW_CHECK(fw)) {
 		rc = ft5x06_fw_upgrade_start(data->client, fw->data, fw->size);
 		if (rc < 0)
@@ -1238,7 +1242,7 @@ static int ft5x06_parse_dt(struct device *dev,
 
 	pdata->no_force_update = of_property_read_bool(np,
 						"focaltech,no-force-update");
-	
+	/* reset, irq gpio info */
 	pdata->reset_gpio = of_get_named_gpio_flags(np, "focaltech,reset-gpio",
 				0, &pdata->reset_gpio_flags);
 	if (pdata->reset_gpio < 0)
@@ -1521,10 +1525,10 @@ static int ft5x06_ts_probe(struct i2c_client *client,
 		gpio_set_value_cansleep(data->pdata->reset_gpio, 1);
 	}
 
-	
+	/* make sure CTP already finish startup process */
 	msleep(data->pdata->soft_rst_dly);
 
-	
+	/* check the controller id */
 	reg_addr = FT_REG_ID;
 	err = ft5x06_i2c_read(client, &reg_addr, 1, &reg_value, 1);
 	if (err < 0) {
@@ -1614,7 +1618,7 @@ static int ft5x06_ts_probe(struct i2c_client *client,
 		goto free_debug_dir;
 	}
 
-	
+	/*get some register information */
 	reg_addr = FT_REG_POINT_RATE;
 	ft5x06_i2c_read(client, &reg_addr, 1, &reg_value, 1);
 	if (err < 0)

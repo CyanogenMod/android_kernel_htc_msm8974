@@ -44,11 +44,13 @@
 
 #define MY_NAME	"acpiphp"
 
-#define SLOT_NAME_SIZE  21              
+/* name size which is used for entries in pcihpfs */
+#define SLOT_NAME_SIZE  21              /* {_SUN} */
 
 static bool debug;
 int acpiphp_debug;
 
+/* local variables */
 static int num_slots;
 static struct acpiphp_attention_info *attention_info;
 
@@ -62,6 +64,7 @@ MODULE_LICENSE("GPL");
 MODULE_PARM_DESC(debug, "Debugging mode enabled or not");
 module_param(debug, bool, 0644);
 
+/* export the attention callback registration methods */
 EXPORT_SYMBOL_GPL(acpiphp_register_attention);
 EXPORT_SYMBOL_GPL(acpiphp_unregister_attention);
 
@@ -83,6 +86,14 @@ static struct hotplug_slot_ops acpi_hotplug_slot_ops = {
 	.get_adapter_status	= get_adapter_status,
 };
 
+/**
+ * acpiphp_register_attention - set attention LED callback
+ * @info: must be completely filled with LED callbacks
+ *
+ * Description: This is used to register a hardware specific ACPI
+ * driver that manipulates the attention LED.  All the fields in
+ * info must be set.
+ */
 int acpiphp_register_attention(struct acpiphp_attention_info *info)
 {
 	int retval = -EINVAL;
@@ -96,6 +107,14 @@ int acpiphp_register_attention(struct acpiphp_attention_info *info)
 }
 
 
+/**
+ * acpiphp_unregister_attention - unset attention LED callback
+ * @info: must match the pointer used to register
+ *
+ * Description: This is used to un-register a hardware specific acpi
+ * driver that manipulates the attention LED.  The pointer to the 
+ * info struct must be the same as the one used to set it.
+ */
 int acpiphp_unregister_attention(struct acpiphp_attention_info *info)
 {
 	int retval = -EINVAL;
@@ -108,17 +127,29 @@ int acpiphp_unregister_attention(struct acpiphp_attention_info *info)
 }
 
 
+/**
+ * enable_slot - power on and enable a slot
+ * @hotplug_slot: slot to enable
+ *
+ * Actual tasks are done in acpiphp_enable_slot()
+ */
 static int enable_slot(struct hotplug_slot *hotplug_slot)
 {
 	struct slot *slot = hotplug_slot->private;
 
 	dbg("%s - physical_slot = %s\n", __func__, slot_name(slot));
 
-	
+	/* enable the specified slot */
 	return acpiphp_enable_slot(slot->acpi_slot);
 }
 
 
+/**
+ * disable_slot - disable and power off a slot
+ * @hotplug_slot: slot to disable
+ *
+ * Actual tasks are done in acpiphp_disable_slot()
+ */
 static int disable_slot(struct hotplug_slot *hotplug_slot)
 {
 	struct slot *slot = hotplug_slot->private;
@@ -126,7 +157,7 @@ static int disable_slot(struct hotplug_slot *hotplug_slot)
 
 	dbg("%s - physical_slot = %s\n", __func__, slot_name(slot));
 
-	
+	/* disable the specified slot */
 	retval = acpiphp_disable_slot(slot->acpi_slot);
 	if (!retval)
 		retval = acpiphp_eject_slot(slot->acpi_slot);
@@ -134,6 +165,15 @@ static int disable_slot(struct hotplug_slot *hotplug_slot)
 }
 
 
+/**
+ * set_attention_status - set attention LED
+ * @hotplug_slot: slot to set attention LED on
+ * @status: value to set attention LED to (0 or 1)
+ *
+ * attention status LED, so we use a callback that
+ * was registered with us.  This allows hardware specific
+ * ACPI implementations to blink the light for us.
+ */
  static int set_attention_status(struct hotplug_slot *hotplug_slot, u8 status)
  {
 	int retval = -ENODEV;
@@ -149,6 +189,14 @@ static int disable_slot(struct hotplug_slot *hotplug_slot)
  }
  
 
+/**
+ * get_power_status - get power status of a slot
+ * @hotplug_slot: slot to get status
+ * @value: pointer to store status
+ *
+ * Some platforms may not implement _STA method properly.
+ * In that case, the value returned may not be reliable.
+ */
 static int get_power_status(struct hotplug_slot *hotplug_slot, u8 *value)
 {
 	struct slot *slot = hotplug_slot->private;
@@ -161,6 +209,16 @@ static int get_power_status(struct hotplug_slot *hotplug_slot, u8 *value)
 }
 
 
+/**
+ * get_attention_status - get attention LED status
+ * @hotplug_slot: slot to get status from
+ * @value: returns with value of attention LED
+ *
+ * ACPI doesn't have known method to determine the state
+ * of the attention status LED, so we use a callback that
+ * was registered with us.  This allows hardware specific
+ * ACPI implementations to determine its state.
+ */
 static int get_attention_status(struct hotplug_slot *hotplug_slot, u8 *value)
 {
 	int retval = -EINVAL;
@@ -176,6 +234,14 @@ static int get_attention_status(struct hotplug_slot *hotplug_slot, u8 *value)
 }
 
 
+/**
+ * get_latch_status - get latch status of a slot
+ * @hotplug_slot: slot to get status
+ * @value: pointer to store status
+ *
+ * ACPI doesn't provide any formal means to access latch status.
+ * Instead, we fake latch status from _STA.
+ */
 static int get_latch_status(struct hotplug_slot *hotplug_slot, u8 *value)
 {
 	struct slot *slot = hotplug_slot->private;
@@ -188,6 +254,14 @@ static int get_latch_status(struct hotplug_slot *hotplug_slot, u8 *value)
 }
 
 
+/**
+ * get_adapter_status - get adapter status of a slot
+ * @hotplug_slot: slot to get status
+ * @value: pointer to store status
+ *
+ * ACPI doesn't provide any formal means to access adapter status.
+ * Instead, we fake adapter status from _STA.
+ */
 static int get_adapter_status(struct hotplug_slot *hotplug_slot, u8 *value)
 {
 	struct slot *slot = hotplug_slot->private;
@@ -203,10 +277,10 @@ static int __init init_acpi(void)
 {
 	int retval;
 
-	
+	/* initialize internal data structure etc. */
 	retval = acpiphp_glue_init();
 
-	
+	/* read initial number of slots */
 	if (!retval) {
 		num_slots = acpiphp_get_num_slots();
 		if (num_slots == 0) {
@@ -218,6 +292,10 @@ static int __init init_acpi(void)
 	return retval;
 }
 
+/**
+ * release_slot - free up the memory used by a slot
+ * @hotplug_slot: slot to free
+ */
 static void release_slot(struct hotplug_slot *hotplug_slot)
 {
 	struct slot *slot = hotplug_slot->private;
@@ -228,6 +306,7 @@ static void release_slot(struct hotplug_slot *hotplug_slot)
 	kfree(slot);
 }
 
+/* callback routine to initialize 'struct slot' for each slot */
 int acpiphp_register_hotplug_slot(struct acpiphp_slot *acpiphp_slot)
 {
 	struct slot *slot;
@@ -302,7 +381,7 @@ static int __init acpiphp_init(void)
 
 	acpiphp_debug = debug;
 
-	
+	/* read all the ACPI info from the system */
 	return init_acpi();
 }
 
@@ -312,7 +391,7 @@ static void __exit acpiphp_exit(void)
 	if (acpi_pci_disabled)
 		return;
 
-	
+	/* deallocate internal data structures etc. */
 	acpiphp_glue_exit();
 }
 

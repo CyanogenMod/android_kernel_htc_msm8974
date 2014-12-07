@@ -13,6 +13,9 @@
 
 #include <linux/irqflags.h>
 
+/*
+ * Misc. functions
+ */
 static inline unsigned int __xchg(unsigned int x, volatile void *ptr, int size)
 {
 	unsigned int tmp;
@@ -49,6 +52,10 @@ static inline unsigned int __xchg(unsigned int x, volatile void *ptr, int size)
 
 #include <asm-generic/cmpxchg-local.h>
 
+/*
+ * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
+ * them available.
+ */
 #define cmpxchg_local(ptr, o, n)					\
 	((__typeof__(*(ptr)))__cmpxchg_local_generic((ptr),		\
 						     (unsigned long)(o), \
@@ -58,4 +65,4 @@ static inline unsigned int __xchg(unsigned int x, volatile void *ptr, int size)
 
 #include <asm-generic/cmpxchg.h>
 
-#endif 
+#endif /* _ASM_C6X_CMPXCHG_H */

@@ -17,25 +17,38 @@
 #ifndef _USB_RDL_H
 #define _USB_RDL_H
 
-#define DL_GETSTATE	0	
-#define DL_CHECK_CRC	1	
-#define DL_GO		2	
-#define DL_START	3	
-#define DL_REBOOT	4	
-#define DL_GETVER	5	
-#define DL_GO_PROTECTED	6	
-#define DL_EXEC		7	
-#define DL_RESETCFG	8	
-#define DL_DEFER_RESP_OK 9	
+/* Control messages: bRequest values */
+#define DL_GETSTATE	0	/* returns the rdl_state_t struct */
+#define DL_CHECK_CRC	1	/* currently unused */
+#define DL_GO		2	/* execute downloaded image */
+#define DL_START	3	/* initialize dl state */
+#define DL_REBOOT	4	/* reboot the device in 2 seconds */
+#define DL_GETVER	5	/* returns the bootrom_id_t struct */
+#define DL_GO_PROTECTED	6	/* execute the downloaded code and set reset
+				 * event to occur in 2 seconds.  It is the
+				 * responsibility of the downloaded code to
+				 * clear this event
+				 */
+#define DL_EXEC		7	/* jump to a supplied address */
+#define DL_RESETCFG	8	/* To support single enum on dongle
+				 * - Not used by bootloader
+				 */
+#define DL_DEFER_RESP_OK 9	/* Potentially defer the response to setup
+				 * if resp unavailable
+				 */
 
-#define DL_WAITING	0	
-#define DL_READY	1	
-#define DL_BAD_HDR	2	
-#define DL_BAD_CRC	3	
-#define DL_RUNNABLE	4	
-#define DL_START_FAIL	5	
-#define DL_NVRAM_TOOBIG	6	
-#define DL_IMAGE_TOOBIG	7	
+/* states */
+#define DL_WAITING	0	/* waiting to rx first pkt */
+#define DL_READY	1	/* hdr was good, waiting for more of the
+				 * compressed image */
+#define DL_BAD_HDR	2	/* hdr was corrupted */
+#define DL_BAD_CRC	3	/* compressed image was corrupted */
+#define DL_RUNNABLE	4	/* download was successful,waiting for go cmd */
+#define DL_START_FAIL	5	/* failed to initialize correctly */
+#define DL_NVRAM_TOOBIG	6	/* host specified nvram data exceeds DL_NVRAM
+				 * value */
+#define DL_IMAGE_TOOBIG	7	/* download image too big (exceeds DATA_START
+				 *  for rdl) */
 
 struct rdl_state_le {
 	__le32 state;
@@ -43,15 +56,15 @@ struct rdl_state_le {
 };
 
 struct bootrom_id_le {
-	__le32 chip;	
-	__le32 chiprev;	
-	__le32 ramsize;	
-	__le32 remapbase;	
-	__le32 boardtype;	
-	__le32 boardrev;	
+	__le32 chip;	/* Chip id */
+	__le32 chiprev;	/* Chip rev */
+	__le32 ramsize;	/* Size of  RAM */
+	__le32 remapbase;	/* Current remap base address */
+	__le32 boardtype;	/* Type of board */
+	__le32 boardrev;	/* Board revision */
 };
 
-#define RDL_CHUNK	1500  
+#define RDL_CHUNK	1500  /* size of each dl transfer */
 
 #define TRX_OFFSETS_DLFWLEN_IDX	0
 #define TRX_OFFSETS_JUMPTO_IDX	1
@@ -59,4 +72,4 @@ struct bootrom_id_le {
 
 #define TRX_OFFSETS_DLBASE_IDX  0
 
-#endif  
+#endif  /* _USB_RDL_H */

@@ -9,6 +9,7 @@
 
 #define OFFSET_(x) ((x) & 0x0000FFFF)
 
+/*some misc defines*/
 #define IMASK_IVG15		0x8000
 #define IMASK_IVG14		0x4000
 #define IMASK_IVG13		0x2000
@@ -23,6 +24,7 @@
 #define IMASK_IVGTMR	0x0040
 #define IMASK_IVGHW		0x0020
 
+/***************************/
 
 
 #define BFIN_DSUBBANKS	4
@@ -50,8 +52,9 @@
 #define	WAY321_L		0xE
 #define	WAYALL_L		0xF
 
-#define DMC_ENABLE (2<<2)	
+#define DMC_ENABLE (2<<2)	/*yes, 2, not 1 */
 
+/********************************* EBIU Settings ************************************/
 #define AMBCTL0VAL	((CONFIG_BANK_1 << 16) | CONFIG_BANK_0)
 #define AMBCTL1VAL	((CONFIG_BANK_3 << 16) | CONFIG_BANK_2)
 
@@ -99,4 +102,4 @@
 #error "Unknown CPU type - This kernel doesn't seem to be configured properly"
 #endif
 
-#endif	
+#endif	/* __MACH_BF48_H__  */

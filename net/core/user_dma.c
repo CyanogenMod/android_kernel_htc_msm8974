@@ -20,6 +20,10 @@
  * file called COPYING.
  */
 
+/*
+ * This code allows the net stack to make use of a DMA engine for
+ * skb to iovec copies.
+ */
 
 #include <linux/dmaengine.h>
 #include <linux/socket.h>
@@ -32,6 +36,16 @@
 int sysctl_tcp_dma_copybreak = NET_DMA_DEFAULT_COPYBREAK;
 EXPORT_SYMBOL(sysctl_tcp_dma_copybreak);
 
+/**
+ *	dma_skb_copy_datagram_iovec - Copy a datagram to an iovec.
+ *	@skb - buffer to copy
+ *	@offset - offset in the buffer to start copying from
+ *	@iovec - io vector to copy to
+ *	@len - amount of data to copy from buffer to iovec
+ *	@pinned_list - locked iovec buffer data
+ *
+ *	Note: the iovec is modified during the copy.
+ */
 int dma_skb_copy_datagram_iovec(struct dma_chan *chan,
 			struct sk_buff *skb, int offset, struct iovec *to,
 			size_t len, struct dma_pinned_list *pinned_list)
@@ -41,7 +55,7 @@ int dma_skb_copy_datagram_iovec(struct dma_chan *chan,
 	struct sk_buff *frag_iter;
 	dma_cookie_t cookie = 0;
 
-	
+	/* Copy header. */
 	if (copy > 0) {
 		if (copy > len)
 			copy = len;
@@ -55,7 +69,7 @@ int dma_skb_copy_datagram_iovec(struct dma_chan *chan,
 		offset += copy;
 	}
 
-	
+	/* Copy paged appendix. Hmm... why does this look so complicated? */
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
 		int end;
 		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];

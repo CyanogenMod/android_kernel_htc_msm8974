@@ -122,6 +122,9 @@ int kvmppc_booke_emulate_mtspr(struct kvm_vcpu *vcpu, int sprn, int rs)
 		kvmppc_set_tcr(vcpu, spr_val);
 		break;
 
+	/* Note: SPRG4-7 are user-readable. These values are
+	 * loaded into the real SPRGs when resuming the
+	 * guest. */
 	case SPRN_SPRG4:
 		vcpu->arch.shared->sprg4 = spr_val; break;
 	case SPRN_SPRG5:

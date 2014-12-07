@@ -22,8 +22,11 @@
 
 #include <mach/hardware.h>
 
-#define IRQ_VIC_START		0	
+#define IRQ_VIC_START		0	/* first VIC interrupt is 0 */
 
+/*
+ * Interrupt numbers generic for all Nomadik Chip cuts
+ */
 #define IRQ_WATCHDOG			0
 #define IRQ_SOFTINT			1
 #define IRQ_CRYPTO			2
@@ -65,13 +68,15 @@
 
 #define NOMADIK_SOC_NR_IRQS		64
 
-#define NOMADIK_NR_GPIO			128 
+/* After chip-specific IRQ numbers we have the GPIO ones */
+#define NOMADIK_NR_GPIO			128 /* last 4 not wired to pins */
 #define NOMADIK_GPIO_TO_IRQ(gpio)	((gpio) + NOMADIK_SOC_NR_IRQS)
 #define NOMADIK_IRQ_TO_GPIO(irq)	((irq) - NOMADIK_SOC_NR_IRQS)
 #define NR_IRQS				NOMADIK_GPIO_TO_IRQ(NOMADIK_NR_GPIO)
 
+/* Following two are used by entry_macro.S, to access our dual-vic */
 #define VIC_REG_IRQSR0		0
 #define VIC_REG_IRQSR1		0x20
 
-#endif 
+#endif /* __ASM_ARCH_IRQS_H */
 

@@ -320,7 +320,7 @@ static void rtl92c_dm_ctrl_initgain_by_rssi(struct ieee80211_hw *hw)
 
 static void rtl92c_dm_initial_gain_multi_sta(struct ieee80211_hw *hw)
 {
-	static u8 initialized; 
+	static u8 initialized; /* initialized to false */
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_mac *mac = rtl_mac(rtl_priv(hw));
 	long rssi_strength = rtlpriv->dm.entry_min_undecoratedsmoothed_pwdb;
@@ -1205,6 +1205,8 @@ static void rtl92c_dm_refresh_rate_adaptive_mask(struct ieee80211_hw *hw)
 				 "PreState = %d, CurState = %d\n",
 				 p_ra->pre_ratr_state, p_ra->ratr_state);
 
+			/* Only the PCI card uses sta in the update rate table
+			 * callback routine */
 			if (rtlhal->interface == INTF_PCI) {
 				rcu_read_lock();
 				sta = ieee80211_find_sta(mac->vif, mac->bssid);
@@ -1332,7 +1334,7 @@ static void rtl92c_dm_dynamic_bb_powersaving(struct ieee80211_hw *hw)
 	}
 
 	if (IS_92C_SERIAL(rtlhal->version))
-		;
+		;/* rtl92c_dm_1r_cca(hw); */
 	else
 		rtl92c_dm_rf_saving(hw, false);
 }
@@ -1475,29 +1477,33 @@ u8 rtl92c_bt_rssi_state_change(struct ieee80211_hw *hw)
 				rtlpriv->dm.entry_min_undecoratedsmoothed_pwdb;
 	}
 
+	/* Check RSSI to determine HighPower/NormalPower state for
+	 * BT coexistence. */
 	if (undecorated_smoothed_pwdb >= 67)
 		curr_bt_rssi_state &= (~BT_RSSI_STATE_NORMAL_POWER);
 	else if (undecorated_smoothed_pwdb < 62)
 		curr_bt_rssi_state |= BT_RSSI_STATE_NORMAL_POWER;
 
-	
+	/* Check RSSI to determine AMPDU setting for BT coexistence. */
 	if (undecorated_smoothed_pwdb >= 40)
 		curr_bt_rssi_state &= (~BT_RSSI_STATE_AMDPU_OFF);
 	else if (undecorated_smoothed_pwdb <= 32)
 		curr_bt_rssi_state |= BT_RSSI_STATE_AMDPU_OFF;
 
+	/* Marked RSSI state. It will be used to determine BT coexistence
+	 * setting later. */
 	if (undecorated_smoothed_pwdb < 35)
 		curr_bt_rssi_state |=  BT_RSSI_STATE_SPECIAL_LOW;
 	else
 		curr_bt_rssi_state &= (~BT_RSSI_STATE_SPECIAL_LOW);
 
-	
+	/* Set Tx Power according to BT status. */
 	if (undecorated_smoothed_pwdb >= 30)
 		curr_bt_rssi_state |=  BT_RSSI_STATE_TXPOWER_LOW;
 	else if (undecorated_smoothed_pwdb < 25)
 		curr_bt_rssi_state &= (~BT_RSSI_STATE_TXPOWER_LOW);
 
-	
+	/* Check BT state related to BT_Idle in B/G mode. */
 	if (undecorated_smoothed_pwdb < 15)
 		curr_bt_rssi_state |=  BT_RSSI_STATE_BG_EDCA_LOW;
 	else
@@ -1580,6 +1586,8 @@ static bool rtl92c_bt_state_change(struct ieee80211_hw *hw)
 			   ((rtlpcipriv->bt_coexist.bt_service != BT_IDLE) ?
 			   0 : BIT_OFFSET_LEN_MASK_32(2, 1));
 
+			/* Add interrupt migration when bt is not ini
+			 * idle state (no traffic). */
 			if (rtlpcipriv->bt_coexist.bt_service != BT_IDLE) {
 				rtl_write_word(rtlpriv, 0x504, 0x0ccc);
 				rtl_write_byte(rtlpriv, 0x506, 0x54);
@@ -1657,7 +1665,7 @@ static void rtl92c_bt_ant_isolation(struct ieee80211_hw *hw)
 	struct rtl_pci_priv *rtlpcipriv = rtl_pcipriv(hw);
 
 
-	
+	/* Only enable HW BT coexist when BT in "Busy" state. */
 	if (rtlpriv->mac80211.vendor == PEER_CISCO &&
 	    rtlpcipriv->bt_coexist.bt_service == BT_OTHER_ACTION) {
 		rtl_write_byte(rtlpriv, REG_GPIO_MUXCFG, 0xa0);

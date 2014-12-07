@@ -41,7 +41,7 @@ enum chips { lm25066, lm5064, lm5066 };
 #define LM25066_READ_AVG_IIN		0xde
 #define LM25066_READ_AVG_PIN		0xdf
 
-#define LM25066_DEV_SETUP_CL		(1 << 4)	
+#define LM25066_DEV_SETUP_CL		(1 << 4)	/* Current limit */
 
 struct lm25066_data {
 	int id;
@@ -59,7 +59,7 @@ static int lm25066_read_word_data(struct i2c_client *client, int page, int reg)
 	if (page > 1)
 		return -ENXIO;
 
-	
+	/* Map READ_VAUX into READ_VOUT register on page 1 */
 	if (page == 1) {
 		switch (reg) {
 		case PMBUS_READ_VOUT:
@@ -67,24 +67,24 @@ static int lm25066_read_word_data(struct i2c_client *client, int page, int reg)
 						   LM25066_READ_VAUX);
 			if (ret < 0)
 				break;
-			
+			/* Adjust returned value to match VOUT coefficients */
 			switch (data->id) {
 			case lm25066:
-				
+				/* VOUT: 4.54 mV VAUX: 283.2 uV LSB */
 				ret = DIV_ROUND_CLOSEST(ret * 2832, 45400);
 				break;
 			case lm5064:
-				
+				/* VOUT: 4.53 mV VAUX: 700 uV LSB */
 				ret = DIV_ROUND_CLOSEST(ret * 70, 453);
 				break;
 			case lm5066:
-				
+				/* VOUT: 2.18 mV VAUX: 725 uV LSB */
 				ret = DIV_ROUND_CLOSEST(ret * 725, 2180);
 				break;
 			}
 			break;
 		default:
-			
+			/* No other valid registers on page 1 */
 			ret = -ENXIO;
 			break;
 		}
@@ -304,6 +304,7 @@ static const struct i2c_device_id lm25066_id[] = {
 
 MODULE_DEVICE_TABLE(i2c, lm25066_id);
 
+/* This is the driver that will be inserted */
 static struct i2c_driver lm25066_driver = {
 	.driver = {
 		   .name = "lm25066",

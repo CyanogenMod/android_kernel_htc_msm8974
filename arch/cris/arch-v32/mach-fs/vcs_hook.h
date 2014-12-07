@@ -1,3 +1,6 @@
+/*
+ * Call simulator hook functions
+ */
 
 #ifndef HOOK_H
 #define HOOK_H

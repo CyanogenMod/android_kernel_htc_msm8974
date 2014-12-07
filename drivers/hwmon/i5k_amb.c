@@ -84,6 +84,13 @@ static unsigned long amb_reg_temp(unsigned int amb)
 					 MAX_AMBS_PER_CHANNEL)
 #define CHANNEL_SHIFT			4
 #define DIMM_MASK			0xF
+/*
+ * Ugly hack: For some reason the highest bit is set if there
+ * are _any_ DIMMs in the channel.  Attempting to read from
+ * this "high-order" AMB results in a memory bus error, so
+ * for now we'll just ignore that top bit, even though that
+ * might prevent us from seeing the 16th DIMM in the channel.
+ */
 #define REAL_MAX_AMBS_PER_CHANNEL	15
 #define KNOBS_PER_AMB			6
 
@@ -263,12 +270,12 @@ static int __devinit i5k_amb_hwmon_init(struct platform_device *pdev)
 	int num_ambs = 0;
 	struct i5k_amb_data *data = platform_get_drvdata(pdev);
 
-	
-	
+	/* Count the number of AMBs found */
+	/* ignore the high-order bit, see "Ugly hack" comment above */
 	for (i = 0; i < MAX_MEM_CHANNELS; i++)
 		num_ambs += hweight16(data->amb_present[i] & 0x7fff);
 
-	
+	/* Set up sysfs stuff */
 	data->attrs = kzalloc(sizeof(*data->attrs) * num_ambs * KNOBS_PER_AMB,
 				GFP_KERNEL);
 	if (!data->attrs)
@@ -285,7 +292,7 @@ static int __devinit i5k_amb_hwmon_init(struct platform_device *pdev)
 				continue;
 			d++;
 
-			
+			/* sysfs label */
 			iattr = data->attrs + data->num_attrs;
 			snprintf(iattr->name, AMB_SYSFS_NAME_LEN,
 				 "temp%d_label", d);
@@ -300,7 +307,7 @@ static int __devinit i5k_amb_hwmon_init(struct platform_device *pdev)
 				goto exit_remove;
 			data->num_attrs++;
 
-			
+			/* Temperature sysfs knob */
 			iattr = data->attrs + data->num_attrs;
 			snprintf(iattr->name, AMB_SYSFS_NAME_LEN,
 				 "temp%d_input", d);
@@ -315,7 +322,7 @@ static int __devinit i5k_amb_hwmon_init(struct platform_device *pdev)
 				goto exit_remove;
 			data->num_attrs++;
 
-			
+			/* Temperature min sysfs knob */
 			iattr = data->attrs + data->num_attrs;
 			snprintf(iattr->name, AMB_SYSFS_NAME_LEN,
 				 "temp%d_min", d);
@@ -331,7 +338,7 @@ static int __devinit i5k_amb_hwmon_init(struct platform_device *pdev)
 				goto exit_remove;
 			data->num_attrs++;
 
-			
+			/* Temperature mid sysfs knob */
 			iattr = data->attrs + data->num_attrs;
 			snprintf(iattr->name, AMB_SYSFS_NAME_LEN,
 				 "temp%d_mid", d);
@@ -347,7 +354,7 @@ static int __devinit i5k_amb_hwmon_init(struct platform_device *pdev)
 				goto exit_remove;
 			data->num_attrs++;
 
-			
+			/* Temperature max sysfs knob */
 			iattr = data->attrs + data->num_attrs;
 			snprintf(iattr->name, AMB_SYSFS_NAME_LEN,
 				 "temp%d_max", d);
@@ -363,7 +370,7 @@ static int __devinit i5k_amb_hwmon_init(struct platform_device *pdev)
 				goto exit_remove;
 			data->num_attrs++;
 
-			
+			/* Temperature alarm sysfs knob */
 			iattr = data->attrs + data->num_attrs;
 			snprintf(iattr->name, AMB_SYSFS_NAME_LEN,
 				 "temp%d_alarm", d);
@@ -405,7 +412,7 @@ static int __devinit i5k_amb_add(void)
 {
 	int res = -ENODEV;
 
-	
+	/* only ever going to be one of these */
 	amb_pdev = platform_device_alloc(DRVNAME, 0);
 	if (!amb_pdev)
 		return -ENOMEM;
@@ -427,7 +434,7 @@ static int __devinit i5k_find_amb_registers(struct i5k_amb_data *data,
 	u32 val32;
 	int res = -ENODEV;
 
-	
+	/* Find AMB register memory space */
 	pcidev = pci_get_device(PCI_VENDOR_ID_INTEL,
 				devid,
 				NULL);
@@ -442,7 +449,7 @@ static int __devinit i5k_find_amb_registers(struct i5k_amb_data *data,
 		goto out;
 	data->amb_len = val32;
 
-	
+	/* Is it big enough? */
 	if (data->amb_len < AMB_CONFIG_SIZE * MAX_AMBS) {
 		dev_err(&pcidev->dev, "AMB region too small!\n");
 		goto out;
@@ -460,7 +467,7 @@ static int __devinit i5k_channel_probe(u16 *amb_present, unsigned long dev_id)
 	u16 val16;
 	int res = -ENODEV;
 
-	
+	/* Copy the DIMM presence map for these two channels */
 	pcidev = pci_get_device(PCI_VENDOR_ID_INTEL, dev_id, NULL);
 	if (!pcidev)
 		return -ENODEV;
@@ -508,7 +515,7 @@ static int __devinit i5k_amb_probe(struct platform_device *pdev)
 	if (!data)
 		return -ENOMEM;
 
-	
+	/* Figure out where the AMB registers live */
 	i = 0;
 	do {
 		res = i5k_find_amb_registers(data, chipset_ids[i].err);
@@ -520,15 +527,15 @@ static int __devinit i5k_amb_probe(struct platform_device *pdev)
 	if (res)
 		goto err;
 
-	
+	/* Copy the DIMM presence map for the first two channels */
 	res = i5k_channel_probe(&data->amb_present[0], chipset_ids[i].fbd0);
 	if (res)
 		goto err;
 
-	
+	/* Copy the DIMM presence map for the optional second two channels */
 	i5k_channel_probe(&data->amb_present[2], chipset_ids[i].fbd0 + 1);
 
-	
+	/* Set up resource regions */
 	reso = request_mem_region(data->amb_base, data->amb_len, DRVNAME);
 	if (!reso) {
 		res = -EBUSY;

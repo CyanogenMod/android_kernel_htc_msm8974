@@ -36,6 +36,7 @@ void i2sbus_control_destroy(struct i2sbus_control *c)
 	kfree(c);
 }
 
+/* this is serialised externally */
 int i2sbus_control_add_dev(struct i2sbus_control *c,
 			   struct i2sbus_dev *i2sdev)
 {
@@ -48,6 +49,11 @@ int i2sbus_control_add_dev(struct i2sbus_control *c,
 	i2sdev->cell_disable = pmf_find_function(np, "cell-disable");
 	i2sdev->clock_disable = pmf_find_function(np, "clock-disable");
 
+	/* if the bus number is not 0 or 1 we absolutely need to use
+	 * the platform functions -- there's nothing in Darwin that
+	 * would allow seeing a system behind what the FCRs are then,
+	 * and I don't want to go parsing a bunch of platform functions
+	 * by hand to try finding a system... */
 	if (i2sdev->bus_number != 0 && i2sdev->bus_number != 1 &&
 	    (!i2sdev->enable ||
 	     !i2sdev->cell_enable || !i2sdev->clock_enable ||
@@ -68,7 +74,7 @@ int i2sbus_control_add_dev(struct i2sbus_control *c,
 void i2sbus_control_remove_dev(struct i2sbus_control *c,
 			       struct i2sbus_dev *i2sdev)
 {
-	
+	/* this is serialised externally */
 	list_del(&i2sdev->item);
 	if (list_empty(&c->list))
 		i2sbus_control_destroy(c);
@@ -88,6 +94,8 @@ int i2sbus_control_enable(struct i2sbus_control *c,
 
 	switch (i2sdev->bus_number) {
 	case 0:
+		/* these need to be locked or done through
+		 * newly created feature calls! */
 		MACIO_BIS(KEYLARGO_FCR1, KL1_I2S0_ENABLE);
 		break;
 	case 1:

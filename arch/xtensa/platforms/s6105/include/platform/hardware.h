@@ -8,4 +8,4 @@
 
 #define KERNELOFFSET			(PLATFORM_DEFAULT_MEM_START + 0x1000)
 
-#endif 
+#endif /* __XTENSA_S6105_HARDWARE_H */

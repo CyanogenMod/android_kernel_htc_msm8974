@@ -24,6 +24,7 @@
  *
  */
 
+/*#define DEBUG */
 
 
 
@@ -56,11 +57,14 @@
 
 #include "capidtmf.h"
 
+/*------------------------------------------------------------------*/
+/* Common API internal definitions                                  */
+/*------------------------------------------------------------------*/
 
 #define MAX_APPL 240
 #define MAX_NCCI           127
 
-#define MSG_IN_QUEUE_SIZE  ((4096 + 3) & 0xfffc)  
+#define MSG_IN_QUEUE_SIZE  ((4096 + 3) & 0xfffc)  /* must be multiple of 4 */
 
 
 #define MSG_IN_OVERHEAD    sizeof(APPL   *)
@@ -77,7 +81,7 @@
 #define CODEC              0x01
 #define CODEC_PERMANENT    0x02
 #define ADV_VOICE          0x03
-#define MAX_CIP_TYPES      5  
+#define MAX_CIP_TYPES      5  /* kind of CIP types for group optimization */
 #define C_IND_MASK_DWORDS  ((MAX_APPL + 32) >> 5)
 
 
@@ -160,6 +164,8 @@ struct _DATA_ACK_DESC {
 
 typedef void (*t_std_internal_command)(dword Id, PLCI *plci, byte Rc);
 
+/************************************************************************/
+/* Don't forget to adapt dos.asm after changing the _APPL structure!!!! */
 struct _APPL {
 	word          Id;
 	word          NullCREnable;
@@ -300,7 +306,7 @@ struct _PLCI {
 	t_capidtmf_state capidtmf_state;
 
 
-	byte          li_bchannel_id;    
+	byte          li_bchannel_id;    /* BRI: 1..2, PRI: 1..32 */
 	byte          li_channel_bits;
 	byte          li_notify_update;
 	word          li_cmd;
@@ -322,7 +328,7 @@ struct _PLCI {
 	byte          vswitchstate;
 	byte          vsprot;
 	byte          vsprotdialect;
-	byte          notifiedcall; 
+	byte          notifiedcall; /* Flag if it is a spoofed call */
 
 	int           rx_dma_descriptor;
 	dword         rx_dma_magic;
@@ -353,7 +359,7 @@ struct _DIVA_CAPI_ADAPTER {
 	byte          ncci_next[MAX_NCCI + 1];
 	NCCI          ncci[MAX_NCCI + 1];
 
-	byte          ch_flow_control[MAX_NL_CHANNEL + 1];  
+	byte          ch_flow_control[MAX_NL_CHANNEL + 1];  /* Used by XON protocol */
 	byte          ch_flow_control_pending;
 	byte          ch_flow_plci[MAX_NL_CHANNEL + 1];
 	int           last_flow_control_ch;
@@ -387,36 +393,42 @@ struct _DIVA_CAPI_ADAPTER {
 	word          li_base;
 
 	byte adapter_disabled;
-	byte group_optimization_enabled; 
+	byte group_optimization_enabled; /* use application groups if enabled */
 	dword sdram_bar;
-	byte flag_dynamic_l1_down; 
+	byte flag_dynamic_l1_down; /* for hunt groups:down layer 1 if no appl present*/
 	byte FlowControlIdTable[256];
 	byte FlowControlSkipTable[256];
-	void *os_card; 
+	void *os_card; /* pointer to associated OS dependent adapter structure */
 };
 
 
+/*------------------------------------------------------------------*/
+/* Application flags                                                */
+/*------------------------------------------------------------------*/
 
 #define APPL_FLAG_OLD_LI_SPEC           0x01
 #define APPL_FLAG_PRIV_EC_SPEC          0x02
 
 
+/*------------------------------------------------------------------*/
+/* API parameter definitions                                        */
+/*------------------------------------------------------------------*/
 
-#define X75_TTX         1       
-#define TRF             2       
-#define TRF_IN          3       
-#define SDLC            4       
-#define X75_BTX         5       
-#define LAPD            6       
-#define X25_L2          7       
-#define V120_L2         8       
-#define V42_IN          9       
-#define V42            10       
-#define MDM_ATP        11       
-#define X75_V42BIS     12       
-#define RTPL2_IN       13       
-#define RTPL2          14       
-#define V120_V42BIS    15       
+#define X75_TTX         1       /* x.75 for ttx                     */
+#define TRF             2       /* transparent with hdlc framing    */
+#define TRF_IN          3       /* transparent with hdlc fr. inc.   */
+#define SDLC            4       /* sdlc, sna layer-2                */
+#define X75_BTX         5       /* x.75 for btx                     */
+#define LAPD            6       /* lapd (Q.921)                     */
+#define X25_L2          7       /* x.25 layer-2                     */
+#define V120_L2         8       /* V.120 layer-2 protocol           */
+#define V42_IN          9       /* V.42 layer-2 protocol, incomming */
+#define V42            10       /* V.42 layer-2 protocol            */
+#define MDM_ATP        11       /* AT Parser built in the L2        */
+#define X75_V42BIS     12       /* ISO7776 (X.75 SLP) modified to support V.42 bis compression */
+#define RTPL2_IN       13       /* RTP layer-2 protocol, incomming  */
+#define RTPL2          14       /* RTP layer-2 protocol             */
+#define V120_V42BIS    15       /* V.120 layer-2 protocol supporting V.42 bis compression */
 
 #define T70NL           1
 #define X25PLP          2
@@ -426,6 +438,9 @@ struct _DIVA_CAPI_ADAPTER {
 #define T30             6
 
 
+/*------------------------------------------------------------------*/
+/* FAX interface to IDI                                             */
+/*------------------------------------------------------------------*/
 
 #define CAPI_MAX_HEAD_LINE_SPACE        89
 #define CAPI_MAX_DATE_TIME_LENGTH       18
@@ -453,6 +468,13 @@ struct t30_info_s {
 	byte          station_id_len;
 	byte          head_line_len;
 	byte          station_id[T30_MAX_STATION_ID_LENGTH];
+/* byte          head_line[];      */
+/* byte          sub_sep_length;   */
+/* byte          sub_sep_field[];  */
+/* byte          pwd_length;       */
+/* byte          pwd_field[];      */
+/* byte          nsf_info_length;   */
+/* byte          nsf_info_field[];  */
 };
 
 
@@ -506,18 +528,20 @@ struct t30_info_s {
 #define T30_OPERATING_MODE_CAPI_NEG     4
 #define T30_OPERATING_MODE_COUNT        5
 
+/* EDATA transmit messages */
 #define EDATA_T30_DIS         0x01
 #define EDATA_T30_FTT         0x02
 #define EDATA_T30_MCF         0x03
 #define EDATA_T30_PARAMETERS  0x04
 
+/* EDATA receive messages */
 #define EDATA_T30_DCS         0x81
 #define EDATA_T30_TRAIN_OK    0x82
 #define EDATA_T30_EOP         0x83
 #define EDATA_T30_MPS         0x84
 #define EDATA_T30_EOM         0x85
 #define EDATA_T30_DTC         0x86
-#define EDATA_T30_PAGE_END    0x87   
+#define EDATA_T30_PAGE_END    0x87   /* Indicates end of page data. Reserved, but not implemented ! */
 #define EDATA_T30_EOP_CAPI    0x88
 
 
@@ -543,6 +567,7 @@ struct t30_info_s {
 #define T30_ERR_NOT_IDENTIFIED             19
 #define T30_ERR_SUPERVISORY_TIMEOUT        20
 #define T30_ERR_TOO_LONG_SCAN_LINE         21
+/* #define T30_ERR_RETRY_NO_PAGE_AFTER_MPS    22 */
 #define T30_ERR_RETRY_NO_PAGE_RECEIVED     23
 #define T30_ERR_RETRY_NO_DCS_AFTER_FTT     24
 #define T30_ERR_RETRY_NO_DCS_AFTER_EOM     25
@@ -608,6 +633,9 @@ struct t30_info_s {
 #define T30_NSF_ELEMENT_COMPANY_NAME       0x03
 
 
+/*------------------------------------------------------------------*/
+/* Analog modem definitions                                         */
+/*------------------------------------------------------------------*/
 
 typedef struct async_s ASYNC_FORMAT;
 struct async_s {
@@ -615,10 +643,13 @@ struct async_s {
 	unsigned parity:2;
 	unsigned spare:2;
 	unsigned stp:1;
-	unsigned ch_len:2;   
+	unsigned ch_len:2;   /* 3th octett in CAI */
 };
 
 
+/*------------------------------------------------------------------*/
+/* PLCI/NCCI states                                                 */
+/*------------------------------------------------------------------*/
 
 #define IDLE                    0
 #define OUTG_CON_PENDING        1
@@ -641,6 +672,9 @@ struct async_s {
 #define OUTG_REJ_PENDING        18
 
 
+/*------------------------------------------------------------------*/
+/* auxiliary states for supplementary services                     */
+/*------------------------------------------------------------------*/
 
 #define IDLE                0
 #define HOLD_REQUEST        1
@@ -649,40 +683,43 @@ struct async_s {
 #define RETRIEVE_REQUEST    4
 #define RETRIEVE_INDICATION 5
 
-#define ESC_CAUSE        0x800 | CAU        
-#define ESC_MSGTYPE      0x800 | MSGTYPEIE  
-#define ESC_CHI          0x800 | CHI        
-#define ESC_LAW          0x800 | BC         
-#define ESC_CR           0x800 | CRIE       
-#define ESC_PROFILE      0x800 | PROFILEIE  
-#define ESC_SSEXT        0x800 | SSEXTIE    
-#define ESC_VSWITCH      0x800 | VSWITCHIE  
-#define CST              0x14               
-#define PI               0x1E               
-#define NI               0x27               
-#define CONN_NR          0x4C               
-#define CONG_RNR         0xBF               
-#define CONG_RR          0xB0               
-#define RESERVED         0xFF               
-#define ON_BOARD_CODEC   0x02               
-#define HANDSET          0x04               
-#define HOOK_SUPPORT     0x01               
-#define SCR              0x7a               
+/*------------------------------------------------------------------*/
+/* Capi IE + Msg types                                              */
+/*------------------------------------------------------------------*/
+#define ESC_CAUSE        0x800 | CAU        /* Escape cause element */
+#define ESC_MSGTYPE      0x800 | MSGTYPEIE  /* Escape message type  */
+#define ESC_CHI          0x800 | CHI        /* Escape channel id    */
+#define ESC_LAW          0x800 | BC         /* Escape law info      */
+#define ESC_CR           0x800 | CRIE       /* Escape CallReference */
+#define ESC_PROFILE      0x800 | PROFILEIE  /* Escape profile       */
+#define ESC_SSEXT        0x800 | SSEXTIE    /* Escape Supplem. Serv.*/
+#define ESC_VSWITCH      0x800 | VSWITCHIE  /* Escape VSwitch       */
+#define CST              0x14               /* Call State i.e.      */
+#define PI               0x1E               /* Progress Indicator   */
+#define NI               0x27               /* Notification Ind     */
+#define CONN_NR          0x4C               /* Connected Number     */
+#define CONG_RNR         0xBF               /* Congestion RNR       */
+#define CONG_RR          0xB0               /* Congestion RR        */
+#define RESERVED         0xFF               /* Res. for future use  */
+#define ON_BOARD_CODEC   0x02               /* external controller  */
+#define HANDSET          0x04               /* Codec+Handset(Pro11) */
+#define HOOK_SUPPORT     0x01               /* activate Hook signal */
+#define SCR              0x7a               /* unscreened number    */
 
-#define HOOK_OFF_REQ     0x9001             
-#define HOOK_ON_REQ      0x9002             
-#define SUSPEND_REQ      0x9003             
-#define RESUME_REQ       0x9004             
-#define USELAW_REQ       0x9005             
+#define HOOK_OFF_REQ     0x9001             /* internal conn req    */
+#define HOOK_ON_REQ      0x9002             /* internal disc req    */
+#define SUSPEND_REQ      0x9003             /* internal susp req    */
+#define RESUME_REQ       0x9004             /* internal resume req  */
+#define USELAW_REQ       0x9005             /* internal law    req  */
 #define LISTEN_SIG_ASSIGN_PEND  0x9006
-#define PERM_LIST_REQ    0x900a             
+#define PERM_LIST_REQ    0x900a             /* permanent conn DCE   */
 #define C_HOLD_REQ       0x9011
 #define C_RETRIEVE_REQ   0x9012
 #define C_NCR_FAC_REQ    0x9013
 #define PERM_COD_ASSIGN  0x9014
 #define PERM_COD_CALL    0x9015
 #define PERM_COD_HOOK    0x9016
-#define PERM_COD_CONN_PEND 0x9017           
+#define PERM_COD_CONN_PEND 0x9017           /* wait for connect_con */
 #define PTY_REQ_PEND     0x9018
 #define CD_REQ_PEND      0x9019
 #define CF_START_PEND    0x901a
@@ -751,18 +788,21 @@ struct async_s {
 #define FAX_CONNECT_ACK_COMMAND_2       38
 #define STD_INTERNAL_COMMAND_COUNT      39
 
-#define UID              0x2d               
+#define UID              0x2d               /* User Id for Mgmt      */
 
-#define CALL_DIR_OUT             0x01       
+#define CALL_DIR_OUT             0x01       /* call direction of initial call */
 #define CALL_DIR_IN              0x02
-#define CALL_DIR_ORIGINATE       0x04       
-#define CALL_DIR_ANSWER          0x08       
-#define CALL_DIR_FORCE_OUTG_NL   0x10       
+#define CALL_DIR_ORIGINATE       0x04       /* DTE/DCE direction according to */
+#define CALL_DIR_ANSWER          0x08       /*   state of B-Channel Operation */
+#define CALL_DIR_FORCE_OUTG_NL   0x10       /* for RESET_B3 reconnect, after DISC_B3... */
 
-#define AWAITING_MANUF_CON 0x80             
+#define AWAITING_MANUF_CON 0x80             /* command spoofing flags */
 #define SPOOFING_REQUIRED  0xff
 #define AWAITING_SELECT_B  0xef
 
+/*------------------------------------------------------------------*/
+/* B_CTRL / DSP_CTRL                                                */
+/*------------------------------------------------------------------*/
 
 #define DSP_CTRL_OLD_SET_MIXER_COEFFICIENTS     0x01
 #define DSP_CTRL_SET_BCHANNEL_PASSIVATION_BRI   0x02
@@ -798,6 +838,9 @@ struct async_s {
 #define MANUFACTURER_FEATURE_AUDIO_TAP            0x08000000L
 #define MANUFACTURER_FEATURE_FAX_NONSTANDARD      0x10000000L
 
+/*------------------------------------------------------------------*/
+/* DTMF interface to IDI                                            */
+/*------------------------------------------------------------------*/
 
 
 #define DTMF_DIGIT_TONE_LOW_GROUP_697_HZ        0x00
@@ -843,6 +886,9 @@ struct async_s {
 #define DTMF_SEND_DIGIT_FLAG           0x01
 
 
+/*------------------------------------------------------------------*/
+/* Mixer interface to IDI                                           */
+/*------------------------------------------------------------------*/
 
 
 #define LI2_FLAG_PCCONNECT_A_B 0x40000000
@@ -871,8 +917,8 @@ struct li_config_s {
 	PLCI   *plci;
 	struct xconnect_transfer_address_s send_b;
 	struct xconnect_transfer_address_s send_pc;
-	byte   *flag_table;  
-	byte   *coef_table;  
+	byte   *flag_table;  /* dword aligned and sized */
+	byte   *coef_table;  /* dword aligned and sized */
 	byte channel;
 	byte curchnl;
 	byte chflags;
@@ -943,6 +989,9 @@ extern word li_total_channels;
 #define XCONNECT_ERROR             0x0001
 
 
+/*------------------------------------------------------------------*/
+/* Echo canceller interface to IDI                                  */
+/*------------------------------------------------------------------*/
 
 
 #define PRIVATE_ECHO_CANCELLER         0
@@ -985,6 +1034,9 @@ extern word li_total_channels;
 #define LEC_DISABLE_RELEASED                 0x02
 
 
+/*------------------------------------------------------------------*/
+/* RTP interface to IDI                                             */
+/*------------------------------------------------------------------*/
 
 
 #define B1_RTP                  31
@@ -1038,6 +1090,9 @@ extern word li_total_channels;
 #define RTP_CHANGE_FLAG_UNKNOWN_PAYLOAD_TYPE      0x00000004L
 
 
+/*------------------------------------------------------------------*/
+/* T.38 interface to IDI                                            */
+/*------------------------------------------------------------------*/
 
 
 #define B1_T38                  30
@@ -1047,6 +1102,9 @@ extern word li_total_channels;
 #define PRIVATE_T38                    2
 
 
+/*------------------------------------------------------------------*/
+/* PIAFS interface to IDI                                            */
+/*------------------------------------------------------------------*/
 
 
 #define B1_PIAFS                29
@@ -1054,20 +1112,55 @@ extern word li_total_channels;
 
 #define PRIVATE_PIAFS           29
 
+/*
+  B2 configuration for PIAFS:
+  +---------------------+------+-----------------------------------------+
+  | PIAFS Protocol      | byte | Bit 1 - Protocol Speed                  |
+  | Speed configuration |      |         0 - 32K                         |
+  |                     |      |         1 - 64K (default)               |
+  |                     |      | Bit 2 - Variable Protocol Speed         |
+  |                     |      |         0 - Speed is fix                |
+  |                     |      |         1 - Speed is variable (default) |
+  +---------------------+------+-----------------------------------------+
+  | Direction           | word | Enable compression/decompression for    |
+  |                     |      | 0: All direction                        |
+  |                     |      | 1: disable outgoing data                |
+  |                     |      | 2: disable incomming data               |
+  |                     |      | 3: disable both direction (default)     |
+  +---------------------+------+-----------------------------------------+
+  | Number of code      | word | Parameter P1 of V.42bis in accordance   |
+  | words               |      | with V.42bis                            |
+  +---------------------+------+-----------------------------------------+
+  | Maximum String      | word | Parameter P2 of V.42bis in accordance   |
+  | Length              |      | with V.42bis                            |
+  +---------------------+------+-----------------------------------------+
+  | control (UDATA)     | byte | enable PIAFS control communication      |
+  | abilities           |      |                                         |
+  +---------------------+------+-----------------------------------------+
+*/
 #define PIAFS_UDATA_ABILITIES  0x80
 
+/*------------------------------------------------------------------*/
+/* FAX SUB/SEP/PWD extension                                        */
+/*------------------------------------------------------------------*/
 
 
 #define PRIVATE_FAX_SUB_SEP_PWD        3
 
 
 
+/*------------------------------------------------------------------*/
+/* V.18 extension                                                   */
+/*------------------------------------------------------------------*/
 
 
 #define PRIVATE_V18                    4
 
 
 
+/*------------------------------------------------------------------*/
+/* DTMF TONE extension                                              */
+/*------------------------------------------------------------------*/
 
 
 #define DTMF_GET_SUPPORTED_DETECT_CODES  0xf8
@@ -1107,12 +1200,12 @@ extern word li_total_channels;
 
 #define DTMF_SIGNAL_DIAL_TONE                   (DTMF_TONE_DIGIT_BASE + 2)
 #define DTMF_SIGNAL_PABX_INTERNAL_DIAL_TONE     (DTMF_TONE_DIGIT_BASE + 3)
-#define DTMF_SIGNAL_SPECIAL_DIAL_TONE           (DTMF_TONE_DIGIT_BASE + 4)   
+#define DTMF_SIGNAL_SPECIAL_DIAL_TONE           (DTMF_TONE_DIGIT_BASE + 4)   /* stutter dial tone */
 #define DTMF_SIGNAL_SECOND_DIAL_TONE            (DTMF_TONE_DIGIT_BASE + 5)
 #define DTMF_SIGNAL_RINGING_TONE                (DTMF_TONE_DIGIT_BASE + 6)
 #define DTMF_SIGNAL_SPECIAL_RINGING_TONE        (DTMF_TONE_DIGIT_BASE + 7)
 #define DTMF_SIGNAL_BUSY_TONE                   (DTMF_TONE_DIGIT_BASE + 8)
-#define DTMF_SIGNAL_CONGESTION_TONE             (DTMF_TONE_DIGIT_BASE + 9)   
+#define DTMF_SIGNAL_CONGESTION_TONE             (DTMF_TONE_DIGIT_BASE + 9)   /* reorder tone */
 #define DTMF_SIGNAL_SPECIAL_INFORMATION_TONE    (DTMF_TONE_DIGIT_BASE + 10)
 #define DTMF_SIGNAL_COMFORT_TONE                (DTMF_TONE_DIGIT_BASE + 11)
 #define DTMF_SIGNAL_HOLD_TONE                   (DTMF_TONE_DIGIT_BASE + 12)
@@ -1151,24 +1244,36 @@ extern word li_total_channels;
 #define PRIVATE_DTMF_TONE              5
 
 
+/*------------------------------------------------------------------*/
+/* FAX paper format extension                                       */
+/*------------------------------------------------------------------*/
 
 
 #define PRIVATE_FAX_PAPER_FORMATS      6
 
 
 
+/*------------------------------------------------------------------*/
+/* V.OWN extension                                                  */
+/*------------------------------------------------------------------*/
 
 
 #define PRIVATE_VOWN                   7
 
 
 
+/*------------------------------------------------------------------*/
+/* FAX non-standard facilities extension                            */
+/*------------------------------------------------------------------*/
 
 
 #define PRIVATE_FAX_NONSTANDARD        8
 
 
 
+/*------------------------------------------------------------------*/
+/* Advanced voice                                                   */
+/*------------------------------------------------------------------*/
 
 #define ADV_VOICE_WRITE_ACTIVATION    0
 #define ADV_VOICE_WRITE_DEACTIVATION  1
@@ -1177,6 +1282,9 @@ extern word li_total_channels;
 #define ADV_VOICE_OLD_COEF_COUNT    6
 #define ADV_VOICE_NEW_COEF_BASE     (ADV_VOICE_OLD_COEF_COUNT * sizeof(word))
 
+/*------------------------------------------------------------------*/
+/* B1 resource switching                                            */
+/*------------------------------------------------------------------*/
 
 #define B1_FACILITY_LOCAL  0x01
 #define B1_FACILITY_MIXER  0x02
@@ -1227,6 +1335,9 @@ extern word li_total_channels;
 #define ADJUST_B_RESTORE_MIXER_7           30
 #define ADJUST_B_END                       31
 
+/*------------------------------------------------------------------*/
+/* XON Protocol def's                                               */
+/*------------------------------------------------------------------*/
 #define N_CH_XOFF               0x01
 #define N_XON_SENT              0x02
 #define N_XON_REQ               0x04
@@ -1235,6 +1346,9 @@ extern word li_total_channels;
 #define N_OK_FC_PENDING         0x80
 #define N_TX_FLOW_CONTROL_MASK  0xc0
 
+/*------------------------------------------------------------------*/
+/* NCPI state                                                       */
+/*------------------------------------------------------------------*/
 #define NCPI_VALID_CONNECT_B3_IND  0x01
 #define NCPI_VALID_CONNECT_B3_ACT  0x02
 #define NCPI_VALID_DISC_B3_IND     0x04
@@ -1243,3 +1357,4 @@ extern word li_total_channels;
 #define NCPI_MDM_CTS_ON_RECEIVED   0x40
 #define NCPI_MDM_DCD_ON_RECEIVED   0x80
 
+/*------------------------------------------------------------------*/

@@ -90,6 +90,14 @@ struct mwifiex_ds_get_stats {
 #define ALL_RSSI_INFO_MASK              0x00000fff
 
 struct mwifiex_ds_get_signal {
+	/*
+	 * Bit0:  Last Beacon RSSI,  Bit1:  Average Beacon RSSI,
+	 * Bit2:  Last Data RSSI,    Bit3:  Average Data RSSI,
+	 * Bit4:  Last Beacon SNR,   Bit5:  Average Beacon SNR,
+	 * Bit6:  Last Data SNR,     Bit7:  Average Data SNR,
+	 * Bit8:  Last Beacon NF,    Bit9:  Average Beacon NF,
+	 * Bit10: Last Data NF,      Bit11: Average Data NF
+	 */
 	u16 selector;
 	s16 bcn_rssi_last;
 	s16 bcn_rssi_avg;
@@ -218,6 +226,11 @@ struct mwifiex_power_cfg {
 
 struct mwifiex_ds_hs_cfg {
 	u32 is_invoke_hostcmd;
+	/*  Bit0: non-unicast data
+	 *  Bit1: unicast data
+	 *  Bit2: mac events
+	 *  Bit3: magic packet
+	 */
 	u32 conditions;
 	u32 gpio;
 	u32 gap;
@@ -306,4 +319,4 @@ enum {
 	MWIFIEX_FUNC_SHUTDOWN,
 };
 
-#endif 
+#endif /* !_MWIFIEX_IOCTL_H_ */

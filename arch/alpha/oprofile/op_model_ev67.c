@@ -16,6 +16,7 @@
 #include "op_impl.h"
 
 
+/* Compute all of the registers in preparation for enabling profiling.  */
 
 static void
 ev67_reg_setup(struct op_register_config *reg,
@@ -24,20 +25,29 @@ ev67_reg_setup(struct op_register_config *reg,
 {
 	unsigned long ctl, reset, need_reset, i;
 
-	
-	ctl = 1UL << 4;		
+	/* Select desired events.  */
+	ctl = 1UL << 4;		/* Enable ProfileMe mode. */
 
+	/* The event numbers are chosen so we can use them directly if
+	   PCTR1 is enabled.  */
 	if (ctr[1].enabled) {
 		ctl |= (ctr[1].event & 3) << 2;
 	} else {
-		if (ctr[0].event == 0) 
+		if (ctr[0].event == 0) /* cycles */
 			ctl |= 1UL << 2;
 	}
 	reg->mux_select = ctl;
 
-	
+	/* Select logging options.  */
+	/* ??? Need to come up with some mechanism to trace only
+	   selected processes.  EV67 does not have a mechanism to
+	   select kernel or user mode only.  For now, enable always.  */
 	reg->proc_mode = 0;
 
+	/* EV67 cannot change the width of the counters as with the
+	   other implementations.  But fortunately, we can write to
+	   the counters and set the value such that it will overflow
+	   at the right time.  */
 	reset = need_reset = 0;
 	for (i = 0; i < 2; ++i) {
 		unsigned long count = ctr[i].count;
@@ -55,6 +65,7 @@ ev67_reg_setup(struct op_register_config *reg,
 	reg->need_reset = need_reset;
 }
 
+/* Program all of the registers in preparation for enabling profiling.  */
 
 static void
 ev67_cpu_setup (void *x)
@@ -66,6 +77,9 @@ ev67_cpu_setup (void *x)
 	wrperfmon(6, reg->reset_values | 3);
 }
 
+/* CTR is a counter for which the user has requested an interrupt count
+   in between one of the widths selectable in hardware.  Reset the count
+   for CTR to the value stored in REG->RESET_VALUES.  */
 
 static void
 ev67_reset_ctr(struct op_register_config *reg, unsigned long ctr)
@@ -73,17 +87,45 @@ ev67_reset_ctr(struct op_register_config *reg, unsigned long ctr)
 	wrperfmon(6, reg->reset_values | (1 << ctr));
 }
 
+/* ProfileMe conditions which will show up as counters. We can also
+   detect the following, but it seems unlikely that anybody is
+   interested in counting them:
+    * Reset
+    * MT_FPCR (write to floating point control register)
+    * Arithmetic trap
+    * Dstream Fault
+    * Machine Check (ECC fault, etc.)
+    * OPCDEC (illegal opcode)
+    * Floating point disabled
+    * Differentiate between DTB single/double misses and 3 or 4 level
+      page tables
+    * Istream access violation
+    * Interrupt
+    * Icache Parity Error.
+    * Instruction killed (nop, trapb)
+
+   Unfortunately, there seems to be no way to detect Dcache and Bcache
+   misses; the latter could be approximated by making the counter
+   count Bcache misses, but that is not precise.
+
+   We model this as 20 counters:
+    * PCTR0
+    * PCTR1
+    * 9 ProfileMe events, induced by PCTR0
+    * 9 ProfileMe events, induced by PCTR1
+*/
 
 enum profileme_counters {
-	PM_STALLED,		
-	PM_TAKEN,		
-	PM_MISPREDICT,		
-	PM_ITB_MISS,		
-	PM_DTB_MISS,		
-	PM_REPLAY,		
-	PM_LOAD_STORE,		
-	PM_ICACHE_MISS,		
-	PM_UNALIGNED,		
+	PM_STALLED,		/* Stalled for at least one cycle
+				   between the fetch and map stages  */
+	PM_TAKEN,		/* Conditional branch taken */
+	PM_MISPREDICT,		/* Branch caused mispredict trap */
+	PM_ITB_MISS,		/* ITB miss */
+	PM_DTB_MISS,		/* DTB miss */
+	PM_REPLAY,		/* Replay trap */
+	PM_LOAD_STORE,		/* Load-store order trap */
+	PM_ICACHE_MISS,		/* Icache miss */
+	PM_UNALIGNED,		/* Unaligned Load/Store */
 	PM_NUM_COUNTERS
 };
 
@@ -108,13 +150,13 @@ ev67_handle_interrupt(unsigned long which, struct pt_regs *regs,
 	union {
 		unsigned long v;
 		struct {
-			unsigned reserved:	30; 
-			unsigned overcount:	 3; 
-			unsigned icache_miss:	 1; 
-			unsigned trap_type:	 4; 
-			unsigned load_store:	 1; 
-			unsigned trap:		 1; 
-			unsigned mispredict:	 1; 
+			unsigned reserved:	30; /*  0-29 */
+			unsigned overcount:	 3; /* 30-32 */
+			unsigned icache_miss:	 1; /*    33 */
+			unsigned trap_type:	 4; /* 34-37 */
+			unsigned load_store:	 1; /*    38 */
+			unsigned trap:		 1; /*    39 */
+			unsigned mispredict:	 1; /*    40 */
 		} fields;
 	} i_stat;
 
@@ -138,10 +180,10 @@ ev67_handle_interrupt(unsigned long which, struct pt_regs *regs,
 	};
 
 	pmpc = wrperfmon(9, 0);
-	
+	/* ??? Don't know how to handle physical-mode PALcode address.  */
 	if (pmpc & 1)
 		return;
-	pmpc &= ~2;		
+	pmpc &= ~2;		/* clear reserved bit */
 
 	i_stat.v = wrperfmon(8, 0);
 	if (i_stat.fields.trap) {
@@ -149,10 +191,17 @@ ev67_handle_interrupt(unsigned long which, struct pt_regs *regs,
 		case TRAP_INVALID1:
 		case TRAP_INVALID2:
 		case TRAP_INVALID3:
+			/* Pipeline redirection occurred. PMPC points
+			   to PALcode. Recognize ITB miss by PALcode
+			   offset address, and get actual PC from
+			   EXC_ADDR.  */
 			oprofile_add_pc(regs->pc, kern, which);
 			if ((pmpc & ((1 << 15) - 1)) ==  581)
 				op_add_pm(regs->pc, kern, which,
 					  ctr, PM_ITB_MISS);
+			/* Most other bit and counter values will be
+			   those for the first instruction in the
+			   fault handler, so we're done.  */
 			return;
 		case TRAP_REPLAY:
 			op_add_pm(pmpc, kern, which, ctr,
@@ -178,6 +227,11 @@ ev67_handle_interrupt(unsigned long which, struct pt_regs *regs,
 			break;
 		}
 
+		/* ??? JSR/JMP/RET/COR or HW_JSR/HW_JMP/HW_RET/HW_COR
+		   mispredicts do not set this bit but can be
+		   recognized by the presence of one of these
+		   instructions at the PMPC location with bit 39
+		   set.  */
 		if (i_stat.fields.mispredict) {
 			mispredict = 1;
 			op_add_pm(pmpc, kern, which, ctr, PM_MISPREDICT);
@@ -190,6 +244,9 @@ ev67_handle_interrupt(unsigned long which, struct pt_regs *regs,
 	if (pctr_ctl & (1UL << 27))
 		op_add_pm(pmpc, kern, which, ctr, PM_STALLED);
 
+	/* Unfortunately, TAK is undefined on mispredicted branches.
+	   ??? It is also undefined for non-cbranch insns, should
+	   check that.  */
 	if (!mispredict && pctr_ctl & (1UL << 0))
 		op_add_pm(pmpc, kern, which, ctr, PM_TAKEN);
 }

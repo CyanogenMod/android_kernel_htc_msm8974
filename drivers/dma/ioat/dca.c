@@ -26,6 +26,7 @@
 #include <linux/interrupt.h>
 #include <linux/dca.h>
 
+/* either a kernel change is needed, or we need something like this in kernel */
 #ifndef CONFIG_SMP
 #include <asm/smp.h>
 #undef cpu_physical_id
@@ -35,6 +36,11 @@
 #include "dma.h"
 #include "registers.h"
 
+/*
+ * Bit 7 of a tag map entry is the "valid" bit, if it is set then bits 0:6
+ * contain the bit number of the APIC ID to map into the DCA tag.  If the valid
+ * bit is not set, then the value must be 0 or 1 and defines the bit in the tag.
+ */
 #define DCA_TAG_MAP_VALID 0x80
 
 #define DCA3_TAG_MAP_BIT_TO_INV 0x80
@@ -43,12 +49,14 @@
 
 #define DCA_TAG_MAP_MASK 0xDF
 
+/* expected tag map bytes for I/OAT ver.2 */
 #define DCA2_TAG_MAP_BYTE0 0x80
 #define DCA2_TAG_MAP_BYTE1 0x0
 #define DCA2_TAG_MAP_BYTE2 0x81
 #define DCA2_TAG_MAP_BYTE3 0x82
 #define DCA2_TAG_MAP_BYTE4 0x82
 
+/* verify if tag map matches expected values */
 static inline int dca2_tag_map_valid(u8 *tag_map)
 {
 	return ((tag_map[0] == DCA2_TAG_MAP_BYTE0) &&
@@ -58,6 +66,10 @@ static inline int dca2_tag_map_valid(u8 *tag_map)
 		(tag_map[4] == DCA2_TAG_MAP_BYTE4));
 }
 
+/*
+ * "Legacy" DCA systems do not implement the DCA register set in the
+ * I/OAT device.  Software needs direct support for their tag mappings.
+ */
 
 #define APICID_BIT(x)		(DCA_TAG_MAP_VALID | (x))
 #define IOAT_TAG_MAP_LEN	8
@@ -70,6 +82,7 @@ static u8 ioat_tag_map_CNB[IOAT_TAG_MAP_LEN] = {
 	1, APICID_BIT(1), APICID_BIT(3), APICID_BIT(4), APICID_BIT(2), };
 static u8 ioat_tag_map_UNISYS[IOAT_TAG_MAP_LEN] = { 0 };
 
+/* pack PCI B/D/F into a u16 */
 static inline u16 dcaid_from_pcidev(struct pci_dev *pci)
 {
 	return (pci->bus->number << 8) | pci->devfn;
@@ -77,8 +90,8 @@ static inline u16 dcaid_from_pcidev(struct pci_dev *pci)
 
 static int dca_enabled_in_bios(struct pci_dev *pdev)
 {
-	
-	
+	/* CPUID level 9 returns DCA configuration */
+	/* Bit 0 indicates DCA enabled by the BIOS */
 	unsigned long cpuid_level_9;
 	int res;
 
@@ -100,8 +113,8 @@ int system_has_dca_enabled(struct pci_dev *pdev)
 }
 
 struct ioat_dca_slot {
-	struct pci_dev *pdev;	
-	u16 rid;		
+	struct pci_dev *pdev;	/* requester device */
+	u16 rid;		/* requester id, as used by IOAT */
 };
 
 #define IOAT_DCA_MAX_REQ 6
@@ -116,6 +129,15 @@ struct ioat_dca_priv {
 	struct ioat_dca_slot 	 req_slots[0];
 };
 
+/* 5000 series chipset DCA Port Requester ID Table Entry Format
+ * [15:8]	PCI-Express Bus Number
+ * [7:3]	PCI-Express Device Number
+ * [2:0]	PCI-Express Function Number
+ *
+ * 5000 series chipset DCA control register format
+ * [7:1]	Reserved (0)
+ * [0]		Ignore Function Number
+ */
 
 static int ioat_dca_add_requester(struct dca_provider *dca, struct device *dev)
 {
@@ -124,7 +146,7 @@ static int ioat_dca_add_requester(struct dca_provider *dca, struct device *dev)
 	int i;
 	u16 id;
 
-	
+	/* This implementation only supports PCI-Express */
 	if (dev->bus != &pci_bus_type)
 		return -ENODEV;
 	pdev = to_pci_dev(dev);
@@ -135,17 +157,17 @@ static int ioat_dca_add_requester(struct dca_provider *dca, struct device *dev)
 
 	for (i = 0; i < ioatdca->max_requesters; i++) {
 		if (ioatdca->req_slots[i].pdev == NULL) {
-			
+			/* found an empty slot */
 			ioatdca->requester_count++;
 			ioatdca->req_slots[i].pdev = pdev;
 			ioatdca->req_slots[i].rid = id;
 			writew(id, ioatdca->dca_base + (i * 4));
-			
+			/* make sure the ignore function bit is off */
 			writeb(0, ioatdca->dca_base + (i * 4) + 2);
 			return i;
 		}
 	}
-	
+	/* Error, ioatdma->requester_count is out of whack */
 	return -EFAULT;
 }
 
@@ -156,7 +178,7 @@ static int ioat_dca_remove_requester(struct dca_provider *dca,
 	struct pci_dev *pdev;
 	int i;
 
-	
+	/* This implementation only supports PCI-Express */
 	if (dev->bus != &pci_bus_type)
 		return -ENODEV;
 	pdev = to_pci_dev(dev);
@@ -234,7 +256,7 @@ ioat_dca_init(struct pci_dev *pdev, void __iomem *iobase)
 	if (!system_has_dca_enabled(pdev))
 		return NULL;
 
-	
+	/* I/OAT v1 systems must have a known tag_map to support DCA */
 	switch (pdev->vendor) {
 	case PCI_VENDOR_ID_INTEL:
 		switch (pdev->device) {
@@ -276,7 +298,7 @@ ioat_dca_init(struct pci_dev *pdev, void __iomem *iobase)
 	ioatdca->max_requesters = max_requesters;
 	ioatdca->dca_base = iobase + 0x54;
 
-	
+	/* copy over the APIC ID to DCA tag mapping */
 	for (i = 0; i < IOAT_TAG_MAP_LEN; i++)
 		ioatdca->tag_map[i] = tag_map[i];
 
@@ -298,7 +320,7 @@ static int ioat2_dca_add_requester(struct dca_provider *dca, struct device *dev)
 	u16 id;
 	u16 global_req_table;
 
-	
+	/* This implementation only supports PCI-Express */
 	if (dev->bus != &pci_bus_type)
 		return -ENODEV;
 	pdev = to_pci_dev(dev);
@@ -309,7 +331,7 @@ static int ioat2_dca_add_requester(struct dca_provider *dca, struct device *dev)
 
 	for (i = 0; i < ioatdca->max_requesters; i++) {
 		if (ioatdca->req_slots[i].pdev == NULL) {
-			
+			/* found an empty slot */
 			ioatdca->requester_count++;
 			ioatdca->req_slots[i].pdev = pdev;
 			ioatdca->req_slots[i].rid = id;
@@ -320,7 +342,7 @@ static int ioat2_dca_add_requester(struct dca_provider *dca, struct device *dev)
 			return i;
 		}
 	}
-	
+	/* Error, ioatdma->requester_count is out of whack */
 	return -EFAULT;
 }
 
@@ -332,7 +354,7 @@ static int ioat2_dca_remove_requester(struct dca_provider *dca,
 	int i;
 	u16 global_req_table;
 
-	
+	/* This implementation only supports PCI-Express */
 	if (dev->bus != &pci_bus_type)
 		return -ENODEV;
 	pdev = to_pci_dev(dev);
@@ -422,7 +444,7 @@ ioat2_dca_init(struct pci_dev *pdev, void __iomem *iobase)
 	ioatdca->dca_base = iobase + dca_offset;
 	ioatdca->max_requesters = slots;
 
-	
+	/* some bios might not know to turn these on */
 	csi_fsb_control = readw(ioatdca->dca_base + IOAT_FSB_CAP_ENABLE_OFFSET);
 	if ((csi_fsb_control & IOAT_FSB_CAP_ENABLE_PREFETCH) == 0) {
 		csi_fsb_control |= IOAT_FSB_CAP_ENABLE_PREFETCH;
@@ -437,9 +459,9 @@ ioat2_dca_init(struct pci_dev *pdev, void __iomem *iobase)
 	}
 
 
-	
+	/* TODO version, compatibility and configuration checks */
 
-	
+	/* copy out the APIC to DCA tag map */
 	tag_map = readl(ioatdca->dca_base + IOAT_APICID_TAG_MAP_OFFSET);
 	for (i = 0; i < 5; i++) {
 		bit = (tag_map >> (4 * i)) & 0x0f;
@@ -473,7 +495,7 @@ static int ioat3_dca_add_requester(struct dca_provider *dca, struct device *dev)
 	u16 id;
 	u16 global_req_table;
 
-	
+	/* This implementation only supports PCI-Express */
 	if (dev->bus != &pci_bus_type)
 		return -ENODEV;
 	pdev = to_pci_dev(dev);
@@ -484,7 +506,7 @@ static int ioat3_dca_add_requester(struct dca_provider *dca, struct device *dev)
 
 	for (i = 0; i < ioatdca->max_requesters; i++) {
 		if (ioatdca->req_slots[i].pdev == NULL) {
-			
+			/* found an empty slot */
 			ioatdca->requester_count++;
 			ioatdca->req_slots[i].pdev = pdev;
 			ioatdca->req_slots[i].rid = id;
@@ -495,7 +517,7 @@ static int ioat3_dca_add_requester(struct dca_provider *dca, struct device *dev)
 			return i;
 		}
 	}
-	
+	/* Error, ioatdma->requester_count is out of whack */
 	return -EFAULT;
 }
 
@@ -507,7 +529,7 @@ static int ioat3_dca_remove_requester(struct dca_provider *dca,
 	int i;
 	u16 global_req_table;
 
-	
+	/* This implementation only supports PCI-Express */
 	if (dev->bus != &pci_bus_type)
 		return -ENODEV;
 	pdev = to_pci_dev(dev);
@@ -625,7 +647,7 @@ ioat3_dca_init(struct pci_dev *pdev, void __iomem *iobase)
 	ioatdca->dca_base = iobase + dca_offset;
 	ioatdca->max_requesters = slots;
 
-	
+	/* some bios might not know to turn these on */
 	csi_fsb_control = readw(ioatdca->dca_base + IOAT3_CSI_CONTROL_OFFSET);
 	if ((csi_fsb_control & IOAT3_CSI_CONTROL_PREFETCH) == 0) {
 		csi_fsb_control |= IOAT3_CSI_CONTROL_PREFETCH;
@@ -640,9 +662,9 @@ ioat3_dca_init(struct pci_dev *pdev, void __iomem *iobase)
 	}
 
 
-	
+	/* TODO version, compatibility and configuration checks */
 
-	
+	/* copy out the APIC to DCA tag map */
 	tag_map.low =
 		readl(ioatdca->dca_base + IOAT3_APICID_TAG_MAP_OFFSET_LOW);
 	tag_map.high =

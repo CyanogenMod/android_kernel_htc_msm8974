@@ -16,4 +16,4 @@ extern struct usb_driver *usb_cdc_wdm_register(struct usb_interface *intf,
 					int bufsize,
 					int (*manage_power)(struct usb_interface *, int));
 
-#endif 
+#endif /* __LINUX_USB_CDC_WDM_H */

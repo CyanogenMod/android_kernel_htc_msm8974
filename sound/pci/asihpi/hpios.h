@@ -45,9 +45,12 @@ HPI Operating System Specific macros for Linux Kernel driver
 #define HPI64BIT
 #endif
 
+/** Details of a memory area allocated with  pci_alloc_consistent
+Need all info for parameters to pci_free_consistent
+*/
 struct consistent_dma_area {
 	struct device *pdev;
-	
+	/* looks like dma-mapping dma_devres ?! */
 	size_t size;
 	void *vaddr;
 	dma_addr_t dma_handle;
@@ -78,6 +81,9 @@ struct hpi_ioctl_linux {
 	void __user *phr;
 };
 
+/* Conflict?: H is already used by a number of drivers hid, bluetooth hci,
+   and some sound drivers sb16, hdsp, emu10k. AFAIK 0xFC is ununsed command
+*/
 #define HPI_IOCTL_LINUX _IOWR('H', 0xFC, struct hpi_ioctl_linux)
 
 #define HPI_DEBUG_FLAG_ERROR   KERN_ERR
@@ -85,22 +91,30 @@ struct hpi_ioctl_linux {
 #define HPI_DEBUG_FLAG_NOTICE  KERN_NOTICE
 #define HPI_DEBUG_FLAG_INFO    KERN_INFO
 #define HPI_DEBUG_FLAG_DEBUG   KERN_DEBUG
-#define HPI_DEBUG_FLAG_VERBOSE KERN_DEBUG	
+#define HPI_DEBUG_FLAG_VERBOSE KERN_DEBUG	/* kernel has no verbose */
 
 #include <linux/spinlock.h>
 
 #define HPI_LOCKING
 
 struct hpios_spinlock {
-	spinlock_t lock;	
+	spinlock_t lock;	/* SEE hpios_spinlock */
 	int lock_context;
 };
 
+/* The reason for all this evilness is that ALSA calls some of a drivers
+ * operators in atomic context, and some not.  But all our functions channel
+ * through the HPI_Message conduit, so we can't handle the different context
+ * per function
+ */
 #define IN_LOCK_BH 1
 #define IN_LOCK_IRQ 0
 static inline void cond_lock(struct hpios_spinlock *l)
 {
 	if (irqs_disabled()) {
+		/* NO bh or isr can execute on this processor,
+		   so ordinary lock will do
+		 */
 		spin_lock(&((l)->lock));
 		l->lock_context = IN_LOCK_IRQ;
 	} else {
@@ -136,10 +150,13 @@ static inline void cond_unlock(struct hpios_spinlock *l)
 
 struct snd_card;
 
+/** pci drvdata points to an instance of this struct */
 struct hpi_adapter {
 	struct hpi_adapter_obj *adapter;
 	struct snd_card *snd_card;
 
+	/* mutex prevents contention for one card
+	   between multiple user programs (via ioctl) */
 	struct mutex mutex;
 	char *p_buffer;
 	size_t buffer_size;

@@ -77,7 +77,7 @@ int platform_register_pflash(unsigned int size, struct mtd_partition *parts,
 	else
 		pflash_platform_data.width = 1;
 
-	
+	/* enable parallel flash pins and disable others */
 	reg = __raw_readl(IO_ADDRESS(GEMINI_GLOBAL_BASE) + GLOBAL_MISC_CTRL);
 	reg &= ~PFLASH_PADS_DISABLE;
 	reg |= SFLASH_PADS_DISABLE | NAND_PADS_DISABLE;

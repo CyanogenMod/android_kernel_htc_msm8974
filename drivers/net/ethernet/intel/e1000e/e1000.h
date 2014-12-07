@@ -26,6 +26,7 @@
 
 *******************************************************************************/
 
+/* Linux PRO/1000 Ethernet Driver main header file */
 
 #ifndef _E1000_H_
 #define _E1000_H_
@@ -57,10 +58,12 @@ struct e1000_info;
 	netdev_notice(adapter->netdev, format, ## arg)
 
 
+/* Interrupt modes, as used by the IntMode parameter */
 #define E1000E_INT_MODE_LEGACY		0
 #define E1000E_INT_MODE_MSI		1
 #define E1000E_INT_MODE_MSIX		2
 
+/* Tx/Rx descriptor defines */
 #define E1000_DEFAULT_TXD		256
 #define E1000_MAX_TXD			4096
 #define E1000_MIN_TXD			64
@@ -69,24 +72,29 @@ struct e1000_info;
 #define E1000_MAX_RXD			4096
 #define E1000_MIN_RXD			64
 
-#define E1000_MIN_ITR_USECS		10 
-#define E1000_MAX_ITR_USECS		10000 
+#define E1000_MIN_ITR_USECS		10 /* 100000 irq/sec */
+#define E1000_MAX_ITR_USECS		10000 /* 100    irq/sec */
 
+/* Early Receive defines */
 #define E1000_ERT_2048			0x100
 
-#define E1000_FC_PAUSE_TIME		0x0680 
+#define E1000_FC_PAUSE_TIME		0x0680 /* 858 usec */
 
-#define E1000_RX_BUFFER_WRITE		16 
+/* How many Tx Descriptors do we need to call netif_wake_queue ? */
+/* How many Rx Buffers do we bundle into one write to the hardware ? */
+#define E1000_RX_BUFFER_WRITE		16 /* Must be power of 2 */
 
 #define AUTO_ALL_MODES			0
 #define E1000_EEPROM_APME		0x0400
 
 #define E1000_MNG_VLAN_NONE		(-1)
 
+/* Number of packet split data buffers (not including the header buffer) */
 #define PS_PAGE_BUFFERS			(MAX_PS_BUFFERS - 1)
 
 #define DEFAULT_JUMBO			9234
 
+/* BM/HV Specific Registers */
 #define BM_PORT_CTRL_PAGE                 769
 
 #define PHY_UPPER_SHIFT                   21
@@ -95,6 +103,7 @@ struct e1000_info;
 	 (((page) & 0xFFFF) << PHY_PAGE_SHIFT) |\
 	 (((reg) & ~MAX_PHY_REG_ADDRESS) << (PHY_UPPER_SHIFT - PHY_PAGE_SHIFT)))
 
+/* PHY Wakeup Registers and defines */
 #define BM_PORT_GEN_CFG PHY_REG(BM_PORT_CTRL_PAGE, 17)
 #define BM_RCTL         PHY_REG(BM_WUC_PAGE, 0)
 #define BM_WUC          PHY_REG(BM_WUC_PAGE, 1)
@@ -106,49 +115,56 @@ struct e1000_info;
 #define BM_RAR_CTRL(_i) (BM_PHY_REG(BM_WUC_PAGE, 19 + ((_i) << 2)))
 #define BM_MTA(_i)      (BM_PHY_REG(BM_WUC_PAGE, 128 + ((_i) << 1)))
 
-#define BM_RCTL_UPE           0x0001          
-#define BM_RCTL_MPE           0x0002          
-#define BM_RCTL_MO_SHIFT      3               
-#define BM_RCTL_MO_MASK       (3 << 3)        
-#define BM_RCTL_BAM           0x0020          
-#define BM_RCTL_PMCF          0x0040          
-#define BM_RCTL_RFCE          0x0080          
+#define BM_RCTL_UPE           0x0001          /* Unicast Promiscuous Mode */
+#define BM_RCTL_MPE           0x0002          /* Multicast Promiscuous Mode */
+#define BM_RCTL_MO_SHIFT      3               /* Multicast Offset Shift */
+#define BM_RCTL_MO_MASK       (3 << 3)        /* Multicast Offset Mask */
+#define BM_RCTL_BAM           0x0020          /* Broadcast Accept Mode */
+#define BM_RCTL_PMCF          0x0040          /* Pass MAC Control Frames */
+#define BM_RCTL_RFCE          0x0080          /* Rx Flow Control Enable */
 
 #define HV_STATS_PAGE	778
-#define HV_SCC_UPPER	PHY_REG(HV_STATS_PAGE, 16) 
+#define HV_SCC_UPPER	PHY_REG(HV_STATS_PAGE, 16) /* Single Collision Count */
 #define HV_SCC_LOWER	PHY_REG(HV_STATS_PAGE, 17)
-#define HV_ECOL_UPPER	PHY_REG(HV_STATS_PAGE, 18) 
+#define HV_ECOL_UPPER	PHY_REG(HV_STATS_PAGE, 18) /* Excessive Coll. Count */
 #define HV_ECOL_LOWER	PHY_REG(HV_STATS_PAGE, 19)
-#define HV_MCC_UPPER	PHY_REG(HV_STATS_PAGE, 20) 
+#define HV_MCC_UPPER	PHY_REG(HV_STATS_PAGE, 20) /* Multiple Coll. Count */
 #define HV_MCC_LOWER	PHY_REG(HV_STATS_PAGE, 21)
-#define HV_LATECOL_UPPER PHY_REG(HV_STATS_PAGE, 23) 
+#define HV_LATECOL_UPPER PHY_REG(HV_STATS_PAGE, 23) /* Late Collision Count */
 #define HV_LATECOL_LOWER PHY_REG(HV_STATS_PAGE, 24)
-#define HV_COLC_UPPER	PHY_REG(HV_STATS_PAGE, 25) 
+#define HV_COLC_UPPER	PHY_REG(HV_STATS_PAGE, 25) /* Collision Count */
 #define HV_COLC_LOWER	PHY_REG(HV_STATS_PAGE, 26)
-#define HV_DC_UPPER	PHY_REG(HV_STATS_PAGE, 27) 
+#define HV_DC_UPPER	PHY_REG(HV_STATS_PAGE, 27) /* Defer Count */
 #define HV_DC_LOWER	PHY_REG(HV_STATS_PAGE, 28)
-#define HV_TNCRS_UPPER	PHY_REG(HV_STATS_PAGE, 29) 
+#define HV_TNCRS_UPPER	PHY_REG(HV_STATS_PAGE, 29) /* Transmit with no CRS */
 #define HV_TNCRS_LOWER	PHY_REG(HV_STATS_PAGE, 30)
 
-#define E1000_FCRTV_PCH     0x05F40 
+#define E1000_FCRTV_PCH     0x05F40 /* PCH Flow Control Refresh Timer Value */
 
+/* BM PHY Copper Specific Status */
 #define BM_CS_STATUS                      17
 #define BM_CS_STATUS_LINK_UP              0x0400
 #define BM_CS_STATUS_RESOLVED             0x0800
 #define BM_CS_STATUS_SPEED_MASK           0xC000
 #define BM_CS_STATUS_SPEED_1000           0x8000
 
+/* 82577 Mobile Phy Status Register */
 #define HV_M_STATUS                       26
 #define HV_M_STATUS_AUTONEG_COMPLETE      0x1000
 #define HV_M_STATUS_SPEED_MASK            0x0300
 #define HV_M_STATUS_SPEED_1000            0x0200
 #define HV_M_STATUS_LINK_UP               0x0040
 
-#define E1000_ICH_FWSM_PCIM2PCI		0x01000000 
+#define E1000_ICH_FWSM_PCIM2PCI		0x01000000 /* ME PCIm-to-PCI active */
 #define E1000_ICH_FWSM_PCIM2PCI_COUNT	2000
 
+/* Time to wait before putting the device into D3 if there's no link (in ms). */
 #define LINK_TIMEOUT		100
 
+/*
+ * Count for polling __E1000_RESET condition every 10-20msec.
+ * Experimentation has shown the reset can take approximately 210msec.
+ */
 #define E1000_CHECK_RESET_COUNT		25
 
 #define DEFAULT_RDTR			0
@@ -163,17 +179,17 @@ struct e1000_info;
  * it to 5
  */
 #define E1000_TXDCTL_DMA_BURST_ENABLE                          \
-	(E1000_TXDCTL_GRAN |   \
+	(E1000_TXDCTL_GRAN | /* set descriptor granularity */  \
 	 E1000_TXDCTL_COUNT_DESC |                             \
-	 (5 << 16) | \
-	 (1 << 8)  |                              \
-	 0x1f)       
+	 (5 << 16) | /* wthresh must be +1 more than desired */\
+	 (1 << 8)  | /* hthresh */                             \
+	 0x1f)       /* pthresh */
 
 #define E1000_RXDCTL_DMA_BURST_ENABLE                          \
-	(0x01000000 |          \
-	 (4 << 16)  |          \
-	 (4 << 8)   |          \
-	 0x20)        
+	(0x01000000 | /* set descriptor granularity */         \
+	 (4 << 16)  | /* set writeback threshold    */         \
+	 (4 << 8)   | /* set prefetch threshold     */         \
+	 0x20)        /* set hthresh                */
 
 #define E1000_TIDV_FPD (1 << 31)
 #define E1000_RDTR_FPD (1 << 31)
@@ -197,11 +213,15 @@ struct e1000_ps_page {
 	u64 dma; /* must be u64 - written to hw */
 };
 
+/*
+ * wrappers around a pointer to a socket buffer,
+ * so a DMA handle can be stored along with the buffer
+ */
 struct e1000_buffer {
 	dma_addr_t dma;
 	struct sk_buff *skb;
 	union {
-		
+		/* Tx */
 		struct {
 			unsigned long time_stamp;
 			u16 length;
@@ -210,9 +230,9 @@ struct e1000_buffer {
 			unsigned int bytecount;
 			u16 mapped_as_page;
 		};
-		
+		/* Rx */
 		struct {
-			
+			/* arrays of page information for packet split */
 			struct e1000_ps_page *ps_pages;
 			struct page *page;
 		};
@@ -220,11 +240,11 @@ struct e1000_buffer {
 };
 
 struct e1000_ring {
-	struct e1000_adapter *adapter;	
-	void *desc;			
-	dma_addr_t dma;			
-	unsigned int size;		
-	unsigned int count;		
+	struct e1000_adapter *adapter;	/* back pointer to adapter */
+	void *desc;			/* pointer to ring memory  */
+	dma_addr_t dma;			/* phys address of ring    */
+	unsigned int size;		/* length of ring in bytes */
+	unsigned int count;		/* number of desc. in ring */
 
 	u16 next_to_use;
 	u16 next_to_clean;
@@ -232,7 +252,7 @@ struct e1000_ring {
 	void __iomem *head;
 	void __iomem *tail;
 
-	
+	/* array of buffer information structs */
 	struct e1000_buffer *buffer_info;
 
 	char name[IFNAMSIZ + 5];
@@ -244,17 +264,19 @@ struct e1000_ring {
 	struct sk_buff *rx_skb_top;
 };
 
+/* PHY register snapshot values */
 struct e1000_phy_regs {
-	u16 bmcr;		
-	u16 bmsr;		
-	u16 advertise;		
-	u16 lpa;		
-	u16 expansion;		
-	u16 ctrl1000;		
-	u16 stat1000;		
-	u16 estatus;		
+	u16 bmcr;		/* basic mode control register    */
+	u16 bmsr;		/* basic mode status register     */
+	u16 advertise;		/* auto-negotiation advertisement */
+	u16 lpa;		/* link partner ability register  */
+	u16 expansion;		/* auto-negotiation expansion reg */
+	u16 ctrl1000;		/* 1000BASE-T control register    */
+	u16 stat1000;		/* 1000BASE-T status register     */
+	u16 estatus;		/* extended status register       */
 };
 
+/* board specific private data structure */
 struct e1000_adapter {
 	struct timer_list watchdog_timer;
 	struct timer_list phy_info_timer;
@@ -273,16 +295,19 @@ struct e1000_adapter {
 	u16 link_duplex;
 	u16 eeprom_vers;
 
-	
+	/* track device up/down/testing state */
 	unsigned long state;
 
-	
+	/* Interrupt Throttle Rate */
 	u32 itr;
 	u32 itr_setting;
 	u16 tx_itr;
 	u16 rx_itr;
 
-	struct e1000_ring *tx_ring 
+	/*
+	 * Tx
+	 */
+	struct e1000_ring *tx_ring /* One per active queue */
 						____cacheline_aligned_in_smp;
 
 	struct napi_struct napi;
@@ -302,7 +327,7 @@ struct e1000_adapter {
 	unsigned int total_rx_bytes;
 	unsigned int total_rx_packets;
 
-	
+	/* Tx stats */
 	u64 tpt_old;
 	u64 colc_old;
 	u32 gotc;
@@ -313,6 +338,9 @@ struct e1000_adapter {
 	u32 tx_fifo_size;
 	u32 tx_dma_failed;
 
+	/*
+	 * Rx
+	 */
 	bool (*clean_rx) (struct e1000_ring *ring, int *work_done,
 			  int work_to_do) ____cacheline_aligned_in_smp;
 	void (*alloc_rx_buf) (struct e1000_ring *ring, int cleaned_count,
@@ -322,7 +350,7 @@ struct e1000_adapter {
 	u32 rx_int_delay;
 	u32 rx_abs_int_delay;
 
-	
+	/* Rx stats */
 	u64 hw_csum_err;
 	u64 hw_csum_good;
 	u64 rx_hdr_split;
@@ -336,11 +364,11 @@ struct e1000_adapter {
 	u32 max_frame_size;
 	u32 min_frame_size;
 
-	
+	/* OS defined structs */
 	struct net_device *netdev;
 	struct pci_dev *pdev;
 
-	
+	/* structs defined in e1000_hw.h */
 	struct e1000_hw hw;
 
 	spinlock_t stats64_lock;
@@ -348,7 +376,7 @@ struct e1000_adapter {
 	struct e1000_phy_info phy_info;
 	struct e1000_phy_stats phy_stats;
 
-	
+	/* Snapshot of PHY registers */
 	struct e1000_phy_regs phy_regs;
 
 	struct e1000_ring test_tx_ring;
@@ -393,10 +421,12 @@ struct e1000_info {
 	const struct e1000_nvm_operations *nvm_ops;
 };
 
+/* hardware capability, feature, and workaround flags */
 #define FLAG_HAS_AMT                      (1 << 0)
 #define FLAG_HAS_FLASH                    (1 << 1)
 #define FLAG_HAS_HW_VLAN_FILTER           (1 << 2)
 #define FLAG_HAS_WOL                      (1 << 3)
+/* reserved bit4 */
 #define FLAG_HAS_CTRLEXT_ON_LOAD          (1 << 5)
 #define FLAG_HAS_SWSM_ON_LOAD             (1 << 6)
 #define FLAG_HAS_JUMBO_FRAMES             (1 << 7)
@@ -406,6 +436,7 @@ struct e1000_info {
 #define FLAG_HAS_SMART_POWER_DOWN         (1 << 11)
 #define FLAG_IS_QUAD_PORT_A               (1 << 12)
 #define FLAG_IS_QUAD_PORT                 (1 << 13)
+/* reserved bit14 */
 #define FLAG_APME_IN_WUC                  (1 << 15)
 #define FLAG_APME_IN_CTRL3                (1 << 16)
 #define FLAG_APME_CHECK_PORT_B            (1 << 17)
@@ -419,6 +450,7 @@ struct e1000_info {
 #define FLAG_LSC_GIG_SPEED_DROP           (1 << 25)
 #define FLAG_SMART_POWER_DOWN             (1 << 26)
 #define FLAG_MSI_ENABLED                  (1 << 27)
+/* reserved (1 << 28) */
 #define FLAG_TSO_FORCE                    (1 << 29)
 #define FLAG_RX_RESTART_NOW               (1 << 30)
 #define FLAG_MSI_TEST_FAILED              (1 << 31)
@@ -708,4 +740,4 @@ static inline void __ew32(struct e1000_hw *hw, unsigned long reg, u32 val)
 	writel(val, hw->hw_addr + reg);
 }
 
-#endif 
+#endif /* _E1000_H_ */

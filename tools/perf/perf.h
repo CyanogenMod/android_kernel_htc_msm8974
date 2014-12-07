@@ -79,6 +79,10 @@ void get_term_dimensions(struct winsize *ws);
 
 #ifdef __arm__
 #include "../../arch/arm/include/asm/unistd.h"
+/*
+ * Use the __kuser_memory_barrier helper in the CPU helper page. See
+ * arch/arm/kernel/entry-armv.S in the kernel source for details.
+ */
 #define rmb()		((void(*)(void))0xffff0fa0)()
 #define cpu_relax()	asm volatile("":::"memory")
 #define CPUINFO_PROC	"Processor"
@@ -90,8 +94,8 @@ void get_term_dimensions(struct winsize *ws);
 				".set	mips2\n\t"			\
 				"sync\n\t"				\
 				".set	mips0"				\
-				: 			\
-				: 			\
+				: /* no output */			\
+				: /* no input */			\
 				: "memory")
 #define cpu_relax()	asm volatile("" ::: "memory")
 #define CPUINFO_PROC	"cpu model"
@@ -125,10 +129,17 @@ static inline void perf_mmap__write_tail(struct perf_mmap *md,
 {
 	struct perf_event_mmap_page *pc = md->base;
 
-	
+	/*
+	 * ensure all reads are done before we write the tail out.
+	 */
+	/* mb(); */
 	pc->data_tail = tail;
 }
 
+/*
+ * prctl(PR_TASK_PERF_EVENTS_DISABLE) will (cheaply) disable all
+ * counters in the current task.
+ */
 #define PR_TASK_PERF_EVENTS_DISABLE   31
 #define PR_TASK_PERF_EVENTS_ENABLE    32
 
@@ -144,6 +155,9 @@ static inline unsigned long long rdclock(void)
 	return ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
 
+/*
+ * Pick up some kernel type conventions:
+ */
 #define __user
 #define asmlinkage
 

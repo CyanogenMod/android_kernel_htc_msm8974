@@ -3,68 +3,89 @@
 #include <linux/interrupt.h>
 
 
+/*
+ * Generate TX index update each time, when TX ring is closed.
+ * Normally, this is not useful, because results in more dma (and irqs
+ * without TX_COAL_INTS_ONLY).
+ */
 #define USE_TX_COAL_NOW	 0
 
+/*
+ * Addressing:
+ *
+ * The Tigon uses 64-bit host addresses, regardless of their actual
+ * length, and it expects a big-endian format. For 32 bit systems the
+ * upper 32 bits of the address are simply ignored (zero), however for
+ * little endian 64 bit systems (Alpha) this looks strange with the
+ * two parts of the address word being swapped.
+ *
+ * The addresses are split in two 32 bit words for all architectures
+ * as some of them are in PCI shared memory and it is necessary to use
+ * readl/writel to access them.
+ *
+ * The addressing code is derived from Pete Wyckoff's work, but
+ * modified to deal properly with readl/writel usage.
+ */
 
 struct ace_regs {
-	u32	pad0[16];	
+	u32	pad0[16];	/* PCI control registers */
 
-	u32	HostCtrl;	
+	u32	HostCtrl;	/* 0x40 */
 	u32	LocalCtrl;
 
 	u32	pad1[2];
 
-	u32	MiscCfg;	
+	u32	MiscCfg;	/* 0x50 */
 
 	u32	pad2[2];
 
 	u32	PciState;
 
-	u32	pad3[2];	
+	u32	pad3[2];	/* 0x60 */
 
 	u32	WinBase;
 	u32	WinData;
 
-	u32	pad4[12];	
+	u32	pad4[12];	/* 0x70 */
 
-	u32	DmaWriteState;	
+	u32	DmaWriteState;	/* 0xa0 */
 	u32	pad5[3];
-	u32	DmaReadState;	
+	u32	DmaReadState;	/* 0xb0 */
 
 	u32	pad6[26];
 
 	u32	AssistState;
 
-	u32	pad7[8];	
+	u32	pad7[8];	/* 0x120 */
 
-	u32	CpuCtrl;	
+	u32	CpuCtrl;	/* 0x140 */
 	u32	Pc;
 
 	u32	pad8[3];
 
-	u32	SramAddr;	
+	u32	SramAddr;	/* 0x154 */
 	u32	SramData;
 
 	u32	pad9[49];
 
-	u32	MacRxState;	
+	u32	MacRxState;	/* 0x220 */
 
 	u32	pad10[7];
 
-	u32	CpuBCtrl;	
+	u32	CpuBCtrl;	/* 0x240 */
 	u32	PcB;
 
 	u32	pad11[3];
 
-	u32	SramBAddr;	
+	u32	SramBAddr;	/* 0x254 */
 	u32	SramBData;
 
 	u32	pad12[105];
 
-	u32	pad13[32];	
+	u32	pad13[32];	/* 0x400 */
 	u32	Stats[32];
 
-	u32	Mb0Hi;		
+	u32	Mb0Hi;		/* 0x500 */
 	u32	Mb0Lo;
 	u32	Mb1Hi;
 	u32	CmdPrd;
@@ -99,40 +120,40 @@ struct ace_regs {
 
 	u32	pad14[32];
 
-	u32	MacAddrHi;	
+	u32	MacAddrHi;	/* 0x600 */
 	u32	MacAddrLo;
 	u32	InfoPtrHi;
 	u32	InfoPtrLo;
-	u32	MultiCastHi;	
+	u32	MultiCastHi;	/* 0x610 */
 	u32	MultiCastLo;
 	u32	ModeStat;
 	u32	DmaReadCfg;
-	u32	DmaWriteCfg;	
+	u32	DmaWriteCfg;	/* 0x620 */
 	u32	TxBufRat;
 	u32	EvtCsm;
 	u32	CmdCsm;
-	u32	TuneRxCoalTicks;
+	u32	TuneRxCoalTicks;/* 0x630 */
 	u32	TuneTxCoalTicks;
 	u32	TuneStatTicks;
 	u32	TuneMaxTxDesc;
-	u32	TuneMaxRxDesc;	
+	u32	TuneMaxRxDesc;	/* 0x640 */
 	u32	TuneTrace;
 	u32	TuneLink;
 	u32	TuneFastLink;
-	u32	TracePtr;	
+	u32	TracePtr;	/* 0x650 */
 	u32	TraceStrt;
 	u32	TraceLen;
 	u32	IfIdx;
-	u32	IfMtu;		
+	u32	IfMtu;		/* 0x660 */
 	u32	MaskInt;
 	u32	GigLnkState;
 	u32	FastLnkState;
-	u32	pad16[4];	
-	u32	RxRetCsm;	
+	u32	pad16[4];	/* 0x670 */
+	u32	RxRetCsm;	/* 0x680 */
 
 	u32	pad17[31];
 
-	u32	CmdRng[64];	
+	u32	CmdRng[64];	/* 0x700 */
 	u32	Window[0x200];
 };
 
@@ -150,6 +171,9 @@ typedef struct {
 
 #define ACE_TRACE_SIZE 0x8000
 
+/*
+ * Host control register bits.
+ */
 
 #define IN_INT		0x01
 #define CLR_INT		0x02
@@ -158,6 +182,9 @@ typedef struct {
 #define WORD_SWAP	0x20
 #define MASK_INTS	0x40
 
+/*
+ * Local control register bits.
+ */
 
 #define EEPROM_DATA_IN		0x800000
 #define EEPROM_DATA_OUT		0x400000
@@ -172,14 +199,23 @@ typedef struct {
 #define SRAM_BANK_512K		0x200
 
 
+/*
+ * udelay() values for when clocking the eeprom
+ */
 #define ACE_SHORT_DELAY		2
 #define ACE_LONG_DELAY		4
 
 
+/*
+ * Misc Config bits
+ */
 
 #define SYNC_SRAM_TIMING	0x100000
 
 
+/*
+ * CPU state bits.
+ */
 
 #define CPU_RESET		0x01
 #define CPU_TRACE		0x02
@@ -188,6 +224,9 @@ typedef struct {
 #define CPU_HALTED		0xffff0000
 
 
+/*
+ * PCI State bits.
+ */
 
 #define DMA_READ_MAX_4		0x04
 #define DMA_READ_MAX_16		0x08
@@ -212,28 +251,40 @@ typedef struct {
 #define WRITE_CMD_MEM		0x70000000
 
 
+/*
+ * Mode status
+ */
 
 #define ACE_BYTE_SWAP_BD	0x02
-#define ACE_WORD_SWAP_BD	0x04		
+#define ACE_WORD_SWAP_BD	0x04		/* not actually used */
 #define ACE_WARN		0x08
 #define ACE_BYTE_SWAP_DMA	0x10
 #define ACE_NO_JUMBO_FRAG	0x200
 #define ACE_FATAL		0x40000000
 
 
+/*
+ * DMA config
+ */
 
 #define DMA_THRESH_1W		0x10
 #define DMA_THRESH_2W		0x20
 #define DMA_THRESH_4W		0x40
 #define DMA_THRESH_8W		0x80
 #define DMA_THRESH_16W		0x100
-#define DMA_THRESH_32W		0x0	
+#define DMA_THRESH_32W		0x0	/* not described in doc, but exists. */
 
 
+/*
+ * Tuning parameters
+ */
 
 #define TICKS_PER_SEC		1000000
 
 
+/*
+ * Link bits
+ */
 
 #define LNK_PREF		0x00008000
 #define LNK_10MB		0x00010000
@@ -254,6 +305,9 @@ typedef struct {
 #define LNK_UP			0x80000000
 
 
+/*
+ * Event definitions
+ */
 
 #define EVT_RING_ENTRIES	256
 #define EVT_RING_SIZE	(EVT_RING_ENTRIES * sizeof(struct event))
@@ -272,6 +326,9 @@ struct event {
 };
 
 
+/*
+ * Events
+ */
 
 #define E_FW_RUNNING		0x01
 #define E_STATS_UPDATED		0x04
@@ -295,6 +352,9 @@ struct event {
 #define E_RESET_JUMBO_RNG	0x09
 
 
+/*
+ * Commands
+ */
 
 #define CMD_RING_ENTRIES	64
 
@@ -346,6 +406,9 @@ struct cmd {
 #define C_REFRESH_STATS		0x11
 
 
+/*
+ * Descriptor flags
+ */
 #define BD_FLG_TCP_UDP_SUM	0x01
 #define BD_FLG_IP_SUM		0x02
 #define BD_FLG_END		0x04
@@ -363,6 +426,9 @@ struct cmd {
 #define BD_FLG_MINI		0x1000
 
 
+/*
+ * Ring Control block flags
+ */
 #define RCB_FLG_TCP_UDP_SUM	0x01
 #define RCB_FLG_IP_SUM		0x02
 #define RCB_FLG_NO_PSEUDO_HDR	0x08
@@ -374,6 +440,9 @@ struct cmd {
 #define RCB_FLG_RNG_DISABLE	0x200
 
 
+/*
+ * TX ring - maximum TX ring entries for Tigon I's is 128
+ */
 #define MAX_TX_RING_ENTRIES	256
 #define TIGON_I_TX_RING_ENTRIES	128
 #define TX_RING_SIZE		(MAX_TX_RING_ENTRIES * sizeof(struct tx_desc))
@@ -383,6 +452,10 @@ struct tx_desc{
         aceaddr	addr;
 	u32	flagsize;
 #if 0
+/*
+ * This is in PCI shared mem and must be accessed with readl/writel
+ * real layout is:
+ */
 #if __LITTLE_ENDIAN
 	u16	flags;
 	u16	size;
@@ -447,6 +520,9 @@ struct rx_desc{
 };
 
 
+/*
+ * This struct is shared with the NIC firmware.
+ */
 struct ring_ctrl {
 	aceaddr	rngptr;
 #ifdef __LITTLE_ENDIAN
@@ -518,6 +594,11 @@ struct ring_info {
 };
 
 
+/*
+ * Funny... As soon as we add maplen on alpha, it starts to work
+ * much slower. Hmm... is it because struct does not fit to one cacheline?
+ * So, split tx_ring_info.
+ */
 struct tx_ring_info {
 	struct sk_buff		*skb;
 	DEFINE_DMA_UNMAP_ADDR(mapping);
@@ -525,6 +606,11 @@ struct tx_ring_info {
 };
 
 
+/*
+ * struct ace_skb holding the rings of skb's. This is an awful lot of
+ * pointers, but I don't see any other smart mode to do this in an
+ * efficient manner ;-(
+ */
 struct ace_skb
 {
 	struct tx_ring_info	tx_skbuff[MAX_TX_RING_ENTRIES];
@@ -534,21 +620,37 @@ struct ace_skb
 };
 
 
+/*
+ * Struct private for the AceNIC.
+ *
+ * Elements are grouped so variables used by the tx handling goes
+ * together, and will go into the same cache lines etc. in order to
+ * avoid cache line contention between the rx and tx handling on SMP.
+ *
+ * Frequently accessed variables are put at the beginning of the
+ * struct to help the compiler generate better/shorter code.
+ */
 struct ace_private
 {
 	struct ace_info		*info;
-	struct ace_regs	__iomem	*regs;		
+	struct ace_regs	__iomem	*regs;		/* register base */
 	struct ace_skb		*skb;
-	dma_addr_t		info_dma;	
+	dma_addr_t		info_dma;	/* 32/64 bit */
 
 	int			version, link;
 	int			promisc, mcast_all;
 
+	/*
+	 * TX elements
+	 */
 	struct tx_desc		*tx_ring;
 	u32			tx_prd;
 	volatile u32		tx_ret_csm;
 	int			tx_ring_entries;
 
+	/*
+	 * RX elements
+	 */
 	unsigned long		std_refill_busy
 				__attribute__ ((aligned (SMP_CACHE_BYTES)));
 	unsigned long		mini_refill_busy, jumbo_refill_busy;
@@ -570,7 +672,7 @@ struct ace_private
 
 	volatile u32		*evt_prd, *rx_ret_prd, *tx_csm;
 
-	dma_addr_t		tx_ring_dma;	
+	dma_addr_t		tx_ring_dma;	/* 32/64 bit */
 	dma_addr_t		rx_ring_base_dma;
 	dma_addr_t		evt_ring_dma;
 	dma_addr_t		evt_prd_dma, rx_ret_prd_dma, tx_csm_dma;
@@ -660,6 +762,9 @@ static inline void ace_unmask_irq(struct net_device *dev)
 }
 
 
+/*
+ * Prototypes
+ */
 static int ace_init(struct net_device *dev);
 static void ace_load_std_rx_ring(struct net_device *dev, int nr_bufs);
 static void ace_load_mini_rx_ring(struct net_device *dev, int nr_bufs);
@@ -682,4 +787,4 @@ static void ace_init_cleanup(struct net_device *dev);
 static struct net_device_stats *ace_get_stats(struct net_device *dev);
 static int read_eeprom_byte(struct net_device *dev, unsigned long offset);
 
-#endif 
+#endif /* _ACENIC_H_ */

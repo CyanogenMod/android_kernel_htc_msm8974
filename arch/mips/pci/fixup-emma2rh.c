@@ -31,8 +31,16 @@
 
 #define EMMA2RH_PCI_HOST_SLOT 0x09
 #define EMMA2RH_USB_SLOT 0x03
-#define PCI_DEVICE_ID_NEC_EMMA2RH      0x014b 
+#define PCI_DEVICE_ID_NEC_EMMA2RH      0x014b /* EMMA2RH PCI Host */
 
+/*
+ * we fix up irqs based on the slot number.
+ * The first entry is at AD:11.
+ * Fortunately this works because, although we have two pci buses,
+ * they all have different slot numbers (except for rockhopper slot 20
+ * which is handled below).
+ *
+ */
 
 #define	MAX_SLOT_NUM 10
 static unsigned char irq_map[][5] __initdata = {
@@ -47,13 +55,18 @@ static unsigned char irq_map[][5] __initdata = {
 static void __devinit nec_usb_controller_fixup(struct pci_dev *dev)
 {
 	if (PCI_SLOT(dev->devfn) == EMMA2RH_USB_SLOT)
-		
+		/* on board USB controller configuration */
 		pci_write_config_dword(dev, 0xe4, 1 << 5);
 }
 
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_NEC, PCI_DEVICE_ID_NEC_USB,
 			nec_usb_controller_fixup);
 
+/*
+ * Prevent the PCI layer from seeing the resources allocated to this device
+ * if it is the host bridge by marking it as such.  These resources are of
+ * no consequence to the PCI layer (they are handled elsewhere).
+ */
 static void __devinit emma2rh_pci_host_fixup(struct pci_dev *dev)
 {
 	int i;
@@ -77,6 +90,7 @@ int __init pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	return irq_map[slot][pin];
 }
 
+/* Do platform specific device initialization at pci_enable_device() time */
 int pcibios_plat_dev_init(struct pci_dev *dev)
 {
 	return 0;

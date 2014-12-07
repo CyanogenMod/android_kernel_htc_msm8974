@@ -70,6 +70,12 @@ static struct rds_sock *rds_bind_lookup(__be32 addr, __be16 port,
 	rcu_read_unlock();
 
 	if (insert) {
+		/*
+		 * make sure our addr and port are set before
+		 * we are added to the list, other people
+		 * in rcu will find us as soon as the
+		 * hlist_add_head_rcu is done
+		 */
 		insert->rs_bound_addr = addr;
 		insert->rs_bound_port = port;
 		rds_sock_addref(insert);
@@ -79,6 +85,12 @@ static struct rds_sock *rds_bind_lookup(__be32 addr, __be16 port,
 	return NULL;
 }
 
+/*
+ * Return the rds_sock bound at the given local address.
+ *
+ * The rx path can race with rds_release.  We notice if rds_release() has
+ * marked this socket and don't return a rs ref to the rx path.
+ */
 struct rds_sock *rds_find_bound(__be32 addr, __be16 port)
 {
 	struct rds_sock *rs;
@@ -95,6 +107,7 @@ struct rds_sock *rds_find_bound(__be32 addr, __be16 port)
 	return rs;
 }
 
+/* returns -ve errno or +ve port */
 static int rds_add_bound(struct rds_sock *rs, __be32 addr, __be16 *port)
 {
 	unsigned long flags;
@@ -184,7 +197,7 @@ int rds_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 out:
 	release_sock(sk);
 
-	
+	/* we might have called rds_remove_bound on error */
 	if (ret)
 		synchronize_rcu();
 	return ret;

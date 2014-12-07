@@ -44,6 +44,10 @@ DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 #define CX18_CLOCK_ENABLE2		 0xc71024
 #define CX18_DMUX_CLK_MASK		 0x0080
 
+/*
+ * CX18_CARD_HVR_1600_ESMT
+ * CX18_CARD_HVR_1600_SAMSUNG
+ */
 
 static struct mxl5005s_config hauppauge_hvr1600_tuner = {
 	.i2c_address     = 0xC6 >> 1,
@@ -74,6 +78,9 @@ static struct s5h1409_config hauppauge_hvr1600_config = {
 	.hvr1600_opt   = S5H1409_HVR1600_OPTIMIZE
 };
 
+/*
+ * CX18_CARD_HVR_1600_S5H1411
+ */
 static struct s5h1411_config hcw_s5h1411_config = {
 	.output_mode   = S5H1411_SERIAL_OUTPUT,
 	.gpio          = S5H1411_GPIO_OFF,
@@ -97,14 +104,33 @@ static struct tda18271_config hauppauge_tda18271_config = {
 	.output_opt = TDA18271_OUTPUT_LT_OFF,
 };
 
+/*
+ * CX18_CARD_LEADTEK_DVR3100H
+ */
+/* Information/confirmation of proper config values provided by Terry Wu */
 static struct zl10353_config leadtek_dvr3100h_demod = {
-	.demod_address         = 0x1e >> 1, 
-	.if2                   = 45600,     
-	.parallel_ts           = 1,         
-	.no_tuner              = 1,         
-	.disable_i2c_gate_ctrl = 1,         
+	.demod_address         = 0x1e >> 1, /* Datasheet suggested straps */
+	.if2                   = 45600,     /* 4.560 MHz IF from the XC3028 */
+	.parallel_ts           = 1,         /* Not a serial TS */
+	.no_tuner              = 1,         /* XC3028 is not behind the gate */
+	.disable_i2c_gate_ctrl = 1,         /* Disable the I2C gate */
 };
 
+/*
+ * CX18_CARD_YUAN_MPC718
+ */
+/*
+ * Due to
+ *
+ * 1. an absence of information on how to prgram the MT352
+ * 2. the Linux mt352 module pushing MT352 initialzation off onto us here
+ *
+ * We have to use an init sequence that *you* must extract from the Windows
+ * driver (yuanrap.sys) and which we load as a firmware.
+ *
+ * If someone can provide me with a Zarlink MT352 (Intel CE6352?) Design Manual
+ * with chip programming details, then I can remove this annoyance.
+ */
 static int yuan_mpc718_mt352_reqfw(struct cx18_stream *stream,
 				   const struct firmware **fw)
 {
@@ -149,33 +175,33 @@ static int yuan_mpc718_mt352_init(struct dvb_frontend *fe)
 	if (ret)
 		return ret;
 
-	
+	/* Loop through all the register-value pairs in the firmware file */
 	for (i = 0; i < fw->size; i += 2) {
 		buf[0] = fw->data[i];
-		
+		/* Intercept a few registers we want to set ourselves */
 		switch (buf[0]) {
 		case TRL_NOMINAL_RATE_0:
-			
+			/* Set our custom OFDM bandwidth in the case below */
 			break;
 		case TRL_NOMINAL_RATE_1:
-			
-			
-			
+			/* 6 MHz: 64/7 * 6/8 / 20.48 * 2^16 = 0x55b6.db6 */
+			/* 7 MHz: 64/7 * 7/8 / 20.48 * 2^16 = 0x6400 */
+			/* 8 MHz: 64/7 * 8/8 / 20.48 * 2^16 = 0x7249.249 */
 			buf[1] = 0x72;
 			buf[2] = 0x49;
 			mt352_write(fe, buf, 3);
 			break;
 		case INPUT_FREQ_0:
-			
+			/* Set our custom IF in the case below */
 			break;
 		case INPUT_FREQ_1:
-			
+			/* 4.56 MHz IF: (20.48 - 4.56)/20.48 * 2^14 = 0x31c0 */
 			buf[1] = 0x31;
 			buf[2] = 0xc0;
 			mt352_write(fe, buf, 3);
 			break;
 		default:
-			
+			/* Pass through the register-value pair from the fw */
 			buf[1] = fw->data[i+1];
 			mt352_write(fe, buf, 2);
 			break;
@@ -183,7 +209,7 @@ static int yuan_mpc718_mt352_init(struct dvb_frontend *fe)
 	}
 
 	buf[0] = (u8) TUNER_GO;
-	buf[1] = 0x01; 
+	buf[1] = 0x01; /* Go */
 	mt352_write(fe, buf, 2);
 	release_firmware(fw);
 	return 0;
@@ -191,30 +217,34 @@ static int yuan_mpc718_mt352_init(struct dvb_frontend *fe)
 
 static struct mt352_config yuan_mpc718_mt352_demod = {
 	.demod_address = 0x1e >> 1,
-	.adc_clock     = 20480,     
-	.if2           =  4560,     
-	.no_tuner      = 1,         
+	.adc_clock     = 20480,     /* 20.480 MHz */
+	.if2           =  4560,     /*  4.560 MHz */
+	.no_tuner      = 1,         /* XC3028 is not behind the gate */
 	.demod_init    = yuan_mpc718_mt352_init,
 };
 
 static struct zl10353_config yuan_mpc718_zl10353_demod = {
-	.demod_address         = 0x1e >> 1, 
-	.if2                   = 45600,     
-	.parallel_ts           = 1,         
-	.no_tuner              = 1,         
-	.disable_i2c_gate_ctrl = 1,         
+	.demod_address         = 0x1e >> 1, /* Datasheet suggested straps */
+	.if2                   = 45600,     /* 4.560 MHz IF from the XC3028 */
+	.parallel_ts           = 1,         /* Not a serial TS */
+	.no_tuner              = 1,         /* XC3028 is not behind the gate */
+	.disable_i2c_gate_ctrl = 1,         /* Disable the I2C gate */
 };
 
 static struct zl10353_config gotview_dvd3_zl10353_demod = {
-	.demod_address         = 0x1e >> 1, 
-	.if2                   = 45600,     
-	.parallel_ts           = 1,         
-	.no_tuner              = 1,         
-	.disable_i2c_gate_ctrl = 1,         
+	.demod_address         = 0x1e >> 1, /* Datasheet suggested straps */
+	.if2                   = 45600,     /* 4.560 MHz IF from the XC3028 */
+	.parallel_ts           = 1,         /* Not a serial TS */
+	.no_tuner              = 1,         /* XC3028 is not behind the gate */
+	.disable_i2c_gate_ctrl = 1,         /* Disable the I2C gate */
 };
 
 static int dvb_register(struct cx18_stream *stream);
 
+/* Kernel DVB framework calls this when the feed needs to start.
+ * The CX18 framework should enable the transport DMA handling
+ * and queue processing.
+ */
 static int cx18_dvb_start_feed(struct dvb_demux_feed *feed)
 {
 	struct dvb_demux *demux = feed->demux;
@@ -244,11 +274,11 @@ static int cx18_dvb_start_feed(struct dvb_demux_feed *feed)
 	case CX18_CARD_HVR_1600_SAMSUNG:
 	case CX18_CARD_HVR_1600_S5H1411:
 		v = cx18_read_reg(cx, CX18_REG_DMUX_NUM_PORT_0_CONTROL);
-		v |= 0x00400000; 
-		v |= 0x00002000; 
-		v |= 0x00010000; 
-		v |= 0x00020000; 
-		v |= 0x000c0000; 
+		v |= 0x00400000; /* Serial Mode */
+		v |= 0x00002000; /* Data Length - Byte */
+		v |= 0x00010000; /* Error - Polarity */
+		v |= 0x00020000; /* Error - Passthru */
+		v |= 0x000c0000; /* Error - Ignore */
 		cx18_write_reg(cx, v, CX18_REG_DMUX_NUM_PORT_0_CONTROL);
 		break;
 
@@ -256,6 +286,9 @@ static int cx18_dvb_start_feed(struct dvb_demux_feed *feed)
 	case CX18_CARD_YUAN_MPC718:
 	case CX18_CARD_GOTVIEW_PCI_DVD3:
 	default:
+		/* Assumption - Parallel transport - Signalling
+		 * undefined or default.
+		 */
 		break;
 	}
 
@@ -282,6 +315,7 @@ static int cx18_dvb_start_feed(struct dvb_demux_feed *feed)
 	return ret;
 }
 
+/* Kernel DVB framework calls this when the feed needs to stop. */
 static int cx18_dvb_stop_feed(struct dvb_demux_feed *feed)
 {
 	struct dvb_demux *demux = feed->demux;
@@ -428,6 +462,9 @@ void cx18_dvb_unregister(struct cx18_stream *stream)
 	dvb_unregister_adapter(dvb_adapter);
 }
 
+/* All the DVB attach calls go here, this function get's modified
+ * for each new card. cx18_dvb_start_feed() will also need changes.
+ */
 static int dvb_register(struct cx18_stream *stream)
 {
 	struct cx18_dvb *dvb = stream->dvb;
@@ -480,6 +517,11 @@ static int dvb_register(struct cx18_stream *stream)
 		}
 		break;
 	case CX18_CARD_YUAN_MPC718:
+		/*
+		 * TODO
+		 * Apparently, these cards also could instead have a
+		 * DiBcom demod supported by one of the db7000 drivers
+		 */
 		dvb->fe = dvb_attach(mt352_attach,
 				     &yuan_mpc718_mt352_demod,
 				     &cx->i2c_adap[1]);
@@ -530,7 +572,7 @@ static int dvb_register(struct cx18_stream *stream)
 		}
 		break;
 	default:
-		
+		/* No Digital Tv Support */
 		break;
 	}
 
@@ -548,6 +590,11 @@ static int dvb_register(struct cx18_stream *stream)
 		return ret;
 	}
 
+	/*
+	 * The firmware seems to enable the TS DMUX clock
+	 * under various circumstances.  However, since we know we
+	 * might use it, let's just turn it on ourselves here.
+	 */
 	cx18_write_reg_expect(cx,
 			      (CX18_DMUX_CLK_MASK << 16) | CX18_DMUX_CLK_MASK,
 			      CX18_CLOCK_ENABLE2,

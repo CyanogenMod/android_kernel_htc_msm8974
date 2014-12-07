@@ -19,6 +19,7 @@
 #define SIC1_VA_BASE            IO_ADDRESS(PNX4008_INTCTRLSIC1_BASE)
 #define SIC2_VA_BASE            IO_ADDRESS(PNX4008_INTCTRLSIC2_BASE)
 
+/* Manual: Chapter 20, page 195 */
 
 #define INTC_BIT(irq) (1<< ((irq) & 0x1F))
 
@@ -38,4 +39,4 @@
 
 extern void __init pnx4008_init_irq(void);
 
-#endif 
+#endif /* __PNX4008_IRQ_H__ */

@@ -42,43 +42,49 @@
 #define AGPIOC_CHIPSET_FLUSH32 _IO (AGPIOC_BASE, 10)
 
 struct agp_info32 {
-	struct agp_version version;	
-	u32 bridge_id;		
-	u32 agp_mode;		
-	compat_long_t aper_base;	
-	compat_size_t aper_size;	
-	compat_size_t pg_total;	
-	compat_size_t pg_system;	
-	compat_size_t pg_used;		
+	struct agp_version version;	/* version of the driver        */
+	u32 bridge_id;		/* bridge vendor/device         */
+	u32 agp_mode;		/* mode info of bridge          */
+	compat_long_t aper_base;	/* base of aperture             */
+	compat_size_t aper_size;	/* size of aperture             */
+	compat_size_t pg_total;	/* max pages (swap + system)    */
+	compat_size_t pg_system;	/* max pages (system)           */
+	compat_size_t pg_used;		/* current pages used           */
 };
 
+/*
+ * The "prot" down below needs still a "sleep" flag somehow ...
+ */
 struct agp_segment32 {
-	compat_off_t pg_start;		
-	compat_size_t pg_count;	
-	compat_int_t prot;		
+	compat_off_t pg_start;		/* starting page to populate    */
+	compat_size_t pg_count;	/* number of pages              */
+	compat_int_t prot;		/* prot flags for mmap          */
 };
 
 struct agp_region32 {
-	compat_pid_t pid;		
-	compat_size_t seg_count;	
+	compat_pid_t pid;		/* pid of process               */
+	compat_size_t seg_count;	/* number of segments           */
 	struct agp_segment32 *seg_list;
 };
 
 struct agp_allocate32 {
-	compat_int_t key;		
-	compat_size_t pg_count;	
-	u32 type;		
-	u32 physical;           
+	compat_int_t key;		/* tag of allocation            */
+	compat_size_t pg_count;	/* number of pages              */
+	u32 type;		/* 0 == normal, other devspec   */
+	u32 physical;           /* device specific (some devices
+				 * need a phys address of the
+				 * actual page behind the gatt
+				 * table)                        */
 };
 
 struct agp_bind32 {
-	compat_int_t key;		
-	compat_off_t pg_start;		
+	compat_int_t key;		/* tag of allocation            */
+	compat_off_t pg_start;		/* starting page to populate    */
 };
 
 struct agp_unbind32 {
-	compat_int_t key;		
-	u32 priority;		
+	compat_int_t key;		/* tag of allocation            */
+	u32 priority;		/* priority for paging out      */
 };
 
 extern struct agp_front_data agp_fe;
@@ -97,4 +103,4 @@ struct agp_memory *agp_allocate_memory_wrap(size_t pg_count, u32 type);
 struct agp_memory *agp_find_mem_by_key(int key);
 struct agp_client *agp_find_client_by_pid(pid_t id);
 
-#endif 
+#endif /* _AGP_COMPAT_H */

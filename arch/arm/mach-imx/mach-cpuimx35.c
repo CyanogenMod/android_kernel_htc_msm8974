@@ -77,12 +77,12 @@ static struct i2c_board_info eukrea_cpuimx35_i2c_devices[] = {
 };
 
 static iomux_v3_cfg_t eukrea_cpuimx35_pads[] = {
-	
+	/* UART1 */
 	MX35_PAD_CTS1__UART1_CTS,
 	MX35_PAD_RTS1__UART1_RTS,
 	MX35_PAD_TXD1__UART1_TXD_MUX,
 	MX35_PAD_RXD1__UART1_RXD_MUX,
-	
+	/* FEC */
 	MX35_PAD_FEC_TX_CLK__FEC_TX_CLK,
 	MX35_PAD_FEC_RX_CLK__FEC_RX_CLK,
 	MX35_PAD_FEC_RX_DV__FEC_RX_DV,
@@ -101,10 +101,10 @@ static iomux_v3_cfg_t eukrea_cpuimx35_pads[] = {
 	MX35_PAD_FEC_TDATA2__FEC_TDATA_2,
 	MX35_PAD_FEC_RDATA3__FEC_RDATA_3,
 	MX35_PAD_FEC_TDATA3__FEC_TDATA_3,
-	
+	/* I2C1 */
 	MX35_PAD_I2C1_CLK__I2C1_SCL,
 	MX35_PAD_I2C1_DAT__I2C1_SDA,
-	
+	/* TSC2007 IRQ */
 	MX35_PAD_ATA_DA2__GPIO3_2,
 };
 
@@ -157,6 +157,9 @@ static int __init eukrea_cpuimx35_otg_mode(char *options)
 }
 __setup("otg_mode=", eukrea_cpuimx35_otg_mode);
 
+/*
+ * Board specific initialization.
+ */
 static void __init eukrea_cpuimx35_init(void)
 {
 	imx35_soc_init();
@@ -196,7 +199,7 @@ struct sys_timer eukrea_cpuimx35_timer = {
 };
 
 MACHINE_START(EUKREA_CPUIMX35SD, "Eukrea CPUIMX35")
-	
+	/* Maintainer: Eukrea Electromatique */
 	.atag_offset = 0x100,
 	.map_io = mx35_map_io,
 	.init_early = imx35_init_early,

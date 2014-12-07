@@ -18,17 +18,18 @@
 static struct msm_panel_info pinfo;
 
 static struct mipi_dsi_phy_ctrl dsi_cmd_mode_phy_db = {
-		{0x03, 0x01, 0x01, 0x00},	
-		
+/* DSI_BIT_CLK at 500MHz, 2 lane, RGB888 */
+		{0x03, 0x01, 0x01, 0x00},	/* regulator */
+		/* timing   */
 		{0xB4, 0x8D, 0x1D, 0x00, 0x20, 0x94, 0x20,
 		0x8F, 0x20, 0x03, 0x04},
-		{0x7f, 0x00, 0x00, 0x00},	
-		{0xee, 0x02, 0x86, 0x00},	
-		
+		{0x7f, 0x00, 0x00, 0x00},	/* phy ctrl */
+		{0xee, 0x02, 0x86, 0x00},	/* strength */
+		/* pll control */
 		{0x40, 0xf9, 0xb0, 0xda, 0x00, 0x50, 0x48, 0x63,
 #if defined(NOVATEK_TWO_LANE)
 		0x30, 0x07, 0x03,
-#else           
+#else           /* default set to 1 lane */
 		0x30, 0x07, 0x07,
 #endif
 		0x05, 0x14, 0x03, 0x0, 0x0, 0x54, 0x06, 0x10, 0x04, 0x0},
@@ -53,8 +54,8 @@ static int __init mipi_cmd_novatek_blue_qhd_pt_init(void)
 	pinfo.lcdc.v_back_porch = 11;
 	pinfo.lcdc.v_front_porch = 10;
 	pinfo.lcdc.v_pulse_width = 5;
-	pinfo.lcdc.border_clr = 0;	
-	pinfo.lcdc.underflow_clr = 0xff;	
+	pinfo.lcdc.border_clr = 0;	/* blk */
+	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 	pinfo.bl_max = 255;
 	pinfo.bl_min = 1;
@@ -63,7 +64,7 @@ static int __init mipi_cmd_novatek_blue_qhd_pt_init(void)
 	pinfo.is_3d_panel = FB_TYPE_3D_PANEL;
 	pinfo.lcd.vsync_enable = TRUE;
 	pinfo.lcd.hw_vsync_mode = TRUE;
-	pinfo.lcd.refx100 = 6200; 
+	pinfo.lcd.refx100 = 6200; /* adjust refx100 to prevent tearing */
 	pinfo.lcd.v_back_porch = 11;
 	pinfo.lcd.v_front_porch = 10;
 	pinfo.lcd.v_pulse_width = 5;
@@ -78,10 +79,10 @@ static int __init mipi_cmd_novatek_blue_qhd_pt_init(void)
 #endif
 	pinfo.mipi.t_clk_post = 0x22;
 	pinfo.mipi.t_clk_pre = 0x3f;
-	pinfo.mipi.stream = 0;	
+	pinfo.mipi.stream = 0;	/* dma_p */
 	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_NONE;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
-	pinfo.mipi.te_sel = 1; 
+	pinfo.mipi.te_sel = 1; /* TE from vsycn gpio */
 	pinfo.mipi.interleave_max = 1;
 	pinfo.mipi.insert_dcs_cmd = TRUE;
 	pinfo.mipi.wr_mem_continue = 0x3c;

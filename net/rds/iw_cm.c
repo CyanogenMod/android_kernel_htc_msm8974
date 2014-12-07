@@ -39,17 +39,23 @@
 #include "rds.h"
 #include "iw.h"
 
+/*
+ * Set the selected protocol version
+ */
 static void rds_iw_set_protocol(struct rds_connection *conn, unsigned int version)
 {
 	conn->c_version = version;
 }
 
+/*
+ * Set up flow control
+ */
 static void rds_iw_set_flow_control(struct rds_connection *conn, u32 credits)
 {
 	struct rds_iw_connection *ic = conn->c_transport_data;
 
 	if (rds_iw_sysctl_flow_control && credits != 0) {
-		
+		/* We're doing flow control */
 		ic->i_flowctl = 1;
 		rds_iw_send_add_credits(conn, credits);
 	} else {
@@ -57,6 +63,10 @@ static void rds_iw_set_flow_control(struct rds_connection *conn, u32 credits)
 	}
 }
 
+/*
+ * Connection established.
+ * We get here for both outgoing and incoming connection.
+ */
 void rds_iw_cm_connect_complete(struct rds_connection *conn, struct rdma_cm_event *event)
 {
 	const struct rds_iw_connect_private *dp = NULL;
@@ -73,13 +83,15 @@ void rds_iw_cm_connect_complete(struct rds_connection *conn, struct rdma_cm_even
 		rds_iw_set_flow_control(conn, be32_to_cpu(dp->dp_credit));
 	}
 
-	
+	/* update ib_device with this local ipaddr & conn */
 	rds_iwdev = ib_get_client_data(ic->i_cm_id->device, &rds_iw_client);
 	err = rds_iw_update_cm_id(rds_iwdev, ic->i_cm_id);
 	if (err)
 		printk(KERN_ERR "rds_iw_update_ipaddr failed (%d)\n", err);
 	rds_iw_add_conn(rds_iwdev, conn);
 
+	/* If the peer gave us the last packet it saw, process this as if
+	 * we had received a regular ACK. */
 	if (dp && dp->dp_ack_seq)
 		rds_send_drop_acked(conn, be64_to_cpu(dp->dp_ack_seq), NULL);
 
@@ -100,7 +112,7 @@ static void rds_iw_cm_fill_conn_param(struct rds_connection *conn,
 	struct rds_iw_connection *ic = conn->c_transport_data;
 
 	memset(conn_param, 0, sizeof(struct rdma_conn_param));
-	
+	/* XXX tune these? */
 	conn_param->responder_resources = 1;
 	conn_param->initiator_depth = 1;
 
@@ -113,7 +125,7 @@ static void rds_iw_cm_fill_conn_param(struct rds_connection *conn,
 		dp->dp_protocol_minor_mask = cpu_to_be16(RDS_IW_SUPPORTED_PROTOCOLS);
 		dp->dp_ack_seq = rds_iw_piggyb_ack(ic);
 
-		
+		/* Advertise flow control */
 		if (ic->i_flowctl) {
 			unsigned int credits;
 
@@ -155,6 +167,9 @@ static void rds_iw_qp_event_handler(struct ib_event *event, void *data)
 	}
 }
 
+/*
+ * Create a QP
+ */
 static int rds_iw_init_qp_attrs(struct ib_qp_init_attr *attr,
 		struct rds_iw_device *rds_iwdev,
 		struct rds_iw_work_ring *send_ring,
@@ -167,7 +182,7 @@ static int rds_iw_init_qp_attrs(struct ib_qp_init_attr *attr,
 	unsigned int send_size, recv_size;
 	int ret;
 
-	
+	/* The offset of 1 is to accommodate the additional ACK WR. */
 	send_size = min_t(unsigned int, rds_iwdev->max_wrs, rds_iw_sysctl_max_send_wr + 1);
 	recv_size = min_t(unsigned int, rds_iwdev->max_wrs, rds_iw_sysctl_max_recv_wr + 1);
 	rds_iw_ring_resize(send_ring, send_size - 1);
@@ -225,6 +240,10 @@ out:
 	return ret;
 }
 
+/*
+ * This needs to be very careful to not leave IS_ERR pointers around for
+ * cleanup to trip over.
+ */
 static int rds_iw_setup_qp(struct rds_connection *conn)
 {
 	struct rds_iw_connection *ic = conn->c_transport_data;
@@ -233,6 +252,11 @@ static int rds_iw_setup_qp(struct rds_connection *conn)
 	struct rds_iw_device *rds_iwdev;
 	int ret;
 
+	/* rds_iw_add_one creates a rds_iw_device object per IB device,
+	 * and allocates a protection domain, memory range and MR pool
+	 * for each.  If that fails for any reason, it will not register
+	 * the rds_iwdev at all.
+	 */
 	rds_iwdev = ib_get_client_data(dev, &rds_iw_client);
 	if (!rds_iwdev) {
 		printk_ratelimited(KERN_NOTICE "RDS/IW: No client_data for device %s\n",
@@ -240,7 +264,7 @@ static int rds_iw_setup_qp(struct rds_connection *conn)
 		return -EOPNOTSUPP;
 	}
 
-	
+	/* Protection domain and memory range */
 	ic->i_pd = rds_iwdev->pd;
 	ic->i_mr = rds_iwdev->mr;
 
@@ -254,6 +278,10 @@ static int rds_iw_setup_qp(struct rds_connection *conn)
 	ic->i_send_cq = attr.send_cq;
 	ic->i_recv_cq = attr.recv_cq;
 
+	/*
+	 * XXX this can fail if max_*_wr is too large?  Are we supposed
+	 * to back off until we get a value that the hardware can support?
+	 */
 	ret = rdma_create_qp(ic->i_cm_id, ic->i_pd, &attr);
 	if (ret) {
 		rdsdebug("rdma_create_qp failed: %d\n", ret);
@@ -306,6 +334,8 @@ static int rds_iw_setup_qp(struct rds_connection *conn)
 	rds_iw_recv_init_ring(ic);
 	rds_iw_recv_init_ack(ic);
 
+	/* Post receive buffers - as a side effect, this will update
+	 * the posted credit count. */
 	rds_iw_recv_refill(conn, GFP_KERNEL, GFP_HIGHUSER, 1);
 
 	rdsdebug("conn %p pd %p mr %p cq %p %p\n", conn, ic->i_pd, ic->i_mr,
@@ -320,6 +350,13 @@ static u32 rds_iw_protocol_compatible(const struct rds_iw_connect_private *dp)
 	u16 common;
 	u32 version = 0;
 
+	/* rdma_cm private data is odd - when there is any private data in the
+	 * request, we will be given a pretty large buffer without telling us the
+	 * original size. The only way to tell the difference is by looking at
+	 * the contents, which are initialized to zero.
+	 * If the protocol version fields aren't set, this is a connection attempt
+	 * from an older version. This could could be 3.0 or 2.0 - we can't tell.
+	 * We really should have changed this for OFED 1.3 :-( */
 	if (dp->dp_protocol_major == 0)
 		return RDS_PROTOCOL_3_0;
 
@@ -349,7 +386,7 @@ int rds_iw_cm_handle_connect(struct rdma_cm_id *cm_id,
 	u32 version;
 	int err, destroy = 1;
 
-	
+	/* Check whether the remote protocol version matches ours. */
 	version = rds_iw_protocol_compatible(dp);
 	if (!version)
 		goto out;
@@ -366,6 +403,13 @@ int rds_iw_cm_handle_connect(struct rdma_cm_id *cm_id,
 		goto out;
 	}
 
+	/*
+	 * The connection request may occur while the
+	 * previous connection exist, e.g. in case of failover.
+	 * But as connections may be initiated simultaneously
+	 * by both hosts, we have a random backoff mechanism -
+	 * see the comment above rds_queue_reconnect()
+	 */
 	mutex_lock(&conn->c_cm_lock);
 	if (!rds_conn_transition(conn, RDS_CONN_DOWN, RDS_CONN_CONNECTING)) {
 		if (rds_conn_state(conn) == RDS_CONN_UP) {
@@ -374,7 +418,7 @@ int rds_iw_cm_handle_connect(struct rdma_cm_id *cm_id,
 			rds_iw_stats_inc(s_iw_listen_closed_stale);
 		} else
 		if (rds_conn_state(conn) == RDS_CONN_CONNECTING) {
-			
+			/* Wait and see - our connect may still be succeeding */
 			rds_iw_stats_inc(s_iw_connect_raced);
 		}
 		mutex_unlock(&conn->c_cm_lock);
@@ -386,6 +430,8 @@ int rds_iw_cm_handle_connect(struct rdma_cm_id *cm_id,
 	rds_iw_set_protocol(conn, version);
 	rds_iw_set_flow_control(conn, be32_to_cpu(dp->dp_credit));
 
+	/* If the peer gave us the last packet it saw, process this as if
+	 * we had received a regular ACK. */
 	if (dp->dp_ack_seq)
 		rds_send_drop_acked(conn, be64_to_cpu(dp->dp_ack_seq), NULL);
 
@@ -398,6 +444,8 @@ int rds_iw_cm_handle_connect(struct rdma_cm_id *cm_id,
 	rds_iwdev = ib_get_client_data(cm_id->device, &rds_iw_client);
 	ic->i_dma_local_lkey = rds_iwdev->dma_local_lkey;
 
+	/* We got halfway through setting up the ib_connection, if we
+	 * fail now, we have to take the long route out of this mess. */
 	destroy = 0;
 
 	err = rds_iw_setup_qp(conn);
@@ -409,7 +457,7 @@ int rds_iw_cm_handle_connect(struct rdma_cm_id *cm_id,
 
 	rds_iw_cm_fill_conn_param(conn, &conn_param, &dp_rep, version);
 
-	
+	/* rdma_accept() calls rdma_reject() internally if it fails */
 	err = rdma_accept(cm_id, &conn_param);
 	mutex_unlock(&conn->c_cm_lock);
 	if (err) {
@@ -433,8 +481,10 @@ int rds_iw_cm_initiate_connect(struct rdma_cm_id *cm_id)
 	struct rds_iw_connect_private dp;
 	int ret;
 
+	/* If the peer doesn't do protocol negotiation, we must
+	 * default to RDSv3.0 */
 	rds_iw_set_protocol(conn, RDS_PROTOCOL_3_0);
-	ic->i_flowctl = rds_iw_sysctl_flow_control;	
+	ic->i_flowctl = rds_iw_sysctl_flow_control;	/* advertise flow control */
 
 	ret = rds_iw_setup_qp(conn);
 	if (ret) {
@@ -449,6 +499,9 @@ int rds_iw_cm_initiate_connect(struct rdma_cm_id *cm_id)
 		rds_iw_conn_error(conn, "rdma_connect failed (%d)\n", ret);
 
 out:
+	/* Beware - returning non-zero tells the rdma_cm to destroy
+	 * the cm_id. We should certainly not do it as long as we still
+	 * "own" the cm_id. */
 	if (ret) {
 		struct rds_iw_connection *ic = conn->c_transport_data;
 
@@ -465,8 +518,8 @@ int rds_iw_conn_connect(struct rds_connection *conn)
 	struct sockaddr_in src, dest;
 	int ret;
 
-	
-	
+	/* XXX I wonder what affect the port space has */
+	/* delegate cm event handler to rdma_transport */
 	ic->i_cm_id = rdma_create_id(rds_rdma_cm_event_handler, conn,
 				     RDMA_PS_TCP, IB_QPT_RC);
 	if (IS_ERR(ic->i_cm_id)) {
@@ -482,7 +535,7 @@ int rds_iw_conn_connect(struct rds_connection *conn)
 	src.sin_addr.s_addr = (__force u32)conn->c_laddr;
 	src.sin_port = (__force u16)htons(0);
 
-	
+	/* First, bind to the local address and device. */
 	ret = rdma_bind_addr(ic->i_cm_id, (struct sockaddr *) &src);
 	if (ret) {
 		rdsdebug("rdma_bind_addr(%pI4) failed: %d\n",
@@ -513,6 +566,11 @@ out:
 	return ret;
 }
 
+/*
+ * This is so careful about only cleaning up resources that were built up
+ * so that it can be called at any point during startup.  In fact it
+ * can be called multiple times for a given connection.
+ */
 void rds_iw_conn_shutdown(struct rds_connection *conn)
 {
 	struct rds_iw_connection *ic = conn->c_transport_data;
@@ -529,6 +587,9 @@ void rds_iw_conn_shutdown(struct rds_connection *conn)
 		rdsdebug("disconnecting cm %p\n", ic->i_cm_id);
 		err = rdma_disconnect(ic->i_cm_id);
 		if (err) {
+			/* Actually this may happen quite frequently, when
+			 * an outgoing connect raced with an incoming connect.
+			 */
 			rdsdebug("rds_iw_conn_shutdown: failed to disconnect,"
 				   " cm: %p err %d\n", ic->i_cm_id, err);
 		}
@@ -572,6 +633,11 @@ void rds_iw_conn_shutdown(struct rds_connection *conn)
 		if (ic->i_recv_cq)
 			ib_destroy_cq(ic->i_recv_cq);
 
+		/*
+		 * If associated with an rds_iw_device:
+		 * 	Move connection back to the nodev list.
+		 * 	Remove cm_id from the device cm_id list.
+		 */
 		if (ic->rds_iwdev)
 			rds_iw_remove_conn(ic->rds_iwdev, conn);
 
@@ -588,13 +654,13 @@ void rds_iw_conn_shutdown(struct rds_connection *conn)
 	}
 	BUG_ON(ic->rds_iwdev);
 
-	
+	/* Clear pending transmit */
 	if (ic->i_rm) {
 		rds_message_put(ic->i_rm);
 		ic->i_rm = NULL;
 	}
 
-	
+	/* Clear the ACK state */
 	clear_bit(IB_ACK_IN_FLIGHT, &ic->i_ack_flags);
 #ifdef KERNEL_HAS_ATOMIC64
 	atomic64_set(&ic->i_ack_next, 0);
@@ -603,7 +669,7 @@ void rds_iw_conn_shutdown(struct rds_connection *conn)
 #endif
 	ic->i_ack_recv = 0;
 
-	
+	/* Clear flow control state */
 	ic->i_flowctl = 0;
 	atomic_set(&ic->i_credits, 0);
 
@@ -627,7 +693,7 @@ int rds_iw_conn_alloc(struct rds_connection *conn, gfp_t gfp)
 	struct rds_iw_connection *ic;
 	unsigned long flags;
 
-	
+	/* XXX too lazy? */
 	ic = kzalloc(sizeof(struct rds_iw_connection), gfp);
 	if (!ic)
 		return -ENOMEM;
@@ -640,6 +706,10 @@ int rds_iw_conn_alloc(struct rds_connection *conn, gfp_t gfp)
 	spin_lock_init(&ic->i_ack_lock);
 #endif
 
+	/*
+	 * rds_iw_conn_shutdown() waits for these to be emptied so they
+	 * must be initialized before it can be called.
+	 */
 	rds_iw_ring_init(&ic->i_send_ring, rds_iw_sysctl_max_send_wr);
 	rds_iw_ring_init(&ic->i_recv_ring, rds_iw_sysctl_max_recv_wr);
 
@@ -655,6 +725,9 @@ int rds_iw_conn_alloc(struct rds_connection *conn, gfp_t gfp)
 	return 0;
 }
 
+/*
+ * Free a connection. Connection must be shut down and not set for reconnect.
+ */
 void rds_iw_conn_free(void *arg)
 {
 	struct rds_iw_connection *ic = arg;
@@ -662,6 +735,11 @@ void rds_iw_conn_free(void *arg)
 
 	rdsdebug("ic %p\n", ic);
 
+	/*
+	 * Conn is either on a dev's list or on the nodev list.
+	 * A race with shutdown() or connect() would cause problems
+	 * (since rds_iwdev would change) but that should never happen.
+	 */
 	lock_ptr = ic->rds_iwdev ? &ic->rds_iwdev->spinlock : &iw_nodev_conns_lock;
 
 	spin_lock_irq(lock_ptr);
@@ -671,6 +749,9 @@ void rds_iw_conn_free(void *arg)
 	kfree(ic);
 }
 
+/*
+ * An error occurred on the connection
+ */
 void
 __rds_iw_conn_error(struct rds_connection *conn, const char *fmt, ...)
 {

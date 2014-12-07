@@ -18,6 +18,20 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
  
+/*
+ * We select the channels by sending commands to the Philips
+ * PCA9556 chip at I2C address 0x18. The main adapter is used for
+ * the non-multiplexed part of the bus, and 4 virtual adapters
+ * are defined for the multiplexed addresses: 0x50-0x53 (memory
+ * module EEPROM) located on channels 1-4, and 0x4c (LM63)
+ * located on multiplexed channels 0 and 5-7. We define one
+ * virtual adapter per CPU, which corresponds to two multiplexed
+ * channels:
+ *   CPU0: virtual adapter 1, channels 1 and 0
+ *   CPU1: virtual adapter 2, channels 2 and 5
+ *   CPU2: virtual adapter 3, channels 3 and 6
+ *   CPU3: virtual adapter 4, channels 4 and 7
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -31,6 +45,7 @@ extern struct i2c_adapter amd756_smbus;
 static struct i2c_adapter *s4882_adapter;
 static struct i2c_algorithm *s4882_algo;
 
+/* Wrapper access functions for multiplexed SMBus */
 static DEFINE_MUTEX(amd756_lock);
 
 static s32 amd756_access_virt0(struct i2c_adapter * adap, u16 addr,
@@ -40,7 +55,7 @@ static s32 amd756_access_virt0(struct i2c_adapter * adap, u16 addr,
 {
 	int error;
 
-	
+	/* We exclude the multiplexed addresses */
 	if (addr == 0x4c || (addr & 0xfc) == 0x50 || (addr & 0xfc) == 0x30
 	 || addr == 0x18)
 		return -ENXIO;
@@ -55,6 +70,10 @@ static s32 amd756_access_virt0(struct i2c_adapter * adap, u16 addr,
 	return error;
 }
 
+/* We remember the last used channels combination so as to only switch
+   channels when it is really needed. This greatly reduces the SMBus
+   overhead, but also assumes that nobody will be writing to the PCA9556
+   in our back. */
 static u8 last_channels;
 
 static inline s32 amd756_access_channel(struct i2c_adapter * adap, u16 addr,
@@ -65,7 +84,7 @@ static inline s32 amd756_access_channel(struct i2c_adapter * adap, u16 addr,
 {
 	int error;
 
-	
+	/* We exclude the non-multiplexed addresses */
 	if (addr != 0x4c && (addr & 0xfc) != 0x50 && (addr & 0xfc) != 0x30)
 		return -ENXIO;
 
@@ -96,7 +115,7 @@ static s32 amd756_access_virt1(struct i2c_adapter * adap, u16 addr,
 			       u8 command, int size,
 			       union i2c_smbus_data * data)
 {
-	
+	/* CPU0: channels 1 and 0 enabled */
 	return amd756_access_channel(adap, addr, flags, read_write, command,
 				     size, data, 0x03);
 }
@@ -106,7 +125,7 @@ static s32 amd756_access_virt2(struct i2c_adapter * adap, u16 addr,
 			       u8 command, int size,
 			       union i2c_smbus_data * data)
 {
-	
+	/* CPU1: channels 2 and 5 enabled */
 	return amd756_access_channel(adap, addr, flags, read_write, command,
 				     size, data, 0x24);
 }
@@ -116,7 +135,7 @@ static s32 amd756_access_virt3(struct i2c_adapter * adap, u16 addr,
 			       u8 command, int size,
 			       union i2c_smbus_data * data)
 {
-	
+	/* CPU2: channels 3 and 6 enabled */
 	return amd756_access_channel(adap, addr, flags, read_write, command,
 				     size, data, 0x48);
 }
@@ -126,7 +145,7 @@ static s32 amd756_access_virt4(struct i2c_adapter * adap, u16 addr,
 			       u8 command, int size,
 			       union i2c_smbus_data * data)
 {
-	
+	/* CPU3: channels 4 and 7 enabled */
 	return amd756_access_channel(adap, addr, flags, read_write, command,
 				     size, data, 0x90);
 }
@@ -139,8 +158,8 @@ static int __init amd756_s4882_init(void)
 	if (!amd756_smbus.dev.parent)
 		return -ENODEV;
 
-	
-	ioconfig.byte = 0x00; 
+	/* Configure the PCA9556 multiplexer */
+	ioconfig.byte = 0x00; /* All I/O to output mode */
 	error = i2c_smbus_xfer(&amd756_smbus, 0x18, 0, I2C_SMBUS_WRITE, 0x03,
 			       I2C_SMBUS_BYTE_DATA, &ioconfig);
 	if (error) {
@@ -149,7 +168,7 @@ static int __init amd756_s4882_init(void)
 		goto ERROR0;
 	}
 
-	
+	/* Unregister physical bus */
 	error = i2c_del_adapter(&amd756_smbus);
 	if (error) {
 		dev_err(&amd756_smbus.dev, "Physical bus removal failed\n");
@@ -157,7 +176,7 @@ static int __init amd756_s4882_init(void)
 	}
 
 	printk(KERN_INFO "Enabling SMBus multiplexing for Tyan S4882\n");
-	
+	/* Define the 5 virtual adapters and algorithms structures */
 	if (!(s4882_adapter = kzalloc(5 * sizeof(struct i2c_adapter),
 				      GFP_KERNEL))) {
 		error = -ENOMEM;
@@ -169,7 +188,7 @@ static int __init amd756_s4882_init(void)
 		goto ERROR2;
 	}
 
-	
+	/* Fill in the new structures */
 	s4882_algo[0] = *(amd756_smbus.algo);
 	s4882_algo[0].smbus_xfer = amd756_access_virt0;
 	s4882_adapter[0] = amd756_smbus;
@@ -188,7 +207,7 @@ static int __init amd756_s4882_init(void)
 	s4882_algo[3].smbus_xfer = amd756_access_virt3;
 	s4882_algo[4].smbus_xfer = amd756_access_virt4;
 
-	
+	/* Register virtual adapters */
 	for (i = 0; i < 5; i++) {
 		error = i2c_add_adapter(s4882_adapter+i);
 		if (error) {
@@ -210,7 +229,7 @@ ERROR2:
 	kfree(s4882_adapter);
 	s4882_adapter = NULL;
 ERROR1:
-	
+	/* Restore physical bus */
 	i2c_add_adapter(&amd756_smbus);
 ERROR0:
 	return error;
@@ -229,7 +248,7 @@ static void __exit amd756_s4882_exit(void)
 	kfree(s4882_algo);
 	s4882_algo = NULL;
 
-	
+	/* Restore physical bus */
 	if (i2c_add_adapter(&amd756_smbus))
 		printk(KERN_ERR "i2c-amd756-s4882: "
 		       "Physical bus restoration failed\n");

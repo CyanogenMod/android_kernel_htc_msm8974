@@ -1,6 +1,9 @@
 #ifndef __NET_ACT_API_H
 #define __NET_ACT_API_H
 
+/*
+ * Public police action API for classifiers/qdiscs
+ */
 
 #include <net/sch_generic.h>
 #include <net/pkt_sched.h>
@@ -70,7 +73,7 @@ struct tcf_act_hdr {
 struct tc_action {
 	void			*priv;
 	const struct tc_action_ops	*ops;
-	__u32			type; 
+	__u32			type; /* for backward compat(TCA_OLD_COMPAT) */
 	__u32			order;
 	struct tc_action	*next;
 };
@@ -80,8 +83,8 @@ struct tc_action_ops {
 	struct tc_action_ops *next;
 	struct tcf_hashinfo *hinfo;
 	char    kind[IFNAMSIZ];
-	__u32   type; 
-	__u32 	capab;  
+	__u32   type; /* TBD to match kind */
+	__u32 	capab;  /* capabilities includes 4 bit version */
 	struct module		*owner;
 	int     (*act)(struct sk_buff *, const struct tc_action *, struct tcf_result *);
 	int     (*get_stats)(struct sk_buff *, struct tc_action *);
@@ -119,5 +122,5 @@ extern int tcf_action_dump(struct sk_buff *skb, struct tc_action *a, int, int);
 extern int tcf_action_dump_old(struct sk_buff *skb, struct tc_action *a, int, int);
 extern int tcf_action_dump_1(struct sk_buff *skb, struct tc_action *a, int, int);
 extern int tcf_action_copy_stats (struct sk_buff *,struct tc_action *, int);
-#endif 
+#endif /* CONFIG_NET_CLS_ACT */
 #endif

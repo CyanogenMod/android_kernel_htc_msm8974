@@ -52,12 +52,12 @@ struct i2c_client *hdpvr_register_ir_rx_i2c(struct hdpvr_device *dev)
 		I2C_BOARD_INFO("ir_rx_z8f0811_hdpvr", Z8F0811_IR_RX_I2C_ADDR),
 	};
 
-	
+	/* Our default information for ir-kbd-i2c.c to use */
 	init_data->ir_codes = RC_MAP_HAUPPAUGE;
 	init_data->internal_get_key_func = IR_KBD_GET_KEY_HAUP_XVR;
 	init_data->type = RC_TYPE_RC5;
 	init_data->name = "HD-PVR";
-	init_data->polling_interval = 405; 
+	init_data->polling_interval = 405; /* ms, duplicated from Windows */
 	hdpvr_ir_rx_i2c_board_info.platform_data = init_data;
 
 	return i2c_new_device(&dev->i2c_adapter, &hdpvr_ir_rx_i2c_board_info);
@@ -159,6 +159,10 @@ static int hdpvr_transfer(struct i2c_adapter *i2c_adapter, struct i2c_msg *msgs,
 			goto out;
 		}
 
+		/*
+		 * Write followed by atomic read is the only complex xfer that
+		 * we actually support here.
+		 */
 		retval = hdpvr_i2c_read(dev, 1, addr, msgs[0].buf, msgs[0].len,
 					msgs[1].buf, msgs[1].len);
 	} else {

@@ -11,4 +11,4 @@ struct led_renesas_tpu_config {
 	unsigned int refresh_rate;
 };
 
-#endif 
+#endif /* __LEDS_RENESAS_TPU_H__ */

@@ -9,6 +9,7 @@
 #include <asm/desc.h>
 #include <asm/i387.h>
 
+/* image of the saved processor state */
 struct saved_context {
 	u16 es, fs, gs, ss;
 	unsigned long cr0, cr2, cr3, cr4;
@@ -23,4 +24,4 @@ struct saved_context {
 	unsigned long return_address;
 } __attribute__((packed));
 
-#endif 
+#endif /* _ASM_X86_SUSPEND_32_H */

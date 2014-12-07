@@ -49,6 +49,6 @@ static inline int irq_to_gpio(unsigned int irq)
 	return -ENOSYS;
 }
 
-#endif 
+#endif /* CONFIG_GPIOLIB */
 
-#endif 
+#endif /* __ASM_SH_GPIO_H */

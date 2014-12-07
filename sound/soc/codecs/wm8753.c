@@ -61,6 +61,11 @@ static int wm8753_hifi_write_dai_fmt(struct snd_soc_codec *codec,
 static int wm8753_voice_write_dai_fmt(struct snd_soc_codec *codec,
 		unsigned int fmt);
 
+/*
+ * wm8753 register cache
+ * We can't read the WM8753 register space when we
+ * are using 2 wire for device control, so we cache them instead.
+ */
 static const struct reg_default wm8753_reg_defaults[] = {
 	{ 0x00, 0x0000 },
 	{ 0x01, 0x0008 },
@@ -138,6 +143,7 @@ static bool wm8753_writeable(struct device *dev, unsigned int reg)
 	return reg <= WM8753_ADCTL2;
 }
 
+/* codec private data */
 struct wm8753_priv {
 	struct regmap *regmap;
 	unsigned int sysclk;
@@ -151,6 +157,9 @@ struct wm8753_priv {
 
 #define wm8753_reset(c) snd_soc_write(c, WM8753_RESET, 0)
 
+/*
+ * WM8753 Controls
+ */
 static const char *wm8753_base[] = {"Linear Control", "Adaptive Boost"};
 static const char *wm8753_base_filter[] =
 	{"130Hz @ 48kHz", "200Hz @ 48kHz", "100Hz @ 16kHz", "400Hz @ 48kHz",
@@ -268,7 +277,7 @@ static const DECLARE_TLV_DB_SCALE(adc_tlv, -9750, 50, 1);
 static const DECLARE_TLV_DB_SCALE(dac_tlv, -12750, 50, 1);
 static const unsigned int out_tlv[] = {
 	TLV_DB_RANGE_HEAD(2),
-	
+	/* 0000000 - 0101111 = "Analogue mute" */
 	0, 48, TLV_DB_SCALE_ITEM(-25500, 0, 0),
 	48, 127, TLV_DB_SCALE_ITEM(-7300, 100, 0),
 };
@@ -362,7 +371,11 @@ SOC_ENUM("ADC Data Select", wm8753_enum[27]),
 SOC_ENUM("ROUT2 Phase", wm8753_enum[28]),
 };
 
+/*
+ * _DAPM_ Controls
+ */
 
+/* Left Mixer */
 static const struct snd_kcontrol_new wm8753_left_mixer_controls[] = {
 SOC_DAPM_SINGLE("Voice Playback Switch", WM8753_LOUTM2, 8, 1, 0),
 SOC_DAPM_SINGLE("Sidetone Playback Switch", WM8753_LOUTM2, 7, 1, 0),
@@ -370,6 +383,7 @@ SOC_DAPM_SINGLE("Left Playback Switch", WM8753_LOUTM1, 8, 1, 0),
 SOC_DAPM_SINGLE("Bypass Playback Switch", WM8753_LOUTM1, 7, 1, 0),
 };
 
+/* Right mixer */
 static const struct snd_kcontrol_new wm8753_right_mixer_controls[] = {
 SOC_DAPM_SINGLE("Voice Playback Switch", WM8753_ROUTM2, 8, 1, 0),
 SOC_DAPM_SINGLE("Sidetone Playback Switch", WM8753_ROUTM2, 7, 1, 0),
@@ -377,6 +391,7 @@ SOC_DAPM_SINGLE("Right Playback Switch", WM8753_ROUTM1, 8, 1, 0),
 SOC_DAPM_SINGLE("Bypass Playback Switch", WM8753_ROUTM1, 7, 1, 0),
 };
 
+/* Mono mixer */
 static const struct snd_kcontrol_new wm8753_mono_mixer_controls[] = {
 SOC_DAPM_SINGLE("Left Playback Switch", WM8753_MOUTM1, 8, 1, 0),
 SOC_DAPM_SINGLE("Right Playback Switch", WM8753_MOUTM2, 8, 1, 0),
@@ -385,33 +400,42 @@ SOC_DAPM_SINGLE("Sidetone Playback Switch", WM8753_MOUTM2, 7, 1, 0),
 SOC_DAPM_SINGLE("Bypass Playback Switch", WM8753_MOUTM1, 7, 1, 0),
 };
 
+/* Mono 2 Mux */
 static const struct snd_kcontrol_new wm8753_mono2_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[17]);
 
+/* Out 3 Mux */
 static const struct snd_kcontrol_new wm8753_out3_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[18]);
 
+/* Out 4 Mux */
 static const struct snd_kcontrol_new wm8753_out4_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[19]);
 
+/* ADC Mono Mix */
 static const struct snd_kcontrol_new wm8753_adc_mono_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[22]);
 
+/* Record mixer */
 static const struct snd_kcontrol_new wm8753_record_mixer_controls[] = {
 SOC_DAPM_SINGLE("Voice Capture Switch", WM8753_RECMIX2, 3, 1, 0),
 SOC_DAPM_SINGLE("Left Capture Switch", WM8753_RECMIX1, 3, 1, 0),
 SOC_DAPM_SINGLE("Right Capture Switch", WM8753_RECMIX1, 7, 1, 0),
 };
 
+/* Left ADC mux */
 static const struct snd_kcontrol_new wm8753_adc_left_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[21]);
 
+/* Right ADC mux */
 static const struct snd_kcontrol_new wm8753_adc_right_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[20]);
 
+/* MIC mux */
 static const struct snd_kcontrol_new wm8753_mic_mux_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[16]);
 
+/* ALC mixer */
 static const struct snd_kcontrol_new wm8753_alc_mixer_controls[] = {
 SOC_DAPM_SINGLE("Line Capture Switch", WM8753_INCTL2, 3, 1, 0),
 SOC_DAPM_SINGLE("Mic2 Capture Switch", WM8753_INCTL2, 2, 1, 0),
@@ -419,21 +443,27 @@ SOC_DAPM_SINGLE("Mic1 Capture Switch", WM8753_INCTL2, 1, 1, 0),
 SOC_DAPM_SINGLE("Rx Capture Switch", WM8753_INCTL2, 0, 1, 0),
 };
 
+/* Left Line mux */
 static const struct snd_kcontrol_new wm8753_line_left_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[14]);
 
+/* Right Line mux */
 static const struct snd_kcontrol_new wm8753_line_right_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[13]);
 
+/* Mono Line mux */
 static const struct snd_kcontrol_new wm8753_line_mono_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[12]);
 
+/* Line mux and mixer */
 static const struct snd_kcontrol_new wm8753_line_mux_mix_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[11]);
 
+/* Rx mux and mixer */
 static const struct snd_kcontrol_new wm8753_rx_mux_mix_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[15]);
 
+/* Mic Selector Mux */
 static const struct snd_kcontrol_new wm8753_mic_sel_mux_controls =
 SOC_DAPM_ENUM("Route", wm8753_enum[25]);
 
@@ -515,42 +545,42 @@ SND_SOC_DAPM_VMID("VREF"),
 };
 
 static const struct snd_soc_dapm_route wm8753_dapm_routes[] = {
-	
+	/* left mixer */
 	{"Left Mixer", "Left Playback Switch", "Left DAC"},
 	{"Left Mixer", "Voice Playback Switch", "Voice DAC"},
 	{"Left Mixer", "Sidetone Playback Switch", "Mic Sidetone Mux"},
 	{"Left Mixer", "Bypass Playback Switch", "Line Left Mux"},
 
-	
+	/* right mixer */
 	{"Right Mixer", "Right Playback Switch", "Right DAC"},
 	{"Right Mixer", "Voice Playback Switch", "Voice DAC"},
 	{"Right Mixer", "Sidetone Playback Switch", "Mic Sidetone Mux"},
 	{"Right Mixer", "Bypass Playback Switch", "Line Right Mux"},
 
-	
+	/* mono mixer */
 	{"Mono Mixer", "Voice Playback Switch", "Voice DAC"},
 	{"Mono Mixer", "Left Playback Switch", "Left DAC"},
 	{"Mono Mixer", "Right Playback Switch", "Right DAC"},
 	{"Mono Mixer", "Sidetone Playback Switch", "Mic Sidetone Mux"},
 	{"Mono Mixer", "Bypass Playback Switch", "Line Mono Mux"},
 
-	
+	/* left out */
 	{"Left Out 1", NULL, "Left Mixer"},
 	{"Left Out 2", NULL, "Left Mixer"},
 	{"LOUT1", NULL, "Left Out 1"},
 	{"LOUT2", NULL, "Left Out 2"},
 
-	
+	/* right out */
 	{"Right Out 1", NULL, "Right Mixer"},
 	{"Right Out 2", NULL, "Right Mixer"},
 	{"ROUT1", NULL, "Right Out 1"},
 	{"ROUT2", NULL, "Right Out 2"},
 
-	
+	/* mono 1 out */
 	{"Mono Out 1", NULL, "Mono Mixer"},
 	{"MONO1", NULL, "Mono Out 1"},
 
-	
+	/* mono 2 out */
 	{"Mono 2 Mux", "Left + Right", "Out3 Left + Right"},
 	{"Mono 2 Mux", "Inverted Mono 1", "MONO1"},
 	{"Mono 2 Mux", "Left", "Left Mixer"},
@@ -558,7 +588,7 @@ static const struct snd_soc_dapm_route wm8753_dapm_routes[] = {
 	{"Mono Out 2", NULL, "Mono 2 Mux"},
 	{"MONO2", NULL, "Mono Out 2"},
 
-	
+	/* out 3 */
 	{"Out3 Left + Right", NULL, "Left Mixer"},
 	{"Out3 Left + Right", NULL, "Right Mixer"},
 	{"Out3 Mux", "VREF", "VREF"},
@@ -567,35 +597,35 @@ static const struct snd_soc_dapm_route wm8753_dapm_routes[] = {
 	{"Out 3", NULL, "Out3 Mux"},
 	{"OUT3", NULL, "Out 3"},
 
-	
+	/* out 4 */
 	{"Out4 Mux", "VREF", "VREF"},
 	{"Out4 Mux", "Capture ST", "Playback Mixer"},
 	{"Out4 Mux", "LOUT2", "LOUT2"},
 	{"Out 4", NULL, "Out4 Mux"},
 	{"OUT4", NULL, "Out 4"},
 
-	
+	/* record mixer  */
 	{"Playback Mixer", "Left Capture Switch", "Left Mixer"},
 	{"Playback Mixer", "Voice Capture Switch", "Mono Mixer"},
 	{"Playback Mixer", "Right Capture Switch", "Right Mixer"},
 
-	
+	/* Mic/SideTone Mux */
 	{"Mic Sidetone Mux", "Left PGA", "Left Capture Volume"},
 	{"Mic Sidetone Mux", "Right PGA", "Right Capture Volume"},
 	{"Mic Sidetone Mux", "Mic 1", "Mic 1 Volume"},
 	{"Mic Sidetone Mux", "Mic 2", "Mic 2 Volume"},
 
-	
+	/* Capture Left Mux */
 	{"Capture Left Mux", "PGA", "Left Capture Volume"},
 	{"Capture Left Mux", "Line or RXP-RXN", "Line Left Mux"},
 	{"Capture Left Mux", "Line", "LINE1"},
 
-	
+	/* Capture Right Mux */
 	{"Capture Right Mux", "PGA", "Right Capture Volume"},
 	{"Capture Right Mux", "Line or RXP-RXN", "Line Right Mux"},
 	{"Capture Right Mux", "Sidetone", "Playback Mixer"},
 
-	
+	/* Mono Capture mixer-mux */
 	{"Capture Right Mixer", "Stereo", "Capture Right Mux"},
 	{"Capture Left Mixer", "Stereo", "Capture Left Mux"},
 	{"Capture Left Mixer", "Analogue Mix Left", "Capture Left Mux"},
@@ -607,35 +637,35 @@ static const struct snd_soc_dapm_route wm8753_dapm_routes[] = {
 	{"Capture Right Mixer", "Digital Mono Mix", "Capture Left Mux"},
 	{"Capture Right Mixer", "Digital Mono Mix", "Capture Right Mux"},
 
-	
+	/* ADC */
 	{"Left ADC", NULL, "Capture Left Mixer"},
 	{"Right ADC", NULL, "Capture Right Mixer"},
 
-	
+	/* Left Capture Volume */
 	{"Left Capture Volume", NULL, "ACIN"},
 
-	
+	/* Right Capture Volume */
 	{"Right Capture Volume", NULL, "Mic 2 Volume"},
 
-	
+	/* ALC Mixer */
 	{"ALC Mixer", "Line Capture Switch", "Line Mixer"},
 	{"ALC Mixer", "Mic2 Capture Switch", "Mic 2 Volume"},
 	{"ALC Mixer", "Mic1 Capture Switch", "Mic 1 Volume"},
 	{"ALC Mixer", "Rx Capture Switch", "Rx Mixer"},
 
-	
+	/* Line Left Mux */
 	{"Line Left Mux", "Line 1", "LINE1"},
 	{"Line Left Mux", "Rx Mix", "Rx Mixer"},
 
-	
+	/* Line Right Mux */
 	{"Line Right Mux", "Line 2", "LINE2"},
 	{"Line Right Mux", "Rx Mix", "Rx Mixer"},
 
-	
+	/* Line Mono Mux */
 	{"Line Mono Mux", "Line Mix", "Line Mixer"},
 	{"Line Mono Mux", "Rx Mix", "Rx Mixer"},
 
-	
+	/* Line Mixer/Mux */
 	{"Line Mixer", "Line 1 + 2", "LINE1"},
 	{"Line Mixer", "Line 1 - 2", "LINE1"},
 	{"Line Mixer", "Line 1 + 2", "LINE2"},
@@ -643,7 +673,7 @@ static const struct snd_soc_dapm_route wm8753_dapm_routes[] = {
 	{"Line Mixer", "Line 1", "LINE1"},
 	{"Line Mixer", "Line 2", "LINE2"},
 
-	
+	/* Rx Mixer/Mux */
 	{"Rx Mixer", "RXP - RXN", "RXP"},
 	{"Rx Mixer", "RXP + RXN", "RXP"},
 	{"Rx Mixer", "RXP - RXN", "RXN"},
@@ -651,29 +681,32 @@ static const struct snd_soc_dapm_route wm8753_dapm_routes[] = {
 	{"Rx Mixer", "RXP", "RXP"},
 	{"Rx Mixer", "RXN", "RXN"},
 
-	
+	/* Mic 1 Volume */
 	{"Mic 1 Volume", NULL, "MIC1N"},
 	{"Mic 1 Volume", NULL, "Mic Selection Mux"},
 
-	
+	/* Mic 2 Volume */
 	{"Mic 2 Volume", NULL, "MIC2N"},
 	{"Mic 2 Volume", NULL, "MIC2"},
 
-	
+	/* Mic Selector Mux */
 	{"Mic Selection Mux", "Mic 1", "MIC1"},
 	{"Mic Selection Mux", "Mic 2", "MIC2N"},
 	{"Mic Selection Mux", "Mic 3", "MIC2"},
 
-	
+	/* ACOP */
 	{"ACOP", NULL, "ALC Mixer"},
 };
 
+/* PLL divisors */
 struct _pll_div {
 	u32 div2:1;
 	u32 n:4;
 	u32 k:24;
 };
 
+/* The size in bits of the pll divide multiplied by 10
+ * to allow rounding later */
 #define FIXED_PLL_SIZE ((1 << 22) * 10)
 
 static void pll_factors(struct _pll_div *pll_div, unsigned int target,
@@ -702,11 +735,11 @@ static void pll_factors(struct _pll_div *pll_div, unsigned int target,
 
 	K = Kpart & 0xFFFFFFFF;
 
-	
+	/* Check if we need to round */
 	if ((K % 10) >= 5)
 		K += 5;
 
-	
+	/* Move down to proper range now rounding is done */
 	K /= 10;
 
 	pll_div->k = K;
@@ -733,7 +766,7 @@ static int wm8753_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,
 	}
 
 	if (!freq_in || !freq_out) {
-		
+		/* disable PLL  */
 		snd_soc_write(codec, WM8753_PLL1CTL1 + offset, 0x0026);
 		snd_soc_write(codec, WM8753_CLOCK, reg);
 		return 0;
@@ -743,20 +776,20 @@ static int wm8753_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,
 
 		pll_factors(&pll_div, freq_out * 8, freq_in);
 
-		
-		
+		/* set up N and K PLL divisor ratios */
+		/* bits 8:5 = PLL_N, bits 3:0 = PLL_K[21:18] */
 		value = (pll_div.n << 5) + ((pll_div.k & 0x3c0000) >> 18);
 		snd_soc_write(codec, WM8753_PLL1CTL2 + offset, value);
 
-		
+		/* bits 8:0 = PLL_K[17:9] */
 		value = (pll_div.k & 0x03fe00) >> 9;
 		snd_soc_write(codec, WM8753_PLL1CTL3 + offset, value);
 
-		
+		/* bits 8:0 = PLL_K[8:0] */
 		value = pll_div.k & 0x0001ff;
 		snd_soc_write(codec, WM8753_PLL1CTL4 + offset, value);
 
-		
+		/* set PLL as input and enable */
 		snd_soc_write(codec, WM8753_PLL1CTL1 + offset, 0x0027 |
 			(pll_div.div2 << 3));
 		snd_soc_write(codec, WM8753_CLOCK, reg | enable);
@@ -771,50 +804,51 @@ struct _coeff_div {
 	u8 usb:1;
 };
 
+/* codec hifi mclk (after PLL) clock divider coefficients */
 static const struct _coeff_div coeff_div[] = {
-	
+	/* 8k */
 	{12288000, 8000, 0x6, 0x0},
 	{11289600, 8000, 0x16, 0x0},
 	{18432000, 8000, 0x7, 0x0},
 	{16934400, 8000, 0x17, 0x0},
 	{12000000, 8000, 0x6, 0x1},
 
-	
+	/* 11.025k */
 	{11289600, 11025, 0x18, 0x0},
 	{16934400, 11025, 0x19, 0x0},
 	{12000000, 11025, 0x19, 0x1},
 
-	
+	/* 16k */
 	{12288000, 16000, 0xa, 0x0},
 	{18432000, 16000, 0xb, 0x0},
 	{12000000, 16000, 0xa, 0x1},
 
-	
+	/* 22.05k */
 	{11289600, 22050, 0x1a, 0x0},
 	{16934400, 22050, 0x1b, 0x0},
 	{12000000, 22050, 0x1b, 0x1},
 
-	
+	/* 32k */
 	{12288000, 32000, 0xc, 0x0},
 	{18432000, 32000, 0xd, 0x0},
 	{12000000, 32000, 0xa, 0x1},
 
-	
+	/* 44.1k */
 	{11289600, 44100, 0x10, 0x0},
 	{16934400, 44100, 0x11, 0x0},
 	{12000000, 44100, 0x11, 0x1},
 
-	
+	/* 48k */
 	{12288000, 48000, 0x0, 0x0},
 	{18432000, 48000, 0x1, 0x0},
 	{12000000, 48000, 0x0, 0x1},
 
-	
+	/* 88.2k */
 	{11289600, 88200, 0x1e, 0x0},
 	{16934400, 88200, 0x1f, 0x0},
 	{12000000, 88200, 0x1f, 0x1},
 
-	
+	/* 96k */
 	{12288000, 96000, 0xe, 0x0},
 	{18432000, 96000, 0xf, 0x0},
 	{12000000, 96000, 0xe, 0x1},
@@ -831,6 +865,9 @@ static int get_coeff(int mclk, int rate)
 	return -EINVAL;
 }
 
+/*
+ * Clock after PLL and dividers
+ */
 static int wm8753_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 		int clk_id, unsigned int freq, int dir)
 {
@@ -855,12 +892,15 @@ static int wm8753_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 	return -EINVAL;
 }
 
+/*
+ * Set's ADC and Voice DAC format.
+ */
 static int wm8753_vdac_adc_set_dai_fmt(struct snd_soc_codec *codec,
 		unsigned int fmt)
 {
 	u16 voice = snd_soc_read(codec, WM8753_PCM) & 0x01ec;
 
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		voice |= 0x0002;
@@ -884,6 +924,9 @@ static int wm8753_vdac_adc_set_dai_fmt(struct snd_soc_codec *codec,
 	return 0;
 }
 
+/*
+ * Set PCM DAI bit size and sample rate.
+ */
 static int wm8753_pcm_hw_params(struct snd_pcm_substream *substream,
 				struct snd_pcm_hw_params *params,
 				struct snd_soc_dai *dai)
@@ -894,7 +937,7 @@ static int wm8753_pcm_hw_params(struct snd_pcm_substream *substream,
 	u16 voice = snd_soc_read(codec, WM8753_PCM) & 0x01f3;
 	u16 srate = snd_soc_read(codec, WM8753_SRATE1) & 0x017f;
 
-	
+	/* bit size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		break;
@@ -909,7 +952,7 @@ static int wm8753_pcm_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* sample rate */
 	if (params_rate(params) * 384 == wm8753->pcmclk)
 		srate |= 0x80;
 	snd_soc_write(codec, WM8753_SRATE1, srate);
@@ -918,6 +961,9 @@ static int wm8753_pcm_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * Set's PCM dai fmt and BCLK.
+ */
 static int wm8753_pcm_set_dai_fmt(struct snd_soc_codec *codec,
 		unsigned int fmt)
 {
@@ -926,7 +972,7 @@ static int wm8753_pcm_set_dai_fmt(struct snd_soc_codec *codec,
 	voice = snd_soc_read(codec, WM8753_PCM) & 0x011f;
 	ioctl = snd_soc_read(codec, WM8753_IOCTL) & 0x015d;
 
-	
+	/* set master/slave audio interface */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
 		break;
@@ -939,11 +985,11 @@ static int wm8753_pcm_set_dai_fmt(struct snd_soc_codec *codec,
 		return -EINVAL;
 	}
 
-	
+	/* clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_DSP_A:
 	case SND_SOC_DAIFMT_DSP_B:
-		
+		/* frame inversion not valid for DSP modes */
 		switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 		case SND_SOC_DAIFMT_NB_NF:
 			break;
@@ -1008,12 +1054,15 @@ static int wm8753_set_dai_clkdiv(struct snd_soc_dai *codec_dai,
 	return 0;
 }
 
+/*
+ * Set's HiFi DAC format.
+ */
 static int wm8753_hdac_set_dai_fmt(struct snd_soc_codec *codec,
 		unsigned int fmt)
 {
 	u16 hifi = snd_soc_read(codec, WM8753_HIFI) & 0x01e0;
 
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		hifi |= 0x0002;
@@ -1037,6 +1086,9 @@ static int wm8753_hdac_set_dai_fmt(struct snd_soc_codec *codec,
 	return 0;
 }
 
+/*
+ * Set's I2S DAI format.
+ */
 static int wm8753_i2s_set_dai_fmt(struct snd_soc_codec *codec,
 		unsigned int fmt)
 {
@@ -1045,7 +1097,7 @@ static int wm8753_i2s_set_dai_fmt(struct snd_soc_codec *codec,
 	hifi = snd_soc_read(codec, WM8753_HIFI) & 0x011f;
 	ioctl = snd_soc_read(codec, WM8753_IOCTL) & 0x00ae;
 
-	
+	/* set master/slave audio interface */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
 		break;
@@ -1058,11 +1110,11 @@ static int wm8753_i2s_set_dai_fmt(struct snd_soc_codec *codec,
 		return -EINVAL;
 	}
 
-	
+	/* clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_DSP_A:
 	case SND_SOC_DAIFMT_DSP_B:
-		
+		/* frame inversion not valid for DSP modes */
 		switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 		case SND_SOC_DAIFMT_NB_NF:
 			break;
@@ -1102,6 +1154,9 @@ static int wm8753_i2s_set_dai_fmt(struct snd_soc_codec *codec,
 	return 0;
 }
 
+/*
+ * Set PCM DAI bit size and sample rate.
+ */
 static int wm8753_i2s_hw_params(struct snd_pcm_substream *substream,
 				struct snd_pcm_hw_params *params,
 				struct snd_soc_dai *dai)
@@ -1113,7 +1168,7 @@ static int wm8753_i2s_hw_params(struct snd_pcm_substream *substream,
 	u16 hifi = snd_soc_read(codec, WM8753_HIFI) & 0x01f3;
 	int coeff;
 
-	
+	/* is digital filter coefficient valid ? */
 	coeff = get_coeff(wm8753->sysclk, params_rate(params));
 	if (coeff < 0) {
 		printk(KERN_ERR "wm8753 invalid MCLK or rate\n");
@@ -1122,7 +1177,7 @@ static int wm8753_i2s_hw_params(struct snd_pcm_substream *substream,
 	snd_soc_write(codec, WM8753_SRATE1, srate | (coeff_div[coeff].sr << 1) |
 		coeff_div[coeff].usb);
 
-	
+	/* bit size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		break;
@@ -1146,7 +1201,7 @@ static int wm8753_mode1v_set_dai_fmt(struct snd_soc_codec *codec,
 {
 	u16 clock;
 
-	
+	/* set clk source as pcmclk */
 	clock = snd_soc_read(codec, WM8753_CLOCK) & 0xfffb;
 	snd_soc_write(codec, WM8753_CLOCK, clock);
 
@@ -1164,7 +1219,7 @@ static int wm8753_mode2_set_dai_fmt(struct snd_soc_codec *codec,
 {
 	u16 clock;
 
-	
+	/* set clk source as pcmclk */
 	clock = snd_soc_read(codec, WM8753_CLOCK) & 0xfffb;
 	snd_soc_write(codec, WM8753_CLOCK, clock);
 
@@ -1176,7 +1231,7 @@ static int wm8753_mode3_4_set_dai_fmt(struct snd_soc_codec *codec,
 {
 	u16 clock;
 
-	
+	/* set clk source as mclk */
 	clock = snd_soc_read(codec, WM8753_CLOCK) & 0xfffb;
 	snd_soc_write(codec, WM8753_CLOCK, clock | 0x4);
 
@@ -1258,6 +1313,8 @@ static int wm8753_mute(struct snd_soc_dai *dai, int mute)
 	u16 mute_reg = snd_soc_read(codec, WM8753_DAC) & 0xfff7;
 	struct wm8753_priv *wm8753 = snd_soc_codec_get_drvdata(codec);
 
+	/* the digital mute covers the HiFi and Voice DAC's on the WM8753.
+	 * make sure we check if they are not both active when we mute */
 	if (mute && wm8753->dai_func == 1) {
 		if (!codec->active)
 			snd_soc_write(codec, WM8753_DAC, mute_reg | 0x8);
@@ -1278,15 +1335,15 @@ static int wm8753_set_bias_level(struct snd_soc_codec *codec,
 
 	switch (level) {
 	case SND_SOC_BIAS_ON:
-		
+		/* set vmid to 50k and unmute dac */
 		snd_soc_write(codec, WM8753_PWR1, pwr_reg | 0x00c0);
 		break;
 	case SND_SOC_BIAS_PREPARE:
-		
+		/* set vmid to 5k for quick power up */
 		snd_soc_write(codec, WM8753_PWR1, pwr_reg | 0x01c1);
 		break;
 	case SND_SOC_BIAS_STANDBY:
-		
+		/* mute dac and set vmid to 500k, enable VREF */
 		snd_soc_write(codec, WM8753_PWR1, pwr_reg | 0x0141);
 		break;
 	case SND_SOC_BIAS_OFF:
@@ -1305,6 +1362,17 @@ static int wm8753_set_bias_level(struct snd_soc_codec *codec,
 #define WM8753_FORMATS (SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S20_3LE |\
 	SNDRV_PCM_FMTBIT_S24_LE)
 
+/*
+ * The WM8753 supports up to 4 different and mutually exclusive DAI
+ * configurations. This gives 2 PCM's available for use, hifi and voice.
+ * NOTE: The Voice PCM cannot play or capture audio to the CPU as it's DAI
+ * is connected between the wm8753 and a BT codec or GSM modem.
+ *
+ * 1. Voice over PCM DAI - HIFI DAC over HIFI DAI
+ * 2. Voice over HIFI DAI - HIFI disabled
+ * 3. Voice disabled - HIFI over HIFI
+ * 4. Voice disabled - HIFI over HIFI, uses voice DAI LRC for capture
+ */
 static const struct snd_soc_dai_ops wm8753_dai_ops_hifi_mode = {
 	.hw_params	= wm8753_i2s_hw_params,
 	.digital_mute	= wm8753_mute,
@@ -1324,6 +1392,7 @@ static const struct snd_soc_dai_ops wm8753_dai_ops_voice_mode = {
 };
 
 static struct snd_soc_dai_driver wm8753_dai[] = {
+/* DAI HiFi mode 1 */
 {	.name = "wm8753-hifi",
 	.playback = {
 		.stream_name = "HiFi Playback",
@@ -1332,7 +1401,7 @@ static struct snd_soc_dai_driver wm8753_dai[] = {
 		.rates = WM8753_RATES,
 		.formats = WM8753_FORMATS
 	},
-	.capture = { 
+	.capture = { /* dummy for fast DAI switching */
 		.stream_name = "Capture",
 		.channels_min = 1,
 		.channels_max = 2,
@@ -1341,6 +1410,7 @@ static struct snd_soc_dai_driver wm8753_dai[] = {
 	},
 	.ops = &wm8753_dai_ops_hifi_mode,
 },
+/* DAI Voice mode 1 */
 {	.name = "wm8753-voice",
 	.playback = {
 		.stream_name = "Voice Playback",
@@ -1384,7 +1454,7 @@ static int wm8753_resume(struct snd_soc_codec *codec)
 
 	wm8753_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
-	
+	/* charge wm8753 caps */
 	if (codec->dapm.suspend_bias_level == SND_SOC_BIAS_ON) {
 		wm8753_set_bias_level(codec, SND_SOC_BIAS_PREPARE);
 		codec->dapm.bias_level = SND_SOC_BIAS_ON;
@@ -1418,12 +1488,12 @@ static int wm8753_probe(struct snd_soc_codec *codec)
 	wm8753_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 	wm8753->dai_func = 0;
 
-	
+	/* charge output caps */
 	wm8753_set_bias_level(codec, SND_SOC_BIAS_PREPARE);
 	schedule_delayed_work(&codec->dapm.delayed_work,
 			      msecs_to_jiffies(caps_charge));
 
-	
+	/* set the update bits */
 	snd_soc_update_bits(codec, WM8753_LDAC, 0x0100, 0x0100);
 	snd_soc_update_bits(codec, WM8753_RDAC, 0x0100, 0x0100);
 	snd_soc_update_bits(codec, WM8753_LADC, 0x0100, 0x0100);
@@ -1438,6 +1508,7 @@ static int wm8753_probe(struct snd_soc_codec *codec)
 	return 0;
 }
 
+/* power down chip */
 static int wm8753_remove(struct snd_soc_codec *codec)
 {
 	flush_delayed_work_sync(&codec->dapm.delayed_work);
@@ -1535,7 +1606,7 @@ static struct spi_driver wm8753_spi_driver = {
 	.probe		= wm8753_spi_probe,
 	.remove		= __devexit_p(wm8753_spi_remove),
 };
-#endif 
+#endif /* CONFIG_SPI_MASTER */
 
 #if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
 static __devinit int wm8753_i2c_probe(struct i2c_client *i2c,

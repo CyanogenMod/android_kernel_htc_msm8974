@@ -35,9 +35,11 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = { 0x48, 0x49, 0x4a, 0x4b,
 						I2C_CLIENT_END };
 
+/* The LM77 registers */
 #define LM77_REG_TEMP		0x00
 #define LM77_REG_CONF		0x01
 #define LM77_REG_TEMP_HYST	0x02
@@ -45,12 +47,13 @@ static const unsigned short normal_i2c[] = { 0x48, 0x49, 0x4a, 0x4b,
 #define LM77_REG_TEMP_MIN	0x04
 #define LM77_REG_TEMP_MAX	0x05
 
+/* Each client has this additional data */
 struct lm77_data {
 	struct device		*hwmon_dev;
 	struct mutex		update_lock;
 	char			valid;
-	unsigned long		last_updated;	
-	int			temp_input;	
+	unsigned long		last_updated;	/* In jiffies */
+	int			temp_input;	/* Temperatures */
 	int			temp_crit;
 	int			temp_min;
 	int			temp_max;
@@ -75,6 +78,7 @@ static const struct i2c_device_id lm77_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, lm77_id);
 
+/* This is the driver that will be inserted */
 static struct i2c_driver lm77_driver = {
 	.class		= I2C_CLASS_HWMON,
 	.driver = {
@@ -87,9 +91,14 @@ static struct i2c_driver lm77_driver = {
 	.address_list	= normal_i2c,
 };
 
+/* straight from the datasheet */
 #define LM77_TEMP_MIN (-55000)
 #define LM77_TEMP_MAX 125000
 
+/*
+ * In the temperature registers, the low 3 bits are not part of the
+ * temperature values; they are the status bits.
+ */
 static inline s16 LM77_TEMP_TO_REG(int temp)
 {
 	int ntemp = SENSORS_LIMIT(temp, LM77_TEMP_MIN, LM77_TEMP_MAX);
@@ -101,7 +110,9 @@ static inline int LM77_TEMP_FROM_REG(s16 reg)
 	return (reg / 8) * 500;
 }
 
+/* sysfs stuff */
 
+/* read routines for temperature limits */
 #define show(value)	\
 static ssize_t show_##value(struct device *dev,			\
 			    struct device_attribute *attr,	\
@@ -116,6 +127,7 @@ show(temp_crit);
 show(temp_min);
 show(temp_max);
 
+/* read routines for hysteresis values */
 static ssize_t show_temp_crit_hyst(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
@@ -135,6 +147,7 @@ static ssize_t show_temp_max_hyst(struct device *dev,
 	return sprintf(buf, "%d\n", data->temp_max - data->temp_hyst);
 }
 
+/* write routines */
 #define set(value, reg)	\
 static ssize_t set_##value(struct device *dev, struct device_attribute *attr, \
 			   const char *buf, size_t count)		\
@@ -156,6 +169,10 @@ static ssize_t set_##value(struct device *dev, struct device_attribute *attr, \
 set(temp_min, LM77_REG_TEMP_MIN);
 set(temp_max, LM77_REG_TEMP_MAX);
 
+/*
+ * hysteresis is stored as a relative value on the chip, so it has to be
+ * converted first
+ */
 static ssize_t set_temp_crit_hyst(struct device *dev,
 				  struct device_attribute *attr,
 				  const char *buf, size_t count)
@@ -177,6 +194,7 @@ static ssize_t set_temp_crit_hyst(struct device *dev,
 	return count;
 }
 
+/* preserve hysteresis when setting T_crit */
 static ssize_t set_temp_crit(struct device *dev, struct device_attribute *attr,
 			     const char *buf, size_t count)
 {
@@ -248,6 +266,7 @@ static const struct attribute_group lm77_group = {
 	.attrs = lm77_attributes,
 };
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int lm77_detect(struct i2c_client *new_client,
 		       struct i2c_board_info *info)
 {
@@ -258,8 +277,21 @@ static int lm77_detect(struct i2c_client *new_client,
 				     I2C_FUNC_SMBUS_WORD_DATA))
 		return -ENODEV;
 
+	/*
+	 * Here comes the remaining detection.  Since the LM77 has no
+	 * register dedicated to identification, we have to rely on the
+	 * following tricks:
+	 *
+	 * 1. the high 4 bits represent the sign and thus they should
+	 *    always be the same
+	 * 2. the high 3 bits are unused in the configuration register
+	 * 3. addresses 0x06 and 0x07 return the last read value
+	 * 4. registers cycling over 8-address boundaries
+	 *
+	 * Word-sized registers are high-byte first.
+	 */
 
-	
+	/* addresses cycling */
 	cur = i2c_smbus_read_word_data(new_client, 0);
 	conf = i2c_smbus_read_byte_data(new_client, 1);
 	hyst = i2c_smbus_read_word_data(new_client, 2);
@@ -275,7 +307,7 @@ static int lm77_detect(struct i2c_client *new_client,
 			return -ENODEV;
 	}
 
-	
+	/* sign bits */
 	if (((cur & 0x00f0) != 0xf0 && (cur & 0x00f0) != 0x0)
 	 || ((hyst & 0x00f0) != 0xf0 && (hyst & 0x00f0) != 0x0)
 	 || ((crit & 0x00f0) != 0xf0 && (crit & 0x00f0) != 0x0)
@@ -283,11 +315,11 @@ static int lm77_detect(struct i2c_client *new_client,
 	 || ((max & 0x00f0) != 0xf0 && (max & 0x00f0) != 0x0))
 		return -ENODEV;
 
-	
+	/* unused bits */
 	if (conf & 0xe0)
 		return -ENODEV;
 
-	
+	/* 0x06 and 0x07 return the last read value */
 	cur = i2c_smbus_read_word_data(new_client, 0);
 	if (i2c_smbus_read_word_data(new_client, 6) != cur
 	 || i2c_smbus_read_word_data(new_client, 7) != cur)
@@ -322,10 +354,10 @@ static int lm77_probe(struct i2c_client *new_client,
 	data->valid = 0;
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the LM77 chip */
 	lm77_init_client(new_client);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&new_client->dev.kobj, &lm77_group);
 	if (err)
 		goto exit_free;
@@ -355,6 +387,10 @@ static int lm77_remove(struct i2c_client *client)
 	return 0;
 }
 
+/*
+ * All registers are word-sized, except for the configuration register.
+ * The LM77 uses the high-byte first convention.
+ */
 static u16 lm77_read_value(struct i2c_client *client, u8 reg)
 {
 	if (reg == LM77_REG_CONF)
@@ -373,7 +409,7 @@ static int lm77_write_value(struct i2c_client *client, u8 reg, u16 value)
 
 static void lm77_init_client(struct i2c_client *client)
 {
-	
+	/* Initialize the LM77 chip - turn off shutdown mode */
 	int conf = lm77_read_value(client, LM77_REG_CONF);
 	if (conf & 1)
 		lm77_write_value(client, LM77_REG_CONF, conf & 0xfe);

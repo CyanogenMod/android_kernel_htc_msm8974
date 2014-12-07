@@ -20,6 +20,10 @@
  *
  */
 
+/*
+ * This driver supports an Intel I/OAT DMA engine, which does asynchronous
+ * copy operations.
+ */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -43,9 +47,15 @@ module_param(ioat_pending_level, int, 0644);
 MODULE_PARM_DESC(ioat_pending_level,
 		 "high-water mark for pushing ioat descriptors (default: 4)");
 
+/* internal functions */
 static void ioat1_cleanup(struct ioat_dma_chan *ioat);
 static void ioat1_dma_start_null_desc(struct ioat_dma_chan *ioat);
 
+/**
+ * ioat_dma_do_interrupt - handler used for single vector interrupt mode
+ * @irq: interrupt id
+ * @data: interrupt data
+ */
 static irqreturn_t ioat_dma_do_interrupt(int irq, void *data)
 {
 	struct ioatdma_device *instance = data;
@@ -74,6 +84,11 @@ static irqreturn_t ioat_dma_do_interrupt(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/**
+ * ioat_dma_do_interrupt_msix - handler used for vector-per-channel interrupt mode
+ * @irq: interrupt id
+ * @data: interrupt data
+ */
 static irqreturn_t ioat_dma_do_interrupt_msix(int irq, void *data)
 {
 	struct ioat_chan_common *chan = data;
@@ -83,6 +98,7 @@ static irqreturn_t ioat_dma_do_interrupt_msix(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/* common channel initialization */
 void ioat_init_channel(struct ioatdma_device *device, struct ioat_chan_common *chan, int idx)
 {
 	struct dma_device *dma = &device->common;
@@ -103,6 +119,10 @@ void ioat_init_channel(struct ioatdma_device *device, struct ioat_chan_common *c
 	tasklet_disable(&chan->cleanup_task);
 }
 
+/**
+ * ioat1_dma_enumerate_channels - find and initialize the device's channels
+ * @device: the device to be enumerated
+ */
 static int ioat1_enumerate_channels(struct ioatdma_device *device)
 {
 	u8 xfercap_scale;
@@ -114,14 +134,14 @@ static int ioat1_enumerate_channels(struct ioatdma_device *device)
 
 	INIT_LIST_HEAD(&dma->channels);
 	dma->chancnt = readb(device->reg_base + IOAT_CHANCNT_OFFSET);
-	dma->chancnt &= 0x1f; 
+	dma->chancnt &= 0x1f; /* bits [4:0] valid */
 	if (dma->chancnt > ARRAY_SIZE(device->idx)) {
 		dev_warn(dev, "(%d) exceeds max supported channels (%zu)\n",
 			 dma->chancnt, ARRAY_SIZE(device->idx));
 		dma->chancnt = ARRAY_SIZE(device->idx);
 	}
 	xfercap_scale = readb(device->reg_base + IOAT_XFERCAP_OFFSET);
-	xfercap_scale &= 0x1f; 
+	xfercap_scale &= 0x1f; /* bits [4:0] valid */
 	xfercap = (xfercap_scale == 0 ? -1 : (1UL << xfercap_scale));
 	dev_dbg(dev, "%s: xfercap = %d\n", __func__, xfercap);
 
@@ -144,6 +164,11 @@ static int ioat1_enumerate_channels(struct ioatdma_device *device)
 	return i;
 }
 
+/**
+ * ioat_dma_memcpy_issue_pending - push potentially unrecognized appended
+ *                                 descriptors to hw
+ * @chan: DMA channel handle
+ */
 static inline void
 __ioat1_dma_memcpy_issue_pending(struct ioat_dma_chan *ioat)
 {
@@ -166,6 +191,10 @@ static void ioat1_dma_memcpy_issue_pending(struct dma_chan *chan)
 	}
 }
 
+/**
+ * ioat1_reset_channel - restart a channel
+ * @ioat: IOAT DMA channel handle
+ */
 static void ioat1_reset_channel(struct ioat_dma_chan *ioat)
 {
 	struct ioat_chan_common *chan = &ioat->base;
@@ -182,6 +211,13 @@ static void ioat1_reset_channel(struct ioat_dma_chan *ioat)
 		writel(chanerr, reg_base + IOAT_CHANERR_OFFSET);
 	}
 
+	/*
+	 * whack it upside the head with a reset
+	 * and wait for things to settle out.
+	 * force the pending count to a really big negative
+	 * to make sure no one forces an issue_pending
+	 * while we're waiting.
+	 */
 
 	ioat->pending = INT_MIN;
 	writeb(IOAT_CHANCMD_RESET,
@@ -201,14 +237,14 @@ static dma_cookie_t ioat1_tx_submit(struct dma_async_tx_descriptor *tx)
 	dma_cookie_t cookie;
 
 	spin_lock_bh(&ioat->desc_lock);
-	
+	/* cookie incr and addition to used_list must be atomic */
 	cookie = dma_cookie_assign(tx);
 	dev_dbg(to_dev(&ioat->base), "%s: cookie: %d\n", __func__, cookie);
 
-	
+	/* write address into NextDescriptor field of last desc in chain */
 	first = to_ioat_desc(desc->tx_list.next);
 	chain_tail = to_ioat_desc(ioat->used_desc.prev);
-	
+	/* make descriptor updates globally visible before chaining */
 	wmb();
 	chain_tail->hw->next = first->txd.phys;
 	list_splice_tail_init(&desc->tx_list, &ioat->used_desc);
@@ -227,6 +263,11 @@ static dma_cookie_t ioat1_tx_submit(struct dma_async_tx_descriptor *tx)
 	return cookie;
 }
 
+/**
+ * ioat_dma_alloc_descriptor - allocate and return a sw and hw descriptor pair
+ * @ioat: the channel supplying the memory pool for the descriptors
+ * @flags: allocation flags
+ */
 static struct ioat_desc_sw *
 ioat_dma_alloc_descriptor(struct ioat_dma_chan *ioat, gfp_t flags)
 {
@@ -262,6 +303,10 @@ static int ioat_initial_desc_count = 256;
 module_param(ioat_initial_desc_count, int, 0644);
 MODULE_PARM_DESC(ioat_initial_desc_count,
 		 "ioat1: initial descriptors per channel (default: 256)");
+/**
+ * ioat1_dma_alloc_chan_resources - returns the number of allocated descriptors
+ * @chan: the channel to be filled out
+ */
 static int ioat1_dma_alloc_chan_resources(struct dma_chan *c)
 {
 	struct ioat_dma_chan *ioat = to_ioat_chan(c);
@@ -271,11 +316,11 @@ static int ioat1_dma_alloc_chan_resources(struct dma_chan *c)
 	int i;
 	LIST_HEAD(tmp_list);
 
-	
+	/* have we already been set up? */
 	if (!list_empty(&ioat->free_desc))
 		return ioat->desccount;
 
-	
+	/* Setup register to interrupt and write completion status on error */
 	writew(IOAT_CHANCTRL_RUN, chan->reg_base + IOAT_CHANCTRL_OFFSET);
 
 	chanerr = readl(chan->reg_base + IOAT_CHANERR_OFFSET);
@@ -284,7 +329,7 @@ static int ioat1_dma_alloc_chan_resources(struct dma_chan *c)
 		writel(chanerr, chan->reg_base + IOAT_CHANERR_OFFSET);
 	}
 
-	
+	/* Allocate descriptors */
 	for (i = 0; i < ioat_initial_desc_count; i++) {
 		desc = ioat_dma_alloc_descriptor(ioat, GFP_KERNEL);
 		if (!desc) {
@@ -299,8 +344,8 @@ static int ioat1_dma_alloc_chan_resources(struct dma_chan *c)
 	list_splice(&tmp_list, &ioat->free_desc);
 	spin_unlock_bh(&ioat->desc_lock);
 
-	
-	
+	/* allocate a completion writeback area */
+	/* doing 2 32bit writes to mmio since 1 64b write doesn't work */
 	chan->completion = pci_pool_alloc(chan->device->completion_pool,
 					  GFP_KERNEL, &chan->completion_dma);
 	memset(chan->completion, 0, sizeof(*chan->completion));
@@ -310,12 +355,16 @@ static int ioat1_dma_alloc_chan_resources(struct dma_chan *c)
 	       chan->reg_base + IOAT_CHANCMP_OFFSET_HIGH);
 
 	tasklet_enable(&chan->cleanup_task);
-	ioat1_dma_start_null_desc(ioat);  
+	ioat1_dma_start_null_desc(ioat);  /* give chain to dma device */
 	dev_dbg(to_dev(chan), "%s: allocated %d descriptors\n",
 		__func__, ioat->desccount);
 	return ioat->desccount;
 }
 
+/**
+ * ioat1_dma_free_chan_resources - release all the descriptors
+ * @chan: the channel to be cleaned
+ */
 static void ioat1_dma_free_chan_resources(struct dma_chan *c)
 {
 	struct ioat_dma_chan *ioat = to_ioat_chan(c);
@@ -324,6 +373,9 @@ static void ioat1_dma_free_chan_resources(struct dma_chan *c)
 	struct ioat_desc_sw *desc, *_desc;
 	int in_use_descs = 0;
 
+	/* Before freeing channel resources first check
+	 * if they have been previously allocated for this channel.
+	 */
 	if (ioat->desccount == 0)
 		return;
 
@@ -331,6 +383,9 @@ static void ioat1_dma_free_chan_resources(struct dma_chan *c)
 	del_timer_sync(&chan->timer);
 	ioat1_cleanup(ioat);
 
+	/* Delay 100ms after reset to allow internal DMA logic to quiesce
+	 * before removing DMA descriptor resources.
+	 */
 	writeb(IOAT_CHANCMD_RESET,
 	       chan->reg_base + IOAT_CHANCMD_OFFSET(chan->device->version));
 	mdelay(100);
@@ -359,7 +414,7 @@ static void ioat1_dma_free_chan_resources(struct dma_chan *c)
 		      chan->completion,
 		      chan->completion_dma);
 
-	
+	/* one is ok since we left it on there on purpose */
 	if (in_use_descs > 1)
 		dev_err(to_dev(chan), "Freeing %d in use descriptors!\n",
 			in_use_descs - 1);
@@ -370,6 +425,14 @@ static void ioat1_dma_free_chan_resources(struct dma_chan *c)
 	ioat->desccount = 0;
 }
 
+/**
+ * ioat1_dma_get_next_descriptor - return the next available descriptor
+ * @ioat: IOAT DMA channel handle
+ *
+ * Gets the next descriptor from the chain, and must be called with the
+ * channel's desc_lock held.  Allocates more descriptors if the channel
+ * has run out.
+ */
 static struct ioat_desc_sw *
 ioat1_dma_get_next_descriptor(struct ioat_dma_chan *ioat)
 {
@@ -379,7 +442,7 @@ ioat1_dma_get_next_descriptor(struct ioat_dma_chan *ioat)
 		new = to_ioat_desc(ioat->free_desc.next);
 		list_del(&new->node);
 	} else {
-		
+		/* try to get another desc */
 		new = ioat_dma_alloc_descriptor(ioat, GFP_ATOMIC);
 		if (!new) {
 			dev_err(to_dev(&ioat->base), "alloc failed\n");
@@ -499,7 +562,7 @@ dma_addr_t ioat_get_current_completion(struct ioat_chan_common *chan)
 		dev_err(to_dev(chan), "Channel halted, chanerr = %x\n",
 			chanerr);
 
-		
+		/* TODO do something to salvage the situation */
 	}
 
 	return phys_complete;
@@ -531,6 +594,11 @@ static void __cleanup(struct ioat_dma_chan *ioat, dma_addr_t phys_complete)
 		prefetch(n);
 		desc = list_entry(_desc, typeof(*desc), node);
 		tx = &desc->txd;
+		/*
+		 * Incoming DMA requests may use multiple descriptors,
+		 * due to exceeding xfercap, perhaps. If so, only the
+		 * last one will have a cookie, and require unmapping.
+		 */
 		dump_desc_dbg(ioat, desc);
 		if (tx->cookie) {
 			dma_cookie_complete(tx);
@@ -543,10 +611,21 @@ static void __cleanup(struct ioat_dma_chan *ioat, dma_addr_t phys_complete)
 		}
 
 		if (tx->phys != phys_complete) {
+			/*
+			 * a completed entry, but not the last, so clean
+			 * up if the client is done with the descriptor
+			 */
 			if (async_tx_test_ack(tx))
 				list_move_tail(&desc->node, &ioat->free_desc);
 		} else {
+			/*
+			 * last used desc. Do not remove, so we can
+			 * append from it.
+			 */
 
+			/* if nothing else is pending, cancel the
+			 * completion timeout
+			 */
 			if (n == &ioat->used_desc) {
 				dev_dbg(to_dev(chan),
 					"%s cancel completion timeout\n",
@@ -554,7 +633,7 @@ static void __cleanup(struct ioat_dma_chan *ioat, dma_addr_t phys_complete)
 				clear_bit(IOAT_COMPLETION_PENDING, &chan->state);
 			}
 
-			
+			/* TODO check status bits? */
 			break;
 		}
 	}
@@ -562,6 +641,14 @@ static void __cleanup(struct ioat_dma_chan *ioat, dma_addr_t phys_complete)
 	chan->last_completion = phys_complete;
 }
 
+/**
+ * ioat1_cleanup - cleanup up finished descriptors
+ * @chan: ioat channel to be cleaned up
+ *
+ * To prevent lock contention we defer cleanup when the locks are
+ * contended with a terminal timeout that forces cleanup and catches
+ * completion notification errors.
+ */
 static void ioat1_cleanup(struct ioat_dma_chan *ioat)
 {
 	struct ioat_chan_common *chan = &ioat->base;
@@ -601,7 +688,7 @@ static void ioat1_timer_event(unsigned long data)
 
 		spin_lock_bh(&ioat->desc_lock);
 
-		
+		/* restart active descriptors */
 		desc = to_ioat_desc(ioat->used_desc.prev);
 		ioat_set_chainaddr(ioat, desc->txd.phys);
 		ioat_start(chan);
@@ -614,6 +701,10 @@ static void ioat1_timer_event(unsigned long data)
 		dma_addr_t phys_complete;
 
 		spin_lock_bh(&ioat->desc_lock);
+		/* if we haven't made progress and we have already
+		 * acknowledged a pending completion once, then be more
+		 * forceful with a restart
+		 */
 		if (ioat_cleanup_preamble(chan, &phys_complete))
 			__cleanup(ioat, phys_complete);
 		else if (test_bit(IOAT_COMPLETION_ACK, &chan->state))
@@ -621,7 +712,7 @@ static void ioat1_timer_event(unsigned long data)
 		else {
 			u64 status = ioat_chansts(chan);
 
-			
+			/* manually update the last completion address */
 			if (ioat_chansts_to_addr(status) != 0)
 				*chan->completion = status;
 
@@ -672,7 +763,7 @@ static void ioat1_dma_start_null_desc(struct ioat_dma_chan *ioat)
 	hw->ctl_f.null = 1;
 	hw->ctl_f.int_en = 1;
 	hw->ctl_f.compl_write = 1;
-	
+	/* set size to non-zero value (channel returns error when size is 0) */
 	hw->size = NULL_DESC_BUFFER_SIZE;
 	hw->src_addr = 0;
 	hw->dst_addr = 0;
@@ -686,6 +777,9 @@ static void ioat1_dma_start_null_desc(struct ioat_dma_chan *ioat)
 	spin_unlock_bh(&ioat->desc_lock);
 }
 
+/*
+ * Perform a IOAT transaction to verify the HW works.
+ */
 #define IOAT_TEST_SIZE 2000
 
 static void __devinit ioat_dma_test_callback(void *dma_async_param)
@@ -695,6 +789,10 @@ static void __devinit ioat_dma_test_callback(void *dma_async_param)
 	complete(cmp);
 }
 
+/**
+ * ioat_dma_self_test - Perform a IOAT transaction to verify the HW works.
+ * @device: device to be tested
+ */
 int __devinit ioat_dma_self_test(struct ioatdma_device *device)
 {
 	int i;
@@ -720,11 +818,11 @@ int __devinit ioat_dma_self_test(struct ioatdma_device *device)
 		return -ENOMEM;
 	}
 
-	
+	/* Fill in src buffer */
 	for (i = 0; i < IOAT_TEST_SIZE; i++)
 		src[i] = (u8)i;
 
-	
+	/* Start copy, using first DMA channel */
 	dma_chan = container_of(dma->channels.next, struct dma_chan,
 				device_node);
 	if (dma->device_alloc_chan_resources(dma_chan) < 1) {
@@ -787,6 +885,10 @@ MODULE_PARM_DESC(ioat_interrupt_style,
 		 "set ioat interrupt style: msix (default), "
 		 "msix-single-vector, msi, intx)");
 
+/**
+ * ioat_dma_setup_interrupts - setup interrupt handler
+ * @device: ioat device
+ */
 static int ioat_dma_setup_interrupts(struct ioatdma_device *device)
 {
 	struct ioat_chan_common *chan;
@@ -809,7 +911,7 @@ static int ioat_dma_setup_interrupts(struct ioatdma_device *device)
 	goto err_no_irq;
 
 msix:
-	
+	/* The number of MSI-X vectors should equal the number of channels */
 	msixcnt = device->common.chancnt;
 	for (i = 0; i < msixcnt; i++)
 		device->msix_entries[i].entry = i;
@@ -880,7 +982,7 @@ done:
 	return 0;
 
 err_no_irq:
-	
+	/* Disable all interrupt generation */
 	writeb(0, device->reg_base + IOAT_INTRCTRL_OFFSET);
 	dev_err(dev, "no usable interrupts\n");
 	return err;
@@ -888,7 +990,7 @@ err_no_irq:
 
 static void ioat_disable_interrupts(struct ioatdma_device *device)
 {
-	
+	/* Disable all interrupt generation */
 	writeb(0, device->reg_base + IOAT_INTRCTRL_OFFSET);
 }
 
@@ -899,7 +1001,7 @@ int __devinit ioat_probe(struct ioatdma_device *device)
 	struct pci_dev *pdev = device->pdev;
 	struct device *dev = &pdev->dev;
 
-	
+	/* DMA coherent memory pool for DMA descriptor allocations */
 	device->dma_pool = pci_pool_create("dma_desc_pool", pdev,
 					   sizeof(struct ioat_dma_descriptor),
 					   64, 0);
@@ -960,6 +1062,7 @@ int __devinit ioat_register(struct ioatdma_device *device)
 	return err;
 }
 
+/* ioat1_intr_quirk - fix up dma ctrl register to enable / disable msi */
 static void ioat1_intr_quirk(struct ioatdma_device *device)
 {
 	struct pci_dev *pdev = device->pdev;

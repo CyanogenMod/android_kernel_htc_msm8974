@@ -1,3 +1,4 @@
+/* $(CROSS_COMPILE)cc -Wall -Wextra -g -lpthread -o testusb testusb.c */
 
 /*
  * Copyright (c) 2002 by David Brownell
@@ -19,6 +20,15 @@
  * Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * This program issues ioctls to perform the tests implemented by the
+ * kernel driver.  It can generate a variety of transfer patterns; you
+ * should make sure to test both regular streaming and mixes of
+ * transfer sizes (including short transfers).
+ *
+ * For more information on how this can be used and on USB testing
+ * refer to <URL:http://www.linux-usb.org/usbtest/>.
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -36,29 +46,33 @@
 #include <sys/ioctl.h>
 #include <linux/usbdevice_fs.h>
 
+/*-------------------------------------------------------------------------*/
 
 #define	TEST_CASES	30
 
+// FIXME make these public somewhere; usbdevfs.h?
 
 struct usbtest_param {
-	
-	unsigned		test_num;	
+	// inputs
+	unsigned		test_num;	/* 0..(TEST_CASES-1) */
 	unsigned		iterations;
 	unsigned		length;
 	unsigned		vary;
 	unsigned		sglen;
 
-	
+	// outputs
 	struct timeval		duration;
 };
 #define USBTEST_REQUEST	_IOWR('U', 100, struct usbtest_param)
 
+/*-------------------------------------------------------------------------*/
 
+/* #include <linux/usb_ch9.h> */
 
 #define USB_DT_DEVICE			0x01
 #define USB_DT_INTERFACE		0x04
 
-#define USB_CLASS_PER_INTERFACE		0	
+#define USB_CLASS_PER_INTERFACE		0	/* for DeviceClass */
 #define USB_CLASS_VENDOR_SPEC		0xff
 
 
@@ -93,11 +107,12 @@ struct usb_interface_descriptor {
 } __attribute__ ((packed));
 
 enum usb_device_speed {
-	USB_SPEED_UNKNOWN = 0,			
-	USB_SPEED_LOW, USB_SPEED_FULL,		
-	USB_SPEED_HIGH				
+	USB_SPEED_UNKNOWN = 0,			/* enumerating */
+	USB_SPEED_LOW, USB_SPEED_FULL,		/* usb 1.1 */
+	USB_SPEED_HIGH				/* usb 2.0 */
 };
 
+/*-------------------------------------------------------------------------*/
 
 static char *speed (enum usb_device_speed s)
 {
@@ -156,41 +171,50 @@ static int testdev_ifnum(FILE *fd)
 	if (dev.bLength != sizeof dev || dev.bDescriptorType != USB_DT_DEVICE)
 		return -1;
 
-	
+	/* FX2 with (tweaked) bulksrc firmware */
 	if (dev.idVendor == 0x0547 && dev.idProduct == 0x1002)
 		return 0;
 
-	
+	/*----------------------------------------------------*/
 
+	/* devices that start up using the EZ-USB default device and
+	 * which we can use after loading simple firmware.  hotplug
+	 * can fxload it, and then run this test driver.
+	 *
+	 * we return false positives in two cases:
+	 * - the device has a "real" driver (maybe usb-serial) that
+	 *   renumerates.  the device should vanish quickly.
+	 * - the device doesn't have the test firmware installed.
+	 */
 
-	
+	/* generic EZ-USB FX controller */
 	if (dev.idVendor == 0x0547 && dev.idProduct == 0x2235)
 		return 0;
 
-	
+	/* generic EZ-USB FX2 controller */
 	if (dev.idVendor == 0x04b4 && dev.idProduct == 0x8613)
 		return 0;
 
-	
+	/* CY3671 development board with EZ-USB FX */
 	if (dev.idVendor == 0x0547 && dev.idProduct == 0x0080)
 		return 0;
 
-	
+	/* Keyspan 19Qi uses an21xx (original EZ-USB) */
 	if (dev.idVendor == 0x06cd && dev.idProduct == 0x010b)
 		return 0;
 
-	
+	/*----------------------------------------------------*/
 
-	
+	/* "gadget zero", Linux-USB test software */
 	if (dev.idVendor == 0x0525 && dev.idProduct == 0xa4a0)
 		return 0;
 
-	
+	/* user mode subset of that */
 	if (dev.idVendor == 0x0525 && dev.idProduct == 0xa4a4)
 		return testdev_ffs_ifnum(fd);
-		
+		/* return 0; */
 
-	
+	/* iso version of usermode code */
 	if (dev.idVendor == 0x0525 && dev.idProduct == 0xa4a3)
 		return 0;
 
@@ -199,14 +223,17 @@ static int testdev_ifnum(FILE *fd)
 	if (dev.idVendor == 0xfff0 && dev.idProduct == 0xfff0)
 		return 0;
 
-	
+	/*----------------------------------------------------*/
 
-	
+	/* iBOT2 high speed webcam */
 	if (dev.idVendor == 0x0b62 && dev.idProduct == 0x0059)
 		return 0;
 
-	
+	/*----------------------------------------------------*/
 
+	/* the FunctionFS gadget can have the source/sink interface
+	 * anywhere.  We look for an interface descriptor that match
+	 * what we expect.  We ignore configuratiens thou. */
 
 	if (dev.idVendor == 0x0525 && dev.idProduct == 0xa4ac
 	 && (dev.bDeviceClass == USB_CLASS_PER_INTERFACE
@@ -222,11 +249,11 @@ static int find_testdev(const char *name, const struct stat *sb, int flag)
 	int				ifnum;
 	struct testdev			*entry;
 
-	(void)sb; 
+	(void)sb; /* unused */
 
 	if (flag != FTW_F)
 		return 0;
-	
+	/* ignore /proc/bus/usb/{devices,drivers} */
 	if (strrchr(name, '/')[1] == 'd')
 		return 0;
 
@@ -255,6 +282,8 @@ nomem:
 
 	entry->ifnum = ifnum;
 
+	/* FIXME ask usbfs what speed; update USBDEVFS_CONNECTINFO so
+	 * it tells about high speed etc */
 
 	fprintf(stderr, "%s speed\t%s\t%u\n",
 		speed(entry->speed), entry->name, entry->ifnum);
@@ -298,9 +327,9 @@ restart:
 		if (status < 0 && errno == EOPNOTSUPP)
 			continue;
 
-		
+		/* FIXME need a "syslog it" option for background testing */
 
-		
+		/* NOTE: each thread emits complete lines; no fragments! */
 		if (status < 0) {
 			char	buf [80];
 			int	err = errno;
@@ -371,53 +400,62 @@ int main (int argc, char **argv)
 	char			*device;
 	const char		*usbfs_dir = NULL;
 	int			all = 0, forever = 0, not = 0;
-	int			test = -1 ;
+	int			test = -1 /* all */;
 	struct usbtest_param	param;
 
+	/* pick defaults that works with all speeds, without short packets.
+	 *
+	 * Best per-frame data rates:
+	 *     high speed, bulk       512 * 13 * 8 = 53248
+	 *                 interrupt 1024 *  3 * 8 = 24576
+	 *     full speed, bulk/intr   64 * 19     =  1216
+	 *                 interrupt   64 *  1     =    64
+	 *      low speed, interrupt    8 *  1     =     8
+	 */
 	param.iterations = 1000;
 	param.length = 512;
 	param.vary = 512;
 	param.sglen = 32;
 
-	
+	/* for easy use when hotplugging */
 	device = getenv ("DEVICE");
 
 	while ((c = getopt (argc, argv, "D:aA:c:g:hns:t:v:")) != EOF)
 	switch (c) {
-	case 'D':	
+	case 'D':	/* device, if only one */
 		device = optarg;
 		continue;
-	case 'A':	
+	case 'A':	/* use all devices with specified usbfs dir */
 		usbfs_dir = optarg;
-		
-	case 'a':	
+		/* FALL THROUGH */
+	case 'a':	/* use all devices */
 		device = NULL;
 		all = 1;
 		continue;
-	case 'c':	
+	case 'c':	/* count iterations */
 		if (parse_num(&param.iterations, optarg))
 			goto usage;
 		continue;
-	case 'g':	
+	case 'g':	/* scatter/gather entries */
 		if (parse_num(&param.sglen, optarg))
 			goto usage;
 		continue;
-	case 'l':	
+	case 'l':	/* loop forever */
 		forever = 1;
 		continue;
-	case 'n':	
+	case 'n':	/* no test running! */
 		not = 1;
 		continue;
-	case 's':	
+	case 's':	/* size of packet */
 		if (parse_num(&param.length, optarg))
 			goto usage;
 		continue;
-	case 't':	
+	case 't':	/* run just one test */
 		test = atoi (optarg);
 		if (test < 0)
 			goto usage;
 		continue;
-	case 'v':	
+	case 'v':	/* vary packet size by ... */
 		if (parse_num(&param.vary, optarg))
 			goto usage;
 		continue;
@@ -439,7 +477,7 @@ usage:
 		goto usage;
 	}
 
-	
+	/* Find usbfs mount point */
 	if (!usbfs_dir) {
 		usbfs_dir = usbfs_dir_find();
 		if (!usbfs_dir) {
@@ -448,13 +486,13 @@ usage:
 		}
 	}
 
-	
+	/* collect and list the test devices */
 	if (ftw (usbfs_dir, find_testdev, 3) != 0) {
 		fputs ("ftw failed; is usbfs missing?\n", stderr);
 		return -1;
 	}
 
-	
+	/* quit, run single test, or create test threads */
 	if (!testdevs && !device) {
 		fputs ("no test devices recognized\n", stderr);
 		return -1;
@@ -484,7 +522,7 @@ usage:
 	if (device) {
 		struct testdev		dev;
 
-		
+		/* kernel can recognize test devices we don't */
 		fprintf (stderr, "%s: %s may see only control tests\n",
 				argv [0], device);
 
@@ -496,13 +534,13 @@ usage:
 		return handle_testdev (&dev) != &dev;
 	}
 
-	
+	/* wait for tests to complete */
 	for (entry = testdevs; entry; entry = entry->next) {
 		void	*retval;
 
 		if (pthread_join (entry->thread, &retval))
 			perror ("pthread_join");
-		
+		/* testing errors discarded! */
 	}
 
 	return 0;

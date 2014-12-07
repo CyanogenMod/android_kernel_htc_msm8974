@@ -12,8 +12,8 @@
 #include <linux/io.h>
 #include <asm/cache.h>
 
-#define CCR_CACHE_SNM	0x40000		
-#define CCR_CACHE_IBE	0x1000000	
+#define CCR_CACHE_SNM	0x40000		/* Hardware-assisted synonym avoidance */
+#define CCR_CACHE_IBE	0x1000000	/* ICBI broadcast */
 
 void __init shx3_cache_init(void)
 {
@@ -21,6 +21,9 @@ void __init shx3_cache_init(void)
 
 	ccr = __raw_readl(CCR);
 
+	/*
+	 * If we've got cache aliases, resolve them in hardware.
+	 */
 	if (boot_cpu_data.dcache.n_aliases || boot_cpu_data.icache.n_aliases) {
 		ccr |= CCR_CACHE_SNM;
 
@@ -31,6 +34,9 @@ void __init shx3_cache_init(void)
 	}
 
 #ifdef CONFIG_SMP
+	/*
+	 * Broadcast I-cache block invalidations by default.
+	 */
 	ccr |= CCR_CACHE_IBE;
 #endif
 

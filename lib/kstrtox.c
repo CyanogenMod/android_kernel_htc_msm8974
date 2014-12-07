@@ -1,3 +1,16 @@
+/*
+ * Convert integer string representation to an integer.
+ * If an integer doesn't fit into specified type, -E is returned.
+ *
+ * Integer starts with optional sign.
+ * kstrtou*() functions do not accept sign "-".
+ *
+ * Radix 0 means autodetection: leading "0x" implies radix 16,
+ * leading "0" implies radix 8, otherwise radix is 10.
+ * Autodetection hints work after optional sign, but not before.
+ *
+ * If -E is returned, result is not touched.
+ */
 #include <linux/ctype.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
@@ -23,6 +36,14 @@ const char *_parse_integer_fixup_radix(const char *s, unsigned int *base)
 	return s;
 }
 
+/*
+ * Convert non-negative integer string representation in explicitly given radix
+ * to an integer.
+ * Return number of characters consumed maybe or-ed with overflow bit.
+ * If overflow occurs, result integer (incorrect) is still returned.
+ *
+ * Don't you dare use this function.
+ */
 unsigned int _parse_integer(const char *s, unsigned int base, unsigned long long *p)
 {
 	unsigned long long res;
@@ -44,6 +65,10 @@ unsigned int _parse_integer(const char *s, unsigned int base, unsigned long long
 
 		if (val >= base)
 			break;
+		/*
+		 * Check for overflow only if we are within range of
+		 * it in the max base we support (16)
+		 */
 		if (unlikely(res & (~0ull << 60))) {
 			if (res > div_u64(ULLONG_MAX - val, base))
 				overflow = 1;
@@ -111,6 +136,7 @@ int kstrtoll(const char *s, unsigned int base, long long *res)
 }
 EXPORT_SYMBOL(kstrtoll);
 
+/* Internal, do not use. */
 int _kstrtoul(const char *s, unsigned int base, unsigned long *res)
 {
 	unsigned long long tmp;
@@ -126,6 +152,7 @@ int _kstrtoul(const char *s, unsigned int base, unsigned long *res)
 }
 EXPORT_SYMBOL(_kstrtoul);
 
+/* Internal, do not use. */
 int _kstrtol(const char *s, unsigned int base, long *res)
 {
 	long long tmp;
@@ -234,7 +261,7 @@ EXPORT_SYMBOL(kstrtos8);
 #define kstrto_from_user(f, g, type)					\
 int f(const char __user *s, size_t count, unsigned int base, type *res)	\
 {									\
-			\
+	/* sign, base 2 representation, newline, terminator */		\
 	char buf[1 + sizeof(type) * 8 + 1 + 1];				\
 									\
 	count = min(count, sizeof(buf) - 1);				\

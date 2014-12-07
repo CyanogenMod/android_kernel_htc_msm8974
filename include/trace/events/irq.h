@@ -23,6 +23,17 @@ struct softirq_action;
 			 softirq_name(HRTIMER),		\
 			 softirq_name(RCU))
 
+/**
+ * irq_handler_entry - called immediately before the irq action handler
+ * @irq: irq number
+ * @action: pointer to struct irqaction
+ *
+ * The struct irqaction pointed to by @action contains various
+ * information about the handler, including the device name,
+ * @action->name, and the device id, @action->dev_id. When used in
+ * conjunction with the irq_handler_exit tracepoint, we can figure
+ * out irq handler latencies.
+ */
 TRACE_EVENT(irq_handler_entry,
 
 	TP_PROTO(int irq, struct irqaction *action),
@@ -45,6 +56,17 @@ TRACE_EVENT(irq_handler_entry,
 		 __entry->irq, __get_str(name), __entry->handler)
 );
 
+/**
+ * irq_handler_exit - called immediately after the irq action handler returns
+ * @irq: irq number
+ * @action: pointer to struct irqaction
+ * @ret: return value
+ *
+ * If the @ret value is set to IRQ_HANDLED, then we know that the corresponding
+ * @action->handler scuccessully handled this irq. Otherwise, the irq might be
+ * a shared irq line, or the irq was not handled successfully. Can be used in
+ * conjunction with the irq_handler_entry to understand irq handler latencies.
+ */
 TRACE_EVENT(irq_handler_exit,
 
 	TP_PROTO(int irq, struct irqaction *action, int ret),
@@ -83,6 +105,13 @@ DECLARE_EVENT_CLASS(softirq,
 		  show_softirq_name(__entry->vec))
 );
 
+/**
+ * softirq_entry - called immediately before the softirq handler
+ * @vec_nr:  softirq vector number
+ *
+ * When used in combination with the softirq_exit tracepoint
+ * we can determine the softirq handler runtine.
+ */
 DEFINE_EVENT(softirq, softirq_entry,
 
 	TP_PROTO(unsigned int vec_nr),
@@ -90,6 +119,13 @@ DEFINE_EVENT(softirq, softirq_entry,
 	TP_ARGS(vec_nr)
 );
 
+/**
+ * softirq_exit - called immediately after the softirq handler returns
+ * @vec_nr:  softirq vector number
+ *
+ * When used in combination with the softirq_entry tracepoint
+ * we can determine the softirq handler runtine.
+ */
 DEFINE_EVENT(softirq, softirq_exit,
 
 	TP_PROTO(unsigned int vec_nr),
@@ -97,6 +133,13 @@ DEFINE_EVENT(softirq, softirq_exit,
 	TP_ARGS(vec_nr)
 );
 
+/**
+ * softirq_raise - called immediately when a softirq is raised
+ * @vec_nr:  softirq vector number
+ *
+ * When used in combination with the softirq_entry tracepoint
+ * we can determine the softirq raise to run latency.
+ */
 DEFINE_EVENT(softirq, softirq_raise,
 
 	TP_PROTO(unsigned int vec_nr),
@@ -104,6 +147,7 @@ DEFINE_EVENT(softirq, softirq_raise,
 	TP_ARGS(vec_nr)
 );
 
-#endif 
+#endif /*  _TRACE_IRQ_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

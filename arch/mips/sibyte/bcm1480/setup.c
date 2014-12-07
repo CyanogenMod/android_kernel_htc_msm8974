@@ -78,6 +78,7 @@ static int __init setup_bcm1x80_bcm1x55(void)
 	return ret;
 }
 
+/* Setup code likely to be common to all SiByte platforms */
 
 static int __init sys_rev_decode(void)
 {

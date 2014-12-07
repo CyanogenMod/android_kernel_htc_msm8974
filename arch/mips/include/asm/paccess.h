@@ -109,4 +109,4 @@ extern void __put_dbe_unknown(void);
 
 extern unsigned long search_dbe_table(unsigned long addr);
 
-#endif 
+#endif /* _ASM_PACCESS_H */

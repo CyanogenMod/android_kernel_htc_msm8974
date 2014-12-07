@@ -46,14 +46,18 @@
 #define RTC_SECONDS_MASK	0x7f
 #define RTC_DAY_MASK		0x07
 
+/* Bits in the Control/Century register */
 #define RTC_WRITE		0x80
 #define RTC_READ		0x40
 
+/* Bits in the Seconds register */
 #define RTC_STOP		0x80
 
+/* Bits in the Flags register */
 #define RTC_FLAGS_AF		0x40
 #define RTC_FLAGS_BLF		0x10
 
+/* Bits in the Interrupts register */
 #define RTC_INTS_AE		0x80
 
 struct rtc_plat_data {
@@ -88,7 +92,7 @@ static int ds1553_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	writeb(bin2bcd(tm->tm_min), ioaddr + RTC_MINUTES);
 	writeb(bin2bcd(tm->tm_sec) & RTC_SECONDS_MASK, ioaddr + RTC_SECONDS);
 
-	
+	/* RTC_CENTURY and RTC_CONTROL share same register */
 	writeb(RTC_WRITE | (century & RTC_CENTURY_MASK), ioaddr + RTC_CENTURY);
 	writeb(century & RTC_CENTURY_MASK, ioaddr + RTC_CONTROL);
 	return 0;
@@ -102,7 +106,7 @@ static int ds1553_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	unsigned int year, month, day, hour, minute, second, week;
 	unsigned int century;
 
-	
+	/* give enough time to update RTC in case of continuous read */
 	if (pdata->last_jiffies == jiffies)
 		msleep(1);
 	pdata->last_jiffies = jiffies;
@@ -122,7 +126,7 @@ static int ds1553_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	tm->tm_mday = bcd2bin(day);
 	tm->tm_wday = bcd2bin(week);
 	tm->tm_mon = bcd2bin(month) - 1;
-	
+	/* year is 1900 + tm->tm_year */
 	tm->tm_year = bcd2bin(year) + bcd2bin(century) * 100 - 1900;
 
 	if (rtc_valid_tm(tm) < 0) {
@@ -151,7 +155,7 @@ static void ds1553_rtc_update_alarm(struct rtc_plat_data *pdata)
 	       0x80 : bin2bcd(pdata->alrm_sec),
 	       ioaddr + RTC_SECONDS_ALARM);
 	writeb(pdata->irqen ? RTC_INTS_AE : 0, ioaddr + RTC_INTERRUPTS);
-	readb(ioaddr + RTC_FLAGS);	
+	readb(ioaddr + RTC_FLAGS);	/* clear interrupts */
 	spin_unlock_irqrestore(&pdata->lock, flags);
 }
 
@@ -195,7 +199,7 @@ static irqreturn_t ds1553_rtc_interrupt(int irq, void *dev_id)
 	unsigned long events = 0;
 
 	spin_lock(&pdata->lock);
-	
+	/* read and clear interrupt */
 	if (readb(ioaddr + RTC_FLAGS) & RTC_FLAGS_AF) {
 		events = RTC_IRQF;
 		if (readb(ioaddr + RTC_SECONDS_ALARM) & 0x80)
@@ -297,7 +301,7 @@ static int __devinit ds1553_rtc_probe(struct platform_device *pdev)
 	pdata->ioaddr = ioaddr;
 	pdata->irq = platform_get_irq(pdev, 0);
 
-	
+	/* turn RTC on if it was not on */
 	sec = readb(ioaddr + RTC_SECONDS);
 	if (sec & RTC_STOP) {
 		sec &= RTC_SECONDS_MASK;
@@ -345,6 +349,7 @@ static int __devexit ds1553_rtc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:rtc-ds1553");
 
 static struct platform_driver ds1553_rtc_driver = {

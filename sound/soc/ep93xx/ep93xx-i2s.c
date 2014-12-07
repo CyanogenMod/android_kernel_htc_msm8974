@@ -50,13 +50,13 @@
 #define EP93XX_I2S_WRDLEN_24		(1 << 0)
 #define EP93XX_I2S_WRDLEN_32		(2 << 0)
 
-#define EP93XX_I2S_LINCTRLDATA_R_JUST	(1 << 2) 
+#define EP93XX_I2S_LINCTRLDATA_R_JUST	(1 << 2) /* Right justify */
 
-#define EP93XX_I2S_CLKCFG_LRS		(1 << 0) 
-#define EP93XX_I2S_CLKCFG_CKP		(1 << 1) 
-#define EP93XX_I2S_CLKCFG_REL		(1 << 2) 
-#define EP93XX_I2S_CLKCFG_MASTER	(1 << 3) 
-#define EP93XX_I2S_CLKCFG_NBCG		(1 << 4) 
+#define EP93XX_I2S_CLKCFG_LRS		(1 << 0) /* lrclk polarity */
+#define EP93XX_I2S_CLKCFG_CKP		(1 << 1) /* Bit clock polarity */
+#define EP93XX_I2S_CLKCFG_REL		(1 << 2) /* First bit transition */
+#define EP93XX_I2S_CLKCFG_MASTER	(1 << 3) /* Master mode */
+#define EP93XX_I2S_CLKCFG_NBCG		(1 << 4) /* Not bit clock gating */
 
 struct ep93xx_i2s_info {
 	struct clk			*mclk;
@@ -97,16 +97,16 @@ static void ep93xx_i2s_enable(struct ep93xx_i2s_info *info, int stream)
 
 	if ((ep93xx_i2s_read_reg(info, EP93XX_I2S_TX0EN) & 0x1) == 0 &&
 	    (ep93xx_i2s_read_reg(info, EP93XX_I2S_RX0EN) & 0x1) == 0) {
-		
+		/* Enable clocks */
 		clk_enable(info->mclk);
 		clk_enable(info->sclk);
 		clk_enable(info->lrclk);
 
-		
+		/* Enable i2s */
 		ep93xx_i2s_write_reg(info, EP93XX_I2S_GLCTRL, 1);
 	}
 
-	
+	/* Enable fifos */
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK)
 		base_reg = EP93XX_I2S_TX0EN;
 	else
@@ -120,7 +120,7 @@ static void ep93xx_i2s_disable(struct ep93xx_i2s_info *info, int stream)
 	unsigned base_reg;
 	int i;
 
-	
+	/* Disable fifos */
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK)
 		base_reg = EP93XX_I2S_TX0EN;
 	else
@@ -130,10 +130,10 @@ static void ep93xx_i2s_disable(struct ep93xx_i2s_info *info, int stream)
 
 	if ((ep93xx_i2s_read_reg(info, EP93XX_I2S_TX0EN) & 0x1) == 0 &&
 	    (ep93xx_i2s_read_reg(info, EP93XX_I2S_RX0EN) & 0x1) == 0) {
-		
+		/* Disable i2s */
 		ep93xx_i2s_write_reg(info, EP93XX_I2S_GLCTRL, 0);
 
-		
+		/* Disable clocks */
 		clk_disable(info->lrclk);
 		clk_disable(info->sclk);
 		clk_disable(info->mclk);
@@ -191,12 +191,12 @@ static int ep93xx_i2s_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
-		
+		/* CPU is master */
 		clk_cfg |= EP93XX_I2S_CLKCFG_MASTER;
 		break;
 
 	case SND_SOC_DAIFMT_CBM_CFM:
-		
+		/* Codec is master */
 		clk_cfg &= ~EP93XX_I2S_CLKCFG_MASTER;
 		break;
 
@@ -206,29 +206,29 @@ static int ep93xx_i2s_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
-		
+		/* Negative bit clock, lrclk low on left word */
 		clk_cfg &= ~(EP93XX_I2S_CLKCFG_CKP | EP93XX_I2S_CLKCFG_REL);
 		break;
 
 	case SND_SOC_DAIFMT_NB_IF:
-		
+		/* Negative bit clock, lrclk low on right word */
 		clk_cfg &= ~EP93XX_I2S_CLKCFG_CKP;
 		clk_cfg |= EP93XX_I2S_CLKCFG_REL;
 		break;
 
 	case SND_SOC_DAIFMT_IB_NF:
-		
+		/* Positive bit clock, lrclk low on left word */
 		clk_cfg |= EP93XX_I2S_CLKCFG_CKP;
 		clk_cfg &= ~EP93XX_I2S_CLKCFG_REL;
 		break;
 
 	case SND_SOC_DAIFMT_IB_IF:
-		
+		/* Positive bit clock, lrclk low on right word */
 		clk_cfg |= EP93XX_I2S_CLKCFG_CKP | EP93XX_I2S_CLKCFG_REL;
 		break;
 	}
 
-	
+	/* Write new register values */
 	ep93xx_i2s_write_reg(info, EP93XX_I2S_RXCLKCFG, clk_cfg);
 	ep93xx_i2s_write_reg(info, EP93XX_I2S_TXCLKCFG, clk_cfg);
 	ep93xx_i2s_write_reg(info, EP93XX_I2S_RXLINCTRLDATA, lin_ctrl);
@@ -266,6 +266,14 @@ static int ep93xx_i2s_hw_params(struct snd_pcm_substream *substream,
 	else
 		ep93xx_i2s_write_reg(info, EP93XX_I2S_RXWRDLEN, word_len);
 
+	/*
+	 * EP93xx I2S module can be setup so SCLK / LRCLK value can be
+	 * 32, 64, 128. MCLK / SCLK value can be 2 and 4.
+	 * We set LRCLK equal to `rate' and minimum SCLK / LRCLK 
+	 * value is 64, because our sample size is 32 bit * 2 channels.
+	 * I2S standard permits us to transmit more bits than
+	 * the codec uses.
+	 */
 	div = clk_get_rate(info->mclk) / params_rate(params);
 	sdiv = 4;
 	if (div > (256 + 512) / 2) {

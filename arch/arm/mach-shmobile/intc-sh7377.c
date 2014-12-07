@@ -32,7 +32,7 @@ enum {
 	ENABLED,
 	DISABLED,
 
-	
+	/* interrupt sources INTCA */
 	DIRC,
 	_2DG,
 	CRYPT_STD,
@@ -82,7 +82,7 @@ enum {
 	CMT14, CMT15,
 	SCIFA6,
 
-	
+	/* interrupt groups INTCA */
 	DMAC_1, DMAC_2,	DMAC2_1, DMAC2_2, DMAC3_1, DMAC3_2, SHWYSTAT,
 	AP_ARM1, AP_ARM2, USBHS, SPU2, FLCTL, IIC1,
 	ICUSB, ICUDMC
@@ -185,98 +185,98 @@ static struct intc_group intca_groups[] __initdata = {
 };
 
 static struct intc_mask_reg intca_mask_registers[] __initdata = {
-	{ 0xe6940080, 0xe69400c0, 8, 
+	{ 0xe6940080, 0xe69400c0, 8, /* IMR0A / IMCR0A */
 	  { DMAC2_1_DEI3, DMAC2_1_DEI2, DMAC2_1_DEI1, DMAC2_1_DEI0,
 	    AP_ARM_IRQPMU, 0, AP_ARM_COMMTX, AP_ARM_COMMRX } },
-	{ 0xe6940084, 0xe69400c4, 8, 
+	{ 0xe6940084, 0xe69400c4, 8, /* IMR1A / IMCR1A */
 	  { _2DG, CRYPT_STD, DIRC, 0,
 	    DMAC_1_DEI3, DMAC_1_DEI2, DMAC_1_DEI1, DMAC_1_DEI0 } },
-	{ 0xe6940088, 0xe69400c8, 8, 
+	{ 0xe6940088, 0xe69400c8, 8, /* IMR2A / IMCR2A */
 	  { PINTCA_PINT1, PINTCA_PINT2, 0, 0,
 	    BBIF1, BBIF2, MFI_MFIS, MFI_MFIM } },
-	{ 0xe694008c, 0xe69400cc, 8, 
+	{ 0xe694008c, 0xe69400cc, 8, /* IMR3A / IMCR3A */
 	  { DMAC3_1_DEI3, DMAC3_1_DEI2, DMAC3_1_DEI1, DMAC3_1_DEI0,
 	    DMAC3_2_DADERR, DMAC3_2_DEI5, DMAC3_2_DEI4, IRDA } },
-	{ 0xe6940090, 0xe69400d0, 8, 
+	{ 0xe6940090, 0xe69400d0, 8, /* IMR4A / IMCR4A */
 	  { DDM, 0, 0, 0,
 	    0, 0, 0, 0 } },
-	{ 0xe6940094, 0xe69400d4, 8, 
+	{ 0xe6940094, 0xe69400d4, 8, /* IMR5A / IMCR5A */
 	  { KEYSC_KEY, DMAC_2_DADERR, DMAC_2_DEI5, DMAC_2_DEI4,
 	    SCIFA3, SCIFA2, SCIFA1, SCIFA0 } },
-	{ 0xe6940098, 0xe69400d8, 8, 
+	{ 0xe6940098, 0xe69400d8, 8, /* IMR6A / IMCR6A */
 	  { SCIFB, SCIFA5, SCIFA4, MSIOF1,
 	    0, 0, MSIOF2, 0 } },
-	{ 0xe694009c, 0xe69400dc, 8, 
+	{ 0xe694009c, 0xe69400dc, 8, /* IMR7A / IMCR7A */
 	  { DISABLED, ENABLED, ENABLED, ENABLED,
 	    FLCTL_FLTREQ1I, FLCTL_FLTREQ0I, FLCTL_FLTENDI, FLCTL_FLSTEI } },
-	{ 0xe69400a0, 0xe69400e0, 8, 
+	{ 0xe69400a0, 0xe69400e0, 8, /* IMR8A / IMCR8A */
 	  { DISABLED, ENABLED, ENABLED, ENABLED,
 	    TTI20, USBDMAC_USHDMI, 0, MSUG } },
-	{ 0xe69400a4, 0xe69400e4, 8, 
+	{ 0xe69400a4, 0xe69400e4, 8, /* IMR9A / IMCR9A */
 	  { CMT1_CMT13, CMT1_CMT12, CMT1_CMT11, CMT1_CMT10,
 	    CMT2, USBHS_USHI1, USBHS_USHI0, _3DG_SGX540 } },
-	{ 0xe69400a8, 0xe69400e8, 8, 
+	{ 0xe69400a8, 0xe69400e8, 8, /* IMR10A / IMCR10A */
 	  { 0, DMAC2_2_DADERR, DMAC2_2_DEI5, DMAC2_2_DEI4,
 	    0, 0, 0, 0 } },
-	{ 0xe69400ac, 0xe69400ec, 8, 
+	{ 0xe69400ac, 0xe69400ec, 8, /* IMR11A / IMCR11A */
 	  { IIC1_DTEI1, IIC1_WAITI1, IIC1_TACKI1, IIC1_ALI1,
 	    LCRC, MSU_MSU2, IRREM, MSU_MSU } },
-	{ 0xe69400b0, 0xe69400f0, 8, 
+	{ 0xe69400b0, 0xe69400f0, 8, /* IMR12A / IMCR12A */
 	  { 0, 0, TPU0, TPU1,
 	    TPU2, TPU3, TPU4, 0 } },
-	{ 0xe69400b4, 0xe69400f4, 8, 
+	{ 0xe69400b4, 0xe69400f4, 8, /* IMR13A / IMCR13A */
 	  { 0, 0, 0, 0,
 	    MISTY, CMT3, RWDT1, RWDT0 } },
-	{ 0xe6950080, 0xe69500c0, 8, 
+	{ 0xe6950080, 0xe69500c0, 8, /* IMR0A3 / IMCR0A3 */
 	  { SHWYSTAT_RT, SHWYSTAT_HS, SHWYSTAT_COM, 0,
 	    0, 0, 0, 0 } },
-	{ 0xe6950090, 0xe69500d0, 8, 
+	{ 0xe6950090, 0xe69500d0, 8, /* IMR4A3 / IMCR4A3 */
 	  { ICUSB_ICUSB0, ICUSB_ICUSB1, 0, 0,
 	    ICUDMC_ICUDMC1, ICUDMC_ICUDMC2, 0, 0 } },
-	{ 0xe6950094, 0xe69500d4, 8, 
+	{ 0xe6950094, 0xe69500d4, 8, /* IMR5A3 / IMCR5A3 */
 	  { SPU2_SPU0, SPU2_SPU1, FSI, FMSI,
 	    SCUV, 0, 0, 0 } },
-	{ 0xe6950098, 0xe69500d8, 8, 
+	{ 0xe6950098, 0xe69500d8, 8, /* IMR6A3 / IMCR6A3 */
 	  { IPMMU_IPMMUB, 0, 0, 0,
 	    AP_ARM_CTIIRQ, AP_ARM_DMAEXTERRIRQ,
 	    AP_ARM_DMAIRQ, AP_ARM_DMASIRQ } },
-	{ 0xe695009c, 0xe69500dc, 8, 
+	{ 0xe695009c, 0xe69500dc, 8, /* IMR7A3 / IMCR7A3 */
 	  { MFIS2, CPORTR2S, CMT14, CMT15,
 	    SCIFA6, 0, 0, 0 } },
 };
 
 static struct intc_prio_reg intca_prio_registers[] __initdata = {
-	{ 0xe6940000, 0, 16, 4,  { DMAC3_1, DMAC3_2, CMT2, LCRC } },
-	{ 0xe6940004, 0, 16, 4,  { IRDA, 0, BBIF1, BBIF2 } },
-	{ 0xe6940008, 0, 16, 4,  { _2DG, CRYPT_STD,
+	{ 0xe6940000, 0, 16, 4, /* IPRAA */ { DMAC3_1, DMAC3_2, CMT2, LCRC } },
+	{ 0xe6940004, 0, 16, 4, /* IPRBA */ { IRDA, 0, BBIF1, BBIF2 } },
+	{ 0xe6940008, 0, 16, 4, /* IPRCA */ { _2DG, CRYPT_STD,
 					      CMT1_CMT11, AP_ARM1 } },
-	{ 0xe694000c, 0, 16, 4,  { PINTCA_PINT1, PINTCA_PINT2,
+	{ 0xe694000c, 0, 16, 4, /* IPRDA */ { PINTCA_PINT1, PINTCA_PINT2,
 					      CMT1_CMT12, TPU4 } },
-	{ 0xe6940010, 0, 16, 4,  { DMAC_1, MFI_MFIS,
+	{ 0xe6940010, 0, 16, 4, /* IPREA */ { DMAC_1, MFI_MFIS,
 					      MFI_MFIM, USBHS } },
-	{ 0xe6940014, 0, 16, 4,  { KEYSC_KEY, DMAC_2,
+	{ 0xe6940014, 0, 16, 4, /* IPRFA */ { KEYSC_KEY, DMAC_2,
 					      _3DG_SGX540, CMT1_CMT10 } },
-	{ 0xe6940018, 0, 16, 4,  { SCIFA0, SCIFA1,
+	{ 0xe6940018, 0, 16, 4, /* IPRGA */ { SCIFA0, SCIFA1,
 					      SCIFA2, SCIFA3 } },
-	{ 0xe694001c, 0, 16, 4,  { MSIOF2, USBDMAC_USHDMI,
+	{ 0xe694001c, 0, 16, 4, /* IPRGH */ { MSIOF2, USBDMAC_USHDMI,
 					      FLCTL, SDHI0 } },
-	{ 0xe6940020, 0, 16, 4,  { MSIOF1, SCIFA4, MSU_MSU, IIC1 } },
-	{ 0xe6940024, 0, 16, 4,  { DMAC2_1, DMAC2_2, MSUG, TTI20 } },
-	{ 0xe6940028, 0, 16, 4,  { 0, CMT1_CMT13, IRREM, SDHI1 } },
-	{ 0xe694002c, 0, 16, 4,  { TPU0, TPU1, TPU2, TPU3 } },
-	{ 0xe6940030, 0, 16, 4,  { MISTY, CMT3, RWDT1, RWDT0 } },
-	{ 0xe6940034, 0, 16, 4,  { SCIFB, SCIFA5, 0, DDM } },
-	{ 0xe6940038, 0, 16, 4,  { 0, 0, DIRC, 0 } },
-	{ 0xe6950000, 0, 16, 4,  { SHWYSTAT, 0, 0, 0 } },
-	{ 0xe6950020, 0, 16, 4,  { ICUSB, 0, 0, 0 } },
-	{ 0xe6950024, 0, 16, 4,  { ICUDMC, 0, 0, 0 } },
-	{ 0xe6950028, 0, 16, 4,  { SPU2, 0, FSI, FMSI } },
-	{ 0xe695002c, 0, 16, 4,  { SCUV, 0, 0, 0 } },
-	{ 0xe6950030, 0, 16, 4,  { IPMMU_IPMMUB, 0, 0, 0 } },
-	{ 0xe6950034, 0, 16, 4,  { AP_ARM2, 0, 0, 0 } },
-	{ 0xe6950038, 0, 16, 4,  { MFIS2, CPORTR2S,
+	{ 0xe6940020, 0, 16, 4, /* IPRIA */ { MSIOF1, SCIFA4, MSU_MSU, IIC1 } },
+	{ 0xe6940024, 0, 16, 4, /* IPRJA */ { DMAC2_1, DMAC2_2, MSUG, TTI20 } },
+	{ 0xe6940028, 0, 16, 4, /* IPRKA */ { 0, CMT1_CMT13, IRREM, SDHI1 } },
+	{ 0xe694002c, 0, 16, 4, /* IPRLA */ { TPU0, TPU1, TPU2, TPU3 } },
+	{ 0xe6940030, 0, 16, 4, /* IPRMA */ { MISTY, CMT3, RWDT1, RWDT0 } },
+	{ 0xe6940034, 0, 16, 4, /* IPRNA */ { SCIFB, SCIFA5, 0, DDM } },
+	{ 0xe6940038, 0, 16, 4, /* IPROA */ { 0, 0, DIRC, 0 } },
+	{ 0xe6950000, 0, 16, 4, /* IPRAA3 */ { SHWYSTAT, 0, 0, 0 } },
+	{ 0xe6950020, 0, 16, 4, /* IPRIA3 */ { ICUSB, 0, 0, 0 } },
+	{ 0xe6950024, 0, 16, 4, /* IPRJA3 */ { ICUDMC, 0, 0, 0 } },
+	{ 0xe6950028, 0, 16, 4, /* IPRKA3 */ { SPU2, 0, FSI, FMSI } },
+	{ 0xe695002c, 0, 16, 4, /* IPRLA3 */ { SCUV, 0, 0, 0 } },
+	{ 0xe6950030, 0, 16, 4, /* IPRMA3 */ { IPMMU_IPMMUB, 0, 0, 0 } },
+	{ 0xe6950034, 0, 16, 4, /* IPRNA3 */ { AP_ARM2, 0, 0, 0 } },
+	{ 0xe6950038, 0, 16, 4, /* IPROA3 */ { MFIS2, CPORTR2S,
 					       CMT14, CMT15 } },
-	{ 0xe694003c, 0, 16, 4,  { SCIFA6, 0, 0, 0 } },
+	{ 0xe694003c, 0, 16, 4, /* IPRPA3 */ { SCIFA6, 0, 0, 0 } },
 };
 
 static struct intc_desc intca_desc __initdata = {
@@ -291,6 +291,7 @@ static struct intc_desc intca_desc __initdata = {
 INTC_IRQ_PINS_32(intca_irq_pins, 0xe6900000,
 		 INTC_VECT, "sh7377-intca-irq-pins");
 
+/* this macro ignore entry which is also in INTCA */
 #define __IGNORE(a...)
 #define __IGNORE0(a...) 0
 
@@ -299,7 +300,7 @@ enum {
 
 	INTCS,
 
-	
+	/* interrupt sources INTCS */
 	VEU_VEU0, VEU_VEU1, VEU_VEU2, VEU_VEU3,
 	RTDMAC1_1_DEI0, RTDMAC1_1_DEI1, RTDMAC1_1_DEI2, RTDMAC1_1_DEI3,
 	CEU,
@@ -352,7 +353,7 @@ enum {
 	__IGNORE(MFIS2)
 	CPORTS2R,
 
-	
+	/* interrupt groups INTCS */
 	RTDMAC1_1, RTDMAC1_2, VEU, BEU, IIC0, __IGNORE(MSU) IPMMU,
 	IIC2, RTDMAC2_1, RTDMAC2_2, DSITX, __IGNORE(SPU2) TMU1,
 };
@@ -451,103 +452,103 @@ static struct intc_group intcs_groups[] __initdata = {
 };
 
 static struct intc_mask_reg intcs_mask_registers[] __initdata = {
-	{ 0xE6940184, 0xE69401C4, 8, 
+	{ 0xE6940184, 0xE69401C4, 8, /* IMR1AS / IMCR1AS  */
 	  { BEU_BEU2, BEU_BEU1, BEU_BEU0, CEU,
 	    VEU_VEU3, VEU_VEU2, VEU_VEU1, VEU_VEU0 } },
-	{ 0xE6940188, 0xE69401C8, 8, 
+	{ 0xE6940188, 0xE69401C8, 8, /* IMR2AS / IMCR2AS */
 	  { 0, 0, 0, VPU,
 	    __IGNORE0(BBIF2), 0, 0, __IGNORE0(MFI) } },
-	{ 0xE694018C, 0xE69401CC, 8, 
+	{ 0xE694018C, 0xE69401CC, 8, /* IMR3AS / IMCR3AS */
 	  { 0, 0, 0, _2DDMAC,
 	    __IGNORE0(_2DG), ASA, PEP, ICB } },
-	{ 0xE6940190, 0xE69401D0, 8, 
+	{ 0xE6940190, 0xE69401D0, 8, /* IMR4AS / IMCR4AS */
 	  { 0, 0, MVI3, __IGNORE0(CTI),
 	    JPU, HQE, __IGNORE0(LCRC), LCDC0 } },
-	{ 0xE6940194, 0xE69401D4, 8, 
+	{ 0xE6940194, 0xE69401D4, 8, /* IMR5AS / IMCR5AS */
 	  { __IGNORE0(KEYSC), RTDMAC1_2_DADERR, RTDMAC1_2_DEI5, RTDMAC1_2_DEI4,
 	    RTDMAC1_1_DEI3, RTDMAC1_1_DEI2, RTDMAC1_1_DEI1, RTDMAC1_1_DEI0 } },
-	__IGNORE({ 0xE6940198, 0xE69401D8, 8, 
+	__IGNORE({ 0xE6940198, 0xE69401D8, 8, /* IMR6AS / IMCR6AS */
 	  { 0, 0, MSIOF, 0,
 	    SGX540, 0, TTI20, 0 } })
-	{ 0xE694019C, 0xE69401DC, 8, 
+	{ 0xE694019C, 0xE69401DC, 8, /* IMR7AS / IMCR7AS */
 	  { 0, TMU_TUNI2, TMU_TUNI1, TMU_TUNI0,
 	    0, 0, 0, 0 } },
-	__IGNORE({ 0xE69401A0, 0xE69401E0, 8, 
+	__IGNORE({ 0xE69401A0, 0xE69401E0, 8, /* IMR8AS / IMCR8AS */
 	  { 0, 0, 0, 0,
 	    0, MSU_MSU, MSU_MSU2, MSUG } })
-	{ 0xE69401A4, 0xE69401E4, 8, 
+	{ 0xE69401A4, 0xE69401E4, 8, /* IMR9AS / IMCR9AS */
 	  { __IGNORE0(RWDT1), __IGNORE0(RWDT0), __IGNORE0(CMT2), CMT0,
 	    IIC2_DTEI2, IIC2_WAITI2, IIC2_TACKI2, IIC2_ALI2 } },
-	{ 0xE69401A8, 0xE69401E8, 8, 
+	{ 0xE69401A8, 0xE69401E8, 8, /* IMR10AS / IMCR10AS */
 	  { 0, 0, IPMMU_IPMMUR, IPMMU_IPMMUR2,
 	    0, 0, 0, 0 } },
-	{ 0xE69401AC, 0xE69401EC, 8, 
+	{ 0xE69401AC, 0xE69401EC, 8, /* IMR11AS / IMCR11AS */
 	  { IIC0_DTEI0, IIC0_WAITI0, IIC0_TACKI0, IIC0_ALI0,
 	    0, TSIF1, LMB, TSIF0 } },
-	{ 0xE6950180, 0xE69501C0, 8, 
+	{ 0xE6950180, 0xE69501C0, 8, /* IMR0AS3 / IMCR0AS3 */
 	  { RTDMAC2_1_DEI0, RTDMAC2_1_DEI1, RTDMAC2_1_DEI2, RTDMAC2_1_DEI3,
 	    RTDMAC2_2_DEI4, RTDMAC2_2_DEI5, RTDMAC2_2_DADERR, 0 } },
-	{ 0xE6950190, 0xE69501D0, 8, 
+	{ 0xE6950190, 0xE69501D0, 8, /* IMR4AS3 / IMCR4AS3 */
 	  { FRC, 0, 0, 0,
 	    LCDC1, CSIRX, DSITX_DSITX0, DSITX_DSITX1 } },
-	__IGNORE({ 0xE6950194, 0xE69501D4, 8, 
+	__IGNORE({ 0xE6950194, 0xE69501D4, 8, /* IMR5AS3 / IMCR5AS3 */
 	  {SPU2_SPU0, SPU2_SPU1, FSI, FMSI,
 	   SCUV, 0, 0, 0 } })
-	{ 0xE6950198, 0xE69501D8, 8, 
+	{ 0xE6950198, 0xE69501D8, 8, /* IMR6AS3 / IMCR6AS3 */
 	  { TMU1_TUNI10, TMU1_TUNI11, TMU1_TUNI12, TSIF2,
 	    CMT4, 0, 0, 0 } },
-	{ 0xE695019C, 0xE69501DC, 8, 
+	{ 0xE695019C, 0xE69501DC, 8, /* IMR7AS3 / IMCR7AS3 */
 	  { __IGNORE0(MFIS2), CPORTS2R, 0, 0,
 	    0, 0, 0, 0 } },
-	{ 0xFFD20104, 0, 16, 
+	{ 0xFFD20104, 0, 16, /* INTAMASK */
 	  { 0, 0, 0, 0, 0, 0, 0, 0,
 	    0, 0, 0, 0, 0, 0, 0, INTCS } }
 };
 
 static struct intc_prio_reg intcs_prio_registers[] __initdata = {
-	
+	/* IPRAS */
 	{ 0xFFD20000, 0, 16, 4, { __IGNORE0(CTI), MVI3, _2DDMAC, ICB } },
-	
+	/* IPRBS */
 	{ 0xFFD20004, 0, 16, 4, { JPU, LCDC0, 0, __IGNORE0(LCRC) } },
-	
+	/* IPRCS */
 	__IGNORE({ 0xFFD20008, 0, 16, 4, { BBIF2, 0, 0, 0 } })
-	
+	/* IPRES */
 	{ 0xFFD20010, 0, 16, 4, { RTDMAC1_1, CEU, __IGNORE0(MFI), VPU } },
-	
+	/* IPRFS */
 	{ 0xFFD20014, 0, 16, 4,
 	  { __IGNORE0(KEYSC), RTDMAC1_2, __IGNORE0(CMT2), CMT0 } },
-	
+	/* IPRGS */
 	{ 0xFFD20018, 0, 16, 4, { TMU_TUNI0, TMU_TUNI1, TMU_TUNI2, TSIF1 } },
-	
+	/* IPRHS */
 	{ 0xFFD2001C, 0, 16, 4, { __IGNORE0(TTI20), 0, VEU, BEU } },
-	
+	/* IPRIS */
 	{ 0xFFD20020, 0, 16, 4, { 0, __IGNORE0(MSIOF), TSIF0, IIC0 } },
-	
+	/* IPRJS */
 	__IGNORE({ 0xFFD20024, 0, 16, 4, { 0, SGX540, MSUG, MSU } })
-	
+	/* IPRKS */
 	{ 0xFFD20028, 0, 16, 4, { __IGNORE0(_2DG), ASA, LMB, PEP } },
-	
+	/* IPRLS */
 	{ 0xFFD2002C, 0, 16, 4, { IPMMU, 0, 0, HQE } },
-	
+	/* IPRMS */
 	{ 0xFFD20030, 0, 16, 4,
 	  { IIC2, 0, __IGNORE0(RWDT1), __IGNORE0(RWDT0) } },
-	
+	/* IPRAS3 */
 	{ 0xFFD50000, 0, 16, 4, { RTDMAC2_1, 0, 0, 0 } },
-	
+	/* IPRBS3 */
 	{ 0xFFD50004, 0, 16, 4, { RTDMAC2_2, 0, 0, 0 } },
-	
+	/* IPRIS3 */
 	{ 0xFFD50020, 0, 16, 4, { FRC, 0, 0, 0 } },
-	
+	/* IPRJS3 */
 	{ 0xFFD50024, 0, 16, 4, { LCDC1, CSIRX, DSITX, 0 } },
-	
+	/* IPRKS3 */
 	__IGNORE({ 0xFFD50028, 0, 16, 4, { SPU2, 0, FSI, FMSI } })
-	
+	/* IPRLS3 */
 	__IGNORE({ 0xFFD5002C, 0, 16, 4, { SCUV, 0, 0, 0 } })
-	
+	/* IPRMS3 */
 	{ 0xFFD50030, 0, 16, 4, { TMU1, 0, 0, TSIF2 } },
-	
+	/* IPRNS3 */
 	{ 0xFFD50034, 0, 16, 4, { CMT4, 0, 0, 0 } },
-	
+	/* IPROS3 */
 	{ 0xFFD50038, 0, 16, 4, { __IGNORE0(MFIS2), CPORTS2R, 0, 0 } },
 };
 
@@ -585,7 +586,7 @@ void __init sh7377_init_irq(void)
 	register_intc_controller(&intca_irq_pins_desc);
 	register_intc_controller(&intcs_desc);
 
-	
+	/* demux using INTEVTSA */
 	irq_set_handler_data(evt2irq(INTCS_INTVECT), (void *)intevtsa);
 	irq_set_chained_handler(evt2irq(INTCS_INTVECT), intcs_demux);
 }

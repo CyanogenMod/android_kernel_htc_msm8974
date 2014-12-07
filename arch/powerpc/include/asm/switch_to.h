@@ -62,4 +62,4 @@ static inline void flush_spe_to_thread(struct task_struct *t)
 }
 #endif
 
-#endif 
+#endif /* _ASM_POWERPC_SWITCH_TO_H */

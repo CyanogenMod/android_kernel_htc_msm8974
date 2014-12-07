@@ -47,7 +47,7 @@ static struct clock_event_device a20r_clockevent_device = {
 	.name		= "a20r-timer",
 	.features	= CLOCK_EVT_FEAT_PERIODIC,
 
-	
+	/* .mult, .shift, .max_delta_ns and .min_delta_ns left uninitialized */
 
 	.rating		= 300,
 	.irq		= SNI_A20R_IRQ_TIMER,
@@ -72,6 +72,10 @@ static struct irqaction a20r_irqaction = {
 	.name		= "a20r-timer",
 };
 
+/*
+ * a20r platform uses 2 counters to divide the input frequency.
+ * Counter 2 output is connected to Counter 0 & 1 input.
+ */
 static void __init sni_a20r_timer_setup(void)
 {
 	struct clock_event_device *cd = &a20r_clockevent_device;
@@ -93,15 +97,15 @@ static __init unsigned long dosample(void)
 	u32 ct0, ct1;
 	volatile u8 msb;
 
-	
+	/* Start the counter. */
 	outb_p(0x34, 0x43);
 	outb_p(SNI_8254_TCSAMP_COUNTER & 0xff, 0x40);
 	outb(SNI_8254_TCSAMP_COUNTER >> 8, 0x40);
 
-	
+	/* Get initial counter invariant */
 	ct0 = read_c0_count();
 
-	
+	/* Latch and spin until top byte of counter0 is zero */
 	do {
 		outb(0x00, 0x43);
 		(void) inb(0x40);
@@ -109,21 +113,38 @@ static __init unsigned long dosample(void)
 		ct1 = read_c0_count();
 	} while (msb);
 
-	
+	/* Stop the counter. */
 	outb(0x38, 0x43);
-	
+	/*
+	 * Return the difference, this is how far the r4k counter increments
+	 * for every 1/HZ seconds. We round off the nearest 1 MHz of master
+	 * clock (= 1000000 / HZ / 2).
+	 */
+	/*return (ct1 - ct0 + (500000/HZ/2)) / (500000/HZ) * (500000/HZ);*/
 	return (ct1 - ct0) / (500000/HZ) * (500000/HZ);
 }
 
+/*
+ * Here we need to calibrate the cycle counter to at least be close.
+ */
 void __init plat_time_init(void)
 {
 	unsigned long r4k_ticks[3];
 	unsigned long r4k_tick;
 
+	/*
+	 * Figure out the r4k offset, the algorithm is very simple and works in
+	 * _all_ cases as long as the 8254 counter register itself works ok (as
+	 * an interrupt driving timer it does not because of bug, this is why
+	 * we are using the onchip r4k counter/compare register to serve this
+	 * purpose, but for r4k_offset calculation it will work ok for us).
+	 * There are other very complicated ways of performing this calculation
+	 * but this one works just fine so I am not going to futz around. ;-)
+	 */
 	printk(KERN_INFO "Calibrating system timer... ");
-	dosample();	
-	dosample();	
-	
+	dosample();	/* Prime cache. */
+	dosample();	/* Prime cache. */
+	/* Zero is NOT an option. */
 	do {
 		r4k_ticks[0] = dosample();
 	} while (!r4k_ticks[0]);

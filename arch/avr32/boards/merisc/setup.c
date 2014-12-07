@@ -34,14 +34,17 @@
 
 #include "merisc.h"
 
+/* Holds the autodetected board model and revision */
 static int merisc_board_id;
 
+/* Initialized by bootloader-specific startup code. */
 struct tag *bootloader_tags __initdata;
 
+/* Oscillator frequencies. These are board specific */
 unsigned long at32_board_osc_rates[3] = {
-	[0]	= 32768,	
-	[1]	= 20000000,	
-	[2]	= 12000000,	
+	[0]	= 32768,	/* 32.768 kHz on RTC osc */
+	[1]	= 20000000,	/* 20 MHz on osc0 */
+	[2]	= 12000000,	/* 12 MHz on osc1 */
 };
 
 struct eth_addr {
@@ -168,7 +171,7 @@ static struct i2c_board_info __initdata i2c_info[] = {
 static struct gpio_led stk_pwm_led[] = {
 	{
 		.name	= "backlight",
-		.gpio	= 0,		
+		.gpio	= 0,		/* PWM channel 0 (LCD backlight) */
 	},
 };
 
@@ -215,7 +218,7 @@ const char *merisc_revision(void)
 
 static void detect_merisc_board_id(void)
 {
-	
+	/* Board ID pins MUST be set as input or the board may be damaged */
 	at32_select_gpio(GPIO_PIN_PA(24), AT32_GPIOF_PULLUP);
 	at32_select_gpio(GPIO_PIN_PA(25), AT32_GPIOF_PULLUP);
 	at32_select_gpio(GPIO_PIN_PA(26), AT32_GPIOF_PULLUP);
@@ -242,7 +245,7 @@ static int __init merisc_init(void)
 	printk(KERN_NOTICE "BOARD: Merisc %s revision %s\n", merisc_model(),
 	       merisc_revision());
 
-	
+	/* Reserve pins for SDRAM */
 	at32_reserve_pin(GPIO_PIOE_BASE, ATMEL_EBI_PE_DATA_ALL | (1 << 26));
 
 	if (merisc_board_id >= 1)
@@ -255,7 +258,7 @@ static int __init merisc_init(void)
 	at32_add_device_usart(3);
 	set_hw_addr(at32_add_device_eth(0, &eth_data[0]));
 
-	
+	/* ADS7846 PENIRQ */
 	if (merisc_board_id == 0) {
 		ads7846_data.get_pendown_state = ads7846_get_pendown_state_PB26;
 		at32_select_periph(GPIO_PIOB_BASE, 1 << 26,
@@ -268,7 +271,7 @@ static int __init merisc_init(void)
 		spi0_board_info[0].irq = AT32_EXTINT(3);
 	}
 
-	
+	/* ADS7846 busy pin */
 	at32_select_gpio(GPIO_PIN_PA(4), AT32_GPIOF_PULLUP);
 
 	at32_add_device_spi(0, spi0_board_info, ARRAY_SIZE(spi0_board_info));

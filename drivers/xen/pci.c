@@ -81,7 +81,7 @@ static int xen_add_device(struct device *dev)
 				status = acpi_get_parent(handle, &handle);
 			} while (ACPI_SUCCESS(status));
 		}
-#endif 
+#endif /* CONFIG_ACPI */
 
 		r = HYPERVISOR_physdev_op(PHYSDEVOP_pci_device_add, &add);
 		if (r != -ENOSYS)

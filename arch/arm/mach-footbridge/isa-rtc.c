@@ -28,16 +28,29 @@ void __init isa_rtc_init(void)
 {
 	int reg_d, reg_b;
 
+	/*
+	 * Probe for the RTC.
+	 */
 	reg_d = CMOS_READ(RTC_REG_D);
 
+	/*
+	 * make sure the divider is set
+	 */
 	CMOS_WRITE(RTC_REF_CLCK_32KHZ, RTC_REG_A);
 
+	/*
+	 * Set control reg B
+	 *   (24 hour mode, update enabled)
+	 */
 	reg_b = CMOS_READ(RTC_REG_B) & 0x7f;
 	reg_b |= 2;
 	CMOS_WRITE(reg_b, RTC_REG_B);
 
 	if ((CMOS_READ(RTC_REG_A) & 0x7f) == RTC_REF_CLCK_32KHZ &&
 	    CMOS_READ(RTC_REG_B) == reg_b) {
+		/*
+		 * We have a RTC.  Check the battery
+		 */
 		if ((reg_d & 0x80) == 0)
 			printk(KERN_WARNING "RTC: *** warning: CMOS battery bad\n");
 	}

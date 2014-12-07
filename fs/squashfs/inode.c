@@ -21,6 +21,22 @@
  * inode.c
  */
 
+/*
+ * This file implements code to create and read inodes from disk.
+ *
+ * Inodes in Squashfs are identified by a 48-bit inode which encodes the
+ * location of the compressed metadata block containing the inode, and the byte
+ * offset into that block where the inode is placed (<block, offset>).
+ *
+ * To maximise compression there are different inodes for each file type
+ * (regular file, directory, device, etc.), the inode contents and length
+ * varying with the type.
+ *
+ * To further maximise compression, two types of regular file inode and
+ * directory inode are defined: inodes optimised for frequently occurring
+ * regular files and directories, and extended types where extra
+ * information has to be stored.
+ */
 
 #include <linux/fs.h>
 #include <linux/vfs.h>
@@ -32,6 +48,11 @@
 #include "squashfs.h"
 #include "xattr.h"
 
+/*
+ * Initialise VFS inode with the base inode information common to all
+ * Squashfs inode types.  Sqsh_ino contains the unswapped base inode
+ * off disk.
+ */
 static int squashfs_new_inode(struct super_block *sb, struct inode *inode,
 				struct squashfs_base_inode *sqsh_ino)
 {
@@ -80,6 +101,10 @@ struct inode *squashfs_iget(struct super_block *sb, long long ino,
 }
 
 
+/*
+ * Initialise VFS inode by reading inode from inode table (compressed
+ * metadata).  The format and amount of data read depends on type.
+ */
 int squashfs_read_inode(struct inode *inode, long long ino)
 {
 	struct super_block *sb = inode->i_sb;
@@ -92,6 +117,9 @@ int squashfs_read_inode(struct inode *inode, long long ino)
 
 	TRACE("Entered squashfs_read_inode\n");
 
+	/*
+	 * Read inode base common to all inode types.
+	 */
 	err = squashfs_read_metadata(sb, sqshb_ino, &block,
 				&offset, sizeof(*sqshb_ino));
 	if (err < 0)

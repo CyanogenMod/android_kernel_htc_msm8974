@@ -1,3 +1,21 @@
+/*
+ * Device driver for the PMU on 68K-based Apple PowerBooks
+ *
+ * The VIA (versatile interface adapter) interfaces to the PMU,
+ * a 6805 microprocessor core whose primary function is to control
+ * battery charging and system power on the PowerBooks.
+ * The PMU also controls the ADB (Apple Desktop Bus) which connects
+ * to the keyboard and mouse, as well as the non-volatile RAM
+ * and the RTC (real time clock) chip.
+ *
+ * Adapted for 68K PMU by Joshua M. Thompson
+ *
+ * Based largely on the PowerMac PMU code by Paul Mackerras and
+ * Fabio Riccardi.
+ *
+ * Also based on the PMU driver from MkLinux by Apple Computer, Inc.
+ * and the Open Software Foundation, Inc.
+ */
 
 #include <stdarg.h>
 #include <linux/types.h>
@@ -22,35 +40,40 @@
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 
+/* Misc minor number allocated for /dev/pmu */
 #define PMU_MINOR	154
 
-#define RS		0x200		
-#define B		0		
-#define A		RS		
-#define DIRB		(2*RS)		
-#define DIRA		(3*RS)		
-#define T1CL		(4*RS)		
-#define T1CH		(5*RS)		
-#define T1LL		(6*RS)		
-#define T1LH		(7*RS)		
-#define T2CL		(8*RS)		
-#define T2CH		(9*RS)		
-#define SR		(10*RS)		
-#define ACR		(11*RS)		
-#define PCR		(12*RS)		
-#define IFR		(13*RS)		
-#define IER		(14*RS)		
-#define ANH		(15*RS)		
+/* VIA registers - spaced 0x200 bytes apart */
+#define RS		0x200		/* skip between registers */
+#define B		0		/* B-side data */
+#define A		RS		/* A-side data */
+#define DIRB		(2*RS)		/* B-side direction (1=output) */
+#define DIRA		(3*RS)		/* A-side direction (1=output) */
+#define T1CL		(4*RS)		/* Timer 1 ctr/latch (low 8 bits) */
+#define T1CH		(5*RS)		/* Timer 1 counter (high 8 bits) */
+#define T1LL		(6*RS)		/* Timer 1 latch (low 8 bits) */
+#define T1LH		(7*RS)		/* Timer 1 latch (high 8 bits) */
+#define T2CL		(8*RS)		/* Timer 2 ctr/latch (low 8 bits) */
+#define T2CH		(9*RS)		/* Timer 2 counter (high 8 bits) */
+#define SR		(10*RS)		/* Shift register */
+#define ACR		(11*RS)		/* Auxiliary control register */
+#define PCR		(12*RS)		/* Peripheral control register */
+#define IFR		(13*RS)		/* Interrupt flag register */
+#define IER		(14*RS)		/* Interrupt enable register */
+#define ANH		(15*RS)		/* A-side data, no handshake */
 
-#define TACK		0x02		
-#define TREQ		0x04		
+/* Bits in B data register: both active low */
+#define TACK		0x02		/* Transfer acknowledge (input) */
+#define TREQ		0x04		/* Transfer request (output) */
 
-#define SR_CTRL		0x1c		
-#define SR_EXT		0x0c		
-#define SR_OUT		0x10		
+/* Bits in ACR */
+#define SR_CTRL		0x1c		/* Shift register control bits */
+#define SR_EXT		0x0c		/* Shift on external clock */
+#define SR_OUT		0x10		/* Shift out if 1 */
 
-#define SR_INT		0x04		
-#define CB1_INT		0x10		
+/* Bits in IFR and IER */
+#define SR_INT		0x04		/* Shift register full/empty */
+#define CB1_INT		0x10		/* transition on CB1 input */
 
 static enum pmu_state {
 	idle,
@@ -104,39 +127,47 @@ struct adb_driver via_pmu_driver = {
 	pmu_reset_bus
 };
 
+/*
+ * This table indicates for each PMU opcode:
+ * - the number of data bytes to be sent with the command, or -1
+ *   if a length byte should be sent,
+ * - the number of response bytes which the PMU will return, or
+ *   -1 if it will send a length byte.
+ */
 static s8 pmu_data_len[256][2] = {
-	{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
-	{ 1, 0},{ 1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{ 0, 1},{ 0, 1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{ 0, 0},
-	{-1, 0},{ 0, 0},{ 2, 0},{ 1, 0},{ 1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{ 0,-1},{ 0,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{ 0,-1},
-	{ 4, 0},{20, 0},{-1, 0},{ 3, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{ 0, 4},{ 0,20},{ 2,-1},{ 2, 1},{ 3,-1},{-1,-1},{-1,-1},{ 4, 0},
-	{ 1, 0},{ 1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{ 0, 1},{ 0, 1},{-1,-1},{ 1, 0},{ 1, 0},{-1,-1},{-1,-1},{-1,-1},
-	{ 1, 0},{ 0, 0},{ 2, 0},{ 2, 0},{-1, 0},{ 1, 0},{ 3, 0},{ 1, 0},
-	{ 0, 1},{ 1, 0},{ 0, 2},{ 0, 2},{ 0,-1},{-1,-1},{-1,-1},{-1,-1},
-	{ 2, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{ 0, 3},{ 0, 3},{ 0, 2},{ 0, 8},{ 0,-1},{ 0,-1},{-1,-1},{-1,-1},
-	{ 1, 0},{ 1, 0},{ 1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{ 0,-1},{ 0,-1},{-1,-1},{-1,-1},{-1,-1},{ 5, 1},{ 4, 1},{ 4, 1},
-	{ 4, 0},{-1, 0},{ 0, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{ 0, 5},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
-	{ 1, 0},{ 2, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{ 0, 1},{ 0, 1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
-	{ 2, 0},{ 2, 0},{ 2, 0},{ 4, 0},{-1, 0},{ 0, 0},{-1, 0},{-1, 0},
-	{ 1, 1},{ 1, 0},{ 3, 0},{ 2, 0},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
-	{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
-	{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
-	{ 0, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{ 1, 1},{ 1, 1},{-1,-1},{-1,-1},{ 0, 1},{ 0,-1},{-1,-1},{-1,-1},
-	{-1, 0},{ 4, 0},{ 0, 1},{-1, 0},{-1, 0},{ 4, 0},{-1, 0},{-1, 0},
-	{ 3,-1},{-1,-1},{ 0, 1},{-1,-1},{ 0,-1},{-1,-1},{-1,-1},{ 0, 0},
-	{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
-	{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
+/*	   0	   1	   2	   3	   4	   5	   6	   7  */
+/*00*/	{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*08*/	{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
+/*10*/	{ 1, 0},{ 1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*18*/	{ 0, 1},{ 0, 1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{ 0, 0},
+/*20*/	{-1, 0},{ 0, 0},{ 2, 0},{ 1, 0},{ 1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*28*/	{ 0,-1},{ 0,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{ 0,-1},
+/*30*/	{ 4, 0},{20, 0},{-1, 0},{ 3, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*38*/	{ 0, 4},{ 0,20},{ 2,-1},{ 2, 1},{ 3,-1},{-1,-1},{-1,-1},{ 4, 0},
+/*40*/	{ 1, 0},{ 1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*48*/	{ 0, 1},{ 0, 1},{-1,-1},{ 1, 0},{ 1, 0},{-1,-1},{-1,-1},{-1,-1},
+/*50*/	{ 1, 0},{ 0, 0},{ 2, 0},{ 2, 0},{-1, 0},{ 1, 0},{ 3, 0},{ 1, 0},
+/*58*/	{ 0, 1},{ 1, 0},{ 0, 2},{ 0, 2},{ 0,-1},{-1,-1},{-1,-1},{-1,-1},
+/*60*/	{ 2, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*68*/	{ 0, 3},{ 0, 3},{ 0, 2},{ 0, 8},{ 0,-1},{ 0,-1},{-1,-1},{-1,-1},
+/*70*/	{ 1, 0},{ 1, 0},{ 1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*78*/	{ 0,-1},{ 0,-1},{-1,-1},{-1,-1},{-1,-1},{ 5, 1},{ 4, 1},{ 4, 1},
+/*80*/	{ 4, 0},{-1, 0},{ 0, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*88*/	{ 0, 5},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
+/*90*/	{ 1, 0},{ 2, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*98*/	{ 0, 1},{ 0, 1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
+/*a0*/	{ 2, 0},{ 2, 0},{ 2, 0},{ 4, 0},{-1, 0},{ 0, 0},{-1, 0},{-1, 0},
+/*a8*/	{ 1, 1},{ 1, 0},{ 3, 0},{ 2, 0},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
+/*b0*/	{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*b8*/	{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
+/*c0*/	{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*c8*/	{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
+/*d0*/	{ 0, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*d8*/	{ 1, 1},{ 1, 1},{-1,-1},{-1,-1},{ 0, 1},{ 0,-1},{-1,-1},{-1,-1},
+/*e0*/	{-1, 0},{ 4, 0},{ 0, 1},{-1, 0},{-1, 0},{ 4, 0},{-1, 0},{-1, 0},
+/*e8*/	{ 3,-1},{-1,-1},{ 0, 1},{-1,-1},{ 0,-1},{-1,-1},{-1,-1},{ 0, 0},
+/*f0*/	{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},
+/*f8*/	{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},{-1,-1},
 };
 
 int pmu_probe(void)
@@ -160,8 +191,8 @@ pmu_init(void)
 	int timeout;
 	volatile struct adb_request req;
 
-	via2[B] |= TREQ;				
-	via2[DIRB] = (via2[DIRB] | TREQ) & ~TACK;	
+	via2[B] |= TREQ;				/* negate TREQ */
+	via2[DIRB] = (via2[DIRB] | TREQ) & ~TACK;	/* TACK in, TREQ out */
 
 	pmu_request((struct adb_request *) &req, NULL, 2, PMU_SET_INTR_MASK, PMU_INT_ADB);
 	timeout =  100000;
@@ -174,7 +205,7 @@ pmu_init(void)
 		pmu_poll();
 	}
 
-	
+	/* ack all pending interrupts */
 	timeout = 100000;
 	interrupt_data[0] = 1;
 	while (interrupt_data[0] || pmu_state != idle) {
@@ -222,7 +253,7 @@ pmu_init(void)
 
 	pmu_fully_inited = 1;
 	
-	
+	/* Enable backlight */
 	pmu_enable_backlight(1);
 
 	printk("adb: PMU 68K driver v0.5 for Unified ADB.\n");
@@ -236,6 +267,7 @@ pmu_get_model(void)
 	return pmu_kind;
 }
 
+/* Send an ADB command */
 static int 
 pmu_send_request(struct adb_request *req, int sync)
 {
@@ -321,7 +353,7 @@ pmu_send_request(struct adb_request *req, int sync)
 			req->data[i+2] = req->data[i];
 		req->data[3] = req->nbytes - 2;
 		req->data[2] = pmu_adb_flags;
-		
+		/*req->data[1] = req->data[1];*/
 		req->data[0] = PMU_ADB_CMD;
 		req->nbytes += 2;
 		req->reply_expected = 1;
@@ -343,6 +375,7 @@ pmu_send_request(struct adb_request *req, int sync)
     return 0;
 }
 
+/* Enable/disable autopolling */
 static int 
 pmu_autopoll(int devs)
 {
@@ -364,6 +397,7 @@ pmu_autopoll(int devs)
 	return 0;
 }
 
+/* Reset the ADB bus */
 static int 
 pmu_reset_bus(void)
 {
@@ -373,14 +407,14 @@ pmu_reset_bus(void)
 
 	if (!pmu_fully_inited) return -ENXIO;
 
-	
+	/* anyone got a better idea?? */
 	pmu_autopoll(0);
 
 	req.nbytes = 5;
 	req.done = NULL;
 	req.data[0] = PMU_ADB_CMD;
 	req.data[1] = 0;
-	req.data[2] = 3; 
+	req.data[2] = 3; /* ADB_BUSRESET ??? */
 	req.data[3] = 0;
 	req.data[4] = 0;
 	req.reply_len = 0;
@@ -408,6 +442,7 @@ pmu_reset_bus(void)
 	return 0;
 }
 
+/* Construct and send a pmu request */
 int 
 pmu_request(struct adb_request *req, void (*done)(struct adb_request *),
 	    int nbytes, ...)
@@ -475,7 +510,7 @@ send_byte(int x)
 {
 	via1[ACR] |= SR_CTRL;
 	via1[SR] = x;
-	via2[B] &= ~TREQ;		
+	via2[B] &= ~TREQ;		/* assert TREQ */
 }
 
 static void 
@@ -484,7 +519,7 @@ recv_byte(void)
 	char c;
 
 	via1[ACR] = (via1[ACR] | SR_EXT) & ~SR_OUT;
-	c = via1[SR];		
+	c = via1[SR];		/* resets SR */
 	via2[B] &= ~TREQ;
 }
 
@@ -494,8 +529,8 @@ pmu_start(void)
 	unsigned long flags;
 	struct adb_request *req;
 
-	
-	
+	/* assert pmu_state == idle */
+	/* get the packet to send */
 	local_irq_save(flags);
 	req = current_req;
 	if (req == 0 || pmu_state != idle
@@ -506,7 +541,7 @@ pmu_start(void)
 	data_index = 1;
 	data_len = pmu_data_len[req->data[0]][0];
 
-	
+	/* set the shift register to shift out and send a byte */
 	send_byte(req->data[0]);
 
 out:
@@ -534,24 +569,24 @@ static irqreturn_t
 pmu_interrupt(int irq, void *dev_id)
 {
 	struct adb_request *req;
-	int timeout, bite = 0;	
+	int timeout, bite = 0;	/* to prevent compiler warning */
 
 #if 0
 	printk("pmu_interrupt: irq %d state %d acr %02X, b %02X data_index %d/%d adb_int_pending %d\n",
 		irq, pmu_state, (uint) via1[ACR], (uint) via2[B], data_index, data_len, adb_int_pending);
 #endif
 
-	if (irq == IRQ_MAC_ADB_CL) {		
+	if (irq == IRQ_MAC_ADB_CL) {		/* CB1 interrupt */
 		adb_int_pending = 1;
-	} else if (irq == IRQ_MAC_ADB_SR) {	
+	} else if (irq == IRQ_MAC_ADB_SR) {	/* SR interrupt  */
 		if (via2[B] & TACK) {
 			printk(KERN_DEBUG "PMU: SR_INT but ack still high! (%x)\n", via2[B]);
 		}
 
-		
+		/* if reading grab the byte */
 		if ((via1[ACR] & SR_OUT) == 0) bite = via1[SR];
 
-		
+		/* reset TREQ and wait for TACK to go high */
 		via2[B] |= TREQ;
 		timeout = 3200;
 		while (!(via2[B] & TACK)) {
@@ -657,6 +692,7 @@ pmu_done(struct adb_request *req)
 		(*req->done)(req);
 }
 
+/* Interrupt data could be the result data from an ADB cmd */
 static void 
 pmu_handle_data(unsigned char *data, int len)
 {
@@ -687,7 +723,7 @@ pmu_handle_data(unsigned char *data, int len)
 		}
 	} else {
 		if (data[0] == 0x08 && len == 3) {
-			
+			/* sound/brightness buttons pressed */
 			pmu_set_brightness(data[1] >> 3);
 			set_volume(data[2]);
 		} else if (show_pmu_ints
@@ -712,7 +748,7 @@ pmu_enable_backlight(int on)
 	struct adb_request req;
 
 	if (on) {
-	    
+	    /* first call: get current backlight value */
 	    if (backlight_level < 0) {
 		switch(pmu_kind) {
 		    case PMU_68K_V1:

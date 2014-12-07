@@ -23,56 +23,63 @@
 #include <asm/sibyte/sb1250_smbus.h>
 
 
+/* M41T81 definitions */
+
+/*
+ * Register bits
+ */
+
+#define M41T81REG_SC_ST		0x80		/* stop bit */
+#define M41T81REG_HR_CB		0x40		/* century bit */
+#define M41T81REG_HR_CEB	0x80		/* century enable bit */
+#define M41T81REG_CTL_S		0x20		/* sign bit */
+#define M41T81REG_CTL_FT	0x40		/* frequency test bit */
+#define M41T81REG_CTL_OUT	0x80		/* output level */
+#define M41T81REG_WD_RB0	0x01		/* watchdog resolution bit 0 */
+#define M41T81REG_WD_RB1	0x02		/* watchdog resolution bit 1 */
+#define M41T81REG_WD_BMB0	0x04		/* watchdog multiplier bit 0 */
+#define M41T81REG_WD_BMB1	0x08		/* watchdog multiplier bit 1 */
+#define M41T81REG_WD_BMB2	0x10		/* watchdog multiplier bit 2 */
+#define M41T81REG_WD_BMB3	0x20		/* watchdog multiplier bit 3 */
+#define M41T81REG_WD_BMB4	0x40		/* watchdog multiplier bit 4 */
+#define M41T81REG_AMO_ABE	0x20		/* alarm in "battery back-up mode" enable bit */
+#define M41T81REG_AMO_SQWE	0x40		/* square wave enable */
+#define M41T81REG_AMO_AFE	0x80		/* alarm flag enable flag */
+#define M41T81REG_ADT_RPT5	0x40		/* alarm repeat mode bit 5 */
+#define M41T81REG_ADT_RPT4	0x80		/* alarm repeat mode bit 4 */
+#define M41T81REG_AHR_RPT3	0x80		/* alarm repeat mode bit 3 */
+#define M41T81REG_AHR_HT	0x40		/* halt update bit */
+#define M41T81REG_AMN_RPT2	0x80		/* alarm repeat mode bit 2 */
+#define M41T81REG_ASC_RPT1	0x80		/* alarm repeat mode bit 1 */
+#define M41T81REG_FLG_AF	0x40		/* alarm flag (read only) */
+#define M41T81REG_FLG_WDF	0x80		/* watchdog flag (read only) */
+#define M41T81REG_SQW_RS0	0x10		/* sqw frequency bit 0 */
+#define M41T81REG_SQW_RS1	0x20		/* sqw frequency bit 1 */
+#define M41T81REG_SQW_RS2	0x40		/* sqw frequency bit 2 */
+#define M41T81REG_SQW_RS3	0x80		/* sqw frequency bit 3 */
 
 
-#define M41T81REG_SC_ST		0x80		
-#define M41T81REG_HR_CB		0x40		
-#define M41T81REG_HR_CEB	0x80		
-#define M41T81REG_CTL_S		0x20		
-#define M41T81REG_CTL_FT	0x40		
-#define M41T81REG_CTL_OUT	0x80		
-#define M41T81REG_WD_RB0	0x01		
-#define M41T81REG_WD_RB1	0x02		
-#define M41T81REG_WD_BMB0	0x04		
-#define M41T81REG_WD_BMB1	0x08		
-#define M41T81REG_WD_BMB2	0x10		
-#define M41T81REG_WD_BMB3	0x20		
-#define M41T81REG_WD_BMB4	0x40		
-#define M41T81REG_AMO_ABE	0x20		
-#define M41T81REG_AMO_SQWE	0x40		
-#define M41T81REG_AMO_AFE	0x80		
-#define M41T81REG_ADT_RPT5	0x40		
-#define M41T81REG_ADT_RPT4	0x80		
-#define M41T81REG_AHR_RPT3	0x80		
-#define M41T81REG_AHR_HT	0x40		
-#define M41T81REG_AMN_RPT2	0x80		
-#define M41T81REG_ASC_RPT1	0x80		
-#define M41T81REG_FLG_AF	0x40		
-#define M41T81REG_FLG_WDF	0x80		
-#define M41T81REG_SQW_RS0	0x10		
-#define M41T81REG_SQW_RS1	0x20		
-#define M41T81REG_SQW_RS2	0x40		
-#define M41T81REG_SQW_RS3	0x80		
+/*
+ * Register numbers
+ */
 
-
-
-#define M41T81REG_TSC	0x00		
-#define M41T81REG_SC	0x01		
-#define M41T81REG_MN	0x02		
-#define M41T81REG_HR	0x03		
-#define M41T81REG_DY	0x04		
-#define M41T81REG_DT	0x05		
-#define M41T81REG_MO	0x06		
-#define M41T81REG_YR	0x07		
-#define M41T81REG_CTL	0x08		
-#define M41T81REG_WD	0x09		
-#define M41T81REG_AMO	0x0A		
-#define M41T81REG_ADT	0x0B		
-#define M41T81REG_AHR	0x0C		
-#define M41T81REG_AMN	0x0D		
-#define M41T81REG_ASC	0x0E		
-#define M41T81REG_FLG	0x0F		
-#define M41T81REG_SQW	0x13		
+#define M41T81REG_TSC	0x00		/* tenths/hundredths of second */
+#define M41T81REG_SC	0x01		/* seconds */
+#define M41T81REG_MN	0x02		/* minute */
+#define M41T81REG_HR	0x03		/* hour/century */
+#define M41T81REG_DY	0x04		/* day of week */
+#define M41T81REG_DT	0x05		/* date of month */
+#define M41T81REG_MO	0x06		/* month */
+#define M41T81REG_YR	0x07		/* year */
+#define M41T81REG_CTL	0x08		/* control */
+#define M41T81REG_WD	0x09		/* watchdog */
+#define M41T81REG_AMO	0x0A		/* alarm: month */
+#define M41T81REG_ADT	0x0B		/* alarm: date */
+#define M41T81REG_AHR	0x0C		/* alarm: hour */
+#define M41T81REG_AMN	0x0D		/* alarm: minute */
+#define M41T81REG_ASC	0x0E		/* alarm: second */
+#define M41T81REG_FLG	0x0F		/* flags */
+#define M41T81REG_SQW	0x13		/* square wave register */
 
 #define M41T81_CCR_ADDRESS	0x68
 
@@ -97,7 +104,7 @@ static int m41t81_read(uint8_t addr)
 		;
 
 	if (__raw_readq(SMB_CSR(R_SMB_STATUS)) & M_SMB_ERROR) {
-		
+		/* Clear error bit by writing a 1 */
 		__raw_writeq(M_SMB_ERROR, SMB_CSR(R_SMB_STATUS));
 		return -1;
 	}
@@ -119,7 +126,7 @@ static int m41t81_write(uint8_t addr, int b)
 		;
 
 	if (__raw_readq(SMB_CSR(R_SMB_STATUS)) & M_SMB_ERROR) {
-		
+		/* Clear error bit by writing a 1 */
 		__raw_writeq(M_SMB_ERROR, SMB_CSR(R_SMB_STATUS));
 		return -1;
 	}
@@ -139,9 +146,14 @@ int m41t81_set_time(unsigned long t)
 	struct rtc_time tm;
 	unsigned long flags;
 
-	
+	/* Note we don't care about the century */
 	rtc_time_to_tm(t, &tm);
 
+	/*
+	 * Note the write order matters as it ensures the correctness.
+	 * When we write sec, 10th sec is clear.  It is reasonable to
+	 * believe we should finish writing min within a second.
+	 */
 
 	spin_lock_irqsave(&rtc_lock, flags);
 	tm.tm_sec = bin2bcd(tm.tm_sec);
@@ -154,7 +166,7 @@ int m41t81_set_time(unsigned long t)
 	tm.tm_hour = (tm.tm_hour & 0x3f) | (m41t81_read(M41T81REG_HR) & 0xc0);
 	m41t81_write(M41T81REG_HR, tm.tm_hour);
 
-	
+	/* tm_wday starts from 0 to 6 */
 	if (tm.tm_wday == 0) tm.tm_wday = 7;
 	tm.tm_wday = bin2bcd(tm.tm_wday);
 	m41t81_write(M41T81REG_DY, tm.tm_wday);
@@ -162,12 +174,12 @@ int m41t81_set_time(unsigned long t)
 	tm.tm_mday = bin2bcd(tm.tm_mday);
 	m41t81_write(M41T81REG_DT, tm.tm_mday);
 
-	
+	/* tm_mon starts from 0, *ick* */
 	tm.tm_mon ++;
 	tm.tm_mon = bin2bcd(tm.tm_mon);
 	m41t81_write(M41T81REG_MO, tm.tm_mon);
 
-	
+	/* we don't do century, everything is beyond 2000 */
 	tm.tm_year %= 100;
 	tm.tm_year = bin2bcd(tm.tm_year);
 	m41t81_write(M41T81REG_YR, tm.tm_year);
@@ -181,6 +193,9 @@ unsigned long m41t81_get_time(void)
 	unsigned int year, mon, day, hour, min, sec;
 	unsigned long flags;
 
+	/*
+	 * min is valid if two reads of sec are the same.
+	 */
 	for (;;) {
 		spin_lock_irqsave(&rtc_lock, flags);
 		sec = m41t81_read(M41T81REG_SC);
@@ -210,7 +225,7 @@ int m41t81_probe(void)
 {
 	unsigned int tmp;
 
-	
+	/* enable chip if it is not enabled yet */
 	tmp = m41t81_read(M41T81REG_SC);
 	m41t81_write(M41T81REG_SC, tmp & 0x7f);
 

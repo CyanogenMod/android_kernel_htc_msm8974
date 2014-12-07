@@ -94,6 +94,15 @@
 #define MXS_CMD_I2C_READ	(MXS_I2C_CTRL0_SEND_NAK_ON_LAST | \
 				 MXS_I2C_CTRL0_MASTER_MODE)
 
+/**
+ * struct mxs_i2c_dev - per device, private MXS-I2C data
+ *
+ * @dev: driver model device node
+ * @regs: IO registers pointer
+ * @cmd_complete: completion object for transaction wait
+ * @cmd_err: error code for last transaction
+ * @adapter: i2c subsystem adapter node
+ */
 struct mxs_i2c_dev {
 	struct device *dev;
 	void __iomem *regs;
@@ -102,6 +111,10 @@ struct mxs_i2c_dev {
 	struct i2c_adapter adapter;
 };
 
+/*
+ * TODO: check if calls to here are really needed. If not, we could get rid of
+ * mxs_reset_block and the mach-dependency. Needs an I2C analyzer, probably.
+ */
 static void mxs_i2c_reset(struct mxs_i2c_dev *i2c)
 {
 	mxs_reset_block(i2c->regs);
@@ -155,12 +168,16 @@ static void mxs_i2c_pioq_setup_write(struct mxs_i2c_dev *i2c,
 			writel(data, i2c->regs + MXS_I2C_DATA);
 	}
 
-	
+	/* Write out the remaining bytes if any */
 	shifts_left = 24 - (i & 3) * 8;
 	if (shifts_left)
 		writel(data >> shifts_left, i2c->regs + MXS_I2C_DATA);
 }
 
+/*
+ * TODO: should be replaceable with a waitqueue and RD_QUEUE_IRQ (setting the
+ * rd_threshold to 1). Couldn't get this to work, though.
+ */
 static int mxs_i2c_wait_for_data(struct mxs_i2c_dev *i2c)
 {
 	unsigned long timeout = jiffies + msecs_to_jiffies(1000);
@@ -193,6 +210,9 @@ static int mxs_i2c_finish_read(struct mxs_i2c_dev *i2c, u8 *buf, int len)
 	return 0;
 }
 
+/*
+ * Low level master read/write transaction.
+ */
 static int mxs_i2c_xfer_msg(struct i2c_adapter *adap, struct i2c_msg *msg,
 				int stop)
 {
@@ -281,7 +301,7 @@ static irqreturn_t mxs_i2c_isr(int this_irq, void *dev_id)
 	else if (stat & (MXS_I2C_CTRL1_EARLY_TERM_IRQ |
 		    MXS_I2C_CTRL1_MASTER_LOSS_IRQ |
 		    MXS_I2C_CTRL1_SLAVE_STOP_IRQ | MXS_I2C_CTRL1_SLAVE_IRQ))
-		
+		/* MXS_I2C_CTRL1_OVERSIZE_XFER_TERM_IRQ is only for slaves */
 		i2c->cmd_err = -EIO;
 
 	is_last_cmd = (readl(i2c->regs + MXS_I2C_QUEUESTAT) &
@@ -336,7 +356,7 @@ static int __devinit mxs_i2c_probe(struct platform_device *pdev)
 	i2c->dev = dev;
 	platform_set_drvdata(pdev, i2c);
 
-	
+	/* Do reset to enforce correct startup after pinmuxing */
 	mxs_i2c_reset(i2c);
 
 	adap = &i2c->adapter;

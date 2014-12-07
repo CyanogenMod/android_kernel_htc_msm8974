@@ -12,4 +12,4 @@ static inline struct task_struct * get_current(void)
  
 #define current get_current()
 
-#endif 
+#endif /* !(_PARISC_CURRENT_H) */

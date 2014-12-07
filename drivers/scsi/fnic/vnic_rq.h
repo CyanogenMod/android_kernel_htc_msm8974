@@ -22,6 +22,10 @@
 #include "vnic_dev.h"
 #include "vnic_cq.h"
 
+/*
+ * These defines avoid symbol clash between fnic and enic (Cisco 10G Eth
+ * Driver) when both are built with CONFIG options =y
+ */
 #define vnic_rq_desc_avail fnic_rq_desc_avail
 #define vnic_rq_desc_used fnic_rq_desc_used
 #define vnic_rq_next_desc fnic_rq_next_desc
@@ -40,32 +44,34 @@
 #define vnic_rq_disable fnic_rq_disable
 #define vnic_rq_clean fnic_rq_clean
 
+/* Receive queue control */
 struct vnic_rq_ctrl {
-	u64 ring_base;			
-	u32 ring_size;			
+	u64 ring_base;			/* 0x00 */
+	u32 ring_size;			/* 0x08 */
 	u32 pad0;
-	u32 posted_index;		
+	u32 posted_index;		/* 0x10 */
 	u32 pad1;
-	u32 cq_index;			
+	u32 cq_index;			/* 0x18 */
 	u32 pad2;
-	u32 enable;			
+	u32 enable;			/* 0x20 */
 	u32 pad3;
-	u32 running;			
+	u32 running;			/* 0x28 */
 	u32 pad4;
-	u32 fetch_index;		
+	u32 fetch_index;		/* 0x30 */
 	u32 pad5;
-	u32 error_interrupt_enable;	
+	u32 error_interrupt_enable;	/* 0x38 */
 	u32 pad6;
-	u32 error_interrupt_offset;	
+	u32 error_interrupt_offset;	/* 0x40 */
 	u32 pad7;
-	u32 error_status;		
+	u32 error_status;		/* 0x48 */
 	u32 pad8;
-	u32 dropped_packet_count;	
+	u32 dropped_packet_count;	/* 0x50 */
 	u32 pad9;
-	u32 dropped_packet_count_rc;	
+	u32 dropped_packet_count_rc;	/* 0x58 */
 	u32 pad10;
 };
 
+/* Break the vnic_rq_buf allocations into blocks of 64 entries */
 #define VNIC_RQ_BUF_BLK_ENTRIES 64
 #define VNIC_RQ_BUF_BLK_SZ \
 	(VNIC_RQ_BUF_BLK_ENTRIES * sizeof(struct vnic_rq_buf))
@@ -86,7 +92,7 @@ struct vnic_rq_buf {
 struct vnic_rq {
 	unsigned int index;
 	struct vnic_dev *vdev;
-	struct vnic_rq_ctrl __iomem *ctrl;	
+	struct vnic_rq_ctrl __iomem *ctrl;	/* memory-mapped */
 	struct vnic_dev_ring ring;
 	struct vnic_rq_buf *bufs[VNIC_RQ_BUF_BLKS_MAX];
 	struct vnic_rq_buf *to_use;
@@ -98,13 +104,13 @@ struct vnic_rq {
 
 static inline unsigned int vnic_rq_desc_avail(struct vnic_rq *rq)
 {
-	
+	/* how many does SW own? */
 	return rq->ring.desc_avail;
 }
 
 static inline unsigned int vnic_rq_desc_used(struct vnic_rq *rq)
 {
-	
+	/* how many does HW own? */
 	return rq->ring.desc_count - rq->ring.desc_avail - 1;
 }
 
@@ -138,12 +144,19 @@ static inline void vnic_rq_post(struct vnic_rq *rq,
 	rq->to_use = buf;
 	rq->ring.desc_avail--;
 
+	/* Move the posted_index every nth descriptor
+	 */
 
 #ifndef VNIC_RQ_RETURN_RATE
-#define VNIC_RQ_RETURN_RATE		0xf	
+#define VNIC_RQ_RETURN_RATE		0xf	/* keep 2^n - 1 */
 #endif
 
 	if ((buf->index & VNIC_RQ_RETURN_RATE) == 0) {
+		/* Adding write memory barrier prevents compiler and/or CPU
+		 * reordering, thus avoiding descriptor posting before
+		 * descriptor is initialized. Otherwise, hardware can read
+		 * stale descriptor fields.
+		 */
 		wmb();
 		iowrite32(buf->index, &rq->ctrl->posted_index);
 	}
@@ -219,4 +232,4 @@ int vnic_rq_disable(struct vnic_rq *rq);
 void vnic_rq_clean(struct vnic_rq *rq,
 	void (*buf_clean)(struct vnic_rq *rq, struct vnic_rq_buf *buf));
 
-#endif 
+#endif /* _VNIC_RQ_H_ */

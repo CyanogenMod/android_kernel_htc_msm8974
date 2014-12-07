@@ -62,10 +62,10 @@
 #define PALMTE_MMC3_GPIO	OMAP_MPUIO(11)
 
 static const unsigned int palmte_keymap[] = {
-	KEY(0, 0, KEY_F1),		
-	KEY(1, 0, KEY_F2),		
-	KEY(2, 0, KEY_F3),		
-	KEY(3, 0, KEY_F4),		
+	KEY(0, 0, KEY_F1),		/* Calendar */
+	KEY(1, 0, KEY_F2),		/* Contacts */
+	KEY(2, 0, KEY_F3),		/* Tasks List */
+	KEY(3, 0, KEY_F4),		/* Note Pad */
 	KEY(4, 0, KEY_POWER),
 	KEY(0, 1, KEY_LEFT),
 	KEY(1, 1, KEY_DOWN),
@@ -106,17 +106,21 @@ static struct platform_device palmte_kp_device = {
 };
 
 static struct mtd_partition palmte_rom_partitions[] = {
-	
+	/* PalmOS "Small ROM", contains the bootloader and the debugger */
 	{
 		.name		= "smallrom",
 		.offset		= 0,
 		.size		= 0xa000,
 		.mask_flags	= MTD_WRITEABLE,
 	},
-	
+	/* PalmOS "Big ROM", a filesystem with all the OS code and data */
 	{
 		.name		= "bigrom",
 		.offset		= SZ_128K,
+		/*
+		 * 0x5f0000 bytes big in the multi-language ("EFIGS") version,
+		 * 0x7b0000 bytes in the English-only ("enUS") version.
+		 */
 		.size		= 0x7b0000,
 		.mask_flags	= MTD_WRITEABLE,
 	},
@@ -199,7 +203,7 @@ static struct platform_device *palmte_devices[] __initdata = {
 };
 
 static struct omap_usb_config palmte_usb_config __initdata = {
-	.register_dev	= 1,	
+	.register_dev	= 1,	/* Mini-B only receptacle */
 	.hmc_mode	= 0,
 	.pins[0]	= 2,
 };
@@ -211,22 +215,22 @@ static struct omap_lcd_config palmte_lcd_config __initdata = {
 static struct spi_board_info palmte_spi_info[] __initdata = {
 	{
 		.modalias	= "tsc2102",
-		.bus_num	= 2,	
-		.chip_select	= 0,	
+		.bus_num	= 2,	/* uWire (officially) */
+		.chip_select	= 0,	/* As opposed to 3 */
 		.max_speed_hz	= 8000000,
 	},
 };
 
 static void __init palmte_misc_gpio_setup(void)
 {
-	
+	/* Set TSC2102 PINTDAV pin as input (used by TSC2102 driver) */
 	if (gpio_request(PALMTE_PINTDAV_GPIO, "TSC2102 PINTDAV") < 0) {
 		printk(KERN_ERR "Could not reserve PINTDAV GPIO!\n");
 		return;
 	}
 	gpio_direction_input(PALMTE_PINTDAV_GPIO);
 
-	
+	/* Set USB-or-DC-IN pin as input (unused) */
 	if (gpio_request(PALMTE_USB_OR_DC_GPIO, "USB/DC-IN") < 0) {
 		printk(KERN_ERR "Could not reserve cable signal GPIO!\n");
 		return;
@@ -236,7 +240,7 @@ static void __init palmte_misc_gpio_setup(void)
 
 static void __init omap_palmte_init(void)
 {
-	
+	/* mux pins for uarts */
 	omap_cfg_reg(UART1_TX);
 	omap_cfg_reg(UART1_RTS);
 	omap_cfg_reg(UART2_TX);

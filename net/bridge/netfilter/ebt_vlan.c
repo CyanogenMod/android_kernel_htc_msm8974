@@ -40,10 +40,10 @@ ebt_vlan_mt(const struct sk_buff *skb, struct xt_action_param *par)
 {
 	const struct ebt_vlan_info *info = par->matchinfo;
 
-	unsigned short TCI;	
-	unsigned short id;	
-	unsigned char prio;	
-	
+	unsigned short TCI;	/* Whole TCI, given from parsed frame */
+	unsigned short id;	/* VLAN ID, given from frame TCI */
+	unsigned char prio;	/* user_priority, given from frame TCI */
+	/* VLAN encapsulated Type/Length field, given from orig frame */
 	__be16 encap;
 
 	if (vlan_tx_tag_present(skb)) {
@@ -61,18 +61,25 @@ ebt_vlan_mt(const struct sk_buff *skb, struct xt_action_param *par)
 		encap = fp->h_vlan_encapsulated_proto;
 	}
 
+	/* Tag Control Information (TCI) consists of the following elements:
+	 * - User_priority. The user_priority field is three bits in length,
+	 * interpreted as a binary number.
+	 * - Canonical Format Indicator (CFI). The Canonical Format Indicator
+	 * (CFI) is a single bit flag value. Currently ignored.
+	 * - VLAN Identifier (VID). The VID is encoded as
+	 * an unsigned binary number. */
 	id = TCI & VLAN_VID_MASK;
 	prio = (TCI >> 13) & 0x7;
 
-	
+	/* Checking VLAN Identifier (VID) */
 	if (GET_BITMASK(EBT_VLAN_ID))
 		EXIT_ON_MISMATCH(id, EBT_VLAN_ID);
 
-	
+	/* Checking user_priority */
 	if (GET_BITMASK(EBT_VLAN_PRIO))
 		EXIT_ON_MISMATCH(prio, EBT_VLAN_PRIO);
 
-	
+	/* Checking Encapsulated Proto (Length/Type) field */
 	if (GET_BITMASK(EBT_VLAN_ENCAP))
 		EXIT_ON_MISMATCH(encap, EBT_VLAN_ENCAP);
 
@@ -84,36 +91,48 @@ static int ebt_vlan_mt_check(const struct xt_mtchk_param *par)
 	struct ebt_vlan_info *info = par->matchinfo;
 	const struct ebt_entry *e = par->entryinfo;
 
-	
+	/* Is it 802.1Q frame checked? */
 	if (e->ethproto != htons(ETH_P_8021Q)) {
 		pr_debug("passed entry proto %2.4X is not 802.1Q (8100)\n",
 			 ntohs(e->ethproto));
 		return -EINVAL;
 	}
 
+	/* Check for bitmask range
+	 * True if even one bit is out of mask */
 	if (info->bitmask & ~EBT_VLAN_MASK) {
 		pr_debug("bitmask %2X is out of mask (%2X)\n",
 			 info->bitmask, EBT_VLAN_MASK);
 		return -EINVAL;
 	}
 
-	
+	/* Check for inversion flags range */
 	if (info->invflags & ~EBT_VLAN_MASK) {
 		pr_debug("inversion flags %2X is out of mask (%2X)\n",
 			 info->invflags, EBT_VLAN_MASK);
 		return -EINVAL;
 	}
 
+	/* Reserved VLAN ID (VID) values
+	 * -----------------------------
+	 * 0 - The null VLAN ID.
+	 * 1 - The default Port VID (PVID)
+	 * 0x0FFF - Reserved for implementation use.
+	 * if_vlan.h: VLAN_N_VID 4096. */
 	if (GET_BITMASK(EBT_VLAN_ID)) {
-		if (!!info->id) { 
+		if (!!info->id) { /* if id!=0 => check vid range */
 			if (info->id > VLAN_N_VID) {
 				pr_debug("id %d is out of range (1-4096)\n",
 					 info->id);
 				return -EINVAL;
 			}
+			/* Note: This is valid VLAN-tagged frame point.
+			 * Any value of user_priority are acceptable,
+			 * but should be ignored according to 802.1Q Std.
+			 * So we just drop the prio flag. */
 			info->bitmask &= ~EBT_VLAN_PRIO;
 		}
-		
+		/* Else, id=0 (null VLAN ID)  => user_priority range (any?) */
 	}
 
 	if (GET_BITMASK(EBT_VLAN_PRIO)) {
@@ -123,6 +142,9 @@ static int ebt_vlan_mt_check(const struct xt_mtchk_param *par)
 			return -EINVAL;
 		}
 	}
+	/* Check for encapsulated proto range - it is possible to be
+	 * any value for u_short range.
+	 * if_ether.h:  ETH_ZLEN        60   -  Min. octets in frame sans FCS */
 	if (GET_BITMASK(EBT_VLAN_ENCAP)) {
 		if ((unsigned short) ntohs(info->encap) < ETH_ZLEN) {
 			pr_debug("encap frame length %d is less than "

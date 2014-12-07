@@ -21,4 +21,4 @@ void s5p_mfc_clock_off(void);
 int s5p_mfc_power_on(void);
 int s5p_mfc_power_off(void);
 
-#endif 
+#endif /* S5P_MFC_PM_H_ */

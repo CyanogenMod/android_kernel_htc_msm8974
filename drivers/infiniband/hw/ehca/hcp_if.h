@@ -48,6 +48,10 @@
 #include "ehca_tools.h"
 #include "hipz_hw.h"
 
+/*
+ * hipz_h_alloc_resource_eq allocates EQ resources in HW and FW, initialize
+ * resources, create the empty EQPT (ring).
+ */
 u64 hipz_h_alloc_resource_eq(const struct ipz_adapter_handle adapter_handle,
 			     struct ehca_pfeq *pfeq,
 			     const u32 neq_control,
@@ -60,11 +64,19 @@ u64 hipz_h_alloc_resource_eq(const struct ipz_adapter_handle adapter_handle,
 u64 hipz_h_reset_event(const struct ipz_adapter_handle adapter_handle,
 		       struct ipz_eq_handle eq_handle,
 		       const u64 event_mask);
+/*
+ * hipz_h_allocate_resource_cq allocates CQ resources in HW and FW, initialize
+ * resources, create the empty CQPT (ring).
+ */
 u64 hipz_h_alloc_resource_cq(const struct ipz_adapter_handle adapter_handle,
 			     struct ehca_cq *cq,
 			     struct ehca_alloc_cq_parms *param);
 
 
+/*
+ * hipz_h_alloc_resource_qp allocates QP resources in HW and FW,
+ * initialize resources, create empty QPPTs (2 rings).
+ */
 u64 hipz_h_alloc_resource_qp(const struct ipz_adapter_handle adapter_handle,
 			     struct ehca_alloc_qp_parms *parms, int is_user);
 
@@ -79,6 +91,10 @@ u64 hipz_h_modify_port(const struct ipz_adapter_handle adapter_handle,
 u64 hipz_h_query_hca(const struct ipz_adapter_handle adapter_handle,
 		     struct hipz_query_hca *query_hca_rblock);
 
+/*
+ * hipz_h_register_rpage internal function in hcp_if.h for all
+ * hcp_H_REGISTER_RPAGE calls.
+ */
 u64 hipz_h_register_rpage(const struct ipz_adapter_handle adapter_handle,
 			  const u8 pagesize,
 			  const u8 queue_type,
@@ -174,6 +190,10 @@ u64 hipz_h_destroy_cq(const struct ipz_adapter_handle adapter_handle,
 u64 hipz_h_destroy_eq(const struct ipz_adapter_handle adapter_handle,
 		      struct ehca_eq *eq);
 
+/*
+ * hipz_h_alloc_resource_mr allocates MR resources in HW and FW, initialize
+ * resources.
+ */
 u64 hipz_h_alloc_resource_mr(const struct ipz_adapter_handle adapter_handle,
 			     const struct ehca_mr *mr,
 			     const u64 vaddr,
@@ -182,6 +202,7 @@ u64 hipz_h_alloc_resource_mr(const struct ipz_adapter_handle adapter_handle,
 			     const struct ipz_pd pd,
 			     struct ehca_mr_hipzout_parms *outparms);
 
+/* hipz_h_register_rpage_mr registers MR resource pages in HW and FW */
 u64 hipz_h_register_rpage_mr(const struct ipz_adapter_handle adapter_handle,
 			     const struct ehca_mr *mr,
 			     const u8 pagesize,
@@ -189,13 +210,16 @@ u64 hipz_h_register_rpage_mr(const struct ipz_adapter_handle adapter_handle,
 			     const u64 logical_address_of_page,
 			     const u64 count);
 
+/* hipz_h_query_mr queries MR in HW and FW */
 u64 hipz_h_query_mr(const struct ipz_adapter_handle adapter_handle,
 		    const struct ehca_mr *mr,
 		    struct ehca_mr_hipzout_parms *outparms);
 
+/* hipz_h_free_resource_mr frees MR resources in HW and FW */
 u64 hipz_h_free_resource_mr(const struct ipz_adapter_handle adapter_handle,
 			    const struct ehca_mr *mr);
 
+/* hipz_h_reregister_pmr reregisters MR in HW and FW */
 u64 hipz_h_reregister_pmr(const struct ipz_adapter_handle adapter_handle,
 			  const struct ehca_mr *mr,
 			  const u64 vaddr_in,
@@ -205,6 +229,7 @@ u64 hipz_h_reregister_pmr(const struct ipz_adapter_handle adapter_handle,
 			  const u64 mr_addr_cb,
 			  struct ehca_mr_hipzout_parms *outparms);
 
+/* hipz_h_register_smr register shared MR in HW and FW */
 u64 hipz_h_register_smr(const struct ipz_adapter_handle adapter_handle,
 			const struct ehca_mr *mr,
 			const struct ehca_mr *orig_mr,
@@ -213,15 +238,21 @@ u64 hipz_h_register_smr(const struct ipz_adapter_handle adapter_handle,
 			const struct ipz_pd pd,
 			struct ehca_mr_hipzout_parms *outparms);
 
+/*
+ * hipz_h_alloc_resource_mw allocates MW resources in HW and FW, initialize
+ * resources.
+ */
 u64 hipz_h_alloc_resource_mw(const struct ipz_adapter_handle adapter_handle,
 			     const struct ehca_mw *mw,
 			     const struct ipz_pd pd,
 			     struct ehca_mw_hipzout_parms *outparms);
 
+/* hipz_h_query_mw queries MW in HW and FW */
 u64 hipz_h_query_mw(const struct ipz_adapter_handle adapter_handle,
 		    const struct ehca_mw *mw,
 		    struct ehca_mw_hipzout_parms *outparms);
 
+/* hipz_h_free_resource_mw frees MW resources in HW and FW */
 u64 hipz_h_free_resource_mw(const struct ipz_adapter_handle adapter_handle,
 			    const struct ehca_mw *mw);
 
@@ -231,4 +262,4 @@ u64 hipz_h_error_data(const struct ipz_adapter_handle adapter_handle,
 		      unsigned long *byte_count);
 u64 hipz_h_eoi(int irq);
 
-#endif 
+#endif /* __HCP_IF_H__ */

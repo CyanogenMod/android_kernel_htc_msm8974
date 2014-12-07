@@ -1,4 +1,9 @@
+/* Included from asm/pgtable-*.h only ! */
 
+/*
+ * Some bits are only used on some cpu families... Make sure that all
+ * the undefined gets a sensible default
+ */
 #ifndef _PAGE_HASHPTE
 #define _PAGE_HASHPTE	0
 #endif
@@ -55,14 +60,24 @@
 #define _PTE_NONE_MASK	_PAGE_HPTEFLAGS
 #endif
 
+/* Make sure we get a link error if PMD_PAGE_SIZE is ever called on a
+ * kernel without large page PMD support
+ */
 #ifndef __ASSEMBLY__
 extern unsigned long bad_call_to_PMD_PAGE_SIZE(void);
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/* Location of the PFN in the PTE. Most 32-bit platforms use the same
+ * as _PAGE_SHIFT here (ie, naturally aligned).
+ * Platform who don't just pre-define the value so we don't override it here
+ */
 #ifndef PTE_RPN_SHIFT
 #define PTE_RPN_SHIFT	(PAGE_SHIFT)
 #endif
 
+/* The mask convered by the RPN must be a ULL on 32-bit platforms with
+ * 64-bit PTEs
+ */
 #if defined(CONFIG_PPC32) && defined(CONFIG_PTE_64BIT)
 #define PTE_RPN_MAX	(1ULL << (64 - PTE_RPN_SHIFT))
 #define PTE_RPN_MASK	(~((1ULL<<PTE_RPN_SHIFT)-1))
@@ -71,14 +86,24 @@ extern unsigned long bad_call_to_PMD_PAGE_SIZE(void);
 #define PTE_RPN_MASK	(~((1UL<<PTE_RPN_SHIFT)-1))
 #endif
 
+/* _PAGE_CHG_MASK masks of bits that are to be preserved across
+ * pgprot changes
+ */
 #define _PAGE_CHG_MASK	(PTE_RPN_MASK | _PAGE_HPTEFLAGS | _PAGE_DIRTY | \
                          _PAGE_ACCESSED | _PAGE_SPECIAL)
 
+/* Mask of bits returned by pte_pgprot() */
 #define PAGE_PROT_BITS	(_PAGE_GUARDED | _PAGE_COHERENT | _PAGE_NO_CACHE | \
 			 _PAGE_WRITETHRU | _PAGE_ENDIAN | _PAGE_4K_PFN | \
 			 _PAGE_USER | _PAGE_ACCESSED | \
 			 _PAGE_RW | _PAGE_HWWRITE | _PAGE_DIRTY | _PAGE_EXEC)
 
+/*
+ * We define 2 sets of base prot bits, one for basic pages (ie,
+ * cacheable kernel and user pages) and one for non cacheable
+ * pages. We always set _PAGE_COHERENT when SMP is enabled or
+ * the processor might need it for DMA coherency.
+ */
 #define _PAGE_BASE_NC	(_PAGE_PRESENT | _PAGE_ACCESSED | _PAGE_PSIZE)
 #if defined(CONFIG_SMP) || defined(CONFIG_PPC_STD_MMU)
 #define _PAGE_BASE	(_PAGE_BASE_NC | _PAGE_COHERENT)
@@ -86,6 +111,16 @@ extern unsigned long bad_call_to_PMD_PAGE_SIZE(void);
 #define _PAGE_BASE	(_PAGE_BASE_NC)
 #endif
 
+/* Permission masks used to generate the __P and __S table,
+ *
+ * Note:__pgprot is defined in arch/powerpc/include/asm/page.h
+ *
+ * Write permissions imply read permissions for now (we could make write-only
+ * pages on BookE but we don't bother for now). Execute permission control is
+ * possible on platforms that define _PAGE_EXEC
+ *
+ * Note due to the way vm flags are laid out, the bits are XWR
+ */
 #define PAGE_NONE	__pgprot(_PAGE_BASE)
 #define PAGE_SHARED	__pgprot(_PAGE_BASE | _PAGE_USER | _PAGE_RW)
 #define PAGE_SHARED_X	__pgprot(_PAGE_BASE | _PAGE_USER | _PAGE_RW | _PAGE_EXEC)
@@ -112,6 +147,7 @@ extern unsigned long bad_call_to_PMD_PAGE_SIZE(void);
 #define __S110	PAGE_SHARED_X
 #define __S111	PAGE_SHARED_X
 
+/* Permission masks used for kernel mappings */
 #define PAGE_KERNEL	__pgprot(_PAGE_BASE | _PAGE_KERNEL_RW)
 #define PAGE_KERNEL_NC	__pgprot(_PAGE_BASE_NC | _PAGE_KERNEL_RW | \
 				 _PAGE_NO_CACHE)
@@ -121,6 +157,10 @@ extern unsigned long bad_call_to_PMD_PAGE_SIZE(void);
 #define PAGE_KERNEL_RO	__pgprot(_PAGE_BASE | _PAGE_KERNEL_RO)
 #define PAGE_KERNEL_ROX	__pgprot(_PAGE_BASE | _PAGE_KERNEL_ROX)
 
+/* Protection used for kernel text. We want the debuggers to be able to
+ * set breakpoints anywhere, so don't write protect the kernel text
+ * on platforms where such control is possible.
+ */
 #if defined(CONFIG_KGDB) || defined(CONFIG_XMON) || defined(CONFIG_BDI_SWITCH) ||\
 	defined(CONFIG_KPROBES) || defined(CONFIG_DYNAMIC_FTRACE)
 #define PAGE_KERNEL_TEXT	PAGE_KERNEL_X
@@ -128,12 +168,20 @@ extern unsigned long bad_call_to_PMD_PAGE_SIZE(void);
 #define PAGE_KERNEL_TEXT	PAGE_KERNEL_ROX
 #endif
 
+/* Make modules code happy. We don't set RO yet */
 #define PAGE_KERNEL_EXEC	PAGE_KERNEL_X
 
+/*
+ * Don't just check for any non zero bits in __PAGE_USER, since for book3e
+ * and PTE_64BIT, PAGE_KERNEL_X contains _PAGE_BAP_SR which is also in
+ * _PAGE_USER.  Need to explicitly match _PAGE_BAP_UR bit in that case too.
+ */
 #define pte_user(val)		((val & _PAGE_USER) == _PAGE_USER)
 
+/* Advertise special mapping type for AGP */
 #define PAGE_AGP		(PAGE_KERNEL_NC)
 #define HAVE_PAGE_AGP
 
+/* Advertise support for _PAGE_SPECIAL */
 #define __HAVE_ARCH_PTE_SPECIAL
 

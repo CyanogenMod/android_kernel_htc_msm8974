@@ -41,6 +41,11 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
 	return tmp;
 }
 
+/*
+ * Atomic compare and exchange.  Compare OLD with MEM, if identical,
+ * store NEW in MEM.  Return the initial value in MEM.  Success is
+ * indicated by comparing RETURN with OLD.
+ */
 static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
 				      unsigned long new, int size)
 {
@@ -64,7 +69,7 @@ static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
 	((__typeof__(*(ptr)))__cmpxchg((ptr), (unsigned long)(o), \
 		(unsigned long)(n), sizeof(*(ptr))))
 
-#else 
+#else /* !CONFIG_SMP */
 
 #include <mach/blackfin.h>
 #include <asm/irqflags.h>
@@ -108,6 +113,10 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
 
 #include <asm-generic/cmpxchg-local.h>
 
+/*
+ * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
+ * them available.
+ */
 #define cmpxchg_local(ptr, o, n)				  	       \
 	((__typeof__(*(ptr)))__cmpxchg_local_generic((ptr), (unsigned long)(o),\
 			(unsigned long)(n), sizeof(*(ptr))))
@@ -116,9 +125,9 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
 #define cmpxchg(ptr, o, n)	cmpxchg_local((ptr), (o), (n))
 #define cmpxchg64(ptr, o, n)	cmpxchg64_local((ptr), (o), (n))
 
-#endif 
+#endif /* !CONFIG_SMP */
 
 #define xchg(ptr, x) ((__typeof__(*(ptr)))__xchg((unsigned long)(x), (ptr), sizeof(*(ptr))))
 #define tas(ptr) ((void)xchg((ptr), 1))
 
-#endif 
+#endif /* __ARCH_BLACKFIN_CMPXCHG__ */

@@ -14,10 +14,21 @@
 #ifndef __DCR_REGS_H__
 #define __DCR_REGS_H__
 
+/*
+ * Most DCRs used for controlling devices such as the MAL, DMA engine,
+ * etc... are obtained for the device tree.
+ *
+ * The definitions in this files are fixed DCRs and indirect DCRs that
+ * are commonly used outside of specific drivers or refer to core
+ * common registers that may occasionally have to be tweaked outside
+ * of the driver main register set
+ */
 
+/* CPRs (440GX and 440SP/440SPe) */
 #define DCRN_CPR0_CONFIG_ADDR	0xc
 #define DCRN_CPR0_CONFIG_DATA	0xd
 
+/* SDRs (440GX and 440SP/440SPe) */
 #define DCRN_SDR0_CONFIG_ADDR 	0xe
 #define DCRN_SDR0_CONFIG_DATA	0xf
 
@@ -27,10 +38,10 @@
 #define SDR0_PFC1_EPS_SHIFT	22
 #define SDR0_PFC1_RMII		0x02000000
 #define SDR0_MFR		0x4300
-#define SDR0_MFR_TAH0 		0x80000000  	
-#define SDR0_MFR_TAH1 		0x40000000  	
-#define SDR0_MFR_PCM  		0x10000000  	
-#define SDR0_MFR_ECS  		0x08000000  	
+#define SDR0_MFR_TAH0 		0x80000000  	/* TAHOE0 Enable */
+#define SDR0_MFR_TAH1 		0x40000000  	/* TAHOE1 Enable */
+#define SDR0_MFR_PCM  		0x10000000  	/* PPC440GP irq compat mode */
+#define SDR0_MFR_ECS  		0x08000000  	/* EMAC int clk */
 #define SDR0_MFR_T0TXFL		0x00080000
 #define SDR0_MFR_T0TXFH		0x00040000
 #define SDR0_MFR_T1TXFL		0x00020000
@@ -57,15 +68,22 @@
 #define SDR0_UART3		0x0123
 #define SDR0_CUST0		0x4000
 
+/* SDR for 405EZ */
 #define DCRN_SDR_ICINTSTAT	0x4510
 #define ICINTSTAT_ICRX	0x80000000
 #define ICINTSTAT_ICTX0	0x40000000
 #define ICINTSTAT_ICTX1 0x20000000
 #define ICINTSTAT_ICTX	0x60000000
 
+/* SDRs (460EX/460GT) */
 #define SDR0_ETH_CFG		0x4103
-#define SDR0_ETH_CFG_ECS	0x00000100	
+#define SDR0_ETH_CFG_ECS	0x00000100	/* EMAC int clk source */
 
+/*
+ * All those DCR register addresses are offsets from the base address
+ * for the SRAM0 controller (e.g. 0x20 on 440GX). The base address is
+ * excluded here and configured in the device tree.
+ */
 #define DCRN_SRAM0_SB0CR	0x00
 #define DCRN_SRAM0_SB1CR	0x01
 #define DCRN_SRAM0_SB2CR	0x02
@@ -83,6 +101,11 @@
 #define DCRN_SRAM0_DPC		0x0a
 #define  SRAM_DPC_ENABLE	0x80000000
 
+/*
+ * All those DCR register addresses are offsets from the base address
+ * for the SRAM0 controller (e.g. 0x30 on 440GX). The base address is
+ * excluded here and configured in the device tree.
+ */
 #define DCRN_L2C0_CFG		0x00
 #define  L2C_CFG_L2M		0x80000000
 #define  L2C_CFG_ICU		0x40000000
@@ -107,7 +130,7 @@
 #define  L2C_CFG_NAM		0x00000100
 #define  L2C_CFG_SMCM		0x00000080
 #define  L2C_CFG_NBRM		0x00000040
-#define  L2C_CFG_RDBW		0x00000008	
+#define  L2C_CFG_RDBW		0x00000008	/* only 460EX/GT */
 #define DCRN_L2C0_CMD		0x01
 #define  L2C_CMD_CLR		0x80000000
 #define  L2C_CMD_DIAG		0x40000000
@@ -134,20 +157,27 @@
 #define  L2C_SNP_SSR_32G	0x0000f000
 #define  L2C_SNP_ESR		0x00000800
 
+/*
+ * DCR register offsets for 440SP/440SPe I2O/DMA controller.
+ * The base address is configured in the device tree.
+ */
 #define DCRN_I2O0_IBAL		0x006
 #define DCRN_I2O0_IBAH		0x007
-#define I2O_REG_ENABLE		0x00000001	
+#define I2O_REG_ENABLE		0x00000001	/* Enable I2O/DMA access */
 
+/* 440SP/440SPe Software Reset DCR */
 #define DCRN_SDR0_SRST		0x0200
-#define DCRN_SDR0_SRST_I2ODMA	(0x80000000 >> 15)	
+#define DCRN_SDR0_SRST_I2ODMA	(0x80000000 >> 15)	/* Reset I2O/DMA */
 
+/* 440SP/440SPe Memory Queue DCR offsets */
 #define DCRN_MQ0_XORBA		0x04
 #define DCRN_MQ0_CF2H		0x06
 #define DCRN_MQ0_CFBHL		0x0f
 #define DCRN_MQ0_BAUH		0x10
 
+/* HB/LL Paths Configuration Register */
 #define MQ0_CFBHL_TPLM		28
 #define MQ0_CFBHL_HBCL		23
 #define MQ0_CFBHL_POLY		15
 
-#endif 
+#endif /* __DCR_REGS_H__ */

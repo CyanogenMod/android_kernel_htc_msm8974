@@ -34,6 +34,7 @@
 #define MAX_CHANNEL_PROPERTIES_QUEUE    0X7
 #define MAX_QUEUE_SLOT		0x1
 
+/* User Processor */
 #define ADC_ARB_USRP_CNTRL                      0x197
 	#define ADC_ARB_USRP_CNTRL_EN_ARB	BIT(0)
 	#define ADC_ARB_USRP_CNTRL_RSV1		BIT(1)
@@ -66,7 +67,7 @@ struct pmic8058_adc {
 	int xoadc_num;
 	struct msm_xo_voter *adc_voter;
 	struct wake_lock adc_wakelock;
-	
+	/* flag to warn/bug if wakelocks are taken after suspend_noirq */
 	int msm_suspend_check;
 };
 
@@ -140,6 +141,8 @@ static int32_t pm8058_xoadc_arb_cntrl(uint32_t arb_cntrl,
 		wake_lock(&adc_pmic->adc_wakelock);
 	}
 
+	/* Write twice to the CNTRL register for the arbiter settings
+	   to take into effect */
 	for (i = 0; i < 2; i++) {
 		rc = pm8xxx_writeb(adc_pmic->dev->parent, ADC_ARB_USRP_CNTRL,
 							data_arb_cntrl);
@@ -318,14 +321,14 @@ static int32_t pm8058_xoadc_configure(uint32_t adc_instance,
 		return rc;
 	}
 
-	
+	/* Set default clock rate to 2.4 MHz XO ADC clock digital */
 	switch (slot->chan_adc_config) {
 
 	case ADC_CONFIG_TYPE1:
 		data_ana_param = 0xFE;
 		data_dig_param = 0x23;
 		data_ana_param2 = 0xFF;
-		
+		/* AMUX register data to start the ADC conversion */
 		data_arb_cntrl = 0xF1;
 		break;
 
@@ -333,7 +336,7 @@ static int32_t pm8058_xoadc_configure(uint32_t adc_instance,
 		data_ana_param = 0xFE;
 		data_dig_param = 0x03;
 		data_ana_param2 = 0xFF;
-		
+		/* AMUX register data to start the ADC conversion */
 		data_arb_cntrl = 0xF1;
 		break;
 	}
@@ -447,11 +450,13 @@ int32_t pm8058_xoadc_read_adc_code(uint32_t adc_instance, int32_t *data)
 
 	*data = (rslt_msb << 8) | rslt_lsb;
 
-	
+	/* Use the midpoint to determine underflow or overflow */
 	if (*data > max_ideal_adc_code + (max_ideal_adc_code >> 1))
 		*data |= ((1 << (8 * sizeof(*data) -
 			adc_pmic->adc_prop->bitresolution)) - 1) <<
 			adc_pmic->adc_prop->bitresolution;
+	/* Return if this is a calibration run since there
+	 * is no need to check requests in the waiting queue */
 	if (xoadc_calib_first_adc)
 		return 0;
 
@@ -465,6 +470,8 @@ int32_t pm8058_xoadc_read_adc_code(uint32_t adc_instance, int32_t *data)
 	mutex_unlock(&slot_state->list_lock);
 
 	mutex_lock(&slot_state->list_lock);
+	/* Default value for switching off the arbiter after reading
+	   the ADC value. Bit 0 set to 0. */
 	if (adc_pmic->xoadc_queue_count == 0) {
 		rc = pm8058_xoadc_arb_cntrl(0, adc_instance, CHANNEL_MUXOFF);
 		if (rc < 0) {
@@ -586,7 +593,7 @@ int32_t pm8058_xoadc_calib_device(uint32_t adc_instance)
 	adc_pmic->adc_graph[0].dy = (calib_read_1 - calib_read_2);
 	adc_pmic->adc_graph[0].dx = CHANNEL_ADC_625_MV;
 
-	
+	/* Retain ideal calibration settings for therm readings */
 	adc_pmic->adc_graph[1].offset = 0 ;
 	adc_pmic->adc_graph[1].dy = (1 << 15) - 1;
 	adc_pmic->adc_graph[1].dx = 2200;
@@ -681,7 +688,7 @@ static int __devinit pm8058_xoadc_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Will be replaced by individual channel calibration */
 	for (i = 0; i < MAX_CHANNEL_PROPERTIES_QUEUE; i++) {
 		adc_pmic->adc_graph[i].offset = 0 ;
 		adc_pmic->adc_graph[i].dy = (1 << 15) - 1;
@@ -698,7 +705,7 @@ static int __devinit pm8058_xoadc_probe(struct platform_device *pdev)
 	mutex_init(&adc_pmic->conv_slot_request->list_lock);
 	INIT_LIST_HEAD(&adc_pmic->conv_slot_request->slots);
 
-	
+	/* tie each slot and initwork them */
 	for (i = 0; i < MAX_QUEUE_LENGTH; i++) {
 		list_add(&adc_pmic->conv_slot_request->context[i].list,
 					&adc_pmic->conv_slot_request->slots);

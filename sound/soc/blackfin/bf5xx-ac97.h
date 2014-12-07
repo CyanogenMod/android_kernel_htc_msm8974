@@ -11,21 +11,23 @@
 
 extern struct snd_ac97_bus_ops bf5xx_ac97_ops;
 extern struct snd_ac97 *ac97;
+/* Frame format in memory, only support stereo currently */
 struct ac97_frame {
-	u16 ac97_tag;		
-	u16 ac97_addr;		
-	u16 ac97_data;		
-	u16 ac97_pcm_l;		
-	u16 ac97_pcm_r;		
+	u16 ac97_tag;		/* slot 0 */
+	u16 ac97_addr;		/* slot 1 */
+	u16 ac97_data;		/* slot 2 */
+	u16 ac97_pcm_l;		/*slot 3:front left*/
+	u16 ac97_pcm_r;		/*slot 4:front left*/
 #if defined(CONFIG_SND_BF5XX_MULTICHAN_SUPPORT)
 	u16 ac97_mdm_l1;
-	u16 ac97_center;	
-	u16 ac97_sl;		
-	u16 ac97_sr;		
-	u16 ac97_lfe;		
+	u16 ac97_center;	/*slot 6:center*/
+	u16 ac97_sl;		/*slot 7:surround left*/
+	u16 ac97_sr;		/*slot 8:surround right*/
+	u16 ac97_lfe;		/*slot 9:lfe*/
 #endif
 } __attribute__ ((packed));
 
+/* Speaker location */
 #define SP_FL		0x0001
 #define SP_FR		0x0010
 #define SP_FC		0x0002

@@ -36,7 +36,7 @@ static bool wl1251_tx_double_buffer_busy(struct wl1251 *wl, u32 data_out_count)
 	data_in_count = wl->data_in_count;
 
 	if (data_in_count < data_out_count)
-		
+		/* data_in_count has wrapped */
 		data_in_count += TX_STATUS_DATA_OUT_COUNT_MASK + 1;
 
 	used = data_in_count - data_out_count;
@@ -86,7 +86,7 @@ static void wl1251_tx_control(struct tx_double_buffer_desc *tx_hdr,
 
 	tx_hdr->control.rate_policy = 0;
 
-	
+	/* 802.11 packets */
 	tx_hdr->control.packet_type = 0;
 
 	if (control->flags & IEEE80211_TX_CTL_NO_ACK)
@@ -100,6 +100,7 @@ static void wl1251_tx_control(struct tx_double_buffer_desc *tx_hdr,
 		tx_hdr->control.qos = 1;
 }
 
+/* RSN + MIC = 8 + 8 = 16 bytes (worst case - AES). */
 #define MAX_MSDU_SECURITY_LENGTH      16
 #define MAX_MPDU_SECURITY_LENGTH      16
 #define WLAN_QOS_HDR_LEN              26
@@ -172,6 +173,7 @@ static int wl1251_tx_fill_hdr(struct wl1251 *wl, struct sk_buff *skb,
 	return 0;
 }
 
+/* We copy the packet to the target */
 static int wl1251_tx_send_packet(struct wl1251 *wl, struct sk_buff *skb,
 				 struct ieee80211_tx_info *control)
 {
@@ -202,11 +204,15 @@ static int wl1251_tx_send_packet(struct wl1251 *wl, struct sk_buff *skb,
 			sizeof(*tx_hdr) + hdrlen);
 	}
 
+	/* Revisit. This is a workaround for getting non-aligned packets.
+	   This happens at least with EAPOL packets from the user space.
+	   Our DMA requires packets to be aligned on a 4-byte boundary.
+	*/
 	if (unlikely((long)skb->data & 0x03)) {
 		int offset = (4 - (long)skb->data) & 0x03;
 		wl1251_debug(DEBUG_TX, "skb offset %d", offset);
 
-		
+		/* check whether the current skb can be used */
 		if (skb_cloned(skb) || (skb_tailroom(skb) < offset)) {
 			struct sk_buff *newskb = skb_copy_expand(skb, 0, 3,
 								 GFP_KERNEL);
@@ -225,7 +231,7 @@ static int wl1251_tx_send_packet(struct wl1251 *wl, struct sk_buff *skb,
 			wl1251_debug(DEBUG_TX, "new skb offset %d", offset);
 		}
 
-		
+		/* align the buffer on a 4-byte boundary */
 		if (offset) {
 			unsigned char *src = skb->data;
 			skb_reserve(skb, offset);
@@ -234,7 +240,7 @@ static int wl1251_tx_send_packet(struct wl1251 *wl, struct sk_buff *skb,
 		}
 	}
 
-	
+	/* Our skb->data at this point includes the HW header */
 	len = WL1251_TX_ALIGN(skb->len);
 
 	if (wl->data_in_count & 0x1)
@@ -266,11 +272,12 @@ static void wl1251_tx_trigger(struct wl1251 *wl)
 
 	wl1251_reg_write32(wl, addr, data);
 
-	
+	/* Bumping data in */
 	wl->data_in_count = (wl->data_in_count + 1) &
 		TX_STATUS_DATA_OUT_COUNT_MASK;
 }
 
+/* caller must hold wl->mutex */
 static int wl1251_tx_frame(struct wl1251 *wl, struct sk_buff *skb)
 {
 	struct ieee80211_tx_info *info;
@@ -344,7 +351,7 @@ out:
 
 static const char *wl1251_tx_parse_status(u8 status)
 {
-	
+	/* 8 bit status field, one character per bit plus null */
 	static char buf[9];
 	int i = 0;
 
@@ -365,7 +372,7 @@ static const char *wl1251_tx_parse_status(u8 status)
 	if (status & TX_UNAVAILABLE_PRIORITY)
 		buf[i++] = 'p';
 
-	
+	/* bit 0 is unused apparently */
 
 	return buf;
 }
@@ -393,6 +400,10 @@ static void wl1251_tx_packet_cb(struct wl1251 *wl,
 	info->status.rates[0].count = result->ack_failures + 1;
 	wl->stats.retry_count += result->ack_failures;
 
+	/*
+	 * We have to remove our private TX header before pushing
+	 * the skb back to mac80211.
+	 */
 	frame = skb_pull(skb, sizeof(struct tx_double_buffer_desc));
 	if (info->control.hw_key &&
 	    info->control.hw_key->cipher == WLAN_CIPHER_SUITE_TKIP) {
@@ -412,6 +423,7 @@ static void wl1251_tx_packet_cb(struct wl1251 *wl,
 	wl->tx_frames[result->id] = NULL;
 }
 
+/* Called upon reception of a TX complete interrupt */
 void wl1251_tx_complete(struct wl1251 *wl)
 {
 	int i, result_index, num_complete = 0, queue_len;
@@ -421,7 +433,7 @@ void wl1251_tx_complete(struct wl1251 *wl)
 	if (unlikely(wl->state != WL1251_STATE_ON))
 		return;
 
-	
+	/* First we read the result */
 	wl1251_mem_read(wl, wl->data_path->tx_complete_addr,
 			    result, sizeof(result));
 
@@ -448,14 +460,14 @@ void wl1251_tx_complete(struct wl1251 *wl)
 	queue_len = skb_queue_len(&wl->tx_queue);
 
 	if ((num_complete > 0) && (queue_len > 0)) {
-		
+		/* firmware buffer has space, reschedule tx_work */
 		wl1251_debug(DEBUG_TX, "tx_complete: reschedule tx_work");
 		ieee80211_queue_work(wl->hw, &wl->tx_work);
 	}
 
 	if (wl->tx_queue_stopped &&
 	    queue_len <= WL1251_TX_QUEUE_LOW_WATERMARK) {
-		
+		/* tx_queue has space, restart queues */
 		wl1251_debug(DEBUG_TX, "tx_complete: waking queues");
 		spin_lock_irqsave(&wl->wl_lock, flags);
 		ieee80211_wake_queues(wl->hw);
@@ -463,10 +475,14 @@ void wl1251_tx_complete(struct wl1251 *wl)
 		spin_unlock_irqrestore(&wl->wl_lock, flags);
 	}
 
-	
+	/* Every completed frame needs to be acknowledged */
 	if (num_complete) {
+		/*
+		 * If we've wrapped, we have to clear
+		 * the results in 2 steps.
+		 */
 		if (result_index > wl->next_tx_complete) {
-			
+			/* Only 1 write is needed */
 			wl1251_mem_write(wl,
 					 wl->data_path->tx_complete_addr +
 					 (wl->next_tx_complete *
@@ -477,7 +493,7 @@ void wl1251_tx_complete(struct wl1251 *wl)
 
 
 		} else if (result_index < wl->next_tx_complete) {
-			
+			/* 2 writes are needed */
 			wl1251_mem_write(wl,
 					 wl->data_path->tx_complete_addr +
 					 (wl->next_tx_complete *
@@ -496,7 +512,7 @@ void wl1251_tx_complete(struct wl1251 *wl)
 					 sizeof(struct tx_result));
 
 		} else {
-			
+			/* We have to write the whole array */
 			wl1251_mem_write(wl,
 					 wl->data_path->tx_complete_addr,
 					 result,
@@ -509,13 +525,15 @@ void wl1251_tx_complete(struct wl1251 *wl)
 	wl->next_tx_complete = result_index;
 }
 
+/* caller must hold wl->mutex */
 void wl1251_tx_flush(struct wl1251 *wl)
 {
 	int i;
 	struct sk_buff *skb;
 	struct ieee80211_tx_info *info;
 
-	
+	/* TX failure */
+/* 	control->flags = 0; FIXME */
 
 	while ((skb = skb_dequeue(&wl->tx_queue))) {
 		info = IEEE80211_SKB_CB(skb);

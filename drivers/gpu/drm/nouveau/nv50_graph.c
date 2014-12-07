@@ -58,6 +58,9 @@ nv50_graph_channel(struct drm_device *dev)
 	uint32_t inst;
 	int i;
 
+	/* Be sure we're not in the middle of a context switch or bad things
+	 * will happen, such as unloading the wrong pgraph context.
+	 */
 	if (!nv_wait(dev, 0x400300, 0x00000001, 0x00000000))
 		NV_ERROR(dev, "Ctxprog is still running\n");
 
@@ -127,12 +130,12 @@ nv50_graph_init(struct drm_device *dev, int engine)
 
 	NV_DEBUG(dev, "\n");
 
-	
+	/* master reset */
 	nv_mask(dev, 0x000200, 0x00201000, 0x00000000);
 	nv_mask(dev, 0x000200, 0x00201000, 0x00201000);
-	nv_wr32(dev, 0x40008c, 0x00000004); 
+	nv_wr32(dev, 0x40008c, 0x00000004); /* HW_CTX_SWITCH_ENABLED */
 
-	
+	/* reset/enable traps and interrupts */
 	nv_wr32(dev, 0x400804, 0xc0000000);
 	nv_wr32(dev, 0x406800, 0xc0000000);
 	nv_wr32(dev, 0x400c04, 0xc0000000);
@@ -160,7 +163,7 @@ nv50_graph_init(struct drm_device *dev, int engine)
 	nv_wr32(dev, 0x40013c, 0xffffffff);
 	nv_wr32(dev, 0x400500, 0x00010001);
 
-	
+	/* upload context program, initialise ctxctl defaults */
 	nv_wr32(dev, 0x400324, 0x00000000);
 	for (i = 0; i < pgraph->ctxprog_size; i++)
 		nv_wr32(dev, 0x400328, pgraph->ctxprog[i]);
@@ -170,9 +173,9 @@ nv50_graph_init(struct drm_device *dev, int engine)
 	nv_wr32(dev, 0x400830, 0x00000000);
 	nv_wr32(dev, 0x400724, 0x00000000);
 	nv_wr32(dev, 0x40032c, 0x00000000);
-	nv_wr32(dev, 0x400320, 4);	
+	nv_wr32(dev, 0x400320, 4);	/* CTXCTL_CMD = NEWCTXDMA */
 
-	
+	/* some unknown zcull magic */
 	switch (dev_priv->chipset & 0xf0) {
 	case 0x50:
 	case 0x80:
@@ -194,7 +197,7 @@ nv50_graph_init(struct drm_device *dev, int engine)
 		break;
 	}
 
-	
+	/* zero out zcull regions */
 	for (i = 0; i < 8; i++) {
 		nv_wr32(dev, 0x402c20 + (i * 8), 0x00000000);
 		nv_wr32(dev, 0x402c24 + (i * 8), 0x00000000);
@@ -483,6 +486,7 @@ static struct nouveau_bitfield nv50_graph_trap_ccache[] = {
 	{}
 };
 
+/* There must be a *lot* of these. Will take some time to gather them up. */
 struct nouveau_enum nv50_data_error_names[] = {
 	{ 0x00000003, "INVALID_QUERY_OR_TEXTURE", NULL },
 	{ 0x00000004, "INVALID_VALUE", NULL },
@@ -603,7 +607,7 @@ nv50_pgraph_tp_trap(struct drm_device *dev, int type, uint32_t ustatus_old,
 			continue;
 		tps++;
 		switch (type) {
-		case 6: 
+		case 6: /* texture error... unknown for now */
 			if (display) {
 				NV_ERROR(dev, "magic set %d:\n", i);
 				for (r = ustatus_addr + 4; r <= ustatus_addr + 0x10; r += 4)
@@ -611,13 +615,13 @@ nv50_pgraph_tp_trap(struct drm_device *dev, int type, uint32_t ustatus_old,
 						nv_rd32(dev, r));
 			}
 			break;
-		case 7: 
+		case 7: /* MP error */
 			if (ustatus & 0x04030000) {
 				nv50_pgraph_mp_trap(dev, i, display);
 				ustatus &= ~0x04030000;
 			}
 			break;
-		case 8: 
+		case 8: /* TPDMA error */
 			{
 			uint32_t e0c = nv_rd32(dev, ustatus_addr + 4);
 			uint32_t e10 = nv_rd32(dev, ustatus_addr + 8);
@@ -626,7 +630,7 @@ nv50_pgraph_tp_trap(struct drm_device *dev, int type, uint32_t ustatus_old,
 			uint32_t e1c = nv_rd32(dev, ustatus_addr + 0x14);
 			uint32_t e20 = nv_rd32(dev, ustatus_addr + 0x18);
 			uint32_t e24 = nv_rd32(dev, ustatus_addr + 0x1c);
-			
+			/* 2d engine destination */
 			if (ustatus & 0x00000010) {
 				if (display) {
 					NV_INFO(dev, "PGRAPH_TRAP_TPDMA_2D - TP %d - Unknown fault at address %02x%08x\n",
@@ -636,7 +640,7 @@ nv50_pgraph_tp_trap(struct drm_device *dev, int type, uint32_t ustatus_old,
 				}
 				ustatus &= ~0x00000010;
 			}
-			
+			/* Render target */
 			if (ustatus & 0x00000040) {
 				if (display) {
 					NV_INFO(dev, "PGRAPH_TRAP_TPDMA_RT - TP %d - Unknown fault at address %02x%08x\n",
@@ -646,16 +650,16 @@ nv50_pgraph_tp_trap(struct drm_device *dev, int type, uint32_t ustatus_old,
 				}
 				ustatus &= ~0x00000040;
 			}
-			
+			/* CUDA memory: l[], g[] or stack. */
 			if (ustatus & 0x00000080) {
 				if (display) {
 					if (e18 & 0x80000000) {
-						
+						/* g[] read fault? */
 						NV_INFO(dev, "PGRAPH_TRAP_TPDMA - TP %d - Global read fault at address %02x%08x\n",
 								i, e14, e10 | ((e18 >> 24) & 0x1f));
 						e18 &= ~0x1f000000;
 					} else if (e18 & 0xc) {
-						
+						/* g[] write fault? */
 						NV_INFO(dev, "PGRAPH_TRAP_TPDMA - TP %d - Global write fault at address %02x%08x\n",
 								i, e14, e10 | ((e18 >> 7) & 0x1f));
 						e18 &= ~0x00000f80;
@@ -693,6 +697,9 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 		return 1;
 	}
 
+	/* DISPATCH: Relays commands to other units and handles NOTIFY,
+	 * COND, QUERY. If you get a trap from it, the command is still stuck
+	 * in DISPATCH and you need to do something about it. */
 	if (status & 0x001) {
 		ustatus = nv_rd32(dev, 0x400804) & 0x7fffffff;
 		if (!ustatus && display) {
@@ -701,7 +708,7 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 
 		nv_wr32(dev, 0x400500, 0x00000000);
 
-		
+		/* Known to be triggered by screwed up NOTIFY and COND... */
 		if (ustatus & 0x00000001) {
 			u32 addr = nv_rd32(dev, 0x400808);
 			u32 subc = (addr & 0x00070000) >> 16;
@@ -765,7 +772,7 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 			return 0;
 	}
 
-	
+	/* M2MF: Memory to memory copy engine. */
 	if (status & 0x002) {
 		u32 ustatus = nv_rd32(dev, 0x406800) & 0x7fffffff;
 		if (display) {
@@ -778,7 +785,7 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 
 		}
 
-		
+		/* No sane way found yet -- just reset the bugger. */
 		nv_wr32(dev, 0x400040, 2);
 		nv_wr32(dev, 0x400040, 0);
 		nv_wr32(dev, 0x406800, 0xc0000000);
@@ -786,7 +793,7 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 		status &= ~0x002;
 	}
 
-	
+	/* VFETCH: Fetches data from vertex buffers. */
 	if (status & 0x004) {
 		u32 ustatus = nv_rd32(dev, 0x400c04) & 0x7fffffff;
 		if (display) {
@@ -803,7 +810,7 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 		status &= ~0x004;
 	}
 
-	
+	/* STRMOUT: DirectX streamout / OpenGL transform feedback. */
 	if (status & 0x008) {
 		ustatus = nv_rd32(dev, 0x401800) & 0x7fffffff;
 		if (display) {
@@ -816,7 +823,7 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 
 		}
 
-		
+		/* No sane way found yet -- just reset the bugger. */
 		nv_wr32(dev, 0x400040, 0x80);
 		nv_wr32(dev, 0x400040, 0);
 		nv_wr32(dev, 0x401800, 0xc0000000);
@@ -824,7 +831,7 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 		status &= ~0x008;
 	}
 
-	
+	/* CCACHE: Handles code and c[] caches and fills them. */
 	if (status & 0x010) {
 		ustatus = nv_rd32(dev, 0x405018) & 0x7fffffff;
 		if (display) {
@@ -845,15 +852,18 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 		status &= ~0x010;
 	}
 
+	/* Unknown, not seen yet... 0x402000 is the only trap status reg
+	 * remaining, so try to handle it anyway. Perhaps related to that
+	 * unknown DMA slot on tesla? */
 	if (status & 0x20) {
 		ustatus = nv_rd32(dev, 0x402000) & 0x7fffffff;
 		if (display)
 			NV_INFO(dev, "PGRAPH - TRAP_UNKC04 0x%08x\n", ustatus);
 		nv_wr32(dev, 0x402000, 0xc0000000);
-		
+		/* no status modifiction on purpose */
 	}
 
-	
+	/* TEXTURE: CUDA texturing units */
 	if (status & 0x040) {
 		nv50_pgraph_tp_trap(dev, 6, 0x408900, 0x408600, display,
 				    "PGRAPH - TRAP_TEXTURE");
@@ -861,7 +871,7 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 		status &= ~0x040;
 	}
 
-	
+	/* MP: CUDA execution engines. */
 	if (status & 0x080) {
 		nv50_pgraph_tp_trap(dev, 7, 0x408314, 0x40831c, display,
 				    "PGRAPH - TRAP_MP");
@@ -869,6 +879,8 @@ nv50_pgraph_trap_handler(struct drm_device *dev, u32 display, u64 inst, u32 chid
 		status &= ~0x080;
 	}
 
+	/* TPDMA:  Handles TP-initiated uncached memory accesses:
+	 * l[], g[], stack, 2d surfaces, render targets. */
 	if (status & 0x100) {
 		nv50_pgraph_tp_trap(dev, 8, 0x408e08, 0x408708, display,
 				    "PGRAPH - TRAP_TPDMA");
@@ -1019,8 +1031,8 @@ nv50_graph_create(struct drm_device *dev)
 
 	nouveau_irq_register(dev, 12, nv50_graph_isr);
 
-	
-	NVOBJ_CLASS(dev, 0x506e, SW); 
+	/* NVSW really doesn't live here... */
+	NVOBJ_CLASS(dev, 0x506e, SW); /* nvsw */
 	NVOBJ_MTHD (dev, 0x506e, 0x018c, nv50_graph_nvsw_dma_vblsem);
 	NVOBJ_MTHD (dev, 0x506e, 0x0400, nv50_graph_nvsw_vblsem_offset);
 	NVOBJ_MTHD (dev, 0x506e, 0x0404, nv50_graph_nvsw_vblsem_release_val);
@@ -1028,16 +1040,16 @@ nv50_graph_create(struct drm_device *dev)
 	NVOBJ_MTHD (dev, 0x506e, 0x0500, nv50_graph_nvsw_mthd_page_flip);
 
 	NVOBJ_ENGINE_ADD(dev, GR, &pgraph->base);
-	NVOBJ_CLASS(dev, 0x0030, GR); 
-	NVOBJ_CLASS(dev, 0x5039, GR); 
-	NVOBJ_CLASS(dev, 0x502d, GR); 
+	NVOBJ_CLASS(dev, 0x0030, GR); /* null */
+	NVOBJ_CLASS(dev, 0x5039, GR); /* m2mf */
+	NVOBJ_CLASS(dev, 0x502d, GR); /* 2d */
 
-	
+	/* tesla */
 	if (dev_priv->chipset == 0x50)
-		NVOBJ_CLASS(dev, 0x5097, GR); 
+		NVOBJ_CLASS(dev, 0x5097, GR); /* tesla (nv50) */
 	else
 	if (dev_priv->chipset < 0xa0)
-		NVOBJ_CLASS(dev, 0x8297, GR); 
+		NVOBJ_CLASS(dev, 0x8297, GR); /* tesla (nv8x/nv9x) */
 	else {
 		switch (dev_priv->chipset) {
 		case 0xa0:
@@ -1056,7 +1068,7 @@ nv50_graph_create(struct drm_device *dev)
 		}
 	}
 
-	
+	/* compute */
 	NVOBJ_CLASS(dev, 0x50c0, GR);
 	if (dev_priv->chipset  > 0xa0 &&
 	    dev_priv->chipset != 0xaa &&

@@ -36,6 +36,11 @@ static void __iomem *icoll_base = MXS_IO_ADDRESS(MXS_ICOLL_BASE_ADDR);
 
 static void icoll_ack_irq(struct irq_data *d)
 {
+	/*
+	 * The Interrupt Collector is able to prioritize irqs.
+	 * Currently only level 0 is used. So acking can use
+	 * BV_ICOLL_LEVELACK_IRQLEVELACK__LEVEL0 unconditionally.
+	 */
 	__raw_writel(BV_ICOLL_LEVELACK_IRQLEVELACK__LEVEL0,
 			icoll_base + HW_ICOLL_LEVELACK);
 }
@@ -62,6 +67,10 @@ void __init icoll_init_irq(void)
 {
 	int i;
 
+	/*
+	 * Interrupt Collector reset, which initializes the priority
+	 * for each irq to level 0.
+	 */
 	mxs_reset_block(icoll_base + HW_ICOLL_CTRL);
 
 	for (i = 0; i < MXS_INTERNAL_IRQS; i++) {

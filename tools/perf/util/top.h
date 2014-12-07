@@ -13,6 +13,10 @@ struct perf_session;
 struct perf_top {
 	struct perf_tool   tool;
 	struct perf_evlist *evlist;
+	/*
+	 * Symbols will be added here in perf_event__process_sample and will
+	 * get out after decayed.
+	 */
 	u64		   samples;
 	u64		   kernel_samples, us_samples;
 	u64		   exact_samples;
@@ -48,4 +52,4 @@ struct perf_top {
 
 size_t perf_top__header_snprintf(struct perf_top *top, char *bf, size_t size);
 void perf_top__reset_sample_counters(struct perf_top *top);
-#endif 
+#endif /* __PERF_TOP_H */

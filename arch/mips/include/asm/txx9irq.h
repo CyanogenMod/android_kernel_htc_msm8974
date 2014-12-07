@@ -31,4 +31,4 @@ void txx9_irq_init(unsigned long baseaddr);
 int txx9_irq(void);
 int txx9_irq_set_pri(int irc_irq, int new_pri);
 
-#endif 
+#endif /* __ASM_TXX9IRQ_H */

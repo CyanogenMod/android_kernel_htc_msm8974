@@ -11,12 +11,21 @@
  |                                                                           |
  +---------------------------------------------------------------------------*/
 
+/*---------------------------------------------------------------------------+
+ | The destination may be any FPU_REG, including one of the source FPU_REGs. |
+ +---------------------------------------------------------------------------*/
 
 #include "fpu_emu.h"
 #include "exception.h"
 #include "reg_constant.h"
 #include "fpu_system.h"
 
+/*
+  Multiply two registers to give a register result.
+  The sources are st(deststnr) and (b,tagb,signb).
+  The destination is st(deststnr).
+  */
+/* This routine must be called with non-empty source registers */
 int FPU_mul(FPU_REG const *b, u_char tagb, int deststnr, int control_w)
 {
 	FPU_REG *a = &st(deststnr);
@@ -27,7 +36,7 @@ int FPU_mul(FPU_REG const *b, u_char tagb, int deststnr, int control_w)
 	int tag;
 
 	if (!(taga | tagb)) {
-		
+		/* Both regs Valid, this should be the most common case. */
 
 		tag =
 		    FPU_u_mul(a, b, dest, control_w, sign,
@@ -67,16 +76,22 @@ int FPU_mul(FPU_REG const *b, u_char tagb, int deststnr, int control_w)
 		    && (denormal_operand() < 0))
 			return FPU_Exception;
 
+		/* Must have either both arguments == zero, or
+		   one valid and the other zero.
+		   The result is therefore zero. */
 		FPU_copy_to_regi(&CONST_Z, TAG_Zero, deststnr);
+		/* The 80486 book says that the answer is +0, but a real
+		   80486 behaves this way.
+		   IEEE-754 apparently says it should be this way. */
 		setsign(dest, sign);
 		return TAG_Zero;
 	}
-	
+	/* Must have infinities, NaNs, etc */
 	else if ((taga == TW_NaN) || (tagb == TW_NaN)) {
 		return real_2op_NaN(b, tagb, deststnr, &st(0));
 	} else if (((taga == TW_Infinity) && (tagb == TAG_Zero))
 		   || ((tagb == TW_Infinity) && (taga == TAG_Zero))) {
-		return arith_invalid(deststnr);	
+		return arith_invalid(deststnr);	/* Zero*Infinity is invalid */
 	} else if (((taga == TW_Denormal) || (tagb == TW_Denormal))
 		   && (denormal_operand() < 0)) {
 		return FPU_Exception;
@@ -94,7 +109,7 @@ int FPU_mul(FPU_REG const *b, u_char tagb, int deststnr, int control_w)
 		EXCEPTION(EX_INTERNAL | 0x102);
 		return FPU_Exception;
 	}
-#endif 
+#endif /* PARANOID */
 
 	return 0;
 }

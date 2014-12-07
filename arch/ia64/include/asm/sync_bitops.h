@@ -48,4 +48,4 @@ static inline int sync_test_bit(int nr, const volatile void *addr)
 #define sync_cmpxchg(ptr, old, new)				\
 	((__typeof__(*(ptr)))cmpxchg_acq((ptr), (old), (new)))
 
-#endif 
+#endif /* _ASM_IA64_SYNC_BITOPS_H */

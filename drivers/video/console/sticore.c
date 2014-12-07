@@ -34,10 +34,23 @@
 
 static struct sti_struct *default_sti __read_mostly;
 
+/* number of STI ROMS found and their ptrs to each struct */
 static int num_sti_roms __read_mostly;
 static struct sti_struct *sti_roms[MAX_STI_ROMS] __read_mostly;
 
 
+/* The colour indices used by STI are
+ *   0 - Black
+ *   1 - White
+ *   2 - Red
+ *   3 - Yellow/Brown
+ *   4 - Green
+ *   5 - Cyan
+ *   6 - Blue
+ *   7 - Magenta
+ *
+ * So we have the same colours as VGA (basically one bit each for R, G, B),
+ * but have to translate them, anyway. */
 
 static const u8 col_trans[8] = {
         0, 6, 4, 5,
@@ -62,7 +75,7 @@ static int sti_init_graph(struct sti_struct *sti)
 {
 	struct sti_init_inptr_ext inptr_ext = { 0, };
 	struct sti_init_inptr inptr = {
-		.text_planes	= 3, 
+		.text_planes	= 3, /* # of text planes (max 3 for STI) */
 		.ext_ptr	= STI_PTR(&inptr_ext)
 	};
 	struct sti_init_outptr outptr = { 0, };
@@ -230,7 +243,7 @@ static void __devinit sti_rom_copy(unsigned long base, unsigned long count,
 {
 	unsigned long dest_start = (unsigned long) dest;
 
-	
+	/* this still needs to be revisited (see arch/parisc/mm/init.c:246) ! */
 	while (count >= 4) {
 		count -= 4;
 		*(u32 *)dest = gsc_readl(base);
@@ -261,6 +274,12 @@ static int __devinit sti_setup(char *str)
 	return 1;
 }
 
+/*	Assuming the machine has multiple STI consoles (=graphic cards) which
+ *	all get detected by sticon, the user may define with the linux kernel
+ *	parameter sti=<x> which of them will be the initial boot-console.
+ *	<x> is a number between 0 and MAX_STI_ROMS, with 0 as the default 
+ *	STI screen.
+ */
 __setup("sti=", sti_setup);
 #endif
 
@@ -276,6 +295,8 @@ static int __devinit sti_font_setup(char *str)
 	char *x;
 	int i = 0;
 
+	/* we accept sti_font=VGA8x16, sti_font=10x20, sti_font=10*20 
+	 * or sti_font=7 style command lines. */
 
 	while (i<MAX_STI_ROMS && str && *str) {
 		if (*str>='0' && *str<='9') {
@@ -286,7 +307,7 @@ static int __devinit sti_font_setup(char *str)
 				font_index[i] = simple_strtoul(str, NULL, 0);
 			}
 		} else {
-			font_name[i] = str;	
+			font_name[i] = str;	/* fb font name */
 		}
 
 		if ((x = strchr(str, ',')))
@@ -299,6 +320,24 @@ static int __devinit sti_font_setup(char *str)
 	return 1;
 }
 
+/*	The optional linux kernel parameter "sti_font" defines which font
+ *	should be used by the sticon driver to draw characters to the screen.
+ *	Possible values are:
+ *	- sti_font=<fb_fontname>:
+ *		<fb_fontname> is the name of one of the linux-kernel built-in 
+ *		framebuffer font names (e.g. VGA8x16, SUN22x18). 
+ *		This is only available if the fonts have been statically compiled 
+ *		in with e.g. the CONFIG_FONT_8x16 or CONFIG_FONT_SUN12x22 options.
+ *	- sti_font=<number>
+ *		most STI ROMs have built-in HP specific fonts, which can be selected
+ *		by giving the desired number to the sticon driver. 
+ *		NOTE: This number is machine and STI ROM dependend.
+ *	- sti_font=<height>x<width>  (e.g. sti_font=16x8)
+ *		<height> and <width> gives hints to the height and width of the
+ *		font which the user wants. The sticon driver will try to use
+ *		a font with this height and width, but if no suitable font is
+ *		found, sticon will use the default 8x8 font.
+ */
 __setup("sti_font=", sti_font_setup);
 #endif
 
@@ -329,7 +368,7 @@ sti_dump_globcfg(struct sti_glob_cfg *glob_cfg, unsigned int sti_mem_request)
 		glob_cfg->reent_lvl,
 		glob_cfg->save_addr));
 
-	 
+	/* dump extended cfg */ 
 	cfg = PTR_STI((unsigned long)glob_cfg->ext_ptr);
 	DPRINTK(( KERN_INFO
 		"monitor %d\n"
@@ -366,11 +405,11 @@ sti_init_glob_cfg(struct sti_struct *sti,
 	struct sti_glob_cfg_ext *glob_cfg_ext;
 	void *save_addr;
 	void *sti_mem_addr;
-	const int save_addr_size = 1024;	
+	const int save_addr_size = 1024;	/* XXX */
 	int i;
 
 	if (!sti->sti_mem_request)
-		sti->sti_mem_request = 256; 
+		sti->sti_mem_request = 256; /* STI default */
 
 	glob_cfg = kzalloc(sizeof(*sti->glob_cfg), GFP_KERNEL);
 	glob_cfg_ext = kzalloc(sizeof(*glob_cfg_ext), GFP_KERNEL);
@@ -423,7 +462,7 @@ sti_init_glob_cfg(struct sti_struct *sti,
 			sti->regions[i].region_desc.cache, 
 			sti->regions[i].region_desc.last));
 
-		
+		/* last entry reached ? */
 		if (sti->regions[i].region_desc.last)
 			break;
 	}
@@ -511,7 +550,7 @@ static struct sti_cooked_font __devinit
 	int i;
 	int index = num_sti_roms;
 
-	
+	/* check for framebuffer-font first */
 	if ((font = sti_select_fbfont(rom, font_name[index])))
 		return font;
 
@@ -674,7 +713,7 @@ static struct sti_rom __devinit *sti_get_wmode_rom(unsigned long address)
 	struct sti_rom *raw;
 	unsigned long size;
 
-	 
+	/* read the ROM size directly from the struct in ROM */ 
 	size = gsc_readl(address + offsetof(struct sti_rom,last_addr));
 
 	raw = kmalloc(size, GFP_KERNEL);
@@ -733,7 +772,7 @@ static int __devinit sti_read_rom(int wordmode, struct sti_struct *sti,
 	
 	sti_dump_rom(raw);
 
-	
+	/* check if the ROM routines in this card are compatible */
 	if (wordmode || sti->graphics_id[1] != 0x09A02587)
 		goto ok;
 
@@ -741,7 +780,7 @@ static int __devinit sti_read_rom(int wordmode, struct sti_struct *sti,
 
 	switch (sti->graphics_id[0]) {
 	case S9000_ID_HCRX:
-		
+		/* HyperA or HyperB ? */
 		if (revno == 0x8408 || revno == 0x840b)
 			goto msg_not_supported;
 		break;
@@ -760,7 +799,7 @@ msg_not_supported:
 	printk(KERN_ERR "Sorry, this GSC/STI card is not yet supported.\n");
 	printk(KERN_ERR "Please see http://parisc-linux.org/faq/"
 			"graphics-howto.html for more info.\n");
-	
+	/* fall through */
 out_err:
 	kfree(raw);
 	kfree(cooked);
@@ -788,17 +827,21 @@ sti_try_rom_generic(unsigned long address, unsigned long hpa, struct pci_dev *pd
 	spin_lock_init(&sti->lock);
 
 test_rom:
+	/* if we can't read the ROM, bail out early.  Not being able
+	 * to read the hpa is okay, for romless sti */
 	if (pdc_add_valid(address))
 		goto out_err;
 
 	sig = gsc_readl(address);
 
-	
+	/* check for a PCI ROM structure */
 	if ((le32_to_cpu(sig)==0xaa55)) {
 		unsigned int i, rm_offset;
 		u32 *rm;
 		i = gsc_readl(address+0x04);
 		if (i != 1) {
+			/* The ROM could have multiple architecture 
+			 * dependent images (e.g. i386, parisc,...) */
 			printk(KERN_WARNING 
 				"PCI ROM is not a STI ROM type image (0x%8x)\n", i);
 			goto out_err;
@@ -811,7 +854,7 @@ test_rom:
 			le16_to_cpu(i>>16)*512/1024));
 		rm_offset = le16_to_cpu(i & 0xffff);
 		if (rm_offset) { 
-			
+			/* read 16 bytes from the pci region mapper array */
 			rm = (u32*) &sti->rm_entry;
 			*rm++ = gsc_readl(address+rm_offset+0x00);
 			*rm++ = gsc_readl(address+rm_offset+0x04);
@@ -847,8 +890,11 @@ test_rom:
 		goto out_err;
 
 	if (sti_init_glob_cfg(sti, address, hpa))
-		goto out_err; 
+		goto out_err; /* not enough memory */
 
+	/* disable STI PCI ROM. ROM and card RAM overlap and
+	 * leaving it enabled would force HPMCs
+	 */
 	if (sti->pd) {
 		unsigned long rom_base;
 		rom_base = pci_resource_start(sti->pd, PCI_ROM_RESOURCE);	
@@ -881,6 +927,11 @@ static void __devinit sticore_check_for_default_sti(struct sti_struct *sti, char
 		default_sti = sti;
 }
 
+/*
+ * on newer systems PDC gives the address of the ROM 
+ * in the additional address field addr[1] while on
+ * older Systems the PDC stores it in page0->proc_sti 
+ */
 static int __devinit sticore_pa_init(struct parisc_device *dev)
 {
 	char pa_path[21];
@@ -944,7 +995,7 @@ static int __devinit sticore_pci_init(struct pci_dev *pd,
 			pci_name(pd));
 		return -ENODEV;
 	}
-#endif 
+#endif /* CONFIG_PCI */
 
 	return 0;
 }
@@ -962,7 +1013,7 @@ static struct pci_device_id sti_pci_tbl[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_VISUALIZE_FX4) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_VISUALIZE_FX2) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_VISUALIZE_FXE) },
-	{ 0, } 
+	{ 0, } /* terminate list */
 };
 MODULE_DEVICE_TABLE(pci, sti_pci_tbl);
 
@@ -986,6 +1037,9 @@ static struct parisc_driver pa_sti_driver = {
 };
 
 
+/*
+ * sti_init_roms() - detects all STI ROMs and stores them in sti_roms[]
+ */
 
 static int sticore_initialized __read_mostly;
 
@@ -999,16 +1053,20 @@ static void __devinit sti_init_roms(void)
 	printk(KERN_INFO "STI GSC/PCI core graphics driver "
 			STI_DRIVERVERSION "\n");
 
-	
+	/* Register drivers for native & PCI cards */
 	register_parisc_driver(&pa_sti_driver);
 	WARN_ON(pci_register_driver(&pci_sti_driver));
 
-	
+	/* if we didn't find the given default sti, take the first one */
 	if (!default_sti)
 		default_sti = sti_roms[0];
 
 }
 
+/*
+ * index = 0 gives default sti
+ * index > 0 gives other stis in detection order
+ */
 struct sti_struct * sti_get_rom(unsigned int index)
 {
 	if (!sticore_initialized)

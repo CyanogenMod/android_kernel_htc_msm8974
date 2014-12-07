@@ -18,16 +18,16 @@
 #include <asm/sgi/ip22.h>
 
 
-static unsigned int cpu_err_stat;	
-static unsigned int gio_err_stat;	
-static unsigned int cpu_err_addr;	
-static unsigned int gio_err_addr;	
+static unsigned int cpu_err_stat;	/* Status reg for CPU */
+static unsigned int gio_err_stat;	/* Status reg for GIO */
+static unsigned int cpu_err_addr;	/* Error address reg for CPU */
+static unsigned int gio_err_addr;	/* Error address reg for GIO */
 static unsigned int extio_stat;
-static unsigned int hpc3_berr_stat;	
+static unsigned int hpc3_berr_stat;	/* Bus error interrupt status */
 
 static void save_and_clear_buserr(void)
 {
-	
+	/* save status registers */
 	cpu_err_addr = sgimc->cerr;
 	cpu_err_stat = sgimc->cstat;
 	gio_err_addr = sgimc->gerr;
@@ -78,6 +78,12 @@ static void print_buserr(void)
 			gio_err_addr);
 }
 
+/*
+ * MC sends an interrupt whenever bus or parity errors occur. In addition,
+ * if the error happened during a CPU read, it also asserts the bus error
+ * pin on the R4K. Code in bus error handler save the MC bus error registers
+ * and then clear the interrupt when this happens.
+ */
 
 void ip22_be_interrupt(int irq)
 {
@@ -89,7 +95,7 @@ void ip22_be_interrupt(int irq)
 	printk(KERN_ALERT "%s bus error, epc == %0*lx, ra == %0*lx\n",
 	       (regs->cp0_cause & 4) ? "Data" : "Instruction",
 	       field, regs->cp0_epc, field, regs->regs[31]);
-	
+	/* Assume it would be too dangerous to continue ... */
 	die_if_kernel("Oops", regs);
 	force_sig(SIGBUS, current);
 }

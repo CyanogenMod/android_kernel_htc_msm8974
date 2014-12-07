@@ -29,10 +29,17 @@
 #include <mach/at91_ramc.h>
 
 
+/*
+ * A0..A10 work in each range; A23 indicates I/O space;  A25 is CFRNW;
+ * some other bit in {A24,A22..A11} is nREG to flag memory access
+ * (vs attributes).  So more than 2KB/region would just be waste.
+ * Note: These are offsets from the physical base address.
+ */
 #define	CF_ATTR_PHYS	(0)
 #define	CF_IO_PHYS	(1 << 23)
 #define	CF_MEM_PHYS	(0x017ff800)
 
+/*--------------------------------------------------------------------------*/
 
 static const char driver_name[] = "at91_cf";
 
@@ -52,6 +59,7 @@ static inline int at91_cf_present(struct at91_cf_socket *cf)
 	return !gpio_get_value(cf->board->det_pin);
 }
 
+/*--------------------------------------------------------------------------*/
 
 static int at91_cf_ss_init(struct pcmcia_socket *s)
 {
@@ -65,7 +73,7 @@ static irqreturn_t at91_cf_irq(int irq, void *_cf)
 	if (irq == gpio_to_irq(cf->board->det_pin)) {
 		unsigned present = at91_cf_present(cf);
 
-		
+		/* kick pccard as needed */
 		if (present != cf->present) {
 			cf->present = present;
 			pr_debug("%s: card %s\n", driver_name,
@@ -86,9 +94,9 @@ static int at91_cf_get_status(struct pcmcia_socket *s, u_int *sp)
 
 	cf = container_of(s, struct at91_cf_socket, socket);
 
-	
+	/* NOTE: CF is always 3VCARD */
 	if (at91_cf_present(cf)) {
-		int rdy	= gpio_is_valid(cf->board->irq_pin);	
+		int rdy	= gpio_is_valid(cf->board->irq_pin);	/* RDY/nIRQ */
 		int vcc	= gpio_is_valid(cf->board->vcc_pin);
 
 		*sp = SS_DETECT | SS_3VCARD;
@@ -109,7 +117,7 @@ at91_cf_set_socket(struct pcmcia_socket *sock, struct socket_state_t *s)
 
 	cf = container_of(sock, struct at91_cf_socket, socket);
 
-	
+	/* switch Vcc if needed and possible */
 	if (gpio_is_valid(cf->board->vcc_pin)) {
 		switch (s->Vcc) {
 			case 0:
@@ -123,7 +131,7 @@ at91_cf_set_socket(struct pcmcia_socket *sock, struct socket_state_t *s)
 		}
 	}
 
-	
+	/* toggle reset if needed */
 	gpio_set_value(cf->board->rst_pin, s->flags & SS_RESET);
 
 	pr_debug("%s: Vcc %d, io_irq %d, flags %04x csc %04x\n",
@@ -137,6 +145,7 @@ static int at91_cf_ss_suspend(struct pcmcia_socket *s)
 	return at91_cf_set_socket(s, &dead_socket);
 }
 
+/* we already mapped the I/O region */
 static int at91_cf_set_io_map(struct pcmcia_socket *s, struct pccard_io_map *io)
 {
 	struct at91_cf_socket	*cf;
@@ -145,8 +154,21 @@ static int at91_cf_set_io_map(struct pcmcia_socket *s, struct pccard_io_map *io)
 	cf = container_of(s, struct at91_cf_socket, socket);
 	io->flags &= (MAP_ACTIVE | MAP_16BIT | MAP_AUTOSZ);
 
+	/*
+	 * Use 16 bit accesses unless/until we need 8-bit i/o space.
+	 */
 	csr = at91_ramc_read(0, AT91_SMC_CSR(cf->board->chipselect)) & ~AT91_SMC_DBW;
 
+	/*
+	 * NOTE: this CF controller ignores IOIS16, so we can't really do
+	 * MAP_AUTOSZ.  The 16bit mode allows single byte access on either
+	 * D0-D7 (even addr) or D8-D15 (odd), so it's close enough for many
+	 * purposes (and handles ide-cs).
+	 *
+	 * The 8bit mode is needed for odd byte access on D0-D7.  It seems
+	 * some cards only like that way to get at the odd byte, despite
+	 * CF 3.0 spec table 35 also giving the D8-D15 option.
+	 */
 	if (!(io->flags & (MAP_16BIT | MAP_AUTOSZ))) {
 		csr |= AT91_SMC_DBW_8;
 		pr_debug("%s: 8bit i/o bus\n", driver_name);
@@ -162,6 +184,7 @@ static int at91_cf_set_io_map(struct pcmcia_socket *s, struct pccard_io_map *io)
 	return 0;
 }
 
+/* pcmcia layer maps/unmaps mem regions */
 static int
 at91_cf_set_mem_map(struct pcmcia_socket *s, struct pccard_mem_map *map)
 {
@@ -190,6 +213,7 @@ static struct pccard_operations at91_cf_ops = {
 	.set_mem_map		= at91_cf_set_mem_map,
 };
 
+/*--------------------------------------------------------------------------*/
 
 static int __init at91_cf_probe(struct platform_device *pdev)
 {
@@ -214,7 +238,7 @@ static int __init at91_cf_probe(struct platform_device *pdev)
 	cf->phys_baseaddr = io->start;
 	platform_set_drvdata(pdev, cf);
 
-	
+	/* must be a GPIO; ergo must trigger on both edges */
 	status = gpio_request(board->det_pin, "cf_det");
 	if (status < 0)
 		goto fail0;
@@ -233,6 +257,12 @@ static int __init at91_cf_probe(struct platform_device *pdev)
 			goto fail0b;
 	}
 
+	/*
+	 * The card driver will request this irq later as needed.
+	 * but it causes lots of "irqNN: nobody cared" messages
+	 * unless we report that we handle everything (sigh).
+	 * (Note:  DK board doesn't wire the IRQ pin...)
+	 */
 	if (gpio_is_valid(board->irq_pin)) {
 		status = gpio_request(board->irq_pin, "cf_irq");
 		if (status < 0)
@@ -245,7 +275,7 @@ static int __init at91_cf_probe(struct platform_device *pdev)
 	} else
 		cf->socket.pci_irq = nr_irqs + 1;
 
-	
+	/* pcmcia layer only remaps "real" memory not iospace */
 	cf->socket.io_offset = (unsigned long)
 			ioremap(cf->phys_baseaddr + CF_IO_PHYS, SZ_2K);
 	if (!cf->socket.io_offset) {
@@ -253,7 +283,7 @@ static int __init at91_cf_probe(struct platform_device *pdev)
 		goto fail1;
 	}
 
-	
+	/* reserve chip-select regions */
 	if (!request_mem_region(io->start, resource_size(io), driver_name)) {
 		status = -ENXIO;
 		goto fail1;
@@ -369,6 +399,7 @@ static struct platform_driver at91_cf_driver = {
 	.resume		= at91_cf_resume,
 };
 
+/*--------------------------------------------------------------------------*/
 
 static int __init at91_cf_init(void)
 {

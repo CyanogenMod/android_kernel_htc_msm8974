@@ -1,3 +1,16 @@
+/*
+ * pata_pdc202xx_old.c 	- Promise PDC202xx PATA for new ATA layer
+ *			  (C) 2005 Red Hat Inc
+ *			  Alan Cox <alan@lxorguk.ukuu.org.uk>
+ *			  (C) 2007,2009,2010 Bartlomiej Zolnierkiewicz
+ *
+ * Based in part on linux/drivers/ide/pci/pdc202xx_old.c
+ *
+ * First cut with LBA48/ATAPI
+ *
+ * TODO:
+ *	Channel interlock/reset on both required ?
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -38,12 +51,30 @@ static bool pdc202xx_irq_check(struct ata_port *ap)
 	u8 sc1d			= inb(master + 0x1d);
 
 	if (ap->port_no) {
+		/*
+		 * bit 7: error, bit 6: interrupting,
+		 * bit 5: FIFO full, bit 4: FIFO empty
+		 */
 		return sc1d & 0x40;
 	} else	{
+		/*
+		 * bit 3: error, bit 2: interrupting,
+		 * bit 1: FIFO full, bit 0: FIFO empty
+		 */
 		return sc1d & 0x04;
 	}
 }
 
+/**
+ *	pdc202xx_configure_piomode	-	set chip PIO timing
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *	@pio: PIO mode
+ *
+ *	Called to do the PIO mode setup. Our timing registers are shared
+ *	so a configure_dmamode call will undo any work we do here and vice
+ *	versa
+ */
 
 static void pdc202xx_configure_piomode(struct ata_port *ap, struct ata_device *adev, int pio)
 {
@@ -56,35 +87,51 @@ static void pdc202xx_configure_piomode(struct ata_port *ap, struct ata_device *a
 
 	pci_read_config_byte(pdev, port, &r_ap);
 	pci_read_config_byte(pdev, port + 1, &r_bp);
-	r_ap &= ~0x3F;	
+	r_ap &= ~0x3F;	/* Preserve ERRDY_EN, SYNC_IN */
 	r_bp &= ~0x1F;
 	r_ap |= (pio_timing[pio] >> 8);
 	r_bp |= (pio_timing[pio] & 0xFF);
 
 	if (ata_pio_need_iordy(adev))
-		r_ap |= 0x20;	
+		r_ap |= 0x20;	/* IORDY enable */
 	if (adev->class == ATA_DEV_ATA)
-		r_ap |= 0x10;	
+		r_ap |= 0x10;	/* FIFO enable */
 	pci_write_config_byte(pdev, port, r_ap);
 	pci_write_config_byte(pdev, port + 1, r_bp);
 }
 
+/**
+ *	pdc202xx_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Called to do the PIO mode setup. Our timing registers are shared
+ *	but we want to set the PIO timing by default.
+ */
 
 static void pdc202xx_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
 	pdc202xx_configure_piomode(ap, adev, adev->pio_mode - XFER_PIO_0);
 }
 
+/**
+ *	pdc202xx_configure_dmamode	-	set DMA mode in chip
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Load DMA cycle times into the chip ready for a DMA transfer
+ *	to occur.
+ */
 
 static void pdc202xx_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	int port = 0x60 + 8 * ap->port_no + 4 * adev->devno;
 	static u8 udma_timing[6][2] = {
-		{ 0x60, 0x03 },	
+		{ 0x60, 0x03 },	/* 33 Mhz Clock */
 		{ 0x40, 0x02 },
 		{ 0x20, 0x01 },
-		{ 0x40, 0x02 },	
+		{ 0x40, 0x02 },	/* 66 Mhz Clock */
 		{ 0x20, 0x01 },
 		{ 0x20, 0x01 }
 	};
@@ -116,6 +163,16 @@ static void pdc202xx_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 
 }
 
+/**
+ *	pdc2026x_bmdma_start		-	DMA engine begin
+ *	@qc: ATA command
+ *
+ *	In UDMA3 or higher we have to clock switch for the duration of the
+ *	DMA transfer sequence.
+ *
+ *	Note: The host lock held by the libata layer protects
+ *	us from two channels both trying to set DMA bits at once
+ */
 
 static void pdc2026x_bmdma_start(struct ata_queued_cmd *qc)
 {
@@ -130,15 +187,17 @@ static void pdc2026x_bmdma_start(struct ata_queued_cmd *qc)
 
 	u32 len;
 
-	
+	/* Check we keep host level locking here */
 	if (adev->dma_mode > XFER_UDMA_2)
 		iowrite8(ioread8(clock) | sel66, clock);
 	else
 		iowrite8(ioread8(clock) & ~sel66, clock);
 
+	/* The DMA clocks may have been trashed by a reset. FIXME: make conditional
+	   and move to qc_issue ? */
 	pdc202xx_set_dmamode(ap, qc->dev);
 
-	
+	/* Cases the state machine will not complete correctly without help */
 	if ((tf->flags & ATA_TFLAG_LBA48) ||  tf->protocol == ATAPI_PROT_DMA) {
 		len = qc->nbytes / 2;
 
@@ -150,10 +209,20 @@ static void pdc2026x_bmdma_start(struct ata_queued_cmd *qc)
 		iowrite32(len, atapi_reg);
 	}
 
-	
+	/* Activate DMA */
 	ata_bmdma_start(qc);
 }
 
+/**
+ *	pdc2026x_bmdma_end		-	DMA engine stop
+ *	@qc: ATA command
+ *
+ *	After a DMA completes we need to put the clock back to 33MHz for
+ *	PIO timings.
+ *
+ *	Note: The host lock held by the libata layer protects
+ *	us from two channels both trying to set DMA bits at once
+ */
 
 static void pdc2026x_bmdma_stop(struct ata_queued_cmd *qc)
 {
@@ -162,23 +231,31 @@ static void pdc2026x_bmdma_stop(struct ata_queued_cmd *qc)
 	struct ata_taskfile *tf = &qc->tf;
 
 	int sel66 = ap->port_no ? 0x08: 0x02;
-	
+	/* The clock bits are in the same register for both channels */
 	void __iomem *master = ap->host->ports[0]->ioaddr.bmdma_addr;
 	void __iomem *clock = master + 0x11;
 	void __iomem *atapi_reg = master + 0x20 + (4 * ap->port_no);
 
-	
+	/* Cases the state machine will not complete correctly */
 	if (tf->protocol == ATAPI_PROT_DMA || (tf->flags & ATA_TFLAG_LBA48)) {
 		iowrite32(0, atapi_reg);
 		iowrite8(ioread8(clock) & ~sel66, clock);
 	}
-	
+	/* Flip back to 33Mhz for PIO */
 	if (adev->dma_mode > XFER_UDMA_2)
 		iowrite8(ioread8(clock) & ~sel66, clock);
 	ata_bmdma_stop(qc);
 	pdc202xx_set_piomode(ap, adev);
 }
 
+/**
+ *	pdc2026x_dev_config	-	device setup hook
+ *	@adev: newly found device
+ *
+ *	Perform chip specific early setup. We need to lock the transfer
+ *	sizes to 8bit to avoid making the state engine on the 2026x cards
+ *	barf.
+ */
 
 static void pdc2026x_dev_config(struct ata_device *adev)
 {
@@ -189,13 +266,25 @@ static int pdc2026x_port_start(struct ata_port *ap)
 {
 	void __iomem *bmdma = ap->ioaddr.bmdma_addr;
 	if (bmdma) {
-		
+		/* Enable burst mode */
 		u8 burst = ioread8(bmdma + 0x1f);
 		iowrite8(burst | 0x01, bmdma + 0x1f);
 	}
 	return ata_bmdma_port_start(ap);
 }
 
+/**
+ *	pdc2026x_check_atapi_dma - Check whether ATAPI DMA can be supported for this command
+ *	@qc: Metadata associated with taskfile to check
+ *
+ *	Just say no - not supported on older Promise.
+ *
+ *	LOCKING:
+ *	None (inherited from caller).
+ *
+ *	RETURNS: 0 when ATAPI DMA can be used
+ *		 1 otherwise
+ */
 
 static int pdc2026x_check_atapi_dma(struct ata_queued_cmd *qc)
 {
@@ -263,7 +352,7 @@ static int pdc202xx_init_one(struct pci_dev *dev, const struct pci_device_id *id
 
 	if (dev->device == PCI_DEVICE_ID_PROMISE_20265) {
 		struct pci_dev *bridge = dev->bus->self;
-		
+		/* Don't grab anything behind a Promise I2O RAID */
 		if (bridge && bridge->vendor == PCI_VENDOR_ID_INTEL) {
 			if (bridge->device == PCI_DEVICE_ID_INTEL_I960)
 				return -ENODEV;

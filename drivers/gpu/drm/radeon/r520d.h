@@ -28,6 +28,7 @@
 #ifndef __R520D_H__
 #define __R520D_H__
 
+/* Registers */
 #define R_0000F8_CONFIG_MEMSIZE                      0x0000F8
 #define   S_0000F8_CONFIG_MEMSIZE(x)                   (((x) & 0xFFFFFFFF) << 0)
 #define   G_0000F8_CONFIG_MEMSIZE(x)                   (((x) >> 0) & 0xFFFFFFFF)

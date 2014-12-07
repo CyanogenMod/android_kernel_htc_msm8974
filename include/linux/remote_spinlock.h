@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2009, 2011, 2013 The Linux Foundation.
+/* Copyright (c) 2008-2009, 2011, 2013-2014 The Linux Foundation.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,6 +19,23 @@
 
 #include <asm/remote_spinlock.h>
 
+/* Grabbing a local spin lock before going for a remote lock has several
+ * advantages:
+ * 1. Get calls to preempt enable/disable and IRQ save/restore for free.
+ * 2. For UP kernel, there is no overhead.
+ * 3. Reduces the possibility of executing the remote spin lock code. This is
+ *    especially useful when the remote CPUs' mutual exclusion instructions
+ *    don't work with the local CPUs' instructions. In such cases, one has to
+ *    use software based mutex algorithms (e.g. Lamport's bakery algorithm)
+ *    which could get expensive when the no. of contending CPUs is high.
+ * 4. In the case of software based mutex algorithm the exection time will be
+ *    smaller since the no. of contending CPUs is reduced by having just one
+ *    contender for all the local CPUs.
+ * 5. Get most of the spin lock debug features for free.
+ * 6. The code will continue to work "gracefully" even when the remote spin
+ *    lock code is stubbed out for debug purposes or when there is no remote
+ *    CPU in some board/machine types.
+ */
 typedef struct {
 	spinlock_t local;
 	_remote_spinlock_t remote;
@@ -66,6 +83,11 @@ typedef struct {
 				0; }) \
 		: 0; \
 	})
+#define remote_spin_lock_rlock_id(lock, tid) \
+	_remote_spin_lock_rlock_id(&((lock)->remote), tid)
+
+#define remote_spin_unlock_rlock(lock) \
+	_remote_spin_unlock_rlock(&((lock)->remote))
 
 #define remote_spin_release(lock, pid) \
 	_remote_spin_release(&((lock)->remote), pid)

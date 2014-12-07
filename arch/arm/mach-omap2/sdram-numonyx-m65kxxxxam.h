@@ -13,6 +13,7 @@
 
 #include <plat/sdrc.h>
 
+/* Numonyx  M65KXXXXAM */
 static struct omap_sdrc_params m65kxxxxam_sdrc_params[] = {
 	[0] = {
 		.rate		= 200000000,

@@ -28,6 +28,7 @@
 #include <linux/ratelimit.h>
 #include <asm/uaccess.h>
 
+/* #define DEBUG_UNALIGNED 1 */
 
 #ifdef DEBUG_UNALIGNED
 #define DPRINTF(fmt, args...) do { printk(KERN_DEBUG "%s:%d:%s ", __FILE__, __LINE__, __func__ ); printk(KERN_DEBUG fmt, ##args ); } while (0)
@@ -45,8 +46,10 @@
 	"\tldil L%%" #lbl ", %%r1\n"			\
 	"\tldo R%%" #lbl "(%%r1), %%r1\n"		\
 	"\tbv,n %%r0(%%r1)\n"
+/* If you use FIXUP_BRANCH, then you must list this clobber */
 #define FIXUP_BRANCH_CLOBBER "r1"
 
+/* 1111 1100 0000 0000 0001 0011 1100 0000 */
 #define OPCODE1(a,b,c)	((a)<<26|(b)<<12|(c)<<6) 
 #define OPCODE2(a,b)	((a)<<26|(b)<<1)
 #define OPCODE3(a,b)	((a)<<26|(b)<<2)
@@ -56,6 +59,7 @@
 #define OPCODE3_MASK	OPCODE3(0x3f,1)
 #define OPCODE4_MASK    OPCODE4(0x3f)
 
+/* skip LDB - never unaligned (index) */
 #define OPCODE_LDH_I	OPCODE1(0x03,0,0x1)
 #define OPCODE_LDW_I	OPCODE1(0x03,0,0x2)
 #define OPCODE_LDD_I	OPCODE1(0x03,0,0x3)
@@ -63,6 +67,7 @@
 #define OPCODE_LDCD_I	OPCODE1(0x03,0,0x5)
 #define OPCODE_LDWA_I	OPCODE1(0x03,0,0x6)
 #define OPCODE_LDCW_I	OPCODE1(0x03,0,0x7)
+/* skip LDB - never unaligned (short) */
 #define OPCODE_LDH_S	OPCODE1(0x03,1,0x1)
 #define OPCODE_LDW_S	OPCODE1(0x03,1,0x2)
 #define OPCODE_LDD_S	OPCODE1(0x03,1,0x3)
@@ -70,9 +75,12 @@
 #define OPCODE_LDCD_S	OPCODE1(0x03,1,0x5)
 #define OPCODE_LDWA_S	OPCODE1(0x03,1,0x6)
 #define OPCODE_LDCW_S	OPCODE1(0x03,1,0x7)
+/* skip STB - never unaligned */
 #define OPCODE_STH	OPCODE1(0x03,1,0x9)
 #define OPCODE_STW	OPCODE1(0x03,1,0xa)
 #define OPCODE_STD	OPCODE1(0x03,1,0xb)
+/* skip STBY - never unaligned */
+/* skip STDBY - never unaligned */
 #define OPCODE_STWA	OPCODE1(0x03,1,0xe)
 #define OPCODE_STDA	OPCODE1(0x03,1,0xf)
 
@@ -167,7 +175,7 @@ static int emulate_ldw(struct pt_regs *regs, int toreg, int flop)
 		regs->isr, regs->ior, toreg);
 
 	__asm__ __volatile__  (
-"	zdep	%3,28,2,%%r19\n"		
+"	zdep	%3,28,2,%%r19\n"		/* r19=(ofs&3)*8 */
 "	mtsp	%4, %%sr1\n"
 "	depw	%%r0,31,2,%3\n"
 "1:	ldw	0(%%sr1,%3),%0\n"
@@ -211,7 +219,7 @@ static int emulate_ldd(struct pt_regs *regs, int toreg, int flop)
 		return -1;
 #endif
 	__asm__ __volatile__  (
-"	depd,z	%3,60,3,%%r19\n"		
+"	depd,z	%3,60,3,%%r19\n"		/* r19=(ofs&7)*8 */
 "	mtsp	%4, %%sr1\n"
 "	depd	%%r0,63,3,%3\n"
 "1:	ldd	0(%%sr1,%3),%0\n"
@@ -234,7 +242,7 @@ static int emulate_ldd(struct pt_regs *regs, int toreg, int flop)
     {
 	unsigned long valh=0,vall=0;
 	__asm__ __volatile__  (
-"	zdep	%5,29,2,%%r19\n"		
+"	zdep	%5,29,2,%%r19\n"		/* r19=(ofs&3)*8 */
 "	mtsp	%6, %%sr1\n"
 "	dep	%%r0,31,2,%5\n"
 "1:	ldw	0(%%sr1,%5),%0\n"
@@ -444,9 +452,9 @@ void handle_unaligned(struct pt_regs *regs)
 	int modify = 0;
 	int ret = ERR_NOTHANDLED;
 	struct siginfo si;
-	register int flop=0;	
+	register int flop=0;	/* true if this is a flop */
 
-	
+	/* log a message with pacing */
 	if (user_mode(regs)) {
 		if (current->thread.flags & PARISC_UAC_SIGBUS) {
 			goto force_sigbus;
@@ -467,7 +475,7 @@ void handle_unaligned(struct pt_regs *regs)
 			goto force_sigbus;
 	}
 
-	
+	/* handle modification - OK, it's ugly, see the instruction manual */
 	switch (MAJOR_OP(regs->iir))
 	{
 	case 0x03:
@@ -476,12 +484,12 @@ void handle_unaligned(struct pt_regs *regs)
 		if (regs->iir&0x20)
 		{
 			modify = 1;
-			if (regs->iir&0x1000)		
+			if (regs->iir&0x1000)		/* short loads */
 				if (regs->iir&0x200)
 					newbase += IM5_3(regs->iir);
 				else
 					newbase += IM5_2(regs->iir);
-			else if (regs->iir&0x2000)	
+			else if (regs->iir&0x2000)	/* scaled indexed */
 			{
 				int shift=0;
 				switch (regs->iir & OPCODE1_MASK)
@@ -495,7 +503,7 @@ void handle_unaligned(struct pt_regs *regs)
 					shift= 3; break;
 				}
 				newbase += (R2(regs->iir)?regs->gr[R2(regs->iir)]:0)<<shift;
-			} else				
+			} else				/* simple indexed */
 				newbase += (R2(regs->iir)?regs->gr[R2(regs->iir)]:0);
 		}
 		break;
@@ -527,7 +535,7 @@ void handle_unaligned(struct pt_regs *regs)
 		break;
 	}
 
-	
+	/* TODO: make this cleaner... */
 	switch (regs->iir & OPCODE1_MASK)
 	{
 	case OPCODE_LDH_I:
@@ -597,7 +605,7 @@ void handle_unaligned(struct pt_regs *regs)
 	case OPCODE_LDCW_I:
 	case OPCODE_LDCD_S:
 	case OPCODE_LDCW_S:
-		ret = ERR_NOTHANDLED;	
+		ret = ERR_NOTHANDLED;	/* "undefined", but lets kill them. */
 		break;
 	}
 #ifdef CONFIG_PA20
@@ -680,7 +688,7 @@ void handle_unaligned(struct pt_regs *regs)
 		else
 		{
 force_sigbus:
-			
+			/* couldn't handle it ... */
 			si.si_signo = SIGBUS;
 			si.si_errno = 0;
 			si.si_code = BUS_ADRALN;
@@ -691,17 +699,21 @@ force_sigbus:
 		return;
 	}
 
-	
+	/* else we handled it, let life go on. */
 	regs->gr[0]|=PSW_N;
 }
 
+/*
+ * NB: check_unaligned() is only used for PCXS processors right
+ * now, so we only check for PA1.1 encodings at this point.
+ */
 
 int
 check_unaligned(struct pt_regs *regs)
 {
 	unsigned long align_mask;
 
-	
+	/* Get alignment mask */
 
 	align_mask = 0UL;
 	switch (regs->iir & OPCODE1_MASK) {

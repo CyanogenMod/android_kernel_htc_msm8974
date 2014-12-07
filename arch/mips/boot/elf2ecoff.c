@@ -26,6 +26,12 @@
  * SUCH DAMAGE.
  */
 
+/* elf2ecoff.c
+
+   This program converts an elf executable to an ECOFF executable.
+   No symbol table is retained.   This is useful primarily in building
+   net-bootable kernels for machines (e.g., DECstation and Alpha) which
+   only support the ECOFF object file format. */
 
 #include <stdio.h>
 #include <string.h>
@@ -40,8 +46,12 @@
 
 #include "ecoff.h"
 
-#define PT_MIPS_REGINFO 0x70000000	
+/*
+ * Some extra ELF definitions
+ */
+#define PT_MIPS_REGINFO 0x70000000	/* Register usage information */
 
+/* -------------------------------------------------------------------- */
 
 struct sect {
 	unsigned long vaddr;
@@ -57,7 +67,7 @@ static void copy(int out, int in, off_t offset, off_t size)
 	char ibuf[4096];
 	int remaining, cur, count;
 
-	
+	/* Go to the start of the ELF symbol table... */
 	if (lseek(in, offset, SEEK_SET) < 0) {
 		perror("copy: lseek");
 		exit(1);
@@ -82,6 +92,10 @@ static void copy(int out, int in, off_t offset, off_t size)
 	}
 }
 
+/*
+ * Combine two segments, which must be contiguous.   If pad is true, it's
+ * okay for there to be padding between.
+ */
 static void combine(struct sect *base, struct sect *new, int pad)
 {
 	if (!base->len)
@@ -267,7 +281,7 @@ int main(int argc, char *argv[])
 	text.len = data.len = bss.len = 0;
 	text.vaddr = data.vaddr = bss.vaddr = 0;
 
-	
+	/* Check args... */
 	if (argc < 3 || argc > 4) {
 	      usage:
 		fprintf(stderr,
@@ -280,14 +294,14 @@ int main(int argc, char *argv[])
 		addflag = 1;
 	}
 
-	
+	/* Try the input file... */
 	if ((infile = open(argv[1], O_RDONLY)) < 0) {
 		fprintf(stderr, "Can't open %s for read: %s\n",
 			argv[1], strerror(errno));
 		exit(1);
 	}
 
-	
+	/* Read the header, which is at the beginning of the file... */
 	i = read(infile, &ex, sizeof ex);
 	if (i != sizeof ex) {
 		fprintf(stderr, "ex: %s: %s.\n",
@@ -309,39 +323,44 @@ int main(int argc, char *argv[])
 	if (must_convert_endian)
 		convert_elf_hdr(&ex);
 
-	
+	/* Read the program headers... */
 	ph = (Elf32_Phdr *) saveRead(infile, ex.e_phoff,
 				     ex.e_phnum * sizeof(Elf32_Phdr),
 				     "ph");
 	if (must_convert_endian)
 		convert_elf_phdrs(ph, ex.e_phnum);
-	
+	/* Read the section headers... */
 	sh = (Elf32_Shdr *) saveRead(infile, ex.e_shoff,
 				     ex.e_shnum * sizeof(Elf32_Shdr),
 				     "sh");
 	if (must_convert_endian)
 		convert_elf_shdrs(sh, ex.e_shnum);
-	
+	/* Read in the section string table. */
 	shstrtab = saveRead(infile, sh[ex.e_shstrndx].sh_offset,
 			    sh[ex.e_shstrndx].sh_size, "shstrtab");
 
+	/* Figure out if we can cram the program header into an ECOFF
+	   header...  Basically, we can't handle anything but loadable
+	   segments, but we can ignore some kinds of segments.  We can't
+	   handle holes in the address space.  Segments may be out of order,
+	   so we sort them first. */
 
 	qsort(ph, ex.e_phnum, sizeof(Elf32_Phdr), phcmp);
 
 	for (i = 0; i < ex.e_phnum; i++) {
-		
+		/* Section types we can ignore... */
 		if (ph[i].p_type == PT_NULL || ph[i].p_type == PT_NOTE ||
 		    ph[i].p_type == PT_PHDR
 		    || ph[i].p_type == PT_MIPS_REGINFO)
 			continue;
-		
+		/* Section types we can't handle... */
 		else if (ph[i].p_type != PT_LOAD) {
 			fprintf(stderr,
 				"Program header %d type %d can't be converted.\n",
 				ex.e_phnum, ph[i].p_type);
 			exit(1);
 		}
-		
+		/* Writable (data) segment? */
 		if (ph[i].p_flags & PF_W) {
 			struct sect ndata, nbss;
 
@@ -360,12 +379,12 @@ int main(int argc, char *argv[])
 
 			combine(&text, &ntxt, 0);
 		}
-		
+		/* Remember the lowest segment start address. */
 		if (ph[i].p_vaddr < cur_vma)
 			cur_vma = ph[i].p_vaddr;
 	}
 
-	
+	/* Sections must be in order to be converted... */
 	if (text.vaddr > data.vaddr || data.vaddr > bss.vaddr ||
 	    text.vaddr + text.len > data.vaddr
 	    || data.vaddr + data.len > bss.vaddr) {
@@ -374,16 +393,24 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	/* If there's a data section but no text section, then the loader
+	   combined everything into one section.   That needs to be the
+	   text section, so just make the data section zero length following
+	   text. */
 	if (data.len && !text.len) {
 		text = data;
 		data.vaddr = text.vaddr + text.len;
 		data.len = 0;
 	}
 
+	/* If there is a gap between text and data, we'll fill it when we copy
+	   the data, so update the length of the text segment as represented in
+	   a.out to reflect that, since a.out doesn't allow gaps in the program
+	   address space. */
 	if (text.vaddr + text.len < data.vaddr)
 		text.len = data.vaddr - text.vaddr;
 
-	
+	/* We now have enough information to cons up an a.out header... */
 	eah.magic = OMAGIC;
 	eah.vstamp = 200;
 	eah.tsize = text.len;
@@ -395,7 +422,7 @@ int main(int argc, char *argv[])
 	eah.bss_start = bss.vaddr;
 	eah.gprmask = 0xf3fffffe;
 	memset(&eah.cprmask, '\0', sizeof eah.cprmask);
-	eah.gp_value = 0;	
+	eah.gp_value = 0;	/* unused. */
 
 	if (format_bigendian)
 		efh.f_magic = MIPSEBMAGIC;
@@ -406,11 +433,11 @@ int main(int argc, char *argv[])
 	else
 		nosecs = 3;
 	efh.f_nscns = nosecs;
-	efh.f_timdat = 0;	
+	efh.f_timdat = 0;	/* bogus */
 	efh.f_symptr = 0;
 	efh.f_nsyms = 0;
 	efh.f_opthdr = sizeof eah;
-	efh.f_flags = 0x100f;	
+	efh.f_flags = 0x100f;	/* Stripped, not sharable. */
 
 	memset(esecs, 0, sizeof esecs);
 	strcpy(esecs[0].s_name, ".text");
@@ -470,7 +497,7 @@ int main(int argc, char *argv[])
 		esecs[5].s_flags = 0x400;
 	}
 
-	
+	/* Make the output file... */
 	if ((outfile = open(argv[2], O_WRONLY | O_CREAT, 0777)) < 0) {
 		fprintf(stderr, "Unable to create %s: %s\n", argv[2],
 			strerror(errno));
@@ -479,7 +506,7 @@ int main(int argc, char *argv[])
 
 	if (must_convert_endian)
 		convert_ecoff_filehdr(&efh);
-	
+	/* Write the headers... */
 	i = write(outfile, &efh, sizeof efh);
 	if (i != sizeof efh) {
 		perror("efh: write");
@@ -523,7 +550,14 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "wrote %d byte pad.\n", i);
 	}
 
+	/*
+	 * Copy the loadable sections.   Zero-fill any gaps less than 64k;
+	 * complain about any zero-filling, and die if we're asked to zero-fill
+	 * more than 64k.
+	 */
 	for (i = 0; i < ex.e_phnum; i++) {
+		/* Unprocessable sections were handled above, so just verify that
+		   the section can be loaded before copying. */
 		if (ph[i].p_type == PT_LOAD && ph[i].p_filesz) {
 			if (cur_vma != ph[i].p_vaddr) {
 				unsigned long gap =
@@ -562,6 +596,11 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	/*
+	 * Write a page of padding for boot PROMS that read entire pages.
+	 * Without this, they may attempt to read past the end of the
+	 * data section, incur an error, and refuse to boot.
+	 */
 	{
 		char obuf[4096];
 		memset(obuf, 0, sizeof obuf);
@@ -572,6 +611,6 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	
+	/* Looks like we won... */
 	exit(0);
 }

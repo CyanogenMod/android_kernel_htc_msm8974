@@ -34,12 +34,51 @@
 
 #include "sb1250_defs.h"
 
+/*  *********************************************************************
+    *  Pull in the BCM1250's registers since a great deal of the 1480's
+    *  functions are the same as the BCM1250.
+    ********************************************************************* */
 
 #include "sb1250_regs.h"
 
 
+/*  *********************************************************************
+    *  Some general notes:
+    *
+    *  Register addresses are grouped by function and follow the order
+    *  of the User Manual.
+    *
+    *  For the most part, when there is more than one peripheral
+    *  of the same type on the SOC, the constants below will be
+    *  offsets from the base of each peripheral.  For example,
+    *  the MAC registers are described as offsets from the first
+    *  MAC register, and there will be a MAC_REGISTER() macro
+    *  to calculate the base address of a given MAC.
+    *
+    *  The information in this file is based on the BCM1X55/BCM1X80
+    *  User Manual, Document 1X55_1X80-UM100-R, 22/12/03.
+    *
+    *  This file is basically a "what's new" header file.  Since the
+    *  BCM1250 and the new BCM1480 (and derivatives) share many common
+    *  features, this file contains only what's new or changed from
+    *  the 1250.  (above, you can see that we include the 1250 symbols
+    *  to get the base functionality).
+    *
+    *  In software, be sure to use the correct symbols, particularly
+    *  for blocks that are different between the two chip families.
+    *  All BCM1480-specific symbols have _BCM1480_ in their names,
+    *  and all BCM1250-specific and "base" functions that are common in
+    *  both chips have no special names (this is for compatibility with
+    *  older include files).  Therefore, if you're working with the
+    *  SCD, which is very different on each chip, A_SCD_xxx implies
+    *  the BCM1250 version and A_BCM1480_SCD_xxx implies the BCM1480
+    *  version.
+    ********************************************************************* */
 
 
+/*  *********************************************************************
+    * Memory Controller Registers (Section 6)
+    ********************************************************************* */
 
 #define A_BCM1480_MC_BASE_0                 0x0010050000
 #define A_BCM1480_MC_BASE_1                 0x0010051000
@@ -65,11 +104,11 @@
 #define R_BCM1480_MC_CS23_COL1              0x0000000320
 
 #define R_BCM1480_MC_CSX_BASE               0x0000000180
-#define R_BCM1480_MC_CSX_ROW0               0x0000000000   
-#define R_BCM1480_MC_CSX_ROW1               0x0000000020   
-#define R_BCM1480_MC_CSX_COL0               0x0000000100   
-#define R_BCM1480_MC_CSX_COL1               0x0000000120   
-#define BCM1480_MC_CSX_SPACING              0x0000000080   
+#define R_BCM1480_MC_CSX_ROW0               0x0000000000   /* relative to CSX_BASE */
+#define R_BCM1480_MC_CSX_ROW1               0x0000000020   /* relative to CSX_BASE */
+#define R_BCM1480_MC_CSX_COL0               0x0000000100   /* relative to CSX_BASE */
+#define R_BCM1480_MC_CSX_COL1               0x0000000120   /* relative to CSX_BASE */
+#define BCM1480_MC_CSX_SPACING              0x0000000080   /* CS23 relative to CS01 */
 
 #define R_BCM1480_MC_CS01_BA                0x0000000380
 #define R_BCM1480_MC_CS23_BA                0x00000003A0
@@ -89,6 +128,7 @@
 #define R_BCM1480_MC_ECC_STATUS		    0x0000000540
 #endif
 
+/* Global registers (single instance) */
 #define A_BCM1480_MC_GLB_CONFIG             0x0010054100
 #define A_BCM1480_MC_GLB_INTLV              0x0010054120
 #define A_BCM1480_MC_GLB_ECC_STATUS         0x0010054140
@@ -96,6 +136,9 @@
 #define A_BCM1480_MC_GLB_ECC_CORRECT        0x0010054180
 #define A_BCM1480_MC_GLB_PERF_CNT_CONTROL   0x00100541A0
 
+/*  *********************************************************************
+    * L2 Cache Control Registers (Section 5)
+    ********************************************************************* */
 
 #define A_BCM1480_L2_BASE                   0x0010040000
 
@@ -104,27 +147,30 @@
 #define A_BCM1480_L2_MISC0_VALUE            0x0010040058
 #define A_BCM1480_L2_MISC1_VALUE            0x0010040078
 #define A_BCM1480_L2_MISC2_VALUE            0x0010040098
-#define A_BCM1480_L2_MISC_CONFIG            0x0010040040	
-#define A_BCM1480_L2_CACHE_DISABLE          0x0010040060	
+#define A_BCM1480_L2_MISC_CONFIG            0x0010040040	/* x040 */
+#define A_BCM1480_L2_CACHE_DISABLE          0x0010040060	/* x060 */
 #define A_BCM1480_L2_MAKECACHEDISABLE(x)    (A_BCM1480_L2_CACHE_DISABLE | (((x)&0xF) << 12))
-#define A_BCM1480_L2_WAY_ENABLE_3_0         0x0010040080	
-#define A_BCM1480_L2_WAY_ENABLE_7_4         0x00100400A0	
+#define A_BCM1480_L2_WAY_ENABLE_3_0         0x0010040080	/* x080 */
+#define A_BCM1480_L2_WAY_ENABLE_7_4         0x00100400A0	/* x0A0 */
 #define A_BCM1480_L2_MAKE_WAY_ENABLE_LO(x)  (A_BCM1480_L2_WAY_ENABLE_3_0 | (((x)&0xF) << 12))
 #define A_BCM1480_L2_MAKE_WAY_ENABLE_HI(x)  (A_BCM1480_L2_WAY_ENABLE_7_4 | (((x)&0xF) << 12))
 #define A_BCM1480_L2_MAKE_WAY_DISABLE_LO(x)  (A_BCM1480_L2_WAY_ENABLE_3_0 | (((~x)&0xF) << 12))
 #define A_BCM1480_L2_MAKE_WAY_DISABLE_HI(x)  (A_BCM1480_L2_WAY_ENABLE_7_4 | (((~x)&0xF) << 12))
-#define A_BCM1480_L2_WAY_LOCAL_3_0          0x0010040100	
-#define A_BCM1480_L2_WAY_LOCAL_7_4          0x0010040120	
-#define A_BCM1480_L2_WAY_REMOTE_3_0         0x0010040140	
-#define A_BCM1480_L2_WAY_REMOTE_7_4         0x0010040160	
-#define A_BCM1480_L2_WAY_AGENT_3_0          0x00100400C0	
-#define A_BCM1480_L2_WAY_AGENT_7_4          0x00100400E0	
+#define A_BCM1480_L2_WAY_LOCAL_3_0          0x0010040100	/* x100 */
+#define A_BCM1480_L2_WAY_LOCAL_7_4          0x0010040120	/* x120 */
+#define A_BCM1480_L2_WAY_REMOTE_3_0         0x0010040140	/* x140 */
+#define A_BCM1480_L2_WAY_REMOTE_7_4         0x0010040160	/* x160 */
+#define A_BCM1480_L2_WAY_AGENT_3_0          0x00100400C0	/* xxC0 */
+#define A_BCM1480_L2_WAY_AGENT_7_4          0x00100400E0	/* xxE0 */
 #define A_BCM1480_L2_WAY_ENABLE(A, banks)   (A | (((~(banks))&0x0F) << 8))
 #define A_BCM1480_L2_BANK_BASE              0x00D0300000
 #define A_BCM1480_L2_BANK_ADDRESS(b)        (A_BCM1480_L2_BANK_BASE | (((b)&0x7)<<17))
 #define A_BCM1480_L2_MGMT_TAG_BASE          0x00D0000000
 
 
+/*  *********************************************************************
+    * PCI-X Interface Registers (Section 7)
+    ********************************************************************* */
 
 #define A_BCM1480_PCI_BASE                  0x0010061400
 
@@ -133,7 +179,11 @@
 
 #define A_BCM1480_PCI_TYPE00_HEADER         0x002E000000
 
+/*  *********************************************************************
+    * Ethernet MAC Registers (Section 11) and DMA Registers (Section 10.6)
+    ********************************************************************* */
 
+/* No register changes with Rev.C BCM1250, but one additional MAC */
 
 #define A_BCM1480_MAC_BASE_2        0x0010066000
 
@@ -151,8 +201,17 @@
 #endif
 
 
+/*  *********************************************************************
+    * DUART Registers (Section 14)
+    ********************************************************************* */
 
+/* No significant differences from BCM1250, two DUARTs */
 
+/*  Conventions, per user manual:
+ *     DUART    generic, channels A,B,C,D
+ *     DUART0   implementing channels A,B
+ *     DUART1   inplementing channels C,D
+ */
 
 #define BCM1480_DUART_NUM_PORTS           4
 
@@ -186,6 +245,9 @@
 #define A_BCM1480_DUART_IN_PORT(chan)					\
 	(A_BCM1480_DUART_CTRLREG((chan), R_DUART_IN_PORT))
 
+/*
+ * These constants are the absolute addresses.
+ */
 
 #define A_BCM1480_DUART_MODE_REG_1_C        0x0010060400
 #define A_BCM1480_DUART_MODE_REG_2_C        0x0010060410
@@ -226,11 +288,18 @@
 #define A_BCM1480_DUART_INPORT_CHNG_D       0x00100606E0
 
 
+/*  *********************************************************************
+    * Generic Bus Registers (Section 15) and PCMCIA Registers (Section 16)
+    ********************************************************************* */
 
 #define A_BCM1480_IO_PCMCIA_CFG_B	0x0010061A58
 #define A_BCM1480_IO_PCMCIA_STATUS_B	0x0010061A68
 
+/*  *********************************************************************
+    * GPIO Registers (Section 17)
+    ********************************************************************* */
 
+/* One additional GPIO register, placed _before_ the BCM1250's GPIO block base */
 
 #define A_BCM1480_GPIO_INT_ADD_TYPE         0x0010061A78
 #define R_BCM1480_GPIO_INT_ADD_TYPE         (-8)
@@ -238,10 +307,19 @@
 #define A_GPIO_INT_ADD_TYPE	A_BCM1480_GPIO_INT_ADD_TYPE
 #define R_GPIO_INT_ADD_TYPE	R_BCM1480_GPIO_INT_ADD_TYPE
 
+/*  *********************************************************************
+    * SMBus Registers (Section 18)
+    ********************************************************************* */
 
+/* No changes from BCM1250 */
 
+/*  *********************************************************************
+    * Timer Registers (Sections 4.6)
+    ********************************************************************* */
 
+/* BCM1480 has two additional watchdogs */
 
+/* Watchdog timers */
 
 #define A_BCM1480_SCD_WDOG_2                0x0010022050
 #define A_BCM1480_SCD_WDOG_3                0x0010022150
@@ -259,6 +337,7 @@
 #define A_BCM1480_SCD_WDOG_CNT_3        0x0010022158
 #define A_BCM1480_SCD_WDOG_CFG_3        0x0010022160
 
+/* BCM1480 has two additional compare registers */
 
 #define A_BCM1480_SCD_ZBBUS_CYCLE_COUNT		A_SCD_ZBBUS_CYCLE_COUNT
 #define A_BCM1480_SCD_ZBBUS_CYCLE_CP_BASE       0x0010020C00
@@ -267,12 +346,23 @@
 #define A_BCM1480_SCD_ZBBUS_CYCLE_CP2           0x0010020C10
 #define A_BCM1480_SCD_ZBBUS_CYCLE_CP3           0x0010020C18
 
+/*  *********************************************************************
+    * System Control Registers (Section 4.2)
+    ********************************************************************* */
 
+/* Scratch register in different place */
 
 #define A_BCM1480_SCD_SCRATCH	 	0x100200A0
 
+/*  *********************************************************************
+    * System Address Trap Registers (Section 4.9)
+    ********************************************************************* */
 
+/* No changes from BCM1250 */
 
+/*  *********************************************************************
+    * System Interrupt Mapper Registers (Sections 4.3-4.5)
+    ********************************************************************* */
 
 #define A_BCM1480_IMR_CPU0_BASE             0x0010020000
 #define A_BCM1480_IMR_CPU1_BASE             0x0010022000
@@ -284,6 +374,8 @@
 #define A_BCM1480_IMR_MAPPER(cpu)       (A_BCM1480_IMR_CPU0_BASE+(cpu)*BCM1480_IMR_REGISTER_SPACING)
 #define A_BCM1480_IMR_REGISTER(cpu, reg) (A_BCM1480_IMR_MAPPER(cpu)+(reg))
 
+/* Most IMR registers are 128 bits, implemented as non-contiguous
+   64-bit registers high (_H) and low (_L) */
 #define BCM1480_IMR_HL_SPACING                  0x1000
 
 #define R_BCM1480_IMR_INTERRUPT_DIAG_H          0x0010
@@ -323,9 +415,14 @@
                                         (cpu)*BCM1480_IMR_ALIAS_MAILBOX_SPACING)
 #define A_BCM1480_IMR_ALIAS_MAILBOX_REGISTER(cpu, reg) (A_BCM1480_IMR_ALIAS_MAILBOX(cpu)+(reg))
 
-#define R_BCM1480_IMR_ALIAS_MAILBOX_0           0x0000		
-#define R_BCM1480_IMR_ALIAS_MAILBOX_0_SET       0x0008		
+#define R_BCM1480_IMR_ALIAS_MAILBOX_0           0x0000		/* 0x0x0 */
+#define R_BCM1480_IMR_ALIAS_MAILBOX_0_SET       0x0008		/* 0x0x8 */
 
+/*
+ * these macros work together to build the address of a mailbox
+ * register, e.g., A_BCM1480_MAILBOX_REGISTER(0,R_BCM1480_IMR_MAILBOX_SET,2)
+ * for mbox_0_set_cpu2 returns 0x00100240C8
+ */
 #define R_BCM1480_IMR_MAILBOX_CPU         0x00
 #define R_BCM1480_IMR_MAILBOX_SET         0x08
 #define R_BCM1480_IMR_MAILBOX_CLR         0x10
@@ -336,7 +433,12 @@
      (cpu * BCM1480_IMR_REGISTER_SPACING) + \
      (R_BCM1480_IMR_MAILBOX_0_CPU + reg))
 
+/*  *********************************************************************
+    * System Performance Counter Registers (Section 4.7)
+    ********************************************************************* */
 
+/* BCM1480 has four more performance counter registers, and two control
+   registers. */
 
 #define A_BCM1480_SCD_PERF_CNT_BASE         0x00100204C0
 
@@ -359,18 +461,37 @@
 #define BCM1480_SCD_PERF_CNT_SPACING 8
 #define A_BCM1480_SCD_PERF_CNT(n) (A_SCD_PERF_CNT_0+(n*BCM1480_SCD_PERF_CNT_SPACING))
 
+/*  *********************************************************************
+    * System Bus Watcher Registers (Section 4.8)
+    ********************************************************************* */
 
 
+/* Same as 1250 except BUS_ERR_STATUS_DEBUG is in a different place. */
 
 #define A_BCM1480_BUS_ERR_STATUS_DEBUG      0x00100208D8
 
+/*  *********************************************************************
+    * System Debug Controller Registers (Section 19)
+    ********************************************************************* */
+
+/* Same as 1250 */
+
+/*  *********************************************************************
+    * System Trace Unit Registers (Sections 4.10)
+    ********************************************************************* */
+
+/* Same as 1250 */
+
+/*  *********************************************************************
+    * Data Mover DMA Registers (Section 10.7)
+    ********************************************************************* */
+
+/* Same as 1250 */
 
 
-
-
-
-
-
+/*  *********************************************************************
+    * HyperTransport Interface Registers (Section 8)
+    ********************************************************************* */
 
 #define BCM1480_HT_NUM_PORTS		   3
 #define BCM1480_HT_PORT_SPACING		   0x800
@@ -382,6 +503,9 @@
 #define A_BCM1480_HT_TYPE00_HEADER         0x00FE002000
 
 
+/*  *********************************************************************
+    * Node Controller Registers (Section 9)
+    ********************************************************************* */
 
 #define A_BCM1480_NC_BASE                   0x00DFBD0000
 
@@ -416,6 +540,9 @@
 #define A_BCM1480_NC_SR_TIMEOUT_COUNTER_SEL 0x00DFBE0080
 
 
+/*  *********************************************************************
+    * H&R Block Configuration Registers (Section 12.4)
+    ********************************************************************* */
 
 #define A_BCM1480_HR_BASE_0                 0x00DF820000
 #define A_BCM1480_HR_BASE_1                 0x00DF8A0000
@@ -456,6 +583,10 @@
 #define R_BCM1480_HR_RT_WORD(idx)           (BCM1480_HR_ROUTE_OFFSET + ((idx)*BCM1480_HR_ROUTE_SPACING))
 
 
+/* checked to here - ehs */
+/*  *********************************************************************
+    * Packet Manager DMA Registers (Section 12.5)
+    ********************************************************************* */
 
 #define A_BCM1480_PM_BASE                   0x0010056000
 
@@ -476,6 +607,9 @@
 #define BCM1480_PM_INT_FUNCTION_SPACING     0x40
 #define BCM1480_PM_INT_NUM_FUNCTIONS        3
 
+/*
+ * DMA channel registers relative to A_BCM1480_PMI_LCL_BASE(n) and A_BCM1480_PMO_LCL_BASE(n)
+ */
 
 #define R_BCM1480_PM_BASE_SIZE              0x0000000000
 #define R_BCM1480_PM_CNT                    0x0000000008
@@ -485,21 +619,30 @@
 #define R_BCM1480_PM_INT_WMK                0x0000000028
 #define R_BCM1480_PM_CONFIG0                0x0000000030
 #define R_BCM1480_PM_LOCALDEBUG             0x0000000078
-#define R_BCM1480_PM_CACHEABILITY           0x0000000080   
+#define R_BCM1480_PM_CACHEABILITY           0x0000000080   /* PMI only */
 #define R_BCM1480_PM_INT_CNFG               0x0000000088
 #define R_BCM1480_PM_DESC_MERGE_TIMER       0x0000000090
-#define R_BCM1480_PM_LOCALDEBUG_PIB         0x00000000F8   
-#define R_BCM1480_PM_LOCALDEBUG_POB         0x00000000F8   
+#define R_BCM1480_PM_LOCALDEBUG_PIB         0x00000000F8   /* PMI only */
+#define R_BCM1480_PM_LOCALDEBUG_POB         0x00000000F8   /* PMO only */
 
+/*
+ * Global Registers (Not Channelized)
+ */
 
 #define A_BCM1480_PMI_GLB_0                 0x0010056000
 #define A_BCM1480_PMO_GLB_0                 0x0010057000
 
+/*
+ * PM to TX Mapping Register relative to A_BCM1480_PMI_GLB_0 and A_BCM1480_PMO_GLB_0
+ */
 
-#define R_BCM1480_PM_PMO_MAPPING            0x00000008C8   
+#define R_BCM1480_PM_PMO_MAPPING            0x00000008C8   /* PMO only */
 
 #define A_BCM1480_PM_PMO_MAPPING	(A_BCM1480_PMO_GLB_0 + R_BCM1480_PM_PMO_MAPPING)
 
+/*
+ * Interrupt mapping registers
+ */
 
 
 #define A_BCM1480_PMI_INT_0                 0x0010056800
@@ -509,12 +652,18 @@
 #define A_BCM1480_PMO_INT(q)                (A_BCM1480_PMO_INT_0 + ((q>>8)<<8))
 #define A_BCM1480_PMO_INT_OFFSET_0          (A_BCM1480_PMO_INT_0 - A_BCM1480_PM_BASE)
 
+/*
+ * Interrupt registers relative to A_BCM1480_PMI_INT_0 and A_BCM1480_PMO_INT_0
+ */
 
 #define R_BCM1480_PM_INT_ST                 0x0000000000
 #define R_BCM1480_PM_INT_MSK                0x0000000040
 #define R_BCM1480_PM_INT_CLR                0x0000000080
 #define R_BCM1480_PM_MRGD_INT               0x00000000C0
 
+/*
+ * Debug registers (global)
+ */
 
 #define A_BCM1480_PM_GLOBALDEBUGMODE_PMI    0x0010056000
 #define A_BCM1480_PM_GLOBALDEBUG_PID        0x00100567F8
@@ -523,6 +672,9 @@
 #define A_BCM1480_PM_GLOBALDEBUG_POD        0x00100577F8
 #define A_BCM1480_PM_GLOBALDEBUG_POB        0x0010057FF8
 
+/*  *********************************************************************
+    *  Switch performance counters
+    ********************************************************************* */
 
 #define A_BCM1480_SWPERF_CFG	0xdfb91800
 #define A_BCM1480_SWPERF_CNT0	0xdfb91880
@@ -531,6 +683,9 @@
 #define A_BCM1480_SWPERF_CNT3	0xdfb91898
 
 
+/*  *********************************************************************
+    *  Switch Trace Unit
+    ********************************************************************* */
 
 #define A_BCM1480_SWTRC_MATCH_CONTROL_0		0xDFB91000
 #define A_BCM1480_SWTRC_MATCH_DATA_VALUE_0	0xDFB91100
@@ -556,6 +711,9 @@
 
 
 
+/*  *********************************************************************
+    *  High-Speed Port Registers (Section 13)
+    ********************************************************************* */
 
 #define A_BCM1480_HSP_BASE_0                0x00DF810000
 #define A_BCM1480_HSP_BASE_1                0x00DF890000
@@ -596,6 +754,7 @@
 #define R_BCM1480_HSP_RX_PKT_RAMALLOC_7       0x0000020058
 #define R_BCM1480_HSP_RX_PKT_RAMALLOC(idx)    (R_BCM1480_HSP_RX_PKT_RAMALLOC_0 + 8*(idx))
 
+/* XXX Following registers were shuffled.  Renamed/renumbered per errata. */
 #define R_BCM1480_HSP_RX_HT_RAMALLOC_0      0x0000020078
 #define R_BCM1480_HSP_RX_HT_RAMALLOC_1      0x0000020080
 #define R_BCM1480_HSP_RX_HT_RAMALLOC_2      0x0000020088
@@ -680,6 +839,9 @@
 
 
 
+/*  *********************************************************************
+    *  Physical Address Map (Table 10 and Figure 7)
+    ********************************************************************* */
 
 #define A_BCM1480_PHYS_MEMORY_0                 _SB_MAKE64(0x0000000000)
 #define A_BCM1480_PHYS_MEMORY_SIZE              _SB_MAKE64((256*1024*1024))
@@ -721,6 +883,9 @@
 #define A_BCM1480_PHYS_HT_FULLACCESS            _SB_MAKE64(0xF000000000)
 
 
+/*  *********************************************************************
+    *  L2 Cache as RAM (Table 54)
+    ********************************************************************* */
 
 #define A_BCM1480_PHYS_L2CACHE_WAY_SIZE         _SB_MAKE64(0x0000020000)
 #define BCM1480_PHYS_L2CACHE_NUM_WAYS           8
@@ -734,4 +899,4 @@
 #define A_BCM1480_PHYS_L2CACHE_WAY6             _SB_MAKE64(0x00D03C0000)
 #define A_BCM1480_PHYS_L2CACHE_WAY7             _SB_MAKE64(0x00D03E0000)
 
-#endif 
+#endif /* _BCM1480_REGS_H */

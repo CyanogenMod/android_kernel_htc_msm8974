@@ -34,4 +34,4 @@ extern void assfail(char *expr, char *f, int l);
 
 extern void xfs_hex_dump(void *p, int length);
 
-#endif	
+#endif	/* __XFS_MESSAGE_H */

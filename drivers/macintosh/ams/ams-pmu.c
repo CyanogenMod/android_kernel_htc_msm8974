@@ -18,22 +18,27 @@
 
 #include "ams.h"
 
+/* Attitude */
 #define AMS_X			0x00
 #define AMS_Y			0x01
 #define AMS_Z			0x02
 
+/* Not exactly known, maybe chip vendor */
 #define AMS_VENDOR		0x03
 
+/* Freefall registers */
 #define AMS_FF_CLEAR		0x04
 #define AMS_FF_ENABLE		0x05
 #define AMS_FF_LOW_LIMIT	0x06
 #define AMS_FF_DEBOUNCE		0x07
 
+/* Shock registers */
 #define AMS_SHOCK_CLEAR		0x08
 #define AMS_SHOCK_ENABLE	0x09
 #define AMS_SHOCK_HIGH_LIMIT	0x0a
 #define AMS_SHOCK_DEBOUNCE	0x0b
 
+/* Global interrupt and power control register */
 #define AMS_CONTROL		0x0c
 
 static u8 ams_pmu_cmd;
@@ -43,6 +48,7 @@ static void ams_pmu_req_complete(struct adb_request *req)
 	complete((struct completion *)req->arg);
 }
 
+/* Only call this function from task context */
 static void ams_pmu_set_register(u8 reg, u8 value)
 {
 	static struct adb_request req;
@@ -55,6 +61,7 @@ static void ams_pmu_set_register(u8 reg, u8 value)
 	wait_for_completion(&req_complete);
 }
 
+/* Only call this function from task context */
 static u8 ams_pmu_get_register(u8 reg)
 {
 	static struct adb_request req;
@@ -72,6 +79,7 @@ static u8 ams_pmu_get_register(u8 reg)
 		return 0;
 }
 
+/* Enables or disables the specified interrupts */
 static void ams_pmu_set_irq(enum ams_irq reg, char enable)
 {
 	if (reg & AMS_IRQ_FREEFALL) {
@@ -127,10 +135,10 @@ static void ams_pmu_exit(void)
 {
 	ams_sensor_detach();
 
-	
+	/* Disable interrupts */
 	ams_pmu_set_irq(AMS_IRQ_ALL, 0);
 
-	
+	/* Clear interrupts */
 	ams_pmu_clear_irq(AMS_IRQ_ALL);
 
 	ams_info.has_device = 0;
@@ -143,7 +151,7 @@ int __init ams_pmu_init(struct device_node *np)
 	const u32 *prop;
 	int result;
 
-	
+	/* Set implementation stuff */
 	ams_info.of_node = np;
 	ams_info.exit = ams_pmu_exit;
 	ams_info.get_vendor = ams_pmu_get_vendor;
@@ -151,24 +159,24 @@ int __init ams_pmu_init(struct device_node *np)
 	ams_info.clear_irq = ams_pmu_clear_irq;
 	ams_info.bustype = BUS_HOST;
 
-	
+	/* Get PMU command, should be 0x4e, but we can never know */
 	prop = of_get_property(ams_info.of_node, "reg", NULL);
 	if (!prop)
 		return -ENODEV;
 
 	ams_pmu_cmd = ((*prop) >> 8) & 0xff;
 
-	
+	/* Disable interrupts */
 	ams_pmu_set_irq(AMS_IRQ_ALL, 0);
 
-	
+	/* Clear interrupts */
 	ams_pmu_clear_irq(AMS_IRQ_ALL);
 
 	result = ams_sensor_attach();
 	if (result < 0)
 		return result;
 
-	
+	/* Set default values */
 	ams_pmu_set_register(AMS_FF_LOW_LIMIT, 0x15);
 	ams_pmu_set_register(AMS_FF_ENABLE, 0x08);
 	ams_pmu_set_register(AMS_FF_DEBOUNCE, 0x14);
@@ -179,12 +187,12 @@ int __init ams_pmu_init(struct device_node *np)
 
 	ams_pmu_set_register(AMS_CONTROL, 0x4f);
 
-	
+	/* Clear interrupts */
 	ams_pmu_clear_irq(AMS_IRQ_ALL);
 
 	ams_info.has_device = 1;
 
-	
+	/* Enable interrupts */
 	ams_pmu_set_irq(AMS_IRQ_ALL, 1);
 
 	printk(KERN_INFO "ams: Found PMU based motion sensor\n");

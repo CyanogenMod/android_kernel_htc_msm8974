@@ -34,14 +34,24 @@
 #ifndef _ADP94XX_REG_DEF_H_
 #define _ADP94XX_REG_DEF_H_
 
-#define CSEQ_MODE_PAGE_SIZE	0x200		
-#define LmSEQ_MODE_PAGE_SIZE	0x200		
-#define LmSEQ_HOST_REG_SIZE   	0x4000		
+/*
+ * Common definitions.
+ */
+#define CSEQ_MODE_PAGE_SIZE	0x200		/* CSEQ mode page size */
+#define LmSEQ_MODE_PAGE_SIZE	0x200		/* LmSEQ mode page size */
+#define LmSEQ_HOST_REG_SIZE   	0x4000		/* LmSEQ Host Register size */
 
+/********************* COM_SAS registers definition *************************/
 
+/* The base is REG_BASE_ADDR, defined in aic94xx_reg.h.
+ */
 
+/*
+ * CHIM Registers, Address Range : (0x00-0xFF)
+ */
 #define COMBIST		(REG_BASE_ADDR + 0x00)
 
+/* bits 31:24 */
 #define		L7BLKRST		0x80000000
 #define		L6BLKRST		0x40000000
 #define		L5BLKRST		0x20000000
@@ -65,8 +75,8 @@
 #define		FRCCIOPERR		0x00000020
 #define		FRCBISTERR		0x00000010
 #define		COMBISTEN		0x00000004
-#define		COMBISTDONE		0x00000002	
-#define 	COMBISTFAIL		0x00000001	
+#define		COMBISTDONE		0x00000002	/* ro */
+#define 	COMBISTFAIL		0x00000001	/* ro */
 
 #define COMSTAT		(REG_BASE_ADDR + 0x04)
 
@@ -105,7 +115,7 @@
 #define		EXT_INT1		0x00000400
 #define		PORRSTDET		0x00000200
 #define		HARDRSTDET		0x00000100
-#define		DLAVAILQ		0x00000080	
+#define		DLAVAILQ		0x00000080	/* ro */
 #define		HOSTERR			0x00000040
 #define		INITERR			0x00000020
 #define		DEVINT			0x00000010
@@ -156,14 +166,14 @@
 #define		OVLYCSEQ		0x00000080
 #define		OVLYHALTERR		0x00000040
 #define		PIOCMODE		0x00000020
-#define		RESETOVLYDMA		0x00000008	
+#define		RESETOVLYDMA		0x00000008	/* wo */
 #define		STARTOVLYDMA		0x00000004
-#define		STOPOVLYDMA		0x00000002	
-#define		OVLYDMAACT		0x00000001	
+#define		STOPOVLYDMA		0x00000002	/* wo */
+#define		OVLYDMAACT		0x00000001	/* ro */
 
 #define OVLYDMACNT	(REG_BASE_ADDR + 0x24)
 
-#define		OVLYDOMAIN1		0x20000000	
+#define		OVLYDOMAIN1		0x20000000	/* ro */
 #define		OVLYDOMAIN0		0x10000000
 #define		OVLYBUFADR_MASK		0x007F0000
 #define		OVLYDMACNT_MASK		0x00003FFF
@@ -172,15 +182,16 @@
 
 #define DMAERR		(REG_BASE_ADDR + 0x30)
 
-#define		OVLYERRSTAT_MASK	0x0000FF00	
-#define		CSERRSTAT_MASK		0x000000FF	
+#define		OVLYERRSTAT_MASK	0x0000FF00	/* ro */
+#define		CSERRSTAT_MASK		0x000000FF	/* ro */
 
 #define SPIODATA	(REG_BASE_ADDR + 0x34)
 
+/* 0x38 - 0x3C are reserved  */
 
 #define T1CNTRLR	(REG_BASE_ADDR + 0x40)
 
-#define		T1DONE			0x00010000	
+#define		T1DONE			0x00010000	/* ro */
 #define		TIMER64			0x00000400
 #define		T1ENABLE		0x00000200
 #define		T1RELOAD		0x00000100
@@ -192,7 +203,7 @@
 
 #define T2CNTRLR	(REG_BASE_ADDR + 0x4C)
 
-#define		T2DONE			0x00010000	
+#define		T2DONE			0x00010000	/* ro */
 #define		T2ENABLE		0x00000200
 #define		T2RELOAD		0x00000100
 #define		T2PRESCALER_MASK	0x00000003
@@ -201,30 +212,34 @@
 
 #define T2CNTR		(REG_BASE_ADDR + 0x54)
 
+/* 0x58h - 0xFCh are reserved */
 
+/*
+ * DCH_SAS Registers, Address Range : (0x800-0xFFF)
+ */
 #define CMDCTXBASE	(REG_BASE_ADDR + 0x800)
 
 #define DEVCTXBASE	(REG_BASE_ADDR + 0x808)
 
 #define CTXDOMAIN	(REG_BASE_ADDR + 0x810)
 
-#define		DEVCTXDOMAIN1		0x00000008	
+#define		DEVCTXDOMAIN1		0x00000008	/* ro */
 #define		DEVCTXDOMAIN0		0x00000004
-#define		CMDCTXDOMAIN1		0x00000002	
+#define		CMDCTXDOMAIN1		0x00000002	/* ro */
 #define		CMDCTXDOMAIN0		0x00000001
 
 #define DCHCTL		(REG_BASE_ADDR + 0x814)
 
 #define		OCMBISTREPAIR		0x00080000
 #define		OCMBISTEN		0x00040000
-#define		OCMBISTDN		0x00020000	
-#define		OCMBISTFAIL		0x00010000	
+#define		OCMBISTDN		0x00020000	/* ro */
+#define		OCMBISTFAIL		0x00010000	/* ro */
 #define		DDBBISTEN		0x00004000
-#define		DDBBISTDN		0x00002000	
-#define		DDBBISTFAIL		0x00001000	
+#define		DDBBISTDN		0x00002000	/* ro */
+#define		DDBBISTFAIL		0x00001000	/* ro */
 #define		SCBBISTEN		0x00000400
-#define		SCBBISTDN		0x00000200	
-#define		SCBBISTFAIL		0x00000100	
+#define		SCBBISTDN		0x00000200	/* ro */
+#define		SCBBISTFAIL		0x00000100	/* ro */
 
 #define		MEMSEL_MASK		0x000000E0
 #define		MEMSEL_CCM_LSEQ		0x00000000
@@ -245,15 +260,15 @@
 
 #define		EN_CFIFTOERR		0x00020000
 #define		CFIFTOERR		0x00000200
-#define		CSEQINT			0x00000100	
-#define		LSEQ7INT		0x00000080	
-#define		LSEQ6INT		0x00000040	
-#define		LSEQ5INT		0x00000020	
-#define		LSEQ4INT		0x00000010	
-#define		LSEQ3INT		0x00000008	
-#define		LSEQ2INT		0x00000004	
-#define		LSEQ1INT		0x00000002	
-#define		LSEQ0INT		0x00000001	
+#define		CSEQINT			0x00000100	/* ro */
+#define		LSEQ7INT		0x00000080	/* ro */
+#define		LSEQ6INT		0x00000040	/* ro */
+#define		LSEQ5INT		0x00000020	/* ro */
+#define		LSEQ4INT		0x00000010	/* ro */
+#define		LSEQ3INT		0x00000008	/* ro */
+#define		LSEQ2INT		0x00000004	/* ro */
+#define		LSEQ1INT		0x00000002	/* ro */
+#define		LSEQ0INT		0x00000001	/* ro */
 
 #define		LSEQINT_MASK		(LSEQ7INT | LSEQ6INT | LSEQ5INT |\
 					 LSEQ4INT | LSEQ3INT | LSEQ2INT	|\
@@ -266,6 +281,7 @@
 #define		DISRDMST		0x000000FF
 
 #define ATOMICSTATCTL	(REG_BASE_ADDR + 0x824)
+/* 8 bit wide */
 #define		AUTOINC			0x80
 #define		ATOMICERR		0x04
 #define		ATOMICWIN		0x02
@@ -273,18 +289,28 @@
 
 
 #define ALTCIOADR	(REG_BASE_ADDR + 0x828)
+/* 16 bit; bits 8:0 define CIO addr space of CSEQ */
 
 #define ASCBPTR		(REG_BASE_ADDR + 0x82C)
+/* 16 bit wide */
 
 #define ADDBPTR		(REG_BASE_ADDR + 0x82E)
+/* 16 bit wide */
 
 #define ANEWDATA	(REG_BASE_ADDR + 0x830)
+/* 16 bit */
 
 #define AOLDDATA	(REG_BASE_ADDR + 0x834)
+/* 16 bit */
 
 #define CTXACCESS	(REG_BASE_ADDR + 0x838)
+/* 32 bit */
 
+/* 0x83Ch - 0xFFCh are reserved */
 
+/*
+ * ARP2 External Processor Registers, Address Range : (0x00-0x1F)
+ */
 #define ARP2CTL		0x00
 
 #define		FRCSCRPERR		0x00040000
@@ -299,13 +325,13 @@
 #define		BREAKEN1		0x00000200
 #define		BREAKEN0		0x00000100
 #define		EPAUSE			0x00000008
-#define		PAUSED			0x00000004	
+#define		PAUSED			0x00000004	/* ro */
 #define		STEP			0x00000002
-#define		ARP2RESET		0x00000001	
+#define		ARP2RESET		0x00000001	/* wo */
 
 #define ARP2INT		0x04
 
-#define		HALTCODE_MASK		0x00FF0000	
+#define		HALTCODE_MASK		0x00FF0000	/* ro */
 #define		ARP2WAITTO		0x00000100
 #define		ARP2HALTC		0x00000080
 #define		ARP2ILLOPC		0x00000040
@@ -338,7 +364,13 @@
 #define		BREAKADR3_MASK		0x0FFF0000
 #define		BREAKADR2_MASK		0x00000FFF
 
+/* 0x14h - 0x1Ch are reserved */
 
+/*
+ * ARP2 Registers, Address Range : (0x00-0x1F)
+ * The definitions have the same address offset for CSEQ and LmSEQ
+ * CIO Bus Registers.
+ */
 #define MODEPTR		0x00
 
 #define		DSTMODE			0xF0
@@ -401,6 +433,11 @@
 
 #define DBGPORT		0x1D
 
+/*
+ * CIO Registers.
+ * The definitions have the same address offset for CSEQ and LmSEQ
+ * CIO Bus Registers.
+ */
 #define MnSCBPTR      	0x20
 
 #define MnDDBPTR      	0x22
@@ -421,11 +458,11 @@
 
 #define MnSGDMASTAT	0x5b
 
-#define MnDDMACTL	0x5c	
+#define MnDDMACTL	0x5c	/* RAZOR.rspec.fm rev 1.5 is wrong */
 
-#define MnDDMASTAT	0x5d	
+#define MnDDMASTAT	0x5d	/* RAZOR.rspec.fm rev 1.5 is wrong */
 
-#define MnDDMAMODE	0x5e	
+#define MnDDMAMODE	0x5e	/* RAZOR.rspec.fm rev 1.5 is wrong */
 
 #define MnDMAENG	0x60
 
@@ -437,12 +474,19 @@
 
 #define MnDDB_SITE	0x180
 
+/*
+ * The common definitions below have the same address offset for both
+ * CSEQ and LmSEQ.
+ */
 #define BISTCTL0	0x4C
 
 #define BISTCTL1	0x50
 
 #define MAPPEDSCR	0x800
 
+/*
+ * CSEQ Host Register, Address Range : (0x000-0xFFC)
+ */
 #define CSEQ_HOST_REG_BASE_ADR		0xB8001000
 
 #define CARP2CTL			(CSEQ_HOST_REG_BASE_ADR	+ ARP2CTL)
@@ -458,14 +502,19 @@
 #define CBISTCTL			(CSEQ_HOST_REG_BASE_ADR	+ BISTCTL1)
 
 #define		CSEQRAMBISTEN		0x00000040
-#define		CSEQRAMBISTDN		0x00000020	
-#define		CSEQRAMBISTFAIL		0x00000010	
+#define		CSEQRAMBISTDN		0x00000020	/* ro */
+#define		CSEQRAMBISTFAIL		0x00000010	/* ro */
 #define		CSEQSCRBISTEN		0x00000004
-#define		CSEQSCRBISTDN		0x00000002	
-#define		CSEQSCRBISTFAIL		0x00000001	
+#define		CSEQSCRBISTDN		0x00000002	/* ro */
+#define		CSEQSCRBISTFAIL		0x00000001	/* ro */
 
 #define CMAPPEDSCR			(CSEQ_HOST_REG_BASE_ADR	+ MAPPEDSCR)
 
+/*
+ * CSEQ CIO Bus Registers, Address Range : (0x0000-0x1FFC)
+ * 16 modes, each mode is 512 bytes.
+ * Unless specified, the register should valid for all modes.
+ */
 #define CSEQ_CIO_REG_BASE_ADR		REG_BASE_ADDR_CSEQCIO
 
 #define CSEQm_CIO_REG(Mode, Reg) \
@@ -528,28 +577,36 @@
 
 #define	CCIOAACESS	(CSEQ_CIO_REG_BASE_ADR + 0x2C)
 
+/* mode 0-7 */
 #define MnREQMBX 0x30
 #define CMnREQMBX(Mode)			CSEQm_CIO_REG(Mode, 0x30)
 
+/* mode 8 */
 #define CSEQCON				CSEQm_CIO_REG(8, 0x30)
 
+/* mode 0-7 */
 #define MnRSPMBX 0x34
 #define CMnRSPMBX(Mode)			CSEQm_CIO_REG(Mode, 0x34)
 
+/* mode 8 */
 #define CSEQCOMCTL			CSEQm_CIO_REG(8, 0x34)
 
+/* mode 8 */
 #define CSEQCOMSTAT			CSEQm_CIO_REG(8, 0x35)
 
+/* mode 8 */
 #define CSEQCOMINTEN			CSEQm_CIO_REG(8, 0x36)
 
+/* mode 8 */
 #define CSEQCOMDMACTL			CSEQm_CIO_REG(8, 0x37)
 
 #define		CSHALTERR		0x10
-#define		RESETCSDMA		0x08		
+#define		RESETCSDMA		0x08		/* wo */
 #define		STARTCSDMA		0x04
-#define		STOPCSDMA		0x02		
-#define		CSDMAACT		0x01		
+#define		STOPCSDMA		0x02		/* wo */
+#define		CSDMAACT		0x01		/* ro */
 
+/* mode 0-7 */
 #define MnINT 0x38
 #define CMnINT(Mode)			CSEQm_CIO_REG(Mode, 0x38)
 
@@ -557,19 +614,25 @@
 #define		CMnRSPMBXF		0x01
 #define		CMnINT_MASK		0x00000003
 
+/* mode 8 */
 #define CSEQREQMBX			CSEQm_CIO_REG(8, 0x38)
 
+/* mode 0-7 */
 #define MnINTEN 0x3C
 #define CMnINTEN(Mode)			CSEQm_CIO_REG(Mode, 0x3C)
 
 #define		EN_CMnRSPMBXF		0x01
 
+/* mode 8 */
 #define CSEQRSPMBX			CSEQm_CIO_REG(8, 0x3C)
 
+/* mode 8 */
 #define CSDMAADR			CSEQm_CIO_REG(8, 0x40)
 
+/* mode 8 */
 #define CSDMACNT			CSEQm_CIO_REG(8, 0x48)
 
+/* mode 8 */
 #define CSEQDLCTL			CSEQm_CIO_REG(8, 0x4D)
 
 #define		DONELISTEND		0x10
@@ -587,12 +650,16 @@
 #define		DONELISTSIZE_8192ELEM	0x0B
 #define		DONELISTSIZE_16384ELEM	0x0C
 
+/* mode 8 */
 #define CSEQDLOFFS			CSEQm_CIO_REG(8, 0x4E)
 
+/* mode 11 */
 #define CM11INTVEC0			CSEQm_CIO_REG(11, 0x50)
 
+/* mode 11 */
 #define CM11INTVEC1			CSEQm_CIO_REG(11, 0x52)
 
+/* mode 11 */
 #define CM11INTVEC2			CSEQm_CIO_REG(11, 0x54)
 
 #define	CCONMSK	  			(CSEQ_CIO_REG_BASE_ADR + 0x60)
@@ -605,14 +672,23 @@
 
 #define CINTDIS				(CSEQ_CIO_REG_BASE_ADR + 0x68)
 
+/* mode 8, 32x32 bits, 128 bytes of mapped buffer */
 #define CSBUFFER			CSEQm_CIO_REG(8, 0x80)
 
 #define	CSCRATCH			(CSEQ_CIO_REG_BASE_ADR + 0x1C0)
 
+/* mode 0-8 */
 #define CMnSCRATCH(Mode)		CSEQm_CIO_REG(Mode, 0x1E0)
 
+/*
+ * CSEQ Mapped Instruction RAM Page, Address Range : (0x0000-0x1FFC)
+ */
 #define CSEQ_RAM_REG_BASE_ADR		0xB8004000
 
+/*
+ * The common definitions below have the same address offset for all the Link
+ * sequencers.
+ */
 #define MODECTL		0x40
 
 #define DBGMODE		0x44
@@ -628,6 +704,9 @@
 
 #define LSEQRAM		0x1000
 
+/*
+ * LmSEQ Host Registers, Address Range : (0x0000-0x3FFC)
+ */
 #define LSEQ0_HOST_REG_BASE_ADR		0xB8020000
 #define LSEQ1_HOST_REG_BASE_ADR		0xB8024000
 #define LSEQ2_HOST_REG_BASE_ADR		0xB8028000
@@ -726,17 +805,17 @@
 					BISTCTL0)
 
 #define		ARBBISTEN		0x40000000
-#define		ARBBISTDN		0x20000000	
-#define		ARBBISTFAIL		0x10000000	
+#define		ARBBISTDN		0x20000000	/* ro */
+#define		ARBBISTFAIL		0x10000000	/* ro */
 #define		TBBISTEN		0x00000400
-#define		TBBISTDN		0x00000200	
-#define		TBBISTFAIL		0x00000100	
+#define		TBBISTDN		0x00000200	/* ro */
+#define		TBBISTFAIL		0x00000100	/* ro */
 #define		RBBISTEN		0x00000040
-#define		RBBISTDN		0x00000020	
-#define		RBBISTFAIL		0x00000010	
+#define		RBBISTDN		0x00000020	/* ro */
+#define		RBBISTFAIL		0x00000010	/* ro */
 #define		SGBISTEN		0x00000004
-#define		SGBISTDN		0x00000002	
-#define		SGBISTFAIL		0x00000001	
+#define		SGBISTDN		0x00000002	/* ro */
+#define		SGBISTFAIL		0x00000001	/* ro */
 
 #define LmBISTCTL1(LinkNum)		(LSEQ0_HOST_REG_BASE_ADR +	 \
 					((LinkNum)*LmSEQ_HOST_REG_SIZE) +\
@@ -745,11 +824,11 @@
 #define		LmRAMPAGE1		0x00000200
 #define		LmRAMPAGE0		0x00000100
 #define		LmIMEMBISTEN		0x00000040
-#define		LmIMEMBISTDN		0x00000020	
-#define		LmIMEMBISTFAIL		0x00000010	
+#define		LmIMEMBISTDN		0x00000020	/* ro */
+#define		LmIMEMBISTFAIL		0x00000010	/* ro */
 #define		LmSCRBISTEN		0x00000004
-#define		LmSCRBISTDN		0x00000002	
-#define		LmSCRBISTFAIL		0x00000001	
+#define		LmSCRBISTDN		0x00000002	/* ro */
+#define		LmSCRBISTFAIL		0x00000001	/* ro */
 #define		LmRAMPAGE		(LmRAMPAGE1 + LmRAMPAGE0)
 #define		LmRAMPAGE_LSHIFT	0x8
 
@@ -761,6 +840,11 @@
 					((LinkNum) * LmSEQ_HOST_REG_SIZE) +\
 					LSEQRAM)
 
+/*
+ * LmSEQ CIO Bus Register, Address Range : (0x0000-0xFFC)
+ * 8 modes, each mode is 512 bytes.
+ * Unless specified, the register should valid for all modes.
+ */
 #define LmSEQ_CIOBUS_REG_BASE		0x2000
 
 #define  LmSEQ_PHY_BASE(Mode, LinkNum) \
@@ -829,7 +913,7 @@
 
 #define LmMnINT(LinkNum, Mode)		LmSEQ_PHY_REG(Mode, LinkNum, 0x38)
 
-#define		CTXMEMSIZE		0x80000000	
+#define		CTXMEMSIZE		0x80000000	/* ro */
 #define		LmACKREQ		0x08000000
 #define		LmNAKREQ		0x04000000
 #define		LmMnXMTERR		0x02000000
@@ -954,6 +1038,7 @@
 
 #define		LmMnBUFPERR		0x01
 
+/* mode 0-1 */
 #define LmMnXFRLVL(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x59)
 
 #define		LmMnXFRLVL_128		0x05
@@ -963,25 +1048,28 @@
 #define		LmMnXFRLVL_1536		0x01
 #define		LmMnXFRLVL_2048		0x00
 
- 
+ /* mode 0-1 */
 #define LmMnSGDMACTL(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x5A)
 
 #define 	LmMnRESETSG		0x04
 #define 	LmMnSTOPSG		0x02
 #define 	LmMnSTARTSG		0x01
 
+/* mode 0-1 */
 #define LmMnSGDMASTAT(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x5B)
 
+/* mode 0-1 */
 #define LmMnDDMACTL(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x5C)
 
-#define 	LmMnFLUSH		0x40		
-#define 	LmMnRLSRTRY		0x20		
-#define 	LmMnDISCARD		0x10		
-#define 	LmMnRESETDAT		0x08		
-#define 	LmMnSUSDAT		0x04		
-#define 	LmMnSTOPDAT		0x02		
-#define 	LmMnSTARTDAT		0x01		
+#define 	LmMnFLUSH		0x40		/* wo */
+#define 	LmMnRLSRTRY		0x20		/* wo */
+#define 	LmMnDISCARD		0x10		/* wo */
+#define 	LmMnRESETDAT		0x08		/* wo */
+#define 	LmMnSUSDAT		0x04		/* wo */
+#define 	LmMnSTOPDAT		0x02		/* wo */
+#define 	LmMnSTARTDAT		0x01		/* wo */
 
+/* mode 0-1 */
 #define LmMnDDMASTAT(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x5D)
 
 #define		LmMnDPEMPTY		0x80
@@ -993,6 +1081,7 @@
 #define		LmMnDATACT		0x02
 #define		LmMnDATEN		0x01
 
+/* mode 0-1 */
 #define LmMnDDMAMODE(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x5E)
 
 #define 	LmMnDMATYPE_NORMAL		0x0000
@@ -1011,13 +1100,17 @@
 #define 	LmMnADDRFRM		0x0400
 #define 	LmMnENXMTCRC		0x0800
 
+/* mode 0-1 */
 #define LmMnXFRCNT(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x70)
 
+/* mode 0-1 */
 #define LmMnDPSEL(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x7B)
 #define 	LmMnDPSEL_MASK		0x07
 #define 	LmMnEOLPRE		0x40
 #define 	LmMnEOSPRE		0x80
 
+/* Registers used in conjunction with LmMnDPSEL and LmMnDPACC registers */
+/* Receive Mode n = 0 */
 #define LmMnHRADDR			0x00
 #define LmMnHBYTECNT			0x01
 #define LmMnHREWIND			0x02
@@ -1025,14 +1118,20 @@
 #define LmMnDSPACECNT			0x04
 #define LmMnDFRMSIZE			0x05
 
+/* Registers used in conjunction with LmMnDPSEL and LmMnDPACC registers */
+/* Transmit Mode n = 1 */
 #define LmMnHWADDR			0x00
 #define LmMnHSPACECNT			0x01
+/* #define LmMnHREWIND			0x02 */
 #define LmMnDRADDR			0x03
 #define LmMnDBYTECNT			0x04
+/* #define LmMnDFRMSIZE			0x05 */
 
+/* mode 0-1 */
 #define LmMnDPACC(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x78)
 #define 	LmMnDPACC_MASK		0x00FFFFFF
 
+/* mode 0-1 */
 #define LmMnHOLDLVL(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x7D)
 
 #define LmPRMSTAT0(LinkNum)		LmSEQ_PHY_REG(0, LinkNum, 0x80)
@@ -1107,9 +1206,11 @@
 #define 	LmPMNAK			0x00000002
 #define 	LmDMAT			0x00000001
 
+/* mode 1 */
 #define	LmMnSATAFS(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x7E)
 #define	LmMnXMTSIZE(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0x93)
 
+/* mode 0 */
 #define LmMnFRMERR(LinkNum, Mode)	LmSEQ_PHY_REG(Mode, LinkNum, 0xB0)
 
 #define		LmACRCERR		0x00000800
@@ -1256,6 +1357,10 @@
 #define LmSMDBGCTL(LinkNum) 		LmSEQ_PHY_REG(0, LinkNum, 0xF0)
 
 
+/*
+ * LmSEQ CIO Bus Mode 3 Register.
+ * Mode 3: Configuration and Setup, IOP Context SCB.
+ */
 #define LmM3SATATIMER(LinkNum) 		LmSEQ_PHY_REG(3, LinkNum, 0x48)
 
 #define LmM3INTVEC0(LinkNum)		LmSEQ_PHY_REG(3, LinkNum, 0x90)
@@ -1287,6 +1392,10 @@
 #define LmWWN(LinkNum) 			LmSEQ_PHY_REG(0, LinkNum, 0xA8)
 
 
+/*
+ * LmSEQ CIO Bus Mode 5 Registers.
+ * Mode 5: Phy/OOB Control and Status.
+ */
 #define LmSEQ_OOB_REG(phy_id, reg)	LmSEQ_PHY_REG(5, (phy_id), (reg))
 
 #define OOB_BFLTR	0x100
@@ -1432,13 +1541,13 @@
 #define OOB_STATUS		0x14E
 
 #define		OOB_DONE		0x80
-#define		LOSS_OF_SIGNAL		0x40		
+#define		LOSS_OF_SIGNAL		0x40		/* ro */
 #define		SPINUP_HOLD		0x20
-#define		HOT_PLUG_CNCT		0x10		
-#define		GTO_TIMEOUT		0x08		
-#define		OOB_TIMEOUT		0x04		
-#define		DEVICE_PRESENT		0x02		
-#define		OOB_ERROR		0x01		
+#define		HOT_PLUG_CNCT		0x10		/* ro */
+#define		GTO_TIMEOUT		0x08		/* ro */
+#define		OOB_TIMEOUT		0x04		/* ro */
+#define		DEVICE_PRESENT		0x02		/* ro */
+#define		OOB_ERROR		0x01		/* ro */
 
 #define		OOB_STATUS_ERROR_MASK	(LOSS_OF_SIGNAL | GTO_TIMEOUT | \
 					 OOB_TIMEOUT | OOB_ERROR)
@@ -1454,6 +1563,7 @@
 #define		OOB_ERROR_CLR		0x01
 
 #define HOT_PLUG_DELAY		0x150
+/* In 5 ms units. 20 = 100 ms. */
 #define	HOTPLUG_DELAY_TIMEOUT		20
 
 
@@ -1475,6 +1585,7 @@
 #define		SPARE_REG_160_B5	0x20
 #define		OFFSET_CANCEL_RX	0x10
 
+/* bits 3:2 */
 #define		PHY_RXCOMCENTER_60V	0x00
 #define		PHY_RXCOMCENTER_70V	0x04
 #define		PHY_RXCOMCENTER_80V	0x08
@@ -1486,6 +1597,7 @@
 
 #define PHY_CONTROL_1		0x161
 
+/* bits 2:0 */
 #define		SATA_PHY_DETLEVEL_50mv	0x00
 #define		SATA_PHY_DETLEVEL_75mv	0x01
 #define		SATA_PHY_DETLEVEL_100mv	0x02
@@ -1496,6 +1608,7 @@
 #define		SATA_PHY_DETLEVEL_225mv	0x07
 #define		SATA_PHY_DETLEVEL_MASK	0x07
 
+/* bits 5:3 */
 #define		SAS_PHY_DETLEVEL_50mv	0x00
 #define		SAS_PHY_DETLEVEL_75mv	0x08
 #define		SAS_PHY_DETLEVEL_100mv	0x10
@@ -1508,6 +1621,7 @@
 
 #define PHY_CONTROL_2		0x162
 
+/* bits 7:5 */
 #define 	SATA_PHY_DRV_400mv	0x00
 #define 	SATA_PHY_DRV_450mv	0x20
 #define 	SATA_PHY_DRV_500mv	0x40
@@ -1518,6 +1632,7 @@
 #define 	SATA_PHY_DRV_800mv	0xE0
 #define		SATA_PHY_DRV_MASK	0xE0
 
+/* bits 4:3 */
 #define 	SATA_PREEMP_0		0x00
 #define 	SATA_PREEMP_1		0x08
 #define 	SATA_PREEMP_2		0x10
@@ -1526,6 +1641,7 @@
 
 #define 	SATA_CMSH1P5		0x04
 
+/* bits 1:0 */
 #define 	SATA_SLEW_0		0x00
 #define 	SATA_SLEW_1		0x01
 #define 	SATA_SLEW_2		0x02
@@ -1534,6 +1650,7 @@
 
 #define PHY_CONTROL_3		0x163
 
+/* bits 7:5 */
 #define 	SAS_PHY_DRV_400mv	0x00
 #define 	SAS_PHY_DRV_450mv	0x20
 #define 	SAS_PHY_DRV_500mv	0x40
@@ -1544,6 +1661,7 @@
 #define 	SAS_PHY_DRV_800mv	0xE0
 #define		SAS_PHY_DRV_MASK	0xE0
 
+/* bits 4:3 */
 #define 	SAS_PREEMP_0		0x00
 #define 	SAS_PREEMP_1		0x08
 #define 	SAS_PREEMP_2		0x10
@@ -1552,6 +1670,7 @@
 
 #define 	SAS_CMSH1P5		0x04
 
+/* bits 1:0 */
 #define 	SAS_SLEW_0		0x00
 #define 	SAS_SLEW_1		0x01
 #define 	SAS_SLEW_2		0x02
@@ -1569,6 +1688,9 @@
 #define		OSC_FREQ		0x02
 #define		PHY_START_CAL		0x01
 
+/*
+ * HST_PCIX2 Registers, Address Range: (0x00-0xFC)
+ */
 #define PCIX_REG_BASE_ADR		0xB8040000
 
 #define PCIC_VENDOR_ID	0x00
@@ -1578,11 +1700,11 @@
 #define PCIC_COMMAND	0x04
 
 #define		INT_DIS			0x0400
-#define		FBB_EN			0x0200		
+#define		FBB_EN			0x0200		/* ro */
 #define		SERR_EN			0x0100
-#define		STEP_EN			0x0080		
+#define		STEP_EN			0x0080		/* ro */
 #define		PERR_EN			0x0040
-#define		VGA_EN			0x0020		
+#define		VGA_EN			0x0020		/* ro */
 #define		MWI_EN			0x0010
 #define		SPC_EN			0x0008
 #define		MST_EN			0x0004
@@ -1633,32 +1755,32 @@
 #define PCIC_PM_CSR		0x5C
 
 #define		PWR_STATE_D0		0
-#define		PWR_STATE_D1		1	
-#define		PWR_STATE_D2		2 	
+#define		PWR_STATE_D1		1	/* not supported */
+#define		PWR_STATE_D2		2 	/* not supported */
 #define		PWR_STATE_D3		3
 
-#define PCIC_BASE1	0x6C	
+#define PCIC_BASE1	0x6C	/* internal use only */
 
 #define		BASE1_RSVD		0xFFFFFFF8
 
-#define PCIC_BASEA	0x70	
+#define PCIC_BASEA	0x70	/* internal use only */
 
 #define		BASEA_RSVD		0xFFFFFFC0
 #define 	BASEA_START		0
 
-#define PCIC_BASEB	0x74	
+#define PCIC_BASEB	0x74	/* internal use only */
 
 #define		BASEB_RSVD		0xFFFFFF80
 #define		BASEB_IOMAP_MASK	0x7F
 #define 	BASEB_START		0x80
 
-#define PCIC_BASEC	0x78	
+#define PCIC_BASEC	0x78	/* internal use only */
 
 #define		BASEC_RSVD		0xFFFFFFFC
 #define 	BASEC_MASK		0x03
 #define 	BASEC_START		0x58
 
-#define PCIC_MBAR_KEY	0x7C	
+#define PCIC_MBAR_KEY	0x7C	/* internal use only */
 
 #define 	MBAR_KEY_MASK		0xFFFFFFFF
 
@@ -1679,6 +1801,9 @@
 
 #define PCIC_TP_CTRL	0xFC
 
+/*
+ * EXSI Registers, Address Range: (0x00-0xFC)
+ */
 #define EXSI_REG_BASE_ADR		REG_BASE_ADDR_EXSI
 
 #define	EXSICNFGR	(EXSI_REG_BASE_ADR + 0x00)
@@ -1831,25 +1956,92 @@
 #define 	CPI2ASITARGMID_MASK	0x000000F0
 #define 	CPI2ASIMSTERR_MASK	0x0000000F
 
+/*
+ * XSRAM, External SRAM (DWord and any BE pattern accessible)
+ */
 #define XSRAM_REG_BASE_ADDR             0xB8100000
 #define XSRAM_SIZE                        0x100000
 
+/*
+ * NVRAM Registers, Address Range: (0x00000 - 0x3FFFF).
+ */
 #define		NVRAM_REG_BASE_ADR	0xBF800000
 #define		NVRAM_MAX_BASE_ADR	0x003FFFFF
 
+/* OCM base address */
 #define		OCM_BASE_ADDR		0xA0000000
 #define		OCM_MAX_SIZE		0x20000
 
+/*
+ * Sequencers (Central and Link) Scratch RAM page definitions.
+ */
 
+/*
+ * The Central Management Sequencer (CSEQ) Scratch Memory is a 1024
+ * byte memory.  It is dword accessible and has byte parity
+ * protection. The CSEQ accesses it in 32 byte windows, either as mode
+ * dependent or mode independent memory. Each mode has 96 bytes,
+ * (three 32 byte pages 0-2, not contiguous), leaving 128 bytes of
+ * Mode Independent memory (four 32 byte pages 3-7). Note that mode
+ * dependent scratch memory, Mode 8, page 0-3 overlaps mode
+ * independent scratch memory, pages 0-3.
+ * - 896 bytes of mode dependent scratch, 96 bytes per Modes 0-7, and
+ * 128 bytes in mode 8,
+ * - 259 bytes of mode independent scratch, common to modes 0-15.
+ *
+ * Sequencer scratch RAM is 1024 bytes.  This scratch memory is
+ * divided into mode dependent and mode independent scratch with this
+ * memory further subdivided into pages of size 32 bytes. There are 5
+ * pages (160 bytes) of mode independent scratch and 3 pages of
+ * dependent scratch memory for modes 0-7 (768 bytes). Mode 8 pages
+ * 0-2 dependent scratch overlap with pages 0-2 of mode independent
+ * scratch memory.
+ *
+ * The host accesses this scratch in a different manner from the
+ * central sequencer. The sequencer has to use CSEQ registers CSCRPAGE
+ * and CMnSCRPAGE to access the scratch memory. A flat mapping of the
+ * scratch memory is available for software convenience and to prevent
+ * corruption while the sequencer is running. This memory is mapped
+ * onto addresses 800h - BFFh, total of 400h bytes.
+ *
+ * These addresses are mapped as follows:
+ *
+ *        800h-83Fh   Mode Dependent Scratch Mode 0 Pages 0-1
+ *        840h-87Fh   Mode Dependent Scratch Mode 1 Pages 0-1
+ *        880h-8BFh   Mode Dependent Scratch Mode 2 Pages 0-1
+ *        8C0h-8FFh   Mode Dependent Scratch Mode 3 Pages 0-1
+ *        900h-93Fh   Mode Dependent Scratch Mode 4 Pages 0-1
+ *        940h-97Fh   Mode Dependent Scratch Mode 5 Pages 0-1
+ *        980h-9BFh   Mode Dependent Scratch Mode 6 Pages 0-1
+ *        9C0h-9FFh   Mode Dependent Scratch Mode 7 Pages 0-1
+ *        A00h-A5Fh   Mode Dependent Scratch Mode 8 Pages 0-2
+ *                    Mode Independent Scratch Pages 0-2
+ *        A60h-A7Fh   Mode Dependent Scratch Mode 8 Page 3
+ *                    Mode Independent Scratch Page 3
+ *        A80h-AFFh   Mode Independent Scratch Pages 4-7
+ *        B00h-B1Fh   Mode Dependent Scratch Mode 0 Page 2
+ *        B20h-B3Fh   Mode Dependent Scratch Mode 1 Page 2
+ *        B40h-B5Fh   Mode Dependent Scratch Mode 2 Page 2
+ *        B60h-B7Fh   Mode Dependent Scratch Mode 3 Page 2
+ *        B80h-B9Fh   Mode Dependent Scratch Mode 4 Page 2
+ *        BA0h-BBFh   Mode Dependent Scratch Mode 5 Page 2
+ *        BC0h-BDFh   Mode Dependent Scratch Mode 6 Page 2
+ *        BE0h-BFFh   Mode Dependent Scratch Mode 7 Page 2
+ */
 
-#define CSEQ_PAGE_SIZE			32  
+/* General macros */
+#define CSEQ_PAGE_SIZE			32  /* Scratch page size (in bytes) */
 
+/* All macros start with offsets from base + 0x800 (CMAPPEDSCR).
+ * Mode dependent scratch page 0, mode 0.
+ * For modes 1-7 you have to do arithmetic. */
 #define CSEQ_LRM_SAVE_SINDEX		(CMAPPEDSCR + 0x0000)
 #define CSEQ_LRM_SAVE_SCBPTR		(CMAPPEDSCR + 0x0002)
 #define CSEQ_Q_LINK_HEAD		(CMAPPEDSCR + 0x0004)
 #define CSEQ_Q_LINK_TAIL		(CMAPPEDSCR + 0x0006)
 #define CSEQ_LRM_SAVE_SCRPAGE		(CMAPPEDSCR + 0x0008)
 
+/* Mode dependent scratch page 0 mode 8 macros. */
 #define CSEQ_RET_ADDR			(CMAPPEDSCR + 0x0200)
 #define CSEQ_RET_SCBPTR			(CMAPPEDSCR + 0x0202)
 #define CSEQ_SAVE_SCBPTR		(CMAPPEDSCR + 0x0204)
@@ -1865,14 +2057,17 @@
 #define CSEQ_FIRST_INV_SCB_SITE		(CMAPPEDSCR + 0x021C)
 #define CSEQ_FIRST_INV_DDB_SITE		(CMAPPEDSCR + 0x021E)
 
+/* Mode dependent scratch page 1 mode 8 macros. */
 #define CSEQ_LUN_TO_CLEAR		(CMAPPEDSCR + 0x0220)
 #define CSEQ_LUN_TO_CHECK		(CMAPPEDSCR + 0x0228)
 
+/* Mode dependent scratch page 2 mode 8 macros */
 #define CSEQ_HQ_NEW_POINTER		(CMAPPEDSCR + 0x0240)
 #define CSEQ_HQ_DONE_BASE		(CMAPPEDSCR + 0x0248)
 #define CSEQ_HQ_DONE_POINTER		(CMAPPEDSCR + 0x0250)
 #define CSEQ_HQ_DONE_PASS		(CMAPPEDSCR + 0x0254)
 
+/* Mode independent scratch page 4 macros. */
 #define CSEQ_Q_EXE_HEAD			(CMAPPEDSCR + 0x0280)
 #define CSEQ_Q_EXE_TAIL			(CMAPPEDSCR + 0x0282)
 #define CSEQ_Q_DONE_HEAD                (CMAPPEDSCR + 0x0284)
@@ -1890,6 +2085,7 @@
 #define CSEQ_MAX_CSEQ_MODE		(CMAPPEDSCR + 0x029D)
 #define CSEQ_FREE_LIST_HACK_COUNT	(CMAPPEDSCR + 0x029E)
 
+/* Mode independent scratch page 5 macros. */
 #define CSEQ_EST_NEXUS_REQ_QUEUE	(CMAPPEDSCR + 0x02A0)
 #define CSEQ_EST_NEXUS_REQ_COUNT	(CMAPPEDSCR + 0x02A8)
 #define CSEQ_Q_EST_NEXUS_HEAD		(CMAPPEDSCR + 0x02B0)
@@ -1899,6 +2095,7 @@
 #define CSEQ_EST_NEXUS_REQ_TAIL		(CMAPPEDSCR + 0x02B7)
 #define CSEQ_EST_NEXUS_SCB_OFFSET	(CMAPPEDSCR + 0x02B8)
 
+/* Mode independent scratch page 6 macros. */
 #define CSEQ_INT_ROUT_RET_ADDR0		(CMAPPEDSCR + 0x02C0)
 #define CSEQ_INT_ROUT_RET_ADDR1		(CMAPPEDSCR + 0x02C2)
 #define CSEQ_INT_ROUT_SCBPTR		(CMAPPEDSCR + 0x02C4)
@@ -1914,6 +2111,7 @@
 #define CSEQ_EXTENDED_FREE_SCB_HEAD	(CMAPPEDSCR + 0x02DA)
 #define CSEQ_EXTENDED_FREE_SCB_TAIL	(CMAPPEDSCR + 0x02DC)
 
+/* Mode independent scratch page 7 macros. */
 #define CSEQ_EMPTY_REQ_QUEUE		(CMAPPEDSCR + 0x02E0)
 #define CSEQ_EMPTY_REQ_COUNT		(CMAPPEDSCR + 0x02E8)
 #define CSEQ_Q_EMPTY_HEAD		(CMAPPEDSCR + 0x02F0)
@@ -1925,14 +2123,49 @@
 #define CSEQ_PRIMITIVE_DATA		(CMAPPEDSCR + 0x02FA)
 #define CSEQ_TIMEOUT_CONST		(CMAPPEDSCR + 0x02FC)
 
-#define LSEQ_MODE_SCRATCH_SIZE		0x80 
-#define LSEQ_PAGE_SIZE			0x20 
+/***************************************************************************
+* Link m Sequencer scratch RAM is 512 bytes.
+* This scratch memory is divided into mode dependent and mode
+* independent scratch with this memory further subdivided into
+* pages of size 32 bytes. There are 4 pages (128 bytes) of
+* mode independent scratch and 4 pages of dependent scratch
+* memory for modes 0-2 (384 bytes).
+*
+* The host accesses this scratch in a different manner from the
+* link sequencer. The sequencer has to use LSEQ registers
+* LmSCRPAGE and LmMnSCRPAGE to access the scratch memory. A flat
+* mapping of the scratch memory is available for software
+* convenience and to prevent corruption while the sequencer is
+* running. This memory is mapped onto addresses 800h - 9FFh.
+*
+* These addresses are mapped as follows:
+*
+*        800h-85Fh   Mode Dependent Scratch Mode 0 Pages 0-2
+*        860h-87Fh   Mode Dependent Scratch Mode 0 Page 3
+*                    Mode Dependent Scratch Mode 5 Page 0
+*        880h-8DFh   Mode Dependent Scratch Mode 1 Pages 0-2
+*        8E0h-8FFh   Mode Dependent Scratch Mode 1 Page 3
+*                    Mode Dependent Scratch Mode 5 Page 1
+*        900h-95Fh   Mode Dependent Scratch Mode 2 Pages 0-2
+*        960h-97Fh   Mode Dependent Scratch Mode 2 Page 3
+*                    Mode Dependent Scratch Mode 5 Page 2
+*        980h-9DFh   Mode Independent Scratch Pages 0-3
+*        9E0h-9FFh   Mode Independent Scratch Page 3
+*                    Mode Dependent Scratch Mode 5 Page 3
+*
+****************************************************************************/
+/* General macros */
+#define LSEQ_MODE_SCRATCH_SIZE		0x80 /* Size of scratch RAM per mode */
+#define LSEQ_PAGE_SIZE			0x20 /* Scratch page size (in bytes) */
 #define LSEQ_MODE5_PAGE0_OFFSET 	0x60
 
+/* Common mode dependent scratch page 0 macros for modes 0,1,2, and 5 */
+/* Indexed using LSEQ_MODE_SCRATCH_SIZE * mode, for modes 0,1,2. */
 #define LmSEQ_RET_ADDR(LinkNum)		(LmSCRATCH(LinkNum) + 0x0000)
 #define LmSEQ_REG0_MODE(LinkNum)	(LmSCRATCH(LinkNum) + 0x0002)
 #define LmSEQ_MODE_FLAGS(LinkNum)	(LmSCRATCH(LinkNum) + 0x0004)
 
+/* Mode flag macros (byte 0) */
 #define		SAS_SAVECTX_OCCURRED		0x80
 #define		SAS_OOBSVC_OCCURRED		0x40
 #define		SAS_OOB_DEVICE_PRESENT		0x20
@@ -1942,6 +2175,7 @@
 #define		SAS_AWAIT_OPEN_CONNECTION	0x02
 #define		SAS_CFGCMPLT_OCCURRED		0x01
 
+/* Mode flag macros (byte 1) */
 #define		SAS_RLSSCB_OCCURRED		0x80
 #define		SAS_FORCED_HEADER_MISS		0x40
 
@@ -1950,6 +2184,8 @@
 #define LmSEQ_OPCODE_TO_CSEQ(LinkNum)	(LmSCRATCH(LinkNum) + 0x000B)
 #define LmSEQ_DATA_TO_CSEQ(LinkNum)	(LmSCRATCH(LinkNum) + 0x000C)
 
+/* Mode dependent scratch page 0 macros for mode 0 (non-common) */
+/* Absolute offsets */
 #define LmSEQ_FIRST_INV_DDB_SITE(LinkNum)	(LmSCRATCH(LinkNum) + 0x000E)
 #define LmSEQ_EMPTY_TRANS_CTX(LinkNum)		(LmSCRATCH(LinkNum) + 0x0010)
 #define LmSEQ_RESP_LEN(LinkNum)			(LmSCRATCH(LinkNum) + 0x0012)
@@ -1961,6 +2197,8 @@
 #define LmSEQ_LAST_LOADED_SGE(LinkNum)		(LmSCRATCH(LinkNum) + 0x001D)
 #define LmSEQ_SAVE_SCBPTR(LinkNum)		(LmSCRATCH(LinkNum) + 0x001E)
 
+/* Mode dependent scratch page 0 macros for mode 1 (non-common) */
+/* Absolute offsets */
 #define LmSEQ_Q_XMIT_HEAD(LinkNum)		(LmSCRATCH(LinkNum) + 0x008E)
 #define LmSEQ_M1_EMPTY_TRANS_CTX(LinkNum)	(LmSCRATCH(LinkNum) + 0x0090)
 #define LmSEQ_INI_CONN_TAG(LinkNum)		(LmSCRATCH(LinkNum) + 0x0092)
@@ -1970,6 +2208,7 @@
 #define LmSEQ_M1_LAST_LOADED_SGE(LinkNum)	(LmSCRATCH(LinkNum) + 0x009D)
 #define LmSEQ_M1_SAVE_SCBPTR(LinkNum)		(LmSCRATCH(LinkNum) + 0x009E)
 
+/* Mode dependent scratch page 0 macros for mode 2 (non-common) */
 #define LmSEQ_PORT_COUNTER(LinkNum)		(LmSCRATCH(LinkNum) + 0x010E)
 #define LmSEQ_PM_TABLE_PTR(LinkNum)		(LmSCRATCH(LinkNum) + 0x0110)
 #define LmSEQ_SATA_INTERLOCK_TMR_SAVE(LinkNum)	(LmSCRATCH(LinkNum) + 0x0112)
@@ -1977,6 +2216,8 @@
 #define LmSEQ_COPY_SMP_CONN_TAG(LinkNum)	(LmSCRATCH(LinkNum) + 0x0116)
 #define LmSEQ_P0M2_OFFS1AH(LinkNum)		(LmSCRATCH(LinkNum) + 0x011A)
 
+/* Mode dependent scratch page 0 macros for modes 4/5 (non-common) */
+/* Absolute offsets */
 #define LmSEQ_SAVED_OOB_STATUS(LinkNum)		(LmSCRATCH(LinkNum) + 0x006E)
 #define LmSEQ_SAVED_OOB_MODE(LinkNum)		(LmSCRATCH(LinkNum) + 0x006F)
 #define LmSEQ_Q_LINK_HEAD(LinkNum)		(LmSCRATCH(LinkNum) + 0x0070)
@@ -1990,15 +2231,19 @@
 #define LmSEQ_NOTIFY_TIMER_TIMEOUT(LinkNum)	(LmSCRATCH(LinkNum) + 0x007C)
 #define LmSEQ_NOTIFY_TIMER_INITIAL_COUNT(LinkNum) (LmSCRATCH(LinkNum) + 0x007E)
 
+/* Mode dependent scratch page 1, mode 0 and mode 1 */
 #define LmSEQ_SG_LIST_PTR_ADDR0(LinkNum)        (LmSCRATCH(LinkNum) + 0x0020)
 #define LmSEQ_SG_LIST_PTR_ADDR1(LinkNum)        (LmSCRATCH(LinkNum) + 0x0030)
 #define LmSEQ_M1_SG_LIST_PTR_ADDR0(LinkNum)     (LmSCRATCH(LinkNum) + 0x00A0)
 #define LmSEQ_M1_SG_LIST_PTR_ADDR1(LinkNum)     (LmSCRATCH(LinkNum) + 0x00B0)
 
+/* Mode dependent scratch page 1 macros for mode 2 */
+/* Absolute offsets */
 #define LmSEQ_INVALID_DWORD_COUNT(LinkNum)	(LmSCRATCH(LinkNum) + 0x0120)
 #define LmSEQ_DISPARITY_ERROR_COUNT(LinkNum) 	(LmSCRATCH(LinkNum) + 0x0124)
 #define LmSEQ_LOSS_OF_SYNC_COUNT(LinkNum)	(LmSCRATCH(LinkNum) + 0x0128)
 
+/* Mode dependent scratch page 1 macros for mode 4/5 */
 #define LmSEQ_FRAME_TYPE_MASK(LinkNum)	      (LmSCRATCH(LinkNum) + 0x00E0)
 #define LmSEQ_HASHED_DEST_ADDR_MASK(LinkNum)  (LmSCRATCH(LinkNum) + 0x00E1)
 #define LmSEQ_HASHED_SRC_ADDR_MASK_PRINT(LinkNum) (LmSCRATCH(LinkNum) + 0x00E4)
@@ -2008,17 +2253,24 @@
 #define LmSEQ_TARGET_PORT_XFER_TAG(LinkNum)   (LmSCRATCH(LinkNum) + 0x00F2)
 #define LmSEQ_DATA_OFFSET(LinkNum)	      (LmSCRATCH(LinkNum) + 0x00F4)
 
+/* Mode dependent scratch page 2 macros for mode 0 */
+/* Absolute offsets */
 #define LmSEQ_SMP_RCV_TIMER_TERM_TS(LinkNum)	(LmSCRATCH(LinkNum) + 0x0040)
 #define LmSEQ_DEVICE_BITS(LinkNum)		(LmSCRATCH(LinkNum) + 0x005B)
 #define LmSEQ_SDB_DDB(LinkNum)			(LmSCRATCH(LinkNum) + 0x005C)
 #define LmSEQ_SDB_NUM_TAGS(LinkNum)		(LmSCRATCH(LinkNum) + 0x005E)
 #define LmSEQ_SDB_CURR_TAG(LinkNum)		(LmSCRATCH(LinkNum) + 0x005F)
 
+/* Mode dependent scratch page 2 macros for mode 1 */
+/* Absolute offsets */
+/* byte 0 bits 1-0 are domain select. */
 #define LmSEQ_TX_ID_ADDR_FRAME(LinkNum)		(LmSCRATCH(LinkNum) + 0x00C0)
 #define LmSEQ_OPEN_TIMER_TERM_TS(LinkNum)	(LmSCRATCH(LinkNum) + 0x00C8)
 #define LmSEQ_SRST_AS_TIMER_TERM_TS(LinkNum)	(LmSCRATCH(LinkNum) + 0x00CC)
 #define LmSEQ_LAST_LOADED_SG_EL(LinkNum)	(LmSCRATCH(LinkNum) + 0x00D4)
 
+/* Mode dependent scratch page 2 macros for mode 2 */
+/* Absolute offsets */
 #define LmSEQ_STP_SHUTDOWN_TIMER_TERM_TS(LinkNum) (LmSCRATCH(LinkNum) + 0x0140)
 #define LmSEQ_CLOSE_TIMER_TERM_TS(LinkNum)	(LmSCRATCH(LinkNum) + 0x0144)
 #define LmSEQ_BREAK_TIMER_TERM_TS(LinkNum)	(LmSCRATCH(LinkNum) + 0x0148)
@@ -2027,19 +2279,32 @@
 						(LmSCRATCH(LinkNum) + 0x0150)
 #define LmSEQ_MCTL_TIMER_TERM_TS(LinkNum)	(LmSCRATCH(LinkNum) + 0x0154)
 
+/* Mode dependent scratch page 2 macros for mode 5 */
 #define LmSEQ_COMINIT_TIMER_TERM_TS(LinkNum)	(LmSCRATCH(LinkNum) + 0x0160)
 #define LmSEQ_RCV_ID_TIMER_TERM_TS(LinkNum)	(LmSCRATCH(LinkNum) + 0x0164)
 #define LmSEQ_RCV_FIS_TIMER_TERM_TS(LinkNum)	(LmSCRATCH(LinkNum) + 0x0168)
 #define LmSEQ_DEV_PRES_TIMER_TERM_TS(LinkNum)	(LmSCRATCH(LinkNum) + 0x016C)
 
+/* Mode dependent scratch page 3 macros for modes 0 and 1 */
+/* None defined */
 
+/* Mode dependent scratch page 3 macros for modes 2 and 5 */
+/* None defined */
 
+/* Mode Independent Scratch page 0 macros. */
 #define LmSEQ_Q_TGTXFR_HEAD(LinkNum)	(LmSCRATCH(LinkNum) + 0x0180)
 #define LmSEQ_Q_TGTXFR_TAIL(LinkNum)	(LmSCRATCH(LinkNum) + 0x0182)
 #define LmSEQ_LINK_NUMBER(LinkNum)	(LmSCRATCH(LinkNum) + 0x0186)
 #define LmSEQ_SCRATCH_FLAGS(LinkNum)	(LmSCRATCH(LinkNum) + 0x0187)
-#define		SAS_DWSAQD			0x01  
+/*
+ * Currently only bit 0, SAS_DWSAQD, is used.
+ */
+#define		SAS_DWSAQD			0x01  /*
+						       * DWSSTATUS: DWSAQD
+						       * bit las read in ISR.
+						       */
 #define  LmSEQ_CONNECTION_STATE(LinkNum) (LmSCRATCH(LinkNum) + 0x0188)
+/* Connection states (byte 0) */
 #define		SAS_WE_OPENED_CS		0x01
 #define		SAS_DEVICE_OPENED_CS		0x02
 #define		SAS_WE_SENT_DONE_CS		0x04
@@ -2048,12 +2313,14 @@
 #define		SAS_DEVICE_SENT_CLOSE_CS	0x20
 #define		SAS_WE_SENT_BREAK_CS		0x40
 #define		SAS_DEVICE_SENT_BREAK_CS	0x80
+/* Connection states (byte 1) */
 #define		SAS_OPN_TIMEOUT_OR_OPN_RJCT_CS	0x01
 #define		SAS_AIP_RECEIVED_CS		0x02
 #define		SAS_CREDIT_TIMEOUT_OCCURRED_CS	0x04
 #define		SAS_ACKNAK_TIMEOUT_OCCURRED_CS	0x08
 #define		SAS_SMPRSP_TIMEOUT_OCCURRED_CS	0x10
 #define		SAS_DONE_TIMEOUT_OCCURRED_CS	0x20
+/* Connection states (byte 2) */
 #define		SAS_SMP_RESPONSE_RECEIVED_CS	0x01
 #define		SAS_INTLK_TIMEOUT_OCCURRED_CS	0x02
 #define		SAS_DEVICE_SENT_DMAT_CS		0x04
@@ -2061,6 +2328,7 @@
 #define		SAS_CLEARING_AFFILIATION_CS	0x20
 #define		SAS_RXTASK_ACTIVE_CS		0x40
 #define		SAS_TXTASK_ACTIVE_CS		0x80
+/* Connection states (byte 3) */
 #define		SAS_PHY_LOSS_OF_SIGNAL_CS	0x01
 #define		SAS_DWS_TIMER_EXPIRED_CS	0x02
 #define		SAS_LINK_RESET_NOT_COMPLETE_CS	0x04
@@ -2088,6 +2356,7 @@
 #define LmSEQ_REG3_ISR(LinkNum)		(LmSCRATCH(LinkNum) + 0x0196)
 #define LmSEQ_REG0_ISR(LinkNum)		(LmSCRATCH(LinkNum) + 0x0198)
 
+/* Mode independent scratch page 1 macros. */
 #define LmSEQ_EST_NEXUS_SCBPTR0(LinkNum)	(LmSCRATCH(LinkNum) + 0x01A0)
 #define LmSEQ_EST_NEXUS_SCBPTR1(LinkNum)	(LmSCRATCH(LinkNum) + 0x01A2)
 #define LmSEQ_EST_NEXUS_SCBPTR2(LinkNum)	(LmSCRATCH(LinkNum) + 0x01A4)
@@ -2103,6 +2372,7 @@
 #define LmSEQ_ISR_SAVE_SINDEX(LinkNum)	        (LmSCRATCH(LinkNum) + 0x01BC)
 #define LmSEQ_ISR_SAVE_DINDEX(LinkNum)	        (LmSCRATCH(LinkNum) + 0x01BE)
 
+/* Mode independent scratch page 2 macros. */
 #define LmSEQ_EMPTY_SCB_PTR0(LinkNum)	(LmSCRATCH(LinkNum) + 0x01C0)
 #define LmSEQ_EMPTY_SCB_PTR1(LinkNum)	(LmSCRATCH(LinkNum) + 0x01C2)
 #define LmSEQ_EMPTY_SCB_PTR2(LinkNum)	(LmSCRATCH(LinkNum) + 0x01C4)
@@ -2116,6 +2386,7 @@
 #define LmSEQ_EMPTY_BUFS_AVAIL(LinkNum)	(LmSCRATCH(LinkNum) + 0x01CE)
 #define LmSEQ_ATA_SCR_REGS(LinkNum)	(LmSCRATCH(LinkNum) + 0x01D4)
 
+/* Mode independent scratch page 3 macros. */
 #define LmSEQ_DEV_PRES_TMR_TOUT_CONST(LinkNum)	(LmSCRATCH(LinkNum) + 0x01E0)
 #define LmSEQ_SATA_INTERLOCK_TIMEOUT(LinkNum)	(LmSCRATCH(LinkNum) + 0x01E4)
 #define LmSEQ_STP_SHUTDOWN_TIMEOUT(LinkNum)	(LmSCRATCH(LinkNum) + 0x01E8)

@@ -1,3 +1,16 @@
+/* drm_pci.h -- PCI DMA memory management wrappers for DRM -*- linux-c -*- */
+/**
+ * \file drm_pci.c
+ * \brief Functions and ioctls to manage PCI memory
+ *
+ * \warning These interfaces aren't stable yet.
+ *
+ * \todo Implement the remaining ioctl's for the PCI pools.
+ * \todo The wrappers here are so thin that they would be better off inlined..
+ *
+ * \author José Fonseca <jrfonseca@tungstengraphics.com>
+ * \author Leif Delgass <ldelgass@retinalburn.net>
+ */
 
 /*
  * Copyright 2003 José Fonseca.
@@ -29,7 +42,13 @@
 #include <linux/export.h>
 #include "drmP.h"
 
+/**********************************************************************/
+/** \name PCI memory */
+/*@{*/
 
+/**
+ * \brief Allocate a PCI consistent memory block, for DMA.
+ */
 drm_dma_handle_t *drm_pci_alloc(struct drm_device * dev, size_t size, size_t align)
 {
 	drm_dma_handle_t *dmah;
@@ -38,6 +57,10 @@ drm_dma_handle_t *drm_pci_alloc(struct drm_device * dev, size_t size, size_t ali
 	size_t sz;
 #endif
 
+	/* pci_alloc_consistent only guarantees alignment to the smallest
+	 * PAGE_SIZE order which is greater than or equal to the requested size.
+	 * Return NULL here for now to make sure nobody tries for larger alignment
+	 */
 	if (align > size)
 		return NULL;
 
@@ -55,8 +78,8 @@ drm_dma_handle_t *drm_pci_alloc(struct drm_device * dev, size_t size, size_t ali
 
 	memset(dmah->vaddr, 0, size);
 
-	
-	
+	/* XXX - Is virt_to_page() legal for consistent mem? */
+	/* Reserve */
 	for (addr = (unsigned long)dmah->vaddr, sz = size;
 	     sz > 0; addr += PAGE_SIZE, sz -= PAGE_SIZE) {
 		SetPageReserved(virt_to_page(addr));
@@ -67,6 +90,11 @@ drm_dma_handle_t *drm_pci_alloc(struct drm_device * dev, size_t size, size_t ali
 
 EXPORT_SYMBOL(drm_pci_alloc);
 
+/**
+ * \brief Free a PCI consistent memory block without freeing its descriptor.
+ *
+ * This function is for internal use in the Linux-specific DRM core code.
+ */
 void __drm_pci_free(struct drm_device * dev, drm_dma_handle_t * dmah)
 {
 #if 1
@@ -75,8 +103,8 @@ void __drm_pci_free(struct drm_device * dev, drm_dma_handle_t * dmah)
 #endif
 
 	if (dmah->vaddr) {
-		
-		
+		/* XXX - Is virt_to_page() legal for consistent mem? */
+		/* Unreserve */
 		for (addr = (unsigned long)dmah->vaddr, sz = dmah->size;
 		     sz > 0; addr += PAGE_SIZE, sz -= PAGE_SIZE) {
 			ClearPageReserved(virt_to_page(addr));
@@ -86,6 +114,9 @@ void __drm_pci_free(struct drm_device * dev, drm_dma_handle_t * dmah)
 	}
 }
 
+/**
+ * \brief Free a PCI consistent memory block
+ */
 void drm_pci_free(struct drm_device * dev, drm_dma_handle_t * dmah)
 {
 	__drm_pci_free(dev, dmah);
@@ -99,9 +130,13 @@ EXPORT_SYMBOL(drm_pci_free);
 static int drm_get_pci_domain(struct drm_device *dev)
 {
 #ifndef __alpha__
+	/* For historical reasons, drm_get_pci_domain() is busticated
+	 * on most archs and has to remain so for userspace interface
+	 * < 1.4, except on alpha which was right from the beginning
+	 */
 	if (dev->if_version < 0x10004)
 		return 0;
-#endif 
+#endif /* __alpha__ */
 
 	return pci_domain_nr(dev->pdev->bus);
 }
@@ -192,6 +227,9 @@ int drm_pci_set_unique(struct drm_device *dev,
 	sprintf(dev->devname, "%s@%s", bus_name,
 		master->unique);
 
+	/* Return error if the busid submitted doesn't match the device's actual
+	 * busid.
+	 */
 	ret = sscanf(master->unique, "PCI:%d:%d:%d", &bus, &slot, &func);
 	if (ret != 3) {
 		ret = -EINVAL;
@@ -259,6 +297,17 @@ static struct drm_bus drm_pci_bus = {
 	.agp_init = drm_pci_agp_init,
 };
 
+/**
+ * Register.
+ *
+ * \param pdev - PCI device structure
+ * \param ent entry from the PCI ID table with device type flags
+ * \return zero on success or a negative number on failure.
+ *
+ * Attempt to gets inter module "drm" information. If we are first
+ * then register the character device and inter module information.
+ * Try and register, if we fail to register, backout previous work.
+ */
 int drm_get_pci_dev(struct pci_dev *pdev, const struct pci_device_id *ent,
 		    struct drm_driver *driver)
 {
@@ -308,7 +357,7 @@ int drm_get_pci_dev(struct pci_dev *pdev, const struct pci_device_id *ent,
 			goto err_g4;
 	}
 
-	
+	/* setup the grouping for the legacy output */
 	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
 		ret = drm_mode_group_init_legacy_group(dev,
 						&dev->primary->mode_group);
@@ -339,6 +388,17 @@ err_g1:
 }
 EXPORT_SYMBOL(drm_get_pci_dev);
 
+/**
+ * PCI device initialization. Called direct from modules at load time.
+ *
+ * \return zero on success or a negative number on failure.
+ *
+ * Initializes a drm_device structures,registering the
+ * stubs and initializing the AGP device.
+ *
+ * Expands the \c DRIVER_PREINIT and \c DRIVER_POST_INIT macros before and
+ * after the initialization for driver customization.
+ */
 int drm_pci_init(struct drm_driver *driver, struct pci_driver *pdriver)
 {
 	struct pci_dev *pdev = NULL;
@@ -354,10 +414,16 @@ int drm_pci_init(struct drm_driver *driver, struct pci_driver *pdriver)
 	if (driver->driver_features & DRIVER_MODESET)
 		return pci_register_driver(pdriver);
 
-	
+	/* If not using KMS, fall back to stealth mode manual scanning. */
 	for (i = 0; pdriver->id_table[i].vendor != 0; i++) {
 		pid = &pdriver->id_table[i];
 
+		/* Loop around setting up a DRM device for each PCI device
+		 * matching our ID and device class.  If we had the internal
+		 * function that pci_get_subsys and pci_get_class used, we'd
+		 * be able to just pass pid in instead of doing a two-stage
+		 * thing.
+		 */
 		pdev = NULL;
 		while ((pdev =
 			pci_get_subsys(pid->vendor, pid->device, pid->subvendor,
@@ -365,7 +431,7 @@ int drm_pci_init(struct drm_driver *driver, struct pci_driver *pdriver)
 			if ((pdev->class & pid->class_mask) != pid->class)
 				continue;
 
-			
+			/* stealth mode requires a manual probe */
 			pci_dev_get(pdev);
 			drm_get_pci_dev(pdev, pid, driver);
 		}
@@ -384,6 +450,7 @@ int drm_pci_init(struct drm_driver *driver, struct pci_driver *pdriver)
 
 EXPORT_SYMBOL(drm_pci_init);
 
+/*@}*/
 void drm_pci_exit(struct drm_driver *driver, struct pci_driver *pdriver)
 {
 	struct drm_device *dev, *tmp;

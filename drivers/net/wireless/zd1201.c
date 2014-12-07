@@ -26,16 +26,16 @@
 #include "zd1201.h"
 
 static struct usb_device_id zd1201_table[] = {
-	{USB_DEVICE(0x0586, 0x3400)}, 
-	{USB_DEVICE(0x0ace, 0x1201)}, 
-	{USB_DEVICE(0x050d, 0x6051)}, 
-	{USB_DEVICE(0x0db0, 0x6823)}, 
-	{USB_DEVICE(0x1044, 0x8004)}, 
-	{USB_DEVICE(0x1044, 0x8005)}, 
+	{USB_DEVICE(0x0586, 0x3400)}, /* Peabird Wireless USB Adapter */
+	{USB_DEVICE(0x0ace, 0x1201)}, /* ZyDAS ZD1201 Wireless USB Adapter */
+	{USB_DEVICE(0x050d, 0x6051)}, /* Belkin F5D6051 usb  adapter */
+	{USB_DEVICE(0x0db0, 0x6823)}, /* MSI UB11B usb  adapter */
+	{USB_DEVICE(0x1044, 0x8004)}, /* Gigabyte GN-WLBZ101 */
+	{USB_DEVICE(0x1044, 0x8005)}, /* GIGABYTE GN-WLBZ201 usb adapter */
 	{}
 };
 
-static int ap;	
+static int ap;	/* Are we an AP or a normal station? */
 
 #define ZD1201_VERSION	"0.15"
 
@@ -137,6 +137,16 @@ static void zd1201_usbfree(struct urb *urb)
 	usb_free_urb(urb);
 }
 
+/* cmdreq message: 
+	u32 type
+	u16 cmd
+	u16 parm0
+	u16 parm1
+	u16 parm2
+	u8  pad[4]
+
+	total: 4 + 2 + 2 + 2 + 2 + 4 = 16
+*/
 static int zd1201_docmd(struct zd1201 *zd, int cmd, int parm0,
 			int parm1, int parm2)
 {
@@ -170,12 +180,14 @@ static int zd1201_docmd(struct zd1201 *zd, int cmd, int parm0,
 	return ret;
 }
 
+/* Callback after sending out a packet */
 static void zd1201_usbtx(struct urb *urb)
 {
 	struct zd1201 *zd = urb->context;
 	netif_wake_queue(zd->dev);
 }
 
+/* Incoming data */
 static void zd1201_usbrx(struct urb *urb)
 {
 	struct zd1201 *zd = urb->context;
@@ -211,7 +223,7 @@ static void zd1201_usbrx(struct urb *urb)
 		zd->rxdatas = 1;
 		wake_up(&zd->rxdataq);
 	}
-	
+	/* Info frame */
 	if (type == ZD1201_PACKET_INQUIRE) {
 		int i = 0;
 		unsigned short infotype, framelen, copylen;
@@ -259,7 +271,7 @@ static void zd1201_usbrx(struct urb *urb)
 			memcpy(wrqu.addr.sa_data, data+10, ETH_ALEN);
 			wrqu.addr.sa_family = ARPHRD_ETHER;
 
-			
+			/* Send event to user space */
 			wireless_send_event(zd->dev, event, &wrqu, NULL);
 
 			goto resubmit;
@@ -269,14 +281,18 @@ static void zd1201_usbrx(struct urb *urb)
 
 			memcpy(wrqu.addr.sa_data, data+8, ETH_ALEN);
 			wrqu.addr.sa_family = ARPHRD_ETHER;
+			/* There isn't a event that trully fits this request.
+			   We assume that userspace will be smart enough to
+			   see a new station being expired and sends back a
+			   authstation ioctl to authorize it. */
 			wireless_send_event(zd->dev, IWEVEXPIRED, &wrqu, NULL);
 			goto resubmit;
 		}
-		
+		/* Other infotypes are handled outside this handler */
 		zd->rxlen = 0;
 		while (i < urb->actual_length) {
 			copylen = le16_to_cpu(*(__le16*)&data[i+2]);
-			
+			/* Sanity check, sometimes we get junk */
 			if (copylen+zd->rxlen > sizeof(zd->rxdata))
 				break;
 			memcpy(zd->rxdata+zd->rxlen, data+i+4, copylen);
@@ -289,7 +305,7 @@ static void zd1201_usbrx(struct urb *urb)
 		}
 		goto  resubmit;
 	}
-	
+	/* Actual data */
 	if (data[urb->actual_length-1] == ZD1201_PACKET_RXDATA) {
 		int datalen = urb->actual_length-1;
 		unsigned short len, fc, seq;
@@ -417,11 +433,11 @@ static int zd1201_getconfig(struct zd1201 *zd, int rid, void *riddata,
 	if (length > zd->rxlen)
 		length = zd->rxlen-6;
 
-	
+	/* If access bit is not on, then error */
 	if ((code & ZD1201_ACCESSBIT) != ZD1201_ACCESSBIT || rid_fid != rid )
 		return -EINVAL;
 
-	
+	/* Not enough buffer for allocating data */
 	if (riddatalen != (length - 4)) {
 		dev_dbg(&zd->usb->dev, "riddatalen mismatches, expected=%u, (packet=%u) length=%u, rid=0x%04X, rid_fid=0x%04X\n",
 		    riddatalen, zd->rxlen, length, rid, rid_fid);
@@ -429,12 +445,12 @@ static int zd1201_getconfig(struct zd1201 *zd, int rid, void *riddata,
 	}
 
 	zd->rxdatas = 0;
-				
+	/* Issue SetRxRid commnd */			
 	err = zd1201_docmd(zd, ZD1201_CMDCODE_SETRXRID, rid, 0, length);
 	if (err)
 		return err;
 
-	
+	/* Receive RID record from resource packets */
 	wait_event_interruptible(zd->rxdataq, zd->rxdatas);
 	if (!zd->rxlen)
 		return -EIO;
@@ -445,7 +461,7 @@ static int zd1201_getconfig(struct zd1201 *zd, int rid, void *riddata,
 		return -EINVAL;
 	}
 
-	
+	/* Set the data pointer and received data length */
 	pdata = zd->rxdata;
 	length = zd->rxlen;
 
@@ -461,11 +477,11 @@ static int zd1201_getconfig(struct zd1201 *zd, int rid, void *riddata,
 		}
 
 		if (actual_length != 64) {
-			
+			/* Trim the last packet type byte */
 			actual_length--;
 		}
 
-		
+		/* Skip the 4 bytes header (RID length and RID) */
 		if (i == 0) {
 			pdata += 8;
 			actual_length -= 8;
@@ -484,6 +500,14 @@ static int zd1201_getconfig(struct zd1201 *zd, int rid, void *riddata,
 	return 0;
 }
 
+/*
+ *	resreq:
+ *		byte	type
+ *		byte	sequence
+ *		u16	reserved
+ *		byte	data[12]
+ *	total: 16
+ */
 static int zd1201_setconfig(struct zd1201 *zd, int rid, void *buf, int len, int wait)
 {
 	int err;
@@ -493,7 +517,7 @@ static int zd1201_setconfig(struct zd1201 *zd, int rid, void *buf, int len, int 
 	struct urb *urb;
 	gfp_t gfp_mask = wait ? GFP_NOIO : GFP_ATOMIC;
 
-	len += 4;			
+	len += 4;			/* first 4 are for header */
 
 	zd->rxdatas = 0;
 	zd->rxlen = 0;
@@ -513,7 +537,7 @@ static int zd1201_setconfig(struct zd1201 *zd, int rid, void *buf, int len, int 
 		request[2] = 0;
 		request[3] = 0;
 		if (request[1] == 0) {
-			
+			/* add header */
 			*(__le16*)&request[4] = cpu_to_le16((len-2+1)/2);
 			*(__le16*)&request[6] = cpu_to_le16(rid);
 			memcpy(request+8, buf, reqlen-4);
@@ -629,6 +653,11 @@ err_buffer:
 	return err;
 }
 
+/*	Magic alert: The firmware doesn't seem to like the MAC state being
+ *	toggled in promisc (aka monitor) mode.
+ *	(It works a number of times, but will halt eventually)
+ *	So we turn it of before disabling and on after enabling if needed.
+ */
 static int zd1201_enable(struct zd1201 *zd)
 {
 	int err;
@@ -689,12 +718,12 @@ static int zd1201_join(struct zd1201 *zd, char *essid, int essidlen)
 
 	*(__le16 *)buf = cpu_to_le16(essidlen);
 	memcpy(buf+2, essid, essidlen);
-	if (!zd->ap) {	
+	if (!zd->ap) {	/* Normal station */
 		err = zd1201_setconfig(zd, ZD1201_RID_CNFDESIREDSSID, buf,
 		    IW_ESSID_MAX_SIZE+2, 1);
 		if (err)
 			return err;
-	} else {	
+	} else {	/* AP */
 		err = zd1201_setconfig(zd, ZD1201_RID_CNFOWNSSID, buf,
 		    IW_ESSID_MAX_SIZE+2, 1);
 		if (err)
@@ -718,7 +747,7 @@ static int zd1201_net_open(struct net_device *dev)
 {
 	struct zd1201 *zd = netdev_priv(dev);
 
-	
+	/* Start MAC with wildcard if no essid set */
 	if (!zd->mac_enabled)
 		zd1201_join(zd, zd->essid, zd->essidlen);
 	netif_start_queue(dev);
@@ -732,6 +761,26 @@ static int zd1201_net_stop(struct net_device *dev)
 	return 0;
 }
 
+/*
+	RFC 1042 encapsulates Ethernet frames in 802.11 frames
+	by prefixing them with 0xaa, 0xaa, 0x03) followed by a SNAP OID of 0
+	(0x00, 0x00, 0x00). Zd requires an additional padding, copy
+	of ethernet addresses, length of the standard RFC 1042 packet
+	and a command byte (which is nul for tx).
+	
+	tx frame (from Wlan NG):
+	RFC 1042:
+		llc		0xAA 0xAA 0x03 (802.2 LLC)
+		snap		0x00 0x00 0x00 (Ethernet encapsulated)
+		type		2 bytes, Ethernet type field
+		payload		(minus eth header)
+	Zydas specific:
+		padding		1B if (skb->len+8+1)%64==0
+		Eth MAC addr	12 bytes, Ethernet MAC addresses
+		length		2 bytes, RFC 1042 packet length 
+				(llc+snap+type+payload)
+		zd		1 null byte, zd1201 packet type
+ */
 static netdev_tx_t zd1201_hard_start_xmit(struct sk_buff *skb,
 						struct net_device *dev)
 {
@@ -755,7 +804,7 @@ static netdev_tx_t zd1201_hard_start_xmit(struct sk_buff *skb,
 	txbuf[0] = 0xAA;
 	txbuf[1] = 0xAA;
 	txbuf[2] = 0x03;
-	txbuf[3] = 0x00;	
+	txbuf[3] = 0x00;	/* rfc1042 */
 	txbuf[4] = 0x00;
 	txbuf[5] = 0x00;
 
@@ -792,8 +841,8 @@ static void zd1201_tx_timeout(struct net_device *dev)
 	    dev->name);
 	usb_unlink_urb(zd->tx_urb);
 	dev->stats.tx_errors++;
-	
-	dev->trans_start = jiffies; 
+	/* Restart the timeout to quiet the watchdog: */
+	dev->trans_start = jiffies; /* prevent tx timeout */
 }
 
 static int zd1201_set_mac_address(struct net_device *dev, void *p)
@@ -915,9 +964,13 @@ static int zd1201_set_mode(struct net_device *dev,
 		case IW_MODE_MONITOR:
 			monitor = 1;
 			zd->dev->type = ARPHRD_IEEE80211;
+			/* Make sure we are no longer associated with by
+			   setting an 'impossible' essid.
+			   (otherwise we mess up firmware)
+			 */
 			zd1201_join(zd, "\0-*#\0", 5);
-			
-		case 8: 
+			/* Put port in pIBSS */
+		case 8: /* No pseudo-IBSS in wireless extensions (yet) */
 			porttype = ZD1201_PORTTYPE_PSEUDOIBSS;
 			break;
 		case IW_MODE_ADHOC:
@@ -943,6 +996,9 @@ static int zd1201_set_mode(struct net_device *dev,
 				return err;
 	}
 	zd->monitor = monitor;
+	/* If monitor mode is set we don't actually turn it on here since it
+	 * is done during mac reset anyway (see zd1201_mac_enable).
+	 */
 	zd1201_mac_reset(zd);
 
 	return 0;
@@ -969,7 +1025,7 @@ static int zd1201_get_mode(struct net_device *dev,
 			*mode = IW_MODE_REPEAT;
 			break;
 		case ZD1201_PORTTYPE_PSEUDOIBSS:
-			*mode = 8;
+			*mode = 8;/* No Pseudo-IBSS... */
 			break;
 		case ZD1201_PORTTYPE_AP:
 			*mode = IW_MODE_MASTER;
@@ -1019,6 +1075,11 @@ static int zd1201_get_range(struct net_device *dev,
 	return 0;
 }
 
+/*	Little bit of magic here: we only get the quality if we poll
+ *	for it, and we never get an actual request to trigger such
+ *	a poll. Therefore we 'assume' that the user will soon ask for
+ *	the stats after asking the bssid.
+ */
 static int zd1201_get_wap(struct net_device *dev,
     struct iw_request_info *info, struct sockaddr *ap_addr, char *extra)
 {
@@ -1026,9 +1087,14 @@ static int zd1201_get_wap(struct net_device *dev,
 	unsigned char buffer[6];
 
 	if (!zd1201_getconfig(zd, ZD1201_RID_COMMSQUALITY, buffer, 6)) {
-		
+		/* Unfortunately the quality and noise reported is useless.
+		   they seem to be accumulators that increase until you
+		   read them, unless we poll on a fixed interval we can't
+		   use them
+		 */
+		/*zd->iwstats.qual.qual = le16_to_cpu(((__le16 *)buffer)[0]);*/
 		zd->iwstats.qual.level = le16_to_cpu(((__le16 *)buffer)[1]);
-		
+		/*zd->iwstats.qual.noise = le16_to_cpu(((__le16 *)buffer)[2]);*/
 		zd->iwstats.qual.updated = 2;
 	}
 
@@ -1038,7 +1104,7 @@ static int zd1201_get_wap(struct net_device *dev,
 static int zd1201_set_scan(struct net_device *dev,
     struct iw_request_info *info, struct iw_point *srq, char *extra)
 {
-	
+	/* We do everything in get_scan */
 	return 0;
 }
 
@@ -1051,11 +1117,11 @@ static int zd1201_get_scan(struct net_device *dev,
 	char *cev = extra;
 	char *end_buf = extra + IW_SCAN_MAX_DATA;
 
-	
+	/* No scanning in AP mode */
 	if (zd->ap)
 		return -EOPNOTSUPP;
 
-	
+	/* Scan doesn't seem to work if disabled */
 	enabled_save = zd->mac_enabled;
 	zd1201_enable(zd);
 
@@ -1192,7 +1258,7 @@ static int zd1201_set_rate(struct net_device *dev,
 			rate = ZD1201_RATEB11;
 			break;
 	}
-	if (!rrq->fixed) { 
+	if (!rrq->fixed) { /* Also enable all lower bitrates */
 		rate |= rate-1;
 	}
 
@@ -1491,52 +1557,52 @@ static int zd1201_get_power(struct net_device *dev,
 
 static const iw_handler zd1201_iw_handler[] =
 {
-	(iw_handler) zd1201_config_commit,	
-	(iw_handler) zd1201_get_name,    	
-	(iw_handler) NULL,			
-	(iw_handler) NULL,			
-	(iw_handler) zd1201_set_freq,		
-	(iw_handler) zd1201_get_freq,		
-	(iw_handler) zd1201_set_mode,		
-	(iw_handler) zd1201_get_mode,		
-	(iw_handler) NULL,                  	
-	(iw_handler) NULL,           		
-	(iw_handler) NULL,			
-	(iw_handler) zd1201_get_range,           
-	(iw_handler) NULL,			
-	(iw_handler) NULL,			
-	(iw_handler) NULL,			
-	(iw_handler) NULL,			
-	(iw_handler) NULL,			
-	(iw_handler) NULL,			
-	(iw_handler) NULL,			
-	(iw_handler) NULL,			
-	(iw_handler) NULL,		
-	(iw_handler) zd1201_get_wap,		
-	(iw_handler) NULL,			
-	(iw_handler) NULL,       		
-	(iw_handler) zd1201_set_scan,		
-	(iw_handler) zd1201_get_scan,		
-	(iw_handler) zd1201_set_essid,		
-	(iw_handler) zd1201_get_essid,		
-	(iw_handler) NULL,         		
-	(iw_handler) zd1201_get_nick, 		
-	(iw_handler) NULL,			
-	(iw_handler) NULL,			
-	(iw_handler) zd1201_set_rate,		
-	(iw_handler) zd1201_get_rate,		
-	(iw_handler) zd1201_set_rts,		
-	(iw_handler) zd1201_get_rts,		
-	(iw_handler) zd1201_set_frag,		
-	(iw_handler) zd1201_get_frag,		
-	(iw_handler) NULL,         		
-	(iw_handler) NULL,          		
-	(iw_handler) zd1201_set_retry,		
-	(iw_handler) zd1201_get_retry,		
-	(iw_handler) zd1201_set_encode,		
-	(iw_handler) zd1201_get_encode,		
-	(iw_handler) zd1201_set_power,		
-	(iw_handler) zd1201_get_power,		
+	(iw_handler) zd1201_config_commit,	/* SIOCSIWCOMMIT */
+	(iw_handler) zd1201_get_name,    	/* SIOCGIWNAME */
+	(iw_handler) NULL,			/* SIOCSIWNWID */
+	(iw_handler) NULL,			/* SIOCGIWNWID */
+	(iw_handler) zd1201_set_freq,		/* SIOCSIWFREQ */
+	(iw_handler) zd1201_get_freq,		/* SIOCGIWFREQ */
+	(iw_handler) zd1201_set_mode,		/* SIOCSIWMODE */
+	(iw_handler) zd1201_get_mode,		/* SIOCGIWMODE */
+	(iw_handler) NULL,                  	/* SIOCSIWSENS */
+	(iw_handler) NULL,           		/* SIOCGIWSENS */
+	(iw_handler) NULL,			/* SIOCSIWRANGE */
+	(iw_handler) zd1201_get_range,           /* SIOCGIWRANGE */
+	(iw_handler) NULL,			/* SIOCSIWPRIV */
+	(iw_handler) NULL,			/* SIOCGIWPRIV */
+	(iw_handler) NULL,			/* SIOCSIWSTATS */
+	(iw_handler) NULL,			/* SIOCGIWSTATS */
+	(iw_handler) NULL,			/* SIOCSIWSPY */
+	(iw_handler) NULL,			/* SIOCGIWSPY */
+	(iw_handler) NULL,			/* -- hole -- */
+	(iw_handler) NULL,			/* -- hole -- */
+	(iw_handler) NULL/*zd1201_set_wap*/,		/* SIOCSIWAP */
+	(iw_handler) zd1201_get_wap,		/* SIOCGIWAP */
+	(iw_handler) NULL,			/* -- hole -- */
+	(iw_handler) NULL,       		/* SIOCGIWAPLIST */
+	(iw_handler) zd1201_set_scan,		/* SIOCSIWSCAN */
+	(iw_handler) zd1201_get_scan,		/* SIOCGIWSCAN */
+	(iw_handler) zd1201_set_essid,		/* SIOCSIWESSID */
+	(iw_handler) zd1201_get_essid,		/* SIOCGIWESSID */
+	(iw_handler) NULL,         		/* SIOCSIWNICKN */
+	(iw_handler) zd1201_get_nick, 		/* SIOCGIWNICKN */
+	(iw_handler) NULL,			/* -- hole -- */
+	(iw_handler) NULL,			/* -- hole -- */
+	(iw_handler) zd1201_set_rate,		/* SIOCSIWRATE */
+	(iw_handler) zd1201_get_rate,		/* SIOCGIWRATE */
+	(iw_handler) zd1201_set_rts,		/* SIOCSIWRTS */
+	(iw_handler) zd1201_get_rts,		/* SIOCGIWRTS */
+	(iw_handler) zd1201_set_frag,		/* SIOCSIWFRAG */
+	(iw_handler) zd1201_get_frag,		/* SIOCGIWFRAG */
+	(iw_handler) NULL,         		/* SIOCSIWTXPOW */
+	(iw_handler) NULL,          		/* SIOCGIWTXPOW */
+	(iw_handler) zd1201_set_retry,		/* SIOCSIWRETRY */
+	(iw_handler) zd1201_get_retry,		/* SIOCGIWRETRY */
+	(iw_handler) zd1201_set_encode,		/* SIOCSIWENCODE */
+	(iw_handler) zd1201_get_encode,		/* SIOCGIWENCODE */
+	(iw_handler) zd1201_set_power,		/* SIOCSIWPOWER */
+	(iw_handler) zd1201_get_power,		/* SIOCGIWPOWER */
 };
 
 static int zd1201_set_hostauth(struct net_device *dev,
@@ -1579,7 +1645,7 @@ static int zd1201_auth_sta(struct net_device *dev,
 		return -EOPNOTSUPP;
 
 	memcpy(buffer, sta->sa_data, ETH_ALEN);
-	*(short*)(buffer+6) = 0;	
+	*(short*)(buffer+6) = 0;	/* 0==success, 1==failure */
 	*(short*)(buffer+8) = 0;
 
 	return zd1201_setconfig(zd, ZD1201_RID_AUTHENTICATESTA, buffer, 10, 1);
@@ -1620,12 +1686,12 @@ static int zd1201_get_maxassoc(struct net_device *dev,
 }
 
 static const iw_handler zd1201_private_handler[] = {
-	(iw_handler) zd1201_set_hostauth,	
-	(iw_handler) zd1201_get_hostauth,	
-	(iw_handler) zd1201_auth_sta,		
-	(iw_handler) NULL,			
-	(iw_handler) zd1201_set_maxassoc,	
-	(iw_handler) zd1201_get_maxassoc,	
+	(iw_handler) zd1201_set_hostauth,	/* ZD1201SIWHOSTAUTH */
+	(iw_handler) zd1201_get_hostauth,	/* ZD1201GIWHOSTAUTH */
+	(iw_handler) zd1201_auth_sta,		/* ZD1201SIWAUTHSTA */
+	(iw_handler) NULL,			/* nothing to get */
+	(iw_handler) zd1201_set_maxassoc,	/* ZD1201SIMAXASSOC */
+	(iw_handler) zd1201_get_maxassoc,	/* ZD1201GIMAXASSOC */
 };
 
 static const struct iw_priv_args zd1201_private_args[] = {
@@ -1724,7 +1790,7 @@ static int zd1201_probe(struct usb_interface *interface,
 	if (err)
 		goto err_start;
 
-	
+	/* Set wildcard essid to match zd->essid */
 	*(__le16 *)buf = cpu_to_le16(0);
 	err = zd1201_setconfig(zd, ZD1201_RID_CNFDESIREDSSID, buf,
 	    IW_ESSID_MAX_SIZE+2, 1);
@@ -1748,12 +1814,12 @@ static int zd1201_probe(struct usb_interface *interface,
 	    dev->name);
 
 	usb_set_intfdata(interface, zd);
-	zd1201_enable(zd);	
-	zd1201_disable(zd);	
+	zd1201_enable(zd);	/* zd1201 likes to startup enabled, */
+	zd1201_disable(zd);	/* interfering with all the wifis in range */
 	return 0;
 
 err_start:
-	
+	/* Leave the device in reset state */
 	zd1201_docmd(zd, ZD1201_CMDCODE_INIT, 0, 0, 0);
 err_zd:
 	usb_free_urb(zd->tx_urb);

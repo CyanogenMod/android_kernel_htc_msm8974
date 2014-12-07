@@ -45,6 +45,7 @@ static void __iomem *virt_bases[N_BASES];
 #define GCC_REG_BASE(x) (void __iomem *)(virt_bases[GCC_BASE] + (x))
 #define APCS_GCC_BASE(x) (void __iomem *)(virt_bases[APCS_GCC_BASE] + (x))
 
+/* Mux source select values */
 #define xo_source_val	0
 #define gpll0_source_val 1
 #define gpll1_source_val 4
@@ -53,6 +54,7 @@ static void __iomem *virt_bases[N_BASES];
 #define usb3_pipe_clk_source_val	2
 #define pcie_pipe_clk_source_val	2
 
+/* Prevent a divider of -1 */
 #define FIXDIV(div) (div ? (2 * (div) - 1) : (0))
 
 #define F(f, s, div, m, n) \
@@ -107,10 +109,10 @@ enum vdd_dig_levels {
 };
 
 static int vdd_corner[] = {
-	RPM_REGULATOR_CORNER_NONE,		
-	RPM_REGULATOR_CORNER_SVS_SOC,		
-	RPM_REGULATOR_CORNER_NORMAL,		
-	RPM_REGULATOR_CORNER_SUPER_TURBO,	
+	RPM_REGULATOR_CORNER_NONE,		/* VDD_DIG_NONE */
+	RPM_REGULATOR_CORNER_SVS_SOC,		/* VDD_DIG_LOW */
+	RPM_REGULATOR_CORNER_NORMAL,		/* VDD_DIG_NOMINAL */
+	RPM_REGULATOR_CORNER_SUPER_TURBO,	/* VDD_DIG_HIGH */
 };
 
 static DEFINE_VDD_REGULATORS(vdd_dig, VDD_DIG_NUM, 1, vdd_corner, NULL);
@@ -263,6 +265,7 @@ static struct pll_vote_clk gpll0 = {
 	},
 };
 
+/* Don't vote for xo if using this clock to allow xo shutdown */
 static struct pll_vote_clk gpll0_ao = {
 	.en_reg = (void __iomem *)APCS_GPLL_ENA_VOTE,
 	.en_mask = BIT(0),
@@ -1660,6 +1663,10 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 		return -EINVAL;
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
+	/*
+	 * Program the test vector, measurement period (sample_ticks)
+	 * and scaling multiplier.
+	 */
 	clk->sample_ticks = 0x10000;
 	clk->multiplier = 1;
 
@@ -1681,42 +1688,47 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 		return -EINVAL;
 	}
 
-	
+	/* Set debug mux clock index */
 	regval = BVAL(9, 0, clk_sel);
 	writel_relaxed(regval, GCC_REG_BASE(GCC_DEBUG_CLK_CTL));
 
-	
+	/* Activate debug clock output */
 	regval |= BIT(16);
 	writel_relaxed(regval, GCC_REG_BASE(GCC_DEBUG_CLK_CTL));
 
-	
+	/* Make sure test vector is set before starting measurements. */
 	mb();
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 
 	return 0;
 }
 
+/* Sample clock for 'ticks' reference clock ticks. */
 static u32 run_measurement(unsigned ticks)
 {
-	
+	/* Stop counters and set the XO4 counter start value. */
 	writel_relaxed(ticks, GCC_REG_BASE(CLOCK_FRQ_MEASURE_CTL));
 
-	
+	/* Wait for timer to become ready. */
 	while ((readl_relaxed(GCC_REG_BASE(CLOCK_FRQ_MEASURE_STATUS)) &
 			BIT(25)) != 0)
 		cpu_relax();
 
-	
+	/* Run measurement and wait for completion. */
 	writel_relaxed(BIT(20)|ticks, GCC_REG_BASE(CLOCK_FRQ_MEASURE_CTL));
 	while ((readl_relaxed(GCC_REG_BASE(CLOCK_FRQ_MEASURE_STATUS)) &
 			BIT(25)) == 0)
 		cpu_relax();
 
-	
+	/* Return measured ticks. */
 	return readl_relaxed(GCC_REG_BASE(CLOCK_FRQ_MEASURE_STATUS)) &
 				BM(24, 0);
 }
 
+/*
+ * Perform a hardware rate measurement for a given clock.
+ * FOR DEBUG USE ONLY: Measurements take ~15 ms!
+ */
 static unsigned long measure_clk_get_rate(struct clk *c)
 {
 	unsigned long flags;
@@ -1733,23 +1745,29 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
 
-	
+	/* Enable CXO/4 and RINGOSC branch. */
 	gcc_xo4_reg_backup = readl_relaxed(GCC_REG_BASE(GCC_XO_DIV4_CBCR));
 	writel_relaxed(0x1, GCC_REG_BASE(GCC_XO_DIV4_CBCR));
 
+	/*
+	 * The ring oscillator counter will not reset if the measured clock
+	 * is not running.  To detect this, run a short measurement before
+	 * the full measurement.  If the raw results of the two are the same
+	 * then the clock must be off.
+	 */
 
-	
+	/* Run a short measurement. (~1 ms) */
 	raw_count_short = run_measurement(0x1000);
-	
+	/* Run a full measurement. (~14 ms) */
 	raw_count_full = run_measurement(clk->sample_ticks);
 
 	writel_relaxed(gcc_xo4_reg_backup, GCC_REG_BASE(GCC_XO_DIV4_CBCR));
 
-	
+	/* Return 0 if the clock is off. */
 	if (raw_count_full == raw_count_short) {
 		ret = 0;
 	} else {
-		
+		/* Compute rate in Hz. */
 		raw_count_full = ((raw_count_full * 10) + 15) * 4800000;
 		do_div(raw_count_full, ((clk->sample_ticks * 10) + 35));
 		ret = (raw_count_full * clk->multiplier);
@@ -1762,7 +1780,7 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	return ret;
 }
-#else 
+#else /* !CONFIG_DEBUG_FS */
 static int measure_clk_set_parent(struct clk *clk, struct clk *parent)
 {
 	return -EINVAL;
@@ -1772,7 +1790,7 @@ static unsigned long measure_clk_get_rate(struct clk *clk)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static struct clk_ops clk_ops_measure = {
 	.set_parent = measure_clk_set_parent,
@@ -1792,25 +1810,25 @@ static struct clk_lookup msm_clocks_krypton[] = {
 	CLK_LOOKUP("xo",	xo.c,	""),
 	CLK_LOOKUP("measure",	measure_clk.c,	"debug"),
 
-	
+	/* PLLS */
 	CLK_LOOKUP("",	gpll0.c,	""),
 	CLK_LOOKUP("",	gpll1.c,	""),
 	CLK_LOOKUP("",  gpll0_ao.c,     ""),
 
-	
+	/* PIL-LPASS */
 	CLK_LOOKUP("xo",          cxo_pil_lpass_clk.c, "fe200000.qcom,lpass"),
 	CLK_LOOKUP("bus_clk",  gcc_lpass_q6_axi_clk.c, "fe200000.qcom,lpass"),
 	CLK_LOOKUP("core_clk",    cxo_pil_lpass_clk.c, "fe200000.qcom,lpass"),
 	CLK_LOOKUP("iface_clk", q6ss_ahb_lfabif_clk.c, "fe200000.qcom,lpass"),
 	CLK_LOOKUP("reg_clk",         q6ss_ahbm_clk.c, "fe200000.qcom,lpass"),
 
-	
+	/* PIL-MODEM */
 	CLK_LOOKUP("xo",              cxo_pil_mss_clk.c, "fc880000.qcom,mss"),
 	CLK_LOOKUP("bus_clk", gcc_mss_q6_bimc_axi_clk.c, "fc880000.qcom,mss"),
 	CLK_LOOKUP("iface_clk",   gcc_mss_cfg_ahb_clk.c, "fc880000.qcom,mss"),
 	CLK_LOOKUP("mem_clk",    gcc_boot_rom_ahb_clk.c, "fc880000.qcom,mss"),
 
-	
+	/* SPS */
 	CLK_LOOKUP("dma_bam_pclk", gcc_bam_dma_ahb_clk.c, "msm_sps"),
 	CLK_LOOKUP("inactivity_clk", gcc_bam_dma_inactivity_timers_clk.c,
 								"msm_sps"),
@@ -1878,7 +1896,7 @@ static struct clk_lookup msm_clocks_krypton[] = {
 	CLK_LOOKUP("bus_clk", gcc_ce1_axi_clk.c, "fd400000.qcom,qcrypto"),
 	CLK_LOOKUP("core_clk_src", ce1_clk_src.c, "fd400000.qcom,qcrypto"),
 
-	
+	/* RPM and voter clocks */
 	CLK_LOOKUP("bus_clk", snoc_clk.c, ""),
 	CLK_LOOKUP("bus_clk", pnoc_clk.c, ""),
 	CLK_LOOKUP("bus_clk", cnoc_clk.c, ""),
@@ -1899,7 +1917,7 @@ static struct clk_lookup msm_clocks_krypton[] = {
 
 	CLK_LOOKUP("a7_m_clk", a7_m_clk, ""),
 
-	
+	/* CoreSight clocks */
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc322000.tmc"),
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc318000.tpiu"),
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc31c000.replicator"),
@@ -1944,7 +1962,7 @@ static struct clk_lookup msm_clocks_krypton[] = {
 	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fc333000.cti"),
 	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "f9011038.hwevent"),
 
-	
+	/* Misc rcgs without clients */
 	CLK_LOOKUP("",	usb30_master_clk_src.c,	""),
 	CLK_LOOKUP("",	blsp1_qup1_i2c_apps_clk_src.c,	""),
 	CLK_LOOKUP("",	blsp1_qup1_spi_apps_clk_src.c,	""),
@@ -2003,6 +2021,10 @@ static void __init reg_init(void)
 
 static void __init msmkrypton_clock_post_init(void)
 {
+	/*
+	 * Hold an active set vote for CXO; this is because CXO is expected
+	 * to remain on whenever CPUs aren't power collapsed.
+	 */
 	clk_prepare_enable(&xo_a_clk.c);
 }
 

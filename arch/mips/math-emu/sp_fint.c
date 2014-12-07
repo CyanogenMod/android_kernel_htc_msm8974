@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * single precision
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
@@ -41,7 +44,7 @@ ieee754sp ieee754sp_fint(int x)
 	xs = (x < 0);
 	if (xs) {
 		if (x == (1 << 31))
-			xm = ((unsigned) 1 << 31);	
+			xm = ((unsigned) 1 << 31);	/* max neg can't be safely negated */
 		else
 			xm = -x;
 	} else {
@@ -50,10 +53,14 @@ ieee754sp ieee754sp_fint(int x)
 	xe = SP_MBITS + 3;
 
 	if (xm >> (SP_MBITS + 1 + 3)) {
+		/* shunt out overflow bits
+		 */
 		while (xm >> (SP_MBITS + 1 + 3)) {
 			SPXSRSX1();
 		}
 	} else {
+		/* normalize in grs extended single precision
+		 */
 		while ((xm >> (SP_MBITS + 3)) == 0) {
 			xm <<= 1;
 			xe--;

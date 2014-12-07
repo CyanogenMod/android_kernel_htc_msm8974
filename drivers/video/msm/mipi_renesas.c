@@ -15,7 +15,7 @@
 #include "mipi_renesas.h"
 #include <mach/socinfo.h>
 
-#define RENESAS_CMD_DELAY 0 
+#define RENESAS_CMD_DELAY 0 /* 50 */
 #define RENESAS_SLEEP_OFF_DELAY 50
 static struct msm_panel_common_pdata *mipi_renesas_pdata;
 
@@ -39,6 +39,8 @@ static char config_DBICTYPE[2] = {0x49, 0x00};
 static char config_DBICSET1[2] = {0x4a, 0x1c};
 static char config_DBICADD[2] = {0x4b, 0x00};
 static char config_DBICCTL[2] = {0x4e, 0x01};
+/* static char config_COLMOD_565[2] = {0x3a, 0x05}; */
+/* static char config_COLMOD_666PACK[2] = {0x3a, 0x06}; */
 static char config_COLMOD_888[2] = {0x3a, 0x07};
 static char config_MADCTL[2] = {0x36, 0x00};
 static char config_DBIOC[2] = {0x82, 0x40};
@@ -185,7 +187,7 @@ static struct dsi_cmd_desc renesas_sleep_off_cmds[] = {
 };
 
 static struct dsi_cmd_desc renesas_display_off_cmds[] = {
-	
+	/* Choosing Command Mode */
 	{DTYPE_DCS_WRITE1, 1, 0, 0, RENESAS_CMD_DELAY,
 		sizeof(config_CMD_MODE), config_CMD_MODE },
 
@@ -204,6 +206,8 @@ static struct dsi_cmd_desc renesas_display_off_cmds[] = {
 	{DTYPE_DCS_WRITE1, 1, 0, 0, RENESAS_CMD_DELAY * 2,
 		sizeof(config_DBICSET_15), config_DBICSET_15},
 
+	/* After waiting >= 5 frames, turn OFF RGB signals
+	This is done by on DSI/MDP (depends on Vid/Cmd Mode.  */
 	{DTYPE_DCS_WRITE1, 1, 0, 0, RENESAS_CMD_DELAY,
 		sizeof(config_DBICADD70), config_DBICADD70},
 	{DTYPE_DCS_LWRITE, 1, 0, 0, RENESAS_CMD_DELAY,
@@ -253,7 +257,7 @@ static struct dsi_cmd_desc renesas_display_off_cmds[] = {
 };
 
 static struct dsi_cmd_desc renesas_display_on_cmds[] = {
-	
+	/* Choosing Command Mode */
 	{DTYPE_DCS_WRITE1, 1, 0, 0, RENESAS_CMD_DELAY,
 		sizeof(config_CMD_MODE), config_CMD_MODE },
 	{DTYPE_DCS_LWRITE, 1, 0, 0, RENESAS_CMD_DELAY,
@@ -284,7 +288,7 @@ static struct dsi_cmd_desc renesas_display_on_cmds[] = {
 		sizeof(config_DBICCTL), config_DBICCTL},
 	{DTYPE_DCS_WRITE1, 1, 0, 0, RENESAS_CMD_DELAY,
 		sizeof(config_COLMOD_888), config_COLMOD_888},
-	
+	/* Choose config_COLMOD_565 or config_COLMOD_666PACK for other modes */
 	{DTYPE_DCS_WRITE1, 1, 0, 0, RENESAS_CMD_DELAY,
 		sizeof(config_MADCTL), config_MADCTL},
 	{DTYPE_DCS_WRITE1, 1, 0, 0, RENESAS_CMD_DELAY,
@@ -1089,7 +1093,7 @@ static struct dsi_cmd_desc renesas_display_on_cmds[] = {
 		sizeof(config_Power_Ctrl_2c_cmd),
 			config_Power_Ctrl_2c_cmd},
 
-	{DTYPE_DCS_WRITE1, 1, 0, 0, 0,
+	{DTYPE_DCS_WRITE1, 1, 0, 0, 0/* RENESAS_CMD_DELAY */,
 		sizeof(config_DBICSET_15), config_DBICSET_15},
 
 };

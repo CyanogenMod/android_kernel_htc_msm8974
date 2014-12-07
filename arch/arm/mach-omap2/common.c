@@ -27,6 +27,7 @@
 #include "sdrc.h"
 #include "control.h"
 
+/* Global address base setup code */
 
 #if defined(CONFIG_ARCH_OMAP2) || defined(CONFIG_ARCH_OMAP3)
 
@@ -108,6 +109,11 @@ void __init omap3_map_io(void)
 	omap34xx_map_common_io();
 }
 
+/*
+ * Adjust TAP register base such that omap3_check_revision accesses the correct
+ * TI81XX register for checking device ID (it adds 0x204 to tap base while
+ * TI81XX DEVICE ID register is at offset 0x600 from control base).
+ */
 #define TI81XX_TAP_BASE		(TI81XX_CTRL_BASE + \
 				TI81XX_CONTROL_DEVICE_ID - 0x204)
 

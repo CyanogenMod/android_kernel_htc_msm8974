@@ -7,4 +7,4 @@
 #include <linux/byteorder/big_endian.h>
 #endif
 
-#endif 
+#endif /* __ASM_SH_BYTEORDER_H */

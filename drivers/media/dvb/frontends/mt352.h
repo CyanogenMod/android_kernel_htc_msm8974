@@ -37,17 +37,17 @@
 
 struct mt352_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
-	int adc_clock;  
-	int if2;        
+	/* frequencies in kHz */
+	int adc_clock;  // default: 20480
+	int if2;        // default: 36166
 
-	
+	/* set if no pll is connected to the secondary i2c bus */
 	int no_tuner;
 
-	
+	/* Initialise the demodulator and PLL. Cannot be NULL */
 	int (*demod_init)(struct dvb_frontend* fe);
 };
 
@@ -61,7 +61,7 @@ static inline struct dvb_frontend* mt352_attach(const struct mt352_config* confi
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_MT352
 
 static inline int mt352_write(struct dvb_frontend *fe, const u8 buf[], int len) {
 	int r = 0;
@@ -70,4 +70,4 @@ static inline int mt352_write(struct dvb_frontend *fe, const u8 buf[], int len) 
 	return r;
 }
 
-#endif 
+#endif // MT352_H

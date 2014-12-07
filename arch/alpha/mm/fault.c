@@ -29,6 +29,9 @@
 extern void die_if_kernel(char *,struct pt_regs *,long, unsigned long *);
 
 
+/*
+ * Force a new ASN for a task.
+ */
 
 #ifndef CONFIG_SMP
 unsigned long last_asn = ASN_FIRST_VERSION;
@@ -51,7 +54,28 @@ __load_new_mm_context(struct mm_struct *next_mm)
 }
 
 
+/*
+ * This routine handles page faults.  It determines the address,
+ * and the problem, and then passes it off to handle_mm_fault().
+ *
+ * mmcsr:
+ *	0 = translation not valid
+ *	1 = access violation
+ *	2 = fault-on-read
+ *	3 = fault-on-execute
+ *	4 = fault-on-write
+ *
+ * cause:
+ *	-1 = instruction fetch
+ *	0 = load
+ *	1 = store
+ *
+ * Registers $9 through $15 are saved in a block just prior to `regs' and
+ * are saved and restored around the call to allow exception code to
+ * modify them.
+ */
 
+/* Macro for exception fixup code to access integer registers.  */
 #define dpf_reg(r)							\
 	(((unsigned long *)regs)[(r) <= 8 ? (r) : (r) <= 15 ? (r)-16 :	\
 				 (r) <= 18 ? (r)+8 : (r)-10])
@@ -66,17 +90,22 @@ do_page_fault(unsigned long address, unsigned long mmcsr,
 	int fault, si_code = SEGV_MAPERR;
 	siginfo_t info;
 
+	/* As of EV6, a load into $31/$f31 is a prefetch, and never faults
+	   (or is suppressed by the PALcode).  Support that for older CPUs
+	   by ignoring such an instruction.  */
 	if (cause == 0) {
 		unsigned int insn;
 		__get_user(insn, (unsigned int __user *)regs->pc);
 		if ((insn >> 21 & 0x1f) == 0x1f &&
-		    
+		    /* ldq ldl ldt lds ldg ldf ldwu ldbu */
 		    (1ul << (insn >> 26) & 0x30f00001400ul)) {
 			regs->pc += 4;
 			return;
 		}
 	}
 
+	/* If we're in an interrupt context, or have no user context,
+	   we must not take the fault.  */
 	if (!mm || in_atomic())
 		goto no_context;
 
@@ -96,13 +125,15 @@ do_page_fault(unsigned long address, unsigned long mmcsr,
 	if (expand_stack(vma, address))
 		goto bad_area;
 
+	/* Ok, we have a good vm_area for this memory access, so
+	   we can handle it.  */
  good_area:
 	si_code = SEGV_ACCERR;
 	if (cause < 0) {
 		if (!(vma->vm_flags & VM_EXEC))
 			goto bad_area;
 	} else if (!cause) {
-		
+		/* Allow reads even for write-only mappings */
 		if (!(vma->vm_flags & (VM_READ | VM_WRITE)))
 			goto bad_area;
 	} else {
@@ -110,6 +141,9 @@ do_page_fault(unsigned long address, unsigned long mmcsr,
 			goto bad_area;
 	}
 
+	/* If for any reason at all we couldn't handle the fault,
+	   make sure we exit gracefully rather than endlessly redo
+	   the fault.  */
 	fault = handle_mm_fault(mm, vma, address, cause > 0 ? FAULT_FLAG_WRITE : 0);
 	up_read(&mm->mmap_sem);
 	if (unlikely(fault & VM_FAULT_ERROR)) {
@@ -125,6 +159,8 @@ do_page_fault(unsigned long address, unsigned long mmcsr,
 		current->min_flt++;
 	return;
 
+	/* Something tried to access memory that isn't in our memory map.
+	   Fix it, but check if it's kernel or user first.  */
  bad_area:
 	up_read(&mm->mmap_sem);
 
@@ -132,7 +168,7 @@ do_page_fault(unsigned long address, unsigned long mmcsr,
 		goto do_sigsegv;
 
  no_context:
-	
+	/* Are we prepared to handle this fault as an exception?  */
 	if ((fixup = search_exception_tables(regs->pc)) != 0) {
 		unsigned long newpc;
 		newpc = fixup_exception(dpf_reg, fixup, regs->pc);
@@ -140,11 +176,15 @@ do_page_fault(unsigned long address, unsigned long mmcsr,
 		return;
 	}
 
+	/* Oops. The kernel tried to access some bad page. We'll have to
+	   terminate things with extreme prejudice.  */
 	printk(KERN_ALERT "Unable to handle kernel paging request at "
 	       "virtual address %016lx\n", address);
 	die_if_kernel("Oops", regs, cause, (unsigned long*)regs - 16);
 	do_exit(SIGKILL);
 
+	/* We ran out of memory, or some other thing happened to us that
+	   made us unable to handle the page fault gracefully.  */
  out_of_memory:
 	if (!user_mode(regs))
 		goto no_context;
@@ -152,6 +192,8 @@ do_page_fault(unsigned long address, unsigned long mmcsr,
 	return;
 
  do_sigbus:
+	/* Send a sigbus, regardless of whether we were in kernel
+	   or user mode.  */
 	info.si_signo = SIGBUS;
 	info.si_errno = 0;
 	info.si_code = BUS_ADRERR;
@@ -174,6 +216,8 @@ do_page_fault(unsigned long address, unsigned long mmcsr,
 	if (user_mode(regs))
 		goto do_sigsegv;
 	else {
+		/* Synchronize this task's top level page-table
+		   with the "reference" page table from init.  */
 		long index = pgd_index(address);
 		pgd_t *pgd, *pgd_k;
 

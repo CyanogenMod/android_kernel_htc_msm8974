@@ -53,4 +53,4 @@
 
 void __init cp_intc_init(void);
 
-#endif	
+#endif	/* __ASM_HARDWARE_CP_INTC_H */

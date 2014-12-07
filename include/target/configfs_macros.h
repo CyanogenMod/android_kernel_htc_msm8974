@@ -40,6 +40,16 @@
 
 #include <linux/configfs.h>
 
+/*
+ * Users often need to create attribute structures for their configurable
+ * attributes, containing a configfs_attribute member and function pointers
+ * for the show() and store() operations on that attribute. If they don't
+ * need anything else on the extended attribute structure, they can use
+ * this macro to define it.  The argument _name isends up as
+ * 'struct _name_attribute, as well as names of to CONFIGFS_ATTR_OPS() below.
+ * The argument _item is the name of the structure containing the
+ * struct config_item or struct config_group structure members
+ */
 #define CONFIGFS_EATTR_STRUCT(_name, _item)				\
 struct _name##_attribute {						\
 	struct configfs_attribute attr;					\
@@ -47,6 +57,14 @@ struct _name##_attribute {						\
 	ssize_t (*store)(struct _item *, const char *, size_t);		\
 }
 
+/*
+ * With the extended attribute structure, users can use this macro
+ * (similar to sysfs' __ATTR) to make defining attributes easier.
+ * An example:
+ * #define MYITEM_EATTR(_name, _mode, _show, _store)	\
+ * struct myitem_attribute childless_attr_##_name =	\
+ *         __CONFIGFS_EATTR(_name, _mode, _show, _store)
+ */
 #define __CONFIGFS_EATTR(_name, _mode, _show, _store)			\
 {									\
 	.attr	= {							\
@@ -57,6 +75,7 @@ struct _name##_attribute {						\
 	.show	= _show,						\
 	.store	= _store,						\
 }
+/* Here is a readonly version, only requiring a show() operation */
 #define __CONFIGFS_EATTR_RO(_name, _show)				\
 {									\
 	.attr	= {							\
@@ -67,6 +86,18 @@ struct _name##_attribute {						\
 	.show	= _show,						\
 }
 
+/*
+ * With these extended attributes, the simple show_attribute() and
+ * store_attribute() operations need to call the show() and store() of the
+ * attributes.  This is a common pattern, so we provide a macro to define
+ * them.  The argument _name is the name of the attribute defined by
+ * CONFIGFS_ATTR_STRUCT(). The argument _item is the name of the structure
+ * containing the struct config_item or struct config_group structure member.
+ * The argument _item_member is the actual name of the struct config_* struct
+ * in your _item structure.  Meaning  my_structure->some_config_group.
+ *		                      ^^_item^^^^^  ^^_item_member^^^
+ * This macro expects the attributes to be named "struct <name>_attribute".
+ */
 #define CONFIGFS_EATTR_OPS_TO_FUNC(_name, _item, _item_member)		\
 static struct _item *to_##_name(struct config_item *ci)			\
 {									\
@@ -113,4 +144,4 @@ static ssize_t _name##_attr_store(struct config_item *item,		\
 	CONFIGFS_EATTR_OPS_TO_FUNC(_name, _item, _item_member);		\
 	CONFIGFS_EATTR_OPS_SHOW(_name, _item);
 
-#endif 
+#endif /* _CONFIGFS_MACROS_H_ */

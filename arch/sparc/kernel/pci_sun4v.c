@@ -35,16 +35,17 @@ static unsigned long vpci_minor = 1;
 #define PGLIST_NENTS	(PAGE_SIZE / sizeof(u64))
 
 struct iommu_batch {
-	struct device	*dev;		
-	unsigned long	prot;		
-	unsigned long	entry;		
-	u64		*pglist;	
-	unsigned long	npages;		
+	struct device	*dev;		/* Device mapping is for.	*/
+	unsigned long	prot;		/* IOMMU page protections	*/
+	unsigned long	entry;		/* Index into IOTSB.		*/
+	u64		*pglist;	/* List of physical pages	*/
+	unsigned long	npages;		/* Number of pages in list.	*/
 };
 
 static DEFINE_PER_CPU(struct iommu_batch, iommu_batch);
 static int iommu_batch_initialized;
 
+/* Interrupts must be disabled.  */
 static inline void iommu_batch_start(struct device *dev, unsigned long prot, unsigned long entry)
 {
 	struct iommu_batch *p = &__get_cpu_var(iommu_batch);
@@ -55,6 +56,7 @@ static inline void iommu_batch_start(struct device *dev, unsigned long prot, uns
 	p->npages	= 0;
 }
 
+/* Interrupts must be disabled.  */
 static long iommu_batch_flush(struct iommu_batch *p)
 {
 	struct pci_pbm_info *pbm = p->dev->archdata.host_controller;
@@ -101,6 +103,7 @@ static inline void iommu_batch_new_entry(unsigned long entry)
 	p->entry = entry;
 }
 
+/* Interrupts must be disabled.  */
 static inline long iommu_batch_add(u64 phys_page)
 {
 	struct iommu_batch *p = &__get_cpu_var(iommu_batch);
@@ -114,6 +117,7 @@ static inline long iommu_batch_add(u64 phys_page)
 	return 0;
 }
 
+/* Interrupts must be disabled.  */
 static inline long iommu_batch_end(void)
 {
 	struct iommu_batch *p = &__get_cpu_var(iommu_batch);
@@ -184,7 +188,7 @@ static void *dma_4v_alloc_coherent(struct device *dev, size_t size,
 	return ret;
 
 iommu_map_fail:
-	
+	/* Interrupts are disabled.  */
 	spin_lock(&iommu->lock);
 	iommu_range_free(iommu, *dma_addrp, npages);
 	spin_unlock_irqrestore(&iommu->lock, flags);
@@ -286,7 +290,7 @@ bad:
 	return DMA_ERROR_CODE;
 
 iommu_map_fail:
-	
+	/* Interrupts are disabled.  */
 	spin_lock(&iommu->lock);
 	iommu_range_free(iommu, bus_addr, npages);
 	spin_unlock_irqrestore(&iommu->lock, flags);
@@ -364,7 +368,7 @@ static int dma_4v_map_sg(struct device *dev, struct scatterlist *sglist,
 	incount = nelems;
 	handle = 0;
 
-	
+	/* Init first segment length for backout at failure */
 	outs->dma_length = 0;
 
 	spin_lock_irqsave(&iommu->lock, flags);
@@ -379,17 +383,17 @@ static int dma_4v_map_sg(struct device *dev, struct scatterlist *sglist,
 		unsigned long paddr, npages, entry, out_entry = 0, slen;
 
 		slen = s->length;
-		
+		/* Sanity check */
 		if (slen == 0) {
 			dma_next = 0;
 			continue;
 		}
-		
+		/* Allocate iommu entries for that segment */
 		paddr = (unsigned long) SG_ENT_PHYS_ADDRESS(s);
 		npages = iommu_num_pages(paddr, slen, IO_PAGE_SIZE);
 		entry = iommu_range_alloc(dev, iommu, npages, &handle);
 
-		
+		/* Handle failure */
 		if (unlikely(entry == DMA_ERROR_CODE)) {
 			if (printk_ratelimit())
 				printk(KERN_INFO "iommu_alloc failed, iommu %p paddr %lx"
@@ -399,12 +403,12 @@ static int dma_4v_map_sg(struct device *dev, struct scatterlist *sglist,
 
 		iommu_batch_new_entry(entry);
 
-		
+		/* Convert entry to a dma_addr_t */
 		dma_addr = iommu->page_table_map_base +
 			(entry << IO_PAGE_SHIFT);
 		dma_addr |= (s->offset & ~IO_PAGE_MASK);
 
-		
+		/* Insert into HW table */
 		paddr &= IO_PAGE_MASK;
 		while (npages--) {
 			err = iommu_batch_add(paddr);
@@ -413,13 +417,16 @@ static int dma_4v_map_sg(struct device *dev, struct scatterlist *sglist,
 			paddr += IO_PAGE_SIZE;
 		}
 
-		
+		/* If we are in an open segment, try merging */
 		if (segstart != s) {
+			/* We cannot merge if:
+			 * - allocated dma_addr isn't contiguous to previous allocation
+			 */
 			if ((dma_addr != dma_next) ||
 			    (outs->dma_length + s->length > max_seg_size) ||
 			    (is_span_boundary(out_entry, base_shift,
 					      seg_boundary_size, outs, s))) {
-				
+				/* Can't merge: create a new segment */
 				segstart = s;
 				outcount++;
 				outs = sg_next(outs);
@@ -429,13 +436,13 @@ static int dma_4v_map_sg(struct device *dev, struct scatterlist *sglist,
 		}
 
 		if (segstart == s) {
-			
+			/* This is a new segment, fill entries */
 			outs->dma_address = dma_addr;
 			outs->dma_length = slen;
 			out_entry = entry;
 		}
 
-		
+		/* Calculate next page pointer for contiguous check */
 		dma_next = dma_addr + slen;
 	}
 
@@ -463,7 +470,7 @@ iommu_map_failed:
 			npages = iommu_num_pages(s->dma_address, s->dma_length,
 						 IO_PAGE_SIZE);
 			iommu_range_free(iommu, vaddr, npages);
-			
+			/* XXX demap? XXX */
 			s->dma_address = DMA_ERROR_CODE;
 			s->dma_length = 0;
 		}
@@ -540,7 +547,7 @@ static void __devinit pci_sun4v_scan_bus(struct pci_pbm_info *pbm,
 	pbm->is_66mhz_capable = (prop != NULL);
 	pbm->pci_bus = pci_scan_one_pbm(pbm, parent);
 
-	
+	/* XXX register error interrupt handlers XXX */
 }
 
 static unsigned long __devinit probe_existing_entries(struct pci_pbm_info *pbm,
@@ -594,13 +601,13 @@ static int __devinit pci_sun4v_iommu_init(struct pci_pbm_info *pbm)
 
 	dma_offset = vdma[0];
 
-	
+	/* Setup initial software IOMMU state. */
 	spin_lock_init(&iommu->lock);
 	iommu->ctx_lowest_free = 1;
 	iommu->page_table_map_base = dma_offset;
 	iommu->dma_addr_mask = dma_mask;
 
-	
+	/* Allocate and initialize the free area map.  */
 	sz = (num_tsb_entries + 7) / 8;
 	sz = (sz + 7UL) & ~7UL;
 	iommu->arena.map = kzalloc(sz, GFP_KERNEL);
@@ -635,7 +642,7 @@ struct pci_sun4v_msiq_entry {
 	u64		intx_sysino;
 	u64		reserved1;
 	u64		stick;
-	u64		req_id;  
+	u64		req_id;  /* bus/device/func */
 #define MSIQ_REQID_BUS_MASK		0xff00UL
 #define MSIQ_REQID_BUS_SHIFT		8
 #define MSIQ_REQID_DEVICE_MASK		0x00f8UL
@@ -645,6 +652,19 @@ struct pci_sun4v_msiq_entry {
 
 	u64		msi_address;
 
+	/* The format of this value is message type dependent.
+	 * For MSI bits 15:0 are the data from the MSI packet.
+	 * For MSI-X bits 31:0 are the data from the MSI packet.
+	 * For MSG, the message code and message routing code where:
+	 * 	bits 39:32 is the bus/device/fn of the msg target-id
+	 *	bits 18:16 is the message routing code
+	 *	bits 7:0 is the message code
+	 * For INTx the low order 2-bits are:
+	 *	00 - INTA
+	 *	01 - INTB
+	 *	10 - INTC
+	 *	11 - INTD
+	 */
 	u64		msi_data;
 
 	u64		reserved2;
@@ -673,7 +693,7 @@ static int pci_sun4v_dequeue_msi(struct pci_pbm_info *pbm,
 	struct pci_sun4v_msiq_entry *ep;
 	unsigned long err, type;
 
-	
+	/* Note: void pointer arithmetic, 'head' is a byte offset  */
 	ep = (pbm->msi_queues + ((msiqid - pbm->msiq_first) *
 				 (pbm->msiq_ent_count *
 				  sizeof(struct pci_sun4v_msiq_entry))) +
@@ -690,12 +710,12 @@ static int pci_sun4v_dequeue_msi(struct pci_pbm_info *pbm,
 	*msi = ep->msi_data;
 
 	err = pci_sun4v_msi_setstate(pbm->devhandle,
-				     ep->msi_data ,
+				     ep->msi_data /* msi_num */,
 				     HV_MSISTATE_IDLE);
 	if (unlikely(err))
 		return -ENXIO;
 
-	
+	/* Clear the entry.  */
 	ep->version_type &= ~MSIQ_TYPE_MASK;
 
 	(*head) += sizeof(struct pci_sun4v_msiq_entry);
@@ -853,11 +873,11 @@ static void pci_sun4v_msi_init(struct pci_pbm_info *pbm)
 {
 	sparc64_pbm_msi_init(pbm, &pci_sun4v_msiq_ops);
 }
-#else 
+#else /* CONFIG_PCI_MSI */
 static void pci_sun4v_msi_init(struct pci_pbm_info *pbm)
 {
 }
-#endif 
+#endif /* !(CONFIG_PCI_MSI) */
 
 static int __devinit pci_sun4v_pbm_init(struct pci_pbm_info *pbm,
 					struct platform_device *op, u32 devhandle)

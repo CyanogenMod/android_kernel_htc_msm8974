@@ -127,7 +127,7 @@ static void write_propval_string(FILE *f, struct data val)
 	}
 	fprintf(f, "\"");
 
-	
+	/* Wrap up any labels at the end of the value */
 	for_each_marker_of_type(m, LABEL) {
 		assert (m->offset == val.len);
 		fprintf(f, " %s:", m->ref);
@@ -156,7 +156,7 @@ static void write_propval_cells(FILE *f, struct data val)
 		fprintf(f, " ");
 	}
 
-	
+	/* Wrap up any labels at the end of the value */
 	for_each_marker_of_type(m, LABEL) {
 		assert (m->offset == val.len);
 		fprintf(f, " %s:", m->ref);
@@ -184,7 +184,7 @@ static void write_propval_bytes(FILE *f, struct data val)
 		fprintf(f, " ");
 	}
 
-	
+	/* Wrap up any labels at the end of the value */
 	for_each_marker_of_type(m, LABEL) {
 		assert (m->offset == val.len);
 		fprintf(f, " %s:", m->ref);

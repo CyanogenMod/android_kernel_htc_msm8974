@@ -7,7 +7,7 @@
 #ifndef _MACH_PORTMUX_H_
 #define _MACH_PORTMUX_H_
 
-#define MAX_RESOURCES	(MAX_BLACKFIN_GPIOS + GPIO_BANKSIZE)	
+#define MAX_RESOURCES	(MAX_BLACKFIN_GPIOS + GPIO_BANKSIZE)	/* We additionally handle PORTJ */
 
 #define P_UART0_TX	(P_DEFINED | P_IDENT(GPIO_PF0) | P_FUNCT(0))
 #define P_UART0_RX	(P_DEFINED | P_IDENT(GPIO_PF1) | P_FUNCT(0))
@@ -149,4 +149,4 @@
 	P_MDC, \
 	P_MDIO, 0}
 
-#endif 
+#endif /* _MACH_PORTMUX_H_ */

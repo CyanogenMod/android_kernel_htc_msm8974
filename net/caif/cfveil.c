@@ -62,10 +62,10 @@ static int cfvei_receive(struct cflayer *layr, struct cfpkt *pkt)
 		layr->ctrlcmd(layr, CAIF_CTRLCMD_FLOW_ON_IND, 0);
 		cfpkt_destroy(pkt);
 		return 0;
-	case VEI_SET_PIN:	
+	case VEI_SET_PIN:	/* SET RS232 PIN */
 		cfpkt_destroy(pkt);
 		return 0;
-	default:		
+	default:		/* SET RS232 PIN */
 		pr_warn("Unknown VEI control packet %d (0x%x)!\n", cmd, cmd);
 		cfpkt_destroy(pkt);
 		return -EPROTO;
@@ -89,7 +89,7 @@ static int cfvei_transmit(struct cflayer *layr, struct cfpkt *pkt)
 		goto err;
 	}
 
-	
+	/* Add info-> for MUX-layer to route the packet out. */
 	info = cfpkt_info(pkt);
 	info->channel_id = service->layer.id;
 	info->hdr_len = 1;

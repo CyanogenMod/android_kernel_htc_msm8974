@@ -89,9 +89,20 @@ static int __init spiderpci_pci_setup_chip(struct pci_controller *phb,
 	u32 val = in_be32(regs + SPIDER_PCI_VCI_CNTL_STAT);
 	pr_debug("SPIDER_IOWA:PVCI_Control_Status was 0x%08x\n", val);
 	out_be32(regs + SPIDER_PCI_VCI_CNTL_STAT, val | 0x8);
-#endif 
+#endif /* SPIDER_PCI_DISABLE_PREFETCH */
 
-	
+	/* setup dummy read */
+	/*
+	 * On CellBlade, we can't know that which XDR memory is used by
+	 * kmalloc() to allocate dummy_page_va.
+	 * In order to imporve the performance, the XDR which is used to
+	 * allocate dummy_page_va is the nearest the spider-pci.
+	 * We have to select the CBE which is the nearest the spider-pci
+	 * to allocate memory from the best XDR, but I don't know that
+	 * how to do.
+	 *
+	 * Celleb does not have this problem, because it has only one XDR.
+	 */
 	dummy_page_va = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!dummy_page_va) {
 		pr_err("SPIDERPCI-IOWA:Alloc dummy_page_va failed.\n");

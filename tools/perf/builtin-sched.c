@@ -30,7 +30,7 @@ static const char		*sort_order = default_sort_order;
 
 static int			profile_cpu = -1;
 
-#define PR_SET_NAME		15               
+#define PR_SET_NAME		15               /* Set process name */
 #define MAX_CPUS		4096
 
 static u64			run_measurement_overhead;
@@ -251,6 +251,10 @@ add_sched_event_run(struct task_desc *task, u64 timestamp, u64 duration)
 {
 	struct sched_atom *event, *curr_event = last_event(task);
 
+	/*
+	 * optimize an existing RUN event by merging this one
+	 * to it:
+	 */
 	if (curr_event && curr_event->type == SCHED_EVENT_RUN) {
 		nr_run_events_optimized++;
 		curr_event->duration += duration;
@@ -319,6 +323,10 @@ static struct task_desc *register_pid(unsigned long pid, const char *comm)
 	task->pid = pid;
 	task->nr = nr_tasks;
 	strcpy(task->comm, comm);
+	/*
+	 * every task starts in sleeping state - this gets ignored
+	 * if there's no wakeup pointing to this sleep state:
+	 */
 	add_sched_event_sleep(task, 0, 0);
 
 	pid_to_task[pid] = task;
@@ -583,6 +591,10 @@ static void run_one_test(void)
 		(double)cpu_usage/1e6, (double)runavg_cpu_usage/1e6);
 
 #if 0
+	/*
+	 * rusage statistics done by the parent, these are less
+	 * accurate than the sum_exec_runtime based statistics:
+	 */
 	printf(" [%0.2f / %0.2f]",
 		(double)parent_cpu_usage/1e6,
 		(double)runavg_parent_cpu_usage/1e6);
@@ -937,7 +949,7 @@ latency_fork_event(struct trace_fork_event *fork_event __used,
 		   u64 timestamp __used,
 		   struct thread *thread __used)
 {
-	
+	/* should insert the newcomer */
 }
 
 __used
@@ -1055,6 +1067,10 @@ latency_switch_event(struct trace_switch_event *switch_event,
 		in_events = thread_atoms_search(&atom_root, sched_in, &cmp_pid);
 		if (!in_events)
 			die("in-event: Internal tree error");
+		/*
+		 * Take came in we have not heard about yet,
+		 * add in an initial atom in runnable state:
+		 */
 		add_sched_out_event(in_events, 'R', timestamp);
 	}
 	add_sched_in_event(in_events, timestamp);
@@ -1095,7 +1111,7 @@ latency_wakeup_event(struct trace_wakeup_event *wakeup_event,
 	struct work_atom *atom;
 	struct thread *wakee;
 
-	
+	/* Note for later, it may be interesting to observe the failing cases */
 	if (!wakeup_event->success)
 		return;
 
@@ -1113,6 +1129,11 @@ latency_wakeup_event(struct trace_wakeup_event *wakeup_event,
 
 	atom = list_entry(atoms->work_list.prev, struct work_atom, list);
 
+	/*
+	 * You WILL be missing events if you've recorded only
+	 * one CPU, or are only looking at only one, so don't
+	 * make useless noise.
+	 */
 	if (profile_cpu == -1 && atom->state != THREAD_SLEEPING)
 		nr_state_machine_bugs++;
 
@@ -1138,6 +1159,9 @@ latency_migrate_task_event(struct trace_migrate_task_event *migrate_task_event,
 	struct work_atom *atom;
 	struct thread *migrant;
 
+	/*
+	 * Only need to worry about migration when profiling one CPU.
+	 */
 	if (profile_cpu == -1)
 		return;
 
@@ -1179,6 +1203,9 @@ static void output_lat_thread(struct work_atoms *work_list)
 
 	if (!work_list->nb_atoms)
 		return;
+	/*
+	 * Ignore idle threads:
+	 */
 	if (!strcmp(work_list->thread->comm, "swapper"))
 		return;
 
@@ -1355,6 +1382,10 @@ process_sched_wakeup_event(struct perf_tool *tool __used,
 					    sample->cpu, sample->time, thread);
 }
 
+/*
+ * Track the current task - that way we can know whether there's any
+ * weird events, such as a task being switched away that is not current.
+ */
 static int max_cpu;
 
 static u32 curr_pid[MAX_CPUS] = { [0 ... MAX_CPUS-1] = -1 };
@@ -1465,6 +1496,10 @@ process_sched_switch_event(struct perf_tool *tool __used,
 	FILL_FIELD(switch_event, next_prio, event, data);
 
 	if (curr_pid[this_cpu] != (u32)-1) {
+		/*
+		 * Are we trying to switch away a PID that is
+		 * not current?
+		 */
 		if (curr_pid[this_cpu] != switch_event.prev_pid)
 			nr_context_switch_bugs++;
 	}
@@ -1855,6 +1890,9 @@ int cmd_sched(int argc, const char **argv, const char *prefix __used)
 	if (!argc)
 		usage_with_options(sched_usage, sched_options);
 
+	/*
+	 * Aliased to 'perf script' for now:
+	 */
 	if (!strcmp(argv[0], "script"))
 		return cmd_script(argc, argv, prefix);
 

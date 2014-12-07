@@ -43,7 +43,7 @@ struct joydev {
 	struct input_handle handle;
 	wait_queue_head_t wait;
 	struct list_head client_list;
-	spinlock_t client_lock; 
+	spinlock_t client_lock; /* protects client_list */
 	struct mutex mutex;
 	struct device dev;
 	bool exist;
@@ -64,7 +64,7 @@ struct joydev_client {
 	int head;
 	int tail;
 	int startup;
-	spinlock_t buffer_lock; 
+	spinlock_t buffer_lock; /* protects access to buffer, head and tail */
 	struct fasync_struct *fasync;
 	struct joydev *joydev;
 	struct list_head node;
@@ -98,6 +98,9 @@ static void joydev_pass_event(struct joydev_client *client,
 {
 	struct joydev *joydev = client->joydev;
 
+	/*
+	 * IRQs already disabled, just acquire the lock
+	 */
 	spin_lock(&client->buffer_lock);
 
 	client->buffer[client->head] = *event;
@@ -217,6 +220,10 @@ static void joydev_close_device(struct joydev *joydev)
 	mutex_unlock(&joydev->mutex);
 }
 
+/*
+ * Wake up users waiting for IO so they can disconnect from
+ * dead device.
+ */
 static void joydev_hangup(struct joydev *joydev)
 {
 	struct joydev_client *client;
@@ -341,6 +348,9 @@ static int joydev_fetch_next_event(struct joydev_client *client,
 	return have_event;
 }
 
+/*
+ * Old joystick interface
+ */
 static ssize_t joydev_0x_read(struct joydev_client *client,
 			      struct input_dev *input,
 			      char __user *buf)
@@ -351,12 +361,18 @@ static ssize_t joydev_0x_read(struct joydev_client *client,
 
 	spin_lock_irq(&input->event_lock);
 
+	/*
+	 * Get device state
+	 */
 	for (data.buttons = i = 0; i < 32 && i < joydev->nkey; i++)
 		data.buttons |=
 			test_bit(joydev->keypam[i], input->key) ? (1 << i) : 0;
 	data.x = (joydev->abs[0] / 256 + 128) >> joydev->glue.JS_CORR.x;
 	data.y = (joydev->abs[1] / 256 + 128) >> joydev->glue.JS_CORR.y;
 
+	/*
+	 * Reset reader's event queue
+	 */
 	spin_lock(&client->buffer_lock);
 	client->startup = 0;
 	client->tail = client->head;
@@ -428,6 +444,7 @@ static ssize_t joydev_read(struct file *file, char __user *buf,
 	return retval;
 }
 
+/* No kernel lock - fine */
 static unsigned int joydev_poll(struct file *file, poll_table *wait)
 {
 	struct joydev_client *client = file->private_data;
@@ -447,7 +464,7 @@ static int joydev_handle_JSIOCSAXMAP(struct joydev *joydev,
 
 	len = min(len, sizeof(joydev->abspam));
 
-	
+	/* Validate the map. */
 	abspam = kmalloc(len, GFP_KERNEL);
 	if (!abspam)
 		return -ENOMEM;
@@ -483,7 +500,7 @@ static int joydev_handle_JSIOCSBTNMAP(struct joydev *joydev,
 
 	len = min(len, sizeof(joydev->keypam));
 
-	
+	/* Validate the map. */
 	keypam = kmalloc(len, GFP_KERNEL);
 	if (!keypam)
 		return -ENOMEM;
@@ -519,7 +536,7 @@ static int joydev_ioctl_common(struct joydev *joydev,
 	int i;
 	const char *name;
 
-	
+	/* Process fixed-sized commands. */
 	switch (cmd) {
 
 	case JS_SET_CAL:
@@ -562,6 +579,11 @@ static int joydev_ioctl_common(struct joydev *joydev,
 
 	}
 
+	/*
+	 * Process variable-sized commands (the axis and button map commands
+	 * are considered variable-sized to decouple them from the values of
+	 * ABS_MAX and KEY_MAX).
+	 */
 	switch (cmd & ~IOCSIZE_MASK) {
 
 	case (JSIOCSAXMAP & ~IOCSIZE_MASK):
@@ -656,7 +678,7 @@ static long joydev_compat_ioctl(struct file *file,
 	mutex_unlock(&joydev->mutex);
 	return retval;
 }
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static long joydev_ioctl(struct file *file,
 			 unsigned int cmd, unsigned long arg)
@@ -733,6 +755,11 @@ static void joydev_remove_chrdev(struct joydev *joydev)
 	mutex_unlock(&joydev_table_mutex);
 }
 
+/*
+ * Mark device non-existent. This disables writes, ioctls and
+ * prevents new users from opening the device. Already posted
+ * blocking reads will stay, however new ones will fail.
+ */
 static void joydev_mark_dead(struct joydev *joydev)
 {
 	mutex_lock(&joydev->mutex);
@@ -748,7 +775,7 @@ static void joydev_cleanup(struct joydev *joydev)
 	joydev_hangup(joydev);
 	joydev_remove_chrdev(joydev);
 
-	
+	/* joydev is marked dead so no one else accesses joydev->open */
 	if (joydev->open)
 		input_close_device(handle);
 }
@@ -756,11 +783,11 @@ static void joydev_cleanup(struct joydev *joydev)
 
 static bool joydev_match(struct input_handler *handler, struct input_dev *dev)
 {
-	
+	/* Avoid touchpads and touchscreens */
 	if (test_bit(EV_KEY, dev->evbit) && test_bit(BTN_TOUCH, dev->keybit))
 		return false;
 
-	
+	/* Avoid tablets, digitisers and similar devices */
 	if (test_bit(EV_KEY, dev->evbit) && test_bit(BTN_DIGI, dev->keybit))
 		return false;
 
@@ -924,7 +951,7 @@ static const struct input_device_id joydev_ids[] = {
 		.evbit = { BIT_MASK(EV_KEY) },
 		.keybit = { [BIT_WORD(BTN_TRIGGER_HAPPY)] = BIT_MASK(BTN_TRIGGER_HAPPY) },
 	},
-	{ }	
+	{ }	/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(input, joydev_ids);

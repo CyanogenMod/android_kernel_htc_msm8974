@@ -1,4 +1,20 @@
 
+/*
+ * DECnet       An implementation of the DECnet protocol suite for the LINUX
+ *              operating system.  DECnet is implemented using the  BSD Socket
+ *              interface as the means of communication with the user level.
+ *
+ *              DECnet Routing Forwarding Information Base (Rules)
+ *
+ * Author:      Steve Whitehouse <SteveW@ACM.org>
+ *              Mostly copied from Alexey Kuznetsov's ipv4/fib_rules.c
+ *
+ *
+ * Changes:
+ *              Steve Whitehouse <steve@chygwyn.com>
+ *              Updated for Thomas Graf's generic rules
+ *
+ */
 #include <linux/net.h>
 #include <linux/init.h>
 #include <linux/netlink.h>

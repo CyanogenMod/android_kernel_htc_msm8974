@@ -107,6 +107,11 @@ static int bfin_sir_set_speed(struct bfin_sir_port *port, int speed)
 	case 57600:
 	case 115200:
 
+		/*
+		 * IRDA is not affected by anomaly 05000230, so there is no
+		 * need to tweak the divisor like he UART driver (which will
+		 * slightly speed up the baud rate on us).
+		 */
 		quot = (port->clk + (8 * speed)) / (16 * speed);
 
 		do {
@@ -114,14 +119,17 @@ static int bfin_sir_set_speed(struct bfin_sir_port *port, int speed)
 			lsr = UART_GET_LSR(port);
 		} while (!(lsr & TEMT) && count--);
 
-		
+		/* The useconds for 1 bits to transmit */
 		utime = 1000000 / speed + 1;
 
+		/* Clear UCEN bit to reset the UART state machine
+		 * and control registers
+		 */
 		val = UART_GET_GCTL(port);
 		val &= ~UCEN;
 		UART_PUT_GCTL(port, val);
 
-		
+		/* Set DLAB in LCR to Access THR RBR IER */
 		UART_SET_DLAB(port);
 		SSYNC();
 
@@ -129,7 +137,7 @@ static int bfin_sir_set_speed(struct bfin_sir_port *port, int speed)
 		UART_PUT_DLH(port, (quot >> 8) & 0xFF);
 		SSYNC();
 
-		
+		/* Clear DLAB in LCR */
 		UART_CLEAR_DLAB(port);
 		SSYNC();
 
@@ -147,6 +155,9 @@ static int bfin_sir_set_speed(struct bfin_sir_port *port, int speed)
 	}
 
 	val = UART_GET_GCTL(port);
+	/* If not add the 'RPOLC', we can't catch the receive interrupt.
+	 * It's related with the HW layout and the IR transiver.
+	 */
 	val |= IREN | RPOLC;
 	UART_PUT_GCTL(port, val);
 	return ret;
@@ -184,7 +195,7 @@ static void bfin_sir_tx_chars(struct net_device *dev)
 		}
 		bfin_sir_stop_tx(port);
 		bfin_sir_enable_rx(port);
-		
+		/* I'm hungry! */
 		netif_wake_queue(dev);
 	}
 }
@@ -228,7 +239,7 @@ static irqreturn_t bfin_sir_tx_int(int irq, void *dev_id)
 
 	return IRQ_HANDLED;
 }
-#endif 
+#endif /* CONFIG_SIR_BFIN_PIO */
 
 #ifdef CONFIG_SIR_BFIN_DMA
 static void bfin_sir_dma_tx_chars(struct net_device *dev)
@@ -286,7 +297,7 @@ static irqreturn_t bfin_sir_dma_tx_int(int irq, void *dev_id)
 			self->newspeed = 0;
 		}
 		bfin_sir_enable_rx(port);
-		
+		/* I'm hungry! */
 		netif_wake_queue(dev);
 		port->tx_done = 1;
 	}
@@ -354,13 +365,13 @@ static irqreturn_t bfin_sir_dma_rx_int(int irq, void *dev_id)
 	mod_timer(&port->rx_dma_timer, jiffies + DMA_SIR_RX_FLUSH_JIFS);
 	return IRQ_HANDLED;
 }
-#endif 
+#endif /* CONFIG_SIR_BFIN_DMA */
 
 static int bfin_sir_startup(struct bfin_sir_port *port, struct net_device *dev)
 {
 #ifdef CONFIG_SIR_BFIN_DMA
 	dma_addr_t dma_handle;
-#endif 
+#endif /* CONFIG_SIR_BFIN_DMA */
 
 	if (request_dma(port->rx_dma_channel, "BFIN_UART_RX") < 0) {
 		dev_warn(&dev->dev, "Unable to attach SIR RX DMA channel\n");
@@ -502,6 +513,10 @@ static void bfin_sir_send_work(struct work_struct *work)
 
 	bfin_sir_stop_rx(port);
 
+	/* To avoid losting RX interrupt, we reset IR function before
+	 * sending data. We also can set the speed, which will
+	 * reset all the UART.
+	 */
 	val = UART_GET_GCTL(port);
 	val &= ~(IREN | RPOLC);
 	UART_PUT_GCTL(port, val);
@@ -509,7 +524,7 @@ static void bfin_sir_send_work(struct work_struct *work)
 	val |= IREN | RPOLC;
 	UART_PUT_GCTL(port, val);
 	SSYNC();
-	
+	/* bfin_sir_set_speed(port, self->speed); */
 
 #ifdef CONFIG_SIR_BFIN_DMA
 	bfin_sir_dma_tx_chars(dev);
@@ -612,6 +627,9 @@ static int bfin_sir_open(struct net_device *dev)
 
 	INIT_WORK(&self->work, bfin_sir_send_work);
 
+	/*
+	 * Now enable the interrupt then start the queue
+	 */
 	self->open = 1;
 	bfin_sir_enable_rx(port);
 
@@ -638,7 +656,7 @@ static int bfin_sir_stop(struct net_device *dev)
 		self->rxskb = NULL;
 	}
 
-	
+	/* Stop IrLAP */
 	if (self->irlap) {
 		irlap_close(self->irlap);
 		self->irlap = NULL;
@@ -735,7 +753,7 @@ static int __devinit bfin_sir_probe(struct platform_device *pdev)
 
 	self->qos.baud_rate.bits &= baudrate_mask;
 
-	self->qos.min_turn_time.bits = 1; 
+	self->qos.min_turn_time.bits = 1; /* 10 ms or more */
 
 	irda_qos_bits_to_value(&self->qos);
 

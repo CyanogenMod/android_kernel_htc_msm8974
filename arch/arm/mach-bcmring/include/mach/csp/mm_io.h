@@ -12,19 +12,38 @@
 * consent.
 *****************************************************************************/
 
+/****************************************************************************/
+/**
+*  @file    mm_io.h
+*
+*  @brief   Memory Map I/O definitions
+*
+*  @note
+*     None
+*/
+/****************************************************************************/
 
 #ifndef _MM_IO_H
 #define _MM_IO_H
 
+/* ---- Include Files ---------------------------------------------------- */
 #include <mach/csp/mm_addr.h>
 
 #if !defined(CSP_SIMULATION)
 #include <cfg_global.h>
 #endif
 
+/* ---- Public Constants and Types --------------------------------------- */
 
 #if defined(CONFIG_MMU)
 
+/* This macro is referenced in <mach/io.h>
+ * Phys to Virtual 0xNyxxxxxx => 0xFNxxxxxx
+ * This macro is referenced in <asm/arch/io.h>
+ *
+ * Assume VPM address is the last x MB of memory.  For VPM, map to
+ * 0xf0000000 and up.
+ */
 
 #ifndef MM_IO_PHYS_TO_VIRT
 #ifdef __ASSEMBLY__
@@ -35,6 +54,7 @@
 #endif
 #endif
 
+/* Virtual to Physical 0xFNxxxxxx => 0xN0xxxxxx */
 
 #ifndef MM_IO_VIRT_TO_PHYS
 #ifdef __ASSEMBLY__
@@ -57,12 +77,13 @@
 
 #endif
 
+/* Registers in 0xExxxxxxx that should be moved to 0xFxxxxxxx */
 #define MM_IO_BASE_FLASHC              MM_IO_PHYS_TO_VIRT(MM_ADDR_IO_FLASHC)
 #define MM_IO_BASE_NAND                MM_IO_PHYS_TO_VIRT(MM_ADDR_IO_NAND)
 #define MM_IO_BASE_UMI                 MM_IO_PHYS_TO_VIRT(MM_ADDR_IO_UMI)
 
-#define MM_IO_START MM_ADDR_IO_FLASHC	
-#define MM_IO_BASE  MM_IO_BASE_FLASHC	
+#define MM_IO_START MM_ADDR_IO_FLASHC	/* Physical beginning of IO mapped memory */
+#define MM_IO_BASE  MM_IO_BASE_FLASHC	/* Virtual beginning of IO mapped memory */
 
 #define MM_IO_BASE_BROM                MM_IO_PHYS_TO_VIRT(MM_ADDR_IO_BROM)
 #define MM_IO_BASE_ARAM                MM_IO_PHYS_TO_VIRT(MM_ADDR_IO_ARAM)
@@ -120,5 +141,7 @@
 
 #define MM_IO_BASE_VPM_EXTMEM_RSVD     MM_IO_PHYS_TO_VIRT(MM_ADDR_IO_VPM_EXTMEM_RSVD)
 
+/* ---- Public Variable Externs ------------------------------------------ */
+/* ---- Public Function Prototypes --------------------------------------- */
 
-#endif 
+#endif /* _MM_IO_H */

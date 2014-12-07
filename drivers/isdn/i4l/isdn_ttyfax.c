@@ -39,6 +39,10 @@ isdn_getrev(const char *revision)
 	return rev;
 }
 
+/*
+ * Fax Class 2 Modem results
+ *
+ */
 
 static void
 isdn_tty_fax_modem_result(int code, modem_info *info)
@@ -63,12 +67,12 @@ isdn_tty_fax_modem_result(int code, modem_info *info)
 	       msg[code], info->line);
 #endif
 	switch (code) {
-	case 0: 
+	case 0: /* OK */
 		break;
-	case 1: 
+	case 1: /* ERROR */
 		break;
-	case 2:	
-		
+	case 2:	/* +FCON */
+		/* Append CPN, if enabled */
 		if ((m->mdmreg[REG_CPNFCON] & BIT_CPNFCON) &&
 		    (!(dev->usage[info->isdn_channel] & ISDN_USAGE_OUTGOING))) {
 			sprintf(rs, "/%s", m->cpn);
@@ -79,12 +83,12 @@ isdn_tty_fax_modem_result(int code, modem_info *info)
 		if (f->phase == ISDN_FAX_PHASE_A)
 			f->phase = ISDN_FAX_PHASE_B;
 		break;
-	case 3:	
-	case 8:	
+	case 3:	/* +FCSI */
+	case 8:	/* +FTSI */
 		sprintf(rs, "\"%s\"", f->r_id);
 		isdn_tty_at_cout(rs, info);
 		break;
-	case 4:	
+	case 4:	/* +FDIS */
 		rs[0] = 0;
 		rp = &f->r_resolution;
 		for (i = 0; i < 8; i++) {
@@ -98,12 +102,12 @@ isdn_tty_fax_modem_result(int code, modem_info *info)
 		       rs, info->line);
 #endif
 		break;
-	case 5:	
+	case 5:	/* +FHNG */
 		sprintf(rs, "%d", f->code);
 		isdn_tty_at_cout(rs, info);
 		info->faxonline = 0;
 		break;
-	case 6:	
+	case 6:	/* +FDCS */
 		rs[0] = 0;
 		rp = &f->r_resolution;
 		for (i = 0; i < 8; i++) {
@@ -117,15 +121,15 @@ isdn_tty_fax_modem_result(int code, modem_info *info)
 		       rs, info->line);
 #endif
 		break;
-	case 7:	
+	case 7:	/* CONNECT */
 		info->faxonline |= 2;
 		break;
-	case 9:	
+	case 9:	/* FCFR */
 		break;
-	case 10:	
+	case 10:	/* FPTS */
 		isdn_tty_at_cout("1", info);
 		break;
-	case 11:	
+	case 11:	/* FET */
 		sprintf(rs, "%d", f->fet);
 		isdn_tty_at_cout(rs, info);
 		break;
@@ -134,7 +138,7 @@ isdn_tty_fax_modem_result(int code, modem_info *info)
 	isdn_tty_at_cout("\r\n", info);
 
 	switch (code) {
-	case 7:	
+	case 7:	/* CONNECT */
 		info->online = 2;
 		if (info->faxonline & 1) {
 			sprintf(rs, "%c", XON);
@@ -199,20 +203,20 @@ isdn_tty_fax_command(modem_info *info, isdn_ctrl *c)
 	switch (f->r_code) {
 	case ISDN_TTY_FAX_FCON:
 		info->faxonline = 1;
-		isdn_tty_fax_modem_result(2, info);	
+		isdn_tty_fax_modem_result(2, info);	/* +FCON */
 		return (0);
 	case ISDN_TTY_FAX_FCON_I:
 		info->faxonline = 16;
-		isdn_tty_fax_modem_result(2, info);	
+		isdn_tty_fax_modem_result(2, info);	/* +FCON */
 		return (0);
 	case ISDN_TTY_FAX_RID:
 		if (info->faxonline & 1)
-			isdn_tty_fax_modem_result(3, info);	
+			isdn_tty_fax_modem_result(3, info);	/* +FCSI */
 		if (info->faxonline & 16)
-			isdn_tty_fax_modem_result(8, info);	
+			isdn_tty_fax_modem_result(8, info);	/* +FTSI */
 		return (0);
 	case ISDN_TTY_FAX_DIS:
-		isdn_tty_fax_modem_result(4, info);	
+		isdn_tty_fax_modem_result(4, info);	/* +FDIS */
 		return (0);
 	case ISDN_TTY_FAX_HNG:
 		if (f->phase == ISDN_FAX_PHASE_C) {
@@ -223,49 +227,49 @@ isdn_tty_fax_command(modem_info *info, isdn_ctrl *c)
 				sprintf(rs, "%c", 0x18);
 				isdn_tty_at_cout(rs, info);
 			}
-			info->faxonline &= ~2;	
+			info->faxonline &= ~2;	/* leave data mode */
 			info->online = 1;
 		}
 		f->phase = ISDN_FAX_PHASE_E;
-		isdn_tty_fax_modem_result(5, info);	
-		isdn_tty_fax_modem_result(0, info);	
+		isdn_tty_fax_modem_result(5, info);	/* +FHNG */
+		isdn_tty_fax_modem_result(0, info);	/* OK */
 		return (0);
 	case ISDN_TTY_FAX_DCS:
-		isdn_tty_fax_modem_result(6, info);	
-		isdn_tty_fax_modem_result(7, info);	
+		isdn_tty_fax_modem_result(6, info);	/* +FDCS */
+		isdn_tty_fax_modem_result(7, info);	/* CONNECT */
 		f->phase = ISDN_FAX_PHASE_C;
 		return (0);
 	case ISDN_TTY_FAX_TRAIN_OK:
-		isdn_tty_fax_modem_result(6, info);	
-		isdn_tty_fax_modem_result(0, info);	
+		isdn_tty_fax_modem_result(6, info);	/* +FDCS */
+		isdn_tty_fax_modem_result(0, info);	/* OK */
 		return (0);
 	case ISDN_TTY_FAX_SENT:
-		isdn_tty_fax_modem_result(0, info);	
+		isdn_tty_fax_modem_result(0, info);	/* OK */
 		return (0);
 	case ISDN_TTY_FAX_CFR:
-		isdn_tty_fax_modem_result(9, info);	
+		isdn_tty_fax_modem_result(9, info);	/* +FCFR */
 		return (0);
 	case ISDN_TTY_FAX_ET:
 		sprintf(rs, "%c%c", DLE, ETX);
 		isdn_tty_at_cout(rs, info);
-		isdn_tty_fax_modem_result(10, info);	
-		isdn_tty_fax_modem_result(11, info);	
-		isdn_tty_fax_modem_result(0, info);	
-		info->faxonline &= ~2;	
+		isdn_tty_fax_modem_result(10, info);	/* +FPTS */
+		isdn_tty_fax_modem_result(11, info);	/* +FET */
+		isdn_tty_fax_modem_result(0, info);	/* OK */
+		info->faxonline &= ~2;	/* leave data mode */
 		info->online = 1;
 		f->phase = ISDN_FAX_PHASE_D;
 		return (0);
 	case ISDN_TTY_FAX_PTS:
-		isdn_tty_fax_modem_result(10, info);	
+		isdn_tty_fax_modem_result(10, info);	/* +FPTS */
 		if (f->direction == ISDN_TTY_FAX_CONN_OUT) {
 			if (f->fet == 1)
 				f->phase = ISDN_FAX_PHASE_B;
 			if (f->fet == 0)
-				isdn_tty_fax_modem_result(0, info);	
+				isdn_tty_fax_modem_result(0, info);	/* OK */
 		}
 		return (0);
 	case ISDN_TTY_FAX_EOP:
-		info->faxonline &= ~2;	
+		info->faxonline &= ~2;	/* leave data mode */
 		info->online = 1;
 		f->phase = ISDN_FAX_PHASE_D;
 		return (0);
@@ -308,6 +312,9 @@ isdn_tty_fax_bitorder(modem_info *info, struct sk_buff *skb)
 	}
 }
 
+/*
+ * Parse AT+F.. FAX class 1 commands
+ */
 
 static int
 isdn_tty_cmd_FCLASS1(char **p, modem_info *info)
@@ -364,7 +371,7 @@ isdn_tty_cmd_FCLASS1(char **p, modem_info *info)
 			PARSE_ERROR1;
 		}
 		spin_lock_irqsave(&dev->lock, flags);
-		
+		/* get a temporary connection to the first free fax driver */
 		i = isdn_get_free_channel(ISDN_USAGE_FAX, ISDN_PROTO_L2_FAX,
 					  ISDN_PROTO_L3_FCLASS1, -1, -1, "00");
 		if (i < 0) {
@@ -397,6 +404,9 @@ isdn_tty_cmd_FCLASS1(char **p, modem_info *info)
 	return 1;
 }
 
+/*
+ * Parse AT+F.. FAX class 2 commands
+ */
 
 static int
 isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
@@ -410,8 +420,8 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 	int maxdccval[] =
 		{1, 5, 2, 2, 3, 2, 0, 7};
 
-	
-	if (!strncmp(p[0], "AA", 2)) {	
+	/* FAA still unchanged */
+	if (!strncmp(p[0], "AA", 2)) {	/* TODO */
 		p[0] += 2;
 		switch (*p[0]) {
 		case '?':
@@ -430,7 +440,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* BADLIN=value - dummy 0=disable errorchk disabled, 1-255 nr. of lines for making page bad */
 	if (!strncmp(p[0], "BADLIN", 6)) {
 		p[0] += 6;
 		switch (*p[0]) {
@@ -460,7 +470,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* BADMUL=value - dummy 0=disable errorchk disabled (threshold multiplier) */
 	if (!strncmp(p[0], "BADMUL", 6)) {
 		p[0] += 6;
 		switch (*p[0]) {
@@ -490,7 +500,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* BOR=n - Phase C bit order, 0=direct, 1=reverse */
 	if (!strncmp(p[0], "BOR", 3)) {
 		p[0] += 3;
 		switch (*p[0]) {
@@ -520,7 +530,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* NBC=n - No Best Capabilities */
 	if (!strncmp(p[0], "NBC", 3)) {
 		p[0] += 3;
 		switch (*p[0]) {
@@ -550,7 +560,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* BUF? - Readonly buffersize readout  */
 	if (!strncmp(p[0], "BUF?", 4)) {
 		p[0] += 4;
 #ifdef ISDN_TTY_FAX_STAT_DEBUG
@@ -561,7 +571,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		isdn_tty_at_cout(rs, info);
 		return 0;
 	}
-	
+	/* CIG=string - local fax station id string for polling rx */
 	if (!strncmp(p[0], "CIG", 3)) {
 		int i, r;
 		p[0] += 3;
@@ -599,7 +609,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* CQ=n - copy qlty chk, 0= no chk, 1=only 1D chk, 2=1D+2D chk */
 	if (!strncmp(p[0], "CQ", 2)) {
 		p[0] += 2;
 		switch (*p[0]) {
@@ -629,20 +639,20 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* CR=n - can receive? 0= no data rx or poll remote dev, 1=do receive data or poll remote dev */
 	if (!strncmp(p[0], "CR", 2)) {
 		p[0] += 2;
 		switch (*p[0]) {
 		case '?':
 			p[0]++;
-			sprintf(rs, "\r\n%d", f->cr);	
+			sprintf(rs, "\r\n%d", f->cr);	/* read actual value from struct and print */
 			isdn_tty_at_cout(rs, info);
 			break;
 		case '=':
 			p[0]++;
 			if (*p[0] == '?') {
 				p[0]++;
-				sprintf(rs, "\r\n0,1");		
+				sprintf(rs, "\r\n0,1");		/* display online help */
 				isdn_tty_at_cout(rs, info);
 			} else {
 				par = isdn_getnum(p);
@@ -659,7 +669,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* CTCRTY=value - ECM retry count */
 	if (!strncmp(p[0], "CTCRTY", 6)) {
 		p[0] += 6;
 		switch (*p[0]) {
@@ -689,7 +699,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* DCC=vr,br,wd,ln,df,ec,bf,st - DCE capabilities parms */
 	if (!strncmp(p[0], "DCC", 3)) {
 		char *rp = &f->resolution;
 		int i;
@@ -735,7 +745,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* DIS=vr,br,wd,ln,df,ec,bf,st - current session parms */
 	if (!strncmp(p[0], "DIS", 3)) {
 		char *rp = &f->resolution;
 		int i;
@@ -781,10 +791,10 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* DR - Receive Phase C data command, initiates document reception */
 	if (!strncmp(p[0], "DR", 2)) {
 		p[0] += 2;
-		if ((info->faxonline & 16) &&	
+		if ((info->faxonline & 16) &&	/* incoming connection */
 		    ((f->phase == ISDN_FAX_PHASE_B) || (f->phase == ISDN_FAX_PHASE_D))) {
 #ifdef ISDN_TTY_FAX_STAT_DEBUG
 			printk(KERN_DEBUG "isdn_tty: Fax FDR\n");
@@ -798,14 +808,14 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 				f->phase = ISDN_FAX_PHASE_C;
 			} else if (f->phase == ISDN_FAX_PHASE_D) {
 				switch (f->fet) {
-				case 0:	
+				case 0:	/* next page will be received */
 					f->phase = ISDN_FAX_PHASE_C;
-					isdn_tty_fax_modem_result(7, info);	
+					isdn_tty_fax_modem_result(7, info);	/* CONNECT */
 					break;
-				case 1:	
+				case 1:	/* next doc will be received */
 					f->phase = ISDN_FAX_PHASE_B;
 					break;
-				case 2:	
+				case 2:	/* fax session is terminating */
 					f->phase = ISDN_FAX_PHASE_E;
 					break;
 				default:
@@ -817,14 +827,14 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 1;
 	}
-	
+	/* DT=df,vr,wd,ln - TX phase C data command (release DCE to proceed with negotiation) */
 	if (!strncmp(p[0], "DT", 2)) {
 		int i, val[] =
 			{4, 0, 2, 3};
 		char *rp = &f->resolution;
 
 		p[0] += 2;
-		if (!(info->faxonline & 1))	
+		if (!(info->faxonline & 1))	/* not outgoing connection */
 			PARSE_ERROR1;
 
 		for (i = 0; (((*p[0] >= '0') && (*p[0] <= '9')) || (*p[0] == ',')) && (i < 4); i++) {
@@ -851,14 +861,14 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 			isdn_command(&cmd);
 			if (f->phase == ISDN_FAX_PHASE_D) {
 				f->phase = ISDN_FAX_PHASE_C;
-				isdn_tty_fax_modem_result(7, info);	
+				isdn_tty_fax_modem_result(7, info);	/* CONNECT */
 			}
 		} else {
 			PARSE_ERROR1;
 		}
 		return 1;
 	}
-	
+	/* ECM=n - Error mode control 0=disabled, 2=enabled, handled by DCE alone incl. buff of partial pages */
 	if (!strncmp(p[0], "ECM", 3)) {
 		p[0] += 3;
 		switch (*p[0]) {
@@ -888,7 +898,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* ET=n - End of page or document */
 	if (!strncmp(p[0], "ET=", 3)) {
 		p[0] += 3;
 		if (*p[0] == '?') {
@@ -915,7 +925,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* K - terminate */
 	if (!strncmp(p[0], "K", 1)) {
 		p[0] += 1;
 		if ((f->phase == ISDN_FAX_PHASE_IDLE) || (f->phase == ISDN_FAX_PHASE_E))
@@ -923,7 +933,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		isdn_tty_modem_hup(info, 1);
 		return 1;
 	}
-	
+	/* LID=string - local fax ID */
 	if (!strncmp(p[0], "LID", 3)) {
 		int i, r;
 		p[0] += 3;
@@ -962,7 +972,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		return 0;
 	}
 
-	
+	/* MDL? - DCE Model       */
 	if (!strncmp(p[0], "MDL?", 4)) {
 		p[0] += 4;
 #ifdef ISDN_TTY_FAX_STAT_DEBUG
@@ -971,7 +981,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		isdn_tty_at_cout("\r\nisdn4linux", info);
 		return 0;
 	}
-	
+	/* MFR? - DCE Manufacturer */
 	if (!strncmp(p[0], "MFR?", 4)) {
 		p[0] += 4;
 #ifdef ISDN_TTY_FAX_STAT_DEBUG
@@ -980,7 +990,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		isdn_tty_at_cout("\r\nisdn4linux", info);
 		return 0;
 	}
-	
+	/* MINSP=n - Minimum Speed for Phase C */
 	if (!strncmp(p[0], "MINSP", 5)) {
 		p[0] += 5;
 		switch (*p[0]) {
@@ -1010,7 +1020,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* PHCTO=value - DTE phase C timeout */
 	if (!strncmp(p[0], "PHCTO", 5)) {
 		p[0] += 5;
 		switch (*p[0]) {
@@ -1041,7 +1051,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		return 0;
 	}
 
-	
+	/* REL=n - Phase C received EOL alignment */
 	if (!strncmp(p[0], "REL", 3)) {
 		p[0] += 3;
 		switch (*p[0]) {
@@ -1071,7 +1081,7 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		}
 		return 0;
 	}
-	
+	/* REV? - DCE Revision */
 	if (!strncmp(p[0], "REV?", 4)) {
 		p[0] += 4;
 #ifdef ISDN_TTY_FAX_STAT_DEBUG
@@ -1083,8 +1093,8 @@ isdn_tty_cmd_FCLASS2(char **p, modem_info *info)
 		return 0;
 	}
 
-	
-	if (!strncmp(p[0], "TBC=", 4)) {	
+	/* Phase C Transmit Data Block Size */
+	if (!strncmp(p[0], "TBC=", 4)) {	/* dummy, not used */
 		p[0] += 4;
 #ifdef ISDN_TTY_FAX_STAT_DEBUG
 		printk(KERN_DEBUG "isdn_tty: Fax FTBC=%c\n", *p[0]);

@@ -10,6 +10,7 @@
 #include <linux/crc7.h>
 
 
+/* Table for CRC-7 (polynomial x^7 + x^3 + 1) */
 const u8 crc7_syndrome_table[256] = {
 	0x00, 0x09, 0x12, 0x1b, 0x24, 0x2d, 0x36, 0x3f,
 	0x48, 0x41, 0x5a, 0x53, 0x6c, 0x65, 0x7e, 0x77,
@@ -46,6 +47,15 @@ const u8 crc7_syndrome_table[256] = {
 };
 EXPORT_SYMBOL(crc7_syndrome_table);
 
+/**
+ * crc7 - update the CRC7 for the data buffer
+ * @crc:     previous CRC7 value
+ * @buffer:  data pointer
+ * @len:     number of bytes in the buffer
+ * Context: any
+ *
+ * Returns the updated CRC7 value.
+ */
 u8 crc7(u8 crc, const u8 *buffer, size_t len)
 {
 	while (len--)

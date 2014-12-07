@@ -15,8 +15,12 @@
 #include <linux/bcma/bcma.h>
 #include <asm/paccess.h>
 
+/* Probe a 32bit value on the bus and catch bus exceptions.
+ * Returns nonzero on a bus exception.
+ * This is MIPS specific */
 #define mips_busprobe32(val, addr)	get_dbe((val), ((u32 *)(addr)))
 
+/* Assume one-hot slot wiring */
 #define BCMA_PCI_SLOT_MAX	16
 #define	PCI_CONFIG_SPACE_SIZE	256
 
@@ -61,14 +65,17 @@ static u32 bcma_get_cfgspace_addr(struct bcma_drv_pci *pc, unsigned int dev,
 {
 	u32 addr = 0;
 
+	/* Issue config commands only when the data link is up (atleast
+	 * one external pcie device is present).
+	 */
 	if (dev >= 2 || !(bcma_pcie_read(pc, BCMA_CORE_PCI_DLLP_LSREG)
 			  & BCMA_CORE_PCI_DLLP_LSREG_LINKUP))
 		goto out;
 
-	
-	
+	/* Type 0 transaction */
+	/* Slide the PCI window to the appropriate slot */
 	pcicore_write32(pc, BCMA_CORE_PCI_SBTOPCI1, BCMA_CORE_PCI_SBTOPCI_CFG0);
-	
+	/* Calculate the address */
 	addr = pc->host_controller->host_cfg_addr;
 	addr |= (dev << BCMA_CORE_PCI_CFG_SLOT_SHIFT);
 	addr |= (func << BCMA_CORE_PCI_CFG_FUN_SHIFT);
@@ -90,10 +97,13 @@ static int bcma_extpci_read_config(struct bcma_drv_pci *pc, unsigned int dev,
 	if (unlikely(len != 1 && len != 2 && len != 4))
 		goto out;
 	if (dev == 0) {
-		
+		/* we support only two functions on device 0 */
 		if (func > 1)
 			return -EINVAL;
 
+		/* accesses to config registers with offsets >= 256
+		 * requires indirect access.
+		 */
 		if (off >= PCI_CONFIG_SPACE_SIZE) {
 			addr = (func << 12);
 			addr |= (off & 0x0FFF);
@@ -154,6 +164,9 @@ static int bcma_extpci_write_config(struct bcma_drv_pci *pc, unsigned int dev,
 	if (unlikely(len != 1 && len != 2 && len != 4))
 		goto out;
 	if (dev == 0) {
+		/* accesses to config registers with offsets >= 256
+		 * requires indirect access.
+		 */
 		if (off < PCI_CONFIG_SPACE_SIZE) {
 			addr = pc->core->addr + BCMA_CORE_PCI_PCICFG0;
 			addr |= (func << 8);
@@ -193,6 +206,9 @@ static int bcma_extpci_write_config(struct bcma_drv_pci *pc, unsigned int dev,
 		break;
 	}
 	if (dev == 0 && !addr) {
+		/* accesses to config registers with offsets >= 256
+		 * requires indirect access.
+		 */
 		addr = (func << 12);
 		addr |= (off & 0x0FFF);
 		bcma_pcie_write_config(pc, addr, val);
@@ -251,6 +267,7 @@ static int bcma_core_pci_hostmode_write_config(struct pci_bus *bus,
 	return err ? PCIBIOS_DEVICE_NOT_FOUND : PCIBIOS_SUCCESSFUL;
 }
 
+/* return cap_offset if requested capability exists in the PCI config space */
 static u8 __devinit bcma_find_pci_capability(struct bcma_drv_pci *pc,
 					     unsigned int dev,
 					     unsigned int func, u8 req_cap_id,
@@ -261,24 +278,26 @@ static u8 __devinit bcma_find_pci_capability(struct bcma_drv_pci *pc,
 	u32 bufsize;
 	u8 byte_val;
 
-	
+	/* check for Header type 0 */
 	bcma_extpci_read_config(pc, dev, func, PCI_HEADER_TYPE, &byte_val,
 				sizeof(u8));
 	if ((byte_val & 0x7f) != PCI_HEADER_TYPE_NORMAL)
 		return cap_ptr;
 
-	
+	/* check if the capability pointer field exists */
 	bcma_extpci_read_config(pc, dev, func, PCI_STATUS, &byte_val,
 				sizeof(u8));
 	if (!(byte_val & PCI_STATUS_CAP_LIST))
 		return cap_ptr;
 
-	
+	/* check if the capability pointer is 0x00 */
 	bcma_extpci_read_config(pc, dev, func, PCI_CAPABILITY_LIST, &cap_ptr,
 				sizeof(u8));
 	if (cap_ptr == 0x00)
 		return cap_ptr;
 
+	/* loop thr'u the capability list and see if the requested capabilty
+	 * exists */
 	bcma_extpci_read_config(pc, dev, func, cap_ptr, &cap_id, sizeof(u8));
 	while (cap_id != req_cap_id) {
 		bcma_extpci_read_config(pc, dev, func, cap_ptr + 1, &cap_ptr,
@@ -289,7 +308,7 @@ static u8 __devinit bcma_find_pci_capability(struct bcma_drv_pci *pc,
 					sizeof(u8));
 	}
 
-	
+	/* found the caller requested capability */
 	if ((buf != NULL) && (buflen != NULL)) {
 		u8 cap_data;
 
@@ -299,7 +318,7 @@ static u8 __devinit bcma_find_pci_capability(struct bcma_drv_pci *pc,
 
 		*buflen = 0;
 
-		
+		/* copy the cpability data excluding cap ID and next ptr */
 		cap_data = cap_ptr + 2;
 		if ((bufsize + cap_data)  > PCI_CONFIG_SPACE_SIZE)
 			bufsize = PCI_CONFIG_SPACE_SIZE - cap_data;
@@ -315,6 +334,10 @@ static u8 __devinit bcma_find_pci_capability(struct bcma_drv_pci *pc,
 	return cap_ptr;
 }
 
+/* If the root port is capable of returning Config Request
+ * Retry Status (CRS) Completion Status to software then
+ * enable the feature.
+ */
 static void __devinit bcma_core_pci_enable_crs(struct bcma_drv_pci *pc)
 {
 	u8 cap_ptr, root_ctrl, root_cap, dev;
@@ -326,12 +349,25 @@ static void __devinit bcma_core_pci_enable_crs(struct bcma_drv_pci *pc)
 	root_cap = cap_ptr + PCI_EXP_RTCAP;
 	bcma_extpci_read_config(pc, 0, 0, root_cap, &val16, sizeof(u16));
 	if (val16 & BCMA_CORE_PCI_RC_CRS_VISIBILITY) {
-		
+		/* Enable CRS software visibility */
 		root_ctrl = cap_ptr + PCI_EXP_RTCTL;
 		val16 = PCI_EXP_RTCTL_CRSSVE;
 		bcma_extpci_read_config(pc, 0, 0, root_ctrl, &val16,
 					sizeof(u16));
 
+		/* Initiate a configuration request to read the vendor id
+		 * field of the device function's config space header after
+		 * 100 ms wait time from the end of Reset. If the device is
+		 * not done with its internal initialization, it must at
+		 * least return a completion TLP, with a completion status
+		 * of "Configuration Request Retry Status (CRS)". The root
+		 * complex must complete the request to the host by returning
+		 * a read-data value of 0001h for the Vendor ID field and
+		 * all 1s for any additional bytes included in the request.
+		 * Poll using the config reads for max wait time of 1 sec or
+		 * until we receive the successful completion status. Repeat
+		 * the procedure for all the devices.
+		 */
 		for (dev = 1; dev < BCMA_PCI_SLOT_MAX; dev++) {
 			for (i = 0; i < 100000; i++) {
 				bcma_extpci_read_config(pc, dev, 0,
@@ -385,13 +421,19 @@ void __devinit bcma_core_pci_hostmode_init(struct bcma_drv_pci *pc)
 	pc_host->io_resource.end = 0x7FF;
 	pc_host->io_resource.flags = IORESOURCE_IO | IORESOURCE_PCI_FIXED;
 
-	
+	/* Reset RC */
 	udelay(3000);
 	pcicore_write32(pc, BCMA_CORE_PCI_CTL, BCMA_CORE_PCI_CTL_RST_OE);
 	udelay(1000);
 	pcicore_write32(pc, BCMA_CORE_PCI_CTL, BCMA_CORE_PCI_CTL_RST |
 			BCMA_CORE_PCI_CTL_RST_OE);
 
+	/* 64 MB I/O access window. On 4716, use
+	 * sbtopcie0 to access the device registers. We
+	 * can't use address match 2 (1 GB window) region
+	 * as mips can't generate 64-bit address on the
+	 * backplane.
+	 */
 	if (bus->chipinfo.id == 0x4716 || bus->chipinfo.id == 0x4748) {
 		pc_host->mem_resource.start = BCMA_SOC_PCI_MEM;
 		pc_host->mem_resource.end = BCMA_SOC_PCI_MEM +
@@ -422,38 +464,49 @@ void __devinit bcma_core_pci_hostmode_init(struct bcma_drv_pci *pc)
 		pcicore_write32(pc, BCMA_CORE_PCI_SBTOPCI0,
 				BCMA_CORE_PCI_SBTOPCI_IO);
 
-	
+	/* 64 MB configuration access window */
 	pcicore_write32(pc, BCMA_CORE_PCI_SBTOPCI1, BCMA_CORE_PCI_SBTOPCI_CFG0);
 
-	
+	/* 1 GB memory access window */
 	pcicore_write32(pc, BCMA_CORE_PCI_SBTOPCI2,
 			BCMA_CORE_PCI_SBTOPCI_MEM | pci_membase_1G);
 
 
+	/* As per PCI Express Base Spec 1.1 we need to wait for
+	 * at least 100 ms from the end of a reset (cold/warm/hot)
+	 * before issuing configuration requests to PCI Express
+	 * devices.
+	 */
 	udelay(100000);
 
 	bcma_core_pci_enable_crs(pc);
 
-	
+	/* Enable PCI bridge BAR0 memory & master access */
 	tmp = PCI_COMMAND_MASTER | PCI_COMMAND_MEMORY;
 	bcma_extpci_write_config(pc, 0, 0, PCI_COMMAND, &tmp, sizeof(tmp));
 
-	
+	/* Enable PCI interrupts */
 	pcicore_write32(pc, BCMA_CORE_PCI_IMASK, BCMA_CORE_PCI_IMASK_INTA);
 
+	/* Ok, ready to run, register it to the system.
+	 * The following needs change, if we want to port hostmode
+	 * to non-MIPS platform. */
 	io_map_base = (unsigned long)ioremap_nocache(BCMA_SOC_PCI_MEM,
 						     0x04000000);
 	pc_host->pci_controller.io_map_base = io_map_base;
 	set_io_port_base(pc_host->pci_controller.io_map_base);
+	/* Give some time to the PCI controller to configure itself with the new
+	 * values. Not waiting at this point causes crashes of the machine. */
 	mdelay(10);
 	register_pci_controller(&pc_host->pci_controller);
 	return;
 }
 
+/* Early PCI fixup for a device on the PCI-core bridge. */
 static void bcma_core_pci_fixup_pcibridge(struct pci_dev *dev)
 {
 	if (dev->bus->ops->read != bcma_core_pci_hostmode_read_config) {
-		
+		/* This is not a device on the PCI-core bridge. */
 		return;
 	}
 	if (PCI_SLOT(dev->devfn) != 0)
@@ -461,25 +514,26 @@ static void bcma_core_pci_fixup_pcibridge(struct pci_dev *dev)
 
 	pr_info("PCI: Fixing up bridge %s\n", pci_name(dev));
 
-	
+	/* Enable PCI bridge bus mastering and memory space */
 	pci_set_master(dev);
 	if (pcibios_enable_device(dev, ~0) < 0) {
 		pr_err("PCI: BCMA bridge enable failed\n");
 		return;
 	}
 
-	
+	/* Enable PCI bridge BAR1 prefetch and burst */
 	pci_write_config_dword(dev, BCMA_PCI_BAR1_CONTROL, 3);
 }
 DECLARE_PCI_FIXUP_EARLY(PCI_ANY_ID, PCI_ANY_ID, bcma_core_pci_fixup_pcibridge);
 
+/* Early PCI fixup for all PCI-cores to set the correct memory address. */
 static void bcma_core_pci_fixup_addresses(struct pci_dev *dev)
 {
 	struct resource *res;
 	int pos;
 
 	if (dev->bus->ops->read != bcma_core_pci_hostmode_read_config) {
-		
+		/* This is not a device on the PCI-core bridge. */
 		return;
 	}
 	if (PCI_SLOT(dev->devfn) == 0)
@@ -495,12 +549,14 @@ static void bcma_core_pci_fixup_addresses(struct pci_dev *dev)
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_ANY_ID, PCI_ANY_ID, bcma_core_pci_fixup_addresses);
 
+/* This function is called when doing a pci_enable_device().
+ * We must first check if the device is a device on the PCI-core bridge. */
 int bcma_core_pci_plat_dev_init(struct pci_dev *dev)
 {
 	struct bcma_drv_pci_host *pc_host;
 
 	if (dev->bus->ops->read != bcma_core_pci_hostmode_read_config) {
-		
+		/* This is not a device on the PCI-core bridge. */
 		return -ENODEV;
 	}
 	pc_host = container_of(dev->bus->ops, struct bcma_drv_pci_host,
@@ -508,7 +564,7 @@ int bcma_core_pci_plat_dev_init(struct pci_dev *dev)
 
 	pr_info("PCI: Fixing up device %s\n", pci_name(dev));
 
-	
+	/* Fix up interrupt lines */
 	dev->irq = bcma_core_mips_irq(pc_host->pdev->core) + 2;
 	pci_write_config_byte(dev, PCI_INTERRUPT_LINE, dev->irq);
 
@@ -516,12 +572,13 @@ int bcma_core_pci_plat_dev_init(struct pci_dev *dev)
 }
 EXPORT_SYMBOL(bcma_core_pci_plat_dev_init);
 
+/* PCI device IRQ mapping. */
 int bcma_core_pci_pcibios_map_irq(const struct pci_dev *dev)
 {
 	struct bcma_drv_pci_host *pc_host;
 
 	if (dev->bus->ops->read != bcma_core_pci_hostmode_read_config) {
-		
+		/* This is not a device on the PCI-core bridge. */
 		return -ENODEV;
 	}
 

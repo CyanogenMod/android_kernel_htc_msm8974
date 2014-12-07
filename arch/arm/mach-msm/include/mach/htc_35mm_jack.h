@@ -17,9 +17,11 @@
 #ifndef HTC_35MM_REMOTE_H
 #define HTC_35MM_REMOTE_H
 
+/* Driver interfaces */
 int htc_35mm_jack_plug_event(int insert, int *hpin_stable);
 int htc_35mm_key_event(int key, int *hpin_stable);
 
+/* Platform Specific Callbacks */
 struct h35mm_platform_data {
 	int (*plug_event_enable)(void);
 	int (*headset_has_mic)(void);

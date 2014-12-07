@@ -1,3 +1,4 @@
+/*****************************************************************************/
 
 /*
  *	yam.h  -- YAM radio modem driver.
@@ -26,22 +27,23 @@
  *
  */
 
+/*****************************************************************************/
 
 #define SIOCYAMRESERVED	(0)
-#define SIOCYAMSCFG 	(1)	
-#define SIOCYAMGCFG 	(2)	
-#define SIOCYAMSMCS 	(3)	
+#define SIOCYAMSCFG 	(1)	/* Set configuration */
+#define SIOCYAMGCFG 	(2)	/* Get configuration */
+#define SIOCYAMSMCS 	(3)	/* Set mcs data */
 
 #define YAM_IOBASE   (1 << 0)
 #define YAM_IRQ      (1 << 1)
-#define YAM_BITRATE  (1 << 2) 
-#define YAM_MODE     (1 << 3) 
-#define YAM_HOLDDLY  (1 << 4) 
-#define YAM_TXDELAY  (1 << 5) 
-#define YAM_TXTAIL   (1 << 6) 
-#define YAM_PERSIST  (1 << 7) 
-#define YAM_SLOTTIME (1 << 8) 
-#define YAM_BAUDRATE (1 << 9) 
+#define YAM_BITRATE  (1 << 2) /* Bit rate of radio port ->57600 */
+#define YAM_MODE     (1 << 3) /* 0=simplex 1=duplex 2=duplex+tempo */
+#define YAM_HOLDDLY  (1 << 4) /* duplex tempo (sec) */
+#define YAM_TXDELAY  (1 << 5) /* Tx Delay (ms) */
+#define YAM_TXTAIL   (1 << 6) /* Tx Tail  (ms) */
+#define YAM_PERSIST  (1 << 7) /* Persist  (ms) */
+#define YAM_SLOTTIME (1 << 8) /* Slottime (ms) */
+#define YAM_BAUDRATE (1 << 9) /* Baud rate of rs232 port ->115200 */
 
 #define YAM_MAXBITRATE  57600
 #define YAM_MAXBAUDRATE 115200
@@ -55,17 +57,17 @@
 #define YAM_FPGA_SIZE	5302
 
 struct yamcfg {
-	unsigned int mask;		
-	unsigned int iobase;	
-	unsigned int irq;		
-	unsigned int bitrate;	
-	unsigned int baudrate;	
-	unsigned int txdelay;	
-	unsigned int txtail;	
-	unsigned int persist;	
-	unsigned int slottime;	
-	unsigned int mode;		
-	unsigned int holddly;	
+	unsigned int mask;		/* Mask of commands */
+	unsigned int iobase;	/* IO Base of COM port */
+	unsigned int irq;		/* IRQ of COM port */
+	unsigned int bitrate;	/* Bit rate of radio port */
+	unsigned int baudrate;	/* Baud rate of the RS232 port */
+	unsigned int txdelay;	/* TxDelay */
+	unsigned int txtail;	/* TxTail */
+	unsigned int persist;	/* Persistence */
+	unsigned int slottime;	/* Slottime */
+	unsigned int mode;		/* mode 0 (simp), 1(Dupl), 2(Dupl+delay) */
+	unsigned int holddly;	/* PTT delay in FullDuplex 2 mode */
 };
 
 struct yamdrv_ioctl_cfg {

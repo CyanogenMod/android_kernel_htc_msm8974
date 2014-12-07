@@ -147,7 +147,7 @@ static int yaffs_create_tnodes(struct yaffs_dev *dev, int n_tnodes)
 	if (n_tnodes < 1)
 		return YAFFS_OK;
 
-	
+	/* make these things */
 
 	new_tnodes = kmalloc(n_tnodes * dev->tnode_size, GFP_NOFS);
 	mem = (u8 *) new_tnodes;
@@ -158,7 +158,7 @@ static int yaffs_create_tnodes(struct yaffs_dev *dev, int n_tnodes)
 		return YAFFS_FAIL;
 	}
 
-	
+	/* New hookup for wide tnodes */
 	for (i = 0; i < n_tnodes - 1; i++) {
 		curr = (struct yaffs_tnode *)&mem[i * dev->tnode_size];
 		next = (struct yaffs_tnode *)&mem[(i + 1) * dev->tnode_size];
@@ -172,6 +172,10 @@ static int yaffs_create_tnodes(struct yaffs_dev *dev, int n_tnodes)
 	allocator->n_free_tnodes += n_tnodes;
 	allocator->n_tnodes_created += n_tnodes;
 
+	/* Now add this bunch of tnodes to a list for freeing up.
+	 * NB If we can't add this to the management list it isn't fatal
+	 * but it just means we can't free this bunch of tnodes later.
+	 */
 
 	tnl = kmalloc(sizeof(struct yaffs_tnode_list), GFP_NOFS);
 	if (!tnl) {
@@ -200,7 +204,7 @@ struct yaffs_tnode *yaffs_alloc_raw_tnode(struct yaffs_dev *dev)
 		return NULL;
 	}
 
-	
+	/* If there are none left make more */
 	if (!allocator->free_tnodes)
 		yaffs_create_tnodes(dev, YAFFS_ALLOCATION_NTNODES);
 
@@ -213,6 +217,7 @@ struct yaffs_tnode *yaffs_alloc_raw_tnode(struct yaffs_dev *dev)
 	return tn;
 }
 
+/* FreeTnode frees up a tnode and puts it back on the free list */
 void yaffs_free_raw_tnode(struct yaffs_dev *dev, struct yaffs_tnode *tn)
 {
 	struct yaffs_allocator *allocator = dev->allocator;
@@ -227,7 +232,7 @@ void yaffs_free_raw_tnode(struct yaffs_dev *dev, struct yaffs_tnode *tn)
 		allocator->free_tnodes = tn;
 		allocator->n_free_tnodes++;
 	}
-	dev->checkpoint_blocks_required = 0;	
+	dev->checkpoint_blocks_required = 0;	/* force recalculation */
 }
 
 static void yaffs_init_raw_objs(struct yaffs_dev *dev)
@@ -282,7 +287,7 @@ static int yaffs_create_free_objs(struct yaffs_dev *dev, int n_obj)
 	if (n_obj < 1)
 		return YAFFS_OK;
 
-	
+	/* make these things */
 	new_objs = kmalloc(n_obj * sizeof(struct yaffs_obj), GFP_NOFS);
 	list = kmalloc(sizeof(struct yaffs_obj_list), GFP_NOFS);
 
@@ -300,7 +305,7 @@ static int yaffs_create_free_objs(struct yaffs_dev *dev, int n_obj)
 		return YAFFS_FAIL;
 	}
 
-	
+	/* Hook them into the free list */
 	for (i = 0; i < n_obj - 1; i++) {
 		new_objs[i].siblings.next =
 		    (struct list_head *)(&new_objs[i + 1]);
@@ -311,7 +316,7 @@ static int yaffs_create_free_objs(struct yaffs_dev *dev, int n_obj)
 	allocator->n_free_objects += n_obj;
 	allocator->n_obj_created += n_obj;
 
-	
+	/* Now add this bunch of Objects to a list for freeing up. */
 
 	list->objects = new_objs;
 	list->next = allocator->allocated_obj_list;
@@ -330,7 +335,7 @@ struct yaffs_obj *yaffs_alloc_raw_obj(struct yaffs_dev *dev)
 		return obj;
 	}
 
-	
+	/* If there are none left make more */
 	if (!allocator->free_objs)
 		yaffs_create_free_objs(dev, YAFFS_ALLOCATION_NOBJECTS);
 
@@ -352,7 +357,7 @@ void yaffs_free_raw_obj(struct yaffs_dev *dev, struct yaffs_obj *obj)
 	if (!allocator)
 		YBUG();
 	else {
-		
+		/* Link into the free list. */
 		obj->siblings.next = (struct list_head *)(allocator->free_objs);
 		allocator->free_objs = obj;
 		allocator->n_free_objects++;

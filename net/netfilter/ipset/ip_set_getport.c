@@ -5,6 +5,7 @@
  * published by the Free Software Foundation.
  */
 
+/* Get Layer-4 data from the packets */
 
 #include <linux/ip.h>
 #include <linux/skbuff.h>
@@ -18,6 +19,7 @@
 #include <linux/netfilter/ipset/ip_set_getport.h>
 #include <linux/export.h>
 
+/* We must handle non-linear skbs */
 static bool
 get_port(const struct sk_buff *skb, int protocol, unsigned int protooff,
 	 bool src, __be16 *port, u8 *proto)
@@ -29,7 +31,7 @@ get_port(const struct sk_buff *skb, int protocol, unsigned int protooff,
 
 		th = skb_header_pointer(skb, protooff, sizeof(_tcph), &_tcph);
 		if (th == NULL)
-			
+			/* No choice either */
 			return false;
 
 		*port = src ? th->source : th->dest;
@@ -41,7 +43,7 @@ get_port(const struct sk_buff *skb, int protocol, unsigned int protooff,
 
 		sh = skb_header_pointer(skb, protooff, sizeof(_sh), &_sh);
 		if (sh == NULL)
-			
+			/* No choice either */
 			return false;
 
 		*port = src ? sh->source : sh->dest;
@@ -54,7 +56,7 @@ get_port(const struct sk_buff *skb, int protocol, unsigned int protooff,
 
 		uh = skb_header_pointer(skb, protooff, sizeof(_udph), &_udph);
 		if (uh == NULL)
-			
+			/* No choice either */
 			return false;
 
 		*port = src ? uh->source : uh->dest;
@@ -99,7 +101,7 @@ ip_set_get_ip4_port(const struct sk_buff *skb, bool src,
 	unsigned int protooff = ip_hdrlen(skb);
 	int protocol = iph->protocol;
 
-	
+	/* See comments at tcp_match in ip_tables.c */
 	if (protocol <= 0 || (ntohs(iph->frag_off) & IP_OFFSET))
 		return false;
 

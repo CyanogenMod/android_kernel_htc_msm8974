@@ -12,6 +12,7 @@
  * (at your option) any later version.
  */
 
+/* #define VERBOSE_DEBUG */
 
 #include <linux/slab.h>
 #include <linux/kernel.h>
@@ -22,6 +23,13 @@
 #include "gadget_chips.h"
 
 
+/*
+ * This CDC OBEX function support just packages a TTY-ish byte stream.
+ * A user mode server will put it into "raw" mode and handle all the
+ * relevant protocol details ... this is just a kernel passthrough.
+ * When possible, we prevent gadget enumeration until that server is
+ * ready to handle the commands.
+ */
 
 struct f_obex {
 	struct gserial			port;
@@ -41,6 +49,7 @@ static inline struct f_obex *port_to_obex(struct gserial *p)
 	return container_of(p, struct f_obex, port);
 }
 
+/*-------------------------------------------------------------------------*/
 
 #define OBEX_CTRL_IDX	0
 #define OBEX_DATA_IDX	1
@@ -48,11 +57,11 @@ static inline struct f_obex *port_to_obex(struct gserial *p)
 static struct usb_string obex_string_defs[] = {
 	[OBEX_CTRL_IDX].s	= "CDC Object Exchange (OBEX)",
 	[OBEX_DATA_IDX].s	= "CDC OBEX Data",
-	{  },	
+	{  },	/* end of list */
 };
 
 static struct usb_gadget_strings obex_string_table = {
-	.language		= 0x0409,	
+	.language		= 0x0409,	/* en-US */
 	.strings		= obex_string_defs,
 };
 
@@ -61,6 +70,7 @@ static struct usb_gadget_strings *obex_strings[] = {
 	NULL,
 };
 
+/*-------------------------------------------------------------------------*/
 
 static struct usb_interface_descriptor obex_control_intf __initdata = {
 	.bLength		= sizeof(obex_control_intf),
@@ -115,6 +125,7 @@ static struct usb_cdc_obex_desc obex_desc __initdata = {
 	.bcdVersion		= cpu_to_le16(0x0100),
 };
 
+/* High-Speed Support */
 
 static struct usb_endpoint_descriptor obex_hs_ep_out_desc __initdata = {
 	.bLength		= USB_DT_ENDPOINT_SIZE,
@@ -147,6 +158,7 @@ static struct usb_descriptor_header *hs_function[] __initdata = {
 	NULL,
 };
 
+/* Full-Speed Support */
 
 static struct usb_endpoint_descriptor obex_fs_ep_in_desc __initdata = {
 	.bLength		= USB_DT_ENDPOINT_SIZE,
@@ -177,6 +189,7 @@ static struct usb_descriptor_header *fs_function[] __initdata = {
 	NULL,
 };
 
+/*-------------------------------------------------------------------------*/
 
 static int obex_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 {
@@ -186,7 +199,7 @@ static int obex_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	if (intf == obex->ctrl_id) {
 		if (alt != 0)
 			goto fail;
-		
+		/* NOP */
 		DBG(cdev, "reset obex ttyGS%d control\n", obex->port_num);
 
 	} else if (intf == obex->data_id) {
@@ -243,6 +256,7 @@ static void obex_disable(struct usb_function *f)
 	gserial_disconnect(&obex->port);
 }
 
+/*-------------------------------------------------------------------------*/
 
 static void obex_connect(struct gserial *g)
 {
@@ -274,6 +288,7 @@ static void obex_disconnect(struct gserial *g)
 			obex->port_num, status);
 }
 
+/*-------------------------------------------------------------------------*/
 
 static int __init
 obex_bind(struct usb_configuration *c, struct usb_function *f)
@@ -283,7 +298,7 @@ obex_bind(struct usb_configuration *c, struct usb_function *f)
 	int			status;
 	struct usb_ep		*ep;
 
-	
+	/* allocate instance-specific interface IDs, and patch descriptors */
 
 	status = usb_interface_id(c, f);
 	if (status < 0)
@@ -302,23 +317,27 @@ obex_bind(struct usb_configuration *c, struct usb_function *f)
 	obex_data_intf.bInterfaceNumber = status;
 	obex_cdc_union_desc.bSlaveInterface0 = status;
 
-	
+	/* allocate instance-specific endpoints */
 
 	ep = usb_ep_autoconfig(cdev->gadget, &obex_fs_ep_in_desc);
 	if (!ep)
 		goto fail;
 	obex->port.in = ep;
-	ep->driver_data = cdev;	
+	ep->driver_data = cdev;	/* claim */
 
 	ep = usb_ep_autoconfig(cdev->gadget, &obex_fs_ep_out_desc);
 	if (!ep)
 		goto fail;
 	obex->port.out = ep;
-	ep->driver_data = cdev;	
+	ep->driver_data = cdev;	/* claim */
 
-	
+	/* copy descriptors, and track endpoint copies */
 	f->descriptors = usb_copy_descriptors(fs_function);
 
+	/* support all relevant hardware speeds... we expect that when
+	 * hardware is dual speed, all bulk-capable endpoints work at
+	 * both speeds
+	 */
 	if (gadget_is_dualspeed(c->cdev->gadget)) {
 
 		obex_hs_ep_in_desc.bEndpointAddress =
@@ -326,10 +345,13 @@ obex_bind(struct usb_configuration *c, struct usb_function *f)
 		obex_hs_ep_out_desc.bEndpointAddress =
 				obex_fs_ep_out_desc.bEndpointAddress;
 
-		
+		/* copy descriptors, and track endpoint copies */
 		f->hs_descriptors = usb_copy_descriptors(hs_function);
 	}
 
+	/* Avoid letting this gadget enumerate until the userspace
+	 * OBEX server is active.
+	 */
 	status = usb_function_deactivate(f);
 	if (status < 0)
 		WARNING(cdev, "obex ttyGS%d: can't prevent enumeration, %d\n",
@@ -346,7 +368,7 @@ obex_bind(struct usb_configuration *c, struct usb_function *f)
 	return 0;
 
 fail:
-	
+	/* we might as well release our claims on endpoints */
 	if (obex->port.out)
 		obex->port.out->driver_data = NULL;
 	if (obex->port.in)
@@ -366,15 +388,33 @@ obex_unbind(struct usb_configuration *c, struct usb_function *f)
 	kfree(func_to_obex(f));
 }
 
+/* Some controllers can't support CDC OBEX ... */
 static inline bool can_support_obex(struct usb_configuration *c)
 {
+	/* Since the first interface is a NOP, we can ignore the
+	 * issue of multi-interface support on most controllers.
+	 *
+	 * Altsettings are mandatory, however...
+	 */
 	if (!gadget_supports_altsettings(c->cdev->gadget))
 		return false;
 
-	
+	/* everything else is *probably* fine ... */
 	return true;
 }
 
+/**
+ * obex_bind_config - add a CDC OBEX function to a configuration
+ * @c: the configuration to support the CDC OBEX instance
+ * @port_num: /dev/ttyGS* port this interface will use
+ * Context: single threaded during gadget setup
+ *
+ * Returns zero on success, else negative errno.
+ *
+ * Caller must have called @gserial_setup() with enough ports to
+ * handle all the ones it binds.  Caller is also responsible
+ * for calling @gserial_cleanup() before module unload.
+ */
 int __init obex_bind_config(struct usb_configuration *c, u8 port_num)
 {
 	struct f_obex	*obex;
@@ -383,7 +423,7 @@ int __init obex_bind_config(struct usb_configuration *c, u8 port_num)
 	if (!can_support_obex(c))
 		return -EINVAL;
 
-	
+	/* maybe allocate device-global string IDs, and patch descriptors */
 	if (obex_string_defs[OBEX_CTRL_IDX].id == 0) {
 		status = usb_string_id(c->cdev);
 		if (status < 0)
@@ -401,7 +441,7 @@ int __init obex_bind_config(struct usb_configuration *c, u8 port_num)
 			obex_data_intf.iInterface = status;
 	}
 
-	
+	/* allocate and initialize one new instance */
 	obex = kzalloc(sizeof *obex, GFP_KERNEL);
 	if (!obex)
 		return -ENOMEM;
@@ -413,7 +453,7 @@ int __init obex_bind_config(struct usb_configuration *c, u8 port_num)
 
 	obex->port.func.name = "obex";
 	obex->port.func.strings = obex_strings;
-	
+	/* descriptors are per-instance copies */
 	obex->port.func.bind = obex_bind;
 	obex->port.func.unbind = obex_unbind;
 	obex->port.func.set_alt = obex_set_alt;

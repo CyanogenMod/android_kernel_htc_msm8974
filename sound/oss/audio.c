@@ -1,3 +1,8 @@
+/*
+ * sound/oss/audio.c
+ *
+ * Device file manager for /dev/audio
+ */
 
 /*
  * Copyright (C) by Hannu Savolainen 1993-1997
@@ -5,6 +10,20 @@
  * OSS/Free for Linux is distributed under the GNU GENERAL PUBLIC LICENSE (GPL)
  * Version 2 (June 1991). See the "COPYING" file distributed with this software
  * for more info.
+ */
+/*
+ * Thomas Sailer   : ioctl code reworked (vmalloc/vfree removed)
+ * Thomas Sailer   : moved several static variables into struct audio_operations
+ *                   (which is grossly misnamed btw.) because they have the same
+ *                   lifetime as the rest in there and dynamic allocation saves
+ *                   12k or so
+ * Thomas Sailer   : use more logical O_NONBLOCK semantics
+ * Daniel Rodriksson: reworked the use of the device specific copy_user
+ *                    still generic
+ * Horst von Brand:  Add missing #include <linux/string.h>
+ * Chris Rankin    : Update the module-usage counter for the coprocessor,
+ *                   and decrement the counters again if we cannot open
+ *                   the audio device.
  */
 
 #include <linux/stddef.h>
@@ -27,7 +46,7 @@ static int set_format(int dev, int fmt)
 	{
 		audio_devs[dev]->local_conversion = 0;
 
-		if (!(audio_devs[dev]->format_mask & fmt))	
+		if (!(audio_devs[dev]->format_mask & fmt))	/* Not supported */
 		{
 			if (fmt == AFMT_MU_LAW)
 			{
@@ -35,7 +54,7 @@ static int set_format(int dev, int fmt)
 				audio_devs[dev]->local_conversion = CNV_MU_LAW;
 			}
 			else
-				fmt = AFMT_U8;	
+				fmt = AFMT_U8;	/* This is always supported */
 		}
 		audio_devs[dev]->audio_format = audio_devs[dev]->d->set_bits(dev, fmt);
 		audio_devs[dev]->local_format = fmt;
@@ -97,6 +116,10 @@ int audio_open(int dev, struct file *file)
 
 	return 0;
 
+	/*
+	 * Clean-up stack: this is what needs (un)doing if
+	 * we can't open the audio device ...
+	 */
 	error_3:
 	module_put(coprocessor->owner);
 
@@ -119,7 +142,7 @@ static void sync_output(int dev)
 		return;
 	dmap->flags |= DMA_POST;
 
-	
+	/* Align the write pointer with fragment boundaries */
 	
 	if ((l = dmap->user_counter % dmap->fragment_size) > 0)
 	{
@@ -131,6 +154,9 @@ static void sync_output(int dev)
 		DMAbuf_move_wrpointer(dev, len);
 	}
 	
+	/*
+	 * Clean all unused buffer fragments.
+	 */
 
 	p = dmap->qtail;
 	dmap->flags |= DMA_POST;
@@ -157,9 +183,19 @@ void audio_release(int dev, struct file *file)
 
 	dev = dev >> 4;
 
+	/*
+	 * We do this in DMAbuf_release(). Why are we doing it
+	 * here? Why don't we test the file mode before setting
+	 * both flags? DMAbuf_release() does.
+	 * ...pester...pester...pester...
+	 */
 	audio_devs[dev]->dmap_out->closing = 1;
 	audio_devs[dev]->dmap_in->closing = 1;
 
+	/*
+	 * We need to make sure we allocated the dmap_out buffer
+	 * before we go mucking around with it in sync_output().
+	 */
 	if (mode & OPEN_WRITE)
 		sync_output(dev);
 
@@ -205,7 +241,7 @@ int audio_write(int dev, struct file *file, const char __user *buf, int count)
 	else
 		audio_devs[dev]->audio_mode = AM_WRITE;
 
-	if (!count)		
+	if (!count)		/* Flush output */
 	{
 		  sync_output(dev);
 		  return 0;
@@ -215,9 +251,9 @@ int audio_write(int dev, struct file *file, const char __user *buf, int count)
 	{
 		if ((err = DMAbuf_getwrbuffer(dev, &dma_buf, &buf_size, !!(file->f_flags & O_NONBLOCK))) < 0)
 		{
-			    
+			    /* Handle nonblocking mode */
 			if ((file->f_flags & O_NONBLOCK) && err == -EAGAIN)
-				return p? p : -EAGAIN;	
+				return p? p : -EAGAIN;	/* No more space. Return # of accepted bytes */
 			return err;
 		}
 		l = c;
@@ -289,9 +325,12 @@ int audio_read(int dev, struct file *file, char __user *buf, int count)
 	{
 		if ((buf_no = DMAbuf_getrdbuffer(dev, &dmabuf, &l, !!(file->f_flags & O_NONBLOCK))) < 0)
 		{
+			/*
+			 *	Nonblocking mode handling. Return current # of bytes
+			 */
 
-			if (p > 0) 		
-				return p;	
+			if (p > 0) 		/* Avoid throwing away data */
+				return p;	/* Return it instead */
 
 			if ((file->f_flags & O_NONBLOCK) && buf_no == -EAGAIN)
 				return -EAGAIN;
@@ -301,6 +340,9 @@ int audio_read(int dev, struct file *file, char __user *buf, int count)
 		if (l > c)
 			l = c;
 
+		/*
+		 * Insert any local processing here.
+		 */
 
 		if (audio_devs[dev]->local_conversion & CNV_MU_LAW)
 		{
@@ -333,8 +375,10 @@ int audio_ioctl(int dev, struct file *file, unsigned int cmd, void __user *arg)
 	dev = dev >> 4;
 
 	if (_IOC_TYPE(cmd) == 'C')	{
-		if (audio_devs[dev]->coproc)	
+		if (audio_devs[dev]->coproc)	/* Coprocessor ioctl */
 			return audio_devs[dev]->coproc->ioctl(audio_devs[dev]->coproc->devc, cmd, arg, 0);
+		/* else
+		        printk(KERN_DEBUG"/dev/dsp%d: No coprocessor for this device\n", dev); */
 		return -ENXIO;
 	}
 	else switch (cmd) 
@@ -395,15 +439,15 @@ int audio_ioctl(int dev, struct file *file, unsigned int cmd, void __user *arg)
 			return 0;
 
 		case SNDCTL_DSP_GETCAPS:
-				val = 1 | DSP_CAP_MMAP;	
+				val = 1 | DSP_CAP_MMAP;	/* Revision level of this ioctl() */
 				if (audio_devs[dev]->flags & DMA_DUPLEX &&
 					audio_devs[dev]->open_mode == OPEN_READWRITE)
 					val |= DSP_CAP_DUPLEX;
 				if (audio_devs[dev]->coproc)
 					val |= DSP_CAP_COPROC;
-				if (audio_devs[dev]->d->local_qlen)	
+				if (audio_devs[dev]->d->local_qlen)	/* Device has hidden buffers */
 					val |= DSP_CAP_BATCH;
-				if (audio_devs[dev]->d->trigger)	
+				if (audio_devs[dev]->d->trigger)	/* Supports SETTRIGGER */
 					val |= DSP_CAP_TRIGGER;
 				break;
 			
@@ -464,10 +508,10 @@ int audio_ioctl(int dev, struct file *file, unsigned int cmd, void __user *arg)
 			}
 		
 			spin_lock_irqsave(&dmap->lock,flags);
-			
+			/* Compute number of bytes that have been played */
 			count = DMAbuf_get_buffer_pointer (dev, dmap, DMODE_OUTPUT);
 			if (count < dmap->fragment_size && dmap->qhead != 0)
-				count += dmap->bytes_in_use;	
+				count += dmap->bytes_in_use;	/* Pointer wrap not handled yet */
 			count += dmap->byte_counter;
 		
 			/* Subtract current count from the number of bytes written by app */
@@ -486,10 +530,16 @@ int audio_ioctl(int dev, struct file *file, unsigned int cmd, void __user *arg)
 
 void audio_init_devices(void)
 {
+	/*
+	 * NOTE! This routine could be called several times during boot.
+	 */
 }
 
 void reorganize_buffers(int dev, struct dma_buffparms *dmap, int recording)
 {
+	/*
+	 * This routine breaks the physical device buffers to logical ones.
+	 */
 
 	struct audio_operations *dsp_dev = audio_devs[dev];
 
@@ -507,6 +557,7 @@ void reorganize_buffers(int dev, struct dma_buffparms *dmap, int recording)
 
 	if (sr < 1 || nc < 1 || sz < 1)
 	{
+/*		printk(KERN_DEBUG "Warning: Invalid PCM parameters[%d] sr=%d, nc=%d, sz=%d\n", dev, sr, nc, sz);*/
 		sr = DSP_DEFAULT_SPEED;
 		nc = 1;
 		sz = 8;
@@ -514,7 +565,7 @@ void reorganize_buffers(int dev, struct dma_buffparms *dmap, int recording)
 	
 	sz = sr * nc * sz;
 
-	sz /= 8;		
+	sz /= 8;		/* #bits -> #bytes */
 	dmap->data_rate = sz;
 
 	if (!dmap->needs_reorg)
@@ -523,20 +574,30 @@ void reorganize_buffers(int dev, struct dma_buffparms *dmap, int recording)
 
 	if (dmap->fragment_size == 0)
 	{	
-		
+		/* Compute the fragment size using the default algorithm */
 
+		/*
+		 * Compute a buffer size for time not exceeding 1 second.
+		 * Usually this algorithm gives a buffer size for 0.5 to 1.0 seconds
+		 * of sound (using the current speed, sample size and #channels).
+		 */
 
 		bsz = dmap->buffsize;
 		while (bsz > sz)
 			bsz /= 2;
 
 		if (bsz == dmap->buffsize)
-			bsz /= 2;	
+			bsz /= 2;	/* Needs at least 2 buffers */
 
+		/*
+		 *    Split the computed fragment to smaller parts. After 3.5a9
+		 *      the default subdivision is 4 which should give better
+		 *      results when recording.
+		 */
 
-		if (dmap->subdivision == 0)	
+		if (dmap->subdivision == 0)	/* Not already set */
 		{
-			dmap->subdivision = 4;	
+			dmap->subdivision = 4;	/* Init to the default value */
 
 			if ((bsz / dmap->subdivision) > 4096)
 				dmap->subdivision *= 2;
@@ -546,12 +607,16 @@ void reorganize_buffers(int dev, struct dma_buffparms *dmap, int recording)
 		bsz /= dmap->subdivision;
 
 		if (bsz < 16)
-			bsz = 16;	
+			bsz = 16;	/* Just a sanity check */
 
 		dmap->fragment_size = bsz;
 	}
 	else
 	{
+		/*
+		 * The process has specified the buffer size with SNDCTL_DSP_SETFRAGMENT or
+		 * the buffer size computation has already been done.
+		 */
 		if (dmap->fragment_size > (dmap->buffsize / 2))
 			dmap->fragment_size = (dmap->buffsize / 2);
 		bsz = dmap->fragment_size;
@@ -563,7 +628,7 @@ void reorganize_buffers(int dev, struct dma_buffparms *dmap, int recording)
 	if (audio_devs[dev]->max_fragment)
 		if (bsz > (1 << audio_devs[dev]->max_fragment))
 			bsz = 1 << audio_devs[dev]->max_fragment;
-	bsz &= ~0x07;		
+	bsz &= ~0x07;		/* Force size which is multiple of 8 bytes */
 #ifdef OS_DMA_ALIGN_CHECK
 	OS_DMA_ALIGN_CHECK(bsz);
 #endif
@@ -583,7 +648,7 @@ void reorganize_buffers(int dev, struct dma_buffparms *dmap, int recording)
 	dmap->bytes_in_use = n * bsz;
 	dmap->fragment_size = bsz;
 	dmap->max_byte_counter = (dmap->data_rate * 60 * 60) +
-			dmap->bytes_in_use;	
+			dmap->bytes_in_use;	/* Approximately one hour */
 
 	if (dmap->raw_buf)
 	{
@@ -607,7 +672,7 @@ static int dma_subdivide(int dev, struct dma_buffparms *dmap, int fact)
 			fact = 1;
 		return fact;
 	}
-	if (dmap->subdivision != 0 || dmap->fragment_size)	
+	if (dmap->subdivision != 0 || dmap->fragment_size)	/* Too late to change */
 		return -EINVAL;
 
 	if (fact > MAX_REALTIME_FACTOR)
@@ -628,7 +693,7 @@ static int dma_set_fragment(int dev, struct dma_buffparms *dmap, int fact)
 		return -EIO;
 
 	if (dmap->subdivision != 0 ||
-	    dmap->fragment_size)	
+	    dmap->fragment_size)	/* Too late to change */
 		return -EINVAL;
 
 	bytes = fact & 0xffff;
@@ -639,7 +704,7 @@ static int dma_set_fragment(int dev, struct dma_buffparms *dmap, int fact)
 	else if (count < MAX_SUB_BUFFERS)
 		count++;
 
-	if (bytes < 4 || bytes > 17)	
+	if (bytes < 4 || bytes > 17)	/* <16 || > 512k */
 		return -EINVAL;
 
 	if (count < 2)
@@ -666,9 +731,9 @@ static int dma_set_fragment(int dev, struct dma_buffparms *dmap, int fact)
 
 	if (dmap->fragment_size == dmap->buffsize &&
 	    audio_devs[dev]->flags & DMA_AUTOMODE)
-		dmap->fragment_size /= 2;	
+		dmap->fragment_size /= 2;	/* Needs at least 2 buffers */
 
-	dmap->subdivision = 1;	
+	dmap->subdivision = 1;	/* Disable SNDCTL_DSP_SUBDIVIDE */
 	return bytes | ((count - 1) << 16);
 }
 
@@ -727,7 +792,9 @@ static int dma_ioctl(int dev, unsigned int cmd, void __user *arg)
 					{
 						int tmp = audio_devs[dev]->d->local_qlen(dev);
 						if (tmp && info.fragments)
-							tmp--;	
+							tmp--;	/*
+								 * This buffer has been counted twice
+								 */
 						info.fragments -= tmp;
 					}
 				}
@@ -802,7 +869,7 @@ static int dma_ioctl(int dev, unsigned int cmd, void __user *arg)
 			if (changed && audio_devs[dev]->d->trigger)
 				audio_devs[dev]->d->trigger(dev, bits * audio_devs[dev]->go);
 #endif				
-			
+			/* Falls through... */
 
 		case SNDCTL_DSP_GETTRIGGER:
 			ret = audio_devs[dev]->enable_bits;
@@ -822,11 +889,11 @@ static int dma_ioctl(int dev, unsigned int cmd, void __user *arg)
 			cinfo.bytes = dmap_in->byte_counter;
 			cinfo.ptr = DMAbuf_get_buffer_pointer(dev, dmap_in, DMODE_INPUT) & ~3;
 			if (cinfo.ptr < dmap_in->fragment_size && dmap_in->qtail != 0)
-				cinfo.bytes += dmap_in->bytes_in_use;	
+				cinfo.bytes += dmap_in->bytes_in_use;	/* Pointer wrap not handled yet */
 			cinfo.blocks = dmap_in->qlen;
 			cinfo.bytes += cinfo.ptr;
 			if (dmap_in->mapping_flags & DMA_MAP_MAPPED)
-				dmap_in->qlen = 0;	
+				dmap_in->qlen = 0;	/* Reset interrupt counter */
 			spin_unlock_irqrestore(&dmap_in->lock,flags);
 			if (copy_to_user(arg, &cinfo, sizeof(cinfo)))
 				return -EFAULT;
@@ -840,11 +907,11 @@ static int dma_ioctl(int dev, unsigned int cmd, void __user *arg)
 			cinfo.bytes = dmap_out->byte_counter;
 			cinfo.ptr = DMAbuf_get_buffer_pointer(dev, dmap_out, DMODE_OUTPUT) & ~3;
 			if (cinfo.ptr < dmap_out->fragment_size && dmap_out->qhead != 0)
-				cinfo.bytes += dmap_out->bytes_in_use;	
+				cinfo.bytes += dmap_out->bytes_in_use;	/* Pointer wrap not handled yet */
 			cinfo.blocks = dmap_out->qlen;
 			cinfo.bytes += cinfo.ptr;
 			if (dmap_out->mapping_flags & DMA_MAP_MAPPED)
-				dmap_out->qlen = 0;	
+				dmap_out->qlen = 0;	/* Reset interrupt counter */
 			spin_unlock_irqrestore(&dmap_out->lock,flags);
 			if (copy_to_user(arg, &cinfo, sizeof(cinfo)))
 				return -EFAULT;
@@ -859,10 +926,10 @@ static int dma_ioctl(int dev, unsigned int cmd, void __user *arg)
 				break;
 			}
 			spin_lock_irqsave(&dmap_out->lock,flags);
-			
+			/* Compute number of bytes that have been played */
 			count = DMAbuf_get_buffer_pointer (dev, dmap_out, DMODE_OUTPUT);
 			if (count < dmap_out->fragment_size && dmap_out->qhead != 0)
-				count += dmap_out->bytes_in_use;	
+				count += dmap_out->bytes_in_use;	/* Pointer wrap not handled yet */
 			count += dmap_out->byte_counter;
 			/* Subtract current count from the number of bytes written by app */
 			count = dmap_out->user_counter - count;
@@ -905,7 +972,7 @@ static int dma_ioctl(int dev, unsigned int cmd, void __user *arg)
 				ret = dma_set_fragment(dev, dmap_in, fact);
 			if (ret < 0)
 				return ret;
-			if (!arg) 
+			if (!arg) /* don't know what this is good for, but preserve old semantics */
 				return 0;
 			break;
 

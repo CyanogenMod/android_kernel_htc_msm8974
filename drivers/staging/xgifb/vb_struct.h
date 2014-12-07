@@ -45,7 +45,7 @@ struct XGI_Ext2Struct {
 	unsigned char  ModeID;
 	unsigned short XRes;
 	unsigned short YRes;
-	
+	/* unsigned short ROM_OFFSET; */
 };
 
 struct XGI_ECLKDataStruct {
@@ -53,6 +53,7 @@ struct XGI_ECLKDataStruct {
 	unsigned short CLOCK;
 };
 
+/*add for new UNIVGABIOS*/
 struct XGI_LCDDesStruct {
 	unsigned short LCDHDES;
 	unsigned short LCDHRS;
@@ -205,7 +206,7 @@ struct XGI330_VCLKDataStruct {
 
 struct XGI301C_Tap4TimingStruct {
 	unsigned short DE;
-	unsigned char  Reg[64];   
+	unsigned char  Reg[64];   /* C0-FF */
 };
 
 struct vb_device_info {
@@ -220,15 +221,15 @@ struct vb_device_info {
 	unsigned short   LCDHRS, LCDVRS, LCDHDES, LCDVDES;
 
 	unsigned short   ModeType;
-	
+	/* ,IF_DEF_FSTN; add for dstn */
 	unsigned short   IF_DEF_LVDS, IF_DEF_TRUMPION, IF_DEF_DSTN;
 	unsigned short   IF_DEF_CRT2Monitor;
 	unsigned short   IF_DEF_LCDA, IF_DEF_YPbPr;
 	unsigned short   IF_DEF_ExpLink;
 	unsigned short   IF_DEF_HiVision;
-	unsigned short   LCDResInfo, LCDTypeInfo, VBType;
+	unsigned short   LCDResInfo, LCDTypeInfo, VBType;/*301b*/
 	unsigned short   VBInfo, TVInfo, LCDInfo;
-	unsigned short   VBExtInfo;
+	unsigned short   VBExtInfo;/*301lv*/
 	unsigned short   SetFlag;
 	unsigned short   NewFlickerMode;
 	unsigned short   SelectCRT2Rate;
@@ -249,7 +250,7 @@ struct vb_device_info {
 	unsigned char  *pOutputSelect;
 
 	unsigned short *pRGBSenseData;
-	unsigned short *pRGBSenseData2; 
+	unsigned short *pRGBSenseData2; /*301b*/
 	unsigned short *pVideoSenseData;
 	unsigned short *pVideoSenseData2;
 	unsigned short *pYCSenseData;
@@ -268,13 +269,13 @@ struct vb_device_info {
 	unsigned char  *pSR31;
 	unsigned char  *pSR32;
 	unsigned char  *pSR33;
-	unsigned char  *pSR36;      
+	unsigned char  *pSR36;      /* alan 12/07/2006 */
 	unsigned char  *pCRCF;
-	unsigned char  *pCRD0;      
-	unsigned char  *pCRDE;      
-	unsigned char  *pCR8F;      
-	unsigned char  *pSR40;      
-	unsigned char  *pSR41;      
+	unsigned char  *pCRD0;      /* alan 12/07/2006 */
+	unsigned char  *pCRDE;      /* alan 12/07/2006 */
+	unsigned char  *pCR8F;      /* alan 12/07/2006 */
+	unsigned char  *pSR40;      /* alan 12/07/2006 */
+	unsigned char  *pSR41;      /* alan 12/07/2006 */
 	unsigned char  *pDVOSetting;
 	unsigned char  *pCR2E;
 	unsigned char  *pCR2F;
@@ -317,7 +318,7 @@ struct vb_device_info {
 	struct SiS_StandTable_S  *StandTable;
 	struct XGI_ExtStruct         *EModeIDTable;
 	struct XGI_Ext2Struct        *RefIndex;
-	
+	/* XGINew_CRT1TableStruct *CRT1Table; */
 	struct XGI_CRT1TableStruct    *XGINEWUB_CRT1Table;
 	struct SiS_VCLKData    *VCLKData;
 	struct SiS_VBVCLKData  *VBVCLKData;
@@ -328,6 +329,6 @@ struct vb_device_info {
 	int ram_type;
 	int ram_channel;
 	int ram_bus;
-};  
+};  /* _struct vb_device_info */
 
-#endif 
+#endif /* _VB_STRUCT_ */

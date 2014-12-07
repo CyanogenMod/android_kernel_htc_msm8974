@@ -50,7 +50,31 @@
 #include "i810.h"
 #include "i810_main.h"
 
-static u32 v_offset_default __devinitdata; 
+/*
+ * voffset - framebuffer offset in MiB from aperture start address.  In order for
+ * the driver to work with X, we must try to use memory holes left untouched by X. The
+ * following table lists where X's different surfaces start at.
+ *
+ * ---------------------------------------------
+ * :                :  64 MiB     : 32 MiB      :
+ * ----------------------------------------------
+ * : FrontBuffer    :   0         :  0          :
+ * : DepthBuffer    :   48        :  16         :
+ * : BackBuffer     :   56        :  24         :
+ * ----------------------------------------------
+ *
+ * So for chipsets with 64 MiB Aperture sizes, 32 MiB for v_offset is okay, allowing up to
+ * 15 + 1 MiB of Framebuffer memory.  For 32 MiB Aperture sizes, a v_offset of 8 MiB should
+ * work, allowing 7 + 1 MiB of Framebuffer memory.
+ * Note, the size of the hole may change depending on how much memory you allocate to X,
+ * and how the memory is split up between these surfaces.
+ *
+ * Note: Anytime the DepthBuffer or FrontBuffer is overlapped, X would still run but with
+ * DRI disabled.  But if the Frontbuffer is overlapped, X will fail to load.
+ *
+ * Experiment with v_offset to find out which works best for you.
+ */
+static u32 v_offset_default __devinitdata; /* For 32 MiB Aper size, 8 should be the default */
 static u32 voffset          __devinitdata;
 
 static int i810fb_cursor(struct fb_info *info, struct fb_cursor *cursor);
@@ -60,6 +84,7 @@ static void __exit i810fb_remove_pci(struct pci_dev *dev);
 static int i810fb_resume(struct pci_dev *dev);
 static int i810fb_suspend(struct pci_dev *dev, pm_message_t state);
 
+/* Chipset Specific Functions */
 static int i810fb_set_par    (struct fb_info *info);
 static int i810fb_getcolreg  (u8 regno, u8 *red, u8 *green, u8 *blue,
 			      u8 *transp, struct fb_info *info);
@@ -68,8 +93,10 @@ static int i810fb_setcolreg  (unsigned regno, unsigned red, unsigned green, unsi
 static int i810fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info);
 static int i810fb_blank      (int blank_mode, struct fb_info *info);
 
+/* Initialization */
 static void i810fb_release_resource       (struct fb_info *info, struct i810fb_par *par);
 
+/* PCI */
 static const char *i810_pci_list[] __devinitdata = {
 	"Intel(R) 810 Framebuffer Device"                                 ,
 	"Intel(R) 810-DC100 Framebuffer Device"                           ,
@@ -86,7 +113,7 @@ static struct pci_device_id i810fb_pci_tbl[] = {
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 1  },
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82810E_IG,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 2 },
-	
+	/* mvo: added i815 PCI-ID */
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82815_100,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 3 },
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82815_NOAGP,
@@ -122,8 +149,20 @@ static bool extvga    __devinitdata;
 static bool dcolor    __devinitdata;
 static bool ddc3      __devinitdata;
 
+/*------------------------------------------------------------*/
 
+/**************************************************************
+ *                Hardware Low Level Routines                 *
+ **************************************************************/
 
+/**
+ * i810_screen_off - turns off/on display
+ * @mmio: address of register space
+ * @mode: on or off
+ *
+ * DESCRIPTION:
+ * Blanks/unblanks the display
+ */
 static void i810_screen_off(u8 __iomem *mmio, u8 mode)
 {
 	u32 count = WAIT_COUNT;
@@ -139,6 +178,15 @@ static void i810_screen_off(u8 __iomem *mmio, u8 mode)
 	i810_writeb(SR_DATA, mmio, val);
 }
 
+/**
+ * i810_dram_off - turns off/on dram refresh
+ * @mmio: address of register space
+ * @mode: on or off
+ *
+ * DESCRIPTION:
+ * Turns off DRAM refresh.  Must be off for only 2 vsyncs
+ * before data becomes corrupt
+ */
 static void i810_dram_off(u8 __iomem *mmio, u8 mode)
 {
 	u8 val;
@@ -149,6 +197,15 @@ static void i810_dram_off(u8 __iomem *mmio, u8 mode)
 	i810_writeb(DRAMCH, mmio, val);
 }
 
+/**
+ * i810_protect_regs - allows rw/ro mode of certain VGA registers
+ * @mmio: address of register space
+ * @mode: protect/unprotect
+ *
+ * DESCRIPTION:
+ * The IBM VGA standard allows protection of certain VGA registers.  
+ * This will  protect or unprotect them. 
+ */
 static void i810_protect_regs(u8 __iomem *mmio, int mode)
 {
 	u8 reg;
@@ -162,6 +219,13 @@ static void i810_protect_regs(u8 __iomem *mmio, int mode)
 	i810_writeb(CR_DATA_CGA, mmio, reg);
 }
 
+/**
+ * i810_load_pll - loads values for the hardware PLL clock
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Loads the P, M, and N registers.  
+ */
 static void i810_load_pll(struct i810fb_par *par)
 {
 	u32 tmp1, tmp2;
@@ -181,11 +245,18 @@ static void i810_load_pll(struct i810fb_par *par)
 
 }
 
+/**
+ * i810_load_vga - load standard VGA registers
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Load values to VGA registers
+ */
 static void i810_load_vga(struct i810fb_par *par)
 {	
 	u8 __iomem *mmio = par->mmio_start_virtual;
 
-	
+	/* interlace */
 	i810_writeb(CR_INDEX_CGA, mmio, CR70);
 	i810_writeb(CR_DATA_CGA, mmio, par->interlace);
 
@@ -217,6 +288,13 @@ static void i810_load_vga(struct i810fb_par *par)
 	i810_writeb(CR_DATA_CGA, mmio, par->regs.cr16);
 }
 
+/**
+ * i810_load_vgax - load extended VGA registers
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Load values to extended VGA registers
+ */
 static void i810_load_vgax(struct i810fb_par *par)
 {
 	u8 __iomem *mmio = par->mmio_start_virtual;
@@ -235,6 +313,13 @@ static void i810_load_vgax(struct i810fb_par *par)
 	i810_writeb(CR_DATA_CGA, mmio, par->regs.cr39);
 }
 
+/**
+ * i810_load_2d - load grahics registers
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Load values to graphics registers
+ */
 static void i810_load_2d(struct i810fb_par *par)
 {
 	u32 tmp;
@@ -255,6 +340,10 @@ static void i810_load_2d(struct i810fb_par *par)
 	i810_writeb(GR_DATA, mmio, tmp8);
 }	
 
+/**
+ * i810_hires - enables high resolution mode
+ * @mmio: address of register space
+ */
 static void i810_hires(u8 __iomem *mmio)
 {
 	u8 val;
@@ -263,11 +352,17 @@ static void i810_hires(u8 __iomem *mmio)
 	val = i810_readb(CR_DATA_CGA, mmio);
 	i810_writeb(CR_INDEX_CGA, mmio, CR80);
 	i810_writeb(CR_DATA_CGA, mmio, val | 1);
-	
+	/* Stop LCD displays from flickering */
 	i810_writel(MEM_MODE, mmio, i810_readl(MEM_MODE, mmio) | 4);
 }
 
-	
+/**
+ * i810_load_pitch - loads the characters per line of the display
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Loads the characters per line
+ */	
 static void i810_load_pitch(struct i810fb_par *par)
 {
 	u32 tmp, pitch;
@@ -293,6 +388,13 @@ static void i810_load_pitch(struct i810fb_par *par)
 	i810_writeb(CR_DATA_CGA, mmio, (u8) tmp | val);
 }
 
+/**
+ * i810_load_color - loads the color depth of the display
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Loads the color depth of the display and the graphics engine
+ */
 static void i810_load_color(struct i810fb_par *par)
 {
 	u8 __iomem *mmio = par->mmio_start_virtual;
@@ -308,6 +410,13 @@ static void i810_load_color(struct i810fb_par *par)
 	i810_writew(BLTCNTL, mmio, reg2);
 }
 
+/**
+ * i810_load_regs - loads all registers for the mode
+ * @par: pointer to i810fb_par structure
+ * 
+ * DESCRIPTION:
+ * Loads registers
+ */
 static void i810_load_regs(struct i810fb_par *par)
 {
 	u8 __iomem *mmio = par->mmio_start_virtual;
@@ -345,6 +454,9 @@ static void i810_read_dac(u8 regno, u8 *red, u8 *green, u8 *blue,
 	*blue = i810_readb(CLUT_DATA, mmio);
 }
 
+/************************************************************
+ *                   VGA State Restore                      * 
+ ************************************************************/
 static void i810_restore_pll(struct i810fb_par *par)
 {
 	u32 tmp1, tmp2;
@@ -393,7 +505,7 @@ static void i810_restore_vgax(struct i810fb_par *par)
 	i810_writeb(CR_INDEX_CGA, mmio, CR41);
 	i810_writeb(CR_DATA_CGA, mmio, par->hw_state.cr39);
 
-	
+	/*restore interlace*/
 	i810_writeb(CR_INDEX_CGA, mmio, CR70);
 	i = par->hw_state.cr70;
 	i &= INTERLACE_BIT;
@@ -488,6 +600,9 @@ static void i810_restore_vga_state(struct i810fb_par *par)
 	i810_protect_regs(mmio, ON);
 }
 
+/***********************************************************************
+ *                         VGA State Save                              *
+ ***********************************************************************/
 
 static void i810_save_vgax(struct i810fb_par *par)
 {
@@ -552,6 +667,18 @@ static void i810_save_vga_state(struct i810fb_par *par)
 	i810_save_2d(par);
 }
 
+/************************************************************
+ *                    Helpers                               * 
+ ************************************************************/
+/**
+ * get_line_length - calculates buffer pitch in bytes
+ * @par: pointer to i810fb_par structure
+ * @xres_virtual: virtual resolution of the frame
+ * @bpp: bits per pixel
+ *
+ * DESCRIPTION:
+ * Calculates buffer pitch in bytes.  
+ */
 static u32 get_line_length(struct i810fb_par *par, int xres_virtual, int bpp)
 {
    	u32 length;
@@ -562,6 +689,19 @@ static u32 get_line_length(struct i810fb_par *par, int xres_virtual, int bpp)
 	return length;
 }
 
+/**
+ * i810_calc_dclk - calculates the P, M, and N values of a pixelclock value
+ * @freq: target pixelclock in picoseconds
+ * @m: where to write M register
+ * @n: where to write N register
+ * @p: where to write P register
+ *
+ * DESCRIPTION:
+ * Based on the formula Freq_actual = (4*M*Freq_ref)/(N^P)
+ * Repeatedly computes the Freq until the actual Freq is equal to
+ * the target Freq or until the loop count is zero.  In the latter
+ * case, the actual frequency nearest the target will be used.
+ */
 static void i810_calc_dclk(u32 freq, u32 *m, u32 *n, u32 *p)
 {
 	u32 m_reg, n_reg, p_divisor, n_target_max;
@@ -574,6 +714,9 @@ static void i810_calc_dclk(u32 freq, u32 *m, u32 *n, u32 *p)
 	target_freq =  freq;
 	n_target_max = 30;
 
+	/*
+	 * find P such that target freq is 16x reference freq (Hz). 
+	 */
 	p_divisor = 1;
 	p_target = 0;
 	while(!((1000000 * p_divisor)/(16 * 24 * target_freq)) && 
@@ -613,7 +756,18 @@ static void i810_calc_dclk(u32 freq, u32 *m, u32 *n, u32 *p)
 	if (p) *p = (p_target << 4);
 }
 
+/*************************************************************
+ *                Hardware Cursor Routines                   *
+ *************************************************************/
 
+/**
+ * i810_enable_cursor - show or hide the hardware cursor
+ * @mmio: address of register space
+ * @mode: show (1) or hide (0)
+ *
+ * Description:
+ * Shows or hides the hardware cursor
+ */
 static void i810_enable_cursor(u8 __iomem *mmio, int mode)
 {
 	u32 temp;
@@ -685,6 +839,13 @@ static void i810_load_cursor_colors(int fg, int bg, struct fb_info *info)
 	i810_writeb(PIXCONF1, mmio, temp);
 }
 
+/**
+ * i810_init_cursor - initializes the cursor
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Initializes the cursor registers
+ */
 static void i810_init_cursor(struct i810fb_par *par)
 {
 	u8 __iomem *mmio = par->mmio_start_virtual;
@@ -694,10 +855,25 @@ static void i810_init_cursor(struct i810fb_par *par)
 	i810_writew(CURCNTR, mmio, COORD_ACTIVE | CURSOR_MODE_64_XOR);
 }	
 
+/*********************************************************************
+ *                    Framebuffer hook helpers                       *
+ *********************************************************************/
+/**
+ * i810_round_off -  Round off values to capability of hardware
+ * @var: pointer to fb_var_screeninfo structure
+ *
+ * DESCRIPTION:
+ * @var contains user-defined information for the mode to be set.
+ * This will try modify those values to ones nearest the
+ * capability of the hardware
+ */
 static void i810_round_off(struct fb_var_screeninfo *var)
 {
 	u32 xres, yres, vxres, vyres;
 
+	/*
+	 *  Presently supports only these configurations 
+	 */
 
 	xres = var->xres;
 	yres = var->yres;
@@ -734,7 +910,7 @@ static void i810_round_off(struct fb_var_screeninfo *var)
 	if (var->bits_per_pixel == 32)
 		var->accel_flags = 0;
 
-	
+	/* round of horizontal timings to nearest 8 pixels */
 	var->left_margin = (var->left_margin + 4) & ~7;
 	var->right_margin = (var->right_margin + 4) & ~7;
 	var->hsync_len = (var->hsync_len + 4) & ~7;
@@ -751,7 +927,15 @@ static void i810_round_off(struct fb_var_screeninfo *var)
 	var->yres_virtual = vyres;
 }	
 
-  
+/**
+ * set_color_bitfields - sets rgba fields
+ * @var: pointer to fb_var_screeninfo
+ *
+ * DESCRIPTION:
+ * The length, offset and ordering  for each color field 
+ * (red, green, blue)  will be set as specified 
+ * by the hardware
+ */  
 static void set_color_bitfields(struct fb_var_screeninfo *var)
 {
 	switch (var->bits_per_pixel) {
@@ -775,8 +959,8 @@ static void set_color_bitfields(struct fb_var_screeninfo *var)
 		var->red.offset = 5 + var->green.length;
 		var->transp.offset =  (5 + var->red.offset) & 15;
 		break;
-	case 24:	
-	case 32:	
+	case 24:	/* RGB 888   */
+	case 32:	/* RGBA 8888 */
 		var->red.offset = 16;
 		var->red.length = 8;
 		var->green.offset = 8;
@@ -793,6 +977,16 @@ static void set_color_bitfields(struct fb_var_screeninfo *var)
 	var->transp.msb_right = 0;
 }
 
+/**
+ * i810_check_params - check if contents in var are valid
+ * @var: pointer to fb_var_screeninfo
+ * @info: pointer to fb_info
+ *
+ * DESCRIPTION:
+ * This will check if the framebuffer size is sufficient 
+ * for the current mode and if the user's monitor has the 
+ * required specifications to display the current mode.
+ */
 static int i810_check_params(struct fb_var_screeninfo *var, 
 			     struct fb_info *info)
 {
@@ -800,6 +994,9 @@ static int i810_check_params(struct fb_var_screeninfo *var,
 	int line_length, vidmem, mode_valid = 0, retval = 0;
 	u32 vyres = var->yres_virtual, vxres = var->xres_virtual;
 
+	/*
+	 *  Memory limit
+	 */
 	line_length = get_line_length(par, vxres, var->bits_per_pixel);
 	vidmem = line_length*vyres;
 
@@ -826,6 +1023,9 @@ static int i810_check_params(struct fb_var_screeninfo *var,
 	var->xres_virtual = vxres;
 	var->yres_virtual = vyres;
 
+	/*
+	 * Monitor limit
+	 */
 	switch (var->bits_per_pixel) {
 	case 8:
 		info->monspecs.dclkmax = 234000000;
@@ -875,6 +1075,14 @@ static int i810_check_params(struct fb_var_screeninfo *var,
 	return retval;
 }	
 
+/**
+ * encode_fix - fill up fb_fix_screeninfo structure
+ * @fix: pointer to fb_fix_screeninfo
+ * @info: pointer to fb_info
+ *
+ * DESCRIPTION:
+ * This will set up parameters that are unmodifiable by the user.
+ */
 static int encode_fix(struct fb_fix_screeninfo *fix, struct fb_info *info)
 {
 	struct i810fb_par *par = info->par;
@@ -915,6 +1123,15 @@ static int encode_fix(struct fb_fix_screeninfo *fix, struct fb_info *info)
 	return 0;
 }
 
+/**
+ * decode_var - modify par according to contents of var
+ * @var: pointer to fb_var_screeninfo
+ * @par: pointer to i810fb_par
+ *
+ * DESCRIPTION:
+ * Based on the contents of @var, @par will be dynamically filled up.
+ * @par contains all information necessary to modify the hardware. 
+*/
 static void decode_var(const struct fb_var_screeninfo *var, 
 		       struct i810fb_par *par)
 {
@@ -965,6 +1182,19 @@ static void decode_var(const struct fb_var_screeninfo *var,
 	par->pitch = get_line_length(par, vxres, var->bits_per_pixel);
 }	
 
+/**
+ * i810fb_getcolreg - gets red, green and blue values of the hardware DAC
+ * @regno: DAC index
+ * @red: red
+ * @green: green
+ * @blue: blue
+ * @transp: transparency (alpha)
+ * @info: pointer to fb_info
+ *
+ * DESCRIPTION:
+ * Gets the red, green and blue values of the hardware DAC as pointed by @regno
+ * and writes them to @red, @green and @blue respectively
+ */
 static int i810fb_getcolreg(u8 regno, u8 *red, u8 *green, u8 *blue, 
 			    u8 *transp, struct fb_info *info)
 {
@@ -1001,6 +1231,9 @@ static int i810fb_getcolreg(u8 regno, u8 *red, u8 *green, u8 *blue,
     	return 0;
 }
 
+/****************************************************************** 
+ *           Framebuffer device-specific hooks                    *
+ ******************************************************************/
 
 static int i810fb_open(struct fb_info *info, int user)
 {
@@ -1108,13 +1341,13 @@ static int i810fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 						regno;
 			} else {
 				if (info->var.green.length == 5) {
-					
+					/* RGB 555 */
 					((u32 *)info->pseudo_palette)[regno] = 
 						((red & 0xf800) >> 1) |
 						((green & 0xf800) >> 6) |
 						((blue & 0xf800) >> 11);
 				} else {
-					
+					/* RGB 565 */
 					((u32 *)info->pseudo_palette)[regno] =
 						(red & 0xf800) |
 						((green & 0xf800) >> 5) |
@@ -1122,8 +1355,8 @@ static int i810fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 				}
 			}
 			break;
-		case 24:	
-		case 32:	
+		case 24:	/* RGB 888 */
+		case 32:	/* RGBA 8888 */
 			if (info->fix.visual == FB_VISUAL_DIRECTCOLOR) 
 				((u32 *)info->pseudo_palette)[regno] = 
 					(regno << 16) | (regno << 8) |
@@ -1324,6 +1557,9 @@ static struct fb_ops i810fb_ops __devinitdata = {
 	.fb_sync =           i810fb_sync,
 };
 
+/***********************************************************************
+ *                         Power Management                            *
+ ***********************************************************************/
 static int i810fb_suspend(struct pci_dev *dev, pm_message_t mesg)
 {
 	struct fb_info *info = pci_get_drvdata(dev);
@@ -1388,6 +1624,9 @@ fail:
 	console_unlock();
 	return 0;
 }
+/***********************************************************************
+ *                  AGP resource allocation                            *
+ ***********************************************************************/
   
 static void __devinit i810_fix_pointers(struct i810fb_par *par)
 {
@@ -1472,7 +1711,18 @@ static int __devinit i810_alloc_agp_mem(struct fb_info *info)
 	return 0;
 }
 
+/*************************************************************** 
+ *                    Initialization                           * 
+ ***************************************************************/
 
+/**
+ * i810_init_monspecs
+ * @info: pointer to device specific info structure
+ *
+ * DESCRIPTION:
+ * Sets the user monitor's horizontal and vertical
+ * frequency limits
+ */
 static void __devinit i810_init_monspecs(struct fb_info *info)
 {
 	if (!hsync1)
@@ -1500,6 +1750,11 @@ static void __devinit i810_init_monspecs(struct fb_info *info)
 		info->monspecs.vfmin = vsync2;
 }
 
+/**
+ * i810_init_defaults - initializes default values to use
+ * @par: pointer to i810fb_par structure
+ * @info: pointer to current fb_info structure
+ */
 static void __devinit i810_init_defaults(struct i810fb_par *par, 
 				      struct fb_info *info)
 {
@@ -1553,6 +1808,10 @@ static void __devinit i810_init_defaults(struct i810fb_par *par,
 	i810_init_monspecs(info);
 }
 	
+/**
+ * i810_init_device - initialize device
+ * @par: pointer to i810fb_par structure
+ */
 static void __devinit i810_init_device(struct i810fb_par *par)
 {
 	u8 reg;
@@ -1562,7 +1821,7 @@ static void __devinit i810_init_device(struct i810fb_par *par)
 
 	i810_init_cursor(par);
 
-	
+	/* mvo: enable external vga-connector (for laptops) */
 	if (extvga) {
 		i810_writel(HVSYNC, mmio, 0);
 		i810_writel(PWR_CLKC, mmio, 3);
@@ -1833,6 +2092,9 @@ static int __devinit i810fb_init_pci (struct pci_dev *dev,
 	return 0;
 }
 
+/***************************************************************
+ *                     De-initialization                        *
+ ***************************************************************/
 
 static void i810fb_release_resource(struct fb_info *info, 
 				    struct i810fb_par *par)
@@ -1886,6 +2148,9 @@ static int __devinit i810fb_init(void)
 }
 #endif 
 
+/*********************************************************************
+ *                          Modularization                           *
+ *********************************************************************/
 
 #ifdef MODULE
 
@@ -1953,6 +2218,6 @@ static void __exit i810fb_exit(void)
 }
 module_exit(i810fb_exit);
 
-#endif 
+#endif /* MODULE */
 
 module_init(i810fb_init);

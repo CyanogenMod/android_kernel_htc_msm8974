@@ -36,6 +36,7 @@
 
 #define OSM_DESCRIPTION	"I2O-subsystem"
 
+/* PCI device id table for all I2O controllers */
 static struct pci_device_id __devinitdata i2o_pci_ids[] = {
 	{PCI_DEVICE_CLASS(PCI_CLASS_INTELLIGENT_I2O << 8, 0xffff00)},
 	{PCI_DEVICE(PCI_VENDOR_ID_DPT, 0xa511)},
@@ -44,6 +45,13 @@ static struct pci_device_id __devinitdata i2o_pci_ids[] = {
 	{0}
 };
 
+/**
+ *	i2o_pci_free - Frees the DMA memory for the I2O controller
+ *	@c: I2O controller to free
+ *
+ *	Remove all allocated DMA memory and unmap memory IO regions. If MTRR
+ *	is enabled, also remove it again.
+ */
 static void i2o_pci_free(struct i2o_controller *c)
 {
 	struct device *dev;
@@ -66,6 +74,16 @@ static void i2o_pci_free(struct i2o_controller *c)
 	pci_release_regions(c->pdev);
 }
 
+/**
+ *	i2o_pci_alloc - Allocate DMA memory, map IO memory for I2O controller
+ *	@c: I2O controller
+ *
+ *	Allocate DMA memory for a PCI (or in theory AGP) I2O controller. All
+ *	IO mappings are also done here. If MTRR is enabled, also do add memory
+ *	regions here.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 static int __devinit i2o_pci_alloc(struct i2o_controller *c)
 {
 	struct pci_dev *pdev = c->pdev;
@@ -78,12 +96,16 @@ static int __devinit i2o_pci_alloc(struct i2o_controller *c)
 	}
 
 	for (i = 0; i < 6; i++) {
-		
+		/* Skip I/O spaces */
 		if (!(pci_resource_flags(pdev, i) & IORESOURCE_IO)) {
 			if (!c->base.phys) {
 				c->base.phys = pci_resource_start(pdev, i);
 				c->base.len = pci_resource_len(pdev, i);
 
+				/*
+				 * If we know what card it is, set the size
+				 * correctly. Code is taken from dpt_i2o.c
+				 */
 				if (pdev->device == 0xa501) {
 					if (pdev->subsystem_device >= 0xc032 &&
 					    pdev->subsystem_device <= 0xc03b) {
@@ -111,7 +133,7 @@ static int __devinit i2o_pci_alloc(struct i2o_controller *c)
 		return -EINVAL;
 	}
 
-	
+	/* Map the I2O controller */
 	if (c->raptor) {
 		printk(KERN_INFO "%s: PCI I2O controller\n", c->name);
 		printk(KERN_INFO "     BAR0 at 0x%08lX size=%ld\n",
@@ -148,9 +170,9 @@ static int __devinit i2o_pci_alloc(struct i2o_controller *c)
 	c->in_port = c->base.virt + I2O_IN_PORT;
 	c->out_port = c->base.virt + I2O_OUT_PORT;
 
-	
+	/* Motorola/Freescale chip does not follow spec */
 	if (pdev->vendor == PCI_VENDOR_ID_MOTOROLA && pdev->device == 0x18c0) {
-		
+		/* Check if CPU is enabled */
 		if (be32_to_cpu(readl(c->base.virt + 0x10000)) & 0x10000000) {
 			printk(KERN_INFO "%s: MPC82XX needs CPU running to "
 			       "service I2O.\n", c->name);
@@ -198,6 +220,14 @@ static int __devinit i2o_pci_alloc(struct i2o_controller *c)
 	return 0;
 }
 
+/**
+ *	i2o_pci_interrupt - Interrupt handler for I2O controller
+ *	@irq: interrupt line
+ *	@dev_id: pointer to the I2O controller
+ *
+ *	Handle an interrupt from a PCI based I2O controller. This turns out
+ *	to be rather simple. We keep the controller pointer in the cookie.
+ */
 static irqreturn_t i2o_pci_interrupt(int irq, void *dev_id)
 {
 	struct i2o_controller *c = dev_id;
@@ -207,14 +237,18 @@ static irqreturn_t i2o_pci_interrupt(int irq, void *dev_id)
 	while (readl(c->irq_status) & I2O_IRQ_OUTBOUND_POST) {
 		m = readl(c->out_port);
 		if (m == I2O_QUEUE_EMPTY) {
+			/*
+			 * Old 960 steppings had a bug in the I2O unit that
+			 * caused the queue to appear empty when it wasn't.
+			 */
 			m = readl(c->out_port);
 			if (unlikely(m == I2O_QUEUE_EMPTY))
 				break;
 		}
 
-		
+		/* dispatch it */
 		if (i2o_driver_dispatch(c, m))
-			
+			/* flush it if result != 0 */
 			i2o_flush_reply(c, m);
 
 		rc = IRQ_HANDLED;
@@ -223,6 +257,15 @@ static irqreturn_t i2o_pci_interrupt(int irq, void *dev_id)
 	return rc;
 }
 
+/**
+ *	i2o_pci_irq_enable - Allocate interrupt for I2O controller
+ *	@c: i2o_controller that the request is for
+ *
+ *	Allocate an interrupt for the I2O controller, and activate interrupts
+ *	on the I2O controller.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 static int i2o_pci_irq_enable(struct i2o_controller *c)
 {
 	struct pci_dev *pdev = c->pdev;
@@ -247,6 +290,12 @@ static int i2o_pci_irq_enable(struct i2o_controller *c)
 	return 0;
 }
 
+/**
+ *	i2o_pci_irq_disable - Free interrupt for I2O controller
+ *	@c: I2O controller
+ *
+ *	Disable interrupts in I2O controller and then free interrupt.
+ */
 static void i2o_pci_irq_disable(struct i2o_controller *c)
 {
 	writel(0xffffffff, c->irq_mask);
@@ -255,6 +304,17 @@ static void i2o_pci_irq_disable(struct i2o_controller *c)
 		free_irq(c->pdev->irq, c);
 }
 
+/**
+ *	i2o_pci_probe - Probe the PCI device for an I2O controller
+ *	@pdev: PCI device to test
+ *	@id: id which matched with the PCI device id table
+ *
+ *	Probe the PCI device for any device which is a memory of the
+ *	Intelligent, I2O class or an Adaptec Zero Channel Controller. We
+ *	attempt to set up each such device and register it with the core.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 static int __devinit i2o_pci_probe(struct pci_dev *pdev,
 				   const struct pci_device_id *id)
 {
@@ -298,7 +358,7 @@ static int __devinit i2o_pci_probe(struct pci_dev *pdev,
 	c->pdev = pdev;
 	c->device.parent = &pdev->dev;
 
-	
+	/* Cards that fall apart if you hit them with large I/O loads... */
 	if (pdev->vendor == PCI_VENDOR_ID_NCR && pdev->device == 0x0630) {
 		c->short_req = 1;
 		printk(KERN_INFO "%s: Symbios FC920 workarounds activated.\n",
@@ -306,6 +366,10 @@ static int __devinit i2o_pci_probe(struct pci_dev *pdev,
 	}
 
 	if (pdev->subsystem_vendor == PCI_VENDOR_ID_PROMISE) {
+		/*
+		 * Expose the ship behind i960 for initialization, or it will
+		 * failed
+		 */
 		i960 = pci_get_slot(c->pdev->bus,
 				  PCI_DEVFN(PCI_SLOT(c->pdev->devfn), 0));
 
@@ -321,7 +385,7 @@ static int __devinit i2o_pci_probe(struct pci_dev *pdev,
 	if (pdev->subsystem_vendor == PCI_VENDOR_ID_DPT)
 		c->adaptec = 1;
 
-	
+	/* Cards that go bananas if you quiesce them before you reset them. */
 	if (pdev->vendor == PCI_VENDOR_ID_DPT) {
 		c->no_quiesce = 1;
 		if (pdev->device == 0xa511)
@@ -382,6 +446,13 @@ static int __devinit i2o_pci_probe(struct pci_dev *pdev,
 	return rc;
 }
 
+/**
+ *	i2o_pci_remove - Removes a I2O controller from the system
+ *	@pdev: I2O controller which should be removed
+ *
+ *	Reset the I2O controller, disable interrupts and remove all allocated
+ *	resources.
+ */
 static void __devexit i2o_pci_remove(struct pci_dev *pdev)
 {
 	struct i2o_controller *c;
@@ -398,6 +469,7 @@ static void __devexit i2o_pci_remove(struct pci_dev *pdev)
 	put_device(&c->device);
 };
 
+/* PCI driver for I2O controller */
 static struct pci_driver i2o_pci_driver = {
 	.name = "PCI_I2O",
 	.id_table = i2o_pci_ids,
@@ -405,11 +477,19 @@ static struct pci_driver i2o_pci_driver = {
 	.remove = __devexit_p(i2o_pci_remove),
 };
 
+/**
+ *	i2o_pci_init - registers I2O PCI driver in PCI subsystem
+ *
+ *	Returns > 0 on success or negative error code on failure.
+ */
 int __init i2o_pci_init(void)
 {
 	return pci_register_driver(&i2o_pci_driver);
 };
 
+/**
+ *	i2o_pci_exit - unregisters I2O PCI driver from PCI subsystem
+ */
 void __exit i2o_pci_exit(void)
 {
 	pci_unregister_driver(&i2o_pci_driver);

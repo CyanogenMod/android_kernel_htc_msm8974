@@ -23,6 +23,7 @@ static const struct file_operations name##_fops = {			\
 	.release	= single_release,				\
 };
 
+/* debugfs.c */
 extern int ceph_debugfs_init(void);
 extern void ceph_debugfs_cleanup(void);
 extern int ceph_debugfs_client_init(struct ceph_client *client);

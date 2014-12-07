@@ -23,14 +23,21 @@
 
 #define CSR_NODE_SHIFT		16
 #define CSR_NODE_BITS(p)	(((unsigned long)(p)) << CSR_NODE_SHIFT)
-#define CSR_NODE_MASK		0x0fff		
+#define CSR_NODE_MASK		0x0fff		/* 4K nodes */
 
+/* 32K CSR space, b15 indicates geo/non-geo */
 #define CSR_OFFSET_MASK	0x7fffUL
 
+/* Global CSR space covers all 4K possible nodes with 64K CSR space per node */
 #define NUMACHIP_GCSR_BASE	0x3fff00000000ULL
 #define NUMACHIP_GCSR_LIM	0x3fff0fffffffULL
 #define NUMACHIP_GCSR_SIZE	(NUMACHIP_GCSR_LIM - NUMACHIP_GCSR_BASE + 1)
 
+/*
+ * Local CSR space starts in global CSR space with "nodeid" = 0xfff0, however
+ * when using the direct mapping on x86_64, both start and size needs to be
+ * aligned with PMD_SIZE which is 2M
+ */
 #define NUMACHIP_LCSR_BASE	0x3ffffe000000ULL
 #define NUMACHIP_LCSR_LIM	0x3fffffffffffULL
 #define NUMACHIP_LCSR_SIZE	(NUMACHIP_LCSR_LIM - NUMACHIP_LCSR_BASE + 1)
@@ -67,6 +74,9 @@ static inline void write_lcsr(unsigned long offset, unsigned int val)
 	writel(swab32(val), lcsr_address(offset));
 }
 
+/* ========================================================================= */
+/*                   CSR_G0_STATE_CLEAR                                      */
+/* ========================================================================= */
 
 #define CSR_G0_STATE_CLEAR (0x000 + (0 << 12))
 union numachip_csr_g0_state_clear {
@@ -79,6 +89,9 @@ union numachip_csr_g0_state_clear {
 	} s;
 };
 
+/* ========================================================================= */
+/*                   CSR_G0_NODE_IDS                                         */
+/* ========================================================================= */
 
 #define CSR_G0_NODE_IDS (0x008 + (0 << 12))
 union numachip_csr_g0_node_ids {
@@ -90,6 +103,9 @@ union numachip_csr_g0_node_ids {
 	} s;
 };
 
+/* ========================================================================= */
+/*                   CSR_G3_EXT_IRQ_GEN                                      */
+/* ========================================================================= */
 
 #define CSR_G3_EXT_IRQ_GEN (0x030 + (3 << 12))
 union numachip_csr_g3_ext_irq_gen {
@@ -102,6 +118,9 @@ union numachip_csr_g3_ext_irq_gen {
 	} s;
 };
 
+/* ========================================================================= */
+/*                   CSR_G3_EXT_IRQ_STATUS                                   */
+/* ========================================================================= */
 
 #define CSR_G3_EXT_IRQ_STATUS (0x034 + (3 << 12))
 union numachip_csr_g3_ext_irq_status {
@@ -111,6 +130,9 @@ union numachip_csr_g3_ext_irq_status {
 	} s;
 };
 
+/* ========================================================================= */
+/*                   CSR_G3_EXT_IRQ_DEST                                     */
+/* ========================================================================= */
 
 #define CSR_G3_EXT_IRQ_DEST (0x038 + (3 << 12))
 union numachip_csr_g3_ext_irq_dest {
@@ -121,6 +143,9 @@ union numachip_csr_g3_ext_irq_dest {
 	} s;
 };
 
+/* ========================================================================= */
+/*                   CSR_G3_NC_ATT_MAP_SELECT                                */
+/* ========================================================================= */
 
 #define CSR_G3_NC_ATT_MAP_SELECT (0x7fc + (3 << 12))
 union numachip_csr_g3_nc_att_map_select {
@@ -132,8 +157,11 @@ union numachip_csr_g3_nc_att_map_select {
 	} s;
 };
 
+/* ========================================================================= */
+/*                   CSR_G3_NC_ATT_MAP_SELECT_0-255                          */
+/* ========================================================================= */
 
 #define CSR_G3_NC_ATT_MAP_SELECT_0 (0x800 + (3 << 12))
 
-#endif 
+#endif /* _ASM_X86_NUMACHIP_NUMACHIP_CSR_H */
 

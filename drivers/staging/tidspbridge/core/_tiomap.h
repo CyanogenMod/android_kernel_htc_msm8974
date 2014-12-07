@@ -19,14 +19,24 @@
 #ifndef _TIOMAP_
 #define _TIOMAP_
 
+/*
+ * XXX These powerdomain.h/clockdomain.h includes are wrong and should
+ * be removed.  No driver should call pwrdm_* or clkdm_* functions
+ * directly; they should rely on OMAP core code to do this.
+ */
 #include <mach-omap2/powerdomain.h>
 #include <mach-omap2/clockdomain.h>
+/*
+ * XXX These mach-omap2/ includes are wrong and should be removed.  No
+ * driver should read or write to PRM/CM registers directly; they
+ * should rely on OMAP core code to do this.
+ */
 #include <mach-omap2/cm2xxx_3xxx.h>
 #include <mach-omap2/prm-regbits-34xx.h>
 #include <mach-omap2/cm-regbits-34xx.h>
 #include <dspbridge/devdefs.h>
 #include <hw_defs.h>
-#include <dspbridge/dspioctl.h>	
+#include <dspbridge/dspioctl.h>	/* for bridge_ioctl_extproc defn */
 #include <dspbridge/sync.h>
 #include <dspbridge/clk.h>
 
@@ -38,10 +48,12 @@ struct map_l4_peripheral {
 #define ARM_MAILBOX_START               0xfffcf000
 #define ARM_MAILBOX_LENGTH              0x800
 
+/* New Registers in OMAP3.1 */
 
 #define TESTBLOCK_ID_START              0xfffed400
 #define TESTBLOCK_ID_LENGTH             0xff
 
+/* ID Returned by OMAP1510 */
 #define TBC_ID_VALUE                    0xB47002F
 
 #define SPACE_LENGTH                    0x2000
@@ -55,15 +67,15 @@ struct map_l4_peripheral {
 
 #define MAX_LOCK_TLB_ENTRIES 15
 
-#define L4_PERIPHERAL_PRM        0x48306000	
+#define L4_PERIPHERAL_PRM        0x48306000	/*PRM L4 Peripheral */
 #define DSPVA_PERIPHERAL_PRM     0x1181e000
-#define L4_PERIPHERAL_SCM        0x48002000	
+#define L4_PERIPHERAL_SCM        0x48002000	/*SCM L4 Peripheral */
 #define DSPVA_PERIPHERAL_SCM     0x1181f000
-#define L4_PERIPHERAL_MMU        0x5D000000	
+#define L4_PERIPHERAL_MMU        0x5D000000	/*MMU L4 Peripheral */
 #define DSPVA_PERIPHERAL_MMU     0x11820000
-#define L4_PERIPHERAL_CM        0x48004000	
+#define L4_PERIPHERAL_CM        0x48004000	/* Core L4, Clock Management */
 #define DSPVA_PERIPHERAL_CM     0x1181c000
-#define L4_PERIPHERAL_PER        0x48005000	
+#define L4_PERIPHERAL_PER        0x48005000	/*  PER */
 #define DSPVA_PERIPHERAL_PER     0x1181d000
 
 #define L4_PERIPHERAL_GPIO1       0x48310000
@@ -96,7 +108,7 @@ struct map_l4_peripheral {
 #define DSPVA_PERIPHERAL_CAMERA   0x11819000
 
 #define L4_PERIPHERAL_SDMA        0x48056000
-#define DSPVA_PERIPHERAL_SDMA     0x11810000	
+#define DSPVA_PERIPHERAL_SDMA     0x11810000	/* 0x1181d000 conflict w/ PER */
 
 #define L4_PERIPHERAL_UART1             0x4806a000
 #define DSPVA_PERIPHERAL_UART1          0x11811000
@@ -141,6 +153,7 @@ struct map_l4_peripheral {
 #define L4_PERIPHERAL_SIDETONE_MCBSP3        0x4902a000
 #define DSPVA_PERIPHERAL_SIDETONE_MCBSP3 0x11825000
 
+/* define a static array with L4 mappings */
 static const struct map_l4_peripheral l4_peripheral_table[] = {
 	{L4_PERIPHERAL_MBOX, DSPVA_PERIPHERAL_MBOX},
 	{L4_PERIPHERAL_SCM, DSPVA_PERIPHERAL_SCM},
@@ -180,22 +193,40 @@ static const struct map_l4_peripheral l4_peripheral_table[] = {
 	{L4_PERIPHERAL_NULL, DSPVA_PERIPHERAL_NULL}
 };
 
+/*
+ *   15         10                  0
+ *   ---------------------------------
+ *  |0|0|1|0|0|0|c|c|c|i|i|i|i|i|i|i|
+ *  ---------------------------------
+ *  |  (class)  | (module specific) |
+ *
+ *  where  c -> Externel Clock Command: Clk & Autoidle Disable/Enable
+ *  i -> External Clock ID Timers 5,6,7,8, McBSP1,2 and WDT3
+ */
 
+/* MBX_PM_CLK_IDMASK: DSP External clock id mask. */
 #define MBX_PM_CLK_IDMASK   0x7F
 
+/* MBX_PM_CLK_CMDSHIFT: DSP External clock command shift. */
 #define MBX_PM_CLK_CMDSHIFT 7
 
+/* MBX_PM_CLK_CMDMASK: DSP External clock command mask. */
 #define MBX_PM_CLK_CMDMASK 7
 
+/* MBX_PM_MAX_RESOURCES: CORE 1 Clock resources. */
 #define MBX_CORE1_RESOURCES 7
 
+/* MBX_PM_MAX_RESOURCES: CORE 2 Clock Resources. */
 #define MBX_CORE2_RESOURCES 1
 
+/* MBX_PM_MAX_RESOURCES: TOTAL Clock Reosurces. */
 #define MBX_PM_MAX_RESOURCES 11
 
+/*  Power Management Commands */
 #define BPWR_DISABLE_CLOCK	0
 #define BPWR_ENABLE_CLOCK	1
 
+/* OMAP242x specific resources */
 enum bpwr_ext_clock_id {
 	BPWR_GP_TIMER5 = 0x10,
 	BPWR_GP_TIMER6,
@@ -243,11 +274,16 @@ static const struct bpwr_clk_t bpwr_clks[] = {
 	{(u32) BPWR_SSI, DSP_CLK_SSI}
 };
 
-#define INTH_IT_REG_OFFSET              0x00	
-#define INTH_MASK_IT_REG_OFFSET         0x04	
+/* Interrupt Register Offsets */
+#define INTH_IT_REG_OFFSET              0x00	/* Interrupt register offset */
+#define INTH_MASK_IT_REG_OFFSET         0x04	/* Mask Interrupt reg offset */
 
 #define   DSP_MAILBOX1_INT              10
+/*
+ *  Bit definition of  Interrupt  Level  Registers
+ */
 
+/* Mail Box defines */
 #define MB_ARM2DSP1_REG_OFFSET          0x00
 
 #define MB_ARM2DSP1B_REG_OFFSET         0x04
@@ -269,6 +305,7 @@ static const struct bpwr_clk_t bpwr_clks[] = {
 #define HIGH_LEVEL                      true
 #define LOW_LEVEL                       false
 
+/* Macro's */
 #define CLEAR_BIT(reg, mask)             (reg &= ~mask)
 #define SET_BIT(reg, mask)               (reg |= mask)
 
@@ -280,38 +317,66 @@ static const struct bpwr_clk_t bpwr_clks[] = {
 
 #define CLEAR_BIT_INDEX(reg, index)   (reg &= ~(1 << (index)))
 
+/* This Bridge driver's device context: */
 struct bridge_dev_context {
-	struct dev_object *dev_obj;	
-	u32 dsp_base_addr;	
-	u32 dsp_ext_base_addr;	
-	u32 api_reg_base;	
-	void __iomem *dsp_mmu_base;	
-	u32 api_clk_base;	
-	u32 dsp_clk_m2_base;	
-	u32 public_rhea;	
-	u32 int_addr;		
-	u32 tc_endianism;	
-	u32 test_base;		
-	u32 self_loop;		
-	u32 dsp_start_add;	
-	u32 internal_size;	
+	struct dev_object *dev_obj;	/* Handle to Bridge device object. */
+	u32 dsp_base_addr;	/* Arm's API to DSP virt base addr */
+	/*
+	 * DSP External memory prog address as seen virtually by the OS on
+	 * the host side.
+	 */
+	u32 dsp_ext_base_addr;	/* See the comment above */
+	u32 api_reg_base;	/* API mem map'd registers */
+	void __iomem *dsp_mmu_base;	/* DSP MMU Mapped registers */
+	u32 api_clk_base;	/* CLK Registers */
+	u32 dsp_clk_m2_base;	/* DSP Clock Module m2 */
+	u32 public_rhea;	/* Pub Rhea */
+	u32 int_addr;		/* MB INTR reg */
+	u32 tc_endianism;	/* TC Endianism register */
+	u32 test_base;		/* DSP MMU Mapped registers */
+	u32 self_loop;		/* Pointer to the selfloop */
+	u32 dsp_start_add;	/* API Boot vector */
+	u32 internal_size;	/* Internal memory size */
 
-	struct omap_mbox *mbox;		
+	struct omap_mbox *mbox;		/* Mail box handle */
 
-	struct cfg_hostres *resources;	
+	struct cfg_hostres *resources;	/* Host Resources */
 
-	
+	/*
+	 * Processor specific info is set when prog loaded and read from DCD.
+	 * [See bridge_dev_ctrl()]  PROC info contains DSP-MMU TLB entries.
+	 */
+	/* DMMU TLB entries */
 	struct bridge_ioctl_extproc atlb_entry[BRDIOCTL_NUMOFMMUTLB];
-	u32 brd_state;       
+	u32 brd_state;       /* Last known board state. */
 
-	
-	bool tc_word_swap_on;	
+	/* TC Settings */
+	bool tc_word_swap_on;	/* Traffic Controller Word Swap */
 	struct pg_table_attrs *pt_attrs;
 	u32 dsp_per_clks;
 };
 
+/*
+ * If dsp_debug is true, do not branch to the DSP entry
+ * point and wait for DSP to boot.
+ */
 extern s32 dsp_debug;
 
+/*
+ *  ======== sm_interrupt_dsp ========
+ *  Purpose:
+ *      Set interrupt value & send an interrupt to the DSP processor(s).
+ *      This is typically used when mailbox interrupt mechanisms allow data
+ *      to be associated with interrupt such as for OMAP's CMD/DATA regs.
+ *  Parameters:
+ *      dev_context:    Handle to Bridge driver defined device info.
+ *      mb_val:         Value associated with interrupt(e.g. mailbox value).
+ *  Returns:
+ *      0:        Interrupt sent;
+ *      else:           Unable to send interrupt.
+ *  Requires:
+ *  Ensures:
+ */
 int sm_interrupt_dsp(struct bridge_dev_context *dev_context, u16 mb_val);
 
-#endif 
+#endif /* _TIOMAP_ */

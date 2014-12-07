@@ -21,8 +21,8 @@ extern int reserve_mem_mach(unsigned long addr, unsigned long size);
 extern void free_mem_mach(unsigned long addr, unsigned long size);
 
 extern void device_tree_init(void);
-#else 
+#else /* CONFIG_OF */
 static inline void device_tree_init(void) { }
-#endif 
+#endif /* CONFIG_OF */
 
-#endif 
+#endif /* __ASM_PROM_H */

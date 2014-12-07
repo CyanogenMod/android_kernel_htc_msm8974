@@ -23,6 +23,10 @@
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
 
+/*
+ * 'what should we do if we get a hw irq event on an illegal vector'.
+ * each architecture has to answer this themselves.
+ */
 void ack_bad_irq(unsigned int irq)
 {
 	printk(KERN_ERR "Unexpected irq vector 0x%x on CPU %u!\n", irq, smp_processor_id());
@@ -40,9 +44,15 @@ unsigned int __ia64_local_vector_to_irq (ia64_vector vec)
 }
 #endif
 
+/*
+ * Interrupt statistics:
+ */
 
 atomic_t irq_err_count;
 
+/*
+ * /proc/interrupts printing:
+ */
 int arch_show_interrupts(struct seq_file *p, int prec)
 {
 	seq_printf(p, "ERR: %10u\n", atomic_read(&irq_err_count));
@@ -50,7 +60,7 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 }
 
 #ifdef CONFIG_SMP
-static char irq_redir [NR_IRQS]; 
+static char irq_redir [NR_IRQS]; // = { [0 ... NR_IRQS-1] = 1 };
 
 void set_irq_affinity_info (unsigned int irq, int hwid, int redir)
 {
@@ -64,18 +74,22 @@ void set_irq_affinity_info (unsigned int irq, int hwid, int redir)
 bool is_affinity_mask_valid(const struct cpumask *cpumask)
 {
 	if (ia64_platform_is("sn2")) {
-		
+		/* Only allow one CPU to be specified in the smp_affinity mask */
 		if (cpumask_weight(cpumask) != 1)
 			return false;
 	}
 	return true;
 }
 
-#endif 
+#endif /* CONFIG_SMP */
 
 #ifdef CONFIG_HOTPLUG_CPU
 unsigned int vectors_in_migration[NR_IRQS];
 
+/*
+ * Since cpu_online_mask is already updated, we just need to check for
+ * affinity that has zeros
+ */
 static void migrate_irqs(void)
 {
 	int 		irq, new_cpu;
@@ -88,15 +102,27 @@ static void migrate_irqs(void)
 		if (irqd_irq_disabled(data))
 			continue;
 
+		/*
+		 * No handling for now.
+		 * TBD: Implement a disable function so we can now
+		 * tell CPU not to respond to these local intr sources.
+		 * such as ITV,CPEI,MCA etc.
+		 */
 		if (irqd_is_per_cpu(data))
 			continue;
 
 		if (cpumask_any_and(data->affinity, cpu_online_mask)
 		    >= nr_cpu_ids) {
+			/*
+			 * Save it for phase 2 processing
+			 */
 			vectors_in_migration[irq] = irq;
 
 			new_cpu = cpumask_any(cpu_online_mask);
 
+			/*
+			 * Al three are essential, currently WARN_ON.. maybe panic?
+			 */
 			if (chip && chip->irq_disable &&
 				chip->irq_enable && chip->irq_set_affinity) {
 				chip->irq_disable(data);
@@ -118,18 +144,34 @@ void fixup_irqs(void)
 	extern void ia64_process_pending_intr(void);
 	extern volatile int time_keeper_id;
 
-	
+	/* Mask ITV to disable timer */
 	ia64_set_itv(1 << 16);
 
+	/*
+	 * Find a new timesync master
+	 */
 	if (smp_processor_id() == time_keeper_id) {
 		time_keeper_id = cpumask_first(cpu_online_mask);
 		printk ("CPU %d is now promoted to time-keeper master\n", time_keeper_id);
 	}
 
+	/*
+	 * Phase 1: Locate IRQs bound to this cpu and
+	 * relocate them for cpu removal.
+	 */
 	migrate_irqs();
 
+	/*
+	 * Phase 2: Perform interrupt processing for all entries reported in
+	 * local APIC.
+	 */
 	ia64_process_pending_intr();
 
+	/*
+	 * Phase 3: Now handle any interrupts not captured in local APIC.
+	 * This is to account for cases that device interrupted during the time the
+	 * rte was being disabled and re-programmed.
+	 */
 	for (irq=0; irq < NR_IRQS; irq++) {
 		if (vectors_in_migration[irq]) {
 			struct pt_regs *old_regs = set_irq_regs(NULL);
@@ -140,6 +182,12 @@ void fixup_irqs(void)
 		}
 	}
 
+	/*
+	 * Now let processor die. We do irq disable and max_xtp() to
+	 * ensure there is no more interrupts routed to this processor.
+	 * But the local timer interrupt can have 1 pending which we
+	 * take care in timer_interrupt().
+	 */
 	max_xtp();
 	local_irq_disable();
 }

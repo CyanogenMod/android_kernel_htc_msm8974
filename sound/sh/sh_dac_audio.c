@@ -42,6 +42,7 @@ MODULE_DESCRIPTION("SuperH DAC audio driver");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{SuperH DAC audio support}}");
 
+/* Module Parameters */
 static int index = SNDRV_DEFAULT_IDX1;
 static char *id = SNDRV_DEFAULT_STR1;
 module_param(index, int, 0444);
@@ -49,6 +50,7 @@ MODULE_PARM_DESC(index, "Index value for SuperH DAC audio.");
 module_param(id, charp, 0444);
 MODULE_PARM_DESC(id, "ID string for SuperH DAC audio.");
 
+/* main struct */
 struct snd_sh_dac {
 	struct snd_card *card;
 	struct snd_pcm_substream *substream;
@@ -58,7 +60,7 @@ struct snd_sh_dac {
 	int rate;
 	int empty;
 	char *data_buffer, *buffer_begin, *buffer_end;
-	int processed; 
+	int processed; /* bytes proccesed, to compare with period_size */
 	int buffer_size;
 	struct dac_audio_pdata *pdata;
 };
@@ -89,6 +91,7 @@ static void dac_audio_set_rate(struct snd_sh_dac *chip)
 }
 
 
+/* PCM INTERFACE */
 
 static struct snd_pcm_hardware snd_sh_dac_pcm_hw = {
 	.info			= (SNDRV_PCM_INFO_MMAP |
@@ -184,7 +187,7 @@ static int snd_sh_dac_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 static int snd_sh_dac_pcm_copy(struct snd_pcm_substream *substream, int channel,
 	snd_pcm_uframes_t pos, void __user *src, snd_pcm_uframes_t count)
 {
-	
+	/* channel is not used (interleaved data) */
 	struct snd_sh_dac *chip = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	ssize_t b_count = frames_to_bytes(runtime , count);
@@ -211,7 +214,7 @@ static int snd_sh_dac_pcm_silence(struct snd_pcm_substream *substream,
 				  int channel, snd_pcm_uframes_t pos,
 				  snd_pcm_uframes_t count)
 {
-	
+	/* channel is not used (interleaved data) */
 	struct snd_sh_dac *chip = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	ssize_t b_count = frames_to_bytes(runtime , count);
@@ -243,6 +246,7 @@ snd_pcm_uframes_t snd_sh_dac_pcm_pointer(struct snd_pcm_substream *substream)
 	return pointer;
 }
 
+/* pcm ops */
 static struct snd_pcm_ops snd_sh_dac_pcm_ops = {
 	.open		= snd_sh_dac_pcm_open,
 	.close		= snd_sh_dac_pcm_close,
@@ -262,7 +266,7 @@ static int __devinit snd_sh_dac_pcm(struct snd_sh_dac *chip, int device)
 	int err;
 	struct snd_pcm *pcm;
 
-	
+	/* device should be always 0 for us */
 	err = snd_pcm_new(chip->card, "SH_DAC PCM", device, 1, 0, &pcm);
 	if (err < 0)
 		return err;
@@ -271,7 +275,7 @@ static int __devinit snd_sh_dac_pcm(struct snd_sh_dac *chip, int device)
 	strcpy(pcm->name, "SH_DAC PCM");
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &snd_sh_dac_pcm_ops);
 
-	
+	/* buffer size=48K */
 	snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_CONTINUOUS,
 					  snd_dma_continuous_data(GFP_KERNEL),
 							48 * 1024,
@@ -279,8 +283,10 @@ static int __devinit snd_sh_dac_pcm(struct snd_sh_dac *chip, int device)
 
 	return 0;
 }
+/* END OF PCM INTERFACE */
 
 
+/* driver .remove  --  destructor */
 static int snd_sh_dac_remove(struct platform_device *devptr)
 {
 	snd_card_free(platform_get_drvdata(devptr));
@@ -289,9 +295,10 @@ static int snd_sh_dac_remove(struct platform_device *devptr)
 	return 0;
 }
 
+/* free -- it has been defined by create */
 static int snd_sh_dac_free(struct snd_sh_dac *chip)
 {
-	
+	/* release the data */
 	kfree(chip->data_buffer);
 	kfree(chip);
 
@@ -338,6 +345,7 @@ static enum hrtimer_restart sh_dac_audio_timer(struct hrtimer *handle)
 	return HRTIMER_NORESTART;
 }
 
+/* create  --  chip-specific constructor for the cards components */
 static int __devinit snd_sh_dac_create(struct snd_card *card,
 				       struct platform_device *devptr,
 				       struct snd_sh_dac **rchip)
@@ -383,6 +391,7 @@ static int __devinit snd_sh_dac_create(struct snd_card *card,
 	return 0;
 }
 
+/* driver .probe  --  constructor */
 static int __devinit snd_sh_dac_probe(struct platform_device *devptr)
 {
 	struct snd_sh_dac *chip;
@@ -421,6 +430,9 @@ probe_error:
 	return err;
 }
 
+/*
+ * "driver" definition
+ */
 static struct platform_driver driver = {
 	.probe	= snd_sh_dac_probe,
 	.remove = snd_sh_dac_remove,

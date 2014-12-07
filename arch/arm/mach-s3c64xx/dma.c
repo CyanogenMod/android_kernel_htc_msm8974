@@ -32,6 +32,7 @@
 
 #include <asm/hardware/pl080.h>
 
+/* dma channel state information */
 
 struct s3c64xx_dmac {
 	struct device		dev;
@@ -41,8 +42,10 @@ struct s3c64xx_dmac {
 	enum dma_ch		 chanbase;
 };
 
+/* pool to provide LLI buffers */
 static struct dma_pool *dma_pool;
 
+/* Debug configuration and code */
 
 static unsigned char debug_show_buffs = 0;
 
@@ -85,6 +88,7 @@ static void dbg_showbuffs(struct s3c2410_dma_chan *chan)
 	}
 }
 
+/* End of Debug */
 
 static struct s3c2410_dma_chan *s3c64xx_dma_map_channel(unsigned int channel)
 {
@@ -160,11 +164,11 @@ static void s3c64xx_dma_fill_lli(struct s3c2410_dma_chan *chan,
 		BUG();
 	}
 
-	
+	/* note, we do not currently setup any of the burst controls */
 
-	control1 = size >> chan->hw_width;	
-	control0 |= PL080_CONTROL_PROT_SYS;	
-	control0 |= PL080_CONTROL_TC_IRQ_EN;	
+	control1 = size >> chan->hw_width;	/* size in no of xfers */
+	control0 |= PL080_CONTROL_PROT_SYS;	/* always in priv. mode */
+	control0 |= PL080_CONTROL_TC_IRQ_EN;	/* always fire IRQ */
 	control0 |= (u32)chan->hw_width << PL080_CONTROL_DWIDTH_SHIFT;
 	control0 |= (u32)chan->hw_width << PL080_CONTROL_SWIDTH_SHIFT;
 
@@ -200,7 +204,7 @@ static int s3c64xx_dma_start(struct s3c2410_dma_chan *chan)
 
 	pr_debug("%s: clearing interrupts\n", __func__);
 
-	
+	/* clear interrupts */
 	writel(bit, dmac->regs + PL080_TC_CLEAR);
 	writel(bit, dmac->regs + PL080_ERR_CLEAR);
 
@@ -278,7 +282,7 @@ static int s3c64xx_dma_flush(struct s3c2410_dma_chan *chan)
 	config &= ~PL080_CONFIG_ENABLE;
 	writel(config, chan->regs + PL080S_CH_CONFIG);
 
-	
+	/* dump all the buffers associated with this channel */
 
 	for (buff = chan->curr; buff != NULL; buff = next) {
 		next = buff->next;
@@ -311,7 +315,7 @@ int s3c2410_dma_ctrl(enum dma_ch channel, enum s3c2410_chan_op op)
 	case S3C2410_DMAOP_FLUSH:
 		return s3c64xx_dma_flush(chan);
 
-	
+	/* believe PAUSE/RESUME are no-ops */
 	case S3C2410_DMAOP_PAUSE:
 	case S3C2410_DMAOP_RESUME:
 	case S3C2410_DMAOP_STARTED:
@@ -323,6 +327,9 @@ int s3c2410_dma_ctrl(enum dma_ch channel, enum s3c2410_chan_op op)
 }
 EXPORT_SYMBOL(s3c2410_dma_ctrl);
 
+/* s3c2410_dma_enque
+ *
+ */
 
 int s3c2410_dma_enqueue(enum dma_ch channel, void *id,
 			dma_addr_t data, int size)
@@ -443,7 +450,7 @@ int s3c2410_dma_devconfig(enum dma_ch channel,
 		return -EINVAL;
 	}
 
-	
+	/* allow TC and ERR interrupts */
 	config |= PL080_CONFIG_TC_IRQ_MASK;
 	config |= PL080_CONFIG_ERR_IRQ_MASK;
 
@@ -475,6 +482,10 @@ int s3c2410_dma_getposition(enum dma_ch channel,
 }
 EXPORT_SYMBOL(s3c2410_dma_getposition);
 
+/* s3c2410_request_dma
+ *
+ * get control of an dma channel
+*/
 
 int s3c2410_dma_request(enum dma_ch channel,
 			struct s3c2410_dma_client *client,
@@ -502,7 +513,7 @@ int s3c2410_dma_request(enum dma_ch channel,
 
 	local_irq_restore(flags);
 
-	
+	/* need to setup */
 
 	pr_debug("%s: channel initialised, %p\n", __func__, chan);
 
@@ -511,6 +522,16 @@ int s3c2410_dma_request(enum dma_ch channel,
 
 EXPORT_SYMBOL(s3c2410_dma_request);
 
+/* s3c2410_dma_free
+ *
+ * release the given channel back to the system, will stop and flush
+ * any outstanding transfers, and ensure the channel is ready for the
+ * next claimant.
+ *
+ * Note, although a warning is currently printed if the freeing client
+ * info is not the same as the registrant's client info, the free is still
+ * allowed to go through.
+*/
 
 int s3c2410_dma_free(enum dma_ch channel, struct s3c2410_dma_client *client)
 {
@@ -527,7 +548,7 @@ int s3c2410_dma_free(enum dma_ch channel, struct s3c2410_dma_client *client)
 		       channel, chan->client, client);
 	}
 
-	
+	/* sort out stopping and freeing the channel */
 
 
 	chan->client = NULL;
@@ -572,6 +593,11 @@ static irqreturn_t s3c64xx_dma_irq(int irq, void *pw)
 		if (errstat & bit)
 			writel(bit, dmac->regs + PL080_ERR_CLEAR);
 
+		/* 'next' points to the buffer that is next to the
+		 * currently active buffer.
+		 * For CIRCULAR queues, 'next' will be same as 'curr'
+		 * when 'end' is the active buffer.
+		 */
 		buff = chan->curr;
 		while (buff && buff != chan->next
 				&& buff->next != chan->next)
@@ -585,13 +611,13 @@ static irqreturn_t s3c64xx_dma_irq(int irq, void *pw)
 
 		s3c64xx_dma_bufffdone(chan, buff, res);
 
-		
+		/* Free the node and update curr, if non-circular queue */
 		if (!(chan->flags & S3C2410_DMAF_CIRCULAR)) {
 			chan->curr = buff->next;
 			s3c64xx_dma_freebuff(buff);
 		}
 
-		
+		/* Update 'next' */
 		buff = chan->next;
 		if (chan->next == chan->end) {
 			chan->next = chan->curr;
@@ -676,7 +702,7 @@ static int s3c64xx_dma_init1(int chno, enum dma_ch chbase,
 		regptr += PL080_Cx_STRIDE;
 	}
 
-	
+	/* for the moment, permanently enable the controller */
 	writel(PL080_CONFIG_ENABLE, regs + PL080_CONFIG);
 
 	printk(KERN_INFO "PL080: IRQ %d, at %p, channels %d..%d\n",
@@ -714,10 +740,10 @@ static int __init s3c64xx_dma_init(void)
 		return -ENOMEM;
 	}
 
-	
+	/* Set all DMA configuration to be DMA, not SDMA */
 	writel(0xffffff, S3C64XX_SDMA_SEL);
 
-	
+	/* Register standard DMA controllers */
 	s3c64xx_dma_init1(0, DMACH_UART0, IRQ_DMA0, 0x75000000);
 	s3c64xx_dma_init1(8, DMACH_PCM1_TX, IRQ_DMA1, 0x75100000);
 

@@ -187,7 +187,7 @@ static ssize_t ad5504_write_dac_powerdown(struct device *dev,
 				AD5504_DAC_PWRDWN_MODE(st->pwr_down_mode) |
 				AD5504_DAC_PWR(st->pwr_down_mask));
 
-	
+	/* writes to the CTRL register must be followed by a NOOP */
 	ad5504_spi_write(st->spi, AD5504_ADDR_NOOP, 0);
 
 	return ret ? ret : len;

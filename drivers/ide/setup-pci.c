@@ -17,11 +17,26 @@
 
 #include <asm/io.h>
 
+/**
+ *	ide_setup_pci_baseregs	-	place a PCI IDE controller native
+ *	@dev: PCI device of interface to switch native
+ *	@name: Name of interface
+ *
+ *	We attempt to place the PCI interface into PCI native mode. If
+ *	we succeed the BARs are ok and the controller is in PCI mode.
+ *	Returns 0 on success or an errno code.
+ *
+ *	FIXME: if we program the interface and then fail to set the BARS
+ *	we don't switch it back to legacy mode. Do we actually care ??
+ */
 
 static int ide_setup_pci_baseregs(struct pci_dev *dev, const char *name)
 {
 	u8 progif = 0;
 
+	/*
+	 * Place both IDE interfaces into PCI "native" mode:
+	 */
 	if (pci_read_config_byte(dev, PCI_CLASS_PROG, &progif) ||
 			 (progif & 5) != 5) {
 		if ((progif & 0xa) != 0xa) {
@@ -54,6 +69,13 @@ static int ide_pci_clear_simplex(unsigned long dma_base, const char *name)
 	return (dma_stat & 0x80) ? 1 : 0;
 }
 
+/**
+ *	ide_pci_dma_base	-	setup BMIBA
+ *	@hwif: IDE interface
+ *	@d: IDE port info
+ *
+ *	Fetch the DMA Bus-Master-I/O-Base-Address (BMIBA) from PCI space.
+ */
 
 unsigned long ide_pci_dma_base(ide_hwif_t *hwif, const struct ide_port_info *d)
 {
@@ -99,6 +121,16 @@ int ide_pci_check_simplex(ide_hwif_t *hwif, const struct ide_port_info *d)
 		goto out;
 	}
 
+	/*
+	 * If the device claims "simplex" DMA, this means that only one of
+	 * the two interfaces can be trusted with DMA at any point in time
+	 * (so we should enable DMA only on one of the two interfaces).
+	 *
+	 * FIXME: At this point we haven't probed the drives so we can't make
+	 * the appropriate decision.  Really we should defer this problem until
+	 * we tune the drive then try to grab DMA ownership if we want to be
+	 * the DMA end.  This has to be become dynamic to handle hot-plug.
+	 */
 	dma_stat = hwif->dma_ops->dma_sff_read_status(hwif);
 	if ((dma_stat & 0x80) && hwif->mate && hwif->mate->dma_base) {
 		printk(KERN_INFO "%s %s: simplex device: DMA disabled\n",
@@ -110,6 +142,9 @@ out:
 }
 EXPORT_SYMBOL_GPL(ide_pci_check_simplex);
 
+/*
+ * Set up BM-DMA capability (PnP BIOS should have done this)
+ */
 int ide_pci_set_master(struct pci_dev *dev, const char *name)
 {
 	u16 pcicmd;
@@ -130,7 +165,7 @@ int ide_pci_set_master(struct pci_dev *dev, const char *name)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(ide_pci_set_master);
-#endif 
+#endif /* CONFIG_BLK_DEV_IDEDMA_PCI */
 
 void ide_setup_pci_noise(struct pci_dev *dev, const struct ide_port_info *d)
 {
@@ -141,6 +176,18 @@ void ide_setup_pci_noise(struct pci_dev *dev, const struct ide_port_info *d)
 EXPORT_SYMBOL_GPL(ide_setup_pci_noise);
 
 
+/**
+ *	ide_pci_enable	-	do PCI enables
+ *	@dev: PCI device
+ *	@d: IDE port info
+ *
+ *	Enable the IDE PCI device. We attempt to enable the device in full
+ *	but if that fails then we only need IO space. The PCI code should
+ *	have setup the proper resources for us already for controllers in
+ *	legacy mode.
+ *
+ *	Returns zero on success or an error code
+ */
 
 static int ide_pci_enable(struct pci_dev *dev, const struct ide_port_info *d)
 {
@@ -157,6 +204,11 @@ static int ide_pci_enable(struct pci_dev *dev, const struct ide_port_info *d)
 			d->name, pci_name(dev));
 	}
 
+	/*
+	 * assume all devices can do 32-bit DMA for now, we can add
+	 * a DMA mask field to the struct ide_port_info if we need it
+	 * (or let lower level driver set the DMA mask)
+	 */
 	ret = pci_set_dma_mask(dev, DMA_BIT_MASK(32));
 	if (ret < 0) {
 		printk(KERN_ERR "%s %s: can't set DMA mask\n",
@@ -184,10 +236,25 @@ out:
 	return ret;
 }
 
+/**
+ *	ide_pci_configure	-	configure an unconfigured device
+ *	@dev: PCI device
+ *	@d: IDE port info
+ *
+ *	Enable and configure the PCI device we have been passed.
+ *	Returns zero on success or an error code.
+ */
 
 static int ide_pci_configure(struct pci_dev *dev, const struct ide_port_info *d)
 {
 	u16 pcicmd = 0;
+	/*
+	 * PnP BIOS was *supposed* to have setup this device, but we
+	 * can do it ourselves, so long as the BIOS has assigned an IRQ
+	 * (or possibly the device is using a "legacy header" for IRQs).
+	 * Maybe the user deliberately *disabled* the device,
+	 * but we'll eventually ignore it again if no drives respond.
+	 */
 	if (ide_setup_pci_baseregs(dev, d->name) ||
 	    pci_write_config_word(dev, PCI_COMMAND, pcicmd | PCI_COMMAND_IO)) {
 		printk(KERN_INFO "%s %s: device disabled (BIOS)\n",
@@ -207,24 +274,46 @@ static int ide_pci_configure(struct pci_dev *dev, const struct ide_port_info *d)
 	return 0;
 }
 
+/**
+ *	ide_pci_check_iomem	-	check a register is I/O
+ *	@dev: PCI device
+ *	@d: IDE port info
+ *	@bar: BAR number
+ *
+ *	Checks if a BAR is configured and points to MMIO space. If so,
+ *	return an error code. Otherwise return 0
+ */
 
 static int ide_pci_check_iomem(struct pci_dev *dev, const struct ide_port_info *d,
 			       int bar)
 {
 	ulong flags = pci_resource_flags(dev, bar);
 
-	
+	/* Unconfigured ? */
 	if (!flags || pci_resource_len(dev, bar) == 0)
 		return 0;
 
-	
+	/* I/O space */
 	if (flags & IORESOURCE_IO)
 		return 0;
 
-	
+	/* Bad */
 	return -EINVAL;
 }
 
+/**
+ *	ide_hw_configure	-	configure a struct ide_hw instance
+ *	@dev: PCI device holding interface
+ *	@d: IDE port info
+ *	@port: port number
+ *	@hw: struct ide_hw instance corresponding to this port
+ *
+ *	Perform the initial set up for the hardware interface structure. This
+ *	is done per interface port rather than per PCI device. There may be
+ *	more than one port per device.
+ *
+ *	Returns zero on success or an error code.
+ */
 
 static int ide_hw_configure(struct pci_dev *dev, const struct ide_port_info *d,
 			    unsigned int port, struct ide_hw *hw)
@@ -243,7 +332,7 @@ static int ide_hw_configure(struct pci_dev *dev, const struct ide_port_info *d,
 		ctl  = pci_resource_start(dev, 2*port+1);
 		base = pci_resource_start(dev, 2*port);
 	} else {
-		
+		/* Use default values */
 		ctl = port ? 0x374 : 0x3f4;
 		base = port ? 0x170 : 0x1f0;
 	}
@@ -262,6 +351,15 @@ static int ide_hw_configure(struct pci_dev *dev, const struct ide_port_info *d,
 }
 
 #ifdef CONFIG_BLK_DEV_IDEDMA_PCI
+/**
+ *	ide_hwif_setup_dma	-	configure DMA interface
+ *	@hwif: IDE interface
+ *	@d: IDE port info
+ *
+ *	Set up the DMA base for the interface. Enable the master bits as
+ *	necessary and attempt to bring the device DMA into a ready to use
+ *	state
+ */
 
 int ide_hwif_setup_dma(ide_hwif_t *hwif, const struct ide_port_info *d)
 {
@@ -300,8 +398,18 @@ int ide_hwif_setup_dma(ide_hwif_t *hwif, const struct ide_port_info *d)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_BLK_DEV_IDEDMA_PCI */
 
+/**
+ *	ide_setup_pci_controller	-	set up IDE PCI
+ *	@dev: PCI device
+ *	@d: IDE port info
+ *	@noisy: verbose flag
+ *
+ *	Set up the PCI and controller side of the IDE interface. This brings
+ *	up the PCI side of the device, checks that the device is enabled
+ *	and enables it if need be
+ */
 
 static int ide_setup_pci_controller(struct pci_dev *dev,
 				    const struct ide_port_info *d, int noisy)
@@ -322,7 +430,7 @@ static int ide_setup_pci_controller(struct pci_dev *dev,
 			d->name, pci_name(dev));
 		goto out;
 	}
-	if (!(pcicmd & PCI_COMMAND_IO)) {	
+	if (!(pcicmd & PCI_COMMAND_IO)) {	/* is device disabled? */
 		ret = ide_pci_configure(dev, d);
 		if (ret < 0)
 			goto out;
@@ -334,6 +442,21 @@ out:
 	return ret;
 }
 
+/**
+ *	ide_pci_setup_ports	-	configure ports/devices on PCI IDE
+ *	@dev: PCI device
+ *	@d: IDE port info
+ *	@hw: struct ide_hw instances corresponding to this PCI IDE device
+ *	@hws: struct ide_hw pointers table to update
+ *
+ *	Scan the interfaces attached to this device and do any
+ *	necessary per port setup. Attach the devices and ask the
+ *	generic DMA layer to do its work for us.
+ *
+ *	Normally called automaticall from do_ide_pci_setup_device,
+ *	but is also used directly as a helper function by some controllers
+ *	where the chipset setup is not the default PCI IDE one.
+ */
 
 void ide_pci_setup_ports(struct pci_dev *dev, const struct ide_port_info *d,
 			 struct ide_hw *hw, struct ide_hw **hws)
@@ -341,6 +464,9 @@ void ide_pci_setup_ports(struct pci_dev *dev, const struct ide_port_info *d,
 	int channels = (d->host_flags & IDE_HFLAG_SINGLE) ? 1 : 2, port;
 	u8 tmp;
 
+	/*
+	 * Set up the IDE ports
+	 */
 
 	for (port = 0; port < channels; ++port) {
 		const struct ide_pci_enablebit *e = &d->enablebits[port];
@@ -349,7 +475,7 @@ void ide_pci_setup_ports(struct pci_dev *dev, const struct ide_port_info *d,
 		    (tmp & e->mask) != e->val)) {
 			printk(KERN_INFO "%s %s: IDE port disabled\n",
 				d->name, pci_name(dev));
-			continue;	
+			continue;	/* port not enabled */
 		}
 
 		if (ide_hw_configure(dev, d, port, hw + port))
@@ -360,14 +486,33 @@ void ide_pci_setup_ports(struct pci_dev *dev, const struct ide_port_info *d,
 }
 EXPORT_SYMBOL_GPL(ide_pci_setup_ports);
 
+/*
+ * ide_setup_pci_device() looks at the primary/secondary interfaces
+ * on a PCI IDE device and, if they are enabled, prepares the IDE driver
+ * for use with them.  This generic code works for most PCI chipsets.
+ *
+ * One thing that is not standardized is the location of the
+ * primary/secondary interface "enable/disable" bits.  For chipsets that
+ * we "know" about, this information is in the struct ide_port_info;
+ * for all other chipsets, we just assume both interfaces are enabled.
+ */
 static int do_ide_setup_pci_device(struct pci_dev *dev,
 				   const struct ide_port_info *d,
 				   u8 noisy)
 {
 	int pciirq, ret;
 
+	/*
+	 * Can we trust the reported IRQ?
+	 */
 	pciirq = dev->irq;
 
+	/*
+	 * This allows offboard ide-pci cards the enable a BIOS,
+	 * verify interrupt settings of split-mirror pci-config
+	 * space, place chipset into init-mode, and/or preserve
+	 * an interrupt if the card is not native ide support.
+	 */
 	ret = d->init_chipset ? d->init_chipset(dev) : 0;
 	if (ret < 0)
 		goto out;
@@ -426,10 +571,14 @@ int ide_pci_init_two(struct pci_dev *dev1, struct pci_dev *dev2,
 	for (i = 0; i < n_ports / 2; i++) {
 		ret = do_ide_setup_pci_device(pdev[i], d, !i);
 
+		/*
+		 * FIXME: Mom, mom, they stole me the helper function to undo
+		 * do_ide_setup_pci_device() on the first device!
+		 */
 		if (ret < 0)
 			goto out;
 
-		
+		/* fixup IRQ */
 		if (ide_pci_is_in_compatibility_mode(pdev[i])) {
 			hw[i*2].irq = pci_get_legacy_ide_irq(pdev[i], 0);
 			hw[i*2 + 1].irq = pci_get_legacy_ide_irq(pdev[i], 1);

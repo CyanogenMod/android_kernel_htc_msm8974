@@ -49,27 +49,31 @@ static int __init parse_tag_memclk(const struct tag *tag)
 
 __tagtable(ATAG_MEMCLK, parse_tag_memclk);
 
+/*
+ * Footbridge IRQ translation table
+ *  Converts from our IRQ numbers into FootBridge masks
+ */
 static const int fb_irq_mask[] = {
-	IRQ_MASK_UART_RX,	
-	IRQ_MASK_UART_TX,	
-	IRQ_MASK_TIMER1,	
-	IRQ_MASK_TIMER2,	
-	IRQ_MASK_TIMER3,	
-	IRQ_MASK_IN0,		
-	IRQ_MASK_IN1,		
-	IRQ_MASK_IN2,		
-	IRQ_MASK_IN3,		
-	IRQ_MASK_DOORBELLHOST,	
-	IRQ_MASK_DMA1,		
-	IRQ_MASK_DMA2,		
-	IRQ_MASK_PCI,		
-	IRQ_MASK_SDRAMPARITY,	
-	IRQ_MASK_I2OINPOST,	
-	IRQ_MASK_PCI_ABORT,	
-	IRQ_MASK_PCI_SERR,	
-	IRQ_MASK_DISCARD_TIMER,	
-	IRQ_MASK_PCI_DPERR,	
-	IRQ_MASK_PCI_PERR,	
+	IRQ_MASK_UART_RX,	/*  0 */
+	IRQ_MASK_UART_TX,	/*  1 */
+	IRQ_MASK_TIMER1,	/*  2 */
+	IRQ_MASK_TIMER2,	/*  3 */
+	IRQ_MASK_TIMER3,	/*  4 */
+	IRQ_MASK_IN0,		/*  5 */
+	IRQ_MASK_IN1,		/*  6 */
+	IRQ_MASK_IN2,		/*  7 */
+	IRQ_MASK_IN3,		/*  8 */
+	IRQ_MASK_DOORBELLHOST,	/*  9 */
+	IRQ_MASK_DMA1,		/* 10 */
+	IRQ_MASK_DMA2,		/* 11 */
+	IRQ_MASK_PCI,		/* 12 */
+	IRQ_MASK_SDRAMPARITY,	/* 13 */
+	IRQ_MASK_I2OINPOST,	/* 14 */
+	IRQ_MASK_PCI_ABORT,	/* 15 */
+	IRQ_MASK_PCI_SERR,	/* 16 */
+	IRQ_MASK_DISCARD_TIMER,	/* 17 */
+	IRQ_MASK_PCI_DPERR,	/* 18 */
+	IRQ_MASK_PCI_PERR,	/* 19 */
 };
 
 static void fb_mask_irq(struct irq_data *d)
@@ -92,6 +96,9 @@ static void __init __fb_init_irq(void)
 {
 	unsigned int irq;
 
+	/*
+	 * setup DC21285 IRQs
+	 */
 	*CSR_IRQ_DISABLE = -1;
 	*CSR_FIQ_DISABLE = -1;
 
@@ -109,6 +116,11 @@ void __init footbridge_init_irq(void)
 		return;
 
 	if (machine_is_ebsa285())
+		/* The following is dependent on which slot
+		 * you plug the Southbridge card into.  We
+		 * currently assume that you plug it into
+		 * the right-hand most slot.
+		 */
 		isa_init_irq(IRQ_PCI);
 
 	if (machine_is_cats())
@@ -118,6 +130,11 @@ void __init footbridge_init_irq(void)
 		isa_init_irq(IRQ_IN3);
 }
 
+/*
+ * Common mapping for all systems.  Note that the outbound write flush is
+ * commented out since there is a "No Fix" problem with it.  Not mapping
+ * it means that we have extra bullet protection on our feet.
+ */
 static struct map_desc fb_common_io_desc[] __initdata = {
 	{
 		.virtual	= ARMCSR_BASE,
@@ -132,6 +149,10 @@ static struct map_desc fb_common_io_desc[] __initdata = {
 	}
 };
 
+/*
+ * The mapping when the footbridge is in host mode.  We don't map any of
+ * this when we are in add-in mode.
+ */
 static struct map_desc ebsa285_host_io_desc[] __initdata = {
 #if defined(CONFIG_ARCH_FOOTBRIDGE) && defined(CONFIG_FOOTBRIDGE_HOST)
 	{
@@ -165,8 +186,16 @@ static struct map_desc ebsa285_host_io_desc[] __initdata = {
 
 void __init footbridge_map_io(void)
 {
+	/*
+	 * Set up the common mapping first; we need this to
+	 * determine whether we're in host mode or not.
+	 */
 	iotable_init(fb_common_io_desc, ARRAY_SIZE(fb_common_io_desc));
 
+	/*
+	 * Now, work out what we've got to map in addition on this
+	 * platform.
+	 */
 	if (footbridge_cfn_mode())
 		iotable_init(ebsa285_host_io_desc, ARRAY_SIZE(ebsa285_host_io_desc));
 }
@@ -174,9 +203,20 @@ void __init footbridge_map_io(void)
 void footbridge_restart(char mode, const char *cmd)
 {
 	if (mode == 's') {
-		
+		/* Jump into the ROM */
 		soft_restart(0x41000000);
 	} else {
+		/*
+		 * Force the watchdog to do a CPU reset.
+		 *
+		 * After making sure that the watchdog is disabled
+		 * (so we can change the timer registers) we first
+		 * enable the timer to autoreload itself.  Next, the
+		 * timer interval is set really short and any
+		 * current interrupt request is cleared (so we can
+		 * see an edge transition).  Finally, TIMER4 is
+		 * enabled as the watchdog.
+		 */
 		*CSR_SA110_CNTL &= ~(1 << 13);
 		*CSR_TIMER4_CNTL = TIMER_CNTL_ENABLE |
 				   TIMER_CNTL_AUTORELOAD |
@@ -194,6 +234,11 @@ static inline unsigned long fb_bus_sdram_offset(void)
 	return *CSR_PCISDRAMBASE & 0xfffffff0;
 }
 
+/*
+ * These two functions convert virtual addresses to PCI addresses and PCI
+ * addresses to virtual addresses.  Note that it is only legal to use these
+ * on memory obtained via get_zeroed_page or kmalloc.
+ */
 unsigned long __virt_to_bus(unsigned long res)
 {
 	WARN_ON(res < PAGE_OFFSET || res >= (unsigned long)high_memory);

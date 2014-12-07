@@ -14,6 +14,17 @@
  * kind, whether express or implied.
  */
 
+/*
+ *
+ * In addition to the individual control of the communication
+ * channels, there are a few functions that globally affect the
+ * communication processor.
+ *
+ * Buffer descriptors must be allocated from the dual ported memory
+ * space.  The allocator for that is here.  When the communication
+ * process is reset, we reclaim the memory available.  There is
+ * currently no deallocator for this memory.
+ */
 #include <linux/errno.h>
 #include <linux/sched.h>
 #include <linux/kernel.h>
@@ -35,12 +46,17 @@
 
 #include <sysdev/fsl_soc.h>
 
-cpm_cpm2_t __iomem *cpmp; 
+cpm_cpm2_t __iomem *cpmp; /* Pointer to comm processor space */
 
+/* We allocate this here because it is used almost exclusively for
+ * the communication processor devices.
+ */
 cpm2_map_t __iomem *cpm2_immr;
 EXPORT_SYMBOL(cpm2_immr);
 
-#define CPM_MAP_SIZE	(0x40000)	
+#define CPM_MAP_SIZE	(0x40000)	/* 256k - the PQ3 reserve this amount
+					   of space for CPM as it is larger
+					   than on PQ2 */
 
 void __init cpm2_reset(void)
 {
@@ -50,11 +66,17 @@ void __init cpm2_reset(void)
 	cpm2_immr = ioremap(get_immrbase(), CPM_MAP_SIZE);
 #endif
 
+	/* Reclaim the DP memory for our use.
+	 */
 	cpm_muram_init();
 
+	/* Tell everyone where the comm processor resides.
+	 */
 	cpmp = &cpm2_immr->im_cpm;
 
 #ifndef CONFIG_PPC_EARLY_DEBUG_CPM
+	/* Reset the CPM.
+	 */
 	cpm_command(CPM_CR_RST, 0);
 #endif
 }
@@ -84,11 +106,23 @@ out:
 }
 EXPORT_SYMBOL(cpm_command);
 
+/* Set a baud rate generator.  This needs lots of work.  There are
+ * eight BRGs, which can be connected to the CPM channels or output
+ * as clocks.  The BRGs are in two different block of internal
+ * memory mapped space.
+ * The baud rate clock is the system clock divided by something.
+ * It was set up long ago during the initial boot phase and is
+ * is given to us.
+ * Baud rate clocks are zero-based in the driver code (as that maps
+ * to port numbers).  Documentation uses 1-based numbering.
+ */
 void __cpm2_setbrg(uint brg, uint rate, uint clk, int div16, int src)
 {
 	u32 __iomem *bp;
 	u32 val;
 
+	/* This is good enough to get SMCs running.....
+	*/
 	if (brg < 4) {
 		bp = cpm2_map_size(im_brgc1, 16);
 	} else {
@@ -96,7 +130,7 @@ void __cpm2_setbrg(uint brg, uint rate, uint clk, int div16, int src)
 		brg -= 4;
 	}
 	bp += brg;
-	
+	/* Round the clock divider to the nearest integer. */
 	val = (((clk * 2 / rate) - 1) & ~1) | CPM_BRG_EN | src;
 	if (div16)
 		val |= CPM_BRG_DIV16;

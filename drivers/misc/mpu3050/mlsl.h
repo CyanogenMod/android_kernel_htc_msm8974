@@ -27,10 +27,24 @@
 extern "C" {
 #endif
 
+/* ------------ */
+/* - Defines. - */
+/* ------------ */
 
+/*
+ * NOTE : to properly support Yamaha compass reads,
+ * the max transfer size should be at least 9 B.
+ * Length in bytes, typically a power of 2 >= 2
+ */
 #define SERIAL_MAX_TRANSFER_SIZE 128
 
+/* ---------------------- */
+/* - Types definitions. - */
+/* ---------------------- */
 
+/* --------------------- */
+/* - Function p-types. - */
+/* --------------------- */
 
 	tMLError MLSLSerialOpen(char const *port,
 				void **sl_handle);
@@ -83,4 +97,7 @@ extern "C" {
 }
 #endif
 
-#endif				
+/**
+ * @}
+ */
+#endif				/* MLSL_H */

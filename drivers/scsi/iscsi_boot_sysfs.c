@@ -25,12 +25,18 @@
 MODULE_AUTHOR("Mike Christie <michaelc@cs.wisc.edu>");
 MODULE_DESCRIPTION("sysfs interface and helpers to export iSCSI boot information");
 MODULE_LICENSE("GPL");
+/*
+ * The kobject and attribute structures.
+ */
 struct iscsi_boot_attr {
 	struct attribute attr;
 	int type;
 	ssize_t (*show) (void *data, int type, char *buf);
 };
 
+/*
+ * The routine called for all sysfs attributes.
+ */
 static ssize_t iscsi_boot_show_attribute(struct kobject *kobj,
 					 struct attribute *attr, char *buf)
 {
@@ -74,6 +80,7 @@ static struct iscsi_boot_attr iscsi_boot_attr_##fnname = {	\
 	.type	= attr_type,						\
 }
 
+/* Target attrs */
 iscsi_boot_rd_attr(tgt_index, index, ISCSI_BOOT_TGT_INDEX);
 iscsi_boot_rd_attr(tgt_flags, flags, ISCSI_BOOT_TGT_FLAGS);
 iscsi_boot_rd_attr(tgt_ip, ip-addr, ISCSI_BOOT_TGT_IP_ADDR);
@@ -155,6 +162,7 @@ static struct attribute_group iscsi_boot_target_attr_group = {
 	.is_visible = iscsi_boot_tgt_attr_is_visible,
 };
 
+/* Ethernet attrs */
 iscsi_boot_rd_attr(eth_index, index, ISCSI_BOOT_ETH_INDEX);
 iscsi_boot_rd_attr(eth_flags, flags, ISCSI_BOOT_ETH_FLAGS);
 iscsi_boot_rd_attr(eth_ip, ip-addr, ISCSI_BOOT_ETH_IP_ADDR);
@@ -235,6 +243,7 @@ static struct attribute_group iscsi_boot_ethernet_attr_group = {
 	.is_visible = iscsi_boot_eth_attr_is_visible,
 };
 
+/* Initiator attrs */
 iscsi_boot_rd_attr(ini_index, index, ISCSI_BOOT_INI_INDEX);
 iscsi_boot_rd_attr(ini_flags, flags, ISCSI_BOOT_INI_FLAGS);
 iscsi_boot_rd_attr(ini_isns, isns-server, ISCSI_BOOT_INI_ISNS_SERVER);
@@ -319,6 +328,12 @@ iscsi_boot_create_kobj(struct iscsi_boot_kset *boot_kset,
 	boot_kobj->release = release;
 
 	if (sysfs_create_group(&boot_kobj->kobj, attr_group)) {
+		/*
+		 * We do not want to free this because the caller
+		 * will assume that since the creation call failed
+		 * the boot kobj was not setup and the normal release
+		 * path is not being run.
+		 */
 		boot_kobj->release = NULL;
 		kobject_put(&boot_kobj->kobj);
 		return NULL;
@@ -326,7 +341,7 @@ iscsi_boot_create_kobj(struct iscsi_boot_kset *boot_kset,
 	boot_kobj->attr_group = attr_group;
 
 	kobject_uevent(&boot_kobj->kobj, KOBJ_ADD);
-	
+	/* Nothing broke so lets add it to the list. */
 	list_add_tail(&boot_kobj->list, &boot_kset->kobj_list);
 	return boot_kobj;
 }
@@ -338,6 +353,18 @@ static void iscsi_boot_remove_kobj(struct iscsi_boot_kobj *boot_kobj)
 	kobject_put(&boot_kobj->kobj);
 }
 
+/**
+ * iscsi_boot_create_target() - create boot target sysfs dir
+ * @boot_kset: boot kset
+ * @index: the target id
+ * @data: driver specific data for target
+ * @show: attr show function
+ * @is_visible: attr visibility function
+ * @release: release function
+ *
+ * Note: The boot sysfs lib will free the data passed in for the caller
+ * when all refs to the target kobject have been released.
+ */
 struct iscsi_boot_kobj *
 iscsi_boot_create_target(struct iscsi_boot_kset *boot_kset, int index,
 			 void *data,
@@ -351,6 +378,18 @@ iscsi_boot_create_target(struct iscsi_boot_kset *boot_kset, int index,
 }
 EXPORT_SYMBOL_GPL(iscsi_boot_create_target);
 
+/**
+ * iscsi_boot_create_initiator() - create boot initiator sysfs dir
+ * @boot_kset: boot kset
+ * @index: the initiator id
+ * @data: driver specific data
+ * @show: attr show function
+ * @is_visible: attr visibility function
+ * @release: release function
+ *
+ * Note: The boot sysfs lib will free the data passed in for the caller
+ * when all refs to the initiator kobject have been released.
+ */
 struct iscsi_boot_kobj *
 iscsi_boot_create_initiator(struct iscsi_boot_kset *boot_kset, int index,
 			    void *data,
@@ -365,6 +404,18 @@ iscsi_boot_create_initiator(struct iscsi_boot_kset *boot_kset, int index,
 }
 EXPORT_SYMBOL_GPL(iscsi_boot_create_initiator);
 
+/**
+ * iscsi_boot_create_ethernet() - create boot ethernet sysfs dir
+ * @boot_kset: boot kset
+ * @index: the ethernet device id
+ * @data: driver specific data
+ * @show: attr show function
+ * @is_visible: attr visibility function
+ * @release: release function
+ *
+ * Note: The boot sysfs lib will free the data passed in for the caller
+ * when all refs to the ethernet kobject have been released.
+ */
 struct iscsi_boot_kobj *
 iscsi_boot_create_ethernet(struct iscsi_boot_kset *boot_kset, int index,
 			   void *data,
@@ -379,6 +430,10 @@ iscsi_boot_create_ethernet(struct iscsi_boot_kset *boot_kset, int index,
 }
 EXPORT_SYMBOL_GPL(iscsi_boot_create_ethernet);
 
+/**
+ * iscsi_boot_create_kset() - creates root sysfs tree
+ * @set_name: name of root dir
+ */
 struct iscsi_boot_kset *iscsi_boot_create_kset(const char *set_name)
 {
 	struct iscsi_boot_kset *boot_kset;
@@ -398,6 +453,10 @@ struct iscsi_boot_kset *iscsi_boot_create_kset(const char *set_name)
 }
 EXPORT_SYMBOL_GPL(iscsi_boot_create_kset);
 
+/**
+ * iscsi_boot_create_host_kset() - creates root sysfs tree for a scsi host
+ * @hostno: host number of scsi host
+ */
 struct iscsi_boot_kset *iscsi_boot_create_host_kset(unsigned int hostno)
 {
 	struct iscsi_boot_kset *boot_kset;
@@ -413,6 +472,12 @@ struct iscsi_boot_kset *iscsi_boot_create_host_kset(unsigned int hostno)
 }
 EXPORT_SYMBOL_GPL(iscsi_boot_create_host_kset);
 
+/**
+ * iscsi_boot_destroy_kset() - destroy kset and kobjects under it
+ * @boot_kset: boot kset
+ *
+ * This will remove the kset and kobjects and attrs under it.
+ */
 void iscsi_boot_destroy_kset(struct iscsi_boot_kset *boot_kset)
 {
 	struct iscsi_boot_kobj *boot_kobj, *tmp_kobj;

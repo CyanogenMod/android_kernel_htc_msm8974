@@ -36,7 +36,7 @@ int dvb_usb_generic_rw(struct dvb_usb_device *d, u8 *wbuf, u16 wlen, u8 *rbuf,
 	else
 		ret = actlen != wlen ? -1 : 0;
 
-	
+	/* an answer is expected, and no error before */
 	if (!ret && rbuf && rlen) {
 		if (delay_ms)
 			msleep(delay_ms);

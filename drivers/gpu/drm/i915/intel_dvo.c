@@ -57,7 +57,7 @@ static const struct intel_dvo_device intel_dvo_devices[] = {
 		.type = INTEL_DVO_CHIP_LVDS,
 		.name = "ivch",
 		.dvo_reg = DVOA,
-		.slave_addr = 0x02, 
+		.slave_addr = 0x02, /* Might also be 0x44, 0x84, 0xc4 */
 		.dev_ops = &ivch_ops,
 	},
 	{
@@ -123,7 +123,7 @@ static int intel_dvo_mode_valid(struct drm_connector *connector,
 	if (mode->flags & DRM_MODE_FLAG_DBLSCAN)
 		return MODE_NO_DBLESCAN;
 
-	
+	/* XXX: Validate clock range */
 
 	if (intel_dvo->panel_fixed_mode) {
 		if (mode->hdisplay > intel_dvo->panel_fixed_mode->hdisplay)
@@ -141,6 +141,11 @@ static bool intel_dvo_mode_fixup(struct drm_encoder *encoder,
 {
 	struct intel_dvo *intel_dvo = enc_to_intel_dvo(encoder);
 
+	/* If we have timings from the BIOS for the panel, put them in
+	 * to the adjusted mode.  The CRTC will be set up for this mode,
+	 * with the panel scaling set up to source from the H/VDisplay
+	 * of the original mode.
+	 */
 	if (intel_dvo->panel_fixed_mode != NULL) {
 #define C(x) adjusted_mode->x = intel_dvo->panel_fixed_mode->x
 		C(hdisplay);
@@ -189,7 +194,7 @@ static void intel_dvo_mode_set(struct drm_encoder *encoder,
 
 	intel_dvo->dev.dev_ops->mode_set(&intel_dvo->dev, mode, adjusted_mode);
 
-	
+	/* Save the data order, since I don't know what it should be set to. */
 	dvo_val = I915_READ(dvo_reg) &
 		  (DVO_PRESERVE_MASK | DVO_DATA_ORDER_GBRG);
 	dvo_val |= DVO_DATA_ORDER_FP | DVO_BORDER_ENABLE |
@@ -205,13 +210,21 @@ static void intel_dvo_mode_set(struct drm_encoder *encoder,
 
 	I915_WRITE(dpll_reg, I915_READ(dpll_reg) | DPLL_DVO_HIGH_SPEED);
 
+	/*I915_WRITE(DVOB_SRCDIM,
+	  (adjusted_mode->hdisplay << DVO_SRCDIM_HORIZONTAL_SHIFT) |
+	  (adjusted_mode->VDisplay << DVO_SRCDIM_VERTICAL_SHIFT));*/
 	I915_WRITE(dvo_srcdim_reg,
 		   (adjusted_mode->hdisplay << DVO_SRCDIM_HORIZONTAL_SHIFT) |
 		   (adjusted_mode->vdisplay << DVO_SRCDIM_VERTICAL_SHIFT));
-	
+	/*I915_WRITE(DVOB, dvo_val);*/
 	I915_WRITE(dvo_reg, dvo_val);
 }
 
+/**
+ * Detect the output connection on our DVO device.
+ *
+ * Unimplemented.
+ */
 static enum drm_connector_status
 intel_dvo_detect(struct drm_connector *connector, bool force)
 {
@@ -224,6 +237,11 @@ static int intel_dvo_get_modes(struct drm_connector *connector)
 	struct intel_dvo *intel_dvo = intel_attached_dvo(connector);
 	struct drm_i915_private *dev_priv = connector->dev->dev_private;
 
+	/* We should probably have an i2c driver get_modes function for those
+	 * devices which will have a fixed set of modes determined by the chip
+	 * (TV-out, for example), but for now with just TMDS and LVDS,
+	 * that's not the case.
+	 */
 	intel_ddc_get_modes(connector,
 			    &dev_priv->gmbus[GMBUS_PORT_DPC].adapter);
 	if (!list_empty(&connector->probed_modes))
@@ -285,6 +303,12 @@ static const struct drm_encoder_funcs intel_dvo_enc_funcs = {
 	.destroy = intel_dvo_enc_destroy,
 };
 
+/**
+ * Attempts to get a fixed panel timing for LVDS (currently only the i830).
+ *
+ * Other chips with DVO LVDS will need to extend this to deal with the LVDS
+ * chip being on DVOB/C and having multiple pipes.
+ */
 static struct drm_display_mode *
 intel_dvo_get_current_mode(struct drm_connector *connector)
 {
@@ -294,6 +318,9 @@ intel_dvo_get_current_mode(struct drm_connector *connector)
 	uint32_t dvo_val = I915_READ(intel_dvo->dev.dvo_reg);
 	struct drm_display_mode *mode = NULL;
 
+	/* If the DVO port is active, that'll be the LVDS, so we can pull out
+	 * its timings to get how the BIOS set up the panel.
+	 */
 	if (dvo_val & DVO_ENABLE) {
 		struct drm_crtc *crtc;
 		int pipe = (dvo_val & DVO_PIPE_B_SELECT) ? 1 : 0;
@@ -337,13 +364,17 @@ void intel_dvo_init(struct drm_device *dev)
 	drm_encoder_init(dev, &intel_encoder->base,
 			 &intel_dvo_enc_funcs, encoder_type);
 
-	
+	/* Now, try to find a controller */
 	for (i = 0; i < ARRAY_SIZE(intel_dvo_devices); i++) {
 		struct drm_connector *connector = &intel_connector->base;
 		const struct intel_dvo_device *dvo = &intel_dvo_devices[i];
 		struct i2c_adapter *i2c;
 		int gpio;
 
+		/* Allow the I2C driver info to specify the GPIO to be used in
+		 * special cases, but otherwise default to what's defined
+		 * in the spec.
+		 */
 		if (dvo->gpio != 0)
 			gpio = dvo->gpio;
 		else if (dvo->type == INTEL_DVO_CHIP_LVDS)
@@ -351,6 +382,10 @@ void intel_dvo_init(struct drm_device *dev)
 		else
 			gpio = GMBUS_PORT_DPB;
 
+		/* Set up the I2C bus necessary for the chip we're probing.
+		 * It appears that everything is on GPIOE except for panels
+		 * on i830 laptops, which are on GPIOB (DVOA).
+		 */
 		i2c = &dev_priv->gmbus[gpio].adapter;
 
 		intel_dvo->dev = *dvo;
@@ -390,6 +425,13 @@ void intel_dvo_init(struct drm_device *dev)
 
 		intel_connector_attach_encoder(intel_connector, intel_encoder);
 		if (dvo->type == INTEL_DVO_CHIP_LVDS) {
+			/* For our LVDS chipsets, we should hopefully be able
+			 * to dig the fixed panel mode out of the BIOS data.
+			 * However, it's in a different format from the BIOS
+			 * data on chipsets with integrated LVDS (stored in AIM
+			 * headers, likely), so for now, just get the current
+			 * mode being output through DVO.
+			 */
 			intel_dvo->panel_fixed_mode =
 				intel_dvo_get_current_mode(connector);
 			intel_dvo->panel_wants_dither = true;

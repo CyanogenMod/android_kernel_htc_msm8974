@@ -17,7 +17,7 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRL0, IRL1, IRL2, IRL3,
 	HUDI, GPIOI, DMAC,
 	IRQ4, IRQ5, IRQ6, IRQ7,
@@ -37,7 +37,7 @@ enum {
 	TMU0, TMU1, TMU2,
 	WDT, REF,
 
-	
+	/* interrupt groups */
 	DMABRG, SCIF0, SCIF1, SCIF2, SIM, MMCIF,
 };
 
@@ -68,7 +68,7 @@ static struct intc_vect vectors[] __initdata = {
 	INTC_VECT(HSPI, 0xc80),
 	INTC_VECT(MMCIF0, 0xd00), INTC_VECT(MMCIF1, 0xd20),
 	INTC_VECT(MMCIF2, 0xd40), INTC_VECT(MMCIF3, 0xd60),
-	INTC_VECT(MFI, 0xe80), 
+	INTC_VECT(MFI, 0xe80), /* 0xf80 according to data sheet */
 	INTC_VECT(ADC, 0xf80), INTC_VECT(CMT, 0xfa0),
 	INTC_VECT(TMU0, 0x400), INTC_VECT(TMU1, 0x420),
 	INTC_VECT(TMU2, 0x440), INTC_VECT(TMU2, 0x460),
@@ -86,14 +86,14 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xfe080040, 0xfe080060, 32, 
+	{ 0xfe080040, 0xfe080060, 32, /* INTMSK00 / INTMSKCLR00 */
 	  { IRQ4, IRQ5, IRQ6, IRQ7, 0, 0, HCAN20, HCAN21,
 	    SSI0, SSI1, HAC0, HAC1, I2C0, I2C1, USB, LCDC,
 	    0, DMABRG0, DMABRG1, DMABRG2,
 	    SCIF0_ERI, SCIF0_RXI, SCIF0_BRI, SCIF0_TXI,
 	    SCIF1_ERI, SCIF1_RXI, SCIF1_BRI, SCIF1_TXI,
 	    SCIF2_ERI, SCIF2_RXI, SCIF2_BRI, SCIF2_TXI, } },
-	{ 0xfe080044, 0xfe080064, 32, 
+	{ 0xfe080044, 0xfe080064, 32, /* INTMSK04 / INTMSKCLR04 */
 	  { 0, 0, 0, 0, 0, 0, 0, 0,
 	    SIM_ERI, SIM_RXI, SIM_TXI, SIM_TEI,
 	    HSPI, MMCIF0, MMCIF1, MMCIF2,
@@ -102,16 +102,16 @@ static struct intc_mask_reg mask_registers[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xffd00004, 0, 16, 4,  { TMU0, TMU1, TMU2 } },
-	{ 0xffd00008, 0, 16, 4,  { WDT, REF, 0, 0 } },
-	{ 0xffd0000c, 0, 16, 4,  { GPIOI, DMAC, 0, HUDI } },
-	{ 0xffd00010, 0, 16, 4,  { IRL0, IRL1, IRL2, IRL3 } },
-	{ 0xfe080000, 0, 32, 4,  { IRQ4, IRQ5, IRQ6, IRQ7 } },
-	{ 0xfe080004, 0, 32, 4,  { HCAN20, HCAN21, SSI0, SSI1,
+	{ 0xffd00004, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2 } },
+	{ 0xffd00008, 0, 16, 4, /* IPRB */ { WDT, REF, 0, 0 } },
+	{ 0xffd0000c, 0, 16, 4, /* IPRC */ { GPIOI, DMAC, 0, HUDI } },
+	{ 0xffd00010, 0, 16, 4, /* IPRD */ { IRL0, IRL1, IRL2, IRL3 } },
+	{ 0xfe080000, 0, 32, 4, /* INTPRI00 */ { IRQ4, IRQ5, IRQ6, IRQ7 } },
+	{ 0xfe080004, 0, 32, 4, /* INTPRI04 */ { HCAN20, HCAN21, SSI0, SSI1,
 						 HAC0, HAC1, I2C0, I2C1 } },
-	{ 0xfe080008, 0, 32, 4,  { USB, LCDC, DMABRG, SCIF0,
+	{ 0xfe080008, 0, 32, 4, /* INTPRI08 */ { USB, LCDC, DMABRG, SCIF0,
 						 SCIF1, SCIF2, SIM, HSPI } },
-	{ 0xfe08000c, 0, 32, 4,  { 0, 0, MMCIF, 0,
+	{ 0xfe08000c, 0, 32, 4, /* INTPRI0C */ { 0, 0, MMCIF, 0,
 						 MFI, 0, ADC, CMT } },
 };
 

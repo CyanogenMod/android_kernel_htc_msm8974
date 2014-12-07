@@ -24,9 +24,14 @@ static void mon_bus_init(struct usb_bus *ubus);
 
 DEFINE_MUTEX(mon_lock);
 
-struct mon_bus mon_bus0;		
-static LIST_HEAD(mon_buses);		
+struct mon_bus mon_bus0;		/* Pseudo bus meaning "all buses" */
+static LIST_HEAD(mon_buses);		/* All buses we know: struct mon_bus */
 
+/*
+ * Link a reader into the bus.
+ *
+ * This must be called with mon_lock taken because of mbus->ref.
+ */
 void mon_reader_add(struct mon_bus *mbus, struct mon_reader *r)
 {
 	unsigned long flags;
@@ -51,6 +56,11 @@ void mon_reader_add(struct mon_bus *mbus, struct mon_reader *r)
 	kref_get(&mbus->ref);
 }
 
+/*
+ * Unlink reader from the bus.
+ *
+ * This is called with mon_lock taken, so we can decrement mbus->ref.
+ */
 void mon_reader_del(struct mon_bus *mbus, struct mon_reader *r)
 {
 	unsigned long flags;
@@ -65,6 +75,8 @@ void mon_reader_del(struct mon_bus *mbus, struct mon_reader *r)
 	kref_put(&mbus->ref, mon_bus_drop);
 }
 
+/*
+ */
 static void mon_bus_submit(struct mon_bus *mbus, struct urb *urb)
 {
 	unsigned long flags;
@@ -89,6 +101,8 @@ static void mon_submit(struct usb_bus *ubus, struct urb *urb)
 	mon_bus_submit(&mon_bus0, urb);
 }
 
+/*
+ */
 static void mon_bus_submit_error(struct mon_bus *mbus, struct urb *urb, int error)
 {
 	unsigned long flags;
@@ -113,6 +127,8 @@ static void mon_submit_error(struct usb_bus *ubus, struct urb *urb, int error)
 	mon_bus_submit_error(&mon_bus0, urb, error);
 }
 
+/*
+ */
 static void mon_bus_complete(struct mon_bus *mbus, struct urb *urb, int status)
 {
 	unsigned long flags;
@@ -137,7 +153,11 @@ static void mon_complete(struct usb_bus *ubus, struct urb *urb, int status)
 	mon_bus_complete(&mon_bus0, urb, status);
 }
 
+/* int (*unlink_urb) (struct urb *urb, int status); */
 
+/*
+ * Stop monitoring.
+ */
 static void mon_stop(struct mon_bus *mbus)
 {
 	struct usb_bus *ubus;
@@ -146,10 +166,17 @@ static void mon_stop(struct mon_bus *mbus)
 	if (mbus == &mon_bus0) {
 		list_for_each (p, &mon_buses) {
 			mbus = list_entry(p, struct mon_bus, bus_link);
+			/*
+			 * We do not change nreaders here, so rely on mon_lock.
+			 */
 			if (mbus->nreaders == 0 && (ubus = mbus->u_bus) != NULL)
 				ubus->monitored = 0;
 		}
 	} else {
+		/*
+		 * A stop can be called for a dissolved mon_bus in case of
+		 * a reader staying across an rmmod foo_hcd, so test ->u_bus.
+		 */
 		if (mon_bus0.nreaders == 0 && (ubus = mbus->u_bus) != NULL) {
 			ubus->monitored = 0;
 			mb();
@@ -157,6 +184,12 @@ static void mon_stop(struct mon_bus *mbus)
 	}
 }
 
+/*
+ * Add a USB bus (usually by a modprobe foo-hcd)
+ *
+ * This does not return an error code because the core cannot care less
+ * if monitoring is not established.
+ */
 static void mon_bus_add(struct usb_bus *ubus)
 {
 	mon_bus_init(ubus);
@@ -166,6 +199,9 @@ static void mon_bus_add(struct usb_bus *ubus)
 	mutex_unlock(&mon_lock);
 }
 
+/*
+ * Remove a USB bus (either from rmmod foo-hcd or from a hot-remove event).
+ */
 static void mon_bus_remove(struct usb_bus *ubus)
 {
 	struct mon_bus *mbus = ubus->mon_bus;
@@ -199,12 +235,18 @@ static struct notifier_block mon_nb = {
 	.notifier_call = 	mon_notify,
 };
 
+/*
+ * Ops
+ */
 static struct usb_mon_operations mon_ops_0 = {
 	.urb_submit =	mon_submit,
 	.urb_submit_error = mon_submit_error,
 	.urb_complete =	mon_complete,
 };
 
+/*
+ * Tear usb_bus and mon_bus apart.
+ */
 static void mon_dissolve(struct mon_bus *mbus, struct usb_bus *ubus)
 {
 
@@ -217,15 +259,23 @@ static void mon_dissolve(struct mon_bus *mbus, struct usb_bus *ubus)
 	mbus->u_bus = NULL;
 	mb();
 
-	
+	/* We want synchronize_irq() here, but that needs an argument. */
 }
 
+/*
+ */
 static void mon_bus_drop(struct kref *r)
 {
 	struct mon_bus *mbus = container_of(r, struct mon_bus, ref);
 	kfree(mbus);
 }
 
+/*
+ * Initialize a bus for us:
+ *  - allocate mon_bus
+ *  - refcount USB bus struct
+ *  - link
+ */
 static void mon_bus_init(struct usb_bus *ubus)
 {
 	struct mon_bus *mbus;
@@ -236,6 +286,10 @@ static void mon_bus_init(struct usb_bus *ubus)
 	spin_lock_init(&mbus->lock);
 	INIT_LIST_HEAD(&mbus->r_list);
 
+	/*
+	 * We don't need to take a reference to ubus, because we receive
+	 * a notification if the bus is about to be removed.
+	 */
 	mbus->u_bus = ubus;
 	ubus->mon_bus = mbus;
 
@@ -263,6 +317,14 @@ static void mon_bus0_init(void)
 	mbus->bin_inited = mon_bin_add(mbus, NULL);
 }
 
+/*
+ * Search a USB bus by number. Notice that USB bus numbers start from one,
+ * which we may later use to identify "all" with zero.
+ *
+ * This function must be called with mon_lock held.
+ *
+ * This is obviously inefficient and may be revised in the future.
+ */
 struct mon_bus *mon_bus_lookup(unsigned int num)
 {
 	struct list_head *p;
@@ -297,7 +359,7 @@ static int __init mon_init(void)
 		rc = -ENODEV;
 		goto err_reg;
 	}
-	
+	// MOD_INC_USE_COUNT(which_module?);
 
 	mutex_lock(&usb_bus_list_lock);
 	list_for_each_entry (ubus, &usb_bus_list, bus_list) {
@@ -335,11 +397,16 @@ static void __exit mon_exit(void)
 		if (mbus->bin_inited)
 			mon_bin_del(mbus);
 
+		/*
+		 * This never happens, because the open/close paths in
+		 * file level maintain module use counters and so rmmod fails
+		 * before reaching here. However, better be safe...
+		 */
 		if (mbus->nreaders) {
 			printk(KERN_ERR TAG
 			    ": Outstanding opens (%d) on usb%d, leaking...\n",
 			    mbus->nreaders, mbus->u_bus->busnum);
-			atomic_set(&mbus->ref.refcount, 2);	
+			atomic_set(&mbus->ref.refcount, 2);	/* Force leak */
 		}
 
 		mon_dissolve(mbus, mbus->u_bus);

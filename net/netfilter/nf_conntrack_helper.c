@@ -1,3 +1,4 @@
+/* Helper handling for netfilter. */
 
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2006 Netfilter Core Team <coreteam@netfilter.org>
@@ -34,6 +35,8 @@ static unsigned int nf_ct_helper_hsize __read_mostly;
 static unsigned int nf_ct_helper_count __read_mostly;
 
 
+/* Stupid hash, but collision free for the default registrations of the
+ * helpers currently in the kernel. */
 static unsigned int helper_hash(const struct nf_conntrack_tuple *tuple)
 {
 	return (((tuple->src.l3num << 8) | tuple->dst.protonum) ^
@@ -258,7 +261,7 @@ static void __nf_conntrack_helper_unregister(struct nf_conntrack_helper *me,
 	const struct hlist_nulls_node *nn;
 	unsigned int i;
 
-	
+	/* Get rid of expectations */
 	for (i = 0; i < nf_ct_expect_hsize; i++) {
 		hlist_for_each_entry_safe(exp, n, next,
 					  &net->ct.expect_hash[i], hnode) {
@@ -280,7 +283,7 @@ static void __nf_conntrack_helper_unregister(struct nf_conntrack_helper *me,
 		}
 	}
 
-	
+	/* Get rid of expecteds, set helpers to NULL. */
 	hlist_nulls_for_each_entry(h, nn, &net->ct.unconfirmed, hnnode)
 		unhelp(h, me);
 	for (i = 0; i < net->ct.htable_size; i++) {
@@ -298,6 +301,9 @@ void nf_conntrack_helper_unregister(struct nf_conntrack_helper *me)
 	nf_ct_helper_count--;
 	mutex_unlock(&nf_ct_helper_mutex);
 
+	/* Make sure every nothing is still using the helper unless its a
+	 * connection in the hash.
+	 */
 	synchronize_rcu();
 
 	rtnl_lock();
@@ -319,7 +325,7 @@ int nf_conntrack_helper_init(void)
 {
 	int err;
 
-	nf_ct_helper_hsize = 1; 
+	nf_ct_helper_hsize = 1; /* gets rounded up to use one page */
 	nf_ct_helper_hash = nf_ct_alloc_hashtable(&nf_ct_helper_hsize, 0);
 	if (!nf_ct_helper_hash)
 		return -ENOMEM;

@@ -86,6 +86,7 @@ out:
 	return ret;
 }
 
+/* I2C */
 
 static int opera1_usb_i2c_msgxfer(struct dvb_usb_device *dev, u16 addr,
 				  u8 * buf, u16 len)
@@ -350,22 +351,22 @@ static struct rc_map_table rc_map_opera1_table[] = {
 	{0x49b6, KEY_8},
 	{0x05fa, KEY_9},
 	{0x45ba, KEY_0},
-	{0x09f6, KEY_CHANNELUP},	
-	{0x1be5, KEY_CHANNELDOWN},	
-	{0x5da3, KEY_VOLUMEDOWN},	
-	{0x5fa1, KEY_VOLUMEUP},		
-	{0x07f8, KEY_SPACE},		
-	{0x1fe1, KEY_OK},		
-	{0x1be4, KEY_ZOOM},		
-	{0x59a6, KEY_MUTE},		
-	{0x5ba5, KEY_RADIO},		
-	{0x19e7, KEY_RECORD},		
-	{0x01fe, KEY_STOP},		
-	{0x03fd, KEY_PAUSE},		
-	{0x03fc, KEY_SCREEN},		
-	{0x07f9, KEY_CAMERA},		
-	{0x47b9, KEY_ESC},		
-	{0x43bc, KEY_POWER2},		
+	{0x09f6, KEY_CHANNELUP},	/*chanup */
+	{0x1be5, KEY_CHANNELDOWN},	/*chandown */
+	{0x5da3, KEY_VOLUMEDOWN},	/*voldown */
+	{0x5fa1, KEY_VOLUMEUP},		/*volup */
+	{0x07f8, KEY_SPACE},		/*tab */
+	{0x1fe1, KEY_OK},		/*play ok */
+	{0x1be4, KEY_ZOOM},		/*zoom */
+	{0x59a6, KEY_MUTE},		/*mute */
+	{0x5ba5, KEY_RADIO},		/*tv/f */
+	{0x19e7, KEY_RECORD},		/*rec */
+	{0x01fe, KEY_STOP},		/*Stop */
+	{0x03fd, KEY_PAUSE},		/*pause */
+	{0x03fc, KEY_SCREEN},		/*<- -> */
+	{0x07f9, KEY_CAMERA},		/*capture */
+	{0x47b9, KEY_ESC},		/*exit */
+	{0x43bc, KEY_POWER2},		/*power */
 };
 
 static int opera1_rc_query(struct dvb_usb_device *dev, u32 * event, int *state)
@@ -462,7 +463,7 @@ static int opera1_xilinx_load_firmware(struct usb_device *dev,
 
 			u8 reset = 0, fpga_command = 0;
 			memcpy(p, fw->data, fw->size);
-			
+			/* clear fpga ? */
 			opera1_xilinx_rw(dev, 0xbc, 0xaa, &fpga_command, 1,
 					 OPERA_WRITE_MSG);
 			for (i = 0; i < fw->size;) {
@@ -480,7 +481,7 @@ static int opera1_xilinx_load_firmware(struct usb_device *dev,
 				}
 				i = i + fpgasize;
 			}
-			
+			/* restart the CPU */
 			if (ret || opera1_xilinx_rw
 					(dev, 0xa0, 0xe600, &reset, 1,
 					OPERA_WRITE_MSG) != 1) {
@@ -511,7 +512,7 @@ static struct dvb_usb_device_properties opera1_properties = {
 	},
 	.read_mac_address = opera1_read_mac_address,
 	.generic_bulk_ctrl_endpoint = 0x00,
-	
+	/* parameter for the MPEG2-data transfer */
 	.num_adapters = 1,
 	.adapter = {
 		{

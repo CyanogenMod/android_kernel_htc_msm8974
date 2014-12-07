@@ -11,7 +11,20 @@
  *
  */
 
+/*
+ * Chimei WUXGA LVDS Panel driver.
+ * The panel model is N101JSF-L21.
+ *
+ * The panel interface includes:
+ * 1. LVDS input for video (clock & data).
+ * 2. few configuration	pins to control 3D module: Enable, Mode (2D/3D).
+ * 3. Backlight LED control (PWM 200 HZ).
+ *
+ * This panel is controled via the Toshiba DSI-to-LVDS bridge.
+ *
+ */
 
+/* #define DEBUG 1 */
 
 #include "msm_fb.h"
 #include "msm_fb_panel.h"
@@ -20,30 +33,51 @@
 
 #define MHZ (1000*1000)
 
+/**
+ * Panel info parameters.
+ * The panel info is passed to the mipi framebuffer driver.
+ */
 static struct msm_panel_info chimei_wuxga_pinfo;
 
+/**
+ * The mipi_dsi_phy_ctrl is calculated according to the
+ * "dsi_timing_program.xlsm" excel sheet.
+ * Output is based on: 1200x1920, RGB565, 4 lanes , 58 frames
+ * per second.
+ */
 static struct mipi_dsi_phy_ctrl dsi_video_mode_phy_db = {
-	
-	.regulator = {0x03, 0x0a, 0x04, 0x00, 0x20}, 
-	
-	.ctrl = {0x5f, 0x00, 0x00, 0x10}, 
-	
-	.strength = {0xff, 0x00, 0x06, 0x00}, 
-	
-	.timing = { 0xC9, 0x92, 0x29, 
-	0, 
-	0x2D, 0x9B, 0x2B, 0x94, 0x2D, 0x03, 0x04},  
+	/* DSIPHY_REGULATOR_CTRL */
+	.regulator = {0x03, 0x0a, 0x04, 0x00, 0x20}, /* common 8960 */
+	/* DSIPHY_CTRL */
+	.ctrl = {0x5f, 0x00, 0x00, 0x10}, /* common 8960 */
+	/* DSIPHY_STRENGTH_CTRL */
+	.strength = {0xff, 0x00, 0x06, 0x00}, /* common 8960 */
+	/* DSIPHY_TIMING_CTRL */
+	.timing = { 0xC9, 0x92, 0x29, /* panel specific */
+	0, /* DSIPHY_TIMING_CTRL_3 = 0 */
+	0x2D, 0x9B, 0x2B, 0x94, 0x2D, 0x03, 0x04},  /* panel specific */
 
-	
-	.pll = { 0x00, 
-	
-	0x30, (0x01 | 0x30) , (0x19 | 0xC0), 
+	/* DSIPHY_PLL_CTRL */
+	.pll = { 0x00, /* common 8960 */
+	/* VCO */
+	0x30, (0x01 | 0x30) , (0x19 | 0xC0), /* panel specific */
 	0x00, 0x50, 0x48, 0x63,
-	0x77, 0x88, 0x99, 
-	0x00, 0x14, 0x03, 0x00, 0x02, 
-	0x00, 0x20, 0x00, 0x01 }, 
+	0x77, 0x88, 0x99, /* Auto update by dsi-mipi driver */
+	0x00, 0x14, 0x03, 0x00, 0x02, /* common 8960 */
+	0x00, 0x20, 0x00, 0x01 }, /* common 8960 */
 };
 
+/**
+ * Module init.
+ *
+ * Register the panel-info.
+ *
+ * Some parameters are from the panel datasheet
+ * and other are *calculated* by the "dsi_timing_program.xlsm"
+ * excel file
+ *
+ * @return int
+ */
 static int __init mipi_chimei_wuxga_init(void)
 {
 	int ret;
@@ -54,46 +88,56 @@ static int __init mipi_chimei_wuxga_init(void)
 
 	pr_info("mipi-dsi chimei wuxga (1200x1920) driver ver 1.0.\n");
 
-	
+	/* Portrait */
 	pinfo->xres = 1200;
 	pinfo->yres = 1920;
 	pinfo->type =  MIPI_VIDEO_PANEL;
-	pinfo->pdest = DISPLAY_1; 
+	pinfo->pdest = DISPLAY_1; /* Primary Display */
 	pinfo->wait_cycle = 0;
-	pinfo->bpp = 24; 
-	pinfo->fb_num = 2; 
+	pinfo->bpp = 24; /* RGB565 requires 24 bits-per-pixel :-O */
+	pinfo->fb_num = 2; /* using two frame buffers */
 
+	/*
+	 * The CMI panel requires 80 MHZ LVDS-CLK.
+	 * The D2L bridge drives the LVDS-CLK from the DSI-CLK.
+	 * The DSI-CLK = bitclk/2, 640 MHZ/2= 320 MHZ.
+	 * LVDS-CLK = DSI-CLK/4 , 320 MHZ/4= 80 MHZ.
+	 */
 
-	pinfo->clk_rate = 635 * MHZ ; 
+	pinfo->clk_rate = 635 * MHZ ; /* bitclk Calculated */
 
+	/*
+	 * this panel is operated by DE,
+	 * vsycn and hsync are ignored
+	 */
 
-	pinfo->lcdc.h_front_porch = 160-48-32;	
-	pinfo->lcdc.h_back_porch = 48;	
-	pinfo->lcdc.h_pulse_width = 32;	
+	pinfo->lcdc.h_front_porch = 160-48-32;	/* thfp */
+	pinfo->lcdc.h_back_porch = 48;	/* thb */
+	pinfo->lcdc.h_pulse_width = 32;	/* thpw */
 
-	pinfo->lcdc.v_front_porch = 26-3-6;	
-	pinfo->lcdc.v_back_porch = 3;	
-	pinfo->lcdc.v_pulse_width = 6;	
+	pinfo->lcdc.v_front_porch = 26-3-6;	/* tvfp */
+	pinfo->lcdc.v_back_porch = 3;	/* tvb */
+	pinfo->lcdc.v_pulse_width = 6;	/* tvpw */
 
-	pinfo->lcdc.border_clr = 0;		
-	pinfo->lcdc.underflow_clr = 0xff;	
+	pinfo->lcdc.border_clr = 0;		/* black */
+	pinfo->lcdc.underflow_clr = 0xff;	/* blue */
 
 	pinfo->lcdc.hsync_skew = 0;
 
-	
+	/* Backlight levels - controled via PMIC pwm gpio */
 	pinfo->bl_max = PWM_LEVEL;
 	pinfo->bl_min = 1;
 
-	
-	pinfo->mipi.vc = 0; 
+	/* mipi - general */
+	pinfo->mipi.vc = 0; /* virtual channel */
 	pinfo->mipi.rgb_swap = DSI_RGB_SWAP_RGB;
 	pinfo->mipi.tx_eot_append = true;
-	pinfo->mipi.t_clk_post = 34;		
-	pinfo->mipi.t_clk_pre = 69;		
+	pinfo->mipi.t_clk_post = 34;		/* Calculated */
+	pinfo->mipi.t_clk_pre = 69;		/* Calculated */
 
 	pinfo->mipi.dsi_phy_db = &dsi_video_mode_phy_db;
 
-	
+	/* Four lanes are recomended for 1920x1200 at 60 frames per second */
 	pinfo->mipi.frame_rate = 60;
 	pinfo->mipi.data_lane0 = true;
 	pinfo->mipi.data_lane1 = true;
@@ -102,11 +146,16 @@ static int __init mipi_chimei_wuxga_init(void)
 	pinfo->mipi.esc_byte_ratio = 6;
 
 	pinfo->mipi.mode = DSI_VIDEO_MODE;
+	/*
+	 * Note: The CMI panel input is RGB888,
+	 * thus the DSI-to-LVDS bridge output is RGB888.
+	 * This parameter selects the DSI-Core output to the bridge.
+	 */
 	pinfo->mipi.dst_format = DSI_VIDEO_DST_FORMAT_RGB565;
 
-	
+	/* mipi - video mode */
 	pinfo->mipi.traffic_mode = DSI_NON_BURST_SYNCH_EVENT;
-	pinfo->mipi.pulse_mode_hsa_he = false; 
+	pinfo->mipi.pulse_mode_hsa_he = false; /* sync mode */
 
 	pinfo->mipi.hfp_power_stop = false;
 	pinfo->mipi.hbp_power_stop = false;
@@ -114,16 +163,21 @@ static int __init mipi_chimei_wuxga_init(void)
 	pinfo->mipi.eof_bllp_power_stop = false;
 	pinfo->mipi.bllp_power_stop = false;
 
-	
-	pinfo->mipi.te_sel = 1; 
+	/* mipi - command mode */
+	pinfo->mipi.te_sel = 1; /* TE from vsycn gpio */
 	pinfo->mipi.interleave_max = 1;
-	
+	/* The bridge supports only Generic Read/Write commands */
 	pinfo->mipi.insert_dcs_cmd = false;
 	pinfo->mipi.wr_mem_continue = 0;
 	pinfo->mipi.wr_mem_start = 0;
-	pinfo->mipi.stream = false; 
+	pinfo->mipi.stream = false; /* dma_p */
 	pinfo->mipi.mdp_trigger = DSI_CMD_TRIGGER_NONE;
 	pinfo->mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
+	/*
+	 * toshiba d2l chip does not need max_pkt_size dcs cmd
+	 * client reply len is directly configure through
+	 * RDPKTLN register (0x0404)
+	 */
 	pinfo->mipi.no_max_pkt_size = 1;
 	pinfo->mipi.force_clk_lane_hs = 1;
 

@@ -18,7 +18,7 @@
 
 static dev_t rtc_devt;
 
-#define RTC_DEV_MAX 16 
+#define RTC_DEV_MAX 16 /* 16 RTCs should be enough for everyone... */
 
 static int rtc_dev_open(struct inode *inode, struct file *file)
 {
@@ -41,12 +41,16 @@ static int rtc_dev_open(struct inode *inode, struct file *file)
 		return 0;
 	}
 
-	
+	/* something has gone wrong */
 	clear_bit_unlock(RTC_DEV_BUSY, &rtc->flags);
 	return err;
 }
 
 #ifdef CONFIG_RTC_INTF_DEV_UIE_EMUL
+/*
+ * Routine to poll RTC seconds field for change as often as possible,
+ * after first RTC_UIE use timer to reduce polling
+ */
 static void rtc_uie_task(struct work_struct *work)
 {
 	struct rtc_device *rtc =
@@ -140,7 +144,7 @@ int rtc_dev_update_irq_enable_emul(struct rtc_device *rtc, unsigned int enabled)
 }
 EXPORT_SYMBOL(rtc_dev_update_irq_enable_emul);
 
-#endif 
+#endif /* CONFIG_RTC_INTF_DEV_UIE_EMUL */
 
 static ssize_t
 rtc_dev_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
@@ -181,7 +185,7 @@ rtc_dev_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 	remove_wait_queue(&rtc->irq_queue, &wait);
 
 	if (ret == 0) {
-		
+		/* Check for any data updates */
 		if (rtc->ops->read_callback)
 			data = rtc->ops->read_callback(rtc->dev.parent,
 						       data);
@@ -223,6 +227,10 @@ static long rtc_dev_ioctl(struct file *file,
 	if (err)
 		return err;
 
+	/* check that the calling task has appropriate permissions
+	 * for certain ioctls. doing this check here is useful
+	 * to avoid duplicate code in each driver.
+	 */
 	switch (cmd) {
 	case RTC_EPOCH_SET:
 	case RTC_SET_TIME:
@@ -245,6 +253,16 @@ static long rtc_dev_ioctl(struct file *file,
 	if (err)
 		goto done;
 
+	/*
+	 * Drivers *SHOULD NOT* provide ioctl implementations
+	 * for these requests.  Instead, provide methods to
+	 * support the following code, so that the RTC's main
+	 * features are accessible without using ioctls.
+	 *
+	 * RTC and alarm times will be in UTC, by preference,
+	 * but dual-booting with MS-Windows implies RTCs must
+	 * use the local wall clock time.
+	 */
 
 	switch (cmd) {
 	case RTC_ALM_READ:
@@ -270,6 +288,19 @@ static long rtc_dev_ioctl(struct file *file,
 		alarm.time.tm_yday = -1;
 		alarm.time.tm_isdst = -1;
 
+		/* RTC_ALM_SET alarms may be up to 24 hours in the future.
+		 * Rather than expecting every RTC to implement "don't care"
+		 * for day/month/year fields, just force the alarm to have
+		 * the right values for those fields.
+		 *
+		 * RTC_WKALM_SET should be used instead.  Not only does it
+		 * eliminate the need for a separate RTC_AIE_ON call, it
+		 * doesn't have the "alarm 23:59:59 in the future" race.
+		 *
+		 * NOTE:  some legacy code may have used invalid fields as
+		 * wildcards, exposing hardware "periodic alarm" capabilities.
+		 * Not supported here.
+		 */
 		{
 			unsigned long now, then;
 
@@ -286,7 +317,7 @@ static long rtc_dev_ioctl(struct file *file,
 				return err;
 			rtc_tm_to_time(&alarm.time, &then);
 
-			
+			/* alarm may need to wrap into tomorrow */
 			if (then < now) {
 				rtc_time_to_tm(now + 24 * 60 * 60, &tm);
 				alarm.time.tm_mday = tm.tm_mday;
@@ -351,6 +382,9 @@ static long rtc_dev_ioctl(struct file *file,
 #if 0
 	case RTC_EPOCH_SET:
 #ifndef rtc_epoch
+		/*
+		 * There were no RTC clocks before 1900.
+		 */
 		if (arg < 1900) {
 			err = -EINVAL;
 			break;
@@ -382,7 +416,7 @@ static long rtc_dev_ioctl(struct file *file,
 		return err;
 
 	default:
-		
+		/* Finally try the driver's ioctl interface */
 		if (ops->ioctl) {
 			err = ops->ioctl(rtc->dev.parent, cmd, arg);
 			if (err == -ENOIOCTLCMD)
@@ -407,8 +441,16 @@ static int rtc_dev_release(struct inode *inode, struct file *file)
 {
 	struct rtc_device *rtc = file->private_data;
 
+	/* We shut down the repeating IRQs that userspace enabled,
+	 * since nothing is listening to them.
+	 *  - Update (UIE) ... currently only managed through ioctls
+	 *  - Periodic (PIE) ... also used through rtc_*() interface calls
+	 *
+	 * Leave the alarm alone; it may be set to trigger a system wakeup
+	 * later, or be used by kernel code, and is a one-shot event anyway.
+	 */
 
-	
+	/* Keep ioctl until all drivers are converted */
 	rtc_dev_ioctl(file, RTC_UIE_OFF, 0);
 	rtc_update_irq_enable(rtc, 0);
 	rtc_irq_set_state(rtc, NULL, 0);
@@ -431,6 +473,7 @@ static const struct file_operations rtc_dev_fops = {
 	.fasync		= rtc_dev_fasync,
 };
 
+/* insertion/removal hooks */
 
 void rtc_dev_prepare(struct rtc_device *rtc)
 {

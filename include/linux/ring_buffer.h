@@ -8,6 +8,9 @@
 struct ring_buffer;
 struct ring_buffer_iter;
 
+/*
+ * Don't refer to this struct directly, use functions below.
+ */
 struct ring_buffer_event {
 	kmemcheck_bitfield_begin(bitfield);
 	u32		type_len:5, time_delta:27;
@@ -16,11 +19,43 @@ struct ring_buffer_event {
 	u32		array[];
 };
 
+/**
+ * enum ring_buffer_type - internal ring buffer types
+ *
+ * @RINGBUF_TYPE_PADDING:	Left over page padding or discarded event
+ *				 If time_delta is 0:
+ *				  array is ignored
+ *				  size is variable depending on how much
+ *				  padding is needed
+ *				 If time_delta is non zero:
+ *				  array[0] holds the actual length
+ *				  size = 4 + length (bytes)
+ *
+ * @RINGBUF_TYPE_TIME_EXTEND:	Extend the time delta
+ *				 array[0] = time delta (28 .. 59)
+ *				 size = 8 bytes
+ *
+ * @RINGBUF_TYPE_TIME_STAMP:	Sync time stamp with external clock
+ *				 array[0]    = tv_nsec
+ *				 array[1..2] = tv_sec
+ *				 size = 16 bytes
+ *
+ * <= @RINGBUF_TYPE_DATA_TYPE_LEN_MAX:
+ *				Data record
+ *				 If type_len is zero:
+ *				  array[0] holds the actual length
+ *				  array[1..(length+3)/4] holds data
+ *				  size = 4 + length (bytes)
+ *				 else
+ *				  length = type_len << 2
+ *				  array[0..(length+3)/4-1] holds data
+ *				  size = 4 + length (bytes)
+ */
 enum ring_buffer_type {
 	RINGBUF_TYPE_DATA_TYPE_LEN_MAX = 28,
 	RINGBUF_TYPE_PADDING,
 	RINGBUF_TYPE_TIME_EXTEND,
-	
+	/* FIXME: RINGBUF_TYPE_TIME_STAMP not implemented */
 	RINGBUF_TYPE_TIME_STAMP,
 };
 
@@ -44,9 +79,17 @@ void *ring_buffer_event_data(struct ring_buffer_event *event);
 void ring_buffer_discard_commit(struct ring_buffer *buffer,
 				struct ring_buffer_event *event);
 
+/*
+ * size is in bytes for each per CPU buffer.
+ */
 struct ring_buffer *
 __ring_buffer_alloc(unsigned long size, unsigned flags, struct lock_class_key *key);
 
+/*
+ * Because the ring buffer is generic, if other users of the ring buffer get
+ * traced by ftrace, it can produce lockdep warnings. We need to keep each
+ * ring buffer's lock class separate.
+ */
 #define ring_buffer_alloc(size, flags)			\
 ({							\
 	static struct lock_class_key __key;		\
@@ -145,4 +188,4 @@ enum ring_buffer_flags {
 	RB_FL_OVERWRITE		= 1 << 0,
 };
 
-#endif 
+#endif /* _LINUX_RING_BUFFER_H */

@@ -26,12 +26,12 @@
  * Fully tested with the Keene USB FM Transmitter and the v4l2-compliance tool.
  */
 
-#include <linux/module.h>	
-#include <linux/init.h>		
-#include <linux/ioport.h>	
-#include <linux/delay.h>	
-#include <linux/videodev2.h>	
-#include <linux/io.h>		
+#include <linux/module.h>	/* Modules 			*/
+#include <linux/init.h>		/* Initdata			*/
+#include <linux/ioport.h>	/* request_region		*/
+#include <linux/delay.h>	/* msleep			*/
+#include <linux/videodev2.h>	/* kernel radio structs		*/
+#include <linux/io.h>		/* outb, outb_p			*/
 #include <linux/slab.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
@@ -72,18 +72,22 @@ static struct radio_isa_card *rtrack_alloc(void)
 	return rt ? &rt->isa : NULL;
 }
 
+/* The 128+64 on these outb's is to keep the volume stable while tuning.
+ * Without them, the volume _will_ creep up with each frequency change
+ * and bit 4 (+16) is to keep the signal strength meter enabled.
+ */
 
 static void send_0_byte(struct radio_isa_card *isa, int on)
 {
-	outb_p(128+64+16+on+1, isa->io);	
-	outb_p(128+64+16+on+2+1, isa->io);	
+	outb_p(128+64+16+on+1, isa->io);	/* wr-enable + data low */
+	outb_p(128+64+16+on+2+1, isa->io);	/* clock */
 	msleep(1);
 }
 
 static void send_1_byte(struct radio_isa_card *isa, int on)
 {
-	outb_p(128+64+16+on+4+1, isa->io);	
-	outb_p(128+64+16+on+4+2+1, isa->io);	
+	outb_p(128+64+16+on+4+1, isa->io);	/* wr-enable+data high */
+	outb_p(128+64+16+on+4+2+1, isa->io);	/* clock */
 	msleep(1);
 }
 
@@ -92,37 +96,37 @@ static int rtrack_s_frequency(struct radio_isa_card *isa, u32 freq)
 	int on = v4l2_ctrl_g_ctrl(isa->mute) ? 0 : 8;
 	int i;
 
-	freq += 171200;			
-	freq /= 800;			
+	freq += 171200;			/* Add 10.7 MHz IF 		*/
+	freq /= 800;			/* Convert to 50 kHz units	*/
 
-	send_0_byte(isa, on);		
+	send_0_byte(isa, on);		/*  0: LSB of frequency		*/
 
-	for (i = 0; i < 13; i++)	
+	for (i = 0; i < 13; i++)	/*   : frequency bits (1-13)	*/
 		if (freq & (1 << i))
 			send_1_byte(isa, on);
 		else
 			send_0_byte(isa, on);
 
-	send_0_byte(isa, on);		
-	send_0_byte(isa, on);		
+	send_0_byte(isa, on);		/* 14: test bit - always 0    */
+	send_0_byte(isa, on);		/* 15: test bit - always 0    */
 
-	send_0_byte(isa, on);		
-	send_0_byte(isa, on);		
-	send_0_byte(isa, on);		
-	send_0_byte(isa, on);		
+	send_0_byte(isa, on);		/* 16: band data 0 - always 0 */
+	send_0_byte(isa, on);		/* 17: band data 1 - always 0 */
+	send_0_byte(isa, on);		/* 18: band data 2 - always 0 */
+	send_0_byte(isa, on);		/* 19: time base - always 0   */
 
-	send_0_byte(isa, on);		
-	send_1_byte(isa, on);		
-	send_0_byte(isa, on);		
-	send_1_byte(isa, on);		
+	send_0_byte(isa, on);		/* 20: spacing (0 = 25 kHz)   */
+	send_1_byte(isa, on);		/* 21: spacing (1 = 25 kHz)   */
+	send_0_byte(isa, on);		/* 22: spacing (0 = 25 kHz)   */
+	send_1_byte(isa, on);		/* 23: AM/FM (FM = 1, always) */
 
-	outb(0xd0 + on, isa->io);	
+	outb(0xd0 + on, isa->io);	/* volume steady + sigstr */
 	return 0;
 }
 
 static u32 rtrack_g_signal(struct radio_isa_card *isa)
 {
-	
+	/* bit set = no signal present */
 	return 0xffff * !(inb(isa->io) & 2);
 }
 
@@ -132,32 +136,33 @@ static int rtrack_s_mute_volume(struct radio_isa_card *isa, bool mute, int vol)
 	int curvol = rt->curvol;
 
 	if (mute) {
-		outb(0xd0, isa->io);	
+		outb(0xd0, isa->io);	/* volume steady + sigstr + off	*/
 		return 0;
 	}
-	if (vol == 0) {			
-		outb(0x48, isa->io);	
-		msleep(curvol * 3);	
+	if (vol == 0) {			/* volume = 0 means mute the card */
+		outb(0x48, isa->io);	/* volume down but still "on"	*/
+		msleep(curvol * 3);	/* make sure it's totally down	*/
 	} else if (curvol < vol) {
-		outb(0x98, isa->io);	
+		outb(0x98, isa->io);	/* volume up + sigstr + on	*/
 		for (; curvol < vol; curvol++)
 			udelay(3000);
 	} else if (curvol > vol) {
-		outb(0x58, isa->io);	
+		outb(0x58, isa->io);	/* volume down + sigstr + on	*/
 		for (; curvol > vol; curvol--)
 			udelay(3000);
 	}
-	outb(0xd8, isa->io);		
+	outb(0xd8, isa->io);		/* volume steady + sigstr + on	*/
 	rt->curvol = vol;
 	return 0;
 }
 
+/* Mute card - prevents noisy bootups */
 static int rtrack_initialize(struct radio_isa_card *isa)
 {
-	
-	outb(0x90, isa->io);	
-	msleep(3000);		
-	outb(0xc0, isa->io);	
+	/* this ensures that the volume is all the way up  */
+	outb(0x90, isa->io);	/* volume up but still "on"	*/
+	msleep(3000);		/* make sure it's totally up	*/
+	outb(0xc0, isa->io);	/* steady volume, mute card	*/
 	return 0;
 }
 

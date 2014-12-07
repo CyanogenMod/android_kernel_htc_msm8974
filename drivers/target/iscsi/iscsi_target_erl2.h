@@ -15,4 +15,4 @@ extern int iscsit_discard_unacknowledged_ooo_cmdsns_for_conn(struct iscsi_conn *
 extern int iscsit_prepare_cmds_for_realligance(struct iscsi_conn *);
 extern int iscsit_connection_recovery_transport_reset(struct iscsi_conn *);
 
-#endif 
+#endif /*** ISCSI_TARGET_ERL2_H ***/

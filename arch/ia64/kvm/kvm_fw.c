@@ -32,6 +32,10 @@
 #include <asm/sal.h>
 #include <asm/tlb.h>
 
+/*
+ * Handy macros to make sure that the PAL return values start out
+ * as something meaningful.
+ */
 #define INIT_PAL_STATUS_UNIMPLEMENTED(x)		\
 	{						\
 		x.status = PAL_STATUS_UNIMPLEMENTED;	\
@@ -124,7 +128,7 @@ static struct ia64_pal_retval pal_cache_flush(struct kvm_vcpu *vcpu)
 	if (gr31 != 0)
 		printk(KERN_ERR"vcpu:%p called cache_flush error!\n", vcpu);
 
-	
+	/* Always call Host Pal in int=1 */
 	gr30 &= ~PAL_CACHE_FLUSH_CHK_INTRS;
 	args.cache_type = gr29;
 	args.operation = gr30;
@@ -133,6 +137,10 @@ static struct ia64_pal_retval pal_cache_flush(struct kvm_vcpu *vcpu)
 	if (args.status != 0)
 		printk(KERN_ERR"pal_cache_flush error!,"
 				"status:0x%lx\n", args.status);
+	/*
+	 * Call Host PAL cache flush
+	 * Clear psr.ic when call PAL_CACHE_FLUSH
+	 */
 	local_irq_save(psr);
 	result.status = ia64_pal_cache_flush(gr29, gr30, &result.v1,
 						&result.v0);
@@ -169,6 +177,10 @@ static struct ia64_pal_retval pal_freq_base(struct kvm_vcpu *vcpu)
 
 	PAL_CALL(result, PAL_FREQ_BASE, 0, 0, 0);
 
+	/*
+	 * PAL_FREQ_BASE may not be implemented in some platforms,
+	 * call SAL instead.
+	 */
 	if (result.v0 == 0) {
 		result.status = ia64_sal_freq_base(SAL_FREQ_BASE_PLATFORM,
 							&result.v0,
@@ -179,6 +191,11 @@ static struct ia64_pal_retval pal_freq_base(struct kvm_vcpu *vcpu)
 	return result;
 }
 
+/*
+ * On the SGI SN2, the ITC isn't stable. Emulation backed by the SN2
+ * RTC is used instead. This function patches the ratios from SAL
+ * to match the RTC before providing them to the guest.
+ */
 static void sn2_patch_itc_freq_ratios(struct ia64_pal_retval *result)
 {
 	struct pal_freq_ratio *ratio;
@@ -383,9 +400,11 @@ static struct ia64_pal_retval pal_prefetch_visibility(struct kvm_vcpu *vcpu)
 	kvm_get_pal_call_data(vcpu, &in0, &in1, &in2, &in3);
 	result.status = ia64_pal_prefetch_visibility(in1);
 	if (result.status == 0) {
+		/* Must be performed on all remote processors
+		in the coherence domain. */
 		smp_call_function(remote_pal_prefetch_visibility,
 					(void *)in1, 1);
-		
+		/* Unnecessary on remote processor for other vcpus!*/
 		result.status = 1;
 	}
 	return result;
@@ -455,6 +474,8 @@ int kvm_pal_emul(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		break;
 	case PAL_MC_DRAIN:
 		result.status = ia64_pal_mc_drain();
+		/* FIXME: All vcpus likely call PAL_MC_DRAIN.
+		   That causes the congestion. */
 		smp_call_function(remote_pal_mc_drain, NULL, 1);
 		break;
 
@@ -568,17 +589,17 @@ static struct sal_ret_values sal_emulator(struct kvm *kvm,
 							"ignored...\n", in1);
 		break;
 	case SAL_GET_STATE_INFO:
-		
+		/* No more info.  */
 		status = -5;
 		r9 = 0;
 		break;
 	case SAL_GET_STATE_INFO_SIZE:
-		
+		/* Return a dummy size.  */
 		status = 0;
 		r9 = 128;
 		break;
 	case SAL_CLEAR_STATE_INFO:
-		
+		/* Noop.  */
 		break;
 	case SAL_MC_RENDEZ:
 		printk(KERN_WARNING
@@ -590,8 +611,14 @@ static struct sal_ret_values sal_emulator(struct kvm *kvm,
 		break;
 	case SAL_CACHE_FLUSH:
 		if (1) {
+			/*Flush using SAL.
+			This method is faster but has a side
+			effect on other vcpu running on
+			this cpu.  */
 			status = ia64_sal_cache_flush(in1);
 		} else {
+			/*Maybe need to implement the method
+			without side effect!*/
 			status = 0;
 		}
 		break;

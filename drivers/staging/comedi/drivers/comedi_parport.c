@@ -20,6 +20,66 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: comedi_parport
+Description: Standard PC parallel port
+Author: ds
+Status: works in immediate mode
+Devices: [standard] parallel port (comedi_parport)
+Updated: Tue, 30 Apr 2002 21:11:45 -0700
+
+A cheap and easy way to get a few more digital I/O lines.  Steal
+additional parallel ports from old computers or your neighbors'
+computers.
+
+Option list:
+ 0: I/O port base for the parallel port.
+ 1: IRQ
+
+Parallel Port Lines:
+
+pin     subdev  chan    aka
+---     ------  ----    ---
+1       2       0       strobe
+2       0       0       data 0
+3       0       1       data 1
+4       0       2       data 2
+5       0       3       data 3
+6       0       4       data 4
+7       0       5       data 5
+8       0       6       data 6
+9       0       7       data 7
+10      1       3       acknowledge
+11      1       4       busy
+12      1       2       output
+13      1       1       printer selected
+14      2       1       auto LF
+15      1       0       error
+16      2       2       init
+17      2       3       select printer
+18-25   ground
+
+Notes:
+
+Subdevices 0 is digital I/O, subdevice 1 is digital input, and
+subdevice 2 is digital output.  Unlike other Comedi devices,
+subdevice 0 defaults to output.
+
+Pins 13 and 14 are inverted once by Comedi and once by the
+hardware, thus cancelling the effect.
+
+Pin 1 is a strobe, thus acts like one.  There's no way in software
+to change this, at least on a standard parallel port.
+
+Subdevice 3 pretends to be a digital input subdevice, but it always
+returns 0 when read.  However, if you run a command with
+scan_begin_src=TRIG_EXT, it uses pin 10 as a external triggering
+pin, which can be used to wake up tasks.
+*/
+/*
+   see http://www.beyondlogic.org/ for information.
+   or http://www.linux-magazin.de/ausgabe/1999/10/IO/io.html
+ */
 
 #include "../comedidev.h"
 #include <linux/interrupt.h>
@@ -96,8 +156,8 @@ static int parport_insn_b(struct comedi_device *dev, struct comedi_subdevice *s,
 			  struct comedi_insn *insn, unsigned int *data)
 {
 	if (data[0]) {
-		
-		
+		/* should writes be ignored? */
+		/* anyone??? */
 	}
 
 	data[1] = (inb(dev->iobase + PARPORT_B) >> 3);
@@ -139,7 +199,7 @@ static int parport_intr_cmdtest(struct comedi_device *dev,
 	int err = 0;
 	int tmp;
 
-	
+	/* step 1 */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW;
@@ -169,12 +229,12 @@ static int parport_intr_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
-	
+	/* step 2: ignored */
 
 	if (err)
 		return 2;
 
-	
+	/* step 3: */
 
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
@@ -200,7 +260,7 @@ static int parport_intr_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4: ignored */
 
 	if (err)
 		return 4;

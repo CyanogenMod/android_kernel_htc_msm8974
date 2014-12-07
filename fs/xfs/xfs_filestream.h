@@ -42,11 +42,13 @@ extern ktrace_t *xfs_filestreams_trace_buf;
 
 #endif
 
+/* allocation selection flags */
 typedef enum xfs_fstrm_alloc {
 	XFS_PICK_USERDATA = 1,
 	XFS_PICK_LOWSPACE = 2,
 } xfs_fstrm_alloc_t;
 
+/* prototypes for filestream.c */
 int xfs_filestream_init(void);
 void xfs_filestream_uninit(void);
 int xfs_filestream_mount(struct xfs_mount *mp);
@@ -57,6 +59,7 @@ void xfs_filestream_deassociate(struct xfs_inode *ip);
 int xfs_filestream_new_ag(struct xfs_bmalloca *ap, xfs_agnumber_t *agp);
 
 
+/* filestreams for the inode? */
 static inline int
 xfs_inode_is_filestream(
 	struct xfs_inode	*ip)
@@ -66,6 +69,6 @@ xfs_inode_is_filestream(
 		(ip->i_d.di_flags & XFS_DIFLAG_FILESTREAM);
 }
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __XFS_FILESTREAM_H__ */

@@ -21,4 +21,4 @@ int ieee80211_aes_ccm_decrypt(struct crypto_cipher *tfm, u8 *scratch,
 			      u8 *mic, u8 *data);
 void ieee80211_aes_key_free(struct crypto_cipher *tfm);
 
-#endif 
+#endif /* AES_CCM_H */

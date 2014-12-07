@@ -47,11 +47,11 @@
 #define ARD_VOLUMEUP		IMX_GPIO_NR(5, 13)
 
 static iomux_v3_cfg_t mx53_ard_pads[] = {
-	
+	/* UART1 */
 	MX53_PAD_PATA_DIOW__UART1_TXD_MUX,
 	MX53_PAD_PATA_DMACK__UART1_RXD_MUX,
-	
-	MX53_PAD_EIM_EB3__GPIO2_31, 
+	/* WEIM for CS1 */
+	MX53_PAD_EIM_EB3__GPIO2_31, /* ETHERNET_INT_B */
 	MX53_PAD_EIM_D16__EMI_WEIM_D_16,
 	MX53_PAD_EIM_D17__EMI_WEIM_D_17,
 	MX53_PAD_EIM_D18__EMI_WEIM_D_18,
@@ -78,7 +78,7 @@ static iomux_v3_cfg_t mx53_ard_pads[] = {
 	MX53_PAD_EIM_OE__EMI_WEIM_OE,
 	MX53_PAD_EIM_RW__EMI_WEIM_RW,
 	MX53_PAD_EIM_CS1__EMI_WEIM_CS_1,
-	
+	/* SDHC1 */
 	MX53_PAD_SD1_CMD__ESDHC1_CMD,
 	MX53_PAD_SD1_CLK__ESDHC1_CLK,
 	MX53_PAD_SD1_DATA0__ESDHC1_DAT0,
@@ -91,18 +91,18 @@ static iomux_v3_cfg_t mx53_ard_pads[] = {
 	MX53_PAD_PATA_DATA11__ESDHC1_DAT7,
 	MX53_PAD_GPIO_1__GPIO1_1,
 	MX53_PAD_GPIO_9__GPIO1_9,
-	
+	/* I2C2 */
 	MX53_PAD_EIM_EB2__I2C2_SCL,
 	MX53_PAD_KEY_ROW3__I2C2_SDA,
-	
+	/* I2C3 */
 	MX53_PAD_GPIO_3__I2C3_SCL,
 	MX53_PAD_GPIO_16__I2C3_SDA,
-	
-	MX53_PAD_DISP0_DAT16__GPIO5_10,	
-	MX53_PAD_DISP0_DAT17__GPIO5_11,	
-	MX53_PAD_DISP0_DAT18__GPIO5_12,	
-	MX53_PAD_DISP0_DAT19__GPIO5_13,	
-	MX53_PAD_GPIO_10__GPIO4_0,		
+	/* GPIO */
+	MX53_PAD_DISP0_DAT16__GPIO5_10,	/* home */
+	MX53_PAD_DISP0_DAT17__GPIO5_11,	/* back */
+	MX53_PAD_DISP0_DAT18__GPIO5_12,	/* prog */
+	MX53_PAD_DISP0_DAT19__GPIO5_13,	/* vol up */
+	MX53_PAD_GPIO_10__GPIO4_0,		/* vol down */
 };
 
 #define GPIO_BUTTON(gpio_num, ev_code, act_low, descr, wake)	\
@@ -179,6 +179,7 @@ static void __init mx53_ard_io_init(void)
 	gpio_direction_output(ARD_I2CPORTEXP_B, 1);
 }
 
+/* Config CS1 settings for ethernet controller */
 static int weim_cs_config(void)
 {
 	u32 reg;
@@ -194,7 +195,7 @@ static int weim_cs_config(void)
 		return -ENOMEM;
 	}
 
-	
+	/* CS1 timings for LAN9220 */
 	writel(0x20001, (weim_base + 0x18));
 	writel(0x0, (weim_base + 0x1C));
 	writel(0x16000202, (weim_base + 0x20));
@@ -203,7 +204,7 @@ static int weim_cs_config(void)
 	writel(0x00000000, (weim_base + 0x2C));
 	writel(0x00000000, (weim_base + 0x90));
 
-	
+	/* specify 64 MB on CS1 and CS0 on GPR1 */
 	reg = readl(iomuxc_base + 0x4);
 	reg &= ~0x3F;
 	reg |= 0x1B;

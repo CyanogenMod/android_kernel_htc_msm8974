@@ -29,6 +29,10 @@ int platform_cpu_kill(unsigned int cpu)
 	return 1;
 }
 
+/*
+ * platform-specific code to shutdown a CPU
+ * Called with IRQs disabled
+ */
 void __ref platform_cpu_die(unsigned int cpu)
 {
 	unsigned int this_cpu;
@@ -36,13 +40,22 @@ void __ref platform_cpu_die(unsigned int cpu)
 	flush_cache_all();
 	dsb();
 
+	/*
+	 * we're ready for shutdown now, so do it
+	 */
 	if (omap_modify_auxcoreboot0(0x0, 0x200) != 0x0)
 		pr_err("Secure clear status failed\n");
 
 	for (;;) {
+		/*
+		 * Enter into low power state
+		 */
 		omap4_hotplug_cpu(cpu, PWRDM_POWER_OFF);
 		this_cpu = smp_processor_id();
 		if (omap_read_auxcoreboot0() == this_cpu) {
+			/*
+			 * OK, proper wakeup, we're done
+			 */
 			break;
 		}
 		pr_debug("CPU%u: spurious wakeup call\n", cpu);
@@ -51,5 +64,9 @@ void __ref platform_cpu_die(unsigned int cpu)
 
 int platform_cpu_disable(unsigned int cpu)
 {
+	/*
+	 * we don't allow CPU 0 to be shutdown (it is still too special
+	 * e.g. clock tick interrupts)
+	 */
 	return cpu == 0 ? -EPERM : 0;
 }

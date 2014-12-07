@@ -24,6 +24,15 @@
 #include "config.h"
 #include "lowcomms.h"
 
+/*
+ * /config/dlm/<cluster>/spaces/<space>/nodes/<node>/nodeid
+ * /config/dlm/<cluster>/spaces/<space>/nodes/<node>/weight
+ * /config/dlm/<cluster>/comms/<comm>/nodeid
+ * /config/dlm/<cluster>/comms/<comm>/local
+ * /config/dlm/<cluster>/comms/<comm>/addr      (write only)
+ * /config/dlm/<cluster>/comms/<comm>/addr_list (read only)
+ * The <cluster> level is useless, but I haven't figured out how to avoid it.
+ */
 
 static struct config_group *space_list;
 static struct config_group *comm_list;
@@ -327,11 +336,11 @@ struct dlm_nodes {
 
 struct dlm_node {
 	struct config_item item;
-	struct list_head list; 
+	struct list_head list; /* space->members */
 	int nodeid;
 	int weight;
 	int new;
-	int comm_seq; 
+	int comm_seq; /* copy of cm->seq when nd->nodeid is set */
 };
 
 static struct configfs_group_operations clusters_ops = {
@@ -557,7 +566,7 @@ static void drop_space(struct config_group *g, struct config_item *i)
 	struct config_item *tmp;
 	int j;
 
-	
+	/* assert list_empty(&sp->members) */
 
 	for (j = 0; sp->group.default_groups[j]; j++) {
 		tmp = &sp->group.default_groups[j]->cg_item;
@@ -623,8 +632,8 @@ static struct config_item *make_node(struct config_group *g, const char *name)
 
 	config_item_init_type_name(&nd->item, name, &node_type);
 	nd->nodeid = -1;
-	nd->weight = 1;  
-	nd->new = 1;     
+	nd->weight = 1;  /* default weight of 1 if none is set */
+	nd->new = 1;     /* set to 0 once it's been read by dlm_nodeid_list() */
 
 	mutex_lock(&sp->members_lock);
 	list_add(&nd->list, &sp->members);
@@ -676,6 +685,9 @@ void dlm_config_exit(void)
 	configfs_unregister_subsystem(&clusters_root.subsys);
 }
 
+/*
+ * Functions for user space to read/write attributes
+ */
 
 static ssize_t show_cluster(struct config_item *i, struct configfs_attribute *a,
 			    char *buf)
@@ -768,11 +780,11 @@ static ssize_t comm_addr_list_read(struct dlm_comm *cm, char *buf)
 	struct sockaddr_in *addr_in;
 	struct sockaddr_in6 *addr_in6;
 	
-	
+	/* Taken from ip6_addr_string() defined in lib/vsprintf.c */
 	char buf0[sizeof("AF_INET6	xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:255.255.255.255\n")];
 	
 
-	
+	/* Derived from SIMPLE_ATTR_SIZE of fs/configfs/file.c */
 	allowance = 4096;
 	buf[0] = '\0';
 
@@ -848,6 +860,9 @@ static ssize_t node_weight_write(struct dlm_node *nd, const char *buf,
 	return len;
 }
 
+/*
+ * Functions for the dlm to get the info that's been configured
+ */
 
 static struct dlm_space *get_space(char *name)
 {
@@ -935,6 +950,7 @@ static void put_comm(struct dlm_comm *cm)
 	config_item_put(&cm->item);
 }
 
+/* caller must free mem */
 int dlm_config_nodes(char *lsname, struct dlm_config_node **nodes_out,
 		     int *count_out)
 {
@@ -1019,6 +1035,7 @@ int dlm_our_nodeid(void)
 	return local_comm ? local_comm->nodeid : 0;
 }
 
+/* num 0 is first addr, num 1 is second addr */
 int dlm_our_addr(struct sockaddr_storage *addr, int num)
 {
 	if (!local_comm)
@@ -1029,6 +1046,7 @@ int dlm_our_addr(struct sockaddr_storage *addr, int num)
 	return 0;
 }
 
+/* Config file defaults */
 #define DEFAULT_TCP_PORT       21064
 #define DEFAULT_BUFFER_SIZE     4096
 #define DEFAULT_RSBTBL_SIZE     1024
@@ -1038,7 +1056,7 @@ int dlm_our_addr(struct sockaddr_storage *addr, int num)
 #define DEFAULT_SCAN_SECS          5
 #define DEFAULT_LOG_DEBUG          0
 #define DEFAULT_PROTOCOL           0
-#define DEFAULT_TIMEWARN_CS      500 
+#define DEFAULT_TIMEWARN_CS      500 /* 5 sec = 500 centiseconds */
 #define DEFAULT_WAITWARN_US	   0
 #define DEFAULT_NEW_RSB_COUNT    128
 #define DEFAULT_RECOVER_CALLBACKS  0

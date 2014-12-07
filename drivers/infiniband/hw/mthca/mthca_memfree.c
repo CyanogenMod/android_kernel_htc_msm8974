@@ -43,6 +43,10 @@
 #include "mthca_dev.h"
 #include "mthca_cmd.h"
 
+/*
+ * We allocate in as big chunks as we can, up to a maximum of 256 KB
+ * per chunk.
+ */
 enum {
 	MTHCA_ICM_ALLOC_SIZE   = 1 << 18,
 	MTHCA_TABLE_CHUNK_SIZE = 1 << 18
@@ -104,6 +108,10 @@ static int mthca_alloc_icm_pages(struct scatterlist *mem, int order, gfp_t gfp_m
 {
 	struct page *page;
 
+	/*
+	 * Use __GFP_ZERO because buggy firmware assumes ICM pages are
+	 * cleared, and subtle failures are seen if they aren't.
+	 */
 	page = alloc_pages(gfp_mask | __GFP_ZERO, order);
 	if (!page)
 		return -ENOMEM;
@@ -134,7 +142,7 @@ struct mthca_icm *mthca_alloc_icm(struct mthca_dev *dev, int npages,
 	int cur_order;
 	int ret;
 
-	
+	/* We use sg_set_buf for coherent allocs, which assumes low memory */
 	BUG_ON(coherent && (gfp_mask & __GFP_HIGHMEM));
 
 	icm = kmalloc(sizeof *icm, gfp_mask & ~(__GFP_HIGHMEM | __GFP_NOWARN));
@@ -294,6 +302,9 @@ void *mthca_table_find(struct mthca_icm_table *table, int obj, dma_addr_t *dma_h
 						dma_offset;
 				dma_offset -= sg_dma_len(&chunk->mem[i]);
 			}
+			/* DMA mapping can merge pages but not split them,
+			 * so if we found the page, dma_handle has already
+			 * been assigned to. */
 			if (chunk->mem[i].length > offset) {
 				page = sg_page(&chunk->mem[i]);
 				goto out;
@@ -388,6 +399,10 @@ struct mthca_icm_table *mthca_alloc_icm_table(struct mthca_dev *dev,
 			goto err;
 		}
 
+		/*
+		 * Add a reference to this ICM chunk so that it never
+		 * gets freed (since it contains reserved firmware objects).
+		 */
 		++table->icm[i]->refcount;
 	}
 
@@ -493,6 +508,10 @@ void mthca_unmap_user_db(struct mthca_dev *dev, struct mthca_uar *uar,
 	if (!mthca_is_memfree(dev))
 		return;
 
+	/*
+	 * To make our bookkeeping simpler, we don't unmap DB
+	 * pages until we clean up the whole db table.
+	 */
 
 	mutex_lock(&db_tab->mutex);
 
@@ -669,7 +688,7 @@ void mthca_free_db(struct mthca_dev *dev, int type, int db_index)
 
 		if (i == dev->db_tab->max_group1) {
 			--dev->db_tab->max_group1;
-			
+			/* XXX may be able to unmap more pages now */
 		}
 		if (i == dev->db_tab->min_group2)
 			++dev->db_tab->min_group2;
@@ -716,6 +735,12 @@ void mthca_cleanup_db_tab(struct mthca_dev *dev)
 	if (!mthca_is_memfree(dev))
 		return;
 
+	/*
+	 * Because we don't always free our UARC pages when they
+	 * become empty to make mthca_free_db() simpler we need to
+	 * make a sweep through the doorbell pages and free any
+	 * leftover pages now.
+	 */
 	for (i = 0; i < dev->db_tab->npages; ++i) {
 		if (!dev->db_tab->page[i].db_rec)
 			continue;

@@ -53,10 +53,12 @@ typedef struct erase_unit_header_t {
     uint8_t	EndTuple[2];
 } erase_unit_header_t;
 
+/* Flags in erase_unit_header_t */
 #define HIDDEN_AREA		0x01
 #define REVERSE_POLARITY	0x02
 #define DOUBLE_BAI		0x04
 
+/* Definitions for block allocation information */
 
 #define BLOCK_FREE(b)		((b) == 0xffffffff)
 #define BLOCK_DELETED(b)	(((b) == 0) || ((b) == 0xfffffffe))
@@ -69,4 +71,4 @@ typedef struct erase_unit_header_t {
 #define BLOCK_REPLACEMENT	0x60
 #define BLOCK_BAD		0x70
 
-#endif 
+#endif /* _LINUX_FTL_H */

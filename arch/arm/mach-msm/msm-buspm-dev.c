@@ -10,6 +10,7 @@
  * GNU General Public License for more details.
  */
 
+/* #define DEBUG */
 
 #include <linux/module.h>
 #include <linux/fs.h>
@@ -32,6 +33,12 @@ enum msm_buspm_spdm_res {
 	SPDM_KEY = 0x00006e65,
 	SPDM_SIZE = 4,
 };
+/*
+ * Allocate kernel buffer.
+ * Currently limited to one buffer per file descriptor.  If alloc() is
+ * called twice for the same descriptor, the original buffer is freed.
+ * There is also no locking protection so the same descriptor can not be shared.
+ */
 
 static inline void *msm_buspm_dev_get_vaddr(struct file *filp)
 {
@@ -90,11 +97,11 @@ msm_buspm_dev_alloc(struct file *filp, struct buspm_alloc_params data)
 	void *vaddr;
 	struct msm_buspm_map_dev *dev = filp->private_data;
 
-	
+	/* If buffer already allocated, then free it */
 	if (dev->vaddr)
 		msm_buspm_dev_free(filp);
 
-	
+	/* Allocate uncached memory */
 	vaddr = allocate_contiguous_ebi(data.size, PAGE_SIZE, 0);
 	paddr = (vaddr) ? memory_pool_node_paddr(vaddr) : 0L;
 
@@ -282,7 +289,7 @@ static int msm_buspm_dev_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	pr_debug("vma = 0x%p\n", vma);
 
-	
+	/* Mappings are uncached */
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 	if (remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
 		vma->vm_end - vma->vm_start, vma->vm_page_prot))

@@ -29,4 +29,4 @@ struct hidg_func_descriptor {
 	unsigned char		report_desc[];
 };
 
-#endif 
+#endif /* __LINUX_USB_G_HID_H */

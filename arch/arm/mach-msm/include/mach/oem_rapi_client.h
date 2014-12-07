@@ -14,6 +14,9 @@
 #ifndef __ASM__ARCH_OEM_RAPI_CLIENT_H
 #define __ASM__ARCH_OEM_RAPI_CLIENT_H
 
+/*
+ * OEM RAPI CLIENT Driver header file
+ */
 
 #include <linux/types.h>
 #include <mach/msm_rpcrouter.h>
@@ -21,6 +24,9 @@
 enum {
 	OEM_RAPI_CLIENT_EVENT_NONE = 0,
 
+	/*
+	 * list of oem rapi client events
+	 */
 
 	OEM_RAPI_CLIENT_EVENT_MAX
 

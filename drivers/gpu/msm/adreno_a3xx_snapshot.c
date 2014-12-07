@@ -20,8 +20,17 @@
 #define DEBUG_SECTION_SZ(_dwords) (((_dwords) * sizeof(unsigned int)) \
 		+ sizeof(struct kgsl_snapshot_debug))
 
+/* Shader memory size in words */
 #define SHADER_MEMORY_SIZE 0x4000
 
+/**
+ * _rbbm_debug_bus_read - Helper function to read data from the RBBM
+ * debug bus.
+ * @device - GPU device to read/write registers
+ * @block_id - Debug bus block to read from
+ * @index - Index in the debug bus block to read
+ * @ret - Value of the register read
+ */
 static void _rbbm_debug_bus_read(struct kgsl_device *device,
 	unsigned int block_id, unsigned int index, unsigned int *val)
 {
@@ -30,6 +39,14 @@ static void _rbbm_debug_bus_read(struct kgsl_device *device,
 	kgsl_regread(device, A3XX_RBBM_DEBUG_BUS_DATA_STATUS, val);
 }
 
+/**
+ * a3xx_snapshot_shader_memory - Helper function to dump the GPU shader
+ * memory to the snapshot buffer.
+ * @device - GPU device whose shader memory is to be dumped
+ * @snapshot - Pointer to binary snapshot data blob being made
+ * @remain - Number of remaining bytes in the snapshot blob
+ * @priv - Unused parameter
+ */
 static int a3xx_snapshot_shader_memory(struct kgsl_device *device,
 	void *snapshot, int remain, void *priv)
 {
@@ -49,7 +66,7 @@ static int a3xx_snapshot_shader_memory(struct kgsl_device *device,
 	header->type = SNAPSHOT_DEBUG_SHADER_MEMORY;
 	header->size = SHADER_MEMORY_SIZE;
 
-	
+	/* Map shader memory to kernel, for dumping */
 	if (device->shader_mem_virt == NULL)
 		device->shader_mem_virt = devm_ioremap(device->dev,
 					device->shader_mem_phys,
@@ -61,7 +78,7 @@ static int a3xx_snapshot_shader_memory(struct kgsl_device *device,
 		return 0;
 	}
 
-	
+	/* Now, dump shader memory to snapshot */
 	for (i = 0; i < shader_read_len; i++)
 		adreno_shadermem_regread(device, i, &data[i]);
 
@@ -140,6 +157,12 @@ static int a3xx_snapshot_cp_pm4_ram(struct kgsl_device *device, void *snapshot,
 	header->type = SNAPSHOT_DEBUG_CP_PM4_RAM;
 	header->size = size;
 
+	/*
+	 * Read the firmware from the GPU rather than use our cache in order to
+	 * try to catch mis-programming or corruption in the hardware.  We do
+	 * use the cached version of the size, however, instead of trying to
+	 * maintain always changing hardcoded constants
+	 */
 
 	kgsl_regwrite(device, REG_CP_ME_RAM_RADDR, 0x0);
 	for (i = 0; i < size; i++)
@@ -164,6 +187,12 @@ static int a3xx_snapshot_cp_pfp_ram(struct kgsl_device *device, void *snapshot,
 	header->type = SNAPSHOT_DEBUG_CP_PFP_RAM;
 	header->size = size;
 
+	/*
+	 * Read the firmware from the GPU rather than use our cache in order to
+	 * try to catch mis-programming or corruption in the hardware.  We do
+	 * use the cached version of the size, however, instead of trying to
+	 * maintain always changing hardcoded constants
+	 */
 	kgsl_regwrite(device, A3XX_CP_PFP_UCODE_ADDR, 0x0);
 	for (i = 0; i < size; i++)
 		kgsl_regread(device, A3XX_CP_PFP_UCODE_DATA, &data[i]);
@@ -171,7 +200,9 @@ static int a3xx_snapshot_cp_pfp_ram(struct kgsl_device *device, void *snapshot,
 	return DEBUG_SECTION_SZ(size);
 }
 
+/* This is the ROQ buffer size on both the A305 and A320 */
 #define A320_CP_ROQ_SIZE 128
+/* This is the ROQ buffer size on the A330 */
 #define A330_CP_ROQ_SIZE 512
 
 static int a3xx_snapshot_cp_roq(struct kgsl_device *device, void *snapshot,
@@ -182,7 +213,7 @@ static int a3xx_snapshot_cp_roq(struct kgsl_device *device, void *snapshot,
 	unsigned int *data = snapshot + sizeof(*header);
 	int i, size;
 
-	
+	/* The size of the ROQ buffer is core dependent */
 	size = (adreno_is_a330(adreno_dev) ||
 		adreno_is_a305b(adreno_dev)) ?
 		A330_CP_ROQ_SIZE : A320_CP_ROQ_SIZE;
@@ -211,7 +242,7 @@ static int a330_snapshot_cp_merciu(struct kgsl_device *device, void *snapshot,
 	unsigned int *data = snapshot + sizeof(*header);
 	int i, size;
 
-	
+	/* The MERCIU data is two dwords per entry */
 	size = A330_CP_MERCIU_QUEUE_SIZE << 1;
 
 	if (remain < DEBUG_SECTION_SZ(size)) {
@@ -251,6 +282,11 @@ static int a3xx_snapshot_debugbus_block(struct kgsl_device *device,
 	unsigned int dwords;
 	int size;
 
+	/*
+	 * For A305 and A320 all debug bus regions are the same size (0x40). For
+	 * A330, they can be different sizes - most are still 0x40, but some
+	 * like CP are larger
+	 */
 
 	dwords = (adreno_is_a330(adreno_dev) ||
 		adreno_is_a305b(adreno_dev)) ?
@@ -331,8 +367,22 @@ static void _snapshot_hlsq_regs(struct kgsl_snapshot_registers *regs,
 {
 	struct kgsl_device *device = &adreno_dev->dev;
 
+	/*
+	 * Trying to read HLSQ registers when the HLSQ block is busy
+	 * will cause the device to hang.  The RBBM_DEBUG_BUS has information
+	 * that will tell us if the HLSQ block is busy or not.  Read values
+	 * from the debug bus to ensure the HLSQ block is not busy (this
+	 * is hardware dependent).  If the HLSQ block is busy do not
+	 * dump the registers, otherwise dump the HLSQ registers.
+	 */
 
 	if (adreno_is_a330(adreno_dev)) {
+		/*
+		 * stall_ctxt_full status bit: RBBM_BLOCK_ID_HLSQ index 49 [27]
+		 *
+		 * if (!stall_context_full)
+		 * then dump HLSQ registers
+		 */
 		unsigned int stall_context_full = 0;
 
 		_rbbm_debug_bus_read(device, RBBM_BLOCK_ID_HLSQ, 49,
@@ -342,15 +392,22 @@ static void _snapshot_hlsq_regs(struct kgsl_snapshot_registers *regs,
 		if (stall_context_full)
 			return;
 	} else {
+		/*
+		 * tpif status bits: RBBM_BLOCK_ID_HLSQ index 4 [4:0]
+		 * spif status bits: RBBM_BLOCK_ID_HLSQ index 7 [5:0]
+		 *
+		 * if ((tpif == 0, 1, 28) && (spif == 0, 1, 10))
+		 * then dump HLSQ registers
+		 */
 		unsigned int next_pif = 0;
 
-		
+		/* check tpif */
 		_rbbm_debug_bus_read(device, RBBM_BLOCK_ID_HLSQ, 4, &next_pif);
 		next_pif &= 0x1f;
 		if (next_pif != 0 && next_pif != 1 && next_pif != 28)
 			return;
 
-		
+		/* check spif */
 		_rbbm_debug_bus_read(device, RBBM_BLOCK_ID_HLSQ, 7, &next_pif);
 		next_pif &= 0x3f;
 		if (next_pif != 0 && next_pif != 1 && next_pif != 10)
@@ -365,12 +422,15 @@ static void _snapshot_hlsq_regs(struct kgsl_snapshot_registers *regs,
 static void _snapshot_a330_regs(struct kgsl_snapshot_registers *regs,
 	struct kgsl_snapshot_registers_list *list)
 {
-	
+	/* For A330, append the additional list of new registers to grab */
 	regs[list->count].regs = (unsigned int *) a330_registers;
 	regs[list->count].count = a330_registers_count;
 	list->count++;
 }
 
+/* A3XX GPU snapshot function - this is where all of the A3XX specific
+ * bits and pieces are grabbed into the snapshot memory
+ */
 
 void *a3xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 	int *remain, int hang)
@@ -383,20 +443,23 @@ void *a3xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 	list.registers = regs;
 	list.count = 0;
 
-	
+	/* Disable Clock gating temporarily for the debug bus to work */
 	kgsl_regwrite(device, A3XX_RBBM_CLOCK_CTL, 0x00);
 
-	
+	/* Store relevant registers in list to snapshot */
 	_snapshot_a3xx_regs(regs, &list);
 	_snapshot_hlsq_regs(regs, &list, adreno_dev);
 	if (adreno_is_a330(adreno_dev) || adreno_is_a305b(adreno_dev))
 		_snapshot_a330_regs(regs, &list);
 
-	
+	/* Master set of (non debug) registers */
 	snapshot = kgsl_snapshot_add_section(device,
 		KGSL_SNAPSHOT_SECTION_REGS, snapshot, remain,
 		kgsl_snapshot_dump_regs, &list);
 
+	/*
+	 * CP_STATE_DEBUG indexed registers - 20 on 305 and 320 and 46 on A330
+	 */
 	size = (adreno_is_a330(adreno_dev) ||
 		adreno_is_a305b(adreno_dev)) ? 0x2E : 0x14;
 
@@ -404,33 +467,42 @@ void *a3xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 			remain, REG_CP_STATE_DEBUG_INDEX,
 			REG_CP_STATE_DEBUG_DATA, 0x0, size);
 
-	
+	/* CP_ME indexed registers */
 	snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 			remain, REG_CP_ME_CNTL, REG_CP_ME_STATUS,
 			64, 44);
 
-	
+	/* VPC memory */
 	snapshot = kgsl_snapshot_add_section(device,
 			KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 			a3xx_snapshot_vpc_memory, NULL);
 
-	
+	/* CP MEQ */
 	snapshot = kgsl_snapshot_add_section(device,
 			KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 			a3xx_snapshot_cp_meq, NULL);
 
-	
+	/* Shader working/shadow memory */
 	snapshot = kgsl_snapshot_add_section(device,
 			KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 			a3xx_snapshot_shader_memory, NULL);
 
 
-	
-	
+	/* CP PFP and PM4 */
+	/* Reading these will hang the GPU if it isn't already hung */
 
 	if (hang) {
 		unsigned int reg;
 
+		/*
+		 * Reading the microcode while the CP will is running will
+		 * basically basically move the CP instruction pointer to
+		 * whatever address we read. Big badaboom ensues. Stop the CP
+		 * (if it isn't already stopped) to ensure that we are safe.
+		 * We do this here and not earlier to avoid corrupting the RBBM
+		 * status and CP registers - by the time we get here we don't
+		 * care about the contents of the CP anymore.
+		 */
 
 		adreno_readreg(adreno_dev, ADRENO_REG_CP_ME_CNTL, &reg);
 		reg |= (1 << 27) | (1 << 28);
@@ -445,7 +517,7 @@ void *a3xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 			a3xx_snapshot_cp_pm4_ram, NULL);
 	}
 
-	
+	/* CP ROQ */
 	snapshot = kgsl_snapshot_add_section(device,
 			KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 			a3xx_snapshot_cp_roq, NULL);
@@ -459,7 +531,7 @@ void *a3xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 
 	snapshot = a3xx_snapshot_debugbus(device, snapshot, remain);
 
-	
+	/* Enable Clock gating */
 	kgsl_regwrite(device, A3XX_RBBM_CLOCK_CTL,
 		adreno_a3xx_rbbm_clock_ctl_default(adreno_dev));
 

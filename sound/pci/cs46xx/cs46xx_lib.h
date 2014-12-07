@@ -22,6 +22,9 @@
 #ifndef __CS46XX_LIB_H__
 #define __CS46XX_LIB_H__
 
+/*
+ *  constants
+ */
 
 #define CS46XX_BA0_SIZE		  0x1000
 #define CS46XX_BA1_DATA0_SIZE 0x3000
@@ -40,20 +43,30 @@
 #endif
 
 #define CS46XX_FRAGS 2
+/* #define CS46XX_BUFFER_SIZE CS46XX_MAX_PERIOD_SIZE * CS46XX_FRAGS */
 
 #define SCB_NO_PARENT             0
 #define SCB_ON_PARENT_NEXT_SCB    1
 #define SCB_ON_PARENT_SUBLIST_SCB 2
 
+/* 3*1024 parameter, 3.5*1024 sample, 2*3.5*1024 code */
 #define BA1_DWORD_SIZE		(13 * 1024 + 512)
 #define BA1_MEMORY_COUNT	3
 
+/*
+ *  common I/O routines
+ */
 
 static inline void snd_cs46xx_poke(struct snd_cs46xx *chip, unsigned long reg, unsigned int val)
 {
 	unsigned int bank = reg >> 16;
 	unsigned int offset = reg & 0xffff;
 
+	/*
+	if (bank == 0)
+		printk(KERN_DEBUG "snd_cs46xx_poke: %04X - %08X\n",
+		       reg >> 2,val);
+	*/
 	writel(val, chip->region.idx[bank+1].remap_addr + offset);
 }
 
@@ -194,4 +207,4 @@ int cs46xx_dsp_pcm_channel_set_period (struct snd_cs46xx * chip,
 int cs46xx_dsp_pcm_ostream_set_period (struct snd_cs46xx * chip, int period_size);
 int cs46xx_dsp_set_dac_volume (struct snd_cs46xx * chip, u16 left, u16 right);
 int cs46xx_dsp_set_iec958_volume (struct snd_cs46xx * chip, u16 left, u16 right);
-#endif 
+#endif /* __CS46XX_LIB_H__ */

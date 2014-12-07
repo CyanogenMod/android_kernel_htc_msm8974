@@ -23,8 +23,9 @@
 
 #define FT1000_DRV_VER 0x01010300
 
-#define FT1000_DPRAM_BASE	0x0000	
+#define FT1000_DPRAM_BASE	0x0000	/* Dual Port RAM starting offset */
 
+/* Maximum number of occurrence of pseudo header errors before resetting PC Card. */
 #define MAX_PH_ERR	300
 
 #define SUCCESS	0x00
@@ -39,14 +40,14 @@ struct ft1000_info {
 	int registered;
 	int mediastate;
 	u16 packetseqnum;
-	u8 squeseqnum;			
+	u8 squeseqnum;			/* sequence number on slow queue */
 	spinlock_t dpram_lock;
 	u16 fifo_cnt;
-	u8 DspVer[DSPVERSZ];		
-	u8 HwSerNum[HWSERNUMSZ];	
-	u8 Sku[SKUSZ];			
-	u8 eui64[EUISZ];		
-	time_t ConTm;			
+	u8 DspVer[DSPVERSZ];		/* DSP version number */
+	u8 HwSerNum[HWSERNUMSZ];	/* Hardware Serial Number */
+	u8 Sku[SKUSZ];			/* SKU */
+	u8 eui64[EUISZ];		/* EUI64 */
+	time_t ConTm;			/* Connection Time */
 	u16 LedStat;
 	u16 ConStat;
 	u16 ProgConStat;
@@ -83,11 +84,13 @@ extern u16 ft1000_read_dpram_mag_16(struct net_device *dev, int offset, int Inde
 extern u32 ft1000_read_dpram_mag_32(struct net_device *dev, int offset);
 void ft1000_write_dpram_mag_32(struct net_device *dev, int offset, u32 value);
 
+/* Read the value of a given ASIC register. */
 static inline u16 ft1000_read_reg(struct net_device *dev, u16 offset)
 {
 	return inw(dev->base_addr + offset);
 }
 
+/* Set the value of a given ASIC register. */
 static inline void ft1000_write_reg(struct net_device *dev, u16 offset, u16 value)
 {
 	outw(value, dev->base_addr + offset);

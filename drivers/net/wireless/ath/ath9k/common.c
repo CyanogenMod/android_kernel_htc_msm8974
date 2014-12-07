@@ -14,6 +14,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * Module for common driver code between ath9k and ath9k_htc
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -101,6 +104,9 @@ static u32 ath9k_get_extchanmode(struct ieee80211_channel *chan,
 	return chanmode;
 }
 
+/*
+ * Update internal channel flags.
+ */
 void ath9k_cmn_update_ichannel(struct ath9k_channel *ichan,
 			       struct ieee80211_channel *chan,
 			       enum nl80211_channel_type channel_type)
@@ -121,6 +127,9 @@ void ath9k_cmn_update_ichannel(struct ath9k_channel *ichan,
 }
 EXPORT_SYMBOL(ath9k_cmn_update_ichannel);
 
+/*
+ * Get the internal channel reference.
+ */
 struct ath9k_channel *ath9k_cmn_get_curchannel(struct ieee80211_hw *hw,
 					       struct ath_hw *ah)
 {
@@ -156,7 +165,7 @@ void ath9k_cmn_update_txpow(struct ath_hw *ah, u16 cur_txpow,
 
 	if (reg->power_limit != new_txpow) {
 		ath9k_hw_set_txpowerlimit(ah, new_txpow, false);
-		
+		/* read back in case value is clamped */
 		*txpower = reg->max_power_level;
 	}
 }
@@ -167,12 +176,22 @@ void ath9k_cmn_init_crypto(struct ath_hw *ah)
 	struct ath_common *common = ath9k_hw_common(ah);
 	int i = 0;
 
-	
+	/* Get the hardware key cache size. */
 	common->keymax = AR_KEYTABLE_SIZE;
 
+	/*
+	 * Check whether the separate key cache entries
+	 * are required to handle both tx+rx MIC keys.
+	 * With split mic keys the number of stations is limited
+	 * to 27 otherwise 59.
+	 */
 	if (ah->misc_mode & AR_PCU_MIC_NEW_LOC_ENA)
 		common->crypt_caps |= ATH_CRYPT_CAP_MIC_COMBINED;
 
+	/*
+	 * Reset the key cache since some parts do not
+	 * reset the contents on initial power up.
+	 */
 	for (i = 0; i < common->keymax; i++)
 		ath_hw_keyreset(common, (u16) i);
 }

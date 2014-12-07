@@ -45,22 +45,26 @@ MODULE_AUTHOR("Larry Finger");
 
 static char ifname[IFNAMSIZ] = "wlan%d";
 
+/* module param defaults */
 static int chip_version = RTL8712_2ndCUT;
 static int rfintfs = HWPI;
 static int lbkmode = RTL8712_AIR_TRX;
 static int hci = RTL8712_USB;
-static int ampdu_enable = 1;
+static int ampdu_enable = 1;/*for enable tx_ampdu*/
 
-static int video_mode = 1;   
+/* The video_mode variable is for vedio mode.*/
+/* It may be specify when inserting module with video_mode=1 parameter.*/
+static int video_mode = 1;   /* enable video mode*/
 
+/*Ndis802_11Infrastructure; infra, ad-hoc, auto*/
 static int network_mode = Ndis802_11IBSS;
-static int channel = 1;
+static int channel = 1;/*ad-hoc support requirement*/
 static int wireless_mode = WIRELESS_11BG;
 static int vrtl_carrier_sense = AUTO_VCS;
 static int vcs_type = RTS_CTS;
 static int frag_thresh = 2346;
-static int preamble = PREAMBLE_LONG;
-static int scan_mode = 1;
+static int preamble = PREAMBLE_LONG;/*long, short, auto*/
+static int scan_mode = 1;/*active, passive*/
 static int adhoc_tx_pwr = 1;
 static int soft_ap;
 static int smart_ps = 1;
@@ -74,7 +78,7 @@ static int mp_mode;
 static int software_encrypt;
 static int software_decrypt;
 
-static int wmm_enable;
+static int wmm_enable;/* default is set to disable the wmm.*/
 static int uapsd_enable;
 static int uapsd_max_sp = NO_LIMIT;
 static int uapsd_acbk_en;
@@ -84,10 +88,14 @@ static int uapsd_acvo_en;
 
 static int ht_enable = 1;
 static int cbw40_enable = 1;
-static int rf_config = RTL8712_RF_1T2R;  
+static int rf_config = RTL8712_RF_1T2R;  /* 1T2R*/
 static int low_power;
+/* mac address to use instead of the one stored in Efuse */
 char *r8712_initmac;
 static char *initmac;
+/* if wifi_test = 1, driver will disable the turbo mode and pass it to
+ * firmware private.
+ */
 static int wifi_test = 0;
 
 module_param_string(ifname, ifname, sizeof(ifname), S_IRUGO|S_IWUSR);
@@ -150,7 +158,7 @@ static uint loadparam(struct _adapter *padapter, struct  net_device *pnetdev)
 	registry_par->mp_mode = (u8)mp_mode;
 	registry_par->software_encrypt = (u8)software_encrypt;
 	registry_par->software_decrypt = (u8)software_decrypt;
-	
+	/*UAPSD*/
 	registry_par->wmm_enable = (u8)wmm_enable;
 	registry_par->uapsd_enable = (u8)uapsd_enable;
 	registry_par->uapsd_max_sp = (u8)uapsd_max_sp;
@@ -219,13 +227,13 @@ struct net_device *r8712_init_netdev(void)
 	printk(KERN_INFO "r8712u: register rtl8712_netdev_ops to"
 	       " netdev_ops\n");
 	pnetdev->netdev_ops = &rtl8712_netdev_ops;
-	pnetdev->watchdog_timeo = HZ; 
+	pnetdev->watchdog_timeo = HZ; /* 1 second timeout */
 	pnetdev->wireless_handlers = (struct iw_handler_def *)
 				     &r871x_handlers_def;
-	
+	/*step 2.*/
 	loadparam(padapter, pnetdev);
 	netif_carrier_off(pnetdev);
-	padapter->pid = 0;  
+	padapter->pid = 0;  /* Initial the PID value used for HW PBC.*/
 	return pnetdev;
 }
 
@@ -240,7 +248,7 @@ static u32 start_drv_threads(struct _adapter *padapter)
 
 void r8712_stop_drv_threads(struct _adapter *padapter)
 {
-	
+	/*Below is to termindate r8712_cmd_thread & event_thread...*/
 	up(&padapter->cmdpriv.cmd_queue_sema);
 	if (padapter->cmdThread)
 		_down_sema(&padapter->cmdpriv.terminate_cmdthread_sema);
@@ -273,33 +281,33 @@ static u8 init_default_value(struct _adapter *padapter)
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct security_priv *psecuritypriv = &padapter->securitypriv;
 
-	
+	/*xmit_priv*/
 	pxmitpriv->vcs_setting = pregistrypriv->vrtl_carrier_sense;
 	pxmitpriv->vcs = pregistrypriv->vcs_type;
 	pxmitpriv->vcs_type = pregistrypriv->vcs_type;
 	pxmitpriv->rts_thresh = pregistrypriv->rts_thresh;
 	pxmitpriv->frag_len = pregistrypriv->frag_thresh;
-	
-	
-	pmlmepriv->passive_mode = 1; 
-	
+	/* mlme_priv */
+	/* Maybe someday we should rename this variable to "active_mode"(Jeff)*/
+	pmlmepriv->passive_mode = 1; /* 1: active, 0: passive. */
+	/*ht_priv*/
 	{
 		int i;
 		struct ht_priv	 *phtpriv = &pmlmepriv->htpriv;
 
-		phtpriv->ampdu_enable = false;
+		phtpriv->ampdu_enable = false;/*set to disabled*/
 		for (i = 0; i < 16; i++)
 			phtpriv->baddbareq_issued[i] = false;
 	}
-	
+	/*security_priv*/
 	psecuritypriv->sw_encrypt = pregistrypriv->software_encrypt;
 	psecuritypriv->sw_decrypt = pregistrypriv->software_decrypt;
 	psecuritypriv->binstallGrpkey = _FAIL;
-	
-	
+	/*pwrctrl_priv*/
+	/*registry_priv*/
 	r8712_init_registrypriv_dev_network(padapter);
 	r8712_update_registrypriv_dev_network(padapter);
-	
+	/*misc.*/
 	return ret;
 }
 
@@ -351,14 +359,32 @@ u8 r8712_free_drv_sw(struct _adapter *padapter)
 
 static void enable_video_mode(struct _adapter *padapter, int cbw40_value)
 {
-	u32  intcmd = 0xf4000500;   
+	/*   bit 8:
+	 *   1 -> enable video mode to 96B AP
+	 *   0 -> disable video mode to 96B AP
+	 *   bit 9:
+	 *   1 -> enable 40MHz mode
+	 *   0 -> disable 40MHz mode
+	 *   bit 10:
+	 *   1 -> enable STBC
+	 *   0 -> disable STBC
+	 */
+	u32  intcmd = 0xf4000500;   /* enable bit8, bit10*/
 
 	if (cbw40_value) {
+		/* if the driver supports the 40M bandwidth,
+		 * we can enable the bit 9.*/
 		intcmd |= 0x200;
 	}
 	r8712_fw_cmd(padapter, intcmd);
 }
 
+/**
+ *
+ * This function intends to handle the activation of an interface
+ * i.e. when it is brought Up/Active from a Down state.
+ *
+ */
 static int netdev_open(struct net_device *pnetdev)
 {
 	struct _adapter *padapter = (struct _adapter *)netdev_priv(pnetdev);
@@ -371,12 +397,24 @@ static int netdev_open(struct net_device *pnetdev)
 		if (rtl871x_hal_init(padapter) != _SUCCESS)
 			goto netdev_open_error;
 		if (r8712_initmac == NULL)
-			
+			/* Use the mac address stored in the Efuse */
 			memcpy(pnetdev->dev_addr,
 				padapter->eeprompriv.mac_addr, ETH_ALEN);
 		else {
+			/* We have to inform f/w to use user-supplied MAC
+			 * address.
+			 */
 			msleep(200);
 			r8712_setMacAddr_cmd(padapter, (u8 *)pnetdev->dev_addr);
+			/*
+			 * The "myid" function will get the wifi mac address
+			 * from eeprompriv structure instead of netdev
+			 * structure. So, we have to overwrite the mac_addr
+			 * stored in the eeprompriv structure. In this case,
+			 * the real mac address won't be used anymore. So that,
+			 * the eeprompriv.mac_addr should store the mac which
+			 * users specify.
+			 */
 			memcpy(padapter->eeprompriv.mac_addr,
 				pnetdev->dev_addr, ETH_ALEN);
 		}
@@ -396,7 +434,7 @@ static int netdev_open(struct net_device *pnetdev)
 
 	 if (video_mode)
 		enable_video_mode(padapter, cbw40_enable);
-	
+	/* start driver mlme relation timer */
 	start_drv_timers(padapter);
 	padapter->ledpriv.LedControlHandler(padapter, LED_CTL_NO_LINK);
 	mutex_unlock(&padapter->mutex_start);
@@ -409,27 +447,33 @@ netdev_open_error:
 	return -1;
 }
 
+/**
+ *
+ * This function intends to handle the shutdown of an interface
+ * i.e. when it is brought Down from an Up/Active state.
+ *
+ */
 static int netdev_close(struct net_device *pnetdev)
 {
 	struct _adapter *padapter = (struct _adapter *) netdev_priv(pnetdev);
 
-	
+	/* Close LED*/
 	padapter->ledpriv.LedControlHandler(padapter, LED_CTL_POWER_OFF);
 	msleep(200);
 
-	
+	/*s1.*/
 	if (pnetdev) {
 		if (!netif_queue_stopped(pnetdev))
 			netif_stop_queue(pnetdev);
 	}
-	
-	
+	/*s2.*/
+	/*s2-1.  issue disassoc_cmd to fw*/
 	r8712_disassoc_cmd(padapter);
-	
+	/*s2-2.  indicate disconnect to os*/
 	r8712_ind_disconnect(padapter);
-	
+	/*s2-3.*/
 	r8712_free_assoc_resources(padapter);
-	
+	/*s2-4.*/
 	r8712_free_network_queue(padapter);
 	return 0;
 }

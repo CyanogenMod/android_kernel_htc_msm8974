@@ -25,6 +25,11 @@ struct usbhs_priv;
 #include "./mod.h"
 #include "./pipe.h"
 
+/*
+ *
+ *		register define
+ *
+ */
 #define SYSCFG		0x0000
 #define BUSWAIT		0x0002
 #define DVSTCTR		0x0008
@@ -49,10 +54,10 @@ struct usbhs_priv;
 #define NRDYSTS		0x0048
 #define BEMPSTS		0x004A
 #define FRMNUM		0x004C
-#define USBREQ		0x0054	
-#define USBVAL		0x0056	
-#define USBINDX		0x0058	
-#define USBLENG		0x005A	
+#define USBREQ		0x0054	/* USB request type register */
+#define USBVAL		0x0056	/* USB request value register */
+#define USBINDX		0x0058	/* USB request index register */
+#define USBLENG		0x005A	/* USB request length register */
 #define DCPCFG		0x005C
 #define DCPMAXP		0x005E
 #define DCPCTR		0x0060
@@ -86,7 +91,7 @@ struct usbhs_priv;
 #define PIPE9TRN	0x00BA
 #define PIPEATRE	0x00BC
 #define PIPEATRN	0x00BE
-#define DEVADD0		0x00D0 
+#define DEVADD0		0x00D0 /* Device address n configuration */
 #define DEVADD1		0x00D2
 #define DEVADD2		0x00D4
 #define DEVADD3		0x00D6
@@ -98,120 +103,141 @@ struct usbhs_priv;
 #define DEVADD9		0x00E2
 #define DEVADDA		0x00E4
 
-#define SCKE	(1 << 10)	
-#define HSE	(1 << 7)	
-#define DCFM	(1 << 6)	
-#define DRPD	(1 << 5)	
-#define DPRPU	(1 << 4)	
-#define USBE	(1 << 0)	
+/* SYSCFG */
+#define SCKE	(1 << 10)	/* USB Module Clock Enable */
+#define HSE	(1 << 7)	/* High-Speed Operation Enable */
+#define DCFM	(1 << 6)	/* Controller Function Select */
+#define DRPD	(1 << 5)	/* D+ Line/D- Line Resistance Control */
+#define DPRPU	(1 << 4)	/* D+ Line Resistance Control */
+#define USBE	(1 << 0)	/* USB Module Operation Enable */
 
-#define EXTLP	(1 << 10)	
-#define PWEN	(1 << 9)	
-#define USBRST	(1 << 6)	
-#define UACT	(1 << 4)	
-#define RHST	(0x7)		
-#define  RHST_LOW_SPEED  1	
-#define  RHST_FULL_SPEED 2	
-#define  RHST_HIGH_SPEED 3	
+/* DVSTCTR */
+#define EXTLP	(1 << 10)	/* Controls the EXTLP pin output state */
+#define PWEN	(1 << 9)	/* Controls the PWEN pin output state */
+#define USBRST	(1 << 6)	/* Bus Reset Output */
+#define UACT	(1 << 4)	/* USB Bus Enable */
+#define RHST	(0x7)		/* Reset Handshake */
+#define  RHST_LOW_SPEED  1	/* Low-speed connection */
+#define  RHST_FULL_SPEED 2	/* Full-speed connection */
+#define  RHST_HIGH_SPEED 3	/* High-speed connection */
 
-#define DREQE	(1 << 12)	
-#define MBW_32	(0x2 << 10)	
+/* CFIFOSEL */
+#define DREQE	(1 << 12)	/* DMA Transfer Request Enable */
+#define MBW_32	(0x2 << 10)	/* CFIFO Port Access Bit Width */
 
-#define BVAL	(1 << 15)	
-#define BCLR	(1 << 14)	
-#define FRDY	(1 << 13)	
-#define DTLN_MASK (0x0FFF)	
+/* CFIFOCTR */
+#define BVAL	(1 << 15)	/* Buffer Memory Enable Flag */
+#define BCLR	(1 << 14)	/* CPU buffer clear */
+#define FRDY	(1 << 13)	/* FIFO Port Ready */
+#define DTLN_MASK (0x0FFF)	/* Receive Data Length */
 
-#define VBSE	(1 << 15)	
-#define RSME	(1 << 14)	
-#define SOFE	(1 << 13)	
-#define DVSE	(1 << 12)	
-#define CTRE	(1 << 11)	
-#define BEMPE	(1 << 10)	
-#define NRDYE	(1 << 9)	
-#define BRDYE	(1 << 8)	
+/* INTENB0 */
+#define VBSE	(1 << 15)	/* Enable IRQ VBUS_0 and VBUSIN_0 */
+#define RSME	(1 << 14)	/* Enable IRQ Resume */
+#define SOFE	(1 << 13)	/* Enable IRQ Frame Number Update */
+#define DVSE	(1 << 12)	/* Enable IRQ Device State Transition */
+#define CTRE	(1 << 11)	/* Enable IRQ Control Stage Transition */
+#define BEMPE	(1 << 10)	/* Enable IRQ Buffer Empty */
+#define NRDYE	(1 << 9)	/* Enable IRQ Buffer Not Ready Response */
+#define BRDYE	(1 << 8)	/* Enable IRQ Buffer Ready */
 
-#define BCHGE	(1 << 14)	
-#define DTCHE	(1 << 12)	
-#define ATTCHE	(1 << 11)	
-#define EOFERRE	(1 << 6)	
-#define SIGNE	(1 << 5)	
-#define SACKE	(1 << 4)	
+/* INTENB1 */
+#define BCHGE	(1 << 14)	/* USB Bus Change Interrupt Enable */
+#define DTCHE	(1 << 12)	/* Disconnection Detect Interrupt Enable */
+#define ATTCHE	(1 << 11)	/* Connection Detect Interrupt Enable */
+#define EOFERRE	(1 << 6)	/* EOF Error Detect Interrupt Enable */
+#define SIGNE	(1 << 5)	/* Setup Transaction Error Interrupt Enable */
+#define SACKE	(1 << 4)	/* Setup Transaction ACK Interrupt Enable */
 
-#define VBINT	(1 << 15)	
-#define DVST	(1 << 12)	
-#define CTRT	(1 << 11)	
-#define BEMP	(1 << 10)	
-#define BRDY	(1 << 8)	
-#define VBSTS	(1 << 7)	
-#define VALID	(1 << 3)	
+/* INTSTS0 */
+#define VBINT	(1 << 15)	/* VBUS0_0 and VBUS1_0 Interrupt Status */
+#define DVST	(1 << 12)	/* Device State Transition Interrupt Status */
+#define CTRT	(1 << 11)	/* Control Stage Interrupt Status */
+#define BEMP	(1 << 10)	/* Buffer Empty Interrupt Status */
+#define BRDY	(1 << 8)	/* Buffer Ready Interrupt Status */
+#define VBSTS	(1 << 7)	/* VBUS_0 and VBUSIN_0 Input Status */
+#define VALID	(1 << 3)	/* USB Request Receive */
 
-#define DVSQ_MASK		(0x3 << 4)	
+#define DVSQ_MASK		(0x3 << 4)	/* Device State */
 #define  POWER_STATE		(0 << 4)
 #define  DEFAULT_STATE		(1 << 4)
 #define  ADDRESS_STATE		(2 << 4)
 #define  CONFIGURATION_STATE	(3 << 4)
 
-#define CTSQ_MASK		(0x7)	
-#define  IDLE_SETUP_STAGE	0	
-#define  READ_DATA_STAGE	1	
-#define  READ_STATUS_STAGE	2	
-#define  WRITE_DATA_STAGE	3	
-#define  WRITE_STATUS_STAGE	4	
-#define  NODATA_STATUS_STAGE	5	
-#define  SEQUENCE_ERROR		6	
+#define CTSQ_MASK		(0x7)	/* Control Transfer Stage */
+#define  IDLE_SETUP_STAGE	0	/* Idle stage or setup stage */
+#define  READ_DATA_STAGE	1	/* Control read data stage */
+#define  READ_STATUS_STAGE	2	/* Control read status stage */
+#define  WRITE_DATA_STAGE	3	/* Control write data stage */
+#define  WRITE_STATUS_STAGE	4	/* Control write status stage */
+#define  NODATA_STATUS_STAGE	5	/* Control write NoData status stage */
+#define  SEQUENCE_ERROR		6	/* Control transfer sequence error */
 
-#define OVRCR	(1 << 15) 
-#define BCHG	(1 << 14) 
-#define DTCH	(1 << 12) 
-#define ATTCH	(1 << 11) 
-#define EOFERR	(1 << 6)  
-#define SIGN	(1 << 5)  
-#define SACK	(1 << 4)  
+/* INTSTS1 */
+#define OVRCR	(1 << 15) /* OVRCR Interrupt Status */
+#define BCHG	(1 << 14) /* USB Bus Change Interrupt Status */
+#define DTCH	(1 << 12) /* USB Disconnection Detect Interrupt Status */
+#define ATTCH	(1 << 11) /* ATTCH Interrupt Status */
+#define EOFERR	(1 << 6)  /* EOF Error Detect Interrupt Status */
+#define SIGN	(1 << 5)  /* Setup Transaction Error Interrupt Status */
+#define SACK	(1 << 4)  /* Setup Transaction ACK Response Interrupt Status */
 
-#define TYPE_NONE	(0 << 14)	
+/* PIPECFG */
+/* DCPCFG */
+#define TYPE_NONE	(0 << 14)	/* Transfer Type */
 #define TYPE_BULK	(1 << 14)
 #define TYPE_INT	(2 << 14)
 #define TYPE_ISO	(3 << 14)
-#define DBLB		(1 << 9)	
-#define SHTNAK		(1 << 7)	
-#define DIR_OUT		(1 << 4)	
+#define DBLB		(1 << 9)	/* Double Buffer Mode */
+#define SHTNAK		(1 << 7)	/* Pipe Disable in Transfer End */
+#define DIR_OUT		(1 << 4)	/* Transfer Direction */
 
-#define DEVSEL_MASK	(0xF << 12)	
+/* PIPEMAXP */
+/* DCPMAXP */
+#define DEVSEL_MASK	(0xF << 12)	/* Device Select */
 #define DCP_MAXP_MASK	(0x7F)
 #define PIPE_MAXP_MASK	(0x7FF)
 
+/* PIPEBUF */
 #define BUFSIZE_SHIFT	10
 #define BUFSIZE_MASK	(0x1F << BUFSIZE_SHIFT)
 #define BUFNMB_MASK	(0xFF)
 
-#define BSTS		(1 << 15)	
-#define SUREQ		(1 << 14)	
-#define CSSTS		(1 << 12)	
-#define	ACLRM		(1 << 9)	
-#define SQCLR		(1 << 8)	
-#define SQSET		(1 << 7)	
-#define PBUSY		(1 << 5)	
-#define PID_MASK	(0x3)		
+/* PIPEnCTR */
+/* DCPCTR */
+#define BSTS		(1 << 15)	/* Buffer Status */
+#define SUREQ		(1 << 14)	/* Sending SETUP Token */
+#define CSSTS		(1 << 12)	/* CSSTS Status */
+#define	ACLRM		(1 << 9)	/* Buffer Auto-Clear Mode */
+#define SQCLR		(1 << 8)	/* Toggle Bit Clear */
+#define SQSET		(1 << 7)	/* Toggle Bit Set */
+#define PBUSY		(1 << 5)	/* Pipe Busy */
+#define PID_MASK	(0x3)		/* Response PID */
 #define  PID_NAK	0
 #define  PID_BUF	1
 #define  PID_STALL10	2
 #define  PID_STALL11	3
 
-#define CCPL		(1 << 2)	
+#define CCPL		(1 << 2)	/* Control Transfer End Enable */
 
-#define TRENB		(1 << 9)	
-#define TRCLR		(1 << 8)	
+/* PIPEnTRE */
+#define TRENB		(1 << 9)	/* Transaction Counter Enable */
+#define TRCLR		(1 << 8)	/* Transaction Counter Clear */
 
+/* FRMNUM */
 #define FRNM_MASK	(0x7FF)
 
-#define UPPHUB(x)	(((x) & 0xF) << 11)	
-#define HUBPORT(x)	(((x) & 0x7) << 8)	
-#define USBSPD(x)	(((x) & 0x3) << 6)	
+/* DEVADDn */
+#define UPPHUB(x)	(((x) & 0xF) << 11)	/* HUB Register */
+#define HUBPORT(x)	(((x) & 0x7) << 8)	/* HUB Port for Target Device */
+#define USBSPD(x)	(((x) & 0x3) << 6)	/* Device Transfer Rate */
 #define USBSPD_SPEED_LOW	0x1
 #define USBSPD_SPEED_FULL	0x2
 #define USBSPD_SPEED_HIGH	0x3
 
+/*
+ *		struct
+ */
 struct usbhs_priv {
 
 	void __iomem *base;
@@ -228,13 +254,25 @@ struct usbhs_priv {
 
 	u32 flags;
 
+	/*
+	 * module control
+	 */
 	struct usbhs_mod_info mod_info;
 
+	/*
+	 * pipe control
+	 */
 	struct usbhs_pipe_info pipe_info;
 
+	/*
+	 * fifo control
+	 */
 	struct usbhs_fifo_info fifo_info;
 };
 
+/*
+ * common
+ */
 u16 usbhs_read(struct usbhs_priv *priv, u32 reg);
 void usbhs_write(struct usbhs_priv *priv, u32 reg, u16 data);
 void usbhs_bset(struct usbhs_priv *priv, u32 reg, u16 mask, u16 data);
@@ -242,27 +280,45 @@ void usbhs_bset(struct usbhs_priv *priv, u32 reg, u16 mask, u16 data);
 #define usbhs_lock(p, f) spin_lock_irqsave(usbhs_priv_to_lock(p), f)
 #define usbhs_unlock(p, f) spin_unlock_irqrestore(usbhs_priv_to_lock(p), f)
 
+/*
+ * sysconfig
+ */
 void usbhs_sys_host_ctrl(struct usbhs_priv *priv, int enable);
 void usbhs_sys_function_ctrl(struct usbhs_priv *priv, int enable);
 void usbhs_sys_set_test_mode(struct usbhs_priv *priv, u16 mode);
 
+/*
+ * usb request
+ */
 void usbhs_usbreq_get_val(struct usbhs_priv *priv, struct usb_ctrlrequest *req);
 void usbhs_usbreq_set_val(struct usbhs_priv *priv, struct usb_ctrlrequest *req);
 
+/*
+ * bus
+ */
 void usbhs_bus_send_sof_enable(struct usbhs_priv *priv);
 void usbhs_bus_send_reset(struct usbhs_priv *priv);
 int usbhs_bus_get_speed(struct usbhs_priv *priv);
 int usbhs_vbus_ctrl(struct usbhs_priv *priv, int enable);
 
+/*
+ * frame
+ */
 int usbhs_frame_get_num(struct usbhs_priv *priv);
 
+/*
+ * device config
+ */
 int usbhs_set_device_config(struct usbhs_priv *priv, int devnum, u16 upphub,
 			   u16 hubport, u16 speed);
 
+/*
+ * data
+ */
 struct usbhs_priv *usbhs_pdev_to_priv(struct platform_device *pdev);
 #define usbhs_get_dparam(priv, param)	(priv->dparam.param)
 #define usbhs_priv_to_pdev(priv)	(priv->pdev)
 #define usbhs_priv_to_dev(priv)		(&priv->pdev->dev)
 #define usbhs_priv_to_lock(priv)	(&priv->lock)
 
-#endif 
+#endif /* RENESAS_USB_DRIVER_H */

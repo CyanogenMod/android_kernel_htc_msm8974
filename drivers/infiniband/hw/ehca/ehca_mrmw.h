@@ -129,4 +129,4 @@ int ehca_create_busmap(void);
 void ehca_destroy_busmap(void);
 
 extern struct ib_dma_mapping_ops ehca_dma_mapping_ops;
-#endif  
+#endif  /*_EHCA_MRMW_H_*/

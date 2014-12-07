@@ -6,6 +6,12 @@
 #include <linux/list.h>
 
 
+/**
+ *	struct vlan_priority_tci_mapping - vlan egress priority mappings
+ *	@priority: skb priority
+ *	@vlan_qos: vlan priority: (skb->priority << 13) & 0xE000
+ *	@next: pointer to next struct
+ */
 struct vlan_priority_tci_mapping {
 	u32					priority;
 	u16					vlan_qos;
@@ -13,6 +19,17 @@ struct vlan_priority_tci_mapping {
 };
 
 
+/**
+ *	struct vlan_pcpu_stats - VLAN percpu rx/tx stats
+ *	@rx_packets: number of received packets
+ *	@rx_bytes: number of received bytes
+ *	@rx_multicast: number of received multicast packets
+ *	@tx_packets: number of transmitted packets
+ *	@tx_bytes: number of transmitted bytes
+ *	@syncp: synchronization point for 64bit counters
+ *	@rx_errors: number of rx errors
+ *	@tx_dropped: number of tx drops
+ */
 struct vlan_pcpu_stats {
 	u64			rx_packets;
 	u64			rx_bytes;
@@ -26,6 +43,19 @@ struct vlan_pcpu_stats {
 
 struct netpoll;
 
+/**
+ *	struct vlan_dev_priv - VLAN private device data
+ *	@nr_ingress_mappings: number of ingress priority mappings
+ *	@ingress_priority_map: ingress priority mappings
+ *	@nr_egress_mappings: number of egress priority mappings
+ *	@egress_priority_map: hash of egress priority mappings
+ *	@vlan_id: VLAN identifier
+ *	@flags: device flags
+ *	@real_dev: underlying netdevice
+ *	@real_dev_addr: address of underlying netdevice
+ *	@dent: proc dir entry
+ *	@vlan_pcpu_stats: ptr to percpu rx stats
+ */
 struct vlan_dev_priv {
 	unsigned int				nr_ingress_mappings;
 	u32					ingress_priority_map[8];
@@ -50,17 +80,23 @@ static inline struct vlan_dev_priv *vlan_dev_priv(const struct net_device *dev)
 	return netdev_priv(dev);
 }
 
+/* if this changes, algorithm will have to be reworked because this
+ * depends on completely exhausting the VLAN identifier space.  Thus
+ * it gives constant time look-up, but in many cases it wastes memory.
+ */
 #define VLAN_GROUP_ARRAY_SPLIT_PARTS  8
 #define VLAN_GROUP_ARRAY_PART_LEN     (VLAN_N_VID/VLAN_GROUP_ARRAY_SPLIT_PARTS)
 
 struct vlan_group {
 	unsigned int		nr_vlan_devs;
-	struct hlist_node	hlist;	
+	struct hlist_node	hlist;	/* linked list */
 	struct net_device **vlan_devices_arrays[VLAN_GROUP_ARRAY_SPLIT_PARTS];
 };
 
 struct vlan_info {
-	struct net_device	*real_dev; 
+	struct net_device	*real_dev; /* The ethernet(like) device
+					    * the vlan is attached to.
+					    */
 	struct vlan_group	grp;
 	struct list_head	vid_list;
 	unsigned int		nr_vids;
@@ -86,6 +122,7 @@ static inline void vlan_group_set_device(struct vlan_group *vg,
 	array[vlan_id % VLAN_GROUP_ARRAY_PART_LEN] = dev;
 }
 
+/* Must be invoked with rcu_read_lock or with RTNL. */
 static inline struct net_device *vlan_find_dev(struct net_device *real_dev,
 					       u16 vlan_id)
 {
@@ -97,6 +134,7 @@ static inline struct net_device *vlan_find_dev(struct net_device *real_dev,
 	return NULL;
 }
 
+/* found in vlan_dev.c */
 void vlan_dev_set_ingress_priority(const struct net_device *dev,
 				   u32 skb_prio, u16 vlan_prio);
 int vlan_dev_set_egress_priority(const struct net_device *dev,
@@ -145,12 +183,12 @@ extern int vlan_net_id;
 struct proc_dir_entry;
 
 struct vlan_net {
-	
+	/* /proc/net/vlan */
 	struct proc_dir_entry *proc_vlan_dir;
-	
+	/* /proc/net/vlan/config */
 	struct proc_dir_entry *proc_vlan_conf;
-	
+	/* Determines interface naming scheme. */
 	unsigned short name_type;
 };
 
-#endif 
+#endif /* !(__BEN_VLAN_802_1Q_INC__) */

@@ -64,6 +64,11 @@ struct runtime_data {
 
 static void audio_buffdone(void *data);
 
+/* dma_enqueue
+ *
+ * place a dma buffer onto the queue for the dma system
+ * to handle.
+ */
 static void dma_enqueue(struct snd_pcm_substream *substream)
 {
 	struct runtime_data *prtd = substream->runtime->private_data;
@@ -145,11 +150,15 @@ static int dma_hw_params(struct snd_pcm_substream *substream,
 
 	pr_debug("Entered %s\n", __func__);
 
+	/* return if this is a bufferless transfer e.g.
+	 * codec <--> BT codec or GSM modem -- lg FIXME */
 	if (!dma)
 		return 0;
 
+	/* this may get called several times by oss emulation
+	 * with different params -HW */
 	if (prtd->params == NULL) {
-		
+		/* prepare DMA */
 		prtd->params = dma;
 
 		pr_debug("params %p, client %p, channel %d\n", prtd->params,
@@ -209,16 +218,18 @@ static int dma_prepare(struct snd_pcm_substream *substream)
 
 	pr_debug("Entered %s\n", __func__);
 
+	/* return if this is a bufferless transfer e.g.
+	 * codec <--> BT codec or GSM modem -- lg FIXME */
 	if (!prtd->params)
 		return 0;
 
-	
+	/* flush the DMA channel */
 	prtd->params->ops->flush(prtd->params->ch);
 
 	prtd->dma_loaded = 0;
 	prtd->dma_pos = prtd->dma_start;
 
-	
+	/* enqueue dma buffers */
 	dma_enqueue(substream);
 
 	return ret;
@@ -271,6 +282,11 @@ dma_pointer(struct snd_pcm_substream *substream)
 
 	pr_debug("Pointer offset: %lu\n", res);
 
+	/* we seem to be getting the odd error from the pcm library due
+	 * to out-of-bounds pointers. this is maybe due to the dma engine
+	 * not having loaded the new values for the channel before being
+	 * called... (todo - fix )
+	 */
 
 	if (res >= snd_pcm_lib_buffer_bytes(substream)) {
 		if (res == snd_pcm_lib_buffer_bytes(substream))

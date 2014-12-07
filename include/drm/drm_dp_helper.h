@@ -26,6 +26,7 @@
 #include <linux/types.h>
 #include <linux/i2c.h>
 
+/* From the VESA DisplayPort spec */
 
 #define AUX_NATIVE_WRITE	0x8
 #define AUX_NATIVE_READ		0x9
@@ -44,6 +45,8 @@
 #define AUX_I2C_REPLY_DEFER	(0x2 << 6)
 #define AUX_I2C_REPLY_MASK	(0x3 << 6)
 
+/* AUX CH addresses */
+/* DPCD */
 #define DP_DPCD_REV                         0x000
 
 #define DP_MAX_LINK_RATE                    0x001
@@ -61,6 +64,10 @@
 #define DP_DOWNSTREAMPORT_PRESENT           0x005
 # define DP_DWN_STRM_PORT_PRESENT           (1 << 0)
 # define DP_DWN_STRM_PORT_TYPE_MASK         0x06
+/* 00b = DisplayPort */
+/* 01b = Analog */
+/* 10b = TMDS or HDMI */
+/* 11b = Other */
 # define DP_FORMAT_CONVERSION               (1 << 3)
 
 #define DP_MAIN_LINK_CHANNEL_CODING         0x006
@@ -82,6 +89,7 @@
 # define DP_PSR_SETUP_TIME_MASK             (7 << 1)
 # define DP_PSR_SETUP_TIME_SHIFT            1
 
+/* link configuration */
 #define	DP_LINK_BW_SET		            0x100
 # define DP_LINK_BW_1_62		    0x06
 # define DP_LINK_BW_2_7			    0x0a
@@ -190,7 +198,7 @@
 # define DP_TEST_LINK_TRAINING		    (1 << 0)
 # define DP_TEST_LINK_PATTERN		    (1 << 1)
 # define DP_TEST_LINK_EDID_READ		    (1 << 2)
-# define DP_TEST_LINK_PHY_TEST_PATTERN	    (1 << 3) 
+# define DP_TEST_LINK_PHY_TEST_PATTERN	    (1 << 3) /* DPCD >= 1.1 */
 
 #define DP_TEST_LINK_RATE		    0x219
 # define DP_LINK_RATE_162		    (0x6)
@@ -241,4 +249,4 @@ struct i2c_algo_dp_aux_data {
 int
 i2c_dp_aux_add_bus(struct i2c_adapter *adapter);
 
-#endif 
+#endif /* _DRM_DP_HELPER_H_ */

@@ -24,26 +24,31 @@
 
 #include "irq-common.h"
 
+/*
+ *****************************************
+ * TZIC Registers                        *
+ *****************************************
+ */
 
-#define TZIC_INTCNTL	0x0000	
-#define TZIC_INTTYPE	0x0004	
-#define TZIC_IMPID	0x0008	
-#define TZIC_PRIOMASK	0x000C	
-#define TZIC_SYNCCTRL	0x0010	
-#define TZIC_DSMINT	0x0014	
-#define TZIC_INTSEC0(i)	(0x0080 + ((i) << 2)) 
-#define TZIC_ENSET0(i)	(0x0100 + ((i) << 2)) 
-#define TZIC_ENCLEAR0(i) (0x0180 + ((i) << 2)) 
-#define TZIC_SRCSET0	0x0200	
-#define TZIC_SRCCLAR0	0x0280	
-#define TZIC_PRIORITY0	0x0400	
-#define TZIC_PND0	0x0D00	
-#define TZIC_HIPND(i)	(0x0D80+ ((i) << 2))	
-#define TZIC_WAKEUP0(i)	(0x0E00 + ((i) << 2))	
-#define TZIC_SWINT	0x0F00	
-#define TZIC_ID0	0x0FD0	
+#define TZIC_INTCNTL	0x0000	/* Control register */
+#define TZIC_INTTYPE	0x0004	/* Controller Type register */
+#define TZIC_IMPID	0x0008	/* Distributor Implementer Identification */
+#define TZIC_PRIOMASK	0x000C	/* Priority Mask Reg */
+#define TZIC_SYNCCTRL	0x0010	/* Synchronizer Control register */
+#define TZIC_DSMINT	0x0014	/* DSM interrupt Holdoffregister */
+#define TZIC_INTSEC0(i)	(0x0080 + ((i) << 2)) /* Interrupt Security Reg 0 */
+#define TZIC_ENSET0(i)	(0x0100 + ((i) << 2)) /* Enable Set Reg 0 */
+#define TZIC_ENCLEAR0(i) (0x0180 + ((i) << 2)) /* Enable Clear Reg 0 */
+#define TZIC_SRCSET0	0x0200	/* Source Set Register 0 */
+#define TZIC_SRCCLAR0	0x0280	/* Source Clear Register 0 */
+#define TZIC_PRIORITY0	0x0400	/* Priority Register 0 */
+#define TZIC_PND0	0x0D00	/* Pending Register 0 */
+#define TZIC_HIPND(i)	(0x0D80+ ((i) << 2))	/* High Priority Pending Register */
+#define TZIC_WAKEUP0(i)	(0x0E00 + ((i) << 2))	/* Wakeup Config Register */
+#define TZIC_SWINT	0x0F00	/* Software Interrupt Rigger Register */
+#define TZIC_ID0	0x0FD0	/* Indentification Register 0 */
 
-void __iomem *tzic_base; 
+void __iomem *tzic_base; /* Used as irq controller base in entry-macro.S */
 
 #define TZIC_NUM_IRQS 128
 
@@ -142,11 +147,19 @@ asmlinkage void __exception_irq_entry tzic_handle_irq(struct pt_regs *regs)
 	} while (handled);
 }
 
+/*
+ * This function initializes the TZIC hardware and disables all the
+ * interrupts. It registers the interrupt enable and disable functions
+ * to the kernel for each interrupt source.
+ */
 void __init tzic_init_irq(void __iomem *irqbase)
 {
 	int i;
 
 	tzic_base = irqbase;
+	/* put the TZIC into the reset value with
+	 * all interrupts disabled
+	 */
 	i = __raw_readl(tzic_base + TZIC_INTCNTL);
 
 	__raw_writel(0x80010001, tzic_base + TZIC_INTCNTL);
@@ -156,23 +169,28 @@ void __init tzic_init_irq(void __iomem *irqbase)
 	for (i = 0; i < 4; i++)
 		__raw_writel(0xFFFFFFFF, tzic_base + TZIC_INTSEC0(i));
 
-	
+	/* disable all interrupts */
 	for (i = 0; i < 4; i++)
 		__raw_writel(0xFFFFFFFF, tzic_base + TZIC_ENCLEAR0(i));
 
-	
+	/* all IRQ no FIQ Warning :: No selection */
 
 	for (i = 0; i < TZIC_NUM_IRQS; i += 32)
 		tzic_init_gc(i);
 
 #ifdef CONFIG_FIQ
-	
+	/* Initialize FIQ */
 	init_FIQ(FIQ_START);
 #endif
 
 	pr_info("TrustZone Interrupt Controller (TZIC) initialized\n");
 }
 
+/**
+ * tzic_enable_wake() - enable wakeup interrupt
+ *
+ * @return			0 if successful; non-zero otherwise
+ */
 int tzic_enable_wake(void)
 {
 	unsigned int i;

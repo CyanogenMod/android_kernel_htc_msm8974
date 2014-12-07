@@ -20,6 +20,12 @@
 #include <mach/common.h>
 #include <mach/mx53.h>
 
+/*
+ * Lookup table for attaching a specific name and platform_data pointer to
+ * devices as they get created by of_platform_populate().  Ideally this table
+ * would not exist, but the current clock implementation depends on some devices
+ * having a specific name.
+ */
 static const struct of_dev_auxdata imx53_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("fsl,imx53-uart", MX53_UART1_BASE_ADDR, "imx21-uart.0", NULL),
 	OF_DEV_AUXDATA("fsl,imx53-uart", MX53_UART2_BASE_ADDR, "imx21-uart.1", NULL),
@@ -39,7 +45,7 @@ static const struct of_dev_auxdata imx53_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("fsl,imx53-i2c", MX53_I2C3_BASE_ADDR, "imx-i2c.2", NULL),
 	OF_DEV_AUXDATA("fsl,imx53-sdma", MX53_SDMA_BASE_ADDR, "imx35-sdma", NULL),
 	OF_DEV_AUXDATA("fsl,imx53-wdt", MX53_WDOG1_BASE_ADDR, "imx2-wdt.0", NULL),
-	{  }
+	{ /* sentinel */ }
 };
 
 static int __init imx53_tzic_add_irq_domain(struct device_node *np,
@@ -63,7 +69,7 @@ static int __init imx53_gpio_add_irq_domain(struct device_node *np,
 static const struct of_device_id imx53_irq_match[] __initconst = {
 	{ .compatible = "fsl,imx53-tzic", .data = imx53_tzic_add_irq_domain, },
 	{ .compatible = "fsl,imx53-gpio", .data = imx53_gpio_add_irq_domain, },
-	{  }
+	{ /* sentinel */ }
 };
 
 static const struct of_device_id imx53_iomuxc_of_match[] __initconst = {
@@ -71,7 +77,7 @@ static const struct of_device_id imx53_iomuxc_of_match[] __initconst = {
 	{ .compatible = "fsl,imx53-iomuxc-evk", .data = imx53_evk_common_init, },
 	{ .compatible = "fsl,imx53-iomuxc-qsb", .data = imx53_qsb_common_init, },
 	{ .compatible = "fsl,imx53-iomuxc-smd", .data = imx53_smd_common_init, },
-	{  }
+	{ /* sentinel */ }
 };
 
 static void __init imx53_dt_init(void)

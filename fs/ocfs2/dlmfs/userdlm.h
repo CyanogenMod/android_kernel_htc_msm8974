@@ -32,11 +32,18 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
-#define USER_LOCK_ATTACHED      (0x00000001) 
-#define USER_LOCK_BUSY          (0x00000002) 
-#define USER_LOCK_BLOCKED       (0x00000004) 
-#define USER_LOCK_IN_TEARDOWN   (0x00000008) 
-#define USER_LOCK_QUEUED        (0x00000010) 
+/* user_lock_res->l_flags flags. */
+#define USER_LOCK_ATTACHED      (0x00000001) /* we have initialized
+					       * the lvb */
+#define USER_LOCK_BUSY          (0x00000002) /* we are currently in
+					       * dlm_lock */
+#define USER_LOCK_BLOCKED       (0x00000004) /* blocked waiting to
+					      * downconvert*/
+#define USER_LOCK_IN_TEARDOWN   (0x00000008) /* we're currently
+					      * destroying this
+					      * lock. */
+#define USER_LOCK_QUEUED        (0x00000010) /* lock is on the
+					      * workqueue */
 #define USER_LOCK_IN_CANCEL     (0x00000020)
 
 struct user_lock_res {
@@ -83,7 +90,7 @@ void user_dlm_set_locking_protocol(void);
 struct dlmfs_inode_private {
 	struct ocfs2_cluster_connection	*ip_conn;
 
-	struct user_lock_res ip_lockres; 
+	struct user_lock_res ip_lockres; /* unused for directories. */
 	struct inode         *ip_parent;
 
 	struct inode         ip_vfs_inode;
@@ -103,4 +110,4 @@ struct dlmfs_filp_private {
 
 #define DLMFS_MAGIC	0x76a9f425
 
-#endif 
+#endif /* USERDLM_H */

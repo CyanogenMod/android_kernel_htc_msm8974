@@ -35,12 +35,13 @@
 #define BH1780_POFF		(0x0)
 #define BH1780_PON		(0x3)
 
+/* power on settling time in ms */
 #define BH1780_PON_DELAY	2
 
 struct bh1780_data {
 	struct i2c_client *client;
 	int power_state;
-	
+	/* lock for sysfs operations */
 	struct mutex lock;
 };
 
@@ -238,7 +239,7 @@ static SIMPLE_DEV_PM_OPS(bh1780_pm, bh1780_suspend, bh1780_resume);
 #define BH1780_PMOPS (&bh1780_pm)
 #else
 #define BH1780_PMOPS NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct i2c_device_id bh1780_id[] = {
 	{ "bh1780", 0 },

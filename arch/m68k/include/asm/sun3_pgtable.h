@@ -7,17 +7,25 @@
 #include <asm/virtconvert.h>
 #include <linux/linkage.h>
 
+/*
+ * This file contains all the things which change drastically for the sun3
+ * pagetable stuff, to avoid making too much of a mess of the generic m68k
+ * `pgtable.h'; this should only be included from the generic file. --m
+ */
 
+/* For virtual address to physical address conversion */
 #define VTOP(addr)	__pa(addr)
 #define PTOV(addr)	__va(addr)
 
 
-#endif	
+#endif	/* !__ASSEMBLY__ */
 
+/* These need to be defined for compatibility although the sun3 doesn't use them */
 #define _PAGE_NOCACHE030 0x040
 #define _CACHEMASK040   (~0x060)
 #define _PAGE_NOCACHE_S 0x040
 
+/* Page protection values within PTE. */
 #define SUN3_PAGE_VALID     (0x80000000)
 #define SUN3_PAGE_WRITEABLE (0x40000000)
 #define SUN3_PAGE_SYSTEM    (0x20000000)
@@ -26,11 +34,15 @@
 #define SUN3_PAGE_MODIFIED  (0x01000000)
 
 
+/* Externally used page protection values. */
 #define _PAGE_PRESENT	(SUN3_PAGE_VALID)
 #define _PAGE_ACCESSED	(SUN3_PAGE_ACCESSED)
 
 #define PTE_FILE_MAX_BITS 28
 
+/* Compound page protection values. */
+//todo: work out which ones *should* have SUN3_PAGE_NOCACHE and fix...
+// is it just PAGE_KERNEL and PAGE_SHARED?
 #define PAGE_NONE	__pgprot(SUN3_PAGE_VALID \
 				 | SUN3_PAGE_ACCESSED \
 				 | SUN3_PAGE_NOCACHE)
@@ -55,6 +67,11 @@
 				 | SUN3_PAGE_SYSTEM \
 				 | SUN3_PAGE_NOCACHE)
 
+/*
+ * Page protections for initialising protection_map. The sun3 has only two
+ * protection settings, valid (implying read and execute) and writeable. These
+ * are as close as we can get...
+ */
 #define __P000	PAGE_NONE
 #define __P001	PAGE_READONLY
 #define __P010	PAGE_COPY
@@ -73,12 +90,17 @@
 #define __S110	PAGE_SHARED
 #define __S111	PAGE_SHARED
 
+/* Use these fake page-protections on PMDs. */
 #define SUN3_PMD_VALID	(0x00000001)
 #define SUN3_PMD_MASK	(0x0000003F)
 #define SUN3_PMD_MAGIC	(0x0000002B)
 
 #ifndef __ASSEMBLY__
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ */
 #define mk_pte(page, pgprot) pfn_pte(page_to_pfn(page), (pgprot))
 
 static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
@@ -116,9 +138,11 @@ static inline void pte_clear (struct mm_struct *mm, unsigned long addr, pte_t *p
 
 static inline int pmd_none2 (pmd_t *pmd) { return !pmd_val (*pmd); }
 #define pmd_none(pmd) pmd_none2(&(pmd))
+//static inline int pmd_bad (pmd_t pmd) { return (pmd_val (pmd) & SUN3_PMD_MASK) != SUN3_PMD_MAGIC; }
 static inline int pmd_bad2 (pmd_t *pmd) { return 0; }
 #define pmd_bad(pmd) pmd_bad2(&(pmd))
 static inline int pmd_present2 (pmd_t *pmd) { return pmd_val (*pmd) & SUN3_PMD_VALID; }
+/* #define pmd_present(pmd) pmd_present2(&(pmd)) */
 #define pmd_present(pmd) (!pmd_none2(&(pmd)))
 static inline void pmd_clear (pmd_t *pmdp) { pmd_val (*pmdp) = 0; }
 
@@ -136,6 +160,11 @@ static inline void pgd_clear (pgd_t *pgdp) {}
 	printk("%s:%d: bad pgd %08lx.\n", __FILE__, __LINE__, pgd_val(e))
 
 
+/*
+ * The following only work if pte_present() is true.
+ * Undefined behaviour if not...
+ * [we have the full set here even if they don't change from m68k]
+ */
 static inline int pte_write(pte_t pte)		{ return pte_val(pte) & SUN3_PAGE_WRITEABLE; }
 static inline int pte_dirty(pte_t pte)		{ return pte_val(pte) & SUN3_PAGE_MODIFIED; }
 static inline int pte_young(pte_t pte)		{ return pte_val(pte) & SUN3_PAGE_ACCESSED; }
@@ -149,19 +178,25 @@ static inline pte_t pte_mkwrite(pte_t pte)	{ pte_val(pte) |= SUN3_PAGE_WRITEABLE
 static inline pte_t pte_mkdirty(pte_t pte)	{ pte_val(pte) |= SUN3_PAGE_MODIFIED; return pte; }
 static inline pte_t pte_mkyoung(pte_t pte)	{ pte_val(pte) |= SUN3_PAGE_ACCESSED; return pte; }
 static inline pte_t pte_mknocache(pte_t pte)	{ pte_val(pte) |= SUN3_PAGE_NOCACHE; return pte; }
+// use this version when caches work...
+//static inline pte_t pte_mkcache(pte_t pte)	{ pte_val(pte) &= SUN3_PAGE_NOCACHE; return pte; }
+// until then, use:
 static inline pte_t pte_mkcache(pte_t pte)	{ return pte; }
 static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 
 extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 extern pgd_t kernel_pg_dir[PTRS_PER_PGD];
 
+/* Find an entry in a pagetable directory. */
 #define pgd_index(address)     ((address) >> PGDIR_SHIFT)
 
 #define pgd_offset(mm, address) \
 ((mm)->pgd + pgd_index(address))
 
+/* Find an entry in a kernel pagetable directory. */
 #define pgd_offset_k(address) pgd_offset(&init_mm, address)
 
+/* Find an entry in the second-level pagetable. */
 static inline pmd_t *pmd_offset (pgd_t *pgd, unsigned long address)
 {
 	return (pmd_t *) pgd;
@@ -179,16 +214,18 @@ static inline pte_t pgoff_to_pte(unsigned off)
 }
 
 
+/* Find an entry in the third-level pagetable. */
 #define pte_index(address) ((address >> PAGE_SHIFT) & (PTRS_PER_PTE-1))
 #define pte_offset_kernel(pmd, address) ((pte_t *) __pmd_page(*pmd) + pte_index(address))
 #define pte_offset_map(pmd, address) ((pte_t *)page_address(pmd_page(*pmd)) + pte_index(address))
 #define pte_unmap(pte) do { } while (0)
 
+/* Macros to (de)construct the fake PTEs representing swap pages. */
 #define __swp_type(x)		((x).val & 0x7F)
 #define __swp_offset(x)		(((x).val) >> 7)
 #define __swp_entry(type,offset) ((swp_entry_t) { ((type) | ((offset) << 7)) })
 #define __pte_to_swp_entry(pte)	((swp_entry_t) { pte_val(pte) })
 #define __swp_entry_to_pte(x)	((pte_t) { (x).val })
 
-#endif	
-#endif	
+#endif	/* !__ASSEMBLY__ */
+#endif	/* !_SUN3_PGTABLE_H */

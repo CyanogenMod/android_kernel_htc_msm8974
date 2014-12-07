@@ -24,7 +24,7 @@
 
 struct atbm_state {
 	struct i2c_adapter *i2c;
-	
+	/* configuration settings */
 	const struct atbm8830_config *config;
 	struct dvb_frontend frontend;
 };
@@ -44,16 +44,16 @@ struct atbm_state {
 #define REG_TS_SERIAL	0x0305
 #define REG_TS_CLK_FREERUN	0x0306
 #define REG_TS_VALID_MODE	0x0307
-#define REG_TS_CLK_MODE	0x030B 
+#define REG_TS_CLK_MODE	0x030B /* 1 for serial, 0 for parallel */
 
 #define REG_TS_ERRBIT_USE	0x030C
 #define REG_LOCK_STATUS	0x030D
 #define REG_ADC_CONFIG	0x0602
-#define REG_CARRIER_OFFSET	0x0827 
+#define REG_CARRIER_OFFSET	0x0827 /* 0x0827-0x0829 little endian */
 #define REG_DETECTED_PN_MODE	0x082D
 #define REG_READ_LATCH	0x084D
-#define REG_IF_FREQ	0x0A00 
-#define REG_OSC_CLK	0x0A03 
+#define REG_IF_FREQ	0x0A00 /* 0x0A00-0x0A02 little endian */
+#define REG_OSC_CLK	0x0A03 /* 0x0A03-0x0A05 little endian */
 #define REG_BYPASS_CCI	0x0A06
 #define REG_ANALOG_LUMA_DETECTED	0x0A25
 #define REG_ANALOG_AUDIO_DETECTED	0x0A26
@@ -64,11 +64,11 @@ struct atbm_state {
 #define REG_TPS_MANUAL	0x0D01
 #define REG_TPS_CONFIG	0x0D02
 #define REG_BYPASS_DEINTERLEAVER	0x0E00
-#define REG_AGC_TARGET	0x1003 
+#define REG_AGC_TARGET	0x1003 /* 0x1003-0x1005 little endian */
 #define REG_AGC_MIN	0x1020
 #define REG_AGC_MAX	0x1023
 #define REG_AGC_LOCK	0x1027
-#define REG_AGC_PWM_VAL	0x1028 
+#define REG_AGC_PWM_VAL	0x1028 /* 0x1028-0x1029 little endian */
 #define REG_AGC_HOLD_LOOP	0x1031
 
 #endif

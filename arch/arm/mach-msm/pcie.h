@@ -28,6 +28,7 @@
 		pr_info(x);              \
 	} while (0)
 
+/* voltage regulator info structrue */
 struct msm_pcie_vreg_info_t {
 	struct regulator  *hdl;
 	char              *name;
@@ -36,17 +37,20 @@ struct msm_pcie_vreg_info_t {
 	uint32_t           opt_mode;
 };
 
+/* clock info structure */
 struct msm_pcie_clk_info_t {
 	struct clk  *hdl;
 	char        *name;
 };
 
+/* resource info structure */
 struct msm_pcie_res_info_t {
 	char            *name;
 	struct resource *resource;
 	void __iomem    *base;
 };
 
+/* msm pcie device structure */
 struct msm_pcie_dev_t {
 	struct platform_device       *pdev;
 

@@ -36,6 +36,9 @@
 #include "clock.h"
 #include "stream.h"
 
+/*
+ * handle the quirks for the contained interfaces
+ */
 static int create_composite_quirk(struct snd_usb_audio *chip,
 				  struct usb_interface *iface,
 				  struct usb_driver *driver,
@@ -69,13 +72,17 @@ static int ignore_interface_quirk(struct snd_usb_audio *chip,
 }
 
 
+/*
+ * Allow alignment on audio sub-slot (channel samples) rather than
+ * on audio slots (audio frames)
+ */
 static int create_align_transfer_quirk(struct snd_usb_audio *chip,
 				       struct usb_interface *iface,
 				       struct usb_driver *driver,
 				       const struct snd_usb_audio_quirk *quirk)
 {
 	chip->txfr_quirk = 1;
-	return 1;	
+	return 1;	/* Continue with creating streams and mixer */
 }
 
 static int create_any_midi_quirk(struct snd_usb_audio *chip,
@@ -86,6 +93,9 @@ static int create_any_midi_quirk(struct snd_usb_audio *chip,
 	return snd_usbmidi_create(chip->card, intf, &chip->midi_list, quirk);
 }
 
+/*
+ * create a stream for an interface with proper descriptors
+ */
 static int create_standard_audio_quirk(struct snd_usb_audio *chip,
 				       struct usb_interface *iface,
 				       struct usb_driver *driver,
@@ -103,11 +113,14 @@ static int create_standard_audio_quirk(struct snd_usb_audio *chip,
 			   altsd->bInterfaceNumber, err);
 		return err;
 	}
-	
+	/* reset the current interface */
 	usb_set_interface(chip->dev, altsd->bInterfaceNumber, 0);
 	return 0;
 }
 
+/*
+ * create a stream for an endpoint/altsetting without proper descriptors
+ */
 static int create_fixed_stream_quirk(struct snd_usb_audio *chip,
 				     struct usb_interface *iface,
 				     struct usb_driver *driver,
@@ -160,6 +173,10 @@ static int create_fixed_stream_quirk(struct snd_usb_audio *chip,
 	return 0;
 }
 
+/*
+ * Create a stream for an Edirol UA-700/UA-25/UA-4FX interface.  
+ * The only way to detect the sample rate is by looking at wMaxPacketSize.
+ */
 static int create_uaxx_quirk(struct snd_usb_audio *chip,
 			     struct usb_interface *iface,
 			     struct usb_driver *driver,
@@ -178,7 +195,7 @@ static int create_uaxx_quirk(struct snd_usb_audio *chip,
 	struct audioformat *fp;
 	int stream, err;
 
-	
+	/* both PCM and MIDI interfaces have 2 or more altsettings */
 	if (iface->num_altsetting < 2)
 		return -ENXIO;
 	alts = &iface->altsetting[1];
@@ -250,6 +267,9 @@ static int create_uaxx_quirk(struct snd_usb_audio *chip,
 	return 0;
 }
 
+/*
+ * Create a standard mixer for the specified interface.
+ */
 static int create_standard_mixer_quirk(struct snd_usb_audio *chip,
 				       struct usb_interface *iface,
 				       struct usb_driver *driver,
@@ -261,6 +281,14 @@ static int create_standard_mixer_quirk(struct snd_usb_audio *chip,
 	return snd_usb_create_mixer(chip, quirk->ifnum, 0);
 }
 
+/*
+ * audio-interface quirks
+ *
+ * returns zero if no standard audio/MIDI parsing is needed.
+ * returns a positive value if standard audio/midi interfaces are parsed
+ * after this.
+ * returns a negative value at error.
+ */
 int snd_usb_create_quirk(struct snd_usb_audio *chip,
 			 struct usb_interface *iface,
 			 struct usb_driver *driver,
@@ -298,6 +326,9 @@ int snd_usb_create_quirk(struct snd_usb_audio *chip,
 	}
 }
 
+/*
+ * boot quirks
+ */
 
 #define EXTIGY_FIRMWARE_SIZE_OLD 794
 #define EXTIGY_FIRMWARE_SIZE_NEW 483
@@ -310,7 +341,7 @@ static int snd_usb_extigy_boot_quirk(struct usb_device *dev, struct usb_interfac
 	if (le16_to_cpu(get_cfg_desc(config)->wTotalLength) == EXTIGY_FIRMWARE_SIZE_OLD ||
 	    le16_to_cpu(get_cfg_desc(config)->wTotalLength) == EXTIGY_FIRMWARE_SIZE_NEW) {
 		snd_printdd("sending Extigy boot sequence...\n");
-		
+		/* Send message to force it to reconnect with full interface. */
 		err = snd_usb_ctl_msg(dev, usb_sndctrlpipe(dev,0),
 				      0x10, 0x43, 0x0001, 0x000a, NULL, 0);
 		if (err < 0) snd_printdd("error sending boot message: %d\n", err);
@@ -322,7 +353,7 @@ static int snd_usb_extigy_boot_quirk(struct usb_device *dev, struct usb_interfac
 		if (err < 0) snd_printdd("error usb_reset_configuration: %d\n", err);
 		snd_printdd("extigy_boot: new boot length = %d\n",
 			    le16_to_cpu(get_cfg_desc(config)->wTotalLength));
-		return -ENODEV; 
+		return -ENODEV; /* quit this anyway */
 	}
 	return 0;
 }
@@ -350,6 +381,11 @@ static int snd_usb_fasttrackpro_boot_quirk(struct usb_device *dev)
 	if (dev->actconfig->desc.bConfigurationValue == 1) {
 		snd_printk(KERN_INFO "usb-audio: "
 			   "Fast Track Pro switching to config #2\n");
+		/* This function has to be available by the usb core module.
+		 * if it is not avialable the boot quirk has to be left out
+		 * and the configuration has to be set by udev or hotplug
+		 * rules
+		 */
 		err = usb_driver_set_configuration(dev, 2);
 		if (err < 0) {
 			snd_printdd("error usb_driver_set_configuration: %d\n",
@@ -362,6 +398,10 @@ static int snd_usb_fasttrackpro_boot_quirk(struct usb_device *dev)
 	return 0;
 }
 
+/*
+ * C-Media CM106/CM106+ have four 16-bit internal registers that are nicely
+ * documented in the device's data sheet.
+ */
 static int snd_usb_cm106_write_int_reg(struct usb_device *dev, int reg, u16 value)
 {
 	u8 buf[4];
@@ -376,9 +416,19 @@ static int snd_usb_cm106_write_int_reg(struct usb_device *dev, int reg, u16 valu
 
 static int snd_usb_cm106_boot_quirk(struct usb_device *dev)
 {
+	/*
+	 * Enable line-out driver mode, set headphone source to front
+	 * channels, enable stereo mic.
+	 */
 	return snd_usb_cm106_write_int_reg(dev, 2, 0x8004);
 }
 
+/*
+ * C-Media CM6206 is based on CM106 with two additional
+ * registers that are not documented in the data sheet.
+ * Values here are chosen based on sniffing USB traffic
+ * under Windows.
+ */
 static int snd_usb_cm6206_boot_quirk(struct usb_device *dev)
 {
 	int err  = 0, reg;
@@ -393,11 +443,18 @@ static int snd_usb_cm6206_boot_quirk(struct usb_device *dev)
 	return err;
 }
 
+/*
+ * This call will put the synth in "USB send" mode, i.e it will send MIDI
+ * messages through USB (this is disabled at startup). The synth will
+ * acknowledge by sending a sysex on endpoint 0x85 and by displaying a USB
+ * sign on its LCD. Values here are chosen based on sniffing USB traffic
+ * under Windows.
+ */
 static int snd_usb_accessmusic_boot_quirk(struct usb_device *dev)
 {
 	int err, actual_length;
 
-	
+	/* "midi send" enable */
 	static const u8 seq[] = { 0x4e, 0x73, 0x52, 0x01 };
 
 	void *buf = kmemdup(seq, ARRAY_SIZE(seq), GFP_KERNEL);
@@ -412,6 +469,16 @@ static int snd_usb_accessmusic_boot_quirk(struct usb_device *dev)
 	return 0;
 }
 
+/*
+ * Some sound cards from Native Instruments are in fact compliant to the USB
+ * audio standard of version 2 and other approved USB standards, even though
+ * they come up as vendor-specific device when first connected.
+ *
+ * However, they can be told to come up with a new set of descriptors
+ * upon their next enumeration, and the interfaces announced by the new
+ * descriptors will then be handled by the kernel's class drivers. As the
+ * product ID will also change, no further checks are required.
+ */
 
 static int snd_usb_nativeinstruments_boot_quirk(struct usb_device *dev)
 {
@@ -424,99 +491,117 @@ static int snd_usb_nativeinstruments_boot_quirk(struct usb_device *dev)
 
 	usb_reset_device(dev);
 
+	/* return -EAGAIN, so the creation of an audio interface for this
+	 * temporary device is aborted. The device will reconnect with a
+	 * new product ID */
 	return -EAGAIN;
 }
 
-#define MAUDIO_SET		0x01 
-#define MAUDIO_SET_COMPATIBLE	0x80 
-#define MAUDIO_SET_DTS		0x02 
-#define MAUDIO_SET_96K		0x04 
-#define MAUDIO_SET_24B		0x08 
-#define MAUDIO_SET_DI		0x10 
-#define MAUDIO_SET_MASK		0x1f 
-#define MAUDIO_SET_24B_48K_DI	 0x19 
-#define MAUDIO_SET_24B_48K_NOTDI 0x09 
-#define MAUDIO_SET_16B_48K_DI	 0x11 
-#define MAUDIO_SET_16B_48K_NOTDI 0x01 
+/*
+ * Setup quirks
+ */
+#define MAUDIO_SET		0x01 /* parse device_setup */
+#define MAUDIO_SET_COMPATIBLE	0x80 /* use only "win-compatible" interfaces */
+#define MAUDIO_SET_DTS		0x02 /* enable DTS Digital Output */
+#define MAUDIO_SET_96K		0x04 /* 48-96KHz rate if set, 8-48KHz otherwise */
+#define MAUDIO_SET_24B		0x08 /* 24bits sample if set, 16bits otherwise */
+#define MAUDIO_SET_DI		0x10 /* enable Digital Input */
+#define MAUDIO_SET_MASK		0x1f /* bit mask for setup value */
+#define MAUDIO_SET_24B_48K_DI	 0x19 /* 24bits+48KHz+Digital Input */
+#define MAUDIO_SET_24B_48K_NOTDI 0x09 /* 24bits+48KHz+No Digital Input */
+#define MAUDIO_SET_16B_48K_DI	 0x11 /* 16bits+48KHz+Digital Input */
+#define MAUDIO_SET_16B_48K_NOTDI 0x01 /* 16bits+48KHz+No Digital Input */
 
 static int quattro_skip_setting_quirk(struct snd_usb_audio *chip,
 				      int iface, int altno)
 {
+	/* Reset ALL ifaces to 0 altsetting.
+	 * Call it for every possible altsetting of every interface.
+	 */
 	usb_set_interface(chip->dev, iface, 0);
 	if (chip->setup & MAUDIO_SET) {
 		if (chip->setup & MAUDIO_SET_COMPATIBLE) {
 			if (iface != 1 && iface != 2)
-				return 1; 
+				return 1; /* skip all interfaces but 1 and 2 */
 		} else {
 			unsigned int mask;
 			if (iface == 1 || iface == 2)
-				return 1; 
+				return 1; /* skip interfaces 1 and 2 */
 			if ((chip->setup & MAUDIO_SET_96K) && altno != 1)
-				return 1; 
+				return 1; /* skip this altsetting */
 			mask = chip->setup & MAUDIO_SET_MASK;
 			if (mask == MAUDIO_SET_24B_48K_DI && altno != 2)
-				return 1; 
+				return 1; /* skip this altsetting */
 			if (mask == MAUDIO_SET_24B_48K_NOTDI && altno != 3)
-				return 1; 
+				return 1; /* skip this altsetting */
 			if (mask == MAUDIO_SET_16B_48K_NOTDI && altno != 4)
-				return 1; 
+				return 1; /* skip this altsetting */
 		}
 	}
 	snd_printdd(KERN_INFO
 		    "using altsetting %d for interface %d config %d\n",
 		    altno, iface, chip->setup);
-	return 0; 
+	return 0; /* keep this altsetting */
 }
 
 static int audiophile_skip_setting_quirk(struct snd_usb_audio *chip,
 					 int iface,
 					 int altno)
 {
+	/* Reset ALL ifaces to 0 altsetting.
+	 * Call it for every possible altsetting of every interface.
+	 */
 	usb_set_interface(chip->dev, iface, 0);
 
 	if (chip->setup & MAUDIO_SET) {
 		unsigned int mask;
 		if ((chip->setup & MAUDIO_SET_DTS) && altno != 6)
-			return 1; 
+			return 1; /* skip this altsetting */
 		if ((chip->setup & MAUDIO_SET_96K) && altno != 1)
-			return 1; 
+			return 1; /* skip this altsetting */
 		mask = chip->setup & MAUDIO_SET_MASK;
 		if (mask == MAUDIO_SET_24B_48K_DI && altno != 2)
-			return 1; 
+			return 1; /* skip this altsetting */
 		if (mask == MAUDIO_SET_24B_48K_NOTDI && altno != 3)
-			return 1; 
+			return 1; /* skip this altsetting */
 		if (mask == MAUDIO_SET_16B_48K_DI && altno != 4)
-			return 1; 
+			return 1; /* skip this altsetting */
 		if (mask == MAUDIO_SET_16B_48K_NOTDI && altno != 5)
-			return 1; 
+			return 1; /* skip this altsetting */
 	}
 
-	return 0; 
+	return 0; /* keep this altsetting */
 }
 
 
 static int fasttrackpro_skip_setting_quirk(struct snd_usb_audio *chip,
 					   int iface, int altno)
 {
+	/* Reset ALL ifaces to 0 altsetting.
+	 * Call it for every possible altsetting of every interface.
+	 */
 	usb_set_interface(chip->dev, iface, 0);
 
+	/* possible configuration where both inputs and only one output is
+	 *used is not supported by the current setup
+	 */
 	if (chip->setup & (MAUDIO_SET | MAUDIO_SET_24B)) {
 		if (chip->setup & MAUDIO_SET_96K) {
 			if (altno != 3 && altno != 6)
 				return 1;
 		} else if (chip->setup & MAUDIO_SET_DI) {
 			if (iface == 4)
-				return 1; 
+				return 1; /* no analog input */
 			if (altno != 2 && altno != 5)
-				return 1; 
+				return 1; /* enable only altsets 2 and 5 */
 		} else {
 			if (iface == 5)
-				return 1; 
+				return 1; /* disable digialt input */
 			if (altno != 2 && altno != 5)
-				return 1; 
+				return 1; /* enalbe only altsets 2 and 5 */
 		}
 	} else {
-		
+		/* keep only 16-Bit mode */
 		if (altno != 1)
 			return 1;
 	}
@@ -524,20 +609,20 @@ static int fasttrackpro_skip_setting_quirk(struct snd_usb_audio *chip,
 	snd_printdd(KERN_INFO
 		    "using altsetting %d for interface %d config %d\n",
 		    altno, iface, chip->setup);
-	return 0; 
+	return 0; /* keep this altsetting */
 }
 
 int snd_usb_apply_interface_quirk(struct snd_usb_audio *chip,
 				  int iface,
 				  int altno)
 {
-	
+	/* audiophile usb: skip altsets incompatible with device_setup */
 	if (chip->usb_id == USB_ID(0x0763, 0x2003))
 		return audiophile_skip_setting_quirk(chip, iface, altno);
-	
+	/* quattro usb: skip altsets incompatible with device_setup */
 	if (chip->usb_id == USB_ID(0x0763, 0x2001))
 		return quattro_skip_setting_quirk(chip, iface, altno);
-	
+	/* fasttrackpro usb: skip altsets incompatible with device_setup */
 	if (chip->usb_id == USB_ID(0x0763, 0x2012))
 		return fasttrackpro_skip_setting_quirk(chip, iface, altno);
 
@@ -553,54 +638,57 @@ int snd_usb_apply_boot_quirk(struct usb_device *dev,
 
 	switch (id) {
 	case USB_ID(0x041e, 0x3000):
-		
-		
+		/* SB Extigy needs special boot-up sequence */
+		/* if more models come, this will go to the quirk list. */
 		return snd_usb_extigy_boot_quirk(dev, intf);
 
 	case USB_ID(0x041e, 0x3020):
-		
+		/* SB Audigy 2 NX needs its own boot-up magic, too */
 		return snd_usb_audigy2nx_boot_quirk(dev);
 
 	case USB_ID(0x10f5, 0x0200):
-		
+		/* C-Media CM106 / Turtle Beach Audio Advantage Roadie */
 		return snd_usb_cm106_boot_quirk(dev);
 
 	case USB_ID(0x0d8c, 0x0102):
-		
-	case USB_ID(0x0ccd, 0x00b1): 
+		/* C-Media CM6206 / CM106-Like Sound Device */
+	case USB_ID(0x0ccd, 0x00b1): /* Terratec Aureon 7.1 USB */
 		return snd_usb_cm6206_boot_quirk(dev);
 
 	case USB_ID(0x133e, 0x0815):
-		
+		/* Access Music VirusTI Desktop */
 		return snd_usb_accessmusic_boot_quirk(dev);
 
-	case USB_ID(0x17cc, 0x1000): 
-	case USB_ID(0x17cc, 0x1010): 
-	case USB_ID(0x17cc, 0x1020): 
+	case USB_ID(0x17cc, 0x1000): /* Komplete Audio 6 */
+	case USB_ID(0x17cc, 0x1010): /* Traktor Audio 6 */
+	case USB_ID(0x17cc, 0x1020): /* Traktor Audio 10 */
 		return snd_usb_nativeinstruments_boot_quirk(dev);
-	case USB_ID(0x0763, 0x2012):  
+	case USB_ID(0x0763, 0x2012):  /* M-Audio Fast Track Pro USB */
 		return snd_usb_fasttrackpro_boot_quirk(dev);
 	}
 
 	return 0;
 }
 
+/*
+ * check if the device uses big-endian samples
+ */
 int snd_usb_is_big_endian_format(struct snd_usb_audio *chip, struct audioformat *fp)
 {
-	
+	/* it depends on altsetting wether the device is big-endian or not */
 	switch (chip->usb_id) {
-	case USB_ID(0x0763, 0x2001): 
+	case USB_ID(0x0763, 0x2001): /* M-Audio Quattro: captured data only */
 		if (fp->altsetting == 2 || fp->altsetting == 3 ||
 			fp->altsetting == 5 || fp->altsetting == 6)
 			return 1;
 		break;
-	case USB_ID(0x0763, 0x2003): 
+	case USB_ID(0x0763, 0x2003): /* M-Audio Audiophile USB */
 		if (chip->setup == 0x00 ||
 			fp->altsetting == 1 || fp->altsetting == 2 ||
 			fp->altsetting == 3)
 			return 1;
 		break;
-	case USB_ID(0x0763, 0x2012): 
+	case USB_ID(0x0763, 0x2012): /* M-Audio Fast Track Pro */
 		if (fp->altsetting == 2 || fp->altsetting == 3 ||
 			fp->altsetting == 5 || fp->altsetting == 6)
 			return 1;
@@ -609,6 +697,10 @@ int snd_usb_is_big_endian_format(struct snd_usb_audio *chip, struct audioformat 
 	return 0;
 }
 
+/*
+ * For E-Mu 0404USB/0202USB/TrackerPre/0204 sample rate should be set for device,
+ * not for interface.
+ */
 
 enum {
 	EMU_QUIRK_SR_44100HZ = 0,
@@ -624,6 +716,10 @@ static void set_format_emu_quirk(struct snd_usb_substream *subs,
 {
 	unsigned char emu_samplerate_id = 0;
 
+	/* When capture is active
+	 * sample rate shouldn't be changed
+	 * by playback substream
+	 */
 	if (subs->direction == SNDRV_PCM_STREAM_PLAYBACK) {
 		if (subs->stream->substream[SNDRV_PCM_STREAM_CAPTURE].interface != -1)
 			return;
@@ -656,10 +752,10 @@ void snd_usb_set_format_quirk(struct snd_usb_substream *subs,
 			      struct audioformat *fmt)
 {
 	switch (subs->stream->chip->usb_id) {
-	case USB_ID(0x041e, 0x3f02): 
-	case USB_ID(0x041e, 0x3f04): 
-	case USB_ID(0x041e, 0x3f0a): 
-	case USB_ID(0x041e, 0x3f19): 
+	case USB_ID(0x041e, 0x3f02): /* E-Mu 0202 USB */
+	case USB_ID(0x041e, 0x3f04): /* E-Mu 0404 USB */
+	case USB_ID(0x041e, 0x3f0a): /* E-Mu Tracker Pre */
+	case USB_ID(0x041e, 0x3f19): /* E-Mu 0204 USB */
 		set_format_emu_quirk(subs, fmt);
 		break;
 	}

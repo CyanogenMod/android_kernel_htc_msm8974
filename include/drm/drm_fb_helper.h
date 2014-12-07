@@ -77,6 +77,8 @@ struct drm_fb_helper {
 	u32 pseudo_palette[17];
 	struct list_head kernel_fb_list;
 
+	/* we got a hotplug but fbdev wasn't running the console
+	   delay until next set_par */
 	bool delayed_hotplug;
 };
 

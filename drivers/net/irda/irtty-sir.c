@@ -41,13 +41,21 @@
 #include "sir-dev.h"
 #include "irtty-sir.h"
 
-static int qos_mtt_bits = 0x03;      
+static int qos_mtt_bits = 0x03;      /* 5 ms or more */
 
 module_param(qos_mtt_bits, int, 0);
 MODULE_PARM_DESC(qos_mtt_bits, "Minimum Turn Time");
 
+/* ------------------------------------------------------- */
 
+/* device configuration callbacks always invoked with irda-thread context */
 
+/* find out, how many chars we have in buffers below us
+ * this is allowed to lie, i.e. return less chars than we
+ * actually have. The returned value is used to determine
+ * how long the irdathread should wait before doing the
+ * real blocking wait_until_sent()
+ */
 
 static int irtty_chars_in_buffer(struct sir_dev *dev)
 {
@@ -59,6 +67,20 @@ static int irtty_chars_in_buffer(struct sir_dev *dev)
 	return tty_chars_in_buffer(priv->tty);
 }
 
+/* Wait (sleep) until underlaying hardware finished transmission
+ * i.e. hardware buffers are drained
+ * this must block and not return before all characters are really sent
+ *
+ * If the tty sits on top of a 16550A-like uart, there are typically
+ * up to 16 bytes in the fifo - f.e. 9600 bps 8N1 needs 16.7 msec
+ *
+ * With usbserial the uart-fifo is basically replaced by the converter's
+ * outgoing endpoint buffer, which can usually hold 64 bytes (at least).
+ * With pl2303 it appears we are safe with 60msec here.
+ *
+ * I really wish all serial drivers would provide
+ * correct implementation of wait_until_sent()
+ */
 
 #define USBSERIAL_TX_DONE_DELAY	60
 
@@ -79,6 +101,15 @@ static void irtty_wait_until_sent(struct sir_dev *dev)
 	}
 }
 
+/* 
+ *  Function irtty_change_speed (dev, speed)
+ *
+ *    Change the speed of the serial port.
+ *
+ * This may sleep in set_termios (usbserial driver f.e.) and must
+ * not be called from interrupt/timer/tasklet therefore.
+ * All such invocations are deferred to kIrDAd now so we can sleep there.
+ */
 
 static int irtty_change_speed(struct sir_dev *dev, unsigned speed)
 {
@@ -104,6 +135,12 @@ static int irtty_change_speed(struct sir_dev *dev, unsigned speed)
 	return 0;
 }
 
+/*
+ * Function irtty_set_dtr_rts (dev, dtr, rts)
+ *
+ *    This function can be used by dongles etc. to set or reset the status
+ *    of the dtr and rts lines
+ */
 
 static int irtty_set_dtr_rts(struct sir_dev *dev, int dtr, int rts)
 {
@@ -123,13 +160,24 @@ static int irtty_set_dtr_rts(struct sir_dev *dev, int dtr, int rts)
 	else
 		clear |= TIOCM_DTR;
 
+	/*
+	 * We can't use ioctl() because it expects a non-null file structure,
+	 * and we don't have that here.
+	 * This function is not yet defined for all tty driver, so
+	 * let's be careful... Jean II
+	 */
 	IRDA_ASSERT(priv->tty->ops->tiocmset != NULL, return -1;);
 	priv->tty->ops->tiocmset(priv->tty, set, clear);
 
 	return 0;
 }
 
+/* ------------------------------------------------------- */
 
+/* called from sir_dev when there is more data to send
+ * context is either netdev->hard_xmit or some transmit-completion bh
+ * i.e. we are under spinlock here and must not sleep.
+ */
 
 static int irtty_do_write(struct sir_dev *dev, const unsigned char *ptr, size_t len)
 {
@@ -150,8 +198,23 @@ static int irtty_do_write(struct sir_dev *dev, const unsigned char *ptr, size_t 
 	return tty->ops->write(tty, ptr, writelen);
 }
 
+/* ------------------------------------------------------- */
 
+/* irda line discipline callbacks */
 
+/* 
+ *  Function irtty_receive_buf( tty, cp, count)
+ *
+ *    Handle the 'receiver data ready' interrupt.  This function is called
+ *    by the 'tty_io' module in the kernel when a block of IrDA data has
+ *    been received, which can now be decapsulated and delivered for
+ *    further processing 
+ *
+ * calling context depends on underlying driver and tty->low_latency!
+ * for example (low_latency: 1 / 0):
+ * serial.c:	uart-interrupt / softint
+ * usbserial:	urb-complete-interrupt / softint
+ */
 
 static void irtty_receive_buf(struct tty_struct *tty, const unsigned char *cp,
 			      char *fp, int count) 
@@ -163,7 +226,7 @@ static void irtty_receive_buf(struct tty_struct *tty, const unsigned char *cp,
 	IRDA_ASSERT(priv != NULL, return;);
 	IRDA_ASSERT(priv->magic == IRTTY_MAGIC, return;);
 
-	if (unlikely(count==0))		
+	if (unlikely(count==0))		/* yes, this happens */
 		return;
 
 	dev = priv->dev;
@@ -173,9 +236,12 @@ static void irtty_receive_buf(struct tty_struct *tty, const unsigned char *cp,
 	}
 
 	for (i = 0; i < count; i++) {
+		/* 
+		 *  Characters received with a parity error, etc?
+		 */
  		if (fp && *fp++) { 
 			IRDA_DEBUG(0, "Framing or parity error!\n");
-			sirdev_receive(dev, NULL, 0);	
+			sirdev_receive(dev, NULL, 0);	/* notify sir_dev (updating stats) */
 			return;
  		}
 	}
@@ -183,6 +249,13 @@ static void irtty_receive_buf(struct tty_struct *tty, const unsigned char *cp,
 	sirdev_receive(dev, cp, count);
 }
 
+/*
+ * Function irtty_write_wakeup (tty)
+ *
+ *    Called by the driver when there's room for more data.  If we have
+ *    more packets to send, we send them here.
+ *
+ */
 static void irtty_write_wakeup(struct tty_struct *tty) 
 {
 	struct sirtty_cb *priv = tty->disc_data;
@@ -195,7 +268,12 @@ static void irtty_write_wakeup(struct tty_struct *tty)
 		sirdev_write_complete(priv->dev);
 }
 
+/* ------------------------------------------------------- */
 
+/*
+ * Function irtty_stop_receiver (tty, stop)
+ *
+ */
 
 static inline void irtty_stop_receiver(struct tty_struct *tty, int stop)
 {
@@ -217,16 +295,19 @@ static inline void irtty_stop_receiver(struct tty_struct *tty, int stop)
 	mutex_unlock(&tty->termios_mutex);
 }
 
+/*****************************************************************/
 
+/* serialize ldisc open/close with sir_dev */
 static DEFINE_MUTEX(irtty_mutex);
 
+/* notifier from sir_dev when irda% device gets opened (ifup) */
 
 static int irtty_start_dev(struct sir_dev *dev)
 {
 	struct sirtty_cb *priv;
 	struct tty_struct *tty;
 
-	
+	/* serialize with ldisc open/close */
 	mutex_lock(&irtty_mutex);
 
 	priv = dev->priv;
@@ -239,20 +320,21 @@ static int irtty_start_dev(struct sir_dev *dev)
 
 	if (tty->ops->start)
 		tty->ops->start(tty);
-	
+	/* Make sure we can receive more data */
 	irtty_stop_receiver(tty, FALSE);
 
 	mutex_unlock(&irtty_mutex);
 	return 0;
 }
 
+/* notifier from sir_dev when irda% device gets closed (ifdown) */
 
 static int irtty_stop_dev(struct sir_dev *dev)
 {
 	struct sirtty_cb *priv;
 	struct tty_struct *tty;
 
-	
+	/* serialize with ldisc open/close */
 	mutex_lock(&irtty_mutex);
 
 	priv = dev->priv;
@@ -263,7 +345,7 @@ static int irtty_stop_dev(struct sir_dev *dev)
 
 	tty = priv->tty;
 
-	
+	/* Make sure we don't receive more data */
 	irtty_stop_receiver(tty, TRUE);
 	if (tty->ops->stop)
 		tty->ops->stop(tty);
@@ -273,6 +355,7 @@ static int irtty_stop_dev(struct sir_dev *dev)
 	return 0;
 }
 
+/* ------------------------------------------------------- */
 
 static struct sir_driver sir_tty_drv = {
 	.owner			= THIS_MODULE,
@@ -286,7 +369,14 @@ static struct sir_driver sir_tty_drv = {
 	.set_dtr_rts		= irtty_set_dtr_rts,
 };
 
+/* ------------------------------------------------------- */
 
+/*
+ * Function irtty_ioctl (tty, file, cmd, arg)
+ *
+ *     The Swiss army knife of system calls :-)
+ *
+ */
 static int irtty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct irtty_info { char name[6]; } info;
@@ -304,7 +394,7 @@ static int irtty_ioctl(struct tty_struct *tty, struct file *file, unsigned int c
 
 	switch (cmd) {
 	case IRTTY_IOCTDONGLE:
-		
+		/* this call blocks for completion */
 		err = sirdev_set_dongle(dev, (IRDA_DONGLE) arg);
 		break;
 
@@ -325,42 +415,49 @@ static int irtty_ioctl(struct tty_struct *tty, struct file *file, unsigned int c
 }
 
 
+/* 
+ *  Function irtty_open(tty)
+ *
+ *    This function is called by the TTY module when the IrDA line
+ *    discipline is called for.  Because we are sure the tty line exists,
+ *    we only have to link it to a free IrDA channel.  
+ */
 static int irtty_open(struct tty_struct *tty) 
 {
 	struct sir_dev *dev;
 	struct sirtty_cb *priv;
 	int ret = 0;
 
-	
+	/* Module stuff handled via irda_ldisc.owner - Jean II */
 
-	
+	/* First make sure we're not already connected. */
 	if (tty->disc_data != NULL) {
 		priv = tty->disc_data;
 		if (priv && priv->magic == IRTTY_MAGIC) {
 			ret = -EEXIST;
 			goto out;
 		}
-		tty->disc_data = NULL;		
+		tty->disc_data = NULL;		/* ### */
 	}
 
-	
+	/* stop the underlying  driver */
 	irtty_stop_receiver(tty, TRUE);
 	if (tty->ops->stop)
 		tty->ops->stop(tty);
 
 	tty_driver_flush_buffer(tty);
 	
-	
+	/* apply mtt override */
 	sir_tty_drv.qos_mtt_bits = qos_mtt_bits;
 
-	
+	/* get a sir device instance for this driver */
 	dev = sirdev_get_instance(&sir_tty_drv, tty->name);
 	if (!dev) {
 		ret = -ENODEV;
 		goto out;
 	}
 
-	
+	/* allocate private device info block */
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		goto out_put;
@@ -369,7 +466,7 @@ static int irtty_open(struct tty_struct *tty)
 	priv->tty = tty;
 	priv->dev = dev;
 
-	
+	/* serialize with start_dev - in case we were racing with ifup */
 	mutex_lock(&irtty_mutex);
 
 	dev->priv = priv;
@@ -388,6 +485,13 @@ out:
 	return ret;
 }
 
+/* 
+ *  Function irtty_close (tty)
+ *
+ *    Close down a IrDA channel. This means flushing out any pending queues,
+ *    and then restoring the TTY line discipline to what it was before it got
+ *    hooked to IrDA (which usually is TTY again).  
+ */
 static void irtty_close(struct tty_struct *tty) 
 {
 	struct sirtty_cb *priv = tty->disc_data;
@@ -395,13 +499,27 @@ static void irtty_close(struct tty_struct *tty)
 	IRDA_ASSERT(priv != NULL, return;);
 	IRDA_ASSERT(priv->magic == IRTTY_MAGIC, return;);
 
+	/* Hm, with a dongle attached the dongle driver wants
+	 * to close the dongle - which requires the use of
+	 * some tty write and/or termios or ioctl operations.
+	 * Are we allowed to call those when already requested
+	 * to shutdown the ldisc?
+	 * If not, we should somehow mark the dev being staled.
+	 * Question remains, how to close the dongle in this case...
+	 * For now let's assume we are granted to issue tty driver calls
+	 * until we return here from the ldisc close. I'm just wondering
+	 * how this behaves with hotpluggable serial hardware like
+	 * rs232-pcmcia card or usb-serial...
+	 *
+	 * priv->tty = NULL?;
+	 */
 
-	
+	/* we are dead now */
 	tty->disc_data = NULL;
 
 	sirdev_put_instance(priv->dev);
 
-	
+	/* Stop tty */
 	irtty_stop_receiver(tty, TRUE);
 	clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 	if (tty->ops->stop)
@@ -412,6 +530,7 @@ static void irtty_close(struct tty_struct *tty)
 	IRDA_DEBUG(0, "%s - %s: irda line discipline closed\n", __func__, tty->name);
 }
 
+/* ------------------------------------------------------- */
 
 static struct tty_ldisc_ops irda_ldisc = {
 	.magic		= TTY_LDISC_MAGIC,
@@ -428,6 +547,7 @@ static struct tty_ldisc_ops irda_ldisc = {
 	.owner		= THIS_MODULE,
 };
 
+/* ------------------------------------------------------- */
 
 static int __init irtty_sir_init(void)
 {

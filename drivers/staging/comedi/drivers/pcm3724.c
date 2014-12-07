@@ -1,3 +1,32 @@
+/*
+    comedi/drivers/pcm724.c
+
+    Drew Csillag <drew_csillag@yahoo.com>
+
+    hardware driver for Advantech card:
+     card:   PCM-3724
+     driver: pcm3724
+
+    Options for PCM-3724
+     [0] - IO Base
+*/
+/*
+Driver: pcm3724
+Description: Advantech PCM-3724
+Author: Drew Csillag <drew_csillag@yahoo.com>
+Devices: [Advantech] PCM-3724 (pcm724)
+Status: tested
+
+This is driver for digital I/O boards PCM-3724 with 48 DIO.
+It needs 8255.o for operations and only immediate mode is supported.
+See the source for configuration details.
+
+Copy/pasted/hacked from pcm724.c
+*/
+/*
+ * check_driver overrides:
+ *   struct comedi_insn
+ */
 
 #include "../comedidev.h"
 
@@ -23,6 +52,7 @@
 #define GATE_B1	0x10
 #define GATE_C1 0x8
 
+/* from 8255.c */
 #define CR_CW		0x80
 #define _8255_CR 3
 #define CR_B_IO		0x02
@@ -37,13 +67,14 @@ static int pcm3724_attach(struct comedi_device *dev,
 static int pcm3724_detach(struct comedi_device *dev);
 
 struct pcm3724_board {
-	const char *name;	
-	int dio;		
-	int numofports;		
-	unsigned int IRQbits;	
-	unsigned int io_range;	
+	const char *name;	/*  driver name */
+	int dio;		/*  num of DIO */
+	int numofports;		/*  num of 8255 subdevices */
+	unsigned int IRQbits;	/*  allowed interrupts */
+	unsigned int io_range;	/*  len of IO space */
 };
 
+/* used to track configured dios */
 struct priv_pcm3724 {
 	int dio_1;
 	int dio_2;
@@ -79,26 +110,27 @@ static void __exit driver_pcm3724_cleanup_module(void)
 module_init(driver_pcm3724_init_module);
 module_exit(driver_pcm3724_cleanup_module);
 
+/* (setq c-basic-offset 8) */
 
 static int subdev_8255_cb(int dir, int port, int data, unsigned long arg)
 {
 	unsigned long iobase = arg;
 	unsigned char inbres;
-	
+	/* printk("8255cb %d %d %d %lx\n", dir,port,data,arg); */
 	if (dir) {
-		
+		/* printk("8255 cb   outb(%x, %lx)\n", data, iobase+port); */
 		outb(data, iobase + port);
 		return 0;
 	} else {
 		inbres = inb(iobase + port);
-		
+		/* printk("8255 cb   inb(%lx) = %x\n", iobase+port, inbres); */
 		return inbres;
 	}
 }
 
 static int compute_buffer(int config, int devno, struct comedi_subdevice *s)
 {
-	
+	/* 1 in io_bits indicates output */
 	if (s->io_bits & 0x0000ff) {
 		if (devno == 0)
 			config |= BUF_A0;
@@ -130,7 +162,7 @@ static void do_3724_config(struct comedi_device *dev,
 	config = CR_CW;
 	buffer_config = 0;
 
-	
+	/* 1 in io_bits indicates output, 1 in config indicates input */
 	if (!(s->io_bits & 0x0000ff))
 		config |= CR_A_IO;
 
@@ -148,7 +180,9 @@ static void do_3724_config(struct comedi_device *dev,
 	else
 		port_8255_cfg = dev->iobase + SIZE_8255 + _8255_CR;
 
-	outb(buffer_config, dev->iobase + 8);	
+	outb(buffer_config, dev->iobase + 8);	/* update buffer register */
+	/* printk("pcm3724 buffer_config (%lx) %d, %x\n",
+	       dev->iobase + _8255_CR, chanspec, buffer_config); */
 
 	outb(config, port_8255_cfg);
 }
@@ -164,9 +198,9 @@ static void enable_chan(struct comedi_device *dev, struct comedi_subdevice *s,
 	priv = dev->private;
 
 	mask = 1 << CR_CHAN(chanspec);
-	if (s == dev->subdevices)	
+	if (s == dev->subdevices)	/*  subdev 0 */
 		priv->dio_1 |= mask;
-	else		
+	else		/* subdev 1 */
 		priv->dio_2 |= mask;
 
 	if (priv->dio_1 & 0xff0000)
@@ -187,10 +221,11 @@ static void enable_chan(struct comedi_device *dev, struct comedi_subdevice *s,
 	if (priv->dio_2 & 0xff)
 		gatecfg |= GATE_A1;
 
-	
+	/*       printk("gate control %x\n", gatecfg); */
 	outb(gatecfg, dev->iobase + 9);
 }
 
+/* overriding the 8255 insn config */
 static int subdev_3724_insn_config(struct comedi_device *dev,
 				   struct comedi_subdevice *s,
 				   struct comedi_insn *insn, unsigned int *data)

@@ -69,7 +69,7 @@ void __init wm8505_set_resources(void)
 
 static void __init wm8505_set_externs(void)
 {
-	
+	/* Non-resource-aware stuff */
 	wmt_ic_base = WM8505_IC_BASE;
 	wmt_sic_base = WM8505_SIC_BASE;
 	wmt_gpio_base = WM8505_GPIO_BASE;
@@ -94,6 +94,6 @@ void __init wm8505_map_io(void)
 {
 	iotable_init(wmt_io_desc, ARRAY_SIZE(wmt_io_desc));
 
-	
+	/* Should be done before interrupts and timers are initialized */
 	wm8505_set_externs();
 }

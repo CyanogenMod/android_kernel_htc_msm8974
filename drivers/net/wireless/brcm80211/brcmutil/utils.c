@@ -40,16 +40,27 @@ struct sk_buff *brcmu_pkt_buf_get_skb(uint len)
 }
 EXPORT_SYMBOL(brcmu_pkt_buf_get_skb);
 
+/* Free the driver packet. Free the tag if present */
 void brcmu_pkt_buf_free_skb(struct sk_buff *skb)
 {
 	WARN_ON(skb->next);
 	if (skb->destructor)
+		/* cannot kfree_skb() on hard IRQ (net/core/skbuff.c) if
+		 * destructor exists
+		 */
 		dev_kfree_skb_any(skb);
 	else
+		/* can free immediately (even in_irq()) if destructor
+		 * does not exist
+		 */
 		dev_kfree_skb(skb);
 }
 EXPORT_SYMBOL(brcmu_pkt_buf_free_skb);
 
+/*
+ * osl multiple-precedence packet queue
+ * hi_prec is always >= the number of the highest non-empty precedence
+ */
 struct sk_buff *brcmu_pktq_penq(struct pktq *pq, int prec,
 				      struct sk_buff *p)
 {
@@ -149,7 +160,7 @@ void brcmu_pktq_init(struct pktq *pq, int num_prec, int max_len)
 {
 	int prec;
 
-	
+	/* pq is variable size; only zero out what's requested */
 	memset(pq, 0,
 	      offsetof(struct pktq, q) + (sizeof(struct pktq_prec) * num_prec));
 
@@ -182,6 +193,7 @@ struct sk_buff *brcmu_pktq_peek_tail(struct pktq *pq, int *prec_out)
 }
 EXPORT_SYMBOL(brcmu_pktq_peek_tail);
 
+/* Return sum of lengths of a specific set of precedences */
 int brcmu_pktq_mlen(struct pktq *pq, uint prec_bmp)
 {
 	int prec, len;
@@ -196,6 +208,7 @@ int brcmu_pktq_mlen(struct pktq *pq, uint prec_bmp)
 }
 EXPORT_SYMBOL(brcmu_pktq_mlen);
 
+/* Priority dequeue from a specific set of precedences */
 struct sk_buff *brcmu_pktq_mdeq(struct pktq *pq, uint prec_bmp,
 				      int *prec_out)
 {
@@ -230,6 +243,7 @@ struct sk_buff *brcmu_pktq_mdeq(struct pktq *pq, uint prec_bmp,
 EXPORT_SYMBOL(brcmu_pktq_mdeq);
 
 #if defined(DEBUG)
+/* pretty hex print a pkt buffer chain */
 void brcmu_prpkt(const char *msg, struct sk_buff *p0)
 {
 	struct sk_buff *p;
@@ -259,4 +273,4 @@ void brcmu_dbg_hex_dump(const void *data, size_t size, const char *fmt, ...)
 	print_hex_dump_bytes("", DUMP_PREFIX_OFFSET, data, size);
 }
 EXPORT_SYMBOL(brcmu_dbg_hex_dump);
-#endif				
+#endif				/* defined(DEBUG) */

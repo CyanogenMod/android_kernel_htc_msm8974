@@ -94,17 +94,24 @@ void __init mips_pcibios_init(void)
 
 	switch (mips_revision_sconid) {
 	case MIPS_REVISION_SCON_GT64120:
+		/*
+		 * Due to a bug in the Galileo system controller, we need
+		 * to setup the PCI BAR for the Galileo internal registers.
+		 * This should be done in the bios/bootprom and will be
+		 * fixed in a later revision of YAMON (the MIPS boards
+		 * boot prom).
+		 */
 		GT_WRITE(GT_PCI0_CFGADDR_OFS,
-			 (0 << GT_PCI0_CFGADDR_BUSNUM_SHF) | 
-			 (0 << GT_PCI0_CFGADDR_DEVNUM_SHF) | 
-			 (0 << GT_PCI0_CFGADDR_FUNCTNUM_SHF) | 
-			 ((0x20/4) << GT_PCI0_CFGADDR_REGNUM_SHF) | 
+			 (0 << GT_PCI0_CFGADDR_BUSNUM_SHF) | /* Local bus */
+			 (0 << GT_PCI0_CFGADDR_DEVNUM_SHF) | /* GT64120 dev */
+			 (0 << GT_PCI0_CFGADDR_FUNCTNUM_SHF) | /* Function 0*/
+			 ((0x20/4) << GT_PCI0_CFGADDR_REGNUM_SHF) | /* BAR 4*/
 			 GT_PCI0_CFGADDR_CONFIGEN_BIT);
 
-		
+		/* Perform the write */
 		GT_WRITE(GT_PCI0_CFGDATA_OFS, CPHYSADDR(MIPS_GT_BASE));
 
-		
+		/* Set up resource ranges from the controller's registers.  */
 		start = GT_READ(GT_PCI0M0LD_OFS);
 		end = GT_READ(GT_PCI0M0HD_OFS);
 		map = GT_READ(GT_PCI0M0REMAP_OFS);
@@ -113,20 +120,20 @@ void __init mips_pcibios_init(void)
 		end1 = GT_READ(GT_PCI0M1HD_OFS);
 		map1 = GT_READ(GT_PCI0M1REMAP_OFS);
 		end1 = (end1 & GT_PCI_HD_MSK) | (start1 & ~GT_PCI_HD_MSK);
-		
+		/* Cannot support multiple windows, use the wider.  */
 		if (end1 - start1 > end - start) {
 			start = start1;
 			end = end1;
 			map = map1;
 		}
 		mask = ~(start ^ end);
-                
+                /* We don't support remapping with a discontiguous mask.  */
 		BUG_ON((start & GT_PCI_HD_MSK) != (map & GT_PCI_HD_MSK) &&
 		       mask != ~((mask & -mask) - 1));
 		gt64120_mem_resource.start = start;
 		gt64120_mem_resource.end = end;
 		gt64120_controller.mem_offset = (start & mask) - (map & mask);
-		
+		/* Addresses are 36-bit, so do shifts in the destinations.  */
 		gt64120_mem_resource.start <<= GT_PCI_DCRM_SHF;
 		gt64120_mem_resource.end <<= GT_PCI_DCRM_SHF;
 		gt64120_mem_resource.end |= (1 << GT_PCI_DCRM_SHF) - 1;
@@ -137,13 +144,13 @@ void __init mips_pcibios_init(void)
 		map = GT_READ(GT_PCI0IOREMAP_OFS);
 		end = (end & GT_PCI_HD_MSK) | (start & ~GT_PCI_HD_MSK);
 		mask = ~(start ^ end);
-                
+                /* We don't support remapping with a discontiguous mask.  */
 		BUG_ON((start & GT_PCI_HD_MSK) != (map & GT_PCI_HD_MSK) &&
 		       mask != ~((mask & -mask) - 1));
 		gt64120_io_resource.start = map & mask;
 		gt64120_io_resource.end = (map & mask) | ~mask;
 		gt64120_controller.io_offset = 0;
-		
+		/* Addresses are 36-bit, so do shifts in the destinations.  */
 		gt64120_io_resource.start <<= GT_PCI_DCRM_SHF;
 		gt64120_io_resource.end <<= GT_PCI_DCRM_SHF;
 		gt64120_io_resource.end |= (1 << GT_PCI_DCRM_SHF) - 1;
@@ -152,7 +159,7 @@ void __init mips_pcibios_init(void)
 		break;
 
 	case MIPS_REVISION_SCON_BONITO:
-		
+		/* Set up resource ranges from the controller's registers.  */
 		map = BONITO_PCIMAP;
 		map1 = (BONITO_PCIMAP & BONITO_PCIMAP_PCIMAP_LO0) >>
 		       BONITO_PCIMAP_PCIMAP_LO0_SHIFT;
@@ -160,7 +167,7 @@ void __init mips_pcibios_init(void)
 		       BONITO_PCIMAP_PCIMAP_LO1_SHIFT;
 		map3 = (BONITO_PCIMAP & BONITO_PCIMAP_PCIMAP_LO2) >>
 		       BONITO_PCIMAP_PCIMAP_LO2_SHIFT;
-		
+		/* Combine as many adjacent windows as possible.  */
 		map = map1;
 		start = BONITO_PCILO0_BASE;
 		end = 1;
@@ -187,7 +194,7 @@ void __init mips_pcibios_init(void)
 	case MIPS_REVISION_SCON_ROCIT:
 	case MIPS_REVISION_SCON_SOCITSC:
 	case MIPS_REVISION_SCON_SOCITSCP:
-		
+		/* Set up resource ranges from the controller's registers.  */
 		MSC_READ(MSC01_PCI_SC2PMBASL, start);
 		MSC_READ(MSC01_PCI_SC2PMMSKL, mask);
 		MSC_READ(MSC01_PCI_SC2PMMAPL, map);
@@ -211,14 +218,14 @@ void __init mips_pcibios_init(void)
 			gcmp_setregion(1, start, mask,
 				GCMP_GCB_GCMPB_CMDEFTGT_IOCU1);
 #endif
-		
+		/* If ranges overlap I/O takes precedence.  */
 		start = start & mask;
 		end = start | ~mask;
 		if ((start >= msc_mem_resource.start &&
 		     start <= msc_mem_resource.end) ||
 		    (end >= msc_mem_resource.start &&
 		     end <= msc_mem_resource.end)) {
-			
+			/* Use the larger space.  */
 			start = max(start, msc_mem_resource.start);
 			end = min(end, msc_mem_resource.end);
 			if (start - msc_mem_resource.start >=
@@ -234,10 +241,10 @@ void __init mips_pcibios_init(void)
 		return;
 	}
 
-	if (controller->io_resource->start < 0x00001000UL)	
+	if (controller->io_resource->start < 0x00001000UL)	/* FIXME */
 		controller->io_resource->start = 0x00001000UL;
 
-	iomem_resource.end &= 0xfffffffffULL;			
+	iomem_resource.end &= 0xfffffffffULL;			/* 64 GB */
 	ioport_resource.end = controller->io_resource->end;
 
 	controller->io_map_base = mips_io_port_base;
@@ -245,11 +252,12 @@ void __init mips_pcibios_init(void)
 	register_pci_controller(controller);
 }
 
+/* Enable PCI 2.1 compatibility in PIIX4 */
 static void __init quirk_dlcsetup(struct pci_dev *dev)
 {
 	u8 odlc, ndlc;
 	(void) pci_read_config_byte(dev, 0x82, &odlc);
-	
+	/* Enable passive releases and delayed transaction */
 	ndlc = odlc | 7;
 	(void) pci_write_config_byte(dev, 0x82, ndlc);
 }

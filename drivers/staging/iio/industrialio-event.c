@@ -25,6 +25,14 @@
 #include "sysfs.h"
 #include "events.h"
 
+/**
+ * struct iio_event_interface - chrdev interface for an event line
+ * @wait:		wait queue to allow blocking reads of events
+ * @det_events:		list of detected events
+ * @dev_attr_list:	list of event interface sysfs attribute
+ * @flags:		file operations related flags including busy flag.
+ * @group:		event interface sysfs attribute group
+ */
 struct iio_event_interface {
 	wait_queue_head_t	wait;
 	DECLARE_KFIFO(det_events, struct iio_event_data, 16);
@@ -40,7 +48,7 @@ int iio_push_event(struct iio_dev *indio_dev, u64 ev_code, s64 timestamp)
 	struct iio_event_data ev;
 	int copied;
 
-	
+	/* Does anyone care? */
 	spin_lock(&ev_int->wait.lock);
 	if (test_bit(IIO_BUSY_BIT_POS, &ev_int->flags)) {
 
@@ -57,6 +65,9 @@ int iio_push_event(struct iio_dev *indio_dev, u64 ev_code, s64 timestamp)
 }
 EXPORT_SYMBOL(iio_push_event);
 
+/**
+ * iio_event_poll() - poll the event queue to find out if it has data
+ */
 static unsigned int iio_event_poll(struct file *filep,
 			     struct poll_table_struct *wait)
 {
@@ -91,12 +102,12 @@ static ssize_t iio_event_chrdev_read(struct file *filep,
 			ret = -EAGAIN;
 			goto error_unlock;
 		}
-		
+		/* Blocking on device; waiting for something to be there */
 		ret = wait_event_interruptible_locked(ev_int->wait,
 					!kfifo_is_empty(&ev_int->det_events));
 		if (ret)
 			goto error_unlock;
-		
+		/* Single access device so no one else can get the data */
 	}
 
 	ret = kfifo_to_user(&ev_int->det_events, buf, count, &copied);
@@ -113,6 +124,11 @@ static int iio_event_chrdev_release(struct inode *inode, struct file *filep)
 
 	spin_lock(&ev_int->wait.lock);
 	__clear_bit(IIO_BUSY_BIT_POS, &ev_int->flags);
+	/*
+	 * In order to maintain a clean state for reopening,
+	 * clear out any awaiting events. The mask will prevent
+	 * any new __iio_push_event calls running.
+	 */
 	kfifo_reset_out(&ev_int->det_events);
 	spin_unlock(&ev_int->wait.lock);
 
@@ -330,7 +346,7 @@ static inline int __iio_add_event_config_attrs(struct iio_dev *indio_dev)
 	int j, ret, attrcount = 0;
 
 	INIT_LIST_HEAD(&indio_dev->event_interface->dev_attr_list);
-	
+	/* Dynically created from the channels array */
 	for (j = 0; j < indio_dev->num_channels; j++) {
 		ret = iio_device_add_event_sysfs(indio_dev,
 						 &indio_dev->channels[j]);
@@ -408,7 +424,7 @@ int iio_device_register_eventset(struct iio_dev *indio_dev)
 		       sizeof(indio_dev->event_interface->group.attrs[0])
 		       *attrcount_orig);
 	attrn = attrcount_orig;
-	
+	/* Add all elements from the list. */
 	list_for_each_entry(p,
 			    &indio_dev->event_interface->dev_attr_list,
 			    l)

@@ -1,3 +1,19 @@
+/*
+ * Intel GTT (Graphics Translation Table) routines
+ *
+ * Caveat: This driver implements the linux agp interface, but this is far from
+ * a agp driver! GTT support ended up here for purely historical reasons: The
+ * old userspace intel graphics drivers needed an interface to map memory into
+ * the GTT. And the drm provides a default interface for graphic devices sitting
+ * on an agp port. So it made sense to fake the GTT support as an agp port to
+ * avoid having to create a new api.
+ *
+ * With gem this does not make much sense anymore, just needlessly complicates
+ * the code. But as long as the old graphics stack is still support, it's stuck
+ * here.
+ *
+ * /fairy-tale-mode off
+ */
 
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -11,6 +27,12 @@
 #include "intel-agp.h"
 #include <drm/intel-gtt.h>
 
+/*
+ * If we have Intel graphics, we're not going to have anything other than
+ * an Intel IOMMU. So make the correct use of the PCI DMA API contingent
+ * on the Intel IOMMU support (CONFIG_INTEL_IOMMU).
+ * Only newer chipsets need to bother with this, of course.
+ */
 #ifdef CONFIG_INTEL_IOMMU
 #define USE_PCI_DMA_API 1
 #else
@@ -24,10 +46,15 @@ struct intel_gtt_driver {
 	unsigned int is_ironlake : 1;
 	unsigned int has_pgtbl_enable : 1;
 	unsigned int dma_mask_size : 8;
-	
+	/* Chipset specific GTT setup */
 	int (*setup)(void);
+	/* This should undo anything done in ->setup() save the unmapping
+	 * of the mmio register file, that's done in the generic code. */
 	void (*cleanup)(void);
 	void (*write_entry)(dma_addr_t addr, unsigned int entry, unsigned int flags);
+	/* Flags is a more or less chipset specific opaque value.
+	 * For chipsets that need to support old ums (non-gem) code, this
+	 * needs to be identical to the various supported agp memory types! */
 	bool (*check_flags)(unsigned int flags);
 	void (*chipset_flush)(void);
 };
@@ -35,14 +62,14 @@ struct intel_gtt_driver {
 static struct _intel_private {
 	struct intel_gtt base;
 	const struct intel_gtt_driver *driver;
-	struct pci_dev *pcidev;	
+	struct pci_dev *pcidev;	/* device one */
 	struct pci_dev *bridge_dev;
 	u8 __iomem *registers;
 	phys_addr_t gtt_bus_addr;
 	phys_addr_t gma_bus_addr;
 	u32 PGETBL_save;
-	u32 __iomem *gtt;		
-	bool clear_fake_agp; 
+	u32 __iomem *gtt;		/* I915G */
+	bool clear_fake_agp; /* on first access via agp, fill with scratch */
 	int num_dcache_entries;
 	void __iomem *i9xx_flush_page;
 	char *i81x_gtt_table;
@@ -65,7 +92,7 @@ int intel_gtt_map_memory(struct page **pages, unsigned int num_entries,
 	int i;
 
 	if (*sg_list)
-		return 0; 
+		return 0; /* already mapped (for e.g. resume */
 
 	DBG("try mapping %lu pages\n", (unsigned long)num_entries);
 
@@ -110,6 +137,7 @@ static void intel_fake_agp_enable(struct agp_bridge_data *bridge, u32 mode)
 	return;
 }
 
+/* Exists to support ARGB cursors */
 static struct page *i8xx_alloc_pages(void)
 {
 	struct page *page;
@@ -145,7 +173,7 @@ static int i810_setup(void)
 	u32 reg_addr;
 	char *gtt_table;
 
-	
+	/* i81x does not preallocate the gtt. It's always 64kb in size. */
 	gtt_table = alloc_gatt_pages(I810_GTT_ORDER);
 	if (gtt_table == NULL)
 		return -ENOMEM;
@@ -201,6 +229,11 @@ static int i810_insert_dcache_entries(struct agp_memory *mem, off_t pg_start,
 	return 0;
 }
 
+/*
+ * The i810/i830 requires a physical address to program its mouse
+ * pointer into hardware.
+ * However the Xserver still writes to it through the agp aperture.
+ */
 static struct agp_memory *alloc_agpphysmem_i8xx(size_t pg_count, int type)
 {
 	struct agp_memory *new;
@@ -210,7 +243,7 @@ static struct agp_memory *alloc_agpphysmem_i8xx(size_t pg_count, int type)
 	case 1: page = agp_bridge->driver->agp_alloc_page(agp_bridge);
 		break;
 	case 4:
-		
+		/* kludge to get 4 physical pages for ARGB cursor */
 		page = i8xx_alloc_pages();
 		break;
 	default:
@@ -226,7 +259,7 @@ static struct agp_memory *alloc_agpphysmem_i8xx(size_t pg_count, int type)
 
 	new->pages[0] = page;
 	if (pg_count == 4) {
-		
+		/* kludge to get 4 physical pages for ARGB cursor */
 		new->pages[1] = new->pages[0] + 1;
 		new->pages[2] = new->pages[1] + 1;
 		new->pages[3] = new->pages[2] + 1;
@@ -315,7 +348,7 @@ static unsigned int intel_gtt_stolen_size(void)
 	unsigned int stolen_size = 0;
 
 	if (INTEL_GTT_GEN == 1)
-		return 0; 
+		return 0; /* no stolen mem on i81x */
 
 	pci_read_config_word(intel_private.bridge_dev,
 			     I830_GMCH_CTRL, &gmch_ctrl);
@@ -343,6 +376,9 @@ static unsigned int intel_gtt_stolen_size(void)
 			break;
 		}
 	} else if (INTEL_GTT_GEN == 6) {
+		/*
+		 * SandyBridge has new memory control reg at 0x50.w
+		 */
 		u16 snb_gmch_ctl;
 		pci_read_config_word(intel_private.pcidev, SNB_GMCH_CTRL, &snb_gmch_ctl);
 		switch (snb_gmch_ctl & SNB_GMCH_GMS_STOLEN_MASK) {
@@ -458,12 +494,12 @@ static void i965_adjust_pgetbl_size(unsigned int size_flag)
 {
 	u32 pgetbl_ctl, pgetbl_ctl2;
 
-	
+	/* ensure that ppgtt is disabled */
 	pgetbl_ctl2 = readl(intel_private.registers+I965_PGETBL_CTL2);
 	pgetbl_ctl2 &= ~I810_PGETBL_ENABLED;
 	writel(pgetbl_ctl2, intel_private.registers+I965_PGETBL_CTL2);
 
-	
+	/* write the new ggtt size */
 	pgetbl_ctl = readl(intel_private.registers+I810_PGETBL_CTL);
 	pgetbl_ctl &= ~I965_PGETBL_SIZE_MASK;
 	pgetbl_ctl |= size_flag;
@@ -507,7 +543,7 @@ static unsigned int i965_gtt_total_entries(void)
 	case I965_PGETBL_SIZE_512KB:
 		size = KB(512);
 		break;
-	
+	/* GTT pagetable sizes bigger than 512KB are not possible on G33! */
 	case I965_PGETBL_SIZE_1MB:
 		size = KB(1024);
 		break;
@@ -551,6 +587,9 @@ static unsigned int intel_gtt_total_entries(void)
 		}
 		return size/4;
 	} else {
+		/* On previous hardware, the GTT size was just what was
+		 * required to map the aperture.
+		 */
 		return intel_private.base.gtt_mappable_entries;
 	}
 }
@@ -581,7 +620,7 @@ static unsigned int intel_gtt_mappable_entries(void)
 		else
 			aperture_size = MB(128);
 	} else {
-		
+		/* 9xx supports large sizes, just look at the length */
 		aperture_size = pci_resource_len(intel_private.pcidev, 2);
 	}
 
@@ -619,11 +658,11 @@ static int intel_gtt_init(void)
 	intel_private.base.gtt_mappable_entries = intel_gtt_mappable_entries();
 	intel_private.base.gtt_total_entries = intel_gtt_total_entries();
 
-	
+	/* save the PGETBL reg for resume */
 	intel_private.PGETBL_save =
 		readl(intel_private.registers+I810_PGETBL_CTL)
 			& ~I810_PGETBL_ENABLED;
-	
+	/* we only ever restore the register when enabling the PGTBL... */
 	if (HAS_PGTBL_EN)
 		intel_private.PGETBL_save |= I810_PGETBL_ENABLED;
 
@@ -643,7 +682,7 @@ static int intel_gtt_init(void)
 	}
 	intel_private.base.gtt = intel_private.gtt;
 
-	global_cache_flush();   
+	global_cache_flush();   /* FIXME: ? */
 
 	intel_private.base.stolen_size = intel_gtt_stolen_size();
 
@@ -682,12 +721,30 @@ static void i830_cleanup(void)
 {
 }
 
+/* The chipset_flush interface needs to get data that has already been
+ * flushed out of the CPU all the way out to main memory, because the GPU
+ * doesn't snoop those buffers.
+ *
+ * The 8xx series doesn't have the same lovely interface for flushing the
+ * chipset write buffers that the later chips do. According to the 865
+ * specs, it's 64 octwords, or 1KB.  So, to get those previous things in
+ * that buffer out, we just fill 1KB and clflush it out, on the assumption
+ * that it'll push whatever was in there out.  It appears to work.
+ */
 static void i830_chipset_flush(void)
 {
 	unsigned long timeout = jiffies + msecs_to_jiffies(1000);
 
+	/* Forcibly evict everything from the CPU write buffers.
+	 * clflush appears to be insufficient.
+	 */
 	wbinvd_on_all_cpus();
 
+	/* Now we've only seen documents for this magic bit on 855GM,
+	 * we hope it exists for the other gen2 chipsets...
+	 *
+	 * Also works as advertised on my 845G.
+	 */
 	writel(readl(intel_private.registers+I830_HIC) | (1<<31),
 	       intel_private.registers+I830_HIC);
 
@@ -746,6 +803,9 @@ static bool intel_enable_gtt(void)
 		}
 	}
 
+	/* On the resume path we may be adjusting the PGTBL value, so
+	 * be paranoid and flush all chipset write buffers...
+	 */
 	if (INTEL_GTT_GEN >= 3)
 		writel(0, intel_private.registers+GFX_FLSH_CNTL);
 
@@ -829,6 +889,8 @@ void intel_gtt_insert_sg_entries(struct scatterlist *sg_list,
 
 	j = pg_start;
 
+	/* sg may merge pages, but we have to separate
+	 * per-page addr for GTT */
 	for_each_sg(sg_list, sg, sg_len, i) {
 		len = sg_dma_len(sg) >> PAGE_SHIFT;
 		for (m = 0; m < len; m++) {
@@ -961,7 +1023,7 @@ static struct agp_memory *intel_fake_agp_alloc_by_type(size_t pg_count,
 	}
 	if (type == AGP_PHYS_MEMORY)
 		return alloc_agpphysmem_i8xx(pg_count, type);
-	
+	/* always return NULL for other allocation types for now */
 	return NULL;
 }
 
@@ -992,7 +1054,7 @@ static void intel_i915_setup_chipset_flush(void)
 		intel_private.ifp_resource.start = temp;
 		intel_private.ifp_resource.end = temp + PAGE_SIZE;
 		ret = request_resource(&iomem_resource, &intel_private.ifp_resource);
-		
+		/* some BIOSes reserve this area in a pnp some don't */
 		if (ret)
 			intel_private.resource_valid = 0;
 	}
@@ -1024,7 +1086,7 @@ static void intel_i965_g33_setup_chipset_flush(void)
 		intel_private.ifp_resource.start = l64;
 		intel_private.ifp_resource.end = l64 + PAGE_SIZE;
 		ret = request_resource(&iomem_resource, &intel_private.ifp_resource);
-		
+		/* some BIOSes reserve this area in a pnp some don't */
 		if (ret)
 			intel_private.resource_valid = 0;
 	}
@@ -1032,18 +1094,18 @@ static void intel_i965_g33_setup_chipset_flush(void)
 
 static void intel_i9xx_setup_flush(void)
 {
-	
+	/* return if already configured */
 	if (intel_private.ifp_resource.start)
 		return;
 
 	if (INTEL_GTT_GEN == 6)
 		return;
 
-	
+	/* setup a resource for this object */
 	intel_private.ifp_resource.name = "Intel Flush Page";
 	intel_private.ifp_resource.flags = IORESOURCE_MEM;
 
-	
+	/* Setup chipset flush for 915 */
 	if (IS_G33 || INTEL_GTT_GEN >= 4) {
 		intel_i965_g33_setup_chipset_flush();
 	} else {
@@ -1083,7 +1145,7 @@ static void i965_write_entry(dma_addr_t addr,
 	if (flags == AGP_USER_CACHED_MEMORY)
 		pte_flags |= I830_PTE_SYSTEM_CACHED;
 
-	
+	/* Shift high bits down */
 	addr |= (addr >> 28) & 0xf0;
 	writel(addr | pte_flags, intel_private.gtt + entry);
 }
@@ -1106,13 +1168,13 @@ static void gen6_write_entry(dma_addr_t addr, unsigned int entry,
 		pte_flags = GEN6_PTE_LLC_MLC | I810_PTE_VALID;
 		if (gfdt)
 			pte_flags |= GEN6_PTE_GFDT;
-	} else { 
+	} else { /* set 'normal'/'cached' to LLC by default */
 		pte_flags = GEN6_PTE_LLC | I810_PTE_VALID;
 		if (gfdt)
 			pte_flags |= GEN6_PTE_GFDT;
 	}
 
-	
+	/* gen6 has bit11-4 for physical addr bit39-32 */
 	addr |= (addr >> 28) & 0xff0;
 	writel(addr | pte_flags, intel_private.gtt + entry);
 }
@@ -1121,11 +1183,17 @@ static void gen6_cleanup(void)
 {
 }
 
+/* Certain Gen5 chipsets require require idling the GPU before
+ * unmapping anything from the GTT when VT-d is enabled.
+ */
 static inline int needs_idle_maps(void)
 {
 #ifdef CONFIG_INTEL_IOMMU
 	const unsigned short gpu_devid = intel_private.pcidev->device;
 
+	/* Query intel_iommu to see if we need the workaround. Presumably that
+	 * was loaded first.
+	 */
 	if ((gpu_devid == PCI_DEVICE_ID_INTEL_IRONLAKE_M_HB ||
 	     gpu_devid == PCI_DEVICE_ID_INTEL_IRONLAKE_M_IG) &&
 	     intel_iommu_gfx_mapped)
@@ -1222,7 +1290,7 @@ static const struct intel_gtt_driver i915_gtt_driver = {
 	.has_pgtbl_enable = 1,
 	.setup = i9xx_setup,
 	.cleanup = i9xx_cleanup,
-	
+	/* i945 is the last gpu to need phys mem (for overlay and cursors). */
 	.write_entry = i830_write_entry,
 	.dma_mask_size = 32,
 	.check_flags = i830_check_flags,
@@ -1287,6 +1355,10 @@ static const struct intel_gtt_driver sandybridge_gtt_driver = {
 	.chipset_flush = i9xx_chipset_flush,
 };
 
+/* Table to describe Intel GMCH and AGP/PCIE GART drivers.  At least one of
+ * driver and gmch_driver must be non-null, and find_gmch will determine
+ * which one should be used if a gmch_chip_id is present.
+ */
 static const struct intel_gtt_driver_description {
 	unsigned int gmch_chip_id;
 	char *name;
@@ -1441,6 +1513,8 @@ int intel_gmch_probe(struct pci_dev *pdev,
 		pci_set_consistent_dma_mask(intel_private.pcidev,
 					    DMA_BIT_MASK(mask));
 
+	/*if (bridge->driver == &intel_810_driver)
+		return 1;*/
 
 	if (intel_gtt_init() != 0)
 		return 0;

@@ -34,6 +34,10 @@
 #define w7(byte)                {out_p(7,byte);}
 #define r7()                    (in_p(7) & 0xff)
 
+/* cont = 0 - access the IDE register file 
+   cont = 1 - access the IDE command set 
+
+*/
 
 static void  fit3_write_regr( PIA *pi, int cont, int regr, int val)
 

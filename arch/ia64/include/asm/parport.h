@@ -17,4 +17,4 @@ parport_pc_find_nonpci_ports (int autoirq, int autodma)
 	return parport_pc_find_isa_ports(autoirq, autodma);
 }
 
-#endif 
+#endif /* _ASM_IA64_PARPORT_H */

@@ -68,8 +68,8 @@
 #define DL_FLUSH	0x0224
 #define DL_UNIT_DATA	0x0230
 
-#define MDL_BC_RELEASE  0x0278  
-#define MDL_BC_ASSIGN   0x027C  
+#define MDL_BC_RELEASE  0x0278  // Formula-n enter:now
+#define MDL_BC_ASSIGN   0x027C  // Formula-n enter:now
 #define MDL_ASSIGN	0x0280
 #define MDL_REMOVE	0x0284
 #define MDL_ERROR	0x0288
@@ -113,9 +113,10 @@
 #define CC_CONNECT_ERR	0x03E4
 #define CC_RELEASE_ERR	0x03E5
 #define CC_RESTART	0x03F4
-#define CC_TDSS1_IO     0x13F4    
-#define CC_TNI1_IO      0x13F5    
+#define CC_TDSS1_IO     0x13F4    /* DSS1 IO user timer */
+#define CC_TNI1_IO      0x13F5    /* NI1 IO user timer */
 
+/* define maximum number of possible waiting incoming calls */
 #define MAX_WAITING_CALLS 2
 
 
@@ -130,17 +131,18 @@ extern const char *l3_revision;
 extern const char *lli_revision;
 extern const char *tei_revision;
 
+/* include l3dss1 & ni1 specific process structures, but no other defines */
 #ifdef CONFIG_HISAX_EURO
 #define l3dss1_process
 #include "l3dss1.h"
 #undef  l3dss1_process
-#endif 
+#endif /* CONFIG_HISAX_EURO */
 
 #ifdef CONFIG_HISAX_NI1
 #define l3ni1_process
 #include "l3ni1.h"
 #undef  l3ni1_process
-#endif 
+#endif /* CONFIG_HISAX_NI1 */
 
 #define MAX_DFRAME_LEN	260
 #define MAX_DFRAME_LEN_L1	300
@@ -154,8 +156,12 @@ extern const char *tei_revision;
 #define MAX_DLOG_SPACE	2048
 #define MAX_BLOG_SPACE	256
 
+/* #define I4L_IRQ_FLAG SA_INTERRUPT */
 #define I4L_IRQ_FLAG    0
 
+/*
+ * Statemachine
+ */
 
 struct FsmInst;
 
@@ -221,6 +227,7 @@ struct Layer1 {
 #define CTRL_SAPI	0
 #define PACKET_NOACK	7
 
+/* Layer2 Flags */
 
 #define FLG_LAPB	0
 #define FLG_LAPD	1
@@ -303,9 +310,9 @@ struct Param {
 	u_char diag[6];
 	int bchannel;
 	int chargeinfo;
-	int spv;		
-	setup_parm setup;	
-	u_char moderate;	
+	int spv;		/* SPV Flag */
+	setup_parm setup;	/* from isdnif.h numbers and Serviceindicator */
+	u_char moderate;	/* transfer mode and rate (bearer octet 4) */
 };
 
 
@@ -316,17 +323,17 @@ struct PStack {
 	struct Layer3 l3;
 	struct LLInterface lli;
 	struct Management ma;
-	int protocol;		
+	int protocol;		/* EDSS1, 1TR6 or NI1 */
 
-	
+	/* protocol specific data fields */
 	union
-	{ u_char uuuu; 
+	{ u_char uuuu; /* only as dummy */
 #ifdef CONFIG_HISAX_EURO
-		dss1_stk_priv dss1; 
-#endif 
+		dss1_stk_priv dss1; /* private dss1 data */
+#endif /* CONFIG_HISAX_EURO */
 #ifdef CONFIG_HISAX_NI1
-		ni1_stk_priv ni1; 
-#endif 
+		ni1_stk_priv ni1; /* private ni1 data */
+#endif /* CONFIG_HISAX_NI1 */
 	} prot;
 };
 
@@ -342,23 +349,23 @@ struct l3_process {
 	struct l3_process *next;
 	ulong redir_result;
 
-	
+	/* protocol specific data fields */
 	union
-	{ u_char uuuu; 
+	{ u_char uuuu; /* only when euro not defined, avoiding empty union */
 #ifdef CONFIG_HISAX_EURO
-		dss1_proc_priv dss1; 
-#endif 
+		dss1_proc_priv dss1; /* private dss1 data */
+#endif /* CONFIG_HISAX_EURO */
 #ifdef CONFIG_HISAX_NI1
-		ni1_proc_priv ni1; 
-#endif 
+		ni1_proc_priv ni1; /* private ni1 data */
+#endif /* CONFIG_HISAX_NI1 */
 	} prot;
 };
 
 struct hscx_hw {
 	int hscx;
 	int rcvidx;
-	int count;              
-	u_char *rcvbuf;         
+	int count;              /* Current skb sent count */
+	u_char *rcvbuf;         /* B-Channel receive Buffer */
 	u_char tsaxr0;
 	u_char tsaxr1;
 };
@@ -366,8 +373,8 @@ struct hscx_hw {
 struct w6692B_hw {
 	int bchan;
 	int rcvidx;
-	int count;              
-	u_char *rcvbuf;         
+	int count;              /* Current skb sent count */
+	u_char *rcvbuf;         /* B-Channel receive Buffer */
 };
 
 struct isar_reg {
@@ -391,7 +398,7 @@ struct isar_hw {
 	u_char newmod;
 	char try_mod;
 	struct timer_list ftimer;
-	u_char *rcvbuf;         
+	u_char *rcvbuf;         /* B-Channel receive Buffer */
 	u_char conmsg[16];
 	struct isar_reg *reg;
 };
@@ -417,8 +424,8 @@ struct hdlc_hw {
 	} ctrl;
 	u_int stat;
 	int rcvidx;
-	int count;              
-	u_char *rcvbuf;         
+	int count;              /* Current skb sent count */
+	u_char *rcvbuf;         /* B-Channel receive Buffer */
 };
 
 struct hfcB_hw {
@@ -492,10 +499,10 @@ struct BCState {
 	int mode;
 	u_long Flag;
 	struct IsdnCardState *cs;
-	int tx_cnt;		
-	struct sk_buff *tx_skb; 
-	struct sk_buff_head rqueue;	
-	struct sk_buff_head squeue;	
+	int tx_cnt;		/* B-Channel transmit counter */
+	struct sk_buff *tx_skb; /* B-Channel transmit Buffer */
+	struct sk_buff_head rqueue;	/* B-Channel receive Queue */
+	struct sk_buff_head squeue;	/* B-Channel send Queue */
 	int ackcnt;
 	spinlock_t aclock;
 	struct PStack *st;
@@ -537,8 +544,8 @@ struct Channel {
 	int l3_protocol;
 	int data_open;
 	struct l3_process *proc;
-	setup_parm setup;	
-	u_long Flags;		
+	setup_parm setup;	/* from isdnif.h numbers and Serviceindicator */
+	u_long Flags;		/* for remembering action done in l4 */
 	int leased;
 };
 
@@ -696,10 +703,10 @@ struct hfcPCI_hw {
 	unsigned char nt_mode;
 	int nt_timer;
 	struct pci_dev *dev;
-	unsigned char *pci_io; 
-	dma_addr_t dma; 
-	void *fifos; 
-	int last_bfifo_cnt[2]; 
+	unsigned char *pci_io; /* start of PCI IO memory */
+	dma_addr_t dma; /* dma handle for Fifos */
+	void *fifos; /* FIFO memory */
+	int last_bfifo_cnt[2]; /* marker saving last b-fifo frame count */
 	struct timer_list timer;
 };
 
@@ -769,12 +776,12 @@ struct saphir_hw {
 struct bkm_hw {
 	struct pci_dev *dev;
 	unsigned long base;
-	
+	/* A4T stuff */
 	unsigned long isac_adr;
 	unsigned int isac_ale;
 	unsigned long jade_adr;
 	unsigned int jade_ale;
-	
+	/* Scitel Quadro stuff */
 	unsigned long plx_adr;
 	unsigned long data_adr;
 };
@@ -885,8 +892,8 @@ struct IsdnCardState {
 	u_long		irq_flags;
 	u_long		HW_Flags;
 	int		*busy_flag;
-	int		chanlimit; 
-	int		logecho; 
+	int		chanlimit; /* limited number of B-chans to use */
+	int		logecho; /* log echo if supported by card */
 	union {
 		struct elsa_hw elsa;
 		struct teles0_hw teles0;
@@ -933,7 +940,7 @@ struct IsdnCardState {
 	struct Channel	channel[2 + MAX_WAITING_CALLS];
 	struct BCState	bcs[2 + MAX_WAITING_CALLS];
 	struct PStack	*stlist;
-	struct sk_buff_head rq, sq; 
+	struct sk_buff_head rq, sq; /* D-channel queues */
 	int		cardnr;
 	char		*dlog;
 	int		debug;
@@ -1219,6 +1226,7 @@ struct IsdnCardState {
 
 #define TEI_PER_CARD 1
 
+/* L1 Debug */
 #define	L1_DEB_WARN		0x01
 #define	L1_DEB_INTSTAT		0x02
 #define	L1_DEB_ISAC		0x04
@@ -1288,8 +1296,11 @@ int QuickHex(char *txt, u_char *p, int cnt);
 void LogFrame(struct IsdnCardState *cs, u_char *p, int size);
 void dlogframe(struct IsdnCardState *cs, struct sk_buff *skb, int dir);
 void iecpy(u_char *dest, u_char *iestart, int ieoffset);
-#endif	
+#endif	/* __KERNEL__ */
 
+/*
+ * Busywait delay for `jiffs' jiffies
+ */
 #define HZDELAY(jiffs) do {				\
 		int tout = jiffs;			\
 							\
@@ -1321,6 +1332,11 @@ void TeiFree(void);
 
 #include <linux/pci.h>
 
+/* adaptation wrapper for old usage
+ * WARNING! This is unfit for use in a PCI hotplug environment,
+ * as the returned PCI device can disappear at any moment in time.
+ * Callers should be converted to use pci_get_device() instead.
+ */
 static inline struct pci_dev *hisax_find_pci_device(unsigned int vendor,
 						    unsigned int device,
 						    struct pci_dev *from)

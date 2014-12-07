@@ -2,6 +2,9 @@
 #ifndef _PC873xx_H_
 #define _PC873xx_H_
 
+/*
+ * Control Register Values
+ */
 #define REG_FER	0x00
 #define REG_FAR	0x01
 #define REG_PTR	0x02
@@ -14,6 +17,9 @@
 #define REG_ASC	0x09
 #define REG_IRC	0x0e
 
+/*
+ * Model numbers
+ */
 #define PC87303	0
 #define PC87306	1
 #define PC87312	2

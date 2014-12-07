@@ -31,24 +31,26 @@ static inline unsigned long virt_to_phys_from_pte(void *addr)
 	unsigned long virt_addr = (unsigned long)addr;
 	unsigned long phys_addr = 0UL;
 
-	
+	/* get the page global directory. */
 	pgd = pgd_offset_k(virt_addr);
 
 	if (!pgd_none(*pgd)) {
-		
+		/* get the page upper directory */
 		pud = pud_offset(pgd, virt_addr);
 		if (!pud_none(*pud)) {
-			
+			/* get the page middle directory */
 			pmd = pmd_offset(pud, virt_addr);
 			if (!pmd_none(*pmd)) {
-				
+				/* get a pointer to the page table entry */
 				ptep = pte_offset(pmd, virt_addr);
 				pte = *ptep;
-				
+				/* check for a valid page */
 				if (pte_present(pte)) {
+					/* get the physical address the page is
+					 * referring to */
 					phys_addr = (unsigned long)
 						page_to_phys(pte_page(pte));
-					
+					/* add the offset within the page */
 					phys_addr |= (virt_addr & ~PAGE_MASK);
 				}
 			}
@@ -86,6 +88,11 @@ static inline void plat_unmap_dma_mem(struct device *dev, dma_addr_t dma_addr,
 
 static inline int plat_dma_supported(struct device *dev, u64 mask)
 {
+	/*
+	 * we fall back to GFP_DMA when the mask isn't all 1s,
+	 * so we can't guarantee allocations that must be
+	 * within a tighter range than GFP_DMA..
+	 */
 	if (mask < DMA_BIT_MASK(24))
 		return 0;
 
@@ -107,4 +114,4 @@ static inline int plat_device_is_coherent(struct device *dev)
 	return 0;
 }
 
-#endif 
+#endif /* __ASM_MACH_POWERTV_DMA_COHERENCE_H */

@@ -13,6 +13,11 @@
 #ifndef NOON010PC30_H
 #define NOON010PC30_H
 
+/**
+ * @clk_rate: the clock frequency in Hz
+ * @gpio_nreset: GPIO driving nRESET pin
+ * @gpio_nstby: GPIO driving nSTBY pin
+ */
 
 struct noon010pc30_platform_data {
 	unsigned long clk_rate;
@@ -20,4 +25,4 @@ struct noon010pc30_platform_data {
 	int gpio_nstby;
 };
 
-#endif 
+#endif /* NOON010PC30_H */

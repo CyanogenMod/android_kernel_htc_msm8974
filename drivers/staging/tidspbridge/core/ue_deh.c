@@ -64,8 +64,15 @@ static irqreturn_t mmu_fault_isr(int irq, void *data)
 		hw_mmu_fault_addr_read(resources->dmmu_base, &fault_addr);
 		dev_dbg(bridge, "%s: event=0x%x, fault_addr=0x%x\n", __func__,
 				event, fault_addr);
+		/*
+		 * Schedule a DPC directly. In the future, it may be
+		 * necessary to check if DSP MMU fault is intended for
+		 * Bridge.
+		 */
 		tasklet_schedule(&deh->dpc_tasklet);
 
+		/* Disable the MMU events, else once we clear it will
+		 * start to raise INTs again */
 		hw_mmu_event_disable(resources->dmmu_base,
 				HW_MMU_TRANSLATION_FAULT);
 	} else {
@@ -82,16 +89,19 @@ int bridge_deh_create(struct deh_mgr **ret_deh,
 	struct deh_mgr *deh;
 	struct bridge_dev_context *hbridge_context = NULL;
 
-	
+	/*  Message manager will be created when a file is loaded, since
+	 *  size of message buffer in shared memory is configurable in
+	 *  the base image. */
+	/* Get Bridge context info. */
 	dev_get_bridge_context(hdev_obj, &hbridge_context);
-	
+	/* Allocate IO manager object: */
 	deh = kzalloc(sizeof(*deh), GFP_KERNEL);
 	if (!deh) {
 		status = -ENOMEM;
 		goto err;
 	}
 
-	
+	/* Create an NTFY object to manage notifications */
 	deh->ntfy_obj = kmalloc(sizeof(struct ntfy_object), GFP_KERNEL);
 	if (!deh->ntfy_obj) {
 		status = -ENOMEM;
@@ -99,13 +109,13 @@ int bridge_deh_create(struct deh_mgr **ret_deh,
 	}
 	ntfy_init(deh->ntfy_obj);
 
-	
+	/* Create a MMUfault DPC */
 	tasklet_init(&deh->dpc_tasklet, mmu_fault_dpc, (u32) deh);
 
-	
+	/* Fill in context structure */
 	deh->bridge_context = hbridge_context;
 
-	
+	/* Install ISR function for DSP MMU fault */
 	status = request_irq(INT_DSP_MMU_IRQ, mmu_fault_isr, 0,
 			"DspBridge\tiommu fault", deh);
 	if (status < 0)
@@ -125,18 +135,18 @@ int bridge_deh_destroy(struct deh_mgr *deh)
 	if (!deh)
 		return -EFAULT;
 
-	
+	/* If notification object exists, delete it */
 	if (deh->ntfy_obj) {
 		ntfy_delete(deh->ntfy_obj);
 		kfree(deh->ntfy_obj);
 	}
-	
+	/* Disable DSP MMU fault */
 	free_irq(INT_DSP_MMU_IRQ, deh);
 
-	
+	/* Free DPC object */
 	tasklet_kill(&deh->dpc_tasklet);
 
-	
+	/* Deallocate the DEH manager object */
 	kfree(deh);
 
 	return 0;
@@ -170,6 +180,11 @@ static void mmu_fault_print_stack(struct bridge_dev_context *dev_context)
 	resources = dev_context->resources;
 	dummy_va_addr = (void*)__get_free_page(GFP_ATOMIC);
 
+	/*
+	 * Before acking the MMU fault, let's make sure MMU can only
+	 * access entry #0. Then add a new entry so that the DSP OS
+	 * can continue in order to dump the stack.
+	 */
 	hw_mmu_twl_disable(resources->dmmu_base);
 	hw_mmu_tlb_flush_all(resources->dmmu_base);
 
@@ -182,7 +197,7 @@ static void mmu_fault_print_stack(struct bridge_dev_context *dev_context)
 
 	dsp_gpt_wait_overflow(DSP_CLK_GPT8, 0xfffffffe);
 
-	
+	/* Clear MMU interrupt */
 	hw_mmu_event_ack(resources->dmmu_base,
 			HW_MMU_TRANSLATION_FAULT);
 	dump_dsp_stack(dev_context);
@@ -238,7 +253,7 @@ void bridge_deh_notify(struct deh_mgr *deh, int event, int info)
 		break;
 	}
 
-	
+	/* Filter subsequent notifications when an error occurs */
 	if (dev_context->brd_state != BRD_ERROR) {
 		ntfy_notify(deh->ntfy_obj, event);
 #ifdef CONFIG_TIDSPBRIDGE_RECOVERY
@@ -246,9 +261,13 @@ void bridge_deh_notify(struct deh_mgr *deh, int event, int info)
 #endif
 	}
 
-	
+	/* Set the Board state as ERROR */
 	dev_context->brd_state = BRD_ERROR;
-	
+	/* Disable all the clocks that were enabled by DSP */
 	dsp_clock_disable_all(dev_context->dsp_per_clks);
+	/*
+	 * Avoid the subsequent WDT if it happens once,
+	 * also if fatal error occurs.
+	 */
 	dsp_wdt_enable(false);
 }

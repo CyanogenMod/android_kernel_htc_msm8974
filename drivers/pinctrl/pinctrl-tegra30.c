@@ -19,6 +19,10 @@
 
 #include "pinctrl-tegra.h"
 
+/*
+ * Most pins affected by the pinmux can also be GPIOs. Define these first.
+ * These must match how the GPIO driver names/numbers its pins.
+ */
 #define _GPIO(offset)				(offset)
 
 #define TEGRA_PIN_CLK_32K_OUT_PA0	_GPIO(0)
@@ -270,9 +274,11 @@
 #define TEGRA_PIN_PEE6			_GPIO(246)
 #define TEGRA_PIN_PEE7			_GPIO(247)
 
+/* All non-GPIO pins follow */
 #define NUM_GPIOS				(TEGRA_PIN_PEE7 + 1)
 #define _PIN(offset)				(NUM_GPIOS + (offset))
 
+/* Non-GPIO pins */
 #define TEGRA_PIN_CLK_32K_IN		_PIN(0)
 #define TEGRA_PIN_CORE_PWR_REQ		_PIN(1)
 #define TEGRA_PIN_CPU_PWR_REQ		_PIN(2)
@@ -3409,8 +3415,8 @@ static const struct tegra_function tegra30_functions[] = {
 	}
 
 static const struct tegra_pingroup tegra30_groups[] = {
-	
-	
+	/*       pg_name,              f0,           f1,           f2,           f3,           safe,         r,      od, ior */
+	/* FIXME: Fill in correct data in safe column */
 	PINGROUP(clk_32k_out_pa0,      BLINK,        RSVD2,        RSVD3,        RSVD4,        RSVD4,        0x331c, N, N),
 	PINGROUP(uart3_cts_n_pa1,      UARTC,        RSVD2,        GMI,          RSVD4,        RSVD4,        0x317c, N, N),
 	PINGROUP(dap2_fs_pa2,          I2S1,         HDA,          RSVD3,        GMI,          RSVD3,        0x3358, N, N),
@@ -3660,7 +3666,7 @@ static const struct tegra_pingroup tegra30_groups[] = {
 	PINGROUP(cpu_pwr_req,          CPU_PWR_REQ,  RSVD2,        RSVD3,        RSVD4,        RSVD4,        0x3328, N, N),
 	PINGROUP(owr,                  OWR,          CEC,          RSVD3,        RSVD4,        RSVD4,        0x3334, N, N),
 	PINGROUP(pwr_int_n,            PWR_INT_N,    RSVD2,        RSVD3,        RSVD4,        RSVD4,        0x332c, N, N),
-	
+	/* pg_name, r, hsm_b, schmitt_b, lpmd_b, drvdn_b, drvdn_w, drvup_b, drvup_w, slwr_b, slwr_w, slwf_b, slwf_w */
 	DRV_PINGROUP(ao1,   0x868,  2,  3,  4,  12,  5,  20,  5,  28,  2,  30,  2),
 	DRV_PINGROUP(ao2,   0x86c,  2,  3,  4,  12,  5,  20,  5,  28,  2,  30,  2),
 	DRV_PINGROUP(at1,   0x870,  2,  3,  4,  14,  5,  19,  5,  24,  2,  28,  2),

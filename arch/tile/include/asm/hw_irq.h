@@ -15,4 +15,4 @@
 #ifndef _ASM_TILE_HW_IRQ_H
 #define _ASM_TILE_HW_IRQ_H
 
-#endif 
+#endif /* _ASM_TILE_HW_IRQ_H */

@@ -126,7 +126,7 @@ i2c_table(struct drm_device *dev, u8 *version)
 			i2c = ROMPTR(dev, dcb[4]);
 	}
 
-	
+	/* early revisions had no version number, use dcb version */
 	if (i2c) {
 		*version = dcb[0];
 		if (*version >= 0x30)
@@ -159,6 +159,9 @@ nouveau_i2c_init(struct drm_device *dev)
 		legacy[1][0] = NV_CIO_CRE_DDC0_WR__INDEX;
 		legacy[1][1] = NV_CIO_CRE_DDC0_STATUS__INDEX;
 
+		/* BMP (from v4.0) has i2c info in the structure, it's in a
+		 * fixed location on earlier VBIOS
+		 */
 		if (bmp[5] < 4)
 			i2c = &bios->data[0x48];
 		else
@@ -205,15 +208,15 @@ nouveau_i2c_init(struct drm_device *dev)
 		}
 
 		switch (port->type) {
-		case 0: 
+		case 0: /* NV04:NV50 */
 			port->drive = entry[0];
 			port->sense = entry[1];
 			break;
-		case 4: 
+		case 4: /* NV4E */
 			port->drive = 0x600800 + entry[1];
 			port->sense = port->drive;
 			break;
-		case 5: 
+		case 5: /* NV50- */
 			port->drive = entry[0] & 0x0f;
 			if (dev_priv->card_type < NV_D0) {
 				if (port->drive >= ARRAY_SIZE(nv50_i2c_port))
@@ -225,7 +228,7 @@ nouveau_i2c_init(struct drm_device *dev)
 				port->sense = port->drive;
 			}
 			break;
-		case 6: 
+		case 6: /* NV50- DP AUX */
 			port->drive = entry[0];
 			port->sense = port->drive;
 			port->adapter.algo = &nouveau_dp_i2c_algo;
@@ -331,9 +334,9 @@ nouveau_i2c_find(struct drm_device *dev, u8 index)
 			val  = 0xe001;
 		}
 
-		
+		/* nfi, but neither auxch or i2c work if it's 1 */
 		nv_mask(dev, reg + 0x0c, 0x00000001, 0x00000000);
-		
+		/* nfi, but switches auxch vs normal i2c */
 		nv_mask(dev, reg + 0x00, 0x0000f003, val);
 	}
 

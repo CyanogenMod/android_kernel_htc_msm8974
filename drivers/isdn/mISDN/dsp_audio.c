@@ -16,20 +16,28 @@
 #include "core.h"
 #include "dsp.h"
 
+/* ulaw[unsigned char] -> signed 16-bit */
 s32 dsp_audio_ulaw_to_s32[256];
+/* alaw[unsigned char] -> signed 16-bit */
 s32 dsp_audio_alaw_to_s32[256];
 
 s32 *dsp_audio_law_to_s32;
 EXPORT_SYMBOL(dsp_audio_law_to_s32);
 
+/* signed 16-bit -> law */
 u8 dsp_audio_s16_to_law[65536];
 EXPORT_SYMBOL(dsp_audio_s16_to_law);
 
+/* alaw -> ulaw */
 u8 dsp_audio_alaw_to_ulaw[256];
+/* ulaw -> alaw */
 static u8 dsp_audio_ulaw_to_alaw[256];
 u8 dsp_silence;
 
 
+/*****************************************************
+ * generate table for conversion of s16 to alaw/ulaw *
+ *****************************************************/
 
 #define AMI_MASK 0x55
 
@@ -44,20 +52,20 @@ static inline unsigned char linear2alaw(short int linear)
 
 	pcm_val = linear;
 	if (pcm_val >= 0) {
-		
+		/* Sign (7th) bit = 1 */
 		mask = AMI_MASK | 0x80;
 	} else {
-		
+		/* Sign bit = 0 */
 		mask = AMI_MASK;
 		pcm_val = -pcm_val;
 	}
 
-	
+	/* Convert the scaled magnitude to segment number. */
 	for (seg = 0; seg < 8; seg++) {
 		if (pcm_val <= seg_end[seg])
 			break;
 	}
-	
+	/* Combine the sign, segment, and quantization bits. */
 	return  ((seg << 4) |
 		 ((pcm_val >> ((seg)  ?  (seg + 3)  :  4)) & 0x0F)) ^ mask;
 }
@@ -69,7 +77,7 @@ static inline short int alaw2linear(unsigned char alaw)
 	int seg;
 
 	alaw ^= AMI_MASK;
-	i = ((alaw & 0x0F) << 4) + 8 ;
+	i = ((alaw & 0x0F) << 4) + 8 /* rounding error */;
 	seg = (((int) alaw & 0x70) >> 4);
 	if (seg)
 		i = (i + 0x100) << (seg - 1);
@@ -91,7 +99,7 @@ static inline short int ulaw2linear(unsigned char ulaw)
 	return y;
 }
 
-#define BIAS 0x84   
+#define BIAS 0x84   /*!< define the add-in bias for 16 bit samples */
 
 static unsigned char linear2ulaw(short sample)
 {
@@ -115,12 +123,12 @@ static unsigned char linear2ulaw(short sample)
 	int sign, exponent, mantissa;
 	unsigned char ulawbyte;
 
-	
-	sign = (sample >> 8) & 0x80;	  
+	/* Get the sample into sign-magnitude. */
+	sign = (sample >> 8) & 0x80;	  /* set aside the sign */
 	if (sign != 0)
-		sample = -sample;	      
+		sample = -sample;	      /* get magnitude */
 
-	
+	/* Convert from 16 bit linear to ulaw. */
 	sample = sample + BIAS;
 	exponent = exp_lut[(sample >> 7) & 0xFF];
 	mantissa = (sample >> (exponent + 3)) & 0x0F;
@@ -165,13 +173,13 @@ dsp_audio_generate_s2law_table(void)
 	int i;
 
 	if (dsp_options & DSP_OPT_ULAW) {
-		
+		/* generating ulaw-table */
 		for (i = -32768; i < 32768; i++) {
 			dsp_audio_s16_to_law[i & 0xffff] =
 				reverse_bits(linear2ulaw(i));
 		}
 	} else {
-		
+		/* generating alaw-table */
 		for (i = -32768; i < 32768; i++) {
 			dsp_audio_s16_to_law[i & 0xffff] =
 				reverse_bits(linear2alaw(i));
@@ -180,9 +188,16 @@ dsp_audio_generate_s2law_table(void)
 }
 
 
+/*
+ * the seven bit sample is the number of every second alaw-sample ordered by
+ * aplitude. 0x00 is negative, 0x7f is positive amplitude.
+ */
 u8 dsp_audio_seven2law[128];
 u8 dsp_audio_law2seven[256];
 
+/********************************************************************
+ * generate table for conversion law from/to 7-bit alaw-like sample *
+ ********************************************************************/
 
 void
 dsp_audio_generate_seven(void)
@@ -191,7 +206,7 @@ dsp_audio_generate_seven(void)
 	u8 spl;
 	u8 sorted_alaw[256];
 
-	
+	/* generate alaw table, sorted by the linear value */
 	for (i = 0; i < 256; i++) {
 		j = 0;
 		for (k = 0; k < 256; k++) {
@@ -202,18 +217,18 @@ dsp_audio_generate_seven(void)
 		sorted_alaw[j] = i;
 	}
 
-	
+	/* generate tabels */
 	for (i = 0; i < 256; i++) {
-		
+		/* spl is the source: the law-sample (converted to alaw) */
 		spl = i;
 		if (dsp_options & DSP_OPT_ULAW)
 			spl = dsp_audio_ulaw_to_alaw[i];
-		
+		/* find the 7-bit-sample */
 		for (j = 0; j < 256; j++) {
 			if (sorted_alaw[j] == spl)
 				break;
 		}
-		
+		/* write 7-bit audio value */
 		dsp_audio_law2seven[i] = j >> 1;
 	}
 	for (i = 0; i < 128; i++) {
@@ -225,8 +240,12 @@ dsp_audio_generate_seven(void)
 }
 
 
+/* mix 2*law -> law */
 u8 dsp_audio_mix_law[65536];
 
+/******************************************************
+ * generate mix table to mix two law samples into one *
+ ******************************************************/
 
 void
 dsp_audio_generate_mix_table(void)
@@ -253,6 +272,9 @@ dsp_audio_generate_mix_table(void)
 }
 
 
+/*************************************
+ * generate different volume changes *
+ *************************************/
 
 static u8 dsp_audio_reduce8[256];
 static u8 dsp_audio_reduce7[256];
@@ -370,7 +392,13 @@ dsp_audio_generate_volume_changes(void)
 }
 
 
+/**************************************
+ * change the volume of the given skb *
+ **************************************/
 
+/* this is a helper function for changing volume of skb. the range may be
+ * -8 to 8, which is a shift to the power of 2. 0 == no volume, 3 == volume*8
+ */
 void
 dsp_change_volume(struct sk_buff *skb, int volume)
 {
@@ -382,7 +410,7 @@ dsp_change_volume(struct sk_buff *skb, int volume)
 	if (volume == 0)
 		return;
 
-	
+	/* get correct conversion table */
 	if (volume < 0) {
 		shift = volume + 8;
 		if (shift < 0)
@@ -396,7 +424,7 @@ dsp_change_volume(struct sk_buff *skb, int volume)
 	i = 0;
 	ii = skb->len;
 	p = skb->data;
-	
+	/* change volume */
 	while (i < ii) {
 		*p = volume_change[*p];
 		p++;

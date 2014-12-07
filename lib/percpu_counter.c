@@ -1,3 +1,6 @@
+/*
+ * Fast batching percpu counters.
+ */
 
 #include <linux/percpu_counter.h>
 #include <linux/notifier.h>
@@ -47,12 +50,12 @@ static inline void debug_percpu_counter_deactivate(struct percpu_counter *fbc)
 	debug_object_free(fbc, &percpu_counter_debug_descr);
 }
 
-#else	
+#else	/* CONFIG_DEBUG_OBJECTS_PERCPU_COUNTER */
 static inline void debug_percpu_counter_activate(struct percpu_counter *fbc)
 { }
 static inline void debug_percpu_counter_deactivate(struct percpu_counter *fbc)
 { }
-#endif	
+#endif	/* CONFIG_DEBUG_OBJECTS_PERCPU_COUNTER */
 
 void percpu_counter_set(struct percpu_counter *fbc, s64 amount)
 {
@@ -86,6 +89,10 @@ void __percpu_counter_add(struct percpu_counter *fbc, s64 amount, s32 batch)
 }
 EXPORT_SYMBOL(__percpu_counter_add);
 
+/*
+ * Add up all the per-cpu counts, return the result.  This is a more accurate
+ * but much slower version of percpu_counter_read_positive()
+ */
 s64 __percpu_counter_sum(struct percpu_counter *fbc)
 {
 	s64 ret;
@@ -179,19 +186,23 @@ static int __cpuinit percpu_counter_hotcpu_callback(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
+/*
+ * Compare counter against given value.
+ * Return 1 if greater, 0 if equal and -1 if less
+ */
 int percpu_counter_compare(struct percpu_counter *fbc, s64 rhs)
 {
 	s64	count;
 
 	count = percpu_counter_read(fbc);
-	
+	/* Check to see if rough count will be sufficient for comparison */
 	if (abs(count - rhs) > (percpu_counter_batch*num_online_cpus())) {
 		if (count > rhs)
 			return 1;
 		else
 			return -1;
 	}
-	
+	/* Need to use precise count */
 	count = percpu_counter_sum(fbc);
 	if (count > rhs)
 		return 1;

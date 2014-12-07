@@ -21,18 +21,20 @@
 
 #define ADSP_IOCTL_MAGIC 'q'
 
+/* ADSP_IOCTL_WRITE_COMMAND */
 struct adsp_command_t {
 	uint16_t queue;
-	uint32_t len;		
+	uint32_t len;		/* bytes */
 	uint8_t *data;
 };
 
+/* ADSP_IOCTL_GET_EVENT */
 struct adsp_event_t {
-	uint16_t type;		
-	uint32_t timeout_ms;	
+	uint16_t type;		/* 1 == event (RPC), 0 == message (adsp) */
+	uint32_t timeout_ms;	/* -1 for infinite, 0 for immediate return */
 	uint16_t msg_id;
-	uint16_t flags;		
-	uint32_t len;		
+	uint16_t flags;		/* 1 == 16--bit event, 0 == 32-bit event */
+	uint32_t len;		/* size in, number of bytes out */
 	uint8_t *data;
 };
 
@@ -63,6 +65,10 @@ struct adsp_event_t {
 #define ADSP_IOCTL_UNREGISTER_PMEM \
 	_IOW(ADSP_IOCTL_MAGIC, 14, unsigned)
 
+/* Cause any further GET_EVENT ioctls to fail (-ENODEV)
+ * until the device is closed and reopened.  Useful for
+ * terminating event dispatch threads
+ */
 #define ADSP_IOCTL_ABORT_EVENT_READ \
 	_IOW(ADSP_IOCTL_MAGIC, 15, unsigned)
 

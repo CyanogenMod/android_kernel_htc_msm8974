@@ -35,6 +35,20 @@
 #include <linux/random.h>
 #include <linux/export.h>
 
+/*
+ * i1480_rceb_check - Check RCEB for expected field values
+ * @i1480: pointer to device for which RCEB is being checked
+ * @rceb: RCEB being checked
+ * @cmd: which command the RCEB is related to
+ * @context: expected context
+ * @expected_type: expected event type
+ * @expected_event: expected event
+ *
+ * If @cmd is NULL, do not print error messages, but still return an error
+ * code.
+ *
+ * Return 0 if @rceb matches the expected values, -EINVAL otherwise.
+ */
 int i1480_rceb_check(const struct i1480 *i1480, const struct uwb_rceb *rceb,
 		     const char *cmd, u8 context, u8 expected_type,
 		     unsigned expected_event)
@@ -67,6 +81,14 @@ int i1480_rceb_check(const struct i1480 *i1480, const struct uwb_rceb *rceb,
 EXPORT_SYMBOL_GPL(i1480_rceb_check);
 
 
+/*
+ * Execute a Radio Control Command
+ *
+ * Command data has to be in i1480->cmd_buf.
+ *
+ * @returns size of the reply data filled in i1480->evt_buf or < 0 errno
+ *          code on error.
+ */
 ssize_t i1480_cmd(struct i1480 *i1480, const char *cmd_name, size_t cmd_size,
 		  size_t reply_size)
 {
@@ -86,7 +108,7 @@ ssize_t i1480_cmd(struct i1480 *i1480, const char *cmd_name, size_t cmd_size,
 	result = i1480->cmd(i1480, cmd_name, cmd_size);
 	if (result < 0)
 		goto error;
-	
+	/* wait for the callback to report a event was received */
 	result = wait_for_completion_interruptible_timeout(
 		&i1480->evt_complete, HZ);
 	if (result == 0) {
@@ -101,9 +123,15 @@ ssize_t i1480_cmd(struct i1480 *i1480, const char *cmd_name, size_t cmd_size,
 			cmd_name, result);
 		goto error;
 	}
+	/*
+	 * Firmware versions >= 1.4.12224 for IOGear GUWA100U generate a
+	 * spurious notification after firmware is downloaded. So check whether
+	 * the receibed RCEB is such notification before assuming that the
+	 * command has failed.
+	 */
 	if (i1480_rceb_check(i1480, i1480->evt_buf, NULL,
 			     0, 0xfd, 0x0022) == 0) {
-		
+		/* Now wait for the actual RCEB for this command. */
 		result = i1480->wait_init_done(i1480);
 		if (result < 0)
 			goto error;
@@ -115,7 +143,7 @@ ssize_t i1480_cmd(struct i1480 *i1480, const char *cmd_name, size_t cmd_size,
 		result = -EINVAL;
 		goto error;
 	}
-	
+	/* Verify we got the right event in response */
 	result = i1480_rceb_check(i1480, i1480->evt_buf, cmd_name, context,
 				  expected_type, expected_event);
 error:
@@ -141,16 +169,21 @@ error:
 }
 
 
+/*
+ * PCI probe, firmware uploader
+ *
+ * _mac_fw_upload() will call rc_setup(), which needs an rc_release().
+ */
 int i1480_fw_upload(struct i1480 *i1480)
 {
 	int result;
 
-	result = i1480_pre_fw_upload(i1480);	
+	result = i1480_pre_fw_upload(i1480);	/* PHY pre fw */
 	if (result < 0 && result != -ENOENT) {
 		i1480_print_state(i1480);
 		goto error;
 	}
-	result = i1480_mac_fw_upload(i1480);	
+	result = i1480_mac_fw_upload(i1480);	/* MAC fw */
 	if (result < 0) {
 		if (result == -ENOENT)
 			dev_err(i1480->dev, "Cannot locate MAC FW file '%s'\n",
@@ -159,11 +192,15 @@ int i1480_fw_upload(struct i1480 *i1480)
 			i1480_print_state(i1480);
 		goto error;
 	}
-	result = i1480_phy_fw_upload(i1480);	
+	result = i1480_phy_fw_upload(i1480);	/* PHY fw */
 	if (result < 0 && result != -ENOENT) {
 		i1480_print_state(i1480);
 		goto error_rc_release;
 	}
+	/*
+	 * FIXME: find some reliable way to check whether firmware is running
+	 * properly. Maybe use some standard request that has no side effects?
+	 */
 	dev_info(i1480->dev, "firmware uploaded successfully\n");
 error_rc_release:
 	if (i1480->rc_release)

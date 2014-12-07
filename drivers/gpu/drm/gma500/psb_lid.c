@@ -36,13 +36,13 @@ static void psb_lid_timer_func(unsigned long data)
 		goto lid_timer_schedule;
 
 	if ((readl(lid_state)) & 0x01) {
-		
+		/*lid state is open*/
 		REG_WRITE(PP_CONTROL, REG_READ(PP_CONTROL) | POWER_TARGET_ON);
 		do {
 			pp_status = REG_READ(PP_STATUS);
 		} while ((pp_status & PP_ON) == 0);
 
-		
+		/*FIXME: should be backlight level before*/
 		psb_intel_lvds_set_brightness(dev, 100);
 	} else {
 		psb_intel_lvds_set_brightness(dev, 0);

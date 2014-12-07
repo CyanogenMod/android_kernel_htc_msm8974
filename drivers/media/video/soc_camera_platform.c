@@ -145,9 +145,9 @@ static int soc_camera_platform_probe(struct platform_device *pdev)
 
 	icd = p->icd;
 
-	
+	/* soc-camera convention: control's drvdata points to the subdev */
 	platform_set_drvdata(pdev, &priv->subdev);
-	
+	/* Set the control device reference */
 	icd->control = &pdev->dev;
 
 	ici = to_soc_camera_host(icd->parent);

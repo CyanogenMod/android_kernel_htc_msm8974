@@ -20,6 +20,7 @@
  * Copyright (C) IBM Corporation, 2009
  */
 
+/* insn_attr_t is defined in inat.h */
 #include <asm/inat.h>
 
 struct insn_field {
@@ -27,27 +28,34 @@ struct insn_field {
 		insn_value_t value;
 		insn_byte_t bytes[4];
 	};
-	
+	/* !0 if we've run insn_get_xxx() for this field */
 	unsigned char got;
 	unsigned char nbytes;
 };
 
 struct insn {
-	struct insn_field prefixes;	
-	struct insn_field rex_prefix;	
-	struct insn_field vex_prefix;	
-	struct insn_field opcode;	
+	struct insn_field prefixes;	/*
+					 * Prefixes
+					 * prefixes.bytes[3]: last prefix
+					 */
+	struct insn_field rex_prefix;	/* REX prefix */
+	struct insn_field vex_prefix;	/* VEX prefix */
+	struct insn_field opcode;	/*
+					 * opcode.bytes[0]: opcode1
+					 * opcode.bytes[1]: opcode2
+					 * opcode.bytes[2]: opcode3
+					 */
 	struct insn_field modrm;
 	struct insn_field sib;
 	struct insn_field displacement;
 	union {
 		struct insn_field immediate;
-		struct insn_field moffset1;	
-		struct insn_field immediate1;	
+		struct insn_field moffset1;	/* for 64bit MOV */
+		struct insn_field immediate1;	/* for 64bit imm or off16/32 */
 	};
 	union {
-		struct insn_field moffset2;	
-		struct insn_field immediate2;	
+		struct insn_field moffset2;	/* for 64bit MOV */
+		struct insn_field immediate2;	/* for 64bit imm or seg16 */
 	};
 
 	insn_attr_t attr;
@@ -56,7 +64,7 @@ struct insn {
 	unsigned char length;
 	unsigned char x86_64;
 
-	const insn_byte_t *kaddr;	
+	const insn_byte_t *kaddr;	/* kernel address of insn to analyze */
 	const insn_byte_t *next_byte;
 };
 
@@ -75,16 +83,18 @@ struct insn {
 #define X86_REX_X(rex) ((rex) & 2)
 #define X86_REX_B(rex) ((rex) & 1)
 
-#define X86_VEX_W(vex)	((vex) & 0x80)	
-#define X86_VEX_R(vex)	((vex) & 0x80)	
-#define X86_VEX_X(vex)	((vex) & 0x40)	
-#define X86_VEX_B(vex)	((vex) & 0x20)	
-#define X86_VEX_L(vex)	((vex) & 0x04)	
-#define X86_VEX3_M(vex)	((vex) & 0x1f)		
-#define X86_VEX2_M	1			
-#define X86_VEX_V(vex)	(((vex) & 0x78) >> 3)	
-#define X86_VEX_P(vex)	((vex) & 0x03)		
-#define X86_VEX_M_MAX	0x1f			
+/* VEX bit flags  */
+#define X86_VEX_W(vex)	((vex) & 0x80)	/* VEX3 Byte2 */
+#define X86_VEX_R(vex)	((vex) & 0x80)	/* VEX2/3 Byte1 */
+#define X86_VEX_X(vex)	((vex) & 0x40)	/* VEX3 Byte1 */
+#define X86_VEX_B(vex)	((vex) & 0x20)	/* VEX3 Byte1 */
+#define X86_VEX_L(vex)	((vex) & 0x04)	/* VEX3 Byte2, VEX2 Byte1 */
+/* VEX bit fields */
+#define X86_VEX3_M(vex)	((vex) & 0x1f)		/* VEX3 Byte1 */
+#define X86_VEX2_M	1			/* VEX2.M always 1 */
+#define X86_VEX_V(vex)	(((vex) & 0x78) >> 3)	/* VEX3 Byte2, VEX2 Byte1 */
+#define X86_VEX_P(vex)	((vex) & 0x03)		/* VEX3 Byte2, VEX2 Byte1 */
+#define X86_VEX_M_MAX	0x1f			/* VEX3.M Maximum value */
 
 extern void insn_init(struct insn *insn, const void *kaddr, int x86_64);
 extern void insn_get_prefixes(struct insn *insn);
@@ -95,18 +105,21 @@ extern void insn_get_displacement(struct insn *insn);
 extern void insn_get_immediate(struct insn *insn);
 extern void insn_get_length(struct insn *insn);
 
+/* Attribute will be determined after getting ModRM (for opcode groups) */
 static inline void insn_get_attribute(struct insn *insn)
 {
 	insn_get_modrm(insn);
 }
 
+/* Instruction uses RIP-relative addressing */
 extern int insn_rip_relative(struct insn *insn);
 
+/* Init insn for kernel text */
 static inline void kernel_insn_init(struct insn *insn, const void *kaddr)
 {
 #ifdef CONFIG_X86_64
 	insn_init(insn, kaddr, 1);
-#else 
+#else /* CONFIG_X86_32 */
 	insn_init(insn, kaddr, 0);
 #endif
 }
@@ -118,6 +131,7 @@ static inline int insn_is_avx(struct insn *insn)
 	return (insn->vex_prefix.value != 0);
 }
 
+/* Ensure this instruction is decoded completely */
 static inline int insn_complete(struct insn *insn)
 {
 	return insn->opcode.got && insn->modrm.got && insn->sib.got &&
@@ -126,7 +140,7 @@ static inline int insn_complete(struct insn *insn)
 
 static inline insn_byte_t insn_vex_m_bits(struct insn *insn)
 {
-	if (insn->vex_prefix.nbytes == 2)	
+	if (insn->vex_prefix.nbytes == 2)	/* 2 bytes VEX */
 		return X86_VEX2_M;
 	else
 		return X86_VEX3_M(insn->vex_prefix.bytes[1]);
@@ -134,16 +148,17 @@ static inline insn_byte_t insn_vex_m_bits(struct insn *insn)
 
 static inline insn_byte_t insn_vex_p_bits(struct insn *insn)
 {
-	if (insn->vex_prefix.nbytes == 2)	
+	if (insn->vex_prefix.nbytes == 2)	/* 2 bytes VEX */
 		return X86_VEX_P(insn->vex_prefix.bytes[1]);
 	else
 		return X86_VEX_P(insn->vex_prefix.bytes[2]);
 }
 
+/* Get the last prefix id from last prefix or VEX prefix */
 static inline int insn_last_prefix_id(struct insn *insn)
 {
 	if (insn_is_avx(insn))
-		return insn_vex_p_bits(insn);	
+		return insn_vex_p_bits(insn);	/* VEX_p is a SIMD prefix id */
 
 	if (insn->prefixes.bytes[3])
 		return inat_get_last_prefix_id(insn->prefixes.bytes[3]);
@@ -151,6 +166,7 @@ static inline int insn_last_prefix_id(struct insn *insn)
 	return 0;
 }
 
+/* Offset of each field from kaddr */
 static inline int insn_offset_rex_prefix(struct insn *insn)
 {
 	return insn->prefixes.nbytes;
@@ -180,4 +196,4 @@ static inline int insn_offset_immediate(struct insn *insn)
 	return insn_offset_displacement(insn) + insn->displacement.nbytes;
 }
 
-#endif 
+#endif /* _ASM_X86_INSN_H */

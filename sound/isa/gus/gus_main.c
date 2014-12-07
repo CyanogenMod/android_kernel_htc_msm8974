@@ -96,6 +96,9 @@ static void snd_gus_init_control(struct snd_gus_card *gus)
 		snd_ctl_add(gus->card, snd_ctl_new1(&snd_gus_joystick_control, gus));
 }
 
+/*
+ *
+ */
 
 static int snd_gus_free(struct snd_gus_card *gus)
 {
@@ -158,7 +161,7 @@ int snd_gus_create(struct snd_card *card,
 	gus->gf1.dma2 = -1;
 	gus->card = card;
 	gus->gf1.port = port;
-	
+	/* fill register variables for speedup */
 	gus->gf1.reg_page = GUSP(gus, GF1PAGE);
 	gus->gf1.reg_regsel = GUSP(gus, GF1REGSEL);
 	gus->gf1.reg_data8 = GUSP(gus, GF1DATAHIGH);
@@ -167,7 +170,7 @@ int snd_gus_create(struct snd_card *card,
 	gus->gf1.reg_dram = GUSP(gus, DRAM);
 	gus->gf1.reg_timerctrl = GUSP(gus, TIMERCNTRL);
 	gus->gf1.reg_timerdata = GUSP(gus, TIMERDATA);
-	
+	/* allocate resources */
 	if ((gus->gf1.res_port1 = request_region(port, 16, "GUS GF1 (Adlib/SB)")) == NULL) {
 		snd_printk(KERN_ERR "gus: can't grab SB port 0x%lx\n", port);
 		snd_gus_free(gus);
@@ -225,6 +228,9 @@ int snd_gus_create(struct snd_card *card,
 	return 0;
 }
 
+/*
+ *  Memory detection routine for plain GF1 soundcards
+ */
 
 static int snd_gus_detect_memory(struct snd_gus_card * gus)
 {
@@ -258,7 +264,7 @@ static int snd_gus_detect_memory(struct snd_gus_card * gus)
 		gus->gf1.mem_alloc.banks_16[l].size = local > 0 ? 256 * 1024 : 0;
 	}
 	gus->gf1.mem_alloc.banks_8[0].size = gus->gf1.memory;
-	return 0;		
+	return 0;		/* some memory were detected */
 }
 
 static int snd_gus_init_dma_irq(struct snd_gus_card * gus, int latches)
@@ -278,10 +284,10 @@ static int snd_gus_init_dma_irq(struct snd_gus_card * gus, int latches)
 		return -EINVAL;
 
 	gus->mix_cntrl_reg &= 0xf8;
-	gus->mix_cntrl_reg |= 0x01;	
+	gus->mix_cntrl_reg |= 0x01;	/* disable MIC, LINE IN, enable LINE OUT */
 	if (gus->codec_flag || gus->ess_flag) {
-		gus->mix_cntrl_reg &= ~1;	
-		gus->mix_cntrl_reg |= 4;	
+		gus->mix_cntrl_reg &= ~1;	/* enable LINE IN */
+		gus->mix_cntrl_reg |= 4;	/* enable MIC */
 	}
 	dma1 = gus->gf1.dma1;
 	dma1 = abs(dma1);
@@ -339,9 +345,9 @@ static int snd_gus_init_dma_irq(struct snd_gus_card * gus, int latches)
 	snd_gf1_delay(gus);
 
 	if (latches)
-		gus->mix_cntrl_reg |= 0x08;	
+		gus->mix_cntrl_reg |= 0x08;	/* enable latches */
 	else
-		gus->mix_cntrl_reg &= ~0x08;	
+		gus->mix_cntrl_reg &= ~0x08;	/* disable latches */
 	spin_lock_irqsave(&gus->reg_lock, flags);
 	outb(gus->mix_cntrl_reg, GUSP(gus, MIXCNTRLREG));
 	outb(0, GUSP(gus, GF1PAGE));
@@ -393,7 +399,7 @@ static int snd_gus_check_version(struct snd_gus_card * gus)
 		}
 	}
 	strcpy(card->shortname, card->longname);
-	gus->uart_enable = 1;	
+	gus->uart_enable = 1;	/* standard GUSes doesn't have midi uart trouble */
 	snd_gus_init_control(gus);
 	return 0;
 }
@@ -417,7 +423,7 @@ int snd_gus_initialize(struct snd_gus_card *gus)
 	return 0;
 }
 
-  
+  /* gus_io.c */
 EXPORT_SYMBOL(snd_gf1_delay);
 EXPORT_SYMBOL(snd_gf1_write8);
 EXPORT_SYMBOL(snd_gf1_look8);
@@ -430,36 +436,39 @@ EXPORT_SYMBOL(snd_gf1_dram_addr);
 EXPORT_SYMBOL(snd_gf1_write_addr);
 EXPORT_SYMBOL(snd_gf1_poke);
 EXPORT_SYMBOL(snd_gf1_peek);
-  
+  /* gus_reset.c */
 EXPORT_SYMBOL(snd_gf1_alloc_voice);
 EXPORT_SYMBOL(snd_gf1_free_voice);
 EXPORT_SYMBOL(snd_gf1_ctrl_stop);
 EXPORT_SYMBOL(snd_gf1_stop_voice);
-  
+  /* gus_mixer.c */
 EXPORT_SYMBOL(snd_gf1_new_mixer);
-  
+  /* gus_pcm.c */
 EXPORT_SYMBOL(snd_gf1_pcm_new);
-  
+  /* gus.c */
 EXPORT_SYMBOL(snd_gus_use_inc);
 EXPORT_SYMBOL(snd_gus_use_dec);
 EXPORT_SYMBOL(snd_gus_create);
 EXPORT_SYMBOL(snd_gus_initialize);
-  
+  /* gus_irq.c */
 EXPORT_SYMBOL(snd_gus_interrupt);
-  
+  /* gus_uart.c */
 EXPORT_SYMBOL(snd_gf1_rawmidi_new);
-  
+  /* gus_dram.c */
 EXPORT_SYMBOL(snd_gus_dram_write);
 EXPORT_SYMBOL(snd_gus_dram_read);
-  
+  /* gus_volume.c */
 EXPORT_SYMBOL(snd_gf1_lvol_to_gvol_raw);
 EXPORT_SYMBOL(snd_gf1_translate_freq);
-  
+  /* gus_mem.c */
 EXPORT_SYMBOL(snd_gf1_mem_alloc);
 EXPORT_SYMBOL(snd_gf1_mem_xfree);
 EXPORT_SYMBOL(snd_gf1_mem_free);
 EXPORT_SYMBOL(snd_gf1_mem_lock);
 
+/*
+ *  INIT part
+ */
 
 static int __init alsa_gus_init(void)
 {

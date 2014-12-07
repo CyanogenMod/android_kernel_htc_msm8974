@@ -18,24 +18,29 @@
 extern struct mISDNdevice	*get_mdevice(u_int);
 extern int			get_mdevice_count(void);
 
+/* stack status flag */
 #define mISDN_STACK_ACTION_MASK		0x0000ffff
 #define mISDN_STACK_COMMAND_MASK	0x000f0000
 #define mISDN_STACK_STATUS_MASK		0xfff00000
+/* action bits 0-15 */
 #define mISDN_STACK_WORK	0
 #define mISDN_STACK_SETUP	1
 #define mISDN_STACK_CLEARING	2
 #define mISDN_STACK_RESTART	3
 #define mISDN_STACK_WAKEUP	4
 #define mISDN_STACK_ABORT	15
+/* command bits 16-19 */
 #define mISDN_STACK_STOPPED	16
 #define mISDN_STACK_INIT	17
 #define mISDN_STACK_THREADSTART	18
+/* status bits 20-31 */
 #define mISDN_STACK_BCHANNEL	20
 #define mISDN_STACK_ACTIVE      29
 #define mISDN_STACK_RUNNING     30
 #define mISDN_STACK_KILLED      31
 
 
+/* manager options */
 #define MGR_OPT_USER		24
 #define MGR_OPT_NETWORK		25
 

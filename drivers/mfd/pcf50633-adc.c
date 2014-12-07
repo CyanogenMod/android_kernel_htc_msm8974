@@ -44,7 +44,7 @@ struct pcf50633_adc_sync_request {
 struct pcf50633_adc {
 	struct pcf50633 *pcf;
 
-	
+	/* Private stuff */
 	struct pcf50633_adc_request *queue[PCF50633_MAX_ADC_FIFO_DEPTH];
 	int queue_head;
 	int queue_tail;
@@ -60,11 +60,11 @@ static void adc_setup(struct pcf50633 *pcf, int channel, int avg)
 {
 	channel &= PCF50633_ADCC1_ADCMUX_MASK;
 
-	
+	/* kill ratiometric, but enable ACCSW biasing */
 	pcf50633_reg_write(pcf, PCF50633_REG_ADCC2, 0x00);
 	pcf50633_reg_write(pcf, PCF50633_REG_ADCC3, 0x01);
 
-	
+	/* start ADC conversion on selected channel */
 	pcf50633_reg_write(pcf, PCF50633_REG_ADCC1, channel | avg |
 		    PCF50633_ADCC1_ADCSTART | PCF50633_ADCC1_RES_10BIT);
 }
@@ -142,7 +142,7 @@ int pcf50633_adc_async_read(struct pcf50633 *pcf, int mux, int avg,
 {
 	struct pcf50633_adc_request *req;
 
-	
+	/* req is freed when the result is ready, in interrupt handler */
 	req = kmalloc(sizeof(*req), GFP_KERNEL);
 	if (!req)
 		return -ENOMEM;

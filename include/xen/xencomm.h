@@ -30,6 +30,8 @@ struct xencomm_mini {
 	uint64_t address[XENCOMM_MINI_ADDRS];
 };
 
+/* To avoid additionnal virt to phys conversion, an opaque structure is
+   presented.  */
 struct xencomm_handle;
 
 extern void xencomm_free(struct xencomm_handle *desc);
@@ -43,6 +45,12 @@ extern struct xencomm_handle *__xencomm_map_no_alloc(void *ptr,
 	__attribute__((__aligned__(sizeof(struct xencomm_mini))));	\
 	struct xencomm_mini *xc_desc = &xc_desc ## _base[0];
 #else
+/*
+ * gcc bug workaround:
+ * http://gcc.gnu.org/bugzilla/show_bug.cgi?id=16660
+ * gcc doesn't handle properly stack variable with
+ * __attribute__((__align__(sizeof(struct xencomm_mini))))
+ */
 #define XENCOMM_MINI_ALIGNED(xc_desc, n)				\
 	unsigned char xc_desc ## _base[((n) + 1 ) *			\
 				       sizeof(struct xencomm_mini)];	\
@@ -56,6 +64,7 @@ extern struct xencomm_handle *__xencomm_map_no_alloc(void *ptr,
 	({ XENCOMM_MINI_ALIGNED(xc_desc, 1);			\
 		__xencomm_map_no_alloc(ptr, bytes, xc_desc); })
 
+/* provided by architecture code: */
 extern unsigned long xencomm_vtop(unsigned long vaddr);
 
 static inline void *xencomm_pa(void *ptr)
@@ -65,4 +74,4 @@ static inline void *xencomm_pa(void *ptr)
 
 #define xen_guest_handle(hnd)  ((hnd).p)
 
-#endif 
+#endif /* _LINUX_XENCOMM_H_ */

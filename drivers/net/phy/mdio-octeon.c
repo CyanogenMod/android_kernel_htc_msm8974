@@ -32,12 +32,16 @@ static int octeon_mdiobus_read(struct mii_bus *bus, int phy_id, int regnum)
 	int timeout = 1000;
 
 	smi_cmd.u64 = 0;
-	smi_cmd.s.phy_op = 1; 
+	smi_cmd.s.phy_op = 1; /* MDIO_CLAUSE_22_READ */
 	smi_cmd.s.phy_adr = phy_id;
 	smi_cmd.s.reg_adr = regnum;
 	cvmx_write_csr(CVMX_SMIX_CMD(p->unit), smi_cmd.u64);
 
 	do {
+		/*
+		 * Wait 1000 clocks so we don't saturate the RSL bus
+		 * doing reads.
+		 */
 		cvmx_wait(1000);
 		smi_rd.u64 = cvmx_read_csr(CVMX_SMIX_RD_DAT(p->unit));
 	} while (smi_rd.s.pending && --timeout);
@@ -61,12 +65,16 @@ static int octeon_mdiobus_write(struct mii_bus *bus, int phy_id,
 	cvmx_write_csr(CVMX_SMIX_WR_DAT(p->unit), smi_wr.u64);
 
 	smi_cmd.u64 = 0;
-	smi_cmd.s.phy_op = 0; 
+	smi_cmd.s.phy_op = 0; /* MDIO_CLAUSE_22_WRITE */
 	smi_cmd.s.phy_adr = phy_id;
 	smi_cmd.s.reg_adr = regnum;
 	cvmx_write_csr(CVMX_SMIX_CMD(p->unit), smi_cmd.u64);
 
 	do {
+		/*
+		 * Wait 1000 clocks so we don't saturate the RSL bus
+		 * doing reads.
+		 */
 		cvmx_wait(1000);
 		smi_wr.u64 = cvmx_read_csr(CVMX_SMIX_WR_DAT(p->unit));
 	} while (smi_wr.s.pending && --timeout);
@@ -88,7 +96,7 @@ static int __devinit octeon_mdiobus_probe(struct platform_device *pdev)
 	if (!bus)
 		return -ENOMEM;
 
-	
+	/* The platform_device id is our unit number.  */
 	bus->unit = pdev->id;
 
 	bus->mii_bus = mdiobus_alloc();
@@ -100,6 +108,10 @@ static int __devinit octeon_mdiobus_probe(struct platform_device *pdev)
 	smi_en.s.en = 1;
 	cvmx_write_csr(CVMX_SMIX_EN(bus->unit), smi_en.u64);
 
+	/*
+	 * Standard Octeon evaluation boards don't support phy
+	 * interrupts, we need to poll.
+	 */
 	for (i = 0; i < PHY_MAX_ADDR; i++)
 		bus->phy_irq[i] = PHY_POLL;
 
@@ -157,7 +169,7 @@ static struct platform_driver octeon_mdiobus_driver = {
 
 void octeon_mdiobus_force_mod_depencency(void)
 {
-	
+	/* Let ethernet drivers force us to be loaded.  */
 }
 EXPORT_SYMBOL(octeon_mdiobus_force_mod_depencency);
 

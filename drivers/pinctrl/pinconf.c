@@ -27,13 +27,13 @@ int pinconf_check_ops(struct pinctrl_dev *pctldev)
 {
 	const struct pinconf_ops *ops = pctldev->desc->confops;
 
-	
+	/* We must be able to read out pin status */
 	if (!ops->pin_config_get && !ops->pin_config_group_get) {
 		dev_err(pctldev->dev,
 			"pinconf must be able to read out pin status\n");
 		return -EINVAL;
 	}
-	
+	/* We have to be able to config the pins in SOME way */
 	if (!ops->pin_config_set && !ops->pin_config_group_set) {
 		dev_err(pctldev->dev,
 			"pinconf has to be able to set a pins config\n");
@@ -74,6 +74,14 @@ int pin_config_get_for_pin(struct pinctrl_dev *pctldev, unsigned pin,
 	return ops->pin_config_get(pctldev, pin, config);
 }
 
+/**
+ * pin_config_get() - get the configuration of a single pin parameter
+ * @dev_name: name of the pin controller device for this pin
+ * @name: name of the pin to get the config for
+ * @config: the config pointed to by this argument will be filled in with the
+ *	current pin state, it can be used directly by drivers as a numeral, or
+ *	it can be dereferenced to any struct.
+ */
 int pin_config_get(const char *dev_name, const char *name,
 			  unsigned long *config)
 {
@@ -122,6 +130,14 @@ static int pin_config_set_for_pin(struct pinctrl_dev *pctldev, unsigned pin,
 	return 0;
 }
 
+/**
+ * pin_config_set() - set the configuration of a single pin parameter
+ * @dev_name: name of pin controller device for this pin
+ * @name: name of the pin to set the config for
+ * @config: the config in this argument will contain the desired pin state, it
+ *	can be used directly by drivers as a numeral, or it can be dereferenced
+ *	to any struct.
+ */
 int pin_config_set(const char *dev_name, const char *name,
 		   unsigned long config)
 {
@@ -230,12 +246,24 @@ int pin_config_group_set(const char *dev_name, const char *pin_group,
 		goto unlock;
 	}
 
+	/*
+	 * If the pin controller supports handling entire groups we use that
+	 * capability.
+	 */
 	if (ops->pin_config_group_set) {
 		ret = ops->pin_config_group_set(pctldev, selector, config);
+		/*
+		 * If the pin controller prefer that a certain group be handled
+		 * pin-by-pin as well, it returns -EAGAIN.
+		 */
 		if (ret != -EAGAIN)
 			goto unlock;
 	}
 
+	/*
+	 * If the controller cannot handle entire groups, we configure each pin
+	 * individually.
+	 */
 	if (!ops->pin_config_set) {
 		ret = 0;
 		goto unlock;
@@ -418,6 +446,10 @@ void pinconf_show_setting(struct seq_file *s,
 		break;
 	}
 
+	/*
+	 * FIXME: We should really get the pin controler to dump the config
+	 * values, so they can be decoded to something meaningful.
+	 */
 	for (i = 0; i < setting->data.configs.num_configs; i++) {
 		seq_printf(s, " ");
 		if (confops && confops->pin_config_config_dbg_show)
@@ -436,7 +468,7 @@ static void pinconf_dump_pin(struct pinctrl_dev *pctldev,
 {
 	const struct pinconf_ops *ops = pctldev->desc->confops;
 
-	
+	/* no-op when not using generic pin config */
 	pinconf_generic_dump_pin(pctldev, s, pin);
 	if (ops && ops->pin_config_dbg_show)
 		ops->pin_config_dbg_show(pctldev, s, pin);
@@ -456,13 +488,13 @@ static int pinconf_pins_show(struct seq_file *s, void *what)
 
 	mutex_lock(&pinctrl_mutex);
 
-	
+	/* The pin number can be retrived from the pin controller descriptor */
 	for (i = 0; i < pctldev->desc->npins; i++) {
 		struct pin_desc *desc;
 
 		pin = pctldev->desc->pins[i].number;
 		desc = pin_desc_get(pctldev, pin);
-		
+		/* Skip if we cannot search the pin */
 		if (desc == NULL)
 			continue;
 
@@ -485,7 +517,7 @@ static void pinconf_dump_group(struct pinctrl_dev *pctldev,
 {
 	const struct pinconf_ops *ops = pctldev->desc->confops;
 
-	
+	/* no-op when not using generic pin config */
 	pinconf_generic_dump_group(pctldev, s, gname);
 	if (ops && ops->pin_config_group_dbg_show)
 		ops->pin_config_group_dbg_show(pctldev, s, selector);
@@ -542,10 +574,11 @@ static const struct file_operations pinconf_groups_ops = {
 	.release	= single_release,
 };
 
+/* 32bit read/write ressources */
 #define MAX_NAME_LEN 16
-char dbg_pinname[MAX_NAME_LEN]; 
-char dbg_state_name[MAX_NAME_LEN]; 
-static u32 dbg_config; 
+char dbg_pinname[MAX_NAME_LEN]; /* shared: name of the state of the pin*/
+char dbg_state_name[MAX_NAME_LEN]; /* shared: state of the pin*/
+static u32 dbg_config; /* shared: config to be read/set for the pin & state*/
 
 static int pinconf_dbg_pinname_print(struct seq_file *s, void *d)
 {
@@ -643,7 +676,7 @@ static int pinconf_dbg_config_print(struct seq_file *s, void *d)
 
 	mutex_lock(&pinctrl_mutex);
 
-	
+	/* Parse the pinctrl map and look for the elected pin/state */
 	for_each_maps(maps_node, i, map) {
 		if (map->type != PIN_MAP_TYPE_CONFIGS_PIN)
 			continue;
@@ -654,6 +687,8 @@ static int pinconf_dbg_config_print(struct seq_file *s, void *d)
 		for (j = 0; j < map->data.configs.num_configs; j++) {
 			if (0 == strncmp(map->data.configs.group_or_pin,
 						dbg_pinname, MAX_NAME_LEN)) {
+				/* We found the right pin / state, read the
+				 * config and store the pctldev */
 				dbg_config = map->data.configs.configs[j];
 				pctldev = get_pinctrl_dev_from_devname
 					(map->ctrl_dev_name);
@@ -687,6 +722,11 @@ static int pinconf_dbg_config_open(struct inode *inode, struct file *file)
 	return single_open(file, pinconf_dbg_config_print, inode->i_private);
 }
 
+/**
+ * pinconf_dbg_config_write() - overwrite the pinctrl config in thepinctrl
+ * map, of a pin/state pair based on pinname and state that have been
+ * selected with the debugfs entries pinconf-name and pinconf-state
+ */
 static int pinconf_dbg_config_write(struct file *file,
 	const char __user *user_buf, size_t count, loff_t *ppos)
 {
@@ -705,7 +745,7 @@ static int pinconf_dbg_config_write(struct file *file,
 
 	mutex_lock(&pinctrl_mutex);
 
-	
+	/* Parse the pinctrl map and look for the selected pin/state */
 	for_each_maps(maps_node, i, map) {
 		if (map->type != PIN_MAP_TYPE_CONFIGS_PIN)
 			continue;
@@ -713,7 +753,7 @@ static int pinconf_dbg_config_write(struct file *file,
 		if (strncmp(map->name, dbg_state_name, MAX_NAME_LEN) > 0)
 			continue;
 
-		
+		/*  we found the right pin / state, so overwrite config */
 		for (j = 0; j < map->data.configs.num_configs; j++) {
 			if (strncmp(map->data.configs.group_or_pin, dbg_pinname,
 						MAX_NAME_LEN) == 0)

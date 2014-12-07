@@ -29,6 +29,9 @@ extern struct diag_bridge_ops hsic_diag_bridge_ops[MAX_HSIC_CH];
 extern struct platform_driver msm_hsic_ch_driver;
 void diag_hsic_close(int);
 
+/* Diag-HSIC structure, n HSIC bridges can be used at same time
+ * for instance HSIC(0), HS-USB(1) working at same time
+ */
 struct diag_hsic_dev {
 	int id;
 	int hsic_ch;

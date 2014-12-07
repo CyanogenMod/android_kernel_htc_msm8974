@@ -1,6 +1,9 @@
 #ifndef __H8300_VIRT_CONVERT__
 #define __H8300_VIRT_CONVERT__
 
+/*
+ * Macros used for converting between virtual and physical mappings.
+ */
 
 #ifdef __KERNEL__
 

@@ -17,14 +17,17 @@
 #include "stdio.h"
 #include "io.h"
 
-#define PQ2_SCCR (0x10c80/4) 
-#define PQ2_SCMR (0x10c88/4) 
+#define PQ2_SCCR (0x10c80/4) /* System Clock Configuration Register */
+#define PQ2_SCMR (0x10c88/4) /* System Clock Mode Register */
 
 static int pq2_corecnf_map[] = {
 	3, 2, 2, 2, 4, 4, 5, 9, 6, 11, 8, 10, 3, 12, 7, -1,
 	6, 5, 13, 2, 14, 4, 15, 9, 0, 11, 8, 10, 16, 12, 7, -1
 };
 
+/* Get various clocks from crystal frequency.
+ * Returns zero on failure and non-zero on success.
+ */
 int pq2_get_clocks(u32 crystal, u32 *sysfreq, u32 *corefreq,
                    u32 *timebase, u32 *brgfreq)
 {
@@ -71,6 +74,7 @@ int pq2_get_clocks(u32 crystal, u32 *sysfreq, u32 *corefreq,
 	return 1;
 }
 
+/* Set common device tree fields based on the given clock frequencies. */
 void pq2_set_clocks(u32 sysfreq, u32 corefreq, u32 timebase, u32 brgfreq)
 {
 	void *node;

@@ -28,7 +28,7 @@ struct mod_arch_specific {
 	"	.long " #type "," #addr "\n"	\
 	"	.previous\n"
 
-#endif 
+#endif /* CONFIG_MMU */
 
 extern struct m68k_fixup_info __start_fixup[], __stop_fixup[];
 
@@ -40,4 +40,4 @@ extern void module_fixup(struct module *mod, struct m68k_fixup_info *start,
 #define Elf_Sym Elf32_Sym
 #define Elf_Ehdr Elf32_Ehdr
 
-#endif 
+#endif /* _ASM_M68K_MODULE_H */

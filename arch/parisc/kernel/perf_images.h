@@ -21,10 +21,21 @@
 #ifndef PERF_IMAGES_H
 #define PERF_IMAGES_H
 
+/* Magic numbers taken without modification from HPUX stuff */
 
 #define PCXU_IMAGE_SIZE 584
 
 static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = {
+/*
+ * CPI:
+ *
+ * Counts the following:
+ *
+ * ctr0 : total cycles
+ * ctr1 : total cycles where nothing retired
+ * ctr2 : total instructions retired, including nullified
+ * ctr3 : total instructions retired, less nullified instructions
+ */
          {
          0x4c00c000, 0x00000000, 0x00060000, 0x00000000,
          0xe0e0e0e0, 0x004e0004, 0x07ffffff, 0xffc01380,
@@ -64,6 +75,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
          0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
          0xffffffff, 0xffffffff},
 
+/* Bus utilization image (bus_util)
+ *
+ * ctr0 : counts address valid cycles
+ * ctr1 : counts data valid cycles
+ * ctr2 : counts overflow from counter 0
+ * ctr3 : counts overflow from counter 1
+ */
          {
          0x0c01e000, 0x00000000, 0x00060000, 0x00000000,
          0xefefefef, 0xffffffff, 0xffffffff, 0xffffffff,
@@ -103,6 +121,16 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
          0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
          0xffffffff, 0xffffffff },
 
+/*
+ * TLB counts (same as tlbStats image):
+ *
+ * Counts the following:
+ *
+ * ctr0: DTLB misses
+ * ctr1: ITLB misses
+ * ctr2: total cycles in the miss handlers
+ * ctr3: total cycles
+ */
 
          {
          0x0c00c000, 0x00000000, 0x00060000, 0x00000000,
@@ -143,6 +171,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
          0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
          0xffffffff, 0xffffffff },
 
+/* tlbHandMiss
+ *
+ * ctr0: counts TLB misses 
+ * ctr1: counts dmisses inside tlb miss handlers 
+ * ctr2: counts cycles in the tlb miss handlers 
+ * ctr3: counts overflows of ctr2 
+ */
 {
 0x1c00c000,00000000,0x00060000,00000000,
 0xe7e7e0e0,0x004e0004,0x07ffffff,0xffc01380,
@@ -182,6 +217,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff},
 
+/* branch_taken image (ptkn image)
+ *
+ * ctr0: overflow for ctr1
+ * ctr1: predicted taken branches, actually taken
+ * ctr2: all predicted taken branches (nullfied or not)
+ * ctr3: overflow for ctr2
+ */
 
         {
         0xcc01e000, 0x00000000, 0x00060000, 0x00000000,
@@ -222,6 +264,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
         0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
         0xffffffff, 0xffffffff },
 
+/* branch_nottaken (pntkn image)
+ *
+ * ctr0: overflow for ctr1
+ * ctr1: counts branches predicted not-taken, but actually taken
+ * ctr2: counts all predictable branches predicted not-taken
+ * ctr3: overflow for ctr2
+ */
 {
 0xcc01e000,00000000,0x00060000,00000000,
 0xc0c0c0e0,0xffb1fffb,0xfff7ffff,0xffffffff,
@@ -262,6 +311,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff},
 
 
+/* imiss image
+ *
+ * ctr0 : counts imiss aligned on 0
+ * ctr1 : counts imiss aligned on 4
+ * ctr2 : counts imiss aligned on 8
+ * ctr3 : counts imiss aligned on C
+ */
          {
          0x0c00c000, 0x00000000, 0x00010000, 0x00000000,
          0xe7ebedee, 0xffffffff, 0xffffffff, 0xffffffff,
@@ -301,6 +357,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
          0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
          0xffffffff, 0xffffffff},
 
+/* dmiss image
+ * 
+ * ctr0 : counts cycles
+ * ctr1 : counts cycles where something retired
+ * ctr2 : counts dmisses
+ * ctr3 : (same as ctr2)
+ */
          {
          0x3c00c000, 0x00000000, 0x00060000, 0x00000000,
          0xe0e0e0e0, 0xffffffff, 0xffffffff, 0xffffffff,
@@ -340,6 +403,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
          0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
          0xffffffff, 0xffffffff },
 
+/* dcmiss 
+ *
+ * ctr0: counts store instructions retired 
+ * ctr1: counts load instructions retired
+ * ctr2: counts dmisses 
+ * ctr3: counts READ_SHARED_OR_PRIV and READ_PRIVATE transactions on Runway 
+ */
 {
 0x2c90c000,00000000,0x00060000,00000000,
 0xe0e0e0e0,0xffffffff,0xffffffff,0xffffffff,
@@ -379,6 +449,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 00000000,00000000,0x00ffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* big_cpi
+ *
+ * ctr0: counts total cycles 
+ * ctr1: counts overflows of ctr0 (for greater than 32-bit values) 
+ * ctr2: counts overflows of ctr3 (for greater than 32-bit values) 
+ * ctr3: counts unnullified instructions retired 
+ */
 {
 0x0c00c000,00000000,0x00060000,00000000,
 0xe7e7e0e0,0x004e0004,0x07ffffff,0xffc01380,
@@ -418,6 +495,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* big_ls
+ *
+ * ctr0:counts the total number of cycles for which local_stall_A1 is asserted. 
+ * ctr1: is the overflow for counter 0. 
+ * ctr2: counts IFLUSH_AV 
+ * ctr3: is the overflow for counter 2. 
+ */
 {
 0x0c000000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -457,6 +541,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* br_abort
+ *
+ * ctr0: counts BRAD_STALLH 
+ * ctr1: counts ONE_QUAD 
+ * ctr2: counts BR0_ABRT 
+ * ctr3: counts BR1_ABRT
+ */
 {
 0x0c002000,00000000,0x00060000,00000000,
 0xe0e0e0e0,0xffffffff,0xffffffff,0xffffffff,
@@ -496,6 +587,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff},
 
+/* isnt
+ *
+ * ctr0: counts the total number of cycles for which iside_notrans is asserted 
+ * ctr1: counts the number of times iside_notrans is asserted for 1-4 cycles 
+ * ctr2: counts the number of times iside_notrans is asserted for 5-7 cycles 
+ * ctr3: counts the number of times iside_notrans is asserted for > 7 cycles 
+ */
 {
 0x0c018000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -535,6 +633,14 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff},
 
+/* quadrant
+ *
+ * ctr0: Total number of instructions in quadrant 0 
+ * ctr1: Total number of instructions in quadrant 1 
+ * ctr2: Total number of instructions in quadrant 2 
+ * ctr3: Total number of instructions in quadrant 3 
+ * Works only with 32-bit
+ */
 
    {
    0x0c01e000,   0x00000000,   0x00060000,   0x00000000,
@@ -575,6 +681,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    0xffffffff,   0xffffffff},
 
+/* rw_pdfet (READ_PRIV transactions)
+ *
+ * ctr0: counts address valid cycles 
+ * ctr1: counts *all* data valid cycles 
+ * ctr2: is the overflow from counter 0 
+ * ctr3: is the overflow from counter 1 
+ */
 {
 0x0c01e000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -614,6 +727,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 00000000,00000000,00000000,00000000,
 0xffffffff,0xffffffff},
 
+/* rw_wdfet (WRITEBACKS)
+ *
+ * ctr0: counts address valid cycles 
+ * ctr1: counts *all* data valid cycles 
+ * ctr2: is the overflow from counter 0 
+ * ctr3: is the overflow from counter 1
+ */
 {
 0x0c01e000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -653,6 +773,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 00000000,00000000,00000000,00000000,
 0xffffffff,0xffffffff},
 
+/* shlib_cpi
+ *
+ * ctr0: Total number of instructions in quad 0 
+ * ctr1: Total number of CPU clock cycles in quad 0 
+ * ctr2: total instructions without nullified   
+ * ctr3: total number of CPU clock cycles 
+ */
    {
    0x0c01e000,   0x00000000,   0x00060000,   0x00000000,
    0xe0e0e0e0,   0x004e0004,   0x07ffffff,   0xffc01380,
@@ -693,6 +820,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff},
 
 
+/* addr_inv_abort_alu
+ *
+ * ctr0: counts ABORT_ALU0L 
+ * ctr1: counts ABORT_ALU1L 
+ * ctr2: counts ADDR0_INVALID 
+ * ctr3: counts ADDR1_INVALID 
+ */
 
 {
 0x0c00c000,00000000,0x00060000,00000000,
@@ -735,6 +869,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 
 
 
+/* brad_stall
+ *
+ * ctr0: counts the total number of cycles for which brad_stall is asserted 
+ * ctr1: counts the number of times brad_stall is asserted for 1-4 cycles 
+ * ctr2: counts the number of times brad_stall is asserted for 5-7 cycles 
+ * ctr3: counts the number of times brad_stall is asserted for > 7 cycles 
+ */
 {
 0x0c002000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -774,6 +915,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff},
 
+/* cntl_in_pipel
+ *
+ * ctr0: counts the total number of cycles for which cntl_in_pipel is asserted 
+ * ctr1: counts the number of times cntl_in_pipel is asserted for 1-4 cycles 
+ * ctr2: counts the number of times cntl_in_pipel is asserted for 5-7 cycles 
+ * ctr3: counts the number of times cntl_in_pipel is asserted for > 7 cycles 
+ */
 {
 0x0c006000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -814,6 +962,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff },
 
 
+/* dsnt_xfh
+ *
+ * ctr0: counts dside_notrans 
+ * ctr1: counts xfhang 
+ * ctr2: is the overflow for ctr0 
+ * ctr3: is the overflow for ctr1 
+ */
 {
 0x0c018000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -853,6 +1008,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff }, 
 
+/* fet_sig1
+ *
+ * ctr0: counts ICORE_AV 
+ * ctr1: counts ITRANS_STALL 
+ * ctr2: counts SEL_PCQH 
+ * ctr3: counts OUT_OF_CONTEXT 
+ */
 {
 0x0c000000,00000000,0x00060000,00000000,
 0xe0e0e0e0,0xffffffff,0xffffffff,0xffffffff,
@@ -892,6 +1054,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff},
 
+/* fet_sig2
+ *
+ * ctr0: counts ICORE_AV  
+ * ctr1: counts IRTN_AV 
+ * ctr2: counts ADDRESS_INC 
+ * ctr3: counts ADDRESS_DEC 
+ */
 {
 0x0c000000,00000000,0x00060000,00000000,
 0xe0e0e0e0,0xffffffff,0xffffffff,0xffffffff,
@@ -931,6 +1100,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* g7_1
+ *
+ * ctr0: counts HIT_RETRY0 
+ * ctr1: counts HIT_RETRY1 
+ * ctr2: counts GO_TAG_E 
+ * ctr3: counts GO_TAG_O 
+ */
 {
 0x0c00e000,00000000,0x00060000,00000000,
 0xe0e0e0e0,0xffffffff,0xffffffff,0xffffffff,
@@ -970,6 +1146,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* g7_2
+ *
+ * ctr0: counts HIT_DM0 
+ * ctr1: counts HIT_DM1 
+ * ctr2: counts GO_STORE_E 
+ * ctr3: counts GO_STORE_O 
+ */
 {
 0x0c00e000,00000000,0x00060000,00000000,
 0xe0e0e0e0,0xffffffff,0xffffffff,0xffffffff,
@@ -1009,6 +1192,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* g7_3
+ *
+ * ctr0: counts HIT_DV0 
+ * ctr1: counts HIT_DV1 
+ * ctr2: counts STBYPT_E (load bypasses from store queue) 
+ * ctr3: counts STBYPT_O
+ */
 {
 0x0c00e000,00000000,0x00060000,00000000,
 0xe0e0e0e0,0xffffffff,0xffffffff,0xffffffff,
@@ -1048,6 +1238,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* g7_4
+ *
+ * ctr0: counts HIT_DIRTY0 
+ * ctr1: counts HIT_DIRTY1 
+ * ctr2: counts CA_BYP_E (quick launch) 
+ * ctr3: counts CA_BYP_O 
+ */
 {
 0x0c00e000,00000000,0x00060000,00000000,
 0xe0e0e0e0,0xffffffff,0xffffffff,0xffffffff,
@@ -1088,6 +1285,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff },
 
 
+/* mpb_labort
+ *
+ * ctr0: counts L_ABORT_ALU0L
+ * ctr1: counts L_ABORT_ALU1L 
+ * ctr2: counts MPB0H 
+ * ctr3: counts MPB1H 
+ */
 {
 0x0c00c000,00000000,0x00060000,00000000,
 0xe0e0e0e0,0xffffffff,0xffffffff,0xffffffff,
@@ -1127,6 +1331,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* panic
+ *
+ * ctr0: is the overflow for counter 1 
+ * ctr1: counts traps and RFI's 
+ * ctr2: counts panic traps 
+ * ctr3: is the overflow for counter 2
+ */
 {
 0x0c002000,00000000,0x00060000,00000000,
 0xe7efe0e0,0xffffffff,0xffffffff,0xffffffff,
@@ -1166,6 +1377,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* rare_inst
+ *
+ * ctr0: counts sync and syncdma instructions 
+ * ctr1: counts pxtlbx,x instructions 
+ * ctr2: counts ixtlbt instructions 
+ * ctr3: counts cycles 
+ */
 {
 0x0c01e000,00000000,0x00060000,00000000,
 0xe0e0e0e0,0x004e000c,0x000843fc,0x85c09380,
@@ -1205,6 +1423,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* rw_dfet (for D-cache misses and writebacks)
+ *
+ * ctr0: counts address valid cycles 
+ * ctr1: counts *all* data valid cycles 
+ * ctr2: is the overflow from counter 0 
+ * ctr3: is the overflow from counter 1 
+ */
 {
 0x0c01e000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -1244,6 +1469,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 00000000,00000000,0x00ffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* rw_ifet (I-cache misses -- actually dumb READ transactions)
+ *
+ * ctr0: counts address valid cycles 
+ * ctr1: counts *all* data valid cycles 
+ * ctr2: is the overflow from counter 0 
+ * ctr3: is the overflow from counter 1 
+ */
 {
 0x0c01e000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -1284,6 +1516,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff },
 
 
+/* rw_sdfet (READ_SHARED_OR_PRIVATE transactions)
+ *
+ * ctr0: counts address valid cycles
+ * ctr1: counts *all* data valid cycles 
+ * ctr2: is the overflow from counter 0 
+ * ctr3: is the overflow from counter 1 
+ */
 {
 0x0c01e000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -1324,6 +1563,29 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff },
 
 
+/* spec_ifet
+ *
+ * ICORE_AV fires for every request which the Instruction Fetch Unit sends
+ * to the Runway Interface Block.  Hence, this counts all I-misses, speculative
+ * or not, but does *not* include I-cache prefetches, which are generated by
+ * RIB.
+ * IRTN_AV fires twice for every I-cache miss returning from RIB to the IFU.
+ * It will not fire if a second I-cache miss is issued from the IFU to RIB
+ * before the first returns.  Therefore, if the IRTN_AV count is much less
+ * than 2x the ICORE_AV count, many speculative I-cache misses are occurring
+ * which are "discovered" to be incorrect fairly quickly.
+ * The ratio of I-cache miss transactions on Runway to the ICORE_AV count is
+ * a measure of the effectiveness of instruction prefetching.  This ratio
+ * should be between 1 and 2.  If it is close to 1, most prefetches are
+ * eventually called for by the IFU; if it is close to 2, almost no prefetches
+ * are useful and they are wasted bus traffic.
+ *
+ * ctr0: counts ICORE_AV 
+ * ctr1: counts IRTN_AV 
+ * ctr2: counts all non-coherent READ transactions on Runway. (TTYPE D0) 
+ *	This should be just I-cache miss and I-prefetch transactions.
+ * ctr3: counts total processor cycles 
+ */
 {
 0x0c000000,00000000,0x00060000,00000000,
 0xefefefef,0xffffffff,0xffffffff,0xffffffff,
@@ -1363,6 +1625,14 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,00000000,00000000,
 0xffffffff,0xffffffff },
 
+/* st_cond0
+ *
+ * ctr0: is the overflow for ctr1
+ * ctr1: counts major ops 0C and 0E (fp ops, not fmac or fmpyadd) 
+ * ctr2: counts B,L (including long and push) and GATE (including nullified),
+ *	 predicted not-taken
+ * ctr3: is the overflow for ctr2 
+ */
 {
 0x4c01e000,00000000,0x00060000,00000000,
 0xe0e0c0e0,0xffffffff,0xffffffff,0xffc13380,
@@ -1402,6 +1672,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* st_cond1
+ *
+ * ctr0: is the overflow for ctr1 
+ * ctr1: counts major ops 1x (most of the load/stores) 
+ * ctr2: counts CMPB (dw) predicted not-taken 
+ * ctr3: is the overflow for ctr2 
+ */
 {
 0x4c01e000,00000000,0x00060000,00000000,
 0xe0e0c0e0,0xffffffff,0xffffffff,0xffc01b80,
@@ -1441,6 +1718,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* st_cond2
+ *
+ * ctr0: is the overflow for ctr1 
+ * ctr1: counts major op 03 
+ * ctr2: counts CMPIB (dw) predicted not taken. 
+ * ctr3: is the overflow for ctr2 
+ */
 {
 0x4c01e000,00000000,0x00060000,00000000,
 0xe0e0c0e0,0xffffffff,0xffffffff,0xffc09780,
@@ -1480,6 +1764,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* st_cond3
+ *
+ * ctr0: is the overflow for ctr1 
+ * ctr1: counts major ops 06 & 26 
+ * ctr2: counts BB, BVB, MOVB, MOVIB (incl. nullified) predicted not-taken 
+ * ctr3: is the overflow for ctr2 
+ */
 {
 0x4c01e000,00000000,0x00060000,00000000,
 0xe0e0c0e0,0xffffffff,0xffffffff,0xffc03780,
@@ -1519,6 +1810,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* st_cond4
+ *
+ * ctr0: is the overflow for ctr1 
+ * ctr1: counts major op 2E 
+ * ctr2: counts CMPB, CMPIB, ADDB, ADDIB (incl. nullified) predicted not-taken 
+ * ctr3: is the overflow for ctr2 
+ */
 {
 0x4c01e000,00000000,0x00060000,00000000,
 0xe0e0c0e0,0xffffffff,0xffffffff,0xffc17780,
@@ -1558,6 +1856,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* st_unpred0
+ *
+ * ctr0: is the overflow for ctr1 
+ * ctr1: counts BE and BE,L 
+ * ctr2: counts BE and BE,L including nullified 
+ * ctr3: is the overflow for ctr2 
+ */
 {
 0x4c01e000,00000000,0x00060000,00000000,
 0xe0c0c0e0,0xffffffff,0xffffffff,0xffdf5bbf,
@@ -1597,6 +1902,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* st_unpred1
+ *
+ * ctr0: is the overflow for ctr1 
+ * ctr1: counts BLR, BV, BVE, BVE,L 
+ * ctr2: counts BLR, BV, BVE, BVE,L including nullified 
+ * ctr3: is the overflow for ctr2 
+ */
 {
 0x4c01e000,00000000,0x00060000,00000000,
 0xe0c0c0e0,0xffffffff,0xffffffff,0xffc15f80,
@@ -1636,6 +1948,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff,0xffffffff,0xffffffff,
 0xffffffff,0xffffffff },
 
+/* unpred
+ *
+ * ctr0: counts non-nullified unpredictable branches 
+ * ctr1: is the overflow for ctr0 
+ * ctr2: counts all unpredictable branches (nullified or not) 
+ * ctr3: is the overflow for ctr2 
+ */
 {
 0xcc01e000,00000000,0x00060000,00000000,
 0x20202020,0xff31ffff,0xfff7fffe,0x97ffcc7f,
@@ -1676,6 +1995,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 0xffffffff,0xffffffff },
    
 
+/* go_store
+ *
+ * ctr0: Overflow for counter 2 
+ * ctr1: Overflow for counter 3 
+ * ctr2: count of GO_STORE_E signal 
+ * ctr3: count of GO_STORE_O signal 
+ */
 
    {
    0x0c00e000,   0x00000000,   0x00060000,   0x00000000,
@@ -1718,6 +2044,13 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    },
 
 
+/* shlib_call
+ *
+ * ctr0: SharedLib call Depth1 
+ * ctr1: SharedLib call Depth2 
+ * ctr2: SharedLib call Depth3 
+ * ctr3: SharedLib call Depth>3 
+ */
    {
    0x0c01e000,   0x00000000,   0x00060000,   0x00000000,
    0xe0e0e0e0,   0xc76fa005,   0x07dd7e9c,   0x87115b80,
@@ -1761,6 +2094,16 @@ static uint32_t onyx_images[][PCXU_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 #define PCXW_IMAGE_SIZE 576
 
 static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = {
+/*
+ * CPI:     FROM CPI.IDF (Image 0)
+ *
+ * Counts the following:
+ *
+ * ctr0 : total cycles
+ * ctr1 : total cycles where nothing retired
+ * ctr2 : total instructions retired, including nullified
+ * ctr3 : total instructions retired, less nullified instructions
+ */
    {
    0x4c00c000,   0x00000000,   0x00060000,   0x00000000, 
    0xe0e0e0e0,   0x00001fff,   0xfc00007f,   0xfff00001, 
@@ -1800,6 +2143,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* Bus utilization image   FROM BUS_UTIL.IDF (Image 1)
+ *
+ * ctr0 : counts address valid cycles
+ * ctr1 : counts data valid cycles
+ * ctr2 : counts overflow from counter 0
+ * ctr3 : counts overflow from counter 1
+ */
          {
 	 0x0c01e000, 0x00000000, 0x00060000, 0x00000000,
 	 0xefefefef, 0xffffffff, 0xffffffff, 0xffffffff,
@@ -1839,6 +2189,16 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
 	 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
    },
 
+/*
+ * TLB counts:    FROM TLBSTATS.IDF (Image 2)
+ *
+ * Counts the following:
+ *
+ * ctr0: DTLB misses
+ * ctr1: ITLB misses
+ * ctr2: total cycles in the miss handlers
+ * ctr3: total cycles
+ */
 
    {
    0x0c00c000,   0x00000000,   0x00060000,   0x00000000, 
@@ -1879,6 +2239,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* tlbhandler  FROM tlbHandMiss.idf (Image 3)
+ *
+ * ctr0: TLB misses
+ * ctr1: dmisses inside the TLB miss handler
+ * ctr2: cycles in the TLB miss handler
+ * ctr3: overflow of ctr2
+ */
    {
    0x1c00c000,   0x00000000,   0x00060000,   0x00000000, 
    0xe7e7e0e0,   0x00001fff,   0xfc00007f,   0xfff00001, 
@@ -1918,6 +2285,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* branch_taken image  FROM PTKN.IDF (Image 4)
+ *
+ * ctr0: mispredicted branches
+ * ctr1: predicted taken branches, actually taken
+ * ctr2: predicted taken branches (includes nullfied)
+ * ctr3: all branches
+ */
 
    {
    0xcc01e000,   0x00000000,   0x00000000,   0x00000000, 
@@ -1958,6 +2332,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* branch_nottaken  FROM PNTKN.IDF (Image 5)
+ *
+ * ctr0: mispredicted branches
+ * ctr1: branches predicted not-taken, but actually taken
+ * ctr2: branches predicted not-taken (includes nullified)
+ * ctr3: all branches
+ */
    {
    0xcc01e000,   0x00000000,   0x00000000,   0x00000000, 
    0xe0c0c0e0,   0xffffffff,   0xffffffff,   0xffefffff, 
@@ -1997,6 +2378,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
    
+/* IMISS image (Image 6)
+ *
+ * ctr0 : icache misses for retired instructions
+ * ctr1 : total cycles
+ * ctr2 : dcache misses for retired instructions
+ * ctr3 : number of retired instructions
+ */
    {
    0x2801e000,   0x00000000,   0x00010000,   0x00000000, 
    0x00001000,   0xffffffff,   0xffffffff,   0xfff00fff, 
@@ -2036,6 +2424,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* DMISS image (Image 7)
+ *
+ * ctr0 : icache misses for retired instructions
+ * ctr1 : total cycles
+ * ctr2 : dcache misses for retired instructions
+ * ctr3 : number of retired instructions
+ */
    {
    0x2801e000,   0x00000000,   0x00010000,   0x00000000, 
    0x00001000,   0xffffffff,   0xffffffff,   0xfff00fff, 
@@ -2075,6 +2470,14 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* dmiss_access image    FROM DMISS_RATIO.IDF  (Image 8)
+ * 
+ * ctr0 : all loads and stores that retire (even lines)
+ * ctr1 : all loads and stores that retire (odd lines)
+ * ctr2 : dcache misses of retired loads/stores
+ * ctr3 : all READ_PRIV and READ_SHAR_OR_PRIV on Runway
+ *        (Speculative and Non-Speculative)
+ */
    {
    0x2d81e000,   0x00000000,   0x00000000,   0x00000000, 
    0x10101010,   0x00ffffff,   0xa003ffff,   0xfe800fff, 
@@ -2115,6 +2518,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    },
 
 
+/* big_cpi image  (Image 9)
+ * 
+ * ctr0 : Total number of CPU clock cycles. 
+ * ctr1 : Unused 
+ * ctr2 : Unused
+ * ctr3 : Total number of Non-Nullified instructions retired. 
+ */
    {
    0x0c00c000,   0x00000000,   0x00060000,   0x00000000,
    0xe7e7e0e0,   0x00001fff,   0xfc00007f,   0xfff00001,
@@ -2154,6 +2564,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* big_ls image  (Image 10)
+ * 
+ * ctr0 : Total number of CPU clock cycles during which local_stall_A1 is asserted 
+ * ctr1 : Overflow of Counter 0 
+ * ctr2 : Total number of IFLUSH_AV 
+ * ctr3 : Overflow of Counter 2 
+ */
    {
    0x0c000000,   0x00000000,   0x00060000,   0x00000000,
    0xefefefef,   0xffffffff,   0xffffffff,   0xffffffff,
@@ -2193,6 +2610,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* br_abort image  (Image 12)
+ * 
+ * ctr0 : Total number of BRAD_STALLH
+ * ctr1 : Total number of ONE_QUAD
+ * ctr2 : Total number of BR0_ABRT
+ * ctr3 : Total number of BR1_ABRT
+ */
 
    {
    0x0c002000,   0x00000000,   0x00060000,   0x00000000,
@@ -2234,6 +2658,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    },
 
 
+/* isnt image  (Image 13)
+ * 
+ * ctr0 : Total number of cycles for which iside_notrans is asserted. 
+ * ctr1 : Total number of times iside_notrans is asserted for 1-4 cycles. 
+ * ctr2 : Total number of times iside_notrans is asserted for 5-7 cycles. 
+ * ctr3 : Total number of times iside_notrans is asserted for > 7 cycles. 
+ */
 
    {
    0x0c018000,   0x00000000,   0x00060000,   0x00000000,
@@ -2274,6 +2705,15 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* quadrant image  (image 14)
+ * 
+ * ctr0 : Total number of instructions in quadrant 0. 
+ * ctr1 : Total number of instructions in quadrant 1. 
+ * ctr2 : Total number of instructions in quadrant 2. 
+ * ctr3 : Total number of instructions in quadrant 3. 
+ *
+ * Only works for 32-bit applications.
+ */
 
    {
    0x0c01e000,   0x00000000,   0x00060000,   0x00000000,
@@ -2314,6 +2754,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* rw_pdfet image (Image 15)
+ * 
+ * ctr0 : Total of all READ_PRIV address valid cycles. 
+ * ctr1 : Total of all READ_PRIV data valid cycles. 
+ * ctr2 : Overflow of Counter 0. 
+ * ctr3 : Overflow of Counter 1. 
+ */
 
    {
    0x0c01e000,   0x00000000,   0x00060000,   0x00000000,
@@ -2355,6 +2802,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    },
 
 
+/* rw_wdfet image  (Image 16)
+ * 
+ * ctr0 : Counts total number of writeback transactions. 
+ * ctr1 : Total number of data valid Runway cycles. 
+ * ctr2 : Overflow of Counter 0. 
+ * ctr3 : Overflow of Counter 1. 
+ */
 
    {
    0x0c01e000,   0x00000000,   0x00060000,   0x00000000,
@@ -2395,6 +2849,15 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0x00000000,   0x00000000,   0xffffffff,   0xffffffff,
    },
 
+/* shlib_cpi image  (Image 17)
+ * 
+ * ctr0 : Total number of instructions in quadrant 0. 
+ * ctr1 : Total number of CPU clock cycles in quadrant 0. 
+ * ctr2 : Total number of Non-Nullified instructions retired. 
+ * ctr3 : Total number of CPU clock cycles. 
+ *
+ * Only works for 32-bit shared libraries.
+ */
 
    {
    0x0c01e000,   0x00000000,   0x00060000,   0x00000000,
@@ -2435,6 +2898,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* flop image  (Image 18)
+ * 
+ * ctr0 : Total number of floating point instructions (opcode = 0xc). 
+ * ctr1 : Total number of floating point instructions (opcode = 0xe, 0x6, 0x2e, 0x26). 
+ * ctr2 : Unused
+ * ctr3 : Unused 
+ */
 
    {
    0x0001e000,   0x00000000,   0x00000000,   0x00000000,
@@ -2475,6 +2945,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* cachemiss image    FROM I_D_MISSES.IDF  (Image 19)
+ *
+ * ctr0 : icache misses for retired instructions
+ * ctr1 : total cycles
+ * ctr2 : dcache misses for retired instructions
+ * ctr3 : number of retired instructions
+ */
    {
    0x2801e000,   0x00000000,   0x00010000,   0x00000000, 
    0x00001000,   0xffffffff,   0xffffffff,   0xfff00fff, 
@@ -2514,6 +2991,15 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* branch   FROM br_report3.idf 
+ *
+ * ctr0 : Total number of mispredicted branches. 
+ * ctr1 : Some Non-Nullified unpredictable branches. 
+ * ctr2 : Total number of branches (Nullified + Non-Nullified)
+ *        (Unpredicted+ Predicted Taken +Predicted Not Taken). 
+ *	  Total of All Branches.
+ * ctr3 : Remaining Non-Nullified unpredictable branches.
+ */
    {
    0x4001e000,   0x00000000,   0x00000000,   0x00000000, 
    0x00000000,   0xffffffff,   0xff9fffff,   0xfe0fffff, 
@@ -2553,6 +3039,13 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* crstack  FROM crs_report.idf
+ *
+ * ctr0: correctly predicted branches by the pop_latch
+ * ctr1: some procedure returns
+ * ctr2: all branches, (includes nullified)
+ * ctr3: remaining procedure returns
+ */
    {
    0x4001e000,   0x00000000,   0x00000000,   0x00000000, 
    0x00000000,   0xffffffff,   0xffa10300,   0x000fffff, 
@@ -2592,6 +3085,14 @@ static uint32_t cuda_images[][PCXW_IMAGE_SIZE/sizeof(uint32_t)] __read_mostly = 
    0xffffffff,   0xffffffff,   0xffffffff,   0xffffffff,
    },
 
+/* icache_report image 
+ * 
+ * ctr0 : Icache misses actually used by the core. 
+ * ctr1 : ICORE_AV (Icache misses the core THINKS it needs, including fetching down speculative paths). 
+ * ctr2 : READs on Runway (Icache misses that made it out to Runway, including
+ *	  prefetches).
+ * ctr3 : Prefetch returns (1x and 2x). 
+ */
    {
    0x00000000,   0x00000000,   0x00010000,   0x00000000,
    0x00000000,   0xffffffff,   0xffffffff,   0xffffffff,

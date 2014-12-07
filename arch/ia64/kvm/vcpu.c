@@ -34,16 +34,60 @@
 #include "asm-offsets.h"
 #include "vcpu.h"
 
+/*
+ * Special notes:
+ * - Index by it/dt/rt sequence
+ * - Only existing mode transitions are allowed in this table
+ * - RSE is placed at lazy mode when emulating guest partial mode
+ * - If gva happens to be rr0 and rr4, only allowed case is identity
+ *   mapping (gva=gpa), or panic! (How?)
+ */
 int mm_switch_table[8][8] = {
-	
+	/*  2004/09/12(Kevin): Allow switch to self */
+	/*
+	 *  (it,dt,rt): (0,0,0) -> (1,1,1)
+	 *  This kind of transition usually occurs in the very early
+	 *  stage of Linux boot up procedure. Another case is in efi
+	 *  and pal calls. (see "arch/ia64/kernel/head.S")
+	 *
+	 *  (it,dt,rt): (0,0,0) -> (0,1,1)
+	 *  This kind of transition is found when OSYa exits efi boot
+	 *  service. Due to gva = gpa in this case (Same region),
+	 *  data access can be satisfied though itlb entry for physical
+	 *  emulation is hit.
+	 */
 	{SW_SELF, 0,  0,  SW_NOP, 0,  0,  0,  SW_P2V},
 	{0,  0,  0,  0,  0,  0,  0,  0},
 	{0,  0,  0,  0,  0,  0,  0,  0},
+	/*
+	 *  (it,dt,rt): (0,1,1) -> (1,1,1)
+	 *  This kind of transition is found in OSYa.
+	 *
+	 *  (it,dt,rt): (0,1,1) -> (0,0,0)
+	 *  This kind of transition is found in OSYa
+	 */
 	{SW_NOP, 0,  0,  SW_SELF, 0,  0,  0,  SW_P2V},
-	
+	/* (1,0,0)->(1,1,1) */
 	{0,  0,  0,  0,  0,  0,  0,  SW_P2V},
+	/*
+	 *  (it,dt,rt): (1,0,1) -> (1,1,1)
+	 *  This kind of transition usually occurs when Linux returns
+	 *  from the low level TLB miss handlers.
+	 *  (see "arch/ia64/kernel/ivt.S")
+	 */
 	{0,  0,  0,  0,  0,  SW_SELF, 0,  SW_P2V},
 	{0,  0,  0,  0,  0,  0,  0,  0},
+	/*
+	 *  (it,dt,rt): (1,1,1) -> (1,0,1)
+	 *  This kind of transition usually occurs in Linux low level
+	 *  TLB miss handler. (see "arch/ia64/kernel/ivt.S")
+	 *
+	 *  (it,dt,rt): (1,1,1) -> (0,0,0)
+	 *  This kind of transition usually occurs in pal and efi calls,
+	 *  which requires running in physical mode.
+	 *  (see "arch/ia64/kernel/head.S")
+	 *  (1,1,1)->(1,0,0)
+	 */
 
 	{SW_V2P, 0,  0,  0,  SW_V2P, SW_V2P, 0,  SW_SELF},
 };
@@ -57,7 +101,7 @@ void switch_to_physical_rid(struct kvm_vcpu *vcpu)
 {
 	unsigned long psr;
 
-	
+	/* Save original virtual mode rr[0] and rr[4] */
 	psr = ia64_clear_ic();
 	ia64_set_rr(VRN0<<VRN_SHIFT, vcpu->arch.metaphysical_rr0);
 	ia64_srlz_d();
@@ -93,11 +137,21 @@ void switch_mm_mode(struct kvm_vcpu *vcpu, struct ia64_psr old_psr,
 	act = mm_switch_action(old_psr, new_psr);
 	switch (act) {
 	case SW_V2P:
+		/*printk("V -> P mode transition: (0x%lx -> 0x%lx)\n",
+		old_psr.val, new_psr.val);*/
 		switch_to_physical_rid(vcpu);
+		/*
+		 * Set rse to enforced lazy, to prevent active rse
+		 *save/restor when guest physical mode.
+		 */
 		vcpu->arch.mode_flags |= GUEST_IN_PHY;
 		break;
 	case SW_P2V:
 		switch_to_virtual_rid(vcpu);
+		/*
+		 * recover old mode which is saved when entering
+		 * guest physical mode
+		 */
 		vcpu->arch.mode_flags &= ~GUEST_IN_PHY;
 		break;
 	case SW_SELF:
@@ -105,12 +159,27 @@ void switch_mm_mode(struct kvm_vcpu *vcpu, struct ia64_psr old_psr,
 	case SW_NOP:
 		break;
 	default:
-		
+		/* Sanity check */
 		break;
 	}
 	return;
 }
 
+/*
+ * In physical mode, insert tc/tr for region 0 and 4 uses
+ * RID[0] and RID[4] which is for physical mode emulation.
+ * However what those inserted tc/tr wants is rid for
+ * virtual mode. So original virtual rid needs to be restored
+ * before insert.
+ *
+ * Operations which required such switch include:
+ *  - insertions (itc.*, itr.*)
+ *  - purges (ptc.* and ptr.*)
+ *  - tpa
+ *  - tak
+ *  - thash?, ttag?
+ * All above needs actual virtual rid for destination entry.
+ */
 
 void check_mm_mode_switch(struct kvm_vcpu *vcpu,  struct ia64_psr old_psr,
 					struct ia64_psr new_psr)
@@ -125,6 +194,21 @@ void check_mm_mode_switch(struct kvm_vcpu *vcpu,  struct ia64_psr old_psr,
 }
 
 
+/*
+ * In physical mode, insert tc/tr for region 0 and 4 uses
+ * RID[0] and RID[4] which is for physical mode emulation.
+ * However what those inserted tc/tr wants is rid for
+ * virtual mode. So original virtual rid needs to be restored
+ * before insert.
+ *
+ * Operations which required such switch include:
+ *  - insertions (itc.*, itr.*)
+ *  - purges (ptc.* and ptr.*)
+ *  - tpa
+ *  - tak
+ *  - thash?, ttag?
+ * All above needs actual virtual rid for destination entry.
+ */
 
 void prepare_if_physical_mode(struct kvm_vcpu *vcpu)
 {
@@ -135,6 +219,7 @@ void prepare_if_physical_mode(struct kvm_vcpu *vcpu)
 	return;
 }
 
+/* Recover always follows prepare */
 void recover_if_physical_mode(struct kvm_vcpu *vcpu)
 {
 	if (is_physical_mode(vcpu))
@@ -146,7 +231,7 @@ void recover_if_physical_mode(struct kvm_vcpu *vcpu)
 #define RPT(x)	((u16) &((struct kvm_pt_regs *)0)->x)
 
 static u16 gr_info[32] = {
-	0, 	
+	0, 	/* r0 is read-only : WE SHOULD NEVER GET THIS */
 	RPT(r1), RPT(r2), RPT(r3),
 	RPT(r4), RPT(r5), RPT(r6), RPT(r7),
 	RPT(r8), RPT(r9), RPT(r10), RPT(r11),
@@ -169,6 +254,11 @@ rotate_reg(unsigned long sor, unsigned long rrb, unsigned long reg)
 	return reg;
 }
 
+/*
+ * Return the (rotated) index for floating point register
+ * be in the REGNUM (REGNUM must range from 32-127,
+ * result is in the range from 0-95.
+ */
 static inline unsigned long fph_index(struct kvm_pt_regs *regs,
 						long regnum)
 {
@@ -176,6 +266,10 @@ static inline unsigned long fph_index(struct kvm_pt_regs *regs,
 	return rotate_reg(96, rrb_fr, (regnum - IA64_FIRST_ROTATING_FR));
 }
 
+/*
+ * The inverse of the above: given bspstore and the number of
+ * registers, calculate ar.bsp.
+ */
 static inline unsigned long *kvm_rse_skip_regs(unsigned long *addr,
 							long num_regs)
 {
@@ -258,10 +352,10 @@ void set_rse_reg(struct kvm_pt_regs *regs, unsigned long r1,
 		ridx = rotate_reg(sor, rrb_gr, ridx);
 
 	old_rsc = ia64_getreg(_IA64_REG_AR_RSC);
-	
+	/* put RSC to lazy mode, and set loadrs 0 */
 	new_rsc = old_rsc & (~0x3fff0003);
 	ia64_setreg(_IA64_REG_AR_RSC, new_rsc);
-	bsp = kbs + (regs->loadrs >> 19); 
+	bsp = kbs + (regs->loadrs >> 19); /* 16 + 3 */
 
 	addr = kvm_rse_skip_regs(bsp, -sof + ridx);
 	nat_mask = 1UL << ia64_rse_slot_num(addr);
@@ -308,12 +402,18 @@ void getreg(unsigned long regnum, unsigned long *val,
 		return;
 	}
 
+	/*
+	 * Now look at registers in [0-31] range and init correct UNAT
+	 */
 	addr = (unsigned long)regs;
 	unat = &regs->eml_unat;
 
 	addr += gr_info[regnum];
 
 	*val  = *(unsigned long *)addr;
+	/*
+	 * do it only when requested
+	 */
 	if (nat)
 		*nat  = (*unat >> ((addr >> 3) & 0x3f)) & 0x1UL;
 }
@@ -325,17 +425,31 @@ void setreg(unsigned long regnum, unsigned long val,
 	unsigned long bitmask;
 	unsigned long *unat;
 
+	/*
+	 * First takes care of stacked registers
+	 */
 	if (regnum >= IA64_FIRST_STACKED_GR) {
 		set_rse_reg(regs, regnum, val, nat);
 		return;
 	}
 
+	/*
+	 * Now look at registers in [0-31] range and init correct UNAT
+	 */
 	addr = (unsigned long)regs;
 	unat = &regs->eml_unat;
+	/*
+	 * add offset from base of struct
+	 * and do it !
+	 */
 	addr += gr_info[regnum];
 
 	*(unsigned long *)addr = val;
 
+	/*
+	 * We need to clear the corresponding UNAT bit to fully emulate the load
+	 * UNAT bit_pos = GR[r3]{8:3} form EAS-2.4
+	 */
 	bitmask   = 1UL << ((addr >> 3) & 0x3f);
 	if (nat)
 		*unat |= bitmask;
@@ -364,13 +478,13 @@ void vcpu_set_gr(struct kvm_vcpu *vcpu, unsigned long reg, u64 value, int nat)
 		return;
 	if (reg >= sof + 32)
 		return;
-	setreg(reg, value, nat, regs);	
+	setreg(reg, value, nat, regs);	/* FIXME: handle NATs later*/
 }
 
 void getfpreg(unsigned long regnum, struct ia64_fpreg *fpval,
 				struct kvm_pt_regs *regs)
 {
-	
+	/* Take floating register rotation into consideration*/
 	if (regnum >= IA64_FIRST_ROTATING_FR)
 		regnum = IA64_FIRST_ROTATING_FR + fph_index(regs, regnum);
 #define CASE_FIXED_FP(reg)			\
@@ -516,7 +630,7 @@ void getfpreg(unsigned long regnum, struct ia64_fpreg *fpval,
 void setfpreg(unsigned long regnum, struct ia64_fpreg *fpval,
 					struct kvm_pt_regs *regs)
 {
-	
+	/* Take floating register rotation into consideration*/
 	if (regnum >= IA64_FIRST_ROTATING_FR)
 		regnum = IA64_FIRST_ROTATING_FR + fph_index(regs, regnum);
 
@@ -662,7 +776,7 @@ void vcpu_get_fpreg(struct kvm_vcpu *vcpu, unsigned long reg,
 {
 	struct kvm_pt_regs *regs = vcpu_regs(vcpu);
 
-	getfpreg(reg, val, regs);   
+	getfpreg(reg, val, regs);   /* FIXME: handle NATs later*/
 }
 
 void vcpu_set_fpreg(struct kvm_vcpu *vcpu, unsigned long reg,
@@ -671,9 +785,12 @@ void vcpu_set_fpreg(struct kvm_vcpu *vcpu, unsigned long reg,
 	struct kvm_pt_regs *regs = vcpu_regs(vcpu);
 
 	if (reg > 1)
-		setfpreg(reg, val, regs);   
+		setfpreg(reg, val, regs);   /* FIXME: handle NATs later*/
 }
 
+/*
+ * The Altix RTC is mapped specially here for the vmm module
+ */
 #define SN_RTC_BASE	(u64 *)(KVM_VMM_BASE+(1UL<<KVM_VMM_SHIFT))
 static long kvm_get_itc(struct kvm_vcpu *vcpu)
 {
@@ -687,6 +804,9 @@ static long kvm_get_itc(struct kvm_vcpu *vcpu)
 		return ia64_getreg(_IA64_REG_AR_ITC);
 }
 
+/************************************************************************
+ * lsapic timer
+ ***********************************************************************/
 u64 vcpu_get_itc(struct kvm_vcpu *vcpu)
 {
 	unsigned long guest_itc;
@@ -772,6 +892,7 @@ static inline void vcpu_set_eoi(struct kvm_vcpu *vcpu, u64 val)
 
 }
 
+/* See Table 5-8 in SDM vol2 for the definition */
 int irq_masked(struct kvm_vcpu *vcpu, int h_pending, int h_inservice)
 {
 	union ia64_tpr vtpr;
@@ -782,7 +903,7 @@ int irq_masked(struct kvm_vcpu *vcpu, int h_pending, int h_inservice)
 		return IRQ_MASKED_BY_INSVC;
 
 	if (h_pending == NMI_VECTOR) {
-		
+		/* Non Maskable Interrupt */
 		return IRQ_NO_MASKED;
 	}
 
@@ -791,7 +912,7 @@ int irq_masked(struct kvm_vcpu *vcpu, int h_pending, int h_inservice)
 
 	if (h_pending == ExtINT_VECTOR) {
 		if (vtpr.mmi) {
-			
+			/* mask all external IRQ */
 			return IRQ_MASKED_BY_VTPR;
 		} else
 			return IRQ_NO_MASKED;
@@ -873,6 +994,9 @@ u64 vcpu_get_ivr(struct kvm_vcpu *vcpu)
 	return  (u64)vec;
 }
 
+/**************************************************************************
+  Privileged operation emulation routines
+ **************************************************************************/
 u64 vcpu_thash(struct kvm_vcpu *vcpu, u64 vadr)
 {
 	union ia64_pta vpta;
@@ -1041,6 +1165,9 @@ void kvm_tak(struct kvm_vcpu *vcpu, INST64 inst)
 	vcpu_set_gr(vcpu, inst.M46.r1, r1, 0);
 }
 
+/************************************
+ * Insert/Purge translation register/cache
+ ************************************/
 void vcpu_itc_i(struct kvm_vcpu *vcpu, u64 pte, u64 itir, u64 ifa)
 {
 	thash_purge_and_insert(vcpu, pte, itir, ifa, I_TLB);
@@ -1136,7 +1263,7 @@ void vcpu_ptc_ga(struct kvm_vcpu *vcpu, u64 va, u64 ps)
 	p->u.ptc_g_data.vaddr = va;
 	p->u.ptc_g_data.ps = ps;
 	vmm_transition(vcpu);
-	
+	/* Do Local Purge Here*/
 	vcpu_ptc_l(vcpu, va, ps);
 	local_irq_restore(psr);
 }
@@ -1244,6 +1371,9 @@ void kvm_itc_i(struct kvm_vcpu *vcpu, INST64 inst)
 	vcpu_itc_i(vcpu, pte, itir, ifa);
 }
 
+/*************************************
+ * Moves to semi-privileged registers
+ *************************************/
 
 void kvm_mov_to_ar_imm(struct kvm_vcpu *vcpu, INST64 inst)
 {
@@ -1273,6 +1403,9 @@ void kvm_mov_from_ar_reg(struct kvm_vcpu *vcpu, INST64 inst)
 	vcpu_set_gr(vcpu, inst.M31.r1, r1, 0);
 }
 
+/**************************************************************************
+  struct kvm_vcpu protection key register access routines
+ **************************************************************************/
 
 unsigned long vcpu_get_pkr(struct kvm_vcpu *vcpu, unsigned long reg)
 {
@@ -1284,6 +1417,9 @@ void vcpu_set_pkr(struct kvm_vcpu *vcpu, unsigned long reg, unsigned long val)
 	ia64_set_pkr(reg, val);
 }
 
+/********************************
+ * Moves to privileged registers
+ ********************************/
 unsigned long vcpu_set_rr(struct kvm_vcpu *vcpu, unsigned long reg,
 					unsigned long val)
 {
@@ -1415,7 +1551,7 @@ void kvm_mov_from_pmc(struct kvm_vcpu *vcpu, INST64 inst)
 
 unsigned long vcpu_get_cpuid(struct kvm_vcpu *vcpu, unsigned long reg)
 {
-	
+	/* FIXME: This could get called as a result of a rsvd-reg fault */
 	if (reg > (ia64_get_cpuid(3) & 0xff))
 		return 0;
 	else
@@ -1497,20 +1633,35 @@ void vcpu_set_psr(struct kvm_vcpu *vcpu, unsigned long val)
 	old_psr = *(struct ia64_psr *)&VCPU(vcpu, vpsr);
 
 	regs = vcpu_regs(vcpu);
+	/* We only support guest as:
+	 *  vpsr.pk = 0
+	 *  vpsr.is = 0
+	 * Otherwise panic
+	 */
 	if (val & (IA64_PSR_PK | IA64_PSR_IS | IA64_PSR_VM))
 		panic_vm(vcpu, "Only support guests with vpsr.pk =0 "
 				"& vpsr.is=0\n");
 
+	/*
+	 * For those IA64_PSR bits: id/da/dd/ss/ed/ia
+	 * Since these bits will become 0, after success execution of each
+	 * instruction, we will change set them to mIA64_PSR
+	 */
 	VCPU(vcpu, vpsr) = val
 		& (~(IA64_PSR_ID | IA64_PSR_DA | IA64_PSR_DD |
 			IA64_PSR_SS | IA64_PSR_ED | IA64_PSR_IA));
 
 	if (!old_psr.i && (val & IA64_PSR_I)) {
-		
+		/* vpsr.i 0->1 */
 		vcpu->arch.irq_check = 1;
 	}
 	new_psr = *(struct ia64_psr *)&VCPU(vcpu, vpsr);
 
+	/*
+	 * All vIA64_PSR bits shall go to mPSR (v->tf->tf_special.psr)
+	 * , except for the following bits:
+	 *  ic/i/dt/si/rt/mc/it/bn/vm
+	 */
 	mask =  IA64_PSR_IC + IA64_PSR_I + IA64_PSR_DT + IA64_PSR_SI +
 		IA64_PSR_RT + IA64_PSR_MC + IA64_PSR_IT + IA64_PSR_BN +
 		IA64_PSR_VM;
@@ -1537,6 +1688,9 @@ unsigned long vcpu_cover(struct kvm_vcpu *vcpu)
 
 
 
+/**************************************************************************
+  VCPU banked general register access routines
+ **************************************************************************/
 #define vcpu_bsw0_unat(i, b0unat, b1unat, runat, VMM_PT_REGS_R16_SLOT)	\
 	do {     							\
 		__asm__ __volatile__ (					\
@@ -1627,6 +1781,10 @@ void vcpu_rfi(struct kvm_vcpu *vcpu)
 	regs->cr_iip = VCPU(vcpu, iip);
 }
 
+/*
+   VPSR can't keep track of below bits of guest PSR
+   This function gets guest PSR
+ */
 
 unsigned long vcpu_get_psr(struct kvm_vcpu *vcpu)
 {
@@ -1660,6 +1818,11 @@ void kvm_ssm(struct kvm_vcpu *vcpu, INST64 inst)
 	vcpu_set_psr(vcpu, vpsr);
 }
 
+/* Generate Mask
+ * Parameter:
+ *  bit -- starting bit
+ *  len -- how many bits
+ */
 #define MASK(bit,len)				   	\
 ({							\
 		__u64	ret;				\
@@ -1717,6 +1880,13 @@ void vcpu_decrement_iip(struct kvm_vcpu *vcpu)
 		ipsr->ri--;
 }
 
+/** Emulate a privileged operation.
+ *
+ *
+ * @param vcpu virtual cpu
+ * @cause the reason cause virtualization fault
+ * @opcode the instruction code which cause virtualization fault
+ */
 
 void kvm_emulate(struct kvm_vcpu *vcpu, struct kvm_pt_regs *regs)
 {
@@ -1727,6 +1897,10 @@ void kvm_emulate(struct kvm_vcpu *vcpu, struct kvm_pt_regs *regs)
 	cause = VMX(vcpu, cause);
 	opcode = VMX(vcpu, opcode);
 	inst.inst = opcode;
+	/*
+	 * Switch to actual virtual rid in rr0 and rr4,
+	 * which is required by some tlb related instructions.
+	 */
 	prepare_if_physical_mode(vcpu);
 
 	switch (cause) {
@@ -1853,7 +2027,7 @@ void kvm_emulate(struct kvm_vcpu *vcpu, struct kvm_pt_regs *regs)
 	default:
 		break;
 	};
-	
+	/*Assume all status is NO_FAULT ?*/
 	if (status == IA64_NO_FAULT && cause != EVENT_RFI)
 		vcpu_increment_iip(vcpu);
 
@@ -1875,7 +2049,7 @@ void init_vcpu(struct kvm_vcpu *vcpu)
 	VMX(vcpu, vrr[7]) = 0x38;
 	VCPU(vcpu, vpsr) = IA64_PSR_BN;
 	VCPU(vcpu, dcr) = 0;
-	
+	/* pta.size must not be 0.  The minimum is 15 (32k) */
 	VCPU(vcpu, pta) = 15 << 2;
 	VCPU(vcpu, itv) = 0x10000;
 	VCPU(vcpu, itm) = 0;
@@ -1891,10 +2065,10 @@ void init_vcpu(struct kvm_vcpu *vcpu)
 	VCPU(vcpu, irr[3]) = 0;
 	VCPU(vcpu, pmv) = 0x10000;
 	VCPU(vcpu, cmcv) = 0x10000;
-	VCPU(vcpu, lrr0) = 0x10000;   
-	VCPU(vcpu, lrr1) = 0x10000;   
+	VCPU(vcpu, lrr0) = 0x10000;   /* default reset value? */
+	VCPU(vcpu, lrr1) = 0x10000;   /* default reset value? */
 	update_vhpi(vcpu, NULL_VECTOR);
-	VLSAPIC_XTP(vcpu) = 0x80;	
+	VLSAPIC_XTP(vcpu) = 0x80;	/* disabled */
 
 	for (i = 0; i < 4; i++)
 		VLSAPIC_INSVC(vcpu, i) = 0;
@@ -1906,6 +2080,9 @@ void kvm_init_all_rr(struct kvm_vcpu *vcpu)
 
 	local_irq_save(psr);
 
+	/* WARNING: not allow co-exist of both virtual mode and physical
+	 * mode in same region
+	 */
 
 	vcpu->arch.metaphysical_saved_rr0 = vrrtomrr(VMX(vcpu, vrr[VRN0]));
 	vcpu->arch.metaphysical_saved_rr4 = vrrtomrr(VMX(vcpu, vrr[VRN4]));
@@ -2027,6 +2204,6 @@ void panic_vm(struct kvm_vcpu *v, const char *fmt, ...)
 	kvm_show_registers(regs);
 	p->exit_reason = EXIT_REASON_VM_PANIC;
 	vmm_transition(v);
-	
+	/*Never to return*/
 	while (1);
 }

@@ -6,12 +6,13 @@
 struct device;
 extern struct bus_type maple_bus_type;
 
+/* Maple Bus command and response codes */
 enum maple_code {
 	MAPLE_RESPONSE_FILEERR =	-5,
-	MAPLE_RESPONSE_AGAIN,	
+	MAPLE_RESPONSE_AGAIN,	/* retransmit */
 	MAPLE_RESPONSE_BADCMD,
 	MAPLE_RESPONSE_BADFUNC,
-	MAPLE_RESPONSE_NONE,	
+	MAPLE_RESPONSE_NONE,	/* unit didn't respond*/
 	MAPLE_COMMAND_DEVINFO =		1,
 	MAPLE_COMMAND_ALLINFO,
 	MAPLE_COMMAND_RESET,
@@ -101,4 +102,4 @@ void maple_clear_dev(struct maple_device *mdev);
 #define maple_get_drvdata(d)		dev_get_drvdata(&(d)->dev)
 #define maple_set_drvdata(d,p)		dev_set_drvdata(&(d)->dev, (p))
 
-#endif				
+#endif				/* __LINUX_MAPLE_H */

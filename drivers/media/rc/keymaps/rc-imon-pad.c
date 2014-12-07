@@ -12,8 +12,14 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/*
+ * standard imon remote key table, which isn't really entirely
+ * "standard", as different receivers decode the same key on the
+ * same remote to different hex codes, and the silkscreened names
+ * vary a bit between the SoundGraph and Antec remotes... ugh.
+ */
 static struct rc_map_table imon_pad[] = {
-	
+	/* keys sorted mostly by frequency of use to optimize lookups */
 	{ 0x2a8195b7, KEY_REWIND },
 	{ 0x298315b7, KEY_REWIND },
 	{ 0x2b8115b7, KEY_FASTFORWARD },
@@ -37,8 +43,8 @@ static struct rc_map_table imon_pad[] = {
 	{ 0x29a515b7, KEY_LEFT },
 	{ 0x2ba515b7, KEY_RIGHT },
 
-	{ 0x0200002c, KEY_SPACE }, 
-	{ 0x2a9315b7, KEY_SPACE }, 
+	{ 0x0200002c, KEY_SPACE }, /* Select/Space */
+	{ 0x2a9315b7, KEY_SPACE }, /* Select/Space */
 	{ 0x02000028, KEY_ENTER },
 	{ 0x28a195b7, KEY_ENTER },
 	{ 0x288195b7, KEY_EXIT },
@@ -87,17 +93,17 @@ static struct rc_map_table imon_pad[] = {
 	{ 0x29a395b7, KEY_DVD },
 	{ 0x29a295b7, KEY_DVD },
 
-	
+	/* the Menu key between DVD and Subtitle on the RM-200... */
 	{ 0x2ba385b7, KEY_MENU },
 	{ 0x2ba395b7, KEY_MENU },
 
 	{ 0x288515b7, KEY_BOOKMARKS },
-	{ 0x2ab715b7, KEY_CAMERA }, 
+	{ 0x2ab715b7, KEY_CAMERA }, /* Thumbnail */
 	{ 0x298595b7, KEY_SUBTITLE },
 	{ 0x2b8595b7, KEY_LANGUAGE },
 
 	{ 0x29a595b7, KEY_ZOOM },
-	{ 0x2aa395b7, KEY_SCREEN }, 
+	{ 0x2aa395b7, KEY_SCREEN }, /* FullScreen */
 
 	{ 0x299115b7, KEY_KEYBOARD },
 	{ 0x299135b7, KEY_KEYBOARD },
@@ -109,26 +115,26 @@ static struct rc_map_table imon_pad[] = {
 	{ 0x688301b7, BTN_LEFT },
 	{ 0x688481b7, BTN_RIGHT },
 
-	{ 0x2a9395b7, KEY_CYCLEWINDOWS }, 
-	{ 0x2b8395b7, KEY_TIME }, 
+	{ 0x2a9395b7, KEY_CYCLEWINDOWS }, /* TaskSwitcher */
+	{ 0x2b8395b7, KEY_TIME }, /* Timer */
 
 	{ 0x289115b7, KEY_POWER },
-	{ 0x29b195b7, KEY_EJECTCD }, 
-	{ 0x299395b7, KEY_EJECTCLOSECD }, 
+	{ 0x29b195b7, KEY_EJECTCD }, /* the one next to play */
+	{ 0x299395b7, KEY_EJECTCLOSECD }, /* eject (by TaskSw) */
 
-	{ 0x02800000, KEY_CONTEXT_MENU }, 
-	{ 0x2b8195b7, KEY_CONTEXT_MENU }, 
-	{ 0x02000065, KEY_COMPOSE }, 
-	{ 0x28b715b7, KEY_COMPOSE }, 
-	{ 0x2ab195b7, KEY_MEDIA }, 
-	{ 0x29b715b7, KEY_DASHBOARD }, 
+	{ 0x02800000, KEY_CONTEXT_MENU }, /* Left Menu */
+	{ 0x2b8195b7, KEY_CONTEXT_MENU }, /* Left Menu*/
+	{ 0x02000065, KEY_COMPOSE }, /* RightMenu */
+	{ 0x28b715b7, KEY_COMPOSE }, /* RightMenu */
+	{ 0x2ab195b7, KEY_MEDIA }, /* Go or MultiMon */
+	{ 0x29b715b7, KEY_DASHBOARD }, /* AppLauncher */
 };
 
 static struct rc_map_list imon_pad_map = {
 	.map = {
 		.scan    = imon_pad,
 		.size    = ARRAY_SIZE(imon_pad),
-		
+		/* actual protocol details unknown, hardware decoder */
 		.rc_type = RC_TYPE_OTHER,
 		.name    = RC_MAP_IMON_PAD,
 	}

@@ -109,13 +109,16 @@ void __cpuinit smp_callin(void)
 	__asm__ __volatile__("membar #Sync\n\t"
 			     "flush  %%g6" : : : "memory");
 
+	/* Clear this or we will die instantly when we
+	 * schedule back to this idler...
+	 */
 	current_thread_info()->new_child = 0;
 
-	
+	/* Attach to the address space of init_task. */
 	atomic_inc(&init_mm.mm_count);
 	current->active_mm = &init_mm;
 
-	
+	/* inform the notifiers about the new cpu */
 	notify_cpu_starting(cpuid);
 
 	while (!cpumask_test_cpu(cpuid, &smp_commenced_mask))
@@ -125,7 +128,7 @@ void __cpuinit smp_callin(void)
 	set_cpu_online(cpuid, true);
 	ipi_call_unlock_irq();
 
-	
+	/* idle thread is expected to have preempt disabled */
 	preempt_disable();
 }
 
@@ -135,12 +138,18 @@ void cpu_panic(void)
 	panic("SMP bolixed\n");
 }
 
+/* This tick register synchronization scheme is taken entirely from
+ * the ia64 port, see arch/ia64/kernel/smpboot.c for details and credit.
+ *
+ * The only change I've made is to rework it so that the master
+ * initiates the synchonization instead of the slave. -DaveM
+ */
 
 #define MASTER	0
 #define SLAVE	(SMP_CACHE_BYTES/sizeof(unsigned long))
 
-#define NUM_ROUNDS	64	
-#define NUM_ITERS	5	
+#define NUM_ROUNDS	64	/* magic value */
+#define NUM_ITERS	5	/* likewise */
 
 static DEFINE_SPINLOCK(itc_sync_lock);
 static unsigned long go[SLAVE + 1];
@@ -170,7 +179,7 @@ static inline long get_delta (long *rt, long *master)
 	*rt = best_t1 - best_t0;
 	*master = best_tm - best_t0;
 
-	
+	/* average best_t0 and best_t1 without overflow: */
 	tcenter = (best_t0/2 + best_t1/2);
 	if (best_t0 % 2 + best_t1 % 2 == 2)
 		tcenter++;
@@ -183,10 +192,10 @@ void smp_synchronize_tick_client(void)
 	unsigned long flags, rt, master_time_stamp;
 #if DEBUG_TICK_SYNC
 	struct {
-		long rt;	
-		long master;	
-		long diff;	
-		long lat;	
+		long rt;	/* roundtrip time */
+		long master;	/* master's timestamp */
+		long diff;	/* difference between midpoint and master's timestamp */
+		long lat;	/* estimate of itc adjustment latency */
 	} t[NUM_ROUNDS];
 #endif
 
@@ -200,7 +209,7 @@ void smp_synchronize_tick_client(void)
 		for (i = 0; i < NUM_ROUNDS; i++) {
 			delta = get_delta(&rt, &master_time_stamp);
 			if (delta == 0)
-				done = 1;	
+				done = 1;	/* let's lock on to this... */
 
 			if (!done) {
 				if (i > 0) {
@@ -242,11 +251,11 @@ static void smp_synchronize_one_tick(int cpu)
 
 	smp_start_sync_tick_client(cpu);
 
-	
+	/* wait for client to be ready */
 	while (!go[MASTER])
 		rmb();
 
-	
+	/* now let the client proceed into his loop */
 	go[MASTER] = 0;
 	membar_safe("#StoreLoad");
 
@@ -265,6 +274,7 @@ static void smp_synchronize_one_tick(int cpu)
 }
 
 #if defined(CONFIG_SUN_LDOMS) && defined(CONFIG_HOTPLUG_CPU)
+/* XXX Put this in some common place. XXX */
 static unsigned long kimage_addr_to_ra(void *p)
 {
 	unsigned long val = (unsigned long) p;
@@ -327,6 +337,10 @@ static void __cpuinit ldom_startcpu_cpuid(unsigned int cpu, unsigned long thread
 
 extern unsigned long sparc64_cpu_startup;
 
+/* The OBP cpu startup callback truncates the 3rd arg cookie to
+ * 32-bits (I think) so to be safe we have it read the pointer
+ * contained here so we work on >4GB machines. -DaveM
+ */
 static struct thread_info *cpu_new_thread = NULL;
 
 static int __cpuinit smp_boot_one_cpu(unsigned int cpu)
@@ -385,7 +399,7 @@ static void spitfire_xcall_helper(u64 data0, u64 data1, u64 data2, u64 pstate, u
 	int stuck, tmp;
 
 	if (this_is_starfire) {
-		
+		/* map to real upaid */
 		cpu = (((cpu & 0x3c) << 1) |
 			((cpu & 0x40) >> 4) |
 			(cpu & 0x3));
@@ -393,6 +407,13 @@ static void spitfire_xcall_helper(u64 data0, u64 data1, u64 data2, u64 pstate, u
 
 	target = (cpu << 14) | 0x70;
 again:
+	/* Ok, this is the real Spitfire Errata #54.
+	 * One must read back from a UDB internal register
+	 * after writes to the UDB interrupt dispatch, but
+	 * before the membar Sync for that write.
+	 * So we use the high UDB control register (ASI 0x7f,
+	 * ADDR 0x20) for the dummy read. -DaveM
+	 */
 	tmp = 0x40;
 	__asm__ __volatile__(
 	"wrpr	%1, %2, %%pstate\n\t"
@@ -412,7 +433,7 @@ again:
 	  "r" (0x10), "0" (tmp)
         : "g1");
 
-	
+	/* NOTE: PSTATE_IE is still clear. */
 	stuck = 100000;
 	do {
 		__asm__ __volatile__("ldxa [%%g0] %1, %0"
@@ -455,6 +476,10 @@ static void spitfire_xcall_deliver(struct trap_per_cpu *tb, int cnt)
 		spitfire_xcall_helper(data0, data1, data2, pstate, cpu_list[i]);
 }
 
+/* Cheetah now allows to send the whole 64-bytes of data in the interrupt
+ * packet, but we have no use for that.  However we do take advantage of
+ * the new pipelining feature (ie. dispatch to multiple cpus simultaneously).
+ */
 static void cheetah_xcall_deliver(struct trap_per_cpu *tb, int cnt)
 {
 	int nack_busy_id, is_jbus, need_more;
@@ -464,6 +489,10 @@ static void cheetah_xcall_deliver(struct trap_per_cpu *tb, int cnt)
 	cpu_list = __va(tb->cpu_list_pa);
 	mondo = __va(tb->cpu_mondo_block_pa);
 
+	/* Unfortunately, someone at Sun had the brilliant idea to make the
+	 * busy/nack fields hard-coded by ITID number for this Ultra-III
+	 * derivative processor.
+	 */
 	__asm__ ("rdpr %%ver, %0" : "=r" (ver));
 	is_jbus = ((ver >> 32) == __JALAPENO_ID ||
 		   (ver >> 32) == __SERRANO_ID);
@@ -475,12 +504,12 @@ retry:
 	__asm__ __volatile__("wrpr %0, %1, %%pstate\n\t"
 			     : : "r" (pstate), "i" (PSTATE_IE));
 
-	
+	/* Setup the dispatch data registers. */
 	__asm__ __volatile__("stxa	%0, [%3] %6\n\t"
 			     "stxa	%1, [%4] %6\n\t"
 			     "stxa	%2, [%5] %6\n\t"
 			     "membar	#Sync\n\t"
-			     : 
+			     : /* no outputs */
 			     : "r" (mondo[0]), "r" (mondo[1]), "r" (mondo[2]),
 			       "r" (0x40), "r" (0x50), "r" (0x60),
 			       "i" (ASI_INTR_W));
@@ -508,7 +537,7 @@ retry:
 			__asm__ __volatile__(
 				"stxa	%%g0, [%0] %1\n\t"
 				"membar	#Sync\n\t"
-				: 
+				: /* no outputs */
 				: "r" (target), "i" (ASI_INTR_W));
 			nack_busy_id++;
 			if (nack_busy_id == 32) {
@@ -518,7 +547,7 @@ retry:
 		}
 	}
 
-	
+	/* Now, poll for completion. */
 	{
 		u64 dispatch_stat, nack_mask;
 		long stuck;
@@ -554,13 +583,22 @@ retry:
 				     : : "r" (pstate));
 
 		if (dispatch_stat & busy_mask) {
+			/* Busy bits will not clear, continue instead
+			 * of freezing up on this cpu.
+			 */
 			printk("CPU[%d]: mondo stuckage result[%016llx]\n",
 			       smp_processor_id(), dispatch_stat);
 		} else {
 			int i, this_busy_nack = 0;
 
+			/* Delay some random time with interrupts enabled
+			 * to prevent deadlock.
+			 */
 			udelay(2 * nack_busy_id);
 
+			/* Clear out the mask bits for cpus which did not
+			 * NACK us.
+			 */
 			for (i = 0; i < cnt; i++) {
 				u64 check_mask, nr;
 
@@ -585,6 +623,7 @@ retry:
 	}
 }
 
+/* Multi-cpu list version.  */
 static void hypervisor_xcall_deliver(struct trap_per_cpu *tb, int cnt)
 {
 	int retries, this_cpu, prev_sent, i, saw_cpu_error;
@@ -605,10 +644,15 @@ static void hypervisor_xcall_deliver(struct trap_per_cpu *tb, int cnt)
 					      tb->cpu_list_pa,
 					      tb->cpu_mondo_block_pa);
 
-		
+		/* HV_EOK means all cpus received the xcall, we're done.  */
 		if (likely(status == HV_EOK))
 			break;
 
+		/* First, see if we made any forward progress.
+		 *
+		 * The hypervisor indicates successful sends by setting
+		 * cpu list entries to the value 0xffff.
+		 */
 		n_sent = 0;
 		for (i = 0; i < cnt; i++) {
 			if (likely(cpu_list[i] == 0xffff))
@@ -621,6 +665,10 @@ static void hypervisor_xcall_deliver(struct trap_per_cpu *tb, int cnt)
 
 		prev_sent = n_sent;
 
+		/* If we get a HV_ECPUERROR, then one or more of the cpus
+		 * in the list are in error state.  Use the cpu_state()
+		 * hypervisor call to find out which cpus are in error state.
+		 */
 		if (unlikely(status == HV_ECPUERROR)) {
 			for (i = 0; i < cnt; i++) {
 				long err;
@@ -639,10 +687,20 @@ static void hypervisor_xcall_deliver(struct trap_per_cpu *tb, int cnt)
 		} else if (unlikely(status != HV_EWOULDBLOCK))
 			goto fatal_mondo_error;
 
+		/* Don't bother rewriting the CPU list, just leave the
+		 * 0xffff and non-0xffff entries in there and the
+		 * hypervisor will do the right thing.
+		 *
+		 * Only advance timeout state if we didn't make any
+		 * forward progress.
+		 */
 		if (unlikely(!forward_progress)) {
 			if (unlikely(++retries > 10000))
 				goto fatal_mondo_timeout;
 
+			/* Delay a little bit to let other cpus catch up
+			 * on their cpu mondo queue work.
+			 */
 			udelay(2 * cnt);
 		}
 	} while (1);
@@ -688,6 +746,16 @@ static void xcall_deliver(u64 data0, u64 data1, u64 data2, const cpumask_t *mask
 	u16 *cpu_list;
 	u64 *mondo;
 
+	/* We have to do this whole thing with interrupts fully disabled.
+	 * Otherwise if we send an xcall from interrupt context it will
+	 * corrupt both our mondo block and cpu list state.
+	 *
+	 * One consequence of this is that we cannot use timeout mechanisms
+	 * that depend upon interrupts being delivered locally.  So, for
+	 * example, we cannot sample jiffies and expect it to advance.
+	 *
+	 * Fortunately, udelay() uses %stick/%tick so we can use that.
+	 */
 	local_irq_save(flags);
 
 	this_cpu = smp_processor_id();
@@ -701,7 +769,7 @@ static void xcall_deliver(u64 data0, u64 data1, u64 data2, const cpumask_t *mask
 
 	cpu_list = __va(tb->cpu_list_pa);
 
-	
+	/* Setup the initial cpu list.  */
 	cnt = 0;
 	for_each_cpu(i, mask) {
 		if (i == this_cpu || !cpu_online(i))
@@ -715,6 +783,10 @@ static void xcall_deliver(u64 data0, u64 data1, u64 data2, const cpumask_t *mask
 	local_irq_restore(flags);
 }
 
+/* Send cross call to all processors mentioned in MASK_P
+ * except self.  Really, there are only two cases currently,
+ * "cpu_online_mask" and "mm_cpumask(mm)".
+ */
 static void smp_cross_call_masked(unsigned long *func, u32 ctx, u64 data1, u64 data2, const cpumask_t *mask)
 {
 	u64 data0 = (((u64)ctx)<<32 | (((u64)func) & 0xffffffff));
@@ -722,6 +794,7 @@ static void smp_cross_call_masked(unsigned long *func, u32 ctx, u64 data1, u64 d
 	xcall_deliver(data0, data1, data2, mask);
 }
 
+/* Send cross call to all processors except self. */
 static void smp_cross_call(unsigned long *func, u32 ctx, u64 data1, u64 data2)
 {
 	smp_cross_call_masked(func, ctx, data1, data2, cpu_online_mask);
@@ -767,6 +840,12 @@ static void tsb_sync(void *info)
 	struct trap_per_cpu *tp = &trap_block[raw_smp_processor_id()];
 	struct mm_struct *mm = info;
 
+	/* It is not valid to test "current->active_mm == mm" here.
+	 *
+	 * The value of "current" is not changed atomically with
+	 * switch_mm().  But that's OK, we just need to check the
+	 * current cpu's trap block PGD physical address.
+	 */
 	if (tp->pgd_paddr == __pa(mm->pgd))
 		tsb_context_switch(mm);
 }
@@ -892,6 +971,9 @@ void __irq_entry smp_new_mmu_context_version_client(int irq, struct pt_regs *reg
 
 	clear_softint(1 << irq);
 
+	/* See if we need to allocate a new TLB context because
+	 * the version of the one we are using is now out of date.
+	 */
 	mm = current->active_mm;
 	if (unlikely(!mm || (mm == &init_mm)))
 		return;
@@ -925,7 +1007,49 @@ void smp_fetch_global_regs(void)
 	smp_cross_call(&xcall_fetch_glob_regs, 0, 0, 0);
 }
 
+/* We know that the window frames of the user have been flushed
+ * to the stack before we get here because all callers of us
+ * are flush_tlb_*() routines, and these run after flush_cache_*()
+ * which performs the flushw.
+ *
+ * The SMP TLB coherency scheme we use works as follows:
+ *
+ * 1) mm->cpu_vm_mask is a bit mask of which cpus an address
+ *    space has (potentially) executed on, this is the heuristic
+ *    we use to avoid doing cross calls.
+ *
+ *    Also, for flushing from kswapd and also for clones, we
+ *    use cpu_vm_mask as the list of cpus to make run the TLB.
+ *
+ * 2) TLB context numbers are shared globally across all processors
+ *    in the system, this allows us to play several games to avoid
+ *    cross calls.
+ *
+ *    One invariant is that when a cpu switches to a process, and
+ *    that processes tsk->active_mm->cpu_vm_mask does not have the
+ *    current cpu's bit set, that tlb context is flushed locally.
+ *
+ *    If the address space is non-shared (ie. mm->count == 1) we avoid
+ *    cross calls when we want to flush the currently running process's
+ *    tlb state.  This is done by clearing all cpu bits except the current
+ *    processor's in current->mm->cpu_vm_mask and performing the
+ *    flush locally only.  This will force any subsequent cpus which run
+ *    this task to flush the context from the local tlb if the process
+ *    migrates to another cpu (again).
+ *
+ * 3) For shared address spaces (threads) and swapping we bite the
+ *    bullet for most cases and perform the cross call (but only to
+ *    the cpus listed in cpu_vm_mask).
+ *
+ *    The performance gain from "optimizing" away the cross call for threads is
+ *    questionable (in theory the big win for threads is the massive sharing of
+ *    address space state across processors).
+ */
 
+/* This currently is only used by the hugetlb arch pre-fault
+ * hook on UltraSPARC-III+ and later when changing the pagesize
+ * bits of the context register for an address space.
+ */
 void smp_flush_tlb_mm(struct mm_struct *mm)
 {
 	u32 ctx = CTX_HWBITS(mm->context);
@@ -975,6 +1099,8 @@ void smp_flush_tlb_kernel_range(unsigned long start, unsigned long end)
 	}
 }
 
+/* CPU capture. */
+/* #define CAPTURE_DEBUG */
 extern unsigned long xcall_capture;
 
 static atomic_t smp_capture_depth = ATOMIC_INIT(0);
@@ -1017,6 +1143,9 @@ void smp_release(void)
 	}
 }
 
+/* Imprisoned penguins run with %pil == PIL_NORMAL_MAX, but PSTATE_IE
+ * set, so they can service tlb flush xcalls...
+ */
 extern void prom_world(int);
 
 void __irq_entry smp_penguin_jailcell(int irq, struct pt_regs *regs)
@@ -1037,6 +1166,7 @@ void __irq_entry smp_penguin_jailcell(int irq, struct pt_regs *regs)
 	preempt_enable();
 }
 
+/* /proc/profile writes can call this, don't __init it please. */
 int setup_profiling_timer(unsigned int multiplier)
 {
 	return -EINVAL;
@@ -1108,6 +1238,9 @@ int __cpuinit __cpu_up(unsigned int cpu)
 		if (!cpu_online(cpu)) {
 			ret = -ENODEV;
 		} else {
+			/* On SUN4V, writes to %tick and %stick are
+			 * not allowed.
+			 */
 			if (tlb_type != hypervisor)
 				smp_synchronize_one_tick(cpu);
 		}
@@ -1172,7 +1305,7 @@ int __cpu_disable(void)
 
 	smp_wmb();
 
-	
+	/* Make sure no interrupts point to this cpu.  */
 	fixup_irqs();
 
 	local_irq_enable();
@@ -1238,10 +1371,26 @@ void __irq_entry smp_receive_signal_client(int irq, struct pt_regs *regs)
 	scheduler_ipi();
 }
 
+/* This is a nop because we capture all other cpus
+ * anyways when making the PROM active.
+ */
 void smp_send_stop(void)
 {
 }
 
+/**
+ * pcpu_alloc_bootmem - NUMA friendly alloc_bootmem wrapper for percpu
+ * @cpu: cpu to allocate for
+ * @size: size allocation in bytes
+ * @align: alignment
+ *
+ * Allocate @size bytes aligned at @align for cpu @cpu.  This wrapper
+ * does the right thing for NUMA regardless of the current
+ * configuration.
+ *
+ * RETURNS:
+ * Pointer to the allocated area on success, NULL on failure.
+ */
 static void * __init pcpu_alloc_bootmem(unsigned int cpu, size_t size,
 					size_t align)
 {
@@ -1333,7 +1482,7 @@ void __init setup_per_cpu_areas(void)
 	for_each_possible_cpu(cpu)
 		__per_cpu_offset(cpu) = delta + pcpu_unit_offsets[cpu];
 
-	
+	/* Setup %g5 for the boot cpu.  */
 	__local_per_cpu_offset = __per_cpu_offset(smp_processor_id());
 
 	of_fill_in_cpu_data();

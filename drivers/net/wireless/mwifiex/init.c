@@ -25,6 +25,12 @@
 #include "wmm.h"
 #include "11n.h"
 
+/*
+ * This function adds a BSS priority table to the table list.
+ *
+ * The function allocates a new BSS priority table node and adds it to
+ * the end of BSS priority table list, kept in driver memory.
+ */
 static int mwifiex_add_bss_prio_tbl(struct mwifiex_private *priv)
 {
 	struct mwifiex_adapter *adapter = priv->adapter;
@@ -51,6 +57,13 @@ static int mwifiex_add_bss_prio_tbl(struct mwifiex_private *priv)
 	return 0;
 }
 
+/*
+ * This function initializes the private structure and sets default
+ * values to the members.
+ *
+ * Additionally, it also initializes all the locks and sets up all the
+ * lists.
+ */
 static int mwifiex_init_priv(struct mwifiex_private *priv)
 {
 	u32 i;
@@ -60,7 +73,7 @@ static int mwifiex_init_priv(struct mwifiex_private *priv)
 
 	priv->pkt_tx_ctrl = 0;
 	priv->bss_mode = NL80211_IFTYPE_UNSPECIFIED;
-	priv->data_rate = 0;	
+	priv->data_rate = 0;	/* Initially indicate the rate as auto */
 	priv->is_data_rate_auto = true;
 	priv->bcn_avg_factor = DEFAULT_BCN_AVG_FACTOR;
 	priv->data_avg_factor = DEFAULT_DATA_AVG_FACTOR;
@@ -74,7 +87,7 @@ static int mwifiex_init_priv(struct mwifiex_private *priv)
 	priv->curr_pkt_filter = HostCmd_ACT_MAC_RX_ON | HostCmd_ACT_MAC_TX_ON |
 				HostCmd_ACT_MAC_ETHERNETII_ENABLE;
 
-	priv->beacon_period = 100;  ;
+	priv->beacon_period = 100; /* beacon interval */ ;
 	priv->attempted_bss_desc = NULL;
 	memset(&priv->curr_bss_params, 0, sizeof(priv->curr_bss_params));
 	priv->listen_interval = MWIFIEX_DEFAULT_LISTEN_INTERVAL;
@@ -124,11 +137,19 @@ static int mwifiex_init_priv(struct mwifiex_private *priv)
 	return mwifiex_add_bss_prio_tbl(priv);
 }
 
+/*
+ * This function allocates buffers for members of the adapter
+ * structure.
+ *
+ * The memory allocated includes scan table, command buffers, and
+ * sleep confirm command buffer. In addition, the queues are
+ * also initialized.
+ */
 static int mwifiex_allocate_adapter(struct mwifiex_adapter *adapter)
 {
 	int ret;
 
-	
+	/* Allocate command buffer */
 	ret = mwifiex_alloc_cmd_buffer(adapter);
 	if (ret) {
 		dev_err(adapter->dev, "%s: failed to alloc cmd buffer\n",
@@ -150,6 +171,13 @@ static int mwifiex_allocate_adapter(struct mwifiex_adapter *adapter)
 	return 0;
 }
 
+/*
+ * This function initializes the adapter structure and sets default
+ * values to the members of adapter.
+ *
+ * This also initializes the WMM related parameters in the driver private
+ * structures.
+ */
 static void mwifiex_init_adapter(struct mwifiex_adapter *adapter)
 {
 	struct mwifiex_opt_sleep_confirm *sleep_cfm_buf = NULL;
@@ -184,7 +212,8 @@ static void mwifiex_init_adapter(struct mwifiex_adapter *adapter)
 
 	adapter->multiple_dtim = 1;
 
-	adapter->local_listen_interval = 0;	
+	adapter->local_listen_interval = 0;	/* default value in firmware
+						   will be used */
 
 	adapter->is_deep_sleep = false;
 
@@ -192,8 +221,10 @@ static void mwifiex_init_adapter(struct mwifiex_adapter *adapter)
 	adapter->delay_to_ps = 1000;
 	adapter->enhanced_ps_mode = PS_MODE_AUTO;
 
-	adapter->gen_null_pkt = false;	
-	adapter->pps_uapsd_mode = false; 
+	adapter->gen_null_pkt = false;	/* Disable NULL Pkg generation by
+					   default */
+	adapter->pps_uapsd_mode = false; /* Disable pps/uapsd mode by
+					   default */
 	adapter->pm_wakeup_card_req = false;
 
 	adapter->pm_wakeup_fw_try = false;
@@ -248,6 +279,9 @@ static void mwifiex_init_adapter(struct mwifiex_adapter *adapter)
 	adapter->channel_type = NL80211_CHAN_HT20;
 }
 
+/*
+ * This function sets trans_start per tx_queue
+ */
 void mwifiex_set_trans_start(struct net_device *dev)
 {
 	int i;
@@ -258,6 +292,9 @@ void mwifiex_set_trans_start(struct net_device *dev)
 	dev->trans_start = jiffies;
 }
 
+/*
+ * This function wakes up all queues in net_device
+ */
 void mwifiex_wake_up_net_dev_queue(struct net_device *netdev,
 					struct mwifiex_adapter *adapter)
 {
@@ -268,6 +305,9 @@ void mwifiex_wake_up_net_dev_queue(struct net_device *netdev,
 	spin_unlock_irqrestore(&adapter->queue_lock, dev_queue_flags);
 }
 
+/*
+ * This function stops all queues in net_device
+ */
 void mwifiex_stop_net_dev_queue(struct net_device *netdev,
 					struct mwifiex_adapter *adapter)
 {
@@ -278,12 +318,16 @@ void mwifiex_stop_net_dev_queue(struct net_device *netdev,
 	spin_unlock_irqrestore(&adapter->queue_lock, dev_queue_flags);
 }
 
+/*
+ *  This function releases the lock variables and frees the locks and
+ *  associated locks.
+ */
 static void mwifiex_free_lock_list(struct mwifiex_adapter *adapter)
 {
 	struct mwifiex_private *priv;
 	s32 i, j;
 
-	
+	/* Free lists */
 	list_del(&adapter->cmd_free_q);
 	list_del(&adapter->cmd_pending_q);
 	list_del(&adapter->scan_pending_q);
@@ -302,6 +346,16 @@ static void mwifiex_free_lock_list(struct mwifiex_adapter *adapter)
 	}
 }
 
+/*
+ * This function frees the adapter structure.
+ *
+ * The freeing operation is done recursively, by canceling all
+ * pending commands, freeing the member buffers previously
+ * allocated (command buffers, scan table buffer, sleep confirm
+ * command buffer), stopping the timers and calling the cleanup
+ * routines for every interface, before the actual adapter
+ * structure is freed.
+ */
 static void
 mwifiex_free_adapter(struct mwifiex_adapter *adapter)
 {
@@ -312,10 +366,10 @@ mwifiex_free_adapter(struct mwifiex_adapter *adapter)
 
 	mwifiex_cancel_all_pending_cmd(adapter);
 
-	
+	/* Free lock variables */
 	mwifiex_free_lock_list(adapter);
 
-	
+	/* Free command buffer */
 	dev_dbg(adapter->dev, "info: free cmd buffer\n");
 	mwifiex_free_cmd_buffer(adapter);
 
@@ -329,6 +383,10 @@ mwifiex_free_adapter(struct mwifiex_adapter *adapter)
 		dev_kfree_skb_any(adapter->sleep_cfm);
 }
 
+/*
+ *  This function intializes the lock variables and
+ *  the list heads.
+ */
 int mwifiex_init_lock_list(struct mwifiex_adapter *adapter)
 {
 	struct mwifiex_private *priv;
@@ -348,11 +406,11 @@ int mwifiex_init_lock_list(struct mwifiex_adapter *adapter)
 		}
 	}
 
-	
+	/* Initialize cmd_free_q */
 	INIT_LIST_HEAD(&adapter->cmd_free_q);
-	
+	/* Initialize cmd_pending_q */
 	INIT_LIST_HEAD(&adapter->cmd_pending_q);
-	
+	/* Initialize scan_pending_q */
 	INIT_LIST_HEAD(&adapter->scan_pending_q);
 
 	spin_lock_init(&adapter->cmd_free_q_lock);
@@ -383,6 +441,17 @@ int mwifiex_init_lock_list(struct mwifiex_adapter *adapter)
 	return 0;
 }
 
+/*
+ * This function initializes the firmware.
+ *
+ * The following operations are performed sequentially -
+ *      - Allocate adapter structure
+ *      - Initialize the adapter structure
+ *      - Initialize the private structure
+ *      - Add BSS priority tables to the adapter structure
+ *      - For each interface, send the init commands to firmware
+ *      - Send the first command in command pending queue, if available
+ */
 int mwifiex_init_fw(struct mwifiex_adapter *adapter)
 {
 	int ret;
@@ -393,19 +462,19 @@ int mwifiex_init_fw(struct mwifiex_adapter *adapter)
 
 	adapter->hw_status = MWIFIEX_HW_STATUS_INITIALIZING;
 
-	
+	/* Allocate memory for member of adapter structure */
 	ret = mwifiex_allocate_adapter(adapter);
 	if (ret)
 		return -1;
 
-	
+	/* Initialize adapter structure */
 	mwifiex_init_adapter(adapter);
 
 	for (i = 0; i < adapter->priv_num; i++) {
 		if (adapter->priv[i]) {
 			priv = adapter->priv[i];
 
-			
+			/* Initialize private structure */
 			ret = mwifiex_init_priv(priv);
 			if (ret)
 				return -1;
@@ -425,7 +494,7 @@ int mwifiex_init_fw(struct mwifiex_adapter *adapter)
 	is_cmd_pend_q_empty = list_empty(&adapter->cmd_pending_q);
 	spin_unlock_irqrestore(&adapter->cmd_pending_q_lock, flags);
 	if (!is_cmd_pend_q_empty) {
-		
+		/* Send the first command in queue and return */
 		if (mwifiex_main_process(adapter) != -1)
 			ret = -EINPROGRESS;
 	} else {
@@ -435,13 +504,19 @@ int mwifiex_init_fw(struct mwifiex_adapter *adapter)
 	return ret;
 }
 
+/*
+ * This function deletes the BSS priority tables.
+ *
+ * The function traverses through all the allocated BSS priority nodes
+ * in every BSS priority table and frees them.
+ */
 static void mwifiex_delete_bss_prio_tbl(struct mwifiex_private *priv)
 {
 	int i;
 	struct mwifiex_adapter *adapter = priv->adapter;
 	struct mwifiex_bss_prio_node *bssprio_node, *tmp_node, **cur;
 	struct list_head *head;
-	spinlock_t *lock; 
+	spinlock_t *lock; /* bss priority lock */
 	unsigned long flags;
 
 	for (i = 0; i < adapter->priv_num; ++i) {
@@ -479,6 +554,17 @@ static void mwifiex_delete_bss_prio_tbl(struct mwifiex_private *priv)
 	}
 }
 
+/*
+ * This function is used to shutdown the driver.
+ *
+ * The following operations are performed sequentially -
+ *      - Check if already shut down
+ *      - Make sure the main process has stopped
+ *      - Clean up the Tx and Rx queues
+ *      - Delete BSS priority tables
+ *      - Free the adapter
+ *      - Notify completion
+ */
 int
 mwifiex_shutdown_drv(struct mwifiex_adapter *adapter)
 {
@@ -487,21 +573,21 @@ mwifiex_shutdown_drv(struct mwifiex_adapter *adapter)
 	s32 i;
 	unsigned long flags;
 
-	
+	/* mwifiex already shutdown */
 	if (adapter->hw_status == MWIFIEX_HW_STATUS_NOT_READY)
 		return 0;
 
 	adapter->hw_status = MWIFIEX_HW_STATUS_CLOSING;
-	
+	/* wait for mwifiex_process to complete */
 	if (adapter->mwifiex_processing) {
 		dev_warn(adapter->dev, "main process is still running\n");
 		return ret;
 	}
 
-	
+	/* shut down mwifiex */
 	dev_dbg(adapter->dev, "info: shutdown mwifiex...\n");
 
-	
+	/* Clean up Tx/Rx queues and delete BSS priority table */
 	for (i = 0; i < adapter->priv_num; i++) {
 		if (adapter->priv[i]) {
 			priv = adapter->priv[i];
@@ -513,17 +599,29 @@ mwifiex_shutdown_drv(struct mwifiex_adapter *adapter)
 
 	spin_lock_irqsave(&adapter->mwifiex_lock, flags);
 
-	
+	/* Free adapter structure */
 	mwifiex_free_adapter(adapter);
 
 	spin_unlock_irqrestore(&adapter->mwifiex_lock, flags);
 
-	
+	/* Notify completion */
 	ret = mwifiex_shutdown_fw_complete(adapter);
 
 	return ret;
 }
 
+/*
+ * This function downloads the firmware to the card.
+ *
+ * The actual download is preceded by two sanity checks -
+ *      - Check if firmware is already running
+ *      - Check if the interface is the winner to download the firmware
+ *
+ * ...and followed by another -
+ *      - Check if the firmware is downloaded successfully
+ *
+ * After download is successfully completed, the host interrupts are enabled.
+ */
 int mwifiex_dnld_fw(struct mwifiex_adapter *adapter,
 		    struct mwifiex_fw_image *pmfw)
 {
@@ -532,7 +630,7 @@ int mwifiex_dnld_fw(struct mwifiex_adapter *adapter,
 
 	adapter->winner = 0;
 
-	
+	/* Check if firmware is already running */
 	ret = adapter->if_ops.check_fw_status(adapter, poll_num);
 	if (!ret) {
 		dev_notice(adapter->dev,
@@ -541,7 +639,7 @@ int mwifiex_dnld_fw(struct mwifiex_adapter *adapter,
 	}
 	poll_num = MAX_FIRMWARE_POLL_TRIES;
 
-	
+	/* Check if we are the winner for downloading FW */
 	if (!adapter->winner) {
 		dev_notice(adapter->dev,
 			   "Other intf already running! Skip FW download\n");
@@ -549,7 +647,7 @@ int mwifiex_dnld_fw(struct mwifiex_adapter *adapter,
 		goto poll_fw;
 	}
 	if (pmfw) {
-		
+		/* Download firmware with helper */
 		ret = adapter->if_ops.prog_fw(adapter, pmfw);
 		if (ret) {
 			dev_err(adapter->dev, "prog_fw failed ret=%#x\n", ret);
@@ -558,14 +656,14 @@ int mwifiex_dnld_fw(struct mwifiex_adapter *adapter,
 	}
 
 poll_fw:
-	
+	/* Check if the firmware is downloaded successfully or not */
 	ret = adapter->if_ops.check_fw_status(adapter, poll_num);
 	if (ret) {
 		dev_err(adapter->dev, "FW failed to be active in time\n");
 		return -1;
 	}
 done:
-	
+	/* re-enable host interrupt for mwifiex after fw dnld is successful */
 	adapter->if_ops.enable_int(adapter);
 	return ret;
 }

@@ -25,6 +25,7 @@ static inline struct task_struct *get_current(void)
 }
 #define current get_current()
 
+/* Return a usable "task_struct" pointer even if the real one is corrupt. */
 struct task_struct *validate_current(void);
 
-#endif 
+#endif /* _ASM_TILE_CURRENT_H */

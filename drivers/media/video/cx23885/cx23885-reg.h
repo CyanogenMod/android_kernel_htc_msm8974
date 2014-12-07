@@ -22,7 +22,36 @@
 #ifndef _CX23885_REG_H_
 #define _CX23885_REG_H_
 
+/*
+Address Map
+0x00000000 -> 0x00009000   TX SRAM  (Fifos)
+0x00010000 -> 0x00013c00   RX SRAM  CMDS + CDT
 
+EACH CMDS struct is 0x80 bytes long
+
+DMAx_PTR1 = 0x03040 address of first cluster
+DMAx_PTR2 = 0x10600 address of the CDT
+DMAx_CNT1 = cluster size in (bytes >> 4) -1
+DMAx_CNT2 = total cdt size for all entries >> 3
+
+Cluster Descriptor entry = 4 DWORDS
+ DWORD 0 -> ptr to cluster
+ DWORD 1 Reserved
+ DWORD 2 Reserved
+ DWORD 3 Reserved
+
+Channel manager Data Structure entry = 20 DWORD
+  0  IntialProgramCounterLow
+  1  IntialProgramCounterHigh
+  2  ClusterDescriptorTableBase
+  3  ClusterDescriptorTableSize
+  4  InstructionQueueBase
+  5  InstructionQueueSize
+...  Reserved
+ 19  Reserved
+*/
+
+/* Risc Instructions */
 #define RISC_CNT_INC		 0x00010000
 #define RISC_CNT_RESET		 0x00030000
 #define RISC_IRQ1		 0x01000000
@@ -42,10 +71,12 @@
 #define RISC_READC		 0xA0000000
 
 
+/* Audio and Video Core */
 #define HOST_REG1		0x00000000
 #define HOST_REG2		0x00000001
 #define HOST_REG3		0x00000002
 
+/* Chip Configuration Registers */
 #define CHIP_CTRL		0x00000100
 #define AFE_CTRL		0x00000104
 #define VID_PLL_INT_POST	0x00000108
@@ -65,11 +96,14 @@
 #define AFE_CLK_OUT_CTRL	0x00000144
 #define DLL1_DIAG_CTRL		0x0000015C
 
+/* GPIO[23:19] Output Enable */
 #define GPIO2_OUT_EN_REG	0x00000160
+/* GPIO[23:19] Data Registers */
 #define GPIO2			0x00000164
 
 #define IFADC_CTRL		0x00000180
 
+/* Infrared Remote Registers */
 #define IR_CNTRL_REG	0x00000200
 #define IR_TXCLK_REG	0x00000204
 #define IR_RXCLK_REG	0x00000208
@@ -79,6 +113,7 @@
 #define IR_FILTR_REG	0x00000218
 #define IR_FIFO_REG	0x0000023C
 
+/* Video Decoder Registers */
 #define MODE_CTRL		0x00000400
 #define OUT_CTRL1		0x00000404
 #define OUT_CTRL2		0x00000408
@@ -124,6 +159,8 @@
 #define CX885_VERSION		0x000004B4
 #define VBI_PASS_CTRL		0x000004BC
 
+/* Audio Decoder Registers */
+/* 8051 Configuration */
 #define DL_CTL		0x00000800
 #define STD_DET_STATUS	0x00000804
 #define STD_DET_CTL	0x00000808
@@ -140,6 +177,7 @@
 #define PATH2_EQ_CTL	0x000008E8
 #define PATH2_SC_CTL	0x000008EC
 
+/* Sample Rate Converter */
 #define SRC_CTL		0x000008F0
 #define SRC_LF_COEF	0x000008F4
 #define SRC1_CTL	0x000008F8
@@ -153,6 +191,7 @@
 #define I2S_OUT_CTL	0x00000918
 #define AUTOCONFIG_REG	0x000009C4
 
+/* Audio ADC Registers */
 #define DSM_CTRL1	0x00000000
 #define DSM_CTRL2	0x00000001
 #define CHP_EN_CTRL	0x00000002
@@ -228,6 +267,7 @@
 #define VID_C_MSK_RISCI2  (1 <<  4)
 #define VID_C_MSK_RISCI1   1
 
+/* A superset for testing purposes */
 #define VID_BC_MSK_BAD_PKT (1 << 20)
 #define VID_BC_MSK_OPC_ERR (1 << 16)
 #define VID_BC_MSK_SYNC    (1 << 12)
@@ -258,6 +298,7 @@
 #define RDR_RDRCTL1	0x0005030c
 #define RDR_TLCTL0	0x00050318
 
+/* APB DMAC Current Buffer Pointer */
 #define DMA1_PTR1	0x00100000
 #define DMA2_PTR1	0x00100004
 #define DMA3_PTR1	0x00100008
@@ -267,6 +308,7 @@
 #define DMA7_PTR1	0x00100018
 #define DMA8_PTR1	0x0010001C
 
+/* APB DMAC Current Table Pointer */
 #define DMA1_PTR2	0x00100040
 #define DMA2_PTR2	0x00100044
 #define DMA3_PTR2	0x00100048
@@ -276,6 +318,7 @@
 #define DMA7_PTR2	0x00100058
 #define DMA8_PTR2	0x0010005C
 
+/* APB DMAC Buffer Limit */
 #define DMA1_CNT1	0x00100080
 #define DMA2_CNT1	0x00100084
 #define DMA3_CNT1	0x00100088
@@ -285,6 +328,7 @@
 #define DMA7_CNT1	0x00100098
 #define DMA8_CNT1	0x0010009C
 
+/* APB DMAC Table Size */
 #define DMA1_CNT2	0x001000C0
 #define DMA2_CNT2	0x001000C4
 #define DMA3_CNT2	0x001000C8
@@ -294,23 +338,28 @@
 #define DMA7_CNT2	0x001000D8
 #define DMA8_CNT2	0x001000DC
 
+/* Timer Counters */
 #define TM_CNT_LDW	0x00110000
 #define TM_CNT_UW	0x00110004
 #define TM_LMT_LDW	0x00110008
 #define TM_LMT_UW	0x0011000C
 
+/* GPIO */
 #define GP0_IO		0x00110010
 #define GPIO_ISM	0x00110014
 #define SOFT_RESET	0x0011001C
 
+/* GPIO (417 Microsoftcontroller) RW Data */
 #define MC417_RWD	0x00110020
 
+/* GPIO (417 Microsoftcontroller) Output Enable, Low Active */
 #define MC417_OEN	0x00110024
 #define MC417_CTL	0x00110028
 #define ALT_PIN_OUT_SEL 0x0011002C
 #define CLK_DELAY	0x00110048
 #define PAD_CTRL	0x0011004C
 
+/* Video A Interface */
 #define VID_A_GPCNT		0x00130020
 #define VBI_A_GPCNT		0x00130024
 #define VID_A_GPCNT_CTL		0x00130030
@@ -320,6 +369,7 @@
 #define VID_A_PIXEL_FRMT	0x00130084
 #define VID_A_VBI_CTRL		0x00130088
 
+/* Video B Interface */
 #define VID_B_DMA		0x00130100
 #define VBI_B_DMA		0x00130108
 #define VID_B_GPCNT		0x00130120
@@ -339,6 +389,7 @@
 #define VID_B_VIP_CTRL		0x00130180
 #define VID_B_PIXEL_FRMT	0x00130184
 
+/* Video C Interface */
 #define VID_C_GPCNT		0x00130220
 #define VID_C_GPCNT_CTL		0x00130230
 #define VBI_C_GPCNT_CTL		0x00130234
@@ -352,6 +403,7 @@
 #define VID_C_VLD_MISC		0x00130268
 #define VID_C_TS_CLK_EN		0x0013026C
 
+/* Internal Audio Interface */
 #define AUD_INT_A_GPCNT		0x00140020
 #define AUD_INT_B_GPCNT		0x00140024
 #define AUD_INT_A_GPCNT_CTL	0x00140030
@@ -362,6 +414,7 @@
 #define AUD_INT_A_MODE		0x00140058
 #define AUD_INT_B_MODE		0x0014005C
 
+/* External Audio Interface */
 #define AUD_EXT_DMA		0x00140100
 #define AUD_EXT_GPCNT		0x00140120
 #define AUD_EXT_GPCNT_CTL	0x00140130
@@ -369,27 +422,31 @@
 #define AUD_EXT_LNGTH		0x00140150
 #define AUD_EXT_A_MODE		0x00140158
 
+/* I2C Bus 1 */
 #define I2C1_ADDR	0x00180000
 #define I2C1_WDATA	0x00180004
 #define I2C1_CTRL	0x00180008
 #define I2C1_RDATA	0x0018000C
 #define I2C1_STAT	0x00180010
 
+/* I2C Bus 2 */
 #define I2C2_ADDR	0x00190000
 #define I2C2_WDATA	0x00190004
 #define I2C2_CTRL	0x00190008
 #define I2C2_RDATA	0x0019000C
 #define I2C2_STAT	0x00190010
 
+/* I2C Bus 3 */
 #define I2C3_ADDR	0x001A0000
 #define I2C3_WDATA	0x001A0004
 #define I2C3_CTRL	0x001A0008
 #define I2C3_RDATA	0x001A000C
 #define I2C3_STAT	0x001A0010
 
+/* UART */
 #define UART_CTL	0x001B0000
 #define UART_BRD	0x001B0004
 #define UART_ISR	0x001B000C
 #define UART_CNT	0x001B0010
 
-#endif 
+#endif /* _CX23885_REG_H_ */

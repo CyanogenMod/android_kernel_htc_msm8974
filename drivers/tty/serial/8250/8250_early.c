@@ -42,7 +42,7 @@
 
 struct early_serial8250_device {
 	struct uart_port port;
-	char options[16];		
+	char options[16];		/* e.g., 115200n8 */
 	unsigned int baud;
 };
 
@@ -103,13 +103,13 @@ static void __init early_serial8250_write(struct console *console,
 	struct uart_port *port = &early_device.port;
 	unsigned int ier;
 
-	
+	/* Save the IER and disable interrupts */
 	ier = serial_in(port, UART_IER);
 	serial_out(port, UART_IER, 0);
 
 	uart_console_write(port, s, count, serial_putc);
 
-	
+	/* Wait for transmitter to become empty and restore the IER */
 	wait_for_xmitr(port);
 	serial_out(port, UART_IER, ier);
 }
@@ -135,10 +135,10 @@ static void __init init_port(struct early_serial8250_device *device)
 	unsigned int divisor;
 	unsigned char c;
 
-	serial_out(port, UART_LCR, 0x3);	
-	serial_out(port, UART_IER, 0);		
-	serial_out(port, UART_FCR, 0);		
-	serial_out(port, UART_MCR, 0x3);	
+	serial_out(port, UART_LCR, 0x3);	/* 8n1 */
+	serial_out(port, UART_IER, 0);		/* no interrupt */
+	serial_out(port, UART_FCR, 0);		/* no fifo */
+	serial_out(port, UART_MCR, 0x3);	/* DTR + RTS */
 
 	divisor = port->uartclk / (16 * device->baud);
 	c = serial_in(port, UART_LCR);

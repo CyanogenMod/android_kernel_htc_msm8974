@@ -21,6 +21,7 @@
 
 #include "matroxfb_g450.h"
 
+/* Definition of the various controls */
 struct mctl {
 	struct v4l2_queryctrl desc;
 	size_t control;
@@ -59,6 +60,9 @@ static const struct mctl g450_controls[] =
 
 #define G450CTRLS ARRAY_SIZE(g450_controls)
 
+/* Return: positive number: id found
+           -EINVAL:         id not found, return failure
+	   -ENOENT:         id not found, create fake disabled control */
 static int get_ctrl_id(__u32 v4l2_id) {
 	int i;
 
@@ -162,11 +166,20 @@ static int g450_set_ctrl(void* md, struct v4l2_control *p) {
 	i = get_ctrl_id(p->id);
 	if (i < 0) return -EINVAL;
 
+	/*
+	 * Check if changed.
+	 */
 	if (p->value == *get_ctrl_ptr(minfo, i)) return 0;
 
+	/*
+	 * Check limits.
+	 */
 	if (p->value > g450_controls[i].desc.maximum) return -EINVAL;
 	if (p->value < g450_controls[i].desc.minimum) return -EINVAL;
 
+	/*
+	 * Store new value.
+	 */
 	*get_ctrl_ptr(minfo, i) = p->value;
 
 	switch (p->id) {
@@ -234,7 +247,7 @@ static void computeRegs(struct matrox_fb_info *minfo, struct mavenregs *r,
 	int mnp;
 	int over;
 	
-	r->regs[0x80] = 0x03;	
+	r->regs[0x80] = 0x03;	/* | 0x40 for SCART */
 
 	hvis = ((mt->HDisplay << 1) + 3) & ~3;
 	
@@ -289,9 +302,9 @@ static void computeRegs(struct matrox_fb_info *minfo, struct mavenregs *r,
 		}
 	}
 
-	
+	/* maybe cve2 has requirement 800 < hlen < 1184 */
 	r->regs[0x08] = hsl;
-	r->regs[0x09] = (outd->burst + pixclock - 1) / pixclock;	
+	r->regs[0x09] = (outd->burst + pixclock - 1) / pixclock;	/* burst length */
 	r->regs[0x0A] = hbp;
 	r->regs[0x2C] = hfp;
 	r->regs[0x31] = hvis / 8;
@@ -299,7 +312,7 @@ static void computeRegs(struct matrox_fb_info *minfo, struct mavenregs *r,
 	
 	dprintk(KERN_DEBUG "PG: vis=%04X, hf=%02X, hs=%02X, hb=%02X, total=%04X\n", hvis, hfp, hsl, hbp, hlen);
 
-	r->regs[0x84] = 1;	
+	r->regs[0x84] = 1;	/* x sync point */
 	r->regs[0x85] = 0;
 	hvis = hvis >> 1;
 	hlen = hlen >> 1;
@@ -330,11 +343,11 @@ static void computeRegs(struct matrox_fb_info *minfo, struct mavenregs *r,
 			vdisplay = outd->v_total - 4;
 			vsyncend = outd->v_total;
 		}
-		upper = (outd->v_total - vsyncend) >> 1;	
+		upper = (outd->v_total - vsyncend) >> 1;	/* in field lines */
 		r->regs[0x17] = outd->v_total / 4;
 		r->regs[0x18] = outd->v_total & 3;
-		r->regs[0x33] = upper - 1;	
-		r->regs[0x82] = upper;		
+		r->regs[0x33] = upper - 1;	/* upper blanking */
+		r->regs[0x82] = upper;		/* y sync point */
 		r->regs[0x83] = upper >> 8;
 		
 		mt->VDisplay = vdisplay;
@@ -346,128 +359,132 @@ static void computeRegs(struct matrox_fb_info *minfo, struct mavenregs *r,
 
 static void cve2_init_TVdata(int norm, struct mavenregs* data, const struct output_desc** outd) {
 	static const struct output_desc paloutd = {
-		.h_vis	   = 52148148,	
-		.h_f_porch =  1407407,	
-		.h_sync    =  4666667,	
-		.h_b_porch =  5777778,	
-		.chromasc  = 19042247534182ULL,	
-		.burst     =  2518518,	
+		.h_vis	   = 52148148,	// ps
+		.h_f_porch =  1407407,	// ps
+		.h_sync    =  4666667,	// ps
+		.h_b_porch =  5777778,	// ps
+		.chromasc  = 19042247534182ULL,	// 4433618.750 Hz
+		.burst     =  2518518,	// ps
 		.v_total   =      625,
 	};
 	static const struct output_desc ntscoutd = {
-		.h_vis     = 52888889,	
-		.h_f_porch =  1333333,	
-		.h_sync    =  4666667,	
-		.h_b_porch =  4666667,	
-		.chromasc  = 15374030659475ULL,	
-		.burst     =  2418418,	
-		.v_total   =      525,	
+		.h_vis     = 52888889,	// ps
+		.h_f_porch =  1333333,	// ps
+		.h_sync    =  4666667,	// ps
+		.h_b_porch =  4666667,	// ps
+		.chromasc  = 15374030659475ULL,	// 3579545.454 Hz
+		.burst     =  2418418,	// ps
+		.v_total   =      525,	// lines
 	};
 
 	static const struct mavenregs palregs = { {
-		0x2A, 0x09, 0x8A, 0xCB,	
+		0x2A, 0x09, 0x8A, 0xCB,	/* 00: chroma subcarrier */
 		0x00,
-		0x00,	
+		0x00,	/* test */
 		0xF9,	/* modified by code (F9 written...) */
 		0x00,	/* ? not written */
-		0x7E,	
-		0x44,	
-		0x9C,	
-		0x2E,	
-		0x21,	
+		0x7E,	/* 08 */
+		0x44,	/* 09 */
+		0x9C,	/* 0A */
+		0x2E,	/* 0B */
+		0x21,	/* 0C */
 		0x00,	/* ? not written */
+//		0x3F, 0x03, /* 0E-0F */
 		0x3C, 0x03,
-		0x3C, 0x03, 
-		0x1A,	
-		0x2A,	
-		0x1C, 0x3D, 0x14, 
-		0x9C, 0x01, 
-		0x00,	
-		0xFE,	
-		0x7E,	
-		0x60,	
-		0x05,	
+		0x3C, 0x03, /* 10-11 */
+		0x1A,	/* 12 */
+		0x2A,	/* 13 */
+		0x1C, 0x3D, 0x14, /* 14-16 */
+		0x9C, 0x01, /* 17-18 */
+		0x00,	/* 19 */
+		0xFE,	/* 1A */
+		0x7E,	/* 1B */
+		0x60,	/* 1C */
+		0x05,	/* 1D */
+//		0x89, 0x03, /* 1E-1F */
 		0xAD, 0x03,
+//		0x72,	/* 20 */
 		0xA5,
-		0x07,	
+		0x07,	/* 21 */
+//		0x72,	/* 22 */
 		0xA5,
-		0x00,	
-		0x00,	
-		0x00,	
-		0x08,	
-		0x04,	
-		0x00,	
-		0x1A,	
-		0x55, 0x01, 
-		0x26,	
-		0x07, 0x7E, 
-		0x02, 0x54, 
-		0xB0, 0x00, 
-		0x14,	
-		0x49,	
+		0x00,	/* 23 */
+		0x00,	/* 24 */
+		0x00,	/* 25 */
+		0x08,	/* 26 */
+		0x04,	/* 27 */
+		0x00,	/* 28 */
+		0x1A,	/* 29 */
+		0x55, 0x01, /* 2A-2B */
+		0x26,	/* 2C */
+		0x07, 0x7E, /* 2D-2E */
+		0x02, 0x54, /* 2F-30 */
+		0xB0, 0x00, /* 31-32 */
+		0x14,	/* 33 */
+		0x49,	/* 34 */
 		0x00,	/* 35 written multiple times */
 		0x00,	/* 36 not written */
-		0xA3,	
-		0xC8,	
-		0x22,	
-		0x02,	
-		0x22,	
-		0x3F, 0x03, 
+		0xA3,	/* 37 */
+		0xC8,	/* 38 */
+		0x22,	/* 39 */
+		0x02,	/* 3A */
+		0x22,	/* 3B */
+		0x3F, 0x03, /* 3C-3D */
 		0x00,	/* 3E written multiple times */
 		0x00,	/* 3F not written */
 	} };
 	static struct mavenregs ntscregs = { {
-		0x21, 0xF0, 0x7C, 0x1F,	
+		0x21, 0xF0, 0x7C, 0x1F,	/* 00: chroma subcarrier */
 		0x00,
-		0x00,	
+		0x00,	/* test */
 		0xF9,	/* modified by code (F9 written...) */
 		0x00,	/* ? not written */
-		0x7E,	
-		0x43,	
-		0x7E,	
-		0x3D,	
-		0x00,	
+		0x7E,	/* 08 */
+		0x43,	/* 09 */
+		0x7E,	/* 0A */
+		0x3D,	/* 0B */
+		0x00,	/* 0C */
 		0x00,	/* ? not written */
-		0x41, 0x00, 
-		0x3C, 0x00, 
-		0x17,	
-		0x21,	
-		0x1B, 0x1B, 0x24, 
-		0x83, 0x01, 
-		0x00,	
-		0x0F,	
-		0x0F,	
-		0x60,	
-		0x05,	
-		
-		0xC0, 0x02, 
-		
-		0x9C,	
-		0x04,	
-		
-		0x9C,	
-		0x01,	
-		0x02,	
-		0x00,	
-		0x0A,	
-		0x05,	
-		0x00,	
-		0x10,	
-		0xFF, 0x03, 
-		0x24,	
-		0x0F, 0x78, 
-		0x00, 0x00, 
-		0xB2, 0x04, 
-		0x14,	
-		0x02,	
+		0x41, 0x00, /* 0E-0F */
+		0x3C, 0x00, /* 10-11 */
+		0x17,	/* 12 */
+		0x21,	/* 13 */
+		0x1B, 0x1B, 0x24, /* 14-16 */
+		0x83, 0x01, /* 17-18 */
+		0x00,	/* 19 */
+		0x0F,	/* 1A */
+		0x0F,	/* 1B */
+		0x60,	/* 1C */
+		0x05,	/* 1D */
+		//0x89, 0x02, /* 1E-1F */
+		0xC0, 0x02, /* 1E-1F */
+		//0x5F,	/* 20 */
+		0x9C,	/* 20 */
+		0x04,	/* 21 */
+		//0x5F,	/* 22 */
+		0x9C,	/* 22 */
+		0x01,	/* 23 */
+		0x02,	/* 24 */
+		0x00,	/* 25 */
+		0x0A,	/* 26 */
+		0x05,	/* 27 */
+		0x00,	/* 28 */
+		0x10,	/* 29 */
+		0xFF, 0x03, /* 2A-2B */
+		0x24,	/* 2C */
+		0x0F, 0x78, /* 2D-2E */
+		0x00, 0x00, /* 2F-30 */
+		0xB2, 0x04, /* 31-32 */
+		0x14,	/* 33 */
+		0x02,	/* 34 */
 		0x00,	/* 35 written multiple times */
 		0x00,	/* 36 not written */
-		0xA3,	
-		0xC8,	
-		0x15,	
-		0x05,	
-		0x3B,	
-		0x3C, 0x00, 
+		0xA3,	/* 37 */
+		0xC8,	/* 38 */
+		0x15,	/* 39 */
+		0x05,	/* 3A */
+		0x3B,	/* 3B */
+		0x3C, 0x00, /* 3C-3D */
 		0x00,	/* 3E written multiple times */
 		0x00,	/* never written */
 	} };
@@ -529,6 +546,8 @@ static int matroxfb_g450_compute(void* md, struct my_timming* mt) {
 		}
 		computeRegs(minfo, &minfo->hw.maven, mt, outd);
 	} else if (mt->mnp < 0) {
+		/* We must program clocks before CRTC2, otherwise interlaced mode
+		   startup may fail */
 		mt->mnp = matroxfb_g450_setclk(minfo, mt->pixclock, (mt->crtc == MATROXFB_SRC_CRTC1) ? M_PIXEL_PLL_C : M_VIDEO_PLL);
 		mt->pixclock = g450_mnp2f(minfo, mt->mnp);
 	}

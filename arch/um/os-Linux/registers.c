@@ -31,6 +31,7 @@ int restore_registers(int pid, struct uml_pt_regs *regs)
 	return 0;
 }
 
+/* This is set once at boot time and not changed thereafter */
 
 static unsigned long exec_regs[MAX_REG_NR];
 static unsigned long exec_fp_regs[FP_SIZE];

@@ -31,7 +31,13 @@
 
 #include "omap24xxcam.h"
 
+/*
+ *
+ * DMA hardware.
+ *
+ */
 
+/* Ack all interrupt on CSR and IRQSTATUS_L0 */
 static void omap24xxcam_dmahw_ack_all(unsigned long base)
 {
 	u32 csr;
@@ -39,20 +45,21 @@ static void omap24xxcam_dmahw_ack_all(unsigned long base)
 
 	for (i = 0; i < NUM_CAMDMA_CHANNELS; ++i) {
 		csr = omap24xxcam_reg_in(base, CAMDMA_CSR(i));
-		
+		/* ack interrupt in CSR */
 		omap24xxcam_reg_out(base, CAMDMA_CSR(i), csr);
 	}
 	omap24xxcam_reg_out(base, CAMDMA_IRQSTATUS_L0, 0xf);
 }
 
+/* Ack dmach on CSR and IRQSTATUS_L0 */
 static u32 omap24xxcam_dmahw_ack_ch(unsigned long base, int dmach)
 {
 	u32 csr;
 
 	csr = omap24xxcam_reg_in(base, CAMDMA_CSR(dmach));
-	
+	/* ack interrupt in CSR */
 	omap24xxcam_reg_out(base, CAMDMA_CSR(dmach), csr);
-	
+	/* ack interrupt in IRQSTATUS */
 	omap24xxcam_reg_out(base, CAMDMA_IRQSTATUS_L0, (1 << dmach));
 
 	return csr;
@@ -128,10 +135,18 @@ static void omap24xxcam_dmahw_transfer_chain(unsigned long base, int dmach,
 		prev_dmach = dmach - 1;
 	omap24xxcam_reg_out(base, CAMDMA_CLNK_CTRL(prev_dmach),
 			    CAMDMA_CLNK_CTRL_ENABLE_LNK | dmach);
+	/* Did we chain the DMA transfer before the previous one
+	 * finished?
+	 */
 	ch = (dmach + free_dmach) % NUM_CAMDMA_CHANNELS;
 	while (!(omap24xxcam_reg_in(base, CAMDMA_CCR(ch))
 		 & CAMDMA_CCR_ENABLE)) {
 		if (ch == dmach) {
+			/* The previous transfer has ended and this one
+			 * hasn't started, so we must not have chained
+			 * to the previous one in time.  We'll have to
+			 * start it now.
+			 */
 			omap24xxcam_dmahw_transfer_start(base, dmach);
 			break;
 		} else
@@ -139,14 +154,20 @@ static void omap24xxcam_dmahw_transfer_chain(unsigned long base, int dmach,
 	}
 }
 
+/* Abort all chained DMA transfers. After all transfers have been
+ * aborted and the DMA controller is idle, the completion routines for
+ * any aborted transfers will be called in sequence. The DMA
+ * controller may not be idle after this routine completes, because
+ * the completion routines might start new transfers.
+ */
 static void omap24xxcam_dmahw_abort_ch(unsigned long base, int dmach)
 {
-	
+	/* mask all interrupts from this channel */
 	omap24xxcam_reg_out(base, CAMDMA_CICR(dmach), 0);
-	
+	/* unlink this channel */
 	omap24xxcam_reg_merge(base, CAMDMA_CLNK_CTRL(dmach), 0,
 			      CAMDMA_CLNK_CTRL_ENABLE_LNK);
-	
+	/* disable this channel */
 	omap24xxcam_reg_merge(base, CAMDMA_CCR(dmach), 0, CAMDMA_CCR_ENABLE);
 }
 
@@ -163,7 +184,16 @@ static void omap24xxcam_dmahw_init(unsigned long base)
 	omap24xxcam_reg_out(base, CAMDMA_IRQENABLE_L0, 0xf);
 }
 
+/*
+ *
+ * Individual DMA channel handling.
+ *
+ */
 
+/* Start a DMA transfer from the camera to memory.
+ * Returns zero if the transfer was successfully started, or non-zero if all
+ * DMA channels are already in use or starting is currently inhibited.
+ */
 static int omap24xxcam_dma_start(struct omap24xxcam_dma *dma, dma_addr_t start,
 				 u32 len, dma_callback_t callback, void *arg)
 {
@@ -184,13 +214,16 @@ static int omap24xxcam_dma_start(struct omap24xxcam_dma *dma, dma_addr_t start,
 
 	omap24xxcam_dmahw_transfer_setup(dma->base, dmach, start, len);
 
-	
+	/* We're ready to start the DMA transfer. */
 
 	if (dma->free_dmach < NUM_CAMDMA_CHANNELS) {
-		
+		/* A transfer is already in progress, so try to chain to it. */
 		omap24xxcam_dmahw_transfer_chain(dma->base, dmach,
 						 dma->free_dmach);
 	} else {
+		/* No transfer is in progress, so we'll just start this one
+		 * now.
+		 */
 		omap24xxcam_dmahw_transfer_start(dma->base, dmach);
 	}
 
@@ -202,6 +235,12 @@ static int omap24xxcam_dma_start(struct omap24xxcam_dma *dma, dma_addr_t start,
 	return 0;
 }
 
+/* Abort all chained DMA transfers. After all transfers have been
+ * aborted and the DMA controller is idle, the completion routines for
+ * any aborted transfers will be called in sequence. The DMA
+ * controller may not be idle after this routine completes, because
+ * the completion routines might start new transfers.
+ */
 static void omap24xxcam_dma_abort(struct omap24xxcam_dma *dma, u32 csr)
 {
 	unsigned long flags;
@@ -211,13 +250,17 @@ static void omap24xxcam_dma_abort(struct omap24xxcam_dma *dma, u32 csr)
 
 	spin_lock_irqsave(&dma->lock, flags);
 
-	
+	/* stop any DMA transfers in progress */
 	dmach = (dma->next_dmach + dma->free_dmach) % NUM_CAMDMA_CHANNELS;
 	for (i = 0; i < NUM_CAMDMA_CHANNELS; i++) {
 		omap24xxcam_dmahw_abort_ch(dma->base, dmach);
 		dmach = (dmach + 1) % NUM_CAMDMA_CHANNELS;
 	}
 
+	/* We have to be careful here because the callback routine
+	 * might start a new DMA transfer, and we only want to abort
+	 * transfers that were started before this routine was called.
+	 */
 	free_dmach = dma->free_dmach;
 	while ((dma->free_dmach < NUM_CAMDMA_CHANNELS) &&
 	       (free_dmach < NUM_CAMDMA_CHANNELS)) {
@@ -228,7 +271,7 @@ static void omap24xxcam_dma_abort(struct omap24xxcam_dma *dma, u32 csr)
 		dma->free_dmach++;
 		free_dmach++;
 		if (callback) {
-			
+			/* leave interrupts disabled during callback */
 			spin_unlock(&dma->lock);
 			(*callback) (dma, csr, arg);
 			spin_lock(&dma->lock);
@@ -238,6 +281,12 @@ static void omap24xxcam_dma_abort(struct omap24xxcam_dma *dma, u32 csr)
 	spin_unlock_irqrestore(&dma->lock, flags);
 }
 
+/* Abort all chained DMA transfers. After all transfers have been
+ * aborted and the DMA controller is idle, the completion routines for
+ * any aborted transfers will be called in sequence. If the completion
+ * routines attempt to start a new DMA transfer it will fail, so the
+ * DMA controller will be idle after this routine completes.
+ */
 static void omap24xxcam_dma_stop(struct omap24xxcam_dma *dma, u32 csr)
 {
 	atomic_inc(&dma->dma_stop);
@@ -245,6 +294,7 @@ static void omap24xxcam_dma_stop(struct omap24xxcam_dma *dma, u32 csr)
 	atomic_dec(&dma->dma_stop);
 }
 
+/* Camera DMA interrupt service routine. */
 void omap24xxcam_dma_isr(struct omap24xxcam_dma *dma)
 {
 	int dmach;
@@ -258,6 +308,10 @@ void omap24xxcam_dma_isr(struct omap24xxcam_dma *dma)
 	spin_lock(&dma->lock);
 
 	if (dma->free_dmach == NUM_CAMDMA_CHANNELS) {
+		/* A camera DMA interrupt occurred while all channels
+		 * are idle, so we'll acknowledge the interrupt in the
+		 * IRQSTATUS register and exit.
+		 */
 		omap24xxcam_dmahw_ack_all(dma->base);
 		spin_unlock(&dma->lock);
 		return;
@@ -267,11 +321,14 @@ void omap24xxcam_dma_isr(struct omap24xxcam_dma *dma)
 		dmach = (dma->next_dmach + dma->free_dmach)
 			% NUM_CAMDMA_CHANNELS;
 		if (omap24xxcam_dmahw_running(dma->base, dmach)) {
-			
+			/* This buffer hasn't finished yet, so we're done. */
 			break;
 		}
 		csr = omap24xxcam_dmahw_ack_ch(dma->base, dmach);
 		if (csr & csr_error) {
+			/* A DMA error occurred, so stop all DMA
+			 * transfers in progress.
+			 */
 			spin_unlock(&dma->lock);
 			omap24xxcam_dma_stop(dma, csr);
 			return;
@@ -309,7 +366,7 @@ static void omap24xxcam_dma_init(struct omap24xxcam_dma *dma,
 {
 	int ch;
 
-	
+	/* group all channels on DMA IRQ0 and unmask irq */
 	spin_lock_init(&dma->lock);
 	dma->base = base;
 	dma->free_dmach = NUM_CAMDMA_CHANNELS;
@@ -320,7 +377,16 @@ static void omap24xxcam_dma_init(struct omap24xxcam_dma *dma,
 	}
 }
 
+/*
+ *
+ * Scatter-gather DMA.
+ *
+ * High-level DMA construct for transferring whole picture frames to
+ * memory that is discontinuous.
+ *
+ */
 
+/* DMA completion routine for the scatter-gather DMA fragments. */
 static void omap24xxcam_sgdma_callback(struct omap24xxcam_dma *dma, u32 csr,
 				       void *arg)
 {
@@ -334,7 +400,7 @@ static void omap24xxcam_sgdma_callback(struct omap24xxcam_dma *dma, u32 csr,
 
 	spin_lock(&sgdma->lock);
 
-	
+	/* We got an interrupt, we can remove the timer */
 	del_timer(&sgdma->reset_timer);
 
 	sg_state = sgdma->sg_state + sgslot;
@@ -347,12 +413,15 @@ static void omap24xxcam_sgdma_callback(struct omap24xxcam_dma *dma, u32 csr,
 
 	sg_state->csr |= csr;
 	if (!--sg_state->queued_sglist) {
+		/* Queue for this sglist is empty, so check to see if we're
+		 * done.
+		 */
 		if ((sg_state->next_sglist == sg_state->sglen)
 		    || (sg_state->csr & csr_error)) {
 			sgdma_callback_t callback = sg_state->callback;
 			void *arg = sg_state->arg;
 			u32 sg_csr = sg_state->csr;
-			
+			/* All done with this sglist */
 			sgdma->free_sgdma++;
 			if (callback) {
 				spin_unlock(&sgdma->lock);
@@ -365,6 +434,7 @@ static void omap24xxcam_sgdma_callback(struct omap24xxcam_dma *dma, u32 csr,
 	spin_unlock(&sgdma->lock);
 }
 
+/* Start queued scatter-gather DMA transfers. */
 void omap24xxcam_sgdma_process(struct omap24xxcam_sgdma *sgdma)
 {
 	unsigned long flags;
@@ -386,8 +456,12 @@ void omap24xxcam_sgdma_process(struct omap24xxcam_sgdma *sgdma)
 			unsigned int len;
 
 			sglist = sg_state->sglist + sg_state->next_sglist;
-			
+			/* try to start the next DMA transfer */
 			if (sg_state->next_sglist + 1 == sg_state->sglen) {
+				/*
+				 *  On the last sg, we handle the case where
+				 *  cam->img.pix.sizeimage % PAGE_ALIGN != 0
+				 */
 				len = sg_state->len - sg_state->bytes_read;
 			} else {
 				len = sg_dma_len(sglist);
@@ -398,17 +472,17 @@ void omap24xxcam_sgdma_process(struct omap24xxcam_sgdma *sgdma)
 						  len,
 						  omap24xxcam_sgdma_callback,
 						  (void *)sgslot)) {
-				
+				/* DMA start failed */
 				spin_unlock_irqrestore(&sgdma->lock, flags);
 				return;
 			} else {
 				unsigned long expires;
-				
+				/* DMA start was successful */
 				sg_state->next_sglist++;
 				sg_state->bytes_read += len;
 				sg_state->queued_sglist++;
 
-				
+				/* We start the reset timer */
 				expires = jiffies + HZ;
 				mod_timer(&sgdma->reset_timer, expires);
 			}
@@ -420,6 +494,11 @@ void omap24xxcam_sgdma_process(struct omap24xxcam_sgdma *sgdma)
 	spin_unlock_irqrestore(&sgdma->lock, flags);
 }
 
+/*
+ * Queue a scatter-gather DMA transfer from the camera to memory.
+ * Returns zero if the transfer was successfully queued, or non-zero
+ * if all of the scatter-gather slots are already in use.
+ */
 int omap24xxcam_sgdma_queue(struct omap24xxcam_sgdma *sgdma,
 			    const struct scatterlist *sglist, int sglen,
 			    int len, sgdma_callback_t callback, void *arg)
@@ -459,6 +538,12 @@ int omap24xxcam_sgdma_queue(struct omap24xxcam_sgdma *sgdma,
 	return 0;
 }
 
+/* Sync scatter-gather DMA by aborting any DMA transfers currently in progress.
+ * Any queued scatter-gather DMA transactions that have not yet been started
+ * will remain queued.  The DMA controller will be idle after this routine
+ * completes.  When the scatter-gather queue is restarted, the next
+ * scatter-gather DMA transfer will begin at the start of a new transaction.
+ */
 void omap24xxcam_sgdma_sync(struct omap24xxcam_sgdma *sgdma)
 {
 	unsigned long flags;
@@ -466,7 +551,7 @@ void omap24xxcam_sgdma_sync(struct omap24xxcam_sgdma *sgdma)
 	struct sgdma_state *sg_state;
 	u32 csr = CAMDMA_CSR_TRANS_ERR;
 
-	
+	/* stop any DMA transfers in progress */
 	omap24xxcam_dma_stop(&sgdma->dma, csr);
 
 	spin_lock_irqsave(&sgdma->lock, flags);
@@ -475,12 +560,12 @@ void omap24xxcam_sgdma_sync(struct omap24xxcam_sgdma *sgdma)
 		sgslot = (sgdma->next_sgdma + sgdma->free_sgdma) % NUM_SG_DMA;
 		sg_state = sgdma->sg_state + sgslot;
 		if (sg_state->next_sglist != 0) {
-			
+			/* This DMA transfer was in progress, so abort it. */
 			sgdma_callback_t callback = sg_state->callback;
 			void *arg = sg_state->arg;
 			sgdma->free_sgdma++;
 			if (callback) {
-				
+				/* leave interrupts masked */
 				spin_unlock(&sgdma->lock);
 				(*callback) (sgdma, csr, arg);
 				spin_lock(&sgdma->lock);

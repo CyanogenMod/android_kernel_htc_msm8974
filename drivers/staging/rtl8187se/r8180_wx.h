@@ -10,6 +10,7 @@
 	We want to tanks the Authors of such projects and the Ndiswrapper project Authors.
 */
 
+/* this file (will) contains wireless extension handlers*/
 
 #ifndef R8180_WX_H
 #define R8180_WX_H

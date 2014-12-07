@@ -25,14 +25,41 @@
  * Contact Cavium Networks for more information
  ***********************license end**************************************/
 
+/**
+ * @file
+ *
+ * Support library for the hardware Free Pool Allocator.
+ *
+ *
+ */
 
 #include "cvmx-config.h"
 #include "cvmx.h"
 #include "cvmx-fpa.h"
 #include "cvmx-ipd.h"
 
+/**
+ * Current state of all the pools. Use access functions
+ * instead of using it directly.
+ */
 CVMX_SHARED cvmx_fpa_pool_info_t cvmx_fpa_pool_info[CVMX_FPA_NUM_POOLS];
 
+/**
+ * Setup a FPA pool to control a new block of memory. The
+ * buffer pointer must be a physical address.
+ *
+ * @pool:       Pool to initialize
+ *                   0 <= pool < 8
+ * @name:       Constant character string to name this pool.
+ *                   String is not copied.
+ * @buffer:     Pointer to the block of memory to use. This must be
+ *                   accessible by all processors and external hardware.
+ * @block_size: Size for each block controlled by the FPA
+ * @num_blocks: Number of blocks
+ *
+ * Returns 0 on Success,
+ *         -1 on failure
+ */
 int cvmx_fpa_setup_pool(uint64_t pool, const char *name, void *buffer,
 			uint64_t block_size, uint64_t num_blocks)
 {
@@ -72,6 +99,15 @@ int cvmx_fpa_setup_pool(uint64_t pool, const char *name, void *buffer,
 	return 0;
 }
 
+/**
+ * Shutdown a Memory pool and validate that it had all of
+ * the buffers originally placed in it.
+ *
+ * @pool:   Pool to shutdown
+ * Returns Zero on success
+ *         - Positive is count of missing buffers
+ *         - Negative is too many buffers or corrupted pointers
+ */
 uint64_t cvmx_fpa_shutdown_pool(uint64_t pool)
 {
 	uint64_t errors = 0;

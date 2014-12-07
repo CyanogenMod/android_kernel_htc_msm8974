@@ -113,17 +113,17 @@ struct vdec_region_info {
 };
 
 struct vdec_config {
-	u32 fourcc;		
-	u32 width;		
-	u32 height;		
-	u32 order;		
-	u32 notify_enable;	
+	u32 fourcc;		/* video format */
+	u32 width;		/* source width */
+	u32 height;		/* source height */
+	u32 order;		/* render decoder order */
+	u32 notify_enable;	/* enable notify input buffer done event */
 	u32 vc1_rowbase;
 	u32 h264_startcode_detect;
 	u32 h264_nal_len_size;
 	u32 postproc_flag;
 	u32 fruc_enable;
-	u32 color_format;           
+	u32 color_format;           /* used to set YUV color format */
 };
 
 struct vdec_vc1_panscan_regions {
@@ -142,31 +142,31 @@ struct vdec_cropping_window {
 };
 
 struct vdec_frame_info {
-	u32 status;		
-	u32 offset;		
-	u32 data1;		
-	u32 data2;		
-	int timestamp_lo;	
-	int timestamp_hi;	
-	int cal_timestamp_lo;	
-	int cal_timestamp_hi;	
-	u32 dec_width;		
-	u32 dec_height;		
-	struct vdec_cropping_window cwin;	
-	u32 picture_type[2];	
-	u32 picture_format;	
-	u32 vc1_rangeY;		
-	u32 vc1_rangeUV;	
-	u32 picture_resolution;	
-	u32 frame_disp_repeat;	
-	u32 repeat_first_field;	
-	u32 top_field_first;	
-	u32 interframe_interp;	
-	struct vdec_vc1_panscan_regions panscan;	
-	u32 concealed_macblk_num;	
-	u32 flags;		
-	u32 performance_stats;	
-	u32 data3;              
+	u32 status;		/* video decode status */
+	u32 offset;		/* buffer offset */
+	u32 data1;		/* user data field 1 */
+	u32 data2;		/* user data field 2 */
+	int timestamp_lo;	/* lower 32 bits timestamp, in msec */
+	int timestamp_hi;	/* higher 32 bits timestamp, in msec */
+	int cal_timestamp_lo;	/* lower 32 bits cal timestamp, in msec */
+	int cal_timestamp_hi;	/* higher  32 bits cal timestamp, in msec */
+	u32 dec_width;		/* frame roi width */
+	u32 dec_height;		/* frame roi height */
+	struct vdec_cropping_window cwin;	/* The frame cropping window */
+	u32 picture_type[2];	/* picture coding type */
+	u32 picture_format;	/* picture coding format */
+	u32 vc1_rangeY;		/* luma range mapping */
+	u32 vc1_rangeUV;	/* chroma range mapping */
+	u32 picture_resolution;	/* scaling factor */
+	u32 frame_disp_repeat;	/* how often repeated by disp */
+	u32 repeat_first_field;	/* repeat 1st field after 2nd */
+	u32 top_field_first;	/* top field displayed first */
+	u32 interframe_interp;	/* not for inter-frame interp */
+	struct vdec_vc1_panscan_regions panscan;	/* pan region */
+	u32 concealed_macblk_num;	/* number of concealed macro blk */
+	u32 flags;		/* input flags */
+	u32 performance_stats;	/* performance statistics returned by decoder */
+	u32 data3;              /* user data field 3 */
 };
 
 struct vdec_buf_info {
@@ -198,9 +198,9 @@ struct vdec_msg {
 	u32 id;
 
 	union {
-		
+		/* id = VDEC_MSG_REUSEINPUTBUFFER */
 		u32 buf_id;
-		
+		/* id = VDEC_MSG_FRAMEDONE */
 		struct vdec_frame_info vfr_info;
 	};
 };
@@ -274,4 +274,4 @@ struct vdec_property_info {
 	enum vdec_property_id id;
 	union vdec_property property;
 };
-#endif 
+#endif /* _MSM_VDEC_H_ */

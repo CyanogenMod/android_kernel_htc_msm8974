@@ -41,6 +41,7 @@
 
 #include "carl9170.h"
 
+/* basic HW access */
 int carl9170_write_reg(struct ar9170 *ar, const u32 reg, const u32 val);
 int carl9170_read_reg(struct ar9170 *ar, const u32 reg, u32 *val);
 int carl9170_read_mreg(struct ar9170 *ar, const int nregs,
@@ -72,6 +73,12 @@ static inline int carl9170_rx_filter(struct ar9170 *ar,
 struct carl9170_cmd *carl9170_cmd_buf(struct ar9170 *ar,
 	const enum carl9170_cmd_oids cmd, const unsigned int len);
 
+/*
+ * Macros to facilitate writing multiple registers in a single
+ * write-combining USB command. Note that when the first group
+ * fails the whole thing will fail without any others attempted,
+ * but you won't know which write in the group failed.
+ */
 #define carl9170_regwrite_begin(ar)					\
 do {									\
 	int __nreg = 0, __err = 0;					\
@@ -164,4 +171,4 @@ __async_regwrite_out:							\
 	__err;								\
 } while (0);
 
-#endif 
+#endif /* __CMD_H */

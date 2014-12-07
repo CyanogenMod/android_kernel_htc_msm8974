@@ -57,8 +57,13 @@ MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Urs Thuermann <urs.thuermann@volkswagen.de>");
 
 
+/*
+ * CAN test feature:
+ * Enable the echo on driver level for testing the CAN core echo modes.
+ * See Documentation/networking/can.txt for details.
+ */
 
-static bool echo; 
+static bool echo; /* echo testing. Default: 0 (Off) */
 module_param(echo, bool, S_IRUGO);
 MODULE_PARM_DESC(echo, "Echo sent frames (for testing). Default: 0 (Off)");
 
@@ -91,13 +96,17 @@ static netdev_tx_t vcan_tx(struct sk_buff *skb, struct net_device *dev)
 	stats->tx_packets++;
 	stats->tx_bytes += cf->can_dlc;
 
-	
+	/* set flag whether this packet has to be looped back */
 	loop = skb->pkt_type == PACKET_LOOPBACK;
 
 	if (!echo) {
-		
+		/* no echo handling available inside this driver */
 
 		if (loop) {
+			/*
+			 * only count the packets here, because the
+			 * CAN core already did the echo for us
+			 */
 			stats->rx_packets++;
 			stats->rx_bytes += cf->can_dlc;
 		}
@@ -105,7 +114,7 @@ static netdev_tx_t vcan_tx(struct sk_buff *skb, struct net_device *dev)
 		return NETDEV_TX_OK;
 	}
 
-	
+	/* perform standard echo handling for CAN network interfaces */
 
 	if (loop) {
 		struct sock *srcsk = skb->sk;
@@ -114,11 +123,11 @@ static netdev_tx_t vcan_tx(struct sk_buff *skb, struct net_device *dev)
 		if (!skb)
 			return NETDEV_TX_OK;
 
-		
+		/* receive with packet counting */
 		skb->sk = srcsk;
 		vcan_rx(skb, dev);
 	} else {
-		
+		/* no looped packets => no counting */
 		kfree_skb(skb);
 	}
 	return NETDEV_TX_OK;
@@ -137,7 +146,7 @@ static void vcan_setup(struct net_device *dev)
 	dev->tx_queue_len	= 0;
 	dev->flags		= IFF_NOARP;
 
-	
+	/* set flags according to driver capabilities */
 	if (echo)
 		dev->flags |= IFF_ECHO;
 

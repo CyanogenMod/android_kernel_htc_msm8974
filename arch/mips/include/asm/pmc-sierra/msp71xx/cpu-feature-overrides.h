@@ -18,4 +18,4 @@
 #define cpu_has_mips64r1	0
 #define cpu_has_mips64r2	0
 
-#endif 
+#endif /* __ASM_MACH_MSP71XX_CPU_FEATURE_OVERRIDES_H */

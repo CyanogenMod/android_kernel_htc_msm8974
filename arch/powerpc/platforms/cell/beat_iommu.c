@@ -28,7 +28,8 @@
 
 #include "beat_wrapper.h"
 
-#define DMA_FLAGS 0xf800000000000000UL	
+#define DMA_FLAGS 0xf800000000000000UL	/* r/w permitted, coherency required,
+					   strongest order */
 
 static int __init find_dma_window(u64 *io_space_id, u64 *ioid,
 				  u64 *base, u64 *size, u64 *io_page_size)
@@ -89,7 +90,7 @@ static int celleb_of_bus_notify(struct notifier_block *nb,
 {
 	struct device *dev = data;
 
-	
+	/* We are only intereted in device addition */
 	if (action != BUS_NOTIFY_ADD_DEVICE)
 		return 0;
 

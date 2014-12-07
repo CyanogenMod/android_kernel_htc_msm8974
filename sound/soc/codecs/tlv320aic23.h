@@ -12,6 +12,7 @@
 #ifndef _TLV320AIC23_H
 #define _TLV320AIC23_H
 
+/* Codec TLV320AIC23 */
 #define TLV320AIC23_LINVOL		0x00
 #define TLV320AIC23_RINVOL		0x01
 #define TLV320AIC23_LCHNVOL		0x02
@@ -24,17 +25,20 @@
 #define TLV320AIC23_ACTIVE		0x09
 #define TLV320AIC23_RESET		0x0F
 
+/* Left (right) line input volume control register */
 #define TLV320AIC23_LRS_ENABLED		0x0100
 #define TLV320AIC23_LIM_MUTED		0x0080
 #define TLV320AIC23_LIV_DEFAULT		0x0017
 #define TLV320AIC23_LIV_MAX		0x001f
 #define TLV320AIC23_LIV_MIN		0x0000
 
+/* Left (right) channel headphone volume control register */
 #define TLV320AIC23_LZC_ON		0x0080
 #define TLV320AIC23_LHV_DEFAULT		0x0079
 #define TLV320AIC23_LHV_MAX		0x007f
 #define TLV320AIC23_LHV_MIN		0x0000
 
+/* Analog audio path control register */
 #define TLV320AIC23_STA_REG(x)		((x)<<6)
 #define TLV320AIC23_STE_ENABLED		0x0020
 #define TLV320AIC23_DAC_SELECTED	0x0010
@@ -43,12 +47,14 @@
 #define TLV320AIC23_MICM_MUTED		0x0002
 #define TLV320AIC23_MICB_20DB		0x0001
 
+/* Digital audio path control register */
 #define TLV320AIC23_DACM_MUTE		0x0008
 #define TLV320AIC23_DEEMP_32K		0x0002
 #define TLV320AIC23_DEEMP_44K		0x0004
 #define TLV320AIC23_DEEMP_48K		0x0006
 #define TLV320AIC23_ADCHP_ON		0x0001
 
+/* Power control down register */
 #define TLV320AIC23_DEVICE_PWR_OFF  	0x0080
 #define TLV320AIC23_CLK_OFF		0x0040
 #define TLV320AIC23_OSC_OFF		0x0020
@@ -58,6 +64,7 @@
 #define TLV320AIC23_MIC_OFF		0x0002
 #define TLV320AIC23_LINE_OFF		0x0001
 
+/* Digital audio interface register */
 #define TLV320AIC23_MS_MASTER		0x0040
 #define TLV320AIC23_LRSWAP_ON		0x0020
 #define TLV320AIC23_LRP_ON		0x0010
@@ -69,9 +76,10 @@
 #define TLV320AIC23_FOR_DSP		0x0003
 #define TLV320AIC23_FOR_LJUST		0x0001
 
+/* Sample rate control register */
 #define TLV320AIC23_CLKOUT_HALF		0x0080
 #define TLV320AIC23_CLKIN_HALF		0x0040
-#define TLV320AIC23_BOSR_384fs		0x0002	
+#define TLV320AIC23_BOSR_384fs		0x0002	/* BOSR_272fs in USB mode */
 #define TLV320AIC23_USB_CLK_ON		0x0001
 #define TLV320AIC23_SR_MASK             0xf
 #define TLV320AIC23_CLKOUT_SHIFT        7
@@ -79,8 +87,12 @@
 #define TLV320AIC23_SR_SHIFT            2
 #define TLV320AIC23_BOSR_SHIFT          1
 
+/* Digital interface register */
 #define TLV320AIC23_ACT_ON		0x0001
 
+/*
+ * AUDIO related MACROS
+ */
 
 #define TLV320AIC23_DEFAULT_OUT_VOL	0x70
 #define TLV320AIC23_DEFAULT_IN_VOLUME	0x10
@@ -104,4 +116,4 @@
 #define TLV320AIC23_SIDETONE_12		0x080
 #define TLV320AIC23_SIDETONE_18		0x0c0
 
-#endif 
+#endif /* _TLV320AIC23_H */

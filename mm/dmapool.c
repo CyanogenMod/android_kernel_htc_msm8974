@@ -42,7 +42,7 @@
 #define DMAPOOL_DEBUG 1
 #endif
 
-struct dma_pool {		
+struct dma_pool {		/* the pool */
 	struct list_head page_list;
 	spinlock_t lock;
 	size_t size;
@@ -53,7 +53,7 @@ struct dma_pool {
 	struct list_head pools;
 };
 
-struct dma_page {		
+struct dma_page {		/* cacheable header for 'allocation' bytes */
 	struct list_head page_list;
 	void *vaddr;
 	dma_addr_t dma;
@@ -91,7 +91,7 @@ show_pools(struct device *dev, struct device_attribute *attr, char *buf)
 		}
 		spin_unlock_irq(&pool->lock);
 
-		
+		/* per-pool info, no real statistics yet */
 		temp = scnprintf(next, size, "%-16s %4u %4Zu %4Zu %2u\n",
 				 pool->name, blocks,
 				 pages * (pool->allocation / pool->size),
@@ -106,6 +106,27 @@ show_pools(struct device *dev, struct device_attribute *attr, char *buf)
 
 static DEVICE_ATTR(pools, S_IRUGO, show_pools, NULL);
 
+/**
+ * dma_pool_create - Creates a pool of consistent memory blocks, for dma.
+ * @name: name of pool, for diagnostics
+ * @dev: device that will be doing the DMA
+ * @size: size of the blocks in this pool.
+ * @align: alignment requirement for blocks; must be a power of two
+ * @boundary: returned blocks won't cross this power of two boundary
+ * Context: !in_interrupt()
+ *
+ * Returns a dma allocation pool with the requested characteristics, or
+ * null if one can't be created.  Given one of these pools, dma_pool_alloc()
+ * may be used to allocate memory.  Such memory will all have "consistent"
+ * DMA mappings, accessible by the device and its driver without using
+ * cache flushing primitives.  The actual size of blocks allocated may be
+ * larger than requested because of alignment.
+ *
+ * If @boundary is nonzero, objects returned from dma_pool_alloc() won't
+ * cross that size boundary.  This is useful for devices which have
+ * addressing restrictions on individual DMA transfers, such as not crossing
+ * boundaries of 4KBytes.
+ */
 struct dma_pool *dma_pool_create(const char *name, struct device *dev,
 				 size_t size, size_t align, size_t boundary)
 {
@@ -157,7 +178,7 @@ struct dma_pool *dma_pool_create(const char *name, struct device *dev,
 			ret = device_create_file(dev, &dev_attr_pools);
 		else
 			ret = 0;
-		
+		/* note:  not currently insisting "name" be unique */
 		if (!ret)
 			list_add(&retval->pools, &dev->dma_pools);
 		else {
@@ -228,6 +249,14 @@ static void pool_free_page(struct dma_pool *pool, struct dma_page *page)
 	kfree(page);
 }
 
+/**
+ * dma_pool_destroy - destroys a pool of dma memory blocks.
+ * @pool: dma pool that will be destroyed
+ * Context: !in_interrupt()
+ *
+ * Caller guarantees that no more memory from the pool is in use,
+ * and that nothing will try to use the pool after this call.
+ */
 void dma_pool_destroy(struct dma_pool *pool)
 {
 	mutex_lock(&pools_lock);
@@ -249,7 +278,7 @@ void dma_pool_destroy(struct dma_pool *pool)
 				printk(KERN_ERR
 				       "dma_pool_destroy %s, %p busy\n",
 				       pool->name, page->vaddr);
-			
+			/* leak the still-in-use consistent memory */
 			list_del(&page->page_list);
 			kfree(page);
 		} else
@@ -260,6 +289,16 @@ void dma_pool_destroy(struct dma_pool *pool)
 }
 EXPORT_SYMBOL(dma_pool_destroy);
 
+/**
+ * dma_pool_alloc - get a block of consistent memory
+ * @pool: dma pool that will produce the block
+ * @mem_flags: GFP_* bitmask
+ * @handle: pointer to dma address of block
+ *
+ * This returns the kernel virtual address of a currently unused block,
+ * and reports its dma address through the handle.
+ * If such a memory block can't be allocated, %NULL is returned.
+ */
 void *dma_pool_alloc(struct dma_pool *pool, gfp_t mem_flags,
 		     dma_addr_t *handle)
 {
@@ -276,7 +315,7 @@ void *dma_pool_alloc(struct dma_pool *pool, gfp_t mem_flags,
 			goto ready;
 	}
 
-	
+	/* pool_alloc_page() might sleep, so temporarily drop &pool->lock */
 	spin_unlock_irqrestore(&pool->lock, flags);
 
 	page = pool_alloc_page(pool, mem_flags);
@@ -313,6 +352,15 @@ static struct dma_page *pool_find_page(struct dma_pool *pool, dma_addr_t dma)
 	return NULL;
 }
 
+/**
+ * dma_pool_free - put block back into dma pool
+ * @pool: the dma pool holding the block
+ * @vaddr: virtual address of block
+ * @dma: dma address of block
+ *
+ * Caller promises neither device nor driver will again touch this block
+ * unless it is first re-allocated.
+ */
 void dma_pool_free(struct dma_pool *pool, void *vaddr, dma_addr_t dma)
 {
 	struct dma_page *page;
@@ -372,10 +420,18 @@ void dma_pool_free(struct dma_pool *pool, void *vaddr, dma_addr_t dma)
 	page->in_use--;
 	*(int *)vaddr = page->offset;
 	page->offset = offset;
+	/*
+	 * Resist a temptation to do
+	 *    if (!is_page_busy(page)) pool_free_page(pool, page);
+	 * Better have a few empty pages hang around.
+	 */
 	spin_unlock_irqrestore(&pool->lock, flags);
 }
 EXPORT_SYMBOL(dma_pool_free);
 
+/*
+ * Managed DMA pool
+ */
 static void dmam_pool_release(struct device *dev, void *res)
 {
 	struct dma_pool *pool = *(struct dma_pool **)res;
@@ -388,6 +444,17 @@ static int dmam_pool_match(struct device *dev, void *res, void *match_data)
 	return *(struct dma_pool **)res == match_data;
 }
 
+/**
+ * dmam_pool_create - Managed dma_pool_create()
+ * @name: name of pool, for diagnostics
+ * @dev: device that will be doing the DMA
+ * @size: size of the blocks in this pool.
+ * @align: alignment requirement for blocks; must be a power of two
+ * @allocation: returned blocks won't cross this boundary (or zero)
+ *
+ * Managed dma_pool_create().  DMA pool created with this function is
+ * automatically destroyed on driver detach.
+ */
 struct dma_pool *dmam_pool_create(const char *name, struct device *dev,
 				  size_t size, size_t align, size_t allocation)
 {
@@ -407,6 +474,12 @@ struct dma_pool *dmam_pool_create(const char *name, struct device *dev,
 }
 EXPORT_SYMBOL(dmam_pool_create);
 
+/**
+ * dmam_pool_destroy - Managed dma_pool_destroy()
+ * @pool: dma pool that will be destroyed
+ *
+ * Managed dma_pool_destroy().
+ */
 void dmam_pool_destroy(struct dma_pool *pool)
 {
 	struct device *dev = pool->dev;

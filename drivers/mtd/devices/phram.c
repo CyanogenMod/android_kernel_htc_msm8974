@@ -39,6 +39,11 @@ static int phram_erase(struct mtd_info *mtd, struct erase_info *instr)
 
 	memset(start + instr->addr, 0xff, instr->len);
 
+	/*
+	 * This'll catch a few races. Free the thing before returning :)
+	 * I don't feel at all ashamed. This kind of thing is possible anyway
+	 * with flash, but unlikely.
+	 */
 	instr->state = MTD_ERASE_DONE;
 	mtd_erase_callback(instr);
 	return 0;
@@ -147,7 +152,7 @@ static int ustrtoul(const char *cp, char **endp, unsigned int base)
 		result *= 1024;
 	case 'k':
 		result *= 1024;
-	
+	/* By dwmw2 editorial decree, "ki", "Mi" or "Gi" are to be used. */
 		if ((*endp)[1] == 'i')
 			(*endp) += 2;
 	}
@@ -200,6 +205,14 @@ static inline void kill_final_newline(char *str)
 	return 1;		\
 } while (0)
 
+/*
+ * This shall contain the module parameter if any. It is of the form:
+ * - phram=<device>,<address>,<size> for module case
+ * - phram.phram=<device>,<address>,<size> for built-in case
+ * We leave 64 bytes for the device name, 12 for the address and 12 for the
+ * size.
+ * Example: phram.phram=rootfs,0xa0000000,512Mi
+ */
 static __initdata char phram_paramline[64+12+12];
 
 static int __init phram_setup(const char *val)
@@ -253,6 +266,10 @@ static int __init phram_setup(const char *val)
 
 static int __init phram_param_call(const char *val, struct kernel_param *kp)
 {
+	/*
+	 * This function is always called before 'init_phram()', whether
+	 * built-in or module.
+	 */
 	if (strlen(val) >= sizeof(phram_paramline))
 		return -ENOSPC;
 	strcpy(phram_paramline, val);

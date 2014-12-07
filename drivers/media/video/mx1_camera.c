@@ -45,9 +45,12 @@
 #include <mach/hardware.h>
 #include <mach/mx1_camera.h>
 
-#define CSICR1		0x00			
-#define CSISR		0x08			
-#define CSIRXR		0x10			
+/*
+ * CSI registers
+ */
+#define CSICR1		0x00			/* CSI Control Register 1 */
+#define CSISR		0x08			/* CSI Status Register */
+#define CSIRXR		0x10			/* CSI RxFIFO Register */
 
 #define CSICR1_RXFF_LEVEL(x)	(((x) & 0x3) << 19)
 #define CSICR1_SOF_POL		(1 << 17)
@@ -80,16 +83,25 @@
 			V4L2_MBUS_PCLK_SAMPLE_RISING | V4L2_MBUS_PCLK_SAMPLE_FALLING | \
 			V4L2_MBUS_DATA_ACTIVE_HIGH | V4L2_MBUS_DATA_ACTIVE_LOW)
 
-#define MAX_VIDEO_MEM 16	
+#define MAX_VIDEO_MEM 16	/* Video memory limit in megabytes */
 
+/*
+ * Structures
+ */
 
+/* buffer for one video frame */
 struct mx1_buffer {
-	
+	/* common v4l buffer stuff -- must be first */
 	struct videobuf_buffer		vb;
 	enum v4l2_mbus_pixelcode	code;
 	int				inwork;
 };
 
+/*
+ * i.MX1/i.MXL is only supposed to handle one camera on its Camera Sensor
+ * Interface. If anyone ever builds hardware to enable more than
+ * one camera, they will have to modify this driver too
+ */
 struct mx1_camera_dev {
 	struct soc_camera_host		soc_host;
 	struct soc_camera_device	*icd;
@@ -107,6 +119,9 @@ struct mx1_camera_dev {
 	spinlock_t			lock;
 };
 
+/*
+ *  Videobuf operations
+ */
 static int mx1_videobuf_setup(struct videobuf_queue *vq, unsigned int *count,
 			      unsigned int *size)
 {
@@ -140,6 +155,10 @@ static void free_buffer(struct videobuf_queue *vq, struct mx1_buffer *buf)
 	dev_dbg(icd->parent, "%s (vb=0x%p) 0x%08lx %d\n", __func__,
 		vb, vb->baddr, vb->bsize);
 
+	/*
+	 * This waits until this buffer is out of danger, i.e., until it is no
+	 * longer in STATE_QUEUED or STATE_ACTIVE
+	 */
 	videobuf_waiton(vq, vb, 0, 0);
 	videobuf_dma_contig_free(vq, vb);
 
@@ -161,11 +180,15 @@ static int mx1_videobuf_prepare(struct videobuf_queue *vq,
 	dev_dbg(icd->parent, "%s (vb=0x%p) 0x%08lx %d\n", __func__,
 		vb, vb->baddr, vb->bsize);
 
-	
+	/* Added list head initialization on alloc */
 	WARN_ON(!list_empty(&vb->queue));
 
 	BUG_ON(NULL == icd->current_fmt);
 
+	/*
+	 * I think, in buf_prepare you only have to protect global data,
+	 * the actual buffer is yours
+	 */
 	buf->inwork = 1;
 
 	if (buf->code	!= icd->current_fmt->code ||
@@ -215,7 +238,7 @@ static int mx1_camera_setup_dma(struct mx1_camera_dev *pcdev)
 		return -EFAULT;
 	}
 
-	
+	/* setup sg list for future DMA */
 	ret = imx_dma_setup_single(pcdev->dma_chan,
 		videobuf_to_dma_contig(vbuf),
 		vbuf->size, pcdev->res->start +
@@ -226,6 +249,7 @@ static int mx1_camera_setup_dma(struct mx1_camera_dev *pcdev)
 	return ret;
 }
 
+/* Called under spinlock_irqsave(&pcdev->lock, ...) */
 static void mx1_videobuf_queue(struct videobuf_queue *vq,
 						struct videobuf_buffer *vb)
 {
@@ -244,10 +268,10 @@ static void mx1_videobuf_queue(struct videobuf_queue *vq,
 	if (!pcdev->active) {
 		pcdev->active = buf;
 
-		
+		/* setup sg list for future DMA */
 		if (!mx1_camera_setup_dma(pcdev)) {
 			unsigned int temp;
-			
+			/* enable SOF irq */
 			temp = __raw_readl(pcdev->base + CSICR1) |
 							CSICR1_SOF_INTEN;
 			__raw_writel(temp, pcdev->base + CSICR1);
@@ -289,7 +313,7 @@ static void mx1_camera_wakeup(struct mx1_camera_dev *pcdev,
 			      struct videobuf_buffer *vb,
 			      struct mx1_buffer *buf)
 {
-	
+	/* _init is used to debug races, see comment in mx1_camera_reqbufs() */
 	list_del_init(&vb->queue);
 	vb->state = VIDEOBUF_DONE;
 	do_gettimeofday(&vb->ts);
@@ -304,11 +328,11 @@ static void mx1_camera_wakeup(struct mx1_camera_dev *pcdev,
 	pcdev->active = list_entry(pcdev->capture.next,
 				   struct mx1_buffer, vb.queue);
 
-	
+	/* setup sg list for future DMA */
 	if (likely(!mx1_camera_setup_dma(pcdev))) {
 		unsigned int temp;
 
-		
+		/* enable SOF irq */
 		temp = __raw_readl(pcdev->base + CSICR1) | CSICR1_SOF_INTEN;
 		__raw_writel(temp, pcdev->base + CSICR1);
 	}
@@ -369,6 +393,10 @@ static int mclk_get_divisor(struct mx1_camera_dev *pcdev)
 
 	lcdclk = clk_get_rate(pcdev->clk);
 
+	/*
+	 * We verify platform_mclk_10khz != 0, so if anyone breaks it, here
+	 * they get a nice Oops
+	 */
 	div = (lcdclk + 2 * mclk - 1) / (2 * mclk) - 1;
 
 	dev_dbg(pcdev->icd->parent,
@@ -386,12 +414,12 @@ static void mx1_camera_activate(struct mx1_camera_dev *pcdev)
 
 	clk_enable(pcdev->clk);
 
-	
+	/* enable CSI before doing anything else */
 	__raw_writel(csicr1, pcdev->base + CSICR1);
 
 	csicr1 |= CSICR1_MCLKEN | CSICR1_FCC | CSICR1_GCLK_MODE;
 	csicr1 |= CSICR1_MCLKDIV(mclk_get_divisor(pcdev));
-	csicr1 |= CSICR1_RXFF_LEVEL(2); 
+	csicr1 |= CSICR1_RXFF_LEVEL(2); /* 16 words */
 
 	__raw_writel(csicr1, pcdev->base + CSICR1);
 }
@@ -400,12 +428,16 @@ static void mx1_camera_deactivate(struct mx1_camera_dev *pcdev)
 {
 	dev_dbg(pcdev->icd->parent, "Deactivate device\n");
 
-	
+	/* Disable all CSI interface */
 	__raw_writel(0x00, pcdev->base + CSICR1);
 
 	clk_disable(pcdev->clk);
 }
 
+/*
+ * The following two functions absolutely depend on the fact, that
+ * there can be only one camera on i.MX1/i.MXL camera sensor interface
+ */
 static int mx1_camera_add_device(struct soc_camera_device *icd)
 {
 	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
@@ -432,11 +464,11 @@ static void mx1_camera_remove_device(struct soc_camera_device *icd)
 
 	BUG_ON(icd != pcdev->icd);
 
-	
+	/* disable interrupts */
 	csicr1 = __raw_readl(pcdev->base + CSICR1) & ~CSI_IRQ_MASK;
 	__raw_writel(csicr1, pcdev->base + CSICR1);
 
-	
+	/* Stop DMA engine */
 	imx_dma_disable(pcdev->dma_chan);
 
 	dev_info(icd->parent, "MX1 Camera driver detached from camera %d\n",
@@ -465,7 +497,7 @@ static int mx1_camera_set_bus_param(struct soc_camera_device *icd)
 	unsigned int csicr1;
 	int ret;
 
-	
+	/* MX1 supports only 8bit buswidth */
 	ret = v4l2_subdev_call(sd, video, g_mbus_config, &cfg);
 	if (!ret) {
 		common_flags = soc_mbus_config_compatible(&cfg, CSI_BUS_FLAGS);
@@ -481,7 +513,7 @@ static int mx1_camera_set_bus_param(struct soc_camera_device *icd)
 		common_flags = CSI_BUS_FLAGS;
 	}
 
-	
+	/* Make choises, based on platform choice */
 	if ((common_flags & V4L2_MBUS_VSYNC_ACTIVE_HIGH) &&
 		(common_flags & V4L2_MBUS_VSYNC_ACTIVE_LOW)) {
 			if (!pcdev->pdata ||
@@ -585,7 +617,7 @@ static int mx1_camera_try_fmt(struct soc_camera_device *icd,
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	struct v4l2_mbus_framefmt mf;
 	int ret;
-	
+	/* TODO: limit to mx1 hardware capabilities */
 
 	xlate = soc_camera_xlate_by_fourcc(icd, pix->pixelformat);
 	if (!xlate) {
@@ -600,7 +632,7 @@ static int mx1_camera_try_fmt(struct soc_camera_device *icd,
 	mf.colorspace	= pix->colorspace;
 	mf.code		= xlate->code;
 
-	
+	/* limit to sensor capabilities */
 	ret = v4l2_subdev_call(sd, video, try_mbus_fmt, &mf);
 	if (ret < 0)
 		return ret;
@@ -618,6 +650,12 @@ static int mx1_camera_reqbufs(struct soc_camera_device *icd,
 {
 	int i;
 
+	/*
+	 * This is for locking debugging only. I removed spinlocks and now I
+	 * check whether .prepare is ever called on a linked buffer, or whether
+	 * a dma IRQ can occur for an in-work or unlinked buffer. Until now
+	 * it hadn't triggered
+	 */
 	for (i = 0; i < p->count; i++) {
 		struct mx1_buffer *buf = container_of(icd->vb_vidq.bufs[i],
 						      struct mx1_buffer, vb);
@@ -648,7 +686,7 @@ static unsigned int mx1_camera_poll(struct file *file, poll_table *pt)
 static int mx1_camera_querycap(struct soc_camera_host *ici,
 			       struct v4l2_capability *cap)
 {
-	
+	/* cap->name is set by the friendly caller:-> */
 	strlcpy(cap->card, "i.MX1/i.MXL Camera", sizeof(cap->card));
 	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 
@@ -721,6 +759,9 @@ static int __init mx1_camera_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&pcdev->capture);
 	spin_lock_init(&pcdev->lock);
 
+	/*
+	 * Request the regions.
+	 */
 	if (!request_mem_region(res->start, resource_size(res), DRIVER_NAME)) {
 		err = -EBUSY;
 		goto exit_kfree;
@@ -734,7 +775,7 @@ static int __init mx1_camera_probe(struct platform_device *pdev)
 	pcdev->irq = irq;
 	pcdev->base = base;
 
-	
+	/* request dma */
 	pcdev->dma_chan = imx_dma_request_by_prio(DRIVER_NAME, DMA_PRIO_HIGH);
 	if (pcdev->dma_chan < 0) {
 		dev_err(&pdev->dev, "Can't request DMA for MX1 CSI\n");
@@ -748,10 +789,10 @@ static int __init mx1_camera_probe(struct platform_device *pdev)
 
 	imx_dma_config_channel(pcdev->dma_chan, IMX_DMA_TYPE_FIFO,
 			       IMX_DMA_MEMSIZE_32, MX1_DMA_REQ_CSI_R, 0);
-	
+	/* burst length : 16 words = 64 bytes */
 	imx_dma_config_burstlen(pcdev->dma_chan, 0);
 
-	
+	/* request irq */
 	err = claim_fiq(&fh);
 	if (err) {
 		dev_err(&pdev->dev, "Camera interrupt register failed \n");

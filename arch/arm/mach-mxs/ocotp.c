@@ -16,7 +16,7 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
-#include <asm/processor.h>	
+#include <asm/processor.h>	/* for cpu_relax() */
 
 #include <mach/mxs.h>
 
@@ -42,11 +42,15 @@ const u32 *mxs_get_ocotp(void)
 
 	mutex_lock(&ocotp_mutex);
 
+	/*
+	 * clk_enable(hbus_clk) for ocotp can be skipped
+	 * as it must be on when system is running.
+	 */
 
-	
+	/* try to clear ERROR bit */
 	__mxs_clrl(BM_OCOTP_CTRL_ERROR, ocotp_base);
 
-	
+	/* check both BUSY and ERROR cleared */
 	while ((__raw_readl(ocotp_base) &
 		(BM_OCOTP_CTRL_BUSY | BM_OCOTP_CTRL_ERROR)) && --timeout)
 		cpu_relax();
@@ -54,13 +58,13 @@ const u32 *mxs_get_ocotp(void)
 	if (unlikely(!timeout))
 		goto error_unlock;
 
-	
+	/* open OCOTP banks for read */
 	__mxs_setl(BM_OCOTP_CTRL_RD_BANK_OPEN, ocotp_base);
 
-	
+	/* approximately wait 32 hclk cycles */
 	udelay(1);
 
-	
+	/* poll BUSY bit becoming cleared */
 	timeout = 0x400;
 	while ((__raw_readl(ocotp_base) & BM_OCOTP_CTRL_BUSY) && --timeout)
 		cpu_relax();
@@ -72,7 +76,7 @@ const u32 *mxs_get_ocotp(void)
 		ocotp_words[i] = __raw_readl(ocotp_base + OCOTP_WORD_OFFSET +
 						i * 0x10);
 
-	
+	/* close banks for power saving */
 	__mxs_clrl(BM_OCOTP_CTRL_RD_BANK_OPEN, ocotp_base);
 
 	once = 1;

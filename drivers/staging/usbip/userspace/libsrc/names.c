@@ -1,3 +1,4 @@
+/*****************************************************************************/
 /*
  *      names.c  --  USB name database manipulation routines
  *
@@ -25,6 +26,7 @@
  * 		- names_deinit() is added.
  */
 
+/*****************************************************************************/
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -41,6 +43,7 @@
 #include "names.h"
 
 
+/* ---------------------------------------------------------------------- */
 
 struct vendor {
 	struct vendor *next;
@@ -84,6 +87,7 @@ struct genericstrtable {
         char name[1];
 };
 
+/* ---------------------------------------------------------------------- */
 
 #define HASH1  0x10
 #define HASH2  0x02
@@ -99,6 +103,7 @@ static unsigned int hashnum(unsigned int num)
 	return num & (HASHSZ-1);
 }
 
+/* ---------------------------------------------------------------------- */
 
 static struct vendor *vendors[HASHSZ] = { NULL, };
 static struct product *products[HASHSZ] = { NULL, };
@@ -115,6 +120,7 @@ static struct genericstrtable *hutus[HASHSZ] = { NULL, };
 static struct genericstrtable *langids[HASHSZ] = { NULL, };
 static struct genericstrtable *countrycodes[HASHSZ] = { NULL, };
 
+/* ---------------------------------------------------------------------- */
 
 static const char *names_genericstrtable(struct genericstrtable *t[HASHSZ], unsigned int index)
 {
@@ -232,6 +238,8 @@ const char *names_audioterminal(u_int16_t termt)
 	return NULL;
 }
 
+/* ---------------------------------------------------------------------- */
+/* add a cleanup function by takahiro */
 
 struct pool {
 	struct pool *next;
@@ -279,6 +287,7 @@ void names_free(void)
 	}
 }
 
+/* ---------------------------------------------------------------------- */
 
 static int new_vendor(const char *name, u_int16_t vendorid)
 {
@@ -455,6 +464,7 @@ static int new_countrycode(const char *name, unsigned int countrycode)
 	return new_genericstrtable(countrycodes, name, countrycode);
 }
 
+/* ---------------------------------------------------------------------- */
 
 #define DBG(x)
 
@@ -467,7 +477,7 @@ static void parse(FILE *f)
 
 	while (fgets(buf, sizeof(buf), f)) {
 		linectr++;
-		
+		/* remove line ends */
 		if ((cp = strchr(buf, 13)))
 			*cp = 0;
 		if ((cp = strchr(buf, 10)))
@@ -476,7 +486,7 @@ static void parse(FILE *f)
 			continue;
 		cp = buf;
                 if (buf[0] == 'P' && buf[1] == 'H' && buf[2] == 'Y' && buf[3] == 'S' && buf[4] == 'D' &&
-                    buf[5] == 'E' && buf[6] == 'S' &&  buf[7] == ' ') {
+                    buf[5] == 'E' && buf[6] == 'S' && /*isspace(buf[7])*/ buf[7] == ' ') {
                         cp = buf + 8;
                         while (isspace(*cp))
                                 cp++;
@@ -497,7 +507,7 @@ static void parse(FILE *f)
                         continue;
 
                 }
-                if (buf[0] == 'P' && buf[1] == 'H' && buf[2] == 'Y' &&  buf[3] == ' ') {
+                if (buf[0] == 'P' && buf[1] == 'H' && buf[2] == 'Y' && /*isspace(buf[3])*/ buf[3] == ' ') {
                         cp = buf + 4;
                         while (isspace(*cp))
                                 cp++;
@@ -518,7 +528,7 @@ static void parse(FILE *f)
                         continue;
 
                 }
-                if (buf[0] == 'B' && buf[1] == 'I' && buf[2] == 'A' && buf[3] == 'S' &&  buf[4] == ' ') {
+                if (buf[0] == 'B' && buf[1] == 'I' && buf[2] == 'A' && buf[3] == 'S' && /*isspace(buf[4])*/ buf[4] == ' ') {
                         cp = buf + 5;
                         while (isspace(*cp))
                                 cp++;
@@ -539,7 +549,7 @@ static void parse(FILE *f)
                         continue;
 
                 }
-                if (buf[0] == 'L' &&  buf[1] == ' ') {
+                if (buf[0] == 'L' && /*isspace(buf[1])*/ buf[1] == ' ') {
                         cp =  buf+2;
                         while (isspace(*cp))
                                 cp++;
@@ -561,8 +571,8 @@ static void parse(FILE *f)
                         lastlang = u;
                         continue;
                 }
-		if (buf[0] == 'C' &&  buf[1] == ' ') {
-			
+		if (buf[0] == 'C' && /*isspace(buf[1])*/ buf[1] == ' ') {
+			/* class spec */
 			cp = buf+2;
 			while (isspace(*cp))
 				cp++;
@@ -585,7 +595,7 @@ static void parse(FILE *f)
 			continue;
 		}
 		if (buf[0] == 'A' && buf[1] == 'T' && isspace(buf[2])) {
-			
+			/* audio terminal type spec */
 			cp = buf+3;
 			while (isspace(*cp))
 				cp++;
@@ -606,7 +616,7 @@ static void parse(FILE *f)
 			continue;
 		}
 		if (buf[0] == 'H' && buf[1] == 'C' && buf[2] == 'C' && isspace(buf[3])) {
-			
+			/* HID Descriptor bCountryCode */
                         cp =  buf+3;
                         while (isspace(*cp))
                                 cp++;
@@ -627,7 +637,7 @@ static void parse(FILE *f)
                         continue;
 		}
 		if (isxdigit(*cp)) {
-			
+			/* vendor */
 			u = strtoul(cp, &cp, 16);
 			while (isspace(*cp))
 				cp++;
@@ -643,7 +653,7 @@ static void parse(FILE *f)
 			continue;
 		}
 		if (buf[0] == '\t' && isxdigit(buf[1])) {
-			
+			/* product or subclass spec */
 			u = strtoul(buf+1, &cp, 16);
 			while (isspace(*cp))
 				cp++;
@@ -678,7 +688,7 @@ static void parse(FILE *f)
 			continue;
 		}
 		if (buf[0] == '\t' && buf[1] == '\t' && isxdigit(buf[2])) {
-			
+			/* protocol spec */
 			u = strtoul(buf+2, &cp, 16);
 			while (isspace(*cp))
 				cp++;
@@ -695,7 +705,7 @@ static void parse(FILE *f)
 			fprintf(stderr, "Protocol spec without prior Class and Subclass spec at line %u\n", linectr);
 			continue;
 		}
-		if (buf[0] == 'H' && buf[1] == 'I' && buf[2] == 'D' &&  buf[3] == ' ') {
+		if (buf[0] == 'H' && buf[1] == 'I' && buf[2] == 'D' && /*isspace(buf[3])*/ buf[3] == ' ') {
 			cp = buf + 4;
                         while (isspace(*cp))
                                 cp++;
@@ -716,7 +726,7 @@ static void parse(FILE *f)
                         continue;
 
 		}
-                if (buf[0] == 'H' && buf[1] == 'U' && buf[2] == 'T' &&  buf[3] == ' ') {
+                if (buf[0] == 'H' && buf[1] == 'U' && buf[2] == 'T' && /*isspace(buf[3])*/ buf[3] == ' ') {
                         cp = buf + 4;
                         while (isspace(*cp))
                                 cp++;
@@ -761,13 +771,14 @@ static void parse(FILE *f)
 
                 }
                 if (buf[0] == 'V' && buf[1] == 'T') {
-			
+			/* add here */
 			continue;
 		}
 		fprintf(stderr, "Unknown line at line %u\n", linectr);
 	}
 }
 
+/* ---------------------------------------------------------------------- */
 
 int names_init(char *n)
 {

@@ -14,9 +14,9 @@
 #define ESI_CLOSE_HANDLE		0x02000001
 
 enum esi_proc_type {
-	ESI_PROC_SERIALIZED,	
-	ESI_PROC_MP_SAFE,	
-	ESI_PROC_REENTRANT	
+	ESI_PROC_SERIALIZED,	/* calls need to be serialized */
+	ESI_PROC_MP_SAFE,	/* MP-safe, but not reentrant */
+	ESI_PROC_REENTRANT	/* MP-safe and reentrant */
 };
 
 extern struct ia64_sal_retval esi_call_phys (void *, u64 *);
@@ -26,4 +26,4 @@ extern int ia64_esi_call(efi_guid_t, struct ia64_sal_retval *,
 extern int ia64_esi_call_phys(efi_guid_t, struct ia64_sal_retval *, u64, u64,
                               u64, u64, u64, u64, u64, u64);
 
-#endif 
+#endif /* esi_h */

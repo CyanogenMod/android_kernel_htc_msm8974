@@ -76,7 +76,7 @@ xfs_compat_ioc_fsgeometry_v1(
 	error = xfs_fs_geometry(mp, &fsgeo, 3);
 	if (error)
 		return -error;
-	
+	/* The 32-bit variant simply has some padding at the end */
 	if (copy_to_user(arg32, &fsgeo, sizeof(struct compat_xfs_fsop_geom_v1)))
 		return -XFS_ERROR(EFAULT);
 	return 0;
@@ -126,14 +126,14 @@ xfs_inumbers_fmt_compat(
 
 #else
 #define xfs_inumbers_fmt_compat xfs_inumbers_fmt
-#endif	
+#endif	/* BROKEN_X86_ALIGNMENT */
 
 STATIC int
 xfs_ioctl32_bstime_copyin(
 	xfs_bstime_t		*bstime,
 	compat_xfs_bstime_t	__user *bstime32)
 {
-	compat_time_t		sec32;	
+	compat_time_t		sec32;	/* tv_sec differs on 64 vs. 32 */
 
 	if (get_user(sec32,		&bstime32->tv_sec)	||
 	    get_user(bstime->tv_nsec,	&bstime32->tv_nsec))
@@ -142,6 +142,7 @@ xfs_ioctl32_bstime_copyin(
 	return 0;
 }
 
+/* xfs_bstat_t has differing alignment on intel, & bstime_t sizes everywhere */
 STATIC int
 xfs_ioctl32_bstat_copyin(
 	xfs_bstat_t		*bstat,
@@ -172,6 +173,7 @@ xfs_ioctl32_bstat_copyin(
 	return 0;
 }
 
+/* XFS_IOC_FSBULKSTAT and friends */
 
 STATIC int
 xfs_bstime_store_compat(
@@ -187,6 +189,7 @@ xfs_bstime_store_compat(
 	return 0;
 }
 
+/* Return 0 on success or positive error (to xfs_bulkstat()) */
 STATIC int
 xfs_bulkstat_one_fmt_compat(
 	void			__user *ubuffer,
@@ -228,18 +231,19 @@ xfs_bulkstat_one_fmt_compat(
 
 STATIC int
 xfs_bulkstat_one_compat(
-	xfs_mount_t	*mp,		
-	xfs_ino_t	ino,		
-	void		__user *buffer,	
-	int		ubsize,		
-	int		*ubused,	
-	int		*stat)		
+	xfs_mount_t	*mp,		/* mount point for filesystem */
+	xfs_ino_t	ino,		/* inode number to get data for */
+	void		__user *buffer,	/* buffer to place output in */
+	int		ubsize,		/* size of buffer */
+	int		*ubused,	/* bytes used by me */
+	int		*stat)		/* BULKSTAT_RV_... */
 {
 	return xfs_bulkstat_one_int(mp, ino, buffer, ubsize,
 				    xfs_bulkstat_one_fmt_compat,
 				    ubused, stat);
 }
 
+/* copied from xfs_ioctl.c */
 STATIC int
 xfs_compat_ioc_bulkstat(
 	xfs_mount_t		  *mp,
@@ -248,13 +252,13 @@ xfs_compat_ioc_bulkstat(
 {
 	u32			addr;
 	xfs_fsop_bulkreq_t	bulkreq;
-	int			count;	
-	xfs_ino_t		inlast;	
+	int			count;	/* # of records returned */
+	xfs_ino_t		inlast;	/* last inode number */
 	int			done;
 	int			error;
 
-	
-	
+	/* done = 1 if there are more stats to get and if bulkstat */
+	/* should be called again (unused here, but used in dmapi) */
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -XFS_ERROR(EPERM);
@@ -360,6 +364,9 @@ xfs_compat_attrlist_by_handle(
 	if (al_hreq.buflen > XATTR_LIST_MAX)
 		return -XFS_ERROR(EINVAL);
 
+	/*
+	 * Reject flags, only allow namespaces.
+	 */
 	if (al_hreq.flags & ~(ATTR_ROOT | ATTR_SECURE))
 		return -XFS_ERROR(EINVAL);
 
@@ -406,7 +413,7 @@ xfs_compat_attrmulti_by_handle(
 			   sizeof(compat_xfs_fsop_attrmulti_handlereq_t)))
 		return -XFS_ERROR(EFAULT);
 
-	
+	/* overflow check */
 	if (am_hreq.opcount >= INT_MAX / sizeof(compat_xfs_attr_multiop_t))
 		return -E2BIG;
 
@@ -538,7 +545,7 @@ xfs_file_compat_ioctl(
 	trace_xfs_file_compat_ioctl(ip);
 
 	switch (cmd) {
-	
+	/* No size or alignment issues on any arch */
 	case XFS_IOC_DIOINFO:
 	case XFS_IOC_FSGEOMETRY:
 	case XFS_IOC_FSGETXATTR:
@@ -557,7 +564,7 @@ xfs_file_compat_ioctl(
 	case XFS_IOC_ERROR_CLEARALL:
 		return xfs_file_ioctl(filp, cmd, p);
 #ifndef BROKEN_X86_ALIGNMENT
-	
+	/* These are handled fine if no alignment issues */
 	case XFS_IOC_ALLOCSP:
 	case XFS_IOC_FREESP:
 	case XFS_IOC_RESVSP:
@@ -607,7 +614,7 @@ xfs_file_compat_ioctl(
 		return -error;
 	}
 #endif
-	
+	/* long changes size, but xfs only copiese out 32 bits */
 	case XFS_IOC_GETXFLAGS_32:
 	case XFS_IOC_SETXFLAGS_32:
 	case XFS_IOC_GETVERSION_32:
@@ -617,7 +624,7 @@ xfs_file_compat_ioctl(
 		struct xfs_swapext	  sxp;
 		struct compat_xfs_swapext __user *sxu = arg;
 
-		
+		/* Bulk copy in up to the sx_stat field, then copy bstat */
 		if (copy_from_user(&sxp, sxu,
 				   offsetof(struct xfs_swapext, sx_stat)) ||
 		    xfs_ioctl32_bstat_copyin(&sxp.sx_stat, &sxu->sx_stat))

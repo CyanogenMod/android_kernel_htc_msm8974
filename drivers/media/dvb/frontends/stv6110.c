@@ -173,31 +173,31 @@ static int stv6110_set_bandwidth(struct dvb_frontend *fe, u32 bandwidth)
 	u8 r8, ret = 0x04;
 	int i;
 
-	if ((bandwidth / 2) > 36000000) 
+	if ((bandwidth / 2) > 36000000) /*BW/2 max=31+5=36 mhz for r8=31*/
 		r8 = 31;
-	else if ((bandwidth / 2) < 5000000) 
+	else if ((bandwidth / 2) < 5000000) /* BW/2 min=5Mhz for F=0 */
 		r8 = 0;
-	else 
+	else /*if 5 < BW/2 < 36*/
 		r8 = (bandwidth / 2) / 1000000 - 5;
 
-	
-	
+	/* ctrl3, RCCLKOFF = 0 Activate the calibration Clock */
+	/* ctrl3, CF = r8 Set the LPF value */
 	priv->regs[RSTV6110_CTRL3] &= ~((1 << 6) | 0x1f);
 	priv->regs[RSTV6110_CTRL3] |= (r8 & 0x1f);
 	stv6110_write_regs(fe, &priv->regs[RSTV6110_CTRL3], RSTV6110_CTRL3, 1);
-	
+	/* stat1, CALRCSTRT = 1 Start LPF auto calibration*/
 	priv->regs[RSTV6110_STAT1] |= 0x02;
 	stv6110_write_regs(fe, &priv->regs[RSTV6110_STAT1], RSTV6110_STAT1, 1);
 
 	i = 0;
-	
+	/* Wait for CALRCSTRT == 0 */
 	while ((i < 10) && (ret != 0)) {
 		ret = ((stv6110_read_reg(fe, RSTV6110_STAT1)) & 0x02);
-		mdelay(1);	
+		mdelay(1);	/* wait for LPF auto calibration */
 		i++;
 	}
 
-	
+	/* RCCLKOFF = 1 calibration done, desactivate the calibration Clock */
 	priv->regs[RSTV6110_CTRL3] |= (1 << 6);
 	stv6110_write_regs(fe, &priv->regs[RSTV6110_CTRL3], RSTV6110_CTRL3, 1);
 	return 0;
@@ -209,12 +209,12 @@ static int stv6110_init(struct dvb_frontend *fe)
 	u8 buf0[] = { 0x07, 0x11, 0xdc, 0x85, 0x17, 0x01, 0xe6, 0x1e };
 
 	memcpy(priv->regs, buf0, 8);
-	
+	/* K = (Reference / 1000000) - 16 */
 	priv->regs[RSTV6110_CTRL1] &= ~(0x1f << 3);
 	priv->regs[RSTV6110_CTRL1] |=
 				((((priv->mclk / 1000000) - 16) & 0x1f) << 3);
 
-	
+	/* divisor value for the output clock */
 	priv->regs[RSTV6110_CTRL2] &= ~0xc0;
 	priv->regs[RSTV6110_CTRL2] |= (priv->clk_div << 6);
 
@@ -232,13 +232,13 @@ static int stv6110_get_frequency(struct dvb_frontend *fe, u32 *frequency)
 	u8 regs[] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
 	stv6110_read_regs(fe, regs, 0, 8);
-	
+	/*N*/
 	divider = (priv->regs[RSTV6110_TUNING2] & 0x0f) << 8;
 	divider += priv->regs[RSTV6110_TUNING1];
 
-	
+	/*R*/
 	nbsteps  = (priv->regs[RSTV6110_TUNING2] >> 6) & 3;
-	
+	/*p*/
 	psd2  = (priv->regs[RSTV6110_TUNING2] >> 4) & 1;
 
 	freq = divider * (priv->mclk / 1000);
@@ -262,12 +262,12 @@ static int stv6110_set_frequency(struct dvb_frontend *fe, u32 frequency)
 	dprintk("%s, freq=%d kHz, mclk=%d Hz\n", __func__,
 						frequency, priv->mclk);
 
-	
+	/* K = (Reference / 1000000) - 16 */
 	priv->regs[RSTV6110_CTRL1] &= ~(0x1f << 3);
 	priv->regs[RSTV6110_CTRL1] |=
 				((((priv->mclk / 1000000) - 16) & 0x1f) << 3);
 
-	
+	/* BB_GAIN = db/2 */
 	if (fe->ops.set_property && fe->ops.get_property) {
 		srate = c->symbol_rate;
 		dprintk("%s: Get Frontend parameters: srate=%d\n",
@@ -291,15 +291,15 @@ static int stv6110_set_frequency(struct dvb_frontend *fe, u32 frequency)
 		p = 0;
 		presc = 1;
 	}
-	
+	/* DIV4SEL = p*/
 	priv->regs[RSTV6110_TUNING2] &= ~(1 << 4);
 	priv->regs[RSTV6110_TUNING2] |= (p << 4);
 
-	
+	/* PRESC32ON = presc */
 	priv->regs[RSTV6110_TUNING2] &= ~(1 << 5);
 	priv->regs[RSTV6110_TUNING2] |= (presc << 5);
 
-	p_val = (int)(1 << (p + 1)) * 10;
+	p_val = (int)(1 << (p + 1)) * 10;/* P = 2 or P = 4 */
 	for (r_div = 0; r_div <= 3; r_div++) {
 		p_calc = (priv->mclk / 100000);
 		p_calc /= (1 << (r_div + 1));
@@ -313,27 +313,27 @@ static int stv6110_set_frequency(struct dvb_frontend *fe, u32 frequency)
 	ref = priv->mclk / ((1 << (r_div_opt + 1))  * (1 << (p + 1)));
 	divider = (((frequency * 1000) + (ref >> 1)) / ref);
 
-	
+	/* RDIV = r_div_opt */
 	priv->regs[RSTV6110_TUNING2] &= ~(3 << 6);
 	priv->regs[RSTV6110_TUNING2] |= (((r_div_opt) & 3) << 6);
 
-	
+	/* NDIV_MSB = MSB(divider) */
 	priv->regs[RSTV6110_TUNING2] &= ~0x0f;
 	priv->regs[RSTV6110_TUNING2] |= (((divider) >> 8) & 0x0f);
 
-	
+	/* NDIV_LSB, LSB(divider) */
 	priv->regs[RSTV6110_TUNING1] = (divider & 0xff);
 
-	
+	/* CALVCOSTRT = 1 VCO Auto Calibration */
 	priv->regs[RSTV6110_STAT1] |= 0x04;
 	stv6110_write_regs(fe, &priv->regs[RSTV6110_CTRL1],
 						RSTV6110_CTRL1, 8);
 
 	i = 0;
-	
+	/* Wait for CALVCOSTRT == 0 */
 	while ((i < 10) && (ret != 0)) {
 		ret = ((stv6110_read_reg(fe, RSTV6110_STAT1)) & 0x04);
-		msleep(1); 
+		msleep(1); /* wait for VCO auto calibration */
 		i++;
 	}
 
@@ -365,9 +365,9 @@ static int stv6110_get_bandwidth(struct dvb_frontend *fe, u32 *bandwidth)
 	u8 regs[] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 	stv6110_read_regs(fe, regs, 0, 8);
 
-	
+	/* CF */
 	r8 = priv->regs[RSTV6110_CTRL3] & 0x1f;
-	*bandwidth = (r8 + 5) * 2000000;
+	*bandwidth = (r8 + 5) * 2000000;/* x2 for ZIF tuner BW/2 = F+5 Mhz */
 
 	return 0;
 }
@@ -407,7 +407,7 @@ struct dvb_frontend *stv6110_attach(struct dvb_frontend *fe,
 	};
 	int ret;
 
-	
+	/* divisor value for the output clock */
 	reg0[2] &= ~0xc0;
 	reg0[2] |= (config->clk_div << 6);
 

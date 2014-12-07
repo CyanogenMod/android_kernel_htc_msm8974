@@ -1,3 +1,6 @@
+/*
+ * Used for tfc_wwn_cit attributes
+ */
 
 #include <target/configfs_macros.h>
 

@@ -1,3 +1,6 @@
+/*
+ *	linux/arch/alpha/kernel/pci_iommu.c
+ */
 
 #include <linux/kernel.h>
 #include <linux/mm.h>
@@ -39,6 +42,8 @@ mk_iommu_pte(unsigned long paddr)
 	return (paddr >> (PAGE_SHIFT-1)) | 1;
 }
 
+/* Return the minimum of MAX or the first power of two larger
+   than main memory.  */
 
 unsigned long
 size_for_memory(unsigned long max)
@@ -58,6 +63,10 @@ iommu_arena_new_node(int nid, struct pci_controller *hose, dma_addr_t base,
 
 	mem_size = window_size / (PAGE_SIZE / sizeof(unsigned long));
 
+	/* Note that the TLB lookup logic uses bitwise concatenation,
+	   not addition, so the required arena alignment is based on
+	   the size of the window.  Retain the align parameter so that
+	   particular systems can over-align the arena.  */
 	if (align < mem_size)
 		align = mem_size;
 
@@ -80,12 +89,12 @@ iommu_arena_new_node(int nid, struct pci_controller *hose, dma_addr_t base,
 		arena->ptes = __alloc_bootmem(mem_size, align, 0);
 	}
 
-#else 
+#else /* CONFIG_DISCONTIGMEM */
 
 	arena = alloc_bootmem(sizeof(*arena));
 	arena->ptes = __alloc_bootmem(mem_size, align, 0);
 
-#endif 
+#endif /* CONFIG_DISCONTIGMEM */
 
 	spin_lock_init(&arena->lock);
 	arena->hose = hose;
@@ -93,6 +102,8 @@ iommu_arena_new_node(int nid, struct pci_controller *hose, dma_addr_t base,
 	arena->size = window_size;
 	arena->next_entry = 0;
 
+	/* Align allocations to a multiple of a page size.  Not needed
+	   unless there are chip bugs.  */
 	arena->align_entry = 1;
 
 	return arena;
@@ -105,6 +116,7 @@ iommu_arena_new(struct pci_controller *hose, dma_addr_t base,
 	return iommu_arena_new_node(0, hose, base, window_size, align);
 }
 
+/* Must be called with the arena lock held */
 static long
 iommu_arena_find_pages(struct device *dev, struct pci_iommu_arena *arena,
 		       long n, long mask)
@@ -123,7 +135,7 @@ iommu_arena_find_pages(struct device *dev, struct pci_iommu_arena *arena,
 		boundary_size = 1UL << (32 - PAGE_SHIFT);
 	}
 
-	
+	/* Search forward for the first mask-aligned sequence of N free ptes */
 	ptes = arena->ptes;
 	nent = arena->size >> PAGE_SHIFT;
 	p = ALIGN(arena->next_entry, mask + 1);
@@ -144,6 +156,10 @@ again:
 
 	if (i < n) {
 		if (pass < 1) {
+			/*
+			 * Reached the end.  Flush the TLB and restart
+			 * the search from the beginning.
+			*/
 			alpha_mv.mv_pci_tbi(arena->hose, 0, -1);
 
 			pass++;
@@ -154,6 +170,8 @@ again:
 			return -1;
 	}
 
+	/* Success. It's the responsibility of the caller to mark them
+	   in use before releasing the lock */
 	return p;
 }
 
@@ -167,7 +185,7 @@ iommu_arena_alloc(struct device *dev, struct pci_iommu_arena *arena, long n,
 
 	spin_lock_irqsave(&arena->lock, flags);
 
-	
+	/* Search for N empty ptes */
 	ptes = arena->ptes;
 	mask = max(align, arena->align_entry) - 1;
 	p = iommu_arena_find_pages(dev, arena, n, mask);
@@ -176,6 +194,10 @@ iommu_arena_alloc(struct device *dev, struct pci_iommu_arena *arena, long n,
 		return -1;
 	}
 
+	/* Success.  Mark them all in use, ie not zero and invalid
+	   for the iommu tlb that could load them from under us.
+	   The chip specific bits will fill this in with something
+	   kosher when we return.  */
 	for (i = 0; i < n; ++i)
 		ptes[p+i] = IOMMU_INVALID_PTE;
 
@@ -196,26 +218,34 @@ iommu_arena_free(struct pci_iommu_arena *arena, long ofs, long n)
 		p[i] = 0;
 }
 
+/*
+ * True if the machine supports DAC addressing, and DEV can
+ * make use of it given MASK.
+ */
 static int pci_dac_dma_supported(struct pci_dev *dev, u64 mask)
 {
 	dma_addr_t dac_offset = alpha_mv.pci_dac_offset;
 	int ok = 1;
 
-	
+	/* If this is not set, the machine doesn't support DAC at all.  */
 	if (dac_offset == 0)
 		ok = 0;
 
-	
+	/* The device has to be able to address our DAC bit.  */
 	if ((dac_offset & dev->dma_mask) != dac_offset)
 		ok = 0;
 
-	
+	/* If both conditions above are met, we are fine. */
 	DBGA("pci_dac_dma_supported %s from %p\n",
 	     ok ? "yes" : "no", __builtin_return_address(0));
 
 	return ok;
 }
 
+/* Map a single buffer of the indicated size for PCI DMA in streaming
+   mode.  The 32-bit PCI bus mastering address to use is returned.
+   Once the device is given the dma address, the device owns this memory
+   until either pci_unmap_single or pci_dma_sync_single is performed.  */
 
 static dma_addr_t
 pci_map_single_1(struct pci_dev *pdev, void *cpu_addr, size_t size,
@@ -233,7 +263,7 @@ pci_map_single_1(struct pci_dev *pdev, void *cpu_addr, size_t size,
 	paddr = __pa(cpu_addr);
 
 #if !DEBUG_NODIRECT
-	
+	/* First check to see if we can use the direct map window.  */
 	if (paddr + size + __direct_map_base - 1 <= max_dma
 	    && paddr + size <= __direct_map_size) {
 		ret = paddr + __direct_map_base;
@@ -245,7 +275,7 @@ pci_map_single_1(struct pci_dev *pdev, void *cpu_addr, size_t size,
 	}
 #endif
 
-	
+	/* Next, use DAC if selected earlier.  */
 	if (dac_allowed) {
 		ret = paddr + alpha_mv.pci_dac_offset;
 
@@ -255,6 +285,9 @@ pci_map_single_1(struct pci_dev *pdev, void *cpu_addr, size_t size,
 		return ret;
 	}
 
+	/* If the machine doesn't define a pci_tbi routine, we have to
+	   assume it doesn't support sg mapping, and, since we tried to
+	   use direct_map above, it now must be considered an error. */
 	if (! alpha_mv.mv_pci_tbi) {
 		printk_once(KERN_WARNING "pci_map_single: no HW sg\n");
 		return 0;
@@ -266,7 +299,7 @@ pci_map_single_1(struct pci_dev *pdev, void *cpu_addr, size_t size,
 
 	npages = iommu_num_pages(paddr, size, PAGE_SIZE);
 
-	
+	/* Force allocation to 64KB boundary for ISA bridges. */
 	if (pdev && pdev == isa_bridge)
 		align = 8;
 	dma_ofs = iommu_arena_alloc(dev, arena, npages, align);
@@ -289,20 +322,27 @@ pci_map_single_1(struct pci_dev *pdev, void *cpu_addr, size_t size,
 	return ret;
 }
 
+/* Helper for generic DMA-mapping functions. */
 static struct pci_dev *alpha_gendev_to_pci(struct device *dev)
 {
 	if (dev && dev->bus == &pci_bus_type)
 		return to_pci_dev(dev);
 
+	/* Assume that non-PCI devices asking for DMA are either ISA or EISA,
+	   BUG() otherwise. */
 	BUG_ON(!isa_bridge);
 
+	/* Assume non-busmaster ISA DMA when dma_mask is not set (the ISA
+	   bridge is bus master then). */
 	if (!dev || !dev->dma_mask || !*dev->dma_mask)
 		return isa_bridge;
 
+	/* For EISA bus masters, return isa_bridge (it might have smaller
+	   dma_mask due to wiring limitations). */
 	if (*dev->dma_mask >= isa_bridge->dma_mask)
 		return isa_bridge;
 
-	
+	/* This assumes ISA bus master with dma_mask 0xffffff. */
 	return NULL;
 }
 
@@ -322,6 +362,11 @@ static dma_addr_t alpha_pci_map_page(struct device *dev, struct page *page,
 				size, dac_allowed);
 }
 
+/* Unmap a single streaming mode DMA translation.  The DMA_ADDR and
+   SIZE must match what was provided for in a previous pci_map_single
+   call.  All other usages are undefined.  After this call, reads by
+   the cpu to the buffer are guaranteed to see whatever the device
+   wrote there.  */
 
 static void alpha_pci_unmap_page(struct device *dev, dma_addr_t dma_addr,
 				 size_t size, enum dma_data_direction dir,
@@ -338,7 +383,7 @@ static void alpha_pci_unmap_page(struct device *dev, dma_addr_t dma_addr,
 
 	if (dma_addr >= __direct_map_base
 	    && dma_addr < __direct_map_base + __direct_map_size) {
-		
+		/* Nothing to do.  */
 
 		DBGA2("pci_unmap_single: direct [%llx,%zx] from %p\n",
 		      dma_addr, size, __builtin_return_address(0));
@@ -371,6 +416,9 @@ static void alpha_pci_unmap_page(struct device *dev, dma_addr_t dma_addr,
 
 	iommu_arena_free(arena, dma_ofs, npages);
 
+        /* If we're freeing ptes above the `next_entry' pointer (they
+           may have snuck back into the TLB since the last wrap flush),
+           we need to flush the TLB before reallocating the latter.  */
 	if (dma_ofs >= arena->next_entry)
 		alpha_mv.mv_pci_tbi(hose, dma_addr, dma_addr + size - 1);
 
@@ -380,6 +428,10 @@ static void alpha_pci_unmap_page(struct device *dev, dma_addr_t dma_addr,
 	      dma_addr, size, npages, __builtin_return_address(0));
 }
 
+/* Allocate and map kernel buffer using consistent mode DMA for PCI
+   device.  Returns non-NULL cpu-view pointer to the buffer if
+   successful and sets *DMA_ADDRP to the pci side dma address as well,
+   else DMA_ADDRP is undefined.  */
 
 static void *alpha_pci_alloc_coherent(struct device *dev, size_t size,
 				      dma_addr_t *dma_addrp, gfp_t gfp,
@@ -397,6 +449,8 @@ try_again:
 		printk(KERN_INFO "pci_alloc_consistent: "
 		       "get_free_pages failed from %p\n",
 			__builtin_return_address(0));
+		/* ??? Really atomic allocation?  Otherwise we could play
+		   with vmalloc and sg if we can't find contiguous memory.  */
 		return NULL;
 	}
 	memset(cpu_addr, 0, size);
@@ -406,6 +460,8 @@ try_again:
 		free_pages((unsigned long)cpu_addr, order);
 		if (alpha_mv.mv_pci_tbi || (gfp & GFP_DMA))
 			return NULL;
+		/* The address doesn't fit required mask and we
+		   do not have iommu. Try again with GFP_DMA. */
 		gfp |= GFP_DMA;
 		goto try_again;
 	}
@@ -416,6 +472,11 @@ try_again:
 	return cpu_addr;
 }
 
+/* Free and unmap a consistent DMA buffer.  CPU_ADDR and DMA_ADDR must
+   be values that were returned from pci_alloc_consistent.  SIZE must
+   be the same as what as passed into pci_alloc_consistent.
+   References to the memory and mappings associated with CPU_ADDR or
+   DMA_ADDR past this call are illegal.  */
 
 static void alpha_pci_free_coherent(struct device *dev, size_t size,
 				    void *cpu_addr, dma_addr_t dma_addr,
@@ -429,6 +490,14 @@ static void alpha_pci_free_coherent(struct device *dev, size_t size,
 	      dma_addr, size, __builtin_return_address(0));
 }
 
+/* Classify the elements of the scatterlist.  Write dma_address
+   of each element with:
+	0   : Followers all physically adjacent.
+	1   : Followers all virtually adjacent.
+	-1  : Not leader, physically adjacent to previous.
+	-2  : Not leader, virtually adjacent to previous.
+   Write dma_length of each leader with the combined lengths of
+   the mergable followers.  */
 
 #define SG_ENT_VIRT_ADDRESS(SG) (sg_virt((SG)))
 #define SG_ENT_PHYS_ADDRESS(SG) __pa(SG_ENT_VIRT_ADDRESS(SG))
@@ -447,7 +516,7 @@ sg_classify(struct device *dev, struct scatterlist *sg, struct scatterlist *end,
 	leader_length = leader->length;
 	next_paddr = SG_ENT_PHYS_ADDRESS(leader) + leader_length;
 
-	
+	/* we will not marge sg without device. */
 	max_seg_size = dev ? dma_get_max_seg_size(dev) : 0;
 	for (++sg; sg < end; ++sg) {
 		unsigned long addr, len;
@@ -480,6 +549,8 @@ new_segment:
 	leader->dma_length = leader_length;
 }
 
+/* Given a scatterlist leader, choose an allocation method and fill
+   in the blanks.  */
 
 static int
 sg_fill(struct device *dev, struct scatterlist *leader, struct scatterlist *end,
@@ -493,6 +564,8 @@ sg_fill(struct device *dev, struct scatterlist *leader, struct scatterlist *end,
 	long npages, dma_ofs, i;
 
 #if !DEBUG_NODIRECT
+	/* If everything is physically contiguous, and the addresses
+	   fall into the direct-map window, use it.  */
 	if (leader->dma_address == 0
 	    && paddr + size + __direct_map_base - 1 <= max_dma
 	    && paddr + size <= __direct_map_size) {
@@ -506,7 +579,7 @@ sg_fill(struct device *dev, struct scatterlist *leader, struct scatterlist *end,
 	}
 #endif
 
-	
+	/* If physically contiguous and DAC is available, use it.  */
 	if (leader->dma_address == 0 && dac_allowed) {
 		out->dma_address = paddr + alpha_mv.pci_dac_offset;
 		out->dma_length = size;
@@ -517,15 +590,19 @@ sg_fill(struct device *dev, struct scatterlist *leader, struct scatterlist *end,
 		return 0;
 	}
 
+	/* Otherwise, we'll use the iommu to make the pages virtually
+	   contiguous.  */
 
 	paddr &= ~PAGE_MASK;
 	npages = iommu_num_pages(paddr, size, PAGE_SIZE);
 	dma_ofs = iommu_arena_alloc(dev, arena, npages, 0);
 	if (dma_ofs < 0) {
-		
+		/* If we attempted a direct map above but failed, die.  */
 		if (leader->dma_address == 0)
 			return -1;
 
+		/* Otherwise, break up the remaining virtually contiguous
+		   hunks into individual direct maps and retry.  */
 		sg_classify(dev, leader, end, 0);
 		return sg_fill(dev, leader, end, out, arena, max_dma, dac_allowed);
 	}
@@ -536,6 +613,8 @@ sg_fill(struct device *dev, struct scatterlist *leader, struct scatterlist *end,
 	DBGA("    sg_fill: [%p,%lx] -> sg %llx np %ld\n",
 	     __va(paddr), size, out->dma_address, npages);
 
+	/* All virtually contiguous.  We need to find the length of each
+	   physically contiguous subsegment to fill in the ptes.  */
 	ptes = &arena->ptes[dma_ofs];
 	sg = leader;
 	do {
@@ -588,7 +667,7 @@ static int alpha_pci_map_sg(struct device *dev, struct scatterlist *sg,
 
 	dac_allowed = dev ? pci_dac_dma_supported(pdev, pdev->dma_mask) : 0;
 
-	
+	/* Fast path single entry scatterlists.  */
 	if (nents == 1) {
 		sg->dma_length = sg->length;
 		sg->dma_address
@@ -600,10 +679,10 @@ static int alpha_pci_map_sg(struct device *dev, struct scatterlist *sg,
 	start = sg;
 	end = sg + nents;
 
-	
+	/* First, prepare information about the entries.  */
 	sg_classify(dev, sg, end, alpha_mv.mv_pci_tbi != 0);
 
-	
+	/* Second, figure out where we're going to map things.  */
 	if (alpha_mv.mv_pci_tbi) {
 		hose = pdev ? pdev->sysdata : pci_isa_hose;
 		max_dma = pdev ? pdev->dma_mask : ISA_DMA_MASK;
@@ -616,6 +695,8 @@ static int alpha_pci_map_sg(struct device *dev, struct scatterlist *sg,
 		hose = NULL;
 	}
 
+	/* Third, iterate over the scatterlist leaders and allocate
+	   dma space as needed.  */
 	for (out = sg; sg < end; ++sg) {
 		if ((int) sg->dma_address < 0)
 			continue;
@@ -624,7 +705,7 @@ static int alpha_pci_map_sg(struct device *dev, struct scatterlist *sg,
 		out++;
 	}
 
-	
+	/* Mark the end of the list for pci_unmap_sg.  */
 	if (out < end)
 		out->dma_length = 0;
 
@@ -638,11 +719,16 @@ static int alpha_pci_map_sg(struct device *dev, struct scatterlist *sg,
 	printk(KERN_WARNING "pci_map_sg failed: "
 	       "could not allocate dma page tables\n");
 
+	/* Some allocation failed while mapping the scatterlist
+	   entries.  Unmap them now.  */
 	if (out > start)
 		pci_unmap_sg(pdev, start, out - start, dir);
 	return 0;
 }
 
+/* Unmap a set of streaming mode DMA translations.  Again, cpu read
+   rules concerning calls here are the same as for pci_unmap_single()
+   above.  */
 
 static void alpha_pci_unmap_sg(struct device *dev, struct scatterlist *sg,
 			       int nents, enum dma_data_direction dir,
@@ -684,7 +770,7 @@ static void alpha_pci_unmap_sg(struct device *dev, struct scatterlist *sg,
 			break;
 
 		if (addr > 0xffffffff) {
-			
+			/* It's a DAC address -- nothing to do.  */
 			DBGA("    (%ld) DAC [%llx,%zx]\n",
 			      sg - end + nents, addr, size);
 			continue;
@@ -692,7 +778,7 @@ static void alpha_pci_unmap_sg(struct device *dev, struct scatterlist *sg,
 
 		if (addr >= __direct_map_base
 		    && addr < __direct_map_base + __direct_map_size) {
-			
+			/* Nothing to do.  */
 			DBGA("    (%ld) direct [%llx,%zx]\n",
 			      sg - end + nents, addr, size);
 			continue;
@@ -710,6 +796,9 @@ static void alpha_pci_unmap_sg(struct device *dev, struct scatterlist *sg,
 		if (fend < tend) fend = tend;
 	}
 
+        /* If we're freeing ptes above the `next_entry' pointer (they
+           may have snuck back into the TLB since the last wrap flush),
+           we need to flush the TLB before reallocating the latter.  */
 	if ((fend - arena->dma_base) >> PAGE_SHIFT >= arena->next_entry)
 		alpha_mv.mv_pci_tbi(hose, fbeg, fend);
 
@@ -718,6 +807,8 @@ static void alpha_pci_unmap_sg(struct device *dev, struct scatterlist *sg,
 	DBGA("pci_unmap_sg: %ld entries\n", nents - (end - sg));
 }
 
+/* Return whether the given PCI device DMA address mask can be
+   supported properly.  */
 
 static int alpha_pci_supported(struct device *dev, u64 mask)
 {
@@ -725,12 +816,15 @@ static int alpha_pci_supported(struct device *dev, u64 mask)
 	struct pci_controller *hose;
 	struct pci_iommu_arena *arena;
 
+	/* If there exists a direct map, and the mask fits either
+	   the entire direct mapped space or the total system memory as
+	   shifted by the map base */
 	if (__direct_map_size != 0
 	    && (__direct_map_base + __direct_map_size - 1 <= mask ||
 		__direct_map_base + (max_low_pfn << PAGE_SHIFT) - 1 <= mask))
 		return 1;
 
-	
+	/* Check that we have a scatter-gather arena that fits.  */
 	hose = pdev ? pdev->sysdata : pci_isa_hose;
 	arena = hose->sg_isa;
 	if (arena && arena->dma_base + arena->size - 1 <= mask)
@@ -739,7 +833,7 @@ static int alpha_pci_supported(struct device *dev, u64 mask)
 	if (arena && arena->dma_base + arena->size - 1 <= mask)
 		return 1;
 
-	
+	/* As last resort try ZONE_DMA.  */
 	if (!__direct_map_base && MAX_DMA_ADDRESS - IDENT_ADDR - 1 <= mask)
 		return 1;
 
@@ -747,6 +841,9 @@ static int alpha_pci_supported(struct device *dev, u64 mask)
 }
 
 
+/*
+ * AGP GART extensions to the IOMMU
+ */
 int
 iommu_reserve(struct pci_iommu_arena *arena, long pg_count, long align_mask) 
 {
@@ -758,7 +855,7 @@ iommu_reserve(struct pci_iommu_arena *arena, long pg_count, long align_mask)
 
 	spin_lock_irqsave(&arena->lock, flags);
 
-	
+	/* Search for N empty ptes.  */
 	ptes = arena->ptes;
 	p = iommu_arena_find_pages(NULL, arena, pg_count, align_mask);
 	if (p < 0) {
@@ -766,6 +863,9 @@ iommu_reserve(struct pci_iommu_arena *arena, long pg_count, long align_mask)
 		return -1;
 	}
 
+	/* Success.  Mark them all reserved (ie not zero and invalid)
+	   for the iommu tlb that could load them from under us.
+	   They will be filled in with valid bits by _bind() */
 	for (i = 0; i < pg_count; ++i)
 		ptes[p+i] = IOMMU_RESERVED_PTE;
 
@@ -785,7 +885,7 @@ iommu_release(struct pci_iommu_arena *arena, long pg_start, long pg_count)
 
 	ptes = arena->ptes;
 
-	
+	/* Make sure they're all reserved first... */
 	for(i = pg_start; i < pg_start + pg_count; i++)
 		if (ptes[i] != IOMMU_RESERVED_PTE)
 			return -EBUSY;

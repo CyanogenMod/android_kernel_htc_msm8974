@@ -30,12 +30,18 @@ static void __init cnb20le_res(u8 bus, u8 slot, u8 func)
 	info = &pci_root_info[pci_root_num];
 	pci_root_num++;
 
-	
+	/* read the PCI bus numbers */
 	fbus = read_pci_config_byte(bus, slot, func, 0x44);
 	lbus = read_pci_config_byte(bus, slot, func, 0x45);
 	info->bus_min = fbus;
 	info->bus_max = lbus;
 
+	/*
+	 * Add the legacy IDE ports on bus 0
+	 *
+	 * These do not exist anywhere in the bridge registers, AFAICT. I do
+	 * not have the datasheet, so this is the best I can do.
+	 */
 	if (fbus == 0) {
 		update_res(info, 0x01f0, 0x01f7, IORESOURCE_IO, 0);
 		update_res(info, 0x03f6, 0x03f6, IORESOURCE_IO, 0);
@@ -44,7 +50,7 @@ static void __init cnb20le_res(u8 bus, u8 slot, u8 func)
 		update_res(info, 0xffa0, 0xffaf, IORESOURCE_IO, 0);
 	}
 
-	
+	/* read the non-prefetchable memory window */
 	word1 = read_pci_config_16(bus, slot, func, 0xc0);
 	word2 = read_pci_config_16(bus, slot, func, 0xc2);
 	if (word1 != word2) {
@@ -54,7 +60,7 @@ static void __init cnb20le_res(u8 bus, u8 slot, u8 func)
 		update_res(info, res.start, res.end, res.flags, 0);
 	}
 
-	
+	/* read the prefetchable memory window */
 	word1 = read_pci_config_16(bus, slot, func, 0xc4);
 	word2 = read_pci_config_16(bus, slot, func, 0xc6);
 	if (word1 != word2) {
@@ -64,7 +70,7 @@ static void __init cnb20le_res(u8 bus, u8 slot, u8 func)
 		update_res(info, res.start, res.end, res.flags, 0);
 	}
 
-	
+	/* read the IO port window */
 	word1 = read_pci_config_16(bus, slot, func, 0xd0);
 	word2 = read_pci_config_16(bus, slot, func, 0xd2);
 	if (word1 != word2) {
@@ -74,7 +80,7 @@ static void __init cnb20le_res(u8 bus, u8 slot, u8 func)
 		update_res(info, res.start, res.end, res.flags, 0);
 	}
 
-	
+	/* print information about this host bridge */
 	res.start = fbus;
 	res.end   = lbus;
 	res.flags = IORESOURCE_BUS;
@@ -91,6 +97,10 @@ static int __init broadcom_postcore_init(void)
 	u16 vendor, device;
 
 #ifdef CONFIG_ACPI
+	/*
+	 * We should get host bridge information from ACPI unless the BIOS
+	 * doesn't support it.
+	 */
 	if (acpi_os_get_root_pointer())
 		return 0;
 #endif

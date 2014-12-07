@@ -22,9 +22,9 @@
 
 #include <linux/kernel.h>
 #include <linux/ip.h>
-#include <linux/tcp.h>                  
+#include <linux/tcp.h>                  /* for tcphdr */
 #include <net/ip.h>
-#include <net/tcp.h>                    
+#include <net/tcp.h>                    /* for csum_tcpudp_magic */
 #include <net/ip6_checksum.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
@@ -48,18 +48,26 @@ tcp_conn_schedule(int af, struct sk_buff *skb, struct ip_vs_proto_data *pd,
 		return 0;
 	}
 	net = skb_net(skb);
-	
+	/* No !th->ack check to allow scheduling on SYN+ACK for Active FTP */
 	if (th->syn &&
 	    (svc = ip_vs_service_get(net, af, skb->mark, iph.protocol,
 				     &iph.daddr, th->dest))) {
 		int ignored;
 
 		if (ip_vs_todrop(net_ipvs(net))) {
+			/*
+			 * It seems that we are very loaded.
+			 * We have to drop this packet :(
+			 */
 			ip_vs_service_put(svc);
 			*verdict = NF_DROP;
 			return 0;
 		}
 
+		/*
+		 * Let the virtual server select a real server for the
+		 * incoming connection, and create a connection entry.
+		 */
 		*cpp = ip_vs_schedule(svc, skb, pd, &ignored);
 		if (!*cpp && ignored <= 0) {
 			if (!ignored)
@@ -72,7 +80,7 @@ tcp_conn_schedule(int af, struct sk_buff *skb, struct ip_vs_proto_data *pd,
 		}
 		ip_vs_service_put(svc);
 	}
-	
+	/* NF_ACCEPT */
 	return 1;
 }
 
@@ -136,21 +144,21 @@ tcp_snat_handler(struct sk_buff *skb,
 		tcphoff = ip_hdrlen(skb);
 	oldlen = skb->len - tcphoff;
 
-	
+	/* csum_check requires unshared skb */
 	if (!skb_make_writable(skb, tcphoff+sizeof(*tcph)))
 		return 0;
 
 	if (unlikely(cp->app != NULL)) {
 		int ret;
 
-		
+		/* Some checks before mangling */
 		if (pp->csum_check && !pp->csum_check(cp->af, skb, pp))
 			return 0;
 
-		
+		/* Call application helper if needed */
 		if (!(ret = ip_vs_app_pkt_out(cp, skb)))
 			return 0;
-		
+		/* ret=2: csum update is needed after payload mangling */
 		if (ret == 1)
 			oldlen = skb->len - tcphoff;
 		else
@@ -160,20 +168,20 @@ tcp_snat_handler(struct sk_buff *skb,
 	tcph = (void *)skb_network_header(skb) + tcphoff;
 	tcph->source = cp->vport;
 
-	
+	/* Adjust TCP checksums */
 	if (skb->ip_summed == CHECKSUM_PARTIAL) {
 		tcp_partial_csum_update(cp->af, tcph, &cp->daddr, &cp->vaddr,
 					htons(oldlen),
 					htons(skb->len - tcphoff));
 	} else if (!payload_csum) {
-		
+		/* Only port and addr are changed, do fast csum update */
 		tcp_fast_csum_update(cp->af, tcph, &cp->daddr, &cp->vaddr,
 				     cp->dport, cp->vport);
 		if (skb->ip_summed == CHECKSUM_COMPLETE)
 			skb->ip_summed = (cp->app && pp->csum_check) ?
 					 CHECKSUM_UNNECESSARY : CHECKSUM_NONE;
 	} else {
-		
+		/* full checksum calculation */
 		tcph->check = 0;
 		skb->csum = skb_checksum(skb, tcphoff, skb->len - tcphoff, 0);
 #ifdef CONFIG_IP_VS_IPV6
@@ -216,20 +224,24 @@ tcp_dnat_handler(struct sk_buff *skb,
 		tcphoff = ip_hdrlen(skb);
 	oldlen = skb->len - tcphoff;
 
-	
+	/* csum_check requires unshared skb */
 	if (!skb_make_writable(skb, tcphoff+sizeof(*tcph)))
 		return 0;
 
 	if (unlikely(cp->app != NULL)) {
 		int ret;
 
-		
+		/* Some checks before mangling */
 		if (pp->csum_check && !pp->csum_check(cp->af, skb, pp))
 			return 0;
 
+		/*
+		 *	Attempt ip_vs_app call.
+		 *	It will fix ip_vs_conn and iph ack_seq stuff
+		 */
 		if (!(ret = ip_vs_app_pkt_in(cp, skb)))
 			return 0;
-		
+		/* ret=2: csum update is needed after payload mangling */
 		if (ret == 1)
 			oldlen = skb->len - tcphoff;
 		else
@@ -239,19 +251,22 @@ tcp_dnat_handler(struct sk_buff *skb,
 	tcph = (void *)skb_network_header(skb) + tcphoff;
 	tcph->dest = cp->dport;
 
+	/*
+	 *	Adjust TCP checksums
+	 */
 	if (skb->ip_summed == CHECKSUM_PARTIAL) {
 		tcp_partial_csum_update(cp->af, tcph, &cp->vaddr, &cp->daddr,
 					htons(oldlen),
 					htons(skb->len - tcphoff));
 	} else if (!payload_csum) {
-		
+		/* Only port and addr are changed, do fast csum update */
 		tcp_fast_csum_update(cp->af, tcph, &cp->vaddr, &cp->daddr,
 				     cp->vport, cp->dport);
 		if (skb->ip_summed == CHECKSUM_COMPLETE)
 			skb->ip_summed = (cp->app && pp->csum_check) ?
 					 CHECKSUM_UNNECESSARY : CHECKSUM_NONE;
 	} else {
-		
+		/* full checksum calculation */
 		tcph->check = 0;
 		skb->csum = skb_checksum(skb, tcphoff, skb->len - tcphoff, 0);
 #ifdef CONFIG_IP_VS_IPV6
@@ -313,7 +328,7 @@ tcp_csum_check(int af, struct sk_buff *skb, struct ip_vs_protocol *pp)
 			}
 		break;
 	default:
-		
+		/* No need to checksum. */
 		break;
 	}
 
@@ -331,6 +346,9 @@ static const int tcp_state_off[IP_VS_DIR_LAST] = {
 	[IP_VS_DIR_INPUT_ONLY]		=	TCP_DIR_INPUT_ONLY,
 };
 
+/*
+ *	Timeout table[state]
+ */
 static const int tcp_timeouts[IP_VS_TCP_S_LAST+1] = {
 	[IP_VS_TCP_S_NONE]		=	2*HZ,
 	[IP_VS_TCP_S_ESTABLISHED]	=	15*60*HZ,
@@ -385,43 +403,61 @@ static const char * tcp_state_name(int state)
 }
 
 static struct tcp_states_t tcp_states [] = {
- {{sSR, sES, sES, sSR, sSR, sSR, sSR, sSR, sSR, sSR, sSR }},
- {{sCL, sCW, sSS, sTW, sTW, sTW, sCL, sCW, sLA, sLI, sTW }},
- {{sCL, sES, sSS, sES, sFW, sTW, sCL, sCW, sCL, sLI, sES }},
- {{sCL, sCL, sCL, sSR, sCL, sCL, sCL, sCL, sLA, sLI, sSR }},
+/*	INPUT */
+/*        sNO, sES, sSS, sSR, sFW, sTW, sCL, sCW, sLA, sLI, sSA	*/
+/*syn*/ {{sSR, sES, sES, sSR, sSR, sSR, sSR, sSR, sSR, sSR, sSR }},
+/*fin*/ {{sCL, sCW, sSS, sTW, sTW, sTW, sCL, sCW, sLA, sLI, sTW }},
+/*ack*/ {{sCL, sES, sSS, sES, sFW, sTW, sCL, sCW, sCL, sLI, sES }},
+/*rst*/ {{sCL, sCL, sCL, sSR, sCL, sCL, sCL, sCL, sLA, sLI, sSR }},
 
- {{sSS, sES, sSS, sSR, sSS, sSS, sSS, sSS, sSS, sLI, sSR }},
- {{sTW, sFW, sSS, sTW, sFW, sTW, sCL, sTW, sLA, sLI, sTW }},
- {{sES, sES, sSS, sES, sFW, sTW, sCL, sCW, sLA, sES, sES }},
- {{sCL, sCL, sSS, sCL, sCL, sTW, sCL, sCL, sCL, sCL, sCL }},
+/*	OUTPUT */
+/*        sNO, sES, sSS, sSR, sFW, sTW, sCL, sCW, sLA, sLI, sSA	*/
+/*syn*/ {{sSS, sES, sSS, sSR, sSS, sSS, sSS, sSS, sSS, sLI, sSR }},
+/*fin*/ {{sTW, sFW, sSS, sTW, sFW, sTW, sCL, sTW, sLA, sLI, sTW }},
+/*ack*/ {{sES, sES, sSS, sES, sFW, sTW, sCL, sCW, sLA, sES, sES }},
+/*rst*/ {{sCL, sCL, sSS, sCL, sCL, sTW, sCL, sCL, sCL, sCL, sCL }},
 
- {{sSR, sES, sES, sSR, sSR, sSR, sSR, sSR, sSR, sSR, sSR }},
- {{sCL, sFW, sSS, sTW, sFW, sTW, sCL, sCW, sLA, sLI, sTW }},
- {{sCL, sES, sSS, sES, sFW, sTW, sCL, sCW, sCL, sLI, sES }},
- {{sCL, sCL, sCL, sSR, sCL, sCL, sCL, sCL, sLA, sLI, sCL }},
+/*	INPUT-ONLY */
+/*        sNO, sES, sSS, sSR, sFW, sTW, sCL, sCW, sLA, sLI, sSA	*/
+/*syn*/ {{sSR, sES, sES, sSR, sSR, sSR, sSR, sSR, sSR, sSR, sSR }},
+/*fin*/ {{sCL, sFW, sSS, sTW, sFW, sTW, sCL, sCW, sLA, sLI, sTW }},
+/*ack*/ {{sCL, sES, sSS, sES, sFW, sTW, sCL, sCW, sCL, sLI, sES }},
+/*rst*/ {{sCL, sCL, sCL, sSR, sCL, sCL, sCL, sCL, sLA, sLI, sCL }},
 };
 
 static struct tcp_states_t tcp_states_dos [] = {
- {{sSR, sES, sES, sSR, sSR, sSR, sSR, sSR, sSR, sSR, sSA }},
- {{sCL, sCW, sSS, sTW, sTW, sTW, sCL, sCW, sLA, sLI, sSA }},
- {{sCL, sES, sSS, sSR, sFW, sTW, sCL, sCW, sCL, sLI, sSA }},
- {{sCL, sCL, sCL, sSR, sCL, sCL, sCL, sCL, sLA, sLI, sCL }},
+/*	INPUT */
+/*        sNO, sES, sSS, sSR, sFW, sTW, sCL, sCW, sLA, sLI, sSA	*/
+/*syn*/ {{sSR, sES, sES, sSR, sSR, sSR, sSR, sSR, sSR, sSR, sSA }},
+/*fin*/ {{sCL, sCW, sSS, sTW, sTW, sTW, sCL, sCW, sLA, sLI, sSA }},
+/*ack*/ {{sCL, sES, sSS, sSR, sFW, sTW, sCL, sCW, sCL, sLI, sSA }},
+/*rst*/ {{sCL, sCL, sCL, sSR, sCL, sCL, sCL, sCL, sLA, sLI, sCL }},
 
- {{sSS, sES, sSS, sSA, sSS, sSS, sSS, sSS, sSS, sLI, sSA }},
- {{sTW, sFW, sSS, sTW, sFW, sTW, sCL, sTW, sLA, sLI, sTW }},
- {{sES, sES, sSS, sES, sFW, sTW, sCL, sCW, sLA, sES, sES }},
- {{sCL, sCL, sSS, sCL, sCL, sTW, sCL, sCL, sCL, sCL, sCL }},
+/*	OUTPUT */
+/*        sNO, sES, sSS, sSR, sFW, sTW, sCL, sCW, sLA, sLI, sSA	*/
+/*syn*/ {{sSS, sES, sSS, sSA, sSS, sSS, sSS, sSS, sSS, sLI, sSA }},
+/*fin*/ {{sTW, sFW, sSS, sTW, sFW, sTW, sCL, sTW, sLA, sLI, sTW }},
+/*ack*/ {{sES, sES, sSS, sES, sFW, sTW, sCL, sCW, sLA, sES, sES }},
+/*rst*/ {{sCL, sCL, sSS, sCL, sCL, sTW, sCL, sCL, sCL, sCL, sCL }},
 
- {{sSA, sES, sES, sSR, sSA, sSA, sSA, sSA, sSA, sSA, sSA }},
- {{sCL, sFW, sSS, sTW, sFW, sTW, sCL, sCW, sLA, sLI, sTW }},
- {{sCL, sES, sSS, sES, sFW, sTW, sCL, sCW, sCL, sLI, sES }},
- {{sCL, sCL, sCL, sSR, sCL, sCL, sCL, sCL, sLA, sLI, sCL }},
+/*	INPUT-ONLY */
+/*        sNO, sES, sSS, sSR, sFW, sTW, sCL, sCW, sLA, sLI, sSA	*/
+/*syn*/ {{sSA, sES, sES, sSR, sSA, sSA, sSA, sSA, sSA, sSA, sSA }},
+/*fin*/ {{sCL, sFW, sSS, sTW, sFW, sTW, sCL, sCW, sLA, sLI, sTW }},
+/*ack*/ {{sCL, sES, sSS, sES, sFW, sTW, sCL, sCW, sCL, sLI, sES }},
+/*rst*/ {{sCL, sCL, sCL, sSR, sCL, sCL, sCL, sCL, sLA, sLI, sCL }},
 };
 
 static void tcp_timeout_change(struct ip_vs_proto_data *pd, int flags)
 {
-	int on = (flags & 1);		
+	int on = (flags & 1);		/* secure_tcp */
 
+	/*
+	** FIXME: change secure_tcp to independent sysctl var
+	** or make it per-service or per-app because it is valid
+	** for most if not for all of the applications. Something
+	** like "capabilities" (flags) for each object.
+	*/
 	pd->tcp_state_table = (on ? tcp_states_dos : tcp_states);
 }
 
@@ -446,6 +482,10 @@ set_tcp_state(struct ip_vs_proto_data *pd, struct ip_vs_conn *cp,
 	int new_state = IP_VS_TCP_S_CLOSE;
 	int state_off = tcp_state_off[direction];
 
+	/*
+	 *    Update state offset to INPUT_ONLY if necessary
+	 *    or delete NO_OUTPUT flag if output packet detected
+	 */
 	if (cp->flags & IP_VS_CONN_F_NOOUTPUT) {
 		if (state_off == TCP_DIR_OUTPUT)
 			cp->flags &= ~IP_VS_CONN_F_NOOUTPUT;
@@ -499,10 +539,13 @@ set_tcp_state(struct ip_vs_proto_data *pd, struct ip_vs_conn *cp,
 
 	if (likely(pd))
 		cp->timeout = pd->timeout_table[cp->state = new_state];
-	else	
+	else	/* What to do ? */
 		cp->timeout = tcp_timeouts[cp->state = new_state];
 }
 
+/*
+ *	Handle state transitions
+ */
 static void
 tcp_state_transition(struct ip_vs_conn *cp, int direction,
 		     const struct sk_buff *skb,
@@ -580,11 +623,11 @@ tcp_app_conn_bind(struct ip_vs_conn *cp)
 	struct ip_vs_app *inc;
 	int result = 0;
 
-	
+	/* Default binding: bind app only for NAT */
 	if (IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_MASQ)
 		return 0;
 
-	
+	/* Lookup application incarnations and bind the right one */
 	hash = tcp_app_hashkey(cp->vport);
 
 	spin_lock(&ipvs->tcp_app_lock);
@@ -616,6 +659,9 @@ tcp_app_conn_bind(struct ip_vs_conn *cp)
 }
 
 
+/*
+ *	Set LISTEN timeout. (ip_vs_conn_put will setup timer)
+ */
 void ip_vs_tcp_conn_listen(struct net *net, struct ip_vs_conn *cp)
 {
 	struct ip_vs_proto_data *pd = ip_vs_proto_data_get(net, IPPROTO_TCP);
@@ -627,6 +673,10 @@ void ip_vs_tcp_conn_listen(struct net *net, struct ip_vs_conn *cp)
 	spin_unlock(&cp->lock);
 }
 
+/* ---------------------------------------------
+ *   timeouts is netns related now.
+ * ---------------------------------------------
+ */
 static int __ip_vs_tcp_init(struct net *net, struct ip_vs_proto_data *pd)
 {
 	struct netns_ipvs *ipvs = net_ipvs(net);

@@ -40,8 +40,16 @@ struct fb_info	*cfb;
 
 #define CMAP_MAX_SIZE	16
 
+/*
+ * LCD AC Prescale.  This comes from the LCD panel manufacturers specifications.
+ * This determines how many clocks + 1 of CL1 before the M signal toggles.
+ * The number of lines on the display must not be divisible by this number.
+ */
 static unsigned int lcd_ac_prescale = 13;
 
+/*
+ *    Set a single color register. Return != 0 for invalid regno.
+ */
 static int
 clps7111fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 		     u_int transp, struct fb_info *info)
@@ -51,9 +59,16 @@ clps7111fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	if (regno >= (1 << info->var.bits_per_pixel))
 		return 1;
 
-	
+	/* gray = 0.30*R + 0.58*G + 0.11*B */
 	level = (red * 77 + green * 151 + blue * 28) >> 20;
 
+	/*
+	 * On an LCD, a high value is dark, while a low value is light. 
+	 * So we invert the level.
+	 *
+	 * This isn't true on all machines, so we only do it on EDB7211.
+	 *  --rmk
+	 */
 	if (machine_is_edb7211()) {
 		level = 15 - level;
 	}
@@ -72,7 +87,9 @@ clps7111fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	return 0;
 }
 
-	
+/*
+ * Validate the purposed mode.
+ */	
 static int
 clps7111fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
@@ -91,7 +108,9 @@ clps7111fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	return 0;
 }
 
- 
+/*
+ * Set the hardware state.
+ */ 
 static int 
 clps7111fb_set_par(struct fb_info *info)
 {
@@ -115,6 +134,15 @@ clps7111fb_set_par(struct fb_info *info)
 	lcdcon |= ((info->var.xres_virtual / 16) - 1) << 13;
 	lcdcon |= lcd_ac_prescale << 25;
 
+	/*
+	 * Calculate pixel prescale value from the pixclock.  This is:
+	 *  36.864MHz / pixclock_mhz - 1.
+	 * However, pixclock is in picoseconds, so this ends up being:
+	 *  36864000 * pixclock_ps / 10^12 - 1
+	 * and this will overflow the 32-bit math.  We perform this as
+	 * (9 * 4096000 == 36864000):
+	 *  pixclock_ps * 9 * (4096000 / 10^12) - 1
+	 */
 	pixclock = 9 * info->var.pixclock / 244140 - 1;
 	lcdcon |= pixclock << 19;
 
@@ -123,6 +151,9 @@ clps7111fb_set_par(struct fb_info *info)
 	if (info->var.bits_per_pixel >= 2)
 		lcdcon |= LCDCON_GSEN;
 
+	/*
+	 * LCDCON must only be changed while the LCD is disabled
+	 */
 	syscon = clps_readl(SYSCON1);
 	clps_writel(syscon & ~SYSCON1_LCDEN, SYSCON1);
 	clps_writel(lcdcon, LCDCON);
@@ -134,39 +165,39 @@ static int clps7111fb_blank(int blank, struct fb_info *info)
 {
     	if (blank) {
 		if (machine_is_edb7211()) {
-			
+			/* Turn off the LCD backlight. */
 			clps_writeb(clps_readb(PDDR) & ~EDB_PD3_LCDBL, PDDR);
 
-			
+			/* Power off the LCD DC-DC converter. */
 			clps_writeb(clps_readb(PDDR) & ~EDB_PD1_LCD_DC_DC_EN, PDDR);
 
-			
+			/* Delay for a little while (half a second). */
 			udelay(100);
 
-			
+			/* Power off the LCD panel. */
 			clps_writeb(clps_readb(PDDR) & ~EDB_PD2_LCDEN, PDDR);
 
-			
+			/* Power off the LCD controller. */
 			clps_writel(clps_readl(SYSCON1) & ~SYSCON1_LCDEN, 
 					SYSCON1);
 		}
 	} else {
 		if (machine_is_edb7211()) {
-			
+			/* Power up the LCD controller. */
 			clps_writel(clps_readl(SYSCON1) | SYSCON1_LCDEN,
 					SYSCON1);
 
-			
+			/* Power up the LCD panel. */
 			clps_writeb(clps_readb(PDDR) | EDB_PD2_LCDEN, PDDR);
 
-			
+			/* Delay for a little while. */
 			udelay(100);
 
-			
+			/* Power up the LCD DC-DC converter. */
 			clps_writeb(clps_readb(PDDR) | EDB_PD1_LCD_DC_DC_EN,
 					PDDR);
 
-			
+			/* Turn on the LCD backlight. */
 			clps_writeb(clps_readb(PDDR) | EDB_PD3_LCDBL, PDDR);
 		}
 	}
@@ -252,12 +283,19 @@ static void __init clps711x_guess_lcd_params(struct fb_info *info)
 	info->var.activate	 = FB_ACTIVATE_NOW;
 	info->var.height	 = -1;
 	info->var.width		 = -1;
-	info->var.pixclock	 = 93006; 
+	info->var.pixclock	 = 93006; /* 10.752MHz pixel clock */
 
+	/*
+	 * If the LCD controller is already running, decode the values
+	 * in LCDCON to xres/yres/bpp/pixclock/acprescale
+	 */
 	syscon = clps_readl(SYSCON1);
 	if (syscon & SYSCON1_LCDEN) {
 		lcdcon = clps_readl(LCDCON);
 
+		/*
+		 * Decode GSMD and GSEN bits to bits per pixel
+		 */
 		switch (lcdcon & (LCDCON_GSMD | LCDCON_GSEN)) {
 		case LCDCON_GSMD | LCDCON_GSEN:
 			info->var.bits_per_pixel = 4;
@@ -272,13 +310,22 @@ static void __init clps711x_guess_lcd_params(struct fb_info *info)
 			break;
 		}
 
+		/*
+		 * Decode xres/yres
+		 */
 		info->var.xres_virtual = (((lcdcon >> 13) & 0x3f) + 1) * 16;
 		info->var.yres_virtual = (((lcdcon & 0x1fff) + 1) * 128) /
 					  (info->var.xres_virtual *
 					   info->var.bits_per_pixel);
 
+		/*
+		 * Calculate pixclock
+		 */
 		info->var.pixclock = (((lcdcon >> 19) & 0x3f) + 1) * 244140 / 9;
 
+		/*
+		 * Grab AC prescale
+		 */
 		lcd_ac_prescale = (lcdcon >> 25) & 0x1f;
 	}
 
@@ -288,11 +335,21 @@ static void __init clps711x_guess_lcd_params(struct fb_info *info)
 
 	size = info->var.xres * info->var.yres * info->var.bits_per_pixel / 8;
 
+	/*
+	 * Might be worth checking to see if we can use the on-board
+	 * RAM if size here...
+	 * CLPS7110 - no on-board SRAM
+	 * EP7212   - 38400 bytes
+	 */
 	if (size <= 38400) {
 		printk(KERN_INFO "CLPS711xFB: could use on-board SRAM?\n");
 	}
 
 	if ((syscon & SYSCON1_LCDEN) == 0) {
+		/*
+		 * The display isn't running.  Ensure that
+		 * the display memory is empty.
+		 */
 		memset(virt_base, 0, size);
 	}
 
@@ -327,22 +384,25 @@ int __init clps711xfb_init(void)
 		return -EINVAL;
 	}
 
+	/*
+	 * Power up the LCD
+	 */
 	if (machine_is_p720t()) {
 		PLD_LCDEN = PLD_LCDEN_EN;
 		PLD_PWR |= (PLD_S4_ON|PLD_S3_ON|PLD_S2_ON|PLD_S1_ON);
 	}
 
 	if (machine_is_edb7211()) {
-		
+		/* Power up the LCD panel. */
 		clps_writeb(clps_readb(PDDR) | EDB_PD2_LCDEN, PDDR);
 
-		
+		/* Delay for a little while. */
 		udelay(100);
 
-		
+		/* Power up the LCD DC-DC converter. */
 		clps_writeb(clps_readb(PDDR) | EDB_PD1_LCD_DC_DC_EN, PDDR);
 
-		
+		/* Turn on the LCD backlight. */
 		clps_writeb(clps_readb(PDDR) | EDB_PD3_LCDBL, PDDR);
 	}
 
@@ -356,6 +416,9 @@ static void __exit clps711xfb_exit(void)
 	unregister_framebuffer(cfb);
 	kfree(cfb);
 
+	/*
+	 * Power down the LCD
+	 */
 	if (machine_is_p720t()) {
 		PLD_LCDEN = 0;
 		PLD_PWR &= ~(PLD_S4_ON|PLD_S3_ON|PLD_S2_ON|PLD_S1_ON);

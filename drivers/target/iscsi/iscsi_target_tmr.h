@@ -11,4 +11,4 @@ extern int iscsit_tmr_post_handler(struct iscsi_cmd *, struct iscsi_conn *);
 extern int iscsit_check_task_reassign_expdatasn(struct iscsi_tmr_req *,
 			struct iscsi_conn *);
 
-#endif 
+#endif /* ISCSI_TARGET_TMR_H */

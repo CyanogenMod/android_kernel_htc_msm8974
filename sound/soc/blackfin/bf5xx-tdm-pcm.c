@@ -91,7 +91,7 @@ static int bf5xx_pcm_prepare(struct snd_pcm_substream *substream)
 	int fragsize_bytes = frames_to_bytes(runtime, runtime->period_size);
 
 	fragsize_bytes /= runtime->channels;
-	
+	/* inflate the fragsize to match the dma width of SPORT */
 	fragsize_bytes *= 8;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
@@ -144,7 +144,7 @@ static snd_pcm_uframes_t bf5xx_pcm_pointer(struct snd_pcm_substream *substream)
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		diff = sport_curr_offset_tx(sport);
-		frames = diff / (8*4); 
+		frames = diff / (8*4); /* 32 bytes per frame */
 	} else {
 		diff = sport_curr_offset_rx(sport);
 		frames = diff / (8*4);

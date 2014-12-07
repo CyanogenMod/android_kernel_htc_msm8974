@@ -21,6 +21,21 @@
 #define TO_PHYS_MASK -1
 #endif
 
+/*
+ * FUNC is executed in one of the uncached segments, depending on its
+ * original address as follows:
+ *
+ * 1. If the original address is in CKSEG0 or CKSEG1, then the uncached
+ *    segment used is CKSEG1.
+ * 2. If the original address is in XKPHYS, then the uncached segment
+ *    used is XKPHYS(2).
+ * 3. Otherwise it's a bug.
+ *
+ * The same remapping is done with the stack pointer.  Stack handling
+ * works because we don't handle stack arguments or more complex return
+ * values, so we can avoid sharing the same stack area between a cached
+ * and the uncached mode.
+ */
 unsigned long __cpuinit run_uncached(void *func)
 {
 	register long sp __asm__("$sp");

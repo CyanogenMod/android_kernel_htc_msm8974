@@ -12,7 +12,21 @@
  *      2 of the License, or (at your option) any later version.
  */
 
+/*
+ *	Changes:
+ *
+ *	Pierre Ynard			:	export userland ND options
+ *						through netlink (RDNSS support)
+ *	Lars Fenneberg			:	fixed MTU setting on receipt
+ *						of an RA.
+ *	Janos Farkas			:	kmalloc failure checks
+ *	Alexey Kuznetsov		:	state machine reworked
+ *						and moved to net/core.
+ *	Pekka Savola			:	RFC2461 validation
+ *	YOSHIFUJI Hideaki @USAGI	:	Verify ND options properly
+ */
 
+/* Set to 3 to get tracing... */
 #define ND_DEBUG 1
 
 #define ND_PRINTK(fmt, args...) do { if (net_ratelimit()) { printk(fmt, ## args); } } while(0)
@@ -139,6 +153,7 @@ struct neigh_table nd_tbl = {
 	.gc_thresh3 =	1024,
 };
 
+/* ND options */
 struct ndisc_options {
 	struct nd_opt_hdr *nd_opt_array[__ND_OPT_ARRAY_MAX];
 #ifdef CONFIG_IPV6_ROUTE_INFO
@@ -158,6 +173,12 @@ struct ndisc_options {
 
 #define NDISC_OPT_SPACE(len) (((len)+2+7)&~7)
 
+/*
+ * Return the padding between the option length and the start of the
+ * link addr.  Currently only IP-over-InfiniBand needs this, although
+ * if RFC 3831 IPv6-over-Fibre Channel is ever implemented it may
+ * also need a pad of 2.
+ */
 static int ndisc_addr_option_pad(unsigned short type)
 {
 	switch (type) {
@@ -268,6 +289,11 @@ static struct ndisc_options *ndisc_parse_options(u8 *opt, int opt_len,
 				if (!ndopts->nd_useropts)
 					ndopts->nd_useropts = nd_opt;
 			} else {
+				/*
+				 * Unknown options must be silently ignored,
+				 * to accommodate future extension to the
+				 * protocol.
+				 */
 				ND_PRINTK2(KERN_NOTICE
 					   "%s(): ignored unsupported option; type=%d, len=%d\n",
 					   __func__,
@@ -295,7 +321,7 @@ int ndisc_mc_map(const struct in6_addr *addr, char *buf, struct net_device *dev,
 {
 	switch (dev->type) {
 	case ARPHRD_ETHER:
-	case ARPHRD_IEEE802:	
+	case ARPHRD_IEEE802:	/* Not sure. Check it later. --ANK */
 	case ARPHRD_FDDI:
 		ipv6_eth_mc_map(addr, buf);
 		return 0;
@@ -507,6 +533,9 @@ void ndisc_send_skb(struct sk_buff *skb,
 
 EXPORT_SYMBOL(ndisc_send_skb);
 
+/*
+ *	Send a Neighbour Discover packet
+ */
 static void __ndisc_send(struct net_device *dev,
 			 struct neighbour *neigh,
 			 const struct in6_addr *daddr,
@@ -535,7 +564,7 @@ static void ndisc_send_na(struct net_device *dev, struct neighbour *neigh,
 		.icmp6_type = NDISC_NEIGHBOUR_ADVERTISEMENT,
 	};
 
-	
+	/* for anycast or proxy, solicited_addr != src_addr */
 	ifp = ipv6_get_ifaddr(dev_net(dev), solicited_addr, dev, 1);
 	if (ifp) {
 		src_addr = solicited_addr;
@@ -574,9 +603,9 @@ static void ndisc_send_unsol_na(struct net_device *dev)
 	list_for_each_entry(ifa, &idev->addr_list, if_list) {
 		addrconf_addr_solict_mult(&ifa->addr, &mcaddr);
 		ndisc_send_na(dev, NULL, &mcaddr, &ifa->addr,
-			       !!idev->cnf.forwarding,
-			       false,  true,
-			       true);
+			      /*router=*/ !!idev->cnf.forwarding,
+			      /*solicited=*/ false, /*override=*/ true,
+			      /*inc_opt=*/ true);
 	}
 	read_unlock_bh(&idev->lock);
 
@@ -613,6 +642,14 @@ void ndisc_send_rs(struct net_device *dev, const struct in6_addr *saddr,
 	int send_sllao = dev->addr_len;
 
 #ifdef CONFIG_IPV6_OPTIMISTIC_DAD
+	/*
+	 * According to section 2.2 of RFC 4429, we must not
+	 * send router solicitations with a sllao from
+	 * optimistic addresses, but we may send the solicitation
+	 * if we don't include the sllao.  So here we check
+	 * if our address is optimistic, and if so, we
+	 * suppress the inclusion of the sllao.
+	 */
 	if (send_sllao) {
 		struct inet6_ifaddr *ifp = ipv6_get_ifaddr(dev_net(dev), saddr,
 							   dev, 1);
@@ -634,10 +671,15 @@ void ndisc_send_rs(struct net_device *dev, const struct in6_addr *saddr,
 
 static void ndisc_error_report(struct neighbour *neigh, struct sk_buff *skb)
 {
+	/*
+	 *	"The sender MUST return an ICMP
+	 *	 destination unreachable"
+	 */
 	dst_link_failure(skb);
 	kfree_skb(skb);
 }
 
+/* Called with locked neigh: either read or both */
 
 static void ndisc_solicit(struct neighbour *neigh, struct sk_buff *skb)
 {
@@ -704,6 +746,10 @@ static void ndisc_recv_ns(struct sk_buff *skb)
 		return;
 	}
 
+	/*
+	 * RFC2461 7.1.1:
+	 * DAD has to be destined for solicited node multicast address.
+	 */
 	if (dad &&
 	    !(daddr->s6_addr32[0] == htonl(0xff020000) &&
 	      daddr->s6_addr32[1] == htonl(0x00000000) &&
@@ -728,6 +774,11 @@ static void ndisc_recv_ns(struct sk_buff *skb)
 			return;
 		}
 
+		/* RFC2461 7.1.1:
+		 *	If the IP source address is the unspecified address,
+		 *	there MUST NOT be source link-layer address option
+		 *	in the message.
+		 */
 		if (dad) {
 			ND_PRINTK2(KERN_WARNING
 				   "ICMPv6 NS: bad DAD packet (link-layer address option)\n");
@@ -751,14 +802,25 @@ static void ndisc_recv_ns(struct sk_buff *skb)
 					    sadr[11] == dev->dev_addr[3] &&
 					    sadr[12] == dev->dev_addr[4] &&
 					    sadr[13] == dev->dev_addr[5]) {
-						
+						/* looped-back to us */
 						goto out;
 					}
 				}
 
+				/*
+				 * We are colliding with another node
+				 * who is doing DAD
+				 * so fail our DAD process
+				 */
 				addrconf_dad_failure(ifp);
 				return;
 			} else {
+				/*
+				 * This is not a dad solicitation.
+				 * If we are an optimistic node,
+				 * we should respond.
+				 * Otherwise, we should ignore it.
+				 */
 				if (!(ifp->flags & IFA_F_OPTIMISTIC))
 					goto out;
 			}
@@ -770,7 +832,7 @@ static void ndisc_recv_ns(struct sk_buff *skb)
 
 		idev = in6_dev_get(dev);
 		if (!idev) {
-			
+			/* XXX: count this drop? */
 			return;
 		}
 
@@ -782,6 +844,13 @@ static void ndisc_recv_ns(struct sk_buff *skb)
 			    skb->pkt_type != PACKET_HOST &&
 			    inc != 0 &&
 			    idev->nd_parms->proxy_delay != 0) {
+				/*
+				 * for anycast or proxy,
+				 * sender should delay its response
+				 * by a random time between 0 and
+				 * MAX_ANYCAST_DELAY_TIME seconds.
+				 * (RFC2461) -- yoshfuji
+				 */
 				struct sk_buff *n = skb_clone(skb, GFP_ATOMIC);
 				if (n)
 					pneigh_enqueue(&nd_tbl, idev->nd_parms, n);
@@ -805,6 +874,10 @@ static void ndisc_recv_ns(struct sk_buff *skb)
 	else
 		NEIGH_CACHE_STAT_INC(&nd_tbl, rcv_probes_ucast);
 
+	/*
+	 *	update / create cache entry
+	 *	for the source address
+	 */
 	neigh = __neigh_lookup(&nd_tbl, saddr, dev,
 			       !inc || lladdr || !dev->addr_len);
 	if (neigh)
@@ -878,6 +951,15 @@ static void ndisc_recv_na(struct sk_buff *skb)
 				addrconf_dad_failure(ifp);
 				return;
 		}
+		/* What should we make now? The advertisement
+		   is invalid, but ndisc specs say nothing
+		   about it. It could be misconfiguration, or
+		   an smart proxy agent tries to help us :-)
+
+		   We should not print the error if NA has been
+		   received from loopback - it is just our own
+		   unsolicited advertisement.
+		 */
 		if (skb->pkt_type != PACKET_LOOPBACK)
 			ND_PRINTK1(KERN_WARNING
 			   "ICMPv6 NA: someone advertises our address %pI6 on %s!\n",
@@ -894,10 +976,15 @@ static void ndisc_recv_na(struct sk_buff *skb)
 		if (neigh->nud_state & NUD_FAILED)
 			goto out;
 
+		/*
+		 * Don't update the neighbor cache entry on a proxy NA from
+		 * ourselves because either the proxied node is off link or it
+		 * has already sent a NA to us.
+		 */
 		if (lladdr && !memcmp(lladdr, dev->dev_addr, dev->addr_len) &&
 		    net->ipv6.devconf_all->forwarding && net->ipv6.devconf_all->proxy_ndp &&
 		    pneigh_lookup(&nd_tbl, net, &msg->target, dev, 0)) {
-			
+			/* XXX: idev->cnf.prixy_ndp */
 			goto out;
 		}
 
@@ -909,6 +996,9 @@ static void ndisc_recv_na(struct sk_buff *skb)
 			     (msg->icmph.icmp6_router ? NEIGH_UPDATE_F_ISROUTER : 0));
 
 		if ((old_flags & ~neigh->flags) & NTF_ROUTER) {
+			/*
+			 * Change: router to host
+			 */
 			struct rt6_info *rt;
 			rt = rt6_get_dflt_router(saddr, dev);
 			if (rt)
@@ -940,14 +1030,18 @@ static void ndisc_recv_rs(struct sk_buff *skb)
 		return;
 	}
 
-	
+	/* Don't accept RS if we're not in router mode */
 	if (!idev->cnf.forwarding)
 		goto out;
 
+	/*
+	 * Don't update NCE if src = ::;
+	 * this implies that the source node has no ip address assigned yet.
+	 */
 	if (ipv6_addr_any(saddr))
 		goto out;
 
-	
+	/* Parse ND options */
 	if (!ndisc_parse_options(rs_msg->opt, ndoptlen, &ndopts)) {
 		if (net_ratelimit())
 			ND_PRINTK2("ICMP6 NS: invalid ND option, ignored\n");
@@ -1021,6 +1115,10 @@ errout:
 
 static inline int accept_ra(struct inet6_dev *in6_dev)
 {
+	/*
+	 * If forwarding is enabled, RA are not accepted unless the special
+	 * hybrid mode (accept_ra=2) is enabled.
+	 */
 	if (in6_dev->cnf.forwarding && in6_dev->cnf.accept_ra < 2)
 		return 0;
 
@@ -1061,6 +1159,9 @@ static void ndisc_router_discovery(struct sk_buff *skb)
 	}
 #endif
 
+	/*
+	 *	set the RA_RECV flag in the interface
+	 */
 
 	in6_dev = __in6_dev_get(skb->dev);
 	if (in6_dev == NULL) {
@@ -1080,15 +1181,23 @@ static void ndisc_router_discovery(struct sk_buff *skb)
 		goto skip_linkparms;
 
 #ifdef CONFIG_IPV6_NDISC_NODETYPE
-	
+	/* skip link-specific parameters from interior routers */
 	if (skb->ndisc_nodetype == NDISC_NODETYPE_NODEFAULT)
 		goto skip_linkparms;
 #endif
 
 	if (in6_dev->if_flags & IF_RS_SENT) {
+		/*
+		 *	flag that an RA was received after an RS was sent
+		 *	out on this interface.
+		 */
 		in6_dev->if_flags |= IF_RA_RCVD;
 	}
 
+	/*
+	 * Remember the managed/otherconf flags from most recently
+	 * received RA message (RFC 2462) -- yoshfuji
+	 */
 	in6_dev->if_flags = (in6_dev->if_flags & ~(IF_RA_MANAGED |
 				IF_RA_OTHERCONF)) |
 				(ra_msg->icmph.icmp6_addrconf_managed ?
@@ -1106,7 +1215,7 @@ static void ndisc_router_discovery(struct sk_buff *skb)
 
 #ifdef CONFIG_IPV6_ROUTER_PREF
 	pref = ra_msg->icmph.icmp6_router_pref;
-	
+	/* 10b is handled as if it were 00b (medium) */
 	if (pref == ICMPV6_ROUTER_PREF_INVALID ||
 	    !in6_dev->cnf.accept_ra_rtr_pref)
 		pref = ICMPV6_ROUTER_PREF_MEDIUM;
@@ -1165,6 +1274,9 @@ static void ndisc_router_discovery(struct sk_buff *skb)
 
 skip_defrtr:
 
+	/*
+	 *	Update Reachable Time and Retrans Timer
+	 */
 
 	if (in6_dev->nd_parms) {
 		unsigned long rtime = ntohl(ra_msg->retrans_timer);
@@ -1197,6 +1309,9 @@ skip_defrtr:
 
 skip_linkparms:
 
+	/*
+	 *	Process options.
+	 */
 
 	if (!neigh)
 		neigh = __neigh_lookup(&nd_tbl, &ipv6_hdr(skb)->saddr,
@@ -1248,7 +1363,7 @@ skip_routeinfo:
 #endif
 
 #ifdef CONFIG_IPV6_NDISC_NODETYPE
-	
+	/* skip link-specific ndopts from interior routers */
 	if (skb->ndisc_nodetype == NDISC_NODETYPE_NODEFAULT)
 		goto out;
 #endif
@@ -1310,7 +1425,7 @@ static void ndisc_redirect_rcv(struct sk_buff *skb)
 	struct inet6_dev *in6_dev;
 	struct icmp6hdr *icmph;
 	const struct in6_addr *dest;
-	const struct in6_addr *target;	
+	const struct in6_addr *target;	/* new first hop to destination */
 	struct neighbour *neigh;
 	int on_link = 0;
 	struct ndisc_options ndopts;
@@ -1367,6 +1482,10 @@ static void ndisc_redirect_rcv(struct sk_buff *skb)
 	if (in6_dev->cnf.forwarding || !in6_dev->cnf.accept_redirects)
 		return;
 
+	/* RFC2461 8.1:
+	 *	The IP source address of the Redirect MUST be the same as the current
+	 *	first-hop router for the specified ICMP Destination Address.
+	 */
 
 	if (!ndisc_parse_options((u8*)(dest + 1), optlen, &ndopts)) {
 		ND_PRINTK2(KERN_WARNING
@@ -1499,6 +1618,9 @@ void ndisc_send_redirect(struct sk_buff *skb, const struct in6_addr *target)
 	memset(icmph, 0, sizeof(struct icmp6hdr));
 	icmph->icmp6_type = NDISC_REDIRECT;
 
+	/*
+	 *	copy target and destination addresses
+	 */
 
 	addrp = (struct in6_addr *)(icmph + 1);
 	*addrp = *target;
@@ -1507,11 +1629,17 @@ void ndisc_send_redirect(struct sk_buff *skb, const struct in6_addr *target)
 
 	opt = (u8*) (addrp + 1);
 
+	/*
+	 *	include target_address option
+	 */
 
 	if (ha)
 		opt = ndisc_fill_addr_option(opt, ND_OPT_TARGET_LL_ADDR, ha,
 					     dev->addr_len, dev->type);
 
+	/*
+	 *	build redirect option and copy skb over to the new packet.
+	 */
 
 	memset(opt, 0, 8);
 	*(opt++) = ND_OPT_REDIRECT_HDR;
@@ -1704,7 +1832,7 @@ static int __net_init ndisc_net_init(struct net *net)
 
 	np = inet6_sk(sk);
 	np->hop_limit = 255;
-	
+	/* Do not loopback ndisc messages */
 	np->mc_loop = 0;
 
 	return 0;
@@ -1727,6 +1855,9 @@ int __init ndisc_init(void)
 	err = register_pernet_subsys(&ndisc_net_ops);
 	if (err)
 		return err;
+	/*
+	 * Initialize the neighbour table
+	 */
 	neigh_table_init(&nd_tbl);
 
 #ifdef CONFIG_SYSCTL

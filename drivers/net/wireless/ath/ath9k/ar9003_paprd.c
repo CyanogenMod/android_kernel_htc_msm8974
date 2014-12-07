@@ -23,6 +23,18 @@ void ar9003_paprd_enable(struct ath_hw *ah, bool val)
 	struct ath9k_channel *chan = ah->curchan;
 	struct ar9300_eeprom *eep = &ah->eeprom.ar9300_eep;
 
+	/*
+	 * 3 bits for modalHeader5G.papdRateMaskHt20
+	 * is used for sub-band disabling of PAPRD.
+	 * 5G band is divided into 3 sub-bands -- upper,
+	 * middle, lower.
+	 * if bit 30 of modalHeader5G.papdRateMaskHt20 is set
+	 * -- disable PAPRD for upper band 5GHz
+	 * if bit 29 of modalHeader5G.papdRateMaskHt20 is set
+	 * -- disable PAPRD for middle band 5GHz
+	 * if bit 28 of modalHeader5G.papdRateMaskHt20 is set
+	 * -- disable PAPRD for lower band 5GHz
+	 */
 
 	if (IS_CHAN_5GHZ(chan)) {
 		if (chan->channel >= UPPER_5G_SUB_BAND_START) {
@@ -389,7 +401,7 @@ static bool create_pa_curve(u32 *data_L, u32 *data_U, u32 *pa_table, u16 *gain)
 	int theta_low_bin = 0;
 	int i;
 
-	
+	/* disregard any bin that contains <= 16 samples */
 	thresh_accum_cnt = 16;
 	scale_factor = 5;
 	max_index = 0;
@@ -402,21 +414,21 @@ static bool create_pa_curve(u32 *data_L, u32 *data_U, u32 *pa_table, u16 *gain)
 	for (i = 0; i < NUM_BIN; i++) {
 		s32 accum_cnt, accum_tx, accum_rx, accum_ang;
 
-		
+		/* number of samples */
 		accum_cnt = data_L[i] & 0xffff;
 
 		if (accum_cnt <= thresh_accum_cnt)
 			continue;
 
-		
+		/* sum(tx amplitude) */
 		accum_tx = ((data_L[i] >> 16) & 0xffff) |
 		    ((data_U[i] & 0x7ff) << 16);
 
-		
+		/* sum(rx amplitude distance to lower bin edge) */
 		accum_rx = ((data_U[i] >> 11) & 0x1f) |
 		    ((data_L[i + 23] & 0xffff) << 5);
 
-		
+		/* sum(angles) */
 		accum_ang = ((data_L[i + 23] >> 16) & 0xffff) |
 		    ((data_U[i + 23] & 0x7ff) << 16);
 
@@ -438,6 +450,10 @@ static bool create_pa_curve(u32 *data_L, u32 *data_U, u32 *pa_table, u16 *gain)
 		max_index++;
 	}
 
+	/*
+	 * Find average theta of first 5 bin and all of those to same value.
+	 * Curve is linear at that range.
+	 */
 	for (i = 1; i < 6; i++)
 		theta_low_bin += theta[i];
 
@@ -445,7 +461,7 @@ static bool create_pa_curve(u32 *data_L, u32 *data_U, u32 *pa_table, u16 *gain)
 	for (i = 1; i < 6; i++)
 		theta[i] = theta_low_bin;
 
-	
+	/* Set values at origin */
 	theta[0] = theta_low_bin;
 	for (i = 0; i <= max_index; i++)
 		theta[i] -= theta_low_bin;
@@ -454,7 +470,7 @@ static bool create_pa_curve(u32 *data_L, u32 *data_U, u32 *pa_table, u16 *gain)
 	Y[0] = 0;
 	scale_factor = 8;
 
-	
+	/* low signal gain */
 	if (x_est[6] == x_est[3])
 		return false;
 
@@ -462,7 +478,7 @@ static bool create_pa_curve(u32 *data_L, u32 *data_U, u32 *pa_table, u16 *gain)
 	    (((Y[6] - Y[3]) * 1 << scale_factor) +
 	     (x_est[6] - x_est[3])) / (x_est[6] - x_est[3]);
 
-	
+	/* prevent division by zero */
 	if (G_fxp == 0)
 		return false;
 
@@ -507,7 +523,7 @@ static bool create_pa_curve(u32 *data_L, u32 *data_U, u32 *pa_table, u16 *gain)
 		unsigned int y_quad;
 		unsigned int tmp_abs;
 
-		
+		/* prevent division by zero */
 		if (y_est[i + I] == 0)
 			return false;
 
@@ -645,7 +661,7 @@ static bool create_pa_curve(u32 *data_L, u32 *data_U, u32 *pa_table, u16 *gain)
 	for (i = 0; i < PAPRD_TABLE_SZ; i++) {
 		int PA_angle;
 
-		
+		/* pa_table[4] is calculated from PA_angle for i=5 */
 		if (i == 4)
 			continue;
 
@@ -736,7 +752,7 @@ void ar9003_paprd_populate_single_table(struct ath_hw *ah,
 			      training_power);
 
 	if (ah->caps.tx_chainmask & BIT(2))
-		
+		/* val AR_PHY_PAPRD_CTRL1_PAPRD_POWER_AT_AM2AM_CAL correct? */
 		REG_RMW_FIELD(ah, AR_PHY_PAPRD_CTRL1_B2,
 			      AR_PHY_PAPRD_CTRL1_PAPRD_POWER_AT_AM2AM_CAL,
 			      training_power);
@@ -836,6 +852,11 @@ bool ar9003_paprd_is_done(struct ath_hw *ah)
 		ath_dbg(ath9k_hw_common(ah), CALIBRATE,
 			"AGC2_PWR = 0x%x training done = 0x%x\n",
 			agc2_pwr, paprd_done);
+	/*
+	 * agc2_pwr range should not be less than 'IDEAL_AGC2_PWR_CHANGE'
+	 * when the training is completely done, otherwise retraining is
+	 * done to make sure the value is in ideal range
+	 */
 		if (agc2_pwr <= PAPRD_IDEAL_AGC2_PWR_RANGE)
 			paprd_done = 0;
 	}

@@ -42,6 +42,7 @@ typedef enum {
         IRCOMM_TTY_READY,
 } IRCOMM_TTY_STATE;
 
+/* IrCOMM TTY Events */
 typedef enum {
 	IRCOMM_TTY_ATTACH_CABLE,
 	IRCOMM_TTY_DETACH_CABLE,
@@ -58,9 +59,10 @@ typedef enum {
 	IRCOMM_TTY_GOT_LSAPSEL,
 } IRCOMM_TTY_EVENT;
 
+/* Used for passing information through the state-machine */
 struct ircomm_tty_info {
-        __u32     saddr;               
-        __u32     daddr;               
+        __u32     saddr;               /* Source device address */
+        __u32     daddr;               /* Destination device address */
         __u8      dlsap_sel;
 };
 
@@ -89,4 +91,4 @@ void ircomm_tty_connect_indication(void *instance, void *sap,
 int ircomm_tty_send_initial_parameters(struct ircomm_tty_cb *self);
 void ircomm_tty_link_established(struct ircomm_tty_cb *self);
 
-#endif 
+#endif /* IRCOMM_TTY_ATTACH_H */

@@ -50,18 +50,22 @@
 #define DRIVER_NAME  "powersw"
 #define KTHREAD_NAME "kpowerswd"
 
+/* how often should the power button be polled ? */
 #define POWERSWITCH_POLL_PER_SEC 2
 
+/* how long does the power button needs to be down until we react ? */
 #define POWERSWITCH_DOWN_SEC 2
 
+/* assembly code to access special registers */
+/* taken from PCXL ERS page 82 */
 #define DIAG_CODE(code)		(0x14000000 + ((code)<<5))
 
 #define MFCPU_X(rDiagReg, t_ch, t_th, code) \
 	(DIAG_CODE(code) + ((rDiagReg)<<21) + ((t_ch)<<16) + ((t_th)<<0) )
 	
-#define MTCPU(dr, gr)		MFCPU_X(dr, gr,  0, 0x12)       
-#define MFCPU_C(dr, gr)		MFCPU_X(dr, gr,  0, 0x30)	
-#define MFCPU_T(dr, gr)		MFCPU_X(dr,  0, gr, 0xa0)	
+#define MTCPU(dr, gr)		MFCPU_X(dr, gr,  0, 0x12)       /* move value of gr to dr[dr] */
+#define MFCPU_C(dr, gr)		MFCPU_X(dr, gr,  0, 0x30)	/* for dr0 and dr8 only ! */
+#define MFCPU_T(dr, gr)		MFCPU_X(dr,  0, gr, 0xa0)	/* all dr except dr0 and dr8 */
 	
 #define __getDIAG(dr) ( { 			\
         register unsigned long __res asm("r28");\
@@ -71,8 +75,10 @@
 	__res;					\
 } )
 
+/* local shutdown counter */
 static int shutdown_timer __read_mostly;
 
+/* check, give feedback and start shutdown after one second */
 static void process_shutdown(void)
 {
 	if (shutdown_timer == 0)
@@ -80,15 +86,15 @@ static void process_shutdown(void)
 
 	shutdown_timer++;
 	
-	
+	/* wait until the button was pressed for 1 second */
 	if (shutdown_timer == (POWERSWITCH_DOWN_SEC*POWERSWITCH_POLL_PER_SEC)) {
 		static const char msg[] = "Shutting down...";
 		printk(KERN_INFO KTHREAD_NAME ": %s\n", msg);
 		lcd_print(msg);
 
-		
+		/* send kill signal */
 		if (kill_cad_pid(SIGINT, 1)) {
-			
+			/* just in case killing init process failed */
 			if (pm_power_off)
 				pm_power_off();
 		}
@@ -96,12 +102,16 @@ static void process_shutdown(void)
 }
 
 
+/* main power switch task struct */
 static struct task_struct *power_task;
 
+/* filename in /proc which can be used to enable/disable the power switch */
 #define SYSCTL_FILENAME	"sys/kernel/power"
 
+/* soft power switch enabled/disabled */
 int pwrsw_enabled __read_mostly = 1;
 
+/* main kernel thread worker. It polls the button state */
 static int kpowerswd(void *param)
 {
 	__set_current_state(TASK_RUNNING);
@@ -117,13 +127,27 @@ static int kpowerswd(void *param)
 			continue;
 
 		if (soft_power_reg) {
+			/*
+			 * Non-Gecko-style machines:
+			 * Check the power switch status which is read from the
+			 * real I/O location at soft_power_reg.
+			 * Bit 31 ("the lowest bit) is the status of the power switch.
+			 * This bit is "1" if the button is NOT pressed.
+			 */
 			button_not_pressed = (gsc_readl(soft_power_reg) & 0x1);
 		} else {
+			/*
+			 * On gecko style machines (e.g. 712/xx and 715/xx) 
+			 * the power switch status is stored in Bit 0 ("the highest bit")
+			 * of CPU diagnose register 25.
+			 * Warning: Some machines never reset the DIAG flag, even if
+			 * the button has been released again.
+			 */
 			button_not_pressed = (__getDIAG(25) & 0x80000000);
 		}
 
 		if (likely(button_not_pressed)) {
-			if (unlikely(shutdown_timer && 
+			if (unlikely(shutdown_timer && /* avoid writing if not necessary */
 				shutdown_timer < (POWERSWITCH_DOWN_SEC*POWERSWITCH_POLL_PER_SEC))) {
 				shutdown_timer = 0;
 				printk(KERN_INFO KTHREAD_NAME ": Shutdown request aborted.\n");
@@ -138,6 +162,9 @@ static int kpowerswd(void *param)
 }
 
 
+/*
+ * powerfail interruption handler (irq IRQ_FROM_REGION(CPU_IRQ_REGION)+2) 
+ */
 #if 0
 static void powerfail_interrupt(int code, void *x)
 {
@@ -149,10 +176,15 @@ static void powerfail_interrupt(int code, void *x)
 
 
 
+/* parisc_panic_event() is called by the panic handler.
+ * As soon as a panic occurs, our tasklets above will not be
+ * executed any longer. This function then re-enables the 
+ * soft-power switch and allows the user to switch off the system
+ */
 static int parisc_panic_event(struct notifier_block *this,
 		unsigned long event, void *ptr)
 {
-	
+	/* re-enable the soft-power switch */
 	pdc_soft_power_button(0);
 	return NOTIFY_DONE;
 }
@@ -173,7 +205,7 @@ static int __init power_init(void)
 		0, "powerfail", NULL);
 #endif
 
-	
+	/* enable the soft power switch if possible */
 	ret = pdc_soft_power_info(&soft_power_reg);
 	if (ret == PDC_OK)
 		ret = pdc_soft_power_button(1);
@@ -198,7 +230,7 @@ static int __init power_init(void)
 		return -EIO;
 	}
 
-	
+	/* Register a call for panic conditions. */
 	atomic_notifier_chain_register(&panic_notifier_list,
 			&parisc_panic_block);
 

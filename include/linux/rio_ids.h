@@ -23,7 +23,7 @@
 #define RIO_DID_TSI568			0x0568
 #define RIO_DID_TSI572			0x0572
 #define RIO_DID_TSI574			0x0574
-#define RIO_DID_TSI576			0x0578 
+#define RIO_DID_TSI576			0x0578 /* Same ID as Tsi578 */
 #define RIO_DID_TSI577			0x0577
 #define RIO_DID_TSI578			0x0578
 
@@ -41,4 +41,4 @@
 #define RIO_DID_IDTSPS1616		0x0378
 #define RIO_DID_TSI721			0x80ab
 
-#endif				
+#endif				/* LINUX_RIO_IDS_H */

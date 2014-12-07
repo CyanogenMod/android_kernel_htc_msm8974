@@ -27,6 +27,9 @@ Copyright AudioScience, Inc., 2003
 
 #include "hpi_internal.h"
 
+/***********************************************************
+	Defines used for basic messaging
+************************************************************/
 #define H620_HIF_RESET          0
 #define H620_HIF_IDLE           1
 #define H620_HIF_GET_RESP       2
@@ -36,23 +39,36 @@ Copyright AudioScience, Inc., 2003
 #define H620_HIF_GET_DATA       0x15
 #define H620_HIF_UNKNOWN                0x0000ffff
 
+/***********************************************************
+	Types used for mixer control caching
+************************************************************/
 
 #define H620_MAX_ISTREAMS 32
 #define H620_MAX_OSTREAMS 32
 #define HPI_NMIXER_CONTROLS 2048
 
+/*********************************************************************
+This is used for dynamic control cache allocation
+**********************************************************************/
 struct controlcache_6205 {
 	u32 number_of_controls;
 	u32 physical_address32;
 	u32 size_in_bytes;
 };
 
+/*********************************************************************
+This is used for dynamic allocation of async event array
+**********************************************************************/
 struct async_event_buffer_6205 {
 	u32 physical_address32;
 	u32 spare;
 	struct hpi_fifo_buffer b;
 };
 
+/***********************************************************
+The Host located memory buffer that the 6205 will bus master
+in and out of.
+************************************************************/
 #define HPI6205_SIZEOF_DATA (16*1024)
 
 struct message_buffer_6205 {

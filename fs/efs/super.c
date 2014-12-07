@@ -153,11 +153,16 @@ static efs_block_t efs_validate_vh(struct volume_header *vh) {
 	int		i;
 	__be32		cs, *ui;
 	int		csum;
-	efs_block_t	sblock = 0; 
+	efs_block_t	sblock = 0; /* shuts up gcc */
 	struct pt_types	*pt_entry;
 	int		pt_type, slice = -1;
 
 	if (be32_to_cpu(vh->vh_magic) != VHMAGIC) {
+		/*
+		 * assume that we're dealing with a partition and allow
+		 * read_super() to try and detect a valid superblock
+		 * on the next block.
+		 */
 		return 0;
 	}
 
@@ -262,7 +267,7 @@ static int efs_fill_super(struct super_block *s, void *d, int silent)
 		goto out_no_fs_ul;
 	}
   
-	
+	/* read the vh (volume header) block */
 	bh = sb_bread(s, 0);
 
 	if (!bh) {
@@ -270,6 +275,11 @@ static int efs_fill_super(struct super_block *s, void *d, int silent)
 		goto out_no_fs_ul;
 	}
 
+	/*
+	 * if this returns zero then we didn't find any partition table.
+	 * this isn't (yet) an error - just assume for the moment that
+	 * the device is valid and go on to search for a superblock.
+	 */
 	sb->fs_start = efs_validate_vh((struct volume_header *) bh->b_data);
 	brelse(bh);
 
@@ -328,19 +338,19 @@ static int efs_statfs(struct dentry *dentry, struct kstatfs *buf) {
 	struct efs_sb_info *sbi = SUPER_INFO(sb);
 	u64 id = huge_encode_dev(sb->s_bdev->bd_dev);
 
-	buf->f_type    = EFS_SUPER_MAGIC;	
-	buf->f_bsize   = EFS_BLOCKSIZE;		
-	buf->f_blocks  = sbi->total_groups *	
+	buf->f_type    = EFS_SUPER_MAGIC;	/* efs magic number */
+	buf->f_bsize   = EFS_BLOCKSIZE;		/* blocksize */
+	buf->f_blocks  = sbi->total_groups *	/* total data blocks */
 			(sbi->group_size - sbi->inode_blocks);
-	buf->f_bfree   = sbi->data_free;	
-	buf->f_bavail  = sbi->data_free;	
-	buf->f_files   = sbi->total_groups *	
+	buf->f_bfree   = sbi->data_free;	/* free data blocks */
+	buf->f_bavail  = sbi->data_free;	/* free blocks for non-root */
+	buf->f_files   = sbi->total_groups *	/* total inodes */
 			sbi->inode_blocks *
 			(EFS_BLOCKSIZE / sizeof(struct efs_dinode));
-	buf->f_ffree   = sbi->inode_free;	
+	buf->f_ffree   = sbi->inode_free;	/* free inodes */
 	buf->f_fsid.val[0] = (u32)id;
 	buf->f_fsid.val[1] = (u32)(id >> 32);
-	buf->f_namelen = EFS_MAXNAMELEN;	
+	buf->f_namelen = EFS_MAXNAMELEN;	/* max filename length */
 
 	return 0;
 }

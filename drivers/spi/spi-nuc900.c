@@ -28,12 +28,14 @@
 
 #include <mach/nuc900_spi.h>
 
+/* usi registers offset */
 #define USI_CNT		0x00
 #define USI_DIV		0x04
 #define USI_SSR		0x08
 #define USI_RX0		0x10
 #define USI_TX0		0x10
 
+/* usi register bit */
 #define ENINT		(0x01 << 17)
 #define ENFLG		(0x01 << 16)
 #define TXNUM		(0x03 << 8)

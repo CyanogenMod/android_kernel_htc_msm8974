@@ -41,6 +41,13 @@ enum {
 	BRST = 0x59
 };
 
+/**
+ *	cmd640_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA port
+ *	@adev: ATA device
+ *
+ *	Called to do the PIO mode setup.
+ */
 
 static void cmd640_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -58,13 +65,15 @@ static void cmd640_set_piomode(struct ata_port *ap, struct ata_device *adev)
 		return;
 	}
 
+	/* The second channel has shared timings and the setup timing is
+	   messy to switch to merge it for worst case */
 	if (ap->port_no && pair) {
 		struct ata_timing p;
 		ata_timing_compute(pair, pair->pio_mode, &p, T, 1);
 		ata_timing_merge(&p, &t, &t, ATA_TIMING_SETUP);
 	}
 
-	
+	/* Make the timings fit */
 	if (t.recover > 16) {
 		t.active += t.recover - 16;
 		t.recover = 16;
@@ -72,9 +81,11 @@ static void cmd640_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	if (t.active > 16)
 		t.active = 16;
 
+	/* Now convert the clocks into values we can actually stuff into
+	   the chip */
 
 	if (t.recover > 1)
-		t.recover--;	
+		t.recover--;	/* 640B only */
 	else
 		t.recover = 15;
 
@@ -84,17 +95,20 @@ static void cmd640_set_piomode(struct ata_port *ap, struct ata_device *adev)
 		t.setup = setup_data[t.setup];
 
 	if (ap->port_no == 0) {
-		t.active &= 0x0F;	
+		t.active &= 0x0F;	/* 0 = 16 */
 
-		
+		/* Load setup timing */
 		pci_read_config_byte(pdev, arttim, &reg);
 		reg &= 0x3F;
 		reg |= t.setup;
 		pci_write_config_byte(pdev, arttim, reg);
 
-		
+		/* Load active/recovery */
 		pci_write_config_byte(pdev, arttim + 1, (t.active << 4) | t.recover);
 	} else {
+		/* Save the shared timings for channel, they will be loaded
+		   by qc_issue. Reloading the setup time is expensive so we
+		   keep a merged one loaded */
 		pci_read_config_byte(pdev, ARTIM23, &reg);
 		reg &= 0x3F;
 		reg |= t.setup;
@@ -104,6 +118,13 @@ static void cmd640_set_piomode(struct ata_port *ap, struct ata_device *adev)
 }
 
 
+/**
+ *	cmd640_qc_issue	-	command preparation hook
+ *	@qc: Command to be issued
+ *
+ *	Channel 1 has shared timings. We must reprogram the
+ *	clock each drive 2/3 switch we do.
+ */
 
 static unsigned int cmd640_qc_issue(struct ata_queued_cmd *qc)
 {
@@ -119,6 +140,13 @@ static unsigned int cmd640_qc_issue(struct ata_queued_cmd *qc)
 	return ata_sff_qc_issue(qc);
 }
 
+/**
+ *	cmd640_port_start	-	port setup
+ *	@ap: ATA port being set up
+ *
+ *	The CMD640 needs to maintain private data structures so we
+ *	allocate space here.
+ */
 
 static int cmd640_port_start(struct ata_port *ap)
 {
@@ -128,7 +156,7 @@ static int cmd640_port_start(struct ata_port *ap)
 	timing = devm_kzalloc(&pdev->dev, sizeof(struct cmd640_reg), GFP_KERNEL);
 	if (timing == NULL)
 		return -ENOMEM;
-	timing->last = -1;	
+	timing->last = -1;	/* Force a load */
 	ap->private_data = timing;
 	return 0;
 }
@@ -150,7 +178,7 @@ static struct scsi_host_template cmd640_sht = {
 
 static struct ata_port_operations cmd640_port_ops = {
 	.inherits	= &ata_sff_port_ops,
-	
+	/* In theory xfer_noirq is not needed once we kill the prefetcher */
 	.sff_data_xfer	= ata_sff_data_xfer_noirq,
 	.sff_irq_check	= cmd640_sff_irq_check,
 	.qc_issue	= cmd640_qc_issue,
@@ -163,16 +191,23 @@ static void cmd640_hardware_init(struct pci_dev *pdev)
 {
 	u8 ctrl;
 
-	
+	/* CMD640 detected, commiserations */
 	pci_write_config_byte(pdev, 0x5B, 0x00);
-	
+	/* PIO0 command cycles */
 	pci_write_config_byte(pdev, CMDTIM, 0);
-	
+	/* 512 byte bursts (sector) */
 	pci_write_config_byte(pdev, BRST, 0x40);
-	
+	/*
+	 * A reporter a long time ago
+	 * Had problems with the data fifo
+	 * So don't run the risk
+	 * Of putting crap on the disk
+	 * For its better just to go slow
+	 */
+	/* Do channel 0 */
 	pci_read_config_byte(pdev, CNTRL, &ctrl);
 	pci_write_config_byte(pdev, CNTRL, ctrl | 0xC0);
-	
+	/* Ditto for channel 1 */
 	pci_read_config_byte(pdev, ARTIM23, &ctrl);
 	ctrl |= 0x0C;
 	pci_write_config_byte(pdev, ARTIM23, ctrl);

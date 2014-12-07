@@ -16,4 +16,4 @@
 # include "switch_to_64.h"
 #endif
 
-#endif 
+#endif /* __ASM_SH_SWITCH_TO_H */

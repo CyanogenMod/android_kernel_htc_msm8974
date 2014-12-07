@@ -1,7 +1,25 @@
+/*
+ * arch/arm/include/asm/ecard.h
+ *
+ * definitions for expansion cards
+ *
+ * This is a new system as from Linux 1.2.3
+ *
+ * Changelog:
+ *  11-12-1996	RMK	Further minor improvements
+ *  12-09-1997	RMK	Added interrupt enable/disable for card level
+ *
+ * Reference: Acorns Risc OS 3 Programmers Reference Manuals.
+ */
 
 #ifndef __ASM_ECARD_H
 #define __ASM_ECARD_H
 
+/*
+ * Currently understood cards (but not necessarily
+ * supported):
+ *                        Manufacturer  Product ID
+ */
 #define MANU_ACORN		0x0000
 #define PROD_ACORN_SCSI			0x0002
 #define PROD_ACORN_ETHER1		0x0003
@@ -67,30 +85,30 @@
 
 #define MAX_ECARDS	9
 
-struct ecard_id {			
+struct ecard_id {			/* Card ID structure		*/
 	unsigned short	manufacturer;
 	unsigned short	product;
 	void		*data;
 };
 
-struct in_ecid {			
-	unsigned short	product;	
-	unsigned short	manufacturer;	
-	unsigned char	id:4;		
-	unsigned char	cd:1;		
-	unsigned char	is:1;		
-	unsigned char	w:2;		
-	unsigned char	country;	
-	unsigned char	irqmask;	
-	unsigned char	fiqmask;	
-	unsigned long	irqoff;		
-	unsigned long	fiqoff;		
+struct in_ecid {			/* Packed card ID information	*/
+	unsigned short	product;	/* Product code			*/
+	unsigned short	manufacturer;	/* Manufacturer code		*/
+	unsigned char	id:4;		/* Simple ID			*/
+	unsigned char	cd:1;		/* Chunk dir present		*/
+	unsigned char	is:1;		/* Interrupt status pointers	*/
+	unsigned char	w:2;		/* Width			*/
+	unsigned char	country;	/* Country			*/
+	unsigned char	irqmask;	/* IRQ mask			*/
+	unsigned char	fiqmask;	/* FIQ mask			*/
+	unsigned long	irqoff;		/* IRQ offset			*/
+	unsigned long	fiqoff;		/* FIQ offset			*/
 };
 
 typedef struct expansion_card ecard_t;
 typedef unsigned long *loader_t;
 
-typedef struct expansion_card_ops {	
+typedef struct expansion_card_ops {	/* Card handler routines	*/
 	void (*irqenable)(ecard_t *ec, int irqnr);
 	void (*irqdisable)(ecard_t *ec, int irqnr);
 	int  (*irqpending)(ecard_t *ec);
@@ -114,33 +132,36 @@ typedef struct expansion_card_ops {
 					 (ec)->resource[nr].start + 1)
 #define ecard_resource_flags(ec,nr)	((ec)->resource[nr].flags)
 
+/*
+ * This contains all the info needed on an expansion card
+ */
 struct expansion_card {
 	struct expansion_card  *next;
 
 	struct device		dev;
 	struct resource		resource[ECARD_NUM_RESOURCES];
 
-	
-	void __iomem		*irqaddr;	
-	void __iomem		*fiqaddr;	
-	unsigned char		irqmask;	
-	unsigned char		fiqmask;	
-	unsigned char  		claimed;	
-	unsigned char		easi;		
+	/* Public data */
+	void __iomem		*irqaddr;	/* address of IRQ register	*/
+	void __iomem		*fiqaddr;	/* address of FIQ register	*/
+	unsigned char		irqmask;	/* IRQ mask			*/
+	unsigned char		fiqmask;	/* FIQ mask			*/
+	unsigned char  		claimed;	/* Card claimed?		*/
+	unsigned char		easi;		/* EASI card			*/
 
-	void			*irq_data;	
-	void			*fiq_data;	
-	const expansioncard_ops_t *ops;		
+	void			*irq_data;	/* Data for use for IRQ by card	*/
+	void			*fiq_data;	/* Data for use for FIQ by card	*/
+	const expansioncard_ops_t *ops;		/* Enable/Disable Ops for card	*/
 
-	CONST unsigned int	slot_no;	
-	CONST unsigned int	dma;		
-	CONST unsigned int	irq;		
-	CONST unsigned int	fiq;		
-	CONST struct in_ecid	cid;		
+	CONST unsigned int	slot_no;	/* Slot number			*/
+	CONST unsigned int	dma;		/* DMA number (for request_dma)	*/
+	CONST unsigned int	irq;		/* IRQ number (for request_irq)	*/
+	CONST unsigned int	fiq;		/* FIQ number (for request_irq)	*/
+	CONST struct in_ecid	cid;		/* Card Identification		*/
 
-	
-	const char		*card_desc;	
-	CONST loader_t		loader;		
+	/* Private internal data */
+	const char		*card_desc;	/* Card description		*/
+	CONST loader_t		loader;		/* loader program */
 	u64			dma_mask;
 };
 
@@ -154,8 +175,18 @@ struct in_chunk_dir {
 	} d;
 };
 
+/*
+ * Read a chunk from an expansion card
+ * cd : where to put read data
+ * ec : expansion card info struct
+ * id : id number to find
+ * num: (n+1)'th id to find.
+ */
 extern int ecard_readchunk (struct in_chunk_dir *cd, struct expansion_card *ec, int id, int num);
 
+/*
+ * Request and release ecard resources
+ */
 extern int ecard_request_resources(struct expansion_card *ec);
 extern void ecard_release_resources(struct expansion_card *ec);
 

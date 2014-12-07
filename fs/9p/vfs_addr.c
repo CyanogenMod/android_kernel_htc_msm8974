@@ -41,6 +41,13 @@
 #include "cache.h"
 #include "fid.h"
 
+/**
+ * v9fs_fid_readpage - read an entire page in from 9P
+ *
+ * @fid: fid being read
+ * @page: structure to page
+ *
+ */
 static int v9fs_fid_readpage(struct p9_fid *fid, struct page *page)
 {
 	int retval;
@@ -79,12 +86,28 @@ done:
 	return retval;
 }
 
+/**
+ * v9fs_vfs_readpage - read an entire page in from 9P
+ *
+ * @filp: file being read
+ * @page: structure to page
+ *
+ */
 
 static int v9fs_vfs_readpage(struct file *filp, struct page *page)
 {
 	return v9fs_fid_readpage(filp->private_data, page);
 }
 
+/**
+ * v9fs_vfs_readpages - read a set of pages from 9P
+ *
+ * @filp: file being read
+ * @mapping: the address space
+ * @pages: list of pages to read
+ * @nr_pages: count of pages to read
+ *
+ */
 
 static int v9fs_vfs_readpages(struct file *filp, struct address_space *mapping,
 			     struct list_head *pages, unsigned nr_pages)
@@ -104,6 +127,11 @@ static int v9fs_vfs_readpages(struct file *filp, struct address_space *mapping,
 	return ret;
 }
 
+/**
+ * v9fs_release_page - release the private state associated with a page
+ *
+ * Returns 1 if the page can be released, false otherwise.
+ */
 
 static int v9fs_release_page(struct page *page, gfp_t gfp)
 {
@@ -112,9 +140,19 @@ static int v9fs_release_page(struct page *page, gfp_t gfp)
 	return v9fs_fscache_release_page(page, gfp);
 }
 
+/**
+ * v9fs_invalidate_page - Invalidate a page completely or partially
+ *
+ * @page: structure to page
+ * @offset: offset in the page
+ */
 
 static void v9fs_invalidate_page(struct page *page, unsigned long offset)
 {
+	/*
+	 * If called with zero offset, we should release
+	 * the private state assocated with the page
+	 */
 	if (offset == 0)
 		v9fs_fscache_invalidate_page(page);
 }
@@ -142,7 +180,7 @@ static int v9fs_vfs_writepage_locked(struct page *page)
 
 	old_fs = get_fs();
 	set_fs(get_ds());
-	
+	/* We should have writeback_fid always set */
 	BUG_ON(!v9inode->writeback_fid);
 
 	retval = v9fs_file_write_internal(inode,
@@ -178,6 +216,10 @@ static int v9fs_vfs_writepage(struct page *page, struct writeback_control *wbc)
 	return retval;
 }
 
+/**
+ * v9fs_launder_page - Writeback a dirty page
+ * Returns 0 on success.
+ */
 
 static int v9fs_launder_page(struct page *page)
 {
@@ -193,10 +235,34 @@ static int v9fs_launder_page(struct page *page)
 	return 0;
 }
 
+/**
+ * v9fs_direct_IO - 9P address space operation for direct I/O
+ * @rw: direction (read or write)
+ * @iocb: target I/O control block
+ * @iov: array of vectors that define I/O buffer
+ * @pos: offset in file to begin the operation
+ * @nr_segs: size of iovec array
+ *
+ * The presence of v9fs_direct_IO() in the address space ops vector
+ * allowes open() O_DIRECT flags which would have failed otherwise.
+ *
+ * In the non-cached mode, we shunt off direct read and write requests before
+ * the VFS gets them, so this method should never be called.
+ *
+ * Direct IO is not 'yet' supported in the cached mode. Hence when
+ * this routine is called through generic_file_aio_read(), the read/write fails
+ * with an error.
+ *
+ */
 static ssize_t
 v9fs_direct_IO(int rw, struct kiocb *iocb, const struct iovec *iov,
 	       loff_t pos, unsigned long nr_segs)
 {
+	/*
+	 * FIXME
+	 * Now that we do caching with cache mode enabled, We need
+	 * to support direct IO
+	 */
 	p9_debug(P9_DEBUG_VFS, "v9fs_direct_IO: v9fs_direct_IO (%s) off/no(%lld/%lu) EINVAL\n",
 		 iocb->ki_filp->f_path.dentry->d_name.name,
 		 (long long)pos, nr_segs);
@@ -245,6 +311,9 @@ static int v9fs_write_end(struct file *filp, struct address_space *mapping,
 	struct inode *inode = page->mapping->host;
 
 	if (unlikely(copied < len)) {
+		/*
+		 * zero out the rest of the area
+		 */
 		unsigned from = pos & (PAGE_CACHE_SIZE - 1);
 
 		zero_user(page, from + copied, len - copied);
@@ -253,6 +322,10 @@ static int v9fs_write_end(struct file *filp, struct address_space *mapping,
 
 	if (!PageUptodate(page))
 		SetPageUptodate(page);
+	/*
+	 * No need to use i_size_read() here, the i_size
+	 * cannot change under us because we hold the i_mutex.
+	 */
 	if (last_pos > inode->i_size) {
 		inode_add_bytes(inode, last_pos - inode->i_size);
 		i_size_write(inode, last_pos);

@@ -24,7 +24,7 @@ static inline void isync(void)
 {
 	__asm__ __volatile__ ("isync" : : : "memory");
 }
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #if defined(__powerpc64__)
 #    define LWSYNC	lwsync
@@ -53,5 +53,5 @@ static inline void isync(void)
 #define PPC_ATOMIC_EXIT_BARRIER
 #endif
 
-#endif 
-#endif	
+#endif /* __KERNEL__ */
+#endif	/* _ASM_POWERPC_SYNCH_H */

@@ -28,6 +28,7 @@
 
 enum chips { ad7416, ad7417, ad7418 };
 
+/* AD7418 registers */
 #define AD7418_REG_TEMP_IN	0x00
 #define AD7418_REG_CONF		0x01
 #define AD7418_REG_TEMP_HYST	0x02
@@ -47,10 +48,10 @@ struct ad7418_data {
 	struct attribute_group	attrs;
 	enum chips		type;
 	struct mutex		lock;
-	int			adc_max;	
+	int			adc_max;	/* number of ADC channels */
 	char			valid;
-	unsigned long		last_updated;	
-	s16			temp[3];	
+	unsigned long		last_updated;	/* In jiffies */
+	s16			temp[3];	/* Register values */
 	u16			in[4];
 };
 
@@ -104,7 +105,7 @@ static struct ad7418_data *ad7418_update_device(struct device *dev)
 		u8 cfg;
 		int i, ch;
 
-		
+		/* read config register and clear channel bits */
 		cfg = i2c_smbus_read_byte_data(client, AD7418_REG_CONF);
 		cfg &= 0x1F;
 
@@ -129,7 +130,7 @@ static struct ad7418_data *ad7418_update_device(struct device *dev)
 						AD7418_REG_ADC);
 		}
 
-		
+		/* restore old configuration value */
 		i2c_smbus_write_word_swapped(client, AD7418_REG_CONF, cfg);
 
 		data->last_updated = jiffies;
@@ -261,10 +262,10 @@ static int ad7418_probe(struct i2c_client *client,
 
 	dev_info(&client->dev, "%s chip found\n", client->name);
 
-	
+	/* Initialize the AD7418 chip */
 	ad7418_init_client(client);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&client->dev.kobj, &data->attrs);
 	if (err)
 		goto exit_free;

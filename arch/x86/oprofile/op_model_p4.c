@@ -37,6 +37,9 @@
 static unsigned int num_counters = NUM_COUNTERS_NON_HT;
 static unsigned int num_controls = NUM_CONTROLS_NON_HT;
 
+/* this has to be checked dynamically since the
+   hyper-threadedness of a chip is discovered at
+   kernel boot-time. */
 static inline void setup_num_counters(void)
 {
 #ifdef CONFIG_SMP
@@ -57,6 +60,7 @@ static inline int addr_increment(void)
 }
 
 
+/* tables to simulate simplified hardware view of p4 registers */
 struct p4_counter_binding {
 	int virt_counter;
 	int counter_address;
@@ -64,14 +68,16 @@ struct p4_counter_binding {
 };
 
 struct p4_event_binding {
-	int escr_select;  
-	int event_select; 
+	int escr_select;  /* value to put in CCCR */
+	int event_select; /* value to put in ESCR */
 	struct {
-		int virt_counter; 
-		int escr_address; 
+		int virt_counter; /* for this counter... */
+		int escr_address; /* use this ESCR       */
 	} bindings[2];
 };
 
+/* nb: these CTR_* defines are a duplicate of defines in
+   event/i386.p4*events. */
 
 
 #define CTR_BPU_0      (1 << 0)
@@ -96,238 +102,239 @@ static struct p4_counter_binding p4_counters[NUM_COUNTERS_NON_HT] = {
 
 #define NUM_UNUSED_CCCRS (NUM_CCCRS_NON_HT - NUM_COUNTERS_NON_HT)
 
+/* p4 event codes in libop/op_event.h are indices into this table. */
 
 static struct p4_event_binding p4_events[NUM_EVENTS] = {
 
-	{ 
+	{ /* BRANCH_RETIRED */
 		0x05, 0x06,
 		{ {CTR_IQ_4, MSR_P4_CRU_ESCR2},
 		  {CTR_IQ_5, MSR_P4_CRU_ESCR3} }
 	},
 
-	{ 
+	{ /* MISPRED_BRANCH_RETIRED */
 		0x04, 0x03,
 		{ { CTR_IQ_4, MSR_P4_CRU_ESCR0},
 		  { CTR_IQ_5, MSR_P4_CRU_ESCR1} }
 	},
 
-	{ 
+	{ /* TC_DELIVER_MODE */
 		0x01, 0x01,
 		{ { CTR_MS_0, MSR_P4_TC_ESCR0},
 		  { CTR_MS_2, MSR_P4_TC_ESCR1} }
 	},
 
-	{ 
+	{ /* BPU_FETCH_REQUEST */
 		0x00, 0x03,
 		{ { CTR_BPU_0, MSR_P4_BPU_ESCR0},
 		  { CTR_BPU_2, MSR_P4_BPU_ESCR1} }
 	},
 
-	{ 
+	{ /* ITLB_REFERENCE */
 		0x03, 0x18,
 		{ { CTR_BPU_0, MSR_P4_ITLB_ESCR0},
 		  { CTR_BPU_2, MSR_P4_ITLB_ESCR1} }
 	},
 
-	{ 
+	{ /* MEMORY_CANCEL */
 		0x05, 0x02,
 		{ { CTR_FLAME_0, MSR_P4_DAC_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_DAC_ESCR1} }
 	},
 
-	{ 
+	{ /* MEMORY_COMPLETE */
 		0x02, 0x08,
 		{ { CTR_FLAME_0, MSR_P4_SAAT_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_SAAT_ESCR1} }
 	},
 
-	{ 
+	{ /* LOAD_PORT_REPLAY */
 		0x02, 0x04,
 		{ { CTR_FLAME_0, MSR_P4_SAAT_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_SAAT_ESCR1} }
 	},
 
-	{ 
+	{ /* STORE_PORT_REPLAY */
 		0x02, 0x05,
 		{ { CTR_FLAME_0, MSR_P4_SAAT_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_SAAT_ESCR1} }
 	},
 
-	{ 
+	{ /* MOB_LOAD_REPLAY */
 		0x02, 0x03,
 		{ { CTR_BPU_0, MSR_P4_MOB_ESCR0},
 		  { CTR_BPU_2, MSR_P4_MOB_ESCR1} }
 	},
 
-	{ 
+	{ /* PAGE_WALK_TYPE */
 		0x04, 0x01,
 		{ { CTR_BPU_0, MSR_P4_PMH_ESCR0},
 		  { CTR_BPU_2, MSR_P4_PMH_ESCR1} }
 	},
 
-	{ 
+	{ /* BSQ_CACHE_REFERENCE */
 		0x07, 0x0c,
 		{ { CTR_BPU_0, MSR_P4_BSU_ESCR0},
 		  { CTR_BPU_2, MSR_P4_BSU_ESCR1} }
 	},
 
-	{ 
+	{ /* IOQ_ALLOCATION */
 		0x06, 0x03,
 		{ { CTR_BPU_0, MSR_P4_FSB_ESCR0},
 		  { 0, 0 } }
 	},
 
-	{ 
+	{ /* IOQ_ACTIVE_ENTRIES */
 		0x06, 0x1a,
 		{ { CTR_BPU_2, MSR_P4_FSB_ESCR1},
 		  { 0, 0 } }
 	},
 
-	{ 
+	{ /* FSB_DATA_ACTIVITY */
 		0x06, 0x17,
 		{ { CTR_BPU_0, MSR_P4_FSB_ESCR0},
 		  { CTR_BPU_2, MSR_P4_FSB_ESCR1} }
 	},
 
-	{ 
+	{ /* BSQ_ALLOCATION */
 		0x07, 0x05,
 		{ { CTR_BPU_0, MSR_P4_BSU_ESCR0},
 		  { 0, 0 } }
 	},
 
-	{ 
+	{ /* BSQ_ACTIVE_ENTRIES */
 		0x07, 0x06,
-		{ { CTR_BPU_2, MSR_P4_BSU_ESCR1 },
+		{ { CTR_BPU_2, MSR_P4_BSU_ESCR1 /* guess */},
 		  { 0, 0 } }
 	},
 
-	{ 
+	{ /* X87_ASSIST */
 		0x05, 0x03,
 		{ { CTR_IQ_4, MSR_P4_CRU_ESCR2},
 		  { CTR_IQ_5, MSR_P4_CRU_ESCR3} }
 	},
 
-	{ 
+	{ /* SSE_INPUT_ASSIST */
 		0x01, 0x34,
 		{ { CTR_FLAME_0, MSR_P4_FIRM_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_FIRM_ESCR1} }
 	},
 
-	{ 
+	{ /* PACKED_SP_UOP */
 		0x01, 0x08,
 		{ { CTR_FLAME_0, MSR_P4_FIRM_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_FIRM_ESCR1} }
 	},
 
-	{ 
+	{ /* PACKED_DP_UOP */
 		0x01, 0x0c,
 		{ { CTR_FLAME_0, MSR_P4_FIRM_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_FIRM_ESCR1} }
 	},
 
-	{ 
+	{ /* SCALAR_SP_UOP */
 		0x01, 0x0a,
 		{ { CTR_FLAME_0, MSR_P4_FIRM_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_FIRM_ESCR1} }
 	},
 
-	{ 
+	{ /* SCALAR_DP_UOP */
 		0x01, 0x0e,
 		{ { CTR_FLAME_0, MSR_P4_FIRM_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_FIRM_ESCR1} }
 	},
 
-	{ 
+	{ /* 64BIT_MMX_UOP */
 		0x01, 0x02,
 		{ { CTR_FLAME_0, MSR_P4_FIRM_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_FIRM_ESCR1} }
 	},
 
-	{ 
+	{ /* 128BIT_MMX_UOP */
 		0x01, 0x1a,
 		{ { CTR_FLAME_0, MSR_P4_FIRM_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_FIRM_ESCR1} }
 	},
 
-	{ 
+	{ /* X87_FP_UOP */
 		0x01, 0x04,
 		{ { CTR_FLAME_0, MSR_P4_FIRM_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_FIRM_ESCR1} }
 	},
 
-	{ 
+	{ /* X87_SIMD_MOVES_UOP */
 		0x01, 0x2e,
 		{ { CTR_FLAME_0, MSR_P4_FIRM_ESCR0},
 		  { CTR_FLAME_2, MSR_P4_FIRM_ESCR1} }
 	},
 
-	{ 
+	{ /* MACHINE_CLEAR */
 		0x05, 0x02,
 		{ { CTR_IQ_4, MSR_P4_CRU_ESCR2},
 		  { CTR_IQ_5, MSR_P4_CRU_ESCR3} }
 	},
 
-	{ 
-		0x06, 0x13 ,
+	{ /* GLOBAL_POWER_EVENTS */
+		0x06, 0x13 /* older manual says 0x05, newer 0x13 */,
 		{ { CTR_BPU_0, MSR_P4_FSB_ESCR0},
 		  { CTR_BPU_2, MSR_P4_FSB_ESCR1} }
 	},
 
-	{ 
+	{ /* TC_MS_XFER */
 		0x00, 0x05,
 		{ { CTR_MS_0, MSR_P4_MS_ESCR0},
 		  { CTR_MS_2, MSR_P4_MS_ESCR1} }
 	},
 
-	{ 
+	{ /* UOP_QUEUE_WRITES */
 		0x00, 0x09,
 		{ { CTR_MS_0, MSR_P4_MS_ESCR0},
 		  { CTR_MS_2, MSR_P4_MS_ESCR1} }
 	},
 
-	{ 
+	{ /* FRONT_END_EVENT */
 		0x05, 0x08,
 		{ { CTR_IQ_4, MSR_P4_CRU_ESCR2},
 		  { CTR_IQ_5, MSR_P4_CRU_ESCR3} }
 	},
 
-	{ 
+	{ /* EXECUTION_EVENT */
 		0x05, 0x0c,
 		{ { CTR_IQ_4, MSR_P4_CRU_ESCR2},
 		  { CTR_IQ_5, MSR_P4_CRU_ESCR3} }
 	},
 
-	{ 
+	{ /* REPLAY_EVENT */
 		0x05, 0x09,
 		{ { CTR_IQ_4, MSR_P4_CRU_ESCR2},
 		  { CTR_IQ_5, MSR_P4_CRU_ESCR3} }
 	},
 
-	{ 
+	{ /* INSTR_RETIRED */
 		0x04, 0x02,
 		{ { CTR_IQ_4, MSR_P4_CRU_ESCR0},
 		  { CTR_IQ_5, MSR_P4_CRU_ESCR1} }
 	},
 
-	{ 
+	{ /* UOPS_RETIRED */
 		0x04, 0x01,
 		{ { CTR_IQ_4, MSR_P4_CRU_ESCR0},
 		  { CTR_IQ_5, MSR_P4_CRU_ESCR1} }
 	},
 
-	{ 
+	{ /* UOP_TYPE */
 		0x02, 0x02,
 		{ { CTR_IQ_4, MSR_P4_RAT_ESCR0},
 		  { CTR_IQ_5, MSR_P4_RAT_ESCR1} }
 	},
 
-	{ 
+	{ /* RETIRED_MISPRED_BRANCH_TYPE */
 		0x02, 0x05,
 		{ { CTR_MS_0, MSR_P4_TBPU_ESCR0},
 		  { CTR_MS_2, MSR_P4_TBPU_ESCR1} }
 	},
 
-	{ 
+	{ /* RETIRED_BRANCH_TYPE */
 		0x02, 0x04,
 		{ { CTR_MS_0, MSR_P4_TBPU_ESCR0},
 		  { CTR_MS_2, MSR_P4_TBPU_ESCR1} }
@@ -358,6 +365,9 @@ static struct p4_event_binding p4_events[NUM_EVENTS] = {
 #define CCCR_CLEAR_OVF(cccr) ((cccr) &= (~(1U<<31)))
 
 
+/* this assigns a "stagger" to the current CPU, which is used throughout
+   the code in this module as an extra array offset, to select the "even"
+   or "odd" part of all the divided resources. */
 static unsigned int get_stagger(void)
 {
 #ifdef CONFIG_SMP
@@ -368,6 +378,9 @@ static unsigned int get_stagger(void)
 }
 
 
+/* finally, mediate access to a real hardware counter
+   by passing a "virtual" counter numer to this macro,
+   along with your stagger setting. */
 #define VIRT_CTR(stagger, i) ((i) + ((num_counters) * (stagger)))
 
 static unsigned long reset_value[NUM_COUNTERS_NON_HT];
@@ -380,6 +393,11 @@ static void p4_shutdown(struct op_msrs const * const msrs)
 		if (msrs->counters[i].addr)
 			release_perfctr_nmi(msrs->counters[i].addr);
 	}
+	/*
+	 * some of the control registers are specially reserved in
+	 * conjunction with the counter registers (hence the starting offset).
+	 * This saves a few bits.
+	 */
 	for (i = num_counters; i < num_controls; ++i) {
 		if (msrs->controls[i].addr)
 			release_evntsel_nmi(msrs->controls[i].addr);
@@ -394,7 +412,7 @@ static int p4_fill_in_addresses(struct op_msrs * const msrs)
 	setup_num_counters();
 	stag = get_stagger();
 
-	
+	/* the counter & cccr registers we pay attention to */
 	for (i = 0; i < num_counters; ++i) {
 		addr = p4_counters[VIRT_CTR(stag, i)].counter_address;
 		cccraddr = p4_counters[VIRT_CTR(stag, i)].cccr_address;
@@ -404,13 +422,15 @@ static int p4_fill_in_addresses(struct op_msrs * const msrs)
 		}
 	}
 
-	
+	/* 43 ESCR registers in three or four discontiguous group */
 	for (addr = MSR_P4_BSU_ESCR0 + stag;
 	     addr < MSR_P4_IQ_ESCR0; ++i, addr += addr_increment()) {
 		if (reserve_evntsel_nmi(addr))
 			msrs->controls[i].addr = addr;
 	}
 
+	/* no IQ_ESCR0/1 on some models, we save a seconde time BSU_ESCR0/1
+	 * to avoid special case in nmi_{save|restore}_registers() */
 	if (boot_cpu_data.x86_model >= 0x3) {
 		for (addr = MSR_P4_BSU_ESCR0 + stag;
 		     addr <= MSR_P4_BSU_ESCR1; ++i, addr += addr_increment()) {
@@ -443,20 +463,24 @@ static int p4_fill_in_addresses(struct op_msrs * const msrs)
 			msrs->controls[i].addr = addr;
 	}
 
-	
+	/* there are 2 remaining non-contiguously located ESCRs */
 
 	if (num_counters == NUM_COUNTERS_NON_HT) {
-		
+		/* standard non-HT CPUs handle both remaining ESCRs*/
 		if (reserve_evntsel_nmi(MSR_P4_CRU_ESCR5))
 			msrs->controls[i++].addr = MSR_P4_CRU_ESCR5;
 		if (reserve_evntsel_nmi(MSR_P4_CRU_ESCR4))
 			msrs->controls[i++].addr = MSR_P4_CRU_ESCR4;
 
 	} else if (stag == 0) {
+		/* HT CPUs give the first remainder to the even thread, as
+		   the 32nd control register */
 		if (reserve_evntsel_nmi(MSR_P4_CRU_ESCR4))
 			msrs->controls[i++].addr = MSR_P4_CRU_ESCR4;
 
 	} else {
+		/* and two copies of the second to the odd thread,
+		   for the 22st and 23nd control registers */
 		if (reserve_evntsel_nmi(MSR_P4_CRU_ESCR5)) {
 			msrs->controls[i++].addr = MSR_P4_CRU_ESCR5;
 			msrs->controls[i++].addr = MSR_P4_CRU_ESCR5;
@@ -490,10 +514,10 @@ static void pmc_setup_one_p4_counter(unsigned int ctr)
 
 	stag = get_stagger();
 
-	
+	/* convert from counter *number* to counter *bit* */
 	counter_bit = 1 << VIRT_CTR(stag, ctr);
 
-	
+	/* find our event binding structure. */
 	if (counter_config[ctr].event <= 0 || counter_config[ctr].event > NUM_EVENTS) {
 		printk(KERN_ERR
 		       "oprofile: P4 event code 0x%lx out of range\n",
@@ -506,7 +530,7 @@ static void pmc_setup_one_p4_counter(unsigned int ctr)
 	for (i = 0; i < maxbind; i++) {
 		if (ev->bindings[i].virt_counter & counter_bit) {
 
-			
+			/* modify ESCR */
 			rdmsr(ev->bindings[i].escr_address, escr, high);
 			ESCR_CLEAR(escr);
 			if (stag == 0) {
@@ -520,7 +544,7 @@ static void pmc_setup_one_p4_counter(unsigned int ctr)
 			ESCR_SET_EVENT_MASK(escr, counter_config[ctr].unit_mask);
 			wrmsr(ev->bindings[i].escr_address, escr, high);
 
-			
+			/* modify CCCR */
 			rdmsr(p4_counters[VIRT_CTR(stag, ctr)].cccr_address,
 			      cccr, high);
 			CCCR_CLEAR(cccr);
@@ -557,7 +581,7 @@ static void p4_setup_ctrs(struct op_x86_model_spec const *model,
 		return;
 	}
 
-	
+	/* clear the cccrs we will use */
 	for (i = 0; i < num_counters; i++) {
 		if (unlikely(!msrs->controls[i].addr))
 			continue;
@@ -567,14 +591,14 @@ static void p4_setup_ctrs(struct op_x86_model_spec const *model,
 		wrmsr(p4_counters[VIRT_CTR(stag, i)].cccr_address, low, high);
 	}
 
-	
+	/* clear all escrs (including those outside our concern) */
 	for (i = num_counters; i < num_controls; i++) {
 		if (unlikely(!msrs->controls[i].addr))
 			continue;
 		wrmsr(msrs->controls[i].addr, 0, 0);
 	}
 
-	
+	/* setup all counters */
 	for (i = 0; i < num_counters; ++i) {
 		if (counter_config[i].enabled && msrs->controls[i].addr) {
 			reset_value[i] = counter_config[i].count;
@@ -601,6 +625,22 @@ static int p4_check_ctrs(struct pt_regs * const regs,
 		if (!reset_value[i])
 			continue;
 
+		/*
+		 * there is some eccentricity in the hardware which
+		 * requires that we perform 2 extra corrections:
+		 *
+		 * - check both the CCCR:OVF flag for overflow and the
+		 *   counter high bit for un-flagged overflows.
+		 *
+		 * - write the counter back twice to ensure it gets
+		 *   updated properly.
+		 *
+		 * the former seems to be related to extra NMIs happening
+		 * during the current NMI; the latter is reported as errata
+		 * N15 in intel doc 249199-029, pentium 4 specification
+		 * update, though their suggested work-around does not
+		 * appear to solve the problem.
+		 */
 
 		real = VIRT_CTR(stag, i);
 
@@ -617,10 +657,10 @@ static int p4_check_ctrs(struct pt_regs * const regs,
 		}
 	}
 
-	
+	/* P4 quirk: you have to re-unmask the apic vector */
 	apic_write(APIC_LVTPC, apic_read(APIC_LVTPC) & ~APIC_LVT_MASKED);
 
-	
+	/* See op_model_ppro.c */
 	return 1;
 }
 

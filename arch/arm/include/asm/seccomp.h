@@ -8,4 +8,4 @@
 #define __NR_seccomp_exit __NR_exit
 #define __NR_seccomp_sigreturn __NR_rt_sigreturn
 
-#endif 
+#endif /* _ASM_ARM_SECCOMP_H */

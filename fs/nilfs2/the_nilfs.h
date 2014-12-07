@@ -34,19 +34,79 @@
 
 struct nilfs_sc_info;
 
+/* the_nilfs struct */
 enum {
-	THE_NILFS_INIT = 0,     
-	THE_NILFS_DISCONTINUED,	
-	THE_NILFS_GC_RUNNING,	
-	THE_NILFS_SB_DIRTY,	
+	THE_NILFS_INIT = 0,     /* Information from super_block is set */
+	THE_NILFS_DISCONTINUED,	/* 'next' pointer chain has broken */
+	THE_NILFS_GC_RUNNING,	/* gc process is running */
+	THE_NILFS_SB_DIRTY,	/* super block is dirty */
 };
 
+/**
+ * struct the_nilfs - struct to supervise multiple nilfs mount points
+ * @ns_flags: flags
+ * @ns_bdev: block device
+ * @ns_sem: semaphore for shared states
+ * @ns_sbh: buffer heads of on-disk super blocks
+ * @ns_sbp: pointers to super block data
+ * @ns_sbwtime: previous write time of super block
+ * @ns_sbwcount: write count of super block
+ * @ns_sbsize: size of valid data in super block
+ * @ns_seg_seq: segment sequence counter
+ * @ns_segnum: index number of the latest full segment.
+ * @ns_nextnum: index number of the full segment index to be used next
+ * @ns_pseg_offset: offset of next partial segment in the current full segment
+ * @ns_cno: next checkpoint number
+ * @ns_ctime: write time of the last segment
+ * @ns_nongc_ctime: write time of the last segment not for cleaner operation
+ * @ns_ndirtyblks: Number of dirty data blocks
+ * @ns_last_segment_lock: lock protecting fields for the latest segment
+ * @ns_last_pseg: start block number of the latest segment
+ * @ns_last_seq: sequence value of the latest segment
+ * @ns_last_cno: checkpoint number of the latest segment
+ * @ns_prot_seq: least sequence number of segments which must not be reclaimed
+ * @ns_prev_seq: base sequence number used to decide if advance log cursor
+ * @ns_writer: log writer
+ * @ns_segctor_sem: semaphore protecting log write
+ * @ns_dat: DAT file inode
+ * @ns_cpfile: checkpoint file inode
+ * @ns_sufile: segusage file inode
+ * @ns_cptree: rb-tree of all mounted checkpoints (nilfs_root)
+ * @ns_cptree_lock: lock protecting @ns_cptree
+ * @ns_dirty_files: list of dirty files
+ * @ns_inode_lock: lock protecting @ns_dirty_files
+ * @ns_gc_inodes: dummy inodes to keep live blocks
+ * @ns_next_generation: next generation number for inodes
+ * @ns_next_gen_lock: lock protecting @ns_next_generation
+ * @ns_mount_opt: mount options
+ * @ns_resuid: uid for reserved blocks
+ * @ns_resgid: gid for reserved blocks
+ * @ns_interval: checkpoint creation interval
+ * @ns_watermark: watermark for the number of dirty buffers
+ * @ns_blocksize_bits: bit length of block size
+ * @ns_blocksize: block size
+ * @ns_nsegments: number of segments in filesystem
+ * @ns_blocks_per_segment: number of blocks per segment
+ * @ns_r_segments_percentage: reserved segments percentage
+ * @ns_nrsvsegs: number of reserved segments
+ * @ns_first_data_block: block number of first data block
+ * @ns_inode_size: size of on-disk inode
+ * @ns_first_ino: first not-special inode number
+ * @ns_crc_seed: seed value of CRC32 calculation
+ */
 struct the_nilfs {
 	unsigned long		ns_flags;
 
 	struct block_device    *ns_bdev;
 	struct rw_semaphore	ns_sem;
 
+	/*
+	 * used for
+	 * - loading the latest checkpoint exclusively.
+	 * - allocating a new full segment.
+	 * - protecting s_dirt in the super_block struct
+	 *   (see nilfs_write_super) and the following fields.
+	 */
 	struct buffer_head     *ns_sbh[2];
 	struct nilfs_super_block *ns_sbp[2];
 	time_t			ns_sbwtime;
@@ -54,6 +114,13 @@ struct the_nilfs {
 	unsigned		ns_sbsize;
 	unsigned		ns_mount_state;
 
+	/*
+	 * Following fields are dedicated to a writable FS-instance.
+	 * Except for the period seeking checkpoint, code outside the segment
+	 * constructor must lock a segment semaphore while accessing these
+	 * fields.
+	 * The writable FS-instance is sole during a lifetime of the_nilfs.
+	 */
 	u64			ns_seg_seq;
 	__u64			ns_segnum;
 	__u64			ns_nextnum;
@@ -78,26 +145,30 @@ struct the_nilfs {
 	struct nilfs_sc_info   *ns_writer;
 	struct rw_semaphore	ns_segctor_sem;
 
+	/*
+	 * Following fields are lock free except for the period before
+	 * the_nilfs is initialized.
+	 */
 	struct inode	       *ns_dat;
 	struct inode	       *ns_cpfile;
 	struct inode	       *ns_sufile;
 
-	
+	/* Checkpoint tree */
 	struct rb_root		ns_cptree;
 	spinlock_t		ns_cptree_lock;
 
-	
+	/* Dirty inode list */
 	struct list_head	ns_dirty_files;
 	spinlock_t		ns_inode_lock;
 
-	
+	/* GC inode list */
 	struct list_head	ns_gc_inodes;
 
-	
+	/* Inode allocator */
 	u32			ns_next_generation;
 	spinlock_t		ns_next_gen_lock;
 
-	
+	/* Mount options */
 	unsigned long		ns_mount_opt;
 
 	uid_t			ns_resuid;
@@ -105,7 +176,7 @@ struct the_nilfs {
 	unsigned long		ns_interval;
 	unsigned long		ns_watermark;
 
-	
+	/* Disk layout information (static) */
 	unsigned int		ns_blocksize_bits;
 	unsigned int		ns_blocksize;
 	unsigned long		ns_nsegments;
@@ -137,6 +208,9 @@ THE_NILFS_FNS(DISCONTINUED, discontinued)
 THE_NILFS_FNS(GC_RUNNING, gc_running)
 THE_NILFS_FNS(SB_DIRTY, sb_dirty)
 
+/*
+ * Mount option operations
+ */
 #define nilfs_clear_opt(nilfs, opt)  \
 	do { (nilfs)->ns_mount_opt &= ~NILFS_MOUNT_##opt; } while (0)
 #define nilfs_set_opt(nilfs, opt)  \
@@ -148,6 +222,17 @@ THE_NILFS_FNS(SB_DIRTY, sb_dirty)
 		 NILFS_MOUNT_##opt);					\
 	} while (0)
 
+/**
+ * struct nilfs_root - nilfs root object
+ * @cno: checkpoint number
+ * @rb_node: red-black tree node
+ * @count: refcount of this structure
+ * @nilfs: nilfs object
+ * @ifile: inode file
+ * @root: root inode
+ * @inodes_count: number of inodes
+ * @blocks_count: number of blocks (Reserved)
+ */
 struct nilfs_root {
 	__u64 cno;
 	struct rb_node rb_node;
@@ -160,8 +245,10 @@ struct nilfs_root {
 	atomic_t blocks_count;
 };
 
+/* Special checkpoint number */
 #define NILFS_CPTREE_CURRENT_CNO	0
 
+/* Minimum interval of periodical update of superblocks (in seconds) */
 #define NILFS_SB_FREQ		10
 
 static inline int nilfs_sb_need_update(struct the_nilfs *nilfs)
@@ -239,13 +326,13 @@ static inline void
 nilfs_terminate_segment(struct the_nilfs *nilfs, sector_t seg_start,
 			sector_t seg_end)
 {
-	
+	/* terminate the current full segment (used in case of I/O-error) */
 	nilfs->ns_pseg_offset = seg_end - seg_start + 1;
 }
 
 static inline void nilfs_shift_to_next_segment(struct the_nilfs *nilfs)
 {
-	
+	/* move forward with a full segment */
 	nilfs->ns_segnum = nilfs->ns_nextnum;
 	nilfs->ns_pseg_offset = 0;
 	nilfs->ns_seg_seq++;
@@ -266,4 +353,4 @@ static inline int nilfs_segment_is_active(struct the_nilfs *nilfs, __u64 n)
 	return n == nilfs->ns_segnum || n == nilfs->ns_nextnum;
 }
 
-#endif 
+#endif /* _THE_NILFS_H */

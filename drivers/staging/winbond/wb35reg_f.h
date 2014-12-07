@@ -3,6 +3,11 @@
 
 #include "wbhal.h"
 
+/*
+ * ====================================
+ * Interface function declare
+ * ====================================
+ */
 unsigned char Wb35Reg_initial(struct hw_data *hw_data);
 void Uxx_power_on_procedure(struct hw_data *hw_data);
 void Uxx_power_off_procedure(struct hw_data *hw_data);

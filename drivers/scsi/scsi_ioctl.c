@@ -1,3 +1,9 @@
+/*
+ * Changes:
+ * Arnaldo Carvalho de Melo <acme@conectiva.com.br> 08/23/2000
+ * - get rid of some verify_areas and use __copy*user and __get/put_user
+ *   for the ones that remain
+ */
 #include <linux/module.h>
 #include <linux/blkdev.h>
 #include <linux/interrupt.h>
@@ -24,6 +30,14 @@
 
 #define MAX_BUF PAGE_SIZE
 
+/**
+ * ioctl_probe  --  return host identification
+ * @host:	host to identify
+ * @buffer:	userspace buffer for identification
+ *
+ * Return an identifying string at @buffer, if @buffer is non-NULL, filling
+ * to the length stored at * (int *) @buffer.
+ */
 static int ioctl_probe(struct Scsi_Host *host, void __user *buffer)
 {
 	unsigned int len, slen;
@@ -48,6 +62,28 @@ static int ioctl_probe(struct Scsi_Host *host, void __user *buffer)
 	return 1;
 }
 
+/*
+
+ * The SCSI_IOCTL_SEND_COMMAND ioctl sends a command out to the SCSI host.
+ * The IOCTL_NORMAL_TIMEOUT and NORMAL_RETRIES  variables are used.  
+ * 
+ * dev is the SCSI device struct ptr, *(int *) arg is the length of the
+ * input data, if any, not including the command string & counts, 
+ * *((int *)arg + 1) is the output buffer size in bytes.
+ * 
+ * *(char *) ((int *) arg)[2] the actual command byte.   
+ * 
+ * Note that if more than MAX_BUF bytes are requested to be transferred,
+ * the ioctl will fail with error EINVAL.
+ * 
+ * This size *does not* include the initial lengths that were passed.
+ * 
+ * The SCSI command is read from the memory location immediately after the
+ * length words, and the input data is right after the command.  The SCSI
+ * routines know the command size based on the opcode decode.  
+ * 
+ * The output area is then filled in starting from the command byte. 
+ */
 
 static int ioctl_internal_command(struct scsi_device *sdev, char *cmd,
 				  int timeout, int retries)
@@ -73,16 +109,16 @@ static int ioctl_internal_command(struct scsi_device *sdev, char *cmd,
 				       "ILLEGAL REQUEST asc=0x%x ascq=0x%x\n",
 				       sshdr.asc, sshdr.ascq);
 			break;
-		case NOT_READY:	
+		case NOT_READY:	/* This happens if there is no disc in drive */
 			if (sdev->removable)
 				break;
 		case UNIT_ATTENTION:
 			if (sdev->removable) {
 				sdev->changed = 1;
-				result = 0;	
+				result = 0;	/* This is no longer considered an error */
 				break;
 			}
-		default:	
+		default:	/* Fall through for non-removable media */
 			sdev_printk(KERN_INFO, sdev,
 				    "ioctl_internal_command return code = %x\n",
 				    result);
@@ -118,6 +154,16 @@ int scsi_set_medium_removal(struct scsi_device *sdev, char state)
 }
 EXPORT_SYMBOL(scsi_set_medium_removal);
 
+/*
+ * The scsi_ioctl_get_pci() function places into arg the value
+ * pci_dev::slot_name (8 characters) for the PCI device (if any).
+ * Returns: 0 on success
+ *          -ENXIO if there isn't a PCI device pointer
+ *                 (could be because the SCSI driver hasn't been
+ *                  updated yet, or because it isn't a SCSI
+ *                  device)
+ *          any copy_to_user() error on failure there
+ */
 static int scsi_ioctl_get_pci(struct scsi_device *sdev, void __user *arg)
 {
 	struct device *dev = scsi_get_device(sdev->host);
@@ -128,22 +174,42 @@ static int scsi_ioctl_get_pci(struct scsi_device *sdev, void __user *arg)
 
 	name = dev_name(dev);
 
+	/* compatibility with old ioctl which only returned
+	 * 20 characters */
         return copy_to_user(arg, name, min(strlen(name), (size_t)20))
 		? -EFAULT: 0;
 }
 
 
+/**
+ * scsi_ioctl - Dispatch ioctl to scsi device
+ * @sdev: scsi device receiving ioctl
+ * @cmd: which ioctl is it
+ * @arg: data associated with ioctl
+ *
+ * Description: The scsi_ioctl() function differs from most ioctls in that it
+ * does not take a major/minor number as the dev field.  Rather, it takes
+ * a pointer to a &struct scsi_device.
+ */
 int scsi_ioctl(struct scsi_device *sdev, int cmd, void __user *arg)
 {
 	char scsi_cmd[MAX_COMMAND_SIZE];
 
-	
+	/* No idea how this happens.... */
 	if (!sdev)
 		return -ENXIO;
 
+	/*
+	 * If we are in the middle of error recovery, don't let anyone
+	 * else try and use this device.  Also, if error recovery fails, it
+	 * may try and take the device offline, in which case all further
+	 * access to the device is prohibited.
+	 */
 	if (!scsi_block_when_processing_errors(sdev))
 		return -ENODEV;
 
+	/* Check for deprecated ioctls ... all the ioctls which don't
+	 * follow the new unique numbering scheme are deprecated */
 	switch (cmd) {
 	case SCSI_IOCTL_SEND_COMMAND:
 	case SCSI_IOCTL_TEST_UNIT_READY:
@@ -210,11 +276,21 @@ int scsi_ioctl(struct scsi_device *sdev, int cmd, void __user *arg)
 }
 EXPORT_SYMBOL(scsi_ioctl);
 
+/**
+ * scsi_nonblockable_ioctl() - Handle SG_SCSI_RESET
+ * @sdev: scsi device receiving ioctl
+ * @cmd: Must be SC_SCSI_RESET
+ * @arg: pointer to int containing SG_SCSI_RESET_{DEVICE,BUS,HOST}
+ * @ndelay: file mode O_NDELAY flag
+ */
 int scsi_nonblockable_ioctl(struct scsi_device *sdev, int cmd,
 			    void __user *arg, int ndelay)
 {
 	int val, result;
 
+	/* The first set of iocts may be executed even if we're doing
+	 * error processing, as long as the device was opened
+	 * non-blocking */
 	if (ndelay) {
 		if (scsi_host_in_recovery(sdev->host))
 			return -ENODEV;

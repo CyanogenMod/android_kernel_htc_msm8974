@@ -53,7 +53,7 @@
 
 static const struct fb_videomode fb_modedb[] = {
 	{
-		
+		/* 800x480 @ 60 Hz */
 		.name		= "PT0708048",
 		.refresh	= 60,
 		.xres		= 800,
@@ -63,24 +63,24 @@ static const struct fb_videomode fb_modedb[] = {
 		.right_margin	= 156,
 		.upper_margin	= 10,
 		.lower_margin	= 10,
-		.hsync_len	= 1,	
-		.vsync_len	= 1,	
+		.hsync_len	= 1,	/* note: DE only display */
+		.vsync_len	= 1,	/* note: DE only display */
 		.sync		= FB_SYNC_CLK_IDLE_EN | FB_SYNC_OE_ACT_HIGH,
 		.vmode		= FB_VMODE_NONINTERLACED,
 		.flag		= 0,
 	}, {
-		
+		/* 800x480 @ 60 Hz */
 		.name		= "CTP-CLAA070LC0ACW",
 		.refresh	= 60,
 		.xres		= 800,
 		.yres		= 480,
 		.pixclock	= KHZ2PICOS(27000),
 		.left_margin	= 50,
-		.right_margin	= 50,	
+		.right_margin	= 50,	/* whole line should have 900 clocks */
 		.upper_margin	= 10,
-		.lower_margin	= 10,	
-		.hsync_len	= 1,	
-		.vsync_len	= 1,	
+		.lower_margin	= 10,	/* whole frame should have 500 lines */
+		.hsync_len	= 1,	/* note: DE only display */
+		.vsync_len	= 1,	/* note: DE only display */
 		.sync		= FB_SYNC_CLK_IDLE_EN | FB_SYNC_OE_ACT_HIGH,
 		.vmode		= FB_VMODE_NONINTERLACED,
 		.flag		= 0,
@@ -157,7 +157,7 @@ static struct at24_platform_data vpr200_eeprom = {
 
 static struct i2c_board_info vpr200_i2c_devices[] = {
 	{
-		I2C_BOARD_INFO("at24", 0x50), 
+		I2C_BOARD_INFO("at24", 0x50), /* E0=0, E1=0, E2=0 */
 		.platform_data = &vpr200_eeprom,
 	}, {
 		I2C_BOARD_INFO("mc13892", 0x08),
@@ -167,13 +167,13 @@ static struct i2c_board_info vpr200_i2c_devices[] = {
 };
 
 static iomux_v3_cfg_t vpr200_pads[] = {
-	
+	/* UART1 */
 	MX35_PAD_TXD1__UART1_TXD_MUX,
 	MX35_PAD_RXD1__UART1_RXD_MUX,
-	
+	/* UART3 */
 	MX35_PAD_ATA_DATA10__UART3_RXD_MUX,
 	MX35_PAD_ATA_DATA11__UART3_TXD_MUX,
-	
+	/* FEC */
 	MX35_PAD_FEC_TX_CLK__FEC_TX_CLK,
 	MX35_PAD_FEC_RX_CLK__FEC_RX_CLK,
 	MX35_PAD_FEC_RX_DV__FEC_RX_DV,
@@ -192,7 +192,7 @@ static iomux_v3_cfg_t vpr200_pads[] = {
 	MX35_PAD_FEC_TDATA2__FEC_TDATA_2,
 	MX35_PAD_FEC_RDATA3__FEC_RDATA_3,
 	MX35_PAD_FEC_TDATA3__FEC_TDATA_3,
-	
+	/* Display */
 	MX35_PAD_LD0__IPU_DISPB_DAT_0,
 	MX35_PAD_LD1__IPU_DISPB_DAT_1,
 	MX35_PAD_LD2__IPU_DISPB_DAT_2,
@@ -214,21 +214,21 @@ static iomux_v3_cfg_t vpr200_pads[] = {
 	MX35_PAD_D3_FPSHIFT__IPU_DISPB_D3_CLK,
 	MX35_PAD_D3_DRDY__IPU_DISPB_D3_DRDY,
 	MX35_PAD_CONTRAST__IPU_DISPB_CONTR,
-	
+	/* LCD Enable */
 	MX35_PAD_D3_VSYNC__GPIO1_2,
-	
+	/* USBOTG */
 	MX35_PAD_USBOTG_PWR__USB_TOP_USBOTG_PWR,
 	MX35_PAD_USBOTG_OC__USB_TOP_USBOTG_OC,
-	
+	/* SDCARD */
 	MX35_PAD_SD1_CMD__ESDHC1_CMD,
 	MX35_PAD_SD1_CLK__ESDHC1_CLK,
 	MX35_PAD_SD1_DATA0__ESDHC1_DAT0,
 	MX35_PAD_SD1_DATA1__ESDHC1_DAT1,
 	MX35_PAD_SD1_DATA2__ESDHC1_DAT2,
 	MX35_PAD_SD1_DATA3__ESDHC1_DAT3,
-	
+	/* PMIC */
 	MX35_PAD_GPIO2_0__GPIO2_0,
-	
+	/* GPIO keys */
 	MX35_PAD_SCKR__GPIO1_4,
 	MX35_PAD_COMPARE__GPIO1_5,
 	MX35_PAD_SCKT__GPIO1_7,
@@ -239,6 +239,7 @@ static iomux_v3_cfg_t vpr200_pads[] = {
 	MX35_PAD_TX3_RX2__GPIO1_12,
 };
 
+/* USB Device config */
 static const struct fsl_usb2_platform_data otg_device_pdata __initconst = {
 	.operating_mode	= FSL_USB2_DR_DEVICE,
 	.phy_mode	= FSL_USB2_PHY_UTMI,
@@ -251,6 +252,7 @@ static int vpr200_usbh_init(struct platform_device *pdev)
 			MXC_EHCI_INTERFACE_SINGLE_UNI | MXC_EHCI_INTERNAL_PHY);
 }
 
+/* USB HOST config */
 static const struct mxc_usbh_platform_data usb_host_pdata __initconst = {
 	.init = vpr200_usbh_init,
 	.portsc = MXC_EHCI_MODE_SERIAL,
@@ -260,6 +262,9 @@ static struct platform_device *devices[] __initdata = {
 	&vpr200_flash,
 };
 
+/*
+ * Board specific initialization.
+ */
 static void __init vpr200_board_init(void)
 {
 	imx35_soc_init();
@@ -310,7 +315,7 @@ struct sys_timer vpr200_timer = {
 };
 
 MACHINE_START(VPR200, "VPR200")
-	
+	/* Maintainer: Creative Product Design */
 	.map_io = mx35_map_io,
 	.init_early = imx35_init_early,
 	.init_irq = mx35_init_irq,

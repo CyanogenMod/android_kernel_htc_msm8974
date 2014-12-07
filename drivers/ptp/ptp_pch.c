@@ -48,6 +48,9 @@ enum pch_status {
 	PCH_FAILED,
 	PCH_UNSUPPORTED,
 };
+/**
+ * struct pch_ts_regs - IEEE 1588 registers
+ */
 struct pch_ts_regs {
 	u32 control;
 	u32 event;
@@ -111,6 +114,9 @@ struct pch_ts_regs {
 
 #define PCH_IEEE1588_ETH	(1 << 0)
 #define PCH_IEEE1588_CAN	(1 << 1)
+/**
+ * struct pch_dev - Driver private data
+ */
 struct pch_dev {
 	struct pch_ts_regs *regs;
 	struct ptp_clock *ptp_clock;
@@ -125,18 +131,25 @@ struct pch_dev {
 	spinlock_t register_lock;
 };
 
+/**
+ * struct pch_params - 1588 module parameter
+ */
 struct pch_params {
 	u8 station[STATION_ADDR_LEN];
 };
 
+/* structure to hold the module parameters */
 static struct pch_params pch_param = {
 	"00:00:00:00:00:00"
 };
 
+/*
+ * Register access functions
+ */
 static inline void pch_eth_enable_set(struct pch_dev *chip)
 {
 	u32 val;
-	
+	/* SET the eth_enable bit */
 	val = ioread32(&chip->regs->ts_sel) | (PCH_ECS_ETH);
 	iowrite32(val, (&chip->regs->ts_sel));
 }
@@ -171,7 +184,7 @@ static void pch_systime_write(struct pch_ts_regs *regs, u64 ns)
 static inline void pch_block_reset(struct pch_dev *chip)
 {
 	u32 val;
-	
+	/* Reset Hardware Assist block */
 	val = ioread32(&chip->regs->control) | PCH_TSC_RESET;
 	iowrite32(val, (&chip->regs->control));
 	val = val & ~PCH_TSC_RESET;
@@ -270,6 +283,8 @@ u64 pch_tx_snap_read(struct pci_dev *pdev)
 }
 EXPORT_SYMBOL(pch_tx_snap_read);
 
+/* This function enables all 64 bits in system time registers [high & low].
+This is a work-around for non continuous value in the SystemTime Register*/
 static void pch_set_system_time_count(struct pch_dev *chip)
 {
 	iowrite32(0x01, &chip->regs->stl_max_set_en);
@@ -279,25 +294,31 @@ static void pch_set_system_time_count(struct pch_dev *chip)
 
 static void pch_reset(struct pch_dev *chip)
 {
-	
+	/* Reset Hardware Assist */
 	pch_block_reset(chip);
 
-	
+	/* enable all 32 bits in system time registers */
 	pch_set_system_time_count(chip);
 }
 
+/**
+ * pch_set_station_address() - This API sets the station address used by
+ *				    IEEE 1588 hardware when looking at PTP
+ *				    traffic on the  ethernet interface
+ * @addr:	dress which contain the column separated address to be used.
+ */
 static int pch_set_station_address(u8 *addr, struct pci_dev *pdev)
 {
 	s32 i;
 	struct pch_dev *chip = pci_get_drvdata(pdev);
 
-	
+	/* Verify the parameter */
 	if ((chip->regs == 0) || addr == (u8 *)NULL) {
 		dev_err(&pdev->dev,
 			"invalid params returning PCH_INVALIDPARAM\n");
 		return PCH_INVALIDPARAM;
 	}
-	
+	/* For all station address bytes */
 	for (i = 0; i < PCH_STATION_BYTES; i++) {
 		u32 val;
 		s32 tmp;
@@ -316,19 +337,24 @@ static int pch_set_station_address(u8 *addr, struct pci_dev *pdev)
 			return PCH_INVALIDPARAM;
 		}
 		val += tmp;
-		
+		/* Expects ':' separated addresses */
 		if ((i < 5) && (addr[(i * 3) + 2] != ':')) {
 			dev_err(&pdev->dev,
 				"invalid params returning PCH_INVALIDPARAM\n");
 			return PCH_INVALIDPARAM;
 		}
 
+		/* Ideally we should set the address only after validating
+							 entire string */
 		dev_dbg(&pdev->dev, "invoking pch_station_set\n");
 		iowrite32(val, &chip->regs->ts_st[i]);
 	}
 	return 0;
 }
 
+/*
+ * Interrupt service routine
+ */
 static irqreturn_t isr(int irq, void *priv)
 {
 	struct pch_dev *pch_dev = priv;
@@ -367,7 +393,7 @@ static irqreturn_t isr(int irq, void *priv)
 	}
 
 	if (val & PCH_TSE_TTIPEND)
-		ack |= PCH_TSE_TTIPEND; 
+		ack |= PCH_TSE_TTIPEND; /* this bit seems to be always set */
 
 	if (ack) {
 		iowrite32(ack, &regs->event);
@@ -376,6 +402,9 @@ static irqreturn_t isr(int irq, void *priv)
 		return IRQ_NONE;
 }
 
+/*
+ * PTP clock operations
+ */
 
 static int ptp_pch_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
 {
@@ -530,16 +559,16 @@ static void __devexit pch_remove(struct pci_dev *pdev)
 	struct pch_dev *chip = pci_get_drvdata(pdev);
 
 	ptp_clock_unregister(chip->ptp_clock);
-	
+	/* free the interrupt */
 	if (pdev->irq != 0)
 		free_irq(pdev->irq, chip);
 
-	
+	/* unmap the virtual IO memory space */
 	if (chip->regs != 0) {
 		iounmap(chip->regs);
 		chip->regs = 0;
 	}
-	
+	/* release the reserved IO memory space */
 	if (chip->mem_base != 0) {
 		release_mem_region(chip->mem_base, chip->mem_size);
 		chip->mem_base = 0;
@@ -560,7 +589,7 @@ pch_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (chip == NULL)
 		return -ENOMEM;
 
-	
+	/* enable the 1588 pci device */
 	ret = pci_enable_device(pdev);
 	if (ret != 0) {
 		dev_err(&pdev->dev, "could not enable the pci device\n");
@@ -574,10 +603,10 @@ pch_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_pci_start;
 	}
 
-	
+	/* retrieve the available length of the IO memory space */
 	chip->mem_size = pci_resource_len(pdev, IO_MEM_BAR);
 
-	
+	/* allocate the memory for the device registers */
 	if (!request_mem_region(chip->mem_base, chip->mem_size, "1588_regs")) {
 		dev_err(&pdev->dev,
 			"could not allocate register memory space\n");
@@ -585,7 +614,7 @@ pch_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_req_mem_region;
 	}
 
-	
+	/* get the virtual address to the 1588 registers */
 	chip->regs = ioremap(chip->mem_base, chip->mem_size);
 
 	if (!chip->regs) {
@@ -608,20 +637,20 @@ pch_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_req_irq;
 	}
 
-	
+	/* indicate success */
 	chip->irq = pdev->irq;
 	chip->pdev = pdev;
 	pci_set_drvdata(pdev, chip);
 
 	spin_lock_irqsave(&chip->register_lock, flags);
-	
+	/* reset the ieee1588 h/w */
 	pch_reset(chip);
 
 	iowrite32(DEFAULT_ADDEND, &chip->regs->addend);
 	iowrite32(1, &chip->regs->trgt_lo);
 	iowrite32(0, &chip->regs->trgt_hi);
 	iowrite32(PCH_TSE_TTIPEND, &chip->regs->event);
-	
+	/* Version: IEEE1588 v1 and IEEE1588-2008,  Mode: All Evwnt, Locked  */
 	iowrite32(0x80020000, &chip->regs->ch_control);
 
 	pch_eth_enable_set(chip);
@@ -684,7 +713,7 @@ static s32 __init ptp_pch_init(void)
 {
 	s32 ret;
 
-	
+	/* register the driver with the pci core */
 	ret = pci_register_driver(&pch_driver);
 
 	return ret;

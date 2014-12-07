@@ -31,6 +31,11 @@
 
 static DEFINE_MUTEX(bfin_otp_lock);
 
+/**
+ *	bfin_otp_read - Read OTP pages
+ *
+ *	All reads must be in half page chunks (half page == 64 bits).
+ */
 static ssize_t bfin_otp_read(struct file *file, char __user *buff, size_t count, loff_t *pos)
 {
 	ssize_t bytes_done;
@@ -75,6 +80,11 @@ static ssize_t bfin_otp_read(struct file *file, char __user *buff, size_t count,
 #ifdef CONFIG_BFIN_OTP_WRITE_ENABLE
 static bool allow_writes;
 
+/**
+ *	bfin_otp_init_timing - setup OTP timing parameters
+ *
+ *	Required before doing any write operation.  Algorithms from HRM.
+ */
 static u32 bfin_otp_init_timing(void)
 {
 	u32 tp1, tp2, tp3, timing;
@@ -89,14 +99,24 @@ static u32 bfin_otp_init_timing(void)
 	return timing;
 }
 
+/**
+ *	bfin_otp_deinit_timing - set timings to only allow reads
+ *
+ *	Should be called after all writes are done.
+ */
 static void bfin_otp_deinit_timing(u32 timing)
 {
-	
+	/* mask bits [31:15] so that any attempts to write fail */
 	bfrom_OtpCommand(OTP_CLOSE, 0);
 	bfrom_OtpCommand(OTP_INIT, timing & ~(-1 << 15));
 	bfrom_OtpCommand(OTP_CLOSE, 0);
 }
 
+/**
+ *	bfin_otp_write - write OTP pages
+ *
+ *	All writes must be in half page chunks (half page == 64 bits).
+ */
 static ssize_t bfin_otp_write(struct file *filp, const char __user *buff, size_t count, loff_t *pos)
 {
 	ssize_t bytes_done;
@@ -211,6 +231,12 @@ static struct miscdevice bfin_otp_misc_device = {
 	.fops     = &bfin_otp_fops,
 };
 
+/**
+ *	bfin_otp_init - Initialize module
+ *
+ *	Registers the device and notifier handler. Actual device
+ *	initialization is handled by bfin_otp_open().
+ */
 static int __init bfin_otp_init(void)
 {
 	int ret;
@@ -228,6 +254,12 @@ static int __init bfin_otp_init(void)
 	return 0;
 }
 
+/**
+ *	bfin_otp_exit - Deinitialize module
+ *
+ *	Unregisters the device and notifier handler. Actual device
+ *	deinitialization is handled by bfin_otp_close().
+ */
 static void __exit bfin_otp_exit(void)
 {
 	stampit();

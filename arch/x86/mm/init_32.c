@@ -72,6 +72,11 @@ static __init void *alloc_low_page(void)
 	return adr;
 }
 
+/*
+ * Creates a middle page table and puts a pointer to it in the
+ * given global directory entry. This only returns the gd entry
+ * in non-PAE compilation mode, since the middle layer is folded.
+ */
 static pmd_t * __init one_md_table_init(pgd_t *pgd)
 {
 	pud_t *pud;
@@ -97,6 +102,10 @@ static pmd_t * __init one_md_table_init(pgd_t *pgd)
 	return pmd_table;
 }
 
+/*
+ * Create a page table and place a pointer to it in a middle page
+ * directory entry:
+ */
 static pte_t * __init one_page_table_init(pmd_t *pmd)
 {
 	if (!(pmd_val(*pmd) & _PAGE_PRESENT)) {
@@ -141,6 +150,12 @@ static pte_t *__init page_table_kmap_check(pte_t *pte, pmd_t *pmd,
 					   unsigned long vaddr, pte_t *lastpte)
 {
 #ifdef CONFIG_HIGHMEM
+	/*
+	 * Something (early fixmap) may already have put a pte
+	 * page here, which causes the page table allocation
+	 * to become nonlinear. Attempt to fix it, and if it
+	 * is still nonlinear then we have to bug.
+	 */
 	int pmd_idx_kmap_begin = fix_to_virt(FIX_KMAP_END) >> PMD_SHIFT;
 	int pmd_idx_kmap_end = fix_to_virt(FIX_KMAP_BEGIN) >> PMD_SHIFT;
 
@@ -172,6 +187,15 @@ static pte_t *__init page_table_kmap_check(pte_t *pte, pmd_t *pmd,
 	return pte;
 }
 
+/*
+ * This function initializes a certain range of kernel virtual memory
+ * with new bootmem page tables, everywhere page tables are missing in
+ * the given range.
+ *
+ * NOTE: The pagetables are allocated contiguous on the physical space
+ * so we can cache the place of the first one and move around without
+ * checking the pgd every time.
+ */
 static void __init
 page_table_range_init(unsigned long start, unsigned long end, pgd_t *pgd_base)
 {
@@ -207,6 +231,11 @@ static inline int is_kernel_text(unsigned long addr)
 	return 0;
 }
 
+/*
+ * This maps the physical memory to kernel virtual address space, a total
+ * of max_low_pfn pages, by creating page tables starting from address
+ * PAGE_OFFSET:
+ */
 unsigned long __init
 kernel_physical_mapping_init(unsigned long start,
 			     unsigned long end,
@@ -227,6 +256,20 @@ kernel_physical_mapping_init(unsigned long start,
 	start_pfn = start >> PAGE_SHIFT;
 	end_pfn = end >> PAGE_SHIFT;
 
+	/*
+	 * First iteration will setup identity mapping using large/small pages
+	 * based on use_pse, with other attributes same as set by
+	 * the early code in head_32.S
+	 *
+	 * Second iteration will setup the appropriate attributes (NX, GLOBAL..)
+	 * as desired for the kernel identity mapping.
+	 *
+	 * This two pass mechanism conforms to the TLB app note which says:
+	 *
+	 *     "Software should not write to a paging-structure entry in a way
+	 *      that would change, for any linear address, both the page size
+	 *      and either the page frame or attributes."
+	 */
 	mapping_iter = 1;
 
 	if (!cpu_has_pse)
@@ -252,9 +295,17 @@ repeat:
 		     pmd++, pmd_idx++) {
 			unsigned int addr = pfn * PAGE_SIZE + PAGE_OFFSET;
 
+			/*
+			 * Map with big pages if possible, otherwise
+			 * create normal page tables:
+			 */
 			if (use_pse) {
 				unsigned int addr2;
 				pgprot_t prot = PAGE_KERNEL_LARGE;
+				/*
+				 * first pass will use the same initial
+				 * identity mapping attribute + _PAGE_PSE.
+				 */
 				pgprot_t init_prot =
 					__pgprot(PTE_IDENT_ATTR |
 						 _PAGE_PSE);
@@ -282,6 +333,10 @@ repeat:
 			for (; pte_ofs < PTRS_PER_PTE && pfn < end_pfn;
 			     pte++, pfn++, pte_ofs++, addr += PAGE_SIZE) {
 				pgprot_t prot = PAGE_KERNEL;
+				/*
+				 * first pass will use the same initial
+				 * identity mapping attribute.
+				 */
 				pgprot_t init_prot = __pgprot(PTE_IDENT_ATTR);
 
 				if (is_kernel_text(addr))
@@ -297,11 +352,22 @@ repeat:
 		}
 	}
 	if (mapping_iter == 1) {
+		/*
+		 * update direct mapping page count only in the first
+		 * iteration.
+		 */
 		update_page_count(PG_LEVEL_2M, pages_2m);
 		update_page_count(PG_LEVEL_4K, pages_4k);
 
+		/*
+		 * local global flush tlb, which will flush the previous
+		 * mappings present in both small and large page TLB's.
+		 */
 		__flush_tlb_all();
 
+		/*
+		 * Second iteration will set the actual desired PTE attributes.
+		 */
 		mapping_iter = 2;
 		goto repeat;
 	}
@@ -321,6 +387,9 @@ static void __init kmap_init(void)
 {
 	unsigned long kmap_vstart;
 
+	/*
+	 * Cache the first kmap pte:
+	 */
 	kmap_vstart = __fix_to_virt(FIX_KMAP_BEGIN);
 	kmap_pte = kmap_get_fixmap_pte(kmap_vstart);
 
@@ -374,7 +443,7 @@ void __init add_highpages_with_active_regions(int nid,
 static inline void permanent_kmaps_init(pgd_t *pgd_base)
 {
 }
-#endif 
+#endif /* CONFIG_HIGHMEM */
 
 void __init native_pagetable_setup_start(pgd_t *base)
 {
@@ -384,6 +453,10 @@ void __init native_pagetable_setup_start(pgd_t *base)
 	pmd_t *pmd;
 	pte_t *pte;
 
+	/*
+	 * Remove any mappings which extend past the end of physical
+	 * memory from the boot time page table:
+	 */
 	for (pfn = max_low_pfn + 1; pfn < 1<<(32-PAGE_SHIFT); pfn++) {
 		va = PAGE_OFFSET + (pfn<<PAGE_SHIFT);
 		pgd = base + pgd_index(va);
@@ -408,11 +481,34 @@ void __init native_pagetable_setup_done(pgd_t *base)
 {
 }
 
+/*
+ * Build a proper pagetable for the kernel mappings.  Up until this
+ * point, we've been running on some set of pagetables constructed by
+ * the boot process.
+ *
+ * If we're booting on native hardware, this will be a pagetable
+ * constructed in arch/x86/kernel/head_32.S.  The root of the
+ * pagetable will be swapper_pg_dir.
+ *
+ * If we're booting paravirtualized under a hypervisor, then there are
+ * more options: we may already be running PAE, and the pagetable may
+ * or may not be based in swapper_pg_dir.  In any case,
+ * paravirt_pagetable_setup_start() will set up swapper_pg_dir
+ * appropriately for the rest of the initialization to work.
+ *
+ * In general, pagetable_init() assumes that the pagetable may already
+ * be partially populated, and so it avoids stomping on any existing
+ * mappings.
+ */
 void __init early_ioremap_page_table_range_init(void)
 {
 	pgd_t *pgd_base = swapper_pg_dir;
 	unsigned long vaddr, end;
 
+	/*
+	 * Fixed mappings, only the page table structure has to be
+	 * created - mappings will be set by set_fixmap():
+	 */
 	vaddr = __fix_to_virt(__end_of_fixed_addresses - 1) & PMD_MASK;
 	end = (FIXADDR_TOP + PMD_SIZE - 1) & PMD_MASK;
 	page_table_range_init(vaddr, end, pgd_base);
@@ -429,8 +525,14 @@ static void __init pagetable_init(void)
 pteval_t __supported_pte_mask __read_mostly = ~(_PAGE_NX | _PAGE_GLOBAL | _PAGE_IOMAP);
 EXPORT_SYMBOL_GPL(__supported_pte_mask);
 
+/* user-defined highmem size */
 static unsigned int highmem_pages = -1;
 
+/*
+ * highmem=size forces highmem to be exactly 'size' bytes.
+ * This works even on boxes that have no highmem otherwise.
+ * This also works to reduce highmem size on bigger boxes.
+ */
 static int __init parse_highmem(char *arg)
 {
 	if (!arg)
@@ -446,9 +548,14 @@ early_param("highmem", parse_highmem);
 
 #define MSG_LOWMEM_TOO_SMALL \
 	"highmem size (%luMB) results in <64MB lowmem, ignoring it!\n"
+/*
+ * All of RAM fits into lowmem - but if user wants highmem
+ * artificially via the highmem=x boot parameter then create
+ * it:
+ */
 void __init lowmem_pfn_init(void)
 {
-	
+	/* max_low_pfn is 0, we already have early_res support */
 	max_low_pfn = max_pfn;
 
 	if (highmem_pages == -1)
@@ -478,6 +585,10 @@ void __init lowmem_pfn_init(void)
 
 #define MSG_HIGHMEM_TRIMMED \
 	"Warning: only 4GB will be used. Use a HIGHMEM64G enabled kernel!\n"
+/*
+ * We have more RAM than fits into lowmem - we try to put it into
+ * highmem, also taking the highmem=x boot parameter into account:
+ */
 void __init highmem_pfn_init(void)
 {
 	max_low_pfn = MAXMEM_PFN;
@@ -495,26 +606,29 @@ void __init highmem_pfn_init(void)
 		highmem_pages = 0;
 	}
 #ifndef CONFIG_HIGHMEM
-	
+	/* Maximum memory usable is what is directly addressable */
 	printk(KERN_WARNING "Warning only %ldMB will be used.\n", MAXMEM>>20);
 	if (max_pfn > MAX_NONPAE_PFN)
 		printk(KERN_WARNING "Use a HIGHMEM64G enabled kernel.\n");
 	else
 		printk(KERN_WARNING "Use a HIGHMEM enabled kernel.\n");
 	max_pfn = MAXMEM_PFN;
-#else 
+#else /* !CONFIG_HIGHMEM */
 #ifndef CONFIG_HIGHMEM64G
 	if (max_pfn > MAX_NONPAE_PFN) {
 		max_pfn = MAX_NONPAE_PFN;
 		printk(KERN_WARNING MSG_HIGHMEM_TRIMMED);
 	}
-#endif 
-#endif 
+#endif /* !CONFIG_HIGHMEM64G */
+#endif /* !CONFIG_HIGHMEM */
 }
 
+/*
+ * Determine low and high memory ranges:
+ */
 void __init find_low_pfn_range(void)
 {
-	
+	/* it could update max_pfn */
 
 	if (max_pfn <= MAXMEM_PFN)
 		lowmem_pfn_init();
@@ -551,7 +665,7 @@ void __init initmem_init(void)
 
 	setup_bootmem_allocator();
 }
-#endif 
+#endif /* !CONFIG_NEED_MULTIPLE_NODES */
 
 void __init setup_bootmem_allocator(void)
 {
@@ -562,6 +676,13 @@ void __init setup_bootmem_allocator(void)
 	after_bootmem = 1;
 }
 
+/*
+ * paging_init() sets up the page tables - note that the first 8MB are
+ * already mapped by head.S.
+ *
+ * This routines also unmaps the page at virtual kernel address 0, so
+ * that we can trap those pesky NULL-reference errors in the kernel.
+ */
 void __init paging_init(void)
 {
 	pagetable_init();
@@ -570,18 +691,27 @@ void __init paging_init(void)
 
 	kmap_init();
 
+	/*
+	 * NOTE: at this point the bootmem allocator is fully available.
+	 */
 	olpc_dt_build_devicetree();
 	sparse_memory_present_with_active_regions(MAX_NUMNODES);
 	sparse_init();
 	zone_sizes_init();
 }
 
+/*
+ * Test if the WP bit works in supervisor mode. It isn't supported on 386's
+ * and also on some strange 486's. All 586+'s are OK. This used to involve
+ * black magic jumps to work around some nasty CPU bugs, but fortunately the
+ * switch to using exceptions got rid of all that.
+ */
 static void __init test_wp_bit(void)
 {
 	printk(KERN_INFO
   "Checking if this processor honours the WP bit even in supervisor mode...");
 
-	
+	/* Any page-aligned address will do, the test is non-destructive */
 	__set_fixmap(FIX_WP_TEST, __pa(&swapper_pg_dir), PAGE_READONLY);
 	boot_cpu_data.wp_works_ok = do_test_wp_bit();
 	clear_fixmap(FIX_WP_TEST);
@@ -607,13 +737,25 @@ void __init mem_init(void)
 #ifdef CONFIG_FLATMEM
 	BUG_ON(!mem_map);
 #endif
+	/*
+	 * With CONFIG_DEBUG_PAGEALLOC initialization of highmem pages has to
+	 * be done before free_all_bootmem(). Memblock use free low memory for
+	 * temporary data (see find_range_array()) and for this purpose can use
+	 * pages that was already passed to the buddy allocator, hence marked as
+	 * not accessible in the page tables when compiled with
+	 * CONFIG_DEBUG_PAGEALLOC. Otherwise order of initialization is not
+	 * important here.
+	 */
 	set_highmem_pages_init();
 
-	
+	/* this will put all low memory onto the freelists */
 	totalram_pages += free_all_bootmem();
 
 	reservedpages = 0;
 	for (tmp = 0; tmp < max_low_pfn; tmp++)
+		/*
+		 * Only count reserved RAM pages:
+		 */
 		if (page_is_ram(tmp) && PageReserved(pfn_to_page(tmp)))
 			reservedpages++;
 
@@ -665,6 +807,10 @@ void __init mem_init(void)
 		(unsigned long)&_text, (unsigned long)&_etext,
 		((unsigned long)&_etext - (unsigned long)&_text) >> 10);
 
+	/*
+	 * Check boundaries twice: Some fundamental inconsistencies can
+	 * be detected at build time already.
+	 */
 #define __FIXADDR_TOP (-PAGE_SIZE)
 #ifdef CONFIG_HIGHMEM
 	BUILD_BUG_ON(PKMAP_BASE + LAST_PKMAP*PAGE_SIZE	> FIXADDR_START);
@@ -698,6 +844,10 @@ int arch_add_memory(int nid, u64 start, u64 size)
 }
 #endif
 
+/*
+ * This function cannot be __init, since exceptions don't work in that
+ * section.  Put this after the callers, so that it cannot be inlined.
+ */
 static noinline int do_test_wp_bit(void)
 {
 	char tmp_reg;
@@ -754,7 +904,14 @@ void set_kernel_text_ro(void)
 
 static void mark_nxdata_nx(void)
 {
+	/*
+	 * When this called, init has already been executed and released,
+	 * so everything past _etext should be NX.
+	 */
 	unsigned long start = PFN_ALIGN(_etext);
+	/*
+	 * This comes from is_kernel_text upper limit. Also HPAGE where used:
+	 */
 	unsigned long size = (((unsigned long)__init_end + HPAGE_SIZE) & HPAGE_MASK) - start;
 
 	if (__supported_pte_mask & _PAGE_NX)

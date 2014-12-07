@@ -257,7 +257,7 @@ void read_efuse(struct ieee80211_hw *hw, u16 _offset, u16 _size_byte, u8 *pbuf)
 		return;
 	}
 
-	
+	/* allocate memory for efuse_tbl and efuse_word */
 	efuse_tbl = kmalloc(rtlpriv->cfg->maps[EFUSE_HWSET_MAX_SIZE] *
 			    sizeof(u8), GFP_ATOMIC);
 	if (!efuse_tbl)

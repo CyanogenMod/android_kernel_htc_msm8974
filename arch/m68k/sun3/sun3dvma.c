@@ -99,7 +99,7 @@ static void print_holes(struct list_head *holes)
 	printk("end of hole listing...\n");
 
 }
-#endif 
+#endif /* DVMA_DEBUG */
 
 static inline int refill(void)
 {
@@ -238,6 +238,7 @@ static inline int free_baddr(unsigned long baddr)
 	hole->end = baddr + len;
 	hole->size = len;
 
+//	list_add_tail(&(hole->list), cur);
 	list_add(&(hole->list), cur);
 
 	return 0;
@@ -253,7 +254,7 @@ void dvma_init(void)
 	INIT_LIST_HEAD(&hole_list);
 	INIT_LIST_HEAD(&hole_cache);
 
-	
+	/* prepare the hole cache */
 	for(i = 0; i < 64; i++)
 		list_add(&(initholes[i].list), &hole_cache);
 
@@ -284,6 +285,8 @@ inline unsigned long dvma_map_align(unsigned long kaddr, int len, int align)
 		len = 0x800;
 
 	if(!kaddr || !len) {
+//		printk("error: kaddr %lx len %x\n", kaddr, len);
+//		*(int *)4 = 0;
 		return 0;
 	}
 
@@ -302,6 +305,7 @@ inline unsigned long dvma_map_align(unsigned long kaddr, int len, int align)
 		align = ((align + (DVMA_PAGE_SIZE-1)) & DVMA_PAGE_MASK);
 
 	baddr = get_baddr(len, align);
+//	printk("using baddr %lx\n", baddr);
 
 	if(!dvma_map_iommu(kaddr, baddr, len))
 		return (baddr + off);
@@ -317,7 +321,7 @@ void dvma_unmap(void *baddr)
 	unsigned long addr;
 
 	addr = (unsigned long)baddr;
-	
+	/* check if this is a vme mapping */
 	if(!(addr & 0x00f00000))
 		addr |= 0xf00000;
 

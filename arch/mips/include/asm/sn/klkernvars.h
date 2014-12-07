@@ -23,6 +23,6 @@ typedef struct kern_vars_s {
 	unsigned long	kv_rw_baseaddr;
 } kern_vars_t;
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* __ASM_SN_KLKERNVARS_H */

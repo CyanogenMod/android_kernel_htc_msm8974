@@ -254,6 +254,11 @@ union reg_cp_rb_cntl {
 #define REG_CP_CSQ_RB_STAT               0x01FD
 
 #define REG_CP_DEBUG                     0x01FC
+/*
+ * CP DEBUG settings for a3xx and a2xx cores:
+ * DYNAMIC_CLK_DISABLE [27] - turn off the dynamic clock control
+ * MIU_128BIT_WRITE_ENABLE [25] - Allow 128 bit writes to the VBIF
+ */
 #define A2XX_CP_DEBUG_DEFAULT ((1 << 27) | (1 << 25))
 
 #define REG_CP_IB1_BASE                  0x0458
@@ -389,6 +394,7 @@ union reg_cp_rb_cntl {
 #define REG_COHER_STATUS_PM4             0xA2B
 #define REG_COHER_SIZE_PM4               0xA29
 
+/*registers added in adreno220*/
 #define REG_A220_PC_INDX_OFFSET          REG_VGT_INDX_OFFSET
 #define REG_A220_PC_VERTEX_REUSE_BLOCK_CNTL REG_VGT_VERTEX_REUSE_BLOCK_CNTL
 #define REG_A220_PC_MAX_VTX_INDX         REG_VGT_MAX_VTX_INDX
@@ -397,12 +403,14 @@ union reg_cp_rb_cntl {
 #define REG_A220_VSC_BIN_SIZE            0x0C01
 #define REG_A220_VSC_PIPE_DATA_LENGTH_7  0x0C1D
 
+/*registers added in adreno225*/
 #define REG_A225_RB_COLOR_INFO3          0x2005
 #define REG_A225_PC_MULTI_PRIM_IB_RESET_INDX 0x2103
 #define REG_A225_GRAS_UCP0X              0x2340
 #define REG_A225_GRAS_UCP5W              0x2357
 #define REG_A225_GRAS_UCP_ENABLED        0x2360
 
+/* Debug registers used by snapshot */
 #define REG_PA_SU_DEBUG_CNTL            0x0C80
 #define REG_PA_SU_DEBUG_DATA            0x0C81
 #define REG_RB_DEBUG_CNTL               0x0F26
@@ -435,4 +443,4 @@ union reg_cp_rb_cntl {
 #define REG_SQ_DEBUG_MISC_0             0x2309
 #define REG_SQ_DEBUG_MISC_1             0x230A
 
-#endif 
+#endif /* __A200_REG_H */

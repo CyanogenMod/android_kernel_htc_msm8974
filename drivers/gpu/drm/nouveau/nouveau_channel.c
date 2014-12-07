@@ -37,7 +37,7 @@ nouveau_channel_pushbuf_init(struct nouveau_channel *chan)
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	int ret;
 
-	
+	/* allocate buffer object */
 	ret = nouveau_bo_new(dev, 65536, 0, mem, 0, 0, &chan->pushbuf_bo);
 	if (ret)
 		goto out;
@@ -50,6 +50,10 @@ nouveau_channel_pushbuf_init(struct nouveau_channel *chan)
 	if (ret)
 		goto out;
 
+	/* create DMA object covering the entire memtype where the push
+	 * buffer resides, userspace can submit its own push buffers from
+	 * anywhere within the same memtype.
+	 */
 	chan->pushbuf_base = chan->pushbuf_bo->bo.offset;
 	if (dev_priv->card_type >= NV_50) {
 		ret = nouveau_bo_vma_add(chan->pushbuf_bo, chan->vm,
@@ -81,6 +85,10 @@ nouveau_channel_pushbuf_init(struct nouveau_channel *chan)
 					     NV_MEM_TARGET_VRAM,
 					     &chan->pushbuf);
 	} else {
+		/* NV04 cmdbuf hack, from original ddx.. not sure of it's
+		 * exact reason for existing :)  PCI access to cmdbuf in
+		 * VRAM.
+		 */
 		ret = nouveau_gpuobj_dma_new(chan, NV_CLASS_DMA_IN_MEMORY,
 					     pci_resource_start(dev->pdev, 1),
 					     dev_priv->fb_available_size,
@@ -103,6 +111,7 @@ out:
 	return 0;
 }
 
+/* allocates and initializes a fifo for user space consumption */
 int
 nouveau_channel_alloc(struct drm_device *dev, struct nouveau_channel **chan_ret,
 		      struct drm_file *file_priv,
@@ -115,7 +124,7 @@ nouveau_channel_alloc(struct drm_device *dev, struct nouveau_channel **chan_ret,
 	unsigned long flags;
 	int ret, i;
 
-	
+	/* allocate and lock channel structure */
 	chan = kzalloc(sizeof(*chan), GFP_KERNEL);
 	if (!chan)
 		return -ENOMEM;
@@ -129,7 +138,7 @@ nouveau_channel_alloc(struct drm_device *dev, struct nouveau_channel **chan_ret,
 	mutex_init(&chan->mutex);
 	mutex_lock(&chan->mutex);
 
-	
+	/* allocate hw channel id */
 	spin_lock_irqsave(&dev_priv->channels.lock, flags);
 	for (chan->id = 0; chan->id < pfifo->channels; chan->id++) {
 		if (!dev_priv->channels.ptr[chan->id]) {
@@ -151,7 +160,7 @@ nouveau_channel_alloc(struct drm_device *dev, struct nouveau_channel **chan_ret,
 	INIT_LIST_HEAD(&chan->fence.pending);
 	spin_lock_init(&chan->fence.lock);
 
-	
+	/* setup channel's memory and vm */
 	ret = nouveau_gpuobj_channel_init(chan, vram_handle, gart_handle);
 	if (ret) {
 		NV_ERROR(dev, "gpuobj %d\n", ret);
@@ -159,7 +168,7 @@ nouveau_channel_alloc(struct drm_device *dev, struct nouveau_channel **chan_ret,
 		return ret;
 	}
 
-	
+	/* Allocate space for per-channel fixed notifier memory */
 	ret = nouveau_notifier_init_channel(chan);
 	if (ret) {
 		NV_ERROR(dev, "ntfy %d\n", ret);
@@ -167,7 +176,7 @@ nouveau_channel_alloc(struct drm_device *dev, struct nouveau_channel **chan_ret,
 		return ret;
 	}
 
-	
+	/* Allocate DMA push buffer */
 	ret = nouveau_channel_pushbuf_init(chan);
 	if (ret) {
 		NV_ERROR(dev, "pushbuf %d\n", ret);
@@ -181,10 +190,10 @@ nouveau_channel_alloc(struct drm_device *dev, struct nouveau_channel **chan_ret,
 	if (dev_priv->card_type >= NV_50)
                 chan->user_get_hi = 0x60;
 
-	
+	/* disable the fifo caches */
 	pfifo->reassign(dev, false);
 
-	
+	/* Construct initial RAMFC for new channel */
 	ret = pfifo->create_context(chan);
 	if (ret) {
 		nouveau_channel_put(&chan);
@@ -193,7 +202,7 @@ nouveau_channel_alloc(struct drm_device *dev, struct nouveau_channel **chan_ret,
 
 	pfifo->reassign(dev, true);
 
-	
+	/* Insert NOPs for NOUVEAU_DMA_SKIPS */
 	ret = RING_SPACE(chan, NOUVEAU_DMA_SKIPS);
 	if (ret) {
 		nouveau_channel_put(&chan);
@@ -263,25 +272,29 @@ nouveau_channel_put_unlocked(struct nouveau_channel **pchan)
 	unsigned long flags;
 	int i;
 
-	
+	/* decrement the refcount, and we're done if there's still refs */
 	if (likely(!atomic_dec_and_test(&chan->users))) {
 		nouveau_channel_ref(NULL, pchan);
 		return;
 	}
 
-	
+	/* no one wants the channel anymore */
 	NV_DEBUG(dev, "freeing channel %d\n", chan->id);
 	nouveau_debugfs_channel_fini(chan);
 
-	
+	/* give it chance to idle */
 	nouveau_channel_idle(chan);
 
+	/* ensure all outstanding fences are signaled.  they should be if the
+	 * above attempts at idling were OK, but if we failed this'll tell TTM
+	 * we're done with the buffers.
+	 */
 	nouveau_fence_channel_fini(chan);
 
-	
+	/* boot it off the hardware */
 	pfifo->reassign(dev, false);
 
-	
+	/* destroy the engine specific contexts */
 	pfifo->destroy_context(chan);
 	for (i = 0; i < NVOBJ_ENGINE_NR; i++) {
 		if (chan->engctx[i])
@@ -290,11 +303,14 @@ nouveau_channel_put_unlocked(struct nouveau_channel **pchan)
 
 	pfifo->reassign(dev, true);
 
+	/* aside from its resources, the channel should now be dead,
+	 * remove it from the channel list
+	 */
 	spin_lock_irqsave(&dev_priv->channels.lock, flags);
 	nouveau_channel_ref(NULL, &dev_priv->channels.ptr[chan->id]);
 	spin_unlock_irqrestore(&dev_priv->channels.lock, flags);
 
-	
+	/* destroy any resources the channel owned */
 	nouveau_gpuobj_ref(NULL, &chan->pushbuf);
 	if (chan->pushbuf_bo) {
 		nouveau_bo_vma_del(chan->pushbuf_bo, &chan->pushbuf_vma);
@@ -359,6 +375,7 @@ nouveau_channel_idle(struct nouveau_channel *chan)
 	}
 }
 
+/* cleans up all the fifos from file_priv */
 void
 nouveau_channel_cleanup(struct drm_device *dev, struct drm_file *file_priv)
 {
@@ -380,6 +397,9 @@ nouveau_channel_cleanup(struct drm_device *dev, struct drm_file *file_priv)
 }
 
 
+/***********************************
+ * ioctls wrapping the functions
+ ***********************************/
 
 static int
 nouveau_ioctl_fifo_alloc(struct drm_device *dev, void *data,
@@ -423,12 +443,12 @@ nouveau_ioctl_fifo_alloc(struct drm_device *dev, void *data,
 		init->nr_subchan = 2;
 	}
 
-	
+	/* Named memory object area */
 	ret = drm_gem_handle_create(file_priv, chan->notifier_bo->gem,
 				    &init->notifier_handle);
 
 	if (ret == 0)
-		atomic_inc(&chan->users); 
+		atomic_inc(&chan->users); /* userspace reference */
 	nouveau_channel_put(&chan);
 	return ret;
 }
@@ -450,6 +470,9 @@ nouveau_ioctl_fifo_free(struct drm_device *dev, void *data,
 	return 0;
 }
 
+/***********************************
+ * finally, the ioctl table
+ ***********************************/
 
 struct drm_ioctl_desc nouveau_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(NOUVEAU_GETPARAM, nouveau_ioctl_getparam, DRM_UNLOCKED|DRM_AUTH),

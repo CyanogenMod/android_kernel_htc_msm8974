@@ -18,8 +18,10 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 
+/* the name of this kernel module */
 #define NAME "stu300"
 
+/* CR (Control Register) 8bit (R/W) */
 #define I2C_CR					(0x00000000)
 #define I2C_CR_RESET_VALUE			(0x00)
 #define I2C_CR_RESET_UMASK			(0x00)
@@ -31,6 +33,7 @@
 #define I2C_CR_ACK_ENABLE			(0x04)
 #define I2C_CR_STOP_ENABLE			(0x02)
 #define I2C_CR_INTERRUPT_ENABLE			(0x01)
+/* SR1 (Status Register 1) 8bit (R/-) */
 #define I2C_SR1					(0x00000004)
 #define I2C_SR1_RESET_VALUE			(0x00)
 #define I2C_SR1_RESET_UMASK			(0x00)
@@ -42,6 +45,7 @@
 #define I2C_SR1_ADSL_IND			(0x04)
 #define I2C_SR1_MSL_IND				(0x02)
 #define I2C_SR1_SB_IND				(0x01)
+/* SR2 (Status Register 2) 8bit (R/-) */
 #define I2C_SR2					(0x00000008)
 #define I2C_SR2_RESET_VALUE			(0x00)
 #define I2C_SR2_RESET_UMASK			(0x40)
@@ -53,16 +57,19 @@
 #define I2C_SR2_ARLO_IND			(0x04)
 #define I2C_SR2_BERR_IND			(0x02)
 #define I2C_SR2_DDC2BF_IND			(0x01)
+/* CCR (Clock Control Register) 8bit (R/W) */
 #define I2C_CCR					(0x0000000C)
 #define I2C_CCR_RESET_VALUE			(0x00)
 #define I2C_CCR_RESET_UMASK			(0x00)
 #define I2C_CCR_MASK				(0xFF)
 #define I2C_CCR_FMSM				(0x80)
 #define I2C_CCR_CC_MASK				(0x7F)
+/* OAR1 (Own Address Register 1) 8bit (R/W) */
 #define I2C_OAR1				(0x00000010)
 #define I2C_OAR1_RESET_VALUE			(0x00)
 #define I2C_OAR1_RESET_UMASK			(0x00)
 #define I2C_OAR1_ADD_MASK			(0xFF)
+/* OAR2 (Own Address Register 2) 8bit (R/W) */
 #define I2C_OAR2				(0x00000014)
 #define I2C_OAR2_RESET_VALUE			(0x40)
 #define I2C_OAR2_RESET_UMASK			(0x19)
@@ -77,16 +84,23 @@
 #define I2C_OAR2_FR_80_100MHZ			(0xE0)
 #define I2C_OAR2_FR_MASK			(0xE0)
 #define I2C_OAR2_ADD_MASK			(0x06)
+/* DR (Data Register) 8bit (R/W) */
 #define I2C_DR					(0x00000018)
 #define I2C_DR_RESET_VALUE			(0x00)
 #define I2C_DR_RESET_UMASK			(0xFF)
 #define I2C_DR_D_MASK				(0xFF)
+/* ECCR (Extended Clock Control Register) 8bit (R/W) */
 #define I2C_ECCR				(0x0000001C)
 #define I2C_ECCR_RESET_VALUE			(0x00)
 #define I2C_ECCR_RESET_UMASK			(0xE0)
 #define I2C_ECCR_MASK				(0x1F)
 #define I2C_ECCR_CC_MASK			(0x1F)
 
+/*
+ * These events are more or less responses to commands
+ * sent into the hardware, presumably reflecting the state
+ * of an internal state machine.
+ */
 enum stu300_event {
 	STU300_EVENT_NONE = 0,
 	STU300_EVENT_1,
@@ -108,13 +122,35 @@ enum stu300_error {
 	STU300_ERROR_UNKNOWN
 };
 
+/* timeout waiting for the controller to respond */
 #define STU300_TIMEOUT (msecs_to_jiffies(1000))
 
+/*
+ * The number of address send athemps tried before giving up.
+ * If the first one failes it seems like 5 to 8 attempts are required.
+ */
 #define NUM_ADDR_RESEND_ATTEMPTS 12
 
+/* I2C clock speed, in Hz 0-400kHz*/
 static unsigned int scl_frequency = 100000;
 module_param(scl_frequency, uint,  0644);
 
+/**
+ * struct stu300_dev - the stu300 driver state holder
+ * @pdev: parent platform device
+ * @adapter: corresponding I2C adapter
+ * @phybase: location of I/O area in memory
+ * @physize: size of I/O area in memory
+ * @clk: hardware block clock
+ * @irq: assigned interrupt line
+ * @cmd_issue_lock: this locks the following cmd_ variables
+ * @cmd_complete: acknowledge completion for an I2C command
+ * @cmd_event: expected event coming in as a response to a command
+ * @cmd_err: error code as response to a command
+ * @speed: current bus speed in Hz
+ * @msg_index: index of current message
+ * @msg_len: length of current message
+ */
 
 struct stu300_dev {
 	struct platform_device	*pdev;
@@ -133,13 +169,23 @@ struct stu300_dev {
 	int			msg_len;
 };
 
+/* Local forward function declarations */
 static int stu300_init_hw(struct stu300_dev *dev);
 
+/*
+ * The block needs writes in both MSW and LSW in order
+ * for all data lines to reach their destination.
+ */
 static inline void stu300_wr8(u32 value, void __iomem *address)
 {
 	writel((value << 16) | value, address);
 }
 
+/*
+ * This merely masks off the duplicates which appear
+ * in bytes 1-3. You _MUST_ use 32-bit bus access on this
+ * device, else it will not work.
+ */
 static inline u32 stu300_r8(void __iomem *address)
 {
 	return readl(address) & 0x000000FFU;
@@ -150,7 +196,7 @@ static void stu300_irq_enable(struct stu300_dev *dev)
 	u32 val;
 	val = stu300_r8(dev->virtbase + I2C_CR);
 	val |= I2C_CR_INTERRUPT_ENABLE;
-	
+	/* Twice paranoia (possible HW glitch) */
 	stu300_wr8(val, dev->virtbase + I2C_CR);
 	stu300_wr8(val, dev->virtbase + I2C_CR);
 }
@@ -160,31 +206,42 @@ static void stu300_irq_disable(struct stu300_dev *dev)
 	u32 val;
 	val = stu300_r8(dev->virtbase + I2C_CR);
 	val &= ~I2C_CR_INTERRUPT_ENABLE;
-	
+	/* Twice paranoia (possible HW glitch) */
 	stu300_wr8(val, dev->virtbase + I2C_CR);
 	stu300_wr8(val, dev->virtbase + I2C_CR);
 }
 
 
+/*
+ * Tells whether a certain event or events occurred in
+ * response to a command. The events represent states in
+ * the internal state machine of the hardware. The events
+ * are not very well described in the hardware
+ * documentation and can only be treated as abstract state
+ * machine states.
+ *
+ * @ret 0 = event has not occurred or unknown error, any
+ * other value means the correct event occurred or an error.
+ */
 
 static int stu300_event_occurred(struct stu300_dev *dev,
 				   enum stu300_event mr_event) {
 	u32 status1;
 	u32 status2;
 
-	
+	/* What event happened? */
 	status1 = stu300_r8(dev->virtbase + I2C_SR1);
 
 	if (!(status1 & I2C_SR1_EVF_IND))
-		
+		/* No event at all */
 		return 0;
 
 	status2 = stu300_r8(dev->virtbase + I2C_SR2);
 
-	
+	/* Block any multiple interrupts */
 	stu300_irq_disable(dev);
 
-	
+	/* Check for errors first */
 	if (status2 & I2C_SR2_AF_IND) {
 		dev->cmd_err = STU300_ERROR_ACKNOWLEDGE_FAILURE;
 		return 1;
@@ -215,12 +272,12 @@ static int stu300_event_occurred(struct stu300_dev *dev,
 		break;
 	case STU300_EVENT_5:
 		if (status1 & I2C_SR1_SB_IND)
-			
+			/* Clear start bit */
 			return 1;
 		break;
 	case STU300_EVENT_6:
 		if (status2 & I2C_SR2_ENDAD_IND) {
-			
+			/* First check for any errors */
 			return 1;
 		}
 		break;
@@ -231,6 +288,11 @@ static int stu300_event_occurred(struct stu300_dev *dev,
 	default:
 		break;
 	}
+	/* If we get here, we're on thin ice.
+	 * Here we are in a status where we have
+	 * gotten a response that does not match
+	 * what we requested.
+	 */
 	dev->cmd_err = STU300_ERROR_UNKNOWN;
 	dev_err(&dev->pdev->dev,
 		"Unhandled interrupt! %d sr1: 0x%x sr2: 0x%x\n",
@@ -243,10 +305,10 @@ static irqreturn_t stu300_irh(int irq, void *data)
 	struct stu300_dev *dev = data;
 	int res;
 
-	
+	/* Just make sure that the block is clocked */
 	clk_enable(dev->clk);
 
-	
+	/* See if this was what we were waiting for */
 	spin_lock(&dev->cmd_issue_lock);
 
 	res = stu300_event_occurred(dev, dev->cmd_event);
@@ -260,6 +322,10 @@ static irqreturn_t stu300_irh(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Sends a command and then waits for the bits masked by *flagmask*
+ * to go high or low by IRQ awaiting.
+ */
 static int stu300_start_and_await_event(struct stu300_dev *dev,
 					  u8 cr_value,
 					  enum stu300_event mr_event)
@@ -267,19 +333,19 @@ static int stu300_start_and_await_event(struct stu300_dev *dev,
 	int ret;
 
 	if (unlikely(irqs_disabled())) {
-		
+		/* TODO: implement polling for this case if need be. */
 		WARN(1, "irqs are disabled, cannot poll for event\n");
 		return -EIO;
 	}
 
-	
+	/* Lock command issue, fill in an event we wait for */
 	spin_lock_irq(&dev->cmd_issue_lock);
 	init_completion(&dev->cmd_complete);
 	dev->cmd_err = STU300_ERROR_NONE;
 	dev->cmd_event = mr_event;
 	spin_unlock_irq(&dev->cmd_issue_lock);
 
-	
+	/* Turn on interrupt, send command and wait. */
 	cr_value |= I2C_CR_INTERRUPT_ENABLE;
 	stu300_wr8(cr_value, dev->virtbase + I2C_CR);
 	ret = wait_for_completion_interruptible_timeout(&dev->cmd_complete,
@@ -309,29 +375,33 @@ static int stu300_start_and_await_event(struct stu300_dev *dev,
 	return 0;
 }
 
+/*
+ * This waits for a flag to be set, if it is not set on entry, an interrupt is
+ * configured to wait for the flag using a completion.
+ */
 static int stu300_await_event(struct stu300_dev *dev,
 				enum stu300_event mr_event)
 {
 	int ret;
 
 	if (unlikely(irqs_disabled())) {
-		
+		/* TODO: implement polling for this case if need be. */
 		dev_err(&dev->pdev->dev, "irqs are disabled on this "
 			"system!\n");
 		return -EIO;
 	}
 
-	
+	/* Is it already here? */
 	spin_lock_irq(&dev->cmd_issue_lock);
 	dev->cmd_err = STU300_ERROR_NONE;
 	dev->cmd_event = mr_event;
 
 	init_completion(&dev->cmd_complete);
 
-	
+	/* Turn on the I2C interrupt for current operation */
 	stu300_irq_enable(dev);
 
-	
+	/* Unlock the command block and wait for the event to occur */
 	spin_unlock_irq(&dev->cmd_issue_lock);
 
 	ret = wait_for_completion_interruptible_timeout(&dev->cmd_complete,
@@ -366,6 +436,9 @@ static int stu300_await_event(struct stu300_dev *dev,
 	return 0;
 }
 
+/*
+ * Waits for the busy bit to go low by repeated polling.
+ */
 #define BUSY_RELEASE_ATTEMPTS 10
 static int stu300_wait_while_busy(struct stu300_dev *dev)
 {
@@ -376,7 +449,7 @@ static int stu300_wait_while_busy(struct stu300_dev *dev)
 		timeout = jiffies + STU300_TIMEOUT;
 
 		while (!time_after(jiffies, timeout)) {
-			
+			/* Is not busy? */
 			if ((stu300_r8(dev->virtbase + I2C_SR1) &
 			     I2C_SR1_BUSY_IND) == 0)
 				return 0;
@@ -424,7 +497,7 @@ static int stu300_set_clk(struct stu300_dev *dev, unsigned long clkrate)
 	u32 val;
 	int i = 0;
 
-	
+	/* Locate the appropriate clock setting */
 	while (i < ARRAY_SIZE(stu300_clktable) - 1 &&
 	       stu300_clktable[i].rate < clkrate)
 		i++;
@@ -442,20 +515,20 @@ static int stu300_set_clk(struct stu300_dev *dev, unsigned long clkrate)
 		"virtbase %p\n", clkrate, dev->speed, dev->virtbase);
 
 	if (dev->speed > 100000)
-		
+		/* Fast Mode I2C */
 		val = ((clkrate/dev->speed) - 9)/3 + 1;
 	else
-		
+		/* Standard Mode I2C */
 		val = ((clkrate/dev->speed) - 7)/2 + 1;
 
-	
+	/* According to spec the divider must be > 2 */
 	if (val < 0x002) {
 		dev_err(&dev->pdev->dev, "too low clock rate (%lu Hz).\n",
 			clkrate);
 		return -EINVAL;
 	}
 
-	
+	/* We have 12 bits clock divider only! */
 	if (val & 0xFFFFF000U) {
 		dev_err(&dev->pdev->dev, "too high clock rate (%lu Hz).\n",
 			clkrate);
@@ -463,20 +536,20 @@ static int stu300_set_clk(struct stu300_dev *dev, unsigned long clkrate)
 	}
 
 	if (dev->speed > 100000) {
-		
+		/* CC6..CC0 */
 		stu300_wr8((val & I2C_CCR_CC_MASK) | I2C_CCR_FMSM,
 			   dev->virtbase + I2C_CCR);
 		dev_dbg(&dev->pdev->dev, "set clock divider to 0x%08x, "
 			"Fast Mode I2C\n", val);
 	} else {
-		
+		/* CC6..CC0 */
 		stu300_wr8((val & I2C_CCR_CC_MASK),
 			   dev->virtbase + I2C_CCR);
 		dev_dbg(&dev->pdev->dev, "set clock divider to "
 			"0x%08x, Standard Mode I2C\n", val);
 	}
 
-	
+	/* CC11..CC7 */
 	stu300_wr8(((val >> 7) & 0x1F),
 		   dev->virtbase + I2C_ECCR);
 
@@ -490,19 +563,34 @@ static int stu300_init_hw(struct stu300_dev *dev)
 	unsigned long clkrate;
 	int ret;
 
-	
+	/* Disable controller */
 	stu300_wr8(0x00, dev->virtbase + I2C_CR);
+	/*
+	 * Set own address to some default value (0x00).
+	 * We do not support slave mode anyway.
+	 */
 	stu300_wr8(0x00, dev->virtbase + I2C_OAR1);
+	/*
+	 * The I2C controller only operates properly in 26 MHz but we
+	 * program this driver as if we didn't know. This will also set the two
+	 * high bits of the own address to zero as well.
+	 * There is no known hardware issue with running in 13 MHz
+	 * However, speeds over 200 kHz are not used.
+	 */
 	clkrate = clk_get_rate(dev->clk);
 	ret = stu300_set_clk(dev, clkrate);
 
 	if (ret)
 		return ret;
+	/*
+	 * Enable block, do it TWICE (hardware glitch)
+	 * Setting bit 7 can enable DDC mode. (Not used currently.)
+	 */
 	stu300_wr8(I2C_CR_PERIPHERAL_ENABLE,
 				  dev->virtbase + I2C_CR);
 	stu300_wr8(I2C_CR_PERIPHERAL_ENABLE,
 				  dev->virtbase + I2C_CR);
-	
+	/* Make a dummy read of the status register SR1 & SR2 */
 	dummy = stu300_r8(dev->virtbase + I2C_SR2);
 	dummy = stu300_r8(dev->virtbase + I2C_SR1);
 
@@ -511,6 +599,7 @@ static int stu300_init_hw(struct stu300_dev *dev)
 
 
 
+/* Send slave address. */
 static int stu300_send_address(struct stu300_dev *dev,
 				 struct i2c_msg *msg, int resend)
 {
@@ -518,14 +607,14 @@ static int stu300_send_address(struct stu300_dev *dev,
 	int ret;
 
 	if (msg->flags & I2C_M_TEN)
-		
+		/* This is probably how 10 bit addresses look */
 		val = (0xf0 | (((u32) msg->addr & 0x300) >> 7)) &
 			I2C_DR_D_MASK;
 	else
 		val = ((msg->addr << 1) & I2C_DR_D_MASK);
 
 	if (msg->flags & I2C_M_RD) {
-		
+		/* This is the direction bit */
 		val |= 0x01;
 		if (resend)
 			dev_dbg(&dev->pdev->dev, "read resend\n");
@@ -533,20 +622,31 @@ static int stu300_send_address(struct stu300_dev *dev,
 		dev_dbg(&dev->pdev->dev, "write resend\n");
 	stu300_wr8(val, dev->virtbase + I2C_DR);
 
-	
+	/* For 10bit addressing, await 10bit request (EVENT 9) */
 	if (msg->flags & I2C_M_TEN) {
 		ret = stu300_await_event(dev, STU300_EVENT_9);
+		/*
+		 * The slave device wants a 10bit address, send the rest
+		 * of the bits (the LSBits)
+		 */
 		val = msg->addr & I2C_DR_D_MASK;
-		
+		/* This clears "event 9" */
 		stu300_wr8(val, dev->virtbase + I2C_DR);
 		if (ret != 0)
 			return ret;
 	}
+	/* FIXME: Why no else here? two events for 10bit?
+	 * Await event 6 (normal) or event 9 (10bit)
+	 */
 
 	if (resend)
 		dev_dbg(&dev->pdev->dev, "await event 6\n");
 	ret = stu300_await_event(dev, STU300_EVENT_6);
 
+	/*
+	 * Clear any pending EVENT 6 no matter what happened during
+	 * await_event.
+	 */
 	val = stu300_r8(dev->virtbase + I2C_CR);
 	val |= I2C_CR_PERIPHERAL_ENABLE;
 	stu300_wr8(val, dev->virtbase + I2C_CR);
@@ -566,42 +666,52 @@ static int stu300_xfer_msg(struct i2c_adapter *adap,
 
 	clk_enable(dev->clk);
 
-	
+	/* Remove this if (0) to trace each and every message. */
 	if (0) {
 		dev_dbg(&dev->pdev->dev, "I2C message to: 0x%04x, len: %d, "
 			"flags: 0x%04x, stop: %d\n",
 			msg->addr, msg->len, msg->flags, stop);
 	}
 
-	
+	/* Zero-length messages are not supported by this hardware */
 	if (msg->len == 0) {
 		ret = -EINVAL;
 		goto exit_disable;
 	}
 
+	/*
+	 * For some reason, sending the address sometimes fails when running
+	 * on  the 13 MHz clock. No interrupt arrives. This is a work around,
+	 * which tries to restart and send the address up to 10 times before
+	 * really giving up. Usually 5 to 8 attempts are enough.
+	 */
 	do {
 		if (attempts)
 			dev_dbg(&dev->pdev->dev, "wait while busy\n");
-		
+		/* Check that the bus is free, or wait until some timeout */
 		ret = stu300_wait_while_busy(dev);
 		if (ret != 0)
 			goto exit_disable;
 
 		if (attempts)
 			dev_dbg(&dev->pdev->dev, "re-int hw\n");
+		/*
+		 * According to ST, there is no problem if the clock is
+		 * changed between 13 and 26 MHz during a transfer.
+		 */
 		ret = stu300_init_hw(dev);
 		if (ret)
 			goto exit_disable;
 
-		
+		/* Send a start condition */
 		cr = I2C_CR_PERIPHERAL_ENABLE;
-		
+		/* Setting the START bit puts the block in master mode */
 		if (!(msg->flags & I2C_M_NOSTART))
 			cr |= I2C_CR_START_ENABLE;
 		if ((msg->flags & I2C_M_RD) && (msg->len > 1))
-			
+			/* On read more than 1 byte, we need ack. */
 			cr |= I2C_CR_ACK_ENABLE;
-		
+		/* Check that it gets through */
 		if (!(msg->flags & I2C_M_NOSTART)) {
 			if (attempts)
 				dev_dbg(&dev->pdev->dev, "send start event\n");
@@ -613,7 +723,7 @@ static int stu300_xfer_msg(struct i2c_adapter *adap,
 			dev_dbg(&dev->pdev->dev, "send address\n");
 
 		if (ret == 0)
-			
+			/* Send address */
 			ret = stu300_send_address(dev, msg, attempts != 0);
 
 		if (ret != 0) {
@@ -637,9 +747,13 @@ static int stu300_xfer_msg(struct i2c_adapter *adap,
 
 
 	if (msg->flags & I2C_M_RD) {
-		
+		/* READ: we read the actual bytes one at a time */
 		for (i = 0; i < msg->len; i++) {
 			if (i == msg->len-1) {
+				/*
+				 * Disable ACK and set STOP condition before
+				 * reading last byte
+				 */
 				val = I2C_CR_PERIPHERAL_ENABLE;
 
 				if (stop)
@@ -648,29 +762,29 @@ static int stu300_xfer_msg(struct i2c_adapter *adap,
 				stu300_wr8(val,
 					   dev->virtbase + I2C_CR);
 			}
-			
+			/* Wait for this byte... */
 			ret = stu300_await_event(dev, STU300_EVENT_7);
 			if (ret != 0)
 				goto exit_disable;
-			
+			/* This clears event 7 */
 			msg->buf[i] = (u8) stu300_r8(dev->virtbase + I2C_DR);
 		}
 	} else {
-		
+		/* WRITE: we send the actual bytes one at a time */
 		for (i = 0; i < msg->len; i++) {
-			
+			/* Write the byte */
 			stu300_wr8(msg->buf[i],
 				   dev->virtbase + I2C_DR);
-			
+			/* Check status */
 			ret = stu300_await_event(dev, STU300_EVENT_8);
-			
+			/* Next write to DR will clear event 8 */
 			if (ret != 0) {
 				dev_err(&dev->pdev->dev, "error awaiting "
 				       "event 8 (%d)\n", ret);
 				goto exit_disable;
 			}
 		}
-		
+		/* Check NAK */
 		if (!(msg->flags & I2C_M_IGNORE_NAK)) {
 			if (stu300_r8(dev->virtbase + I2C_SR2) &
 			    I2C_SR2_AF_IND) {
@@ -681,14 +795,14 @@ static int stu300_xfer_msg(struct i2c_adapter *adap,
 			}
 		}
 		if (stop) {
-			
+			/* Send stop condition */
 			val = I2C_CR_PERIPHERAL_ENABLE;
 			val |= I2C_CR_STOP_ENABLE;
 			stu300_wr8(val, dev->virtbase + I2C_CR);
 		}
 	}
 
-	
+	/* Check that the bus is free, or wait until some timeout occurs */
 	ret = stu300_wait_while_busy(dev);
 	if (ret != 0) {
 		dev_err(&dev->pdev->dev, "timout waiting for transfer "
@@ -696,13 +810,13 @@ static int stu300_xfer_msg(struct i2c_adapter *adap,
 		goto exit_disable;
 	}
 
-	
+	/* Dummy read status registers */
 	val = stu300_r8(dev->virtbase + I2C_SR2);
 	val = stu300_r8(dev->virtbase + I2C_SR1);
 	ret = 0;
 
  exit_disable:
-	
+	/* Disable controller */
 	stu300_wr8(0x00, dev->virtbase + I2C_CR);
 	clk_disable(dev->clk);
 	return ret;
@@ -718,6 +832,13 @@ static int stu300_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	dev->msg_len = num;
 
 	for (i = 0; i < num; i++) {
+		/*
+		 * Another driver appears to send stop for each message,
+		 * here we only do that for the last message. Possibly some
+		 * peripherals require this behaviour, then their drivers
+		 * have to send single messages in order to get "stop" for
+		 * each message.
+		 */
 		dev->msg_index = i;
 
 		ret = stu300_xfer_msg(adap, &msgs[i], (i == (num - 1)));
@@ -733,7 +854,7 @@ static int stu300_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 
 static u32 stu300_func(struct i2c_adapter *adap)
 {
-	
+	/* This is the simplest thing you can think of... */
 	return I2C_FUNC_I2C | I2C_FUNC_10BIT_ADDR;
 }
 
@@ -812,14 +933,14 @@ stu300_probe(struct platform_device *pdev)
 		goto err_init_hw;
 	}
 
-	
+	/* IRQ event handling initialization */
 	spin_lock_init(&dev->cmd_issue_lock);
 	dev->cmd_event = STU300_EVENT_NONE;
 	dev->cmd_err = STU300_ERROR_NONE;
 
 	adap = &dev->adapter;
 	adap->owner = THIS_MODULE;
-	
+	/* DDC class but actually often used for more generic I2C */
 	adap->class = I2C_CLASS_DDC;
 	strlcpy(adap->name, "ST Microelectronics DDC I2C adapter",
 		sizeof(adap->name));
@@ -828,7 +949,7 @@ stu300_probe(struct platform_device *pdev)
 	adap->dev.parent = &pdev->dev;
 	i2c_set_adapdata(adap, dev);
 
-	
+	/* i2c device drivers may be active on return from add_adapter() */
 	ret = i2c_add_numbered_adapter(adap);
 	if (ret) {
 		dev_err(&dev->pdev->dev, "failure adding ST Micro DDC "
@@ -861,7 +982,7 @@ static int stu300_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct stu300_dev *dev = platform_get_drvdata(pdev);
 
-	
+	/* Turn off everything */
 	stu300_wr8(0x00, dev->virtbase + I2C_CR);
 	return 0;
 }
@@ -890,7 +1011,7 @@ stu300_remove(struct platform_device *pdev)
 	struct stu300_dev *dev = platform_get_drvdata(pdev);
 
 	i2c_del_adapter(&dev->adapter);
-	
+	/* Turn off everything */
 	stu300_wr8(0x00, dev->virtbase + I2C_CR);
 	free_irq(dev->irq, dev);
 	iounmap(dev->virtbase);
@@ -922,6 +1043,11 @@ static void __exit stu300_exit(void)
 	platform_driver_unregister(&stu300_i2c_driver);
 }
 
+/*
+ * The systems using this bus often have very basic devices such
+ * as regulators on the I2C bus, so this needs to be loaded early.
+ * Therefore it is registered in the subsys_initcall().
+ */
 subsys_initcall(stu300_init);
 module_exit(stu300_exit);
 

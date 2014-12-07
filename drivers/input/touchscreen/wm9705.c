@@ -26,59 +26,127 @@
 #define WM9705_VERSION		"1.00"
 #define DEFAULT_PRESSURE	0xb0c0
 
+/*
+ * Module parameters
+ */
 
+/*
+ * Set current used for pressure measurement.
+ *
+ * Set pil = 2 to use 400uA
+ *     pil = 1 to use 200uA and
+ *     pil = 0 to disable pressure measurement.
+ *
+ * This is used to increase the range of values returned by the adc
+ * when measureing touchpanel pressure.
+ */
 static int pil;
 module_param(pil, int, 0);
 MODULE_PARM_DESC(pil, "Set current used for pressure measurement.");
 
+/*
+ * Set threshold for pressure measurement.
+ *
+ * Pen down pressure below threshold is ignored.
+ */
 static int pressure = DEFAULT_PRESSURE & 0xfff;
 module_param(pressure, int, 0);
 MODULE_PARM_DESC(pressure, "Set threshold for pressure measurement.");
 
+/*
+ * Set adc sample delay.
+ *
+ * For accurate touchpanel measurements, some settling time may be
+ * required between the switch matrix applying a voltage across the
+ * touchpanel plate and the ADC sampling the signal.
+ *
+ * This delay can be set by setting delay = n, where n is the array
+ * position of the delay in the array delay_table below.
+ * Long delays > 1ms are supported for completeness, but are not
+ * recommended.
+ */
 static int delay = 4;
 module_param(delay, int, 0);
 MODULE_PARM_DESC(delay, "Set adc sample delay.");
 
+/*
+ * Pen detect comparator threshold.
+ *
+ * 0 to Vmid in 15 steps, 0 = use zero power comparator with Vmid threshold
+ * i.e. 1 =  Vmid/15 threshold
+ *      15 =  Vmid/1 threshold
+ *
+ * Adjust this value if you are having problems with pen detect not
+ * detecting any down events.
+ */
 static int pdd = 8;
 module_param(pdd, int, 0);
 MODULE_PARM_DESC(pdd, "Set pen detect comparator threshold");
 
+/*
+ * Set adc mask function.
+ *
+ * Sources of glitch noise, such as signals driving an LCD display, may feed
+ * through to the touch screen plates and affect measurement accuracy. In
+ * order to minimise this, a signal may be applied to the MASK pin to delay or
+ * synchronise the sampling.
+ *
+ * 0 = No delay or sync
+ * 1 = High on pin stops conversions
+ * 2 = Edge triggered, edge on pin delays conversion by delay param (above)
+ * 3 = Edge triggered, edge on pin starts conversion after delay param
+ */
 static int mask;
 module_param(mask, int, 0);
 MODULE_PARM_DESC(mask, "Set adc mask function.");
 
+/*
+ * ADC sample delay times in uS
+ */
 static const int delay_table[] = {
-	21,    
-	42,    
-	84,    
-	167,   
-	333,   
-	667,   
-	1000,  
-	1333,  
-	2000,  
-	2667,  
-	3333,  
-	4000,  
-	4667,  
-	5333,  
-	6000,  
-	0      
+	21,    /* 1 AC97 Link frames */
+	42,    /* 2                  */
+	84,    /* 4                  */
+	167,   /* 8                  */
+	333,   /* 16                 */
+	667,   /* 32                 */
+	1000,  /* 48                 */
+	1333,  /* 64                 */
+	2000,  /* 96                 */
+	2667,  /* 128                */
+	3333,  /* 160                */
+	4000,  /* 192                */
+	4667,  /* 224                */
+	5333,  /* 256                */
+	6000,  /* 288                */
+	0      /* No delay, switch matrix always on */
 };
 
+/*
+ * Delay after issuing a POLL command.
+ *
+ * The delay is 3 AC97 link frames + the touchpanel settling delay
+ */
 static inline void poll_delay(int d)
 {
 	udelay(3 * AC97_LINK_FRAME + delay_table[d]);
 }
 
+/*
+ * set up the physical settings of the WM9705
+ */
 static void wm9705_phy_init(struct wm97xx *wm)
 {
 	u16 dig1 = 0, dig2 = WM97XX_RPR;
 
+	/*
+	* mute VIDEO and AUX as they share X and Y touchscreen
+	* inputs on the WM9705
+	*/
 	wm97xx_reg_write(wm, AC97_AUX, 0x8000);
 	wm97xx_reg_write(wm, AC97_VIDEO, 0x8000);
 
-	
+	/* touchpanel pressure current*/
 	if (pil == 2) {
 		dig2 |= WM9705_PIL;
 		dev_dbg(wm->dev,
@@ -89,7 +157,7 @@ static void wm9705_phy_init(struct wm97xx *wm)
 	if (!pil)
 		pressure = 0;
 
-	
+	/* polling mode sample settling delay */
 	if (delay != 4) {
 		if (delay < 0 || delay > 15) {
 			dev_dbg(wm->dev, "supplied delay out of range.");
@@ -101,11 +169,11 @@ static void wm9705_phy_init(struct wm97xx *wm)
 	dev_dbg(wm->dev, "setting adc sample delay to %d u Secs.",
 		delay_table[delay]);
 
-	
+	/* WM9705 pdd */
 	dig2 |= (pdd & 0x000f);
 	dev_dbg(wm->dev, "setting pdd to Vmid/%d", 1 - (pdd & 0x000f));
 
-	
+	/* mask */
 	dig2 |= ((mask & 0x3) << 4);
 
 	wm97xx_reg_write(wm, AC97_WM97XX_DIGITISER1, dig1);
@@ -117,7 +185,7 @@ static void wm9705_dig_enable(struct wm97xx *wm, int enable)
 	if (enable) {
 		wm97xx_reg_write(wm, AC97_WM97XX_DIGITISER2,
 				 wm->dig[2] | WM97XX_PRP_DET_DIG);
-		wm97xx_reg_read(wm, AC97_WM97XX_DIGITISER_RD); 
+		wm97xx_reg_read(wm, AC97_WM97XX_DIGITISER_RD); /* dummy read */
 	} else
 		wm97xx_reg_write(wm, AC97_WM97XX_DIGITISER2,
 				 wm->dig[2] & ~WM97XX_PRP_DET_DIG);
@@ -141,6 +209,9 @@ static inline int is_pden(struct wm97xx *wm)
 	return wm->dig[2] & WM9705_PDEN;
 }
 
+/*
+ * Read a sample from the WM9705 adc in polling mode.
+ */
 static int wm9705_poll_sample(struct wm97xx *wm, int adcsel, int *sample)
 {
 	int timeout = 5 * delay;
@@ -153,16 +224,16 @@ static int wm9705_poll_sample(struct wm97xx *wm, int adcsel, int *sample)
 		wm->pen_probably_down = 1;
 	}
 
-	
+	/* set up digitiser */
 	if (wm->mach_ops && wm->mach_ops->pre_sample)
 		wm->mach_ops->pre_sample(adcsel);
 	wm97xx_reg_write(wm, AC97_WM97XX_DIGITISER1, (adcsel & WM97XX_ADCSEL_MASK)
 				| WM97XX_POLL | WM97XX_DELAY(delay));
 
-	
+	/* wait 3 AC97 time slots + delay for conversion */
 	poll_delay(delay);
 
-	
+	/* wait for POLL to go low */
 	while ((wm97xx_reg_read(wm, AC97_WM97XX_DIGITISER1) & WM97XX_POLL)
 	       && timeout) {
 		udelay(AC97_LINK_FRAME);
@@ -170,7 +241,7 @@ static int wm9705_poll_sample(struct wm97xx *wm, int adcsel, int *sample)
 	}
 
 	if (timeout == 0) {
-		
+		/* If PDEN is set, we can get a timeout when pen goes up */
 		if (is_pden(wm))
 			wm->pen_probably_down = 0;
 		else
@@ -182,7 +253,7 @@ static int wm9705_poll_sample(struct wm97xx *wm, int adcsel, int *sample)
 	if (wm->mach_ops && wm->mach_ops->post_sample)
 		wm->mach_ops->post_sample(adcsel);
 
-	
+	/* check we have correct sample */
 	if ((*sample ^ adcsel) & WM97XX_ADCSEL_MASK) {
 		dev_dbg(wm->dev, "adc wrong sample, wanted %x got %x",
 			adcsel & WM97XX_ADCSEL_MASK,
@@ -198,6 +269,9 @@ static int wm9705_poll_sample(struct wm97xx *wm, int adcsel, int *sample)
 	return RC_VALID;
 }
 
+/*
+ * Sample the WM9705 touchscreen in polling mode
+ */
 static int wm9705_poll_touch(struct wm97xx *wm, struct wm97xx_data *data)
 {
 	int rc;
@@ -218,6 +292,10 @@ static int wm9705_poll_touch(struct wm97xx *wm, struct wm97xx_data *data)
 	return RC_VALID;
 }
 
+/*
+ * Enable WM9705 continuous mode, i.e. touch data is streamed across
+ * an AC97 slot
+ */
 static int wm9705_acc_enable(struct wm97xx *wm, int enable)
 {
 	u16 dig1, dig2;
@@ -227,7 +305,7 @@ static int wm9705_acc_enable(struct wm97xx *wm, int enable)
 	dig2 = wm->dig[2];
 
 	if (enable) {
-		
+		/* continuous mode */
 		if (wm->mach_ops->acc_startup &&
 		    (ret = wm->mach_ops->acc_startup(wm)) < 0)
 			return ret;
@@ -266,6 +344,7 @@ struct wm97xx_codec_drv wm9705_codec = {
 };
 EXPORT_SYMBOL_GPL(wm9705_codec);
 
+/* Module information */
 MODULE_AUTHOR("Liam Girdwood <lrg@slimlogic.co.uk>");
 MODULE_DESCRIPTION("WM9705 Touch Screen Driver");
 MODULE_LICENSE("GPL");

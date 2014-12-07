@@ -27,8 +27,8 @@
 #include <asm/platform.h>
 
 #ifdef CONFIG_XTENSA_CALIBRATE_CCOUNT
-unsigned long ccount_per_jiffy;		
-unsigned long nsec_per_ccount;		
+unsigned long ccount_per_jiffy;		/* per 1/HZ */
+unsigned long nsec_per_ccount;		/* nsec per ccount increment */
 #endif
 
 static cycle_t ccount_read(void)
@@ -60,12 +60,15 @@ void __init time_init(void)
 #endif
 	clocksource_register_hz(&ccount_clocksource, CCOUNT_PER_JIFFY * HZ);
 
-	
+	/* Initialize the linux timer interrupt. */
 
 	setup_irq(LINUX_TIMER_INT, &timer_irqaction);
 	set_linux_timer(get_ccount() + CCOUNT_PER_JIFFY);
 }
 
+/*
+ * The timer interrupt is called HZ times per second.
+ */
 
 irqreturn_t timer_interrupt (int irq, void *dev_id)
 {
@@ -82,19 +85,19 @@ again:
 		update_process_times(user_mode(get_irq_regs()));
 #endif
 
-		xtime_update(1); 
+		xtime_update(1); /* Linux handler in kernel/time/timekeeping */
 
-		
+		/* Note that writing CCOMPARE clears the interrupt. */
 
 		next += CCOUNT_PER_JIFFY;
 		set_linux_timer(next);
 	}
 
-	
+	/* Allow platform to do something useful (Wdog). */
 
 	platform_heartbeat();
 
-	
+	/* Make sure we didn't miss any tick... */
 
 	if ((signed long)(get_ccount() - next) > 0)
 		goto again;

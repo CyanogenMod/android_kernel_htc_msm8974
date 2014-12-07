@@ -19,6 +19,7 @@
 
 #define DRV_VERSION "0.1"
 
+/* ISL register offsets */
 #define ISL12022_REG_SC		0x00
 #define ISL12022_REG_MN		0x01
 #define ISL12022_REG_HR		0x02
@@ -30,7 +31,8 @@
 #define ISL12022_REG_SR		0x07
 #define ISL12022_REG_INT	0x08
 
-#define ISL12022_HR_MIL		(1 << 7)	
+/* ISL register bits */
+#define ISL12022_HR_MIL		(1 << 7)	/* military or 24 hour time */
 
 #define ISL12022_SR_LBAT85	(1 << 2)
 #define ISL12022_SR_LBAT75	(1 << 1)
@@ -43,7 +45,7 @@ static struct i2c_driver isl12022_driver;
 struct isl12022 {
 	struct rtc_device *rtc;
 
-	bool write_enabled;	
+	bool write_enabled;	/* true if write enable is set */
 };
 
 
@@ -56,7 +58,7 @@ static int isl12022_read_regs(struct i2c_client *client, uint8_t reg,
 			.flags	= 0,
 			.len	= 1,
 			.buf	= data
-		},		
+		},		/* setup read ptr */
 		{
 			.addr	= client->addr,
 			.flags	= I2C_M_RD,
@@ -97,6 +99,10 @@ static int isl12022_write_reg(struct i2c_client *client,
 }
 
 
+/*
+ * In the routines that deal directly with the isl12022 hardware, we use
+ * rtc_time -- month 0-11, hour 0-23, yr = calendar year-epoch.
+ */
 static int isl12022_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 {
 	uint8_t buf[ISL12022_REG_INT + 1];
@@ -142,6 +148,8 @@ static int isl12022_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 		tm->tm_sec, tm->tm_min, tm->tm_hour,
 		tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
+	/* The clock can give out invalid datetime, but we cannot return
+	 * -EINVAL otherwise hwclock will refuse to set the time on bootup. */
 	if (rtc_valid_tm(tm) < 0)
 		dev_err(&client->dev, "retrieved date and time is invalid.\n");
 
@@ -167,17 +175,22 @@ static int isl12022_set_datetime(struct i2c_client *client, struct rtc_time *tm)
 		if (ret)
 			return ret;
 
+		/* Check if WRTC (write rtc enable) is set factory default is
+		 * 0 (not set) */
 		if (!(buf[0] & ISL12022_INT_WRTC)) {
 			dev_info(&client->dev,
 				 "init write enable and 24 hour format\n");
 
-			
+			/* Set the write enable bit. */
 			ret = isl12022_write_reg(client,
 						 ISL12022_REG_INT,
 						 buf[0] | ISL12022_INT_WRTC);
 			if (ret)
 				return ret;
 
+			/* Write to any RTC register to start RTC, we use the
+			 * HR register, setting the MIL bit to use the 24 hour
+			 * format. */
 			ret = isl12022_read_regs(client, ISL12022_REG_HR,
 						 buf, 1);
 			if (ret)
@@ -193,22 +206,22 @@ static int isl12022_set_datetime(struct i2c_client *client, struct rtc_time *tm)
 		isl12022->write_enabled = 1;
 	}
 
-	
+	/* hours, minutes and seconds */
 	buf[ISL12022_REG_SC] = bin2bcd(tm->tm_sec);
 	buf[ISL12022_REG_MN] = bin2bcd(tm->tm_min);
 	buf[ISL12022_REG_HR] = bin2bcd(tm->tm_hour) | ISL12022_HR_MIL;
 
 	buf[ISL12022_REG_DT] = bin2bcd(tm->tm_mday);
 
-	
+	/* month, 1 - 12 */
 	buf[ISL12022_REG_MO] = bin2bcd(tm->tm_mon + 1);
 
-	
+	/* year and century */
 	buf[ISL12022_REG_YR] = bin2bcd(tm->tm_year % 100);
 
 	buf[ISL12022_REG_DW] = tm->tm_wday & 0x07;
 
-	
+	/* write register's data */
 	for (i = 0; i < ARRAY_SIZE(buf); i++) {
 		ret = isl12022_write_reg(client, ISL12022_REG_SC + i,
 					 buf[ISL12022_REG_SC + i]);

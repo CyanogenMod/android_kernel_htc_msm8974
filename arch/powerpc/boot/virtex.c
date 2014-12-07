@@ -13,17 +13,17 @@
 #include "io.h"
 #include "stdio.h"
 
-#define UART_DLL		0	
-#define UART_DLM		1	
-#define UART_FCR		2	
-#define UART_FCR_CLEAR_RCVR 	0x02 	
-#define UART_FCR_CLEAR_XMIT	0x04 	
-#define UART_LCR		3	
-#define UART_MCR		4	
-#define UART_MCR_RTS		0x02 	
-#define UART_MCR_DTR		0x01 	
-#define UART_LCR_DLAB		0x80 	
-#define UART_LCR_WLEN8		0x03 	
+#define UART_DLL		0	/* Out: Divisor Latch Low */
+#define UART_DLM		1	/* Out: Divisor Latch High */
+#define UART_FCR		2	/* Out: FIFO Control Register */
+#define UART_FCR_CLEAR_RCVR 	0x02 	/* Clear the RCVR FIFO */
+#define UART_FCR_CLEAR_XMIT	0x04 	/* Clear the XMIT FIFO */
+#define UART_LCR		3	/* Out: Line Control Register */
+#define UART_MCR		4	/* Out: Modem Control Register */
+#define UART_MCR_RTS		0x02 	/* RTS complement */
+#define UART_MCR_DTR		0x01 	/* DTR complement */
+#define UART_LCR_DLAB		0x80 	/* Divisor latch access bit */
+#define UART_LCR_WLEN8		0x03 	/* Wordlength: 8 bits */
 
 static int virtex_ns16550_console_init(void *devp)
 {
@@ -47,32 +47,35 @@ static int virtex_ns16550_console_init(void *devp)
 	if (n != sizeof(spd))
 		spd = 9600;
 
-	
+	/* should there be a default clock rate?*/
 	n = getprop(devp, "clock-frequency", (void *)&clk, sizeof(clk));
 	if (n != sizeof(clk))
 		return -1;
 
 	divisor = clk / (16 * spd);
 
-	
+	/* Access baud rate */
 	out_8(reg_base + (UART_LCR << reg_shift), UART_LCR_DLAB);
 
-	
+	/* Baud rate based on input clock */
 	out_8(reg_base + (UART_DLL << reg_shift), divisor & 0xFF);
 	out_8(reg_base + (UART_DLM << reg_shift), divisor >> 8);
 
-	
+	/* 8 data, 1 stop, no parity */
 	out_8(reg_base + (UART_LCR << reg_shift), UART_LCR_WLEN8);
 
-	
+	/* RTS/DTR */
 	out_8(reg_base + (UART_MCR << reg_shift), UART_MCR_RTS | UART_MCR_DTR);
 
-	
+	/* Clear transmitter and receiver */
 	out_8(reg_base + (UART_FCR << reg_shift),
 				UART_FCR_CLEAR_XMIT | UART_FCR_CLEAR_RCVR);
 	return 0;
 }
 
+/* For virtex, the kernel may be loaded without using a bootloader and if so
+   some UARTs need more setup than is provided in the normal console init
+*/
 int platform_specific_init(void)
 {
 	void *devp;

@@ -13,6 +13,9 @@
  * Note: Only YAFFS headers are LGPL, YAFFS C code is covered by GPL.
  */
 
+/*
+ * Chunk bitmap manipulations
+ */
 
 #ifndef __YAFFS_BITMAP_H__
 #define __YAFFS_BITMAP_H__

@@ -49,4 +49,4 @@ int hermes_apply_pda_with_defaults(struct hermes *hw,
 
 size_t hermes_blocks_length(const char *first_block, const void *end);
 
-#endif 
+#endif /* _HERMES_DLD_H */

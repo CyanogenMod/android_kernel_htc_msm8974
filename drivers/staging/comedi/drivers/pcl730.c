@@ -1,3 +1,19 @@
+/*
+ * comedi/drivers/pcl730.c
+ * Driver for Advantech PCL-730 and clones
+ * José Luis Sánchez
+ */
+/*
+Driver: pcl730
+Description: Advantech PCL-730 (& compatibles)
+Author: José Luis Sánchez (jsanchezv@teleline.es)
+Status: untested
+Devices: [Advantech] PCL-730 (pcl730), [ICP] ISO-730 (iso730),
+		 [Adlink] ACL-7130 (acl7130)
+
+Interrupts are not supported.
+The ACL-7130 card have an 8254 timer/counter not supported by this driver.
+*/
 
 #include "../comedidev.h"
 
@@ -5,10 +21,10 @@
 
 #define PCL730_SIZE		4
 #define ACL7130_SIZE	8
-#define PCL730_IDIO_LO	0	
-#define PCL730_IDIO_HI	1	
-#define PCL730_DIO_LO	2	
-#define PCL730_DIO_HI	3	
+#define PCL730_IDIO_LO	0	/* Isolated Digital I/O low byte (ID0-ID7) */
+#define PCL730_IDIO_HI	1	/* Isolated Digital I/O high byte (ID8-ID15) */
+#define PCL730_DIO_LO	2	/* TTL Digital I/O low byte (D0-D7) */
+#define PCL730_DIO_HI	3	/* TTL Digital I/O high byte (D8-D15) */
 
 static int pcl730_attach(struct comedi_device *dev,
 			 struct comedi_devconfig *it);
@@ -16,8 +32,8 @@ static int pcl730_detach(struct comedi_device *dev);
 
 struct pcl730_board {
 
-	const char *name;	
-	unsigned int io_range;	
+	const char *name;	/*  board name */
+	unsigned int io_range;	/*  len of I/O space */
 };
 
 static const struct pcl730_board boardtypes[] = {
@@ -108,7 +124,7 @@ static int pcl730_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		return -ENOMEM;
 
 	s = dev->subdevices + 0;
-	
+	/* Isolated do */
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->maxdata = 1;
@@ -118,7 +134,7 @@ static int pcl730_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->private = (void *)PCL730_IDIO_LO;
 
 	s = dev->subdevices + 1;
-	
+	/* Isolated di */
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE;
 	s->maxdata = 1;
@@ -128,7 +144,7 @@ static int pcl730_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->private = (void *)PCL730_IDIO_LO;
 
 	s = dev->subdevices + 2;
-	
+	/* TTL do */
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->maxdata = 1;
@@ -138,7 +154,7 @@ static int pcl730_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->private = (void *)PCL730_DIO_LO;
 
 	s = dev->subdevices + 3;
-	
+	/* TTL di */
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE;
 	s->maxdata = 1;

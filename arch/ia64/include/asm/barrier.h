@@ -52,7 +52,17 @@
 # define smp_read_barrier_depends()	do { } while(0)
 #endif
 
+/*
+ * XXX check on this ---I suspect what Linus really wants here is
+ * acquire vs release semantics but we can't discuss this stuff with
+ * Linus just yet.  Grrr...
+ */
 #define set_mb(var, value)	do { (var) = (value); mb(); } while (0)
 
+/*
+ * The group barrier in front of the rsm & ssm are necessary to ensure
+ * that none of the previous instructions in the same group are
+ * affected by the rsm/ssm.
+ */
 
-#endif 
+#endif /* _ASM_IA64_BARRIER_H */

@@ -193,6 +193,10 @@ int be_mcc_compl_process_isr(struct be_ctrl_info *ctrl,
 
 	compl_status = (compl->status >> CQE_STATUS_COMPL_SHIFT) &
 					CQE_STATUS_COMPL_MASK;
+	/* The ctrl.mcc_numtag[tag] is filled with
+	 * [31] = valid, [30:24] = Rsvd, [23:16] = wrb, [15:8] = extd_status,
+	 * [7:0] = compl_status
+	 */
 	tag = (compl->tag0 & 0x000000FF);
 	extd_status = (compl->status >> CQE_STATUS_EXTD_SHIFT) &
 					CQE_STATUS_EXTD_MASK;
@@ -267,9 +271,9 @@ int beiscsi_process_mcc(struct beiscsi_hba *phba)
 	spin_lock_bh(&phba->ctrl.mcc_cq_lock);
 	while ((compl = be_mcc_compl_get(phba))) {
 		if (compl->flags & CQE_FLAGS_ASYNC_MASK) {
-			
+			/* Interpret flags as an async trailer */
 			if (is_link_state_evt(compl->flags))
-				
+				/* Interpret compl as a async link evt */
 				beiscsi_async_link_state_process(phba,
 				   (struct be_async_event_link_state *) compl);
 			else
@@ -292,6 +296,7 @@ int beiscsi_process_mcc(struct beiscsi_hba *phba)
 	return status;
 }
 
+/* Wait till no more pending mcc requests are present */
 static int be_mcc_wait_compl(struct beiscsi_hba *phba)
 {
 	int i, status;
@@ -311,6 +316,7 @@ static int be_mcc_wait_compl(struct beiscsi_hba *phba)
 	return 0;
 }
 
+/* Notify MCC requests and wait for completion */
 int be_mcc_notify_wait(struct beiscsi_hba *phba)
 {
 	be_mcc_notify(phba);
@@ -321,7 +327,7 @@ static int be_mbox_db_ready_wait(struct be_ctrl_info *ctrl)
 {
 #define long_delay 2000
 	void __iomem *db = ctrl->db + MPU_MAILBOX_DB_OFFSET;
-	int cnt = 0, wait = 5;	
+	int cnt = 0, wait = 5;	/* in usecs */
 	u32 ready;
 
 	do {
@@ -388,6 +394,10 @@ int be_mbox_notify(struct be_ctrl_info *ctrl)
 	return 0;
 }
 
+/*
+ * Insert the mailbox address into the doorbell in two steps
+ * Polls on the mbox doorbell till a command completion (or a timeout) occurs
+ */
 static int be_mbox_notify_wait(struct beiscsi_hba *phba)
 {
 	int status;
@@ -399,17 +409,17 @@ static int be_mbox_notify_wait(struct beiscsi_hba *phba)
 	struct be_ctrl_info *ctrl = &phba->ctrl;
 
 	val |= MPU_MAILBOX_DB_HI_MASK;
-	
+	/* at bits 2 - 31 place mbox dma addr msb bits 34 - 63 */
 	val |= (upper_32_bits(mbox_mem->dma) >> 2) << 2;
 	iowrite32(val, db);
 
-	
+	/* wait for ready to be set */
 	status = be_mbox_db_ready_wait(ctrl);
 	if (status != 0)
 		return status;
 
 	val = 0;
-	
+	/* at bits 2 - 31 place mbox dma addr lsb bits 4 - 33 */
 	val |= (u32)(mbox_mem->dma >> 4) << 2;
 	iowrite32(val, db);
 
@@ -417,7 +427,7 @@ static int be_mbox_notify_wait(struct beiscsi_hba *phba)
 	if (status != 0)
 		return status;
 
-	
+	/* A cq entry has been made now */
 	if (be_mcc_compl_is_new(compl)) {
 		status = be_mcc_compl_process(ctrl, &mbox->compl);
 		be_mcc_compl_use(compl);
@@ -630,7 +640,7 @@ int beiscsi_cmd_cq_create(struct be_ctrl_info *ctrl,
 
 static u32 be_encoded_q_len(int q_len)
 {
-	u32 len_encoded = fls(q_len);	
+	u32 len_encoded = fls(q_len);	/* log2(len) + 1 */
 	if (len_encoded == 16)
 		len_encoded = 0;
 	return len_encoded;

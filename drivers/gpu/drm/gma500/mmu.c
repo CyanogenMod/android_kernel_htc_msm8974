@@ -19,20 +19,50 @@
 #include "psb_drv.h"
 #include "psb_reg.h"
 
+/*
+ * Code for the SGX MMU:
+ */
 
+/*
+ * clflush on one processor only:
+ * clflush should apparently flush the cache line on all processors in an
+ * SMP system.
+ */
 
+/*
+ * kmap atomic:
+ * The usage of the slots must be completely encapsulated within a spinlock, and
+ * no other functions that may be using the locks for other purposed may be
+ * called from within the locked region.
+ * Since the slots are per processor, this will guarantee that we are the only
+ * user.
+ */
 
+/*
+ * TODO: Inserting ptes from an interrupt handler:
+ * This may be desirable for some SGX functionality where the GPU can fault in
+ * needed pages. For that, we need to make an atomic insert_pages function, that
+ * may fail.
+ * If it fails, the caller need to insert the page using a workqueue function,
+ * but on average it should be fast.
+ */
 
 struct psb_mmu_driver {
+	/* protects driver- and pd structures. Always take in read mode
+	 * before taking the page table spinlock.
+	 */
 	struct rw_semaphore sem;
 
+	/* protects page tables, directory tables and pt tables.
+	 * and pt structures.
+	 */
 	spinlock_t lock;
 
 	atomic_t needs_tlbflush;
 
 	uint8_t __iomem *register_map;
 	struct psb_mmu_pd *default_pd;
-	
+	/*uint32_t bif_ctrl;*/
 	int has_clflush;
 	int clflush_add;
 	unsigned long clflush_mask;
@@ -140,7 +170,7 @@ void psb_mmu_flush(struct psb_mmu_driver *driver, int rc_prot)
 
 void psb_mmu_set_pd_context(struct psb_mmu_pd *pd, int hw_context)
 {
-	
+	/*ttm_tt_cache_flush(&pd->p, 1);*/
 	psb_pages_clflush(pd->driver, &pd->p, 1);
 	down_write(&pd->driver->sem);
 	wmb();
@@ -256,6 +286,8 @@ void psb_mmu_free_pagedir(struct psb_mmu_pd *pd)
 	if (pd->hw_context != -1)
 		psb_mmu_flush_pd_locked(driver, 1);
 
+	/* Should take the spinlock here, but we don't need to do that
+	   since we have the semaphore in write mode. */
 
 	for (i = 0; i < 1024; ++i) {
 		pt = pd->tables[i];
@@ -433,7 +465,7 @@ void psb_mmu_mirror_gtt(struct psb_mmu_pd *pd,
 		gtt_start += PAGE_SIZE;
 	}
 
-	
+	/*ttm_tt_cache_flush(&pd->p, num_pages);*/
 	psb_pages_clflush(pd->driver, &pd->p, num_pages);
 	kunmap_atomic(v);
 	spin_unlock(&driver->lock);
@@ -449,9 +481,9 @@ struct psb_mmu_pd *psb_mmu_get_default_pd(struct psb_mmu_driver *driver)
 {
 	struct psb_mmu_pd *pd;
 
-	
+	/* down_read(&driver->sem); */
 	pd = driver->default_pd;
-	
+	/* up_read(&driver->sem); */
 
 	return pd;
 }
@@ -491,6 +523,10 @@ struct psb_mmu_driver *psb_mmu_driver_init(uint8_t __iomem * registers,
 	if (boot_cpu_has(X86_FEATURE_CLFLSH)) {
 		uint32_t tfms, misc, cap0, cap4, clflush_size;
 
+		/*
+		 * clflush size is determined at kernel setup for x86_64
+		 *  but not for i386. We have to do it here.
+		 */
 
 		cpuid(0x00000001, &tfms, &misc, &cap0, &cap4);
 		clflush_size = ((misc >> 8) & 0xff) * 8;
@@ -526,7 +562,7 @@ static void psb_mmu_flush_ptes(struct psb_mmu_pd *pd,
 	unsigned long clflush_mask = pd->driver->clflush_mask;
 
 	if (!pd->driver->has_clflush) {
-		
+		/*ttm_tt_cache_flush(&pd->p, num_pages);*/
 		psb_pages_clflush(pd->driver, &pd->p, num_pages);
 		return;
 	}
@@ -624,9 +660,9 @@ void psb_mmu_remove_pages(struct psb_mmu_pd *pd, unsigned long address,
 	add = desired_tile_stride << PAGE_SHIFT;
 	row_add = hw_tile_stride << PAGE_SHIFT;
 
-	
+	/* down_read(&pd->driver->sem); */
 
-	
+	/* Make sure we only need to flush this processor's cache */
 
 	for (i = 0; i < rows; ++i) {
 
@@ -652,7 +688,7 @@ void psb_mmu_remove_pages(struct psb_mmu_pd *pd, unsigned long address,
 		psb_mmu_flush_ptes(pd, f_address, num_pages,
 				   desired_tile_stride, hw_tile_stride);
 
-	
+	/* up_read(&pd->driver->sem); */
 
 	if (pd->hw_context != -1)
 		psb_mmu_flush(pd->driver, 0);

@@ -21,6 +21,7 @@
 #define DRIVERNAME "arm-charlcd"
 #define CHARLCD_TIMEOUT (msecs_to_jiffies(1000))
 
+/* Offsets to registers */
 #define CHAR_COM	0x00U
 #define CHAR_DAT	0x04U
 #define CHAR_RD		0x08U
@@ -31,6 +32,7 @@
 #define CHAR_RAW_CLEAR	0x00000000U
 #define CHAR_RAW_VALID	0x00000100U
 
+/* Hitachi HD44780 display commands */
 #define HD_CLEAR			0x01U
 #define HD_HOME				0x02U
 #define HD_ENTRYMODE			0x04U
@@ -51,6 +53,14 @@
 #define HD_SET_DDRAM			0x80U
 #define HD_BUSY_FLAG			0x80U
 
+/**
+ * @dev: a pointer back to containing device
+ * @phybase: the offset to the controller in physical memory
+ * @physize: the size of the physical page
+ * @virtbase: the offset to the controller in virtual memory
+ * @irq: reserved interrupt number
+ * @complete: completion structure for the last LCD command
+ */
 struct charlcd {
 	struct device *dev;
 	u32 phybase;
@@ -67,7 +77,7 @@ static irqreturn_t charlcd_interrupt(int irq, void *data)
 	u8 status;
 
 	status = readl(lcd->virtbase + CHAR_STAT) & 0x01;
-	
+	/* Clear IRQ */
 	writel(CHAR_RAW_CLEAR, lcd->virtbase + CHAR_RAW);
 	if (status)
 		complete(&lcd->complete);
@@ -83,7 +93,7 @@ static void charlcd_wait_complete_irq(struct charlcd *lcd)
 
 	ret = wait_for_completion_interruptible_timeout(&lcd->complete,
 							CHARLCD_TIMEOUT);
-	
+	/* Disable IRQ after completion */
 	writel(0x00, lcd->virtbase + CHAR_MASK);
 
 	if (ret < 0) {
@@ -106,7 +116,7 @@ static u8 charlcd_4bit_read_char(struct charlcd *lcd)
 	u32 val;
 	int i;
 
-	
+	/* If we can, use an IRQ to wait for the data, else poll */
 	if (lcd->irq >= 0)
 		charlcd_wait_complete_irq(lcd);
 	else {
@@ -122,9 +132,13 @@ static u8 charlcd_4bit_read_char(struct charlcd *lcd)
 	}
 	msleep(1);
 
-	
+	/* Read the 4 high bits of the data */
 	data = readl(lcd->virtbase + CHAR_RD) & 0xf0;
 
+	/*
+	 * The second read for the low bits does not trigger an IRQ
+	 * so in this case we have to poll for the 4 lower bits
+	 */
 	i = 0;
 	val = 0;
 	while (!(val & CHAR_RAW_VALID) && i < 10) {
@@ -135,7 +149,7 @@ static u8 charlcd_4bit_read_char(struct charlcd *lcd)
 	writel(CHAR_RAW_CLEAR, lcd->virtbase + CHAR_RAW);
 	msleep(1);
 
-	
+	/* Read the 4 low bits of the data */
 	data |= (readl(lcd->virtbase + CHAR_RD) >> 4) & 0x0f;
 
 	return data;
@@ -144,6 +158,10 @@ static u8 charlcd_4bit_read_char(struct charlcd *lcd)
 static bool charlcd_4bit_read_bf(struct charlcd *lcd)
 {
 	if (lcd->irq >= 0) {
+		/*
+		 * If we'll use IRQs to wait for the busyflag, clear any
+		 * pending flag and enable IRQ
+		 */
 		writel(CHAR_RAW_CLEAR, lcd->virtbase + CHAR_RAW);
 		init_completion(&lcd->complete);
 		writel(0x01, lcd->virtbase + CHAR_MASK);
@@ -190,6 +208,11 @@ static void charlcd_4bit_print(struct charlcd *lcd, int line, const char *str)
 	u8 offset;
 	int i;
 
+	/*
+	 * We support line 0, 1
+	 * Line 1 runs from 0x00..0x27
+	 * Line 2 runs from 0x28..0x4f
+	 */
 	if (line == 0)
 		offset = 0;
 	else if (line == 1)
@@ -197,32 +220,36 @@ static void charlcd_4bit_print(struct charlcd *lcd, int line, const char *str)
 	else
 		return;
 
-	
+	/* Set offset */
 	charlcd_4bit_command(lcd, HD_SET_DDRAM | offset);
 
-	
+	/* Send string */
 	for (i = 0; i < strlen(str) && i < 0x28; i++)
 		charlcd_4bit_char(lcd, str[i]);
 }
 
 static void charlcd_4bit_init(struct charlcd *lcd)
 {
-	
+	/* These commands cannot be checked with the busy flag */
 	writel(HD_FUNCSET | HD_FUNCSET_8BIT, lcd->virtbase + CHAR_COM);
 	msleep(5);
 	writel(HD_FUNCSET | HD_FUNCSET_8BIT, lcd->virtbase + CHAR_COM);
 	udelay(100);
 	writel(HD_FUNCSET | HD_FUNCSET_8BIT, lcd->virtbase + CHAR_COM);
 	udelay(100);
-	
+	/* Go to 4bit mode */
 	writel(HD_FUNCSET, lcd->virtbase + CHAR_COM);
 	udelay(100);
+	/*
+	 * 4bit mode, 2 lines, 5x8 font, after this the number of lines
+	 * and the font cannot be changed until the next initialization sequence
+	 */
 	charlcd_4bit_command(lcd, HD_FUNCSET | HD_FUNCSET_2_LINES);
 	charlcd_4bit_command(lcd, HD_DISPCTRL | HD_DISPCTRL_ON);
 	charlcd_4bit_command(lcd, HD_ENTRYMODE | HD_ENTRYMODE_INCREMENT);
 	charlcd_4bit_command(lcd, HD_CLEAR);
 	charlcd_4bit_command(lcd, HD_HOME);
-	
+	/* Put something useful in the display */
 	charlcd_4bit_print(lcd, 0, "ARM Linux");
 	charlcd_4bit_print(lcd, 1, UTS_RELEASE);
 }
@@ -268,7 +295,7 @@ static int __init charlcd_probe(struct platform_device *pdev)
 	}
 
 	lcd->irq = platform_get_irq(pdev, 0);
-	
+	/* If no IRQ is supplied, we'll survive without it */
 	if (lcd->irq >= 0) {
 		if (request_irq(lcd->irq, charlcd_interrupt, IRQF_DISABLED,
 				DRIVERNAME, lcd)) {
@@ -279,6 +306,10 @@ static int __init charlcd_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, lcd);
 
+	/*
+	 * Initialize the display in a delayed work, because
+	 * it is VERY slow and would slow down the boot of the system.
+	 */
 	INIT_DELAYED_WORK(&lcd->init_work, charlcd_init_work);
 	schedule_delayed_work(&lcd->init_work, 0);
 
@@ -318,7 +349,7 @@ static int charlcd_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct charlcd *lcd = platform_get_drvdata(pdev);
 
-	
+	/* Power the display off */
 	charlcd_4bit_command(lcd, HD_DISPCTRL);
 	return 0;
 }
@@ -328,7 +359,7 @@ static int charlcd_resume(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct charlcd *lcd = platform_get_drvdata(pdev);
 
-	
+	/* Turn the display back on */
 	charlcd_4bit_command(lcd, HD_DISPCTRL | HD_DISPCTRL_ON);
 	return 0;
 }

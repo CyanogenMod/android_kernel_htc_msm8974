@@ -24,10 +24,12 @@
 #include "../codecs/wm8978.h"
 #include "siu.h"
 
+/* Default 8000Hz sampling frequency */
 static unsigned long codec_freq = 8000 * 512;
 
 static unsigned int use_count;
 
+/* External clock, sourced from the codec at the SIUMCKB pin */
 static unsigned long siumckb_recalc(struct clk *clk)
 {
 	return codec_freq;
@@ -39,7 +41,7 @@ static struct sh_clk_ops siumckb_clk_ops = {
 
 static struct clk siumckb_clk = {
 	.ops		= &siumckb_clk_ops,
-	.rate		= 0, 
+	.rate		= 0, /* initialised at run-time */
 };
 
 static struct clk_lookup *siumckb_lookup;
@@ -72,6 +74,10 @@ static int migor_hw_params(struct snd_pcm_substream *substream,
 		return ret;
 
 	codec_freq = rate * 512;
+	/*
+	 * This propagates the parent frequency change to children and
+	 * recalculates the frequency table
+	 */
 	clk_set_rate(&siumckb_clk, codec_freq);
 	dev_dbg(codec_dai->dev, "%s: configure %luHz\n", __func__, codec_freq);
 
@@ -114,17 +120,17 @@ static const struct snd_soc_dapm_widget migor_dapm_widgets[] = {
 };
 
 static const struct snd_soc_dapm_route audio_map[] = {
-	
+	/* Headphone output connected to LHP/RHP, enable OUT4 for VMID */
 	{ "Headphone", NULL,  "OUT4 VMID" },
 	{ "OUT4 VMID", NULL,  "LHP" },
 	{ "OUT4 VMID", NULL,  "RHP" },
 
-	
+	/* On-board microphone */
 	{ "RMICN", NULL, "Mic Bias" },
 	{ "RMICP", NULL, "Mic Bias" },
 	{ "Mic Bias", NULL, "Onboard Microphone" },
 
-	
+	/* External microphone */
 	{ "LMICN", NULL, "Mic Bias" },
 	{ "LMICP", NULL, "Mic Bias" },
 	{ "Mic Bias", NULL, "External Microphone" },
@@ -143,6 +149,7 @@ static int migor_dai_init(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+/* migor digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link migor_dai = {
 	.name = "wm8978",
 	.stream_name = "WM8978",
@@ -154,6 +161,7 @@ static struct snd_soc_dai_link migor_dai = {
 	.init = migor_dai_init,
 };
 
+/* migor audio machine driver */
 static struct snd_soc_card snd_soc_migor = {
 	.name = "Migo-R",
 	.owner = THIS_MODULE,
@@ -178,7 +186,7 @@ static int __init migor_init(void)
 	}
 	clkdev_add(siumckb_lookup);
 
-	
+	/* Port number used on this machine: port B */
 	migor_snd_device = platform_device_alloc("soc-audio", 1);
 	if (!migor_snd_device) {
 		ret = -ENOMEM;

@@ -11,4 +11,4 @@
 
 extern int wsp_get_chip_id(struct device_node *dn);
 
-#endif 
+#endif /* __ASM_POWERPC_WSP_H */

@@ -15,4 +15,4 @@ typedef union
 	long long ll;
 } DWunion;
 
-#endif 
+#endif /* __ASM_LIBGCC_H */

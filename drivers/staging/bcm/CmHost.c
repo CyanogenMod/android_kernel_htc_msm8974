@@ -1,4 +1,10 @@
+/************************************************************
+ * CMHOST.C
+ * This file contains the routines for handling Connection
+ * Management.
+ ************************************************************/
 
+/* #define CONN_MSG */
 #include "headers.h"
 
 enum E_CLASSIFIER_ACTION {
@@ -10,6 +16,18 @@ enum E_CLASSIFIER_ACTION {
 
 static ULONG GetNextTargetBufferLocation(PMINI_ADAPTER Adapter, B_UINT16 tid);
 
+/************************************************************
+ * Function - SearchSfid
+ *
+ * Description - This routinue would search QOS queues having
+ *  specified SFID as input parameter.
+ *
+ * Parameters -	Adapter: Pointer to the Adapter structure
+ *  uiSfid : Given SFID for matching
+ *
+ * Returns - Queue index for this SFID(If matched)
+ *  Else Invalid Queue Index(If Not matched)
+ ************************************************************/
 int SearchSfid(PMINI_ADAPTER Adapter, UINT uiSfid)
 {
 	int i;
@@ -21,6 +39,16 @@ int SearchSfid(PMINI_ADAPTER Adapter, UINT uiSfid)
 	return NO_OF_QUEUES+1;
 }
 
+/***************************************************************
+ * Function -SearchFreeSfid
+ *
+ * Description - This routinue would search Free available SFID.
+ *
+ * Parameter - Adapter: Pointer to the Adapter structure
+ *
+ * Returns - Queue index for the free SFID
+ *  Else returns Invalid Index.
+ ****************************************************************/
 static int SearchFreeSfid(PMINI_ADAPTER Adapter)
 {
 	int i;
@@ -32,6 +60,14 @@ static int SearchFreeSfid(PMINI_ADAPTER Adapter)
 	return NO_OF_QUEUES+1;
 }
 
+/*
+ * Function: SearchClsid
+ * Description:	This routinue would search Classifier  having specified ClassifierID as input parameter
+ * Input parameters: PMINI_ADAPTER Adapter - Adapter Context
+ *  unsigned int uiSfid   - The SF in which the classifier is to searched
+ *  B_UINT16  uiClassifierID - The classifier ID to be searched
+ * Return: int :Classifier table index of matching entry
+ */
 static int SearchClsid(PMINI_ADAPTER Adapter, ULONG ulSFID, B_UINT16  uiClassifierID)
 {
 	int i;
@@ -46,7 +82,12 @@ static int SearchClsid(PMINI_ADAPTER Adapter, ULONG ulSFID, B_UINT16  uiClassifi
 	return MAX_CLASSIFIERS+1;
 }
 
-static int SearchFreeClsid(PMINI_ADAPTER Adapter )
+/*
+ * @ingroup ctrl_pkt_functions
+ * This routinue would search Free available Classifier entry in classifier table.
+ * @return free Classifier Entry index in classifier table for specified SF
+ */
+static int SearchFreeClsid(PMINI_ADAPTER Adapter /**Adapter Context*/)
 {
 	int i;
 
@@ -60,13 +101,13 @@ static int SearchFreeClsid(PMINI_ADAPTER Adapter )
 
 static VOID deleteSFBySfid(PMINI_ADAPTER Adapter, UINT uiSearchRuleIndex)
 {
-	
+	/* deleting all the packet held in the SF */
 	flush_queue(Adapter, uiSearchRuleIndex);
 
-	
+	/* Deleting the all classifiers for this SF */
 	DeleteAllClassifiersForSF(Adapter, uiSearchRuleIndex);
 
-	
+	/* Resetting only MIBS related entries in the SF */
 	memset((PVOID)&Adapter->PackInfo[uiSearchRuleIndex], 0, sizeof(S_MIBS_SERVICEFLOW_TABLE));
 }
 
@@ -84,10 +125,15 @@ CopyIpAddrToClassifier(S_CLASSIFIER_RULE *pstClassifierEntry,
 	if (bIpVersion6)
 		nSizeOfIPAddressInBytes = IPV6_ADDRESS_SIZEINBYTES;
 
-	
+	/* Destination Ip Address */
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Ip Address Range Length:0x%X ", u8IpAddressLen);
 	if ((bIpVersion6 ? (IPV6_ADDRESS_SIZEINBYTES * MAX_IP_RANGE_LENGTH * 2) :
 			(TOTAL_MASKED_ADDRESS_IN_BYTES)) >= u8IpAddressLen) {
+		/*
+		 * checking both the mask and address togethor in Classification.
+		 * So length will be : TotalLengthInBytes/nSizeOfIPAddressInBytes * 2
+		 * (nSizeOfIPAddressInBytes for address and nSizeOfIPAddressInBytes for mask)
+		 */
 		if (eIpAddrContext == eDestIpAddress) {
 			pstClassifierEntry->ucIPDestinationAddressLength = u8IpAddressLen/(nSizeOfIPAddressInBytes * 2);
 			if (bIpVersion6) {
@@ -154,7 +200,7 @@ CopyIpAddrToClassifier(S_CLASSIFIER_RULE *pstClassifierEntry,
 			i++;
 		}
 		if (bIpVersion6) {
-			
+			/* Restore EndianNess of Struct */
 			for (i = 0; i < MAX_IP_RANGE_LENGTH * 4; i++) {
 				if (eIpAddrContext == eSrcIpAddress) {
 					pstClassifierEntry->stSrcIpAddress.ulIpv6Addr[i] = ntohl(pstClassifierEntry->stSrcIpAddress.ulIpv6Addr[i]);
@@ -186,13 +232,17 @@ void ClearTargetDSXBuffer(PMINI_ADAPTER Adapter, B_UINT16 TID, BOOLEAN bFreeAll)
 	}
 }
 
+/*
+ * @ingroup ctrl_pkt_functions
+ * copy classifier rule into the specified SF index
+ */
 static inline VOID CopyClassifierRuleToSF(PMINI_ADAPTER Adapter, stConvergenceSLTypes  *psfCSType, UINT uiSearchRuleIndex, UINT nClassifierIndex)
 {
 	S_CLASSIFIER_RULE *pstClassifierEntry = NULL;
-	
+	/* VOID *pvPhsContext = NULL; */
 	int i;
-	
-	
+	/* UCHAR ucProtocolLength=0; */
+	/* ULONG ulPhsStatus; */
 
 	if (Adapter->PackInfo[uiSearchRuleIndex].usVCID_Value == 0 ||
 		nClassifierIndex > (MAX_CLASSIFIERS-1))
@@ -206,10 +256,10 @@ static inline VOID CopyClassifierRuleToSF(PMINI_ADAPTER Adapter, stConvergenceSL
 
 	pstClassifierEntry = &Adapter->astClassifierTable[nClassifierIndex];
 	if (pstClassifierEntry) {
-		
+		/* Store if Ipv6 */
 		pstClassifierEntry->bIpv6Protocol = (Adapter->PackInfo[uiSearchRuleIndex].ucIpVersion == IPV6) ? TRUE : FALSE;
 
-		
+		/* Destinaiton Port */
 		pstClassifierEntry->ucDestPortRangeLength = psfCSType->cCPacketClassificationRule.u8ProtocolDestPortRangeLength / 4;
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Destination Port Range Length:0x%X ", pstClassifierEntry->ucDestPortRangeLength);
 
@@ -227,7 +277,7 @@ static inline VOID CopyClassifierRuleToSF(PMINI_ADAPTER Adapter, stConvergenceSL
 			pstClassifierEntry->ucDestPortRangeLength = 0;
 		}
 
-		
+		/* Source Port */
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Source Port Range Length:0x%X ",
 				psfCSType->cCPacketClassificationRule.u8ProtocolSourcePortRangeLength);
 		if (psfCSType->cCPacketClassificationRule.u8ProtocolSourcePortRangeLength <= MAX_PORT_RANGE) {
@@ -246,7 +296,7 @@ static inline VOID CopyClassifierRuleToSF(PMINI_ADAPTER Adapter, stConvergenceSL
 				pstClassifierEntry->usSrcPortRangeHi[i] = ntohs(pstClassifierEntry->usSrcPortRangeHi[i]);
 			}
 		}
-		
+		/* Destination Ip Address and Mask */
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Ip Destination Parameters : ");
 		CopyIpAddrToClassifier(pstClassifierEntry,
 				psfCSType->cCPacketClassificationRule.u8IPDestinationAddressLength,
@@ -254,7 +304,7 @@ static inline VOID CopyClassifierRuleToSF(PMINI_ADAPTER Adapter, stConvergenceSL
 				(Adapter->PackInfo[uiSearchRuleIndex].ucIpVersion == IPV6) ?
 			TRUE : FALSE, eDestIpAddress);
 
-		
+		/* Source Ip Address and Mask */
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Ip Source Parameters : ");
 
 		CopyIpAddrToClassifier(pstClassifierEntry,
@@ -263,7 +313,7 @@ static inline VOID CopyClassifierRuleToSF(PMINI_ADAPTER Adapter, stConvergenceSL
 				(Adapter->PackInfo[uiSearchRuleIndex].ucIpVersion == IPV6) ? TRUE : FALSE,
 				eSrcIpAddress);
 
-		
+		/* TOS */
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "TOS Length:0x%X ", psfCSType->cCPacketClassificationRule.u8IPTypeOfServiceLength);
 		if (psfCSType->cCPacketClassificationRule.u8IPTypeOfServiceLength == 3) {
 			pstClassifierEntry->ucIPTypeOfServiceLength = psfCSType->cCPacketClassificationRule.u8IPTypeOfServiceLength;
@@ -273,16 +323,16 @@ static inline VOID CopyClassifierRuleToSF(PMINI_ADAPTER Adapter, stConvergenceSL
 			pstClassifierEntry->bTOSValid = TRUE;
 		}
 		if (psfCSType->cCPacketClassificationRule.u8Protocol == 0) {
-			
+			/* we didn't get protocol field filled in by the BS */
 			pstClassifierEntry->ucProtocolLength = 0;
 		} else {
-			pstClassifierEntry->ucProtocolLength = 1; 
+			pstClassifierEntry->ucProtocolLength = 1; /* 1 valid protocol */
 		}
 
 		pstClassifierEntry->ucProtocol[0] = psfCSType->cCPacketClassificationRule.u8Protocol;
 		pstClassifierEntry->u8ClassifierRulePriority = psfCSType->cCPacketClassificationRule.u8ClassifierRulePriority;
 
-		
+		/* store the classifier rule ID and set this classifier entry as valid */
 		pstClassifierEntry->ucDirection = Adapter->PackInfo[uiSearchRuleIndex].ucDirection;
 		pstClassifierEntry->uiClassifierRuleIndex = ntohs(psfCSType->cCPacketClassificationRule.u16PacketClassificationRuleIndex);
 		pstClassifierEntry->usVCID_Value = Adapter->PackInfo[uiSearchRuleIndex].usVCID_Value;
@@ -295,7 +345,7 @@ static inline VOID CopyClassifierRuleToSF(PMINI_ADAPTER Adapter, stConvergenceSL
 		if (psfCSType->cCPacketClassificationRule.u8AssociatedPHSI)
 			pstClassifierEntry->u8AssociatedPHSI = psfCSType->cCPacketClassificationRule.u8AssociatedPHSI;
 
-		
+		/* Copy ETH CS Parameters */
 		pstClassifierEntry->ucEthCSSrcMACLen = (psfCSType->cCPacketClassificationRule.u8EthernetSourceMACAddressLength);
 		memcpy(pstClassifierEntry->au8EThCSSrcMAC, psfCSType->cCPacketClassificationRule.u8EthernetSourceMACAddress, MAC_ADDRESS_SIZE);
 		memcpy(pstClassifierEntry->au8EThCSSrcMACMask, psfCSType->cCPacketClassificationRule.u8EthernetSourceMACAddress + MAC_ADDRESS_SIZE, MAC_ADDRESS_SIZE);
@@ -312,13 +362,16 @@ static inline VOID CopyClassifierRuleToSF(PMINI_ADAPTER Adapter, stConvergenceSL
 	}
 }
 
+/*
+ * @ingroup ctrl_pkt_functions
+ */
 static inline VOID DeleteClassifierRuleFromSF(PMINI_ADAPTER Adapter, UINT uiSearchRuleIndex, UINT nClassifierIndex)
 {
 	S_CLASSIFIER_RULE *pstClassifierEntry = NULL;
 	B_UINT16 u16PacketClassificationRuleIndex;
 	USHORT usVCID;
-	
-	
+	/* VOID *pvPhsContext = NULL; */
+	/*ULONG ulPhsStatus; */
 
 	usVCID = Adapter->PackInfo[uiSearchRuleIndex].usVCID_Value;
 
@@ -335,19 +388,22 @@ static inline VOID DeleteClassifierRuleFromSF(PMINI_ADAPTER Adapter, UINT uiSear
 		pstClassifierEntry->uiClassifierRuleIndex = 0;
 		memset(pstClassifierEntry, 0, sizeof(S_CLASSIFIER_RULE));
 
-		
+		/* Delete the PHS Rule for this classifier */
 		PhsDeleteClassifierRule(&Adapter->stBCMPhsContext, usVCID, u16PacketClassificationRuleIndex);
 	}
 }
 
+/*
+ * @ingroup ctrl_pkt_functions
+ */
 VOID DeleteAllClassifiersForSF(PMINI_ADAPTER Adapter, UINT uiSearchRuleIndex)
 {
 	S_CLASSIFIER_RULE *pstClassifierEntry = NULL;
 	int i;
-	
+	/* B_UINT16  u16PacketClassificationRuleIndex; */
 	USHORT ulVCID;
-	
-	
+	/* VOID *pvPhsContext = NULL; */
+	/* ULONG ulPhsStatus; */
 
 	ulVCID = Adapter->PackInfo[uiSearchRuleIndex].usVCID_Value;
 
@@ -363,17 +419,22 @@ VOID DeleteAllClassifiersForSF(PMINI_ADAPTER Adapter, UINT uiSearchRuleIndex)
 		}
 	}
 
-	
+	/* Delete All Phs Rules Associated with this SF */
 	PhsDeleteSFRules(&Adapter->stBCMPhsContext, ulVCID);
 }
 
-static VOID CopyToAdapter(register PMINI_ADAPTER Adapter, 
-			register pstServiceFlowParamSI psfLocalSet, 
-			register UINT uiSearchRuleIndex, 
+/*
+ * This routinue  copies the Connection Management
+ * related data into the Adapter structure.
+ * @ingroup ctrl_pkt_functions
+ */
+static VOID CopyToAdapter(register PMINI_ADAPTER Adapter, /* <Pointer to the Adapter structure */
+			register pstServiceFlowParamSI psfLocalSet, /* <Pointer to the ServiceFlowParamSI structure */
+			register UINT uiSearchRuleIndex, /* <Index of Queue, to which this data belongs */
 			register UCHAR ucDsxType,
 			stLocalSFAddIndicationAlt *pstAddIndication) {
 
-	
+	/* UCHAR ucProtocolLength = 0; */
 	ULONG ulSFID;
 	UINT nClassifierIndex = 0;
 	enum E_CLASSIFIER_ACTION eClassifierAction = eInvalidClassifierAction;
@@ -390,13 +451,13 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Updating Queue %d", uiSearchRuleIndex);
 
 	ulSFID = ntohl(psfLocalSet->u32SFID);
-	
-	
+	/* Store IP Version used */
+	/* Get The Version Of IP used (IPv6 or IPv4) from CSSpecification field of SF */
 
 	Adapter->PackInfo[uiSearchRuleIndex].bIPCSSupport = 0;
 	Adapter->PackInfo[uiSearchRuleIndex].bEthCSSupport = 0;
 
-	
+	/* Enable IP/ETh CS Support As Required */
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "CopyToAdapter : u8CSSpecification : %X\n", psfLocalSet->u8CSSpecification);
 	switch (psfLocalSet->u8CSSpecification) {
 	case eCSPacketIPV4:
@@ -442,14 +503,14 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 			Adapter->PackInfo[uiSearchRuleIndex].bEthCSSupport,
 			Adapter->PackInfo[uiSearchRuleIndex].bIPCSSupport);
 
-	
-	
+	/* Store IP Version used */
+	/* Get The Version Of IP used (IPv6 or IPv4) from CSSpecification field of SF */
 	if (Adapter->PackInfo[uiSearchRuleIndex].bIPCSSupport == IPV6_CS)
 		Adapter->PackInfo[uiSearchRuleIndex].ucIpVersion = IPV6;
 	else
 		Adapter->PackInfo[uiSearchRuleIndex].ucIpVersion = IPV4;
 
-	
+	/* To ensure that the ETH CS code doesn't gets executed if the BS doesn't supports ETH CS */
 	if (!Adapter->bETHCSEnabled)
 		Adapter->PackInfo[uiSearchRuleIndex].bEthCSSupport = 0;
 
@@ -465,7 +526,7 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 
 	Adapter->PackInfo[uiSearchRuleIndex].u8TrafficPriority = psfLocalSet->u8TrafficPriority;
 
-	
+	/* copy all the classifier in the Service Flow param  structure */
 	for (i = 0; i < psfLocalSet->u8TotalClassifiers; i++) {
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Classifier index =%d", i);
 		psfCSType = &psfLocalSet->cConvergenceSLTypes[i];
@@ -481,17 +542,17 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 			eClassifierAction = eAddClassifier;
 		} else if (ucDsxType == DSC_ACK) {
 			switch (psfCSType->u8ClassfierDSCAction) {
-			case 0: 
+			case 0: /* DSC Add Classifier */
 			{
 				eClassifierAction = eAddClassifier;
 			}
 			break;
-			case 1: 
+			case 1: /* DSC Replace Classifier */
 			{
 				eClassifierAction = eReplaceClassifier;
 			}
 			break;
-			case 2: 
+			case 2: /* DSC Delete Classifier */
 			{
 				eClassifierAction = eDeleteClassifier;
 			}
@@ -508,21 +569,21 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 		switch (eClassifierAction) {
 		case eAddClassifier:
 		{
-			
-			
+			/* Get a Free Classifier Index From Classifier table for this SF to add the Classifier */
+			/* Contained in this message */
 			nClassifierIndex = SearchClsid(Adapter, ulSFID, u16PacketClassificationRuleIndex);
 
 			if (nClassifierIndex > MAX_CLASSIFIERS) {
 				nClassifierIndex = SearchFreeClsid(Adapter);
 				if (nClassifierIndex > MAX_CLASSIFIERS) {
-					
+					/* Failed To get a free Entry */
 					BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Error Failed To get a free Classifier Entry");
 					break;
 				}
-				
+				/* Copy the Classifier Rule for this service flow into our Classifier table maintained per SF. */
 				CopyClassifierRuleToSF(Adapter, psfCSType, uiSearchRuleIndex, nClassifierIndex);
 			} else {
-				
+				/* This Classifier Already Exists and it is invalid to Add Classifier with existing PCRI */
 				BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL,
 						"CopyToAdapter: Error The Specified Classifier Already Exists and attempted To Add Classifier with Same PCRI : 0x%x\n",
 						u16PacketClassificationRuleIndex);
@@ -531,42 +592,42 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 		break;
 		case eReplaceClassifier:
 		{
-			
-			
+			/* Get the Classifier Index From Classifier table for this SF and replace existing  Classifier */
+			/* with the new classifier Contained in this message */
 			nClassifierIndex = SearchClsid(Adapter, ulSFID, u16PacketClassificationRuleIndex);
 			if (nClassifierIndex > MAX_CLASSIFIERS) {
-				
+				/* Failed To search the classifier */
 				BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Error Search for Classifier To be replaced failed");
 				break;
 			}
-			
+			/* Copy the Classifier Rule for this service flow into our Classifier table maintained per SF. */
 			CopyClassifierRuleToSF(Adapter, psfCSType, uiSearchRuleIndex, nClassifierIndex);
 		}
 		break;
 		case eDeleteClassifier:
 		{
-			
-			
+			/* Get the Classifier Index From Classifier table for this SF and replace existing  Classifier */
+			/* with the new classifier Contained in this message */
 			nClassifierIndex = SearchClsid(Adapter, ulSFID, u16PacketClassificationRuleIndex);
 			if (nClassifierIndex > MAX_CLASSIFIERS)	{
-				
+				/* Failed To search the classifier */
 				BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Error Search for Classifier To be deleted failed");
 				break;
 			}
 
-			
+			/* Delete This classifier */
 			DeleteClassifierRuleFromSF(Adapter, uiSearchRuleIndex, nClassifierIndex);
 		}
 		break;
 		default:
 		{
-			
+			/* Invalid Action for classifier */
 			break;
 		}
 		}
 	}
 
-	
+	/* Repeat parsing Classification Entries to process PHS Rules */
 	for (i = 0; i < psfLocalSet->u8TotalClassifiers; i++) {
 		psfCSType = &psfLocalSet->cConvergenceSLTypes[i];
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "psfCSType->u8PhsDSCAction : 0x%x\n", psfCSType->u8PhsDSCAction);
@@ -576,7 +637,7 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 		{
 			BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Deleting All PHS Rules For VCID: 0x%X\n", uVCID);
 
-			
+			/* Delete All the PHS rules for this Service flow */
 			PhsDeleteSFRules(&Adapter->stBCMPhsContext, uVCID);
 			break;
 		}
@@ -592,18 +653,18 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 		default:
 		{
 			if (ucDsxType == DSC_ACK) {
-				
-				break; 
+				/* BCM_DEBUG_PRINT(CONN_MSG,("Invalid PHS DSC Action For DSC\n",psfCSType->cPhsRule.u8PHSI)); */
+				break; /* FOr DSC ACK Case PHS DSC Action must be in valid set */
 			}
 		}
-		
-		
+		/* Proceed To Add PHS rule for DSA_ACK case even if PHS DSC action is unspecified */
+		/* No Break Here . Intentionally! */
 
 		case eAddPHSRule:
 		case eSetPHSRule:
 		{
 			if (psfCSType->cPhsRule.u8PHSI)	{
-				
+				/* Apply This PHS Rule to all classifiers whose Associated PHSI Match */
 				unsigned int uiClassifierIndex = 0;
 				if (pstAddIndication->u8Direction == UPLINK_DIR) {
 					for (uiClassifierIndex = 0; uiClassifierIndex < MAX_CLASSIFIERS; uiClassifierIndex++) {
@@ -614,9 +675,9 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 									"Adding PHS Rule For Classifier: 0x%x cPhsRule.u8PHSI: 0x%x\n",
 									Adapter->astClassifierTable[uiClassifierIndex].uiClassifierRuleIndex,
 									psfCSType->cPhsRule.u8PHSI);
-							
+							/* Update The PHS Rule for this classifier as Associated PHSI id defined */
 
-							
+							/* Copy the PHS Rule */
 							sPhsRule.u8PHSI = psfCSType->cPhsRule.u8PHSI;
 							sPhsRule.u8PHSFLength = psfCSType->cPhsRule.u8PHSFLength;
 							sPhsRule.u8PHSMLength = psfCSType->cPhsRule.u8PHSMLength;
@@ -630,8 +691,8 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 							sPhsRule.PHSModifiedNumPackets = 0;
 							sPhsRule.PHSErrorNumPackets = 0;
 
-							
-							
+							/* bPHSRuleAssociated = TRUE; */
+							/* Store The PHS Rule for this classifier */
 
 							PhsUpdateClassifierRule(
 								&Adapter->stBCMPhsContext,
@@ -640,7 +701,7 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 								&sPhsRule,
 								Adapter->astClassifierTable[uiClassifierIndex].u8AssociatedPHSI);
 
-							
+							/* Update PHS Rule For the Classifier */
 							if (sPhsRule.u8PHSI) {
 								Adapter->astClassifierTable[uiClassifierIndex].u32PHSRuleID = sPhsRule.u8PHSI;
 								memcpy(&Adapter->astClassifierTable[uiClassifierIndex].sPhsRule, &sPhsRule, sizeof(S_PHS_RULE));
@@ -648,9 +709,9 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 						}
 					}
 				} else {
-					
+					/* Error PHS Rule specified in signaling could not be applied to any classifier */
 
-					
+					/* Copy the PHS Rule */
 					sPhsRule.u8PHSI = psfCSType->cPhsRule.u8PHSI;
 					sPhsRule.u8PHSFLength = psfCSType->cPhsRule.u8PHSFLength;
 					sPhsRule.u8PHSMLength = psfCSType->cPhsRule.u8PHSMLength;
@@ -663,8 +724,13 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 					sPhsRule.PHSModifiedBytes = 0;
 					sPhsRule.PHSModifiedNumPackets = 0;
 					sPhsRule.PHSErrorNumPackets = 0;
-					
+					/* Store The PHS Rule for this classifier */
 
+					/*
+					 * Passing the argument u8PHSI instead of clsid. Because for DL with no classifier rule,
+					 * clsid will be zero hence we can't have multiple PHS rules for the same SF.
+					 * To support multiple PHS rule, passing u8PHSI.
+					 */
 					PhsUpdateClassifierRule(
 						&Adapter->stBCMPhsContext,
 						uVCID,
@@ -679,17 +745,17 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 	}
 
 	if (psfLocalSet->u32MaxSustainedTrafficRate == 0) {
-		
+		/* No Rate Limit . Set Max Sustained Traffic Rate to Maximum */
 		Adapter->PackInfo[uiSearchRuleIndex].uiMaxAllowedRate = WIMAX_MAX_ALLOWED_RATE;
 	} else if (ntohl(psfLocalSet->u32MaxSustainedTrafficRate) > WIMAX_MAX_ALLOWED_RATE) {
-		
+		/* Too large Allowed Rate specified. Limiting to Wi Max  Allowed rate */
 		Adapter->PackInfo[uiSearchRuleIndex].uiMaxAllowedRate = WIMAX_MAX_ALLOWED_RATE;
 	} else {
 		Adapter->PackInfo[uiSearchRuleIndex].uiMaxAllowedRate =  ntohl(psfLocalSet->u32MaxSustainedTrafficRate);
 	}
 
 	Adapter->PackInfo[uiSearchRuleIndex].uiMaxLatency = ntohl(psfLocalSet->u32MaximumLatency);
-	if (Adapter->PackInfo[uiSearchRuleIndex].uiMaxLatency == 0) 
+	if (Adapter->PackInfo[uiSearchRuleIndex].uiMaxLatency == 0) /* 0 should be treated as infinite */
 		Adapter->PackInfo[uiSearchRuleIndex].uiMaxLatency = MAX_LATENCY_ALLOWED;
 
 	if ((Adapter->PackInfo[uiSearchRuleIndex].u8QueueType == ERTPS ||
@@ -699,11 +765,22 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 	if (UGIValue == 0)
 		UGIValue = DEFAULT_UG_INTERVAL;
 
+	/*
+	 * For UGI based connections...
+	 * DEFAULT_UGI_FACTOR*UGIInterval worth of data is the max token count at host...
+	 * The extra amount of token is to ensure that a large amount of jitter won't have loss in throughput...
+	 * In case of non-UGI based connection, 200 frames worth of data is the max token count at host...
+	 */
 	Adapter->PackInfo[uiSearchRuleIndex].uiMaxBucketSize =
 		(DEFAULT_UGI_FACTOR*Adapter->PackInfo[uiSearchRuleIndex].uiMaxAllowedRate*UGIValue)/1000;
 
 	if (Adapter->PackInfo[uiSearchRuleIndex].uiMaxBucketSize < WIMAX_MAX_MTU*8) {
 		UINT UGIFactor = 0;
+		/* Special Handling to ensure the biggest size of packet can go out from host to FW as follows:
+		 * 1. Any packet from Host to FW can go out in different packet size.
+		 * 2. So in case the Bucket count is smaller than MTU, the packets of size (Size > TokenCount), will get dropped.
+		 * 3. We can allow packets of MaxSize from Host->FW that can go out from FW in multiple SDUs by fragmentation at Wimax Layer
+		 */
 		UGIFactor = (Adapter->PackInfo[uiSearchRuleIndex].uiMaxLatency/UGIValue + 1);
 
 		if (UGIFactor > DEFAULT_UGI_FACTOR)
@@ -720,10 +797,10 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 			ntohl(psfLocalSet->u32MaxSustainedTrafficRate),
 			Adapter->PackInfo[uiSearchRuleIndex].uiMaxBucketSize);
 
-	
+	/* copy the extended SF Parameters to Support MIBS */
 	CopyMIBSExtendedSFParameters(Adapter, psfLocalSet, uiSearchRuleIndex);
 
-	
+	/* store header suppression enabled flag per SF */
 	Adapter->PackInfo[uiSearchRuleIndex].bHeaderSuppressionEnabled =
 		!(psfLocalSet->u8RequesttransmissionPolicy &
 			MASK_DISABLE_HEADER_SUPPRESSION);
@@ -731,14 +808,28 @@ static VOID CopyToAdapter(register PMINI_ADAPTER Adapter,
 	kfree(Adapter->PackInfo[uiSearchRuleIndex].pstSFIndication);
 	Adapter->PackInfo[uiSearchRuleIndex].pstSFIndication = pstAddIndication;
 
-	
+	/* Re Sort the SF list in PackInfo according to Traffic Priority */
 	SortPackInfo(Adapter);
 
+	/* Re Sort the Classifier Rules table and re - arrange
+	 * according to Classifier Rule Priority
+	 */
 	SortClassifiers(Adapter);
 	DumpPhsRules(&Adapter->stBCMPhsContext);
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "%s <=====", __func__);
 }
 
+/***********************************************************************
+ * Function - DumpCmControlPacket
+ *
+ * Description - This routinue Dumps the Contents of the AddIndication
+ *  Structure in the Connection Management Control Packet
+ *
+ * Parameter - pvBuffer: Pointer to the buffer containing the
+ *  AddIndication data.
+ *
+ * Returns - None
+ *************************************************************************/
 static VOID DumpCmControlPacket(PVOID pvBuffer)
 {
 	int uiLoopIndex;
@@ -1244,7 +1335,7 @@ static inline ULONG RestoreSFParam(PMINI_ADAPTER Adapter, ULONG ulAddrSFParamSet
 	}
 	ulAddrSFParamSet = ntohl(ulAddrSFParamSet);
 
-	
+	/* Read out the SF Param Set At the indicated Location */
 	if (rdm(Adapter, ulAddrSFParamSet, (PUCHAR)pucDestBuffer, nBytesToRead) < 0)
 		return STATUS_FAILURE;
 
@@ -1277,6 +1368,10 @@ ULONG StoreCmControlResponseMessage(PMINI_ADAPTER Adapter, PVOID pvBuffer, UINT 
 
 	pstAddIndicationAlt = (stLocalSFAddIndicationAlt *)(pvBuffer);
 
+	/*
+	 * In case of DSD Req By MS, we should immediately delete this SF so that
+	 * we can stop the further classifying the pkt for this SF.
+	 */
 	if (pstAddIndicationAlt->u8Type == DSD_REQ) {
 		pstDeletionRequest = (stLocalSFDeleteRequest *)pvBuffer;
 
@@ -1292,16 +1387,16 @@ ULONG StoreCmControlResponseMessage(PMINI_ADAPTER Adapter, PVOID pvBuffer, UINT 
 
 	if ((pstAddIndicationAlt->u8Type == DSD_RSP) ||
 		(pstAddIndicationAlt->u8Type == DSD_ACK)) {
-		
+		/* No Special handling send the message as it is */
 		return 1;
 	}
-	
+	/* For DSA_REQ, only up to "psfAuthorizedSet" parameter should be accessed by driver! */
 
 	pstAddIndication = kmalloc(sizeof(*pstAddIndication), GFP_KERNEL);
 	if (pstAddIndication == NULL)
 		return 0;
 
-	
+	/* AUTHORIZED SET */
 	pstAddIndication->psfAuthorizedSet = (stServiceFlowParamSI *)
 			GetNextTargetBufferLocation(Adapter, pstAddIndicationAlt->u16TID);
 	if (!pstAddIndication->psfAuthorizedSet) {
@@ -1315,7 +1410,7 @@ ULONG StoreCmControlResponseMessage(PMINI_ADAPTER Adapter, PVOID pvBuffer, UINT 
 		return 0;
 	}
 
-	
+	/* this can't possibly be right */
 	pstAddIndication->psfAuthorizedSet = (stServiceFlowParamSI *)ntohl((ULONG)pstAddIndication->psfAuthorizedSet);
 
 	if (pstAddIndicationAlt->u8Type == DSA_REQ) {
@@ -1333,8 +1428,8 @@ ULONG StoreCmControlResponseMessage(PMINI_ADAPTER Adapter, PVOID pvBuffer, UINT 
 		return 1;
 	}
 
-	
-	
+	/* Since it's not DSA_REQ, we can access all field in pstAddIndicationAlt */
+	/* We need to extract the structure from the buffer and pack it differently */
 
 	pstAddIndication->u8Type = pstAddIndicationAlt->u8Type;
 	pstAddIndication->eConnectionDir = pstAddIndicationAlt->u8Direction;
@@ -1343,7 +1438,7 @@ ULONG StoreCmControlResponseMessage(PMINI_ADAPTER Adapter, PVOID pvBuffer, UINT 
 	pstAddIndication->u16VCID = pstAddIndicationAlt->u16VCID;
 	pstAddIndication->u8CC = pstAddIndicationAlt->u8CC;
 
-	
+	/* ADMITTED SET */
 	pstAddIndication->psfAdmittedSet = (stServiceFlowParamSI *)
 		GetNextTargetBufferLocation(Adapter, pstAddIndicationAlt->u16TID);
 	if (!pstAddIndication->psfAdmittedSet) {
@@ -1357,7 +1452,7 @@ ULONG StoreCmControlResponseMessage(PMINI_ADAPTER Adapter, PVOID pvBuffer, UINT 
 
 	pstAddIndication->psfAdmittedSet = (stServiceFlowParamSI *)ntohl((ULONG)pstAddIndication->psfAdmittedSet);
 
-	
+	/* ACTIVE SET */
 	pstAddIndication->psfActiveSet = (stServiceFlowParamSI *)
 		GetNextTargetBufferLocation(Adapter, pstAddIndicationAlt->u16TID);
 	if (!pstAddIndication->psfActiveSet) {
@@ -1392,6 +1487,10 @@ static inline stLocalSFAddIndicationAlt
 		return (stLocalSFAddIndicationAlt *)pvBuffer;
 
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Inside RestoreCmControlResponseMessage ");
+	/*
+	 * Need to Allocate memory to contain the SUPER Large structures
+	 * Our driver can't create these structures on Stack :(
+	 */
 	pstAddIndicationDest = kmalloc(sizeof(stLocalSFAddIndicationAlt), GFP_KERNEL);
 
 	if (pstAddIndicationDest) {
@@ -1443,7 +1542,7 @@ static inline stLocalSFAddIndicationAlt
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "Dumping the whole raw packet");
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "============================================================");
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, " pstAddIndicationDest->sfActiveSet size  %zx %p", sizeof(*pstAddIndicationDest), pstAddIndicationDest);
-	
+	/* BCM_DEBUG_PRINT_BUFFER(Adapter,DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, (unsigned char *)pstAddIndicationDest, sizeof(*pstAddIndicationDest)); */
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "============================================================");
 	return pstAddIndicationDest;
 failed_restore_sf_param:
@@ -1535,6 +1634,10 @@ static ULONG GetNextTargetBufferLocation(PMINI_ADAPTER Adapter, B_UINT16 tid)
 
 int AllocAdapterDsxBuffer(PMINI_ADAPTER Adapter)
 {
+	/*
+	 * Need to Allocate memory to contain the SUPER Large structures
+	 * Our driver can't create these structures on Stack
+	 */
 	Adapter->caDsxReqResp = kmalloc(sizeof(stLocalSFAddIndicationAlt)+LEADER_SIZE, GFP_KERNEL);
 	if (!Adapter->caDsxReqResp)
 		return -ENOMEM;
@@ -1548,14 +1651,24 @@ int FreeAdapterDsxBuffer(PMINI_ADAPTER Adapter)
 	return 0;
 }
 
-BOOLEAN CmControlResponseMessage(PMINI_ADAPTER Adapter,  
-				PVOID pvBuffer )
+/*
+ * @ingroup ctrl_pkt_functions
+ * This routinue would process the Control responses
+ * for the Connection Management.
+ * @return - Queue index for the free SFID else returns Invalid Index.
+ */
+BOOLEAN CmControlResponseMessage(PMINI_ADAPTER Adapter,  /* <Pointer to the Adapter structure */
+				PVOID pvBuffer /* Starting Address of the Buffer, that contains the AddIndication Data */)
 {
 	stServiceFlowParamSI *psfLocalSet = NULL;
 	stLocalSFAddIndicationAlt *pstAddIndication = NULL;
 	stLocalSFChangeIndicationAlt *pstChangeIndication = NULL;
 	PLEADER pLeader = NULL;
 
+	/*
+	 * Otherwise the message contains a target address from where we need to
+	 * read out the rest of the service flow param structure
+	 */
 	pstAddIndication = RestoreCmControlResponseMessage(Adapter, pvBuffer);
 	if (pstAddIndication == NULL) {
 		ClearTargetDSXBuffer(Adapter, ((stLocalSFAddIndication *)pvBuffer)->u16TID, FALSE);
@@ -1596,7 +1709,7 @@ BOOLEAN CmControlResponseMessage(PMINI_ADAPTER Adapter,
 			= *pstAddIndication;
 		((stLocalSFAddIndicationAlt *)&(Adapter->caDsxReqResp[LEADER_SIZE]))->u8Type = DSA_ACK;
 
-	} 
+	} /* no break here..we should go down. */
 	case DSA_ACK:
 	{
 		UINT uiSearchRuleIndex = 0;
@@ -1649,9 +1762,13 @@ BOOLEAN CmControlResponseMessage(PMINI_ADAPTER Adapter,
 					atomic_set(&Adapter->PackInfo[uiSearchRuleIndex].uiPerSFTxResourceCount, DEFAULT_PERSFCOUNT);
 
 				CopyToAdapter(Adapter, psfLocalSet, uiSearchRuleIndex, DSA_ACK, pstAddIndication);
-				
+				/* don't free pstAddIndication */
 
-				
+				/* Inside CopyToAdapter, Sorting of all the SFs take place.
+				 * Hence any access to the newly added SF through uiSearchRuleIndex is invalid.
+				 * SHOULD BE STRICTLY AVOIDED.
+				 */
+				/* *(PULONG)(((PUCHAR)pvBuffer)+1)=psfLocalSet->u32SFID; */
 				memcpy((((PUCHAR)pvBuffer)+1), &psfLocalSet->u32SFID, 4);
 
 				if (pstAddIndication->sfActiveSet.bValid == TRUE) {
@@ -1774,7 +1891,7 @@ BOOLEAN CmControlResponseMessage(PMINI_ADAPTER Adapter,
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_OTHERS, CONN_MSG, DBG_LVL_ALL, "DSD - Removing connection %x", uiSearchRuleIndex);
 
 		if (uiSearchRuleIndex < NO_OF_QUEUES) {
-			
+			/* Delete All Classifiers Associated with this SFID */
 			deleteSFBySfid(Adapter, uiSearchRuleIndex);
 			Adapter->u32TotalDSD++;
 		}
@@ -1785,7 +1902,7 @@ BOOLEAN CmControlResponseMessage(PMINI_ADAPTER Adapter,
 	}
 	case DSD_RSP:
 	{
-		
+		/* Do nothing as SF has already got Deleted */
 	}
 	break;
 	case DSD_ACK:

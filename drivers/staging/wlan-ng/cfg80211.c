@@ -1,5 +1,7 @@
+/* cfg80211 Interface for prism2_usb module */
 
 
+/* Prism2 channell/frequency/bitrate declarations */
 static const struct ieee80211_channel prism2_channels[] = {
 	{ .center_freq = 2412 },
 	{ .center_freq = 2417 },
@@ -31,6 +33,7 @@ static const u32 prism2_cipher_suites[PRISM2_NUM_CIPHER_SUITES] = {
 };
 
 
+/* prism2 device private data */
 struct prism2_wiphy_private {
 	wlandevice_t *wlandev;
 
@@ -44,6 +47,7 @@ struct prism2_wiphy_private {
 static const void * const prism2_wiphy_privid = &prism2_wiphy_privid;
 
 
+/* Helper Functions */
 static int prism2_result2err(int prism2_result)
 {
 	int err = 0;
@@ -93,6 +97,7 @@ static int prism2_domibset_pstr32(wlandevice_t *wlandev,
 }
 
 
+/* The interface functions, called by the cfg80211 layer */
 int prism2_change_virtual_intf(struct wiphy *wiphy,
 			       struct net_device *dev,
 			       enum nl80211_iftype type, u32 *flags,
@@ -121,7 +126,7 @@ int prism2_change_virtual_intf(struct wiphy *wiphy,
 		return -EOPNOTSUPP;
 	}
 
-	
+	/* Set Operation mode to the PORT TYPE RID */
 	result = prism2_domibset_uint32(wlandev, DIDmib_p2_p2Static_p2CnfPortType, data);
 
 	if (result)
@@ -152,7 +157,7 @@ int prism2_add_key(struct wiphy *wiphy, struct net_device *dev,
 		if (result)
 			goto exit;
 
-		
+		/* send key to driver */
 		switch (key_index) {
 		case 0:
 			did = DIDmib_dot11smt_dot11WEPDefaultKeysTable_dot11WEPDefaultKey0;
@@ -229,7 +234,9 @@ int prism2_del_key(struct wiphy *wiphy, struct net_device *dev,
 	int err = 0;
 	int result = 0;
 
-	
+	/* There is no direct way in the hardware (AFAIK) of removing
+	   a key, so we will cheat by setting the key to a bogus value */
+	/* send key to driver */
 	switch (key_index) {
 	case 0:
 		did =
@@ -296,12 +303,12 @@ int prism2_get_station(struct wiphy *wiphy, struct net_device *dev,
 	if ((wlandev == NULL) || (wlandev->msdstate != WLAN_MSD_RUNNING))
 		return -EOPNOTSUPP;
 
-	
+	/* build request message */
 	quality.msgcode = DIDmsg_lnxreq_commsquality;
 	quality.dbm.data = P80211ENUM_truth_true;
 	quality.dbm.status = P80211ENUM_msgitem_status_data_ok;
 
-	
+	/* send message to nsd */
 	if (wlandev->mlmerequest == NULL)
 		return -EOPNOTSUPP;
 
@@ -376,7 +383,7 @@ int prism2_scan(struct wiphy *wiphy, struct net_device *dev,
 		err = prism2_result2err(msg1.resultcode.data);
 		goto exit;
 	}
-	
+	/* Now retrieve scan results */
 	numbss = msg1.numbss.data;
 
 	for (i = 0; i < numbss; i++) {
@@ -401,7 +408,7 @@ int prism2_scan(struct wiphy *wiphy, struct net_device *dev,
 			msg2.beaconperiod.data,
 			ie_buf,
 			ie_len,
-			(msg2.signal.data - 65536) * 100, 
+			(msg2.signal.data - 65536) * 100, /* Conversion to signed type */
 			GFP_KERNEL
 		);
 	}
@@ -471,7 +478,7 @@ int prism2_connect(struct wiphy *wiphy, struct net_device *dev,
 	int result;
 	int err = 0;
 
-	
+	/* Set the channel */
 	if (channel) {
 		chan = ieee80211_frequency_to_channel(channel->center_freq);
 		result = prism2_domibset_uint32(wlandev,
@@ -481,7 +488,7 @@ int prism2_connect(struct wiphy *wiphy, struct net_device *dev,
 			goto exit;
 	}
 
-	
+	/* Set the authorisation */
 	if ((sme->auth_type == NL80211_AUTHTYPE_OPEN_SYSTEM) ||
 		((sme->auth_type == NL80211_AUTHTYPE_AUTOMATIC) && !is_wep))
 			msg_join.authtype.data = P80211ENUM_authalg_opensystem;
@@ -493,7 +500,7 @@ int prism2_connect(struct wiphy *wiphy, struct net_device *dev,
 			"Unhandled authorisation type for connect (%d)\n",
 			sme->auth_type);
 
-	
+	/* Set the encryption - we only support wep */
 	if (is_wep) {
 		if (sme->key) {
 			result = prism2_domibset_uint32(wlandev,
@@ -502,7 +509,7 @@ int prism2_connect(struct wiphy *wiphy, struct net_device *dev,
 			if (result)
 				goto exit;
 
-			
+			/* send key to driver */
 			switch (sme->key_idx) {
 			case 0:
 				did = DIDmib_dot11smt_dot11WEPDefaultKeysTable_dot11WEPDefaultKey0;
@@ -531,6 +538,9 @@ int prism2_connect(struct wiphy *wiphy, struct net_device *dev,
 
 		}
 
+		/* Assume we should set privacy invoked and exclude unencrypted
+		   We could possibly use sme->privacy here, but the assumption
+		   seems reasonable anyway */
 		result = prism2_domibset_uint32(wlandev,
 						DIDmib_dot11smt_dot11PrivacyTable_dot11PrivacyInvoked,
 						P80211ENUM_truth_true);
@@ -544,6 +554,8 @@ int prism2_connect(struct wiphy *wiphy, struct net_device *dev,
 			goto exit;
 
 	} else {
+		/* Assume we should unset privacy invoked
+		   and exclude unencrypted */
 		result = prism2_domibset_uint32(wlandev,
 						DIDmib_dot11smt_dot11PrivacyTable_dot11PrivacyInvoked,
 						P80211ENUM_truth_false);
@@ -558,6 +570,8 @@ int prism2_connect(struct wiphy *wiphy, struct net_device *dev,
 
 	}
 
+	/* Now do the actual join. Note there is no way that I can
+	   see to request a specific bssid */
 	msg_join.msgcode = DIDmsg_lnxreq_autojoin;
 
 	memcpy(msg_join.ssid.data.data, sme->ssid, length);
@@ -581,7 +595,7 @@ int prism2_disconnect(struct wiphy *wiphy, struct net_device *dev,
 	int err = 0;
 
 
-	
+	/* Do a join, with a bogus ssid. Thats the only way I can think of */
 	msg_join.msgcode = DIDmsg_lnxreq_autojoin;
 
 	memcpy(msg_join.ssid.data.data, "---", 3);
@@ -664,6 +678,7 @@ exit:
 
 
 
+/* Interface callback functions, passing data back up to the cfg80211 layer */
 void prism2_connect_result(wlandevice_t *wlandev, u8 failed)
 {
 	u16 status = failed ? WLAN_STATUS_UNSPECIFIED_FAILURE : WLAN_STATUS_SUCCESS;
@@ -685,6 +700,7 @@ void prism2_roamed(wlandevice_t *wlandev)
 }
 
 
+/* Structures for declaring wiphy interface */
 static const struct cfg80211_ops prism2_usb_cfg_ops = {
 	.change_virtual_intf = prism2_change_virtual_intf,
 	.add_key = prism2_add_key,
@@ -703,6 +719,7 @@ static const struct cfg80211_ops prism2_usb_cfg_ops = {
 };
 
 
+/* Functions to create/free wiphy interface */
 struct wiphy *wlan_create_wiphy(struct device *dev, wlandevice_t *wlandev)
 {
 	struct wiphy *wiphy;

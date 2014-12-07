@@ -1,3 +1,4 @@
+/* ashrdi3.c extracted from gcc-2.7.2/libgcc2.c which is: */
 /* Copyright (C) 1989, 1992, 1993, 1994, 1995 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
@@ -47,7 +48,7 @@ DItype __ashrdi3(DItype u, word_type b)
 
 	bm = (sizeof(SItype) * BITS_PER_UNIT) - b;
 	if (bm <= 0) {
-		
+		/* w.s.high = 1..1 or 0..0 */
 		w.s.high = uu.s.high >> (sizeof(SItype) * BITS_PER_UNIT - 1);
 		w.s.low = uu.s.high >> -bm;
 	} else {

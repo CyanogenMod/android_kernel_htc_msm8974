@@ -122,10 +122,23 @@ static inline void crystalhd_set_sg(struct scatterlist *sg, struct page *page,
 
 static inline void crystalhd_init_sg(struct scatterlist *sg, unsigned int entries)
 {
-	
+	/* http://lkml.org/lkml/2007/11/27/68 */
 	sg_init_table(sg, entries);
 }
 
+/*========================== Extern ========================================*/
+/**
+ * bc_dec_reg_rd - Read 7412's device register.
+ * @adp: Adapter instance
+ * @reg_off: Register offset.
+ *
+ * Return:
+ *	32bit value read
+ *
+ * 7412's device register read routine. This interface use
+ * 7412's device access range mapped from BAR-2 (4M) of PCIe
+ * configuration space.
+ */
 uint32_t bc_dec_reg_rd(struct crystalhd_adp *adp, uint32_t reg_off)
 {
 	if (!adp || (reg_off > adp->pci_mem_len)) {
@@ -159,6 +172,19 @@ void bc_dec_reg_wr(struct crystalhd_adp *adp, uint32_t reg_off, uint32_t val)
 	udelay(8);
 }
 
+/**
+ * crystalhd_reg_rd - Read Link's device register.
+ * @adp: Adapter instance
+ * @reg_off: Register offset.
+ *
+ * Return:
+ *	32bit value read
+ *
+ * Link device register  read routine. This interface use
+ * Link's device access range mapped from BAR-1 (64K) of PCIe
+ * configuration space.
+ *
+ */
 uint32_t crystalhd_reg_rd(struct crystalhd_adp *adp, uint32_t reg_off)
 {
 	if (!adp || (reg_off > adp->pci_i2o_len)) {
@@ -191,6 +217,18 @@ void crystalhd_reg_wr(struct crystalhd_adp *adp, uint32_t reg_off, uint32_t val)
 	writel(val, adp->i2o_addr + reg_off);
 }
 
+/**
+ * crystalhd_mem_rd - Read data from 7412's DRAM area.
+ * @adp: Adapter instance
+ * @start_off: Start offset.
+ * @dw_cnt: Count in dwords.
+ * @rd_buff: Buffer to copy the data from dram.
+ *
+ * Return:
+ *	Status.
+ *
+ * 7412's Dram read routine.
+ */
 enum BC_STATUS crystalhd_mem_rd(struct crystalhd_adp *adp, uint32_t start_off,
 			 uint32_t dw_cnt, uint32_t *rd_buff)
 {
@@ -235,6 +273,18 @@ enum BC_STATUS crystalhd_mem_wr(struct crystalhd_adp *adp, uint32_t start_off,
 
 	return BC_STS_SUCCESS;
 }
+/**
+ * crystalhd_pci_cfg_rd - PCIe config read
+ * @adp: Adapter instance
+ * @off: PCI config space offset.
+ * @len: Size -- Byte, Word & dword.
+ * @val: Value read
+ *
+ * Return:
+ *	Status.
+ *
+ * Get value from Link's PCIe config space.
+ */
 enum BC_STATUS crystalhd_pci_cfg_rd(struct crystalhd_adp *adp, uint32_t off,
 			     uint32_t len, uint32_t *val)
 {
@@ -313,6 +363,19 @@ enum BC_STATUS crystalhd_pci_cfg_wr(struct crystalhd_adp *adp, uint32_t off,
 	return sts;
 }
 
+/**
+ * bc_kern_dma_alloc - Allocate memory for Dma rings
+ * @adp: Adapter instance
+ * @sz: Size of the memory to allocate.
+ * @phy_addr: Physical address of the memory allocated.
+ *	   Typedef to system's dma_addr_t (u64)
+ *
+ * Return:
+ *  Pointer to allocated memory..
+ *
+ * Wrapper to Linux kernel interface.
+ *
+ */
 void *bc_kern_dma_alloc(struct crystalhd_adp *adp, uint32_t sz,
 			dma_addr_t *phy_addr)
 {
@@ -330,6 +393,17 @@ void *bc_kern_dma_alloc(struct crystalhd_adp *adp, uint32_t sz,
 	return temp;
 }
 
+/**
+ * bc_kern_dma_free - Release Dma ring memory.
+ * @adp: Adapter instance
+ * @sz: Size of the memory to allocate.
+ * @ka: Kernel virtual address returned during _dio_alloc()
+ * @phy_addr: Physical address of the memory allocated.
+ *	   Typedef to system's dma_addr_t (u64)
+ *
+ * Return:
+ *     none.
+ */
 void bc_kern_dma_free(struct crystalhd_adp *adp, uint32_t sz, void *ka,
 		      dma_addr_t phy_addr)
 {
@@ -341,6 +415,19 @@ void bc_kern_dma_free(struct crystalhd_adp *adp, uint32_t sz, void *ka,
 	pci_free_consistent(adp->pdev, sz, ka, phy_addr);
 }
 
+/**
+ * crystalhd_create_dioq - Create Generic DIO queue
+ * @adp: Adapter instance
+ * @dioq_hnd: Handle to the dio queue created
+ * @cb	: Optional - Call back To free the element.
+ * @cbctx: Context to pass to callback.
+ *
+ * Return:
+ *  status
+ *
+ * Initialize Generic DIO queue to hold any data. Callback
+ * will be used to free elements while deleting the queue.
+ */
 enum BC_STATUS crystalhd_create_dioq(struct crystalhd_adp *adp,
 			      struct crystalhd_dioq **dioq_hnd,
 			      crystalhd_data_free_cb cb, void *cbctx)
@@ -369,6 +456,19 @@ enum BC_STATUS crystalhd_create_dioq(struct crystalhd_adp *adp,
 	return BC_STS_SUCCESS;
 }
 
+/**
+ * crystalhd_delete_dioq - Delete Generic DIO queue
+ * @adp: Adapter instance
+ * @dioq: DIOQ instance..
+ *
+ * Return:
+ *  None.
+ *
+ * Release Generic DIO queue. This function will remove
+ * all the entries from the Queue and will release data
+ * by calling the call back provided during creation.
+ *
+ */
 void crystalhd_delete_dioq(struct crystalhd_adp *adp, struct crystalhd_dioq *dioq)
 {
 	void *temp;
@@ -385,6 +485,18 @@ void crystalhd_delete_dioq(struct crystalhd_adp *adp, struct crystalhd_dioq *dio
 	kfree(dioq);
 }
 
+/**
+ * crystalhd_dioq_add - Add new DIO request element.
+ * @ioq: DIO queue instance
+ * @t: DIO request to be added.
+ * @wake: True - Wake up suspended process.
+ * @tag: Special tag to assign - For search and get.
+ *
+ * Return:
+ *  Status.
+ *
+ * Insert new element to Q tail.
+ */
 enum BC_STATUS crystalhd_dioq_add(struct crystalhd_dioq *ioq, void *data,
 			   bool wake, uint32_t tag)
 {
@@ -418,6 +530,15 @@ enum BC_STATUS crystalhd_dioq_add(struct crystalhd_dioq *ioq, void *data,
 	return BC_STS_SUCCESS;
 }
 
+/**
+ * crystalhd_dioq_fetch - Fetch element from head.
+ * @ioq: DIO queue instance
+ *
+ * Return:
+ *	data element from the head..
+ *
+ * Remove an element from Queue.
+ */
 void *crystalhd_dioq_fetch(struct crystalhd_dioq *ioq)
 {
 	unsigned long flags = 0;
@@ -446,6 +567,16 @@ void *crystalhd_dioq_fetch(struct crystalhd_dioq *ioq)
 
 	return data;
 }
+/**
+ * crystalhd_dioq_find_and_fetch - Search the tag and Fetch element
+ * @ioq: DIO queue instance
+ * @tag: Tag to search for.
+ *
+ * Return:
+ *	element from the head..
+ *
+ * Search TAG and remove the element.
+ */
 void *crystalhd_dioq_find_and_fetch(struct crystalhd_dioq *ioq, uint32_t tag)
 {
 	unsigned long flags = 0;
@@ -480,6 +611,17 @@ void *crystalhd_dioq_find_and_fetch(struct crystalhd_dioq *ioq, uint32_t tag)
 	return data;
 }
 
+/**
+ * crystalhd_dioq_fetch_wait - Fetch element from Head.
+ * @ioq: DIO queue instance
+ * @to_secs: Wait timeout in seconds..
+ *
+ * Return:
+ *	element from the head..
+ *
+ * Return element from head if Q is not empty. Wait for new element
+ * if Q is empty for Timeout seconds.
+ */
 void *crystalhd_dioq_fetch_wait(struct crystalhd_dioq *ioq, uint32_t to_secs,
 			      uint32_t *sig_pend)
 {
@@ -514,13 +656,29 @@ out:
 	return crystalhd_dioq_fetch(ioq);
 }
 
+/**
+ * crystalhd_map_dio - Map user address for DMA
+ * @adp:	Adapter instance
+ * @ubuff:	User buffer to map.
+ * @ubuff_sz:	User buffer size.
+ * @uv_offset:	UV buffer offset.
+ * @en_422mode: TRUE:422 FALSE:420 Capture mode.
+ * @dir_tx:	TRUE for Tx (To device from host)
+ * @dio_hnd:	Handle to mapped DIO request.
+ *
+ * Return:
+ *	Status.
+ *
+ * This routine maps user address and lock pages for DMA.
+ *
+ */
 enum BC_STATUS crystalhd_map_dio(struct crystalhd_adp *adp, void *ubuff,
 			  uint32_t ubuff_sz, uint32_t uv_offset,
 			  bool en_422mode, bool dir_tx,
 			  struct crystalhd_dio_req **dio_hnd)
 {
 	struct crystalhd_dio_req	*dio;
-	
+	/* FIXME: jarod: should some of these unsigned longs be uint32_t or uintptr_t? */
 	unsigned long start = 0, end = 0, uaddr = 0, count = 0;
 	unsigned long spsz = 0, uv_start = 0;
 	int i = 0, rw = 0, res = 0, nr_pages = 0, skip_fb_sg = 0;
@@ -529,7 +687,7 @@ enum BC_STATUS crystalhd_map_dio(struct crystalhd_adp *adp, void *ubuff,
 		BCMLOG_ERR("Invalid arg\n");
 		return BC_STS_INV_ARG;
 	}
-	
+	/* Compute pages */
 	uaddr = (unsigned long)ubuff;
 	count = (unsigned long)ubuff_sz;
 	end = (uaddr + count + PAGE_SIZE - 1) >> PAGE_SHIFT;
@@ -587,7 +745,7 @@ enum BC_STATUS crystalhd_map_dio(struct crystalhd_adp *adp, void *ubuff,
 			     0, dio->pages, NULL);
 	up_read(&current->mm->mmap_sem);
 
-	
+	/* Save for release..*/
 	dio->sig = crystalhd_dio_locked;
 	if (res < nr_pages) {
 		BCMLOG_ERR("get pages failed: %d-%d\n", nr_pages, res);
@@ -597,7 +755,7 @@ enum BC_STATUS crystalhd_map_dio(struct crystalhd_adp *adp, void *ubuff,
 	}
 
 	dio->page_cnt = nr_pages;
-	
+	/* Get scatter/gather */
 	crystalhd_init_sg(dio->sg, dio->page_cnt);
 	crystalhd_set_sg(&dio->sg[0], dio->pages[0], 0, uaddr & ~PAGE_MASK);
 	if (nr_pages > 1) {
@@ -639,7 +797,7 @@ enum BC_STATUS crystalhd_map_dio(struct crystalhd_adp *adp, void *ubuff,
 	if (dio->sg_cnt && skip_fb_sg)
 		dio->sg_cnt -= 1;
 	dio->sig = crystalhd_dio_sg_mapped;
-	
+	/* Fill in User info.. */
 	dio->uinfo.xfr_len   = ubuff_sz;
 	dio->uinfo.xfr_buff  = ubuff;
 	dio->uinfo.uv_offset = uv_offset;
@@ -651,6 +809,16 @@ enum BC_STATUS crystalhd_map_dio(struct crystalhd_adp *adp, void *ubuff,
 	return BC_STS_SUCCESS;
 }
 
+/**
+ * crystalhd_unmap_sgl - Release mapped resources
+ * @adp: Adapter instance
+ * @dio: DIO request instance
+ *
+ * Return:
+ *	Status.
+ *
+ * This routine is to unmap the user buffer pages.
+ */
 enum BC_STATUS crystalhd_unmap_dio(struct crystalhd_adp *adp, struct crystalhd_dio_req *dio)
 {
 	struct page *page = NULL;
@@ -680,6 +848,17 @@ enum BC_STATUS crystalhd_unmap_dio(struct crystalhd_adp *adp, struct crystalhd_d
 	return BC_STS_SUCCESS;
 }
 
+/**
+ * crystalhd_create_dio_pool - Allocate mem pool for DIO management.
+ * @adp: Adapter instance
+ * @max_pages: Max pages for size calculation.
+ *
+ * Return:
+ *	system error.
+ *
+ * This routine creates a memory pool to hold dio context for
+ * for HW Direct IO operation.
+ */
 int crystalhd_create_dio_pool(struct crystalhd_adp *adp, uint32_t max_pages)
 {
 	uint32_t asz = 0, i = 0;
@@ -691,7 +870,7 @@ int crystalhd_create_dio_pool(struct crystalhd_adp *adp, uint32_t max_pages)
 		return -EINVAL;
 	}
 
-	
+	/* Get dma memory for fill byte handling..*/
 	adp->fill_byte_pool = pci_pool_create("crystalhd_fbyte",
 					      adp->pdev, 8, 8, 0);
 	if (!adp->fill_byte_pool) {
@@ -699,7 +878,7 @@ int crystalhd_create_dio_pool(struct crystalhd_adp *adp, uint32_t max_pages)
 		return -ENOMEM;
 	}
 
-	
+	/* Get the max size from user based on 420/422 modes */
 	asz =  (sizeof(*dio->pages) * max_pages) +
 	       (sizeof(*dio->sg) * max_pages) + sizeof(*dio);
 
@@ -732,6 +911,15 @@ int crystalhd_create_dio_pool(struct crystalhd_adp *adp, uint32_t max_pages)
 	return 0;
 }
 
+/**
+ * crystalhd_destroy_dio_pool - Release DIO mem pool.
+ * @adp: Adapter instance
+ *
+ * Return:
+ *	none.
+ *
+ * This routine releases dio memory pool during close.
+ */
 void crystalhd_destroy_dio_pool(struct crystalhd_adp *adp)
 {
 	struct crystalhd_dio_req *dio;
@@ -761,6 +949,17 @@ void crystalhd_destroy_dio_pool(struct crystalhd_adp *adp)
 	BCMLOG(BCMLOG_DBG, "Released dio pool %d\n", count);
 }
 
+/**
+ * crystalhd_create_elem_pool - List element pool creation.
+ * @adp: Adapter instance
+ * @pool_size: Number of elements in the pool.
+ *
+ * Return:
+ *	0 - success, <0 error
+ *
+ * Create general purpose list element pool to hold pending,
+ * and active requests.
+ */
 int __devinit crystalhd_create_elem_pool(struct crystalhd_adp *adp,
 		uint32_t pool_size)
 {
@@ -782,6 +981,15 @@ int __devinit crystalhd_create_elem_pool(struct crystalhd_adp *adp,
 	return 0;
 }
 
+/**
+ * crystalhd_delete_elem_pool - List element pool deletion.
+ * @adp: Adapter instance
+ *
+ * Return:
+ *	none
+ *
+ * Delete general purpose list element pool.
+ */
 void crystalhd_delete_elem_pool(struct crystalhd_adp *adp)
 {
 	struct crystalhd_elem *temp;
@@ -801,6 +1009,7 @@ void crystalhd_delete_elem_pool(struct crystalhd_adp *adp)
 	BCMLOG(BCMLOG_DBG, "released %d elem\n", dbg_cnt);
 }
 
+/*================ Debug support routines.. ================================*/
 void crystalhd_show_buffer(uint32_t off, uint8_t *buff, uint32_t dwcount)
 {
 	uint32_t i, k = 1;

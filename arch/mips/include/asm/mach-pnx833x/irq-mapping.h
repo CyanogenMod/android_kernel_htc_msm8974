@@ -23,10 +23,25 @@
 
 #ifndef __ASM_MIPS_MACH_PNX833X_IRQ_MAPPING_H
 #define __ASM_MIPS_MACH_PNX833X_IRQ_MAPPING_H
+/*
+ * The "IRQ numbers" are completely virtual.
+ *
+ * In PNX8330/1, we have 48 interrupt lines, numbered from 1 to 48.
+ * Let's use numbers 1..48 for PIC interrupts, number 0 for timer interrupt,
+ * numbers 49..64 for (virtual) GPIO interrupts.
+ *
+ * In PNX8335, we have 57 interrupt lines, numbered from 1 to 57,
+ * connected to PIC, which uses core hardware interrupt 2, and also
+ * a timer interrupt through hardware interrupt 5.
+ * Let's use numbers 1..64 for PIC interrupts, number 0 for timer interrupt,
+ * numbers 65..80 for (virtual) GPIO interrupts.
+ *
+ */
 #include <irq.h>
 
 #define PNX833X_TIMER_IRQ				(MIPS_CPU_IRQ_BASE + 7)
 
+/* Interrupts supported by PIC */
 #define PNX833X_PIC_I2C0_INT			(PNX833X_PIC_IRQ_BASE +  1)
 #define PNX833X_PIC_I2C1_INT			(PNX833X_PIC_IRQ_BASE +  2)
 #define PNX833X_PIC_UART0_INT			(PNX833X_PIC_IRQ_BASE +  3)
@@ -89,6 +104,7 @@
 #define PNX8335_PIC_IR1_IRQ_INT				(PNX833X_PIC_IRQ_BASE + 57)
 #endif
 
+/* GPIO interrupts */
 #define PNX833X_GPIO_0_INT			(PNX833X_GPIO_IRQ_BASE +  0)
 #define PNX833X_GPIO_1_INT			(PNX833X_GPIO_IRQ_BASE +  1)
 #define PNX833X_GPIO_2_INT			(PNX833X_GPIO_IRQ_BASE +  2)

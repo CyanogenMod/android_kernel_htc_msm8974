@@ -23,6 +23,11 @@
 #include <asm/setup.h>
 
 #if defined CONFIG_PCI && defined CONFIG_PARAVIRT
+/*
+ * Interrupt control on vSMPowered systems:
+ * ~AC is a shadow of IF.  If IF is 'on' AC should be 'off'
+ * and vice versa.
+ */
 
 static unsigned long vsmp_save_fl(void)
 {
@@ -80,7 +85,7 @@ static void __init set_vsmp_pv_ops(void)
 	void __iomem *address;
 	unsigned int cap, ctl, cfg;
 
-	
+	/* set vSMP magic bits to indicate vSMP capable kernel */
 	cfg = read_pci_config(0, 0x1f, 0, PCI_BASE_ADDRESS_0);
 	address = early_ioremap(cfg, 8);
 	cap = readl(address);
@@ -88,7 +93,7 @@ static void __init set_vsmp_pv_ops(void)
 	printk(KERN_INFO "vSMP CTL: capabilities:0x%08x  control:0x%08x\n",
 	       cap, ctl);
 	if (cap & ctl & (1 << 4)) {
-		
+		/* Setup irq ops and turn on vSMP  IRQ fastpath handling */
 		pv_irq_ops.irq_disable = PV_CALLEE_SAVE(vsmp_irq_disable);
 		pv_irq_ops.irq_enable  = PV_CALLEE_SAVE(vsmp_irq_enable);
 		pv_irq_ops.save_fl  = PV_CALLEE_SAVE(vsmp_save_fl);
@@ -119,7 +124,7 @@ static void __init detect_vsmp_box(void)
 	if (!early_pci_allowed())
 		return;
 
-	
+	/* Check if we are running on a ScaleMP vSMPowered box */
 	if (read_pci_config(0, 0x1f, 0, PCI_VENDOR_ID) ==
 	     (PCI_VENDOR_ID_SCALEMP | (PCI_DEVICE_ID_SCALEMP_VSMP_CTL << 16)))
 		is_vsmp = 1;

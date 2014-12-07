@@ -21,8 +21,15 @@
 
 #include "omap_drv.h"
 
+/* some hackery because omapdss has an 'enum omap_plane' (which would be
+ * better named omap_plane_id).. and compiler seems unhappy about having
+ * both a 'struct omap_plane' and 'enum omap_plane'
+ */
 #define omap_plane _omap_plane
 
+/*
+ * plane funcs
+ */
 
 struct callback {
 	void (*fxn)(void *);
@@ -36,28 +43,32 @@ struct omap_plane {
 	struct omap_overlay *ovl;
 	struct omap_overlay_info info;
 
+	/* Source values, converted to integers because we don't support
+	 * fractional positions:
+	 */
 	unsigned int src_x, src_y;
 
-	
+	/* last fb that we pinned: */
 	struct drm_framebuffer *pinned_fb;
 
 	uint32_t nformats;
 	uint32_t formats[32];
 
-	
+	/* for synchronizing access to unpins fifo */
 	struct mutex unpin_mutex;
 
-	
+	/* set of bo's pending unpin until next END_WIN irq */
 	DECLARE_KFIFO_PTR(unpin_fifo, struct drm_gem_object *);
 	int num_unpins, pending_num_unpins;
 
-	
+	/* for deferred unpin when we need to wait for scanout complete irq */
 	struct work_struct work;
 
-	
+	/* callback on next endwin irq */
 	struct callback endwin;
 };
 
+/* map from ovl->id to the irq we are interested in for scanout-done */
 static const uint32_t id2irq[] = {
 		[OMAP_DSS_GFX]    = DISPC_IRQ_GFX_END_WIN,
 		[OMAP_DSS_VIDEO1] = DISPC_IRQ_VID1_END_WIN,
@@ -110,9 +121,15 @@ static void install_irq(struct drm_plane *plane)
 
 	ret = omap_dispc_register_isr(dispc_isr, plane, id2irq[ovl->id]);
 
+	/*
+	 * omapdss has upper limit on # of registered irq handlers,
+	 * which we shouldn't hit.. but if we do the limit should
+	 * be raised or bad things happen:
+	 */
 	WARN_ON(ret == -EBUSY);
 }
 
+/* push changes down to dss2 */
 static int commit(struct drm_plane *plane)
 {
 	struct drm_device *dev = plane->dev;
@@ -127,6 +144,10 @@ static int commit(struct drm_plane *plane)
 	DBG("%d,%d %08x %08x", info->pos_x, info->pos_y,
 			info->paddr, info->p_uv_addr);
 
+	/* NOTE: do we want to do this at all here, or just wait
+	 * for dpms(ON) since other CRTC's may not have their mode
+	 * set yet, so fb dimensions may still change..
+	 */
 	ret = ovl->set_overlay_info(ovl, info);
 	if (ret) {
 		dev_err(dev->dev, "could not set overlay info\n");
@@ -138,6 +159,12 @@ static int commit(struct drm_plane *plane)
 	omap_plane->pending_num_unpins = 0;
 	mutex_unlock(&omap_plane->unpin_mutex);
 
+	/* our encoder doesn't necessarily get a commit() after this, in
+	 * particular in the dpms() and mode_set_base() cases, so force the
+	 * manager to update:
+	 *
+	 * could this be in the encoder somehow?
+	 */
 	if (ovl->manager) {
 		ret = ovl->manager->apply(ovl->manager);
 		if (ret) {
@@ -145,6 +172,10 @@ static int commit(struct drm_plane *plane)
 			return ret;
 		}
 
+		/*
+		 * NOTE: really this should be atomic w/ mgr->apply() but
+		 * omapdss does not expose such an API
+		 */
 		if (omap_plane->num_unpins > 0)
 			install_irq(plane);
 
@@ -162,6 +193,9 @@ static int commit(struct drm_plane *plane)
 	return 0;
 }
 
+/* when CRTC that we are attached to has potentially changed, this checks
+ * if we are attached to proper manager, and if necessary updates.
+ */
 static void update_manager(struct drm_plane *plane)
 {
 	struct omap_drm_private *priv = plane->dev->dev_private;
@@ -183,7 +217,7 @@ static void update_manager(struct drm_plane *plane)
 	if (ovl->manager != mgr) {
 		bool enabled = ovl->is_enabled(ovl);
 
-		
+		/* don't switch things around with enabled overlays: */
 		if (enabled)
 			omap_plane_dpms(plane, DRM_MODE_DPMS_OFF);
 
@@ -211,7 +245,7 @@ static void unpin(void *arg, struct drm_gem_object *bo)
 	if (kfifo_put(&omap_plane->unpin_fifo,
 			(const struct drm_gem_object **)&bo)) {
 		omap_plane->pending_num_unpins++;
-		
+		/* also hold a ref so it isn't free'd while pinned */
 		drm_gem_object_reference(bo);
 	} else {
 		dev_err(plane->dev->dev, "unpin fifo full!\n");
@@ -219,6 +253,7 @@ static void unpin(void *arg, struct drm_gem_object *bo)
 	}
 }
 
+/* update which fb (if any) is pinned for scanout */
 static int update_pin(struct drm_plane *plane, struct drm_framebuffer *fb)
 {
 	struct omap_plane *omap_plane = to_omap_plane(plane);
@@ -246,6 +281,10 @@ static int update_pin(struct drm_plane *plane, struct drm_framebuffer *fb)
 	return 0;
 }
 
+/* update parameters that are dependent on the framebuffer dimensions and
+ * position within the fb that this plane scans out from. This is called
+ * when framebuffer or x,y base may have changed.
+ */
 static void update_scanout(struct drm_plane *plane)
 {
 	struct omap_plane *omap_plane = to_omap_plane(plane);
@@ -278,7 +317,7 @@ int omap_plane_mode_set(struct drm_plane *plane,
 {
 	struct omap_plane *omap_plane = to_omap_plane(plane);
 
-	
+	/* src values are in Q16 fixed point, convert to integer: */
 	src_x = src_x >> 16;
 	src_y = src_y >> 16;
 	src_w = src_w >> 16;
@@ -293,6 +332,10 @@ int omap_plane_mode_set(struct drm_plane *plane,
 	omap_plane->src_x = src_x;
 	omap_plane->src_y = src_y;
 
+	/* note: this is done after this fxn returns.. but if we need
+	 * to do a commit/update_scanout, etc before this returns we
+	 * need the current value.
+	 */
 	plane->fb = fb;
 	plane->crtc = crtc;
 
@@ -372,6 +415,7 @@ static const struct drm_plane_funcs omap_plane_funcs = {
 		.destroy = omap_plane_destroy,
 };
 
+/* initialize plane */
 struct drm_plane *omap_plane_init(struct drm_device *dev,
 		struct omap_overlay *ovl, unsigned int possible_crtcs,
 		bool priv)
@@ -383,7 +427,7 @@ struct drm_plane *omap_plane_init(struct drm_device *dev,
 	DBG("%s: possible_crtcs=%08x, priv=%d", ovl->name,
 			possible_crtcs, priv);
 
-	
+	/* friendly reminder to update table for future hw: */
 	WARN_ON(ovl->id >= ARRAY_SIZE(id2irq));
 
 	omap_plane = kzalloc(sizeof(*omap_plane), GFP_KERNEL);
@@ -411,6 +455,9 @@ struct drm_plane *omap_plane_init(struct drm_device *dev,
 	drm_plane_init(dev, plane, possible_crtcs, &omap_plane_funcs,
 			omap_plane->formats, omap_plane->nformats, priv);
 
+	/* get our starting configuration, set defaults for parameters
+	 * we don't currently use, etc:
+	 */
 	ovl->get_overlay_info(ovl, &omap_plane->info);
 	omap_plane->info.rotation_type = OMAP_DSS_ROT_DMA;
 	omap_plane->info.rotation = OMAP_DSS_ROT_0;
@@ -418,6 +465,11 @@ struct drm_plane *omap_plane_init(struct drm_device *dev,
 	omap_plane->info.mirror = 0;
 	omap_plane->info.mirror = 0;
 
+	/* Set defaults depending on whether we are a CRTC or overlay
+	 * layer.
+	 * TODO add ioctl to give userspace an API to change this.. this
+	 * will come in a subsequent patch.
+	 */
 	if (priv)
 		omap_plane->info.zorder = 0;
 	else

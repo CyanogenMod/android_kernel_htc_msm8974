@@ -33,46 +33,46 @@
 #include <linux/regulator/machine.h>
 
 static struct aat2870_register aat2870_regs[AAT2870_REG_NUM] = {
-	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x16 },	
-	{ 0, 1, 0x16 },	
-	{ 0, 1, 0x56 },	
-	{ 0, 1, 0x56 },	
-	{ 0, 1, 0x56 },	
-	{ 0, 1, 0x56 },	
-	{ 0, 1, 0x56 },	
-	{ 0, 1, 0x56 },	
-	{ 0, 1, 0x56 },	
-	{ 0, 1, 0x56 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x03 },	
-	{ 0, 1, 0x03 },	
-	{ 0, 1, 0x10 },	
-	{ 0, 1, 0x06 },	
-	{ 0, 1, 0x00 },	
-	{ 1, 0, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
-	{ 0, 1, 0x00 },	
+	/* readable, writeable, value */
+	{ 0, 1, 0x00 },	/* 0x00 AAT2870_BL_CH_EN */
+	{ 0, 1, 0x16 },	/* 0x01 AAT2870_BLM */
+	{ 0, 1, 0x16 },	/* 0x02 AAT2870_BLS */
+	{ 0, 1, 0x56 },	/* 0x03 AAT2870_BL1 */
+	{ 0, 1, 0x56 },	/* 0x04 AAT2870_BL2 */
+	{ 0, 1, 0x56 },	/* 0x05 AAT2870_BL3 */
+	{ 0, 1, 0x56 },	/* 0x06 AAT2870_BL4 */
+	{ 0, 1, 0x56 },	/* 0x07 AAT2870_BL5 */
+	{ 0, 1, 0x56 },	/* 0x08 AAT2870_BL6 */
+	{ 0, 1, 0x56 },	/* 0x09 AAT2870_BL7 */
+	{ 0, 1, 0x56 },	/* 0x0A AAT2870_BL8 */
+	{ 0, 1, 0x00 },	/* 0x0B AAT2870_FLR */
+	{ 0, 1, 0x03 },	/* 0x0C AAT2870_FM */
+	{ 0, 1, 0x03 },	/* 0x0D AAT2870_FS */
+	{ 0, 1, 0x10 },	/* 0x0E AAT2870_ALS_CFG0 */
+	{ 0, 1, 0x06 },	/* 0x0F AAT2870_ALS_CFG1 */
+	{ 0, 1, 0x00 },	/* 0x10 AAT2870_ALS_CFG2 */
+	{ 1, 0, 0x00 },	/* 0x11 AAT2870_AMB */
+	{ 0, 1, 0x00 },	/* 0x12 AAT2870_ALS0 */
+	{ 0, 1, 0x00 },	/* 0x13 AAT2870_ALS1 */
+	{ 0, 1, 0x00 },	/* 0x14 AAT2870_ALS2 */
+	{ 0, 1, 0x00 },	/* 0x15 AAT2870_ALS3 */
+	{ 0, 1, 0x00 },	/* 0x16 AAT2870_ALS4 */
+	{ 0, 1, 0x00 },	/* 0x17 AAT2870_ALS5 */
+	{ 0, 1, 0x00 },	/* 0x18 AAT2870_ALS6 */
+	{ 0, 1, 0x00 },	/* 0x19 AAT2870_ALS7 */
+	{ 0, 1, 0x00 },	/* 0x1A AAT2870_ALS8 */
+	{ 0, 1, 0x00 },	/* 0x1B AAT2870_ALS9 */
+	{ 0, 1, 0x00 },	/* 0x1C AAT2870_ALSA */
+	{ 0, 1, 0x00 },	/* 0x1D AAT2870_ALSB */
+	{ 0, 1, 0x00 },	/* 0x1E AAT2870_ALSC */
+	{ 0, 1, 0x00 },	/* 0x1F AAT2870_ALSD */
+	{ 0, 1, 0x00 },	/* 0x20 AAT2870_ALSE */
+	{ 0, 1, 0x00 },	/* 0x21 AAT2870_ALSF */
+	{ 0, 1, 0x00 },	/* 0x22 AAT2870_SUB_SET */
+	{ 0, 1, 0x00 },	/* 0x23 AAT2870_SUB_CTRL */
+	{ 0, 1, 0x00 },	/* 0x24 AAT2870_LDO_AB */
+	{ 0, 1, 0x00 },	/* 0x25 AAT2870_LDO_CD */
+	{ 0, 1, 0x00 },	/* 0x26 AAT2870_LDO_EN */
 };
 
 static struct mfd_cell aat2870_devs[] = {
@@ -255,7 +255,7 @@ static ssize_t aat2870_dump_reg(struct aat2870_data *aat2870, char *buf)
 			break;
 	}
 
-	
+	/* Truncate count; min() would cause a warning */
 	if (count >= PAGE_SIZE)
 		count = PAGE_SIZE - 1;
 
@@ -357,7 +357,7 @@ static inline void aat2870_init_debugfs(struct aat2870_data *aat2870)
 static inline void aat2870_uninit_debugfs(struct aat2870_data *aat2870)
 {
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static int aat2870_i2c_probe(struct i2c_client *client,
 			     const struct i2c_device_id *id)
@@ -481,7 +481,7 @@ static int aat2870_i2c_resume(struct device *dev)
 
 	aat2870_enable(aat2870);
 
-	
+	/* restore registers */
 	for (i = 0; i < AAT2870_REG_NUM; i++) {
 		reg = &aat2870->reg_cache[i];
 		if (reg->writeable)
@@ -490,7 +490,7 @@ static int aat2870_i2c_resume(struct device *dev)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM_SLEEP */
 
 static SIMPLE_DEV_PM_OPS(aat2870_pm_ops, aat2870_i2c_suspend,
 			 aat2870_i2c_resume);

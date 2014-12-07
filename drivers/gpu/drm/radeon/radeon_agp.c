@@ -42,80 +42,80 @@ struct radeon_agpmode_quirk {
 };
 
 static struct radeon_agpmode_quirk radeon_agpmode_quirk_list[] = {
-	
+	/* Intel E7505 Memory Controller Hub / RV350 AR [Radeon 9600XT] Needs AGPMode 4 (deb #515326) */
 	{ PCI_VENDOR_ID_INTEL, 0x2550, PCI_VENDOR_ID_ATI, 0x4152, 0x1458, 0x4038, 4},
-	
+	/* Intel 82865G/PE/P DRAM Controller/Host-Hub / Mobility 9800 Needs AGPMode 4 (deb #462590) */
 	{ PCI_VENDOR_ID_INTEL, 0x2570, PCI_VENDOR_ID_ATI, 0x4a4e, PCI_VENDOR_ID_DELL, 0x5106, 4},
-	
+	/* Intel 82865G/PE/P DRAM Controller/Host-Hub / RV280 [Radeon 9200 SE] Needs AGPMode 4 (lp #300304) */
 	{ PCI_VENDOR_ID_INTEL, 0x2570, PCI_VENDOR_ID_ATI, 0x5964,
 		0x148c, 0x2073, 4},
-	
+	/* Intel 82855PM Processor to I/O Controller / Mobility M6 LY Needs AGPMode 1 (deb #467235) */
 	{ PCI_VENDOR_ID_INTEL, 0x3340, PCI_VENDOR_ID_ATI, 0x4c59,
 		PCI_VENDOR_ID_IBM, 0x052f, 1},
-	
+	/* Intel 82855PM host bridge / Mobility 9600 M10 RV350 Needs AGPMode 1 (lp #195051) */
 	{ PCI_VENDOR_ID_INTEL, 0x3340, PCI_VENDOR_ID_ATI, 0x4e50,
 		PCI_VENDOR_ID_IBM, 0x0550, 1},
-	
+	/* Intel 82855PM host bridge / Mobility M7 needs AGPMode 1 */
 	{ PCI_VENDOR_ID_INTEL, 0x3340, PCI_VENDOR_ID_ATI, 0x4c57,
 		PCI_VENDOR_ID_IBM, 0x0530, 1},
-	
+	/* Intel 82855PM host bridge / FireGL Mobility T2 RV350 Needs AGPMode 2 (fdo #20647) */
 	{ PCI_VENDOR_ID_INTEL, 0x3340, PCI_VENDOR_ID_ATI, 0x4e54,
 		PCI_VENDOR_ID_IBM, 0x054f, 2},
-	
+	/* Intel 82855PM host bridge / Mobility M9+ / VaioPCG-V505DX Needs AGPMode 2 (fdo #17928) */
 	{ PCI_VENDOR_ID_INTEL, 0x3340, PCI_VENDOR_ID_ATI, 0x5c61,
 		PCI_VENDOR_ID_SONY, 0x816b, 2},
-	
+	/* Intel 82855PM Processor to I/O Controller / Mobility M9+ Needs AGPMode 8 (phoronix forum) */
 	{ PCI_VENDOR_ID_INTEL, 0x3340, PCI_VENDOR_ID_ATI, 0x5c61,
 		PCI_VENDOR_ID_SONY, 0x8195, 8},
-	
+	/* Intel 82830 830 Chipset Host Bridge / Mobility M6 LY Needs AGPMode 2 (fdo #17360)*/
 	{ PCI_VENDOR_ID_INTEL, 0x3575, PCI_VENDOR_ID_ATI, 0x4c59,
 		PCI_VENDOR_ID_DELL, 0x00e3, 2},
-	
+	/* Intel 82852/82855 host bridge / Mobility FireGL 9000 R250 Needs AGPMode 1 (lp #296617) */
 	{ PCI_VENDOR_ID_INTEL, 0x3580, PCI_VENDOR_ID_ATI, 0x4c66,
 		PCI_VENDOR_ID_DELL, 0x0149, 1},
-	
+	/* Intel 82852/82855 host bridge / Mobility 9600 M10 RV350 Needs AGPMode 1 (deb #467460) */
 	{ PCI_VENDOR_ID_INTEL, 0x3580, PCI_VENDOR_ID_ATI, 0x4e50,
 		0x1025, 0x0061, 1},
-	
+	/* Intel 82852/82855 host bridge / Mobility 9600 M10 RV350 Needs AGPMode 1 (lp #203007) */
 	{ PCI_VENDOR_ID_INTEL, 0x3580, PCI_VENDOR_ID_ATI, 0x4e50,
 		0x1025, 0x0064, 1},
-	
+	/* Intel 82852/82855 host bridge / Mobility 9600 M10 RV350 Needs AGPMode 1 (lp #141551) */
 	{ PCI_VENDOR_ID_INTEL, 0x3580, PCI_VENDOR_ID_ATI, 0x4e50,
 		PCI_VENDOR_ID_ASUSTEK, 0x1942, 1},
-	
+	/* Intel 82852/82855 host bridge / Mobility 9600/9700 Needs AGPMode 1 (deb #510208) */
 	{ PCI_VENDOR_ID_INTEL, 0x3580, PCI_VENDOR_ID_ATI, 0x4e50,
 		0x10cf, 0x127f, 1},
-	
+	/* ASRock K7VT4A+ AGP 8x / ATI Radeon 9250 AGP Needs AGPMode 4 (lp #133192) */
 	{ 0x1849, 0x3189, PCI_VENDOR_ID_ATI, 0x5960,
 		0x1787, 0x5960, 4},
-	
+	/* VIA K8M800 Host Bridge / RV280 [Radeon 9200 PRO] Needs AGPMode 4 (fdo #12544) */
 	{ PCI_VENDOR_ID_VIA, 0x0204, PCI_VENDOR_ID_ATI, 0x5960,
 		0x17af, 0x2020, 4},
-	
+	/* VIA KT880 Host Bridge / RV350 [Radeon 9550] Needs AGPMode 4 (fdo #19981) */
 	{ PCI_VENDOR_ID_VIA, 0x0269, PCI_VENDOR_ID_ATI, 0x4153,
 		PCI_VENDOR_ID_ASUSTEK, 0x003c, 4},
-	
+	/* VIA VT8363 Host Bridge / R200 QL [Radeon 8500] Needs AGPMode 2 (lp #141551) */
 	{ PCI_VENDOR_ID_VIA, 0x0305, PCI_VENDOR_ID_ATI, 0x514c,
 		PCI_VENDOR_ID_ATI, 0x013a, 2},
-	
+	/* VIA VT82C693A Host Bridge / RV280 [Radeon 9200 PRO] Needs AGPMode 2 (deb #515512) */
 	{ PCI_VENDOR_ID_VIA, 0x0691, PCI_VENDOR_ID_ATI, 0x5960,
 		PCI_VENDOR_ID_ASUSTEK, 0x004c, 2},
-	
+	/* VIA VT82C693A Host Bridge / RV280 [Radeon 9200 PRO] Needs AGPMode 2 */
 	{ PCI_VENDOR_ID_VIA, 0x0691, PCI_VENDOR_ID_ATI, 0x5960,
 		PCI_VENDOR_ID_ASUSTEK, 0x0054, 2},
-	
+	/* VIA VT8377 Host Bridge / R200 QM [Radeon 9100] Needs AGPMode 4 (deb #461144) */
 	{ PCI_VENDOR_ID_VIA, 0x3189, PCI_VENDOR_ID_ATI, 0x514d,
 		0x174b, 0x7149, 4},
-	
+	/* VIA VT8377 Host Bridge / RV280 [Radeon 9200 PRO] Needs AGPMode 4 (lp #312693) */
 	{ PCI_VENDOR_ID_VIA, 0x3189, PCI_VENDOR_ID_ATI, 0x5960,
 		0x1462, 0x0380, 4},
-	
+	/* VIA VT8377 Host Bridge / RV280 Needs AGPMode 4 (ati ML) */
 	{ PCI_VENDOR_ID_VIA, 0x3189, PCI_VENDOR_ID_ATI, 0x5964,
 		0x148c, 0x2073, 4},
-	
+	/* ATI Host Bridge / RV280 [M9+] Needs AGPMode 1 (phoronix forum) */
 	{ PCI_VENDOR_ID_ATI, 0xcbb2, PCI_VENDOR_ID_ATI, 0x5c61,
 		PCI_VENDOR_ID_SONY, 0x8175, 1},
-	
+	/* HP Host Bridge / R300 [FireGL X1] Needs AGPMode 2 (fdo #7770) */
 	{ PCI_VENDOR_ID_HP, 0x122e, PCI_VENDOR_ID_ATI, 0x4e47,
 		PCI_VENDOR_ID_ATI, 0x0152, 2},
 	{ 0, 0, 0, 0, 0, 0, 0 },
@@ -133,7 +133,7 @@ int radeon_agp_init(struct radeon_device *rdev)
 	bool is_v3;
 	int ret;
 
-	
+	/* Acquire AGP. */
 	ret = drm_agp_acquire(rdev->ddev);
 	if (ret) {
 		DRM_ERROR("Unable to acquire AGP: %d\n", ret);
@@ -156,6 +156,9 @@ int radeon_agp_init(struct radeon_device *rdev)
 	}
 
 	mode.mode = info.mode;
+	/* chips with the agp to pcie bridge don't have the AGP_STATUS register
+	 * Just use the whatever mode the host sets up.
+	 */
 	if (rdev->family <= CHIP_RV350)
 		agp_status = (RREG32(RADEON_AGP_STATUS) | RADEON_AGPv3_MODE) & mode.mode;
 	else
@@ -174,7 +177,7 @@ int radeon_agp_init(struct radeon_device *rdev)
 		}
 	}
 
-	
+	/* Apply AGPMode Quirks */
 	while (p && p->chip_device != 0) {
 		if (info.id_vendor == p->hostbridge_vendor &&
 		    info.id_device == p->hostbridge_device &&
@@ -228,7 +231,7 @@ int radeon_agp_init(struct radeon_device *rdev)
 		}
 	}
 
-	mode.mode &= ~RADEON_AGP_FW_MODE; 
+	mode.mode &= ~RADEON_AGP_FW_MODE; /* disable fw */
 	ret = drm_agp_enable(rdev->ddev, mode);
 	if (ret) {
 		DRM_ERROR("Unable to enable AGP (mode = 0x%lx)\n", mode.mode);
@@ -243,7 +246,7 @@ int radeon_agp_init(struct radeon_device *rdev)
 	dev_info(rdev->dev, "GTT: %lluM 0x%08llX - 0x%08llX\n",
 		rdev->mc.gtt_size >> 20, rdev->mc.gtt_start, rdev->mc.gtt_end);
 
-	
+	/* workaround some hw issues */
 	if (rdev->family < CHIP_R200) {
 		WREG32(RADEON_AGP_CNTL, RREG32(RADEON_AGP_CNTL) | 0x000e0000);
 	}

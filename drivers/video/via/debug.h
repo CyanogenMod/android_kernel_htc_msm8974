@@ -38,4 +38,4 @@
 #define WARN_MSG(f, a...)
 #endif
 
-#endif 
+#endif /* __DEBUG_H__ */

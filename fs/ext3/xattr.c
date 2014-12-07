@@ -13,6 +13,42 @@
  *  and Andreas Gruenbacher <agruen@suse.de>.
  */
 
+/*
+ * Extended attributes are stored directly in inodes (on file systems with
+ * inodes bigger than 128 bytes) and on additional disk blocks. The i_file_acl
+ * field contains the block number if an inode uses an additional block. All
+ * attributes must fit in the inode and one additional block. Blocks that
+ * contain the identical set of attributes may be shared among several inodes.
+ * Identical blocks are detected by keeping a cache of blocks that have
+ * recently been accessed.
+ *
+ * The attributes in inodes and on blocks have a different header; the entries
+ * are stored in the same format:
+ *
+ *   +------------------+
+ *   | header           |
+ *   | entry 1          | |
+ *   | entry 2          | | growing downwards
+ *   | entry 3          | v
+ *   | four null bytes  |
+ *   | . . .            |
+ *   | value 1          | ^
+ *   | value 3          | | growing upwards
+ *   | value 2          | |
+ *   +------------------+
+ *
+ * The header is followed by multiple entry descriptors. In disk blocks, the
+ * entry descriptors are kept sorted. In inodes, they are unsorted. The
+ * attribute values are aligned to the end of the block in no specific order.
+ *
+ * Locking strategy
+ * ----------------
+ * EXT3_I(inode)->i_file_acl is protected by EXT3_I(inode)->xattr_sem.
+ * EA blocks are only changed if they are exclusive to an inode, so
+ * holding xattr_sem also means that nothing but the EA block's reference
+ * count can change. Multiple writers to the same block are synchronized
+ * by the buffer lock.
+ */
 
 #include "ext3.h"
 #include <linux/mbcache.h>
@@ -98,6 +134,11 @@ ext3_xattr_handler(int name_index)
 	return handler;
 }
 
+/*
+ * Inode operation listxattr()
+ *
+ * dentry->d_inode->i_mutex: don't care
+ */
 ssize_t
 ext3_listxattr(struct dentry *dentry, char *buffer, size_t size)
 {
@@ -259,6 +300,16 @@ cleanup:
 	return error;
 }
 
+/*
+ * ext3_xattr_get()
+ *
+ * Copy an extended attribute into the buffer
+ * provided, or compute the buffer size required.
+ * Buffer is NULL to compute the size of the buffer required.
+ *
+ * Returns a negative error number on failure, or the number of bytes
+ * used / required on success.
+ */
 int
 ext3_xattr_get(struct inode *inode, int name_index, const char *name,
 	       void *buffer, size_t buffer_size)
@@ -366,6 +417,16 @@ cleanup:
 	return error;
 }
 
+/*
+ * ext3_xattr_list()
+ *
+ * Copy a list of attribute names into the buffer
+ * provided, or compute the buffer size required.
+ * Buffer is NULL to compute the size of the buffer required.
+ *
+ * Returns a negative error number on failure, or the number of bytes
+ * used / required on success.
+ */
 static int
 ext3_xattr_list(struct dentry *dentry, char *buffer, size_t buffer_size)
 {
@@ -388,6 +449,10 @@ ext3_xattr_list(struct dentry *dentry, char *buffer, size_t buffer_size)
 	return i_error + b_error;
 }
 
+/*
+ * If the EXT3_FEATURE_COMPAT_EXT_ATTR feature of this file system is
+ * not set, set it.
+ */
 static void ext3_xattr_update_super_block(handle_t *handle,
 					  struct super_block *sb)
 {
@@ -400,6 +465,10 @@ static void ext3_xattr_update_super_block(handle_t *handle,
 	}
 }
 
+/*
+ * Release the xattr block BH: If the reference count is > 1, decrement
+ * it; otherwise free the block.
+ */
 static void
 ext3_xattr_release_block(handle_t *handle, struct inode *inode,
 			 struct buffer_head *bh)
@@ -459,7 +528,7 @@ ext3_xattr_set_entry(struct ext3_xattr_info *i, struct ext3_xattr_search *s)
 	struct ext3_xattr_entry *last;
 	size_t free, min_offs = s->end - s->base, name_len = strlen(i->name);
 
-	
+	/* Compute min_offs and last. */
 	last = s->first;
 	for (; !IS_LAST_ENTRY(last); last = EXT3_XATTR_NEXT(last)) {
 		if (!last->e_value_block && last->e_value_size) {
@@ -484,7 +553,7 @@ ext3_xattr_set_entry(struct ext3_xattr_info *i, struct ext3_xattr_search *s)
 	}
 
 	if (i->value && s->not_found) {
-		
+		/* Insert the new name. */
 		size_t size = EXT3_XATTR_LEN(name_len);
 		size_t rest = (void *)last - (void *)s->here + sizeof(__u32);
 		memmove((void *)s->here + size, s->here, rest);
@@ -501,22 +570,24 @@ ext3_xattr_set_entry(struct ext3_xattr_info *i, struct ext3_xattr_search *s)
 				le32_to_cpu(s->here->e_value_size));
 
 			if (i->value && size == EXT3_XATTR_SIZE(i->value_len)) {
+				/* The old and the new value have the same
+				   size. Just replace. */
 				s->here->e_value_size =
 					cpu_to_le32(i->value_len);
 				memset(val + size - EXT3_XATTR_PAD, 0,
-				       EXT3_XATTR_PAD); 
+				       EXT3_XATTR_PAD); /* Clear pad bytes. */
 				memcpy(val, i->value, i->value_len);
 				return 0;
 			}
 
-			
+			/* Remove the old value. */
 			memmove(first_val + size, first_val, val - first_val);
 			memset(first_val, 0, size);
 			s->here->e_value_size = 0;
 			s->here->e_value_offs = 0;
 			min_offs += size;
 
-			
+			/* Adjust all value offsets. */
 			last = s->first;
 			while (!IS_LAST_ENTRY(last)) {
 				size_t o = le16_to_cpu(last->e_value_offs);
@@ -528,7 +599,7 @@ ext3_xattr_set_entry(struct ext3_xattr_info *i, struct ext3_xattr_search *s)
 			}
 		}
 		if (!i->value) {
-			
+			/* Remove the old name. */
 			size_t size = EXT3_XATTR_LEN(name_len);
 			last = ENTRY((void *)last - size);
 			memmove(s->here, (void *)s->here + size,
@@ -538,14 +609,14 @@ ext3_xattr_set_entry(struct ext3_xattr_info *i, struct ext3_xattr_search *s)
 	}
 
 	if (i->value) {
-		
+		/* Insert the new value. */
 		s->here->e_value_size = cpu_to_le32(i->value_len);
 		if (i->value_len) {
 			size_t size = EXT3_XATTR_SIZE(i->value_len);
 			void *val = s->base + min_offs - size;
 			s->here->e_value_offs = cpu_to_le16(min_offs - size);
 			memset(val + size - EXT3_XATTR_PAD, 0,
-			       EXT3_XATTR_PAD); 
+			       EXT3_XATTR_PAD); /* Clear the pad bytes. */
 			memcpy(val, i->value, i->value_len);
 		}
 	}
@@ -568,7 +639,7 @@ ext3_xattr_block_find(struct inode *inode, struct ext3_xattr_info *i,
 		  i->name_index, i->name, i->value, (long)i->value_len);
 
 	if (EXT3_I(inode)->i_file_acl) {
-		
+		/* The inode already has an extended attribute block. */
 		bs->bh = sb_bread(sb, EXT3_I(inode)->i_file_acl);
 		error = -EIO;
 		if (!bs->bh)
@@ -583,7 +654,7 @@ ext3_xattr_block_find(struct inode *inode, struct ext3_xattr_info *i,
 			error = -EIO;
 			goto cleanup;
 		}
-		
+		/* Find the named attribute. */
 		bs->s.base = BHDR(bs->bh);
 		bs->s.first = BFIRST(bs->bh);
 		bs->s.end = bs->bh->b_data + bs->bh->b_size;
@@ -667,9 +738,9 @@ ext3_xattr_block_set(handle_t *handle, struct inode *inode,
 			s->end = s->base + bs->bh->b_size;
 		}
 	} else {
-		
+		/* Allocate a buffer where we construct the new block. */
 		s->base = kzalloc(sb->s_blocksize, GFP_NOFS);
-		
+		/* assert(header == s->base) */
 		error = -ENOMEM;
 		if (s->base == NULL)
 			goto cleanup;
@@ -693,10 +764,12 @@ inserted:
 	if (!IS_LAST_ENTRY(s->first)) {
 		new_bh = ext3_xattr_cache_find(inode, header(s->base), &ce);
 		if (new_bh) {
-			
+			/* We found an identical block in the cache. */
 			if (new_bh == bs->bh)
 				ea_bdebug(new_bh, "keeping");
 			else {
+				/* The old block is released after updating
+				   the inode. */
 				error = dquot_alloc_block(inode, 1);
 				if (error)
 					goto cleanup;
@@ -717,16 +790,21 @@ inserted:
 			mb_cache_entry_release(ce);
 			ce = NULL;
 		} else if (bs->bh && s->base == bs->bh->b_data) {
-			
+			/* We were modifying this block in-place. */
 			ea_bdebug(bs->bh, "keeping this block");
 			new_bh = bs->bh;
 			get_bh(new_bh);
 		} else {
-			
+			/* We need to allocate a new block */
 			ext3_fsblk_t goal = ext3_group_first_block_no(sb,
 						EXT3_I(inode)->i_block_group);
 			ext3_fsblk_t block;
 
+			/*
+			 * Protect us agaist concurrent allocations to the
+			 * same inode from ext3_..._writepage(). Reservation
+			 * code does not expect racing allocations.
+			 */
 			mutex_lock(&EXT3_I(inode)->truncate_mutex);
 			block = ext3_new_block(handle, inode, goal, &error);
 			mutex_unlock(&EXT3_I(inode)->truncate_mutex);
@@ -757,10 +835,10 @@ getblk_failed:
 		}
 	}
 
-	
+	/* Update the inode. */
 	EXT3_I(inode)->i_file_acl = new_bh ? new_bh->b_blocknr : 0;
 
-	
+	/* Drop the previous xattr block. */
 	if (bs->bh && bs->bh != new_bh)
 		ext3_xattr_release_block(handle, inode, bs->bh);
 	error = 0;
@@ -811,7 +889,7 @@ ext3_xattr_ibody_find(struct inode *inode, struct ext3_xattr_info *i,
 		error = ext3_xattr_check_names(IFIRST(header), is->s.end);
 		if (error)
 			return error;
-		
+		/* Find the named attribute. */
 		error = ext3_xattr_find_entry(&is->s.here, i->name_index,
 					      i->name, is->s.end -
 					      (void *)is->s.base, 0);
@@ -847,6 +925,18 @@ ext3_xattr_ibody_set(handle_t *handle, struct inode *inode,
 	return 0;
 }
 
+/*
+ * ext3_xattr_set_handle()
+ *
+ * Create, replace or remove an extended attribute for this inode.  Value
+ * is NULL to remove an existing extended attribute, and non-NULL to
+ * either replace an existing extended attribute, or create a new extended
+ * attribute. The flags XATTR_REPLACE and XATTR_CREATE
+ * specify that an extended attribute must exist and must not exist
+ * previous to the call, respectively.
+ *
+ * Returns 0, or a negative error number on failure.
+ */
 int
 ext3_xattr_set_handle(handle_t *handle, struct inode *inode, int name_index,
 		      const char *name, const void *value, size_t value_len,
@@ -935,6 +1025,10 @@ ext3_xattr_set_handle(handle_t *handle, struct inode *inode, int name_index,
 		ext3_xattr_update_super_block(handle, inode->i_sb);
 		inode->i_ctime = CURRENT_TIME_SEC;
 		error = ext3_mark_iloc_dirty(handle, inode, &is.iloc);
+		/*
+		 * The bh is consumed by ext3_mark_iloc_dirty, even with
+		 * error != 0.
+		 */
 		is.iloc.bh = NULL;
 		if (IS_SYNC(inode))
 			handle->h_sync = 1;
@@ -947,6 +1041,14 @@ cleanup:
 	return error;
 }
 
+/*
+ * ext3_xattr_set()
+ *
+ * Like ext3_xattr_set_handle, but start from an inode. This extended
+ * attribute modification is a filesystem transaction by itself.
+ *
+ * Returns 0, or a negative error number on failure.
+ */
 int
 ext3_xattr_set(struct inode *inode, int name_index, const char *name,
 	       const void *value, size_t value_len, int flags)
@@ -974,6 +1076,13 @@ retry:
 	return error;
 }
 
+/*
+ * ext3_xattr_delete_inode()
+ *
+ * Free extended attribute resources associated with this inode. This
+ * is called immediately before an inode is freed. We have exclusive
+ * access to the inode.
+ */
 void
 ext3_xattr_delete_inode(handle_t *handle, struct inode *inode)
 {
@@ -1002,12 +1111,25 @@ cleanup:
 	brelse(bh);
 }
 
+/*
+ * ext3_xattr_put_super()
+ *
+ * This is called when a file system is unmounted.
+ */
 void
 ext3_xattr_put_super(struct super_block *sb)
 {
 	mb_cache_shrink(sb->s_bdev);
 }
 
+/*
+ * ext3_xattr_cache_insert()
+ *
+ * Create a new entry in the extended attribute cache, and insert
+ * it unless such an entry is already in the cache.
+ *
+ * Returns 0, or a negative error number on failure.
+ */
 static void
 ext3_xattr_cache_insert(struct buffer_head *bh)
 {
@@ -1033,6 +1155,14 @@ ext3_xattr_cache_insert(struct buffer_head *bh)
 	}
 }
 
+/*
+ * ext3_xattr_cmp()
+ *
+ * Compare two extended attribute blocks for equality.
+ *
+ * Returns 0 if the blocks are equal, 1 if they differ, and
+ * a negative error number on errors.
+ */
 static int
 ext3_xattr_cmp(struct ext3_xattr_header *header1,
 	       struct ext3_xattr_header *header2)
@@ -1065,6 +1195,14 @@ ext3_xattr_cmp(struct ext3_xattr_header *header1,
 	return 0;
 }
 
+/*
+ * ext3_xattr_cache_find()
+ *
+ * Find an identical extended attribute block.
+ *
+ * Returns a pointer to the block found, or NULL if such a block was
+ * not found or an error occurred.
+ */
 static struct buffer_head *
 ext3_xattr_cache_find(struct inode *inode, struct ext3_xattr_header *header,
 		      struct mb_cache_entry **pce)
@@ -1073,7 +1211,7 @@ ext3_xattr_cache_find(struct inode *inode, struct ext3_xattr_header *header,
 	struct mb_cache_entry *ce;
 
 	if (!header->h_hash)
-		return NULL;  
+		return NULL;  /* never share */
 	ea_idebug(inode, "looking for cached blocks [%x]", (int)hash);
 again:
 	ce = mb_cache_entry_find_first(ext3_xattr_cache, inode->i_sb->s_bdev,
@@ -1110,6 +1248,11 @@ again:
 #define NAME_HASH_SHIFT 5
 #define VALUE_HASH_SHIFT 16
 
+/*
+ * ext3_xattr_hash_entry()
+ *
+ * Compute the hash of an extended attribute.
+ */
 static inline void ext3_xattr_hash_entry(struct ext3_xattr_header *header,
 					 struct ext3_xattr_entry *entry)
 {
@@ -1141,6 +1284,11 @@ static inline void ext3_xattr_hash_entry(struct ext3_xattr_header *header,
 
 #define BLOCK_HASH_SHIFT 16
 
+/*
+ * ext3_xattr_rehash()
+ *
+ * Re-compute the extended attribute hash value after an entry has changed.
+ */
 static void ext3_xattr_rehash(struct ext3_xattr_header *header,
 			      struct ext3_xattr_entry *entry)
 {
@@ -1151,7 +1299,7 @@ static void ext3_xattr_rehash(struct ext3_xattr_header *header,
 	here = ENTRY(header+1);
 	while (!IS_LAST_ENTRY(here)) {
 		if (!here->e_hash) {
-			
+			/* Block is not shared if an entry's hash value == 0 */
 			hash = 0;
 			break;
 		}

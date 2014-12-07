@@ -54,7 +54,7 @@ static inline void s5p_irq_eint_ack(struct irq_data *data)
 
 static void s5p_irq_eint_maskack(struct irq_data *data)
 {
-	
+	/* compiler should in-line these */
 	s5p_irq_eint_mask(data);
 	s5p_irq_eint_ack(data);
 }
@@ -130,6 +130,14 @@ static struct irq_chip s5p_irq_eint = {
 #endif
 };
 
+/* s5p_irq_demux_eint
+ *
+ * This function demuxes the IRQ from the group0 external interrupts,
+ * from EINTs 16 to 31. It is designed to be inlined into the specific
+ * handler s5p_irq_demux_eintX_Y.
+ *
+ * Each EINT pend/mask registers handle eight of them.
+ */
 static inline void s5p_irq_demux_eint(unsigned int start)
 {
 	u32 status = __raw_readl(S5P_EINT_PEND(EINT_REG_NR(start)));

@@ -69,9 +69,19 @@
 #define mcontext	mcontext32
 #define ucontext	ucontext32
 
+/*
+ * Userspace code may pass a ucontext which doesn't include VSX added
+ * at the end.  We need to check for this case.
+ */
 #define UCONTEXTSIZEWITHOUTVSX \
 		(sizeof(struct ucontext) - sizeof(elf_vsrreghalf_t32))
 
+/*
+ * Returning 0 means we return to userspace via
+ * ret_from_except and thus restore all user
+ * registers from *regs.  This is what we need
+ * to do when a signal has been delivered.
+ */
 
 #define GP_REGS_SIZE	min(sizeof(elf_gregset_t32), sizeof(struct pt_regs32))
 #undef __SIGNAL_FRAMESIZE
@@ -79,6 +89,10 @@
 #undef ELF_NVRREG
 #define ELF_NVRREG	ELF_NVRREG32
 
+/*
+ * Functions for flipping sigsets (thanks to brain dead generic
+ * implementation that makes things simple for little endian only)
+ */
 static inline int put_sigset_t(compat_sigset_t __user *uset, sigset_t *set)
 {
 	compat_sigset_t	cset;
@@ -104,6 +118,10 @@ static inline int get_sigset_t(sigset_t *set,
 	if (copy_from_user(&s32, uset, sizeof(*uset)))
 		return -EFAULT;
 
+	/*
+	 * Swap the 2 words of the 64-bit sigset_t (they are stored
+	 * in the "wrong" endian in 32-bit user storage).
+	 */
 	switch (_NSIG_WORDS) {
 	case 4: set->sig[3] = s32.sig[6] | (((long)s32.sig[7]) << 32);
 	case 3: set->sig[2] = s32.sig[4] | (((long)s32.sig[5]) << 32);
@@ -165,7 +183,7 @@ static inline int restore_general_regs(struct pt_regs *regs,
 	return 0;
 }
 
-#else 
+#else /* CONFIG_PPC64 */
 
 #define GP_REGS_SIZE	min(sizeof(elf_gregset_t), sizeof(struct pt_regs))
 
@@ -207,19 +225,22 @@ static inline int save_general_regs(struct pt_regs *regs,
 static inline int restore_general_regs(struct pt_regs *regs,
 		struct mcontext __user *sr)
 {
-	
+	/* copy up to but not including MSR */
 	if (__copy_from_user(regs, &sr->mc_gregs,
 				PT_MSR * sizeof(elf_greg_t)))
 		return -EFAULT;
-	
+	/* copy from orig_r3 (the word after the MSR) up to the end */
 	if (__copy_from_user(&regs->orig_gpr3, &sr->mc_gregs[PT_ORIG_R3],
 				GP_REGS_SIZE - PT_ORIG_R3 * sizeof(elf_greg_t)))
 		return -EFAULT;
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PPC64 */
 
+/*
+ * Atomically swap in the new signal mask, and wait for a signal.
+ */
 long sys_sigsuspend(old_sigset_t mask)
 {
 	sigset_t blocked;
@@ -267,14 +288,42 @@ long sys_sigaction(int sig, struct old_sigaction __user *act,
 	return ret;
 }
 
+/*
+ * When we have signals to deliver, we set up on the
+ * user stack, going down from the original stack pointer:
+ *	an ABI gap of 56 words
+ *	an mcontext struct
+ *	a sigcontext struct
+ *	a gap of __SIGNAL_FRAMESIZE bytes
+ *
+ * Each of these things must be a multiple of 16 bytes in size. The following
+ * structure represent all of this except the __SIGNAL_FRAMESIZE gap
+ *
+ */
 struct sigframe {
-	struct sigcontext sctx;		
-	struct mcontext	mctx;		
+	struct sigcontext sctx;		/* the sigcontext */
+	struct mcontext	mctx;		/* all the register values */
+	/*
+	 * Programs using the rs6000/xcoff abi can save up to 19 gp
+	 * regs and 18 fp regs below sp before decrementing it.
+	 */
 	int			abigap[56];
 };
 
+/* We use the mc_pad field for the signal return trampoline. */
 #define tramp	mc_pad
 
+/*
+ *  When we have rt signals to deliver, we set up on the
+ *  user stack, going down from the original stack pointer:
+ *	one rt_sigframe struct (siginfo + ucontext + ABI gap)
+ *	a gap of __SIGNAL_FRAMESIZE+16 bytes
+ *  (the +16 is to get the siginfo and ucontext in the same
+ *  positions as in older kernels).
+ *
+ *  Each of these things must be a multiple of 16 bytes in size.
+ *
+ */
 struct rt_sigframe {
 #ifdef CONFIG_PPC64
 	compat_siginfo_t info;
@@ -282,6 +331,10 @@ struct rt_sigframe {
 	struct siginfo info;
 #endif
 	struct ucontext	uc;
+	/*
+	 * Programs using the rs6000/xcoff abi can save up to 19 gp
+	 * regs and 18 fp regs below sp before decrementing it.
+	 */
 	int			abigap[56];
 };
 
@@ -292,7 +345,7 @@ unsigned long copy_fpr_to_user(void __user *to,
 	double buf[ELF_NFPREG];
 	int i;
 
-	
+	/* save FPR copy to local buffer then write to the thread_struct */
 	for (i = 0; i < (ELF_NFPREG - 1) ; i++)
 		buf[i] = task->thread.TS_FPR(i);
 	memcpy(&buf[i], &task->thread.fpscr, sizeof(double));
@@ -320,7 +373,7 @@ unsigned long copy_vsx_to_user(void __user *to,
 	double buf[ELF_NVSRHALFREG];
 	int i;
 
-	
+	/* save FPR copy to local buffer then write to the thread_struct */
 	for (i = 0; i < ELF_NVSRHALFREG; i++)
 		buf[i] = task->thread.fpr[i][TS_VSRLOWOFFSET];
 	return __copy_to_user(to, buf, ELF_NVSRHALFREG * sizeof(double));
@@ -354,62 +407,82 @@ inline unsigned long copy_fpr_from_user(struct task_struct *task,
 }
 #endif
 
+/*
+ * Save the current user registers on the user stack.
+ * We only save the altivec/spe registers if the process has used
+ * altivec/spe instructions at some point.
+ */
 static int save_user_regs(struct pt_regs *regs, struct mcontext __user *frame,
 		int sigret, int ctx_has_vsx_region)
 {
 	unsigned long msr = regs->msr;
 
-	
+	/* Make sure floating point registers are stored in regs */
 	flush_fp_to_thread(current);
 
-	
+	/* save general registers */
 	if (save_general_regs(regs, frame))
 		return 1;
 
 #ifdef CONFIG_ALTIVEC
-	
+	/* save altivec registers */
 	if (current->thread.used_vr) {
 		flush_altivec_to_thread(current);
 		if (__copy_to_user(&frame->mc_vregs, current->thread.vr,
 				   ELF_NVRREG * sizeof(vector128)))
 			return 1;
+		/* set MSR_VEC in the saved MSR value to indicate that
+		   frame->mc_vregs contains valid data */
 		msr |= MSR_VEC;
 	}
-	
+	/* else assert((regs->msr & MSR_VEC) == 0) */
 
+	/* We always copy to/from vrsave, it's 0 if we don't have or don't
+	 * use altivec. Since VSCR only contains 32 bits saved in the least
+	 * significant bits of a vector, we "cheat" and stuff VRSAVE in the
+	 * most significant bits of that same vector. --BenH
+	 */
 	if (__put_user(current->thread.vrsave, (u32 __user *)&frame->mc_vregs[32]))
 		return 1;
-#endif 
+#endif /* CONFIG_ALTIVEC */
 	if (copy_fpr_to_user(&frame->mc_fregs, current))
 		return 1;
 #ifdef CONFIG_VSX
+	/*
+	 * Copy VSR 0-31 upper half from thread_struct to local
+	 * buffer, then write that to userspace.  Also set MSR_VSX in
+	 * the saved MSR value to indicate that frame->mc_vregs
+	 * contains valid data
+	 */
 	if (current->thread.used_vsr && ctx_has_vsx_region) {
 		__giveup_vsx(current);
 		if (copy_vsx_to_user(&frame->mc_vsregs, current))
 			return 1;
 		msr |= MSR_VSX;
 	}
-#endif 
+#endif /* CONFIG_VSX */
 #ifdef CONFIG_SPE
-	
+	/* save spe registers */
 	if (current->thread.used_spe) {
 		flush_spe_to_thread(current);
 		if (__copy_to_user(&frame->mc_vregs, current->thread.evr,
 				   ELF_NEVRREG * sizeof(u32)))
 			return 1;
+		/* set MSR_SPE in the saved MSR value to indicate that
+		   frame->mc_vregs contains valid data */
 		msr |= MSR_SPE;
 	}
-	
+	/* else assert((regs->msr & MSR_SPE) == 0) */
 
-	
+	/* We always copy to/from spefscr */
 	if (__put_user(current->thread.spefscr, (u32 __user *)&frame->mc_vregs + ELF_NEVRREG))
 		return 1;
-#endif 
+#endif /* CONFIG_SPE */
 
 	if (__put_user(msr, &frame->mc_gregs[PT_MSR]))
 		return 1;
 	if (sigret) {
-		
+		/* Set up the sigreturn trampoline: li r0,sigret; sc */
 		if (__put_user(0x38000000UL + sigret, &frame->tramp[0])
 		    || __put_user(0x44000002UL, &frame->tramp[1]))
 			return 1;
@@ -420,6 +493,10 @@ static int save_user_regs(struct pt_regs *regs, struct mcontext __user *frame,
 	return 0;
 }
 
+/*
+ * Restore the current user register values from the user stack,
+ * (except for MSR).
+ */
 static long restore_user_regs(struct pt_regs *regs,
 			      struct mcontext __user *sr, int sig)
 {
@@ -430,6 +507,10 @@ static long restore_user_regs(struct pt_regs *regs,
 	int i;
 #endif
 
+	/*
+	 * restore general registers but not including MSR or SOFTE. Also
+	 * take care of keeping r2 (TLS) intact if not a signal
+	 */
 	if (!sig)
 		save_r2 = (unsigned int)regs->gpr[2];
 	err = restore_general_regs(regs, sr);
@@ -440,54 +521,79 @@ static long restore_user_regs(struct pt_regs *regs,
 	if (err)
 		return 1;
 
-	
+	/* if doing signal return, restore the previous little-endian mode */
 	if (sig)
 		regs->msr = (regs->msr & ~MSR_LE) | (msr & MSR_LE);
 
+	/*
+	 * Do this before updating the thread state in
+	 * current->thread.fpr/vr/evr.  That way, if we get preempted
+	 * and another task grabs the FPU/Altivec/SPE, it won't be
+	 * tempted to save the current CPU state into the thread_struct
+	 * and corrupt what we are writing there.
+	 */
 	discard_lazy_cpu_state();
 
 #ifdef CONFIG_ALTIVEC
+	/*
+	 * Force the process to reload the altivec registers from
+	 * current->thread when it next does altivec instructions
+	 */
 	regs->msr &= ~MSR_VEC;
 	if (msr & MSR_VEC) {
-		
+		/* restore altivec registers from the stack */
 		if (__copy_from_user(current->thread.vr, &sr->mc_vregs,
 				     sizeof(sr->mc_vregs)))
 			return 1;
 	} else if (current->thread.used_vr)
 		memset(current->thread.vr, 0, ELF_NVRREG * sizeof(vector128));
 
-	
+	/* Always get VRSAVE back */
 	if (__get_user(current->thread.vrsave, (u32 __user *)&sr->mc_vregs[32]))
 		return 1;
-#endif 
+#endif /* CONFIG_ALTIVEC */
 	if (copy_fpr_from_user(current, &sr->mc_fregs))
 		return 1;
 
 #ifdef CONFIG_VSX
+	/*
+	 * Force the process to reload the VSX registers from
+	 * current->thread when it next does VSX instruction.
+	 */
 	regs->msr &= ~MSR_VSX;
 	if (msr & MSR_VSX) {
+		/*
+		 * Restore altivec registers from the stack to a local
+		 * buffer, then write this out to the thread_struct
+		 */
 		if (copy_vsx_from_user(current, &sr->mc_vsregs))
 			return 1;
 	} else if (current->thread.used_vsr)
 		for (i = 0; i < 32 ; i++)
 			current->thread.fpr[i][TS_VSRLOWOFFSET] = 0;
-#endif 
+#endif /* CONFIG_VSX */
+	/*
+	 * force the process to reload the FP registers from
+	 * current->thread when it next does FP instructions
+	 */
 	regs->msr &= ~(MSR_FP | MSR_FE0 | MSR_FE1);
 
 #ifdef CONFIG_SPE
+	/* force the process to reload the spe registers from
+	   current->thread when it next does spe instructions */
 	regs->msr &= ~MSR_SPE;
 	if (msr & MSR_SPE) {
-		
+		/* restore spe registers from the stack */
 		if (__copy_from_user(current->thread.evr, &sr->mc_vregs,
 				     ELF_NEVRREG * sizeof(u32)))
 			return 1;
 	} else if (current->thread.used_spe)
 		memset(current->thread.evr, 0, ELF_NEVRREG * sizeof(u32));
 
-	
+	/* Always get SPEFSCR back */
 	if (__get_user(current->thread.spefscr, (u32 __user *)&sr->mc_vregs + ELF_NEVRREG))
 		return 1;
-#endif 
+#endif /* CONFIG_SPE */
 
 	return 0;
 }
@@ -499,7 +605,7 @@ long compat_sys_rt_sigaction(int sig, const struct sigaction32 __user *act,
 	struct k_sigaction new_ka, old_ka;
 	int ret;
 
-	
+	/* XXX: Don't preclude handling different sized sigset_t's.  */
 	if (sigsetsize != sizeof(compat_sigset_t))
 		return -EINVAL;
 
@@ -523,6 +629,13 @@ long compat_sys_rt_sigaction(int sig, const struct sigaction32 __user *act,
 	return ret;
 }
 
+/*
+ * Note: it is necessary to treat how as an unsigned int, with the
+ * corresponding cast to a signed int to insure that the proper
+ * conversion (sign extension) between the register representation
+ * of a signed int (msr in 32-bit mode) and the register representation
+ * of a signed int (msr in 64-bit mode) is performed.
+ */
 long compat_sys_rt_sigprocmask(u32 how, compat_sigset_t __user *set,
 		compat_sigset_t __user *oset, size_t sigsetsize)
 {
@@ -537,7 +650,7 @@ long compat_sys_rt_sigprocmask(u32 how, compat_sigset_t __user *set,
 	}
 
 	set_fs(KERNEL_DS);
-	
+	/* This is valid because of the set_fs() */
 	up = (sigset_t __user *) &s;
 	ret = sys_rt_sigprocmask((int)how, set ? up : NULL, oset ? up : NULL,
 				 sigsetsize);
@@ -558,7 +671,7 @@ long compat_sys_rt_sigpending(compat_sigset_t __user *set, compat_size_t sigsets
 	mm_segment_t old_fs = get_fs();
 
 	set_fs(KERNEL_DS);
-	
+	/* The __user pointer cast is valid because of the set_fs() */
 	ret = sys_rt_sigpending((sigset_t __user *) &s, sigsetsize);
 	set_fs(old_fs);
 	if (!ret) {
@@ -576,6 +689,14 @@ int copy_siginfo_to_user32(struct compat_siginfo __user *d, siginfo_t *s)
 	if (!access_ok (VERIFY_WRITE, d, sizeof(*d)))
 		return -EFAULT;
 
+	/* If you change siginfo_t structure, please be sure
+	 * this code is fixed accordingly.
+	 * It should never copy any pad contained in the structure
+	 * to avoid security leaks, but must copy the generic
+	 * 3 ints plus the relevant union member.
+	 * This routine must convert siginfo from 64bit to 32bit as well
+	 * at the same time.
+	 */
 	err = __put_user(s->si_signo, &d->si_signo);
 	err |= __put_user(s->si_errno, &d->si_errno);
 	err |= __put_user((short)s->si_code, &d->si_code);
@@ -603,10 +724,10 @@ int copy_siginfo_to_user32(struct compat_siginfo __user *d, siginfo_t *s)
 		err |= __put_user(s->si_overrun, &d->si_overrun);
 		err |= __put_user(s->si_int, &d->si_int);
 		break;
-	case __SI_RT >> 16: 
+	case __SI_RT >> 16: /* This is not generated by the kernel as of now.  */
 	case __SI_MESGQ >> 16:
 		err |= __put_user(s->si_int, &d->si_int);
-		
+		/* fallthrough */
 	case __SI_KILL >> 16:
 	default:
 		err |= __put_user(s->si_pid, &d->si_pid);
@@ -630,6 +751,13 @@ int copy_siginfo_from_user32(siginfo_t *to, struct compat_siginfo __user *from)
 	return 0;
 }
 
+/*
+ * Note: it is necessary to treat pid and sig as unsigned ints, with the
+ * corresponding cast to a signed int to insure that the proper conversion
+ * (sign extension) between the register representation of a signed int
+ * (msr in 32-bit mode) and the register representation of a signed int
+ * (msr in 64-bit mode) is performed.
+ */
 long compat_sys_rt_sigqueueinfo(u32 pid, u32 sig, compat_siginfo_t __user *uinfo)
 {
 	siginfo_t info;
@@ -641,11 +769,17 @@ long compat_sys_rt_sigqueueinfo(u32 pid, u32 sig, compat_siginfo_t __user *uinfo
 		return ret;
 
 	set_fs (KERNEL_DS);
-	
+	/* The __user pointer cast is valid becasuse of the set_fs() */
 	ret = sys_rt_sigqueueinfo((int)pid, (int)sig, (siginfo_t __user *) &info);
 	set_fs (old_fs);
 	return ret;
 }
+/*
+ *  Start Alternate signal stack support
+ *
+ *  System Calls
+ *       sigaltatck               compat_sys_sigaltstack
+ */
 
 int compat_sys_sigaltstack(u32 __new, u32 __old, int r5,
 		      int r6, int r7, int r8, struct pt_regs *regs)
@@ -658,9 +792,13 @@ int compat_sys_sigaltstack(u32 __new, u32 __old, int r5,
 	unsigned long sp;
 	compat_uptr_t ss_sp;
 
+	/*
+	 * set sp to the user stack on entry to the system call
+	 * the system call router sets R9 to the saved registers
+	 */
 	sp = regs->gpr[1];
 
-	
+	/* Put new stack info in local 64 bit stack struct */
 	if (newstack) {
 		if (get_user(ss_sp, &newstack->ss_sp) ||
 		    __get_user(uss.ss_flags, &newstack->ss_flags) ||
@@ -671,13 +809,13 @@ int compat_sys_sigaltstack(u32 __new, u32 __old, int r5,
 
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
-	
+	/* The __user pointer casts are valid because of the set_fs() */
 	ret = do_sigaltstack(
 		newstack ? (stack_t __user *) &uss : NULL,
 		oldstack ? (stack_t __user *) &uoss : NULL,
 		sp);
 	set_fs(old_fs);
-	
+	/* Copy the stack information to the user output buffer */
 	if (!ret && oldstack  &&
 		(put_user(ptr_to_compat(uoss.ss_sp), &oldstack->ss_sp) ||
 		 __put_user(uoss.ss_flags, &oldstack->ss_flags) ||
@@ -685,8 +823,12 @@ int compat_sys_sigaltstack(u32 __new, u32 __old, int r5,
 		return -EFAULT;
 	return ret;
 }
-#endif 
+#endif /* CONFIG_PPC64 */
 
+/*
+ * Set up a signal frame for a "real-time" signal handler
+ * (one which gets siginfo).
+ */
 int handle_rt_signal32(unsigned long sig, struct k_sigaction *ka,
 		siginfo_t *info, sigset_t *oldset,
 		struct pt_regs *regs)
@@ -696,14 +838,14 @@ int handle_rt_signal32(unsigned long sig, struct k_sigaction *ka,
 	void __user *addr;
 	unsigned long newsp = 0;
 
-	
-	
+	/* Set up Signal Frame */
+	/* Put a Real Time Context onto stack */
 	rt_sf = get_sigframe(ka, regs, sizeof(*rt_sf), 1);
 	addr = rt_sf;
 	if (unlikely(rt_sf == NULL))
 		goto badframe;
 
-	
+	/* Put the siginfo & fill in most of the ucontext */
 	if (copy_siginfo_to_user(&rt_sf->info, info)
 	    || __put_user(0, &rt_sf->uc.uc_flags)
 	    || __put_user(0, &rt_sf->uc.uc_link)
@@ -716,7 +858,7 @@ int handle_rt_signal32(unsigned long sig, struct k_sigaction *ka,
 	    || put_sigset_t(&rt_sf->uc.uc_sigmask, oldset))
 		goto badframe;
 
-	
+	/* Save user registers on the stack */
 	frame = &rt_sf->uc.uc_mcontext;
 	addr = frame;
 	if (vdso32_rt_sigtramp && current->mm->context.vdso_base) {
@@ -729,22 +871,22 @@ int handle_rt_signal32(unsigned long sig, struct k_sigaction *ka,
 		regs->link = (unsigned long) frame->tramp;
 	}
 
-	current->thread.fpscr.val = 0;	
+	current->thread.fpscr.val = 0;	/* turn off all fp exceptions */
 
-	
+	/* create a stack frame for the caller of the handler */
 	newsp = ((unsigned long)rt_sf) - (__SIGNAL_FRAMESIZE + 16);
 	addr = (void __user *)regs->gpr[1];
 	if (put_user(regs->gpr[1], (u32 __user *)newsp))
 		goto badframe;
 
-	
+	/* Fill registers for signal handler */
 	regs->gpr[1] = newsp;
 	regs->gpr[3] = sig;
 	regs->gpr[4] = (unsigned long) &rt_sf->info;
 	regs->gpr[5] = (unsigned long) &rt_sf->uc;
 	regs->gpr[6] = (unsigned long) rt_sf;
 	regs->nip = (unsigned long) ka->sa.sa_handler;
-	
+	/* enter the signal handler in big-endian mode */
 	regs->msr &= ~MSR_LE;
 	return 1;
 
@@ -778,7 +920,7 @@ static int do_setcontext(struct ucontext __user *ucp, struct pt_regs *regs, int 
 		if (__get_user(cmcp, &ucp->uc_regs))
 			return -EFAULT;
 		mcp = (struct mcontext __user *)(u64)cmcp;
-		
+		/* no need to check access_ok(mcp), since mcp < 4GB */
 	}
 #else
 	if (__get_user(mcp, &ucp->uc_regs))
@@ -807,27 +949,50 @@ long sys_swapcontext(struct ucontext __user *old_ctx,
 		struct mcontext __user *mcp;
 		u32 cmcp;
 
+		/*
+		 * Get pointer to the real mcontext.  No need for
+		 * access_ok since we are dealing with compat
+		 * pointers.
+		 */
 		if (__get_user(cmcp, &new_ctx->uc_regs))
 			return -EFAULT;
 		mcp = (struct mcontext __user *)(u64)cmcp;
 		if (__get_user(new_msr, &mcp->mc_gregs[PT_MSR]))
 			return -EFAULT;
 	}
+	/*
+	 * Check that the context is not smaller than the original
+	 * size (with VMX but without VSX)
+	 */
 	if (ctx_size < UCONTEXTSIZEWITHOUTVSX)
 		return -EINVAL;
+	/*
+	 * If the new context state sets the MSR VSX bits but
+	 * it doesn't provide VSX state.
+	 */
 	if ((ctx_size < sizeof(struct ucontext)) &&
 	    (new_msr & MSR_VSX))
 		return -EINVAL;
-	
+	/* Does the context have enough room to store VSX data? */
 	if (ctx_size >= sizeof(struct ucontext))
 		ctx_has_vsx_region = 1;
 #else
+	/* Context size is for future use. Right now, we only make sure
+	 * we are passed something we understand
+	 */
 	if (ctx_size < sizeof(struct ucontext))
 		return -EINVAL;
 #endif
 	if (old_ctx != NULL) {
 		struct mcontext __user *mctx;
 
+		/*
+		 * old_ctx might not be 16-byte aligned, in which
+		 * case old_ctx->uc_mcontext won't be either.
+		 * Because we have the old_ctx->uc_pad2 field
+		 * before old_ctx->uc_mcontext, we need to round down
+		 * from &old_ctx->uc_mcontext to a 16-byte boundary.
+		 */
 		mctx = (struct mcontext __user *)
 			((unsigned long) &old_ctx->uc_mcontext & ~0xfUL);
 		if (!access_ok(VERIFY_WRITE, old_ctx, ctx_size)
@@ -843,6 +1008,17 @@ long sys_swapcontext(struct ucontext __user *old_ctx,
 	    || __get_user(tmp, (u8 __user *) new_ctx + ctx_size - 1))
 		return -EFAULT;
 
+	/*
+	 * If we get a fault copying the context into the kernel's
+	 * image of the user's registers, we can't just return -EFAULT
+	 * because the user's registers will be corrupted.  For instance
+	 * the NIP value may have been updated but not some of the
+	 * other registers.  Given that we have done the access_ok
+	 * and successfully read the first and last bytes of the region
+	 * above, this should only happen in an out-of-memory situation
+	 * or if another thread unmaps the region containing the context.
+	 * We kill the task with a SIGSEGV in this situation.
+	 */
 	if (do_setcontext(new_ctx, regs, 0))
 		do_exit(SIGSEGV);
 
@@ -855,7 +1031,7 @@ long sys_rt_sigreturn(int r3, int r4, int r5, int r6, int r7, int r8,
 {
 	struct rt_sigframe __user *rt_sf;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
 	rt_sf = (struct rt_sigframe __user *)
@@ -865,7 +1041,19 @@ long sys_rt_sigreturn(int r3, int r4, int r5, int r6, int r7, int r8,
 	if (do_setcontext(&rt_sf->uc, regs, 1))
 		goto bad;
 
+	/*
+	 * It's not clear whether or why it is desirable to save the
+	 * sigaltstack setting on signal delivery and restore it on
+	 * signal return.  But other architectures do this and we have
+	 * always done it up until now so it is probably better not to
+	 * change it.  -- paulus
+	 */
 #ifdef CONFIG_PPC64
+	/*
+	 * We use the compat_sys_ version that does the 32/64 bits conversion
+	 * and takes userland pointer directly. What about error checking ?
+	 * nobody does any...
+	 */
 	compat_sys_sigaltstack((u32)(u64)&rt_sf->uc.uc_stack, 0, 0, 0, 0, 0, regs);
 #else
 	do_sigaltstack(&rt_sf->uc.uc_stack, NULL, regs->gpr[1]);
@@ -939,6 +1127,11 @@ int sys_debug_setcontext(struct ucontext __user *ctx,
 		}
 	}
 
+	/* We wait until here to actually install the values in the
+	   registers so if we fail in the above loop, it will not
+	   affect the contents of these registers.  After this point,
+	   failure is a problem, anyway, and it's very unlikely unless
+	   the user is really doing something wrong. */
 	regs->msr = new_msr;
 #ifdef CONFIG_PPC_ADV_DEBUG_REGS
 	current->thread.dbcr0 = new_dbcr0;
@@ -949,6 +1142,17 @@ int sys_debug_setcontext(struct ucontext __user *ctx,
 	    || __get_user(tmp, (u8 __user *) (ctx + 1) - 1))
 		return -EFAULT;
 
+	/*
+	 * If we get a fault copying the context into the kernel's
+	 * image of the user's registers, we can't just return -EFAULT
+	 * because the user's registers will be corrupted.  For instance
+	 * the NIP value may have been updated but not some of the
+	 * other registers.  Given that we have done the access_ok
+	 * and successfully read the first and last bytes of the region
+	 * above, this should only happen in an out-of-memory situation
+	 * or if another thread unmaps the region containing the context.
+	 * We kill the task with a SIGSEGV in this situation.
+	 */
 	if (do_setcontext(ctx, regs, 1)) {
 		if (show_unhandled_signals)
 			printk_ratelimited(KERN_INFO "%s[%d]: bad frame in "
@@ -961,6 +1165,13 @@ int sys_debug_setcontext(struct ucontext __user *ctx,
 		goto out;
 	}
 
+	/*
+	 * It's not clear whether or why it is desirable to save the
+	 * sigaltstack setting on signal delivery and restore it on
+	 * signal return.  But other architectures do this and we have
+	 * always done it up until now so it is probably better not to
+	 * change it.  -- paulus
+	 */
 	do_sigaltstack(&ctx->uc_stack, NULL, regs->gpr[1]);
 
 	set_thread_flag(TIF_RESTOREALL);
@@ -969,6 +1180,9 @@ int sys_debug_setcontext(struct ucontext __user *ctx,
 }
 #endif
 
+/*
+ * OK, we're invoking a handler
+ */
 int handle_signal32(unsigned long sig, struct k_sigaction *ka,
 		    siginfo_t *info, sigset_t *oldset, struct pt_regs *regs)
 {
@@ -976,7 +1190,7 @@ int handle_signal32(unsigned long sig, struct k_sigaction *ka,
 	struct sigframe __user *frame;
 	unsigned long newsp = 0;
 
-	
+	/* Set up Signal Frame */
 	frame = get_sigframe(ka, regs, sizeof(*frame), 1);
 	if (unlikely(frame == NULL))
 		goto badframe;
@@ -1006,9 +1220,9 @@ int handle_signal32(unsigned long sig, struct k_sigaction *ka,
 		regs->link = (unsigned long) frame->mctx.tramp;
 	}
 
-	current->thread.fpscr.val = 0;	
+	current->thread.fpscr.val = 0;	/* turn off all fp exceptions */
 
-	
+	/* create a stack frame for the caller of the handler */
 	newsp = ((unsigned long)frame) - __SIGNAL_FRAMESIZE;
 	if (put_user(regs->gpr[1], (u32 __user *)newsp))
 		goto badframe;
@@ -1017,7 +1231,7 @@ int handle_signal32(unsigned long sig, struct k_sigaction *ka,
 	regs->gpr[3] = sig;
 	regs->gpr[4] = (unsigned long) sc;
 	regs->nip = (unsigned long) ka->sa.sa_handler;
-	
+	/* enter the signal handler in big-endian mode */
 	regs->msr &= ~MSR_LE;
 
 	return 1;
@@ -1038,6 +1252,9 @@ badframe:
 	return 0;
 }
 
+/*
+ * Do a signal return; undo the signal stack.
+ */
 long sys_sigreturn(int r3, int r4, int r5, int r6, int r7, int r8,
 		       struct pt_regs *regs)
 {
@@ -1047,7 +1264,7 @@ long sys_sigreturn(int r3, int r4, int r5, int r6, int r7, int r8,
 	void __user *addr;
 	sigset_t set;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
 	sc = (struct sigcontext __user *)(regs->gpr[1] + __SIGNAL_FRAMESIZE);
@@ -1056,6 +1273,10 @@ long sys_sigreturn(int r3, int r4, int r5, int r6, int r7, int r8,
 		goto badframe;
 
 #ifdef CONFIG_PPC64
+	/*
+	 * Note that PPC32 puts the upper 32 bits of the sigmask in the
+	 * unused part of the signal stackframe
+	 */
 	set.sig[0] = sigctx.oldmask + ((long)(sigctx._unused[3]) << 32);
 #else
 	set.sig[0] = sigctx.oldmask;

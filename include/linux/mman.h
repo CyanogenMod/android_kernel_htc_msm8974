@@ -30,6 +30,9 @@ static inline void vm_unacct_memory(long pages)
 	vm_acct_memory(-pages);
 }
 
+/*
+ * Allow architectures to handle additional protection bits
+ */
 
 #ifndef arch_calc_vm_prot_bits
 #define arch_calc_vm_prot_bits(prot) 0
@@ -40,6 +43,12 @@ static inline void vm_unacct_memory(long pages)
 #endif
 
 #ifndef arch_validate_prot
+/*
+ * This is called from mprotect().  PROT_GROWSDOWN and PROT_GROWSUP have
+ * already been masked out.
+ *
+ * Returns true if the prot flags are valid
+ */
 static inline int arch_validate_prot(unsigned long prot)
 {
 	return (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC | PROT_SEM)) == 0;
@@ -47,10 +56,19 @@ static inline int arch_validate_prot(unsigned long prot)
 #define arch_validate_prot arch_validate_prot
 #endif
 
+/*
+ * Optimisation macro.  It is equivalent to:
+ *      (x & bit1) ? bit2 : 0
+ * but this version is faster.
+ * ("bit1" and "bit2" must be single bits)
+ */
 #define _calc_vm_trans(x, bit1, bit2) \
   ((bit1) <= (bit2) ? ((x) & (bit1)) * ((bit2) / (bit1)) \
    : ((x) & (bit1)) / ((bit1) / (bit2)))
 
+/*
+ * Combine the mmap "prot" argument into "vm_flags" used internally.
+ */
 static inline unsigned long
 calc_vm_prot_bits(unsigned long prot)
 {
@@ -60,6 +78,9 @@ calc_vm_prot_bits(unsigned long prot)
 	       arch_calc_vm_prot_bits(prot);
 }
 
+/*
+ * Combine the mmap "flags" argument into "vm_flags" used internally.
+ */
 static inline unsigned long
 calc_vm_flag_bits(unsigned long flags)
 {
@@ -68,5 +89,5 @@ calc_vm_flag_bits(unsigned long flags)
 	       _calc_vm_trans(flags, MAP_EXECUTABLE, VM_EXECUTABLE) |
 	       _calc_vm_trans(flags, MAP_LOCKED,     VM_LOCKED    );
 }
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _LINUX_MMAN_H */

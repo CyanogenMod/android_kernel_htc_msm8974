@@ -31,9 +31,9 @@
 #define FSG_SDA_PIN		12
 #define FSG_SCL_PIN		13
 
-#define FSG_SB_GPIO		4	
-#define FSG_RB_GPIO		9	
-#define FSG_UB_GPIO		10	
+#define FSG_SB_GPIO		4	/* sync button */
+#define FSG_RB_GPIO		9	/* reset button */
+#define FSG_UB_GPIO		10	/* usb button */
 
 static struct flash_platform_data fsg_flash_data = {
 	.map_name		= "cfi_probe",
@@ -123,6 +123,7 @@ static struct platform_device fsg_leds = {
 	.id		= -1,
 };
 
+/* Built-in 10/100 Ethernet MAC interfaces */
 static struct eth_plat_info fsg_plat_eth[] = {
 	{
 		.phy		= 5,
@@ -161,6 +162,9 @@ static struct platform_device *fsg_devices[] __initdata = {
 
 static irqreturn_t fsg_power_handler(int irq, void *dev_id)
 {
+	/* Signal init to do the ctrlaltdel action, this will bypass init if
+	 * it hasn't started and do a kernel_restart.
+	 */
 	ctrl_alt_del();
 
 	return IRQ_HANDLED;
@@ -168,11 +172,11 @@ static irqreturn_t fsg_power_handler(int irq, void *dev_id)
 
 static irqreturn_t fsg_reset_handler(int irq, void *dev_id)
 {
-	
+	/* This is the paper-clip reset which does an emergency reboot. */
 	printk(KERN_INFO "Restarting system.\n");
 	machine_restart(NULL);
 
-	
+	/* This should never be reached. */
 	return IRQ_HANDLED;
 }
 
@@ -189,12 +193,16 @@ static void __init fsg_init(void)
 	*IXP4XX_EXP_CS0 |= IXP4XX_FLASH_WRITABLE;
 	*IXP4XX_EXP_CS1 = *IXP4XX_EXP_CS0;
 
-	
+	/* Configure CS2 for operation, 8bit and writable */
 	*IXP4XX_EXP_CS2 = 0xbfff0002;
 
 	i2c_register_board_info(0, fsg_i2c_board_info,
 				ARRAY_SIZE(fsg_i2c_board_info));
 
+	/* This is only useful on a modified machine, but it is valuable
+	 * to have it first in order to see debug messages, and so that
+	 * it does *not* get removed if platform_add_devices fails!
+	 */
 	(void)platform_device_register(&fsg_uart);
 
 	platform_add_devices(fsg_devices, ARRAY_SIZE(fsg_devices));
@@ -215,6 +223,11 @@ static void __init fsg_init(void)
 			gpio_to_irq(FSG_SB_GPIO));
 	}
 
+	/*
+	 * Map in a portion of the flash and read the MAC addresses.
+	 * Since it is stored in BE in the flash itself, we need to
+	 * byteswap it if we're in LE mode.
+	 */
 	f = ioremap(IXP4XX_EXP_BUS_BASE(0), 0x400000);
 	if (f) {
 #ifdef __ARMEB__
@@ -225,6 +238,11 @@ static void __init fsg_init(void)
 		}
 #else
 
+		/*
+		  Endian-swapped reads from unaligned addresses are
+		  required to extract the two MACs from the big-endian
+		  Redboot config area in flash.
+		*/
 
 		fsg_plat_eth[0].hwaddr[0] = readb(f + 0x3C0421);
 		fsg_plat_eth[0].hwaddr[1] = readb(f + 0x3C0420);
@@ -250,7 +268,7 @@ static void __init fsg_init(void)
 }
 
 MACHINE_START(FSG, "Freecom FSG-3")
-	
+	/* Maintainer: www.nslu2-linux.org */
 	.map_io		= ixp4xx_map_io,
 	.init_early	= ixp4xx_init_early,
 	.init_irq	= ixp4xx_init_irq,

@@ -64,29 +64,29 @@
 #define NLPID_CISCO_LMI		0x09
 
 
-#define LMI_CCITT_ANSI_DLCI	   0 
+#define LMI_CCITT_ANSI_DLCI	   0 /* LMI DLCI */
 #define LMI_CISCO_DLCI		1023
 
-#define LMI_CALLREF		0x00 
-#define LMI_ANSI_LOCKSHIFT	0x95 
-#define LMI_ANSI_CISCO_REPTYPE	0x01 
+#define LMI_CALLREF		0x00 /* Call Reference */
+#define LMI_ANSI_LOCKSHIFT	0x95 /* ANSI locking shift */
+#define LMI_ANSI_CISCO_REPTYPE	0x01 /* report type */
 #define LMI_CCITT_REPTYPE	0x51
-#define LMI_ANSI_CISCO_ALIVE	0x03 
+#define LMI_ANSI_CISCO_ALIVE	0x03 /* keep alive */
 #define LMI_CCITT_ALIVE		0x53
-#define LMI_ANSI_CISCO_PVCSTAT	0x07 
+#define LMI_ANSI_CISCO_PVCSTAT	0x07 /* PVC status */
 #define LMI_CCITT_PVCSTAT	0x57
 
-#define LMI_FULLREP		0x00 
-#define LMI_INTEGRITY		0x01 
-#define LMI_SINGLE		0x02 
+#define LMI_FULLREP		0x00 /* full report  */
+#define LMI_INTEGRITY		0x01 /* link integrity report */
+#define LMI_SINGLE		0x02 /* single PVC report */
 
 #define LMI_STATUS_ENQUIRY      0x75
-#define LMI_STATUS              0x7D 
+#define LMI_STATUS              0x7D /* reply */
 
-#define LMI_REPT_LEN               1 
-#define LMI_INTEG_LEN              2 
+#define LMI_REPT_LEN               1 /* report type element length */
+#define LMI_INTEG_LEN              2 /* link integrity element length */
 
-#define LMI_CCITT_CISCO_LENGTH	  13 
+#define LMI_CCITT_CISCO_LENGTH	  13 /* LMI frame lengths */
 #define LMI_ANSI_LENGTH		  14
 
 
@@ -118,8 +118,8 @@ typedef struct {
 typedef struct pvc_device_struct {
 	struct net_device *frad;
 	struct net_device *main;
-	struct net_device *ether;	
-	struct pvc_device_struct *next;	
+	struct net_device *ether;	/* bridged Ethernet interface	*/
+	struct pvc_device_struct *next;	/* Sorted in ascending DLCI order */
 	int dlci;
 	int open_count;
 
@@ -130,7 +130,7 @@ typedef struct pvc_device_struct {
 		unsigned int deleted: 1;
 		unsigned int fecn: 1;
 		unsigned int becn: 1;
-		unsigned int bandwidth;	
+		unsigned int bandwidth;	/* Cisco LMI reporting only */
 	}state;
 }pvc_device;
 
@@ -145,10 +145,10 @@ struct frad_state {
 	int dce_changed;
 	int request;
 	int fullrep_sent;
-	u32 last_errors; 
+	u32 last_errors; /* last errors bit list */
 	u8 n391cnt;
-	u8 txseq; 
-	u8 rxseq; 
+	u8 txseq; /* TX sequence number */
+	u8 rxseq; /* RX sequence number */
 };
 
 
@@ -182,7 +182,7 @@ static inline pvc_device* find_pvc(hdlc_device *hdlc, u16 dlci)
 		if (pvc->dlci == dlci)
 			return pvc;
 		if (pvc->dlci > dlci)
-			return NULL; 
+			return NULL; /* the list is sorted */
 		pvc = pvc->next;
 	}
 
@@ -199,7 +199,7 @@ static pvc_device* add_pvc(struct net_device *dev, u16 dlci)
 		if ((*pvc_p)->dlci == dlci)
 			return *pvc_p;
 		if ((*pvc_p)->dlci > dlci)
-			break;	
+			break;	/* the list is sorted */
 		pvc_p = &(*pvc_p)->next;
 	}
 
@@ -212,7 +212,7 @@ static pvc_device* add_pvc(struct net_device *dev, u16 dlci)
 
 	pvc->dlci = dlci;
 	pvc->frad = dev;
-	pvc->next = *pvc_p;	
+	pvc->next = *pvc_p;	/* Put it in the chain */
 	*pvc_p = pvc;
 	return pvc;
 }
@@ -319,7 +319,7 @@ static int fr_hard_header(struct sk_buff **skb_p, u16 dlci)
 		skb->data[6] = 0x80;
 		skb->data[7] = 0xC2;
 		skb->data[8] = 0x00;
-		skb->data[9] = 0x07; 
+		skb->data[9] = 0x07; /* bridged Ethernet frame w/out FCS */
 		break;
 
 	default:
@@ -345,7 +345,7 @@ static int pvc_open(struct net_device *dev)
 	pvc_device *pvc = dev->ml_priv;
 
 	if ((pvc->frad->flags & IFF_UP) == 0)
-		return -EIO;  
+		return -EIO;  /* Frad must be UP in order to activate PVC */
 
 	if (pvc->open_count++ == 0) {
 		hdlc_device *hdlc = dev_to_hdlc(pvc->frad);
@@ -391,7 +391,7 @@ static int pvc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			ifr->ifr_settings.type = IF_PROTO_FR_PVC;
 
 		if (ifr->ifr_settings.size < sizeof(info)) {
-			
+			/* data size wanted */
 			ifr->ifr_settings.size = sizeof(info);
 			return -ENOBUFS;
 		}
@@ -414,7 +414,7 @@ static netdev_tx_t pvc_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (pvc->state.active) {
 		if (dev->type == ARPHRD_ETHER) {
 			int pad = ETH_ZLEN - skb->len;
-			if (pad > 0) { 
+			if (pad > 0) { /* Pad the frame with zeros */
 				int len = skb->len;
 				if (skb_tailroom(skb) < pad)
 					if (pskb_expand_head(skb, 0, pad,
@@ -431,7 +431,7 @@ static netdev_tx_t pvc_xmit(struct sk_buff *skb, struct net_device *dev)
 		if (!fr_hard_header(&skb, pvc->dlci)) {
 			dev->stats.tx_bytes += skb->len;
 			dev->stats.tx_packets++;
-			if (pvc->state.fecn) 
+			if (pvc->state.fecn) /* TX Congestion counter */
 				dev->stats.tx_compressed++;
 			skb->dev = pvc->frad;
 			dev_queue_xmit(skb);
@@ -520,13 +520,13 @@ static void fr_lmi_send(struct net_device *dev, int fullrep)
 				LMI_ANSI_CISCO_PVCSTAT;
 			data[i++] = stat_len;
 
-			
+			/* LMI start/restart */
 			if (state(hdlc)->reliable && !pvc->state.exist) {
 				pvc->state.exist = pvc->state.new = 1;
 				fr_log_dlci_active(pvc);
 			}
 
-			
+			/* ifconfig PVC up */
 			if (pvc->open_count && !pvc->state.active &&
 			    pvc->state.exist && !pvc->state.new) {
 				pvc_carrier(1, pvc);
@@ -571,11 +571,11 @@ static void fr_set_link_state(int reliable, struct net_device *dev)
 	state(hdlc)->reliable = reliable;
 	if (reliable) {
 		netif_dormant_off(dev);
-		state(hdlc)->n391cnt = 0; 
+		state(hdlc)->n391cnt = 0; /* Request full status */
 		state(hdlc)->dce_changed = 1;
 
 		if (state(hdlc)->settings.lmi == LMI_NONE) {
-			while (pvc) {	
+			while (pvc) {	/* Activate all PVCs */
 				pvc_carrier(1, pvc);
 				pvc->state.exist = pvc->state.active = 1;
 				pvc->state.new = 0;
@@ -584,7 +584,7 @@ static void fr_set_link_state(int reliable, struct net_device *dev)
 		}
 	} else {
 		netif_dormant_on(dev);
-		while (pvc) {		
+		while (pvc) {		/* Deactivate all PVCs */
 			pvc_carrier(0, pvc);
 			pvc->state.exist = pvc->state.active = 0;
 			pvc->state.new = 0;
@@ -609,7 +609,7 @@ static void fr_timer(unsigned long arg)
 				    state(hdlc)->settings.t392 * HZ);
 		state(hdlc)->request = 0;
 	} else {
-		state(hdlc)->last_errors <<= 1; 
+		state(hdlc)->last_errors <<= 1; /* Shift the list */
 		if (state(hdlc)->request) {
 			if (state(hdlc)->reliable)
 				netdev_info(dev, "No LMI status reply received\n");
@@ -618,7 +618,7 @@ static void fr_timer(unsigned long arg)
 
 		list = state(hdlc)->last_errors;
 		for (i = 0; i < state(hdlc)->settings.n393; i++, list >>= 1)
-			cnt += (list & 1);	
+			cnt += (list & 1);	/* errors count */
 
 		reliable = (cnt < state(hdlc)->settings.n392);
 	}
@@ -726,8 +726,8 @@ static int fr_lmi_recv(struct net_device *dev, struct sk_buff *skb)
 	}
 	i++;
 
-	state(hdlc)->rxseq = skb->data[i++]; 
-	rxseq = skb->data[i++];	
+	state(hdlc)->rxseq = skb->data[i++]; /* TX sequence from peer */
+	rxseq = skb->data[i++];	/* Should confirm our sequence */
 
 	txseq = state(hdlc)->txseq;
 
@@ -738,19 +738,21 @@ static int fr_lmi_recv(struct net_device *dev, struct sk_buff *skb)
 	if (!state(hdlc)->reliable)
 		error = 1;
 
-	if (rxseq == 0 || rxseq != txseq) { 
+	if (rxseq == 0 || rxseq != txseq) { /* Ask for full report next time */
 		state(hdlc)->n391cnt = 0;
 		error = 1;
 	}
 
 	if (dce) {
 		if (state(hdlc)->fullrep_sent && !error) {
+/* Stop sending full report - the last one has been confirmed by DTE */
 			state(hdlc)->fullrep_sent = 0;
 			pvc = state(hdlc)->first_pvc;
 			while (pvc) {
 				if (pvc->state.new) {
 					pvc->state.new = 0;
 
+/* Tell DTE that new PVC is now active */
 					state(hdlc)->dce_changed = 1;
 				}
 				pvc = pvc->next;
@@ -763,14 +765,14 @@ static int fr_lmi_recv(struct net_device *dev, struct sk_buff *skb)
 			state(hdlc)->dce_changed = 0;
 		}
 
-		state(hdlc)->request = 1; 
+		state(hdlc)->request = 1; /* got request */
 		fr_lmi_send(dev, reptype == LMI_FULLREP ? 1 : 0);
 		return 0;
 	}
 
-	
+	/* DTE */
 
-	state(hdlc)->request = 0; 
+	state(hdlc)->request = 0; /* got response, no request pending */
 
 	if (error)
 		return 0;
@@ -856,7 +858,7 @@ static int fr_lmi_recv(struct net_device *dev, struct sk_buff *skb)
 		pvc = pvc->next;
 	}
 
-	
+	/* Next full report after N391 polls */
 	state(hdlc)->n391cnt = state(hdlc)->settings.n391;
 
 	return 0;
@@ -922,12 +924,12 @@ static int fr_rx(struct sk_buff *skb)
 	}
 
 	if (data[3] == NLPID_IP) {
-		skb_pull(skb, 4); 
+		skb_pull(skb, 4); /* Remove 4-byte header (hdr, UI, NLPID) */
 		dev = pvc->main;
 		skb->protocol = htons(ETH_P_IP);
 
 	} else if (data[3] == NLPID_IPV6) {
-		skb_pull(skb, 4); 
+		skb_pull(skb, 4); /* Remove 4-byte header (hdr, UI, NLPID) */
 		dev = pvc->main;
 		skb->protocol = htons(ETH_P_IPV6);
 
@@ -938,15 +940,15 @@ static int fr_rx(struct sk_buff *skb)
 		skb_pull(skb, 10);
 
 		switch ((((u32)oui) << 16) | pid) {
-		case ETH_P_ARP: 
+		case ETH_P_ARP: /* routed frame with SNAP */
 		case ETH_P_IPX:
-		case ETH_P_IP:	
+		case ETH_P_IP:	/* a long variant */
 		case ETH_P_IPV6:
 			dev = pvc->main;
 			skb->protocol = htons(pid);
 			break;
 
-		case 0x80C20007: 
+		case 0x80C20007: /* bridged Ethernet frame */
 			if ((dev = pvc->ether) != NULL)
 				skb->protocol = eth_type_trans(skb, dev);
 			break;
@@ -965,7 +967,7 @@ static int fr_rx(struct sk_buff *skb)
 	}
 
 	if (dev) {
-		dev->stats.rx_packets++; 
+		dev->stats.rx_packets++; /* PVC traffic */
 		dev->stats.rx_bytes += skb->len;
 		if (pvc->state.becn)
 			dev->stats.rx_compressed++;
@@ -978,7 +980,7 @@ static int fr_rx(struct sk_buff *skb)
 	}
 
  rx_error:
-	frad->stats.rx_errors++; 
+	frad->stats.rx_errors++; /* Mark error */
 	dev_kfree_skb_any(skb);
 	return NET_RX_DROP;
 }
@@ -1001,7 +1003,7 @@ static void fr_start(struct net_device *dev)
 		state(hdlc)->txseq = state(hdlc)->rxseq = 0;
 
 		init_timer(&state(hdlc)->timer);
-		
+		/* First poll after 1 s */
 		state(hdlc)->timer.expires = jiffies + HZ;
 		state(hdlc)->timer.function = fr_timer;
 		state(hdlc)->timer.data = (unsigned long)dev;
@@ -1028,7 +1030,7 @@ static void fr_close(struct net_device *dev)
 	hdlc_device *hdlc = dev_to_hdlc(dev);
 	pvc_device *pvc = state(hdlc)->first_pvc;
 
-	while (pvc) {		
+	while (pvc) {		/* Shutdown all PVCs for this FRAD */
 		if (pvc->main)
 			dev_close(pvc->main);
 		if (pvc->ether)
@@ -1124,9 +1126,9 @@ static int fr_del_pvc(hdlc_device *hdlc, unsigned int dlci, int type)
 		return -ENOENT;
 
 	if (dev->flags & IFF_UP)
-		return -EBUSY;		
+		return -EBUSY;		/* PVC in use */
 
-	unregister_netdevice(dev); 
+	unregister_netdevice(dev); /* the destructor will free_netdev(dev) */
 	*get_dev_p(pvc, type) = NULL;
 
 	if (!pvc_is_used(pvc)) {
@@ -1143,13 +1145,13 @@ static void fr_destroy(struct net_device *frad)
 {
 	hdlc_device *hdlc = dev_to_hdlc(frad);
 	pvc_device *pvc = state(hdlc)->first_pvc;
-	state(hdlc)->first_pvc = NULL; 
+	state(hdlc)->first_pvc = NULL; /* All PVCs destroyed */
 	state(hdlc)->dce_pvc_count = 0;
 	state(hdlc)->dce_changed = 1;
 
 	while (pvc) {
 		pvc_device *next = pvc->next;
-		
+		/* destructors will free_netdev() main and ether */
 		if (pvc->main)
 			unregister_netdevice(pvc->main);
 
@@ -1184,11 +1186,11 @@ static int fr_ioctl(struct net_device *dev, struct ifreq *ifr)
 
 	switch (ifr->ifr_settings.type) {
 	case IF_GET_PROTO:
-		if (dev_to_hdlc(dev)->proto != &proto) 
+		if (dev_to_hdlc(dev)->proto != &proto) /* Different proto */
 			return -EINVAL;
 		ifr->ifr_settings.type = IF_PROTO_FR;
 		if (ifr->ifr_settings.size < size) {
-			ifr->ifr_settings.size = size; 
+			ifr->ifr_settings.size = size; /* data size wanted */
 			return -ENOBUFS;
 		}
 		if (copy_to_user(fr_s, &state(hdlc)->settings, size))
@@ -1226,7 +1228,7 @@ static int fr_ioctl(struct net_device *dev, struct ifreq *ifr)
 		if (result)
 			return result;
 
-		if (dev_to_hdlc(dev)->proto != &proto) { 
+		if (dev_to_hdlc(dev)->proto != &proto) { /* Different proto */
 			result = attach_hdlc_protocol(dev, &proto,
 						      sizeof(struct frad_state));
 			if (result)
@@ -1242,7 +1244,7 @@ static int fr_ioctl(struct net_device *dev, struct ifreq *ifr)
 	case IF_PROTO_FR_DEL_PVC:
 	case IF_PROTO_FR_ADD_ETH_PVC:
 	case IF_PROTO_FR_DEL_ETH_PVC:
-		if (dev_to_hdlc(dev)->proto != &proto) 
+		if (dev_to_hdlc(dev)->proto != &proto) /* Different proto */
 			return -EINVAL;
 
 		if (!capable(CAP_NET_ADMIN))
@@ -1253,11 +1255,11 @@ static int fr_ioctl(struct net_device *dev, struct ifreq *ifr)
 			return -EFAULT;
 
 		if (pvc.dlci <= 0 || pvc.dlci >= 1024)
-			return -EINVAL;	
+			return -EINVAL;	/* Only 10 bits, DLCI 0 reserved */
 
 		if (ifr->ifr_settings.type == IF_PROTO_FR_ADD_ETH_PVC ||
 		    ifr->ifr_settings.type == IF_PROTO_FR_DEL_ETH_PVC)
-			result = ARPHRD_ETHER; 
+			result = ARPHRD_ETHER; /* bridged Ethernet device */
 		else
 			result = ARPHRD_DLCI;
 

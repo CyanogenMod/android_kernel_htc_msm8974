@@ -68,10 +68,10 @@ static int mx27vis_aic32x4_hw_params(struct snd_pcm_substream *substream,
 	dai_format = SND_SOC_DAIFMT_DSP_B | SND_SOC_DAIFMT_NB_NF |
 		SND_SOC_DAIFMT_CBM_CFM;
 
-	
+	/* set codec DAI configuration */
 	snd_soc_dai_set_fmt(codec_dai, dai_format);
 
-	
+	/* set cpu DAI configuration */
 	snd_soc_dai_set_fmt(cpu_dai, dai_format);
 
 	ret = snd_soc_dai_set_sysclk(codec_dai, 0,
@@ -140,6 +140,7 @@ static int mx27vis_amp_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/* From 6dB to 24dB in steps of 6dB */
 static const DECLARE_TLV_DB_SCALE(mx27vis_amp_tlv, 600, 600, 0);
 
 static const struct snd_kcontrol_new mx27vis_aic32x4_controls[] = {
@@ -199,7 +200,7 @@ static int __devinit mx27vis_aic32x4_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	
+	/* Connect SSI0 as clock slave to SSI1 external pins */
 	imx_audmux_v1_configure_port(MX27_AUDMUX_HPCR1_SSI0,
 			IMX_AUDMUX_V1_PCR_SYN |
 			IMX_AUDMUX_V1_PCR_TFSDIR |

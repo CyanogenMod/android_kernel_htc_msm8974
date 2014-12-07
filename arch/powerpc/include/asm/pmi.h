@@ -62,5 +62,5 @@ void pmi_unregister_handler(struct pmi_handler *);
 
 int pmi_send_message(pmi_message_t);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _POWERPC_PMI_H */

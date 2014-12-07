@@ -1,8 +1,15 @@
+/*
+ * ARM specific SMP header, this contains our implementation
+ * details.
+ */
 #ifndef __ASMARM_SMP_PLAT_H
 #define __ASMARM_SMP_PLAT_H
 
 #include <asm/cputype.h>
 
+/*
+ * Return true if we are running on a SMP platform
+ */
 static inline bool is_smp(void)
 {
 #ifndef CONFIG_SMP
@@ -15,6 +22,7 @@ static inline bool is_smp(void)
 #endif
 }
 
+/* all SMP configurations have the extended CPUID registers */
 static inline int tlb_ops_need_broadcast(void)
 {
 	if (!is_smp())
@@ -35,6 +43,9 @@ static inline int cache_ops_need_broadcast(void)
 }
 #endif
 
+/*
+ * Logical CPU mapping.
+ */
 extern int __cpu_logical_map[];
 #define cpu_logical_map(cpu)	__cpu_logical_map[cpu]
 

@@ -11,7 +11,7 @@
 #include <linux/mman.h>
 #include <linux/sched.h>
 #include <linux/shm.h>
-#include <linux/file.h>		
+#include <linux/file.h>		/* doh, must come after sched.h... */
 #include <linux/smp.h>
 #include <linux/syscalls.h>
 #include <linux/highuid.h>
@@ -32,7 +32,7 @@ arch_get_unmapped_area (struct file *filp, unsigned long addr, unsigned long len
 	if (len > RGN_MAP_LIMIT)
 		return -ENOMEM;
 
-	
+	/* handle fixed mapping: prevent overlap with huge pages */
 	if (flags & MAP_FIXED) {
 		if (is_hugepage_only_range(mm, addr, len))
 			return -EINVAL;
@@ -47,23 +47,29 @@ arch_get_unmapped_area (struct file *filp, unsigned long addr, unsigned long len
 		addr = mm->free_area_cache;
 
 	if (map_shared && (TASK_SIZE > 0xfffffffful))
+		/*
+		 * For 64-bit tasks, align shared segments to 1MB to avoid potential
+		 * performance penalty due to virtual aliasing (see ASDM).  For 32-bit
+		 * tasks, we prefer to avoid exhausting the address space too quickly by
+		 * limiting alignment to a single page.
+		 */
 		align_mask = SHMLBA - 1;
 
   full_search:
 	start_addr = addr = (addr + align_mask) & ~align_mask;
 
 	for (vma = find_vma(mm, addr); ; vma = vma->vm_next) {
-		
+		/* At this point:  (!vma || addr < vma->vm_end). */
 		if (TASK_SIZE - len < addr || RGN_MAP_LIMIT - len < REGION_OFFSET(addr)) {
 			if (start_addr != TASK_UNMAPPED_BASE) {
-				
+				/* Start a new search --- just in case we missed some holes.  */
 				addr = TASK_UNMAPPED_BASE;
 				goto full_search;
 			}
 			return -ENOMEM;
 		}
 		if (!vma || addr + len <= vma->vm_start) {
-			
+			/* Remember the address where we stopped this search:  */
 			mm->free_area_cache = addr + len;
 			return addr;
 		}
@@ -84,6 +90,7 @@ ia64_getpriority (int which, int who)
 	return prio;
 }
 
+/* XXX obsolete, but leave it here until the old libc is gone... */
 asmlinkage unsigned long
 sys_getpagesize (void)
 {
@@ -98,6 +105,10 @@ ia64_brk (unsigned long brk)
 	return retval;
 }
 
+/*
+ * On IA-64, we return the two file descriptors in ret0 and ret1 (r8
+ * and r9) as this is faster than doing a copy_to_user().
+ */
 asmlinkage long
 sys_ia64_pipe (void)
 {
@@ -119,12 +130,22 @@ int ia64_mmap_check(unsigned long addr, unsigned long len,
 {
 	unsigned long roff;
 
+	/*
+	 * Don't permit mappings into unmapped space, the virtual page table
+	 * of a region, or across a region boundary.  Note: RGN_MAP_LIMIT is
+	 * equal to 2^n-PAGE_SIZE (for some integer n <= 61) and len > 0.
+	 */
 	roff = REGION_OFFSET(addr);
 	if ((len > RGN_MAP_LIMIT) || (roff > (RGN_MAP_LIMIT - len)))
 		return -EINVAL;
 	return 0;
 }
 
+/*
+ * mmap2() is like mmap() except that the offset is expressed in units
+ * of PAGE_SIZE (instead of bytes).  This allows to mmap2() (pieces
+ * of) files that are larger than the address space of the CPU.
+ */
 asmlinkage unsigned long
 sys_mmap2 (unsigned long addr, unsigned long len, int prot, int flags, int fd, long pgoff)
 {
@@ -185,4 +206,4 @@ sys_pciconfig_write (unsigned long bus, unsigned long dfn, unsigned long off, un
 	return -ENOSYS;
 }
 
-#endif 
+#endif /* CONFIG_PCI */

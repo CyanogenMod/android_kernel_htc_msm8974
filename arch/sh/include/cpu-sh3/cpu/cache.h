@@ -17,13 +17,13 @@
 #define SH_CACHE_COMBINED	4
 #define SH_CACHE_ASSOC		8
 
-#define CCR		0xffffffec	
+#define CCR		0xffffffec	/* Address of Cache Control Register */
 
-#define CCR_CACHE_CE	0x01	
-#define CCR_CACHE_WT	0x02	
-#define CCR_CACHE_CB	0x04	
-#define CCR_CACHE_CF	0x08	
-#define CCR_CACHE_ORA	0x20	
+#define CCR_CACHE_CE	0x01	/* Cache Enable */
+#define CCR_CACHE_WT	0x02	/* Write-Through (for P0,U0,P3) (else writeback) */
+#define CCR_CACHE_CB	0x04	/* Write-Back (for P1) (else writethrough) */
+#define CCR_CACHE_CF	0x08	/* Cache Flush */
+#define CCR_CACHE_ORA	0x20	/* RAM mode */
 
 #define CACHE_OC_ADDRESS_ARRAY	0xf0000000
 #define CACHE_PHYSADDR_MASK	0x1ffffc00
@@ -40,4 +40,4 @@
 #define CCR_CACHE_32KB	0x00020000
 #endif
 
-#endif 
+#endif /* __ASM_CPU_SH3_CACHE_H */

@@ -22,6 +22,15 @@
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 
+/*
+ * Write back the dirty D-caches, but not invalidate them.
+ *
+ * Is this really worth it, or should we just alias this routine
+ * to __flush_purge_region too?
+ *
+ * START: Virtual Address (U0, P1, or P3)
+ * SIZE: Size of the region.
+ */
 
 static void sh3__flush_wback_region(void *start, int size)
 {
@@ -56,6 +65,12 @@ static void sh3__flush_wback_region(void *start, int size)
 	}
 }
 
+/*
+ * Write back the dirty D-caches and invalidate them.
+ *
+ * START: Virtual Address (U0, P1, or P3)
+ * SIZE: Size of the region.
+ */
 static void sh3__flush_purge_region(void *start, int size)
 {
 	unsigned long v;
@@ -68,7 +83,7 @@ static void sh3__flush_purge_region(void *start, int size)
 	for (v = begin; v < end; v+=L1_CACHE_BYTES) {
 		unsigned long data, addr;
 
-		data = (v & 0xfffffc00); 
+		data = (v & 0xfffffc00); /* _Virtual_ address, ~U, ~V */
 		addr = CACHE_OC_ADDRESS_ARRAY |
 			(v & current_cpu_data.dcache.entry_mask) | SH_CACHE_ASSOC;
 		__raw_writel(data, addr);
@@ -80,5 +95,11 @@ void __init sh3_cache_init(void)
 	__flush_wback_region = sh3__flush_wback_region;
 	__flush_purge_region = sh3__flush_purge_region;
 
+	/*
+	 * No write back please
+	 *
+	 * Except I don't think there's any way to avoid the writeback.
+	 * So we just alias it to sh3__flush_purge_region(). dwmw2.
+	 */
 	__flush_invalidate_region = sh3__flush_purge_region;
 }

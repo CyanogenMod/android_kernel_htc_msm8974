@@ -68,6 +68,12 @@ static void free_page_list(struct list_head *pages)
 	INIT_LIST_HEAD(pages);
 }
 
+/*
+ * Given an array of items in userspace, return a list of pages
+ * containing the data.  If copying fails, either because of memory
+ * allocation failure or a problem reading user memory, return an
+ * error code; its up to the caller to dispose of any partial list.
+ */
 static int gather_array(struct list_head *pagelist,
 			unsigned nelem, size_t size,
 			void __user *data)
@@ -80,7 +86,7 @@ static int gather_array(struct list_head *pagelist,
 		return 0;
 
 	pageidx = PAGE_SIZE;
-	pagedata = NULL;	
+	pagedata = NULL;	/* quiet, gcc */
 	while (nelem--) {
 		if (pageidx > PAGE_SIZE-size) {
 			struct page *page = alloc_page(GFP_KERNEL);
@@ -109,6 +115,10 @@ fail:
 	return ret;
 }
 
+/*
+ * Call function "fn" on each element of the array fragmented
+ * over a list of pages.
+ */
 static int traverse_pages(unsigned nelem, size_t size,
 			  struct list_head *pos,
 			  int (*fn)(void *data, void *state),
@@ -121,7 +131,7 @@ static int traverse_pages(unsigned nelem, size_t size,
 	BUG_ON(size > PAGE_SIZE);
 
 	pageidx = PAGE_SIZE;
-	pagedata = NULL;	
+	pagedata = NULL;	/* hush, gcc */
 
 	while (nelem--) {
 		if (pageidx > PAGE_SIZE-size) {
@@ -154,12 +164,12 @@ static int mmap_mfn_range(void *data, void *state)
 	struct vm_area_struct *vma = st->vma;
 	int rc;
 
-	
+	/* Do not allow range to wrap the address space. */
 	if ((msg->npages > (LONG_MAX >> PAGE_SHIFT)) ||
 	    ((unsigned long)(msg->npages << PAGE_SHIFT) >= -st->va))
 		return -EINVAL;
 
-	
+	/* Range chunks must be contiguous in va space. */
 	if ((msg->va != st->va) ||
 	    ((msg->va+(msg->npages<<PAGE_SHIFT)) > vma->vm_end))
 		return -EINVAL;
@@ -370,10 +380,12 @@ static struct vm_operations_struct privcmd_vm_ops = {
 
 static int privcmd_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	
+	/* Unsupported for auto-translate guests. */
 	if (xen_feature(XENFEAT_auto_translated_physmap))
 		return -ENOSYS;
 
+	/* DONTCOPY is essential for Xen because copy_page_range doesn't know
+	 * how to recreate these mappings */
 	vma->vm_flags |= VM_RESERVED | VM_IO | VM_DONTCOPY | VM_PFNMAP;
 	vma->vm_ops = &privcmd_vm_ops;
 	vma->vm_private_data = NULL;

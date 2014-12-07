@@ -35,6 +35,11 @@
 #define PAGE_SIZE_4K 4096
 #define WRITE 1
 #define READ 0
+/*
+ * The maximum no of descriptors per transfer (page read/write) won't be more
+ * than 64. For more details on what those commands are, please refer to the
+ * page read and page write functions in the driver.
+ */
 #define SPS_MAX_DESC_NUM 64
 #define SPS_DATA_CONS_PIPE_INDEX 0
 #define SPS_DATA_PROD_PIPE_INDEX 1
@@ -44,10 +49,29 @@
 	((chip)->dma_phys_addr + \
 	((uint8_t *)(vaddr) - (chip)->dma_virt_addr))
 
+/*
+ * A single page read/write request would typically need DMA memory of about
+ * 1K memory approximately. So for a single request this memory is more than
+ * enough.
+ *
+ * But to accommodate multiple clients we allocate 8K of memory. Though only
+ * one client request can be submitted to NANDc at any time, other clients can
+ * still prepare the descriptors while waiting for current client request to
+ * be done. Thus for a total memory of 8K, the driver can currently support
+ * maximum clients up to 7 or 8 at a time. The client for which there is no
+ * free DMA memory shall wait on the wait queue until other clients free up
+ * the required memory.
+ */
 #define MSM_NAND_DMA_BUFFER_SIZE SZ_8K
+/*
+ * This defines the granularity at which the buffer management is done. The
+ * total number of slots is based on the size of the atomic_t variable
+ * dma_buffer_busy(number of bits) within the structure msm_nand_chip.
+ */
 #define MSM_NAND_DMA_BUFFER_SLOT_SZ \
 	(MSM_NAND_DMA_BUFFER_SIZE / (sizeof(((atomic_t *)0)->counter) * 8))
 
+/* ONFI(Open NAND Flash Interface) parameters */
 #define MSM_NAND_CFG0_RAW_ONFI_IDENTIFIER 0x88000800
 #define MSM_NAND_CFG0_RAW_ONFI_PARAM_INFO 0x88040000
 #define MSM_NAND_CFG1_RAW_ONFI_IDENTIFIER 0x0005045d
@@ -63,6 +87,7 @@
 #define MSM_NAND_RESET_FLASH_STS 0x00000020
 #define MSM_NAND_RESET_READ_STS 0x000000C0
 
+/* QPIC NANDc (NAND Controller) Register Set */
 #define MSM_NAND_REG(info, off)		    (info->nand_phys + off)
 #define MSM_NAND_QPIC_VERSION(info)	    MSM_NAND_REG(info, 0x20100)
 #define MSM_NAND_FLASH_CMD(info)	    MSM_NAND_REG(info, 0x30000)
@@ -118,6 +143,7 @@
 #define MSM_NAND_READ_LOCATION_0(info)      MSM_NAND_REG(info, 0x30F20)
 #define MSM_NAND_READ_LOCATION_1(info)      MSM_NAND_REG(info, 0x30F24)
 
+/* device commands */
 #define MSM_NAND_CMD_PAGE_READ          0x32
 #define MSM_NAND_CMD_PAGE_READ_ECC      0x33
 #define MSM_NAND_CMD_PAGE_READ_ALL      0x34
@@ -127,33 +153,46 @@
 #define MSM_NAND_CMD_BLOCK_ERASE        0x3A
 #define MSM_NAND_CMD_FETCH_ID           0x0B
 
+/* Version Mask */
 #define MSM_NAND_VERSION_MAJOR_MASK	0xF0000000
 #define MSM_NAND_VERSION_MAJOR_SHIFT	28
 #define MSM_NAND_VERSION_MINOR_MASK	0x0FFF0000
 #define MSM_NAND_VERSION_MINOR_SHIFT	16
 
+/* Structure that defines a NAND SPS command element */
 struct msm_nand_sps_cmd {
 	struct sps_command_element ce;
 	uint32_t flags;
 };
 
+/*
+ * Structure that defines the NAND controller properties as per the
+ * NAND flash device/chip that is attached.
+ */
 struct msm_nand_chip {
 	struct device *dev;
+	/*
+	 * DMA memory will be allocated only once during probe and this memory
+	 * will be used by all NAND clients. This wait queue is needed to
+	 * make the applications wait for DMA memory to be free'd when the
+	 * complete memory is exhausted.
+	 */
 	wait_queue_head_t dma_wait_queue;
 	atomic_t dma_buffer_busy;
 	uint8_t *dma_virt_addr;
 	dma_addr_t dma_phys_addr;
 	uint32_t ecc_parity_bytes;
-	uint32_t bch_caps; 
+	uint32_t bch_caps; /* Controller BCH ECC capabilities */
 #define MSM_NAND_CAP_4_BIT_BCH      (1 << 0)
 #define MSM_NAND_CAP_8_BIT_BCH      (1 << 1)
 	uint32_t cw_size;
-	
+	/* NANDc register configurations */
 	uint32_t cfg0, cfg1, cfg0_raw, cfg1_raw;
 	uint32_t ecc_buf_cfg;
 	uint32_t ecc_bch_cfg;
 };
 
+/* Structure that defines an SPS end point for a NANDc BAM pipe. */
 struct msm_nand_sps_endpt {
 	struct sps_pipe *handle;
 	struct sps_connect config;
@@ -161,6 +200,10 @@ struct msm_nand_sps_endpt {
 	struct completion completion;
 };
 
+/*
+ * Structure that defines NANDc SPS data - BAM handle and an end point
+ * for each BAM pipe.
+ */
 struct msm_nand_sps_info {
 	uint32_t bam_handle;
 	struct msm_nand_sps_endpt data_prod;
@@ -168,6 +211,10 @@ struct msm_nand_sps_info {
 	struct msm_nand_sps_endpt cmd_pipe;
 };
 
+/*
+ * Structure that contains flash device information. This gets updated after
+ * the NAND flash device detection.
+ */
 struct flash_identification {
 	uint32_t flash_id;
 	uint32_t density;
@@ -178,6 +225,7 @@ struct flash_identification {
 	uint32_t ecc_correctability;
 };
 
+/* Structure that defines NANDc private data. */
 struct msm_nand_info {
 	struct mtd_info		mtd;
 	struct msm_nand_chip	nand_chip;
@@ -186,10 +234,22 @@ struct msm_nand_info {
 	unsigned long nand_phys;
 	void __iomem *bam_base;
 	int bam_irq;
+	/*
+	 * This lock must be acquired before submitting any command or data
+	 * descriptors to BAM pipes and must be held until all the submitted
+	 * descriptors are processed.
+	 *
+	 * This is required to ensure that both command and descriptors are
+	 * submitted atomically without interruption from other clients,
+	 * when there are requests from more than client at any time.
+	 * Othewise, data and command descriptors can be submitted out of
+	 * order for a request which can cause data corruption.
+	 */
 	struct mutex bam_lock;
 	struct flash_identification flash_dev;
 };
 
+/* Structure that defines an ONFI parameter page (512B) */
 struct onfi_param_page {
 	uint32_t parameter_page_signature;
 	uint16_t revision_number;
@@ -244,9 +304,9 @@ struct onfi_param_page {
 
 struct flash_partition_entry {
 	char name[FLASH_PTABLE_ENTRY_NAME_SIZE];
-	u32 offset;     
-	u32 length;     
-	u8 attr;	
+	u32 offset;     /* Offset in blocks from beginning of device */
+	u32 length;     /* Length of the partition in blocks */
+	u8 attr;	/* Flags for this partition */
 };
 
 struct flash_partition_table {
@@ -261,6 +321,11 @@ static struct flash_partition_table ptable;
 
 static struct mtd_partition mtd_part[FLASH_PTABLE_MAX_PARTS_V4];
 
+/*
+ * Get the DMA memory for requested amount of size. It returns the pointer
+ * to free memory available from the allocated pool. Returns NULL if there
+ * is no free memory.
+ */
 static void *msm_nand_get_dma_buffer(struct msm_nand_chip *chip, size_t size)
 {
 	uint32_t bitmask, free_bitmask, old_bitmask;
@@ -287,10 +352,10 @@ static void *msm_nand_get_dma_buffer(struct msm_nand_chip *chip, size_t size)
 			if (old_bitmask == bitmask)
 				return chip->dma_virt_addr +
 				free_index * MSM_NAND_DMA_BUFFER_SLOT_SZ;
-			free_bitmask = 0;
+			free_bitmask = 0;/* force return */
 		}
-		
-		
+		/* current free range was too small, clear all free bits */
+		/* below the top busy bit within current_need_mask */
 		free_bitmask &=
 			~(~0U >> (32 - fls(bitmask & current_need_mask)));
 	} while (free_bitmask);
@@ -298,6 +363,10 @@ static void *msm_nand_get_dma_buffer(struct msm_nand_chip *chip, size_t size)
 	return NULL;
 }
 
+/*
+ * Releases the DMA memory used to the free pool and also wakes up any user
+ * thread waiting on wait queue for free memory to be available.
+ */
 static void msm_nand_release_dma_buffer(struct msm_nand_chip *chip,
 					void *buffer, size_t size)
 {
@@ -313,6 +382,10 @@ static void msm_nand_release_dma_buffer(struct msm_nand_chip *chip,
 	wake_up(&chip->dma_wait_queue);
 }
 
+/*
+ * Calculates page address of the buffer passed, offset of buffer within
+ * that page and then maps it for DMA by calling dma_map_page().
+ */
 static dma_addr_t msm_nand_dma_map(struct device *dev, void *addr, size_t size,
 					 enum dma_data_direction dir)
 {
@@ -328,6 +401,16 @@ static dma_addr_t msm_nand_dma_map(struct device *dev, void *addr, size_t size,
 	return dma_map_page(dev, page, offset, size, dir);
 }
 
+/*
+ * Wrapper function to prepare a SPS command element with the data that is
+ * passed to this function.
+ *
+ * Since for any command element it is a must to have this flag
+ * SPS_IOVEC_FLAG_CMD, this function by default updates this flag for a
+ * command element that is passed and thus, the caller need not explicilty
+ * pass this flag. The other flags must be passed based on the need.  If a
+ * command element doesn't have any other flag, then 0 can be passed to flags.
+ */
 static inline void msm_nand_prep_ce(struct msm_nand_sps_cmd *sps_cmd,
 				uint32_t addr, uint32_t command,
 				uint32_t data, uint32_t flags)
@@ -342,6 +425,11 @@ static inline void msm_nand_prep_ce(struct msm_nand_sps_cmd *sps_cmd,
 	sps_cmd->flags = SPS_IOVEC_FLAG_CMD | flags;
 }
 
+/*
+ * Read a single NANDc register as mentioned by its parameter addr. The return
+ * value indicates whether read is successful or not. The register value read
+ * is stored in val.
+ */
 static int msm_nand_flash_rd_reg(struct msm_nand_info *info, uint32_t addr,
 				uint32_t *val)
 {
@@ -373,6 +461,11 @@ out:
 	return ret;
 }
 
+/*
+ * Read the Flash ID from the Nand Flash Device. The return value < 0
+ * indicates failure. When successful, the Flash ID is stored in parameter
+ * read_id.
+ */
 static int msm_nand_flash_read_id(struct msm_nand_info *info,
 		bool read_onfi_signature,
 		uint32_t *read_id)
@@ -382,6 +475,11 @@ static int msm_nand_flash_read_id(struct msm_nand_info *info,
 	struct sps_iovec *iovec;
 	struct msm_nand_chip *chip = &info->nand_chip;
 	uint32_t total_cnt = 4;
+	/*
+	 * The following 4 commands are required to read id -
+	 * write commands - addr0, flash, exec
+	 * read_commands - read_id
+	 */
 	struct {
 		struct sps_transfer xfer;
 		struct sps_iovec cmd_iovec[total_cnt];
@@ -453,6 +551,10 @@ out:
 	return err;
 }
 
+/*
+ * Contains data for common configuration registers that must be programmed
+ * for every NANDc operation.
+ */
 struct msm_nand_common_cfgs {
 	uint32_t cmd;
 	uint32_t addr0;
@@ -461,6 +563,12 @@ struct msm_nand_common_cfgs {
 	uint32_t cfg1;
 };
 
+/*
+ * Function to prepare SPS command elements to write into NANDc configuration
+ * registers as per the data defined in struct msm_nand_common_cfgs. This is
+ * required for the following NANDc operations - Erase, Bad Block checking
+ * and for reading ONFI parameter page.
+ */
 static void msm_nand_prep_cfg_cmd_desc(struct msm_nand_info *info,
 				struct msm_nand_common_cfgs data,
 				struct msm_nand_sps_cmd **curr_cmd)
@@ -486,6 +594,12 @@ static void msm_nand_prep_cfg_cmd_desc(struct msm_nand_info *info,
 	*curr_cmd = cmd;
 }
 
+/*
+ * Function to check the CRC integrity check on ONFI parameter page read.
+ * For ONFI parameter page read, the controller ECC will be disabled. Hence,
+ * it is mandatory to manually compute CRC and check it against the value
+ * stored within ONFI page.
+ */
 static uint16_t msm_nand_flash_onfi_crc_check(uint8_t *buffer, uint16_t count)
 {
 	int i;
@@ -502,6 +616,10 @@ static uint16_t msm_nand_flash_onfi_crc_check(uint8_t *buffer, uint16_t count)
 	return result;
 }
 
+/*
+ * Structure that contains NANDc register data for commands required
+ * for reading ONFI paramter page.
+ */
 struct msm_nand_flash_onfi_data {
 	struct msm_nand_common_cfgs cfg;
 	uint32_t exec;
@@ -525,7 +643,7 @@ static int msm_nand_version_check(struct msm_nand_info *info,
 	uint32_t qpic_ver = 0, nand_ver = 0;
 	int err = 0;
 
-	
+	/* Lookup the version to identify supported features */
 	err = msm_nand_flash_rd_reg(info, MSM_NAND_VERSION(info),
 		&nand_ver);
 	if (err) {
@@ -554,6 +672,11 @@ out:
 	return err;
 }
 
+/*
+ * Function to identify whether the attached NAND flash device is
+ * complaint to ONFI spec or not. If yes, then it reads the ONFI parameter
+ * page to get the device parameters.
+ */
 static int msm_nand_flash_onfi_probe(struct msm_nand_info *info)
 {
 	struct msm_nand_chip *chip = &info->nand_chip;
@@ -561,20 +684,25 @@ static int msm_nand_flash_onfi_probe(struct msm_nand_info *info)
 	uint32_t crc_chk_count = 0, page_address = 0;
 	int ret = 0, i;
 
-	
+	/* SPS parameters */
 	struct msm_nand_sps_cmd *cmd, *curr_cmd;
 	struct sps_iovec *iovec;
 	uint32_t rdata;
 
-	
+	/* ONFI Identifier/Parameter Page parameters */
 	uint8_t *onfi_param_info_buf = NULL;
 	dma_addr_t dma_addr_param_info = 0;
 	struct onfi_param_page *onfi_param_page_ptr;
 	struct msm_nand_flash_onfi_data data;
 	uint32_t onfi_signature = 0;
 
-	
+	/* SPS command/data descriptors */
 	uint32_t total_cnt = 13;
+	/*
+	 * The following 13 commands are required to get onfi parameters -
+	 * flash, addr0, addr1, cfg0, cfg1, dev0_ecc_cfg, cmd_vld, dev_cmd1,
+	 * read_loc_0, exec, flash_status (read cmd), dev_cmd1, cmd_vld.
+	 */
 	struct {
 		struct sps_transfer xfer;
 		struct sps_iovec cmd_iovec[total_cnt];
@@ -583,7 +711,7 @@ static int msm_nand_flash_onfi_probe(struct msm_nand_info *info)
 	} *dma_buffer;
 
 
-	
+	/* Lookup the version to identify supported features */
 	struct version nandc_version = {0};
 
 	ret = msm_nand_version_check(info, &nandc_version);
@@ -622,7 +750,7 @@ static int msm_nand_flash_onfi_probe(struct msm_nand_info *info)
 	if (ret < 0)
 		goto free_dma;
 
-	
+	/* Lookup the 'APPS' partition's first page address */
 	for (i = 0; i < FLASH_PTABLE_MAX_PARTS_V4; i++) {
 		if (!strncmp("apps", mtd_part[i].name,
 				strlen(mtd_part[i].name))) {
@@ -696,7 +824,7 @@ static int msm_nand_flash_onfi_probe(struct msm_nand_info *info)
 		iovec++;
 	}
 	mutex_lock(&info->bam_lock);
-	
+	/* Submit data descriptor */
 	ret = sps_transfer_one(info->sps.data_prod.handle, dma_addr_param_info,
 			ONFI_PARAM_INFO_LENGTH, NULL, SPS_IOVEC_FLAG_INT);
 	if (ret) {
@@ -704,7 +832,7 @@ static int msm_nand_flash_onfi_probe(struct msm_nand_info *info)
 		mutex_unlock(&info->bam_lock);
 		goto free_dma;
 	}
-	
+	/* Submit command descriptors */
 	ret =  sps_transfer(info->sps.cmd_pipe.handle,
 			&dma_buffer->xfer);
 	if (ret) {
@@ -716,7 +844,7 @@ static int msm_nand_flash_onfi_probe(struct msm_nand_info *info)
 	wait_for_completion_io(&info->sps.data_prod.completion);
 	mutex_unlock(&info->bam_lock);
 
-	
+	/* Check for flash status errors */
 	if (dma_buffer->flash_status & (FS_OP_ERR | FS_MPU_ERR)) {
 		pr_err("MPU/OP err (0x%x) is set\n", dma_buffer->flash_status);
 		ret = -EIO;
@@ -760,6 +888,12 @@ static int msm_nand_flash_onfi_probe(struct msm_nand_info *info)
 
 	pr_info("Found an ONFI compliant device %s\n",
 			onfi_param_page_ptr->device_model);
+	/*
+	 * Temporary hack for MT29F4G08ABC device.
+	 * Since the device is not properly adhering
+	 * to ONFi specification it is reporting
+	 * as 16 bit device though it is 8 bit device!!!
+	 */
 	if (!strncmp(onfi_param_page_ptr->device_model, "MT29F4G08ABC", 12))
 		flash->widebus  = 0;
 free_dma:
@@ -770,6 +904,10 @@ out:
 	return ret;
 }
 
+/*
+ * Structure that contains read/write parameters required for reading/writing
+ * from/to a page.
+ */
 struct msm_nand_rw_params {
 	uint32_t page;
 	uint32_t page_count;
@@ -787,6 +925,10 @@ struct msm_nand_rw_params {
 	bool read;
 };
 
+/*
+ * Structure that contains NANDc register data required for reading/writing
+ * from/to a page.
+ */
 struct msm_nand_rw_reg_data {
 	uint32_t cmd;
 	uint32_t addr0;
@@ -800,6 +942,12 @@ struct msm_nand_rw_reg_data {
 	uint32_t clrrstatus;
 };
 
+/*
+ * Function that validates page read/write MTD parameters received from upper
+ * layers such as MTD/YAFFS2 and returns error for any unsupported operations
+ * by the driver. In case of success, it also maps the data and oob buffer
+ * received for DMA.
+ */
 static int msm_nand_validate_mtd_params(struct mtd_info *mtd, bool read,
 					loff_t offset,
 					struct mtd_oob_ops *ops,
@@ -859,7 +1007,7 @@ static int msm_nand_validate_mtd_params(struct mtd_info *mtd, bool read,
 
 	} else if (ops->mode == MTD_OPS_AUTO_OOB) {
 		if (ops->datbuf && (ops->len % mtd->writesize) != 0) {
-			
+			/* when ops->datbuf is NULL, ops->len can be ooblen */
 			pr_err("unsupported data len %d for AUTO mode\n",
 					ops->len);
 			err = -EINVAL;
@@ -906,6 +1054,10 @@ out:
 	return err;
 }
 
+/*
+ * Function that updates NANDc register data (struct msm_nand_rw_reg_data)
+ * required for page read/write.
+ */
 static void msm_nand_update_rw_reg_data(struct msm_nand_chip *chip,
 					struct mtd_oob_ops *ops,
 					struct msm_nand_rw_params *args,
@@ -945,6 +1097,10 @@ static void msm_nand_update_rw_reg_data(struct msm_nand_chip *chip,
 	data->ecc_cfg = chip->ecc_buf_cfg;
 }
 
+/*
+ * Function to prepare series of SPS command descriptors required for a page
+ * read/write operation.
+ */
 static void msm_nand_prep_rw_cmd_desc(struct mtd_oob_ops *ops,
 				struct msm_nand_rw_params *args,
 				struct msm_nand_rw_reg_data *data,
@@ -955,7 +1111,7 @@ static void msm_nand_prep_rw_cmd_desc(struct mtd_oob_ops *ops,
 	struct msm_nand_chip *chip = &info->nand_chip;
 	struct msm_nand_sps_cmd *cmd;
 	uint32_t rdata;
-	
+	/* read_location register parameters */
 	uint32_t offset, size, last_read;
 
 	cmd = *curr_cmd;
@@ -1035,6 +1191,10 @@ sub_exec_cmd:
 	*curr_cmd = cmd;
 }
 
+/*
+ * Function to prepare and submit SPS data descriptors required for a page
+ * read/write operation.
+ */
 static int msm_nand_submit_rw_data_desc(struct mtd_oob_ops *ops,
 				struct msm_nand_rw_params *args,
 				struct msm_nand_info *info,
@@ -1111,6 +1271,10 @@ out:
 	return err;
 }
 
+/*
+ * Function that gets called from upper layers such as MTD/YAFFS2 to read a
+ * page with main or/and spare data.
+ */
 static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 			     struct mtd_oob_ops *ops)
 {
@@ -1124,6 +1288,13 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 	struct msm_nand_rw_reg_data data;
 	struct msm_nand_sps_cmd *cmd, *curr_cmd;
 	struct sps_iovec *iovec;
+	/*
+	 * The following 6 commands will be sent only once for the first
+	 * codeword (CW) - addr0, addr1, dev0_cfg0, dev0_cfg1,
+	 * dev0_ecc_cfg, ebi2_ecc_buf_cfg. The following 6 commands will
+	 * be sent for every CW - flash, read_location_0, read_location_1,
+	 * exec, flash_status and buffer_status.
+	 */
 	uint32_t total_cnt = (6 * cwperpage) + 6;
 	struct {
 		struct sps_transfer xfer;
@@ -1192,7 +1363,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 			iovec++;
 		}
 		mutex_lock(&info->bam_lock);
-		
+		/* Submit data descriptors */
 		for (n = rw_params.start_sector; n < cwperpage; n++) {
 			err = msm_nand_submit_rw_data_desc(ops,
 						&rw_params, info, n);
@@ -1202,7 +1373,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 				goto free_dma;
 			}
 		}
-		
+		/* Submit command descriptors */
 		err =  sps_transfer(info->sps.cmd_pipe.handle,
 				&dma_buffer->xfer);
 		if (err) {
@@ -1213,7 +1384,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 		wait_for_completion_io(&info->sps.cmd_pipe.completion);
 		wait_for_completion_io(&info->sps.data_prod.completion);
 		mutex_unlock(&info->bam_lock);
-		
+		/* Check for flash status errors */
 		pageerr = rawerr = 0;
 		for (n = rw_params.start_sector; n < cwperpage; n++) {
 			if (dma_buffer->result[n].flash_status & (FS_OP_ERR |
@@ -1222,7 +1393,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 				break;
 			}
 		}
-		
+		/* Check for ECC correction on empty block */
 		if (rawerr && ops->datbuf && ops->mode != MTD_OPS_RAW) {
 			uint8_t *datbuf = ops->datbuf +
 				pages_read * mtd->writesize;
@@ -1232,7 +1403,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 			mtd->writesize, DMA_BIDIRECTIONAL);
 
 			for (n = 0; n < mtd->writesize; n++) {
-				
+				/* TODO: check offset for 4bit BCHECC */
 				if ((n % 516 == 3 || n % 516 == 175)
 						&& datbuf[n] == 0x54)
 					datbuf[n] = 0xff;
@@ -1266,7 +1437,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 			ops->ooblen - rw_params.oob_len_data,
 			DMA_BIDIRECTIONAL);
 		}
-		
+		/* check for uncorrectable errors */
 		if (pageerr) {
 			for (n = rw_params.start_sector; n < cwperpage; n++) {
 				if (dma_buffer->result[n].buffer_status &
@@ -1277,7 +1448,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 				}
 			}
 		}
-		
+		/* check for correctable errors */
 		if (!rawerr) {
 			for (n = rw_params.start_sector; n < cwperpage; n++) {
 				ecc_errors =
@@ -1286,6 +1457,11 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 				if (ecc_errors) {
 					total_ecc_errors += ecc_errors;
 					mtd->ecc_stats.corrected += ecc_errors;
+					/*
+					 * For Micron devices it is observed
+					 * that correctable errors upto 3 bits
+					 * are very common.
+					 */
 					if (ecc_errors > 3)
 						pageerr = -EUCLEAN;
 				}
@@ -1334,6 +1510,10 @@ validate_mtd_params_failed:
 	return err;
 }
 
+/*
+ * Function that gets called from upper layers such as MTD/YAFFS2 to read a
+ * page with only main data.
+ */
 static int msm_nand_read(struct mtd_info *mtd, loff_t from, size_t len,
 	      size_t *retlen, u_char *buf)
 {
@@ -1351,6 +1531,10 @@ static int msm_nand_read(struct mtd_info *mtd, loff_t from, size_t len,
 	return ret;
 }
 
+/*
+ * Function that gets called from upper layers such as MTD/YAFFS2 to write a
+ * page with both main and spare data.
+ */
 static int msm_nand_write_oob(struct mtd_info *mtd, loff_t to,
 				struct mtd_oob_ops *ops)
 {
@@ -1363,6 +1547,15 @@ static int msm_nand_write_oob(struct mtd_info *mtd, loff_t to,
 	struct msm_nand_rw_reg_data data;
 	struct msm_nand_sps_cmd *cmd, *curr_cmd;
 	struct sps_iovec *iovec;
+	/*
+	 * The following 7 commands will be sent only once :
+	 * For first codeword (CW) - addr0, addr1, dev0_cfg0, dev0_cfg1,
+	 * dev0_ecc_cfg, ebi2_ecc_buf_cfg.
+	 * For last codeword (CW) - read_status(write)
+	 *
+	 * The following 4 commands will be sent for every CW :
+	 * flash, exec, flash_status (read), flash_status (write).
+	 */
 	uint32_t total_cnt = (4 * cwperpage) + 7;
 	struct {
 		struct sps_transfer xfer;
@@ -1430,7 +1623,7 @@ static int msm_nand_write_oob(struct mtd_info *mtd, loff_t to,
 			iovec++;
 		}
 		mutex_lock(&info->bam_lock);
-		
+		/* Submit data descriptors */
 		for (n = 0; n < cwperpage; n++) {
 			err = msm_nand_submit_rw_data_desc(ops,
 						&rw_params, info, n);
@@ -1440,7 +1633,7 @@ static int msm_nand_write_oob(struct mtd_info *mtd, loff_t to,
 				goto free_dma;
 			}
 		}
-		
+		/* Submit command descriptors */
 		err =  sps_transfer(info->sps.cmd_pipe.handle,
 				&dma_buffer->xfer);
 		if (err) {
@@ -1457,7 +1650,7 @@ static int msm_nand_write_oob(struct mtd_info *mtd, loff_t to,
 				rw_params.page, n,
 				dma_buffer->data.flash_status[n]);
 
-		
+		/*  Check for flash status errors */
 		for (n = 0; n < cwperpage; n++) {
 			flash_sts = dma_buffer->data.flash_status[n];
 			if (flash_sts & (FS_OP_ERR | FS_MPU_ERR)) {
@@ -1502,6 +1695,10 @@ validate_mtd_params_failed:
 	return err;
 }
 
+/*
+ * Function that gets called from upper layers such as MTD/YAFFS2 to write a
+ * page with only main data.
+ */
 static int msm_nand_write(struct mtd_info *mtd, loff_t to, size_t len,
 			  size_t *retlen, const u_char *buf)
 {
@@ -1519,6 +1716,10 @@ static int msm_nand_write(struct mtd_info *mtd, loff_t to, size_t len,
 	return ret;
 }
 
+/*
+ * Structure that contains NANDc register data for commands required
+ * for Erase operation.
+ */
 struct msm_nand_erase_reg_data {
 	struct msm_nand_common_cfgs cfg;
 	uint32_t exec;
@@ -1527,6 +1728,10 @@ struct msm_nand_erase_reg_data {
 	uint32_t clrrstatus;
 };
 
+/*
+ * Function that gets called from upper layers such as MTD/YAFFS2 to erase a
+ * block within NAND device.
+ */
 static int msm_nand_erase(struct mtd_info *mtd, struct erase_info *instr)
 {
 	int i, err = 0;
@@ -1537,6 +1742,11 @@ static int msm_nand_erase(struct mtd_info *mtd, struct erase_info *instr)
 	struct msm_nand_erase_reg_data data;
 	struct sps_iovec *iovec;
 	uint32_t total_cnt = 9;
+	/*
+	 * The following 9 commands are required to erase a page -
+	 * flash, addr0, addr1, cfg0, cfg1, exec, flash_status(read),
+	 * flash_status(write), read_status.
+	 */
 	struct {
 		struct sps_transfer xfer;
 		struct sps_iovec cmd_iovec[total_cnt];
@@ -1620,7 +1830,7 @@ static int msm_nand_erase(struct mtd_info *mtd, struct erase_info *instr)
 	wait_for_completion_io(&info->sps.cmd_pipe.completion);
 	mutex_unlock(&info->bam_lock);
 
-	
+	/*  Check for flash status errors */
 	if (dma_buffer->flash_status & (FS_OP_ERR |
 			FS_MPU_ERR | FS_DEVICE_STS_ERR)) {
 		pr_err("MPU/OP/DEV err (0x%x) set\n", dma_buffer->flash_status);
@@ -1645,6 +1855,10 @@ out:
 	return err;
 }
 
+/*
+ * Structure that contains NANDc register data for commands required
+ * for checking if a block is bad.
+ */
 struct msm_nand_blk_isbad_data {
 	struct msm_nand_common_cfgs cfg;
 	uint32_t ecc_bch_cfg;
@@ -1652,6 +1866,12 @@ struct msm_nand_blk_isbad_data {
 	uint32_t read_offset;
 };
 
+/*
+ * Function that gets called from upper layers such as MTD/YAFFS2 to check if
+ * a block is bad. This is done by reading the first page within a block and
+ * checking whether the bad block byte location contains 0xFF or not. If it
+ * doesn't contain 0xFF, then it is considered as bad block.
+ */
 static int msm_nand_block_isbad(struct mtd_info *mtd, loff_t ofs)
 {
 	struct msm_nand_info *info = mtd->priv;
@@ -1663,6 +1883,11 @@ static int msm_nand_block_isbad(struct mtd_info *mtd, loff_t ofs)
 	struct msm_nand_blk_isbad_data data;
 	struct sps_iovec *iovec;
 	uint32_t total_cnt = 9;
+	/*
+	 * The following 9 commands are required to check bad block -
+	 * flash, addr0, addr1, cfg0, cfg1, ecc_cfg, read_loc_0,
+	 * exec, flash_status(read).
+	 */
 	struct {
 		struct sps_transfer xfer;
 		struct sps_iovec cmd_iovec[total_cnt];
@@ -1694,7 +1919,7 @@ static int msm_nand_block_isbad(struct mtd_info *mtd, loff_t ofs)
 	buf = (uint8_t *)dma_buffer + sizeof(*dma_buffer);
 
 	cmd = dma_buffer->cmd;
-	memset(&data, 0, sizeof(struct msm_nand_erase_reg_data));
+	memset(&data, 0, sizeof(struct msm_nand_blk_isbad_data));
 	data.cfg.cmd = MSM_NAND_CMD_PAGE_READ_ALL;
 	data.cfg.cfg0 = chip->cfg0_raw & ~(7U << CW_PER_PAGE);
 	data.cfg.cfg1 = chip->cfg1_raw;
@@ -1747,7 +1972,7 @@ static int msm_nand_block_isbad(struct mtd_info *mtd, loff_t ofs)
 		iovec++;
 	}
 	mutex_lock(&info->bam_lock);
-	
+	/* Submit data descriptor */
 	ret = sps_transfer_one(info->sps.data_prod.handle,
 			msm_virt_to_dma(chip, buf),
 			4, NULL, SPS_IOVEC_FLAG_INT);
@@ -1757,7 +1982,7 @@ static int msm_nand_block_isbad(struct mtd_info *mtd, loff_t ofs)
 		mutex_unlock(&info->bam_lock);
 		goto free_dma;
 	}
-	
+	/* Submit command descriptor */
 	ret =  sps_transfer(info->sps.cmd_pipe.handle, &dma_buffer->xfer);
 	if (ret) {
 		pr_err("Failed to submit commands %d\n", ret);
@@ -1768,14 +1993,14 @@ static int msm_nand_block_isbad(struct mtd_info *mtd, loff_t ofs)
 	wait_for_completion_io(&info->sps.data_prod.completion);
 	mutex_unlock(&info->bam_lock);
 
-	
+	/* Check for flash status errors */
 	if (dma_buffer->flash_status & (FS_OP_ERR | FS_MPU_ERR)) {
 		pr_err("MPU/OP err set: %x\n", dma_buffer->flash_status);
 		bad_block = -EIO;
 		goto free_dma;
 	}
 
-	
+	/* Check for bad block marker byte */
 	if (chip->cfg1 & (1 << WIDE_FLASH)) {
 		if (buf[0] != 0xFF || buf[1] != 0xFF)
 			bad_block = 1;
@@ -1789,6 +2014,11 @@ out:
 	return ret ? ret : bad_block;
 }
 
+/*
+ * Function that gets called from upper layers such as MTD/YAFFS2 to mark a
+ * block as bad. This is done by writing the first page within a block with 0,
+ * thus setting the bad block byte location as well to 0.
+ */
 static int msm_nand_block_markbad(struct mtd_info *mtd, loff_t ofs)
 {
 	struct mtd_oob_ops ops;
@@ -1825,6 +2055,11 @@ out:
 	return ret;
 }
 
+/*
+ * Function that scans for the attached NAND device. This fills out all
+ * the uninitialized function pointers with the defaults. The flash ID is
+ * read and the mtd/chip structures are filled with the appropriate values.
+ */
 int msm_nand_scan(struct mtd_info *mtd)
 {
 	struct msm_nand_info *info = mtd->priv;
@@ -1838,7 +2073,7 @@ int msm_nand_scan(struct mtd_info *mtd)
 	struct nand_flash_dev *flashdev = NULL;
 	struct nand_manufacturers  *flashman = NULL;
 
-	
+	/* Probe the Flash device for ONFI compliance */
 	if (!msm_nand_flash_onfi_probe(info)) {
 		dev_found = 1;
 	} else {
@@ -1891,7 +2126,7 @@ int msm_nand_scan(struct mtd_info *mtd)
 		mtd->erasesize = supported_flash->blksize;
 		mtd_writesize = mtd->writesize;
 
-		
+		/* Check whether NAND device support 8bit ECC*/
 		if (supported_flash->ecc_correctability >= 8)
 			chip->bch_caps = MSM_NAND_CAP_8_BIT_BCH;
 		else
@@ -1954,9 +2189,13 @@ int msm_nand_scan(struct mtd_info *mtd)
 					(7 << ECC_PARITY_SIZE_BYTES));
 	}
 
+	/*
+	 * For 4bit BCH ECC (default ECC), parity bytes = 7(x8) or 8(x16 I/O)
+	 * For 8bit BCH ECC, parity bytes = 13 (x8) or 14 (x16 I/O).
+	 */
 	chip->ecc_parity_bytes = (chip->bch_caps & MSM_NAND_CAP_8_BIT_BCH) ?
 				(wide_bus ? 14 : 13) : (wide_bus ? 8 : 7);
-	chip->ecc_buf_cfg = 0x203; 
+	chip->ecc_buf_cfg = 0x203; /* No of bytes covered by ECC - 516 bytes */
 
 	pr_info("CFG0: 0x%08x,      CFG1: 0x%08x\n"
 		"            RAWCFG0: 0x%08x,   RAWCFG1: 0x%08x\n"
@@ -1975,7 +2214,7 @@ int msm_nand_scan(struct mtd_info *mtd)
 		goto out;
 	}
 
-	
+	/* Fill in remaining MTD driver data */
 	mtd->type = MTD_NANDFLASH;
 	mtd->flags = MTD_CAP_NANDFLASH;
 	mtd->_erase = msm_nand_erase;
@@ -1992,6 +2231,11 @@ out:
 
 #define BAM_APPS_PIPE_LOCK_GRP0 0
 #define BAM_APPS_PIPE_LOCK_GRP1 1
+/*
+ * This function allocates, configures, connects an end point and
+ * also registers event notification for an end point. It also allocates
+ * DMA memory for descriptor FIFO of a pipe.
+ */
 static int msm_nand_init_endpoint(struct msm_nand_info *info,
 				struct msm_nand_sps_endpt *end_point,
 				uint32_t pipe_index)
@@ -2015,14 +2259,14 @@ static int msm_nand_init_endpoint(struct msm_nand_info *info,
 	}
 
 	if (pipe_index == SPS_DATA_PROD_PIPE_INDEX) {
-		
+		/* READ CASE: source - BAM; destination - system memory */
 		sps_config->source = info->sps.bam_handle;
 		sps_config->destination = SPS_DEV_HANDLE_MEM;
 		sps_config->mode = SPS_MODE_SRC;
 		sps_config->src_pipe_index = pipe_index;
 	} else if (pipe_index == SPS_DATA_CONS_PIPE_INDEX ||
 			pipe_index == SPS_CMD_CONS_PIPE_INDEX) {
-		
+		/* WRITE CASE: source - system memory; destination - BAM */
 		sps_config->source = SPS_DEV_HANDLE_MEM;
 		sps_config->destination = info->sps.bam_handle;
 		sps_config->mode = SPS_MODE_DEST;
@@ -2037,6 +2281,12 @@ static int msm_nand_init_endpoint(struct msm_nand_info *info,
 	else if (pipe_index == SPS_CMD_CONS_PIPE_INDEX)
 		sps_config->lock_group = BAM_APPS_PIPE_LOCK_GRP1;
 
+	/*
+	 * Descriptor FIFO is a cyclic FIFO. If SPS_MAX_DESC_NUM descriptors
+	 * are allowed to be submitted before we get any ack for any of them,
+	 * the descriptor FIFO size should be: (SPS_MAX_DESC_NUM + 1) *
+	 * sizeof(struct sps_iovec).
+	 */
 	sps_config->desc.size = (SPS_MAX_DESC_NUM + 1) *
 					sizeof(struct sps_iovec);
 	sps_config->desc.base = dmam_alloc_coherent(info->nand_chip.dev,
@@ -2080,6 +2330,7 @@ out:
 	return rc;
 }
 
+/* This function disconnects and frees an end point */
 static void msm_nand_deinit_endpoint(struct msm_nand_info *info,
 				struct msm_nand_sps_endpt *end_point)
 {
@@ -2087,6 +2338,13 @@ static void msm_nand_deinit_endpoint(struct msm_nand_info *info,
 	sps_free_endpoint(end_point->handle);
 }
 
+/*
+ * This function registers BAM device and initializes its end points for
+ * the following pipes -
+ * system consumer pipe for data (pipe#0),
+ * system producer pipe for data (pipe#1),
+ * system consumer pipe for commands (pipe#2).
+ */
 static int msm_nand_bam_init(struct msm_nand_info *nand_info)
 {
 	struct sps_bam_props bam = {0};
@@ -2095,6 +2353,21 @@ static int msm_nand_bam_init(struct msm_nand_info *nand_info)
 	bam.phys_addr = nand_info->bam_phys;
 	bam.virt_addr = nand_info->bam_base;
 	bam.irq = nand_info->bam_irq;
+	/*
+	 * NAND device is accessible from both Apps and Modem processor and
+	 * thus, NANDc and BAM are shared between both the processors. But BAM
+	 * must be enabled and instantiated only once during boot up by
+	 * Trustzone before Modem/Apps is brought out from reset.
+	 *
+	 * This is indicated to SPS driver on Apps by marking flag
+	 * SPS_BAM_MGR_DEVICE_REMOTE. The following are the global
+	 * initializations that will be done by Trustzone - Execution
+	 * Environment, Pipes assignment to Apps/Modem, Pipe Super groups and
+	 * Descriptor summing threshold.
+	 *
+	 * NANDc BAM device supports 2 execution environments - Modem and Apps
+	 * and thus the flag SPS_BAM_MGR_MULTI_EE is set.
+	 */
 	bam.manage = SPS_BAM_MGR_DEVICE_REMOTE | SPS_BAM_MGR_MULTI_EE;
 
 	rc = sps_phy2h(bam.phys_addr, &nand_info->sps.bam_handle);
@@ -2131,6 +2404,11 @@ out:
 	return rc;
 }
 
+/*
+ * This function disconnects and frees its end points for all the pipes.
+ * Since the BAM is shared resource, it is not deregistered as its handle
+ * might be in use with LCDC.
+ */
 static void msm_nand_bam_free(struct msm_nand_info *nand_info)
 {
 	msm_nand_deinit_endpoint(nand_info, &nand_info->sps.data_prod);
@@ -2138,6 +2416,7 @@ static void msm_nand_bam_free(struct msm_nand_info *nand_info)
 	msm_nand_deinit_endpoint(nand_info, &nand_info->sps.cmd_pipe);
 }
 
+/* This function enables DMA support for the NANDc in BAM mode. */
 static int msm_nand_enable_dma(struct msm_nand_info *info)
 {
 	struct msm_nand_sps_cmd *sps_cmd;
@@ -2175,21 +2454,21 @@ static int msm_nand_parse_smem_ptable(int *nr_parts)
 	char *delimiter = ":";
 
 	pr_info("Parsing partition table info from SMEM\n");
-	
+	/* Read only the header portion of ptable */
 	ptable = *(struct flash_partition_table *)
 			(smem_get_entry(SMEM_AARM_PARTITION_TABLE, &len));
-	
+	/* Verify ptable magic */
 	if (ptable.magic1 != FLASH_PART_MAGIC1 ||
 			ptable.magic2 != FLASH_PART_MAGIC2) {
 		pr_err("Partition table magic verification failed\n");
 		goto out;
 	}
-	
+	/* Ensure that # of partitions is less than the max we have allocated */
 	if (ptable.numparts > FLASH_PTABLE_MAX_PARTS_V4) {
 		pr_err("Partition numbers exceed the max limit\n");
 		goto out;
 	}
-	
+	/* Find out length of partition data based on table version. */
 	if (ptable.version <= FLASH_PTABLE_V3) {
 		len = FLASH_PTABLE_HDR_LEN + FLASH_PTABLE_MAX_PARTS_V3 *
 			sizeof(struct flash_partition_entry);
@@ -2208,7 +2487,7 @@ static int msm_nand_parse_smem_ptable(int *nr_parts)
 		pentry = &ptable.part_entry[i];
 		if (pentry->name == '\0')
 			continue;
-		
+		/* Convert name to lower case and discard the initial chars */
 		mtd_part[i].name        = pentry->name;
 		for (j = 0; j < strlen(mtd_part[i].name); j++)
 			*(mtd_part[i].name + j) =
@@ -2234,12 +2513,27 @@ static int msm_nand_parse_smem_ptable(int *nr_parts)
 }
 #endif
 
+/*
+ * This function gets called when its device named msm-nand is added to
+ * device tree .dts file with all its resources such as physical addresses
+ * for NANDc and BAM, BAM IRQ.
+ *
+ * It also expects the NAND flash partition information to be passed in .dts
+ * file so that it can parse the partitions by calling MTD function
+ * mtd_device_parse_register().
+ *
+ */
 static int __devinit msm_nand_probe(struct platform_device *pdev)
 {
 	struct msm_nand_info *info;
 	struct resource *res;
 	int i, err, nr_parts;
 
+	/*
+	 * The partition information can also be passed from kernel command
+	 * line. Also, the MTD core layer supports adding the whole device as
+	 * one MTD device when no partition information is available at all.
+	 */
 	info = devm_kzalloc(&pdev->dev, sizeof(struct msm_nand_info),
 				GFP_KERNEL);
 	if (!info) {
@@ -2338,6 +2632,10 @@ out:
 	return err;
 }
 
+/*
+ * Remove functionality that gets called when driver/device msm-nand
+ * is removed.
+ */
 static int __devexit msm_nand_remove(struct platform_device *pdev)
 {
 	struct msm_nand_info *info = dev_get_drvdata(&pdev->dev);

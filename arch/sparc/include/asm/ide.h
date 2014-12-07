@@ -26,6 +26,7 @@
 #define __ide_outsl(data_reg, buffer, wcount) \
 	__ide_outsw(data_reg, buffer, (wcount)<<1)
 
+/* On sparc, I/O ports and MMIO registers are accessed identically.  */
 #define __ide_mm_insw	__ide_insw
 #define __ide_mm_insl	__ide_insl
 #define __ide_mm_outsw	__ide_outsw
@@ -91,6 +92,6 @@ static inline void __ide_outsw(void __iomem *port, const void *src, u32 count)
 #endif
 }
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _SPARC_IDE_H */

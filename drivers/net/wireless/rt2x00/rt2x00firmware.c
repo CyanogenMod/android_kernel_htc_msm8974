@@ -19,6 +19,10 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: rt2x00lib
+	Abstract: rt2x00 firmware loading routines.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -33,6 +37,9 @@ static int rt2x00lib_request_firmware(struct rt2x00_dev *rt2x00dev)
 	char *fw_name;
 	int retval;
 
+	/*
+	 * Read correct firmware from harddisk.
+	 */
 	fw_name = rt2x00dev->ops->lib->get_firmware_name(rt2x00dev);
 	if (!fw_name) {
 		ERROR(rt2x00dev,
@@ -101,10 +108,18 @@ int rt2x00lib_load_firmware(struct rt2x00_dev *rt2x00dev)
 			return retval;
 	}
 
+	/*
+	 * Send firmware to the device.
+	 */
 	retval = rt2x00dev->ops->lib->load_firmware(rt2x00dev,
 						    rt2x00dev->fw->data,
 						    rt2x00dev->fw->size);
 
+	/*
+	 * When the firmware is uploaded to the hardware the LED
+	 * association status might have been triggered, for correct
+	 * LED handling it should now be reset.
+	 */
 	rt2x00leds_led_assoc(rt2x00dev, false);
 
 	return retval;

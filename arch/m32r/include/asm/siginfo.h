@@ -3,4 +3,4 @@
 
 #include <asm-generic/siginfo.h>
 
-#endif 
+#endif /* _M32R_SIGINFO_H */

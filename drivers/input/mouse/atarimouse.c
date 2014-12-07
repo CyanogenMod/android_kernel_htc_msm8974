@@ -9,6 +9,29 @@
  *  Copyright (c) 2000-2002 Vojtech Pavlik
  *
  */
+/*
+ * The low level init and interrupt stuff is handled in arch/mm68k/atari/atakeyb.c
+ * (the keyboard ACIA also handles the mouse and joystick data, and the keyboard
+ * interrupt is shared with the MIDI ACIA so MIDI data also get handled there).
+ * This driver only deals with handing key events off to the input layer.
+ *
+ * Largely based on the old:
+ *
+ * Atari Mouse Driver for Linux
+ * by Robert de Vries (robert@and.nl) 19Jul93
+ *
+ * 16 Nov 1994 Andreas Schwab
+ * Compatibility with busmouse
+ * Support for three button mouse (shamelessly stolen from MiNT)
+ * third button wired to one of the joystick directions on joystick 1
+ *
+ * 1996/02/11 Andreas Schwab
+ * Module support
+ * Allow multiple open's
+ *
+ * Converted to use new generic busmouse code.  5 Apr 1998
+ *   Russell King <rmk@arm.uk.linux.org>
+ */
 
 
 /*
@@ -52,7 +75,7 @@ static void atamouse_interrupt(char *buf)
 	atari_mouse_buttons = buttons;
 #endif
 
-	
+	/* only relative events get here */
 	dx = buf[1];
 	dy = buf[2];
 

@@ -20,7 +20,14 @@
 
 #include <asm/io.h>
 
+/*  These are all FIFO routines!  */
 
+/*
+ * __raw_readsw - read words a short at a time
+ * @addr:  source address
+ * @data:  data address
+ * @len: number of shorts to read
+ */
 void __raw_readsw(const void __iomem *addr, void *data, int len)
 {
 	const volatile short int *src = (short int *) addr;
@@ -34,6 +41,12 @@ void __raw_readsw(const void __iomem *addr, void *data, int len)
 
 }
 
+/*
+ * __raw_writesw - read words a short at a time
+ * @addr:  source address
+ * @data:  data address
+ * @len: number of shorts to read
+ */
 void __raw_writesw(void __iomem *addr, const void *data, int len)
 {
 	const short int *src = (short int *)data;
@@ -48,6 +61,7 @@ void __raw_writesw(void __iomem *addr, const void *data, int len)
 
 }
 
+/*  Pretty sure len is pre-adjusted for the length of the access already */
 void __raw_readsl(const void __iomem *addr, void *data, int len)
 {
 	const volatile long *src = (long *) addr;

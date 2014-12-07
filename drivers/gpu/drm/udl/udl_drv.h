@@ -51,15 +51,15 @@ struct udl_device {
 	int sku_pixel_limit;
 
 	struct urb_list urbs;
-	atomic_t lost_pixels; 
+	atomic_t lost_pixels; /* 1 = a render op failed. Need screen refresh */
 
 	struct udl_fbdev *fbdev;
 	char mode_buf[1024];
 	uint32_t mode_buf_len;
-	atomic_t bytes_rendered; 
-	atomic_t bytes_identical; 
-	atomic_t bytes_sent; 
-	atomic_t cpu_kcycles_used; 
+	atomic_t bytes_rendered; /* raw pixel-bytes driver asked to render */
+	atomic_t bytes_identical; /* saved effort with backbuffer comparison */
+	atomic_t bytes_sent; /* to usb, after compression including overhead */
+	atomic_t cpu_kcycles_used; /* transpired during pixel processing */
 };
 
 struct udl_gem_object {
@@ -73,11 +73,12 @@ struct udl_gem_object {
 struct udl_framebuffer {
 	struct drm_framebuffer base;
 	struct udl_gem_object *obj;
-	bool active_16; 
+	bool active_16; /* active on the 16-bit channel */
 };
 
 #define to_udl_fb(x) container_of(x, struct udl_framebuffer, base)
 
+/* modeset */
 int udl_modeset_init(struct drm_device *dev);
 void udl_modeset_cleanup(struct drm_device *dev);
 int udl_connector_init(struct drm_device *dev, struct drm_encoder *encoder);
@@ -128,14 +129,14 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 
 int udl_drop_usb(struct drm_device *dev);
 
-#define CMD_WRITE_RAW8   "\xAF\x60" 
-#define CMD_WRITE_RL8    "\xAF\x61" 
-#define CMD_WRITE_COPY8  "\xAF\x62" 
-#define CMD_WRITE_RLX8   "\xAF\x63" 
+#define CMD_WRITE_RAW8   "\xAF\x60" /**< 8 bit raw write command. */
+#define CMD_WRITE_RL8    "\xAF\x61" /**< 8 bit run length command. */
+#define CMD_WRITE_COPY8  "\xAF\x62" /**< 8 bit copy command. */
+#define CMD_WRITE_RLX8   "\xAF\x63" /**< 8 bit extended run length command. */
 
-#define CMD_WRITE_RAW16  "\xAF\x68" 
-#define CMD_WRITE_RL16   "\xAF\x69" 
-#define CMD_WRITE_COPY16 "\xAF\x6A" 
-#define CMD_WRITE_RLX16  "\xAF\x6B" 
+#define CMD_WRITE_RAW16  "\xAF\x68" /**< 16 bit raw write command. */
+#define CMD_WRITE_RL16   "\xAF\x69" /**< 16 bit run length command. */
+#define CMD_WRITE_COPY16 "\xAF\x6A" /**< 16 bit copy command. */
+#define CMD_WRITE_RLX16  "\xAF\x6B" /**< 16 bit extended run length command. */
 
 #endif

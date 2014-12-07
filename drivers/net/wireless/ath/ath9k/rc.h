@@ -117,6 +117,10 @@ enum {
 #define WLAN_RC_CAP_STREAM(capflag) (((capflag & WLAN_RC_TS_FLAG) ?	\
 	(RC_TS) : ((capflag & WLAN_RC_DS_FLAG) ? RC_DS : RC_SS)))
 
+/* Return TRUE if flag supports HT20 && client supports HT20 or
+ * return TRUE if flag supports HT40 && client supports HT40.
+ * This is used becos some rates overlap between HT20/HT40.
+ */
 #define WLAN_RC_PHY_HT_VALID(flag, capflag)			\
 	(((flag & RC_HT_20) && !(capflag & WLAN_RC_40_FLAG)) || \
 	 ((flag & RC_HT_40) && (capflag & WLAN_RC_40_FLAG)))
@@ -127,6 +131,25 @@ enum {
 #define WLAN_RC_SGI_FLAG        (0x08)
 #define WLAN_RC_HT_FLAG         (0x10)
 
+/**
+ * struct ath_rate_table - Rate Control table
+ * @rate_cnt: total number of rates for the given wireless mode
+ * @mcs_start: MCS rate index offset
+ * @rate_flags: Rate Control flags
+ * @phy: CCK/OFDM/HT20/HT40
+ * @ratekbps: rate in Kbits per second
+ * @user_ratekbps: user rate in Kbits per second
+ * @ratecode: rate that goes into HW descriptors
+ * @dot11rate: value that goes into supported
+ * 	rates info element of MLME
+ * @ctrl_rate: Index of next lower basic rate, used for duration computation
+ * @cw40index: Index of rates having 40MHz channel width
+ * @sgi_index: Index of rates having Short Guard Interval
+ * @ht_index: high throughput rates having 40MHz channel width and
+ * 	Short Guard Interval
+ * @probe_interval: interval for rate control to probe for other rates
+ * @initial_ratemax: initial ratemax value
+ */
 struct ath_rate_table {
 	int rate_cnt;
 	int mcs_start;
@@ -158,6 +181,22 @@ struct ath_rc_stats {
 	u8 per;
 };
 
+/**
+ * struct ath_rate_priv - Rate Control priv data
+ * @state: RC state
+ * @probe_rate: rate we are probing at
+ * @probe_time: msec timestamp for last probe
+ * @hw_maxretry_pktcnt: num of packets since we got HW max retry error
+ * @max_valid_rate: maximum number of valid rate
+ * @per_down_time: msec timestamp for last PER down step
+ * @valid_phy_ratecnt: valid rate count
+ * @rate_max_phy: phy index for the max rate
+ * @per: PER for every valid rate in %
+ * @probe_interval: interval for ratectrl to probe for other rates
+ * @ht_cap: HT capabilities
+ * @neg_rates: Negotatied rates
+ * @neg_ht_rates: Negotiated HT rates
+ */
 struct ath_rate_priv {
 	u8 rate_table_size;
 	u8 probe_rate;
@@ -194,4 +233,4 @@ static inline void ath_rate_control_unregister(void)
 }
 #endif
 
-#endif 
+#endif /* RC_H */

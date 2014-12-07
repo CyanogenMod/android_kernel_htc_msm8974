@@ -301,6 +301,14 @@ static int32_t s5k5e_platform_probe(struct platform_device *pdev)
 	int32_t rc = 0;
 	const struct of_device_id *match;
 	match = of_match_device(s5k5e_dt_match, &pdev->dev);
+
+	
+	if (match == NULL) {
+		pr_err("%s: match is NULL\n", __func__);
+		return -ENODEV;
+	}
+	
+
 	rc = msm_sensor_platform_probe(pdev, match->data);
 	return rc;
 }
@@ -413,6 +421,8 @@ static int s5k5e_read_fuseid(struct sensorb_cfg_data *cdata,
 	cdata->cfg.fuse.fuse_id_word2 = id_data[3];
 	cdata->cfg.fuse.fuse_id_word3 = id_data[4];
 	cdata->cfg.fuse.fuse_id_word4 = id_data[5];
+
+	cdata->lens_id = id_data[1];
 
 	pr_info("s5k5e: fuse->fuse_id : 0x%x 0x%x 0x%x 0x%x\n",
 		cdata->cfg.fuse.fuse_id_word1,

@@ -16,6 +16,11 @@
 #include "i810.h"
 #include "i810_main.h"
 
+/*
+ * FIFO and Watermark tables - based almost wholly on i810_wmark.c in 
+ * XFree86 v4.03 by Precision Insight.  Slightly modified for integer 
+ * operation, instead of float
+ */
 
 struct wm_info {
    u32 freq;
@@ -107,6 +112,15 @@ static struct wm_info i810_wm_24_133[] = {
 void round_off_xres(u32 *xres) { }
 void round_off_yres(u32 *xres, u32 *yres) { }
 
+/**
+ * i810fb_encode_registers - encode @var to hardware register values
+ * @var: pointer to var structure
+ * @par: pointer to hardware par structure
+ * 
+ * DESCRIPTION: 
+ * Timing values in @var will be converted to appropriate
+ * register values of @par.  
+ */
 void i810fb_encode_registers(const struct fb_var_screeninfo *var,
 			     struct i810fb_par *par, u32 xres, u32 yres)
 {
@@ -114,17 +128,17 @@ void i810fb_encode_registers(const struct fb_var_screeninfo *var,
 	u8 __iomem *mmio = par->mmio_start_virtual;
 	u8 msr = 0;
 
-	
-	
+	/* Horizontal */
+	/* htotal */
 	n = ((xres + var->right_margin + var->hsync_len + 
 	      var->left_margin) >> 3) - 5;
 	par->regs.cr00 =  (u8) n;
 	par->regs.cr35 = (u8) ((n >> 8) & 1);
 	
-	
+	/* xres */
 	par->regs.cr01 = (u8) ((xres >> 3) - 1);
 
-	
+	/* hblank */
 	blank_e = (xres + var->right_margin + var->hsync_len + 
 		   var->left_margin) >> 3;
 	blank_e--;
@@ -136,18 +150,18 @@ void i810fb_encode_registers(const struct fb_var_screeninfo *var,
 	par->regs.cr05 = (u8) ((blank_e & (1 << 5)) << 2);
 	par->regs.cr39 = (u8) ((blank_e >> 6) & 1);
 
-	
+	/* hsync */
 	par->regs.cr04 = (u8) ((xres + var->right_margin) >> 3);
 	par->regs.cr05 |= (u8) (((xres + var->right_margin + 
 				  var->hsync_len) >> 3) & 0x1F);
 	
-       	
-	
+       	/* Vertical */
+	/* vtotal */
 	n = yres + var->lower_margin + var->vsync_len + var->upper_margin - 2;
 	par->regs.cr06 = (u8) (n & 0xFF);
 	par->regs.cr30 = (u8) ((n >> 8) & 0x0F);
 
-	 
+	/* vsync */ 
 	n = yres + var->lower_margin;
 	par->regs.cr10 = (u8) (n & 0xFF);
 	par->regs.cr32 = (u8) ((n >> 8) & 0x0F);
@@ -155,12 +169,12 @@ void i810fb_encode_registers(const struct fb_var_screeninfo *var,
 	par->regs.cr11 |= (u8) ((yres + var->lower_margin + 
 				 var->vsync_len) & 0x0F);
 
-	
+	/* yres */
 	n = yres - 1;
 	par->regs.cr12 = (u8) (n & 0xFF);
 	par->regs.cr31 = (u8) ((n >> 8) & 0x0F);
 	
-	
+	/* vblank */
 	blank_e = yres + var->lower_margin + var->vsync_len + 
 		var->upper_margin;
 	blank_e--;
@@ -172,14 +186,14 @@ void i810fb_encode_registers(const struct fb_var_screeninfo *var,
 	par->regs.cr16 = (u8) (blank_e & 0xFF);
 	par->regs.cr09 = 0;	
 
-	
+	/* sync polarity */
 	if (!(var->sync & FB_SYNC_HOR_HIGH_ACT))
 		msr |= 1 << 6;
 	if (!(var->sync & FB_SYNC_VERT_HIGH_ACT))
 		msr |= 1 << 7;
 	par->regs.msr = msr;
 
-	
+	/* interlace */
 	if (var->vmode & FB_VMODE_INTERLACED) 
 		par->interlace = (1 << 7) | ((u8) (var->yres >> 4));
 	else 
@@ -188,13 +202,25 @@ void i810fb_encode_registers(const struct fb_var_screeninfo *var,
 	if (var->vmode & FB_VMODE_DOUBLE)
 		par->regs.cr09 |= 1 << 7;
 
-	
+	/* overlay */
 	par->ovract = ((var->xres + var->right_margin + var->hsync_len + 
 			var->left_margin - 32) | ((var->xres - 32) << 16));
 }	
 
 void i810fb_fill_var_timings(struct fb_var_screeninfo *var) { }
 
+/**
+ * i810_get_watermark - gets watermark
+ * @var: pointer to fb_var_screeninfo
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Gets the required watermark based on 
+ * pixelclock and RAMBUS frequency.
+ * 
+ * RETURNS:
+ * watermark
+ */
 u32 i810_get_watermark(const struct fb_var_screeninfo *var,
 		       struct i810fb_par *par)
 {

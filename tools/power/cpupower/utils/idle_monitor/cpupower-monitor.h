@@ -20,11 +20,13 @@
 
 int cpu_count;
 
+/* Hard to define the right names ...: */
 enum power_range_e {
-	RANGE_THREAD,	
-	RANGE_CORE,	
-	RANGE_PACKAGE,	
-	RANGE_MACHINE,	
+	RANGE_THREAD,	/* Lowest in topology hierarcy, AMD: core, Intel: thread
+			   kernel sysfs: cpu */
+	RANGE_CORE,	/* AMD: unit, Intel: core, kernel_sysfs: core_id */
+	RANGE_PACKAGE,	/* Package, processor socket */
+	RANGE_MACHINE,	/* Machine, platform wide */
 	RANGE_MAX };
 
 typedef struct cstate {
@@ -33,7 +35,7 @@ typedef struct cstate {
 	char name[CSTATE_NAME_LEN];
 	char desc[CSTATE_DESC_LEN];
 
-	
+	/* either provide a percentage or a general count */
 	int (*get_count_percent)(unsigned int self_id, double *percent,
 				 unsigned int cpu);
 	int (*get_count)(unsigned int self_id, unsigned long long *count,
@@ -41,7 +43,7 @@ typedef struct cstate {
 } cstate_t;
 
 struct cpuidle_monitor {
-	
+	/* Name must not contain whitespaces */
 	char name[MONITOR_NAME_LEN];
 	int name_len;
 	int hw_states_num;
@@ -63,4 +65,4 @@ extern long long timespec_diff_us(struct timespec start, struct timespec end);
 				"could be inaccurate\n"), mes, ov);		\
 }
 
-#endif 
+#endif /* __CPUIDLE_INFO_HW__ */

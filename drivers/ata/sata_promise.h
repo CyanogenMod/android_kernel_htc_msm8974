@@ -48,6 +48,9 @@ static inline unsigned int pdc_pkt_header(struct ata_taskfile *tf,
 	u8 dev_reg;
 	__le32 *buf32 = (__le32 *) buf;
 
+	/* set control bits (byte 0), zero delay seq id (byte 3),
+	 * and seq id (byte 2)
+	 */
 	switch (tf->protocol) {
 	case ATA_PROT_DMA:
 		if (!(tf->flags & ATA_TFLAG_WRITE))
@@ -65,23 +68,23 @@ static inline unsigned int pdc_pkt_header(struct ata_taskfile *tf,
 		break;
 	}
 
-	buf32[1] = cpu_to_le32(sg_table);	
-	buf32[2] = 0;				
+	buf32[1] = cpu_to_le32(sg_table);	/* S/G table addr */
+	buf32[2] = 0;				/* no next-packet */
 
 	if (devno == 0)
 		dev_reg = ATA_DEVICE_OBS;
 	else
 		dev_reg = ATA_DEVICE_OBS | ATA_DEV1;
 
-	
+	/* select device */
 	buf[12] = (1 << 5) | PDC_PKT_CLEAR_BSY | ATA_REG_DEVICE;
 	buf[13] = dev_reg;
 
-	
+	/* device control register */
 	buf[14] = (1 << 5) | PDC_REG_DEVCTL;
 	buf[15] = tf->ctl;
 
-	return 16; 	
+	return 16; 	/* offset of next byte */
 }
 
 static inline unsigned int pdc_pkt_footer(struct ata_taskfile *tf, u8 *buf,
@@ -92,7 +95,7 @@ static inline unsigned int pdc_pkt_footer(struct ata_taskfile *tf, u8 *buf,
 		buf[i++] = tf->device;
 	}
 
-	
+	/* and finally the command itself; also includes end-of-pkt marker */
 	buf[i++] = (1 << 5) | PDC_LAST_REG | ATA_REG_CMD;
 	buf[i++] = tf->command;
 
@@ -101,9 +104,9 @@ static inline unsigned int pdc_pkt_footer(struct ata_taskfile *tf, u8 *buf,
 
 static inline unsigned int pdc_prep_lba28(struct ata_taskfile *tf, u8 *buf, unsigned int i)
 {
-	
+	/* the "(1 << 5)" should be read "(count << 5)" */
 
-	
+	/* ATA command block registers */
 	buf[i++] = (1 << 5) | ATA_REG_FEATURE;
 	buf[i++] = tf->feature;
 
@@ -124,9 +127,9 @@ static inline unsigned int pdc_prep_lba28(struct ata_taskfile *tf, u8 *buf, unsi
 
 static inline unsigned int pdc_prep_lba48(struct ata_taskfile *tf, u8 *buf, unsigned int i)
 {
-	
+	/* the "(2 << 5)" should be read "(count << 5)" */
 
-	
+	/* ATA command block registers */
 	buf[i++] = (2 << 5) | ATA_REG_FEATURE;
 	buf[i++] = tf->hob_feature;
 	buf[i++] = tf->feature;
@@ -151,4 +154,4 @@ static inline unsigned int pdc_prep_lba48(struct ata_taskfile *tf, u8 *buf, unsi
 }
 
 
-#endif 
+#endif /* __SATA_PROMISE_H__ */

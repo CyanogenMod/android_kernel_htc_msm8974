@@ -48,6 +48,9 @@
 #define DBGF(f, x...) \
 	pr_debug(DRIVER_NAME " [%s()]: " f, __func__ , ##x)
 
+/*
+ * Device resources
+ */
 
 #ifdef CONFIG_PNP
 
@@ -59,7 +62,7 @@ static const struct pnp_device_id pnp_dev_table[] = {
 
 MODULE_DEVICE_TABLE(pnp, pnp_dev_table);
 
-#endif 
+#endif /* CONFIG_PNP */
 
 static const int config_ports[] = { 0x2E, 0x4E };
 static const int unlock_codes[] = { 0x83, 0x87 };
@@ -77,6 +80,9 @@ static unsigned int param_io = 0x248;
 static unsigned int param_irq = 6;
 static int param_dma = 2;
 
+/*
+ * Basic functions
+ */
 
 static inline void wbsd_unlock_config(struct wbsd_host *host)
 {
@@ -121,30 +127,54 @@ static inline u8 wbsd_read_index(struct wbsd_host *host, u8 index)
 	return inb(host->base + WBSD_DATAR);
 }
 
+/*
+ * Common routines
+ */
 
 static void wbsd_init_device(struct wbsd_host *host)
 {
 	u8 setup, ier;
 
+	/*
+	 * Reset chip (SD/MMC part) and fifo.
+	 */
 	setup = wbsd_read_index(host, WBSD_IDX_SETUP);
 	setup |= WBSD_FIFO_RESET | WBSD_SOFT_RESET;
 	wbsd_write_index(host, WBSD_IDX_SETUP, setup);
 
+	/*
+	 * Set DAT3 to input
+	 */
 	setup &= ~WBSD_DAT3_H;
 	wbsd_write_index(host, WBSD_IDX_SETUP, setup);
 	host->flags &= ~WBSD_FIGNORE_DETECT;
 
+	/*
+	 * Read back default clock.
+	 */
 	host->clk = wbsd_read_index(host, WBSD_IDX_CLK);
 
+	/*
+	 * Power down port.
+	 */
 	outb(WBSD_POWER_N, host->base + WBSD_CSR);
 
+	/*
+	 * Set maximum timeout.
+	 */
 	wbsd_write_index(host, WBSD_IDX_TAAC, 0x7F);
 
+	/*
+	 * Test for card presence
+	 */
 	if (inb(host->base + WBSD_CSR) & WBSD_CARDPRESENT)
 		host->flags |= WBSD_FCARD_PRESENT;
 	else
 		host->flags &= ~WBSD_FCARD_PRESENT;
 
+	/*
+	 * Enable interesting interrupts.
+	 */
 	ier = 0;
 	ier |= WBSD_EINT_CARD;
 	ier |= WBSD_EINT_FIFO_THRE;
@@ -154,6 +184,9 @@ static void wbsd_init_device(struct wbsd_host *host)
 
 	outb(ier, host->base + WBSD_EIR);
 
+	/*
+	 * Clear interrupts.
+	 */
 	inb(host->base + WBSD_ISR);
 }
 
@@ -163,6 +196,9 @@ static void wbsd_reset(struct wbsd_host *host)
 
 	pr_err("%s: Resetting chip\n", mmc_hostname(host->mmc));
 
+	/*
+	 * Soft reset of chip (SD/MMC part).
+	 */
 	setup = wbsd_read_index(host, WBSD_IDX_SETUP);
 	setup |= WBSD_SOFT_RESET;
 	wbsd_write_index(host, WBSD_IDX_SETUP, setup);
@@ -173,24 +209,39 @@ static void wbsd_request_end(struct wbsd_host *host, struct mmc_request *mrq)
 	unsigned long dmaflags;
 
 	if (host->dma >= 0) {
+		/*
+		 * Release ISA DMA controller.
+		 */
 		dmaflags = claim_dma_lock();
 		disable_dma(host->dma);
 		clear_dma_ff(host->dma);
 		release_dma_lock(dmaflags);
 
+		/*
+		 * Disable DMA on host.
+		 */
 		wbsd_write_index(host, WBSD_IDX_DMA, 0);
 	}
 
 	host->mrq = NULL;
 
+	/*
+	 * MMC layer might call back into the driver so first unlock.
+	 */
 	spin_unlock(&host->lock);
 	mmc_request_done(host->mmc, mrq);
 	spin_lock(&host->lock);
 }
 
+/*
+ * Scatter/gather functions
+ */
 
 static inline void wbsd_init_sg(struct wbsd_host *host, struct mmc_data *data)
 {
+	/*
+	 * Get info. about SG list from data structure.
+	 */
 	host->cur_sg = data->sg;
 	host->num_sg = data->sg_len;
 
@@ -200,9 +251,15 @@ static inline void wbsd_init_sg(struct wbsd_host *host, struct mmc_data *data)
 
 static inline int wbsd_next_sg(struct wbsd_host *host)
 {
+	/*
+	 * Skip to next SG entry.
+	 */
 	host->cur_sg++;
 	host->num_sg--;
 
+	/*
+	 * Any entries left?
+	 */
 	if (host->num_sg > 0) {
 		host->offset = 0;
 		host->remain = host->cur_sg->length;
@@ -250,10 +307,16 @@ static inline void wbsd_dma_to_sg(struct wbsd_host *host, struct mmc_data *data)
 	}
 }
 
+/*
+ * Command handling
+ */
 
 static inline void wbsd_get_short_reply(struct wbsd_host *host,
 					struct mmc_command *cmd)
 {
+	/*
+	 * Correct response type?
+	 */
 	if (wbsd_read_index(host, WBSD_IDX_RSPLEN) != WBSD_RSP_SHORT) {
 		cmd->error = -EILSEQ;
 		return;
@@ -271,6 +334,9 @@ static inline void wbsd_get_long_reply(struct wbsd_host *host,
 {
 	int i;
 
+	/*
+	 * Correct response type?
+	 */
 	if (wbsd_read_index(host, WBSD_IDX_RSPLEN) != WBSD_RSP_LONG) {
 		cmd->error = -EILSEQ;
 		return;
@@ -293,31 +359,48 @@ static void wbsd_send_command(struct wbsd_host *host, struct mmc_command *cmd)
 	int i;
 	u8 status, isr;
 
+	/*
+	 * Clear accumulated ISR. The interrupt routine
+	 * will fill this one with events that occur during
+	 * transfer.
+	 */
 	host->isr = 0;
 
+	/*
+	 * Send the command (CRC calculated by host).
+	 */
 	outb(cmd->opcode, host->base + WBSD_CMDR);
 	for (i = 3; i >= 0; i--)
 		outb((cmd->arg >> (i * 8)) & 0xff, host->base + WBSD_CMDR);
 
 	cmd->error = 0;
 
+	/*
+	 * Wait for the request to complete.
+	 */
 	do {
 		status = wbsd_read_index(host, WBSD_IDX_STATUS);
 	} while (status & WBSD_CARDTRAFFIC);
 
+	/*
+	 * Do we expect a reply?
+	 */
 	if (cmd->flags & MMC_RSP_PRESENT) {
+		/*
+		 * Read back status.
+		 */
 		isr = host->isr;
 
-		
+		/* Card removed? */
 		if (isr & WBSD_INT_CARD)
 			cmd->error = -ENOMEDIUM;
-		
+		/* Timeout? */
 		else if (isr & WBSD_INT_TIMEOUT)
 			cmd->error = -ETIMEDOUT;
-		
+		/* CRC? */
 		else if ((cmd->flags & MMC_RSP_CRC) && (isr & WBSD_INT_CRC))
 			cmd->error = -EILSEQ;
-		
+		/* All ok */
 		else {
 			if (cmd->flags & MMC_RSP_136)
 				wbsd_get_long_reply(host, cmd);
@@ -327,6 +410,9 @@ static void wbsd_send_command(struct wbsd_host *host, struct mmc_command *cmd)
 	}
 }
 
+/*
+ * Data functions
+ */
 
 static void wbsd_empty_fifo(struct wbsd_host *host)
 {
@@ -334,12 +420,23 @@ static void wbsd_empty_fifo(struct wbsd_host *host)
 	char *buffer;
 	int i, fsr, fifo;
 
+	/*
+	 * Handle excessive data.
+	 */
 	if (host->num_sg == 0)
 		return;
 
 	buffer = wbsd_sg_to_buffer(host) + host->offset;
 
+	/*
+	 * Drain the fifo. This has a tendency to loop longer
+	 * than the FIFO length (usually one block).
+	 */
 	while (!((fsr = inb(host->base + WBSD_FSR)) & WBSD_FIFO_EMPTY)) {
+		/*
+		 * The size field in the FSR is broken so we have to
+		 * do some guessing.
+		 */
 		if (fsr & WBSD_FIFO_FULL)
 			fifo = 16;
 		else if (fsr & WBSD_FIFO_FUTHRE)
@@ -355,7 +452,13 @@ static void wbsd_empty_fifo(struct wbsd_host *host)
 
 			data->bytes_xfered++;
 
+			/*
+			 * End of scatter list entry?
+			 */
 			if (host->remain == 0) {
+				/*
+				 * Get next entry. Check if last.
+				 */
 				if (!wbsd_next_sg(host))
 					return;
 
@@ -364,6 +467,11 @@ static void wbsd_empty_fifo(struct wbsd_host *host)
 		}
 	}
 
+	/*
+	 * This is a very dirty hack to solve a
+	 * hardware problem. The chip doesn't trigger
+	 * FIFO threshold interrupts properly.
+	 */
 	if ((data->blocks * data->blksz - data->bytes_xfered) < 16)
 		tasklet_schedule(&host->fifo_tasklet);
 }
@@ -374,12 +482,24 @@ static void wbsd_fill_fifo(struct wbsd_host *host)
 	char *buffer;
 	int i, fsr, fifo;
 
+	/*
+	 * Check that we aren't being called after the
+	 * entire buffer has been transferred.
+	 */
 	if (host->num_sg == 0)
 		return;
 
 	buffer = wbsd_sg_to_buffer(host) + host->offset;
 
+	/*
+	 * Fill the fifo. This has a tendency to loop longer
+	 * than the FIFO length (usually one block).
+	 */
 	while (!((fsr = inb(host->base + WBSD_FSR)) & WBSD_FIFO_FULL)) {
+		/*
+		 * The size field in the FSR is broken so we have to
+		 * do some guessing.
+		 */
 		if (fsr & WBSD_FIFO_EMPTY)
 			fifo = 0;
 		else if (fsr & WBSD_FIFO_EMTHRE)
@@ -395,7 +515,13 @@ static void wbsd_fill_fifo(struct wbsd_host *host)
 
 			data->bytes_xfered++;
 
+			/*
+			 * End of scatter list entry?
+			 */
 			if (host->remain == 0) {
+				/*
+				 * Get next entry. Check if last.
+				 */
 				if (!wbsd_next_sg(host))
 					return;
 
@@ -404,6 +530,11 @@ static void wbsd_fill_fifo(struct wbsd_host *host)
 		}
 	}
 
+	/*
+	 * The controller stops sending interrupts for
+	 * 'FIFO empty' under certain conditions. So we
+	 * need to be a bit more pro-active.
+	 */
 	tasklet_schedule(&host->fifo_tasklet);
 }
 
@@ -414,8 +545,15 @@ static void wbsd_prepare_data(struct wbsd_host *host, struct mmc_data *data)
 	unsigned long dmaflags;
 	unsigned int size;
 
+	/*
+	 * Calculate size.
+	 */
 	size = data->blocks * data->blksz;
 
+	/*
+	 * Check timeout values for overflow.
+	 * (Yes, some cards cause this value to overflow).
+	 */
 	if (data->timeout_ns > 127000000)
 		wbsd_write_index(host, WBSD_IDX_TAAC, 127);
 	else {
@@ -428,6 +566,14 @@ static void wbsd_prepare_data(struct wbsd_host *host, struct mmc_data *data)
 	else
 		wbsd_write_index(host, WBSD_IDX_NSAC, data->timeout_clks);
 
+	/*
+	 * Inform the chip of how large blocks will be
+	 * sent. It needs this to determine when to
+	 * calculate CRC.
+	 *
+	 * Space for CRC must be included in the size.
+	 * Two bytes are needed for each data line.
+	 */
 	if (host->bus_width == MMC_BUS_WIDTH_1) {
 		blksize = data->blksz + 2;
 
@@ -444,20 +590,38 @@ static void wbsd_prepare_data(struct wbsd_host *host, struct mmc_data *data)
 		return;
 	}
 
+	/*
+	 * Clear the FIFO. This is needed even for DMA
+	 * transfers since the chip still uses the FIFO
+	 * internally.
+	 */
 	setup = wbsd_read_index(host, WBSD_IDX_SETUP);
 	setup |= WBSD_FIFO_RESET;
 	wbsd_write_index(host, WBSD_IDX_SETUP, setup);
 
+	/*
+	 * DMA transfer?
+	 */
 	if (host->dma >= 0) {
+		/*
+		 * The buffer for DMA is only 64 kB.
+		 */
 		BUG_ON(size > 0x10000);
 		if (size > 0x10000) {
 			data->error = -EINVAL;
 			return;
 		}
 
+		/*
+		 * Transfer data from the SG list to
+		 * the DMA buffer.
+		 */
 		if (data->flags & MMC_DATA_WRITE)
 			wbsd_sg_to_dma(host, data);
 
+		/*
+		 * Initialise the ISA DMA controller.
+		 */
 		dmaflags = claim_dma_lock();
 		disable_dma(host->dma);
 		clear_dma_ff(host->dma);
@@ -471,14 +635,31 @@ static void wbsd_prepare_data(struct wbsd_host *host, struct mmc_data *data)
 		enable_dma(host->dma);
 		release_dma_lock(dmaflags);
 
+		/*
+		 * Enable DMA on the host.
+		 */
 		wbsd_write_index(host, WBSD_IDX_DMA, WBSD_DMA_ENABLE);
 	} else {
+		/*
+		 * This flag is used to keep printk
+		 * output to a minimum.
+		 */
 		host->firsterr = 1;
 
+		/*
+		 * Initialise the SG list.
+		 */
 		wbsd_init_sg(host, data);
 
+		/*
+		 * Turn off DMA.
+		 */
 		wbsd_write_index(host, WBSD_IDX_DMA, 0);
 
+		/*
+		 * Set up FIFO threshold levels (and fill
+		 * buffer if doing a write).
+		 */
 		if (data->flags & MMC_DATA_READ) {
 			wbsd_write_index(host, WBSD_IDX_FIFOEN,
 				WBSD_FIFOEN_FULL | 8);
@@ -500,16 +681,32 @@ static void wbsd_finish_data(struct wbsd_host *host, struct mmc_data *data)
 
 	WARN_ON(host->mrq == NULL);
 
+	/*
+	 * Send a stop command if needed.
+	 */
 	if (data->stop)
 		wbsd_send_command(host, data->stop);
 
+	/*
+	 * Wait for the controller to leave data
+	 * transfer state.
+	 */
 	do {
 		status = wbsd_read_index(host, WBSD_IDX_STATUS);
 	} while (status & (WBSD_BLOCK_READ | WBSD_BLOCK_WRITE));
 
+	/*
+	 * DMA transfer?
+	 */
 	if (host->dma >= 0) {
+		/*
+		 * Disable DMA on the host.
+		 */
 		wbsd_write_index(host, WBSD_IDX_DMA, 0);
 
+		/*
+		 * Turn of ISA DMA controller.
+		 */
 		dmaflags = claim_dma_lock();
 		disable_dma(host->dma);
 		clear_dma_ff(host->dma);
@@ -520,6 +717,9 @@ static void wbsd_finish_data(struct wbsd_host *host, struct mmc_data *data)
 			host->mrq->data->blksz - count;
 		data->bytes_xfered -= data->bytes_xfered % data->blksz;
 
+		/*
+		 * Any leftover data?
+		 */
 		if (count) {
 			pr_err("%s: Incomplete DMA transfer. "
 				"%d bytes left.\n",
@@ -528,6 +728,10 @@ static void wbsd_finish_data(struct wbsd_host *host, struct mmc_data *data)
 			if (!data->error)
 				data->error = -EIO;
 		} else {
+			/*
+			 * Transfer data from DMA buffer to
+			 * SG list.
+			 */
 			if (data->flags & MMC_DATA_READ)
 				wbsd_dma_to_sg(host, data);
 		}
@@ -541,12 +745,20 @@ static void wbsd_finish_data(struct wbsd_host *host, struct mmc_data *data)
 	wbsd_request_end(host, host->mrq);
 }
 
+/*****************************************************************************\
+ *                                                                           *
+ * MMC layer callbacks                                                       *
+ *                                                                           *
+\*****************************************************************************/
 
 static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
 	struct wbsd_host *host = mmc_priv(mmc);
 	struct mmc_command *cmd;
 
+	/*
+	 * Disable tasklets to avoid a deadlock.
+	 */
 	spin_lock_bh(&host->lock);
 
 	BUG_ON(host->mrq != NULL);
@@ -555,12 +767,21 @@ static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	host->mrq = mrq;
 
+	/*
+	 * Check that there is actually a card in the slot.
+	 */
 	if (!(host->flags & WBSD_FCARD_PRESENT)) {
 		cmd->error = -ENOMEDIUM;
 		goto done;
 	}
 
 	if (cmd->data) {
+		/*
+		 * The hardware is so delightfully stupid that it has a list
+		 * of "data" commands. If a command isn't on this list, it'll
+		 * just go back to the idle state and won't send any data
+		 * interrupts.
+		 */
 		switch (cmd->opcode) {
 		case 11:
 		case 17:
@@ -575,6 +796,8 @@ static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		case 56:
 			break;
 
+		/* ACMDs. We don't keep track of state, so we just treat them
+		 * like any other command. */
 		case 51:
 			break;
 
@@ -590,6 +813,9 @@ static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		};
 	}
 
+	/*
+	 * Does the request include data?
+	 */
 	if (cmd->data) {
 		wbsd_prepare_data(host, cmd->data);
 
@@ -599,7 +825,15 @@ static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	wbsd_send_command(host, cmd);
 
+	/*
+	 * If this is a data transfer the request
+	 * will be finished after the data has
+	 * transferred.
+	 */
 	if (cmd->data && !cmd->error) {
+		/*
+		 * Dirty fix for hardware bug.
+		 */
 		if (host->dma == -1)
 			tasklet_schedule(&host->fifo_tasklet);
 
@@ -621,6 +855,10 @@ static void wbsd_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	spin_lock_bh(&host->lock);
 
+	/*
+	 * Reset the chip on each power off.
+	 * Should clear out any weird states.
+	 */
 	if (ios->power_mode == MMC_POWER_OFF)
 		wbsd_init_device(host);
 
@@ -633,17 +871,29 @@ static void wbsd_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	else
 		clk = WBSD_CLK_375K;
 
+	/*
+	 * Only write to the clock register when
+	 * there is an actual change.
+	 */
 	if (clk != host->clk) {
 		wbsd_write_index(host, WBSD_IDX_CLK, clk);
 		host->clk = clk;
 	}
 
+	/*
+	 * Power up card.
+	 */
 	if (ios->power_mode != MMC_POWER_OFF) {
 		pwr = inb(host->base + WBSD_CSR);
 		pwr &= ~WBSD_POWER_N;
 		outb(pwr, host->base + WBSD_CSR);
 	}
 
+	/*
+	 * MMC cards need to have pin 1 high during init.
+	 * It wreaks havoc with the card detection though so
+	 * that needs to be disabled.
+	 */
 	setup = wbsd_read_index(host, WBSD_IDX_SETUP);
 	if (ios->chip_select == MMC_CS_HIGH) {
 		BUG_ON(ios->bus_width != MMC_BUS_WIDTH_1);
@@ -653,11 +903,19 @@ static void wbsd_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		if (setup & WBSD_DAT3_H) {
 			setup &= ~WBSD_DAT3_H;
 
+			/*
+			 * We cannot resume card detection immediately
+			 * because of capacitance and delays in the chip.
+			 */
 			mod_timer(&host->ignore_timer, jiffies + HZ / 100);
 		}
 	}
 	wbsd_write_index(host, WBSD_IDX_SETUP, setup);
 
+	/*
+	 * Store bus width for later. Will be used when
+	 * setting up the data transfer.
+	 */
 	host->bus_width = ios->bus_width;
 
 	spin_unlock_bh(&host->lock);
@@ -691,7 +949,15 @@ static const struct mmc_host_ops wbsd_ops = {
 	.get_ro		= wbsd_get_ro,
 };
 
+/*****************************************************************************\
+ *                                                                           *
+ * Interrupt handling                                                        *
+ *                                                                           *
+\*****************************************************************************/
 
+/*
+ * Helper function to reset detection ignore
+ */
 
 static void wbsd_reset_ignore(unsigned long data)
 {
@@ -705,11 +971,18 @@ static void wbsd_reset_ignore(unsigned long data)
 
 	host->flags &= ~WBSD_FIGNORE_DETECT;
 
+	/*
+	 * Card status might have changed during the
+	 * blackout.
+	 */
 	tasklet_schedule(&host->card_tasklet);
 
 	spin_unlock_bh(&host->lock);
 }
 
+/*
+ * Tasklets
+ */
 
 static inline struct mmc_data *wbsd_get_data(struct wbsd_host *host)
 {
@@ -767,6 +1040,9 @@ static void wbsd_tasklet_card(unsigned long param)
 		delay = 0;
 	}
 
+	/*
+	 * Unlock first since we might get a call back.
+	 */
 
 	spin_unlock(&host->lock);
 
@@ -793,6 +1069,9 @@ static void wbsd_tasklet_fifo(unsigned long param)
 	else
 		wbsd_empty_fifo(host);
 
+	/*
+	 * Done?
+	 */
 	if (host->num_sg == 0) {
 		wbsd_write_index(host, WBSD_IDX_FIFOEN, 0);
 		tasklet_schedule(&host->finish_tasklet);
@@ -871,6 +1150,9 @@ end:
 	spin_unlock(&host->lock);
 }
 
+/*
+ * Interrupt handling
+ */
 
 static irqreturn_t wbsd_irq(int irq, void *dev_id)
 {
@@ -879,11 +1161,17 @@ static irqreturn_t wbsd_irq(int irq, void *dev_id)
 
 	isr = inb(host->base + WBSD_ISR);
 
+	/*
+	 * Was it actually our hardware that caused the interrupt?
+	 */
 	if (isr == 0xff || isr == 0x00)
 		return IRQ_NONE;
 
 	host->isr |= isr;
 
+	/*
+	 * Schedule tasklets as needed.
+	 */
 	if (isr & WBSD_INT_CARD)
 		tasklet_schedule(&host->card_tasklet);
 	if (isr & WBSD_INT_FIFO_THRE)
@@ -898,13 +1186,24 @@ static irqreturn_t wbsd_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*****************************************************************************\
+ *                                                                           *
+ * Device initialisation and shutdown                                        *
+ *                                                                           *
+\*****************************************************************************/
 
+/*
+ * Allocate/free MMC structure.
+ */
 
 static int __devinit wbsd_alloc_mmc(struct device *dev)
 {
 	struct mmc_host *mmc;
 	struct wbsd_host *host;
 
+	/*
+	 * Allocate MMC structure.
+	 */
 	mmc = mmc_alloc_host(sizeof(struct wbsd_host), dev);
 	if (!mmc)
 		return -ENOMEM;
@@ -914,6 +1213,9 @@ static int __devinit wbsd_alloc_mmc(struct device *dev)
 
 	host->dma = -1;
 
+	/*
+	 * Set host parameters.
+	 */
 	mmc->ops = &wbsd_ops;
 	mmc->f_min = 375000;
 	mmc->f_max = 24000000;
@@ -922,18 +1224,40 @@ static int __devinit wbsd_alloc_mmc(struct device *dev)
 
 	spin_lock_init(&host->lock);
 
+	/*
+	 * Set up timers
+	 */
 	init_timer(&host->ignore_timer);
 	host->ignore_timer.data = (unsigned long)host;
 	host->ignore_timer.function = wbsd_reset_ignore;
 
+	/*
+	 * Maximum number of segments. Worst case is one sector per segment
+	 * so this will be 64kB/512.
+	 */
 	mmc->max_segs = 128;
 
+	/*
+	 * Maximum request size. Also limited by 64KiB buffer.
+	 */
 	mmc->max_req_size = 65536;
 
+	/*
+	 * Maximum segment size. Could be one segment with the maximum number
+	 * of bytes.
+	 */
 	mmc->max_seg_size = mmc->max_req_size;
 
+	/*
+	 * Maximum block size. We have 12 bits (= 4095) but have to subtract
+	 * space for CRC. So the maximum is 4095 - 4*2 = 4087.
+	 */
 	mmc->max_blk_size = 4087;
 
+	/*
+	 * Maximum block count. There is no real limit so the maximum
+	 * request size will be the only restriction.
+	 */
 	mmc->max_blk_count = mmc->max_req_size;
 
 	dev_set_drvdata(dev, mmc);
@@ -960,12 +1284,19 @@ static void wbsd_free_mmc(struct device *dev)
 	dev_set_drvdata(dev, NULL);
 }
 
+/*
+ * Scan for known chip id:s
+ */
 
 static int __devinit wbsd_scan(struct wbsd_host *host)
 {
 	int i, j, k;
 	int id;
 
+	/*
+	 * Iterate through all ports, all codes to
+	 * find hardware that is in our known list.
+	 */
 	for (i = 0; i < ARRAY_SIZE(config_ports); i++) {
 		if (!request_region(config_ports[i], 2, DRIVER_NAME))
 			continue;
@@ -1009,6 +1340,9 @@ static int __devinit wbsd_scan(struct wbsd_host *host)
 	return -ENODEV;
 }
 
+/*
+ * Allocate/free io port ranges
+ */
 
 static int __devinit wbsd_request_region(struct wbsd_host *host, int base)
 {
@@ -1036,6 +1370,9 @@ static void wbsd_release_regions(struct wbsd_host *host)
 	host->config = 0;
 }
 
+/*
+ * Allocate/free DMA port and buffer
+ */
 
 static void __devinit wbsd_request_dma(struct wbsd_host *host, int dma)
 {
@@ -1045,16 +1382,29 @@ static void __devinit wbsd_request_dma(struct wbsd_host *host, int dma)
 	if (request_dma(dma, DRIVER_NAME))
 		goto err;
 
+	/*
+	 * We need to allocate a special buffer in
+	 * order for ISA to be able to DMA to it.
+	 */
 	host->dma_buffer = kmalloc(WBSD_DMA_SIZE,
 		GFP_NOIO | GFP_DMA | __GFP_REPEAT | __GFP_NOWARN);
 	if (!host->dma_buffer)
 		goto free;
 
+	/*
+	 * Translate the address to a physical address.
+	 */
 	host->dma_addr = dma_map_single(mmc_dev(host->mmc), host->dma_buffer,
 		WBSD_DMA_SIZE, DMA_BIDIRECTIONAL);
 
+	/*
+	 * ISA DMA must be aligned on a 64k basis.
+	 */
 	if ((host->dma_addr & 0xffff) != 0)
 		goto kfree;
+	/*
+	 * ISA cannot access memory above 16 MB.
+	 */
 	else if (host->dma_addr >= 0x1000000)
 		goto kfree;
 
@@ -1063,6 +1413,9 @@ static void __devinit wbsd_request_dma(struct wbsd_host *host, int dma)
 	return;
 
 kfree:
+	/*
+	 * If we've gotten here then there is some kind of alignment bug
+	 */
 	BUG_ON(1);
 
 	dma_unmap_single(mmc_dev(host->mmc), host->dma_addr,
@@ -1095,11 +1448,17 @@ static void wbsd_release_dma(struct wbsd_host *host)
 	host->dma_addr = 0;
 }
 
+/*
+ * Allocate/free IRQ.
+ */
 
 static int __devinit wbsd_request_irq(struct wbsd_host *host, int irq)
 {
 	int ret;
 
+	/*
+	 * Set up tasklets. Must be done before requesting interrupt.
+	 */
 	tasklet_init(&host->card_tasklet, wbsd_tasklet_card,
 			(unsigned long)host);
 	tasklet_init(&host->fifo_tasklet, wbsd_tasklet_fifo,
@@ -1111,6 +1470,9 @@ static int __devinit wbsd_request_irq(struct wbsd_host *host, int irq)
 	tasklet_init(&host->finish_tasklet, wbsd_tasklet_finish,
 			(unsigned long)host);
 
+	/*
+	 * Allocate interrupt.
+	 */
 	ret = request_irq(irq, wbsd_irq, IRQF_SHARED, DRIVER_NAME, host);
 	if (ret)
 		return ret;
@@ -1136,25 +1498,40 @@ static void  wbsd_release_irq(struct wbsd_host *host)
 	tasklet_kill(&host->finish_tasklet);
 }
 
+/*
+ * Allocate all resources for the host.
+ */
 
 static int __devinit wbsd_request_resources(struct wbsd_host *host,
 	int base, int irq, int dma)
 {
 	int ret;
 
+	/*
+	 * Allocate I/O ports.
+	 */
 	ret = wbsd_request_region(host, base);
 	if (ret)
 		return ret;
 
+	/*
+	 * Allocate interrupt.
+	 */
 	ret = wbsd_request_irq(host, irq);
 	if (ret)
 		return ret;
 
+	/*
+	 * Allocate DMA.
+	 */
 	wbsd_request_dma(host, dma);
 
 	return 0;
 }
 
+/*
+ * Release all resources for the host.
+ */
 
 static void wbsd_release_resources(struct wbsd_host *host)
 {
@@ -1163,18 +1540,33 @@ static void wbsd_release_resources(struct wbsd_host *host)
 	wbsd_release_regions(host);
 }
 
+/*
+ * Configure the resources the chip should use.
+ */
 
 static void wbsd_chip_config(struct wbsd_host *host)
 {
 	wbsd_unlock_config(host);
 
+	/*
+	 * Reset the chip.
+	 */
 	wbsd_write_config(host, WBSD_CONF_SWRST, 1);
 	wbsd_write_config(host, WBSD_CONF_SWRST, 0);
 
+	/*
+	 * Select SD/MMC function.
+	 */
 	wbsd_write_config(host, WBSD_CONF_DEVICE, DEVICE_SD);
 
+	/*
+	 * Set up card detection.
+	 */
 	wbsd_write_config(host, WBSD_CONF_PINS, WBSD_PINS_DETECT_GP11);
 
+	/*
+	 * Configure chip
+	 */
 	wbsd_write_config(host, WBSD_CONF_PORT_HI, host->base >> 8);
 	wbsd_write_config(host, WBSD_CONF_PORT_LO, host->base & 0xff);
 
@@ -1183,12 +1575,18 @@ static void wbsd_chip_config(struct wbsd_host *host)
 	if (host->dma >= 0)
 		wbsd_write_config(host, WBSD_CONF_DRQ, host->dma);
 
+	/*
+	 * Enable and power up chip.
+	 */
 	wbsd_write_config(host, WBSD_CONF_ENABLE, 1);
 	wbsd_write_config(host, WBSD_CONF_POWER, 0x20);
 
 	wbsd_lock_config(host);
 }
 
+/*
+ * Check that configured resources are correct.
+ */
 
 static int wbsd_chip_validate(struct wbsd_host *host)
 {
@@ -1196,8 +1594,14 @@ static int wbsd_chip_validate(struct wbsd_host *host)
 
 	wbsd_unlock_config(host);
 
+	/*
+	 * Select SD/MMC function.
+	 */
 	wbsd_write_config(host, WBSD_CONF_DEVICE, DEVICE_SD);
 
+	/*
+	 * Read configuration.
+	 */
 	base = wbsd_read_config(host, WBSD_CONF_PORT_HI) << 8;
 	base |= wbsd_read_config(host, WBSD_CONF_PORT_LO);
 
@@ -1207,6 +1611,9 @@ static int wbsd_chip_validate(struct wbsd_host *host)
 
 	wbsd_lock_config(host);
 
+	/*
+	 * Validate against given configuration.
+	 */
 	if (base != host->base)
 		return 0;
 	if (irq != host->irq)
@@ -1217,6 +1624,9 @@ static int wbsd_chip_validate(struct wbsd_host *host)
 	return 1;
 }
 
+/*
+ * Powers down the SD function
+ */
 
 static void wbsd_chip_poweroff(struct wbsd_host *host)
 {
@@ -1228,6 +1638,11 @@ static void wbsd_chip_poweroff(struct wbsd_host *host)
 	wbsd_lock_config(host);
 }
 
+/*****************************************************************************\
+ *                                                                           *
+ * Devices setup and shutdown                                                *
+ *                                                                           *
+\*****************************************************************************/
 
 static int __devinit wbsd_init(struct device *dev, int base, int irq, int dma,
 	int pnp)
@@ -1243,6 +1658,9 @@ static int __devinit wbsd_init(struct device *dev, int base, int irq, int dma,
 	mmc = dev_get_drvdata(dev);
 	host = mmc_priv(mmc);
 
+	/*
+	 * Scan for hardware.
+	 */
 	ret = wbsd_scan(host);
 	if (ret) {
 		if (pnp && (ret == -ENODEV)) {
@@ -1255,6 +1673,9 @@ static int __devinit wbsd_init(struct device *dev, int base, int irq, int dma,
 		}
 	}
 
+	/*
+	 * Request resources.
+	 */
 	ret = wbsd_request_resources(host, base, irq, dma);
 	if (ret) {
 		wbsd_release_resources(host);
@@ -1262,6 +1683,9 @@ static int __devinit wbsd_init(struct device *dev, int base, int irq, int dma,
 		return ret;
 	}
 
+	/*
+	 * See if chip needs to be configured.
+	 */
 	if (pnp) {
 		if ((host->config != 0) && !wbsd_chip_validate(host)) {
 			pr_warning(DRIVER_NAME
@@ -1273,6 +1697,10 @@ static int __devinit wbsd_init(struct device *dev, int base, int irq, int dma,
 	} else
 		wbsd_chip_config(host);
 
+	/*
+	 * Power Management stuff. No idea how this works.
+	 * Not tested.
+	 */
 #ifdef CONFIG_PM
 	if (host->config) {
 		wbsd_unlock_config(host);
@@ -1280,8 +1708,14 @@ static int __devinit wbsd_init(struct device *dev, int base, int irq, int dma,
 		wbsd_lock_config(host);
 	}
 #endif
+	/*
+	 * Allow device to initialise itself properly.
+	 */
 	mdelay(5);
 
+	/*
+	 * Reset the chip into a known state.
+	 */
 	wbsd_init_device(host);
 
 	mmc_add_host(mmc);
@@ -1313,6 +1747,9 @@ static void __devexit wbsd_shutdown(struct device *dev, int pnp)
 
 	mmc_remove_host(mmc);
 
+	/*
+	 * Power down the SD/MMC function.
+	 */
 	if (!pnp)
 		wbsd_chip_poweroff(host);
 
@@ -1321,10 +1758,13 @@ static void __devexit wbsd_shutdown(struct device *dev, int pnp)
 	wbsd_free_mmc(dev);
 }
 
+/*
+ * Non-PnP
+ */
 
 static int __devinit wbsd_probe(struct platform_device *dev)
 {
-	
+	/* Use the module parameters for resources */
 	return wbsd_init(&dev->dev, param_io, param_irq, param_dma, 0);
 }
 
@@ -1335,6 +1775,9 @@ static int __devexit wbsd_remove(struct platform_device *dev)
 	return 0;
 }
 
+/*
+ * PnP
+ */
 
 #ifdef CONFIG_PNP
 
@@ -1343,6 +1786,9 @@ wbsd_pnp_probe(struct pnp_dev *pnpdev, const struct pnp_device_id *dev_id)
 {
 	int io, irq, dma;
 
+	/*
+	 * Get resources from PnP layer.
+	 */
 	io = pnp_port_start(pnpdev, 0);
 	irq = pnp_irq(pnpdev, 0);
 	if (pnp_dma_valid(pnpdev, 0))
@@ -1360,8 +1806,11 @@ static void __devexit wbsd_pnp_remove(struct pnp_dev *dev)
 	wbsd_shutdown(&dev->dev, 1);
 }
 
-#endif 
+#endif /* CONFIG_PNP */
 
+/*
+ * Power management
+ */
 
 #ifdef CONFIG_PM
 
@@ -1418,6 +1867,9 @@ static int wbsd_platform_resume(struct platform_device *dev)
 
 	wbsd_chip_config(host);
 
+	/*
+	 * Allow device to initialise itself properly.
+	 */
 	mdelay(5);
 
 	return wbsd_resume(host);
@@ -1452,6 +1904,9 @@ static int wbsd_pnp_resume(struct pnp_dev *pnp_dev)
 
 	host = mmc_priv(mmc);
 
+	/*
+	 * See if chip needs to be configured.
+	 */
 	if (host->config != 0) {
 		if (!wbsd_chip_validate(host)) {
 			pr_warning(DRIVER_NAME
@@ -1462,14 +1917,17 @@ static int wbsd_pnp_resume(struct pnp_dev *pnp_dev)
 		}
 	}
 
+	/*
+	 * Allow device to initialise itself properly.
+	 */
 	mdelay(5);
 
 	return wbsd_resume(host);
 }
 
-#endif 
+#endif /* CONFIG_PNP */
 
-#else 
+#else /* CONFIG_PM */
 
 #define wbsd_platform_suspend NULL
 #define wbsd_platform_resume NULL
@@ -1477,7 +1935,7 @@ static int wbsd_pnp_resume(struct pnp_dev *pnp_dev)
 #define wbsd_pnp_suspend NULL
 #define wbsd_pnp_resume NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static struct platform_device *wbsd_device;
 
@@ -1505,8 +1963,11 @@ static struct pnp_driver wbsd_pnp_driver = {
 	.resume		= wbsd_pnp_resume,
 };
 
-#endif 
+#endif /* CONFIG_PNP */
 
+/*
+ * Module loading/unloading
+ */
 
 static int __init wbsd_drv_init(void)
 {
@@ -1523,7 +1984,7 @@ static int __init wbsd_drv_init(void)
 		if (result < 0)
 			return result;
 	}
-#endif 
+#endif /* CONFIG_PNP */
 
 	if (param_nopnp) {
 		result = platform_driver_register(&wbsd_driver);
@@ -1554,7 +2015,7 @@ static void __exit wbsd_drv_exit(void)
 	if (!param_nopnp)
 		pnp_unregister_driver(&wbsd_pnp_driver);
 
-#endif 
+#endif /* CONFIG_PNP */
 
 	if (param_nopnp) {
 		platform_device_unregister(wbsd_device);

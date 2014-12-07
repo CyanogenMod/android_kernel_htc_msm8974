@@ -23,6 +23,9 @@
 #define R_386_GOTPC	10
 #define R_386_NUM	11
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 #define elf_check_arch(x) \
 	(((x)->e_machine == EM_386) || ((x)->e_machine == EM_486))
 
@@ -40,6 +43,7 @@
 	PT_REGS_EAX(regs) = 0; \
 } while (0)
 
+/* Shamelessly stolen from include/asm-i386/elf.h */
 
 #define ELF_CORE_COPY_REGS(pr_reg, regs) do {	\
 	pr_reg[0] = PT_REGS_EBX(regs);		\
@@ -51,7 +55,7 @@
 	pr_reg[6] = PT_REGS_EAX(regs);		\
 	pr_reg[7] = PT_REGS_DS(regs);		\
 	pr_reg[8] = PT_REGS_ES(regs);		\
-		\
+	/* fake once used fs and gs selectors? */	\
 	pr_reg[9] = PT_REGS_DS(regs);		\
 	pr_reg[10] = PT_REGS_DS(regs);		\
 	pr_reg[11] = PT_REGS_SYSCALL_NR(regs);	\
@@ -69,10 +73,18 @@ extern unsigned long vsyscall_ehdr;
 extern unsigned long vsyscall_end;
 extern unsigned long __kernel_vsyscall;
 
+/*
+ * This is the range that is readable by user mode, and things
+ * acting like user mode such as get_user_pages.
+ */
 #define FIXADDR_USER_START      vsyscall_ehdr
 #define FIXADDR_USER_END        vsyscall_end
 
 
+/*
+ * Architecture-neutral AT_ values in 0-17, leave some room
+ * for more of them, start the x86-specific ones at 32.
+ */
 #define AT_SYSINFO		32
 #define AT_SYSINFO_EHDR		33
 
@@ -86,25 +98,30 @@ do {								\
 
 #else
 
-#define R_X86_64_NONE		0	
-#define R_X86_64_64		1	
-#define R_X86_64_PC32		2	
-#define R_X86_64_GOT32		3	
-#define R_X86_64_PLT32		4	
-#define R_X86_64_COPY		5	
-#define R_X86_64_GLOB_DAT	6	
-#define R_X86_64_JUMP_SLOT	7	
-#define R_X86_64_RELATIVE	8	
-#define R_X86_64_GOTPCREL	9	
-#define R_X86_64_32		10	
-#define R_X86_64_32S		11	
-#define R_X86_64_16		12	
-#define R_X86_64_PC16		13	
-#define R_X86_64_8		14	
-#define R_X86_64_PC8		15	
+/* x86-64 relocation types, taken from asm-x86_64/elf.h */
+#define R_X86_64_NONE		0	/* No reloc */
+#define R_X86_64_64		1	/* Direct 64 bit  */
+#define R_X86_64_PC32		2	/* PC relative 32 bit signed */
+#define R_X86_64_GOT32		3	/* 32 bit GOT entry */
+#define R_X86_64_PLT32		4	/* 32 bit PLT address */
+#define R_X86_64_COPY		5	/* Copy symbol at runtime */
+#define R_X86_64_GLOB_DAT	6	/* Create GOT entry */
+#define R_X86_64_JUMP_SLOT	7	/* Create PLT entry */
+#define R_X86_64_RELATIVE	8	/* Adjust by program base */
+#define R_X86_64_GOTPCREL	9	/* 32 bit signed pc relative
+					   offset to GOT */
+#define R_X86_64_32		10	/* Direct 32 bit zero extended */
+#define R_X86_64_32S		11	/* Direct 32 bit sign extended */
+#define R_X86_64_16		12	/* Direct 16 bit zero extended */
+#define R_X86_64_PC16		13	/* 16 bit sign extended pc relative */
+#define R_X86_64_8		14	/* Direct 8 bit sign extended  */
+#define R_X86_64_PC8		15	/* 8 bit sign extended pc relative */
 
 #define R_X86_64_NUM		16
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 #define elf_check_arch(x) \
 	((x)->e_machine == EM_X86_64)
 
@@ -161,6 +178,7 @@ do {								\
 
 #define ELF_PLATFORM "x86_64"
 
+/* No user-accessible fixmap addresses, i.e. vsyscall */
 #define FIXADDR_USER_START      0
 #define FIXADDR_USER_END        0
 

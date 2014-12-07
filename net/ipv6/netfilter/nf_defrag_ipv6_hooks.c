@@ -61,17 +61,17 @@ static unsigned int ipv6_defrag(unsigned int hooknum,
 	struct sk_buff *reasm;
 
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
-	
+	/* Previously seen (loopback)?	*/
 	if (skb->nfct && !nf_ct_is_template((struct nf_conn *)skb->nfct))
 		return NF_ACCEPT;
 #endif
 
 	reasm = nf_ct_frag6_gather(skb, nf_ct6_defrag_user(hooknum, skb));
-	
+	/* queued */
 	if (reasm == NULL)
 		return NF_STOLEN;
 
-	
+	/* error occurred or not fragmented */
 	if (reasm == skb)
 		return NF_ACCEPT;
 

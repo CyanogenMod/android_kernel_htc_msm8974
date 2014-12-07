@@ -19,6 +19,34 @@
   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+/*
+Driver: ni_tio
+Description: National Instruments general purpose counters
+Devices:
+Author: J.P. Mellor <jpmellor@rose-hulman.edu>,
+	Herman.Bruyninckx@mech.kuleuven.ac.be,
+	Wim.Meeussen@mech.kuleuven.ac.be,
+	Klaas.Gadeyne@mech.kuleuven.ac.be,
+	Frank Mori Hess <fmhess@users.sourceforge.net>
+Updated: Thu Nov 16 09:50:32 EST 2006
+Status: works
+
+This module is not used directly by end-users.  Rather, it
+is used by other drivers (for example ni_660x and ni_pcimio)
+to provide support for NI's general purpose counters.  It was
+originally based on the counter code from ni_660x.c and
+ni_mio_common.c.
+
+References:
+DAQ 660x Register-Level Programmer Manual  (NI 370505A-01)
+DAQ 6601/6602 User Manual (NI 322137B-01)
+340934b.pdf  DAQ-STC reference manual
+
+*/
+/*
+TODO:
+	Support use of both banks X and Y
+*/
 
 #include "ni_tio_internal.h"
 
@@ -114,13 +142,14 @@ static inline enum Gi_Counting_Mode_Reg_Bits Gi_HW_Arm_Select_Mask(enum
 	return 0;
 }
 
+/* clock sources for ni_660x boards, get bits with Gi_Source_Select_Bits() */
 enum ni_660x_clock_source {
-	NI_660x_Timebase_1_Clock = 0x0,	
+	NI_660x_Timebase_1_Clock = 0x0,	/* 20MHz */
 	NI_660x_Source_Pin_i_Clock = 0x1,
 	NI_660x_Next_Gate_Clock = 0xa,
-	NI_660x_Timebase_2_Clock = 0x12,	
+	NI_660x_Timebase_2_Clock = 0x12,	/* 100KHz */
 	NI_660x_Next_TC_Clock = 0x13,
-	NI_660x_Timebase_3_Clock = 0x1e,	
+	NI_660x_Timebase_3_Clock = 0x1e,	/* 80MHz */
 	NI_660x_Logic_Low_Clock = 0x1f,
 };
 static const unsigned ni_660x_max_rtsi_channel = 6;
@@ -137,15 +166,16 @@ static inline unsigned NI_660x_Source_Pin_Clock(unsigned n)
 	return 0x2 + n;
 }
 
+/* clock sources for ni e and m series boards, get bits with Gi_Source_Select_Bits() */
 enum ni_m_series_clock_source {
-	NI_M_Series_Timebase_1_Clock = 0x0,	
-	NI_M_Series_Timebase_2_Clock = 0x12,	
+	NI_M_Series_Timebase_1_Clock = 0x0,	/* 20MHz */
+	NI_M_Series_Timebase_2_Clock = 0x12,	/* 100KHz */
 	NI_M_Series_Next_TC_Clock = 0x13,
-	NI_M_Series_Next_Gate_Clock = 0x14,	
-	NI_M_Series_PXI_Star_Trigger_Clock = 0x14,	
+	NI_M_Series_Next_Gate_Clock = 0x14,	/* when Gi_Src_SubSelect = 0 */
+	NI_M_Series_PXI_Star_Trigger_Clock = 0x14,	/* when Gi_Src_SubSelect = 1 */
 	NI_M_Series_PXI10_Clock = 0x1d,
-	NI_M_Series_Timebase_3_Clock = 0x1e,	
-	NI_M_Series_Analog_Trigger_Out_Clock = 0x1e,	
+	NI_M_Series_Timebase_3_Clock = 0x1e,	/* 80MHz, when Gi_Src_SubSelect = 0 */
+	NI_M_Series_Analog_Trigger_Out_Clock = 0x1e,	/* when Gi_Src_SubSelect = 1 */
 	NI_M_Series_Logic_Low_Clock = 0x1f,
 };
 static const unsigned ni_m_series_max_pfi_channel = 15;
@@ -342,7 +372,7 @@ void ni_tio_init_counter(struct ni_gpct *counter)
 	struct ni_gpct_device *counter_dev = counter->counter_dev;
 
 	ni_tio_reset_count_and_disarm(counter);
-	
+	/* initialize counter registers */
 	counter_dev->regs[NITIO_Gi_Autoincrement_Reg(counter->counter_index)] =
 	    0x0;
 	write_register(counter,
@@ -429,6 +459,9 @@ static void ni_tio_set_sync_mode(struct ni_gpct *counter, int force_alt_sync)
 	default:
 		break;
 	}
+	/* It's not clear what we should do if clock_period is unknown, so we are not
+	   using the alt sync bit in that case, but allow the caller to decide by using the
+	   force_alt_sync parameter. */
 	if (force_alt_sync ||
 	    (clock_period_ps && clock_period_ps < min_normal_sync_period_ps)) {
 		ni_tio_set_bits(counter, counting_mode_reg,
@@ -447,7 +480,7 @@ static int ni_tio_set_counter_mode(struct ni_gpct *counter, unsigned mode)
 	unsigned mode_reg_mask;
 	unsigned mode_reg_values;
 	unsigned input_select_bits = 0;
-	
+	/* these bits map directly on to the mode register */
 	static const unsigned mode_reg_direct_mask =
 	    NI_GPCT_GATE_ON_BOTH_EDGES_BIT | NI_GPCT_EDGE_GATE_MODE_MASK |
 	    NI_GPCT_STOP_MODE_MASK | NI_GPCT_OUTPUT_MODE_MASK |
@@ -534,7 +567,7 @@ int ni_tio_arm(struct ni_gpct *counter, int arm, unsigned start_trigger)
 				break;
 			default:
 				if (start_trigger & NI_GPCT_ARM_UNKNOWN) {
-					
+					/* pass-through the least significant bits so we can figure out what select later */
 					unsigned hw_arm_select_bits =
 					    (start_trigger <<
 					     Gi_HW_Arm_Select_Shift) &
@@ -691,17 +724,17 @@ static void ni_tio_set_source_subselect(struct ni_gpct *counter,
 	if (counter_dev->variant != ni_gpct_variant_m_series)
 		return;
 	switch (clock_source & NI_GPCT_CLOCK_SRC_SELECT_MASK) {
-		
+		/* Gi_Source_Subselect is zero */
 	case NI_GPCT_NEXT_GATE_CLOCK_SRC_BITS:
 	case NI_GPCT_TIMEBASE_3_CLOCK_SRC_BITS:
 		counter_dev->regs[second_gate_reg] &= ~Gi_Source_Subselect_Bit;
 		break;
-		
+		/* Gi_Source_Subselect is one */
 	case NI_GPCT_ANALOG_TRIGGER_OUT_CLOCK_SRC_BITS:
 	case NI_GPCT_PXI_STAR_TRIGGER_CLOCK_SRC_BITS:
 		counter_dev->regs[second_gate_reg] |= Gi_Source_Subselect_Bit;
 		break;
-		
+		/* Gi_Source_Subselect doesn't matter */
 	default:
 		return;
 		break;
@@ -718,6 +751,7 @@ static int ni_tio_set_clock_src(struct ni_gpct *counter,
 	unsigned input_select_bits = 0;
 	static const uint64_t pico_per_nano = 1000;
 
+/*FIXME: validate clock source */
 	switch (counter_dev->variant) {
 	case ni_gpct_variant_660x:
 		input_select_bits |= ni_660x_source_select_bits(clock_source);
@@ -952,7 +986,7 @@ static uint64_t ni_tio_clock_period_ps(const struct ni_gpct *counter,
 		clock_period_ps = 100000;
 		break;
 	default:
-		
+		/* clock period is specified by user with prescaling already taken into account. */
 		return counter->clock_period_ps;
 		break;
 	}
@@ -1005,7 +1039,7 @@ static int ni_660x_set_first_gate(struct ni_gpct *counter,
 				  unsigned int gate_source)
 {
 	const unsigned selected_gate = CR_CHAN(gate_source);
-	
+	/* bits of selected_gate that may be meaningful to input select register */
 	const unsigned selected_gate_mask = 0x1f;
 	unsigned ni_660x_gate_select;
 	unsigned i;
@@ -1053,7 +1087,7 @@ static int ni_m_series_set_first_gate(struct ni_gpct *counter,
 				      unsigned int gate_source)
 {
 	const unsigned selected_gate = CR_CHAN(gate_source);
-	
+	/* bits of selected_gate that may be meaningful to input select register */
 	const unsigned selected_gate_mask = 0x1f;
 	unsigned ni_m_series_gate_select;
 	unsigned i;
@@ -1105,7 +1139,7 @@ static int ni_660x_set_second_gate(struct ni_gpct *counter,
 	const unsigned second_gate_reg =
 	    NITIO_Gi_Second_Gate_Reg(counter->counter_index);
 	const unsigned selected_second_gate = CR_CHAN(gate_source);
-	
+	/* bits of second_gate that may be meaningful to second gate register */
 	static const unsigned selected_second_gate_mask = 0x1f;
 	unsigned ni_660x_second_gate_select;
 	unsigned i;
@@ -1164,10 +1198,12 @@ static int ni_m_series_set_second_gate(struct ni_gpct *counter,
 	const unsigned second_gate_reg =
 	    NITIO_Gi_Second_Gate_Reg(counter->counter_index);
 	const unsigned selected_second_gate = CR_CHAN(gate_source);
-	
+	/* bits of second_gate that may be meaningful to second gate register */
 	static const unsigned selected_second_gate_mask = 0x1f;
 	unsigned ni_m_series_second_gate_select;
 
+	/* FIXME: We don't know what the m-series second gate codes are, so we'll just pass
+	   the bits through for now. */
 	switch (selected_second_gate) {
 	default:
 		ni_m_series_second_gate_select =
@@ -1278,12 +1314,13 @@ static int ni_tio_set_other_src(struct ni_gpct *counter, unsigned index,
 		}
 		mask = 0x1f << shift;
 		if (source > 0x1f) {
-			
+			/* Disable gate */
 			source = 0x1f;
 		}
 		counter_dev->regs[abz_reg] &= ~mask;
 		counter_dev->regs[abz_reg] |= (source << shift) & mask;
 		write_register(counter, counter_dev->regs[abz_reg], abz_reg);
+/* printk("%s %x %d %d\n", __func__, counter_dev->regs[abz_reg], index, source); */
 		return 0;
 	}
 	return -EINVAL;
@@ -1441,6 +1478,8 @@ static unsigned ni_660x_second_gate_to_generic_gate_source(unsigned
 static unsigned ni_m_series_second_gate_to_generic_gate_source(unsigned
 							       ni_m_series_gate_select)
 {
+	/*FIXME: the second gate sources for the m series are undocumented, so we just return
+	 * the raw bits for now. */
 	switch (ni_m_series_gate_select) {
 	default:
 		return ni_m_series_gate_select;
@@ -1528,7 +1567,7 @@ static int ni_tio_get_gate_src(struct ni_gpct *counter, unsigned gate_index,
 		    Gi_Second_Gate_Polarity_Bit) {
 			*gate_source |= CR_INVERT;
 		}
-		
+		/* second gate can't have edge/level mode set independently */
 		if ((mode_bits & Gi_Gating_Mode_Mask) != Gi_Level_Gating_Bits)
 			*gate_source |= CR_EDGE;
 		break;
@@ -1604,6 +1643,11 @@ int ni_tio_rinsn(struct ni_gpct *counter, struct comedi_insn *insn,
 		ni_tio_set_bits(counter,
 				NITIO_Gi_Command_Reg(counter->counter_index),
 				Gi_Save_Trace_Bit, Gi_Save_Trace_Bit);
+		/* The count doesn't get latched until the next clock edge, so it is possible the count
+		   may change (once) while we are reading.  Since the read of the SW_Save_Reg isn't
+		   atomic (apparently even when it's a 32 bit register according to 660x docs),
+		   we need to read twice and make sure the reading hasn't changed.  If it has,
+		   a third read will be correct since the count value will definitely have latched by then. */
 		first_read =
 		    read_register(counter,
 				  NITIO_Gi_SW_Save_Reg(counter->counter_index));
@@ -1658,15 +1702,15 @@ int ni_tio_winsn(struct ni_gpct *counter, struct comedi_insn *insn,
 		return 0;
 	switch (channel) {
 	case 0:
-		
-		
+		/* Unsafe if counter is armed.  Should probably check status and return -EBUSY if armed. */
+		/* Don't disturb load source select, just use whichever load register is already selected. */
 		load_reg = ni_tio_next_load_register(counter);
 		write_register(counter, data[0], load_reg);
 		ni_tio_set_bits_transient(counter,
 					  NITIO_Gi_Command_Reg(counter->
 							       counter_index),
 					  0, 0, Gi_Load_Bit);
-		
+		/* restore state of load reg to whatever the user set last set it to */
 		write_register(counter, counter_dev->regs[load_reg], load_reg);
 		break;
 	case 1:

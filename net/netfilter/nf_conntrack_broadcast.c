@@ -32,7 +32,7 @@ int nf_conntrack_broadcast_help(struct sk_buff *skb,
 	struct nf_conn_help *help = nfct_help(ct);
 	__be32 mask = 0;
 
-	
+	/* we're only interested in locally generated packets */
 	if (skb->sk == NULL)
 		goto out;
 	if (rt == NULL || !(rt->rt_flags & RTCF_BROADCAST))

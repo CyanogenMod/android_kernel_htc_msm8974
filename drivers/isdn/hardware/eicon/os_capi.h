@@ -18,4 +18,4 @@
 #include <linux/isdn/capiutil.h>
 #include <linux/isdn/capilli.h>
 
-#endif 
+#endif /* __OS_CAPI_H__ */

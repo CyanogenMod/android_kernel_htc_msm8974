@@ -15,6 +15,9 @@
 
 extern void restore_current(void);
 
+/* Non blocking put character to console device, returns -1 if
+ * unsuccessful.
+ */
 static int prom_nbputchar(const char *buf)
 {
 	unsigned long flags;
@@ -37,7 +40,7 @@ static int prom_nbputchar(const char *buf)
 	}
 	restore_current();
 	spin_unlock_irqrestore(&prom_lock, flags);
-	return i; 
+	return i; /* Ugh, we could spin forever on unsupported proms ;( */
 }
 
 void prom_console_write_buf(const char *buf, int len)

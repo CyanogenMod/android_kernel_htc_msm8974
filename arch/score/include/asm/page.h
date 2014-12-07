@@ -4,6 +4,7 @@
 #include <linux/pfn.h>
 #include <linux/const.h>
 
+/* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT	(12)
 #define PAGE_SIZE	(_AC(1,UL) << PAGE_SHIFT)
 #define PAGE_MASK	(~(PAGE_SIZE-1))
@@ -15,11 +16,18 @@
 #define PAGE_UP(addr)	(((addr)+((PAGE_SIZE)-1))&(~((PAGE_SIZE)-1)))
 #define PAGE_DOWN(addr)	((addr)&(~((PAGE_SIZE)-1)))
 
+/* align addr on a size boundary - adjust address up/down if needed */
 #define _ALIGN_UP(addr, size)	(((addr)+((size)-1))&(~((size)-1)))
 #define _ALIGN_DOWN(addr, size)	((addr)&(~((size)-1)))
 
+/* align addr on a size boundary - adjust address up if needed */
 #define _ALIGN(addr, size)	_ALIGN_UP(addr, size)
 
+/*
+ * PAGE_OFFSET -- the first address of the first page of memory. When not
+ * using MMU this corresponds to the first free page in physical memory (aligned
+ * on a page boundary).
+ */
 #define PAGE_OFFSET		(0xA0000000UL)
 
 #define clear_page(pgaddr)			memset((pgaddr), 0, PAGE_SIZE)
@@ -29,9 +37,12 @@
 #define copy_user_page(vto, vfrom, vaddr, topg) \
 			memcpy((vto), (vfrom), PAGE_SIZE)
 
+/*
+ * These are used to make use of C type-checking..
+ */
 
-typedef struct { unsigned long pte; } pte_t;		
-typedef struct { unsigned long pgd; } pgd_t;		
+typedef struct { unsigned long pte; } pte_t;		/* page table entry */
+typedef struct { unsigned long pgd; } pgd_t;		/* PGD table entry */
 typedef struct { unsigned long pgprot; } pgprot_t;
 typedef struct page *pgtable_t;
 
@@ -67,11 +78,11 @@ extern unsigned long max_pfn;
 
 #define ARCH_PFN_OFFSET		(PAGE_OFFSET >> PAGE_SHIFT)
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #define virt_addr_valid(vaddr)	(pfn_valid(virt_to_pfn(vaddr)))
 
-#endif 
+#endif /* __KERNEL__ */
 
 #define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
 				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
@@ -79,4 +90,4 @@ extern unsigned long max_pfn;
 #include <asm-generic/memory_model.h>
 #include <asm-generic/getorder.h>
 
-#endif 
+#endif /* _ASM_SCORE_PAGE_H */

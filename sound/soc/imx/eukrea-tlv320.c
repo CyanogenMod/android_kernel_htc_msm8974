@@ -132,7 +132,7 @@ static int __init eukrea_tlv320_init(void)
 			IMX_AUDMUX_V2_PDCR_RXDSEL(int_port)
 		);
 	} else {
-		
+		/* return happy. We might run on a totally different machine */
 		return 0;
 	}
 

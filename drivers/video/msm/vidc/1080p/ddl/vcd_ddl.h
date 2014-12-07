@@ -284,7 +284,12 @@ struct ddl_ltr_encoding_type {
 	bool first_ltr_use_arvd;
 	bool use_ltr_reqd;
 	bool store_for_intraframe_insertion;
-	bool pending_chg_ltr_useframes; 
+	bool pending_chg_ltr_useframes; /* True if
+		 * corresponding driver context of
+		 * out_frame_cnt_to_use_this_ltr
+		 * is pending to be changed with
+		 * client settings
+		 */
 	bool store_ltr0;
 	bool store_ltr1;
 	bool use_ltr0;

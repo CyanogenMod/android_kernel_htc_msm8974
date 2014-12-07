@@ -18,4 +18,4 @@ struct dac_audio_pdata {
 	void (*stop)(struct dac_audio_pdata *pd);
 };
 
-#endif 
+#endif /* __INCLUDE_SH_DAC_AUDIO_H */

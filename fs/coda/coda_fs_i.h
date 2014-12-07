@@ -13,29 +13,40 @@
 #include <linux/spinlock.h>
 #include <linux/coda.h>
 
+/*
+ * coda fs inode data
+ * c_lock protects accesses to c_flags, c_mapcount, c_cached_epoch, c_uid and
+ * c_cached_perm.
+ * vfs_inode is set only when the inode is created and never changes.
+ * c_fid is set when the inode is created and should be considered immutable.
+ */
 struct coda_inode_info {
-	struct CodaFid	   c_fid;	
-	u_short	           c_flags;     
-	unsigned int	   c_mapcount;  
-	unsigned int	   c_cached_epoch; 
-	vuid_t		   c_uid;	
-	unsigned int       c_cached_perm; 
+	struct CodaFid	   c_fid;	/* Coda identifier */
+	u_short	           c_flags;     /* flags (see below) */
+	unsigned int	   c_mapcount;  /* nr of times this inode is mapped */
+	unsigned int	   c_cached_epoch; /* epoch for cached permissions */
+	vuid_t		   c_uid;	/* fsuid for cached permissions */
+	unsigned int       c_cached_perm; /* cached access permissions */
 	spinlock_t	   c_lock;
 	struct inode	   vfs_inode;
 };
 
+/*
+ * coda fs file private data
+ */
 #define CODA_MAGIC 0xC0DAC0DA
 struct coda_file_info {
-	int		   cfi_magic;	  
-	struct file	  *cfi_container; 
-	unsigned int	   cfi_mapcount;  
+	int		   cfi_magic;	  /* magic number */
+	struct file	  *cfi_container; /* container file for this cnode */
+	unsigned int	   cfi_mapcount;  /* nr of times this file is mapped */
 };
 
 #define CODA_FTOC(file) ((struct coda_file_info *)((file)->private_data))
 
-#define C_VATTR       0x1   
-#define C_FLUSH       0x2   
-#define C_DYING       0x4   
+/* flags */
+#define C_VATTR       0x1   /* Validity of vattr in inode */
+#define C_FLUSH       0x2   /* used after a flush */
+#define C_DYING       0x4   /* from venus (which died) */
 #define C_PURGE       0x8
 
 struct inode *coda_cnode_make(struct CodaFid *, struct super_block *);

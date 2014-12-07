@@ -29,13 +29,14 @@
 #include "devices-db8500.h"
 #include "ste-dma40-db8500.h"
 
+/* minimum static i/o mapping required to boot U8500 platforms */
 static struct map_desc u8500_uart_io_desc[] __initdata = {
 	__IO_DEV_DESC(U8500_UART0_BASE, SZ_4K),
 	__IO_DEV_DESC(U8500_UART2_BASE, SZ_4K),
 };
 
 static struct map_desc u8500_io_desc[] __initdata = {
-	
+	/* SCU base also covers GIC CPU BASE and TWD with its 4K page */
 	__IO_DEV_DESC(U8500_SCU_BASE, SZ_4K),
 	__IO_DEV_DESC(U8500_GIC_DIST_BASE, SZ_4K),
 	__IO_DEV_DESC(U8500_L2CC_BASE, SZ_4K),
@@ -58,6 +59,9 @@ static struct map_desc u8500_io_desc[] __initdata = {
 
 void __init u8500_map_io(void)
 {
+	/*
+	 * Map the UARTs early so that the DEBUG_LL stuff continues to work.
+	 */
 	iotable_init(u8500_uart_io_desc, ARRAY_SIZE(u8500_uart_io_desc));
 
 	ux500_map_io();
@@ -75,6 +79,10 @@ static struct resource db8500_pmu_resources[] = {
 	},
 };
 
+/*
+ * The PMU IRQ lines of two cores are wired together into a single interrupt.
+ * Bounce the interrupt to the other core if it's not ours.
+ */
 static irqreturn_t db8500_pmu_handler(int irq, void *dev, irq_handler_t handler)
 {
 	irqreturn_t ret = handler(irq, dev);
@@ -83,6 +91,11 @@ static irqreturn_t db8500_pmu_handler(int irq, void *dev, irq_handler_t handler)
 	if (ret == IRQ_NONE && cpu_online(other))
 		irq_set_affinity(irq, cpumask_of(other));
 
+	/*
+	 * We should be able to get away with the amount of IRQ_NONEs we give,
+	 * while still having the spurious IRQ detection code kick in if the
+	 * interrupt really starts hitting spuriously.
+	 */
 	return ret;
 }
 
@@ -169,6 +182,9 @@ static struct device * __init db8500_soc_device_init(void)
 	return ux500_soc_device_init(soc_id);
 }
 
+/*
+ * This function is called from the board init
+ */
 struct device * __init u8500_init_devices(void)
 {
 	struct device *parent;

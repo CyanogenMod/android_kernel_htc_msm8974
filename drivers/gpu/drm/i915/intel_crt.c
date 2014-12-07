@@ -36,6 +36,7 @@
 #include "i915_drm.h"
 #include "i915_drv.h"
 
+/* Here's the desired hotplug mode */
 #define ADPA_HOTPLUG_BITS (ADPA_CRT_HOTPLUG_PERIOD_128 |		\
 			   ADPA_CRT_HOTPLUG_WARMUP_10MS |		\
 			   ADPA_CRT_HOTPLUG_SAMPLE_4S |			\
@@ -136,6 +137,10 @@ static void intel_crt_mode_set(struct drm_encoder *encoder,
 	else
 		adpa_reg = ADPA;
 
+	/*
+	 * Disable separate mode multiplier used when cloning SDVO to CRT
+	 * XXX this needs to be adjusted when we really are cloning
+	 */
 	if (INTEL_INFO(dev)->gen >= 4 && !HAS_PCH_SPLIT(dev)) {
 		dpll_md = I915_READ(dpll_md_reg);
 		I915_WRITE(dpll_md_reg,
@@ -148,7 +153,7 @@ static void intel_crt_mode_set(struct drm_encoder *encoder,
 	if (adjusted_mode->flags & DRM_MODE_FLAG_PVSYNC)
 		adpa |= ADPA_VSYNC_ACTIVE_HIGH;
 
-	
+	/* For CPT allow 3 pipe config, for others just use A or B */
 	if (HAS_PCH_CPT(dev))
 		adpa |= PORT_TRANS_SEL_CPT(intel_crtc->pipe);
 	else if (intel_crtc->pipe == 0)
@@ -170,7 +175,7 @@ static bool intel_ironlake_crt_detect_hotplug(struct drm_connector *connector)
 	u32 adpa;
 	bool ret;
 
-	
+	/* The first time through, trigger an explicit detection cycle */
 	if (crt->force_hotplug_required) {
 		bool turn_off_dac = HAS_PCH_SPLIT(dev);
 		u32 save_adpa;
@@ -196,7 +201,7 @@ static bool intel_ironlake_crt_detect_hotplug(struct drm_connector *connector)
 		}
 	}
 
-	
+	/* Check the status to see if both blue and green are on now */
 	adpa = I915_READ(PCH_ADPA);
 	if ((adpa & ADPA_CRT_HOTPLUG_MONITOR_MASK) != 0)
 		ret = true;
@@ -207,6 +212,14 @@ static bool intel_ironlake_crt_detect_hotplug(struct drm_connector *connector)
 	return ret;
 }
 
+/**
+ * Uses CRT_HOTPLUG_EN and CRT_HOTPLUG_STAT to detect CRT presence.
+ *
+ * Not for i915G/i915GM
+ *
+ * \return true if CRT is connected.
+ * \return false if CRT is disconnected.
+ */
 static bool intel_crt_detect_hotplug(struct drm_connector *connector)
 {
 	struct drm_device *dev = connector->dev;
@@ -218,6 +231,10 @@ static bool intel_crt_detect_hotplug(struct drm_connector *connector)
 	if (HAS_PCH_SPLIT(dev))
 		return intel_ironlake_crt_detect_hotplug(connector);
 
+	/*
+	 * On 4 series desktop, CRT detect sequence need to be done twice
+	 * to get a reliable result.
+	 */
 
 	if (IS_G4X(dev) && !IS_GM45(dev))
 		tries = 2;
@@ -227,9 +244,9 @@ static bool intel_crt_detect_hotplug(struct drm_connector *connector)
 	hotplug_en |= CRT_HOTPLUG_FORCE_DETECT;
 
 	for (i = 0; i < tries ; i++) {
-		
+		/* turn on the FORCE_DETECT */
 		I915_WRITE(PORT_HOTPLUG_EN, hotplug_en);
-		
+		/* wait for FORCE_DETECT to go off */
 		if (wait_for((I915_READ(PORT_HOTPLUG_EN) &
 			      CRT_HOTPLUG_FORCE_DETECT) == 0,
 			     1000))
@@ -240,10 +257,10 @@ static bool intel_crt_detect_hotplug(struct drm_connector *connector)
 	if ((stat & CRT_HOTPLUG_MONITOR_MASK) != CRT_HOTPLUG_MONITOR_NONE)
 		ret = true;
 
-	
+	/* clear the interrupt we just generated, if any */
 	I915_WRITE(PORT_HOTPLUG_STAT, CRT_HOTPLUG_INT_STATUS);
 
-	
+	/* and put the bits back */
 	I915_WRITE(PORT_HOTPLUG_EN, orig);
 
 	return ret;
@@ -254,7 +271,7 @@ static bool intel_crt_detect_ddc(struct drm_connector *connector)
 	struct intel_crt *crt = intel_attached_crt(connector);
 	struct drm_i915_private *dev_priv = crt->base.base.dev->dev_private;
 
-	
+	/* CRT should always be at 0, but check anyway */
 	if (crt->base.type != INTEL_OUTPUT_ANALOG)
 		return false;
 
@@ -264,6 +281,13 @@ static bool intel_crt_detect_ddc(struct drm_connector *connector)
 
 		edid = drm_get_edid(connector,
 			&dev_priv->gmbus[dev_priv->crt_ddc_pin].adapter);
+		/*
+		 * This may be a DVI-I connector with a shared DDC
+		 * link between analog and digital outputs, so we
+		 * have to check the EDID input spec of the attached device.
+		 *
+		 * On the other hand, what should we do if it is a broken EDID?
+		 */
 		if (edid != NULL) {
 			is_digital = edid->input & DRM_EDID_INPUT_DIGITAL;
 			connector->display_info.raw_edid = NULL;
@@ -321,13 +345,15 @@ intel_crt_load_detect(struct intel_crt *crt)
 	vblank_start = (vblank & 0xfff) + 1;
 	vblank_end = ((vblank >> 16) & 0xfff) + 1;
 
-	
+	/* Set the border color to purple. */
 	I915_WRITE(bclrpat_reg, 0x500050);
 
 	if (!IS_GEN2(dev)) {
 		uint32_t pipeconf = I915_READ(pipeconf_reg);
 		I915_WRITE(pipeconf_reg, pipeconf | PIPECONF_FORCE_BORDER);
 		POSTING_READ(pipeconf_reg);
+		/* Wait for next Vblank to substitue
+		 * border color for Color info */
 		intel_wait_for_vblank(dev, pipe);
 		st00 = I915_READ8(VGA_MSR_WRITE);
 		status = ((st00 & (1 << 4)) != 0) ?
@@ -339,6 +365,10 @@ intel_crt_load_detect(struct intel_crt *crt)
 		bool restore_vblank = false;
 		int count, detect;
 
+		/*
+		* If there isn't any border, add some.
+		* Yes, this will flicker
+		*/
 		if (vblank_start <= vactive && vblank_end >= vtotal) {
 			uint32_t vsync = I915_READ(vsync_reg);
 			uint32_t vsync_start = (vsync & 0xffff) + 1;
@@ -349,35 +379,47 @@ intel_crt_load_detect(struct intel_crt *crt)
 				   ((vblank_end - 1) << 16));
 			restore_vblank = true;
 		}
-		
+		/* sample in the vertical border, selecting the larger one */
 		if (vblank_start - vactive >= vtotal - vblank_end)
 			vsample = (vblank_start + vactive) >> 1;
 		else
 			vsample = (vtotal + vblank_end) >> 1;
 
+		/*
+		 * Wait for the border to be displayed
+		 */
 		while (I915_READ(pipe_dsl_reg) >= vactive)
 			;
 		while ((dsl = I915_READ(pipe_dsl_reg)) <= vsample)
 			;
+		/*
+		 * Watch ST00 for an entire scanline
+		 */
 		detect = 0;
 		count = 0;
 		do {
 			count++;
-			
+			/* Read the ST00 VGA status register */
 			st00 = I915_READ8(VGA_MSR_WRITE);
 			if (st00 & (1 << 4))
 				detect++;
 		} while ((I915_READ(pipe_dsl_reg) == dsl));
 
-		
+		/* restore vblank if necessary */
 		if (restore_vblank)
 			I915_WRITE(vblank_reg, vblank);
+		/*
+		 * If more than 3/4 of the scanline detected a monitor,
+		 * then it is assumed to be present. This works even on i830,
+		 * where there isn't any way to force the border color across
+		 * the screen
+		 */
 		status = detect * 4 > count * 3 ?
 			 connector_status_connected :
 			 connector_status_disconnected;
 	}
 
-	
+	/* Restore previous settings */
 	I915_WRITE(bclrpat_reg, save_bclrpat);
 
 	return status;
@@ -407,7 +449,7 @@ intel_crt_detect(struct drm_connector *connector, bool force)
 	if (!force)
 		return connector->status;
 
-	
+	/* for pre-945g platforms use load detect */
 	if (intel_get_load_detect_pipe(&crt->base, connector, NULL,
 				       &tmp)) {
 		if (intel_crt_detect_ddc(connector))
@@ -440,7 +482,7 @@ static int intel_crt_get_modes(struct drm_connector *connector)
 	if (ret || !IS_G4X(dev))
 		return ret;
 
-	
+	/* Try to probe digital port for output in DVI-I -> VGA mode. */
 	return intel_ddc_get_modes(connector,
 				   &dev_priv->gmbus[GMBUS_PORT_DPB].adapter);
 }
@@ -461,6 +503,9 @@ static void intel_crt_reset(struct drm_connector *connector)
 		crt->force_hotplug_required = 1;
 }
 
+/*
+ * Routines for controlling stuff on the analog port
+ */
 
 static const struct drm_encoder_helper_funcs intel_crt_helper_funcs = {
 	.dpms = intel_crt_dpms,
@@ -514,7 +559,7 @@ void intel_crt_init(struct drm_device *dev)
 	struct intel_connector *intel_connector;
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
-	
+	/* Skip machines without VGA that falsely report hotplug events */
 	if (dmi_check_system(intel_no_crt))
 		return;
 
@@ -558,6 +603,9 @@ void intel_crt_init(struct drm_device *dev)
 	else
 		connector->polled = DRM_CONNECTOR_POLL_CONNECT;
 
+	/*
+	 * Configure the automatic hotplug detection stuff
+	 */
 	crt->force_hotplug_required = 0;
 	if (HAS_PCH_SPLIT(dev)) {
 		u32 adpa;

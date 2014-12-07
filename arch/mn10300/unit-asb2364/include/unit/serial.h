@@ -19,10 +19,21 @@
 
 #define SERIAL_PORT0_BASE_ADDRESS	0xA8200000
 
-#define SERIAL_IRQ	XIRQ1	
+#define SERIAL_IRQ	XIRQ1	/* single serial (TL16C550C)	(Lo) */
 
+/*
+ * The ASB2364 has an 12.288 MHz clock
+ * for your UART.
+ *
+ * It'd be nice if someone built a serial card with a 24.576 MHz
+ * clock, since the 16550A is capable of handling a top speed of 1.5
+ * megabits/second; but this requires the faster clock.
+ */
 #define BASE_BAUD (12288000 / 16)
 
+/*
+ * dispose of the /dev/ttyS0 and /dev/ttyS1 serial ports
+ */
 #ifndef CONFIG_GDBSTUB_ON_TTYSx
 
 #define SERIAL_PORT_DFNS						\
@@ -41,11 +52,11 @@ static inline void __debug_to_serial(const char *p, int n)
 {
 }
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#else 
+#else /* CONFIG_GDBSTUB_ON_TTYSx */
 
-#define SERIAL_PORT_DFNS 
+#define SERIAL_PORT_DFNS /* stolen by gdb-stub */
 
 #if defined(CONFIG_GDBSTUB_ON_TTYS0)
 #define GDBPORT_SERIAL_RX	__SYSREG(SERIAL_PORT0_BASE_ADDRESS + UART_RX  * 2, u8)
@@ -101,13 +112,13 @@ static inline void __debug_to_serial(const char *p, int n)
 	FLOWCTL_CLEAR(DTR);
 }
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* CONFIG_GDBSTUB_ON_TTYSx */
 
 #define SERIAL_INITIALIZE					\
 do {								\
-						\
+	/* release reset */					\
 	ASB2364_FPGA_REG_RESET_UART = 0x0001;			\
 	SyncExBus();						\
 } while (0)
@@ -137,4 +148,4 @@ do {								\
 	SyncExBus();						\
 } while (0)
 
-#endif 
+#endif /* _ASM_UNIT_SERIAL_H */

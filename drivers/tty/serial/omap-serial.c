@@ -44,15 +44,18 @@
 #include <plat/dmtimer.h>
 #include <plat/omap-serial.h>
 
-#define DEFAULT_CLK_SPEED 48000000 
+#define DEFAULT_CLK_SPEED 48000000 /* 48Mhz*/
 
+/* SCR register bitmasks */
 #define OMAP_UART_SCR_RX_TRIG_GRANU1_MASK		(1 << 7)
 
+/* FCR register bitmasks */
 #define OMAP_UART_FCR_RX_FIFO_TRIG_SHIFT		6
 #define OMAP_UART_FCR_RX_FIFO_TRIG_MASK			(0x3 << 6)
 
 static struct uart_omap_port *ui[OMAP_MAX_HSUART_PORTS];
 
+/* Forward declaration of functions */
 static void uart_tx_dma_callback(int lch, u16 ch_status, void *data);
 static void serial_omap_rxdma_poll(unsigned long uart_no);
 static int serial_omap_start_rxdma(struct uart_omap_port *up);
@@ -137,6 +140,10 @@ static void serial_omap_stop_tx(struct uart_port *port)
 
 	if (up->use_dma &&
 		up->uart_dma.tx_dma_channel != OMAP_UART_DMA_CH_FREE) {
+		/*
+		 * Check if dma is still active. If yes do nothing,
+		 * return. Else stop dma
+		 */
 		if (omap_get_dma_active_status(up->uart_dma.tx_dma_channel))
 			return;
 		omap_stop_dma(up->uart_dma.tx_dma_channel);
@@ -188,9 +195,18 @@ static inline void receive_chars(struct uart_omap_port *up,
 		up->port.icount.rx++;
 
 		if (unlikely(lsr & UART_LSR_BRK_ERROR_BITS)) {
+			/*
+			 * For statistics only
+			 */
 			if (lsr & UART_LSR_BI) {
 				lsr &= ~(UART_LSR_FE | UART_LSR_PE);
 				up->port.icount.brk++;
+				/*
+				 * We do the SysRQ and SAK checking
+				 * here because otherwise the break
+				 * may get masked by ignore_status_mask
+				 * or read_status_mask.
+				 */
 				if (uart_handle_break(&up->port))
 					goto ignore_char;
 			} else if (lsr & UART_LSR_PE) {
@@ -202,11 +218,14 @@ static inline void receive_chars(struct uart_omap_port *up,
 			if (lsr & UART_LSR_OE)
 				up->port.icount.overrun++;
 
+			/*
+			 * Mask off conditions which should be ignored.
+			 */
 			lsr &= up->port.read_status_mask;
 
 #ifdef CONFIG_SERIAL_OMAP_CONSOLE
 			if (up->port.line == up->port.cons->index) {
-				
+				/* Recover the break flag from console xmit */
 				lsr |= up->lsr_break_flag;
 			}
 #endif
@@ -311,6 +330,11 @@ static void serial_omap_start_tx(struct uart_port *port)
 				(xmit->tail & (UART_XMIT_SIZE - 1));
 
 	up->uart_dma.tx_buf_size = uart_circ_chars_pending(xmit);
+	/*
+	 * It is a circular buffer. See if the buffer has wounded back.
+	 * If yes it will have to be transferred in two separate dma
+	 * transfers
+	 */
 	if (start + up->uart_dma.tx_buf_size >=
 			up->uart_dma.tx_buf_dma_phys + UART_XMIT_SIZE)
 		up->uart_dma.tx_buf_size =
@@ -327,7 +351,7 @@ static void serial_omap_start_tx(struct uart_port *port)
 				up->uart_dma.tx_buf_size, 1,
 				OMAP_DMA_SYNC_ELEMENT,
 				up->uart_dma.uart_dma_tx, 0);
-	
+	/* FIXME: Cache maintenance needed here? */
 	omap_start_dma(up->uart_dma.tx_dma_channel);
 }
 
@@ -359,6 +383,11 @@ static unsigned int check_modem_status(struct uart_omap_port *up)
 	return status;
 }
 
+/**
+ * serial_omap_irq() - This handles the interrupt from one port
+ * @irq: uart port irq number
+ * @dev_id: uart port info
+ */
 static inline irqreturn_t serial_omap_irq(int irq, void *dev_id)
 {
 	struct uart_omap_port *up = dev_id;
@@ -485,6 +514,9 @@ static int serial_omap_startup(struct uart_port *port)
 	unsigned long flags = 0;
 	int retval;
 
+	/*
+	 * Allocate the IRQ
+	 */
 	retval = request_irq(up->port.irq, serial_omap_irq, up->port.irqflags,
 				up->name, up);
 	if (retval)
@@ -493,18 +525,31 @@ static int serial_omap_startup(struct uart_port *port)
 	dev_dbg(up->port.dev, "serial_omap_startup+%d\n", up->port.line);
 
 	pm_runtime_get_sync(&up->pdev->dev);
+	/*
+	 * Clear the FIFO buffers and disable them.
+	 * (they will be reenabled in set_termios())
+	 */
 	serial_omap_clear_fifos(up);
-	
+	/* For Hardware flow control */
 	serial_out(up, UART_MCR, UART_MCR_RTS);
 
+	/*
+	 * Clear the interrupt registers.
+	 */
 	(void) serial_in(up, UART_LSR);
 	if (serial_in(up, UART_LSR) & UART_LSR_DR)
 		(void) serial_in(up, UART_RX);
 	(void) serial_in(up, UART_IIR);
 	(void) serial_in(up, UART_MSR);
 
+	/*
+	 * Now, initialize the UART
+	 */
 	serial_out(up, UART_LCR, UART_LCR_WLEN8);
 	spin_lock_irqsave(&up->port.lock, flags);
+	/*
+	 * Most PC uarts need OUT2 raised to enable interrupts.
+	 */
 	up->port.mctrl |= TIOCM_OUT2;
 	serial_omap_set_mctrl(&up->port, up->port.mctrl);
 	spin_unlock_irqrestore(&up->port.lock, flags);
@@ -519,15 +564,20 @@ static int serial_omap_startup(struct uart_port *port)
 		init_timer(&(up->uart_dma.rx_timer));
 		up->uart_dma.rx_timer.function = serial_omap_rxdma_poll;
 		up->uart_dma.rx_timer.data = up->port.line;
-		
+		/* Currently the buffer size is 4KB. Can increase it */
 		up->uart_dma.rx_buf = dma_alloc_coherent(NULL,
 			up->uart_dma.rx_buf_size,
 			(dma_addr_t *)&(up->uart_dma.rx_buf_dma_phys), 0);
 	}
+	/*
+	 * Finally, enable interrupts. Note: Modem status interrupts
+	 * are set via set_termios(), which will be occurring imminently
+	 * anyway, so we don't enable them here.
+	 */
 	up->ier = UART_IER_RLSI | UART_IER_RDI;
 	serial_out(up, UART_IER, up->ier);
 
-	
+	/* Enable module level wake up */
 	serial_out(up, UART_OMAP_WER, OMAP_UART_WER_MOD_WKUP);
 
 	pm_runtime_mark_last_busy(&up->pdev->dev);
@@ -544,6 +594,9 @@ static void serial_omap_shutdown(struct uart_port *port)
 	dev_dbg(up->port.dev, "serial_omap_shutdown+%d\n", up->port.line);
 
 	pm_runtime_get_sync(&up->pdev->dev);
+	/*
+	 * Disable interrupts from this port
+	 */
 	up->ier = 0;
 	serial_out(up, UART_IER, 0);
 
@@ -552,9 +605,15 @@ static void serial_omap_shutdown(struct uart_port *port)
 	serial_omap_set_mctrl(&up->port, up->port.mctrl);
 	spin_unlock_irqrestore(&up->port.lock, flags);
 
+	/*
+	 * Disable break condition and FIFOs
+	 */
 	serial_out(up, UART_LCR, serial_in(up, UART_LCR) & ~UART_LCR_SBC);
 	serial_omap_clear_fifos(up);
 
+	/*
+	 * Read data port to reset things, and then free the irq
+	 */
 	if (serial_in(up, UART_LSR) & UART_LSR_DR)
 		(void) serial_in(up, UART_RX);
 	if (up->use_dma) {
@@ -585,12 +644,22 @@ serial_omap_configure_xonxoff
 	serial_out(up, UART_XON1, termios->c_cc[VSTART]);
 	serial_out(up, UART_XOFF1, termios->c_cc[VSTOP]);
 
-	
+	/* clear SW control mode bits */
 	up->efr &= OMAP_UART_SW_CLR;
 
+	/*
+	 * IXON Flag:
+	 * Enable XON/XOFF flow control on output.
+	 * Transmit XON1, XOFF1
+	 */
 	if (termios->c_iflag & IXON)
 		up->efr |= OMAP_UART_SW_TX;
 
+	/*
+	 * IXOFF Flag:
+	 * Enable XON/XOFF flow control on input.
+	 * Receiver compares XON1, XOFF1.
+	 */
 	if (termios->c_iflag & IXOFF)
 		up->efr |= OMAP_UART_SW_RX;
 
@@ -599,12 +668,22 @@ serial_omap_configure_xonxoff
 
 	up->mcr = serial_in(up, UART_MCR);
 
+	/*
+	 * IXANY Flag:
+	 * Enable any character to restart output.
+	 * Operation resumes after receiving any
+	 * character after recognition of the XOFF character
+	 */
 	if (termios->c_iflag & IXANY)
 		up->mcr |= UART_MCR_XONANY;
 
 	serial_out(up, UART_MCR, up->mcr | UART_MCR_TCRTLR);
 	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B);
 	serial_out(up, UART_TI752_TCR, OMAP_UART_TCR_TRIG);
+	/* Enable special char function UARTi.EFR_REG[5] and
+	 * load the new software flow control mode IXON or IXOFF
+	 * and restore the UARTi.EFR_REG[4] ENHANCED_EN value.
+	 */
 	serial_out(up, UART_EFR, up->efr | UART_EFR_SCD);
 	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_A);
 
@@ -653,11 +732,14 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 	if (!(termios->c_cflag & PARODD))
 		cval |= UART_LCR_EPAR;
 
+	/*
+	 * Ask the core to calculate the divisor for us.
+	 */
 
 	baud = uart_get_baud_rate(port, termios, old, 0, port->uartclk/13);
 	quot = serial_omap_get_divisor(port, baud);
 
-	
+	/* calculate wakeup latency constraint */
 	up->calc_latency = (USEC_PER_SEC * up->port.fifosize) / (baud / 8);
 	up->latency = up->calc_latency;
 	schedule_work(&up->qos_work);
@@ -671,9 +753,16 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 	if (up->use_dma)
 		up->fcr |= UART_FCR_DMA_SELECT;
 
+	/*
+	 * Ok, we're now changing the port state. Do it with
+	 * interrupts disabled.
+	 */
 	pm_runtime_get_sync(&up->pdev->dev);
 	spin_lock_irqsave(&up->port.lock, flags);
 
+	/*
+	 * Update the per-port timeout.
+	 */
 	uart_update_timeout(port, termios->c_cflag, baud);
 
 	up->port.read_status_mask = UART_LSR_OE | UART_LSR_THRE | UART_LSR_DR;
@@ -682,28 +771,45 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 	if (termios->c_iflag & (BRKINT | PARMRK))
 		up->port.read_status_mask |= UART_LSR_BI;
 
+	/*
+	 * Characters to ignore
+	 */
 	up->port.ignore_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		up->port.ignore_status_mask |= UART_LSR_PE | UART_LSR_FE;
 	if (termios->c_iflag & IGNBRK) {
 		up->port.ignore_status_mask |= UART_LSR_BI;
+		/*
+		 * If we're ignoring parity and break indicators,
+		 * ignore overruns too (for real raw support).
+		 */
 		if (termios->c_iflag & IGNPAR)
 			up->port.ignore_status_mask |= UART_LSR_OE;
 	}
 
+	/*
+	 * ignore all characters if CREAD is not set
+	 */
 	if ((termios->c_cflag & CREAD) == 0)
 		up->port.ignore_status_mask |= UART_LSR_DR;
 
+	/*
+	 * Modem status interrupts
+	 */
 	up->ier &= ~UART_IER_MSI;
 	if (UART_ENABLE_MS(&up->port, termios->c_cflag))
 		up->ier |= UART_IER_MSI;
 	serial_out(up, UART_IER, up->ier);
-	serial_out(up, UART_LCR, cval);		
+	serial_out(up, UART_LCR, cval);		/* reset DLAB */
 	up->lcr = cval;
 	up->scr = OMAP_UART_SCR_TX_EMPTY;
 
-	
+	/* FIFOs and DMA Settings */
 
+	/* FCR can be changed only when the
+	 * baud clock is not running
+	 * DLL_REG and DLH_REG set to 0.
+	 */
 	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_A);
 	serial_out(up, UART_DLL, 0);
 	serial_out(up, UART_DLM, 0);
@@ -717,7 +823,7 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_A);
 	up->mcr = serial_in(up, UART_MCR);
 	serial_out(up, UART_MCR, up->mcr | UART_MCR_TCRTLR);
-	
+	/* FIFO ENABLE, DMA MODE */
 
 	up->scr |= OMAP_UART_SCR_RX_TRIG_GRANU1_MASK;
 
@@ -725,7 +831,7 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 		serial_out(up, UART_TI752_TLR, 0);
 		up->scr |= UART_FCR_TRIGGER_4;
 	} else {
-		
+		/* Set receive FIFO threshold to 1 byte */
 		up->fcr &= ~OMAP_UART_FCR_RX_FIFO_TRIG_MASK;
 		up->fcr |= (0x1 << OMAP_UART_FCR_RX_FIFO_TRIG_SHIFT);
 	}
@@ -739,7 +845,7 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_A);
 	serial_out(up, UART_MCR, up->mcr);
 
-	
+	/* Protocol, Baud Rate, and Interrupt Settings */
 
 	if (up->errata & UART_ERRATA_i202_MDR1_ACCESS)
 		serial_omap_mdr1_errataset(up, up->mdr1);
@@ -755,8 +861,8 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 	serial_out(up, UART_IER, 0);
 	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B);
 
-	serial_out(up, UART_DLL, up->dll);	
-	serial_out(up, UART_DLM, up->dlh);	
+	serial_out(up, UART_DLL, up->dll);	/* LS of divisor */
+	serial_out(up, UART_DLM, up->dlh);	/* MS of divisor */
 
 	serial_out(up, UART_LCR, 0);
 	serial_out(up, UART_IER, up->ier);
@@ -775,7 +881,7 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 	else
 		serial_out(up, UART_OMAP_MDR1, up->mdr1);
 
-	
+	/* Hardware Flow Control Configuration */
 
 	if (termios->c_cflag & CRTSCTS) {
 		efr |= (UART_EFR_CTS | UART_EFR_RTS);
@@ -789,14 +895,14 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 		serial_out(up, UART_EFR, up->efr | UART_EFR_ECB);
 
 		serial_out(up, UART_TI752_TCR, OMAP_UART_TCR_TRIG);
-		serial_out(up, UART_EFR, efr); 
+		serial_out(up, UART_EFR, efr); /* Enable AUTORTS and AUTOCTS */
 		serial_out(up, UART_LCR, UART_LCR_CONF_MODE_A);
 		serial_out(up, UART_MCR, up->mcr | UART_MCR_RTS);
 		serial_out(up, UART_LCR, cval);
 	}
 
 	serial_omap_set_mctrl(&up->port, up->port.mctrl);
-	
+	/* Software Flow Control Configuration */
 	serial_omap_configure_xonxoff(up, termios);
 
 	spin_unlock_irqrestore(&up->port.lock, flags);
@@ -857,7 +963,7 @@ static void serial_omap_config_port(struct uart_port *port, int flags)
 static int
 serial_omap_verify_port(struct uart_port *port, struct serial_struct *ser)
 {
-	
+	/* we don't want the core code to modify any port params */
 	dev_dbg(port->dev, "serial_omap_verify_port+\n");
 	return -EINVAL;
 }
@@ -877,7 +983,7 @@ static inline void wait_for_xmitr(struct uart_omap_port *up)
 {
 	unsigned int status, tmout = 10000;
 
-	
+	/* Wait up to 10ms for the character(s) to be sent. */
 	do {
 		status = serial_in(up, UART_LSR);
 
@@ -889,7 +995,7 @@ static inline void wait_for_xmitr(struct uart_omap_port *up)
 		udelay(1);
 	} while ((status & BOTH_EMPTY) != BOTH_EMPTY);
 
-	
+	/* Wait up to 1s for flow control if necessary */
 	if (up->port.flags & UPF_CONS_FLOW) {
 		tmout = 1000000;
 		for (tmout = 1000000; tmout; tmout--) {
@@ -931,7 +1037,7 @@ static int serial_omap_poll_get_char(struct uart_port *port)
 	return status;
 }
 
-#endif 
+#endif /* CONFIG_CONSOLE_POLL */
 
 #ifdef CONFIG_SERIAL_OMAP_CONSOLE
 
@@ -966,13 +1072,27 @@ serial_omap_console_write(struct console *co, const char *s,
 	else
 		spin_lock(&up->port.lock);
 
+	/*
+	 * First save the IER then disable the interrupts
+	 */
 	ier = serial_in(up, UART_IER);
 	serial_out(up, UART_IER, 0);
 
 	uart_console_write(&up->port, s, count, serial_omap_console_putchar);
 
+	/*
+	 * Finally, wait for transmitter to become empty
+	 * and restore the IER
+	 */
 	wait_for_xmitr(up);
 	serial_out(up, UART_IER, ier);
+	/*
+	 * The receive handling will happen properly because the
+	 * receive ready bit will still be set; it is not cleared
+	 * on read.  However, modem control will not, we must
+	 * call it if we have saved something in the saved flags
+	 * while processing with interrupts off.
+	 */
 	if (up->msr_saved_flags)
 		check_modem_status(up);
 
@@ -1160,7 +1280,7 @@ static int serial_omap_start_rxdma(struct uart_omap_port *up)
 				up->uart_dma.uart_dma_rx, 0);
 	}
 	up->uart_dma.prev_rx_dma_pos = up->uart_dma.rx_buf_dma_phys;
-	
+	/* FIXME: Cache maintenance needed here? */
 	omap_start_dma(up->uart_dma.rx_dma_channel);
 	mod_timer(&up->uart_dma.rx_timer, jiffies +
 				usecs_to_jiffies(up->uart_dma.rx_poll_rate));
@@ -1178,6 +1298,11 @@ static void serial_omap_continue_tx(struct uart_omap_port *up)
 		return;
 
 	up->uart_dma.tx_buf_size = uart_circ_chars_pending(xmit);
+	/*
+	 * It is a circular buffer. See if the buffer has wounded back.
+	 * If yes it will have to be transferred in two separate dma
+	 * transfers
+	 */
 	if (start + up->uart_dma.tx_buf_size >=
 			up->uart_dma.tx_buf_dma_phys + UART_XMIT_SIZE)
 		up->uart_dma.tx_buf_size =
@@ -1192,7 +1317,7 @@ static void serial_omap_continue_tx(struct uart_omap_port *up)
 				up->uart_dma.tx_buf_size, 1,
 				OMAP_DMA_SYNC_ELEMENT,
 				up->uart_dma.uart_dma_tx, 0);
-	
+	/* FIXME: Cache maintenance needed here? */
 	omap_start_dma(up->uart_dma.tx_dma_channel);
 }
 
@@ -1227,7 +1352,7 @@ static struct omap_uart_port_info *of_get_uart_port_info(struct device *dev)
 
 	omap_up_info = devm_kzalloc(dev, sizeof(*omap_up_info), GFP_KERNEL);
 	if (!omap_up_info)
-		return NULL; 
+		return NULL; /* out of memory */
 
 	of_property_read_u32(dev->of_node, "clock-frequency",
 					 &omap_up_info->uartclk);
@@ -1379,6 +1504,15 @@ static int serial_omap_remove(struct platform_device *dev)
 	return 0;
 }
 
+/*
+ * Work Around for Errata i202 (2430, 3430, 3630, 4430 and 4460)
+ * The access to uart register after MDR1 Access
+ * causes UART to corrupt data.
+ *
+ * Need a delay =
+ * 5 L4 clock cycles + 5 UART functional clock cycle (@48MHz = ~0.2uS)
+ * give 10 times as much
+ */
 static void serial_omap_mdr1_errataset(struct uart_omap_port *up, u8 mdr1)
 {
 	u8 timeout = 255;
@@ -1387,11 +1521,15 @@ static void serial_omap_mdr1_errataset(struct uart_omap_port *up, u8 mdr1)
 	udelay(2);
 	serial_out(up, UART_FCR, up->fcr | UART_FCR_CLEAR_XMIT |
 			UART_FCR_CLEAR_RCVR);
+	/*
+	 * Wait for FIFO to empty: when empty, RX_FIFO_E bit is 0 and
+	 * TX_FIFO_E bit is 1.
+	 */
 	while (UART_LSR_THRE != (serial_in(up, UART_LSR) &
 				(UART_LSR_THRE | UART_LSR_DR))) {
 		timeout--;
 		if (!timeout) {
-			
+			/* Should *never* happen. we warn and carry on */
 			dev_crit(&up->pdev->dev, "Errata i202: timedout %x\n",
 						serial_in(up, UART_LSR));
 			break;
@@ -1408,19 +1546,19 @@ static void serial_omap_restore_context(struct uart_omap_port *up)
 	else
 		serial_out(up, UART_OMAP_MDR1, UART_OMAP_MDR1_DISABLE);
 
-	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B); 
+	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B); /* Config B mode */
 	serial_out(up, UART_EFR, UART_EFR_ECB);
-	serial_out(up, UART_LCR, 0x0); 
+	serial_out(up, UART_LCR, 0x0); /* Operational mode */
 	serial_out(up, UART_IER, 0x0);
-	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B); 
+	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B); /* Config B mode */
 	serial_out(up, UART_DLL, up->dll);
 	serial_out(up, UART_DLM, up->dlh);
-	serial_out(up, UART_LCR, 0x0); 
+	serial_out(up, UART_LCR, 0x0); /* Operational mode */
 	serial_out(up, UART_IER, up->ier);
 	serial_out(up, UART_FCR, up->fcr);
 	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_A);
 	serial_out(up, UART_MCR, up->mcr);
-	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B); 
+	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B); /* Config B mode */
 	serial_out(up, UART_OMAP_SCR, up->scr);
 	serial_out(up, UART_EFR, up->efr);
 	serial_out(up, UART_LCR, up->lcr);
@@ -1456,7 +1594,7 @@ static int serial_omap_runtime_suspend(struct device *dev)
 		}
 	}
 
-	
+	/* Errata i291 */
 	if (up->use_dma && pdata->set_forceidle &&
 			(up->errata & UART_ERRATA_i291_DMA_FORCEIDLE))
 		pdata->set_forceidle(up->pdev);
@@ -1480,7 +1618,7 @@ static int serial_omap_runtime_resume(struct device *dev)
 				serial_omap_restore_context(up);
 		}
 
-		
+		/* Errata i291 */
 		if (up->use_dma && pdata->set_noidle &&
 				(up->errata & UART_ERRATA_i291_DMA_FORCEIDLE))
 			pdata->set_noidle(up->pdev);

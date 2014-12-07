@@ -81,7 +81,7 @@ static int wm8350_gpio_direction_out(struct gpio_chip *chip,
 	if (ret < 0)
 		return ret;
 
-	
+	/* Don't have an atomic direction/value setup */
 	wm8350_gpio_set(chip, offset, value);
 
 	return 0;

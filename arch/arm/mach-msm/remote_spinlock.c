@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2009, 2011-2013 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2009, 2011-2014 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -43,22 +43,30 @@
 		defined(CONFIG_MSM_REMOTE_SPINLOCK_SFPB)
 
 #ifdef CONFIG_MSM_REMOTE_SPINLOCK_DEKKERS
+/*
+ * Use Dekker's algorithm when LDREX/STREX and SWP are unavailable for
+ * shared memory
+ */
 #define CURRENT_MODE_INIT DEKKERS_MODE;
 #endif
 
 #ifdef CONFIG_MSM_REMOTE_SPINLOCK_SWP
+/* Use SWP-based locks when LDREX/STREX are unavailable for shared memory. */
 #define CURRENT_MODE_INIT SWP_MODE;
 #endif
 
 #ifdef CONFIG_MSM_REMOTE_SPINLOCK_LDREX
+/* Use LDREX/STREX for shared memory locking, when available */
 #define CURRENT_MODE_INIT LDREX_MODE;
 #endif
 
 #ifdef CONFIG_MSM_REMOTE_SPINLOCK_SFPB
+/* Use SFPB Hardware Mutex Registers */
 #define CURRENT_MODE_INIT SFPB_MODE;
 #endif
 
 #else
+/* Use DT info to configure with a fallback to LDREX if DT is missing */
 #define CURRENT_MODE_INIT AUTO_MODE;
 #endif
 
@@ -73,12 +81,15 @@ struct spinlock_ops {
 	int (*trylock)(raw_remote_spinlock_t *lock);
 	int (*release)(raw_remote_spinlock_t *lock, uint32_t pid);
 	int (*owner)(raw_remote_spinlock_t *lock);
+	void (*lock_rlock_id)(raw_remote_spinlock_t *lock, uint32_t tid);
+	void (*unlock_rlock)(raw_remote_spinlock_t *lock);
 };
 
 static struct spinlock_ops current_ops;
 
 static int remote_spinlock_init_address(int id, _remote_spinlock_t *lock);
 
+/* dekkers implementation --------------------------------------------------- */
 #define DEK_LOCK_REQUEST		1
 #define DEK_LOCK_YIELD			(!DEK_LOCK_REQUEST)
 #define DEK_YIELD_TURN_SELF		0
@@ -133,8 +144,10 @@ static int __raw_remote_dek_spin_owner(raw_remote_spinlock_t *lock)
 {
 	return -EPERM;
 }
+/* end dekkers implementation ----------------------------------------------- */
 
 #ifndef CONFIG_THUMB2_KERNEL
+/* swp implementation ------------------------------------------------------- */
 static void __raw_remote_swp_spin_lock(raw_remote_spinlock_t *lock)
 {
 	unsigned long tmp;
@@ -184,8 +197,10 @@ static void __raw_remote_swp_spin_unlock(raw_remote_spinlock_t *lock)
 	: "r" (&lock->lock), "r" (0)
 	: "cc");
 }
+/* end swp implementation --------------------------------------------------- */
 #endif
 
+/* ldrex implementation ----------------------------------------------------- */
 static char *ldrex_compatible_string = "qcom,ipc-spinlock-ldrex";
 
 static void __raw_remote_ex_spin_lock(raw_remote_spinlock_t *lock)
@@ -241,7 +256,9 @@ static void __raw_remote_ex_spin_unlock(raw_remote_spinlock_t *lock)
 	: "r" (&lock->lock), "r" (0)
 	: "cc");
 }
+/* end ldrex implementation ------------------------------------------------- */
 
+/* sfpb implementation ------------------------------------------------------ */
 #define SFPB_SPINLOCK_COUNT 8
 #define MSM_SFPB_MUTEX_REG_BASE 0x01200600
 #define MSM_SFPB_MUTEX_REG_SIZE	(33 * 4)
@@ -251,7 +268,7 @@ static void __raw_remote_ex_spin_unlock(raw_remote_spinlock_t *lock)
 static uint32_t lock_count;
 static phys_addr_t reg_base;
 static uint32_t reg_size;
-static uint32_t lock_offset; 
+static uint32_t lock_offset; /* offset into the hardware block before lock 0 */
 static uint32_t lock_size;
 
 static void *hw_mutex_reg_base;
@@ -300,6 +317,13 @@ static void find_and_init_hw_mutex(void)
 
 static int remote_spinlock_init_address_hw(int id, _remote_spinlock_t *lock)
 {
+	/*
+	 * Optimistic locking.  Init only needs to be done once by the first
+	 * caller.  After that, serializing inits between different callers
+	 * is unnecessary.  The second check after the lock ensures init
+	 * wasn't previously completed by someone else before the lock could
+	 * be grabbed.
+	 */
 	if (!hw_mutex_reg_base) {
 		mutex_lock(&hw_map_init_lock);
 		if (!hw_mutex_reg_base)
@@ -343,6 +367,38 @@ static void __raw_remote_sfpb_spin_unlock(raw_remote_spinlock_t *lock)
 	smp_mb();
 }
 
+static void __raw_remote_sfpb_spin_lock_rlock_id(raw_remote_spinlock_t *lock,
+						 uint32_t tid)
+{
+	if (unlikely(!tid)) {
+		pr_err("%s: unsupported rlock tid=0\n", __func__);
+		BUG();
+	}
+
+	do {
+		writel_relaxed(tid, lock);
+		smp_mb();
+	} while (readl_relaxed(lock) != tid);
+}
+
+static void __raw_remote_sfpb_spin_unlock_rlock(raw_remote_spinlock_t *lock)
+{
+	writel_relaxed(0, lock);
+	smp_mb();
+}
+
+/* end sfpb implementation -------------------------------------------------- */
+
+/* common spinlock API ------------------------------------------------------ */
+/**
+ * Release spinlock if it is owned by @pid.
+ *
+ * This is only to be used for situations where the processor owning
+ * the spinlock has crashed and the spinlock must be released.
+ *
+ * @lock: lock structure
+ * @pid: processor ID of processor to release
+ */
 static int __raw_remote_gen_spin_release(raw_remote_spinlock_t *lock,
 		uint32_t pid)
 {
@@ -356,6 +412,14 @@ static int __raw_remote_gen_spin_release(raw_remote_spinlock_t *lock,
 	return ret;
 }
 
+/**
+ * Return owner of the spinlock.
+ *
+ * @lock: pointer to lock structure
+ * @returns: >= 0 owned PID; < 0 for error case
+ *
+ * Used for testing.  PID's are assumed to be 31 bits or less.
+ */
 static int __raw_remote_gen_spin_owner(raw_remote_spinlock_t *lock)
 {
 	rmb();
@@ -417,9 +481,17 @@ static void initialize_ops(void)
 		current_ops.trylock = __raw_remote_sfpb_spin_trylock;
 		current_ops.release = __raw_remote_gen_spin_release;
 		current_ops.owner = __raw_remote_gen_spin_owner;
+		current_ops.lock_rlock_id =
+				__raw_remote_sfpb_spin_lock_rlock_id;
+		current_ops.unlock_rlock = __raw_remote_sfpb_spin_unlock_rlock;
 		is_hw_lock_type = 1;
 		break;
 	case AUTO_MODE:
+		/*
+		 * of_find_compatible_node() returns a valid pointer even if
+		 * the status property is "disabled", so the validity needs
+		 * to be checked
+		 */
 		node = of_find_compatible_node(NULL, NULL,
 						sfpb_compatible_string);
 		if (node && dt_node_is_valid(node)) {
@@ -428,6 +500,10 @@ static void initialize_ops(void)
 			current_ops.trylock = __raw_remote_sfpb_spin_trylock;
 			current_ops.release = __raw_remote_gen_spin_release;
 			current_ops.owner = __raw_remote_gen_spin_owner;
+			current_ops.lock_rlock_id =
+					__raw_remote_sfpb_spin_lock_rlock_id;
+			current_ops.unlock_rlock =
+					__raw_remote_sfpb_spin_unlock_rlock;
 			is_hw_lock_type = 1;
 			break;
 		}
@@ -458,10 +534,23 @@ static void initialize_ops(void)
 	}
 }
 
+/**
+ * Release all spinlocks owned by @pid.
+ *
+ * This is only to be used for situations where the processor owning
+ * spinlocks has crashed and the spinlocks must be released.
+ *
+ * @pid - processor ID of processor to release
+ */
 static void remote_spin_release_all_locks(uint32_t pid, int count)
 {
 	int n;
 	 _remote_spinlock_t lock;
+
+	if (pid >= REMOTE_SPINLOCK_NUM_PID) {
+		pr_err("%s: unsupported PID %d\n", __func__, pid);
+		return;
+	}
 
 	for (n = 0; n < count; ++n) {
 		if (remote_spinlock_init_address(n, &lock) == 0)
@@ -490,14 +579,14 @@ remote_spinlock_dal_init(const char *chunk_name, _remote_spinlock_t *lock)
 
 	dal_smem_end = dal_smem_start + dal_smem_size;
 
-	
+	/* Find first chunk header */
 	cur_header = (struct dal_chunk_header *)
 			(((uint32_t)dal_smem_start + (4095)) & ~4095);
 	*lock = NULL;
 	while (cur_header->size != 0
 		&& ((uint32_t)(cur_header + 1) < (uint32_t)dal_smem_end)) {
 
-		
+		/* Check if chunk name matches */
 		if (!strncmp(cur_header->name, chunk_name,
 						DAL_CHUNK_NAME_LENGTH)) {
 			*lock = (_remote_spinlock_t)&cur_header->lock;
@@ -545,6 +634,13 @@ int _remote_spin_lock_init(remote_spinlock_id_t id, _remote_spinlock_t *lock)
 {
 	BUG_ON(id == NULL);
 
+	/*
+	 * Optimistic locking.  Init only needs to be done once by the first
+	 * caller.  After that, serializing inits between different callers
+	 * is unnecessary.  The second check after the lock ensures init
+	 * wasn't previously completed by someone else before the lock could
+	 * be grabbed.
+	 */
 	if (!current_ops.lock) {
 		mutex_lock(&ops_init_lock);
 		if (!current_ops.lock)
@@ -553,10 +649,10 @@ int _remote_spin_lock_init(remote_spinlock_id_t id, _remote_spinlock_t *lock)
 	}
 
 	if (id[0] == 'D' && id[1] == ':') {
-		
+		/* DAL chunk name starts after "D:" */
 		return remote_spinlock_dal_init(&id[2], lock);
 	} else if (id[0] == 'S' && id[1] == ':') {
-		
+		/* Single-digit lock ID follows "S:" */
 		BUG_ON(id[3] != '\0');
 
 		return remote_spinlock_init_address((((uint8_t)id[2])-'0'),
@@ -566,6 +662,11 @@ int _remote_spin_lock_init(remote_spinlock_id_t id, _remote_spinlock_t *lock)
 	}
 }
 
+/*
+ * lock comes in as a pointer to a pointer to the lock location, so it must
+ * be dereferenced and casted to the right type for the actual lock
+ * implementation functions
+ */
 void _remote_spin_lock(_remote_spinlock_t *lock)
 {
 	if (unlikely(!current_ops.lock))
@@ -606,6 +707,25 @@ int _remote_spin_owner(_remote_spinlock_t *lock)
 }
 EXPORT_SYMBOL(_remote_spin_owner);
 
+void _remote_spin_lock_rlock_id(_remote_spinlock_t *lock, uint32_t tid)
+{
+	if (unlikely(!current_ops.lock_rlock_id))
+		BUG();
+	current_ops.lock_rlock_id((raw_remote_spinlock_t *)(*lock), tid);
+}
+EXPORT_SYMBOL(_remote_spin_lock_rlock_id);
+
+void _remote_spin_unlock_rlock(_remote_spinlock_t *lock)
+{
+	if (unlikely(!current_ops.unlock_rlock))
+		BUG();
+	current_ops.unlock_rlock((raw_remote_spinlock_t *)(*lock));
+}
+EXPORT_SYMBOL(_remote_spin_unlock_rlock);
+
+/* end common spinlock API -------------------------------------------------- */
+
+/* remote mutex implementation ---------------------------------------------- */
 int _remote_mutex_init(struct remote_mutex_id *id, _remote_mutex_t *lock)
 {
 	BUG_ON(id == NULL);
@@ -637,3 +757,4 @@ int _remote_mutex_trylock(_remote_mutex_t *lock)
 	return _remote_spin_trylock(&(lock->r_spinlock));
 }
 EXPORT_SYMBOL(_remote_mutex_trylock);
+/* end remote mutex implementation ------------------------------------------ */

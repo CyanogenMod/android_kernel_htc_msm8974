@@ -16,7 +16,9 @@
  * Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* this file is part of ehci-hcd.c */
 
+/*-------------------------------------------------------------------------*/
 
 /*
  * There's basically three types of memory:
@@ -29,7 +31,9 @@
  * No memory seen by this driver is pageable.
  */
 
+/*-------------------------------------------------------------------------*/
 
+/* Allocate the key transfer structures from the previously allocated pool */
 
 static inline void ehci_qtd_init(struct ehci_hcd *ehci, struct ehci_qtd *qtd,
 				  dma_addr_t dma)
@@ -64,7 +68,7 @@ static void qh_destroy(struct ehci_qh *qh)
 {
 	struct ehci_hcd *ehci = qh->ehci;
 
-	
+	/* clean qtds first, and know this is not linked */
 	if (!list_empty (&qh->qtd_list) || qh->qh_next.ptr) {
 		ehci_dbg (ehci, "unused qh not empty!\n");
 		BUG ();
@@ -91,10 +95,10 @@ static struct ehci_qh *ehci_qh_alloc (struct ehci_hcd *ehci, gfp_t flags)
 	qh->refcount = 1;
 	qh->ehci = ehci;
 	qh->qh_dma = dma;
-	
+	// INIT_LIST_HEAD (&qh->qh_list);
 	INIT_LIST_HEAD (&qh->qtd_list);
 
-	
+	/* dummy td enables safe urb queuing */
 	qh->dummy = ehci_qtd_alloc (ehci, flags);
 	if (qh->dummy == NULL) {
 		ehci_dbg (ehci, "no dummy td\n");
@@ -109,6 +113,7 @@ fail:
 	return NULL;
 }
 
+/* to share a qh (cpu threads, or hc) */
 static inline struct ehci_qh *qh_get (struct ehci_qh *qh)
 {
 	WARN_ON(!qh->refcount);
@@ -122,7 +127,12 @@ static inline void qh_put (struct ehci_qh *qh)
 		qh_destroy(qh);
 }
 
+/*-------------------------------------------------------------------------*/
 
+/* The queue heads and transfer descriptors are managed from pools tied
+ * to each of the "per device" structures.
+ * This is the initialisation and cleanup code.
+ */
 
 static void ehci_mem_cleanup (struct ehci_hcd *ehci)
 {
@@ -135,7 +145,7 @@ static void ehci_mem_cleanup (struct ehci_hcd *ehci)
 		qh_put(ehci->dummy);
 	ehci->dummy = NULL;
 
-	
+	/* DMA consistent memory and pools */
 	if (ehci->qtd_pool)
 		dma_pool_destroy (ehci->qtd_pool);
 	ehci->qtd_pool = NULL;
@@ -159,11 +169,12 @@ static void ehci_mem_cleanup (struct ehci_hcd *ehci)
 			ehci->periodic, ehci->periodic_dma);
 	ehci->periodic = NULL;
 
-	
+	/* shadow periodic table */
 	kfree(ehci->pshadow);
 	ehci->pshadow = NULL;
 }
 
+/* remember to add cleanup code (above) if you add anything here */
 static int ehci_mem_init (struct ehci_hcd *ehci, gfp_t flags)
 {
 	int i;
@@ -171,22 +182,22 @@ static int ehci_mem_init (struct ehci_hcd *ehci, gfp_t flags)
 
 	align = ((ehci->pool_64_bit_align) ? 64 : 32);
 
-	
+	/* QTDs for control/bulk/intr transfers */
 	ehci->qtd_pool = dma_pool_create ("ehci_qtd",
 			ehci_to_hcd(ehci)->self.controller,
 			sizeof (struct ehci_qtd),
-			align ,
-			4096 );
+			align /* byte alignment (for hw parts) */,
+			4096 /* can't cross 4K */);
 	if (!ehci->qtd_pool) {
 		goto fail;
 	}
 
-	
+	/* QHs for control/bulk/intr transfers */
 	ehci->qh_pool = dma_pool_create ("ehci_qh",
 			ehci_to_hcd(ehci)->self.controller,
 			sizeof(struct ehci_qh_hw),
-			align ,
-			4096 );
+			align /* byte alignment (for hw parts) */,
+			4096 /* can't cross 4K */);
 	if (!ehci->qh_pool) {
 		goto fail;
 	}
@@ -195,27 +206,27 @@ static int ehci_mem_init (struct ehci_hcd *ehci, gfp_t flags)
 		goto fail;
 	}
 
-	
+	/* ITD for high speed ISO transfers */
 	ehci->itd_pool = dma_pool_create ("ehci_itd",
 			ehci_to_hcd(ehci)->self.controller,
 			sizeof (struct ehci_itd),
-			32 ,
-			4096 );
+			32 /* byte alignment (for hw parts) */,
+			4096 /* can't cross 4K */);
 	if (!ehci->itd_pool) {
 		goto fail;
 	}
 
-	
+	/* SITD for full/low speed split ISO transfers */
 	ehci->sitd_pool = dma_pool_create ("ehci_sitd",
 			ehci_to_hcd(ehci)->self.controller,
 			sizeof (struct ehci_sitd),
-			32 ,
-			4096 );
+			32 /* byte alignment (for hw parts) */,
+			4096 /* can't cross 4K */);
 	if (!ehci->sitd_pool) {
 		goto fail;
 	}
 
-	
+	/* Hardware periodic table */
 	ehci->periodic = (__le32 *)
 		dma_alloc_coherent (ehci_to_hcd(ehci)->self.controller,
 			ehci->periodic_size * sizeof(__le32),
@@ -244,7 +255,7 @@ static int ehci_mem_init (struct ehci_hcd *ehci, gfp_t flags)
 			ehci->periodic[i] = EHCI_LIST_END(ehci);
 	}
 
-	
+	/* software shadow of hardware table */
 	ehci->pshadow = kcalloc(ehci->periodic_size, sizeof(void *), flags);
 	if (ehci->pshadow != NULL)
 		return 0;

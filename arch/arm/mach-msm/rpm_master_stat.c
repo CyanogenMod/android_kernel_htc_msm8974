@@ -58,7 +58,7 @@ struct msm_rpm_master_stats {
 	uint64_t wakeup_ind;
 	uint64_t bringup_req;
 	uint64_t bringup_ack;
-	uint32_t wakeup_reason; 
+	uint32_t wakeup_reason; /* 0 = rude wakeup, 1 = scheduled wakeup */
 	uint32_t last_sleep_transition_duration;
 	uint32_t last_wake_transition_duration;
 };
@@ -96,7 +96,7 @@ static int msm_rpm_master_copy_stats(
 
 	mutex_lock(&msm_rpm_master_stats_mutex);
 
-	
+	/* Iterate possible number of masters */
 	if (master_cnt > prvdata->num_masters - 1) {
 		master_cnt = 0;
 		mutex_unlock(&msm_rpm_master_stats_mutex);
@@ -328,6 +328,9 @@ static struct msm_rpm_master_stats_platform_data
 		goto err;
 	}
 
+	/*
+	 * Read master names from DT
+	 */
 	for (i = 0; i < pdata->num_masters; i++) {
 		const char *master_name;
 		of_property_read_string_index(node, "qcom,masters",

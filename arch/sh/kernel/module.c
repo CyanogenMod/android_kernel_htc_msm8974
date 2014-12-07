@@ -50,14 +50,21 @@ int apply_relocate_add(Elf32_Shdr *sechdrs,
 	pr_debug("Applying relocate section %u to %u\n", relsec,
 		 sechdrs[relsec].sh_info);
 	for (i = 0; i < sechdrs[relsec].sh_size / sizeof(*rel); i++) {
-		
+		/* This is where to make the change */
 		location = (void *)sechdrs[sechdrs[relsec].sh_info].sh_addr
 			+ rel[i].r_offset;
+		/* This is the symbol it is referring to.  Note that all
+		   undefined symbols have been resolved.  */
 		sym = (Elf32_Sym *)sechdrs[symindex].sh_addr
 			+ ELF32_R_SYM(rel[i].r_info);
 		relocation = sym->st_value + rel[i].r_addend;
 
 #ifdef CONFIG_SUPERH64
+		/* For text addresses, bit2 of the st_other field indicates
+		 * whether the symbol is SHmedia (1) or SHcompact (0).  If
+		 * SHmedia, the LSB of the symbol needs to be asserted
+		 * for the CPU to be in SHmedia mode when it starts executing
+		 * the branch target. */
 		relocation |= !!(sym->st_other & 4);
 #endif
 

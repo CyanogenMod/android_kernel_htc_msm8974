@@ -25,16 +25,16 @@ enum tspp_mode {
 };
 
 enum tspp_tsif_mode {
-	TSPP_TSIF_MODE_LOOPBACK, 
-	TSPP_TSIF_MODE_1,        
-	TSPP_TSIF_MODE_2         
+	TSPP_TSIF_MODE_LOOPBACK, /* loopback mode */
+	TSPP_TSIF_MODE_1,        /* without sync */
+	TSPP_TSIF_MODE_2         /* with sync signal */
 };
 
 struct tspp_filter {
 	int pid;
 	int mask;
 	enum tspp_mode mode;
-	unsigned int priority;	
+	unsigned int priority;	/* 0 - 15 */
 	int decrypt;
 	enum tspp_source source;
 };
@@ -70,6 +70,9 @@ struct tspp_buffer {
 	int size;
 };
 
+/* defines for IOCTL functions */
+/* read Documentation/ioctl-number.txt */
+/* some random number to avoid coinciding with other ioctl numbers */
 #define TSPP_IOCTL_BASE					0xAA
 #define TSPP_IOCTL_SELECT_SOURCE		\
 	_IOW(TSPP_IOCTL_BASE, 0, struct tspp_select_source)
@@ -88,4 +91,4 @@ struct tspp_buffer {
 #define TSPP_IOCTL_CLOSE_STREAM		\
 	_IO(TSPP_IOCTL_BASE, 7)
 
-#endif 
+#endif /* _TSPP_H_ */

@@ -41,6 +41,10 @@ static inline void hw_breakpoint_init(struct perf_event_attr *attr)
 
 	attr->type = PERF_TYPE_BREAKPOINT;
 	attr->size = sizeof(*attr);
+	/*
+	 * As it's for in-kernel or ptrace use, we want it to be pinned
+	 * and to call its callback every hits.
+	 */
 	attr->pinned = 1;
 	attr->sample_period = 1;
 }
@@ -72,9 +76,13 @@ register_user_hw_breakpoint(struct perf_event_attr *attr,
 			    void *context,
 			    struct task_struct *tsk);
 
+/* FIXME: only change from the attr, and don't unregister */
 extern int
 modify_user_hw_breakpoint(struct perf_event *bp, struct perf_event_attr *attr);
 
+/*
+ * Kernel breakpoints are not associated with any particular thread.
+ */
 extern struct perf_event *
 register_wide_hw_breakpoint_cpu(struct perf_event_attr *attr,
 				perf_overflow_handler_t	triggered,
@@ -103,7 +111,7 @@ static inline struct arch_hw_breakpoint *counter_arch_bp(struct perf_event *bp)
 	return &bp->hw.info;
 }
 
-#else 
+#else /* !CONFIG_HAVE_HW_BREAKPOINT */
 
 static inline int __init init_hw_breakpoint(void) { return 0; }
 
@@ -142,7 +150,7 @@ static inline struct arch_hw_breakpoint *counter_arch_bp(struct perf_event *bp)
 	return NULL;
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_HAVE_HW_BREAKPOINT */
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _LINUX_HW_BREAKPOINT_H */

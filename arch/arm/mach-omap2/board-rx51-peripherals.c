@@ -63,10 +63,11 @@
 #define RX51_TSC2005_RESET_GPIO         104
 #define RX51_TSC2005_IRQ_GPIO           100
 
+/* list all spi devices here */
 enum {
 	RX51_SPI_WL1251,
-	RX51_SPI_MIPID,		
-	RX51_SPI_TSC2005,	
+	RX51_SPI_MIPID,		/* LCD panel */
+	RX51_SPI_TSC2005,	/* Touch Controller */
 };
 
 static struct wl12xx_platform_data wl1251_pdata;
@@ -277,9 +278,13 @@ static void __init rx51_add_gpio_keys(void)
 static void __init rx51_add_gpio_keys(void)
 {
 }
-#endif 
+#endif /* CONFIG_KEYBOARD_GPIO || CONFIG_KEYBOARD_GPIO_MODULE */
 
 static uint32_t board_keymap[] = {
+	/*
+	 * Note that KEY(x, 8, KEY_XXX) entries represent "entrire row
+	 * connected to the ground" matrix state.
+	 */
 	KEY(0, 0, KEY_Q),
 	KEY(0, 1, KEY_O),
 	KEY(0, 2, KEY_P),
@@ -345,6 +350,7 @@ static struct twl4030_keypad_data rx51_kp_data = {
 	.rep		= 1,
 };
 
+/* Enable input logic and pull all lines up when eMMC is on. */
 static struct omap_board_mux rx51_mmc2_on_mux[] = {
 	OMAP3_MUX(SDMMC2_CMD, OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0),
 	OMAP3_MUX(SDMMC2_DAT0, OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0),
@@ -358,6 +364,7 @@ static struct omap_board_mux rx51_mmc2_on_mux[] = {
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
 
+/* Disable input logic and pull all lines down when eMMC is off. */
 static struct omap_board_mux rx51_mmc2_off_mux[] = {
 	OMAP3_MUX(SDMMC2_CMD, OMAP_PULL_ENA | OMAP_MUX_MODE0),
 	OMAP3_MUX(SDMMC2_DAT0, OMAP_PULL_ENA | OMAP_MUX_MODE0),
@@ -373,6 +380,10 @@ static struct omap_board_mux rx51_mmc2_off_mux[] = {
 
 static struct omap_mux_partition *partition;
 
+/*
+ * Current flows to eMMC when eMMC is off and the data lines are pulled up,
+ * so pull them down. N.B. we pull 8 lines because we are using 8 lines.
+ */
 static void rx51_mmc2_remux(struct device *dev, int slot, int power_on)
 {
 	if (power_on)
@@ -395,14 +406,14 @@ static struct omap2_hsmmc_info mmc[] __initdata = {
 		.name		= "internal",
 		.mmc		= 2,
 		.caps		= MMC_CAP_4_BIT_DATA | MMC_CAP_8_BIT_DATA,
-						
+						/* See also rx51_mmc2_remux */
 		.gpio_cd	= -EINVAL,
 		.gpio_wp	= -EINVAL,
 		.nonremovable	= true,
 		.power_saving	= true,
 		.remux		= rx51_mmc2_remux,
 	},
-	{}	
+	{}	/* Terminator */
 };
 
 static struct regulator_consumer_supply rx51_vmmc1_supply[] = {
@@ -422,30 +433,30 @@ static struct regulator_consumer_supply rx51_vsim_supply[] = {
 };
 
 static struct regulator_consumer_supply rx51_vmmc2_supplies[] = {
-	
+	/* tlv320aic3x analog supplies */
 	REGULATOR_SUPPLY("AVDD", "2-0018"),
 	REGULATOR_SUPPLY("DRVDD", "2-0018"),
 	REGULATOR_SUPPLY("AVDD", "2-0019"),
 	REGULATOR_SUPPLY("DRVDD", "2-0019"),
-	
+	/* tpa6130a2 */
 	REGULATOR_SUPPLY("Vdd", "2-0060"),
-	
+	/* Keep vmmc as last item. It is not iterated for newer boards */
 	REGULATOR_SUPPLY("vmmc", "omap_hsmmc.1"),
 };
 
 static struct regulator_consumer_supply rx51_vio_supplies[] = {
-	
+	/* tlv320aic3x digital supplies */
 	REGULATOR_SUPPLY("IOVDD", "2-0018"),
 	REGULATOR_SUPPLY("DVDD", "2-0018"),
 	REGULATOR_SUPPLY("IOVDD", "2-0019"),
 	REGULATOR_SUPPLY("DVDD", "2-0019"),
-	
+	/* Si4713 IO supply */
 	REGULATOR_SUPPLY("vio", "2-0063"),
 };
 
 static struct regulator_consumer_supply rx51_vaux1_consumers[] = {
 	REGULATOR_SUPPLY("vdds_sdi", "omapdss"),
-	
+	/* Si4713 supply */
 	REGULATOR_SUPPLY("vdd", "2-0063"),
 };
 
@@ -454,7 +465,7 @@ static struct regulator_init_data rx51_vaux1 = {
 		.name			= "V28",
 		.min_uV			= 2800000,
 		.max_uV			= 2800000,
-		.always_on		= true, 
+		.always_on		= true, /* due battery cover sensor */
 		.valid_modes_mask	= REGULATOR_MODE_NORMAL
 					| REGULATOR_MODE_STANDBY,
 		.valid_ops_mask		= REGULATOR_CHANGE_MODE
@@ -478,6 +489,7 @@ static struct regulator_init_data rx51_vaux2 = {
 	.consumer_supplies	= rx51_vaux2_supply,
 };
 
+/* VAUX3 - adds more power to VIO_18 rail */
 static struct regulator_init_data rx51_vaux3_cam = {
 	.constraints = {
 		.name			= "VCAM_DIG_18",
@@ -539,7 +551,7 @@ static struct regulator_init_data rx51_vmmc2 = {
 		.name			= "V28_A",
 		.min_uV			= 2800000,
 		.max_uV			= 3000000,
-		.always_on		= true, 
+		.always_on		= true, /* due VIO leak to AIC34 VDDs */
 		.apply_uV		= true,
 		.valid_modes_mask	= REGULATOR_MODE_NORMAL
 					| REGULATOR_MODE_STANDBY,
@@ -680,7 +692,7 @@ static __init void rx51_init_si4713(void)
 
 static int rx51_twlgpio_setup(struct device *dev, unsigned gpio, unsigned n)
 {
-	
+	/* FIXME this gpio setup is just a placeholder for now */
 	gpio_request_one(gpio + 6, GPIOF_OUT_INIT_LOW, "backlight_pwm");
 	gpio_request_one(gpio + 7, GPIOF_OUT_INIT_LOW, "speaker_en");
 
@@ -700,6 +712,9 @@ static struct twl4030_gpio_platform_data rx51_gpio_data = {
 };
 
 static struct twl4030_ins sleep_on_seq[] __initdata = {
+/*
+ * Turn off everything
+ */
 	{MSG_BROADCAST(DEV_GRP_NULL, RES_GRP_ALL, 1, 0, RES_STATE_SLEEP), 2},
 };
 
@@ -710,6 +725,9 @@ static struct twl4030_script sleep_on_script __initdata = {
 };
 
 static struct twl4030_ins wakeup_seq[] __initdata = {
+/*
+ * Reenable everything
+ */
 	{MSG_BROADCAST(DEV_GRP_NULL, RES_GRP_ALL, 1, 0, RES_STATE_ACTIVE), 2},
 };
 
@@ -720,6 +738,9 @@ static struct twl4030_script wakeup_script __initdata = {
 };
 
 static struct twl4030_ins wakeup_p3_seq[] __initdata = {
+/*
+ * Reenable everything
+ */
 	{MSG_BROADCAST(DEV_GRP_NULL, RES_GRP_ALL, 1, 0, RES_STATE_ACTIVE), 2},
 };
 
@@ -730,6 +751,14 @@ static struct twl4030_script wakeup_p3_script __initdata = {
 };
 
 static struct twl4030_ins wrst_seq[] __initdata = {
+/*
+ * Reset twl4030.
+ * Reset VDD1 regulator.
+ * Reset VDD2 regulator.
+ * Reset VPLL1 regulator.
+ * Enable sysclk output.
+ * Reenable twl4030.
+ */
 	{MSG_SINGULAR(DEV_GRP_NULL, RES_RESET, RES_STATE_OFF), 2},
 	{MSG_BROADCAST(DEV_GRP_NULL, RES_GRP_ALL, 0, 1, RES_STATE_ACTIVE),
 		0x13},
@@ -748,6 +777,10 @@ static struct twl4030_script wrst_script __initdata = {
 };
 
 static struct twl4030_script *twl4030_scripts[] __initdata = {
+	/* wakeup12 script should be loaded before sleep script, otherwise a
+	   board might hit retention before loading of wakeup script is
+	   completed. This can cause boot failures depending on timing issues.
+	*/
 	&wakeup_script,
 	&sleep_on_script,
 	&wakeup_p3_script,
@@ -849,7 +882,7 @@ struct twl4030_audio_data rx51_audio_data __initdata = {
 };
 
 static struct twl4030_platform_data rx51_twldata __initdata = {
-	
+	/* platform_data for children goes here */
 	.gpio			= &rx51_gpio_data,
 	.keypad			= &rx51_kp_data,
 	.power			= &rx51_t2scripts_data,
@@ -872,6 +905,7 @@ static struct tpa6130a2_platform_data rx51_tpa6130a2_data __initdata_or_module =
 	.power_gpio		= 98,
 };
 
+/* Audio setup data */
 static struct aic3x_setup_data rx51_aic34_setup = {
 	.gpio_func[0] = AIC3X_GPIO1_FUNC_DISABLED,
 	.gpio_func[1] = AIC3X_GPIO2_FUNC_DIGITAL_MIC_INPUT,
@@ -921,7 +955,7 @@ static int __init rx51_i2c_init(void)
 	if ((system_rev >= SYSTEM_REV_S_USES_VAUX3 && system_rev < 0x100) ||
 	    system_rev >= SYSTEM_REV_B_USES_VAUX3) {
 		rx51_twldata.vaux3 = &rx51_vaux3_mmc;
-		
+		/* Only older boards use VMMC2 for internal MMC */
 		rx51_vmmc2.num_consumer_supplies--;
 	} else {
 		rx51_twldata.vaux3 = &rx51_vaux3_cam;
@@ -949,7 +983,7 @@ static struct mtd_partition onenand_partitions[] = {
 		.name           = "bootloader",
 		.offset         = 0,
 		.size           = 0x20000,
-		.mask_flags     = MTD_WRITEABLE,	
+		.mask_flags     = MTD_WRITEABLE,	/* Force read-only */
 	},
 	{
 		.name           = "config",
@@ -1051,6 +1085,10 @@ error:
 	printk(KERN_ERR "wl1251 board initialisation failed\n");
 	wl1251_pdata.set_power = NULL;
 
+	/*
+	 * Now rx51_peripherals_spi_board_info[1].irq is zero and
+	 * set_power is null, and wl1251_probe() will fail.
+	 */
 }
 
 static struct tsc2005_platform_data tsc2005_pdata = {

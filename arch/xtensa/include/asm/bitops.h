@@ -41,36 +41,59 @@ static inline unsigned long __cntlz (unsigned long x)
 	return lz;
 }
 
+/*
+ * ffz: Find first zero in word. Undefined if no zero exists.
+ * bit 0 is the LSB of addr; bit 32 is the LSB of (addr+1).
+ */
 
 static inline int ffz(unsigned long x)
 {
 	return 31 - __cntlz(~x & -~x);
 }
 
+/*
+ * __ffs: Find first bit set in word. Return 0 for bit 0
+ */
 
 static inline int __ffs(unsigned long x)
 {
 	return 31 - __cntlz(x & -x);
 }
 
+/*
+ * ffs: Find first bit set in word. This is defined the same way as
+ * the libc and compiler builtin ffs routines, therefore
+ * differs in spirit from the above ffz (man ffs).
+ */
 
 static inline int ffs(unsigned long x)
 {
 	return 32 - __cntlz(x & -x);
 }
 
+/*
+ * fls: Find last (most-significant) bit set in word.
+ * Note fls(0) = 0, fls(1) = 1, fls(0x80000000) = 32.
+ */
 
 static inline int fls (unsigned int x)
 {
 	return 32 - __cntlz(x);
 }
 
+/**
+ * __fls - find last (most-significant) set bit in a long word
+ * @word: the word to search
+ *
+ * Undefined if no set bit exists, so code should check against 0 first.
+ */
 static inline unsigned long __fls(unsigned long word)
 {
 	return 31 - __cntlz(word);
 }
 #else
 
+/* Use the generic implementation if we don't have the nsa/nsau instructions. */
 
 # include <asm-generic/bitops/ffs.h>
 # include <asm-generic/bitops/__ffs.h>
@@ -90,6 +113,6 @@ static inline unsigned long __fls(unsigned long word)
 #include <asm-generic/bitops/lock.h>
 #include <asm-generic/bitops/sched.h>
 
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif	
+#endif	/* _XTENSA_BITOPS_H */

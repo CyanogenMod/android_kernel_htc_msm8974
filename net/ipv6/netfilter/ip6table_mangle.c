@@ -39,7 +39,7 @@ ip6t_mangle_out(struct sk_buff *skb, const struct net_device *out)
 	u_int32_t flowlabel, mark;
 
 #if 0
-	
+	/* root is playing with raw sockets. */
 	if (skb->len < sizeof(struct iphdr) ||
 	    ip_hdrlen(skb) < sizeof(struct iphdr)) {
 		if (net_ratelimit())
@@ -48,13 +48,13 @@ ip6t_mangle_out(struct sk_buff *skb, const struct net_device *out)
 	}
 #endif
 
-	
+	/* save source/dest address, mark, hoplimit, flowlabel, priority,  */
 	memcpy(&saddr, &ipv6_hdr(skb)->saddr, sizeof(saddr));
 	memcpy(&daddr, &ipv6_hdr(skb)->daddr, sizeof(daddr));
 	mark = skb->mark;
 	hop_limit = ipv6_hdr(skb)->hop_limit;
 
-	
+	/* flowlabel and prio (includes version, which shouldn't change either */
 	flowlabel = *((u_int32_t *)ipv6_hdr(skb));
 
 	ret = ip6t_do_table(skb, NF_INET_LOCAL_OUT, NULL, out,
@@ -71,6 +71,7 @@ ip6t_mangle_out(struct sk_buff *skb, const struct net_device *out)
 	return ret;
 }
 
+/* The work comes in here from netfilter.c. */
 static unsigned int
 ip6table_mangle_hook(unsigned int hook, struct sk_buff *skb,
 		     const struct net_device *in, const struct net_device *out,
@@ -81,7 +82,7 @@ ip6table_mangle_hook(unsigned int hook, struct sk_buff *skb,
 	if (hook == NF_INET_POST_ROUTING)
 		return ip6t_do_table(skb, hook, in, out,
 				     dev_net(out)->ipv6.ip6table_mangle);
-	
+	/* INPUT/FORWARD */
 	return ip6t_do_table(skb, hook, in, out,
 			     dev_net(in)->ipv6.ip6table_mangle);
 }
@@ -120,7 +121,7 @@ static int __init ip6table_mangle_init(void)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Register hooks */
 	mangle_ops = xt_hook_link(&packet_mangler, ip6table_mangle_hook);
 	if (IS_ERR(mangle_ops)) {
 		ret = PTR_ERR(mangle_ops);

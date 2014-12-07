@@ -29,6 +29,7 @@
 
 MODULE_LICENSE("GPL");
 
+/* Used for local tracking of the CAIF net devices */
 struct caif_device_entry {
 	struct cflayer layer;
 	struct list_head list;
@@ -42,7 +43,7 @@ struct caif_device_entry {
 
 struct caif_device_entry_list {
 	struct list_head list;
-	
+	/* Protects simulanous deletes in list */
 	struct mutex lock;
 };
 
@@ -52,7 +53,7 @@ struct caif_net {
 };
 
 static int caif_net_id;
-static int q_high = 50; 
+static int q_high = 50; /* Percent */
 
 struct cfcnfg *get_cfcnfg(struct net *net)
 {
@@ -87,6 +88,7 @@ static int caifd_refcnt_read(struct caif_device_entry *e)
 	return refcnt;
 }
 
+/* Allocate new CAIF device. */
 static struct caif_device_entry *caif_device_alloc(struct net_device *dev)
 {
 	struct caif_device_entry_list *caifdevs;
@@ -172,7 +174,7 @@ static int transmit(struct cflayer *layer, struct cfpkt *pkt)
 	skb_reset_network_header(skb);
 	skb->protocol = htons(ETH_P_CAIF);
 
-	
+	/* Check if we need to handle xoff */
 	if (likely(caifd->netdev->tx_queue_len == 0))
 		goto noxoff;
 
@@ -180,7 +182,7 @@ static int transmit(struct cflayer *layer, struct cfpkt *pkt)
 		goto noxoff;
 
 	if (likely(!netif_queue_stopped(caifd->netdev))) {
-		
+		/* If we run with a TX queue, check if the queue is too long*/
 		txq = netdev_get_tx_queue(skb->dev, 0);
 		qlen = qdisc_qlen(rcu_dereference_bh(txq->qdisc));
 
@@ -192,13 +194,19 @@ static int transmit(struct cflayer *layer, struct cfpkt *pkt)
 			goto noxoff;
 	}
 
-	
+	/* Hold lock while accessing xoff */
 	spin_lock_bh(&caifd->flow_lock);
 	if (caifd->xoff) {
 		spin_unlock_bh(&caifd->flow_lock);
 		goto noxoff;
 	}
 
+	/*
+	 * Handle flow off, we do this by temporary hi-jacking this
+	 * skb's destructor function, and replace it with our own
+	 * flow-on callback. The callback will set flow-on and call
+	 * the original destructor.
+	 */
 
 	pr_debug("queue has stopped(%d) or is full (%d > %d)\n",
 			netif_queue_stopped(caifd->netdev),
@@ -222,6 +230,10 @@ noxoff:
 	return err;
 }
 
+/*
+ * Stuff received packets into the CAIF stack.
+ * On error, returns non-zero and releases the skb.
+ */
 static int receive(struct sk_buff *skb, struct net_device *dev,
 		   struct packet_type *pkttype, struct net_device *orig_dev)
 {
@@ -241,17 +253,17 @@ static int receive(struct sk_buff *skb, struct net_device *dev,
 		return NET_RX_DROP;
 	}
 
-	
+	/* Hold reference to netdevice while using CAIF stack */
 	caifd_hold(caifd);
 	rcu_read_unlock();
 
 	err = caifd->layer.up->receive(caifd->layer.up, pkt);
 
-	
+	/* For -EILSEQ the packet is not freed so so it now */
 	if (err == -EILSEQ)
 		cfpkt_destroy(pkt);
 
-	
+	/* Release reference to stack upwards */
 	caifd_put(caifd);
 
 	if (err != 0)
@@ -336,6 +348,7 @@ void caif_enroll_dev(struct net_device *dev, struct caif_dev_common *caifdev,
 }
 EXPORT_SYMBOL(caif_enroll_dev);
 
+/* notify Caif of device events */
 static int caif_device_notify(struct notifier_block *me, unsigned long what,
 			      void *arg)
 {
@@ -410,6 +423,13 @@ static int caif_device_notify(struct notifier_block *me, unsigned long what,
 
 		spin_lock_bh(&caifd->flow_lock);
 
+		/*
+		 * Replace our xoff-destructor with original destructor.
+		 * We trust that skb->destructor *always* is called before
+		 * the skb reference is invalid. The hijacked SKB destructor
+		 * takes the flow_lock so manipulating the skb->destructor here
+		 * should be safe.
+		*/
 		if (caifd->xoff_skb_dtor != NULL && caifd->xoff_skb != NULL)
 			caifd->xoff_skb->destructor = caifd->xoff_skb_dtor;
 
@@ -431,12 +451,23 @@ static int caif_device_notify(struct notifier_block *me, unsigned long what,
 		}
 		list_del_rcu(&caifd->list);
 
+		/*
+		 * NETDEV_UNREGISTER is called repeatedly until all reference
+		 * counts for the net-device are released. If references to
+		 * caifd is taken, simply ignore NETDEV_UNREGISTER and wait for
+		 * the next call to NETDEV_UNREGISTER.
+		 *
+		 * If any packets are in flight down the CAIF Stack,
+		 * cfcnfg_del_phy_layer will return nonzero.
+		 * If no packets are in flight, the CAIF Stack associated
+		 * with the net-device un-registering is freed.
+		 */
 
 		if (caifd_refcnt_read(caifd) != 0 ||
 			cfcnfg_del_phy_layer(cfg, &caifd->layer) != 0) {
 
 			pr_info("Wait for device inuse\n");
-			
+			/* Enrole device if CAIF Stack is still in use */
 			list_add_rcu(&caifd->list, &caifdevs->list);
 			mutex_unlock(&caifdevs->lock);
 			break;
@@ -458,6 +489,7 @@ static struct notifier_block caif_device_notifier = {
 	.priority = 0,
 };
 
+/* Per-namespace Caif devices handling */
 static int caif_init_net(struct net *net)
 {
 	struct caif_net *caifn = net_generic(net, caif_net_id);
@@ -512,6 +544,7 @@ static struct pernet_operations caif_net_ops = {
 	.size = sizeof(struct caif_net),
 };
 
+/* Initialize Caif devices list */
 static int __init caif_device_init(void)
 {
 	int result;

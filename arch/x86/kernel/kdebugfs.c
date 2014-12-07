@@ -193,7 +193,7 @@ err_dir:
 	debugfs_remove(dbp);
 	return error;
 }
-#endif 
+#endif /* CONFIG_DEBUG_BOOT_PARAMS */
 
 static int __init arch_kdebugfs_init(void)
 {

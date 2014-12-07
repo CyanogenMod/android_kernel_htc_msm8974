@@ -28,9 +28,11 @@
 #define	DRIVER_AUTHOR	"ST-ERICSSON	  "
 #define	DRIVER_DESC	"ISP1763 bus driver"
 
+/* Driver tuning, per ST-ERICSSON requirements:	*/
 
-#define	MEM_TO_CHECK		4096	
+#define	MEM_TO_CHECK		4096	/*bytes, must be multiple of 2 */
 
+/* BIT defines */
 #define	BIT0	(1 << 0)
 #define	BIT1	(1 << 1)
 #define	BIT2	(1 << 2)
@@ -63,14 +65,21 @@
 #define	BIT30	(1 << 30)
 #define	BIT31	(1 << 31)
 
+/* Definitions Related to Chip Address and CPU Physical	Address
+ * cpu_phy_add:	CPU Physical Address , it uses 32 bit data per address
+ * chip_add   :	Chip Address, it uses double word(64) bit data per address
+ */
 #define	chip_add(cpu_phy_add)		(((cpu_phy_add)	- 0x400) / 8)
 #define	cpu_phy_add(chip_add)		((8 * (chip_add)) + 0x400)
 
+/* for getting end add,	and start add, provided	we have	one address with us */
+/* IMPORTANT length  hex(base16) and dec(base10) works fine*/
 #define	end_add(start_add, length)	(start_add + (length - 4))
 #define	start_add(end_add, length)	(end_add - (length - 4))
 
+/* Device Registers*/
 #define	DEV_UNLOCK_REGISTER		0x7C
 #define	DEV_INTERRUPT_REGISTER		0x18
 #define	INT_ENABLE_REGISTER		0x14
 
-#endif 
+#endif /*_HAL_X86_H_ */

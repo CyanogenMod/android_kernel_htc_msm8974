@@ -30,13 +30,13 @@ struct egpio_chip {
 struct egpio_info {
 	spinlock_t        lock;
 
-	
+	/* iomem info */
 	void __iomem      *base_addr;
-	int               bus_shift;	
-	int               reg_shift;	
+	int               bus_shift;	/* byte shift */
+	int               reg_shift;	/* bit shift */
 	int               reg_mask;
 
-	
+	/* irq info */
 	int               ack_register;
 	int               ack_write;
 	u16               irqs_enabled;
@@ -44,7 +44,7 @@ struct egpio_info {
 	int               nirqs;
 	uint              chained_irq;
 
-	
+	/* egpio info */
 	struct egpio_chip *chip;
 	int               nchips;
 };
@@ -59,6 +59,9 @@ static inline u16 egpio_readw(struct egpio_info *ei, int reg)
 	return readw(ei->base_addr + (reg << ei->bus_shift));
 }
 
+/*
+ * IRQs
+ */
 
 static inline void ack_irqs(struct egpio_info *ei)
 {
@@ -71,6 +74,9 @@ static void egpio_ack(struct irq_data *data)
 {
 }
 
+/* There does not appear to be a way to proactively mask interrupts
+ * on the egpio chip itself.  So, we simply ignore interrupts that
+ * aren't desired. */
 static void egpio_mask(struct irq_data *data)
 {
 	struct egpio_info *ei = irq_data_get_irq_chip_data(data);
@@ -97,15 +103,15 @@ static void egpio_handler(unsigned int irq, struct irq_desc *desc)
 	struct egpio_info *ei = irq_desc_get_handler_data(desc);
 	int irqpin;
 
-	
+	/* Read current pins. */
 	unsigned long readval = egpio_readw(ei, ei->ack_register);
 	pr_debug("IRQ reg: %x\n", (unsigned int)readval);
-	
+	/* Ack/unmask interrupts. */
 	ack_irqs(ei);
-	
+	/* Process all set pins. */
 	readval &= ei->irqs_enabled;
 	for_each_set_bit(irqpin, &readval, ei->nirqs) {
-		
+		/* Run irq handler */
 		pr_debug("got IRQ %d\n", irqpin);
 		generic_handle_irq(ei->irq_start + irqpin);
 	}
@@ -115,11 +121,11 @@ int htc_egpio_get_wakeup_irq(struct device *dev)
 {
 	struct egpio_info *ei = dev_get_drvdata(dev);
 
-	
+	/* Read current pins. */
 	u16 readval = egpio_readw(ei, ei->ack_register);
-	
+	/* Ack/unmask interrupts. */
 	ack_irqs(ei);
-	
+	/* Return first set pin. */
 	readval &= ei->irqs_enabled;
 	return ei->irq_start + ffs(readval) - 1;
 }
@@ -135,6 +141,9 @@ static inline int egpio_bit(struct egpio_info *ei, int bit)
 	return 1 << (bit & ((1 << ei->reg_shift)-1));
 }
 
+/*
+ * Input pins
+ */
 
 static int egpio_get(struct gpio_chip *chip, unsigned offset)
 {
@@ -166,6 +175,9 @@ static int egpio_direction_input(struct gpio_chip *chip, unsigned offset)
 }
 
 
+/*
+ * Output pins
+ */
 
 static void egpio_set(struct gpio_chip *chip, unsigned offset, int value)
 {
@@ -243,6 +255,9 @@ static void egpio_write_cache(struct egpio_info *ei)
 }
 
 
+/*
+ * Setup
+ */
 
 static int __init egpio_probe(struct platform_device *pdev)
 {
@@ -254,20 +269,20 @@ static int __init egpio_probe(struct platform_device *pdev)
 	int               i;
 	int               ret;
 
-	
+	/* Initialize ei data structure. */
 	ei = kzalloc(sizeof(*ei), GFP_KERNEL);
 	if (!ei)
 		return -ENOMEM;
 
 	spin_lock_init(&ei->lock);
 
-	
+	/* Find chained irq */
 	ret = -EINVAL;
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (res)
 		ei->chained_irq = res->start;
 
-	
+	/* Map egpio chip into virtual address space. */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res)
 		goto fail;
@@ -315,7 +330,7 @@ static int __init egpio_probe(struct platform_device *pdev)
 		gpiochip_add(chip);
 	}
 
-	
+	/* Set initial pin values */
 	egpio_write_cache(ei);
 
 	ei->irq_start = pdata->irq_base;
@@ -323,7 +338,7 @@ static int __init egpio_probe(struct platform_device *pdev)
 	ei->ack_register = pdata->ack_register;
 
 	if (ei->chained_irq) {
-		
+		/* Setup irq handlers */
 		ei->ack_write = 0xFFFF;
 		if (pdata->invert_acks)
 			ei->ack_write = 0;
@@ -388,6 +403,8 @@ static int egpio_resume(struct platform_device *pdev)
 	if (ei->chained_irq && device_may_wakeup(&pdev->dev))
 		disable_irq_wake(ei->chained_irq);
 
+	/* Update registers from the cache, in case
+	   the CPLD was powered off during suspend */
 	egpio_write_cache(ei);
 	return 0;
 }
@@ -416,6 +433,7 @@ static void __exit egpio_exit(void)
 	platform_driver_unregister(&egpio_driver);
 }
 
+/* start early for dependencies */
 subsys_initcall(egpio_init);
 module_exit(egpio_exit)
 

@@ -25,6 +25,9 @@
 #include "pdaudiocf.h"
 #include <sound/initval.h>
 
+/*
+ *
+ */
 static unsigned char pdacf_ak4117_read(void *private_data, unsigned char reg)
 {
 	struct snd_pdacf *chip = private_data;
@@ -104,7 +107,7 @@ static int pdacf_reset(struct snd_pdacf *chip, int powerdown)
 	
 	val = pdacf_reg_read(chip, PDAUDIOCF_REG_SCR);
 	val |= PDAUDIOCF_PDN;
-	val &= ~PDAUDIOCF_RECORD;		
+	val &= ~PDAUDIOCF_RECORD;		/* for sure */
 	pdacf_reg_write(chip, PDAUDIOCF_REG_SCR, val);
 	udelay(5);
 	val |= PDAUDIOCF_RST;
@@ -190,16 +193,16 @@ int snd_pdacf_ak4117_create(struct snd_pdacf *chip)
 {
 	int err;
 	u16 val;
-	
-	
-	
-	
+	/* design note: if we unmask PLL unlock, parity, valid, audio or auto bit interrupts */
+	/* from AK4117 then INT1 pin from AK4117 will be high all time, because PCMCIA interrupts are */
+	/* egde based and FPGA does logical OR for all interrupt sources, we cannot use these */
+	/* high-rate sources */
 	static unsigned char pgm[5] = {
-		AK4117_XTL_24_576M | AK4117_EXCT,				
-		AK4117_CM_PLL_XTAL | AK4117_PKCS_128fs | AK4117_XCKS_128fs,	
-		AK4117_EFH_1024LRCLK | AK4117_DIF_24R | AK4117_IPS,		
-		0xff,								
-		AK4117_MAUTO | AK4117_MAUD | AK4117_MULK | AK4117_MPAR | AK4117_MV, 
+		AK4117_XTL_24_576M | AK4117_EXCT,				/* AK4117_REG_PWRDN */
+		AK4117_CM_PLL_XTAL | AK4117_PKCS_128fs | AK4117_XCKS_128fs,	/* AK4117_REQ_CLOCK */
+		AK4117_EFH_1024LRCLK | AK4117_DIF_24R | AK4117_IPS,		/* AK4117_REG_IO */
+		0xff,								/* AK4117_REG_INT0_MASK */
+		AK4117_MAUTO | AK4117_MAUD | AK4117_MULK | AK4117_MPAR | AK4117_MV, /* AK4117_REG_INT1_MASK */
 	};
 
 	err = pdacf_reset(chip, 0);
@@ -210,22 +213,22 @@ int snd_pdacf_ak4117_create(struct snd_pdacf *chip)
 		return err;
 
 	val = pdacf_reg_read(chip, PDAUDIOCF_REG_TCR);
-#if 1 
+#if 1 /* normal operation */
 	val &= ~(PDAUDIOCF_ELIMAKMBIT|PDAUDIOCF_TESTDATASEL);
-#else 
+#else /* debug */
 	val |= PDAUDIOCF_ELIMAKMBIT;
 	val &= ~PDAUDIOCF_TESTDATASEL;
 #endif
 	pdacf_reg_write(chip, PDAUDIOCF_REG_TCR, val);
 	
-	
+	/* setup the FPGA to match AK4117 setup */
 	val = pdacf_reg_read(chip, PDAUDIOCF_REG_SCR);
-	val &= ~(PDAUDIOCF_CLKDIV0 | PDAUDIOCF_CLKDIV1);		
+	val &= ~(PDAUDIOCF_CLKDIV0 | PDAUDIOCF_CLKDIV1);		/* use 24.576Mhz clock */
 	val &= ~(PDAUDIOCF_RED_LED_OFF|PDAUDIOCF_BLUE_LED_OFF);
-	val |= PDAUDIOCF_DATAFMT0 | PDAUDIOCF_DATAFMT1;			
+	val |= PDAUDIOCF_DATAFMT0 | PDAUDIOCF_DATAFMT1;			/* 24-bit data */
 	pdacf_reg_write(chip, PDAUDIOCF_REG_SCR, val);
 
-	
+	/* setup LEDs and IRQ */
 	val = pdacf_reg_read(chip, PDAUDIOCF_REG_IER);
 	val &= ~(PDAUDIOCF_IRQLVLEN0 | PDAUDIOCF_IRQLVLEN1);
 	val &= ~(PDAUDIOCF_BLUEDUTY0 | PDAUDIOCF_REDDUTY0 | PDAUDIOCF_REDDUTY1);
@@ -236,7 +239,7 @@ int snd_pdacf_ak4117_create(struct snd_pdacf *chip)
 	chip->ak4117->change_callback_private = chip;
 	chip->ak4117->change_callback = snd_pdacf_ak4117_change;
 
-	
+	/* update LED status */
 	snd_pdacf_ak4117_change(chip->ak4117, AK4117_UNLCK, 0);
 
 	return 0;
@@ -250,7 +253,7 @@ void snd_pdacf_powerdown(struct snd_pdacf *chip)
 	chip->suspend_reg_scr = val;
 	val |= PDAUDIOCF_RED_LED_OFF | PDAUDIOCF_BLUE_LED_OFF;
 	pdacf_reg_write(chip, PDAUDIOCF_REG_SCR, val);
-	
+	/* disable interrupts, but use direct write to preserve old register value in chip->regmap */
 	val = inw(chip->port + PDAUDIOCF_REG_IER);
 	val &= ~(PDAUDIOCF_IRQOVREN|PDAUDIOCF_IRQAKMEN|PDAUDIOCF_IRQLVLEN0|PDAUDIOCF_IRQLVLEN1);
 	outw(val, chip->port + PDAUDIOCF_REG_IER);
@@ -265,11 +268,11 @@ int snd_pdacf_suspend(struct snd_pdacf *chip, pm_message_t state)
 	
 	snd_power_change_state(chip->card, SNDRV_CTL_POWER_D3hot);
 	snd_pcm_suspend_all(chip->pcm);
-	
+	/* disable interrupts, but use direct write to preserve old register value in chip->regmap */
 	val = inw(chip->port + PDAUDIOCF_REG_IER);
 	val &= ~(PDAUDIOCF_IRQOVREN|PDAUDIOCF_IRQAKMEN|PDAUDIOCF_IRQLVLEN0|PDAUDIOCF_IRQLVLEN1);
 	outw(val, chip->port + PDAUDIOCF_REG_IER);
-	chip->chip_status |= PDAUDIOCF_STAT_IS_SUSPENDED;	
+	chip->chip_status |= PDAUDIOCF_STAT_IS_SUSPENDED;	/* ignore interrupts from now */
 	snd_pdacf_powerdown(chip);
 	return 0;
 }
@@ -284,7 +287,7 @@ int snd_pdacf_resume(struct snd_pdacf *chip)
 	int timeout = 40;
 
 	pdacf_reinit(chip, 1);
-	
+	/* wait for AK4117's PLL */
 	while (timeout-- > 0 &&
 	       (snd_ak4117_external_rate(chip->ak4117) <= 0 || !check_signal(chip)))
 		mdelay(1);

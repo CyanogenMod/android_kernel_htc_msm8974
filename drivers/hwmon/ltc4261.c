@@ -34,7 +34,8 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 
-#define LTC4261_STATUS	0x00	
+/* chip registers */
+#define LTC4261_STATUS	0x00	/* readonly */
 #define LTC4261_FAULT	0x01
 #define LTC4261_ALERT	0x02
 #define LTC4261_CONTROL	0x03
@@ -45,6 +46,9 @@
 #define LTC4261_ADIN_H	0x08
 #define LTC4261_ADIN_L	0x09
 
+/*
+ * Fault register bits
+ */
 #define FAULT_OV	(1<<0)
 #define FAULT_UV	(1<<1)
 #define FAULT_OC	(1<<2)
@@ -54,9 +58,9 @@ struct ltc4261_data {
 
 	struct mutex update_lock;
 	bool valid;
-	unsigned long last_updated;	
+	unsigned long last_updated;	/* in jiffies */
 
-	
+	/* Registers */
 	u8 regs[10];
 };
 
@@ -71,7 +75,7 @@ static struct ltc4261_data *ltc4261_update_device(struct device *dev)
 	if (time_after(jiffies, data->last_updated + HZ / 4) || !data->valid) {
 		int i;
 
-		
+		/* Read registers -- 0x00 to 0x09 */
 		for (i = 0; i < ARRAY_SIZE(data->regs); i++) {
 			int val;
 
@@ -94,6 +98,7 @@ abort:
 	return ret;
 }
 
+/* Return the voltage from the given register in mV or mA */
 static int ltc4261_get_value(struct ltc4261_data *data, u8 reg)
 {
 	u32 val;
@@ -103,14 +108,21 @@ static int ltc4261_get_value(struct ltc4261_data *data, u8 reg)
 	switch (reg) {
 	case LTC4261_ADIN_H:
 	case LTC4261_ADIN2_H:
-		
+		/* 2.5mV resolution. Convert to mV. */
 		val = val * 25 / 10;
 		break;
 	case LTC4261_SENSE_H:
+		/*
+		 * 62.5uV resolution. Convert to current as measured with
+		 * an 1 mOhm sense resistor, in mA. If a different sense
+		 * resistor is installed, calculate the actual current by
+		 * dividing the reported current by the sense resistor value
+		 * in mOhm.
+		 */
 		val = val * 625 / 10;
 		break;
 	default:
-		
+		/* If we get here, the developer messed up */
 		WARN_ON_ONCE(1);
 		val = 0;
 		break;
@@ -145,12 +157,17 @@ static ssize_t ltc4261_show_bool(struct device *dev,
 		return PTR_ERR(data);
 
 	fault = data->regs[LTC4261_FAULT] & attr->index;
-	if (fault)		
+	if (fault)		/* Clear reported faults in chip register */
 		i2c_smbus_write_byte_data(client, LTC4261_FAULT, ~fault);
 
 	return snprintf(buf, PAGE_SIZE, "%d\n", fault ? 1 : 0);
 }
 
+/*
+ * These macros are used below in constructing device attribute objects
+ * for use with sysfs_create_group() to make a sysfs device file
+ * for each register.
+ */
 
 #define LTC4261_VALUE(name, ltc4261_cmd_idx) \
 	static SENSOR_DEVICE_ATTR(name, S_IRUGO, \
@@ -160,16 +177,29 @@ static ssize_t ltc4261_show_bool(struct device *dev,
 	static SENSOR_DEVICE_ATTR(name, S_IRUGO, \
 	ltc4261_show_bool, NULL, (mask))
 
+/*
+ * Input voltages.
+ */
 LTC4261_VALUE(in1_input, LTC4261_ADIN_H);
 LTC4261_VALUE(in2_input, LTC4261_ADIN2_H);
 
+/*
+ * Voltage alarms. The chip has only one set of voltage alarm status bits,
+ * triggered by input voltage alarms. In many designs, those alarms are
+ * associated with the ADIN2 sensor, due to the proximity of the ADIN2 pin
+ * to the OV pin. ADIN2 is, however, not available on all chip variants.
+ * To ensure that the alarm condition is reported to the user, report it
+ * with both voltage sensors.
+ */
 LTC4261_BOOL(in1_min_alarm, FAULT_UV);
 LTC4261_BOOL(in1_max_alarm, FAULT_OV);
 LTC4261_BOOL(in2_min_alarm, FAULT_UV);
 LTC4261_BOOL(in2_max_alarm, FAULT_OV);
 
+/* Currents (via sense resistor) */
 LTC4261_VALUE(curr1_input, LTC4261_SENSE_H);
 
+/* Overcurrent alarm */
 LTC4261_BOOL(curr1_max_alarm, FAULT_OC);
 
 static struct attribute *ltc4261_attributes[] = {
@@ -212,10 +242,10 @@ static int ltc4261_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* Clear faults */
 	i2c_smbus_write_byte_data(client, LTC4261_FAULT, 0x00);
 
-	
+	/* Register sysfs hooks */
 	ret = sysfs_create_group(&client->dev.kobj, &ltc4261_group);
 	if (ret)
 		return ret;
@@ -250,6 +280,7 @@ static const struct i2c_device_id ltc4261_id[] = {
 
 MODULE_DEVICE_TABLE(i2c, ltc4261_id);
 
+/* This is the driver that will be inserted */
 static struct i2c_driver ltc4261_driver = {
 	.driver = {
 		   .name = "ltc4261",

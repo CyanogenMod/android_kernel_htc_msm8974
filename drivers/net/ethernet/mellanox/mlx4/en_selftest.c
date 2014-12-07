@@ -56,7 +56,7 @@ static int mlx4_en_test_loopback_xmit(struct mlx4_en_priv *priv)
 	int err;
 
 
-	
+	/* build the pkt before xmit */
 	skb = netdev_alloc_skb(priv->dev, MLX4_LOOPBACK_TEST_PAYLOAD + ETH_HLEN + NET_IP_ALIGN);
 	if (!skb) {
 		en_err(priv, "-LOOPBACK_TEST_XMIT- failed to create skb for xmit\n");
@@ -70,10 +70,10 @@ static int mlx4_en_test_loopback_xmit(struct mlx4_en_priv *priv)
 	memset(ethh->h_source, 0, ETH_ALEN);
 	ethh->h_proto = htons(ETH_P_ARP);
 	skb_set_mac_header(skb, 0);
-	for (i = 0; i < packet_size; ++i)	
+	for (i = 0; i < packet_size; ++i)	/* fill our packet */
 		packet[i] = (unsigned char)(i & 0xff);
 
-	
+	/* xmit the pkt */
 	err = mlx4_en_xmit(skb, priv->dev);
 	return err;
 }
@@ -87,13 +87,13 @@ static int mlx4_en_test_loopback(struct mlx4_en_priv *priv)
         priv->loopback_ok = 0;
 	priv->validate_loopback = 1;
 
-	
+	/* xmit */
 	if (mlx4_en_test_loopback_xmit(priv)) {
 		en_err(priv, "Transmitting loopback packet failed\n");
 		goto mlx4_en_test_loopback_exit;
 	}
 
-	
+	/* polling for result */
 	for (i = 0; i < MLX4_EN_LOOPBACK_RETRIES; ++i) {
 		msleep(MLX4_EN_LOOPBACK_TIMEOUT);
 		if (priv->loopback_ok) {
@@ -127,7 +127,7 @@ static int mlx4_en_test_speed(struct mlx4_en_priv *priv)
 	if (mlx4_en_QUERY_PORT(priv->mdev, priv->port))
 		return -ENOMEM;
 
-	
+	/* The device currently only supports 10G speed */
 	if (priv->port_state.link_speed != SPEED_10000)
 		return priv->port_state.link_speed;
 	return 0;
@@ -144,11 +144,14 @@ void mlx4_en_ex_selftest(struct net_device *dev, u32 *flags, u64 *buf)
 	memset(buf, 0, sizeof(u64) * MLX4_EN_NUM_SELF_TEST);
 
 	if (*flags & ETH_TEST_FL_OFFLINE) {
-		
+		/* disable the interface */
 		carrier_ok = netif_carrier_ok(dev);
 
 		netif_carrier_off(dev);
 retry_tx:
+		/* Wait until all tx queues are empty.
+		 * there should not be any additional incoming traffic
+		 * since we turned the carrier off */
 		msleep(200);
 		for (i = 0; i < priv->tx_ring_num && carrier_ok; i++) {
 			tx_ring = &priv->tx_ring[i];

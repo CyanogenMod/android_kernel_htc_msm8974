@@ -11,7 +11,7 @@
 #ifndef _ASM_C6X_PTRACE_H
 #define _ASM_C6X_PTRACE_H
 
-#define BKPT_OPCODE	0x56454314	
+#define BKPT_OPCODE	0x56454314	/* illegal opcode */
 
 #ifdef _BIG_ENDIAN
 #define PT_LO(odd, even)  odd
@@ -94,8 +94,8 @@
 
 #define NR_PTREGS  70
 
-#define PT_DP	   PT_B14  
-#define PT_SP	   PT_B15  
+#define PT_DP	   PT_B14  /* Data Segment Pointer (B14) */
+#define PT_SP	   PT_B15  /* Stack Pointer (B15)  */
 
 #ifndef __ASSEMBLY__
 
@@ -105,6 +105,12 @@
 #define REG_PAIR(odd, even) unsigned long even; unsigned long odd
 #endif
 
+/*
+ * this struct defines the way the registers are stored on the
+ * stack during a system call. fields defined with REG_PAIR
+ * are saved and restored using double-word memory operations
+ * which means the word ordering of the pair depends on endianess.
+ */
 struct pt_regs {
 	REG_PAIR(tsr, orig_a4);
 	REG_PAIR(rilc, ilc);
@@ -163,6 +169,6 @@ extern void show_regs(struct pt_regs *);
 extern asmlinkage unsigned long syscall_trace_entry(struct pt_regs *regs);
 extern asmlinkage void syscall_trace_exit(struct pt_regs *regs);
 
-#endif 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASSEMBLY__ */
+#endif /* _ASM_C6X_PTRACE_H */

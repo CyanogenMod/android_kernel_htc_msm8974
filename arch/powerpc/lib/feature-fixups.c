@@ -33,6 +33,11 @@ struct fixup_entry {
 
 static unsigned int *calc_addr(struct fixup_entry *fcur, long offset)
 {
+	/*
+	 * We store the offset to the code as a negative offset from
+	 * the start of the alt_entry, to support the VDSO. This
+	 * routine converts that back into an actual address.
+	 */
 	return (unsigned int *)((unsigned long)fcur + offset);
 }
 
@@ -46,7 +51,7 @@ static int patch_alt_instruction(unsigned int *src, unsigned int *dest,
 	if (instr_is_relative_branch(*src)) {
 		unsigned int *target = (unsigned int *)branch_target(src);
 
-		
+		/* Branch within the section doesn't need translating */
 		if (target < alt_start || target >= alt_end) {
 			instr = translate_branch(dest, src);
 			if (!instr)
@@ -151,6 +156,7 @@ void do_final_fixups(void)
 #define check(x)	\
 	if (!(x)) printk("feature-fixups: test failed at line %d\n", __LINE__);
 
+/* This must be after the text it fixes up, vmlinux.lds.S enforces that atm */
 static struct fixup_entry fixup;
 
 static long calc_offset(struct fixup_entry *entry, unsigned int *p)
@@ -171,18 +177,18 @@ void test_basic_patching(void)
 	fixup.end_off = calc_offset(&fixup, &ftr_fixup_test1 + 2);
 	fixup.alt_start_off = fixup.alt_end_off = 0;
 
-	
+	/* Sanity check */
 	check(memcmp(&ftr_fixup_test1, &ftr_fixup_test1_orig, size) == 0);
 
-	
+	/* Check we don't patch if the value matches */
 	patch_feature_section(8, &fixup);
 	check(memcmp(&ftr_fixup_test1, &ftr_fixup_test1_orig, size) == 0);
 
-	
+	/* Check we do patch if the value doesn't match */
 	patch_feature_section(0, &fixup);
 	check(memcmp(&ftr_fixup_test1, &ftr_fixup_test1_expected, size) == 0);
 
-	
+	/* Check we do patch if the mask doesn't match */
 	memcpy(&ftr_fixup_test1, &ftr_fixup_test1_orig, size);
 	check(memcmp(&ftr_fixup_test1, &ftr_fixup_test1_orig, size) == 0);
 	patch_feature_section(~8, &fixup);
@@ -204,18 +210,18 @@ static void test_alternative_patching(void)
 	fixup.alt_start_off = calc_offset(&fixup, &ftr_fixup_test2_alt);
 	fixup.alt_end_off = calc_offset(&fixup, &ftr_fixup_test2_alt + 1);
 
-	
+	/* Sanity check */
 	check(memcmp(&ftr_fixup_test2, &ftr_fixup_test2_orig, size) == 0);
 
-	
+	/* Check we don't patch if the value matches */
 	patch_feature_section(0xF, &fixup);
 	check(memcmp(&ftr_fixup_test2, &ftr_fixup_test2_orig, size) == 0);
 
-	
+	/* Check we do patch if the value doesn't match */
 	patch_feature_section(0, &fixup);
 	check(memcmp(&ftr_fixup_test2, &ftr_fixup_test2_expected, size) == 0);
 
-	
+	/* Check we do patch if the mask doesn't match */
 	memcpy(&ftr_fixup_test2, &ftr_fixup_test2_orig, size);
 	check(memcmp(&ftr_fixup_test2, &ftr_fixup_test2_orig, size) == 0);
 	patch_feature_section(~0xF, &fixup);
@@ -236,10 +242,10 @@ static void test_alternative_case_too_big(void)
 	fixup.alt_start_off = calc_offset(&fixup, &ftr_fixup_test3_alt);
 	fixup.alt_end_off = calc_offset(&fixup, &ftr_fixup_test3_alt + 2);
 
-	
+	/* Sanity check */
 	check(memcmp(&ftr_fixup_test3, &ftr_fixup_test3_orig, size) == 0);
 
-	
+	/* Expect nothing to be patched, and the error returned to us */
 	check(patch_feature_section(0xF, &fixup) == 1);
 	check(memcmp(&ftr_fixup_test3, &ftr_fixup_test3_orig, size) == 0);
 	check(patch_feature_section(0, &fixup) == 1);
@@ -258,7 +264,7 @@ static void test_alternative_case_too_small(void)
 	int size = &end_ftr_fixup_test4 - &ftr_fixup_test4;
 	unsigned long flag;
 
-	
+	/* Check a high-bit flag */
 	flag = 1UL << ((sizeof(unsigned long) - 1) * 8);
 	fixup.value = fixup.mask = flag;
 	fixup.start_off = calc_offset(&fixup, &ftr_fixup_test4 + 1);
@@ -266,18 +272,18 @@ static void test_alternative_case_too_small(void)
 	fixup.alt_start_off = calc_offset(&fixup, &ftr_fixup_test4_alt);
 	fixup.alt_end_off = calc_offset(&fixup, &ftr_fixup_test4_alt + 2);
 
-	
+	/* Sanity check */
 	check(memcmp(&ftr_fixup_test4, &ftr_fixup_test4_orig, size) == 0);
 
-	
+	/* Check we don't patch if the value matches */
 	patch_feature_section(flag, &fixup);
 	check(memcmp(&ftr_fixup_test4, &ftr_fixup_test4_orig, size) == 0);
 
-	
+	/* Check we do patch if the value doesn't match */
 	patch_feature_section(0, &fixup);
 	check(memcmp(&ftr_fixup_test4, &ftr_fixup_test4_expected, size) == 0);
 
-	
+	/* Check we do patch if the mask doesn't match */
 	memcpy(&ftr_fixup_test4, &ftr_fixup_test4_orig, size);
 	check(memcmp(&ftr_fixup_test4, &ftr_fixup_test4_orig, size) == 0);
 	patch_feature_section(~flag, &fixup);
@@ -311,7 +317,7 @@ static void test_cpu_macros(void)
 	unsigned long size = &ftr_fixup_test_FTR_macros_expected -
 			     &ftr_fixup_test_FTR_macros;
 
-	
+	/* The fixups have already been done for us during boot */
 	check(memcmp(&ftr_fixup_test_FTR_macros,
 		     &ftr_fixup_test_FTR_macros_expected, size) == 0);
 }
@@ -324,7 +330,7 @@ static void test_fw_macros(void)
 	unsigned long size = &ftr_fixup_test_FW_FTR_macros_expected -
 			     &ftr_fixup_test_FW_FTR_macros;
 
-	
+	/* The fixups have already been done for us during boot */
 	check(memcmp(&ftr_fixup_test_FW_FTR_macros,
 		     &ftr_fixup_test_FW_FTR_macros_expected, size) == 0);
 #endif
@@ -339,7 +345,7 @@ static void test_lwsync_macros(void)
 	unsigned long size = &end_lwsync_fixup_test -
 			     &lwsync_fixup_test;
 
-	
+	/* The fixups have already been done for us during boot */
 	if (cur_cpu_spec->cpu_features & CPU_FTR_LWSYNC) {
 		check(memcmp(&lwsync_fixup_test,
 			     &lwsync_fixup_test_expected_LWSYNC, size) == 0);
@@ -367,4 +373,4 @@ static int __init test_feature_fixups(void)
 }
 late_initcall(test_feature_fixups);
 
-#endif 
+#endif /* CONFIG_FTR_FIXUP_SELFTEST */

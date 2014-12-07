@@ -24,25 +24,31 @@
 
 #include <asm/iommu.h>
 
+/*
+ * Tces come in two formats, one for the virtual bus and a different
+ * format for PCI.  PCI TCEs can have hardware or software maintianed
+ * coherency.
+ */
 #define TCE_VB			0
 #define TCE_PCI			1
 #define TCE_PCI_SWINV_CREATE	2
 #define TCE_PCI_SWINV_FREE	4
 #define TCE_PCI_SWINV_PAIR	8
 
+/* TCE page size is 4096 bytes (1 << 12) */
 
 #define TCE_SHIFT	12
 #define TCE_PAGE_SIZE	(1 << TCE_SHIFT)
 
-#define TCE_ENTRY_SIZE		8		
+#define TCE_ENTRY_SIZE		8		/* each TCE is 64 bits */
 
-#define TCE_RPN_MASK		0xfffffffffful  
+#define TCE_RPN_MASK		0xfffffffffful  /* 40-bit RPN (4K pages) */
 #define TCE_RPN_SHIFT		12
-#define TCE_VALID		0x800		
-#define TCE_ALLIO		0x400		
-#define TCE_PCI_WRITE		0x2		
-#define TCE_PCI_READ		0x1		
-#define TCE_VB_WRITE		0x1		
+#define TCE_VALID		0x800		/* TCE valid */
+#define TCE_ALLIO		0x400		/* TCE valid for all lpars */
+#define TCE_PCI_WRITE		0x2		/* write from PCI allowed */
+#define TCE_PCI_READ		0x1		/* read from PCI allowed */
+#define TCE_VB_WRITE		0x1		/* write from VB allowed */
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_TCE_H */

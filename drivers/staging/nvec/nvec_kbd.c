@@ -56,6 +56,7 @@ static int nvec_keys_notifier(struct notifier_block *nb,
 	if (event_type == NVEC_KB_EVT) {
 		int _size = (msg[0] & (3 << 5)) >> 5;
 
+/* power on/off button */
 		if (_size == NVEC_VAR_SIZE)
 			return NOTIFY_STOP;
 
@@ -136,16 +137,19 @@ static int __devinit nvec_kbd_probe(struct platform_device *pdev)
 	keys_dev.nvec = nvec;
 	nvec_register_notifier(nvec, &keys_dev.notifier, 0);
 
-	
+	/* Enable keyboard */
 	nvec_write_async(nvec, "\x05\xf4", 2);
 
-	
+	/* keyboard reset? */
 	nvec_write_async(nvec, "\x05\x03\x01\x01", 4);
 	nvec_write_async(nvec, "\x05\x04\x01", 3);
 	nvec_write_async(nvec, "\x06\x01\xff\x03", 4);
+/*	FIXME
+	wait until keyboard reset is finished
+	or until we have a sync write */
 	mdelay(1000);
 
-	
+	/* Disable caps lock LED */
 	nvec_write_async(nvec, led_off, sizeof(led_off));
 
 	return 0;

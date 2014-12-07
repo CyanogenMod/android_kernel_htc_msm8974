@@ -18,6 +18,10 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: rt2x00lib
+	Abstract: rt2x00 crypto specific routines.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -79,6 +83,11 @@ unsigned int rt2x00crypto_tx_overhead(struct rt2x00_dev *rt2x00dev,
 	if (!test_bit(CAPABILITY_HW_CRYPTO, &rt2x00dev->cap_flags) || !key)
 		return overhead;
 
+	/*
+	 * Extend frame length to include IV/EIV/ICV/MMIC,
+	 * note that these lengths should only be added when
+	 * mac80211 does not generate it.
+	 */
 	overhead += key->icv_len;
 
 	if (!(key->flags & IEEE80211_KEY_FLAG_GENERATE_IV))
@@ -99,7 +108,7 @@ void rt2x00crypto_tx_copy_iv(struct sk_buff *skb, struct txentry_desc *txdesc)
 	if (unlikely(!txdesc->iv_len))
 		return;
 
-	
+	/* Copy IV/EIV data */
 	memcpy(skbdesc->iv, skb->data + txdesc->iv_offset, txdesc->iv_len);
 }
 
@@ -110,17 +119,17 @@ void rt2x00crypto_tx_remove_iv(struct sk_buff *skb, struct txentry_desc *txdesc)
 	if (unlikely(!txdesc->iv_len))
 		return;
 
-	
+	/* Copy IV/EIV data */
 	memcpy(skbdesc->iv, skb->data + txdesc->iv_offset, txdesc->iv_len);
 
-	
+	/* Move ieee80211 header */
 	memmove(skb->data + txdesc->iv_len, skb->data, txdesc->iv_offset);
 
-	
+	/* Pull buffer to correct size */
 	skb_pull(skb, txdesc->iv_len);
 	txdesc->length -= txdesc->iv_len;
 
-	
+	/* IV/EIV data has officially been stripped */
 	skbdesc->flags |= SKBDESC_IV_STRIPPED;
 }
 
@@ -135,13 +144,13 @@ void rt2x00crypto_tx_insert_iv(struct sk_buff *skb, unsigned int header_length)
 
 	skb_push(skb, iv_len);
 
-	
+	/* Move ieee80211 header */
 	memmove(skb->data, skb->data + iv_len, header_length);
 
-	
+	/* Copy IV/EIV data */
 	memcpy(skb->data + header_length, skbdesc->iv, iv_len);
 
-	
+	/* IV/EIV data has returned into the frame */
 	skbdesc->flags &= ~SKBDESC_IV_STRIPPED;
 }
 
@@ -155,6 +164,11 @@ void rt2x00crypto_rx_insert_iv(struct sk_buff *skb,
 	unsigned int icv_len;
 	unsigned int transfer = 0;
 
+	/*
+	 * WEP64/WEP128: Provides IV & ICV
+	 * TKIP: Provides IV/EIV & ICV
+	 * AES: Provies IV/EIV & ICV
+	 */
 	switch (rxdesc->cipher) {
 	case CIPHER_WEP64:
 	case CIPHER_WEP128:
@@ -170,15 +184,26 @@ void rt2x00crypto_rx_insert_iv(struct sk_buff *skb,
 		icv_len = 8;
 		break;
 	default:
-		
+		/* Unsupport type */
 		return;
 	}
 
+	/*
+	 * Make room for new data. There are 2 possibilities
+	 * either the alignment is already present between
+	 * the 802.11 header and payload. In that case we
+	 * we have to move the header less then the iv_len
+	 * since we can use the already available l2pad bytes
+	 * for the iv data.
+	 * When the alignment must be added manually we must
+	 * move the header more then iv_len since we must
+	 * make room for the payload move as well.
+	 */
 	if (rxdesc->dev_flags & RXDONE_L2PAD) {
 		skb_push(skb, iv_len - align);
 		skb_put(skb, icv_len);
 
-		
+		/* Move ieee80211 header */
 		memmove(skb->data + transfer,
 			skb->data + transfer + (iv_len - align),
 			header_length);
@@ -190,29 +215,44 @@ void rt2x00crypto_rx_insert_iv(struct sk_buff *skb,
 		else if (align > icv_len)
 			skb_trim(skb, rxdesc->size + iv_len + icv_len);
 
-		
+		/* Move ieee80211 header */
 		memmove(skb->data + transfer,
 			skb->data + transfer + iv_len + align,
 			header_length);
 		transfer += header_length;
 	}
 
-	
+	/* Copy IV/EIV data */
 	memcpy(skb->data + transfer, rxdesc->iv, iv_len);
 	transfer += iv_len;
 
+	/*
+	 * Move payload for alignment purposes. Note that
+	 * this is only needed when no l2 padding is present.
+	 */
 	if (!(rxdesc->dev_flags & RXDONE_L2PAD)) {
 		memmove(skb->data + transfer,
 			skb->data + transfer + align,
 			payload_len);
 	}
 
+	/*
+	 * NOTE: Always count the payload as transferred,
+	 * even when alignment was set to zero. This is required
+	 * for determining the correct offset for the ICV data.
+	 */
 	transfer += payload_len;
 
+	/*
+	 * Copy ICV data
+	 * AES appends 8 bytes, we can't fill the upper
+	 * 4 bytes, but mac80211 doesn't care about what
+	 * we provide here anyway and strips it immediately.
+	 */
 	memcpy(skb->data + transfer, &rxdesc->icv, 4);
 	transfer += icv_len;
 
-	
+	/* IV/EIV/ICV has been inserted into frame */
 	rxdesc->size = transfer;
 	rxdesc->flags &= ~RX_FLAG_IV_STRIPPED;
 }

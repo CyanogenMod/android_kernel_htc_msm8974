@@ -64,6 +64,11 @@
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
 
+/*
+ * Ordering of locks:
+ *
+ * 		kvm->lock --> kvm->slots_lock --> kvm->irq_lock
+ */
 
 DEFINE_RAW_SPINLOCK(kvm_lock);
 LIST_HEAD(vm_list);
@@ -109,6 +114,16 @@ inline int kvm_is_mmio_pfn(pfn_t pfn)
 		struct page *head = compound_trans_head(tail);
 		reserved = PageReserved(head);
 		if (head != tail) {
+			/*
+			 * "head" is not a dangling pointer
+			 * (compound_trans_head takes care of that)
+			 * but the hugepage may have been splitted
+			 * from under us (and we may not hold a
+			 * reference count on the head page so it can
+			 * be reused before we run PageReferenced), so
+			 * we've to check PageTail before returning
+			 * what we just read.
+			 */
 			smp_rmb();
 			if (PageTail(tail))
 				return reserved;
@@ -119,13 +134,16 @@ inline int kvm_is_mmio_pfn(pfn_t pfn)
 	return true;
 }
 
+/*
+ * Switches to specified vcpu, until a matching vcpu_put()
+ */
 void vcpu_load(struct kvm_vcpu *vcpu)
 {
 	int cpu;
 
 	mutex_lock(&vcpu->mutex);
 	if (unlikely(vcpu->pid != current->pids[PIDTYPE_PID].pid)) {
-		
+		/* The thread running this VCPU changed. */
 		struct pid *oldpid = vcpu->pid;
 		struct pid *newpid = get_task_pid(current, PIDTYPE_PID);
 		rcu_assign_pointer(vcpu->pid, newpid);
@@ -165,7 +183,7 @@ static bool make_all_cpus_request(struct kvm *kvm, unsigned int req)
 		kvm_make_request(req, vcpu);
 		cpu = vcpu->cpu;
 
-		
+		/* Set ->requests bit before we read ->mode */
 		smp_mb();
 
 		if (cpus != NULL && cpu != -1 && cpu != me &&
@@ -251,12 +269,30 @@ static void kvm_mmu_notifier_invalidate_page(struct mmu_notifier *mn,
 	struct kvm *kvm = mmu_notifier_to_kvm(mn);
 	int need_tlb_flush, idx;
 
+	/*
+	 * When ->invalidate_page runs, the linux pte has been zapped
+	 * already but the page is still allocated until
+	 * ->invalidate_page returns. So if we increase the sequence
+	 * here the kvm page fault will notice if the spte can't be
+	 * established because the page is going to be freed. If
+	 * instead the kvm page fault establishes the spte before
+	 * ->invalidate_page runs, kvm_unmap_hva will release it
+	 * before returning.
+	 *
+	 * The sequence increase only need to be seen at spin_unlock
+	 * time, and not at spin_lock time.
+	 *
+	 * Increasing the sequence after the spin_unlock would be
+	 * unsafe because the kvm page fault could then establish the
+	 * pte after kvm_unmap_hva returned, without noticing the page
+	 * is going to be freed.
+	 */
 	idx = srcu_read_lock(&kvm->srcu);
 	spin_lock(&kvm->mmu_lock);
 
 	kvm->mmu_notifier_seq++;
 	need_tlb_flush = kvm_unmap_hva(kvm, address) | kvm->tlbs_dirty;
-	
+	/* we've to flush the tlb before the pages can be freed */
 	if (need_tlb_flush)
 		kvm_flush_remote_tlbs(kvm);
 
@@ -290,11 +326,16 @@ static void kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 
 	idx = srcu_read_lock(&kvm->srcu);
 	spin_lock(&kvm->mmu_lock);
+	/*
+	 * The count increase must become visible at unlock time as no
+	 * spte can be established without taking the mmu_lock and
+	 * count is also read inside the mmu_lock critical section.
+	 */
 	kvm->mmu_notifier_count++;
 	for (; start < end; start += PAGE_SIZE)
 		need_tlb_flush |= kvm_unmap_hva(kvm, start);
 	need_tlb_flush |= kvm->tlbs_dirty;
-	
+	/* we've to flush the tlb before the pages can be freed */
 	if (need_tlb_flush)
 		kvm_flush_remote_tlbs(kvm);
 
@@ -310,8 +351,18 @@ static void kvm_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,
 	struct kvm *kvm = mmu_notifier_to_kvm(mn);
 
 	spin_lock(&kvm->mmu_lock);
+	/*
+	 * This sequence increase will notify the kvm page fault that
+	 * the page that is going to be mapped in the spte could have
+	 * been freed.
+	 */
 	kvm->mmu_notifier_seq++;
 	smp_wmb();
+	/*
+	 * The above sequence increase must be visible before the
+	 * below count decrease, which is ensured by the smp_wmb above
+	 * in conjunction with the smp_rmb in mmu_notifier_retry().
+	 */
 	kvm->mmu_notifier_count--;
 	spin_unlock(&kvm->mmu_lock);
 
@@ -381,14 +432,14 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 	return mmu_notifier_register(&kvm->mmu_notifier, current->mm);
 }
 
-#else  
+#else  /* !(CONFIG_MMU_NOTIFIER && KVM_ARCH_WANT_MMU_NOTIFIER) */
 
 static int kvm_init_mmu_notifier(struct kvm *kvm)
 {
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_MMU_NOTIFIER && KVM_ARCH_WANT_MMU_NOTIFIER */
 
 static void kvm_init_memslots_id(struct kvm *kvm)
 {
@@ -479,6 +530,9 @@ static void kvm_destroy_dirty_bitmap(struct kvm_memory_slot *memslot)
 	memslot->dirty_bitmap_head = NULL;
 }
 
+/*
+ * Free any memory in @free but not in @dont.
+ */
 static void kvm_free_physmem_slot(struct kvm_memory_slot *free,
 				  struct kvm_memory_slot *dont)
 {
@@ -555,6 +609,11 @@ static int kvm_vm_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+/*
+ * Allocation size is twice as large as the actual dirty bitmap size.
+ * This makes it possible to do double buffering: see x86's
+ * kvm_vm_ioctl_get_dirty_log().
+ */
 static int kvm_create_dirty_bitmap(struct kvm_memory_slot *memslot)
 {
 #ifndef CONFIG_S390
@@ -570,7 +629,7 @@ static int kvm_create_dirty_bitmap(struct kvm_memory_slot *memslot)
 
 	memslot->dirty_bitmap_head = memslot->dirty_bitmap;
 	memslot->nr_dirty_pages = 0;
-#endif 
+#endif /* !CONFIG_S390 */
 	return 0;
 }
 
@@ -589,6 +648,10 @@ static int cmp_memslot(const void *slot1, const void *slot2)
 	return 0;
 }
 
+/*
+ * Sort the memslots base on its size, so the larger slots
+ * will get better fit.
+ */
 static void sort_memslots(struct kvm_memslots *slots)
 {
 	int i;
@@ -615,6 +678,14 @@ void update_memslots(struct kvm_memslots *slots, struct kvm_memory_slot *new)
 	slots->generation++;
 }
 
+/*
+ * Allocate some memory and give it an address in the guest physical address
+ * space.
+ *
+ * Discontiguous memory is allowed, mostly for framebuffers.
+ *
+ * Must be called holding mmap_sem for write.
+ */
 int __kvm_set_memory_region(struct kvm *kvm,
 			    struct kvm_userspace_memory_region *mem,
 			    int user_alloc)
@@ -628,12 +699,12 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	struct kvm_memslots *slots, *old_memslots;
 
 	r = -EINVAL;
-	
+	/* General sanity checks */
 	if (mem->memory_size & (PAGE_SIZE - 1))
 		goto out;
 	if (mem->guest_phys_addr & (PAGE_SIZE - 1))
 		goto out;
-	
+	/* We can read the guest memory with __xxx_user() later on. */
 	if (user_alloc &&
 	    ((mem->userspace_addr & (PAGE_SIZE - 1)) ||
 	     !access_ok(VERIFY_WRITE,
@@ -663,12 +734,12 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	new.npages = npages;
 	new.flags = mem->flags;
 
-	
+	/* Disallow changing a memory slot's size. */
 	r = -EINVAL;
 	if (npages && old.npages && npages != old.npages)
 		goto out_free;
 
-	
+	/* Check for overlaps */
 	r = -EEXIST;
 	for (i = 0; i < KVM_MEMORY_SLOTS; ++i) {
 		struct kvm_memory_slot *s = &kvm->memslots->memslots[i];
@@ -680,13 +751,13 @@ int __kvm_set_memory_region(struct kvm *kvm,
 			goto out_free;
 	}
 
-	
+	/* Free page dirty bitmap if unneeded */
 	if (!(new.flags & KVM_MEM_LOG_DIRTY_PAGES))
 		new.dirty_bitmap = NULL;
 
 	r = -ENOMEM;
 
-	
+	/* Allocate if a slot is being created */
 	if (npages && !old.npages) {
 		new.user_alloc = user_alloc;
 		new.userspace_addr = mem->userspace_addr;
@@ -694,16 +765,16 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		new.rmap = vzalloc(npages * sizeof(*new.rmap));
 		if (!new.rmap)
 			goto out_free;
-#endif 
+#endif /* not defined CONFIG_S390 */
 		if (kvm_arch_create_memslot(&new, npages))
 			goto out_free;
 	}
 
-	
+	/* Allocate page dirty bitmap if needed */
 	if ((new.flags & KVM_MEM_LOG_DIRTY_PAGES) && !new.dirty_bitmap) {
 		if (kvm_create_dirty_bitmap(&new) < 0)
 			goto out_free;
-		
+		/* destroy any largepage mappings for dirty tracking */
 	}
 
 	if (!npages) {
@@ -722,6 +793,13 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		old_memslots = kvm->memslots;
 		rcu_assign_pointer(kvm->memslots, slots);
 		synchronize_srcu_expedited(&kvm->srcu);
+		/* From this point no new shadow pages pointing to a deleted
+		 * memslot will be created.
+		 *
+		 * validation of sp->gfn happens in:
+		 * 	- gfn_to_hva (kvm_read_guest, gfn_to_pfn)
+		 * 	- kvm_is_visible_gfn (mmu_check_roots)
+		 */
 		kvm_arch_flush_shadow(kvm);
 		kfree(old_memslots);
 	}
@@ -730,7 +808,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	if (r)
 		goto out_free;
 
-	
+	/* map/unmap the pages in iommu page table */
 	if (npages) {
 		r = kvm_iommu_map_pages(kvm, &new);
 		if (r)
@@ -744,7 +822,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	if (!slots)
 		goto out_free;
 
-	
+	/* actual memory is freed via old in kvm_free_physmem_slot below */
 	if (!npages) {
 		new.rmap = NULL;
 		new.dirty_bitmap = NULL;
@@ -758,6 +836,10 @@ int __kvm_set_memory_region(struct kvm *kvm,
 
 	kvm_arch_commit_memory_region(kvm, mem, old, user_alloc);
 
+	/*
+	 * If the new memory slot is created, we need to clear all
+	 * mmio sptes.
+	 */
 	if (npages && old.base_gfn != mem->guest_phys_addr >> PAGE_SHIFT)
 		kvm_arch_flush_shadow(kvm);
 
@@ -982,7 +1064,7 @@ static pfn_t hva_to_pfn(struct kvm *kvm, unsigned long addr, bool atomic,
 	int npages = 0;
 	pfn_t pfn;
 
-	
+	/* we can do it either atomically or asynchronously, not both */
 	BUG_ON(atomic && async);
 
 	BUG_ON(!write_fault && !writable);
@@ -1008,7 +1090,7 @@ static pfn_t hva_to_pfn(struct kvm *kvm, unsigned long addr, bool atomic,
 			npages = get_user_pages_fast(addr, 1, write_fault,
 						     page);
 
-		
+		/* map read fault as writable if possible */
 		if (unlikely(!write_fault) && npages == 1) {
 			struct page *wpage[1];
 
@@ -1408,6 +1490,9 @@ void mark_page_dirty(struct kvm *kvm, gfn_t gfn)
 	mark_page_dirty_in_slot(kvm, memslot, gfn);
 }
 
+/*
+ * The vCPU has executed a HLT instruction with in-kernel mode enabled.
+ */
 void kvm_vcpu_block(struct kvm_vcpu *vcpu)
 {
 	DEFINE_WAIT(wait);
@@ -1447,6 +1532,13 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me)
 	int pass;
 	int i;
 
+	/*
+	 * We boost the priority of a VCPU that is runnable but not
+	 * currently running, because it got preempted by something
+	 * else and called schedule in __vcpu_run.  Hopefully that
+	 * VCPU is holding the lock that we need and will release it.
+	 * We approximate round-robin by starting at the last boosted VCPU.
+	 */
 	for (pass = 0; pass < 2 && !yielded; pass++) {
 		kvm_for_each_vcpu(i, vcpu, kvm) {
 			struct task_struct *task = NULL;
@@ -1533,11 +1625,17 @@ static struct file_operations kvm_vcpu_fops = {
 	.llseek		= noop_llseek,
 };
 
+/*
+ * Allocates an inode for the vcpu.
+ */
 static int create_vcpu_fd(struct kvm_vcpu *vcpu)
 {
 	return anon_inode_getfd("kvm-vcpu", &kvm_vcpu_fops, vcpu, O_RDWR);
 }
 
+/*
+ * Creates some virtual cpus.  Good luck creating more than one.
+ */
 static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 {
 	int r;
@@ -1571,7 +1669,7 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 
 	BUG_ON(kvm->vcpus[atomic_read(&kvm->online_vcpus)]);
 
-	
+	/* Now it's all set up, let userspace reach it */
 	kvm_get_kvm(kvm);
 	r = create_vcpu_fd(vcpu);
 	if (r < 0) {
@@ -1617,6 +1715,10 @@ static long kvm_vcpu_ioctl(struct file *filp,
 		return -EIO;
 
 #if defined(CONFIG_S390) || defined(CONFIG_PPC)
+	/*
+	 * Special cases: vcpu ioctls that are asynchronous to vcpu execution,
+	 * so vcpu_load() would break it.
+	 */
 	if (ioctl == KVM_S390_INTERRUPT || ioctl == KVM_INTERRUPT)
 		return kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 #endif
@@ -1952,7 +2054,7 @@ struct compat_kvm_dirty_log {
 	__u32 slot;
 	__u32 padding1;
 	union {
-		compat_uptr_t dirty_bitmap; 
+		compat_uptr_t dirty_bitmap; /* one bit per page */
 		__u64 padding2;
 	};
 };
@@ -2099,12 +2201,12 @@ static long kvm_dev_ioctl(struct file *filp,
 		r = -EINVAL;
 		if (arg)
 			goto out;
-		r = PAGE_SIZE;     
+		r = PAGE_SIZE;     /* struct kvm_run */
 #ifdef CONFIG_X86
-		r += PAGE_SIZE;    
+		r += PAGE_SIZE;    /* pio data page */
 #endif
 #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
-		r += PAGE_SIZE;    
+		r += PAGE_SIZE;    /* coalesced mmio ring page */
 #endif
 		break;
 	case KVM_TRACE_ENABLE:
@@ -2240,7 +2342,7 @@ static int kvm_cpu_hotplug(struct notifier_block *notifier, unsigned long val,
 
 asmlinkage void kvm_spurious_fault(void)
 {
-	
+	/* Fault while not rebooting.  We want the trace. */
 	BUG();
 }
 EXPORT_SYMBOL_GPL(kvm_spurious_fault);
@@ -2248,6 +2350,12 @@ EXPORT_SYMBOL_GPL(kvm_spurious_fault);
 static int kvm_reboot(struct notifier_block *notifier, unsigned long val,
 		      void *v)
 {
+	/*
+	 * Some (well, at least mine) BIOSes hang on reboot if
+	 * in vmx root mode.
+	 *
+	 * And Intel TXT required VMX off for all cpu when system shutdown.
+	 */
 	printk(KERN_INFO "kvm: exiting hardware virtualization\n");
 	kvm_rebooting = true;
 	on_each_cpu(hardware_disable_nolock, NULL, 1);
@@ -2325,6 +2433,7 @@ int kvm_io_bus_get_first_dev(struct kvm_io_bus *bus,
 	return off;
 }
 
+/* kvm_io_bus_write - called under kvm->slots_lock */
 int kvm_io_bus_write(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
 		     int len, const void *val)
 {
@@ -2352,6 +2461,7 @@ int kvm_io_bus_write(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
 	return -EOPNOTSUPP;
 }
 
+/* kvm_io_bus_read - called under kvm->slots_lock */
 int kvm_io_bus_read(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
 		    int len, void *val)
 {
@@ -2379,6 +2489,7 @@ int kvm_io_bus_read(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
 	return -EOPNOTSUPP;
 }
 
+/* Caller must hold slots_lock. */
 int kvm_io_bus_register_dev(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
 			    int len, struct kvm_io_device *dev)
 {
@@ -2399,6 +2510,7 @@ int kvm_io_bus_register_dev(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
 	return 0;
 }
 
+/* Caller must hold slots_lock. */
 int kvm_io_bus_unregister_dev(struct kvm *kvm, enum kvm_bus bus_idx,
 			      struct kvm_io_device *dev)
 {
@@ -2614,7 +2726,7 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 		goto out_free_2;
 	register_reboot_notifier(&kvm_reboot_notifier);
 
-	
+	/* A kmem cache lets us meet the alignment requirements of fx_save. */
 	if (!vcpu_align)
 		vcpu_align = __alignof__(struct kvm_vcpu);
 	kvm_vcpu_cache = kmem_cache_create("kvm_vcpu", vcpu_size, vcpu_align,

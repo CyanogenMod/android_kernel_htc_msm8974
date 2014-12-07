@@ -16,11 +16,11 @@
 #include <linux/of.h>
 
 enum gpd_status {
-	GPD_STATE_ACTIVE = 0,	
-	GPD_STATE_WAIT_MASTER,	
-	GPD_STATE_BUSY,		
-	GPD_STATE_REPEAT,	
-	GPD_STATE_POWER_OFF,	
+	GPD_STATE_ACTIVE = 0,	/* PM domain is active */
+	GPD_STATE_WAIT_MASTER,	/* PM domain's master is being waited for */
+	GPD_STATE_BUSY,		/* Something is happening to the PM domain */
+	GPD_STATE_REPEAT,	/* Power off in progress, to be repeated */
+	GPD_STATE_POWER_OFF,	/* PM domain is off */
 };
 
 struct dev_power_governor {
@@ -45,35 +45,35 @@ struct gpd_dev_ops {
 };
 
 struct generic_pm_domain {
-	struct dev_pm_domain domain;	
-	struct list_head gpd_list_node;	
-	struct list_head master_links;	
-	struct list_head slave_links;	
-	struct list_head dev_list;	
+	struct dev_pm_domain domain;	/* PM domain operations */
+	struct list_head gpd_list_node;	/* Node in the global PM domains list */
+	struct list_head master_links;	/* Links with PM domain as a master */
+	struct list_head slave_links;	/* Links with PM domain as a slave */
+	struct list_head dev_list;	/* List of devices */
 	struct mutex lock;
 	struct dev_power_governor *gov;
 	struct work_struct power_off_work;
 	char *name;
-	unsigned int in_progress;	
-	atomic_t sd_count;	
-	enum gpd_status status;	
+	unsigned int in_progress;	/* Number of devices being suspended now */
+	atomic_t sd_count;	/* Number of subdomains with power "on" */
+	enum gpd_status status;	/* Current state of the domain */
 	wait_queue_head_t status_wait_queue;
-	struct task_struct *poweroff_task;	
-	unsigned int resume_count;	
-	unsigned int device_count;	
-	unsigned int suspended_count;	
-	unsigned int prepared_count;	
-	bool suspend_power_off;	
-	bool dev_irq_safe;	
+	struct task_struct *poweroff_task;	/* Powering off task */
+	unsigned int resume_count;	/* Number of devices being resumed */
+	unsigned int device_count;	/* Number of devices */
+	unsigned int suspended_count;	/* System suspend device counter */
+	unsigned int prepared_count;	/* Suspend counter of prepared devices */
+	bool suspend_power_off;	/* Power status before system suspend */
+	bool dev_irq_safe;	/* Device callbacks are IRQ-safe */
 	int (*power_off)(struct generic_pm_domain *domain);
 	s64 power_off_latency_ns;
 	int (*power_on)(struct generic_pm_domain *domain);
 	s64 power_on_latency_ns;
 	struct gpd_dev_ops dev_ops;
-	s64 break_even_ns;	
-	s64 max_off_time_ns;	
+	s64 break_even_ns;	/* Power break even for the entire domain. */
+	s64 max_off_time_ns;	/* Maximum allowed "suspended" time. */
 	ktime_t power_off_time;
-	struct device_node *of_node; 
+	struct device_node *of_node; /* Node in device tree */
 };
 
 static inline struct generic_pm_domain *pd_to_genpd(struct dev_pm_domain *pd)
@@ -233,4 +233,4 @@ static inline void genpd_queue_power_off_work(struct generic_pm_domain *gpd) {}
 static inline void pm_genpd_poweroff_unused(void) {}
 #endif
 
-#endif 
+#endif /* _LINUX_PM_DOMAIN_H */

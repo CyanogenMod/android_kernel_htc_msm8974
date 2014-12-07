@@ -228,4 +228,4 @@ void mddi_window_adjust(struct msm_fb_data_type *mfd,
 void mddi_send_fw_link_skew_cal(mddi_host_type host_idx);
 int pmdh_clk_func(int enable);
 
-#endif 
+#endif /* MDDIHOST_H */

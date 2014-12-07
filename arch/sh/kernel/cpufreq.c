@@ -25,7 +25,7 @@
 #include <linux/cpumask.h>
 #include <linux/cpu.h>
 #include <linux/smp.h>
-#include <linux/sched.h>	
+#include <linux/sched.h>	/* set_cpus_allowed() */
 #include <linux/clk.h>
 #include <linux/percpu.h>
 #include <linux/sh_clk.h>
@@ -37,6 +37,9 @@ static unsigned int sh_cpufreq_get(unsigned int cpu)
 	return (clk_get_rate(&per_cpu(sh_cpuclk, cpu)) + 500) / 1000;
 }
 
+/*
+ * Here we notify other drivers of the proposed change and the final change.
+ */
 static int sh_cpufreq_target(struct cpufreq_policy *policy,
 			     unsigned int target_freq,
 			     unsigned int relation)
@@ -58,7 +61,7 @@ static int sh_cpufreq_target(struct cpufreq_policy *policy,
 
 	dev = get_cpu_device(cpu);
 
-	
+	/* Convert target_freq from kHz to Hz */
 	freq = clk_round_rate(cpuclk, target_freq * 1000);
 
 	if (freq < (policy->min * 1000) || freq > (policy->max * 1000))

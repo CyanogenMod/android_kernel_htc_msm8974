@@ -307,6 +307,11 @@ const struct dispc_coef *dispc_ovl_get_scale_coef(int inc, int five_taps)
 		{ 10, 10, coef3_M10, coef5_M10 },
 		{  9,  9,  coef3_M9,  coef5_M9 },
 		{  4,  8,  coef3_M8,  coef5_M8 },
+		/*
+		 * When upscaling more than two times, blockiness and outlines
+		 * around the image are observed when M8 tables are used. M11,
+		 * M16 and M19 tables are used to prevent this.
+		 */
 		{  3,  3, coef3_M11, coef5_M11 },
 		{  2,  2, coef3_M16, coef5_M16 },
 		{  0,  1, coef3_M19, coef5_M19 },

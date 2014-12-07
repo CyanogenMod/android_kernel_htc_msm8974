@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Name: acoutput.h -- debug output
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2011, Intel Corp.
@@ -39,7 +44,13 @@
 #ifndef __ACOUTPUT_H__
 #define __ACOUTPUT_H__
 
+/*
+ * Debug levels and component IDs. These are used to control the
+ * granularity of the output of the ACPI_DEBUG_PRINT macro -- on a
+ * per-component basis and a per-exception-type basis.
+ */
 
+/* Component IDs are used in the global "DebugLayer" */
 
 #define ACPI_UTILITIES              0x00000001
 #define ACPI_HARDWARE               0x00000002
@@ -54,6 +65,7 @@
 #define ACPI_OS_SERVICES            0x00000400
 #define ACPI_CA_DISASSEMBLER        0x00000800
 
+/* Component IDs for ACPI tools and utilities */
 
 #define ACPI_COMPILER               0x00001000
 #define ACPI_TOOLS                  0x00002000
@@ -64,15 +76,20 @@
 #define ACPI_ALL_COMPONENTS         0x0001FFFF
 #define ACPI_COMPONENT_DEFAULT      (ACPI_ALL_COMPONENTS)
 
+/* Component IDs reserved for ACPI drivers */
 
 #define ACPI_ALL_DRIVERS            0xFFFF0000
 
+/*
+ * Raw debug output levels, do not use these in the ACPI_DEBUG_PRINT macros
+ */
 #define ACPI_LV_INIT                0x00000001
 #define ACPI_LV_DEBUG_OBJECT        0x00000002
 #define ACPI_LV_INFO                0x00000004
 #define ACPI_LV_REPAIR              0x00000008
 #define ACPI_LV_ALL_EXCEPTIONS      0x0000000F
 
+/* Trace verbosity level 1 [Standard Trace Level] */
 
 #define ACPI_LV_INIT_NAMES          0x00000020
 #define ACPI_LV_PARSE               0x00000040
@@ -90,6 +107,7 @@
 #define ACPI_LV_PACKAGE             0x00040000
 #define ACPI_LV_VERBOSITY1          0x0007FF40 | ACPI_LV_ALL_EXCEPTIONS
 
+/* Trace verbosity level 2 [Function tracing and memory allocation] */
 
 #define ACPI_LV_ALLOCATIONS         0x00100000
 #define ACPI_LV_FUNCTIONS           0x00200000
@@ -97,6 +115,7 @@
 #define ACPI_LV_VERBOSITY2          0x00700000 | ACPI_LV_VERBOSITY1
 #define ACPI_LV_ALL                 ACPI_LV_VERBOSITY2
 
+/* Trace verbosity level 3 [Threading, I/O, and Interrupts] */
 
 #define ACPI_LV_MUTEX               0x01000000
 #define ACPI_LV_THREADS             0x02000000
@@ -104,6 +123,7 @@
 #define ACPI_LV_INTERRUPTS          0x08000000
 #define ACPI_LV_VERBOSITY3          0x0F000000 | ACPI_LV_VERBOSITY2
 
+/* Exceptionally verbose output -- also used in the global "DebugLevel"  */
 
 #define ACPI_LV_AML_DISASSEMBLE     0x10000000
 #define ACPI_LV_VERBOSE_INFO        0x20000000
@@ -111,14 +131,24 @@
 #define ACPI_LV_EVENTS              0x80000000
 #define ACPI_LV_VERBOSE             0xF0000000
 
+/*
+ * Debug level macros that are used in the DEBUG_PRINT macros
+ */
 #define ACPI_DEBUG_LEVEL(dl)        (u32) dl,ACPI_DEBUG_PARAMETERS
 
+/*
+ * Exception level -- used in the global "DebugLevel"
+ *
+ * Note: For errors, use the ACPI_ERROR or ACPI_EXCEPTION interfaces.
+ * For warnings, use ACPI_WARNING.
+ */
 #define ACPI_DB_INIT                ACPI_DEBUG_LEVEL (ACPI_LV_INIT)
 #define ACPI_DB_DEBUG_OBJECT        ACPI_DEBUG_LEVEL (ACPI_LV_DEBUG_OBJECT)
 #define ACPI_DB_INFO                ACPI_DEBUG_LEVEL (ACPI_LV_INFO)
 #define ACPI_DB_REPAIR              ACPI_DEBUG_LEVEL (ACPI_LV_REPAIR)
 #define ACPI_DB_ALL_EXCEPTIONS      ACPI_DEBUG_LEVEL (ACPI_LV_ALL_EXCEPTIONS)
 
+/* Trace level -- also used in the global "DebugLevel" */
 
 #define ACPI_DB_INIT_NAMES          ACPI_DEBUG_LEVEL (ACPI_LV_INIT_NAMES)
 #define ACPI_DB_THREADS             ACPI_DEBUG_LEVEL (ACPI_LV_THREADS)
@@ -145,21 +175,40 @@
 
 #define ACPI_DB_ALL                 ACPI_DEBUG_LEVEL (ACPI_LV_ALL)
 
+/* Defaults for debug_level, debug and normal */
 
 #define ACPI_DEBUG_DEFAULT          (ACPI_LV_INFO | ACPI_LV_REPAIR)
 #define ACPI_NORMAL_DEFAULT         (ACPI_LV_INIT | ACPI_LV_DEBUG_OBJECT | ACPI_LV_REPAIR)
 #define ACPI_DEBUG_ALL              (ACPI_LV_AML_DISASSEMBLE | ACPI_LV_ALL_EXCEPTIONS | ACPI_LV_ALL)
 
 #if defined (ACPI_DEBUG_OUTPUT) || !defined (ACPI_NO_ERROR_MESSAGES)
+/*
+ * The module name is used primarily for error and debug messages.
+ * The __FILE__ macro is not very useful for this, because it
+ * usually includes the entire pathname to the module making the
+ * debug output difficult to read.
+ */
 #define ACPI_MODULE_NAME(name)          static const char ACPI_UNUSED_VAR _acpi_module_name[] = name;
 #else
+/*
+ * For the no-debug and no-error-msg cases, we must at least define
+ * a null module name.
+ */
 #define ACPI_MODULE_NAME(name)
 #define _acpi_module_name ""
 #endif
 
+/*
+ * Ascii error messages can be configured out
+ */
 #ifndef ACPI_NO_ERROR_MESSAGES
 #define AE_INFO                         _acpi_module_name, __LINE__
 
+/*
+ * Error reporting. Callers module and line number are inserted by AE_INFO,
+ * the plist contains a set of parens to allow variable-length lists.
+ * These macros are used for both the debug and non-debug versions of the code.
+ */
 #define ACPI_INFO(plist)                acpi_info plist
 #define ACPI_WARNING(plist)             acpi_warning plist
 #define ACPI_EXCEPTION(plist)           acpi_exception plist
@@ -168,6 +217,7 @@
 
 #else
 
+/* No error messages */
 
 #define ACPI_INFO(plist)
 #define ACPI_WARNING(plist)
@@ -175,30 +225,59 @@
 #define ACPI_ERROR(plist)
 #define ACPI_DEBUG_OBJECT(obj,l,i)
 
-#endif				
+#endif				/* ACPI_NO_ERROR_MESSAGES */
 
+/*
+ * Debug macros that are conditionally compiled
+ */
 #ifdef ACPI_DEBUG_OUTPUT
 
+/*
+ * If ACPI_GET_FUNCTION_NAME was not defined in the compiler-dependent header,
+ * define it now. This is the case where there the compiler does not support
+ * a __FUNCTION__ macro or equivalent.
+ */
 #ifndef ACPI_GET_FUNCTION_NAME
 #define ACPI_GET_FUNCTION_NAME          _acpi_function_name
 
+/*
+ * The Name parameter should be the procedure name as a quoted string.
+ * The function name is also used by the function exit macros below.
+ * Note: (const char) is used to be compatible with the debug interfaces
+ * and macros such as __FUNCTION__.
+ */
 #define ACPI_FUNCTION_NAME(name)        static const char _acpi_function_name[] = #name;
 
 #else
+/* Compiler supports __FUNCTION__ (or equivalent) -- Ignore this macro */
 
 #define ACPI_FUNCTION_NAME(name)
-#endif				
+#endif				/* ACPI_GET_FUNCTION_NAME */
 
+/*
+ * Common parameters used for debug output functions:
+ * line number, function name, module(file) name, component ID
+ */
 #define ACPI_DEBUG_PARAMETERS           __LINE__, ACPI_GET_FUNCTION_NAME, _acpi_module_name, _COMPONENT
 
+/*
+ * Master debug print macros
+ * Print message if and only if:
+ *    1) Debug print for the current component is enabled
+ *    2) Debug error level or trace level for the print statement is enabled
+ */
 #define ACPI_DEBUG_PRINT(plist)         acpi_debug_print plist
 #define ACPI_DEBUG_PRINT_RAW(plist)     acpi_debug_print_raw plist
 
 #else
+/*
+ * This is the non-debug case -- make everything go away,
+ * leaving no executable debug code!
+ */
 #define ACPI_FUNCTION_NAME(a)
 #define ACPI_DEBUG_PRINT(pl)
 #define ACPI_DEBUG_PRINT_RAW(pl)
 
-#endif				
+#endif				/* ACPI_DEBUG_OUTPUT */
 
-#endif				
+#endif				/* __ACOUTPUT_H__ */

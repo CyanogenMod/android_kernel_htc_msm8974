@@ -8,4 +8,4 @@ static inline
 void cfg80211_debugfs_rdev_add(struct cfg80211_registered_device *rdev) {}
 #endif
 
-#endif 
+#endif /* __CFG80211_DEBUGFS_H */

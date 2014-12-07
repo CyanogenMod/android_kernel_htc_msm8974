@@ -29,6 +29,7 @@ asmlinkage void do_IRQ(int irq, struct pt_regs *regs)
 }
 
 
+/* The number of spurious interrupts */
 atomic_t irq_err_count;
 
 int arch_show_interrupts(struct seq_file *p, int prec)

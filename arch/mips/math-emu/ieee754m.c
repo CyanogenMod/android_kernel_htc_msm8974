@@ -1,4 +1,7 @@
 /*
+ * floor, trunc, ceil
+ */
+/*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
  *

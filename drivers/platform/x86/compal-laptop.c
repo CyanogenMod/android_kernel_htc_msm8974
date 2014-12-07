@@ -1,3 +1,4 @@
+/*-*-linux-c-*-*/
 
 /*
   Copyright (C) 2008 Cezary Jackiewicz <cezary.jackiewicz (at) gmail.com>
@@ -22,7 +23,50 @@
   02110-1301, USA.
  */
 
+/*
+ * compal-laptop.c - Compal laptop support.
+ *
+ * This driver exports a few files in /sys/devices/platform/compal-laptop/:
+ *   wake_up_XXX   Whether or not we listen to such wake up events (rw)
+ *
+ * In addition to these platform device attributes the driver
+ * registers itself in the Linux backlight control, power_supply, rfkill
+ * and hwmon subsystem and is available to userspace under:
+ *
+ *   /sys/class/backlight/compal-laptop/
+ *   /sys/class/power_supply/compal-laptop/
+ *   /sys/class/rfkill/rfkillX/
+ *   /sys/class/hwmon/hwmonX/
+ *
+ * Notes on the power_supply battery interface:
+ *   - the "minimum" design voltage is *the* design voltage
+ *   - the ambient temperature is the average battery temperature
+ *     and the value is an educated guess (see commented code below)
+ *
+ *
+ * This driver might work on other laptops produced by Compal. If you
+ * want to try it you can pass force=1 as argument to the module which
+ * will force it to load even when the DMI data doesn't identify the
+ * laptop as compatible.
+ *
+ * Lots of data available at:
+ * http://service1.marasst.com/Compal/JHL90_91/Service%20Manual/
+ * JHL90%20service%20manual-Final-0725.pdf
+ *
+ *
+ *
+ * Support for the Compal JHL90 added by Roald Frederickx
+ * (roald.frederickx@gmail.com):
+ * Driver got large revision. Added functionalities: backlight
+ * power, wake_on_XXX, a hwmon and power_supply interface.
+ *
+ * In case this gets merged into the kernel source: I want to dedicate this
+ * to Kasper Meerts, the awesome guy who showed me Linux and C!
+ */
 
+/* NOTE: currently the wake_on_XXX, hwmon and power_supply interfaces are
+ * only enabled on a JHL90 board until it is verified that they work on the
+ * other boards too.  See the extra_features variable. */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -40,6 +84,9 @@
 #include <linux/fb.h>
 
 
+/* ======= */
+/* Defines */
+/* ======= */
 #define DRIVER_NAME "compal-laptop"
 #define DRIVER_VERSION	"0.2.7"
 
@@ -72,9 +119,9 @@
 
 #define FAN_ADDRESS			0x46
 #define FAN_DATA			0x81
-#define FAN_FULL_ON_CMD			0x59 
-#define FAN_FULL_ON_ENABLE		0x76 
-#define FAN_FULL_ON_DISABLE		0x77 
+#define FAN_FULL_ON_CMD			0x59 /* Doesn't seem to work. Just */
+#define FAN_FULL_ON_ENABLE		0x76 /* force the pwm signal to its */
+#define FAN_FULL_ON_DISABLE		0x77 /* maximum value instead */
 
 #define TEMP_CPU			0xB0
 #define TEMP_CPU_LOCAL			0xB1
@@ -121,13 +168,16 @@
 #define BAT_STOP_CHRG1_OVERTEMPERATURE	(1 << 7)
 
 
+/* ======= */
+/* Structs */
+/* ======= */
 struct compal_data{
-	
+	/* Fan control */
 	struct device *hwmon_dev;
-	int pwm_enable; 
+	int pwm_enable; /* 0:full on, 1:set by pwm1, 2:control by moterboard */
 	unsigned char curr_pwm;
 
-	
+	/* Power supply */
 	struct power_supply psy;
 	struct power_supply_info psy_info;
 	char bat_model_name[BAT_MODEL_NAME_LEN + 1];
@@ -136,12 +186,29 @@ struct compal_data{
 };
 
 
+/* =============== */
+/* General globals */
+/* =============== */
 static bool force;
 module_param(force, bool, 0);
 MODULE_PARM_DESC(force, "Force driver load, ignore DMI data");
 
+/* Support for the wake_on_XXX, hwmon and power_supply interface. Currently
+ * only gets enabled on a JHL90 board. Might work with the others too */
 static bool extra_features;
 
+/* Nasty stuff. For some reason the fan control is very un-linear.  I've
+ * come up with these values by looping through the possible inputs and
+ * watching the output of address 0x4F (do an ec_transaction writing 0x33
+ * into 0x4F and read a few bytes from the output, like so:
+ *	u8 writeData = 0x33;
+ *	ec_transaction(0x4F, &writeData, 1, buffer, 32);
+ * That address is labeled "fan1 table information" in the service manual.
+ * It should be clear which value in 'buffer' changes). This seems to be
+ * related to fan speed. It isn't a proper 'realtime' fan speed value
+ * though, because physically stopping or speeding up the fan doesn't
+ * change it. It might be the average voltage or current of the pwm output.
+ * Nevertheless, it is more fine-grained than the actual RPM reading */
 static const unsigned char pwm_lookup_table[256] = {
 	0, 0, 0, 1, 1, 1, 2, 253, 254, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6,
 	7, 7, 7, 8, 86, 86, 9, 9, 9, 10, 10, 10, 11, 92, 92, 12, 12, 95,
@@ -165,6 +232,10 @@ static const unsigned char pwm_lookup_table[256] = {
 
 
 
+/* ========================= */
+/* Hardware access functions */
+/* ========================= */
+/* General access */
 static u8 ec_read_u8(u8 addr)
 {
 	u8 value;
@@ -198,6 +269,7 @@ static void ec_read_sequence(u8 addr, u8 *buf, int len)
 }
 
 
+/* Backlight access */
 static int set_backlight_level(int level)
 {
 	if (level < 0 || level > BACKLIGHT_LEVEL_MAX)
@@ -220,6 +292,7 @@ static void set_backlight_state(bool on)
 }
 
 
+/* Fan control access */
 static void pwm_enable_control(void)
 {
 	unsigned char writeData = PWM_ENABLE_DATA;
@@ -247,7 +320,11 @@ static int get_fan_rpm(void)
 
 
 
+/* =================== */
+/* Interface functions */
+/* =================== */
 
+/* Backlight interface */
 static int bl_get_brightness(struct backlight_device *b)
 {
 	return get_backlight_level();
@@ -271,6 +348,7 @@ static const struct backlight_ops compalbl_ops = {
 };
 
 
+/* Wireless interface */
 static int compal_rfkill_set(void *data, bool blocked)
 {
 	unsigned long radio = (unsigned long) data;
@@ -299,6 +377,7 @@ static const struct rfkill_ops compal_rfkill_ops = {
 };
 
 
+/* Wake_up interface */
 #define SIMPLE_MASKED_STORE_SHOW(NAME, ADDR, MASK)			\
 static ssize_t NAME##_show(struct device *dev,				\
 	struct device_attribute *attr, char *buf)			\
@@ -324,6 +403,7 @@ SIMPLE_MASKED_STORE_SHOW(wake_up_key,	WAKE_UP_ADDR, WAKE_UP_KEY)
 SIMPLE_MASKED_STORE_SHOW(wake_up_mouse,	WAKE_UP_ADDR, WAKE_UP_MOUSE)
 
 
+/* General hwmon interface */
 static ssize_t hwmon_name_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -331,6 +411,7 @@ static ssize_t hwmon_name_show(struct device *dev,
 }
 
 
+/* Fan control interface */
 static ssize_t pwm_enable_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -353,15 +434,15 @@ static ssize_t pwm_enable_store(struct device *dev,
 	data->pwm_enable = val;
 
 	switch (val) {
-	case 0:  
+	case 0:  /* Full speed */
 		pwm_enable_control();
 		set_pwm(255);
 		break;
-	case 1:  
+	case 1:  /* As set by pwm1 */
 		pwm_enable_control();
 		set_pwm(data->curr_pwm);
 		break;
-	default: 
+	default: /* Control by motherboard */
 		pwm_disable_control();
 		break;
 	}
@@ -404,6 +485,7 @@ static ssize_t fan_show(struct device *dev, struct device_attribute *attr,
 }
 
 
+/* Temperature interface */
 #define TEMPERATURE_SHOW_TEMP_AND_LABEL(POSTFIX, ADDRESS, LABEL)	\
 static ssize_t temp_##POSTFIX(struct device *dev,			\
 		struct device_attribute *attr, char *buf)		\
@@ -416,6 +498,7 @@ static ssize_t label_##POSTFIX(struct device *dev,			\
 	return sprintf(buf, "%s\n", LABEL);				\
 }
 
+/* Labels as in service guide */
 TEMPERATURE_SHOW_TEMP_AND_LABEL(cpu,        TEMP_CPU,        "CPU_TEMP");
 TEMPERATURE_SHOW_TEMP_AND_LABEL(cpu_local,  TEMP_CPU_LOCAL,  "CPU_TEMP_LOCAL");
 TEMPERATURE_SHOW_TEMP_AND_LABEL(cpu_DTS,    TEMP_CPU_DTS,    "CPU_DTS");
@@ -424,6 +507,7 @@ TEMPERATURE_SHOW_TEMP_AND_LABEL(vga,        TEMP_VGA,        "VGA_TEMP");
 TEMPERATURE_SHOW_TEMP_AND_LABEL(SKIN,       TEMP_SKIN,       "SKIN_TEMP90");
 
 
+/* Power supply interface */
 static int bat_status(void)
 {
 	u8 status0 = ec_read_u8(BAT_STATUS0);
@@ -505,7 +589,7 @@ static int bat_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = bat_technology();
 		break;
-	case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN: 
+	case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN: /* THE design voltage... */
 		val->intval = ec_read_u16(BAT_VOLTAGE_DESIGN) * 1000;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
@@ -532,13 +616,18 @@ static int bat_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
 		val->intval = bat_capacity_level();
 		break;
+	/* It smees that BAT_TEMP_AVG is a (2's complement?) value showing
+	 * the number of degrees, whereas BAT_TEMP is somewhat more
+	 * complicated. It looks like this is a negative nember with a
+	 * 100/256 divider and an offset of 222. Both were determined
+	 * experimentally by comparing BAT_TEMP and BAT_TEMP_AVG. */
 	case POWER_SUPPLY_PROP_TEMP:
 		val->intval = ((222 - (int)ec_read_u8(BAT_TEMP)) * 1000) >> 8;
 		break;
-	case POWER_SUPPLY_PROP_TEMP_AMBIENT: 
+	case POWER_SUPPLY_PROP_TEMP_AMBIENT: /* Ambient, Avg, ... same thing */
 		val->intval = ec_read_s8(BAT_TEMP_AVG) * 10;
 		break;
-	
+	/* Neither the model name nor manufacturer name work for me. */
 	case POWER_SUPPLY_PROP_MODEL_NAME:
 		val->strval = data->bat_model_name;
 		break;
@@ -558,6 +647,9 @@ static int bat_get_property(struct power_supply *psy,
 
 
 
+/* ============== */
+/* Driver Globals */
+/* ============== */
 static DEVICE_ATTR(wake_up_pme,
 		0644, wake_up_pme_show,		wake_up_pme_store);
 static DEVICE_ATTR(wake_up_modem,
@@ -596,6 +688,8 @@ static struct attribute *compal_attributes[] = {
 	&dev_attr_wake_up_wlan.attr,
 	&dev_attr_wake_up_key.attr,
 	&dev_attr_wake_up_mouse.attr,
+	/* Maybe put the sensor-stuff in a separate hwmon-driver? That way,
+	 * the hwmon sysfs won't be cluttered with the above files. */
 	&sensor_dev_attr_name.dev_attr.attr,
 	&sensor_dev_attr_pwm1_enable.dev_attr.attr,
 	&sensor_dev_attr_pwm1.dev_attr.attr,
@@ -662,6 +756,9 @@ static struct rfkill *bt_rfkill;
 
 
 
+/* =================================== */
+/* Initialization & clean-up functions */
+/* =================================== */
 
 static int dmi_check_cb(const struct dmi_system_id *id)
 {
@@ -811,8 +908,9 @@ static void initialize_power_supply_data(struct compal_data *data)
 
 static void initialize_fan_control_data(struct compal_data *data)
 {
-	data->pwm_enable = 2; 
-	data->curr_pwm = 255; 
+	data->pwm_enable = 2; /* Keep motherboard in control for now */
+	data->curr_pwm = 255; /* Try not to cause a CPU_on_fire exception
+				 if we take over... */
 }
 
 static int setup_rfkill(void)
@@ -891,7 +989,7 @@ static int __init compal_init(void)
 		goto err_platform_driver;
 	}
 
-	ret = platform_device_add(compal_device); 
+	ret = platform_device_add(compal_device); /* This calls compal_probe */
 	if (ret)
 		goto err_platform_device;
 
@@ -925,7 +1023,7 @@ static int __devinit compal_probe(struct platform_device *pdev)
 	if (!extra_features)
 		return 0;
 
-	
+	/* Fan control */
 	data = kzalloc(sizeof(struct compal_data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
@@ -947,7 +1045,7 @@ static int __devinit compal_probe(struct platform_device *pdev)
 		return err;
 	}
 
-	
+	/* Power supply */
 	initialize_power_supply_data(data);
 	power_supply_register(&compal_device->dev, &data->psy);
 

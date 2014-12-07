@@ -1,3 +1,6 @@
+/*
+ * machine_kexec.c - handle transition of Linux booting another kernel
+ */
 
 #include <linux/mm.h>
 #include <linux/kexec.h>
@@ -22,6 +25,10 @@ extern unsigned long kexec_boot_atags;
 
 static atomic_t waiting_for_crash_ipi;
 
+/*
+ * Provide a dummy crash_notes definition while crash dump arrives to arm.
+ * This prevents breakage of crash_notes attribute in kernel/ksysfs.c.
+ */
 
 int machine_kexec_prepare(struct kimage *image)
 {
@@ -78,7 +85,7 @@ void machine_crash_shutdown(struct pt_regs *regs)
 
 	atomic_set(&waiting_for_crash_ipi, num_online_cpus() - 1);
 	smp_call_function(machine_crash_nonpanic_core, NULL, false);
-	msecs = 1000; 
+	msecs = 1000; /* Wait at most a second for the other cpus to stop */
 	while ((atomic_read(&waiting_for_crash_ipi) > 0) && msecs) {
 		mdelay(1);
 		msecs--;
@@ -92,6 +99,9 @@ void machine_crash_shutdown(struct pt_regs *regs)
 	printk(KERN_INFO "Loading crashdump kernel...\n");
 }
 
+/*
+ * Function pointer to optional machine-specific reinitialization
+ */
 void (*kexec_reinit)(void);
 
 void machine_kexec(struct kimage *image)
@@ -104,18 +114,18 @@ void machine_kexec(struct kimage *image)
 
 	page_list = image->head & PAGE_MASK;
 
-	
+	/* we need both effective and real address here */
 	reboot_code_buffer_phys =
 	    page_to_pfn(image->control_code_page) << PAGE_SHIFT;
 	reboot_code_buffer = page_address(image->control_code_page);
 
-	
+	/* Prepare parameters for reboot_code_buffer*/
 	kexec_start_address = image->start;
 	kexec_indirection_page = page_list;
 	kexec_mach_type = machine_arch_type;
 	kexec_boot_atags = image->start - KEXEC_ARM_ZIMAGE_OFFSET + KEXEC_ARM_ATAGS_OFFSET;
 
-	
+	/* copy our kernel relocation code to the control code page */
 	memcpy(reboot_code_buffer,
 	       relocate_new_kernel, relocate_new_kernel_size);
 

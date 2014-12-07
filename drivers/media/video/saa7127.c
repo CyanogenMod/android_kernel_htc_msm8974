@@ -69,6 +69,9 @@ MODULE_PARM_DESC(debug, "debug level (0-2)");
 MODULE_PARM_DESC(test_image, "test_image (0-1)");
 
 
+/*
+ * SAA7127 registers
+ */
 
 #define SAA7127_REG_STATUS                           0x00
 #define SAA7127_REG_WIDESCREEN_CONFIG                0x26
@@ -120,6 +123,13 @@ MODULE_PARM_DESC(test_image, "test_image (0-1)");
 #define SAA7127_REG_DISABLE_TTX_LINE_LO_0            0x7e
 #define SAA7127_REG_DISABLE_TTX_LINE_LO_1            0x7f
 
+/*
+ **********************************************************************
+ *
+ *  Arrays with configuration parameters for the SAA7127
+ *
+ **********************************************************************
+ */
 
 struct i2c_reg_value {
 	unsigned char reg;
@@ -137,11 +147,11 @@ static const struct i2c_reg_value saa7127_init_config_common[] = {
 	{ SAA7127_REG_WIDESCREEN_ENABLE, 		0x00 },
 	{ SAA7127_REG_COPYGEN_0, 			0x77 },
 	{ SAA7127_REG_COPYGEN_1, 			0x41 },
-	{ SAA7127_REG_COPYGEN_2, 			0x00 },	
+	{ SAA7127_REG_COPYGEN_2, 			0x00 },	/* Macrovision enable/disable */
 	{ SAA7127_REG_OUTPUT_PORT_CONTROL, 		0xbf },
 	{ SAA7127_REG_GAIN_LUMINANCE_RGB, 		0x00 },
 	{ SAA7127_REG_GAIN_COLORDIFF_RGB, 		0x00 },
-	{ SAA7127_REG_INPUT_PORT_CONTROL_1, 		0x80 },	
+	{ SAA7127_REG_INPUT_PORT_CONTROL_1, 		0x80 },	/* for color bars */
 	{ SAA7127_REG_LINE_21_ODD_0, 			0x77 },
 	{ SAA7127_REG_LINE_21_ODD_1, 			0x41 },
 	{ SAA7127_REG_LINE_21_EVEN_0, 			0x88 },
@@ -170,7 +180,7 @@ static const struct i2c_reg_value saa7127_init_config_common[] = {
 #define SAA7127_60HZ_DAC_CONTROL 0x15
 static const struct i2c_reg_value saa7127_init_config_60hz[] = {
 	{ SAA7127_REG_BURST_START, 			0x19 },
-	
+	/* BURST_END is also used as a chip ID in saa7127_probe */
 	{ SAA7127_REG_BURST_END, 			0x1d },
 	{ SAA7127_REG_CHROMA_PHASE, 			0xa3 },
 	{ SAA7127_REG_GAINU, 				0x98 },
@@ -192,7 +202,7 @@ static const struct i2c_reg_value saa7127_init_config_60hz[] = {
 #define SAA7127_50HZ_PAL_DAC_CONTROL 0x02
 static struct i2c_reg_value saa7127_init_config_50hz_pal[] = {
 	{ SAA7127_REG_BURST_START, 			0x21 },
-	
+	/* BURST_END is also used as a chip ID in saa7127_probe */
 	{ SAA7127_REG_BURST_END, 			0x1d },
 	{ SAA7127_REG_CHROMA_PHASE, 			0x3f },
 	{ SAA7127_REG_GAINU, 				0x7d },
@@ -214,7 +224,7 @@ static struct i2c_reg_value saa7127_init_config_50hz_pal[] = {
 #define SAA7127_50HZ_SECAM_DAC_CONTROL 0x08
 static struct i2c_reg_value saa7127_init_config_50hz_secam[] = {
 	{ SAA7127_REG_BURST_START, 			0x21 },
-	
+	/* BURST_END is also used as a chip ID in saa7127_probe */
 	{ SAA7127_REG_BURST_END, 			0x1d },
 	{ SAA7127_REG_CHROMA_PHASE, 			0x3f },
 	{ SAA7127_REG_GAINU, 				0x6a },
@@ -233,6 +243,13 @@ static struct i2c_reg_value saa7127_init_config_50hz_secam[] = {
 	{ 0, 0 }
 };
 
+/*
+ **********************************************************************
+ *
+ *  Encoder Struct, holds the configuration state of the encoder
+ *
+ **********************************************************************
+ */
 
 struct saa7127_state {
 	struct v4l2_subdev sd;
@@ -251,7 +268,7 @@ struct saa7127_state {
 	u8 vps_data[5];
 	u8 reg_2d;
 	u8 reg_3a;
-	u8 reg_3a_cb;   
+	u8 reg_3a_cb;   /* colorbar bit */
 	u8 reg_61;
 };
 
@@ -289,6 +306,7 @@ static const char * const wss_strs[] = {
 	"invalid",
 };
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_read(struct v4l2_subdev *sd, u8 reg)
 {
@@ -297,6 +315,7 @@ static int saa7127_read(struct v4l2_subdev *sd, u8 reg)
 	return i2c_smbus_read_byte_data(client, reg);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_write(struct v4l2_subdev *sd, u8 reg, u8 val)
 {
@@ -311,6 +330,7 @@ static int saa7127_write(struct v4l2_subdev *sd, u8 reg, u8 val)
 	return -1;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_write_inittab(struct v4l2_subdev *sd,
 				 const struct i2c_reg_value *regs)
@@ -322,6 +342,7 @@ static int saa7127_write_inittab(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_set_vps(struct v4l2_subdev *sd, const struct v4l2_sliced_vbi_data *data)
 {
@@ -355,6 +376,7 @@ static int saa7127_set_vps(struct v4l2_subdev *sd, const struct v4l2_sliced_vbi_
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_set_cc(struct v4l2_subdev *sd, const struct v4l2_sliced_vbi_data *data)
 {
@@ -381,6 +403,7 @@ static int saa7127_set_cc(struct v4l2_subdev *sd, const struct v4l2_sliced_vbi_d
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_set_xds(struct v4l2_subdev *sd, const struct v4l2_sliced_vbi_data *data)
 {
@@ -406,6 +429,7 @@ static int saa7127_set_xds(struct v4l2_subdev *sd, const struct v4l2_sliced_vbi_
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_set_wss(struct v4l2_subdev *sd, const struct v4l2_sliced_vbi_data *data)
 {
@@ -430,6 +454,7 @@ static int saa7127_set_wss(struct v4l2_subdev *sd, const struct v4l2_sliced_vbi_
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_set_video_enable(struct v4l2_subdev *sd, int enable)
 {
@@ -448,6 +473,7 @@ static int saa7127_set_video_enable(struct v4l2_subdev *sd, int enable)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_set_std(struct v4l2_subdev *sd, v4l2_std_id std)
 {
@@ -463,7 +489,7 @@ static int saa7127_set_std(struct v4l2_subdev *sd, v4l2_std_id std)
 		   (std & V4L2_STD_SECAM) &&
 		   !(std & (V4L2_STD_625_50 & ~V4L2_STD_SECAM))) {
 
-		
+		/* If and only if SECAM, with a SAA712[89] */
 		v4l2_dbg(1, debug, sd,
 			 "Selecting 50 Hz SECAM video Standard\n");
 		inittab = saa7127_init_config_50hz_secam;
@@ -475,12 +501,13 @@ static int saa7127_set_std(struct v4l2_subdev *sd, v4l2_std_id std)
 		state->reg_61 = SAA7127_50HZ_PAL_DAC_CONTROL;
 	}
 
-	
+	/* Write Table */
 	saa7127_write_inittab(sd, inittab);
 	state->std = std;
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_set_output_type(struct v4l2_subdev *sd, int output)
 {
@@ -488,34 +515,34 @@ static int saa7127_set_output_type(struct v4l2_subdev *sd, int output)
 
 	switch (output) {
 	case SAA7127_OUTPUT_TYPE_RGB:
-		state->reg_2d = 0x0f;	
-		state->reg_3a = 0x13;	
+		state->reg_2d = 0x0f;	/* RGB + CVBS (for sync) */
+		state->reg_3a = 0x13;	/* by default switch YUV to RGB-matrix on */
 		break;
 
 	case SAA7127_OUTPUT_TYPE_COMPOSITE:
 		if (state->ident == V4L2_IDENT_SAA7129)
-			state->reg_2d = 0x20;	
+			state->reg_2d = 0x20;	/* CVBS only */
 		else
-			state->reg_2d = 0x08;	
-		state->reg_3a = 0x13;	
+			state->reg_2d = 0x08;	/* 00001000 CVBS only, RGB DAC's off (high impedance mode) */
+		state->reg_3a = 0x13;	/* by default switch YUV to RGB-matrix on */
 		break;
 
 	case SAA7127_OUTPUT_TYPE_SVIDEO:
 		if (state->ident == V4L2_IDENT_SAA7129)
-			state->reg_2d = 0x18;	
+			state->reg_2d = 0x18;	/* Y + C */
 		else
-			state->reg_2d = 0xff;   
-		state->reg_3a = 0x13;	
+			state->reg_2d = 0xff;   /*11111111  croma -> R, luma -> CVBS + G + B */
+		state->reg_3a = 0x13;	/* by default switch YUV to RGB-matrix on */
 		break;
 
 	case SAA7127_OUTPUT_TYPE_YUV_V:
-		state->reg_2d = 0x4f;	
-		state->reg_3a = 0x0b;	
+		state->reg_2d = 0x4f;	/* reg 2D = 01001111, all DAC's on, RGB + VBS */
+		state->reg_3a = 0x0b;	/* reg 3A = 00001011, bypass RGB-matrix */
 		break;
 
 	case SAA7127_OUTPUT_TYPE_YUV_C:
-		state->reg_2d = 0x0f;	
-		state->reg_3a = 0x0b;	
+		state->reg_2d = 0x0f;	/* reg 2D = 00001111, all DAC's on, RGB + CVBS */
+		state->reg_3a = 0x0b;	/* reg 3A = 00001011, bypass RGB-matrix */
 		break;
 
 	case SAA7127_OUTPUT_TYPE_BOTH:
@@ -523,7 +550,7 @@ static int saa7127_set_output_type(struct v4l2_subdev *sd, int output)
 			state->reg_2d = 0x38;
 		else
 			state->reg_2d = 0xbf;
-		state->reg_3a = 0x13;	
+		state->reg_3a = 0x13;	/* by default switch YUV to RGB-matrix on */
 		break;
 
 	default:
@@ -532,25 +559,26 @@ static int saa7127_set_output_type(struct v4l2_subdev *sd, int output)
 	v4l2_dbg(1, debug, sd,
 		"Selecting %s output type\n", output_strs[output]);
 
-	
+	/* Configure Encoder */
 	saa7127_write(sd, 0x2d, state->reg_2d);
 	saa7127_write(sd, 0x3a, state->reg_3a | state->reg_3a_cb);
 	state->output_type = output;
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_set_input_type(struct v4l2_subdev *sd, int input)
 {
 	struct saa7127_state *state = to_state(sd);
 
 	switch (input) {
-	case SAA7127_INPUT_TYPE_NORMAL:	
+	case SAA7127_INPUT_TYPE_NORMAL:	/* avia */
 		v4l2_dbg(1, debug, sd, "Selecting Normal Encoder Input\n");
 		state->reg_3a_cb = 0;
 		break;
 
-	case SAA7127_INPUT_TYPE_TEST_IMAGE:	
+	case SAA7127_INPUT_TYPE_TEST_IMAGE:	/* color bar */
 		v4l2_dbg(1, debug, sd, "Selecting Color Bar generator\n");
 		state->reg_3a_cb = 0x80;
 		break;
@@ -563,6 +591,7 @@ static int saa7127_set_input_type(struct v4l2_subdev *sd, int input)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_s_std_output(struct v4l2_subdev *sd, v4l2_std_id std)
 {
@@ -682,6 +711,7 @@ static int saa7127_log_status(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_subdev_core_ops saa7127_core_ops = {
 	.log_status = saa7127_log_status,
@@ -709,15 +739,16 @@ static const struct v4l2_subdev_ops saa7127_ops = {
 	.vbi = &saa7127_vbi_ops,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
 {
 	struct saa7127_state *state;
 	struct v4l2_subdev *sd;
-	struct v4l2_sliced_vbi_data vbi = { 0, 0, 0, 0 };  
+	struct v4l2_sliced_vbi_data vbi = { 0, 0, 0, 0 };  /* set to disabled */
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 
@@ -731,6 +762,11 @@ static int saa7127_probe(struct i2c_client *client,
 	sd = &state->sd;
 	v4l2_i2c_subdev_init(sd, client, &saa7127_ops);
 
+	/* First test register 0: Bits 5-7 are a version ID (should be 0),
+	   and bit 2 should also be 0.
+	   This is rather general, so the second test is more specific and
+	   looks at the 'ending point of burst in clock cycles' which is
+	   0x1d after a reset and not expected to ever change. */
 	if ((saa7127_read(sd, 0) & 0xe4) != 0 ||
 			(saa7127_read(sd, 0x29) & 0x3f) != 0x1d) {
 		v4l2_dbg(1, debug, sd, "saa7127 not found\n");
@@ -738,12 +774,12 @@ static int saa7127_probe(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	if (id->driver_data) {	
+	if (id->driver_data) {	/* Chip type is already known */
 		state->ident = id->driver_data;
-	} else {		
+	} else {		/* Needs detection */
 		int read_result;
 
-		
+		/* Detect if it's an saa7129 */
 		read_result = saa7127_read(sd, SAA7129_REG_FADE_KEY_COL2);
 		saa7127_write(sd, SAA7129_REG_FADE_KEY_COL2, 0xaa);
 		if (saa7127_read(sd, SAA7129_REG_FADE_KEY_COL2) == 0xaa) {
@@ -769,8 +805,8 @@ static int saa7127_probe(struct i2c_client *client,
 	saa7127_set_cc(sd, &vbi);
 	saa7127_set_xds(sd, &vbi);
 	if (test_image == 1)
-		
-		
+		/* The Encoder has an internal Colorbar generator */
+		/* This can be used for debugging */
 		saa7127_set_input_type(sd, SAA7127_INPUT_TYPE_TEST_IMAGE);
 	else
 		saa7127_set_input_type(sd, SAA7127_INPUT_TYPE_NORMAL);
@@ -781,21 +817,23 @@ static int saa7127_probe(struct i2c_client *client,
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa7127_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 
 	v4l2_device_unregister_subdev(sd);
-	
+	/* Turn off TV output */
 	saa7127_set_video_enable(sd, 0);
 	kfree(to_state(sd));
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static struct i2c_device_id saa7127_id[] = {
-	{ "saa7127_auto", 0 },	
+	{ "saa7127_auto", 0 },	/* auto-detection */
 	{ "saa7126", V4L2_IDENT_SAA7127 },
 	{ "saa7127", V4L2_IDENT_SAA7127 },
 	{ "saa7128", V4L2_IDENT_SAA7129 },

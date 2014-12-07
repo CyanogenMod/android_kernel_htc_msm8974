@@ -1,3 +1,6 @@
+/*
+ * sysfs.c - ACPI sysfs interface to userspace.
+ */
 
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -10,6 +13,15 @@ ACPI_MODULE_NAME("sysfs");
 #define PREFIX "ACPI: "
 
 #ifdef CONFIG_ACPI_DEBUG
+/*
+ * ACPI debug sysfs I/F, including:
+ * /sys/modules/acpi/parameters/debug_layer
+ * /sys/modules/acpi/parameters/debug_level
+ * /sys/modules/acpi/parameters/trace_method_name
+ * /sys/modules/acpi/parameters/trace_state
+ * /sys/modules/acpi/parameters/trace_debug_layer
+ * /sys/modules/acpi/parameters/trace_debug_level
+ */
 
 struct acpi_dlayer {
 	const char *name;
@@ -206,15 +218,17 @@ static int param_get_trace_state(char *buffer, struct kernel_param *kp)
 
 module_param_call(trace_state, param_set_trace_state, param_get_trace_state,
 		  NULL, 0644);
-#endif 
+#endif /* CONFIG_ACPI_DEBUG */
 
 
+/* /sys/modules/acpi/parameters/aml_debug_output */
 
 module_param_named(aml_debug_output, acpi_gbl_enable_aml_debug_object,
 		   bool, 0644);
 MODULE_PARM_DESC(aml_debug_output,
 		 "To enable/disable the ACPI Debug Object output.");
 
+/* /sys/module/acpi/parameters/acpica_version */
 static int param_get_acpica_version(char *buffer, struct kernel_param *kp)
 {
 	int result;
@@ -226,6 +240,11 @@ static int param_get_acpica_version(char *buffer, struct kernel_param *kp)
 
 module_param_call(acpica_version, NULL, param_get_acpica_version, NULL, 0444);
 
+/*
+ * ACPI table sysfs I/F:
+ * /sys/firmware/acpi/tables/
+ * /sys/firmware/acpi/tables/dynamic/
+ */
 
 static LIST_HEAD(acpi_table_attr_list);
 static struct kobject *tables_kobj;
@@ -316,6 +335,11 @@ acpi_sysfs_table_handler(u32 event, void *table, void *context)
 			list_add_tail(&table_attr->node, &acpi_table_attr_list);
 		break;
 	case ACPI_TABLE_EVENT_UNLOAD:
+		/*
+		 * we do not need to do anything right now
+		 * because the table is not deleted from the
+		 * global table list when unloading it.
+		 */
 		break;
 	default:
 		return AE_BAD_PARAMETER;
@@ -371,14 +395,18 @@ err:
 	return -ENOMEM;
 }
 
+/*
+ * Detailed ACPI IRQ counters:
+ * /sys/firmware/acpi/interrupts/
+ */
 
 u32 acpi_irq_handled;
 u32 acpi_irq_not_handled;
 
 #define COUNT_GPE 0
-#define COUNT_SCI 1		
-#define COUNT_SCI_NOT 2		
-#define COUNT_ERROR 3		
+#define COUNT_SCI 1		/* acpi_irq_handled */
+#define COUNT_SCI_NOT 2		/* acpi_irq_not_handled */
+#define COUNT_ERROR 3		/* other */
 #define NUM_COUNTERS_EXTRA 4
 
 struct event_counter {
@@ -498,7 +526,7 @@ static ssize_t counter_show(struct kobject *kobj,
 	    acpi_gpe_count;
 	size = sprintf(buf, "%8d", all_counters[index].count);
 
-	
+	/* "gpe_all" or "sci" */
 	if (index >= num_gpes + ACPI_NUM_FIXED_EVENTS)
 		goto end;
 
@@ -520,6 +548,11 @@ end:
 	return result ? result : size;
 }
 
+/*
+ * counter_set() sets the specified counter.
+ * setting the total "sci" file to any value clears all counters.
+ * enable/disable/clear a gpe/fixed event in user space.
+ */
 static ssize_t counter_set(struct kobject *kobj,
 			   struct kobj_attribute *attr, const char *buf,
 			   size_t size)
@@ -539,7 +572,7 @@ static ssize_t counter_set(struct kobject *kobj,
 		goto end;
 	}
 
-	
+	/* show the event status for both GPEs and Fixed Events */
 	result = get_status(index, &status, &handle);
 	if (result)
 		goto end;

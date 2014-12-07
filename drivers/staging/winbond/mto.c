@@ -22,6 +22,8 @@
 #include "wb35reg_f.h"
 #include "core.h"
 
+/* Declare SQ3 to rate and fragmentation threshold table */
+/* Declare fragmentation thresholds table */
 #define MTO_MAX_FRAG_TH_LEVELS		5
 #define MTO_MAX_DATA_RATE_LEVELS	12
 
@@ -29,10 +31,16 @@ u16 MTO_Frag_Th_Tbl[MTO_MAX_FRAG_TH_LEVELS] = {
 	256, 384, 512, 768, 1536
 };
 
+/*
+ * Declare data rate table:
+ * The following table will be changed at anytime if the opration rate
+ * supported by AP don't match the table
+ */
 static u8 MTO_Data_Rate_Tbl[MTO_MAX_DATA_RATE_LEVELS] = {
 	2, 4, 11, 22, 12, 18, 24, 36, 48, 72, 96, 108
 };
 
+/* this record the retry rate at different data rate */
 static int retryrate_rec[MTO_MAX_DATA_RATE_LEVELS];
 
 static u8 boSparseTxTraffic;
@@ -43,11 +51,24 @@ void MTO_SetTxCount(struct wbsoft_priv *adapter, u8 t0, u8 index);
 void MTO_TxFailed(struct wbsoft_priv *adapter);
 void hal_get_dto_para(struct wbsoft_priv *adapter, char *buffer);
 
+/*
+ * ===========================================================================
+ * MTO_Init --
+ *
+ *  Description:
+ *    Initialize MTO parameters.
+ *
+ *    This function should be invoked during system initialization.
+ *
+ *  Arguments:
+ *    adapter      - The pointer to the Miniport adapter Context
+ * ===========================================================================
+ */
 void MTO_Init(struct wbsoft_priv *adapter)
 {
 	int i;
 
-	MTO_PREAMBLE_TYPE() = MTO_PREAMBLE_SHORT;   
+	MTO_PREAMBLE_TYPE() = MTO_PREAMBLE_SHORT;   /* for test */
 
 	MTO_CNT_ANT(0)			= 0;
 	MTO_CNT_ANT(1)			= 0;
@@ -56,7 +77,7 @@ void MTO_Init(struct wbsoft_priv *adapter)
 
 	MTO_AGING_TIMEOUT()		= 0;
 
-	
+	/* The following parameters should be initialized to the values set by user */
 	MTO_RATE_LEVEL()		= 0;
 	MTO_FRAG_TH_LEVEL()		= 4;
 	MTO_RTS_THRESHOLD()		= MTO_FRAG_TH() + 1;
@@ -71,7 +92,7 @@ void MTO_Init(struct wbsoft_priv *adapter)
 		retryrate_rec[i] = 5;
 
 	MTO_TXFLOWCOUNT() = 0;
-	
+	/* --------- DTO threshold parameters ------------- */
 	MTOPARA_PERIODIC_CHECK_CYCLE()		= 10;
 	MTOPARA_RSSI_TH_FOR_ANTDIV()		= 10;
 	MTOPARA_TXCOUNT_TH_FOR_CALC_RATE()	= 50;
@@ -84,7 +105,7 @@ void MTO_Init(struct wbsoft_priv *adapter)
 		switch (MTO_HAL()->phy_type) {
 		case RF_AIROHA_2230:
 		case RF_AIROHA_2230S:
-			MTOPARA_TXPOWER_INDEX() = 46; 
+			MTOPARA_TXPOWER_INDEX() = 46; /* MAX-8 @@ Only for AL 2230 */
 			break;
 		case RF_AIROHA_7230:
 			MTOPARA_TXPOWER_INDEX() = 49;
@@ -96,17 +117,23 @@ void MTO_Init(struct wbsoft_priv *adapter)
 			MTOPARA_TXPOWER_INDEX() = 24;
 			break;
 		}
-	} else { 
+	} else { /* follow the setting from EEPROM */
 		MTOPARA_TXPOWER_INDEX() = MTO_TXPOWER_FROM_EEPROM;
 	}
 	RFSynthesizer_SetPowerIndex(MTO_HAL(), (u8) MTOPARA_TXPOWER_INDEX());
-	
+	/* ------------------------------------------------ */
 
-	
+	/* For RSSI turning -- Cancel load from EEPROM */
 	MTO_DATA().RSSI_high = -41;
 	MTO_DATA().RSSI_low = -60;
 }
 
+/* ===========================================================================
+ * Description:
+ *	If we enable DTO, we will ignore the tx count with different tx rate
+ *	from DTO rate. This is because when we adjust DTO tx rate, there could
+ *	be some packets in the tx queue with previous tx rate
+ */
 
 void MTO_SetTxCount(struct wbsoft_priv *adapter, u8 tx_rate, u8 index)
 {
@@ -128,7 +155,7 @@ void MTO_SetTxCount(struct wbsoft_priv *adapter, u8 tx_rate, u8 index)
 				}
 			}
 		} else if (MTO_DATA_RATE() > 48 && tx_rate == 48) {
-			
+			/* for reducing data rate scheme, do not calculate different data rate. 3 is the reducing data rate at retry. */
 			if (index < 3) {
 				MTO_HAL()->dto_tx_retry_count += index;
 				MTO_HAL()->dto_tx_frag_count += (index + 1);

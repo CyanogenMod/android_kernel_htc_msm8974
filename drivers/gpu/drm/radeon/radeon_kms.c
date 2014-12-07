@@ -59,7 +59,7 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 
 	pci_set_master(dev->pdev);
 
-	
+	/* update BUS flag */
 	if (drm_pci_device_is_agp(dev)) {
 		flags |= RADEON_IS_AGP;
 	} else if (pci_is_pcie(dev->pdev)) {
@@ -68,17 +68,27 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 		flags |= RADEON_IS_PCI;
 	}
 
+	/* radeon_device_init should report only fatal error
+	 * like memory allocation failure or iomapping failure,
+	 * or memory manager initialization failure, it must
+	 * properly initialize the GPU MC controller and permit
+	 * VRAM allocation
+	 */
 	r = radeon_device_init(rdev, dev, dev->pdev, flags);
 	if (r) {
 		dev_err(&dev->pdev->dev, "Fatal error during GPU init\n");
 		goto out;
 	}
 
-	
+	/* Call ACPI methods */
 	acpi_status = radeon_acpi_init(rdev);
 	if (acpi_status)
 		dev_dbg(&dev->pdev->dev, "Error during ACPI methods call\n");
 
+	/* Again modeset_init should fail only on fatal error
+	 * otherwise it should provide enough functionalities
+	 * for shadowfb to run
+	 */
 	r = radeon_modeset_init(rdev);
 	if (r)
 		dev_err(&dev->pdev->dev, "Fatal error during modeset init\n");
@@ -95,11 +105,11 @@ static void radeon_set_filp_rights(struct drm_device *dev,
 {
 	mutex_lock(&dev->struct_mutex);
 	if (*value == 1) {
-		
+		/* wants rights */
 		if (!*owner)
 			*owner = applier;
 	} else if (*value == 0) {
-		
+		/* revokes rights */
 		if (*owner == applier)
 			*owner = NULL;
 	}
@@ -107,6 +117,9 @@ static void radeon_set_filp_rights(struct drm_device *dev,
 	mutex_unlock(&dev->struct_mutex);
 }
 
+/*
+ * Userspace get information ioctl
+ */
 int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 {
 	struct radeon_device *rdev = dev->dev_private;
@@ -133,7 +146,7 @@ int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 		value = rdev->num_z_pipes;
 		break;
 	case RADEON_INFO_ACCEL_WORKING:
-		
+		/* xf86-video-ati 6.13.0 relies on this being false for evergreen */
 		if ((rdev->family >= CHIP_CEDAR) && (rdev->family <= CHIP_HEMLOCK))
 			value = false;
 		else
@@ -174,6 +187,12 @@ int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 		}
 		break;
 	case RADEON_INFO_WANT_HYPERZ:
+		/* The "value" here is both an input and output parameter.
+		 * If the input value is 1, filp requests hyper-z access.
+		 * If the input value is 0, filp revokes its hyper-z access.
+		 *
+		 * When returning, the value is 1 if filp owns hyper-z access,
+		 * 0 otherwise. */
 		if (value >= 2) {
 			DRM_DEBUG_KMS("WANT_HYPERZ: invalid value %d\n", value);
 			return -EINVAL;
@@ -181,7 +200,7 @@ int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 		radeon_set_filp_rights(dev, &rdev->hyperz_filp, filp, &value);
 		break;
 	case RADEON_INFO_WANT_CMASK:
-		
+		/* The same logic as Hyper-Z. */
 		if (value >= 2) {
 			DRM_DEBUG_KMS("WANT_CMASK: invalid value %d\n", value);
 			return -EINVAL;
@@ -189,7 +208,7 @@ int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 		radeon_set_filp_rights(dev, &rdev->cmask_filp, filp, &value);
 		break;
 	case RADEON_INFO_CLOCK_CRYSTAL_FREQ:
-		
+		/* return clock value in KHz */
 		value = rdev->clock.spll.reference_freq * 10;
 		break;
 	case RADEON_INFO_NUM_BACKENDS:
@@ -243,13 +262,13 @@ int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 		}
 		break;
 	case RADEON_INFO_VA_START:
-		
+		/* this is where we report if vm is supported or not */
 		if (rdev->family < CHIP_CAYMAN)
 			return -EINVAL;
 		value = RADEON_VA_RESERVED_SIZE;
 		break;
 	case RADEON_INFO_IB_VM_MAX_SIZE:
-		
+		/* this is where we report if vm is supported or not */
 		if (rdev->family < CHIP_CAYMAN)
 			return -EINVAL;
 		value = RADEON_IB_VM_MAX_SIZE;
@@ -281,6 +300,9 @@ int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 }
 
 
+/*
+ * Outdated mess for old drm with Xorg being in charge (void function now).
+ */
 int radeon_driver_firstopen_kms(struct drm_device *dev)
 {
 	return 0;
@@ -297,7 +319,7 @@ int radeon_driver_open_kms(struct drm_device *dev, struct drm_file *file_priv)
 
 	file_priv->driver_priv = NULL;
 
-	
+	/* new gpu have virtual address space support */
 	if (rdev->family >= CHIP_CAYMAN) {
 		struct radeon_fpriv *fpriv;
 		int r;
@@ -324,7 +346,7 @@ void radeon_driver_postclose_kms(struct drm_device *dev,
 {
 	struct radeon_device *rdev = dev->dev_private;
 
-	
+	/* new gpu have virtual address space support */
 	if (rdev->family >= CHIP_CAYMAN && file_priv->driver_priv) {
 		struct radeon_fpriv *fpriv = file_priv->driver_priv;
 
@@ -344,6 +366,9 @@ void radeon_driver_preclose_kms(struct drm_device *dev,
 		rdev->cmask_filp = NULL;
 }
 
+/*
+ * VBlank related functions.
+ */
 u32 radeon_get_vblank_counter_kms(struct drm_device *dev, int crtc)
 {
 	struct radeon_device *rdev = dev->dev_private;
@@ -397,19 +422,22 @@ int radeon_get_vblank_timestamp_kms(struct drm_device *dev, int crtc,
 		return -EINVAL;
 	}
 
-	
+	/* Get associated drm_crtc: */
 	drmcrtc = &rdev->mode_info.crtcs[crtc]->base;
 
-	
+	/* Helper routine in DRM core does all the work: */
 	return drm_calc_vbltimestamp_from_scanoutpos(dev, crtc, max_error,
 						     vblank_time, flags,
 						     drmcrtc);
 }
 
+/*
+ * IOCTL.
+ */
 int radeon_dma_ioctl_kms(struct drm_device *dev, void *data,
 			 struct drm_file *file_priv)
 {
-	
+	/* Not valid in KMS. */
 	return -EINVAL;
 }
 
@@ -420,6 +448,9 @@ int name(struct drm_device *dev, void *data, struct drm_file *file_priv)\
 	return -EINVAL;							\
 }
 
+/*
+ * All these ioctls are invalid in kms world.
+ */
 KMS_INVALID_IOCTL(radeon_cp_init_kms)
 KMS_INVALID_IOCTL(radeon_cp_start_kms)
 KMS_INVALID_IOCTL(radeon_cp_stop_kms)
@@ -477,7 +508,7 @@ struct drm_ioctl_desc radeon_ioctls_kms[] = {
 	DRM_IOCTL_DEF_DRV(RADEON_SETPARAM, radeon_cp_setparam_kms, DRM_AUTH),
 	DRM_IOCTL_DEF_DRV(RADEON_SURF_ALLOC, radeon_surface_alloc_kms, DRM_AUTH),
 	DRM_IOCTL_DEF_DRV(RADEON_SURF_FREE, radeon_surface_free_kms, DRM_AUTH),
-	
+	/* KMS */
 	DRM_IOCTL_DEF_DRV(RADEON_GEM_INFO, radeon_gem_info_ioctl, DRM_AUTH|DRM_UNLOCKED),
 	DRM_IOCTL_DEF_DRV(RADEON_GEM_CREATE, radeon_gem_create_ioctl, DRM_AUTH|DRM_UNLOCKED),
 	DRM_IOCTL_DEF_DRV(RADEON_GEM_MMAP, radeon_gem_mmap_ioctl, DRM_AUTH|DRM_UNLOCKED),

@@ -56,9 +56,30 @@
 #define P9_RDMA_RECV_SGE	4
 #define P9_RDMA_IRD		0
 #define P9_RDMA_ORD		0
-#define P9_RDMA_TIMEOUT		30000		
-#define P9_RDMA_MAXSIZE		(4*4096)	
+#define P9_RDMA_TIMEOUT		30000		/* 30 seconds */
+#define P9_RDMA_MAXSIZE		(4*4096)	/* Min SGE is 4, so we can
+						 * safely advertise a maxsize
+						 * of 64k */
 
+/**
+ * struct p9_trans_rdma - RDMA transport instance
+ *
+ * @state: tracks the transport state machine for connection setup and tear down
+ * @cm_id: The RDMA CM ID
+ * @pd: Protection Domain pointer
+ * @qp: Queue Pair pointer
+ * @cq: Completion Queue pointer
+ * @dm_mr: DMA Memory Region pointer
+ * @lkey: The local access only memory region key
+ * @timeout: Number of uSecs to wait for connection management events
+ * @sq_depth: The depth of the Send Queue
+ * @sq_sem: Semaphore for the SQ
+ * @rq_depth: The depth of the Receive Queue.
+ * @rq_count: Count of requests in the Receive Queue.
+ * @addr: The remote peer's address
+ * @req_lock: Protects the active request list
+ * @cm_done: Completion event for connection management tracking
+ */
 struct p9_trans_rdma {
 	enum {
 		P9_RDMA_INIT,
@@ -86,6 +107,14 @@ struct p9_trans_rdma {
 	struct completion cm_done;
 };
 
+/**
+ * p9_rdma_context - Keeps track of in-process WR
+ *
+ * @wc_op: The original WR op for when the CQE completes in error.
+ * @busa: Bus address to unmap when the WR completes
+ * @req: Keeps track of requests (send)
+ * @rc: Keepts track of replies (receive)
+ */
 struct p9_rdma_req;
 struct p9_rdma_context {
 	enum ib_wc_opcode wc_op;
@@ -96,6 +125,14 @@ struct p9_rdma_context {
 	};
 };
 
+/**
+ * p9_rdma_opts - Collection of mount options
+ * @port: port of connection
+ * @sq_depth: The requested depth of the SQ. This really doesn't need
+ * to be any deeper than the number of threads used in the client
+ * @rq_depth: The depth of the RQ. Should be greater than or equal to SQ depth
+ * @timeout: Time to wait in msecs for CM events
+ */
 struct p9_rdma_opts {
 	short port;
 	int sq_depth;
@@ -103,8 +140,11 @@ struct p9_rdma_opts {
 	long timeout;
 };
 
+/*
+ * Option Parsing (code inspired by NFS code)
+ */
 enum {
-	
+	/* Options that take integer arguments */
 	Opt_port, Opt_rq_depth, Opt_sq_depth, Opt_timeout, Opt_err,
 };
 
@@ -116,6 +156,13 @@ static match_table_t tokens = {
 	{Opt_err, NULL},
 };
 
+/**
+ * parse_opts - parse mount options into rdma options structure
+ * @params: options string passed from mount
+ * @opts: rdma transport-specific structure to parse options into
+ *
+ * Returns 0 upon success, -ERRNO upon failure
+ */
 static int parse_opts(char *params, struct p9_rdma_opts *opts)
 {
 	char *p;
@@ -168,7 +215,7 @@ static int parse_opts(char *params, struct p9_rdma_opts *opts)
 			continue;
 		}
 	}
-	
+	/* RQ must be at least as large as the SQ */
 	opts->rq_depth = max(opts->rq_depth, opts->sq_depth);
 	kfree(tmp_options);
 	return 0;
@@ -374,13 +421,18 @@ static int rdma_request(struct p9_client *client, struct p9_req_t *req)
 	struct p9_rdma_context *c = NULL;
 	struct p9_rdma_context *rpl_context = NULL;
 
-	
+	/* Allocate an fcall for the reply */
 	rpl_context = kmalloc(sizeof *rpl_context, GFP_NOFS);
 	if (!rpl_context) {
 		err = -ENOMEM;
 		goto err_close;
 	}
 
+	/*
+	 * If the request has a buffer, steal it, otherwise
+	 * allocate a new one.  Typically, requests should already
+	 * have receive buffers allocated and just swap them around
+	 */
 	if (!req->rc) {
 		req->rc = kmalloc(sizeof(struct p9_fcall)+client->msize,
 				  GFP_NOFS);
@@ -396,6 +448,13 @@ static int rdma_request(struct p9_client *client, struct p9_req_t *req)
 		goto err_free2;
 	}
 
+	/*
+	 * Post a receive buffer for this request. We need to ensure
+	 * there is a reply buffer available for every outstanding
+	 * request. A flushed request can result in no reply for an
+	 * outstanding request, so we must keep a count to avoid
+	 * overflowing the RQ.
+	 */
 	if (atomic_inc_return(&rdma->rq_count) <= rdma->rq_depth) {
 		err = post_recv(client, rpl_context);
 		if (err)
@@ -403,10 +462,10 @@ static int rdma_request(struct p9_client *client, struct p9_req_t *req)
 	} else
 		atomic_dec(&rdma->rq_count);
 
-	
+	/* remove posted receive buffer from request structure */
 	req->rc = NULL;
 
-	
+	/* Post the request */
 	c = kmalloc(sizeof *c, GFP_NOFS);
 	if (!c) {
 		err = -ENOMEM;
@@ -474,6 +533,10 @@ static void rdma_close(struct p9_client *client)
 	rdma_destroy_trans(rdma);
 }
 
+/**
+ * alloc_rdma - Allocate and initialize the rdma transport structure
+ * @opts: Mount options structure
+ */
 static struct p9_trans_rdma *alloc_rdma(struct p9_rdma_opts *opts)
 {
 	struct p9_trans_rdma *rdma;
@@ -493,11 +556,18 @@ static struct p9_trans_rdma *alloc_rdma(struct p9_rdma_opts *opts)
 	return rdma;
 }
 
+/* its not clear to me we can do anything after send has been posted */
 static int rdma_cancel(struct p9_client *client, struct p9_req_t *req)
 {
 	return 1;
 }
 
+/**
+ * trans_create_rdma - Transport method for creating atransport instance
+ * @client: client instance
+ * @addr: IP address string
+ * @args: Mount options string
+ */
 static int
 rdma_create_trans(struct p9_client *client, const char *addr, char *args)
 {
@@ -508,26 +578,26 @@ rdma_create_trans(struct p9_client *client, const char *addr, char *args)
 	struct ib_qp_init_attr qp_attr;
 	struct ib_device_attr devattr;
 
-	
+	/* Parse the transport specific mount options */
 	err = parse_opts(args, &opts);
 	if (err < 0)
 		return err;
 
-	
+	/* Create and initialize the RDMA transport structure */
 	rdma = alloc_rdma(&opts);
 	if (!rdma)
 		return -ENOMEM;
 
-	
+	/* Create the RDMA CM ID */
 	rdma->cm_id = rdma_create_id(p9_cm_event_handler, client, RDMA_PS_TCP,
 				     IB_QPT_RC);
 	if (IS_ERR(rdma->cm_id))
 		goto error;
 
-	
+	/* Associate the client with the transport */
 	client->trans = rdma;
 
-	
+	/* Resolve the server's address */
 	rdma->addr.sin_family = AF_INET;
 	rdma->addr.sin_addr.s_addr = in_aton(addr);
 	rdma->addr.sin_port = htons(opts.port);
@@ -540,7 +610,7 @@ rdma_create_trans(struct p9_client *client, const char *addr, char *args)
 	if (err || (rdma->state != P9_RDMA_ADDR_RESOLVED))
 		goto error;
 
-	
+	/* Resolve the route to the server */
 	err = rdma_resolve_route(rdma->cm_id, rdma->timeout);
 	if (err)
 		goto error;
@@ -548,12 +618,12 @@ rdma_create_trans(struct p9_client *client, const char *addr, char *args)
 	if (err || (rdma->state != P9_RDMA_ROUTE_RESOLVED))
 		goto error;
 
-	
+	/* Query the device attributes */
 	err = ib_query_device(rdma->cm_id->device, &devattr);
 	if (err)
 		goto error;
 
-	
+	/* Create the Completion Queue */
 	rdma->cq = ib_create_cq(rdma->cm_id->device, cq_comp_handler,
 				cq_event_handler, client,
 				opts.sq_depth + opts.rq_depth + 1, 0);
@@ -561,12 +631,12 @@ rdma_create_trans(struct p9_client *client, const char *addr, char *args)
 		goto error;
 	ib_req_notify_cq(rdma->cq, IB_CQ_NEXT_COMP);
 
-	
+	/* Create the Protection Domain */
 	rdma->pd = ib_alloc_pd(rdma->cm_id->device);
 	if (IS_ERR(rdma->pd))
 		goto error;
 
-	
+	/* Cache the DMA lkey in the transport */
 	rdma->dma_mr = NULL;
 	if (devattr.device_cap_flags & IB_DEVICE_LOCAL_DMA_LKEY)
 		rdma->lkey = rdma->cm_id->device->local_dma_lkey;
@@ -577,7 +647,7 @@ rdma_create_trans(struct p9_client *client, const char *addr, char *args)
 		rdma->lkey = rdma->dma_mr->lkey;
 	}
 
-	
+	/* Create the Queue Pair */
 	memset(&qp_attr, 0, sizeof qp_attr);
 	qp_attr.event_handler = qp_event_handler;
 	qp_attr.qp_context = client;
@@ -594,7 +664,7 @@ rdma_create_trans(struct p9_client *client, const char *addr, char *args)
 		goto error;
 	rdma->qp = rdma->cm_id->qp;
 
-	
+	/* Request a connection */
 	memset(&conn_param, 0, sizeof(conn_param));
 	conn_param.private_data = NULL;
 	conn_param.private_data_len = 0;
@@ -627,6 +697,9 @@ static struct p9_trans_module p9_rdma_trans = {
 	.cancel = rdma_cancel,
 };
 
+/**
+ * p9_trans_rdma_init - Register the 9P RDMA transport driver
+ */
 static int __init p9_trans_rdma_init(void)
 {
 	v9fs_register_trans(&p9_rdma_trans);

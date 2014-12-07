@@ -92,6 +92,13 @@ static int adis16204_spi_write_reg_16(struct iio_dev *indio_dev,
 	return ret;
 }
 
+/**
+ * adis16204_spi_read_reg_16() - read 2 bytes from a 16-bit register
+ * @indio_dev: iio device associated with child of actual device
+ * @reg_address: the address of the lower of the two registers. Second register
+ *               is assumed to have address one greater.
+ * @val: somewhere to pass back the value read
+ **/
 static int adis16204_spi_read_reg_16(struct iio_dev *indio_dev,
 				     u8 lower_reg_address,
 				     u16 *val)
@@ -260,21 +267,21 @@ static int adis16204_initial_setup(struct iio_dev *indio_dev)
 {
 	int ret;
 
-	
+	/* Disable IRQ */
 	ret = adis16204_set_irq(indio_dev, false);
 	if (ret) {
 		dev_err(&indio_dev->dev, "disable irq failed");
 		goto err_ret;
 	}
 
-	
+	/* Do self test */
 	ret = adis16204_self_test(indio_dev);
 	if (ret) {
 		dev_err(&indio_dev->dev, "self test failure");
 		goto err_ret;
 	}
 
-	
+	/* Read status register to check the result */
 	ret = adis16204_check_status(indio_dev);
 	if (ret) {
 		adis16204_reset(indio_dev);
@@ -291,6 +298,7 @@ err_ret:
 	return ret;
 }
 
+/* Unique to this driver currently */
 #define IIO_DEV_ATTR_ACCEL_XY(_show, _addr)			\
 	IIO_DEVICE_ATTR(in_accel_xy, S_IRUGO, _show, NULL, _addr)
 #define IIO_DEV_ATTR_ACCEL_XYPEAK(_show, _addr)		\
@@ -390,7 +398,7 @@ static int adis16204_read_raw(struct iio_dev *indio_dev,
 		if (mask == IIO_CHAN_INFO_CALIBBIAS) {
 			bits = 12;
 			addrind = 1;
-		} else { 
+		} else { /* PEAK_SEPARATE */
 			bits = 14;
 			addrind = 2;
 		}
@@ -489,14 +497,14 @@ static int __devinit adis16204_probe(struct spi_device *spi)
 	struct adis16204_state *st;
 	struct iio_dev *indio_dev;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
 	}
 	st = iio_priv(indio_dev);
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 	st->us = spi;
 	mutex_init(&st->buf_lock);
@@ -526,7 +534,7 @@ static int __devinit adis16204_probe(struct spi_device *spi)
 			goto error_uninitialize_ring;
 	}
 
-	
+	/* Get the device into a sane initial state */
 	ret = adis16204_initial_setup(indio_dev);
 	if (ret)
 		goto error_remove_trigger;

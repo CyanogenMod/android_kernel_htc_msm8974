@@ -220,6 +220,6 @@
     __raw_writel(new_value, (base_address)+offset);\
 }
 
-#endif 
+#endif /* USE_LEVEL_1_MACROS */
 
-#endif 
+#endif /* _MMU_REG_ACM_H */

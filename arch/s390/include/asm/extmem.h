@@ -9,6 +9,7 @@
 #define _ASM_S390X_DCSS_H
 #ifndef __ASSEMBLY__
 
+/* possible values for segment type as returned by segment_info */
 #define SEG_TYPE_SW 0
 #define SEG_TYPE_EW 1
 #define SEG_TYPE_SR 2

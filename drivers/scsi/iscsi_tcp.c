@@ -73,6 +73,13 @@ MODULE_PARM_DESC(debug_iscsi_tcp, "Turn on debugging for iscsi_tcp module "
 	} while (0);
 
 
+/**
+ * iscsi_sw_tcp_recv - TCP receive in sendfile fashion
+ * @rd_desc: read descriptor
+ * @skb: socket buffer
+ * @offset: offset in skb
+ * @len: skb->len - offset
+ */
 static int iscsi_sw_tcp_recv(read_descriptor_t *rd_desc, struct sk_buff *skb,
 			     unsigned int offset, size_t len)
 {
@@ -94,6 +101,16 @@ static int iscsi_sw_tcp_recv(read_descriptor_t *rd_desc, struct sk_buff *skb,
 	return total_consumed;
 }
 
+/**
+ * iscsi_sw_sk_state_check - check socket state
+ * @sk: socket
+ *
+ * If the socket is in CLOSE or CLOSE_WAIT we should
+ * not close the connection if there is still some
+ * data pending.
+ *
+ * Must be called with sk_callback_lock.
+ */
 static inline int iscsi_sw_sk_state_check(struct sock *sk)
 {
 	struct iscsi_conn *conn = sk->sk_user_data;
@@ -121,12 +138,20 @@ static void iscsi_sw_tcp_data_ready(struct sock *sk, int flag)
 	}
 	tcp_conn = conn->dd_data;
 
+	/*
+	 * Use rd_desc to pass 'conn' to iscsi_tcp_recv.
+	 * We set count to 1 because we want the network layer to
+	 * hand us all the skbs that are available. iscsi_tcp_recv
+	 * handled pdus that cross buffers or pdus that still need data.
+	 */
 	rd_desc.arg.data = conn;
 	rd_desc.count = 1;
 	tcp_read_sock(sk, &rd_desc, iscsi_sw_tcp_recv);
 
 	iscsi_sw_sk_state_check(sk);
 
+	/* If we had to (atomically) map a highmem page,
+	 * unmap it now. */
 	iscsi_tcp_segment_unmap(&tcp_conn->in.segment);
 	read_unlock(&sk->sk_callback_lock);
 }
@@ -158,6 +183,10 @@ static void iscsi_sw_tcp_state_change(struct sock *sk)
 	old_state_change(sk);
 }
 
+/**
+ * iscsi_write_space - Called when more output buffer space is available
+ * @sk: socket space is available for
+ **/
 static void iscsi_sw_tcp_write_space(struct sock *sk)
 {
 	struct iscsi_conn *conn;
@@ -189,7 +218,7 @@ static void iscsi_sw_tcp_conn_set_callbacks(struct iscsi_conn *conn)
 	struct iscsi_sw_tcp_conn *tcp_sw_conn = tcp_conn->dd_data;
 	struct sock *sk = tcp_sw_conn->sock->sk;
 
-	
+	/* assign new callbacks */
 	write_lock_bh(&sk->sk_callback_lock);
 	sk->sk_user_data = conn;
 	tcp_sw_conn->old_data_ready = sk->sk_data_ready;
@@ -208,7 +237,7 @@ iscsi_sw_tcp_conn_restore_callbacks(struct iscsi_conn *conn)
 	struct iscsi_sw_tcp_conn *tcp_sw_conn = tcp_conn->dd_data;
 	struct sock *sk = tcp_sw_conn->sock->sk;
 
-	
+	/* restore socket callbacks, see also: iscsi_conn_set_callbacks() */
 	write_lock_bh(&sk->sk_callback_lock);
 	sk->sk_user_data    = NULL;
 	sk->sk_data_ready   = tcp_sw_conn->old_data_ready;
@@ -218,6 +247,19 @@ iscsi_sw_tcp_conn_restore_callbacks(struct iscsi_conn *conn)
 	write_unlock_bh(&sk->sk_callback_lock);
 }
 
+/**
+ * iscsi_sw_tcp_xmit_segment - transmit segment
+ * @tcp_conn: the iSCSI TCP connection
+ * @segment: the buffer to transmnit
+ *
+ * This function transmits as much of the buffer as
+ * the network layer will accept, and returns the number of
+ * bytes transmitted.
+ *
+ * If CRC hashing is enabled, the function will compute the
+ * hash as it goes. When the entire segment has been transmitted,
+ * it will retrieve the hash value and send it as well.
+ */
 static int iscsi_sw_tcp_xmit_segment(struct iscsi_tcp_conn *tcp_conn,
 				     struct iscsi_segment *segment)
 {
@@ -238,7 +280,7 @@ static int iscsi_sw_tcp_xmit_segment(struct iscsi_tcp_conn *tcp_conn,
 		if (segment->total_copied + segment->size < segment->total_size)
 			flags |= MSG_MORE;
 
-		
+		/* Use sendpage if we can; else fall back to sendmsg */
 		if (!segment->data) {
 			sg = segment->sg;
 			offset += segment->sg_offset + sg->offset;
@@ -263,6 +305,9 @@ static int iscsi_sw_tcp_xmit_segment(struct iscsi_tcp_conn *tcp_conn,
 	return copied;
 }
 
+/**
+ * iscsi_sw_tcp_xmit - TCP transmit
+ **/
 static int iscsi_sw_tcp_xmit(struct iscsi_conn *conn)
 {
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
@@ -273,6 +318,11 @@ static int iscsi_sw_tcp_xmit(struct iscsi_conn *conn)
 
 	while (1) {
 		rc = iscsi_sw_tcp_xmit_segment(tcp_conn, segment);
+		/*
+		 * We may not have been able to send data because the conn
+		 * is getting stopped. libiscsi will know so propagate err
+		 * for it to do the right thing.
+		 */
 		if (rc == -EAGAIN)
 			return rc;
 		else if (rc < 0) {
@@ -298,11 +348,16 @@ static int iscsi_sw_tcp_xmit(struct iscsi_conn *conn)
 	return consumed;
 
 error:
+	/* Transmit error. We could initiate error recovery
+	 * here. */
 	ISCSI_SW_TCP_DBG(conn, "Error sending PDU, errno=%d\n", rc);
 	iscsi_conn_failure(conn, rc);
 	return -EIO;
 }
 
+/**
+ * iscsi_tcp_xmit_qlen - return the number of bytes queued for xmit
+ */
 static inline int iscsi_sw_tcp_xmit_qlen(struct iscsi_conn *conn)
 {
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
@@ -328,6 +383,10 @@ static int iscsi_sw_tcp_pdu_xmit(struct iscsi_task *task)
 	return 0;
 }
 
+/*
+ * This is called when we're done sending the header.
+ * Simply copy the data_segment to the send segment, and return.
+ */
 static int iscsi_sw_tcp_send_hdr_done(struct iscsi_tcp_conn *tcp_conn,
 				      struct iscsi_segment *segment)
 {
@@ -350,21 +409,36 @@ static void iscsi_sw_tcp_send_hdr_prep(struct iscsi_conn *conn, void *hdr,
 	ISCSI_SW_TCP_DBG(conn, "%s\n", conn->hdrdgst_en ?
 			 "digest enabled" : "digest disabled");
 
+	/* Clear the data segment - needs to be filled in by the
+	 * caller using iscsi_tcp_send_data_prep() */
 	memset(&tcp_sw_conn->out.data_segment, 0,
 	       sizeof(struct iscsi_segment));
 
+	/* If header digest is enabled, compute the CRC and
+	 * place the digest into the same buffer. We make
+	 * sure that both iscsi_tcp_task and mtask have
+	 * sufficient room.
+	 */
 	if (conn->hdrdgst_en) {
 		iscsi_tcp_dgst_header(&tcp_sw_conn->tx_hash, hdr, hdrlen,
 				      hdr + hdrlen);
 		hdrlen += ISCSI_DIGEST_SIZE;
 	}
 
+	/* Remember header pointer for later, when we need
+	 * to decide whether there's a payload to go along
+	 * with the header. */
 	tcp_sw_conn->out.hdr = hdr;
 
 	iscsi_segment_init_linear(&tcp_sw_conn->out.segment, hdr, hdrlen,
 				  iscsi_sw_tcp_send_hdr_done, NULL);
 }
 
+/*
+ * Prepare the send buffer for the payload data.
+ * Padding and checksumming will all be taken care
+ * of by the iscsi_segment routines.
+ */
 static int
 iscsi_sw_tcp_send_data_prep(struct iscsi_conn *conn, struct scatterlist *sg,
 			    unsigned int count, unsigned int offset,
@@ -379,6 +453,8 @@ iscsi_sw_tcp_send_data_prep(struct iscsi_conn *conn, struct scatterlist *sg,
 			 conn->datadgst_en ?
 			 "digest enabled" : "digest disabled");
 
+	/* Make sure the datalen matches what the caller
+	   said he would send. */
 	hdr_spec_len = ntoh24(tcp_sw_conn->out.hdr->dlength);
 	WARN_ON(iscsi_padded(len) != iscsi_padded(hdr_spec_len));
 
@@ -402,6 +478,8 @@ iscsi_sw_tcp_send_linear_data_prep(struct iscsi_conn *conn, void *data,
 	ISCSI_SW_TCP_DBG(conn, "datalen=%zd %s\n", len, conn->datadgst_en ?
 			 "digest enabled" : "digest disabled");
 
+	/* Make sure the datalen matches what the caller
+	   said he would send. */
 	hdr_spec_len = ntoh24(tcp_sw_conn->out.hdr->dlength);
 	WARN_ON(iscsi_padded(len) != iscsi_padded(hdr_spec_len));
 
@@ -434,7 +512,7 @@ static int iscsi_sw_tcp_pdu_init(struct iscsi_task *task,
 	}
 
 	if (err) {
-		
+		/* got invalid offset/len */
 		return -EIO;
 	}
 	return 0;
@@ -536,17 +614,17 @@ static void iscsi_sw_tcp_conn_stop(struct iscsi_cls_conn *cls_conn, int flag)
 	struct iscsi_sw_tcp_conn *tcp_sw_conn = tcp_conn->dd_data;
 	struct socket *sock = tcp_sw_conn->sock;
 
-	
+	/* userspace may have goofed up and not bound us */
 	if (!sock)
 		return;
 
 	sock->sk->sk_err = EIO;
 	wake_up_interruptible(sk_sleep(sock->sk));
 
-	
+	/* stop xmit side */
 	iscsi_suspend_tx(conn);
 
-	
+	/* stop recv side and release socket */
 	iscsi_sw_tcp_release_conn(conn);
 
 	iscsi_conn_stop(cls_conn, flag);
@@ -565,7 +643,7 @@ iscsi_sw_tcp_conn_bind(struct iscsi_cls_session *cls_session,
 	struct socket *sock;
 	int err;
 
-	
+	/* lookup for existing socket */
 	sock = sockfd_lookup((int)transport_eph, &err);
 	if (!sock) {
 		iscsi_conn_printk(KERN_ERR, conn,
@@ -578,18 +656,21 @@ iscsi_sw_tcp_conn_bind(struct iscsi_cls_session *cls_session,
 		goto free_socket;
 
 	spin_lock_bh(&session->lock);
-	
+	/* bind iSCSI connection and socket */
 	tcp_sw_conn->sock = sock;
 	spin_unlock_bh(&session->lock);
 
-	
+	/* setup Socket parameters */
 	sk = sock->sk;
 	sk->sk_reuse = 1;
-	sk->sk_sndtimeo = 15 * HZ; 
+	sk->sk_sndtimeo = 15 * HZ; /* FIXME: make it configurable */
 	sk->sk_allocation = GFP_ATOMIC;
 
 	iscsi_sw_tcp_conn_set_callbacks(conn);
 	tcp_sw_conn->sendpage = tcp_sw_conn->sock->ops->sendpage;
+	/*
+	 * set receive state machine into initial state
+	 */
 	iscsi_tcp_hdr_recv_prep(tcp_conn);
 	return 0;
 
@@ -874,10 +955,10 @@ static struct iscsi_transport iscsi_sw_tcp_transport = {
 	.name			= "tcp",
 	.caps			= CAP_RECOVERY_L0 | CAP_MULTI_R2T | CAP_HDRDGST
 				  | CAP_DATADGST,
-	
+	/* session management */
 	.create_session		= iscsi_sw_tcp_session_create,
 	.destroy_session	= iscsi_sw_tcp_session_destroy,
-	
+	/* connection management */
 	.create_conn		= iscsi_sw_tcp_conn_create,
 	.bind_conn		= iscsi_sw_tcp_conn_bind,
 	.destroy_conn		= iscsi_sw_tcp_conn_destroy,
@@ -887,21 +968,21 @@ static struct iscsi_transport iscsi_sw_tcp_transport = {
 	.get_session_param	= iscsi_session_get_param,
 	.start_conn		= iscsi_conn_start,
 	.stop_conn		= iscsi_sw_tcp_conn_stop,
-	
+	/* iscsi host params */
 	.get_host_param		= iscsi_sw_tcp_host_get_param,
 	.set_host_param		= iscsi_host_set_param,
-	
+	/* IO */
 	.send_pdu		= iscsi_conn_send_pdu,
 	.get_stats		= iscsi_sw_tcp_conn_get_stats,
-	
+	/* iscsi task/cmd helpers */
 	.init_task		= iscsi_tcp_task_init,
 	.xmit_task		= iscsi_tcp_task_xmit,
 	.cleanup_task		= iscsi_tcp_cleanup_task,
-	
+	/* low level pdu helpers */
 	.xmit_pdu		= iscsi_sw_tcp_pdu_xmit,
 	.init_pdu		= iscsi_sw_tcp_pdu_init,
 	.alloc_pdu		= iscsi_sw_tcp_pdu_alloc,
-	
+	/* recovery */
 	.session_recovery_timedout = iscsi_session_recovery_timedout,
 };
 

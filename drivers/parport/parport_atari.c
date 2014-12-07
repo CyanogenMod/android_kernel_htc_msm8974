@@ -1,3 +1,13 @@
+/* Low-level parallel port routines for the Atari builtin port
+ *
+ * Author: Andreas Schwab <schwab@issan.informatik.uni-dortmund.de>
+ *
+ * Based on parport_amiga.c.
+ *
+ * The built-in Atari parallel port provides one port at a fixed address
+ * with 8 output data lines (D0 - D7), 1 output control line (STROBE)
+ * and 1 input status line (BUSY) able to cause an interrupt.
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -111,7 +121,7 @@ parport_atari_data_forward(struct parport *p)
 	unsigned long flags;
 
 	local_irq_save(flags);
-	
+	/* Soundchip port B as output. */
 	sound_ym.rd_data_reg_sel = 7;
 	sound_ym.wd_data = sound_ym.rd_data_reg_sel | 0x40;
 	local_irq_restore(flags);
@@ -120,11 +130,11 @@ parport_atari_data_forward(struct parport *p)
 static void
 parport_atari_data_reverse(struct parport *p)
 {
-#if 0 
+#if 0 /* too dangerous, can kill sound chip */
 	unsigned long flags;
 
 	local_irq_save(flags);
-	
+	/* Soundchip port B as input. */
 	sound_ym.rd_data_reg_sel = 7;
 	sound_ym.wd_data = sound_ym.rd_data_reg_sel & ~0x40;
 	local_irq_restore(flags);
@@ -175,16 +185,16 @@ static int __init parport_atari_init(void)
 
 	if (MACH_IS_ATARI) {
 		local_irq_save(flags);
-		
+		/* Soundchip port A/B as output. */
 		sound_ym.rd_data_reg_sel = 7;
 		sound_ym.wd_data = (sound_ym.rd_data_reg_sel & 0x3f) | 0xc0;
-		
+		/* STROBE high. */
 		sound_ym.rd_data_reg_sel = 14;
 		sound_ym.wd_data = sound_ym.rd_data_reg_sel | (1 << 5);
 		local_irq_restore(flags);
-		
+		/* MFP port I0 as input. */
 		st_mfp.data_dir &= ~1;
-		
+		/* MFP port I0 interrupt on high->low edge. */
 		st_mfp.active_edge &= ~1;
 		p = parport_register_port((unsigned long)&sound_ym.wd_data,
 					  IRQ_MFP_BUSY, PARPORT_DMA_NONE,

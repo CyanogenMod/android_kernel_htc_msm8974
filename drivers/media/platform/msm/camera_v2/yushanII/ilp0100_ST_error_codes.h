@@ -19,10 +19,16 @@
 #                             Imaging Division
 ################################################################################
 ********************************************************************************/
+/*!
+ * \file	ilp0100_ST_error_codes.h
+ * \brief	This file lists all teh error codes
+ * \author	sheena jain
+ */
 
 #ifndef ILP0100_ST_ERROR_CODES_H_
 #define ILP0100_ST_ERROR_CODES_H_
 
+//#define   ILP0100_ERROR_NONE                    ((Ilp0100_error) 0x0000) /*!< No error             .                                     */
 #define		ILP0100_ERROR_NONE						0
 #define 	ILP0100_ERROR							1
 
@@ -31,4 +37,4 @@
 #define		ILP_0100_DEBUG_BUFFER_CREATION_ERROR	ILP_0100_DEBUGGING_ERROR_BASE+0x001
 #define		ILP_0100_DEBUG_NOT_VALID_BUFFER_ERROR	ILP_0100_DEBUGGING_ERROR_BASE+0x100
 
-#endif 
+#endif /* ILP0100_ST_ERROR_CODES_H_ */

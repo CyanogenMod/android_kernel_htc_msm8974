@@ -11,6 +11,7 @@
  *
  * ----------------------------------------------------------------------- */
 
+/* Internal header file for autofs */
 
 #include <linux/auto_fs4.h>
 #include <linux/auto_dev-ioctl.h>
@@ -18,6 +19,7 @@
 #include <linux/spinlock.h>
 #include <linux/list.h>
 
+/* This is the range of ioctl() numbers we claim as ours */
 #define AUTOFS_IOC_FIRST     AUTOFS_IOC_READY
 #define AUTOFS_IOC_COUNT     32
 
@@ -35,6 +37,7 @@
 #include <asm/current.h>
 #include <asm/uaccess.h>
 
+/* #define DEBUG */
 
 #define DPRINTK(fmt, ...)				\
 	pr_debug("pid %d: %s: " fmt "\n",		\
@@ -48,6 +51,12 @@
 	printk(KERN_ERR "pid %d: %s: " fmt "\n",	\
 		current->pid, __func__, ##__VA_ARGS__)
 
+/* Unified info structure.  This is pointed to by both the dentry and
+   inode structures.  Each file in the filesystem has an instance of this
+   structure.  It holds a reference to the dentry, so dentries are never
+   flushed while the file exists.  All name lookups are dealt with at the
+   dentry level, although the filesystem can interfere in the validation
+   process.  Readdir is implemented by traversing the dentry lists. */
 struct autofs_info {
 	struct dentry	*dentry;
 	struct inode	*inode;
@@ -69,14 +78,14 @@ struct autofs_info {
 	gid_t gid;
 };
 
-#define AUTOFS_INF_EXPIRING	(1<<0) 
-#define AUTOFS_INF_PENDING	(1<<2) 
+#define AUTOFS_INF_EXPIRING	(1<<0) /* dentry is in the process of expiring */
+#define AUTOFS_INF_PENDING	(1<<2) /* dentry pending mount */
 
 struct autofs_wait_queue {
 	wait_queue_head_t queue;
 	struct autofs_wait_queue *next;
 	autofs_wqt_t wait_queue_token;
-	
+	/* We use the following to see what we are waiting for */
 	struct qstr name;
 	u32 dev;
 	u64 ino;
@@ -84,7 +93,7 @@ struct autofs_wait_queue {
 	gid_t gid;
 	pid_t pid;
 	pid_t tgid;
-	
+	/* This is for status reporting upon return */
 	int status;
 	unsigned int wait_ctr;
 };
@@ -109,7 +118,7 @@ struct autofs_sb_info {
 	struct mutex wq_mutex;
 	struct mutex pipe_mutex;
 	spinlock_t fs_lock;
-	struct autofs_wait_queue *queues; 
+	struct autofs_wait_queue *queues; /* Wait queue pointer */
 	spinlock_t lookup_lock;
 	struct list_head active_list;
 	struct list_head expiring_list;
@@ -125,11 +134,15 @@ static inline struct autofs_info *autofs4_dentry_ino(struct dentry *dentry)
 	return (struct autofs_info *)(dentry->d_fsdata);
 }
 
+/* autofs4_oz_mode(): do we see the man behind the curtain?  (The
+   processes which do manipulations for us in user space sees the raw
+   filesystem without "magic".) */
 
 static inline int autofs4_oz_mode(struct autofs_sb_info *sbi) {
 	return sbi->catatonic || task_pgrp_nr(current) == sbi->oz_pgrp;
 }
 
+/* Does a dentry have some pending activity? */
 static inline int autofs4_ispending(struct dentry *dentry)
 {
 	struct autofs_info *inf = autofs4_dentry_ino(dentry);
@@ -146,6 +159,7 @@ static inline int autofs4_ispending(struct dentry *dentry)
 struct inode *autofs4_get_inode(struct super_block *, umode_t);
 void autofs4_free_ino(struct autofs_info *);
 
+/* Expiration */
 int is_autofs4_dentry(struct dentry *);
 int autofs4_expire_wait(struct dentry *dentry);
 int autofs4_expire_run(struct super_block *, struct vfsmount *,
@@ -162,10 +176,12 @@ struct dentry *autofs4_expire_indirect(struct super_block *sb,
 				       struct vfsmount *mnt,
 				       struct autofs_sb_info *sbi, int how);
 
+/* Device node initialization */
 
 int autofs_dev_ioctl_init(void);
 void autofs_dev_ioctl_exit(void);
 
+/* Operations structures */
 
 extern const struct inode_operations autofs4_symlink_inode_operations;
 extern const struct inode_operations autofs4_dir_inode_operations;
@@ -173,6 +189,7 @@ extern const struct file_operations autofs4_dir_operations;
 extern const struct file_operations autofs4_root_operations;
 extern const struct dentry_operations autofs4_dentry_operations;
 
+/* VFS automount flags management functions */
 
 static inline void __managed_dentry_set_automount(struct dentry *dentry)
 {
@@ -246,6 +263,7 @@ static inline void managed_dentry_clear_managed(struct dentry *dentry)
 	spin_unlock(&dentry->d_lock);
 }
 
+/* Initializing function */
 
 int autofs4_fill_super(struct super_block *, void *, int);
 struct autofs_info *autofs4_new_ino(struct autofs_sb_info *);
@@ -257,11 +275,12 @@ static inline int autofs_prepare_pipe(struct file *pipe)
 		return -EINVAL;
 	if (!S_ISFIFO(pipe->f_dentry->d_inode->i_mode))
 		return -EINVAL;
-	
+	/* We want a packet pipe */
 	pipe->f_flags |= O_DIRECT;
 	return 0;
 }
 
+/* Queue management functions */
 
 int autofs4_wait(struct autofs_sb_info *,struct dentry *, enum autofs_notify);
 int autofs4_wait_release(struct autofs_sb_info *,autofs_wqt_t,int);

@@ -2,9 +2,9 @@
 #define _FCOE_LIBFCOE_H_
 
 extern unsigned int libfcoe_debug_logging;
-#define LIBFCOE_LOGGING	    0x01 
-#define LIBFCOE_FIP_LOGGING 0x02 
-#define LIBFCOE_TRANSPORT_LOGGING	0x04 
+#define LIBFCOE_LOGGING	    0x01 /* General logging, not categorized */
+#define LIBFCOE_FIP_LOGGING 0x02 /* FIP logging */
+#define LIBFCOE_TRANSPORT_LOGGING	0x04 /* FCoE transport logging */
 
 #define LIBFCOE_CHECK_LOGGING(LEVEL, CMD)		\
 do {							\
@@ -28,4 +28,4 @@ do {							\
 			      printk(KERN_INFO "%s: " fmt,		\
 				     __func__, ##args);)
 
-#endif 
+#endif /* _FCOE_LIBFCOE_H_ */

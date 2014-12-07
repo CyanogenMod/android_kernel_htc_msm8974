@@ -44,11 +44,16 @@
 #define OCPI_PROT		(OCPI_BASE + 0x14)
 #define OCPI_SEC		(OCPI_BASE + 0x18)
 
+/* USB OHCI OCPI access error registers */
 #define HOSTUEADDR	0xfffba0e0
 #define HOSTUESTATUS	0xfffba0e4
 
 static struct clk *ocpi_ck;
 
+/*
+ * Enables device access to OMAP buses via the OCPI bridge
+ * FIXME: Add locking
+ */
 int ocpi_enable(void)
 {
 	unsigned int val;
@@ -56,10 +61,10 @@ int ocpi_enable(void)
 	if (!cpu_is_omap16xx())
 		return -ENODEV;
 
-	
+	/* Enable access for OHCI in OCPI */
 	val = omap_readl(OCPI_PROT);
 	val &= ~0xff;
-	
+	//val &= (1 << 0);	/* Allow access only to EMIFS */
 	omap_writel(val, OCPI_PROT);
 
 	val = omap_readl(OCPI_SEC);
@@ -88,7 +93,7 @@ static int __init omap_ocpi_init(void)
 
 static void __exit omap_ocpi_exit(void)
 {
-	
+	/* REVISIT: Disable OCPI */
 
 	if (!cpu_is_omap16xx())
 		return;

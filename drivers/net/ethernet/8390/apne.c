@@ -48,13 +48,14 @@
 
 #include "8390.h"
 
+/* ---- No user-serviceable parts below ---- */
 
 #define DRV_NAME "apne"
 
 #define NE_BASE	 (dev->base_addr)
 #define NE_CMD	 		0x00
-#define NE_DATAPORT		0x10            
-#define NE_RESET		0x1f            
+#define NE_DATAPORT		0x10            /* NatSemi-defined port window offset. */
+#define NE_RESET		0x1f            /* Issue a read to reset, a write to clear. */
 #define NE_IO_EXTENT	        0x20
 
 #define NE_EN0_ISR		0x07
@@ -68,10 +69,10 @@
 #define NE_EN0_RCNTHI	        0x0b
 #define NE_EN0_IMR		0x0f
 
-#define NE1SM_START_PG	0x20	
-#define NE1SM_STOP_PG 	0x40	
-#define NESM_START_PG	0x40	
-#define NESM_STOP_PG	0x80	
+#define NE1SM_START_PG	0x20	/* First page of TX buffer */
+#define NE1SM_STOP_PG 	0x40	/* Last page +1 of RX ring */
+#define NESM_START_PG	0x40	/* First page of TX buffer */
+#define NESM_STOP_PG	0x80	/* Last page +1 of RX ring */
 
 
 struct net_device * __init apne_probe(int unit);
@@ -88,15 +89,32 @@ static irqreturn_t apne_interrupt(int irq, void *dev_id);
 
 static int init_pcmcia(void);
 
+/* IO base address used for nic */
 
 #define IOBASE 0x300
 
+/*
+   use MANUAL_CONFIG and MANUAL_OFFSET for enabling IO by hand
+   you can find the values to use by looking at the cnet.device
+   config file example (the default values are for the CNET40BC card)
+*/
 
+/*
+#define MANUAL_CONFIG 0x20
+#define MANUAL_OFFSET 0x3f8
+
+#define MANUAL_HWADDR0 0x00
+#define MANUAL_HWADDR1 0x12
+#define MANUAL_HWADDR2 0x34
+#define MANUAL_HWADDR3 0x56
+#define MANUAL_HWADDR4 0x78
+#define MANUAL_HWADDR5 0x9a
+*/
 
 static const char version[] =
     "apne.c:v1.1 7/10/98 Alain Malek (Alain.Malek@cryogen.ch)\n";
 
-static int apne_owned;	
+static int apne_owned;	/* signal if card already owned */
 
 struct net_device * __init apne_probe(int unit)
 {
@@ -117,7 +135,7 @@ struct net_device * __init apne_probe(int unit)
 
 	printk("Looking for PCMCIA ethernet card : ");
 
-	
+	/* check if a card is inserted */
 	if (!(PCMCIA_INSERTED)) {
 		printk("NO PCMCIA card inserted\n");
 		return ERR_PTR(-ENODEV);
@@ -131,14 +149,14 @@ struct net_device * __init apne_probe(int unit)
 		netdev_boot_setup_check(dev);
 	}
 
-	
+	/* disable pcmcia irq for readtuple */
 	pcmcia_disable_irq();
 
 #ifndef MANUAL_CONFIG
 	if ((pcmcia_copy_tuple(CISTPL_FUNCID, tuple, 8) < 3) ||
 		(tuple[2] != CISTPL_FUNCID_NETWORK)) {
 		printk("not an ethernet card\n");
-		
+		/* XXX: shouldn't we re-enable irq here? */
 		free_netdev(dev);
 		return ERR_PTR(-ENODEV);
 	}
@@ -147,7 +165,7 @@ struct net_device * __init apne_probe(int unit)
 	printk("ethernet PCMCIA card inserted\n");
 
 	if (!init_pcmcia()) {
-		
+		/* XXX: shouldn't we re-enable irq here? */
 		free_netdev(dev);
 		return ERR_PTR(-ENODEV);
 	}
@@ -192,7 +210,7 @@ static int __init apne_probe1(struct net_device *dev, int ioaddr)
 
     printk("PCMCIA NE*000 ethercard probe");
 
-    
+    /* Reset card. Who knows what dain-bramaged state it was left in. */
     {	unsigned long reset_start_time = jiffies;
 
 	outb(inb(ioaddr + NE_RESET), ioaddr + NE_RESET);
@@ -203,24 +221,28 @@ static int __init apne_probe1(struct net_device *dev, int ioaddr)
 			return -ENODEV;
 		}
 
-	outb(0xff, ioaddr + NE_EN0_ISR);		
+	outb(0xff, ioaddr + NE_EN0_ISR);		/* Ack all intr. */
     }
 
 #ifndef MANUAL_HWADDR0
 
+    /* Read the 16 bytes of station address PROM.
+       We must first initialize registers, similar to NS8390_init(eifdev, 0).
+       We can't reliably read the SAPROM address without this.
+       (I learned the hard way!). */
     {
 	struct {unsigned long value, offset; } program_seq[] = {
-	    {E8390_NODMA+E8390_PAGE0+E8390_STOP, NE_CMD}, 
-	    {0x48,	NE_EN0_DCFG},	
-	    {0x00,	NE_EN0_RCNTLO},	
+	    {E8390_NODMA+E8390_PAGE0+E8390_STOP, NE_CMD}, /* Select page 0*/
+	    {0x48,	NE_EN0_DCFG},	/* Set byte-wide (0x48) access. */
+	    {0x00,	NE_EN0_RCNTLO},	/* Clear the count regs. */
 	    {0x00,	NE_EN0_RCNTHI},
-	    {0x00,	NE_EN0_IMR},	
+	    {0x00,	NE_EN0_IMR},	/* Mask completion irq. */
 	    {0xFF,	NE_EN0_ISR},
-	    {E8390_RXOFF, NE_EN0_RXCR},	
-	    {E8390_TXOFF, NE_EN0_TXCR},	
+	    {E8390_RXOFF, NE_EN0_RXCR},	/* 0x20  Set to monitor */
+	    {E8390_TXOFF, NE_EN0_TXCR},	/* 0x02  and loopback mode. */
 	    {32,	NE_EN0_RCNTLO},
 	    {0x00,	NE_EN0_RCNTHI},
-	    {0x00,	NE_EN0_RSARLO},	
+	    {0x00,	NE_EN0_RSARLO},	/* DMA starting at 0x0000. */
 	    {0x00,	NE_EN0_RSARHI},
 	    {E8390_RREAD+E8390_START, NE_CMD},
 	};
@@ -229,20 +251,24 @@ static int __init apne_probe1(struct net_device *dev, int ioaddr)
 	}
 
     }
-    for(i = 0; i < 32 ; i+=2) {
+    for(i = 0; i < 32 /*sizeof(SA_prom)*/; i+=2) {
 	SA_prom[i] = inb(ioaddr + NE_DATAPORT);
 	SA_prom[i+1] = inb(ioaddr + NE_DATAPORT);
 	if (SA_prom[i] != SA_prom[i+1])
 	    wordlength = 1;
     }
 
+    /*	At this point, wordlength *only* tells us if the SA_prom is doubled
+	up or not because some broken PCI cards don't respect the byte-wide
+	request in program_seq above, and hence don't have doubled up values.
+	These broken cards would otherwise be detected as an ne1000.  */
 
     if (wordlength == 2)
 	for (i = 0; i < 16; i++)
 		SA_prom[i] = SA_prom[i+i];
 
     if (wordlength == 2) {
-	
+	/* We must set the 8390 for word mode. */
 	outb(0x49, ioaddr + NE_EN0_DCFG);
 	start_page = NESM_START_PG;
 	stop_page = NESM_STOP_PG;
@@ -254,7 +280,7 @@ static int __init apne_probe1(struct net_device *dev, int ioaddr)
     neX000 = (SA_prom[14] == 0x57  &&  SA_prom[15] == 0x57);
     ctron =  (SA_prom[0] == 0x00 && SA_prom[1] == 0x00 && SA_prom[2] == 0x1d);
 
-    
+    /* Set up the rest of the parameters. */
     if (neX000) {
 	name = (wordlength == 2) ? "NE2000" : "NE1000";
     } else if (ctron) {
@@ -269,7 +295,7 @@ static int __init apne_probe1(struct net_device *dev, int ioaddr)
 
 #else
     wordlength = 2;
-    
+    /* We must set the 8390 for word mode. */
     outb(0x49, ioaddr + NE_EN0_DCFG);
     start_page = NESM_START_PG;
     stop_page = NESM_STOP_PG;
@@ -287,7 +313,7 @@ static int __init apne_probe1(struct net_device *dev, int ioaddr)
     dev->irq = IRQ_AMIGA_PORTS;
     dev->netdev_ops = &ei_netdev_ops;
 
-    
+    /* Install the Interrupt handler */
     i = request_irq(dev->irq, apne_interrupt, IRQF_SHARED, DRV_NAME, dev);
     if (i) return i;
 
@@ -312,7 +338,7 @@ static int __init apne_probe1(struct net_device *dev, int ioaddr)
 
     NS8390_init(dev, 0);
 
-    pcmcia_ack_int(pcmcia_get_intreq());		
+    pcmcia_ack_int(pcmcia_get_intreq());		/* ack PCMCIA int req */
     pcmcia_enable_irq();
 
     apne_owned = 1;
@@ -320,6 +346,8 @@ static int __init apne_probe1(struct net_device *dev, int ioaddr)
     return 0;
 }
 
+/* Hard reset the card.  This used to pause for the same period that a
+   8390 reset command required, but that shouldn't be necessary. */
 static void
 apne_reset_8390(struct net_device *dev)
 {
@@ -334,15 +362,18 @@ apne_reset_8390(struct net_device *dev)
     ei_status.txing = 0;
     ei_status.dmaing = 0;
 
-    
+    /* This check _should_not_ be necessary, omit eventually. */
     while ((inb(NE_BASE+NE_EN0_ISR) & ENISR_RESET) == 0)
 	if (time_after(jiffies, reset_start_time + 2*HZ/100)) {
 	    printk("%s: ne_reset_8390() did not complete.\n", dev->name);
 	    break;
 	}
-    outb(ENISR_RESET, NE_BASE + NE_EN0_ISR);	
+    outb(ENISR_RESET, NE_BASE + NE_EN0_ISR);	/* Ack intr. */
 }
 
+/* Grab the 8390 specific header. Similar to the block_input routine, but
+   we don't need to be concerned with ring wrap as the header will be at
+   the start of a page, so we optimize accordingly. */
 
 static void
 apne_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring_page)
@@ -353,7 +384,7 @@ apne_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring_pa
     char *ptrc;
     short *ptrs;
 
-    
+    /* This *shouldn't* happen. If it does, it's the last thing you'll see */
     if (ei_status.dmaing) {
 	printk("%s: DMAing conflict in ne_get_8390_hdr "
 	   "[DMAstat:%d][irqlock:%d][intr:%d].\n",
@@ -366,7 +397,7 @@ apne_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring_pa
     outb(ENISR_RDC, nic_base + NE_EN0_ISR);
     outb(sizeof(struct e8390_pkt_hdr), nic_base + NE_EN0_RCNTLO);
     outb(0, nic_base + NE_EN0_RCNTHI);
-    outb(0, nic_base + NE_EN0_RSARLO);		
+    outb(0, nic_base + NE_EN0_RSARLO);		/* On page boundary */
     outb(ring_page, nic_base + NE_EN0_RSARHI);
     outb(E8390_RREAD+E8390_START, nic_base + NE_CMD);
 
@@ -380,12 +411,16 @@ apne_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring_pa
             *ptrc++ = inb(NE_BASE + NE_DATAPORT);
     }
 
-    outb(ENISR_RDC, nic_base + NE_EN0_ISR);	
+    outb(ENISR_RDC, nic_base + NE_EN0_ISR);	/* Ack intr. */
     ei_status.dmaing &= ~0x01;
 
     le16_to_cpus(&hdr->count);
 }
 
+/* Block input and output, similar to the Crynwr packet driver.  If you
+   are porting to a new ethercard, look at the packet driver source for hints.
+   The NEx000 doesn't share the on-board packet memory -- you have to put
+   the packet out through the "remote DMA" dataport using outb. */
 
 static void
 apne_block_input(struct net_device *dev, int count, struct sk_buff *skb, int ring_offset)
@@ -396,7 +431,7 @@ apne_block_input(struct net_device *dev, int count, struct sk_buff *skb, int rin
     short *ptrs;
     int cnt;
 
-    
+    /* This *shouldn't* happen. If it does, it's the last thing you'll see */
     if (ei_status.dmaing) {
 	printk("%s: DMAing conflict in ne_block_input "
 	   "[DMAstat:%d][irqlock:%d][intr:%d].\n",
@@ -424,7 +459,7 @@ apne_block_input(struct net_device *dev, int count, struct sk_buff *skb, int rin
         *ptrc++ = inb(NE_BASE + NE_DATAPORT);
     }
 
-    outb(ENISR_RDC, nic_base + NE_EN0_ISR);	
+    outb(ENISR_RDC, nic_base + NE_EN0_ISR);	/* Ack intr. */
     ei_status.dmaing &= ~0x01;
 }
 
@@ -438,10 +473,13 @@ apne_block_output(struct net_device *dev, int count,
     short *ptrs;
     int cnt;
 
+    /* Round the count up for word writes.  Do we need to do this?
+       What effect will an odd byte count have on the 8390?
+       I should check someday. */
     if (ei_status.word16 && (count & 0x01))
       count++;
 
-    
+    /* This *shouldn't* happen. If it does, it's the last thing you'll see */
     if (ei_status.dmaing) {
 	printk("%s: DMAing conflict in ne_block_output."
 	   "[DMAstat:%d][irqlock:%d][intr:%d]\n",
@@ -449,12 +487,12 @@ apne_block_output(struct net_device *dev, int count,
 	return;
     }
     ei_status.dmaing |= 0x01;
-    
+    /* We should already be in page 0, but to be safe... */
     outb(E8390_PAGE0+E8390_START+E8390_NODMA, nic_base + NE_CMD);
 
     outb(ENISR_RDC, nic_base + NE_EN0_ISR);
 
-   
+   /* Now the normal output. */
     outb(count & 0xff, nic_base + NE_EN0_RCNTLO);
     outb(count >> 8,   nic_base + NE_EN0_RCNTHI);
     outb(0x00, nic_base + NE_EN0_RSARLO);
@@ -474,14 +512,14 @@ apne_block_output(struct net_device *dev, int count,
     dma_start = jiffies;
 
     while ((inb(NE_BASE + NE_EN0_ISR) & ENISR_RDC) == 0)
-	if (time_after(jiffies, dma_start + 2*HZ/100)) {	
+	if (time_after(jiffies, dma_start + 2*HZ/100)) {	/* 20ms */
 		printk("%s: timeout waiting for Tx RDC.\n", dev->name);
 		apne_reset_8390(dev);
 		NS8390_init(dev,1);
 		break;
 	}
 
-    outb(ENISR_RDC, nic_base + NE_EN0_ISR);	
+    outb(ENISR_RDC, nic_base + NE_EN0_ISR);	/* Ack intr. */
     ei_status.dmaing &= ~0x01;
 }
 
@@ -500,7 +538,7 @@ static irqreturn_t apne_interrupt(int irq, void *dev_id)
     }
     if (ei_debug > 3)
         printk("pcmcia intreq = %x\n", pcmcia_intreq);
-    pcmcia_disable_irq();			
+    pcmcia_disable_irq();			/* to get rid of the sti() within ei_interrupt */
     ei_interrupt(irq, dev_id);
     pcmcia_ack_int(pcmcia_get_intreq());
     pcmcia_enable_irq();
@@ -553,7 +591,7 @@ static int init_pcmcia(void)
 #ifdef MANUAL_CONFIG
 	config = MANUAL_CONFIG;
 #else
-	
+	/* get and write config byte to enable IO port */
 
 	if (pcmcia_copy_tuple(CISTPL_CFTABLE_ENTRY, tuple, 32) < 3)
 		return 0;

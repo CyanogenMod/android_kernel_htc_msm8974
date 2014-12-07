@@ -39,6 +39,7 @@
 
 #include <linux/types.h>
 
+/* XXX from bits/utmp.h  */
 #define IDMAP_NAMESZ  128
 
 #define IDMAP_TYPE_USER  0
@@ -62,6 +63,7 @@ struct idmap_msg {
 
 #ifdef __KERNEL__
 
+/* Forward declaration to make this header independent of others */
 struct nfs_client;
 struct nfs_server;
 struct nfs_fattr;
@@ -95,6 +97,6 @@ int nfs_map_uid_to_name(const struct nfs_server *, __u32, char *, size_t);
 int nfs_map_gid_to_group(const struct nfs_server *, __u32, char *, size_t);
 
 extern unsigned int nfs_idmap_cache_timeout;
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* NFS_IDMAP_H */

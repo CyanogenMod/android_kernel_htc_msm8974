@@ -1,3 +1,4 @@
+/* #define DEBUG */
 
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -36,18 +37,21 @@
 #define BLIZZARD_POWER_SAVE                    0xE6
 #define BLIZZARD_NDISP_CTRL_STATUS             0xE8
 
+/* Data source select */
+/* For S1D13745 */
 #define BLIZZARD_SRC_WRITE_LCD_BACKGROUND	0x00
 #define BLIZZARD_SRC_WRITE_LCD_DESTRUCTIVE	0x01
 #define BLIZZARD_SRC_WRITE_OVERLAY_ENABLE	0x04
 #define BLIZZARD_SRC_DISABLE_OVERLAY		0x05
+/* For S1D13744 */
 #define BLIZZARD_SRC_WRITE_LCD			0x00
 #define BLIZZARD_SRC_BLT_LCD			0x06
 
 #define BLIZZARD_COLOR_RGB565			0x01
 #define BLIZZARD_COLOR_YUV420			0x09
 
-#define BLIZZARD_VERSION_S1D13745		0x01	
-#define BLIZZARD_VERSION_S1D13744		0x02	
+#define BLIZZARD_VERSION_S1D13745		0x01	/* Hailstorm */
+#define BLIZZARD_VERSION_S1D13744		0x02	/* Blizzard */
 
 #define MIPID_CMD_READ_DISP_ID		0x04
 #define MIPID_CMD_READ_RED		0x06
@@ -127,7 +131,7 @@ static void blizzard_ctrl_setup_update(struct omap_dss_device *dssdev,
 	tmp[6] = y_end;
 	tmp[7] = y_end >> 8;
 
-	
+	/* scaling? */
 	tmp[8] = x;
 	tmp[9] = x >> 8;
 	tmp[10] = y;
@@ -187,6 +191,9 @@ static void mipid_transfer(struct spi_device *spi, int cmd, const u8 *wbuf,
 		spi_message_add_tail(x, &m);
 
 		if (rlen > 1) {
+			/* Arrange for the extra clock before the first
+			 * data bit.
+			 */
 			x->bits_per_word = 9;
 			x->len		 = 2;
 
@@ -314,7 +321,7 @@ static int n8x0_panel_power_on(struct omap_dss_device *dssdev)
 		goto err_inv_chip;
 	}
 
-	
+	/* panel */
 
 	gpio_direction_output(bdata->panel_reset, 1);
 
@@ -347,7 +354,12 @@ static int n8x0_panel_power_on(struct omap_dss_device *dssdev)
 	return 0;
 
 err_inv_panel:
-	
+	/*
+	 * HACK: we should turn off the panel here, but there is some problem
+	 * with the initialization sequence, and we fail to init the panel if we
+	 * have turned it off
+	 */
+	/* gpio_direction_output(bdata->panel_reset, 0); */
 err_inv_chip:
 	omapdss_rfbi_display_disable(dssdev);
 err_rfbi_en:
@@ -373,7 +385,12 @@ static void n8x0_panel_power_off(struct omap_dss_device *dssdev)
 	if (bdata->platform_disable)
 		bdata->platform_disable(dssdev);
 
-	
+	/*
+	 * HACK: we should turn off the panel here, but there is some problem
+	 * with the initialization sequence, and we fail to init the panel if we
+	 * have turned it off
+	 */
+	/* gpio_direction_output(bdata->panel_reset, 0); */
 	gpio_direction_output(bdata->ctrl_pwrdown, 0);
 	omapdss_rfbi_display_disable(dssdev);
 }
@@ -669,6 +686,7 @@ static struct omap_dss_driver n8x0_panel_driver = {
 	},
 };
 
+/* PANEL */
 
 static int mipid_spi_probe(struct spi_device *spi)
 {

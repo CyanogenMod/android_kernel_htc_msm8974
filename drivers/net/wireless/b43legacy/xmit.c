@@ -36,6 +36,7 @@
 #include "pio.h"
 
 
+/* Extract the bitrate out of a CCK PLCP header. */
 static u8 b43legacy_plcp_get_bitrate_idx_cck(struct b43legacy_plcp_hdr6 *plcp)
 {
 	switch (plcp->raw[0]) {
@@ -52,6 +53,7 @@ static u8 b43legacy_plcp_get_bitrate_idx_cck(struct b43legacy_plcp_hdr6 *plcp)
 	return -1;
 }
 
+/* Extract the bitrate out of an OFDM PLCP header. */
 static u8 b43legacy_plcp_get_bitrate_idx_ofdm(struct b43legacy_plcp_hdr6 *plcp,
 					      bool aphy)
 {
@@ -215,10 +217,13 @@ static int generate_txhdr_fw3(struct b43legacy_wldev *dev,
 	txhdr->mac_frame_ctl = wlhdr->frame_control;
 	memcpy(txhdr->tx_receiver, wlhdr->addr1, 6);
 
-	
+	/* Calculate duration for fallback rate */
 	if ((rate_fb->hw_value == rate) ||
 	    (wlhdr->duration_id & cpu_to_le16(0x8000)) ||
 	    (wlhdr->duration_id == cpu_to_le16(0))) {
+		/* If the fallback rate equals the normal rate or the
+		 * dur_id field contains an AID, CFP magic or 0,
+		 * use the original dur_id field. */
 		txhdr->dur_fb = wlhdr->duration_id;
 	} else {
 		txhdr->dur_fb = ieee80211_generic_frame_duration(dev->wl->hw,
@@ -238,7 +243,7 @@ static int generate_txhdr_fw3(struct b43legacy_wldev *dev,
 		key = &(dev->key[key_idx]);
 
 		if (key->enabled) {
-			
+			/* Hardware appends ICV. */
 			plcp_fragment_len += info->control.hw_key->icv_len;
 
 			key_idx = b43legacy_kidx_to_fw(dev, key_idx);
@@ -252,6 +257,11 @@ static int generate_txhdr_fw3(struct b43legacy_wldev *dev,
 				     ARRAY_SIZE(txhdr->iv));
 			memcpy(txhdr->iv, ((u8 *)wlhdr) + wlhdr_len, iv_len);
 		} else {
+			/* This key is invalid. This might only happen
+			 * in a short timeframe after machine resume before
+			 * we were able to reconfigure keys.
+			 * Drop this packet completely. Do not transmit it
+			 * unencrypted to avoid leaking information. */
 			return -ENOKEY;
 		}
 	}
@@ -262,7 +272,7 @@ static int generate_txhdr_fw3(struct b43legacy_wldev *dev,
 				    (&txhdr->plcp_fb), plcp_fragment_len,
 				    rate_fb->hw_value);
 
-	
+	/* PHY TX Control word */
 	if (rate_ofdm)
 		phy_ctl |= B43legacy_TX4_PHY_ENC_OFDM;
 	if (info->control.rates[0].flags & IEEE80211_TX_RC_USE_SHORT_PREAMBLE)
@@ -281,7 +291,7 @@ static int generate_txhdr_fw3(struct b43legacy_wldev *dev,
 		B43legacy_BUG_ON(1);
 	}
 
-	
+	/* MAC control */
 	rates = info->control.rates;
 	if (!(info->flags & IEEE80211_TX_CTL_NO_ACK))
 		mac_ctl |= B43legacy_TX4_MAC_ACK;
@@ -292,6 +302,10 @@ static int generate_txhdr_fw3(struct b43legacy_wldev *dev,
 	if (rate_fb_ofdm)
 		mac_ctl |= B43legacy_TX4_MAC_FALLBACKOFDM;
 
+	/* Overwrite rates[0].count to make the retry calculation
+	 * in the tx status easier. need the actual retry limit to
+	 * detect whether the fallback rate was used.
+	 */
 	if ((rates[0].flags & IEEE80211_TX_RC_USE_RTS_CTS) ||
 	    (rates[0].count <= dev->wl->hw->conf.long_frame_max_tx_count)) {
 		rates[0].count = dev->wl->hw->conf.long_frame_max_tx_count;
@@ -300,7 +314,7 @@ static int generate_txhdr_fw3(struct b43legacy_wldev *dev,
 		rates[0].count = dev->wl->hw->conf.short_frame_max_tx_count;
 	}
 
-	
+	/* Generate the RTS or CTS-to-self frame */
 	if ((rates[0].flags & IEEE80211_TX_RC_USE_RTS_CTS) ||
 	    (rates[0].flags & IEEE80211_TX_RC_USE_CTS_PROTECT)) {
 		unsigned int len;
@@ -344,10 +358,10 @@ static int generate_txhdr_fw3(struct b43legacy_wldev *dev,
 		txhdr->rts_dur_fb = hdr->duration_id;
 	}
 
-	
+	/* Magic cookie */
 	txhdr->cookie = cpu_to_le16(cookie);
 
-	
+	/* Apply the bitfields */
 	txhdr->mac_ctl = cpu_to_le32(mac_ctl);
 	txhdr->phy_ctl = cpu_to_le16(phy_ctl);
 
@@ -447,7 +461,7 @@ void b43legacy_rx(struct b43legacy_wldev *dev,
 
 	memset(&status, 0, sizeof(status));
 
-	
+	/* Get metadata about the frame from the header. */
 	phystat0 = le16_to_cpu(rxhdr->phy_status0);
 	phystat3 = le16_to_cpu(rxhdr->phy_status3);
 	jssi = rxhdr->jssi;
@@ -458,7 +472,7 @@ void b43legacy_rx(struct b43legacy_wldev *dev,
 	if (macstat & B43legacy_RX_MAC_FCSERR)
 		dev->wl->ieee_stats.dot11FCSErrorCount++;
 
-	
+	/* Skip PLCP and padding */
 	padding = (macstat & B43legacy_RX_MAC_PADDING) ? 2 : 0;
 	if (unlikely(skb->len < (sizeof(struct b43legacy_plcp_hdr6) +
 	    padding))) {
@@ -467,8 +481,8 @@ void b43legacy_rx(struct b43legacy_wldev *dev,
 	}
 	plcp = (struct b43legacy_plcp_hdr6 *)(skb->data + padding);
 	skb_pull(skb, sizeof(struct b43legacy_plcp_hdr6) + padding);
-	
-	if (unlikely(skb->len < (2+2+6 + FCS_LEN))) {
+	/* The skb contains the Wireless Header + payload data now */
+	if (unlikely(skb->len < (2+2+6/*minimum hdr*/ + FCS_LEN))) {
 		b43legacydbg(dev->wl, "RX: Packet size underrun (2)\n");
 		goto drop;
 	}
@@ -484,11 +498,14 @@ void b43legacy_rx(struct b43legacy_wldev *dev,
 
 		keyidx = ((macstat & B43legacy_RX_MAC_KEYIDX)
 			  >> B43legacy_RX_MAC_KEYIDX_SHIFT);
+		/* We must adjust the key index here. We want the "physical"
+		 * key index, but the ucode passed it slightly different.
+		 */
 		keyidx = b43legacy_kidx_to_raw(dev, keyidx);
 		B43legacy_WARN_ON(keyidx >= dev->max_nr_keys);
 
 		if (dev->key[keyidx].algorithm != B43legacy_SEC_ALGO_NONE) {
-			
+			/* Remove PROTECTED flag to mark it as decrypted. */
 			B43legacy_WARN_ON(!ieee80211_has_protected(fctl));
 			fctl &= ~cpu_to_le16(IEEE80211_FCTL_PROTECTED);
 			wlhdr->frame_control = fctl;
@@ -500,6 +517,9 @@ void b43legacy_rx(struct b43legacy_wldev *dev,
 				goto drop;
 			}
 			if (skb->data[wlhdr_len + 3] & (1 << 5)) {
+				/* The Ext-IV Bit is set in the "KeyID"
+				 * octet of the IV.
+				 */
 				iv_len = 8;
 				icv_len = 8;
 			} else {
@@ -512,10 +532,10 @@ void b43legacy_rx(struct b43legacy_wldev *dev,
 					     " underrun4\n");
 				goto drop;
 			}
-			
+			/* Remove the IV */
 			memmove(skb->data + iv_len, skb->data, wlhdr_len);
 			skb_pull(skb, iv_len);
-			
+			/* Remove the ICV */
 			skb_trim(skb, skb->len - icv_len);
 
 			status.flag |= RX_FLAG_DECRYPTED;
@@ -526,13 +546,21 @@ void b43legacy_rx(struct b43legacy_wldev *dev,
 				      (phystat0 & B43legacy_RX_PHYST0_OFDM),
 				      (phystat0 & B43legacy_RX_PHYST0_GAINCTL),
 				      (phystat3 & B43legacy_RX_PHYST3_TRSTATE));
-	
+	/* change to support A PHY */
 	if (phystat0 & B43legacy_RX_PHYST0_OFDM)
 		status.rate_idx = b43legacy_plcp_get_bitrate_idx_ofdm(plcp, false);
 	else
 		status.rate_idx = b43legacy_plcp_get_bitrate_idx_cck(plcp);
 	status.antenna = !!(phystat0 & B43legacy_RX_PHYST0_ANT);
 
+	/*
+	 * All frames on monitor interfaces and beacons always need a full
+	 * 64-bit timestamp. Monitor interfaces need it for diagnostic
+	 * purposes and beacons for IBSS merging.
+	 * This code assumes we get to process the packet within 16 bits
+	 * of timestamp, i.e. about 65 milliseconds after the PHY received
+	 * the first symbol.
+	 */
 	if (ieee80211_is_beacon(fctl) || dev->wl->radiotap_enabled) {
 		u16 low_mactime_now;
 
@@ -579,7 +607,7 @@ void b43legacy_handle_txstatus(struct b43legacy_wldev *dev,
 	if (!status->acked)
 		dev->wl->ieee_stats.dot11ACKFailureCount++;
 	if (status->rts_count) {
-		if (status->rts_count == 0xF) 
+		if (status->rts_count == 0xF) /* FIXME */
 			dev->wl->ieee_stats.dot11RTSFailureCount++;
 		else
 			dev->wl->ieee_stats.dot11RTSSuccessCount++;
@@ -591,6 +619,7 @@ void b43legacy_handle_txstatus(struct b43legacy_wldev *dev,
 		b43legacy_dma_handle_txstatus(dev, status);
 }
 
+/* Handle TX status report as received through DMA/PIO queues */
 void b43legacy_handle_hwtxstatus(struct b43legacy_wldev *dev,
 				 const struct b43legacy_hwtxstatus *hw)
 {
@@ -613,6 +642,7 @@ void b43legacy_handle_hwtxstatus(struct b43legacy_wldev *dev,
 	b43legacy_handle_txstatus(dev, &status);
 }
 
+/* Stop any TX operation on the device (suspend the hardware queues) */
 void b43legacy_tx_suspend(struct b43legacy_wldev *dev)
 {
 	if (b43legacy_using_pio(dev))
@@ -621,6 +651,7 @@ void b43legacy_tx_suspend(struct b43legacy_wldev *dev)
 		b43legacy_dma_tx_suspend(dev);
 }
 
+/* Resume any TX operation on the device (resume the hardware queues) */
 void b43legacy_tx_resume(struct b43legacy_wldev *dev)
 {
 	if (b43legacy_using_pio(dev))
@@ -629,15 +660,18 @@ void b43legacy_tx_resume(struct b43legacy_wldev *dev)
 		b43legacy_dma_tx_resume(dev);
 }
 
+/* Initialize the QoS parameters */
 void b43legacy_qos_init(struct b43legacy_wldev *dev)
 {
+	/* FIXME: This function must probably be called from the mac80211
+	 * config callback. */
 return;
 
 	b43legacy_hf_write(dev, b43legacy_hf_read(dev) | B43legacy_HF_EDCF);
-	
+	/* FIXME kill magic */
 	b43legacy_write16(dev, 0x688,
 			  b43legacy_read16(dev, 0x688) | 0x4);
 
 
-	
+	/*TODO: We might need some stack support here to get the values. */
 }

@@ -13,8 +13,10 @@
 MODULE_DESCRIPTION("Broadcom's specific AMBA driver");
 MODULE_LICENSE("GPL");
 
+/* contains the number the next bus should get. */
 static unsigned int bcma_bus_next_num = 0;
 
+/* bcma_buses_mutex locks the bcma_bus_next_num */
 static DEFINE_MUTEX(bcma_buses_mutex);
 
 static int bcma_bus_match(struct device *dev, struct device_driver *drv);
@@ -87,7 +89,7 @@ static int bcma_register_cores(struct bcma_bus *bus)
 	int err, dev_id = 0;
 
 	list_for_each_entry(core, &bus->cores, list) {
-		
+		/* We support that cores ourself */
 		switch (core->id.id) {
 		case BCMA_CORE_CHIPCOMMON:
 		case BCMA_CORE_PCI:
@@ -146,42 +148,42 @@ int __devinit bcma_bus_register(struct bcma_bus *bus)
 	bus->num = bcma_bus_next_num++;
 	mutex_unlock(&bcma_buses_mutex);
 
-	
+	/* Scan for devices (cores) */
 	err = bcma_bus_scan(bus);
 	if (err) {
 		pr_err("Failed to scan: %d\n", err);
 		return -1;
 	}
 
-	
+	/* Init CC core */
 	core = bcma_find_core(bus, BCMA_CORE_CHIPCOMMON);
 	if (core) {
 		bus->drv_cc.core = core;
 		bcma_core_chipcommon_init(&bus->drv_cc);
 	}
 
-	
+	/* Init MIPS core */
 	core = bcma_find_core(bus, BCMA_CORE_MIPS_74K);
 	if (core) {
 		bus->drv_mips.core = core;
 		bcma_core_mips_init(&bus->drv_mips);
 	}
 
-	
+	/* Init PCIE core */
 	core = bcma_find_core(bus, BCMA_CORE_PCIE);
 	if (core) {
 		bus->drv_pci.core = core;
 		bcma_core_pci_init(&bus->drv_pci);
 	}
 
-	
+	/* Try to get SPROM */
 	err = bcma_sprom_get(bus);
 	if (err == -ENOENT) {
 		pr_err("No SPROM available\n");
 	} else if (err)
 		pr_err("Failed to get SPROM: %d\n", err);
 
-	
+	/* Register found cores */
 	bcma_register_cores(bus);
 
 	pr_info("Bus registered\n");
@@ -209,7 +211,7 @@ int __init bcma_bus_early_register(struct bcma_bus *bus,
 	match.class = BCMA_CL_SIM;
 	match.rev = BCMA_ANY_REV;
 
-	
+	/* Scan for chip common core */
 	err = bcma_bus_scan_early(bus, &match, core_cc);
 	if (err) {
 		pr_err("Failed to scan for common core: %d\n", err);
@@ -221,21 +223,21 @@ int __init bcma_bus_early_register(struct bcma_bus *bus,
 	match.class = BCMA_CL_SIM;
 	match.rev = BCMA_ANY_REV;
 
-	
+	/* Scan for mips core */
 	err = bcma_bus_scan_early(bus, &match, core_mips);
 	if (err) {
 		pr_err("Failed to scan for mips core: %d\n", err);
 		return -1;
 	}
 
-	
+	/* Init CC core */
 	core = bcma_find_core(bus, BCMA_CORE_CHIPCOMMON);
 	if (core) {
 		bus->drv_cc.core = core;
 		bcma_core_chipcommon_init(&bus->drv_cc);
 	}
 
-	
+	/* Init MIPS core */
 	core = bcma_find_core(bus, BCMA_CORE_MIPS_74K);
 	if (core) {
 		bus->drv_mips.core = core;
@@ -267,7 +269,7 @@ int bcma_bus_resume(struct bcma_bus *bus)
 {
 	struct bcma_device *core;
 
-	
+	/* Init CC core */
 	core = bcma_find_core(bus, BCMA_CORE_CHIPCOMMON);
 	if (core) {
 		bus->drv_cc.setup_done = false;

@@ -25,6 +25,9 @@ static const char *const rxrpc_conn_states[] = {
 	[RXRPC_CONN_NETWORK_ERROR]	= "NetError",
 };
 
+/*
+ * generate a list of extant and dead calls in /proc/net/rxrpc_calls
+ */
 static void *rxrpc_call_seq_start(struct seq_file *seq, loff_t *_pos)
 {
 	read_lock(&rxrpc_call_lock);
@@ -103,6 +106,9 @@ const struct file_operations rxrpc_call_seq_fops = {
 	.release	= seq_release,
 };
 
+/*
+ * generate a list of extant virtual connections in /proc/net/rxrpc_conns
+ */
 static void *rxrpc_connection_seq_start(struct seq_file *seq, loff_t *_pos)
 {
 	read_lock(&rxrpc_connection_lock);

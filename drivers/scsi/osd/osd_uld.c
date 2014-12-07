@@ -102,6 +102,9 @@ static struct class osd_uld_class = {
 	.name		= "scsi_osd",
 };
 
+/*
+ * Char Device operations
+ */
 
 static int osd_uld_open(struct inode *inode, struct file *file)
 {
@@ -109,7 +112,7 @@ static int osd_uld_open(struct inode *inode, struct file *file)
 					struct osd_uld_device, cdev);
 
 	get_device(&oud->class_dev);
-	
+	/* cache osd_uld_device on file handle */
 	file->private_data = oud;
 	OSD_DEBUG("osd_uld_open %p\n", oud);
 	return 0;
@@ -125,6 +128,7 @@ static int osd_uld_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* FIXME: Only one vector for now */
 unsigned g_test_ioctl;
 do_test_fn *g_do_test;
 
@@ -227,7 +231,7 @@ EXPORT_SYMBOL(osduld_path_lookup);
 static inline bool _the_same_or_null(const u8 *a1, unsigned a1_len,
 				     const u8 *a2, unsigned a2_len)
 {
-	if (!a2_len) 
+	if (!a2_len) /* User string is Empty means don't care */
 		return true;
 
 	if (a1_len != a2_len)
@@ -262,6 +266,11 @@ int _mach_odi(struct device *dev, void *find_data)
 	}
 }
 
+/* osduld_info_lookup - Loop through all devices, return the requested osd_dev.
+ *
+ * if @odi->systemid_len and/or @odi->osdname_len are zero, they act as a don't
+ * care. .e.g if they're both zero /dev/osd0 is returned.
+ */
 struct osd_dev *osduld_info_lookup(const struct osd_dev_info *odi)
 {
 	struct find_oud_t find = {.odi = odi};
@@ -294,6 +303,12 @@ void osduld_put_device(struct osd_dev *od)
 
 		BUG_ON(od->scsi_device != oud->od.scsi_device);
 
+		/* If scsi has released the device (logout), and exofs has last
+		 * reference on oud it will be freed by above osd_uld_release
+		 * within fput below. But this will oops in cdev_release which
+		 * is called after the fops->release. A get_/put_ pair makes
+		 * sure we have a cdev for the duration of fput
+		 */
 		if (odh->file) {
 			get_device(&oud->class_dev);
 			fput(odh->file);
@@ -327,6 +342,9 @@ bool osduld_device_same(struct osd_dev *od, const struct osd_dev_info *odi)
 }
 EXPORT_SYMBOL(osduld_device_same);
 
+/*
+ * Scsi Device operations
+ */
 
 static int __detect_osd(struct osd_uld_device *oud)
 {
@@ -334,6 +352,9 @@ static int __detect_osd(struct osd_uld_device *oud)
 	char caps[OSD_CAP_LEN];
 	int error;
 
+	/* sending a test_unit_ready as first command seems to be needed
+	 * by some targets
+	 */
 	OSD_DEBUG("start scsi_test_unit_ready %p %p %p\n",
 			oud, scsi_device, scsi_device->request_queue);
 	error = scsi_test_unit_ready(scsi_device, 10*HZ, 5, NULL);
@@ -404,8 +425,8 @@ static int osd_probe(struct device *dev)
 	dev_set_drvdata(dev, oud);
 	oud->minor = minor;
 
-	
-	
+	/* allocate a disk and set it up */
+	/* FIXME: do we need this since sg has already done that */
 	disk = alloc_disk(1);
 	if (!disk) {
 		OSD_ERR("alloc_disk failed\n");
@@ -416,17 +437,20 @@ static int osd_probe(struct device *dev)
 	sprintf(disk->disk_name, "osd%d", oud->minor);
 	oud->disk = disk;
 
+	/* hold one more reference to the scsi_device that will get released
+	 * in __release, in case a logout is happening while fs is mounted
+	 */
 	scsi_device_get(scsi_device);
 	osd_dev_init(&oud->od, scsi_device);
 
-	
+	/* Detect the OSD Version */
 	error = __detect_osd(oud);
 	if (error) {
 		OSD_ERR("osd detection failed, non-compatible OSD device\n");
 		goto err_put_disk;
 	}
 
-	
+	/* init the char-device for communication with user-mode */
 	cdev_init(&oud->cdev, &osd_fops);
 	oud->cdev.owner = THIS_MODULE;
 	error = cdev_add(&oud->cdev,
@@ -436,7 +460,7 @@ static int osd_probe(struct device *dev)
 		goto err_put_disk;
 	}
 
-	
+	/* class device member */
 	oud->class_dev.devt = oud->cdev.dev;
 	oud->class_dev.class = &osd_uld_class;
 	oud->class_dev.parent = dev;
@@ -488,6 +512,9 @@ static int osd_remove(struct device *dev)
 	return 0;
 }
 
+/*
+ * Global driver and scsi registration
+ */
 
 static struct scsi_driver osd_driver = {
 	.owner			= THIS_MODULE,

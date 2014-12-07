@@ -10,4 +10,4 @@
 #define HARDIRQ_BITS    8
 #include <asm-generic/hardirq.h>
 
-#endif 
+#endif /* __SPARC_HARDIRQ_H */

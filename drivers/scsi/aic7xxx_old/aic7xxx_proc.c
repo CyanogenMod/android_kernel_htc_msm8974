@@ -48,22 +48,36 @@ proc_debug(const char *fmt, ...)
   printk(buf);
   va_end(ap);
 }
-#else 
+#else /* PROC_DEBUG */
 #  define proc_debug(fmt, args...)
-#endif 
+#endif /* PROC_DEBUG */
 
 static int aic7xxx_buffer_size = 0;
 static char *aic7xxx_buffer = NULL;
 
 
+/*+F*************************************************************************
+ * Function:
+ *   aic7xxx_set_info
+ *
+ * Description:
+ *   Set parameters for the driver from the /proc filesystem.
+ *-F*************************************************************************/
 static int
 aic7xxx_set_info(char *buffer, int length, struct Scsi_Host *HBAptr)
 {
   proc_debug("aic7xxx_set_info(): %s\n", buffer);
-  return (-ENOSYS);  
+  return (-ENOSYS);  /* Currently this is a no-op */
 }
 
 
+/*+F*************************************************************************
+ * Function:
+ *   aic7xxx_proc_info
+ *
+ * Description:
+ *   Return information to handle /proc support for the driver.
+ *-F*************************************************************************/
 int
 aic7xxx_proc_info ( struct Scsi_Host *HBAptr, char *buffer, char **start, off_t offset, int length, 
                     int inout)
@@ -98,6 +112,17 @@ aic7xxx_proc_info ( struct Scsi_Host *HBAptr, char *buffer, char **start, off_t 
 
   p = (struct aic7xxx_host *) HBAptr->hostdata;
 
+  /*
+   * It takes roughly 1K of space to hold all relevant card info, not
+   * counting any proc stats, so we start out with a 1.5k buffer size and
+   * if proc_stats is defined, then we sweep the stats structure to see
+   * how many drives we will be printing out for and add 384 bytes per
+   * device with active stats.
+   *
+   * Hmmmm...that 1.5k seems to keep growing as items get added so they
+   * can be easily viewed for debugging purposes.  So, we bumped that
+   * 1.5k to 4k so we can quit having to bump it all the time.
+   */
 
   size = 4096;
   list_for_each_entry(aic_dev, &p->aic_devs, list)
@@ -328,3 +353,21 @@ aic7xxx_proc_info ( struct Scsi_Host *HBAptr, char *buffer, char **start, off_t 
   return (length);
 }
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * Emacs will notice this stuff at the end of the file and automatically
+ * adjust the settings for this buffer only.  This must remain at the end
+ * of the file.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-indent-level: 2
+ * c-brace-imaginary-offset: 0
+ * c-brace-offset: -2
+ * c-argdecl-indent: 2
+ * c-label-offset: -2
+ * c-continued-statement-offset: 2
+ * c-continued-brace-offset: 0
+ * indent-tabs-mode: nil
+ * tab-width: 8
+ * End:
+ */

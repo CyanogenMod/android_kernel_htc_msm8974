@@ -12,6 +12,24 @@
  *
  */
 
+/*
+ * The NQ algorithm adopts a two-speed model. When there is an idle server
+ * available, the job will be sent to the idle server, instead of waiting
+ * for a fast one. When there is no idle server available, the job will be
+ * sent to the server that minimize its expected delay (The Shortest
+ * Expected Delay scheduling algorithm).
+ *
+ * See the following paper for more information:
+ * A. Weinrib and S. Shenker, Greed is not enough: Adaptive load sharing
+ * in large heterogeneous systems. In Proceedings IEEE INFOCOM'88,
+ * pages 986-994, 1988.
+ *
+ * Thanks must go to Marko Buuri <marko@buuri.name> for talking NQ to me.
+ *
+ * The difference between NQ and SED is that NQ can improve overall
+ * system utilization.
+ *
+ */
 
 #define KMSG_COMPONENT "IPVS"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
@@ -25,10 +43,17 @@
 static inline unsigned int
 ip_vs_nq_dest_overhead(struct ip_vs_dest *dest)
 {
+	/*
+	 * We only use the active connection number in the cost
+	 * calculation here.
+	 */
 	return atomic_read(&dest->activeconns) + 1;
 }
 
 
+/*
+ *	Weighted Least Connection scheduling
+ */
 static struct ip_vs_dest *
 ip_vs_nq_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 {
@@ -37,6 +62,18 @@ ip_vs_nq_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 
 	IP_VS_DBG(6, "%s(): Scheduling...\n", __func__);
 
+	/*
+	 * We calculate the load of each dest server as follows:
+	 *	(server expected overhead) / dest->weight
+	 *
+	 * Remember -- no floats in kernel mode!!!
+	 * The comparison of h1*w2 > h2*w1 is equivalent to that of
+	 *		  h1/w1 > h2/w2
+	 * if every weight is larger than zero.
+	 *
+	 * The server with weight=0 is quiesced and will not receive any
+	 * new connections.
+	 */
 
 	list_for_each_entry(dest, &svc->destinations, n_list) {
 
@@ -46,7 +83,7 @@ ip_vs_nq_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 
 		doh = ip_vs_nq_dest_overhead(dest);
 
-		
+		/* return the server directly if it is idle */
 		if (atomic_read(&dest->activeconns) == 0) {
 			least = dest;
 			loh = doh;

@@ -24,11 +24,27 @@
 #define MSIC_MAJOR(id)		('A' + ((id >> 3) & 7))
 #define MSIC_MINOR(id)		(id & 7)
 
+/*
+ * MSIC interrupt tree is readable from SRAM at INTEL_MSIC_IRQ_PHYS_BASE.
+ * Since IRQ block starts from address 0x002 we need to substract that from
+ * the actual IRQ status register address.
+ */
 #define MSIC_IRQ_STATUS(x)	(INTEL_MSIC_IRQ_PHYS_BASE + ((x) - 2))
 #define MSIC_IRQ_STATUS_ACCDET	MSIC_IRQ_STATUS(INTEL_MSIC_ACCDET)
 
+/*
+ * The SCU hardware has limitation of 16 bytes per read/write buffer on
+ * Medfield.
+ */
 #define SCU_IPC_RWBUF_LIMIT	16
 
+/**
+ * struct intel_msic - an MSIC MFD instance
+ * @pdev: pointer to the platform device
+ * @vendor: vendor ID
+ * @version: chip version
+ * @irq_base: base address of the mapped MSIC SRAM interrupt tree
+ */
 struct intel_msic {
 	struct platform_device		*pdev;
 	unsigned			vendor;
@@ -65,6 +81,10 @@ static struct resource msic_audio_resources[] = {
 		.name		= "IRQ",
 		.flags		= IORESOURCE_IRQ,
 	},
+	/*
+	 * We will pass IRQ_BASE to the driver now but this can be removed
+	 * when/if the driver starts to use intel_msic_irq_read().
+	 */
 	{
 		.name		= "IRQ_BASE",
 		.flags		= IORESOURCE_MEM,
@@ -97,6 +117,10 @@ static struct resource msic_ocd_resources[] = {
 	},
 };
 
+/*
+ * Devices that are part of the MSIC and are available via firmware
+ * populated SFI DEVS table.
+ */
 static struct mfd_cell msic_devs[] = {
 	[INTEL_MSIC_BLOCK_TOUCH]	= {
 		.name			= "msic_touch",
@@ -145,32 +169,87 @@ static struct mfd_cell msic_devs[] = {
 	},
 };
 
+/*
+ * Other MSIC related devices which are not directly available via SFI DEVS
+ * table. These can be pseudo devices, regulators etc. which are needed for
+ * different purposes.
+ *
+ * These devices appear only after the MSIC driver itself is initialized so
+ * we can guarantee that the SCU IPC interface is ready.
+ */
 static struct mfd_cell msic_other_devs[] = {
-	
+	/* Audio codec in the MSIC */
 	{
 		.id			= -1,
 		.name			= "sn95031",
 	},
 };
 
+/**
+ * intel_msic_reg_read - read a single MSIC register
+ * @reg: register to read
+ * @val: register value is placed here
+ *
+ * Read a single register from MSIC. Returns %0 on success and negative
+ * errno in case of failure.
+ *
+ * Function may sleep.
+ */
 int intel_msic_reg_read(unsigned short reg, u8 *val)
 {
 	return intel_scu_ipc_ioread8(reg, val);
 }
 EXPORT_SYMBOL_GPL(intel_msic_reg_read);
 
+/**
+ * intel_msic_reg_write - write a single MSIC register
+ * @reg: register to write
+ * @val: value to write to that register
+ *
+ * Write a single MSIC register. Returns 0 on success and negative
+ * errno in case of failure.
+ *
+ * Function may sleep.
+ */
 int intel_msic_reg_write(unsigned short reg, u8 val)
 {
 	return intel_scu_ipc_iowrite8(reg, val);
 }
 EXPORT_SYMBOL_GPL(intel_msic_reg_write);
 
+/**
+ * intel_msic_reg_update - update a single MSIC register
+ * @reg: register to update
+ * @val: value to write to the register
+ * @mask: specifies which of the bits are updated (%0 = don't update,
+ *        %1 = update)
+ *
+ * Perform an update to a register @reg. @mask is used to specify which
+ * bits are updated. Returns %0 in case of success and negative errno in
+ * case of failure.
+ *
+ * Function may sleep.
+ */
 int intel_msic_reg_update(unsigned short reg, u8 val, u8 mask)
 {
 	return intel_scu_ipc_update_register(reg, val, mask);
 }
 EXPORT_SYMBOL_GPL(intel_msic_reg_update);
 
+/**
+ * intel_msic_bulk_read - read an array of registers
+ * @reg: array of register addresses to read
+ * @buf: array where the read values are placed
+ * @count: number of registers to read
+ *
+ * Function reads @count registers from the MSIC using addresses passed in
+ * @reg. Read values are placed in @buf. Reads are performed atomically
+ * wrt. MSIC.
+ *
+ * Returns %0 in case of success and negative errno in case of failure.
+ *
+ * Function may sleep.
+ */
 int intel_msic_bulk_read(unsigned short *reg, u8 *buf, size_t count)
 {
 	if (WARN_ON(count > SCU_IPC_RWBUF_LIMIT))
@@ -180,6 +259,18 @@ int intel_msic_bulk_read(unsigned short *reg, u8 *buf, size_t count)
 }
 EXPORT_SYMBOL_GPL(intel_msic_bulk_read);
 
+/**
+ * intel_msic_bulk_write - write an array of values to the MSIC registers
+ * @reg: array of registers to write
+ * @buf: values to write to each register
+ * @count: number of registers to write
+ *
+ * Function writes @count registers in @buf to MSIC. Writes are performed
+ * atomically wrt MSIC. Returns %0 in case of success and negative errno in
+ * case of failure.
+ *
+ * Function may sleep.
+ */
 int intel_msic_bulk_write(unsigned short *reg, u8 *buf, size_t count)
 {
 	if (WARN_ON(count > SCU_IPC_RWBUF_LIMIT))
@@ -189,6 +280,22 @@ int intel_msic_bulk_write(unsigned short *reg, u8 *buf, size_t count)
 }
 EXPORT_SYMBOL_GPL(intel_msic_bulk_write);
 
+/**
+ * intel_msic_irq_read - read a register from an MSIC interrupt tree
+ * @msic: MSIC instance
+ * @reg: interrupt register (between %INTEL_MSIC_IRQLVL1 and
+ *	 %INTEL_MSIC_RESETIRQ2)
+ * @val: value of the register is placed here
+ *
+ * This function can be used by an MSIC subdevice interrupt handler to read
+ * a register value from the MSIC interrupt tree. In this way subdevice
+ * drivers don't have to map in the interrupt tree themselves but can just
+ * call this function instead.
+ *
+ * Function doesn't sleep and is callable from interrupt context.
+ *
+ * Returns %-EINVAL if @reg is outside of the allowed register region.
+ */
 int intel_msic_irq_read(struct intel_msic *msic, unsigned short reg, u8 *val)
 {
 	if (WARN_ON(reg < INTEL_MSIC_IRQLVL1 || reg > INTEL_MSIC_RESETIRQ2))
@@ -228,7 +335,7 @@ static int __devinit intel_msic_init_devices(struct intel_msic *msic)
 			return ret;
 		}
 
-		
+		/* Update the IRQ number for the OCD */
 		pdata->irq[INTEL_MSIC_BLOCK_OCD] = ret;
 	}
 
@@ -281,7 +388,7 @@ static int __devinit intel_msic_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* First validate that we have an MSIC in place */
 	ret = intel_scu_ipc_ioread8(INTEL_MSIC_ID0, &id0);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to identify the MSIC chip (ID0)\n");
@@ -307,6 +414,10 @@ static int __devinit intel_msic_probe(struct platform_device *pdev)
 	msic->version = MSIC_VERSION(id0);
 	msic->pdev = pdev;
 
+	/*
+	 * Map in the MSIC interrupt tree area in SRAM. This is exposed to
+	 * the clients via intel_msic_irq_read().
+	 */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(&pdev->dev, "failed to get SRAM iomem resource\n");

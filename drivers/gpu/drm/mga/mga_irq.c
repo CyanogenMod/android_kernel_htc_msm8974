@@ -1,3 +1,5 @@
+/* mga_irq.c -- IRQ handling for radeon -*- linux-c -*-
+ */
 /*
  * Copyright (C) The Weather Channel, Inc.  2002.  All Rights Reserved.
  *
@@ -55,7 +57,7 @@ irqreturn_t mga_driver_irq_handler(DRM_IRQ_ARGS)
 
 	status = MGA_READ(MGA_STATUS);
 
-	
+	/* VBLANK interrupt */
 	if (status & MGA_VLINEPEN) {
 		MGA_WRITE(MGA_ICLEAR, MGA_VLINEICLR);
 		atomic_inc(&dev_priv->vbl_received);
@@ -63,7 +65,7 @@ irqreturn_t mga_driver_irq_handler(DRM_IRQ_ARGS)
 		handled = 1;
 	}
 
-	
+	/* SOFTRAP interrupt */
 	if (status & MGA_SOFTRAPEN) {
 		const u32 prim_start = MGA_READ(MGA_PRIMADDRESS);
 		const u32 prim_end = MGA_READ(MGA_PRIMEND);
@@ -71,6 +73,9 @@ irqreturn_t mga_driver_irq_handler(DRM_IRQ_ARGS)
 
 		MGA_WRITE(MGA_ICLEAR, MGA_SOFTRAPICLR);
 
+		/* In addition to clearing the interrupt-pending bit, we
+		 * have to write to MGA_PRIMEND to re-start the DMA operation.
+		 */
 		if ((prim_start & ~0x03) != (prim_end & ~0x03))
 			MGA_WRITE(MGA_PRIMEND, prim_end);
 
@@ -106,7 +111,12 @@ void mga_disable_vblank(struct drm_device *dev, int crtc)
 			  crtc);
 	}
 
-	
+	/* Do *NOT* disable the vertical refresh interrupt.  MGA doesn't have
+	 * a nice hardware counter that tracks the number of refreshes when
+	 * the interrupt is disabled, and the kernel doesn't know the refresh
+	 * rate to calculate an estimate.
+	 */
+	/* MGA_WRITE(MGA_IEN, MGA_VLINEIEN | MGA_SOFTRAPEN); */
 }
 
 int mga_driver_fence_wait(struct drm_device *dev, unsigned int *sequence)
@@ -115,6 +125,10 @@ int mga_driver_fence_wait(struct drm_device *dev, unsigned int *sequence)
 	unsigned int cur_fence;
 	int ret = 0;
 
+	/* Assume that the user has missed the current sequence number
+	 * by about a day rather than she wants to wait for years
+	 * using fences.
+	 */
 	DRM_WAIT_ON(ret, dev_priv->fence_queue, 3 * DRM_HZ,
 		    (((cur_fence = atomic_read(&dev_priv->last_fence_retired))
 		      - *sequence) <= (1 << 23)));
@@ -128,9 +142,9 @@ void mga_driver_irq_preinstall(struct drm_device *dev)
 {
 	drm_mga_private_t *dev_priv = (drm_mga_private_t *) dev->dev_private;
 
-	
+	/* Disable *all* interrupts */
 	MGA_WRITE(MGA_IEN, 0);
-	
+	/* Clear bits if they're already high */
 	MGA_WRITE(MGA_ICLEAR, ~0);
 }
 
@@ -140,6 +154,9 @@ int mga_driver_irq_postinstall(struct drm_device *dev)
 
 	DRM_INIT_WAITQUEUE(&dev_priv->fence_queue);
 
+	/* Turn on soft trap interrupt.  Vertical blank interrupts are enabled
+	 * in mga_enable_vblank.
+	 */
 	MGA_WRITE(MGA_IEN, MGA_SOFTRAPEN);
 	return 0;
 }
@@ -150,7 +167,7 @@ void mga_driver_irq_uninstall(struct drm_device *dev)
 	if (!dev_priv)
 		return;
 
-	
+	/* Disable *all* interrupts */
 	MGA_WRITE(MGA_IEN, 0);
 
 	dev->irq_enabled = 0;

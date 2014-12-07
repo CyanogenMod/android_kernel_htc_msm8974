@@ -45,17 +45,18 @@
 #define RTC_EVENT_CB_PROC		0x1
 #define RTC_CB_ID			0x1
 
+/* Client request errors */
 enum rtc_rpc_err {
 	ERR_NONE,
-	ERR_CLIENT_ID_PTR,		
-	ERR_CLIENT_TYPE,		
-	ERR_CLIENT_ID,			
-	ERR_TASK_NOT_READY,		
-	ERR_INVALID_PROCESSOR,		
-	ERR_UNSUPPORTED,		
-	ERR_GENERAL,			
-	ERR_RPC,			
-	ERR_ALREADY_REG,		
+	ERR_CLIENT_ID_PTR,		/* Invalid client ID pointer */
+	ERR_CLIENT_TYPE,		/* Invalid client type */
+	ERR_CLIENT_ID,			/* Invalid client ID */
+	ERR_TASK_NOT_READY,		/* task is not ready for clients */
+	ERR_INVALID_PROCESSOR,		/* Invalid processor id */
+	ERR_UNSUPPORTED,		/* Unsupported request */
+	ERR_GENERAL,			/* Any General Error */
+	ERR_RPC,			/* Any ONCRPC Error */
+	ERR_ALREADY_REG,		/* Client already registered */
 	ERR_MAX
 };
 
@@ -67,6 +68,7 @@ enum processor_type {
 	CLIENT_PROCESSOR_MAX
 };
 
+/* Client types */
 enum client_type {
 	CLIENT_TYPE_GEN1 = 0,
 	CLIENT_FLOATING1,
@@ -76,6 +78,7 @@ enum client_type {
 	CLIENT_TYPE_MAX
 };
 
+/* Event types */
 enum event_type {
 	EVENT_TOD_CHANGE = 0,
 	EVENT_GENOFF_CHANGE,
@@ -261,9 +264,9 @@ static int msmrtc_tod_proc_result(struct msm_rpc_client *client, void *buff,
 			rtc_args->tm->tm_min, rtc_args->tm->tm_sec,
 			rtc_args->tm->tm_wday);
 
-		
+		/* RTC layer expects years to start at 1900 */
 		rtc_args->tm->tm_year -= 1900;
-		
+		/* RTC layer expects mons to be 0 based */
 		rtc_args->tm->tm_mon--;
 
 		if (rtc_valid_tm(rtc_args->tm) < 0) {
@@ -271,6 +274,10 @@ static int msmrtc_tod_proc_result(struct msm_rpc_client *client, void *buff,
 			rtc_time_to_tm(0, rtc_args->tm);
 		}
 
+		/*
+		 * Check if the time received is > 01-19-2038, to prevent
+		 * overflow. In such a case, return the EPOCH time.
+		 */
 		if (rtc_check_overflow(rtc_args->tm) == true) {
 			pr_err("Invalid time (year > 2038)\n");
 			rtc_time_to_tm(0, rtc_args->tm);
@@ -435,7 +442,7 @@ static void process_cb_request(void *buffer)
 	rtc_cb->cb_info_ptr = be32_to_cpu(rtc_cb->cb_info_ptr);
 
 	if (rtc_cb->event == EVENT_TOD_CHANGE) {
-		
+		/* A TOD update has been received from the Modem */
 		rtc_cb->cb_info_data.tod_update.tick =
 			be32_to_cpu(rtc_cb->cb_info_data.tod_update.tick);
 		rtc_cb->cb_info_data.tod_update.stamp =
@@ -452,7 +459,7 @@ static void process_cb_request(void *buffer)
 		msmrtc_updateatsuspend(&ts);
 		rtc_hctosys();
 		getnstimeofday(&tv);
-		
+		/* Update the alarm information with the new time info. */
 		alarm_update_timedelta(ts, tv);
 
 	} else
@@ -493,7 +500,7 @@ static int msmrtc_rpc_proc_args(struct msm_rpc_client *client, void *buff,
 	struct msm_rtc *rtc_pdata = data;
 
 	if (rtc_pdata->proc == RTC_CLIENT_INIT_PROC) {
-		
+		/* arguments passed to the client_init function */
 		struct rtc_client_init_req {
 			enum client_type client;
 			uint32_t client_id_ptr;
@@ -510,7 +517,7 @@ static int msmrtc_rpc_proc_args(struct msm_rpc_client *client, void *buff,
 		return sizeof(*req_1);
 
 	} else if (rtc_pdata->proc == RTC_REQUEST_CB_PROC) {
-		
+		/* arguments passed to the request_cb function */
 		struct rtc_event_req {
 			u8 client_id;
 			uint32_t rtc_cb_id;
@@ -532,7 +539,7 @@ static int msmrtc_rpc_proc_result(struct msm_rpc_client *client, void *buff,
 	struct msm_rtc *rtc_pdata = data;
 
 	if (rtc_pdata->proc == RTC_CLIENT_INIT_PROC) {
-		
+		/* process reply received from client_init function */
 		uint32_t client_id_ptr;
 		result = be32_to_cpu(*(uint32_t *)buff);
 		buff += sizeof(uint32_t);
@@ -547,7 +554,7 @@ static int msmrtc_rpc_proc_result(struct msm_rpc_client *client, void *buff,
 			return -EINVAL;
 		}
 	} else if (rtc_pdata->proc == RTC_REQUEST_CB_PROC) {
-		
+		/* process reply received from request_cb function */
 		result = be32_to_cpu(*(uint32_t *)buff);
 	}
 
@@ -566,7 +573,7 @@ static int msmrtc_setup_cb(struct msm_rtc *rtc_pdata)
 {
 	int rc;
 
-	
+	/* Register with the server with client specific info */
 	rtc_pdata->proc = RTC_CLIENT_INIT_PROC;
 	rc = msm_rpc_client_req(rtc_pdata->rpc_client, RTC_CLIENT_INIT_PROC,
 				msmrtc_rpc_proc_args, rtc_pdata,
@@ -577,7 +584,7 @@ static int msmrtc_setup_cb(struct msm_rtc *rtc_pdata)
 		return rc;
 	}
 
-	
+	/* Register with server for the callback event */
 	rtc_pdata->proc = RTC_REQUEST_CB_PROC;
 	rc = msm_rpc_client_req(rtc_pdata->rpc_client, RTC_REQUEST_CB_PROC,
 				msmrtc_rpc_proc_args, rtc_pdata,
@@ -625,6 +632,10 @@ msmrtc_probe(struct platform_device *pdev)
 		return rc;
 	}
 
+	/*
+	 * Set up the callback client.
+	 * For older targets this initialization will fail
+	 */
 	rc = msmrtc_setup_cb(rtc_pdata);
 	if (rc)
 		dev_dbg(&pdev->dev, "%s: Could not initialize RPC callback\n",
@@ -776,6 +787,13 @@ static int __init msmrtc_init(void)
 {
 	int rc;
 
+	/*
+	 * For backward compatibility, register multiple platform
+	 * drivers with the RPC PROG_VERS to be supported.
+	 *
+	 * Explicit cast away of 'constness' for driver.name in order to
+	 * initialize it here.
+	 */
 	snprintf((char *)msmrtc_driver.driver.name,
 		 strlen(msmrtc_driver.driver.name)+1,
 		 "rs%08x", TIMEREMOTE_PROG_NUMBER);

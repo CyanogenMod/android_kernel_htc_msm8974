@@ -41,7 +41,7 @@ static u8 global_registers[] = {
 	0x3d, 0x80,
 	0x3e, 0x82,
 	0x3f, 0x82,
-	0xff, 0xff, 
+	0xff, 0xff, /* Terminator (reg 0xff does not exist) */
 };
 
 static u8 channel_registers[] = {
@@ -100,7 +100,7 @@ static u8 channel_registers[] = {
 	0x35, 0x00,
 	0x36, 0x00,
 	0x37, 0x00,
-	0xff, 0xff, 
+	0xff, 0xff, /* Terminator (reg 0xff does not exist) */
 };
 
 static int write_reg(struct i2c_client *client, u8 reg, u8 value, int channel)

@@ -9,4 +9,4 @@
 #define flat_get_relocate_addr(rel)			(rel)
 #define flat_set_persistent(relval, p)			0
 
-#endif 
+#endif /* __ASM_XTENSA_FLAT_H */

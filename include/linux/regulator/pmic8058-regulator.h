@@ -16,6 +16,7 @@
 
 #include <linux/regulator/machine.h>
 
+/* Low dropout regulator ids */
 #define PM8058_VREG_ID_L0	0
 #define PM8058_VREG_ID_L1	1
 #define PM8058_VREG_ID_L2	2
@@ -43,15 +44,18 @@
 #define PM8058_VREG_ID_L24	24
 #define PM8058_VREG_ID_L25	25
 
+/* Switched-mode power supply regulator ids */
 #define PM8058_VREG_ID_S0	26
 #define PM8058_VREG_ID_S1	27
 #define PM8058_VREG_ID_S2	28
 #define PM8058_VREG_ID_S3	29
 #define PM8058_VREG_ID_S4	30
 
+/* Low voltage switch regulator ids */
 #define PM8058_VREG_ID_LVS0	31
 #define PM8058_VREG_ID_LVS1	32
 
+/* Negative charge pump regulator id */
 #define PM8058_VREG_ID_NCP	33
 
 #define PM8058_VREG_MAX		(PM8058_VREG_ID_NCP + 1)
@@ -62,11 +66,13 @@
 #define PM8058_VREG_PIN_CTRL_D0		0x04
 #define PM8058_VREG_PIN_CTRL_D1		0x08
 
+/* Minimum high power mode loads in uA. */
 #define PM8058_VREG_LDO_50_HPM_MIN_LOAD		5000
 #define PM8058_VREG_LDO_150_HPM_MIN_LOAD	10000
 #define PM8058_VREG_LDO_300_HPM_MIN_LOAD	10000
 #define PM8058_VREG_SMPS_HPM_MIN_LOAD		50000
 
+/* Pin ctrl enables/disables or toggles high/low power modes */
 enum pm8058_vreg_pin_fn {
 	PM8058_VREG_PIN_FN_ENABLE = 0,
 	PM8058_VREG_PIN_FN_MODE,

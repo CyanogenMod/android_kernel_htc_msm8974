@@ -19,7 +19,93 @@
  *
  */
 
+/* $DHD: intelfb/intelfbdrv.c,v 1.20 2003/06/27 15:17:40 dawes Exp $ */
 
+/*
+ * Changes:
+ *    01/2003 - Initial driver (0.1.0), no mode switching, no acceleration.
+ *		This initial version is a basic core that works a lot like
+ *		the vesafb driver.  It must be built-in to the kernel,
+ *		and the initial video mode must be set with vga=XXX at
+ *		boot time.  (David Dawes)
+ *
+ *    01/2003 - Version 0.2.0: Mode switching added, colormap support
+ *		implemented, Y panning, and soft screen blanking implemented.
+ *		No acceleration yet.  (David Dawes)
+ *
+ *    01/2003 - Version 0.3.0: fbcon acceleration support added.  Module
+ *		option handling added.  (David Dawes)
+ *
+ *    01/2003 - Version 0.4.0: fbcon HW cursor support added.  (David Dawes)
+ *
+ *    01/2003 - Version 0.4.1: Add auto-generation of built-in modes.
+ *		(David Dawes)
+ *
+ *    02/2003 - Version 0.4.2: Add check for active non-CRT devices, and
+ *		mode validation checks.  (David Dawes)
+ *
+ *    02/2003 - Version 0.4.3: Check when the VC is in graphics mode so that
+ *		acceleration is disabled while an XFree86 server is running.
+ *		(David Dawes)
+ *
+ *    02/2003 - Version 0.4.4: Monitor DPMS support.  (David Dawes)
+ *
+ *    02/2003 - Version 0.4.5: Basic XFree86 + fbdev working.  (David Dawes)
+ *
+ *    02/2003 - Version 0.5.0: Modify to work with the 2.5.32 kernel as well
+ *		as 2.4.x kernels.  (David Dawes)
+ *
+ *    02/2003 - Version 0.6.0: Split out HW-specifics into a separate file.
+ *		(David Dawes)
+ *
+ *    02/2003 - Version 0.7.0: Test on 852GM/855GM.  Acceleration and HW
+ *		cursor are disabled on this platform.  (David Dawes)
+ *
+ *    02/2003 - Version 0.7.1: Test on 845G.  Acceleration is disabled
+ *		on this platform.  (David Dawes)
+ *
+ *    02/2003 - Version 0.7.2: Test on 830M.  Acceleration and HW
+ *		cursor are disabled on this platform.  (David Dawes)
+ *
+ *    02/2003 - Version 0.7.3: Fix 8-bit modes for mobile platforms
+ *		(David Dawes)
+ *
+ *    02/2003 - Version 0.7.4: Add checks for FB and FBCON_HAS_CFB* configured
+ *		in the kernel, and add mode bpp verification and default
+ *		bpp selection based on which FBCON_HAS_CFB* are configured.
+ *		(David Dawes)
+ *
+ *    02/2003 - Version 0.7.5: Add basic package/install scripts based on the
+ *		DRI packaging scripts.  (David Dawes)
+ *
+ *    04/2003 - Version 0.7.6: Fix typo that affects builds with SMP-enabled
+ *		kernels.  (David Dawes, reported by Anupam).
+ *
+ *    06/2003 - Version 0.7.7:
+ *              Fix Makefile.kernel build problem (Tsutomu Yasuda).
+ *		Fix mis-placed #endif (2.4.21 kernel).
+ *
+ *    09/2004 - Version 0.9.0 - by Sylvain Meyer
+ *              Port to linux 2.6 kernel fbdev
+ *              Fix HW accel and HW cursor on i845G
+ *              Use of agpgart for fb memory reservation
+ *              Add mtrr support
+ *
+ *    10/2004 - Version 0.9.1
+ *              Use module_param instead of old MODULE_PARM
+ *              Some cleanup
+ *
+ *    11/2004 - Version 0.9.2
+ *              Add vram option to reserve more memory than stolen by BIOS
+ *              Fix intelfbhw_pan_display typo
+ *              Add __initdata annotations
+ *
+ *    04/2008 - Version 0.9.5
+ *              Add support for 965G/965GM. (Maik Broemme <mbroemme@plusserver.de>)
+ *
+ *    08/2008 - Version 0.9.6
+ *              Add support for 945GME. (Phil Endecott <spam_from_intelfb@chezphil.org>)
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -81,6 +167,10 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 static void __devexit intelfb_pci_unregister(struct pci_dev *pdev);
 static int __devinit intelfb_set_fbinfo(struct intelfb_info *dinfo);
 
+/*
+ * Limiting the class to PCI_CLASS_DISPLAY_VGA prevents function 1 of the
+ * mobile chipsets from being registered.
+ */
 #if DETECT_VGA_CLASS_ONLY
 #define INTELFB_CLASS_MASK ~0 << 8
 #else
@@ -103,8 +193,10 @@ static struct pci_device_id intelfb_pci_table[] __devinitdata = {
 	{ 0, }
 };
 
+/* Global data */
 static int num_registered = 0;
 
+/* fb ops */
 static struct fb_ops intel_fb_ops = {
 	.owner =		THIS_MODULE,
 	.fb_open =              intelfb_open,
@@ -122,6 +214,7 @@ static struct fb_ops intel_fb_ops = {
 	.fb_ioctl =		intelfb_ioctl
 };
 
+/* PCI driver module table */
 static struct pci_driver intelfb_driver = {
 	.name =		"intelfb",
 	.id_table =	intelfb_pci_table,
@@ -129,6 +222,7 @@ static struct pci_driver intelfb_driver = {
 	.remove =	__devexit_p(intelfb_pci_unregister)
 };
 
+/* Module description/parameters */
 MODULE_AUTHOR("David Dawes <dawes@tungstengraphics.com>, "
 	      "Sylvain Meyer <sylvain.meyer@worldonline.fr>");
 MODULE_DESCRIPTION("Framebuffer driver for Intel(R) " SUPPORTED_CHIPSETS
@@ -244,6 +338,18 @@ static int __init intelfb_setup(char *options)
 	} else
 		DBG_MSG("options: %s\n", options);
 
+	/*
+	 * These are the built-in options analogous to the module parameters
+	 * defined above.
+	 *
+	 * The syntax is:
+	 *
+	 *    video=intelfb:[mode][,<param>=<val>] ...
+	 *
+	 * e.g.,
+	 *
+	 *    video=intelfb:1024x768-16@75,accel=0
+	 */
 
 	while ((this_opt = strsep(&options, ","))) {
 		if (!*this_opt)
@@ -304,6 +410,9 @@ static void __exit intelfb_exit(void)
 module_init(intelfb_init);
 module_exit(intelfb_exit);
 
+/***************************************************************
+ *                     mtrr support functions                  *
+ ***************************************************************/
 
 #ifdef CONFIG_MTRR
 static inline void __devinit set_mtrr(struct intelfb_info *dinfo)
@@ -326,8 +435,11 @@ static inline void unset_mtrr(struct intelfb_info *dinfo)
 #define set_mtrr(x) WRN_MSG("MTRR is disabled in the kernel\n")
 
 #define unset_mtrr(x) do { } while (0)
-#endif 
+#endif /* CONFIG_MTRR */
 
+/***************************************************************
+ *                        driver init / cleanup                *
+ ***************************************************************/
 
 static void cleanup(struct intelfb_info *dinfo)
 {
@@ -360,7 +472,7 @@ static void cleanup(struct intelfb_info *dinfo)
 	}
 
 #ifdef CONFIG_FB_INTEL_I2C
-	
+	/* un-register I2C bus */
 	intelfb_delete_i2c_busses(dinfo);
 #endif
 
@@ -424,23 +536,25 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 	dinfo->fbops = &intel_fb_ops;
 	dinfo->pdev  = pdev;
 
-	
+	/* Reserve pixmap space. */
 	info->pixmap.addr = kzalloc(64 * 1024, GFP_KERNEL);
 	if (info->pixmap.addr == NULL) {
 		ERR_MSG("Cannot reserve pixmap memory.\n");
 		goto err_out_pixmap;
 	}
 
+	/* set early this option because it could be changed by tv encoder
+	   driver */
 	dinfo->fixed_mode = fixed;
 
-	
+	/* Enable device. */
 	if ((err = pci_enable_device(pdev))) {
 		ERR_MSG("Cannot enable device.\n");
 		cleanup(dinfo);
 		return -ENODEV;
 	}
 
-	
+	/* Set base addresses. */
 	if ((ent->device == PCI_DEVICE_ID_INTEL_915G) ||
 	    (ent->device == PCI_DEVICE_ID_INTEL_915GM) ||
 	    (ent->device == PCI_DEVICE_ID_INTEL_945G)  ||
@@ -461,7 +575,7 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 		(unsigned long long)pci_resource_start(pdev, mmio_bar),
 		(unsigned long long)pci_resource_len(pdev, mmio_bar));
 
-	
+	/* Reserve the fb and MMIO regions */
 	if (!request_mem_region(dinfo->aperture.physical, dinfo->aperture.size,
 				INTELFB_MODULE_NAME)) {
 		ERR_MSG("Cannot reserve FB region.\n");
@@ -481,7 +595,7 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 
 	dinfo->flag |= INTELFB_MMIO_ACQUIRED;
 
-	
+	/* Get the chipset info. */
 	dinfo->pci_chipset = pdev->device;
 
 	if (intelfbhw_get_chipset(pdev, dinfo)) {
@@ -500,7 +614,7 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 		PCI_FUNC(pdev->devfn), dinfo->name,
 		BtoMB(aperture_size), BtoKB(stolen_size));
 
-	
+	/* Set these from the options. */
 	dinfo->accel    = accel;
 	dinfo->hwcursor = hwcursor;
 
@@ -510,7 +624,7 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 		dinfo->accel = 0;
 	}
 
-	
+	/* Framebuffer parameters - Use all the stolen memory if >= vram */
 	if (ROUND_UP_TO_PAGE(stolen_size) >= MB(vram)) {
 		dinfo->fb.size = ROUND_UP_TO_PAGE(stolen_size);
 		dinfo->fbmem_gart = 0;
@@ -519,7 +633,7 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 		dinfo->fbmem_gart = 1;
 	}
 
-	
+	/* Allocate space for the ring buffer and HW cursor if enabled. */
 	if (dinfo->accel) {
 		dinfo->ring.size = RINGBUFFER_SIZE;
 		dinfo->ring_tail_mask = dinfo->ring.size - 1;
@@ -527,14 +641,14 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 	if (dinfo->hwcursor)
 		dinfo->cursor.size = HW_CURSOR_SIZE;
 
-	
+	/* Use agpgart to manage the GATT */
 	if (!(bridge = agp_backend_acquire(pdev))) {
 		ERR_MSG("cannot acquire agp\n");
 		cleanup(dinfo);
 		return -ENODEV;
 	}
 
-	
+	/* get the current gatt info */
 	if (agp_copy_info(bridge, &gtt_info)) {
 		ERR_MSG("cannot get agp info\n");
 		agp_backend_release(bridge);
@@ -547,7 +661,7 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 	else
 		offset = ROUND_UP_TO_PAGE(MB(voffset))/GTT_PAGE_SIZE;
 
-	
+	/* set the mem offsets - set them after the already used pages */
 	if (dinfo->accel)
 		dinfo->ring.offset = offset + gtt_info.current_memory;
 	if (dinfo->hwcursor)
@@ -558,9 +672,9 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 			+ gtt_info.current_memory + (dinfo->ring.size >> 12)
 			+ (dinfo->cursor.size >> 12);
 
-	
-	
-	
+	/* Allocate memories (which aren't stolen) */
+	/* Map the fb and MMIO regions */
+	/* ioremap only up to the end of used aperture */
 	dinfo->aperture.virtual = (u8 __iomem *)ioremap_nocache
 		(dinfo->aperture.physical, ((offset + dinfo->fb.offset) << 12)
 		 + dinfo->fb.size);
@@ -644,15 +758,15 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 		}
 	}
 
-	
+	/* update framebuffer memory parameters */
 	if (!dinfo->fbmem_gart)
-		dinfo->fb.offset = 0;   
+		dinfo->fb.offset = 0;   /* starts at offset 0 */
 	dinfo->fb.physical = dinfo->aperture.physical
 		+ (dinfo->fb.offset << 12);
 	dinfo->fb.virtual = dinfo->aperture.virtual + (dinfo->fb.offset << 12);
 	dinfo->fb_start = dinfo->fb.offset << 12;
 
-	
+	/* release agpgart */
 	agp_backend_release(bridge);
 
 	if (mtrr)
@@ -679,6 +793,10 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 	if (probeonly)
 		bailout(dinfo);
 
+	/*
+	 * Check if the LVDS port or any DVO ports are enabled.  If so,
+	 * don't allow mode switching
+	 */
 	dvo = intelfbhw_check_non_crt(dinfo);
 	if (dvo) {
 		dinfo->fixed_mode = 1;
@@ -709,15 +827,15 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 	if (bailearly == 2)
 		bailout(dinfo);
 
-	
-	
+	/* Initialise dinfo and related data. */
+	/* If an initial mode was programmed at boot time, get its details. */
 	if (screen_info.orig_video_isVGA == VIDEO_TYPE_VLFB)
 		get_initial_mode(dinfo);
 
 	if (bailearly == 3)
 		bailout(dinfo);
 
-	if (FIXED_MODE(dinfo))	
+	if (FIXED_MODE(dinfo))	/* remap fb address */
 		update_dinfo(dinfo, &dinfo->initial_var);
 
 	if (bailearly == 4)
@@ -733,7 +851,7 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 		bailout(dinfo);
 
 #ifdef CONFIG_FB_INTEL_I2C
-	
+	/* register I2C bus */
 	intelfb_create_i2c_busses(dinfo);
 #endif
 
@@ -742,7 +860,7 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 
 	pci_set_drvdata(pdev, dinfo);
 
-	
+	/* Save the initial register state. */
 	i = intelfbhw_read_hw_state(dinfo, &dinfo->save_state,
 				    bailearly > 6 ? bailearly - 6 : 0);
 	if (i != 0) {
@@ -755,10 +873,10 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 	if (bailearly == 18)
 		bailout(dinfo);
 
-	
+	/* read active pipe */
 	dinfo->pipe = intelfbhw_active_pipe(&dinfo->save_state);
 
-	
+	/* Cursor initialisation */
 	if (dinfo->hwcursor) {
 		intelfbhw_cursor_init(dinfo);
 		intelfbhw_cursor_reset(dinfo);
@@ -767,7 +885,7 @@ static int __devinit intelfb_pci_register(struct pci_dev *pdev,
 	if (bailearly == 19)
 		bailout(dinfo);
 
-	
+	/* 2d acceleration init */
 	if (dinfo->accel)
 		intelfbhw_2d_start(dinfo);
 
@@ -816,6 +934,9 @@ intelfb_pci_unregister(struct pci_dev *pdev)
 	pci_set_drvdata(pdev, NULL);
 }
 
+/***************************************************************
+ *                       helper functions                      *
+ ***************************************************************/
 
 int __inline__ intelfb_var_to_depth(const struct fb_var_screeninfo *var)
 {
@@ -843,6 +964,9 @@ static __inline__ int var_to_refresh(const struct fb_var_screeninfo *var)
 	return (1000000000 / var->pixclock * 1000 + 500) / xtot / ytot;
 }
 
+/***************************************************************
+ *                Various intialisation functions              *
+ ***************************************************************/
 
 static void __devinit get_initial_mode(struct intelfb_info *dinfo)
 {
@@ -878,7 +1002,7 @@ static void __devinit get_initial_mode(struct intelfb_info *dinfo)
 		var->xres, var->yres, var->bits_per_pixel,
 		dinfo->initial_pitch);
 
-	
+	/* Dummy timing values (assume 60Hz) */
 	var->left_margin = (var->xres / 8) & 0xf8;
 	var->right_margin = 32;
 	var->upper_margin = 16;
@@ -974,7 +1098,7 @@ static int __devinit intelfb_init_var(struct intelfb_info *dinfo)
 	DBG_MSG("Initial video mode is from %d.\n", msrc);
 
 #if ALLOCATE_FOR_PANNING
-	
+	/* Allow use of half of the video ram for panning */
 	var->xres_virtual = var->xres;
 	var->yres_virtual =
 		dinfo->fb.size / 2 / (var->bits_per_pixel * var->xres);
@@ -1027,6 +1151,7 @@ static int __devinit intelfb_set_fbinfo(struct intelfb_info *dinfo)
 	return 0;
 }
 
+/* Update dinfo to match the active video mode. */
 static void update_dinfo(struct intelfb_info *dinfo,
 			 struct fb_var_screeninfo *var)
 {
@@ -1056,7 +1181,7 @@ static void update_dinfo(struct intelfb_info *dinfo,
 		break;
 	}
 
-	
+	/* Make sure the line length is a aligned correctly. */
 	if (IS_I9XX(dinfo))
 		dinfo->pitch = ROUND_UP_TO(dinfo->pitch, STRIDE_ALIGNMENT_I9XX);
 	else
@@ -1070,7 +1195,11 @@ static void update_dinfo(struct intelfb_info *dinfo,
 	dinfo->info->fix.visual = dinfo->visual;
 }
 
+/* fbops functions */
 
+/***************************************************************
+ *                       fbdev interface                       *
+ ***************************************************************/
 
 static int intelfb_open(struct fb_info *info, int user)
 {
@@ -1104,7 +1233,7 @@ static int intelfb_check_var(struct fb_var_screeninfo *var,
 	struct intelfb_info *dinfo;
 	static int first = 1;
 	int i;
-	
+	/* Good pitches to allow tiling.  Don't care about pitches < 1024. */
 	static const int pitches[] = {
 		128 * 8,
 		128 * 16,
@@ -1117,7 +1246,7 @@ static int intelfb_check_var(struct fb_var_screeninfo *var,
 
 	dinfo = GET_DINFO(info);
 
-	
+	/* update the pitch */
 	if (intelfbhw_validate_mode(dinfo, var) != 0)
 		return -EINVAL;
 
@@ -1130,7 +1259,7 @@ static int intelfb_check_var(struct fb_var_screeninfo *var,
 		}
 	}
 
-	
+	/* Check for a supported bpp. */
 	if (v.bits_per_pixel <= 8)
 		v.bits_per_pixel = 8;
 	else if (v.bits_per_pixel <= 16) {
@@ -1238,6 +1367,9 @@ static int intelfb_set_par(struct fb_info *info)
 	DBG_MSG("intelfb_set_par (%dx%d-%d)\n", info->var.xres,
 		info->var.yres, info->var.bits_per_pixel);
 
+	/*
+	 * Disable VCO prior to timing register change.
+	 */
 	OUTREG(DPLL_A, INREG(DPLL_A) & ~DPLL_VCO_ENABLE);
 
 	intelfb_blank(FB_BLANK_POWERDOWN, info);
@@ -1337,6 +1469,7 @@ static int intelfb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/* When/if we have our own ioctls. */
 static int intelfb_ioctl(struct fb_info *info, unsigned int cmd,
 			 unsigned long arg)
 {
@@ -1375,7 +1508,7 @@ static void intelfb_fillrect (struct fb_info *info,
 
 	if (rect->rop == ROP_COPY)
 		rop = PAT_ROP_GXCOPY;
-	else 
+	else /* ROP_XOR */
 		rop = PAT_ROP_GXXOR;
 
 	if (dinfo->depth != 8)
@@ -1454,7 +1587,7 @@ static int intelfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 
 	intelfbhw_cursor_hide(dinfo);
 
-	
+	/* If XFree killed the cursor - restore it */
 	physical = (dinfo->mobile || IS_I9XX(dinfo)) ? dinfo->cursor.physical :
 		   (dinfo->cursor.offset << 12);
 
@@ -1541,6 +1674,8 @@ static int intelfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 			break;
 		}
 
+		/* save the bitmap to restore it when XFree will
+		   make the cursor dirty */
 		memcpy(dinfo->cursor_src, src, size);
 
 		intelfbhw_cursor_load(dinfo, cursor->image.width,

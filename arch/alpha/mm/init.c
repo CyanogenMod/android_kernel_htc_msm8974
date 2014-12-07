@@ -4,6 +4,7 @@
  *  Copyright (C) 1995  Linus Torvalds
  */
 
+/* 2.3.x zone allocator, 1999 Andrea Arcangeli <andrea@suse.de> */
 
 #include <linux/pagemap.h>
 #include <linux/signal.h>
@@ -17,7 +18,7 @@
 #include <linux/mm.h>
 #include <linux/swap.h>
 #include <linux/init.h>
-#include <linux/bootmem.h> 
+#include <linux/bootmem.h> /* max_low_pfn */
 #include <linux/vmalloc.h>
 #include <linux/gfp.h>
 
@@ -50,7 +51,7 @@ pgd_alloc(struct mm_struct *mm)
 		pgd_val(ret[PTRS_PER_PGD-2]) = pgd_val(init[PTRS_PER_PGD-2]);
 #endif
 
-		
+		/* The last PGD entry is the VPTB self-map.  */
 		pgd_val(ret[PTRS_PER_PGD-1])
 		  = pte_val(mk_pte(virt_to_page(ret), PAGE_KERNEL));
 	}
@@ -58,6 +59,19 @@ pgd_alloc(struct mm_struct *mm)
 }
 
 
+/*
+ * BAD_PAGE is the page that is used for page faults when linux
+ * is out-of-memory. Older versions of linux just did a
+ * do_exit(), but using this instead means there is less risk
+ * for a process dying in kernel mode, possibly leaving an inode
+ * unused etc..
+ *
+ * BAD_PAGETABLE is the accompanying page-table: it is initialized
+ * to point to BAD_PAGE entries.
+ *
+ * ZERO_PAGE is a special page that is used for zero-initialized
+ * data and COW.
+ */
 pmd_t *
 __bad_pagetable(void)
 {
@@ -80,6 +94,7 @@ load_PCB(struct pcb_struct *pcb)
 	return __reload_thread(pcb);
 }
 
+/* Set up initial PCB, VPTB, and other such nicities.  */
 
 static inline void
 switch_to_system_map(void)
@@ -87,23 +102,33 @@ switch_to_system_map(void)
 	unsigned long newptbr;
 	unsigned long original_pcb_ptr;
 
+	/* Initialize the kernel's page tables.  Linux puts the vptb in
+	   the last slot of the L1 page table.  */
 	memset(swapper_pg_dir, 0, PAGE_SIZE);
 	newptbr = ((unsigned long) swapper_pg_dir - PAGE_OFFSET) >> PAGE_SHIFT;
 	pgd_val(swapper_pg_dir[1023]) =
 		(newptbr << 32) | pgprot_val(PAGE_KERNEL);
 
+	/* Set the vptb.  This is often done by the bootloader, but 
+	   shouldn't be required.  */
 	if (hwrpb->vptb != 0xfffffffe00000000UL) {
 		wrvptptr(0xfffffffe00000000UL);
 		hwrpb->vptb = 0xfffffffe00000000UL;
 		hwrpb_update_checksum(hwrpb);
 	}
 
-	
+	/* Also set up the real kernel PCB while we're at it.  */
 	init_thread_info.pcb.ptbr = newptbr;
-	init_thread_info.pcb.flags = 1;	
+	init_thread_info.pcb.flags = 1;	/* set FEN, clear everything else */
 	original_pcb_ptr = load_PCB(&init_thread_info.pcb);
 	tbia();
 
+	/* Save off the contents of the original PCB so that we can
+	   restore the original console's page tables for a clean reboot.
+
+	   Note that the PCB is supposed to be a physical address, but
+	   since KSEG values also happen to work, folks get confused.
+	   Check this here.  */
 
 	if (original_pcb_ptr < PAGE_OFFSET) {
 		original_pcb_ptr = (unsigned long)
@@ -122,15 +147,15 @@ callback_init(void * kernel_end)
 	pmd_t *pmd;
 	void *two_pages;
 
-	
+	/* Starting at the HWRPB, locate the CRB. */
 	crb = (struct crb_struct *)((char *)hwrpb + hwrpb->crb_offset);
 
 	if (alpha_using_srm) {
-		
+		/* Tell the console whither it is to be remapped. */
 		if (srm_fixup(VMALLOC_START, (unsigned long)hwrpb))
-			__halt();		
+			__halt();		/* "We're boned."  --Bender */
 
-		
+		/* Edit the procedure descriptors for DISPATCH and FIXUP. */
 		crb->dispatch_va = (struct procdesc_struct *)
 			(VMALLOC_START + (unsigned long)crb->dispatch_va
 			 - crb->map[0].va);
@@ -141,6 +166,15 @@ callback_init(void * kernel_end)
 
 	switch_to_system_map();
 
+	/* Allocate one PGD and one PMD.  In the case of SRM, we'll need
+	   these to actually remap the console.  There is an assumption
+	   here that only one of each is needed, and this allows for 8MB.
+	   On systems with larger consoles, additional pages will be
+	   allocated as needed during the mapping process.
+
+	   In the case of not SRM, but not CONFIG_ALPHA_LARGE_VMALLOC,
+	   we need to allocate the PGD we use for vmalloc before we start
+	   forking other tasks.  */
 
 	two_pages = (void *)
 	  (((unsigned long)kernel_end + ~PAGE_MASK) & PAGE_MASK);
@@ -158,21 +192,26 @@ callback_init(void * kernel_end)
 		unsigned long vaddr;
 		unsigned long i, j;
 
-		
+		/* calculate needed size */
 		for (i = 0; i < crb->map_entries; ++i)
 			nr_pages += crb->map[i].count;
 
-		
+		/* register the vm area */
 		console_remap_vm.flags = VM_ALLOC;
 		console_remap_vm.size = nr_pages << PAGE_SHIFT;
 		vm_area_register_early(&console_remap_vm, PAGE_SIZE);
 
 		vaddr = (unsigned long)console_remap_vm.addr;
 
+		/* Set up the third level PTEs and update the virtual
+		   addresses of the CRB entries.  */
 		for (i = 0; i < crb->map_entries; ++i) {
 			unsigned long pfn = crb->map[i].pa >> PAGE_SHIFT;
 			crb->map[i].va = vaddr;
 			for (j = 0; j < crb->map[i].count; ++j) {
+				/* Newer consoles (especially on larger
+				   systems) may require more pages of
+				   PTEs. Grab additional pages as needed. */
 				if (pmd != pmd_offset(pgd, vaddr)) {
 					memset(kernel_end, 0, PAGE_SIZE);
 					pmd = pmd_offset(pgd, vaddr);
@@ -193,6 +232,9 @@ callback_init(void * kernel_end)
 
 
 #ifndef CONFIG_DISCONTIGMEM
+/*
+ * paging_init() sets up the memory map.
+ */
 void __init paging_init(void)
 {
 	unsigned long zones_size[MAX_NR_ZONES] = {0, };
@@ -208,26 +250,26 @@ void __init paging_init(void)
 		zones_size[ZONE_NORMAL] = high_pfn - dma_pfn;
 	}
 
-	
+	/* Initialize mem_map[].  */
 	free_area_init(zones_size);
 
-	
+	/* Initialize the kernel's ZERO_PGE. */
 	memset((void *)ZERO_PGE, 0, PAGE_SIZE);
 }
-#endif 
+#endif /* CONFIG_DISCONTIGMEM */
 
 #if defined(CONFIG_ALPHA_GENERIC) || defined(CONFIG_ALPHA_SRM)
 void
 srm_paging_stop (void)
 {
-	
+	/* Move the vptb back to where the SRM console expects it.  */
 	swapper_pg_dir[1] = swapper_pg_dir[1023];
 	tbia();
 	wrvptptr(0x200000000UL);
 	hwrpb->vptb = 0x200000000UL;
 	hwrpb_update_checksum(hwrpb);
 
-	
+	/* Reload the page tables that the console had in use.  */
 	load_PCB(&original_pcb);
 	tbia();
 }
@@ -242,9 +284,12 @@ printk_memory_info(void)
 	extern char _text, _etext, _data, _edata;
 	extern char __init_begin, __init_end;
 
-	
+	/* printk all informations */
 	reservedpages = 0;
 	for (tmp = 0; tmp < max_low_pfn; tmp++)
+		/*
+		 * Only count reserved RAM pages
+		 */
 		if (page_is_ram(tmp) && PageReserved(mem_map+tmp))
 			reservedpages++;
 
@@ -270,7 +315,7 @@ mem_init(void)
 
 	printk_memory_info();
 }
-#endif 
+#endif /* CONFIG_DISCONTIGMEM */
 
 void
 free_reserved_mem(void *start, void *end)

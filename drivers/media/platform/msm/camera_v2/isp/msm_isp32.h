@@ -14,4 +14,4 @@
 #define __MSM_ISP32_H__
 
 extern struct msm_vfe_hardware_info vfe32_hw_info;
-#endif 
+#endif /* __MSM_ISP32_H__ */

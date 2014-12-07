@@ -62,7 +62,7 @@ void prom_putchar(unsigned char c)
 
 static void xxs1500_reset(char *c)
 {
-	
+	/* Jump to the reset vector */
 	__asm__ __volatile__("jr\t%0" : : "r"(0xbfc00000));
 }
 
@@ -86,18 +86,19 @@ void __init board_setup(void)
 	alchemy_gpio1_input_enable();
 	alchemy_gpio2_enable();
 
-	
+	/* Set multiple use pins (UART3/GPIO) to UART (it's used as UART too) */
 	pin_func  = au_readl(SYS_PINFUNC) & ~SYS_PF_UR3;
 	pin_func |= SYS_PF_UR3;
 	au_writel(pin_func, SYS_PINFUNC);
 
-	
+	/* Enable UART */
 	alchemy_uart_enable(AU1000_UART3_PHYS_ADDR);
-	
+	/* Enable DTR (MCR bit 0) = USB power up */
 	__raw_writel(1, (void __iomem *)KSEG1ADDR(AU1000_UART3_PHYS_ADDR + 0x18));
 	wmb();
 }
 
+/******************************************************************************/
 
 static struct resource xxs1500_pcmcia_res[] = {
 	{
@@ -144,7 +145,7 @@ static int __init xxs1500_dev_init(void)
 	irq_set_irq_type(AU1500_GPIO1_INT, IRQ_TYPE_LEVEL_LOW);
 	irq_set_irq_type(AU1500_GPIO2_INT, IRQ_TYPE_LEVEL_LOW);
 	irq_set_irq_type(AU1500_GPIO3_INT, IRQ_TYPE_LEVEL_LOW);
-	irq_set_irq_type(AU1500_GPIO4_INT, IRQ_TYPE_LEVEL_LOW); 
+	irq_set_irq_type(AU1500_GPIO4_INT, IRQ_TYPE_LEVEL_LOW); /* CF irq */
 	irq_set_irq_type(AU1500_GPIO5_INT, IRQ_TYPE_LEVEL_LOW);
 
 	return platform_add_devices(xxs1500_devs,

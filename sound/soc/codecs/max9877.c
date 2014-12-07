@@ -250,6 +250,7 @@ static const struct snd_kcontrol_new max9877_controls[] = {
 			max9877_get_osc_mode, max9877_set_osc_mode),
 };
 
+/* This function is called from ASoC machine driver */
 int max9877_add_controls(struct snd_soc_codec *codec)
 {
 	return snd_soc_add_codec_controls(codec, max9877_controls,

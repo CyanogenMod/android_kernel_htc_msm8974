@@ -3,4 +3,4 @@
 
 #include <asm-generic/percpu.h>
 
-#endif 
+#endif /* _CRIS_PERCPU_H */

@@ -25,7 +25,7 @@ static struct kvm_arch_event_perf_mapping {
 	unsigned event_type;
 	bool inexact;
 } arch_events[] = {
-	
+	/* Index must match CPUID 0x0A.EBX bit vector */
 	[0] = { 0x3c, 0x00, PERF_COUNT_HW_CPU_CYCLES },
 	[1] = { 0xc0, 0x00, PERF_COUNT_HW_INSTRUCTIONS },
 	[2] = { 0x3c, 0x01, PERF_COUNT_HW_BUS_CYCLES  },
@@ -36,6 +36,7 @@ static struct kvm_arch_event_perf_mapping {
 	[7] = { 0x00, 0x30, PERF_COUNT_HW_REF_CPU_CYCLES },
 };
 
+/* mapping between fixed pmc index and arch_events array */
 int fixed_pmc_events[] = {1, 0, 7};
 
 static bool pmc_is_gp(struct kvm_pmc *pmc)
@@ -118,6 +119,14 @@ static void kvm_perf_overflow_intr(struct perf_event *perf_event,
 	if (!test_and_set_bit(pmc->idx, (unsigned long *)&pmu->reprogram_pmi)) {
 		kvm_perf_overflow(perf_event, data, regs);
 		kvm_make_request(KVM_REQ_PMU, pmc->vcpu);
+		/*
+		 * Inject PMI. If vcpu was in a guest mode during NMI PMI
+		 * can be ejected on a guest mode re-entry. Otherwise we can't
+		 * be sure that vcpu wasn't executing hlt instruction at the
+		 * time of vmexit and is not going to re-enter guest mode until,
+		 * woken up. So we should wake it, but this is impossible from
+		 * NMI context. Do it from irq work instead.
+		 */
 		if (!kvm_is_in_guest())
 			irq_work_queue(&pmc->vcpu->arch.pmu.irq_work);
 		else
@@ -135,7 +144,7 @@ static u64 read_pmc(struct kvm_pmc *pmc)
 		counter += perf_event_read_value(pmc->perf_event,
 						 &enabled, &running);
 
-	
+	/* FIXME: Scaling needed? */
 
 	return counter & pmc_bitmask(pmc);
 }
@@ -245,8 +254,8 @@ static void reprogram_fixed_counter(struct kvm_pmc *pmc, u8 en_pmi, int idx)
 
 	reprogram_counter(pmc, PERF_TYPE_HARDWARE,
 			arch_events[fixed_pmc_events[idx]].event_type,
-			!(en & 0x2), 
-			!(en & 0x1), 
+			!(en & 0x2), /* exclude user */
+			!(en & 0x1), /* exclude kernel */
 			pmi);
 }
 
@@ -366,7 +375,7 @@ int kvm_pmu_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data)
 		}
 		break;
 	case MSR_CORE_PERF_GLOBAL_STATUS:
-		break; 
+		break; /* RO MSR */
 	case MSR_CORE_PERF_GLOBAL_CTRL:
 		if (pmu->global_ctrl == data)
 			return 0;

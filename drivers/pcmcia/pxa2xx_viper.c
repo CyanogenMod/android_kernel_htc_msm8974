@@ -68,6 +68,9 @@ err_request_pwr:
 	return -1;
 }
 
+/*
+ * Release all resources.
+ */
 static void viper_pcmcia_hw_shutdown(struct soc_pcmcia_socket *skt)
 {
 	struct arcom_pcmcia_pdata *pdata = viper_get_pdata();
@@ -78,7 +81,7 @@ static void viper_pcmcia_hw_shutdown(struct soc_pcmcia_socket *skt)
 static void viper_pcmcia_socket_state(struct soc_pcmcia_socket *skt,
 				      struct pcmcia_state *state)
 {
-	state->vs_3v  = 1; 
+	state->vs_3v  = 1; /* Can only apply 3.3V */
 	state->vs_Xv  = 0;
 }
 
@@ -87,10 +90,10 @@ static int viper_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 {
 	struct arcom_pcmcia_pdata *pdata = viper_get_pdata();
 
-	
+	/* Silently ignore Vpp, output enable, speaker enable. */
 	pdata->reset(state->flags & SS_RESET);
 
-	
+	/* Apply socket voltage */
 	switch (state->Vcc) {
 	case 0:
 		gpio_set_value(pdata->pwr_gpio, 0);
@@ -121,7 +124,7 @@ static int viper_pcmcia_probe(struct platform_device *pdev)
 {
 	int ret;
 
-	
+	/* I can't imagine more than one device, but you never know... */
 	if (arcom_pcmcia_dev)
 		return -EEXIST;
 

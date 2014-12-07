@@ -40,8 +40,20 @@
 #include <asm/mach-au1x00/au1000.h>
 #include <asm/mach-au1x00/au1xxx_dbdma.h>
 
+/*
+ * The Descriptor Based DMA supports up to 16 channels.
+ *
+ * There are 32 devices defined. We keep an internal structure
+ * of devices using these channels, along with additional
+ * information.
+ *
+ * We allocate the descriptors and allow access to them through various
+ * functions.  The drivers allocate the data buffers and assign them
+ * to the descriptors.
+ */
 static DEFINE_SPINLOCK(au1xxx_dbdma_spin_lock);
 
+/* I couldn't find a macro that did this... */
 #define ALIGN_ADDR(x, a)	((((u32)(x)) + (a-1)) & ~(a-1))
 
 static dbdma_global_t *dbdma_gptr =
@@ -51,19 +63,19 @@ static int dbdma_initialized;
 static dbdev_tab_t *dbdev_tab;
 
 static dbdev_tab_t au1550_dbdev_tab[] __initdata = {
-	
+	/* UARTS */
 	{ AU1550_DSCR_CMD0_UART0_TX, DEV_FLAGS_OUT, 0, 8, 0x11100004, 0, 0 },
 	{ AU1550_DSCR_CMD0_UART0_RX, DEV_FLAGS_IN,  0, 8, 0x11100000, 0, 0 },
 	{ AU1550_DSCR_CMD0_UART3_TX, DEV_FLAGS_OUT, 0, 8, 0x11400004, 0, 0 },
 	{ AU1550_DSCR_CMD0_UART3_RX, DEV_FLAGS_IN,  0, 8, 0x11400000, 0, 0 },
 
-	
+	/* EXT DMA */
 	{ AU1550_DSCR_CMD0_DMA_REQ0, 0, 0, 0, 0x00000000, 0, 0 },
 	{ AU1550_DSCR_CMD0_DMA_REQ1, 0, 0, 0, 0x00000000, 0, 0 },
 	{ AU1550_DSCR_CMD0_DMA_REQ2, 0, 0, 0, 0x00000000, 0, 0 },
 	{ AU1550_DSCR_CMD0_DMA_REQ3, 0, 0, 0, 0x00000000, 0, 0 },
 
-	
+	/* USB DEV */
 	{ AU1550_DSCR_CMD0_USBDEV_RX0, DEV_FLAGS_IN,  4, 8, 0x10200000, 0, 0 },
 	{ AU1550_DSCR_CMD0_USBDEV_TX0, DEV_FLAGS_OUT, 4, 8, 0x10200004, 0, 0 },
 	{ AU1550_DSCR_CMD0_USBDEV_TX1, DEV_FLAGS_OUT, 4, 8, 0x10200008, 0, 0 },
@@ -71,7 +83,7 @@ static dbdev_tab_t au1550_dbdev_tab[] __initdata = {
 	{ AU1550_DSCR_CMD0_USBDEV_RX3, DEV_FLAGS_IN,  4, 8, 0x10200010, 0, 0 },
 	{ AU1550_DSCR_CMD0_USBDEV_RX4, DEV_FLAGS_IN,  4, 8, 0x10200014, 0, 0 },
 
-	
+	/* PSCs */
 	{ AU1550_DSCR_CMD0_PSC0_TX, DEV_FLAGS_OUT, 0, 0, 0x11a0001c, 0, 0 },
 	{ AU1550_DSCR_CMD0_PSC0_RX, DEV_FLAGS_IN,  0, 0, 0x11a0001c, 0, 0 },
 	{ AU1550_DSCR_CMD0_PSC1_TX, DEV_FLAGS_OUT, 0, 0, 0x11b0001c, 0, 0 },
@@ -81,14 +93,14 @@ static dbdev_tab_t au1550_dbdev_tab[] __initdata = {
 	{ AU1550_DSCR_CMD0_PSC3_TX, DEV_FLAGS_OUT, 0, 0, 0x10b0001c, 0, 0 },
 	{ AU1550_DSCR_CMD0_PSC3_RX, DEV_FLAGS_IN,  0, 0, 0x10b0001c, 0, 0 },
 
-	{ AU1550_DSCR_CMD0_PCI_WRITE,  0, 0, 0, 0x00000000, 0, 0 },  
-	{ AU1550_DSCR_CMD0_NAND_FLASH, 0, 0, 0, 0x00000000, 0, 0 }, 
+	{ AU1550_DSCR_CMD0_PCI_WRITE,  0, 0, 0, 0x00000000, 0, 0 },  /* PCI */
+	{ AU1550_DSCR_CMD0_NAND_FLASH, 0, 0, 0, 0x00000000, 0, 0 }, /* NAND */
 
-	
+	/* MAC 0 */
 	{ AU1550_DSCR_CMD0_MAC0_RX, DEV_FLAGS_IN,  0, 0, 0x00000000, 0, 0 },
 	{ AU1550_DSCR_CMD0_MAC0_TX, DEV_FLAGS_OUT, 0, 0, 0x00000000, 0, 0 },
 
-	
+	/* MAC 1 */
 	{ AU1550_DSCR_CMD0_MAC1_RX, DEV_FLAGS_IN,  0, 0, 0x00000000, 0, 0 },
 	{ AU1550_DSCR_CMD0_MAC1_TX, DEV_FLAGS_OUT, 0, 0, 0x00000000, 0, 0 },
 
@@ -180,6 +192,7 @@ static dbdev_tab_t au1300_dbdev_tab[] __initdata = {
 	{ DSCR_CMD0_ALWAYS,   DEV_FLAGS_ANYUSE, 0, 0, 0x00000000, 0, 0 },
 };
 
+/* 32 predefined plus 32 custom */
 #define DBDEV_TAB_SIZE		64
 
 static chan_tab_t *chan_tab_ptr[NUM_DBDMA_CHANS];
@@ -235,6 +248,7 @@ void au1xxx_ddma_del_device(u32 devid)
 }
 EXPORT_SYMBOL(au1xxx_ddma_del_device);
 
+/* Allocate a channel and return a non-zero descriptor if successful. */
 u32 au1xxx_dbdma_chan_alloc(u32 srcid, u32 destid,
        void (*callback)(int, void *), void *callparam)
 {
@@ -246,6 +260,11 @@ u32 au1xxx_dbdma_chan_alloc(u32 srcid, u32 destid,
 	chan_tab_t	*ctp;
 	au1x_dma_chan_t *cp;
 
+	/*
+	 * We do the intialization on the first channel allocation.
+	 * We have to wait because of the interrupt handler initialization
+	 * which can't be done successfully during board set up.
+	 */
 	if (!dbdma_initialized)
 		return 0;
 
@@ -258,18 +277,18 @@ u32 au1xxx_dbdma_chan_alloc(u32 srcid, u32 destid,
 
 	used = 0;
 
-	
+	/* Check to see if we can get both channels. */
 	spin_lock_irqsave(&au1xxx_dbdma_spin_lock, flags);
 	if (!(stp->dev_flags & DEV_FLAGS_INUSE) ||
 	     (stp->dev_flags & DEV_FLAGS_ANYUSE)) {
-		
+		/* Got source */
 		stp->dev_flags |= DEV_FLAGS_INUSE;
 		if (!(dtp->dev_flags & DEV_FLAGS_INUSE) ||
 		     (dtp->dev_flags & DEV_FLAGS_ANYUSE)) {
-			
+			/* Got destination */
 			dtp->dev_flags |= DEV_FLAGS_INUSE;
 		} else {
-			
+			/* Can't get dest.  Release src. */
 			stp->dev_flags &= ~DEV_FLAGS_INUSE;
 			used++;
 		}
@@ -280,12 +299,16 @@ u32 au1xxx_dbdma_chan_alloc(u32 srcid, u32 destid,
 	if (used)
 		return 0;
 
-	
+	/* Let's see if we can allocate a channel for it. */
 	ctp = NULL;
 	chan = 0;
 	spin_lock_irqsave(&au1xxx_dbdma_spin_lock, flags);
 	for (i = 0; i < NUM_DBDMA_CHANS; i++)
 		if (chan_tab_ptr[i] == NULL) {
+			/*
+			 * If kmalloc fails, it is caught below same
+			 * as a channel not available.
+			 */
 			ctp = kmalloc(sizeof(chan_tab_t), GFP_ATOMIC);
 			chan_tab_ptr[i] = ctp;
 			break;
@@ -304,7 +327,7 @@ u32 au1xxx_dbdma_chan_alloc(u32 srcid, u32 destid,
 		ctp->chan_callback = callback;
 		ctp->chan_callparam = callparam;
 
-		
+		/* Initialize channel configuration. */
 		i = 0;
 		if (stp->dev_intlevel)
 			i |= DDMA_CFG_SED;
@@ -320,10 +343,14 @@ u32 au1xxx_dbdma_chan_alloc(u32 srcid, u32 destid,
 		cp->ddma_cfg = i;
 		au_sync();
 
+		/*
+		 * Return a non-zero value that can be used to find the channel
+		 * information in subsequent operations.
+		 */
 		return (u32)(&chan_tab_ptr[chan]);
 	}
 
-	
+	/* Release devices */
 	stp->dev_flags &= ~DEV_FLAGS_INUSE;
 	dtp->dev_flags &= ~DEV_FLAGS_INUSE;
 
@@ -331,6 +358,10 @@ u32 au1xxx_dbdma_chan_alloc(u32 srcid, u32 destid,
 }
 EXPORT_SYMBOL(au1xxx_dbdma_chan_alloc);
 
+/*
+ * Set the device width if source or destination is a FIFO.
+ * Should be 8, 16, or 32 bits.
+ */
 u32 au1xxx_dbdma_set_devwidth(u32 chanid, int bits)
 {
 	u32		rv;
@@ -342,11 +373,11 @@ u32 au1xxx_dbdma_set_devwidth(u32 chanid, int bits)
 	dtp = ctp->chan_dest;
 	rv = 0;
 
-	if (stp->dev_flags & DEV_FLAGS_IN) {	
+	if (stp->dev_flags & DEV_FLAGS_IN) {	/* Source in fifo */
 		rv = stp->dev_devwidth;
 		stp->dev_devwidth = bits;
 	}
-	if (dtp->dev_flags & DEV_FLAGS_OUT) {	
+	if (dtp->dev_flags & DEV_FLAGS_OUT) {	/* Destination out fifo */
 		rv = dtp->dev_devwidth;
 		dtp->dev_devwidth = bits;
 	}
@@ -355,6 +386,7 @@ u32 au1xxx_dbdma_set_devwidth(u32 chanid, int bits)
 }
 EXPORT_SYMBOL(au1xxx_dbdma_set_devwidth);
 
+/* Allocate a descriptor ring, initializing as much as possible. */
 u32 au1xxx_dbdma_ring_alloc(u32 chanid, int entries)
 {
 	int			i;
@@ -365,16 +397,30 @@ u32 au1xxx_dbdma_ring_alloc(u32 chanid, int entries)
 	dbdev_tab_t		*stp, *dtp;
 	au1x_ddma_desc_t	*dp;
 
+	/*
+	 * I guess we could check this to be within the
+	 * range of the table......
+	 */
 	ctp = *((chan_tab_t **)chanid);
 	stp = ctp->chan_src;
 	dtp = ctp->chan_dest;
 
+	/*
+	 * The descriptors must be 32-byte aligned.  There is a
+	 * possibility the allocation will give us such an address,
+	 * and if we try that first we are likely to not waste larger
+	 * slabs of memory.
+	 */
 	desc_base = (u32)kmalloc(entries * sizeof(au1x_ddma_desc_t),
 				 GFP_KERNEL|GFP_DMA);
 	if (desc_base == 0)
 		return 0;
 
 	if (desc_base & 0x1f) {
+		/*
+		 * Lost....do it again, allocate extra, and round
+		 * the address base.
+		 */
 		kfree((const void *)desc_base);
 		i = entries * sizeof(au1x_ddma_desc_t);
 		i += (sizeof(au1x_ddma_desc_t) - 1);
@@ -389,10 +435,10 @@ u32 au1xxx_dbdma_ring_alloc(u32 chanid, int entries)
 
 	dp = (au1x_ddma_desc_t *)desc_base;
 
-	
+	/* Keep track of the base descriptor. */
 	ctp->chan_desc_base = dp;
 
-	
+	/* Initialize the rings with as much information as we know. */
 	srcid = stp->dev_id;
 	destid = dtp->dev_id;
 
@@ -404,7 +450,7 @@ u32 au1xxx_dbdma_ring_alloc(u32 chanid, int entries)
 	cmd0 |= DSCR_CMD0_IE | DSCR_CMD0_CV;
 	cmd0 |= DSCR_CMD0_ST(DSCR_CMD0_ST_NOCHANGE);
 
-	
+	/* Is it mem to mem transfer? */
 	if (((DSCR_CUSTOM2DEV_ID(srcid) == DSCR_CMD0_THROTTLE) ||
 	     (DSCR_CUSTOM2DEV_ID(srcid) == DSCR_CMD0_ALWAYS)) &&
 	    ((DSCR_CUSTOM2DEV_ID(destid) == DSCR_CMD0_THROTTLE) ||
@@ -437,11 +483,19 @@ u32 au1xxx_dbdma_ring_alloc(u32 chanid, int entries)
 		break;
 	}
 
+	/*
+	 * If the device is marked as an in/out FIFO, ensure it is
+	 * set non-coherent.
+	 */
 	if (stp->dev_flags & DEV_FLAGS_IN)
-		cmd0 |= DSCR_CMD0_SN;		
+		cmd0 |= DSCR_CMD0_SN;		/* Source in FIFO */
 	if (dtp->dev_flags & DEV_FLAGS_OUT)
-		cmd0 |= DSCR_CMD0_DN;		
+		cmd0 |= DSCR_CMD0_DN;		/* Destination out FIFO */
 
+	/*
+	 * Set up source1.  For now, assume no stride and increment.
+	 * A channel attribute update can change this later.
+	 */
 	switch (stp->dev_tsize) {
 	case 1:
 		src1 |= DSCR_SRC1_STS(DSCR_xTS_SIZE1);
@@ -458,7 +512,7 @@ u32 au1xxx_dbdma_ring_alloc(u32 chanid, int entries)
 		break;
 	}
 
-	
+	/* If source input is FIFO, set static address.	*/
 	if (stp->dev_flags & DEV_FLAGS_IN) {
 		if (stp->dev_flags & DEV_FLAGS_BURSTABLE)
 			src1 |= DSCR_SRC1_SAM(DSCR_xAM_BURST);
@@ -469,6 +523,10 @@ u32 au1xxx_dbdma_ring_alloc(u32 chanid, int entries)
 	if (stp->dev_physaddr)
 		src0 = stp->dev_physaddr;
 
+	/*
+	 * Set up dest1.  For now, assume no stride and increment.
+	 * A channel attribute update can change this later.
+	 */
 	switch (dtp->dev_tsize) {
 	case 1:
 		dest1 |= DSCR_DEST1_DTS(DSCR_xTS_SIZE1);
@@ -485,7 +543,7 @@ u32 au1xxx_dbdma_ring_alloc(u32 chanid, int entries)
 		break;
 	}
 
-	
+	/* If destination output is FIFO, set static address. */
 	if (dtp->dev_flags & DEV_FLAGS_OUT) {
 		if (dtp->dev_flags & DEV_FLAGS_BURSTABLE)
 			dest1 |= DSCR_DEST1_DAM(DSCR_xAM_BURST);
@@ -516,7 +574,7 @@ u32 au1xxx_dbdma_ring_alloc(u32 chanid, int entries)
 		dp++;
 	}
 
-	
+	/* Make last descrptor point to the first. */
 	dp--;
 	dp->dscr_nxtptr = DSCR_NXTPTR(virt_to_phys(ctp->chan_desc_base));
 	ctp->get_ptr = ctp->put_ptr = ctp->cur_ptr = ctp->chan_desc_base;
@@ -525,56 +583,95 @@ u32 au1xxx_dbdma_ring_alloc(u32 chanid, int entries)
 }
 EXPORT_SYMBOL(au1xxx_dbdma_ring_alloc);
 
+/*
+ * Put a source buffer into the DMA ring.
+ * This updates the source pointer and byte count.  Normally used
+ * for memory to fifo transfers.
+ */
 u32 au1xxx_dbdma_put_source(u32 chanid, dma_addr_t buf, int nbytes, u32 flags)
 {
 	chan_tab_t		*ctp;
 	au1x_ddma_desc_t	*dp;
 
+	/*
+	 * I guess we could check this to be within the
+	 * range of the table......
+	 */
 	ctp = *(chan_tab_t **)chanid;
 
+	/*
+	 * We should have multiple callers for a particular channel,
+	 * an interrupt doesn't affect this pointer nor the descriptor,
+	 * so no locking should be needed.
+	 */
 	dp = ctp->put_ptr;
 
+	/*
+	 * If the descriptor is valid, we are way ahead of the DMA
+	 * engine, so just return an error condition.
+	 */
 	if (dp->dscr_cmd0 & DSCR_CMD0_V)
 		return 0;
 
-	
+	/* Load up buffer address and byte count. */
 	dp->dscr_source0 = buf & ~0UL;
 	dp->dscr_cmd1 = nbytes;
-	
+	/* Check flags */
 	if (flags & DDMA_FLAGS_IE)
 		dp->dscr_cmd0 |= DSCR_CMD0_IE;
 	if (flags & DDMA_FLAGS_NOIE)
 		dp->dscr_cmd0 &= ~DSCR_CMD0_IE;
 
+	/*
+	 * There is an errata on the Au1200/Au1550 parts that could result
+	 * in "stale" data being DMA'ed. It has to do with the snoop logic on
+	 * the cache eviction buffer.  DMA_NONCOHERENT is on by default for
+	 * these parts. If it is fixed in the future, these dma_cache_inv will
+	 * just be nothing more than empty macros. See io.h.
+	 */
 	dma_cache_wback_inv((unsigned long)buf, nbytes);
-	dp->dscr_cmd0 |= DSCR_CMD0_V;	
+	dp->dscr_cmd0 |= DSCR_CMD0_V;	/* Let it rip */
 	au_sync();
 	dma_cache_wback_inv((unsigned long)dp, sizeof(*dp));
 	ctp->chan_ptr->ddma_dbell = 0;
 
-	
+	/* Get next descriptor pointer.	*/
 	ctp->put_ptr = phys_to_virt(DSCR_GET_NXTPTR(dp->dscr_nxtptr));
 
-	
+	/* Return something non-zero. */
 	return nbytes;
 }
 EXPORT_SYMBOL(au1xxx_dbdma_put_source);
 
+/* Put a destination buffer into the DMA ring.
+ * This updates the destination pointer and byte count.  Normally used
+ * to place an empty buffer into the ring for fifo to memory transfers.
+ */
 u32 au1xxx_dbdma_put_dest(u32 chanid, dma_addr_t buf, int nbytes, u32 flags)
 {
 	chan_tab_t		*ctp;
 	au1x_ddma_desc_t	*dp;
 
+	/* I guess we could check this to be within the
+	 * range of the table......
+	 */
 	ctp = *((chan_tab_t **)chanid);
 
+	/* We should have multiple callers for a particular channel,
+	 * an interrupt doesn't affect this pointer nor the descriptor,
+	 * so no locking should be needed.
+	 */
 	dp = ctp->put_ptr;
 
+	/* If the descriptor is valid, we are way ahead of the DMA
+	 * engine, so just return an error condition.
+	 */
 	if (dp->dscr_cmd0 & DSCR_CMD0_V)
 		return 0;
 
-	
+	/* Load up buffer address and byte count */
 
-	
+	/* Check flags  */
 	if (flags & DDMA_FLAGS_IE)
 		dp->dscr_cmd0 |= DSCR_CMD0_IE;
 	if (flags & DDMA_FLAGS_NOIE)
@@ -587,42 +684,68 @@ u32 au1xxx_dbdma_put_dest(u32 chanid, dma_addr_t buf, int nbytes, u32 flags)
 			  dp->dscr_cmd0, dp->dscr_cmd1, dp->dscr_source0,
 			  dp->dscr_source1, dp->dscr_dest0, dp->dscr_dest1);
 #endif
+	/*
+	 * There is an errata on the Au1200/Au1550 parts that could result in
+	 * "stale" data being DMA'ed. It has to do with the snoop logic on the
+	 * cache eviction buffer.  DMA_NONCOHERENT is on by default for these
+	 * parts. If it is fixed in the future, these dma_cache_inv will just
+	 * be nothing more than empty macros. See io.h.
+	 */
 	dma_cache_inv((unsigned long)buf, nbytes);
-	dp->dscr_cmd0 |= DSCR_CMD0_V;	
+	dp->dscr_cmd0 |= DSCR_CMD0_V;	/* Let it rip */
 	au_sync();
 	dma_cache_wback_inv((unsigned long)dp, sizeof(*dp));
 	ctp->chan_ptr->ddma_dbell = 0;
 
-	
+	/* Get next descriptor pointer.	*/
 	ctp->put_ptr = phys_to_virt(DSCR_GET_NXTPTR(dp->dscr_nxtptr));
 
-	
+	/* Return something non-zero. */
 	return nbytes;
 }
 EXPORT_SYMBOL(au1xxx_dbdma_put_dest);
 
+/*
+ * Get a destination buffer into the DMA ring.
+ * Normally used to get a full buffer from the ring during fifo
+ * to memory transfers.  This does not set the valid bit, you will
+ * have to put another destination buffer to keep the DMA going.
+ */
 u32 au1xxx_dbdma_get_dest(u32 chanid, void **buf, int *nbytes)
 {
 	chan_tab_t		*ctp;
 	au1x_ddma_desc_t	*dp;
 	u32			rv;
 
+	/*
+	 * I guess we could check this to be within the
+	 * range of the table......
+	 */
 	ctp = *((chan_tab_t **)chanid);
 
+	/*
+	 * We should have multiple callers for a particular channel,
+	 * an interrupt doesn't affect this pointer nor the descriptor,
+	 * so no locking should be needed.
+	 */
 	dp = ctp->get_ptr;
 
+	/*
+	 * If the descriptor is valid, we are way ahead of the DMA
+	 * engine, so just return an error condition.
+	 */
 	if (dp->dscr_cmd0 & DSCR_CMD0_V)
 		return 0;
 
-	
+	/* Return buffer address and byte count. */
 	*buf = (void *)(phys_to_virt(dp->dscr_dest0));
 	*nbytes = dp->dscr_cmd1;
 	rv = dp->dscr_stat;
 
-	
+	/* Get next descriptor pointer.	*/
 	ctp->get_ptr = phys_to_virt(DSCR_GET_NXTPTR(dp->dscr_nxtptr));
 
-	
+	/* Return something non-zero. */
 	return rv;
 }
 EXPORT_SYMBOL_GPL(au1xxx_dbdma_get_dest);
@@ -636,7 +759,7 @@ void au1xxx_dbdma_stop(u32 chanid)
 	ctp = *((chan_tab_t **)chanid);
 
 	cp = ctp->chan_ptr;
-	cp->ddma_cfg &= ~DDMA_CFG_EN;	
+	cp->ddma_cfg &= ~DDMA_CFG_EN;	/* Disable channel */
 	au_sync();
 	while (!(cp->ddma_stat & DDMA_STAT_H)) {
 		udelay(1);
@@ -646,12 +769,17 @@ void au1xxx_dbdma_stop(u32 chanid)
 			break;
 		}
 	}
-	
+	/* clear current desc valid and doorbell */
 	cp->ddma_stat |= (DDMA_STAT_DB | DDMA_STAT_V);
 	au_sync();
 }
 EXPORT_SYMBOL(au1xxx_dbdma_stop);
 
+/*
+ * Start using the current descriptor pointer.  If the DBDMA encounters
+ * a non-valid descriptor, it will stop.  In this case, we can just
+ * continue by adding a buffer to the list and starting again.
+ */
 void au1xxx_dbdma_start(u32 chanid)
 {
 	chan_tab_t	*ctp;
@@ -660,7 +788,7 @@ void au1xxx_dbdma_start(u32 chanid)
 	ctp = *((chan_tab_t **)chanid);
 	cp = ctp->chan_ptr;
 	cp->ddma_desptr = virt_to_phys(ctp->cur_ptr);
-	cp->ddma_cfg |= DDMA_CFG_EN;	
+	cp->ddma_cfg |= DDMA_CFG_EN;	/* Enable channel */
 	au_sync();
 	cp->ddma_dbell = 0;
 	au_sync();
@@ -677,11 +805,16 @@ void au1xxx_dbdma_reset(u32 chanid)
 	ctp = *((chan_tab_t **)chanid);
 	ctp->get_ptr = ctp->put_ptr = ctp->cur_ptr = ctp->chan_desc_base;
 
-	
+	/* Run through the descriptors and reset the valid indicator. */
 	dp = ctp->chan_desc_base;
 
 	do {
 		dp->dscr_cmd0 &= ~DSCR_CMD0_V;
+		/*
+		 * Reset our software status -- this is used to determine
+		 * if a descriptor is in use by upper level software. Since
+		 * posting can reset 'V' bit.
+		 */
 		dp->sw_status = 0;
 		dp = phys_to_virt(DSCR_GET_NXTPTR(dp->dscr_nxtptr));
 	} while (dp != ctp->chan_desc_base);
@@ -697,7 +830,7 @@ u32 au1xxx_get_dma_residue(u32 chanid)
 	ctp = *((chan_tab_t **)chanid);
 	cp = ctp->chan_ptr;
 
-	
+	/* This is only valid if the channel is stopped. */
 	rv = cp->ddma_bytecnt;
 	au_sync();
 
@@ -742,7 +875,7 @@ static irqreturn_t dbdma_interrupt(int irq, void *dev_id)
 	cp = ctp->chan_ptr;
 	dp = ctp->cur_ptr;
 
-	
+	/* Reset interrupt. */
 	cp->ddma_irq = 0;
 	au_sync();
 
@@ -780,7 +913,7 @@ void au1xxx_dbdma_dump(u32 chanid)
 			  cp->ddma_dbell, cp->ddma_irq, cp->ddma_stat,
 			  cp->ddma_bytecnt);
 
-	
+	/* Run through the descriptors */
 	dp = ctp->chan_desc_base;
 
 	do {
@@ -795,35 +928,51 @@ void au1xxx_dbdma_dump(u32 chanid)
 	} while (dp != ctp->chan_desc_base);
 }
 
+/* Put a descriptor into the DMA ring.
+ * This updates the source/destination pointers and byte count.
+ */
 u32 au1xxx_dbdma_put_dscr(u32 chanid, au1x_ddma_desc_t *dscr)
 {
 	chan_tab_t *ctp;
 	au1x_ddma_desc_t *dp;
 	u32 nbytes = 0;
 
+	/*
+	 * I guess we could check this to be within the
+	 * range of the table......
+	 */
 	ctp = *((chan_tab_t **)chanid);
 
+	/*
+	 * We should have multiple callers for a particular channel,
+	 * an interrupt doesn't affect this pointer nor the descriptor,
+	 * so no locking should be needed.
+	 */
 	dp = ctp->put_ptr;
 
+	/*
+	 * If the descriptor is valid, we are way ahead of the DMA
+	 * engine, so just return an error condition.
+	 */
 	if (dp->dscr_cmd0 & DSCR_CMD0_V)
 		return 0;
 
-	
+	/* Load up buffer addresses and byte count. */
 	dp->dscr_dest0 = dscr->dscr_dest0;
 	dp->dscr_source0 = dscr->dscr_source0;
 	dp->dscr_dest1 = dscr->dscr_dest1;
 	dp->dscr_source1 = dscr->dscr_source1;
 	dp->dscr_cmd1 = dscr->dscr_cmd1;
 	nbytes = dscr->dscr_cmd1;
-	
+	/* Allow the caller to specifiy if an interrupt is generated */
 	dp->dscr_cmd0 &= ~DSCR_CMD0_IE;
 	dp->dscr_cmd0 |= dscr->dscr_cmd0 | DSCR_CMD0_V;
 	ctp->chan_ptr->ddma_dbell = 0;
 
-	
+	/* Get next descriptor pointer.	*/
 	ctp->put_ptr = phys_to_virt(DSCR_GET_NXTPTR(dp->dscr_nxtptr));
 
-	
+	/* Return something non-zero. */
 	return nbytes;
 }
 
@@ -841,7 +990,7 @@ static int alchemy_dbdma_suspend(void)
 	alchemy_dbdma_pm_data[0][2] = __raw_readl(addr + 0x08);
 	alchemy_dbdma_pm_data[0][3] = __raw_readl(addr + 0x0c);
 
-	
+	/* save channel configurations */
 	addr = (void __iomem *)KSEG1ADDR(AU1550_DBDMA_PHYS_ADDR);
 	for (i = 1; i <= NUM_DBDMA_CHANS; i++) {
 		alchemy_dbdma_pm_data[i][0] = __raw_readl(addr + 0x00);
@@ -851,15 +1000,15 @@ static int alchemy_dbdma_suspend(void)
 		alchemy_dbdma_pm_data[i][4] = __raw_readl(addr + 0x10);
 		alchemy_dbdma_pm_data[i][5] = __raw_readl(addr + 0x14);
 
-		
+		/* halt channel */
 		__raw_writel(alchemy_dbdma_pm_data[i][0] & ~1, addr + 0x00);
 		wmb();
 		while (!(__raw_readl(addr + 0x14) & 1))
 			wmb();
 
-		addr += 0x100;	
+		addr += 0x100;	/* next channel base */
 	}
-	
+	/* disable channel interrupts */
 	addr = (void __iomem *)KSEG1ADDR(AU1550_DBDMA_CONF_PHYS_ADDR);
 	__raw_writel(0, addr + 0x0c);
 	wmb();
@@ -878,7 +1027,7 @@ static void alchemy_dbdma_resume(void)
 	__raw_writel(alchemy_dbdma_pm_data[0][2], addr + 0x08);
 	__raw_writel(alchemy_dbdma_pm_data[0][3], addr + 0x0c);
 
-	
+	/* restore channel configurations */
 	addr = (void __iomem *)KSEG1ADDR(AU1550_DBDMA_PHYS_ADDR);
 	for (i = 1; i <= NUM_DBDMA_CHANS; i++) {
 		__raw_writel(alchemy_dbdma_pm_data[i][0], addr + 0x00);
@@ -888,7 +1037,7 @@ static void alchemy_dbdma_resume(void)
 		__raw_writel(alchemy_dbdma_pm_data[i][4], addr + 0x10);
 		__raw_writel(alchemy_dbdma_pm_data[i][5], addr + 0x14);
 		wmb();
-		addr += 0x100;	
+		addr += 0x100;	/* next channel base */
 	}
 }
 

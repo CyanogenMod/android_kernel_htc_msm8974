@@ -17,6 +17,7 @@
 
 #include "omap_hwmod_common_data.h"
 
+/* UART */
 
 static struct omap_hwmod_class_sysconfig omap2_uart_sysc = {
 	.rev_offs	= 0x50,
@@ -34,6 +35,10 @@ struct omap_hwmod_class omap2_uart_class = {
 	.sysc	= &omap2_uart_sysc,
 };
 
+/*
+ * 'dss' class
+ * display sub-system
+ */
 
 static struct omap_hwmod_class_sysconfig omap2_dss_sysc = {
 	.rev_offs	= 0x0000,
@@ -50,6 +55,10 @@ struct omap_hwmod_class omap2_dss_hwmod_class = {
 	.reset	= omap_dss_reset,
 };
 
+/*
+ * 'rfbi' class
+ * remote frame buffer interface
+ */
 
 static struct omap_hwmod_class_sysconfig omap2_rfbi_sysc = {
 	.rev_offs	= 0x0000,
@@ -66,12 +75,17 @@ struct omap_hwmod_class omap2_rfbi_hwmod_class = {
 	.sysc	= &omap2_rfbi_sysc,
 };
 
+/*
+ * 'venc' class
+ * video encoder
+ */
 
 struct omap_hwmod_class omap2_venc_hwmod_class = {
 	.name = "venc",
 };
 
 
+/* Common DMA request line data */
 struct omap_hwmod_dma_info omap2_uart1_sdma_reqs[] = {
 	{ .name = "rx", .dma_req = OMAP24XX_DMA_UART1_RX, },
 	{ .name = "tx", .dma_req = OMAP24XX_DMA_UART1_TX, },
@@ -103,22 +117,22 @@ struct omap_hwmod_dma_info omap2_i2c2_sdma_reqs[] = {
 };
 
 struct omap_hwmod_dma_info omap2_mcspi1_sdma_reqs[] = {
-	{ .name = "tx0", .dma_req = 35 }, 
-	{ .name = "rx0", .dma_req = 36 }, 
-	{ .name = "tx1", .dma_req = 37 }, 
-	{ .name = "rx1", .dma_req = 38 }, 
-	{ .name = "tx2", .dma_req = 39 }, 
-	{ .name = "rx2", .dma_req = 40 }, 
-	{ .name = "tx3", .dma_req = 41 }, 
-	{ .name = "rx3", .dma_req = 42 }, 
+	{ .name = "tx0", .dma_req = 35 }, /* DMA_SPI1_TX0 */
+	{ .name = "rx0", .dma_req = 36 }, /* DMA_SPI1_RX0 */
+	{ .name = "tx1", .dma_req = 37 }, /* DMA_SPI1_TX1 */
+	{ .name = "rx1", .dma_req = 38 }, /* DMA_SPI1_RX1 */
+	{ .name = "tx2", .dma_req = 39 }, /* DMA_SPI1_TX2 */
+	{ .name = "rx2", .dma_req = 40 }, /* DMA_SPI1_RX2 */
+	{ .name = "tx3", .dma_req = 41 }, /* DMA_SPI1_TX3 */
+	{ .name = "rx3", .dma_req = 42 }, /* DMA_SPI1_RX3 */
 	{ .dma_req = -1 }
 };
 
 struct omap_hwmod_dma_info omap2_mcspi2_sdma_reqs[] = {
-	{ .name = "tx0", .dma_req = 43 }, 
-	{ .name = "rx0", .dma_req = 44 }, 
-	{ .name = "tx1", .dma_req = 45 }, 
-	{ .name = "rx1", .dma_req = 46 }, 
+	{ .name = "tx0", .dma_req = 43 }, /* DMA_SPI2_TX0 */
+	{ .name = "rx0", .dma_req = 44 }, /* DMA_SPI2_RX0 */
+	{ .name = "tx1", .dma_req = 45 }, /* DMA_SPI2_TX1 */
+	{ .name = "rx1", .dma_req = 46 }, /* DMA_SPI2_RX1 */
 	{ .dma_req = -1 }
 };
 
@@ -140,8 +154,12 @@ struct omap_hwmod_dma_info omap2_mcbsp3_sdma_reqs[] = {
 	{ .dma_req = -1 }
 };
 
+/* Other IP block data */
 
 
+/*
+ * omap_hwmod class data
+ */
 
 struct omap_hwmod_class l3_hwmod_class = {
 	.name = "l3"
@@ -159,6 +177,7 @@ struct omap_hwmod_class iva_hwmod_class = {
 	.name = "iva"
 };
 
+/* Common MPU IRQ line data */
 
 struct omap_hwmod_irq_info omap2_timer1_mpu_irqs[] = {
 	{ .irq = 37, },
@@ -246,30 +265,30 @@ struct omap_hwmod_irq_info omap2_i2c2_mpu_irqs[] = {
 };
 
 struct omap_hwmod_irq_info omap2_gpio1_irqs[] = {
-	{ .irq = 29 }, 
+	{ .irq = 29 }, /* INT_24XX_GPIO_BANK1 */
 	{ .irq = -1 }
 };
 
 struct omap_hwmod_irq_info omap2_gpio2_irqs[] = {
-	{ .irq = 30 }, 
+	{ .irq = 30 }, /* INT_24XX_GPIO_BANK2 */
 	{ .irq = -1 }
 };
 
 struct omap_hwmod_irq_info omap2_gpio3_irqs[] = {
-	{ .irq = 31 }, 
+	{ .irq = 31 }, /* INT_24XX_GPIO_BANK3 */
 	{ .irq = -1 }
 };
 
 struct omap_hwmod_irq_info omap2_gpio4_irqs[] = {
-	{ .irq = 32 }, 
+	{ .irq = 32 }, /* INT_24XX_GPIO_BANK4 */
 	{ .irq = -1 }
 };
 
 struct omap_hwmod_irq_info omap2_dma_system_irqs[] = {
-	{ .name = "0", .irq = 12 }, 
-	{ .name = "1", .irq = 13 }, 
-	{ .name = "2", .irq = 14 }, 
-	{ .name = "3", .irq = 15 }, 
+	{ .name = "0", .irq = 12 }, /* INT_24XX_SDMA_IRQ0 */
+	{ .name = "1", .irq = 13 }, /* INT_24XX_SDMA_IRQ1 */
+	{ .name = "2", .irq = 14 }, /* INT_24XX_SDMA_IRQ2 */
+	{ .name = "3", .irq = 15 }, /* INT_24XX_SDMA_IRQ3 */
 	{ .irq = -1 }
 };
 

@@ -56,6 +56,9 @@ static inline bool serpent_fpu_begin(bool fpu_enabled, unsigned int nbytes)
 	if (fpu_enabled)
 		return true;
 
+	/* SSE2 is only used when chunk to be processed is large enough, so
+	 * do not enable FPU until it is necessary.
+	 */
 	if (nbytes < SERPENT_BLOCK_SIZE * SERPENT_PARALLEL_BLOCKS)
 		return false;
 
@@ -87,7 +90,7 @@ static int ecb_crypt(struct blkcipher_desc *desc, struct blkcipher_walk *walk,
 
 		fpu_enabled = serpent_fpu_begin(fpu_enabled, nbytes);
 
-		
+		/* Process multi-block batch */
 		if (nbytes >= bsize * SERPENT_PARALLEL_BLOCKS) {
 			do {
 				if (enc)
@@ -104,7 +107,7 @@ static int ecb_crypt(struct blkcipher_desc *desc, struct blkcipher_walk *walk,
 				goto done;
 		}
 
-		
+		/* Handle leftovers */
 		do {
 			if (enc)
 				__serpent_encrypt(ctx, wdst, wsrc);
@@ -195,13 +198,13 @@ static unsigned int __cbc_decrypt(struct blkcipher_desc *desc,
 	u128 last_iv;
 	int i;
 
-	
+	/* Start of the last block. */
 	src += nbytes / bsize - 1;
 	dst += nbytes / bsize - 1;
 
 	last_iv = *src;
 
-	
+	/* Process multi-block batch */
 	if (nbytes >= bsize * SERPENT_PARALLEL_BLOCKS) {
 		do {
 			nbytes -= bsize * (SERPENT_PARALLEL_BLOCKS - 1);
@@ -229,7 +232,7 @@ static unsigned int __cbc_decrypt(struct blkcipher_desc *desc,
 			goto done;
 	}
 
-	
+	/* Handle leftovers */
 	for (;;) {
 		__serpent_decrypt(ctx, (u8 *)dst, (u8 *)src);
 
@@ -320,10 +323,10 @@ static unsigned int __ctr_crypt(struct blkcipher_desc *desc,
 
 	be128_to_u128(&ctrblk, (be128 *)walk->iv);
 
-	
+	/* Process multi-block batch */
 	if (nbytes >= bsize * SERPENT_PARALLEL_BLOCKS) {
 		do {
-			
+			/* create ctrblks for parallel encrypt */
 			for (i = 0; i < SERPENT_PARALLEL_BLOCKS; i++) {
 				if (dst != src)
 					dst[i] = src[i];
@@ -344,7 +347,7 @@ static unsigned int __ctr_crypt(struct blkcipher_desc *desc,
 			goto done;
 	}
 
-	
+	/* Handle leftovers */
 	do {
 		if (dst != src)
 			*dst = *src;
@@ -522,17 +525,20 @@ static int xts_serpent_setkey(struct crypto_tfm *tfm, const u8 *key,
 	u32 *flags = &tfm->crt_flags;
 	int err;
 
+	/* key consists of keys of equal size concatenated, therefore
+	 * the length must be even
+	 */
 	if (keylen % 2) {
 		*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
 		return -EINVAL;
 	}
 
-	
+	/* first half of xts-key is for crypt */
 	err = __serpent_setkey(&ctx->crypt_ctx, key, keylen / 2);
 	if (err)
 		return err;
 
-	
+	/* second half of xts-key is for tweak */
 	return __serpent_setkey(&ctx->tweak_ctx, key + keylen / 2, keylen / 2);
 }
 

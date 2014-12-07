@@ -6,6 +6,9 @@ struct alphatrack_ocmd {
 	unsigned char cmd[8];
 };
 
+/* These are unused by the present driver but provide documentation for the
+ * userspace API.
+ */
 enum LightID {
 	LIGHT_EQ = 0,
 	LIGHT_OUT,
@@ -55,6 +58,9 @@ enum LightID {
 #define BUTTONMASK_PRESS2      0x00008010
 #define BUTTONMASK_PRESS3      0x00002020
 
+/* last 3 bytes are the slider position
+ * 40 is the actual slider moving, the most sig bits, and 3 lsb
+ */
 
 #define BUTTONMASK_FLIP         0x40000000
 #define BUTTONMASK_F1           0x00100000
@@ -67,3 +73,4 @@ enum LightID {
 #define BUTTONMASK_PLUGIN       0x00000400
 #define BUTTONMASK_AUTO         0x00000100
 
+/* #define BUTTONMASK_FOOTSWITCH FIXME */

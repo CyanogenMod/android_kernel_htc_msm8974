@@ -34,6 +34,7 @@
 #define OFFSETA(x)		(((x) - dev->bank1) >> MFC_OFFSET_SHIFT)
 #define OFFSETB(x)		(((x) - dev->bank2) >> MFC_OFFSET_SHIFT)
 
+/* Allocate temporary buffers for decoding */
 int s5p_mfc_alloc_dec_temp_buffers(struct s5p_mfc_ctx *ctx)
 {
 	void *desc_virt;
@@ -62,6 +63,7 @@ int s5p_mfc_alloc_dec_temp_buffers(struct s5p_mfc_ctx *ctx)
 	return 0;
 }
 
+/* Release temporary buffers for decoding */
 void s5p_mfc_release_dec_desc_buffer(struct s5p_mfc_ctx *ctx)
 {
 	if (ctx->desc_phys) {
@@ -71,6 +73,7 @@ void s5p_mfc_release_dec_desc_buffer(struct s5p_mfc_ctx *ctx)
 	}
 }
 
+/* Allocate codec buffers */
 int s5p_mfc_alloc_codec_buffers(struct s5p_mfc_ctx *ctx)
 {
 	struct s5p_mfc_dev *dev = ctx->dev;
@@ -107,7 +110,7 @@ int s5p_mfc_alloc_codec_buffers(struct s5p_mfc_ctx *ctx)
 	} else {
 		return -EINVAL;
 	}
-	
+	/* Codecs have different memory requirements */
 	switch (ctx->codec_mode) {
 	case S5P_FIMV_CODEC_H264_DEC:
 		ctx->bank1_size =
@@ -178,7 +181,7 @@ int s5p_mfc_alloc_codec_buffers(struct s5p_mfc_ctx *ctx)
 	default:
 		break;
 	}
-	
+	/* Allocate only if memory from bank 1 is necessary */
 	if (ctx->bank1_size > 0) {
 		ctx->bank1_buf = vb2_dma_contig_memops.alloc(
 		dev->alloc_ctx[MFC_BANK1_ALLOC_CTX], ctx->bank1_size);
@@ -192,7 +195,7 @@ int s5p_mfc_alloc_codec_buffers(struct s5p_mfc_ctx *ctx)
 		dev->alloc_ctx[MFC_BANK1_ALLOC_CTX], ctx->bank1_buf);
 		BUG_ON(ctx->bank1_phys & ((1 << MFC_BANK1_ALIGN_ORDER) - 1));
 	}
-	
+	/* Allocate only if memory from bank 2 is necessary */
 	if (ctx->bank2_size > 0) {
 		ctx->bank2_buf = vb2_dma_contig_memops.alloc(
 		dev->alloc_ctx[MFC_BANK2_ALLOC_CTX], ctx->bank2_size);
@@ -208,6 +211,7 @@ int s5p_mfc_alloc_codec_buffers(struct s5p_mfc_ctx *ctx)
 	return 0;
 }
 
+/* Release buffers allocated for codec */
 void s5p_mfc_release_codec_buffers(struct s5p_mfc_ctx *ctx)
 {
 	if (ctx->bank1_buf) {
@@ -224,6 +228,7 @@ void s5p_mfc_release_codec_buffers(struct s5p_mfc_ctx *ctx)
 	}
 }
 
+/* Allocate memory for instance data buffer */
 int s5p_mfc_alloc_instance_buffer(struct s5p_mfc_ctx *ctx)
 {
 	void *context_virt;
@@ -254,7 +259,7 @@ int s5p_mfc_alloc_instance_buffer(struct s5p_mfc_ctx *ctx)
 		ctx->ctx_buf = 0;
 		return -ENOMEM;
 	}
-	
+	/* Zero content of the allocated memory */
 	memset(context_virt, 0, ctx->ctx_size);
 	wmb();
 	if (s5p_mfc_init_shm(ctx) < 0) {
@@ -266,6 +271,7 @@ int s5p_mfc_alloc_instance_buffer(struct s5p_mfc_ctx *ctx)
 	return 0;
 }
 
+/* Release instance buffer */
 void s5p_mfc_release_instance_buffer(struct s5p_mfc_ctx *ctx)
 {
 	if (ctx->ctx_buf) {
@@ -280,6 +286,7 @@ void s5p_mfc_release_instance_buffer(struct s5p_mfc_ctx *ctx)
 	}
 }
 
+/* Set registers for decoding temporary buffers */
 void s5p_mfc_set_dec_desc_buffer(struct s5p_mfc_ctx *ctx)
 {
 	struct s5p_mfc_dev *dev = ctx->dev;
@@ -288,12 +295,14 @@ void s5p_mfc_set_dec_desc_buffer(struct s5p_mfc_ctx *ctx)
 	mfc_write(dev, DESC_BUF_SIZE, S5P_FIMV_SI_CH0_DESC_SIZE);
 }
 
+/* Set registers for shared buffer */
 void s5p_mfc_set_shared_buffer(struct s5p_mfc_ctx *ctx)
 {
 	struct s5p_mfc_dev *dev = ctx->dev;
 	mfc_write(dev, ctx->shm_ofs, S5P_FIMV_SI_CH0_HOST_WR_ADR);
 }
 
+/* Set registers for decoding stream buffer */
 int s5p_mfc_set_dec_stream_buffer(struct s5p_mfc_ctx *ctx, int buf_addr,
 		  unsigned int start_num_byte, unsigned int buf_size)
 {
@@ -306,6 +315,7 @@ int s5p_mfc_set_dec_stream_buffer(struct s5p_mfc_ctx *ctx, int buf_addr,
 	return 0;
 }
 
+/* Set decoding frame buffer */
 int s5p_mfc_set_dec_frame_buffer(struct s5p_mfc_ctx *ctx)
 {
 	unsigned int frame_size, i;
@@ -403,7 +413,7 @@ int s5p_mfc_set_dec_frame_buffer(struct s5p_mfc_ctx *ctx)
 	mfc_debug(2, "Frm size: %d ch: %d mv: %d\n", frame_size, frame_size_ch,
 								frame_size_mv);
 	for (i = 0; i < ctx->total_dpb_count; i++) {
-		
+		/* Bank2 */
 		mfc_debug(2, "Luma %d: %x\n", i,
 					ctx->dst_bufs[i].cookie.raw.luma);
 		mfc_write(dev, OFFSETB(ctx->dst_bufs[i].cookie.raw.luma),
@@ -438,6 +448,7 @@ int s5p_mfc_set_dec_frame_buffer(struct s5p_mfc_ctx *ctx)
 	return 0;
 }
 
+/* Set registers for encoding stream buffer */
 int s5p_mfc_set_enc_stream_buffer(struct s5p_mfc_ctx *ctx,
 		unsigned long addr, unsigned int size)
 {
@@ -468,6 +479,7 @@ void s5p_mfc_get_enc_frame_buffer(struct s5p_mfc_ctx *ctx,
 							<< MFC_OFFSET_SHIFT);
 }
 
+/* Set encoding ref & codec buffer */
 int s5p_mfc_set_enc_ref_buffer(struct s5p_mfc_ctx *ctx)
 {
 	struct s5p_mfc_dev *dev = ctx->dev;
@@ -610,19 +622,19 @@ static int s5p_mfc_set_enc_params(struct s5p_mfc_ctx *ctx)
 	unsigned int reg;
 	unsigned int shm;
 
-	
+	/* width */
 	mfc_write(dev, ctx->img_width, S5P_FIMV_ENC_HSIZE_PX);
-	
+	/* height */
 	mfc_write(dev, ctx->img_height, S5P_FIMV_ENC_VSIZE_PX);
-	
+	/* pictype : enable, IDR period */
 	reg = mfc_read(dev, S5P_FIMV_ENC_PIC_TYPE_CTRL);
 	reg |= (1 << 18);
 	reg &= ~(0xFFFF);
 	reg |= p->gop_size;
 	mfc_write(dev, reg, S5P_FIMV_ENC_PIC_TYPE_CTRL);
 	mfc_write(dev, 0, S5P_FIMV_ENC_B_RECON_WRITE_ON);
-	
-	
+	/* multi-slice control */
+	/* multi-slice MB number or bit size */
 	mfc_write(dev, p->slice_mode, S5P_FIMV_ENC_MSLICE_CTRL);
 	if (p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_MB) {
 		mfc_write(dev, p->slice_mb, S5P_FIMV_ENC_MSLICE_MB);
@@ -632,56 +644,56 @@ static int s5p_mfc_set_enc_params(struct s5p_mfc_ctx *ctx)
 		mfc_write(dev, 0, S5P_FIMV_ENC_MSLICE_MB);
 		mfc_write(dev, 0, S5P_FIMV_ENC_MSLICE_BIT);
 	}
-	
+	/* cyclic intra refresh */
 	mfc_write(dev, p->intra_refresh_mb, S5P_FIMV_ENC_CIR_CTRL);
-	
+	/* memory structure cur. frame */
 	if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_NV12M)
 		mfc_write(dev, 0, S5P_FIMV_ENC_MAP_FOR_CUR);
 	else if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_NV12MT)
 		mfc_write(dev, 3, S5P_FIMV_ENC_MAP_FOR_CUR);
-	
+	/* padding control & value */
 	reg = mfc_read(dev, S5P_FIMV_ENC_PADDING_CTRL);
 	if (p->pad) {
-		
+		/** enable */
 		reg |= (1 << 31);
-		
+		/** cr value */
 		reg &= ~(0xFF << 16);
 		reg |= (p->pad_cr << 16);
-		
+		/** cb value */
 		reg &= ~(0xFF << 8);
 		reg |= (p->pad_cb << 8);
-		
+		/** y value */
 		reg &= ~(0xFF);
 		reg |= (p->pad_luma);
 	} else {
-		
+		/** disable & all value clear */
 		reg = 0;
 	}
 	mfc_write(dev, reg, S5P_FIMV_ENC_PADDING_CTRL);
-	
+	/* rate control config. */
 	reg = mfc_read(dev, S5P_FIMV_ENC_RC_CONFIG);
-	
+	/** frame-level rate control */
 	reg &= ~(0x1 << 9);
 	reg |= (p->rc_frame << 9);
 	mfc_write(dev, reg, S5P_FIMV_ENC_RC_CONFIG);
-	
+	/* bit rate */
 	if (p->rc_frame)
 		mfc_write(dev, p->rc_bitrate,
 			S5P_FIMV_ENC_RC_BIT_RATE);
 	else
 		mfc_write(dev, 0, S5P_FIMV_ENC_RC_BIT_RATE);
-	
+	/* reaction coefficient */
 	if (p->rc_frame)
 		mfc_write(dev, p->rc_reaction_coeff, S5P_FIMV_ENC_RC_RPARA);
 	shm = s5p_mfc_read_shm(ctx, EXT_ENC_CONTROL);
-	
+	/* seq header ctrl */
 	shm &= ~(0x1 << 3);
 	shm |= (p->seq_hdr_mode << 3);
-	
+	/* frame skip mode */
 	shm &= ~(0x3 << 1);
 	shm |= (p->frame_skip_mode << 1);
 	s5p_mfc_write_shm(ctx, shm, EXT_ENC_CONTROL);
-	
+	/* fixed target bit */
 	s5p_mfc_write_shm(ctx, p->fixed_target_bit, RC_CONTROL_CONFIG);
 	return 0;
 }
@@ -695,29 +707,29 @@ static int s5p_mfc_set_enc_params_h264(struct s5p_mfc_ctx *ctx)
 	unsigned int shm;
 
 	s5p_mfc_set_enc_params(ctx);
-	
+	/* pictype : number of B */
 	reg = mfc_read(dev, S5P_FIMV_ENC_PIC_TYPE_CTRL);
-	
+	/* num_b_frame - 0 ~ 2 */
 	reg &= ~(0x3 << 16);
 	reg |= (p->num_b_frame << 16);
 	mfc_write(dev, reg, S5P_FIMV_ENC_PIC_TYPE_CTRL);
-	
+	/* profile & level */
 	reg = mfc_read(dev, S5P_FIMV_ENC_PROFILE);
-	
+	/* level */
 	reg &= ~(0xFF << 8);
 	reg |= (p_264->level << 8);
-	
+	/* profile - 0 ~ 2 */
 	reg &= ~(0x3F);
 	reg |= p_264->profile;
 	mfc_write(dev, reg, S5P_FIMV_ENC_PROFILE);
-	
+	/* interlace  */
 	mfc_write(dev, p->interlace, S5P_FIMV_ENC_PIC_STRUCT);
-	
+	/* height */
 	if (p->interlace)
 		mfc_write(dev, ctx->img_height >> 1, S5P_FIMV_ENC_VSIZE_PX);
-	
+	/* loopfilter ctrl */
 	mfc_write(dev, p_264->loop_filter_mode, S5P_FIMV_ENC_LF_CTRL);
-	
+	/* loopfilter alpha offset */
 	if (p_264->loop_filter_alpha < 0) {
 		reg = 0x10;
 		reg |= (0xFF - p_264->loop_filter_alpha) + 1;
@@ -726,7 +738,7 @@ static int s5p_mfc_set_enc_params_h264(struct s5p_mfc_ctx *ctx)
 		reg |= (p_264->loop_filter_alpha & 0xF);
 	}
 	mfc_write(dev, reg, S5P_FIMV_ENC_ALPHA_OFF);
-	
+	/* loopfilter beta offset */
 	if (p_264->loop_filter_beta < 0) {
 		reg = 0x10;
 		reg |= (0xFF - p_264->loop_filter_beta) + 1;
@@ -735,59 +747,59 @@ static int s5p_mfc_set_enc_params_h264(struct s5p_mfc_ctx *ctx)
 		reg |= (p_264->loop_filter_beta & 0xF);
 	}
 	mfc_write(dev, reg, S5P_FIMV_ENC_BETA_OFF);
-	
+	/* entropy coding mode */
 	if (p_264->entropy_mode == V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CABAC)
 		mfc_write(dev, 1, S5P_FIMV_ENC_H264_ENTROPY_MODE);
 	else
 		mfc_write(dev, 0, S5P_FIMV_ENC_H264_ENTROPY_MODE);
-	
+	/* number of ref. picture */
 	reg = mfc_read(dev, S5P_FIMV_ENC_H264_NUM_OF_REF);
-	
+	/* num of ref. pictures of P */
 	reg &= ~(0x3 << 5);
 	reg |= (p_264->num_ref_pic_4p << 5);
-	
+	/* max number of ref. pictures */
 	reg &= ~(0x1F);
 	reg |= p_264->max_ref_pic;
 	mfc_write(dev, reg, S5P_FIMV_ENC_H264_NUM_OF_REF);
-	
+	/* 8x8 transform enable */
 	mfc_write(dev, p_264->_8x8_transform, S5P_FIMV_ENC_H264_TRANS_FLAG);
-	
+	/* rate control config. */
 	reg = mfc_read(dev, S5P_FIMV_ENC_RC_CONFIG);
-	
+	/* macroblock level rate control */
 	reg &= ~(0x1 << 8);
 	reg |= (p_264->rc_mb << 8);
-	
+	/* frame QP */
 	reg &= ~(0x3F);
 	reg |= p_264->rc_frame_qp;
 	mfc_write(dev, reg, S5P_FIMV_ENC_RC_CONFIG);
-	
+	/* frame rate */
 	if (p->rc_frame && p->rc_framerate_denom)
 		mfc_write(dev, p->rc_framerate_num * 1000
 			/ p->rc_framerate_denom, S5P_FIMV_ENC_RC_FRAME_RATE);
 	else
 		mfc_write(dev, 0, S5P_FIMV_ENC_RC_FRAME_RATE);
-	
+	/* max & min value of QP */
 	reg = mfc_read(dev, S5P_FIMV_ENC_RC_QBOUND);
-	
+	/* max QP */
 	reg &= ~(0x3F << 8);
 	reg |= (p_264->rc_max_qp << 8);
-	
+	/* min QP */
 	reg &= ~(0x3F);
 	reg |= p_264->rc_min_qp;
 	mfc_write(dev, reg, S5P_FIMV_ENC_RC_QBOUND);
-	
+	/* macroblock adaptive scaling features */
 	if (p_264->rc_mb) {
 		reg = mfc_read(dev, S5P_FIMV_ENC_RC_MB_CTRL);
-		
+		/* dark region */
 		reg &= ~(0x1 << 3);
 		reg |= (p_264->rc_mb_dark << 3);
-		
+		/* smooth region */
 		reg &= ~(0x1 << 2);
 		reg |= (p_264->rc_mb_smooth << 2);
-		
+		/* static region */
 		reg &= ~(0x1 << 1);
 		reg |= (p_264->rc_mb_static << 1);
-		
+		/* high activity region */
 		reg &= ~(0x1);
 		reg |= p_264->rc_mb_activity;
 		mfc_write(dev, reg, S5P_FIMV_ENC_RC_MB_CTRL);
@@ -800,20 +812,20 @@ static int s5p_mfc_set_enc_params_h264(struct s5p_mfc_ctx *ctx)
 		shm |= (p_264->rc_p_frame_qp & 0x3F);
 		s5p_mfc_write_shm(ctx, shm, P_B_FRAME_QP);
 	}
-	
+	/* extended encoder ctrl */
 	shm = s5p_mfc_read_shm(ctx, EXT_ENC_CONTROL);
-	
+	/* AR VUI control */
 	shm &= ~(0x1 << 15);
 	shm |= (p_264->vui_sar << 1);
 	s5p_mfc_write_shm(ctx, shm, EXT_ENC_CONTROL);
 	if (p_264->vui_sar) {
-		
+		/* aspect ration IDC */
 		shm = s5p_mfc_read_shm(ctx, SAMPLE_ASPECT_RATIO_IDC);
 		shm &= ~(0xFF);
 		shm |= p_264->vui_sar_idc;
 		s5p_mfc_write_shm(ctx, shm, SAMPLE_ASPECT_RATIO_IDC);
 		if (p_264->vui_sar_idc == 0xFF) {
-			
+			/* sample  AR info */
 			shm = s5p_mfc_read_shm(ctx, EXTENDED_SAR);
 			shm &= ~(0xFFFFFFFF);
 			shm |= p_264->vui_ext_sar_width << 16;
@@ -821,20 +833,20 @@ static int s5p_mfc_set_enc_params_h264(struct s5p_mfc_ctx *ctx)
 			s5p_mfc_write_shm(ctx, shm, EXTENDED_SAR);
 		}
 	}
-	
+	/* intra picture period for H.264 */
 	shm = s5p_mfc_read_shm(ctx, H264_I_PERIOD);
-	
+	/* control */
 	shm &= ~(0x1 << 16);
 	shm |= (p_264->open_gop << 16);
-	
+	/* value */
 	if (p_264->open_gop) {
 		shm &= ~(0xFFFF);
 		shm |= p_264->open_gop_size;
 	}
 	s5p_mfc_write_shm(ctx, shm, H264_I_PERIOD);
-	
+	/* extended encoder ctrl */
 	shm = s5p_mfc_read_shm(ctx, EXT_ENC_CONTROL);
-	
+	/* vbv buffer size */
 	if (p->frame_skip_mode ==
 			V4L2_MPEG_MFC51_VIDEO_FRAME_SKIP_MODE_BUF_LIMIT) {
 		shm &= ~(0xFFFF << 16);
@@ -854,24 +866,24 @@ static int s5p_mfc_set_enc_params_mpeg4(struct s5p_mfc_ctx *ctx)
 	unsigned int framerate;
 
 	s5p_mfc_set_enc_params(ctx);
-	
+	/* pictype : number of B */
 	reg = mfc_read(dev, S5P_FIMV_ENC_PIC_TYPE_CTRL);
-	
+	/* num_b_frame - 0 ~ 2 */
 	reg &= ~(0x3 << 16);
 	reg |= (p->num_b_frame << 16);
 	mfc_write(dev, reg, S5P_FIMV_ENC_PIC_TYPE_CTRL);
-	
+	/* profile & level */
 	reg = mfc_read(dev, S5P_FIMV_ENC_PROFILE);
-	
+	/* level */
 	reg &= ~(0xFF << 8);
 	reg |= (p_mpeg4->level << 8);
-	
+	/* profile - 0 ~ 2 */
 	reg &= ~(0x3F);
 	reg |= p_mpeg4->profile;
 	mfc_write(dev, reg, S5P_FIMV_ENC_PROFILE);
-	
+	/* quarter_pixel */
 	mfc_write(dev, p_mpeg4->quarter_pixel, S5P_FIMV_ENC_MPEG4_QUART_PXL);
-	
+	/* qp */
 	if (!p->rc_frame) {
 		shm = s5p_mfc_read_shm(ctx, P_B_FRAME_QP);
 		shm &= ~(0xFFF);
@@ -879,7 +891,7 @@ static int s5p_mfc_set_enc_params_mpeg4(struct s5p_mfc_ctx *ctx)
 		shm |= (p_mpeg4->rc_p_frame_qp & 0x3F);
 		s5p_mfc_write_shm(ctx, shm, P_B_FRAME_QP);
 	}
-	
+	/* frame rate */
 	if (p->rc_frame) {
 		if (p->rc_framerate_denom > 0) {
 			framerate = p->rc_framerate_num * 1000 /
@@ -896,24 +908,24 @@ static int s5p_mfc_set_enc_params_mpeg4(struct s5p_mfc_ctx *ctx)
 	} else {
 		mfc_write(dev, 0, S5P_FIMV_ENC_RC_FRAME_RATE);
 	}
-	
+	/* rate control config. */
 	reg = mfc_read(dev, S5P_FIMV_ENC_RC_CONFIG);
-	
+	/* frame QP */
 	reg &= ~(0x3F);
 	reg |= p_mpeg4->rc_frame_qp;
 	mfc_write(dev, reg, S5P_FIMV_ENC_RC_CONFIG);
-	
+	/* max & min value of QP */
 	reg = mfc_read(dev, S5P_FIMV_ENC_RC_QBOUND);
-	
+	/* max QP */
 	reg &= ~(0x3F << 8);
 	reg |= (p_mpeg4->rc_max_qp << 8);
-	
+	/* min QP */
 	reg &= ~(0x3F);
 	reg |= p_mpeg4->rc_min_qp;
 	mfc_write(dev, reg, S5P_FIMV_ENC_RC_QBOUND);
-	
+	/* extended encoder ctrl */
 	shm = s5p_mfc_read_shm(ctx, EXT_ENC_CONTROL);
-	
+	/* vbv buffer size */
 	if (p->frame_skip_mode ==
 			V4L2_MPEG_MFC51_VIDEO_FRAME_SKIP_MODE_BUF_LIMIT) {
 		shm &= ~(0xFFFF << 16);
@@ -932,37 +944,37 @@ static int s5p_mfc_set_enc_params_h263(struct s5p_mfc_ctx *ctx)
 	unsigned int shm;
 
 	s5p_mfc_set_enc_params(ctx);
-	
+	/* qp */
 	if (!p->rc_frame) {
 		shm = s5p_mfc_read_shm(ctx, P_B_FRAME_QP);
 		shm &= ~(0xFFF);
 		shm |= (p_h263->rc_p_frame_qp & 0x3F);
 		s5p_mfc_write_shm(ctx, shm, P_B_FRAME_QP);
 	}
-	
+	/* frame rate */
 	if (p->rc_frame && p->rc_framerate_denom)
 		mfc_write(dev, p->rc_framerate_num * 1000
 			/ p->rc_framerate_denom, S5P_FIMV_ENC_RC_FRAME_RATE);
 	else
 		mfc_write(dev, 0, S5P_FIMV_ENC_RC_FRAME_RATE);
-	
+	/* rate control config. */
 	reg = mfc_read(dev, S5P_FIMV_ENC_RC_CONFIG);
-	
+	/* frame QP */
 	reg &= ~(0x3F);
 	reg |= p_h263->rc_frame_qp;
 	mfc_write(dev, reg, S5P_FIMV_ENC_RC_CONFIG);
-	
+	/* max & min value of QP */
 	reg = mfc_read(dev, S5P_FIMV_ENC_RC_QBOUND);
-	
+	/* max QP */
 	reg &= ~(0x3F << 8);
 	reg |= (p_h263->rc_max_qp << 8);
-	
+	/* min QP */
 	reg &= ~(0x3F);
 	reg |= p_h263->rc_min_qp;
 	mfc_write(dev, reg, S5P_FIMV_ENC_RC_QBOUND);
-	
+	/* extended encoder ctrl */
 	shm = s5p_mfc_read_shm(ctx, EXT_ENC_CONTROL);
-	
+	/* vbv buffer size */
 	if (p->frame_skip_mode ==
 			V4L2_MPEG_MFC51_VIDEO_FRAME_SKIP_MODE_BUF_LIMIT) {
 		shm &= ~(0xFFFF << 16);
@@ -972,12 +984,13 @@ static int s5p_mfc_set_enc_params_h263(struct s5p_mfc_ctx *ctx)
 	return 0;
 }
 
+/* Initialize decoding */
 int s5p_mfc_init_decode(struct s5p_mfc_ctx *ctx)
 {
 	struct s5p_mfc_dev *dev = ctx->dev;
 
 	s5p_mfc_set_shared_buffer(ctx);
-	
+	/* Setup loop filter, for decoding this is only valid for MPEG4 */
 	if (ctx->codec_mode == S5P_FIMV_CODEC_MPEG4_DEC)
 		mfc_write(dev, ctx->loop_filter_mpeg4, S5P_FIMV_ENC_LF_CTRL);
 	else
@@ -1007,6 +1020,7 @@ static void s5p_mfc_set_flush(struct s5p_mfc_ctx *ctx, int flush)
 	mfc_write(dev, dpb, S5P_FIMV_SI_CH0_DPB_CONF_CTRL);
 }
 
+/* Decode a single frame */
 int s5p_mfc_decode_one_frame(struct s5p_mfc_ctx *ctx,
 					enum s5p_mfc_decode_arg last_frame)
 {
@@ -1015,6 +1029,8 @@ int s5p_mfc_decode_one_frame(struct s5p_mfc_ctx *ctx,
 	mfc_write(dev, ctx->dec_dst_flag, S5P_FIMV_SI_CH0_RELEASE_BUF);
 	s5p_mfc_set_shared_buffer(ctx);
 	s5p_mfc_set_flush(ctx, ctx->dpb_flush_flag);
+	/* Issue different commands to instance basing on whether it
+	 * is the last frame or not. */
 	switch (last_frame) {
 	case MFC_DEC_FRAME:
 		mfc_write(dev, ((S5P_FIMV_CH_FRAME_START & S5P_FIMV_CH_MASK) <<
@@ -1055,10 +1071,11 @@ int s5p_mfc_init_encode(struct s5p_mfc_ctx *ctx)
 	return 0;
 }
 
+/* Encode a single frame */
 int s5p_mfc_encode_one_frame(struct s5p_mfc_ctx *ctx)
 {
 	struct s5p_mfc_dev *dev = ctx->dev;
-	
+	/* memory structure cur. frame */
 	if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_NV12M)
 		mfc_write(dev, 0, S5P_FIMV_ENC_MAP_FOR_CUR);
 	else if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_NV12MT)
@@ -1081,7 +1098,7 @@ static int s5p_mfc_get_new_ctx(struct s5p_mfc_dev *dev)
 	while (!test_bit(new_ctx, &dev->ctx_work_bits)) {
 		new_ctx = (new_ctx + 1) % MFC_NUM_CONTEXTS;
 		if (++cnt > MFC_NUM_CONTEXTS) {
-			
+			/* No contexts to run */
 			spin_unlock_irqrestore(&dev->condlock, flags);
 			return -EAGAIN;
 		}
@@ -1108,13 +1125,13 @@ static int s5p_mfc_run_dec_frame(struct s5p_mfc_ctx *ctx, int last_frame)
 	unsigned int index;
 
 	spin_lock_irqsave(&dev->irqlock, flags);
-	
+	/* Frames are being decoded */
 	if (list_empty(&ctx->src_queue)) {
 		mfc_debug(2, "No src buffers\n");
 		spin_unlock_irqrestore(&dev->irqlock, flags);
 		return -EAGAIN;
 	}
-	
+	/* Get the next source buffer */
 	temp_vb = list_entry(ctx->src_queue.next, struct s5p_mfc_buf, list);
 	temp_vb->used = 1;
 	s5p_mfc_set_dec_stream_buffer(ctx,
@@ -1176,7 +1193,7 @@ static void s5p_mfc_run_init_dec(struct s5p_mfc_ctx *ctx)
 	unsigned long flags;
 	struct s5p_mfc_buf *temp_vb;
 
-	
+	/* Initializing decoding - parsing header */
 	spin_lock_irqsave(&dev->irqlock, flags);
 	mfc_debug(2, "Preparing to init decoding\n");
 	temp_vb = list_entry(ctx->src_queue.next, struct s5p_mfc_buf, list);
@@ -1218,6 +1235,10 @@ static int s5p_mfc_run_init_dec_buffers(struct s5p_mfc_ctx *ctx)
 	struct s5p_mfc_buf *temp_vb;
 	int ret;
 
+	/*
+	 * Header was parsed now starting processing
+	 * First set the output frame buffers
+	 */
 	if (ctx->capture_state != QUEUE_BUFS_MMAPED) {
 		mfc_err("It seems that not all destionation buffers were "
 			"mmaped\nMFC requires that all destination are mmaped "
@@ -1247,6 +1268,7 @@ static int s5p_mfc_run_init_dec_buffers(struct s5p_mfc_ctx *ctx)
 	return ret;
 }
 
+/* Try running an operation on hardware */
 void s5p_mfc_try_run(struct s5p_mfc_dev *dev)
 {
 	struct s5p_mfc_ctx *ctx;
@@ -1257,16 +1279,16 @@ void s5p_mfc_try_run(struct s5p_mfc_dev *dev)
 		mfc_debug(1, "Entering suspend so do not schedule any jobs\n");
 		return;
 	}
-	
+	/* Check whether hardware is not running */
 	if (test_and_set_bit(0, &dev->hw_lock) != 0) {
-		
+		/* This is perfectly ok, the scheduled ctx should wait */
 		mfc_debug(1, "Couldn't lock HW\n");
 		return;
 	}
-	
+	/* Choose the context to run */
 	new_ctx = s5p_mfc_get_new_ctx(dev);
 	if (new_ctx < 0) {
-		
+		/* No contexts to run */
 		if (test_and_clear_bit(0, &dev->hw_lock) == 0) {
 			mfc_err("Failed to unlock hardware\n");
 			return;
@@ -1275,7 +1297,11 @@ void s5p_mfc_try_run(struct s5p_mfc_dev *dev)
 		return;
 	}
 	ctx = dev->ctx[new_ctx];
-	
+	/* Got context to run in ctx */
+	/*
+	 * Last frame has already been sent to MFC.
+	 * Now obtaining frames from MFC buffer
+	 */
 	s5p_mfc_clock_on();
 	if (ctx->type == MFCINST_DECODER) {
 		s5p_mfc_set_dec_desc_buffer(ctx);
@@ -1342,10 +1368,14 @@ void s5p_mfc_try_run(struct s5p_mfc_dev *dev)
 	}
 
 	if (ret) {
-		
+		/* Free hardware lock */
 		if (test_and_clear_bit(0, &dev->hw_lock) == 0)
 			mfc_err("Failed to unlock hardware\n");
 
+		/* This is in deed imporant, as no operation has been
+		 * scheduled, reduce the clock count as no one will
+		 * ever do this, because no interrupt related to this try_run
+		 * will ever come from hardware. */
 		s5p_mfc_clock_off();
 	}
 }

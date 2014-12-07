@@ -24,6 +24,7 @@ struct ipw_network;
 struct ipw_tty;
 struct ipw_hardware;
 
+/* Definitions of the different channels on the PCMCIA UE */
 #define IPW_CHANNEL_RAS      0
 #define IPW_CHANNEL_DIALLER  1
 #define IPW_CHANNEL_CONSOLE  2

@@ -30,19 +30,21 @@ static int msm_imp_ext_abort(unsigned long addr, unsigned int fsr,
 	unsigned int regval;
 	static unsigned char flush_toggle;
 
-	asm("mrc p15, 7, %0, c15, c0, 1\n" 
+	asm("mrc p15, 7, %0, c15, c0, 1\n" /* read EFSR for fault status */
 	    : "=r" (regval));
 	if (regval == 0x2) {
+		/* Fault was caused by icache parity error. Alternate
+		 * simply retrying the access and flushing the icache. */
 		flush_toggle ^= 1;
 		if (flush_toggle)
 			asm("mcr p15, 0, %0, c7, c5, 0\n"
 				:
-				: "r" (regval)); 
-		
+				: "r" (regval)); /* input value is ignored */
+		/* Clear fault in EFSR. */
 		asm("mcr p15, 7, %0, c15, c0, 1\n"
 			:
 			: "r" (regval));
-		
+		/* Clear fault in ADFSR. */
 		regval = 0;
 		asm("mcr p15, 0, %0, c5, c1, 0\n"
 			:
@@ -72,6 +74,8 @@ static int msm_imp_ext_abort(unsigned long addr, unsigned int fsr,
 
 static int __init msm_register_fault_handlers(void)
 {
+	/* hook in our handler for imprecise abort for when we get
+	   i-cache parity errors */
 	hook_fault_code(22, msm_imp_ext_abort, SIGBUS, 0,
 			"imprecise external abort");
 

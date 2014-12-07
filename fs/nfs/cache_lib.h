@@ -8,6 +8,9 @@
 #include <linux/sunrpc/cache.h>
 #include <linux/atomic.h>
 
+/*
+ * Deferred request handling
+ */
 struct nfs_cache_defer_req {
 	struct cache_req req;
 	struct cache_deferred_req deferred_req;

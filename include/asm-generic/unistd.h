@@ -3,6 +3,16 @@
 
 #include <asm/bitsperlong.h>
 
+/*
+ * This file contains the system call numbers, based on the
+ * layout of the x86-64 architecture, which embeds the
+ * pointer to the syscall in the table.
+ *
+ * As a basic principle, no duplication of functionality
+ * should be added, e.g. we don't use lseek when llseek
+ * is present. New architectures should use this file
+ * and implement the less feature-full calls in user space.
+ */
 
 #ifndef __SYSCALL
 #define __SYSCALL(x, y)
@@ -33,6 +43,7 @@ __SYSCALL(__NR_io_cancel, sys_io_cancel)
 #define __NR_io_getevents 4
 __SC_COMP(__NR_io_getevents, sys_io_getevents, compat_sys_io_getevents)
 
+/* fs/xattr.c */
 #define __NR_setxattr 5
 __SYSCALL(__NR_setxattr, sys_setxattr)
 #define __NR_lsetxattr 6
@@ -58,15 +69,19 @@ __SYSCALL(__NR_lremovexattr, sys_lremovexattr)
 #define __NR_fremovexattr 16
 __SYSCALL(__NR_fremovexattr, sys_fremovexattr)
 
+/* fs/dcache.c */
 #define __NR_getcwd 17
 __SYSCALL(__NR_getcwd, sys_getcwd)
 
+/* fs/cookies.c */
 #define __NR_lookup_dcookie 18
 __SC_COMP(__NR_lookup_dcookie, sys_lookup_dcookie, compat_sys_lookup_dcookie)
 
+/* fs/eventfd.c */
 #define __NR_eventfd2 19
 __SYSCALL(__NR_eventfd2, sys_eventfd2)
 
+/* fs/eventpoll.c */
 #define __NR_epoll_create1 20
 __SYSCALL(__NR_epoll_create1, sys_epoll_create1)
 #define __NR_epoll_ctl 21
@@ -74,6 +89,7 @@ __SYSCALL(__NR_epoll_ctl, sys_epoll_ctl)
 #define __NR_epoll_pwait 22
 __SC_COMP(__NR_epoll_pwait, sys_epoll_pwait, compat_sys_epoll_pwait)
 
+/* fs/fcntl.c */
 #define __NR_dup 23
 __SYSCALL(__NR_dup, sys_dup)
 #define __NR_dup3 24
@@ -81,6 +97,7 @@ __SYSCALL(__NR_dup3, sys_dup3)
 #define __NR3264_fcntl 25
 __SC_COMP_3264(__NR3264_fcntl, sys_fcntl64, sys_fcntl, compat_sys_fcntl64)
 
+/* fs/inotify_user.c */
 #define __NR_inotify_init1 26
 __SYSCALL(__NR_inotify_init1, sys_inotify_init1)
 #define __NR_inotify_add_watch 27
@@ -88,17 +105,21 @@ __SYSCALL(__NR_inotify_add_watch, sys_inotify_add_watch)
 #define __NR_inotify_rm_watch 28
 __SYSCALL(__NR_inotify_rm_watch, sys_inotify_rm_watch)
 
+/* fs/ioctl.c */
 #define __NR_ioctl 29
 __SC_COMP(__NR_ioctl, sys_ioctl, compat_sys_ioctl)
 
+/* fs/ioprio.c */
 #define __NR_ioprio_set 30
 __SYSCALL(__NR_ioprio_set, sys_ioprio_set)
 #define __NR_ioprio_get 31
 __SYSCALL(__NR_ioprio_get, sys_ioprio_get)
 
+/* fs/locks.c */
 #define __NR_flock 32
 __SYSCALL(__NR_flock, sys_flock)
 
+/* fs/namei.c */
 #define __NR_mknodat 33
 __SYSCALL(__NR_mknodat, sys_mknodat)
 #define __NR_mkdirat 34
@@ -112,6 +133,7 @@ __SYSCALL(__NR_linkat, sys_linkat)
 #define __NR_renameat 38
 __SYSCALL(__NR_renameat, sys_renameat)
 
+/* fs/namespace.c */
 #define __NR_umount2 39
 __SYSCALL(__NR_umount2, sys_umount)
 #define __NR_mount 40
@@ -119,9 +141,11 @@ __SC_COMP(__NR_mount, sys_mount, compat_sys_mount)
 #define __NR_pivot_root 41
 __SYSCALL(__NR_pivot_root, sys_pivot_root)
 
+/* fs/nfsctl.c */
 #define __NR_nfsservctl 42
 __SYSCALL(__NR_nfsservctl, sys_ni_syscall)
 
+/* fs/open.c */
 #define __NR3264_statfs 43
 __SC_COMP_3264(__NR3264_statfs, sys_statfs64, sys_statfs, \
 	       compat_sys_statfs64)
@@ -160,15 +184,19 @@ __SYSCALL(__NR_close, sys_close)
 #define __NR_vhangup 58
 __SYSCALL(__NR_vhangup, sys_vhangup)
 
+/* fs/pipe.c */
 #define __NR_pipe2 59
 __SYSCALL(__NR_pipe2, sys_pipe2)
 
+/* fs/quota.c */
 #define __NR_quotactl 60
 __SYSCALL(__NR_quotactl, sys_quotactl)
 
+/* fs/readdir.c */
 #define __NR_getdents64 61
 __SC_COMP(__NR_getdents64, sys_getdents64, compat_sys_getdents64)
 
+/* fs/read_write.c */
 #define __NR3264_lseek 62
 __SC_3264(__NR3264_lseek, sys_llseek, sys_lseek)
 #define __NR_read 63
@@ -188,17 +216,21 @@ __SC_COMP(__NR_preadv, sys_preadv, compat_sys_preadv)
 #define __NR_pwritev 70
 __SC_COMP(__NR_pwritev, sys_pwritev, compat_sys_pwritev)
 
+/* fs/sendfile.c */
 #define __NR3264_sendfile 71
 __SYSCALL(__NR3264_sendfile, sys_sendfile64)
 
+/* fs/select.c */
 #define __NR_pselect6 72
 __SC_COMP(__NR_pselect6, sys_pselect6, compat_sys_pselect6)
 #define __NR_ppoll 73
 __SC_COMP(__NR_ppoll, sys_ppoll, compat_sys_ppoll)
 
+/* fs/signalfd.c */
 #define __NR_signalfd4 74
 __SC_COMP(__NR_signalfd4, sys_signalfd4, compat_sys_signalfd4)
 
+/* fs/splice.c */
 #define __NR_vmsplice 75
 __SC_COMP(__NR_vmsplice, sys_vmsplice, compat_sys_vmsplice)
 #define __NR_splice 76
@@ -206,6 +238,7 @@ __SYSCALL(__NR_splice, sys_splice)
 #define __NR_tee 77
 __SYSCALL(__NR_tee, sys_tee)
 
+/* fs/stat.c */
 #define __NR_readlinkat 78
 __SYSCALL(__NR_readlinkat, sys_readlinkat)
 #define __NR3264_fstatat 79
@@ -213,6 +246,7 @@ __SC_3264(__NR3264_fstatat, sys_fstatat64, sys_newfstatat)
 #define __NR3264_fstat 80
 __SC_3264(__NR3264_fstat, sys_fstat64, sys_newfstat)
 
+/* fs/sync.c */
 #define __NR_sync 81
 __SYSCALL(__NR_sync, sys_sync)
 #define __NR_fsync 82
@@ -229,6 +263,7 @@ __SC_COMP(__NR_sync_file_range, sys_sync_file_range, \
 	  compat_sys_sync_file_range)
 #endif
 
+/* fs/timerfd.c */
 #define __NR_timerfd_create 85
 __SYSCALL(__NR_timerfd_create, sys_timerfd_create)
 #define __NR_timerfd_settime 86
@@ -238,20 +273,25 @@ __SC_COMP(__NR_timerfd_settime, sys_timerfd_settime, \
 __SC_COMP(__NR_timerfd_gettime, sys_timerfd_gettime, \
 	  compat_sys_timerfd_gettime)
 
+/* fs/utimes.c */
 #define __NR_utimensat 88
 __SC_COMP(__NR_utimensat, sys_utimensat, compat_sys_utimensat)
 
+/* kernel/acct.c */
 #define __NR_acct 89
 __SYSCALL(__NR_acct, sys_acct)
 
+/* kernel/capability.c */
 #define __NR_capget 90
 __SYSCALL(__NR_capget, sys_capget)
 #define __NR_capset 91
 __SYSCALL(__NR_capset, sys_capset)
 
+/* kernel/exec_domain.c */
 #define __NR_personality 92
 __SYSCALL(__NR_personality, sys_personality)
 
+/* kernel/exit.c */
 #define __NR_exit 93
 __SYSCALL(__NR_exit, sys_exit)
 #define __NR_exit_group 94
@@ -259,11 +299,13 @@ __SYSCALL(__NR_exit_group, sys_exit_group)
 #define __NR_waitid 95
 __SC_COMP(__NR_waitid, sys_waitid, compat_sys_waitid)
 
+/* kernel/fork.c */
 #define __NR_set_tid_address 96
 __SYSCALL(__NR_set_tid_address, sys_set_tid_address)
 #define __NR_unshare 97
 __SYSCALL(__NR_unshare, sys_unshare)
 
+/* kernel/futex.c */
 #define __NR_futex 98
 __SC_COMP(__NR_futex, sys_futex, compat_sys_futex)
 #define __NR_set_robust_list 99
@@ -273,22 +315,27 @@ __SC_COMP(__NR_set_robust_list, sys_set_robust_list, \
 __SC_COMP(__NR_get_robust_list, sys_get_robust_list, \
 	  compat_sys_get_robust_list)
 
+/* kernel/hrtimer.c */
 #define __NR_nanosleep 101
 __SC_COMP(__NR_nanosleep, sys_nanosleep, compat_sys_nanosleep)
 
+/* kernel/itimer.c */
 #define __NR_getitimer 102
 __SC_COMP(__NR_getitimer, sys_getitimer, compat_sys_getitimer)
 #define __NR_setitimer 103
 __SC_COMP(__NR_setitimer, sys_setitimer, compat_sys_setitimer)
 
+/* kernel/kexec.c */
 #define __NR_kexec_load 104
 __SC_COMP(__NR_kexec_load, sys_kexec_load, compat_sys_kexec_load)
 
+/* kernel/module.c */
 #define __NR_init_module 105
 __SYSCALL(__NR_init_module, sys_init_module)
 #define __NR_delete_module 106
 __SYSCALL(__NR_delete_module, sys_delete_module)
 
+/* kernel/posix-timers.c */
 #define __NR_timer_create 107
 __SC_COMP(__NR_timer_create, sys_timer_create, compat_sys_timer_create)
 #define __NR_timer_gettime 108
@@ -309,12 +356,15 @@ __SC_COMP(__NR_clock_getres, sys_clock_getres, compat_sys_clock_getres)
 __SC_COMP(__NR_clock_nanosleep, sys_clock_nanosleep, \
 	  compat_sys_clock_nanosleep)
 
+/* kernel/printk.c */
 #define __NR_syslog 116
 __SYSCALL(__NR_syslog, sys_syslog)
 
+/* kernel/ptrace.c */
 #define __NR_ptrace 117
 __SYSCALL(__NR_ptrace, sys_ptrace)
 
+/* kernel/sched.c */
 #define __NR_sched_setparam 118
 __SYSCALL(__NR_sched_setparam, sys_sched_setparam)
 #define __NR_sched_setscheduler 119
@@ -339,6 +389,7 @@ __SYSCALL(__NR_sched_get_priority_min, sys_sched_get_priority_min)
 __SC_COMP(__NR_sched_rr_get_interval, sys_sched_rr_get_interval, \
 	  compat_sys_sched_rr_get_interval)
 
+/* kernel/signal.c */
 #define __NR_restart_syscall 128
 __SYSCALL(__NR_restart_syscall, sys_restart_syscall)
 #define __NR_kill 129
@@ -366,6 +417,7 @@ __SC_COMP(__NR_rt_sigqueueinfo, sys_rt_sigqueueinfo, \
 #define __NR_rt_sigreturn 139
 __SC_COMP(__NR_rt_sigreturn, sys_rt_sigreturn, compat_sys_rt_sigreturn)
 
+/* kernel/sys.c */
 #define __NR_setpriority 140
 __SYSCALL(__NR_setpriority, sys_setpriority)
 #define __NR_getpriority 141
@@ -425,6 +477,7 @@ __SYSCALL(__NR_prctl, sys_prctl)
 #define __NR_getcpu 168
 __SYSCALL(__NR_getcpu, sys_getcpu)
 
+/* kernel/time.c */
 #define __NR_gettimeofday 169
 __SC_COMP(__NR_gettimeofday, sys_gettimeofday, compat_sys_gettimeofday)
 #define __NR_settimeofday 170
@@ -432,6 +485,7 @@ __SC_COMP(__NR_settimeofday, sys_settimeofday, compat_sys_settimeofday)
 #define __NR_adjtimex 171
 __SC_COMP(__NR_adjtimex, sys_adjtimex, compat_sys_adjtimex)
 
+/* kernel/timer.c */
 #define __NR_getpid 172
 __SYSCALL(__NR_getpid, sys_getpid)
 #define __NR_getppid 173
@@ -449,6 +503,7 @@ __SYSCALL(__NR_gettid, sys_gettid)
 #define __NR_sysinfo 179
 __SC_COMP(__NR_sysinfo, sys_sysinfo, compat_sys_sysinfo)
 
+/* ipc/mqueue.c */
 #define __NR_mq_open 180
 __SC_COMP(__NR_mq_open, sys_mq_open, compat_sys_mq_open)
 #define __NR_mq_unlink 181
@@ -463,6 +518,7 @@ __SC_COMP(__NR_mq_notify, sys_mq_notify, compat_sys_mq_notify)
 #define __NR_mq_getsetattr 185
 __SC_COMP(__NR_mq_getsetattr, sys_mq_getsetattr, compat_sys_mq_getsetattr)
 
+/* ipc/msg.c */
 #define __NR_msgget 186
 __SYSCALL(__NR_msgget, sys_msgget)
 #define __NR_msgctl 187
@@ -472,6 +528,7 @@ __SC_COMP(__NR_msgrcv, sys_msgrcv, compat_sys_msgrcv)
 #define __NR_msgsnd 189
 __SC_COMP(__NR_msgsnd, sys_msgsnd, compat_sys_msgsnd)
 
+/* ipc/sem.c */
 #define __NR_semget 190
 __SYSCALL(__NR_semget, sys_semget)
 #define __NR_semctl 191
@@ -481,6 +538,7 @@ __SC_COMP(__NR_semtimedop, sys_semtimedop, compat_sys_semtimedop)
 #define __NR_semop 193
 __SYSCALL(__NR_semop, sys_semop)
 
+/* ipc/shm.c */
 #define __NR_shmget 194
 __SYSCALL(__NR_shmget, sys_shmget)
 #define __NR_shmctl 195
@@ -490,6 +548,7 @@ __SC_COMP(__NR_shmat, sys_shmat, compat_sys_shmat)
 #define __NR_shmdt 197
 __SYSCALL(__NR_shmdt, sys_shmdt)
 
+/* net/socket.c */
 #define __NR_socket 198
 __SYSCALL(__NR_socket, sys_socket)
 #define __NR_socketpair 199
@@ -521,9 +580,11 @@ __SC_COMP(__NR_sendmsg, sys_sendmsg, compat_sys_sendmsg)
 #define __NR_recvmsg 212
 __SC_COMP(__NR_recvmsg, sys_recvmsg, compat_sys_recvmsg)
 
+/* mm/filemap.c */
 #define __NR_readahead 213
 __SC_COMP(__NR_readahead, sys_readahead, compat_sys_readahead)
 
+/* mm/nommu.c, also with MMU */
 #define __NR_brk 214
 __SYSCALL(__NR_brk, sys_brk)
 #define __NR_munmap 215
@@ -531,6 +592,7 @@ __SYSCALL(__NR_munmap, sys_munmap)
 #define __NR_mremap 216
 __SYSCALL(__NR_mremap, sys_mremap)
 
+/* security/keys/keyctl.c */
 #define __NR_add_key 217
 __SYSCALL(__NR_add_key, sys_add_key)
 #define __NR_request_key 218
@@ -538,6 +600,7 @@ __SYSCALL(__NR_request_key, sys_request_key)
 #define __NR_keyctl 219
 __SC_COMP(__NR_keyctl, sys_keyctl, compat_sys_keyctl)
 
+/* arch/example/kernel/sys_example.c */
 #define __NR_clone 220
 __SYSCALL(__NR_clone, sys_clone)
 #define __NR_execve 221
@@ -545,9 +608,11 @@ __SC_COMP(__NR_execve, sys_execve, compat_sys_execve)
 
 #define __NR3264_mmap 222
 __SC_3264(__NR3264_mmap, sys_mmap2, sys_mmap)
+/* mm/fadvise.c */
 #define __NR3264_fadvise64 223
 __SC_COMP(__NR3264_fadvise64, sys_fadvise64_64, compat_sys_fadvise64_64)
 
+/* mm/, CONFIG_MMU only */
 #ifndef __ARCH_NOMMU
 #define __NR_swapon 224
 __SYSCALL(__NR_swapon, sys_swapon)
@@ -593,6 +658,10 @@ __SYSCALL(__NR_accept4, sys_accept4)
 #define __NR_recvmmsg 243
 __SC_COMP(__NR_recvmmsg, sys_recvmmsg, compat_sys_recvmmsg)
 
+/*
+ * Architectures may provide up to 16 syscalls of their own
+ * starting with this value.
+ */
 #define __NR_arch_specific_syscall 244
 
 #define __NR_wait4 260
@@ -626,6 +695,14 @@ __SC_COMP(__NR_process_vm_writev, sys_process_vm_writev, \
 #undef __NR_syscalls
 #define __NR_syscalls 272
 
+/*
+ * All syscalls below here should go away really,
+ * these are provided for both review and as a porting
+ * help for the C library version.
+*
+ * Last chance: are any of these important enough to
+ * enable by default?
+ */
 #ifdef __ARCH_WANT_SYSCALL_NO_AT
 #define __NR_open 1024
 __SYSCALL(__NR_open, sys_open)
@@ -662,7 +739,7 @@ __SC_3264(__NR3264_lstat, sys_lstat64, sys_newlstat)
 
 #undef __NR_syscalls
 #define __NR_syscalls (__NR3264_lstat+1)
-#endif 
+#endif /* __ARCH_WANT_SYSCALL_NO_AT */
 
 #ifdef __ARCH_WANT_SYSCALL_NO_FLAGS
 #define __NR_pipe 1040
@@ -680,7 +757,7 @@ __SYSCALL(__NR_signalfd, sys_signalfd)
 
 #undef __NR_syscalls
 #define __NR_syscalls (__NR_signalfd+1)
-#endif 
+#endif /* __ARCH_WANT_SYSCALL_NO_FLAGS */
 
 #if (__BITS_PER_LONG == 32 || defined(__SYSCALL_COMPAT)) && \
      defined(__ARCH_WANT_SYSCALL_OFF_T)
@@ -715,7 +792,7 @@ __SYSCALL(__NR_mmap, sys_mmap)
 
 #undef __NR_syscalls
 #define __NR_syscalls (__NR_mmap+1)
-#endif 
+#endif /* 32 bit off_t syscalls */
 
 #ifdef __ARCH_WANT_SYSCALL_DEPRECATED
 #define __NR_alarm 1059
@@ -774,13 +851,23 @@ __SYSCALL(__NR__sysctl, sys_sysctl)
 __SYSCALL(__NR_fork, sys_fork)
 #else
 __SYSCALL(__NR_fork, sys_ni_syscall)
-#endif 
+#endif /* CONFIG_MMU */
 
 #undef __NR_syscalls
 #define __NR_syscalls (__NR_fork+1)
 
-#endif 
+#endif /* __ARCH_WANT_SYSCALL_DEPRECATED */
 
+/*
+ * 32 bit systems traditionally used different
+ * syscalls for off_t and loff_t arguments, while
+ * 64 bit systems only need the off_t version.
+ * For new 32 bit platforms, there is no need to
+ * implement the old 32 bit off_t syscalls, so
+ * they take different names.
+ * Here we map the numbers so that both versions
+ * use the same syscall table layout.
+ */
 #if __BITS_PER_LONG == 64 && !defined(__SYSCALL_COMPAT)
 #define __NR_fcntl __NR3264_fcntl
 #define __NR_statfs __NR3264_statfs
@@ -817,6 +904,11 @@ __SYSCALL(__NR_fork, sys_ni_syscall)
 
 #ifdef __KERNEL__
 
+/*
+ * These are required system calls, we should
+ * invert the logic eventually and let them
+ * be selected by default.
+ */
 #if __BITS_PER_LONG == 32
 #define __ARCH_WANT_STAT64
 #define __ARCH_WANT_SYS_LLSEEK
@@ -825,9 +917,15 @@ __SYSCALL(__NR_fork, sys_ni_syscall)
 #define __ARCH_WANT_SYS_RT_SIGSUSPEND
 #define __ARCH_WANT_COMPAT_SYS_RT_SIGSUSPEND
 
+/*
+ * "Conditional" syscalls
+ *
+ * What we want is __attribute__((weak,alias("sys_ni_syscall"))),
+ * but it doesn't work on all toolchains, so we just do it by hand
+ */
 #ifndef cond_syscall
 #define cond_syscall(x) asm(".weak\t" #x "\n\t.set\t" #x ",sys_ni_syscall")
 #endif
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_GENERIC_UNISTD_H */

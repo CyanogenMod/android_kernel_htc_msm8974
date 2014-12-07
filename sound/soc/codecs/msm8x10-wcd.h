@@ -67,6 +67,7 @@ enum msm8x10_wcd_mbhc_analog_pwr_cfg {
 	MSM8X10_WCD_NUM_ANALOG_PWR_CONFIGS,
 };
 
+/* Number of input and output Slimbus port */
 enum {
 	MSM8X10_WCD_RX1 = 0,
 	MSM8X10_WCD_RX2,
@@ -83,7 +84,7 @@ enum {
 };
 
 enum {
-	
+	/* INTR_REG 0 */
 	MSM8X10_WCD_IRQ_RESERVED_0 = 0,
 	MSM8X10_WCD_IRQ_MBHC_REMOVAL,
 	MSM8X10_WCD_IRQ_MBHC_SHORT_TERM,
@@ -92,7 +93,7 @@ enum {
 	MSM8X10_WCD_IRQ_MBHC_POTENTIAL,
 	MSM8X10_WCD_IRQ_MBHC_INSERTION,
 	MSM8X10_WCD_IRQ_MBHC_HS_DET,
-	
+	/* INTR_REG 1 */
 	MSM8X10_WCD_IRQ_PA_STARTUP,
 	MSM8X10_WCD_IRQ_BG_PRECHARGE,
 	MSM8X10_WCD_IRQ_RESERVED_1,
@@ -101,7 +102,7 @@ enum {
 	MSM8X10_WCD_IRQ_SPKR_PA_OCPL_FAULT,
 	MSM8X10_WCD_IRQ_SPKR_CLIP_FAULT,
 	MSM8X10_WCD_IRQ_RESERVED_2,
-	
+	/* INTR_REG 2 */
 	MSM8X10_WCD_IRQ_HPH_L_PA_STARTUP,
 	MSM8X10_WCD_IRQ_HPH_R_PA_STARTUP,
 	MSM8X10_WCD_IRQ_HPH_PA_OCPL_FAULT,
@@ -114,11 +115,11 @@ enum {
 };
 
 struct msm8x10_wcd_ocp_setting {
-	unsigned int	use_pdata:1; 
-	unsigned int	num_attempts:4; 
-	unsigned int	run_time:4; 
-	unsigned int	wait_time:4; 
-	unsigned int	hph_ocp_limit:3; 
+	unsigned int	use_pdata:1; /* 0 - use sys default as recommended */
+	unsigned int	num_attempts:4; /* up to 15 attempts */
+	unsigned int	run_time:4; /* in duty cycle */
+	unsigned int	wait_time:4; /* in duty cycle */
+	unsigned int	hph_ocp_limit:3; /* Headphone OCP current limit */
 };
 
 struct msm8x10_wcd_regulator {

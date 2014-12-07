@@ -16,10 +16,14 @@
 #define RS_ISR_PASS_LIMIT 256
 #define BASE_BAUD (1843200 / 16)
 
+//#define SERIAL_DEBUG_OPEN 1
+//#define SERIAL_DEBUG_INTR 1
+//#define SERIAL_DEBUG_FLOW 1
 #undef SERIAL_DEBUG_OPEN
 #undef SERIAL_DEBUG_INTR
 #undef SERIAL_DEBUG_FLOW
 #undef SERIAL_DEBUG_REG
+//#define SERIAL_DEBUG_REG 1
 
 #ifdef SERIAL_DEBUG_REG
 static u_char deb[32];
@@ -97,37 +101,41 @@ static inline void serial_outp(struct IsdnCardState *cs, int offset,
 #endif
 }
 
+/*
+ * This routine is called to set the UART divisor registers to match
+ * the specified baud rate for a serial port.
+ */
 static void change_speed(struct IsdnCardState *cs, int baud)
 {
 	int	quot = 0, baud_base;
 	unsigned cval, fcr = 0;
 
 
-	
+	/* byte size and parity */
 	cval = 0x03;
-	
+	/* Determine divisor based on baud rate */
 	baud_base = BASE_BAUD;
 	quot = baud_base / baud;
-	
+	/* If the quotient is ever zero, default to 9600 bps */
 	if (!quot)
 		quot = baud_base / 9600;
 
-	
+	/* Set up FIFO's */
 	if ((baud_base / quot) < 2400)
 		fcr = UART_FCR_ENABLE_FIFO | UART_FCR_TRIGGER_1;
 	else
 		fcr = UART_FCR_ENABLE_FIFO | UART_FCR_TRIGGER_8;
 	serial_outp(cs, UART_FCR, fcr);
-	
+	/* CTS flow control flag and modem status interrupts */
 	cs->hw.elsa.IER &= ~UART_IER_MSI;
 	cs->hw.elsa.IER |= UART_IER_MSI;
 	serial_outp(cs, UART_IER, cs->hw.elsa.IER);
 
 	debugl1(cs, "modem quot=0x%x", quot);
-	serial_outp(cs, UART_LCR, cval | UART_LCR_DLAB);
-	serial_outp(cs, UART_DLL, quot & 0xff);		
-	serial_outp(cs, UART_DLM, quot >> 8);		
-	serial_outp(cs, UART_LCR, cval);		
+	serial_outp(cs, UART_LCR, cval | UART_LCR_DLAB);/* set DLAB */
+	serial_outp(cs, UART_DLL, quot & 0xff);		/* LS of divisor */
+	serial_outp(cs, UART_DLM, quot >> 8);		/* MS of divisor */
+	serial_outp(cs, UART_LCR, cval);		/* reset DLAB */
 	serial_inp(cs, UART_RX);
 }
 
@@ -135,26 +143,47 @@ static int mstartup(struct IsdnCardState *cs)
 {
 	int retval = 0;
 
+	/*
+	 * Clear the FIFO buffers and disable them
+	 * (they will be reenabled in change_speed())
+	 */
 	serial_outp(cs, UART_FCR, (UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT));
 
+	/*
+	 * At this point there's no way the LSR could still be 0xFF;
+	 * if it is, then bail out, because there's likely no UART
+	 * here.
+	 */
 	if (serial_inp(cs, UART_LSR) == 0xff) {
 		retval = -ENODEV;
 		goto errout;
 	}
 
+	/*
+	 * Clear the interrupt registers.
+	 */
 	(void) serial_inp(cs, UART_RX);
 	(void) serial_inp(cs, UART_IIR);
 	(void) serial_inp(cs, UART_MSR);
 
-	serial_outp(cs, UART_LCR, UART_LCR_WLEN8);	
+	/*
+	 * Now, initialize the UART
+	 */
+	serial_outp(cs, UART_LCR, UART_LCR_WLEN8);	/* reset DLAB */
 
 	cs->hw.elsa.MCR = 0;
 	cs->hw.elsa.MCR = UART_MCR_DTR | UART_MCR_RTS | UART_MCR_OUT2;
 	serial_outp(cs, UART_MCR, cs->hw.elsa.MCR);
 
+	/*
+	 * Finally, enable interrupts
+	 */
 	cs->hw.elsa.IER = UART_IER_MSI | UART_IER_RLSI | UART_IER_RDI;
-	serial_outp(cs, UART_IER, cs->hw.elsa.IER);	
+	serial_outp(cs, UART_IER, cs->hw.elsa.IER);	/* enable interrupts */
 
+	/*
+	 * And clear the interrupt registers again for luck.
+	 */
 	(void)serial_inp(cs, UART_LSR);
 	(void)serial_inp(cs, UART_RX);
 	(void)serial_inp(cs, UART_IIR);
@@ -163,12 +192,19 @@ static int mstartup(struct IsdnCardState *cs)
 	cs->hw.elsa.transcnt = cs->hw.elsa.transp = 0;
 	cs->hw.elsa.rcvcnt = cs->hw.elsa.rcvp = 0;
 
+	/*
+	 * and set the speed of the serial port
+	 */
 	change_speed(cs, BASE_BAUD);
 	cs->hw.elsa.MFlag = 1;
 errout:
 	return retval;
 }
 
+/*
+ * This routine will shutdown a serial port; interrupts are disabled, and
+ * DTR is dropped if the hangup on close termio flag is on.
+ */
 static void mshutdown(struct IsdnCardState *cs)
 {
 
@@ -176,20 +212,24 @@ static void mshutdown(struct IsdnCardState *cs)
 	printk(KERN_DEBUG"Shutting down serial ....");
 #endif
 
+	/*
+	 * clear delta_msr_wait queue to avoid mem leaks: we may free the irq
+	 * here so the queue might never be waken up
+	 */
 
 	cs->hw.elsa.IER = 0;
-	serial_outp(cs, UART_IER, 0x00);	
+	serial_outp(cs, UART_IER, 0x00);	/* disable all intrs */
 	cs->hw.elsa.MCR &= ~UART_MCR_OUT2;
 
-	
+	/* disable break condition */
 	serial_outp(cs, UART_LCR, serial_inp(cs, UART_LCR) & ~UART_LCR_SBC);
 
 	cs->hw.elsa.MCR &= ~(UART_MCR_DTR | UART_MCR_RTS);
 	serial_outp(cs, UART_MCR, cs->hw.elsa.MCR);
 
-	
+	/* disable FIFO's */
 	serial_outp(cs, UART_FCR, (UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT));
-	serial_inp(cs, UART_RX);    
+	serial_inp(cs, UART_RX);    /* read data port to reset things */
 
 #ifdef SERIAL_DEBUG_OPEN
 	printk(" done\n");

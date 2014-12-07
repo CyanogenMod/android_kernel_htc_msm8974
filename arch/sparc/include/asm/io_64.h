@@ -5,13 +5,15 @@
 #include <linux/compiler.h>
 #include <linux/types.h>
 
-#include <asm/page.h>      
+#include <asm/page.h>      /* IO address mapping routines need this */
 #include <asm/asi.h>
 #include <asm-generic/pci_iomap.h>
 
+/* PC crapola... */
 #define __SLOW_DOWN_IO	do { } while (0)
 #define SLOW_DOWN_IO	do { } while (0)
 
+/* BIO layer definitions. */
 extern unsigned long kern_base, kern_size;
 #define page_to_phys(page)	(page_to_pfn(page) << PAGE_SHIFT)
 
@@ -54,7 +56,7 @@ static inline u32 _inl(unsigned long addr)
 static inline void _outb(u8 b, unsigned long addr)
 {
 	__asm__ __volatile__("stba\t%r0, [%1] %2\t/* pci_outb */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (b), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E_L)
 			     : "memory");
 }
@@ -62,7 +64,7 @@ static inline void _outb(u8 b, unsigned long addr)
 static inline void _outw(u16 w, unsigned long addr)
 {
 	__asm__ __volatile__("stha\t%r0, [%1] %2\t/* pci_outw */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (w), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E_L)
 			     : "memory");
 }
@@ -70,7 +72,7 @@ static inline void _outw(u16 w, unsigned long addr)
 static inline void _outl(u32 l, unsigned long addr)
 {
 	__asm__ __volatile__("stwa\t%r0, [%1] %2\t/* pci_outl */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (l), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E_L)
 			     : "memory");
 }
@@ -125,6 +127,7 @@ static inline void iowrite32_rep(void __iomem *port, const void *buf, unsigned l
 	outsl((unsigned long __force)port, buf, count);
 }
 
+/* Memory functions, same as I/O accesses on Ultra. */
 static inline u8 _readb(const volatile void __iomem *addr)
 {	u8 ret;
 
@@ -171,7 +174,7 @@ static inline u64 _readq(const volatile void __iomem *addr)
 static inline void _writeb(u8 b, volatile void __iomem *addr)
 {
 	__asm__ __volatile__("stba\t%r0, [%1] %2\t/* pci_writeb */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (b), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E_L)
 			     : "memory");
 }
@@ -179,7 +182,7 @@ static inline void _writeb(u8 b, volatile void __iomem *addr)
 static inline void _writew(u16 w, volatile void __iomem *addr)
 {
 	__asm__ __volatile__("stha\t%r0, [%1] %2\t/* pci_writew */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (w), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E_L)
 			     : "memory");
 }
@@ -187,7 +190,7 @@ static inline void _writew(u16 w, volatile void __iomem *addr)
 static inline void _writel(u32 l, volatile void __iomem *addr)
 {
 	__asm__ __volatile__("stwa\t%r0, [%1] %2\t/* pci_writel */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (l), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E_L)
 			     : "memory");
 }
@@ -195,7 +198,7 @@ static inline void _writel(u32 l, volatile void __iomem *addr)
 static inline void _writeq(u64 q, volatile void __iomem *addr)
 {
 	__asm__ __volatile__("stxa\t%r0, [%1] %2\t/* pci_writeq */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (q), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E_L)
 			     : "memory");
 }
@@ -213,6 +216,7 @@ static inline void _writeq(u64 q, volatile void __iomem *addr)
 #define writel(__l, __addr)	_writel(__l, __addr)
 #define writeq(__q, __addr)	_writeq(__q, __addr)
 
+/* Now versions without byte-swapping. */
 static inline u8 _raw_readb(unsigned long addr)
 {
 	u8 ret;
@@ -260,28 +264,28 @@ static inline u64 _raw_readq(unsigned long addr)
 static inline void _raw_writeb(u8 b, unsigned long addr)
 {
 	__asm__ __volatile__("stba\t%r0, [%1] %2\t/* pci_raw_writeb */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (b), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E));
 }
 
 static inline void _raw_writew(u16 w, unsigned long addr)
 {
 	__asm__ __volatile__("stha\t%r0, [%1] %2\t/* pci_raw_writew */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (w), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E));
 }
 
 static inline void _raw_writel(u32 l, unsigned long addr)
 {
 	__asm__ __volatile__("stwa\t%r0, [%1] %2\t/* pci_raw_writel */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (l), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E));
 }
 
 static inline void _raw_writeq(u64 q, unsigned long addr)
 {
 	__asm__ __volatile__("stxa\t%r0, [%1] %2\t/* pci_raw_writeq */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (q), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E));
 }
 
@@ -294,8 +298,14 @@ static inline void _raw_writeq(u64 q, unsigned long addr)
 #define __raw_writel(__l, __addr)	(_raw_writel((u32)(__l), (unsigned long)(__addr)))
 #define __raw_writeq(__q, __addr)	(_raw_writeq((u64)(__q), (unsigned long)(__addr)))
 
+/* Valid I/O Space regions are anywhere, because each PCI bus supported
+ * can live in an arbitrary area of the physical address range.
+ */
 #define IO_SPACE_LIMIT 0xffffffffffffffffUL
 
+/* Now, SBUS variants, only difference from PCI is that we do
+ * not use little-endian ASIs.
+ */
 static inline u8 _sbus_readb(const volatile void __iomem *addr)
 {
 	u8 ret;
@@ -347,7 +357,7 @@ static inline u64 _sbus_readq(const volatile void __iomem *addr)
 static inline void _sbus_writeb(u8 b, volatile void __iomem *addr)
 {
 	__asm__ __volatile__("stba\t%r0, [%1] %2\t/* sbus_writeb */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (b), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E)
 			     : "memory");
 }
@@ -355,7 +365,7 @@ static inline void _sbus_writeb(u8 b, volatile void __iomem *addr)
 static inline void _sbus_writew(u16 w, volatile void __iomem *addr)
 {
 	__asm__ __volatile__("stha\t%r0, [%1] %2\t/* sbus_writew */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (w), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E)
 			     : "memory");
 }
@@ -363,7 +373,7 @@ static inline void _sbus_writew(u16 w, volatile void __iomem *addr)
 static inline void _sbus_writel(u32 l, volatile void __iomem *addr)
 {
 	__asm__ __volatile__("stwa\t%r0, [%1] %2\t/* sbus_writel */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (l), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E)
 			     : "memory");
 }
@@ -371,7 +381,7 @@ static inline void _sbus_writel(u32 l, volatile void __iomem *addr)
 static inline void _sbus_writeq(u64 l, volatile void __iomem *addr)
 {
 	__asm__ __volatile__("stxa\t%r0, [%1] %2\t/* sbus_writeq */"
-			     : 
+			     : /* no outputs */
 			     : "Jr" (l), "r" (addr), "i" (ASI_PHYS_BYPASS_EC_E)
 			     : "memory");
 }
@@ -472,6 +482,9 @@ _memcpy_toio(volatile void __iomem *dst, const void *src, __kernel_size_t n)
 
 #ifdef __KERNEL__
 
+/* On sparc64 we have the whole physical IO address space accessible
+ * using physically addressed loads and stores, so this does nothing.
+ */
 static inline void __iomem *ioremap(unsigned long offset, unsigned long size)
 {
 	return (void __iomem *)offset;
@@ -495,9 +508,11 @@ static inline void iounmap(volatile void __iomem *addr)
 #define iowrite32(val,X)		writel(val,X)
 #define iowrite32be(val,X)		__raw_writel(val,X)
 
+/* Create a virtual mapping cookie for an IO port range */
 extern void __iomem *ioport_map(unsigned long port, unsigned int nr);
 extern void ioport_unmap(void __iomem *);
 
+/* Create a virtual mapping cookie for a PCI BAR (memory or IO) */
 struct pci_dev;
 extern void pci_iounmap(struct pci_dev *dev, void __iomem *);
 
@@ -512,10 +527,17 @@ static inline int sbus_can_burst64(void)
 struct device;
 extern void sbus_set_sbus64(struct device *, int);
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
 #define xlate_dev_mem_ptr(p)	__va(p)
 
+/*
+ * Convert a virtual cached pointer to an uncached pointer
+ */
 #define xlate_dev_kmem_ptr(p)	p
 
 #endif
 
-#endif 
+#endif /* !(__SPARC64_IO_H) */

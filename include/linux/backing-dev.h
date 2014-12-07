@@ -1,3 +1,9 @@
+/*
+ * include/linux/backing-dev.h
+ *
+ * low-level device information and state which is propagated up through
+ * to high-level code.
+ */
 
 #ifndef _LINUX_BACKING_DEV_H
 #define _LINUX_BACKING_DEV_H
@@ -16,14 +22,17 @@ struct page;
 struct device;
 struct dentry;
 
+/*
+ * Bits in backing_dev_info.state
+ */
 enum bdi_state {
-	BDI_pending,		
-	BDI_wb_alloc,		
-	BDI_async_congested,	
-	BDI_sync_congested,	
-	BDI_registered,		
-	BDI_writeback_running,	
-	BDI_unused,		
+	BDI_pending,		/* On its way to being activated */
+	BDI_wb_alloc,		/* Default embedded wb allocated */
+	BDI_async_congested,	/* The async (write) queue is getting full */
+	BDI_sync_congested,	/* The sync queue is getting full */
+	BDI_registered,		/* bdi_register() was done */
+	BDI_writeback_running,	/* Writeback is in progress */
+	BDI_unused,		/* Available bits start here */
 };
 
 typedef int (congested_fn)(void *, int);
@@ -39,38 +48,44 @@ enum bdi_stat_item {
 #define BDI_STAT_BATCH (8*(1+ilog2(nr_cpu_ids)))
 
 struct bdi_writeback {
-	struct backing_dev_info *bdi;	
+	struct backing_dev_info *bdi;	/* our parent bdi */
 	unsigned int nr;
 
-	unsigned long last_old_flush;	
-	unsigned long last_active;	
+	unsigned long last_old_flush;	/* last old data flush */
+	unsigned long last_active;	/* last time bdi thread was active */
 
-	struct task_struct *task;	
-	struct timer_list wakeup_timer; 
-	struct list_head b_dirty;	
-	struct list_head b_io;		
-	struct list_head b_more_io;	
-	spinlock_t list_lock;		
+	struct task_struct *task;	/* writeback thread */
+	struct timer_list wakeup_timer; /* used for delayed bdi thread wakeup */
+	struct list_head b_dirty;	/* dirty inodes */
+	struct list_head b_io;		/* parked for writeback */
+	struct list_head b_more_io;	/* parked for more writeback */
+	spinlock_t list_lock;		/* protects the b_* lists */
 };
 
 struct backing_dev_info {
 	struct list_head bdi_list;
-	unsigned long ra_pages;	
-	unsigned long state;	
-	unsigned int capabilities; 
-	congested_fn *congested_fn; 
-	void *congested_data;	
+	unsigned long ra_pages;	/* max readahead in PAGE_CACHE_SIZE units */
+	unsigned long state;	/* Always use atomic bitops on this */
+	unsigned int capabilities; /* Device capabilities */
+	congested_fn *congested_fn; /* Function pointer if device is md/dm */
+	void *congested_data;	/* Pointer to aux data for congested func */
 
 	char *name;
 
 	struct percpu_counter bdi_stat[NR_BDI_STAT_ITEMS];
 
-	unsigned long bw_time_stamp;	
+	unsigned long bw_time_stamp;	/* last time write bw is updated */
 	unsigned long dirtied_stamp;
 	unsigned long written_stamp;	/* pages written at bw_time_stamp */
-	unsigned long write_bandwidth;	
-	unsigned long avg_write_bandwidth; 
+	unsigned long write_bandwidth;	/* the estimated write bandwidth */
+	unsigned long avg_write_bandwidth; /* further smoothed write bw */
 
+	/*
+	 * The base dirty throttle rate, re-calculated on every 200ms.
+	 * All the bdi tasks' dirty rate will be curbed under it.
+	 * @dirty_ratelimit tracks the estimated @balanced_dirty_ratelimit
+	 * in small steps and is much more smooth/stable than the latter.
+	 */
 	unsigned long dirty_ratelimit;
 	unsigned long balanced_dirty_ratelimit;
 
@@ -80,8 +95,8 @@ struct backing_dev_info {
 	unsigned int min_ratio;
 	unsigned int max_ratio, max_prop_frac;
 
-	struct bdi_writeback wb;  
-	spinlock_t wb_lock;	  
+	struct bdi_writeback wb;  /* default writeback info for this bdi */
+	spinlock_t wb_lock;	  /* protects work_list */
 
 	struct list_head work_list;
 
@@ -188,6 +203,9 @@ static inline s64 bdi_stat_sum(struct backing_dev_info *bdi,
 
 extern void bdi_writeout_inc(struct backing_dev_info *bdi);
 
+/*
+ * maximal error of a stat counter.
+ */
 static inline unsigned long bdi_stat_error(struct backing_dev_info *bdi)
 {
 #ifdef CONFIG_SMP
@@ -200,6 +218,32 @@ static inline unsigned long bdi_stat_error(struct backing_dev_info *bdi)
 int bdi_set_min_ratio(struct backing_dev_info *bdi, unsigned int min_ratio);
 int bdi_set_max_ratio(struct backing_dev_info *bdi, unsigned int max_ratio);
 
+/*
+ * Flags in backing_dev_info::capability
+ *
+ * The first three flags control whether dirty pages will contribute to the
+ * VM's accounting and whether writepages() should be called for dirty pages
+ * (something that would not, for example, be appropriate for ramfs)
+ *
+ * WARNING: these flags are closely related and should not normally be
+ * used separately.  The BDI_CAP_NO_ACCT_AND_WRITEBACK combines these
+ * three flags into a single convenience macro.
+ *
+ * BDI_CAP_NO_ACCT_DIRTY:  Dirty pages shouldn't contribute to accounting
+ * BDI_CAP_NO_WRITEBACK:   Don't write pages back
+ * BDI_CAP_NO_ACCT_WB:     Don't automatically account writeback pages
+ *
+ * These flags let !MMU mmap() govern direct device mapping vs immediate
+ * copying more easily for MAP_PRIVATE, especially for ROM filesystems.
+ *
+ * BDI_CAP_MAP_COPY:       Copy can be mapped (MAP_PRIVATE)
+ * BDI_CAP_MAP_DIRECT:     Can be mapped directly (MAP_SHARED)
+ * BDI_CAP_READ_MAP:       Can be mapped for reading
+ * BDI_CAP_WRITE_MAP:      Can be mapped for writing
+ * BDI_CAP_EXEC_MAP:       Can be mapped for execution
+ *
+ * BDI_CAP_SWAP_BACKED:    Count shmem/tmpfs objects as swap-backed.
+ */
 #define BDI_CAP_NO_ACCT_DIRTY	0x00000001
 #define BDI_CAP_NO_WRITEBACK	0x00000002
 #define BDI_CAP_MAP_COPY	0x00000004
@@ -273,7 +317,7 @@ static inline bool bdi_cap_account_dirty(struct backing_dev_info *bdi)
 
 static inline bool bdi_cap_account_writeback(struct backing_dev_info *bdi)
 {
-	
+	/* Paranoia: BDI_CAP_NO_WRITEBACK implies BDI_CAP_NO_ACCT_WB */
 	return !(bdi->capabilities & (BDI_CAP_NO_ACCT_WB |
 				      BDI_CAP_NO_WRITEBACK));
 }
@@ -309,4 +353,4 @@ static inline int bdi_sched_wait(void *word)
 	return 0;
 }
 
-#endif		
+#endif		/* _LINUX_BACKING_DEV_H */

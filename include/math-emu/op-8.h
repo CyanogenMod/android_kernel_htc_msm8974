@@ -24,6 +24,8 @@
 #ifndef __MATH_EMU_OP_8_H__
 #define __MATH_EMU_OP_8_H__
 
+/* We need just a few things from here for op-4, if we ever need some
+   other macros, they can be added. */
 #define _FP_FRAC_DECL_8(X)	_FP_W_TYPE X##_f[8]
 #define _FP_FRAC_HIGH_8(X)	(X##_f[7])
 #define _FP_FRAC_LOW_8(X)	(X##_f[0])
@@ -70,6 +72,11 @@
   } while (0)
 
 
+/* Right shift with sticky-lsb. 
+ * What this actually means is that we do a standard right-shift,
+ * but that if any of the bits that fall off the right hand side
+ * were one then we always set the LSbit.
+ */
 #define _FP_FRAC_SRS_8(X,N,size)					\
   do {									\
     _FP_I_TYPE _up, _down, _skip, _i;					\
@@ -80,7 +87,7 @@
     for (_s = _i = 0; _i < _skip; ++_i)					\
       _s |= X##_f[_i];							\
     _s |= X##_f[_i] << _up;						\
-				\
+/* s is now != 0 if we want to set the LSbit */				\
     if (!_down)								\
       for (_i = 0; _i <= 7-_skip; ++_i)					\
 	X##_f[_i] = X##_f[_i+_skip];					\
@@ -93,7 +100,7 @@
       }									\
     for (; _i < 8; ++_i)						\
       X##_f[_i] = 0;							\
-    	\
+    /* don't fix the LSB until the very end when we're sure f[0] is stable */	\
     X##_f[0] |= (_s != 0);						\
   } while (0)
 

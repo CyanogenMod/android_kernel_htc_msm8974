@@ -78,6 +78,7 @@ struct insn {
 	enum fields fields;
 };
 
+/* This macro sets the non-variable bits of an instruction. */
 #define M(a, b, c, d, e, f)					\
 	((a) << OP_SH						\
 	 | (b) << RS_SH						\
@@ -236,6 +237,10 @@ static inline __uasminit u32 build_set(u32 arg)
 	return arg & SET_MASK;
 }
 
+/*
+ * The order of opcode arguments is implicitly left to right,
+ * starting with RS and ending with FUNC or IMM.
+ */
 static void __uasminit build_insn(u32 **buf, enum opcode opc, ...)
 {
 	struct insn *ip = NULL;
@@ -433,6 +438,10 @@ void __uasminit uasm_i_pref(u32 **buf, unsigned int a, signed int b,
 			    unsigned int c)
 {
 	if (OCTEON_IS_MODEL(OCTEON_CN63XX_PASS1_X) && a <= 24 && a != 5)
+		/*
+		 * As per erratum Core-14449, replace prefetches 0-4,
+		 * 6-24 with 'pref 28'.
+		 */
 		build_insn(buf, insn_pref, c, 28, b);
 	else
 		build_insn(buf, insn_pref, c, a, b);
@@ -442,6 +451,7 @@ UASM_EXPORT_SYMBOL(uasm_i_pref);
 I_u2s3u1(_pref)
 #endif
 
+/* Handle labels. */
 void __uasminit uasm_build_label(struct uasm_label **lab, u32 *addr, int lid)
 {
 	(*lab)->addr = addr;
@@ -452,7 +462,7 @@ UASM_EXPORT_SYMBOL(uasm_build_label);
 
 int __uasminit uasm_in_compat_space_p(long addr)
 {
-	
+	/* Is this address in 32bit compat space? */
 #ifdef CONFIG_64BIT
 	return (((addr) & 0xffffffff00000000L) == 0xffffffff00000000L);
 #else
@@ -520,6 +530,7 @@ void __uasminit UASM_i_LA(u32 **buf, unsigned int rs, long addr)
 }
 UASM_EXPORT_SYMBOL(UASM_i_LA);
 
+/* Handle relocations. */
 void __uasminit
 uasm_r_mips_pc16(struct uasm_reloc **rel, u32 *addr, int lid)
 {
@@ -603,6 +614,7 @@ int __uasminit uasm_insn_has_bdelay(struct uasm_reloc *rel, u32 *addr)
 }
 UASM_EXPORT_SYMBOL(uasm_insn_has_bdelay);
 
+/* Convenience functions for labeled branches. */
 void __uasminit
 uasm_il_bltz(u32 **p, struct uasm_reloc **r, unsigned int reg, int lid)
 {

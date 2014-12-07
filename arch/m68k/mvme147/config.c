@@ -45,6 +45,8 @@ extern void mvme147_reset (void);
 
 static int bcd2int (unsigned char b);
 
+/* Save tick handler routine pointer, will point to xtime_update() in
+ * kernel/time/timekeeping.c, called via mvme147_process_int() */
 
 irq_handler_t tick_handler;
 
@@ -60,8 +62,8 @@ int mvme147_parse_bootinfo(const struct bi_record *bi)
 void mvme147_reset(void)
 {
 	printk ("\r\n\nCalled mvme147_reset\r\n");
-	m147_pcc->watchdog = 0x0a;	
-	m147_pcc->watchdog = 0xa5;	
+	m147_pcc->watchdog = 0x0a;	/* Clear timer */
+	m147_pcc->watchdog = 0xa5;	/* Enable watchdog - 100ms to reset */
 	while (1)
 		;
 }
@@ -71,6 +73,10 @@ static void mvme147_get_model(char *model)
 	sprintf(model, "Motorola MVME147");
 }
 
+/*
+ * This function is called during kernel startup to initialize
+ * the mvme147 IRQ handling routines.
+ */
 
 void __init mvme147_init_IRQ(void)
 {
@@ -88,12 +94,13 @@ void __init config_mvme147(void)
 	mach_reset		= mvme147_reset;
 	mach_get_model		= mvme147_get_model;
 
-	
+	/* Board type is only set by newer versions of vmelilo/tftplilo */
 	if (!vme_brdtype)
 		vme_brdtype = VME_TYPE_MVME147;
 }
 
 
+/* Using pcc tick timer 1 */
 
 static irqreturn_t mvme147_timer_int (int irq, void *dev_id)
 {
@@ -109,15 +116,17 @@ void mvme147_sched_init (irq_handler_t timer_routine)
 	if (request_irq(PCC_IRQ_TIMER1, mvme147_timer_int, 0, "timer 1", NULL))
 		pr_err("Couldn't register timer interrupt\n");
 
-	
-	
+	/* Init the clock with a value */
+	/* our clock goes off every 6.25us */
 	m147_pcc->t1_preload = PCC_TIMER_PRELOAD;
-	m147_pcc->t1_cntrl = 0x0;	
-	m147_pcc->t1_cntrl = 0x3;	
-	m147_pcc->t1_int_cntrl = PCC_TIMER_INT_CLR;  
+	m147_pcc->t1_cntrl = 0x0;	/* clear timer */
+	m147_pcc->t1_cntrl = 0x3;	/* start timer */
+	m147_pcc->t1_int_cntrl = PCC_TIMER_INT_CLR;  /* clear pending ints */
 	m147_pcc->t1_int_cntrl = PCC_INT_ENAB|PCC_LEVEL_TIMER1;
 }
 
+/* This is always executed with interrupts disabled.  */
+/* XXX There are race hazards in this code XXX */
 unsigned long mvme147_gettimeoffset (void)
 {
 	volatile unsigned short *cp = (volatile unsigned short *)0xfffe1012;
@@ -157,6 +166,7 @@ int mvme147_set_clock_mmss (unsigned long nowtime)
 	return 0;
 }
 
+/*-------------------  Serial console stuff ------------------------*/
 
 static void scc_delay (void)
 {

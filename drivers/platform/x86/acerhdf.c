@@ -40,16 +40,40 @@
 #include <linux/thermal.h>
 #include <linux/platform_device.h>
 
+/*
+ * The driver is started with "kernel mode off" by default. That means, the BIOS
+ * is still in control of the fan. In this mode the driver allows to read the
+ * temperature of the cpu and a userspace tool may take over control of the fan.
+ * If the driver is switched to "kernel mode" (e.g. via module parameter) the
+ * driver is in full control of the fan. If you want the module to be started in
+ * kernel mode by default, define the following:
+ */
 #undef START_IN_KERNEL_MODE
 
 #define DRV_VER "0.5.26"
 
+/*
+ * According to the Atom N270 datasheet,
+ * (http://download.intel.com/design/processor/datashts/320032.pdf) the
+ * CPU's optimal operating limits denoted in junction temperature as
+ * measured by the on-die thermal monitor are within 0 <= Tj <= 90. So,
+ * assume 89°C is critical temperature.
+ */
 #define ACERHDF_TEMP_CRIT 89000
 #define ACERHDF_FAN_OFF 0
 #define ACERHDF_FAN_AUTO 1
 
+/*
+ * No matter what value the user puts into the fanon variable, turn on the fan
+ * at 80 degree Celsius to prevent hardware damage
+ */
 #define ACERHDF_MAX_FANON 80000
 
+/*
+ * Maximum interval between two temperature checks is 15 seconds, as the die
+ * can get hot really fast under heavy load (plus we shouldn't forget about
+ * possible impact of _external_ aggressive sources such as heaters, sun etc.)
+ */
 #define ACERHDF_MAX_INTERVAL 15
 
 #ifdef START_IN_KERNEL_MODE
@@ -85,11 +109,17 @@ MODULE_PARM_DESC(force_bios, "Force BIOS version and omit BIOS check");
 module_param_string(force_product, force_product, 16, 0);
 MODULE_PARM_DESC(force_product, "Force BIOS product and omit BIOS check");
 
+/*
+ * cmd_off: to switch the fan completely off and check if the fan is off
+ *	cmd_auto: to set the BIOS in control of the fan. The BIOS regulates then
+ *		the fan speed depending on the temperature
+ */
 struct fancmd {
 	u8 cmd_off;
 	u8 cmd_auto;
 };
 
+/* BIOS settings */
 struct bios_settings_t {
 	const char *vendor;
 	const char *product;
@@ -99,8 +129,9 @@ struct bios_settings_t {
 	struct fancmd cmd;
 };
 
+/* Register addresses and values for different BIOS versions */
 static const struct bios_settings_t bios_tbl[] = {
-	
+	/* AOA110 */
 	{"Acer", "AOA110", "v0.3109", 0x55, 0x58, {0x1f, 0x00} },
 	{"Acer", "AOA110", "v0.3114", 0x55, 0x58, {0x1f, 0x00} },
 	{"Acer", "AOA110", "v0.3301", 0x55, 0x58, {0xaf, 0x00} },
@@ -110,7 +141,7 @@ static const struct bios_settings_t bios_tbl[] = {
 	{"Acer", "AOA110", "v0.3308", 0x55, 0x58, {0x21, 0x00} },
 	{"Acer", "AOA110", "v0.3309", 0x55, 0x58, {0x21, 0x00} },
 	{"Acer", "AOA110", "v0.3310", 0x55, 0x58, {0x21, 0x00} },
-	
+	/* AOA150 */
 	{"Acer", "AOA150", "v0.3114", 0x55, 0x58, {0x1f, 0x00} },
 	{"Acer", "AOA150", "v0.3301", 0x55, 0x58, {0x20, 0x00} },
 	{"Acer", "AOA150", "v0.3304", 0x55, 0x58, {0x20, 0x00} },
@@ -119,9 +150,9 @@ static const struct bios_settings_t bios_tbl[] = {
 	{"Acer", "AOA150", "v0.3308", 0x55, 0x58, {0x20, 0x00} },
 	{"Acer", "AOA150", "v0.3309", 0x55, 0x58, {0x20, 0x00} },
 	{"Acer", "AOA150", "v0.3310", 0x55, 0x58, {0x20, 0x00} },
-	
+	/* LT1005u */
 	{"Acer", "LT-10Q", "v0.3310", 0x55, 0x58, {0x20, 0x00} },
-	
+	/* Acer 1410 */
 	{"Acer", "Aspire 1410", "v0.3108", 0x55, 0x58, {0x9e, 0x00} },
 	{"Acer", "Aspire 1410", "v0.3113", 0x55, 0x58, {0x9e, 0x00} },
 	{"Acer", "Aspire 1410", "v0.3115", 0x55, 0x58, {0x9e, 0x00} },
@@ -133,7 +164,7 @@ static const struct bios_settings_t bios_tbl[] = {
 	{"Acer", "Aspire 1410", "v1.3308", 0x55, 0x58, {0x9e, 0x00} },
 	{"Acer", "Aspire 1410", "v1.3310", 0x55, 0x58, {0x9e, 0x00} },
 	{"Acer", "Aspire 1410", "v1.3314", 0x55, 0x58, {0x9e, 0x00} },
-	
+	/* Acer 1810xx */
 	{"Acer", "Aspire 1810TZ", "v0.3108", 0x55, 0x58, {0x9e, 0x00} },
 	{"Acer", "Aspire 1810T",  "v0.3108", 0x55, 0x58, {0x9e, 0x00} },
 	{"Acer", "Aspire 1810TZ", "v0.3113", 0x55, 0x58, {0x9e, 0x00} },
@@ -156,25 +187,25 @@ static const struct bios_settings_t bios_tbl[] = {
 	{"Acer", "Aspire 1810T",  "v1.3310", 0x55, 0x58, {0x9e, 0x00} },
 	{"Acer", "Aspire 1810TZ", "v1.3314", 0x55, 0x58, {0x9e, 0x00} },
 	{"Acer", "Aspire 1810T",  "v1.3314", 0x55, 0x58, {0x9e, 0x00} },
-	
+	/* Acer 531 */
 	{"Acer", "AO531h", "v0.3104", 0x55, 0x58, {0x20, 0x00} },
 	{"Acer", "AO531h", "v0.3201", 0x55, 0x58, {0x20, 0x00} },
 	{"Acer", "AO531h", "v0.3304", 0x55, 0x58, {0x20, 0x00} },
-	
+	/* Acer 751 */
 	{"Acer", "AO751h", "V0.3212", 0x55, 0x58, {0x21, 0x00} },
-	
+	/* Acer 1825 */
 	{"Acer", "Aspire 1825PTZ", "V1.3118", 0x55, 0x58, {0x9e, 0x00} },
 	{"Acer", "Aspire 1825PTZ", "V1.3127", 0x55, 0x58, {0x9e, 0x00} },
-	
+	/* Acer TravelMate 7730 */
 	{"Acer", "TravelMate 7730G", "v0.3509", 0x55, 0x58, {0xaf, 0x00} },
-	
+	/* Gateway */
 	{"Gateway", "AOA110", "v0.3103",  0x55, 0x58, {0x21, 0x00} },
 	{"Gateway", "AOA150", "v0.3103",  0x55, 0x58, {0x20, 0x00} },
 	{"Gateway", "LT31",   "v1.3103",  0x55, 0x58, {0x9e, 0x00} },
 	{"Gateway", "LT31",   "v1.3201",  0x55, 0x58, {0x9e, 0x00} },
 	{"Gateway", "LT31",   "v1.3302",  0x55, 0x58, {0x9e, 0x00} },
 	{"Gateway", "LT31",   "v1.3303t", 0x55, 0x58, {0x9e, 0x00} },
-	
+	/* Packard Bell */
 	{"Packard Bell", "DOA150",  "v0.3104",  0x55, 0x58, {0x21, 0x00} },
 	{"Packard Bell", "DOA150",  "v0.3105",  0x55, 0x58, {0x20, 0x00} },
 	{"Packard Bell", "AOA110",  "v0.3105",  0x55, 0x58, {0x21, 0x00} },
@@ -193,7 +224,7 @@ static const struct bios_settings_t bios_tbl[] = {
 	{"Packard Bell", "DOTMA",   "v1.3302",  0x55, 0x58, {0x9e, 0x00} },
 	{"Packard Bell", "DOTMA",   "v1.3303t", 0x55, 0x58, {0x9e, 0x00} },
 	{"Packard Bell", "DOTVR46", "v1.3308",  0x55, 0x58, {0x9e, 0x00} },
-	
+	/* pewpew-terminator */
 	{"", "", "", 0, 0, {0, 0} }
 };
 
@@ -267,6 +298,12 @@ static void acerhdf_check_param(struct thermal_zone_device *thermal)
 	}
 }
 
+/*
+ * This is the thermal zone callback which does the delayed polling of the fan
+ * state. We do check /sysfs-originating settings here in acerhdf_check_param()
+ * as late as the polling interval is since we can't do that in the respective
+ * accessors of the module parameters.
+ */
 static int acerhdf_get_ec_temp(struct thermal_zone_device *thermal,
 			       unsigned long *t)
 {
@@ -288,7 +325,7 @@ static int acerhdf_get_ec_temp(struct thermal_zone_device *thermal,
 static int acerhdf_bind(struct thermal_zone_device *thermal,
 			struct thermal_cooling_device *cdev)
 {
-	
+	/* if the cooling device is the one from acerhdf bind it */
 	if (cdev != cl_dev)
 		return 0;
 
@@ -341,6 +378,12 @@ static int acerhdf_get_mode(struct thermal_zone_device *thermal,
 	return 0;
 }
 
+/*
+ * set operation mode;
+ * enabled: the thermal layer of the kernel takes care about
+ *          the temperature and the fan.
+ * disabled: the BIOS takes control of the fan.
+ */
 static int acerhdf_set_mode(struct thermal_zone_device *thermal,
 			    enum thermal_device_mode mode)
 {
@@ -377,6 +420,7 @@ static int acerhdf_get_crit_temp(struct thermal_zone_device *thermal,
 	return 0;
 }
 
+/* bind callback functions to thermalzone */
 static struct thermal_zone_device_ops acerhdf_dev_ops = {
 	.bind = acerhdf_bind,
 	.unbind = acerhdf_unbind,
@@ -389,6 +433,10 @@ static struct thermal_zone_device_ops acerhdf_dev_ops = {
 };
 
 
+/*
+ * cooling device callback functions
+ * get maximal fan cooling state
+ */
 static int acerhdf_get_max_state(struct thermal_cooling_device *cdev,
 				 unsigned long *state)
 {
@@ -432,7 +480,7 @@ static int acerhdf_set_cur_state(struct thermal_cooling_device *cdev,
 	}
 
 	if (state == 0) {
-		
+		/* turn fan off only if below fanoff temperature */
 		if ((cur_state == ACERHDF_FAN_AUTO) &&
 		    (cur_temp < fanoff))
 			acerhdf_change_fanstate(ACERHDF_FAN_OFF);
@@ -447,12 +495,14 @@ err_out:
 	return -EINVAL;
 }
 
+/* bind fan callbacks to fan device */
 static struct thermal_cooling_device_ops acerhdf_cooling_ops = {
 	.get_max_state = acerhdf_get_max_state,
 	.get_cur_state = acerhdf_get_cur_state,
 	.set_cur_state = acerhdf_set_cur_state,
 };
 
+/* suspend / resume functionality */
 static int acerhdf_suspend(struct device *dev)
 {
 	if (kernelmode)
@@ -489,6 +539,7 @@ static struct platform_driver acerhdf_driver = {
 	.remove = acerhdf_remove,
 };
 
+/* checks if str begins with start */
 static int str_starts_with(const char *str, const char *start)
 {
 	unsigned long str_len = 0, start_len = 0;
@@ -503,12 +554,13 @@ static int str_starts_with(const char *str, const char *start)
 	return 0;
 }
 
+/* check hardware */
 static int acerhdf_check_hardware(void)
 {
 	char const *vendor, *version, *product;
 	const struct bios_settings_t *bt = NULL;
 
-	
+	/* get BIOS data */
 	vendor  = dmi_get_system_info(DMI_SYS_VENDOR);
 	version = dmi_get_system_info(DMI_BIOS_VERSION);
 	product = dmi_get_system_info(DMI_PRODUCT_NAME);
@@ -536,8 +588,12 @@ static int acerhdf_check_hardware(void)
 		pr_info("BIOS info: %s %s, product: %s\n",
 			vendor, version, product);
 
-	
+	/* search BIOS version and vendor in BIOS settings table */
 	for (bt = bios_tbl; bt->vendor[0]; bt++) {
+		/*
+		 * check if actual hardware BIOS vendor, product and version
+		 * IDs start with the strings of BIOS table entry
+		 */
 		if (str_starts_with(vendor, bt->vendor) &&
 				str_starts_with(product, bt->product) &&
 				str_starts_with(version, bt->version)) {
@@ -552,6 +608,10 @@ static int acerhdf_check_hardware(void)
 		return -EINVAL;
 	}
 
+	/*
+	 * if started with kernel mode off, prevent the kernel from switching
+	 * off the fan
+	 */
 	if (!kernelmode) {
 		pr_notice("Fan control off, to enable do:\n");
 		pr_notice("echo -n \"enabled\" > /sys/class/thermal/thermal_zone0/mode\n");

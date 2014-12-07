@@ -13,6 +13,10 @@
 #ifndef JFFS2_SUMMARY_H
 #define JFFS2_SUMMARY_H
 
+/* Limit summary size to 64KiB so that we can kmalloc it. If the summary
+   is larger than that, we have to just ditch it and avoid using summary
+   for the eraseblock in question... and it probably doesn't hurt us much
+   anyway. */
 #define MAX_SUMMARY_SIZE 65536
 
 #include <linux/uio.h>
@@ -31,47 +35,48 @@
 #define JFFS2_SUMMARY_XATTR_SIZE (sizeof(struct jffs2_sum_xattr_flash))
 #define JFFS2_SUMMARY_XREF_SIZE (sizeof(struct jffs2_sum_xref_flash))
 
+/* Summary structures used on flash */
 
 struct jffs2_sum_unknown_flash
 {
-	jint16_t nodetype;	
+	jint16_t nodetype;	/* node type */
 };
 
 struct jffs2_sum_inode_flash
 {
-	jint16_t nodetype;	
-	jint32_t inode;		
-	jint32_t version;	
-	jint32_t offset;	
-	jint32_t totlen; 	
+	jint16_t nodetype;	/* node type */
+	jint32_t inode;		/* inode number */
+	jint32_t version;	/* inode version */
+	jint32_t offset;	/* offset on jeb */
+	jint32_t totlen; 	/* record length */
 } __attribute__((packed));
 
 struct jffs2_sum_dirent_flash
 {
-	jint16_t nodetype;	
-	jint32_t totlen;	
-	jint32_t offset;	
-	jint32_t pino;		
-	jint32_t version;	
-	jint32_t ino; 		
-	uint8_t nsize;		
-	uint8_t type;		
-	uint8_t name[0];	
+	jint16_t nodetype;	/* == JFFS_NODETYPE_DIRENT */
+	jint32_t totlen;	/* record length */
+	jint32_t offset;	/* offset on jeb */
+	jint32_t pino;		/* parent inode */
+	jint32_t version;	/* dirent version */
+	jint32_t ino; 		/* == zero for unlink */
+	uint8_t nsize;		/* dirent name size */
+	uint8_t type;		/* dirent type */
+	uint8_t name[0];	/* dirent name */
 } __attribute__((packed));
 
 struct jffs2_sum_xattr_flash
 {
-	jint16_t nodetype;	
-	jint32_t xid;		
-	jint32_t version;	
-	jint32_t offset;	
-	jint32_t totlen;	
+	jint16_t nodetype;	/* == JFFS2_NODETYPE_XATR */
+	jint32_t xid;		/* xattr identifier */
+	jint32_t version;	/* version number */
+	jint32_t offset;	/* offset on jeb */
+	jint32_t totlen;	/* node length */
 } __attribute__((packed));
 
 struct jffs2_sum_xref_flash
 {
-	jint16_t nodetype;	
-	jint32_t offset;	
+	jint16_t nodetype;	/* == JFFS2_NODETYPE_XREF */
+	jint32_t offset;	/* offset on jeb */
 } __attribute__((packed));
 
 union jffs2_sum_flash
@@ -83,35 +88,36 @@ union jffs2_sum_flash
 	struct jffs2_sum_xref_flash r;
 };
 
+/* Summary structures used in the memory */
 
 struct jffs2_sum_unknown_mem
 {
 	union jffs2_sum_mem *next;
-	jint16_t nodetype;	
+	jint16_t nodetype;	/* node type */
 };
 
 struct jffs2_sum_inode_mem
 {
 	union jffs2_sum_mem *next;
-	jint16_t nodetype;	
-	jint32_t inode;		
-	jint32_t version;	
-	jint32_t offset;	
-	jint32_t totlen; 	
+	jint16_t nodetype;	/* node type */
+	jint32_t inode;		/* inode number */
+	jint32_t version;	/* inode version */
+	jint32_t offset;	/* offset on jeb */
+	jint32_t totlen; 	/* record length */
 } __attribute__((packed));
 
 struct jffs2_sum_dirent_mem
 {
 	union jffs2_sum_mem *next;
-	jint16_t nodetype;	
-	jint32_t totlen;	
-	jint32_t offset;	
-	jint32_t pino;		
-	jint32_t version;	
-	jint32_t ino; 		
-	uint8_t nsize;		
-	uint8_t type;		
-	uint8_t name[0];	
+	jint16_t nodetype;	/* == JFFS_NODETYPE_DIRENT */
+	jint32_t totlen;	/* record length */
+	jint32_t offset;	/* ofset on jeb */
+	jint32_t pino;		/* parent inode */
+	jint32_t version;	/* dirent version */
+	jint32_t ino; 		/* == zero for unlink */
+	uint8_t nsize;		/* dirent name size */
+	uint8_t type;		/* dirent type */
+	uint8_t name[0];	/* dirent name */
 } __attribute__((packed));
 
 struct jffs2_sum_xattr_mem
@@ -140,28 +146,30 @@ union jffs2_sum_mem
 	struct jffs2_sum_xref_mem r;
 };
 
+/* Summary related information stored in superblock */
 
 struct jffs2_summary
 {
-	uint32_t sum_size;      
+	uint32_t sum_size;      /* collected summary information for nextblock */
 	uint32_t sum_num;
 	uint32_t sum_padded;
 	union jffs2_sum_mem *sum_list_head;
 	union jffs2_sum_mem *sum_list_tail;
 
-	jint32_t *sum_buf;	
+	jint32_t *sum_buf;	/* buffer for writing out summary */
 };
 
+/* Summary marker is stored at the end of every sumarized erase block */
 
 struct jffs2_sum_marker
 {
-	jint32_t offset;	
-	jint32_t magic; 	
+	jint32_t offset;	/* offset of the summary node in the jeb */
+	jint32_t magic; 	/* == JFFS2_SUM_MAGIC */
 };
 
 #define JFFS2_SUMMARY_FRAME_SIZE (sizeof(struct jffs2_raw_summary) + sizeof(struct jffs2_sum_marker))
 
-#ifdef CONFIG_JFFS2_SUMMARY	
+#ifdef CONFIG_JFFS2_SUMMARY	/* SUMMARY SUPPORT ENABLED */
 
 #define jffs2_sum_active() (1)
 int jffs2_sum_init(struct jffs2_sb_info *c);
@@ -182,7 +190,7 @@ int jffs2_sum_scan_sumnode(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb
 			   struct jffs2_raw_summary *summary, uint32_t sumlen,
 			   uint32_t *pseudo_random);
 
-#else				
+#else				/* SUMMARY DISABLED */
 
 #define jffs2_sum_active() (0)
 #define jffs2_sum_init(a) (0)
@@ -200,6 +208,6 @@ int jffs2_sum_scan_sumnode(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb
 #define jffs2_sum_add_xref_mem(a,b,c)
 #define jffs2_sum_scan_sumnode(a,b,c,d,e) (0)
 
-#endif 
+#endif /* CONFIG_JFFS2_SUMMARY */
 
-#endif 
+#endif /* JFFS2_SUMMARY_H */

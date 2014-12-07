@@ -1,6 +1,11 @@
 #ifndef __ASM_SH_ATOMIC_LLSC_H
 #define __ASM_SH_ATOMIC_LLSC_H
 
+/*
+ * To get proper branch prediction for the main line, we must branch
+ * forward to code at the end of this object's .text section, then
+ * branch back to restart the operation.
+ */
 static inline void atomic_add(int i, atomic_t *v)
 {
 	unsigned long tmp;
@@ -29,6 +34,14 @@ static inline void atomic_sub(int i, atomic_t *v)
 	: "t");
 }
 
+/*
+ * SH-4A note:
+ *
+ * We basically get atomic_xxx_return() for free compared with
+ * atomic_xxx(). movli.l/movco.l require r0 due to the instruction
+ * encoding, so the retval is automatically set without having to
+ * do any special work.
+ */
 static inline int atomic_add_return(int i, atomic_t *v)
 {
 	unsigned long temp;
@@ -91,4 +104,4 @@ static inline void atomic_set_mask(unsigned int mask, atomic_t *v)
 	: "t");
 }
 
-#endif 
+#endif /* __ASM_SH_ATOMIC_LLSC_H */

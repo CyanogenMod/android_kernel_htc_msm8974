@@ -96,7 +96,7 @@ send_layer2(struct mISDNstack *st, struct sk_buff *skb)
 	if (!st)
 		return;
 	mutex_lock(&st->lmutex);
-	if ((hh->id & MISDN_ID_ADDR_MASK) == MISDN_ID_ANY) { 
+	if ((hh->id & MISDN_ID_ADDR_MASK) == MISDN_ID_ANY) { /* L2 for all */
 		list_for_each_entry(ch, &st->layer2, list) {
 			if (list_is_last(&ch->list, &st->layer2)) {
 				cskb = skb;
@@ -186,7 +186,7 @@ send_msg_to_layer(struct mISDNstack *st, struct sk_buff *skb)
 			       __func__, dev_name(&st->dev->dev), hh->prim,
 			       hh->id);
 	} else {
-		
+		/* broadcast not handled yet */
 		printk(KERN_WARNING "%s: dev(%s) prim %x not delivered\n",
 		       __func__, dev_name(&st->dev->dev), hh->prim);
 	}
@@ -227,7 +227,7 @@ mISDNStackd(void *data)
 			if (!skb) {
 				test_and_clear_bit(mISDN_STACK_WORK,
 						   &st->status);
-				
+				/* test if a race happens */
 				skb = skb_dequeue(&st->msgq);
 				if (!skb)
 					continue;
@@ -552,7 +552,7 @@ create_l2entity(struct mISDNdevice *dev, struct mISDNchannel *ch,
 			add_layer2(rq.ch, dev->D.st);
 			rq.ch->recv = mISDN_queue_message;
 			rq.ch->peer = &dev->D.st->own;
-			rq.ch->ctrl(rq.ch, OPEN_CHANNEL, NULL); 
+			rq.ch->ctrl(rq.ch, OPEN_CHANNEL, NULL); /* can't fail */
 		}
 		break;
 	default:

@@ -13,7 +13,11 @@ extern void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 
 #define activate_mm(prev,next) switch_mm((prev),(next),NULL)
 
+/* current active pgd - this is similar to other processors pgd 
+ * registers like cr3 on the i386
+ */
 
+/* defined in arch/cris/mm/fault.c */
 DECLARE_PER_CPU(pgd_t *, current_pgd);
 
 static inline void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)

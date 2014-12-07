@@ -18,7 +18,7 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7,
 	WDT, EDMAC, CMT0, CMT1,
 	SCIF0, SCIF1, SCIF2,
@@ -47,13 +47,13 @@ static struct intc_vect vectors[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xf8140006, 0, 16, 4,  { IRQ0, IRQ1, IRQ2, IRQ3 } },
-	{ 0xf8140008, 0, 16, 4,  { IRQ4, IRQ5, IRQ6, IRQ7 } },
-	{ 0xf8080000, 0, 16, 4,  { WDT, EDMAC, CMT0, CMT1 } },
-	{ 0xf8080002, 0, 16, 4,  { SCIF0, SCIF1, SCIF2 } },
-	{ 0xf8080004, 0, 16, 4,  { HIF_HIFI, HIF_HIFBI } },
-	{ 0xf8080006, 0, 16, 4,  { DMAC0, DMAC1, DMAC2, DMAC3 } },
-	{ 0xf8080008, 0, 16, 4,  { SIOF } },
+	{ 0xf8140006, 0, 16, 4, /* IPRA */ { IRQ0, IRQ1, IRQ2, IRQ3 } },
+	{ 0xf8140008, 0, 16, 4, /* IPRB */ { IRQ4, IRQ5, IRQ6, IRQ7 } },
+	{ 0xf8080000, 0, 16, 4, /* IPRC */ { WDT, EDMAC, CMT0, CMT1 } },
+	{ 0xf8080002, 0, 16, 4, /* IPRD */ { SCIF0, SCIF1, SCIF2 } },
+	{ 0xf8080004, 0, 16, 4, /* IPRE */ { HIF_HIFI, HIF_HIFBI } },
+	{ 0xf8080006, 0, 16, 4, /* IPRF */ { DMAC0, DMAC1, DMAC2, DMAC3 } },
+	{ 0xf8080008, 0, 16, 4, /* IPRG */ { SIOF } },
 };
 
 static DECLARE_INTC_DESC(intc_desc, "sh7619", vectors, NULL,
@@ -137,7 +137,7 @@ static struct sh_timer_config cmt0_platform_data = {
 	.channel_offset = 0x02,
 	.timer_bit = 0,
 	.clockevent_rating = 125,
-	.clocksource_rating = 0, 
+	.clocksource_rating = 0, /* disabled due to code generation issues */
 };
 
 static struct resource cmt0_resources[] = {
@@ -166,7 +166,7 @@ static struct sh_timer_config cmt1_platform_data = {
 	.channel_offset = 0x08,
 	.timer_bit = 1,
 	.clockevent_rating = 125,
-	.clocksource_rating = 0, 
+	.clocksource_rating = 0, /* disabled due to code generation issues */
 };
 
 static struct resource cmt1_resources[] = {
@@ -224,7 +224,7 @@ static struct platform_device *sh7619_early_devices[] __initdata = {
 
 void __init plat_early_device_setup(void)
 {
-	
+	/* enable CMT clock */
 	__raw_writeb(__raw_readb(STBCR3) & ~0x10, STBCR3);
 
 	early_platform_add_devices(sh7619_early_devices,

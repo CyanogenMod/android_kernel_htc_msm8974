@@ -60,18 +60,20 @@
 
 #include <linux/if_ether.h>
 
+/*--- Mins & Maxs -----------------------------------*/
 #define	HFA384x_PORTID_MAX		((u16)7)
 #define	HFA384x_NUMPORTS_MAX		((u16)(HFA384x_PORTID_MAX+1))
-#define	HFA384x_PDR_LEN_MAX		((u16)512) 
-#define	HFA384x_PDA_RECS_MAX		((u16)200) 
-#define	HFA384x_PDA_LEN_MAX		((u16)1024) 
+#define	HFA384x_PDR_LEN_MAX		((u16)512) /* in bytes, from EK */
+#define	HFA384x_PDA_RECS_MAX		((u16)200) /* a guess */
+#define	HFA384x_PDA_LEN_MAX		((u16)1024) /* in bytes, from EK*/
 #define	HFA384x_SCANRESULT_MAX		((u16)31)
 #define	HFA384x_HSCANRESULT_MAX		((u16)31)
 #define	HFA384x_CHINFORESULT_MAX	((u16)16)
-#define	HFA384x_RID_GUESSING_MAXLEN	2048	
+#define	HFA384x_RID_GUESSING_MAXLEN	2048	/* I'm not really sure */
 #define	HFA384x_RIDDATA_MAXLEN		HFA384x_RID_GUESSING_MAXLEN
 #define	HFA384x_USB_RWMEM_MAXLEN	2048
 
+/*--- Support Constants -----------------------------*/
 #define		HFA384x_PORTTYPE_IBSS			((u16)0)
 #define		HFA384x_PORTTYPE_BSS			((u16)1)
 #define		HFA384x_PORTTYPE_PSUEDOIBSS		((u16)3)
@@ -86,32 +88,53 @@
 #define		HFA384x_RATEBIT_5dot5			((u16)4)
 #define		HFA384x_RATEBIT_11			((u16)8)
 
+/*--- MAC Internal memory constants and macros ------*/
+/* masks and macros used to manipulate MAC internal memory addresses. */
+/* MAC internal memory addresses are 23 bit quantities.  The MAC uses
+ * a paged address space where the upper 16 bits are the page number
+ * and the lower 7 bits are the offset.  There are various Host API
+ * elements that require two 16-bit quantities to specify a MAC
+ * internal memory address.  Unfortunately, some of the API's use a
+ * page/offset format where the offset value is JUST the lower seven
+ * bits and the page is  the remaining 16 bits.  Some of the API's
+ * assume that the 23 bit address has been split at the 16th bit.  We
+ * refer to these two formats as AUX format and CMD format.  The
+ * macros below help handle some of this.
+ */
 
+/* Mask bits for discarding unwanted pieces in a flat address */
 #define		HFA384x_ADDR_FLAT_AUX_PAGE_MASK	(0x007fff80)
 #define		HFA384x_ADDR_FLAT_AUX_OFF_MASK	(0x0000007f)
 #define		HFA384x_ADDR_FLAT_CMD_PAGE_MASK	(0xffff0000)
 #define		HFA384x_ADDR_FLAT_CMD_OFF_MASK	(0x0000ffff)
 
+/* Mask bits for discarding unwanted pieces in AUX format
+   16-bit address parts */
 #define		HFA384x_ADDR_AUX_PAGE_MASK	(0xffff)
 #define		HFA384x_ADDR_AUX_OFF_MASK	(0x007f)
 
+/* Make a 32-bit flat address from AUX format 16-bit page and offset */
 #define		HFA384x_ADDR_AUX_MKFLAT(p, o)	\
 		((((u32)(((u16)(p))&HFA384x_ADDR_AUX_PAGE_MASK)) << 7) | \
 		((u32)(((u16)(o))&HFA384x_ADDR_AUX_OFF_MASK)))
 
+/* Make CMD format offset and page from a 32-bit flat address */
 #define		HFA384x_ADDR_CMD_MKPAGE(f) \
 		((u16)((((u32)(f))&HFA384x_ADDR_FLAT_CMD_PAGE_MASK)>>16))
 #define		HFA384x_ADDR_CMD_MKOFF(f) \
 		((u16)(((u32)(f))&HFA384x_ADDR_FLAT_CMD_OFF_MASK))
 
+/*--- Controller Memory addresses -------------------*/
 #define		HFA3842_PDA_BASE	(0x007f0000UL)
 #define		HFA3841_PDA_BASE	(0x003f0000UL)
 #define		HFA3841_PDA_BOGUS_BASE	(0x00390000UL)
 
+/*--- Driver Download states  -----------------------*/
 #define		HFA384x_DLSTATE_DISABLED		0
 #define		HFA384x_DLSTATE_RAMENABLED		1
 #define		HFA384x_DLSTATE_FLASHENABLED		2
 
+/*--- Register Field Masks --------------------------*/
 #define		HFA384x_CMD_AINFO		((u16)(BIT(14) | BIT(13) \
 							| BIT(12) | BIT(11) \
 							| BIT(10) | BIT(9) \
@@ -128,25 +151,41 @@
 							| BIT(10) | BIT(9) \
 							| BIT(8)))
 
+/*--- Command Code Constants --------------------------*/
+/*--- Controller Commands --------------------------*/
 #define		HFA384x_CMDCODE_INIT		((u16)0x00)
 #define		HFA384x_CMDCODE_ENABLE		((u16)0x01)
 #define		HFA384x_CMDCODE_DISABLE		((u16)0x02)
 
+/*--- Regulate Commands --------------------------*/
 #define		HFA384x_CMDCODE_INQ		((u16)0x11)
 
+/*--- Configure Commands --------------------------*/
 #define		HFA384x_CMDCODE_DOWNLD		((u16)0x22)
 
+/*--- Debugging Commands -----------------------------*/
 #define 	HFA384x_CMDCODE_MONITOR		((u16)(0x38))
 #define		HFA384x_MONITOR_ENABLE		((u16)(0x0b))
 #define		HFA384x_MONITOR_DISABLE		((u16)(0x0f))
 
+/*--- Result Codes --------------------------*/
 #define		HFA384x_CMD_ERR			((u16)(0x7F))
 
+/*--- Programming Modes --------------------------
+	MODE 0: Disable programming
+	MODE 1: Enable volatile memory programming
+	MODE 2: Enable non-volatile memory programming
+	MODE 3: Program non-volatile memory section
+--------------------------------------------------*/
 #define		HFA384x_PROGMODE_DISABLE	((u16)0x00)
 #define		HFA384x_PROGMODE_RAM		((u16)0x01)
 #define		HFA384x_PROGMODE_NV		((u16)0x02)
 #define		HFA384x_PROGMODE_NVWRITE	((u16)0x03)
 
+/*--- Record ID Constants --------------------------*/
+/*--------------------------------------------------------------------
+Configuration RIDs: Network Parameters, Static Configuration Entities
+--------------------------------------------------------------------*/
 #define		HFA384x_RID_CNFPORTTYPE		((u16)0xFC00)
 #define		HFA384x_RID_CNFOWNMACADDR	((u16)0xFC01)
 #define		HFA384x_RID_CNFDESIREDSSID	((u16)0xFC02)
@@ -154,16 +193,27 @@
 #define		HFA384x_RID_CNFOWNSSID		((u16)0xFC04)
 #define		HFA384x_RID_CNFMAXDATALEN	((u16)0xFC07)
 
+/*--------------------------------------------------------------------
+Configuration RID lengths: Network Params, Static Config Entities
+  This is the length of JUST the DATA part of the RID (does not
+  include the len or code fields)
+--------------------------------------------------------------------*/
 #define		HFA384x_RID_CNFOWNMACADDR_LEN	((u16)6)
 #define		HFA384x_RID_CNFDESIREDSSID_LEN	((u16)34)
 #define		HFA384x_RID_CNFOWNSSID_LEN	((u16)34)
 
+/*--------------------------------------------------------------------
+Configuration RIDs: Network Parameters, Dynamic Configuration Entities
+--------------------------------------------------------------------*/
 #define		HFA384x_RID_CREATEIBSS		((u16)0xFC81)
 #define		HFA384x_RID_FRAGTHRESH		((u16)0xFC82)
 #define		HFA384x_RID_RTSTHRESH		((u16)0xFC83)
 #define		HFA384x_RID_TXRATECNTL		((u16)0xFC84)
 #define		HFA384x_RID_PROMISCMODE		((u16)0xFC85)
 
+/*----------------------------------------------------------------------
+Information RIDs: NIC Information
+--------------------------------------------------------------------*/
 #define		HFA384x_RID_MAXLOADTIME		((u16)0xFD00)
 #define		HFA384x_RID_DOWNLOADBUFFER	((u16)0xFD01)
 #define		HFA384x_RID_PRIIDENTITY		((u16)0xFD02)
@@ -178,8 +228,16 @@
 #define		HFA384x_RID_STA_MFIACTRANGES	((u16)0xFD22)
 #define		HFA384x_RID_STA_CFIACTRANGES	((u16)0xFD23)
 
+/*----------------------------------------------------------------------
+Information RID Lengths: NIC Information
+  This is the length of JUST the DATA part of the RID (does not
+  include the len or code fields)
+--------------------------------------------------------------------*/
 #define		HFA384x_RID_NICSERIALNUMBER_LEN		((u16)12)
 
+/*--------------------------------------------------------------------
+Information RIDs:  MAC Information
+--------------------------------------------------------------------*/
 #define		HFA384x_RID_PORTSTATUS		((u16)0xFD40)
 #define		HFA384x_RID_CURRENTSSID		((u16)0xFD41)
 #define		HFA384x_RID_CURRENTBSSID	((u16)0xFD42)
@@ -190,13 +248,24 @@
 #define		HFA384x_RID_PRIVACYOPTIMP	((u16)0xFD4F)
 #define		HFA384x_RID_DBMCOMMSQUALITY	((u16)0xFD51)
 
+/*--------------------------------------------------------------------
+Information RID Lengths:  MAC Information
+  This is the length of JUST the DATA part of the RID (does not
+  include the len or code fields)
+--------------------------------------------------------------------*/
 #define		HFA384x_RID_DBMCOMMSQUALITY_LEN	 \
 	((u16) sizeof(hfa384x_dbmcommsquality_t))
 #define		HFA384x_RID_JOINREQUEST_LEN \
 	((u16)sizeof(hfa384x_JoinRequest_data_t))
 
+/*--------------------------------------------------------------------
+Information RIDs:  Modem Information
+--------------------------------------------------------------------*/
 #define		HFA384x_RID_CURRENTCHANNEL	((u16)0xFDC1)
 
+/*--------------------------------------------------------------------
+API ENHANCEMENTS (NOT ALREADY IMPLEMENTED)
+--------------------------------------------------------------------*/
 #define		HFA384x_RID_CNFWEPDEFAULTKEYID	((u16)0xFC23)
 #define		HFA384x_RID_CNFWEPDEFAULTKEY0	((u16)0xFC24)
 #define		HFA384x_RID_CNFWEPDEFAULTKEY1	((u16)0xFC25)
@@ -219,6 +288,9 @@
 #define		HFA384x_RID_CNFWEPDEFAULTKEY_LEN	((u16)6)
 #define		HFA384x_RID_CNFWEP128DEFAULTKEY_LEN	((u16)14)
 
+/*--------------------------------------------------------------------
+PD Record codes
+--------------------------------------------------------------------*/
 #define HFA384x_PDR_PCB_PARTNUM		((u16)0x0001)
 #define HFA384x_PDR_PDAVER		((u16)0x0002)
 #define HFA384x_PDR_NIC_SERIAL		((u16)0x0003)
@@ -259,6 +331,7 @@
 #define HFA384x_PDR_HFA3861_MANF_TESTI	((u16)0x0901)
 #define HFA384x_PDR_END_OF_PDA		((u16)0x0000)
 
+/*--- Register Test/Get/Set Field macros ------------------------*/
 
 #define		HFA384x_CMD_AINFO_SET(value)	((u16)((u16)(value) << 8))
 #define		HFA384x_CMD_MACPORT_SET(value)	\
@@ -269,10 +342,13 @@
 
 #define		HFA384x_STATUS_RESULT_SET(value)	(((u16)(value)) << 8)
 
+/* Host Maintained State Info */
 #define HFA384x_STATE_PREINIT	0
 #define HFA384x_STATE_INIT	1
 #define HFA384x_STATE_RUNNING	2
 
+/*-------------------------------------------------------------*/
+/* Commonly used basic types */
 typedef struct hfa384x_bytestr {
 	u16 len;
 	u8 data[0];
@@ -283,7 +359,12 @@ typedef struct hfa384x_bytestr32 {
 	u8 data[32];
 } __packed hfa384x_bytestr32_t;
 
+/*--------------------------------------------------------------------
+Configuration Record Structures:
+	Network Parameters, Static Configuration Entities
+--------------------------------------------------------------------*/
 
+/*-- Hardware/Firmware Component Information ----------*/
 typedef struct hfa384x_compident {
 	u16 id;
 	u16 variant;
@@ -299,57 +380,82 @@ typedef struct hfa384x_caplevel {
 	u16 top;
 } __packed hfa384x_caplevel_t;
 
+/*-- Configuration Record: cnfAuthentication --*/
 #define HFA384x_CNFAUTHENTICATION_OPENSYSTEM	0x0001
 #define HFA384x_CNFAUTHENTICATION_SHAREDKEY	0x0002
 #define HFA384x_CNFAUTHENTICATION_LEAP     	0x0004
 
+/*--------------------------------------------------------------------
+Configuration Record Structures:
+	Network Parameters, Dynamic Configuration Entities
+--------------------------------------------------------------------*/
 
 #define HFA384x_CREATEIBSS_JOINCREATEIBSS          0
 
+/*-- Configuration Record: HostScanRequest (data portion only) --*/
 typedef struct hfa384x_HostScanRequest_data {
 	u16 channelList;
 	u16 txRate;
 	hfa384x_bytestr32_t ssid;
 } __packed hfa384x_HostScanRequest_data_t;
 
+/*-- Configuration Record: JoinRequest (data portion only) --*/
 typedef struct hfa384x_JoinRequest_data {
 	u8 bssid[WLAN_BSSID_LEN];
 	u16 channel;
 } __packed hfa384x_JoinRequest_data_t;
 
+/*-- Configuration Record: authenticateStation (data portion only) --*/
 typedef struct hfa384x_authenticateStation_data {
 	u8 address[ETH_ALEN];
 	u16 status;
 	u16 algorithm;
 } __packed hfa384x_authenticateStation_data_t;
 
+/*-- Configuration Record: WPAData       (data portion only) --*/
 typedef struct hfa384x_WPAData {
 	u16 datalen;
-	u8 data[0];		
+	u8 data[0];		/* max 80 */
 } __packed hfa384x_WPAData_t;
 
+/*--------------------------------------------------------------------
+Information Record Structures: NIC Information
+--------------------------------------------------------------------*/
 
+/*-- Information Record: DownLoadBuffer --*/
+/* NOTE: The page and offset are in AUX format */
 typedef struct hfa384x_downloadbuffer {
 	u16 page;
 	u16 offset;
 	u16 len;
 } __packed hfa384x_downloadbuffer_t;
 
+/*--------------------------------------------------------------------
+Information Record Structures: NIC Information
+--------------------------------------------------------------------*/
 
 #define HFA384x_PSTATUS_CONN_IBSS	((u16)3)
 
+/*-- Information Record: commsquality --*/
 typedef struct hfa384x_commsquality {
 	u16 CQ_currBSS;
 	u16 ASL_currBSS;
 	u16 ANL_currFC;
 } __packed hfa384x_commsquality_t;
 
+/*-- Information Record: dmbcommsquality --*/
 typedef struct hfa384x_dbmcommsquality {
 	u16 CQdbm_currBSS;
 	u16 ASLdbm_currBSS;
 	u16 ANLdbm_currFC;
 } __packed hfa384x_dbmcommsquality_t;
 
+/*--------------------------------------------------------------------
+FRAME STRUCTURES: Communication Frames
+----------------------------------------------------------------------
+Communication Frames: Transmit Frames
+--------------------------------------------------------------------*/
+/*-- Communication Frame: Transmit Frame Structure --*/
 typedef struct hfa384x_tx_frame {
 	u16 status;
 	u16 reserved1;
@@ -359,7 +465,7 @@ typedef struct hfa384x_tx_frame {
 	u8 tx_rate;
 	u16 tx_control;
 
-	
+	/*-- 802.11 Header Information --*/
 
 	u16 frame_control;
 	u16 duration_id;
@@ -368,24 +474,33 @@ typedef struct hfa384x_tx_frame {
 	u8 address3[6];
 	u16 sequence_control;
 	u8 address4[6];
-	u16 data_len;		
+	u16 data_len;		/* little endian format */
 
-	
+	/*-- 802.3 Header Information --*/
 
 	u8 dest_addr[6];
 	u8 src_addr[6];
-	u16 data_length;	
+	u16 data_length;	/* big endian format */
 } __packed hfa384x_tx_frame_t;
+/*--------------------------------------------------------------------
+Communication Frames: Field Masks for Transmit Frames
+--------------------------------------------------------------------*/
+/*-- Status Field --*/
 #define		HFA384x_TXSTATUS_ACKERR			((u16)BIT(5))
 #define		HFA384x_TXSTATUS_FORMERR		((u16)BIT(3))
 #define		HFA384x_TXSTATUS_DISCON			((u16)BIT(2))
 #define		HFA384x_TXSTATUS_AGEDERR		((u16)BIT(1))
 #define		HFA384x_TXSTATUS_RETRYERR		((u16)BIT(0))
+/*-- Transmit Control Field --*/
 #define		HFA384x_TX_MACPORT			((u16)(BIT(10) | \
 							  BIT(9) | BIT(8)))
 #define		HFA384x_TX_STRUCTYPE			((u16)(BIT(4) | BIT(3)))
 #define		HFA384x_TX_TXEX				((u16)BIT(2))
 #define		HFA384x_TX_TXOK				((u16)BIT(1))
+/*--------------------------------------------------------------------
+Communication Frames: Test/Get/Set Field Values for Transmit Frames
+--------------------------------------------------------------------*/
+/*-- Status Field --*/
 #define HFA384x_TXSTATUS_ISERROR(v)	\
 	(((u16)(v))&\
 	(HFA384x_TXSTATUS_ACKERR|HFA384x_TXSTATUS_FORMERR|\
@@ -399,8 +514,12 @@ typedef struct hfa384x_tx_frame {
 						HFA384x_TX_STRUCTYPE, 3)
 #define	HFA384x_TX_TXEX_SET(v)		HFA384x_TX_SET(v, HFA384x_TX_TXEX, 2)
 #define	HFA384x_TX_TXOK_SET(v)		HFA384x_TX_SET(v, HFA384x_TX_TXOK, 1)
+/*--------------------------------------------------------------------
+Communication Frames: Receive Frames
+--------------------------------------------------------------------*/
+/*-- Communication Frame: Receive Frame Structure --*/
 typedef struct hfa384x_rx_frame {
-	
+	/*-- MAC rx descriptor (hfa384x byte order) --*/
 	u16 status;
 	u32 time;
 	u8 silence;
@@ -410,7 +529,7 @@ typedef struct hfa384x_rx_frame {
 	u16 reserved1;
 	u16 reserved2;
 
-	
+	/*-- 802.11 Header Information (802.11 byte order) --*/
 	u16 frame_control;
 	u16 duration_id;
 	u8 address1[6];
@@ -418,22 +537,34 @@ typedef struct hfa384x_rx_frame {
 	u8 address3[6];
 	u16 sequence_control;
 	u8 address4[6];
-	u16 data_len;		
+	u16 data_len;		/* hfa384x (little endian) format */
 
-	
+	/*-- 802.3 Header Information --*/
 	u8 dest_addr[6];
 	u8 src_addr[6];
-	u16 data_length;	
+	u16 data_length;	/* IEEE? (big endian) format */
 } __packed hfa384x_rx_frame_t;
+/*--------------------------------------------------------------------
+Communication Frames: Field Masks for Receive Frames
+--------------------------------------------------------------------*/
 
+/*-- Status Fields --*/
 #define		HFA384x_RXSTATUS_MACPORT		((u16)(BIT(10) | \
 								BIT(9) | \
 								BIT(8)))
 #define		HFA384x_RXSTATUS_FCSERR			((u16)BIT(0))
+/*--------------------------------------------------------------------
+Communication Frames: Test/Get/Set Field Values for Receive Frames
+--------------------------------------------------------------------*/
 #define		HFA384x_RXSTATUS_MACPORT_GET(value)	((u16)((((u16)(value)) \
 					    & HFA384x_RXSTATUS_MACPORT) >> 8))
 #define		HFA384x_RXSTATUS_ISFCSERR(value)	((u16)(((u16)(value)) \
 						  & HFA384x_RXSTATUS_FCSERR))
+/*--------------------------------------------------------------------
+ FRAME STRUCTURES: Information Types and Information Frame Structures
+----------------------------------------------------------------------
+Information Types
+--------------------------------------------------------------------*/
 #define		HFA384x_IT_HANDOVERADDR			((u16)0xF000UL)
 #define		HFA384x_IT_COMMTALLIES			((u16)0xF100UL)
 #define		HFA384x_IT_SCANRESULTS			((u16)0xF101UL)
@@ -447,7 +578,13 @@ typedef struct hfa384x_rx_frame {
 #define		HFA384x_IT_ASSOCREQ    			((u16)0xF205UL)
 #define		HFA384x_IT_MICFAILURE  			((u16)0xF206UL)
 
+/*--------------------------------------------------------------------
+Information Frames Structures
+----------------------------------------------------------------------
+Information Frames: Notification Frame Structures
+--------------------------------------------------------------------*/
 
+/*--  Inquiry Frame, Diagnose: Communication Tallies --*/
 typedef struct hfa384x_CommTallies16 {
 	u16 txunicastframes;
 	u16 txmulticastframes;
@@ -496,6 +633,7 @@ typedef struct hfa384x_CommTallies32 {
 	u32 rxmsginbadmsgfrag;
 } __packed hfa384x_CommTallies32_t;
 
+/*--  Inquiry Frame, Diagnose: Scan Results & Subfields--*/
 typedef struct hfa384x_ScanResultSub {
 	u16 chid;
 	u16 anl;
@@ -504,7 +642,7 @@ typedef struct hfa384x_ScanResultSub {
 	u16 bcnint;
 	u16 capinfo;
 	hfa384x_bytestr32_t ssid;
-	u8 supprates[10];	
+	u8 supprates[10];	/* 802.11 info element */
 	u16 proberesp_rate;
 } __packed hfa384x_ScanResultSub_t;
 
@@ -514,6 +652,7 @@ typedef struct hfa384x_ScanResult {
 	hfa384x_ScanResultSub_t result[HFA384x_SCANRESULT_MAX];
 } __packed hfa384x_ScanResult_t;
 
+/*--  Inquiry Frame, Diagnose: ChInfo Results & Subfields--*/
 typedef struct hfa384x_ChInfoResultSub {
 	u16 chid;
 	u16 anl;
@@ -529,6 +668,7 @@ typedef struct hfa384x_ChInfoResult {
 	hfa384x_ChInfoResultSub_t result[HFA384x_CHINFORESULT_MAX];
 } __packed hfa384x_ChInfoResult_t;
 
+/*--  Inquiry Frame, Diagnose: Host Scan Results & Subfields--*/
 typedef struct hfa384x_HScanResultSub {
 	u16 chid;
 	u16 anl;
@@ -537,7 +677,7 @@ typedef struct hfa384x_HScanResultSub {
 	u16 bcnint;
 	u16 capinfo;
 	hfa384x_bytestr32_t ssid;
-	u8 supprates[10];	
+	u8 supprates[10];	/* 802.11 info element */
 	u16 proberesp_rate;
 	u16 atim;
 } __packed hfa384x_HScanResultSub_t;
@@ -548,6 +688,7 @@ typedef struct hfa384x_HScanResult {
 	hfa384x_HScanResultSub_t result[HFA384x_HSCANRESULT_MAX];
 } __packed hfa384x_HScanResult_t;
 
+/*--  Unsolicited Frame, MAC Mgmt: LinkStatus --*/
 
 #define HFA384x_LINK_NOTCONNECTED	((u16)0)
 #define HFA384x_LINK_CONNECTED		((u16)1)
@@ -561,6 +702,7 @@ typedef struct hfa384x_LinkStatus {
 	u16 linkstatus;
 } __packed hfa384x_LinkStatus_t;
 
+/*--  Unsolicited Frame, MAC Mgmt: AssociationStatus (--*/
 
 #define HFA384x_ASSOCSTATUS_STAASSOC	((u16)1)
 #define HFA384x_ASSOCSTATUS_REASSOC	((u16)2)
@@ -569,18 +711,20 @@ typedef struct hfa384x_LinkStatus {
 typedef struct hfa384x_AssocStatus {
 	u16 assocstatus;
 	u8 sta_addr[ETH_ALEN];
-	
+	/* old_ap_addr is only valid if assocstatus == 2 */
 	u8 old_ap_addr[ETH_ALEN];
 	u16 reason;
 	u16 reserved;
 } __packed hfa384x_AssocStatus_t;
 
+/*--  Unsolicited Frame, MAC Mgmt: AuthRequest (AP Only) --*/
 
 typedef struct hfa384x_AuthRequest {
 	u8 sta_addr[ETH_ALEN];
 	u16 algorithm;
 } __packed hfa384x_AuthReq_t;
 
+/*--  Unsolicited Frame, MAC Mgmt: PSUserCount (AP Only) --*/
 
 typedef struct hfa384x_PSUserCount {
 	u16 usercnt;
@@ -591,6 +735,7 @@ typedef struct hfa384x_KeyIDChanged {
 	u16 keyid;
 } __packed hfa384x_KeyIDChanged_t;
 
+/*--  Collection of all Inf frames ---------------*/
 typedef union hfa384x_infodata {
 	hfa384x_CommTallies16_t commtallies16;
 	hfa384x_CommTallies32_t commtallies32;
@@ -610,7 +755,11 @@ typedef struct hfa384x_InfFrame {
 	hfa384x_infodata_t info;
 } __packed hfa384x_InfFrame_t;
 
+/*--------------------------------------------------------------------
+USB Packet structures and constants.
+--------------------------------------------------------------------*/
 
+/* Should be sent to the bulkout endpoint */
 #define HFA384x_USB_TXFRM	0
 #define HFA384x_USB_CMDREQ	1
 #define HFA384x_USB_WRIDREQ	2
@@ -618,6 +767,7 @@ typedef struct hfa384x_InfFrame {
 #define HFA384x_USB_WMEMREQ	4
 #define HFA384x_USB_RMEMREQ	5
 
+/* Received from the bulkin endpoint */
 #define HFA384x_USB_ISTXFRM(a)	(((a) & 0x9000) == 0x1000)
 #define HFA384x_USB_ISRXFRM(a)	(!((a) & 0x9000))
 #define HFA384x_USB_INFOFRM	0x8000
@@ -629,6 +779,8 @@ typedef struct hfa384x_InfFrame {
 #define HFA384x_USB_BUFAVAIL	0x8006
 #define HFA384x_USB_ERROR	0x8007
 
+/*------------------------------------*/
+/* Request (bulk OUT) packet contents */
 
 typedef struct hfa384x_usb_txfrm {
 	hfa384x_tx_frame_t desc;
@@ -674,6 +826,8 @@ typedef struct hfa384x_usb_rmemreq {
 	u8 pad[56];
 } __packed hfa384x_usb_rmemreq_t;
 
+/*------------------------------------*/
+/* Response (bulk IN) packet contents */
 
 typedef struct hfa384x_usb_rxfrm {
 	hfa384x_rx_frame_t desc;
@@ -720,6 +874,8 @@ typedef struct hfa384x_usb_error {
 	u16 errortype;
 } __packed hfa384x_usb_error_t;
 
+/*----------------------------------------------------------*/
+/* Unions for packaging all the known packet types together */
 
 typedef union hfa384x_usbout {
 	u16 type;
@@ -746,6 +902,9 @@ typedef union hfa384x_usbin {
 	u8 boguspad[3000];
 } __packed hfa384x_usbin_t;
 
+/*--------------------------------------------------------------------
+PD record structures.
+--------------------------------------------------------------------*/
 
 typedef struct hfa384x_pdr_pcb_partnum {
 	u8 num[8];
@@ -778,7 +937,7 @@ typedef struct hfa384x_pdr_mkk_measurements {
 } __packed hfa384x_pdr_mkk_measurements_t;
 
 typedef struct hfa384x_pdr_nic_ramsize {
-	u8 size[12];		
+	u8 size[12];		/* units of KB */
 } __packed hfa384x_pdr_nic_ramsize_t;
 
 typedef struct hfa384x_pdr_mfisuprange {
@@ -909,7 +1068,7 @@ typedef struct hfa384x_end_of_pda {
 } __packed hfa384x_pdr_end_of_pda_t;
 
 typedef struct hfa384x_pdrec {
-	u16 len;		
+	u16 len;		/* in words */
 	u16 code;
 	union pdr {
 		hfa384x_pdr_pcb_partnum_t pcb_partnum;
@@ -951,6 +1110,10 @@ typedef struct hfa384x_pdrec {
 } __packed hfa384x_pdrec_t;
 
 #ifdef __KERNEL__
+/*--------------------------------------------------------------------
+---  MAC state structure, argument to all functions --
+---  Also, a collection of support types --
+--------------------------------------------------------------------*/
 typedef struct hfa384x_statusresult {
 	u16 status;
 	u16 resp0;
@@ -958,6 +1121,13 @@ typedef struct hfa384x_statusresult {
 	u16 resp2;
 } hfa384x_cmdresult_t;
 
+/* USB Control Exchange (CTLX):
+ *  A queue of the structure below is maintained for all of the
+ *  Request/Response type USB packets supported by Prism2.
+ */
+/* The following hfa384x_* structures are arguments to
+ * the usercb() for the different CTLX types.
+ */
 typedef struct hfa384x_rridresult {
 	u16 rid;
 	const void *riddata;
@@ -965,15 +1135,15 @@ typedef struct hfa384x_rridresult {
 } hfa384x_rridresult_t;
 
 enum ctlx_state {
-	CTLX_START = 0,		
+	CTLX_START = 0,		/* Start state, not queued */
 
-	CTLX_COMPLETE,		
-	CTLX_REQ_FAILED,	
+	CTLX_COMPLETE,		/* CTLX successfully completed */
+	CTLX_REQ_FAILED,	/* OUT URB completed w/ error */
 
-	CTLX_PENDING,		
-	CTLX_REQ_SUBMITTED,	
-	CTLX_REQ_COMPLETE,	
-	CTLX_RESP_COMPLETE	
+	CTLX_PENDING,		/* Queued, data valid */
+	CTLX_REQ_SUBMITTED,	/* OUT URB submitted */
+	CTLX_REQ_COMPLETE,	/* OUT URB complete */
+	CTLX_RESP_COMPLETE	/* IN URB received */
 };
 typedef enum ctlx_state CTLX_STATE;
 
@@ -989,19 +1159,19 @@ typedef struct hfa384x_usbctlx {
 	struct list_head list;
 
 	size_t outbufsize;
-	hfa384x_usbout_t outbuf;	
-	hfa384x_usbin_t inbuf;	
+	hfa384x_usbout_t outbuf;	/* pkt buf for OUT */
+	hfa384x_usbin_t inbuf;	/* pkt buf for IN(a copy) */
 
-	CTLX_STATE state;	
+	CTLX_STATE state;	/* Tracks running state */
 
 	struct completion done;
-	volatile int reapable;	
+	volatile int reapable;	/* Food for the reaper task */
 
-	ctlx_cmdcb_t cmdcb;	
-	ctlx_usercb_t usercb;	
-	void *usercb_data;	
+	ctlx_cmdcb_t cmdcb;	/* Async command callback */
+	ctlx_usercb_t usercb;	/* Async user callback, */
+	void *usercb_data;	/*  at CTLX completion  */
 
-	int variant;		
+	int variant;		/* Identifies cmd variant */
 } hfa384x_usbctlx_t;
 
 typedef struct hfa384x_usbctlxq {
@@ -1023,15 +1193,16 @@ typedef struct hfa484x_metacmd {
 } hfa384x_metacmd_t;
 
 #define	MAX_GRP_ADDR		32
-#define WLAN_COMMENT_MAX	80  
+#define WLAN_COMMENT_MAX	80  /* Max. length of user comment string. */
 
-#define WLAN_AUTH_MAX           60  
-#define WLAN_ACCESS_MAX		60  
-#define WLAN_ACCESS_NONE	0   
-#define WLAN_ACCESS_ALL		1   
-#define WLAN_ACCESS_ALLOW	2   
-#define WLAN_ACCESS_DENY	3   
+#define WLAN_AUTH_MAX           60  /* Max. # of authenticated stations. */
+#define WLAN_ACCESS_MAX		60  /* Max. # of stations in an access list. */
+#define WLAN_ACCESS_NONE	0   /* No stations may be authenticated. */
+#define WLAN_ACCESS_ALL		1   /* All stations may be authenticated. */
+#define WLAN_ACCESS_ALLOW	2   /* Authenticate only "allowed" stations. */
+#define WLAN_ACCESS_DENY	3   /* Do not authenticate "denied" stations. */
 
+/* XXX These are going away ASAP */
 typedef struct prism2sta_authlist {
 	unsigned int cnt;
 	u8 addr[WLAN_AUTH_MAX][ETH_ALEN];
@@ -1047,7 +1218,7 @@ typedef struct prism2sta_accesslist {
 } prism2sta_accesslist_t;
 
 typedef struct hfa384x {
-	
+	/* USB support data */
 	struct usb_device *usb;
 	struct urb rx_urb;
 	struct sk_buff *rx_urb_skb;
@@ -1084,25 +1255,25 @@ typedef struct hfa384x {
 	int sniff_truncate;
 	int sniffhdr;
 
-	wait_queue_head_t cmdq;	
+	wait_queue_head_t cmdq;	/* wait queue itself */
 
-	
+	/* Controller state */
 	u32 state;
 	u32 isap;
 	u8 port_enabled[HFA384x_NUMPORTS_MAX];
 
-	
+	/* Download support */
 	unsigned int dlstate;
 	hfa384x_downloadbuffer_t bufinfo;
 	u16 dltimeout;
 
-	int scanflag;		
-	int join_ap;		
-	int join_retries;	
-	hfa384x_JoinRequest_data_t joinreq;	
+	int scanflag;		/* to signal scan comlete */
+	int join_ap;		/* are we joined to a specific ap */
+	int join_retries;	/* number of join retries till we fail */
+	hfa384x_JoinRequest_data_t joinreq;	/* join request saved data */
 
 	wlandevice_t *wlandev;
-	
+	/* Timer to allow for the deferred processing of linkstatus messages */
 	struct work_struct link_bh;
 
 	struct work_struct commsqual_bh;
@@ -1115,48 +1286,59 @@ typedef struct hfa384x {
 
 	u32 txrate;
 
-	
+	/* And here we have stuff that used to be in priv */
 
-	
+	/* State variables */
 	unsigned int presniff_port_type;
 	u16 presniff_wepflags;
 	u32 dot11_desired_bss_type;
 
 	int dbmadjust;
 
+	/* Group Addresses - right now, there are up to a total
+	   of MAX_GRP_ADDR group addresses */
 	u8 dot11_grp_addr[MAX_GRP_ADDR][ETH_ALEN];
 	unsigned int dot11_grpcnt;
 
-	
+	/* Component Identities */
 	hfa384x_compident_t ident_nic;
 	hfa384x_compident_t ident_pri_fw;
 	hfa384x_compident_t ident_sta_fw;
 	hfa384x_compident_t ident_ap_fw;
 	u16 mm_mods;
 
-	
+	/* Supplier compatibility ranges */
 	hfa384x_caplevel_t cap_sup_mfi;
 	hfa384x_caplevel_t cap_sup_cfi;
 	hfa384x_caplevel_t cap_sup_pri;
 	hfa384x_caplevel_t cap_sup_sta;
 	hfa384x_caplevel_t cap_sup_ap;
 
-	
-	hfa384x_caplevel_t cap_act_pri_cfi;	
+	/* Actor compatibility ranges */
+	hfa384x_caplevel_t cap_act_pri_cfi;	/*
+						 * pri f/w to controller
+						 * interface
+						 */
 
-	hfa384x_caplevel_t cap_act_sta_cfi;	
+	hfa384x_caplevel_t cap_act_sta_cfi;	/*
+						 * sta f/w to controller
+						 * interface
+						 */
 
-	hfa384x_caplevel_t cap_act_sta_mfi;	
+	hfa384x_caplevel_t cap_act_sta_mfi;	/* sta f/w to modem interface */
 
-	hfa384x_caplevel_t cap_act_ap_cfi;	
+	hfa384x_caplevel_t cap_act_ap_cfi;	/*
+						 * ap f/w to controller
+						 * interface
+						 */
 
-	hfa384x_caplevel_t cap_act_ap_mfi;	
+	hfa384x_caplevel_t cap_act_ap_mfi;	/* ap f/w to modem interface */
 
-	u32 psusercount;	
-	hfa384x_CommTallies32_t tallies;	
-	u8 comment[WLAN_COMMENT_MAX + 1];	
+	u32 psusercount;	/* Power save user count. */
+	hfa384x_CommTallies32_t tallies;	/* Communication tallies. */
+	u8 comment[WLAN_COMMENT_MAX + 1];	/* User comment */
 
-	
+	/* Channel Info request results (AP only) */
 	struct {
 		atomic_t done;
 		u8 count;
@@ -1165,10 +1347,10 @@ typedef struct hfa384x {
 
 	hfa384x_InfFrame_t *scanresults;
 
-	prism2sta_authlist_t authlist;	
-	unsigned int accessmode;	
-	prism2sta_accesslist_t allow;	
-	prism2sta_accesslist_t deny;	
+	prism2sta_authlist_t authlist;	/* Authenticated station list. */
+	unsigned int accessmode;	/* Access mode. */
+	prism2sta_accesslist_t allow;	/* Allowed station list. */
+	prism2sta_accesslist_t deny;	/* Denied station list. */
 
 } hfa384x_t;
 
@@ -1239,6 +1421,6 @@ int
 hfa384x_cmd_download(hfa384x_t *hw,
 		     u16 mode, u16 lowaddr, u16 highaddr, u16 codelen);
 
-#endif 
+#endif /*__KERNEL__ */
 
-#endif 
+#endif /*_HFA384x_H */

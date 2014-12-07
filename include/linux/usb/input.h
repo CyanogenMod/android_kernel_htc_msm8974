@@ -22,4 +22,4 @@ usb_to_input_id(const struct usb_device *dev, struct input_id *id)
 	id->version = le16_to_cpu(dev->descriptor.bcdDevice);
 }
 
-#endif 
+#endif /* __LINUX_USB_INPUT_H */

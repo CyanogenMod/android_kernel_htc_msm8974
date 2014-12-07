@@ -11,6 +11,11 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/kmem.h>
 
+/**
+ * kstrdup - allocate space for and copy an existing string
+ * @s: the string to duplicate
+ * @gfp: the GFP mask used in the kmalloc() call when allocating memory
+ */
 char *kstrdup(const char *s, gfp_t gfp)
 {
 	size_t len;
@@ -27,6 +32,12 @@ char *kstrdup(const char *s, gfp_t gfp)
 }
 EXPORT_SYMBOL(kstrdup);
 
+/**
+ * kstrndup - allocate space for and copy an existing string
+ * @s: the string to duplicate
+ * @max: read at most @max chars from @s
+ * @gfp: the GFP mask used in the kmalloc() call when allocating memory
+ */
 char *kstrndup(const char *s, size_t max, gfp_t gfp)
 {
 	size_t len;
@@ -45,6 +56,13 @@ char *kstrndup(const char *s, size_t max, gfp_t gfp)
 }
 EXPORT_SYMBOL(kstrndup);
 
+/**
+ * kmemdup - duplicate region of memory
+ *
+ * @src: memory region to duplicate
+ * @len: memory region length
+ * @gfp: GFP mask to use
+ */
 void *kmemdup(const void *src, size_t len, gfp_t gfp)
 {
 	void *p;
@@ -56,10 +74,23 @@ void *kmemdup(const void *src, size_t len, gfp_t gfp)
 }
 EXPORT_SYMBOL(kmemdup);
 
+/**
+ * memdup_user - duplicate memory region from user space
+ *
+ * @src: source address in user space
+ * @len: number of bytes to copy
+ *
+ * Returns an ERR_PTR() on failure.
+ */
 void *memdup_user(const void __user *src, size_t len)
 {
 	void *p;
 
+	/*
+	 * Always use GFP_KERNEL, since copy_from_user() can sleep and
+	 * cause pagefault, which makes it pointless to use GFP_NOFS
+	 * or GFP_ATOMIC.
+	 */
 	p = kmalloc_track_caller(len, GFP_KERNEL);
 	if (!p)
 		return ERR_PTR(-ENOMEM);
@@ -73,6 +104,16 @@ void *memdup_user(const void __user *src, size_t len)
 }
 EXPORT_SYMBOL(memdup_user);
 
+/**
+ * __krealloc - like krealloc() but don't free @p.
+ * @p: object to reallocate memory for.
+ * @new_size: how many bytes of memory are required.
+ * @flags: the type of memory to allocate.
+ *
+ * This function is like krealloc() except it never frees the originally
+ * allocated buffer. Use this if you don't want to free the buffer immediately
+ * like, for example, with RCU.
+ */
 void *__krealloc(const void *p, size_t new_size, gfp_t flags)
 {
 	void *ret;
@@ -95,6 +136,17 @@ void *__krealloc(const void *p, size_t new_size, gfp_t flags)
 }
 EXPORT_SYMBOL(__krealloc);
 
+/**
+ * krealloc - reallocate memory. The contents will remain unchanged.
+ * @p: object to reallocate memory for.
+ * @new_size: how many bytes of memory are required.
+ * @flags: the type of memory to allocate.
+ *
+ * The contents of the object pointed to are preserved up to the
+ * lesser of the new and old sizes.  If @p is %NULL, krealloc()
+ * behaves exactly like kmalloc().  If @size is 0 and @p is not a
+ * %NULL pointer, the object pointed to is freed.
+ */
 void *krealloc(const void *p, size_t new_size, gfp_t flags)
 {
 	void *ret;
@@ -112,6 +164,17 @@ void *krealloc(const void *p, size_t new_size, gfp_t flags)
 }
 EXPORT_SYMBOL(krealloc);
 
+/**
+ * kzfree - like kfree but zero memory
+ * @p: object to free memory of
+ *
+ * The memory of the object @p points to is zeroed before freed.
+ * If @p is %NULL, kzfree() does nothing.
+ *
+ * Note: this function zeroes the whole allocated buffer which can be a good
+ * deal bigger than the requested buffer size passed to kmalloc(). So be
+ * careful when using this function in performance sensitive code.
+ */
 void kzfree(const void *p)
 {
 	size_t ks;
@@ -125,6 +188,11 @@ void kzfree(const void *p)
 }
 EXPORT_SYMBOL(kzfree);
 
+/*
+ * strndup_user - duplicate an existing string from user space
+ * @s: The string to duplicate
+ * @n: Maximum number of bytes to copy, including the trailing NUL.
+ */
 char *strndup_user(const char __user *s, long n)
 {
 	char *p;
@@ -171,12 +239,19 @@ void __vma_link_list(struct mm_struct *mm, struct vm_area_struct *vma,
 		next->vm_prev = vma;
 }
 
+/* Check if the vma is being used as a stack by this task */
 static int vm_is_stack_for_task(struct task_struct *t,
 				struct vm_area_struct *vma)
 {
 	return (vma->vm_start <= KSTK_ESP(t) && vma->vm_end >= KSTK_ESP(t));
 }
 
+/*
+ * Check if the vma is being used as a stack.
+ * If is_group is non-zero, check in the entire thread group or else
+ * just check in the current task. Returns the pid of the task that
+ * the vma is stack for.
+ */
 pid_t vm_is_stack(struct task_struct *task,
 		  struct vm_area_struct *vma, int in_group)
 {
@@ -214,6 +289,12 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 }
 #endif
 
+/*
+ * Like get_user_pages_fast() except its IRQ-safe in that it won't fall
+ * back to the regular GUP.
+ * If the architecture not support this function, simply return with no
+ * page pinned
+ */
 int __attribute__((weak)) __get_user_pages_fast(unsigned long start,
 				 int nr_pages, int write, struct page **pages)
 {
@@ -260,6 +341,7 @@ int __attribute__((weak)) get_user_pages_fast(unsigned long start,
 }
 EXPORT_SYMBOL_GPL(get_user_pages_fast);
 
+/* Tracepoints definitions. */
 EXPORT_TRACEPOINT_SYMBOL(kmalloc);
 EXPORT_TRACEPOINT_SYMBOL(kmem_cache_alloc);
 EXPORT_TRACEPOINT_SYMBOL(kmalloc_node);

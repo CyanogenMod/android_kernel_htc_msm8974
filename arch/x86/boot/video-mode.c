@@ -8,18 +8,28 @@
  *
  * ----------------------------------------------------------------------- */
 
+/*
+ * arch/i386/boot/video-mode.c
+ *
+ * Set the video mode.  This is separated out into a different
+ * file in order to be shared with the ACPI wakeup code.
+ */
 
 #include "boot.h"
 #include "video.h"
 #include "vesa.h"
 
-int adapter;			
+/*
+ * Common variables
+ */
+int adapter;			/* 0=CGA/MDA/HGC, 1=EGA, 2=VGA+ */
 u16 video_segment;
-int force_x, force_y;	
+int force_x, force_y;	/* Don't query the BIOS for cols/rows */
 
-int do_restore;		
-int graphic_mode;	
+int do_restore;		/* Screen contents changed during mode flip */
+int graphic_mode;	/* Graphic mode with linear frame buffer */
 
+/* Probe the video drivers and have them generate their mode lists. */
 void probe_cards(int unsafe)
 {
 	struct card_info *card;
@@ -40,6 +50,7 @@ void probe_cards(int unsafe)
 	}
 }
 
+/* Test if a mode is defined */
 int mode_defined(u16 mode)
 {
 	struct card_info *card;
@@ -57,16 +68,17 @@ int mode_defined(u16 mode)
 	return 0;
 }
 
+/* Set mode (without recalc) */
 static int raw_set_mode(u16 mode, u16 *real_mode)
 {
 	int nmode, i;
 	struct card_info *card;
 	struct mode_info *mi;
 
-	
+	/* Drop the recalc bit if set */
 	mode &= ~VIDEO_RECALC;
 
-	
+	/* Scan for mode based on fixed ID, position, or resolution */
 	nmode = 0;
 	for (card = video_cards; card < video_cards_end; card++) {
 		mi = card->modes;
@@ -85,7 +97,7 @@ static int raw_set_mode(u16 mode, u16 *real_mode)
 		}
 	}
 
-	
+	/* Nothing found?  Is it an "exceptional" (unprobed) mode? */
 	for (card = video_cards; card < video_cards_end; card++) {
 		if (mode >= card->xmode_first &&
 		    mode < card->xmode_first+card->xmode_n) {
@@ -96,10 +108,13 @@ static int raw_set_mode(u16 mode, u16 *real_mode)
 		}
 	}
 
-	
+	/* Otherwise, failure... */
 	return -1;
 }
 
+/*
+ * Recalculate the vertical video cutoff (hack!)
+ */
 static void vga_recalc_vertical(void)
 {
 	unsigned int font_size, rows;
@@ -107,35 +122,36 @@ static void vga_recalc_vertical(void)
 	u8 pt, ov;
 
 	set_fs(0);
-	font_size = rdfs8(0x485); 
-	rows = force_y ? force_y : rdfs8(0x484)+1; 
+	font_size = rdfs8(0x485); /* BIOS: font size (pixels) */
+	rows = force_y ? force_y : rdfs8(0x484)+1; /* Text rows */
 
-	rows *= font_size;	
-	rows--;			
+	rows *= font_size;	/* Visible scan lines */
+	rows--;			/* ... minus one */
 
 	crtc = vga_crtc();
 
 	pt = in_idx(crtc, 0x11);
-	pt &= ~0x80;		
+	pt &= ~0x80;		/* Unlock CR0-7 */
 	out_idx(pt, crtc, 0x11);
 
-	out_idx((u8)rows, crtc, 0x12); 
+	out_idx((u8)rows, crtc, 0x12); /* Lower height register */
 
-	ov = in_idx(crtc, 0x07); 
+	ov = in_idx(crtc, 0x07); /* Overflow register */
 	ov &= 0xbd;
 	ov |= (rows >> (8-1)) & 0x02;
 	ov |= (rows >> (9-6)) & 0x40;
 	out_idx(ov, crtc, 0x07);
 }
 
+/* Set mode (with recalc if specified) */
 int set_mode(u16 mode)
 {
 	int rv;
 	u16 real_mode;
 
-	
+	/* Very special mode numbers... */
 	if (mode == VIDEO_CURRENT_MODE)
-		return 0;	
+		return 0;	/* Nothing to do... */
 	else if (mode == NORMAL_VGA)
 		mode = VIDEO_80x25;
 	else if (mode == EXTENDED_VGA)
@@ -148,6 +164,8 @@ int set_mode(u16 mode)
 	if (mode & VIDEO_RECALC)
 		vga_recalc_vertical();
 
+	/* Save the canonical mode number for the kernel, not
+	   an alias, size specification or menu position */
 #ifndef _WAKEUP
 	boot_params.hdr.vid_mode = real_mode;
 #endif

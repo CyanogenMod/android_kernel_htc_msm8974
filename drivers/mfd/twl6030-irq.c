@@ -44,36 +44,47 @@
 
 #include "twl-core.h"
 
+/*
+ * TWL6030 (unlike its predecessors, which had two level interrupt handling)
+ * three interrupt registers INT_STS_A, INT_STS_B and INT_STS_C.
+ * It exposes status bits saying who has raised an interrupt. There are
+ * three mask registers that corresponds to these status registers, that
+ * enables/disables these interrupts.
+ *
+ * We set up IRQs starting at a platform-specified base. An interrupt map table,
+ * specifies mapping between interrupt number and the associated module.
+ */
 #define TWL6030_NR_IRQS    20
 
 static int twl6030_interrupt_mapping[24] = {
-	PWR_INTR_OFFSET,	
-	PWR_INTR_OFFSET,	
-	PWR_INTR_OFFSET,	
-	RTC_INTR_OFFSET,	
-	RTC_INTR_OFFSET,	
-	HOTDIE_INTR_OFFSET,	
-	SMPSLDO_INTR_OFFSET,	
-	SMPSLDO_INTR_OFFSET,	
+	PWR_INTR_OFFSET,	/* Bit 0	PWRON			*/
+	PWR_INTR_OFFSET,	/* Bit 1	RPWRON			*/
+	PWR_INTR_OFFSET,	/* Bit 2	BAT_VLOW		*/
+	RTC_INTR_OFFSET,	/* Bit 3	RTC_ALARM		*/
+	RTC_INTR_OFFSET,	/* Bit 4	RTC_PERIOD		*/
+	HOTDIE_INTR_OFFSET,	/* Bit 5	HOT_DIE			*/
+	SMPSLDO_INTR_OFFSET,	/* Bit 6	VXXX_SHORT		*/
+	SMPSLDO_INTR_OFFSET,	/* Bit 7	VMMC_SHORT		*/
 
-	SMPSLDO_INTR_OFFSET,	
-	BATDETECT_INTR_OFFSET,	
-	SIMDETECT_INTR_OFFSET,	
-	MMCDETECT_INTR_OFFSET,	
-	RSV_INTR_OFFSET,  	
-	MADC_INTR_OFFSET,	
-	MADC_INTR_OFFSET,	
-	GASGAUGE_INTR_OFFSET,	
+	SMPSLDO_INTR_OFFSET,	/* Bit 8	VUSIM_SHORT		*/
+	BATDETECT_INTR_OFFSET,	/* Bit 9	BAT			*/
+	SIMDETECT_INTR_OFFSET,	/* Bit 10	SIM			*/
+	MMCDETECT_INTR_OFFSET,	/* Bit 11	MMC			*/
+	RSV_INTR_OFFSET,  	/* Bit 12	Reserved		*/
+	MADC_INTR_OFFSET,	/* Bit 13	GPADC_RT_EOC		*/
+	MADC_INTR_OFFSET,	/* Bit 14	GPADC_SW_EOC		*/
+	GASGAUGE_INTR_OFFSET,	/* Bit 15	CC_AUTOCAL		*/
 
-	USBOTG_INTR_OFFSET,	
-	USBOTG_INTR_OFFSET,	
-	USBOTG_INTR_OFFSET,	
-	USB_PRES_INTR_OFFSET,	
-	CHARGER_INTR_OFFSET,	
-	CHARGERFAULT_INTR_OFFSET,	
-	CHARGERFAULT_INTR_OFFSET,	
-	RSV_INTR_OFFSET,	
+	USBOTG_INTR_OFFSET,	/* Bit 16	ID_WKUP			*/
+	USBOTG_INTR_OFFSET,	/* Bit 17	VBUS_WKUP		*/
+	USBOTG_INTR_OFFSET,	/* Bit 18	ID			*/
+	USB_PRES_INTR_OFFSET,	/* Bit 19	VBUS			*/
+	CHARGER_INTR_OFFSET,	/* Bit 20	CHRG_CTRL		*/
+	CHARGERFAULT_INTR_OFFSET,	/* Bit 21	EXT_CHRG	*/
+	CHARGERFAULT_INTR_OFFSET,	/* Bit 22	INT_CHRG	*/
+	RSV_INTR_OFFSET,	/* Bit 23	Reserved		*/
 };
+/*----------------------------------------------------------------------*/
 
 static unsigned twl6030_irq_base;
 static int twl_irq;
@@ -119,6 +130,9 @@ static struct notifier_block twl6030_irq_pm_notifier_block = {
 	.notifier_call = twl6030_irq_pm_notifier,
 };
 
+/*
+ * This thread processes interrupts reported by the Primary Interrupt Handler.
+ */
 static int twl6030_irq_thread(void *data)
 {
 	long irq = (long)data;
@@ -133,10 +147,10 @@ static int twl6030_irq_thread(void *data)
 		u32 int_sts;
 		} sts;
 
-		
+		/* Wait for IRQ, then read PIH irq status (also blocking) */
 		wait_for_completion_interruptible(&irq_event);
 
-		
+		/* read INT_STS_A, B and C in one shot using a burst read */
 		ret = twl_i2c_read(TWL_MODULE_PIH, sts.bytes,
 				REG_INT_STS_A, 3);
 		if (ret) {
@@ -154,8 +168,12 @@ static int twl6030_irq_thread(void *data)
 
 
 
-		sts.bytes[3] = 0; 
+		sts.bytes[3] = 0; /* Only 24 bits are valid*/
 
+		/*
+		 * Since VBUS status bit is not reliable for VBUS disconnect
+		 * use CHARGER VBUS detection status bit instead.
+		 */
 		if (sts.bytes[2] & 0x10)
 			sts.bytes[2] |= 0x08;
 
@@ -189,6 +207,15 @@ static int twl6030_irq_thread(void *data)
 	return 0;
 }
 
+/*
+ * handle_twl6030_int() is the desc->handle method for the twl6030 interrupt.
+ * This is a chained interrupt, so there is no desc->action method for it.
+ * Now we need to query the interrupt controller in the twl6030 to determine
+ * which module is generating the interrupt request.  However, we can't do i2c
+ * transactions in interrupt context, so we must defer that work to a kernel
+ * thread.  All we do here is acknowledge and mask the interrupt and wakeup
+ * the kernel thread.
+ */
 static irqreturn_t handle_twl6030_pih(int irq, void *devid)
 {
 	disable_irq_nosync(irq);
@@ -196,13 +223,17 @@ static irqreturn_t handle_twl6030_pih(int irq, void *devid)
 	return IRQ_HANDLED;
 }
 
+/*----------------------------------------------------------------------*/
 
 static inline void activate_irq(int irq)
 {
 #ifdef CONFIG_ARM
+	/* ARM requires an extra step to clear IRQ_NOREQUEST, which it
+	 * sets on behalf of every irq_chip.  Also sets IRQ_NOPROBE.
+	 */
 	set_irq_flags(irq, IRQF_VALID);
 #else
-	
+	/* same effect on other architectures */
 	irq_set_noprobe(irq);
 #endif
 }
@@ -225,7 +256,7 @@ int twl6030_interrupt_unmask(u8 bit_mask, u8 offset)
 			REG_INT_STS_A + offset);
 	unmask_value &= (~(bit_mask));
 	ret |= twl_i2c_write_u8(TWL_MODULE_PIH, unmask_value,
-			REG_INT_STS_A + offset); 
+			REG_INT_STS_A + offset); /* unmask INT_MSK_A/B/C */
 	return ret;
 }
 EXPORT_SYMBOL(twl6030_interrupt_unmask);
@@ -238,7 +269,7 @@ int twl6030_interrupt_mask(u8 bit_mask, u8 offset)
 			REG_INT_STS_A + offset);
 	mask_value |= (bit_mask);
 	ret |= twl_i2c_write_u8(TWL_MODULE_PIH, mask_value,
-			REG_INT_STS_A + offset); 
+			REG_INT_STS_A + offset); /* mask INT_MSK_A/B/C */
 	return ret;
 }
 EXPORT_SYMBOL(twl6030_interrupt_mask);
@@ -248,11 +279,15 @@ int twl6030_mmc_card_detect_config(void)
 	int ret;
 	u8 reg_val = 0;
 
-	
+	/* Unmasking the Card detect Interrupt line for MMC1 from Phoenix */
 	twl6030_interrupt_unmask(TWL6030_MMCDETECT_INT_MASK,
 						REG_INT_MSK_LINE_B);
 	twl6030_interrupt_unmask(TWL6030_MMCDETECT_INT_MASK,
 						REG_INT_MSK_STS_B);
+	/*
+	 * Initially Configuring MMC_CTRL for receiving interrupts &
+	 * Card status on TWL6030 for MMC1
+	 */
 	ret = twl_i2c_read_u8(TWL6030_MODULE_ID0, &reg_val, TWL6030_MMCCTRL);
 	if (ret < 0) {
 		pr_err("twl6030: Failed to read MMCCTRL, error %d\n", ret);
@@ -266,7 +301,7 @@ int twl6030_mmc_card_detect_config(void)
 		return ret;
 	}
 
-	
+	/* Configuring PullUp-PullDown register */
 	ret = twl_i2c_read_u8(TWL6030_MODULE_ID0, &reg_val,
 						TWL6030_CFG_INPUT_PUPD3);
 	if (ret < 0) {
@@ -294,9 +329,16 @@ int twl6030_mmc_card_detect(struct device *dev, int slot)
 	struct platform_device *pdev = to_platform_device(dev);
 
 	if (pdev->id) {
+		/* TWL6030 provide's Card detect support for
+		 * only MMC1 controller.
+		 */
 		pr_err("Unknown MMC controller %d in %s\n", pdev->id, __func__);
 		return ret;
 	}
+	/*
+	 * BIT0 of MMC_CTRL on TWL6030 provides card status for MMC1
+	 * 0 - Card not present ,1 - Card present
+	 */
 	ret = twl_i2c_read_u8(TWL6030_MODULE_ID0, &read_reg,
 						TWL6030_MMCCTRL);
 	if (ret >= 0)
@@ -332,15 +374,19 @@ int twl6030_init_irq(struct device *dev, int irq_num)
 	mask[2] = 0xFF;
 	mask[3] = 0xFF;
 
-	
+	/* mask all int lines */
 	twl_i2c_write(TWL_MODULE_PIH, &mask[0], REG_INT_MSK_LINE_A, 3);
-	
+	/* mask all int sts */
 	twl_i2c_write(TWL_MODULE_PIH, &mask[0], REG_INT_MSK_STS_A, 3);
-	
+	/* clear INT_STS_A,B,C */
 	twl_i2c_write(TWL_MODULE_PIH, &mask[0], REG_INT_STS_A, 3);
 
 	twl6030_irq_base = irq_base;
 
+	/*
+	 * install an irq handler for each of the modules;
+	 * clone dummy irq_chip since PIH can't *do* anything
+	 */
 	twl6030_irq_chip = dummy_irq_chip;
 	twl6030_irq_chip.name = "twl6030";
 	twl6030_irq_chip.irq_set_type = NULL;
@@ -356,7 +402,7 @@ int twl6030_init_irq(struct device *dev, int irq_num)
 	dev_info(dev, "PIH (irq %d) chaining IRQs %d..%d\n",
 			irq_num, irq_base, irq_end);
 
-	
+	/* install an irq handler to demultiplex the TWL6030 interrupt */
 	init_completion(&irq_event);
 
 	status = request_irq(irq_num, handle_twl6030_pih, 0, "TWL6030-PIH",

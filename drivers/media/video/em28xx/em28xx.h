@@ -41,6 +41,7 @@
 #include "xc5000.h"
 #include "em28xx-reg.h"
 
+/* Boards supported by driver */
 #define EM2800_BOARD_UNKNOWN			0
 #define EM2820_BOARD_UNKNOWN			1
 #define EM2820_BOARD_TERRATEC_CINERGY_250	2
@@ -128,34 +129,68 @@
 #define EM2884_BOARD_PCTV_510E                    85
 #define EM2884_BOARD_PCTV_520E                    86
 
+/* Limits minimum and default number of buffers */
 #define EM28XX_MIN_BUF 4
 #define EM28XX_DEF_BUF 8
 
+/*Limits the max URB message size */
 #define URB_MAX_CTRL_SIZE 80
 
+/* Params for validated field */
 #define EM28XX_BOARD_NOT_VALIDATED 1
 #define EM28XX_BOARD_VALIDATED	   0
 
+/* Params for em28xx_cmd() audio */
 #define EM28XX_START_AUDIO      1
 #define EM28XX_STOP_AUDIO       0
 
-#define EM28XX_MAXBOARDS 4 
+/* maximum number of em28xx boards */
+#define EM28XX_MAXBOARDS 4 /*FIXME: should be bigger */
 
+/* maximum number of frames that can be queued */
 #define EM28XX_NUM_FRAMES 5
+/* number of frames that get used for v4l2_read() */
 #define EM28XX_NUM_READ_FRAMES 2
 
+/* number of buffers for isoc transfers */
 #define EM28XX_NUM_BUFS 5
 #define EM28XX_DVB_NUM_BUFS 5
 
+/* number of packets for each buffer
+   windows requests only 64 packets .. so we better do the same
+   this is what I found out for all alternate numbers there!
+ */
 #define EM28XX_NUM_PACKETS 64
 #define EM28XX_DVB_MAX_PACKETS 64
 
 #define EM28XX_INTERLACED_DEFAULT 1
 
+/*
+#define (use usbview if you want to get the other alternate number infos)
+#define
+#define alternate number 2
+#define 			Endpoint Address: 82
+			Direction: in
+			Attribute: 1
+			Type: Isoc
+			Max Packet Size: 1448
+			Interval: 125us
 
+  alternate number 7
+
+			Endpoint Address: 82
+			Direction: in
+			Attribute: 1
+			Type: Isoc
+			Max Packet Size: 3072
+			Interval: 125us
+*/
+
+/* time to wait when stopping the isoc transfer */
 #define EM28XX_URB_TIMEOUT \
 			msecs_to_jiffies(EM28XX_NUM_BUFS * EM28XX_NUM_PACKETS)
 
+/* time in msecs to wait for i2c writes to finish */
 #define EM2800_I2C_WRITE_TIMEOUT 20
 
 enum em28xx_mode {
@@ -168,61 +203,63 @@ enum em28xx_mode {
 struct em28xx;
 
 struct em28xx_usb_isoc_bufs {
-		
+		/* max packet size of isoc transaction */
 	int				max_pkt_size;
 
-		
+		/* number of packets in each buffer */
 	int				num_packets;
 
-		
+		/* number of allocated urbs */
 	int				num_bufs;
 
-		
+		/* urb for isoc transfers */
 	struct urb			**urb;
 
-		
+		/* transfer buffers for isoc transfer */
 	char				**transfer_buffer;
 };
 
 struct em28xx_usb_isoc_ctl {
-		
+		/* isoc transfer buffers for analog mode */
 	struct em28xx_usb_isoc_bufs	analog_bufs;
 
-		
+		/* isoc transfer buffers for digital mode */
 	struct em28xx_usb_isoc_bufs	digital_bufs;
 
-		
+		/* Last buffer command and region */
 	u8				cmd;
 	int				pos, size, pktsize;
 
-		
+		/* Last field: ODD or EVEN? */
 	int				field;
 
-		
+		/* Stores incomplete commands */
 	u32				tmp_buf;
 	int				tmp_buf_len;
 
-		
+		/* Stores already requested buffers */
 	struct em28xx_buffer    	*vid_buf;
 	struct em28xx_buffer    	*vbi_buf;
 
-		
+		/* Stores the number of received fields */
 	int				nfields;
 
-		
+		/* isoc urb callback */
 	int (*isoc_copy) (struct em28xx *dev, struct urb *urb);
 
 };
 
+/* Struct to enumberate video formats */
 struct em28xx_fmt {
 	char  *name;
-	u32   fourcc;          
+	u32   fourcc;          /* v4l2 format id */
 	int   depth;
 	int   reg;
 };
 
+/* buffer for one video frame */
 struct em28xx_buffer {
-	
+	/* common v4l buffer stuff -- must be first */
 	struct videobuf_buffer vb;
 
 	struct list_head frame;
@@ -236,16 +273,18 @@ struct em28xx_dmaqueue {
 
 	wait_queue_head_t          wq;
 
-	
+	/* Counters to control buffer fill */
 	int                        pos;
 };
 
+/* io methods */
 enum em28xx_io_method {
 	IO_NONE,
 	IO_READ,
 	IO_MMAP,
 };
 
+/* inputs */
 
 #define MAX_EM28XX_INPUT 4
 enum enum28xx_itype {
@@ -280,14 +319,20 @@ struct em28xx_audio_mode {
 	unsigned int i2s_5rates:1;
 };
 
+/* em28xx has two audio inputs: tuner and line in.
+   However, on most devices, an auxiliary AC97 codec device is used.
+   The AC97 device may have several different inputs and outputs,
+   depending on their model. So, it is possible to use AC97 mixer to
+   address more than two different entries.
+ */
 enum em28xx_amux {
-	
-	EM28XX_AMUX_VIDEO,	
+	/* This is the only entry for em28xx tuner input */
+	EM28XX_AMUX_VIDEO,	/* em28xx tuner, AC97 mixer Video */
 
-	EM28XX_AMUX_LINE_IN,	
+	EM28XX_AMUX_LINE_IN,	/* AC97 mixer Line In */
 
-	
-	EM28XX_AMUX_VIDEO2,	
+	/* Some less-common mixer setups */
+	EM28XX_AMUX_VIDEO2,	/* em28xx Line in, AC97 mixer Video */
 	EM28XX_AMUX_PHONE,
 	EM28XX_AMUX_MIC,
 	EM28XX_AMUX_CD,
@@ -296,17 +341,17 @@ enum em28xx_amux {
 };
 
 enum em28xx_aout {
-	
+	/* AC97 outputs */
 	EM28XX_AOUT_MASTER = 1 << 0,
 	EM28XX_AOUT_LINE   = 1 << 1,
 	EM28XX_AOUT_MONO   = 1 << 2,
 	EM28XX_AOUT_LFE    = 1 << 3,
 	EM28XX_AOUT_SURR   = 1 << 4,
 
-	
+	/* PCM IN Mixer - used by AC97_RECORD_SELECT register */
 	EM28XX_AOUT_PCM_IN = 1 << 7,
 
-	
+	/* Bits 10-8 are used to indicate the PCM IN record select */
 	EM28XX_AOUT_PCM_MIC_PCM = 0 << 8,
 	EM28XX_AOUT_PCM_CD	= 1 << 8,
 	EM28XX_AOUT_PCM_VIDEO	= 2 << 8,
@@ -362,10 +407,10 @@ struct em28xx_board {
 	int tuner_type;
 	int tuner_addr;
 
-	
+	/* i2c flags */
 	unsigned int tda9887_conf;
 
-	
+	/* GPIO sequences */
 	struct em28xx_reg_seq *dvb_gpio;
 	struct em28xx_reg_seq *suspend_gpio;
 	struct em28xx_reg_seq *tuner_gpio;
@@ -394,7 +439,7 @@ struct em28xx_board {
 };
 
 struct em28xx_eeprom {
-	u32 id;			
+	u32 id;			/* 0x9567eb1a */
 	u16 vendor_ID;
 	u16 product_ID;
 
@@ -407,6 +452,7 @@ struct em28xx_eeprom {
 	u8 string_idx_table;
 };
 
+/* device states */
 enum em28xx_dev_state {
 	DEV_INITIALIZED = 0x01,
 	DEV_DISCONNECTED = 0x02,
@@ -415,12 +461,14 @@ enum em28xx_dev_state {
 
 #define EM28XX_AUDIO_BUFS 5
 #define EM28XX_NUM_AUDIO_PACKETS 64
-#define EM28XX_AUDIO_MAX_PACKET_SIZE 196 
+#define EM28XX_AUDIO_MAX_PACKET_SIZE 196 /* static value */
 #define EM28XX_CAPTURE_STREAM_EN 1
 
+/* em28xx extensions */
 #define EM28XX_AUDIO   0x10
 #define EM28XX_DVB     0x20
 
+/* em28xx resource types (used for res_get/res_lock etc */
 #define EM28XX_RESOURCE_VIDEO 0x01
 #define EM28XX_RESOURCE_VBI   0x02
 
@@ -452,11 +500,12 @@ struct em28xx_fh {
 	enum v4l2_buf_type           type;
 };
 
+/* main device struct */
 struct em28xx {
-	
-	char name[30];		
-	int model;		
-	int devno;		
+	/* generic device properties */
+	char name[30];		/* name (including minor) of the device */
+	int model;		/* index in the device_data struct */
+	int devno;		/* marks the number of this device */
 	enum em28xx_chip_id chip_id;
 
 	int audio_ifnum;
@@ -464,111 +513,112 @@ struct em28xx {
 	struct v4l2_device v4l2_dev;
 	struct em28xx_board board;
 
-	
+	/* Webcam specific fields */
 	enum em28xx_sensor em28xx_sensor;
 	int sensor_xres, sensor_yres;
 	int sensor_xtal;
 
-	
+	/* Allows progressive (e. g. non-interlaced) mode */
 	int progressive;
 
-	
+	/* Vinmode/Vinctl used at the driver */
 	int vinmode, vinctl;
 
 	unsigned int has_audio_class:1;
 	unsigned int has_alsa_audio:1;
 	unsigned int is_audio_only:1;
 
-	
-	struct work_struct wq_trigger;              
-	 atomic_t       stream_started;      
+	/* Controls audio streaming */
+	struct work_struct wq_trigger;              /* Trigger to start/stop audio for alsa module */
+	 atomic_t       stream_started;      /* stream should be running if true */
 
 	struct em28xx_fmt *format;
 
 	struct em28xx_IR *ir;
 
-	
+	/* Some older em28xx chips needs a waiting time after writing */
 	unsigned int wait_after_write;
 
 	struct list_head	devlist;
 
-	u32 i2s_speed;		
+	u32 i2s_speed;		/* I2S speed for audio digital stream */
 
 	struct em28xx_audio_mode audio_mode;
 
-	int tuner_type;		
-	int tuner_addr;		
+	int tuner_type;		/* type of the tuner */
+	int tuner_addr;		/* tuner address */
 	int tda9887_conf;
-	
+	/* i2c i/o */
 	struct i2c_adapter i2c_adap;
 	struct i2c_client i2c_client;
-	
-	int users;		
-	struct video_device *vdev;	
-	v4l2_std_id norm;	
-	int ctl_freq;		
-	unsigned int ctl_input;	
-	unsigned int ctl_ainput;
-	unsigned int ctl_aoutput;
+	/* video for linux */
+	int users;		/* user count for exclusive use */
+	struct video_device *vdev;	/* video for linux device struct */
+	v4l2_std_id norm;	/* selected tv norm */
+	int ctl_freq;		/* selected frequency */
+	unsigned int ctl_input;	/* selected input */
+	unsigned int ctl_ainput;/* selected audio input */
+	unsigned int ctl_aoutput;/* selected audio output */
 	int mute;
 	int volume;
-	
-	int width;		
-	int height;		
-	unsigned hscale;	
-	unsigned vscale;	
-	int interlaced;		
-	unsigned int video_bytesread;	
+	/* frame properties */
+	int width;		/* current frame width */
+	int height;		/* current frame height */
+	unsigned hscale;	/* horizontal scale factor (see datasheet) */
+	unsigned vscale;	/* vertical scale factor (see datasheet) */
+	int interlaced;		/* 1=interlace fileds, 0=just top fileds */
+	unsigned int video_bytesread;	/* Number of bytes read */
 
-	unsigned long hash;	
-	unsigned long i2c_hash;	
+	unsigned long hash;	/* eeprom hash - for boards with generic ID */
+	unsigned long i2c_hash;	/* i2c devicelist hash -
+				   for boards with generic ID */
 
 	struct em28xx_audio adev;
 
-	
+	/* states */
 	enum em28xx_dev_state state;
 	enum em28xx_io_method io;
 
-	
+	/* vbi related state tracking */
 	int capture_type;
 	int vbi_read;
 	unsigned char cur_field;
 	unsigned int vbi_width;
-	unsigned int vbi_height; 
+	unsigned int vbi_height; /* lines per field */
 
 	struct work_struct         request_module_wk;
 
-	
+	/* locks */
 	struct mutex lock;
-	struct mutex ctrl_urb_lock;	
-	
+	struct mutex ctrl_urb_lock;	/* protects urb_buf */
+	/* spinlock_t queue_lock; */
 	struct list_head inqueue, outqueue;
 	wait_queue_head_t open, wait_frame, wait_stream;
 	struct video_device *vbi_dev;
 	struct video_device *radio_dev;
 
-	
+	/* resources in use */
 	unsigned int resources;
 
 	unsigned char eedata[256];
 
-	
+	/* Isoc control struct */
 	struct em28xx_dmaqueue vidq;
 	struct em28xx_dmaqueue vbiq;
 	struct em28xx_usb_isoc_ctl isoc_ctl;
 	spinlock_t slock;
 
-	
-	struct usb_device *udev;	
-	int alt;		
-	int max_pkt_size;	
-	int num_alt;		
-	unsigned int *alt_max_pkt_size;	
-	int dvb_alt;				
-	unsigned int dvb_max_pkt_size;		
-	char urb_buf[URB_MAX_CTRL_SIZE];	
+	/* usb transfer */
+	struct usb_device *udev;	/* the usb device */
+	int alt;		/* alternate */
+	int max_pkt_size;	/* max packet size of isoc transaction */
+	int num_alt;		/* Number of alternative settings */
+	unsigned int *alt_max_pkt_size;	/* array of wMaxPacketSize */
+	int dvb_alt;				/* alternate for DVB */
+	unsigned int dvb_max_pkt_size;		/* wMaxPacketSize for DVB */
+	char urb_buf[URB_MAX_CTRL_SIZE];	/* urb control msg buffer */
 
-	
+	/* helper funcs that call usb_control_msg */
 	int (*em28xx_write_regs) (struct em28xx *dev, u16 reg,
 					char *buf, int len);
 	int (*em28xx_read_reg) (struct em28xx *dev, u16 reg);
@@ -580,20 +630,20 @@ struct em28xx {
 
 	enum em28xx_mode mode;
 
-	
+	/* register numbers for GPO/GPIO registers */
 	u16 reg_gpo_num, reg_gpio_num;
 
-	
+	/* Caches GPO and GPIO registers */
 	unsigned char	reg_gpo, reg_gpio;
 
-	
-	char snapshot_button_path[30];	
+	/* Snapshot button */
+	char snapshot_button_path[30];	/* path of the input dev */
 	struct input_dev *sbutton_input_dev;
 	struct delayed_work sbutton_query_work;
 
 	struct em28xx_dvb *dvb;
 
-	
+	/* I2C keyboard data */
 	struct IR_i2c_init_data init_data;
 };
 
@@ -605,10 +655,12 @@ struct em28xx_ops {
 	int (*fini)(struct em28xx *);
 };
 
+/* Provided by em28xx-i2c.c */
 void em28xx_do_i2c_scan(struct em28xx *dev);
 int  em28xx_i2c_register(struct em28xx *dev);
 int  em28xx_i2c_unregister(struct em28xx *dev);
 
+/* Provided by em28xx-core.c */
 
 u32 em28xx_request_buffers(struct em28xx *dev, u32 count);
 void em28xx_queue_unusedframes(struct em28xx *dev);
@@ -652,9 +704,11 @@ void em28xx_unregister_extension(struct em28xx_ops *dev);
 void em28xx_init_extension(struct em28xx *dev);
 void em28xx_close_extension(struct em28xx *dev);
 
+/* Provided by em28xx-video.c */
 int em28xx_register_analog_devices(struct em28xx *dev);
 void em28xx_release_analog_resources(struct em28xx *dev);
 
+/* Provided by em28xx-cards.c */
 extern int em2800_variant_detect(struct usb_device *udev, int model);
 extern void em28xx_pre_card_setup(struct em28xx *dev);
 extern void em28xx_card_setup(struct em28xx *dev);
@@ -665,6 +719,7 @@ void em28xx_register_i2c_ir(struct em28xx *dev);
 int em28xx_tuner_callback(void *ptr, int component, int command, int arg);
 void em28xx_release_resources(struct em28xx *dev);
 
+/* Provided by em28xx-input.c */
 
 #ifdef CONFIG_VIDEO_EM28XX_RC
 
@@ -694,8 +749,10 @@ static inline int em28xx_ir_fini(struct em28xx *dev) { return 0; }
 
 #endif
 
+/* Provided by em28xx-vbi.c */
 extern struct videobuf_queue_ops em28xx_vbi_qops;
 
+/* printk macros */
 
 #define em28xx_err(fmt, arg...) do {\
 	printk(KERN_ERR fmt , ##arg); } while (0)
@@ -713,7 +770,7 @@ extern struct videobuf_queue_ops em28xx_vbi_qops;
 
 static inline int em28xx_compression_disable(struct em28xx *dev)
 {
-	
+	/* side effect of disabling scaler and mixer */
 	return em28xx_write_reg(dev, EM28XX_R26_COMPR, 0x00);
 }
 
@@ -783,6 +840,7 @@ static inline int em28xx_gamma_set(struct em28xx *dev, s32 val)
 	return em28xx_write_regs(dev, EM28XX_R14_GAMMA, &tmp, 1);
 }
 
+/*FIXME: maxw should be dependent of alt mode */
 static inline unsigned int norm_maxw(struct em28xx *dev)
 {
 	if (dev->board.is_webcam)

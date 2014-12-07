@@ -62,6 +62,7 @@ err_reg:
 	return err;
 }
 
+/* PCI should be initialized after I2C, mfd and regulators */
 subsys_initcall_sync(harmony_pcie_init);
 
 #endif

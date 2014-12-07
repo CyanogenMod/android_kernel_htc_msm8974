@@ -60,10 +60,12 @@ struct netbk_rx_meta {
 
 #define MAX_PENDING_REQS 256
 
+/* Discriminate from any valid pending_idx value. */
 #define INVALID_PENDING_IDX 0xFFFF
 
 #define MAX_BUFFER_OFFSET PAGE_SIZE
 
+/* extra field used in struct page */
 union page_ext {
 	struct {
 #if BITS_PER_LONG < 64
@@ -93,7 +95,7 @@ struct xen_netbk {
 	pending_ring_idx_t pending_cons;
 	struct list_head net_schedule_list;
 
-	
+	/* Protect the net_schedule_list in netif. */
 	spinlock_t net_schedule_list_lock;
 
 	atomic_t netfront_count;
@@ -103,6 +105,11 @@ struct xen_netbk {
 
 	u16 pending_ring[MAX_PENDING_REQS];
 
+	/*
+	 * Given MAX_BUFFER_OFFSET of 4096 the worst case is that each
+	 * head/fragment page uses 2 copy operations because it
+	 * straddles two buffers in the frontend.
+	 */
 	struct gnttab_copy grant_copy_op[2*XEN_NETIF_RX_RING_SIZE];
 	struct netbk_rx_meta meta[2*XEN_NETIF_RX_RING_SIZE];
 };
@@ -162,6 +169,7 @@ static inline unsigned long idx_to_kaddr(struct xen_netbk *netbk,
 	return (unsigned long)pfn_to_kaddr(idx_to_pfn(netbk, idx));
 }
 
+/* extra field used in struct page */
 static inline void set_page_ext(struct page *pg, struct xen_netbk *netbk,
 				unsigned int idx)
 {
@@ -200,6 +208,11 @@ static int get_page_ext(struct page *pg,
 	return 1;
 }
 
+/*
+ * This is the amount of packet we copy rather than map, so that the
+ * guest can't fiddle with the contents of the headers while we do
+ * packet processing on them (netfilter, routing, etc).
+ */
 #define PKT_PROT_LEN    (ETH_HLEN + \
 			 VLAN_HLEN + \
 			 sizeof(struct iphdr) + MAX_IPOPTLEN + \
@@ -236,7 +249,7 @@ static int max_required_rx_slots(struct xenvif *vif)
 	int max = DIV_ROUND_UP(vif->dev->mtu, PAGE_SIZE);
 
 	if (vif->can_sg || vif->gso || vif->gso_prefix)
-		max += MAX_SKB_FRAGS + 1; 
+		max += MAX_SKB_FRAGS + 1; /* extra_info + frags */
 
 	return max;
 }
@@ -257,17 +270,44 @@ int xen_netbk_must_stop_queue(struct xenvif *vif)
 
 	vif->rx.sring->req_event = vif->rx_req_cons_peek +
 		max_required_rx_slots(vif);
-	mb(); 
+	mb(); /* request notification /then/ check the queue */
 
 	return xen_netbk_rx_ring_full(vif);
 }
 
+/*
+ * Returns true if we should start a new receive buffer instead of
+ * adding 'size' bytes to a buffer which currently contains 'offset'
+ * bytes.
+ */
 static bool start_new_rx_buffer(int offset, unsigned long size, int head)
 {
-	
+	/* simple case: we have completely filled the current buffer. */
 	if (offset == MAX_BUFFER_OFFSET)
 		return true;
 
+	/*
+	 * complex case: start a fresh buffer if the current frag
+	 * would overflow the current buffer but only if:
+	 *     (i)   this frag would fit completely in the next buffer
+	 * and (ii)  there is already some data in the current buffer
+	 * and (iii) this is not the head buffer.
+	 *
+	 * Where:
+	 * - (i) stops us splitting a frag into two copies
+	 *   unless the frag is too large for a single buffer.
+	 * - (ii) stops us from leaving a buffer pointlessly empty.
+	 * - (iii) stops us leaving the first buffer
+	 *   empty. Strictly speaking this is already covered
+	 *   by (ii) but is explicitly checked because
+	 *   netfront relies on the first buffer being
+	 *   non-empty and can crash otherwise.
+	 *
+	 * This means we will effectively linearise small
+	 * frags but do not needlessly split large buffers
+	 * into multiple copies tend to give large frags their
+	 * own buffers as before.
+	 */
 	if ((offset + size > MAX_BUFFER_OFFSET) &&
 	    (size <= MAX_BUFFER_OFFSET) && offset && !head)
 		return true;
@@ -275,6 +315,11 @@ static bool start_new_rx_buffer(int offset, unsigned long size, int head)
 	return false;
 }
 
+/*
+ * Figure out how many ring slots we're going to need to send @skb to
+ * the guest. This function is essentially a dry run of
+ * netbk_gop_frag_copy.
+ */
 unsigned int xen_netbk_count_skb_slots(struct xenvif *vif, struct sk_buff *skb)
 {
 	unsigned int count;
@@ -338,6 +383,10 @@ static struct netbk_rx_meta *get_next_rx_buffer(struct xenvif *vif,
 	return meta;
 }
 
+/*
+ * Set up the grant operations for this fragment. If it's a flipping
+ * interface, we also set up the unmap request from here.
+ */
 static void netbk_gop_frag_copy(struct xenvif *vif, struct sk_buff *skb,
 				struct netrx_pending_operations *npo,
 				struct page *page, unsigned long size,
@@ -345,11 +394,15 @@ static void netbk_gop_frag_copy(struct xenvif *vif, struct sk_buff *skb,
 {
 	struct gnttab_copy *copy_gop;
 	struct netbk_rx_meta *meta;
+	/*
+	 * These variables are used iff get_page_ext returns true,
+	 * in which case they are guaranteed to be initialized.
+	 */
 	unsigned int uninitialized_var(group), uninitialized_var(idx);
 	int foreign = get_page_ext(page, &group, &idx);
 	unsigned long bytes;
 
-	
+	/* Data must not cross a page boundary. */
 	BUG_ON(size + offset > PAGE_SIZE);
 
 	meta = npo->meta + npo->meta_prod - 1;
@@ -358,6 +411,10 @@ static void netbk_gop_frag_copy(struct xenvif *vif, struct sk_buff *skb,
 		BUG_ON(npo->copy_off > MAX_BUFFER_OFFSET);
 
 		if (start_new_rx_buffer(npo->copy_off, size, *head)) {
+			/*
+			 * Netfront requires there to be some data in the head
+			 * buffer.
+			 */
 			BUG_ON(*head);
 
 			meta = get_next_rx_buffer(vif, npo);
@@ -396,15 +453,27 @@ static void netbk_gop_frag_copy(struct xenvif *vif, struct sk_buff *skb,
 		offset += bytes;
 		size -= bytes;
 
-		
+		/* Leave a gap for the GSO descriptor. */
 		if (*head && skb_shinfo(skb)->gso_size && !vif->gso_prefix)
 			vif->rx.req_cons++;
 
-		*head = 0; 
+		*head = 0; /* There must be something in this buffer now. */
 
 	}
 }
 
+/*
+ * Prepare an SKB to be transmitted to the frontend.
+ *
+ * This function is responsible for allocating grant operations, meta
+ * structures, etc.
+ *
+ * It returns the number of meta structures consumed. The number of
+ * ring slots used is always equal to the number of meta slots used
+ * plus the number of GSO descriptors used. Currently, we use either
+ * zero GSO descriptors (for non-GSO packets) or one descriptor (for
+ * frontend-side LRO).
+ */
 static int netbk_gop_skb(struct sk_buff *skb,
 			 struct netrx_pending_operations *npo)
 {
@@ -419,7 +488,7 @@ static int netbk_gop_skb(struct sk_buff *skb,
 
 	old_meta_prod = npo->meta_prod;
 
-	
+	/* Set up a GSO prefix descriptor, if necessary */
 	if (skb_shinfo(skb)->gso_size && vif->gso_prefix) {
 		req = RING_GET_REQUEST(&vif->rx, vif->rx.req_cons++);
 		meta = npo->meta + npo->meta_prod++;
@@ -465,6 +534,12 @@ static int netbk_gop_skb(struct sk_buff *skb,
 	return npo->meta_prod - old_meta_prod;
 }
 
+/*
+ * This is a twin to netbk_gop_skb.  Assume that netbk_gop_skb was
+ * used to set up the operations on the top of
+ * netrx_pending_operations, which have since been done.  Check that
+ * they didn't give any errors and advance over them.
+ */
 static int netbk_check_gop(struct xenvif *vif, int nr_meta_slots,
 			   struct netrx_pending_operations *npo)
 {
@@ -492,7 +567,7 @@ static void netbk_add_frag_responses(struct xenvif *vif, int status,
 	int i;
 	unsigned long offset;
 
-	
+	/* No fragments used */
 	if (nr_meta_slots <= 1)
 		return;
 
@@ -550,7 +625,7 @@ static void xen_netbk_rx_action(struct xen_netbk *netbk)
 
 		__skb_queue_tail(&rxq, skb);
 
-		
+		/* Filled the batch queue? */
 		if (count + MAX_SKB_FRAGS >= XEN_NETIF_RX_RING_SIZE)
 			break;
 	}
@@ -595,10 +670,10 @@ static void xen_netbk_rx_action(struct xen_netbk *netbk)
 		else
 			flags = XEN_NETRXF_more_data;
 
-		if (skb->ip_summed == CHECKSUM_PARTIAL) 
+		if (skb->ip_summed == CHECKSUM_PARTIAL) /* local packet? */
 			flags |= XEN_NETRXF_csum_blank | XEN_NETRXF_data_validated;
 		else if (skb->ip_summed == CHECKSUM_UNNECESSARY)
-			
+			/* remote but checksummed. */
 			flags |= XEN_NETRXF_data_validated;
 
 		offset = 0;
@@ -645,7 +720,7 @@ static void xen_netbk_rx_action(struct xen_netbk *netbk)
 		list_del_init(&vif->notify_list);
 	}
 
-	
+	/* More work to do? */
 	if (!skb_queue_empty(&netbk->rx_queue) &&
 			!timer_pending(&netbk->net_timer))
 		xen_netbk_kick_thread(netbk);
@@ -671,6 +746,7 @@ static int __on_net_schedule_list(struct xenvif *vif)
 	return !list_empty(&vif->schedule_list);
 }
 
+/* Must be called with net_schedule_list_lock held */
 static void remove_from_net_schedule_list(struct xenvif *vif)
 {
 	if (likely(__on_net_schedule_list(vif))) {
@@ -745,14 +821,18 @@ static void tx_add_credit(struct xenvif *vif)
 {
 	unsigned long max_burst, max_credit;
 
+	/*
+	 * Allow a burst big enough to transmit a jumbo packet of up to 128kB.
+	 * Otherwise the interface can seize up due to insufficient credit.
+	 */
 	max_burst = RING_GET_REQUEST(&vif->tx, vif->tx.req_cons)->size;
 	max_burst = min(max_burst, 131072UL);
 	max_burst = max(max_burst, vif->credit_bytes);
 
-	
+	/* Take care that adding a new chunk of credit doesn't wrap to zero. */
 	max_credit = vif->remaining_credit + vif->credit_bytes;
 	if (max_credit < vif->remaining_credit)
-		max_credit = ULONG_MAX; 
+		max_credit = ULONG_MAX; /* wrapped: clamp to ULONG_MAX */
 
 	vif->remaining_credit = min(max_credit, max_burst);
 }
@@ -845,7 +925,7 @@ static struct gnttab_copy *xen_netbk_get_requests(struct xen_netbk *netbk,
 	u16 pending_idx = *((u16 *)skb->data);
 	int i, start;
 
-	
+	/* Skip first skb fragment if it is on same page as header fragment. */
 	start = (frag_get_pending_idx(&shinfo->frags[0]) == pending_idx);
 
 	for (i = start; i < shinfo->nr_frags; i++, txp++) {
@@ -895,7 +975,7 @@ static int xen_netbk_tx_check_gop(struct xen_netbk *netbk,
 	int nr_frags = shinfo->nr_frags;
 	int i, err, start;
 
-	
+	/* Check status of header. */
 	err = gop->status;
 	if (unlikely(err)) {
 		pending_ring_idx_t index;
@@ -906,7 +986,7 @@ static int xen_netbk_tx_check_gop(struct xen_netbk *netbk,
 		xenvif_put(vif);
 	}
 
-	
+	/* Skip first skb fragment if it is on same page as header fragment. */
 	start = (frag_get_pending_idx(&shinfo->frags[0]) == pending_idx);
 
 	for (i = start; i < nr_frags; i++) {
@@ -915,27 +995,27 @@ static int xen_netbk_tx_check_gop(struct xen_netbk *netbk,
 
 		pending_idx = frag_get_pending_idx(&shinfo->frags[i]);
 
-		
+		/* Check error status: if okay then remember grant handle. */
 		newerr = (++gop)->status;
 		if (likely(!newerr)) {
-			
+			/* Had a previous error? Invalidate this fragment. */
 			if (unlikely(err))
 				xen_netbk_idx_release(netbk, pending_idx);
 			continue;
 		}
 
-		
+		/* Error on this fragment: respond to client with an error. */
 		txp = &netbk->pending_tx_info[pending_idx].req;
 		make_tx_response(vif, txp, XEN_NETIF_RSP_ERROR);
 		index = pending_index(netbk->pending_prod++);
 		netbk->pending_ring[index] = pending_idx;
 		xenvif_put(vif);
 
-		
+		/* Not the first error? Preceding frags already invalidated. */
 		if (err)
 			continue;
 
-		
+		/* First error: invalidate header and preceding fragments. */
 		pending_idx = *((u16 *)skb->data);
 		xen_netbk_idx_release(netbk, pending_idx);
 		for (j = start; j < i; j++) {
@@ -943,7 +1023,7 @@ static int xen_netbk_tx_check_gop(struct xen_netbk *netbk,
 			xen_netbk_idx_release(netbk, pending_idx);
 		}
 
-		
+		/* Remember the error: invalidate all subsequent fragments. */
 		err = newerr;
 	}
 
@@ -972,7 +1052,7 @@ static void xen_netbk_fill_frags(struct xen_netbk *netbk, struct sk_buff *skb)
 		skb->data_len += txp->size;
 		skb->truesize += txp->size;
 
-		
+		/* Take an extra reference to offset xen_netbk_idx_release */
 		get_page(netbk->mmap_pages[pending_idx]);
 		xen_netbk_idx_release(netbk, pending_idx);
 	}
@@ -1017,7 +1097,7 @@ static int netbk_set_skb_gso(struct xenvif *vif,
 		return -EINVAL;
 	}
 
-	
+	/* Currently only TCPv4 S.O. is supported. */
 	if (gso->u.gso.type != XEN_NETIF_GSO_TYPE_TCPV4) {
 		netdev_dbg(vif->dev, "Bad GSO type %d.\n", gso->u.gso.type);
 		return -EINVAL;
@@ -1026,7 +1106,7 @@ static int netbk_set_skb_gso(struct xenvif *vif,
 	skb_shinfo(skb)->gso_size = gso->u.gso.size;
 	skb_shinfo(skb)->gso_type = SKB_GSO_TCPV4;
 
-	
+	/* Header must be checked, and gso_segs computed. */
 	skb_shinfo(skb)->gso_type |= SKB_GSO_DODGY;
 	skb_shinfo(skb)->gso_segs = 0;
 
@@ -1040,13 +1120,19 @@ static int checksum_setup(struct xenvif *vif, struct sk_buff *skb)
 	int err = -EPROTO;
 	int recalculate_partial_csum = 0;
 
+	/*
+	 * A GSO SKB must be CHECKSUM_PARTIAL. However some buggy
+	 * peers can fail to set NETRXF_csum_blank when sending a GSO
+	 * frame. In this case force the SKB to CHECKSUM_PARTIAL and
+	 * recalculate the partial checksum.
+	 */
 	if (skb->ip_summed != CHECKSUM_PARTIAL && skb_is_gso(skb)) {
 		vif->rx_gso_checksum_fixup++;
 		skb->ip_summed = CHECKSUM_PARTIAL;
 		recalculate_partial_csum = 1;
 	}
 
-	
+	/* A non-CHECKSUM_PARTIAL SKB does not require setup. */
 	if (skb->ip_summed != CHECKSUM_PARTIAL)
 		return 0;
 
@@ -1104,17 +1190,17 @@ static bool tx_credit_exceeded(struct xenvif *vif, unsigned size)
 		vif->credit_timeout.expires +
 		msecs_to_jiffies(vif->credit_usec / 1000);
 
-	
+	/* Timer could already be pending in rare cases. */
 	if (timer_pending(&vif->credit_timeout))
 		return true;
 
-	
+	/* Passed the point where we can replenish credit? */
 	if (time_after_eq(now, next_credit)) {
 		vif->credit_timeout.expires = now;
 		tx_add_credit(vif);
 	}
 
-	
+	/* Still too big to send right now? Set a callback. */
 	if (size > vif->remaining_credit) {
 		vif->credit_timeout.data     =
 			(unsigned long)vif;
@@ -1148,7 +1234,7 @@ static unsigned xen_netbk_tx_build_gops(struct xen_netbk *netbk)
 		unsigned int data_len;
 		pending_ring_idx_t index;
 
-		
+		/* Get a netif from the list with work to do. */
 		vif = poll_net_schedule_list(netbk);
 		if (!vif)
 			continue;
@@ -1160,10 +1246,10 @@ static unsigned xen_netbk_tx_build_gops(struct xen_netbk *netbk)
 		}
 
 		idx = vif->tx.req_cons;
-		rmb(); 
+		rmb(); /* Ensure that we see the request before we copy it. */
 		memcpy(&txreq, RING_GET_REQUEST(&vif->tx, idx), sizeof(txreq));
 
-		
+		/* Credit-based scheduling. */
 		if (txreq.size > vif->remaining_credit &&
 		    tx_credit_exceeded(vif, txreq.size)) {
 			xenvif_put(vif);
@@ -1200,7 +1286,7 @@ static unsigned xen_netbk_tx_build_gops(struct xen_netbk *netbk)
 			continue;
 		}
 
-		
+		/* No crossing a page as the payload mustn't fragment. */
 		if (unlikely((txreq.offset + txreq.size) > PAGE_SIZE)) {
 			netdev_dbg(vif->dev,
 				   "txreq.offset: %x, size: %u, end: %lu\n",
@@ -1226,7 +1312,7 @@ static unsigned xen_netbk_tx_build_gops(struct xen_netbk *netbk)
 			break;
 		}
 
-		
+		/* Packets passed to netif_rx() must have some headroom. */
 		skb_reserve(skb, NET_SKB_PAD + NET_IP_ALIGN);
 
 		if (extras[XEN_NETIF_EXTRA_TYPE_GSO - 1].type) {
@@ -1240,7 +1326,7 @@ static unsigned xen_netbk_tx_build_gops(struct xen_netbk *netbk)
 			}
 		}
 
-		
+		/* XXX could copy straight to head */
 		page = xen_netbk_alloc_page(netbk, skb, pending_idx);
 		if (!page) {
 			kfree_skb(skb);
@@ -1316,7 +1402,7 @@ static void xen_netbk_tx_submit(struct xen_netbk *netbk)
 		vif = netbk->pending_tx_info[pending_idx].vif;
 		txp = &netbk->pending_tx_info[pending_idx].req;
 
-		
+		/* Check the remap error code. */
 		if (unlikely(xen_netbk_tx_check_gop(netbk, skb, &gop))) {
 			netdev_dbg(vif->dev, "netback grant failed.\n");
 			skb_shinfo(skb)->nr_frags = 0;
@@ -1329,11 +1415,11 @@ static void xen_netbk_tx_submit(struct xen_netbk *netbk)
 		       (void *)(idx_to_kaddr(netbk, pending_idx)|txp->offset),
 		       data_len);
 		if (data_len < txp->size) {
-			
+			/* Append the packet payload as a fragment. */
 			txp->offset += data_len;
 			txp->size -= data_len;
 		} else {
-			
+			/* Schedule a response immediately. */
 			xen_netbk_idx_release(netbk, pending_idx);
 		}
 
@@ -1344,6 +1430,11 @@ static void xen_netbk_tx_submit(struct xen_netbk *netbk)
 
 		xen_netbk_fill_frags(netbk, skb);
 
+		/*
+		 * If the initial fragment was < PKT_PROT_LEN then
+		 * pull through some bytes from the other fragments to
+		 * increase the linear region to PKT_PROT_LEN bytes.
+		 */
 		if (skb_headlen(skb) < PKT_PROT_LEN && skb_is_nonlinear(skb)) {
 			int target = min_t(int, skb->len, PKT_PROT_LEN);
 			__pskb_pull_tail(skb, target - skb_headlen(skb));
@@ -1366,6 +1457,7 @@ static void xen_netbk_tx_submit(struct xen_netbk *netbk)
 	}
 }
 
+/* Called after netfront has transmitted */
 static void xen_netbk_tx_action(struct xen_netbk *netbk)
 {
 	unsigned nr_gops;
@@ -1389,7 +1481,7 @@ static void xen_netbk_idx_release(struct xen_netbk *netbk, u16 pending_idx)
 	struct pending_tx_info *pending_tx_info;
 	pending_ring_idx_t index;
 
-	
+	/* Already complete? */
 	if (netbk->mmap_pages[pending_idx] == NULL)
 		return;
 

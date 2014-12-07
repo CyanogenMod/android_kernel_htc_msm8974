@@ -27,6 +27,7 @@
 #include "devices.h"
 #include "board-9615.h"
 
+/* prim = 240 x 320 x 4(bpp) x 2(pages) */
 #define MSM_FB_PRIM_BUF_SIZE roundup(240 * 320 * 4 * 2, 0x10000)
 #define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE, 4096)
 

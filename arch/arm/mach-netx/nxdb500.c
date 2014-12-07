@@ -74,7 +74,7 @@ static int nxdb500_clcd_setup(struct clcd_fb *fb)
 	fb->fb.var.green.length = 5;
 	fb->fb.var.green.msb_right = 0;
 
-	
+	/* enable asic control */
 	val = readl(NETX_SYSTEM_IOC_ACCESS_KEY);
 	writel(val, NETX_SYSTEM_IOC_ACCESS_KEY);
 

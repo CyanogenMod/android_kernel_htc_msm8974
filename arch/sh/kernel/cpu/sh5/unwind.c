@@ -19,6 +19,28 @@
 
 static u8 regcache[63];
 
+/*
+ * Finding the previous stack frame isn't horribly straightforward as it is
+ * on some other platforms. In the sh64 case, we don't have "linked" stack
+ * frames, so we need to do a bit of work to determine the previous frame,
+ * and in turn, the previous r14/r18 pair.
+ *
+ * There are generally a few cases which determine where we can find out
+ * the r14/r18 values. In the general case, this can be determined by poking
+ * around the prologue of the symbol PC is in (note that we absolutely must
+ * have frame pointer support as well as the kernel symbol table mapped,
+ * otherwise we can't even get this far).
+ *
+ * In other cases, such as the interrupt/exception path, we can poke around
+ * the sp/fp.
+ *
+ * Notably, this entire approach is somewhat error prone, and in the event
+ * that the previous frame cannot be determined, that's all we can do.
+ * Either way, this still leaves us with a more correct backtrace then what
+ * we would be able to come up with by walking the stack (which is garbage
+ * for anything beyond the first frame).
+ *						-- PFM.
+ */
 static int lookup_prev_stack_frame(unsigned long fp, unsigned long pc,
 		      unsigned long *pprev_fp, unsigned long *pprev_pc,
 		      struct pt_regs *regs)
@@ -40,12 +62,18 @@ static int lookup_prev_stack_frame(unsigned long fp, unsigned long pc,
 	if (!prologue)
 		return -EINVAL;
 
+	/* Validate fp, to avoid risk of dereferencing a bad pointer later.
+	   Assume 128Mb since that's the amount of RAM on a Cayman.  Modify
+	   when there is an SH-5 board with more. */
 	if ((fp < (unsigned long) phys_to_virt(__MEMORY_START)) ||
 	    (fp >= (unsigned long)(phys_to_virt(__MEMORY_START)) + 128*1024*1024) ||
 	    ((fp & 7) != 0)) {
 		return -EINVAL;
 	}
 
+	/*
+	 * Depth to walk, depth is completely arbitrary.
+	 */
 	for (i = 0; i < 100; i++, prologue += sizeof(unsigned long)) {
 		unsigned long op;
 		u8 major, minor;
@@ -59,19 +87,32 @@ static int lookup_prev_stack_frame(unsigned long fp, unsigned long pc,
 		disp  = (op >> 10) & 0x3f;
 		dest  = (op >>  4) & 0x3f;
 
+		/*
+		 * Stack frame creation happens in a number of ways.. in the
+		 * general case when the stack frame is less than 511 bytes,
+		 * it's generally created by an addi or addi.l:
+		 *
+		 *	addi/addi.l r15, -FRAME_SIZE, r15
+		 *
+		 * in the event that the frame size is bigger than this, it's
+		 * typically created using a movi/sub pair as follows:
+		 *
+		 *	movi	FRAME_SIZE, rX
+		 *	sub	r15, rX, r15
+		 */
 
 		switch (major) {
 		case (0x00 >> 2):
 			switch (minor) {
-			case 0x8: 
-			case 0x9: 
-				
+			case 0x8: /* add.l */
+			case 0x9: /* add */
+				/* Look for r15, r63, r14 */
 				if (src == 15 && disp == 63 && dest == 14)
 					found_prologue_end = 1;
 
 				break;
-			case 0xa: 
-			case 0xb: 
+			case 0xa: /* sub.l */
+			case 0xb: /* sub */
 				if (src != 15 || dest != 15)
 					continue;
 
@@ -80,7 +121,7 @@ static int lookup_prev_stack_frame(unsigned long fp, unsigned long pc,
 				break;
 			}
 			break;
-		case (0xa8 >> 2): 
+		case (0xa8 >> 2): /* st.l */
 			if (src != 15)
 				continue;
 
@@ -104,7 +145,7 @@ static int lookup_prev_stack_frame(unsigned long fp, unsigned long pc,
 			}
 
 			break;
-		case (0xcc >> 2): 
+		case (0xcc >> 2): /* movi */
 			if (dest >= 63) {
 				printk(KERN_NOTICE "%s: Invalid dest reg %d "
 				       "specified in movi handler. Failed "
@@ -114,17 +155,17 @@ static int lookup_prev_stack_frame(unsigned long fp, unsigned long pc,
 				continue;
 			}
 
-			
+			/* Sign extend */
 			regcache[dest] =
 				((((s64)(u64)op >> 10) & 0xffff) << 54) >> 54;
 			break;
-		case (0xd0 >> 2): 
-		case (0xd4 >> 2): 
-			
+		case (0xd0 >> 2): /* addi */
+		case (0xd4 >> 2): /* addi.l */
+			/* Look for r15, -FRAME_SIZE, r15 */
 			if (src != 15 || dest != 15)
 				continue;
 
-			
+			/* Sign extended frame size.. */
 			fp_displacement +=
 				(u64)(((((s64)op >> 10) & 0x3ff) << 54) >> 54);
 			fp_prev = fp - fp_displacement;
@@ -144,7 +185,7 @@ static int lookup_prev_stack_frame(unsigned long fp, unsigned long pc,
 		return -EINVAL;
 	}
 
-	
+	/* For innermost leaf function, there might not be a offset_r18 */
 	if (!*pprev_pc && (offset_r18 == 0))
 		return -EINVAL;
 
@@ -158,6 +199,8 @@ static int lookup_prev_stack_frame(unsigned long fp, unsigned long pc,
 	return 0;
 }
 
+/* Don't put this on the stack since we'll want to call sh64_unwind
+ * when we're close to underflowing the stack anyway. */
 static struct pt_regs here_regs;
 
 extern const char syscall_ret;
@@ -201,6 +244,8 @@ static void sh64_unwind_inner(struct pt_regs *regs)
 			return;
 		}
 
+		/* In this case, the PC is discovered by lookup_prev_stack_frame but
+		   it has 4 taken off it to look like the 'caller' */
 		if (pc == ((unsigned long) &ret_from_exception & ~1)) {
 			printk("EXCEPTION\n");
 			unwind_nested(pc,fp);
@@ -222,6 +267,9 @@ static void sh64_unwind_inner(struct pt_regs *regs)
 		print_symbol("%s\n", pc);
 
 		if (first_pass) {
+			/* If the innermost frame is a leaf function, it's
+			 * possible that r18 is never saved out to the stack.
+			 */
 			next_pc = regs->regs[18];
 		} else {
 			next_pc = 0;
@@ -245,6 +293,10 @@ static void sh64_unwind_inner(struct pt_regs *regs)
 void sh64_unwind(struct pt_regs *regs)
 {
 	if (!regs) {
+		/*
+		 * Fetch current regs if we have no other saved state to back
+		 * trace from.
+		 */
 		regs = &here_regs;
 
 		__asm__ __volatile__ ("ori r14, 0, %0" : "=r" (regs->regs[14]));

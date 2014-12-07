@@ -17,14 +17,16 @@
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
+/* project and build version */
 #define VERSION_MAJOR 0
 #define VERSION_MINOR 7
 #define VERSION_BUILD 424
 
+/* TDDL and LKM configuration */
 #define TPM_SOCKET_NAME  "/var/run/tpm/tpmd_socket:0"
 #define TPM_STORAGE_NAME "/var/lib/tpm/tpm_emulator-1_2_0_7"
 #define TPM_DEVICE_NAME  "/dev/tpm"
 #define TPM_LOG_FILE     ""
 #define TPM_CMD_BUF_SIZE 4096
 
-#endif 
+#endif /* _CONFIG_H_ */

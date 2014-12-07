@@ -15,6 +15,10 @@ extern struct device_node *of_find_matching_node_by_address(
 					u64 base_address);
 extern void __iomem *of_iomap(struct device_node *device, int index);
 
+/* Extract an address from a device, returns the region size and
+ * the address space flags too. The PCI version uses a BAR number
+ * instead of an absolute index
+ */
 extern const u32 *of_get_address(struct device_node *dev, int index,
 			   u64 *size, unsigned int *flags);
 
@@ -23,7 +27,7 @@ static inline unsigned long pci_address_to_pio(phys_addr_t addr) { return -1; }
 #define pci_address_to_pio pci_address_to_pio
 #endif
 
-#else 
+#else /* CONFIG_OF_ADDRESS */
 static inline int of_address_to_resource(struct device_node *dev, int index,
 					 struct resource *r)
 {
@@ -45,7 +49,7 @@ static inline const u32 *of_get_address(struct device_node *dev, int index,
 {
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_OF_ADDRESS */
 
 
 #if defined(CONFIG_OF_ADDRESS) && defined(CONFIG_PCI)
@@ -53,7 +57,7 @@ extern const __be32 *of_get_pci_address(struct device_node *dev, int bar_no,
 			       u64 *size, unsigned int *flags);
 extern int of_pci_address_to_resource(struct device_node *dev, int bar,
 				      struct resource *r);
-#else 
+#else /* CONFIG_OF_ADDRESS && CONFIG_PCI */
 static inline int of_pci_address_to_resource(struct device_node *dev, int bar,
 				             struct resource *r)
 {
@@ -65,7 +69,7 @@ static inline const __be32 *of_get_pci_address(struct device_node *dev,
 {
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_OF_ADDRESS && CONFIG_PCI */
 
-#endif 
+#endif /* __OF_ADDRESS_H */
 

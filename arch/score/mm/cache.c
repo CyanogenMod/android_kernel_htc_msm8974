@@ -33,6 +33,12 @@
 
 #include <asm/mmu_context.h>
 
+/*
+Just flush entire Dcache!!
+You must ensure the page doesn't include instructions, because
+the function will not flush the Icache.
+The addr must be cache aligned.
+*/
 static void flush_data_cache_page(unsigned long addr)
 {
 	unsigned int i;
@@ -58,10 +64,16 @@ void flush_dcache_page(struct page *page)
 		return;
 	}
 
+	/*
+	 * We could delay the flush for the !page_mapping case too.  But that
+	 * case is for exec env/arg pages and those are %99 certainly going to
+	 * get faulted into the tlb (and thus flushed) anyways.
+	 */
 	addr = (unsigned long) page_address(page);
 	flush_data_cache_page(addr);
 }
 
+/* called by update_mmu_cache. */
 void __update_cache(struct vm_area_struct *vma, unsigned long address,
 		pte_t pte)
 {
@@ -146,6 +158,16 @@ void flush_cache_mm(struct mm_struct *mm)
 	flush_cache_all();
 }
 
+/*if we flush a range precisely , the processing may be very long.
+We must check each page in the range whether present. If the page is present,
+we can flush the range in the page. Be careful, the range may be cross two
+page, a page is present and another is not present.
+*/
+/*
+The interface is provided in hopes that the port can find
+a suitably efficient method for removing multiple page
+sized regions from the cache.
+*/
 void flush_cache_range(struct vm_area_struct *vma,
 		unsigned long start, unsigned long end)
 {
@@ -215,6 +237,11 @@ void flush_cache_sigtramp(unsigned long addr)
 	: : "r" (addr));
 }
 
+/*
+1. WB and invalid a cache line of Dcache
+2. Drain Write Buffer
+the range must be smaller than PAGE_SIZE
+*/
 void flush_dcache_range(unsigned long start, unsigned long end)
 {
 	int size, i;
@@ -222,7 +249,7 @@ void flush_dcache_range(unsigned long start, unsigned long end)
 	start = start & ~(L1_CACHE_BYTES - 1);
 	end = end & ~(L1_CACHE_BYTES - 1);
 	size = end - start;
-	
+	/* flush dcache to ram, and invalidate dcache lines. */
 	for (i = 0; i < size; i += L1_CACHE_BYTES) {
 		__asm__ __volatile__(
 		"cache 0x0e, [%0, 0]\n"
@@ -241,7 +268,7 @@ void flush_icache_range(unsigned long start, unsigned long end)
 	end = end & ~(L1_CACHE_BYTES - 1);
 
 	size = end - start;
-	
+	/* invalidate icache lines. */
 	for (i = 0; i < size; i += L1_CACHE_BYTES) {
 		__asm__ __volatile__(
 		"cache 0x02, [%0, 0]\n"

@@ -162,8 +162,16 @@ static void prepare_dbgmsg(struct s3cmci_host *host, struct mmc_command *cmd,
 
 static void dbg_dumpregs(struct s3cmci_host *host, char *prefix) { }
 
-#endif 
+#endif /* CONFIG_MMC_DEBUG */
 
+/**
+ * s3cmci_host_usedma - return whether the host is using dma or pio
+ * @host: The host state
+ *
+ * Return true if the host is using DMA to transfer data, else false
+ * to use PIO mode. Will return static data depending on the driver
+ * configuration.
+ */
 static inline bool s3cmci_host_usedma(struct s3cmci_host *host)
 {
 #ifdef CONFIG_MMC_S3C_PIO
@@ -175,6 +183,12 @@ static inline bool s3cmci_host_usedma(struct s3cmci_host *host)
 #endif
 }
 
+/**
+ * s3cmci_host_canpio - return true if host has pio code available
+ *
+ * Return true if the driver has been compiled with the PIO support code
+ * available.
+ */
 static inline bool s3cmci_host_canpio(void)
 {
 #ifdef CONFIG_MMC_S3C_PIO
@@ -212,11 +226,23 @@ static inline void clear_imask(struct s3cmci_host *host)
 {
 	u32 mask = readl(host->base + host->sdiimsk);
 
-	
+	/* preserve the SDIO IRQ mask state */
 	mask &= S3C2410_SDIIMSK_SDIOIRQ;
 	writel(mask, host->base + host->sdiimsk);
 }
 
+/**
+ * s3cmci_check_sdio_irq - test whether the SDIO IRQ is being signalled
+ * @host: The host to check.
+ *
+ * Test to see if the SDIO interrupt is being signalled in case the
+ * controller has failed to re-detect a card interrupt. Read GPE8 and
+ * see if it is low and if so, signal a SDIO interrupt.
+ *
+ * This is currently called if a request is finished (we assume that the
+ * bus is now idle) and when the SDIO IRQ is enabled in case the IRQ is
+ * already being indicated.
+*/
 static void s3cmci_check_sdio_irq(struct s3cmci_host *host)
 {
 	if (host->sdio_irqen) {
@@ -272,6 +298,19 @@ static inline u32 fifo_free(struct s3cmci_host *host)
 	return 63 - fifostat;
 }
 
+/**
+ * s3cmci_enable_irq - enable IRQ, after having disabled it.
+ * @host: The device state.
+ * @more: True if more IRQs are expected from transfer.
+ *
+ * Enable the main IRQ if needed after it has been disabled.
+ *
+ * The IRQ can be one of the following states:
+ *	- disabled during IDLE
+ *	- disabled whilst processing data
+ *	- enabled during transfer
+ *	- enabled whilst awaiting SDIO interrupt detection
+ */
 static void s3cmci_enable_irq(struct s3cmci_host *host, bool more)
 {
 	unsigned long flags;
@@ -296,13 +335,16 @@ static void s3cmci_enable_irq(struct s3cmci_host *host, bool more)
 	local_irq_restore(flags);
 }
 
+/**
+ *
+ */
 static void s3cmci_disable_irq(struct s3cmci_host *host, bool transfer)
 {
 	unsigned long flags;
 
 	local_irq_save(flags);
 
-	
+	/* pr_debug("%s: transfer %d\n", __func__, transfer); */
 
 	host->irq_disabled = transfer;
 
@@ -322,7 +364,7 @@ static void do_pio_read(struct s3cmci_host *host)
 	u32 fifo_words;
 	void __iomem *from_ptr;
 
-	
+	/* write real prescaler to host, it might be set slow to fix */
 	writel(host->prescaler, host->base + S3C2410_SDIPRE);
 
 	from_ptr = host->base + host->sdidata;
@@ -350,6 +392,11 @@ static void do_pio_read(struct s3cmci_host *host)
 		    fifo, host->pio_bytes,
 		    readl(host->base + S3C2410_SDIDCNT));
 
+		/* If we have reached the end of the block, we can
+		 * read a word and get 1 to 3 bytes.  If we in the
+		 * middle of the block, we have to read full words,
+		 * otherwise we will write garbage, so round down to
+		 * an even multiple of 4. */
 		if (fifo >= host->pio_bytes)
 			fifo = host->pio_bytes;
 		else
@@ -419,6 +466,10 @@ static void do_pio_write(struct s3cmci_host *host)
 
 		}
 
+		/* If we have reached the end of the block, we have to
+		 * write exactly the remaining number of bytes.  If we
+		 * in the middle of the block, we have to write full
+		 * words, so round down to an even multiple of 4. */
 		if (fifo >= host->pio_bytes)
 			fifo = host->pio_bytes;
 		else
@@ -467,6 +518,32 @@ static void pio_tasklet(unsigned long data)
 		s3cmci_enable_irq(host, true);
 }
 
+/*
+ * ISR for SDI Interface IRQ
+ * Communication between driver and ISR works as follows:
+ *   host->mrq 			points to current request
+ *   host->complete_what	Indicates when the request is considered done
+ *     COMPLETION_CMDSENT	  when the command was sent
+ *     COMPLETION_RSPFIN          when a response was received
+ *     COMPLETION_XFERFINISH	  when the data transfer is finished
+ *     COMPLETION_XFERFINISH_RSPFIN both of the above.
+ *   host->complete_request	is the completion-object the driver waits for
+ *
+ * 1) Driver sets up host->mrq and host->complete_what
+ * 2) Driver prepares the transfer
+ * 3) Driver enables interrupts
+ * 4) Driver starts transfer
+ * 5) Driver waits for host->complete_rquest
+ * 6) ISR checks for request status (errors and success)
+ * 6) ISR sets host->mrq->cmd->error and host->mrq->data->error
+ * 7) ISR completes host->complete_request
+ * 8) ISR disables interrupts
+ * 9) Driver wakes up and takes care of the request
+ *
+ * Note: "->error"-fields are expected to be set to 0 before the request
+ *       was issued by mmc.c - therefore they are only set, when an error
+ *       contition comes up
+ */
 
 static irqreturn_t s3cmci_irq(int irq, void *dev_id)
 {
@@ -560,6 +637,14 @@ static irqreturn_t s3cmci_irq(int irq, void *dev_id)
 				dbg(host, dbg_irq,
 				    "fixup: ignore CRC fail with long rsp\n");
 			} else {
+				/* note, we used to fail the transfer
+				 * here, but it seems that this is just
+				 * the hardware getting it wrong.
+				 *
+				 * cmd->error = -EILSEQ;
+				 * host->status = "error: bad command crc";
+				 * goto fail_transfer;
+				*/
 			}
 		}
 
@@ -578,11 +663,13 @@ static irqreturn_t s3cmci_irq(int irq, void *dev_id)
 		mci_cclear |= S3C2410_SDICMDSTAT_RSPFIN;
 	}
 
+	/* errors handled after this point are only relevant
+	   when a data transfer is in progress */
 
 	if (!cmd->data)
 		goto clear_status_bits;
 
-	
+	/* Check for FIFO failure */
 	if (host->is2440) {
 		if (mci_fsta & S3C2440_SDIFSTA_FIFOFAIL) {
 			dbg(host, dbg_err, "FIFO failure\n");
@@ -659,6 +746,9 @@ irq_out:
 
 }
 
+/*
+ * ISR for the CardDetect Pin
+*/
 
 static irqreturn_t s3cmci_irq_cd(int irq, void *dev_id)
 {
@@ -749,7 +839,7 @@ static void finalize_request(struct s3cmci_host *host)
 		}
 	}
 
-	
+	/* Read response from controller. */
 	cmd->resp[0] = readl(host->base + S3C2410_SDIRSP0);
 	cmd->resp[1] = readl(host->base + S3C2410_SDIRSP1);
 	cmd->resp[2] = readl(host->base + S3C2410_SDIRSP2);
@@ -765,7 +855,7 @@ static void finalize_request(struct s3cmci_host *host)
 
 	dbg_dumpcmd(host, cmd, debug_as_failure);
 
-	
+	/* Cleanup controller */
 	writel(0, host->base + S3C2410_SDICMDARG);
 	writel(S3C2410_SDIDCON_STOP, host->base + S3C2410_SDIDCON);
 	writel(0, host->base + S3C2410_SDICMDCON);
@@ -780,11 +870,11 @@ static void finalize_request(struct s3cmci_host *host)
 		return;
 	}
 
-	
+	/* If we have no data transfer we are finished here */
 	if (!mrq->data)
 		goto request_done;
 
-	
+	/* Calculate the amout of bytes transfer if there was no error */
 	if (mrq->data->error == 0) {
 		mrq->data->bytes_xfered =
 			(mrq->data->blocks * mrq->data->blksz);
@@ -792,19 +882,21 @@ static void finalize_request(struct s3cmci_host *host)
 		mrq->data->bytes_xfered = 0;
 	}
 
+	/* If we had an error while transferring data we flush the
+	 * DMA channel and the fifo to clear out any garbage. */
 	if (mrq->data->error != 0) {
 		if (s3cmci_host_usedma(host))
 			s3c2410_dma_ctrl(host->dma, S3C2410_DMAOP_FLUSH);
 
 		if (host->is2440) {
-			
+			/* Clear failure register and reset fifo. */
 			writel(S3C2440_SDIFSTA_FIFORESET |
 			       S3C2440_SDIFSTA_FIFOFAIL,
 			       host->base + S3C2410_SDIFSTA);
 		} else {
 			u32 mci_con;
 
-			
+			/* reset fifo */
 			mci_con = readl(host->base + S3C2410_SDICON);
 			mci_con |= S3C2410_SDICON_FIFORESET;
 
@@ -879,7 +971,7 @@ static int s3cmci_setup_data(struct s3cmci_host *host, struct mmc_data *data)
 {
 	u32 dcon, imsk, stoptries = 3;
 
-	
+	/* write DCON register */
 
 	if (!data) {
 		writel(0, host->base + S3C2410_SDIDCON);
@@ -887,6 +979,8 @@ static int s3cmci_setup_data(struct s3cmci_host *host, struct mmc_data *data)
 	}
 
 	if ((data->blksz & 3) != 0) {
+		/* We cannot deal with unaligned blocks with more than
+		 * one block being transferred. */
 
 		if (data->blocks > 1) {
 			pr_warning("%s: can't do non-word sized block transfers (blksz %d)\n", __func__, data->blksz);
@@ -937,24 +1031,24 @@ static int s3cmci_setup_data(struct s3cmci_host *host, struct mmc_data *data)
 
 	writel(dcon, host->base + S3C2410_SDIDCON);
 
-	
+	/* write BSIZE register */
 
 	writel(data->blksz, host->base + S3C2410_SDIBSIZE);
 
-	
+	/* add to IMASK register */
 	imsk = S3C2410_SDIIMSK_FIFOFAIL | S3C2410_SDIIMSK_DATACRC |
 	       S3C2410_SDIIMSK_DATATIMEOUT | S3C2410_SDIIMSK_DATAFINISH;
 
 	enable_imask(host, imsk);
 
-	
+	/* write TIMER register */
 
 	if (host->is2440) {
 		writel(0x007FFFFF, host->base + S3C2410_SDITIMER);
 	} else {
 		writel(0x0000FFFF, host->base + S3C2410_SDITIMER);
 
-		
+		/* FIX: set slow clock to prevent timeouts on read */
 		if (data->flags & MMC_DATA_READ)
 			writel(0xFF, host->base + S3C2410_SDIPRE);
 	}
@@ -1036,6 +1130,9 @@ static void s3cmci_send_request(struct mmc_host *mmc)
 	host->ccnt++;
 	prepare_dbgmsg(host, cmd, host->cmd_is_stop);
 
+	/* Clear command, data and fifo status registers
+	   Fifo clear only necessary on 2440, but doesn't hurt on 2410
+	*/
 	writel(0xFFFFFFFF, host->base + S3C2410_SDICMDSTAT);
 	writel(0xFFFFFFFF, host->base + S3C2410_SDIDSTA);
 	writel(0xFFFFFFFF, host->base + S3C2410_SDIFSTA);
@@ -1069,10 +1166,10 @@ static void s3cmci_send_request(struct mmc_host *mmc)
 		}
 	}
 
-	
+	/* Send command */
 	s3cmci_send_command(host, cmd);
 
-	
+	/* Enable Interrupt */
 	s3cmci_enable_irq(host, true);
 }
 
@@ -1109,7 +1206,7 @@ static void s3cmci_set_clk(struct s3cmci_host *host, struct mmc_ios *ios)
 {
 	u32 mci_psc;
 
-	
+	/* Set clock */
 	for (mci_psc = 0; mci_psc < 255; mci_psc++) {
 		host->real_rate = host->clk_rate / (host->clk_div*(mci_psc+1));
 
@@ -1123,7 +1220,7 @@ static void s3cmci_set_clk(struct s3cmci_host *host, struct mmc_ios *ios)
 	host->prescaler = mci_psc;
 	writel(host->prescaler, host->base + S3C2410_SDIPRE);
 
-	
+	/* If requested clock is 0, real_rate will be 0, too */
 	if (ios->clock == 0)
 		host->real_rate = 0;
 }
@@ -1133,7 +1230,7 @@ static void s3cmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	struct s3cmci_host *host = mmc_priv(mmc);
 	u32 mci_con;
 
-	
+	/* Set the power state */
 
 	mci_con = readl(host->base + S3C2410_SDICON);
 
@@ -1170,7 +1267,7 @@ static void s3cmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	s3cmci_set_clk(host, ios);
 
-	
+	/* Set CLOCK_ENABLE */
 	if (ios->clock)
 		mci_con |= S3C2410_SDICON_CLOCKTYPE;
 	else
@@ -1261,6 +1358,8 @@ static struct mmc_host_ops s3cmci_ops = {
 };
 
 static struct s3c24xx_mci_pdata s3cmci_def_pdata = {
+	/* This is currently here to avoid a number of if (host->pdata)
+	 * checks. Any zero fields to ensure reasonable defaults are picked. */
 	 .no_wprotect = 1,
 	 .no_detect = 1,
 };
@@ -1443,7 +1542,7 @@ static void s3cmci_debugfs_remove(struct s3cmci_host *host)
 static inline void s3cmci_debugfs_attach(struct s3cmci_host *host) { }
 static inline void s3cmci_debugfs_remove(struct s3cmci_host *host) { }
 
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static int __devinit s3cmci_probe(struct platform_device *pdev)
 {
@@ -1542,6 +1641,9 @@ static int __devinit s3cmci_probe(struct platform_device *pdev)
 		goto probe_iounmap;
 	}
 
+	/* We get spurious interrupts even when we have set the IMSK
+	 * register to ignore everything, so use disable_irq() to make
+	 * ensure we don't lock the system with un-serviceable requests. */
 
 	disable_irq(host->irq);
 	host->irq_state = false;
@@ -1583,7 +1685,7 @@ static int __devinit s3cmci_probe(struct platform_device *pdev)
 		gpio_direction_input(host->pdata->gpio_wprotect);
 	}
 
-	
+	/* depending on the dma state, get a dma channel to use. */
 
 	if (s3cmci_host_usedma(host)) {
 		host->dma = s3c2410_dma_request(DMACH_SDI, &s3cmci_dma_client,
@@ -1795,9 +1897,9 @@ static const struct dev_pm_ops s3cmci_pm = {
 };
 
 #define s3cmci_pm_ops &s3cmci_pm
-#else 
+#else /* CONFIG_PM */
 #define s3cmci_pm_ops NULL
-#endif 
+#endif /* CONFIG_PM */
 
 
 static struct platform_driver s3cmci_driver = {

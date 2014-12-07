@@ -26,13 +26,37 @@
 #include <asm/pci-direct.h>
 #include <asm/fixmap.h>
 
+/* The code here is intended to talk directly to the EHCI debug port
+ * and does not require that you have any kind of USB host controller
+ * drivers or USB device drivers compiled into the kernel.
+ *
+ * If you make a change to anything in here, the following test cases
+ * need to pass where a USB debug device works in the following
+ * configurations.
+ *
+ * 1. boot args:  earlyprintk=dbgp
+ *     o kernel compiled with # CONFIG_USB_EHCI_HCD is not set
+ *     o kernel compiled with CONFIG_USB_EHCI_HCD=y
+ * 2. boot args: earlyprintk=dbgp,keep
+ *     o kernel compiled with # CONFIG_USB_EHCI_HCD is not set
+ *     o kernel compiled with CONFIG_USB_EHCI_HCD=y
+ * 3. boot args: earlyprintk=dbgp console=ttyUSB0
+ *     o kernel has CONFIG_USB_EHCI_HCD=y and
+ *       CONFIG_USB_SERIAL_DEBUG=y
+ * 4. boot args: earlyprintk=vga,dbgp
+ *     o kernel compiled with # CONFIG_USB_EHCI_HCD is not set
+ *     o kernel compiled with CONFIG_USB_EHCI_HCD=y
+ *
+ * For the 4th configuration you can turn on or off the DBGP_DEBUG
+ * such that you can debug the dbgp device's driver code.
+ */
 
 static int dbgp_phys_port = 1;
 
 static struct ehci_caps __iomem *ehci_caps;
 static struct ehci_regs __iomem *ehci_regs;
 static struct ehci_dbg_port __iomem *ehci_debug;
-static int dbgp_not_safe; 
+static int dbgp_not_safe; /* Cannot use debug device during ehci reset */
 static unsigned int dbgp_endpoint_out;
 static unsigned int dbgp_endpoint_in;
 
@@ -78,21 +102,29 @@ static struct kgdb_io kgdbdbgp_io_ops;
 #define dbgp_kgdb_mode (0)
 #endif
 
-#define EARLY_HC_LENGTH(p)	(0x00ff & (p)) 
+/* Local version of HC_LENGTH macro as ehci struct is not available here */
+#define EARLY_HC_LENGTH(p)	(0x00ff & (p)) /* bits 7 : 0 */
 
+/*
+ * USB Packet IDs (PIDs)
+ */
 
+/* token */
 #define USB_PID_OUT		0xe1
 #define USB_PID_IN		0x69
 #define USB_PID_SOF		0xa5
 #define USB_PID_SETUP		0x2d
+/* handshake */
 #define USB_PID_ACK		0xd2
 #define USB_PID_NAK		0x5a
 #define USB_PID_STALL		0x1e
 #define USB_PID_NYET		0x96
+/* data */
 #define USB_PID_DATA0		0xc3
 #define USB_PID_DATA1		0x4b
 #define USB_PID_DATA2		0x87
 #define USB_PID_MDATA		0x0f
+/* Special */
 #define USB_PID_PREAMBLE	0x3c
 #define USB_PID_ERR		0x3c
 #define USB_PID_SPLIT		0x78
@@ -104,7 +136,7 @@ static struct kgdb_io kgdbdbgp_io_ops;
 
 #define PCI_CAP_ID_EHCI_DEBUG	0xa
 
-#define HUB_ROOT_RESET_TIME	50	
+#define HUB_ROOT_RESET_TIME	50	/* times are in msec */
 #define HUB_SHORT_RESET_TIME	10
 #define HUB_LONG_RESET_TIME	200
 #define HUB_RESET_TIMEOUT	500
@@ -132,7 +164,7 @@ static int dbgp_wait_until_complete(void)
 
 	do {
 		ctrl = readl(&ehci_debug->control);
-		
+		/* Stop when the transaction is finished */
 		if (ctrl & DBGP_DONE)
 			break;
 		udelay(1);
@@ -141,6 +173,10 @@ static int dbgp_wait_until_complete(void)
 	if (!loop)
 		return -DBGP_TIMEOUT;
 
+	/*
+	 * Now that we have observed the completed transaction,
+	 * clear the done bit.
+	 */
 	writel(ctrl | DBGP_DONE, &ehci_debug->control);
 	return (ctrl & DBGP_ERROR) ? -DBGP_ERRCODE(ctrl) : DBGP_LEN(ctrl);
 }
@@ -157,7 +193,7 @@ static inline void dbgp_mdelay(int ms)
 
 static void dbgp_breath(void)
 {
-	
+	/* Sleep to give the debug port a chance to breathe */
 }
 
 static int dbgp_wait_until_done(unsigned ctrl, int loop)
@@ -172,6 +208,12 @@ retry:
 	lpid = DBGP_PID_GET(pids);
 
 	if (ret < 0) {
+		/* A -DBGP_TIMEOUT failure here means the device has
+		 * failed, perhaps because it was unplugged, in which
+		 * case we do not want to hang the system so the dbgp
+		 * will be marked as unsafe to use.  EHCI reset is the
+		 * only way to recover if you unplug the dbgp device.
+		 */
 		if (ret == -DBGP_TIMEOUT && !dbgp_not_safe)
 			dbgp_not_safe = 1;
 		if (ret == -DBGP_ERR_BAD && --loop > 0)
@@ -179,10 +221,14 @@ retry:
 		return ret;
 	}
 
+	/*
+	 * If the port is getting full or it has dropped data
+	 * start pacing ourselves, not necessary but it's friendly.
+	 */
 	if ((lpid == USB_PID_NAK) || (lpid == USB_PID_NYET))
 		dbgp_breath();
 
-	
+	/* If I get a NACK reissue the transmission */
 	if (lpid == USB_PID_NAK) {
 		if (--loop > 0)
 			goto retry;
@@ -291,7 +337,7 @@ static int dbgp_control_msg(unsigned devnum, int requesttype,
 	if (size > (read ? DBGP_MAX_PACKET:0))
 		return -1;
 
-	
+	/* Compute the control message */
 	req.bRequestType = requesttype;
 	req.bRequest = request;
 	req.wValue = cpu_to_le16(value);
@@ -306,7 +352,7 @@ static int dbgp_control_msg(unsigned devnum, int requesttype,
 	ctrl |= DBGP_OUT;
 	ctrl |= DBGP_GO;
 
-	
+	/* Send the setup message */
 	dbgp_set_data(&req, sizeof(req));
 	writel(addr, &ehci_debug->address);
 	writel(pids, &ehci_debug->pids);
@@ -314,10 +360,11 @@ static int dbgp_control_msg(unsigned devnum, int requesttype,
 	if (ret < 0)
 		return ret;
 
-	
+	/* Read the result */
 	return dbgp_bulk_read(devnum, 0, data, size, DBGP_LOOPS);
 }
 
+/* Find a PCI capability */
 static u32 __init find_cap(u32 num, u32 slot, u32 func, int cap)
 {
 	u8 pos;
@@ -385,7 +432,7 @@ static int dbgp_ehci_startup(void)
 	u32 ctrl, cmd, status;
 	int loop;
 
-	
+	/* Claim ownership, but do not enable yet */
 	ctrl = readl(&ehci_debug->control);
 	ctrl |= DBGP_OWNER;
 	ctrl &= ~(DBGP_ENABLED | DBGP_INUSE);
@@ -393,16 +440,16 @@ static int dbgp_ehci_startup(void)
 	udelay(1);
 
 	dbgp_ehci_status("EHCI startup");
-	
+	/* Start the ehci running */
 	cmd = readl(&ehci_regs->command);
 	cmd &= ~(CMD_LRESET | CMD_IAAD | CMD_PSE | CMD_ASE | CMD_RESET);
 	cmd |= CMD_RUN;
 	writel(cmd, &ehci_regs->command);
 
-	
+	/* Ensure everything is routed to the EHCI */
 	writel(FLAG_CF, &ehci_regs->configured_flag);
 
-	
+	/* Wait until the controller is no longer halted */
 	loop = 10;
 	do {
 		status = readl(&ehci_regs->status);
@@ -424,7 +471,7 @@ static int dbgp_ehci_controller_reset(void)
 	int loop = 250 * 1000;
 	u32 cmd;
 
-	
+	/* Reset the EHCI controller */
 	cmd = readl(&ehci_regs->command);
 	cmd |= CMD_RESET;
 	writel(cmd, &ehci_regs->command);
@@ -440,6 +487,10 @@ static int dbgp_ehci_controller_reset(void)
 	return 0;
 }
 static int ehci_wait_for_port(int port);
+/* Return 0 on success
+ * Return -ENODEV for any general failure
+ * Return -EIO if wait for port fails
+ */
 int dbgp_external_startup(void)
 {
 	int devnum;
@@ -456,11 +507,14 @@ try_port_reset_again:
 	if (ret)
 		return ret;
 
-	
+	/* Wait for a device to show up in the debug port */
 	ret = ehci_wait_for_port(dbg_port);
 	if (ret < 0) {
 		portsc = readl(&ehci_regs->port_status[dbg_port - 1]);
 		if (!(portsc & PORT_CONNECT) && try_hard_once) {
+			/* Last ditch effort to try to force enable
+			 * the debug device by using the packet test
+			 * ehci command to try and wake it up. */
 			try_hard_once = 0;
 			cmd = readl(&ehci_regs->command);
 			cmd &= ~CMD_RUN;
@@ -480,7 +534,7 @@ try_port_reset_again:
 	}
 	dbgp_ehci_status("wait for port done");
 
-	
+	/* Enable the debug port */
 	ctrl = readl(&ehci_debug->control);
 	ctrl |= DBGP_CLAIM;
 	writel(ctrl, &ehci_debug->control);
@@ -492,7 +546,7 @@ try_port_reset_again:
 	}
 	dbgp_ehci_status("debug ported enabled");
 
-	
+	/* Completely transfer the debug device to the debug controller */
 	portsc = readl(&ehci_regs->port_status[dbg_port - 1]);
 	portsc &= ~PORT_PE;
 	writel(portsc, &ehci_regs->port_status[dbg_port - 1]);
@@ -500,7 +554,7 @@ try_port_reset_again:
 	dbgp_mdelay(100);
 
 try_again:
-	
+	/* Find the debug device and make it device number 127 */
 	for (devnum = 0; devnum <= 127; devnum++) {
 		ret = dbgp_control_msg(devnum,
 			USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE,
@@ -520,7 +574,7 @@ try_again:
 	dbgp_endpoint_out = dbgp_desc.bDebugOutEndpoint;
 	dbgp_endpoint_in = dbgp_desc.bDebugInEndpoint;
 
-	
+	/* Move the device to 127 if it isn't already there */
 	if (devnum != USB_DEBUG_DEVNUM) {
 		ret = dbgp_control_msg(devnum,
 			USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE,
@@ -534,7 +588,7 @@ try_again:
 		dbgp_printk("debug device renamed to 127\n");
 	}
 
-	
+	/* Enable the debug interface */
 	ret = dbgp_control_msg(USB_DEBUG_DEVNUM,
 		USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE,
 		USB_REQ_SET_FEATURE, USB_DEVICE_DEBUG_MODE, 0, NULL, 0);
@@ -543,6 +597,8 @@ try_again:
 		goto err;
 	}
 	dbgp_printk("debug interface enabled\n");
+	/* Perform a small write to get the even/odd data state in sync
+	 */
 	ret = dbgp_bulk_write(USB_DEBUG_DEVNUM, dbgp_endpoint_out, " ", 1);
 	if (ret < 0) {
 		dbgp_printk("dbgp_bulk_write failed: %d\n", ret);
@@ -566,7 +622,7 @@ static int ehci_reset_port(int port)
 	int loop;
 
 	dbgp_ehci_status("reset port");
-	
+	/* Reset the usb debug port */
 	portsc = readl(&ehci_regs->port_status[port - 1]);
 	portsc &= ~PORT_PE;
 	portsc |= PORT_RESET;
@@ -581,7 +637,7 @@ static int ehci_reset_port(int port)
 			break;
 	}
 		if (portsc & PORT_RESET) {
-			
+			/* force reset to complete */
 			loop = 100 * 1000;
 			writel(portsc & ~(PORT_RWC_BITS | PORT_RESET),
 				&ehci_regs->port_status[port - 1]);
@@ -591,15 +647,15 @@ static int ehci_reset_port(int port)
 			} while ((portsc & PORT_RESET) && (--loop > 0));
 		}
 
-		
+		/* Device went away? */
 		if (!(portsc & PORT_CONNECT))
 			return -ENOTCONN;
 
-		
+		/* bomb out completely if something weird happened */
 		if ((portsc & PORT_CSC))
 			return -EINVAL;
 
-		
+		/* If we've finished resetting, then break out of the loop */
 		if (!(portsc & PORT_RESET) && (portsc & PORT_PE))
 			return 0;
 	return -EBUSY;
@@ -655,8 +711,11 @@ static void __init detect_set_debug_port(void)
 	}
 }
 
-#define EHCI_USBLEGSUP_BIOS	(1 << 16)	
-#define EHCI_USBLEGCTLSTS	4		
+/* The code in early_ehci_bios_handoff() is derived from the usb pci
+ * quirk initialization, but altered so as to use the early PCI
+ * routines. */
+#define EHCI_USBLEGSUP_BIOS	(1 << 16)	/* BIOS semaphore */
+#define EHCI_USBLEGCTLSTS	4		/* legacy control/status */
 static void __init early_ehci_bios_handoff(void)
 {
 	u32 hcc_params = readl(&ehci_caps->hcc_params);
@@ -677,7 +736,7 @@ static void __init early_ehci_bios_handoff(void)
 				      ehci_dev.func, offset + 3, 1);
 	}
 
-	
+	/* if boot firmware now owns EHCI, spin till it hands it over. */
 	msec = 1000;
 	while ((cap & EHCI_USBLEGSUP_BIOS) && (msec > 0)) {
 		mdelay(10);
@@ -687,12 +746,14 @@ static void __init early_ehci_bios_handoff(void)
 	}
 
 	if (cap & EHCI_USBLEGSUP_BIOS) {
+		/* well, possibly buggy BIOS... try to shut it down,
+		 * and hope nothing goes too wrong */
 		dbgp_printk("dbgp: BIOS handoff failed: %08x\n", cap);
 		write_pci_config_byte(ehci_dev.bus, ehci_dev.slot,
 				      ehci_dev.func, offset + 2, 0);
 	}
 
-	
+	/* just in case, always disable EHCI SMIs */
 	write_pci_config_byte(ehci_dev.bus, ehci_dev.slot, ehci_dev.func,
 			      offset + EHCI_USBLEGCTLSTS, 0);
 }
@@ -734,6 +795,8 @@ try_next_port:
 		return -1;
 	}
 
+	/* Only reset the controller if it is not already in the
+	 * configured state */
 	if (!(readl(&ehci_regs->configured_flag) & FLAG_CF)) {
 		if (dbgp_ehci_controller_reset() != 0)
 			return -1;
@@ -746,7 +809,7 @@ try_next_port:
 		goto next_debug_port;
 
 	if (ret < 0) {
-		
+		/* Things didn't work so remove my claim */
 		ctrl = readl(&ehci_debug->control);
 		ctrl &= ~(DBGP_CLAIM | DBGP_OUT);
 		writel(ctrl, &ehci_debug->control);
@@ -814,7 +877,7 @@ int __init early_dbgp_init(char *s)
 		return -1;
 	}
 
-	
+	/* double check if the mem space is enabled */
 	byte = read_pci_config_byte(bus, slot, func, 0x04);
 	if (!(byte & 0x2)) {
 		byte  |= 0x02;
@@ -822,6 +885,10 @@ int __init early_dbgp_init(char *s)
 		dbgp_printk("mmio for ehci enabled\n");
 	}
 
+	/*
+	 * FIXME I don't have the bar size so just guess PAGE_SIZE is more
+	 * than enough.  1K is the biggest I have seen.
+	 */
 	set_fixmap_nocache(FIX_DBGP_BASE, bar_val & PAGE_MASK);
 	ehci_bar = (void __iomem *)__fix_to_virt(FIX_DBGP_BASE);
 	ehci_bar += bar_val & ~PAGE_MASK;
@@ -861,6 +928,9 @@ static void early_dbgp_write(struct console *con, const char *str, u32 n)
 
 	cmd = readl(&ehci_regs->command);
 	if (unlikely(!(cmd & CMD_RUN))) {
+		/* If the ehci controller is not in the run state do extended
+		 * checks to see if the acpi or some other initialization also
+		 * reset the ehci debug port */
 		ctrl = readl(&ehci_debug->control);
 		if (!(ctrl & DBGP_ENABLED)) {
 			dbgp_not_safe = 1;
@@ -916,6 +986,9 @@ int dbgp_reset_prep(void)
 	     !(early_dbgp_console.flags & CON_BOOT)) ||
 	    dbgp_kgdb_mode)
 		return 1;
+	/* This means the console is not initialized, or should get
+	 * shutdown so as to allow for reuse of the usb device, which
+	 * means it is time to shutdown the usb debug port. */
 	ctrl = readl(&ehci_debug->control);
 	if (ctrl & DBGP_ENABLED) {
 		ctrl &= ~(DBGP_CLAIM);
@@ -1013,4 +1086,4 @@ static int __init kgdbdbgp_start_thread(void)
 	return 0;
 }
 module_init(kgdbdbgp_start_thread);
-#endif 
+#endif /* CONFIG_KGDB */

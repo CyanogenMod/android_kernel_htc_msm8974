@@ -24,6 +24,7 @@
 #include "msm_gemini_hw.h"
 #include "msm_camera_io_util.h"
 
+/* AXI rate in KHz */
 #define MSM_SYSTEM_BUS_RATE	160000
 struct ion_client *gemini_client;
 
@@ -64,7 +65,7 @@ uint32_t msm_gemini_platform_v2p(int fd, uint32_t len, struct file **file_p,
 				rc);
 		goto error1;
 	}
-	
+	/* validate user input */
 	if (len > size) {
 		GMN_PR_ERR("%s: invalid offset + len\n", __func__);
 		goto error1;

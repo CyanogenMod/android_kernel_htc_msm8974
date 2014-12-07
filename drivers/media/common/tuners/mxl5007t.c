@@ -31,6 +31,7 @@ static int mxl5007t_debug;
 module_param_named(debug, mxl5007t_debug, int, 0644);
 MODULE_PARM_DESC(debug, "set debug level");
 
+/* ------------------------------------------------------------------------- */
 
 #define mxl_printk(kern, fmt, arg...) \
 	printk(kern "%s: " fmt "\n", __func__, ##arg)
@@ -60,6 +61,7 @@ MODULE_PARM_DESC(debug, "set debug level");
 	__ret;								\
 })
 
+/* ------------------------------------------------------------------------- */
 
 #define MHz 1000000
 
@@ -86,24 +88,25 @@ struct reg_pair_t {
 	u8 val;
 };
 
+/* ------------------------------------------------------------------------- */
 
 static struct reg_pair_t init_tab[] = {
 	{ 0x02, 0x06 },
 	{ 0x03, 0x48 },
 	{ 0x05, 0x04 },
 	{ 0x06, 0x10 },
-	{ 0x2e, 0x15 }, 
-	{ 0x30, 0x10 }, 
-	{ 0x45, 0x58 }, 
-	{ 0x48, 0x19 }, 
-	{ 0x52, 0x03 }, 
-	{ 0x53, 0x44 }, 
-	{ 0x6a, 0x4b }, 
-	{ 0x76, 0x00 }, 
-	{ 0x78, 0x18 }, 
-	{ 0x7a, 0x17 }, 
-	{ 0x85, 0x06 }, 
-	{ 0x01, 0x01 }, 
+	{ 0x2e, 0x15 }, /* OVERRIDE */
+	{ 0x30, 0x10 }, /* OVERRIDE */
+	{ 0x45, 0x58 }, /* OVERRIDE */
+	{ 0x48, 0x19 }, /* OVERRIDE */
+	{ 0x52, 0x03 }, /* OVERRIDE */
+	{ 0x53, 0x44 }, /* OVERRIDE */
+	{ 0x6a, 0x4b }, /* OVERRIDE */
+	{ 0x76, 0x00 }, /* OVERRIDE */
+	{ 0x78, 0x18 }, /* OVERRIDE */
+	{ 0x7a, 0x17 }, /* OVERRIDE */
+	{ 0x85, 0x06 }, /* OVERRIDE */
+	{ 0x01, 0x01 }, /* TOP_MASTER_ENABLE */
 	{ 0, 0 }
 };
 
@@ -115,36 +118,38 @@ static struct reg_pair_t init_tab_cable[] = {
 	{ 0x09, 0x3f },
 	{ 0x0a, 0x3f },
 	{ 0x0b, 0x3f },
-	{ 0x2e, 0x15 }, 
-	{ 0x30, 0x10 }, 
-	{ 0x45, 0x58 }, 
-	{ 0x48, 0x19 }, 
-	{ 0x52, 0x03 }, 
-	{ 0x53, 0x44 }, 
-	{ 0x6a, 0x4b }, 
-	{ 0x76, 0x00 }, 
-	{ 0x78, 0x18 }, 
-	{ 0x7a, 0x17 }, 
-	{ 0x85, 0x06 }, 
-	{ 0x01, 0x01 }, 
+	{ 0x2e, 0x15 }, /* OVERRIDE */
+	{ 0x30, 0x10 }, /* OVERRIDE */
+	{ 0x45, 0x58 }, /* OVERRIDE */
+	{ 0x48, 0x19 }, /* OVERRIDE */
+	{ 0x52, 0x03 }, /* OVERRIDE */
+	{ 0x53, 0x44 }, /* OVERRIDE */
+	{ 0x6a, 0x4b }, /* OVERRIDE */
+	{ 0x76, 0x00 }, /* OVERRIDE */
+	{ 0x78, 0x18 }, /* OVERRIDE */
+	{ 0x7a, 0x17 }, /* OVERRIDE */
+	{ 0x85, 0x06 }, /* OVERRIDE */
+	{ 0x01, 0x01 }, /* TOP_MASTER_ENABLE */
 	{ 0, 0 }
 };
 
+/* ------------------------------------------------------------------------- */
 
 static struct reg_pair_t reg_pair_rftune[] = {
-	{ 0x0f, 0x00 }, 
+	{ 0x0f, 0x00 }, /* abort tune */
 	{ 0x0c, 0x15 },
 	{ 0x0d, 0x40 },
 	{ 0x0e, 0x0e },
-	{ 0x1f, 0x87 }, 
-	{ 0x20, 0x1f }, 
-	{ 0x21, 0x87 }, 
-	{ 0x22, 0x1f }, 
-	{ 0x80, 0x01 }, 
-	{ 0x0f, 0x01 }, 
+	{ 0x1f, 0x87 }, /* OVERRIDE */
+	{ 0x20, 0x1f }, /* OVERRIDE */
+	{ 0x21, 0x87 }, /* OVERRIDE */
+	{ 0x22, 0x1f }, /* OVERRIDE */
+	{ 0x80, 0x01 }, /* freq dependent */
+	{ 0x0f, 0x01 }, /* start tune */
 	{ 0, 0 }
 };
 
+/* ------------------------------------------------------------------------- */
 
 struct mxl5007t_state {
 	struct list_head hybrid_tuner_instance_list;
@@ -166,7 +171,9 @@ struct mxl5007t_state {
 	u32 bandwidth;
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* called by _init and _rftun to manipulate the register arrays */
 
 static void set_reg_bits(struct reg_pair_t *reg_pair, u8 reg, u8 mask, u8 val)
 {
@@ -204,6 +211,7 @@ static void copy_reg_bits(struct reg_pair_t *reg_pair1,
 	return;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static void mxl5007t_set_mode_bits(struct mxl5007t_state *state,
 				   enum mxl5007t_mode mode,
@@ -277,7 +285,7 @@ static void mxl5007t_set_if_freq_bits(struct mxl5007t_state *state,
 	}
 	set_reg_bits(state->tab_init, 0x02, 0x0f, val);
 
-	
+	/* set inverted IF or normal IF */
 	set_reg_bits(state->tab_init, 0x02, 0x10, invert_if ? 0x10 : 0x00);
 
 	state->if_freq = if_freq;
@@ -290,7 +298,7 @@ static void mxl5007t_set_xtal_freq_bits(struct mxl5007t_state *state,
 {
 	switch (xtal_freq) {
 	case MxL_XTAL_16_MHZ:
-		
+		/* select xtal freq & ref freq */
 		set_reg_bits(state->tab_init, 0x03, 0xf0, 0x00);
 		set_reg_bits(state->tab_init, 0x05, 0x0f, 0x00);
 		break;
@@ -377,6 +385,7 @@ static struct reg_pair_t *mxl5007t_calc_init_regs(struct mxl5007t_state *state,
 		return state->tab_init;
 }
 
+/* ------------------------------------------------------------------------- */
 
 enum mxl5007t_bw_mhz {
 	MxL_BW_6MHz = 6,
@@ -391,7 +400,8 @@ static void mxl5007t_set_bw_bits(struct mxl5007t_state *state,
 
 	switch (bw) {
 	case MxL_BW_6MHz:
-		val = 0x15; 
+		val = 0x15; /* set DIG_MODEINDEX, DIG_MODEINDEX_A,
+			     * and DIG_MODEINDEX_CSF */
 		break;
 	case MxL_BW_7MHz:
 		val = 0x2a;
@@ -421,6 +431,8 @@ reg_pair_t *mxl5007t_calc_rf_tune_regs(struct mxl5007t_state *state,
 
 	mxl5007t_set_bw_bits(state, bw);
 
+	/* Convert RF frequency into 16 bits =>
+	 * 10 bit integer (MHz) + 6 bit fraction */
 	dig_rf_freq = rf_freq / MHz;
 
 	temp = rf_freq % MHz;
@@ -434,7 +446,7 @@ reg_pair_t *mxl5007t_calc_rf_tune_regs(struct mxl5007t_state *state,
 		}
 	}
 
-	
+	/* add to have shift center point by 7.8124 kHz */
 	if (temp > 7812)
 		dig_rf_freq++;
 
@@ -447,6 +459,7 @@ reg_pair_t *mxl5007t_calc_rf_tune_regs(struct mxl5007t_state *state,
 	return state->tab_rftune;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static int mxl5007t_write_reg(struct mxl5007t_state *state, u8 reg, u8 val)
 {
@@ -522,7 +535,7 @@ static int mxl5007t_tuner_init(struct mxl5007t_state *state,
 	if (mxl_fail(ret))
 		goto fail;
 
-	
+	/* calculate initialization reg array */
 	init_regs = mxl5007t_calc_init_regs(state, mode);
 
 	ret = mxl5007t_write_regs(state, init_regs);
@@ -539,7 +552,7 @@ static int mxl5007t_tuner_rf_tune(struct mxl5007t_state *state, u32 rf_freq_hz,
 	struct reg_pair_t *rf_tune_regs;
 	int ret;
 
-	
+	/* calculate channel change reg array */
 	rf_tune_regs = mxl5007t_calc_rf_tune_regs(state, rf_freq_hz, bw);
 
 	ret = mxl5007t_write_regs(state, rf_tune_regs);
@@ -550,6 +563,7 @@ fail:
 	return ret;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static int mxl5007t_synth_lock_status(struct mxl5007t_state *state,
 				      int *rf_locked, int *ref_locked)
@@ -573,6 +587,7 @@ fail:
 	return ret;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static int mxl5007t_get_status(struct dvb_frontend *fe, u32 *status)
 {
@@ -599,6 +614,7 @@ fail:
 	return ret;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static int mxl5007t_set_params(struct dvb_frontend *fe)
 {
@@ -665,6 +681,7 @@ fail:
 	return ret;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static int mxl5007t_init(struct dvb_frontend *fe)
 {
@@ -674,7 +691,7 @@ static int mxl5007t_init(struct dvb_frontend *fe)
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 
-	
+	/* wake from standby */
 	ret = mxl5007t_write_reg(state, 0x01, 0x01);
 	mxl_fail(ret);
 
@@ -692,7 +709,7 @@ static int mxl5007t_sleep(struct dvb_frontend *fe)
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 
-	
+	/* enter standby mode */
 	ret = mxl5007t_write_reg(state, 0x01, 0x00);
 	mxl_fail(ret);
 	ret = mxl5007t_write_reg(state, 0x0f, 0x00);
@@ -704,6 +721,7 @@ static int mxl5007t_sleep(struct dvb_frontend *fe)
 	return ret;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static int mxl5007t_get_frequency(struct dvb_frontend *fe, u32 *frequency)
 {
@@ -779,6 +797,7 @@ static int mxl5007t_release(struct dvb_frontend *fe)
 	return 0;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static struct dvb_tuner_ops mxl5007t_tuner_ops = {
 	.info = {
@@ -860,7 +879,7 @@ struct dvb_frontend *mxl5007t_attach(struct dvb_frontend *fe,
 	case 0:
 		goto fail;
 	case 1:
-		
+		/* new tuner instance */
 		state->config = cfg;
 
 		mutex_init(&state->lock);
@@ -873,12 +892,12 @@ struct dvb_frontend *mxl5007t_attach(struct dvb_frontend *fe,
 		if (fe->ops.i2c_gate_ctrl)
 			fe->ops.i2c_gate_ctrl(fe, 0);
 
-		
+		/* check return value of mxl5007t_get_chip_id */
 		if (mxl_fail(ret))
 			goto fail;
 		break;
 	default:
-		
+		/* existing tuner instance */
 		break;
 	}
 	fe->tuner_priv = state;
@@ -900,3 +919,10 @@ MODULE_AUTHOR("Michael Krufky <mkrufky@linuxtv.org>");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("0.2");
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

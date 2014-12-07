@@ -15,6 +15,7 @@
 #if defined(CONFIG_CPU_SUBTYPE_SH7720) || \
     defined(CONFIG_CPU_SUBTYPE_SH7721)
 
+/* Control registers */
 #define PORT_PACR	0xA4050100UL
 #define PORT_PBCR	0xA4050102UL
 #define PORT_PCCR	0xA4050104UL
@@ -34,7 +35,9 @@
 #define PORT_PUCR	0xA4050120UL
 #define PORT_PVCR	0xA4050122UL
 
+/* Data registers */
 #define PORT_PADR	0xA4050140UL
+/* Address of PORT_PBDR is wrong in the datasheet, see errata 2005-09-21 */
 #define PORT_PBDR	0xA4050142UL
 #define PORT_PCDR	0xA4050144UL
 #define PORT_PDDR	0xA4050146UL
@@ -53,6 +56,7 @@
 #define PORT_PUDR	0xA4050160UL
 #define PORT_PVDR	0xA4050162UL
 
+/* Pin Select Registers */
 #define PORT_PSELA	0xA4050124UL
 #define PORT_PSELB	0xA4050126UL
 #define PORT_PSELC	0xA4050128UL
@@ -60,11 +64,13 @@
 
 #elif defined(CONFIG_CPU_SUBTYPE_SH7709)
 
+/* Control registers */
 #define PORT_PACR       0xa4000100UL
 #define PORT_PBCR       0xa4000102UL
 #define PORT_PCCR       0xa4000104UL
 #define PORT_PFCR       0xa400010aUL
 
+/* Data registers */
 #define PORT_PADR       0xa4000120UL
 #define PORT_PBDR       0xa4000122UL
 #define PORT_PCDR       0xa4000124UL

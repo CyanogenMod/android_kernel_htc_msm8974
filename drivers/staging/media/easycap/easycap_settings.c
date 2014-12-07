@@ -1,3 +1,8 @@
+/******************************************************************************
+*                                                                             *
+*  easycap_settings.c                                                         *
+*                                                                             *
+******************************************************************************/
 /*
  *
  *  Copyright (C) 2010 R.M. Thomas  <rmthomas@sciolus.org>
@@ -18,9 +23,21 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
 */
+/*****************************************************************************/
 
 #include "easycap.h"
 
+/*---------------------------------------------------------------------------*/
+/*
+ *  THE LEAST SIGNIFICANT BIT OF easycap_standard.mask HAS MEANING:
+ *                         0 => 25 fps
+ *                         1 => 30 fps
+ *
+ *  THE MOST  SIGNIFICANT BIT OF easycap_standard.mask HAS MEANING:
+ *                         0 => full framerate
+ *                         1 => 20%  framerate
+ */
+/*---------------------------------------------------------------------------*/
 const struct easycap_standard easycap_standard[] = {
 	{
 		.mask = 0x00FF & PAL_BGHIN ,
@@ -35,6 +52,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x00FF & NTSC_N_443 ,
 		.v4l2_standard = {
@@ -46,6 +64,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x00FF & PAL_Nc ,
 		.v4l2_standard = {
@@ -57,6 +76,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x00FF & NTSC_N ,
 		.v4l2_standard = {
@@ -68,6 +88,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x00FF & SECAM ,
 		.v4l2_standard = {
@@ -79,6 +100,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x00FF & NTSC_M ,
 		.v4l2_standard = {
@@ -90,6 +112,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x00FF & NTSC_M_JP ,
 		.v4l2_standard = {
@@ -101,6 +124,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x00FF & PAL_60 ,
 		.v4l2_standard = {
@@ -112,6 +136,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x00FF & NTSC_443 ,
 		.v4l2_standard = {
@@ -123,6 +148,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x00FF & PAL_M ,
 		.v4l2_standard = {
@@ -134,6 +160,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x8000 | (0x00FF & PAL_BGHIN_SLOW),
 		.v4l2_standard = {
@@ -148,6 +175,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x8000 | (0x00FF & NTSC_N_443_SLOW),
 		.v4l2_standard = {
@@ -159,6 +187,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x8000 | (0x00FF & PAL_Nc_SLOW),
 		.v4l2_standard = {
@@ -170,6 +199,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x8000 | (0x00FF & NTSC_N_SLOW),
 		.v4l2_standard = {
@@ -181,6 +211,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x8000 | (0x00FF & SECAM_SLOW),
 		.v4l2_standard = {
@@ -192,6 +223,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x8000 | (0x00FF & NTSC_M_SLOW),
 		.v4l2_standard = {
@@ -203,6 +235,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x8000 | (0x00FF & NTSC_M_JP_SLOW),
 		.v4l2_standard = {
@@ -215,6 +248,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x8000 | (0x00FF & PAL_60_SLOW),
 		.v4l2_standard = {
@@ -226,6 +260,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x8000 | (0x00FF & NTSC_443_SLOW),
 		.v4l2_standard = {
@@ -237,6 +272,7 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0x8000 | (0x00FF & PAL_M_SLOW),
 		.v4l2_standard = {
@@ -248,10 +284,32 @@ const struct easycap_standard easycap_standard[] = {
 			.reserved = {0, 0, 0, 0}
 		}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.mask = 0xFFFF
 	}
 };
+/*---------------------------------------------------------------------------*/
+/*
+ *  THE 16-BIT easycap_format.mask HAS MEANING:
+ *    (least significant) BIT  0:     0 => PAL, 25 FPS;   1 => NTSC, 30 FPS
+ *                        BITS 2-4:   RESERVED FOR DIFFERENTIATING STANDARDS
+ *                        BITS 5-7:   NUMBER OF BYTES PER PIXEL
+ *                        BIT  8:     0 => NATIVE BYTE ORDER;  1 => SWAPPED
+ *                        BITS 9-10:  RESERVED FOR OTHER BYTE PERMUTATIONS
+ *                        BIT 11:     0 => UNDECIMATED;    1 => DECIMATED
+ *                        BIT 12:     0 => OFFER FRAMES;   1 => OFFER FIELDS
+ *                        BIT 13:     0 => FULL FRAMERATE; 1 => REDUCED
+ *     (most significant) BITS 14-15: RESERVED FOR OTHER FIELD/FRAME OPTIONS
+ *  IT FOLLOWS THAT:
+ *     bytesperpixel IS         ((0x00E0 & easycap_format.mask) >> 5)
+ *     byteswaporder IS true IF (0 != (0x0100 & easycap_format.mask))
+ *
+ *     decimatepixel IS true IF (0 != (0x0800 & easycap_format.mask))
+ *
+ *       offerfields IS true IF (0 != (0x1000 & easycap_format.mask))
+ */
+/*---------------------------------------------------------------------------*/
 
 struct easycap_format easycap_format[1 + SETTINGS_MANY];
 
@@ -560,6 +618,7 @@ int easycap_video_fillin_formats(void)
 	easycap_format[n].mask = 0xFFFF;
 	return n;
 }
+/*---------------------------------------------------------------------------*/
 struct v4l2_queryctrl easycap_control[] = {
 	{
 		.id       = V4L2_CID_BRIGHTNESS,
@@ -572,6 +631,7 @@ struct v4l2_queryctrl easycap_control[] = {
 		.flags    = 0,
 		.reserved = {0, 0}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.id       = V4L2_CID_CONTRAST,
 		.type     = V4L2_CTRL_TYPE_INTEGER,
@@ -583,6 +643,7 @@ struct v4l2_queryctrl easycap_control[] = {
 		.flags    = 0,
 		.reserved = {0, 0}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.id       = V4L2_CID_SATURATION,
 		.type     = V4L2_CTRL_TYPE_INTEGER,
@@ -594,6 +655,7 @@ struct v4l2_queryctrl easycap_control[] = {
 		.flags    = 0,
 		.reserved = {0, 0}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.id       = V4L2_CID_HUE,
 		.type     = V4L2_CTRL_TYPE_INTEGER,
@@ -605,6 +667,7 @@ struct v4l2_queryctrl easycap_control[] = {
 		.flags    = 0,
 		.reserved = {0, 0}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.id       = V4L2_CID_AUDIO_VOLUME,
 		.type     = V4L2_CTRL_TYPE_INTEGER,
@@ -616,6 +679,7 @@ struct v4l2_queryctrl easycap_control[] = {
 		.flags    = 0,
 		.reserved = {0, 0}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.id       = V4L2_CID_AUDIO_MUTE,
 		.type     = V4L2_CTRL_TYPE_BOOLEAN,
@@ -624,7 +688,9 @@ struct v4l2_queryctrl easycap_control[] = {
 		.flags    = 0,
 		.reserved = {0, 0}
 	},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 	{
 		.id = 0xFFFFFFFF
 	}
 };
+/*****************************************************************************/

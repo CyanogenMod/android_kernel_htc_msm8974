@@ -22,8 +22,8 @@
 #define ARCH_ID_AT91SAM9G20	0x019905a0
 #define ARCH_ID_AT91SAM9RL64	0x019b03a0
 #define ARCH_ID_AT91SAM9G45	0x819b05a0
-#define ARCH_ID_AT91SAM9G45MRL	0x819b05a2	
-#define ARCH_ID_AT91SAM9G45ES	0x819b05a1	
+#define ARCH_ID_AT91SAM9G45MRL	0x819b05a2	/* aka 9G45-ES2 & non ES lots */
+#define ARCH_ID_AT91SAM9G45ES	0x819b05a1	/* 9G45-ES (Engineering Sample) */
 #define ARCH_ID_AT91SAM9X5	0x819a05a0
 
 #define ARCH_ID_AT91SAM9XE128	0x329973a0
@@ -50,44 +50,45 @@
 #define ARCH_FAMILY_AT91SAM9	0x01900000
 #define ARCH_FAMILY_AT91SAM9XE	0x02900000
 
+/* RM9200 type */
 #define ARCH_REVISON_9200_BGA	(0 << 0)
 #define ARCH_REVISON_9200_PQFP	(1 << 0)
 
 enum at91_soc_type {
-	
+	/* 920T */
 	AT91_SOC_RM9200,
 
-	
+	/* SAM92xx */
 	AT91_SOC_SAM9260, AT91_SOC_SAM9261, AT91_SOC_SAM9263,
 
-	
+	/* SAM9Gxx */
 	AT91_SOC_SAM9G10, AT91_SOC_SAM9G20, AT91_SOC_SAM9G45,
 
-	
+	/* SAM9RL */
 	AT91_SOC_SAM9RL,
 
-	
+	/* SAM9X5 */
 	AT91_SOC_SAM9X5,
 
-	
+	/* Unknown type */
 	AT91_SOC_NONE
 };
 
 enum at91_soc_subtype {
-	
+	/* RM9200 */
 	AT91_SOC_RM9200_BGA, AT91_SOC_RM9200_PQFP,
 
-	
+	/* SAM9260 */
 	AT91_SOC_SAM9XE,
 
-	
+	/* SAM9G45 */
 	AT91_SOC_SAM9G45ES, AT91_SOC_SAM9M10, AT91_SOC_SAM9G46, AT91_SOC_SAM9M11,
 
-	
+	/* SAM9X5 */
 	AT91_SOC_SAM9G15, AT91_SOC_SAM9G35, AT91_SOC_SAM9X35,
 	AT91_SOC_SAM9G25, AT91_SOC_SAM9X25,
 
-	
+	/* Unknown subtype */
 	AT91_SOC_SUBTYPE_NONE
 };
 
@@ -183,6 +184,10 @@ static inline int at91_soc_is_detected(void)
 #define cpu_is_at91sam9x25()	(0)
 #endif
 
+/*
+ * Since this is ARM, we will never run on any AVR32 CPU. But these
+ * definitions may reduce clutter in common drivers.
+ */
 #define cpu_is_at32ap7000()	(0)
 
-#endif 
+#endif /* __MACH_CPU_H__ */

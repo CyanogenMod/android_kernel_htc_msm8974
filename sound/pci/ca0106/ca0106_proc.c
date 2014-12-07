@@ -107,7 +107,7 @@ static void snd_ca0106_proc_dump_iec958( struct snd_info_buffer *buffer, u32 val
 	status[3] = (value >> 24)  & 0xff;
 	
 	if (! (status[0] & IEC958_AES0_PROFESSIONAL)) {
-		
+		/* consumer */
 		snd_iprintf(buffer, "Mode: consumer\n");
 		snd_iprintf(buffer, "Data: ");
 		if (!(status[0] & IEC958_AES0_NONAUDIO)) {
@@ -454,4 +454,4 @@ int __devinit snd_ca0106_proc_init(struct snd_ca0106 * emu)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PROC_FS */

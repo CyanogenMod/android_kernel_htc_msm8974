@@ -72,6 +72,7 @@
 #define ETOP_PLEN_UNDER		0x40
 #define ETOP_CGEN		0x800
 
+/* use 2 static channels for TX/RX */
 #define LTQ_ETOP_TX_CHANNEL	1
 #define LTQ_ETOP_RX_CHANNEL	6
 #define IS_TX(x)		(x == LTQ_ETOP_TX_CHANNEL)
@@ -269,7 +270,7 @@ ltq_etop_hw_init(struct net_device *dev)
 		return -ENOTSUPP;
 	}
 
-	
+	/* enable crc generation */
 	ltq_etop_w32(PPE32_CGEN, LQ_PPE32_ENET_MAC_CFG);
 
 	ltq_dma_init_port(DMA_PORT_ETOP);
@@ -371,7 +372,7 @@ ltq_etop_mdio_rd(struct mii_bus *bus, int phy_addr, int phy_reg)
 static void
 ltq_etop_mdio_link(struct net_device *dev)
 {
-	
+	/* nothing to do  */
 }
 
 static int
@@ -538,7 +539,7 @@ ltq_etop_tx(struct sk_buff *skb, struct net_device *dev)
 		return NETDEV_TX_BUSY;
 	}
 
-	
+	/* dma needs to start on a 16 byte aligned address */
 	byte_offset = CPHYSADDR(skb->data) % 16;
 	ch->skb[ch->dma.desc] = skb;
 
@@ -582,7 +583,7 @@ ltq_etop_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
 	struct ltq_etop_priv *priv = netdev_priv(dev);
 
-	
+	/* TODO: mii-toll reports "No MII transceiver present!." ?!*/
 	return phy_mii_ioctl(priv->phydev, rq, cmd);
 }
 
@@ -595,7 +596,7 @@ ltq_etop_set_mac_address(struct net_device *dev, void *p)
 		struct ltq_etop_priv *priv = netdev_priv(dev);
 		unsigned long flags;
 
-		
+		/* store the mac for the unicast filter */
 		spin_lock_irqsave(&priv->lock, flags);
 		ltq_etop_w32(*((u32 *)dev->dev_addr), LTQ_ETOP_MAC_DA0);
 		ltq_etop_w32(*((u16 *)&dev->dev_addr[4]) << 16,
@@ -611,7 +612,7 @@ ltq_etop_set_multicast_list(struct net_device *dev)
 	struct ltq_etop_priv *priv = netdev_priv(dev);
 	unsigned long flags;
 
-	
+	/* ensure that the unicast filter is not enabled in promiscious mode */
 	spin_lock_irqsave(&priv->lock, flags);
 	if ((dev->flags & IFF_PROMISC) || (dev->flags & IFF_ALLMULTI))
 		ltq_etop_w32_mask(ETOP_FTCU, 0, LTQ_ETOP_ENETS0);
@@ -623,7 +624,7 @@ ltq_etop_set_multicast_list(struct net_device *dev)
 static u16
 ltq_etop_select_queue(struct net_device *dev, struct sk_buff *skb)
 {
-	
+	/* we are currently only using the first queue */
 	return 0;
 }
 
@@ -653,7 +654,7 @@ ltq_etop_init(struct net_device *dev)
 	if (err)
 		goto err_netdev;
 
-	
+	/* Set addr_assign_type here, ltq_etop_set_mac_address would reset it. */
 	if (random_mac)
 		dev->addr_assign_type |= NET_ADDR_RANDOM;
 

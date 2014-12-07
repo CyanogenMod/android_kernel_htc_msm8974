@@ -1,4 +1,8 @@
+/* $Date: 2005/03/07 23:59:05 $ $RCSfile: fpga_defs.h,v $ $Revision: 1.4 $ */
 
+/*
+ * FPGA specific definitions
+ */
 
 #ifndef __CHELSIO_FPGA_DEFS_H__
 #define __CHELSIO_FPGA_DEFS_H__
@@ -6,6 +10,7 @@
 #define FPGA_PCIX_ADDR_VERSION               0xA08
 #define FPGA_PCIX_ADDR_STAT                  0xA0C
 
+/* FPGA master interrupt Cause/Enable bits */
 #define FPGA_PCIX_INTERRUPT_SGE_ERROR        0x1
 #define FPGA_PCIX_INTERRUPT_SGE_DATA         0x2
 #define FPGA_PCIX_INTERRUPT_TP               0x4
@@ -13,26 +18,36 @@
 #define FPGA_PCIX_INTERRUPT_GMAC             0x10
 #define FPGA_PCIX_INTERRUPT_PCIX             0x20
 
+/* TP interrupt register addresses */
 #define FPGA_TP_ADDR_INTERRUPT_ENABLE        0xA10
 #define FPGA_TP_ADDR_INTERRUPT_CAUSE         0xA14
 #define FPGA_TP_ADDR_VERSION                 0xA18
 
+/* TP interrupt Cause/Enable bits */
 #define FPGA_TP_INTERRUPT_MC4                0x1
 #define FPGA_TP_INTERRUPT_MC5                0x2
 
+/*
+ * PM interrupt register addresses
+ */
 #define FPGA_MC3_REG_INTRENABLE              0xA20
 #define FPGA_MC3_REG_INTRCAUSE               0xA24
 #define FPGA_MC3_REG_VERSION                 0xA28
 
+/*
+ * GMAC interrupt register addresses
+ */
 #define FPGA_GMAC_ADDR_INTERRUPT_ENABLE      0xA30
 #define FPGA_GMAC_ADDR_INTERRUPT_CAUSE       0xA34
 #define FPGA_GMAC_ADDR_VERSION               0xA38
 
+/* GMAC Cause/Enable bits */
 #define FPGA_GMAC_INTERRUPT_PORT0            0x1
 #define FPGA_GMAC_INTERRUPT_PORT1            0x2
 #define FPGA_GMAC_INTERRUPT_PORT2            0x4
 #define FPGA_GMAC_INTERRUPT_PORT3            0x8
 
+/* MI0 registers */
 #define A_MI0_CLK 0xb00
 
 #define S_MI0_CLK_DIV    0
@@ -82,6 +97,7 @@
 #define A_MI0_DATA_EXT 0xb0c
 #define A_MI0_DATA_INT 0xb10
 
+/* GMAC registers */
 #define A_GMAC_MACID_LO	0x28
 #define A_GMAC_MACID_HI	0x2c
 #define A_GMAC_CSR	0x30

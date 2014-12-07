@@ -32,8 +32,8 @@ static int octeon_rng_init(struct hwrng *rng)
 	struct octeon_rng *p = container_of(rng, struct octeon_rng, ops);
 
 	ctl.u64 = 0;
-	ctl.s.ent_en = 1; 
-	ctl.s.rng_en = 1; 
+	ctl.s.ent_en = 1; /* Enable the entropy source.  */
+	ctl.s.rng_en = 1; /* Enable the RNG hardware.  */
 	cvmx_write_csr((u64)p->control_status, ctl.u64);
 	return 0;
 }
@@ -44,7 +44,7 @@ static void octeon_rng_cleanup(struct hwrng *rng)
 	struct octeon_rng *p = container_of(rng, struct octeon_rng, ops);
 
 	ctl.u64 = 0;
-	
+	/* Disable everything.  */
 	cvmx_write_csr((u64)p->control_status, ctl.u64);
 }
 

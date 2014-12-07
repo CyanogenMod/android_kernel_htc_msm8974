@@ -39,4 +39,5 @@ int FN_05_init(struct rmi_function_device *function_device);
 int FN_05_detect(struct rmi_function_info *rmifninfo,
 		struct rmi_function_descriptor *fndescr,
 		unsigned int interruptCount);
+/* No attention function for F05 */
 #endif

@@ -1,3 +1,9 @@
+/*
+ * Dallas Semiconductors 1603 RTC driver
+ *
+ * Brian Murphy <brian@murphy.dk>
+ *
+ */
 #ifndef __DS1603_H
 #define __DS1603_H
 

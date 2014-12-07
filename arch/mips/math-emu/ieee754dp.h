@@ -1,4 +1,8 @@
 /*
+ * IEEE754 floating point
+ * double precision internal header file
+ */
+/*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
  *
@@ -25,6 +29,7 @@
 
 #define assert(expr) ((void)0)
 
+/* 3bit extended double precision sticky right shift */
 #define XDPSRS(v,rs)	\
   ((rs > (DP_MBITS+3))?1:((v) >> (rs)) | ((v) << (64-(rs)) != 0))
 
@@ -34,6 +39,7 @@
 #define XDPSRS1(v)	\
   (((v) >> 1) | ((v) & 1))
 
+/* convert denormal to normalized with extended exponent */
 #define DPDNORMx(m,e) \
   while( (m >> DP_MBITS) == 0) { m <<= 1; e--; }
 #define DPDNORMX	DPDNORMx(xm, xe)

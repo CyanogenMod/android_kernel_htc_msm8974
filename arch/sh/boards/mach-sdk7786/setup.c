@@ -113,6 +113,9 @@ static int sdk7786_i2c_setup(void)
 {
 	unsigned int tmp;
 
+	/*
+	 * Hand over I2C control to the FPGA.
+	 */
 	tmp = fpga_read_reg(SBCR);
 	tmp &= ~SCBR_I2CCEN;
 	tmp |= SCBR_I2CMEN;
@@ -139,6 +142,20 @@ static int sdk7786_mode_pins(void)
 	return fpga_read_reg(MODSWR);
 }
 
+/*
+ * FPGA-driven PCIe clocks
+ *
+ * Historically these include the oscillator, clock B (slots 2/3/4) and
+ * clock A (slot 1 and the CPU clock). Newer revs of the PCB shove
+ * everything under a single PCIe clocks enable bit that happens to map
+ * to the same bit position as the oscillator bit for earlier FPGA
+ * versions.
+ *
+ * Given that the legacy clocks have the side-effect of shutting the CPU
+ * off through the FPGA along with the PCI slots, we simply leave them in
+ * their initial state and don't bother registering them with the clock
+ * framework.
+ */
 static int sdk7786_pcie_clk_enable(struct clk *clk)
 {
 	fpga_write_reg(fpga_read_reg(PCIECR) | PCIECR_CLKEN, PCIECR);
@@ -169,6 +186,10 @@ static int sdk7786_clk_init(void)
 	struct clk *clk;
 	int ret;
 
+	/*
+	 * Only handle the EXTAL case, anyone interfacing a crystal
+	 * resonator will need to provide their own input clock.
+	 */
 	if (test_mode_pin(MODE_PIN9))
 		return -EINVAL;
 
@@ -178,6 +199,9 @@ static int sdk7786_clk_init(void)
 	ret = clk_set_rate(clk, 33333333);
 	clk_put(clk);
 
+	/*
+	 * Setup the FPGA clocks.
+	 */
 	ret = clk_register(&sdk7786_pcie_clk);
 	if (unlikely(ret)) {
 		pr_err("FPGA clock registration failed\n");
@@ -198,10 +222,16 @@ static void sdk7786_power_off(void)
 {
 	fpga_write_reg(fpga_read_reg(PWRCR) | PWRCR_PDWNREQ, PWRCR);
 
+	/*
+	 * It can take up to 20us for the R8C to do its job, back off and
+	 * wait a bit until we've been shut off. Even though newer FPGA
+	 * versions don't set the ACK bit, the latency issue remains.
+	 */
 	while ((fpga_read_reg(PWRCR) & PWRCR_PDWNACK) == 0)
 		cpu_sleep();
 }
 
+/* Initialize the board */
 static void __init sdk7786_setup(char **cmdline_p)
 {
 	pr_info("Renesas Technology Europe SDK7786 support:\n");
@@ -217,6 +247,9 @@ static void __init sdk7786_setup(char **cmdline_p)
 	register_smp_ops(&shx3_smp_ops);
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_sdk7786 __initmv = {
 	.mv_name		= "SDK7786",
 	.mv_setup		= sdk7786_setup,

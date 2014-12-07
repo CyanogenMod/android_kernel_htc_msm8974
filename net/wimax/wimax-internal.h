@@ -34,11 +34,22 @@
 #include <net/wimax.h>
 
 
+/*
+ * Decide if a (locked) device is ready for use
+ *
+ * Before using the device structure, it must be locked
+ * (wimax_dev->mutex). As well, most operations need to call this
+ * function to check if the state is the right one.
+ *
+ * An error value will be returned if the state is not the right
+ * one. In that case, the caller should not attempt to use the device
+ * and just unlock it.
+ */
 static inline __must_check
 int wimax_dev_is_ready(struct wimax_dev *wimax_dev)
 {
 	if (wimax_dev->state == __WIMAX_ST_NULL)
-		return -EINVAL;	
+		return -EINVAL;	/* Device is not even registered! */
 	if (wimax_dev->state == WIMAX_ST_DOWN)
 		return -ENOMEDIUM;
 	if (wimax_dev->state == __WIMAX_ST_QUIESCING)
@@ -76,5 +87,5 @@ extern void wimax_rfkill_rm(struct wimax_dev *);
 extern struct genl_family wimax_gnl_family;
 extern struct genl_multicast_group wimax_gnl_mcg;
 
-#endif 
-#endif 
+#endif /* #ifdef __KERNEL__ */
+#endif /* #ifndef __WIMAX_INTERNAL_H__ */

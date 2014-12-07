@@ -34,7 +34,7 @@ int fm_tx_set_stereo_mono(struct fmdev *fmdev, u16 mode)
 
 	fmdbg("stereo mode: %d\n", mode);
 
-	
+	/* Set Stereo/Mono mode */
 	payload = (1 - mode);
 	ret = fmc_send_cmd(fmdev, MONO_SET, REG_WR, &payload,
 			sizeof(payload), NULL, NULL);
@@ -56,7 +56,7 @@ static int set_rds_text(struct fmdev *fmdev, u8 *rds_text)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Scroll mode */
 	payload = (u16)0x1;
 	ret = fmc_send_cmd(fmdev, DISPLAY_MODE, REG_WR, &payload,
 			sizeof(payload), NULL, NULL);
@@ -71,21 +71,21 @@ static int set_rds_data_mode(struct fmdev *fmdev, u8 mode)
 	u16 payload;
 	int ret;
 
-	
+	/* Setting unique PI TODO: how unique? */
 	payload = (u16)0xcafe;
 	ret = fmc_send_cmd(fmdev, PI_SET, REG_WR, &payload,
 			sizeof(payload), NULL, NULL);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Set decoder id */
 	payload = (u16)0xa;
 	ret = fmc_send_cmd(fmdev, DI_SET, REG_WR, &payload,
 			sizeof(payload), NULL, NULL);
 	if (ret < 0)
 		return ret;
 
-	
+	/* TODO: RDS_MODE_GET? */
 	return 0;
 }
 
@@ -101,7 +101,7 @@ static int set_rds_len(struct fmdev *fmdev, u8 type, u16 len)
 	if (ret < 0)
 		return ret;
 
-	
+	/* TODO: LENGTH_GET? */
 	return 0;
 }
 
@@ -115,17 +115,17 @@ int fm_tx_set_rds_mode(struct fmdev *fmdev, u8 rds_en_dis)
 		   FM_RDS_ENABLE, FM_RDS_DISABLE);
 
 	if (rds_en_dis == FM_RDS_ENABLE) {
-		
+		/* Set RDS length */
 		set_rds_len(fmdev, 0, strlen(rds_text));
 
-		
+		/* Set RDS text */
 		set_rds_text(fmdev, rds_text);
 
-		
+		/* Set RDS mode */
 		set_rds_data_mode(fmdev, 0x0);
 	}
 
-	
+	/* Send command to enable RDS */
 	if (rds_en_dis == FM_RDS_ENABLE)
 		payload = 0x01;
 	else
@@ -137,10 +137,10 @@ int fm_tx_set_rds_mode(struct fmdev *fmdev, u8 rds_en_dis)
 		return ret;
 
 	if (rds_en_dis == FM_RDS_ENABLE) {
-		
+		/* Set RDS length */
 		set_rds_len(fmdev, 0, strlen(rds_text));
 
-		
+		/* Set RDS text */
 		set_rds_text(fmdev, rds_text);
 	}
 	fmdev->tx_data.rds.flag = rds_en_dis;
@@ -158,13 +158,13 @@ int fm_tx_set_radio_text(struct fmdev *fmdev, u8 *rds_text, u8 rds_type)
 
 	fm_tx_set_rds_mode(fmdev, 0);
 
-	
+	/* Set RDS length */
 	set_rds_len(fmdev, rds_type, strlen(rds_text));
 
-	
+	/* Set RDS text */
 	set_rds_text(fmdev, rds_text);
 
-	
+	/* Set RDS mode */
 	set_rds_data_mode(fmdev, 0x0);
 
 	payload = 1;
@@ -206,7 +206,7 @@ int fm_tx_set_region(struct fmdev *fmdev, u8 region)
 		return -EINVAL;
 	}
 
-	
+	/* Send command to set the band */
 	payload = (u16)region;
 	ret = fmc_send_cmd(fmdev, TX_BAND_SET, REG_WR, &payload,
 			sizeof(payload), NULL, NULL);
@@ -232,23 +232,25 @@ int fm_tx_set_mute_mode(struct fmdev *fmdev, u8 mute_mode_toset)
 	return 0;
 }
 
+/* Set TX Audio I/O */
 static int set_audio_io(struct fmdev *fmdev)
 {
 	struct fmtx_data *tx = &fmdev->tx_data;
 	u16 payload;
 	int ret;
 
-	
+	/* Set Audio I/O Enable */
 	payload = tx->audio_io;
 	ret = fmc_send_cmd(fmdev, AUDIO_IO_SET, REG_WR, &payload,
 			sizeof(payload), NULL, NULL);
 	if (ret < 0)
 		return ret;
 
-	
+	/* TODO: is audio set? */
 	return 0;
 }
 
+/* Start TX Transmission */
 static int enable_xmit(struct fmdev *fmdev, u8 new_xmit_state)
 {
 	struct fmtx_data *tx = &fmdev->tx_data;
@@ -256,21 +258,21 @@ static int enable_xmit(struct fmdev *fmdev, u8 new_xmit_state)
 	u16 payload;
 	int ret;
 
-	
+	/* Enable POWER_ENB interrupts */
 	payload = FM_POW_ENB_EVENT;
 	ret = fmc_send_cmd(fmdev, INT_MASK_SET, REG_WR, &payload,
 			sizeof(payload), NULL, NULL);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Set Power Enable */
 	payload = new_xmit_state;
 	ret = fmc_send_cmd(fmdev, POWER_ENB_SET, REG_WR, &payload,
 			sizeof(payload), NULL, NULL);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Wait for Power Enabled */
 	init_completion(&fmdev->maintask_comp);
 	timeleft = wait_for_completion_timeout(&fmdev->maintask_comp,
 			FM_DRV_TX_TIMEOUT);
@@ -286,6 +288,7 @@ static int enable_xmit(struct fmdev *fmdev, u8 new_xmit_state)
 	return 0;
 }
 
+/* Set TX power level */
 int fm_tx_set_pwr_lvl(struct fmdev *fmdev, u8 new_pwr_lvl)
 {
 	u16 payload;
@@ -296,12 +299,18 @@ int fm_tx_set_pwr_lvl(struct fmdev *fmdev, u8 new_pwr_lvl)
 		return -EPERM;
 	fmdbg("tx: pwr_level_to_set %ld\n", (long int)new_pwr_lvl);
 
-	
+	/* If the core isn't ready update global variable */
 	if (!test_bit(FM_CORE_READY, &fmdev->flag)) {
 		tx->pwr_lvl = new_pwr_lvl;
 		return 0;
 	}
 
+	/* Set power level: Application will specify power level value in
+	 * units of dB/uV, whereas range and step are specific to FM chip.
+	 * For TI's WL chips, convert application specified power level value
+	 * to chip specific value by subtracting 122 from it. Refer to TI FM
+	 * data sheet for details.
+	 * */
 
 	payload = (FM_PWR_LVL_HIGH - new_pwr_lvl);
 	ret = fmc_send_cmd(fmdev, POWER_LEV_SET, REG_WR, &payload,
@@ -309,12 +318,16 @@ int fm_tx_set_pwr_lvl(struct fmdev *fmdev, u8 new_pwr_lvl)
 	if (ret < 0)
 		return ret;
 
-	
+	/* TODO: is the power level set? */
 	tx->pwr_lvl = new_pwr_lvl;
 
 	return 0;
 }
 
+/*
+ * Sets FM TX pre-emphasis filter value (OFF, 50us, or 75us)
+ * Convert V4L2 specified filter values to chip specific filter values.
+ */
 int fm_tx_set_preemph_filter(struct fmdev *fmdev, u32 preemphasis)
 {
 	struct fmtx_data *tx = &fmdev->tx_data;
@@ -346,6 +359,7 @@ int fm_tx_set_preemph_filter(struct fmdev *fmdev, u32 preemphasis)
 	return ret;
 }
 
+/* Get the TX tuning capacitor value.*/
 int fm_tx_get_tune_cap_val(struct fmdev *fmdev)
 {
 	u16 curr_val;
@@ -365,6 +379,7 @@ int fm_tx_get_tune_cap_val(struct fmdev *fmdev)
 	return curr_val;
 }
 
+/* Set TX Frequency */
 int fm_tx_set_freq(struct fmdev *fmdev, u32 freq_to_set)
 {
 	struct fmtx_data *tx = &fmdev->tx_data;
@@ -376,7 +391,7 @@ int fm_tx_set_freq(struct fmdev *fmdev, u32 freq_to_set)
 		clear_bit(FM_CORE_TX_XMITING, &fmdev->flag);
 	}
 
-	
+	/* Enable FR, BL interrupts */
 	payload = (FM_FR_EVENT | FM_BL_EVENT);
 	ret = fmc_send_cmd(fmdev, INT_MASK_SET, REG_WR, &payload,
 			sizeof(payload), NULL, NULL);
@@ -388,7 +403,7 @@ int fm_tx_set_freq(struct fmdev *fmdev, u32 freq_to_set)
 
 	chanl_index = freq_to_set / 10;
 
-	
+	/* Set current tuner channel */
 	payload = chanl_index;
 	ret = fmc_send_cmd(fmdev, CHANL_SET, REG_WR, &payload,
 			sizeof(payload), NULL, NULL);
@@ -398,10 +413,10 @@ int fm_tx_set_freq(struct fmdev *fmdev, u32 freq_to_set)
 	fm_tx_set_pwr_lvl(fmdev, tx->pwr_lvl);
 	fm_tx_set_preemph_filter(fmdev, tx->preemph);
 
-	tx->audio_io = 0x01;	
+	tx->audio_io = 0x01;	/* I2S */
 	set_audio_io(fmdev);
 
-	enable_xmit(fmdev, 0x01);	
+	enable_xmit(fmdev, 0x01);	/* Enable transmission */
 
 	tx->aud_mode = FM_STEREO_MODE;
 	tx->rds.flag = FM_RDS_DISABLE;

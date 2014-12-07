@@ -18,37 +18,37 @@ static struct msm_panel_info pinfo;
 
 static struct mipi_dsi_phy_ctrl dsi_video_mode_phy_db = {
 #ifdef CONFIG_FB_MSM_MDP303
-	
-	
+	/* DSI Bit Clock at 500 MHz, 2 lane, RGB888 */
+	/* regulator */
 	{0x03, 0x01, 0x01, 0x00},
-	
+	/* timing   */
 	{0xb9, 0x8e, 0x1f, 0x00, 0x98, 0x9c, 0x22, 0x90,
 	0x18, 0x03, 0x04},
-	
+	/* phy ctrl */
 	{0x7f, 0x00, 0x00, 0x00},
-	
+	/* strength */
 	{0xbb, 0x02, 0x06, 0x00},
-	
+	/* pll control */
 	{0x00, 0xec, 0x31, 0xd2, 0x00, 0x40, 0x37, 0x62,
 	0x01, 0x0f, 0x07,
 	0x05, 0x14, 0x03, 0x0, 0x0, 0x0, 0x20, 0x0, 0x02, 0x0},
 #else
-	
-	
+	/* DSI_BIT_CLK at 400MHz, 1 lane, RGB888 */
+	/* regulator */
 	{0x03, 0x01, 0x01, 0x00},
-	
+	/* timing   */
 	{0xaa, 0x3b, 0x1b, 0x00, 0x52, 0x58, 0x20, 0x3f,
 	0x2e, 0x03, 0x04},
-	
+	/* phy ctrl */
 	{0x7f, 0x00, 0x00, 0x00},
-	
+	/* strength */
 	{0xee, 0x00, 0x86, 0x00},
-	
+	/* pll control */
 	{0x40, 0xc7, 0xb0, 0xda, 0x00, 0x50, 0x48, 0x63,
 #if defined(RENESAS_FWVGA_TWO_LANE)
 	0x30, 0x07, 0x03,
 #else
-	
+	/* default set to 1 lane */
 	0x30, 0x07, 0x07,
 #endif
 	0x05, 0x14, 0x03, 0x0, 0x0, 0x54, 0x06, 0x10, 0x04, 0x0},
@@ -102,8 +102,8 @@ static int __init mipi_video_renesas_fwvga_pt_init(void)
 #endif
 
 #endif
-	pinfo.lcdc.border_clr = 0;	
-	pinfo.lcdc.underflow_clr = 0xff;	
+	pinfo.lcdc.border_clr = 0;	/* blk */
+	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 	pinfo.bl_max = 255;
 	pinfo.bl_min = 1;
@@ -125,7 +125,7 @@ static int __init mipi_video_renesas_fwvga_pt_init(void)
 	pinfo.mipi.data_lane1 = TRUE;
 	pinfo.mipi.t_clk_post = 0x20;
 	pinfo.mipi.t_clk_pre = 0x2F;
-	pinfo.mipi.stream = 0; 
+	pinfo.mipi.stream = 0; /* dma_p */
 	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_NONE;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.frame_rate = 60;
@@ -145,7 +145,7 @@ static int __init mipi_video_renesas_fwvga_pt_init(void)
 #endif
 	pinfo.mipi.t_clk_post = 0x03;
 	pinfo.mipi.t_clk_pre = 0x24;
-	pinfo.mipi.stream = 0; 
+	pinfo.mipi.stream = 0; /* dma_p */
 	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.frame_rate = 60;

@@ -29,7 +29,7 @@ imx25_sdhci_esdhc_imx_data[] __initconst = {
 	imx25_sdhci_esdhc_imx_data_entry(0, 1),
 	imx25_sdhci_esdhc_imx_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX25 */
 
 #ifdef CONFIG_SOC_IMX35
 const struct imx_sdhci_esdhc_imx_data
@@ -40,7 +40,7 @@ imx35_sdhci_esdhc_imx_data[] __initconst = {
 	imx35_sdhci_esdhc_imx_data_entry(1, 2),
 	imx35_sdhci_esdhc_imx_data_entry(2, 3),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX35 */
 
 #ifdef CONFIG_SOC_IMX51
 const struct imx_sdhci_esdhc_imx_data
@@ -52,7 +52,7 @@ imx51_sdhci_esdhc_imx_data[] __initconst = {
 	imx51_sdhci_esdhc_imx_data_entry(2, 3),
 	imx51_sdhci_esdhc_imx_data_entry(3, 4),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX51 */
 
 #ifdef CONFIG_SOC_IMX53
 const struct imx_sdhci_esdhc_imx_data
@@ -64,7 +64,7 @@ imx53_sdhci_esdhc_imx_data[] __initconst = {
 	imx53_sdhci_esdhc_imx_data_entry(2, 3),
 	imx53_sdhci_esdhc_imx_data_entry(3, 4),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX53 */
 
 static const struct esdhc_platform_data default_esdhc_pdata __initconst = {
 	.wp_type = ESDHC_WP_NONE,
@@ -87,6 +87,10 @@ struct platform_device *__init imx_add_sdhci_esdhc_imx(
 		},
 	};
 
+	/*
+	 * If machine does not provide pdata, use the default one
+	 * which means no WP/CD support
+	 */
 	if (!pdata)
 		pdata = &default_esdhc_pdata;
 

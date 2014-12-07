@@ -36,60 +36,60 @@ void __init tx3927_setup(void)
 	txx9_reg_res_init(TX3927_REV_PCODE(), TX3927_REG_BASE,
 			  TX3927_REG_SIZE);
 
-	
+	/* SDRAMC,ROMC are configured by PROM */
 	for (i = 0; i < 8; i++) {
 		if (!(tx3927_romcptr->cr[i] & 0x8))
-			continue;	
+			continue;	/* disabled */
 		txx9_ce_res[i].start = (unsigned long)TX3927_ROMC_BA(i);
 		txx9_ce_res[i].end =
 			txx9_ce_res[i].start + TX3927_ROMC_SIZE(i) - 1;
 		request_resource(&iomem_resource, &txx9_ce_res[i]);
 	}
 
-	
+	/* clocks */
 	txx9_gbus_clock = txx9_cpu_clock / 2;
-	
+	/* change default value to udelay/mdelay take reasonable time */
 	loops_per_jiffy = txx9_cpu_clock / HZ / 2;
 
-	
-	
+	/* CCFG */
+	/* enable Timeout BusError */
 	if (txx9_ccfg_toeon)
 		tx3927_ccfgptr->ccfg |= TX3927_CCFG_TOE;
 
-	
+	/* clear BusErrorOnWrite flag */
 	tx3927_ccfgptr->ccfg &= ~TX3927_CCFG_BEOW;
 	if (read_c0_conf() & TX39_CONF_WBON)
-		
+		/* Disable PCI snoop */
 		tx3927_ccfgptr->ccfg &= ~TX3927_CCFG_PSNP;
 	else
-		
+		/* Enable PCI SNOOP - with write through only */
 		tx3927_ccfgptr->ccfg |= TX3927_CCFG_PSNP;
-	
+	/* do reset on watchdog */
 	tx3927_ccfgptr->ccfg |= TX3927_CCFG_WR;
 
 	printk(KERN_INFO "TX3927 -- CRIR:%08lx CCFG:%08lx PCFG:%08lx\n",
 	       tx3927_ccfgptr->crir,
 	       tx3927_ccfgptr->ccfg, tx3927_ccfgptr->pcfg);
 
-	
+	/* TMR */
 	for (i = 0; i < TX3927_NR_TMR; i++)
 		txx9_tmr_init(TX3927_TMR_REG(i));
 
-	
+	/* DMA */
 	tx3927_dmaptr->mcr = 0;
 	for (i = 0; i < ARRAY_SIZE(tx3927_dmaptr->ch); i++) {
-		
+		/* reset channel */
 		tx3927_dmaptr->ch[i].ccr = TX3927_DMA_CCR_CHRST;
 		tx3927_dmaptr->ch[i].ccr = 0;
 	}
-	
+	/* enable DMA */
 #ifdef __BIG_ENDIAN
 	tx3927_dmaptr->mcr = TX3927_DMA_MCR_MSTEN;
 #else
 	tx3927_dmaptr->mcr = TX3927_DMA_MCR_MSTEN | TX3927_DMA_MCR_LE;
 #endif
 
-	
+	/* PIO */
 	__raw_writel(0, &tx3927_pioptr->maskcpu);
 	__raw_writel(0, &tx3927_pioptr->maskext);
 	txx9_gpio_init(TX3927_PIO_REG, 0, 16);
@@ -132,6 +132,6 @@ void __init tx3927_mtd_init(int ch)
 	unsigned long size = txx9_ce_res[ch].end - start + 1;
 
 	if (!(tx3927_romcptr->cr[ch] & 0x8))
-		return;	
+		return;	/* disabled */
 	txx9_physmap_flash_init(ch, start, size, &pdata);
 }

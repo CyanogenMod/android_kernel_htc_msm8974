@@ -64,6 +64,7 @@ static const int PIO2_REGS_INT_MASK[8] = { PIO2_REGS_INT_MASK0,
 #define PIO2_REGS_ID			0x30
 
 
+/* PIO2_REGS_DATAx (0x0 - 0x3) */
 
 static const int PIO2_CHANNEL_BANK[32] = { 0, 0, 0, 0, 0, 0, 0, 0,
 					1, 1, 1, 1, 1, 1, 1, 1,
@@ -121,6 +122,7 @@ static const int PIO2_CHANNEL_BIT[32] = { PIO2_CHANNEL0_BIT, PIO2_CHANNEL1_BIT,
 					PIO2_CHANNEL30_BIT, PIO2_CHANNEL31_BIT
 					};
 
+/* PIO2_REGS_INT_STAT_CNTR (0xc) */
 #define PIO2_COUNTER0			(1 << 0)
 #define PIO2_COUNTER1			(1 << 1)
 #define PIO2_COUNTER2			(1 << 2)
@@ -132,10 +134,12 @@ static const int PIO2_COUNTER[6] = { PIO2_COUNTER0, PIO2_COUNTER1,
 					PIO2_COUNTER2, PIO2_COUNTER3,
 					PIO2_COUNTER4, PIO2_COUNTER5 };
 
+/* PIO2_REGS_CTRL (0x18) */
 #define PIO2_VME_INT_MASK		0x7
 #define PIO2_LED			(1 << 6)
 #define PIO2_LOOP			(1 << 7)
 
+/* PIO2_REGS_VME_VECTOR (0x19) */
 #define PIO2_VME_VECTOR_SPUR		0x0
 #define PIO2_VME_VECTOR_BANK0		0x1
 #define PIO2_VME_VECTOR_BANK1		0x2
@@ -162,11 +166,13 @@ static const int PIO2_VECTOR_CNTR[6] = { PIO2_VME_VECTOR_CNTR0,
 					PIO2_VME_VECTOR_CNTR4,
 					PIO2_VME_VECTOR_CNTR5 };
 
+/* PIO2_REGS_CNTRx (0x20 - 0x24 & 0x28 - 0x2c) */
 
 static const int PIO2_CNTR_DATA[6] = { PIO2_REGS_CNTR0, PIO2_REGS_CNTR1,
 					PIO2_REGS_CNTR2, PIO2_REGS_CNTR3,
 					PIO2_REGS_CNTR4, PIO2_REGS_CNTR5 };
 
+/* PIO2_REGS_CTRL_WRDx (0x26 & 0x2e) */
 
 static const int PIO2_CNTR_CTRL[6] = { PIO2_REGS_CTRL_WRD0,
 					PIO2_REGS_CTRL_WRD0,
@@ -203,12 +209,14 @@ static const int PIO2_CNTR_SC_DEV[6] = { PIO2_CNTR_SC_DEV0, PIO2_CNTR_SC_DEV1,
 enum pio2_bank_config { NOFIT, INPUT, OUTPUT, BOTH };
 enum pio2_int_config { NONE = 0, LOW2HIGH = 1, HIGH2LOW = 2, EITHER = 4 };
 
+/* Bank configuration structure */
 struct pio2_io_bank {
 	enum pio2_bank_config config;
 	u8 value;
 	enum pio2_int_config irq[8];
 };
 
+/* Counter configuration structure */
 struct pio2_cntr {
 	int mode;
 	int count;
@@ -238,4 +246,4 @@ int pio2_gpio_reset(struct pio2_card *);
 int __devinit pio2_gpio_init(struct pio2_card *);
 void pio2_gpio_exit(struct pio2_card *);
 
-#endif 
+#endif /* _VME_PIO2_H_ */

@@ -13,6 +13,39 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * Bosch CC770 and Intel AN82527 CAN controllers on the ISA or PC-104 bus.
+ * The I/O port or memory address and the IRQ number must be specified via
+ * module parameters:
+ *
+ *   insmod cc770_isa.ko port=0x310,0x380 irq=7,11
+ *
+ * for ISA devices using I/O ports or:
+ *
+ *   insmod cc770_isa.ko mem=0xd1000,0xd1000 irq=7,11
+ *
+ * for memory mapped ISA devices.
+ *
+ * Indirect access via address and data port is supported as well:
+ *
+ *   insmod cc770_isa.ko port=0x310,0x380 indirect=1 irq=7,11
+ *
+ * Furthermore, the following mode parameter can be defined:
+ *
+ *   clk: External oscillator clock frequency (default=16000000 [16 MHz])
+ *   cir: CPU interface register (default=0x40 [DSC])
+ *   bcr: Bus configuration register (default=0x40 [CBY])
+ *   cor: Clockout register (default=0x00)
+ *
+ * Note: for clk, cir, bcr and cor, the first argument re-defines the
+ * default for all other devices, e.g.:
+ *
+ *   insmod cc770_isa.ko mem=0xd1000,0xd1000 irq=7,11 clk=24000000
+ *
+ * is equivalent to
+ *
+ *   insmod cc770_isa.ko mem=0xd1000,0xd1000 irq=7,11 clk=24000000,24000000
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -36,7 +69,7 @@ MODULE_AUTHOR("Wolfgang Grandegger <wg@grandegger.com>");
 MODULE_DESCRIPTION("Socket-CAN driver for CC770 on the ISA bus");
 MODULE_LICENSE("GPL v2");
 
-#define CLK_DEFAULT	16000000	
+#define CLK_DEFAULT	16000000	/* 16 MHz */
 #define COR_DEFAULT	0x00
 #define BCR_DEFAULT	BUSCFG_CBY
 
@@ -77,6 +110,9 @@ MODULE_PARM_DESC(bcr, "Bus configuration register (default=0x40 [CBY])");
 #define CC770_IOSIZE          0x20
 #define CC770_IOSIZE_INDIRECT 0x02
 
+/* Spinlock for cc770_isa_port_write_reg_indirect
+ * and cc770_isa_port_read_reg_indirect
+ */
 static DEFINE_SPINLOCK(cc770_isa_port_lock);
 
 static struct platform_device *cc770_isa_devs[MAXDEV];
@@ -202,12 +238,12 @@ static int __devinit cc770_isa_probe(struct platform_device *pdev)
 	} else if (cir[0] != 0xff) {
 		priv->cpu_interface = cir[0];
 	} else {
-		
+		/* The system clock may not exceed 10 MHz */
 		if (clktmp > 10000000) {
 			priv->cpu_interface |= CPUIF_DSC;
 			clktmp /= 2;
 		}
-		
+		/* The memory clock may not exceed 8 MHz */
 		if (clktmp > 8000000)
 			priv->cpu_interface |= CPUIF_DMC;
 	}

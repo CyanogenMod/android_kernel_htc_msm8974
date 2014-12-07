@@ -1,3 +1,11 @@
+/* 
+ * ASCII values for a number of symbolic constants, printing functions,
+ * etc.
+ * Additions for SCSI 2 and Linux 2.2.x by D. Gilbert (990422)
+ * Additions for SCSI 3+ (SPC-3 T10/1416-D Rev 07 3 May 2002)
+ *   by D. Gilbert and aeb (20020609)
+ * Update to SPC-4 T10/1713-D Rev 20, 22 May 2009, D. Gilbert 20090624
+ */
 
 #include <linux/blkdev.h>
 #include <linux/module.h>
@@ -12,6 +20,7 @@
 
 
 
+/* Commands with service actions that change the command name */
 #define MAINTENANCE_IN 0xa3
 #define MAINTENANCE_OUT 0xa4
 #define SERVICE_ACTION_IN_12 0xab
@@ -23,72 +32,72 @@
 
 #ifdef CONFIG_SCSI_CONSTANTS
 static const char * cdb_byte0_names[] = {
- "Test Unit Ready", "Rezero Unit/Rewind", NULL, "Request Sense",
- "Format Unit/Medium", "Read Block Limits", NULL,
+/* 00-03 */ "Test Unit Ready", "Rezero Unit/Rewind", NULL, "Request Sense",
+/* 04-07 */ "Format Unit/Medium", "Read Block Limits", NULL,
 	    "Reassign Blocks",
- "Read(6)", NULL, "Write(6)", "Seek(6)", NULL, NULL,
- NULL, "Read Reverse", "Write Filemarks", "Space", "Inquiry",  
- "Verify(6)", "Recover Buffered Data", "Mode Select(6)",
+/* 08-0d */ "Read(6)", NULL, "Write(6)", "Seek(6)", NULL, NULL,
+/* 0e-12 */ NULL, "Read Reverse", "Write Filemarks", "Space", "Inquiry",  
+/* 13-16 */ "Verify(6)", "Recover Buffered Data", "Mode Select(6)",
 	    "Reserve(6)",
- "Release(6)", "Copy", "Erase", "Mode Sense(6)",
- "Start/Stop Unit", "Receive Diagnostic", "Send Diagnostic", 
- "Prevent/Allow Medium Removal", NULL,
-  NULL, NULL, NULL,
- "Read Format Capacities", "Set Window",
+/* 17-1a */ "Release(6)", "Copy", "Erase", "Mode Sense(6)",
+/* 1b-1d */ "Start/Stop Unit", "Receive Diagnostic", "Send Diagnostic", 
+/* 1e-1f */ "Prevent/Allow Medium Removal", NULL,
+/* 20-22 */  NULL, NULL, NULL,
+/* 23-28 */ "Read Format Capacities", "Set Window",
 	    "Read Capacity(10)", NULL, NULL, "Read(10)",
- "Read Generation", "Write(10)", "Seek(10)", "Erase(10)",
+/* 29-2d */ "Read Generation", "Write(10)", "Seek(10)", "Erase(10)",
             "Read updated block",
- "Write Verify(10)", "Verify(10)", "Search High", "Search Equal",
- "Search Low", "Set Limits", "Prefetch/Read Position", 
- "Synchronize Cache(10)", "Lock/Unlock Cache(10)",
+/* 2e-31 */ "Write Verify(10)", "Verify(10)", "Search High", "Search Equal",
+/* 32-34 */ "Search Low", "Set Limits", "Prefetch/Read Position", 
+/* 35-37 */ "Synchronize Cache(10)", "Lock/Unlock Cache(10)",
 	    "Read Defect Data(10)", 
- "Medium Scan", "Compare", "Copy Verify", "Write Buffer", 
+/* 38-3c */ "Medium Scan", "Compare", "Copy Verify", "Write Buffer", 
             "Read Buffer", 
- "Update Block", "Read Long(10)",  "Write Long(10)",
- "Change Definition", "Write Same(10)",
- "Unmap/Read sub-channel", "Read TOC/PMA/ATIP",
+/* 3d-3f */ "Update Block", "Read Long(10)",  "Write Long(10)",
+/* 40-41 */ "Change Definition", "Write Same(10)",
+/* 42-48 */ "Unmap/Read sub-channel", "Read TOC/PMA/ATIP",
 	    "Read density support", "Play audio(10)", "Get configuration",
 	    "Play audio msf", "Play audio track/index",
- "Play track relative(10)", "Get event status notification",
+/* 49-4f */ "Play track relative(10)", "Get event status notification",
             "Pause/resume", "Log Select", "Log Sense", "Stop play/scan",
             NULL,
- "Xdwrite", "Xpwrite, Read disk info", "Xdread, Read track info",
+/* 50-55 */ "Xdwrite", "Xpwrite, Read disk info", "Xdread, Read track info",
             "Reserve track", "Send OPC info", "Mode Select(10)",
- "Reserve(10)", "Release(10)", "Repair track", "Read master cue",
+/* 56-5b */ "Reserve(10)", "Release(10)", "Repair track", "Read master cue",
             "Mode Sense(10)", "Close track/session",
- "Read buffer capacity", "Send cue sheet", "Persistent reserve in",
+/* 5c-5f */ "Read buffer capacity", "Send cue sheet", "Persistent reserve in",
             "Persistent reserve out",
- NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
- NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
- NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
- NULL, NULL, NULL, NULL, NULL, NULL, "Extended CDB",
+/* 60-67 */ NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+/* 68-6f */ NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+/* 70-77 */ NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+/* 78-7f */ NULL, NULL, NULL, NULL, NULL, NULL, "Extended CDB",
 	    "Variable length",
- "Xdwrite(16)", "Rebuild(16)", "Regenerate(16)", "Extended copy",
+/* 80-84 */ "Xdwrite(16)", "Rebuild(16)", "Regenerate(16)", "Extended copy",
             "Receive copy results",
- "ATA command pass through(16)", "Access control in",
+/* 85-89 */ "ATA command pass through(16)", "Access control in",
 	    "Access control out", "Read(16)", "Memory Export Out(16)",
- "Write(16)", "ORWrite", "Read attributes", "Write attributes",
+/* 8a-8f */ "Write(16)", "ORWrite", "Read attributes", "Write attributes",
             "Write and verify(16)", "Verify(16)",
- "Pre-fetch(16)", "Synchronize cache(16)",
+/* 90-94 */ "Pre-fetch(16)", "Synchronize cache(16)",
             "Lock/unlock cache(16)", "Write same(16)", NULL,
- NULL, NULL, NULL, NULL, NULL,
- NULL, NULL, NULL, NULL, "Service action in(16)",
+/* 95-99 */ NULL, NULL, NULL, NULL, NULL,
+/* 9a-9f */ NULL, NULL, NULL, NULL, "Service action in(16)",
             "Service action out(16)",
- "Report luns", "ATA command pass through(12)/Blank",
+/* a0-a5 */ "Report luns", "ATA command pass through(12)/Blank",
             "Security protocol in", "Maintenance in", "Maintenance out",
 	    "Move medium/play audio(12)",
- "Exchange medium", "Move medium attached", "Read(12)",
+/* a6-a9 */ "Exchange medium", "Move medium attached", "Read(12)",
             "Play track relative(12)",
- "Write(12)", NULL, "Erase(12), Get Performance",
+/* aa-ae */ "Write(12)", NULL, "Erase(12), Get Performance",
             "Read DVD structure", "Write and verify(12)",
- "Verify(12)", "Search data high(12)", "Search data equal(12)",
- "Search data low(12)", "Set limits(12)",
+/* af-b1 */ "Verify(12)", "Search data high(12)", "Search data equal(12)",
+/* b2-b4 */ "Search data low(12)", "Set limits(12)",
             "Read element status attached",
- "Security protocol out", "Send volume tag, set streaming",
- "Read defect data(12)", "Read element status", "Read CD msf",
- "Redundancy group (in), Scan",
+/* b5-b6 */ "Security protocol out", "Send volume tag, set streaming",
+/* b7-b9 */ "Read defect data(12)", "Read element status", "Read CD msf",
+/* ba-bc */ "Redundancy group (in), Scan",
             "Redundancy group (out), Set cd-rom speed", "Spare (in), Play cd",
- "Spare (out), Mechanism status", "Volume set (in), Read cd",
+/* bd-bf */ "Spare (out), Mechanism status", "Volume set (in), Read cd",
             "Volume set (out), Send DVD structure",
 };
 
@@ -194,6 +203,7 @@ static const char * get_sa_name(const struct value_name_pair * arr,
 	return (k < arr_sz) ? arr->name : NULL;
 }
 
+/* attempt to guess cdb length if cdb_len==0 . No trailing linefeed. */
 static void print_opcode_name(unsigned char * cdbp, int cdb_len)
 {
 	int sa, len, cdb0;
@@ -280,7 +290,7 @@ static void print_opcode_name(unsigned char * cdbp, int cdb_len)
 	}
 }
 
-#else 
+#else /* ifndef CONFIG_SCSI_CONSTANTS */
 
 static void print_opcode_name(unsigned char * cdbp, int cdb_len)
 {
@@ -325,7 +335,7 @@ void __scsi_print_command(unsigned char *cdb)
 
 	print_opcode_name(cdb, 0);
 	len = scsi_command_size(cdb);
-	
+	/* print out all bytes in cdb */
 	for (k = 0; k < len; ++k) 
 		printk(" %02x", cdb[k]);
 	printk("\n");
@@ -342,7 +352,7 @@ void scsi_print_command(struct scsi_cmnd *cmd)
 	scmd_printk(KERN_INFO, cmd, "CDB: ");
 	print_opcode_name(cmd->cmnd, cmd->cmd_len);
 
-	
+	/* print out all bytes in cdb */
 	printk(":");
 	for (k = 0; k < cmd->cmd_len; ++k)
 		printk(" %02x", cmd->cmnd[k]);
@@ -350,6 +360,15 @@ void scsi_print_command(struct scsi_cmnd *cmd)
 }
 EXPORT_SYMBOL(scsi_print_command);
 
+/**
+ *	scsi_print_status - print scsi status description
+ *	@scsi_status: scsi status value
+ *
+ *	If the status is recognized, the description is printed.
+ *	Otherwise "Unknown status" is output. No trailing space.
+ *	If CONFIG_SCSI_CONSTANTS is not set, then print status in hex
+ *	(e.g. "0x2" for Check Condition).
+ **/
 void
 scsi_print_status(unsigned char scsi_status) {
 #ifdef CONFIG_SCSI_CONSTANTS
@@ -363,8 +382,8 @@ scsi_print_status(unsigned char scsi_status) {
 	case 0x10: ccp = "Intermediate"; break;
 	case 0x14: ccp = "Intermediate-Condition Met"; break;
 	case 0x18: ccp = "Reservation Conflict"; break;
-	case 0x22: ccp = "Command Terminated"; break;	
-	case 0x28: ccp = "Task set Full"; break;	
+	case 0x22: ccp = "Command Terminated"; break;	/* obsolete */
+	case 0x28: ccp = "Task set Full"; break;	/* was: Queue Full */
 	case 0x30: ccp = "ACA Active"; break;
 	case 0x40: ccp = "Task Aborted"; break;
 	default:   ccp = "Unknown status";
@@ -379,10 +398,14 @@ EXPORT_SYMBOL(scsi_print_status);
 #ifdef CONFIG_SCSI_CONSTANTS
 
 struct error_info {
-	unsigned short code12;	
+	unsigned short code12;	/* 0x0302 looks better than 0x03,0x02 */
 	const char * text;
 };
 
+/*
+ * The canonical list of T10 Additional Sense Codes is available at:
+ * http://www.t10.org/lists/asc-num.txt
+ */
 static const struct error_info additional[] =
 {
 	{0x0000, "No additional sense information"},
@@ -816,6 +839,12 @@ static const struct error_info additional[] =
 	{0x3F12, "iSCSI IP address added"},
 	{0x3F13, "iSCSI IP address removed"},
 	{0x3F14, "iSCSI IP address changed"},
+/*
+ *	{0x40NN, "Ram failure"},
+ *	{0x40NN, "Diagnostic failure on component nn"},
+ *	{0x41NN, "Data path failure"},
+ *	{0x42NN, "Power-on or self-test failure"},
+ */
 	{0x4300, "Message error"},
 
 	{0x4400, "Internal target failure"},
@@ -849,6 +878,9 @@ static const struct error_info additional[] =
 	{0x4B06, "Initiator response timeout"},
 
 	{0x4C00, "Logical unit failed self-configuration"},
+/*
+ *	{0x4DNN, "Tagged overlapped commands (nn = queue tag)"},
+ */
 	{0x4E00, "Overlapped commands attempted"},
 
 	{0x5000, "Write append error"},
@@ -1063,6 +1095,9 @@ static const struct error_info additional[] =
 	{0x6F05, "Drive region must be permanent/region reset count error"},
 	{0x6F06, "Insufficient block count for binding nonce recording"},
 	{0x6F07, "Conflict in binding nonce recording"},
+/*
+ *	{0x70NN, "Decompression exception short algorithm id of nn"},
+ */
 	{0x7100, "Decompression exception long algorithm id"},
 
 	{0x7200, "Session fixation error"},
@@ -1133,26 +1168,31 @@ static const struct error_info2 additional2[] =
 	{0, 0, 0, NULL}
 };
 
+/* description of the sense key values */
 static const char * const snstext[] = {
-	"No Sense",	    
-	"Recovered Error",  
-	"Not Ready",	    
-	"Medium Error",	    
-	"Hardware Error",   
-	"Illegal Request",  
-	"Unit Attention",   
-	"Data Protect",	    
+	"No Sense",	    /* 0: There is no sense information */
+	"Recovered Error",  /* 1: The last command completed successfully
+				  but used error correction */
+	"Not Ready",	    /* 2: The addressed target is not ready */
+	"Medium Error",	    /* 3: Data error detected on the medium */
+	"Hardware Error",   /* 4: Controller or device failure */
+	"Illegal Request",  /* 5: Error in request */
+	"Unit Attention",   /* 6: Removable medium was changed, or
+				  the target has been reset, or ... */
+	"Data Protect",	    /* 7: Access to the data is blocked */
 	"Blank Check",	    /* 8: Reached unexpected written or unwritten
 				  region of the medium */
 	"Vendor Specific(9)",
-	"Copy Aborted",	    
-	"Aborted Command",  
-	"Equal",	    
+	"Copy Aborted",	    /* A: COPY or COMPARE was aborted */
+	"Aborted Command",  /* B: The target aborted the command */
+	"Equal",	    /* C: A SEARCH DATA command found data equal */
 	"Volume Overflow",  /* D: Medium full with still data to be written */
-	"Miscompare",	    
+	"Miscompare",	    /* E: Source data and data on the medium
+				  do not agree */
 };
 #endif
 
+/* Get sense key string or NULL if not available */
 const char *
 scsi_sense_key_string(unsigned char key) {
 #ifdef CONFIG_SCSI_CONSTANTS
@@ -1163,6 +1203,10 @@ scsi_sense_key_string(unsigned char key) {
 }
 EXPORT_SYMBOL(scsi_sense_key_string);
 
+/*
+ * Get additional sense code string or NULL if not available.
+ * This string may contain a "%x" and should be printed with ascq as arg.
+ */
 const char *
 scsi_extd_sense_format(unsigned char asc, unsigned char ascq) {
 #ifdef CONFIG_SCSI_CONSTANTS
@@ -1230,6 +1274,9 @@ scsi_show_sense_hdr(struct scsi_sense_hdr *sshdr)
 }
 EXPORT_SYMBOL(scsi_show_sense_hdr);
 
+/*
+ * Print normalized SCSI sense header with a prefix.
+ */
 void
 scsi_print_sense_hdr(const char *name, struct scsi_sense_hdr *sshdr)
 {
@@ -1240,6 +1287,9 @@ scsi_print_sense_hdr(const char *name, struct scsi_sense_hdr *sshdr)
 }
 EXPORT_SYMBOL(scsi_print_sense_hdr);
 
+/*
+ * Print normalized SCSI sense header with device information and a prefix.
+ */
 void
 scsi_cmd_print_sense_hdr(struct scsi_cmnd *scmd, const char *desc,
 			  struct scsi_sense_hdr *sshdr)
@@ -1259,7 +1309,7 @@ scsi_decode_sense_buffer(const unsigned char *sense_buffer, int sense_len,
     
 	res = scsi_normalize_sense(sense_buffer, sense_len, sshdr);
 	if (0 == res) {
-		
+		/* this may be SCSI-1 sense data */
 		num = (sense_len < 32) ? sense_len : 32;
 		printk("Unrecognized sense data (in hex):");
 		for (k = 0; k < num; ++k) {
@@ -1282,7 +1332,7 @@ scsi_decode_sense_extras(const unsigned char *sense_buffer, int sense_len,
 
 	if (sshdr->response_code < 0x72)
 	{
-		
+		/* only decode extras for "fixed" format now */
 		char buff[80];
 		int blen, fixed_valid;
 		unsigned int info;
@@ -1297,19 +1347,19 @@ scsi_decode_sense_extras(const unsigned char *sense_buffer, int sense_len,
 			res += snprintf(buff + res, blen - res,
 					"Info fld=0x%x", info);
 		if (sense_buffer[2] & 0x80) {
-			
+			/* current command has read a filemark */
 			if (res > 0)
 				res += snprintf(buff + res, blen - res, ", ");
 			res += snprintf(buff + res, blen - res, "FMK");
 		}
 		if (sense_buffer[2] & 0x40) {
-			
+			/* end-of-medium condition exists */
 			if (res > 0)
 				res += snprintf(buff + res, blen - res, ", ");
 			res += snprintf(buff + res, blen - res, "EOM");
 		}
 		if (sense_buffer[2] & 0x20) {
-			
+			/* incorrect block length requested */
 			if (res > 0)
 				res += snprintf(buff + res, blen - res, ", ");
 			res += snprintf(buff + res, blen - res, "ILI");
@@ -1317,7 +1367,7 @@ scsi_decode_sense_extras(const unsigned char *sense_buffer, int sense_len,
 		if (res > 0)
 			printk("%s\n", buff);
 	} else if (sshdr->additional_length > 0) {
-		
+		/* descriptor format with sense descriptors */
 		num = 8 + sshdr->additional_length;
 		num = (sense_len < num) ? sense_len : num;
 		printk("Descriptor sense data with sense descriptors "
@@ -1335,6 +1385,7 @@ scsi_decode_sense_extras(const unsigned char *sense_buffer, int sense_len,
 
 }
 
+/* Normalize and print sense buffer with name prefix */
 void __scsi_print_sense(const char *name, const unsigned char *sense_buffer,
 			int sense_len)
 {
@@ -1349,6 +1400,7 @@ void __scsi_print_sense(const char *name, const unsigned char *sense_buffer,
 }
 EXPORT_SYMBOL(__scsi_print_sense);
 
+/* Normalize and print sense buffer in SCSI command */
 void scsi_print_sense(char *name, struct scsi_cmnd *cmd)
 {
 	struct scsi_sense_hdr sshdr;

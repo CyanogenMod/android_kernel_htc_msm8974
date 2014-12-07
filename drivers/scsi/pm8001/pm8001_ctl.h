@@ -53,5 +53,5 @@
 #define FAIL_OUT_MEMORY                 0x000c00
 #define FLASH_IN_PROGRESS               0x001000
 
-#endif 
+#endif /* PM8001_CTL_H_INCLUDED */
 

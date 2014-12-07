@@ -23,7 +23,7 @@
 #include <asm/io.h>
 
 static int ifc_divisors[] = { 1, 2, 3, 4, 6, 8, 1, 1 };
-#define bfc_divisors ifc_divisors	
+#define bfc_divisors ifc_divisors	/* Same */
 static int pfc_divisors[] = { 2, 3, 4, 6, 8, 2, 2, 2 };
 
 static void master_clk_init(struct clk *clk)

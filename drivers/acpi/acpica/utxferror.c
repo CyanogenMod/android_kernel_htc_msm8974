@@ -1,3 +1,8 @@
+/*******************************************************************************
+ *
+ * Module Name: utxferror - Various error/warning output functions
+ *
+ ******************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -44,6 +49,14 @@
 #define _COMPONENT          ACPI_UTILITIES
 ACPI_MODULE_NAME("utxferror")
 
+/*
+ * This module is used for the in-kernel ACPICA as well as the ACPICA
+ * tools/applications.
+ *
+ * For the i_aSL compiler case, the output is redirected to stderr so that
+ * any of the various ACPI errors and warnings do not appear in the output
+ * files, for either the compiler or disassembler portions of the tool.
+ */
 #ifdef ACPI_ASL_COMPILER
 #include <stdio.h>
 extern FILE *acpi_gbl_output_file;
@@ -56,15 +69,37 @@ extern FILE *acpi_gbl_output_file;
 	acpi_os_redirect_output (output_file);
 
 #else
+/*
+ * non-i_aSL case - no redirection, nothing to do
+ */
 #define ACPI_MSG_REDIRECT_BEGIN
 #define ACPI_MSG_REDIRECT_END
 #endif
+/*
+ * Common message prefixes
+ */
 #define ACPI_MSG_ERROR          "ACPI Error: "
 #define ACPI_MSG_EXCEPTION      "ACPI Exception: "
 #define ACPI_MSG_WARNING        "ACPI Warning: "
 #define ACPI_MSG_INFO           "ACPI: "
+/*
+ * Common message suffix
+ */
 #define ACPI_MSG_SUFFIX \
 	acpi_os_printf (" (%8.8X/%s-%u)\n", ACPI_CA_VERSION, module_name, line_number)
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_error
+ *
+ * PARAMETERS:  module_name         - Caller's module name (for error output)
+ *              line_number         - Caller's line number (for error output)
+ *              Format              - Printf format string + additional args
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Print "ACPI Error" message with module/line/version info
+ *
+ ******************************************************************************/
 void ACPI_INTERNAL_VAR_XFACE
 acpi_error(const char *module_name, u32 line_number, const char *format, ...)
 {
@@ -83,6 +118,21 @@ acpi_error(const char *module_name, u32 line_number, const char *format, ...)
 
 ACPI_EXPORT_SYMBOL(acpi_error)
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_exception
+ *
+ * PARAMETERS:  module_name         - Caller's module name (for error output)
+ *              line_number         - Caller's line number (for error output)
+ *              Status              - Status to be formatted
+ *              Format              - Printf format string + additional args
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Print "ACPI Exception" message with module/line/version info
+ *              and decoded acpi_status.
+ *
+ ******************************************************************************/
 void ACPI_INTERNAL_VAR_XFACE
 acpi_exception(const char *module_name,
 	       u32 line_number, acpi_status status, const char *format, ...)
@@ -103,6 +153,19 @@ acpi_exception(const char *module_name,
 
 ACPI_EXPORT_SYMBOL(acpi_exception)
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_warning
+ *
+ * PARAMETERS:  module_name         - Caller's module name (for error output)
+ *              line_number         - Caller's line number (for error output)
+ *              Format              - Printf format string + additional args
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Print "ACPI Warning" message with module/line/version info
+ *
+ ******************************************************************************/
 void ACPI_INTERNAL_VAR_XFACE
 acpi_warning(const char *module_name, u32 line_number, const char *format, ...)
 {
@@ -121,6 +184,22 @@ acpi_warning(const char *module_name, u32 line_number, const char *format, ...)
 
 ACPI_EXPORT_SYMBOL(acpi_warning)
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_info
+ *
+ * PARAMETERS:  module_name         - Caller's module name (for error output)
+ *              line_number         - Caller's line number (for error output)
+ *              Format              - Printf format string + additional args
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Print generic "ACPI:" information message. There is no
+ *              module/line/version info in order to keep the message simple.
+ *
+ * TBD: module_name and line_number args are not needed, should be removed.
+ *
+ ******************************************************************************/
 void ACPI_INTERNAL_VAR_XFACE
 acpi_info(const char *module_name, u32 line_number, const char *format, ...)
 {
@@ -139,7 +218,29 @@ acpi_info(const char *module_name, u32 line_number, const char *format, ...)
 
 ACPI_EXPORT_SYMBOL(acpi_info)
 
+/*
+ * The remainder of this module contains internal error functions that may
+ * be configured out.
+ */
 #if !defined (ACPI_NO_ERROR_MESSAGES) && !defined (ACPI_BIN_APP)
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_predefined_warning
+ *
+ * PARAMETERS:  module_name     - Caller's module name (for error output)
+ *              line_number     - Caller's line number (for error output)
+ *              Pathname        - Full pathname to the node
+ *              node_flags      - From Namespace node for the method/object
+ *              Format          - Printf format string + additional args
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Warnings for the predefined validation module. Messages are
+ *              only emitted the first time a problem with a particular
+ *              method/object is detected. This prevents a flood of error
+ *              messages for methods that are repeatedly evaluated.
+ *
+ ******************************************************************************/
 void ACPI_INTERNAL_VAR_XFACE
 acpi_ut_predefined_warning(const char *module_name,
 			   u32 line_number,
@@ -148,6 +249,10 @@ acpi_ut_predefined_warning(const char *module_name,
 {
 	va_list arg_list;
 
+	/*
+	 * Warning messages for this method/object will be disabled after the
+	 * first time a validation fails or an object is successfully repaired.
+	 */
 	if (node_flags & ANOBJ_EVALUATED) {
 		return;
 	}
@@ -160,6 +265,24 @@ acpi_ut_predefined_warning(const char *module_name,
 	va_end(arg_list);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_predefined_info
+ *
+ * PARAMETERS:  module_name     - Caller's module name (for error output)
+ *              line_number     - Caller's line number (for error output)
+ *              Pathname        - Full pathname to the node
+ *              node_flags      - From Namespace node for the method/object
+ *              Format          - Printf format string + additional args
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Info messages for the predefined validation module. Messages
+ *              are only emitted the first time a problem with a particular
+ *              method/object is detected. This prevents a flood of
+ *              messages for methods that are repeatedly evaluated.
+ *
+ ******************************************************************************/
 
 void ACPI_INTERNAL_VAR_XFACE
 acpi_ut_predefined_info(const char *module_name,
@@ -168,6 +291,10 @@ acpi_ut_predefined_info(const char *module_name,
 {
 	va_list arg_list;
 
+	/*
+	 * Warning messages for this method/object will be disabled after the
+	 * first time a validation fails or an object is successfully repaired.
+	 */
 	if (node_flags & ANOBJ_EVALUATED) {
 		return;
 	}
@@ -180,6 +307,20 @@ acpi_ut_predefined_info(const char *module_name,
 	va_end(arg_list);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_namespace_error
+ *
+ * PARAMETERS:  module_name         - Caller's module name (for error output)
+ *              line_number         - Caller's line number (for error output)
+ *              internal_name       - Name or path of the namespace node
+ *              lookup_status       - Exception code from NS lookup
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Print error message with the full pathname for the NS node.
+ *
+ ******************************************************************************/
 
 void
 acpi_ut_namespace_error(const char *module_name,
@@ -195,18 +336,18 @@ acpi_ut_namespace_error(const char *module_name,
 
 	if (lookup_status == AE_BAD_CHARACTER) {
 
-		
+		/* There is a non-ascii character in the name */
 
 		ACPI_MOVE_32_TO_32(&bad_name,
 				   ACPI_CAST_PTR(u32, internal_name));
 		acpi_os_printf("[0x%4.4X] (NON-ASCII)", bad_name);
 	} else {
-		
+		/* Convert path to external format */
 
 		status = acpi_ns_externalize_name(ACPI_UINT32_MAX,
 						  internal_name, NULL, &name);
 
-		
+		/* Print target name */
 
 		if (ACPI_SUCCESS(status)) {
 			acpi_os_printf("[%s]", name);
@@ -226,6 +367,22 @@ acpi_ut_namespace_error(const char *module_name,
 	ACPI_MSG_REDIRECT_END;
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_method_error
+ *
+ * PARAMETERS:  module_name         - Caller's module name (for error output)
+ *              line_number         - Caller's line number (for error output)
+ *              Message             - Error message to use on failure
+ *              prefix_node         - Prefix relative to the path
+ *              Path                - Path to the node (optional)
+ *              method_status       - Execution status
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Print error message with the full pathname for the method.
+ *
+ ******************************************************************************/
 
 void
 acpi_ut_method_error(const char *module_name,
@@ -256,4 +413,4 @@ acpi_ut_method_error(const char *module_name,
 	ACPI_MSG_REDIRECT_END;
 }
 
-#endif				
+#endif				/* ACPI_NO_ERROR_MESSAGES */

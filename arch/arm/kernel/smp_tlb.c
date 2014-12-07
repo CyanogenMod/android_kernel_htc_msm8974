@@ -13,7 +13,11 @@
 #include <asm/smp_plat.h>
 #include <asm/tlbflush.h>
 
+/**********************************************************************/
 
+/*
+ * TLB operations
+ */
 struct tlb_args {
 	struct vm_area_struct *ta_vma;
 	unsigned long ta_start;

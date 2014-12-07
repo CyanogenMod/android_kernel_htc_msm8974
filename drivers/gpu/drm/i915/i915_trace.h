@@ -14,6 +14,7 @@
 #define TRACE_SYSTEM_STRING __stringify(TRACE_SYSTEM)
 #define TRACE_INCLUDE_FILE i915_trace
 
+/* object tracking */
 
 TRACE_EVENT(i915_gem_object_create,
 	    TP_PROTO(struct drm_i915_gem_object *obj),
@@ -409,8 +410,9 @@ TRACE_EVENT(i915_reg_rw,
 		(u32)(__entry->val >> 32))
 );
 
-#endif 
+#endif /* _I915_TRACE_H_ */
 
+/* This part must be outside protection */
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH .
 #include <trace/define_trace.h>

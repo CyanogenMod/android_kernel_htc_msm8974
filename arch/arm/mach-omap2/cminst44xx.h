@@ -48,6 +48,10 @@ static inline void omap4_cminst_module_disable(u8 part, u16 inst, s16 cdoffs,
 
 # endif
 
+/*
+ * In an ideal world, we would not export these low-level functions,
+ * but this will probably take some time to fix properly
+ */
 extern u32 omap4_cminst_read_inst_reg(u8 part, s16 inst, u16 idx);
 extern void omap4_cminst_write_inst_reg(u32 val, u8 part, s16 inst, u16 idx);
 extern u32 omap4_cminst_rmw_inst_reg_bits(u32 mask, u32 bits, u8 part,

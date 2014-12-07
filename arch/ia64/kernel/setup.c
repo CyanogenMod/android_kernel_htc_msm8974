@@ -97,24 +97,51 @@ static struct resource bss_resource = {
 
 unsigned long ia64_max_cacheline_size;
 
-unsigned long ia64_iobase;	
+unsigned long ia64_iobase;	/* virtual address for I/O accesses */
 EXPORT_SYMBOL(ia64_iobase);
 struct io_space io_space[MAX_IO_SPACES];
 EXPORT_SYMBOL(io_space);
 unsigned int num_io_spaces;
 
-#define	I_CACHE_STRIDE_SHIFT	5	
+/*
+ * "flush_icache_range()" needs to know what processor dependent stride size to use
+ * when it makes i-cache(s) coherent with d-caches.
+ */
+#define	I_CACHE_STRIDE_SHIFT	5	/* Safest way to go: 32 bytes by 32 bytes */
 unsigned long ia64_i_cache_stride_shift = ~0;
+/*
+ * "clflush_cache_range()" needs to know what processor dependent stride size to
+ * use when it flushes cache lines including both d-cache and i-cache.
+ */
+/* Safest way to go: 32 bytes by 32 bytes */
 #define	CACHE_STRIDE_SHIFT	5
 unsigned long ia64_cache_stride_shift = ~0;
 
+/*
+ * The merge_mask variable needs to be set to (max(iommu_page_size(iommu)) - 1).  This
+ * mask specifies a mask of address bits that must be 0 in order for two buffers to be
+ * mergeable by the I/O MMU (i.e., the end address of the first buffer and the start
+ * address of the second buffer must be aligned to (merge_mask+1) in order to be
+ * mergeable).  By default, we assume there is no I/O MMU which can merge physically
+ * discontiguous buffers, so we set the merge_mask to ~0UL, which corresponds to a iommu
+ * page-size of 2^64.
+ */
 unsigned long ia64_max_iommu_merge_mask = ~0UL;
 EXPORT_SYMBOL(ia64_max_iommu_merge_mask);
 
+/*
+ * We use a special marker for the end of memory and it uses the extra (+1) slot
+ */
 struct rsvd_region rsvd_region[IA64_MAX_RSVD_REGIONS + 1] __initdata;
 int num_rsvd_regions __initdata;
 
 
+/*
+ * Filter incoming memory segments based on the primitive map created from the boot
+ * parameters. Segments contained in the map are removed from the memory ranges. A
+ * caller-specified function is called with the memory ranges that remain after filtering.
+ * This routine does not assume the incoming segments are sorted.
+ */
 int __init
 filter_rsvd_memory (u64 start, u64 end, void *arg)
 {
@@ -129,6 +156,9 @@ filter_rsvd_memory (u64 start, u64 end, void *arg)
 		if (start >= end) return 0;
 	}
 #endif
+	/*
+	 * lowest possible address(walker uses virtual)
+	 */
 	prev_start = PAGE_OFFSET;
 	func = arg;
 
@@ -139,15 +169,19 @@ filter_rsvd_memory (u64 start, u64 end, void *arg)
 		if (range_start < range_end)
 			call_pernode_memory(__pa(range_start), range_end - range_start, func);
 
-		
+		/* nothing more available in this segment */
 		if (range_end == end) return 0;
 
 		prev_start = rsvd_region[i].end;
 	}
-	
+	/* end of memory marker allows full processing inside loop body */
 	return 0;
 }
 
+/*
+ * Similar to "filter_rsvd_memory()", but the reserved memory ranges
+ * are not filtered out.
+ */
 int __init
 filter_memory(u64 start, u64 end, void *arg)
 {
@@ -172,7 +206,7 @@ sort_regions (struct rsvd_region *rsvd_region, int max)
 {
 	int j;
 
-	
+	/* simple bubble sorting */
 	while (max--) {
 		for (j = 0; j < max; ++j) {
 			if (rsvd_region[j].start > rsvd_region[j+1].start) {
@@ -185,6 +219,7 @@ sort_regions (struct rsvd_region *rsvd_region, int max)
 	}
 }
 
+/* merge overlaps */
 static int __init
 merge_regions (struct rsvd_region *rsvd_region, int max)
 {
@@ -201,6 +236,9 @@ merge_regions (struct rsvd_region *rsvd_region, int max)
 	return max;
 }
 
+/*
+ * Request address space for all standard resources
+ */
 static int __init register_memory(void)
 {
 	code_resource.start = ia64_tpa(_text);
@@ -220,6 +258,16 @@ __initcall(register_memory);
 
 #ifdef CONFIG_KEXEC
 
+/*
+ * This function checks if the reserved crashkernel is allowed on the specific
+ * IA64 machine flavour. Machines without an IO TLB use swiotlb and require
+ * some memory below 4 GB (i.e. in 32 bit area), see the implementation of
+ * lib/swiotlb.c. The hpzx1 architecture has an IO TLB but cannot use that
+ * in kdump case. See the comment in sba_init() in sba_iommu.c.
+ *
+ * So, the only machvec that really supports loading the kdump kernel
+ * over 4 GB is "sn2".
+ */
 static int __init check_crashkernel_memory(unsigned long pbase, size_t size)
 {
 	if (ia64_platform_is("sn2") || ia64_platform_is("uv"))
@@ -279,12 +327,22 @@ static inline void __init setup_crashkernel(unsigned long total, int *n)
 {}
 #endif
 
+/**
+ * reserve_memory - setup reserved memory areas
+ *
+ * Setup the reserved memory areas set aside for the boot parameters,
+ * initrd, etc.  There are currently %IA64_MAX_RSVD_REGIONS defined,
+ * see arch/ia64/include/asm/meminit.h if you need to define more.
+ */
 void __init
 reserve_memory (void)
 {
 	int n = 0;
 	unsigned long total_memory;
 
+	/*
+	 * none of the entries in this table overlap
+	 */
 	rsvd_region[n].start = (unsigned long) ia64_boot_param;
 	rsvd_region[n].end   = rsvd_region[n].start + sizeof(*ia64_boot_param);
 	n++;
@@ -323,7 +381,7 @@ reserve_memory (void)
 
 	setup_crashkernel(total_memory, &n);
 
-	
+	/* end of memory marker */
 	rsvd_region[n].start = ~0UL;
 	rsvd_region[n].end   = ~0UL;
 	n++;
@@ -336,6 +394,12 @@ reserve_memory (void)
 }
 
 
+/**
+ * find_initrd - get initrd parameters from the boot parameter structure
+ *
+ * Grab the initrd start and end from the boot parameter struct given us by
+ * the boot loader.
+ */
 void __init
 find_initrd (void)
 {
@@ -355,6 +419,21 @@ io_port_init (void)
 {
 	unsigned long phys_iobase;
 
+	/*
+	 * Set `iobase' based on the EFI memory map or, failing that, the
+	 * value firmware left in ar.k0.
+	 *
+	 * Note that in ia32 mode, IN/OUT instructions use ar.k0 to compute
+	 * the port's virtual address, so ia32_load_state() loads it with a
+	 * user virtual address.  But in ia64 mode, glibc uses the
+	 * *physical* address in ar.k0 to mmap the appropriate area from
+	 * /dev/mem, and the inX()/outX() interfaces use MMIO.  In both
+	 * cases, user-mode can only use the legacy 0-64K I/O port space.
+	 *
+	 * ar.k0 is not involved in kernel I/O port accesses, which can use
+	 * any of the I/O port spaces and are done via MMIO using the
+	 * virtual mmio_base from the appropriate io_space[].
+	 */
 	phys_iobase = efi_get_iobase();
 	if (!phys_iobase) {
 		phys_iobase = ia64_get_kr(IA64_KR_IO_BASE);
@@ -364,12 +443,21 @@ io_port_init (void)
 	ia64_iobase = (unsigned long) ioremap(phys_iobase, 0);
 	ia64_set_kr(IA64_KR_IO_BASE, __pa(ia64_iobase));
 
-	
+	/* setup legacy IO port space */
 	io_space[0].mmio_base = ia64_iobase;
 	io_space[0].sparse = 1;
 	num_io_spaces = 1;
 }
 
+/**
+ * early_console_setup - setup debugging console
+ *
+ * Consoles started here require little enough setup that we can start using
+ * them very early in the boot process, either right after the machine
+ * vector initialization, or even before if the drivers can detect their hw.
+ *
+ * Returns non-zero if a console couldn't be setup.
+ */
 static inline int __init
 early_console_setup (char *cmdline)
 {
@@ -396,7 +484,7 @@ static inline void
 mark_bsp_online (void)
 {
 #ifdef CONFIG_SMP
-	
+	/* If we register an early console, allow CPU 0 to printk */
 	set_cpu_online(smp_processor_id(), true);
 #endif
 }
@@ -414,6 +502,11 @@ int __init reserve_elfcorehdr(u64 *start, u64 *end)
 {
 	u64 length;
 
+	/* We get the address using the kernel command line,
+	 * but the size is extracted from the EFI tables.
+	 * Both address and size are required for reservation
+	 * to work properly.
+	 */
 
 	if (!is_vmcore_usable())
 		return -EINVAL;
@@ -428,7 +521,7 @@ int __init reserve_elfcorehdr(u64 *start, u64 *end)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PROC_VMCORE */
 
 void __init
 setup_arch (char **cmdline_p)
@@ -447,6 +540,11 @@ setup_arch (char **cmdline_p)
 	io_port_init();
 
 #ifdef CONFIG_IA64_GENERIC
+	/* machvec needs to be parsed from the command line
+	 * before parse_early_param() is called to ensure
+	 * that ia64_mv is initialised before any command line
+	 * settings may cause console setup to occur
+	 */
 	machvec_init_from_cmdline(*cmdline_p);
 #endif
 
@@ -456,7 +554,7 @@ setup_arch (char **cmdline_p)
 		mark_bsp_online();
 
 #ifdef CONFIG_ACPI
-	
+	/* Initialize the ACPI boot-time table parser */
 	acpi_table_init();
 	early_acpi_boot_init();
 # ifdef CONFIG_ACPI_NUMA
@@ -468,14 +566,14 @@ setup_arch (char **cmdline_p)
 		32 : cpus_weight(early_cpu_possible_map)),
 		additional_cpus > 0 ? additional_cpus : 0);
 # endif
-#endif 
+#endif /* CONFIG_APCI_BOOT */
 
 #ifdef CONFIG_SMP
 	smp_build_cpu_map();
 #endif
 	find_memory();
 
-	
+	/* process SAL system table: */
 	ia64_sal_init(__va(efi.sal_systab));
 
 #ifdef CONFIG_ITANIUM
@@ -493,8 +591,8 @@ setup_arch (char **cmdline_p)
 	cpu_physical_id(0) = hard_smp_processor_id();
 #endif
 
-	cpu_init();	
-	mmu_context_init();	
+	cpu_init();	/* initialize the bootstrap CPU */
+	mmu_context_init();	/* initialize context_id bitmap */
 
 	paravirt_banner();
 	paravirt_arch_setup_console(cmdline_p);
@@ -505,13 +603,19 @@ setup_arch (char **cmdline_p)
 		conswitchp = &dummy_con;
 # endif
 # if defined(CONFIG_VGA_CONSOLE)
+		/*
+		 * Non-legacy systems may route legacy VGA MMIO range to system
+		 * memory.  vga_con probes the MMIO hole, so memory looks like
+		 * a VGA device to it.  The EFI memory map can tell us if it's
+		 * memory so we can avoid this problem.
+		 */
 		if (efi_mem_type(0xA0000) != EFI_CONVENTIONAL_MEMORY)
 			conswitchp = &vga_con;
 # endif
 	}
 #endif
 
-	
+	/* enable IA-64 Machine Check Abort Handling unless disabled */
 	if (paravirt_arch_setup_nomca())
 		nomca = 1;
 	if (!nomca)
@@ -524,6 +628,9 @@ setup_arch (char **cmdline_p)
 	paging_init();
 }
 
+/*
+ * Display cpu info for all CPUs.
+ */
 static int
 show_cpuinfo (struct seq_file *m, void *v)
 {
@@ -550,7 +657,7 @@ show_cpuinfo (struct seq_file *m, void *v)
 
 	mask = c->features;
 
-	
+	/* build the feature string: */
 	memcpy(features, "standard", 9);
 	cp = features;
 	size = sizeof(features);
@@ -565,7 +672,7 @@ show_cpuinfo (struct seq_file *m, void *v)
 		}
 	}
 	if (mask && size > 1) {
-		
+		/* print unknown features as a hex value */
 		snprintf(cp, size, "%s0x%lx", sep, mask);
 	}
 
@@ -677,13 +784,13 @@ identify_cpu (struct cpuinfo_ia64 *c)
 	union {
 		unsigned long bits[5];
 		struct {
-			
+			/* id 0 & 1: */
 			char vendor[16];
 
-			
-			u64 ppn;		
+			/* id 2 */
+			u64 ppn;		/* processor serial number */
 
-			
+			/* id 3: */
 			unsigned number		:  8;
 			unsigned revision	:  8;
 			unsigned model		:  8;
@@ -691,14 +798,14 @@ identify_cpu (struct cpuinfo_ia64 *c)
 			unsigned archrev	:  8;
 			unsigned reserved	: 24;
 
-			
+			/* id 4: */
 			u64 features;
 		} field;
 	} cpuid;
 	pal_vm_info_1_u_t vm1;
 	pal_vm_info_2_u_t vm2;
 	pal_status_t status;
-	unsigned long impl_va_msb = 50, phys_addr_size = 44;	
+	unsigned long impl_va_msb = 50, phys_addr_size = 44;	/* Itanium defaults */
 	int i;
 	for (i = 0; i < 5; ++i)
 		cpuid.bits[i] = ia64_get_cpuid(i);
@@ -736,6 +843,13 @@ identify_cpu (struct cpuinfo_ia64 *c)
 	c->unimpl_pa_mask = ~((1L<<63) | ((1L << phys_addr_size) - 1));
 }
 
+/*
+ * Do the following calculations:
+ *
+ * 1. the max. cache line size.
+ * 2. the minimum of the i-cache stride sizes for "flush_icache_range()".
+ * 3. the minimum of the cache stride sizes for "clflush_cache_range()".
+ */
 static void __cpuinit
 get_cache_info(void)
 {
@@ -749,24 +863,24 @@ get_cache_info(void)
                 printk(KERN_ERR "%s: ia64_pal_cache_summary() failed (status=%ld)\n",
                        __func__, status);
                 max = SMP_CACHE_BYTES;
-		
+		/* Safest setup for "flush_icache_range()" */
 		ia64_i_cache_stride_shift = I_CACHE_STRIDE_SHIFT;
-		
+		/* Safest setup for "clflush_cache_range()" */
 		ia64_cache_stride_shift = CACHE_STRIDE_SHIFT;
 		goto out;
         }
 
 	for (l = 0; l < levels; ++l) {
-		
+		/* cache_type (data_or_unified)=2 */
 		status = ia64_pal_cache_config_info(l, 2, &cci);
 		if (status != 0) {
 			printk(KERN_ERR "%s: ia64_pal_cache_config_info"
 				"(l=%lu, 2) failed (status=%ld)\n",
 				__func__, l, status);
 			max = SMP_CACHE_BYTES;
-			
+			/* The safest setup for "flush_icache_range()" */
 			cci.pcci_stride = I_CACHE_STRIDE_SHIFT;
-			
+			/* The safest setup for "clflush_cache_range()" */
 			ia64_cache_stride_shift = CACHE_STRIDE_SHIFT;
 			cci.pcci_unified = 1;
 		} else {
@@ -779,13 +893,13 @@ get_cache_info(void)
 		}
 
 		if (!cci.pcci_unified) {
-			
+			/* cache_type (instruction)=1*/
 			status = ia64_pal_cache_config_info(l, 1, &cci);
 			if (status != 0) {
 				printk(KERN_ERR "%s: ia64_pal_cache_config_info"
 					"(l=%lu, 1) failed (status=%ld)\n",
 					__func__, l, status);
-				
+				/* The safest setup for flush_icache_range() */
 				cci.pcci_stride = I_CACHE_STRIDE_SHIFT;
 			}
 		}
@@ -797,6 +911,10 @@ get_cache_info(void)
 		ia64_max_cacheline_size = max;
 }
 
+/*
+ * cpu_init() initializes state that is per-CPU.  This function acts
+ * as a 'CPU state barrier', nothing should get across.
+ */
 void __cpuinit
 cpu_init (void)
 {
@@ -810,10 +928,21 @@ cpu_init (void)
 
 	cpu_data = per_cpu_init();
 #ifdef CONFIG_SMP
+	/*
+	 * insert boot cpu into sibling and core mapes
+	 * (must be done after per_cpu area is setup)
+	 */
 	if (smp_processor_id() == 0) {
 		cpu_set(0, per_cpu(cpu_sibling_map, 0));
 		cpu_set(0, cpu_core_map[0]);
 	} else {
+		/*
+		 * Set ar.k3 so that assembly code in MCA handler can compute
+		 * physical addresses of per cpu variables with a simple:
+		 *   phys = ar.k3 + &per_cpu_var
+		 * and the alt-dtlb-miss handler can set per-cpu mapping into
+		 * the TLB when needed. head.S already did this for cpu0.
+		 */
 		ia64_set_kr(IA64_KR_PER_CPU_DATA,
 			    ia64_tpa(cpu_data) - (long) __per_cpu_start);
 	}
@@ -821,6 +950,12 @@ cpu_init (void)
 
 	get_cache_info();
 
+	/*
+	 * We can't pass "local_cpu_data" to identify_cpu() because we haven't called
+	 * ia64_mmu_init() yet.  And we can't call ia64_mmu_init() first because it
+	 * depends on the data returned by identify_cpu().  We break the dependency by
+	 * accessing cpu_data() through the canonical per-CPU address.
+	 */
 	cpu_info = cpu_data + ((char *) &__ia64_per_cpu_var(ia64_cpu_info) - __per_cpu_start);
 	identify_cpu(cpu_info);
 
@@ -838,13 +973,29 @@ cpu_init (void)
 	}
 #endif
 
-	
+	/* Clear the stack memory reserved for pt_regs: */
 	memset(task_pt_regs(current), 0, sizeof(struct pt_regs));
 
 	ia64_set_kr(IA64_KR_FPU_OWNER, 0);
 
+	/*
+	 * Initialize the page-table base register to a global
+	 * directory with all zeroes.  This ensure that we can handle
+	 * TLB-misses to user address-space even before we created the
+	 * first user address-space.  This may happen, e.g., due to
+	 * aggressive use of lfetch.fault.
+	 */
 	ia64_set_kr(IA64_KR_PT_BASE, __pa(ia64_imva(empty_zero_page)));
 
+	/*
+	 * Initialize default control register to defer speculative faults except
+	 * for those arising from TLB misses, which are not deferred.  The
+	 * kernel MUST NOT depend on a particular setting of these bits (in other words,
+	 * the kernel must have recovery code for all speculative accesses).  Turn on
+	 * dcr.lc as per recommendation by the architecture team.  Most IA-32 apps
+	 * shouldn't be affected by this (moral: keep your ia32 locks aligned and you'll
+	 * be fine).
+	 */
 	ia64_setreg(_IA64_REG_CR_DCR,  (  IA64_DCR_DP | IA64_DCR_DK | IA64_DCR_DX | IA64_DCR_DR
 					| IA64_DCR_DA | IA64_DCR_DD | IA64_DCR_LC));
 	atomic_inc(&init_mm.mm_count);
@@ -854,20 +1005,20 @@ cpu_init (void)
 	ia64_mmu_init(ia64_imva(cpu_data));
 	ia64_mca_cpu_init(ia64_imva(cpu_data));
 
-	
+	/* Clear ITC to eliminate sched_clock() overflows in human time.  */
 	ia64_set_itc(0);
 
-	
+	/* disable all local interrupt sources: */
 	ia64_set_itv(1 << 16);
 	ia64_set_lrr0(1 << 16);
 	ia64_set_lrr1(1 << 16);
 	ia64_setreg(_IA64_REG_CR_PMV, 1 << 16);
 	ia64_setreg(_IA64_REG_CR_CMCV, 1 << 16);
 
-	
+	/* clear TPR & XTP to enable all interrupt classes: */
 	ia64_setreg(_IA64_REG_CR_TPR, 0);
 
-	
+	/* Clear any pending interrupts left by SAL/EFI */
 	while (ia64_get_ivr() != IA64_SPURIOUS_INT_VECTOR)
 		ia64_eoi();
 
@@ -875,13 +1026,13 @@ cpu_init (void)
 	normal_xtp();
 #endif
 
-	
+	/* set ia64_ctx.max_rid to the maximum RID that is supported by all CPUs: */
 	if (ia64_pal_vm_summary(NULL, &vmi) == 0) {
 		max_ctx = (1U << (vmi.pal_vm_info_2_s.rid_size - 3)) - 1;
 		setup_ptcg_sem(vmi.pal_vm_info_2_s.max_purges, NPTCG_FROM_PAL);
 	} else {
 		printk(KERN_WARNING "cpu_init: PAL VM summary failed, assuming 18 RID bits\n");
-		max_ctx = (1U << 15) - 1;	
+		max_ctx = (1U << 15) - 1;	/* use architected minimum */
 	}
 	while (max_ctx < ia64_ctx.max_ctx) {
 		unsigned int old = ia64_ctx.max_ctx;
@@ -894,7 +1045,7 @@ cpu_init (void)
 		       "stacked regs\n");
 		num_phys_stacked = 96;
 	}
-	
+	/* size of physical stacked register partition plus 8 bytes: */
 	if (num_phys_stacked > max_num_phys_stacked) {
 		ia64_patch_phys_stack_reg(num_phys_stacked*8 + 8);
 		max_num_phys_stacked = num_phys_stacked;

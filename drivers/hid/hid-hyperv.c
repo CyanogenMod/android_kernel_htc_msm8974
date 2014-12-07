@@ -30,8 +30,16 @@ struct hv_input_dev_info {
 	unsigned short reserved[11];
 };
 
+/* The maximum size of a synthetic input message. */
 #define SYNTHHID_MAX_INPUT_REPORT_SIZE 16
 
+/*
+ * Current version
+ *
+ * History:
+ * Beta, RC < 2008/1/22        1,0
+ * RC > 2008/1/22              2,0
+ */
 #define SYNTHHID_INPUT_VERSION_MAJOR	2
 #define SYNTHHID_INPUT_VERSION_MINOR	0
 #define SYNTHHID_INPUT_VERSION		(SYNTHHID_INPUT_VERSION_MINOR | \
@@ -39,6 +47,9 @@ struct hv_input_dev_info {
 
 
 #pragma pack(push, 1)
+/*
+ * Message types in the synthetic input protocol
+ */
 enum synthhid_msg_type {
 	SYNTH_HID_PROTOCOL_REQUEST,
 	SYNTH_HID_PROTOCOL_RESPONSE,
@@ -48,6 +59,9 @@ enum synthhid_msg_type {
 	SYNTH_HID_MAX
 };
 
+/*
+ * Basic message structures.
+ */
 struct synthhid_msg_hdr {
 	enum synthhid_msg_type type;
 	u32 size;
@@ -55,7 +69,7 @@ struct synthhid_msg_hdr {
 
 struct synthhid_msg {
 	struct synthhid_msg_hdr header;
-	char data[1]; 
+	char data[1]; /* Enclosed message */
 };
 
 union synthhid_version {
@@ -66,6 +80,9 @@ union synthhid_version {
 	u32 version;
 };
 
+/*
+ * Protocol messages
+ */
 struct synthhid_protocol_request {
 	struct synthhid_msg_hdr header;
 	union synthhid_version version_requested;
@@ -122,13 +139,16 @@ struct  mousevsc_prt_msg {
 	};
 };
 
+/*
+ * Represents an mousevsc device
+ */
 struct mousevsc_dev {
 	struct hv_device	*device;
 	bool			init_complete;
 	bool			connected;
 	struct mousevsc_prt_msg	protocol_req;
 	struct mousevsc_prt_msg	protocol_resp;
-	
+	/* Synchronize the request/response if needed */
 	struct completion	wait_event;
 	int			dev_info_status;
 
@@ -204,7 +224,7 @@ static void mousevsc_on_receive_device_info(struct mousevsc_dev *input_device,
 	       ((unsigned char *)desc) + desc->bLength,
 	       desc->desc[0].wDescriptorLength);
 
-	
+	/* Send the ack */
 	memset(&ack, 0, sizeof(struct mousevsc_prt_msg));
 
 	ack.type = PIPE_MESSAGE_DATA;
@@ -249,6 +269,11 @@ static void mousevsc_on_receive(struct hv_device *device,
 
 	switch (hid_msg->header.type) {
 	case SYNTH_HID_PROTOCOL_RESPONSE:
+		/*
+		 * While it will be impossible for us to protect against
+		 * malicious/buggy hypervisor/host, add a check here to
+		 * ensure we don't corrupt memory.
+		 */
 		if ((pipe_msg->size + sizeof(struct pipe_prt_msg)
 			- sizeof(unsigned char))
 			> sizeof(struct mousevsc_prt_msg)) {
@@ -265,6 +290,10 @@ static void mousevsc_on_receive(struct hv_device *device,
 	case SYNTH_HID_INITIAL_DEVICE_INFO:
 		WARN_ON(pipe_msg->size < sizeof(struct hv_input_dev_info));
 
+		/*
+		 * Parse out the device info into device attr,
+		 * hid desc and report desc
+		 */
 		mousevsc_on_receive_device_info(input_dev,
 			(struct synthhid_device_info *)pipe_msg->data);
 		break;
@@ -330,7 +359,7 @@ static void mousevsc_on_channel_callback(void *context)
 
 		case -ENOBUFS:
 			kfree(buffer);
-			
+			/* Handle large packet */
 			bufferlen = bytes_recvd;
 			buffer = kmalloc(bytes_recvd, GFP_ATOMIC);
 
@@ -391,6 +420,10 @@ static int mousevsc_connect_to_vsp(struct hv_device *device)
 		goto cleanup;
 	}
 
+	/*
+	 * We should have gotten the device attr, hid desc and report
+	 * desc at this point
+	 */
 	ret = input_dev->dev_info_status;
 
 cleanup:
@@ -453,7 +486,7 @@ static int mousevsc_probe(struct hv_device *device,
 	if (ret)
 		goto probe_err1;
 
-	
+	/* workaround SA-167 */
 	if (input_dev->report_desc[14] == 0x25)
 		input_dev->report_desc[14] = 0x29;
 
@@ -523,7 +556,7 @@ static int mousevsc_remove(struct hv_device *dev)
 }
 
 static const struct hv_vmbus_device_id id_table[] = {
-	
+	/* Mouse guid */
 	{ VMBUS_DEVICE(0x9E, 0xB6, 0xA8, 0xCF, 0x4A, 0x5B, 0xc0, 0x4c,
 		       0xB9, 0x8B, 0x8B, 0xA1, 0xA1, 0xF3, 0xF9, 0x5A) },
 	{ },

@@ -17,6 +17,19 @@
 
 #define PM8XXX_KEYPAD_DEV_NAME     "pm8xxx-keypad"
 
+/**
+ * struct pm8xxx_keypad_platform_data - platform data for keypad
+ * @keymap_data - matrix keymap data
+ * @input_name - input device name
+ * @input_phys_device - input device name
+ * @num_cols - number of columns of keypad
+ * @num_rows - number of row of keypad
+ * @debounce_ms - debounce period in milliseconds
+ * @scan_delay_ms - scan delay in milliseconds
+ * @row_hold_ns - row hold period in nanoseconds
+ * @wakeup - configure keypad as wakeup
+ * @rep - enable or disable key repeat bit
+ */
 struct pm8xxx_keypad_platform_data {
 	const struct matrix_keymap_data *keymap_data;
 
@@ -36,4 +49,4 @@ struct pm8xxx_keypad_platform_data {
 	bool rep;
 };
 
-#endif 
+#endif /*__PMIC8XXX_KEYPAD_H__ */

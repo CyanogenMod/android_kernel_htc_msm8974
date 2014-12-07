@@ -30,28 +30,28 @@
 #define MX51_3DS_ECSPI2_CS	(GPIO_PORTC + 28)
 
 static iomux_v3_cfg_t mx51_3ds_pads[] = {
-	
+	/* UART1 */
 	MX51_PAD_UART1_RXD__UART1_RXD,
 	MX51_PAD_UART1_TXD__UART1_TXD,
 	MX51_PAD_UART1_RTS__UART1_RTS,
 	MX51_PAD_UART1_CTS__UART1_CTS,
 
-	
+	/* UART2 */
 	MX51_PAD_UART2_RXD__UART2_RXD,
 	MX51_PAD_UART2_TXD__UART2_TXD,
 	MX51_PAD_EIM_D25__UART2_CTS,
 	MX51_PAD_EIM_D26__UART2_RTS,
 
-	
+	/* UART3 */
 	MX51_PAD_UART3_RXD__UART3_RXD,
 	MX51_PAD_UART3_TXD__UART3_TXD,
 	MX51_PAD_EIM_D24__UART3_CTS,
 	MX51_PAD_EIM_D27__UART3_RTS,
 
-	
+	/* CPLD PARENT IRQ PIN */
 	MX51_PAD_GPIO1_6__GPIO1_6,
 
-	
+	/* KPP */
 	MX51_PAD_KEY_ROW0__KEY_ROW0,
 	MX51_PAD_KEY_ROW1__KEY_ROW1,
 	MX51_PAD_KEY_ROW2__KEY_ROW2,
@@ -63,13 +63,14 @@ static iomux_v3_cfg_t mx51_3ds_pads[] = {
 	MX51_PAD_KEY_COL4__KEY_COL4,
 	MX51_PAD_KEY_COL5__KEY_COL5,
 
-	
+	/* eCSPI2 */
 	MX51_PAD_NANDF_RB2__ECSPI2_SCLK,
 	MX51_PAD_NANDF_RB3__ECSPI2_MISO,
 	MX51_PAD_NANDF_D15__ECSPI2_MOSI,
 	MX51_PAD_NANDF_D12__GPIO3_28,
 };
 
+/* Serial ports */
 static const struct imxuart_platform_data uart_pdata __initconst = {
 	.flags = IMXUART_HAVE_RTSCTS,
 };
@@ -122,13 +123,16 @@ static const struct spi_imx_master mx51_3ds_ecspi2_pdata __initconst = {
 static struct spi_board_info mx51_3ds_spi_nor_device[] = {
 	{
 	 .modalias = "m25p80",
-	 .max_speed_hz = 25000000,	
+	 .max_speed_hz = 25000000,	/* max spi clock (SCK) speed in HZ */
 	 .bus_num = 1,
 	 .chip_select = 1,
 	 .mode = SPI_MODE_0,
 	 .platform_data = NULL,},
 };
 
+/*
+ * Board specific initialization.
+ */
 static void __init mx51_3ds_init(void)
 {
 	imx51_soc_init();
@@ -163,7 +167,7 @@ static struct sys_timer mx51_3ds_timer = {
 };
 
 MACHINE_START(MX51_3DS, "Freescale MX51 3-Stack Board")
-	
+	/* Maintainer: Freescale Semiconductor, Inc. */
 	.atag_offset = 0x100,
 	.map_io = mx51_map_io,
 	.init_early = imx51_init_early,

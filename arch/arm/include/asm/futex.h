@@ -4,6 +4,7 @@
 #ifdef __KERNEL__
 
 #if defined(CONFIG_CPU_USE_DOMAINS) && defined(CONFIG_SMP)
+/* ARM doesn't provide unprivileged exclusive memory accessors */
 #include <asm-generic/futex.h>
 #else
 
@@ -67,7 +68,7 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 	return ret;
 }
 
-#else 
+#else /* !SMP, we can work around lack of atomic ops by disabling preemption */
 
 #include <linux/preempt.h>
 #include <asm/domain.h>
@@ -107,7 +108,7 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 	return ret;
 }
 
-#endif 
+#endif /* !SMP */
 
 static inline int
 futex_atomic_op_inuser (int encoded_op, u32 __user *uaddr)
@@ -124,7 +125,7 @@ futex_atomic_op_inuser (int encoded_op, u32 __user *uaddr)
 	if (!access_ok(VERIFY_WRITE, uaddr, sizeof(u32)))
 		return -EFAULT;
 
-	pagefault_disable();	
+	pagefault_disable();	/* implies preempt_disable() */
 
 	switch (op) {
 	case FUTEX_OP_SET:
@@ -146,7 +147,7 @@ futex_atomic_op_inuser (int encoded_op, u32 __user *uaddr)
 		ret = -ENOSYS;
 	}
 
-	pagefault_enable();	
+	pagefault_enable();	/* subsumes preempt_enable() */
 
 	if (!ret) {
 		switch (cmp) {
@@ -162,6 +163,6 @@ futex_atomic_op_inuser (int encoded_op, u32 __user *uaddr)
 	return ret;
 }
 
-#endif 
-#endif 
-#endif 
+#endif /* !(CPU_USE_DOMAINS && SMP) */
+#endif /* __KERNEL__ */
+#endif /* _ASM_ARM_FUTEX_H */

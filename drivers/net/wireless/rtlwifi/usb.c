@@ -60,7 +60,7 @@ static int _usbctrl_vendorreq_async_write(struct usb_device *udev, u8 request,
 		struct usb_ctrlrequest dr;
 	} *buf;
 
-	pipe = usb_sndctrlpipe(udev, 0); 
+	pipe = usb_sndctrlpipe(udev, 0); /* write_out */
 	reqtype =  REALTEK_USB_VENQT_WRITE;
 
 	buf = kmalloc(sizeof(*buf), GFP_ATOMIC);
@@ -80,7 +80,7 @@ static int _usbctrl_vendorreq_async_write(struct usb_device *udev, u8 request,
 	dr->wValue = cpu_to_le16(value);
 	dr->wIndex = cpu_to_le16(index);
 	dr->wLength = cpu_to_le16(len);
-	
+	/* data are already in little-endian order */
 	memcpy(buf, pdata, len);
 	usb_fill_control_urb(urb, udev, pipe,
 			     (unsigned char *)dr, buf, len,
@@ -102,14 +102,14 @@ static int _usbctrl_vendorreq_sync_read(struct usb_device *udev, u8 request,
 	int vendorreq_times = 0;
 	static int count;
 
-	pipe = usb_rcvctrlpipe(udev, 0); 
+	pipe = usb_rcvctrlpipe(udev, 0); /* read_in */
 	reqtype =  REALTEK_USB_VENQT_READ;
 
 	do {
 		status = usb_control_msg(udev, pipe, request, reqtype, value,
-					 index, pdata, len, 0); 
+					 index, pdata, len, 0); /*max. timeout*/
 		if (status < 0) {
-			
+			/* firmware download is checksumed, don't retry */
 			if ((value >= FW_8192C_START_ADDRESS &&
 			    value <= FW_8192C_END_ADDRESS))
 				break;
@@ -134,7 +134,7 @@ static u32 _usb_read_sync(struct rtl_priv *rtlpriv, u32 addr, u16 len)
 	__le32 *data = &rtlpriv->usb_data[rtlpriv->usb_data_index];
 
 	request = REALTEK_USB_VENQT_CMD_REQ;
-	index = REALTEK_USB_VENQT_CMD_IDX; 
+	index = REALTEK_USB_VENQT_CMD_IDX; /* n/a */
 
 	wvalue = (u16)addr;
 	_usbctrl_vendorreq_sync_read(udev, request, wvalue, index, data, len);
@@ -167,7 +167,7 @@ static void _usb_write_async(struct usb_device *udev, u32 addr, u32 val,
 	__le32 data;
 
 	request = REALTEK_USB_VENQT_CMD_REQ;
-	index = REALTEK_USB_VENQT_CMD_IDX; 
+	index = REALTEK_USB_VENQT_CMD_IDX; /* n/a */
 	wvalue = (u16)(addr&0x0000ffff);
 	data = cpu_to_le32(val);
 	_usbctrl_vendorreq_async_write(udev, request, wvalue, index, &data,
@@ -204,7 +204,7 @@ static void _usb_writeN_sync(struct rtl_priv *rtlpriv, u32 addr, void *data,
 	u8 reqtype =  REALTEK_USB_VENQT_WRITE;
 	u16 wvalue;
 	u16 index = REALTEK_USB_VENQT_CMD_IDX;
-	int pipe = usb_sndctrlpipe(udev, 0); 
+	int pipe = usb_sndctrlpipe(udev, 0); /* write_out */
 	u8 *buffer;
 	dma_addr_t dma_addr;
 
@@ -242,6 +242,10 @@ static void _rtl_usb_io_handler_release(struct ieee80211_hw *hw)
 	mutex_destroy(&rtlpriv->io.bb_mutex);
 }
 
+/**
+ *
+ *	Default aggregation handler. Do nothing and just return the oldest skb.
+ */
 static struct sk_buff *_none_usb_tx_aggregate_hdl(struct ieee80211_hw *hw,
 						  struct sk_buff_head *list)
 {
@@ -342,7 +346,7 @@ static int _rtl_usb_init(struct ieee80211_hw *hw)
 		pr_err("No output end points found\n");
 		return -EINVAL;
 	}
-	
+	/* usb endpoint mapping */
 	err = rtlpriv->cfg->usb_interface_cfg->usb_endpoint_mapping(hw);
 	rtlusb->usb_mq_to_hwq =  rtlpriv->cfg->usb_interface_cfg->usb_mq_to_hwq;
 	_rtl_usb_init_tx(hw);
@@ -365,24 +369,24 @@ static void rtl_usb_init_sw(struct ieee80211_hw *hw)
 	ppsc->reg_max_lps_awakeintvl = 5;
 	ppsc->fwctrl_psmode = FW_PS_DTIM_MODE;
 
-	 
+	 /* IBSS */
 	mac->beacon_interval = 100;
 
-	 
+	 /* AMPDU */
 	mac->min_space_cfg = 0;
 	mac->max_mss_density = 0;
 
-	
+	/* set sane AMPDU defaults */
 	mac->current_ampdu_density = 7;
 	mac->current_ampdu_factor = 3;
 
-	
+	/* QOS */
 	rtlusb->acm_method = eAcmWay2_SW;
 
-	
-	
+	/* IRQ */
+	/* HIMR - turn all on */
 	rtlusb->irq_mask[0] = 0xFFFFFFFF;
-	
+	/* HIMR_EX - turn all on */
 	rtlusb->irq_mask[1] = 0xFFFFFFFF;
 	rtlusb->disableHWSM =  true;
 }
@@ -407,7 +411,7 @@ static struct sk_buff *_rtl_prep_rx_urb(struct ieee80211_hw *hw,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	
+	/* reserve some space for mac80211's radiotap */
 	skb_reserve(skb, __RADIO_TAP_SIZE_RSV);
 	usb_fill_bulk_urb(urb, rtlusb->udev,
 			  usb_rcvbulkpipe(rtlusb->udev, rtlusb->in_ep),
@@ -445,9 +449,9 @@ static void _rtl_usb_rx_process_agg(struct ieee80211_hw *hw,
 		memcpy(IEEE80211_SKB_RXCB(skb), &rx_status, sizeof(rx_status));
 
 		if (is_broadcast_ether_addr(hdr->addr1)) {
-			;
+			/*TODO*/;
 		} else if (is_multicast_ether_addr(hdr->addr1)) {
-			
+			/*TODO*/
 		} else {
 			unicast = true;
 			rtlpriv->stats.rxbytesunicast +=  skb->len;
@@ -488,9 +492,9 @@ static void _rtl_usb_rx_process_noagg(struct ieee80211_hw *hw,
 		memcpy(IEEE80211_SKB_RXCB(skb), &rx_status, sizeof(rx_status));
 
 		if (is_broadcast_ether_addr(hdr->addr1)) {
-			;
+			/*TODO*/;
 		} else if (is_multicast_ether_addr(hdr->addr1)) {
-			
+			/*TODO*/
 		} else {
 			unicast = true;
 			rtlpriv->stats.rxbytesunicast +=  skb->len;
@@ -509,7 +513,7 @@ static void _rtl_usb_rx_process_noagg(struct ieee80211_hw *hw,
 			u8 *pdata;
 
 			uskb = dev_alloc_skb(skb->len + 128);
-			if (uskb) {	
+			if (uskb) {	/* drop packet on allocation failure */
 				memcpy(IEEE80211_SKB_RXCB(uskb), &rx_status,
 				       sizeof(rx_status));
 				pdata = (u8 *)skb_put(uskb, skb->len);
@@ -553,6 +557,10 @@ static void _rtl_rx_completed(struct urb *_urb)
 		goto free;
 
 	if (likely(0 == _urb->status)) {
+		/* If this code were moved to work queue, would CPU
+		 * utilization be improved?  NOTE: We shall allocate another skb
+		 * and reuse the original one.
+		 */
 		skb_put(skb, _urb->actual_length);
 
 		if (likely(!rtlusb->usb_rx_segregate_hdl)) {
@@ -567,7 +575,7 @@ static void _rtl_rx_completed(struct urb *_urb)
 			}
 			skb = _skb;
 		} else{
-			
+			/* TO DO */
 			_rtl_rx_pre_process(hw, skb);
 			pr_err("rx agg not supported\n");
 		}
@@ -575,7 +583,7 @@ static void _rtl_rx_completed(struct urb *_urb)
 	}
 
 	switch (_urb->status) {
-	
+	/* disconnect */
 	case -ENOENT:
 	case -ECONNRESET:
 	case -ENODEV:
@@ -611,7 +619,7 @@ static int _rtl_usb_receive(struct ieee80211_hw *hw)
 	struct rtl_usb *rtlusb = rtl_usbdev(rtl_usbpriv(hw));
 
 	WARN_ON(0 == rtlusb->rx_urb_num);
-	
+	/* 1600 == 1514 + max WLAN header + rtk info */
 	WARN_ON(rtlusb->rx_max_size < 1600);
 
 	for (i = 0; i < rtlusb->rx_urb_num; i++) {
@@ -655,18 +663,23 @@ static int rtl_usb_start(struct ieee80211_hw *hw)
 	if (!err) {
 		rtl_init_rx_config(hw);
 
-		
+		/* Enable software */
 		SET_USB_START(rtlusb);
-		
+		/* should after adapter start and interrupt enable. */
 		set_hal_start(rtlhal);
 
-		
+		/* Start bulk IN */
 		_rtl_usb_receive(hw);
 	}
 
 	return err;
 }
+/**
+ *
+ *
+ */
 
+/*=======================  tx =========================================*/
 static void rtl_usb_cleanup(struct ieee80211_hw *hw)
 {
 	u32 i;
@@ -676,10 +689,10 @@ static void rtl_usb_cleanup(struct ieee80211_hw *hw)
 
 	SET_USB_STOP(rtlusb);
 
-	
+	/* clean up rx stuff. */
 	usb_kill_anchored_urbs(&rtlusb->rx_submitted);
 
-	
+	/* clean up tx stuff */
 	for (i = 0; i < RTL_USB_MAX_EP_NUM; i++) {
 		while ((_skb = skb_dequeue(&rtlusb->tx_skb_queue[i]))) {
 			rtlusb->usb_tx_cleanup(hw, _skb);
@@ -693,6 +706,11 @@ static void rtl_usb_cleanup(struct ieee80211_hw *hw)
 	usb_kill_anchored_urbs(&rtlusb->tx_submitted);
 }
 
+/**
+ *
+ * We may add some struct into struct rtl_usb later. Do deinit here.
+ *
+ */
 static void rtl_usb_deinit(struct ieee80211_hw *hw)
 {
 	rtl_usb_cleanup(hw);
@@ -704,9 +722,9 @@ static void rtl_usb_stop(struct ieee80211_hw *hw)
 	struct rtl_hal *rtlhal = rtl_hal(rtl_priv(hw));
 	struct rtl_usb *rtlusb = rtl_usbdev(rtl_usbpriv(hw));
 
-	
+	/* should after adapter start and interrupt enable. */
 	set_hal_stop(rtlhal);
-	
+	/* Enable software */
 	SET_USB_STOP(rtlusb);
 	rtl_usb_deinit(hw);
 	rtlpriv->cfg->ops->hw_disable(hw);
@@ -750,7 +768,7 @@ static int _usb_tx_post(struct ieee80211_hw *hw, struct urb *urb,
 			 "Urb has error status 0x%X\n", urb->status);
 		goto out;
 	}
-	
+	/*  TODO:	statistics */
 out:
 	ieee80211_tx_status_irqsafe(hw, skb);
 	return urb->status;
@@ -768,7 +786,7 @@ static void _rtl_tx_complete(struct urb *urb)
 		return;
 	err = _usb_tx_post(hw, urb, skb);
 	if (err) {
-		
+		/* Ignore error and keep issuiing other urbs */
 		return;
 	}
 }
@@ -837,7 +855,7 @@ static void _rtl_usb_tx_preprocess(struct ieee80211_hw *hw, struct sk_buff *skb,
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)(skb->data);
 	__le16 fc = hdr->frame_control;
 	u8 *pda_addr = hdr->addr1;
-	
+	/* ssn */
 	u8 *qc = NULL;
 	u8 tid = 0;
 	u16 seq_number = 0;
@@ -943,21 +961,21 @@ int __devinit rtl_usb_probe(struct usb_interface *intf,
 	usb_priv->dev.intf = intf;
 	usb_priv->dev.udev = udev;
 	usb_set_intfdata(intf, hw);
-	
+	/* init cfg & intf_ops */
 	rtlpriv->rtlhal.interface = INTF_USB;
 	rtlpriv->cfg = (struct rtl_hal_cfg *)(id->driver_info);
 	rtlpriv->intf_ops = &rtl_usb_ops;
 	rtl_dbgp_flag_init(hw);
-	
+	/* Init IO handler */
 	_rtl_usb_io_handler_init(&udev->dev, hw);
 	rtlpriv->cfg->ops->read_chip_version(hw);
-	
+	/*like read eeprom and so on */
 	rtlpriv->cfg->ops->read_eeprom_info(hw);
 	err = _rtl_usb_init(hw);
 	if (err)
 		goto error_out;
 	rtl_usb_init_sw(hw);
-	
+	/* Init mac80211 sw */
 	err = rtl_init_core(hw);
 	if (err) {
 		RT_TRACE(rtlpriv, COMP_ERR, DBG_EMERG,
@@ -990,9 +1008,9 @@ void rtl_usb_disconnect(struct usb_interface *intf)
 	if (unlikely(!rtlpriv))
 		return;
 
-	
+	/* just in case driver is removed before firmware callback */
 	wait_for_completion(&rtlpriv->firmware_loading_complete);
-	
+	/*ieee80211_unregister_hw will call ops_stop */
 	if (rtlmac->mac80211_registered == 1) {
 		ieee80211_unregister_hw(hw);
 		rtlmac->mac80211_registered = 0;
@@ -1000,8 +1018,8 @@ void rtl_usb_disconnect(struct usb_interface *intf)
 		rtl_deinit_deferred_work(hw);
 		rtlpriv->intf_ops->adapter_stop(hw);
 	}
-	
-	
+	/*deinit rfkill */
+	/* rtl_deinit_rfkill(hw); */
 	rtl_usb_deinit(hw);
 	rtl_deinit_core(hw);
 	kfree(rtlpriv->usb_data);

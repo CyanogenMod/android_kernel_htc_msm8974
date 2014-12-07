@@ -37,89 +37,96 @@ struct cmd_hdr {
 };
 
 enum rtl8712_h2c_cmd {
-	GEN_CMD_CODE(_Read_MACREG),	
+	GEN_CMD_CODE(_Read_MACREG),	/*0*/
 	GEN_CMD_CODE(_Write_MACREG),
 	GEN_CMD_CODE(_Read_BBREG),
 	GEN_CMD_CODE(_Write_BBREG),
 	GEN_CMD_CODE(_Read_RFREG),
-	GEN_CMD_CODE(_Write_RFREG), 
+	GEN_CMD_CODE(_Write_RFREG), /*5*/
 	GEN_CMD_CODE(_Read_EEPROM),
 	GEN_CMD_CODE(_Write_EEPROM),
 	GEN_CMD_CODE(_Read_EFUSE),
 	GEN_CMD_CODE(_Write_EFUSE),
 
-	GEN_CMD_CODE(_Read_CAM),	
+	GEN_CMD_CODE(_Read_CAM),	/*10*/
 	GEN_CMD_CODE(_Write_CAM),
 	GEN_CMD_CODE(_setBCNITV),
 	GEN_CMD_CODE(_setMBIDCFG),
-	GEN_CMD_CODE(_JoinBss),   
-	GEN_CMD_CODE(_DisConnect), 
+	GEN_CMD_CODE(_JoinBss),   /*14*/
+	GEN_CMD_CODE(_DisConnect), /*15*/
 	GEN_CMD_CODE(_CreateBss),
 	GEN_CMD_CODE(_SetOpMode),
-	GEN_CMD_CODE(_SiteSurvey),  
+	GEN_CMD_CODE(_SiteSurvey),  /*18*/
 	GEN_CMD_CODE(_SetAuth),
 
-	GEN_CMD_CODE(_SetKey),	
+	GEN_CMD_CODE(_SetKey),	/*20*/
 	GEN_CMD_CODE(_SetStaKey),
 	GEN_CMD_CODE(_SetAssocSta),
 	GEN_CMD_CODE(_DelAssocSta),
 	GEN_CMD_CODE(_SetStaPwrState),
-	GEN_CMD_CODE(_SetBasicRate), 
+	GEN_CMD_CODE(_SetBasicRate), /*25*/
 	GEN_CMD_CODE(_GetBasicRate),
 	GEN_CMD_CODE(_SetDataRate),
 	GEN_CMD_CODE(_GetDataRate),
 	GEN_CMD_CODE(_SetPhyInfo),
 
-	GEN_CMD_CODE(_GetPhyInfo),	
+	GEN_CMD_CODE(_GetPhyInfo),	/*30*/
 	GEN_CMD_CODE(_SetPhy),
 	GEN_CMD_CODE(_GetPhy),
 	GEN_CMD_CODE(_readRssi),
 	GEN_CMD_CODE(_readGain),
-	GEN_CMD_CODE(_SetAtim), 
+	GEN_CMD_CODE(_SetAtim), /*35*/
 	GEN_CMD_CODE(_SetPwrMode),
 	GEN_CMD_CODE(_JoinbssRpt),
 	GEN_CMD_CODE(_SetRaTable),
 	GEN_CMD_CODE(_GetRaTable),
 
-	GEN_CMD_CODE(_GetCCXReport), 
+	GEN_CMD_CODE(_GetCCXReport), /*40*/
 	GEN_CMD_CODE(_GetDTMReport),
 	GEN_CMD_CODE(_GetTXRateStatistics),
 	GEN_CMD_CODE(_SetUsbSuspend),
 	GEN_CMD_CODE(_SetH2cLbk),
-	GEN_CMD_CODE(_AddBAReq), 
+	GEN_CMD_CODE(_AddBAReq), /*45*/
 
-	GEN_CMD_CODE(_SetChannel), 
+	GEN_CMD_CODE(_SetChannel), /*46*/
+/* MP_OFFLOAD Start (47~54)*/
 	GEN_CMD_CODE(_SetTxPower),
 	GEN_CMD_CODE(_SwitchAntenna),
 	GEN_CMD_CODE(_SetCrystalCap),
-	GEN_CMD_CODE(_SetSingleCarrierTx), 
+	GEN_CMD_CODE(_SetSingleCarrierTx), /*50*/
 	GEN_CMD_CODE(_SetSingleToneTx),
 	GEN_CMD_CODE(_SetCarrierSuppressionTx),
 	GEN_CMD_CODE(_SetContinuousTx),
-	GEN_CMD_CODE(_SwitchBandwidth), 
-	GEN_CMD_CODE(_TX_Beacon), 
+	GEN_CMD_CODE(_SwitchBandwidth), /*54*/
+/* MP_OFFLOAD End*/
+	GEN_CMD_CODE(_TX_Beacon), /*55*/
 	GEN_CMD_CODE(_SetPowerTracking),
-	GEN_CMD_CODE(_AMSDU_TO_AMPDU), 
-	GEN_CMD_CODE(_SetMacAddress), 
+	GEN_CMD_CODE(_AMSDU_TO_AMPDU), /*57*/
+	GEN_CMD_CODE(_SetMacAddress), /*58*/
 
-	GEN_CMD_CODE(_DisconnectCtrl), 
-	GEN_CMD_CODE(_SetChannelPlan), 
-	GEN_CMD_CODE(_DisconnectCtrlEx), 
+	GEN_CMD_CODE(_DisconnectCtrl), /*59*/
+	GEN_CMD_CODE(_SetChannelPlan), /*60*/
+	GEN_CMD_CODE(_DisconnectCtrlEx), /*61*/
 
-	
+	/* To do, modify these h2c cmd, add or delete */
 	GEN_CMD_CODE(_GetH2cLbk) ,
 
-	
+	/* WPS extra IE */
 	GEN_CMD_CODE(_SetProbeReqExtraIE) ,
 	GEN_CMD_CODE(_SetAssocReqExtraIE) ,
 	GEN_CMD_CODE(_SetProbeRspExtraIE) ,
 	GEN_CMD_CODE(_SetAssocRspExtraIE) ,
 
-	
+	/* the following is driver will do */
 	GEN_CMD_CODE(_GetCurDataRate) ,
 
-	GEN_CMD_CODE(_GetTxRetrycnt),  
-	GEN_CMD_CODE(_GetRxRetrycnt),  
+	GEN_CMD_CODE(_GetTxRetrycnt),  /* to record times that Tx retry to
+					* transmmit packet after association
+					*/
+	GEN_CMD_CODE(_GetRxRetrycnt),  /* to record total number of the
+					* received frame with ReTry bit set in
+					* the WLAN header
+					*/
 
 	GEN_CMD_CODE(_GetBCNOKcnt),
 	GEN_CMD_CODE(_GetBCNERRcnt),
@@ -143,76 +150,78 @@ enum rtl8712_h2c_cmd {
 
 #ifdef _RTL8712_CMD_C_
 static struct _cmd_callback	cmd_callback[] = {
-	{GEN_CMD_CODE(_Read_MACREG), NULL}, 
+	{GEN_CMD_CODE(_Read_MACREG), NULL}, /*0*/
 	{GEN_CMD_CODE(_Write_MACREG), NULL},
 	{GEN_CMD_CODE(_Read_BBREG), &r8712_getbbrfreg_cmdrsp_callback},
 	{GEN_CMD_CODE(_Write_BBREG), NULL},
 	{GEN_CMD_CODE(_Read_RFREG), &r8712_getbbrfreg_cmdrsp_callback},
-	{GEN_CMD_CODE(_Write_RFREG), NULL}, 
+	{GEN_CMD_CODE(_Write_RFREG), NULL}, /*5*/
 	{GEN_CMD_CODE(_Read_EEPROM), NULL},
 	{GEN_CMD_CODE(_Write_EEPROM), NULL},
 	{GEN_CMD_CODE(_Read_EFUSE), NULL},
 	{GEN_CMD_CODE(_Write_EFUSE), NULL},
 
-	{GEN_CMD_CODE(_Read_CAM),	NULL},	
+	{GEN_CMD_CODE(_Read_CAM),	NULL},	/*10*/
 	{GEN_CMD_CODE(_Write_CAM),	 NULL},
 	{GEN_CMD_CODE(_setBCNITV), NULL},
 	{GEN_CMD_CODE(_setMBIDCFG), NULL},
-	{GEN_CMD_CODE(_JoinBss), &r8712_joinbss_cmd_callback},  
-	{GEN_CMD_CODE(_DisConnect), &r8712_disassoc_cmd_callback}, 
+	{GEN_CMD_CODE(_JoinBss), &r8712_joinbss_cmd_callback},  /*14*/
+	{GEN_CMD_CODE(_DisConnect), &r8712_disassoc_cmd_callback}, /*15*/
 	{GEN_CMD_CODE(_CreateBss), &r8712_createbss_cmd_callback},
 	{GEN_CMD_CODE(_SetOpMode), NULL},
-	{GEN_CMD_CODE(_SiteSurvey), &r8712_survey_cmd_callback}, 
+	{GEN_CMD_CODE(_SiteSurvey), &r8712_survey_cmd_callback}, /*18*/
 	{GEN_CMD_CODE(_SetAuth), NULL},
 
-	{GEN_CMD_CODE(_SetKey), NULL},	
+	{GEN_CMD_CODE(_SetKey), NULL},	/*20*/
 	{GEN_CMD_CODE(_SetStaKey), &r8712_setstaKey_cmdrsp_callback},
 	{GEN_CMD_CODE(_SetAssocSta), &r8712_setassocsta_cmdrsp_callback},
 	{GEN_CMD_CODE(_DelAssocSta), NULL},
 	{GEN_CMD_CODE(_SetStaPwrState), NULL},
-	{GEN_CMD_CODE(_SetBasicRate), NULL}, 
+	{GEN_CMD_CODE(_SetBasicRate), NULL}, /*25*/
 	{GEN_CMD_CODE(_GetBasicRate), NULL},
 	{GEN_CMD_CODE(_SetDataRate), NULL},
 	{GEN_CMD_CODE(_GetDataRate), NULL},
 	{GEN_CMD_CODE(_SetPhyInfo), NULL},
 
-	{GEN_CMD_CODE(_GetPhyInfo), NULL}, 
+	{GEN_CMD_CODE(_GetPhyInfo), NULL}, /*30*/
 	{GEN_CMD_CODE(_SetPhy), NULL},
 	{GEN_CMD_CODE(_GetPhy), NULL},
 	{GEN_CMD_CODE(_readRssi), NULL},
 	{GEN_CMD_CODE(_readGain), NULL},
-	{GEN_CMD_CODE(_SetAtim), NULL}, 
+	{GEN_CMD_CODE(_SetAtim), NULL}, /*35*/
 	{GEN_CMD_CODE(_SetPwrMode), NULL},
 	{GEN_CMD_CODE(_JoinbssRpt), NULL},
 	{GEN_CMD_CODE(_SetRaTable), NULL},
 	{GEN_CMD_CODE(_GetRaTable), NULL},
 
-	{GEN_CMD_CODE(_GetCCXReport), NULL}, 
+	{GEN_CMD_CODE(_GetCCXReport), NULL}, /*40*/
 	{GEN_CMD_CODE(_GetDTMReport),	NULL},
 	{GEN_CMD_CODE(_GetTXRateStatistics), NULL},
 	{GEN_CMD_CODE(_SetUsbSuspend), NULL},
 	{GEN_CMD_CODE(_SetH2cLbk), NULL},
-	{GEN_CMD_CODE(_AddBAReq), NULL}, 
+	{GEN_CMD_CODE(_AddBAReq), NULL}, /*45*/
 
-	{GEN_CMD_CODE(_SetChannel), NULL},		
+	{GEN_CMD_CODE(_SetChannel), NULL},		/*46*/
+/* MP_OFFLOAD Start (47~54)*/
 	{GEN_CMD_CODE(_SetTxPower), NULL},
 	{GEN_CMD_CODE(_SwitchAntenna), NULL},
 	{GEN_CMD_CODE(_SetCrystalCap), NULL},
-	{GEN_CMD_CODE(_SetSingleCarrierTx), NULL},	
+	{GEN_CMD_CODE(_SetSingleCarrierTx), NULL},	/*50*/
 	{GEN_CMD_CODE(_SetSingleToneTx), NULL},
 	{GEN_CMD_CODE(_SetCarrierSuppressionTx), NULL},
 	{GEN_CMD_CODE(_SetContinuousTx), NULL},
-	{GEN_CMD_CODE(_SwitchBandwidth), NULL},		
-	{GEN_CMD_CODE(_TX_Beacon), NULL}, 
+	{GEN_CMD_CODE(_SwitchBandwidth), NULL},		/*54*/
+/* MP_OFFLOAD End*/
+	{GEN_CMD_CODE(_TX_Beacon), NULL}, /*55*/
 	{GEN_CMD_CODE(_SetPowerTracking), NULL},
-	{GEN_CMD_CODE(_AMSDU_TO_AMPDU), NULL}, 
-	{GEN_CMD_CODE(_SetMacAddress), NULL}, 
+	{GEN_CMD_CODE(_AMSDU_TO_AMPDU), NULL}, /*57*/
+	{GEN_CMD_CODE(_SetMacAddress), NULL}, /*58*/
 
-	{GEN_CMD_CODE(_DisconnectCtrl), NULL}, 
-	{GEN_CMD_CODE(_SetChannelPlan), NULL}, 
-	{GEN_CMD_CODE(_DisconnectCtrlEx), NULL}, 
+	{GEN_CMD_CODE(_DisconnectCtrl), NULL}, /*59*/
+	{GEN_CMD_CODE(_SetChannelPlan), NULL}, /*60*/
+	{GEN_CMD_CODE(_DisconnectCtrlEx), NULL}, /*61*/
 
-	
+	/* To do, modify these h2c cmd, add or delete */
 	{GEN_CMD_CODE(_GetH2cLbk), NULL},
 
 	{_SetProbeReqExtraIE_CMD_, NULL},

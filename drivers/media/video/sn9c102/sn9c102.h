@@ -133,6 +133,7 @@ struct sn9c102_device {
 	wait_queue_head_t wait_open, wait_frame, wait_stream;
 };
 
+/*****************************************************************************/
 
 struct sn9c102_device*
 sn9c102_match_id(struct sn9c102_device* cam, const struct usb_device_id *id)
@@ -161,6 +162,7 @@ struct sn9c102_sensor* sn9c102_get_sensor(struct sn9c102_device* cam)
 	return &cam->sensor;
 }
 
+/*****************************************************************************/
 
 #undef DBG
 #undef KDBG
@@ -204,6 +206,6 @@ dev_info(&cam->usbdev->dev, "[%s:%s:%d] " fmt "\n", __FILE__, __func__,   \
 	 __LINE__ , ## args)
 
 #undef PDBGG
-#define PDBGG(fmt, args...) do {;} while(0) 
+#define PDBGG(fmt, args...) do {;} while(0) /* placeholder */
 
-#endif 
+#endif /* _SN9C102_H_ */

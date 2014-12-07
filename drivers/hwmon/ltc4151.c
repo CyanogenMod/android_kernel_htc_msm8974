@@ -37,6 +37,7 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 
+/* chip registers */
 #define LTC4151_SENSE_H	0x00
 #define LTC4151_SENSE_L	0x01
 #define LTC4151_VIN_H	0x02
@@ -49,9 +50,9 @@ struct ltc4151_data {
 
 	struct mutex update_lock;
 	bool valid;
-	unsigned long last_updated; 
+	unsigned long last_updated; /* in jiffies */
 
-	
+	/* Registers */
 	u8 regs[6];
 };
 
@@ -63,12 +64,16 @@ static struct ltc4151_data *ltc4151_update_device(struct device *dev)
 
 	mutex_lock(&data->update_lock);
 
+	/*
+	 * The chip's A/D updates 6 times per second
+	 * (Conversion Rate 6 - 9 Hz)
+	 */
 	if (time_after(jiffies, data->last_updated + HZ / 6) || !data->valid) {
 		int i;
 
 		dev_dbg(&client->dev, "Starting ltc4151 update\n");
 
-		
+		/* Read all registers */
 		for (i = 0; i < ARRAY_SIZE(data->regs); i++) {
 			int val;
 
@@ -90,6 +95,7 @@ abort:
 	return ret;
 }
 
+/* Return the voltage from the given register in mV */
 static int ltc4151_get_value(struct ltc4151_data *data, u8 reg)
 {
 	u32 val;
@@ -98,18 +104,22 @@ static int ltc4151_get_value(struct ltc4151_data *data, u8 reg)
 
 	switch (reg) {
 	case LTC4151_ADIN_H:
-		
+		/* 500uV resolution. Convert to mV. */
 		val = val * 500 / 1000;
 		break;
 	case LTC4151_SENSE_H:
+		/*
+		 * 20uV resolution. Convert to current as measured with
+		 * an 1 mOhm sense resistor, in mA.
+		 */
 		val = val * 20;
 		break;
 	case LTC4151_VIN_H:
-		
+		/* 25 mV per increment */
 		val = val * 25;
 		break;
 	default:
-		
+		/* If we get here, the developer messed up */
 		WARN_ON_ONCE(1);
 		val = 0;
 		break;
@@ -132,14 +142,22 @@ static ssize_t ltc4151_show_value(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", value);
 }
 
+/*
+ * Input voltages.
+ */
 static SENSOR_DEVICE_ATTR(in1_input, S_IRUGO, \
 	ltc4151_show_value, NULL, LTC4151_VIN_H);
 static SENSOR_DEVICE_ATTR(in2_input, S_IRUGO, \
 	ltc4151_show_value, NULL, LTC4151_ADIN_H);
 
+/* Currents (via sense resistor) */
 static SENSOR_DEVICE_ATTR(curr1_input, S_IRUGO, \
 	ltc4151_show_value, NULL, LTC4151_SENSE_H);
 
+/*
+ * Finally, construct an array of pointers to members of the above objects,
+ * as required for sysfs_create_group()
+ */
 static struct attribute *ltc4151_attributes[] = {
 	&sensor_dev_attr_in1_input.dev_attr.attr,
 	&sensor_dev_attr_in2_input.dev_attr.attr,
@@ -172,7 +190,7 @@ static int ltc4151_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* Register sysfs hooks */
 	ret = sysfs_create_group(&client->dev.kobj, &ltc4151_group);
 	if (ret)
 		goto out_sysfs_create_group;
@@ -211,6 +229,7 @@ static const struct i2c_device_id ltc4151_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, ltc4151_id);
 
+/* This is the driver that will be inserted */
 static struct i2c_driver ltc4151_driver = {
 	.driver = {
 		.name	= "ltc4151",

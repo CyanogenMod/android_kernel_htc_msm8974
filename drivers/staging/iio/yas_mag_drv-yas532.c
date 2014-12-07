@@ -286,7 +286,7 @@ static int yas_cdrv_measure_and_set_offset(void)
 	static const int correct[5] = {16, 8, 4, 2, 1};
 	int8_t hard_offset[3] = {0, 0, 0};
 	uint16_t t, xy1y2[3];
-	int32_t flag[3];
+	int32_t flag[3] = {0};
 	int i, j, busy, ouflow, rt;
 #if YAS532_DRIVER_NO_SLEEP
 	driver.start_flag = 0;

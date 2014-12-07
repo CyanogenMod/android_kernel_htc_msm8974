@@ -45,7 +45,9 @@
 
 #include "fs_enet.h"
 
+/*************************************************/
 #if defined(CONFIG_CPM1)
+/* for a 8xx __raw_xxx's are sufficient */
 #define __fs_out32(addr, x)	__raw_writel(x, addr)
 #define __fs_out16(addr, x)	__raw_writew(x, addr)
 #define __fs_out8(addr, x)	__raw_writeb(x, addr)
@@ -53,6 +55,7 @@
 #define __fs_in16(addr)	__raw_readw(addr)
 #define __fs_in8(addr)	__raw_readb(addr)
 #else
+/* for others play it safe */
 #define __fs_out32(addr, x)	out_be32(addr, x)
 #define __fs_out16(addr, x)	out_be16(addr, x)
 #define __fs_in32(addr)	in_be32(addr)
@@ -61,6 +64,7 @@
 #define __fs_in8(addr)	in_8(addr)
 #endif
 
+/* write, read, set bits, clear bits */
 #define W32(_p, _m, _v) __fs_out32(&(_p)->_m, (_v))
 #define R32(_p, _m)     __fs_in32(&(_p)->_m)
 #define S32(_p, _m, _v) W32(_p, _m, R32(_p, _m) | (_v))
@@ -78,6 +82,9 @@
 
 #define SCC_MAX_MULTICAST_ADDRS	64
 
+/*
+ * Delay to wait for SCC reset command to complete (in us)
+ */
 #define SCC_RESET_DELAY		50
 
 static inline int scc_cr_cmd(struct fs_enet_private *fep, u32 op)
@@ -156,7 +163,7 @@ static void free_bd(struct net_device *dev)
 
 static void cleanup_data(struct net_device *dev)
 {
-	
+	/* nothing */
 }
 
 static void set_promiscuous_mode(struct net_device *dev)
@@ -200,10 +207,10 @@ static void set_multicast_finish(struct net_device *dev)
 	scc_t __iomem *sccp = fep->scc.sccp;
 	scc_enet_t __iomem *ep = fep->scc.ep;
 
-	
+	/* clear promiscuous always */
 	C16(sccp, scc_psmr, SCC_PSMR_PRO);
 
-	
+	/* if all multi or too many multicasts; just enable all */
 	if ((dev->flags & IFF_ALLMULTI) != 0 ||
 	    netdev_mc_count(dev) > SCC_MAX_MULTICAST_ADDRS) {
 
@@ -227,6 +234,11 @@ static void set_multicast_list(struct net_device *dev)
 		set_promiscuous_mode(dev);
 }
 
+/*
+ * This function is called to start or restart the FEC during a link
+ * change.  This only happens when switching between half and full
+ * duplex.
+ */
 static void restart(struct net_device *dev)
 {
 	struct fs_enet_private *fep = netdev_priv(dev);
@@ -239,15 +251,17 @@ static void restart(struct net_device *dev)
 
 	C32(sccp, scc_gsmrl, SCC_GSMRL_ENR | SCC_GSMRL_ENT);
 
-	
+	/* clear everything (slow & steady does it) */
 	for (i = 0; i < sizeof(*ep); i++)
 		__fs_out8((u8 __iomem *)ep + i, 0);
 
-	
+	/* point to bds */
 	W16(ep, sen_genscc.scc_rbase, fep->ring_mem_addr);
 	W16(ep, sen_genscc.scc_tbase,
 	    fep->ring_mem_addr + sizeof(cbd_t) * fpi->rx_ring);
 
+	/* Initialize function code registers for big-endian.
+	 */
 #ifndef CONFIG_NOT_COHERENT_CACHE
 	W8(ep, sen_genscc.scc_rfcr, SCC_EB | SCC_GBL);
 	W8(ep, sen_genscc.scc_tfcr, SCC_EB | SCC_GBL);
@@ -256,25 +270,33 @@ static void restart(struct net_device *dev)
 	W8(ep, sen_genscc.scc_tfcr, SCC_EB);
 #endif
 
+	/* Set maximum bytes per receive buffer.
+	 * This appears to be an Ethernet frame size, not the buffer
+	 * fragment size.  It must be a multiple of four.
+	 */
 	W16(ep, sen_genscc.scc_mrblr, 0x5f0);
 
+	/* Set CRC preset and mask.
+	 */
 	W32(ep, sen_cpres, 0xffffffff);
 	W32(ep, sen_cmask, 0xdebb20e3);
 
-	W32(ep, sen_crcec, 0);	
-	W32(ep, sen_alec, 0);	
-	W32(ep, sen_disfc, 0);	
+	W32(ep, sen_crcec, 0);	/* CRC Error counter */
+	W32(ep, sen_alec, 0);	/* alignment error counter */
+	W32(ep, sen_disfc, 0);	/* discard frame counter */
 
-	W16(ep, sen_pads, 0x8888);	
-	W16(ep, sen_retlim, 15);	
+	W16(ep, sen_pads, 0x8888);	/* Tx short frame pad character */
+	W16(ep, sen_retlim, 15);	/* Retry limit threshold */
 
-	W16(ep, sen_maxflr, 0x5ee);	
+	W16(ep, sen_maxflr, 0x5ee);	/* maximum frame length register */
 
-	W16(ep, sen_minflr, PKT_MINBUF_SIZE);	
+	W16(ep, sen_minflr, PKT_MINBUF_SIZE);	/* minimum frame length register */
 
-	W16(ep, sen_maxd1, 0x000005f0);	
-	W16(ep, sen_maxd2, 0x000005f0);	
+	W16(ep, sen_maxd1, 0x000005f0);	/* maximum DMA1 length */
+	W16(ep, sen_maxd2, 0x000005f0);	/* maximum DMA2 length */
 
+	/* Clear hash tables.
+	 */
 	W16(ep, sen_gaddr1, 0);
 	W16(ep, sen_gaddr2, 0);
 	W16(ep, sen_gaddr3, 0);
@@ -284,6 +306,8 @@ static void restart(struct net_device *dev)
 	W16(ep, sen_iaddr3, 0);
 	W16(ep, sen_iaddr4, 0);
 
+	/* set address
+	 */
 	mac = dev->dev_addr;
 	paddrh = ((u16) mac[5] << 8) | mac[4];
 	paddrm = ((u16) mac[3] << 8) | mac[2];
@@ -304,18 +328,28 @@ static void restart(struct net_device *dev)
 
 	W16(sccp, scc_scce, 0xffff);
 
+	/* Enable interrupts we wish to service.
+	 */
 	W16(sccp, scc_sccm, SCCE_ENET_TXE | SCCE_ENET_RXF | SCCE_ENET_TXB);
 
+	/* Set GSMR_H to enable all normal operating modes.
+	 * Set GSMR_L to enable Ethernet to MC68160.
+	 */
 	W32(sccp, scc_gsmrh, 0);
 	W32(sccp, scc_gsmrl,
 	    SCC_GSMRL_TCI | SCC_GSMRL_TPL_48 | SCC_GSMRL_TPP_10 |
 	    SCC_GSMRL_MODE_ENET);
 
+	/* Set sync/delimiters.
+	 */
 	W16(sccp, scc_dsr, 0xd555);
 
+	/* Set processing mode.  Use Ethernet CRC, catch broadcast, and
+	 * start frame search 22 bit times after RENA.
+	 */
 	W16(sccp, scc_psmr, SCC_PSMR_ENCRC | SCC_PSMR_NIB22);
 
-	
+	/* Set full duplex mode if needed */
 	if (fep->phydev->duplex)
 		S16(sccp, scc_psmr, SCC_PSMR_LPB | SCC_PSMR_FDE);
 
@@ -366,12 +400,12 @@ static void napi_disable_rx(struct net_device *dev)
 
 static void rx_bd_done(struct net_device *dev)
 {
-	
+	/* nothing */
 }
 
 static void tx_kickstart(struct net_device *dev)
 {
-	
+	/* nothing */
 }
 
 static u32 get_int_events(struct net_device *dev)
@@ -426,6 +460,7 @@ static void tx_restart(struct net_device *dev)
 
 
 
+/*************************************************************************/
 
 const struct fs_ops fs_scc_ops = {
 	.setup_data		= setup_data,

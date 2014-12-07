@@ -30,4 +30,4 @@ typedef struct arch_spinlock {
 
 #include <asm/rwlock.h>
 
-#endif 
+#endif /* _ASM_X86_SPINLOCK_TYPES_H */

@@ -15,4 +15,4 @@
 
 extern void ppc4xx_reset_system(char *cmd);
 
-#endif 
+#endif /* __ASM_POWERPC_PPC4xx_H__ */

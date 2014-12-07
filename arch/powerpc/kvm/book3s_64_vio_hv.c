@@ -44,8 +44,8 @@ long kvmppc_h_put_tce(struct kvm_vcpu *vcpu, unsigned long liobn,
 	struct kvm *kvm = vcpu->kvm;
 	struct kvmppc_spapr_tce_table *stt;
 
-	
-	
+	/* udbg_printf("H_PUT_TCE(): liobn=0x%lx ioba=0x%lx, tce=0x%lx\n", */
+	/* 	    liobn, ioba, tce); */
 
 	list_for_each_entry(stt, &kvm->arch.spapr_tce_tables, list) {
 		if (stt->liobn == liobn) {
@@ -53,21 +53,21 @@ long kvmppc_h_put_tce(struct kvm_vcpu *vcpu, unsigned long liobn,
 			struct page *page;
 			u64 *tbl;
 
-			
-			
+			/* udbg_printf("H_PUT_TCE: liobn 0x%lx => stt=%p  window_size=0x%x\n", */
+			/* 	    liobn, stt, stt->window_size); */
 			if (ioba >= stt->window_size)
 				return H_PARAMETER;
 
 			page = stt->pages[idx / TCES_PER_PAGE];
 			tbl = (u64 *)page_address(page);
 
-			
-			
+			/* FIXME: Need to validate the TCE itself */
+			/* udbg_printf("tce @ %p\n", &tbl[idx % TCES_PER_PAGE]); */
 			tbl[idx % TCES_PER_PAGE] = tce;
 			return H_SUCCESS;
 		}
 	}
 
-	
+	/* Didn't find the liobn, punt it to userspace */
 	return H_TOO_HARD;
 }

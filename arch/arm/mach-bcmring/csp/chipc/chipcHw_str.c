@@ -11,30 +11,48 @@
 * license other than the GPL, without Broadcom's express prior written
 * consent.
 *****************************************************************************/
+/****************************************************************************/
+/**
+*  @file    chipcHw_str.c
+*
+*  @brief   Contains strings which are useful to linux and csp
+*
+*  @note
+*/
+/****************************************************************************/
 
+/* ---- Include Files ---------------------------------------------------- */
 
 #include <mach/csp/chipcHw_inline.h>
 
+/* ---- Private Constants and Types --------------------------------------- */
 
 static const char *gMuxStr[] = {
-	"GPIO",			
-	"KeyPad",		
-	"I2C-Host",		
-	"SPI",			
-	"Uart",			
-	"LED-Mtx-P",		
-	"LED-Mtx-S",		
-	"SDIO-0",		
-	"SDIO-1",		
-	"PCM",			
-	"I2S",			
-	"ETM",			
-	"Debug",		
-	"Misc",			
-	"0xE",			
-	"0xF",			
+	"GPIO",			/* 0 */
+	"KeyPad",		/* 1 */
+	"I2C-Host",		/* 2 */
+	"SPI",			/* 3 */
+	"Uart",			/* 4 */
+	"LED-Mtx-P",		/* 5 */
+	"LED-Mtx-S",		/* 6 */
+	"SDIO-0",		/* 7 */
+	"SDIO-1",		/* 8 */
+	"PCM",			/* 9 */
+	"I2S",			/* 10 */
+	"ETM",			/* 11 */
+	"Debug",		/* 12 */
+	"Misc",			/* 13 */
+	"0xE",			/* 14 */
+	"0xF",			/* 15 */
 };
 
+/****************************************************************************/
+/**
+*  @brief   Retrieves a string representation of the mux setting for a pin.
+*
+*  @return  Pointer to a character string.
+*/
+/****************************************************************************/
 
 const char *chipcHw_getGpioPinFunctionStr(int pin)
 {

@@ -12,4 +12,4 @@ struct xt_mark_mtinfo1 {
 	__u8 invert;
 };
 
-#endif 
+#endif /*_XT_MARK_H*/

@@ -111,7 +111,7 @@ static void timer_trig_deactivate(struct led_classdev *led_cdev)
 		device_remove_file(led_cdev->dev, &dev_attr_delay_off);
 	}
 
-	
+	/* Stop blinking */
 	led_brightness_set(led_cdev, LED_OFF);
 }
 

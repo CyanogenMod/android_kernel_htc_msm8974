@@ -38,6 +38,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define SMDK4X12_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -160,32 +161,32 @@ static struct max8997_platform_data smdk4x12_max8997_pdata = {
 	.num_regulators	= ARRAY_SIZE(smdk4x12_max8997_regulators),
 	.regulators	= smdk4x12_max8997_regulators,
 
-	.buck1_voltage[0] = 1100000,	
-	.buck1_voltage[1] = 1100000,	
-	.buck1_voltage[2] = 1100000,	
-	.buck1_voltage[3] = 1100000,	
-	.buck1_voltage[4] = 1100000,	
-	.buck1_voltage[5] = 1100000,	
-	.buck1_voltage[6] = 1000000,	
-	.buck1_voltage[7] = 950000,	
+	.buck1_voltage[0] = 1100000,	/* 1.1V */
+	.buck1_voltage[1] = 1100000,	/* 1.1V */
+	.buck1_voltage[2] = 1100000,	/* 1.1V */
+	.buck1_voltage[3] = 1100000,	/* 1.1V */
+	.buck1_voltage[4] = 1100000,	/* 1.1V */
+	.buck1_voltage[5] = 1100000,	/* 1.1V */
+	.buck1_voltage[6] = 1000000,	/* 1.0V */
+	.buck1_voltage[7] = 950000,	/* 0.95V */
 
-	.buck2_voltage[0] = 1100000,	
-	.buck2_voltage[1] = 1000000,	
-	.buck2_voltage[2] = 950000,	
-	.buck2_voltage[3] = 900000,	
-	.buck2_voltage[4] = 1100000,	
-	.buck2_voltage[5] = 1000000,	
-	.buck2_voltage[6] = 950000,	
-	.buck2_voltage[7] = 900000,	
+	.buck2_voltage[0] = 1100000,	/* 1.1V */
+	.buck2_voltage[1] = 1000000,	/* 1.0V */
+	.buck2_voltage[2] = 950000,	/* 0.95V */
+	.buck2_voltage[3] = 900000,	/* 0.9V */
+	.buck2_voltage[4] = 1100000,	/* 1.1V */
+	.buck2_voltage[5] = 1000000,	/* 1.0V */
+	.buck2_voltage[6] = 950000,	/* 0.95V */
+	.buck2_voltage[7] = 900000,	/* 0.9V */
 
-	.buck5_voltage[0] = 1100000,	
-	.buck5_voltage[1] = 1100000,	
-	.buck5_voltage[2] = 1100000,	
-	.buck5_voltage[3] = 1100000,	
-	.buck5_voltage[4] = 1100000,	
-	.buck5_voltage[5] = 1100000,	
-	.buck5_voltage[6] = 1100000,	
-	.buck5_voltage[7] = 1100000,	
+	.buck5_voltage[0] = 1100000,	/* 1.1V */
+	.buck5_voltage[1] = 1100000,	/* 1.1V */
+	.buck5_voltage[2] = 1100000,	/* 1.1V */
+	.buck5_voltage[3] = 1100000,	/* 1.1V */
+	.buck5_voltage[4] = 1100000,	/* 1.1V */
+	.buck5_voltage[5] = 1100000,	/* 1.1V */
+	.buck5_voltage[6] = 1100000,	/* 1.1V */
+	.buck5_voltage[7] = 1100000,	/* 1.1V */
 };
 
 static struct i2c_board_info smdk4x12_i2c_devs0[] __initdata = {
@@ -200,11 +201,11 @@ static struct i2c_board_info smdk4x12_i2c_devs1[] __initdata = {
 };
 
 static struct i2c_board_info smdk4x12_i2c_devs3[] __initdata = {
-	
+	/* nothing here yet */
 };
 
 static struct i2c_board_info smdk4x12_i2c_devs7[] __initdata = {
-	
+	/* nothing here yet */
 };
 
 static struct samsung_bl_gpio_info smdk4x12_bl_gpio_info = {
@@ -218,7 +219,7 @@ static struct platform_pwm_backlight_data smdk4x12_bl_data = {
 };
 
 static uint32_t smdk4x12_keymap[] __initdata = {
-	
+	/* KEY(row, col, keycode) */
 	KEY(1, 0, KEY_D), KEY(1, 1, KEY_A), KEY(1, 2, KEY_B),
 	KEY(1, 3, KEY_E), KEY(1, 4, KEY_C)
 };
@@ -284,7 +285,7 @@ static void __init smdk4x12_machine_init(void)
 }
 
 MACHINE_START(SMDK4212, "SMDK4212")
-	
+	/* Maintainer: Kukjin Kim <kgene.kim@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= smdk4x12_map_io,
@@ -295,8 +296,8 @@ MACHINE_START(SMDK4212, "SMDK4212")
 MACHINE_END
 
 MACHINE_START(SMDK4412, "SMDK4412")
-	
-	
+	/* Maintainer: Kukjin Kim <kgene.kim@samsung.com> */
+	/* Maintainer: Changhwan Youn <chaos.youn@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= smdk4x12_map_io,

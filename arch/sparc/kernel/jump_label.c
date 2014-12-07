@@ -20,10 +20,10 @@ void arch_jump_label_transform(struct jump_entry *entry,
 		s32 off = (s32)entry->target - (s32)entry->code;
 
 #ifdef CONFIG_SPARC64
-		
+		/* ba,pt %xcc, . + (off << 2) */
 		val = 0x10680000 | ((u32) off >> 2);
 #else
-		
+		/* ba . + (off << 2) */
 		val = 0x10800000 | ((u32) off >> 2);
 #endif
 	} else {

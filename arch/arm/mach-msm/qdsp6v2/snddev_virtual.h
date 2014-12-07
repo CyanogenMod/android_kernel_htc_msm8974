@@ -13,8 +13,8 @@
 #define __MACH_QDSP6V2_SNDDEV_VIRTUAL_H
 
 struct snddev_virtual_data {
-	u32 capability; 
+	u32 capability; /* RX or TX */
 	const char *name;
-	u32 copp_id; 
+	u32 copp_id; /* Audpp routing */
 };
 #endif

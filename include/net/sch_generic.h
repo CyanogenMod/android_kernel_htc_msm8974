@@ -27,6 +27,9 @@ enum qdisc_state_t {
 	__QDISC_STATE_THROTTLED,
 };
 
+/*
+ * following bits are only changed while qdisc lock is held
+ */
 enum qdisc___state_t {
 	__QDISC___STATE_RUNNING = 1,
 };
@@ -61,11 +64,17 @@ struct Qdisc {
 
 	void			*u32_node;
 
+	/* This field is deprecated, but it is still used by CBQ
+	 * and it will live until better solution will be invented.
+	 */
 	struct Qdisc		*__parent;
 	struct netdev_queue	*dev_queue;
 	struct Qdisc		*next_sched;
 
 	struct sk_buff		*gso_skb;
+	/*
+	 * For performance sake on SMP, we put highly modified fields at the end
+	 */
 	unsigned long		state;
 	struct sk_buff_head	q;
 	struct gnet_stats_basic_packed bstats;
@@ -110,14 +119,14 @@ static inline void qdisc_unthrottled(struct Qdisc *qdisc)
 }
 
 struct Qdisc_class_ops {
-	
+	/* Child qdisc manipulation */
 	struct netdev_queue *	(*select_queue)(struct Qdisc *, struct tcmsg *);
 	int			(*graft)(struct Qdisc *, unsigned long cl,
 					struct Qdisc *, struct Qdisc **);
 	struct Qdisc *		(*leaf)(struct Qdisc *, unsigned long cl);
 	void			(*qlen_notify)(struct Qdisc *, unsigned long);
 
-	
+	/* Class manipulation routines */
 	unsigned long		(*get)(struct Qdisc *, u32 classid);
 	void			(*put)(struct Qdisc *, unsigned long);
 	int			(*change)(struct Qdisc *, u32, u32,
@@ -125,13 +134,13 @@ struct Qdisc_class_ops {
 	int			(*delete)(struct Qdisc *, unsigned long);
 	void			(*walk)(struct Qdisc *, struct qdisc_walker * arg);
 
-	
+	/* Filter manipulation */
 	struct tcf_proto **	(*tcf_chain)(struct Qdisc *, unsigned long);
 	unsigned long		(*bind_tcf)(struct Qdisc *, unsigned long,
 					u32 classid);
 	void			(*unbind_tcf)(struct Qdisc *, unsigned long);
 
-	
+	/* rtnetlink specific */
 	int			(*dump)(struct Qdisc *, unsigned long,
 					struct sk_buff *skb, struct tcmsg*);
 	int			(*dump_stats)(struct Qdisc *, unsigned long,
@@ -185,7 +194,7 @@ struct tcf_proto_ops {
 	int			(*delete)(struct tcf_proto*, unsigned long);
 	void			(*walk)(struct tcf_proto*, struct tcf_walker *arg);
 
-	
+	/* rtnetlink specific */
 	int			(*dump)(struct tcf_proto*, unsigned long,
 					struct sk_buff *skb, struct tcmsg*);
 
@@ -193,7 +202,7 @@ struct tcf_proto_ops {
 };
 
 struct tcf_proto {
-	
+	/* Fast access part */
 	struct tcf_proto	*next;
 	void			*root;
 	int			(*classify)(struct sk_buff *,
@@ -201,7 +210,7 @@ struct tcf_proto {
 					    struct tcf_result *);
 	__be16			protocol;
 
-	
+	/* All the rest */
 	u32			prio;
 	u32			classid;
 	struct Qdisc		*q;
@@ -246,6 +255,17 @@ static inline struct Qdisc *qdisc_root_sleeping(const struct Qdisc *qdisc)
 	return qdisc->dev_queue->qdisc_sleeping;
 }
 
+/* The qdisc root lock is a mechanism by which to top level
+ * of a qdisc tree can be locked from any qdisc node in the
+ * forest.  This allows changing the configuration of some
+ * aspect of the qdisc tree while blocking out asynchronous
+ * qdisc access in the packet processing paths.
+ *
+ * It is only legal to do this when the root will not change
+ * on us.  Otherwise we'll potentially lock the wrong qdisc
+ * root.  This is enforced by holding the RTNL semaphore, which
+ * all users of this lock accessor must do.
+ */
 static inline spinlock_t *qdisc_root_lock(const struct Qdisc *qdisc)
 {
 	struct Qdisc *root = qdisc_root(qdisc);
@@ -344,6 +364,7 @@ extern void __qdisc_calculate_pkt_len(struct sk_buff *skb,
 extern void tcf_destroy(struct tcf_proto *tp);
 extern void tcf_destroy_chain(struct tcf_proto **fl);
 
+/* Reset all TX qdiscs greater then index of a device.  */
 static inline void qdisc_reset_all_tx_gt(struct net_device *dev, unsigned int i)
 {
 	struct Qdisc *qdisc;
@@ -363,6 +384,7 @@ static inline void qdisc_reset_all_tx(struct net_device *dev)
 	qdisc_reset_all_tx_gt(dev, 0);
 }
 
+/* Are all TX queues of the device empty?  */
 static inline bool qdisc_all_tx_empty(const struct net_device *dev)
 {
 	unsigned int i;
@@ -376,6 +398,7 @@ static inline bool qdisc_all_tx_empty(const struct net_device *dev)
 	return true;
 }
 
+/* Are any of the TX qdiscs changing?  */
 static inline bool qdisc_tx_changing(const struct net_device *dev)
 {
 	unsigned int i;
@@ -387,6 +410,7 @@ static inline bool qdisc_tx_changing(const struct net_device *dev)
 	return false;
 }
 
+/* Is the device using the noop qdisc on all queues?  */
 static inline bool qdisc_tx_is_noop(const struct net_device *dev)
 {
 	unsigned int i;
@@ -403,6 +427,7 @@ static inline unsigned int qdisc_pkt_len(const struct sk_buff *skb)
 	return qdisc_skb_cb(skb)->pkt_len;
 }
 
+/* additional qdisc xmit flags (NET_XMIT_MASK in linux/netdevice.h) */
 enum net_xmit_qdisc_t {
 	__NET_XMIT_STOLEN = 0x00010000,
 	__NET_XMIT_BYPASS = 0x00020000,
@@ -524,19 +549,21 @@ static inline struct sk_buff *qdisc_peek_head(struct Qdisc *sch)
 	return skb_peek(&sch->q);
 }
 
+/* generic pseudo peek method for non-work-conserving qdisc */
 static inline struct sk_buff *qdisc_peek_dequeued(struct Qdisc *sch)
 {
-	
+	/* we can reuse ->gso_skb because peek isn't called for root qdiscs */
 	if (!sch->gso_skb) {
 		sch->gso_skb = sch->dequeue(sch);
 		if (sch->gso_skb)
-			
+			/* it's still part of the queue */
 			sch->q.qlen++;
 	}
 
 	return sch->gso_skb;
 }
 
+/* use instead of qdisc->dequeue() for all qdiscs queried with ->peek() */
 static inline struct sk_buff *qdisc_dequeue_peeked(struct Qdisc *sch)
 {
 	struct sk_buff *skb = sch->gso_skb;
@@ -554,6 +581,10 @@ static inline struct sk_buff *qdisc_dequeue_peeked(struct Qdisc *sch)
 static inline void __qdisc_reset_queue(struct Qdisc *sch,
 				       struct sk_buff_head *list)
 {
+	/*
+	 * We do not know the backlog in bytes of this list, it
+	 * is up to the caller to correct it
+	 */
 	__skb_queue_purge(list);
 }
 
@@ -606,6 +637,9 @@ drop:
 	return NET_XMIT_DROP;
 }
 
+/* Length to Time (L2T) lookup in a qdisc_rate_table, to determine how
+   long it will take to send a packet given its size.
+ */
 static inline u32 qdisc_l2t(struct qdisc_rate_table* rtab, unsigned int pktlen)
 {
 	int slot = pktlen + rtab->rate.cell_align + rtab->rate.overhead;

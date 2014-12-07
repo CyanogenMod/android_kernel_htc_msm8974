@@ -25,9 +25,15 @@
 #include <asm/sibyte/sb1250_scd.h>
 #endif
 
+/*
+ * We'd like to dump the L2_ECC_TAG register on errors, but errata make
+ * that unsafe... So for now we don't.  (BCM1250/BCM112x erratum SOC-48.)
+ */
 #undef DUMP_L2_ECC_TAG_ON_ERROR
 
+/* SB1 definitions */
 
+/* XXX should come from config1 XXX */
 #define SB1_CACHE_INDEX_MASK   0x1fe0
 
 #define CP0_ERRCTL_RECOVERABLE (1 << 31)
@@ -142,9 +148,9 @@ static void check_bus_watcher(void)
 	uint64_t l2_tag;
 #endif
 
-	
+	/* Destructive read, clears register and interrupt */
 	status = csr_in32(IOADDR(A_SCD_BUS_ERR_STATUS));
-	
+	/* Bit 31 is always on, but there's no #define for that */
 	if (status & ~(1UL << 31)) {
 		l2_err = csr_in32(IOADDR(A_BUS_L2_ERRORS));
 #ifdef DUMP_L2_ECC_TAG_ON_ERROR
@@ -175,7 +181,7 @@ asmlinkage void sb1_cache_error(void)
 	unsigned long long cerr_dpa;
 
 #ifdef CONFIG_SIBYTE_BW_TRACE
-	
+	/* Freeze the trace buffer now */
 #if defined(CONFIG_SIBYTE_BCM1x55) || defined(CONFIG_SIBYTE_BCM1x80)
 	csr_out32(M_BCM1480_SCD_TRACE_CFG_FREEZE, IOADDR(A_SCD_TRACE_CFG));
 #else
@@ -210,7 +216,7 @@ asmlinkage void sb1_cache_error(void)
 		printk(" c0_cerr_i   ==   %08x", cerr_i);
 		breakout_cerri(cerr_i);
 		if (CP0_CERRI_IDX_VALID(cerr_i)) {
-			
+			/* Check index of EPC, allowing for delay slot */
 			if (((eepc & SB1_CACHE_INDEX_MASK) != (cerr_i & SB1_CACHE_INDEX_MASK)) &&
 			    ((eepc & SB1_CACHE_INDEX_MASK) != ((cerr_i & SB1_CACHE_INDEX_MASK) - 4)))
 				printk(" cerr_i idx doesn't match eepc\n");
@@ -247,6 +253,13 @@ asmlinkage void sb1_cache_error(void)
 
 	check_bus_watcher();
 
+	/*
+	 * Calling panic() when a fatal cache error occurs scrambles the
+	 * state of the system (and the cache), making it difficult to
+	 * investigate after the fact.  However, if you just stall the CPU,
+	 * the other CPU may keep on running, which is typically very
+	 * undesirable.
+	 */
 #ifdef CONFIG_SB1_CERR_STALL
 	while (1)
 		;
@@ -256,6 +269,7 @@ asmlinkage void sb1_cache_error(void)
 }
 
 
+/* Parity lookup table. */
 static const uint8_t parity[256] = {
 	0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
 	1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
@@ -275,6 +289,7 @@ static const uint8_t parity[256] = {
 	0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0
 };
 
+/* Masks to select bits for Hamming parity, mask_72_64[i] for bit[i] */
 static const uint64_t mask_72_64[8] = {
 	0x0738C808099264FFULL,
 	0x38C808099264FF07ULL,
@@ -286,6 +301,7 @@ static const uint64_t mask_72_64[8] = {
 	0xFF0738C808099264ULL
 };
 
+/* Calculate the parity on a range of bits */
 static char range_parity(uint64_t dword, int max, int min)
 {
 	char parity = 0;
@@ -299,6 +315,7 @@ static char range_parity(uint64_t dword, int max, int min)
 	return parity;
 }
 
+/* Calculate the 4-bit even byte-parity for an instruction */
 static unsigned char inst_parity(uint32_t word)
 {
 	int i, j;
@@ -328,7 +345,7 @@ static uint32_t extract_ic(unsigned short addr, int data)
 
 	printk("Icache index 0x%04x  ", addr);
 	for (way = 0; way < 4; way++) {
-		
+		/* Index-load-tag-I */
 		__asm__ __volatile__ (
 		"	.set	push		\n\t"
 		"	.set	noreorder	\n\t"
@@ -347,8 +364,8 @@ static uint32_t extract_ic(unsigned short addr, int data)
 		if (way == 0) {
 			lru = (taghi >> 14) & 0xff;
 			printk("[Bank %d Set 0x%02x]  LRU > %d %d %d %d > MRU\n",
-				    ((addr >> 5) & 0x3), 
-				    ((addr >> 7) & 0x3f), 
+				    ((addr >> 5) & 0x3), /* bank */
+				    ((addr >> 7) & 0x3f), /* index */
 				    (lru & 0x3),
 				    ((lru >> 2) & 0x3),
 				    ((lru >> 4) & 0x3),
@@ -381,9 +398,9 @@ static uint32_t extract_ic(unsigned short addr, int data)
 			uint8_t predecode;
 			int offset;
 
-			
+			/* (hit all banks and ways) */
 			for (offset = 0; offset < 4; offset++) {
-				
+				/* Index-load-data-I */
 				__asm__ __volatile__ (
 				"	.set	push\n\t"
 				"	.set	noreorder\n\t"
@@ -402,7 +419,7 @@ static uint32_t extract_ic(unsigned short addr, int data)
 					printk("   ** bad parity in predecode\n");
 					res |= CP0_CERRI_DATA_PARITY;
 				}
-				
+				/* XXXKW should/could check predecode bits themselves */
 				if (((datahi >> 4) & 0xf) ^ inst_parity(insta)) {
 					printk("   ** bad parity in instruction a\n");
 					res |= CP0_CERRI_DATA_PARITY;
@@ -419,6 +436,7 @@ static uint32_t extract_ic(unsigned short addr, int data)
 	return res;
 }
 
+/* Compute the ECC for a data doubleword */
 static uint8_t dc_ecc(uint64_t dword)
 {
 	uint64_t t;
@@ -487,7 +505,7 @@ static uint32_t extract_dc(unsigned short addr, int data)
 		"	.set	noreorder\n\t"
 		"	.set	mips64\n\t"
 		"	.set	noat\n\t"
-		"	cache	5, 0(%3)\n\t"	
+		"	cache	5, 0(%3)\n\t"	/* Index-load-tag-D */
 		"	mfc0	%0, $29, 2\n\t"
 		"	dmfc0	$1, $28, 2\n\t"
 		"	dsrl32	%1, $1, 0\n\t"
@@ -501,8 +519,8 @@ static uint32_t extract_dc(unsigned short addr, int data)
 		if (way == 0) {
 			lru = (taghi >> 14) & 0xff;
 			printk("[Bank %d Set 0x%02x]  LRU > %d %d %d %d > MRU\n",
-				    ((addr >> 11) & 0x2) | ((addr >> 5) & 1), 
-				    ((addr >> 6) & 0x3f), 
+				    ((addr >> 11) & 0x2) | ((addr >> 5) & 1), /* bank */
+				    ((addr >> 6) & 0x3f), /* index */
 				    (lru & 0x3),
 				    ((lru >> 2) & 0x3),
 				    ((lru >> 4) & 0x3),
@@ -532,13 +550,13 @@ static uint32_t extract_dc(unsigned short addr, int data)
 			char bad_ecc = 0;
 
 			for (offset = 0; offset < 4; offset++) {
-				
+				/* Index-load-data-D */
 				__asm__ __volatile__ (
 				"	.set	push\n\t"
 				"	.set	noreorder\n\t"
 				"	.set	mips64\n\t"
 				"	.set	noat\n\t"
-				"	cache	7, 0(%3)\n\t" 
+				"	cache	7, 0(%3)\n\t" /* Index-load-data-D */
 				"	mfc0	%0, $29, 3\n\t"
 				"	dmfc0	$1, $28, 3\n\t"
 				"	dsrl32	%1, $1, 0 \n\t"

@@ -29,4 +29,4 @@ extern void __iomem *at91_ramc_base[];
 #include <mach/at91sam9_ddrsdr.h>
 #include <mach/at91sam9_sdramc.h>
 
-#endif 
+#endif /* __AT91_RAMC_H__ */

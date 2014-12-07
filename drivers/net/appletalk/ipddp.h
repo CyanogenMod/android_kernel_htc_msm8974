@@ -1,3 +1,6 @@
+/*
+ *	ipddp.h: Header for IP-over-DDP driver for Linux.
+ */
 
 #ifndef __LINUX_IPDDP_H
 #define __LINUX_IPDDP_H
@@ -10,9 +13,9 @@
 
 struct ipddp_route
 {
-        struct net_device *dev;             
-        __be32 ip;                       
-        struct atalk_addr at;              
+        struct net_device *dev;             /* Carrier device */
+        __be32 ip;                       /* IP address */
+        struct atalk_addr at;              /* Gateway appletalk address */
         int flags;
         struct ipddp_route *next;
 };
@@ -20,5 +23,5 @@ struct ipddp_route
 #define IPDDP_ENCAP	1
 #define IPDDP_DECAP	2
 
-#endif	
-#endif	
+#endif	/* __KERNEL__ */
+#endif	/* __LINUX_IPDDP_H */

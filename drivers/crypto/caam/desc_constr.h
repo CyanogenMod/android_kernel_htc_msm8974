@@ -95,7 +95,7 @@ static inline void append_data(u32 *desc, void *data, int len)
 {
 	u32 *offset = desc_end(desc);
 
-	if (len) 
+	if (len) /* avoid sparse warning: memcpy with byte count of 0 */
 		memcpy(offset, data, len);
 
 	(*desc) += (len + CAAM_CMD_SZ - 1) / CAAM_CMD_SZ;
@@ -183,6 +183,10 @@ static inline void append_##cmd##_as_imm(u32 *desc, void *data, \
 APPEND_CMD_PTR_TO_IMM(load, LOAD);
 APPEND_CMD_PTR_TO_IMM(fifo_load, FIFO_LOAD);
 
+/*
+ * 2nd variant for commands whose specified immediate length differs
+ * from length of immediate data provided, e.g., split keys
+ */
 #define APPEND_CMD_PTR_TO_IMM2(cmd, op) \
 static inline void append_##cmd##_as_imm(u32 *desc, void *data, \
 					 unsigned int data_len, \
@@ -204,6 +208,10 @@ static inline void append_##cmd##_imm_##type(u32 *desc, type immediate, \
 }
 APPEND_CMD_RAW_IMM(load, LOAD, u32);
 
+/*
+ * Append math command. Only the last part of destination and source need to
+ * be specified
+ */
 #define APPEND_MATH(op, desc, dest, src_0, src_1, len) \
 append_cmd(desc, CMD_MATH | MATH_FUN_##op | MATH_DEST_##dest | \
 	   MATH_SRC0_##src_0 | MATH_SRC1_##src_1 | (u32) (len & MATH_LEN_MASK));
@@ -227,6 +235,7 @@ append_cmd(desc, CMD_MATH | MATH_FUN_##op | MATH_DEST_##dest | \
 #define append_math_rshift(desc, dest, src0, src1, len) \
 	APPEND_MATH(RSHIFT, desc, dest, src0, src1, len)
 
+/* Exactly one source is IMM. Data is passed in as u32 value */
 #define APPEND_MATH_IMM_u32(op, desc, dest, src_0, src_1, data) \
 do { \
 	APPEND_MATH(op, desc, dest, src_0, src_1, CAAM_CMD_SZ); \

@@ -1,3 +1,10 @@
+/*
+ * PIO blacklist.  Some drives incorrectly report their maximal PIO mode,
+ * at least in respect to CMD640.  Here we keep info on some known drives.
+ *
+ * Changes to the ide_pio_blacklist[] should be made with EXTREME CAUTION
+ * to avoid breaking the fragile cmd640.c support.
+ */
 
 #include <linux/string.h>
 
@@ -44,7 +51,8 @@ static struct ide_pio_info {
 	{ "ST3600A",  1 },
 	{ "ST3290A",  0 },
 	{ "ST3144A",  0 },
-	{ "ST3491A",  1 }, 
+	{ "ST3491A",  1 }, /* reports 3, should be 1 or 2 (depending on drive)
+			      according to Seagate's FIND-ATA program */
 
 	{ "QUANTUM ELS127A", 0 },
 	{ "QUANTUM ELS170A", 0 },
@@ -56,13 +64,23 @@ static struct ide_pio_info {
 	{ "QUANTUM LIGHTNING 540A", 3 },
 	{ "QUANTUM LIGHTNING 730A", 3 },
 
-	{ "QUANTUM FIREBALL_540", 3 }, 
+	{ "QUANTUM FIREBALL_540", 3 }, /* Older Quantum Fireballs don't work */
 	{ "QUANTUM FIREBALL_640", 3 },
 	{ "QUANTUM FIREBALL_1080", 3 },
 	{ "QUANTUM FIREBALL_1280", 3 },
 	{ NULL, 0 }
 };
 
+/**
+ *	ide_scan_pio_blacklist 	-	check for a blacklisted drive
+ *	@model: Drive model string
+ *
+ *	This routine searches the ide_pio_blacklist for an entry
+ *	matching the start/whole of the supplied model name.
+ *
+ *	Returns -1 if no match found.
+ *	Otherwise returns the recommended PIO mode from ide_pio_blacklist[].
+ */
 
 int ide_scan_pio_blacklist(char *model)
 {

@@ -11,6 +11,7 @@
 #ifndef __ASM_PLAT_S3C64XX_REGS_GPIO_H
 #define __ASM_PLAT_S3C64XX_REGS_GPIO_H __FILE__
 
+/* Base addresses for each of the banks */
 
 #define S3C64XX_GPIOREG(reg)	(S3C64XX_VA_GPIO + (reg))
 
@@ -32,6 +33,7 @@
 #define S3C64XX_GPP_BASE	S3C64XX_GPIOREG(0x0160)
 #define S3C64XX_GPQ_BASE	S3C64XX_GPIOREG(0x0180)
 
+/* SPCON */
 
 #define S3C64XX_SPCON		S3C64XX_GPIOREG(0x1A0)
 
@@ -116,6 +118,7 @@
 #define S3C64XX_SPCON_LCD_SEL_606_656		(0x2 << 0)
 
 
+/* External interrupt registers */
 
 #define S3C64XX_EINT12CON	S3C64XX_GPIOREG(0x200)
 #define S3C64XX_EINT34CON	S3C64XX_GPIOREG(0x204)
@@ -157,6 +160,7 @@
 #define S3C64XX_EINT0MASK	S3C64XX_GPIOREG(0x920)
 #define S3C64XX_EINT0PEND	S3C64XX_GPIOREG(0x924)
 
+/* GPIO sleep configuration */
 
 #define S3C64XX_SPCONSLP	S3C64XX_GPIOREG(0x880)
 
@@ -179,5 +183,5 @@
 #define S3C64XX_SLPEN_USE_xSLP		(1 << 0)
 #define S3C64XX_SLPEN_CFG_BYSLPEN	(1 << 1)
 
-#endif 
+#endif /* __ASM_PLAT_S3C64XX_REGS_GPIO_H */
 

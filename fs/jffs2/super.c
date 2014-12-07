@@ -92,7 +92,7 @@ static const char *jffs2_compr_name(unsigned int compr)
 		return "zlib";
 #endif
 	default:
-		
+		/* should never happen; programmer error */
 		WARN_ON(1);
 		return "";
 	}
@@ -124,6 +124,9 @@ static int jffs2_sync_fs(struct super_block *sb, int wait)
 static struct inode *jffs2_nfs_get_inode(struct super_block *sb, uint64_t ino,
 					 uint32_t generation)
 {
+	/* We don't care about i_generation. We'll destroy the flash
+	   before we start re-using inode numbers anyway. And even
+	   if that wasn't true, we'd have other problems...*/
 	return jffs2_iget(sb, ino);
 }
 
@@ -164,6 +167,12 @@ static const struct export_operations jffs2_export_ops = {
 	.fh_to_parent = jffs2_fh_to_parent,
 };
 
+/*
+ * JFFS2 mount options.
+ *
+ * Opt_override_compr: override default compressor
+ * Opt_err: just end of array marker
+ */
 enum {
 	Opt_override_compr,
 	Opt_err,
@@ -251,6 +260,9 @@ static const struct super_operations jffs2_super_operations =
 	.sync_fs =	jffs2_sync_fs,
 };
 
+/*
+ * fill in the superblock
+ */
 static int jffs2_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct jffs2_sb_info *c;
@@ -274,6 +286,8 @@ static int jffs2_fill_super(struct super_block *sb, void *data, int silent)
 		return -EINVAL;
 	}
 
+	/* Initialize JFFS2 superblock locks, the further initialization will
+	 * be done later */
 	mutex_init(&c->alloc_sem);
 	mutex_init(&c->erase_free_sem);
 	init_waitqueue_head(&c->erase_wait);
@@ -347,6 +361,13 @@ static int __init init_jffs2_fs(void)
 {
 	int ret;
 
+	/* Paranoia checks for on-medium structures. If we ask GCC
+	   to pack them with __attribute__((packed)) then it _also_
+	   assumes that they're not aligned -- so it emits crappy
+	   code on some architectures. Ideally we want an attribute
+	   which means just 'no padding', without the alignment
+	   thing. But GCC doesn't have that -- we have to just
+	   hope the structs are the right sizes, instead. */
 	BUILD_BUG_ON(sizeof(struct jffs2_unknown_node) != 12);
 	BUILD_BUG_ON(sizeof(struct jffs2_raw_dirent) != 40);
 	BUILD_BUG_ON(sizeof(struct jffs2_raw_inode) != 68);
@@ -410,4 +431,4 @@ module_exit(exit_jffs2_fs);
 MODULE_DESCRIPTION("The Journalling Flash File System, v2");
 MODULE_AUTHOR("Red Hat, Inc.");
 MODULE_LICENSE("GPL"); // Actually dual-licensed, but it doesn't matter for
-		       
+		       // the sake of this tag. It's Free Software.

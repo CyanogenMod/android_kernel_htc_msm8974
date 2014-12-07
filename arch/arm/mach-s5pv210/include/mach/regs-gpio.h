@@ -38,4 +38,4 @@
 #define EINT_GPIO_2(x)		S5PV210_GPH2(x)
 #define EINT_GPIO_3(x)		S5PV210_GPH3(x)
 
-#endif 
+#endif /* __ASM_ARCH_REGS_GPIO_H */

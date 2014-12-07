@@ -45,15 +45,18 @@
 #include "iwl-shared.h"
 #include "iwl-cfg.h"
 
+/* Highest firmware API version supported */
 #define IWL6000_UCODE_API_MAX 6
 #define IWL6050_UCODE_API_MAX 5
 #define IWL6000G2_UCODE_API_MAX 6
 
+/* Oldest version we won't warn about */
 #define IWL6000_UCODE_API_OK 4
 #define IWL6000G2_UCODE_API_OK 5
 #define IWL6050_UCODE_API_OK 5
 #define IWL6000G2B_UCODE_API_OK 6
 
+/* Lowest firmware API version supported */
 #define IWL6000_UCODE_API_MIN 4
 #define IWL6050_UCODE_API_MIN 4
 #define IWL6000G2_UCODE_API_MIN 4
@@ -72,14 +75,14 @@
 
 static void iwl6000_set_ct_threshold(struct iwl_priv *priv)
 {
-	
+	/* want Celsius */
 	hw_params(priv).ct_kill_threshold = CT_KILL_THRESHOLD;
 	hw_params(priv).ct_kill_exit_threshold = CT_KILL_EXIT_THRESHOLD;
 }
 
 static void iwl6050_additional_nic_config(struct iwl_priv *priv)
 {
-	
+	/* Indicate calibration version to uCode. */
 	if (iwl_eeprom_calib_version(priv->shrd) >= 6)
 		iwl_set_bit(trans(priv), CSR_GP_DRIVER_REG,
 				CSR_GP_DRIVER_REG_BIT_CALIB_VERSION6);
@@ -87,7 +90,7 @@ static void iwl6050_additional_nic_config(struct iwl_priv *priv)
 
 static void iwl6150_additional_nic_config(struct iwl_priv *priv)
 {
-	
+	/* Indicate calibration version to uCode. */
 	if (iwl_eeprom_calib_version(priv->shrd) >= 6)
 		iwl_set_bit(trans(priv), CSR_GP_DRIVER_REG,
 				CSR_GP_DRIVER_REG_BIT_CALIB_VERSION6);
@@ -97,16 +100,17 @@ static void iwl6150_additional_nic_config(struct iwl_priv *priv)
 
 static void iwl6000i_additional_nic_config(struct iwl_priv *priv)
 {
-	
+	/* 2x2 IPA phy type */
 	iwl_write32(trans(priv), CSR_GP_DRIVER_REG,
 		     CSR_GP_DRIVER_REG_BIT_RADIO_SKU_2x2_IPA);
 }
 
+/* NIC configuration for 6000 series */
 static void iwl6000_nic_config(struct iwl_priv *priv)
 {
 	iwl_rf_config(priv);
 
-	
+	/* do additional nic configuration if needed */
 	if (cfg(priv)->additional_nic_config)
 		cfg(priv)->additional_nic_config(priv);
 }
@@ -150,7 +154,7 @@ static void iwl6000_hw_set_hw_params(struct iwl_priv *priv)
 
 	iwl6000_set_ct_threshold(priv);
 
-	
+	/* Set initial sensitivity parameters */
 	hw_params(priv).sens = &iwl6000_sensitivity;
 
 }
@@ -158,6 +162,10 @@ static void iwl6000_hw_set_hw_params(struct iwl_priv *priv)
 static int iwl6000_hw_channel_switch(struct iwl_priv *priv,
 				     struct ieee80211_channel_switch *ch_switch)
 {
+	/*
+	 * MULTI-FIXME
+	 * See iwlagn_mac_channel_switch.
+	 */
 	struct iwl_rxon_context *ctx = &priv->contexts[IWL_RXON_CTX_BSS];
 	struct iwl6000_channel_switch_cmd cmd;
 	const struct iwl_channel_info *ch_info;
@@ -183,6 +191,10 @@ static int iwl6000_hw_channel_switch(struct iwl_priv *priv,
 	cmd.rxon_filter_flags = ctx->staging.filter_flags;
 	switch_count = ch_switch->count;
 	tsf_low = ch_switch->timestamp & 0x0ffffffff;
+	/*
+	 * calculate the ucode channel switch time
+	 * adding TSF as one of the factor for when to switch
+	 */
 	if ((priv->ucode_beacon_time > tsf_low) && beacon_interval) {
 		if (switch_count > ((priv->ucode_beacon_time - tsf_low) /
 		    beacon_interval)) {
@@ -309,11 +321,11 @@ static const struct iwl_base_params iwl6000_g2_base_params = {
 
 static const struct iwl_ht_params iwl6000_ht_params = {
 	.ht_greenfield_support = true,
-	.use_rts_for_aggregation = true, 
+	.use_rts_for_aggregation = true, /* use rts/cts protection */
 };
 
 static const struct iwl_bt_params iwl6000_bt_params = {
-	
+	/* Due to bluetooth, we transmit 2.4 GHz probes only on antenna A */
 	.advanced_bt_coexist = true,
 	.agg_time_limit = BT_AGG_THRESHOLD_DEF,
 	.bt_init_traffic_load = IWL_BT_COEX_TRAFFIC_LOAD_NONE,
@@ -443,6 +455,9 @@ const struct iwl_cfg iwl130_bg_cfg = {
 	.rx_with_siso_diversity = true,
 };
 
+/*
+ * "i": Internal configuration, use internal Power Amplifier
+ */
 #define IWL_DEVICE_6000i					\
 	.fw_name_pre = IWL6000_FW_PRE,				\
 	.ucode_api_max = IWL6000_UCODE_API_MAX,			\
@@ -450,8 +465,8 @@ const struct iwl_cfg iwl130_bg_cfg = {
 	.ucode_api_min = IWL6000_UCODE_API_MIN,			\
 	.max_inst_size = IWL60_RTC_INST_SIZE,			\
 	.max_data_size = IWL60_RTC_DATA_SIZE,			\
-	.valid_tx_ant = ANT_BC,			\
-	.valid_rx_ant = ANT_BC,			\
+	.valid_tx_ant = ANT_BC,		/* .cfg overwrite */	\
+	.valid_rx_ant = ANT_BC,		/* .cfg overwrite */	\
 	.eeprom_ver = EEPROM_6000_EEPROM_VERSION,		\
 	.eeprom_calib_ver = EEPROM_6000_TX_POWER_VERSION,	\
 	.lib = &iwl6000_lib,					\
@@ -481,8 +496,8 @@ const struct iwl_cfg iwl6000i_2bg_cfg = {
 	.ucode_api_min = IWL6050_UCODE_API_MIN,			\
 	.max_inst_size = IWL60_RTC_INST_SIZE,			\
 	.max_data_size = IWL60_RTC_DATA_SIZE,			\
-	.valid_tx_ant = ANT_AB,			\
-	.valid_rx_ant = ANT_AB,			\
+	.valid_tx_ant = ANT_AB,		/* .cfg overwrite */	\
+	.valid_rx_ant = ANT_AB,		/* .cfg overwrite */	\
 	.lib = &iwl6000_lib,					\
 	.additional_nic_config = iwl6050_additional_nic_config,	\
 	.eeprom_ver = EEPROM_6050_EEPROM_VERSION,		\

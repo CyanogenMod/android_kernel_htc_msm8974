@@ -46,7 +46,7 @@ struct rtllib_ccmp_data {
 
 	struct crypto_tfm *tfm;
 
-	
+	/* scratch buffers for virt_to_page() (crypto API) */
 	u8 tx_b0[AES_BLOCK_LEN], tx_b[AES_BLOCK_LEN],
 		tx_e[AES_BLOCK_LEN], tx_s0[AES_BLOCK_LEN];
 	u8 rx_b0[AES_BLOCK_LEN], rx_b[AES_BLOCK_LEN], rx_a[AES_BLOCK_LEN];
@@ -119,6 +119,10 @@ static void ccmp_init_blocks(struct crypto_tfm *tfm,
 	fc = le16_to_cpu(hdr->frame_ctl);
 	a4_included = ((fc & (RTLLIB_FCTL_TODS | RTLLIB_FCTL_FROMDS)) ==
 		       (RTLLIB_FCTL_TODS | RTLLIB_FCTL_FROMDS));
+	/*
+	qc_included = ((WLAN_FC_GET_TYPE(fc) == RTLLIB_FTYPE_DATA) &&
+		       (WLAN_FC_GET_STYPE(fc) & 0x08));
+	*/
 	qc_included = ((WLAN_FC_GET_TYPE(fc) == RTLLIB_FTYPE_DATA) &&
 		       (WLAN_FC_GET_STYPE(fc) & 0x80));
 	aad_len = 22;
@@ -131,6 +135,11 @@ static void ccmp_init_blocks(struct crypto_tfm *tfm,
 		qc = *pos & 0x0f;
 		aad_len += 2;
 	}
+	/* CCM Initial Block:
+	 * Flag (Include authentication header, M=3 (8-octet MIC),
+	 *       L=1 (2-octet Dlen))
+	 * Nonce: 0x00 | A2 | PN
+	 * Dlen */
 	b0[0] = 0x59;
 	b0[1] = qc;
 	memcpy(b0 + 2, hdr->addr2, ETH_ALEN);
@@ -138,24 +147,31 @@ static void ccmp_init_blocks(struct crypto_tfm *tfm,
 	b0[14] = (dlen >> 8) & 0xff;
 	b0[15] = dlen & 0xff;
 
+	/* AAD:
+	 * FC with bits 4..6 and 11..13 masked to zero; 14 is always one
+	 * A1 | A2 | A3
+	 * SC with bits 4..15 (seq#) masked to zero
+	 * A4 (if present)
+	 * QC (if present)
+	 */
 	pos = (u8 *) hdr;
-	aad[0] = 0; 
+	aad[0] = 0; /* aad_len >> 8 */
 	aad[1] = aad_len & 0xff;
 	aad[2] = pos[0] & 0x8f;
 	aad[3] = pos[1] & 0xc7;
 	memcpy(aad + 4, hdr->addr1, 3 * ETH_ALEN);
 	pos = (u8 *) &hdr->seq_ctl;
 	aad[22] = pos[0] & 0x0f;
-	aad[23] = 0; 
+	aad[23] = 0; /* all bits masked */
 	memset(aad + 24, 0, 8);
 	if (a4_included)
 		memcpy(aad + 24, hdr->addr4, ETH_ALEN);
 	if (qc_included) {
 		aad[a4_included ? 30 : 24] = qc;
-		
+		/* rest of QC masked */
 	}
 
-	
+	/* Start with the first block and AAD */
 	rtllib_ccmp_aes_encrypt(tfm, b0, auth);
 	xor_block(auth, aad, AES_BLOCK_LEN);
 	rtllib_ccmp_aes_encrypt(tfm, auth, auth);
@@ -197,7 +213,7 @@ static int rtllib_ccmp_encrypt(struct sk_buff *skb, int hdr_len, void *priv)
 	*pos++ = key->tx_pn[5];
 	*pos++ = key->tx_pn[4];
 	*pos++ = 0;
-	*pos++ = (key->key_idx << 6) | (1 << 5) ;
+	*pos++ = (key->key_idx << 6) | (1 << 5) /* Ext IV included */;
 	*pos++ = key->tx_pn[3];
 	*pos++ = key->tx_pn[2];
 	*pos++ = key->tx_pn[1];
@@ -223,10 +239,10 @@ static int rtllib_ccmp_encrypt(struct sk_buff *skb, int hdr_len, void *priv)
 
 		for (i = 1; i <= blocks; i++) {
 			len = (i == blocks && last) ? last : AES_BLOCK_LEN;
-			
+			/* Authentication */
 			xor_block(b, pos, len);
 			rtllib_ccmp_aes_encrypt(key->tfm, b, b);
-			
+			/* Encryption, with counter */
 			b0[14] = (i >> 8) & 0xff;
 			b0[15] = i & 0xff;
 			rtllib_ccmp_aes_encrypt(key->tfm, b0, e);
@@ -310,12 +326,12 @@ static int rtllib_ccmp_decrypt(struct sk_buff *skb, int hdr_len, void *priv)
 
 		for (i = 1; i <= blocks; i++) {
 			len = (i == blocks && last) ? last : AES_BLOCK_LEN;
-			
+			/* Decrypt, with counter */
 			b0[14] = (i >> 8) & 0xff;
 			b0[15] = i & 0xff;
 			rtllib_ccmp_aes_encrypt(key->tfm, b0, b);
 			xor_block(pos, b, len);
-			
+			/* Authentication */
 			xor_block(a, pos, len);
 			rtllib_ccmp_aes_encrypt(key->tfm, a, a);
 			pos += len;
@@ -332,7 +348,7 @@ static int rtllib_ccmp_decrypt(struct sk_buff *skb, int hdr_len, void *priv)
 
 		memcpy(key->rx_pn, pn, CCMP_PN_LEN);
 	}
-	
+	/* Remove hdr and MIC */
 	memmove(skb->data + CCMP_HDR_LEN, skb->data, hdr_len);
 	skb_pull(skb, CCMP_HDR_LEN);
 	skb_trim(skb, skb->len - CCMP_MIC_LEN);

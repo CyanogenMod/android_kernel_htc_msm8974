@@ -66,29 +66,35 @@ static int pcm3008_soc_probe(struct snd_soc_codec *codec)
 
 	printk(KERN_INFO "PCM3008 SoC Audio Codec %s\n", PCM3008_VERSION);
 
+	/* DEM1  DEM0  DE-EMPHASIS_MODE
+	 * Low   Low   De-emphasis 44.1 kHz ON
+	 * Low   High  De-emphasis OFF
+	 * High  Low   De-emphasis 48 kHz ON
+	 * High  High  De-emphasis 32 kHz ON
+	 */
 
-	
+	/* Configure DEM0 GPIO (turning OFF DAC De-emphasis). */
 	ret = gpio_request(setup->dem0_pin, "codec_dem0");
 	if (ret == 0)
 		ret = gpio_direction_output(setup->dem0_pin, 1);
 	if (ret != 0)
 		goto gpio_err;
 
-	
+	/* Configure DEM1 GPIO (turning OFF DAC De-emphasis). */
 	ret = gpio_request(setup->dem1_pin, "codec_dem1");
 	if (ret == 0)
 		ret = gpio_direction_output(setup->dem1_pin, 0);
 	if (ret != 0)
 		goto gpio_err;
 
-	
+	/* Configure PDAD GPIO. */
 	ret = gpio_request(setup->pdad_pin, "codec_pdad");
 	if (ret == 0)
 		ret = gpio_direction_output(setup->pdad_pin, 1);
 	if (ret != 0)
 		goto gpio_err;
 
-	
+	/* Configure PDDA GPIO. */
 	ret = gpio_request(setup->pdda_pin, "codec_pdda");
 	if (ret == 0)
 		ret = gpio_direction_output(setup->pdda_pin, 1);

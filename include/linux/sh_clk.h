@@ -34,14 +34,14 @@ struct sh_clk_ops {
 struct clk {
 	struct list_head	node;
 	struct clk		*parent;
-	struct clk		**parent_table;	
-	unsigned short		parent_num;	
-	unsigned char		src_shift;	
-	unsigned char		src_width;	
+	struct clk		**parent_table;	/* list of parents to */
+	unsigned short		parent_num;	/* choose between */
+	unsigned char		src_shift;	/* source clock field in the */
+	unsigned char		src_width;	/* configuration register */
 	struct sh_clk_ops	*ops;
 
 	struct list_head	children;
-	struct list_head	sibling;	
+	struct list_head	sibling;	/* node for children */
 
 	int			usecount;
 
@@ -61,6 +61,7 @@ struct clk {
 
 #define CLK_ENABLE_ON_INIT	(1 << 0)
 
+/* drivers/sh/clk.c */
 unsigned long followparent_recalc(struct clk *);
 void recalculate_root_clocks(void);
 void propagate_rate(struct clk *);
@@ -157,4 +158,4 @@ int sh_clk_div6_reparent_register(struct clk *clks, int nr);
 #define CLKDEV_DEV_ID(_id, _clk) { .dev_id = _id, .clk = _clk }
 #define CLKDEV_ICK_ID(_cid, _did, _clk) { .con_id = _cid, .dev_id = _did, .clk = _clk }
 
-#endif 
+#endif /* __SH_CLOCK_H */

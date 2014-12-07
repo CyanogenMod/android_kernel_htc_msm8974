@@ -64,6 +64,10 @@
 # define RPCDBG_FACILITY        RPCDBG_AUTH
 #endif
 
+/*
+ * This is the n-fold function as described in rfc3961, sec 5.1
+ * Taken from MIT Kerberos and modified.
+ */
 
 static void krb5_nfold(u32 inbits, const u8 *in,
 		       u32 outbits, u8 *out)
@@ -71,11 +75,13 @@ static void krb5_nfold(u32 inbits, const u8 *in,
 	int a, b, c, lcm;
 	int byte, i, msbit;
 
+	/* the code below is more readable if I make these bytes
+	   instead of bits */
 
 	inbits >>= 3;
 	outbits >>= 3;
 
-	
+	/* first compute lcm(n,k) */
 
 	a = outbits;
 	b = inbits;
@@ -88,46 +94,58 @@ static void krb5_nfold(u32 inbits, const u8 *in,
 
 	lcm = outbits*inbits/a;
 
-	
+	/* now do the real work */
 
 	memset(out, 0, outbits);
 	byte = 0;
 
+	/* this will end up cycling through k lcm(k,n)/k times, which
+	   is correct */
 	for (i = lcm-1; i >= 0; i--) {
-		
+		/* compute the msbit in k which gets added into this byte */
 		msbit = (
+			/* first, start with the msbit in the first,
+			 * unrotated byte */
 			 ((inbits << 3) - 1)
+			 /* then, for each byte, shift to the right
+			  * for each repetition */
 			 + (((inbits << 3) + 13) * (i/inbits))
+			 /* last, pick out the correct byte within
+			  * that shifted repetition */
 			 + ((inbits - (i % inbits)) << 3)
 			 ) % (inbits << 3);
 
-		
+		/* pull out the byte value itself */
 		byte += (((in[((inbits - 1) - (msbit >> 3)) % inbits] << 8)|
 				  (in[((inbits) - (msbit >> 3)) % inbits]))
 				 >> ((msbit & 7) + 1)) & 0xff;
 
-		
+		/* do the addition */
 		byte += out[i % outbits];
 		out[i % outbits] = byte & 0xff;
 
-		
+		/* keep around the carry bit, if any */
 		byte >>= 8;
 
 	}
 
-	
+	/* if there's a carry bit left over, add it back in */
 	if (byte) {
 		for (i = outbits - 1; i >= 0; i--) {
-			
+			/* do the addition */
 			byte += out[i];
 			out[i] = byte & 0xff;
 
-			
+			/* keep around the carry bit, if any */
 			byte >>= 8;
 		}
 	}
 }
 
+/*
+ * This is the DK (derive_key) function as described in rfc3961, sec 5.1
+ * Taken from MIT Kerberos and modified.
+ */
 
 u32 krb5_derive_key(const struct gss_krb5_enctype *gk5e,
 		    const struct xdr_netobj *inkey,
@@ -155,7 +173,7 @@ u32 krb5_derive_key(const struct gss_krb5_enctype *gk5e,
 	if (crypto_blkcipher_setkey(cipher, inkey->data, inkey->len))
 		goto err_return;
 
-	
+	/* allocate and set up buffers */
 
 	ret = ENOMEM;
 	inblockdata = kmalloc(blocksize, gfp_mask);
@@ -176,7 +194,7 @@ u32 krb5_derive_key(const struct gss_krb5_enctype *gk5e,
 	outblock.data = (char *) outblockdata;
 	outblock.len = blocksize;
 
-	
+	/* initialize the input block */
 
 	if (in_constant->len == inblock.len) {
 		memcpy(inblock.data, in_constant->data, inblock.len);
@@ -185,7 +203,7 @@ u32 krb5_derive_key(const struct gss_krb5_enctype *gk5e,
 			   inblock.len * 8, inblock.data);
 	}
 
-	
+	/* loop encrypting the blocks until enough key bytes are generated */
 
 	n = 0;
 	while (n < keybytes) {
@@ -202,7 +220,7 @@ u32 krb5_derive_key(const struct gss_krb5_enctype *gk5e,
 		n += outblock.len;
 	}
 
-	
+	/* postprocess the key */
 
 	inblock.data = (char *) rawkey;
 	inblock.len = keybytes;
@@ -215,7 +233,7 @@ u32 krb5_derive_key(const struct gss_krb5_enctype *gk5e,
 		goto err_free_raw;
 	}
 
-	
+	/* clean memory, free resources and exit */
 
 	ret = 0;
 
@@ -247,6 +265,9 @@ static void mit_des_fixup_key_parity(u8 key[8])
 	}
 }
 
+/*
+ * This is the des3 key derivation postprocess function
+ */
 u32 gss_krb5_des3_make_key(const struct gss_krb5_enctype *gk5e,
 			   struct xdr_netobj *randombits,
 			   struct xdr_netobj *key)
@@ -264,6 +285,8 @@ u32 gss_krb5_des3_make_key(const struct gss_krb5_enctype *gk5e,
 		goto err_out;
 	}
 
+	/* take the seven bytes, move them around into the top 7 bits of the
+	   8 key bytes, then compute the parity bits.  Do this three times. */
 
 	for (i = 0; i < 3; i++) {
 		memcpy(key->data + i*8, randombits->data + i*7, 7);
@@ -282,6 +305,9 @@ err_out:
 	return ret;
 }
 
+/*
+ * This is the aes key derivation postprocess function
+ */
 u32 gss_krb5_aes_make_key(const struct gss_krb5_enctype *gk5e,
 			  struct xdr_netobj *randombits,
 			  struct xdr_netobj *key)

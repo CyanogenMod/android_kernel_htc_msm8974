@@ -12,31 +12,59 @@
 
 #include <asm/sn/addrs.h>
 
+/*
+ * The launch data structure resides at a fixed place in each node's memory
+ * and is used to communicate between the master processor and the slave
+ * processors.
+ *
+ * The master stores launch parameters in the launch structure
+ * corresponding to a target processor that is in a slave loop, then sends
+ * an interrupt to the slave processor.  The slave calls the desired
+ * function, followed by an optional rendezvous function, then returns to
+ * the slave loop.  The master does not wait for the slaves before
+ * returning.
+ *
+ * There is an array of launch structures, one per CPU on the node.  One
+ * interrupt level is used per CPU.
+ */
 
 #define NMI_MAGIC		0x48414d4d455201
 #define NMI_SIZEOF		0x40
 
-#define NMI_OFF_MAGIC		0x00	
+#define NMI_OFF_MAGIC		0x00	/* Struct offsets for assembly      */
 #define NMI_OFF_FLAGS		0x08
 #define NMI_OFF_CALL		0x10
 #define NMI_OFF_CALLC		0x18
 #define NMI_OFF_CALLPARM	0x20
 #define NMI_OFF_GMASTER		0x28
 
+/*
+ * The NMI routine is called only if the complement address is
+ * correct.
+ *
+ * Before control is transferred to a routine, the complement address
+ * is zeroed (invalidated) to prevent an accidental call from a spurious
+ * interrupt.
+ *
+ */
 
 #ifndef __ASSEMBLY__
 
 typedef struct nmi_s {
-	volatile unsigned long	 magic;		
-	volatile unsigned long	 flags;		
-	volatile void *call_addr;	
-	volatile void *call_addr_c;	
-	volatile void *call_parm;	
-	volatile unsigned long	 gmaster;	
+	volatile unsigned long	 magic;		/* Magic number */
+	volatile unsigned long	 flags;		/* Combination of flags above */
+	volatile void *call_addr;	/* Routine for slave to call        */
+	volatile void *call_addr_c;	/* 1's complement of address        */
+	volatile void *call_parm;	/* Single parm passed to call	    */
+	volatile unsigned long	 gmaster;	/* Flag true only on global master*/
 } nmi_t;
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/* Following definitions are needed both in the prom & the kernel
+ * to identify the format of the nmi cpu register save area in the
+ * low memory on each node.
+ */
 #ifndef __ASSEMBLY__
 
 struct reg_struct {
@@ -50,8 +78,9 @@ struct reg_struct {
 	unsigned long	nmi_sr;
 };
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/* These are the assembly language offsets into the reg_struct structure */
 
 #define R0_OFF		0x0
 #define R1_OFF		0x8
@@ -93,4 +122,4 @@ struct reg_struct {
 #define CACHE_ERR_OFF	0x128
 #define NMISR_OFF	0x130
 
-#endif 
+#endif /* __ASM_SN_NMI_H */

@@ -1,6 +1,7 @@
 #ifndef SUN3X_H
 #define SUN3X_H
 
+/* hardware addresses */
 #define SUN3X_IOMMU       0x60000000
 #define SUN3X_ENAREG      0x61000000
 #define SUN3X_INTREG      0x61001400
@@ -18,6 +19,7 @@
 #define SUN3X_FDC_FCR     0x6e000400
 #define SUN3X_FDC_FVR     0x6e000800
 
+/* some NVRAM addresses */
 #define SUN3X_EEPROM_CONS	(SUN3X_EEPROM + 0x1f)
 #define SUN3X_EEPROM_PORTA	(SUN3X_EEPROM + 0x58)
 #define SUN3X_EEPROM_PORTB	(SUN3X_EEPROM + 0x60)

@@ -76,8 +76,10 @@
 #define sisusbcon_memmovew(d, s, c)	memmove(d, s, c)
 #define sisusbcon_memcpyw(d, s, c)	memcpy(d, s, c)
 
+/* vc_data -> sisusb conversion table */
 static struct sisusb_usb_data *mysisusbs[MAX_NR_CONSOLES];
 
+/* Forward declaration */
 static const struct consw sisusb_con;
 
 static inline void
@@ -91,7 +93,7 @@ sisusbcon_memsetw(u16 *s, u16 c, unsigned int count)
 static inline void
 sisusb_initialize(struct sisusb_usb_data *sisusb)
 {
-	
+	/* Reset cursor and start address */
 	if (sisusb_setidxreg(sisusb, SISCR, 0x0c, 0x00))
 		return;
 	if (sisusb_setidxreg(sisusb, SISCR, 0x0d, 0x00))
@@ -118,6 +120,10 @@ sisusb_set_cursor(struct sisusb_usb_data *sisusb, unsigned int location)
 
 	sisusb->sisusb_cursor_loc = location;
 
+	/* Hardware bug: Text cursor appears twice or not at all
+	 * at some positions. Work around it with the cursor skew
+	 * bits.
+	 */
 
 	if ((location & 0x0007) == 0x0007) {
 		sisusb->bad_cursor_pos = 1;
@@ -155,6 +161,11 @@ sisusb_get_sisusb_lock_and_check(unsigned short console)
 {
 	struct sisusb_usb_data *sisusb;
 
+	/* We can't handle console calls in non-schedulable
+	 * context due to our locks and the USB transport.
+	 * So we simply ignore them. This should only affect
+	 * some calls to printk.
+	 */
 	if (in_atomic())
 		return NULL;
 
@@ -183,18 +194,25 @@ sisusb_is_inactive(struct vc_data *c, struct sisusb_usb_data *sisusb)
 	return 0;
 }
 
+/* con_startup console interface routine */
 static const char *
 sisusbcon_startup(void)
 {
 	return "SISUSBCON";
 }
 
+/* con_init console interface routine */
 static void
 sisusbcon_init(struct vc_data *c, int init)
 {
 	struct sisusb_usb_data *sisusb;
 	int cols, rows;
 
+	/* This is called by take_over_console(),
+	 * ie by us/under our control. It is
+	 * only called after text mode and fonts
+	 * are set up/restored.
+	 */
 
 	if (!(sisusb = sisusb_get_sisusb(c->vc_num)))
 		return;
@@ -216,15 +234,24 @@ sisusbcon_init(struct vc_data *c, int init)
 
 	sisusb->havethisconsole[c->vc_num] = 1;
 
-	
+	/* We only support 640x400 */
 	c->vc_scan_lines = 400;
 
 	c->vc_font.height = sisusb->current_font_height;
 
-	
+	/* We only support width = 8 */
 	cols = 80;
 	rows = c->vc_scan_lines / c->vc_font.height;
 
+	/* Increment usage count for our sisusb.
+	 * Doing so saves us from upping/downing
+	 * the disconnect semaphore; we can't
+	 * lose our sisusb until this is undone
+	 * in con_deinit. For all other console
+	 * interface functions, it suffices to
+	 * use sisusb->lock and do a quick check
+	 * of sisusb for device disconnection.
+	 */
 	kref_get(&sisusb->kref);
 
 	if (!*c->vc_uni_pagedir_loc)
@@ -239,24 +266,28 @@ sisusbcon_init(struct vc_data *c, int init)
 		vc_resize(c, cols, rows);
 }
 
+/* con_deinit console interface routine */
 static void
 sisusbcon_deinit(struct vc_data *c)
 {
 	struct sisusb_usb_data *sisusb;
 	int i;
 
+	/* This is called by take_over_console()
+	 * and others, ie not under our control.
+	 */
 
 	if (!(sisusb = sisusb_get_sisusb(c->vc_num)))
 		return;
 
 	mutex_lock(&sisusb->lock);
 
-	
+	/* Clear ourselves in mysisusbs */
 	mysisusbs[c->vc_num] = NULL;
 
 	sisusb->havethisconsole[c->vc_num] = 0;
 
-	
+	/* Free our font buffer if all consoles are gone */
 	if (sisusb->font_backup) {
 		for(i = 0; i < MAX_NR_CONSOLES; i++) {
 			if (sisusb->havethisconsole[c->vc_num])
@@ -270,10 +301,11 @@ sisusbcon_deinit(struct vc_data *c)
 
 	mutex_unlock(&sisusb->lock);
 
-	
+	/* decrement the usage count on our sisusb */
 	kref_put(&sisusb->kref, sisusb_delete);
 }
 
+/* interface routine */
 static u8
 sisusbcon_build_attr(struct vc_data *c, u8 color, u8 intensity,
 			    u8 blink, u8 underline, u8 reverse, u8 unused)
@@ -299,9 +331,15 @@ sisusbcon_build_attr(struct vc_data *c, u8 color, u8 intensity,
 	return attr;
 }
 
+/* Interface routine */
 static void
 sisusbcon_invert_region(struct vc_data *vc, u16 *p, int count)
 {
+	/* Invert a region. This is called with a pointer
+	 * to the console's internal screen buffer. So we
+	 * simply do the inversion there and rely on
+	 * a call to putc(s) to update the real screen.
+	 */
 
 	while (count--) {
 		u16 a = sisusbcon_readw(p);
@@ -324,6 +362,7 @@ sisusbcon_invert_region(struct vc_data *vc, u16 *p, int count)
 	(y) * sisusb->sisusb_num_columns + \
 	(x))
 
+/* Interface routine */
 static void
 sisusbcon_putc(struct vc_data *c, int ch, int y, int x)
 {
@@ -333,7 +372,7 @@ sisusbcon_putc(struct vc_data *c, int ch, int y, int x)
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return;
 
-	
+	/* sisusb->lock is down */
 	if (sisusb_is_inactive(c, sisusb)) {
 		mutex_unlock(&sisusb->lock);
 		return;
@@ -346,6 +385,7 @@ sisusbcon_putc(struct vc_data *c, int ch, int y, int x)
 	mutex_unlock(&sisusb->lock);
 }
 
+/* Interface routine */
 static void
 sisusbcon_putcs(struct vc_data *c, const unsigned short *s,
 		         int count, int y, int x)
@@ -358,8 +398,11 @@ sisusbcon_putcs(struct vc_data *c, const unsigned short *s,
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return;
 
-	
+	/* sisusb->lock is down */
 
+	/* Need to put the characters into the buffer ourselves,
+	 * because the vt does this AFTER calling us.
+	 */
 
 	dest = SISUSB_VADDR(x, y);
 
@@ -377,6 +420,7 @@ sisusbcon_putcs(struct vc_data *c, const unsigned short *s,
 	mutex_unlock(&sisusb->lock);
 }
 
+/* Interface routine */
 static void
 sisusbcon_clear(struct vc_data *c, int y, int x, int height, int width)
 {
@@ -392,8 +436,11 @@ sisusbcon_clear(struct vc_data *c, int y, int x, int height, int width)
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return;
 
-	
+	/* sisusb->lock is down */
 
+	/* Need to clear buffer ourselves, because the vt does
+	 * this AFTER calling us.
+	 */
 
 	dest = SISUSB_VADDR(x, y);
 
@@ -427,6 +474,7 @@ sisusbcon_clear(struct vc_data *c, int y, int x, int height, int width)
 	mutex_unlock(&sisusb->lock);
 }
 
+/* Interface routine */
 static void
 sisusbcon_bmove(struct vc_data *c, int sy, int sx,
 			 int dy, int dx, int height, int width)
@@ -441,7 +489,7 @@ sisusbcon_bmove(struct vc_data *c, int sy, int sx,
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return;
 
-	
+	/* sisusb->lock is down */
 
 	cols = sisusb->sisusb_num_columns;
 
@@ -459,6 +507,7 @@ sisusbcon_bmove(struct vc_data *c, int sy, int sx,
 	mutex_unlock(&sisusb->lock);
 }
 
+/* interface routine */
 static int
 sisusbcon_switch(struct vc_data *c)
 {
@@ -466,29 +515,37 @@ sisusbcon_switch(struct vc_data *c)
 	ssize_t written;
 	int length;
 
+	/* Returnvalue 0 means we have fully restored screen,
+	 *	and vt doesn't need to call do_update_region().
+	 * Returnvalue != 0 naturally means the opposite.
+	 */
 
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return 0;
 
-	
+	/* sisusb->lock is down */
 
-	
+	/* Don't write to screen if in gfx mode */
 	if (sisusb_is_inactive(c, sisusb)) {
 		mutex_unlock(&sisusb->lock);
 		return 0;
 	}
 
+	/* That really should not happen. It would mean we are
+	 * being called while the vc is using its private buffer
+	 * as origin.
+	 */
 	if (c->vc_origin == (unsigned long)c->vc_screenbuf) {
 		mutex_unlock(&sisusb->lock);
 		dev_dbg(&sisusb->sisusb_dev->dev, "ASSERT ORIGIN != SCREENBUF!\n");
 		return 0;
 	}
 
-	
+	/* Check that we don't copy too much */
 	length = min((int)c->vc_screenbuf_size,
 			(int)(sisusb->scrbuf + sisusb->scrbuf_size - c->vc_origin));
 
-	
+	/* Restore the screen contents */
 	sisusbcon_memcpyw((u16 *)c->vc_origin, (u16 *)c->vc_screenbuf,
 								length);
 
@@ -501,41 +558,46 @@ sisusbcon_switch(struct vc_data *c)
 	return 0;
 }
 
+/* interface routine */
 static void
 sisusbcon_save_screen(struct vc_data *c)
 {
 	struct sisusb_usb_data *sisusb;
 	int length;
 
+	/* Save the current screen contents to vc's private
+	 * buffer.
+	 */
 
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return;
 
-	
+	/* sisusb->lock is down */
 
 	if (sisusb_is_inactive(c, sisusb)) {
 		mutex_unlock(&sisusb->lock);
 		return;
 	}
 
-	
+	/* Check that we don't copy too much */
 	length = min((int)c->vc_screenbuf_size,
 			(int)(sisusb->scrbuf + sisusb->scrbuf_size - c->vc_origin));
 
-	
+	/* Save the screen contents to vc's private buffer */
 	sisusbcon_memcpyw((u16 *)c->vc_screenbuf, (u16 *)c->vc_origin,
 								length);
 
 	mutex_unlock(&sisusb->lock);
 }
 
+/* interface routine */
 static int
 sisusbcon_set_palette(struct vc_data *c, unsigned char *table)
 {
 	struct sisusb_usb_data *sisusb;
 	int i, j;
 
-	
+	/* Return value not used by vt */
 
 	if (!CON_IS_VISIBLE(c))
 		return -EINVAL;
@@ -543,7 +605,7 @@ sisusbcon_set_palette(struct vc_data *c, unsigned char *table)
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return -EINVAL;
 
-	
+	/* sisusb->lock is down */
 
 	if (sisusb_is_inactive(c, sisusb)) {
 		mutex_unlock(&sisusb->lock);
@@ -566,6 +628,7 @@ sisusbcon_set_palette(struct vc_data *c, unsigned char *table)
 	return 0;
 }
 
+/* interface routine */
 static int
 sisusbcon_blank(struct vc_data *c, int blank, int mode_switch)
 {
@@ -577,7 +640,7 @@ sisusbcon_blank(struct vc_data *c, int blank, int mode_switch)
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return 0;
 
-	
+	/* sisusb->lock is down */
 
 	if (mode_switch)
 		sisusb->is_gfx = blank ? 1 : 0;
@@ -589,7 +652,7 @@ sisusbcon_blank(struct vc_data *c, int blank, int mode_switch)
 
 	switch (blank) {
 
-	case 1:		
+	case 1:		/* Normal blanking: Clear screen */
 	case -1:
 		sisusbcon_memsetw((u16 *)c->vc_origin,
 				c->vc_video_erase_char,
@@ -603,9 +666,9 @@ sisusbcon_blank(struct vc_data *c, int blank, int mode_switch)
 		ret = 1;
 		break;
 
-	default:	
+	default:	/* VESA blanking */
 		switch (blank) {
-		case 0: 
+		case 0: /* Unblank */
 			sr1   = 0x00;
 			cr17  = 0x80;
 			pmreg = 0x00;
@@ -648,6 +711,7 @@ sisusbcon_blank(struct vc_data *c, int blank, int mode_switch)
 	return ret;
 }
 
+/* interface routine */
 static int
 sisusbcon_scrolldelta(struct vc_data *c, int lines)
 {
@@ -655,19 +719,19 @@ sisusbcon_scrolldelta(struct vc_data *c, int lines)
 	int margin = c->vc_size_row * 4;
 	int ul, we, p, st;
 
-	
+	/* The return value does not seem to be used */
 
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return 0;
 
-	
+	/* sisusb->lock is down */
 
 	if (sisusb_is_inactive(c, sisusb)) {
 		mutex_unlock(&sisusb->lock);
 		return 0;
 	}
 
-	if (!lines)		
+	if (!lines)		/* Turn scrollback off */
 		c->vc_visible_origin = c->vc_origin;
 	else {
 
@@ -708,6 +772,7 @@ sisusbcon_scrolldelta(struct vc_data *c, int lines)
 	return 1;
 }
 
+/* Interface routine */
 static void
 sisusbcon_cursor(struct vc_data *c, int mode)
 {
@@ -717,7 +782,7 @@ sisusbcon_cursor(struct vc_data *c, int mode)
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return;
 
-	
+	/* sisusb->lock is down */
 
 	if (sisusb_is_inactive(c, sisusb)) {
 		mutex_unlock(&sisusb->lock);
@@ -784,8 +849,13 @@ sisusbcon_scroll_area(struct vc_data *c, struct sisusb_usb_data *sisusb,
 	u16 eattr = c->vc_video_erase_char;
 	ssize_t written;
 
-	
+	/* sisusb->lock is down */
 
+	/* Scroll an area which does not match the
+	 * visible screen's dimensions. This needs
+	 * to be done separately, as it does not
+	 * use hardware panning.
+	 */
 
 	switch (dir) {
 
@@ -814,6 +884,7 @@ sisusbcon_scroll_area(struct vc_data *c, struct sisusb_usb_data *sisusb,
 	return 1;
 }
 
+/* Interface routine */
 static int
 sisusbcon_scroll(struct vc_data *c, int t, int b, int dir, int lines)
 {
@@ -825,6 +896,12 @@ sisusbcon_scroll(struct vc_data *c, int t, int b, int dir, int lines)
 	unsigned int delta = lines * c->vc_size_row;
 	u32 originoffset;
 
+	/* Returning != 0 means we have done the scrolling successfully.
+	 * Returning 0 makes vt do the scrolling on its own.
+	 * Note that con_scroll is only called if the console is
+	 * visible. In that case, the origin should be our buffer,
+	 * not the vt's private one.
+	 */
 
 	if (!lines)
 		return 1;
@@ -832,14 +909,14 @@ sisusbcon_scroll(struct vc_data *c, int t, int b, int dir, int lines)
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return 0;
 
-	
+	/* sisusb->lock is down */
 
 	if (sisusb_is_inactive(c, sisusb)) {
 		mutex_unlock(&sisusb->lock);
 		return 0;
 	}
 
-	
+	/* Special case */
 	if (t || b != c->vc_rows)
 		return sisusbcon_scroll_area(c, sisusb, t, b, dir, lines);
 
@@ -848,7 +925,7 @@ sisusbcon_scroll(struct vc_data *c, int t, int b, int dir, int lines)
 		sisusbcon_set_start_address(sisusb, c);
 	}
 
-	
+	/* limit amount to maximum realistic size */
 	if (lines > c->vc_rows)
 		lines = c->vc_rows;
 
@@ -930,16 +1007,21 @@ sisusbcon_scroll(struct vc_data *c, int t, int b, int dir, int lines)
 	return 1;
 }
 
+/* Interface routine */
 static int
 sisusbcon_set_origin(struct vc_data *c)
 {
 	struct sisusb_usb_data *sisusb;
 
+	/* Returning != 0 means we were successful.
+	 * Returning 0 will vt make to use its own
+	 *	screenbuffer as the origin.
+	 */
 
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return 0;
 
-	
+	/* sisusb->lock is down */
 
 	if (sisusb_is_inactive(c, sisusb) || sisusb->con_blanked) {
 		mutex_unlock(&sisusb->lock);
@@ -957,6 +1039,7 @@ sisusbcon_set_origin(struct vc_data *c)
 	return 1;
 }
 
+/* Interface routine */
 static int
 sisusbcon_resize(struct vc_data *c, unsigned int newcols, unsigned int newrows,
 		 unsigned int user)
@@ -971,6 +1054,12 @@ sisusbcon_resize(struct vc_data *c, unsigned int newcols, unsigned int newrows,
 
 	mutex_unlock(&sisusb->lock);
 
+	/* We are quite unflexible as regards resizing. The vt code
+	 * handles sizes where the line length isn't equal the pitch
+	 * quite badly. As regards the rows, our panning tricks only
+	 * work well if the number of rows equals the visible number
+	 * of rows.
+	 */
 
 	if (newcols != 80 || c->vc_scan_lines / fh != newrows)
 		return -EINVAL;
@@ -987,8 +1076,13 @@ sisusbcon_do_font_op(struct sisusb_usb_data *sisusb, int set, int slot,
 	u32 offset = 0;
 	u8 dummy;
 
-	
+	/* sisusb->lock is down */
 
+	/*
+	 * The default font is kept in slot 0.
+	 * A user font is loaded in slot 2 (256 ch)
+	 * or 2+3 (512 ch).
+	 */
 
 	if ((slot != 0 && slot != 2) || !fh) {
 		if (uplock)
@@ -999,7 +1093,7 @@ sisusbcon_do_font_op(struct sisusb_usb_data *sisusb, int set, int slot,
 	if (set)
 		sisusb->font_slot = slot;
 
-	
+	/* Default font is always 256 */
 	if (slot == 0)
 		ch512 = 0;
 	else
@@ -1007,17 +1101,17 @@ sisusbcon_do_font_op(struct sisusb_usb_data *sisusb, int set, int slot,
 
 	font_select = (slot == 0) ? 0x00 : (ch512 ? 0x0e : 0x0a);
 
-	err |= sisusb_setidxreg(sisusb, SISSR, 0x00, 0x01); 
-	err |= sisusb_setidxreg(sisusb, SISSR, 0x02, 0x04); 
-	err |= sisusb_setidxreg(sisusb, SISSR, 0x04, 0x07); 
-	err |= sisusb_setidxreg(sisusb, SISSR, 0x00, 0x03); 
+	err |= sisusb_setidxreg(sisusb, SISSR, 0x00, 0x01); /* Reset */
+	err |= sisusb_setidxreg(sisusb, SISSR, 0x02, 0x04); /* Write to plane 2 */
+	err |= sisusb_setidxreg(sisusb, SISSR, 0x04, 0x07); /* Memory mode a0-bf */
+	err |= sisusb_setidxreg(sisusb, SISSR, 0x00, 0x03); /* Reset */
 
 	if (err)
 		goto font_op_error;
 
-	err |= sisusb_setidxreg(sisusb, SISGR, 0x04, 0x03); 
-	err |= sisusb_setidxreg(sisusb, SISGR, 0x05, 0x00); 
-	err |= sisusb_setidxreg(sisusb, SISGR, 0x06, 0x00); 
+	err |= sisusb_setidxreg(sisusb, SISGR, 0x04, 0x03); /* Select plane read 2 */
+	err |= sisusb_setidxreg(sisusb, SISGR, 0x05, 0x00); /* Disable odd/even */
+	err |= sisusb_setidxreg(sisusb, SISGR, 0x06, 0x00); /* Address range a0-bf */
 
 	if (err)
 		goto font_op_error;
@@ -1040,6 +1134,10 @@ sisusbcon_do_font_op(struct sisusb_usb_data *sisusb, int set, int slot,
 					break;
 			}
 
+		/*
+		 * In 512-character mode, the character map is not contiguous if
+		 * we want to remain EGA compatible -- which we do
+		 */
 
 		if (ch512) {
 			if (set)
@@ -1066,25 +1164,28 @@ sisusbcon_do_font_op(struct sisusb_usb_data *sisusb, int set, int slot,
 	if (err)
 		goto font_op_error;
 
-	err |= sisusb_setidxreg(sisusb, SISSR, 0x00, 0x01); 
-	err |= sisusb_setidxreg(sisusb, SISSR, 0x02, 0x03); 
-	err |= sisusb_setidxreg(sisusb, SISSR, 0x04, 0x03); 
+	err |= sisusb_setidxreg(sisusb, SISSR, 0x00, 0x01); /* Reset */
+	err |= sisusb_setidxreg(sisusb, SISSR, 0x02, 0x03); /* Write to planes 0+1 */
+	err |= sisusb_setidxreg(sisusb, SISSR, 0x04, 0x03); /* Memory mode a0-bf */
 	if (set)
 		sisusb_setidxreg(sisusb, SISSR, 0x03, font_select);
-	err |= sisusb_setidxreg(sisusb, SISSR, 0x00, 0x03); 
+	err |= sisusb_setidxreg(sisusb, SISSR, 0x00, 0x03); /* Reset end */
 
 	if (err)
 		goto font_op_error;
 
-	err |= sisusb_setidxreg(sisusb, SISGR, 0x04, 0x00); 
-	err |= sisusb_setidxreg(sisusb, SISGR, 0x05, 0x10); 
-	err |= sisusb_setidxreg(sisusb, SISGR, 0x06, 0x06); 
+	err |= sisusb_setidxreg(sisusb, SISGR, 0x04, 0x00); /* Select plane read 0 */
+	err |= sisusb_setidxreg(sisusb, SISGR, 0x05, 0x10); /* Enable odd/even */
+	err |= sisusb_setidxreg(sisusb, SISGR, 0x06, 0x06); /* Address range b8-bf */
 
 	if (err)
 		goto font_op_error;
 
 	if ((set) && (ch512 != sisusb->current_font_512)) {
 
+		/* Font is shared among all our consoles.
+		 * And so is the hi_font_mask.
+		 */
 		for (i = 0; i < MAX_NR_CONSOLES; i++) {
 			struct vc_data *d = vc_cons[i].d;
 			if (d && d->vc_sw == &sisusb_con)
@@ -1093,6 +1194,9 @@ sisusbcon_do_font_op(struct sisusb_usb_data *sisusb, int set, int slot,
 
 		sisusb->current_font_512 = ch512;
 
+		/* color plane enable register:
+			256-char: enable intensity bit
+			512-char: disable intensity bit */
 		sisusb_getreg(sisusb, SISINPSTAT, &dummy);
 		sisusb_setreg(sisusb, SISAR, 0x12);
 		sisusb_setreg(sisusb, SISAR, ch512 ? 0x07 : 0x0f);
@@ -1104,17 +1208,22 @@ sisusbcon_do_font_op(struct sisusb_usb_data *sisusb, int set, int slot,
 
 	if (dorecalc) {
 
+		/*
+		 * Adjust the screen to fit a font of a certain height
+		 */
 
 		unsigned char ovr, vde, fsr;
 		int rows = 0, maxscan = 0;
 
 		if (c) {
 
-			
+			/* Number of video rows */
 			rows = c->vc_scan_lines / fh;
-			
+			/* Scan lines to actually display-1 */
 			maxscan = rows * fh - 1;
 
+			/*printk(KERN_DEBUG "sisusb recalc rows %d maxscan %d fh %d sl %d\n",
+				rows, maxscan, fh, c->vc_scan_lines);*/
 
 			sisusb_getidxreg(sisusb, SISCR, 0x07, &ovr);
 			vde = maxscan & 0xff;
@@ -1142,7 +1251,7 @@ sisusbcon_do_font_op(struct sisusb_usb_data *sisusb, int set, int slot,
 	if (dorecalc && c) {
 		int rows = c->vc_scan_lines / fh;
 
-		
+		/* Now adjust our consoles' size */
 
 		for (i = 0; i < MAX_NR_CONSOLES; i++) {
 			struct vc_data *vc = vc_cons[i].d;
@@ -1166,6 +1275,7 @@ font_op_error:
 	return -EIO;
 }
 
+/* Interface routine */
 static int
 sisusbcon_font_set(struct vc_data *c, struct console_font *font,
 							unsigned flags)
@@ -1179,8 +1289,12 @@ sisusbcon_font_set(struct vc_data *c, struct console_font *font,
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return -ENODEV;
 
-	
+	/* sisusb->lock is down */
 
+	/* Save the user-provided font into a buffer. This
+	 * is used for restoring text mode after quitting
+	 * from X and for the con_getfont routine.
+	 */
 	if (sisusb->font_backup) {
 		if (sisusb->font_backup_size < charcount) {
 			vfree(sisusb->font_backup);
@@ -1198,7 +1312,7 @@ sisusbcon_font_set(struct vc_data *c, struct console_font *font,
 		sisusb->font_backup_512 = (charcount == 512) ? 1 : 0;
 	}
 
-	
+	/* do_font_op ups sisusb->lock */
 
 	return sisusbcon_do_font_op(sisusb, 1, 2, font->data,
 			8192, (charcount == 512),
@@ -1206,6 +1320,7 @@ sisusbcon_font_set(struct vc_data *c, struct console_font *font,
 			c, font->height, 1);
 }
 
+/* Interface routine */
 static int
 sisusbcon_font_get(struct vc_data *c, struct console_font *font)
 {
@@ -1214,7 +1329,7 @@ sisusbcon_font_get(struct vc_data *c, struct console_font *font)
 	if (!(sisusb = sisusb_get_sisusb_lock_and_check(c->vc_num)))
 		return -ENODEV;
 
-	
+	/* sisusb->lock is down */
 
 	font->width = 8;
 	font->height = c->vc_font.height;
@@ -1230,7 +1345,7 @@ sisusbcon_font_get(struct vc_data *c, struct console_font *font)
 		return -ENODEV;
 	}
 
-	
+	/* Copy 256 chars only, like vgacon */
 	memcpy(font->data, sisusb->font_backup, 256 * 32);
 
 	mutex_unlock(&sisusb->lock);
@@ -1238,6 +1353,9 @@ sisusbcon_font_get(struct vc_data *c, struct console_font *font)
 	return 0;
 }
 
+/*
+ *  The console `switch' structure for the sisusb console
+ */
 
 static const struct consw sisusb_con = {
 	.owner =		THIS_MODULE,
@@ -1263,6 +1381,7 @@ static const struct consw sisusb_con = {
 	.con_resize =		sisusbcon_resize,
 };
 
+/* Our very own dummy console driver */
 
 static const char *sisusbdummycon_startup(void)
 {
@@ -1314,7 +1433,7 @@ sisusb_console_init(struct sisusb_usb_data *sisusb, int first, int last)
 
 	mutex_lock(&sisusb->lock);
 
-	
+	/* Erm.. that should not happen */
 	if (sisusb->haveconsole || !sisusb->SiS_Pr) {
 		mutex_unlock(&sisusb->lock);
 		return 1;
@@ -1330,7 +1449,7 @@ sisusb_console_init(struct sisusb_usb_data *sisusb, int first, int last)
 		return 1;
 	}
 
-	
+	/* If gfxcore not initialized or no consoles given, quit graciously */
 	if (!sisusb->gfxinit || first < 1 || last < 1) {
 		mutex_unlock(&sisusb->lock);
 		return 0;
@@ -1340,28 +1459,28 @@ sisusb_console_init(struct sisusb_usb_data *sisusb, int first, int last)
 	sisusb->sisusb_cursor_size_from = -1;
 	sisusb->sisusb_cursor_size_to   = -1;
 
-	
+	/* Set up text mode (and upload  default font) */
 	if (sisusb_reset_text_mode(sisusb, 1)) {
 		mutex_unlock(&sisusb->lock);
 		dev_err(&sisusb->sisusb_dev->dev, "Failed to set up text mode\n");
 		return 1;
 	}
 
-	
+	/* Initialize some gfx registers */
 	sisusb_initialize(sisusb);
 
 	for (i = first - 1; i <= last - 1; i++) {
-		
+		/* Save sisusb for our interface routines */
 		mysisusbs[i] = sisusb;
 	}
 
-	
+	/* Initial console setup */
 	sisusb->sisusb_num_columns = 80;
 
-	
+	/* Use a 32K buffer (matches b8000-bffff area) */
 	sisusb->scrbuf_size = 32 * 1024;
 
-	
+	/* Allocate screen buffer */
 	if (!(sisusb->scrbuf = (unsigned long)vmalloc(sisusb->scrbuf_size))) {
 		mutex_unlock(&sisusb->lock);
 		dev_err(&sisusb->sisusb_dev->dev, "Failed to allocate screen buffer\n");
@@ -1370,7 +1489,7 @@ sisusb_console_init(struct sisusb_usb_data *sisusb, int first, int last)
 
 	mutex_unlock(&sisusb->lock);
 
-	
+	/* Now grab the desired console(s) */
 	ret = take_over_console(&sisusb_con, first - 1, last - 1, 0);
 
 	if (!ret)
@@ -1388,12 +1507,39 @@ sisusb_console_exit(struct sisusb_usb_data *sisusb)
 {
 	int i;
 
+	/* This is called if the device is disconnected
+	 * and while disconnect and lock semaphores
+	 * are up. This should be save because we
+	 * can't lose our sisusb any other way but by
+	 * disconnection (and hence, the disconnect
+	 * sema is for protecting all other access
+	 * functions from disconnection, not the
+	 * other way round).
+	 */
 
+	/* Now what do we do in case of disconnection:
+	 * One alternative would be to simply call
+	 * give_up_console(). Nah, not a good idea.
+	 * give_up_console() is obviously buggy as it
+	 * only discards the consw pointer from the
+	 * driver_map, but doesn't adapt vc->vc_sw
+	 * of the affected consoles. Hence, the next
+	 * call to any of the console functions will
+	 * eventually take a trip to oops county.
+	 * Also, give_up_console for some reason
+	 * doesn't decrement our module refcount.
+	 * Instead, we switch our consoles to a private
+	 * dummy console. This, of course, keeps our
+	 * refcount up as well, but it works perfectly.
+	 */
 
 	if (sisusb->haveconsole) {
 		for (i = 0; i < MAX_NR_CONSOLES; i++)
 			if (sisusb->havethisconsole[i])
 				take_over_console(&sisusb_dummy_con, i, i, 0);
+				/* At this point, con_deinit for all our
+				 * consoles is executed by take_over_console().
+				 */
 		sisusb->haveconsole = 0;
 	}
 
@@ -1412,7 +1558,7 @@ void __init sisusb_init_concode(void)
 		mysisusbs[i] = NULL;
 }
 
-#endif 
+#endif /* INCL_CON */
 
 
 

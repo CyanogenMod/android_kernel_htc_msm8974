@@ -56,6 +56,9 @@ struct tc1100_data {
 
 static struct tc1100_data suspend_data;
 
+/* --------------------------------------------------------------------------
+				Device Management
+   -------------------------------------------------------------------------- */
 
 static int get_state(u32 *out, u8 instance)
 {
@@ -129,7 +132,13 @@ static int set_state(u32 *in, u8 instance)
 	return 0;
 }
 
+/* --------------------------------------------------------------------------
+				FS Interface (/sys)
+   -------------------------------------------------------------------------- */
 
+/*
+ * Read/ write bool sysfs macro
+ */
 #define show_set_bool(value, instance) \
 static ssize_t \
 show_bool_##value(struct device *dev, struct device_attribute *attr, \
@@ -168,6 +177,9 @@ static struct attribute_group tc1100_attribute_group = {
 	.attrs	= tc1100_attributes,
 };
 
+/* --------------------------------------------------------------------------
+				Driver Model
+   -------------------------------------------------------------------------- */
 
 static int __init tc1100_probe(struct platform_device *device)
 {

@@ -36,10 +36,12 @@ MODULE_AUTHOR("Theodore Kilgore <kilgota@auburn.edu>");
 MODULE_DESCRIPTION("GSPCA/JEILINJ USB Camera Driver");
 MODULE_LICENSE("GPL");
 
+/* Default timeouts, in ms */
 #define JEILINJ_CMD_TIMEOUT 500
 #define JEILINJ_CMD_DELAY 160
 #define JEILINJ_DATA_TIMEOUT 1000
 
+/* Maximum transfer size to use. */
 #define JEILINJ_MAX_TRANSFER 0x200
 #define FRAME_HEADER_LEN 0x10
 #define FRAME_START 0xFFFFFFFF
@@ -49,8 +51,8 @@ enum {
 	SPORTSCAM_DV15,
 };
 
-#define CAMQUALITY_MIN 0	
-#define CAMQUALITY_MAX 97	
+#define CAMQUALITY_MIN 0	/* highest cam quality */
+#define CAMQUALITY_MAX 97	/* lowest cam quality  */
 
 enum e_ctrl {
 	LIGHTFREQ,
@@ -58,17 +60,18 @@ enum e_ctrl {
 	RED,
 	GREEN,
 	BLUE,
-	NCTRLS		
+	NCTRLS		/* number of controls */
 };
 
+/* Structure to hold all of our device specific stuff */
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 	struct gspca_ctrl ctrls[NCTRLS];
 	int blocks_left;
 	const struct v4l2_pix_format *cap_mode;
-	
+	/* Driver stuff */
 	u8 type;
-	u8 quality;				 
+	u8 quality;				 /* image quality */
 #define QUALITY_MIN 35
 #define QUALITY_MAX 85
 #define QUALITY_DEF 85
@@ -81,6 +84,7 @@ struct jlj_command {
 	unsigned char delay;
 };
 
+/* AFAICT these cameras will only do 320x240. */
 static struct v4l2_pix_format jlj_mode[] = {
 	{ 320, 240, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
 		.bytesperline = 320,
@@ -94,7 +98,12 @@ static struct v4l2_pix_format jlj_mode[] = {
 		.priv = 0}
 };
 
+/*
+ * cam uses endpoint 0x03 to send commands, 0x84 for read commands,
+ * and 0x82 for bulk transfer.
+ */
 
+/* All commands are two bytes only */
 static void jlj_write2(struct gspca_dev *gspca_dev, unsigned char *command)
 {
 	int retval;
@@ -112,6 +121,7 @@ static void jlj_write2(struct gspca_dev *gspca_dev, unsigned char *command)
 	}
 }
 
+/* Responses are one byte only */
 static void jlj_read1(struct gspca_dev *gspca_dev, unsigned char response)
 {
 	int retval;
@@ -152,7 +162,7 @@ static void setcamquality(struct gspca_dev *gspca_dev)
 	};
 	u8 camquality;
 
-	
+	/* adapt camera quality from jpeg quality */
 	camquality = ((QUALITY_MAX - sd->quality) * CAMQUALITY_MAX)
 		/ (QUALITY_MAX - QUALITY_MIN);
 	quality_commands[0][1] += camquality;
@@ -223,8 +233,8 @@ static const struct ctrl sd_ctrls[NCTRLS] = {
 		.id      = V4L2_CID_POWER_LINE_FREQUENCY,
 		.type    = V4L2_CTRL_TYPE_MENU,
 		.name    = "Light frequency filter",
-		.minimum = V4L2_CID_POWER_LINE_FREQUENCY_DISABLED, 
-		.maximum = V4L2_CID_POWER_LINE_FREQUENCY_60HZ, 
+		.minimum = V4L2_CID_POWER_LINE_FREQUENCY_DISABLED, /* 1 */
+		.maximum = V4L2_CID_POWER_LINE_FREQUENCY_60HZ, /* 2 */
 		.step    = 1,
 		.default_value = V4L2_CID_POWER_LINE_FREQUENCY_60HZ,
 	    },
@@ -298,7 +308,7 @@ static int jlj_start(struct gspca_dev *gspca_dev)
 		{{0x71, 0x81 - gspca_dev->curr_mode}, 0, 0},
 		{{0x70, 0x04}, 0, JEILINJ_CMD_DELAY},
 		{{0x95, 0x70}, 1, 0},
-		{{0x71, 0x00}, 0, 0},   
+		{{0x71, 0x00}, 0, 0},   /* start streaming ??*/
 		{{0x70, 0x08}, 0, JEILINJ_CMD_DELAY},
 		{{0x95, 0x70}, 1, 0},
 #define SPORTSCAM_DV15_CMD_SIZE 9
@@ -319,6 +329,9 @@ static int jlj_start(struct gspca_dev *gspca_dev)
 	};
 
 	sd->blocks_left = 0;
+	/* Under Windows, USB spy shows that only the 9 first start
+	 * commands are used for SPORTSCAM_DV15 webcam
+	 */
 	if (sd->type == SPORTSCAM_DV15)
 		start_commands_size = SPORTSCAM_DV15_CMD_SIZE;
 	else
@@ -352,15 +365,15 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 		PDEBUG(D_PACK, "bad length");
 		goto discard;
 	}
-	
+	/* check if it's start of frame */
 	header_marker = ((u32 *)data)[0];
 	if (header_marker == FRAME_START) {
 		sd->blocks_left = data[0x0a] - 1;
 		PDEBUG(D_STREAM, "blocks_left = 0x%x", sd->blocks_left);
-		
+		/* Start a new frame, and add the JPEG header, first thing */
 		gspca_frame_add(gspca_dev, FIRST_PACKET,
 				sd->jpeg_hdr, JPEG_HDR_SZ);
-		
+		/* Toss line 0 of data block 0, keep the rest. */
 		gspca_frame_add(gspca_dev, INTER_PACKET,
 				data + FRAME_HEADER_LEN,
 				JEILINJ_MAX_TRANSFER - FRAME_HEADER_LEN);
@@ -378,10 +391,11 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 		goto discard;
 	return;
 discard:
-	
+	/* Discard data until a new frame starts. */
 	gspca_dev->last_packet_type = DISCARD_PACKET;
 }
 
+/* This function is called at probe time just before sd_init */
 static int sd_config(struct gspca_dev *gspca_dev,
 		const struct usb_device_id *id)
 {
@@ -412,14 +426,14 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 	};
 
 	for (;;) {
-		
+		/* get the image remaining blocks */
 		usb_bulk_msg(gspca_dev->dev,
 				gspca_dev->urb[0]->pipe,
 				gspca_dev->urb[0]->transfer_buffer,
 				JEILINJ_MAX_TRANSFER, NULL,
 				JEILINJ_DATA_TIMEOUT);
 
-		
+		/* search for 0xff 0xd9  (EOF for JPEG) */
 		i = 0;
 		buf = gspca_dev->urb[0]->transfer_buffer;
 		while ((i < (JEILINJ_MAX_TRANSFER - 1)) &&
@@ -427,7 +441,7 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 			i++;
 
 		if (i != (JEILINJ_MAX_TRANSFER - 1))
-			
+			/* last remaining block found */
 			break;
 		}
 
@@ -435,18 +449,20 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 		jlj_write2(gspca_dev, stop_commands[i]);
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	return gspca_dev->usb_err;
 }
 
+/* Set up for getting frames. */
 static int sd_start(struct gspca_dev *gspca_dev)
 {
 	struct sd *dev = (struct sd *) gspca_dev;
 
-	
+	/* create the JPEG header */
 	jpeg_define(dev->jpeg_hdr, gspca_dev->height, gspca_dev->width,
-			0x21);          
+			0x21);          /* JPEG 422 */
 	jpeg_set_qual(dev->jpeg_hdr, dev->quality);
 	PDEBUG(D_STREAM, "Start streaming at %dx%d",
 		gspca_dev->height, gspca_dev->width);
@@ -454,6 +470,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	return gspca_dev->usb_err;
 }
 
+/* Table of supported USB devices */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x0979, 0x0280), .driver_info = SAKAR_57379},
 	{USB_DEVICE(0x0979, 0x0270), .driver_info = SPORTSCAM_DV15},
@@ -468,13 +485,13 @@ static int sd_querymenu(struct gspca_dev *gspca_dev,
 	switch (menu->id) {
 	case V4L2_CID_POWER_LINE_FREQUENCY:
 		switch (menu->index) {
-		case 0:	
+		case 0:	/* V4L2_CID_POWER_LINE_FREQUENCY_DISABLED */
 			strcpy((char *) menu->name, "disable");
 			return 0;
-		case 1:	
+		case 1:	/* V4L2_CID_POWER_LINE_FREQUENCY_50HZ */
 			strcpy((char *) menu->name, "50 Hz");
 			return 0;
-		case 2:	
+		case 2:	/* V4L2_CID_POWER_LINE_FREQUENCY_60HZ */
 			strcpy((char *) menu->name, "60 Hz");
 			return 0;
 		}
@@ -514,6 +531,7 @@ static int sd_get_jcomp(struct gspca_dev *gspca_dev,
 }
 
 
+/* sub-driver description */
 static const struct sd_desc sd_desc_sakar_57379 = {
 	.name   = MODULE_NAME,
 	.config = sd_config,
@@ -523,6 +541,7 @@ static const struct sd_desc sd_desc_sakar_57379 = {
 	.pkt_scan = sd_pkt_scan,
 };
 
+/* sub-driver description */
 static const struct sd_desc sd_desc_sportscam_dv15 = {
 	.name   = MODULE_NAME,
 	.config = sd_config,
@@ -542,6 +561,7 @@ static const struct sd_desc *sd_desc[2] = {
 	&sd_desc_sportscam_dv15
 };
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 		const struct usb_device_id *id)
 {

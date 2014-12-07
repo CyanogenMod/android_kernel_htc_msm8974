@@ -23,6 +23,9 @@
  *	Ported driver to kernel 2.6
  */
 
+/*
+ *      Includes, defines, variables, module parameters, ...
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -39,43 +42,54 @@
 #include <linux/uaccess.h>
 #include <linux/io.h>
 
+/* Module and version information */
 #define ESB_VERSION "0.05"
 #define ESB_MODULE_NAME "i6300ESB timer"
 #define ESB_DRIVER_NAME ESB_MODULE_NAME ", v" ESB_VERSION
 
-#define ESB_CONFIG_REG  0x60            
-#define ESB_LOCK_REG    0x68            
+/* PCI configuration registers */
+#define ESB_CONFIG_REG  0x60            /* Config register                   */
+#define ESB_LOCK_REG    0x68            /* WDT lock register                 */
 
-#define ESB_TIMER1_REG (BASEADDR + 0x00)
-#define ESB_TIMER2_REG (BASEADDR + 0x04)
-#define ESB_GINTSR_REG (BASEADDR + 0x08)
-#define ESB_RELOAD_REG (BASEADDR + 0x0c)
+/* Memory mapped registers */
+#define ESB_TIMER1_REG (BASEADDR + 0x00)/* Timer1 value after each reset     */
+#define ESB_TIMER2_REG (BASEADDR + 0x04)/* Timer2 value after each reset     */
+#define ESB_GINTSR_REG (BASEADDR + 0x08)/* General Interrupt Status Register */
+#define ESB_RELOAD_REG (BASEADDR + 0x0c)/* Reload register                   */
 
-#define ESB_WDT_FUNC    (0x01 << 2)   
-#define ESB_WDT_ENABLE  (0x01 << 1)   
-#define ESB_WDT_LOCK    (0x01 << 0)   
+/* Lock register bits */
+#define ESB_WDT_FUNC    (0x01 << 2)   /* Watchdog functionality            */
+#define ESB_WDT_ENABLE  (0x01 << 1)   /* Enable WDT                        */
+#define ESB_WDT_LOCK    (0x01 << 0)   /* Lock (nowayout)                   */
 
-#define ESB_WDT_REBOOT  (0x01 << 5)   
-#define ESB_WDT_FREQ    (0x01 << 2)   
-#define ESB_WDT_INTTYPE (0x03 << 0)   
+/* Config register bits */
+#define ESB_WDT_REBOOT  (0x01 << 5)   /* Enable reboot on timeout          */
+#define ESB_WDT_FREQ    (0x01 << 2)   /* Decrement frequency               */
+#define ESB_WDT_INTTYPE (0x03 << 0)   /* Interrupt type on timer1 timeout  */
 
-#define ESB_WDT_TIMEOUT (0x01 << 9)    
-#define ESB_WDT_RELOAD  (0x01 << 8)    
+/* Reload register bits */
+#define ESB_WDT_TIMEOUT (0x01 << 9)    /* Watchdog timed out                */
+#define ESB_WDT_RELOAD  (0x01 << 8)    /* prevent timeout                   */
 
-#define ESB_UNLOCK1     0x80            
-#define ESB_UNLOCK2     0x86            
+/* Magic constants */
+#define ESB_UNLOCK1     0x80            /* Step 1 to unlock reset registers  */
+#define ESB_UNLOCK2     0x86            /* Step 2 to unlock reset registers  */
 
+/* internal variables */
 static void __iomem *BASEADDR;
-static DEFINE_SPINLOCK(esb_lock); 
+static DEFINE_SPINLOCK(esb_lock); /* Guards the hardware */
 static unsigned long timer_alive;
 static struct pci_dev *esb_pci;
-static unsigned short triggered; 
+static unsigned short triggered; /* The status of the watchdog upon boot */
 static char esb_expect_close;
 
+/* We can only use 1 card due to the /dev/watchdog restriction */
 static int cards_found;
 
+/* module parameters */
+/* 30 sec default heartbeat (1 < heartbeat < 2*1023) */
 #define WATCHDOG_HEARTBEAT 30
-static int heartbeat = WATCHDOG_HEARTBEAT;  
+static int heartbeat = WATCHDOG_HEARTBEAT;  /* in seconds */
 module_param(heartbeat, int, 0);
 MODULE_PARM_DESC(heartbeat,
 		"Watchdog heartbeat in seconds. (1<heartbeat<2046, default="
@@ -87,6 +101,9 @@ MODULE_PARM_DESC(nowayout,
 		"Watchdog cannot be stopped once started (default="
 				__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
+/*
+ * Some i6300ESB specific functions
+ */
 
 /*
  * Prepare for reloading the timer by unlocking the proper registers.
@@ -107,7 +124,7 @@ static int esb_timer_start(void)
 	spin_lock(&esb_lock);
 	esb_unlock_registers();
 	writew(ESB_WDT_RELOAD, ESB_RELOAD_REG);
-	
+	/* Enable or Enable + Lock? */
 	val = ESB_WDT_ENABLE | (nowayout ? ESB_WDT_LOCK : 0x00);
 	pci_write_config_byte(esb_pci, ESB_LOCK_REG, val);
 	spin_unlock(&esb_lock);
@@ -119,15 +136,15 @@ static int esb_timer_stop(void)
 	u8 val;
 
 	spin_lock(&esb_lock);
-	
+	/* First, reset timers as suggested by the docs */
 	esb_unlock_registers();
 	writew(ESB_WDT_RELOAD, ESB_RELOAD_REG);
-	
+	/* Then disable the WDT */
 	pci_write_config_byte(esb_pci, ESB_LOCK_REG, 0x0);
 	pci_read_config_byte(esb_pci, ESB_LOCK_REG, &val);
 	spin_unlock(&esb_lock);
 
-	
+	/* Returns 0 if the timer was disabled, non-zero otherwise */
 	return val & ESB_WDT_ENABLE;
 }
 
@@ -136,7 +153,7 @@ static void esb_timer_keepalive(void)
 	spin_lock(&esb_lock);
 	esb_unlock_registers();
 	writew(ESB_WDT_RELOAD, ESB_RELOAD_REG);
-	
+	/* FIXME: Do we need to flush anything here? */
 	spin_unlock(&esb_lock);
 }
 
@@ -149,36 +166,43 @@ static int esb_timer_set_heartbeat(int time)
 
 	spin_lock(&esb_lock);
 
+	/* We shift by 9, so if we are passed a value of 1 sec,
+	 * val will be 1 << 9 = 512, then write that to two
+	 * timers => 2 * 512 = 1024 (which is decremented at 1KHz)
+	 */
 	val = time << 9;
 
-	
+	/* Write timer 1 */
 	esb_unlock_registers();
 	writel(val, ESB_TIMER1_REG);
 
-	
+	/* Write timer 2 */
 	esb_unlock_registers();
 	writel(val, ESB_TIMER2_REG);
 
-	
+	/* Reload */
 	esb_unlock_registers();
 	writew(ESB_WDT_RELOAD, ESB_RELOAD_REG);
 
-	
+	/* FIXME: Do we need to flush everything out? */
 
-	
+	/* Done */
 	heartbeat = time;
 	spin_unlock(&esb_lock);
 	return 0;
 }
 
+/*
+ *	/dev/watchdog handling
+ */
 
 static int esb_open(struct inode *inode, struct file *file)
 {
-	
+	/* /dev/watchdog can only be opened once */
 	if (test_and_set_bit(0, &timer_alive))
 		return -EBUSY;
 
-	
+	/* Reload and activate timer */
 	esb_timer_start();
 
 	return nonseekable_open(inode, file);
@@ -186,7 +210,7 @@ static int esb_open(struct inode *inode, struct file *file)
 
 static int esb_release(struct inode *inode, struct file *file)
 {
-	
+	/* Shut off the timer. */
 	if (esb_expect_close == 42)
 		esb_timer_stop();
 	else {
@@ -201,13 +225,17 @@ static int esb_release(struct inode *inode, struct file *file)
 static ssize_t esb_write(struct file *file, const char __user *data,
 			  size_t len, loff_t *ppos)
 {
-	
+	/* See if we got the magic character 'V' and reload the timer */
 	if (len) {
 		if (!nowayout) {
 			size_t i;
 
+			/* note: just in case someone wrote the magic character
+			 * five months ago... */
 			esb_expect_close = 0;
 
+			/* scan to see whether or not we got the
+			 * magic character */
 			for (i = 0; i != len; i++) {
 				char c;
 				if (get_user(c, data + i))
@@ -217,7 +245,7 @@ static ssize_t esb_write(struct file *file, const char __user *data,
 			}
 		}
 
-		
+		/* someone wrote to us, we should reload the timer */
 		esb_timer_keepalive();
 	}
 	return len;
@@ -275,7 +303,7 @@ static long esb_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (esb_timer_set_heartbeat(new_heartbeat))
 			return -EINVAL;
 		esb_timer_keepalive();
-		
+		/* Fall */
 	}
 	case WDIOC_GETTIMEOUT:
 		return put_user(heartbeat, p);
@@ -284,6 +312,9 @@ static long esb_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	}
 }
 
+/*
+ *      Kernel Interfaces
+ */
 
 static const struct file_operations esb_fops = {
 	.owner = THIS_MODULE,
@@ -300,12 +331,18 @@ static struct miscdevice esb_miscdev = {
 	.fops = &esb_fops,
 };
 
+/*
+ * Data for PCI driver interface
+ */
 static DEFINE_PCI_DEVICE_TABLE(esb_pci_tbl) = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ESB_9), },
-	{ 0, },                 
+	{ 0, },                 /* End of list */
 };
 MODULE_DEVICE_TABLE(pci, esb_pci_tbl);
 
+/*
+ *      Init & exit routines
+ */
 
 static unsigned char __devinit esb_getdevice(struct pci_dev *pdev)
 {
@@ -321,12 +358,12 @@ static unsigned char __devinit esb_getdevice(struct pci_dev *pdev)
 
 	BASEADDR = pci_ioremap_bar(pdev, 0);
 	if (BASEADDR == NULL) {
-		
+		/* Something's wrong here, BASEADDR has to be set */
 		pr_err("failed to get BASEADDR\n");
 		goto err_release;
 	}
 
-	
+	/* Done */
 	esb_pci = pdev;
 	return 1;
 
@@ -343,27 +380,39 @@ static void __devinit esb_initdevice(void)
 	u8 val1;
 	u16 val2;
 
+	/*
+	 * Config register:
+	 * Bit    5 : 0 = Enable WDT_OUTPUT
+	 * Bit    2 : 0 = set the timer frequency to the PCI clock
+	 * divided by 2^15 (approx 1KHz).
+	 * Bits 1:0 : 11 = WDT_INT_TYPE Disabled.
+	 * The watchdog has two timers, it can be setup so that the
+	 * expiry of timer1 results in an interrupt and the expiry of
+	 * timer2 results in a reboot. We set it to not generate
+	 * any interrupts as there is not much we can do with it
+	 * right now.
+	 */
 	pci_write_config_word(esb_pci, ESB_CONFIG_REG, 0x0003);
 
-	
+	/* Check that the WDT isn't already locked */
 	pci_read_config_byte(esb_pci, ESB_LOCK_REG, &val1);
 	if (val1 & ESB_WDT_LOCK)
 		pr_warn("nowayout already set\n");
 
-	
+	/* Set the timer to watchdog mode and disable it for now */
 	pci_write_config_byte(esb_pci, ESB_LOCK_REG, 0x00);
 
-	
+	/* Check if the watchdog was previously triggered */
 	esb_unlock_registers();
 	val2 = readw(ESB_RELOAD_REG);
 	if (val2 & ESB_WDT_TIMEOUT)
 		triggered = WDIOF_CARDRESET;
 
-	
+	/* Reset WDT_TIMEOUT flag and timers */
 	esb_unlock_registers();
 	writew((ESB_WDT_TIMEOUT | ESB_WDT_RELOAD), ESB_RELOAD_REG);
 
-	
+	/* And set the correct timeout value */
 	esb_timer_set_heartbeat(heartbeat);
 }
 
@@ -382,20 +431,22 @@ static int __devinit esb_probe(struct pci_dev *pdev,
 		return -ENODEV;
 	}
 
-	
+	/* Check whether or not the hardware watchdog is there */
 	if (!esb_getdevice(pdev) || esb_pci == NULL)
 		return -ENODEV;
 
+	/* Check that the heartbeat value is within it's range;
+	   if not reset to the default */
 	if (heartbeat < 0x1 || heartbeat > 2 * 0x03ff) {
 		heartbeat = WATCHDOG_HEARTBEAT;
 		pr_info("heartbeat value must be 1<heartbeat<2046, using %d\n",
 			heartbeat);
 	}
 
-	
+	/* Initialize the watchdog and make sure it does not run */
 	esb_initdevice();
 
-	
+	/* Register the watchdog so that userspace has access to it */
 	ret = misc_register(&esb_miscdev);
 	if (ret != 0) {
 		pr_err("cannot register miscdev on minor=%d (err=%d)\n",
@@ -416,11 +467,11 @@ err_unmap:
 
 static void __devexit esb_remove(struct pci_dev *pdev)
 {
-	
+	/* Stop the timer before we leave */
 	if (!nowayout)
 		esb_timer_stop();
 
-	
+	/* Deregister */
 	misc_deregister(&esb_miscdev);
 	iounmap(BASEADDR);
 	pci_release_region(esb_pci, 0);

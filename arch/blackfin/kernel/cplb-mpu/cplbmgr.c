@@ -15,6 +15,13 @@
 #include <asm/cplbinit.h>
 #include <asm/mmu_context.h>
 
+/*
+ * WARNING
+ *
+ * This file is compiled with certain -ffixed-reg options.  We have to
+ * make sure not to call any functions here that could clobber these
+ * registers.
+ */
 
 int page_mask_nelts;
 int page_mask_order;
@@ -30,12 +37,20 @@ int nr_cplb_flush[NR_CPUS];
 #define MGR_ATTR
 #endif
 
+/*
+ * Given the contents of the status register, return the index of the
+ * CPLB that caused the fault.
+ */
 static inline int faulting_cplb_index(int status)
 {
 	int signbits = __builtin_bfin_norm_fr1x32(status & 0xFFFF);
 	return 30 - signbits;
 }
 
+/*
+ * Given the contents of the status register and the DCPLB_DATA contents,
+ * return true if a write access should be permitted.
+ */
 static inline int write_permitted(int status, unsigned long data)
 {
 	if (status & FAULT_USERSUPV)
@@ -44,8 +59,12 @@ static inline int write_permitted(int status, unsigned long data)
 		return !!(data & CPLB_USER_WR);
 }
 
+/* Counters to implement round-robin replacement.  */
 static int icplb_rr_index[NR_CPUS], dcplb_rr_index[NR_CPUS];
 
+/*
+ * Find an ICPLB entry to be evicted and return its index.
+ */
 MGR_ATTR static int evict_one_icplb(unsigned int cpu)
 {
 	int i;
@@ -161,13 +180,18 @@ MGR_ATTR static noinline int icplb_miss(unsigned int cpu)
 
 	nr_icplb_miss[cpu]++;
 
-	
+	/* If inside the uncached DMA region, fault.  */
 	if (addr >= _ramend - DMA_UNCACHED_REGION && addr < _ramend)
 		return CPLB_PROT_VIOL;
 
 	if (status & FAULT_USERSUPV)
 		nr_icplb_supv_miss[cpu]++;
 
+	/*
+	 * First, try to find a CPLB that matches this address.  If we
+	 * find one, then the fact that we're in the miss handler means
+	 * that the instruction crosses a page boundary.
+	 */
 	for (idx = first_switched_icplb; idx < MAX_CPLBS; idx++) {
 		if (icplb_tbl[cpu][idx].data & CPLB_VALID) {
 			unsigned long this_addr = icplb_tbl[cpu][idx].addr;
@@ -181,6 +205,10 @@ MGR_ATTR static noinline int icplb_miss(unsigned int cpu)
 	i_data = CPLB_VALID | CPLB_PORTPRIO | PAGE_SIZE_4KB;
 
 #ifdef CONFIG_BFIN_EXTMEM_ICACHEABLE
+	/*
+	 * Normal RAM, and possibly the reserved memory area, are
+	 * cacheable.
+	 */
 	if (addr < _ramend ||
 	    (addr < physical_mem_end && reserved_mem_icache_on))
 		i_data |= CPLB_L1_CHBL | ANOMALY_05000158_WORKAROUND;
@@ -216,6 +244,12 @@ MGR_ATTR static noinline int icplb_miss(unsigned int cpu)
 		if (reserved_mem_icache_on)
 			i_data |= CPLB_L1_CHBL;
 	} else {
+		/*
+		 * Two cases to distinguish - a supervisor access must
+		 * necessarily be for a module page; we grant it
+		 * unconditionally (could do better here in the future).
+		 * Otherwise, check the x bitmap of the current process.
+		 */
 		if (!(status & FAULT_USERSUPV)) {
 			unsigned long *mask = current_rwx_mask[cpu];
 

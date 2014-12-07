@@ -20,6 +20,11 @@
  *   along with this program; if not, write to the Free Software
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
+/*
+ * Deal with reading in of a soundfont.  Code follows the OSS way
+ * of doing things so that the old sfxload utility can be used.
+ * Everything may change when there is an alsa way of doing things.
+ */
 #include <asm/uaccess.h>
 #include <linux/slab.h>
 #include <linux/export.h>
@@ -27,6 +32,7 @@
 #include <sound/soundfont.h>
 #include <sound/seq_oss_legacy.h>
 
+/* Prototypes for static functions */
 
 static int open_patch(struct snd_sf_list *sflist, const char __user *data,
 		      int count, int client);
@@ -66,6 +72,9 @@ static int get_index(int bank, int instr, int key);
 static void snd_sf_init(struct snd_sf_list *sflist);
 static void snd_sf_clear(struct snd_sf_list *sflist);
 
+/*
+ * lock access to sflist
+ */
 static void
 lock_preset(struct snd_sf_list *sflist)
 {
@@ -77,6 +86,9 @@ lock_preset(struct snd_sf_list *sflist)
 }
 
 
+/*
+ * remove lock
+ */
 static void
 unlock_preset(struct snd_sf_list *sflist)
 {
@@ -88,6 +100,9 @@ unlock_preset(struct snd_sf_list *sflist)
 }
 
 
+/*
+ * close the patch if the patch was opened by this client.
+ */
 int
 snd_soundfont_close_check(struct snd_sf_list *sflist, int client)
 {
@@ -102,6 +117,14 @@ snd_soundfont_close_check(struct snd_sf_list *sflist, int client)
 }
 
 
+/*
+ * Deal with a soundfont patch.  Any driver could use these routines
+ * although it was designed for the AWE64.
+ *
+ * The sample_write and callargs pararameters allow a callback into
+ * the actual driver to write sample data to the board or whatever
+ * it wants to do with it.
+ */
 int
 snd_soundfont_load(struct snd_sf_list *sflist, const void __user *data,
 		   long count, int client)
@@ -135,14 +158,14 @@ snd_soundfont_load(struct snd_sf_list *sflist, const void __user *data,
 	}
 
 	if (patch.type == SNDRV_SFNT_OPEN_PATCH) {
-		
+		/* grab sflist to open */
 		lock_preset(sflist);
 		rc = open_patch(sflist, data, count, client);
 		unlock_preset(sflist);
 		return rc;
 	}
 
-	
+	/* check if other client already opened patch */
 	spin_lock_irqsave(&sflist->lock, flags);
 	if (sflist->open_client != client) {
 		spin_unlock_irqrestore(&sflist->lock, flags);
@@ -163,7 +186,7 @@ snd_soundfont_load(struct snd_sf_list *sflist, const void __user *data,
 		rc = close_patch(sflist);
 		break;
 	case SNDRV_SFNT_REPLACE_DATA:
-		
+		/*rc = replace_data(&patch, data, count);*/
 		break;
 	case SNDRV_SFNT_MAP_PRESET:
 		rc = load_map(sflist, data, count);
@@ -172,7 +195,7 @@ snd_soundfont_load(struct snd_sf_list *sflist, const void __user *data,
 		rc = probe_data(sflist, patch.optarg);
 		break;
 	case SNDRV_SFNT_REMOVE_INFO:
-		
+		/* patch must be opened */
 		if (!sflist->currsf) {
 			snd_printk(KERN_ERR "soundfont: remove_info: "
 				   "patch not opened\n");
@@ -194,6 +217,7 @@ snd_soundfont_load(struct snd_sf_list *sflist, const void __user *data,
 }
 
 
+/* check if specified type is special font (GUS or preset-alias) */
 static inline int
 is_special_type(int type)
 {
@@ -203,6 +227,7 @@ is_special_type(int type)
 }
 
 
+/* open patch; create sf list */
 static int
 open_patch(struct snd_sf_list *sflist, const char __user *data,
 	   int count, int client)
@@ -238,12 +263,15 @@ open_patch(struct snd_sf_list *sflist, const char __user *data,
 	return 0;
 }
 
+/*
+ * Allocate a new soundfont structure.
+ */
 static struct snd_soundfont *
 newsf(struct snd_sf_list *sflist, int type, char *name)
 {
 	struct snd_soundfont *sf;
 
-	
+	/* check the shared fonts */
 	if (type & SNDRV_SFNT_PAT_SHARED) {
 		for (sf = sflist->fonts; sf; sf = sf->next) {
 			if (is_identical_font(sf, type, name)) {
@@ -252,14 +280,14 @@ newsf(struct snd_sf_list *sflist, int type, char *name)
 		}
 	}
 
-	
+	/* not found -- create a new one */
 	sf = kzalloc(sizeof(*sf), GFP_KERNEL);
 	if (sf == NULL)
 		return NULL;
 	sf->id = sflist->fonts_size;
 	sflist->fonts_size++;
 
-	
+	/* prepend this record */
 	sf->next = sflist->fonts;
 	sflist->fonts = sf;
 
@@ -272,6 +300,7 @@ newsf(struct snd_sf_list *sflist, int type, char *name)
 	return sf;
 }
 
+/* check if the given name matches to the existing list */
 static int
 is_identical_font(struct snd_soundfont *sf, int type, unsigned char *name)
 {
@@ -281,6 +310,9 @@ is_identical_font(struct snd_soundfont *sf, int type, unsigned char *name)
 		 memcmp(sf->name, name, SNDRV_SFNT_PATCH_NAME_LEN) == 0));
 }
 
+/*
+ * Close the current patch.
+ */
 static int
 close_patch(struct snd_sf_list *sflist)
 {
@@ -297,18 +329,22 @@ close_patch(struct snd_sf_list *sflist)
 
 }
 
+/* probe sample in the current list -- nothing to be loaded */
 static int
 probe_data(struct snd_sf_list *sflist, int sample_id)
 {
-	
+	/* patch must be opened */
 	if (sflist->currsf) {
-		
+		/* search the specified sample by optarg */
 		if (find_sample(sflist->currsf, sample_id))
 			return 0;
 	}
 	return -EINVAL;
 }
 
+/*
+ * increment zone counter
+ */
 static void
 set_zone_counter(struct snd_sf_list *sflist, struct snd_soundfont *sf,
 		 struct snd_sf_zone *zp)
@@ -318,6 +354,9 @@ set_zone_counter(struct snd_sf_list *sflist, struct snd_soundfont *sf,
 		sflist->zone_locked = sflist->zone_counter;
 }
 
+/*
+ * allocate a new zone record
+ */
 static struct snd_sf_zone *
 sf_zone_new(struct snd_sf_list *sflist, struct snd_soundfont *sf)
 {
@@ -335,6 +374,9 @@ sf_zone_new(struct snd_sf_list *sflist, struct snd_soundfont *sf)
 }
 
 
+/*
+ * increment sample counter
+ */
 static void
 set_sample_counter(struct snd_sf_list *sflist, struct snd_soundfont *sf,
 		   struct snd_sf_sample *sp)
@@ -344,6 +386,9 @@ set_sample_counter(struct snd_sf_list *sflist, struct snd_soundfont *sf,
 		sflist->sample_locked = sflist->sample_counter;
 }
 
+/*
+ * allocate a new sample list record
+ */
 static struct snd_sf_sample *
 sf_sample_new(struct snd_sf_list *sflist, struct snd_soundfont *sf)
 {
@@ -359,11 +404,15 @@ sf_sample_new(struct snd_sf_list *sflist, struct snd_soundfont *sf)
 	return sp;
 }
 
+/*
+ * delete sample list -- this is an exceptional job.
+ * only the last allocated sample can be deleted.
+ */
 static void
 sf_sample_delete(struct snd_sf_list *sflist, struct snd_soundfont *sf,
 		 struct snd_sf_sample *sp)
 {
-	
+	/* only last sample is accepted */
 	if (sp == sf->samples) {
 		sf->samples = sp->next;
 		kfree(sp);
@@ -371,6 +420,7 @@ sf_sample_delete(struct snd_sf_list *sflist, struct snd_soundfont *sf,
 }
 
 
+/* load voice map */
 static int
 load_map(struct snd_sf_list *sflist, const void __user *data, int count)
 {
@@ -378,7 +428,7 @@ load_map(struct snd_sf_list *sflist, const void __user *data, int count)
 	struct snd_soundfont *sf;
 	struct soundfont_voice_map map;
 
-	
+	/* get the link info */
 	if (count < (int)sizeof(map))
 		return -EINVAL;
 	if (copy_from_user(&map, data, sizeof(map)))
@@ -400,20 +450,20 @@ load_map(struct snd_sf_list *sflist, const void __user *data, int count)
 		    zp->v.start == map.src_instr &&
 		    zp->v.end == map.src_bank &&
 		    zp->v.fixkey == map.src_key) {
-			
-			
+			/* the same mapping is already present */
+			/* relink this record to the link head */
 			if (prevp) {
 				prevp->next = zp->next;
 				zp->next = sf->zones;
 				sf->zones = zp;
 			}
-			
+			/* update the counter */
 			set_zone_counter(sflist, sf, zp);
 			return 0;
 		}
 	}
 
-	
+	/* create a new zone */
 	if ((zp = sf_zone_new(sflist, sf)) == NULL)
 		return -ENOMEM;
 
@@ -435,6 +485,7 @@ load_map(struct snd_sf_list *sflist, const void __user *data, int count)
 }
 
 
+/* remove the present instrument layers */
 static int
 remove_info(struct snd_sf_list *sflist, struct snd_soundfont *sf,
 	    int bank, int instr)
@@ -447,7 +498,7 @@ remove_info(struct snd_sf_list *sflist, struct snd_soundfont *sf,
 		next = p->next;
 		if (! p->mapped &&
 		    p->bank == bank && p->instr == instr) {
-			
+			/* remove this layer */
 			if (prev)
 				prev->next = next;
 			else
@@ -463,6 +514,10 @@ remove_info(struct snd_sf_list *sflist, struct snd_soundfont *sf,
 }
 
 
+/*
+ * Read an info record from the user buffer and save it on the current
+ * open soundfont.
+ */
 static int
 load_info(struct snd_sf_list *sflist, const void __user *data, long count)
 {
@@ -471,7 +526,7 @@ load_info(struct snd_sf_list *sflist, const void __user *data, long count)
 	struct soundfont_voice_rec_hdr hdr;
 	int i;
 
-	
+	/* patch must be opened */
 	if ((sf = sflist->currsf) == NULL)
 		return -EINVAL;
 
@@ -503,6 +558,8 @@ load_info(struct snd_sf_list *sflist, const void __user *data, long count)
 
 	switch (hdr.write_mode) {
 	case SNDRV_SFNT_WR_EXCLUSIVE:
+		/* exclusive mode - if the instrument already exists,
+		   return error */
 		for (zone = sf->zones; zone; zone = zone->next) {
 			if (!zone->mapped &&
 			    zone->bank == hdr.bank &&
@@ -511,7 +568,7 @@ load_info(struct snd_sf_list *sflist, const void __user *data, long count)
 		}
 		break;
 	case SNDRV_SFNT_WR_REPLACE:
-		
+		/* replace mode - remove the instrument if it already exists */
 		remove_info(sflist, sf, hdr.bank, hdr.instr);
 		break;
 	}
@@ -519,7 +576,7 @@ load_info(struct snd_sf_list *sflist, const void __user *data, long count)
 	for (i = 0; i < hdr.nvoices; i++) {
 		struct snd_sf_zone tmpzone;
 
-		
+		/* copy awe_voice_info parameters */
 		if (copy_from_user(&tmpzone.v, data, sizeof(tmpzone.v))) {
 			return -EFAULT;
 		}
@@ -534,17 +591,17 @@ load_info(struct snd_sf_list *sflist, const void __user *data, long count)
 		if (tmpzone.v.mode & SNDRV_SFNT_MODE_INIT_PARM)
 			init_voice_parm(&tmpzone.v.parm);
 
-		
+		/* create a new zone */
 		if ((zone = sf_zone_new(sflist, sf)) == NULL) {
 			return -ENOMEM;
 		}
 
-		
+		/* copy the temporary data */
 		zone->bank = tmpzone.bank;
 		zone->instr = tmpzone.instr;
 		zone->v = tmpzone.v;
 
-		
+		/* look up the sample */
 		zone->sample = set_sample(sf, &zone->v);
 	}
 
@@ -552,6 +609,7 @@ load_info(struct snd_sf_list *sflist, const void __user *data, long count)
 }
 
 
+/* initialize voice_info record */
 static void
 init_voice_info(struct soundfont_voice_info *avp)
 {
@@ -570,6 +628,12 @@ init_voice_info(struct soundfont_voice_info *avp)
 	init_voice_parm(&avp->parm);
 }
 
+/* initialize voice_parm record:
+ * Env1/2: delay=0, attack=0, hold=0, sustain=0, decay=0, release=0.
+ * Vibrato and Tremolo effects are zero.
+ * Cutoff is maximum.
+ * Chorus and Reverb effects are zero.
+ */
 static void
 init_voice_parm(struct soundfont_voice_parm *pp)
 {
@@ -591,6 +655,7 @@ init_voice_parm(struct soundfont_voice_parm *pp)
 	pp->cutoff = 0xff;
 }	
 
+/* search the specified sample */
 static struct snd_sf_sample *
 set_sample(struct snd_soundfont *sf, struct soundfont_voice_info *avp)
 {
@@ -600,17 +665,23 @@ set_sample(struct snd_soundfont *sf, struct soundfont_voice_info *avp)
 	if (sample == NULL)
 		return NULL;
 
+	/* add in the actual sample offsets:
+	 * The voice_info addresses define only the relative offset
+	 * from sample pointers.  Here we calculate the actual DRAM
+	 * offset from sample pointers.
+	 */
 	avp->start += sample->v.start;
 	avp->end += sample->v.end;
 	avp->loopstart += sample->v.loopstart;
 	avp->loopend += sample->v.loopend;
 
-	
+	/* copy mode flags */
 	avp->sample_mode = sample->v.mode_flags;
 
 	return sample;
 }
 
+/* find the sample pointer with the given id in the soundfont */
 static struct snd_sf_sample *
 find_sample(struct snd_soundfont *sf, int sample_id)
 {
@@ -641,7 +712,7 @@ load_data(struct snd_sf_list *sflist, const void __user *data, long count)
 	struct snd_sf_sample *sp;
 	long off;
 
-	
+	/* patch must be opened */
 	if ((sf = sflist->currsf) == NULL)
 		return -EINVAL;
 
@@ -656,15 +727,15 @@ load_data(struct snd_sf_list *sflist, const void __user *data, long count)
 	if (sample_info.size != (count-off)/2)
 		return -EINVAL;
 
-	
+	/* Check for dup */
 	if (find_sample(sf, sample_info.sample)) {
-		
+		/* if shared sample, skip this data */
 		if (sf->type & SNDRV_SFNT_PAT_SHARED)
 			return 0;
 		return -EINVAL;
 	}
 
-	
+	/* Allocate a new sample structure */
 	if ((sp = sf_sample_new(sflist, sf)) == NULL)
 		return -ENOMEM;
 
@@ -673,6 +744,9 @@ load_data(struct snd_sf_list *sflist, const void __user *data, long count)
 	sp->v.dummy = 0;
 	sp->v.truesize = sp->v.size;
 
+	/*
+	 * If there is wave data then load it.
+	 */
 	if (sp->v.size > 0) {
 		int  rc;
 		rc = sflist->callback.sample_new
@@ -689,6 +763,7 @@ load_data(struct snd_sf_list *sflist, const void __user *data, long count)
 }
 
 
+/* log2_tbl[i] = log2(i+128) * 0x10000 */
 static int log_tbl[129] = {
 	0x70000, 0x702df, 0x705b9, 0x7088e, 0x70b5d, 0x70e26, 0x710eb, 0x713aa,
 	0x71663, 0x71918, 0x71bc8, 0x71e72, 0x72118, 0x723b9, 0x72655, 0x728ed,
@@ -709,6 +784,16 @@ static int log_tbl[129] = {
 	0x80000,
 };
 
+/* convert from linear to log value
+ *
+ * conversion: value = log2(amount / base) * ratio
+ *
+ * argument:
+ *   amount = linear value (unsigned, 32bit max)
+ *   offset = base offset (:= log2(base) * 0x10000)
+ *   ratio = division ratio
+ *
+ */
 int
 snd_sf_linear_to_log(unsigned int amount, int offset, int ratio)
 {
@@ -721,7 +806,7 @@ snd_sf_linear_to_log(unsigned int amount, int offset, int ratio)
 		amount <<= 1;
 	s = (amount >> 24) & 0x7f;
 	low = (amount >> 16) & 0xff;
-	
+	/* linear approxmimation by lower 8 bit */
 	v = (log_tbl[s + 1] * low + log_tbl[s] * (0x100 - low)) >> 8;
 	v -= offset;
 	v = (v * ratio) >> 16;
@@ -732,20 +817,31 @@ snd_sf_linear_to_log(unsigned int amount, int offset, int ratio)
 EXPORT_SYMBOL(snd_sf_linear_to_log);
 
 
-#define OFFSET_MSEC		653117		
-#define OFFSET_ABSCENT		851781		
-#define OFFSET_SAMPLERATE	1011119		
+#define OFFSET_MSEC		653117		/* base = 1000 */
+#define OFFSET_ABSCENT		851781		/* base = 8176 */
+#define OFFSET_SAMPLERATE	1011119		/* base = 44100 */
 
 #define ABSCENT_RATIO		1200
 #define TIMECENT_RATIO		1200
 #define SAMPLERATE_RATIO	4096
 
+/*
+ * mHz to abscent
+ * conversion: abscent = log2(MHz / 8176) * 1200
+ */
 static int
 freq_to_note(int mhz)
 {
 	return snd_sf_linear_to_log(mhz, OFFSET_ABSCENT, ABSCENT_RATIO);
 }
 
+/* convert Hz to AWE32 rate offset:
+ * sample pitch offset for the specified sample rate
+ * rate=44100 is no offset, each 4096 is 1 octave (twice).
+ * eg, when rate is 22050, this offset becomes -4096.
+ *
+ * conversion: offset = log2(Hz / 44100) * 4096
+ */
 static int
 calc_rate_offset(int hz)
 {
@@ -753,6 +849,7 @@ calc_rate_offset(int hz)
 }
 
 
+/* calculate GUS envelope time */
 static int
 calc_gus_envelope_time(int rate, int start, int end)
 {
@@ -768,7 +865,9 @@ calc_gus_envelope_time(int rate, int start, int end)
 	return (t * 10) / (p * 441);
 }
 
+/* convert envelope time parameter to soundfont parameters */
 
+/* attack & decay/release time table (msec) */
 static short attack_time_tbl[128] = {
 32767, 32767, 5989, 4235, 2994, 2518, 2117, 1780, 1497, 1373, 1259, 1154, 1058, 970, 890, 816,
 707, 691, 662, 634, 607, 581, 557, 533, 510, 489, 468, 448, 429, 411, 393, 377,
@@ -791,6 +890,7 @@ static short decay_time_tbl[128] = {
 43, 41, 39, 37, 36, 34, 33, 31, 30, 29, 28, 26, 25, 24, 23, 22,
 };
 
+/* delay time = 0x8000 - msec/92 */
 int
 snd_sf_calc_parm_hold(int msec)
 {
@@ -800,6 +900,7 @@ snd_sf_calc_parm_hold(int msec)
 	return val;
 }
 
+/* search an index for specified time from given time table */
 static int
 calc_parm_search(int msec, short *table)
 {
@@ -814,12 +915,14 @@ calc_parm_search(int msec, short *table)
 	return left;
 }
 
+/* attack time: search from time table */
 int
 snd_sf_calc_parm_attack(int msec)
 {
 	return calc_parm_search(msec, attack_time_tbl);
 }
 
+/* decay/release time: search from time table */
 int
 snd_sf_calc_parm_decay(int msec)
 {
@@ -841,6 +944,7 @@ int snd_sf_vol_table[128] = {
 #define calc_gus_sustain(val)  (0x7f - snd_sf_vol_table[(val)/2])
 #define calc_gus_attenuation(val)	snd_sf_vol_table[(val)/2]
 
+/* load GUS patch */
 static int
 load_guspatch(struct snd_sf_list *sflist, const char __user *data,
 	      long count, int client)
@@ -875,7 +979,7 @@ load_guspatch(struct snd_sf_list *sflist, const char __user *data,
 	smp->v.loopend = patch.loop_end;
 	smp->v.size = patch.len;
 
-	
+	/* set up mode flags */
 	smp->v.mode_flags = 0;
 	if (!(patch.mode & WAVE_16_BITS))
 		smp->v.mode_flags |= SNDRV_SFNT_SAMPLE_8BITS;
@@ -890,24 +994,27 @@ load_guspatch(struct snd_sf_list *sflist, const char __user *data,
 		smp->v.mode_flags |= SNDRV_SFNT_SAMPLE_REVERSE_LOOP;
 
 	if (patch.mode & WAVE_16_BITS) {
-		
+		/* convert to word offsets */
 		smp->v.size /= 2;
 		smp->v.end /= 2;
 		smp->v.loopstart /= 2;
 		smp->v.loopend /= 2;
 	}
-	
+	/*smp->v.loopend++;*/
 
 	smp->v.dummy = 0;
 	smp->v.truesize = 0;
 	smp->v.sf_id = sf->id;
 
-	
+	/* set up voice info */
 	if ((zone = sf_zone_new(sflist, sf)) == NULL) {
 		sf_sample_delete(sflist, sf, smp);
 		return -ENOMEM;
 	}
 
+	/*
+	 * load wave data
+	 */
 	if (sflist->callback.sample_new) {
 		rc = sflist->callback.sample_new
 			(sflist->callback.private_data, smp, sflist->memhdr,
@@ -916,20 +1023,20 @@ load_guspatch(struct snd_sf_list *sflist, const char __user *data,
 			sf_sample_delete(sflist, sf, smp);
 			return rc;
 		}
-		
+		/* memory offset is updated after */
 	}
 
-	
+	/* update the memory offset here */
 	sflist->mem_used += smp->v.truesize;
 
-	zone->v.sample = sample_id; 
+	zone->v.sample = sample_id; /* the last sample */
 	zone->v.rate_offset = calc_rate_offset(patch.base_freq);
 	note = freq_to_note(patch.base_note);
 	zone->v.root = note / 100;
 	zone->v.tune = -(note % 100);
 	zone->v.low = (freq_to_note(patch.low_note) + 99) / 100;
 	zone->v.high = freq_to_note(patch.high_note) / 100;
-	
+	/* panning position; -128 - 127 => 0-127 */
 	zone->v.pan = (patch.panning + 128) / 2;
 #if 0
 	snd_printk(KERN_DEBUG
@@ -938,8 +1045,8 @@ load_guspatch(struct snd_sf_list *sflist, const char __user *data,
 		   zone->v.root, zone->v.tune, zone->v.low, zone->v.high);
 #endif
 
-	
-	
+	/* detuning is ignored */
+	/* 6points volume envelope */
 	if (patch.mode & WAVE_ENVELOPES) {
 		int attack, hold, decay, release;
 		attack = calc_gus_envelope_time
@@ -976,31 +1083,31 @@ load_guspatch(struct snd_sf_list *sflist, const char __user *data,
 #endif
 	}
 
-	
+	/* fast release */
 	if (patch.mode & WAVE_FAST_RELEASE) {
 		zone->v.parm.volrelease = 0x807f;
 	}
 
-	
+	/* tremolo effect */
 	if (patch.mode & WAVE_TREMOLO) {
 		int rate = (patch.tremolo_rate * 1000 / 38) / 42;
 		zone->v.parm.tremfrq = ((patch.tremolo_depth / 2) << 8) | rate;
 	}
-	
+	/* vibrato effect */
 	if (patch.mode & WAVE_VIBRATO) {
 		int rate = (patch.vibrato_rate * 1000 / 38) / 42;
 		zone->v.parm.fm2frq2 = ((patch.vibrato_depth / 6) << 8) | rate;
 	}
 	
-	
+	/* scale_freq, scale_factor, volume, and fractions not implemented */
 
 	if (!(smp->v.mode_flags & SNDRV_SFNT_SAMPLE_SINGLESHOT))
 		zone->v.mode = SNDRV_SFNT_MODE_LOOPING;
 	else
 		zone->v.mode = 0;
 
-	
-	
+	/* append to the tail of the list */
+	/*zone->bank = ctrls[AWE_MD_GUS_BANK];*/
 	zone->bank = 0;
 	zone->instr = patch.instr_no;
 	zone->mapped = 0;
@@ -1008,12 +1115,13 @@ load_guspatch(struct snd_sf_list *sflist, const char __user *data,
 
 	zone->sample = set_sample(sf, &zone->v);
 
-	
+	/* rebuild preset now */
 	add_preset(sflist, zone);
 
 	return 0;
 }
 
+/* load GUS patch */
 int
 snd_soundfont_load_guspatch(struct snd_sf_list *sflist, const char __user *data,
 			    long count, int client)
@@ -1026,20 +1134,27 @@ snd_soundfont_load_guspatch(struct snd_sf_list *sflist, const char __user *data,
 }
 
 
+/*
+ * Rebuild the preset table.  This is like a hash table in that it allows
+ * quick access to the zone information.  For each preset there are zone
+ * structures linked by next_instr and by next_zone.  Former is the whole
+ * link for this preset, and latter is the link for zone (i.e. instrument/
+ * bank/key combination).
+ */
 static void
 rebuild_presets(struct snd_sf_list *sflist)
 {
 	struct snd_soundfont *sf;
 	struct snd_sf_zone *cur;
 
-	
+	/* clear preset table */
 	memset(sflist->presets, 0, sizeof(sflist->presets));
 
-	
+	/* search all fonts and insert each font */
 	for (sf = sflist->fonts; sf; sf = sf->next) {
 		for (cur = sf->zones; cur; cur = cur->next) {
 			if (! cur->mapped && cur->sample == NULL) {
-				
+				/* try again to search the corresponding sample */
 				cur->sample = set_sample(sf, &cur->v);
 				if (cur->sample == NULL)
 					continue;
@@ -1051,6 +1166,9 @@ rebuild_presets(struct snd_sf_list *sflist)
 }
 
 
+/*
+ * add the given zone to preset table
+ */
 static void
 add_preset(struct snd_sf_list *sflist, struct snd_sf_zone *cur)
 {
@@ -1059,27 +1177,30 @@ add_preset(struct snd_sf_list *sflist, struct snd_sf_zone *cur)
 
 	zone = search_first_zone(sflist, cur->bank, cur->instr, cur->v.low);
 	if (zone && zone->v.sf_id != cur->v.sf_id) {
-		
+		/* different instrument was already defined */
 		struct snd_sf_zone *p;
-		
+		/* compare the allocated time */
 		for (p = zone; p; p = p->next_zone) {
 			if (p->counter > cur->counter)
-				
+				/* the current is older.. skipped */
 				return;
 		}
-		
+		/* remove old zones */
 		delete_preset(sflist, zone);
-		zone = NULL; 
+		zone = NULL; /* do not forget to clear this! */
 	}
 
-	
+	/* prepend this zone */
 	if ((index = get_index(cur->bank, cur->instr, cur->v.low)) < 0)
 		return;
-	cur->next_zone = zone; 
-	cur->next_instr = sflist->presets[index]; 
+	cur->next_zone = zone; /* zone link */
+	cur->next_instr = sflist->presets[index]; /* preset table link */
 	sflist->presets[index] = cur;
 }
 
+/*
+ * delete the given zones from preset_table
+ */
 static void
 delete_preset(struct snd_sf_list *sflist, struct snd_sf_zone *zp)
 {
@@ -1115,6 +1236,10 @@ snd_soundfont_search_zone(struct snd_sf_list *sflist, int *notep, int vel,
 	int nvoices;
 	unsigned long flags;
 
+	/* this function is supposed to be called atomically,
+	 * so we check the lock.  if it's busy, just returns 0 to
+	 * tell the caller the busy state
+	 */
 	spin_lock_irqsave(&sflist->lock, flags);
 	if (sflist->presets_locked) {
 		spin_unlock_irqrestore(&sflist->lock, flags);
@@ -1133,6 +1258,9 @@ snd_soundfont_search_zone(struct snd_sf_list *sflist, int *notep, int vel,
 }
 
 
+/*
+ * search the first matching zone
+ */
 static struct snd_sf_zone *
 search_first_zone(struct snd_sf_list *sflist, int bank, int preset, int key)
 {
@@ -1149,6 +1277,9 @@ search_first_zone(struct snd_sf_list *sflist, int bank, int preset, int key)
 }
 
 
+/*
+ * search matching zones from sflist.  can be called recursively.
+ */
 static int
 search_zones(struct snd_sf_list *sflist, int *notep, int vel,
 	     int preset, int bank, struct snd_sf_zone **table,
@@ -1163,12 +1294,12 @@ search_zones(struct snd_sf_list *sflist, int *notep, int vel,
 		if (*notep >= zp->v.low && *notep <= zp->v.high &&
 		    vel >= zp->v.vellow && vel <= zp->v.velhigh) {
 			if (zp->mapped) {
-				
+				/* search preset mapping (aliasing) */
 				int key = zp->v.fixkey;
 				preset = zp->v.start;
 				bank = zp->v.end;
 
-				if (level > 5) 
+				if (level > 5) /* too deep alias level */
 					return 0;
 				if (key < 0)
 					key = *notep;
@@ -1189,6 +1320,11 @@ search_zones(struct snd_sf_list *sflist, int *notep, int vel,
 }
 
 
+/* calculate the index of preset table:
+ * drums are mapped from 128 to 255 according to its note key.
+ * other instruments are mapped from 0 to 127.
+ * if the index is out of range, return -1.
+ */
 static int
 get_index(int bank, int instr, int key)
 {
@@ -1203,6 +1339,9 @@ get_index(int bank, int instr, int key)
 	return index;
 }
 
+/*
+ * Initialise the sflist structure.
+ */
 static void
 snd_sf_init(struct snd_sf_list *sflist)
 {
@@ -1219,6 +1358,9 @@ snd_sf_init(struct snd_sf_list *sflist)
 	sflist->sample_locked = 0;
 }
 
+/*
+ * Release all list records
+ */
 static void
 snd_sf_clear(struct snd_sf_list *sflist)
 {
@@ -1246,6 +1388,9 @@ snd_sf_clear(struct snd_sf_list *sflist)
 }
 
 
+/*
+ * Create a new sflist structure
+ */
 struct snd_sf_list *
 snd_sf_new(struct snd_sf_callback *callback, struct snd_util_memhdr *hdr)
 {
@@ -1266,6 +1411,9 @@ snd_sf_new(struct snd_sf_callback *callback, struct snd_util_memhdr *hdr)
 }
 
 
+/*
+ * Free everything allocated off the sflist structure.
+ */
 void
 snd_sf_free(struct snd_sf_list *sflist)
 {
@@ -1281,6 +1429,10 @@ snd_sf_free(struct snd_sf_list *sflist)
 	kfree(sflist);
 }
 
+/*
+ * Remove all samples
+ * The soundcard should be silet before calling this function.
+ */
 int
 snd_soundfont_remove_samples(struct snd_sf_list *sflist)
 {
@@ -1293,6 +1445,10 @@ snd_soundfont_remove_samples(struct snd_sf_list *sflist)
 	return 0;
 }
 
+/*
+ * Remove unlocked samples.
+ * The soundcard should be silent before calling this function.
+ */
 int
 snd_soundfont_remove_unlocked(struct snd_sf_list *sflist)
 {
@@ -1305,7 +1461,7 @@ snd_soundfont_remove_unlocked(struct snd_sf_list *sflist)
 	if (sflist->callback.sample_reset)
 		sflist->callback.sample_reset(sflist->callback.private_data);
 
-	
+	/* to be sure */
 	memset(sflist->presets, 0, sizeof(sflist->presets));
 
 	for (sf = sflist->fonts; sf; sf = sf->next) {

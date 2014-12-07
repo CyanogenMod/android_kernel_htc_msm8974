@@ -35,6 +35,46 @@
 #include <net/sock.h>
 #include <net/gen_stats.h>
 
+/*
+   This code is NOT intended to be used for statistics collection,
+   its purpose is to provide a base for statistical multiplexing
+   for controlled load service.
+   If you need only statistics, run a user level daemon which
+   periodically reads byte counters.
+
+   Unfortunately, rate estimation is not a very easy task.
+   F.e. I did not find a simple way to estimate the current peak rate
+   and even failed to formulate the problem 8)8)
+
+   So I preferred not to built an estimator into the scheduler,
+   but run this task separately.
+   Ideally, it should be kernel thread(s), but for now it runs
+   from timers, which puts apparent top bounds on the number of rated
+   flows, has minimal overhead on small, but is enough
+   to handle controlled load service, sets of aggregates.
+
+   We measure rate over A=(1<<interval) seconds and evaluate EWMA:
+
+   avrate = avrate*(1-W) + rate*W
+
+   where W is chosen as negative power of 2: W = 2^(-ewma_log)
+
+   The resulting time constant is:
+
+   T = A/(-ln(1-W))
+
+
+   NOTES.
+
+   * avbps is scaled by 2^5, avpps is scaled by 2^10.
+   * both values are reported as 32 bit unsigned values. bps can
+     overflow for fast links : max speed being 34360Mbit/sec
+   * Minimal interval is HZ/4=250msec (it is the greatest common divisor
+     for HZ=100 and HZ=1024 8)), maximal interval
+     is (HZ*2^EST_MAX_INTERVAL)/4 = 8sec. Shorter intervals
+     are too expensive, longer ones can be implemented
+     at user level painlessly.
+ */
 
 #define EST_MAX_INTERVAL	5
 
@@ -61,8 +101,10 @@ struct gen_estimator_head
 
 static struct gen_estimator_head elist[EST_MAX_INTERVAL+1];
 
+/* Protects against NULL dereference */
 static DEFINE_RWLOCK(est_lock);
 
+/* Protects against soft lockup during large deletion */
 static struct rb_root est_root = RB_ROOT;
 static DEFINE_SPINLOCK(est_tree_lock);
 
@@ -144,6 +186,22 @@ struct gen_estimator *gen_find_node(const struct gnet_stats_basic_packed *bstats
 	return NULL;
 }
 
+/**
+ * gen_new_estimator - create a new rate estimator
+ * @bstats: basic statistics
+ * @rate_est: rate estimator statistics
+ * @stats_lock: statistics lock
+ * @opt: rate estimator configuration TLV
+ *
+ * Creates a new rate estimator with &bstats as source and &rate_est
+ * as destination. A new timer with the interval specified in the
+ * configuration TLV is created. Upon each interval, the latest statistics
+ * will be read from &bstats and the estimated rate will be stored in
+ * &rate_est with the statistics lock grabed during this period.
+ *
+ * Returns 0 on success or a negative error code.
+ *
+ */
 int gen_new_estimator(struct gnet_stats_basic_packed *bstats,
 		      struct gnet_stats_rate_est *rate_est,
 		      spinlock_t *stats_lock,
@@ -190,6 +248,15 @@ int gen_new_estimator(struct gnet_stats_basic_packed *bstats,
 }
 EXPORT_SYMBOL(gen_new_estimator);
 
+/**
+ * gen_kill_estimator - remove a rate estimator
+ * @bstats: basic statistics
+ * @rate_est: rate estimator statistics
+ *
+ * Removes the rate estimator specified by &bstats and &rate_est.
+ *
+ * Note : Caller should respect an RCU grace period before freeing stats_lock
+ */
 void gen_kill_estimator(struct gnet_stats_basic_packed *bstats,
 			struct gnet_stats_rate_est *rate_est)
 {
@@ -210,6 +277,18 @@ void gen_kill_estimator(struct gnet_stats_basic_packed *bstats,
 }
 EXPORT_SYMBOL(gen_kill_estimator);
 
+/**
+ * gen_replace_estimator - replace rate estimator configuration
+ * @bstats: basic statistics
+ * @rate_est: rate estimator statistics
+ * @stats_lock: statistics lock
+ * @opt: rate estimator configuration TLV
+ *
+ * Replaces the configuration of a rate estimator by calling
+ * gen_kill_estimator() and gen_new_estimator().
+ *
+ * Returns 0 on success or a negative error code.
+ */
 int gen_replace_estimator(struct gnet_stats_basic_packed *bstats,
 			  struct gnet_stats_rate_est *rate_est,
 			  spinlock_t *stats_lock, struct nlattr *opt)
@@ -219,6 +298,13 @@ int gen_replace_estimator(struct gnet_stats_basic_packed *bstats,
 }
 EXPORT_SYMBOL(gen_replace_estimator);
 
+/**
+ * gen_estimator_active - test if estimator is currently in use
+ * @bstats: basic statistics
+ * @rate_est: rate estimator statistics
+ *
+ * Returns true if estimator is active, and false if not.
+ */
 bool gen_estimator_active(const struct gnet_stats_basic_packed *bstats,
 			  const struct gnet_stats_rate_est *rate_est)
 {

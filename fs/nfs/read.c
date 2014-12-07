@@ -1,3 +1,11 @@
+/*
+ * linux/fs/nfs/read.c
+ *
+ * Block I/O for NFS
+ *
+ * Partial copy of Linus' read cache modifications to fs/nfs/file.c
+ * modified for async RPC by okir@monad.swb.de
+ */
 
 #include <linux/time.h>
 #include <linux/kernel.h>
@@ -79,6 +87,10 @@ static void nfs_readpage_truncate_uninitialised_page(struct nfs_read_data *data)
 
 	if (data->res.eof == 0 || remainder == 0)
 		return;
+	/*
+	 * Note: "remainder" can never be negative, since we check for
+	 * 	this in the XDR code.
+	 */
 	pages = &data->args.pages[base >> PAGE_CACHE_SHIFT];
 	base &= ~PAGE_CACHE_MASK;
 	pglen = PAGE_CACHE_SIZE - base;
@@ -178,7 +190,7 @@ int nfs_initiate_read(struct nfs_read_data *data, struct rpc_clnt *clnt,
 		.flags = RPC_TASK_ASYNC | swap_flags,
 	};
 
-	
+	/* Set up the initial task struct. */
 	NFS_PROTO(inode)->read_setup(data, &msg);
 
 	dprintk("NFS: %5u initiated read call (req %s/%lld, %u bytes @ "
@@ -197,6 +209,9 @@ int nfs_initiate_read(struct nfs_read_data *data, struct rpc_clnt *clnt,
 }
 EXPORT_SYMBOL_GPL(nfs_initiate_read);
 
+/*
+ * Set up the NFS read request struct
+ */
 static void nfs_read_rpcsetup(struct nfs_page *req, struct nfs_read_data *data,
 		unsigned int count, unsigned int offset)
 {
@@ -260,6 +275,19 @@ nfs_async_read_error(struct list_head *head)
 	}
 }
 
+/*
+ * Generate multiple requests to fill a single page.
+ *
+ * We optimize to reduce the number of read operations on the wire.  If we
+ * detect that we're reading a page, or an area of a page, that is past the
+ * end of file, we do not generate NFS read operations but just clear the
+ * parts of the page that would have come back zero from the server anyway.
+ *
+ * We rely on the cached value of i_size to make this determination; another
+ * client can fill pages on the server past our cached end-of-file, but we
+ * won't see the new data until our attribute cache is updated.  This is more
+ * or less conventional NFS client behavior.
+ */
 static int nfs_pagein_multi(struct nfs_pageio_descriptor *desc, struct list_head *res)
 {
 	struct nfs_page *req = nfs_list_entry(desc->pg_list.next);
@@ -355,6 +383,10 @@ static const struct nfs_pageio_ops nfs_pageio_read_ops = {
 	.pg_doio = nfs_generic_pg_readpages,
 };
 
+/*
+ * This is the callback from RPC telling us whether a reply was
+ * received or some error occurred (timeout or socket shutdown).
+ */
 int nfs_readpage_result(struct rpc_task *task, struct nfs_read_data *data)
 {
 	int status;
@@ -383,13 +415,13 @@ static void nfs_readpage_retry(struct rpc_task *task, struct nfs_read_data *data
 	if (resp->eof || resp->count == argp->count)
 		return;
 
-	
+	/* This is a short read! */
 	nfs_inc_stats(data->inode, NFSIOS_SHORTREAD);
-	
+	/* Has the server at least made some progress? */
 	if (resp->count == 0)
 		return;
 
-	
+	/* Yes, so retry the read at the end of the data */
 	data->mds_offset += resp->count;
 	argp->offset += resp->count;
 	argp->pgbase += resp->count;
@@ -397,6 +429,9 @@ static void nfs_readpage_retry(struct rpc_task *task, struct nfs_read_data *data
 	rpc_restart_call_prepare(task);
 }
 
+/*
+ * Handle a read reply that fills part of a page.
+ */
 static void nfs_readpage_result_partial(struct rpc_task *task, void *calldata)
 {
 	struct nfs_read_data *data = calldata;
@@ -457,11 +492,15 @@ static void nfs_readpage_set_pages_uptodate(struct nfs_read_data *data)
 		SetPageUptodate(*pages);
 	if (count == 0)
 		return;
-	
+	/* Was this a short read? */
 	if (data->res.eof || data->res.count == data->args.count)
 		SetPageUptodate(*pages);
 }
 
+/*
+ * This is the callback from RPC telling us whether a reply was
+ * received or some error occurred (timeout or socket shutdown).
+ */
 static void nfs_readpage_result_full(struct rpc_task *task, void *calldata)
 {
 	struct nfs_read_data *data = calldata;
@@ -470,6 +509,12 @@ static void nfs_readpage_result_full(struct rpc_task *task, void *calldata)
 		return;
 	if (task->tk_status < 0)
 		return;
+	/*
+	 * Note: nfs_readpage_retry may change the values of
+	 * data->args. In the multi-page case, we therefore need
+	 * to ensure that we call nfs_readpage_set_pages_uptodate()
+	 * first.
+	 */
 	nfs_readpage_truncate_uninitialised_page(data);
 	nfs_readpage_set_pages_uptodate(data);
 	nfs_readpage_retry(task, data);
@@ -494,6 +539,12 @@ static const struct rpc_call_ops nfs_read_full_ops = {
 	.rpc_release = nfs_readpage_release_full,
 };
 
+/*
+ * Read a page over NFS.
+ * We read the page synchronously in the following case:
+ *  -	The error flag is set for this page. This happens only when a
+ *	previous async read operation failed.
+ */
 int nfs_readpage(struct file *file, struct page *page)
 {
 	struct nfs_open_context *ctx;
@@ -609,10 +660,13 @@ int nfs_readpages(struct file *filp, struct address_space *mapping,
 	} else
 		desc.ctx = get_nfs_open_context(nfs_file_open_context(filp));
 
+	/* attempt to read as many of the pages as possible from the cache
+	 * - this returns -ENOBUFS immediately if the cookie is negative
+	 */
 	ret = nfs_readpages_from_fscache(desc.ctx, inode, mapping,
 					 pages, &nr_pages);
 	if (ret == 0)
-		goto read_complete; 
+		goto read_complete; /* all pages were read */
 
 	nfs_pageio_init_read(&pgio, inode);
 

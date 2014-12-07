@@ -30,6 +30,7 @@
 #include <net/sock.h>
 #include <net/phonet/pn_dev.h>
 
+/* Device address handling */
 
 static int fill_addr(struct sk_buff *skb, struct net_device *dev, u8 addr,
 		     u32 pid, u32 seq, int event);
@@ -83,7 +84,7 @@ static int addr_doit(struct sk_buff *skb, struct nlmsghdr *nlh, void *attr)
 		return -EINVAL;
 	pnaddr = nla_get_u8(tb[IFA_LOCAL]);
 	if (pnaddr & 3)
-		
+		/* Phonet addresses only have 6 high-order bits */
 		return -EINVAL;
 
 	dev = __dev_get_by_index(net, ifm->ifa_index);
@@ -160,6 +161,7 @@ out:
 	return skb->len;
 }
 
+/* Routes handling */
 
 static int fill_route(struct sk_buff *skb, struct net_device *dev, u8 dst,
 			u32 pid, u32 seq, int event)
@@ -241,7 +243,7 @@ static int route_doit(struct sk_buff *skb, struct nlmsghdr *nlh, void *attr)
 	if (tb[RTA_DST] == NULL || tb[RTA_OIF] == NULL)
 		return -EINVAL;
 	dst = nla_get_u8(tb[RTA_DST]);
-	if (dst & 3) 
+	if (dst & 3) /* Phonet addresses only have 6 high-order bits */
 		return -EINVAL;
 
 	dev = __dev_get_by_index(net, nla_get_u32(tb[RTA_OIF]));
@@ -292,7 +294,7 @@ int __init phonet_netlink_register(void)
 	if (err)
 		return err;
 
-	
+	/* Further __rtnl_register() cannot fail */
 	__rtnl_register(PF_PHONET, RTM_DELADDR, addr_doit, NULL, NULL);
 	__rtnl_register(PF_PHONET, RTM_GETADDR, NULL, getaddr_dumpit, NULL);
 	__rtnl_register(PF_PHONET, RTM_NEWROUTE, route_doit, NULL, NULL);

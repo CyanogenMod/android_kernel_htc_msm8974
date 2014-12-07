@@ -43,8 +43,23 @@ struct mthca_mgm {
 	__be32 qp[MTHCA_QP_PER_MGM];
 };
 
-static const u8 zero_gid[16];	
+static const u8 zero_gid[16];	/* automatically initialized to 0 */
 
+/*
+ * Caller must hold MCG table semaphore.  gid and mgm parameters must
+ * be properly aligned for command interface.
+ *
+ *  Returns 0 unless a firmware command error occurs.
+ *
+ * If GID is found in MGM or MGM is empty, *index = *hash, *prev = -1
+ * and *mgm holds MGM entry.
+ *
+ * if GID is found in AMGM, *index = index in AMGM, *prev = index of
+ * previous entry in hash chain and *mgm holds AMGM entry.
+ *
+ * If no AMGM exists for given gid, *index = -1, *prev = index of last
+ * entry in hash chain and *mgm holds end of hash chain.
+ */
 static int find_mgm(struct mthca_dev *dev,
 		    u8 *gid, struct mthca_mailbox *mgm_mailbox,
 		    u16 *hash, int *prev, int *index)
@@ -249,7 +264,7 @@ int mthca_multicast_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 		goto out;
 
 	if (prev == -1) {
-		
+		/* Remove entry from MGM */
 		int amgm_index_to_free = be32_to_cpu(mgm->next_gid_index) >> 6;
 		if (amgm_index_to_free) {
 			err = mthca_READ_MGM(dev, amgm_index_to_free,
@@ -271,7 +286,7 @@ int mthca_multicast_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 			mthca_free(&dev->mcg_table.alloc, amgm_index_to_free);
 		}
 	} else {
-		
+		/* Remove entry from AMGM */
 		int curr_next_index = be32_to_cpu(mgm->next_gid_index) >> 6;
 		err = mthca_READ_MGM(dev, prev, mailbox);
 		if (err) {

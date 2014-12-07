@@ -34,7 +34,7 @@ int elf_core_write_extra_phdrs(struct file *file, loff_t offset, size_t *size,
 		} else {
 			phdr.p_offset += ofs;
 		}
-		phdr.p_paddr = 0; 
+		phdr.p_paddr = 0; /* match other core phdrs */
 		*size += sizeof(phdr);
 		if (*size > limit || !dump_write(file, &phdr, sizeof(phdr)))
 			return 0;

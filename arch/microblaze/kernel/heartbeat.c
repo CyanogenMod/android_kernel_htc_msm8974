@@ -29,6 +29,12 @@ void heartbeat(void)
 
 		if (++cnt > period) {
 			cnt = 0;
+			/*
+			 * The hyperbolic function below modifies the heartbeat
+			 * period length in dependency of the current (5min)
+			 * load. It goes through the points f(0)=126, f(1)=86,
+			 * f(5)=51, f(inf)->30.
+			 */
 			period = ((672 << FSHIFT) / (5 * avenrun[0] +
 						(7 << FSHIFT))) + 30;
 			dist = period / 4;
@@ -57,7 +63,7 @@ void setup_heartbeat(void)
 		base_addr = (unsigned long) ioremap(base_addr, PAGE_SIZE);
 		printk(KERN_NOTICE "Heartbeat GPIO at 0x%x\n", base_addr);
 
-		
+		/* GPIO is configured as output */
 		prop = (int *) of_get_property(gpio, "xlnx,is-bidir", NULL);
 		if (prop)
 			out_be32(base_addr + 4, 0);

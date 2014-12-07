@@ -69,6 +69,9 @@
 #define OUR_NAME "sbc60xxwdt"
 #define PFX OUR_NAME ": "
 
+/*
+ * You must set these - The driver cannot probe for the settings
+ */
 
 static int wdt_stop = 0x45;
 module_param(wdt_stop, int, 0);
@@ -78,12 +81,26 @@ static int wdt_start = 0x443;
 module_param(wdt_start, int, 0);
 MODULE_PARM_DESC(wdt_start, "SBC60xx WDT 'start' io port (default 0x443)");
 
+/*
+ * The 60xx board can use watchdog timeout values from one second
+ * to several minutes.  The default is one second, so if we reset
+ * the watchdog every ~250ms we should be safe.
+ */
 
 #define WDT_INTERVAL (HZ/4+1)
 
+/*
+ * We must not require too good response from the userspace daemon.
+ * Here we require the userspace daemon to send us a heartbeat
+ * char to /dev/watchdog every 30 seconds.
+ * If the daemon pulses us every 25 seconds, we can still afford
+ * a 5 second scheduling delay on the (high priority) daemon. That
+ * should be sufficient for a box under any load.
+ */
 
-#define WATCHDOG_TIMEOUT 30		
-static int timeout = WATCHDOG_TIMEOUT;	
+#define WATCHDOG_TIMEOUT 30		/* 30 sec default timeout */
+static int timeout = WATCHDOG_TIMEOUT;	/* in seconds, multiplied by HZ to
+					   get seconds to wait for a ping */
 module_param(timeout, int, 0);
 MODULE_PARM_DESC(timeout,
 	"Watchdog timeout in seconds. (1<=timeout<=3600, default="
@@ -101,31 +118,40 @@ static unsigned long next_heartbeat;
 static unsigned long wdt_is_open;
 static char wdt_expect_close;
 
+/*
+ *	Whack the dog
+ */
 
 static void wdt_timer_ping(unsigned long data)
 {
+	/* If we got a heartbeat pulse within the WDT_US_INTERVAL
+	 * we agree to ping the WDT
+	 */
 	if (time_before(jiffies, next_heartbeat)) {
-		
+		/* Ping the WDT by reading from wdt_start */
 		inb_p(wdt_start);
-		
+		/* Re-set the timer interval */
 		mod_timer(&timer, jiffies + WDT_INTERVAL);
 	} else
 		pr_warn("Heartbeat lost! Will not ping the watchdog\n");
 }
 
+/*
+ * Utility routines
+ */
 
 static void wdt_startup(void)
 {
 	next_heartbeat = jiffies + (timeout * HZ);
 
-	
+	/* Start the timer */
 	mod_timer(&timer, jiffies + WDT_INTERVAL);
 	pr_info("Watchdog timer is now enabled\n");
 }
 
 static void wdt_turnoff(void)
 {
-	
+	/* Stop the timer */
 	del_timer(&timer);
 	inb_p(wdt_stop);
 	pr_info("Watchdog timer is now disabled...\n");
@@ -133,21 +159,28 @@ static void wdt_turnoff(void)
 
 static void wdt_keepalive(void)
 {
-	
+	/* user land ping */
 	next_heartbeat = jiffies + (timeout * HZ);
 }
 
+/*
+ * /dev/watchdog handling
+ */
 
 static ssize_t fop_write(struct file *file, const char __user *buf,
 						size_t count, loff_t *ppos)
 {
-	
+	/* See if we got the magic character 'V' and reload the timer */
 	if (count) {
 		if (!nowayout) {
 			size_t ofs;
 
+			/* note: just in case someone wrote the
+			   magic character five months ago... */
 			wdt_expect_close = 0;
 
+			/* scan to see whether or not we got the
+			   magic character */
 			for (ofs = 0; ofs != count; ofs++) {
 				char c;
 				if (get_user(c, buf + ofs))
@@ -157,6 +190,8 @@ static ssize_t fop_write(struct file *file, const char __user *buf,
 			}
 		}
 
+		/* Well, anyhow someone wrote to us, we should
+		   return that favour */
 		wdt_keepalive();
 	}
 	return count;
@@ -164,14 +199,14 @@ static ssize_t fop_write(struct file *file, const char __user *buf,
 
 static int fop_open(struct inode *inode, struct file *file)
 {
-	
+	/* Just in case we're already talking to someone... */
 	if (test_and_set_bit(0, &wdt_is_open))
 		return -EBUSY;
 
 	if (nowayout)
 		__module_get(THIS_MODULE);
 
-	
+	/* Good, fire up the show */
 	wdt_startup();
 	return nonseekable_open(inode, file);
 }
@@ -229,13 +264,13 @@ static long fop_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		int new_timeout;
 		if (get_user(new_timeout, p))
 			return -EFAULT;
-		
+		/* arbitrary upper limit */
 		if (new_timeout < 1 || new_timeout > 3600)
 			return -EINVAL;
 
 		timeout = new_timeout;
 		wdt_keepalive();
-		
+		/* Fall through */
 	}
 	case WDIOC_GETTIMEOUT:
 		return put_user(timeout, p);
@@ -259,6 +294,9 @@ static struct miscdevice wdt_miscdev = {
 	.fops = &wdt_fops,
 };
 
+/*
+ *	Notifier for system down
+ */
 
 static int wdt_notify_sys(struct notifier_block *this, unsigned long code,
 	void *unused)
@@ -268,6 +306,10 @@ static int wdt_notify_sys(struct notifier_block *this, unsigned long code,
 	return NOTIFY_DONE;
 }
 
+/*
+ *	The WDT needs to learn about soft shutdowns in order to
+ *	turn the timebomb registers off.
+ */
 
 static struct notifier_block wdt_notifier = {
 	.notifier_call = wdt_notify_sys,
@@ -277,7 +319,7 @@ static void __exit sbc60xxwdt_unload(void)
 {
 	wdt_turnoff();
 
-	
+	/* Deregister */
 	misc_deregister(&wdt_miscdev);
 
 	unregister_reboot_notifier(&wdt_notifier);
@@ -290,7 +332,7 @@ static int __init sbc60xxwdt_init(void)
 {
 	int rc = -EBUSY;
 
-	if (timeout < 1 || timeout > 3600) { 
+	if (timeout < 1 || timeout > 3600) { /* arbitrary upper limit */
 		timeout = WATCHDOG_TIMEOUT;
 		pr_info("timeout value must be 1 <= x <= 3600, using %d\n",
 			timeout);
@@ -302,7 +344,7 @@ static int __init sbc60xxwdt_init(void)
 		goto err_out;
 	}
 
-	
+	/* We cannot reserve 0x45 - the kernel already has! */
 	if (wdt_stop != 0x45 && wdt_stop != wdt_start) {
 		if (!request_region(wdt_stop, 1, "SBC 60XX WDT")) {
 			pr_err("I/O address 0x%04x already in use\n", wdt_stop);

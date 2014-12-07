@@ -68,7 +68,7 @@ static int getmac_tt(u8 * decodedMAC, u8 * encodedMAC)
 	u8 data[20];
 	int i;
 
-	
+	/* In case there is a sig check failure have the orig contents available */
 	memcpy(data, encodedMAC, 20);
 
 	for (i = 0; i < 20; i++)
@@ -124,11 +124,11 @@ static int ttpci_eeprom_read_encodedMAC(struct i2c_adapter *adapter, u8 * encode
 		{ .addr = 0x50, .flags = I2C_M_RD, .buf = encodedMAC, .len = 20 }
 	};
 
-	
+	/* dprintk("%s\n", __func__); */
 
 	ret = i2c_transfer(adapter, msg, 2);
 
-	if (ret != 2)		
+	if (ret != 2)		/* Assume EEPROM isn't there */
 		return (-ENODEV);
 
 	return 0;
@@ -143,7 +143,7 @@ int ttpci_eeprom_parse_mac(struct i2c_adapter *adapter, u8 *proposed_mac)
 
 	ret = ttpci_eeprom_read_encodedMAC(adapter, encodedMAC);
 
-	if (ret != 0) {		
+	if (ret != 0) {		/* Will only be -ENODEV */
 		dprintk("Couldn't read from EEPROM: not there?\n");
 		memset(proposed_mac, 0, 6);
 		return ret;

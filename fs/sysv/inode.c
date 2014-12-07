@@ -38,6 +38,11 @@ static int sysv_sync_fs(struct super_block *sb, int wait)
 
 	lock_super(sb);
 
+	/*
+	 * If we are going to write out the super block,
+	 * then attach current time stamp.
+	 * But if the filesystem was marked clean, keep it clean.
+	 */
 	sb->s_dirt = 0;
 	old_time = fs32_to_cpu(sbi, *sbi->s_sb_time);
 	if (sbi->s_type == FSTYPE_SYSV4) {
@@ -80,7 +85,7 @@ static void sysv_put_super(struct super_block *sb)
 		sysv_write_super(sb);
 
 	if (!(sb->s_flags & MS_RDONLY)) {
-		
+		/* XXX ext2 also updates the state here */
 		mark_buffer_dirty(sbi->s_bh1);
 		if (sbi->s_bh1 != sbi->s_bh2)
 			mark_buffer_dirty(sbi->s_bh2);
@@ -111,6 +116,9 @@ static int sysv_statfs(struct dentry *dentry, struct kstatfs *buf)
 	return 0;
 }
 
+/* 
+ * NXI <-> N0XI for PDP, XIN <-> XIN0 for le32, NIX <-> 0NIX for be32
+ */
 static inline void read3byte(struct sysv_sb_info *sbi,
 	unsigned char * from, unsigned char * to)
 {
@@ -207,7 +215,7 @@ struct inode *sysv_iget(struct super_block *sb, unsigned int ino)
 		       inode->i_sb->s_id);
 		goto bad_inode;
 	}
-	
+	/* SystemV FS: kludge permissions if ino==SYSV_ROOT_INO ?? */
 	inode->i_mode = fs16_to_cpu(sbi, raw_inode->i_mode);
 	inode->i_uid = (uid_t)fs16_to_cpu(sbi, raw_inode->i_uid);
 	inode->i_gid = (gid_t)fs16_to_cpu(sbi, raw_inode->i_gid);

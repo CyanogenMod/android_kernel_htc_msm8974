@@ -14,6 +14,10 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*******************************************************************************
+ * Communicates with the dongle by using dcmd codes.
+ * For certain dcmd codes, the dongle interprets string data from the host.
+ ******************************************************************************/
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -31,31 +35,38 @@
 #include "dhd_dbg.h"
 
 struct brcmf_proto_cdc_dcmd {
-	__le32 cmd;	
-	__le32 len;	
-	__le32 flags;	
-	__le32 status;	
+	__le32 cmd;	/* dongle command value */
+	__le32 len;	/* lower 16: output buflen;
+			 * upper 16: input buflen (excludes header) */
+	__le32 flags;	/* flag defns given below */
+	__le32 status;	/* status code returned from the device */
 };
 
+/* Max valid buffer size that can be sent to the dongle */
 #define CDC_MAX_MSG_SIZE	(ETH_FRAME_LEN+ETH_FCS_LEN)
 
-#define CDC_DCMD_ERROR		0x01	
-#define CDC_DCMD_SET		0x02	
-#define CDC_DCMD_IF_MASK	0xF000		
+/* CDC flag definitions */
+#define CDC_DCMD_ERROR		0x01	/* 1=cmd failed */
+#define CDC_DCMD_SET		0x02	/* 0=get, 1=set cmd */
+#define CDC_DCMD_IF_MASK	0xF000		/* I/F index */
 #define CDC_DCMD_IF_SHIFT	12
-#define CDC_DCMD_ID_MASK	0xFFFF0000	
-#define CDC_DCMD_ID_SHIFT	16		
+#define CDC_DCMD_ID_MASK	0xFFFF0000	/* id an cmd pairing */
+#define CDC_DCMD_ID_SHIFT	16		/* ID Mask shift bits */
 #define CDC_DCMD_ID(flags)	\
 	(((flags) & CDC_DCMD_ID_MASK) >> CDC_DCMD_ID_SHIFT)
 
+/*
+ * BDC header - Broadcom specific extension of CDC.
+ * Used on data packets to convey priority across USB.
+ */
 #define	BDC_HEADER_LEN		4
-#define BDC_PROTO_VER		2	
-#define BDC_FLAG_VER_MASK	0xf0	
-#define BDC_FLAG_VER_SHIFT	4	
-#define BDC_FLAG_SUM_GOOD	0x04	
-#define BDC_FLAG_SUM_NEEDED	0x08	
+#define BDC_PROTO_VER		2	/* Protocol version */
+#define BDC_FLAG_VER_MASK	0xf0	/* Protocol version mask */
+#define BDC_FLAG_VER_SHIFT	4	/* Protocol version shift */
+#define BDC_FLAG_SUM_GOOD	0x04	/* Good RX checksums */
+#define BDC_FLAG_SUM_NEEDED	0x08	/* Dongle needs to do TX checksums */
 #define BDC_PRIORITY_MASK	0x7
-#define BDC_FLAG2_IF_MASK	0x0f	
+#define BDC_FLAG2_IF_MASK	0x0f	/* packet rx interface in APSTA */
 #define BDC_FLAG2_IF_SHIFT	0
 
 #define BDC_GET_IF_IDX(hdr) \
@@ -66,15 +77,22 @@ struct brcmf_proto_cdc_dcmd {
 
 struct brcmf_proto_bdc_header {
 	u8 flags;
-	u8 priority;	
+	u8 priority;	/* 802.1d Priority, 4:7 flow control info for usb */
 	u8 flags2;
 	u8 data_offset;
 };
 
 
-#define RETRIES 2 
-#define BUS_HEADER_LEN	(16+64)		
-#define ROUND_UP_MARGIN	2048	
+#define RETRIES 2 /* # of retries to retrieve matching dcmd response */
+#define BUS_HEADER_LEN	(16+64)		/* Must be atleast SDPCM_RESERVE
+					 * (amount of header tha might be added)
+					 * plus any space that might be needed
+					 * for bus alignment padding.
+					 */
+#define ROUND_UP_MARGIN	2048	/* Biggest bus block size possible for
+				 * round off at the end of buffer
+				 * Currently is SDIO
+				 */
 
 struct brcmf_proto {
 	u16 reqid;
@@ -93,10 +111,14 @@ static int brcmf_proto_cdc_msg(struct brcmf_pub *drvr)
 
 	brcmf_dbg(TRACE, "Enter\n");
 
+	/* NOTE : cdc->msg.len holds the desired length of the buffer to be
+	 *        returned. Only up to CDC_MAX_MSG_SIZE of this buffer area
+	 *        is actually sent to the dongle
+	 */
 	if (len > CDC_MAX_MSG_SIZE)
 		len = CDC_MAX_MSG_SIZE;
 
-	
+	/* Send request */
 	return drvr->bus_if->brcmf_bus_txctl(drvr->dev,
 					     (unsigned char *)&prot->msg,
 					     len);
@@ -133,7 +155,7 @@ brcmf_proto_cdc_query_dcmd(struct brcmf_pub *drvr, int ifidx, uint cmd,
 	brcmf_dbg(TRACE, "Enter\n");
 	brcmf_dbg(CTL, "cmd %d len %d\n", cmd, len);
 
-	
+	/* Respond "bcmerror" and "bcmerrorstr" with local cache */
 	if (cmd == BRCMF_C_GET_VAR && buf) {
 		if (!strcmp((char *)buf, "bcmerrorstr")) {
 			strncpy((char *)buf, "bcm_error",
@@ -165,7 +187,7 @@ brcmf_proto_cdc_query_dcmd(struct brcmf_pub *drvr, int ifidx, uint cmd,
 	}
 
 retry:
-	
+	/* wait for interrupt and get first fragment */
 	ret = brcmf_proto_cdc_cmplt(drvr, prot->reqid, len);
 	if (ret < 0)
 		goto done;
@@ -182,20 +204,20 @@ retry:
 		goto done;
 	}
 
-	
+	/* Check info buffer */
 	info = (void *)&msg[1];
 
-	
+	/* Copy info buffer */
 	if (buf) {
 		if (ret < (int)len)
 			len = ret;
 		memcpy(buf, info, len);
 	}
 
-	
+	/* Check the ERROR flag */
 	if (flags & CDC_DCMD_ERROR) {
 		ret = le32_to_cpu(msg->status);
-		
+		/* Cache error from dongle */
 		drvr->dongle_error = ret;
 	}
 
@@ -244,10 +266,10 @@ int brcmf_proto_cdc_set_dcmd(struct brcmf_pub *drvr, int ifidx, uint cmd,
 		goto done;
 	}
 
-	
+	/* Check the ERROR flag */
 	if (flags & CDC_DCMD_ERROR) {
 		ret = le32_to_cpu(msg->status);
-		
+		/* Cache error from dongle */
 		drvr->dongle_error = ret;
 	}
 
@@ -301,11 +323,11 @@ brcmf_proto_dcmd(struct brcmf_pub *drvr, int ifidx, struct brcmf_dcmd *dcmd,
 		ret = 0;
 	else {
 		struct brcmf_proto_cdc_dcmd *msg = &prot->msg;
-		
+		/* len == needed when set/query fails from dongle */
 		dcmd->needed = le32_to_cpu(msg->len);
 	}
 
-	
+	/* Intercept the wme_dp dongle cmd here */
 	if (!ret && dcmd->cmd == BRCMF_C_SET_VAR &&
 	    !strcmp(dcmd->buf, "wme_dp")) {
 		int slen;
@@ -342,7 +364,7 @@ void brcmf_proto_hdrpush(struct brcmf_pub *drvr, int ifidx,
 
 	brcmf_dbg(TRACE, "Enter\n");
 
-	
+	/* Push BDC header used to convey priority for buses that don't */
 
 	skb_push(pktbuf, BDC_HEADER_LEN);
 
@@ -367,7 +389,7 @@ int brcmf_proto_hdrpull(struct device *dev, int *ifidx,
 
 	brcmf_dbg(TRACE, "Enter\n");
 
-	
+	/* Pop BDC header used to convey priority for buses that don't */
 
 	if (pktbuf->len < BDC_HEADER_LEN) {
 		brcmf_dbg(ERROR, "rx data too short (%d < %d)\n",
@@ -411,7 +433,7 @@ int brcmf_proto_attach(struct brcmf_pub *drvr)
 	if (!cdc)
 		goto fail;
 
-	
+	/* ensure that the msg buf directly follows the cdc msg struct */
 	if ((unsigned long)(&cdc->msg + 1) != (unsigned long)cdc->buf) {
 		brcmf_dbg(ERROR, "struct brcmf_proto is not correctly defined\n");
 		goto fail;
@@ -428,6 +450,7 @@ fail:
 	return -ENOMEM;
 }
 
+/* ~NOTE~ What if another thread is waiting on the semaphore?  Holding it? */
 void brcmf_proto_detach(struct brcmf_pub *drvr)
 {
 	kfree(drvr->prot);
@@ -443,7 +466,7 @@ int brcmf_proto_init(struct brcmf_pub *drvr)
 
 	mutex_lock(&drvr->proto_block);
 
-	
+	/* Get the device MAC address */
 	strcpy(buf, "cur_etheraddr");
 	ret = brcmf_proto_cdc_query_dcmd(drvr, 0, BRCMF_C_GET_VAR,
 					  buf, sizeof(buf));
@@ -457,7 +480,7 @@ int brcmf_proto_init(struct brcmf_pub *drvr)
 
 	ret = brcmf_c_preinit_dcmds(drvr);
 
-	
+	/* Always assumes wl for now */
 	drvr->iswl = true;
 
 	return ret;
@@ -465,5 +488,5 @@ int brcmf_proto_init(struct brcmf_pub *drvr)
 
 void brcmf_proto_stop(struct brcmf_pub *drvr)
 {
-	
+	/* Nothing to do for CDC */
 }

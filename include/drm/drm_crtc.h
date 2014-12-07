@@ -52,46 +52,53 @@ struct drm_mode_object {
 	uint32_t type;
 };
 
+/*
+ * Note on terminology:  here, for brevity and convenience, we refer to connector
+ * control chips as 'CRTCs'.  They can control any type of connector, VGA, LVDS,
+ * DVI, etc.  And 'screen' refers to the whole of the visible display, which
+ * may span multiple monitors (and therefore multiple CRTC and connector
+ * structures).
+ */
 
 enum drm_mode_status {
-    MODE_OK	= 0,	
-    MODE_HSYNC,		
-    MODE_VSYNC,		
-    MODE_H_ILLEGAL,	
-    MODE_V_ILLEGAL,	
-    MODE_BAD_WIDTH,	
-    MODE_NOMODE,	
-    MODE_NO_INTERLACE,	
-    MODE_NO_DBLESCAN,	
-    MODE_NO_VSCAN,	
-    MODE_MEM,		
-    MODE_VIRTUAL_X,	
-    MODE_VIRTUAL_Y,	
-    MODE_MEM_VIRT,	
-    MODE_NOCLOCK,	
-    MODE_CLOCK_HIGH,	
-    MODE_CLOCK_LOW,	
-    MODE_CLOCK_RANGE,	
-    MODE_BAD_HVALUE,	
-    MODE_BAD_VVALUE,	
-    MODE_BAD_VSCAN,	
-    MODE_HSYNC_NARROW,	
-    MODE_HSYNC_WIDE,	
-    MODE_HBLANK_NARROW,	
-    MODE_HBLANK_WIDE,	
-    MODE_VSYNC_NARROW,	
-    MODE_VSYNC_WIDE,	
-    MODE_VBLANK_NARROW,	
-    MODE_VBLANK_WIDE,	
-    MODE_PANEL,         
-    MODE_INTERLACE_WIDTH, 
-    MODE_ONE_WIDTH,     
-    MODE_ONE_HEIGHT,    
-    MODE_ONE_SIZE,      
-    MODE_NO_REDUCED,    
-    MODE_UNVERIFIED = -3, 
-    MODE_BAD = -2,	
-    MODE_ERROR	= -1	
+    MODE_OK	= 0,	/* Mode OK */
+    MODE_HSYNC,		/* hsync out of range */
+    MODE_VSYNC,		/* vsync out of range */
+    MODE_H_ILLEGAL,	/* mode has illegal horizontal timings */
+    MODE_V_ILLEGAL,	/* mode has illegal horizontal timings */
+    MODE_BAD_WIDTH,	/* requires an unsupported linepitch */
+    MODE_NOMODE,	/* no mode with a matching name */
+    MODE_NO_INTERLACE,	/* interlaced mode not supported */
+    MODE_NO_DBLESCAN,	/* doublescan mode not supported */
+    MODE_NO_VSCAN,	/* multiscan mode not supported */
+    MODE_MEM,		/* insufficient video memory */
+    MODE_VIRTUAL_X,	/* mode width too large for specified virtual size */
+    MODE_VIRTUAL_Y,	/* mode height too large for specified virtual size */
+    MODE_MEM_VIRT,	/* insufficient video memory given virtual size */
+    MODE_NOCLOCK,	/* no fixed clock available */
+    MODE_CLOCK_HIGH,	/* clock required is too high */
+    MODE_CLOCK_LOW,	/* clock required is too low */
+    MODE_CLOCK_RANGE,	/* clock/mode isn't in a ClockRange */
+    MODE_BAD_HVALUE,	/* horizontal timing was out of range */
+    MODE_BAD_VVALUE,	/* vertical timing was out of range */
+    MODE_BAD_VSCAN,	/* VScan value out of range */
+    MODE_HSYNC_NARROW,	/* horizontal sync too narrow */
+    MODE_HSYNC_WIDE,	/* horizontal sync too wide */
+    MODE_HBLANK_NARROW,	/* horizontal blanking too narrow */
+    MODE_HBLANK_WIDE,	/* horizontal blanking too wide */
+    MODE_VSYNC_NARROW,	/* vertical sync too narrow */
+    MODE_VSYNC_WIDE,	/* vertical sync too wide */
+    MODE_VBLANK_NARROW,	/* vertical blanking too narrow */
+    MODE_VBLANK_WIDE,	/* vertical blanking too wide */
+    MODE_PANEL,         /* exceeds panel dimensions */
+    MODE_INTERLACE_WIDTH, /* width too large for interlaced mode */
+    MODE_ONE_WIDTH,     /* only one width is supported */
+    MODE_ONE_HEIGHT,    /* only one height is supported */
+    MODE_ONE_SIZE,      /* only one resolution is supported */
+    MODE_NO_REDUCED,    /* monitor doesn't accept reduced blanking */
+    MODE_UNVERIFIED = -3, /* mode needs to reverified */
+    MODE_BAD = -2,	/* unspecified reason */
+    MODE_ERROR	= -1	/* error condition */
 };
 
 #define DRM_MODE_TYPE_CLOCK_CRTC_C (DRM_MODE_TYPE_CLOCK_C | \
@@ -104,10 +111,10 @@ enum drm_mode_status {
 	.vsync_start = (vss), .vsync_end = (vse), .vtotal = (vt), \
 	.vscan = (vs), .flags = (f), .vrefresh = 0
 
-#define CRTC_INTERLACE_HALVE_V 0x1 
+#define CRTC_INTERLACE_HALVE_V 0x1 /* halve V values for interlacing */
 
 struct drm_display_mode {
-	
+	/* Header */
 	struct list_head head;
 	struct drm_mode_object base;
 
@@ -116,8 +123,8 @@ struct drm_display_mode {
 	enum drm_mode_status status;
 	unsigned int type;
 
-	
-	int clock;		
+	/* Proposed mode values */
+	int clock;		/* in kHz */
 	int hdisplay;
 	int hsync_start;
 	int hsync_end;
@@ -130,11 +137,11 @@ struct drm_display_mode {
 	int vscan;
 	unsigned int flags;
 
-	
+	/* Addressable image size (may be 0 for projectors, etc.) */
 	int width_mm;
 	int height_mm;
 
-	
+	/* Actual mode we give to hw */
 	int clock_index;
 	int synth_clock;
 	int crtc_hdisplay;
@@ -153,13 +160,13 @@ struct drm_display_mode {
 	int crtc_hadjusted;
 	int crtc_vadjusted;
 
-	
+	/* Driver private mode info */
 	int private_size;
 	int *private;
 	int private_flags;
 
-	int vrefresh;		
-	int hsync;		
+	int vrefresh;		/* in Hz */
+	int hsync;		/* in kHz */
 };
 
 enum drm_connector_status {
@@ -180,14 +187,17 @@ enum subpixel_order {
 #define DRM_COLOR_FORMAT_RGB444		(1<<0)
 #define DRM_COLOR_FORMAT_YCRCB444	(1<<1)
 #define DRM_COLOR_FORMAT_YCRCB422	(1<<2)
+/*
+ * Describes a given display (e.g. CRT or flat panel) and its limitations.
+ */
 struct drm_display_info {
 	char name[DRM_DISPLAY_INFO_LEN];
 
-	
+	/* Physical size */
         unsigned int width_mm;
 	unsigned int height_mm;
 
-	
+	/* Clock limits FIXME: storage format */
 	unsigned int min_vfreq, max_vfreq;
 	unsigned int min_hfreq, max_hfreq;
 	unsigned int pixel_clock;
@@ -198,7 +208,7 @@ struct drm_display_info {
 
 	u8 cea_rev;
 
-	char *raw_edid; 
+	char *raw_edid; /* if any */
 };
 
 struct drm_framebuffer_funcs {
@@ -206,6 +216,18 @@ struct drm_framebuffer_funcs {
 	int (*create_handle)(struct drm_framebuffer *fb,
 			     struct drm_file *file_priv,
 			     unsigned int *handle);
+	/**
+	 * Optinal callback for the dirty fb ioctl.
+	 *
+	 * Userspace can notify the driver via this callback
+	 * that a area of the framebuffer has changed and should
+	 * be flushed to the display hardware.
+	 *
+	 * See documentation in drm_mode.h for the struct
+	 * drm_mode_fb_dirty_cmd for more information as all
+	 * the semantics and arguments have a one to one mapping
+	 * on this function.
+	 */
 	int (*dirty)(struct drm_framebuffer *framebuffer,
 		     struct drm_file *file_priv, unsigned flags,
 		     unsigned color, struct drm_clip_rect *clips,
@@ -221,13 +243,13 @@ struct drm_framebuffer {
 	unsigned int offsets[4];
 	unsigned int width;
 	unsigned int height;
-	
+	/* depth can be 15 or 16 */
 	unsigned int depth;
 	int bits_per_pixel;
 	int flags;
-	uint32_t pixel_format; 
+	uint32_t pixel_format; /* fourcc format */
 	struct list_head filp_head;
-	
+	/* if you are using the helper */
 	void *helper_private;
 };
 
@@ -261,69 +283,152 @@ struct drm_encoder;
 struct drm_pending_vblank_event;
 struct drm_plane;
 
+/**
+ * drm_crtc_funcs - control CRTCs for a given device
+ * @reset: reset CRTC after state has been invalidate (e.g. resume)
+ * @dpms: control display power levels
+ * @save: save CRTC state
+ * @resore: restore CRTC state
+ * @lock: lock the CRTC
+ * @unlock: unlock the CRTC
+ * @shadow_allocate: allocate shadow pixmap
+ * @shadow_create: create shadow pixmap for rotation support
+ * @shadow_destroy: free shadow pixmap
+ * @mode_fixup: fixup proposed mode
+ * @mode_set: set the desired mode on the CRTC
+ * @gamma_set: specify color ramp for CRTC
+ * @destroy: deinit and free object.
+ *
+ * The drm_crtc_funcs structure is the central CRTC management structure
+ * in the DRM.  Each CRTC controls one or more connectors (note that the name
+ * CRTC is simply historical, a CRTC may control LVDS, VGA, DVI, TV out, etc.
+ * connectors, not just CRTs).
+ *
+ * Each driver is responsible for filling out this structure at startup time,
+ * in addition to providing other modesetting features, like i2c and DDC
+ * bus accessors.
+ */
 struct drm_crtc_funcs {
-	
-	void (*save)(struct drm_crtc *crtc); 
-	
-	void (*restore)(struct drm_crtc *crtc); 
-	
+	/* Save CRTC state */
+	void (*save)(struct drm_crtc *crtc); /* suspend? */
+	/* Restore CRTC state */
+	void (*restore)(struct drm_crtc *crtc); /* resume? */
+	/* Reset CRTC state */
 	void (*reset)(struct drm_crtc *crtc);
 
-	
+	/* cursor controls */
 	int (*cursor_set)(struct drm_crtc *crtc, struct drm_file *file_priv,
 			  uint32_t handle, uint32_t width, uint32_t height);
 	int (*cursor_move)(struct drm_crtc *crtc, int x, int y);
 
-	
+	/* Set gamma on the CRTC */
 	void (*gamma_set)(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b,
 			  uint32_t start, uint32_t size);
-	
+	/* Object destroy routine */
 	void (*destroy)(struct drm_crtc *crtc);
 
 	int (*set_config)(struct drm_mode_set *set);
 
+	/*
+	 * Flip to the given framebuffer.  This implements the page
+	 * flip ioctl described in drm_mode.h, specifically, the
+	 * implementation must return immediately and block all
+	 * rendering to the current fb until the flip has completed.
+	 * If userspace set the event flag in the ioctl, the event
+	 * argument will point to an event to send back when the flip
+	 * completes, otherwise it will be NULL.
+	 */
 	int (*page_flip)(struct drm_crtc *crtc,
 			 struct drm_framebuffer *fb,
 			 struct drm_pending_vblank_event *event);
 };
 
+/**
+ * drm_crtc - central CRTC control structure
+ * @dev: parent DRM device
+ * @head: list management
+ * @base: base KMS object for ID tracking etc.
+ * @enabled: is this CRTC enabled?
+ * @mode: current mode timings
+ * @hwmode: mode timings as programmed to hw regs
+ * @x: x position on screen
+ * @y: y position on screen
+ * @funcs: CRTC control functions
+ * @gamma_size: size of gamma ramp
+ * @gamma_store: gamma ramp values
+ * @framedur_ns: precise frame timing
+ * @framedur_ns: precise line timing
+ * @pixeldur_ns: precise pixel timing
+ * @helper_private: mid-layer private data
+ *
+ * Each CRTC may have one or more connectors associated with it.  This structure
+ * allows the CRTC to be controlled.
+ */
 struct drm_crtc {
 	struct drm_device *dev;
 	struct list_head head;
 
 	struct drm_mode_object base;
 
-	
+	/* framebuffer the connector is currently bound to */
 	struct drm_framebuffer *fb;
 
 	bool enabled;
 
-	
+	/* Requested mode from modesetting. */
 	struct drm_display_mode mode;
 
+	/* Programmed mode in hw, after adjustments for encoders,
+	 * crtc, panel scaling etc. Needed for timestamping etc.
+	 */
 	struct drm_display_mode hwmode;
 
 	int x, y;
 	const struct drm_crtc_funcs *funcs;
 
-	
+	/* CRTC gamma size for reporting to userspace */
 	uint32_t gamma_size;
 	uint16_t *gamma_store;
 
-	
+	/* Constants needed for precise vblank and swap timestamping. */
 	s64 framedur_ns, linedur_ns, pixeldur_ns;
 
-	
+	/* if you are using the helper */
 	void *helper_private;
 };
 
 
+/**
+ * drm_connector_funcs - control connectors on a given device
+ * @dpms: set power state (see drm_crtc_funcs above)
+ * @save: save connector state
+ * @restore: restore connector state
+ * @reset: reset connector after state has been invalidate (e.g. resume)
+ * @mode_valid: is this mode valid on the given connector?
+ * @mode_fixup: try to fixup proposed mode for this connector
+ * @mode_set: set this mode
+ * @detect: is this connector active?
+ * @get_modes: get mode list for this connector
+ * @set_property: property for this connector may need update
+ * @destroy: make object go away
+ * @force: notify the driver the connector is forced on
+ *
+ * Each CRTC may have one or more connectors attached to it.  The functions
+ * below allow the core DRM code to control connectors, enumerate available modes,
+ * etc.
+ */
 struct drm_connector_funcs {
 	void (*dpms)(struct drm_connector *connector, int mode);
 	void (*save)(struct drm_connector *connector);
 	void (*restore)(struct drm_connector *connector);
 	void (*reset)(struct drm_connector *connector);
 
+	/* Check to see if anything is attached to the connector.
+	 * @force is set to false whilst polling, true when checking the
+	 * connector due to user request. @force can be used by the driver
+	 * to avoid expensive, destructive operations during automated
+	 * probing.
+	 */
 	enum drm_connector_status (*detect)(struct drm_connector *connector,
 					    bool force);
 	int (*fill_modes)(struct drm_connector *connector, uint32_t max_width, uint32_t max_height);
@@ -333,6 +438,13 @@ struct drm_connector_funcs {
 	void (*force)(struct drm_connector *connector);
 };
 
+/**
+ * drm_encoder_funcs - encoder controls
+ * @reset: reset state (e.g. at init or resume time)
+ * @destroy: cleanup and free associated data
+ *
+ * Encoders sit between CRTCs and connectors.
+ */
 struct drm_encoder_funcs {
 	void (*reset)(struct drm_encoder *encoder);
 	void (*destroy)(struct drm_encoder *encoder);
@@ -343,6 +455,21 @@ struct drm_encoder_funcs {
 #define DRM_CONNECTOR_LEN 32
 #define DRM_CONNECTOR_MAX_ENCODER 3
 
+/**
+ * drm_encoder - central DRM encoder structure
+ * @dev: parent DRM device
+ * @head: list management
+ * @base: base KMS object
+ * @encoder_type: one of the %DRM_MODE_ENCODER_<foo> types in drm_mode.h
+ * @possible_crtcs: bitmask of potential CRTC bindings
+ * @possible_clones: bitmask of potential sibling encoders for cloning
+ * @crtc: currently bound CRTC
+ * @funcs: control functions
+ * @helper_private: mid-layer private data
+ *
+ * CRTCs drive pixels to encoders, which convert them into signals
+ * appropriate for a given connector or set of connectors.
+ */
 struct drm_encoder {
 	struct drm_device *dev;
 	struct list_head head;
@@ -360,16 +487,60 @@ struct drm_encoder {
 enum drm_connector_force {
 	DRM_FORCE_UNSPECIFIED,
 	DRM_FORCE_OFF,
-	DRM_FORCE_ON,         
-	DRM_FORCE_ON_DIGITAL, 
+	DRM_FORCE_ON,         /* force on analog part normally */
+	DRM_FORCE_ON_DIGITAL, /* for DVI-I use digital connector */
 };
 
+/* should we poll this connector for connects and disconnects */
+/* hot plug detectable */
 #define DRM_CONNECTOR_POLL_HPD (1 << 0)
+/* poll for connections */
 #define DRM_CONNECTOR_POLL_CONNECT (1 << 1)
+/* can cleanly poll for disconnections without flickering the screen */
+/* DACs should rarely do this without a lot of testing */
 #define DRM_CONNECTOR_POLL_DISCONNECT (1 << 2)
 
 #define MAX_ELD_BYTES	128
 
+/**
+ * drm_connector - central DRM connector control structure
+ * @dev: parent DRM device
+ * @kdev: kernel device for sysfs attributes
+ * @attr: sysfs attributes
+ * @head: list management
+ * @base: base KMS object
+ * @connector_type: one of the %DRM_MODE_CONNECTOR_<foo> types from drm_mode.h
+ * @connector_type_id: index into connector type enum
+ * @interlace_allowed: can this connector handle interlaced modes?
+ * @doublescan_allowed: can this connector handle doublescan?
+ * @modes: modes available on this connector (from fill_modes() + user)
+ * @status: one of the drm_connector_status enums (connected, not, or unknown)
+ * @probed_modes: list of modes derived directly from the display
+ * @display_info: information about attached display (e.g. from EDID)
+ * @funcs: connector control functions
+ * @user_modes: user added mode list
+ * @edid_blob_ptr: DRM property containing EDID if present
+ * @property_ids: property tracking for this connector
+ * @property_values: value pointers or data for properties
+ * @polled: a %DRM_CONNECTOR_POLL_<foo> value for core driven polling
+ * @dpms: current dpms state
+ * @helper_private: mid-layer private data
+ * @force: a %DRM_FORCE_<foo> state for forced mode sets
+ * @encoder_ids: valid encoders for this connector
+ * @encoder: encoder driving this connector, if any
+ * @eld: EDID-like data, if present
+ * @dvi_dual: dual link DVI, if found
+ * @max_tmds_clock: max clock rate, if found
+ * @latency_present: AV delay info from ELD, if found
+ * @video_latency: video latency info from ELD, if found
+ * @audio_latency: audio latency info from ELD, if found
+ * @null_edid_counter: track sinks that give us all zeros for the EDID
+ *
+ * Each connector may be connected to one or more CRTCs, or may be clonable by
+ * another connector if they can share a CRTC.  Each connector also has a specific
+ * position in the broader display (referred to as a 'screen' though it could
+ * span multiple monitors).
+ */
 struct drm_connector {
 	struct drm_device *dev;
 	struct device kdev;
@@ -382,11 +553,11 @@ struct drm_connector {
 	int connector_type_id;
 	bool interlace_allowed;
 	bool doublescan_allowed;
-	struct list_head modes; 
+	struct list_head modes; /* list of modes on this connector */
 
 	enum drm_connector_status status;
 
-	
+	/* these are modes added by probing with DDC or the BIOS */
 	struct list_head probed_modes;
 
 	struct drm_display_info display_info;
@@ -397,28 +568,34 @@ struct drm_connector {
 	u32 property_ids[DRM_CONNECTOR_MAX_PROPERTY];
 	uint64_t property_values[DRM_CONNECTOR_MAX_PROPERTY];
 
-	uint8_t polled; 
+	uint8_t polled; /* DRM_CONNECTOR_POLL_* */
 
-	
+	/* requested DPMS state */
 	int dpms;
 
 	void *helper_private;
 
-	
+	/* forced on connector */
 	enum drm_connector_force force;
 	uint32_t encoder_ids[DRM_CONNECTOR_MAX_ENCODER];
-	struct drm_encoder *encoder; 
+	struct drm_encoder *encoder; /* currently active encoder */
 
-	
+	/* EDID bits */
 	uint8_t eld[MAX_ELD_BYTES];
 	bool dvi_dual;
-	int max_tmds_clock;	
+	int max_tmds_clock;	/* in MHz */
 	bool latency_present[2];
-	int video_latency[2];	
+	int video_latency[2];	/* [0]: progressive, [1]: interlaced */
 	int audio_latency[2];
-	int null_edid_counter; 
+	int null_edid_counter; /* needed to workaround some HW bugs where we get all 0s */
 };
 
+/**
+ * drm_plane_funcs - driver plane control functions
+ * @update_plane: update the plane configuration
+ * @disable_plane: shut down the plane
+ * @destroy: clean up plane resources
+ */
 struct drm_plane_funcs {
 	int (*update_plane)(struct drm_plane *plane,
 			    struct drm_crtc *crtc, struct drm_framebuffer *fb,
@@ -430,6 +607,22 @@ struct drm_plane_funcs {
 	void (*destroy)(struct drm_plane *plane);
 };
 
+/**
+ * drm_plane - central DRM plane control structure
+ * @dev: DRM device this plane belongs to
+ * @head: for list management
+ * @base: base mode object
+ * @possible_crtcs: pipes this plane can be bound to
+ * @format_types: array of formats supported by this plane
+ * @format_count: number of formats supported
+ * @crtc: currently bound CRTC
+ * @fb: currently bound fb
+ * @gamma_size: size of gamma table
+ * @gamma_store: gamma correction table
+ * @enabled: enabled flag
+ * @funcs: helper functions
+ * @helper_private: storage for drver layer
+ */
 struct drm_plane {
 	struct drm_device *dev;
 	struct list_head head;
@@ -443,7 +636,7 @@ struct drm_plane {
 	struct drm_crtc *crtc;
 	struct drm_framebuffer *fb;
 
-	
+	/* CRTC gamma size for reporting to userspace */
 	uint32_t gamma_size;
 	uint16_t *gamma_store;
 
@@ -453,6 +646,22 @@ struct drm_plane {
 	void *helper_private;
 };
 
+/**
+ * drm_mode_set - new values for a CRTC config change
+ * @head: list management
+ * @fb: framebuffer to use for new config
+ * @crtc: CRTC whose configuration we're about to change
+ * @mode: mode timings to use
+ * @x: position of this CRTC relative to @fb
+ * @y: position of this CRTC relative to @fb
+ * @connectors: array of connectors to drive with this CRTC if possible
+ * @num_connectors: size of @connectors array
+ *
+ * Represents a single crtc the connectors that it drives with what mode
+ * and from which framebuffer it scans out from.
+ *
+ * This is used to set modes.
+ */
 struct drm_mode_set {
 	struct list_head head;
 
@@ -467,6 +676,14 @@ struct drm_mode_set {
 	size_t num_connectors;
 };
 
+/**
+ * struct drm_mode_config_funcs - basic driver provided mode setting functions
+ * @fb_create: create a new framebuffer object
+ * @output_poll_changed: function to handle output configuration changes
+ *
+ * Some global (i.e. not per-CRTC, connector, etc) mode setting functions that
+ * involve drivers.
+ */
 struct drm_mode_config_funcs {
 	struct drm_framebuffer *(*fb_create)(struct drm_device *dev,
 					     struct drm_file *file_priv,
@@ -474,20 +691,60 @@ struct drm_mode_config_funcs {
 	void (*output_poll_changed)(struct drm_device *dev);
 };
 
+/**
+ * drm_mode_group - group of mode setting resources for potential sub-grouping
+ * @num_crtcs: CRTC count
+ * @num_encoders: encoder count
+ * @num_connectors: connector count
+ * @id_list: list of KMS object IDs in this group
+ *
+ * Currently this simply tracks the global mode setting state.  But in the
+ * future it could allow groups of objects to be set aside into independent
+ * control groups for use by different user level processes (e.g. two X servers
+ * running simultaneously on different heads, each with their own mode
+ * configuration and freedom of mode setting).
+ */
 struct drm_mode_group {
 	uint32_t num_crtcs;
 	uint32_t num_encoders;
 	uint32_t num_connectors;
 
-	
+	/* list of object IDs for this group */
 	uint32_t *id_list;
 };
 
+/**
+ * drm_mode_config - Mode configuration control structure
+ * @mutex: mutex protecting KMS related lists and structures
+ * @idr_mutex: mutex for KMS ID allocation and management
+ * @crtc_idr: main KMS ID tracking object
+ * @num_fb: number of fbs available
+ * @fb_list: list of framebuffers available
+ * @num_connector: number of connectors on this device
+ * @connector_list: list of connector objects
+ * @num_encoder: number of encoders on this device
+ * @encoder_list: list of encoder objects
+ * @num_crtc: number of CRTCs on this device
+ * @crtc_list: list of CRTC objects
+ * @min_width: minimum pixel width on this device
+ * @min_height: minimum pixel height on this device
+ * @max_width: maximum pixel width on this device
+ * @max_height: maximum pixel height on this device
+ * @funcs: core driver provided mode setting functions
+ * @fb_base: base address of the framebuffer
+ * @poll_enabled: track polling status for this device
+ * @output_poll_work: delayed work for polling in process context
+ * @*_property: core property tracking
+ *
+ * Core mode resource tracking structure.  All CRTC, encoders, and connectors
+ * enumerated by the driver are added here, as are global properties.  Some
+ * global restrictions are also here, e.g. dimension restrictions.
+ */
 struct drm_mode_config {
-	struct mutex mutex; 
-	struct mutex idr_mutex; 
-	struct idr crtc_idr; 
-	
+	struct mutex mutex; /* protects configuration (mode lists etc.) */
+	struct mutex idr_mutex; /* for IDR management */
+	struct idr crtc_idr; /* use this idr for all IDs, fb, crtc, connector, modes - just makes life easier */
+	/* this is limited to one for now */
 	int num_fb;
 	struct list_head fb_list;
 	int num_connector;
@@ -507,20 +764,20 @@ struct drm_mode_config {
 	struct drm_mode_config_funcs *funcs;
 	resource_size_t fb_base;
 
-	
+	/* output poll support */
 	bool poll_enabled;
 	struct delayed_work output_poll_work;
 
-	
+	/* pointers to standard properties */
 	struct list_head property_blob_list;
 	struct drm_property *edid_property;
 	struct drm_property *dpms_property;
 
-	
+	/* DVI-I properties */
 	struct drm_property *dvi_i_subconnector_property;
 	struct drm_property *dvi_i_select_subconnector_property;
 
-	
+	/* TV properties */
 	struct drm_property *tv_subconnector_property;
 	struct drm_property *tv_select_subconnector_property;
 	struct drm_property *tv_mode_property;
@@ -535,12 +792,12 @@ struct drm_mode_config {
 	struct drm_property *tv_saturation_property;
 	struct drm_property *tv_hue_property;
 
-	
+	/* Optional properties */
 	struct drm_property *scaling_mode_property;
 	struct drm_property *dithering_mode_property;
 	struct drm_property *dirty_info_property;
 
-	
+	/* dumb ioctl parameters */
 	uint32_t preferred_depth, prefer_shadow;
 };
 
@@ -569,6 +826,7 @@ extern int drm_connector_init(struct drm_device *dev,
 			      int connector_type);
 
 extern void drm_connector_cleanup(struct drm_connector *connector);
+/* helper to unplug all connectors from sysfs for device */
 extern void drm_connector_unplug_all(struct drm_device *dev);
 
 extern int drm_encoder_init(struct drm_device *dev,
@@ -611,6 +869,7 @@ extern bool drm_mode_equal(struct drm_display_mode *mode1, struct drm_display_mo
 extern int drm_mode_width(struct drm_display_mode *mode);
 extern int drm_mode_height(struct drm_display_mode *mode);
 
+/* for us by fb module */
 extern int drm_mode_attachmode_crtc(struct drm_device *dev,
 				    struct drm_crtc *crtc,
 				    const struct drm_display_mode *mode);
@@ -681,6 +940,7 @@ extern int drm_mode_crtc_set_gamma_size(struct drm_crtc *crtc,
 					 int gamma_size);
 extern struct drm_mode_object *drm_mode_object_find(struct drm_device *dev,
 		uint32_t id, uint32_t type);
+/* IOCTLs */
 extern int drm_mode_getresources(struct drm_device *dev,
 				 void *data, struct drm_file *file_priv);
 extern int drm_mode_getplane_res(struct drm_device *dev, void *data,
@@ -766,4 +1026,4 @@ extern int drm_mode_destroy_dumb_ioctl(struct drm_device *dev,
 
 extern void drm_fb_get_bpp_depth(uint32_t format, unsigned int *depth,
 				 int *bpp);
-#endif 
+#endif /* __DRM_CRTC_H__ */

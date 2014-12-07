@@ -29,6 +29,15 @@ static inline int irq_to_tps65912_irq(struct tps65912 *tps65912,
 	return irq - tps65912->irq_base;
 }
 
+/*
+ * This is a threaded IRQ handler so can access I2C/SPI.  Since the
+ * IRQ handler explicitly clears the IRQ it handles the IRQ line
+ * will be reasserted and the physical IRQ will be handled again if
+ * another interrupt is asserted while we run - in the normal course
+ * of events this is a rare occurrence so we save I2C/SPI reads. We're
+ * also assuming that it's rare to get lots of interrupts firing
+ * simultaneously so try to minimise I/O.
+ */
 static irqreturn_t tps65912_irq(int irq, void *irq_data)
 {
 	struct tps65912 *tps65912 = irq_data;
@@ -67,7 +76,7 @@ static irqreturn_t tps65912_irq(int irq, void *irq_data)
 		handle_nested_irq(tps65912->irq_base + i);
 	}
 
-	
+	/* Write the STS register back to clear IRQs we handled */
 	reg = irq_sts & 0xFF;
 	irq_sts >>= 8;
 	if (reg)
@@ -162,7 +171,7 @@ int tps65912_irq_init(struct tps65912 *tps65912, int irq,
 		return 0;
 	}
 
-	
+	/* Clear unattended interrupts */
 	tps65912->read(tps65912, TPS65912_INT_STS, 1, &reg);
 	tps65912->write(tps65912, TPS65912_INT_STS, 1, &reg);
 	tps65912->read(tps65912, TPS65912_INT_STS2, 1, &reg);
@@ -172,7 +181,7 @@ int tps65912_irq_init(struct tps65912 *tps65912, int irq,
 	tps65912->read(tps65912, TPS65912_INT_STS4, 1, &reg);
 	tps65912->write(tps65912, TPS65912_INT_STS4, 1, &reg);
 
-	
+	/* Mask top level interrupts */
 	tps65912->irq_mask = 0xFFFFFFFF;
 
 	mutex_init(&tps65912->irq_lock);
@@ -181,7 +190,7 @@ int tps65912_irq_init(struct tps65912 *tps65912, int irq,
 
 	tps65912->irq_num = TPS65912_NUM_IRQ;
 
-	
+	/* Register with genirq */
 	for (cur_irq = tps65912->irq_base;
 	     cur_irq < tps65912->irq_num + tps65912->irq_base;
 	     cur_irq++) {
@@ -189,6 +198,8 @@ int tps65912_irq_init(struct tps65912 *tps65912, int irq,
 		irq_set_chip_and_handler(cur_irq, &tps65912_irq_chip,
 					 handle_edge_irq);
 		irq_set_nested_thread(cur_irq, 1);
+		/* ARM needs us to explicitly flag the IRQ as valid
+		 * and will set them noprobe when we do so. */
 #ifdef CONFIG_ARM
 		set_irq_flags(cur_irq, IRQF_VALID);
 #else

@@ -10,8 +10,8 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/signal.h>	
-#include <linux/sched.h>	
+#include <linux/signal.h>	/* for SIGBUS */
+#include <linux/sched.h>	/* schow_regs(), force_sig() */
 
 #include <asm/module.h>
 #include <asm/sn/addrs.h>
@@ -78,7 +78,7 @@ int ip27_be_handler(struct pt_regs *regs, int is_fixup)
 
 void __init ip27_be_init(void)
 {
-	
+	/* XXX Initialize all the Hub & Bridge error handling here.  */
 	int cpu = LOCAL_HUB_L(PI_CPU_NUM);
 	int cpuoff = cpu << 8;
 
@@ -88,6 +88,6 @@ void __init ip27_be_init(void)
 	            cpu ? PI_ERR_CLEAR_ALL_B : PI_ERR_CLEAR_ALL_A);
 	LOCAL_HUB_S(PI_ERR_INT_MASK_A + cpuoff, 0);
 	LOCAL_HUB_S(PI_ERR_STACK_ADDR_A + cpuoff, 0);
-	LOCAL_HUB_S(PI_ERR_STACK_SIZE, 0);	
+	LOCAL_HUB_S(PI_ERR_STACK_SIZE, 0);	/* Disable error stack */
 	LOCAL_HUB_S(PI_SYSAD_ERRCHK_EN, PI_SYSAD_CHECK_ALL);
 }

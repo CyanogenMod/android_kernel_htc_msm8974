@@ -21,27 +21,37 @@
 #include <linux/timer.h>
 #include <linux/watchdog.h>
 
-#define VIA_WDT_MMIO_BASE	0xe8	
-#define VIA_WDT_CONF		0xec	
+/* Configuration registers relative to the pci device */
+#define VIA_WDT_MMIO_BASE	0xe8	/* MMIO region base address */
+#define VIA_WDT_CONF		0xec	/* watchdog enable state */
 
-#define VIA_WDT_CONF_ENABLE	0x01	
-#define VIA_WDT_CONF_MMIO	0x02	
+/* Relevant bits for the VIA_WDT_CONF register */
+#define VIA_WDT_CONF_ENABLE	0x01	/* 1: enable watchdog */
+#define VIA_WDT_CONF_MMIO	0x02	/* 1: enable watchdog MMIO */
 
-#define VIA_WDT_MMIO_LEN	8	
-#define VIA_WDT_CTL		0	
-#define VIA_WDT_COUNT		4	
+/*
+ * The MMIO region contains the watchog control register and the
+ * hardware timer counter.
+ */
+#define VIA_WDT_MMIO_LEN	8	/* MMIO region length in bytes */
+#define VIA_WDT_CTL		0	/* MMIO addr+0: state/control reg. */
+#define VIA_WDT_COUNT		4	/* MMIO addr+4: timer counter reg. */
 
-#define VIA_WDT_RUNNING		0x01	
-#define VIA_WDT_FIRED		0x02	
-#define VIA_WDT_PWROFF		0x04	
-#define VIA_WDT_DISABLED	0x08	
-#define VIA_WDT_TRIGGER		0x80	
+/* Bits for the VIA_WDT_CTL register */
+#define VIA_WDT_RUNNING		0x01	/* 0: stop, 1: running */
+#define VIA_WDT_FIRED		0x02	/* 1: restarted by expired watchdog */
+#define VIA_WDT_PWROFF		0x04	/* 0: reset, 1: poweroff */
+#define VIA_WDT_DISABLED	0x08	/* 1: timer is disabled */
+#define VIA_WDT_TRIGGER		0x80	/* 1: start a new countdown */
 
+/* Hardware heartbeat in seconds */
 #define WDT_HW_HEARTBEAT 1
 
-#define WDT_HEARTBEAT	(HZ/2)	
+/* Timer heartbeat (500ms) */
+#define WDT_HEARTBEAT	(HZ/2)	/* should be <= ((WDT_HW_HEARTBEAT*HZ)/2) */
 
-#define WDT_TIMEOUT_MAX	1023	
+/* User space timeout in seconds */
+#define WDT_TIMEOUT_MAX	1023	/* approx. 17 min. */
 #define WDT_TIMEOUT	60
 static int timeout = WDT_TIMEOUT;
 module_param(timeout, int, 0);
@@ -59,8 +69,8 @@ static void __iomem *wdt_mem;
 static unsigned int mmio;
 static void wdt_timer_tick(unsigned long data);
 static DEFINE_TIMER(timer, wdt_timer_tick, 0, 0);
-					
-static unsigned long next_heartbeat;	
+					/* The timer that pings the watchdog */
+static unsigned long next_heartbeat;	/* the next_heartbeat for the timer */
 
 static inline void wdt_reset(void)
 {
@@ -69,6 +79,15 @@ static inline void wdt_reset(void)
 	writel(ctl | VIA_WDT_TRIGGER, wdt_mem);
 }
 
+/*
+ * Timer tick: the timer will make sure that the watchdog timer hardware
+ * is being reset in time. The conditions to do this are:
+ *  1) the watchog timer has been started and /dev/watchdog is open
+ *     and there is still time left before userspace should send the
+ *     next heartbeat/ping. (note: the internal heartbeat is much smaller
+ *     then the external/userspace heartbeat).
+ *  2) the watchdog timer has been stopped by userspace.
+ */
 static void wdt_timer_tick(unsigned long data)
 {
 	if (time_before(jiffies, next_heartbeat) ||
@@ -81,7 +100,7 @@ static void wdt_timer_tick(unsigned long data)
 
 static int wdt_ping(struct watchdog_device *wdd)
 {
-	
+	/* calculate when the next userspace timeout will be */
 	next_heartbeat = jiffies + wdd->timeout * HZ;
 	return 0;
 }
@@ -147,6 +166,12 @@ static int __devinit wdt_probe(struct pci_dev *pdev,
 		return -ENODEV;
 	}
 
+	/*
+	 * Allocate a MMIO region which contains watchdog control register
+	 * and counter, then configure the watchdog to use this region.
+	 * This is possible only if PnP is properly enabled in BIOS.
+	 * If not, the watchdog must be configured in BIOS manually.
+	 */
 	if (allocate_resource(&iomem_resource, &wdt_res, VIA_WDT_MMIO_LEN,
 			      0xf0000000, 0xffffff00, 0xff, NULL, NULL)) {
 		dev_err(&pdev->dev, "MMIO allocation failed\n");
@@ -186,7 +211,7 @@ static int __devinit wdt_probe(struct pci_dev *pdev,
 	if (ret)
 		goto err_out_iounmap;
 
-	
+	/* start triggering, in case of watchdog already enabled by BIOS */
 	mod_timer(&timer, jiffies + WDT_HEARTBEAT);
 	return 0;
 

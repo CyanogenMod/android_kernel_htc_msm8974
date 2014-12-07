@@ -18,6 +18,10 @@
 
 struct task_struct;
 
+/*
+ * switch_to(n) should switch tasks to task nr n, first
+ * checking that n isn't the current task, in which case it does nothing.
+ */
 extern asmlinkage void *resume(void *last, void *next, void *next_ti);
 
 extern unsigned int ll_bit;
@@ -25,6 +29,17 @@ extern struct task_struct *ll_task;
 
 #ifdef CONFIG_MIPS_MT_FPAFF
 
+/*
+ * Handle the scheduler resume end of FPU affinity management.  We do this
+ * inline to try to keep the overhead down. If we have been forced to run on
+ * a "CPU" with an FPU because of a previous high level of FP computation,
+ * but did not actually use the FPU during the most recent time-slice (CU1
+ * isn't set), we undo the restriction on cpus_allowed.
+ *
+ * We're not calling set_cpus_allowed() here, because we have no need to
+ * force prompt migration - we're already switching the current CPU to a
+ * different thread.
+ */
 
 #define __mips_mt_fpaff_switch_to(prev)					\
 do {									\
@@ -67,4 +82,4 @@ do {									\
 	__restore_watch();						\
 } while (0)
 
-#endif 
+#endif /* _ASM_SWITCH_TO_H */

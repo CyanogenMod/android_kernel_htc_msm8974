@@ -31,12 +31,12 @@ void __init prom_init_memory(void)
 		else
 			bit = bit + 20 - 1;
 
-		
+		/* set cpu window3 to map CPU to DDR: 2G -> 2G */
 		LOONGSON_ADDRWIN_CPUTODDR(ADDRWIN_WIN3, 0x80000000ul,
 					  0x80000000ul, (1 << bit));
 		mmiowb();
 	}
-#endif 
+#endif /* !CONFIG_CPU_SUPPORTS_ADDRWINCFG */
 
 #ifdef CONFIG_64BIT
 	if (highmemsize > 0)
@@ -46,9 +46,10 @@ void __init prom_init_memory(void)
 	add_memory_region(LOONGSON_PCI_MEM_END + 1, LOONGSON_HIGHMEM_START -
 			  LOONGSON_PCI_MEM_END - 1, BOOT_MEM_RESERVED);
 
-#endif 
+#endif /* !CONFIG_64BIT */
 }
 
+/* override of arch/mips/mm/cache.c: __uncached_access */
 int __uncached_access(struct file *file, unsigned long addr)
 {
 	if (file->f_flags & O_DSYNC)
@@ -115,4 +116,4 @@ static int __init find_vga_mem_init(void)
 }
 
 late_initcall(find_vga_mem_init);
-#endif 
+#endif /* !CONFIG_CPU_SUPPORTS_UNCACHED_ACCELERATED */

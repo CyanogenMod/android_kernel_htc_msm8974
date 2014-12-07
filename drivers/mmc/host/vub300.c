@@ -64,26 +64,26 @@ struct sd_command_header {
 	u8 header_size;
 	u8 header_type;
 	u8 port_number;
-	u8 command_type; 
+	u8 command_type; /* Bit7 - Rd/Wr */
 	u8 command_index;
-	u8 transfer_size[4]; 
+	u8 transfer_size[4]; /* ReadSize + ReadSize */
 	u8 response_type;
 	u8 arguments[4];
 	u8 block_count[2];
 	u8 block_size[2];
 	u8 block_boundary[2];
-	u8 reserved[44]; 
+	u8 reserved[44]; /* to pad out to 64 bytes */
 } __packed;
 
 struct sd_irqpoll_header {
 	u8 header_size;
 	u8 header_type;
 	u8 port_number;
-	u8 command_type; 
-	u8 padding[16]; 
+	u8 command_type; /* Bit7 - Rd/Wr */
+	u8 padding[16]; /* don't ask why !! */
 	u8 poll_timeout_msb;
 	u8 poll_timeout_lsb;
-	u8 reserved[42]; 
+	u8 reserved[42]; /* to pad out to 64 bytes */
 } __packed;
 
 struct sd_common_header {
@@ -269,7 +269,7 @@ MODULE_PARM_DESC(firmware_rom_wait_states,
 static struct usb_device_id vub300_table[] = {
 	{USB_DEVICE(ELAN_VENDOR_ID, VUB300_PRODUCT_ID)},
 	{USB_DEVICE(VUB300_VENDOR_ID, VUB300_PRODUCT_ID)},
-	{} 
+	{} /* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, vub300_table);
 
@@ -302,18 +302,18 @@ struct vub300_mmc_host {
 	struct kref kref;
 	struct mutex cmd_mutex;
 	struct mutex irq_mutex;
-	char vub_name[3 + (9 * 8) + 4 + 1]; 
-	u8 cmnd_out_ep; 
-	u8 cmnd_res_ep; 
-	u8 data_out_ep; 
-	u8 data_inp_ep; 
+	char vub_name[3 + (9 * 8) + 4 + 1]; /* max of 7 sdio fn's */
+	u8 cmnd_out_ep; /* EndPoint for commands */
+	u8 cmnd_res_ep; /* EndPoint for responses */
+	u8 data_out_ep; /* EndPoint for out data */
+	u8 data_inp_ep; /* EndPoint for inp data */
 	bool card_powered;
 	bool card_present;
 	bool read_only;
 	bool large_usb_packets;
-	bool app_spec; 
-	bool irq_enabled; 
-	bool irq_disabled; 
+	bool app_spec; /* ApplicationSpecific */
+	bool irq_enabled; /* by the MMC CORE */
+	bool irq_disabled; /* in the firmware */
 	unsigned bus_width:4;
 	u8 total_offload_count;
 	u8 dynamic_register_count;
@@ -332,7 +332,7 @@ struct vub300_mmc_host {
 		u32 offload_point;
 		struct offload_registers_access reg[MAXREGS];
 	} fn[8];
-	u16 fbs[8]; 
+	u16 fbs[8]; /* Function Block Size */
 	struct mmc_command *cmd;
 	struct mmc_request *req;
 	struct mmc_data *data;
@@ -370,7 +370,7 @@ struct vub300_mmc_host {
 #define GET_SYSTEM_PORT_STATUS		0
 
 static void vub300_delete(struct kref *kref)
-{				
+{				/* kref callback - softirq */
 	struct vub300_mmc_host *vub300 = kref_to_vub300_mmc_host(kref);
 	struct mmc_host *mmc = vub300->mmc;
 	usb_free_urb(vub300->command_out_urb);
@@ -379,13 +379,28 @@ static void vub300_delete(struct kref *kref)
 	vub300->command_res_urb = NULL;
 	usb_put_dev(vub300->udev);
 	mmc_free_host(mmc);
+	/*
+	 * and hence also frees vub300
+	 * which is contained at the end of struct mmc
+	 */
 }
 
 static void vub300_queue_cmnd_work(struct vub300_mmc_host *vub300)
 {
 	kref_get(&vub300->kref);
 	if (queue_work(cmndworkqueue, &vub300->cmndwork)) {
+		/*
+		 * then the cmndworkqueue was not previously
+		 * running and the above get ref is obvious
+		 * required and will be put when the thread
+		 * terminates by a specific call
+		 */
 	} else {
+		/*
+		 * the cmndworkqueue was already running from
+		 * a previous invocation and thus to keep the
+		 * kref counts correct we must undo the get
+		 */
 		kref_put(&vub300->kref, vub300_delete);
 	}
 }
@@ -394,7 +409,18 @@ static void vub300_queue_poll_work(struct vub300_mmc_host *vub300, int delay)
 {
 	kref_get(&vub300->kref);
 	if (queue_delayed_work(pollworkqueue, &vub300->pollwork, delay)) {
+		/*
+		 * then the pollworkqueue was not previously
+		 * running and the above get ref is obvious
+		 * required and will be put when the thread
+		 * terminates by a specific call
+		 */
 	} else {
+		/*
+		 * the pollworkqueue was already running from
+		 * a previous invocation and thus to keep the
+		 * kref counts correct we must undo the get
+		 */
 		kref_put(&vub300->kref, vub300_delete);
 	}
 }
@@ -403,13 +429,24 @@ static void vub300_queue_dead_work(struct vub300_mmc_host *vub300)
 {
 	kref_get(&vub300->kref);
 	if (queue_work(deadworkqueue, &vub300->deadwork)) {
+		/*
+		 * then the deadworkqueue was not previously
+		 * running and the above get ref is obvious
+		 * required and will be put when the thread
+		 * terminates by a specific call
+		 */
 	} else {
+		/*
+		 * the deadworkqueue was already running from
+		 * a previous invocation and thus to keep the
+		 * kref counts correct we must undo the get
+		 */
 		kref_put(&vub300->kref, vub300_delete);
 	}
 }
 
 static void irqpoll_res_completed(struct urb *urb)
-{				
+{				/* urb completion handler - hardirq */
 	struct vub300_mmc_host *vub300 = (struct vub300_mmc_host *)urb->context;
 	if (urb->status)
 		vub300->usb_transport_fail = urb->status;
@@ -417,7 +454,7 @@ static void irqpoll_res_completed(struct urb *urb)
 }
 
 static void irqpoll_out_completed(struct urb *urb)
-{				
+{				/* urb completion handler - hardirq */
 	struct vub300_mmc_host *vub300 = (struct vub300_mmc_host *)urb->context;
 	if (urb->status) {
 		vub300->usb_transport_fail = urb->status;
@@ -442,7 +479,7 @@ static void irqpoll_out_completed(struct urb *urb)
 
 static void send_irqpoll(struct vub300_mmc_host *vub300)
 {
-	
+	/* cmd_mutex is held by vub300_pollwork_thread */
 	int retval;
 	int timeout = 0xFFFF & (0x0001FFFF - firmware_irqpoll_timeout);
 	vub300->cmnd.poll.header_size = 22;
@@ -488,7 +525,7 @@ static void new_system_port_status(struct vub300_mmc_host *vub300)
 		vub300->card_present = 0;
 		mmc_detect_change(vub300->mmc, 0);
 	} else {
-		
+		/* no change */
 	}
 }
 
@@ -532,6 +569,10 @@ static void add_offloaded_reg(struct vub300_mmc_host *vub300,
 
 static void check_vub300_port_status(struct vub300_mmc_host *vub300)
 {
+	/*
+	 * cmd_mutex is held by vub300_pollwork_thread,
+	 * vub300_deadwork_thread or vub300_cmndwork_thread
+	 */
 	int retval;
 	retval =
 		usb_control_msg(vub300->udev, usb_rcvctrlpipe(vub300->udev, 0),
@@ -545,7 +586,7 @@ static void check_vub300_port_status(struct vub300_mmc_host *vub300)
 
 static void __vub300_irqpoll_response(struct vub300_mmc_host *vub300)
 {
-	
+	/* cmd_mutex is held by vub300_pollwork_thread */
 	if (vub300->command_res_urb->actual_length == 0)
 		return;
 
@@ -617,7 +658,7 @@ static void __vub300_irqpoll_response(struct vub300_mmc_host *vub300)
 
 static void __do_poll(struct vub300_mmc_host *vub300)
 {
-	
+	/* cmd_mutex is held by vub300_pollwork_thread */
 	long commretval;
 	mod_timer(&vub300->inactivity_timer, jiffies + HZ);
 	init_completion(&vub300->irqpoll_complete);
@@ -625,20 +666,23 @@ static void __do_poll(struct vub300_mmc_host *vub300)
 	commretval = wait_for_completion_timeout(&vub300->irqpoll_complete,
 						 msecs_to_jiffies(500));
 	if (vub300->usb_transport_fail) {
-		
+		/* no need to do anything */
 	} else if (commretval == 0) {
 		vub300->usb_timed_out = 1;
 		usb_kill_urb(vub300->command_out_urb);
 		usb_kill_urb(vub300->command_res_urb);
 	} else if (commretval < 0) {
 		vub300_queue_poll_work(vub300, 1);
-	} else { 
+	} else { /* commretval > 0 */
 		__vub300_irqpoll_response(vub300);
 	}
 }
 
+/* this thread runs only when the driver
+ * is trying to poll the device for an IRQ
+ */
 static void vub300_pollwork_thread(struct work_struct *work)
-{				
+{				/* NOT irq */
 	struct vub300_mmc_host *vub300 = container_of(work,
 			      struct vub300_mmc_host, pollwork.work);
 	if (!vub300->interface) {
@@ -649,8 +693,8 @@ static void vub300_pollwork_thread(struct work_struct *work)
 	if (vub300->cmd) {
 		vub300_queue_poll_work(vub300, 1);
 	} else if (!vub300->card_present) {
-		
-	} else { 
+		/* no need to do anything */
+	} else { /* vub300->card_present */
 		mutex_lock(&vub300->irq_mutex);
 		if (!vub300->irq_enabled) {
 			mutex_unlock(&vub300->irq_mutex);
@@ -659,7 +703,7 @@ static void vub300_pollwork_thread(struct work_struct *work)
 			mmc_signal_sdio_irq(vub300->mmc);
 			mod_timer(&vub300->inactivity_timer, jiffies + HZ);
 			mutex_unlock(&vub300->irq_mutex);
-		} else { 
+		} else { /* NOT vub300->irqs_queued */
 			mutex_unlock(&vub300->irq_mutex);
 			__do_poll(vub300);
 		}
@@ -669,7 +713,7 @@ static void vub300_pollwork_thread(struct work_struct *work)
 }
 
 static void vub300_deadwork_thread(struct work_struct *work)
-{				
+{				/* NOT irq */
 	struct vub300_mmc_host *vub300 =
 		container_of(work, struct vub300_mmc_host, deadwork);
 	if (!vub300->interface) {
@@ -678,10 +722,22 @@ static void vub300_deadwork_thread(struct work_struct *work)
 	}
 	mutex_lock(&vub300->cmd_mutex);
 	if (vub300->cmd) {
+		/*
+		 * a command got in as the inactivity
+		 * timer expired - so we just let the
+		 * processing of the command show if
+		 * the device is dead
+		 */
 	} else if (vub300->card_present) {
 		check_vub300_port_status(vub300);
 	} else if (vub300->mmc && vub300->mmc->card &&
 		   mmc_card_present(vub300->mmc->card)) {
+		/*
+		 * the MMC core must not have responded
+		 * to the previous indication - lets
+		 * hope that it eventually does so we
+		 * will just ignore this for now
+		 */
 	} else {
 		check_vub300_port_status(vub300);
 	}
@@ -691,7 +747,7 @@ static void vub300_deadwork_thread(struct work_struct *work)
 }
 
 static void vub300_inactivity_timer_expired(unsigned long data)
-{				
+{				/* softirq */
 	struct vub300_mmc_host *vub300 = (struct vub300_mmc_host *)data;
 	if (!vub300->interface) {
 		kref_put(&vub300->kref, vub300_delete);
@@ -740,14 +796,22 @@ static int vub300_response_error(u8 error_code)
 }
 
 static void command_res_completed(struct urb *urb)
-{				
+{				/* urb completion handler - hardirq */
 	struct vub300_mmc_host *vub300 = (struct vub300_mmc_host *)urb->context;
 	if (urb->status) {
-		
+		/* we have to let the initiator handle the error */
 	} else if (vub300->command_res_urb->actual_length == 0) {
+		/*
+		 * we have seen this happen once or twice and
+		 * we suspect a buggy USB host controller
+		 */
 	} else if (!vub300->data) {
-		
+		/* this means that the command (typically CMD52) suceeded */
 	} else if (vub300->resp.common.header_type != 0x02) {
+		/*
+		 * this is an error response from the VUB300 chip
+		 * and we let the initiator handle it
+		 */
 	} else if (vub300->urb) {
 		vub300->cmd->error =
 			vub300_response_error(vub300->resp.error.error_code);
@@ -757,11 +821,11 @@ static void command_res_completed(struct urb *urb)
 			vub300_response_error(vub300->resp.error.error_code);
 		usb_sg_cancel(&vub300->sg_request);
 	}
-	complete(&vub300->command_complete);	
+	complete(&vub300->command_complete);	/* got_response_in */
 }
 
 static void command_out_completed(struct urb *urb)
-{				
+{				/* urb completion handler - hardirq */
 	struct vub300_mmc_host *vub300 = (struct vub300_mmc_host *)urb->context;
 	if (urb->status) {
 		complete(&vub300->command_complete);
@@ -775,12 +839,23 @@ static void command_out_completed(struct urb *urb)
 		vub300->command_res_urb->actual_length = 0;
 		ret = usb_submit_urb(vub300->command_res_urb, GFP_ATOMIC);
 		if (ret == 0) {
+			/*
+			 * the urb completion handler will call
+			 * our completion handler
+			 */
 		} else {
+			/*
+			 * and thus we only call it directly
+			 * when it will not be called
+			 */
 			complete(&vub300->command_complete);
 		}
 	}
 }
 
+/*
+ * the STUFF bits are masked out for the comparisons
+ */
 static void snoop_block_size_and_bus_width(struct vub300_mmc_host *vub300,
 					   u32 cmd_arg)
 {
@@ -820,7 +895,7 @@ static void snoop_block_size_and_bus_width(struct vub300_mmc_host *vub300,
 
 static void send_command(struct vub300_mmc_host *vub300)
 {
-	
+	/* cmd_mutex is held by vub300_cmndwork_thread */
 	struct mmc_command *cmd = vub300->cmd;
 	struct mmc_data *data = vub300->data;
 	int retval;
@@ -991,10 +1066,14 @@ static void send_command(struct vub300_mmc_host *vub300)
 			return;
 		}
 	}
+	/*
+	 * it is a shame that we can not use "sizeof(struct sd_command_header)"
+	 * this is because the packet _must_ be padded to 64 bytes
+	 */
 	vub300->cmnd.head.header_size = 20;
 	vub300->cmnd.head.header_type = 0x00;
-	vub300->cmnd.head.port_number = 0; 
-	vub300->cmnd.head.command_type = 0x00; 
+	vub300->cmnd.head.port_number = 0; /* "0" means port 1 */
+	vub300->cmnd.head.command_type = 0x00; /* standard read command */
 	vub300->cmnd.head.response_type = response_type;
 	vub300->cmnd.head.command_index = cmd->opcode;
 	vub300->cmnd.head.arguments[0] = cmd->arg >> 24;
@@ -1024,7 +1103,7 @@ static void send_command(struct vub300_mmc_host *vub300)
 		vub300->cmnd.head.transfer_size[3] = 0;
 	} else if (cmd->opcode == 53) {
 		int fn = 0x7 & (cmd->arg >> 28);
-		if (0x08 & vub300->cmnd.head.arguments[0]) { 
+		if (0x08 & vub300->cmnd.head.arguments[0]) { /* BLOCK MODE */
 			vub300->cmnd.head.block_count[0] =
 				(data->blocks >> 8) & 0xFF;
 			vub300->cmnd.head.block_count[1] =
@@ -1033,7 +1112,7 @@ static void send_command(struct vub300_mmc_host *vub300)
 				(data->blksz >> 8) & 0xFF;
 			vub300->cmnd.head.block_size[1] =
 				(data->blksz >> 0) & 0xFF;
-		} else {	
+		} else {	/* BYTE MODE */
 			vub300->cmnd.head.block_count[0] = 0;
 			vub300->cmnd.head.block_count[1] = 0;
 			vub300->cmnd.head.block_size[0] =
@@ -1102,6 +1181,10 @@ static void send_command(struct vub300_mmc_host *vub300)
 	}
 }
 
+/*
+ * timer callback runs in atomic mode
+ *       so it cannot call usb_kill_urb()
+ */
 static void vub300_sg_timed_out(unsigned long data)
 {
 	struct vub300_mmc_host *vub300 = (struct vub300_mmc_host *)data;
@@ -1116,6 +1199,9 @@ static u16 roundup_to_multiple_of_64(u16 number)
 	return 0xFFC0 & (0x3F + number);
 }
 
+/*
+ * this is a separate function to solve the 80 column width restriction
+ */
 static void __download_offload_pseudocode(struct vub300_mmc_host *vub300,
 					  const struct firmware *fw)
 {
@@ -1129,7 +1215,7 @@ static void __download_offload_pseudocode(struct vub300_mmc_host *vub300,
 		 vub300->vub_name);
 	do {
 		c = *data++;
-	} while (size-- && c); 
+	} while (size-- && c); /* skip comment */
 	dev_info(&vub300->udev->dev, "using offload firmware %s %s\n", fw->data,
 		 vub300->vub_name);
 	if (size < 4) {
@@ -1270,6 +1356,10 @@ static void __download_offload_pseudocode(struct vub300_mmc_host *vub300,
 	}
 }
 
+/*
+ * if the binary containing the EMPTY PseudoCode can not be found
+ * vub300->vub_name is set anyway in order to prevent an automatic retry
+ */
 static void download_offload_pseudocode(struct vub300_mmc_host *vub300)
 {
 	struct mmc_card *card = vub300->mmc->card;
@@ -1308,7 +1398,7 @@ static void download_offload_pseudocode(struct vub300_mmc_host *vub300)
 }
 
 static void vub300_usb_bulk_msg_completion(struct urb *urb)
-{				
+{				/* urb completion handler - hardirq */
 	complete((struct completion *)urb->context);
 }
 
@@ -1316,7 +1406,7 @@ static int vub300_usb_bulk_msg(struct vub300_mmc_host *vub300,
 			       unsigned int pipe, void *data, int len,
 			       int *actual_length, int timeout_msecs)
 {
-	
+	/* cmd_mutex is held by vub300_cmndwork_thread */
 	struct usb_device *usb_dev = vub300->udev;
 	struct completion done;
 	int retval;
@@ -1348,7 +1438,7 @@ out:
 static int __command_read_data(struct vub300_mmc_host *vub300,
 			       struct mmc_command *cmd, struct mmc_data *data)
 {
-	
+	/* cmd_mutex is held by vub300_cmndwork_thread */
 	int linear_length = vub300->datasize;
 	int padded_length = vub300->large_usb_packets ?
 		((511 + linear_length) >> 9) << 9 :
@@ -1420,7 +1510,7 @@ static int __command_read_data(struct vub300_mmc_host *vub300,
 static int __command_write_data(struct vub300_mmc_host *vub300,
 				struct mmc_command *cmd, struct mmc_data *data)
 {
-	
+	/* cmd_mutex is held by vub300_cmndwork_thread */
 	unsigned pipe = usb_sndbulkpipe(vub300->udev, vub300->data_out_ep);
 	int linear_length = vub300->datasize;
 	int modulo_64_length = linear_length & 0x003F;
@@ -1446,7 +1536,7 @@ static int __command_write_data(struct vub300_mmc_host *vub300,
 		}
 	} else if ((!vub300->large_usb_packets && (0 < modulo_64_length)) ||
 		    (vub300->large_usb_packets && (64 > modulo_512_length))
-		) {		
+		) {		/* don't you just love these work-rounds */
 		int padded_length = ((63 + linear_length) >> 6) << 6;
 		u8 *buf = kmalloc(padded_length, GFP_KERNEL);
 		if (buf) {
@@ -1471,7 +1561,7 @@ static int __command_write_data(struct vub300_mmc_host *vub300,
 			cmd->error = -ENOMEM;
 			data->bytes_xfered = 0;
 		}
-	} else {		
+	} else {		/* no data padding required */
 		int result;
 		unsigned char buf[64 * 4];
 		sg_copy_to_buffer(data->sg, data->sg_len, buf, sizeof(buf));
@@ -1509,14 +1599,14 @@ static void __vub300_command_response(struct vub300_mmc_host *vub300,
 				      struct mmc_command *cmd,
 				      struct mmc_data *data, int data_length)
 {
-	
+	/* cmd_mutex is held by vub300_cmndwork_thread */
 	long respretval;
 	int msec_timeout = 1000 + data_length / 4;
 	respretval =
 		wait_for_completion_timeout(&vub300->command_complete,
 					    msecs_to_jiffies(msec_timeout));
-	if (respretval == 0) { 
-		
+	if (respretval == 0) { /* TIMED OUT */
+		/* we don't know which of "out" and "res" if any failed */
 		int result;
 		vub300->usb_timed_out = 1;
 		usb_kill_urb(vub300->command_out_urb);
@@ -1529,11 +1619,15 @@ static void __vub300_command_response(struct vub300_mmc_host *vub300,
 			usb_unlock_device(vub300->udev);
 		}
 	} else if (respretval < 0) {
-		
+		/* we don't know which of "out" and "res" if any failed */
 		usb_kill_urb(vub300->command_out_urb);
 		usb_kill_urb(vub300->command_res_urb);
 		cmd->error = respretval;
 	} else if (cmd->error) {
+		/*
+		 * the error occurred sending the command
+		 * or receiving the response
+		 */
 	} else if (vub300->command_out_urb->status) {
 		vub300->usb_transport_fail = vub300->command_out_urb->status;
 		cmd->error = -EPROTO == vub300->command_out_urb->status ?
@@ -1543,6 +1637,10 @@ static void __vub300_command_response(struct vub300_mmc_host *vub300,
 		cmd->error = -EPROTO == vub300->command_res_urb->status ?
 			-ESHUTDOWN : vub300->command_res_urb->status;
 	} else if (vub300->resp.common.header_type == 0x00) {
+		/*
+		 * the command completed successfully
+		 * and there was no piggybacked data
+		 */
 	} else if (vub300->resp.common.header_type == RESPONSE_ERROR) {
 		cmd->error =
 			vub300_response_error(vub300->resp.error.error_code);
@@ -1645,6 +1743,7 @@ static void construct_request_response(struct vub300_mmc_host *vub300,
 		cmd->resp[0] &= 0xFFFFFF00;
 }
 
+/* this thread runs only when there is an upper level command req outstanding */
 static void vub300_cmndwork_thread(struct work_struct *work)
 {
 	struct vub300_mmc_host *vub300 =
@@ -1661,6 +1760,11 @@ static void vub300_cmndwork_thread(struct work_struct *work)
 		init_completion(&vub300->command_complete);
 		if (likely(vub300->vub_name[0]) || !vub300->mmc->card ||
 		    !mmc_card_present(vub300->mmc->card)) {
+			/*
+			 * the name of the EMPTY Pseudo firmware file
+			 * is used as a flag to indicate that the file
+			 * has been already downloaded to the VUB300 chip
+			 */
 		} else if (0 == vub300->mmc->card->sdio_funcs) {
 			strncpy(vub300->vub_name, "SD memory device",
 				sizeof(vub300->vub_name));
@@ -1699,7 +1803,7 @@ static void vub300_cmndwork_thread(struct work_struct *work)
 static int examine_cyclic_buffer(struct vub300_mmc_host *vub300,
 				 struct mmc_command *cmd, u8 Function)
 {
-	
+	/* cmd_mutex is held by vub300_mmc_request */
 	u8 cmd0 = 0xFF & (cmd->arg >> 24);
 	u8 cmd1 = 0xFF & (cmd->arg >> 16);
 	u8 cmd2 = 0xFF & (cmd->arg >> 8);
@@ -1721,7 +1825,7 @@ static int examine_cyclic_buffer(struct vub300_mmc_host *vub300,
 		vub300->total_offload_count -= 1;
 		return 1;
 	} else {
-		int delta = 1;	
+		int delta = 1;	/* because it does not match the first one */
 		u8 register_count = vub300->fn[Function].offload_count - 1;
 		u32 register_point = vub300->fn[Function].offload_point + 1;
 		while (0 < register_count) {
@@ -1756,7 +1860,7 @@ static int examine_cyclic_buffer(struct vub300_mmc_host *vub300,
 static int satisfy_request_from_offloaded_data(struct vub300_mmc_host *vub300,
 					       struct mmc_command *cmd)
 {
-	
+	/* cmd_mutex is held by vub300_mmc_request */
 	u8 regs = vub300->dynamic_register_count;
 	u8 i = 0;
 	u8 func = FUN(cmd);
@@ -1767,6 +1871,10 @@ static int satisfy_request_from_offloaded_data(struct vub300_mmc_host *vub300,
 			if (!vub300->sdio_register[i].prepared) {
 				return 0;
 			} else if ((0x80000000 & cmd->arg) == 0x80000000) {
+				/*
+				 * a write to a dynamic register
+				 * nullifies our offloaded value
+				 */
 				vub300->sdio_register[i].prepared = 0;
 				return 0;
 			} else {
@@ -1797,7 +1905,7 @@ static int satisfy_request_from_offloaded_data(struct vub300_mmc_host *vub300,
 }
 
 static void vub300_mmc_request(struct mmc_host *mmc, struct mmc_request *req)
-{				
+{				/* NOT irq */
 	struct mmc_command *cmd = req->cmd;
 	struct vub300_mmc_host *vub300 = mmc_priv(mmc);
 	if (!vub300->interface) {
@@ -1829,6 +1937,10 @@ static void vub300_mmc_request(struct mmc_host *mmc, struct mmc_request *req)
 		kref_get(&vub300->kref);
 		mutex_lock(&vub300->cmd_mutex);
 		mod_timer(&vub300->inactivity_timer, jiffies + HZ);
+		/*
+		 * for performance we have to return immediately
+		 * if the requested data has been offloaded
+		 */
 		if (cmd->opcode == 52 &&
 		    satisfy_request_from_offloaded_data(vub300, cmd)) {
 			cmd->error = 0;
@@ -1847,6 +1959,13 @@ static void vub300_mmc_request(struct mmc_host *mmc, struct mmc_request *req)
 			vub300_queue_cmnd_work(vub300);
 			mutex_unlock(&vub300->cmd_mutex);
 			kref_put(&vub300->kref, vub300_delete);
+			/*
+			 * the kernel lock diagnostics complain
+			 * if the cmd_mutex * is "passed on"
+			 * to the cmndwork thread,
+			 * so we must release it now
+			 * and re-acquire it in the cmndwork thread
+			 */
 		}
 	}
 }
@@ -1854,7 +1973,7 @@ static void vub300_mmc_request(struct mmc_host *mmc, struct mmc_request *req)
 static void __set_clock_speed(struct vub300_mmc_host *vub300, u8 buf[8],
 			      struct mmc_ios *ios)
 {
-	int buf_array_size = 8; 
+	int buf_array_size = 8; /* ARRAY_SIZE(buf) does not work !!! */
 	int retval;
 	u32 kHzClock;
 	if (ios->clock >= 48000000)
@@ -1892,7 +2011,7 @@ static void __set_clock_speed(struct vub300_mmc_host *vub300, u8 buf[8],
 }
 
 static void vub300_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
-{				
+{				/* NOT irq */
 	struct vub300_mmc_host *vub300 = mmc_priv(mmc);
 	if (!vub300->interface)
 		return;
@@ -1904,7 +2023,7 @@ static void vub300_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 				SET_SD_POWER,
 				USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 				0x0000, 0x0000, NULL, 0, HZ);
-		
+		/* must wait for the VUB300 u-proc to boot up */
 		msleep(600);
 	} else if ((ios->power_mode == MMC_POWER_UP) && !vub300->card_powered) {
 		usb_control_msg(vub300->udev, usb_sndctrlpipe(vub300->udev, 0),
@@ -1920,7 +2039,7 @@ static void vub300_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 			kfree(buf);
 		}
 	} else {
-		
+		/* this should mean no change of state */
 	}
 	mutex_unlock(&vub300->cmd_mutex);
 	kref_put(&vub300->kref, vub300_delete);
@@ -1933,7 +2052,7 @@ static int vub300_mmc_get_ro(struct mmc_host *mmc)
 }
 
 static void vub300_enable_sdio_irq(struct mmc_host *mmc, int enable)
-{				
+{				/* NOT irq */
 	struct vub300_mmc_host *vub300 = mmc_priv(mmc);
 	if (!vub300->interface)
 		return;
@@ -1948,7 +2067,7 @@ static void vub300_enable_sdio_irq(struct mmc_host *mmc, int enable)
 			vub300->irq_enabled = 1;
 			vub300_queue_poll_work(vub300, 0);
 		} else if (vub300->irq_enabled) {
-			
+			/* this should not happen, so we will just ignore it */
 		} else {
 			vub300->irq_enabled = 1;
 			vub300_queue_poll_work(vub300, 0);
@@ -1961,7 +2080,7 @@ static void vub300_enable_sdio_irq(struct mmc_host *mmc, int enable)
 }
 
 void vub300_init_card(struct mmc_host *mmc, struct mmc_card *card)
-{				
+{				/* NOT irq */
 	struct vub300_mmc_host *vub300 = mmc_priv(mmc);
 	dev_info(&vub300->udev->dev, "NO host QUIRKS for this card\n");
 }
@@ -1976,7 +2095,7 @@ static struct mmc_host_ops vub300_mmc_ops = {
 
 static int vub300_probe(struct usb_interface *interface,
 			const struct usb_device_id *id)
-{				
+{				/* NOT irq */
 	struct vub300_mmc_host *vub300;
 	struct usb_host_interface *iface_desc;
 	struct usb_device *udev = usb_get_dev(interface_to_usbdev(interface));
@@ -2008,20 +2127,25 @@ static int vub300_probe(struct usb_interface *interface,
 		dev_err(&udev->dev, "not enough memory for command_res_urb\n");
 		goto error1;
 	}
-	
+	/* this also allocates memory for our VUB300 mmc host device */
 	mmc = mmc_alloc_host(sizeof(struct vub300_mmc_host), &udev->dev);
 	if (!mmc) {
 		retval = -ENOMEM;
 		dev_err(&udev->dev, "not enough memory for the mmc_host\n");
 		goto error4;
 	}
-	
+	/* MMC core transfer sizes tunable parameters */
 	mmc->caps = 0;
 	if (!force_1_bit_data_xfers)
 		mmc->caps |= MMC_CAP_4_BIT_DATA;
 	if (!force_polling_for_irqs)
 		mmc->caps |= MMC_CAP_SDIO_IRQ;
 	mmc->caps &= ~MMC_CAP_NEEDS_POLL;
+	/*
+	 * MMC_CAP_NEEDS_POLL causes core.c:mmc_rescan() to poll
+	 * for devices which results in spurious CMD7's being
+	 * issued which stops some SDIO cards from working
+	 */
 	if (limit_speed_to_24_MHz) {
 		mmc->caps |= MMC_CAP_MMC_HIGHSPEED;
 		mmc->caps |= MMC_CAP_SD_HIGHSPEED;
@@ -2097,6 +2221,15 @@ static int vub300_probe(struct usb_interface *interface,
 	for (i = 0; i < ARRAY_SIZE(vub300->fbs); i++)
 		vub300->fbs[i] = 512;
 
+	/*
+	 *      set up the endpoint information
+	 *
+	 * use the first pair of bulk-in and bulk-out
+	 *     endpoints for Command/Response+Interrupt
+	 *
+	 * use the second pair of bulk-in and bulk-out
+	 *     endpoints for Data In/Out
+	 */
 	vub300->large_usb_packets = 0;
 	iface_desc = interface->cur_altsetting;
 	for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
@@ -2147,7 +2280,7 @@ static int vub300_probe(struct usb_interface *interface,
 			 vub300->large_usb_packets ? "LARGE" : "SMALL",
 			 vub300->cmnd_out_ep, vub300->cmnd_res_ep,
 			 vub300->data_out_ep, vub300->data_inp_ep);
-		
+		/* we have the expected EndPoints */
 	} else {
 		dev_err(&vub300->udev->dev,
 		    "Could not find two sets of bulk-in/out endpoint pairs\n");
@@ -2220,6 +2353,10 @@ static int vub300_probe(struct usb_interface *interface,
 	return 0;
 error5:
 	mmc_free_host(mmc);
+	/*
+	 * and hence also frees vub300
+	 * which is contained at the end of struct mmc
+	 */
 error4:
 	usb_free_urb(command_out_urb);
 error1:
@@ -2229,7 +2366,7 @@ error0:
 }
 
 static void vub300_disconnect(struct usb_interface *interface)
-{				
+{				/* NOT irq */
 	struct vub300_mmc_host *vub300 = usb_get_intfdata(interface);
 	if (!vub300 || !vub300->mmc) {
 		return;
@@ -2240,7 +2377,7 @@ static void vub300_disconnect(struct usb_interface *interface)
 		} else {
 			int ifnum = interface_to_InterfaceNumber(interface);
 			usb_set_intfdata(interface, NULL);
-			
+			/* prevent more I/O from starting */
 			vub300->interface = NULL;
 			kref_put(&vub300->kref, vub300_delete);
 			mmc_remove_host(mmc);
@@ -2280,16 +2417,16 @@ static int vub300_resume(struct usb_interface *intf)
 #define vub300_resume NULL
 #endif
 static int vub300_pre_reset(struct usb_interface *intf)
-{				
+{				/* NOT irq */
 	struct vub300_mmc_host *vub300 = usb_get_intfdata(intf);
 	mutex_lock(&vub300->cmd_mutex);
 	return 0;
 }
 
 static int vub300_post_reset(struct usb_interface *intf)
-{				
+{				/* NOT irq */
 	struct vub300_mmc_host *vub300 = usb_get_intfdata(intf);
-	
+	/* we are sure no URBs are active - no locking needed */
 	vub300->errors = -EPIPE;
 	mutex_unlock(&vub300->cmd_mutex);
 	return 0;
@@ -2308,7 +2445,7 @@ static struct usb_driver vub300_driver = {
 };
 
 static int __init vub300_init(void)
-{				
+{				/* NOT irq */
 	int result;
 
 	pr_info("VUB300 Driver rom wait states = %02X irqpoll timeout = %04X",

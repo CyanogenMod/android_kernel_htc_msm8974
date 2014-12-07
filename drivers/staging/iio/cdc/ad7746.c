@@ -21,6 +21,9 @@
 
 #include "ad7746.h"
 
+/*
+ * AD7746 Register Definition
+ */
 
 #define AD7746_REG_STATUS		0
 #define AD7746_REG_CAP_DATA_HIGH	1
@@ -42,16 +45,19 @@
 #define AD7746_REG_VOLT_GAINH		17
 #define AD7746_REG_VOLT_GAINL		18
 
+/* Status Register Bit Designations (AD7746_REG_STATUS) */
 #define AD7746_STATUS_EXCERR		(1 << 3)
 #define AD7746_STATUS_RDY		(1 << 2)
 #define AD7746_STATUS_RDYVT		(1 << 1)
 #define AD7746_STATUS_RDYCAP		(1 << 0)
 
+/* Capacitive Channel Setup Register Bit Designations (AD7746_REG_CAP_SETUP) */
 #define AD7746_CAPSETUP_CAPEN		(1 << 7)
-#define AD7746_CAPSETUP_CIN2		(1 << 6) 
+#define AD7746_CAPSETUP_CIN2		(1 << 6) /* AD7746 only */
 #define AD7746_CAPSETUP_CAPDIFF		(1 << 5)
 #define AD7746_CAPSETUP_CACHOP		(1 << 0)
 
+/* Voltage/Temperature Setup Register Bit Designations (AD7746_REG_VT_SETUP) */
 #define AD7746_VTSETUP_VTEN		(1 << 7)
 #define AD7746_VTSETUP_VTMD_INT_TEMP	(0 << 5)
 #define AD7746_VTSETUP_VTMD_EXT_TEMP	(1 << 5)
@@ -61,6 +67,7 @@
 #define AD7746_VTSETUP_VTSHORT		(1 << 1)
 #define AD7746_VTSETUP_VTCHOP		(1 << 0)
 
+/* Excitation Setup Register Bit Designations (AD7746_REG_EXC_SETUP) */
 #define AD7746_EXCSETUP_CLKCTRL		(1 << 7)
 #define AD7746_EXCSETUP_EXCON		(1 << 6)
 #define AD7746_EXCSETUP_EXCB		(1 << 5)
@@ -69,6 +76,7 @@
 #define AD7746_EXCSETUP_NEXCA		(1 << 2)
 #define AD7746_EXCSETUP_EXCLVL(x)	(((x) & 0x3) << 0)
 
+/* Config Register Bit Designations (AD7746_REG_CFG) */
 #define AD7746_CONF_VTFS(x)		((x) << 6)
 #define AD7746_CONF_CAPFS(x)		((x) << 3)
 #define AD7746_CONF_MODE_IDLE		(0 << 0)
@@ -78,12 +86,20 @@
 #define AD7746_CONF_MODE_OFFS_CAL	(5 << 0)
 #define AD7746_CONF_MODE_GAIN_CAL	(6 << 0)
 
+/* CAPDAC Register Bit Designations (AD7746_REG_CAPDACx) */
 #define AD7746_CAPDAC_DACEN		(1 << 7)
 #define AD7746_CAPDAC_DACP(x)		((x) & 0x7F)
 
+/*
+ * struct ad7746_chip_info - chip specifc information
+ */
 
 struct ad7746_chip_info {
 	struct i2c_client *client;
+	/*
+	 * Capacitive channel digital filter setup;
+	 * conversion time/update rate setup per channel
+	 */
 	u8	config;
 	u8	cap_setup;
 	u8	vt_setup;
@@ -185,6 +201,7 @@ static const struct iio_chan_spec ad7746_channels[] = {
 	}
 };
 
+/* Values are Update Rate (Hz), Conversion Time (ms) + 1*/
 static const unsigned char ad7746_vt_filter_rate_table[][2] = {
 	{50, 20 + 1}, {31, 32 + 1}, {16, 62 + 1}, {8, 122 + 1},
 };
@@ -499,11 +516,15 @@ static int ad7746_write_raw(struct iio_dev *indio_dev,
 		ret = 0;
 		break;
 	case IIO_CHAN_INFO_OFFSET:
-		if ((val < 0) | (val > 43008000)) { 
+		if ((val < 0) | (val > 43008000)) { /* 21pF */
 			ret = -EINVAL;
 			goto out;
 		}
 
+		/* CAPDAC Scale = 21pF_typ / 127
+		 * CIN Scale = 8.192pF / 2^24
+		 * Offset Scale = CAPDAC Scale / CIN Scale = 338646
+		 * */
 
 		val /= 338646;
 
@@ -564,7 +585,7 @@ static int ad7746_read_raw(struct iio_dev *indio_dev,
 			goto out;
 
 		msleep(delay);
-		
+		/* Now read the actual register */
 
 		ret = i2c_smbus_read_i2c_block_data(chip->client,
 			chan->address >> 8, 3, &data.d8[1]);
@@ -576,10 +597,13 @@ static int ad7746_read_raw(struct iio_dev *indio_dev,
 
 		switch (chan->type) {
 		case IIO_TEMP:
+		/* temperature in milli degrees Celsius
+		 * T = ((*val / 2048) - 4096) * 1000
+		 */
 			*val = (*val * 125) / 256;
 			break;
 		case IIO_VOLTAGE:
-			if (chan->channel == 1) 
+			if (chan->channel == 1) /* supply_raw*/
 				*val = *val * 6;
 			break;
 		default:
@@ -604,7 +628,7 @@ static int ad7746_read_raw(struct iio_dev *indio_dev,
 		ret = i2c_smbus_read_word_data(chip->client, reg);
 		if (ret < 0)
 			goto out;
-		
+		/* 1 + gain_val / 2^16 */
 		*val = 1;
 		*val2 = (15625 * swab16(ret)) / 1024;
 
@@ -628,12 +652,12 @@ static int ad7746_read_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_SCALE:
 		switch (chan->type) {
 		case IIO_CAPACITANCE:
-			
+			/* 8.192pf / 2^24 */
 			*val2 = 488;
 			*val =  0;
 			break;
 		case IIO_VOLTAGE:
-			
+			/* 1170mV / 2^23 */
 			*val2 = 139475;
 			*val =  0;
 			break;
@@ -659,6 +683,9 @@ static const struct iio_info ad7746_info = {
 	.driver_module = THIS_MODULE,
 };
 
+/*
+ * device probe and remove
+ */
 
 static int __devinit ad7746_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
@@ -675,13 +702,13 @@ static int __devinit ad7746_probe(struct i2c_client *client,
 		goto error_ret;
 	}
 	chip = iio_priv(indio_dev);
-	
+	/* this is only used for device removal purposes */
 	i2c_set_clientdata(client, indio_dev);
 
 	chip->client = client;
 	chip->capdac_set = -1;
 
-	
+	/* Establish that the iio_dev is a child of the i2c device */
 	indio_dev->name = id->name;
 	indio_dev->dev.parent = &client->dev;
 	indio_dev->info = &ad7746_info;

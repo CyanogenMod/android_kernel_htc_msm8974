@@ -7,30 +7,42 @@
 #include "check.h"
 #include "sysv68.h"
 
+/*
+ *	Volume ID structure: on first 256-bytes sector of disk
+ */
 
 struct volumeid {
 	u8	vid_unused[248];
-	u8	vid_mac[8];	
+	u8	vid_mac[8];	/* ASCII string "MOTOROLA" */
 };
 
+/*
+ *	config block: second 256-bytes sector on disk
+ */
 
 struct dkconfig {
 	u8	ios_unused0[128];
-	__be32	ios_slcblk;	
-	__be16	ios_slccnt;	
+	__be32	ios_slcblk;	/* Slice table block number */
+	__be16	ios_slccnt;	/* Number of entries in slice table */
 	u8	ios_unused1[122];
 };
 
+/*
+ *	combined volumeid and dkconfig block
+ */
 
 struct dkblk0 {
 	struct volumeid dk_vid;
 	struct dkconfig dk_ios;
 };
 
+/*
+ *	Slice Table Structure
+ */
 
 struct slice {
-	__be32	nblocks;		
-	__be32	blkoff;			
+	__be32	nblocks;		/* slice size (in blocks) */
+	__be32	blkoff;			/* block offset of slice */
 };
 
 
@@ -61,7 +73,7 @@ int sysv68_partition(struct parsed_partitions *state)
 	if (!data)
 		return -1;
 
-	slices -= 1; 
+	slices -= 1; /* last slice is the whole disk */
 	snprintf(tmp, sizeof(tmp), "sysV68: %s(s%u)", state->name, slices);
 	strlcat(state->pp_buf, tmp, PAGE_SIZE);
 	slice = (struct slice *)data;

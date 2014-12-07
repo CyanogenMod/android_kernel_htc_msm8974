@@ -58,18 +58,30 @@ MODULE_AUTHOR("IC Plus Corp. 2003");
 MODULE_DESCRIPTION("IC Plus IP1000 Gigabit Ethernet Adapter Linux Driver");
 MODULE_LICENSE("GPL");
 
+/*
+ * Defaults
+ */
 #define IPG_MAX_RXFRAME_SIZE	0x0600
 #define IPG_RXFRAG_SIZE		0x0600
 #define IPG_RXSUPPORT_SIZE	0x0600
 #define IPG_IS_JUMBO		false
 
+/*
+ * Variable record -- index by leading revision/length
+ * Revision/Length(=N*4), Address1, Data1, Address2, Data2,...,AddressN,DataN
+ */
 static const unsigned short DefaultPhyParam[] = {
-	
-	
+	/* 11/12/03 IP1000A v1-3 rev=0x40 */
+	/*--------------------------------------------------------------------------
+	(0x4000|(15*4)), 31, 0x0001, 27, 0x01e0, 31, 0x0002, 22, 0x85bd, 24, 0xfff2,
+				 27, 0x0c10, 28, 0x0c10, 29, 0x2c10, 31, 0x0003, 23, 0x92f6,
+				 31, 0x0000, 23, 0x003d, 30, 0x00de, 20, 0x20e7,  9, 0x0700,
+	  --------------------------------------------------------------------------*/
+	/* 12/17/03 IP1000A v1-4 rev=0x40 */
 	(0x4000 | (07 * 4)), 31, 0x0001, 27, 0x01e0, 31, 0x0002, 27, 0xeb8e, 31,
 	    0x0000,
 	30, 0x005e, 9, 0x0700,
-	
+	/* 01/09/04 IP1000A v1-5 rev=0x41 */
 	(0x4100 | (07 * 4)), 31, 0x0001, 27, 0x01e0, 31, 0x0002, 27, 0xeb8e, 31,
 	    0x0000,
 	30, 0x005e, 9, 0x0700,
@@ -198,21 +210,40 @@ static u16 read_phy_bit(void __iomem *ioaddr, u8 phyctrlpolarity)
 	return bit_data;
 }
 
+/*
+ * Read a register from the Physical Layer device located
+ * on the IPG NIC, using the IPG PHYCTRL register.
+ */
 static int mdio_read(struct net_device *dev, int phy_id, int phy_reg)
 {
 	void __iomem *ioaddr = ipg_ioaddr(dev);
+	/*
+	 * The GMII mangement frame structure for a read is as follows:
+	 *
+	 * |Preamble|st|op|phyad|regad|ta|      data      |idle|
+	 * |< 32 1s>|01|10|AAAAA|RRRRR|z0|DDDDDDDDDDDDDDDD|z   |
+	 *
+	 * <32 1s> = 32 consecutive logic 1 values
+	 * A = bit of Physical Layer device address (MSB first)
+	 * R = bit of register address (MSB first)
+	 * z = High impedance state
+	 * D = bit of read data (MSB first)
+	 *
+	 * Transmission order is 'Preamble' field first, bits transmitted
+	 * left to right (first to last).
+	 */
 	struct {
 		u32 field;
 		unsigned int len;
 	} p[] = {
-		{ GMII_PREAMBLE,	32 },	
-		{ GMII_ST,		2  },	
-		{ GMII_READ,		2  },	
-		{ phy_id,		5  },	
-		{ phy_reg,		5  },	
-		{ 0x0000,		2  },	
-		{ 0x0000,		16 },	
-		{ 0x0000,		1  }	
+		{ GMII_PREAMBLE,	32 },	/* Preamble */
+		{ GMII_ST,		2  },	/* ST */
+		{ GMII_READ,		2  },	/* OP */
+		{ phy_id,		5  },	/* PHYAD */
+		{ phy_reg,		5  },	/* REGAD */
+		{ 0x0000,		2  },	/* TA */
+		{ 0x0000,		16 },	/* DATA */
+		{ 0x0000,		1  }	/* IDLE */
 	};
 	unsigned int i, j;
 	u8 polarity, data;
@@ -220,7 +251,7 @@ static int mdio_read(struct net_device *dev, int phy_id, int phy_reg)
 	polarity  = ipg_r8(PHY_CTRL);
 	polarity &= (IPG_PC_DUPLEX_POLARITY | IPG_PC_LINK_POLARITY);
 
-	
+	/* Create the Preamble, ST, OP, PHYAD, and REGAD field. */
 	for (j = 0; j < 5; j++) {
 		for (i = 0; i < p[j].len; i++) {
 			/* For each variable length field, the MSB must be
@@ -252,6 +283,10 @@ static int mdio_read(struct net_device *dev, int phy_id, int phy_reg)
 
 	read_phy_bit(ioaddr, polarity);
 
+	/*
+	 * For a read cycle, the bits for the next two fields (TA and
+	 * DATA) are driven by the PHY (the IPG reads these bits).
+	 */
 	for (i = 0; i < p[6].len; i++) {
 		p[6].field |=
 		    (read_phy_bit(ioaddr, polarity) << (p[6].len - 1 - i));
@@ -262,25 +297,44 @@ static int mdio_read(struct net_device *dev, int phy_id, int phy_reg)
 	send_three_state(ioaddr, polarity);
 	send_end(ioaddr, polarity);
 
-	
+	/* Return the value of the DATA field. */
 	return p[6].field;
 }
 
+/*
+ * Write to a register from the Physical Layer device located
+ * on the IPG NIC, using the IPG PHYCTRL register.
+ */
 static void mdio_write(struct net_device *dev, int phy_id, int phy_reg, int val)
 {
 	void __iomem *ioaddr = ipg_ioaddr(dev);
+	/*
+	 * The GMII mangement frame structure for a read is as follows:
+	 *
+	 * |Preamble|st|op|phyad|regad|ta|      data      |idle|
+	 * |< 32 1s>|01|10|AAAAA|RRRRR|z0|DDDDDDDDDDDDDDDD|z   |
+	 *
+	 * <32 1s> = 32 consecutive logic 1 values
+	 * A = bit of Physical Layer device address (MSB first)
+	 * R = bit of register address (MSB first)
+	 * z = High impedance state
+	 * D = bit of write data (MSB first)
+	 *
+	 * Transmission order is 'Preamble' field first, bits transmitted
+	 * left to right (first to last).
+	 */
 	struct {
 		u32 field;
 		unsigned int len;
 	} p[] = {
-		{ GMII_PREAMBLE,	32 },	
-		{ GMII_ST,		2  },	
-		{ GMII_WRITE,		2  },	
-		{ phy_id,		5  },	
-		{ phy_reg,		5  },	
-		{ 0x0002,		2  },	
-		{ val & 0xffff,		16 },	
-		{ 0x0000,		1  }	
+		{ GMII_PREAMBLE,	32 },	/* Preamble */
+		{ GMII_ST,		2  },	/* ST */
+		{ GMII_WRITE,		2  },	/* OP */
+		{ phy_id,		5  },	/* PHYAD */
+		{ phy_reg,		5  },	/* REGAD */
+		{ 0x0002,		2  },	/* TA */
+		{ val & 0xffff,		16 },	/* DATA */
+		{ 0x0000,		1  }	/* IDLE */
 	};
 	unsigned int i, j;
 	u8 polarity, data;
@@ -288,7 +342,7 @@ static void mdio_write(struct net_device *dev, int phy_id, int phy_reg, int val)
 	polarity  = ipg_r8(PHY_CTRL);
 	polarity &= (IPG_PC_DUPLEX_POLARITY | IPG_PC_LINK_POLARITY);
 
-	
+	/* Create the Preamble, ST, OP, PHYAD, and REGAD field. */
 	for (j = 0; j < 7; j++) {
 		for (i = 0; i < p[j].len; i++) {
 			/* For each variable length field, the MSB must be
@@ -316,7 +370,7 @@ static void mdio_write(struct net_device *dev, int phy_id, int phy_reg, int val)
 		}
 	}
 
-	
+	/* The last cycle is a tri-state, so read from the PHY. */
 	ipg_write_phy_ctl(ioaddr, IPG_PC_MGMTCLK_LO | polarity);
 	ipg_r8(PHY_CTRL);
 	ipg_write_phy_ctl(ioaddr, IPG_PC_MGMTCLK_HI | polarity);
@@ -332,13 +386,13 @@ static void ipg_set_led_mode(struct net_device *dev)
 	mode &= ~(IPG_AC_LED_MODE_BIT_1 | IPG_AC_LED_MODE | IPG_AC_LED_SPEED);
 
 	if ((sp->led_mode & 0x03) > 1)
-		mode |= IPG_AC_LED_MODE_BIT_1;	
+		mode |= IPG_AC_LED_MODE_BIT_1;	/* Write Asic Control Bit 29 */
 
 	if ((sp->led_mode & 0x01) == 1)
-		mode |= IPG_AC_LED_MODE;	
+		mode |= IPG_AC_LED_MODE;	/* Write Asic Control Bit 14 */
 
 	if ((sp->led_mode & 0x08) == 8)
-		mode |= IPG_AC_LED_SPEED;	
+		mode |= IPG_AC_LED_SPEED;	/* Write Asic Control Bit 27 */
 
 	ipg_w32(mode, ASIC_CTRL);
 }
@@ -357,6 +411,10 @@ static void ipg_set_phy_set(struct net_device *dev)
 
 static int ipg_reset(struct net_device *dev, u32 resetflags)
 {
+	/* Assert functional resets via the IPG AsicCtrl
+	 * register as specified by the 'resetflags' input
+	 * parameter.
+	 */
 	void __iomem *ioaddr = ipg_ioaddr(dev);
 	unsigned int timeout_count = 0;
 
@@ -364,7 +422,7 @@ static int ipg_reset(struct net_device *dev, u32 resetflags)
 
 	ipg_w32(ipg_r32(ASIC_CTRL) | resetflags, ASIC_CTRL);
 
-	
+	/* Delay added to account for problem with 10Mbps reset. */
 	mdelay(IPG_AC_RESETWAIT);
 
 	while (IPG_AC_RESET_BUSY & ipg_r32(ASIC_CTRL)) {
@@ -372,14 +430,15 @@ static int ipg_reset(struct net_device *dev, u32 resetflags)
 		if (++timeout_count > IPG_AC_RESET_TIMEOUT)
 			return -ETIME;
 	}
-	
+	/* Set LED Mode in Asic Control */
 	ipg_set_led_mode(dev);
 
-	
+	/* Set PHYSet Register Value */
 	ipg_set_phy_set(dev);
 	return 0;
 }
 
+/* Find the GMII PHY address. */
 static int ipg_find_phyaddr(struct net_device *dev)
 {
 	unsigned int phyaddr, i;
@@ -387,9 +446,12 @@ static int ipg_find_phyaddr(struct net_device *dev)
 	for (i = 0; i < 32; i++) {
 		u32 status;
 
-		
+		/* Search for the correct PHY address among 32 possible. */
 		phyaddr = (IPG_NIC_PHY_ADDRESS + i) % 32;
 
+		/* 10/22/03 Grace change verify from GMII_PHY_STATUS to
+		   GMII_PHY_ID1
+		 */
 
 		status = mdio_read(dev, phyaddr, MII_BMSR);
 
@@ -400,6 +462,10 @@ static int ipg_find_phyaddr(struct net_device *dev)
 	return 0x1f;
 }
 
+/*
+ * Configure IPG based on result of IEEE 802.3 PHY
+ * auto-negotiation.
+ */
 static int ipg_config_autoneg(struct net_device *dev)
 {
 	struct ipg_nic_private *sp = netdev_priv(dev);
@@ -421,13 +487,19 @@ static int ipg_config_autoneg(struct net_device *dev)
 	phyctrl = ipg_r8(PHY_CTRL);
 	mac_ctrl_val = ipg_r32(MAC_CTRL);
 
+	/* Set flags for use in resolving auto-negotiation, assuming
+	 * non-1000Mbps, half duplex, no flow control.
+	 */
 	fullduplex = 0;
 	txflowcontrol = 0;
 	rxflowcontrol = 0;
 
+	/* To accommodate a problem in 10Mbps operation,
+	 * set a global flag if PHY running in 10Mbps mode.
+	 */
 	sp->tenmbpsmode = 0;
 
-	
+	/* Determine actual speed of operation. */
 	switch (phyctrl & IPG_PC_LINK_SPEED) {
 	case IPG_PC_LINK_SPEED_10MBPS:
 		speed = "10Mbps";
@@ -454,10 +526,10 @@ static int ipg_config_autoneg(struct net_device *dev)
 		rxflowcontrol = 1;
 	}
 
-	
+	/* Configure full duplex, and flow control. */
 	if (fullduplex == 1) {
 
-		
+		/* Configure IPG for full duplex operation. */
 
 		duplex = "full";
 
@@ -494,6 +566,9 @@ static int ipg_config_autoneg(struct net_device *dev)
 	return 0;
 }
 
+/* Determine and configure multicast operation and set
+ * receive mode for IPG.
+ */
 static void ipg_nic_set_multicast_list(struct net_device *dev)
 {
 	void __iomem *ioaddr = ipg_ioaddr(dev);
@@ -507,33 +582,52 @@ static void ipg_nic_set_multicast_list(struct net_device *dev)
 	receivemode = IPG_RM_RECEIVEUNICAST | IPG_RM_RECEIVEBROADCAST;
 
 	if (dev->flags & IFF_PROMISC) {
-		
+		/* NIC to be configured in promiscuous mode. */
 		receivemode = IPG_RM_RECEIVEALLFRAMES;
 	} else if ((dev->flags & IFF_ALLMULTI) ||
 		   ((dev->flags & IFF_MULTICAST) &&
 		    (netdev_mc_count(dev) > IPG_MULTICAST_HASHTABLE_SIZE))) {
+		/* NIC to be configured to receive all multicast
+		 * frames. */
 		receivemode |= IPG_RM_RECEIVEMULTICAST;
 	} else if ((dev->flags & IFF_MULTICAST) && !netdev_mc_empty(dev)) {
+		/* NIC to be configured to receive selected
+		 * multicast addresses. */
 		receivemode |= IPG_RM_RECEIVEMULTICASTHASH;
 	}
 
+	/* Calculate the bits to set for the 64 bit, IPG HASHTABLE.
+	 * The IPG applies a cyclic-redundancy-check (the same CRC
+	 * used to calculate the frame data FCS) to the destination
+	 * address all incoming multicast frames whose destination
+	 * address has the multicast bit set. The least significant
+	 * 6 bits of the CRC result are used as an addressing index
+	 * into the hash table. If the value of the bit addressed by
+	 * this index is a 1, the frame is passed to the host system.
+	 */
 
-	
+	/* Clear hashtable. */
 	hashtable[0] = 0x00000000;
 	hashtable[1] = 0x00000000;
 
-	
+	/* Cycle through all multicast addresses to filter. */
 	netdev_for_each_mc_addr(ha, dev) {
-		
+		/* Calculate CRC result for each multicast address. */
 		hashindex = crc32_le(0xffffffff, ha->addr,
 				     ETH_ALEN);
 
-		
+		/* Use only the least significant 6 bits. */
 		hashindex = hashindex & 0x3F;
 
+		/* Within "hashtable", set bit number "hashindex"
+		 * to a logic 1.
+		 */
 		set_bit(hashindex, (void *)hashtable);
 	}
 
+	/* Write the value of the hashtable, to the 4, 16 bit
+	 * HASHTABLE IPG registers.
+	 */
 	ipg_w32(hashtable[0], HASHTABLE_0);
 	ipg_w32(hashtable[1], HASHTABLE_1);
 
@@ -555,21 +649,33 @@ static int ipg_io_config(struct net_device *dev)
 
 	restoremacctrl = origmacctrl | IPG_MC_STATISTICS_ENABLE;
 
+	/* Based on compilation option, determine if FCS is to be
+	 * stripped on receive frames by IPG.
+	 */
 	if (!IPG_STRIP_FCS_ON_RX)
 		restoremacctrl |= IPG_MC_RCV_FCS;
 
+	/* Determine if transmitter and/or receiver are
+	 * enabled so we may restore MACCTRL correctly.
+	 */
 	if (origmacctrl & IPG_MC_TX_ENABLED)
 		restoremacctrl |= IPG_MC_TX_ENABLE;
 
 	if (origmacctrl & IPG_MC_RX_ENABLED)
 		restoremacctrl |= IPG_MC_RX_ENABLE;
 
+	/* Transmitter and receiver must be disabled before setting
+	 * IFSSelect.
+	 */
 	ipg_w32((origmacctrl & (IPG_MC_RX_DISABLE | IPG_MC_TX_DISABLE)) &
 		IPG_MC_RSVD_MASK, MAC_CTRL);
 
+	/* Now that transmitter and receiver are disabled, write
+	 * to IFSSelect.
+	 */
 	ipg_w32((origmacctrl & IPG_MC_IFS_96BIT) & IPG_MC_RSVD_MASK, MAC_CTRL);
 
-	
+	/* Set RECEIVEMODE register. */
 	ipg_nic_set_multicast_list(dev);
 
 	ipg_w16(sp->max_rxframe_size, MAX_FRAME_SIZE);
@@ -587,19 +693,28 @@ static int ipg_io_config(struct net_device *dev)
 	ipg_w16(IPG_FLOWONTHRESH_VALUE,  FLOW_ON_THRESH);
 	ipg_w16(IPG_FLOWOFFTHRESH_VALUE, FLOW_OFF_THRESH);
 
+	/* IPG multi-frag frame bug workaround.
+	 * Per silicon revision B3 eratta.
+	 */
 	ipg_w16(ipg_r16(DEBUG_CTRL) | 0x0200, DEBUG_CTRL);
 
+	/* IPG TX poll now bug workaround.
+	 * Per silicon revision B3 eratta.
+	 */
 	ipg_w16(ipg_r16(DEBUG_CTRL) | 0x0010, DEBUG_CTRL);
 
+	/* IPG RX poll now bug workaround.
+	 * Per silicon revision B3 eratta.
+	 */
 	ipg_w16(ipg_r16(DEBUG_CTRL) | 0x0020, DEBUG_CTRL);
 
-	
+	/* Now restore MACCTRL to original setting. */
 	ipg_w32(IPG_MC_RSVD_MASK & restoremacctrl, MAC_CTRL);
 
-	
+	/* Disable unused RMON statistics. */
 	ipg_w32(IPG_RZ_ALL, RMON_STATISTICS_MASK);
 
-	
+	/* Disable unused MIB statistics. */
 	ipg_w32(IPG_SM_MACCONTROLFRAMESXMTD | IPG_SM_MACCONTROLFRAMESRCVD |
 		IPG_SM_BCSTOCTETXMTOK_BCSTFRAMESXMTDOK | IPG_SM_TXJUMBOFRAMES |
 		IPG_SM_MCSTOCTETXMTOK_MCSTFRAMESXMTDOK | IPG_SM_RXJUMBOFRAMES |
@@ -610,6 +725,10 @@ static int ipg_io_config(struct net_device *dev)
 	return 0;
 }
 
+/*
+ * Create a receive buffer within system memory and update
+ * NIC private structure appropriately.
+ */
 static int ipg_get_rxbuff(struct net_device *dev, int entry)
 {
 	struct ipg_nic_private *sp = netdev_priv(dev);
@@ -625,13 +744,13 @@ static int ipg_get_rxbuff(struct net_device *dev, int entry)
 		return -ENOMEM;
 	}
 
-	
+	/* Save the address of the sk_buff structure. */
 	sp->rx_buff[entry] = skb;
 
 	rxfd->frag_info = cpu_to_le64(pci_map_single(sp->pdev, skb->data,
 		sp->rx_buf_sz, PCI_DMA_FROMDEVICE));
 
-	
+	/* Set the RFD fragment length. */
 	rxfragsize = sp->rxfrag_size;
 	rxfd->frag_info |= cpu_to_le64((rxfragsize << 48) & IPG_RFI_FRAGLEN);
 
@@ -657,12 +776,19 @@ static int init_rfdlist(struct net_device *dev)
 			sp->rx_buff[i] = NULL;
 		}
 
-		
+		/* Clear out the RFS field. */
 		rxfd->rfs = 0x0000000000000000;
 
 		if (ipg_get_rxbuff(dev, i) < 0) {
+			/*
+			 * A receive buffer was not ready, break the
+			 * RFD list here.
+			 */
 			IPG_DEBUG_MSG("Cannot allocate Rx buffer\n");
 
+			/* Just in case we cannot allocate a single RFD.
+			 * Should not occur.
+			 */
 			if (i == 0) {
 				netdev_err(dev, "No memory available for RFD list\n");
 				return -ENOMEM;
@@ -677,7 +803,7 @@ static int init_rfdlist(struct net_device *dev)
 	sp->rx_current = 0;
 	sp->rx_dirty = 0;
 
-	
+	/* Write the location of the RFDList to the IPG. */
 	ipg_w32((u32) sp->rxd_map, RFD_LIST_PTR_0);
 	ipg_w32(0x00000000, RFD_LIST_PTR_1);
 
@@ -710,7 +836,7 @@ static void init_tfdlist(struct net_device *dev)
 	sp->tx_current = 0;
 	sp->tx_dirty = 0;
 
-	
+	/* Write the location of the TFDList to the IPG. */
 	IPG_DDEBUG_MSG("Starting TFDListPtr = %08x\n",
 		       (u32) sp->txd_map);
 	ipg_w32((u32) sp->txd_map, TFD_LIST_PTR_0);
@@ -719,6 +845,10 @@ static void init_tfdlist(struct net_device *dev)
 	sp->reset_current_tfd = 1;
 }
 
+/*
+ * Free all transmit buffers which have already been transferred
+ * via DMA to the IPG.
+ */
 static void ipg_nic_txfree(struct net_device *dev)
 {
 	struct ipg_nic_private *sp = netdev_priv(dev);
@@ -735,10 +865,15 @@ static void ipg_nic_txfree(struct net_device *dev)
 
 		IPG_DEBUG_MSG("TFC = %016lx\n", (unsigned long) txfd->tfc);
 
+		/* Look at each TFD's TFC field beginning
+		 * at the last freed TFD up to the current TFD.
+		 * If the TFDDone bit is set, free the associated
+		 * buffer.
+		 */
 		if (!(txfd->tfc & cpu_to_le64(IPG_TFC_TFDDONE)))
                         break;
 
-		
+		/* Free the transmit buffer. */
 		if (skb) {
 			pci_unmap_single(sp->pdev,
 				le64_to_cpu(txfd->frag_info) & ~IPG_TFI_FRAGLEN,
@@ -769,7 +904,7 @@ static void ipg_tx_timeout(struct net_device *dev)
 
 	spin_lock_irq(&sp->lock);
 
-	
+	/* Re-configure after DMA reset. */
 	if (ipg_io_config(dev) < 0)
 		netdev_info(dev, "Error during re-configuration\n");
 
@@ -781,6 +916,11 @@ static void ipg_tx_timeout(struct net_device *dev)
 		MAC_CTRL);
 }
 
+/*
+ * For TxComplete interrupts, free all transmit
+ * buffers which have already been transferred via DMA
+ * to the IPG.
+ */
 static void ipg_nic_txcleanup(struct net_device *dev)
 {
 	struct ipg_nic_private *sp = netdev_priv(dev);
@@ -790,45 +930,54 @@ static void ipg_nic_txcleanup(struct net_device *dev)
 	IPG_DEBUG_MSG("_nic_txcleanup\n");
 
 	for (i = 0; i < IPG_TFDLIST_LENGTH; i++) {
+		/* Reading the TXSTATUS register clears the
+		 * TX_COMPLETE interrupt.
+		 */
 		u32 txstatusdword = ipg_r32(TX_STATUS);
 
 		IPG_DEBUG_MSG("TxStatus = %08x\n", txstatusdword);
 
+		/* Check for Transmit errors. Error bits only valid if
+		 * TX_COMPLETE bit in the TXSTATUS register is a 1.
+		 */
 		if (!(txstatusdword & IPG_TS_TX_COMPLETE))
 			break;
 
-		
+		/* If in 10Mbps mode, indicate transmit is ready. */
 		if (sp->tenmbpsmode) {
 			netif_wake_queue(dev);
 		}
 
-		
+		/* Transmit error, increment stat counters. */
 		if (txstatusdword & IPG_TS_TX_ERROR) {
 			IPG_DEBUG_MSG("Transmit error\n");
 			sp->stats.tx_errors++;
 		}
 
-		
+		/* Late collision, re-enable transmitter. */
 		if (txstatusdword & IPG_TS_LATE_COLLISION) {
 			IPG_DEBUG_MSG("Late collision on transmit\n");
 			ipg_w32((ipg_r32(MAC_CTRL) | IPG_MC_TX_ENABLE) &
 				IPG_MC_RSVD_MASK, MAC_CTRL);
 		}
 
-		
+		/* Maximum collisions, re-enable transmitter. */
 		if (txstatusdword & IPG_TS_TX_MAX_COLL) {
 			IPG_DEBUG_MSG("Maximum collisions on transmit\n");
 			ipg_w32((ipg_r32(MAC_CTRL) | IPG_MC_TX_ENABLE) &
 				IPG_MC_RSVD_MASK, MAC_CTRL);
 		}
 
+		/* Transmit underrun, reset and re-enable
+		 * transmitter.
+		 */
 		if (txstatusdword & IPG_TS_TX_UNDERRUN) {
 			IPG_DEBUG_MSG("Transmitter underrun\n");
 			sp->stats.tx_fifo_errors++;
 			ipg_reset(dev, IPG_AC_TX_RESET | IPG_AC_DMA |
 				  IPG_AC_NETWORK | IPG_AC_FIFO);
 
-			
+			/* Re-configure after DMA reset. */
 			if (ipg_io_config(dev) < 0) {
 				netdev_info(dev, "Error during re-configuration\n");
 			}
@@ -842,6 +991,7 @@ static void ipg_nic_txcleanup(struct net_device *dev)
 	ipg_nic_txfree(dev);
 }
 
+/* Provides statistical information about the IPG NIC. */
 static struct net_device_stats *ipg_nic_get_stats(struct net_device *dev)
 {
 	struct ipg_nic_private *sp = netdev_priv(dev);
@@ -851,6 +1001,9 @@ static struct net_device_stats *ipg_nic_get_stats(struct net_device *dev)
 
 	IPG_DEBUG_MSG("_nic_get_stats\n");
 
+	/* Check to see if the NIC has been initialized via nic_open,
+	 * before trying to read statistic registers.
+	 */
 	if (!test_bit(__LINK_STATE_START, &dev->state))
 		return &sp->stats;
 
@@ -870,20 +1023,21 @@ static struct net_device_stats *ipg_nic_get_stats(struct net_device *dev)
 		ipg_r32(IPG_FRAMESWDEFERREDXMT) + temp1 + temp2;
 	sp->stats.multicast += ipg_r32(IPG_MCSTOCTETRCVDOK);
 
-	
+	/* detailed tx_errors */
 	sp->stats.tx_carrier_errors += temp2;
 
-	
+	/* detailed rx_errors */
 	sp->stats.rx_length_errors += ipg_r16(IPG_INRANGELENGTHERRORS) +
 		ipg_r16(IPG_FRAMETOOLONGERRRORS);
 	sp->stats.rx_crc_errors += ipg_r16(IPG_FRAMECHECKSEQERRORS);
 
-	
+	/* Unutilized IPG statistic registers. */
 	ipg_r32(IPG_MCSTFRAMESRCVDOK);
 
 	return &sp->stats;
 }
 
+/* Restore used receive buffers. */
 static int ipg_nic_rxrestore(struct net_device *dev)
 {
 	struct ipg_nic_private *sp = netdev_priv(dev);
@@ -895,17 +1049,21 @@ static int ipg_nic_rxrestore(struct net_device *dev)
 	for (dirty = sp->rx_dirty; curr - dirty > 0; dirty++) {
 		unsigned int entry = dirty % IPG_RFDLIST_LENGTH;
 
-		
+		/* rx_copybreak may poke hole here and there. */
 		if (sp->rx_buff[entry])
 			continue;
 
+		/* Generate a new receive buffer to replace the
+		 * current buffer (which will be released by the
+		 * Linux system).
+		 */
 		if (ipg_get_rxbuff(dev, entry) < 0) {
 			IPG_DEBUG_MSG("Cannot allocate new Rx buffer\n");
 
 			break;
 		}
 
-		
+		/* Reset the RFS field. */
 		sp->rxd[entry].rfs = 0x0000000000000000;
 	}
 	sp->rx_dirty = dirty;
@@ -913,6 +1071,13 @@ static int ipg_nic_rxrestore(struct net_device *dev)
 	return 0;
 }
 
+/* use jumboindex and jumbosize to control jumbo frame status
+ * initial status is jumboindex=-1 and jumbosize=0
+ * 1. jumboindex = -1 and jumbosize=0 : previous jumbo frame has been done.
+ * 2. jumboindex != -1 and jumbosize != 0 : jumbo frame is not over size and receiving
+ * 3. jumboindex = -1 and jumbosize != 0 : jumbo frame is over size, already dump
+ *               previous receiving and need to continue dumping the current one
+ */
 enum {
 	NORMAL_PACKET,
 	ERROR_PACKET
@@ -967,10 +1132,10 @@ static int ipg_nic_rx_check_error(struct net_device *dev)
 		IPG_DEBUG_MSG("Rx error, RFS = %016lx\n",
 			      (unsigned long) rxfd->rfs);
 
-		
+		/* Increment general receive error statistic. */
 		sp->stats.rx_errors++;
 
-		
+		/* Increment detailed receive error statistics. */
 		if (le64_to_cpu(rxfd->rfs) & IPG_RFS_RXFIFOOVERRUN) {
 			IPG_DEBUG_MSG("RX FIFO overrun occurred\n");
 
@@ -982,13 +1147,23 @@ static int ipg_nic_rx_check_error(struct net_device *dev)
 			sp->stats.rx_length_errors++;
 		}
 
+		/* Do nothing for IPG_RFS_RXOVERSIZEDFRAME,
+		 * error count handled by a IPG statistic register.
+		 */
 
 		if (le64_to_cpu(rxfd->rfs) & IPG_RFS_RXALIGNMENTERROR) {
 			IPG_DEBUG_MSG("RX alignment error occurred\n");
 			sp->stats.rx_frame_errors++;
 		}
 
+		/* Do nothing for IPG_RFS_RXFCSERROR, error count
+		 * handled by a IPG statistic register.
+		 */
 
+		/* Free the memory associated with the RX
+		 * buffer since it is erroneous and we will
+		 * not pass it to higher layer processes.
+		 */
 		if (sp->rx_buff[entry]) {
 			pci_unmap_single(sp->pdev,
 				le64_to_cpu(rxfd->frag_info) & ~IPG_RFI_FRAGLEN,
@@ -1017,7 +1192,7 @@ static void ipg_nic_rx_with_start_and_end(struct net_device *dev,
 		jumbo->skb = NULL;
 	}
 
-	
+	/* 1: found error, 0 no error */
 	if (ipg_nic_rx_check_error(dev) != NORMAL_PACKET)
 		return;
 
@@ -1025,7 +1200,7 @@ static void ipg_nic_rx_with_start_and_end(struct net_device *dev,
 	if (!skb)
 		return;
 
-	
+	/* accept this frame and send to upper layer */
 	framelen = le64_to_cpu(rxfd->rfs) & IPG_RFS_RXFRAMELEN;
 	if (framelen > sp->rxfrag_size)
 		framelen = sp->rxfrag_size;
@@ -1045,11 +1220,11 @@ static void ipg_nic_rx_with_start(struct net_device *dev,
 	struct pci_dev *pdev = sp->pdev;
 	struct sk_buff *skb;
 
-	
+	/* 1: found error, 0 no error */
 	if (ipg_nic_rx_check_error(dev) != NORMAL_PACKET)
 		return;
 
-	
+	/* accept this frame and send to upper layer */
 	skb = sp->rx_buff[entry];
 	if (!skb)
 		return;
@@ -1075,7 +1250,7 @@ static void ipg_nic_rx_with_end(struct net_device *dev,
 {
 	struct ipg_jumbo *jumbo = &sp->jumbo;
 
-	
+	/* 1: found error, 0 no error */
 	if (ipg_nic_rx_check_error(dev) == NORMAL_PACKET) {
 		struct sk_buff *skb = sp->rx_buff[entry];
 
@@ -1121,7 +1296,7 @@ static void ipg_nic_rx_no_start_no_end(struct net_device *dev,
 {
 	struct ipg_jumbo *jumbo = &sp->jumbo;
 
-	
+	/* 1: found error, 0 no error */
 	if (ipg_nic_rx_check_error(dev) == NORMAL_PACKET) {
 		struct sk_buff *skb = sp->rx_buff[entry];
 
@@ -1179,6 +1354,11 @@ static int ipg_nic_rx_jumbo(struct net_device *dev)
 	sp->rx_current = curr;
 
 	if (i == IPG_MAXRFDPROCESS_COUNT) {
+		/* There are more RFDs to process, however the
+		 * allocated amount of RFD processing time has
+		 * expired. Assert Interrupt Requested to make
+		 * sure we come back to process the remaining RFDs.
+		 */
 		ipg_w32(ipg_r32(ASIC_CTRL) | IPG_AC_INT_REQUEST, ASIC_CTRL);
 	}
 
@@ -1189,7 +1369,7 @@ static int ipg_nic_rx_jumbo(struct net_device *dev)
 
 static int ipg_nic_rx(struct net_device *dev)
 {
-	
+	/* Transfer received Ethernet frames to higher network layers. */
 	struct ipg_nic_private *sp = netdev_priv(dev);
 	unsigned int curr = sp->rx_current;
 	void __iomem *ioaddr = sp->ioaddr;
@@ -1211,9 +1391,12 @@ static int ipg_nic_rx(struct net_device *dev)
 		if (((rxfd->rfs & __RFS_MASK) != __RFS_MASK) || !skb)
 			break;
 
-		
+		/* Get received frame length. */
 		framelen = le64_to_cpu(rxfd->rfs) & IPG_RFS_RXFRAMELEN;
 
+		/* Check for jumbo frame arrival with too small
+		 * RXFRAG_SIZE.
+		 */
 		if (framelen > sp->rxfrag_size) {
 			IPG_DEBUG_MSG
 			    ("RFS FrameLen > allocated fragment size\n");
@@ -1229,10 +1412,10 @@ static int ipg_nic_rx(struct net_device *dev)
 			IPG_DEBUG_MSG("Rx error, RFS = %016lx\n",
 				      (unsigned long int) rxfd->rfs);
 
-			
+			/* Increment general receive error statistic. */
 			sp->stats.rx_errors++;
 
-			
+			/* Increment detailed receive error statistics. */
 			if (le64_to_cpu(rxfd->rfs) & IPG_RFS_RXFIFOOVERRUN) {
 				IPG_DEBUG_MSG("RX FIFO overrun occurred\n");
 				sp->stats.rx_fifo_errors++;
@@ -1244,6 +1427,9 @@ static int ipg_nic_rx(struct net_device *dev)
 			}
 
 			if (le64_to_cpu(rxfd->rfs) & IPG_RFS_RXOVERSIZEDFRAME) ;
+			/* Do nothing, error count handled by a IPG
+			 * statistic register.
+			 */
 
 			if (le64_to_cpu(rxfd->rfs) & IPG_RFS_RXALIGNMENTERROR) {
 				IPG_DEBUG_MSG("RX alignment error occurred\n");
@@ -1251,7 +1437,14 @@ static int ipg_nic_rx(struct net_device *dev)
 			}
 
 			if (le64_to_cpu(rxfd->rfs) & IPG_RFS_RXFCSERROR) ;
+			/* Do nothing, error count handled by a IPG
+			 * statistic register.
+			 */
 
+			/* Free the memory associated with the RX
+			 * buffer since it is erroneous and we will
+			 * not pass it to higher layer processes.
+			 */
 			if (skb) {
 				__le64 info = rxfd->frag_info;
 
@@ -1263,25 +1456,43 @@ static int ipg_nic_rx(struct net_device *dev)
 			}
 		} else {
 
+			/* Adjust the new buffer length to accommodate the size
+			 * of the received frame.
+			 */
 			skb_put(skb, framelen);
 
-			
+			/* Set the buffer's protocol field to Ethernet. */
 			skb->protocol = eth_type_trans(skb, dev);
 
+			/* The IPG encountered an error with (or
+			 * there were no) IP/TCP/UDP checksums.
+			 * This may or may not indicate an invalid
+			 * IP/TCP/UDP frame was received. Let the
+			 * upper layer decide.
+			 */
 			skb_checksum_none_assert(skb);
 
+			/* Hand off frame for higher layer processing.
+			 * The function netif_rx() releases the sk_buff
+			 * when processing completes.
+			 */
 			netif_rx(skb);
 		}
 
-		
+		/* Assure RX buffer is not reused by IPG. */
 		sp->rx_buff[entry] = NULL;
 	}
 
+	/*
+	 * If there are more RFDs to process and the allocated amount of RFD
+	 * processing time has expired, assert Interrupt Requested to make
+	 * sure we come back to process the remaining RFDs.
+	 */
 	if (i == IPG_MAXRFDPROCESS_COUNT)
 		ipg_w32(ipg_r32(ASIC_CTRL) | IPG_AC_INT_REQUEST, ASIC_CTRL);
 
 #ifdef IPG_DEBUG
-	
+	/* Check if the RFD list contained no receive frame data. */
 	if (!i)
 		sp->EmptyRFDListCount++;
 #endif
@@ -1294,7 +1505,15 @@ static int ipg_nic_rx(struct net_device *dev)
 
 		IPG_DEBUG_MSG("Frame requires multiple RFDs\n");
 
+		/* An unexpected event, additional code needed to handle
+		 * properly. So for the time being, just disregard the
+		 * frame.
+		 */
 
+		/* Free the memory associated with the RX
+		 * buffer since it is erroneous and we will
+		 * not pass it to higher layer processes.
+		 */
 		if (sp->rx_buff[entry]) {
 			pci_unmap_single(sp->pdev,
 				le64_to_cpu(rxfd->frag_info) & ~IPG_RFI_FRAGLEN,
@@ -1302,12 +1521,15 @@ static int ipg_nic_rx(struct net_device *dev)
 			dev_kfree_skb_irq(sp->rx_buff[entry]);
 		}
 
-		
+		/* Assure RX buffer is not reused by IPG. */
 		sp->rx_buff[entry] = NULL;
 	}
 
 	sp->rx_current = curr;
 
+	/* Check to see if there are a minimum number of used
+	 * RFDs before restoring any (should improve performance.)
+	 */
 	if ((curr - sp->rx_dirty) >= IPG_MINUSEDRFDSTOFREE)
 		ipg_nic_rxrestore(dev);
 
@@ -1320,6 +1542,10 @@ static void ipg_reset_after_host_error(struct work_struct *work)
 		container_of(work, struct ipg_nic_private, task.work);
 	struct net_device *dev = sp->dev;
 
+	/*
+	 * Acknowledge HostError interrupt by resetting
+	 * IPG DMA and HOST.
+	 */
 	ipg_reset(dev, IPG_AC_GLOBAL_RESET | IPG_AC_HOST | IPG_AC_DMA);
 
 	init_rfdlist(dev);
@@ -1346,11 +1572,17 @@ static irqreturn_t ipg_interrupt_handler(int irq, void *dev_inst)
 
 	spin_lock(&sp->lock);
 
+	/* Get interrupt source information, and acknowledge
+	 * some (i.e. TxDMAComplete, RxDMAComplete, RxEarly,
+	 * IntRequested, MacControlFrame, LinkEvent) interrupts
+	 * if issued. Also, all IPG interrupts are disabled by
+	 * reading IntStatusAck.
+	 */
 	status = ipg_r16(INT_STATUS_ACK);
 
 	IPG_DEBUG_MSG("IntStatusAck = %04x\n", status);
 
-	
+	/* Shared IRQ of remove event. */
 	if (!(status & IPG_IS_RSVD_MASK))
 		goto out_enable;
 
@@ -1359,23 +1591,32 @@ static irqreturn_t ipg_interrupt_handler(int irq, void *dev_inst)
 	if (unlikely(!netif_running(dev)))
 		goto out_unlock;
 
-	
+	/* If RFDListEnd interrupt, restore all used RFDs. */
 	if (status & IPG_IS_RFD_LIST_END) {
 		IPG_DEBUG_MSG("RFDListEnd Interrupt\n");
 
+		/* The RFD list end indicates an RFD was encountered
+		 * with a 0 NextPtr, or with an RFDDone bit set to 1
+		 * (indicating the RFD is not read for use by the
+		 * IPG.) Try to restore all RFDs.
+		 */
 		ipg_nic_rxrestore(dev);
 
 #ifdef IPG_DEBUG
-		
+		/* Increment the RFDlistendCount counter. */
 		sp->RFDlistendCount++;
 #endif
 	}
 
+	/* If RFDListEnd, RxDMAPriority, RxDMAComplete, or
+	 * IntRequested interrupt, process received frames. */
 	if ((status & IPG_IS_RX_DMA_PRIORITY) ||
 	    (status & IPG_IS_RFD_LIST_END) ||
 	    (status & IPG_IS_RX_DMA_COMPLETE) ||
 	    (status & IPG_IS_INT_REQUESTED)) {
 #ifdef IPG_DEBUG
+		/* Increment the RFD list checked counter if interrupted
+		 * only to check the RFD list. */
 		if (status & (~(IPG_IS_RX_DMA_PRIORITY | IPG_IS_RFD_LIST_END |
 				IPG_IS_RX_DMA_COMPLETE | IPG_IS_INT_REQUESTED) &
 			       (IPG_IS_HOST_ERROR | IPG_IS_TX_DMA_COMPLETE |
@@ -1390,44 +1631,47 @@ static irqreturn_t ipg_interrupt_handler(int irq, void *dev_inst)
 			ipg_nic_rx(dev);
 	}
 
-	
+	/* If TxDMAComplete interrupt, free used TFDs. */
 	if (status & IPG_IS_TX_DMA_COMPLETE)
 		ipg_nic_txfree(dev);
 
+	/* TxComplete interrupts indicate one of numerous actions.
+	 * Determine what action to take based on TXSTATUS register.
+	 */
 	if (status & IPG_IS_TX_COMPLETE)
 		ipg_nic_txcleanup(dev);
 
-	
+	/* If UpdateStats interrupt, update Linux Ethernet statistics */
 	if (status & IPG_IS_UPDATE_STATS)
 		ipg_nic_get_stats(dev);
 
-	
+	/* If HostError interrupt, reset IPG. */
 	if (status & IPG_IS_HOST_ERROR) {
 		IPG_DDEBUG_MSG("HostError Interrupt\n");
 
 		schedule_delayed_work(&sp->task, 0);
 	}
 
-	
+	/* If LinkEvent interrupt, resolve autonegotiation. */
 	if (status & IPG_IS_LINK_EVENT) {
 		if (ipg_config_autoneg(dev) < 0)
 			netdev_info(dev, "Auto-negotiation error\n");
 	}
 
-	
+	/* If MACCtrlFrame interrupt, do nothing. */
 	if (status & IPG_IS_MAC_CTRL_FRAME)
 		IPG_DEBUG_MSG("MACCtrlFrame interrupt\n");
 
-	
+	/* If RxComplete interrupt, do nothing. */
 	if (status & IPG_IS_RX_COMPLETE)
 		IPG_DEBUG_MSG("RxComplete interrupt\n");
 
-	
+	/* If RxEarly interrupt, do nothing. */
 	if (status & IPG_IS_RX_EARLY)
 		IPG_DEBUG_MSG("RxEarly interrupt\n");
 
 out_enable:
-	
+	/* Re-enable IPG interrupts. */
 	ipg_w16(IPG_IE_TX_DMA_COMPLETE | IPG_IE_RX_DMA_COMPLETE |
 		IPG_IE_HOST_ERROR | IPG_IE_INT_REQUESTED | IPG_IE_TX_COMPLETE |
 		IPG_IE_LINK_EVENT | IPG_IE_UPDATE_STATS, INT_ENABLE);
@@ -1484,8 +1728,17 @@ static int ipg_nic_open(struct net_device *dev)
 
 	sp->rx_buf_sz = sp->rxsupport_size;
 
+	/* Check for interrupt line conflicts, and request interrupt
+	 * line for IPG.
+	 *
+	 * IMPORTANT: Disable IPG interrupts prior to registering
+	 *            IRQ.
+	 */
 	ipg_w16(0x0000, INT_ENABLE);
 
+	/* Register the interrupt line to be used by the IPG within
+	 * the Linux system.
+	 */
 	rc = request_irq(pdev->irq, ipg_interrupt_handler, IRQF_SHARED,
 			 dev->name, dev);
 	if (rc < 0) {
@@ -1521,16 +1774,16 @@ static int ipg_nic_open(struct net_device *dev)
 		goto err_release_tfdlist_3;
 	}
 
-	
+	/* Resolve autonegotiation. */
 	if (ipg_config_autoneg(dev) < 0)
 		netdev_info(dev, "Auto-negotiation error\n");
 
-	
+	/* initialize JUMBO Frame control variable */
 	sp->jumbo.found_start = 0;
 	sp->jumbo.current_size = 0;
 	sp->jumbo.skb = NULL;
 
-	
+	/* Enable transmit and receive operation of the IPG. */
 	ipg_w32((ipg_r32(MAC_CTRL) | IPG_MC_RX_ENABLE | IPG_MC_TX_ENABLE) &
 		 IPG_MC_RSVD_MASK, MAC_CTRL);
 
@@ -1593,6 +1846,9 @@ static netdev_tx_t ipg_nic_hard_start_xmit(struct sk_buff *skb,
 
 	IPG_DDEBUG_MSG("_nic_hard_start_xmit\n");
 
+	/* If in 10Mbps mode, stop the transmit queue so
+	 * no more transmit frames are accepted.
+	 */
 	if (sp->tenmbpsmode)
 		netif_stop_queue(dev);
 
@@ -1605,20 +1861,37 @@ static netdev_tx_t ipg_nic_hard_start_xmit(struct sk_buff *skb,
 
 	sp->tx_buff[entry] = skb;
 
-	
+	/* Clear all TFC fields, except TFDDONE. */
 	txfd->tfc = cpu_to_le64(IPG_TFC_TFDDONE);
 
-	
+	/* Specify the TFC field within the TFD. */
 	txfd->tfc |= cpu_to_le64(IPG_TFC_WORDALIGNDISABLED |
 		(IPG_TFC_FRAMEID & sp->tx_current) |
 		(IPG_TFC_FRAGCOUNT & (1 << 24)));
+	/*
+	 * 16--17 (WordAlign) <- 3 (disable),
+	 * 0--15 (FrameId) <- sp->tx_current,
+	 * 24--27 (FragCount) <- 1
+	 */
 
+	/* Request TxComplete interrupts at an interval defined
+	 * by the constant IPG_FRAMESBETWEENTXCOMPLETES.
+	 * Request TxComplete interrupt for every frame
+	 * if in 10Mbps mode to accommodate problem with 10Mbps
+	 * processing.
+	 */
 	if (sp->tenmbpsmode)
 		txfd->tfc |= cpu_to_le64(IPG_TFC_TXINDICATE);
 	txfd->tfc |= cpu_to_le64(IPG_TFC_TXDMAINDICATE);
+	/* Based on compilation option, determine if FCS is to be
+	 * appended to transmit frame by IPG.
+	 */
 	if (!(IPG_APPEND_FCS_ON_TX))
 		txfd->tfc |= cpu_to_le64(IPG_TFC_FCSAPPENDDISABLE);
 
+	/* Based on compilation option, determine if IP, TCP and/or
+	 * UDP checksums are to be added to transmit frame by IPG.
+	 */
 	if (IPG_ADD_IPCHECKSUM_ON_TX)
 		txfd->tfc |= cpu_to_le64(IPG_TFC_IPCHECKSUMENABLE);
 
@@ -1628,6 +1901,9 @@ static netdev_tx_t ipg_nic_hard_start_xmit(struct sk_buff *skb,
 	if (IPG_ADD_UDPCHECKSUM_ON_TX)
 		txfd->tfc |= cpu_to_le64(IPG_TFC_UDPCHECKSUMENABLE);
 
+	/* Based on compilation option, determine if VLAN tag info is to be
+	 * inserted into transmit frame by IPG.
+	 */
 	if (IPG_INSERT_MANUAL_VLAN_TAG) {
 		txfd->tfc |= cpu_to_le64(IPG_TFC_VLANTAGINSERT |
 			((u64) IPG_MANUAL_VLAN_VID << 32) |
@@ -1635,12 +1911,23 @@ static netdev_tx_t ipg_nic_hard_start_xmit(struct sk_buff *skb,
 			((u64) IPG_MANUAL_VLAN_USERPRIORITY << 45));
 	}
 
+	/* The fragment start location within system memory is defined
+	 * by the sk_buff structure's data field. The physical address
+	 * of this location within the system's virtual memory space
+	 * is determined using the IPG_HOST2BUS_MAP function.
+	 */
 	txfd->frag_info = cpu_to_le64(pci_map_single(sp->pdev, skb->data,
 		skb->len, PCI_DMA_TODEVICE));
 
+	/* The length of the fragment within system memory is defined by
+	 * the sk_buff structure's len field.
+	 */
 	txfd->frag_info |= cpu_to_le64(IPG_TFI_FRAGLEN &
 		((u64) (skb->len & 0xffff) << 48));
 
+	/* Clear the TFDDone bit last to indicate the TFD is ready
+	 * for transfer to the IPG.
+	 */
 	txfd->tfc &= cpu_to_le64(~IPG_TFC_TFDDONE);
 
 	spin_lock_irqsave(&sp->lock, flags);
@@ -1737,10 +2024,10 @@ static void ipg_init_mii(struct net_device *dev)
 
 		mii_phyctrl = mdio_read(dev, phyaddr, MII_BMCR);
 
-		
+		/* Set default phyparam */
 		ipg_set_phy_default_param(sp->pdev->revision, dev, phyaddr);
 
-		
+		/* Reset PHY */
 		mii_phyctrl |= BMCR_RESET | BMCR_ANRESTART;
 		mdio_write(dev, phyaddr, MII_BMCR, mii_phyctrl);
 
@@ -1754,24 +2041,27 @@ static int ipg_hw_init(struct net_device *dev)
 	unsigned int i;
 	int rc;
 
-	
-	
+	/* Read/Write and Reset EEPROM Value */
+	/* Read LED Mode Configuration from EEPROM */
 	sp->led_mode = read_eeprom(dev, 6);
 
+	/* Reset all functions within the IPG. Do not assert
+	 * RST_OUT as not compatible with some PHYs.
+	 */
 	rc = ipg_reset(dev, IPG_RESET_MASK);
 	if (rc < 0)
 		goto out;
 
 	ipg_init_mii(dev);
 
-	
+	/* Read MAC Address from EEPROM */
 	for (i = 0; i < 3; i++)
 		sp->station_addr[i] = read_eeprom(dev, 16 + i);
 
 	for (i = 0; i < 3; i++)
 		ipg_w16(sp->station_addr[i], STATION_ADDRESS_0 + 2*i);
 
-	
+	/* Set station address in ethernet_device structure. */
 	dev->dev_addr[0] =  ipg_r16(STATION_ADDRESS_0) & 0x00ff;
 	dev->dev_addr[1] = (ipg_r16(STATION_ADDRESS_0) & 0xff00) >> 8;
 	dev->dev_addr[2] =  ipg_r16(STATION_ADDRESS_1) & 0x00ff;
@@ -1799,9 +2089,17 @@ static int ipg_nic_change_mtu(struct net_device *dev, int new_mtu)
 	struct ipg_nic_private *sp = netdev_priv(dev);
 	int err;
 
+	/* Function to accommodate changes to Maximum Transfer Unit
+	 * (or MTU) of IPG NIC. Cannot use default function since
+	 * the default will not allow for MTU > 1500 bytes.
+	 */
 
 	IPG_DEBUG_MSG("_nic_change_mtu\n");
 
+	/*
+	 * Check that the new MTU value is between 68 (14 byte header, 46 byte
+	 * payload, 4 byte FCS) and 10 KB, which is the largest supported MTU.
+	 */
 	if (new_mtu < 68 || new_mtu > 10240)
 		return -EINVAL;
 
@@ -1876,7 +2174,7 @@ static void __devexit ipg_remove(struct pci_dev *pdev)
 
 	IPG_DEBUG_MSG("_remove\n");
 
-	
+	/* Un-register Ethernet device. */
 	unregister_netdev(dev);
 
 	pci_iounmap(pdev, sp->ioaddr);
@@ -1927,6 +2225,9 @@ static int __devinit ipg_probe(struct pci_dev *pdev,
 		}
 	}
 
+	/*
+	 * Initialize net device.
+	 */
 	dev = alloc_etherdev(sizeof(struct ipg_nic_private));
 	if (!dev) {
 		rc = -ENOMEM;
@@ -1942,6 +2243,8 @@ static int __devinit ipg_probe(struct pci_dev *pdev,
 	sp->rxsupport_size = IPG_RXSUPPORT_SIZE;
 	sp->max_rxframe_size = IPG_MAX_RXFRAME_SIZE;
 
+	/* Declare IPG NIC functions for Ethernet device methods.
+	 */
 	dev->netdev_ops = &ipg_netdev_ops;
 	SET_NETDEV_DEV(dev, &pdev->dev);
 	SET_ETHTOOL_OPS(dev, &ipg_ethtool_ops);
@@ -1957,7 +2260,7 @@ static int __devinit ipg_probe(struct pci_dev *pdev,
 		goto err_release_regions_2;
 	}
 
-	
+	/* Save the pointer to the PCI device information. */
 	sp->ioaddr = ioaddr;
 	sp->pdev = pdev;
 	sp->dev = dev;

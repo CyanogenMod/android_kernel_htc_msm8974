@@ -32,7 +32,7 @@ enum {
 	MDP_DOWNSCALE_PT8TO1,
 	MDP_DOWNSCALE_MAX,
 
-	
+	/* not technically in the downscale table list */
 	MDP_DOWNSCALE_BLUR,
 };
 
@@ -657,7 +657,7 @@ struct mdp_table_entry *mdp_downscale_y_table[MDP_DOWNSCALE_MAX] = {
 };
 
 struct mdp_table_entry mdp_gaussian_blur_table[] = {
-	
+	/* max variance */
 	{ 0x5fffc, 0x20000080 },
 	{ 0x50280, 0x20000080 },
 	{ 0x5fffc, 0x20000080 },
@@ -945,6 +945,8 @@ int mdp_ppp_cfg_edge_cond(struct mdp_blit_req *req, struct ppp_regs *regs)
 static int scale_params(uint32_t dim_in, uint32_t dim_out, uint32_t origin,
 			uint32_t *phase_init, uint32_t *phase_step)
 {
+	/* to improve precicsion calculations are done in U31.33 and converted
+	 * to U3.29 at the end */
 	int64_t k1, k2, k3, k4, tmp;
 	uint64_t n, d, os, os_p, od, od_p, oreq;
 	unsigned rpa = 0;
@@ -1004,7 +1006,7 @@ static int scale_params(uint32_t dim_in, uint32_t dim_out, uint32_t origin,
 	ip64 = os_p - oreq;
 	delta = ((int64_t)(origin) << 33) - oreq;
 	ip64 -= delta;
-	
+	/* limit to valid range before the left shift */
 	delta = (ip64 & (1LL << 63)) ? 4 : -4;
 	delta <<= 33;
 	while (abs((int)(ip64 >> 33)) > 4)

@@ -28,4 +28,4 @@
 #define MIFPCON_INT2M_LEVEL			(1 << 4)
 #define MIFPCON_LCD_BYPASS			(1 << 3)
 
-#endif 
+#endif /* __PLAT_S3C64XX_REGS_MODEM_H */

@@ -15,47 +15,51 @@
 #include <asm/smc37c93x.h>
 #include <asm/heartbeat.h>
 
+/*
+ * Configure the Super I/O chip
+ */
 static void __init smsc_config(int index, int data)
 {
 	outb_p(index, INDEX_PORT);
 	outb_p(data, DATA_PORT);
 }
 
+/* XXX: Another candidate for a more generic cchip machine vector */
 static void __init smsc_setup(char **cmdline_p)
 {
 	outb_p(CONFIG_ENTER, CONFIG_PORT);
 	outb_p(CONFIG_ENTER, CONFIG_PORT);
 
-	
+	/* FDC */
 	smsc_config(CURRENT_LDN_INDEX, LDN_FDC);
 	smsc_config(ACTIVATE_INDEX, 0x01);
-	smsc_config(IRQ_SELECT_INDEX, 6); 
+	smsc_config(IRQ_SELECT_INDEX, 6); /* IRQ6 */
 
-	
+	/* AUXIO (GPIO): to use IDE1 */
 	smsc_config(CURRENT_LDN_INDEX, LDN_AUXIO);
-	smsc_config(GPIO46_INDEX, 0x00); 
-	smsc_config(GPIO47_INDEX, 0x00); 
+	smsc_config(GPIO46_INDEX, 0x00); /* nIOROP */
+	smsc_config(GPIO47_INDEX, 0x00); /* nIOWOP */
 
-	
+	/* COM1 */
 	smsc_config(CURRENT_LDN_INDEX, LDN_COM1);
 	smsc_config(ACTIVATE_INDEX, 0x01);
 	smsc_config(IO_BASE_HI_INDEX, 0x03);
 	smsc_config(IO_BASE_LO_INDEX, 0xf8);
-	smsc_config(IRQ_SELECT_INDEX, 4); 
+	smsc_config(IRQ_SELECT_INDEX, 4); /* IRQ4 */
 
-	
+	/* COM2 */
 	smsc_config(CURRENT_LDN_INDEX, LDN_COM2);
 	smsc_config(ACTIVATE_INDEX, 0x01);
 	smsc_config(IO_BASE_HI_INDEX, 0x02);
 	smsc_config(IO_BASE_LO_INDEX, 0xf8);
-	smsc_config(IRQ_SELECT_INDEX, 3); 
+	smsc_config(IRQ_SELECT_INDEX, 3); /* IRQ3 */
 
-	
+	/* RTC */
 	smsc_config(CURRENT_LDN_INDEX, LDN_RTC);
 	smsc_config(ACTIVATE_INDEX, 0x01);
-	smsc_config(IRQ_SELECT_INDEX, 8); 
+	smsc_config(IRQ_SELECT_INDEX, 8); /* IRQ8 */
 
-	
+	/* XXX: PARPORT, KBD, and MOUSE will come here... */
 	outb_p(CONFIG_EXIT, CONFIG_PORT);
 }
 
@@ -109,6 +113,7 @@ static struct platform_device heartbeat_device = {
 
 #if defined(CONFIG_CPU_SUBTYPE_SH7710) ||\
 	defined(CONFIG_CPU_SUBTYPE_SH7712)
+/* SH771X Ethernet driver */
 static struct resource sh_eth0_resources[] = {
 	[0] = {
 		.start = SH_ETH0_BASE,
@@ -173,6 +178,9 @@ static int __init se_devices_setup(void)
 }
 device_initcall(se_devices_setup);
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_se __initmv = {
 	.mv_name		= "SolutionEngine",
 	.mv_setup		= smsc_setup,

@@ -34,6 +34,7 @@ GetBulkInRcb(PS_INTERFACE_ADAPTER psIntfAdapter)
 	return pRcb;
 }
 
+/*this is receive call back - when pkt available for receive (BULK IN- end point)*/
 static void read_bulk_callback(struct urb *urb)
 {
 	struct sk_buff *skb = NULL;
@@ -41,7 +42,7 @@ static void read_bulk_callback(struct urb *urb)
 	int QueueIndex = NO_OF_QUEUES + 1;
 	UINT uiIndex=0;
 	int process_done = 1;
-	
+	//int idleflag = 0 ;
 	PUSB_RCB pRcb = (PUSB_RCB)urb->context;
 	PS_INTERFACE_ADAPTER psIntfAdapter = pRcb->psIntfAdapter;
 	PMINI_ADAPTER Adapter = psIntfAdapter->psAdapter;
@@ -111,14 +112,14 @@ static void read_bulk_callback(struct urb *urb)
 			bHeaderSupressionEnabled & Adapter->bPHSEnabled;
 	}
 
-	skb = dev_alloc_skb (pLeader->PLength + SKB_RESERVE_PHS_BYTES + SKB_RESERVE_ETHERNET_HEADER);
+	skb = dev_alloc_skb (pLeader->PLength + SKB_RESERVE_PHS_BYTES + SKB_RESERVE_ETHERNET_HEADER);//2   //2 for allignment
 	if(!skb)
 	{
 		BCM_DEBUG_PRINT(Adapter,DBG_TYPE_PRINTK, 0, 0, "NO SKBUFF!!! Dropping the Packet");
 		atomic_dec(&psIntfAdapter->uNumRcbUsed);
 		return;
 	}
-    
+    /* If it is a control Packet, then call handle_bcm_packet ()*/
 	if((ntohs(pLeader->Vcid) == VCID_CONTROL_PACKET) ||
 	    (!(pLeader->Status >= 0x20  &&  pLeader->Status <= 0x3F)))
 	{
@@ -137,12 +138,16 @@ static void read_bulk_callback(struct urb *urb)
 	}
 	else
 	{
+		/*
+		  * Data Packet, Format a proper Ethernet Header
+        	  * and give it to the stack
+		  */
         BCM_DEBUG_PRINT(psIntfAdapter->psAdapter,DBG_TYPE_RX, RX_DATA, DBG_LVL_ALL, "Received Data pkt...");
 		skb_reserve(skb, 2 + SKB_RESERVE_PHS_BYTES);
 		memcpy(skb->data+ETH_HLEN, (PUCHAR)urb->transfer_buffer + sizeof(LEADER), pLeader->PLength);
 		skb->dev = Adapter->dev;
 
-		
+		/* currently skb->len has extra ETH_HLEN bytes in the beginning */
 		skb_put (skb, pLeader->PLength + ETH_HLEN);
 		Adapter->PackInfo[QueueIndex].uiTotalRxBytes+=pLeader->PLength;
 		Adapter->PackInfo[QueueIndex].uiThisPeriodRxBytes+= pLeader->PLength;
@@ -150,7 +155,7 @@ static void read_bulk_callback(struct urb *urb)
 
 		if(netif_running(Adapter->dev))
 		{
-			
+			/* Moving ahead by ETH_HLEN to the data ptr as received from FW */
 			skb_pull(skb, ETH_HLEN);
 			PHSReceive(Adapter, pLeader->Vcid, skb, &skb->len,
 					NULL,bHeaderSupressionEnabled);
@@ -209,7 +214,7 @@ static int ReceiveRcb(PS_INTERFACE_ADAPTER psIntfAdapter, PUSB_RCB pRcb)
 		if (retval)
 		{
 			BCM_DEBUG_PRINT(psIntfAdapter->psAdapter,DBG_TYPE_RX, RX_DPC, DBG_LVL_ALL, "failed submitting read urb, error %d", retval);
-			
+			//if this return value is because of pipe halt. need to clear this.
 			if(retval == -EPIPE)
 			{
 				psIntfAdapter->psAdapter->bEndPointHalted = TRUE ;
@@ -221,12 +226,27 @@ static int ReceiveRcb(PS_INTERFACE_ADAPTER psIntfAdapter, PUSB_RCB pRcb)
 	return retval;
 }
 
+/*
+Function:				InterfaceRx
+
+Description:			This is the hardware specific Function for Receiving
+						data packet/control packets from the device.
+
+Input parameters:		IN PMINI_ADAPTER Adapter   - Miniport Adapter Context
+
+
+
+Return:				TRUE  - If Rx was successful.
+					Other - If an error occurred.
+*/
 
 BOOLEAN InterfaceRx (PS_INTERFACE_ADAPTER psIntfAdapter)
 {
 	USHORT RxDescCount = NUM_RX_DESC - atomic_read(&psIntfAdapter->uNumRcbUsed);
 	PUSB_RCB pRcb = NULL;
 
+//	RxDescCount = psIntfAdapter->psAdapter->CurrNumRecvDescs -
+//				psIntfAdapter->psAdapter->PrevNumRecvDescs;
 	while(RxDescCount)
 	{
 		pRcb = GetBulkInRcb(psIntfAdapter);
@@ -235,7 +255,7 @@ BOOLEAN InterfaceRx (PS_INTERFACE_ADAPTER psIntfAdapter)
 			BCM_DEBUG_PRINT(psIntfAdapter->psAdapter,DBG_TYPE_PRINTK, 0, 0, "Unable to get Rcb pointer");
 			return FALSE;
 		}
-		
+		//atomic_inc(&psIntfAdapter->uNumRcbUsed);
 		ReceiveRcb(psIntfAdapter, pRcb);
 		RxDescCount--;
     }

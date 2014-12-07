@@ -1,4 +1,4 @@
-/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -46,6 +46,26 @@
 #define ECM_IPA_LOG_ENTRY() pr_debug("begin\n")
 #define ECM_IPA_LOG_EXIT() pr_debug("end\n")
 
+/**
+ * enum ecm_ipa_state - specify the current driver internal state
+ *  which is guarded by a state machine.
+ *
+ * The driver internal state changes due to its external API usage.
+ * The driver saves its internal state to guard from caller illegal
+ * call sequence.
+ * states:
+ * UNLOADED is the first state which is the default one and is also the state
+ *  after the driver gets unloaded(cleanup).
+ * INITIALIZED is the driver state once it finished registering
+ *  the network device and all internal data struct were initialized
+ * CONNECTED is the driver state once the USB pipes were connected to IPA
+ * UP is the driver state after the interface mode was set to UP but the
+ *  pipes are not connected yet - this state is meta-stable state.
+ * CONNECTED_AND_UP is the driver state when the pipe were connected and
+ *  the interface got UP request from the network stack. this is the driver
+ *   idle operation state which allows it to transmit/receive data.
+ * INVALID is a state which is not allowed.
+ */
 enum ecm_ipa_state {
 	ECM_IPA_UNLOADED = 0,
 	ECM_IPA_INITIALIZED,
@@ -55,6 +75,11 @@ enum ecm_ipa_state {
 	ECM_IPA_INVALID,
 };
 
+/**
+ * enum ecm_ipa_operation - enumerations used to descibe the API operation
+ *
+ * Those enums are used as input for the driver state machine.
+ */
 enum ecm_ipa_operation {
 	ECM_IPA_INITIALIZE,
 	ECM_IPA_CONNECT,
@@ -67,6 +92,24 @@ enum ecm_ipa_operation {
 #define ECM_IPA_STATE_DEBUG(ecm_ipa_ctx) \
 	pr_debug("Driver state - %s", ecm_ipa_state_string(ecm_ipa_ctx->state));
 
+/**
+ * struct ecm_ipa_dev - main driver context parameters
+ * @net: network interface struct implemented by this driver
+ * @directory: debugfs directory for various debuging switches
+ * @tx_enable: flag that enable/disable Tx path to continue to IPA
+ * @rx_enable: flag that enable/disable Rx path to continue to IPA
+ * @rm_enable: flag that enable/disable Resource manager request prior to Tx
+ * @dma_enable: flag that allow on-the-fly DMA mode for IPA
+ * @eth_ipv4_hdr_hdl: saved handle for ipv4 header-insertion table
+ * @eth_ipv6_hdr_hdl: saved handle for ipv6 header-insertion table
+ * @usb_to_ipa_hdl: save handle for IPA pipe operations
+ * @ipa_to_usb_hdl: save handle for IPA pipe operations
+ * @outstanding_pkts: number of packets sent to IPA without TX complete ACKed
+ * @outstanding_high: number of outstanding packets allowed
+ * @outstanding_low: number of outstanding packets which shall cause
+ *  to netdev queue start (after stopped due to outstanding_high reached)
+ * @state: current state of ecm_ipa driver
+ */
 struct ecm_ipa_dev {
 	struct net_device *net;
 	u32 tx_enable;
@@ -146,6 +189,28 @@ const struct file_operations ecm_ipa_debugfs_atomic_ops = {
 	.read = ecm_ipa_debugfs_atomic_read,
 };
 
+/**
+ * ecm_ipa_init() - create network device and initializes internal
+ *  data structures
+ * @params: in/out parameters required for ecm_ipa initialization
+ *
+ * Shall be called prior to pipe connection.
+ * The out parameters (the callbacks) shall be supplied to ipa_connect.
+ * Detailed description:
+ *  - allocate the network device
+ *  - set default values for driver internals
+ *  - create debugfs folder and files
+ *  - create IPA resource manager client
+ *  - add header insertion rules for IPA driver (based on host/device
+ *    Ethernet addresses given in input params)
+ *  - register tx/rx properties to IPA driver (will be later used
+ *    by IPA configuration manager to configure reset of the IPA rules)
+ *  - set the carrier state to "off" (until ecm_ipa_connect is called)
+ *  - register the network device
+ *  - set the out parameters
+ *
+ * Returns negative errno, or zero on success
+ */
 int ecm_ipa_init(struct ecm_ipa_params *params)
 {
 	int result = 0;
@@ -229,6 +294,7 @@ int ecm_ipa_init(struct ecm_ipa_params *params)
 	params->ecm_ipa_rx_dp_notify = ecm_ipa_packet_receive_notify;
 	params->ecm_ipa_tx_dp_notify = ecm_ipa_tx_complete_notify;
 	params->private = (void *)ecm_ipa_ctx;
+	params->skip_ep_cfg = false;
 	ecm_ipa_ctx->state = ECM_IPA_INITIALIZED;
 	ECM_IPA_STATE_DEBUG(ecm_ipa_ctx);
 
@@ -252,6 +318,23 @@ fail_alloc_etherdev:
 }
 EXPORT_SYMBOL(ecm_ipa_init);
 
+/**
+ * ecm_ipa_connect() - notify ecm_ipa for IPA<->USB pipes connection
+ * @usb_to_ipa_hdl: handle of IPA driver client for USB->IPA
+ * @ipa_to_usb_hdl: handle of IPA driver client for IPA->USB
+ * @priv: same value that was set by ecm_ipa_init(), this
+ *  parameter holds the network device pointer.
+ *
+ * Once USB driver finishes the pipe connection between IPA core
+ * and USB core this method shall be called in order to
+ * allow ecm_ipa complete the data path configurations.
+ * Detailed description:
+ *  - configure the IPA end-points register
+ *  - notify the Linux kernel for "carrier_on"
+ *  After this function is done the driver state changes to "Connected".
+ *  This API is expected to be called after ecm_ipa_init() or
+ *  after a call to ecm_ipa_disconnect.
+ */
 int ecm_ipa_connect(u32 usb_to_ipa_hdl, u32 ipa_to_usb_hdl,
 		void *priv)
 {
@@ -304,6 +387,15 @@ int ecm_ipa_connect(u32 usb_to_ipa_hdl, u32 ipa_to_usb_hdl,
 }
 EXPORT_SYMBOL(ecm_ipa_connect);
 
+/**
+ * ecm_ipa_open() - notify Linux network stack to start sending packets
+ * @net: the network interface supplied by the network stack
+ *
+ * Linux uses this API to notify the driver that the network interface
+ * transitions to the up state.
+ * The driver will instruct the Linux network stack to start
+ * delivering data packets.
+ */
 static int ecm_ipa_open(struct net_device *net)
 {
 	struct ecm_ipa_dev *ecm_ipa_ctx;
@@ -333,6 +425,26 @@ static int ecm_ipa_open(struct net_device *net)
 	return 0;
 }
 
+/**
+ * ecm_ipa_start_xmit() - send data from APPs to USB core via IPA core
+ * @skb: packet received from Linux network stack
+ * @net: the network device being used to send this packet
+ *
+ * Several conditions needed in order to send the packet to IPA:
+ * - Transmit queue for the network driver is currently
+ *   in "send" state
+ * - The driver internal state is in "UP" state.
+ * - Filter Tx switch is turned off
+ * - The IPA resource manager state for the driver producer client
+ *   is "Granted" which implies that all the resources in the dependency
+ *   graph are valid for data flow.
+ * - outstanding high boundary did not reach.
+ *
+ * In case all of the above conditions are met, the network driver will
+ * send the packet by using the IPA API for Tx.
+ * In case the outstanding packet high boundary is reached, the driver will
+ * stop the send queue until enough packet were proceeded by the IPA core.
+ */
 static netdev_tx_t ecm_ipa_start_xmit(struct sk_buff *skb,
 					struct net_device *net)
 {
@@ -391,6 +503,16 @@ resource_busy:
 	return status;
 }
 
+/**
+ * ecm_ipa_packet_receive_notify() - Rx notify
+ *
+ * @priv: ecm driver context
+ * @evt: event type
+ * @data: data provided with event
+ *
+ * IPA will pass a packet to the Linux network stack with skb->data pointing
+ * to Ethernet packet frame.
+ */
 static void ecm_ipa_packet_receive_notify(void *priv,
 		enum ipa_dp_evt_type evt,
 		unsigned long data)
@@ -426,6 +548,15 @@ static void ecm_ipa_packet_receive_notify(void *priv,
 	return;
 }
 
+/** ecm_ipa_stop() - called when network device transitions to the down
+ *     state.
+ *  @net: the network device being stopped.
+ *
+ * This API is used by Linux network stack to notify the network driver that
+ * its state was changed to "down"
+ * The driver will stop the "send" queue and change its internal
+ * state to "Connected".
+ */
 static int ecm_ipa_stop(struct net_device *net)
 {
 	struct ecm_ipa_dev *ecm_ipa_ctx = netdev_priv(net);
@@ -448,6 +579,16 @@ static int ecm_ipa_stop(struct net_device *net)
 	return 0;
 }
 
+/** ecm_ipa_disconnect() - called when the USB cable is unplugged.
+ * @priv: same value that was set by ecm_ipa_init(), this
+ *  parameter holds the network device pointer.
+ *
+ * Once the USB cable is unplugged the USB driver will notify the network
+ * interface driver.
+ * The internal driver state will returned to its initialized state and
+ * Linux network stack will be informed for carrier off and the send queue
+ * will be stopped.
+ */
 int ecm_ipa_disconnect(void *priv)
 {
 	struct ecm_ipa_dev *ecm_ipa_ctx = priv;
@@ -478,6 +619,22 @@ int ecm_ipa_disconnect(void *priv)
 EXPORT_SYMBOL(ecm_ipa_disconnect);
 
 
+/**
+ * ecm_ipa_cleanup() - unregister the network interface driver and free
+ *  internal data structs.
+ * @priv: same value that was set by ecm_ipa_init(), this
+ *   parameter holds the network device pointer.
+ *
+ * This function shall be called once the network interface is not
+ * needed anymore, e.g: when the USB composition does not support ECM.
+ * This function shall be called after the pipes were disconnected.
+ * Detailed description:
+ *  - delete the driver dependency defined for IPA resource manager and
+ *   destroy the producer resource.
+ *  -  remove the debugfs entries
+ *  - deregister the network interface from Linux network stack
+ *  - free all internal data structs
+ */
 void ecm_ipa_cleanup(void *priv)
 {
 	struct ecm_ipa_dev *ecm_ipa_ctx = priv;
@@ -513,6 +670,15 @@ void ecm_ipa_cleanup(void *priv)
 }
 EXPORT_SYMBOL(ecm_ipa_cleanup);
 
+/**
+ * ecm_ipa_rules_cfg() - set header insertion and register Tx/Rx properties
+ *				Headers will be commited to HW
+ * @ecm_ipa_ctx: main driver context parameters
+ * @dst_mac: destination MAC address
+ * @src_mac: source MAC address
+ *
+ * Returns negative errno, or zero on success
+ */
 static int ecm_ipa_rules_cfg(struct ecm_ipa_dev *ecm_ipa_ctx,
 		const void *dst_mac, const void *src_mac)
 {
@@ -574,6 +740,13 @@ out:
 	return result;
 }
 
+/**
+ * ecm_ipa_rules_destroy() - remove the IPA core configuration done for
+ *  the driver data path.
+ *  @ecm_ipa_ctx: the driver context
+ *
+ *  Revert the work done on ecm_ipa_rules_cfg.
+ */
 static void ecm_ipa_rules_destroy(struct ecm_ipa_dev *ecm_ipa_ctx)
 {
 	struct ipa_ioc_del_hdr *del_hdr;
@@ -595,6 +768,15 @@ static void ecm_ipa_rules_destroy(struct ecm_ipa_dev *ecm_ipa_ctx)
 		ECM_IPA_ERROR("ipa_del_hdr failed");
 }
 
+/* ecm_ipa_register_properties() - set Tx/Rx properties for ipacm
+ *
+ * Register ecm0 interface with 2 Tx properties and 2 Rx properties:
+ * The 2 Tx properties are for data flowing from IPA to USB, they
+ * have Header-Insertion properties both for Ipv4 and Ipv6 Ethernet framing.
+ * The 2 Rx properties are for data flowing from USB to IPA, they have
+ * simple rule which always "hit".
+ *
+ */
 static int ecm_ipa_register_properties(void)
 {
 	struct ipa_tx_intf tx_properties = {0};
@@ -653,6 +835,22 @@ static void ecm_ipa_deregister_properties(void)
 	return;
 }
 
+/**
+ * ecm_ipa_configure() - make IPA core end-point specific configuration
+ * @usb_to_ipa_hdl: handle of usb_to_ipa end-point for IPA driver
+ * @ipa_to_usb_hdl: handle of ipa_to_usb end-point for IPA driver
+ * @host_ethaddr: host Ethernet address in network order
+ * @device_ethaddr: device Ethernet address in network order
+ *
+ * Configure the usb_to_ipa and ipa_to_usb end-point registers
+ * - USB->IPA end-point: disable de-aggregation, enable link layer
+ *   header removal (Ethernet removal), source NATing and default routing.
+ * - IPA->USB end-point: disable aggregation, add link layer header (Ethernet)
+ * - allocate Ethernet device
+ * - register to Linux network stack
+ *
+ * Returns negative errno, or zero on success
+ */
 
 
 static void ecm_ipa_rm_notify(void *user_data, enum ipa_rm_event event,
@@ -762,6 +960,16 @@ out:
 	return;
 }
 
+/**
+ * ecm_ipa_tx_complete_notify() - Rx notify
+ *
+ * @priv: ecm driver context
+ * @evt: event type
+ * @data: data provided with event
+ *
+ * Check that the packet is the one we sent and release it
+ * This function will be called in defered context in IPA wq.
+ */
 static void ecm_ipa_tx_complete_notify(void *priv,
 		enum ipa_dp_evt_type evt,
 		unsigned long data)
@@ -957,6 +1165,21 @@ static void ecm_ipa_debugfs_destroy(struct ecm_ipa_dev *ecm_ipa_ctx)
 	debugfs_remove_recursive(ecm_ipa_ctx->directory);
 }
 
+/**
+ * ecm_ipa_ep_cfg() - configure the USB endpoints for ECM
+ *
+ *usb_to_ipa_hdl: handle received from ipa_connect
+ *ipa_to_usb_hdl: handle received from ipa_connect
+ *
+ * USB to IPA pipe:
+ *  - No de-aggregation
+ *  - Remove Ethernet header
+ *  - SRC NAT
+ *  - Default routing(0)
+ * IPA to USB Pipe:
+ *  - No aggregation
+ *  - Add Ethernet header
+ */
 static int ecm_ipa_ep_registers_cfg(u32 usb_to_ipa_hdl, u32 ipa_to_usb_hdl)
 {
 	int result = 0;
@@ -990,12 +1213,23 @@ out:
 	return result;
 }
 
+/**
+ * ecm_ipa_ep_registers_dma_cfg() - configure the USB endpoints for ECM
+ *	DMA
+ * @usb_to_ipa_hdl: handle received from ipa_connect
+ *
+ * This function will override the previous configuration
+ * which is needed for cores that does not support blocks logic
+ * Note that client handles are the actual pipe index
+ */
 static int ecm_ipa_ep_registers_dma_cfg(u32 usb_to_ipa_hdl)
 {
 	int result = 0;
 	struct ipa_ep_cfg_mode cfg_mode;
 	u32 apps_to_ipa_hdl = 2;
 	ECM_IPA_LOG_ENTRY();
+	/* Apps to IPA - override the configuration made by IPA driver
+	 * in order to allow data path on older platforms*/
 	memset(&cfg_mode, 0 , sizeof(cfg_mode));
 	cfg_mode.mode = IPA_DMA;
 	cfg_mode.dst = IPA_CLIENT_USB_CONS;
@@ -1018,6 +1252,12 @@ out:
 	return result;
 }
 
+/**
+ * ecm_ipa_set_device_ethernet_addr() - set device etherenet address
+ * @dev_ethaddr: device etherenet address
+ *
+ * Returns 0 for success, negative otherwise
+ */
 static int ecm_ipa_set_device_ethernet_addr(u8 *dev_ethaddr,
 		u8 device_ethaddr[])
 {
@@ -1028,6 +1268,17 @@ static int ecm_ipa_set_device_ethernet_addr(u8 *dev_ethaddr,
 	return 0;
 }
 
+/** ecm_ipa_next_state - return the next state of the driver
+ * @current_state: the current state of the driver
+ * @operation: an enum which represent the operation being made on the driver
+ *  by its API.
+ *
+ * This function implements the driver internal state machine.
+ * Its decisions are based on the driver current state and the operation
+ * being made.
+ * In case the operation is invalid this state machine will return
+ * the value ECM_IPA_INVALID to inform the caller for a forbidden sequence.
+ */
 static enum ecm_ipa_state ecm_ipa_next_state(enum ecm_ipa_state current_state,
 		enum ecm_ipa_operation operation)
 {
@@ -1080,6 +1331,10 @@ static enum ecm_ipa_state ecm_ipa_next_state(enum ecm_ipa_state current_state,
 	return next_state;
 }
 
+/**
+ * ecm_ipa_state_string - return the state string representation
+ * @state: enum which describe the state
+ */
 static const char *ecm_ipa_state_string(enum ecm_ipa_state state)
 {
 	switch (state) {
@@ -1098,6 +1353,10 @@ static const char *ecm_ipa_state_string(enum ecm_ipa_state state)
 	}
 }
 
+/**
+ * ecm_ipa_init_module() - module initialization
+ *
+ */
 static int ecm_ipa_init_module(void)
 {
 	ECM_IPA_LOG_ENTRY();
@@ -1105,6 +1364,10 @@ static int ecm_ipa_init_module(void)
 	return 0;
 }
 
+/**
+ * ecm_ipa_cleanup_module() - module cleanup
+ *
+ */
 static void ecm_ipa_cleanup_module(void)
 {
 	ECM_IPA_LOG_ENTRY();

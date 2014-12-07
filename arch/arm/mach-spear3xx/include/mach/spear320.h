@@ -35,6 +35,7 @@
 #define SPEAR320_SMII1_BASE		UL(0xAB000000)
 #define SPEAR320_SOC_CONFIG_BASE	UL(0xB3000000)
 
+/* Interrupt registers offsets and masks */
 #define SPEAR320_INT_STS_MASK_REG		0x04
 #define SPEAR320_INT_CLR_MASK_REG		0x04
 #define SPEAR320_INT_ENB_MASK_REG		0x08
@@ -61,6 +62,6 @@
 #define SPEAR320_SHIRQ_RAS3_MASK		0x000007
 #define SPEAR320_SHIRQ_INTRCOMM_RAS_MASK	0x3FF800
 
-#endif 
+#endif /* __MACH_SPEAR320_H */
 
-#endif 
+#endif /* CONFIG_MACH_SPEAR320 */

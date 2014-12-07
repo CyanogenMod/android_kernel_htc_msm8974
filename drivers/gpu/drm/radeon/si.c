@@ -62,6 +62,7 @@ extern void evergreen_mc_stop(struct radeon_device *rdev, struct evergreen_mc_sa
 extern void evergreen_mc_resume(struct radeon_device *rdev, struct evergreen_mc_save *save);
 extern u32 evergreen_get_number_of_dram_channels(struct radeon_device *rdev);
 
+/* get temperature in millidegrees */
 int si_get_temp(struct radeon_device *rdev)
 {
 	u32 temp;
@@ -199,6 +200,7 @@ static const u32 verde_io_mc_regs[TAHITI_IO_MC_REGS_SIZE][2] = {
 	{0x0000009f, 0x00a37400}
 };
 
+/* ucode loading */
 static int si_mc_load_microcode(struct radeon_device *rdev)
 {
 	const __be32 *fw_data;
@@ -236,26 +238,26 @@ static int si_mc_load_microcode(struct radeon_device *rdev)
 			WREG32(MC_SHARED_BLACKOUT_CNTL, blackout | 1);
 		}
 
-		
+		/* reset the engine and set to writable */
 		WREG32(MC_SEQ_SUP_CNTL, 0x00000008);
 		WREG32(MC_SEQ_SUP_CNTL, 0x00000010);
 
-		
+		/* load mc io regs */
 		for (i = 0; i < regs_size; i++) {
 			WREG32(MC_SEQ_IO_DEBUG_INDEX, io_mc_regs[(i << 1)]);
 			WREG32(MC_SEQ_IO_DEBUG_DATA, io_mc_regs[(i << 1) + 1]);
 		}
-		
+		/* load the MC ucode */
 		fw_data = (const __be32 *)rdev->mc_fw->data;
 		for (i = 0; i < ucode_size; i++)
 			WREG32(MC_SEQ_SUP_PGM, be32_to_cpup(fw_data++));
 
-		
+		/* put the engine back into the active state */
 		WREG32(MC_SEQ_SUP_CNTL, 0x00000008);
 		WREG32(MC_SEQ_SUP_CNTL, 0x00000004);
 		WREG32(MC_SEQ_SUP_CNTL, 0x00000001);
 
-		
+		/* wait for training to complete */
 		for (i = 0; i < rdev->usec_timeout; i++) {
 			if (RREG32(MC_SEQ_TRAIN_WAKEUP_CNTL) & TRAIN_DONE_D0)
 				break;
@@ -403,17 +405,31 @@ out:
 	return err;
 }
 
+/* watermark setup */
 static u32 dce6_line_buffer_adjust(struct radeon_device *rdev,
 				   struct radeon_crtc *radeon_crtc,
 				   struct drm_display_mode *mode,
 				   struct drm_display_mode *other_mode)
 {
 	u32 tmp;
+	/*
+	 * Line Buffer Setup
+	 * There are 3 line buffers, each one shared by 2 display controllers.
+	 * DC_LB_MEMORY_SPLIT controls how that line buffer is shared between
+	 * the display controllers.  The paritioning is done via one of four
+	 * preset allocations specified in bits 21:20:
+	 *  0 - half lb
+	 *  2 - whole lb, other crtc must be disabled
+	 */
+	/* this can get tricky if we have two large displays on a paired group
+	 * of crtcs.  Ideally for multiple large displays we'd assign them to
+	 * non-linked crtcs for maximum line buffer allocation.
+	 */
 	if (radeon_crtc->base.enabled && mode) {
 		if (other_mode)
-			tmp = 0; 
+			tmp = 0; /* 1/2 */
 		else
-			tmp = 2; 
+			tmp = 2; /* whole */
 	} else
 		tmp = 0;
 
@@ -430,7 +446,7 @@ static u32 dce6_line_buffer_adjust(struct radeon_device *rdev,
 		}
 	}
 
-	
+	/* controller not enabled, so no lb used */
 	return 0;
 }
 
@@ -462,25 +478,25 @@ static u32 si_get_number_of_dram_channels(struct radeon_device *rdev)
 }
 
 struct dce6_wm_params {
-	u32 dram_channels; 
-	u32 yclk;          
-	u32 sclk;          
-	u32 disp_clk;      
-	u32 src_width;     
-	u32 active_time;   
-	u32 blank_time;    
-	bool interlaced;    
-	fixed20_12 vsc;    
-	u32 num_heads;     
-	u32 bytes_per_pixel; 
-	u32 lb_size;       
-	u32 vtaps;         
+	u32 dram_channels; /* number of dram channels */
+	u32 yclk;          /* bandwidth per dram data pin in kHz */
+	u32 sclk;          /* engine clock in kHz */
+	u32 disp_clk;      /* display clock in kHz */
+	u32 src_width;     /* viewport width */
+	u32 active_time;   /* active display time in ns */
+	u32 blank_time;    /* blank time in ns */
+	bool interlaced;    /* mode is interlaced */
+	fixed20_12 vsc;    /* vertical scale ratio */
+	u32 num_heads;     /* number of active crtcs */
+	u32 bytes_per_pixel; /* bytes per pixel display + overlay */
+	u32 lb_size;       /* line buffer allocated to pipe */
+	u32 vtaps;         /* vertical scaler taps */
 };
 
 static u32 dce6_dram_bandwidth(struct dce6_wm_params *wm)
 {
-	
-	fixed20_12 dram_efficiency; 
+	/* Calculate raw DRAM Bandwidth */
+	fixed20_12 dram_efficiency; /* 0.7 */
 	fixed20_12 yclk, dram_channels, bandwidth;
 	fixed20_12 a;
 
@@ -499,8 +515,8 @@ static u32 dce6_dram_bandwidth(struct dce6_wm_params *wm)
 
 static u32 dce6_dram_bandwidth_for_display(struct dce6_wm_params *wm)
 {
-	
-	fixed20_12 disp_dram_allocation; 
+	/* Calculate DRAM Bandwidth and the part allocated to display. */
+	fixed20_12 disp_dram_allocation; /* 0.3 to 0.7 */
 	fixed20_12 yclk, dram_channels, bandwidth;
 	fixed20_12 a;
 
@@ -509,7 +525,7 @@ static u32 dce6_dram_bandwidth_for_display(struct dce6_wm_params *wm)
 	yclk.full = dfixed_div(yclk, a);
 	dram_channels.full = dfixed_const(wm->dram_channels * 4);
 	a.full = dfixed_const(10);
-	disp_dram_allocation.full = dfixed_const(3); 
+	disp_dram_allocation.full = dfixed_const(3); /* XXX worse case value 0.3 */
 	disp_dram_allocation.full = dfixed_div(disp_dram_allocation, a);
 	bandwidth.full = dfixed_mul(dram_channels, yclk);
 	bandwidth.full = dfixed_mul(bandwidth, disp_dram_allocation);
@@ -519,8 +535,8 @@ static u32 dce6_dram_bandwidth_for_display(struct dce6_wm_params *wm)
 
 static u32 dce6_data_return_bandwidth(struct dce6_wm_params *wm)
 {
-	
-	fixed20_12 return_efficiency; 
+	/* Calculate the display Data return Bandwidth */
+	fixed20_12 return_efficiency; /* 0.8 */
 	fixed20_12 sclk, bandwidth;
 	fixed20_12 a;
 
@@ -544,8 +560,8 @@ static u32 dce6_get_dmif_bytes_per_request(struct dce6_wm_params *wm)
 
 static u32 dce6_dmif_request_bandwidth(struct dce6_wm_params *wm)
 {
-	
-	fixed20_12 disp_clk_request_efficiency; 
+	/* Calculate the DMIF Request Bandwidth */
+	fixed20_12 disp_clk_request_efficiency; /* 0.8 */
 	fixed20_12 disp_clk, sclk, bandwidth;
 	fixed20_12 a, b1, b2;
 	u32 min_bandwidth;
@@ -576,7 +592,7 @@ static u32 dce6_dmif_request_bandwidth(struct dce6_wm_params *wm)
 
 static u32 dce6_available_bandwidth(struct dce6_wm_params *wm)
 {
-	
+	/* Calculate the Available bandwidth. Display can use this temporarily but not in average. */
 	u32 dram_bandwidth = dce6_dram_bandwidth(wm);
 	u32 data_return_bandwidth = dce6_data_return_bandwidth(wm);
 	u32 dmif_req_bandwidth = dce6_dmif_request_bandwidth(wm);
@@ -586,6 +602,10 @@ static u32 dce6_available_bandwidth(struct dce6_wm_params *wm)
 
 static u32 dce6_average_bandwidth(struct dce6_wm_params *wm)
 {
+	/* Calculate the display mode Average Bandwidth
+	 * DisplayMode should contain the source and destination dimensions,
+	 * timing, etc.
+	 */
 	fixed20_12 bpp;
 	fixed20_12 line_time;
 	fixed20_12 src_width;
@@ -606,12 +626,12 @@ static u32 dce6_average_bandwidth(struct dce6_wm_params *wm)
 
 static u32 dce6_latency_watermark(struct dce6_wm_params *wm)
 {
-	
-	u32 mc_latency = 2000; 
+	/* First calcualte the latency in ns */
+	u32 mc_latency = 2000; /* 2000 ns. */
 	u32 available_bandwidth = dce6_available_bandwidth(wm);
 	u32 worst_chunk_return_time = (512 * 8 * 1000) / available_bandwidth;
 	u32 cursor_line_pair_return_time = (128 * 4 * 1000) / available_bandwidth;
-	u32 dc_latency = 40000000 / wm->disp_clk; 
+	u32 dc_latency = 40000000 / wm->disp_clk; /* dc pipe latency */
 	u32 other_heads_data_return_time = ((wm->num_heads + 1) * worst_chunk_return_time) +
 		(wm->num_heads * cursor_line_pair_return_time);
 	u32 latency = mc_latency + other_heads_data_return_time + dc_latency;
@@ -745,7 +765,7 @@ static void dce6_program_watermarks(struct radeon_device *rdev,
 		wm.vtaps = 1;
 		if (radeon_crtc->rmx_type != RMX_OFF)
 			wm.vtaps = 2;
-		wm.bytes_per_pixel = 4; 
+		wm.bytes_per_pixel = 4; /* XXX: get this from fb config */
 		wm.lb_size = lb_size;
 		if (rdev->family == CHIP_ARUBA)
 			wm.dram_channels = evergreen_get_number_of_dram_channels(rdev);
@@ -753,14 +773,14 @@ static void dce6_program_watermarks(struct radeon_device *rdev,
 			wm.dram_channels = si_get_number_of_dram_channels(rdev);
 		wm.num_heads = num_heads;
 
-		
+		/* set for high clocks */
 		latency_watermark_a = min(dce6_latency_watermark(&wm), (u32)65535);
-		
-		
+		/* set for low clocks */
+		/* wm.yclk = low clk; wm.sclk = low clk */
 		latency_watermark_b = min(dce6_latency_watermark(&wm), (u32)65535);
 
-		
-		
+		/* possibly force display priority to high */
+		/* should really do this at mode validation time... */
 		if (!dce6_average_bandwidth_vs_dram_bandwidth_for_display(&wm) ||
 		    !dce6_average_bandwidth_vs_available_bandwidth(&wm) ||
 		    !dce6_check_latency_hiding(&wm) ||
@@ -795,7 +815,7 @@ static void dce6_program_watermarks(struct radeon_device *rdev,
 		priority_b_cnt |= priority_b_mark & PRIORITY_MARK_MASK;
 	}
 
-	
+	/* select wm A */
 	arb_control3 = RREG32(DPG_PIPE_ARBITRATION_CONTROL3 + radeon_crtc->crtc_offset);
 	tmp = arb_control3;
 	tmp &= ~LATENCY_WATERMARK_MASK(3);
@@ -804,7 +824,7 @@ static void dce6_program_watermarks(struct radeon_device *rdev,
 	WREG32(DPG_PIPE_LATENCY_CONTROL + radeon_crtc->crtc_offset,
 	       (LATENCY_LOW_WATERMARK(latency_watermark_a) |
 		LATENCY_HIGH_WATERMARK(line_time)));
-	
+	/* select wm B */
 	tmp = RREG32(DPG_PIPE_ARBITRATION_CONTROL3 + radeon_crtc->crtc_offset);
 	tmp &= ~LATENCY_WATERMARK_MASK(3);
 	tmp |= LATENCY_WATERMARK_MASK(2);
@@ -812,10 +832,10 @@ static void dce6_program_watermarks(struct radeon_device *rdev,
 	WREG32(DPG_PIPE_LATENCY_CONTROL + radeon_crtc->crtc_offset,
 	       (LATENCY_LOW_WATERMARK(latency_watermark_b) |
 		LATENCY_HIGH_WATERMARK(line_time)));
-	
+	/* restore original selection */
 	WREG32(DPG_PIPE_ARBITRATION_CONTROL3 + radeon_crtc->crtc_offset, arb_control3);
 
-	
+	/* write the priority marks */
 	WREG32(PRIORITY_A_CNT + radeon_crtc->crtc_offset, priority_a_cnt);
 	WREG32(PRIORITY_B_CNT + radeon_crtc->crtc_offset, priority_b_cnt);
 
@@ -844,6 +864,9 @@ void dce6_bandwidth_update(struct radeon_device *rdev)
 	}
 }
 
+/*
+ * Core functions
+ */
 static u32 si_get_tile_pipe_to_backend_map(struct radeon_device *rdev,
 					   u32 num_tile_pipes,
 					   u32 num_backends_per_asic,
@@ -860,7 +883,7 @@ static u32 si_get_tile_pipe_to_backend_map(struct radeon_device *rdev,
 	u32 i;
 	bool force_no_swizzle;
 
-	
+	/* force legal values */
 	if (num_tile_pipes < 1)
 		num_tile_pipes = 1;
 	if (num_tile_pipes > rdev->config.si.max_tile_pipes)
@@ -874,16 +897,16 @@ static u32 si_get_tile_pipe_to_backend_map(struct radeon_device *rdev,
 	if (num_backends_per_asic > (rdev->config.si.max_backends_per_se * num_shader_engines))
 		num_backends_per_asic = rdev->config.si.max_backends_per_se * num_shader_engines;
 
-	
+	/* make sure we have the same number of backends per se */
 	num_backends_per_asic = ALIGN(num_backends_per_asic, num_shader_engines);
-	
+	/* set up the number of backends per se */
 	num_backends_per_se = num_backends_per_asic / num_shader_engines;
 	if (num_backends_per_se > rdev->config.si.max_backends_per_se) {
 		num_backends_per_se = rdev->config.si.max_backends_per_se;
 		num_backends_per_asic = num_backends_per_se * num_shader_engines;
 	}
 
-	
+	/* create enable mask and count for enabled backends */
 	for (i = 0; i < SI_MAX_BACKENDS; ++i) {
 		if (((*backend_disable_mask_per_asic >> i) & 1) == 0) {
 			enabled_backends_mask |= (1 << i);
@@ -893,7 +916,7 @@ static u32 si_get_tile_pipe_to_backend_map(struct radeon_device *rdev,
 			break;
 	}
 
-	
+	/* force the backends mask to match the current number of backends */
 	if (enabled_backends_count != num_backends_per_asic) {
 		u32 this_backend_enabled;
 		u32 shader_engine;
@@ -903,11 +926,11 @@ static u32 si_get_tile_pipe_to_backend_map(struct radeon_device *rdev,
 		enabled_backends_count = 0;
 		*backend_disable_mask_per_asic = SI_MAX_BACKENDS_MASK;
 		for (i = 0; i < SI_MAX_BACKENDS; ++i) {
-			
+			/* calc the current se */
 			shader_engine = i / rdev->config.si.max_backends_per_se;
-			
+			/* calc the backend per se */
 			backend_per_se = i % rdev->config.si.max_backends_per_se;
-			
+			/* default to not enabled */
 			this_backend_enabled = 0;
 			if ((shader_engine < num_shader_engines) &&
 			    (backend_per_se < num_backends_per_se))
@@ -1060,7 +1083,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 	    (rdev->family == CHIP_PITCAIRN)) {
 		for (reg_offset = 0; reg_offset < num_tile_mode_states; reg_offset++) {
 			switch (reg_offset) {
-			case 0:  
+			case 0:  /* non-AA compressed depth or any compressed stencil */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1070,7 +1093,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 1:  
+			case 1:  /* 2xAA/4xAA compressed depth only */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1080,7 +1103,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 2:  
+			case 2:  /* 8xAA compressed depth only */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1090,7 +1113,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 3:  
+			case 3:  /* 2xAA/4xAA compressed depth with stencil (for depth buffer) */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1100,7 +1123,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 4:  
+			case 4:  /* Maps w/ a dimension less than the 2D macro-tile dimensions (for mipmapped depth textures) */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_1D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1110,7 +1133,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 5:  
+			case 5:  /* Uncompressed 16bpp depth - and stencil buffer allocated with it */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1120,7 +1143,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 6:  
+			case 6:  /* Uncompressed 32bpp depth - and stencil buffer allocated with it */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1130,7 +1153,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_1) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_1));
 				break;
-			case 7:  
+			case 7:  /* Uncompressed 8bpp stencil without depth (drivers typically do not use) */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1140,7 +1163,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 8:  
+			case 8:  /* 1D and 1D Array Surfaces */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_LINEAR_ALIGNED) |
 						 MICRO_TILE_MODE(ADDR_SURF_DISPLAY_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1150,7 +1173,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 9:  
+			case 9:  /* Displayable maps. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_1D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DISPLAY_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1160,7 +1183,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 10:  
+			case 10:  /* Display 8bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DISPLAY_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1170,7 +1193,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 11:  
+			case 11:  /* Display 16bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DISPLAY_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1180,7 +1203,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 12:  
+			case 12:  /* Display 32bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DISPLAY_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1190,7 +1213,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_1) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_1));
 				break;
-			case 13:  
+			case 13:  /* Thin. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_1D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1200,7 +1223,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 14:  
+			case 14:  /* Thin 8 bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1210,7 +1233,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_1));
 				break;
-			case 15:  
+			case 15:  /* Thin 16 bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1220,7 +1243,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_1));
 				break;
-			case 16:  
+			case 16:  /* Thin 32 bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1230,7 +1253,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_1) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_1));
 				break;
-			case 17:  
+			case 17:  /* Thin 64 bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1240,7 +1263,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_1) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_1));
 				break;
-			case 21:  
+			case 21:  /* 8 bpp PRT. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1250,7 +1273,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 22:  
+			case 22:  /* 16 bpp PRT */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1260,7 +1283,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_4));
 				break;
-			case 23:  
+			case 23:  /* 32 bpp PRT */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1270,7 +1293,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 24:  
+			case 24:  /* 64 bpp PRT */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1280,7 +1303,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_1) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 25:  
+			case 25:  /* 128 bpp PRT */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1299,7 +1322,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 	} else if (rdev->family == CHIP_VERDE) {
 		for (reg_offset = 0; reg_offset < num_tile_mode_states; reg_offset++) {
 			switch (reg_offset) {
-			case 0:  
+			case 0:  /* non-AA compressed depth or any compressed stencil */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1309,7 +1332,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_4));
 				break;
-			case 1:  
+			case 1:  /* 2xAA/4xAA compressed depth only */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1319,7 +1342,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_4));
 				break;
-			case 2:  
+			case 2:  /* 8xAA compressed depth only */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1329,7 +1352,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_4));
 				break;
-			case 3:  
+			case 3:  /* 2xAA/4xAA compressed depth with stencil (for depth buffer) */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1339,7 +1362,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_4));
 				break;
-			case 4:  
+			case 4:  /* Maps w/ a dimension less than the 2D macro-tile dimensions (for mipmapped depth textures) */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_1D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1349,7 +1372,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 5:  
+			case 5:  /* Uncompressed 16bpp depth - and stencil buffer allocated with it */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1359,7 +1382,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 6:  
+			case 6:  /* Uncompressed 32bpp depth - and stencil buffer allocated with it */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1369,7 +1392,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_1) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 7:  
+			case 7:  /* Uncompressed 8bpp stencil without depth (drivers typically do not use) */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DEPTH_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1379,7 +1402,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_4));
 				break;
-			case 8:  
+			case 8:  /* 1D and 1D Array Surfaces */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_LINEAR_ALIGNED) |
 						 MICRO_TILE_MODE(ADDR_SURF_DISPLAY_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1389,7 +1412,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 9:  
+			case 9:  /* Displayable maps. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_1D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DISPLAY_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1399,7 +1422,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 10:  
+			case 10:  /* Display 8bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DISPLAY_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1409,7 +1432,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_4));
 				break;
-			case 11:  
+			case 11:  /* Display 16bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DISPLAY_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1419,7 +1442,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 12:  
+			case 12:  /* Display 32bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_DISPLAY_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1429,7 +1452,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_1) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 13:  
+			case 13:  /* Thin. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_1D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1439,7 +1462,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 14:  
+			case 14:  /* Thin 8 bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1449,7 +1472,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 15:  
+			case 15:  /* Thin 16 bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1459,7 +1482,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 16:  
+			case 16:  /* Thin 32 bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1469,7 +1492,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_1) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 17:  
+			case 17:  /* Thin 64 bpp. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P4_8x16) |
@@ -1479,7 +1502,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_1) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 21:  
+			case 21:  /* 8 bpp PRT. */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1489,7 +1512,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 22:  
+			case 22:  /* 16 bpp PRT */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1499,7 +1522,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_4) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_4));
 				break;
-			case 23:  
+			case 23:  /* 32 bpp PRT */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1509,7 +1532,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_2) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 24:  
+			case 24:  /* 64 bpp PRT */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1519,7 +1542,7 @@ static void si_tiling_mode_table_init(struct radeon_device *rdev)
 						 BANK_HEIGHT(ADDR_SURF_BANK_HEIGHT_1) |
 						 MACRO_TILE_ASPECT(ADDR_SURF_MACRO_ASPECT_2));
 				break;
-			case 25:  
+			case 25:  /* 128 bpp PRT */
 				gb_tile_moden = (ARRAY_MODE(ARRAY_2D_TILED_THIN1) |
 						 MICRO_TILE_MODE(ADDR_SURF_THIN_MICRO_TILING) |
 						 PIPE_CONFIG(ADDR_SURF_P8_32x32_8x16) |
@@ -1607,7 +1630,7 @@ static void si_gpu_init(struct radeon_device *rdev)
 		break;
 	}
 
-	
+	/* Initialize HDP */
 	for (i = 0, j = 0; i < 32; i++, j += 0x18) {
 		WREG32((0x2c14 + j), 0x00000000);
 		WREG32((0x2c18 + j), 0x00000000);
@@ -1655,7 +1678,7 @@ static void si_gpu_init(struct radeon_device *rdev)
 	rdev->config.si.mem_row_size_in_kb = (4 * (1 << (8 + tmp))) / 1024;
 	if (rdev->config.si.mem_row_size_in_kb > 4)
 		rdev->config.si.mem_row_size_in_kb = 4;
-	
+	/* XXX use MC settings? */
 	rdev->config.si.shader_engine_tile_size = 32;
 	rdev->config.si.num_gpus = 1;
 	rdev->config.si.multi_gpu_tile_size = 64;
@@ -1742,6 +1765,13 @@ static void si_gpu_init(struct radeon_device *rdev)
 						&rdev->config.si.backend_disable_mask_per_asic,
 						rdev->config.si.num_shader_engines);
 
+	/* setup tiling info dword.  gb_addr_config is not adequate since it does
+	 * not have bank info, so create a custom tiling dword.
+	 * bits 3:0   num_pipes
+	 * bits 7:4   num_banks
+	 * bits 11:8  group_size
+	 * bits 15:12 row_size
+	 */
 	rdev->config.si.tile_config = 0;
 	switch (rdev->config.si.num_tile_pipes) {
 	case 1:
@@ -1755,7 +1785,7 @@ static void si_gpu_init(struct radeon_device *rdev)
 		break;
 	case 8:
 	default:
-		
+		/* XXX what about 12? */
 		rdev->config.si.tile_config |= (3 << 0);
 		break;
 	}
@@ -1771,14 +1801,14 @@ static void si_gpu_init(struct radeon_device *rdev)
 	WREG32(DMIF_ADDR_CONFIG, gb_addr_config);
 	WREG32(HDP_ADDR_CONFIG, gb_addr_config);
 
-	
+	/* primary versions */
 	WREG32(CC_RB_BACKEND_DISABLE, cc_rb_backend_disable);
 	WREG32(CC_SYS_RB_BACKEND_DISABLE, cc_rb_backend_disable);
 	WREG32(CC_GC_SHADER_ARRAY_CONFIG, cc_gc_shader_array_config);
 
 	WREG32(CGTS_TCC_DISABLE, cgts_tcc_disable);
 
-	
+	/* user versions */
 	WREG32(GC_USER_RB_BACKEND_DISABLE, cc_rb_backend_disable);
 	WREG32(GC_USER_SYS_RB_BACKEND_DISABLE, cc_rb_backend_disable);
 	WREG32(GC_USER_SHADER_ARRAY_CONFIG, cc_gc_shader_array_config);
@@ -1787,7 +1817,7 @@ static void si_gpu_init(struct radeon_device *rdev)
 
 	si_tiling_mode_table_init(rdev);
 
-	
+	/* set HW defaults for 3D engine */
 	WREG32(CP_QUEUE_THRESHOLDS, (ROQ_IB1_START(0x16) |
 				     ROQ_IB2_START(0x2b)));
 	WREG32(CP_MEQ_THRESHOLDS, MEQ1_START(0x30) | MEQ2_START(0x60));
@@ -1838,6 +1868,9 @@ static void si_gpu_init(struct radeon_device *rdev)
 	udelay(50);
 }
 
+/*
+ * GPU scratch registers helpers function.
+ */
 static void si_scratch_init(struct radeon_device *rdev)
 {
 	int i;
@@ -1856,7 +1889,7 @@ void si_fence_ring_emit(struct radeon_device *rdev,
 	struct radeon_ring *ring = &rdev->ring[fence->ring];
 	u64 addr = rdev->fence_drv[fence->ring].gpu_addr;
 
-	
+	/* flush read cache over gart */
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_CONFIG_REG, 1));
 	radeon_ring_write(ring, (CP_COHER_CNTL2 - PACKET3_SET_CONFIG_REG_START) >> 2);
 	radeon_ring_write(ring, 0);
@@ -1867,8 +1900,8 @@ void si_fence_ring_emit(struct radeon_device *rdev,
 			  PACKET3_SH_ICACHE_ACTION_ENA);
 	radeon_ring_write(ring, 0xFFFFFFFF);
 	radeon_ring_write(ring, 0);
-	radeon_ring_write(ring, 10); 
-	
+	radeon_ring_write(ring, 10); /* poll interval */
+	/* EVENT_WRITE_EOP - flush caches, send int */
 	radeon_ring_write(ring, PACKET3(PACKET3_EVENT_WRITE_EOP, 4));
 	radeon_ring_write(ring, EVENT_TYPE(CACHE_FLUSH_AND_INV_TS_EVENT) | EVENT_INDEX(5));
 	radeon_ring_write(ring, addr & 0xffffffff);
@@ -1877,6 +1910,9 @@ void si_fence_ring_emit(struct radeon_device *rdev,
 	radeon_ring_write(ring, 0);
 }
 
+/*
+ * IB stuff
+ */
 void si_ring_ib_execute(struct radeon_device *rdev, struct radeon_ib *ib)
 {
 	struct radeon_ring *ring = &rdev->ring[ib->fence->ring];
@@ -1896,7 +1932,7 @@ void si_ring_ib_execute(struct radeon_device *rdev, struct radeon_ib *ib)
 	radeon_ring_write(ring, upper_32_bits(ib->gpu_addr) & 0xFFFF);
 	radeon_ring_write(ring, ib->length_dw | (ib->vm_id << 24));
 
-	
+	/* flush read cache over gart for this vmid */
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_CONFIG_REG, 1));
 	radeon_ring_write(ring, (CP_COHER_CNTL2 - PACKET3_SET_CONFIG_REG_START) >> 2);
 	radeon_ring_write(ring, ib->vm_id);
@@ -1907,9 +1943,12 @@ void si_ring_ib_execute(struct radeon_device *rdev, struct radeon_ib *ib)
 			  PACKET3_SH_ICACHE_ACTION_ENA);
 	radeon_ring_write(ring, 0xFFFFFFFF);
 	radeon_ring_write(ring, 0);
-	radeon_ring_write(ring, 10); 
+	radeon_ring_write(ring, 10); /* poll interval */
 }
 
+/*
+ * CP.
+ */
 static void si_cp_enable(struct radeon_device *rdev, bool enable)
 {
 	if (enable)
@@ -1932,21 +1971,21 @@ static int si_cp_load_microcode(struct radeon_device *rdev)
 
 	si_cp_enable(rdev, false);
 
-	
+	/* PFP */
 	fw_data = (const __be32 *)rdev->pfp_fw->data;
 	WREG32(CP_PFP_UCODE_ADDR, 0);
 	for (i = 0; i < SI_PFP_UCODE_SIZE; i++)
 		WREG32(CP_PFP_UCODE_DATA, be32_to_cpup(fw_data++));
 	WREG32(CP_PFP_UCODE_ADDR, 0);
 
-	
+	/* CE */
 	fw_data = (const __be32 *)rdev->ce_fw->data;
 	WREG32(CP_CE_UCODE_ADDR, 0);
 	for (i = 0; i < SI_CE_UCODE_SIZE; i++)
 		WREG32(CP_CE_UCODE_DATA, be32_to_cpup(fw_data++));
 	WREG32(CP_CE_UCODE_ADDR, 0);
 
-	
+	/* ME */
 	fw_data = (const __be32 *)rdev->me_fw->data;
 	WREG32(CP_ME_RAM_WADDR, 0);
 	for (i = 0; i < SI_PM4_UCODE_SIZE; i++)
@@ -1970,7 +2009,7 @@ static int si_cp_start(struct radeon_device *rdev)
 		DRM_ERROR("radeon: cp failed to lock ring (%d).\n", r);
 		return r;
 	}
-	
+	/* init the CP */
 	radeon_ring_write(ring, PACKET3(PACKET3_ME_INITIALIZE, 5));
 	radeon_ring_write(ring, 0x1);
 	radeon_ring_write(ring, 0x0);
@@ -1979,7 +2018,7 @@ static int si_cp_start(struct radeon_device *rdev)
 	radeon_ring_write(ring, 0);
 	radeon_ring_write(ring, 0);
 
-	
+	/* init the CE partitions */
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_BASE, 2));
 	radeon_ring_write(ring, PACKET3_BASE_INDEX(CE_PARTITION_BASE));
 	radeon_ring_write(ring, 0xc000);
@@ -1994,7 +2033,7 @@ static int si_cp_start(struct radeon_device *rdev)
 		return r;
 	}
 
-	
+	/* setup clear context state */
 	radeon_ring_write(ring, PACKET3(PACKET3_PREAMBLE_CNTL, 0));
 	radeon_ring_write(ring, PACKET3_PREAMBLE_BEGIN_CLEAR_STATE);
 
@@ -2004,14 +2043,14 @@ static int si_cp_start(struct radeon_device *rdev)
 	radeon_ring_write(ring, PACKET3(PACKET3_PREAMBLE_CNTL, 0));
 	radeon_ring_write(ring, PACKET3_PREAMBLE_END_CLEAR_STATE);
 
-	
+	/* set clear context state */
 	radeon_ring_write(ring, PACKET3(PACKET3_CLEAR_STATE, 0));
 	radeon_ring_write(ring, 0);
 
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_CONTEXT_REG, 2));
 	radeon_ring_write(ring, 0x00000316);
-	radeon_ring_write(ring, 0x0000000e); 
-	radeon_ring_write(ring, 0x00000010); 
+	radeon_ring_write(ring, 0x0000000e); /* VGT_VERTEX_REUSE_BLOCK_CNTL */
+	radeon_ring_write(ring, 0x00000010); /* VGT_OUT_DEALLOC_CNTL */
 
 	radeon_ring_unlock_commit(rdev, ring);
 
@@ -2019,7 +2058,7 @@ static int si_cp_start(struct radeon_device *rdev)
 		ring = &rdev->ring[i];
 		r = radeon_ring_lock(rdev, ring, 2);
 
-		
+		/* clear the compute context state */
 		radeon_ring_write(ring, PACKET3_COMPUTE(PACKET3_CLEAR_STATE, 0));
 		radeon_ring_write(ring, 0);
 
@@ -2044,7 +2083,7 @@ static int si_cp_resume(struct radeon_device *rdev)
 	u32 rb_bufsz;
 	int r;
 
-	
+	/* Reset cp; if cp is reset, then PA, SH, VGT also need to be reset */
 	WREG32(GRBM_SOFT_RESET, (SOFT_RESET_CP |
 				 SOFT_RESET_PA |
 				 SOFT_RESET_VGT |
@@ -2058,14 +2097,14 @@ static int si_cp_resume(struct radeon_device *rdev)
 	WREG32(CP_SEM_WAIT_TIMER, 0x0);
 	WREG32(CP_SEM_INCOMPLETE_TIMER_CNTL, 0x0);
 
-	
+	/* Set the write pointer delay */
 	WREG32(CP_RB_WPTR_DELAY, 0);
 
 	WREG32(CP_DEBUG, 0);
 	WREG32(SCRATCH_ADDR, ((rdev->wb.gpu_addr + RADEON_WB_SCRATCH_OFFSET) >> 8) & 0xFFFFFFFF);
 
-	
-	
+	/* ring 0 - compute and gfx */
+	/* Set ring buffer size */
 	ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
 	rb_bufsz = drm_order(ring->ring_size / 8);
 	tmp = (drm_order(RADEON_GPU_PAGE_SIZE/8) << 8) | rb_bufsz;
@@ -2074,12 +2113,12 @@ static int si_cp_resume(struct radeon_device *rdev)
 #endif
 	WREG32(CP_RB0_CNTL, tmp);
 
-	
+	/* Initialize the ring buffer's read and write pointers */
 	WREG32(CP_RB0_CNTL, tmp | RB_RPTR_WR_ENA);
 	ring->wptr = 0;
 	WREG32(CP_RB0_WPTR, ring->wptr);
 
-	
+	/* set the wb address wether it's enabled or not */
 	WREG32(CP_RB0_RPTR_ADDR, (rdev->wb.gpu_addr + RADEON_WB_CP_RPTR_OFFSET) & 0xFFFFFFFC);
 	WREG32(CP_RB0_RPTR_ADDR_HI, upper_32_bits(rdev->wb.gpu_addr + RADEON_WB_CP_RPTR_OFFSET) & 0xFF);
 
@@ -2097,8 +2136,8 @@ static int si_cp_resume(struct radeon_device *rdev)
 
 	ring->rptr = RREG32(CP_RB0_RPTR);
 
-	
-	
+	/* ring1  - compute only */
+	/* Set ring buffer size */
 	ring = &rdev->ring[CAYMAN_RING_TYPE_CP1_INDEX];
 	rb_bufsz = drm_order(ring->ring_size / 8);
 	tmp = (drm_order(RADEON_GPU_PAGE_SIZE/8) << 8) | rb_bufsz;
@@ -2107,12 +2146,12 @@ static int si_cp_resume(struct radeon_device *rdev)
 #endif
 	WREG32(CP_RB1_CNTL, tmp);
 
-	
+	/* Initialize the ring buffer's read and write pointers */
 	WREG32(CP_RB1_CNTL, tmp | RB_RPTR_WR_ENA);
 	ring->wptr = 0;
 	WREG32(CP_RB1_WPTR, ring->wptr);
 
-	
+	/* set the wb address wether it's enabled or not */
 	WREG32(CP_RB1_RPTR_ADDR, (rdev->wb.gpu_addr + RADEON_WB_CP1_RPTR_OFFSET) & 0xFFFFFFFC);
 	WREG32(CP_RB1_RPTR_ADDR_HI, upper_32_bits(rdev->wb.gpu_addr + RADEON_WB_CP1_RPTR_OFFSET) & 0xFF);
 
@@ -2123,8 +2162,8 @@ static int si_cp_resume(struct radeon_device *rdev)
 
 	ring->rptr = RREG32(CP_RB1_RPTR);
 
-	
-	
+	/* ring2 - compute only */
+	/* Set ring buffer size */
 	ring = &rdev->ring[CAYMAN_RING_TYPE_CP2_INDEX];
 	rb_bufsz = drm_order(ring->ring_size / 8);
 	tmp = (drm_order(RADEON_GPU_PAGE_SIZE/8) << 8) | rb_bufsz;
@@ -2133,12 +2172,12 @@ static int si_cp_resume(struct radeon_device *rdev)
 #endif
 	WREG32(CP_RB2_CNTL, tmp);
 
-	
+	/* Initialize the ring buffer's read and write pointers */
 	WREG32(CP_RB2_CNTL, tmp | RB_RPTR_WR_ENA);
 	ring->wptr = 0;
 	WREG32(CP_RB2_WPTR, ring->wptr);
 
-	
+	/* set the wb address wether it's enabled or not */
 	WREG32(CP_RB2_RPTR_ADDR, (rdev->wb.gpu_addr + RADEON_WB_CP2_RPTR_OFFSET) & 0xFFFFFFFC);
 	WREG32(CP_RB2_RPTR_ADDR_HI, upper_32_bits(rdev->wb.gpu_addr + RADEON_WB_CP2_RPTR_OFFSET) & 0xFF);
 
@@ -2149,7 +2188,7 @@ static int si_cp_resume(struct radeon_device *rdev)
 
 	ring->rptr = RREG32(CP_RB2_RPTR);
 
-	
+	/* start the rings */
 	si_cp_start(rdev);
 	rdev->ring[RADEON_RING_TYPE_GFX_INDEX].ready = true;
 	rdev->ring[CAYMAN_RING_TYPE_CP1_INDEX].ready = true;
@@ -2190,15 +2229,15 @@ bool si_gpu_is_lockup(struct radeon_device *rdev, struct radeon_ring *ring)
 		r100_gpu_lockup_update(lockup, ring);
 		return false;
 	}
-	
+	/* force CP activities */
 	r = radeon_ring_lock(rdev, ring, 2);
 	if (!r) {
-		
+		/* PACKET2 NOP */
 		radeon_ring_write(ring, 0x80000000);
 		radeon_ring_write(ring, 0x80000000);
 		radeon_ring_unlock_commit(rdev, ring);
 	}
-	
+	/* XXX deal with CP0,1,2 */
 	ring->rptr = RREG32(ring->rptr_reg);
 	return r100_gpu_cp_is_lockup(rdev, lockup, ring);
 }
@@ -2226,10 +2265,10 @@ static int si_gpu_soft_reset(struct radeon_device *rdev)
 	if (radeon_mc_wait_for_idle(rdev)) {
 		dev_warn(rdev->dev, "Wait for MC idle timedout !\n");
 	}
-	
+	/* Disable CP parsing/prefetching */
 	WREG32(CP_ME_CNTL, CP_ME_HALT | CP_PFP_HALT | CP_CE_HALT);
 
-	
+	/* reset all the gfx blocks */
 	grbm_reset = (SOFT_RESET_CP |
 		      SOFT_RESET_CB |
 		      SOFT_RESET_DB |
@@ -2249,7 +2288,7 @@ static int si_gpu_soft_reset(struct radeon_device *rdev)
 	udelay(50);
 	WREG32(GRBM_SOFT_RESET, 0);
 	(void)RREG32(GRBM_SOFT_RESET);
-	
+	/* Wait a little for things to settle down */
 	udelay(50);
 	dev_info(rdev->dev, "  GRBM_STATUS=0x%08X\n",
 		RREG32(GRBM_STATUS));
@@ -2270,13 +2309,14 @@ int si_asic_reset(struct radeon_device *rdev)
 	return si_gpu_soft_reset(rdev);
 }
 
+/* MC */
 static void si_mc_program(struct radeon_device *rdev)
 {
 	struct evergreen_mc_save save;
 	u32 tmp;
 	int i, j;
 
-	
+	/* Initialize HDP */
 	for (i = 0, j = 0; i < 32; i++, j += 0x18) {
 		WREG32((0x2c14 + j), 0x00000000);
 		WREG32((0x2c18 + j), 0x00000000);
@@ -2290,9 +2330,9 @@ static void si_mc_program(struct radeon_device *rdev)
 	if (radeon_mc_wait_for_idle(rdev)) {
 		dev_warn(rdev->dev, "Wait for MC idle timedout !\n");
 	}
-	
+	/* Lockout access through VGA aperture*/
 	WREG32(VGA_HDP_CONTROL, VGA_MEMORY_DISABLE);
-	
+	/* Update configuration */
 	WREG32(MC_VM_SYSTEM_APERTURE_LOW_ADDR,
 	       rdev->mc.vram_start >> 12);
 	WREG32(MC_VM_SYSTEM_APERTURE_HIGH_ADDR,
@@ -2302,7 +2342,7 @@ static void si_mc_program(struct radeon_device *rdev)
 	tmp = ((rdev->mc.vram_end >> 24) & 0xFFFF) << 16;
 	tmp |= ((rdev->mc.vram_start >> 24) & 0xFFFF);
 	WREG32(MC_VM_FB_LOCATION, tmp);
-	
+	/* XXX double check these! */
 	WREG32(HDP_NONSURFACE_BASE, (rdev->mc.vram_start >> 8));
 	WREG32(HDP_NONSURFACE_INFO, (2 << 7) | (1 << 30));
 	WREG32(HDP_NONSURFACE_SIZE, 0x3FFFFFFF);
@@ -2313,9 +2353,12 @@ static void si_mc_program(struct radeon_device *rdev)
 		dev_warn(rdev->dev, "Wait for MC idle timedout !\n");
 	}
 	evergreen_mc_resume(rdev, &save);
+	/* we need to own VRAM, so turn off the VGA renderer here
+	 * to stop it overwriting our objects */
 	rv515_vga_render_disable(rdev);
 }
 
+/* SI MC address space is 40 bits */
 static void si_vram_location(struct radeon_device *rdev,
 			     struct radeon_mc *mc, u64 base)
 {
@@ -2359,7 +2402,7 @@ static void si_vram_gtt_location(struct radeon_device *rdev,
 				 struct radeon_mc *mc)
 {
 	if (mc->mc_vram_size > 0xFFC0000000ULL) {
-		
+		/* leave room for at least 1024M GTT */
 		dev_warn(rdev->dev, "limiting VRAM\n");
 		mc->real_vram_size = 0xFFC0000000ULL;
 		mc->mc_vram_size = 0xFFC0000000ULL;
@@ -2374,7 +2417,7 @@ static int si_mc_init(struct radeon_device *rdev)
 	u32 tmp;
 	int chansize, numchan;
 
-	
+	/* Get VRAM informations */
 	rdev->mc.vram_is_ddr = true;
 	tmp = RREG32(MC_ARB_RAMCFG);
 	if (tmp & CHANSIZE_OVERRIDE) {
@@ -2416,10 +2459,10 @@ static int si_mc_init(struct radeon_device *rdev)
 		break;
 	}
 	rdev->mc.vram_width = numchan * chansize;
-	
+	/* Could aper size report 0 ? */
 	rdev->mc.aper_base = pci_resource_start(rdev->pdev, 0);
 	rdev->mc.aper_size = pci_resource_len(rdev->pdev, 0);
-	
+	/* size in MB on si */
 	rdev->mc.mc_vram_size = RREG32(CONFIG_MEMSIZE) * 1024 * 1024;
 	rdev->mc.real_vram_size = RREG32(CONFIG_MEMSIZE) * 1024 * 1024;
 	rdev->mc.visible_vram_size = rdev->mc.aper_size;
@@ -2429,12 +2472,15 @@ static int si_mc_init(struct radeon_device *rdev)
 	return 0;
 }
 
+/*
+ * GART
+ */
 void si_pcie_gart_tlb_flush(struct radeon_device *rdev)
 {
-	
+	/* flush hdp cache */
 	WREG32(HDP_MEM_COHERENCY_FLUSH_CNTL, 0x1);
 
-	
+	/* bits 0-15 are the VM contexts0-15 */
 	WREG32(VM_INVALIDATE_REQUEST, 1);
 }
 
@@ -2450,14 +2496,14 @@ int si_pcie_gart_enable(struct radeon_device *rdev)
 	if (r)
 		return r;
 	radeon_gart_restore(rdev);
-	
+	/* Setup TLB control */
 	WREG32(MC_VM_MX_L1_TLB_CNTL,
 	       (0xA << 7) |
 	       ENABLE_L1_TLB |
 	       SYSTEM_ACCESS_MODE_NOT_IN_SYS |
 	       ENABLE_ADVANCED_DRIVER_MODEL |
 	       SYSTEM_APERTURE_UNMAPPED_ACCESS_PASS_THRU);
-	
+	/* Setup L2 cache */
 	WREG32(VM_L2_CNTL, ENABLE_L2_CACHE |
 	       ENABLE_L2_PTE_CACHE_LRU_UPDATE_BY_WRITE |
 	       ENABLE_L2_PDE0_CACHE_LRU_UPDATE_BY_WRITE |
@@ -2466,7 +2512,7 @@ int si_pcie_gart_enable(struct radeon_device *rdev)
 	WREG32(VM_L2_CNTL2, INVALIDATE_ALL_L1_TLBS | INVALIDATE_L2_CACHE);
 	WREG32(VM_L2_CNTL3, L2_CACHE_BIGK_ASSOCIATIVITY |
 	       L2_CACHE_BIGK_FRAGMENT_SIZE(0));
-	
+	/* setup context0 */
 	WREG32(VM_CONTEXT0_PAGE_TABLE_START_ADDR, rdev->mc.gtt_start >> 12);
 	WREG32(VM_CONTEXT0_PAGE_TABLE_END_ADDR, rdev->mc.gtt_end >> 12);
 	WREG32(VM_CONTEXT0_PAGE_TABLE_BASE_ADDR, rdev->gart.table_addr >> 12);
@@ -2480,8 +2526,11 @@ int si_pcie_gart_enable(struct radeon_device *rdev)
 	WREG32(0x15D8, 0);
 	WREG32(0x15DC, 0);
 
-	
-	
+	/* empty context1-15 */
+	/* FIXME start with 1G, once using 2 level pt switch to full
+	 * vm size space
+	 */
+	/* set vm size, must be a multiple of 4 */
 	WREG32(VM_CONTEXT1_PAGE_TABLE_START_ADDR, 0);
 	WREG32(VM_CONTEXT1_PAGE_TABLE_END_ADDR, (1 << 30) / RADEON_GPU_PAGE_SIZE);
 	for (i = 1; i < 16; i++) {
@@ -2493,7 +2542,7 @@ int si_pcie_gart_enable(struct radeon_device *rdev)
 			       rdev->gart.table_addr >> 12);
 	}
 
-	
+	/* enable context1-15 */
 	WREG32(VM_CONTEXT1_PROTECTION_FAULT_DEFAULT_ADDR,
 	       (u32)(rdev->dummy_page.addr >> 12));
 	WREG32(VM_CONTEXT1_CNTL2, 0);
@@ -2510,13 +2559,13 @@ int si_pcie_gart_enable(struct radeon_device *rdev)
 
 void si_pcie_gart_disable(struct radeon_device *rdev)
 {
-	
+	/* Disable all tables */
 	WREG32(VM_CONTEXT0_CNTL, 0);
 	WREG32(VM_CONTEXT1_CNTL, 0);
-	
+	/* Setup TLB control */
 	WREG32(MC_VM_MX_L1_TLB_CNTL, SYSTEM_ACCESS_MODE_NOT_IN_SYS |
 	       SYSTEM_APERTURE_UNMAPPED_ACCESS_PASS_THRU);
-	
+	/* Setup L2 cache */
 	WREG32(VM_L2_CNTL, ENABLE_L2_PTE_CACHE_LRU_UPDATE_BY_WRITE |
 	       ENABLE_L2_PDE0_CACHE_LRU_UPDATE_BY_WRITE |
 	       EFFECTIVE_L2_QUEUE_SIZE(7) |
@@ -2534,13 +2583,14 @@ void si_pcie_gart_fini(struct radeon_device *rdev)
 	radeon_gart_fini(rdev);
 }
 
+/* vm parser */
 static bool si_vm_reg_valid(u32 reg)
 {
-	
+	/* context regs are fine */
 	if (reg >= 0x28000)
 		return true;
 
-	
+	/* check config regs */
 	switch (reg) {
 	case GRBM_GFX_INDEX:
 	case VGT_VTX_VECT_EJECT_REG:
@@ -2842,11 +2892,14 @@ int si_ib_parse(struct radeon_device *rdev, struct radeon_ib *ib)
 	return ret;
 }
 
+/*
+ * vm
+ */
 int si_vm_init(struct radeon_device *rdev)
 {
-	
+	/* number of VMs */
 	rdev->vm_manager.nvm = 16;
-	
+	/* base offset of vram pages */
 	rdev->vm_manager.vram_base_offset = 0;
 
 	return 0;
@@ -2863,9 +2916,9 @@ int si_vm_bind(struct radeon_device *rdev, struct radeon_vm *vm, int id)
 	else
 		WREG32(VM_CONTEXT8_PAGE_TABLE_BASE_ADDR + ((id - 8) << 2),
 		       vm->pt_gpu_addr >> 12);
-	
+	/* flush hdp cache */
 	WREG32(HDP_MEM_COHERENCY_FLUSH_CNTL, 0x1);
-	
+	/* bits 0-15 are the VM contexts0-15 */
 	WREG32(VM_INVALIDATE_REQUEST, 1 << id);
 	return 0;
 }
@@ -2876,9 +2929,9 @@ void si_vm_unbind(struct radeon_device *rdev, struct radeon_vm *vm)
 		WREG32(VM_CONTEXT0_PAGE_TABLE_BASE_ADDR + (vm->id << 2), 0);
 	else
 		WREG32(VM_CONTEXT8_PAGE_TABLE_BASE_ADDR + ((vm->id - 8) << 2), 0);
-	
+	/* flush hdp cache */
 	WREG32(HDP_MEM_COHERENCY_FLUSH_CNTL, 0x1);
-	
+	/* bits 0-15 are the VM contexts0-15 */
 	WREG32(VM_INVALIDATE_REQUEST, 1 << vm->id);
 }
 
@@ -2887,17 +2940,20 @@ void si_vm_tlb_flush(struct radeon_device *rdev, struct radeon_vm *vm)
 	if (vm->id == -1)
 		return;
 
-	
+	/* flush hdp cache */
 	WREG32(HDP_MEM_COHERENCY_FLUSH_CNTL, 0x1);
-	
+	/* bits 0-15 are the VM contexts0-15 */
 	WREG32(VM_INVALIDATE_REQUEST, 1 << vm->id);
 }
 
+/*
+ * RLC
+ */
 void si_rlc_fini(struct radeon_device *rdev)
 {
 	int r;
 
-	
+	/* save restore block */
 	if (rdev->rlc.save_restore_obj) {
 		r = radeon_bo_reserve(rdev->rlc.save_restore_obj, false);
 		if (unlikely(r != 0))
@@ -2909,7 +2965,7 @@ void si_rlc_fini(struct radeon_device *rdev)
 		rdev->rlc.save_restore_obj = NULL;
 	}
 
-	
+	/* clear state block */
 	if (rdev->rlc.clear_state_obj) {
 		r = radeon_bo_reserve(rdev->rlc.clear_state_obj, false);
 		if (unlikely(r != 0))
@@ -2926,7 +2982,7 @@ int si_rlc_init(struct radeon_device *rdev)
 {
 	int r;
 
-	
+	/* save restore block */
 	if (rdev->rlc.save_restore_obj == NULL) {
 		r = radeon_bo_create(rdev, RADEON_GPU_PAGE_SIZE, PAGE_SIZE, true,
 				RADEON_GEM_DOMAIN_VRAM, &rdev->rlc.save_restore_obj);
@@ -2950,7 +3006,7 @@ int si_rlc_init(struct radeon_device *rdev)
 		return r;
 	}
 
-	
+	/* clear state block */
 	if (rdev->rlc.clear_state_obj == NULL) {
 		r = radeon_bo_create(rdev, RADEON_GPU_PAGE_SIZE, PAGE_SIZE, true,
 				RADEON_GEM_DOMAIN_VRAM, &rdev->rlc.clear_state_obj);
@@ -3042,7 +3098,7 @@ static void si_disable_interrupts(struct radeon_device *rdev)
 	ih_cntl &= ~ENABLE_INTR;
 	WREG32(IH_RB_CNTL, ih_rb_cntl);
 	WREG32(IH_CNTL, ih_cntl);
-	
+	/* set rptr, wptr to 0 */
 	WREG32(IH_RB_RPTR, 0);
 	WREG32(IH_RB_WPTR, 0);
 	rdev->ih.enabled = false;
@@ -3103,27 +3159,30 @@ static int si_irq_init(struct radeon_device *rdev)
 	int rb_bufsz;
 	u32 interrupt_cntl, ih_cntl, ih_rb_cntl;
 
-	
+	/* allocate ring */
 	ret = r600_ih_ring_alloc(rdev);
 	if (ret)
 		return ret;
 
-	
+	/* disable irqs */
 	si_disable_interrupts(rdev);
 
-	
+	/* init rlc */
 	ret = si_rlc_resume(rdev);
 	if (ret) {
 		r600_ih_ring_fini(rdev);
 		return ret;
 	}
 
-	
-	
+	/* setup interrupt control */
+	/* set dummy read address to ring address */
 	WREG32(INTERRUPT_CNTL2, rdev->ih.gpu_addr >> 8);
 	interrupt_cntl = RREG32(INTERRUPT_CNTL);
+	/* IH_DUMMY_RD_OVERRIDE=0 - dummy read disabled with msi, enabled without msi
+	 * IH_DUMMY_RD_OVERRIDE=1 - dummy read controlled by IH_DUMMY_RD_EN
+	 */
 	interrupt_cntl &= ~IH_DUMMY_RD_OVERRIDE;
-	
+	/* IH_REQ_NONSNOOP_EN=1 if ring is in non-cacheable memory, e.g., vram */
 	interrupt_cntl &= ~IH_REQ_NONSNOOP_EN;
 	WREG32(INTERRUPT_CNTL, interrupt_cntl);
 
@@ -3137,27 +3196,27 @@ static int si_irq_init(struct radeon_device *rdev)
 	if (rdev->wb.enabled)
 		ih_rb_cntl |= IH_WPTR_WRITEBACK_ENABLE;
 
-	
+	/* set the writeback address whether it's enabled or not */
 	WREG32(IH_RB_WPTR_ADDR_LO, (rdev->wb.gpu_addr + R600_WB_IH_WPTR_OFFSET) & 0xFFFFFFFC);
 	WREG32(IH_RB_WPTR_ADDR_HI, upper_32_bits(rdev->wb.gpu_addr + R600_WB_IH_WPTR_OFFSET) & 0xFF);
 
 	WREG32(IH_RB_CNTL, ih_rb_cntl);
 
-	
+	/* set rptr, wptr to 0 */
 	WREG32(IH_RB_RPTR, 0);
 	WREG32(IH_RB_WPTR, 0);
 
-	
+	/* Default settings for IH_CNTL (disabled at first) */
 	ih_cntl = MC_WRREQ_CREDIT(0x10) | MC_WR_CLEAN_CNT(0x10) | MC_VMID(0);
-	
+	/* RPTR_REARM only works if msi's are enabled */
 	if (rdev->msi_enabled)
 		ih_cntl |= RPTR_REARM;
 	WREG32(IH_CNTL, ih_cntl);
 
-	
+	/* force the active interrupt state to all disabled */
 	si_disable_interrupt_state(rdev);
 
-	
+	/* enable irqs */
 	si_enable_interrupts(rdev);
 
 	return ret;
@@ -3176,10 +3235,10 @@ int si_irq_set(struct radeon_device *rdev)
 		WARN(1, "Can't enable IRQ/MSI because no handler is installed\n");
 		return -EINVAL;
 	}
-	
+	/* don't enable anything if the ih is disabled */
 	if (!rdev->ih.enabled) {
 		si_disable_interrupts(rdev);
-		
+		/* force the active interrupt state to all disabled */
 		si_disable_interrupt_state(rdev);
 		return 0;
 	}
@@ -3191,7 +3250,7 @@ int si_irq_set(struct radeon_device *rdev)
 	hpd5 = RREG32(DC_HPD5_INT_CONTROL) & ~DC_HPDx_INT_EN;
 	hpd6 = RREG32(DC_HPD6_INT_CONTROL) & ~DC_HPDx_INT_EN;
 
-	
+	/* enable CP interrupts on all rings */
 	if (rdev->irq.sw_int[RADEON_RING_TYPE_GFX_INDEX]) {
 		DRM_DEBUG("si_irq_set: sw int gfx\n");
 		cp_int_cntl |= TIME_STAMP_INT_ENABLE;
@@ -3400,7 +3459,7 @@ static inline void si_irq_ack(struct radeon_device *rdev)
 static void si_irq_disable(struct radeon_device *rdev)
 {
 	si_disable_interrupts(rdev);
-	
+	/* Wait and acknowledge irq */
 	mdelay(1);
 	si_irq_ack(rdev);
 	si_disable_interrupt_state(rdev);
@@ -3442,6 +3501,16 @@ static inline u32 si_get_ih_wptr(struct radeon_device *rdev)
 	return (wptr & rdev->ih.ptr_mask);
 }
 
+/*        SI IV Ring
+ * Each IV ring entry is 128 bits:
+ * [7:0]    - interrupt source id
+ * [31:8]   - reserved
+ * [59:32]  - interrupt source data
+ * [63:60]  - reserved
+ * [71:64]  - RINGID
+ * [79:72]  - VMID
+ * [127:80] - reserved
+ */
 int si_irq_process(struct radeon_device *rdev)
 {
 	u32 wptr;
@@ -3464,24 +3533,24 @@ int si_irq_process(struct radeon_device *rdev)
 		return IRQ_NONE;
 	}
 restart_ih:
-	
+	/* Order reading of wptr vs. reading of IH ring data */
 	rmb();
 
-	
+	/* display interrupts */
 	si_irq_ack(rdev);
 
 	rdev->ih.wptr = wptr;
 	while (rptr != wptr) {
-		
+		/* wptr/rptr are in bytes! */
 		ring_index = rptr / 4;
 		src_id =  le32_to_cpu(rdev->ih.ring[ring_index]) & 0xff;
 		src_data = le32_to_cpu(rdev->ih.ring[ring_index + 1]) & 0xfffffff;
 		ring_id = le32_to_cpu(rdev->ih.ring[ring_index + 2]) & 0xff;
 
 		switch (src_id) {
-		case 1: 
+		case 1: /* D1 vblank/vline */
 			switch (src_data) {
-			case 0: 
+			case 0: /* D1 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int & LB_D1_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[0]) {
 						drm_handle_vblank(rdev->ddev, 0);
@@ -3494,7 +3563,7 @@ restart_ih:
 					DRM_DEBUG("IH: D1 vblank\n");
 				}
 				break;
-			case 1: 
+			case 1: /* D1 vline */
 				if (rdev->irq.stat_regs.evergreen.disp_int & LB_D1_VLINE_INTERRUPT) {
 					rdev->irq.stat_regs.evergreen.disp_int &= ~LB_D1_VLINE_INTERRUPT;
 					DRM_DEBUG("IH: D1 vline\n");
@@ -3505,9 +3574,9 @@ restart_ih:
 				break;
 			}
 			break;
-		case 2: 
+		case 2: /* D2 vblank/vline */
 			switch (src_data) {
-			case 0: 
+			case 0: /* D2 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont & LB_D2_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[1]) {
 						drm_handle_vblank(rdev->ddev, 1);
@@ -3520,7 +3589,7 @@ restart_ih:
 					DRM_DEBUG("IH: D2 vblank\n");
 				}
 				break;
-			case 1: 
+			case 1: /* D2 vline */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont & LB_D2_VLINE_INTERRUPT) {
 					rdev->irq.stat_regs.evergreen.disp_int_cont &= ~LB_D2_VLINE_INTERRUPT;
 					DRM_DEBUG("IH: D2 vline\n");
@@ -3531,9 +3600,9 @@ restart_ih:
 				break;
 			}
 			break;
-		case 3: 
+		case 3: /* D3 vblank/vline */
 			switch (src_data) {
-			case 0: 
+			case 0: /* D3 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont2 & LB_D3_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[2]) {
 						drm_handle_vblank(rdev->ddev, 2);
@@ -3546,7 +3615,7 @@ restart_ih:
 					DRM_DEBUG("IH: D3 vblank\n");
 				}
 				break;
-			case 1: 
+			case 1: /* D3 vline */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont2 & LB_D3_VLINE_INTERRUPT) {
 					rdev->irq.stat_regs.evergreen.disp_int_cont2 &= ~LB_D3_VLINE_INTERRUPT;
 					DRM_DEBUG("IH: D3 vline\n");
@@ -3557,9 +3626,9 @@ restart_ih:
 				break;
 			}
 			break;
-		case 4: 
+		case 4: /* D4 vblank/vline */
 			switch (src_data) {
-			case 0: 
+			case 0: /* D4 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont3 & LB_D4_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[3]) {
 						drm_handle_vblank(rdev->ddev, 3);
@@ -3572,7 +3641,7 @@ restart_ih:
 					DRM_DEBUG("IH: D4 vblank\n");
 				}
 				break;
-			case 1: 
+			case 1: /* D4 vline */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont3 & LB_D4_VLINE_INTERRUPT) {
 					rdev->irq.stat_regs.evergreen.disp_int_cont3 &= ~LB_D4_VLINE_INTERRUPT;
 					DRM_DEBUG("IH: D4 vline\n");
@@ -3583,9 +3652,9 @@ restart_ih:
 				break;
 			}
 			break;
-		case 5: 
+		case 5: /* D5 vblank/vline */
 			switch (src_data) {
-			case 0: 
+			case 0: /* D5 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont4 & LB_D5_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[4]) {
 						drm_handle_vblank(rdev->ddev, 4);
@@ -3598,7 +3667,7 @@ restart_ih:
 					DRM_DEBUG("IH: D5 vblank\n");
 				}
 				break;
-			case 1: 
+			case 1: /* D5 vline */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont4 & LB_D5_VLINE_INTERRUPT) {
 					rdev->irq.stat_regs.evergreen.disp_int_cont4 &= ~LB_D5_VLINE_INTERRUPT;
 					DRM_DEBUG("IH: D5 vline\n");
@@ -3609,9 +3678,9 @@ restart_ih:
 				break;
 			}
 			break;
-		case 6: 
+		case 6: /* D6 vblank/vline */
 			switch (src_data) {
-			case 0: 
+			case 0: /* D6 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont5 & LB_D6_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[5]) {
 						drm_handle_vblank(rdev->ddev, 5);
@@ -3624,7 +3693,7 @@ restart_ih:
 					DRM_DEBUG("IH: D6 vblank\n");
 				}
 				break;
-			case 1: 
+			case 1: /* D6 vline */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont5 & LB_D6_VLINE_INTERRUPT) {
 					rdev->irq.stat_regs.evergreen.disp_int_cont5 &= ~LB_D6_VLINE_INTERRUPT;
 					DRM_DEBUG("IH: D6 vline\n");
@@ -3635,7 +3704,7 @@ restart_ih:
 				break;
 			}
 			break;
-		case 42: 
+		case 42: /* HPD hotplug */
 			switch (src_data) {
 			case 0:
 				if (rdev->irq.stat_regs.evergreen.disp_int & DC_HPD1_INTERRUPT) {
@@ -3684,16 +3753,16 @@ restart_ih:
 				break;
 			}
 			break;
-		case 176: 
+		case 176: /* RINGID0 CP_INT */
 			radeon_fence_process(rdev, RADEON_RING_TYPE_GFX_INDEX);
 			break;
-		case 177: 
+		case 177: /* RINGID1 CP_INT */
 			radeon_fence_process(rdev, CAYMAN_RING_TYPE_CP1_INDEX);
 			break;
-		case 178: 
+		case 178: /* RINGID2 CP_INT */
 			radeon_fence_process(rdev, CAYMAN_RING_TYPE_CP2_INDEX);
 			break;
-		case 181: 
+		case 181: /* CP EOP event */
 			DRM_DEBUG("IH: CP EOP\n");
 			switch (ring_id) {
 			case 0:
@@ -3707,7 +3776,7 @@ restart_ih:
 				break;
 			}
 			break;
-		case 233: 
+		case 233: /* GUI IDLE */
 			DRM_DEBUG("IH: GUI idle\n");
 			rdev->pm.gui_idle = true;
 			wake_up(&rdev->irq.idle_queue);
@@ -3717,11 +3786,11 @@ restart_ih:
 			break;
 		}
 
-		
+		/* wptr/rptr are in bytes! */
 		rptr += 16;
 		rptr &= rdev->ih.ptr_mask;
 	}
-	
+	/* make sure wptr hasn't changed while processing */
 	wptr = si_get_ih_wptr(rdev);
 	if (wptr != rdev->ih.wptr)
 		goto restart_ih;
@@ -3733,6 +3802,9 @@ restart_ih:
 	return IRQ_HANDLED;
 }
 
+/*
+ * startup/shutdown callbacks
+ */
 static int si_startup(struct radeon_device *rdev)
 {
 	struct radeon_ring *ring;
@@ -3771,14 +3843,14 @@ static int si_startup(struct radeon_device *rdev)
 		dev_warn(rdev->dev, "failed blitter (%d) falling back to memcpy\n", r);
 	}
 #endif
-	
+	/* allocate rlc buffers */
 	r = si_rlc_init(rdev);
 	if (r) {
 		DRM_ERROR("Failed to init rlc BOs!\n");
 		return r;
 	}
 
-	
+	/* allocate wb buffer */
 	r = radeon_wb_init(rdev);
 	if (r)
 		return r;
@@ -3801,7 +3873,7 @@ static int si_startup(struct radeon_device *rdev)
 		return r;
 	}
 
-	
+	/* Enable IRQ */
 	r = si_irq_init(rdev);
 	if (r) {
 		DRM_ERROR("radeon: IH init failed (%d).\n", r);
@@ -3874,7 +3946,11 @@ int si_resume(struct radeon_device *rdev)
 {
 	int r;
 
-	
+	/* Do not reset GPU before posting, on rv770 hw unlike on r500 hw,
+	 * posting will perform necessary task to bring back GPU into good
+	 * shape.
+	 */
+	/* post card */
 	atom_asic_init(rdev->mode_info.atom_context);
 
 	rdev->accel_working = true;
@@ -3891,7 +3967,7 @@ int si_resume(struct radeon_device *rdev)
 
 int si_suspend(struct radeon_device *rdev)
 {
-	
+	/* FIXME: we should wait for ring to be empty */
 	radeon_ib_pool_suspend(rdev);
 	radeon_vm_manager_suspend(rdev);
 #if 0
@@ -3907,21 +3983,27 @@ int si_suspend(struct radeon_device *rdev)
 	return 0;
 }
 
+/* Plan is to move initialization in that function and use
+ * helper function so that radeon_device_init pretty much
+ * do nothing more than calling asic specific function. This
+ * should also allow to remove a bunch of callback function
+ * like vram_info.
+ */
 int si_init(struct radeon_device *rdev)
 {
 	struct radeon_ring *ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
 	int r;
 
-	
+	/* This don't do much */
 	r = radeon_gem_init(rdev);
 	if (r)
 		return r;
-	
+	/* Read BIOS */
 	if (!radeon_get_bios(rdev)) {
 		if (ASIC_IS_AVIVO(rdev))
 			return -EINVAL;
 	}
-	
+	/* Must be an ATOMBIOS */
 	if (!rdev->is_atom_bios) {
 		dev_err(rdev->dev, "Expecting atombios for cayman GPU\n");
 		return -EINVAL;
@@ -3930,7 +4012,7 @@ int si_init(struct radeon_device *rdev)
 	if (r)
 		return r;
 
-	
+	/* Post card if necessary */
 	if (!radeon_card_posted(rdev)) {
 		if (!rdev->bios) {
 			dev_err(rdev->dev, "Card not posted and no BIOS - ignoring\n");
@@ -3939,23 +4021,23 @@ int si_init(struct radeon_device *rdev)
 		DRM_INFO("GPU not posted. posting now...\n");
 		atom_asic_init(rdev->mode_info.atom_context);
 	}
-	
+	/* Initialize scratch registers */
 	si_scratch_init(rdev);
-	
+	/* Initialize surface registers */
 	radeon_surface_init(rdev);
-	
+	/* Initialize clocks */
 	radeon_get_clock_info(rdev->ddev);
 
-	
+	/* Fence driver */
 	r = radeon_fence_driver_init(rdev);
 	if (r)
 		return r;
 
-	
+	/* initialize memory controller */
 	r = si_mc_init(rdev);
 	if (r)
 		return r;
-	
+	/* Memory manager */
 	r = radeon_bo_init(rdev);
 	if (r)
 		return r;
@@ -4008,6 +4090,10 @@ int si_init(struct radeon_device *rdev)
 		rdev->accel_working = false;
 	}
 
+	/* Don't start up if the MC ucode is missing.
+	 * The default clocks and voltages before the MC ucode
+	 * is loaded are not suffient for advanced operations.
+	 */
 	if (!rdev->mc_fw) {
 		DRM_ERROR("radeon: MC ucode required for NI+.\n");
 		return -EINVAL;

@@ -21,15 +21,16 @@
 #define SD1_DVM_VMIN		850000
 #define SD1_DVM_VMAX		1000000
 #define SD1_DVM_STEP		50000
-#define SD1_DVM_SHIFT		5		
-#define SD1_DVM_EN		6		
+#define SD1_DVM_SHIFT		5		/* SDCTL1 bit5 */
+#define SD1_DVM_EN		6		/* SDV1 bit 6 */
 
-#define LDO_SEQ_I2C		0x7		
-#define LDO_SEQ_MASK		0x7		
-#define LDO_SEQ_SHIFT		2		
-#define LDO_I2C_EN		0x1		
-#define LDO_I2C_EN_MASK		0x1		
-#define LDO_I2C_EN_SHIFT	0		
+/* bit definitions in LDO control registers */
+#define LDO_SEQ_I2C		0x7		/* Power U/D by i2c */
+#define LDO_SEQ_MASK		0x7		/* Power U/D sequence mask */
+#define LDO_SEQ_SHIFT		2		/* Power U/D sequence offset */
+#define LDO_I2C_EN		0x1		/* Enable by i2c */
+#define LDO_I2C_EN_MASK		0x1		/* Enable mask by i2c */
+#define LDO_I2C_EN_SHIFT	0		/* Enable offset by i2c */
 
 struct max8925_regulator_info {
 	struct regulator_desc	desc;

@@ -102,6 +102,7 @@ static u16 vid_regs_fp[] = {
 	0x000, 0x000
 };
 
+/* PAL specific values */
 static u16 vid_regs_fp_pal[] =
 {
 	0x120, 0x017,
@@ -158,7 +159,7 @@ static int write_reg(struct i2c_client *client, u8 reg, u8 value)
 	struct go7007 *go = i2c_get_adapdata(client->adapter);
 	struct go7007_usb *usb;
 	int rc;
-	int dev_addr = client->addr << 1;  
+	int dev_addr = client->addr << 1;  /* firmware wants 8-bit address */
 	u8 *buf;
 
 	if (go == NULL)
@@ -244,7 +245,7 @@ static int write_reg_fp(struct i2c_client *client, u16 addr, u16 val)
 		return -EFAULT;
 	}
 
-	
+	/* save last 12b value */
 	if (addr == 0x12b)
 		dec->reg12b_val = val;
 
@@ -319,6 +320,7 @@ static int write_regs_fp(struct i2c_client *client, u16 *regs)
 }
 
 
+/* ------------------------------------------------------------------------- */
 
 static int s2250_s_video_routing(struct v4l2_subdev *sd, u32 input, u32 output,
 				 u32 config)
@@ -329,12 +331,12 @@ static int s2250_s_video_routing(struct v4l2_subdev *sd, u32 input, u32 output,
 
 	vidsys = (state->std == V4L2_STD_NTSC) ? 0x01 : 0x00;
 	if (input == 0) {
-		
+		/* composite */
 		write_reg_fp(client, 0x20, 0x020 | vidsys);
 		write_reg_fp(client, 0x21, 0x662);
 		write_reg_fp(client, 0x140, 0x060);
 	} else if (input == 1) {
-		
+		/* S-Video */
 		write_reg_fp(client, 0x20, 0x040 | vidsys);
 		write_reg_fp(client, 0x21, 0x666);
 		write_reg_fp(client, 0x140, 0x060);
@@ -419,7 +421,7 @@ static int s2250_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 			state->contrast = ctrl->value;
 		value1 = state->contrast * 0x40 / 100;
 		if (value1 > 0x3f)
-			value1 = 0x3f; 
+			value1 = 0x3f; /* max */
 		read_reg_fp(client, VPX322_ADDR_CONTRAST0, &oldvalue);
 		write_reg_fp(client, VPX322_ADDR_CONTRAST0,
 			     value1 | (oldvalue & ~0x3f));
@@ -447,7 +449,7 @@ static int s2250_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 			state->hue = -50;
 		else
 			state->hue = ctrl->value;
-		
+		/* clamp the hue range */
 		value1 = state->hue * 280 / 50;
 		write_reg_fp(client, VPX322_ADDR_HUE, value1);
 		break;
@@ -503,13 +505,13 @@ static int s2250_s_audio_routing(struct v4l2_subdev *sd, u32 input, u32 output,
 
 	switch (input) {
 	case 0:
-		write_reg(state->audio, 0x08, 0x02); 
+		write_reg(state->audio, 0x08, 0x02); /* Line In */
 		break;
 	case 1:
-		write_reg(state->audio, 0x08, 0x04); 
+		write_reg(state->audio, 0x08, 0x04); /* Mic */
 		break;
 	case 2:
-		write_reg(state->audio, 0x08, 0x05); 
+		write_reg(state->audio, 0x08, 0x05); /* Mic Boost */
 		break;
 	default:
 		return -EINVAL;
@@ -541,6 +543,7 @@ static int s2250_log_status(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/* --------------------------------------------------------------------------*/
 
 static const struct v4l2_subdev_core_ops s2250_core_ops = {
 	.log_status = s2250_log_status,
@@ -565,6 +568,7 @@ static const struct v4l2_subdev_ops s2250_ops = {
 	.video = &s2250_video_ops,
 };
 
+/* --------------------------------------------------------------------------*/
 
 static int s2250_probe(struct i2c_client *client,
 		       const struct i2c_device_id *id)
@@ -600,7 +604,7 @@ static int s2250_probe(struct i2c_client *client,
 	state->hue = 0;
 	state->audio = audio;
 
-	
+	/* initialize the audio */
 	if (write_regs(audio, aud_regs) < 0) {
 		printk(KERN_ERR
 		       "s2250: error initializing audio\n");
@@ -623,15 +627,15 @@ static int s2250_probe(struct i2c_client *client,
 		kfree(state);
 		return 0;
 	}
-	
-	
+	/* set default channel */
+	/* composite */
 	write_reg_fp(client, 0x20, 0x020 | 1);
 	write_reg_fp(client, 0x21, 0x662);
 	write_reg_fp(client, 0x140, 0x060);
 
-	
+	/* set default audio input */
 	state->audio_input = 0;
-	write_reg(client, 0x08, 0x02); 
+	write_reg(client, 0x08, 0x02); /* Line In */
 
 	if (mutex_lock_interruptible(&usb->i2c_lock) == 0) {
 		data = kzalloc(16, GFP_KERNEL);

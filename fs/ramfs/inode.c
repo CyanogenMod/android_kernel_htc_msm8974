@@ -45,7 +45,7 @@ static const struct inode_operations ramfs_dir_inode_operations;
 
 static struct backing_dev_info ramfs_backing_dev_info = {
 	.name		= "ramfs",
-	.ra_pages	= 0,	
+	.ra_pages	= 0,	/* No readahead */
 	.capabilities	= BDI_CAP_NO_ACCT_AND_WRITEBACK |
 			  BDI_CAP_MAP_DIRECT | BDI_CAP_MAP_COPY |
 			  BDI_CAP_READ_MAP | BDI_CAP_WRITE_MAP | BDI_CAP_EXEC_MAP,
@@ -76,7 +76,7 @@ struct inode *ramfs_get_inode(struct super_block *sb,
 			inode->i_op = &ramfs_dir_inode_operations;
 			inode->i_fop = &simple_dir_operations;
 
-			
+			/* directory inodes start off with i_nlink == 2 (for "." entry) */
 			inc_nlink(inode);
 			break;
 		case S_IFLNK:
@@ -87,6 +87,10 @@ struct inode *ramfs_get_inode(struct super_block *sb,
 	return inode;
 }
 
+/*
+ * File creation. Allocate an inode, and we're done..
+ */
+/* SMP-safe */
 static int
 ramfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
 {
@@ -95,7 +99,7 @@ ramfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
 
 	if (inode) {
 		d_instantiate(dentry, inode);
-		dget(dentry);	
+		dget(dentry);	/* Extra count - pin the dentry in core */
 		error = 0;
 		dir->i_mtime = dir->i_ctime = CURRENT_TIME;
 	}
@@ -190,6 +194,12 @@ static int ramfs_parse_options(char *data, struct ramfs_mount_opts *opts)
 				return -EINVAL;
 			opts->mode = option & S_IALLUGO;
 			break;
+		/*
+		 * We might like to report bad mount options here;
+		 * but traditionally ramfs has ignored all mount options,
+		 * and as it is used as a !CONFIG_SHMEM simple substitute
+		 * for tmpfs, better continue to ignore other mount options.
+		 */
 		}
 	}
 

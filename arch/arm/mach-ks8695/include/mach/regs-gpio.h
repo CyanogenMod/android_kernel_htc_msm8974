@@ -18,35 +18,38 @@
 #define KS8695_GPIO_PA		(KS8695_IO_PA + KS8695_GPIO_OFFSET)
 
 
-#define KS8695_IOPM		(0x00)		
-#define KS8695_IOPC		(0x04)		
-#define KS8695_IOPD		(0x08)		
+#define KS8695_IOPM		(0x00)		/* I/O Port Mode Register */
+#define KS8695_IOPC		(0x04)		/* I/O Port Control Register */
+#define KS8695_IOPD		(0x08)		/* I/O Port Data Register */
 
 
-#define IOPM(x)			(1 << (x))	
+/* Port Mode Register */
+#define IOPM(x)			(1 << (x))	/* Mode for GPIO Pin x */
 
-#define IOPC_IOTIM1EN		(1 << 17)	
-#define IOPC_IOTIM0EN		(1 << 16)	
-#define IOPC_IOEINT3EN		(1 << 15)	
-#define IOPC_IOEINT3TM		(7 << 12)	
+/* Port Control Register */
+#define IOPC_IOTIM1EN		(1 << 17)	/* GPIO Pin for Timer1 Enable */
+#define IOPC_IOTIM0EN		(1 << 16)	/* GPIO Pin for Timer0 Enable */
+#define IOPC_IOEINT3EN		(1 << 15)	/* GPIO Pin for External/Soft Interrupt 3 Enable */
+#define IOPC_IOEINT3TM		(7 << 12)	/* GPIO Pin for External/Soft Interrupt 3 Trigger Mode */
 #define IOPC_IOEINT3_MODE(x)	((x) << 12)
-#define IOPC_IOEINT2EN		(1 << 11)	
-#define IOPC_IOEINT2TM		(7 << 8)	
+#define IOPC_IOEINT2EN		(1 << 11)	/* GPIO Pin for External/Soft Interrupt 2 Enable */
+#define IOPC_IOEINT2TM		(7 << 8)	/* GPIO Pin for External/Soft Interrupt 2 Trigger Mode */
 #define IOPC_IOEINT2_MODE(x)	((x) << 8)
-#define IOPC_IOEINT1EN		(1 << 7)	
-#define IOPC_IOEINT1TM		(7 << 4)	
+#define IOPC_IOEINT1EN		(1 << 7)	/* GPIO Pin for External/Soft Interrupt 1 Enable */
+#define IOPC_IOEINT1TM		(7 << 4)	/* GPIO Pin for External/Soft Interrupt 1 Trigger Mode */
 #define IOPC_IOEINT1_MODE(x)	((x) << 4)
-#define IOPC_IOEINT0EN		(1 << 3)	
-#define IOPC_IOEINT0TM		(7 << 0)	
+#define IOPC_IOEINT0EN		(1 << 3)	/* GPIO Pin for External/Soft Interrupt 0 Enable */
+#define IOPC_IOEINT0TM		(7 << 0)	/* GPIO Pin for External/Soft Interrupt 0 Trigger Mode */
 #define IOPC_IOEINT0_MODE(x)	((x) << 0)
 
- 
-#define IOPC_TM_LOW		(0)		
-#define IOPC_TM_HIGH		(1)		
-#define IOPC_TM_RISING		(2)		
-#define IOPC_TM_FALLING		(4)		
-#define IOPC_TM_EDGE		(6)		
+ /* Trigger Modes */
+#define IOPC_TM_LOW		(0)		/* Level Detection (Active Low) */
+#define IOPC_TM_HIGH		(1)		/* Level Detection (Active High) */
+#define IOPC_TM_RISING		(2)		/* Rising Edge Detection */
+#define IOPC_TM_FALLING		(4)		/* Falling Edge Detection */
+#define IOPC_TM_EDGE		(6)		/* Both Edge Detection */
 
-#define IOPD(x)			(1 << (x))	
+/* Port Data Register */
+#define IOPD(x)			(1 << (x))	/* Signal Level of GPIO Pin x */
 
 #endif

@@ -22,10 +22,10 @@
 
 #define DRV_VERSION "0.4.3"
 
-#define PCF8563_REG_ST1		0x00 
+#define PCF8563_REG_ST1		0x00 /* status */
 #define PCF8563_REG_ST2		0x01
 
-#define PCF8563_REG_SC		0x02 
+#define PCF8563_REG_SC		0x02 /* datetime */
 #define PCF8563_REG_MN		0x03
 #define PCF8563_REG_HR		0x04
 #define PCF8563_REG_DM		0x05
@@ -33,36 +33,54 @@
 #define PCF8563_REG_MO		0x07
 #define PCF8563_REG_YR		0x08
 
-#define PCF8563_REG_AMN		0x09 
+#define PCF8563_REG_AMN		0x09 /* alarm */
 #define PCF8563_REG_AHR		0x0A
 #define PCF8563_REG_ADM		0x0B
 #define PCF8563_REG_ADW		0x0C
 
-#define PCF8563_REG_CLKO	0x0D 
-#define PCF8563_REG_TMRC	0x0E 
-#define PCF8563_REG_TMR		0x0F 
+#define PCF8563_REG_CLKO	0x0D /* clock out */
+#define PCF8563_REG_TMRC	0x0E /* timer control */
+#define PCF8563_REG_TMR		0x0F /* timer */
 
-#define PCF8563_SC_LV		0x80 
-#define PCF8563_MO_C		0x80 
+#define PCF8563_SC_LV		0x80 /* low voltage */
+#define PCF8563_MO_C		0x80 /* century */
 
 static struct i2c_driver pcf8563_driver;
 
 struct pcf8563 {
 	struct rtc_device *rtc;
-	int c_polarity;	
+	/*
+	 * The meaning of MO_C bit varies by the chip type.
+	 * From PCF8563 datasheet: this bit is toggled when the years
+	 * register overflows from 99 to 00
+	 *   0 indicates the century is 20xx
+	 *   1 indicates the century is 19xx
+	 * From RTC8564 datasheet: this bit indicates change of
+	 * century. When the year digit data overflows from 99 to 00,
+	 * this bit is set. By presetting it to 0 while still in the
+	 * 20th century, it will be set in year 2000, ...
+	 * There seems no reliable way to know how the system use this
+	 * bit.  So let's do it heuristically, assuming we are live in
+	 * 1970...2069.
+	 */
+	int c_polarity;	/* 0: MO_C=1 means 19xx, otherwise MO_C=1 means 20xx */
 };
 
+/*
+ * In the routines that deal directly with the pcf8563 hardware, we use
+ * rtc_time -- month 0-11, hour 0-23, yr = calendar year-epoch.
+ */
 static int pcf8563_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 {
 	struct pcf8563 *pcf8563 = i2c_get_clientdata(client);
 	unsigned char buf[13] = { PCF8563_REG_ST1 };
 
 	struct i2c_msg msgs[] = {
-		{ client->addr, 0, 1, buf },	
-		{ client->addr, I2C_M_RD, 13, buf },	
+		{ client->addr, 0, 1, buf },	/* setup read ptr */
+		{ client->addr, I2C_M_RD, 13, buf },	/* read status + date */
 	};
 
-	
+	/* read registers */
 	if ((i2c_transfer(client->adapter, msgs, 2)) != 2) {
 		dev_err(&client->dev, "%s: read error\n", __func__);
 		return -EIO;
@@ -83,14 +101,14 @@ static int pcf8563_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 
 	tm->tm_sec = bcd2bin(buf[PCF8563_REG_SC] & 0x7F);
 	tm->tm_min = bcd2bin(buf[PCF8563_REG_MN] & 0x7F);
-	tm->tm_hour = bcd2bin(buf[PCF8563_REG_HR] & 0x3F); 
+	tm->tm_hour = bcd2bin(buf[PCF8563_REG_HR] & 0x3F); /* rtc hr 0-23 */
 	tm->tm_mday = bcd2bin(buf[PCF8563_REG_DM] & 0x3F);
 	tm->tm_wday = buf[PCF8563_REG_DW] & 0x07;
-	tm->tm_mon = bcd2bin(buf[PCF8563_REG_MO] & 0x1F) - 1; 
+	tm->tm_mon = bcd2bin(buf[PCF8563_REG_MO] & 0x1F) - 1; /* rtc mn 1-12 */
 	tm->tm_year = bcd2bin(buf[PCF8563_REG_YR]);
 	if (tm->tm_year < 70)
-		tm->tm_year += 100;	
-	
+		tm->tm_year += 100;	/* assume we are in 1970...2069 */
+	/* detect the polarity heuristically. see note above. */
 	pcf8563->c_polarity = (buf[PCF8563_REG_MO] & PCF8563_MO_C) ?
 		(tm->tm_year >= 100) : (tm->tm_year < 100);
 
@@ -100,6 +118,9 @@ static int pcf8563_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 		tm->tm_sec, tm->tm_min, tm->tm_hour,
 		tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
+	/* the clock can give out invalid datetime, but we cannot return
+	 * -EINVAL otherwise hwclock will refuse to set the time on bootup.
+	 */
 	if (rtc_valid_tm(tm) < 0)
 		dev_err(&client->dev, "retrieved date/time is not valid.\n");
 
@@ -118,24 +139,24 @@ static int pcf8563_set_datetime(struct i2c_client *client, struct rtc_time *tm)
 		tm->tm_sec, tm->tm_min, tm->tm_hour,
 		tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
-	
+	/* hours, minutes and seconds */
 	buf[PCF8563_REG_SC] = bin2bcd(tm->tm_sec);
 	buf[PCF8563_REG_MN] = bin2bcd(tm->tm_min);
 	buf[PCF8563_REG_HR] = bin2bcd(tm->tm_hour);
 
 	buf[PCF8563_REG_DM] = bin2bcd(tm->tm_mday);
 
-	
+	/* month, 1 - 12 */
 	buf[PCF8563_REG_MO] = bin2bcd(tm->tm_mon + 1);
 
-	
+	/* year and century */
 	buf[PCF8563_REG_YR] = bin2bcd(tm->tm_year % 100);
 	if (pcf8563->c_polarity ? (tm->tm_year >= 100) : (tm->tm_year < 100))
 		buf[PCF8563_REG_MO] |= PCF8563_MO_C;
 
 	buf[PCF8563_REG_DW] = tm->tm_wday & 0x07;
 
-	
+	/* write register's data */
 	for (i = 0; i < 7; i++) {
 		unsigned char data[2] = { PCF8563_REG_SC + i,
 						buf[PCF8563_REG_SC + i] };

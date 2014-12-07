@@ -1,3 +1,6 @@
+/*
+ * Alpha specific irq code.
+ */
 
 #include <linux/init.h>
 #include <linux/sched.h>
@@ -13,11 +16,16 @@
 #include "proto.h"
 #include "irq_impl.h"
 
+/* Hack minimum IPL during interrupt processing for broken hardware.  */
 #ifdef CONFIG_ALPHA_BROKEN_IRQ_MASK
 int __min_ipl;
 EXPORT_SYMBOL(__min_ipl);
 #endif
 
+/*
+ * Performance counter hook.  A module can override this to
+ * do something useful.
+ */
 static void
 dummy_perf(unsigned long vector, struct pt_regs *regs)
 {
@@ -28,6 +36,9 @@ dummy_perf(unsigned long vector, struct pt_regs *regs)
 void (*perf_irq)(unsigned long, struct pt_regs *) = dummy_perf;
 EXPORT_SYMBOL(perf_irq);
 
+/*
+ * The main interrupt entry point.
+ */
 
 asmlinkage void 
 do_entInt(unsigned long type, unsigned long vector,
@@ -97,11 +108,16 @@ common_init_isa_dma(void)
 void __init
 init_IRQ(void)
 {
+	/* Just in case the platform init_irq() causes interrupts/mchecks
+	   (as is the case with RAWHIDE, at least).  */
 	wrent(entInt, 0);
 
 	alpha_mv.init_irq();
 }
 
+/*
+ * machine error checks
+ */
 #define MCHK_K_TPERR           0x0080
 #define MCHK_K_TCPERR          0x0082
 #define MCHK_K_HERR            0x0084
@@ -121,6 +137,10 @@ process_mcheck_info(unsigned long vector, unsigned long la_ptr,
 	struct el_common *mchk_header;
 	const char *reason;
 
+	/*
+	 * See if the machine check is due to a badaddr() and if so,
+	 * ignore it.
+	 */
 
 #ifdef CONFIG_VERBOSE_MCHECK
 	if (alpha_verbose_mcheck > 1) {
@@ -142,7 +162,7 @@ process_mcheck_info(unsigned long vector, unsigned long la_ptr,
 	       machine, vector, get_irq_regs()->pc, mchk_header->code);
 
 	switch (mchk_header->code) {
-	
+	/* Machine check reasons.  Defined according to PALcode sources.  */
 	case 0x80: reason = "tag parity error"; break;
 	case 0x82: reason = "tag control parity error"; break;
 	case 0x84: reason = "generic hard error"; break;
@@ -153,7 +173,7 @@ process_mcheck_info(unsigned long vector, unsigned long la_ptr,
 	case 0x96: reason = "i-cache read retryable error"; break;
 	case 0x98: reason = "processor detected hard error"; break;
 	
-	
+	/* System specific (these are for Alcor, at least): */
 	case 0x202: reason = "system detected hard error"; break;
 	case 0x203: reason = "system detected uncorrectable ECC error"; break;
 	case 0x204: reason = "SIO SERR occurred on PCI bus"; break;
@@ -184,7 +204,7 @@ process_mcheck_info(unsigned long vector, unsigned long la_ptr,
 
 #ifdef CONFIG_VERBOSE_MCHECK
 	if (alpha_verbose_mcheck > 1) {
-		
+		/* Dump the logout area to give all info.  */
 		unsigned long *ptr = (unsigned long *)la_ptr;
 		long i;
 		for (i = 0; i < mchk_header->size / sizeof(long); i += 2) {
@@ -192,9 +212,13 @@ process_mcheck_info(unsigned long vector, unsigned long la_ptr,
 			       i*sizeof(long), ptr[i], ptr[i+1]);
 		}
 	}
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 }
 
+/*
+ * The special RTC interrupt type.  The interrupt itself was
+ * processed by PALcode, and comes in via entInt vector 1.
+ */
 
 struct irqaction timer_irqaction = {
 	.handler	= timer_interrupt,
@@ -210,6 +234,7 @@ init_rtc_irq(void)
 	setup_irq(RTC_IRQ, &timer_irqaction);
 }
 
+/* Dummy irqactions.  */
 struct irqaction isa_cascade_irqaction = {
 	.handler	= no_action,
 	.name		= "isa-cascade"

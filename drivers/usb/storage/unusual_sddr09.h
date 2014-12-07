@@ -29,6 +29,7 @@ UNUSUAL_DEV(  0x04e6, 0x0003, 0x0000, 0x9999,
 		USB_SC_SCSI, USB_PR_EUSB_SDDR09, usb_stor_sddr09_init,
 		0),
 
+/* This entry is from Andries.Brouwer@cwi.nl */
 UNUSUAL_DEV(  0x04e6, 0x0005, 0x0100, 0x0208,
 		"SCM Microsystems",
 		"eUSB SmartMedia / CompactFlash Adapter",
@@ -52,4 +53,4 @@ UNUSUAL_DEV(  0x07af, 0x0006, 0x0100, 0x0100,
 		"CameraMate (DPCM_USB)",
 		USB_SC_SCSI, USB_PR_DPCM_USB, NULL, 0),
 
-#endif 
+#endif /* defined(CONFIG_USB_STORAGE_SDDR09) || ... */

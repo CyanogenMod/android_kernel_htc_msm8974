@@ -18,6 +18,9 @@
 #define LED_CPU_ACTIVITY	0x02
 #define LED_ALWAYS_SET		0x00
 
+/*
+ * Basic macros for flashing the LEDS on an SGI SN.
+ */
 
 static __inline__ void
 set_led_bits(u8 value, u8 mask)
@@ -26,5 +29,5 @@ set_led_bits(u8 value, u8 mask)
 	*pda->led_address = (short) pda->led_state;
 }
 
-#endif 
+#endif /* _ASM_IA64_SN_LEDS_H */
 

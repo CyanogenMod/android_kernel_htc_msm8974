@@ -15,13 +15,21 @@
 #include <linux/types.h>
 
 struct koneplus_talk {
-	uint8_t command; 
-	uint8_t size; 
+	uint8_t command; /* KONEPLUS_COMMAND_TALK */
+	uint8_t size; /* always 0x10 */
 	uint8_t data[14];
 } __packed;
 
+/*
+ * case 1: writes request 80 and reads value 1
+ *
+ */
 struct koneplus_control {
-	uint8_t command; 
+	uint8_t command; /* KONEPLUS_COMMAND_CONTROL */
+	/*
+	 * value is profile number in range 0-4 for requesting settings and buttons
+	 * 1 if status ok for requesting status
+	 */
 	uint8_t value;
 	uint8_t request;
 } __attribute__ ((__packed__));
@@ -39,22 +47,22 @@ enum koneplus_control_values {
 };
 
 struct koneplus_actual_profile {
-	uint8_t command; 
-	uint8_t size; 
-	uint8_t actual_profile; 
+	uint8_t command; /* KONEPLUS_COMMAND_ACTUAL_PROFILE */
+	uint8_t size; /* always 3 */
+	uint8_t actual_profile; /* Range 0-4! */
 } __attribute__ ((__packed__));
 
 struct koneplus_profile_settings {
-	uint8_t command; 
-	uint8_t size; 
-	uint8_t number; 
+	uint8_t command; /* KONEPLUS_COMMAND_PROFILE_SETTINGS */
+	uint8_t size; /* always 43 */
+	uint8_t number; /* range 0-4 */
 	uint8_t advanced_sensitivity;
 	uint8_t sensitivity_x;
 	uint8_t sensitivity_y;
 	uint8_t cpi_levels_enabled;
 	uint8_t cpi_levels_x[5];
-	uint8_t cpi_startup_level; 
-	uint8_t cpi_levels_y[5]; 
+	uint8_t cpi_startup_level; /* range 0-4 */
+	uint8_t cpi_levels_y[5]; /* range 1-60 means 100-6000 cpi */
 	uint8_t unknown1;
 	uint8_t polling_rate;
 	uint8_t lights_enabled;
@@ -67,59 +75,63 @@ struct koneplus_profile_settings {
 } __attribute__ ((__packed__));
 
 struct koneplus_profile_buttons {
-	uint8_t command; 
-	uint8_t size; 
-	uint8_t number; 
+	uint8_t command; /* KONEPLUS_COMMAND_PROFILE_BUTTONS */
+	uint8_t size; /* always 77 */
+	uint8_t number; /* range 0-4 */
 	uint8_t data[72];
 	uint16_t checksum;
 } __attribute__ ((__packed__));
 
 struct koneplus_macro {
-	uint8_t command; 
-	uint16_t size; 
-	uint8_t profile; 
-	uint8_t button; 
+	uint8_t command; /* KONEPLUS_COMMAND_MACRO */
+	uint16_t size; /* always 0x822 little endian */
+	uint8_t profile; /* range 0-4 */
+	uint8_t button; /* range 0-23 */
 	uint8_t data[2075];
 	uint16_t checksum;
 } __attribute__ ((__packed__));
 
 struct koneplus_info {
-	uint8_t command; 
-	uint8_t size; 
+	uint8_t command; /* KONEPLUS_COMMAND_INFO */
+	uint8_t size; /* always 6 */
 	uint8_t firmware_version;
 	uint8_t unknown[3];
 } __attribute__ ((__packed__));
 
 struct koneplus_e {
-	uint8_t command; 
-	uint8_t size; 
-	uint8_t unknown; 
+	uint8_t command; /* KONEPLUS_COMMAND_E */
+	uint8_t size; /* always 3 */
+	uint8_t unknown; /* TODO 1; 0 before firmware update */
 } __attribute__ ((__packed__));
 
 struct koneplus_sensor {
-	uint8_t command;  
-	uint8_t size; 
+	uint8_t command;  /* KONEPLUS_COMMAND_SENSOR */
+	uint8_t size; /* always 6 */
 	uint8_t data[4];
 } __attribute__ ((__packed__));
 
 struct koneplus_firmware_write {
-	uint8_t command; 
+	uint8_t command; /* KONEPLUS_COMMAND_FIRMWARE_WRITE */
 	uint8_t unknown[1025];
 } __attribute__ ((__packed__));
 
 struct koneplus_firmware_write_control {
-	uint8_t command; 
+	uint8_t command; /* KONEPLUS_COMMAND_FIRMWARE_WRITE_CONTROL */
+	/*
+	 * value is 1 on success
+	 * 3 means "not finished yet"
+	 */
 	uint8_t value;
-	uint8_t unknown; 
+	uint8_t unknown; /* always 0x75 */
 } __attribute__ ((__packed__));
 
 struct koneplus_tcu {
-	uint16_t usb_command; 
+	uint16_t usb_command; /* KONEPLUS_USB_COMMAND_TCU */
 	uint8_t data[2];
 } __attribute__ ((__packed__));
 
 struct koneplus_tcu_image {
-	uint16_t usb_command; 
+	uint16_t usb_command; /* KONEPLUS_USB_COMMAND_TCU */
 	uint8_t data[1024];
 	uint16_t checksum;
 } __attribute__ ((__packed__));
@@ -146,7 +158,7 @@ enum koneplus_mouse_report_numbers {
 };
 
 struct koneplus_mouse_report_button {
-	uint8_t report_number; 
+	uint8_t report_number; /* always KONEPLUS_MOUSE_REPORT_NUMBER_BUTTON */
 	uint8_t zero1;
 	uint8_t type;
 	uint8_t data1;
@@ -156,21 +168,24 @@ struct koneplus_mouse_report_button {
 } __attribute__ ((__packed__));
 
 enum koneplus_mouse_report_button_types {
-	
+	/* data1 = new profile range 1-5 */
 	KONEPLUS_MOUSE_REPORT_BUTTON_TYPE_PROFILE = 0x20,
 
-	
+	/* data1 = button number range 1-24; data2 = action */
 	KONEPLUS_MOUSE_REPORT_BUTTON_TYPE_QUICKLAUNCH = 0x60,
 
-	
+	/* data1 = button number range 1-24; data2 = action */
 	KONEPLUS_MOUSE_REPORT_BUTTON_TYPE_TIMER = 0x80,
 
-	
+	/* data1 = setting number range 1-5 */
 	KONEPLUS_MOUSE_REPORT_BUTTON_TYPE_CPI = 0xb0,
 
-	
+	/* data1 and data2 = range 0x1-0xb */
 	KONEPLUS_MOUSE_REPORT_BUTTON_TYPE_SENSITIVITY = 0xc0,
 
+	/* data1 = 22 = next track...
+	 * data2 = action
+	 */
 	KONEPLUS_MOUSE_REPORT_BUTTON_TYPE_MULTIMEDIA = 0xf0,
 	KONEPLUS_MOUSE_REPORT_TALK = 0xff,
 };

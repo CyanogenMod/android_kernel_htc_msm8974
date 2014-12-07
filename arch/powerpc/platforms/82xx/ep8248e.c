@@ -68,7 +68,7 @@ static void ep8248e_set_mdc(struct mdiobb_ctrl *ctrl, int level)
 	else
 		clrbits8(&ep8248e_bcsr[8], BCSR8_MDIO_CLOCK);
 
-	
+	/* Read back to flush the write. */
 	in_8(&ep8248e_bcsr[8]);
 }
 
@@ -79,7 +79,7 @@ static void ep8248e_set_mdio_dir(struct mdiobb_ctrl *ctrl, int output)
 	else
 		setbits8(&ep8248e_bcsr[8], BCSR8_MDIO_READ);
 
-	
+	/* Read back to flush the write. */
 	in_8(&ep8248e_bcsr[8]);
 }
 
@@ -90,7 +90,7 @@ static void ep8248e_set_mdio_data(struct mdiobb_ctrl *ctrl, int data)
 	else
 		clrbits8(&ep8248e_bcsr[8], BCSR8_MDIO_DATA);
 
-	
+	/* Read back to flush the write. */
 	in_8(&ep8248e_bcsr[8]);
 }
 
@@ -181,18 +181,18 @@ struct cpm_pin {
 };
 
 static __initdata struct cpm_pin ep8248e_pins[] = {
-	
+	/* SMC1 */
 	{2, 4, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 5, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 
-	
+	/* SCC1 */
 	{2, 14, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 15, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{3, 29, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 	{3, 30, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 	{3, 31, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* FCC1 */
 	{0, 14, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{0, 15, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{0, 16, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
@@ -210,7 +210,7 @@ static __initdata struct cpm_pin ep8248e_pins[] = {
 	{2, 21, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 22, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* FCC2 */
 	{1, 18, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{1, 19, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{1, 20, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
@@ -228,11 +228,11 @@ static __initdata struct cpm_pin ep8248e_pins[] = {
 	{2, 18, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 19, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* I2C */
 	{4, 14, CPM_PIN_INPUT | CPM_PIN_SECONDARY},
 	{4, 15, CPM_PIN_INPUT | CPM_PIN_SECONDARY},
 
-	
+	/* USB */
 	{2, 10, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 11, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 20, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
@@ -254,7 +254,7 @@ static void __init init_ioports(void)
 	cpm2_smc_clk_setup(CPM_CLK_SMC1, CPM_BRG7);
 	cpm2_clk_setup(CPM_CLK_SCC1, CPM_BRG1, CPM_CLK_RX);
 	cpm2_clk_setup(CPM_CLK_SCC1, CPM_BRG1, CPM_CLK_TX);
-	cpm2_clk_setup(CPM_CLK_SCC3, CPM_CLK8, CPM_CLK_TX); 
+	cpm2_clk_setup(CPM_CLK_SCC3, CPM_CLK8, CPM_CLK_TX); /* USB */
 	cpm2_clk_setup(CPM_CLK_FCC1, CPM_CLK11, CPM_CLK_RX);
 	cpm2_clk_setup(CPM_CLK_FCC1, CPM_CLK10, CPM_CLK_TX);
 	cpm2_clk_setup(CPM_CLK_FCC2, CPM_CLK13, CPM_CLK_RX);
@@ -268,6 +268,9 @@ static void __init ep8248e_setup_arch(void)
 
 	cpm2_reset();
 
+	/* When this is set, snooping CPM DMA from RAM causes
+	 * machine checks.  See erratum SIU18.
+	 */
 	clrbits32(&cpm2_immr->im_siu_conf.siu_82xx.sc_bcr, MPC82XX_BCR_PLDP);
 
 	ep8248e_bcsr_node =
@@ -310,6 +313,9 @@ static int __init declare_of_platform_devices(void)
 }
 machine_device_initcall(ep8248e, declare_of_platform_devices);
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init ep8248e_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

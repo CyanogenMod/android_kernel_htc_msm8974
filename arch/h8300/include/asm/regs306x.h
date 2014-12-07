@@ -1,3 +1,5 @@
+/* internal Peripherals Register address define */
+/* CPU: H8/306x                                 */
 
 #if !defined(__REGS_H8306x__)
 #define __REGS_H8306x__ 
@@ -79,6 +81,7 @@
 #define P4DDR 0xFEE003
 #define P5DDR 0xFEE004
 #define P6DDR 0xFEE005
+/*#define P7DDR 0xFEE006*/
 #define P8DDR 0xFEE007
 #define P9DDR 0xFEE008
 #define PADDR 0xFEE009
@@ -90,6 +93,7 @@
 #define P4DR  0xFFFFD3
 #define P5DR  0xFFFFD4
 #define P6DR  0xFFFFD5
+/*#define P7DR  0xFFFFD6*/
 #define P8DR  0xFFFFD7
 #define P9DR  0xFFFFD8
 #define PADR  0xFFFFD9
@@ -204,5 +208,5 @@
 #define RSTCSRW 0xFFFF8E
 #define RSTCSRR 0xFFFF8F
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __REGS_H8306x__ */

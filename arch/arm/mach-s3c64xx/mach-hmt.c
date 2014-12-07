@@ -86,11 +86,15 @@ static int hmt_bl_init(struct device *dev)
 
 static int hmt_bl_notify(struct device *dev, int brightness)
 {
+	/*
+	 * translate from CIELUV/CIELAB L*->brightness, E.G. from
+	 * perceived luminance to light output. Assumes range 0..25600
+	 */
 	if (brightness < 0x800) {
-		
+		/* Y = Yn * L / 903.3 */
 		brightness = (100*256 * brightness + 231245/2) / 231245;
 	} else {
-		
+		/* Y = Yn * ((L + 16) / 116 )^3 */
 		int t = (brightness*4 + 16*1024 + 58)/116;
 		brightness = 25 * ((t * t * t + 0x100000/2) / 0x100000);
 	}
@@ -139,6 +143,7 @@ static struct s3c_fb_pd_win hmt_fb_win0 = {
 	.default_bpp	= 16,
 };
 
+/* 405566 clocks per frame => 60Hz refresh requires 24333960Hz clock */
 static struct s3c_fb_platdata hmt_lcd_pdata __initdata = {
 	.setup_gpio	= s3c64xx_fb_gpio_setup_24bpp,
 	.win[0]		= &hmt_fb_win0,
@@ -192,20 +197,20 @@ static struct s3c2410_platform_nand hmt_nand_info = {
 };
 
 static struct gpio_led hmt_leds[] = {
-	{ 
+	{ /* left function keys */
 		.name			= "left:blue",
 		.gpio			= S3C64XX_GPO(12),
 		.default_trigger	= "default-on",
 	},
-	{ 
+	{ /* right function keys - red */
 		.name			= "right:red",
 		.gpio			= S3C64XX_GPO(13),
 	},
-	{ 
+	{ /* right function keys - green */
 		.name			= "right:green",
 		.gpio			= S3C64XX_GPO(14),
 	},
-	{ 
+	{ /* right function keys - blue */
 		.name			= "right:blue",
 		.gpio			= S3C64XX_GPO(15),
 		.default_trigger	= "default-on",
@@ -261,7 +266,7 @@ static void __init hmt_machine_init(void)
 }
 
 MACHINE_START(HMT, "Airgoo-HMT")
-	
+	/* Maintainer: Peter Korsgaard <jacmet@sunsite.dk> */
 	.atag_offset	= 0x100,
 	.init_irq	= s3c6410_init_irq,
 	.handle_irq	= vic_handle_irq,

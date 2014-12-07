@@ -27,31 +27,33 @@
 #include <linux/dma-mapping.h>
 #include <linux/slab.h>
 
-#define XGMAC_CONTROL		0x00000000	
-#define XGMAC_FRAME_FILTER	0x00000004	
-#define XGMAC_FLOW_CTRL		0x00000018	
-#define XGMAC_VLAN_TAG		0x0000001C	
-#define XGMAC_VERSION		0x00000020	
-#define XGMAC_VLAN_INCL		0x00000024	
-#define XGMAC_LPI_CTRL		0x00000028	
-#define XGMAC_LPI_TIMER		0x0000002C	
-#define XGMAC_TX_PACE		0x00000030	
-#define XGMAC_VLAN_HASH		0x00000034	
-#define XGMAC_DEBUG		0x00000038	
-#define XGMAC_INT_STAT		0x0000003C	
+/* XGMAC Register definitions */
+#define XGMAC_CONTROL		0x00000000	/* MAC Configuration */
+#define XGMAC_FRAME_FILTER	0x00000004	/* MAC Frame Filter */
+#define XGMAC_FLOW_CTRL		0x00000018	/* MAC Flow Control */
+#define XGMAC_VLAN_TAG		0x0000001C	/* VLAN Tags */
+#define XGMAC_VERSION		0x00000020	/* Version */
+#define XGMAC_VLAN_INCL		0x00000024	/* VLAN tag for tx frames */
+#define XGMAC_LPI_CTRL		0x00000028	/* LPI Control and Status */
+#define XGMAC_LPI_TIMER		0x0000002C	/* LPI Timers Control */
+#define XGMAC_TX_PACE		0x00000030	/* Transmit Pace and Stretch */
+#define XGMAC_VLAN_HASH		0x00000034	/* VLAN Hash Table */
+#define XGMAC_DEBUG		0x00000038	/* Debug */
+#define XGMAC_INT_STAT		0x0000003C	/* Interrupt and Control */
 #define XGMAC_ADDR_HIGH(reg)	(0x00000040 + ((reg) * 8))
 #define XGMAC_ADDR_LOW(reg)	(0x00000044 + ((reg) * 8))
-#define XGMAC_HASH(n)		(0x00000300 + (n) * 4) 
+#define XGMAC_HASH(n)		(0x00000300 + (n) * 4) /* HASH table regs */
 #define XGMAC_NUM_HASH		16
 #define XGMAC_OMR		0x00000400
-#define XGMAC_REMOTE_WAKE	0x00000700	
-#define XGMAC_PMT		0x00000704	
-#define XGMAC_MMC_CTRL		0x00000800	
-#define XGMAC_MMC_INTR_RX	0x00000804	
-#define XGMAC_MMC_INTR_TX	0x00000808	
-#define XGMAC_MMC_INTR_MASK_RX	0x0000080c	
-#define XGMAC_MMC_INTR_MASK_TX	0x00000810	
+#define XGMAC_REMOTE_WAKE	0x00000700	/* Remote Wake-Up Frm Filter */
+#define XGMAC_PMT		0x00000704	/* PMT Control and Status */
+#define XGMAC_MMC_CTRL		0x00000800	/* XGMAC MMC Control */
+#define XGMAC_MMC_INTR_RX	0x00000804	/* Recieve Interrupt */
+#define XGMAC_MMC_INTR_TX	0x00000808	/* Transmit Interrupt */
+#define XGMAC_MMC_INTR_MASK_RX	0x0000080c	/* Recieve Interrupt Mask */
+#define XGMAC_MMC_INTR_MASK_TX	0x00000810	/* Transmit Interrupt Mask */
 
+/* Hardware TX Statistics Counters */
 #define XGMAC_MMC_TXOCTET_GB_LO	0x00000814
 #define XGMAC_MMC_TXOCTET_GB_HI	0x00000818
 #define XGMAC_MMC_TXFRAME_GB_LO	0x0000081C
@@ -69,6 +71,7 @@
 #define XGMAC_MMC_TXPAUSEFRAME	0x00000894
 #define XGMAC_MMC_TXVLANFRAME	0x0000089C
 
+/* Hardware RX Statistics Counters */
 #define XGMAC_MMC_RXFRAME_GB_LO	0x00000900
 #define XGMAC_MMC_RXFRAME_GB_HI	0x00000904
 #define XGMAC_MMC_RXOCTET_GB_LO	0x00000908
@@ -87,23 +90,25 @@
 #define XGMAC_MMC_RXVLANFRAME	0x00000998
 #define XGMAC_MMC_RXWATCHDOG	0x000009a0
 
-#define XGMAC_DMA_BUS_MODE	0x00000f00	
-#define XGMAC_DMA_TX_POLL	0x00000f04	
-#define XGMAC_DMA_RX_POLL	0x00000f08	
-#define XGMAC_DMA_RX_BASE_ADDR	0x00000f0c	
-#define XGMAC_DMA_TX_BASE_ADDR	0x00000f10	
-#define XGMAC_DMA_STATUS	0x00000f14	
-#define XGMAC_DMA_CONTROL	0x00000f18	
-#define XGMAC_DMA_INTR_ENA	0x00000f1c	
-#define XGMAC_DMA_MISS_FRAME_CTR 0x00000f20	
-#define XGMAC_DMA_RI_WDOG_TIMER	0x00000f24	
-#define XGMAC_DMA_AXI_BUS	0x00000f28	
-#define XGMAC_DMA_AXI_STATUS	0x00000f2C	
-#define XGMAC_DMA_HW_FEATURE	0x00000f58	
+/* DMA Control and Status Registers */
+#define XGMAC_DMA_BUS_MODE	0x00000f00	/* Bus Mode */
+#define XGMAC_DMA_TX_POLL	0x00000f04	/* Transmit Poll Demand */
+#define XGMAC_DMA_RX_POLL	0x00000f08	/* Received Poll Demand */
+#define XGMAC_DMA_RX_BASE_ADDR	0x00000f0c	/* Receive List Base */
+#define XGMAC_DMA_TX_BASE_ADDR	0x00000f10	/* Transmit List Base */
+#define XGMAC_DMA_STATUS	0x00000f14	/* Status Register */
+#define XGMAC_DMA_CONTROL	0x00000f18	/* Ctrl (Operational Mode) */
+#define XGMAC_DMA_INTR_ENA	0x00000f1c	/* Interrupt Enable */
+#define XGMAC_DMA_MISS_FRAME_CTR 0x00000f20	/* Missed Frame Counter */
+#define XGMAC_DMA_RI_WDOG_TIMER	0x00000f24	/* RX Intr Watchdog Timer */
+#define XGMAC_DMA_AXI_BUS	0x00000f28	/* AXI Bus Mode */
+#define XGMAC_DMA_AXI_STATUS	0x00000f2C	/* AXI Status */
+#define XGMAC_DMA_HW_FEATURE	0x00000f58	/* Enabled Hardware Features */
 
 #define XGMAC_ADDR_AE		0x80000000
 #define XGMAC_MAX_FILTER_ADDR	31
 
+/* PMT Control and Status */
 #define XGMAC_PMT_POINTER_RESET	0x80000000
 #define XGMAC_PMT_GLBL_UNICAST	0x00000200
 #define XGMAC_PMT_WAKEUP_RX_FRM	0x00000040
@@ -112,89 +117,97 @@
 #define XGMAC_PMT_MAGIC_PKT_EN	0x00000002
 #define XGMAC_PMT_POWERDOWN	0x00000001
 
-#define XGMAC_CONTROL_SPD	0x40000000	
+#define XGMAC_CONTROL_SPD	0x40000000	/* Speed control */
 #define XGMAC_CONTROL_SPD_MASK	0x60000000
 #define XGMAC_CONTROL_SPD_1G	0x60000000
 #define XGMAC_CONTROL_SPD_2_5G	0x40000000
 #define XGMAC_CONTROL_SPD_10G	0x00000000
-#define XGMAC_CONTROL_SARC	0x10000000	
+#define XGMAC_CONTROL_SARC	0x10000000	/* Source Addr Insert/Replace */
 #define XGMAC_CONTROL_SARK_MASK	0x18000000
-#define XGMAC_CONTROL_CAR	0x04000000	
+#define XGMAC_CONTROL_CAR	0x04000000	/* CRC Addition/Replacement */
 #define XGMAC_CONTROL_CAR_MASK	0x06000000
-#define XGMAC_CONTROL_DP	0x01000000	
-#define XGMAC_CONTROL_WD	0x00800000	
-#define XGMAC_CONTROL_JD	0x00400000	
-#define XGMAC_CONTROL_JE	0x00100000	
-#define XGMAC_CONTROL_LM	0x00001000	
-#define XGMAC_CONTROL_IPC	0x00000400	
-#define XGMAC_CONTROL_ACS	0x00000080	
-#define XGMAC_CONTROL_DDIC	0x00000010	
-#define XGMAC_CONTROL_TE	0x00000008	
-#define XGMAC_CONTROL_RE	0x00000004	
+#define XGMAC_CONTROL_DP	0x01000000	/* Disable Padding */
+#define XGMAC_CONTROL_WD	0x00800000	/* Disable Watchdog on rx */
+#define XGMAC_CONTROL_JD	0x00400000	/* Jabber disable */
+#define XGMAC_CONTROL_JE	0x00100000	/* Jumbo frame */
+#define XGMAC_CONTROL_LM	0x00001000	/* Loop-back mode */
+#define XGMAC_CONTROL_IPC	0x00000400	/* Checksum Offload */
+#define XGMAC_CONTROL_ACS	0x00000080	/* Automatic Pad/FCS Strip */
+#define XGMAC_CONTROL_DDIC	0x00000010	/* Disable Deficit Idle Count */
+#define XGMAC_CONTROL_TE	0x00000008	/* Transmitter Enable */
+#define XGMAC_CONTROL_RE	0x00000004	/* Receiver Enable */
 
-#define XGMAC_FRAME_FILTER_PR	0x00000001	
-#define XGMAC_FRAME_FILTER_HUC	0x00000002	
-#define XGMAC_FRAME_FILTER_HMC	0x00000004	
-#define XGMAC_FRAME_FILTER_DAIF	0x00000008	
-#define XGMAC_FRAME_FILTER_PM	0x00000010	
-#define XGMAC_FRAME_FILTER_DBF	0x00000020	
-#define XGMAC_FRAME_FILTER_SAIF	0x00000100	
-#define XGMAC_FRAME_FILTER_SAF	0x00000200	
-#define XGMAC_FRAME_FILTER_HPF	0x00000400	
-#define XGMAC_FRAME_FILTER_VHF	0x00000800	
-#define XGMAC_FRAME_FILTER_VPF	0x00001000	
-#define XGMAC_FRAME_FILTER_RA	0x80000000	
+/* XGMAC Frame Filter defines */
+#define XGMAC_FRAME_FILTER_PR	0x00000001	/* Promiscuous Mode */
+#define XGMAC_FRAME_FILTER_HUC	0x00000002	/* Hash Unicast */
+#define XGMAC_FRAME_FILTER_HMC	0x00000004	/* Hash Multicast */
+#define XGMAC_FRAME_FILTER_DAIF	0x00000008	/* DA Inverse Filtering */
+#define XGMAC_FRAME_FILTER_PM	0x00000010	/* Pass all multicast */
+#define XGMAC_FRAME_FILTER_DBF	0x00000020	/* Disable Broadcast frames */
+#define XGMAC_FRAME_FILTER_SAIF	0x00000100	/* Inverse Filtering */
+#define XGMAC_FRAME_FILTER_SAF	0x00000200	/* Source Address Filter */
+#define XGMAC_FRAME_FILTER_HPF	0x00000400	/* Hash or perfect Filter */
+#define XGMAC_FRAME_FILTER_VHF	0x00000800	/* VLAN Hash Filter */
+#define XGMAC_FRAME_FILTER_VPF	0x00001000	/* VLAN Perfect Filter */
+#define XGMAC_FRAME_FILTER_RA	0x80000000	/* Receive all mode */
 
-#define XGMAC_FLOW_CTRL_PT_MASK	0xffff0000	
+/* XGMAC FLOW CTRL defines */
+#define XGMAC_FLOW_CTRL_PT_MASK	0xffff0000	/* Pause Time Mask */
 #define XGMAC_FLOW_CTRL_PT_SHIFT	16
-#define XGMAC_FLOW_CTRL_DZQP	0x00000080	
-#define XGMAC_FLOW_CTRL_PLT	0x00000020	
-#define XGMAC_FLOW_CTRL_PLT_MASK 0x00000030	
-#define XGMAC_FLOW_CTRL_UP	0x00000008	
-#define XGMAC_FLOW_CTRL_RFE	0x00000004	
-#define XGMAC_FLOW_CTRL_TFE	0x00000002	
-#define XGMAC_FLOW_CTRL_FCB_BPA	0x00000001	
+#define XGMAC_FLOW_CTRL_DZQP	0x00000080	/* Disable Zero-Quanta Phase */
+#define XGMAC_FLOW_CTRL_PLT	0x00000020	/* Pause Low Threshhold */
+#define XGMAC_FLOW_CTRL_PLT_MASK 0x00000030	/* PLT MASK */
+#define XGMAC_FLOW_CTRL_UP	0x00000008	/* Unicast Pause Frame Detect */
+#define XGMAC_FLOW_CTRL_RFE	0x00000004	/* Rx Flow Control Enable */
+#define XGMAC_FLOW_CTRL_TFE	0x00000002	/* Tx Flow Control Enable */
+#define XGMAC_FLOW_CTRL_FCB_BPA	0x00000001	/* Flow Control Busy ... */
 
-#define XGMAC_INT_STAT_PMT	0x0080		
-#define XGMAC_INT_STAT_LPI	0x0040		
+/* XGMAC_INT_STAT reg */
+#define XGMAC_INT_STAT_PMT	0x0080		/* PMT Interrupt Status */
+#define XGMAC_INT_STAT_LPI	0x0040		/* LPI Interrupt Status */
 
-#define DMA_BUS_MODE_SFT_RESET	0x00000001	
-#define DMA_BUS_MODE_DSL_MASK	0x0000007c	
-#define DMA_BUS_MODE_DSL_SHIFT	2		
-#define DMA_BUS_MODE_ATDS	0x00000080	
+/* DMA Bus Mode register defines */
+#define DMA_BUS_MODE_SFT_RESET	0x00000001	/* Software Reset */
+#define DMA_BUS_MODE_DSL_MASK	0x0000007c	/* Descriptor Skip Length */
+#define DMA_BUS_MODE_DSL_SHIFT	2		/* (in DWORDS) */
+#define DMA_BUS_MODE_ATDS	0x00000080	/* Alternate Descriptor Size */
 
-#define DMA_BUS_MODE_PBL_MASK	0x00003f00	
+/* Programmable burst length */
+#define DMA_BUS_MODE_PBL_MASK	0x00003f00	/* Programmable Burst Len */
 #define DMA_BUS_MODE_PBL_SHIFT	8
-#define DMA_BUS_MODE_FB		0x00010000	
-#define DMA_BUS_MODE_RPBL_MASK	0x003e0000	
+#define DMA_BUS_MODE_FB		0x00010000	/* Fixed burst */
+#define DMA_BUS_MODE_RPBL_MASK	0x003e0000	/* Rx-Programmable Burst Len */
 #define DMA_BUS_MODE_RPBL_SHIFT	17
 #define DMA_BUS_MODE_USP	0x00800000
 #define DMA_BUS_MODE_8PBL	0x01000000
 #define DMA_BUS_MODE_AAL	0x02000000
 
-#define DMA_BUS_PR_RATIO_MASK	0x0000c000	
+/* DMA Bus Mode register defines */
+#define DMA_BUS_PR_RATIO_MASK	0x0000c000	/* Rx/Tx priority ratio */
 #define DMA_BUS_PR_RATIO_SHIFT	14
-#define DMA_BUS_FB		0x00010000	
+#define DMA_BUS_FB		0x00010000	/* Fixed Burst */
 
-#define DMA_CONTROL_ST		0x00002000	
-#define DMA_CONTROL_SR		0x00000002	
-#define DMA_CONTROL_DFF		0x01000000	
+/* DMA Control register defines */
+#define DMA_CONTROL_ST		0x00002000	/* Start/Stop Transmission */
+#define DMA_CONTROL_SR		0x00000002	/* Start/Stop Receive */
+#define DMA_CONTROL_DFF		0x01000000	/* Disable flush of rx frames */
 
-#define DMA_INTR_ENA_NIE	0x00010000	
-#define DMA_INTR_ENA_AIE	0x00008000	
-#define DMA_INTR_ENA_ERE	0x00004000	
-#define DMA_INTR_ENA_FBE	0x00002000	
-#define DMA_INTR_ENA_ETE	0x00000400	
-#define DMA_INTR_ENA_RWE	0x00000200	
-#define DMA_INTR_ENA_RSE	0x00000100	
-#define DMA_INTR_ENA_RUE	0x00000080	
-#define DMA_INTR_ENA_RIE	0x00000040	
-#define DMA_INTR_ENA_UNE	0x00000020	
-#define DMA_INTR_ENA_OVE	0x00000010	
-#define DMA_INTR_ENA_TJE	0x00000008	
-#define DMA_INTR_ENA_TUE	0x00000004	
-#define DMA_INTR_ENA_TSE	0x00000002	
-#define DMA_INTR_ENA_TIE	0x00000001	
+/* DMA Normal interrupt */
+#define DMA_INTR_ENA_NIE	0x00010000	/* Normal Summary */
+#define DMA_INTR_ENA_AIE	0x00008000	/* Abnormal Summary */
+#define DMA_INTR_ENA_ERE	0x00004000	/* Early Receive */
+#define DMA_INTR_ENA_FBE	0x00002000	/* Fatal Bus Error */
+#define DMA_INTR_ENA_ETE	0x00000400	/* Early Transmit */
+#define DMA_INTR_ENA_RWE	0x00000200	/* Receive Watchdog */
+#define DMA_INTR_ENA_RSE	0x00000100	/* Receive Stopped */
+#define DMA_INTR_ENA_RUE	0x00000080	/* Receive Buffer Unavailable */
+#define DMA_INTR_ENA_RIE	0x00000040	/* Receive Interrupt */
+#define DMA_INTR_ENA_UNE	0x00000020	/* Tx Underflow */
+#define DMA_INTR_ENA_OVE	0x00000010	/* Receive Overflow */
+#define DMA_INTR_ENA_TJE	0x00000008	/* Transmit Jabber */
+#define DMA_INTR_ENA_TUE	0x00000004	/* Transmit Buffer Unavail */
+#define DMA_INTR_ENA_TSE	0x00000002	/* Transmit Stopped */
+#define DMA_INTR_ENA_TIE	0x00000001	/* Transmit Interrupt */
 
 #define DMA_INTR_NORMAL		(DMA_INTR_ENA_NIE | DMA_INTR_ENA_RIE | \
 				 DMA_INTR_ENA_TUE)
@@ -205,55 +218,61 @@
 				 DMA_INTR_ENA_OVE | DMA_INTR_ENA_TJE | \
 				 DMA_INTR_ENA_TSE)
 
+/* DMA default interrupt mask */
 #define DMA_INTR_DEFAULT_MASK	(DMA_INTR_NORMAL | DMA_INTR_ABNORMAL)
 
-#define DMA_STATUS_GMI		0x08000000	
-#define DMA_STATUS_GLI		0x04000000	
-#define DMA_STATUS_EB_MASK	0x00380000	
-#define DMA_STATUS_EB_TX_ABORT	0x00080000	
-#define DMA_STATUS_EB_RX_ABORT	0x00100000	
-#define DMA_STATUS_TS_MASK	0x00700000	
+/* DMA Status register defines */
+#define DMA_STATUS_GMI		0x08000000	/* MMC interrupt */
+#define DMA_STATUS_GLI		0x04000000	/* GMAC Line interface int */
+#define DMA_STATUS_EB_MASK	0x00380000	/* Error Bits Mask */
+#define DMA_STATUS_EB_TX_ABORT	0x00080000	/* Error Bits - TX Abort */
+#define DMA_STATUS_EB_RX_ABORT	0x00100000	/* Error Bits - RX Abort */
+#define DMA_STATUS_TS_MASK	0x00700000	/* Transmit Process State */
 #define DMA_STATUS_TS_SHIFT	20
-#define DMA_STATUS_RS_MASK	0x000e0000	
+#define DMA_STATUS_RS_MASK	0x000e0000	/* Receive Process State */
 #define DMA_STATUS_RS_SHIFT	17
-#define DMA_STATUS_NIS		0x00010000	
-#define DMA_STATUS_AIS		0x00008000	
-#define DMA_STATUS_ERI		0x00004000	
-#define DMA_STATUS_FBI		0x00002000	
-#define DMA_STATUS_ETI		0x00000400	
-#define DMA_STATUS_RWT		0x00000200	
-#define DMA_STATUS_RPS		0x00000100	
-#define DMA_STATUS_RU		0x00000080	
-#define DMA_STATUS_RI		0x00000040	
-#define DMA_STATUS_UNF		0x00000020	
-#define DMA_STATUS_OVF		0x00000010	
-#define DMA_STATUS_TJT		0x00000008	
-#define DMA_STATUS_TU		0x00000004	
-#define DMA_STATUS_TPS		0x00000002	
-#define DMA_STATUS_TI		0x00000001	
+#define DMA_STATUS_NIS		0x00010000	/* Normal Interrupt Summary */
+#define DMA_STATUS_AIS		0x00008000	/* Abnormal Interrupt Summary */
+#define DMA_STATUS_ERI		0x00004000	/* Early Receive Interrupt */
+#define DMA_STATUS_FBI		0x00002000	/* Fatal Bus Error Interrupt */
+#define DMA_STATUS_ETI		0x00000400	/* Early Transmit Interrupt */
+#define DMA_STATUS_RWT		0x00000200	/* Receive Watchdog Timeout */
+#define DMA_STATUS_RPS		0x00000100	/* Receive Process Stopped */
+#define DMA_STATUS_RU		0x00000080	/* Receive Buffer Unavailable */
+#define DMA_STATUS_RI		0x00000040	/* Receive Interrupt */
+#define DMA_STATUS_UNF		0x00000020	/* Transmit Underflow */
+#define DMA_STATUS_OVF		0x00000010	/* Receive Overflow */
+#define DMA_STATUS_TJT		0x00000008	/* Transmit Jabber Timeout */
+#define DMA_STATUS_TU		0x00000004	/* Transmit Buffer Unavail */
+#define DMA_STATUS_TPS		0x00000002	/* Transmit Process Stopped */
+#define DMA_STATUS_TI		0x00000001	/* Transmit Interrupt */
 
-#define MAC_ENABLE_TX		0x00000008	
-#define MAC_ENABLE_RX		0x00000004	
+/* Common MAC defines */
+#define MAC_ENABLE_TX		0x00000008	/* Transmitter Enable */
+#define MAC_ENABLE_RX		0x00000004	/* Receiver Enable */
 
-#define XGMAC_OMR_TSF		0x00200000	
-#define XGMAC_OMR_FTF		0x00100000	
-#define XGMAC_OMR_TTC		0x00020000	
+/* XGMAC Operation Mode Register */
+#define XGMAC_OMR_TSF		0x00200000	/* TX FIFO Store and Forward */
+#define XGMAC_OMR_FTF		0x00100000	/* Flush Transmit FIFO */
+#define XGMAC_OMR_TTC		0x00020000	/* Transmit Threshhold Ctrl */
 #define XGMAC_OMR_TTC_MASK	0x00030000
-#define XGMAC_OMR_RFD		0x00006000	
-#define XGMAC_OMR_RFD_MASK	0x00007000	
-#define XGMAC_OMR_RFA		0x00000600	
-#define XGMAC_OMR_RFA_MASK	0x00000E00	
-#define XGMAC_OMR_EFC		0x00000100	
-#define XGMAC_OMR_FEF		0x00000080	
-#define XGMAC_OMR_DT		0x00000040	
-#define XGMAC_OMR_RSF		0x00000020	
-#define XGMAC_OMR_RTC		0x00000010	
-#define XGMAC_OMR_RTC_MASK	0x00000018	
+#define XGMAC_OMR_RFD		0x00006000	/* FC Deactivation Threshhold */
+#define XGMAC_OMR_RFD_MASK	0x00007000	/* FC Deact Threshhold MASK */
+#define XGMAC_OMR_RFA		0x00000600	/* FC Activation Threshhold */
+#define XGMAC_OMR_RFA_MASK	0x00000E00	/* FC Act Threshhold MASK */
+#define XGMAC_OMR_EFC		0x00000100	/* Enable Hardware FC */
+#define XGMAC_OMR_FEF		0x00000080	/* Forward Error Frames */
+#define XGMAC_OMR_DT		0x00000040	/* Drop TCP/IP csum Errors */
+#define XGMAC_OMR_RSF		0x00000020	/* RX FIFO Store and Forward */
+#define XGMAC_OMR_RTC		0x00000010	/* RX Threshhold Ctrl */
+#define XGMAC_OMR_RTC_MASK	0x00000018	/* RX Threshhold Ctrl MASK */
 
-#define DMA_HW_FEAT_TXCOESEL	0x00010000	
+/* XGMAC HW Features Register */
+#define DMA_HW_FEAT_TXCOESEL	0x00010000	/* TX Checksum offload */
 
 #define XGMAC_MMC_CTRL_CNT_FRZ	0x00000008
 
+/* XGMAC Descriptor Defines */
 #define MAX_DESC_BUF_SZ		(0x2000 - 8)
 
 #define RXDESC_EXT_STATUS	0x00000001
@@ -315,27 +334,27 @@
 struct xgmac_dma_desc {
 	__le32 flags;
 	__le32 buf_size;
-	__le32 buf1_addr;		
-	__le32 buf2_addr;		
+	__le32 buf1_addr;		/* Buffer 1 Address Pointer */
+	__le32 buf2_addr;		/* Buffer 2 Address Pointer */
 	__le32 ext_status;
 	__le32 res[3];
 };
 
 struct xgmac_extra_stats {
-	
+	/* Transmit errors */
 	unsigned long tx_jabber;
 	unsigned long tx_frame_flushed;
 	unsigned long tx_payload_error;
 	unsigned long tx_ip_header_error;
 	unsigned long tx_local_fault;
 	unsigned long tx_remote_fault;
-	
+	/* Receive errors */
 	unsigned long rx_watchdog;
 	unsigned long rx_da_filter_fail;
 	unsigned long rx_sa_filter_fail;
 	unsigned long rx_payload_error;
 	unsigned long rx_ip_header_error;
-	
+	/* Tx/Rx IRQ errors */
 	unsigned long tx_undeflow;
 	unsigned long tx_process_stopped;
 	unsigned long rx_buf_unav;
@@ -374,17 +393,21 @@ struct xgmac_priv {
 	int wolopts;
 };
 
+/* XGMAC Configuration Settings */
 #define MAX_MTU			9000
 #define PAUSE_TIME		0x400
 
 #define DMA_RX_RING_SZ		256
 #define DMA_TX_RING_SZ		128
+/* minimum number of free TX descriptors required to wake up TX process */
 #define TX_THRESH		(DMA_TX_RING_SZ/4)
 
+/* DMA descriptor ring helpers */
 #define dma_ring_incr(n, s)	(((n) + 1) & ((s) - 1))
 #define dma_ring_space(h, t, s)	CIRC_SPACE(h, t, s)
 #define dma_ring_cnt(h, t, s)	CIRC_CNT(h, t, s)
 
+/* XGMAC Descriptor Access Helpers */
 static inline void desc_set_buf_len(struct xgmac_dma_desc *p, u32 buf_sz)
 {
 	if (buf_sz > MAX_DESC_BUF_SZ)
@@ -427,7 +450,7 @@ static inline int desc_get_owner(struct xgmac_dma_desc *p)
 
 static inline void desc_set_rx_owner(struct xgmac_dma_desc *p)
 {
-	
+	/* Clear all fields and set the owner */
 	p->flags = cpu_to_le32(DESC_OWN);
 }
 
@@ -524,7 +547,7 @@ static int desc_get_rx_status(struct xgmac_priv *priv, struct xgmac_dma_desc *p)
 		return -1;
 	}
 
-	
+	/* Check if packet has checksum already */
 	if ((status & RXDESC_FRAME_TYPE) && (status & RXDESC_EXT_STATUS) &&
 		!(ext_status & RXDESC_IP_PAYLOAD_MASK))
 		ret = CHECKSUM_NONE;
@@ -535,7 +558,7 @@ static int desc_get_rx_status(struct xgmac_priv *priv, struct xgmac_dma_desc *p)
 	if (!(status & RXDESC_ERROR_SUMMARY))
 		return ret;
 
-	
+	/* Handle any errors */
 	if (status & (RXDESC_DESCRIPTOR_ERR | RXDESC_OVERFLOW_ERR |
 		RXDESC_GIANT_FRAME | RXDESC_LENGTH_ERR | RXDESC_CRC_ERR))
 		return -1;
@@ -591,11 +614,11 @@ static void xgmac_get_mac_addr(void __iomem *ioaddr, unsigned char *addr,
 {
 	u32 hi_addr, lo_addr;
 
-	
+	/* Read the MAC address from the hardware */
 	hi_addr = readl(ioaddr + XGMAC_ADDR_HIGH(num));
 	lo_addr = readl(ioaddr + XGMAC_ADDR_LOW(num));
 
-	
+	/* Extract the MAC address from the high and low words */
 	addr[0] = lo_addr & 0xff;
 	addr[1] = (lo_addr >> 8) & 0xff;
 	addr[2] = (lo_addr >> 16) & 0xff;
@@ -666,17 +689,26 @@ static void xgmac_rx_refill(struct xgmac_priv *priv)
 			priv->rx_head, priv->rx_tail);
 
 		priv->rx_head = dma_ring_incr(priv->rx_head, DMA_RX_RING_SZ);
-		
+		/* Ensure descriptor is in memory before handing to h/w */
 		wmb();
 		desc_set_rx_owner(p);
 	}
 }
 
+/**
+ * init_xgmac_dma_desc_rings - init the RX/TX descriptor rings
+ * @dev: net device structure
+ * Description:  this function initializes the DMA RX/TX descriptors
+ * and allocates the socket buffers.
+ */
 static int xgmac_dma_desc_rings_init(struct net_device *dev)
 {
 	struct xgmac_priv *priv = netdev_priv(dev);
 	unsigned int bfsize;
 
+	/* Set the Buffer size according to the MTU;
+	 * indeed, in case of jumbo we need to bump-up the buffer sizes.
+	 */
 	bfsize = ALIGN(dev->mtu + ETH_HLEN + ETH_FCS_LEN + NET_IP_ALIGN + 64,
 		       64);
 
@@ -788,11 +820,11 @@ static void xgmac_free_tx_skbufs(struct xgmac_priv *priv)
 
 static void xgmac_free_dma_desc_rings(struct xgmac_priv *priv)
 {
-	
+	/* Release the DMA TX/RX socket buffers */
 	xgmac_free_rx_skbufs(priv);
 	xgmac_free_tx_skbufs(priv);
 
-	
+	/* Free the consistent memory allocated for descriptor rings */
 	if (priv->dma_tx) {
 		dma_free_coherent(priv->device,
 				  DMA_TX_RING_SZ * sizeof(struct xgmac_dma_desc),
@@ -811,6 +843,11 @@ static void xgmac_free_dma_desc_rings(struct xgmac_priv *priv)
 	priv->tx_skbuff = NULL;
 }
 
+/**
+ * xgmac_tx:
+ * @priv: private driver structure
+ * Description: it reclaims resources after transmission completes.
+ */
 static void xgmac_tx_complete(struct xgmac_priv *priv)
 {
 	int i;
@@ -823,11 +860,11 @@ static void xgmac_tx_complete(struct xgmac_priv *priv)
 		struct sk_buff *skb = priv->tx_skbuff[entry];
 		struct xgmac_dma_desc *p = priv->dma_tx + entry;
 
-		
+		/* Check if the descriptor is owned by the DMA. */
 		if (desc_get_owner(p))
 			break;
 
-		
+		/* Verify tx error by looking at the last segment */
 		if (desc_get_tx_ls(p))
 			desc_get_tx_status(priv, p);
 
@@ -853,6 +890,11 @@ static void xgmac_tx_complete(struct xgmac_priv *priv)
 				       desc_get_buf_len(p), DMA_TO_DEVICE);
 		}
 
+		/*
+		 * If there's room in the queue (limit it to size)
+		 * we add this skb back into the pool,
+		 * if it's the right size.
+		 */
 		if ((skb_queue_len(&priv->rx_recycle) <
 			DMA_RX_RING_SZ) &&
 			skb_recycle_check(skb, priv->dma_buf_sz))
@@ -866,6 +908,12 @@ static void xgmac_tx_complete(struct xgmac_priv *priv)
 		netif_wake_queue(priv->dev);
 }
 
+/**
+ * xgmac_tx_err:
+ * @priv: pointer to the private device structure
+ * Description: it cleans the descriptors and restarts the transmission
+ * in case of errors.
+ */
 static void xgmac_tx_err(struct xgmac_priv *priv)
 {
 	u32 reg, value, inten;
@@ -901,10 +949,10 @@ static int xgmac_hw_init(struct net_device *dev)
 	struct xgmac_priv *priv = netdev_priv(dev);
 	void __iomem *ioaddr = priv->base;
 
-	
+	/* Save the ctrl register value */
 	ctrl = readl(ioaddr + XGMAC_CONTROL) & XGMAC_CONTROL_SPD_MASK;
 
-	
+	/* SW reset */
 	value = DMA_BUS_MODE_SFT_RESET;
 	writel(value, ioaddr + XGMAC_DMA_BUS_MODE);
 	limit = 15000;
@@ -919,11 +967,11 @@ static int xgmac_hw_init(struct net_device *dev)
 		DMA_BUS_MODE_FB | DMA_BUS_MODE_ATDS | DMA_BUS_MODE_AAL;
 	writel(value, ioaddr + XGMAC_DMA_BUS_MODE);
 
-	
+	/* Enable interrupts */
 	writel(DMA_INTR_DEFAULT_MASK, ioaddr + XGMAC_DMA_STATUS);
 	writel(DMA_INTR_DEFAULT_MASK, ioaddr + XGMAC_DMA_INTR_ENA);
 
-	
+	/* XGMAC requires AXI bus init. This is a 'magic number' for now */
 	writel(0x000100E, ioaddr + XGMAC_DMA_AXI_BUS);
 
 	ctrl |= XGMAC_CONTROL_DDIC | XGMAC_CONTROL_JE | XGMAC_CONTROL_ACS |
@@ -935,21 +983,34 @@ static int xgmac_hw_init(struct net_device *dev)
 	value = DMA_CONTROL_DFF;
 	writel(value, ioaddr + XGMAC_DMA_CONTROL);
 
-	
+	/* Set the HW DMA mode and the COE */
 	writel(XGMAC_OMR_TSF | XGMAC_OMR_RSF | XGMAC_OMR_RFD | XGMAC_OMR_RFA,
 		ioaddr + XGMAC_OMR);
 
-	
+	/* Reset the MMC counters */
 	writel(1, ioaddr + XGMAC_MMC_CTRL);
 	return 0;
 }
 
+/**
+ *  xgmac_open - open entry point of the driver
+ *  @dev : pointer to the device structure.
+ *  Description:
+ *  This function is the open entry point of the driver.
+ *  Return value:
+ *  0 on success and an appropriate (-)ve integer as defined in errno.h
+ *  file on failure.
+ */
 static int xgmac_open(struct net_device *dev)
 {
 	int ret;
 	struct xgmac_priv *priv = netdev_priv(dev);
 	void __iomem *ioaddr = priv->base;
 
+	/* Check that the MAC address is valid.  If its not, refuse
+	 * to bring the device up. The user must specify an
+	 * address using the following linux command:
+	 *      ifconfig eth0 hw ether xx:xx:xx:xx:xx:xx  */
 	if (!is_valid_ether_addr(dev->dev_addr)) {
 		eth_hw_addr_random(dev);
 		netdev_dbg(priv->dev, "generated random MAC address %pM\n",
@@ -959,7 +1020,7 @@ static int xgmac_open(struct net_device *dev)
 	skb_queue_head_init(&priv->rx_recycle);
 	memset(&priv->xstats, 0, sizeof(struct xgmac_extra_stats));
 
-	
+	/* Initialize the XGMAC and descriptors */
 	xgmac_hw_init(dev);
 	xgmac_set_mac_addr(ioaddr, dev->dev_addr, 0);
 	xgmac_set_flow_ctrl(priv, priv->rx_pause, priv->tx_pause);
@@ -968,7 +1029,7 @@ static int xgmac_open(struct net_device *dev)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Enable the MAC Rx/Tx */
 	xgmac_mac_enable(ioaddr);
 
 	napi_enable(&priv->napi);
@@ -977,6 +1038,12 @@ static int xgmac_open(struct net_device *dev)
 	return 0;
 }
 
+/**
+ *  xgmac_release - close entry point of the driver
+ *  @dev : device pointer.
+ *  Description:
+ *  This is the stop entry point of the driver.
+ */
 static int xgmac_stop(struct net_device *dev)
 {
 	struct xgmac_priv *priv = netdev_priv(dev);
@@ -989,15 +1056,21 @@ static int xgmac_stop(struct net_device *dev)
 	writel(0, priv->base + XGMAC_DMA_INTR_ENA);
 	skb_queue_purge(&priv->rx_recycle);
 
-	
+	/* Disable the MAC core */
 	xgmac_mac_disable(priv->base);
 
-	
+	/* Release and free the Rx/Tx resources */
 	xgmac_free_dma_desc_rings(priv);
 
 	return 0;
 }
 
+/**
+ *  xgmac_xmit:
+ *  @skb : the socket buffer
+ *  @dev : device pointer
+ *  Description : Tx entry point of the driver.
+ */
 static netdev_tx_t xgmac_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct xgmac_priv *priv = netdev_priv(dev);
@@ -1053,14 +1126,14 @@ static netdev_tx_t xgmac_xmit(struct sk_buff *skb, struct net_device *dev)
 			desc_set_tx_owner(desc, desc_flags);
 	}
 
-	
+	/* Interrupt on completition only for the latest segment */
 	if (desc != first)
 		desc_set_tx_owner(desc, desc_flags |
 			TXDESC_LAST_SEG | TXDESC_INTERRUPT);
 	else
 		desc_flags |= TXDESC_LAST_SEG | TXDESC_INTERRUPT;
 
-	
+	/* Set owner on first desc last to avoid race condition */
 	wmb();
 	desc_set_tx_owner(first, desc_flags | TXDESC_FIRST_SEG);
 
@@ -1093,7 +1166,7 @@ static int xgmac_rx(struct xgmac_priv *priv, int limit)
 		count++;
 		priv->rx_tail = dma_ring_incr(priv->rx_tail, DMA_RX_RING_SZ);
 
-		
+		/* read the status of the incoming frame */
 		ip_checksum = desc_get_rx_status(priv, p);
 		if (ip_checksum < 0)
 			continue;
@@ -1128,6 +1201,15 @@ static int xgmac_rx(struct xgmac_priv *priv, int limit)
 	return count;
 }
 
+/**
+ *  xgmac_poll - xgmac poll method (NAPI)
+ *  @napi : pointer to the napi structure.
+ *  @budget : maximum number of packets that the current CPU can receive from
+ *	      all interfaces.
+ *  Description :
+ *   This function implements the the reception process.
+ *   Also it runs the TX completion thread
+ */
 static int xgmac_poll(struct napi_struct *napi, int budget)
 {
 	struct xgmac_priv *priv = container_of(napi,
@@ -1144,14 +1226,31 @@ static int xgmac_poll(struct napi_struct *napi, int budget)
 	return work_done;
 }
 
+/**
+ *  xgmac_tx_timeout
+ *  @dev : Pointer to net device structure
+ *  Description: this function is called when a packet transmission fails to
+ *   complete within a reasonable tmrate. The driver will mark the error in the
+ *   netdev structure and arrange for the device to be reset to a sane state
+ *   in order to transmit a new packet.
+ */
 static void xgmac_tx_timeout(struct net_device *dev)
 {
 	struct xgmac_priv *priv = netdev_priv(dev);
 
-	
+	/* Clear Tx resources and restart transmitting again */
 	xgmac_tx_err(priv);
 }
 
+/**
+ *  xgmac_set_rx_mode - entry point for multicast addressing
+ *  @dev : pointer to the device structure
+ *  Description:
+ *  This function is a driver entry point which gets called by the kernel
+ *  whenever multicast addresses must be enabled/disabled.
+ *  Return value:
+ *  void.
+ */
 static void xgmac_set_rx_mode(struct net_device *dev)
 {
 	int i;
@@ -1181,6 +1280,9 @@ static void xgmac_set_rx_mode(struct net_device *dev)
 		if (use_hash) {
 			u32 bit_nr = ~ether_crc(ETH_ALEN, ha->addr) >> 23;
 
+			/* The most significant 4 bits determine the register to
+			 * use (H/L) while the other 5 bits determine the bit
+			 * within the register. */
 			hash_filter[bit_nr >> 5] |= 1 << (bit_nr & 31);
 		} else {
 			xgmac_set_mac_addr(ioaddr, ha->addr, reg);
@@ -1201,6 +1303,9 @@ static void xgmac_set_rx_mode(struct net_device *dev)
 		if (use_hash) {
 			u32 bit_nr = ~ether_crc(ETH_ALEN, ha->addr) >> 23;
 
+			/* The most significant 4 bits determine the register to
+			 * use (H/L) while the other 5 bits determine the bit
+			 * within the register. */
 			hash_filter[bit_nr >> 5] |= 1 << (bit_nr & 31);
 		} else {
 			xgmac_set_mac_addr(ioaddr, ha->addr, reg);
@@ -1215,6 +1320,17 @@ out:
 	writel(value, ioaddr + XGMAC_FRAME_FILTER);
 }
 
+/**
+ *  xgmac_change_mtu - entry point to change MTU size for the device.
+ *  @dev : device pointer.
+ *  @new_mtu : the new MTU size for the device.
+ *  Description: the Maximum Transfer Unit (MTU) is used by the network layer
+ *  to drive packet transmission. Ethernet has an MTU of 1500 octets
+ *  (ETH_DATA_LEN). This value can be changed with ifconfig.
+ *  Return value:
+ *  0 on success and an appropriate (-)ve integer as defined in errno.h
+ *  file on failure.
+ */
 static int xgmac_change_mtu(struct net_device *dev, int new_mtu)
 {
 	struct xgmac_priv *priv = netdev_priv(dev);
@@ -1228,17 +1344,17 @@ static int xgmac_change_mtu(struct net_device *dev, int new_mtu)
 	old_mtu = dev->mtu;
 	dev->mtu = new_mtu;
 
-	
+	/* return early if the buffer sizes will not change */
 	if (old_mtu <= ETH_DATA_LEN && new_mtu <= ETH_DATA_LEN)
 		return 0;
 	if (old_mtu == new_mtu)
 		return 0;
 
-	
+	/* Stop everything, get ready to change the MTU */
 	if (!netif_running(dev))
 		return 0;
 
-	
+	/* Bring the interface down and then back up */
 	xgmac_stop(dev);
 	return xgmac_open(dev);
 }
@@ -1253,7 +1369,7 @@ static irqreturn_t xgmac_pmt_interrupt(int irq, void *dev_id)
 	intr_status = readl(ioaddr + XGMAC_INT_STAT);
 	if (intr_status & XGMAC_INT_STAT_PMT) {
 		netdev_dbg(priv->dev, "received Magic frame\n");
-		
+		/* clear the PMT bits 5 and 6 by reading the PMT */
 		readl(ioaddr + XGMAC_PMT);
 	}
 	return IRQ_HANDLED;
@@ -1267,13 +1383,13 @@ static irqreturn_t xgmac_interrupt(int irq, void *dev_id)
 	struct xgmac_priv *priv = netdev_priv(dev);
 	struct xgmac_extra_stats *x = &priv->xstats;
 
-	
+	/* read the status register (CSR5) */
 	intr_status = readl(priv->base + XGMAC_DMA_STATUS);
 	intr_status &= readl(priv->base + XGMAC_DMA_INTR_ENA);
 	writel(intr_status, priv->base + XGMAC_DMA_STATUS);
 
-	
-	
+	/* It displays the DMA process states (CSR5 register) */
+	/* ABNORMAL interrupts */
 	if (unlikely(intr_status & DMA_STATUS_AIS)) {
 		if (intr_status & DMA_STATUS_TJT) {
 			netdev_err(priv->dev, "transmit jabber\n");
@@ -1304,7 +1420,7 @@ static irqreturn_t xgmac_interrupt(int irq, void *dev_id)
 			xgmac_tx_err(priv);
 	}
 
-	
+	/* TX/RX NORMAL interrupts */
 	if (intr_status & (DMA_STATUS_RI | DMA_STATUS_TU)) {
 		writel(DMA_INTR_ABNORMAL, priv->base + XGMAC_DMA_INTR_ENA);
 		napi_schedule(&priv->napi);
@@ -1314,6 +1430,8 @@ static irqreturn_t xgmac_interrupt(int irq, void *dev_id)
 }
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
+/* Polling receive - used by NETCONSOLE and other diagnostic tools
+ * to allow network I/O with interrupts disabled. */
 static void xgmac_poll_controller(struct net_device *dev)
 {
 	disable_irq(dev->irq);
@@ -1570,6 +1688,11 @@ static const struct ethtool_ops xgmac_ethtool_ops = {
 	.get_sset_count = xgmac_get_sset_count,
 };
 
+/**
+ * xgmac_probe
+ * @pdev: platform device pointer
+ * Description: the driver is initialized through platform_device.
+ */
 static int xgmac_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -1647,7 +1770,7 @@ static int xgmac_probe(struct platform_device *pdev)
 
 	device_set_wakeup_capable(&pdev->dev, 1);
 	if (device_can_wakeup(priv->device))
-		priv->wolopts = WAKE_MAGIC;	
+		priv->wolopts = WAKE_MAGIC;	/* Magic Frame as default */
 
 	ndev->hw_features = NETIF_F_SG | NETIF_F_FRAGLIST | NETIF_F_HIGHDMA;
 	if (readl(priv->base + XGMAC_DMA_HW_FEATURE) & DMA_HW_FEAT_TXCOESEL)
@@ -1656,7 +1779,7 @@ static int xgmac_probe(struct platform_device *pdev)
 	ndev->features |= ndev->hw_features;
 	ndev->priv_flags |= IFF_UNICAST_FLT;
 
-	
+	/* Get the MAC address */
 	xgmac_get_mac_addr(priv->base, ndev->dev_addr, 0);
 	if (!is_valid_ether_addr(ndev->dev_addr))
 		netdev_warn(ndev, "MAC address %pM not valid",
@@ -1684,6 +1807,13 @@ err_alloc:
 	return ret;
 }
 
+/**
+ * xgmac_dvr_remove
+ * @pdev: platform device pointer
+ * Description: this function resets the TX/RX processes, disables the MAC RX/TX
+ * changes the link status, releases the DMA descriptor rings,
+ * unregisters the MDIO bus and unmaps the allocated memory.
+ */
 static int xgmac_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
@@ -1692,7 +1822,7 @@ static int xgmac_remove(struct platform_device *pdev)
 
 	xgmac_mac_disable(priv->base);
 
-	
+	/* Free the IRQ lines */
 	free_irq(ndev->irq, ndev);
 	free_irq(priv->pmt_irq, ndev);
 
@@ -1736,7 +1866,7 @@ static int xgmac_suspend(struct device *dev)
 	writel(0, priv->base + XGMAC_DMA_INTR_ENA);
 
 	if (device_may_wakeup(priv->device)) {
-		
+		/* Stop TX/RX DMA Only */
 		value = readl(priv->base + XGMAC_DMA_CONTROL);
 		value &= ~(DMA_CONTROL_ST | DMA_CONTROL_SR);
 		writel(value, priv->base + XGMAC_DMA_CONTROL);
@@ -1759,7 +1889,7 @@ static int xgmac_resume(struct device *dev)
 
 	xgmac_pmt(ioaddr, 0);
 
-	
+	/* Enable the MAC and DMA */
 	xgmac_mac_enable(ioaddr);
 	writel(DMA_INTR_DEFAULT_MASK, ioaddr + XGMAC_DMA_STATUS);
 	writel(DMA_INTR_DEFAULT_MASK, ioaddr + XGMAC_DMA_INTR_ENA);
@@ -1774,7 +1904,7 @@ static SIMPLE_DEV_PM_OPS(xgmac_pm_ops, xgmac_suspend, xgmac_resume);
 #define XGMAC_PM_OPS (&xgmac_pm_ops)
 #else
 #define XGMAC_PM_OPS NULL
-#endif 
+#endif /* CONFIG_PM_SLEEP */
 
 static const struct of_device_id xgmac_of_match[] = {
 	{ .compatible = "calxeda,hb-xgmac", },

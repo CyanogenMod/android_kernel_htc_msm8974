@@ -23,7 +23,7 @@
 
 #include <plat/devs.h>
 
- 
+ /* Serial port registrations */
 
 static struct resource s5p_uart0_resource[] = {
 	[0] = {

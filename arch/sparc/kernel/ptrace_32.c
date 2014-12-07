@@ -26,10 +26,16 @@
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
 
+/* #define ALLOW_INIT_TRACING */
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
 void ptrace_disable(struct task_struct *child)
 {
-	
+	/* nothing to do */
 }
 
 enum sparc_regset {
@@ -80,20 +86,20 @@ static int genregs32_get(struct task_struct *target,
 	}
 	while (count > 0) {
 		switch (pos) {
-		case 32: 
+		case 32: /* PSR */
 			reg = regs->psr;
 			break;
-		case 33: 
+		case 33: /* PC */
 			reg = regs->pc;
 			break;
-		case 34: 
+		case 34: /* NPC */
 			reg = regs->npc;
 			break;
-		case 35: 
+		case 35: /* Y */
 			reg = regs->y;
 			break;
-		case 36: 
-		case 37: 
+		case 36: /* WIM */
+		case 37: /* TBR */
 			reg = 0;
 			break;
 		default:
@@ -166,23 +172,23 @@ static int genregs32_set(struct task_struct *target,
 			return -EFAULT;
 
 		switch (pos) {
-		case 32: 
+		case 32: /* PSR */
 			psr = regs->psr;
 			psr &= ~(PSR_ICC | PSR_SYSCALL);
 			psr |= (reg & (PSR_ICC | PSR_SYSCALL));
 			regs->psr = psr;
 			break;
-		case 33: 
+		case 33: /* PC */
 			regs->pc = reg;
 			break;
-		case 34: 
+		case 34: /* NPC */
 			regs->npc = reg;
 			break;
-		case 35: 
+		case 35: /* Y */
 			regs->y = reg;
 			break;
-		case 36: 
-		case 37: 
+		case 36: /* WIM */
+		case 37: /* TBR */
 			break;
 		default:
 			goto finish;
@@ -276,12 +282,29 @@ static int fpregs32_set(struct task_struct *target,
 }
 
 static const struct user_regset sparc32_regsets[] = {
+	/* Format is:
+	 * 	G0 --> G7
+	 *	O0 --> O7
+	 *	L0 --> L7
+	 *	I0 --> I7
+	 *	PSR, PC, nPC, Y, WIM, TBR
+	 */
 	[REGSET_GENERAL] = {
 		.core_note_type = NT_PRSTATUS,
 		.n = 38,
 		.size = sizeof(u32), .align = sizeof(u32),
 		.get = genregs32_get, .set = genregs32_set
 	},
+	/* Format is:
+	 *	F0 --> F31
+	 *	empty 32-bit word
+	 *	FSR (32--bit word)
+	 *	FPU QUEUE COUNT (8-bit char)
+	 *	FPU QUEUE ENTRYSIZE (8-bit char)
+	 *	FPU ENABLED (8-bit char)
+	 *	empty 8-bit char
+	 *	FPU QUEUE (64 32-bit ints)
+	 */
 	[REGSET_FP] = {
 		.core_note_type = NT_PRFPREG,
 		.n = 99,

@@ -24,7 +24,15 @@
  *        David S. Miller (davem@caip.rutgers.edu), 1995
  */
 
+/*
+ * Real random numbers for secure rm added 94/02/18
+ * Idea from Pierre del Perugia <delperug@gla.ecoledoc.ibp.fr>
+ */
 
+/*
+ * Adoptation to use page cache and UFS2 write support by
+ * Evgeniy Dushistov <dushistov@mail.ru>, 2006-2007
+ */
 
 #include <linux/errno.h>
 #include <linux/fs.h>
@@ -41,6 +49,15 @@
 #include "swab.h"
 #include "util.h"
 
+/*
+ * Secure deletion currently doesn't work. It interacts very badly
+ * with buffers shared with memory mappings, and for that reason
+ * can't be done in the truncate() routines. It should instead be
+ * done separately in "release()" before calling the truncate routines
+ * that will release the actual file blocks.
+ *
+ *		Linus
+ */
 
 #define DIRECT_BLOCK ((inode->i_size + uspi->s_bsize - 1) >> uspi->s_bshift)
 #define DIRECT_FRAGMENT ((inode->i_size + uspi->s_fsize - 1) >> uspi->s_fshift)
@@ -88,6 +105,9 @@ static int ufs_trunc_direct(struct inode *inode)
 	if (frag1 >= frag2)
 		goto next1;		
 
+	/*
+	 * Free first free fragments
+	 */
 	p = ufs_get_direct_data_ptr(uspi, ufsi, ufs_fragstoblks(frag1));
 	tmp = ufs_data_ptr_to_cpu(sb, p);
 	if (!tmp )
@@ -100,6 +120,9 @@ static int ufs_trunc_direct(struct inode *inode)
 	frag_to_free = tmp + frag1;
 
 next1:
+	/*
+	 * Free whole blocks
+	 */
 	for (i = block1 ; i < block2; i++) {
 		p = ufs_get_direct_data_ptr(uspi, ufsi, i);
 		tmp = ufs_data_ptr_to_cpu(sb, p);
@@ -126,6 +149,9 @@ next1:
 	if (frag3 >= frag4)
 		goto next3;
 
+	/*
+	 * Free last free fragments
+	 */
 	p = ufs_get_direct_data_ptr(uspi, ufsi, ufs_fragstoblks(frag3));
 	tmp = ufs_data_ptr_to_cpu(sb, p);
 	if (!tmp )
@@ -385,6 +411,10 @@ static int ufs_alloc_lastblock(struct inode *inode)
 	       clear_buffer_new(bh);
 	       unmap_underlying_metadata(bh->b_bdev,
 					 bh->b_blocknr);
+	       /*
+		* we do not zeroize fragment, because of
+		* if it maped to hole, it already contains zeroes
+		*/
 	       set_buffer_uptodate(bh);
 	       mark_buffer_dirty(bh);
 	       set_page_dirty(lastpage);
@@ -473,7 +503,7 @@ int ufs_setattr(struct dentry *dentry, struct iattr *attr)
 	if (ia_valid & ATTR_SIZE && attr->ia_size != inode->i_size) {
 		loff_t old_i_size = inode->i_size;
 
-		
+		/* XXX(truncate): truncate_setsize should be called last */
 		truncate_setsize(inode, attr->ia_size);
 
 		lock_ufs(inode->i_sb);

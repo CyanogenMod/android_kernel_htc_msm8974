@@ -146,12 +146,12 @@ main1:
 		if (buffer[nbase] != '_' || buffer[nbase+1] != '_' || buffer[nbase+2] != '_')
 			continue;
 		switch (buffer[nbase+3]) {
-			case 'f':	
-			case 'b':	
-			case 's':	
-			case 'a':	
-			case 'h':	
-			case 'i':	
+			case 'f':	/* CALL */
+			case 'b':	/* BLACKBOX */
+			case 's':	/* SIMM13 */
+			case 'a':	/* HALF */
+			case 'h':	/* SETHI */
+			case 'i':	/* INT */
 				break;
 			default:
 				continue;

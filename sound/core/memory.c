@@ -25,6 +25,16 @@
 #include <asm/uaccess.h>
 #include <sound/core.h>
 
+/**
+ * copy_to_user_fromio - copy data from mmio-space to user-space
+ * @dst: the destination pointer on user-space
+ * @src: the source pointer on mmio
+ * @count: the data size to copy in bytes
+ *
+ * Copies the data from mmio-space to user-space.
+ *
+ * Returns zero if successful, or non-zero on failure.
+ */
 int copy_to_user_fromio(void __user *dst, const volatile void __iomem *src, size_t count)
 {
 #if defined(__i386__) || defined(CONFIG_SPARC32)
@@ -48,6 +58,16 @@ int copy_to_user_fromio(void __user *dst, const volatile void __iomem *src, size
 
 EXPORT_SYMBOL(copy_to_user_fromio);
 
+/**
+ * copy_from_user_toio - copy data from user-space to mmio-space
+ * @dst: the destination pointer on mmio-space
+ * @src: the source pointer on user-space
+ * @count: the data size to copy in bytes
+ *
+ * Copies the data from user-space to mmio-space.
+ *
+ * Returns zero if successful, or non-zero on failure.
+ */
 int copy_from_user_toio(volatile void __iomem *dst, const void __user *src, size_t count)
 {
 #if defined(__i386__) || defined(CONFIG_SPARC32)

@@ -3,4 +3,4 @@
 
 #include <asm-generic/kmap_types.h>
 
-#endif	
+#endif	/* _XTENSA_KMAP_TYPES_H */

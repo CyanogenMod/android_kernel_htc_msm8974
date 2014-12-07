@@ -230,6 +230,11 @@ static struct v4l2_queryctrl controls[] = {
 #define NUM_CONTROLS (ARRAY_SIZE(controls))
 
 
+/******************************************************************************
+ *
+ *  cpia2_open
+ *
+ *****************************************************************************/
 static int cpia2_open(struct file *file)
 {
 	struct camera_data *cam = video_drvdata(file);
@@ -247,7 +252,7 @@ static int cpia2_open(struct file *file)
 		if (cpia2_allocate_buffers(cam))
 			return -ENOMEM;
 
-		
+		/* reset the camera */
 		if (cpia2_reset_camera(cam) < 0)
 			return -EIO;
 
@@ -269,6 +274,11 @@ static int cpia2_open(struct file *file)
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  cpia2_close
+ *
+ *****************************************************************************/
 static int cpia2_close(struct file *file)
 {
 	struct video_device *dev = video_devdata(file);
@@ -280,7 +290,7 @@ static int cpia2_close(struct file *file)
 		cpia2_usb_stream_stop(cam);
 
 		if (cam->open_count == 1) {
-			
+			/* save camera state for later open */
 			cpia2_save_camera_state(cam);
 
 			cpia2_set_low_power(cam);
@@ -306,6 +316,11 @@ static int cpia2_close(struct file *file)
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  cpia2_v4l_read
+ *
+ *****************************************************************************/
 static ssize_t cpia2_v4l_read(struct file *file, char __user *buf, size_t count,
 			      loff_t *off)
 {
@@ -317,7 +332,7 @@ static ssize_t cpia2_v4l_read(struct file *file, char __user *buf, size_t count,
 	if(!cam)
 		return -EINVAL;
 
-	
+	/* Priority check */
 	if(fh->prio != V4L2_PRIORITY_RECORD) {
 		return -EBUSY;
 	}
@@ -326,6 +341,11 @@ static ssize_t cpia2_v4l_read(struct file *file, char __user *buf, size_t count,
 }
 
 
+/******************************************************************************
+ *
+ *  cpia2_v4l_poll
+ *
+ *****************************************************************************/
 static unsigned int cpia2_v4l_poll(struct file *filp, struct poll_table_struct *wait)
 {
 	struct camera_data *cam = video_drvdata(filp);
@@ -334,7 +354,7 @@ static unsigned int cpia2_v4l_poll(struct file *filp, struct poll_table_struct *
 	if(!cam)
 		return POLLERR;
 
-	
+	/* Priority check */
 	if(fh->prio != V4L2_PRIORITY_RECORD) {
 		return POLLERR;
 	}
@@ -369,6 +389,11 @@ static int sync(struct camera_data *cam, int frame_nr)
 	}
 }
 
+/******************************************************************************
+ *
+ *  ioctl_set_gpio
+ *
+ *****************************************************************************/
 
 static long cpia2_default(struct file *file, void *fh, bool valid_prio,
 			  int cmd, void *arg)
@@ -387,6 +412,13 @@ static long cpia2_default(struct file *file, void *fh, bool valid_prio,
 	return cpia2_set_gpio(cam, (unsigned char)gpio_val);
 }
 
+/******************************************************************************
+ *
+ *  ioctl_querycap
+ *
+ *  V4L2 device capabilities
+ *
+ *****************************************************************************/
 
 static int cpia2_querycap(struct file *file, void *fh, struct v4l2_capability *vc)
 {
@@ -440,6 +472,13 @@ static int cpia2_querycap(struct file *file, void *fh, struct v4l2_capability *v
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_input
+ *
+ *  V4L2 input get/set/enumerate
+ *
+ *****************************************************************************/
 
 static int cpia2_enum_input(struct file *file, void *fh, struct v4l2_input *i)
 {
@@ -461,6 +500,13 @@ static int cpia2_s_input(struct file *file, void *fh, unsigned int i)
 	return i ? -EINVAL : 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_enum_fmt
+ *
+ *  V4L2 format enumerate
+ *
+ *****************************************************************************/
 
 static int cpia2_enum_fmt_vid_cap(struct file *file, void *fh,
 					    struct v4l2_fmtdesc *f)
@@ -490,6 +536,13 @@ static int cpia2_enum_fmt_vid_cap(struct file *file, void *fh,
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_try_fmt
+ *
+ *  V4L2 format try
+ *
+ *****************************************************************************/
 
 static int cpia2_try_fmt_vid_cap(struct file *file, void *fh,
 					  struct v4l2_format *f)
@@ -545,6 +598,13 @@ static int cpia2_try_fmt_vid_cap(struct file *file, void *fh,
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_set_fmt
+ *
+ *  V4L2 format set
+ *
+ *****************************************************************************/
 
 static int cpia2_s_fmt_vid_cap(struct file *file, void *_fh,
 					struct v4l2_format *f)
@@ -560,7 +620,7 @@ static int cpia2_s_fmt_vid_cap(struct file *file, void *_fh,
 	if(err != 0)
 		return err;
 
-	
+	/* Ensure that only this process can change the format. */
 	err = v4l2_prio_change(&cam->prio, &fh->prio, V4L2_PRIORITY_RECORD);
 	if(err != 0) {
 		return err;
@@ -568,9 +628,14 @@ static int cpia2_s_fmt_vid_cap(struct file *file, void *_fh,
 
 	cam->pixelformat = f->fmt.pix.pixelformat;
 
+	/* NOTE: This should be set to 1 for MJPEG, but some apps don't handle
+	 * the missing Huffman table properly. */
 	cam->params.compression.inhibit_htables = 0;
-		
+		/*f->fmt.pix.pixelformat == V4L2_PIX_FMT_MJPEG;*/
 
+	/* we set the video window to something smaller or equal to what
+	 * is requested by the user???
+	 */
 	DBG("Requested width = %d, height = %d\n",
 	    f->fmt.pix.width, f->fmt.pix.height);
 	if (f->fmt.pix.width != cam->width ||
@@ -593,6 +658,13 @@ static int cpia2_s_fmt_vid_cap(struct file *file, void *_fh,
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_get_fmt
+ *
+ *  V4L2 format get
+ *
+ *****************************************************************************/
 
 static int cpia2_g_fmt_vid_cap(struct file *file, void *fh,
 					struct v4l2_format *f)
@@ -611,6 +683,14 @@ static int cpia2_g_fmt_vid_cap(struct file *file, void *fh,
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_cropcap
+ *
+ *  V4L2 query cropping capabilities
+ *  NOTE: cropping is currently disabled
+ *
+ *****************************************************************************/
 
 static int cpia2_cropcap(struct file *file, void *fh, struct v4l2_cropcap *c)
 {
@@ -633,6 +713,13 @@ static int cpia2_cropcap(struct file *file, void *fh, struct v4l2_cropcap *c)
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_queryctrl
+ *
+ *  V4L2 query possible control variables
+ *
+ *****************************************************************************/
 
 static int cpia2_queryctrl(struct file *file, void *fh, struct v4l2_queryctrl *c)
 {
@@ -649,21 +736,25 @@ static int cpia2_queryctrl(struct file *file, void *fh, struct v4l2_queryctrl *c
 	if(i == NUM_CONTROLS)
 		return -EINVAL;
 
-	
+	/* Some devices have additional limitations */
 	switch(c->id) {
 	case V4L2_CID_BRIGHTNESS:
+		/***
+		 * Don't let the register be set to zero - bug in VP4
+		 * flash of full brightness
+		 ***/
 		if (cam->params.pnp_id.device_type == DEVICE_STV_672)
 			c->minimum = 1;
 		break;
 	case V4L2_CID_VFLIP:
-		
+		// VP5 Only
 		if(cam->params.pnp_id.device_type == DEVICE_STV_672)
 			c->flags |= V4L2_CTRL_FLAG_DISABLED;
 		break;
 	case CPIA2_CID_FRAMERATE:
 		if(cam->params.pnp_id.device_type == DEVICE_STV_672 &&
 		   cam->params.version.sensor_flags==CPIA2_VP_SENSOR_FLAGS_500){
-			
+			// Maximum 15fps
 			for(i=0; i<c->maximum; ++i) {
 				if(framerate_controls[i].value ==
 				   CPIA2_VP_FRAMERATE_15) {
@@ -674,12 +765,12 @@ static int cpia2_queryctrl(struct file *file, void *fh, struct v4l2_queryctrl *c
 		}
 		break;
 	case CPIA2_CID_FLICKER_MODE:
-		
+		// Flicker control only valid for 672.
 		if(cam->params.pnp_id.device_type != DEVICE_STV_672)
 			c->flags |= V4L2_CTRL_FLAG_DISABLED;
 		break;
 	case CPIA2_CID_LIGHTS:
-		
+		// Light control only valid for the QX5 Microscope.
 		if(cam->params.pnp_id.product != 0x151)
 			c->flags |= V4L2_CTRL_FLAG_DISABLED;
 		break;
@@ -690,6 +781,13 @@ static int cpia2_queryctrl(struct file *file, void *fh, struct v4l2_queryctrl *c
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_querymenu
+ *
+ *  V4L2 query possible control variables
+ *
+ *****************************************************************************/
 
 static int cpia2_querymenu(struct file *file, void *fh, struct v4l2_querymenu *m)
 {
@@ -707,7 +805,7 @@ static int cpia2_querymenu(struct file *file, void *fh, struct v4l2_querymenu *m
 		int maximum = NUM_FRAMERATE_CONTROLS - 1;
 		if(cam->params.pnp_id.device_type == DEVICE_STV_672 &&
 		   cam->params.version.sensor_flags==CPIA2_VP_SENSOR_FLAGS_500){
-			
+			// Maximum 15fps
 			int i;
 			for(i=0; i<maximum; ++i) {
 				if(framerate_controls[i].value ==
@@ -734,6 +832,13 @@ static int cpia2_querymenu(struct file *file, void *fh, struct v4l2_querymenu *m
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_g_ctrl
+ *
+ *  V4L2 get the value of a control variable
+ *
+ *****************************************************************************/
 
 static int cpia2_g_ctrl(struct file *file, void *fh, struct v4l2_control *c)
 {
@@ -845,6 +950,13 @@ static int cpia2_g_ctrl(struct file *file, void *fh, struct v4l2_control *c)
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_s_ctrl
+ *
+ *  V4L2 set the value of a control variable
+ *
+ *****************************************************************************/
 
 static int cpia2_s_ctrl(struct file *file, void *fh, struct v4l2_control *c)
 {
@@ -854,7 +966,7 @@ static int cpia2_s_ctrl(struct file *file, void *fh, struct v4l2_control *c)
 
 	DBG("Set control id:%d, value:%d\n", c->id, c->value);
 
-	
+	/* Check that the value is in range */
 	for(i=0; i<NUM_CONTROLS; i++) {
 		if(c->id == controls[i].id) {
 			if(c->value < controls[i].minimum ||
@@ -914,6 +1026,13 @@ static int cpia2_s_ctrl(struct file *file, void *fh, struct v4l2_control *c)
 	return retval;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_g_jpegcomp
+ *
+ *  V4L2 get the JPEG compression parameters
+ *
+ *****************************************************************************/
 
 static int cpia2_g_jpegcomp(struct file *file, void *fh, struct v4l2_jpegcompression *parms)
 {
@@ -921,7 +1040,7 @@ static int cpia2_g_jpegcomp(struct file *file, void *fh, struct v4l2_jpegcompres
 
 	memset(parms, 0, sizeof(*parms));
 
-	parms->quality = 80; 
+	parms->quality = 80; // TODO: Can this be made meaningful?
 
 	parms->jpeg_markers = V4L2_JPEG_MARKER_DQT | V4L2_JPEG_MARKER_DRI;
 	if(!cam->params.compression.inhibit_htables) {
@@ -947,6 +1066,14 @@ static int cpia2_g_jpegcomp(struct file *file, void *fh, struct v4l2_jpegcompres
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_s_jpegcomp
+ *
+ *  V4L2 set the JPEG compression parameters
+ *  NOTE: quality and some jpeg_markers are ignored.
+ *
+ *****************************************************************************/
 
 static int cpia2_s_jpegcomp(struct file *file, void *fh, struct v4l2_jpegcompression *parms)
 {
@@ -988,6 +1115,14 @@ static int cpia2_s_jpegcomp(struct file *file, void *fh, struct v4l2_jpegcompres
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_reqbufs
+ *
+ *  V4L2 Initiate memory mapping.
+ *  NOTE: The user's request is ignored. For now the buffers are fixed.
+ *
+ *****************************************************************************/
 
 static int cpia2_reqbufs(struct file *file, void *fh, struct v4l2_requestbuffers *req)
 {
@@ -1004,6 +1139,13 @@ static int cpia2_reqbufs(struct file *file, void *fh, struct v4l2_requestbuffers
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_querybuf
+ *
+ *  V4L2 Query memory buffer status.
+ *
+ *****************************************************************************/
 
 static int cpia2_querybuf(struct file *file, void *fh, struct v4l2_buffer *buf)
 {
@@ -1045,6 +1187,13 @@ static int cpia2_querybuf(struct file *file, void *fh, struct v4l2_buffer *buf)
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_qbuf
+ *
+ *  V4L2 User is freeing buffer
+ *
+ *****************************************************************************/
 
 static int cpia2_qbuf(struct file *file, void *fh, struct v4l2_buffer *buf)
 {
@@ -1063,6 +1212,13 @@ static int cpia2_qbuf(struct file *file, void *fh, struct v4l2_buffer *buf)
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  find_earliest_filled_buffer
+ *
+ *  Helper for ioctl_dqbuf. Find the next ready buffer.
+ *
+ *****************************************************************************/
 
 static int find_earliest_filled_buffer(struct camera_data *cam)
 {
@@ -1073,7 +1229,7 @@ static int find_earliest_filled_buffer(struct camera_data *cam)
 			if(found < 0) {
 				found = i;
 			} else {
-				
+				/* find which buffer is earlier */
 				struct timeval *tv1, *tv2;
 				tv1 = &cam->buffers[i].timestamp;
 				tv2 = &cam->buffers[found].timestamp;
@@ -1087,6 +1243,13 @@ static int find_earliest_filled_buffer(struct camera_data *cam)
 	return found;
 }
 
+/******************************************************************************
+ *
+ *  ioctl_dqbuf
+ *
+ *  V4L2 User is asking for a filled buffer.
+ *
+ *****************************************************************************/
 
 static int cpia2_dqbuf(struct file *file, void *fh, struct v4l2_buffer *buf)
 {
@@ -1103,7 +1266,7 @@ static int cpia2_dqbuf(struct file *file, void *fh, struct v4l2_buffer *buf)
 		return -EAGAIN;
 
 	if(frame < 0) {
-		
+		/* Wait for a frame to become available */
 		struct framebuf *cb=cam->curbuff;
 		mutex_unlock(&cam->v4l2_lock);
 		wait_event_interruptible(cam->wq_stream,
@@ -1151,12 +1314,12 @@ static int cpia2_s_priority(struct file *file, void *_fh, enum v4l2_priority pri
 
 	if (cam->streaming && prio != fh->prio &&
 			fh->prio == V4L2_PRIORITY_RECORD)
-		
+		/* Can't drop record priority while streaming */
 		return -EBUSY;
 
 	if (prio == V4L2_PRIORITY_RECORD && prio != fh->prio &&
 			v4l2_prio_max(&cam->prio) == V4L2_PRIORITY_RECORD)
-		
+		/* Only one program can record at a time */
 		return -EBUSY;
 	return v4l2_prio_change(&cam->prio, &fh->prio, prio);
 }
@@ -1188,12 +1351,17 @@ static int cpia2_streamoff(struct file *file, void *fh, enum v4l2_buf_type type)
 	return -EINVAL;
 }
 
+/******************************************************************************
+ *
+ *  cpia2_mmap
+ *
+ *****************************************************************************/
 static int cpia2_mmap(struct file *file, struct vm_area_struct *area)
 {
 	struct camera_data *cam = video_drvdata(file);
 	int retval;
 
-	
+	/* Priority check */
 	struct cpia2_fh *fh = file->private_data;
 	if(fh->prio != V4L2_PRIORITY_RECORD) {
 		return -EBUSY;
@@ -1206,6 +1374,12 @@ static int cpia2_mmap(struct file *file, struct vm_area_struct *area)
 	return retval;
 }
 
+/******************************************************************************
+ *
+ *  reset_camera_struct_v4l
+ *
+ *  Sets all values to the defaults
+ *****************************************************************************/
 static void reset_camera_struct_v4l(struct camera_data *cam)
 {
 	cam->width = cam->params.roi.width;
@@ -1214,11 +1388,11 @@ static void reset_camera_struct_v4l(struct camera_data *cam)
 	cam->frame_size = buffer_size;
 	cam->num_frames = num_buffers;
 
-	
+	/* FlickerModes */
 	cam->params.flicker_control.flicker_mode_req = flicker_mode;
 	cam->params.flicker_control.mains_frequency = flicker_freq;
 
-	
+	/* streamMode */
 	cam->params.camera_state.stream_mode = alternate;
 
 	cam->pixelformat = V4L2_PIX_FMT_JPEG;
@@ -1252,6 +1426,9 @@ static const struct v4l2_ioctl_ops cpia2_ioctl_ops = {
 	.vidioc_default			    = cpia2_default,
 };
 
+/***
+ * The v4l video device structure initialized for this device
+ ***/
 static const struct v4l2_file_operations cpia2_fops = {
 	.owner		= THIS_MODULE,
 	.open		= cpia2_open,
@@ -1263,13 +1440,18 @@ static const struct v4l2_file_operations cpia2_fops = {
 };
 
 static struct video_device cpia2_template = {
-	
+	/* I could not find any place for the old .initialize initializer?? */
 	.name =		"CPiA2 Camera",
 	.fops =		&cpia2_fops,
 	.ioctl_ops =	&cpia2_ioctl_ops,
 	.release =	video_device_release,
 };
 
+/******************************************************************************
+ *
+ *  cpia2_register_camera
+ *
+ *****************************************************************************/
 int cpia2_register_camera(struct camera_data *cam)
 {
 	cam->vdev = video_device_alloc();
@@ -1282,7 +1464,7 @@ int cpia2_register_camera(struct camera_data *cam)
 
 	reset_camera_struct_v4l(cam);
 
-	
+	/* register v4l device */
 	if (video_register_device(cam->vdev, VFL_TYPE_GRABBER, video_nr) < 0) {
 		ERR("video_register_device failed\n");
 		video_device_release(cam->vdev);
@@ -1292,6 +1474,11 @@ int cpia2_register_camera(struct camera_data *cam)
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  cpia2_unregister_camera
+ *
+ *****************************************************************************/
 void cpia2_unregister_camera(struct camera_data *cam)
 {
 	if (!cam->open_count) {
@@ -1303,13 +1490,19 @@ void cpia2_unregister_camera(struct camera_data *cam)
 	}
 }
 
+/******************************************************************************
+ *
+ *  check_parameters
+ *
+ *  Make sure that all user-supplied parameters are sensible
+ *****************************************************************************/
 static void __init check_parameters(void)
 {
 	if(buffer_size < PAGE_SIZE) {
 		buffer_size = PAGE_SIZE;
 		LOG("buffer_size too small, setting to %d\n", buffer_size);
 	} else if(buffer_size > 1024*1024) {
-		
+		/* arbitrary upper limiit */
 		buffer_size = 1024*1024;
 		LOG("buffer_size ridiculously large, setting to %d\n",
 		    buffer_size);
@@ -1352,8 +1545,14 @@ static void __init check_parameters(void)
 	    num_buffers, buffer_size, alternate);
 }
 
+/************   Module Stuff ***************/
 
 
+/******************************************************************************
+ *
+ * cpia2_init/module_init
+ *
+ *****************************************************************************/
 static int __init cpia2_init(void)
 {
 	LOG("%s v%s\n",
@@ -1364,6 +1563,11 @@ static int __init cpia2_init(void)
 }
 
 
+/******************************************************************************
+ *
+ * cpia2_exit/module_exit
+ *
+ *****************************************************************************/
 static void __exit cpia2_exit(void)
 {
 	cpia2_usb_cleanup();

@@ -9,4 +9,4 @@
  */
 #include <linux/byteorder/big_endian.h>
 
-#endif 
+#endif /* _ASM_POWERPC_BYTEORDER_H */

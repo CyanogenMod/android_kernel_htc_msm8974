@@ -12,8 +12,14 @@
 
 #include <asm/sizes.h>
 
+/*
+ * Physical DRAM offset.
+ */
 #define PLAT_PHYS_OFFSET     UL(0x08000000)
 
+/*
+ * Cache flushing area
+ */
 #define FLUSH_BASE_PHYS		0x80000000
 #define FLUSH_BASE		0xdf000000
 

@@ -13,10 +13,11 @@
 #define ELF_CLASS		ELFCLASS32
 #ifdef __MIPSEB__
 #define ELF_DATA		ELFDATA2MSB;
-#else 
+#else /* __MIPSEL__ */
 #define ELF_DATA		ELFDATA2LSB;
 #endif
 
+/* ELF register definitions */
 #define ELF_NGREG	45
 #define ELF_NFPREG	33
 
@@ -26,6 +27,9 @@ typedef elf_greg_t elf_gregset_t[ELF_NGREG];
 typedef double elf_fpreg_t;
 typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 #define elf_check_arch(hdr)						\
 ({									\
 	int __res = 1;							\
@@ -50,8 +54,13 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 
 #include <asm/processor.h>
 
+/*
+ * When this file is selected, we are definitely running a 64bit kernel.
+ * So using the right regs define in asm/reg.h
+ */
 #define WANT_COMPAT_REG_H
 
+/* These MUST be defined before elf.h gets included */
 extern void elf32_core_copy_regs(elf_gregset_t grp, struct pt_regs *regs);
 #define ELF_CORE_COPY_REGS(_dest, _regs) elf32_core_copy_regs(_dest, _regs);
 #define ELF_CORE_COPY_TASK_REGS(_tsk, _dest)				\
@@ -69,36 +78,36 @@ extern void elf32_core_copy_regs(elf_gregset_t grp, struct pt_regs *regs);
 #define elf_prstatus elf_prstatus32
 struct elf_prstatus32
 {
-	struct elf_siginfo pr_info;	
-	short	pr_cursig;		
-	unsigned int pr_sigpend;	
-	unsigned int pr_sighold;	
+	struct elf_siginfo pr_info;	/* Info associated with signal */
+	short	pr_cursig;		/* Current signal */
+	unsigned int pr_sigpend;	/* Set of pending signals */
+	unsigned int pr_sighold;	/* Set of held signals */
 	pid_t	pr_pid;
 	pid_t	pr_ppid;
 	pid_t	pr_pgrp;
 	pid_t	pr_sid;
-	struct compat_timeval pr_utime;	
-	struct compat_timeval pr_stime;	
-	struct compat_timeval pr_cutime;
-	struct compat_timeval pr_cstime;
-	elf_gregset_t pr_reg;	
-	int pr_fpvalid;		
+	struct compat_timeval pr_utime;	/* User time */
+	struct compat_timeval pr_stime;	/* System time */
+	struct compat_timeval pr_cutime;/* Cumulative user time */
+	struct compat_timeval pr_cstime;/* Cumulative system time */
+	elf_gregset_t pr_reg;	/* GP registers */
+	int pr_fpvalid;		/* True if math co-processor being used.  */
 };
 
 #define elf_prpsinfo elf_prpsinfo32
 struct elf_prpsinfo32
 {
-	char	pr_state;	
-	char	pr_sname;	
-	char	pr_zomb;	
-	char	pr_nice;	
-	unsigned int pr_flag;	
+	char	pr_state;	/* numeric process state */
+	char	pr_sname;	/* char for pr_state */
+	char	pr_zomb;	/* zombie */
+	char	pr_nice;	/* nice val */
+	unsigned int pr_flag;	/* flags */
 	__kernel_uid_t	pr_uid;
 	__kernel_gid_t	pr_gid;
 	pid_t	pr_pid, pr_ppid, pr_pgrp, pr_sid;
-	
-	char	pr_fname[16];	
-	char	pr_psargs[ELF_PRARGSZ];	
+	/* Lots missing */
+	char	pr_fname[16];	/* filename of executable */
+	char	pr_psargs[ELF_PRARGSZ];	/* initial part of arg list */
 };
 
 #define elf_caddr_t	u32
@@ -108,6 +117,10 @@ struct elf_prpsinfo32
 static inline void
 jiffies_to_compat_timeval(unsigned long jiffies, struct compat_timeval *value)
 {
+	/*
+	 * Convert jiffies to nanoseconds and separate with
+	 * one divide.
+	 */
 	u64 nsec = (u64)jiffies * TICK_NSEC;
 	u32 rem;
 	value->tv_sec = div_u64_rem(nsec, NSEC_PER_SEC, &rem);

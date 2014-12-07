@@ -373,8 +373,16 @@ nvc0_graph_init_gpc_0(struct drm_device *dev)
 	u8  tpnr[GPC_MAX];
 	int i, gpc, tpc;
 
-	nv_wr32(dev, TP_UNIT(0, 0, 0x5c), 1); 
+	nv_wr32(dev, TP_UNIT(0, 0, 0x5c), 1); /* affects TFB offset queries */
 
+	/*
+	 *      TP      ROP UNKVAL(magic_not_rop_nr)
+	 * 450: 4/0/0/0 2        3
+	 * 460: 3/4/0/0 4        1
+	 * 465: 3/4/4/0 4        7
+	 * 470: 3/3/4/4 5        5
+	 * 480: 3/4/4/4 6        6
+	 */
 
 	memset(data, 0x00, sizeof(data));
 	memcpy(tpnr, priv->tp_nr, sizeof(priv->tp_nr));
@@ -407,11 +415,11 @@ static void
 nvc0_graph_init_units(struct drm_device *dev)
 {
 	nv_wr32(dev, 0x409c24, 0x000f0000);
-	nv_wr32(dev, 0x404000, 0xc0000000); 
-	nv_wr32(dev, 0x404600, 0xc0000000); 
+	nv_wr32(dev, 0x404000, 0xc0000000); /* DISPATCH */
+	nv_wr32(dev, 0x404600, 0xc0000000); /* M2MF */
 	nv_wr32(dev, 0x408030, 0xc0000000);
 	nv_wr32(dev, 0x40601c, 0xc0000000);
-	nv_wr32(dev, 0x404490, 0xc0000000); 
+	nv_wr32(dev, 0x404490, 0xc0000000); /* MACRO */
 	nv_wr32(dev, 0x406018, 0xc0000000);
 	nv_wr32(dev, 0x405840, 0xc0000000);
 	nv_wr32(dev, 0x405844, 0x00ffffff);
@@ -485,7 +493,7 @@ nvc0_graph_init_ctxctl(struct drm_device *dev)
 	int i;
 
 	if (!nouveau_ctxfw) {
-		
+		/* load HUB microcode */
 		r000260 = nv_mask(dev, 0x000260, 0x00000001, 0x00000000);
 		nv_wr32(dev, 0x4091c0, 0x01000000);
 		for (i = 0; i < sizeof(nvc0_grhub_data) / 4; i++)
@@ -498,7 +506,7 @@ nvc0_graph_init_ctxctl(struct drm_device *dev)
 			nv_wr32(dev, 0x409184, nvc0_grhub_code[i]);
 		}
 
-		
+		/* load GPC microcode */
 		nv_wr32(dev, 0x41a1c0, 0x01000000);
 		for (i = 0; i < sizeof(nvc0_grgpc_data) / 4; i++)
 			nv_wr32(dev, 0x41a1c4, nvc0_grgpc_data[i]);
@@ -511,7 +519,7 @@ nvc0_graph_init_ctxctl(struct drm_device *dev)
 		}
 		nv_wr32(dev, 0x000260, r000260);
 
-		
+		/* start HUB ucode running, it'll init the GPCs */
 		nv_wr32(dev, 0x409800, dev_priv->chipset);
 		nv_wr32(dev, 0x40910c, 0x00000000);
 		nv_wr32(dev, 0x409100, 0x00000002);
@@ -525,13 +533,13 @@ nvc0_graph_init_ctxctl(struct drm_device *dev)
 		return 0;
 	}
 
-	
+	/* load fuc microcode */
 	r000260 = nv_mask(dev, 0x000260, 0x00000001, 0x00000000);
 	nvc0_graph_init_fuc(dev, 0x409000, &priv->fuc409c, &priv->fuc409d);
 	nvc0_graph_init_fuc(dev, 0x41a000, &priv->fuc41ac, &priv->fuc41ad);
 	nv_wr32(dev, 0x000260, r000260);
 
-	
+	/* start both of them running */
 	nv_wr32(dev, 0x409840, 0xffffffff);
 	nv_wr32(dev, 0x41a10c, 0x00000000);
 	nv_wr32(dev, 0x40910c, 0x00000000);
@@ -582,9 +590,9 @@ nvc0_graph_init(struct drm_device *dev, int engine)
 
 	nvc0_graph_init_obj418880(dev);
 	nvc0_graph_init_regs(dev);
-	
+	/*nvc0_graph_init_unitplemented_magics(dev);*/
 	nvc0_graph_init_gpc_0(dev);
-	
+	/*nvc0_graph_init_unitplemented_c242(dev);*/
 
 	nv_wr32(dev, 0x400500, 0x00010001);
 	nv_wr32(dev, 0x400100, 0xffffffff);
@@ -828,38 +836,38 @@ nvc0_graph_create(struct drm_device *dev)
 		priv->tp_total += priv->tp_nr[gpc];
 	}
 
-	
+	/*XXX: these need figuring out... */
 	switch (dev_priv->chipset) {
 	case 0xc0:
-		if (priv->tp_total == 11) { 
+		if (priv->tp_total == 11) { /* 465, 3/4/4/0, 4 */
 			priv->magic_not_rop_nr = 0x07;
 		} else
-		if (priv->tp_total == 14) { 
+		if (priv->tp_total == 14) { /* 470, 3/3/4/4, 5 */
 			priv->magic_not_rop_nr = 0x05;
 		} else
-		if (priv->tp_total == 15) { 
+		if (priv->tp_total == 15) { /* 480, 3/4/4/4, 6 */
 			priv->magic_not_rop_nr = 0x06;
 		}
 		break;
-	case 0xc3: 
+	case 0xc3: /* 450, 4/0/0/0, 2 */
 		priv->magic_not_rop_nr = 0x03;
 		break;
-	case 0xc4: 
+	case 0xc4: /* 460, 3/4/0/0, 4 */
 		priv->magic_not_rop_nr = 0x01;
 		break;
-	case 0xc1: 
+	case 0xc1: /* 2/0/0/0, 1 */
 		priv->magic_not_rop_nr = 0x01;
 		break;
-	case 0xc8: 
+	case 0xc8: /* 4/4/3/4, 5 */
 		priv->magic_not_rop_nr = 0x06;
 		break;
-	case 0xce: 
+	case 0xce: /* 4/4/0/0, 4 */
 		priv->magic_not_rop_nr = 0x03;
 		break;
-	case 0xcf: 
+	case 0xcf: /* 4/0/0/0, 3 */
 		priv->magic_not_rop_nr = 0x03;
 		break;
-	case 0xd9: 
+	case 0xd9: /* 1/0/0/0, 1 */
 		priv->magic_not_rop_nr = 0x01;
 		break;
 	}
@@ -871,14 +879,14 @@ nvc0_graph_create(struct drm_device *dev)
 		priv->magic_not_rop_nr = 0x00;
 	}
 
-	NVOBJ_CLASS(dev, 0x902d, GR); 
-	NVOBJ_CLASS(dev, 0x9039, GR); 
-	NVOBJ_CLASS(dev, 0x9097, GR); 
+	NVOBJ_CLASS(dev, 0x902d, GR); /* 2D */
+	NVOBJ_CLASS(dev, 0x9039, GR); /* M2MF */
+	NVOBJ_CLASS(dev, 0x9097, GR); /* 3D */
 	if (fermi >= 0x9197)
-		NVOBJ_CLASS(dev, 0x9197, GR); 
+		NVOBJ_CLASS(dev, 0x9197, GR); /* 3D (NVC1-) */
 	if (fermi >= 0x9297)
-		NVOBJ_CLASS(dev, 0x9297, GR); 
-	NVOBJ_CLASS(dev, 0x90c0, GR); 
+		NVOBJ_CLASS(dev, 0x9297, GR); /* 3D (NVC8-) */
+	NVOBJ_CLASS(dev, 0x90c0, GR); /* COMPUTE */
 	return 0;
 
 error:

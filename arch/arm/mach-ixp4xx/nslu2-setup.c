@@ -34,14 +34,18 @@
 #define NSLU2_SDA_PIN		7
 #define NSLU2_SCL_PIN		6
 
+/* NSLU2 Timer */
 #define NSLU2_FREQ 66000000
 
-#define NSLU2_PB_GPIO		5	
-#define NSLU2_PO_GPIO		8	
-#define NSLU2_RB_GPIO		12	
+/* Buttons */
+#define NSLU2_PB_GPIO		5	/* power button */
+#define NSLU2_PO_GPIO		8	/* power off */
+#define NSLU2_RB_GPIO		12	/* reset button */
 
+/* Buzzer */
 #define NSLU2_GPIO_BUZZ		4
 
+/* LEDs */
 #define NSLU2_LED_RED_GPIO	0
 #define NSLU2_LED_GRN_GPIO	1
 #define NSLU2_LED_DISK1_GPIO	3
@@ -164,6 +168,7 @@ static struct platform_device nslu2_uart = {
 	.resource		= nslu2_uart_resources,
 };
 
+/* Built-in 10/100 Ethernet MAC interfaces */
 static struct eth_plat_info nslu2_plat_eth[] = {
 	{
 		.phy		= 1,
@@ -190,17 +195,20 @@ static struct platform_device *nslu2_devices[] __initdata = {
 
 static void nslu2_power_off(void)
 {
-	
+	/* This causes the box to drop the power and go dead. */
 
-	
+	/* enable the pwr cntl gpio */
 	gpio_line_config(NSLU2_PO_GPIO, IXP4XX_GPIO_OUT);
 
-	
+	/* do the deed */
 	gpio_line_set(NSLU2_PO_GPIO, IXP4XX_GPIO_HIGH);
 }
 
 static irqreturn_t nslu2_power_handler(int irq, void *dev_id)
 {
+	/* Signal init to do the ctrlaltdel action, this will bypass init if
+	 * it hasn't started and do a kernel_restart.
+	 */
 	ctrl_alt_del();
 
 	return IRQ_HANDLED;
@@ -208,6 +216,8 @@ static irqreturn_t nslu2_power_handler(int irq, void *dev_id)
 
 static irqreturn_t nslu2_reset_handler(int irq, void *dev_id)
 {
+	/* This is the paper-clip reset, it shuts the machine down directly.
+	 */
 	machine_power_off();
 
 	return IRQ_HANDLED;
@@ -215,10 +225,10 @@ static irqreturn_t nslu2_reset_handler(int irq, void *dev_id)
 
 static void __init nslu2_timer_init(void)
 {
-    
+    /* The xtal on this machine is non-standard. */
     ixp4xx_timer_freq = NSLU2_FREQ;
 
-    
+    /* Call standard timer_init function. */
     ixp4xx_timer_init();
 }
 
@@ -240,6 +250,11 @@ static void __init nslu2_init(void)
 	i2c_register_board_info(0, nslu2_i2c_board_info,
 				ARRAY_SIZE(nslu2_i2c_board_info));
 
+	/*
+	 * This is only useful on a modified machine, but it is valuable
+	 * to have it first in order to see debug messages, and so that
+	 * it does *not* get removed if platform_add_devices fails!
+	 */
 	(void)platform_device_register(&nslu2_uart);
 
 	platform_add_devices(nslu2_devices, ARRAY_SIZE(nslu2_devices));
@@ -262,6 +277,11 @@ static void __init nslu2_init(void)
 			gpio_to_irq(NSLU2_PB_GPIO));
 	}
 
+	/*
+	 * Map in a portion of the flash and read the MAC address.
+	 * Since it is stored in BE in the flash itself, we need to
+	 * byteswap it if we're in LE mode.
+	 */
 	f = ioremap(IXP4XX_EXP_BUS_BASE(0), 0x40000);
 	if (f) {
 		for (i = 0; i < 6; i++)
@@ -278,7 +298,7 @@ static void __init nslu2_init(void)
 }
 
 MACHINE_START(NSLU2, "Linksys NSLU2")
-	
+	/* Maintainer: www.nslu2-linux.org */
 	.atag_offset	= 0x100,
 	.map_io		= ixp4xx_map_io,
 	.init_early	= ixp4xx_init_early,

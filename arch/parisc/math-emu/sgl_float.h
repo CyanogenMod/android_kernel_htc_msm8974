@@ -23,6 +23,7 @@
     PA header file -- do not include this header file for non-PA builds.
 #endif
 
+/* 32-bit word grabbing functions */
 #define Sgl_firstword(value) Sall(value)
 #define Sgl_secondword(value) dummy_location
 #define Sgl_thirdword(value) dummy_location
@@ -35,17 +36,21 @@
 #define Sgl_exponentmantissa(object) Sexponentmantissa(object)
 #define Sgl_all(object) Sall(object)
 
+/* sgl_and_signs ANDs the sign bits of each argument and puts the result
+ * into the first argument. sgl_or_signs ors those same sign bits */
 #define Sgl_and_signs( src1dst, src2)		\
     Sall(src1dst) = (Sall(src2)|~((unsigned int)1<<31)) & Sall(src1dst)
 #define Sgl_or_signs( src1dst, src2)		\
     Sall(src1dst) = (Sall(src2)&((unsigned int)1<<31)) | Sall(src1dst)
 
+/* The hidden bit is always the low bit of the exponent */
 #define Sgl_clear_exponent_set_hidden(srcdst) Deposit_sexponent(srcdst,1)
 #define Sgl_clear_signexponent_set_hidden(srcdst) \
     Deposit_ssignexponent(srcdst,1)
 #define Sgl_clear_sign(srcdst) Sall(srcdst) &= ~((unsigned int)1<<31)
 #define Sgl_clear_signexponent(srcdst) Sall(srcdst) &= 0x007fffff
 
+/* varamount must be less than 32 for the next three functions */
 #define Sgl_rightshift(srcdst, varamount)	\
     Sall(srcdst) >>= varamount
 #define Sgl_leftshift(srcdst, varamount)	\
@@ -63,6 +68,7 @@
 #define Sgl_arithrightshiftby1(srcdst)	\
     Sall(srcdst) = (int)Sall(srcdst) >> 1
     
+/* Sign extend the sign bit with an integer destination */
 #define Sgl_signextendedsign(value) Ssignedsign(value)
 
 #define Sgl_isone_hidden(sgl_value) (Shidden(sgl_value))
@@ -139,13 +145,15 @@
     Sall(sgl_value) >>= 8
     
 #define Sgl_ismagnitudeless(signlessleft,signlessright)			\
-			\
+/*  unsigned int signlessleft, signlessright; */			\
       (signlessleft < signlessright)  
     
 
 #define Sgl_copytoint_exponentmantissa(source,dest)     \
     dest = Sexponentmantissa(source)
 
+/* A quiet NaN has the high mantissa bit clear and at least on other (in this
+ * case the adjacent bit) bit set. */
 #define Sgl_set_quiet(sgl_value) Deposit_shigh2mantissa(sgl_value,1)
 #define Sgl_set_exponent(sgl_value,exp) Deposit_sexponent(sgl_value,exp)
 
@@ -153,6 +161,7 @@
 #define Sgl_set_exponentmantissa(dest,value) \
     Deposit_sexponentmantissa(dest,value)
 
+/*  An infinity is represented with the max exponent and a zero mantissa */
 #define Sgl_setinfinity_exponent(sgl_value) \
     Deposit_sexponent(sgl_value,SGL_INFINITY_EXPONENT)
 #define Sgl_setinfinity_exponentmantissa(sgl_value)	\
@@ -180,6 +189,7 @@
 #define Sgl_setzero(sgl_value) Sall(sgl_value) = 0
 #define Sgl_setnegativezero(sgl_value) Sall(sgl_value) = (unsigned int)1 << 31
 
+/* Use following macro for both overflow & underflow conditions */
 #define ovfl -
 #define unfl +
 #define Sgl_setwrapped_exponent(sgl_value,exponent,op) \
@@ -205,8 +215,9 @@
         (((SGL_EMAX+SGL_BIAS) << (32-(1+SGL_EXP_LENGTH)))		\
 	  | ((1 << (32-(1+SGL_EXP_LENGTH))) - 1 ))
 
+/* The high bit is always zero so arithmetic or logical shifts will work. */
 #define Sgl_right_align(srcdst,shift,extent)				\
-    	\
+    /* sgl_floating_point srcdst; int shift; extension extent */	\
     if (shift < 32) {							\
 	Extall(extent) = Sall(srcdst) << (32-(shift));			\
     	Sall(srcdst) >>= shift;						\
@@ -219,11 +230,14 @@
 #define Sgl_hidden(sgl_value) Shidden(sgl_value)
 #define Sgl_lowmantissa(sgl_value) Slow(sgl_value)
 
+/* The left argument is never smaller than the right argument */
 #define Sgl_subtract(sgl_left,sgl_right,sgl_result) \
     Sall(sgl_result) = Sall(sgl_left) - Sall(sgl_right)
 
+/* Subtract right augmented with extension from left augmented with zeros and
+ * store into result and extension. */
 #define Sgl_subtract_withextension(left,right,extent,result)		\
-    	\
+    /* sgl_floating_point left,right,result; extension extent */	\
   Sgl_subtract(left,right,result);					\
   if((Extall(extent) = 0-Extall(extent)))				\
       Sall(result) = Sall(result)-1
@@ -237,6 +251,7 @@
 #define Sgl_xorfromintp1(left,right,result)			\
     Sall(result) = left XOR Sall(right)
 
+/* Need to Initialize */
 #define Sgl_makequietnan(dest)						\
     Sall(dest) = ((SGL_EMAX+SGL_BIAS)+1)<< (32-(1+SGL_EXP_LENGTH))	\
                  | (1<<(32-(1+SGL_EXP_LENGTH+2)))
@@ -259,7 +274,7 @@
 	}
 
 #define Sgl_setoverflow(sgl_opnd)				\
-			\
+	/* set result to infinity or largest number */		\
 	switch (Rounding_mode()) {				\
 		case ROUNDPLUS:					\
 			if (Sgl_isone_sign(sgl_opnd)) {		\
@@ -299,6 +314,10 @@
 		Sgl_setzero(opnd);					\
 	}
 
+/* 
+ * The fused multiply add instructions requires a single extended format,
+ * with 48 bits of mantissa.
+ */
 #define SGLEXT_THRESHOLD 48
 
 #define Sglext_setzero(valA,valB)	\
@@ -325,6 +344,7 @@
 
 #define Sglext_setone_lowmantissap2(value) Deposit_dlowp2(value,1)
 
+/* The high bit is always zero so arithmetic or logical shifts will work. */
 #define Sglext_right_align(srcdstA,srcdstB,shift) \
   {int shiftamt, sticky;						\
     shiftamt = shift % 32;						\
@@ -351,13 +371,15 @@
     if (sticky) Sglext_setone_lowmantissap2(srcdstB);			\
   }
 
+/* The left argument is never smaller than the right argument */
 #define Sglext_subtract(lefta,leftb,righta,rightb,resulta,resultb) \
     if( Sextallp2(rightb) > Sextallp2(leftb) ) Sextallp1(lefta)--; \
     Sextallp2(resultb) = Sextallp2(leftb) - Sextallp2(rightb);	\
     Sextallp1(resulta) = Sextallp1(lefta) - Sextallp1(righta)
 
 #define Sglext_addition(lefta,leftb,righta,rightb,resulta,resultb) \
- \
+    /* If the sum of the low words is less than either source, then \
+     * an overflow into the next word occurred. */ \
     if ((Sextallp2(resultb) = Sextallp2(leftb)+Sextallp2(rightb)) < \
         Sextallp2(rightb)) \
 	    Sextallp1(resulta) = Sextallp1(lefta)+Sextallp1(righta)+1; \

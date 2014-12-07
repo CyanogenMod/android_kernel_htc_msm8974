@@ -46,6 +46,7 @@ struct workqueue_struct *fscache_op_wq;
 
 DEFINE_PER_CPU(wait_queue_head_t, fscache_object_cong_wait);
 
+/* these values serve as lower bounds, will be adjusted in fscache_init() */
 static unsigned fscache_object_max_active = 4;
 static unsigned fscache_op_max_active = 2;
 
@@ -96,6 +97,9 @@ ctl_table fscache_sysctls_root[] = {
 };
 #endif
 
+/*
+ * initialise the fs caching module
+ */
 static int __init fscache_init(void)
 {
 	unsigned int nr_cpus = num_possible_cpus();
@@ -173,6 +177,9 @@ error_object_wq:
 
 fs_initcall(fscache_init);
 
+/*
+ * clean up on module removal
+ */
 static void __exit fscache_exit(void)
 {
 	_enter("");
@@ -190,6 +197,9 @@ static void __exit fscache_exit(void)
 
 module_exit(fscache_exit);
 
+/*
+ * wait_on_bit() sleep function for uninterruptible waiting
+ */
 int fscache_wait_bit(void *flags)
 {
 	schedule();
@@ -197,6 +207,9 @@ int fscache_wait_bit(void *flags)
 }
 EXPORT_SYMBOL(fscache_wait_bit);
 
+/*
+ * wait_on_bit() sleep function for interruptible waiting
+ */
 int fscache_wait_bit_interruptible(void *flags)
 {
 	schedule();

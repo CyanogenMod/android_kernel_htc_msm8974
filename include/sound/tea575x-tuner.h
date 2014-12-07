@@ -44,15 +44,15 @@ struct snd_tea575x_ops {
 
 struct snd_tea575x {
 	struct v4l2_device *v4l2_dev;
-	struct video_device vd;		
-	int radio_nr;			
-	bool tea5759;			
-	bool cannot_read_data;		
-	bool mute;			
-	bool stereo;			
-	bool tuned;			
-	unsigned int val;		
-	u32 freq;			
+	struct video_device vd;		/* video device */
+	int radio_nr;			/* radio_nr */
+	bool tea5759;			/* 5759 chip is present */
+	bool cannot_read_data;		/* Device cannot read the data pin */
+	bool mute;			/* Device is muted? */
+	bool stereo;			/* receiving stereo */
+	bool tuned;			/* tuned to a station */
+	unsigned int val;		/* hw value */
+	u32 freq;			/* frequency */
 	struct mutex mutex;
 	struct snd_tea575x_ops *ops;
 	void *private_data;
@@ -65,4 +65,4 @@ struct snd_tea575x {
 int snd_tea575x_init(struct snd_tea575x *tea);
 void snd_tea575x_exit(struct snd_tea575x *tea);
 
-#endif 
+#endif /* __SOUND_TEA575X_TUNER_H */

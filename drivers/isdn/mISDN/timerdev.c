@@ -37,7 +37,7 @@ struct mISDNtimerdev {
 	struct list_head	expired;
 	wait_queue_head_t	wait;
 	u_int			work;
-	spinlock_t		lock; 
+	spinlock_t		lock; /* protect lists */
 };
 
 struct mISDNtimer {
@@ -201,6 +201,9 @@ misdn_del_timer(struct mISDNtimerdev *dev, int id)
 	list_for_each_entry(timer, &dev->pending, list) {
 		if (timer->id == id) {
 			list_del_init(&timer->list);
+			/* RED-PEN AK: race -- timer can be still running on
+			 * other CPU. Needs reference count I think
+			 */
 			del_timer(&timer->tl);
 			ret = timer->id;
 			kfree(timer);

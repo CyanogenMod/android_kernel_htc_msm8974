@@ -50,7 +50,7 @@ fpswa_interface_t *vmm_fpswa_interface;
 #define IA64_GENEX_VECTOR			0x5400
 #define IA64_DISABLED_FPREG_VECTOR		0x5500
 #define IA64_NAT_CONSUMPTION_VECTOR		0x5600
-#define IA64_SPECULATION_VECTOR		0x5700 
+#define IA64_SPECULATION_VECTOR		0x5700 /* UNUSED */
 #define IA64_DEBUG_VECTOR			0x5900
 #define IA64_UNALIGNED_REF_VECTOR		0x5a00
 #define IA64_UNSUPPORTED_DATA_REF_VECTOR	0x5b00
@@ -60,6 +60,7 @@ fpswa_interface_t *vmm_fpswa_interface;
 #define IA64_TAKEN_BRANCH_TRAP_VECTOR		0x5f00
 #define IA64_SINGLE_STEP_TRAP_VECTOR		0x6000
 
+/* SDM vol2 5.5 - IVA based interruption handling */
 #define INITIAL_PSR_VALUE_AT_INTERRUPTION (IA64_PSR_UP | IA64_PSR_MFL |\
 			IA64_PSR_MFH | IA64_PSR_PK | IA64_PSR_DT |    	\
 			IA64_PSR_RT | IA64_PSR_MC|IA64_PSR_IT)
@@ -89,6 +90,10 @@ static void collect_interruption(struct kvm_vcpu *vcpu)
 	vcpu_bsw0(vcpu);
 	if (vpsr & IA64_PSR_IC) {
 
+		/* Sync mpsr id/da/dd/ss/ed bits to vipsr
+		 * since after guest do rfi, we still want these bits on in
+		 * mpsr
+		 */
 
 		ipsr = regs->cr_ipsr;
 		vpsr = vpsr | (ipsr & (IA64_PSR_ID | IA64_PSR_DA
@@ -96,10 +101,14 @@ static void collect_interruption(struct kvm_vcpu *vcpu)
 					| IA64_PSR_ED));
 		vcpu_set_ipsr(vcpu, vpsr);
 
+		/* Currently, for trap, we do not advance IIP to next
+		 * instruction. That's because we assume caller already
+		 * set up IIP correctly
+		 */
 
 		vcpu_set_iip(vcpu , regs->cr_iip);
 
-		
+		/* set vifs.v to zero */
 		vifs = VCPU(vcpu, ifs);
 		vifs &= ~IA64_IFS_V;
 		vcpu_set_ifs(vcpu, vifs);
@@ -109,10 +118,15 @@ static void collect_interruption(struct kvm_vcpu *vcpu)
 
 	vdcr = VCPU(vcpu, dcr);
 
+	/* Set guest psr
+	 * up/mfl/mfh/pk/dt/rt/mc/it keeps unchanged
+	 * be: set to the value of dcr.be
+	 * pp: set to the value of dcr.pp
+	 */
 	vpsr &= INITIAL_PSR_VALUE_AT_INTERRUPTION;
 	vpsr |= (vdcr & IA64_DCR_BE);
 
-	
+	/* VDCR pp bit position is different from VPSR pp bit */
 	if (vdcr & IA64_DCR_PP) {
 		vpsr |= IA64_PSR_PP;
 	} else {
@@ -131,7 +145,7 @@ void inject_guest_interruption(struct kvm_vcpu *vcpu, u64 vec)
 
 	regs = vcpu_regs(vcpu);
 
-	
+	/* clear cr.isr.ir (incomplete register frame)*/
 	pt_isr.val = VMX(vcpu, cr_isr);
 	pt_isr.ir = 0;
 	VMX(vcpu, cr_isr) = pt_isr.val;
@@ -153,6 +167,13 @@ static u64 vcpu_get_itir_on_fault(struct kvm_vcpu *vcpu, u64 ifa)
 	return (rr1.val);
 }
 
+/*
+ * Set vIFA & vITIR & vIHA, when vPSR.ic =1
+ * Parameter:
+ *  set_ifa: if true, set vIFA
+ *  set_itir: if true, set vITIR
+ *  set_iha: if true, set vIHA
+ */
 void set_ifa_itir_iha(struct kvm_vcpu *vcpu, u64 vadr,
 		int set_ifa, int set_itir, int set_iha)
 {
@@ -160,7 +181,7 @@ void set_ifa_itir_iha(struct kvm_vcpu *vcpu, u64 vadr,
 	u64 value;
 
 	vpsr = VCPU(vcpu, vpsr);
-	
+	/* Vol2, Table 8-1 */
 	if (vpsr & IA64_PSR_IC) {
 		if (set_ifa)
 			vcpu_set_ifa(vcpu, vadr);
@@ -176,119 +197,214 @@ void set_ifa_itir_iha(struct kvm_vcpu *vcpu, u64 vadr,
 	}
 }
 
+/*
+ * Data TLB Fault
+ *  @ Data TLB vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void dtlb_fault(struct kvm_vcpu *vcpu, u64 vadr)
 {
-	
+	/* If vPSR.ic, IFA, ITIR, IHA */
 	set_ifa_itir_iha(vcpu, vadr, 1, 1, 1);
 	inject_guest_interruption(vcpu, IA64_DATA_TLB_VECTOR);
 }
 
+/*
+ * Instruction TLB Fault
+ *  @ Instruction TLB vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void itlb_fault(struct kvm_vcpu *vcpu, u64 vadr)
 {
-	
+	/* If vPSR.ic, IFA, ITIR, IHA */
 	set_ifa_itir_iha(vcpu, vadr, 1, 1, 1);
 	inject_guest_interruption(vcpu, IA64_INST_TLB_VECTOR);
 }
 
+/*
+ * Data Nested TLB Fault
+ *  @ Data Nested TLB Vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void nested_dtlb(struct kvm_vcpu *vcpu)
 {
 	inject_guest_interruption(vcpu, IA64_DATA_NESTED_TLB_VECTOR);
 }
 
+/*
+ * Alternate Data TLB Fault
+ *  @ Alternate Data TLB vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void alt_dtlb(struct kvm_vcpu *vcpu, u64 vadr)
 {
 	set_ifa_itir_iha(vcpu, vadr, 1, 1, 0);
 	inject_guest_interruption(vcpu, IA64_ALT_DATA_TLB_VECTOR);
 }
 
+/*
+ * Data TLB Fault
+ *  @ Data TLB vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void alt_itlb(struct kvm_vcpu *vcpu, u64 vadr)
 {
 	set_ifa_itir_iha(vcpu, vadr, 1, 1, 0);
 	inject_guest_interruption(vcpu, IA64_ALT_INST_TLB_VECTOR);
 }
 
+/* Deal with:
+ *  VHPT Translation Vector
+ */
 static void _vhpt_fault(struct kvm_vcpu *vcpu, u64 vadr)
 {
-	
+	/* If vPSR.ic, IFA, ITIR, IHA*/
 	set_ifa_itir_iha(vcpu, vadr, 1, 1, 1);
 	inject_guest_interruption(vcpu, IA64_VHPT_TRANS_VECTOR);
 }
 
+/*
+ * VHPT Instruction Fault
+ *  @ VHPT Translation vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void ivhpt_fault(struct kvm_vcpu *vcpu, u64 vadr)
 {
 	_vhpt_fault(vcpu, vadr);
 }
 
+/*
+ * VHPT Data Fault
+ *  @ VHPT Translation vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void dvhpt_fault(struct kvm_vcpu *vcpu, u64 vadr)
 {
 	_vhpt_fault(vcpu, vadr);
 }
 
+/*
+ * Deal with:
+ *  General Exception vector
+ */
 void _general_exception(struct kvm_vcpu *vcpu)
 {
 	inject_guest_interruption(vcpu, IA64_GENEX_VECTOR);
 }
 
+/*
+ * Illegal Operation Fault
+ *  @ General Exception Vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void illegal_op(struct kvm_vcpu *vcpu)
 {
 	_general_exception(vcpu);
 }
 
+/*
+ * Illegal Dependency Fault
+ *  @ General Exception Vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void illegal_dep(struct kvm_vcpu *vcpu)
 {
 	_general_exception(vcpu);
 }
 
+/*
+ * Reserved Register/Field Fault
+ *  @ General Exception Vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void rsv_reg_field(struct kvm_vcpu *vcpu)
 {
 	_general_exception(vcpu);
 }
+/*
+ * Privileged Operation Fault
+ *  @ General Exception Vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 
 void privilege_op(struct kvm_vcpu *vcpu)
 {
 	_general_exception(vcpu);
 }
 
+/*
+ * Unimplement Data Address Fault
+ *  @ General Exception Vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void unimpl_daddr(struct kvm_vcpu *vcpu)
 {
 	_general_exception(vcpu);
 }
 
+/*
+ * Privileged Register Fault
+ *  @ General Exception Vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void privilege_reg(struct kvm_vcpu *vcpu)
 {
 	_general_exception(vcpu);
 }
 
+/* Deal with
+ *  Nat consumption vector
+ * Parameter:
+ *  vaddr: Optional, if t == REGISTER
+ */
 static void _nat_consumption_fault(struct kvm_vcpu *vcpu, u64 vadr,
 						enum tlb_miss_type t)
 {
-	
+	/* If vPSR.ic && t == DATA/INST, IFA */
 	if (t == DATA || t == INSTRUCTION) {
-		
+		/* IFA */
 		set_ifa_itir_iha(vcpu, vadr, 1, 0, 0);
 	}
 
 	inject_guest_interruption(vcpu, IA64_NAT_CONSUMPTION_VECTOR);
 }
 
+/*
+ * Instruction Nat Page Consumption Fault
+ *  @ Nat Consumption Vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void inat_page_consumption(struct kvm_vcpu *vcpu, u64 vadr)
 {
 	_nat_consumption_fault(vcpu, vadr, INSTRUCTION);
 }
 
+/*
+ * Register Nat Consumption Fault
+ *  @ Nat Consumption Vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void rnat_consumption(struct kvm_vcpu *vcpu)
 {
 	_nat_consumption_fault(vcpu, 0, REGISTER);
 }
 
+/*
+ * Data Nat Page Consumption Fault
+ *  @ Nat Consumption Vector
+ * Refer to SDM Vol2 Table 5-6 & 8-1
+ */
 void dnat_page_consumption(struct kvm_vcpu *vcpu, u64 vadr)
 {
 	_nat_consumption_fault(vcpu, vadr, DATA);
 }
 
+/* Deal with
+ *  Page not present vector
+ */
 static void __page_not_present(struct kvm_vcpu *vcpu, u64 vadr)
 {
-	
+	/* If vPSR.ic, IFA, ITIR */
 	set_ifa_itir_iha(vcpu, vadr, 1, 1, 0);
 	inject_guest_interruption(vcpu, IA64_PAGE_NOT_PRESENT_VECTOR);
 }
@@ -303,9 +419,12 @@ void inst_page_not_present(struct kvm_vcpu *vcpu, u64 vadr)
 	__page_not_present(vcpu, vadr);
 }
 
+/* Deal with
+ *  Data access rights vector
+ */
 void data_access_rights(struct kvm_vcpu *vcpu, u64 vadr)
 {
-	
+	/* If vPSR.ic, IFA, ITIR */
 	set_ifa_itir_iha(vcpu, vadr, 1, 1, 0);
 	inject_guest_interruption(vcpu, IA64_DATA_ACCESS_RIGHTS_VECTOR);
 }
@@ -325,10 +444,29 @@ fpswa_ret_t vmm_fp_emulate(int fp_fault, void *bundle, unsigned long *ipsr,
 
 	memset(&fp_state, 0, sizeof(fp_state_t));
 
-	fp_state.bitmask_low64 = 0xfc0;  
+	/*
+	 * compute fp_state.  only FP registers f6 - f11 are used by the
+	 * vmm, so set those bits in the mask and set the low volatile
+	 * pointer to point to these registers.
+	 */
+	fp_state.bitmask_low64 = 0xfc0;  /* bit6..bit11 */
 
 	fp_state.fp_state_low_volatile = (fp_state_low_volatile_t *) &regs->f6;
 
+   /*
+	 * unsigned long (*EFI_FPSWA) (
+	 *      unsigned long    trap_type,
+	 *      void             *Bundle,
+	 *      unsigned long    *pipsr,
+	 *      unsigned long    *pfsr,
+	 *      unsigned long    *pisr,
+	 *      unsigned long    *ppreds,
+	 *      unsigned long    *pifs,
+	 *      void             *fp_state);
+	 */
+	/*Call host fpswa interface directly to virtualize
+	 *guest fpswa request!
+	 */
 	ia64_set_rr(7UL << 61, vcpu->arch.host.rr[7]);
 	ia64_srlz_d();
 
@@ -339,6 +477,9 @@ fpswa_ret_t vmm_fp_emulate(int fp_fault, void *bundle, unsigned long *ipsr,
 	return ret;
 }
 
+/*
+ * Handle floating-point assist faults and traps for domain.
+ */
 unsigned long vmm_handle_fpu_swa(int fp_fault, struct kvm_pt_regs *regs,
 					unsigned long isr)
 {
@@ -348,6 +489,11 @@ unsigned long vmm_handle_fpu_swa(int fp_fault, struct kvm_pt_regs *regs,
 	fpswa_ret_t ret;
 
 	fault_ip = regs->cr_iip;
+	/*
+	 * When the FP trap occurs, the trapping instruction is completed.
+	 * If ipsr.ri == 0, there is the trapping instruction in previous
+	 * bundle.
+	 */
 	if (!fp_fault && (ia64_psr(regs)->ri == 0))
 		fault_ip -= 16;
 
@@ -379,7 +525,7 @@ void reflect_interruption(u64 ifa, u64 isr, u64 iim,
 	}
 
 	switch (vec) {
-	case 32: 	
+	case 32: 	/*IA64_FP_FAULT_VECTOR*/
 		status = vmm_handle_fpu_swa(1, regs, isr);
 		if (!status) {
 			vcpu_increment_iip(vcpu);
@@ -387,7 +533,7 @@ void reflect_interruption(u64 ifa, u64 isr, u64 iim,
 		} else if (-EAGAIN == status)
 			return;
 		break;
-	case 33:	
+	case 33:	/*IA64_FP_TRAP_VECTOR*/
 		status = vmm_handle_fpu_swa(0, regs, isr);
 		if (!status)
 			return ;
@@ -411,7 +557,7 @@ static unsigned long kvm_trans_pal_call_args(struct kvm_vcpu *vcpu,
 	unsigned long gpa, poff;
 
 	if (!is_physical_mode(vcpu)) {
-		
+		/* Depends on caller to provide the DTR or DTC mapping.*/
 		data = vtlb_lookup(vcpu, arg, D_TLB);
 		if (data)
 			gpa = data->page_flags & _PAGE_PPN_MASK;
@@ -437,6 +583,9 @@ static void set_pal_call_data(struct kvm_vcpu *vcpu)
 	unsigned long gr29 = vcpu_get_gr(vcpu, 29);
 	unsigned long gr30 = vcpu_get_gr(vcpu, 30);
 
+	/*FIXME:For static and stacked convention, firmware
+	 * has put the parameters in gr28-gr31 before
+	 * break to vmm  !!*/
 
 	switch (gr28) {
 	case PAL_PERF_MON_INFO:
@@ -506,7 +655,7 @@ void  kvm_ia64_handle_break(unsigned long ifa, struct kvm_pt_regs *regs,
 	long psr;
 
 	if (ia64_psr(regs)->cpl == 0) {
-		
+		/* Allow hypercalls only when cpl = 0.  */
 		if (iim == DOMN_PAL_REQUEST) {
 			local_irq_save(psr);
 			set_pal_call_data(v);
@@ -547,12 +696,12 @@ void check_pending_irq(struct kvm_vcpu *vcpu)
 	if ((vpsr & IA64_PSR_I) && IRQ_NO_MASKED == mask) {
 		isr = vpsr & IA64_PSR_RI;
 		update_vhpi(vcpu, h_pending);
-		reflect_interruption(0, isr, 0, 12, regs); 
+		reflect_interruption(0, isr, 0, 12, regs); /* EXT IRQ */
 	} else if (mask == IRQ_MASKED_BY_INSVC) {
 		if (VCPU(vcpu, vhpi))
 			update_vhpi(vcpu, NULL_VECTOR);
 	} else {
-		
+		/* masked by vpsr.i or vtpr.*/
 		update_vhpi(vcpu, h_pending);
 	}
 }
@@ -568,7 +717,7 @@ static void generate_exirq(struct kvm_vcpu *vcpu)
 	isr = vpsr & IA64_PSR_RI;
 	if (!(vpsr & IA64_PSR_IC))
 		panic_vm(vcpu, "Trying to inject one IRQ with psr.ic=0\n");
-	reflect_interruption(0, isr, 0, 12, regs); 
+	reflect_interruption(0, isr, 0, 12, regs); /* EXT IRQ */
 }
 
 void vhpi_detection(struct kvm_vcpu *vcpu)
@@ -583,7 +732,7 @@ void vhpi_detection(struct kvm_vcpu *vcpu)
 	threshold = ((!vpsr.i) << 5) | (vtpr.mmi << 4) | vtpr.mic;
 	vhpi = VCPU(vcpu, vhpi);
 	if (vhpi > threshold) {
-		
+		/* interrupt actived*/
 		generate_exirq(vcpu);
 	}
 }
@@ -702,11 +851,11 @@ void kvm_page_fault(u64 vadr , u64 vec, struct kvm_pt_regs *regs)
 		}
 
 		vpta.val = vcpu_get_pta(v);
-		
+		/* avoid recursively walking (short format) VHPT */
 
 		vhpt_adr = vcpu_thash(v, vadr);
 		if (!guest_vhpt_lookup(vhpt_adr, &pteval)) {
-			
+			/* VHPT successfully read.  */
 			if (!(pteval & _PAGE_P)) {
 				if (vpsr & IA64_PSR_IC) {
 					vcpu_set_isr(v, misr.val);
@@ -724,7 +873,7 @@ void kvm_page_fault(u64 vadr , u64 vec, struct kvm_pt_regs *regs)
 				nested_dtlb(v);
 			}
 		} else {
-			
+			/* Can't read VHPT.  */
 			if (vpsr & IA64_PSR_IC) {
 				vcpu_set_isr(v, misr.val);
 				dvhpt_fault(v, vadr);
@@ -745,7 +894,7 @@ void kvm_page_fault(u64 vadr , u64 vec, struct kvm_pt_regs *regs)
 
 		vhpt_adr = vcpu_thash(v, vadr);
 		if (!guest_vhpt_lookup(vhpt_adr, &pteval)) {
-			
+			/* VHPT successfully read.  */
 			if (pteval & _PAGE_P) {
 				if ((pteval & _PAGE_MA_MASK) == _PAGE_MA_ST) {
 					vcpu_set_isr(v, misr.val);
@@ -775,7 +924,7 @@ void kvm_vexirq(struct kvm_vcpu *vcpu)
 	regs = vcpu_regs(vcpu);
 	vpsr = VCPU(vcpu, vpsr);
 	isr = vpsr & IA64_PSR_RI;
-	reflect_interruption(0, isr, 0, 12, regs); 
+	reflect_interruption(0, isr, 0, 12, regs); /*EXT IRQ*/
 }
 
 void kvm_ia64_handle_irq(struct kvm_vcpu *v)
@@ -817,7 +966,7 @@ static void ptc_ga_remote_func(struct kvm_vcpu *v, int pos)
 
 static void vcpu_do_resume(struct kvm_vcpu *vcpu)
 {
-	
+	/*Re-init VHPT and VTLB once from resume*/
 	vcpu->arch.vhpt.num = VHPT_NUM_ENTRIES;
 	thash_init(&vcpu->arch.vhpt, VHPT_SHIFT);
 	vcpu->arch.vtlb.num = VTLB_NUM_ENTRIES;
@@ -838,7 +987,7 @@ static void vmm_sanity_check(struct kvm_vcpu *vcpu)
 
 static void kvm_do_resume_op(struct kvm_vcpu *vcpu)
 {
-	vmm_sanity_check(vcpu); 
+	vmm_sanity_check(vcpu); /*Guarantee vcpu running on healthy vmm!*/
 
 	if (test_and_clear_bit(KVM_REQ_RESUME, &vcpu->requests)) {
 		vcpu_do_resume(vcpu);

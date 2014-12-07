@@ -23,6 +23,12 @@
 #include "recoverd.h"
 
 
+/* If the start for which we're re-enabling locking (seq) has been superseded
+   by a newer stop (ls_recover_seq), we need to leave locking disabled.
+
+   We suspend dlm_recv threads here to avoid the race where dlm_recv a) sees
+   locking stopped and b) adds a message to the requestqueue, but dlm_recoverd
+   enables locking and clears the requestqueue between a and b. */
 
 static int enable_locking(struct dlm_ls *ls, uint64_t seq)
 {
@@ -33,7 +39,7 @@ static int enable_locking(struct dlm_ls *ls, uint64_t seq)
 	spin_lock(&ls->ls_recover_lock);
 	if (ls->ls_recover_seq == seq) {
 		set_bit(LSFL_RUNNING, &ls->ls_flags);
-		
+		/* unblocks processes waiting to enter the dlm */
 		up_write(&ls->ls_in_recovery);
 		error = 0;
 	}
@@ -54,12 +60,23 @@ static int ls_recover(struct dlm_ls *ls, struct dlm_recover *rv)
 
 	dlm_callback_suspend(ls);
 
+	/*
+	 * Free non-master tossed rsb's.  Master rsb's are kept on toss
+	 * list and put on root list to be included in resdir recovery.
+	 */
 
 	dlm_clear_toss_list(ls);
 
+	/*
+	 * This list of root rsb's will be the basis of most of the recovery
+	 * routines.
+	 */
 
 	dlm_create_root_list(ls);
 
+	/*
+	 * Add or remove nodes from the lockspace's ls_nodes list.
+	 */
 
 	error = dlm_recover_members(ls, rv, &neg);
 	if (error) {
@@ -77,6 +94,10 @@ static int ls_recover(struct dlm_ls *ls, struct dlm_recover *rv)
 
 	start = jiffies;
 
+	/*
+	 * Rebuild our own share of the directory by collecting from all other
+	 * nodes their master rsb names that hash to us.
+	 */
 
 	error = dlm_recover_directory(ls);
 	if (error) {
@@ -92,6 +113,11 @@ static int ls_recover(struct dlm_ls *ls, struct dlm_recover *rv)
 		goto fail;
 	}
 
+	/*
+	 * We may have outstanding operations that are waiting for a reply from
+	 * a failed node.  Mark these to be resent after recovery.  Unlock and
+	 * cancel ops can just be completed.
+	 */
 
 	dlm_recover_waiters_pre(ls);
 
@@ -100,9 +126,16 @@ static int ls_recover(struct dlm_ls *ls, struct dlm_recover *rv)
 		goto fail;
 
 	if (neg || dlm_no_directory(ls)) {
+		/*
+		 * Clear lkb's for departed nodes.
+		 */
 
 		dlm_purge_locks(ls);
 
+		/*
+		 * Get new master nodeid's for rsb's that were mastered on
+		 * departed nodes.
+		 */
 
 		error = dlm_recover_masters(ls);
 		if (error) {
@@ -110,6 +143,9 @@ static int ls_recover(struct dlm_ls *ls, struct dlm_recover *rv)
 			goto fail;
 		}
 
+		/*
+		 * Send our locks on remastered rsb's to the new masters.
+		 */
 
 		error = dlm_recover_locks(ls);
 		if (error) {
@@ -125,9 +161,19 @@ static int ls_recover(struct dlm_ls *ls, struct dlm_recover *rv)
 			goto fail;
 		}
 
+		/*
+		 * Finalize state in master rsb's now that all locks can be
+		 * checked.  This includes conversion resolution and lvb
+		 * settings.
+		 */
 
 		dlm_recover_rsbs(ls);
 	} else {
+		/*
+		 * Other lockspace members may be going through the "neg" steps
+		 * while also adding us to the lockspace, in which case they'll
+		 * be doing the recover_locks (RS_LOCKS) barrier.
+		 */
 		dlm_set_recover_status(ls, DLM_RS_LOCKS);
 
 		error = dlm_recover_locks_wait(ls);
@@ -139,6 +185,11 @@ static int ls_recover(struct dlm_ls *ls, struct dlm_recover *rv)
 
 	dlm_release_root_list(ls);
 
+	/*
+	 * Purge directory-related requests that are saved in requestqueue.
+	 * All dir requests from before recovery are invalid now due to the dir
+	 * rebuild and will be resent by the requesting nodes.
+	 */
 
 	dlm_purge_requestqueue(ls);
 
@@ -192,6 +243,9 @@ static int ls_recover(struct dlm_ls *ls, struct dlm_recover *rv)
 	return error;
 }
 
+/* The dlm_ls_start() that created the rv we take here may already have been
+   stopped via dlm_ls_stop(); in that case we need to leave the RECOVERY_STOP
+   flag set. */
 
 static void do_ls_recovery(struct dlm_ls *ls)
 {

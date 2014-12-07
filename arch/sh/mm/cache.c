@@ -42,6 +42,11 @@ static inline void cacheop_on_each_cpu(void (*func) (void *info), void *info,
 {
 	preempt_disable();
 
+	/*
+	 * It's possible that this gets called early on when IRQs are
+	 * still disabled due to ioremapping by the boot CPU, so don't
+	 * even attempt IPIs unless there are other CPUs online.
+	 */
 	if (num_online_cpus() > 1)
 		smp_call_function(func, info, wait);
 
@@ -108,7 +113,7 @@ void copy_user_highpage(struct page *to, struct page *from,
 		__flush_purge_region(vto, PAGE_SIZE);
 
 	kunmap_atomic(vto);
-	
+	/* Make sure this page is cleared on other CPU's too before using it */
 	smp_wmb();
 }
 EXPORT_SYMBOL(copy_user_highpage);
@@ -153,8 +158,8 @@ void __flush_anon_page(struct page *page, unsigned long vmaddr)
 			void *kaddr;
 
 			kaddr = kmap_coherent(page, vmaddr);
-			
-			
+			/* XXX.. For now kunmap_coherent() does a purge */
+			/* __flush_purge_region((void *)kaddr, PAGE_SIZE); */
 			kunmap_coherent(kaddr);
 		} else
 			__flush_purge_region((void *)addr, PAGE_SIZE);
@@ -227,7 +232,7 @@ void flush_icache_range(unsigned long start, unsigned long end)
 
 void flush_icache_page(struct vm_area_struct *vma, struct page *page)
 {
-	
+	/* Nothing uses the VMA, so just pass the struct page along */
 	cacheop_on_each_cpu(local_flush_icache_page, page, 1);
 }
 
@@ -261,6 +266,9 @@ static void __init emit_cache_params(void)
 		boot_cpu_data.dcache.alias_mask,
 		boot_cpu_data.dcache.n_aliases);
 
+	/*
+	 * Emit Secondary Cache parameters if the CPU has a probed L2.
+	 */
 	if (boot_cpu_data.flags & CPU_HAS_L2_CACHE) {
 		printk(KERN_NOTICE "S-cache : n_ways=%d n_sets=%d way_incr=%d\n",
 			boot_cpu_data.scache.ways,
@@ -289,6 +297,10 @@ void __init cpu_cache_init(void)
 	__flush_purge_region		= noop__flush_region;
 	__flush_invalidate_region	= noop__flush_region;
 
+	/*
+	 * No flushing is necessary in the disabled cache case so we can
+	 * just keep the noop functions in local_flush_..() and __flush_..()
+	 */
 	if (unlikely(cache_disabled))
 		goto skip;
 

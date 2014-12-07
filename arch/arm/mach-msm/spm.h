@@ -88,6 +88,7 @@ struct msm_spm_platform_data {
 
 #if defined(CONFIG_MSM_SPM_V2)
 
+/* Public functions */
 
 int msm_spm_set_low_power_mode(unsigned int mode, bool notify_rpm);
 int msm_spm_set_vdd(unsigned int cpu, unsigned int vlevel);
@@ -101,6 +102,7 @@ static inline int msm_spm_turn_on_cpu_rail(unsigned int cpu)
 }
 #endif
 
+/* Internal low power management specific functions */
 
 void msm_spm_reinit(void);
 int msm_spm_init(struct msm_spm_platform_data *data, int nr_devs);
@@ -108,11 +110,13 @@ int msm_spm_device_init(void);
 
 #if defined(CONFIG_MSM_L2_SPM)
 
+/* Public functions */
 
 int msm_spm_l2_set_low_power_mode(unsigned int mode, bool notify_rpm);
 int msm_spm_apcs_set_phase(unsigned int phase_cnt);
 int msm_spm_enable_fts_lpm(uint32_t mode);
 
+/* Internal low power management specific functions */
 
 int msm_spm_l2_init(struct msm_spm_platform_data *data);
 void msm_spm_l2_reinit(void);
@@ -132,7 +136,7 @@ static inline int msm_spm_l2_init(struct msm_spm_platform_data *data)
 
 static inline void msm_spm_l2_reinit(void)
 {
-	
+	/* empty */
 }
 
 static inline int msm_spm_apcs_set_phase(unsigned int phase_cnt)
@@ -144,8 +148,8 @@ static inline int msm_spm_enable_fts_lpm(uint32_t mode)
 {
 	return -ENOSYS;
 }
-#endif 
-#else 
+#endif /* defined(CONFIG_MSM_L2_SPM) */
+#else /* defined(CONFIG_MSM_SPM_V2) */
 static inline int msm_spm_set_low_power_mode(unsigned int mode, bool notify_rpm)
 {
 	return -ENOSYS;
@@ -163,7 +167,7 @@ static inline unsigned int msm_spm_get_vdd(unsigned int cpu)
 
 static inline void msm_spm_reinit(void)
 {
-	
+	/* empty */
 }
 
 static inline int msm_spm_turn_on_cpu_rail(unsigned int cpu)
@@ -176,5 +180,5 @@ static inline int msm_spm_device_init(void)
 	return -ENOSYS;
 }
 
-#endif  
-#endif  
+#endif  /* defined (CONFIG_MSM_SPM_V2) */
+#endif  /* __ARCH_ARM_MACH_MSM_SPM_H */

@@ -36,7 +36,7 @@ static void netx_set_mode(enum clock_event_mode mode,
 {
 	u32 tmode;
 
-	
+	/* disable timer */
 	writel(0, NETX_GPIO_COUNTER_CTRL(TIMER_CLOCKEVENT));
 
 	switch (mode) {
@@ -55,7 +55,7 @@ static void netx_set_mode(enum clock_event_mode mode,
 
 	default:
 		WARN(1, "%s: unhandled mode %d\n", __func__, mode);
-		
+		/* fall through */
 
 	case CLOCK_EVT_MODE_SHUTDOWN:
 	case CLOCK_EVT_MODE_UNUSED:
@@ -82,12 +82,15 @@ static struct clock_event_device netx_clockevent = {
 	.set_mode = netx_set_mode,
 };
 
+/*
+ * IRQ handler for the timer
+ */
 static irqreturn_t
 netx_timer_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *evt = &netx_clockevent;
 
-	
+	/* acknowledge interrupt */
 	writel(COUNTER_BIT(0), NETX_GPIO_IRQ);
 
 	evt->event_handler(evt);
@@ -101,26 +104,32 @@ static struct irqaction netx_timer_irq = {
 	.handler	= netx_timer_interrupt,
 };
 
+/*
+ * Set up timer interrupt
+ */
 static void __init netx_timer_init(void)
 {
-	
+	/* disable timer initially */
 	writel(0, NETX_GPIO_COUNTER_CTRL(0));
 
-	
+	/* Reset the timer value to zero */
 	writel(0, NETX_GPIO_COUNTER_CURRENT(0));
 
 	writel(LATCH, NETX_GPIO_COUNTER_MAX(0));
 
-	
+	/* acknowledge interrupt */
 	writel(COUNTER_BIT(0), NETX_GPIO_IRQ);
 
+	/* Enable the interrupt in the specific timer
+	 * register and start timer
+	 */
 	writel(COUNTER_BIT(0), NETX_GPIO_IRQ_ENABLE);
 	writel(NETX_GPIO_COUNTER_CTRL_IRQ_EN | NETX_GPIO_COUNTER_CTRL_RUN,
 			NETX_GPIO_COUNTER_CTRL(0));
 
 	setup_irq(NETX_IRQ_TIMER0, &netx_timer_irq);
 
-	
+	/* Setup timer one for clocksource */
 	writel(0, NETX_GPIO_COUNTER_CTRL(TIMER_CLOCKSOURCE));
 	writel(0, NETX_GPIO_COUNTER_CURRENT(TIMER_CLOCKSOURCE));
 	writel(0xffffffff, NETX_GPIO_COUNTER_MAX(TIMER_CLOCKSOURCE));
@@ -135,6 +144,8 @@ static void __init netx_timer_init(void)
 			netx_clockevent.shift);
 	netx_clockevent.max_delta_ns =
 		clockevent_delta2ns(0xfffffffe, &netx_clockevent);
+	/* with max_delta_ns >= delta2ns(0x800) the system currently runs fine.
+	 * Adding some safety ... */
 	netx_clockevent.min_delta_ns =
 		clockevent_delta2ns(0xa00, &netx_clockevent);
 	netx_clockevent.cpumask = cpumask_of(0);

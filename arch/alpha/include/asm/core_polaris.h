@@ -4,7 +4,20 @@
 #include <linux/types.h>
 #include <asm/compiler.h>
 
+/*
+ * POLARIS is the internal name for a core logic chipset which provides
+ * memory controller and PCI access for the 21164PC chip based systems.
+ *
+ * This file is based on:
+ *
+ * Polaris System Controller
+ * Device Functional Specification
+ * 22-Jan-98
+ * Rev. 4.2
+ *
+ */
 
+/* Polaris memory regions */
 #define POLARIS_SPARSE_MEM_BASE		(IDENT_ADDR + 0xf800000000UL)
 #define POLARIS_DENSE_MEM_BASE		(IDENT_ADDR + 0xf900000000UL)
 #define POLARIS_SPARSE_IO_BASE		(IDENT_ADDR + 0xf980000000UL)
@@ -15,11 +28,17 @@
 
 #define POLARIS_IACK_SC			POLARIS_IACK_BASE
 
+/* The Polaris command/status registers live in PCI Config space for
+ * bus 0/device 0.  As such, they may be bytes, words, or doublewords.
+ */
 #define POLARIS_W_VENID		(POLARIS_DENSE_CONFIG_BASE)
 #define POLARIS_W_DEVID		(POLARIS_DENSE_CONFIG_BASE+2)
 #define POLARIS_W_CMD		(POLARIS_DENSE_CONFIG_BASE+4)
 #define POLARIS_W_STATUS	(POLARIS_DENSE_CONFIG_BASE+6)
 
+/*
+ * Data structure for handling POLARIS machine checks:
+ */
 struct el_POLARIS_sysdata_mcheck {
     u_long      psc_status;
     u_long	psc_pcictl0;
@@ -34,7 +53,22 @@ struct el_POLARIS_sysdata_mcheck {
 #define __IO_EXTERN_INLINE
 #endif
 
+/*
+ * I/O functions:
+ *
+ * POLARIS, the PCI/memory support chipset for the PCA56 (21164PC)
+ * processors, can use either a sparse address  mapping scheme, or the 
+ * so-called byte-word PCI address space, to get at PCI memory and I/O.
+ *
+ * However, we will support only the BWX form.
+ */
 
+/*
+ * Memory functions.  Polaris allows all accesses (byte/word
+ * as well as long/quad) to be done through dense space.
+ *
+ * We will only support DENSE access via BWX insns.
+ */
 
 __EXTERN_INLINE void __iomem *polaris_ioportmap(unsigned long addr)
 {
@@ -71,6 +105,6 @@ __EXTERN_INLINE int polaris_is_mmio(const volatile void __iomem *addr)
 #undef __IO_EXTERN_INLINE
 #endif
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ALPHA_POLARIS__H__ */

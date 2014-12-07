@@ -1,3 +1,9 @@
+/*
+ * linux/include/asm-m68k/raw_io.h
+ *
+ * 10/20/00 RZ: - created from bits of io.h and ide.h to cleanup namespace
+ *
+ */
 
 #ifndef _RAW_IO_H
 #define _RAW_IO_H
@@ -7,6 +13,7 @@
 #include <asm/types.h>
 
 
+/* Values for nocacheflag and cmode */
 #define IOMAP_FULL_CACHING		0
 #define IOMAP_NOCACHE_SER		1
 #define IOMAP_NOCACHE_NONSER		2
@@ -19,6 +26,9 @@ extern void __iomem *__ioremap(unsigned long physaddr, unsigned long size,
 extern void __iounmap(void *addr, unsigned long size);
 
 
+/* ++roman: The assignments to temp. vars avoid that gcc sometimes generates
+ * two accesses to memory, which may be undesirable for some devices.
+ */
 #define in_8(addr) \
     ({ u8 __v = (*(__force volatile u8 *) (addr)); __v; })
 #define in_be16(addr) \
@@ -332,6 +342,6 @@ static inline void raw_outsw_swapw(volatile u16 __iomem *port, const u16 *buf,
 		: "d0", "a0", "a1", "d6");
 }
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _RAW_IO_H */

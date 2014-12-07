@@ -1,3 +1,8 @@
+/*
+ * This code was developed for the Quatech USB line for linux, it used
+ * much of the code developed by Greg Kroah-Hartman for USB serial devices
+ *
+ */
 
 #include <linux/errno.h>
 #include <linux/init.h>
@@ -13,35 +18,36 @@
 
 static bool debug;
 
+/* Version Information */
 #define DRIVER_VERSION "v2.14"
 #define DRIVER_AUTHOR "Tim Gobeli, Quatech, Inc"
 #define DRIVER_DESC "Quatech USB to Serial Driver"
 
-#define	USB_VENDOR_ID_QUATECH			0x061d	
-#define QUATECH_SSU200	0xC030	
-#define QUATECH_DSU100	0xC040	
-#define QUATECH_DSU200	0xC050	
-#define QUATECH_QSU100	0xC060	
-#define QUATECH_QSU200	0xC070	
-#define QUATECH_ESU100A	0xC080	
-#define QUATECH_ESU100B	0xC081	
-#define QUATECH_ESU200A	0xC0A0	
-#define QUATECH_ESU200B	0xC0A1	
-#define QUATECH_HSU100A	0xC090	
-#define QUATECH_HSU100B	0xC091	
-#define QUATECH_HSU100C	0xC092	
-#define QUATECH_HSU100D	0xC093	
-#define QUATECH_HSU200A	0xC0B0	
-#define QUATECH_HSU200B	0xC0B1	
-#define QUATECH_HSU200C	0xC0B2	
-#define QUATECH_HSU200D	0xC0B3	
-#define QUATECH_SSU100_2  0xC120	
-#define QUATECH_DSU100_2  0xC140	
-#define QUATECH_DSU400_2  0xC150	
-#define QUATECH_QSU100_2  0xC160	
-#define QUATECH_QSU400_2  0xC170	
-#define QUATECH_ESU400_2  0xC180	
-#define QUATECH_ESU100_2  0xC1A0	
+#define	USB_VENDOR_ID_QUATECH			0x061d	/* Quatech VID */
+#define QUATECH_SSU200	0xC030	/* SSU200 */
+#define QUATECH_DSU100	0xC040	/* DSU100 */
+#define QUATECH_DSU200	0xC050	/* DSU200 */
+#define QUATECH_QSU100	0xC060	/* QSU100 */
+#define QUATECH_QSU200	0xC070	/* QSU200 */
+#define QUATECH_ESU100A	0xC080	/* ESU100A */
+#define QUATECH_ESU100B	0xC081	/* ESU100B */
+#define QUATECH_ESU200A	0xC0A0	/* ESU200A */
+#define QUATECH_ESU200B	0xC0A1	/* ESU200B */
+#define QUATECH_HSU100A	0xC090	/* HSU100A */
+#define QUATECH_HSU100B	0xC091	/* HSU100B */
+#define QUATECH_HSU100C	0xC092	/* HSU100C */
+#define QUATECH_HSU100D	0xC093	/* HSU100D */
+#define QUATECH_HSU200A	0xC0B0	/* HSU200A */
+#define QUATECH_HSU200B	0xC0B1	/* HSU200B */
+#define QUATECH_HSU200C	0xC0B2	/* HSU200C */
+#define QUATECH_HSU200D	0xC0B3	/* HSU200D */
+#define QUATECH_SSU100_2  0xC120	/* SSU100_2 */
+#define QUATECH_DSU100_2  0xC140	/* DSU100_2 */
+#define QUATECH_DSU400_2  0xC150	/* DSU400_2 */
+#define QUATECH_QSU100_2  0xC160	/* QSU100_2 */
+#define QUATECH_QSU400_2  0xC170	/* QSU400_2 */
+#define QUATECH_ESU400_2  0xC180	/* ESU400_2 */
+#define QUATECH_ESU100_2  0xC1A0	/* ESU100_2 */
 
 #define QT_SET_GET_DEVICE           0xc2
 #define QT_OPEN_CLOSE_CHANNEL       0xca
@@ -90,8 +96,8 @@ static bool debug;
 #define  SERIAL_TWO_STOPB           0x04
 #define  SERIAL_ONE_STOPB           0x00
 
-#define DEFAULT_DIVISOR  0x30	
-#define DEFAULT_LCR SERIAL_8_DATA	
+#define DEFAULT_DIVISOR  0x30	/* gives 9600 baud rate */
+#define DEFAULT_LCR SERIAL_8_DATA	/* 8, none , 1 */
 
 #define FULLPWRBIT          0x00000080
 #define NEXT_BOARD_POWER_BIT        0x00000004
@@ -110,11 +116,11 @@ static bool debug;
 #define PREFUFF_LEVEL_CONSERVATIVE  128
 #define ATC_DISABLED                0x0
 
-#define RR_BITS             0x03	
+#define RR_BITS             0x03	/* for clearing clock bits */
 #define DUPMODE_BITS        0xc0
 #define CLKS_X4             0x02
 
-#define LOOPMODE_BITS       0x41	
+#define LOOPMODE_BITS       0x41	/* LOOP1 = b6, LOOP0 = b0 (PORT B) */
 #define ALL_LOOPBACK        0x01
 #define MODEM_CTRL          0x40
 #define RS232_MODE          0x00
@@ -144,7 +150,7 @@ static const struct usb_device_id serqt_id_table[] = {
 	{USB_DEVICE(USB_VENDOR_ID_QUATECH, QUATECH_QSU400_2)},
 	{USB_DEVICE(USB_VENDOR_ID_QUATECH, QUATECH_ESU400_2)},
 	{USB_DEVICE(USB_VENDOR_ID_QUATECH, QUATECH_ESU100_2)},
-	{}			
+	{}			/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, serqt_id_table);
@@ -161,18 +167,18 @@ struct qt_open_channel_data {
 };
 
 struct quatech_port {
-	int port_num;		
-	struct urb *write_urb;	
-	struct urb *read_urb;	
+	int port_num;		/* number of the port */
+	struct urb *write_urb;	/* write URB for this port */
+	struct urb *read_urb;	/* read URB for this port */
 	struct urb *int_urb;
 
-	__u8 shadowLCR;		
-	__u8 shadowMCR;		
-	__u8 shadowMSR;		
-	__u8 shadowLSR;		
+	__u8 shadowLCR;		/* last LCR value received */
+	__u8 shadowMCR;		/* last MCR value received */
+	__u8 shadowMSR;		/* last MSR value received */
+	__u8 shadowLSR;		/* last LSR value received */
 	char open_ports;
 
-	
+	/* Used for TIOCMIWAIT */
 	wait_queue_head_t msr_wait;
 	char prev_status, diff_status;
 
@@ -180,7 +186,7 @@ struct quatech_port {
 
 	struct async_icount icount;
 
-	struct usb_serial_port *port;	
+	struct usb_serial_port *port;	/* owner of this object */
 	struct qt_get_device_data DeviceData;
 	struct mutex lock;
 	bool read_urb_busy;
@@ -242,10 +248,14 @@ static inline void qt_set_port_private(struct usb_serial_port *port,
 static struct usb_serial *get_usb_serial(struct usb_serial_port *port,
 					 const char *function)
 {
-	
+	/* if no port was specified, or it fails a paranoia check */
 	if (!port ||
 	    port_paranoia_check(port, function) ||
 	    serial_paranoia_check(port->serial, function)) {
+		/*
+		 * then say that we dont have a valid usb_serial thing,
+		 * which will end up genrating -ENODEV return values
+		 */
 		return NULL;
 	}
 
@@ -305,7 +315,7 @@ static void qt_write_bulk_callback(struct urb *urb)
 
 static void qt_interrupt_callback(struct urb *urb)
 {
-	
+	/* FIXME */
 }
 
 static void qt_read_bulk_callback(struct urb *urb)
@@ -338,7 +348,7 @@ static void qt_read_bulk_callback(struct urb *urb)
 
 	RxCount = urb->actual_length;
 
-	
+	/* index = MINOR(port->tty->device) - serial->minor; */
 	index = tty->index - serial->minor;
 
 	dbg("%s - port %d\n", __func__, port->number);
@@ -355,12 +365,17 @@ static void qt_read_bulk_callback(struct urb *urb)
 		goto exit;
 	}
 	if (qt_port->closePending == 1) {
-		
+		/* Were closing , stop reading */
 		dbg("%s - (qt_port->closepending == 1\n", __func__);
 		qt_port->ReadBulkStopped = 1;
 		goto exit;
 	}
 
+	/*
+	 * RxHolding is asserted by throttle, if we assert it, we're not
+	 * receiving any more characters and let the box handle the flow
+	 * control
+	 */
 	if (qt_port->RxHolding == 1) {
 		qt_port->ReadBulkStopped = 1;
 		goto exit;
@@ -377,13 +392,13 @@ static void qt_read_bulk_callback(struct urb *urb)
 	if (tty && RxCount) {
 		flag_data = 0;
 		for (i = 0; i < RxCount; ++i) {
-			
+			/* Look ahead code here */
 			if ((i <= (RxCount - 3)) && (data[i] == 0x1b)
 			    && (data[i + 1] == 0x1b)) {
 				flag = 0;
 				switch (data[i + 2]) {
 				case 0x00:
-					
+					/* line status change 4th byte must follow */
 					if (i > (RxCount - 4)) {
 						dbg("Illegal escape seuences in received data\n");
 						break;
@@ -394,7 +409,7 @@ static void qt_read_bulk_callback(struct urb *urb)
 					break;
 
 				case 0x01:
-					
+					/* Modem status status change 4th byte must follow */
 					dbg("Modem status status.\n");
 					if (i > (RxCount - 4)) {
 						dbg("Illegal escape sequences in received data\n");
@@ -426,7 +441,7 @@ static void qt_read_bulk_callback(struct urb *urb)
 		tty_flip_buffer_push(tty);
 	}
 
-	
+	/* Continue trying to always read  */
 	usb_fill_bulk_urb(port->read_urb, serial->dev,
 			  usb_rcvbulkpipe(serial->dev,
 					  port->bulk_in_endpointAddress),
@@ -449,6 +464,12 @@ exit:
 	tty_kref_put(tty);
 }
 
+/*
+ * qt_get_device
+ *   Issue a GET_DEVICE vendor-specific request on the default control pipe If
+ *   successful, fills in the qt_get_device_data structure pointed to by
+ *   device_data, otherwise return a negative error number of the problem.
+ */
 
 static int qt_get_device(struct usb_serial *serial,
 			 struct qt_get_device_data *device_data)
@@ -473,6 +494,10 @@ static int qt_get_device(struct usb_serial *serial,
 	return result;
 }
 
+/****************************************************************************
+ *  BoxSetPrebufferLevel
+   TELLS BOX WHEN TO ASSERT FLOW CONTROL
+ ****************************************************************************/
 static int BoxSetPrebufferLevel(struct usb_serial *serial)
 {
 	int result;
@@ -485,6 +510,10 @@ static int BoxSetPrebufferLevel(struct usb_serial *serial)
 	return result;
 }
 
+/****************************************************************************
+ *  BoxSetATC
+   TELLS BOX WHEN TO ASSERT automatic transmitter control
+   ****************************************************************************/
 static int BoxSetATC(struct usb_serial *serial, __u16 n_Mode)
 {
 	int result;
@@ -553,6 +582,11 @@ static int qt_close_channel(struct usb_serial *serial, __u16 Uart_Number)
 
 }
 
+/****************************************************************************
+* BoxGetRegister
+*	issuse a GET_REGISTER vendor-spcific request on the default control pipe
+*	If successful, fills in the  pValue with the register value asked for
+****************************************************************************/
 static int BoxGetRegister(struct usb_serial *serial, unsigned short Uart_Number,
 			  unsigned short Register_Num, __u8 *pValue)
 {
@@ -569,6 +603,11 @@ static int BoxGetRegister(struct usb_serial *serial, unsigned short Uart_Number,
 	return result;
 }
 
+/****************************************************************************
+* BoxSetRegister
+*	issuse a GET_REGISTER vendor-spcific request on the default control pipe
+*	If successful, fills in the  pValue with the register value asked for
+****************************************************************************/
 static int BoxSetRegister(struct usb_serial *serial, unsigned short Uart_Number,
 			  unsigned short Register_Num, unsigned short Value)
 {
@@ -579,6 +618,11 @@ static int BoxSetRegister(struct usb_serial *serial, unsigned short Uart_Number,
 	RegAndByte = RegAndByte << 8;
 	RegAndByte = RegAndByte + Register_Num;
 
+/*
+	result = usb_control_msg(serial->dev, usb_sndctrlpipe(serial->dev, 0),
+				 QT_GET_SET_REGISTER, 0xC0, Register_Num,
+				 Uart_Number, NULL, 0, 300);
+*/
 
 	result =
 	    usb_control_msg(serial->dev, usb_sndctrlpipe(serial->dev, 0),
@@ -588,6 +632,11 @@ static int BoxSetRegister(struct usb_serial *serial, unsigned short Uart_Number,
 	return result;
 }
 
+/*
+ * qt_setuart
+ * issuse a SET_UART vendor-spcific request on the default control pipe
+ * If successful sets baud rate divisor and LCR value
+ */
 static int qt_setuart(struct usb_serial *serial, unsigned short Uart_Number,
 		      unsigned short default_divisor, unsigned char default_LCR)
 {
@@ -612,20 +661,22 @@ static int BoxSetHW_FlowCtrl(struct usb_serial *serial, unsigned int index,
 	unsigned int status;
 
 	if (bSet == 1) {
-		
+		/* flow control, box will clear RTS line to prevent remote */
 		mcr = SERIAL_MCR_RTS;
-	} 
+	} /* device from xmitting more chars */
 	else {
-		
+		/* no flow control to remote device */
 		mcr = 0;
 
 	}
 	MOUT_Value = mcr << 8;
 
 	if (bSet == 1) {
+		/* flow control, box will inhibit xmit data if CTS line is
+		 * asserted */
 		msr = SERIAL_MSR_CTS;
 	} else {
-		
+		/* Box will not inhimbe xmit data due to CTS line */
 		msr = 0;
 	}
 	MOUT_Value |= msr;
@@ -677,7 +728,7 @@ static int qt_startup(struct usb_serial *serial)
 
 	dbg("enterting %s", __func__);
 
-	
+	/* Now setup per port private data */
 	for (i = 0; i < serial->num_ports; i++) {
 		port = serial->port[i];
 		qt_port = kzalloc(sizeof(*qt_port), GFP_KERNEL);
@@ -758,7 +809,7 @@ static int qt_startup(struct usb_serial *serial)
 
 	}
 
-	status = BoxSetPrebufferLevel(serial);	
+	status = BoxSetPrebufferLevel(serial);	/* sets to default value */
 	if (status < 0) {
 		dbg(__FILE__ "BoxSetPrebufferLevel failed\n");
 		goto startup_error;
@@ -850,7 +901,7 @@ static int qt_open(struct tty_struct *tty,
 
 	result = qt_get_device(serial, &port0->DeviceData);
 
-	
+	/* Port specific setups */
 	result = qt_open_channel(serial, port->number, &ChannelData);
 	if (result < 0) {
 		dbg(__FILE__ "qt_open_channel failed\n");
@@ -858,13 +909,14 @@ static int qt_open(struct tty_struct *tty,
 	}
 	dbg(__FILE__ "qt_open_channel completed.\n");
 
+/* FIXME: are these needed?  Does it even do anything useful? */
 	quatech_port->shadowLSR = ChannelData.line_status &
 	    (SERIAL_LSR_OE | SERIAL_LSR_PE | SERIAL_LSR_FE | SERIAL_LSR_BI);
 
 	quatech_port->shadowMSR = ChannelData.modem_status &
 	    (SERIAL_MSR_CTS | SERIAL_MSR_DSR | SERIAL_MSR_RI | SERIAL_MSR_CD);
 
-	
+	/* Set Baud rate to default and turn off (default)flow control here */
 	result = qt_setuart(serial, port->number, DEFAULT_DIVISOR, DEFAULT_LCR);
 	if (result < 0) {
 		dbg(__FILE__ "qt_setuart failed\n");
@@ -872,13 +924,17 @@ static int qt_open(struct tty_struct *tty,
 	}
 	dbg(__FILE__ "qt_setuart completed.\n");
 
-	
-	
+	/*
+	 * Put this here to make it responsive to stty and defaults set by
+	 * the tty layer
+	 */
+	/* FIXME: is this needed? */
+	/* qt_set_termios(tty, port, NULL); */
 
-	
+	/*  Check to see if we've set up our endpoint info yet */
 	if (port0->open_ports == 1) {
 		if (serial->port[0]->interrupt_in_buffer == NULL) {
-			
+			/* set up interrupt urb */
 			usb_fill_int_urb(serial->port[0]->interrupt_in_urb,
 					 serial->dev,
 					 usb_rcvintpipe(serial->dev,
@@ -911,7 +967,7 @@ static int qt_open(struct tty_struct *tty,
 	dbg("port's number in the device is %d\n", quatech_port->port_num);
 	quatech_port->read_urb = port->read_urb;
 
-	
+	/* set up our bulk in urb */
 
 	usb_fill_bulk_urb(quatech_port->read_urb,
 			  serial->dev,
@@ -931,11 +987,11 @@ static int qt_open(struct tty_struct *tty,
 		quatech_port->read_urb_busy = false;
 	}
 
-	
+	/* initialize our wait queues */
 	init_waitqueue_head(&quatech_port->wait);
 	init_waitqueue_head(&quatech_port->msr_wait);
 
-	
+	/* initialize our icount structure */
 	memset(&(quatech_port->icount), 0x00, sizeof(quatech_port->icount));
 
 	return 0;
@@ -1006,18 +1062,18 @@ static void qt_close(struct usb_serial_port *port)
 	qt_port = qt_get_port_private(port);
 	port0 = qt_get_port_private(serial->port[0]);
 
-	
+	/* shutdown any bulk reads that might be going on */
 	if (serial->num_bulk_out)
 		usb_unlink_urb(port->write_urb);
 	if (serial->num_bulk_in)
 		usb_unlink_urb(port->read_urb);
 
-	
+	/* wait up to for transmitter to empty */
 	if (serial->dev)
 		qt_block_until_empty(tty, qt_port);
 	tty_kref_put(tty);
 
-	
+	/* Close uart channel */
 	status = qt_close_channel(serial, index);
 	if (status < 0)
 		dbg("%s - port %d qt_close_channel failed.\n",
@@ -1037,7 +1093,7 @@ static void qt_close(struct usb_serial_port *port)
 	}
 
 	if (qt_port->write_urb) {
-		
+		/* if this urb had a transfer buffer already (old tx) free it */
 		kfree(qt_port->write_urb->transfer_buffer);
 		usb_free_urb(qt_port->write_urb);
 	}
@@ -1060,7 +1116,7 @@ static int qt_write(struct tty_struct *tty, struct usb_serial_port *port,
 		return 0;
 	}
 
-	
+	/* only do something if we have a bulk out endpoint */
 	if (serial->num_bulk_out) {
 		if (port->write_urb->status == -EINPROGRESS) {
 			dbg("%s - already writing\n", __func__);
@@ -1071,7 +1127,7 @@ static int qt_write(struct tty_struct *tty, struct usb_serial_port *port,
 		    (count > port->bulk_out_size) ? port->bulk_out_size : count;
 		memcpy(port->write_urb->transfer_buffer, buf, count);
 
-		
+		/* set up our urb */
 
 		usb_fill_bulk_urb(port->write_urb, serial->dev,
 				  usb_sndbulkpipe(serial->dev,
@@ -1080,7 +1136,7 @@ static int qt_write(struct tty_struct *tty, struct usb_serial_port *port,
 				  port->write_urb->transfer_buffer, count,
 				  qt_write_bulk_callback, port);
 
-		
+		/* send the data out the bulk port */
 		result = usb_submit_urb(port->write_urb, GFP_ATOMIC);
 		if (result)
 			dbg("%s - failed submitting write urb, error %d\n",
@@ -1150,9 +1206,9 @@ static int qt_ioctl(struct tty_struct *tty,
 				char diff = qt_port->diff_status;
 
 				if (diff == 0)
-					return -EIO;	
+					return -EIO;	/* no change => error */
 
-				
+				/* Consume all events */
 				qt_port->diff_status = 0;
 
 				if (((arg & TIOCM_RNG)
@@ -1205,7 +1261,7 @@ static void qt_set_termios(struct tty_struct *tty,
 		break;
 	}
 
-	
+	/* Parity stuff */
 	if (cflag & PARENB) {
 		if (cflag & PARODD)
 			new_LCR |= SERIAL_ODD_PARITY;
@@ -1219,20 +1275,23 @@ static void qt_set_termios(struct tty_struct *tty,
 
 	dbg("%s - 4\n", __func__);
 
-	
+	/* Thats the LCR stuff, go ahead and set it */
 	baud = tty_get_baud_rate(tty);
 	if (!baud)
-		
+		/* pick a default, any default... */
 		baud = 9600;
 
 	dbg("%s - got baud = %d\n", __func__, baud);
 
 	divisor = MAX_BAUD_RATE / baud;
 	remainder = MAX_BAUD_RATE % baud;
-	
+	/* Round to nearest divisor */
 	if (((remainder * 2) >= baud) && (baud != 110))
 		divisor++;
 
+	/*
+	 * Set Baud rate to default and turn off (default)flow control here
+	 */
 	status =
 	    qt_setuart(port->serial, index, (unsigned short)divisor, new_LCR);
 	if (status < 0) {
@@ -1240,12 +1299,12 @@ static void qt_set_termios(struct tty_struct *tty,
 		return;
 	}
 
-	
+	/* Now determine flow control */
 	if (cflag & CRTSCTS) {
 		dbg("%s - Enabling HW flow control port %d\n", __func__,
 		    port->number);
 
-		
+		/* Enable RTS/CTS flow control */
 		status = BoxSetHW_FlowCtrl(port->serial, index, 1);
 
 		if (status < 0) {
@@ -1253,7 +1312,7 @@ static void qt_set_termios(struct tty_struct *tty,
 			return;
 		}
 	} else {
-		
+		/* Disable RTS/CTS flow control */
 		dbg("%s - disabling HW flow control port %d\n", __func__,
 		    port->number);
 
@@ -1265,6 +1324,8 @@ static void qt_set_termios(struct tty_struct *tty,
 
 	}
 
+	/* if we are implementing XON/XOFF, set the start and stop character in
+	 * the device */
 	if (I_IXOFF(tty) || I_IXON(tty)) {
 		unsigned char stop_char = STOP_CHAR(tty);
 		unsigned char start_char = START_CHAR(tty);
@@ -1275,14 +1336,14 @@ static void qt_set_termios(struct tty_struct *tty,
 			dbg(__FILE__ "BoxSetSW_FlowCtrl (enabled) failed\n");
 
 	} else {
-		
+		/* disable SW flow control */
 		status = BoxDisable_SW_FlowCtrl(port->serial, index);
 		if (status < 0)
 			dbg(__FILE__ "BoxSetSW_FlowCtrl (diabling) failed\n");
 
 	}
 	tty->termios->c_cflag &= ~CMSPAR;
-	
+	/* FIXME: Error cases should be returning the actual bits changed only */
 }
 
 static void qt_break(struct tty_struct *tty, int break_state)
@@ -1338,17 +1399,17 @@ static inline int qt_real_tiocmget(struct tty_struct *tty,
 
 	if (status >= 0) {
 		result = ((mcr & SERIAL_MCR_DTR) ? TIOCM_DTR : 0)
-		    
+		    /* DTR IS SET */
 		    | ((mcr & SERIAL_MCR_RTS) ? TIOCM_RTS : 0)
-		    
+		    /* RTS IS SET */
 		    | ((msr & SERIAL_MSR_CTS) ? TIOCM_CTS : 0)
-		    
+		    /* CTS is set */
 		    | ((msr & SERIAL_MSR_CD) ? TIOCM_CAR : 0)
-		    
+		    /* Carrier detect is set */
 		    | ((msr & SERIAL_MSR_RI) ? TIOCM_RI : 0)
-		    
+		    /* Ring indicator set */
 		    | ((msr & SERIAL_MSR_DSR) ? TIOCM_DSR : 0);
-		
+		/* DSR is set */
 		return result;
 
 	} else
@@ -1373,6 +1434,10 @@ static inline int qt_real_tiocmset(struct tty_struct *tty,
 	if (status < 0)
 		return -ESPIPE;
 
+	/*
+	 * Turn off the RTS and DTR and loopbcck and then only turn on what was
+	 * asked for
+	 */
 	mcr &= ~(SERIAL_MCR_RTS | SERIAL_MCR_DTR | SERIAL_MCR_LOOP);
 	if (value & TIOCM_RTS)
 		mcr |= SERIAL_MCR_RTS;
@@ -1452,7 +1517,7 @@ static void qt_throttle(struct tty_struct *tty)
 
 	mutex_lock(&qt_port->lock);
 
-	
+	/* pass on to the driver specific version of this function */
 	qt_port->RxHolding = 1;
 	dbg("%s - port->RxHolding = 1\n", __func__);
 
@@ -1482,9 +1547,9 @@ static void qt_unthrottle(struct tty_struct *tty)
 		qt_port->RxHolding = 0;
 		dbg("%s - qt_port->RxHolding = 0\n", __func__);
 
-		
+		/* if we have a bulk endpoint, start it up */
 		if ((serial->num_bulk_in) && (qt_port->ReadBulkStopped == 1)) {
-			
+			/* Start reading from the device */
 			usb_fill_bulk_urb(port->read_urb, serial->dev,
 					  usb_rcvbulkpipe(serial->dev,
 							  port->bulk_in_endpointAddress),

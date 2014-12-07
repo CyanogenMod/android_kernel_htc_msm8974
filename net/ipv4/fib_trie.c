@@ -288,7 +288,7 @@ static void __leaf_free_rcu(struct rcu_head *head)
 
 static inline void free_leaf(struct leaf *l)
 {
-	call_rcu_bh(&l->rcu, __leaf_free_rcu);
+	call_rcu(&l->rcu, __leaf_free_rcu);
 }
 
 static inline void free_leaf_info(struct leaf_info *leaf)
@@ -1454,10 +1454,9 @@ static struct leaf *leaf_walk_rcu(struct tnode *p, struct rt_trie_node *c)
 #ifdef CONFIG_HTC_NETWORK_MODIFY
 	void *pq;
 	if ((!p) || (IS_ERR(p)) || (probe_kernel_address(p,pq))) {
-		printk(KERN_DEBUG "[NET][WARN] p is illegal in %s \n", __func__);
+		pr_err("[NET][WARN] p is illegal in %s \n", __func__);
 		return NULL; 
 	}
-	printk(KERN_DEBUG "[NET]%s+\n", __func__);
 #endif
 
 	do {
@@ -1480,12 +1479,12 @@ static struct leaf *leaf_walk_rcu(struct tnode *p, struct rt_trie_node *c)
 
 #ifdef CONFIG_HTC_NETWORK_MODIFY
 			if ((!c) || (IS_ERR(c))) {
-				printk(KERN_DEBUG "[NET] c is NULL in %s , idx=%d\n", __func__,idx);
+				pr_err("[NET] c is NULL in %s , idx=%d\n", __func__,idx);
 				continue;
 			}
 
 			if (probe_kernel_address(c,q)) {
-				printk(KERN_DEBUG "[NET] c is in %s illegal, going to next round,idx = %d\n", __func__,idx);
+				pr_err("[NET] c is in %s illegal, going to next round,idx = %d\n", __func__,idx);
 				continue;
 			}
 #else
@@ -1495,7 +1494,6 @@ static struct leaf *leaf_walk_rcu(struct tnode *p, struct rt_trie_node *c)
 
 			if (IS_LEAF(c)) {
 				prefetch(rcu_dereference_rtnl(p->child[idx]));
-				printk(KERN_DEBUG "[NET]%s-,1\n", __func__);
 				return (struct leaf *) c;
 			}
 
@@ -1508,7 +1506,6 @@ static struct leaf *leaf_walk_rcu(struct tnode *p, struct rt_trie_node *c)
 		c = (struct rt_trie_node *) p;
 	} while ((p = node_parent_rcu(c)) != NULL);
 
-	printk(KERN_DEBUG "[NET]%s-,2\n", __func__);
 	return NULL; 
 }
 
@@ -2273,12 +2270,12 @@ static int fib_route_seq_show(struct seq_file *seq, void *v)
 		list_for_each_entry_rcu(fa, &li->falh, fa_list) {
 			const struct fib_info *fi = fa->fa_info;
 			unsigned int flags = fib_flag_trans(fa->fa_type, mask, fi);
-			int len;
 
 			if (fa->fa_type == RTN_BROADCAST
 			    || fa->fa_type == RTN_MULTICAST)
 				continue;
 
+			seq_setwidth(seq, 127);
 #ifdef CONFIG_HTC_NETWORK_MODIFY
 			if ((fi) && (!IS_ERR(fi)))
 #else
@@ -2286,7 +2283,7 @@ static int fib_route_seq_show(struct seq_file *seq, void *v)
 #endif
 				seq_printf(seq,
 					 "%s\t%08X\t%08X\t%04X\t%d\t%u\t"
-					 "%d\t%08X\t%d\t%u\t%u%n",
+					 "%d\t%08X\t%d\t%u\t%u",
 					 fi->fib_dev ? fi->fib_dev->name : "*",
 					 prefix,
 					 fi->fib_nh->nh_gw, flags, 0, 0,
@@ -2295,15 +2292,15 @@ static int fib_route_seq_show(struct seq_file *seq, void *v)
 					 (fi->fib_advmss ?
 					  fi->fib_advmss + 40 : 0),
 					 fi->fib_window,
-					 fi->fib_rtt >> 3, &len);
+					 fi->fib_rtt >> 3);
 			else
 				seq_printf(seq,
 					 "*\t%08X\t%08X\t%04X\t%d\t%u\t"
-					 "%d\t%08X\t%d\t%u\t%u%n",
+					 "%d\t%08X\t%d\t%u\t%u",
 					 prefix, 0, flags, 0, 0, 0,
-					 mask, 0, 0, 0, &len);
+					 mask, 0, 0, 0);
 
-			seq_printf(seq, "%*s\n", 127 - len, "");
+			seq_pad(seq, '\n');
 		}
 	}
 

@@ -35,6 +35,22 @@
 #include "cx18-alsa.h"
 #include "cx18-driver.h"
 
+/*
+ * Note the cx18-av-core volume scale is funny, due to the alignment of the
+ * scale with another chip's range:
+ *
+ * v4l2_control value	/512	indicated dB	actual dB	reg 0x8d4
+ * 0x0000 - 0x01ff	  0	-119		-96		228
+ * 0x0200 - 0x02ff	  1	-118		-96		228
+ * ...
+ * 0x2c00 - 0x2dff	 22	 -97		-96		228
+ * 0x2e00 - 0x2fff	 23	 -96		-96		228
+ * 0x3000 - 0x31ff	 24	 -95		-95		226
+ * ...
+ * 0xee00 - 0xefff	119	   0		  0		 36
+ * ...
+ * 0xfe00 - 0xffff	127	  +8		 +8		 20
+ */
 static inline int dB_to_cx18_av_vol(int dB)
 {
 	if (dB < -96)
@@ -58,7 +74,7 @@ static int snd_cx18_mixer_tv_vol_info(struct snd_kcontrol *kcontrol,
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
 	uinfo->count = 1;
-	
+	/* We're already translating values, just keep this control in dB */
 	uinfo->value.integer.min  = -96;
 	uinfo->value.integer.max  =   8;
 	uinfo->value.integer.step =   1;
@@ -98,17 +114,17 @@ static int snd_cx18_mixer_tv_vol_put(struct snd_kcontrol *kctl,
 
 	snd_cx18_lock(cxsc);
 
-	
+	/* Fetch current state */
 	ret = v4l2_subdev_call(cx->sd_av, core, g_ctrl, &vctrl);
 
 	if (ret ||
 	    (cx18_av_vol_to_dB(vctrl.value) != uctl->value.integer.value[0])) {
 
-		
+		/* Set, if needed */
 		vctrl.value = dB_to_cx18_av_vol(uctl->value.integer.value[0]);
 		ret = v4l2_subdev_call(cx->sd_av, core, s_ctrl, &vctrl);
 		if (!ret)
-			ret = 1; 
+			ret = 1; /* Indicate control was changed w/o error */
 	}
 	snd_cx18_unlock(cxsc);
 
@@ -116,6 +132,7 @@ static int snd_cx18_mixer_tv_vol_put(struct snd_kcontrol *kctl,
 }
 
 
+/* This is a bit of overkill, the slider is already in dB internally */
 static DECLARE_TLV_DB_SCALE(snd_cx18_mixer_tv_vol_db_scale, -9600, 100, 0);
 
 static struct snd_kcontrol_new snd_cx18_mixer_tv_vol __initdata = {
@@ -129,7 +146,17 @@ static struct snd_kcontrol_new snd_cx18_mixer_tv_vol __initdata = {
 	.tlv.p = snd_cx18_mixer_tv_vol_db_scale
 };
 
+/* FIXME - add mute switch and balance, bass, treble sliders:
+	V4L2_CID_AUDIO_MUTE
 
+	V4L2_CID_AUDIO_BALANCE
+
+	V4L2_CID_AUDIO_BASS
+	V4L2_CID_AUDIO_TREBLE
+*/
+
+/* FIXME - add stereo, lang1, lang2, mono menu */
+/* FIXME - add CS5345 I2S volume for HVR-1600 */
 
 int __init snd_cx18_mixer_create(struct snd_cx18_card *cxsc)
 {

@@ -46,6 +46,7 @@ DECLARE_PER_CPU(struct ptc_stats, ptcstats);
 
 static  __cacheline_aligned DEFINE_SPINLOCK(sn2_global_ptc_lock);
 
+/* 0 = old algorithm (no IPI flushes), 1 = ipi deadlock flush, 2 = ipi instead of SHUB ptc, >2 = always ipi */
 static int sn2_flush_opt = 0;
 
 extern unsigned long
@@ -57,6 +58,10 @@ sn2_ptc_deadlock_recovery(short *, short, short, int,
 			  volatile unsigned long *, unsigned long,
 			  volatile unsigned long *, unsigned long);
 
+/*
+ * Note: some is the following is captured here to make degugging easier
+ * (the macros make more sense if you see the debug patch - not posted)
+ */
 #define sn2_ptctest	0
 #define local_node_uses_ptc_ga(sh1)	((sh1) ? 1 : 0)
 #define max_active_pio(sh1)		((sh1) ? 32 : 7)
@@ -93,13 +98,22 @@ static inline unsigned long wait_piowc(void)
 	return (ws & SH_PIO_WRITE_STATUS_WRITE_DEADLOCK_MASK) != 0;
 }
 
+/**
+ * sn_migrate - SN-specific task migration actions
+ * @task: Task being migrated to new CPU
+ *
+ * SN2 PIO writes from separate CPUs are not guaranteed to arrive in order.
+ * Context switching user threads which have memory-mapped MMIO may cause
+ * PIOs to issue from separate CPUs, thus the PIO writes must be drained
+ * from the previous CPU's Shub before execution resumes on the new CPU.
+ */
 void sn_migrate(struct task_struct *task)
 {
 	pda_t *last_pda = pdacpu(task_thread_info(task)->last_cpu);
 	volatile unsigned long *adr = last_pda->pio_write_status_addr;
 	unsigned long val = last_pda->pio_write_status_val;
 
-	
+	/* Drain PIO writes from old CPU's Shub */
 	while (unlikely((*adr & SH_PIO_WRITE_STATUS_PENDING_WRITE_COUNT_MASK)
 			!= val))
 		cpu_relax();
@@ -107,7 +121,7 @@ void sn_migrate(struct task_struct *task)
 
 void sn_tlb_migrate_finish(struct mm_struct *mm)
 {
-	
+	/* flush_tlb_mm is inefficient if more than 1 users of mm */
 	if (mm == current->mm && mm && atomic_read(&mm->mm_users) == 1)
 		flush_tlb_mm(mm);
 }
@@ -124,6 +138,27 @@ sn2_ipi_flush_all_tlb(struct mm_struct *mm)
 	__get_cpu_var(ptcstats).shub_ipi_flushes++;
 }
 
+/**
+ * sn2_global_tlb_purge - globally purge translation cache of virtual address range
+ * @mm: mm_struct containing virtual address range
+ * @start: start of virtual address range
+ * @end: end of virtual address range
+ * @nbits: specifies number of bytes to purge per instruction (num = 1<<(nbits & 0xfc))
+ *
+ * Purges the translation caches of all processors of the given virtual address
+ * range.
+ *
+ * Note:
+ * 	- cpu_vm_mask is a bit mask that indicates which cpus have loaded the context.
+ * 	- cpu_vm_mask is converted into a nodemask of the nodes containing the
+ * 	  cpus in cpu_vm_mask.
+ *	- if only one bit is set in cpu_vm_mask & it is the current cpu & the
+ *	  process is purging its own virtual address range, then only the
+ *	  local TLB needs to be flushed. This flushing can be done using
+ *	  ptc.l. This is the common case & avoids the global spinlock.
+ *	- if multiple cpus have loaded the context, then flushing has to be
+ *	  done with ptc.g/MMRs under protection of the global ptc_lock.
+ */
 
 void
 sn2_global_tlb_purge(struct mm_struct *mm, unsigned long start,
@@ -283,6 +318,13 @@ done:
 	preempt_enable();
 }
 
+/*
+ * sn2_ptc_deadlock_recovery
+ *
+ * Recover from PTC deadlocks conditions. Recovery requires stepping thru each 
+ * TLB flush transaction.  The recovery sequence is somewhat tricky & is
+ * coded in assembly language.
+ */
 
 void
 sn2_ptc_deadlock_recovery(short *nasids, short ib, short ie, int mynasid,
@@ -312,6 +354,23 @@ sn2_ptc_deadlock_recovery(short *nasids, short ib, short ie, int mynasid,
 
 }
 
+/**
+ * sn_send_IPI_phys - send an IPI to a Nasid and slice
+ * @nasid: nasid to receive the interrupt (may be outside partition)
+ * @physid: physical cpuid to receive the interrupt.
+ * @vector: command to send
+ * @delivery_mode: delivery mechanism
+ *
+ * Sends an IPI (interprocessor interrupt) to the processor specified by
+ * @physid
+ *
+ * @delivery_mode can be one of the following
+ *
+ * %IA64_IPI_DM_INT - pend an interrupt
+ * %IA64_IPI_DM_PMI - pend a PMI
+ * %IA64_IPI_DM_NMI - pend an NMI
+ * %IA64_IPI_DM_INIT - pend an INIT interrupt
+ */
 void sn_send_IPI_phys(int nasid, long physid, int vector, int delivery_mode)
 {
 	long val;
@@ -339,6 +398,22 @@ void sn_send_IPI_phys(int nasid, long physid, int vector, int delivery_mode)
 
 EXPORT_SYMBOL(sn_send_IPI_phys);
 
+/**
+ * sn2_send_IPI - send an IPI to a processor
+ * @cpuid: target of the IPI
+ * @vector: command to send
+ * @delivery_mode: delivery mechanism
+ * @redirect: redirect the IPI?
+ *
+ * Sends an IPI (InterProcessor Interrupt) to the processor specified by
+ * @cpuid.  @vector specifies the command to send, while @delivery_mode can 
+ * be one of the following
+ *
+ * %IA64_IPI_DM_INT - pend an interrupt
+ * %IA64_IPI_DM_PMI - pend a PMI
+ * %IA64_IPI_DM_NMI - pend an NMI
+ * %IA64_IPI_DM_INIT - pend an INIT interrupt
+ */
 void sn2_send_IPI(int cpuid, int vector, int delivery_mode, int redirect)
 {
 	long physid;
@@ -347,7 +422,7 @@ void sn2_send_IPI(int cpuid, int vector, int delivery_mode, int redirect)
 	physid = cpu_physical_id(cpuid);
 	nasid = cpuid_to_nasid(cpuid);
 
-	
+	/* the following is used only when starting cpus at boot time */
 	if (unlikely(nasid == -1))
 		ia64_sn_get_sapic_info(physid, &nasid, NULL, NULL);
 
@@ -355,6 +430,13 @@ void sn2_send_IPI(int cpuid, int vector, int delivery_mode, int redirect)
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
+/**
+ * sn_cpu_disable_allowed - Determine if a CPU can be disabled.
+ * @cpu - CPU that is requested to be disabled.
+ *
+ * CPU disable is only allowed on SHub2 systems running with a PROM
+ * that supports CPU disable. It is not permitted to disable the boot processor.
+ */
 bool sn_cpu_disable_allowed(int cpu)
 {
 	if (is_shub2() && sn_prom_feature_available(PRF_CPU_DISABLE_SUPPORT)) {
@@ -370,7 +452,7 @@ bool sn_cpu_disable_allowed(int cpu)
 
 	return false;
 }
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */
 
 #ifdef CONFIG_PROC_FS
 
@@ -486,5 +568,5 @@ static void __exit sn2_ptc_exit(void)
 
 module_init(sn2_ptc_init);
 module_exit(sn2_ptc_exit);
-#endif 
+#endif /* CONFIG_PROC_FS */
 

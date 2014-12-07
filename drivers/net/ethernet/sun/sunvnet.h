@@ -4,11 +4,18 @@
 #define DESC_NCOOKIES(entry_size)	\
 	((entry_size) - sizeof(struct vio_net_desc))
 
+/* length of time before we decide the hardware is borked,
+ * and dev->tx_timeout() should be called to fix the problem
+ */
 #define VNET_TX_TIMEOUT			(5 * HZ)
 
 #define VNET_TX_RING_SIZE		512
 #define VNET_TX_WAKEUP_THRESH(dr)	((dr)->pending / 4)
 
+/* VNET packets are sent in buffers with the first 6 bytes skipped
+ * so that after the ethernet header the IPv4/IPv6 headers are aligned
+ * properly.
+ */
 #define VNET_PACKET_SKIP		6
 
 struct vnet_tx_entry {
@@ -56,7 +63,7 @@ struct vnet_mcast_entry {
 };
 
 struct vnet {
-	
+	/* Protects port_list and port_hash.  */
 	spinlock_t		lock;
 
 	struct net_device	*dev;
@@ -73,4 +80,4 @@ struct vnet {
 	u64			local_mac;
 };
 
-#endif 
+#endif /* _SUNVNET_H */

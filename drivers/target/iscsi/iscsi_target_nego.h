@@ -14,4 +14,4 @@ extern int iscsi_target_start_negotiation(
 extern void iscsi_target_nego_release(
 		struct iscsi_login *, struct iscsi_conn *);
 
-#endif 
+#endif /* ISCSI_TARGET_NEGO_H */

@@ -34,41 +34,78 @@
 #include "ispreg.h"
 #include "isppreview.h"
 
+/* Default values in Office Fluorescent Light for RGBtoRGB Blending */
 static struct omap3isp_prev_rgbtorgb flr_rgb2rgb = {
-	{	
+	{	/* RGB-RGB Matrix */
 		{0x01E2, 0x0F30, 0x0FEE},
 		{0x0F9B, 0x01AC, 0x0FB9},
 		{0x0FE0, 0x0EC0, 0x0260}
-	},	
+	},	/* RGB Offset */
 	{0x0000, 0x0000, 0x0000}
 };
 
+/* Default values in Office Fluorescent Light for RGB to YUV Conversion*/
 static struct omap3isp_prev_csc flr_prev_csc = {
-	{	
+	{	/* CSC Coef Matrix */
 		{66, 129, 25},
 		{-38, -75, 112},
 		{112, -94 , -18}
-	},	
+	},	/* CSC Offset */
 	{0x0, 0x0, 0x0}
 };
 
+/* Default values in Office Fluorescent Light for CFA Gradient*/
 #define FLR_CFA_GRADTHRS_HORZ	0x28
 #define FLR_CFA_GRADTHRS_VERT	0x28
 
+/* Default values in Office Fluorescent Light for Chroma Suppression*/
 #define FLR_CSUP_GAIN		0x0D
 #define FLR_CSUP_THRES		0xEB
 
+/* Default values in Office Fluorescent Light for Noise Filter*/
 #define FLR_NF_STRGTH		0x03
 
+/* Default values for White Balance */
 #define FLR_WBAL_DGAIN		0x100
 #define FLR_WBAL_COEF		0x20
 
+/* Default values in Office Fluorescent Light for Black Adjustment*/
 #define FLR_BLKADJ_BLUE		0x0
 #define FLR_BLKADJ_GREEN	0x0
 #define FLR_BLKADJ_RED		0x0
 
 #define DEF_DETECT_CORRECT_VAL	0xe
 
+/*
+ * Margins and image size limits.
+ *
+ * The preview engine crops several rows and columns internally depending on
+ * which filters are enabled. To avoid format changes when the filters are
+ * enabled or disabled (which would prevent them from being turned on or off
+ * during streaming), the driver assumes all the filters are enabled when
+ * computing sink crop and source format limits.
+ *
+ * If a filter is disabled, additional cropping is automatically added at the
+ * preview engine input by the driver to avoid overflow at line and frame end.
+ * This is completely transparent for applications.
+ *
+ * Median filter		4 pixels
+ * Noise filter,
+ * Faulty pixels correction	4 pixels, 4 lines
+ * CFA filter			4 pixels, 4 lines in Bayer mode
+ *					  2 lines in other modes
+ * Color suppression		2 pixels
+ * or luma enhancement
+ * -------------------------------------------------------------
+ * Maximum total		14 pixels, 8 lines
+ *
+ * The color suppression and luma enhancement filters are applied after bayer to
+ * YUV conversion. They thus can crop one pixel on the left and one pixel on the
+ * right side of the image without changing the color pattern. When both those
+ * filters are disabled, the driver must crop the two pixels on the same side of
+ * the image to avoid changing the bayer pattern. The left margin is thus set to
+ * 8 pixels and the right margin to 6 pixels.
+ */
 
 #define PREV_MARGIN_LEFT	8
 #define PREV_MARGIN_RIGHT	6
@@ -85,23 +122,44 @@ static struct omap3isp_prev_csc flr_prev_csc = {
 #define PREV_MAX_OUT_WIDTH_REV_2	3300
 #define PREV_MAX_OUT_WIDTH_REV_15	4096
 
+/*
+ * Coeficient Tables for the submodules in Preview.
+ * Array is initialised with the values from.the tables text file.
+ */
 
+/*
+ * CFA Filter Coefficient Table
+ *
+ */
 static u32 cfa_coef_table[] = {
 #include "cfa_coef_table.h"
 };
 
+/*
+ * Default Gamma Correction Table - All components
+ */
 static u32 gamma_table[] = {
 #include "gamma_table.h"
 };
 
+/*
+ * Noise Filter Threshold table
+ */
 static u32 noise_filter_table[] = {
 #include "noise_filter_table.h"
 };
 
+/*
+ * Luminance Enhancement Table
+ */
 static u32 luma_enhance_table[] = {
 #include "luma_enhance_table.h"
 };
 
+/*
+ * preview_enable_invalaw - Enable/Disable Inverse A-Law module in Preview.
+ * @enable: 1 - Reverse the A-Law done in CCDC.
+ */
 static void
 preview_enable_invalaw(struct isp_prev_device *prev, u8 enable)
 {
@@ -115,6 +173,14 @@ preview_enable_invalaw(struct isp_prev_device *prev, u8 enable)
 			    ISPPRV_PCR_WIDTH | ISPPRV_PCR_INVALAW);
 }
 
+/*
+ * preview_enable_drkframe_capture - Enable/Disable of the darkframe capture.
+ * @prev -
+ * @enable: 1 - Enable, 0 - Disable
+ *
+ * NOTE: PRV_WSDR_ADDR and PRV_WADD_OFFSET must be set also
+ * The process is applied for each captured frame.
+ */
 static void
 preview_enable_drkframe_capture(struct isp_prev_device *prev, u8 enable)
 {
@@ -128,6 +194,13 @@ preview_enable_drkframe_capture(struct isp_prev_device *prev, u8 enable)
 			    ISPPRV_PCR_DRKFCAP);
 }
 
+/*
+ * preview_enable_drkframe - Enable/Disable of the darkframe subtract.
+ * @enable: 1 - Acquires memory bandwidth since the pixels in each frame is
+ *          subtracted with the pixels in the current frame.
+ *
+ * The process is applied for each captured frame.
+ */
 static void
 preview_enable_drkframe(struct isp_prev_device *prev, u8 enable)
 {
@@ -141,6 +214,10 @@ preview_enable_drkframe(struct isp_prev_device *prev, u8 enable)
 			    ISPPRV_PCR_DRKFEN);
 }
 
+/*
+ * preview_config_drkf_shadcomp - Configures shift value in shading comp.
+ * @scomp_shtval: 3bit value of shift used in shading compensation.
+ */
 static void
 preview_config_drkf_shadcomp(struct isp_prev_device *prev,
 			     const void *scomp_shtval)
@@ -153,6 +230,10 @@ preview_config_drkf_shadcomp(struct isp_prev_device *prev,
 			*shtval << ISPPRV_PCR_SCOMP_SFT_SHIFT);
 }
 
+/*
+ * preview_enable_hmed - Enables/Disables of the Horizontal Median Filter.
+ * @enable: 1 - Enables Horizontal Median Filter.
+ */
 static void
 preview_enable_hmed(struct isp_prev_device *prev, u8 enable)
 {
@@ -166,6 +247,11 @@ preview_enable_hmed(struct isp_prev_device *prev, u8 enable)
 			    ISPPRV_PCR_HMEDEN);
 }
 
+/*
+ * preview_config_hmed - Configures the Horizontal Median Filter.
+ * @prev_hmed: Structure containing the odd and even distance between the
+ *             pixels in the image along with the filter threshold.
+ */
 static void
 preview_config_hmed(struct isp_prev_device *prev, const void *prev_hmed)
 {
@@ -178,6 +264,11 @@ preview_config_hmed(struct isp_prev_device *prev, const void *prev_hmed)
 		       OMAP3_ISP_IOMEM_PREV, ISPPRV_HMED);
 }
 
+/*
+ * preview_config_noisefilter - Configures the Noise Filter.
+ * @prev_nf: Structure containing the noisefilter table, strength to be used
+ *           for the noise filter and the defect correction enable flag.
+ */
 static void
 preview_config_noisefilter(struct isp_prev_device *prev, const void *prev_nf)
 {
@@ -194,6 +285,10 @@ preview_config_noisefilter(struct isp_prev_device *prev, const void *prev_nf)
 	}
 }
 
+/*
+ * preview_config_dcor - Configures the defect correction
+ * @prev_dcor: Structure containing the defect correct thresholds
+ */
 static void
 preview_config_dcor(struct isp_prev_device *prev, const void *prev_dcor)
 {
@@ -213,6 +308,11 @@ preview_config_dcor(struct isp_prev_device *prev, const void *prev_dcor)
 			dcor->couplet_mode_en ? ISPPRV_PCR_DCCOUP : 0);
 }
 
+/*
+ * preview_config_cfa - Configures the CFA Interpolation parameters.
+ * @prev_cfa: Structure containing the CFA interpolation table, CFA format
+ *            in the image, vertical and horizontal gradient threshold.
+ */
 static void
 preview_config_cfa(struct isp_prev_device *prev, const void *prev_cfa)
 {
@@ -238,6 +338,10 @@ preview_config_cfa(struct isp_prev_device *prev, const void *prev_cfa)
 	}
 }
 
+/*
+ * preview_config_gammacorrn - Configures the Gamma Correction table values
+ * @gtable: Structure containing the table for red, blue, green gamma table.
+ */
 static void
 preview_config_gammacorrn(struct isp_prev_device *prev, const void *gtable)
 {
@@ -264,6 +368,10 @@ preview_config_gammacorrn(struct isp_prev_device *prev, const void *gtable)
 			       ISPPRV_SET_TBL_DATA);
 }
 
+/*
+ * preview_config_luma_enhancement - Sets the Luminance Enhancement table.
+ * @ytable: Structure containing the table for Luminance Enhancement table.
+ */
 static void
 preview_config_luma_enhancement(struct isp_prev_device *prev,
 				const void *ytable)
@@ -280,6 +388,11 @@ preview_config_luma_enhancement(struct isp_prev_device *prev,
 	}
 }
 
+/*
+ * preview_config_chroma_suppression - Configures the Chroma Suppression.
+ * @csup: Structure containing the threshold value for suppression
+ *        and the hypass filter enable flag.
+ */
 static void
 preview_config_chroma_suppression(struct isp_prev_device *prev,
 				  const void *csup)
@@ -293,6 +406,10 @@ preview_config_chroma_suppression(struct isp_prev_device *prev,
 		       OMAP3_ISP_IOMEM_PREV, ISPPRV_CSUP);
 }
 
+/*
+ * preview_enable_noisefilter - Enables/Disables the Noise Filter.
+ * @enable: 1 - Enables the Noise Filter.
+ */
 static void
 preview_enable_noisefilter(struct isp_prev_device *prev, u8 enable)
 {
@@ -306,6 +423,10 @@ preview_enable_noisefilter(struct isp_prev_device *prev, u8 enable)
 			    ISPPRV_PCR_NFEN);
 }
 
+/*
+ * preview_enable_dcor - Enables/Disables the defect correction.
+ * @enable: 1 - Enables the defect correction.
+ */
 static void
 preview_enable_dcor(struct isp_prev_device *prev, u8 enable)
 {
@@ -319,6 +440,10 @@ preview_enable_dcor(struct isp_prev_device *prev, u8 enable)
 			    ISPPRV_PCR_DCOREN);
 }
 
+/*
+ * preview_enable_cfa - Enable/Disable the CFA Interpolation.
+ * @enable: 1 - Enables the CFA.
+ */
 static void
 preview_enable_cfa(struct isp_prev_device *prev, u8 enable)
 {
@@ -332,6 +457,11 @@ preview_enable_cfa(struct isp_prev_device *prev, u8 enable)
 			    ISPPRV_PCR_CFAEN);
 }
 
+/*
+ * preview_enable_gammabypass - Enables/Disables the GammaByPass
+ * @enable: 1 - Bypasses Gamma - 10bit input is cropped to 8MSB.
+ *          0 - Goes through Gamma Correction. input and output is 10bit.
+ */
 static void
 preview_enable_gammabypass(struct isp_prev_device *prev, u8 enable)
 {
@@ -345,6 +475,10 @@ preview_enable_gammabypass(struct isp_prev_device *prev, u8 enable)
 			    ISPPRV_PCR_GAMMA_BYPASS);
 }
 
+/*
+ * preview_enable_luma_enhancement - Enables/Disables Luminance Enhancement
+ * @enable: 1 - Enable the Luminance Enhancement.
+ */
 static void
 preview_enable_luma_enhancement(struct isp_prev_device *prev, u8 enable)
 {
@@ -358,6 +492,10 @@ preview_enable_luma_enhancement(struct isp_prev_device *prev, u8 enable)
 			    ISPPRV_PCR_YNENHEN);
 }
 
+/*
+ * preview_enable_chroma_suppression - Enables/Disables Chrominance Suppr.
+ * @enable: 1 - Enable the Chrominance Suppression.
+ */
 static void
 preview_enable_chroma_suppression(struct isp_prev_device *prev, u8 enable)
 {
@@ -371,6 +509,13 @@ preview_enable_chroma_suppression(struct isp_prev_device *prev, u8 enable)
 			    ISPPRV_PCR_SUPEN);
 }
 
+/*
+ * preview_config_whitebalance - Configures the White Balance parameters.
+ * @prev_wbal: Structure containing the digital gain and white balance
+ *             coefficient.
+ *
+ * Coefficient matrix always with default values.
+ */
 static void
 preview_config_whitebalance(struct isp_prev_device *prev, const void *prev_wbal)
 {
@@ -406,6 +551,11 @@ preview_config_whitebalance(struct isp_prev_device *prev, const void *prev_wbal)
 		       OMAP3_ISP_IOMEM_PREV, ISPPRV_WBSEL);
 }
 
+/*
+ * preview_config_blkadj - Configures the Black Adjustment parameters.
+ * @prev_blkadj: Structure containing the black adjustment towards red, green,
+ *               blue.
+ */
 static void
 preview_config_blkadj(struct isp_prev_device *prev, const void *prev_blkadj)
 {
@@ -418,6 +568,11 @@ preview_config_blkadj(struct isp_prev_device *prev, const void *prev_blkadj)
 		       OMAP3_ISP_IOMEM_PREV, ISPPRV_BLKADJOFF);
 }
 
+/*
+ * preview_config_rgb_blending - Configures the RGB-RGB Blending matrix.
+ * @rgb2rgb: Structure containing the rgb to rgb blending matrix and the rgb
+ *           offset.
+ */
 static void
 preview_config_rgb_blending(struct isp_prev_device *prev, const void *rgb2rgb)
 {
@@ -452,6 +607,11 @@ preview_config_rgb_blending(struct isp_prev_device *prev, const void *rgb2rgb)
 	isp_reg_writel(isp, val, OMAP3_ISP_IOMEM_PREV, ISPPRV_RGB_OFF2);
 }
 
+/*
+ * Configures the RGB-YCbYCr conversion matrix
+ * @prev_csc: Structure containing the RGB to YCbYCr matrix and the
+ *            YCbCr offset.
+ */
 static void
 preview_config_rgb_to_ycbcr(struct isp_prev_device *prev, const void *prev_csc)
 {
@@ -480,6 +640,12 @@ preview_config_rgb_to_ycbcr(struct isp_prev_device *prev, const void *prev_csc)
 	isp_reg_writel(isp, val, OMAP3_ISP_IOMEM_PREV, ISPPRV_CSC_OFFSET);
 }
 
+/*
+ * preview_update_contrast - Updates the contrast.
+ * @contrast: Pointer to hold the current programmed contrast value.
+ *
+ * Value should be programmed before enabling the module.
+ */
 static void
 preview_update_contrast(struct isp_prev_device *prev, u8 contrast)
 {
@@ -491,6 +657,12 @@ preview_update_contrast(struct isp_prev_device *prev, u8 contrast)
 	}
 }
 
+/*
+ * preview_config_contrast - Configures the Contrast.
+ * @params: Contrast value (u8 pointer, U8Q0 format).
+ *
+ * Value should be programmed before enabling the module.
+ */
 static void
 preview_config_contrast(struct isp_prev_device *prev, const void *params)
 {
@@ -501,6 +673,11 @@ preview_config_contrast(struct isp_prev_device *prev, const void *params)
 			*(u8 *)params << ISPPRV_CNT_BRT_CNT_SHIFT);
 }
 
+/*
+ * preview_update_brightness - Updates the brightness in preview module.
+ * @brightness: Pointer to hold the current programmed brightness value.
+ *
+ */
 static void
 preview_update_brightness(struct isp_prev_device *prev, u8 brightness)
 {
@@ -512,6 +689,10 @@ preview_update_brightness(struct isp_prev_device *prev, u8 brightness)
 	}
 }
 
+/*
+ * preview_config_brightness - Configures the brightness.
+ * @params: Brightness value (u8 pointer, U8Q0 format).
+ */
 static void
 preview_config_brightness(struct isp_prev_device *prev, const void *params)
 {
@@ -522,6 +703,10 @@ preview_config_brightness(struct isp_prev_device *prev, const void *params)
 			*(u8 *)params << ISPPRV_CNT_BRT_BRT_SHIFT);
 }
 
+/*
+ * preview_config_yc_range - Configures the max and min Y and C values.
+ * @yclimit: Structure containing the range of Y and C values.
+ */
 static void
 preview_config_yc_range(struct isp_prev_device *prev, const void *yclimit)
 {
@@ -536,6 +721,7 @@ preview_config_yc_range(struct isp_prev_device *prev, const void *yclimit)
 		       OMAP3_ISP_IOMEM_PREV, ISPPRV_SETUP_YC);
 }
 
+/* preview parameters update structure */
 struct preview_update {
 	int cfg_bit;
 	int feature_bit;
@@ -603,6 +789,16 @@ static struct preview_update update_attrs[] = {
 		NULL},
 };
 
+/*
+ * __preview_get_ptrs - helper function which return pointers to members
+ *                         of params and config structures.
+ * @params - pointer to preview_params structure.
+ * @param - return pointer to appropriate structure field.
+ * @configs - pointer to update config structure.
+ * @config - return pointer to appropriate structure field.
+ * @bit - for which feature to return pointers.
+ * Return size of corresponding prev_params member
+ */
 static u32
 __preview_get_ptrs(struct prev_params *params, void **param,
 		   struct omap3isp_prev_update_config *configs,
@@ -677,6 +873,15 @@ __preview_get_ptrs(struct prev_params *params, void **param,
 	return 0;
 }
 
+/*
+ * preview_config - Copy and update local structure with userspace preview
+ *                  configuration.
+ * @prev: ISP preview engine
+ * @cfg: Configuration
+ *
+ * Return zero if success or -EFAULT if the configuration can't be copied from
+ * userspace.
+ */
 static int preview_config(struct isp_prev_device *prev,
 			  struct omap3isp_prev_update_config *cfg)
 {
@@ -726,6 +931,12 @@ static int preview_config(struct isp_prev_device *prev,
 	return rval;
 }
 
+/*
+ * preview_setup_hw - Setup preview registers and/or internal memory
+ * @prev: pointer to preview private structure
+ * Note: can be called from interrupt context
+ * Return none
+ */
 static void preview_setup_hw(struct isp_prev_device *prev)
 {
 	struct prev_params *params = &prev->params;
@@ -755,6 +966,10 @@ static void preview_setup_hw(struct isp_prev_device *prev)
 	}
 }
 
+/*
+ * preview_config_ycpos - Configure byte layout of YUV image.
+ * @mode: Indicates the required byte layout.
+ */
 static void
 preview_config_ycpos(struct isp_prev_device *prev,
 		     enum v4l2_mbus_pixelcode pixelcode)
@@ -778,6 +993,10 @@ preview_config_ycpos(struct isp_prev_device *prev,
 			mode << ISPPRV_PCR_YCPOS_SHIFT);
 }
 
+/*
+ * preview_config_averager - Enable / disable / configure averager
+ * @average: Average value to be configured.
+ */
 static void preview_config_averager(struct isp_prev_device *prev, u8 average)
 {
 	struct isp_device *isp = to_isp_device(prev);
@@ -794,6 +1013,17 @@ static void preview_config_averager(struct isp_prev_device *prev, u8 average)
 	isp_reg_writel(isp, reg, OMAP3_ISP_IOMEM_PREV, ISPPRV_AVE);
 }
 
+/*
+ * preview_config_input_size - Configure the input frame size
+ *
+ * The preview engine crops several rows and columns internally depending on
+ * which processing blocks are enabled. The driver assumes all those blocks are
+ * enabled when reporting source pad formats to userspace. If this assumption is
+ * not true, rows and columns must be manually cropped at the preview engine
+ * input to avoid overflows at the end of lines and frames.
+ *
+ * See the explanation at the PREV_MARGIN_* definitions for more details.
+ */
 static void preview_config_input_size(struct isp_prev_device *prev)
 {
 	struct isp_device *isp = to_isp_device(prev);
@@ -828,6 +1058,16 @@ static void preview_config_input_size(struct isp_prev_device *prev)
 		       OMAP3_ISP_IOMEM_PREV, ISPPRV_VERT_INFO);
 }
 
+/*
+ * preview_config_inlineoffset - Configures the Read address line offset.
+ * @prev: Preview module
+ * @offset: Line offset
+ *
+ * According to the TRM, the line offset must be aligned on a 32 bytes boundary.
+ * However, a hardware bug requires the memory start address to be aligned on a
+ * 64 bytes boundary, so the offset probably should be aligned on 64 bytes as
+ * well.
+ */
 static void
 preview_config_inlineoffset(struct isp_prev_device *prev, u32 offset)
 {
@@ -837,6 +1077,12 @@ preview_config_inlineoffset(struct isp_prev_device *prev, u32 offset)
 		       ISPPRV_RADR_OFFSET);
 }
 
+/*
+ * preview_set_inaddr - Sets memory address of input frame.
+ * @addr: 32bit memory address aligned on 32byte boundary.
+ *
+ * Configures the memory address from which the input frame is to be read.
+ */
 static void preview_set_inaddr(struct isp_prev_device *prev, u32 addr)
 {
 	struct isp_device *isp = to_isp_device(prev);
@@ -844,6 +1090,12 @@ static void preview_set_inaddr(struct isp_prev_device *prev, u32 addr)
 	isp_reg_writel(isp, addr, OMAP3_ISP_IOMEM_PREV, ISPPRV_RSDR_ADDR);
 }
 
+/*
+ * preview_config_outlineoffset - Configures the Write address line offset.
+ * @offset: Line Offset for the preview output.
+ *
+ * The offset must be a multiple of 32 bytes.
+ */
 static void preview_config_outlineoffset(struct isp_prev_device *prev,
 				    u32 offset)
 {
@@ -886,10 +1138,19 @@ static void preview_adjust_bandwidth(struct isp_prev_device *prev)
 		return;
 	}
 
+	/* Compute the minimum number of cycles per request, based on the
+	 * pipeline maximum data rate. This is an absolute lower bound if we
+	 * don't want SBL overflows, so round the value up.
+	 */
 	cycles_per_request = div_u64((u64)l3_ick / 2 * 256 + pipe->max_rate - 1,
 				     pipe->max_rate);
 	minimum = DIV_ROUND_UP(cycles_per_request, 32);
 
+	/* Compute the maximum number of cycles per request, based on the
+	 * requested frame rate. This is a soft upper bound to achieve a frame
+	 * rate equal or higher than the requested value, so round the value
+	 * down.
+	 */
 	timeperframe = &pipe->max_timeperframe;
 
 	requests_per_frame = DIV_ROUND_UP(ifmt->width * 2, 256) * ifmt->height;
@@ -907,6 +1168,9 @@ static void preview_adjust_bandwidth(struct isp_prev_device *prev)
 			value << ISPSBL_SDR_REQ_PRV_EXP_SHIFT);
 }
 
+/*
+ * omap3isp_preview_busy - Gets busy state of preview module.
+ */
 int omap3isp_preview_busy(struct isp_prev_device *prev)
 {
 	struct isp_device *isp = to_isp_device(prev);
@@ -915,12 +1179,18 @@ int omap3isp_preview_busy(struct isp_prev_device *prev)
 		& ISPPRV_PCR_BUSY;
 }
 
+/*
+ * omap3isp_preview_restore_context - Restores the values of preview registers
+ */
 void omap3isp_preview_restore_context(struct isp_device *isp)
 {
 	isp->isp_prev.update = PREV_FEATURES_END - 1;
 	preview_setup_hw(&isp->isp_prev);
 }
 
+/*
+ * preview_print_status - Dump preview module registers to the kernel log
+ */
 #define PREV_PRINT_REGISTER(isp, name)\
 	dev_dbg(isp->dev, "###PRV " #name "=0x%08x\n", \
 		isp_reg_readl(isp, OMAP3_ISP_IOMEM_PREV, ISPPRV_##name))
@@ -971,12 +1241,17 @@ static void preview_print_status(struct isp_prev_device *prev)
 	dev_dbg(isp->dev, "--------------------------------------------\n");
 }
 
+/*
+ * preview_init_params - init image processing parameters.
+ * @prev: pointer to previewer private structure
+ * return none
+ */
 static void preview_init_params(struct isp_prev_device *prev)
 {
 	struct prev_params *params = &prev->params;
 	int i = 0;
 
-	
+	/* Init values */
 	params->contrast = ISPPRV_CONTRAST_DEF * ISPPRV_CONTRAST_UNITS;
 	params->brightness = ISPPRV_BRIGHT_DEF * ISPPRV_BRIGHT_UNITS;
 	params->cfa.format = OMAP3ISP_CFAFMT_BAYER;
@@ -1020,6 +1295,11 @@ static void preview_init_params(struct isp_prev_device *prev)
 	prev->update = PREV_FEATURES_END - 1;
 }
 
+/*
+ * preview_max_out_width - Handle previewer hardware ouput limitations
+ * @isp_revision : ISP revision
+ * returns maximum width output for current isp revision
+ */
 static unsigned int preview_max_out_width(struct isp_prev_device *prev)
 {
 	struct isp_device *isp = to_isp_device(prev);
@@ -1058,7 +1338,7 @@ static void preview_configure(struct isp_prev_device *prev)
 		isp_reg_clr(isp, OMAP3_ISP_IOMEM_PREV, ISPPRV_PCR,
 			    ISPPRV_PCR_RSZPORT);
 
-	
+	/* PREV_PAD_SINK */
 	format = &prev->formats[PREV_PAD_SINK];
 
 	preview_adjust_bandwidth(prev);
@@ -1071,7 +1351,7 @@ static void preview_configure(struct isp_prev_device *prev)
 		preview_config_inlineoffset(prev,
 				ALIGN(format->width, 0x20) * 2);
 
-	
+	/* PREV_PAD_SOURCE */
 	format = &prev->formats[PREV_PAD_SOURCE];
 
 	if (prev->output & PREVIEW_OUTPUT_MEMORY)
@@ -1082,11 +1362,18 @@ static void preview_configure(struct isp_prev_device *prev)
 	preview_config_ycpos(prev, format->code);
 }
 
+/* -----------------------------------------------------------------------------
+ * Interrupt handling
+ */
 
 static void preview_enable_oneshot(struct isp_prev_device *prev)
 {
 	struct isp_device *isp = to_isp_device(prev);
 
+	/* The PCR.SOURCE bit is automatically reset to 0 when the PCR.ENABLE
+	 * bit is set. As the preview engine is used in single-shot mode, we
+	 * need to set PCR.SOURCE before enabling the preview engine.
+	 */
 	if (prev->input == PREVIEW_INPUT_MEMORY)
 		isp_reg_set(isp, OMAP3_ISP_IOMEM_PREV, ISPPRV_PCR,
 			    ISPPRV_PCR_SOURCE);
@@ -1097,6 +1384,12 @@ static void preview_enable_oneshot(struct isp_prev_device *prev)
 
 void omap3isp_preview_isr_frame_sync(struct isp_prev_device *prev)
 {
+	/*
+	 * If ISP_VIDEO_DMAQUEUE_QUEUED is set, DMA queue had an underrun
+	 * condition, the module was paused and now we have a buffer queued
+	 * on the output again. Restart the pipeline if running in continuous
+	 * mode.
+	 */
 	if (prev->state == ISP_PIPELINE_STREAM_CONTINUOUS &&
 	    prev->video_out.dmaqueue_flags & ISP_VIDEO_DMAQUEUE_QUEUED) {
 		preview_enable_oneshot(prev);
@@ -1134,6 +1427,9 @@ static void preview_isr_buffer(struct isp_prev_device *prev)
 		break;
 
 	case ISP_PIPELINE_STREAM_CONTINUOUS:
+		/* If an underrun occurs, the video queue operation handler will
+		 * restart the preview engine. Otherwise restart it immediately.
+		 */
 		if (restart)
 			preview_enable_oneshot(prev);
 		break;
@@ -1144,6 +1440,11 @@ static void preview_isr_buffer(struct isp_prev_device *prev)
 	}
 }
 
+/*
+ * omap3isp_preview_isr - ISP preview engine interrupt handler
+ *
+ * Manage the preview engine video buffers and configure shadowed registers.
+ */
 void omap3isp_preview_isr(struct isp_prev_device *prev)
 {
 	unsigned long flags;
@@ -1168,6 +1469,9 @@ done:
 		preview_enable_oneshot(prev);
 }
 
+/* -----------------------------------------------------------------------------
+ * ISP video operations
+ */
 
 static int preview_video_queue(struct isp_video *video,
 			       struct isp_buffer *buffer)
@@ -1187,7 +1491,14 @@ static const struct isp_video_operations preview_video_ops = {
 	.queue = preview_video_queue,
 };
 
+/* -----------------------------------------------------------------------------
+ * V4L2 subdev operations
+ */
 
+/*
+ * preview_s_ctrl - Handle set control subdev method
+ * @ctrl: pointer to v4l2 control structure
+ */
 static int preview_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct isp_prev_device *prev =
@@ -1209,6 +1520,13 @@ static const struct v4l2_ctrl_ops preview_ctrl_ops = {
 	.s_ctrl = preview_s_ctrl,
 };
 
+/*
+ * preview_ioctl - Handle preview module private ioctl's
+ * @prev: pointer to preview context structure
+ * @cmd: configuration command
+ * @arg: configuration argument
+ * return -EINVAL or zero on success
+ */
 static long preview_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	struct isp_prev_device *prev = v4l2_get_subdevdata(sd);
@@ -1222,6 +1540,12 @@ static long preview_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	}
 }
 
+/*
+ * preview_set_stream - Enable/Disable streaming on preview subdev
+ * @sd    : pointer to v4l2 subdev structure
+ * @enable: 1 == Enable, 0 == Disable
+ * return -EINVAL or zero on success
+ */
 static int preview_set_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct isp_prev_device *prev = v4l2_get_subdevdata(sd);
@@ -1298,6 +1622,7 @@ __preview_get_crop(struct isp_prev_device *prev, struct v4l2_subdev_fh *fh,
 		return &prev->crop;
 }
 
+/* previewer format descriptions */
 static const unsigned int preview_input_fmts[] = {
 	V4L2_MBUS_FMT_SGRBG10_1X10,
 	V4L2_MBUS_FMT_SRGGB10_1X10,
@@ -1310,6 +1635,17 @@ static const unsigned int preview_output_fmts[] = {
 	V4L2_MBUS_FMT_YUYV8_1X16,
 };
 
+/*
+ * preview_try_format - Validate a format
+ * @prev: ISP preview engine
+ * @fh: V4L2 subdev file handle
+ * @pad: pad number
+ * @fmt: format to be validated
+ * @which: try/active format selector
+ *
+ * Validate and adjust the given format for the given pad based on the preview
+ * engine limits and the format and crop rectangles on other pads.
+ */
 static void preview_try_format(struct isp_prev_device *prev,
 			       struct v4l2_subdev_fh *fh, unsigned int pad,
 			       struct v4l2_mbus_framefmt *fmt,
@@ -1321,6 +1657,15 @@ static void preview_try_format(struct isp_prev_device *prev,
 
 	switch (pad) {
 	case PREV_PAD_SINK:
+		/* When reading data from the CCDC, the input size has already
+		 * been mangled by the CCDC output pad so it can be accepted
+		 * as-is.
+		 *
+		 * When reading data from memory, clamp the requested width and
+		 * height. The TRM doesn't specify a minimum input height, make
+		 * sure we got enough lines to enable the noise filter and color
+		 * filter array interpolation.
+		 */
 		if (prev->input == PREVIEW_INPUT_MEMORY) {
 			fmt->width = clamp_t(u32, fmt->width, PREV_MIN_IN_WIDTH,
 					     preview_max_out_width(prev));
@@ -1336,7 +1681,7 @@ static void preview_try_format(struct isp_prev_device *prev,
 				break;
 		}
 
-		
+		/* If not found, use SGRBG10 as default */
 		if (i >= ARRAY_SIZE(preview_input_fmts))
 			fmt->code = V4L2_MBUS_FMT_SGRBG10_1X10;
 		break;
@@ -1356,6 +1701,11 @@ static void preview_try_format(struct isp_prev_device *prev,
 			break;
 		}
 
+		/* The preview module output size is configurable through the
+		 * averager (horizontal scaling by 1/1, 1/2, 1/4 or 1/8). This
+		 * is not supported yet, hardcode the output size to the crop
+		 * rectangle size.
+		 */
 		crop = __preview_get_crop(prev, fh, which);
 		fmt->width = crop->width;
 		fmt->height = crop->height;
@@ -1367,6 +1717,18 @@ static void preview_try_format(struct isp_prev_device *prev,
 	fmt->field = V4L2_FIELD_NONE;
 }
 
+/*
+ * preview_try_crop - Validate a crop rectangle
+ * @prev: ISP preview engine
+ * @sink: format on the sink pad
+ * @crop: crop rectangle to be validated
+ *
+ * The preview engine crops lines and columns for its internal operation,
+ * depending on which filters are enabled. Enforce minimum crop margins to
+ * handle that transparently for userspace.
+ *
+ * See the explanation at the PREV_MARGIN_* definitions for more details.
+ */
 static void preview_try_crop(struct isp_prev_device *prev,
 			     const struct v4l2_mbus_framefmt *sink,
 			     struct v4l2_rect *crop)
@@ -1376,12 +1738,17 @@ static void preview_try_crop(struct isp_prev_device *prev,
 	unsigned int top = PREV_MARGIN_TOP;
 	unsigned int bottom = sink->height - PREV_MARGIN_BOTTOM;
 
+	/* When processing data on-the-fly from the CCDC, at least 2 pixels must
+	 * be cropped from the left and right sides of the image. As we don't
+	 * know which filters will be enabled, increase the left and right
+	 * margins by two.
+	 */
 	if (prev->input == PREVIEW_INPUT_CCDC) {
 		left += 2;
 		right -= 2;
 	}
 
-	
+	/* Restrict left/top to even values to keep the Bayer pattern. */
 	crop->left &= ~1;
 	crop->top &= ~1;
 
@@ -1393,6 +1760,13 @@ static void preview_try_crop(struct isp_prev_device *prev,
 			       bottom - crop->top);
 }
 
+/*
+ * preview_enum_mbus_code - Handle pixel format enumeration
+ * @sd     : pointer to v4l2 subdev structure
+ * @fh     : V4L2 subdev file handle
+ * @code   : pointer to v4l2_subdev_mbus_code_enum structure
+ * return -EINVAL or zero on success
+ */
 static int preview_enum_mbus_code(struct v4l2_subdev *sd,
 				  struct v4l2_subdev_fh *fh,
 				  struct v4l2_subdev_mbus_code_enum *code)
@@ -1447,12 +1821,20 @@ static int preview_enum_frame_size(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/*
+ * preview_get_crop - Retrieve the crop rectangle on a pad
+ * @sd: ISP preview V4L2 subdevice
+ * @fh: V4L2 subdev file handle
+ * @crop: crop rectangle
+ *
+ * Return 0 on success or a negative error code otherwise.
+ */
 static int preview_get_crop(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 			    struct v4l2_subdev_crop *crop)
 {
 	struct isp_prev_device *prev = v4l2_get_subdevdata(sd);
 
-	
+	/* Cropping is only supported on the sink pad. */
 	if (crop->pad != PREV_PAD_SINK)
 		return -EINVAL;
 
@@ -1460,17 +1842,25 @@ static int preview_get_crop(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 	return 0;
 }
 
+/*
+ * preview_set_crop - Retrieve the crop rectangle on a pad
+ * @sd: ISP preview V4L2 subdevice
+ * @fh: V4L2 subdev file handle
+ * @crop: crop rectangle
+ *
+ * Return 0 on success or a negative error code otherwise.
+ */
 static int preview_set_crop(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 			    struct v4l2_subdev_crop *crop)
 {
 	struct isp_prev_device *prev = v4l2_get_subdevdata(sd);
 	struct v4l2_mbus_framefmt *format;
 
-	
+	/* Cropping is only supported on the sink pad. */
 	if (crop->pad != PREV_PAD_SINK)
 		return -EINVAL;
 
-	
+	/* The crop rectangle can't be changed while streaming. */
 	if (prev->state != ISP_PIPELINE_STREAM_STOPPED)
 		return -EBUSY;
 
@@ -1478,13 +1868,20 @@ static int preview_set_crop(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 	preview_try_crop(prev, format, &crop->rect);
 	*__preview_get_crop(prev, fh, crop->which) = crop->rect;
 
-	
+	/* Update the source format. */
 	format = __preview_get_format(prev, fh, PREV_PAD_SOURCE, crop->which);
 	preview_try_format(prev, fh, PREV_PAD_SOURCE, format, crop->which);
 
 	return 0;
 }
 
+/*
+ * preview_get_format - Handle get format by pads subdev method
+ * @sd : pointer to v4l2 subdev structure
+ * @fh : V4L2 subdev file handle
+ * @fmt: pointer to v4l2 subdev format structure
+ * return -EINVAL or zero on success
+ */
 static int preview_get_format(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 			      struct v4l2_subdev_format *fmt)
 {
@@ -1499,6 +1896,13 @@ static int preview_get_format(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 	return 0;
 }
 
+/*
+ * preview_set_format - Handle set format by pads subdev method
+ * @sd : pointer to v4l2 subdev structure
+ * @fh : V4L2 subdev file handle
+ * @fmt: pointer to v4l2 subdev format structure
+ * return -EINVAL or zero on success
+ */
 static int preview_set_format(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 			      struct v4l2_subdev_format *fmt)
 {
@@ -1513,9 +1917,9 @@ static int preview_set_format(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 	preview_try_format(prev, fh, fmt->pad, &fmt->format, fmt->which);
 	*format = fmt->format;
 
-	
+	/* Propagate the format from sink to source */
 	if (fmt->pad == PREV_PAD_SINK) {
-		
+		/* Reset the crop rectangle. */
 		crop = __preview_get_crop(prev, fh, fmt->which);
 		crop->left = 0;
 		crop->top = 0;
@@ -1524,7 +1928,7 @@ static int preview_set_format(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 
 		preview_try_crop(prev, &fmt->format, crop);
 
-		
+		/* Update the source format. */
 		format = __preview_get_format(prev, fh, PREV_PAD_SOURCE,
 					      fmt->which);
 		preview_try_format(prev, fh, PREV_PAD_SOURCE, format,
@@ -1534,6 +1938,15 @@ static int preview_set_format(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 	return 0;
 }
 
+/*
+ * preview_init_formats - Initialize formats on all pads
+ * @sd: ISP preview V4L2 subdevice
+ * @fh: V4L2 subdev file handle
+ *
+ * Initialize all pad formats with default values. If fh is not NULL, try
+ * formats are initialized on the file handle. Otherwise active formats are
+ * initialized on the device.
+ */
 static int preview_init_formats(struct v4l2_subdev *sd,
 				struct v4l2_subdev_fh *fh)
 {
@@ -1550,14 +1963,17 @@ static int preview_init_formats(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/* subdev core operations */
 static const struct v4l2_subdev_core_ops preview_v4l2_core_ops = {
 	.ioctl = preview_ioctl,
 };
 
+/* subdev video operations */
 static const struct v4l2_subdev_video_ops preview_v4l2_video_ops = {
 	.s_stream = preview_set_stream,
 };
 
+/* subdev pad operations */
 static const struct v4l2_subdev_pad_ops preview_v4l2_pad_ops = {
 	.enum_mbus_code = preview_enum_mbus_code,
 	.enum_frame_size = preview_enum_frame_size,
@@ -1567,17 +1983,30 @@ static const struct v4l2_subdev_pad_ops preview_v4l2_pad_ops = {
 	.set_crop = preview_set_crop,
 };
 
+/* subdev operations */
 static const struct v4l2_subdev_ops preview_v4l2_ops = {
 	.core = &preview_v4l2_core_ops,
 	.video = &preview_v4l2_video_ops,
 	.pad = &preview_v4l2_pad_ops,
 };
 
+/* subdev internal operations */
 static const struct v4l2_subdev_internal_ops preview_v4l2_internal_ops = {
 	.open = preview_init_formats,
 };
 
+/* -----------------------------------------------------------------------------
+ * Media entity operations
+ */
 
+/*
+ * preview_link_setup - Setup previewer connections.
+ * @entity : Pointer to media entity structure
+ * @local  : Pointer to local pad array
+ * @remote : Pointer to remote pad array
+ * @flags  : Link flags
+ * return -EINVAL or zero on success
+ */
 static int preview_link_setup(struct media_entity *entity,
 			      const struct media_pad *local,
 			      const struct media_pad *remote, u32 flags)
@@ -1587,7 +2016,7 @@ static int preview_link_setup(struct media_entity *entity,
 
 	switch (local->index | media_entity_type(remote->entity)) {
 	case PREV_PAD_SINK | MEDIA_ENT_T_DEVNODE:
-		
+		/* read from memory */
 		if (flags & MEDIA_LNK_FL_ENABLED) {
 			if (prev->input == PREVIEW_INPUT_CCDC)
 				return -EBUSY;
@@ -1599,7 +2028,7 @@ static int preview_link_setup(struct media_entity *entity,
 		break;
 
 	case PREV_PAD_SINK | MEDIA_ENT_T_V4L2_SUBDEV:
-		
+		/* read from ccdc */
 		if (flags & MEDIA_LNK_FL_ENABLED) {
 			if (prev->input == PREVIEW_INPUT_MEMORY)
 				return -EBUSY;
@@ -1610,9 +2039,13 @@ static int preview_link_setup(struct media_entity *entity,
 		}
 		break;
 
+	/*
+	 * The ISP core doesn't support pipelines with multiple video outputs.
+	 * Revisit this when it will be implemented, and return -EBUSY for now.
+	 */
 
 	case PREV_PAD_SOURCE | MEDIA_ENT_T_DEVNODE:
-		
+		/* write to memory */
 		if (flags & MEDIA_LNK_FL_ENABLED) {
 			if (prev->output & ~PREVIEW_OUTPUT_MEMORY)
 				return -EBUSY;
@@ -1623,7 +2056,7 @@ static int preview_link_setup(struct media_entity *entity,
 		break;
 
 	case PREV_PAD_SOURCE | MEDIA_ENT_T_V4L2_SUBDEV:
-		
+		/* write to resizer */
 		if (flags & MEDIA_LNK_FL_ENABLED) {
 			if (prev->output & ~PREVIEW_OUTPUT_RESIZER)
 				return -EBUSY;
@@ -1640,6 +2073,7 @@ static int preview_link_setup(struct media_entity *entity,
 	return 0;
 }
 
+/* media operations */
 static const struct media_entity_operations preview_media_ops = {
 	.link_setup = preview_link_setup,
 };
@@ -1656,7 +2090,7 @@ int omap3isp_preview_register_entities(struct isp_prev_device *prev,
 {
 	int ret;
 
-	
+	/* Register the subdev and video nodes. */
 	ret = v4l2_device_register_subdev(vdev, &prev->subdev);
 	if (ret < 0)
 		goto error;
@@ -1676,7 +2110,15 @@ error:
 	return ret;
 }
 
+/* -----------------------------------------------------------------------------
+ * ISP previewer initialisation and cleanup
+ */
 
+/*
+ * preview_init_entities - Initialize subdev and media entity.
+ * @prev : Pointer to preview structure
+ * return -ENOMEM or zero on success
+ */
 static int preview_init_entities(struct isp_prev_device *prev)
 {
 	struct v4l2_subdev *sd = &prev->subdev;
@@ -1689,7 +2131,7 @@ static int preview_init_entities(struct isp_prev_device *prev)
 	v4l2_subdev_init(sd, &preview_v4l2_ops);
 	sd->internal_ops = &preview_v4l2_internal_ops;
 	strlcpy(sd->name, "OMAP3 ISP preview", sizeof(sd->name));
-	sd->grp_id = 1 << 16;	
+	sd->grp_id = 1 << 16;	/* group ID for isp subdevs */
 	v4l2_set_subdevdata(sd, prev);
 	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
 
@@ -1713,6 +2155,10 @@ static int preview_init_entities(struct isp_prev_device *prev)
 
 	preview_init_formats(sd, NULL);
 
+	/* According to the OMAP34xx TRM, video buffers need to be aligned on a
+	 * 32 bytes boundary. However, an undocumented hardware bug requires a
+	 * 64 bytes boundary at the preview engine input.
+	 */
 	prev->video_in.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
 	prev->video_in.ops = &preview_video_ops;
 	prev->video_in.isp = to_isp_device(prev);
@@ -1732,7 +2178,7 @@ static int preview_init_entities(struct isp_prev_device *prev)
 	if (ret < 0)
 		goto error_video_out;
 
-	
+	/* Connect the video nodes to the previewer subdev. */
 	ret = media_entity_create_link(&prev->video_in.video.entity, 0,
 			&prev->subdev.entity, PREV_PAD_SINK, 0);
 	if (ret < 0)
@@ -1754,6 +2200,11 @@ error_video_in:
 	return ret;
 }
 
+/*
+ * isp_preview_init - Previewer initialization.
+ * @dev : Pointer to ISP device
+ * return -ENOMEM or zero on success
+ */
 int omap3isp_preview_init(struct isp_device *isp)
 {
 	struct isp_prev_device *prev = &isp->isp_prev;

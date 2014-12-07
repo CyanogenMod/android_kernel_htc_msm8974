@@ -123,7 +123,7 @@ struct ib_cq *ehca_create_cq(struct ib_device *device, int cqe, int comp_vector,
 	struct ehca_shca *shca =
 		container_of(device, struct ehca_shca, ib_device);
 	struct ipz_adapter_handle adapter_handle;
-	struct ehca_alloc_cq_parms param; 
+	struct ehca_alloc_cq_parms param; /* h_call's out parameters */
 	struct h_galpa gal;
 	void *vpage;
 	u32 counter;
@@ -189,6 +189,10 @@ struct ib_cq *ehca_create_cq(struct ib_device *device, int cqe, int comp_vector,
 		goto create_cq_exit2;
 	}
 
+	/*
+	 * CQs maximum depth is 4GB-64, but we need additional 20 as buffer
+	 * for receiving errors CQEs.
+	 */
 	param.nr_cqe = cqe + additional_cqe;
 	h_ret = hipz_h_alloc_resource_cq(adapter_handle, my_cq, &param);
 
@@ -338,17 +342,21 @@ int ehca_destroy_cq(struct ib_cq *cq)
 		}
 	}
 
+	/*
+	 * remove the CQ from the idr first to make sure
+	 * no more interrupt tasklets will touch this CQ
+	 */
 	write_lock_irqsave(&ehca_cq_idr_lock, flags);
 	idr_remove(&ehca_cq_idr, my_cq->token);
 	write_unlock_irqrestore(&ehca_cq_idr_lock, flags);
 
-	
+	/* now wait until all pending events have completed */
 	wait_event(my_cq->wait_completion, !atomic_read(&my_cq->nr_events));
 
-	
+	/* nobody's using our CQ any longer -- we can destroy it */
 	h_ret = hipz_h_destroy_cq(adapter_handle, my_cq, 0);
 	if (h_ret == H_R_STATE) {
-		
+		/* cq in err: read err data and destroy it forcibly */
 		ehca_dbg(device, "ehca_cq=%p cq_num=%x resource=%llx in err "
 			 "state. Try to delete it forcibly.",
 			 my_cq, cq_num, my_cq->ipz_cq_handle.handle);
@@ -372,7 +380,7 @@ int ehca_destroy_cq(struct ib_cq *cq)
 
 int ehca_resize_cq(struct ib_cq *cq, int cqe, struct ib_udata *udata)
 {
-	
+	/* TODO: proper resize needs to be done */
 	ehca_err(cq->device, "not implemented yet");
 
 	return -EFAULT;

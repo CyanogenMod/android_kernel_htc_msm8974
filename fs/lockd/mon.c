@@ -35,7 +35,7 @@ enum {
 
 struct nsm_args {
 	struct nsm_private	*priv;
-	u32			prog;		
+	u32			prog;		/* RPC callback info */
 	u32			vers;
 	u32			proc;
 
@@ -51,6 +51,9 @@ static const struct rpc_program	nsm_program;
 static				LIST_HEAD(nsm_handles);
 static				DEFINE_SPINLOCK(nsm_lock);
 
+/*
+ * Local NSM state
+ */
 u32	__read_mostly		nsm_local_state;
 bool	__read_mostly		nsm_use_hostnames;
 
@@ -119,6 +122,17 @@ static int nsm_mon_unmon(struct nsm_handle *nsm, u32 proc, struct nsm_res *res,
 	return status;
 }
 
+/**
+ * nsm_monitor - Notify a peer in case we reboot
+ * @host: pointer to nlm_host of peer to notify
+ *
+ * If this peer is not already monitored, this function sends an
+ * upcall to the local rpc.statd to record the name/address of
+ * the peer to notify in case we reboot.
+ *
+ * Returns zero if the peer is monitored by the local rpc.statd;
+ * otherwise a negative errno value is returned.
+ */
 int nsm_monitor(const struct nlm_host *host)
 {
 	struct nsm_handle *nsm = host->h_nsmhandle;
@@ -130,6 +144,10 @@ int nsm_monitor(const struct nlm_host *host)
 	if (nsm->sm_monitored)
 		return 0;
 
+	/*
+	 * Choose whether to record the caller_name or IP address of
+	 * this peer in the local rpc.statd's database.
+	 */
 	nsm->sm_mon_name = nsm_use_hostnames ? nsm->sm_name : nsm->sm_addrbuf;
 
 	status = nsm_mon_unmon(nsm, NSMPROC_MON, &res, host->net);
@@ -148,6 +166,14 @@ int nsm_monitor(const struct nlm_host *host)
 	return 0;
 }
 
+/**
+ * nsm_unmonitor - Unregister peer notification
+ * @host: pointer to nlm_host of peer to stop monitoring
+ *
+ * If this peer is monitored, this function sends an upcall to
+ * tell the local rpc.statd not to send this peer a notification
+ * when we reboot.
+ */
 void nsm_unmonitor(const struct nlm_host *host)
 {
 	struct nsm_handle *nsm = host->h_nsmhandle;
@@ -202,6 +228,23 @@ static struct nsm_handle *nsm_lookup_priv(const struct nsm_private *priv)
 	return NULL;
 }
 
+/*
+ * Construct a unique cookie to match this nsm_handle to this monitored
+ * host.  It is passed to the local rpc.statd via NSMPROC_MON, and
+ * returned via NLMPROC_SM_NOTIFY, in the "priv" field of these
+ * requests.
+ *
+ * The NSM protocol requires that these cookies be unique while the
+ * system is running.  We prefer a stronger requirement of making them
+ * unique across reboots.  If user space bugs cause a stale cookie to
+ * be sent to the kernel, it could cause the wrong host to lose its
+ * lock state if cookies were not unique across reboots.
+ *
+ * The cookies are exposed only to local user space via loopback.  They
+ * do not appear on the physical network.  If we want greater security
+ * for some reason, nsm_init_private() could perform a one-way hash to
+ * obscure the contents of the cookie.
+ */
 static void nsm_init_private(struct nsm_handle *nsm)
 {
 	u64 *p = (u64 *)&nsm->sm_priv.data;
@@ -241,6 +284,20 @@ static struct nsm_handle *nsm_create_handle(const struct sockaddr *sap,
 	return new;
 }
 
+/**
+ * nsm_get_handle - Find or create a cached nsm_handle
+ * @sap: pointer to socket address of handle to find
+ * @salen: length of socket address
+ * @hostname: pointer to C string containing hostname to find
+ * @hostname_len: length of C string
+ *
+ * Behavior is modulated by the global nsm_use_hostnames variable.
+ *
+ * Returns a cached nsm_handle after bumping its ref count, or
+ * returns a fresh nsm_handle if a handle that matches @sap and/or
+ * @hostname cannot be found in the handle cache.  Returns NULL if
+ * an error occurs.
+ */
 struct nsm_handle *nsm_get_handle(const struct sockaddr *sap,
 				  const size_t salen, const char *hostname,
 				  const size_t hostname_len)
@@ -291,6 +348,14 @@ retry:
 	goto retry;
 }
 
+/**
+ * nsm_reboot_lookup - match NLMPROC_SM_NOTIFY arguments to an nsm_handle
+ * @info: pointer to NLMPROC_SM_NOTIFY arguments
+ *
+ * Returns a matching nsm_handle if found in the nsm cache. The returned
+ * nsm_handle's reference count is bumped. Otherwise returns NULL if some
+ * error occurred.
+ */
 struct nsm_handle *nsm_reboot_lookup(const struct nlm_reboot *info)
 {
 	struct nsm_handle *cached;
@@ -314,6 +379,11 @@ struct nsm_handle *nsm_reboot_lookup(const struct nlm_reboot *info)
 	return cached;
 }
 
+/**
+ * nsm_release - Release an NSM handle
+ * @nsm: pointer to handle to be released
+ *
+ */
 void nsm_release(struct nsm_handle *nsm)
 {
 	if (atomic_dec_and_lock(&nsm->sm_count, &nsm_lock)) {
@@ -325,6 +395,12 @@ void nsm_release(struct nsm_handle *nsm)
 	}
 }
 
+/*
+ * XDR functions for NSM.
+ *
+ * See http://www.opengroup.org/ for details on the Network
+ * Status Monitor wire protocol.
+ */
 
 static void encode_nsm_string(struct xdr_stream *xdr, const char *string)
 {
@@ -336,11 +412,20 @@ static void encode_nsm_string(struct xdr_stream *xdr, const char *string)
 	xdr_encode_opaque(p, string, len);
 }
 
+/*
+ * "mon_name" specifies the host to be monitored.
+ */
 static void encode_mon_name(struct xdr_stream *xdr, const struct nsm_args *argp)
 {
 	encode_nsm_string(xdr, argp->mon_name);
 }
 
+/*
+ * The "my_id" argument specifies the hostname and RPC procedure
+ * to be called when the status manager receives notification
+ * (via the NLMPROC_SM_NOTIFY call) that the state of host "mon_name"
+ * has changed.
+ */
 static void encode_my_id(struct xdr_stream *xdr, const struct nsm_args *argp)
 {
 	__be32 *p;
@@ -352,12 +437,21 @@ static void encode_my_id(struct xdr_stream *xdr, const struct nsm_args *argp)
 	*p = cpu_to_be32(argp->proc);
 }
 
+/*
+ * The "mon_id" argument specifies the non-private arguments
+ * of an NSMPROC_MON or NSMPROC_UNMON call.
+ */
 static void encode_mon_id(struct xdr_stream *xdr, const struct nsm_args *argp)
 {
 	encode_mon_name(xdr, argp);
 	encode_my_id(xdr, argp);
 }
 
+/*
+ * The "priv" argument may contain private information required
+ * by the NSMPROC_MON call. This information will be supplied in the
+ * NLMPROC_SM_NOTIFY call.
+ */
 static void encode_priv(struct xdr_stream *xdr, const struct nsm_args *argp)
 {
 	__be32 *p;

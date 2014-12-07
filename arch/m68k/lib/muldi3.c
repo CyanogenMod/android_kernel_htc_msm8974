@@ -1,3 +1,5 @@
+/* muldi3.c extracted from gcc-2.7.2.3/libgcc2.c and 
+			   gcc-2.7.2.3/longlong.h which is: */
 /* Copyright (C) 1989, 1992, 1993, 1994, 1995 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
@@ -40,10 +42,10 @@ Boston, MA 02111-1307, USA.  */
     __x2 = (USItype) __uh * __vl;					\
     __x3 = (USItype) __uh * __vh;					\
 									\
-    __x1 += __ll_highpart (__x0);		\
-    __x1 += __x2;				\
-    if (__x1 < __x2)					\
-      __x3 += __ll_B;			\
+    __x1 += __ll_highpart (__x0);/* this can't give carry */		\
+    __x1 += __x2;		/* but this indeed can */		\
+    if (__x1 < __x2)		/* did we get it? */			\
+      __x3 += __ll_B;		/* yes, add it in the proper pos. */	\
 									\
     (w1) = __x3 + __ll_highpart (__x1);					\
     (w0) = __ll_lowpart (__x1) * __ll_B + __ll_lowpart (__x0);		\

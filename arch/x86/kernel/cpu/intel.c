@@ -31,7 +31,7 @@ static void __cpuinit early_init_intel(struct cpuinfo_x86 *c)
 {
 	u64 misc_enable;
 
-	
+	/* Unmask CPUID levels if masked: */
 	if (c->x86 > 6 || (c->x86 == 6 && c->x86_model >= 0xd)) {
 		rdmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
 
@@ -51,11 +51,19 @@ static void __cpuinit early_init_intel(struct cpuinfo_x86 *c)
 		unsigned lower_word;
 
 		wrmsr(MSR_IA32_UCODE_REV, 0, 0);
-		
+		/* Required by the SDM */
 		sync_core();
 		rdmsr(MSR_IA32_UCODE_REV, lower_word, c->microcode);
 	}
 
+	/*
+	 * Atom erratum AAE44/AAF40/AAG38/AAH41:
+	 *
+	 * A race condition between speculative fetches and invalidating
+	 * a large page.  This is worked around in microcode, but we
+	 * need the microcode to have already been loaded... so if it is
+	 * not, recommend a BIOS update and disable large pages.
+	 */
 	if (c->x86 == 6 && c->x86_model == 0x1c && c->x86_mask <= 2 &&
 	    c->microcode < 0x20e) {
 		printk(KERN_WARNING "Atom PSE erratum detected, BIOS microcode update recommended\n");
@@ -65,16 +73,23 @@ static void __cpuinit early_init_intel(struct cpuinfo_x86 *c)
 #ifdef CONFIG_X86_64
 	set_cpu_cap(c, X86_FEATURE_SYSENTER32);
 #else
-	
+	/* Netburst reports 64 bytes clflush size, but does IO in 128 bytes */
 	if (c->x86 == 15 && c->x86_cache_alignment == 64)
 		c->x86_cache_alignment = 128;
 #endif
 
-	
+	/* CPUID workaround for 0F33/0F34 CPU */
 	if (c->x86 == 0xF && c->x86_model == 0x3
 	    && (c->x86_mask == 0x3 || c->x86_mask == 0x4))
 		c->x86_phys_bits = 36;
 
+	/*
+	 * c->x86_power is 8000_0007 edx. Bit 8 is TSC runs at constant rate
+	 * with P/T states and does not stop in deep C-states.
+	 *
+	 * It is also reliable across cores and sockets. (but not across
+	 * cabinets - we turn it off in that case explicitly.)
+	 */
 	if (c->x86_power & (1 << 8)) {
 		set_cpu_cap(c, X86_FEATURE_CONSTANT_TSC);
 		set_cpu_cap(c, X86_FEATURE_NONSTOP_TSC);
@@ -82,10 +97,28 @@ static void __cpuinit early_init_intel(struct cpuinfo_x86 *c)
 			sched_clock_stable = 1;
 	}
 
+	/*
+	 * There is a known erratum on Pentium III and Core Solo
+	 * and Core Duo CPUs.
+	 * " Page with PAT set to WC while associated MTRR is UC
+	 *   may consolidate to UC "
+	 * Because of this erratum, it is better to stick with
+	 * setting WC in MTRR rather than using PAT on these CPUs.
+	 *
+	 * Enable PAT WC only on P4, Core 2 or later CPUs.
+	 */
 	if (c->x86 == 6 && c->x86_model < 15)
 		clear_cpu_cap(c, X86_FEATURE_PAT);
 
 #ifdef CONFIG_KMEMCHECK
+	/*
+	 * P4s have a "fast strings" feature which causes single-
+	 * stepping REP instructions to only generate a #DB on
+	 * cache-line boundaries.
+	 *
+	 * Ingo Molnar reported a Pentium D (model 6) and a Xeon
+	 * (model 2) with the same problem.
+	 */
 	if (c->x86 == 15) {
 		rdmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
 
@@ -98,6 +131,10 @@ static void __cpuinit early_init_intel(struct cpuinfo_x86 *c)
 	}
 #endif
 
+	/*
+	 * If fast string is not enabled in IA32_MISC_ENABLE for any reason,
+	 * clear the fast string and enhanced fast string CPU capabilities.
+	 */
 	if (c->x86 > 6 || (c->x86 == 6 && c->x86_model >= 0xd)) {
 		rdmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
 		if (!(misc_enable & MSR_IA32_MISC_ENABLE_FAST_STRING)) {
@@ -109,10 +146,15 @@ static void __cpuinit early_init_intel(struct cpuinfo_x86 *c)
 }
 
 #ifdef CONFIG_X86_32
+/*
+ *	Early probe support logic for ppro memory erratum #50
+ *
+ *	This is called before we do cpu ident work
+ */
 
 int __cpuinit ppro_with_ram_bug(void)
 {
-	
+	/* Uses data from early_cpu_detect now */
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL &&
 	    boot_cpu_data.x86 == 6 &&
 	    boot_cpu_data.x86_model == 1 &&
@@ -128,6 +170,10 @@ static void __cpuinit trap_init_f00f_bug(void)
 {
 	__set_fixmap(FIX_F00F_IDT, __pa(&idt_table), PAGE_KERNEL_RO);
 
+	/*
+	 * Update the IDT descriptor and reload the IDT so that
+	 * it uses the read-only mapped virtual address.
+	 */
 	idt_descr.address = fix_to_virt(FIX_F00F_IDT);
 	load_idt(&idt_descr);
 }
@@ -135,13 +181,19 @@ static void __cpuinit trap_init_f00f_bug(void)
 
 static void __cpuinit intel_smp_check(struct cpuinfo_x86 *c)
 {
-	
+	/* calling is from identify_secondary_cpu() ? */
 	if (!c->cpu_index)
 		return;
 
+	/*
+	 * Mask B, Pentium, but not Pentium MMX
+	 */
 	if (c->x86 == 5 &&
 	    c->x86_mask >= 1 && c->x86_mask <= 4 &&
 	    c->x86_model <= 3) {
+		/*
+		 * Remember we have B step Pentia with bugs
+		 */
 		WARN_ONCE(1, "WARNING: SMP operation may be unreliable"
 				    "with B stepping processors.\n");
 	}
@@ -152,6 +204,12 @@ static void __cpuinit intel_workarounds(struct cpuinfo_x86 *c)
 	unsigned long lo, hi;
 
 #ifdef CONFIG_X86_F00F_BUG
+	/*
+	 * All current models of Pentium and Pentium with MMX technology CPUs
+	 * have the F0 0F bug, which lets nonprivileged users lock up the
+	 * system.
+	 * Note that the workaround only should be initialized once...
+	 */
 	c->f00f_bug = 0;
 	if (!paravirt_enabled() && c->x86 == 5) {
 		static int f00f_workaround_enabled;
@@ -165,9 +223,17 @@ static void __cpuinit intel_workarounds(struct cpuinfo_x86 *c)
 	}
 #endif
 
+	/*
+	 * SEP CPUID bug: Pentium Pro reports SEP but doesn't have it until
+	 * model 3 mask 3
+	 */
 	if ((c->x86<<8 | c->x86_model<<4 | c->x86_mask) < 0x633)
 		clear_cpu_cap(c, X86_FEATURE_SEP);
 
+	/*
+	 * P4 Xeon errata 037 workaround.
+	 * Hardware prefetcher may cause stale data to be loaded into the cache.
+	 */
 	if ((c->x86 == 15) && (c->x86_model == 1) && (c->x86_mask == 1)) {
 		rdmsr(MSR_IA32_MISC_ENABLE, lo, hi);
 		if ((lo & MSR_IA32_MISC_ENABLE_PREFETCH_DISABLE) == 0) {
@@ -178,21 +244,30 @@ static void __cpuinit intel_workarounds(struct cpuinfo_x86 *c)
 		}
 	}
 
+	/*
+	 * See if we have a good local APIC by checking for buggy Pentia,
+	 * i.e. all B steppings and the C2 stepping of P54C when using their
+	 * integrated APIC (see 11AP erratum in "Pentium Processor
+	 * Specification Update").
+	 */
 	if (cpu_has_apic && (c->x86<<8 | c->x86_model<<4) == 0x520 &&
 	    (c->x86_mask < 0x6 || c->x86_mask == 0xb))
 		set_cpu_cap(c, X86_FEATURE_11AP);
 
 
 #ifdef CONFIG_X86_INTEL_USERCOPY
+	/*
+	 * Set up the preferred alignment for movsl bulk memory moves
+	 */
 	switch (c->x86) {
-	case 4:		
+	case 4:		/* 486: untested */
 		break;
-	case 5:		
+	case 5:		/* Old Pentia: untested */
 		break;
-	case 6:		
+	case 6:		/* PII/PIII only like movsl with 8-byte alignment */
 		movsl_mask.mask = 7;
 		break;
-	case 15:	
+	case 15:	/* P4 is OK down to 8-byte alignment */
 		movsl_mask.mask = 7;
 		break;
 	}
@@ -216,15 +291,20 @@ static void __cpuinit srat_detect_node(struct cpuinfo_x86 *c)
 	unsigned node;
 	int cpu = smp_processor_id();
 
+	/* Don't do the funky fallback heuristics the AMD version employs
+	   for now. */
 	node = numa_cpu_node(cpu);
 	if (node == NUMA_NO_NODE || !node_online(node)) {
-		
+		/* reuse the value from init_cpu_to_node() */
 		node = cpu_to_node(cpu);
 	}
 	numa_set_node(cpu, node);
 #endif
 }
 
+/*
+ * find out the number of processor cores on the die
+ */
 static int __cpuinit intel_num_cpu_cores(struct cpuinfo_x86 *c)
 {
 	unsigned int eax, ebx, ecx, edx;
@@ -232,7 +312,7 @@ static int __cpuinit intel_num_cpu_cores(struct cpuinfo_x86 *c)
 	if (c->cpuid_level < 4)
 		return 1;
 
-	
+	/* Intel has a non-standard dependency on %ecx for this CPUID level. */
 	cpuid_count(4, 0, &eax, &ebx, &ecx, &edx);
 	if (eax & 0x1f)
 		return (eax >> 26) + 1;
@@ -242,7 +322,7 @@ static int __cpuinit intel_num_cpu_cores(struct cpuinfo_x86 *c)
 
 static void __cpuinit detect_vmx_virtcap(struct cpuinfo_x86 *c)
 {
-	
+	/* Intel VMX MSR indicated features */
 #define X86_VMX_FEATURE_PROC_CTLS_TPR_SHADOW	0x00200000
 #define X86_VMX_FEATURE_PROC_CTLS_VNMI		0x00400000
 #define X86_VMX_FEATURE_PROC_CTLS_2ND_CTLS	0x80000000
@@ -286,12 +366,17 @@ static void __cpuinit init_intel(struct cpuinfo_x86 *c)
 
 	intel_workarounds(c);
 
+	/*
+	 * Detect the extended topology information if available. This
+	 * will reinitialise the initial_apicid which will be used
+	 * in init_intel_cacheinfo()
+	 */
 	detect_extended_topology(c);
 
 	l2 = init_intel_cacheinfo(c);
 	if (c->cpuid_level > 9) {
 		unsigned eax = cpuid_eax(10);
-		
+		/* Check for version and the number of counters */
 		if ((eax & 0xff) && (((eax>>8) & 0xff) > 1))
 			set_cpu_cap(c, X86_FEATURE_ARCH_PERFMON);
 	}
@@ -316,6 +401,11 @@ static void __cpuinit init_intel(struct cpuinfo_x86 *c)
 	if (c->x86 == 6)
 		set_cpu_cap(c, X86_FEATURE_REP_GOOD);
 #else
+	/*
+	 * Names for the Pentium II/Celeron processors
+	 * detectable only by also checking the cache size.
+	 * Dixon is NOT a Celeron.
+	 */
 	if (c->x86 == 6) {
 		char *p = NULL;
 
@@ -351,18 +441,26 @@ static void __cpuinit init_intel(struct cpuinfo_x86 *c)
 #endif
 
 	if (!cpu_has(c, X86_FEATURE_XTOPOLOGY)) {
+		/*
+		 * let's use the legacy cpuid vector 0x1 and 0x4 for topology
+		 * detection.
+		 */
 		c->x86_max_cores = intel_num_cpu_cores(c);
 #ifdef CONFIG_X86_32
 		detect_ht(c);
 #endif
 	}
 
-	
+	/* Work around errata */
 	srat_detect_node(c);
 
 	if (cpu_has(c, X86_FEATURE_VMX))
 		detect_vmx_virtcap(c);
 
+	/*
+	 * Initialize MSR_IA32_ENERGY_PERF_BIAS if BIOS did not.
+	 * x86_energy_perf_policy(8) is available to change it at run-time
+	 */
 	if (cpu_has(c, X86_FEATURE_EPB)) {
 		u64 epb;
 
@@ -381,6 +479,12 @@ static void __cpuinit init_intel(struct cpuinfo_x86 *c)
 #ifdef CONFIG_X86_32
 static unsigned int __cpuinit intel_size_cache(struct cpuinfo_x86 *c, unsigned int size)
 {
+	/*
+	 * Intel PIII Tualatin. This comes in two flavours.
+	 * One has 256kb of cache, the other 512. We have no way
+	 * to determine which, so we use a boottime override
+	 * for the 512kb model, and assume 256 otherwise.
+	 */
 	if ((c->x86 == 6) && (c->x86_model == 11) && (size == 0))
 		size = 256;
 	return size;

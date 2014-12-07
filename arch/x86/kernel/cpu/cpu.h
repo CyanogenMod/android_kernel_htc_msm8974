@@ -7,10 +7,11 @@ struct cpu_model_info {
 	const char	*model_names[16];
 };
 
+/* attempt to consolidate cpu attributes */
 struct cpu_dev {
 	const char	*c_vendor;
 
-	
+	/* some have two possibilities for cpuid string */
 	const char	*c_ident[2];
 
 	struct		cpu_model_info c_models[4];
@@ -33,4 +34,4 @@ extern const struct cpu_dev *const __x86_cpu_dev_start[],
 
 extern void get_cpu_cap(struct cpuinfo_x86 *c);
 extern void cpu_detect_cache_sizes(struct cpuinfo_x86 *c);
-#endif 
+#endif /* ARCH_X86_CPU_H */

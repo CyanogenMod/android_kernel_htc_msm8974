@@ -54,7 +54,7 @@ static int unbind_device(char *busid)
 	char *val = NULL;
 	int len;
 
-	
+	/* verify the busid device is using usbip-host */
 	usbip_host_drv = sysfs_open_driver(bus_type, USBIP_HOST_DRV_NAME);
 	if (!usbip_host_drv) {
 		err("could not open %s driver: %s", USBIP_HOST_DRV_NAME,
@@ -83,6 +83,15 @@ static int unbind_device(char *busid)
 		goto err_close_usbip_host_drv;
 	}
 
+	/*
+	 * NOTE: A read and write of an attribute value of the device busid
+	 * refers to must be done to start probing. That way a rebind of the
+	 * default driver for the device occurs.
+	 *
+	 * This seems very hackish and adds a lot of pointless code. I think it
+	 * should be done in the kernel by the driver after del_match_busid is
+	 * finished!
+	 */
 
 	rc = sysfs_get_mnt_path(sysfs_mntpath, SYSFS_PATH_MAX);
 	if (rc < 0) {
@@ -94,7 +103,7 @@ static int unbind_device(char *busid)
 		 sysfs_mntpath, SYSFS_BUS_NAME, bus_type, SYSFS_DEVICES_NAME,
 		 busid, attr_name);
 
-	
+	/* read a device attribute */
 	busid_attr = sysfs_open_attribute(busid_attr_path);
 	if (!busid_attr) {
 		err("could not open %s/%s: %s", busid, attr_name,
@@ -112,14 +121,14 @@ static int unbind_device(char *busid)
 	*val = *busid_attr->value;
 	sysfs_close_attribute(busid_attr);
 
-	
+	/* notify driver of unbind */
 	rc = modify_match_busid(busid, 0);
 	if (rc < 0) {
 		err("unable to unbind device on %s", busid);
 		goto err_out;
 	}
 
-	
+	/* write the device attribute */
 	busid_attr = sysfs_open_attribute(busid_attr_path);
 	if (!busid_attr) {
 		err("could not open %s/%s: %s", busid, attr_name,

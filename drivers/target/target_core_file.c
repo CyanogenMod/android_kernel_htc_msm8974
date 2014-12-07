@@ -43,6 +43,10 @@
 
 static struct se_subsystem_api fileio_template;
 
+/*	fd_attach_hba(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static int fd_attach_hba(struct se_hba *hba, u32 host_id)
 {
 	struct fd_host *fd_host;
@@ -96,6 +100,10 @@ static void *fd_allocate_virtdevice(struct se_hba *hba, const char *name)
 	return fd_dev;
 }
 
+/*	fd_create_virtdevice(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static struct se_device *fd_create_virtdevice(
 	struct se_hba *hba,
 	struct se_subsystem_dev *se_dev,
@@ -133,6 +141,11 @@ static struct se_device *fd_create_virtdevice(
 #else
 	flags = O_RDWR | O_CREAT | O_LARGEFILE;
 #endif
+/*	flags |= O_DIRECT; */
+	/*
+	 * If fd_buffered_io=1 has not been set explicitly (the default),
+	 * use O_SYNC to force FILEIO writes to disk.
+	 */
 	if (!(fd_dev->fbd_flags & FDBD_USE_BUFFERED_IO))
 		flags |= O_SYNC;
 
@@ -147,15 +160,29 @@ static struct se_device *fd_create_virtdevice(
 		goto fail;
 	}
 	fd_dev->fd_file = file;
+	/*
+	 * If using a block backend with this struct file, we extract
+	 * fd_dev->fd_[block,dev]_size from struct block_device.
+	 *
+	 * Otherwise, we use the passed fd_size= from configfs
+	 */
 	inode = file->f_mapping->host;
 	if (S_ISBLK(inode->i_mode)) {
 		struct request_queue *q;
 		unsigned long long dev_size;
+		/*
+		 * Setup the local scope queue_limits from struct request_queue->limits
+		 * to pass into transport_add_device_to_core_hba() as struct se_dev_limits.
+		 */
 		q = bdev_get_queue(inode->i_bdev);
 		limits = &dev_limits.limits;
 		limits->logical_block_size = bdev_logical_block_size(inode->i_bdev);
 		limits->max_hw_sectors = queue_max_hw_sectors(q);
 		limits->max_sectors = queue_max_sectors(q);
+		/*
+		 * Determine the number of bytes from i_size_read() minus
+		 * one (1) logical sector from underlying struct block_device
+		 */
 		fd_dev->fd_block_size = bdev_logical_block_size(inode->i_bdev);
 		dev_size = (i_size_read(file->f_mapping->host) -
 				       fd_dev->fd_block_size);
@@ -206,6 +233,10 @@ fail:
 	return ERR_PTR(ret);
 }
 
+/*	fd_free_device(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static void fd_free_device(void *p)
 {
 	struct fd_dev *fd_dev = p;
@@ -268,6 +299,11 @@ static int fd_do_readv(struct se_task *task)
 	set_fs(old_fs);
 
 	kfree(iov);
+	/*
+	 * Return zeros and GOOD status even if the READ did not return
+	 * the expected virt_size for struct file w/o a backing struct
+	 * block_device.
+	 */
 	if (S_ISBLK(fd->f_dentry->d_inode->i_mode)) {
 		if (ret < 0 || ret != task->task_size) {
 			pr_err("vfs_readv() returned %d,"
@@ -334,9 +370,16 @@ static void fd_emulate_sync_cache(struct se_task *task)
 	loff_t start, end;
 	int ret;
 
+	/*
+	 * If the Immediate bit is set, queue up the GOOD response
+	 * for this SYNCHRONIZE_CACHE op
+	 */
 	if (immed)
 		transport_complete_sync_cache(cmd, 1);
 
+	/*
+	 * Determine if we will be flushing the entire device.
+	 */
 	if (cmd->t_task_lba == 0 && cmd->data_length == 0) {
 		start = 0;
 		end = LLONG_MAX;
@@ -356,6 +399,10 @@ static void fd_emulate_sync_cache(struct se_task *task)
 		transport_complete_sync_cache(cmd, ret == 0);
 }
 
+/*
+ * WRITE Force Unit Access (FUA) emulation on a per struct se_task
+ * LBA range basis..
+ */
 static void fd_emulate_write_fua(struct se_cmd *cmd, struct se_task *task)
 {
 	struct se_device *dev = cmd->se_dev;
@@ -378,6 +425,10 @@ static int fd_do_task(struct se_task *task)
 	struct se_device *dev = cmd->se_dev;
 	int ret = 0;
 
+	/*
+	 * Call vectorized fileio functions to map struct scatterlist
+	 * physical memory addresses to struct iovec virtual memory.
+	 */
 	if (task->task_data_direction == DMA_FROM_DEVICE) {
 		ret = fd_do_readv(task);
 	} else {
@@ -387,6 +438,11 @@ static int fd_do_task(struct se_task *task)
 		    dev->se_sub_dev->se_dev_attrib.emulate_write_cache > 0 &&
 		    dev->se_sub_dev->se_dev_attrib.emulate_fua_write > 0 &&
 		    (cmd->se_cmd_flags & SCF_FUA)) {
+			/*
+			 * We might need to be a bit smarter here
+			 * and return some sense data to let the initiator
+			 * know the FUA WRITE cache sync failed..?
+			 */
 			fd_emulate_write_fua(cmd, task);
 		}
 
@@ -403,6 +459,10 @@ static int fd_do_task(struct se_task *task)
 	return 0;
 }
 
+/*	fd_free_task(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static void fd_free_task(struct se_task *task)
 {
 	struct fd_request *req = FILE_REQ(task);
@@ -524,11 +584,19 @@ static ssize_t fd_show_configfs_dev_params(
 	return bl;
 }
 
+/*	fd_get_device_rev(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static u32 fd_get_device_rev(struct se_device *dev)
 {
-	return SCSI_SPC_2; 
+	return SCSI_SPC_2; /* Returns SPC-3 in Initiator Data */
 }
 
+/*	fd_get_device_type(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static u32 fd_get_device_type(struct se_device *dev)
 {
 	return TYPE_DISK;
@@ -540,6 +608,11 @@ static sector_t fd_get_blocks(struct se_device *dev)
 	struct file *f = fd_dev->fd_file;
 	struct inode *i = f->f_mapping->host;
 	unsigned long long dev_size;
+	/*
+	 * When using a file that references an underlying struct block_device,
+	 * ensure dev_size is always based on the current inode size in order
+	 * to handle underlying block_device resize operations.
+	 */
 	if (S_ISBLK(i->i_mode))
 		dev_size = (i_size_read(i) - fd_dev->fd_block_size);
 	else

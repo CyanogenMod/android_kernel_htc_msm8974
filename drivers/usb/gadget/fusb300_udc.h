@@ -62,6 +62,9 @@
 #define FUSB300_OFFSET_BUFDBG_END	0xBFC
 #define FUSB300_OFFSET_EPPORT(n)	(0x1010 + (n - 1) * 0x10)
 
+/*
+ * *	Global Control Register (offset = 000H)
+ * */
 #define FUSB300_GCR_SF_RST		(1 << 8)
 #define FUSB300_GCR_VBUS_STATUS		(1 << 7)
 #define FUSB300_GCR_FORCE_HS_SUSP	(1 << 6)
@@ -76,6 +79,9 @@
 #define FUSB300_GCR_DEVEN_MSK		0x3
 
 
+/*
+ * *Global Test Mode (offset = 004H)
+ * */
 #define FUSB300_GTM_TST_DIS_SOFGEN	(1 << 16)
 #define FUSB300_GTM_TST_CUR_EP_ENTRY(n)	((n & 0xF) << 12)
 #define FUSB300_GTM_TST_EP_ENTRY(n)	((n & 0xF) << 8)
@@ -83,10 +89,17 @@
 #define FUSB300_GTM_TST_FIFO_DEG	(1 << 1)
 #define FUSB300_GTM_TSTMODE		(1 << 0)
 
+/*
+ * * Device Address Register (offset = 008H)
+ * */
 #define FUSB300_DAR_SETCONFG	(1 << 7)
 #define FUSB300_DAR_DRVADDR(x)	(x & 0x7F)
 #define FUSB300_DAR_DRVADDR_MSK	0x7F
 
+/*
+ * *Control Transfer Configuration and Status Register
+ * (CX_Config_Status, offset = 00CH)
+ * */
 #define FUSB300_CSR_LEN(x)	((x & 0xFFFF) << 8)
 #define FUSB300_CSR_LEN_MSK	(0xFFFF << 8)
 #define FUSB300_CSR_EMP		(1 << 4)
@@ -95,10 +108,16 @@
 #define FUSB300_CSR_STL		(1 << 1)
 #define FUSB300_CSR_DONE	(1 << 0)
 
+/*
+ * * EPn Setting 0 (EPn_SET0, offset = 020H+(n-1)*30H, n=1~15 )
+ * */
 #define FUSB300_EPSET0_CLRSEQNUM	(1 << 2)
 #define FUSB300_EPSET0_EPn_TX0BYTE	(1 << 1)
 #define FUSB300_EPSET0_STL		(1 << 0)
 
+/*
+ * * EPn Setting 1 (EPn_SET1, offset = 024H+(n-1)*30H, n=1~15)
+ * */
 #define FUSB300_EPSET1_START_ENTRY(x)	((x & 0xFF) << 24)
 #define FUSB300_EPSET1_START_ENTRY_MSK	(0xFF << 24)
 #define FUSB300_EPSET1_FIFOENTRY(x)	((x & 0x1F) << 12)
@@ -118,25 +137,40 @@
 #define FUSB300_EPSET1_ACTDIS		0
 #define FUSB300_EPSET1_ACTEN		1
 
+/*
+ * *EPn Setting 2 (EPn_SET2, offset = 028H+(n-1)*30H, n=1~15)
+ * */
 #define FUSB300_EPSET2_ADDROFS(x)	((x & 0x7FFF) << 16)
 #define FUSB300_EPSET2_ADDROFS_MSK	(0x7fff << 16)
 #define FUSB300_EPSET2_MPS(x)		(x & 0x7FF)
 #define FUSB300_EPSET2_MPS_MSK		0x7FF
 
+/*
+ * * EPn FIFO Register (offset = 2cH+(n-1)*30H)
+ * */
 #define FUSB300_FFR_RST		(1 << 31)
 #define FUSB300_FF_FUL		(1 << 30)
 #define FUSB300_FF_EMPTY	(1 << 29)
 #define FUSB300_FFR_BYCNT	0x1FFFF
 
+/*
+ * *EPn Stream ID (EPn_STR_ID, offset = 040H+(n-1)*30H, n=1~15)
+ * */
 #define FUSB300_STRID_STREN	(1 << 16)
 #define FUSB300_STRID_STRID(x)	(x & 0xFFFF)
 
+/*
+ * *HS PHY Test Mode (offset = 300H)
+ * */
 #define FUSB300_HSPTM_TSTPKDONE		(1 << 4)
 #define FUSB300_HSPTM_TSTPKT		(1 << 3)
 #define FUSB300_HSPTM_TSTSET0NAK	(1 << 2)
 #define FUSB300_HSPTM_TSTKSTA		(1 << 1)
 #define FUSB300_HSPTM_TSTJSTA		(1 << 0)
 
+/*
+ * *HS Control Register (offset = 304H)
+ * */
 #define FUSB300_HSCR_HS_LPM_PERMIT	(1 << 8)
 #define FUSB300_HSCR_HS_LPM_RMWKUP	(1 << 7)
 #define FUSB300_HSCR_CAP_LPM_RMWKUP	(1 << 6)
@@ -152,10 +186,16 @@
 #define FUSB300_HSCR_IDLECNT_6MS	6
 #define FUSB300_HSCR_IDLECNT_7MS	7
 
+/*
+ * * SS Controller Register 0 (offset = 308H)
+ * */
 #define FUSB300_SSCR0_MAX_INTERVAL(x)	((x & 0x7) << 4)
 #define FUSB300_SSCR0_U2_FUN_EN		(1 << 1)
 #define FUSB300_SSCR0_U1_FUN_EN		(1 << 0)
 
+/*
+ * * SS Controller Register 1 (offset = 30CH)
+ * */
 #define FUSB300_SSCR1_GO_U3_DONE	(1 << 8)
 #define FUSB300_SSCR1_TXDEEMPH_LEVEL	(1 << 7)
 #define FUSB300_SSCR1_DIS_SCRMB		(1 << 6)
@@ -166,34 +206,55 @@
 #define FUSB300_SSCR1_U2_ENTRY_EN	(1 << 1)
 #define FUSB300_SSCR1_U1_ENTRY_EN	(1 << 0)
 
+/*
+ * *SS Controller Register 2  (offset = 310H)
+ * */
 #define FUSB300_SSCR2_SS_TX_SWING		(1 << 25)
 #define FUSB300_SSCR2_FORCE_LINKPM_ACCEPT	(1 << 24)
 #define FUSB300_SSCR2_U2_INACT_TIMEOUT(x)	((x & 0xFF) << 16)
 #define FUSB300_SSCR2_U1TIMEOUT(x)		((x & 0xFF) << 8)
 #define FUSB300_SSCR2_U2TIMEOUT(x)		(x & 0xFF)
 
+/*
+ * *SS Device Notification Control (DEV_NOTF, offset = 314H)
+ * */
 #define FUSB300_DEVNOTF_CONTEXT0(x)		((x & 0xFFFFFF) << 8)
 #define FUSB300_DEVNOTF_TYPE_DIS		0
 #define FUSB300_DEVNOTF_TYPE_FUNCWAKE		1
 #define FUSB300_DEVNOTF_TYPE_LTM		2
 #define FUSB300_DEVNOTF_TYPE_BUSINT_ADJMSG	3
 
+/*
+ * *BFM Arbiter Priority Register (BFM_ARB offset = 31CH)
+ * */
 #define FUSB300_BFMARB_ARB_M1	(1 << 3)
 #define FUSB300_BFMARB_ARB_M0	(1 << 2)
 #define FUSB300_BFMARB_ARB_S1	(1 << 1)
 #define FUSB300_BFMARB_ARB_S0	1
 
+/*
+ * *Vendor Specific IO Control Register (offset = 320H)
+ * */
 #define FUSB300_VSIC_VCTLOAD_N	(1 << 8)
 #define FUSB300_VSIC_VCTL(x)	(x & 0x3F)
 
+/*
+ * *SOF Mask Timer (offset = 324H)
+ * */
 #define FUSB300_SOF_MASK_TIMER_HS	0x044c
 #define FUSB300_SOF_MASK_TIMER_FS	0x2710
 
+/*
+ * *Error Flag and Control Status (offset = 328H)
+ * */
 #define FUSB300_EFCS_PM_STATE_U3	3
 #define FUSB300_EFCS_PM_STATE_U2	2
 #define FUSB300_EFCS_PM_STATE_U1	1
 #define FUSB300_EFCS_PM_STATE_U0	0
 
+/*
+ * *Interrupt Group 0 Register (offset = 400H)
+ * */
 #define FUSB300_IGR0_EP15_PRD_INT	(1 << 31)
 #define FUSB300_IGR0_EP14_PRD_INT	(1 << 30)
 #define FUSB300_IGR0_EP13_PRD_INT	(1 << 29)
@@ -228,6 +289,9 @@
 #define FUSB300_IGR0_EP1_FIFO_INT	(1 << 1)
 #define FUSB300_IGR0_EPn_FIFO_INT(n)	(1 << n)
 
+/*
+ * *Interrupt Group 1 Register (offset = 404H)
+ * */
 #define FUSB300_IGR1_INTGRP5		(1 << 31)
 #define FUSB300_IGR1_VBUS_CHG_INT	(1 << 30)
 #define FUSB300_IGR1_SYNF1_EMPTY_INT	(1 << 29)
@@ -260,6 +324,9 @@
 #define FUSB300_IGR1_INTGRP3		(1 << 1)
 #define FUSB300_IGR1_INTGRP2		(1 << 0)
 
+/*
+ * *Interrupt Group 2 Register (offset = 408H)
+ * */
 #define FUSB300_IGR2_EP6_STR_ACCEPT_INT		(1 << 29)
 #define FUSB300_IGR2_EP6_STR_RESUME_INT		(1 << 28)
 #define FUSB300_IGR2_EP6_STR_REQ_INT		(1 << 27)
@@ -297,6 +364,9 @@
 #define FUSB300_IGR2_EP_STR_NOTRDY_INT(n)	(1 << (5 * n - 4))
 #define FUSB300_IGR2_EP_STR_PRIME_INT(n)	(1 << (5 * n - 5))
 
+/*
+ * *Interrupt Group 3 Register (offset = 40CH)
+ * */
 #define FUSB300_IGR3_EP12_STR_ACCEPT_INT	(1 << 29)
 #define FUSB300_IGR3_EP12_STR_RESUME_INT	(1 << 28)
 #define FUSB300_IGR3_EP12_STR_REQ_INT		(1 << 27)
@@ -334,6 +404,9 @@
 #define FUSB300_IGR3_EP_STR_NOTRDY_INT(n)	(1 << (5 * (n - 6) - 4))
 #define FUSB300_IGR3_EP_STR_PRIME_INT(n)	(1 << (5 * (n - 6) - 5))
 
+/*
+ * *Interrupt Group 4 Register (offset = 410H)
+ * */
 #define FUSB300_IGR4_EP15_RX0_INT		(1 << 31)
 #define FUSB300_IGR4_EP14_RX0_INT		(1 << 30)
 #define FUSB300_IGR4_EP13_RX0_INT		(1 << 29)
@@ -372,8 +445,14 @@
 #define FUSB300_IGR4_EP_STR_NOTRDY_INT(n)	(1 << (5 * (n - 12) - 4))
 #define FUSB300_IGR4_EP_STR_PRIME_INT(n)	(1 << (5 * (n - 12) - 5))
 
+/*
+ * *Interrupt Group 5 Register (offset = 414H)
+ * */
 #define FUSB300_IGR5_EP_STL_INT(n)	(1 << n)
 
+/*
+ * *Interrupt Enable Group 0 Register (offset = 420H)
+ * */
 #define FUSB300_IGER0_EEP15_PRD_INT	(1 << 31)
 #define FUSB300_IGER0_EEP14_PRD_INT	(1 << 30)
 #define FUSB300_IGER0_EEP13_PRD_INT	(1 << 29)
@@ -408,6 +487,9 @@
 #define FUSB300_IGER0_EEP1_FIFO_INT	(1 << 1)
 #define FUSB300_IGER0_EEPn_FIFO_INT(n)	(1 << n)
 
+/*
+ * *Interrupt Enable Group 1 Register (offset = 424H)
+ * */
 #define FUSB300_IGER1_EINT_GRP5		(1 << 31)
 #define FUSB300_IGER1_VBUS_CHG_INT	(1 << 30)
 #define FUSB300_IGER1_SYNF1_EMPTY_INT	(1 << 29)
@@ -440,12 +522,18 @@
 #define FUSB300_IGER1_INTGRP3		(1 << 1)
 #define FUSB300_IGER1_INTGRP2		(1 << 0)
 
+/*
+ * *Interrupt Enable Group 2 Register (offset = 428H)
+ * */
 #define FUSB300_IGER2_EEP_STR_ACCEPT_INT(n)	(1 << (5 * n - 1))
 #define FUSB300_IGER2_EEP_STR_RESUME_INT(n)	(1 << (5 * n - 2))
 #define FUSB300_IGER2_EEP_STR_REQ_INT(n)	(1 << (5 * n - 3))
 #define FUSB300_IGER2_EEP_STR_NOTRDY_INT(n)	(1 << (5 * n - 4))
 #define FUSB300_IGER2_EEP_STR_PRIME_INT(n)	(1 << (5 * n - 5))
 
+/*
+ * *Interrupt Enable Group 3 Register (offset = 42CH)
+ * */
 
 #define FUSB300_IGER3_EEP_STR_ACCEPT_INT(n)	(1 << (5 * (n - 6) - 1))
 #define FUSB300_IGER3_EEP_STR_RESUME_INT(n)	(1 << (5 * (n - 6) - 2))
@@ -453,6 +541,9 @@
 #define FUSB300_IGER3_EEP_STR_NOTRDY_INT(n)	(1 << (5 * (n - 6) - 4))
 #define FUSB300_IGER3_EEP_STR_PRIME_INT(n)	(1 << (5 * (n - 6) - 5))
 
+/*
+ * *Interrupt Enable Group 4 Register (offset = 430H)
+ * */
 
 #define FUSB300_IGER4_EEP_RX0_INT(n)		(1 << (n + 16))
 #define FUSB300_IGER4_EEP_STR_ACCEPT_INT(n)	(1 << (5 * (n - 6) - 1))
@@ -461,6 +552,7 @@
 #define FUSB300_IGER4_EEP_STR_NOTRDY_INT(n)	(1 << (5 * (n - 6) - 4))
 #define FUSB300_IGER4_EEP_STR_PRIME_INT(n)	(1 << (5 * (n - 6) - 5))
 
+/* EP PRD Ready (EP_PRD_RDY, offset = 504H) */
 
 #define FUSB300_EPPRDR_EP15_PRD_RDY		(1 << 15)
 #define FUSB300_EPPRDR_EP14_PRD_RDY		(1 << 14)
@@ -479,6 +571,7 @@
 #define FUSB300_EPPRDR_EP1_PRD_RDY		(1 << 1)
 #define FUSB300_EPPRDR_EP_PRD_RDY(n)		(1 << n)
 
+/* AHB Bus Control Register (offset = 514H) */
 #define FUSB300_AHBBCR_S1_SPLIT_ON		(1 << 17)
 #define FUSB300_AHBBCR_S0_SPLIT_ON		(1 << 16)
 #define FUSB300_AHBBCR_S1_1entry		(0 << 12)
@@ -501,15 +594,19 @@
 #define FUSB300_AHBBCR_M0_BURST_INCR16		7
 #define FUSB300_IGER5_EEP_STL_INT(n)		(1 << n)
 
+/* WORD 0 Data Structure of PRD Table */
 #define FUSB300_EPPRD0_M			(1 << 30)
 #define FUSB300_EPPRD0_O			(1 << 29)
+/* The finished prd */
 #define FUSB300_EPPRD0_F			(1 << 28)
 #define FUSB300_EPPRD0_I			(1 << 27)
 #define FUSB300_EPPRD0_A			(1 << 26)
+/* To decide HW point to first prd at next time */
 #define FUSB300_EPPRD0_L			(1 << 25)
 #define FUSB300_EPPRD0_H			(1 << 24)
 #define FUSB300_EPPRD0_BTC(n)			(n & 0xFFFFFF)
 
+/*----------------------------------------------------------------------*/
 #define FUSB300_MAX_NUM_EP		16
 
 #define FUSB300_FIFO_ENTRY_NUM		8
@@ -567,14 +664,14 @@ struct fusb300 {
 
 	struct fusb300_ep	*ep[FUSB300_MAX_NUM_EP];
 
-	struct usb_request	*ep0_req;	
+	struct usb_request	*ep0_req;	/* for internal request */
 	__le16			ep0_data;
-	u32			ep0_length;	
-	u8			ep0_dir;	
+	u32			ep0_length;	/* for internal request */
+	u8			ep0_dir;	/* 0/0x80  out/in */
 
-	u8			fifo_entry_num;	
-	u32			addrofs;	
-	u8			reenum;		
+	u8			fifo_entry_num;	/* next start fifo entry */
+	u32			addrofs;	/* next fifo address offset */
+	u8			reenum;		/* if re-enumeration */
 };
 
 #endif

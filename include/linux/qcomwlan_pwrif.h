@@ -14,6 +14,9 @@
 #ifndef __QCOM_WLAN_PWRIF_H__
 #define __QCOM_WLAN_PWRIF_H__
 
+/*
+ * Headers for WLAN Power Interface Functions
+ */
 #include <linux/err.h>
 #include <mach/mpp.h>
 #include <linux/device.h>
@@ -33,4 +36,4 @@ int vos_chip_power_qrf8615(int on);
 int qcomwlan_pmic_xo_core_force_enable(int on);
 int qcomwlan_freq_change_1p3v_supply(enum rpm_vreg_freq freq);
 
-#endif 
+#endif /* __QCOM_WLAN_PWRIF_H__ */

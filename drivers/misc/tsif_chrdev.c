@@ -17,15 +17,15 @@
  * GNU General Public License for more details.
  */
 
-#include <linux/module.h>       
-#include <linux/kernel.h>       
+#include <linux/module.h>       /* Needed by all modules */
+#include <linux/kernel.h>       /* Needed for KERN_INFO */
 #include <linux/cdev.h>
-#include <linux/err.h>          
+#include <linux/err.h>          /* IS_ERR etc. */
 #include <linux/fs.h>
 #include <linux/device.h>
-#include <linux/sched.h>        
+#include <linux/sched.h>        /* TASK_INTERRUPTIBLE */
 
-#include <linux/uaccess.h>        
+#include <linux/uaccess.h>        /* copy_to_user */
 
 #include <linux/tsif_api.h>
 
@@ -34,9 +34,9 @@ struct tsif_chrdev {
 	struct device *dev;
 	wait_queue_head_t wq_read;
 	void *cookie;
-	
+	/* mirror for tsif data */
 	void *data_buffer;
-	unsigned buf_size_packets; 
+	unsigned buf_size_packets; /**< buffer size in packets */
 	unsigned ri, wi;
 	enum tsif_state state;
 	unsigned rptr;
@@ -47,7 +47,7 @@ static ssize_t tsif_open(struct inode *inode, struct file *file)
 	int rc;
 	struct tsif_chrdev *the_dev =
 	       container_of(inode->i_cdev, struct tsif_chrdev, cdev);
-	if (!the_dev->cookie)  
+	if (!the_dev->cookie)  /* not bound yet */
 		return -ENODEV;
 	file->private_data = the_dev;
 	rc = tsif_start(the_dev->cookie);
@@ -74,36 +74,36 @@ static ssize_t tsif_read(struct file *filp, char __user *buf, size_t count,
 	struct tsif_chrdev *the_dev = filp->private_data;
 	tsif_get_state(the_dev->cookie, &the_dev->ri, &the_dev->wi,
 		       &the_dev->state);
-	
+	/* consistency check */
 	if (the_dev->ri != (the_dev->rptr / TSIF_PKT_SIZE)) {
 		dev_err(the_dev->dev,
 			"%s: inconsistent read pointers: ri %d rptr %d\n",
 			__func__, the_dev->ri, the_dev->rptr);
 		the_dev->rptr = the_dev->ri * TSIF_PKT_SIZE;
 	}
-	
+	/* ri == wi if no data */
 	if (the_dev->ri == the_dev->wi) {
-		
+		/* shall I block waiting for data? */
 		if (filp->f_flags & O_NONBLOCK) {
 			if (the_dev->state == tsif_state_running) {
 				return -EAGAIN;
 			} else {
-				
+				/* not running -> EOF */
 				return 0;
 			}
 		}
 		if (wait_event_interruptible(the_dev->wq_read,
 		      (the_dev->ri != the_dev->wi) ||
 		      (the_dev->state != tsif_state_running))) {
-			
+			/* got signal -> tell FS to handle it */
 			return -ERESTARTSYS;
 		}
 		if (the_dev->ri == the_dev->wi) {
-			
+			/* still no data -> EOF */
 			return 0;
 		}
 	}
-	
+	/* contiguous chunk last up to wi or end of buffer */
 	wi = (the_dev->wi > the_dev->ri) ?
 		the_dev->wi : the_dev->buf_size_packets;
 	avail = min(wi * TSIF_PKT_SIZE - the_dev->rptr, count);
@@ -133,8 +133,8 @@ static const struct file_operations tsif_fops = {
 };
 
 static struct class *tsif_class;
-static dev_t tsif_dev;  
-static dev_t tsif_dev0; 
+static dev_t tsif_dev;  /**< 1-st dev_t from allocated range */
+static dev_t tsif_dev0; /**< next not yet assigned dev_t */
 
 static int tsif_init_one(struct tsif_chrdev *the_dev, int index)
 {
@@ -157,7 +157,7 @@ static int tsif_init_one(struct tsif_chrdev *the_dev, int index)
 		pr_err("tsif_attach failed: %d\n", rc);
 		goto err_attach;
 	}
-	
+	/* now data buffer is not allocated yet */
 	tsif_get_info(the_dev->cookie, &the_dev->data_buffer, NULL);
 	dev_info(the_dev->dev,
 		 "Device %d.%d attached to TSIF, buffer size %d\n",
@@ -179,7 +179,7 @@ static void tsif_exit_one(struct tsif_chrdev *the_dev)
 	cdev_del(&the_dev->cdev);
 }
 
-#define TSIF_NUM_DEVS 1 
+#define TSIF_NUM_DEVS 1 /**< support this many devices */
 
 struct tsif_chrdev the_devices[TSIF_NUM_DEVS];
 

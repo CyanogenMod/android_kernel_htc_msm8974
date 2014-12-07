@@ -33,10 +33,12 @@
 #include <linux/types.h>
 #include <crypto/algapi.h>
 
+/* regular block cipher functions */
 asmlinkage void __blowfish_enc_blk(struct bf_ctx *ctx, u8 *dst, const u8 *src,
 				   bool xor);
 asmlinkage void blowfish_dec_blk(struct bf_ctx *ctx, u8 *dst, const u8 *src);
 
+/* 4-way parallel cipher functions */
 asmlinkage void __blowfish_enc_blk_4way(struct bf_ctx *ctx, u8 *dst,
 					const u8 *src, bool xor);
 asmlinkage void blowfish_dec_blk_4way(struct bf_ctx *ctx, u8 *dst,
@@ -90,7 +92,7 @@ static int ecb_crypt(struct blkcipher_desc *desc, struct blkcipher_walk *walk,
 		u8 *wsrc = walk->src.virt.addr;
 		u8 *wdst = walk->dst.virt.addr;
 
-		
+		/* Process four block batch */
 		if (nbytes >= bsize * 4) {
 			do {
 				fn_4way(ctx, wdst, wsrc);
@@ -104,7 +106,7 @@ static int ecb_crypt(struct blkcipher_desc *desc, struct blkcipher_walk *walk,
 				goto done;
 		}
 
-		
+		/* Handle leftovers */
 		do {
 			fn(ctx, wdst, wsrc);
 
@@ -190,13 +192,13 @@ static unsigned int __cbc_decrypt(struct blkcipher_desc *desc,
 	u64 ivs[4 - 1];
 	u64 last_iv;
 
-	
+	/* Start of the last block. */
 	src += nbytes / bsize - 1;
 	dst += nbytes / bsize - 1;
 
 	last_iv = *src;
 
-	
+	/* Process four block batch */
 	if (nbytes >= bsize * 4) {
 		do {
 			nbytes -= bsize * 4 - bsize;
@@ -226,7 +228,7 @@ static unsigned int __cbc_decrypt(struct blkcipher_desc *desc,
 			goto done;
 	}
 
-	
+	/* Handle leftovers */
 	for (;;) {
 		blowfish_dec_blk(ctx, (u8 *)dst, (u8 *)src);
 
@@ -289,7 +291,7 @@ static unsigned int __ctr_crypt(struct blkcipher_desc *desc,
 	u64 ctrblk = be64_to_cpu(*(__be64 *)walk->iv);
 	__be64 ctrblocks[4];
 
-	
+	/* Process four block batch */
 	if (nbytes >= bsize * 4) {
 		do {
 			if (dst != src) {
@@ -299,7 +301,7 @@ static unsigned int __ctr_crypt(struct blkcipher_desc *desc,
 				dst[3] = src[3];
 			}
 
-			
+			/* create ctrblks for parallel encrypt */
 			ctrblocks[0] = cpu_to_be64(ctrblk++);
 			ctrblocks[1] = cpu_to_be64(ctrblk++);
 			ctrblocks[2] = cpu_to_be64(ctrblk++);
@@ -316,7 +318,7 @@ static unsigned int __ctr_crypt(struct blkcipher_desc *desc,
 			goto done;
 	}
 
-	
+	/* Handle leftovers */
 	do {
 		if (dst != src)
 			*dst = *src;
@@ -445,6 +447,11 @@ static bool is_blacklisted_cpu(void)
 		return false;
 
 	if (boot_cpu_data.x86 == 0x0f) {
+		/*
+		 * On Pentium 4, blowfish-x86_64 is slower than generic C
+		 * implementation because use of 64bit rotates (which are really
+		 * slow on P4). Therefore blacklist P4s.
+		 */
 		return true;
 	}
 

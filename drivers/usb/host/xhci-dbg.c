@@ -24,6 +24,7 @@
 
 #define XHCI_INIT_VALUE 0x0
 
+/* Add verbose debugging later, just print everything for now */
 
 void xhci_dbg_regs(struct xhci_hcd *xhci)
 {
@@ -98,7 +99,7 @@ static void xhci_print_cap_regs(struct xhci_hcd *xhci)
 	xhci_dbg(xhci, "HCC PARAMS 0x%x:\n", (unsigned int) temp);
 	xhci_dbg(xhci, "  HC generates %s bit addresses\n",
 			HCC_64BIT_ADDR(temp) ? "64" : "32");
-	
+	/* FIXME */
 	xhci_dbg(xhci, "  FIXME: more HCCPARAMS debugging\n");
 
 	temp = xhci_readl(xhci, &xhci->cap_regs->run_regs_off);
@@ -246,6 +247,9 @@ void xhci_print_trb_offsets(struct xhci_hcd *xhci, union xhci_trb *trb)
 				i*4, trb->generic.field[i]);
 }
 
+/**
+ * Debug a transfer request block (TRB).
+ */
 void xhci_debug_trb(struct xhci_hcd *xhci, union xhci_trb *trb)
 {
 	u64	address;
@@ -270,6 +274,10 @@ void xhci_debug_trb(struct xhci_hcd *xhci, union xhci_trb *trb)
 		break;
 	case TRB_TYPE(TRB_TRANSFER):
 		address = le64_to_cpu(trb->trans_event.buffer);
+		/*
+		 * FIXME: look at flags to figure out if it's an address or if
+		 * the data is directly in the buffer field.
+		 */
 		xhci_dbg(xhci, "DMA address or buffer contents= %llu\n", address);
 		break;
 	case TRB_TYPE(TRB_COMPLETION):
@@ -288,6 +296,19 @@ void xhci_debug_trb(struct xhci_hcd *xhci, union xhci_trb *trb)
 	}
 }
 
+/**
+ * Debug a segment with an xHCI ring.
+ *
+ * @return The Link TRB of the segment, or NULL if there is no Link TRB
+ * (which is a bug, since all segments must have a Link TRB).
+ *
+ * Prints out all TRBs in the segment, even those after the Link TRB.
+ *
+ * XXX: should we print out TRBs that the HC owns?  As long as we don't
+ * write, that should be fine...  We shouldn't expect that the memory pointed to
+ * by the TRB is valid at all.  Do we care about ones the HC owns?  Probably,
+ * for HC debugging.
+ */
 void xhci_debug_segment(struct xhci_hcd *xhci, struct xhci_segment *seg)
 {
 	int i;
@@ -321,9 +342,18 @@ void xhci_dbg_ring_ptrs(struct xhci_hcd *xhci, struct xhci_ring *ring)
 			ring->enq_updates);
 }
 
+/**
+ * Debugging for an xHCI ring, which is a queue broken into multiple segments.
+ *
+ * Print out each segment in the ring.  Check that the DMA address in
+ * each link segment actually matches the segment's stored DMA address.
+ * Check that the link end bit is only set at the end of the ring.
+ * Check that the dequeue and enqueue pointers point to real data in this ring
+ * (not some other ring).
+ */
 void xhci_debug_ring(struct xhci_hcd *xhci, struct xhci_ring *ring)
 {
-	
+	/* FIXME: Throw an error if any segment doesn't have a Link TRB */
 	struct xhci_segment *seg;
 	struct xhci_segment *first_seg = ring->first_seg;
 	xhci_debug_segment(xhci, first_seg);
@@ -389,6 +419,7 @@ void xhci_dbg_cmd_ptrs(struct xhci_hcd *xhci)
 			upper_32_bits(val));
 }
 
+/* Print the last 32 bytes for 64-byte contexts */
 static void dbg_rsvd64(struct xhci_hcd *xhci, u64 *ctx, dma_addr_t dma)
 {
 	int i;
@@ -422,7 +453,7 @@ char *xhci_get_slot_state(struct xhci_hcd *xhci,
 
 static void xhci_dbg_slot_ctx(struct xhci_hcd *xhci, struct xhci_container_ctx *ctx)
 {
-	
+	/* Fields are 32 bits wide, DMA addresses are in bytes */
 	int field_size = 32 / 8;
 	int i;
 
@@ -465,7 +496,7 @@ static void xhci_dbg_ep_ctx(struct xhci_hcd *xhci,
 {
 	int i, j;
 	int last_ep_ctx = 31;
-	
+	/* Fields are 32 bits wide, DMA addresses are in bytes */
 	int field_size = 32 / 8;
 	int csz = HCC_64BYTE_CONTEXT(xhci->hcc_params);
 
@@ -511,7 +542,7 @@ void xhci_dbg_ctx(struct xhci_hcd *xhci,
 		  unsigned int last_ep)
 {
 	int i;
-	
+	/* Fields are 32 bits wide, DMA addresses are in bytes */
 	int field_size = 32 / 8;
 	struct xhci_slot_ctx *slot_ctx;
 	dma_addr_t dma = ctx->dma;

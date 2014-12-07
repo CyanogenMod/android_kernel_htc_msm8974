@@ -9,11 +9,11 @@ struct sock;
 #include <linux/compat.h>
 
 struct compat_msghdr {
-	compat_uptr_t	msg_name;	
+	compat_uptr_t	msg_name;	/* void * */
 	compat_int_t	msg_namelen;
-	compat_uptr_t	msg_iov;	
+	compat_uptr_t	msg_iov;	/* struct compat_iovec * */
 	compat_size_t	msg_iovlen;
-	compat_uptr_t	msg_control;	
+	compat_uptr_t	msg_control;	/* void * */
 	compat_size_t	msg_controllen;
 	compat_uint_t	msg_flags;
 };
@@ -32,10 +32,13 @@ struct compat_cmsghdr {
 extern int compat_sock_get_timestamp(struct sock *, struct timeval __user *);
 extern int compat_sock_get_timestampns(struct sock *, struct timespec __user *);
 
-#else 
+#else /* defined(CONFIG_COMPAT) */
+/*
+ * To avoid compiler warnings:
+ */
 #define compat_msghdr	msghdr
 #define compat_mmsghdr	mmsghdr
-#endif 
+#endif /* defined(CONFIG_COMPAT) */
 
 extern int get_compat_msghdr(struct msghdr *, struct compat_msghdr __user *);
 extern int verify_compat_iovec(struct msghdr *, struct iovec *, struct sockaddr_storage *, int);
@@ -57,4 +60,4 @@ extern int compat_mc_getsockopt(struct sock *, int, int, char __user *,
 	int __user *, int (*)(struct sock *, int, int, char __user *,
 				int __user *));
 
-#endif 
+#endif /* NET_COMPAT_H */

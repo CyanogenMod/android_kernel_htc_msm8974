@@ -94,13 +94,13 @@ static void toshiba_wait_vsync(struct msm_panel_data *panel_data)
 
 	if (panel->toshiba_got_int) {
 		panel->toshiba_got_int = 0;
-		client_data->activate_link(client_data); 
+		client_data->activate_link(client_data); /* clears interrupt */
 	}
 	if (wait_event_timeout(toshiba_vsync_wait, panel->toshiba_got_int,
 				HZ/2) == 0)
 		printk(KERN_ERR "timeout waiting for VSYNC\n");
 	panel->toshiba_got_int = 0;
-	
+	/* interrupt clears when screen dma starts */
 }
 
 static int toshiba_suspend(struct msm_panel_data *panel_data)
@@ -187,7 +187,7 @@ static int mddi_toshiba_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	platform_set_drvdata(pdev, panel);
 
-	
+	/* mddi_remote_write(mddi, 0, WAKEUP); */
 	client_data->remote_write(client_data, GPIOSEL_VWAKEINT, GPIOSEL);
 	client_data->remote_write(client_data, INTMASK_VWAKEOUT, INTMASK);
 

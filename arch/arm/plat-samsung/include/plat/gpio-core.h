@@ -16,9 +16,22 @@
 
 #define con_4bit_shift(__off) ((__off) * 4)
 
+/* Define the core gpiolib support functions that the s3c platforms may
+ * need to extend or change depending on the hardware and the s3c chip
+ * selected at build or found at run time.
+ *
+ * These definitions are not intended for driver inclusion, there is
+ * nothing here that should not live outside the platform and core
+ * specific code.
+*/
 
 struct samsung_gpio_chip;
 
+/**
+ * struct samsung_gpio_pm - power management (suspend/resume) information
+ * @save: Routine to save the state of the GPIO block
+ * @resume: Routine to resume the GPIO block.
+ */
 struct samsung_gpio_pm {
 	void (*save)(struct samsung_gpio_chip *chip);
 	void (*resume)(struct samsung_gpio_chip *chip);
@@ -26,6 +39,27 @@ struct samsung_gpio_pm {
 
 struct samsung_gpio_cfg;
 
+/**
+ * struct samsung_gpio_chip - wrapper for specific implementation of gpio
+ * @chip: The chip structure to be exported via gpiolib.
+ * @base: The base pointer to the gpio configuration registers.
+ * @group: The group register number for gpio interrupt support.
+ * @irq_base: The base irq number.
+ * @config: special function and pull-resistor control information.
+ * @lock: Lock for exclusive access to this gpio bank.
+ * @pm_save: Save information for suspend/resume support.
+ *
+ * This wrapper provides the necessary information for the Samsung
+ * specific gpios being registered with gpiolib.
+ *
+ * The lock protects each gpio bank from multiple access of the shared
+ * configuration registers, or from reading of data whilst another thread
+ * is writing to the register set.
+ *
+ * Each chip has its own lock to avoid any  contention between different
+ * CPU cores trying to get one lock for different GPIO banks, where each
+ * bank of GPIO has its own register space and configuration registers.
+ */
 struct samsung_gpio_chip {
 	struct gpio_chip	chip;
 	struct samsung_gpio_cfg	*config;
@@ -44,8 +78,17 @@ static inline struct samsung_gpio_chip *to_samsung_gpio(struct gpio_chip *gpc)
 	return container_of(gpc, struct samsung_gpio_chip, chip);
 }
 
+/**
+ * samsung_gpiolib_to_irq - convert gpio pin to irq number
+ * @chip: The gpio chip that the pin belongs to.
+ * @offset: The offset of the pin in the chip.
+ *
+ * This helper returns the irq number calculated from the chip->irq_base and
+ * the provided offset.
+ */
 extern int samsung_gpiolib_to_irq(struct gpio_chip *chip, unsigned int offset);
 
+/* exported for core SoC support to change */
 extern struct samsung_gpio_cfg s3c24xx_gpiocfg_default;
 
 #ifdef CONFIG_S3C_GPIO_TRACK
@@ -56,6 +99,7 @@ static inline struct samsung_gpio_chip *samsung_gpiolib_getchip(unsigned int chi
 	return (chip < S3C_GPIO_END) ? s3c_gpios[chip] : NULL;
 }
 #else
+/* machine specific code should provide samsung_gpiolib_getchip */
 
 #include <mach/gpio-track.h>
 
@@ -73,7 +117,8 @@ extern struct samsung_gpio_pm samsung_gpio_pm_4bit;
 #define samsung_gpio_pm_4bit NULL
 #define __gpio_pm(x) NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
+/* locking wrappers to deal with multiple access to the same gpio bank */
 #define samsung_gpio_lock(_oc, _fl) spin_lock_irqsave(&(_oc)->lock, _fl)
 #define samsung_gpio_unlock(_oc, _fl) spin_unlock_irqrestore(&(_oc)->lock, _fl)

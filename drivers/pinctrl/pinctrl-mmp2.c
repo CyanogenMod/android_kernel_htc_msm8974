@@ -44,17 +44,18 @@
 #define GRP_MMP2(a, m, p)		\
 	{ .name = a, .mux = MMP2_MUX_##m, .pins = p, .npins = ARRAY_SIZE(p), }
 
+/* 174 pins */
 enum mmp2_pin_list {
-	
+	/* 0~168: GPIO0~GPIO168 */
 	TWSI4_SCL = 169,
-	TWSI4_SDA, 
+	TWSI4_SDA, /* 170 */
 	G_CLKREQ,
 	VCXO_REQ,
 	VCXO_OUT,
 };
 
 enum mmp2_mux {
-	
+	/* PXA3xx_MUX_GPIO = 0 (predefined in pinctrl-pxa3xx.h) */
 	MMP2_MUX_GPIO = 0,
 	MMP2_MUX_G_CLKREQ,
 	MMP2_MUX_VCXO_REQ,
@@ -120,6 +121,10 @@ enum mmp2_mux {
 };
 
 static struct pinctrl_pin_desc mmp2_pads[] = {
+	/*
+	 * The name indicates function 0 of this pin.
+	 * After reset, function 0 is the default function of pin.
+	 */
 	PINCTRL_PIN(GPIO0, "GPIO0"),
 	PINCTRL_PIN(GPIO1, "GPIO1"),
 	PINCTRL_PIN(GPIO2, "GPIO2"),
@@ -297,7 +302,7 @@ static struct pinctrl_pin_desc mmp2_pads[] = {
 };
 
 struct pxa3xx_mfp_pin mmp2_mfp[] = {
-	
+	/*       pin         offs   f0        f1          f2          f3          f4          f5        f6        f7  */
 	MFPR_MMP2(GPIO0,     0x054, GPIO,     KP_MK,      NONE,       SPI,        NONE,       NONE,     NONE,     NONE),
 	MFPR_MMP2(GPIO1,     0x058, GPIO,     KP_MK,      NONE,       SPI,        NONE,       NONE,     NONE,     NONE),
 	MFPR_MMP2(GPIO2,     0x05C, GPIO,     KP_MK,      NONE,       SPI,        NONE,       NONE,     NONE,     NONE),

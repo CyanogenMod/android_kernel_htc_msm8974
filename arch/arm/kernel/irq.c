@@ -34,6 +34,8 @@
 #include <linux/list.h>
 #include <linux/kallsyms.h>
 #include <linux/proc_fs.h>
+#include <linux/export.h>
+#include <linux/slab.h>
 
 #include <asm/exception.h>
 #include <asm/mach/arch.h>
@@ -61,15 +63,22 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 }
 
 #ifdef CONFIG_HTC_POWER_DEBUG
-unsigned int previous_irqs[NR_IRQS+1] = {0};
+unsigned int *previous_irqs;
+static int pre_nr_irqs = 0;
 static void htc_show_interrupt(int i)
 {
         struct irqaction *action;
         unsigned long flags;
         struct irq_desc *desc;
 
-        if (i < NR_IRQS) {
+        if (i < nr_irqs) {
                 desc = irq_to_desc(i);
+
+		if(desc == NULL) {
+			printk("%s:%d irq:%d lookup failed\n", __FUNCTION__, __LINE__, i);
+			return;
+		}
+
                 raw_spin_lock_irqsave(&desc->lock, flags);
                 action = desc->action;
                 if (!action)
@@ -77,7 +86,7 @@ static void htc_show_interrupt(int i)
                 if (!(kstat_irqs_cpu(i, 0)) || previous_irqs[i] == (kstat_irqs_cpu(i, 0)))
                         goto unlock;
                 printk("%3d:", i);
-                printk("%6u\t", kstat_irqs_cpu(i, 0)-previous_irqs[i]);
+                printk("%6u\t", kstat_irqs_cpu(i, 0)- previous_irqs[i]);
                 printk("%s", action->name);
                 for (action = action->next; action; action = action->next)
                         printk(", %s", action->name);
@@ -85,19 +94,23 @@ static void htc_show_interrupt(int i)
                 previous_irqs[i] = kstat_irqs_cpu(i, 0);
 unlock:
                 raw_spin_unlock_irqrestore(&desc->lock, flags);
-        } else if (i == NR_IRQS) {
-                if (previous_irqs[NR_IRQS] == irq_err_count)
+        } else if (i == nr_irqs) {
+                if (previous_irqs[nr_irqs] == irq_err_count)
                         return;
-                printk("Err: %lud\n", irq_err_count-previous_irqs[NR_IRQS]);
-                previous_irqs[NR_IRQS] = irq_err_count;
+                printk("Err: %lud\n", irq_err_count-previous_irqs[nr_irqs]);
+                previous_irqs[nr_irqs] = irq_err_count;
         }
 }
 
 void htc_show_interrupts(void)
 {
         int i = 0;
-        for (i = 0; i <= NR_IRQS; i++)
-                htc_show_interrupt(i);
+		if(pre_nr_irqs != nr_irqs) {
+			pre_nr_irqs = nr_irqs;
+			previous_irqs = (unsigned int *)kcalloc(nr_irqs, sizeof(int),GFP_KERNEL);
+		}
+		for (i = 0; i <= nr_irqs; i++)
+			htc_show_interrupt(i);
 }
 #endif
 

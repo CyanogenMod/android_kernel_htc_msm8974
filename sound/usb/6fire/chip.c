@@ -32,9 +32,9 @@ MODULE_DESCRIPTION("TerraTec DMX 6Fire USB audio driver");
 MODULE_LICENSE("GPL v2");
 MODULE_SUPPORTED_DEVICE("{{TerraTec, DMX 6Fire USB}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX; 
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR; 
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX; /* Index 0-max */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR; /* Id for card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP; /* Enable card */
 static struct sfire_chip *chips[SNDRV_CARDS] = SNDRV_DEFAULT_PTR;
 static struct usb_device *devices[SNDRV_CARDS] = SNDRV_DEFAULT_PTR;
 
@@ -89,10 +89,10 @@ static int __devinit usb6fire_chip_probe(struct usb_interface *intf,
 	int i;
 	struct sfire_chip *chip = NULL;
 	struct usb_device *device = interface_to_usbdev(intf);
-	int regidx = -1; 
+	int regidx = -1; /* index in module parameter array */
 	struct snd_card *card = NULL;
 
-	
+	/* look if we already serve this card and return if so */
 	mutex_lock(&register_mutex);
 	for (i = 0; i < SNDRV_CARDS; i++) {
 		if (devices[i] == device) {
@@ -112,14 +112,14 @@ static int __devinit usb6fire_chip_probe(struct usb_interface *intf,
 	devices[regidx] = device;
 	mutex_unlock(&register_mutex);
 
-	
+	/* check, if firmware is present on device, upload it if not */
 	ret = usb6fire_fw_init(intf);
 	if (ret < 0)
 		return ret;
-	else if (ret == FW_NOT_READY) 
+	else if (ret == FW_NOT_READY) /* firmware update performed */
 		return 0;
 
-	
+	/* if we are here, card can be registered in alsa. */
 	if (usb_set_interface(device, 0, 0) != 0) {
 		snd_printk(KERN_ERR PREFIX "can't set first interface.\n");
 		return -EIO;
@@ -183,7 +183,7 @@ static void usb6fire_chip_disconnect(struct usb_interface *intf)
 	struct snd_card *card;
 
 	chip = usb_get_intfdata(intf);
-	if (chip) { 
+	if (chip) { /* if !chip, fw upload has been performed */
 		card = chip->card;
 		chip->intf_count--;
 		if (!chip->intf_count) {

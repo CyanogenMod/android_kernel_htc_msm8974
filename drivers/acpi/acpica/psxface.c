@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: psxface - Parser external interfaces
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -46,6 +51,7 @@
 #define _COMPONENT          ACPI_PARSER
 ACPI_MODULE_NAME("psxface")
 
+/* Local Prototypes */
 static void acpi_ps_start_trace(struct acpi_evaluate_info *info);
 
 static void acpi_ps_stop_trace(struct acpi_evaluate_info *info);
@@ -53,6 +59,21 @@ static void acpi_ps_stop_trace(struct acpi_evaluate_info *info);
 static void
 acpi_ps_update_parameter_list(struct acpi_evaluate_info *info, u16 action);
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_debug_trace
+ *
+ * PARAMETERS:  method_name     - Valid ACPI name string
+ *              debug_level     - Optional level mask. 0 to use default
+ *              debug_layer     - Optional layer mask. 0 to use default
+ *              Flags           - bit 1: one shot(1) or persistent(0)
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: External interface to enable debug tracing during control
+ *              method execution
+ *
+ ******************************************************************************/
 
 acpi_status
 acpi_debug_trace(char *name, u32 debug_level, u32 debug_layer, u32 flags)
@@ -64,7 +85,7 @@ acpi_debug_trace(char *name, u32 debug_level, u32 debug_layer, u32 flags)
 		return (status);
 	}
 
-	
+	/* TBDs: Validate name, allow full path or just nameseg */
 
 	acpi_gbl_trace_method_name = *ACPI_CAST_PTR(u32, name);
 	acpi_gbl_trace_flags = flags;
@@ -80,6 +101,17 @@ acpi_debug_trace(char *name, u32 debug_level, u32 debug_layer, u32 flags)
 	return (AE_OK);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ps_start_trace
+ *
+ * PARAMETERS:  Info        - Method info struct
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Start control method execution trace
+ *
+ ******************************************************************************/
 
 static void acpi_ps_start_trace(struct acpi_evaluate_info *info)
 {
@@ -114,6 +146,17 @@ static void acpi_ps_start_trace(struct acpi_evaluate_info *info)
 	(void)acpi_ut_release_mutex(ACPI_MTX_NAMESPACE);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ps_stop_trace
+ *
+ * PARAMETERS:  Info        - Method info struct
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Stop control method execution trace
+ *
+ ******************************************************************************/
 
 static void acpi_ps_stop_trace(struct acpi_evaluate_info *info)
 {
@@ -131,7 +174,7 @@ static void acpi_ps_stop_trace(struct acpi_evaluate_info *info)
 		goto exit;
 	}
 
-	
+	/* Disable further tracing if type is one-shot */
 
 	if (acpi_gbl_trace_flags & 1) {
 		acpi_gbl_trace_method_name = 0;
@@ -146,6 +189,28 @@ static void acpi_ps_stop_trace(struct acpi_evaluate_info *info)
 	(void)acpi_ut_release_mutex(ACPI_MTX_NAMESPACE);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ps_execute_method
+ *
+ * PARAMETERS:  Info            - Method info block, contains:
+ *                  Node            - Method Node to execute
+ *                  obj_desc        - Method object
+ *                  Parameters      - List of parameters to pass to the method,
+ *                                    terminated by NULL. Params itself may be
+ *                                    NULL if no parameters are being passed.
+ *                  return_object   - Where to put method's return value (if
+ *                                    any). If NULL, no value is returned.
+ *                  parameter_type  - Type of Parameter list
+ *                  return_object   - Where to put method's return value (if
+ *                                    any). If NULL, no value is returned.
+ *                  pass_number     - Parse or execute pass
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Execute a control method
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ps_execute_method(struct acpi_evaluate_info *info)
 {
@@ -155,17 +220,17 @@ acpi_status acpi_ps_execute_method(struct acpi_evaluate_info *info)
 
 	ACPI_FUNCTION_TRACE(ps_execute_method);
 
-	
+	/* Quick validation of DSDT header */
 
 	acpi_tb_check_dsdt_header();
 
-	
+	/* Validate the Info and method Node */
 
 	if (!info || !info->resolved_node) {
 		return_ACPI_STATUS(AE_NULL_ENTRY);
 	}
 
-	
+	/* Init for new method, wait on concurrency semaphore */
 
 	status =
 	    acpi_ds_begin_method_execution(info->resolved_node, info->obj_desc,
@@ -174,18 +239,24 @@ acpi_status acpi_ps_execute_method(struct acpi_evaluate_info *info)
 		return_ACPI_STATUS(status);
 	}
 
+	/*
+	 * The caller "owns" the parameters, so give each one an extra reference
+	 */
 	acpi_ps_update_parameter_list(info, REF_INCREMENT);
 
-	
+	/* Begin tracing if requested */
 
 	acpi_ps_start_trace(info);
 
+	/*
+	 * Execute the method. Performs parse simultaneously
+	 */
 	ACPI_DEBUG_PRINT((ACPI_DB_PARSE,
 			  "**** Begin Method Parse/Execute [%4.4s] **** Node=%p Obj=%p\n",
 			  info->resolved_node->name.ascii, info->resolved_node,
 			  info->obj_desc));
 
-	
+	/* Create and init a Root Node */
 
 	op = acpi_ps_create_scope_op();
 	if (!op) {
@@ -193,7 +264,7 @@ acpi_status acpi_ps_execute_method(struct acpi_evaluate_info *info)
 		goto cleanup;
 	}
 
-	
+	/* Create and initialize a new walk state */
 
 	info->pass_number = ACPI_IMODE_EXECUTE;
 	walk_state =
@@ -217,14 +288,14 @@ acpi_status acpi_ps_execute_method(struct acpi_evaluate_info *info)
 		walk_state->parse_flags |= ACPI_PARSE_MODULE_LEVEL;
 	}
 
-	
+	/* Invoke an internal method if necessary */
 
 	if (info->obj_desc->method.info_flags & ACPI_METHOD_INTERNAL_ONLY) {
 		status =
 		    info->obj_desc->method.dispatch.implementation(walk_state);
 		info->return_object = walk_state->return_desc;
 
-		
+		/* Cleanup states */
 
 		acpi_ds_scope_stack_clear(walk_state);
 		acpi_ps_cleanup_scope(&walk_state->parser_state);
@@ -234,6 +305,10 @@ acpi_status acpi_ps_execute_method(struct acpi_evaluate_info *info)
 		goto cleanup;
 	}
 
+	/*
+	 * Start method evaluation with an implicit return of zero.
+	 * This is done for Windows compatibility.
+	 */
 	if (acpi_gbl_enable_interpreter_slack) {
 		walk_state->implicit_return_obj =
 		    acpi_ut_create_integer_object((u64) 0);
@@ -244,29 +319,33 @@ acpi_status acpi_ps_execute_method(struct acpi_evaluate_info *info)
 		}
 	}
 
-	
+	/* Parse the AML */
 
 	status = acpi_ps_parse_aml(walk_state);
 
-	
+	/* walk_state was deleted by parse_aml */
 
       cleanup:
 	acpi_ps_delete_parse_tree(op);
 
-	
+	/* End optional tracing */
 
 	acpi_ps_stop_trace(info);
 
-	
+	/* Take away the extra reference that we gave the parameters above */
 
 	acpi_ps_update_parameter_list(info, REF_DECREMENT);
 
-	
+	/* Exit now if error above */
 
 	if (ACPI_FAILURE(status)) {
 		return_ACPI_STATUS(status);
 	}
 
+	/*
+	 * If the method has returned an object, signal this to the caller with
+	 * a control exception code
+	 */
 	if (info->return_object) {
 		ACPI_DEBUG_PRINT((ACPI_DB_PARSE, "Method returned ObjDesc=%p\n",
 				  info->return_object));
@@ -278,6 +357,19 @@ acpi_status acpi_ps_execute_method(struct acpi_evaluate_info *info)
 	return_ACPI_STATUS(status);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ps_update_parameter_list
+ *
+ * PARAMETERS:  Info            - See struct acpi_evaluate_info
+ *                                (Used: parameter_type and Parameters)
+ *              Action          - Add or Remove reference
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Update reference count on all method parameter objects
+ *
+ ******************************************************************************/
 
 static void
 acpi_ps_update_parameter_list(struct acpi_evaluate_info *info, u16 action)
@@ -286,11 +378,11 @@ acpi_ps_update_parameter_list(struct acpi_evaluate_info *info, u16 action)
 
 	if (info->parameters) {
 
-		
+		/* Update reference count for each parameter */
 
 		for (i = 0; info->parameters[i]; i++) {
 
-			
+			/* Ignore errors, just do them all */
 
 			(void)acpi_ut_update_object_reference(info->
 							      parameters[i],

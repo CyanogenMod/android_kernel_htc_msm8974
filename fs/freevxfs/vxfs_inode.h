@@ -30,14 +30,20 @@
 #ifndef _VXFS_INODE_H_
 #define _VXFS_INODE_H_
 
+/*
+ * Veritas filesystem driver - inode structure.
+ *
+ * This file contains the definition of the disk and core
+ * inodes of the Veritas Filesystem.
+ */
 
 
-#define VXFS_ISIZE		0x100		
+#define VXFS_ISIZE		0x100		/* Inode size */
 
-#define VXFS_NDADDR		10		
-#define VXFS_NIADDR		2		
-#define VXFS_NIMMED		96		
-#define VXFS_NTYPED		6		
+#define VXFS_NDADDR		10		/* Number of direct addrs in inode */
+#define VXFS_NIADDR		2		/* Number of indirect addrs in inode */
+#define VXFS_NIMMED		96		/* Size of immediate data in inode */
+#define VXFS_NTYPED		6		/* Num of typed extents */
 
 #define VXFS_TYPED_OFFSETMASK	(0x00FFFFFFFFFFFFFFULL)
 #define VXFS_TYPED_TYPEMASK	(0xFF00000000000000ULL)
@@ -46,6 +52,9 @@
 #define VXFS_TYPED_PER_BLOCK(sbp) \
 	((sbp)->s_blocksize / sizeof(struct vxfs_typed))
 
+/*
+ * Possible extent descriptor types for %VXFS_ORG_TYPED extents.
+ */
 enum {
 	VXFS_TYPED_INDIRECT		= 1,
 	VXFS_TYPED_DATA			= 2,
@@ -53,48 +62,54 @@ enum {
 	VXFS_TYPED_DATA_DEV4		= 4,
 };
 
+/*
+ * Data stored immediately in the inode.
+ */
 struct vxfs_immed {
 	u_int8_t	vi_immed[VXFS_NIMMED];
 };
 
 struct vxfs_ext4 {
-	u_int32_t		ve4_spare;		
-	u_int32_t		ve4_indsize;		
-	vx_daddr_t		ve4_indir[VXFS_NIADDR];	
-	struct direct {					
-		vx_daddr_t	extent;			
-		int32_t		size;			
+	u_int32_t		ve4_spare;		/* ?? */
+	u_int32_t		ve4_indsize;		/* Indirect extent size */
+	vx_daddr_t		ve4_indir[VXFS_NIADDR];	/* Indirect extents */
+	struct direct {					/* Direct extents */
+		vx_daddr_t	extent;			/* Extent number */
+		int32_t		size;			/* Size of extent */
 	} ve4_direct[VXFS_NDADDR];
 };
 
 struct vxfs_typed {
-	u_int64_t	vt_hdr;		
-	vx_daddr_t	vt_block;	
-	int32_t		vt_size;	
+	u_int64_t	vt_hdr;		/* Header, 0xTTOOOOOOOOOOOOOO; T=type,O=offs */
+	vx_daddr_t	vt_block;	/* Extent block */
+	int32_t		vt_size;	/* Size in blocks */
 };
 
 struct vxfs_typed_dev4 {
-	u_int64_t	vd4_hdr;	
-	u_int64_t	vd4_block;	
-	u_int64_t	vd4_size;	
-	int32_t		vd4_dev;	
+	u_int64_t	vd4_hdr;	/* Header, 0xTTOOOOOOOOOOOOOO; T=type,O=offs */
+	u_int64_t	vd4_block;	/* Extent block */
+	u_int64_t	vd4_size;	/* Size in blocks */
+	int32_t		vd4_dev;	/* Device ID */
 	u_int32_t	__pad1;
 };
 
+/*
+ * The inode as contained on the physical device.
+ */
 struct vxfs_dinode {
 	int32_t		vdi_mode;
-	u_int32_t	vdi_nlink;	
-	u_int32_t	vdi_uid;	
-	u_int32_t	vdi_gid;	
-	u_int64_t	vdi_size;	
-	u_int32_t	vdi_atime;	
-	u_int32_t	vdi_autime;	
-	u_int32_t	vdi_mtime;	
-	u_int32_t	vdi_mutime;	
-	u_int32_t	vdi_ctime;	
-	u_int32_t	vdi_cutime;	
-	u_int8_t	vdi_aflags;	
-	u_int8_t	vdi_orgtype;	
+	u_int32_t	vdi_nlink;	/* Link count */
+	u_int32_t	vdi_uid;	/* UID */
+	u_int32_t	vdi_gid;	/* GID */
+	u_int64_t	vdi_size;	/* Inode size in bytes */
+	u_int32_t	vdi_atime;	/* Last time accessed - sec */
+	u_int32_t	vdi_autime;	/* Last time accessed - usec */
+	u_int32_t	vdi_mtime;	/* Last modify time - sec */
+	u_int32_t	vdi_mutime;	/* Last modify time - usec */
+	u_int32_t	vdi_ctime;	/* Create time - sec */
+	u_int32_t	vdi_cutime;	/* Create time - usec */
+	u_int8_t	vdi_aflags;	/* Allocation flags */
+	u_int8_t	vdi_orgtype;	/* Organisation type */
 	u_int16_t	vdi_eopflags;
 	u_int32_t	vdi_eopdata;
 	union {
@@ -110,9 +125,9 @@ struct vxfs_dinode {
 		} i_vxspec;
 		u_int64_t		align;
 	} vdi_ftarea;
-	u_int32_t	vdi_blocks;	
-	u_int32_t	vdi_gen;	
-	u_int64_t	vdi_version;	
+	u_int32_t	vdi_blocks;	/* How much blocks does inode occupy */
+	u_int32_t	vdi_gen;	/* Inode generation */
+	u_int64_t	vdi_version;	/* Version */
 	union {
 		struct vxfs_immed	immed;
 		struct vxfs_ext4	ext4;
@@ -132,6 +147,11 @@ struct vxfs_dinode {
 #define vdi_typed	vdi_org.typed
 
 
+/*
+ * The inode as represented in the main memory.
+ *
+ * TBD: This should become a separate structure...
+ */
 #define vxfs_inode_info	vxfs_dinode
 
 #define vii_mode	vdi_mode
@@ -157,4 +177,4 @@ struct vxfs_dinode {
 #define vii_ext4	vdi_org.ext4
 #define vii_typed	vdi_org.typed
 
-#endif 
+#endif /* _VXFS_INODE_H_ */

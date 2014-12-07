@@ -53,7 +53,7 @@ int mcf_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 	struct mcf_gpio_chip *mcf_chip = MCF_CHIP(chip);
 
 	local_irq_save(flags);
-	
+	/* write the value to the output latch */
 	data = mcfgpio_read(mcf_chip->podr);
 	if (value)
 		data |= mcfgpio_bit(chip->base + offset);
@@ -61,7 +61,7 @@ int mcf_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 		data &= ~mcfgpio_bit(chip->base + offset);
 	mcfgpio_write(data, mcf_chip->podr);
 
-	
+	/* now set the direction to output */
 	data = mcfgpio_read(mcf_chip->pddr);
 	data |= mcfgpio_bit(chip->base + offset);
 	mcfgpio_write(data, mcf_chip->pddr);

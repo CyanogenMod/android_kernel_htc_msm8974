@@ -40,6 +40,48 @@ struct sockaddr;
 struct iscsi_iface;
 struct bsg_job;
 
+/**
+ * struct iscsi_transport - iSCSI Transport template
+ *
+ * @name:		transport name
+ * @caps:		iSCSI Data-Path capabilities
+ * @create_session:	create new iSCSI session object
+ * @destroy_session:	destroy existing iSCSI session object
+ * @create_conn:	create new iSCSI connection
+ * @bind_conn:		associate this connection with existing iSCSI session
+ *			and specified transport descriptor
+ * @destroy_conn:	destroy inactive iSCSI connection
+ * @set_param:		set iSCSI parameter. Return 0 on success, -ENODATA
+ *			when param is not supported, and a -Exx value on other
+ *			error.
+ * @get_param		get iSCSI parameter. Must return number of bytes
+ *			copied to buffer on success, -ENODATA when param
+ *			is not supported, and a -Exx value on other error
+ * @start_conn:		set connection to be operational
+ * @stop_conn:		suspend/recover/terminate connection
+ * @send_pdu:		send iSCSI PDU, Login, Logout, NOP-Out, Reject, Text.
+ * @session_recovery_timedout: notify LLD a block during recovery timed out
+ * @init_task:		Initialize a iscsi_task and any internal structs.
+ *			When offloading the data path, this is called from
+ *			queuecommand with the session lock, or from the
+ *			iscsi_conn_send_pdu context with the session lock.
+ *			When not offloading the data path, this is called
+ *			from the scsi work queue without the session lock.
+ * @xmit_task		Requests LLD to transfer cmd task. Returns 0 or the
+ *			the number of bytes transferred on success, and -Exyz
+ *			value on error. When offloading the data path, this
+ *			is called from queuecommand with the session lock, or
+ *			from the iscsi_conn_send_pdu context with the session
+ *			lock. When not offloading the data path, this is called
+ *			from the scsi work queue without the session lock.
+ * @cleanup_task:	requests LLD to fail task. Called with session lock
+ *			and after the connection has been suspended and
+ *			terminated during recovery. If called
+ *			from abort task then connection is not suspended
+ *			or terminated but sk_callback_lock is held
+ *
+ * Template API provided by iSCSI Transport
+ */
 struct iscsi_transport {
 	struct module *owner;
 	char *name;
@@ -110,9 +152,15 @@ struct iscsi_transport {
 	int (*delete_chap) (struct Scsi_Host *shost, uint16_t chap_tbl_idx);
 };
 
+/*
+ * transport registration upcalls
+ */
 extern struct scsi_transport_template *iscsi_register_transport(struct iscsi_transport *tt);
 extern int iscsi_unregister_transport(struct iscsi_transport *tt);
 
+/*
+ * control plane upcalls
+ */
 extern void iscsi_conn_error_event(struct iscsi_cls_conn *conn,
 				   enum iscsi_err error);
 extern void iscsi_conn_login_event(struct iscsi_cls_conn *conn,
@@ -136,14 +184,14 @@ extern void iscsi_ping_comp_event(uint32_t host_no,
 				  uint32_t data_size, uint8_t *data);
 
 struct iscsi_cls_conn {
-	struct list_head conn_list;	
-	void *dd_data;			
+	struct list_head conn_list;	/* item in connlist */
+	void *dd_data;			/* LLD private data */
 	struct iscsi_transport *transport;
-	uint32_t cid;			
+	uint32_t cid;			/* connection id */
 	struct mutex ep_mutex;
 	struct iscsi_endpoint *ep;
 
-	struct device dev;		
+	struct device dev;		/* sysfs transport/container device */
 };
 
 #define iscsi_dev_to_conn(_dev) \
@@ -155,6 +203,7 @@ struct iscsi_cls_conn {
 #define iscsi_conn_to_session(_conn) \
 	iscsi_dev_to_session(_conn->dev.parent)
 
+/* iscsi class session state */
 enum {
 	ISCSI_SESSION_LOGGED_IN,
 	ISCSI_SESSION_FAILED,
@@ -164,7 +213,7 @@ enum {
 #define ISCSI_MAX_TARGET -1
 
 struct iscsi_cls_session {
-	struct list_head sess_list;		
+	struct list_head sess_list;		/* item in session_list */
 	struct iscsi_transport *transport;
 	spinlock_t lock;
 	struct work_struct block_work;
@@ -172,18 +221,22 @@ struct iscsi_cls_session {
 	struct work_struct scan_work;
 	struct work_struct unbind_work;
 
-	
+	/* recovery fields */
 	int recovery_tmo;
 	struct delayed_work recovery_work;
 
 	unsigned int target_id;
 	bool ida_used;
 
+	/*
+	 * pid of userspace process that created session or -1 if
+	 * created by the kernel.
+	 */
 	pid_t creator;
 	int state;
-	int sid;				
-	void *dd_data;				
-	struct device dev;	
+	int sid;				/* session id */
+	void *dd_data;				/* LLD private data */
+	struct device dev;	/* sysfs transport/container device */
 };
 
 #define iscsi_dev_to_session(_dev) \
@@ -213,7 +266,7 @@ extern void iscsi_host_for_each_session(struct Scsi_Host *shost,
 				void (*fn)(struct iscsi_cls_session *));
 
 struct iscsi_endpoint {
-	void *dd_data;			
+	void *dd_data;			/* LLD private data */
 	struct device dev;
 	uint64_t id;
 	struct iscsi_cls_conn *conn;
@@ -222,9 +275,9 @@ struct iscsi_endpoint {
 struct iscsi_iface {
 	struct device dev;
 	struct iscsi_transport *transport;
-	uint32_t iface_type;	
-	uint32_t iface_num;	
-	void *dd_data;		
+	uint32_t iface_type;	/* IPv4 or IPv6 */
+	uint32_t iface_num;	/* iface number, 0 - n */
+	void *dd_data;		/* LLD private data */
 };
 
 #define iscsi_dev_to_iface(_dev) \
@@ -233,6 +286,9 @@ struct iscsi_iface {
 #define iscsi_iface_to_shost(_iface) \
 	dev_to_shost(_iface->dev.parent)
 
+/*
+ * session and connection functions that can be used by HW iSCSI LLDs
+ */
 #define iscsi_cls_session_printk(prefix, _cls_session, fmt, a...) \
 	dev_printk(prefix, &(_cls_session)->dev, fmt, ##a)
 

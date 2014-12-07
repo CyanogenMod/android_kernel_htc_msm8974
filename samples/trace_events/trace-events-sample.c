@@ -1,6 +1,12 @@
 #include <linux/module.h>
 #include <linux/kthread.h>
 
+/*
+ * Any file that uses trace points, must include the header.
+ * But only one file, must include the header by defining
+ * CREATE_TRACE_POINTS first.  This will make the C code that
+ * creates the handles for the trace points.
+ */
 #define CREATE_TRACE_POINTS
 #include "trace-events-sample.h"
 

@@ -1,3 +1,6 @@
+/*
+ * arch/arm/mach-ep93xx/include/mach/irqs.h
+ */
 
 #ifndef __ASM_ARCH_IRQS_H
 #define __ASM_ARCH_IRQS_H

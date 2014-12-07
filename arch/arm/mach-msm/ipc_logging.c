@@ -69,6 +69,7 @@ static struct ipc_log_page *get_next_page(struct ipc_log_context *ilctxt,
 	return pg;
 }
 
+/* If data == NULL, drop the log of size data_size*/
 static void ipc_log_read(struct ipc_log_context *ilctxt,
 			 void *data, int data_size)
 {
@@ -95,6 +96,19 @@ static void ipc_log_read(struct ipc_log_context *ilctxt,
 	ilctxt->write_avail += data_size;
 }
 
+/*
+ * Reads a message.
+ *
+ * If a message is read successfully, then the the message context
+ * will be set to:
+ *     .hdr    message header .size and .type values
+ *     .offset beginning of message data
+ *
+ * @ectxt   Message context and if NULL, drops the message.
+ *
+ * @returns 0  - no message available
+ *          1  - message read
+ */
 int msg_read(struct ipc_log_context *ilctxt,
 	     struct encode_context *ectxt)
 {
@@ -113,6 +127,10 @@ int msg_read(struct ipc_log_context *ilctxt,
 	return sizeof(hdr) + (int)hdr.size;
 }
 
+/*
+ * Commits messages to the FIFO.  If the FIFO is full, then enough
+ * messages are dropped to create space for the new message.
+ */
 void ipc_log_write(void *ctxt, struct encode_context *ectxt)
 {
 	struct ipc_log_context *ilctxt = (struct ipc_log_context *)ctxt;
@@ -153,6 +171,10 @@ void ipc_log_write(void *ctxt, struct encode_context *ectxt)
 }
 EXPORT_SYMBOL(ipc_log_write);
 
+/*
+ * Starts a new message after which you can add serialized data and
+ * then complete the message by calling msg_encode_end().
+ */
 void msg_encode_start(struct encode_context *ectxt, uint32_t type)
 {
 	if (!ectxt) {
@@ -166,6 +188,9 @@ void msg_encode_start(struct encode_context *ectxt, uint32_t type)
 }
 EXPORT_SYMBOL(msg_encode_start);
 
+/*
+ * Completes the message
+ */
 void msg_encode_end(struct encode_context *ectxt)
 {
 	if (!ectxt) {
@@ -173,13 +198,20 @@ void msg_encode_end(struct encode_context *ectxt)
 		return;
 	}
 
-	
+	/* finalize data size */
 	ectxt->hdr.size = ectxt->offset - sizeof(ectxt->hdr);
 	BUG_ON(ectxt->hdr.size > MAX_MSG_SIZE);
 	memcpy(ectxt->buff, &ectxt->hdr, sizeof(ectxt->hdr));
 }
 EXPORT_SYMBOL(msg_encode_end);
 
+/*
+ * Helper funtion used to write data to a message context.
+ *
+ * @ectxt context initialized by calling msg_encode_start()
+ * @data  data to write
+ * @size  number of bytes of data to write
+ */
 static inline int tsv_write_data(struct encode_context *ectxt,
 				 void *data, uint32_t size)
 {
@@ -197,6 +229,13 @@ static inline int tsv_write_data(struct encode_context *ectxt,
 	return 0;
 }
 
+/*
+ * Helper function that writes a type to the context.
+ *
+ * @ectxt context initialized by calling msg_encode_start()
+ * @type  primitive type
+ * @size  size of primitive in bytes
+ */
 static inline int tsv_write_header(struct encode_context *ectxt,
 				   uint32_t type, uint32_t size)
 {
@@ -207,6 +246,11 @@ static inline int tsv_write_header(struct encode_context *ectxt,
 	return tsv_write_data(ectxt, &hdr, sizeof(hdr));
 }
 
+/*
+ * Writes the current timestamp count.
+ *
+ * @ectxt   context initialized by calling msg_encode_start()
+ */
 int tsv_timestamp_write(struct encode_context *ectxt)
 {
 	int ret;
@@ -219,6 +263,12 @@ int tsv_timestamp_write(struct encode_context *ectxt)
 }
 EXPORT_SYMBOL(tsv_timestamp_write);
 
+/*
+ * Writes a data pointer.
+ *
+ * @ectxt   context initialized by calling msg_encode_start()
+ * @pointer pointer value to write
+ */
 int tsv_pointer_write(struct encode_context *ectxt, void *pointer)
 {
 	int ret;
@@ -229,6 +279,12 @@ int tsv_pointer_write(struct encode_context *ectxt, void *pointer)
 }
 EXPORT_SYMBOL(tsv_pointer_write);
 
+/*
+ * Writes a 32-bit integer value.
+ *
+ * @ectxt context initialized by calling msg_encode_start()
+ * @n     integer to write
+ */
 int tsv_int32_write(struct encode_context *ectxt, int32_t n)
 {
 	int ret;
@@ -257,6 +313,12 @@ int tsv_byte_array_write(struct encode_context *ectxt,
 }
 EXPORT_SYMBOL(tsv_byte_array_write);
 
+/*
+ * Helper function to log a string
+ *
+ * @ilctxt ipc_log_context created using ipc_log_context_create()
+ * @fmt Data specified using format specifiers
+ */
 int ipc_log_string(void *ilctxt, const char *fmt, ...)
 {
 	struct encode_context ectxt;
@@ -281,6 +343,18 @@ int ipc_log_string(void *ilctxt, const char *fmt, ...)
 }
 EXPORT_SYMBOL(ipc_log_string);
 
+/**
+ * ipc_log_extract - Reads and deserializes log
+ *
+ * @ctxt:  logging context
+ * @buff:    buffer to receive the data
+ * @size:    size of the buffer
+ * @returns: 0 if no data read; >0 number of bytes read; < 0 error
+ *
+ * If no data is available to be read, then the ilctxt::read_avail
+ * completion is reinitialized.  This allows clients to block
+ * until new log data is save.
+ */
 int ipc_log_extract(void *ctxt, char *buff, int size)
 {
 	struct encode_context ectxt;
@@ -321,6 +395,13 @@ int ipc_log_extract(void *ctxt, char *buff, int size)
 }
 EXPORT_SYMBOL(ipc_log_extract);
 
+/*
+ * Helper funtion used to read data from a message context.
+ *
+ * @ectxt  context initialized by calling msg_read()
+ * @data  data to read
+ * @size  number of bytes of data to read
+ */
 static void tsv_read_data(struct encode_context *ectxt,
 			  void *data, uint32_t size)
 {
@@ -329,6 +410,13 @@ static void tsv_read_data(struct encode_context *ectxt,
 	ectxt->offset += size;
 }
 
+/*
+ * Helper function that reads a type from the context and updates the
+ * context pointers.
+ *
+ * @ectxt  context initialized by calling msg_read()
+ * @hdr   type header
+ */
 static void tsv_read_header(struct encode_context *ectxt,
 			    struct tsv_header *hdr)
 {
@@ -337,6 +425,13 @@ static void tsv_read_header(struct encode_context *ectxt,
 	ectxt->offset += sizeof(*hdr);
 }
 
+/*
+ * Reads a timestamp.
+ *
+ * @ectxt   context initialized by calling msg_read()
+ * @dctxt   deserialization context
+ * @format output format (appended to %6u.%09u timestamp format)
+ */
 void tsv_timestamp_read(struct encode_context *ectxt,
 			struct decode_context *dctxt, const char *format)
 {
@@ -353,6 +448,13 @@ void tsv_timestamp_read(struct encode_context *ectxt,
 }
 EXPORT_SYMBOL(tsv_timestamp_read);
 
+/*
+ * Reads a data pointer.
+ *
+ * @ectxt   context initialized by calling msg_read()
+ * @dctxt   deserialization context
+ * @format output format
+ */
 void tsv_pointer_read(struct encode_context *ectxt,
 		      struct decode_context *dctxt, const char *format)
 {
@@ -367,6 +469,13 @@ void tsv_pointer_read(struct encode_context *ectxt,
 }
 EXPORT_SYMBOL(tsv_pointer_read);
 
+/*
+ * Reads a 32-bit integer value.
+ *
+ * @ectxt   context initialized by calling msg_read()
+ * @dctxt   deserialization context
+ * @format output format
+ */
 int32_t tsv_int32_read(struct encode_context *ectxt,
 		       struct decode_context *dctxt, const char *format)
 {
@@ -382,6 +491,13 @@ int32_t tsv_int32_read(struct encode_context *ectxt,
 }
 EXPORT_SYMBOL(tsv_int32_read);
 
+/*
+ * Reads a byte array/string.
+ *
+ * @ectxt   context initialized by calling msg_read()
+ * @dctxt   deserialization context
+ * @format output format
+ */
 void tsv_byte_array_read(struct encode_context *ectxt,
 			 struct decode_context *dctxt, const char *format)
 {
@@ -498,6 +614,11 @@ release_ipc_log_context:
 }
 EXPORT_SYMBOL(ipc_log_context_create);
 
+/*
+ * Destroy debug log context
+ *
+ * @ctxt: debug log context created by calling ipc_log_context_create API.
+ */
 int ipc_log_context_destroy(void *ctxt)
 {
 	struct ipc_log_context *ilctxt = (struct ipc_log_context *)ctxt;

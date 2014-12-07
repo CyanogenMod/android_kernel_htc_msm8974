@@ -70,4 +70,4 @@ struct vpif_capture_config {
 	int subdev_count;
 	const char *card_name;
 };
-#endif 
+#endif /* _VPIF_TYPES_H */

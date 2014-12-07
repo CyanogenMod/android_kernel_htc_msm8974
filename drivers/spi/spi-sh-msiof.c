@@ -30,7 +30,7 @@
 #include <asm/unaligned.h>
 
 struct sh_msiof_spi_priv {
-	struct spi_bitbang bitbang; 
+	struct spi_bitbang bitbang; /* must be first for spi_bitbang.c */
 	void __iomem *mapbase;
 	struct clk *clk;
 	struct platform_device *pdev;
@@ -119,7 +119,7 @@ static irqreturn_t sh_msiof_spi_irq(int irq, void *data)
 {
 	struct sh_msiof_spi_priv *p = data;
 
-	
+	/* just disable the interrupt and wake up */
 	sh_msiof_write(p, IER, 0);
 	complete(&p->done);
 
@@ -153,7 +153,7 @@ static void sh_msiof_spi_set_clk_regs(struct sh_msiof_spi_priv *p,
 	if (!WARN_ON(!spi_hz || !parent_rate))
 		div = parent_rate / spi_hz;
 
-	
+	/* TODO: make more fine grained */
 
 	for (k = 0; k < ARRAY_SIZE(sh_msiof_spi_clk_table); k++) {
 		if (sh_msiof_spi_clk_table[k].div >= div)
@@ -173,19 +173,26 @@ static void sh_msiof_spi_set_pin_regs(struct sh_msiof_spi_priv *p,
 	u32 tmp;
 	int edge;
 
+	/*
+	 * CPOL CPHA     TSCKIZ RSCKIZ TEDG REDG
+	 *    0    0         10     10    1    1
+	 *    0    1         10     10    0    0
+	 *    1    0         11     11    0    0
+	 *    1    1         11     11    1    1
+	 */
 	sh_msiof_write(p, FCTR, 0);
 	sh_msiof_write(p, TMDR1, 0xe2000005 | (lsb_first << 24));
 	sh_msiof_write(p, RMDR1, 0x22000005 | (lsb_first << 24));
 
 	tmp = 0xa0000000;
-	tmp |= cpol << 30; 
-	tmp |= cpol << 28; 
+	tmp |= cpol << 30; /* TSCKIZ */
+	tmp |= cpol << 28; /* RSCKIZ */
 
 	edge = cpol ^ !cpha;
 
-	tmp |= edge << 27; 
-	tmp |= edge << 26; 
-	tmp |= (tx_hi_z ? 2 : 0) << 22; 
+	tmp |= edge << 27; /* TEDG */
+	tmp |= edge << 26; /* REDG */
+	tmp |= (tx_hi_z ? 2 : 0) << 22; /* TXDIZ */
 	sh_msiof_write(p, CTR, tmp);
 }
 
@@ -377,7 +384,7 @@ static int sh_msiof_spi_setup_transfer(struct spi_device *spi,
 {
 	int bits;
 
-	
+	/* noting to check hz values against since parent clock is disabled */
 
 	bits = sh_msiof_spi_bits(spi, t);
 	if (bits < 8)
@@ -393,7 +400,7 @@ static void sh_msiof_spi_chipselect(struct spi_device *spi, int is_on)
 	struct sh_msiof_spi_priv *p = spi_master_get_devdata(spi->master);
 	int value;
 
-	
+	/* chip select is active low unless SPI_CS_HIGH is set */
 	if (spi->mode & SPI_CS_HIGH)
 		value = (is_on == BITBANG_CS_ACTIVE) ? 1 : 0;
 	else
@@ -405,14 +412,14 @@ static void sh_msiof_spi_chipselect(struct spi_device *spi, int is_on)
 			clk_enable(p->clk);
 		}
 
-		
+		/* Configure pins before asserting CS */
 		sh_msiof_spi_set_pin_regs(p, !!(spi->mode & SPI_CPOL),
 					  !!(spi->mode & SPI_CPHA),
 					  !!(spi->mode & SPI_3WIRE),
 					  !!(spi->mode & SPI_LSB_FIRST));
 	}
 
-	
+	/* use spi->controller data for CS (same strategy as spi_gpio) */
 	gpio_set_value((unsigned)spi->controller_data, value);
 
 	if (is_on == BITBANG_CS_INACTIVE) {
@@ -434,29 +441,29 @@ static int sh_msiof_spi_txrx_once(struct sh_msiof_spi_priv *p,
 	int fifo_shift;
 	int ret;
 
-	
+	/* limit maximum word transfer to rx/tx fifo size */
 	if (tx_buf)
 		words = min_t(int, words, p->tx_fifo_size);
 	if (rx_buf)
 		words = min_t(int, words, p->rx_fifo_size);
 
-	
+	/* the fifo contents need shifting */
 	fifo_shift = 32 - bits;
 
-	
+	/* setup msiof transfer mode registers */
 	sh_msiof_spi_set_mode_regs(p, tx_buf, rx_buf, bits, words);
 
-	
+	/* write tx fifo */
 	if (tx_buf)
 		tx_fifo(p, tx_buf, words, fifo_shift);
 
-	
+	/* setup clock and rx/tx signals */
 	ret = sh_msiof_modify_ctr_wait(p, 0, CTR_TSCKE);
 	if (rx_buf)
 		ret = ret ? ret : sh_msiof_modify_ctr_wait(p, 0, CTR_RXE);
 	ret = ret ? ret : sh_msiof_modify_ctr_wait(p, 0, CTR_TXE);
 
-	
+	/* start by setting frame bit */
 	INIT_COMPLETION(p->done);
 	ret = ret ? ret : sh_msiof_modify_ctr_wait(p, 0, CTR_TFSE);
 	if (ret) {
@@ -464,17 +471,17 @@ static int sh_msiof_spi_txrx_once(struct sh_msiof_spi_priv *p,
 		goto err;
 	}
 
-	
+	/* wait for tx fifo to be emptied / rx fifo to be filled */
 	wait_for_completion(&p->done);
 
-	
+	/* read rx fifo */
 	if (rx_buf)
 		rx_fifo(p, rx_buf, words, fifo_shift);
 
-	
+	/* clear status bits */
 	sh_msiof_reset_str(p);
 
-	
+	/* shut down frame, tx/tx and clock signals */
 	ret = sh_msiof_modify_ctr_wait(p, CTR_TFSE, 0);
 	ret = ret ? ret : sh_msiof_modify_ctr_wait(p, CTR_TXE, 0);
 	if (rx_buf)
@@ -513,7 +520,7 @@ static int sh_msiof_spi_txrx(struct spi_device *spi, struct spi_transfer *t)
 		swab = false;
 	}
 
-	
+	/* setup bytes per word and fifo read/write functions */
 	if (bits <= 8) {
 		bytes_per_word = 1;
 		tx_fifo = sh_msiof_spi_write_fifo_8;
@@ -553,11 +560,11 @@ static int sh_msiof_spi_txrx(struct spi_device *spi, struct spi_transfer *t)
 			rx_fifo = sh_msiof_spi_read_fifo_32;
 	}
 
-	
+	/* setup clocks (clock already enabled in chipselect()) */
 	sh_msiof_spi_set_clk_regs(p, clk_get_rate(p->clk),
 				  sh_msiof_spi_hz(spi, t));
 
-	
+	/* transfer in fifo sized chunks */
 	words = t->len / bytes_per_word;
 	bytes_done = 0;
 
@@ -581,7 +588,7 @@ static int sh_msiof_spi_txrx(struct spi_device *spi, struct spi_transfer *t)
 static u32 sh_msiof_spi_txrx_word(struct spi_device *spi, unsigned nsecs,
 				  u32 word, u8 bits)
 {
-	BUG(); 
+	BUG(); /* unused but needed by bitbang code */
 	return 0;
 }
 
@@ -639,17 +646,17 @@ static int sh_msiof_spi_probe(struct platform_device *pdev)
 	p->pdev = pdev;
 	pm_runtime_enable(&pdev->dev);
 
-	
+	/* The standard version of MSIOF use 64 word FIFOs */
 	p->tx_fifo_size = 64;
 	p->rx_fifo_size = 64;
 
-	
+	/* Platform data may override FIFO sizes */
 	if (p->info->tx_fifo_override)
 		p->tx_fifo_size = p->info->tx_fifo_override;
 	if (p->info->rx_fifo_override)
 		p->rx_fifo_size = p->info->rx_fifo_override;
 
-	
+	/* init master and bitbang code */
 	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
 	master->mode_bits |= SPI_LSB_FIRST | SPI_3WIRE;
 	master->flags = 0;
@@ -700,6 +707,13 @@ static int sh_msiof_spi_remove(struct platform_device *pdev)
 
 static int sh_msiof_spi_runtime_nop(struct device *dev)
 {
+	/* Runtime PM callback shared between ->runtime_suspend()
+	 * and ->runtime_resume(). Simply returns success.
+	 *
+	 * This driver re-initializes all registers after
+	 * pm_runtime_get_sync() anyway so there is no need
+	 * to save and restore registers here.
+	 */
 	return 0;
 }
 

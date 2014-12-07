@@ -22,4 +22,4 @@
 
 #define HARDIRQ_BITS	8
 
-#endif 
+#endif /* __ASM_HARDIRQ_H */

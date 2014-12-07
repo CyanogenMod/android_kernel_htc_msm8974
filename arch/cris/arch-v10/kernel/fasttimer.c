@@ -31,6 +31,7 @@
 
 #define DEBUG_LOG_INCLUDED
 #define FAST_TIMER_LOG
+/* #define FAST_TIMER_TEST */
 
 #define FAST_TIMER_SANITY_CHECKS
 
@@ -77,19 +78,20 @@ static unsigned int debug_log_cnt_wrapped;
 #endif
 
 
+/* The frequencies for index = clkselx number in R_TIMER_CTRL */
 #define NUM_TIMER_FREQ 15
 #define MAX_USABLE_TIMER_FREQ 7
 #define MAX_DELAY_US  853333L
 const unsigned long timer_freq_100[NUM_TIMER_FREQ] =
 {
-  3,   
-  6,   
-  12,  
-  24,  
-  48,  
-  96,  
-  192, 
-  384, 
+  3,   /* 0 3333 - 853333 us */
+  6,   /* 1 1666 - 426666 us */
+  12,  /* 2  833 - 213333 us */
+  24,  /* 3  416 - 106666 us */
+  48,  /* 4  208 -  53333 us */
+  96,  /* 5  104 -  26666 us */
+  192, /* 6   52 -  13333 us */
+  384, /* 7   26 -   6666 us */
   576,
   1152,
   2304,
@@ -97,7 +99,7 @@ const unsigned long timer_freq_100[NUM_TIMER_FREQ] =
   9216,
   18432,
   62500,
-  
+  /* 15 = cascade */
 };
 #define NUM_TIMER_STATS 16
 #ifdef FAST_TIMER_LOG
@@ -110,6 +112,7 @@ int timer_div_settings[NUM_TIMER_STATS];
 int timer_freq_settings[NUM_TIMER_STATS];
 int timer_delay_settings[NUM_TIMER_STATS];
 
+/* Not true gettimeofday, only checks the jiffies (uptime) + useconds */
 inline void do_gettimeofday_fast(struct fasttime_t *tv)
 {
 	tv->tv_jiff = jiffies;
@@ -118,13 +121,13 @@ inline void do_gettimeofday_fast(struct fasttime_t *tv)
 
 inline int fasttime_cmp(struct fasttime_t *t0, struct fasttime_t *t1)
 {
-	
+	/* Compare jiffies. Takes care of wrapping */
 	if (time_before(t0->tv_jiff, t1->tv_jiff))
 		return -1;
 	else if (time_after(t0->tv_jiff, t1->tv_jiff))
 		return 1;
 
-	
+	/* Compare us */
 	if (t0->tv_usec < t1->tv_usec)
 		return -1;
 	else if (t0->tv_usec > t1->tv_usec)
@@ -134,16 +137,19 @@ inline int fasttime_cmp(struct fasttime_t *t0, struct fasttime_t *t1)
 
 inline void start_timer1(unsigned long delay_us)
 {
-  int freq_index = 0; 
+  int freq_index = 0; /* This is the lowest resolution */
   unsigned long upper_limit = MAX_DELAY_US;
 
   unsigned long div;
-  
-#if 1 
+  /* Start/Restart the timer to the new shorter value */
+  /* t = 1/freq = 1/19200 = 53us
+   * T=div*t,  div = T/t = delay_us*freq/1000000
+   */
+#if 1 /* Adaptive timer settings */
   while (delay_us < upper_limit && freq_index < MAX_USABLE_TIMER_FREQ)
   {
     freq_index++;
-    upper_limit >>= 1; 
+    upper_limit >>= 1; /* Divide by 2 using shift */
   }
   if (freq_index > 0)
   {
@@ -155,12 +161,15 @@ inline void start_timer1(unsigned long delay_us)
   div = delay_us * timer_freq_100[freq_index]/10000;
   if (div < 2)
   {
-    
+    /* Maybe increase timer freq? */
     div = 2;
   }
   if (div > 255)
   {
-    div = 0; 
+    div = 0; /* This means 256, the max the timer takes */
+    /* If a longer timeout than the timer can handle is used,
+     * then we must restart it when it goes off.
+     */
   }
 
   timer_div_settings[fast_timers_started % NUM_TIMER_STATS] = div;
@@ -169,10 +178,10 @@ inline void start_timer1(unsigned long delay_us)
 
 	D1(printk(KERN_DEBUG "start_timer1 : %d us freq: %i div: %i\n",
             delay_us, freq_index, div));
-  
+  /* Clear timer1 irq */
   *R_IRQ_MASK0_CLR = IO_STATE(R_IRQ_MASK0_CLR, timer1, clr);
 
-  
+  /* Set timer values */
   *R_TIMER_CTRL = r_timer_ctrl_shadow =
     (r_timer_ctrl_shadow &
      ~IO_MASK(R_TIMER_CTRL, timerdiv1) &
@@ -180,23 +189,24 @@ inline void start_timer1(unsigned long delay_us)
      ~IO_MASK(R_TIMER_CTRL, clksel1)) |
     IO_FIELD(R_TIMER_CTRL, timerdiv1, div) |
     IO_STATE(R_TIMER_CTRL, tm1, stop_ld) |
-    IO_FIELD(R_TIMER_CTRL, clksel1, freq_index ); 
+    IO_FIELD(R_TIMER_CTRL, clksel1, freq_index ); /* 6=c19k2Hz */
 
-  
+  /* Ack interrupt */
   *R_TIMER_CTRL =  r_timer_ctrl_shadow |
     IO_STATE(R_TIMER_CTRL, i1, clr);
 
-  
+  /* Start timer */
   *R_TIMER_CTRL = r_timer_ctrl_shadow =
     (r_timer_ctrl_shadow & ~IO_MASK(R_TIMER_CTRL, tm1)) |
     IO_STATE(R_TIMER_CTRL, tm1, run);
 
-  
+  /* Enable timer1 irq */
   *R_IRQ_MASK0_SET = IO_STATE(R_IRQ_MASK0_SET, timer1, set);
   fast_timers_started++;
   fast_timer_running = 1;
 }
 
+/* In version 1.4 this function takes 27 - 50 us */
 void start_one_shot_timer(struct fast_timer *t,
                           fast_timer_function_type *function,
                           unsigned long data,
@@ -214,7 +224,7 @@ void start_one_shot_timer(struct fast_timer *t,
   tmp = fast_timer_list;
 
 #ifdef FAST_TIMER_SANITY_CHECKS
-	
+	/* Check so this is not in the list already... */
 	while (tmp != NULL) {
 		if (tmp == t) {
 			printk(KERN_WARNING "timer name: %s data: "
@@ -244,10 +254,10 @@ void start_one_shot_timer(struct fast_timer *t,
 #endif
   fast_timers_added++;
 
-  
+  /* Check if this should timeout before anything else */
 	if (tmp == NULL || fasttime_cmp(&t->tv_expires, &tmp->tv_expires) < 0)
   {
-    
+    /* Put first in list and modify the timer value */
     t->prev = NULL;
     t->next = fast_timer_list;
     if (fast_timer_list)
@@ -260,13 +270,13 @@ void start_one_shot_timer(struct fast_timer *t,
 #endif
     start_timer1(delay_us);
   } else {
-    
+    /* Put in correct place in list */
 		while (tmp->next && fasttime_cmp(&t->tv_expires,
 				&tmp->next->tv_expires) > 0)
     {
       tmp = tmp->next;
     }
-    
+    /* Insert t after tmp */
     t->prev = tmp;
     t->next = tmp->next;
     if (tmp->next)
@@ -280,7 +290,7 @@ void start_one_shot_timer(struct fast_timer *t,
 
 done:
   local_irq_restore(flags);
-} 
+} /* start_one_shot_timer */
 
 static inline int fast_timer_pending (const struct fast_timer * t)
 {
@@ -314,10 +324,12 @@ int del_fast_timer(struct fast_timer * t)
   t->next = t->prev = NULL;
   local_irq_restore(flags);
   return ret;
-} 
+} /* del_fast_timer */
 
 
+/* Interrupt routines or functions called in interrupt context */
 
+/* Timer 1 interrupt handler */
 
 static irqreturn_t
 timer1_handler(int irq, void *dev_id)
@@ -325,18 +337,25 @@ timer1_handler(int irq, void *dev_id)
   struct fast_timer *t;
   unsigned long flags;
 
+	/* We keep interrupts disabled not only when we modify the
+	 * fast timer list, but any time we hold a reference to a
+	 * timer in the list, since del_fast_timer may be called
+	 * from (another) interrupt context.  Thus, the only time
+	 * when interrupts are enabled is when calling the timer
+	 * callback function.
+	 */
   local_irq_save(flags);
 
-  
+  /* Clear timer1 irq */
   *R_IRQ_MASK0_CLR = IO_STATE(R_IRQ_MASK0_CLR, timer1, clr);
 
-  
-  
+  /* First stop timer, then ack interrupt */
+  /* Stop timer */
   *R_TIMER_CTRL = r_timer_ctrl_shadow =
     (r_timer_ctrl_shadow & ~IO_MASK(R_TIMER_CTRL, tm1)) |
     IO_STATE(R_TIMER_CTRL, tm1, stop_ld);
 
-  
+  /* Ack interrupt */
   *R_TIMER_CTRL =  r_timer_ctrl_shadow | IO_STATE(R_TIMER_CTRL, i1, clr);
 
   fast_timer_running = 0;
@@ -349,20 +368,20 @@ timer1_handler(int irq, void *dev_id)
 		fast_timer_function_type *f;
 		unsigned long d;
 
-    
+    /* Has it really expired? */
     do_gettimeofday_fast(&tv);
 		D1(printk(KERN_DEBUG "t: %is %06ius\n",
 			tv.tv_jiff, tv.tv_usec));
 
 		if (fasttime_cmp(&t->tv_expires, &tv) <= 0)
     {
-      
+      /* Yes it has expired */
 #ifdef FAST_TIMER_LOG
       timer_expired_log[fast_timers_expired % NUM_TIMER_STATS] = *t;
 #endif
       fast_timers_expired++;
 
-      
+      /* Remove this timer before call, since it may reuse the timer */
       if (t->prev)
       {
         t->prev->next = t->next;
@@ -388,7 +407,7 @@ timer1_handler(int irq, void *dev_id)
 			d = t->data;
 
 			if (f != NULL) {
-				
+				/* Run callback with interrupts enabled. */
 				local_irq_restore(flags);
 				f(d);
 				local_irq_save(flags);
@@ -397,19 +416,19 @@ timer1_handler(int irq, void *dev_id)
     }
     else
     {
-      
+      /* Timer is to early, let's set it again using the normal routines */
       D1(printk(".\n"));
     }
 
     if ((t = fast_timer_list) != NULL)
     {
-      
+      /* Start next timer.. */
 			long us = 0;
 			struct fasttime_t tv;
 
       do_gettimeofday_fast(&tv);
 
-			
+			/* time_after_eq takes care of wrapping */
 			if (time_after_eq(t->tv_expires.tv_jiff, tv.tv_jiff))
 				us = ((t->tv_expires.tv_jiff - tv.tv_jiff) *
 					1000000 / HZ + t->tv_expires.tv_usec -
@@ -428,6 +447,9 @@ timer1_handler(int irq, void *dev_id)
       }
       else
       {
+        /* Timer already expired, let's handle it better late than never.
+         * The normal loop handles it
+         */
         D1(printk("e! %d\n", us));
       }
     }
@@ -450,6 +472,7 @@ static void wake_up_func(unsigned long data)
 }
 
 
+/* Useful API */
 
 void schedule_usleep(unsigned long us)
 {
@@ -460,6 +483,8 @@ void schedule_usleep(unsigned long us)
   D1(printk("schedule_usleep(%d)\n", us));
   start_one_shot_timer(&t, wake_up_func, (unsigned long)&sleep_wait, us,
                        "usleep");
+	/* Uninterruptible sleep on the fast timer. (The condition is somewhat
+	 * redundant since the timer is what wakes us up.) */
 	wait_event(sleep_wait, !fast_timer_pending(&t));
 
   D1(printk("done schedule_usleep(%d)\n", us));
@@ -469,10 +494,11 @@ void schedule_usleep(unsigned long us)
 static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
                        ,int *eof, void *data_unused);
 static struct proc_dir_entry *fasttimer_proc_entry;
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 #ifdef CONFIG_PROC_FS
 
+/* This value is very much based on testing */
 #define BIG_BUF_SIZE (500 + NUM_TIMER_STATS * 300)
 
 static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
@@ -548,7 +574,7 @@ static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
     {
       int cur = (fast_timers_started - i - 1) % NUM_TIMER_STATS;
 
-#if 1 
+#if 1 //ndef FAST_TIMER_LOG
       used += sprintf(bigbuf + used, "div: %i freq: %i delay: %i"
                       "\n",
                       timer_div_settings[cur],
@@ -624,6 +650,7 @@ static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
       local_irq_restore(flags);
       used += sprintf(bigbuf + used, "%-14s s: %6lu.%06lu e: %6lu.%06lu "
                       "d: %6li us data: 0x%08lX"
+/*                      " func: 0x%08lX" */
                       "\n",
                       t->name,
 			(unsigned long)t->tv_set.tv_jiff,
@@ -632,6 +659,7 @@ static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
                       (unsigned long)t->tv_expires.tv_usec,
                       t->delay_us,
                       t->data
+/*                      , t->function */
                       );
 	local_irq_save(flags);
       if (t->next != nextt)
@@ -654,7 +682,7 @@ static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
 
   return len;
 }
-#endif 
+#endif /* PROC_FS */
 
 #ifdef FAST_TIMER_TEST
 static volatile unsigned long i = 0;
@@ -814,7 +842,7 @@ static void fast_timer_test(void)
 
 int fast_timer_init(void)
 {
-  
+  /* For some reason, request_irq() hangs when called froom time_init() */
   if (!fast_timer_is_init)
   {
 #if 0 && defined(FAST_TIMER_TEST)
@@ -826,14 +854,14 @@ int fast_timer_init(void)
 #if 0 && defined(FAST_TIMER_TEST)
     for (i = 0; i <= TIMER0_DIV; i++)
     {
-      
+      /* We must be careful not to get overflow... */
       printk("%3i %6u\n", i, timer0_value_us[i]);
     }
 #endif
 #ifdef CONFIG_PROC_FS
    if ((fasttimer_proc_entry = create_proc_entry( "fasttimer", 0, 0 )))
      fasttimer_proc_entry->read_proc = proc_fasttimer_read;
-#endif 
+#endif /* PROC_FS */
     if(request_irq(TIMER1_IRQ_NBR, timer1_handler, 0,
                    "fast timer int", NULL))
     {

@@ -117,6 +117,9 @@ out:
 	return ret;
 }
 
+/*
+ * calculate authorization info fields to send to TPM
+ */
 static int TSS_authhmac(unsigned char *digest, const unsigned char *key,
 			unsigned int keylen, unsigned char *h1,
 			unsigned char *h2, unsigned char h3, ...)
@@ -165,6 +168,9 @@ out:
 	return ret;
 }
 
+/*
+ * verify the AUTH1_COMMAND (Seal) result from TPM
+ */
 static int TSS_checkhmac1(unsigned char *buffer,
 			  const uint32_t command,
 			  const unsigned char *ononce,
@@ -243,6 +249,9 @@ out:
 	return ret;
 }
 
+/*
+ * verify the AUTH2_COMMAND (unseal) result from TPM
+ */
 static int TSS_checkhmac2(unsigned char *buffer,
 			  const uint32_t command,
 			  const unsigned char *ononce,
@@ -341,6 +350,10 @@ out:
 	return ret;
 }
 
+/*
+ * For key specific tpm requests, we will generate and send our
+ * own TPM command packets using the drivers send function.
+ */
 static int trusted_tpm_send(const u32 chip_num, unsigned char *cmd,
 			    size_t buflen)
 {
@@ -350,11 +363,14 @@ static int trusted_tpm_send(const u32 chip_num, unsigned char *cmd,
 	rc = tpm_send(chip_num, cmd, buflen);
 	dump_tpm_buf(cmd);
 	if (rc > 0)
-		
+		/* Can't return positive return codes values to keyctl */
 		rc = -EPERM;
 	return rc;
 }
 
+/*
+ * get a random value from TPM
+ */
 static int tpm_get_random(struct tpm_buf *tb, unsigned char *buf, uint32_t len)
 {
 	int ret;
@@ -384,6 +400,12 @@ static int my_get_random(unsigned char *buf, int len)
 	return ret;
 }
 
+/*
+ * Lock a trusted key, by extending a selected PCR.
+ *
+ * Prevents a trusted key that is sealed to PCRs from being accessed.
+ * This uses the tpm driver's extend function.
+ */
 static int pcrlock(const int pcrnum)
 {
 	unsigned char hash[SHA1_DIGEST_SIZE];
@@ -397,6 +419,9 @@ static int pcrlock(const int pcrnum)
 	return tpm_pcr_extend(TPM_ANY_NUM, pcrnum, hash) ? -EINVAL : 0;
 }
 
+/*
+ * Create an object specific authorisation protocol (OSAP) session
+ */
 static int osap(struct tpm_buf *tb, struct osapsess *s,
 		const unsigned char *key, uint16_t type, uint32_t handle)
 {
@@ -429,6 +454,9 @@ static int osap(struct tpm_buf *tb, struct osapsess *s,
 			   enonce, TPM_NONCE_SIZE, ononce, 0, 0);
 }
 
+/*
+ * Create an object independent authorisation protocol (oiap) session
+ */
 static int oiap(struct tpm_buf *tb, uint32_t *handle, unsigned char *nonce)
 {
 	int ret;
@@ -455,6 +483,10 @@ struct tpm_digests {
 	unsigned char nonceodd[TPM_NONCE_SIZE];
 };
 
+/*
+ * Have the TPM seal(encrypt) the trusted key, possibly based on
+ * Platform Configuration Registers (PCRs). AUTH1 for sealing key.
+ */
 static int tpm_seal(struct tpm_buf *tb, uint16_t keytype,
 		    uint32_t keyhandle, const unsigned char *keyauth,
 		    const unsigned char *data, uint32_t datalen,
@@ -474,18 +506,18 @@ static int tpm_seal(struct tpm_buf *tb, uint16_t keytype,
 	int ret;
 	int i;
 
-	
+	/* alloc some work space for all the hashes */
 	td = kmalloc(sizeof *td, GFP_KERNEL);
 	if (!td)
 		return -ENOMEM;
 
-	
+	/* get session for sealing key */
 	ret = osap(tb, &sess, keyauth, keytype, keyhandle);
 	if (ret < 0)
 		goto out;
 	dump_sess(&sess);
 
-	
+	/* calculate encrypted authorization value */
 	memcpy(td->xorwork, sess.secret, SHA1_DIGEST_SIZE);
 	memcpy(td->xorwork + SHA1_DIGEST_SIZE, sess.enonce, SHA1_DIGEST_SIZE);
 	ret = TSS_sha1(td->xorwork, SHA1_DIGEST_SIZE * 2, td->xorhash);
@@ -500,13 +532,13 @@ static int tpm_seal(struct tpm_buf *tb, uint16_t keytype,
 	pcrsize = htonl(pcrinfosize);
 	cont = 0;
 
-	
+	/* encrypt data authorization key */
 	for (i = 0; i < SHA1_DIGEST_SIZE; ++i)
 		td->encauth[i] = td->xorhash[i] ^ blobauth[i];
 
-	
+	/* calculate authorization HMAC value */
 	if (pcrinfosize == 0) {
-		
+		/* no pcr info specified */
 		ret = TSS_authhmac(td->pubauth, sess.secret, SHA1_DIGEST_SIZE,
 				   sess.enonce, td->nonceodd, cont,
 				   sizeof(uint32_t), &ordinal, SHA1_DIGEST_SIZE,
@@ -514,7 +546,7 @@ static int tpm_seal(struct tpm_buf *tb, uint16_t keytype,
 				   sizeof(uint32_t), &datsize, datalen, data, 0,
 				   0);
 	} else {
-		
+		/* pcr info specified */
 		ret = TSS_authhmac(td->pubauth, sess.secret, SHA1_DIGEST_SIZE,
 				   sess.enonce, td->nonceodd, cont,
 				   sizeof(uint32_t), &ordinal, SHA1_DIGEST_SIZE,
@@ -525,7 +557,7 @@ static int tpm_seal(struct tpm_buf *tb, uint16_t keytype,
 	if (ret < 0)
 		goto out;
 
-	
+	/* build and send the TPM request packet */
 	INIT_BUF(tb);
 	store16(tb, TPM_TAG_RQU_AUTH1_COMMAND);
 	store32(tb, TPM_SEAL_SIZE + pcrinfosize + datalen);
@@ -545,19 +577,19 @@ static int tpm_seal(struct tpm_buf *tb, uint16_t keytype,
 	if (ret < 0)
 		goto out;
 
-	
+	/* calculate the size of the returned Blob */
 	sealinfosize = LOAD32(tb->data, TPM_DATA_OFFSET + sizeof(uint32_t));
 	encdatasize = LOAD32(tb->data, TPM_DATA_OFFSET + sizeof(uint32_t) +
 			     sizeof(uint32_t) + sealinfosize);
 	storedsize = sizeof(uint32_t) + sizeof(uint32_t) + sealinfosize +
 	    sizeof(uint32_t) + encdatasize;
 
-	
+	/* check the HMAC in the response */
 	ret = TSS_checkhmac1(tb->data, ordinal, td->nonceodd, sess.secret,
 			     SHA1_DIGEST_SIZE, storedsize, TPM_DATA_OFFSET, 0,
 			     0);
 
-	
+	/* copy the returned blob to caller */
 	if (!ret) {
 		memcpy(blob, tb->data + TPM_DATA_OFFSET, storedsize);
 		*bloblen = storedsize;
@@ -567,6 +599,9 @@ out:
 	return ret;
 }
 
+/*
+ * use the AUTH2_COMMAND form of unseal, to authorize both key and blob
+ */
 static int tpm_unseal(struct tpm_buf *tb,
 		      uint32_t keyhandle, const unsigned char *keyauth,
 		      const unsigned char *blob, int bloblen,
@@ -585,7 +620,7 @@ static int tpm_unseal(struct tpm_buf *tb,
 	uint32_t keyhndl;
 	int ret;
 
-	
+	/* sessions for unsealing key and data */
 	ret = oiap(tb, &authhandle1, enonce1);
 	if (ret < 0) {
 		pr_info("trusted_key: oiap failed (%d)\n", ret);
@@ -615,7 +650,7 @@ static int tpm_unseal(struct tpm_buf *tb,
 	if (ret < 0)
 		return ret;
 
-	
+	/* build and send TPM request packet */
 	INIT_BUF(tb);
 	store16(tb, TPM_TAG_RQU_AUTH2_COMMAND);
 	store32(tb, TPM_UNSEAL_SIZE + bloblen);
@@ -652,6 +687,9 @@ static int tpm_unseal(struct tpm_buf *tb,
 	return 0;
 }
 
+/*
+ * Have the TPM seal(encrypt) the symmetric key
+ */
 static int key_seal(struct trusted_key_payload *p,
 		    struct trusted_key_options *o)
 {
@@ -662,7 +700,7 @@ static int key_seal(struct trusted_key_payload *p,
 	if (!tb)
 		return -ENOMEM;
 
-	
+	/* include migratable flag at end of sealed key */
 	p->key[p->key_len] = p->migratable;
 
 	ret = tpm_seal(tb, o->keytype, o->keyhandle, o->keyauth,
@@ -675,6 +713,9 @@ static int key_seal(struct trusted_key_payload *p,
 	return ret;
 }
 
+/*
+ * Have the TPM unseal(decrypt) the symmetric key
+ */
 static int key_unseal(struct trusted_key_payload *p,
 		      struct trusted_key_options *o)
 {
@@ -690,7 +731,7 @@ static int key_unseal(struct trusted_key_payload *p,
 	if (ret < 0)
 		pr_info("trusted_key: srkunseal failed (%d)\n", ret);
 	else
-		
+		/* pull migratable flag out of sealed key */
 		p->migratable = p->key[--p->key_len];
 
 	kfree(tb);
@@ -717,6 +758,7 @@ static const match_table_t key_tokens = {
 	{Opt_err, NULL}
 };
 
+/* can have zero or more token= options */
 static int getoptions(char *c, struct trusted_key_payload *pay,
 		      struct trusted_key_options *opt)
 {
@@ -784,6 +826,12 @@ static int getoptions(char *c, struct trusted_key_payload *pay,
 	return 0;
 }
 
+/*
+ * datablob_parse - parse the keyctl data and fill in the
+ * 		    payload and options structures
+ *
+ * On success returns 0, otherwise -EINVAL.
+ */
 static int datablob_parse(char *datablob, struct trusted_key_payload *p,
 			  struct trusted_key_options *o)
 {
@@ -793,14 +841,14 @@ static int datablob_parse(char *datablob, struct trusted_key_payload *p,
 	int key_cmd;
 	char *c;
 
-	
+	/* main command */
 	c = strsep(&datablob, " \t");
 	if (!c)
 		return -EINVAL;
 	key_cmd = match_token(c, key_tokens, args);
 	switch (key_cmd) {
 	case Opt_new:
-		
+		/* first argument is key size */
 		c = strsep(&datablob, " \t");
 		if (!c)
 			return -EINVAL;
@@ -814,7 +862,7 @@ static int datablob_parse(char *datablob, struct trusted_key_payload *p,
 		ret = Opt_new;
 		break;
 	case Opt_load:
-		
+		/* first argument is sealed blob */
 		c = strsep(&datablob, " \t");
 		if (!c)
 			return -EINVAL;
@@ -830,7 +878,7 @@ static int datablob_parse(char *datablob, struct trusted_key_payload *p,
 		ret = Opt_load;
 		break;
 	case Opt_update:
-		
+		/* all arguments are options */
 		ret = getoptions(datablob, p, o);
 		if (ret < 0)
 			return ret;
@@ -849,7 +897,7 @@ static struct trusted_key_options *trusted_options_alloc(void)
 
 	options = kzalloc(sizeof *options, GFP_KERNEL);
 	if (options) {
-		
+		/* set any non-zero defaults */
 		options->keytype = SRK_keytype;
 		options->keyhandle = SRKHANDLE;
 	}
@@ -866,10 +914,19 @@ static struct trusted_key_payload *trusted_payload_alloc(struct key *key)
 		return p;
 	p = kzalloc(sizeof *p, GFP_KERNEL);
 	if (p)
-		p->migratable = 1; 
+		p->migratable = 1; /* migratable by default */
 	return p;
 }
 
+/*
+ * trusted_instantiate - create a new trusted key
+ *
+ * Unseal an existing trusted blob or, for a new key, get a
+ * random key, then seal and create a trusted key-type key,
+ * adding it to the specified keyring.
+ *
+ * On success, return 0. Otherwise return errno.
+ */
 static int trusted_instantiate(struct key *key, const void *data,
 			       size_t datalen)
 {
@@ -951,6 +1008,9 @@ static void trusted_rcu_free(struct rcu_head *rcu)
 	kfree(p);
 }
 
+/*
+ * trusted_update - reseal an existing key with new PCR values
+ */
 static int trusted_update(struct key *key, const void *data, size_t datalen)
 {
 	struct trusted_key_payload *p = key->payload.data;
@@ -986,7 +1046,7 @@ static int trusted_update(struct key *key, const void *data, size_t datalen)
 		kfree(new_p);
 		goto out;
 	}
-	
+	/* copy old key values, and reseal with new pcrs */
 	new_p->migratable = p->migratable;
 	new_p->key_len = p->key_len;
 	memcpy(new_p->key, p->key, p->key_len);
@@ -1015,6 +1075,10 @@ out:
 	return ret;
 }
 
+/*
+ * trusted_read - copy the sealed blob data to userspace in hex.
+ * On success, return to userspace the trusted key datablob size.
+ */
 static long trusted_read(const struct key *key, char __user *buffer,
 			 size_t buflen)
 {
@@ -1043,6 +1107,9 @@ static long trusted_read(const struct key *key, char __user *buffer,
 	return 2 * p->blob_len;
 }
 
+/*
+ * trusted_destroy - before freeing the key, clear the decrypted data
+ */
 static void trusted_destroy(struct key *key)
 {
 	struct trusted_key_payload *p = key->payload.data;

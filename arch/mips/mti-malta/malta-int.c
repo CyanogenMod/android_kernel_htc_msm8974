@@ -58,6 +58,10 @@ static inline int mips_pcibios_iack(void)
 {
 	int irq;
 
+	/*
+	 * Determine highest priority pending interrupt by performing
+	 * a PCI Interrupt Acknowledge cycle.
+	 */
 	switch (mips_revision_sconid) {
 	case MIPS_REVISION_SCON_SOCIT:
 	case MIPS_REVISION_SCON_ROCIT:
@@ -71,14 +75,19 @@ static inline int mips_pcibios_iack(void)
 		irq &= 0xff;
 		break;
 	case MIPS_REVISION_SCON_BONITO:
+		/* The following will generate a PCI IACK cycle on the
+		 * Bonito controller. It's a little bit kludgy, but it
+		 * was the easiest way to implement it in hardware at
+		 * the given time.
+		 */
 		BONITO_PCIMAP_CFG = 0x20000;
 
-		
+		/* Flush Bonito register block */
 		(void) BONITO_PCIMAP_CFG;
-		iob();    
+		iob();    /* sync */
 
 		irq = __raw_readl((u32 *)_pcictrl_bonito_pcicfg);
-		iob();    
+		iob();    /* sync */
 		irq &= 0xff;
 		BONITO_PCIMAP_CFG = 0;
 		break;
@@ -97,6 +106,11 @@ static inline int get_int(void)
 
 	irq = mips_pcibios_iack();
 
+	/*
+	 * The only way we can decide if an interrupt is spurious
+	 * is by checking the 8259 registers.  This needs a spinlock
+	 * on an SMP system,  so leave it up to the generic code...
+	 */
 
 	raw_spin_unlock_irqrestore(&mips_irq_lock, flags);
 
@@ -109,7 +123,7 @@ static void malta_hw0_irqdispatch(void)
 
 	irq = get_int();
 	if (irq < 0) {
-		
+		/* interrupt has already been cleared */
 		return;
 	}
 
@@ -122,7 +136,7 @@ static void malta_ipi_irqdispatch(void)
 
 	irq = gic_get_int();
 	if (irq < 0)
-		return;  
+		return;  /* interrupt has already been cleared */
 
 	do_IRQ(MIPS_GIC_IRQ_BASE + irq);
 }
@@ -140,6 +154,10 @@ static void corehi_irqdispatch(void)
 			regs->cp0_epc, regs->cp0_status,
 			regs->cp0_cause, regs->cp0_badvaddr);
 
+	/* Read all the registers and then print them as there is a
+	   problem with interspersed printk's upsetting the Bonito controller.
+	   Do it for the others too.
+	*/
 
 	switch (mips_revision_sconid) {
 	case MIPS_REVISION_SCON_SOCIT:
@@ -192,6 +210,9 @@ static inline int clz(unsigned long x)
 	return x;
 }
 
+/*
+ * Version of ffs that only looks at bits 12..15.
+ */
 static inline unsigned int irq_ffs(unsigned int pending)
 {
 #if defined(CONFIG_CPU_MIPS32) || defined(CONFIG_CPU_MIPS64)
@@ -214,14 +235,38 @@ static inline unsigned int irq_ffs(unsigned int pending)
 
 	t0 = pending & 0x8000;
 	t0 = t0 < 1;
-	
+	/* t0 = t0 << 2; */
 	a0 = a0 - t0;
-	
+	/* pending = pending << t0; */
 
 	return a0;
 #endif
 }
 
+/*
+ * IRQs on the Malta board look basically (barring software IRQs which we
+ * don't use at all and all external interrupt sources are combined together
+ * on hardware interrupt 0 (MIPS IRQ 2)) like:
+ *
+ *	MIPS IRQ	Source
+ *      --------        ------
+ *             0	Software (ignored)
+ *             1        Software (ignored)
+ *             2        Combined hardware interrupt (hw0)
+ *             3        Hardware (ignored)
+ *             4        Hardware (ignored)
+ *             5        Hardware (ignored)
+ *             6        Hardware (ignored)
+ *             7        R4k timer (what we use)
+ *
+ * We handle the IRQ according to _our_ priority which is:
+ *
+ * Highest ----     R4k Timer
+ * Lowest  ----     Combined hardware interrupt
+ *
+ * then we just return, if multiple IRQs are pending then we will just take
+ * another exception, big deal.
+ */
 
 asmlinkage void plat_irq_dispatch(void)
 {
@@ -246,9 +291,9 @@ asmlinkage void plat_irq_dispatch(void)
 #define GIC_MIPS_CPU_IPI_RESCHED_IRQ	3
 #define GIC_MIPS_CPU_IPI_CALL_IRQ	4
 
-#define MIPS_CPU_IPI_RESCHED_IRQ 0	
+#define MIPS_CPU_IPI_RESCHED_IRQ 0	/* SW int 0 for resched */
 #define C_RESCHED C_SW0
-#define MIPS_CPU_IPI_CALL_IRQ 1		
+#define MIPS_CPU_IPI_CALL_IRQ 1		/* SW int 1 for resched */
 #define C_CALL C_SW1
 static int cpu_ipi_resched_irq, cpu_ipi_call_irq;
 
@@ -287,7 +332,7 @@ static struct irqaction irq_call = {
 	.flags		= IRQF_PERCPU,
 	.name		= "IPI_call"
 };
-#endif 
+#endif /* CONFIG_MIPS_MT_SMP */
 
 static int gic_resched_int_base;
 static int gic_call_int_base;
@@ -337,6 +382,11 @@ static msc_irqmap_t __initdata msc_eicirqmap[] = {
 
 static int __initdata msc_nr_eicirqs = ARRAY_SIZE(msc_eicirqmap);
 
+/*
+ * This GIC specific tabular array defines the association between External
+ * Interrupts and CPUs/Core Interrupts. The nature of the External
+ * Interrupts is also defined here - polarity/trigger.
+ */
 
 #define GIC_CPU_NMI GIC_MAP_TO_NMI_MSK
 #define X GIC_UNUSED
@@ -358,10 +408,13 @@ static struct gic_intr_map gic_intr_map[GIC_NUM_INTRS] = {
 	{ 0, GIC_CPU_NMI,  GIC_POL_POS, GIC_TRIG_LEVEL, GIC_FLAG_TRANSPARENT },
 	{ 0, GIC_CPU_NMI,  GIC_POL_POS, GIC_TRIG_LEVEL, GIC_FLAG_TRANSPARENT },
 	{ X, X,		   X,		X,	        0 },
-	
+	/* The remainder of this table is initialised by fill_ipi_map */
 };
 #undef X
 
+/*
+ * GCMP needs to be detected before any SMP initialisation
+ */
 int __init gcmp_probe(unsigned long addr, unsigned long size)
 {
 	if (mips_revision_sconid != MIPS_REVISION_SCON_ROCIT) {
@@ -381,6 +434,7 @@ int __init gcmp_probe(unsigned long addr, unsigned long size)
 	return gcmp_present;
 }
 
+/* Return the number of IOCU's present */
 int __init gcmp_niocu(void)
 {
   return gcmp_present ?
@@ -388,6 +442,7 @@ int __init gcmp_niocu(void)
     0;
 }
 
+/* Set GCMP region attributes */
 void __init gcmp_setregion(int region, unsigned long base,
 			   unsigned long mask, int type)
 {
@@ -485,17 +540,23 @@ void __init arch_init_irq(void)
 			(0x100 << MIPSCPU_INT_I8259A));
 		setup_irq_smtc(MIPS_CPU_IRQ_BASE+MIPSCPU_INT_COREHI,
 			&corehi_irqaction, (0x100 << MIPSCPU_INT_COREHI));
+		/*
+		 * Temporary hack to ensure that the subsidiary device
+		 * interrupts coing in via the i8259A, but associated
+		 * with low IRQ numbers, will restore the Status.IM
+		 * value associated with the i8259A.
+		 */
 		{
 			int i;
 
 			for (i = 0; i < 16; i++)
 				irq_hwmask[i] = (0x100 << MIPSCPU_INT_I8259A);
 		}
-#else 
+#else /* Not SMTC */
 		setup_irq(MIPS_CPU_IRQ_BASE+MIPSCPU_INT_I8259A, &i8259irq);
 		setup_irq(MIPS_CPU_IRQ_BASE+MIPSCPU_INT_COREHI,
 						&corehi_irqaction);
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 	} else {
 		setup_irq(MIPS_CPU_IRQ_BASE+MIPSCPU_INT_I8259A, &i8259irq);
 		setup_irq(MIPS_CPU_IRQ_BASE+MIPSCPU_INT_COREHI,
@@ -503,7 +564,7 @@ void __init arch_init_irq(void)
 	}
 
 	if (gic_present) {
-		
+		/* FIXME */
 		int i;
 #if defined(CONFIG_MIPS_MT_SMP)
 		gic_call_int_base = GIC_NUM_INTRS - NR_CPUS;
@@ -513,19 +574,19 @@ void __init arch_init_irq(void)
 		gic_init(GIC_BASE_ADDR, GIC_ADDRSPACE_SZ, gic_intr_map,
 				ARRAY_SIZE(gic_intr_map), MIPS_GIC_IRQ_BASE);
 		if (!gcmp_present) {
-			
+			/* Enable the GIC */
 			i = REG(_msc01_biu_base, MSC01_SC_CFG);
 			REG(_msc01_biu_base, MSC01_SC_CFG) =
 				(i | (0x1 << MSC01_SC_CFG_GICENA_SHF));
 			pr_debug("GIC Enabled\n");
 		}
 #if defined(CONFIG_MIPS_MT_SMP)
-		
+		/* set up ipi interrupts */
 		if (cpu_has_vint) {
 			set_vi_handler(MIPSCPU_INT_IPI0, malta_ipi_irqdispatch);
 			set_vi_handler(MIPSCPU_INT_IPI1, malta_ipi_irqdispatch);
 		}
-		
+		/* Argh.. this really needs sorting out.. */
 		printk("CPU%d: status register was %08x\n", smp_processor_id(), read_c0_status());
 		write_c0_status(read_c0_status() | STATUSF_IP3 | STATUSF_IP4);
 		printk("CPU%d: status register now %08x\n", smp_processor_id(), read_c0_status());
@@ -540,7 +601,7 @@ void __init arch_init_irq(void)
 #endif
 	} else {
 #if defined(CONFIG_MIPS_MT_SMP)
-		
+		/* set up ipi interrupts */
 		if (cpu_has_veic) {
 			set_vi_handler (MSC01E_INT_SW0, ipi_resched_dispatch);
 			set_vi_handler (MSC01E_INT_SW1, ipi_call_dispatch);
@@ -563,7 +624,7 @@ void __init arch_init_irq(void)
 void malta_be_init(void)
 {
 	if (gcmp_present) {
-		
+		/* Could change CM error mask register */
 	}
 }
 
@@ -628,7 +689,7 @@ static char *causes[32] = {
 
 int malta_be_handler(struct pt_regs *regs, int is_fixup)
 {
-	
+	/* This duplicates the handling in do_be which seems wrong */
 	int retval = is_fixup ? MIPS_BE_FIXUP : MIPS_BE_FATAL;
 
 	if (gcmp_present) {
@@ -654,7 +715,7 @@ int malta_be_handler(struct pt_regs *regs, int is_fixup)
 					 cca_bits, tr[tr_bits], mcmd[mcmd_bits],
 					 stag_bits, sport_bits);
 			} else {
-				
+				/* glob state & sresp together */
 				unsigned long c3_bits = (cm_error >> 18) & 7;
 				unsigned long c2_bits = (cm_error >> 15) & 7;
 				unsigned long c1_bits = (cm_error >> 12) & 7;
@@ -679,7 +740,7 @@ int malta_be_handler(struct pt_regs *regs, int is_fixup)
 			printk("CM_ADDR =%08lx\n", cm_addr);
 			printk("CM_OTHER=%08lx %s\n", cm_other, causes[ocause]);
 
-			
+			/* reprime cause register */
 			GCMPGCB(GCMEC) = 0;
 		}
 	}

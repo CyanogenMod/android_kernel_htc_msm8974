@@ -71,26 +71,40 @@
 #include "iwl-op-mode.h"
 #include "iwl-agn-hw.h"
 
+/* private includes */
 #include "iwl-fw-file.h"
 
+/**
+ * struct iwl_drv - drv common data
+ * @fw: the iwl_fw structure
+ * @shrd: pointer to common shared structure
+ * @op_mode: the running op_mode
+ * @fw_index: firmware revision to try loading
+ * @firmware_name: composite filename of ucode file to load
+ * @request_firmware_complete: the firmware has been obtained from user space
+ */
 struct iwl_drv {
 	struct iwl_fw fw;
 
 	struct iwl_shared *shrd;
 	struct iwl_op_mode *op_mode;
 
-	int fw_index;                   
-	char firmware_name[25];         
+	int fw_index;                   /* firmware we're trying to load */
+	char firmware_name[25];         /* name of firmware file to load */
 
 	struct completion request_firmware_complete;
 };
 
 
 
+/*
+ * struct fw_sec: Just for the image parsing proccess.
+ * For the fw storage we are using struct fw_desc.
+ */
 struct fw_sec {
-	const void *data;		
-	size_t size;			
-	u32 offset;			
+	const void *data;		/* the sec data */
+	size_t size;			/* section size */
+	u32 offset;			/* offset of writing in the device */
 };
 
 static void iwl_free_fw_desc(struct iwl_drv *drv, struct fw_desc *desc)
@@ -181,11 +195,20 @@ struct fw_img_parsing {
 	int sec_counter;
 };
 
+/*
+ * struct fw_sec_parsing: to extract fw section and it's offset from tlv
+ */
 struct fw_sec_parsing {
 	__le32 offset;
 	const u8 data[];
 } __packed;
 
+/**
+ * struct iwl_tlv_calib_data - parse the default calib data from TLV
+ *
+ * @ucode_type: the uCode to which the following default calib relates.
+ * @calib: default calibrations.
+ */
 struct iwl_tlv_calib_data {
 	__le32 ucode_type;
 	__le64 calib;
@@ -198,6 +221,10 @@ struct iwl_firmware_pieces {
 	u32 inst_evtlog_ptr, inst_evtlog_size, inst_errlog_ptr;
 };
 
+/*
+ * These functions are just to extract uCode section data from the pieces
+ * structure.
+ */
 static struct fw_sec *get_sec(struct iwl_firmware_pieces *pieces,
 			      enum iwl_ucode_type type,
 			      int  sec)
@@ -236,6 +263,9 @@ static void set_sec_offset(struct iwl_firmware_pieces *pieces,
 	pieces->img[type].sec[sec].offset = offset;
 }
 
+/*
+ * Gets uCode section from tlv.
+ */
 static int iwl_store_ucode_sec(struct iwl_firmware_pieces *pieces,
 			       const void *data, enum iwl_ucode_type type,
 			       int size)
@@ -341,7 +371,7 @@ static int iwl_parse_v1_v2_firmware(struct iwl_drv *drv,
 		 IWL_UCODE_SERIAL(drv->fw.ucode_ver),
 		 buildstr);
 
-	
+	/* Verify size of file vs. image size info in file's header */
 
 	if (ucode_raw->size != hdr_size +
 	    get_sec_size(pieces, IWL_UCODE_REGULAR, IWL_UCODE_SECTION_INST) +
@@ -404,6 +434,12 @@ static int iwl_parse_tlv_firmware(struct iwl_drv *drv,
 		return -EINVAL;
 	}
 
+	/*
+	 * Check which alternatives are present, and "downgrade"
+	 * when the chosen alternative is not present, warning
+	 * the user when that happens. Some files may not have
+	 * any alternatives, so don't warn in that case.
+	 */
 	alternatives = le64_to_cpu(ucode->alternatives);
 	tmp = wanted_alternative;
 	if (wanted_alternative > 63)
@@ -457,6 +493,11 @@ static int iwl_parse_tlv_firmware(struct iwl_drv *drv,
 		len -= ALIGN(tlv_len, 4);
 		data += sizeof(*tlv) + ALIGN(tlv_len, 4);
 
+		/*
+		 * Alternative 0 is always valid.
+		 *
+		 * Skip alternative TLVs that are not selected.
+		 */
 		if (tlv_alt != 0 && tlv_alt != wanted_alternative)
 			continue;
 
@@ -512,12 +553,19 @@ static int iwl_parse_tlv_firmware(struct iwl_drv *drv,
 			capa->flags |= IWL_UCODE_TLV_FLAGS_PAN;
 			break;
 		case IWL_UCODE_TLV_FLAGS:
-			
+			/* must be at least one u32 */
 			if (tlv_len < sizeof(u32))
 				goto invalid_tlv_len;
-			
+			/* and a proper number of u32s */
 			if (tlv_len % sizeof(u32))
 				goto invalid_tlv_len;
+			/*
+			 * This driver only reads the first u32 as
+			 * right now no more features are defined,
+			 * if that changes then either the driver
+			 * will not work with the new firmware, or
+			 * it'll not take advantage of new features.
+			 */
 			capa->flags = le32_to_cpup((__le32 *)tlv_data);
 			break;
 		case IWL_UCODE_TLV_INIT_EVTLOG_PTR:
@@ -662,7 +710,7 @@ static int validate_sec_sizes(struct iwl_drv *drv,
 	IWL_DEBUG_INFO(drv, "f/w package hdr init data size = %Zd\n",
 		get_sec_size(pieces, IWL_UCODE_INIT, IWL_UCODE_SECTION_DATA));
 
-	
+	/* Verify that uCode images will fit in card's SRAM. */
 	if (get_sec_size(pieces, IWL_UCODE_REGULAR, IWL_UCODE_SECTION_INST) >
 							cfg->max_inst_size) {
 		IWL_ERR(drv, "uCode instr len %Zd too large to fit in\n",
@@ -698,6 +746,12 @@ static int validate_sec_sizes(struct iwl_drv *drv,
 }
 
 
+/**
+ * iwl_ucode_callback - callback when firmware was loaded
+ *
+ * If loaded successfully, copies the firmware into buffers
+ * for the card to fetch (via DMA).
+ */
 static void iwl_ucode_callback(const struct firmware *ucode_raw, void *context)
 {
 	struct iwl_drv *drv = context;
@@ -732,13 +786,13 @@ static void iwl_ucode_callback(const struct firmware *ucode_raw, void *context)
 	IWL_DEBUG_INFO(drv, "Loaded firmware file '%s' (%zd bytes).\n",
 		       drv->firmware_name, ucode_raw->size);
 
-	
+	/* Make sure that we got at least the API version number */
 	if (ucode_raw->size < 4) {
 		IWL_ERR(drv, "File size way too small!\n");
 		goto try_again;
 	}
 
-	
+	/* Data from ucode file:  header followed by uCode images */
 	ucode = (struct iwl_ucode_header *)ucode_raw->data;
 
 	if (ucode->ver)
@@ -752,7 +806,12 @@ static void iwl_ucode_callback(const struct firmware *ucode_raw, void *context)
 
 	api_ver = IWL_UCODE_API(drv->fw.ucode_ver);
 
-	
+	/*
+	 * api_ver should match the api version forming part of the
+	 * firmware filename ... but we don't check for that and only rely
+	 * on the API version read from firmware header from here on forward
+	 */
+	/* no api version check required for experimental uCode */
 	if (drv->fw_index != UCODE_EXPERIMENTAL_INDEX) {
 		if (api_ver < api_min || api_ver > api_max) {
 			IWL_ERR(drv,
@@ -778,6 +837,11 @@ static void iwl_ucode_callback(const struct firmware *ucode_raw, void *context)
 
 	IWL_INFO(drv, "loaded firmware version %s", drv->fw.fw_version);
 
+	/*
+	 * For any of the failures below (before allocating pci memory)
+	 * we will try to load a version with a smaller API -- maybe the
+	 * user just got a corrupted version of the latest API.
+	 */
 
 	IWL_DEBUG_INFO(drv, "f/w package hdr ucode version raw = 0x%x\n",
 		       drv->fw.ucode_ver);
@@ -792,7 +856,7 @@ static void iwl_ucode_callback(const struct firmware *ucode_raw, void *context)
 	IWL_DEBUG_INFO(drv, "f/w package hdr init data size = %Zd\n",
 		get_sec_size(&pieces, IWL_UCODE_INIT, IWL_UCODE_SECTION_DATA));
 
-	
+	/* Verify that uCode images will fit in card's SRAM */
 	if (get_sec_size(&pieces, IWL_UCODE_REGULAR, IWL_UCODE_SECTION_INST) >
 							cfg->max_inst_size) {
 		IWL_ERR(drv, "uCode instr len %Zd too large to fit in\n",
@@ -809,17 +873,29 @@ static void iwl_ucode_callback(const struct firmware *ucode_raw, void *context)
 		goto try_again;
 	}
 
+	/*
+	 * In mvm uCode there is no difference between data and instructions
+	 * sections.
+	 */
 	if (!fw->mvm_fw && validate_sec_sizes(drv, &pieces, cfg))
 		goto try_again;
 
-	
+	/* Allocate ucode buffers for card's bus-master loading ... */
 
+	/* Runtime instructions and 2 copies of data:
+	 * 1) unmodified from disk
+	 * 2) backup cache for save/restore during power-downs */
 	for (i = 0; i < IWL_UCODE_TYPE_MAX; i++)
 		if (alloc_pci_desc(drv, &pieces, i))
 			goto err_pci_alloc;
 
-	
+	/* Now that we can no longer fail, copy information */
 
+	/*
+	 * The (size - 16) / 12 formula is based on the information recorded
+	 * for each event, which is of mode 1 (including timestamp) for all
+	 * new microcodes that include this information.
+	 */
 	fw->init_evtlog_ptr = pieces.init_evtlog_ptr;
 	if (pieces.init_evtlog_size)
 		fw->init_evtlog_size = (pieces.init_evtlog_size - 16)/12;
@@ -835,12 +911,16 @@ static void iwl_ucode_callback(const struct firmware *ucode_raw, void *context)
 			cfg->base_params->max_event_log_size;
 	fw->inst_errlog_ptr = pieces.inst_errlog_ptr;
 
+	/*
+	 * figure out the offset of chain noise reset and gain commands
+	 * base on the size of standard phy calibration commands table size
+	 */
 	if (fw->ucode_capa.standard_phy_calibration_size >
 	    IWL_MAX_PHY_CALIBRATE_TBL_SIZE)
 		fw->ucode_capa.standard_phy_calibration_size =
 			IWL_MAX_STANDARD_PHY_CALIBRATE_TBL_SIZE;
 
-	
+	/* We have our copies now, allow OS release its copies */
 	release_firmware(ucode_raw);
 	complete(&drv->request_firmware_complete);
 
@@ -852,7 +932,7 @@ static void iwl_ucode_callback(const struct firmware *ucode_raw, void *context)
 	return;
 
  try_again:
-	
+	/* try next, if any */
 	release_firmware(ucode_raw);
 	if (iwl_request_firmware(drv, false))
 		goto out_unbind;
@@ -902,7 +982,7 @@ void iwl_drv_stop(struct iwl_shared *shrd)
 
 	wait_for_completion(&drv->request_firmware_complete);
 
-	
+	/* op_mode can be NULL if its start failed */
 	if (drv->op_mode)
 		iwl_op_mode_stop(drv->op_mode);
 

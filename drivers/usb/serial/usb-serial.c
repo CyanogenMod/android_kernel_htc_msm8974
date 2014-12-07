@@ -69,6 +69,7 @@ struct usb_serial *usb_serial_get_by_index(unsigned index)
 			mutex_unlock(&serial->disc_mutex);
 			serial = NULL;
 		} else {
+			mutex_unlock(&serial->disc_mutex);
 			kref_get(&serial->kref);
 		}
 	}
@@ -1279,7 +1280,7 @@ int usb_serial_register_drivers(struct usb_driver *udriver,
 	udriver->no_dynamic_id = 1;
 	rc = usb_register(udriver);
 	if (rc)
-		return rc;
+		goto failed1;
 
 	for (sd = serial_drivers; *sd; ++sd) {
 		(*sd)->usb_driver = udriver;
@@ -1296,6 +1297,7 @@ int usb_serial_register_drivers(struct usb_driver *udriver,
  failed:
 	while (sd-- > serial_drivers)
 		usb_serial_deregister(*sd);
+ failed1:
 	usb_deregister(udriver);
 	return rc;
 }

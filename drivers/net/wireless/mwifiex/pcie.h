@@ -30,6 +30,7 @@
 
 #define PCIE8766_DEFAULT_FW_NAME "mrvl/pcie8766_uapsta.bin"
 
+/* Constants for Buffer Descriptor (BD) rings */
 #define MWIFIEX_MAX_TXRX_BD			0x20
 #define MWIFIEX_TXBD_MASK			0x3F
 #define MWIFIEX_RXBD_MASK			0x3F
@@ -37,6 +38,7 @@
 #define MWIFIEX_MAX_EVT_BD			0x04
 #define MWIFIEX_EVTBD_MASK			0x07
 
+/* PCIE INTERNAL REGISTERS */
 #define PCIE_SCRATCH_0_REG				0xC10
 #define PCIE_SCRATCH_1_REG				0xC14
 #define PCIE_CPU_INT_EVENT				0xC18
@@ -80,16 +82,26 @@
 #define REG_CMDRSP_ADDR_LO				PCIE_SCRATCH_4_REG
 #define REG_CMDRSP_ADDR_HI				PCIE_SCRATCH_5_REG
 
+/* TX buffer description read pointer */
 #define REG_TXBD_RDPTR					PCIE_SCRATCH_6_REG
+/* TX buffer description write pointer */
 #define REG_TXBD_WRPTR					PCIE_SCRATCH_7_REG
+/* RX buffer description read pointer */
 #define REG_RXBD_RDPTR					PCIE_SCRATCH_8_REG
+/* RX buffer description write pointer */
 #define REG_RXBD_WRPTR					PCIE_SCRATCH_9_REG
+/* Event buffer description read pointer */
 #define REG_EVTBD_RDPTR					PCIE_SCRATCH_10_REG
+/* Event buffer description write pointer */
 #define REG_EVTBD_WRPTR					PCIE_SCRATCH_11_REG
+/* Driver ready signature write pointer */
 #define REG_DRV_READY					PCIE_SCRATCH_12_REG
 
+/* Max retry number of command write */
 #define MAX_WRITE_IOMEM_RETRY				2
+/* Define PCIE block size for firmware download */
 #define MWIFIEX_PCIE_BLOCK_SIZE_FW_DNLD		256
+/* FW awake cookie after FW ready */
 #define FW_AWAKE_COOKIE						(0xAA55AA55)
 
 struct mwifiex_pcie_buf_desc {
@@ -133,4 +145,4 @@ struct pcie_service_card {
 	void __iomem *pci_mmap1;
 };
 
-#endif 
+#endif /* _MWIFIEX_PCIE_H */

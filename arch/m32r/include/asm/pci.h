@@ -3,4 +3,4 @@
 
 #include <asm-generic/pci.h>
 
-#endif 
+#endif /* _ASM_M32R_PCI_H */

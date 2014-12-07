@@ -13,8 +13,11 @@
 
 #include <asm/mipsregs.h>
 
+/*
+ * Simple definitions for the masks which remove SW bits from pte.
+ */
 
-#define TLBLO_HWBITSHIFT	0		
+#define TLBLO_HWBITSHIFT	0		/* Shift value, for masking */
 
 #ifndef __ASSEMBLY__
 
@@ -27,24 +30,32 @@
 #define ECCF_PADDR      4
 #define ECCF_SIZE       (5 * sizeof(long))
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #ifdef __ASSEMBLY__
 
+/*
+ * KL_GET_CPUNUM (similar to EV_GET_SPNUM for EVEREST platform) reads
+ * the processor number of the calling processor.  The proc parameters
+ * must be a register.
+ */
 #define KL_GET_CPUNUM(proc) 				\
 	dli	proc, LOCAL_HUB(0); 			\
 	ld	proc, PI_CPU_NUM(proc)
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#define SRB_SWTIMO	IE_SW0		
-#define SRB_NET		IE_SW1		
-#define SRB_DEV0	IE_IRQ0		
-#define SRB_DEV1	IE_IRQ1		
-#define SRB_TIMOCLK	IE_IRQ2		
-#define SRB_PROFCLK	IE_IRQ3		
-#define SRB_ERR		IE_IRQ4		
-#define SRB_SCHEDCLK	IE_IRQ5		
+/*
+ * R10000 status register interrupt bit mask usage for IP27.
+ */
+#define SRB_SWTIMO	IE_SW0		/* 0x0100 */
+#define SRB_NET		IE_SW1		/* 0x0200 */
+#define SRB_DEV0	IE_IRQ0		/* 0x0400 */
+#define SRB_DEV1	IE_IRQ1		/* 0x0800 */
+#define SRB_TIMOCLK	IE_IRQ2		/* 0x1000 */
+#define SRB_PROFCLK	IE_IRQ3		/* 0x2000 */
+#define SRB_ERR		IE_IRQ4		/* 0x4000 */
+#define SRB_SCHEDCLK	IE_IRQ5		/* 0x8000 */
 
 #define SR_IBIT_HI	SRB_DEV0
 #define SR_IBIT_PROF	SRB_PROFCLK
@@ -71,4 +82,4 @@
 #define SEND_NMI(_nasid, _slice)	\
           REMOTE_HUB_S((_nasid),  (PI_NMI_A + ((_slice) * PI_NMI_OFFSET)), 1)
 
-#endif 
+#endif /* _ASM_SN_SN0_IP27_H */

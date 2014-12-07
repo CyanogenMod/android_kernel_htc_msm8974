@@ -259,6 +259,9 @@ static int msm_cpufreq_verify(struct cpufreq_policy *policy)
 
 static unsigned int msm_cpufreq_get_freq(unsigned int cpu)
 {
+	if (is_clk && is_sync)
+		cpu = 0;
+
 	if (is_clk)
 		return clk_get_rate(cpu_clk[cpu]) / 1000;
 
@@ -279,6 +282,14 @@ static int __cpuinit msm_cpufreq_init(struct cpufreq_policy *policy)
 	if (cpu_is_msm8625() || cpu_is_msm8625q() || cpu_is_msm8226()
 		|| cpu_is_msm8610() || (is_clk && is_sync))
 		cpumask_setall(policy->cpus);
+
+	cpu_work = &per_cpu(cpufreq_work, policy->cpu);
+	INIT_WORK(&cpu_work->work, set_cpu_work);
+	init_completion(&cpu_work->complete);
+
+	
+	if (is_clk && !cpu_clk[policy->cpu])
+		return 0;
 
 	if (cpufreq_frequency_table_cpuinfo(policy, table)) {
 #ifdef CONFIG_MSM_CPU_FREQ_SET_MIN_MAX
@@ -317,10 +328,6 @@ static int __cpuinit msm_cpufreq_init(struct cpufreq_policy *policy)
 	policy->cpuinfo.transition_latency =
 		acpuclk_get_switch_time() * NSEC_PER_USEC;
 
-	cpu_work = &per_cpu(cpufreq_work, policy->cpu);
-	INIT_WORK(&cpu_work->work, set_cpu_work);
-	init_completion(&cpu_work->complete);
-
 	return 0;
 }
 
@@ -343,28 +350,34 @@ static int __cpuinit msm_cpufreq_cpu_callback(struct notifier_block *nfb,
 		per_cpu(cpufreq_suspend, cpu).device_suspended = 0;
 		break;
 	case CPU_DEAD:
-	case CPU_UP_CANCELED:
 		if (is_clk) {
 			clk_disable_unprepare(cpu_clk[cpu]);
 			clk_disable_unprepare(l2_clk);
 			update_l2_bw(NULL);
 		}
 		break;
+	case CPU_UP_CANCELED:
+		if (is_clk) {
+			clk_unprepare(cpu_clk[cpu]);
+			clk_unprepare(l2_clk);
+			update_l2_bw(NULL);
+		}
+		break;
 	case CPU_UP_PREPARE:
 #ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-		set_hotplug_on_footprint(cpu, HOF_ENTER);
+		set_hotplug_on_footprint(cpu, HOF_ENTER_PREPARE);
 #endif
 		if (is_clk) {
 #ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-			set_hotplug_on_footprint(cpu, HOF_BEFORE_PREPARE_ENABLE_L2);
+			set_hotplug_on_footprint(cpu, HOF_BEFORE_PREPARE_L2);
 #endif
-			rc = clk_prepare_enable(l2_clk);
+			rc = clk_prepare(l2_clk);
 			if (rc < 0)
 				return NOTIFY_BAD;
 #ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-			set_hotplug_on_footprint(cpu, HOF_BEFORE_PREPARE_ENABLE_CPU);
+			set_hotplug_on_footprint(cpu, HOF_BEFORE_PREPARE_CPU);
 #endif
-			rc = clk_prepare_enable(cpu_clk[cpu]);
+			rc = clk_prepare(cpu_clk[cpu]);
 			if (rc < 0)
 				return NOTIFY_BAD;
 #ifdef CONFIG_HTC_DEBUG_FOOTPRINT
@@ -374,6 +387,28 @@ static int __cpuinit msm_cpufreq_cpu_callback(struct notifier_block *nfb,
 		}
 #ifdef CONFIG_HTC_DEBUG_FOOTPRINT
 		set_hotplug_on_footprint(cpu, HOF_LEAVE);
+#endif
+		break;
+	case CPU_STARTING:
+#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
+		set_hotplug_on_footprint(cpu, HOF_ENTER_ENABLE);
+#endif
+		if (is_clk) {
+#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
+			set_hotplug_on_footprint(cpu, HOF_BEFORE_ENABLE_L2);
+#endif
+			rc = clk_enable(l2_clk);
+			if (rc < 0)
+				return NOTIFY_BAD;
+#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
+			set_hotplug_on_footprint(cpu, HOF_BEFORE_ENABLE_CPU);
+#endif
+			rc = clk_enable(cpu_clk[cpu]);
+			if (rc < 0)
+				return NOTIFY_BAD;
+		}
+#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
+		set_hotplug_on_footprint(cpu, HOF_LEAVE_ENABLE);
 #endif
 		break;
 	default:

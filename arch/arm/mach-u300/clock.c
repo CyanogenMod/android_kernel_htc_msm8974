@@ -32,17 +32,94 @@
 
 #include "clock.h"
 
+/*
+ * TODO:
+ * - move all handling of the CCR register into this file and create
+ *   a spinlock for the CCR register
+ * - switch to the clkdevice lookup mechanism that maps clocks to
+ *   device ID:s instead when it becomes available in kernel 2.6.29.
+ * - implement rate get/set for all clocks that need it.
+ */
 
+/*
+ * Syscon clock I/O registers lock so clock requests don't collide
+ * NOTE: this is a local lock only used to lock access to clock and
+ * reset registers in syscon.
+ */
 static DEFINE_SPINLOCK(syscon_clkreg_lock);
 static DEFINE_SPINLOCK(syscon_resetreg_lock);
 
+/*
+ * The clocking hierarchy currently looks like this.
+ * NOTE: the idea is NOT to show how the clocks are routed on the chip!
+ * The ideas is to show dependencies, so a clock higher up in the
+ * hierarchy has to be on in order for another clock to be on. Now,
+ * both CPU and DMA can actually be on top of the hierarchy, and that
+ * is not modeled currently. Instead we have the backbone AMBA bus on
+ * top. This bus cannot be programmed in any way but conceptually it
+ * needs to be active for the bridges and devices to transport data.
+ *
+ * Please be aware that a few clocks are hw controlled, which mean that
+ * the hw itself can turn on/off or change the rate of the clock when
+ * needed!
+ *
+ *  AMBA bus
+ *  |
+ *  +- CPU
+ *  +- FSMC NANDIF NAND Flash interface
+ *  +- SEMI Shared Memory interface
+ *  +- ISP Image Signal Processor (U335 only)
+ *  +- CDS (U335 only)
+ *  +- DMA Direct Memory Access Controller
+ *  +- AAIF APP/ACC Inteface (Mobile Scalable Link, MSL)
+ *  +- APEX
+ *  +- VIDEO_ENC AVE2/3 Video Encoder
+ *  +- XGAM Graphics Accelerator Controller
+ *  +- AHB
+ *  |
+ *  +- ahb:0 AHB Bridge
+ *  |  |
+ *  |  +- ahb:1 INTCON Interrupt controller
+ *  |  +- ahb:3 MSPRO  Memory Stick Pro controller
+ *  |  +- ahb:4 EMIF   External Memory interface
+ *  |
+ *  +- fast:0 FAST bridge
+ *  |  |
+ *  |  +- fast:1 MMCSD MMC/SD card reader controller
+ *  |  +- fast:2 I2S0  PCM I2S channel 0 controller
+ *  |  +- fast:3 I2S1  PCM I2S channel 1 controller
+ *  |  +- fast:4 I2C0  I2C channel 0 controller
+ *  |  +- fast:5 I2C1  I2C channel 1 controller
+ *  |  +- fast:6 SPI   SPI controller
+ *  |  +- fast:7 UART1 Secondary UART (U335 only)
+ *  |
+ *  +- slow:0 SLOW bridge
+ *     |
+ *     +- slow:1 SYSCON (not possible to control)
+ *     +- slow:2 WDOG Watchdog
+ *     +- slow:3 UART0 primary UART
+ *     +- slow:4 TIMER_APP Application timer - used in Linux
+ *     +- slow:5 KEYPAD controller
+ *     +- slow:6 GPIO controller
+ *     +- slow:7 RTC controller
+ *     +- slow:8 BT Bus Tracer (not used currently)
+ *     +- slow:9 EH Event Handler (not used currently)
+ *     +- slow:a TIMER_ACC Access style timer (not used currently)
+ *     +- slow:b PPM (U335 only, what is that?)
+ */
 
+/*
+ * Reset control functions. We remember if a block has been
+ * taken out of reset and don't remove the reset assertion again
+ * and vice versa. Currently we only remove resets so the
+ * enablement function is defined out.
+ */
 static void syscon_block_reset_enable(struct clk *clk)
 {
 	u16 val;
 	unsigned long iflags;
 
-	
+	/* Not all blocks support resetting */
 	if (!clk->res_reg || !clk->res_mask)
 		return;
 	spin_lock_irqsave(&syscon_resetreg_lock, iflags);
@@ -58,7 +135,7 @@ static void syscon_block_reset_disable(struct clk *clk)
 	u16 val;
 	unsigned long iflags;
 
-	
+	/* Not all blocks support resetting */
 	if (!clk->res_reg || !clk->res_mask)
 		return;
 	spin_lock_irqsave(&syscon_resetreg_lock, iflags);
@@ -73,22 +150,22 @@ int __clk_get(struct clk *clk)
 {
 	u16 val;
 
-	
+	/* The MMC and MSPRO clocks need some special set-up */
 	if (!strcmp(clk->name, "MCLK")) {
-		
+		/* Set default MMC clock divisor to 18.9 MHz */
 		writew(0x0054U, U300_SYSCON_VBASE + U300_SYSCON_MMF0R);
 		val = readw(U300_SYSCON_VBASE + U300_SYSCON_MMCR);
-		
+		/* Disable the MMC feedback clock */
 		val &= ~U300_SYSCON_MMCR_MMC_FB_CLK_SEL_ENABLE;
-		
+		/* Disable MSPRO frequency */
 		val &= ~U300_SYSCON_MMCR_MSPRO_FREQSEL_ENABLE;
 		writew(val, U300_SYSCON_VBASE + U300_SYSCON_MMCR);
 	}
 	if (!strcmp(clk->name, "MSPRO")) {
 		val = readw(U300_SYSCON_VBASE + U300_SYSCON_MMCR);
-		
+		/* Disable the MMC feedback clock */
 		val &= ~U300_SYSCON_MMCR_MMC_FB_CLK_SEL_ENABLE;
-		
+		/* Enable MSPRO frequency */
 		val |= U300_SYSCON_MMCR_MSPRO_FREQSEL_ENABLE;
 		writew(val, U300_SYSCON_VBASE + U300_SYSCON_MMCR);
 	}
@@ -105,7 +182,7 @@ static void syscon_clk_disable(struct clk *clk)
 {
 	unsigned long iflags;
 
-	
+	/* Don't touch the hardware controlled clocks */
 	if (clk->hw_ctrld)
 		return;
 
@@ -118,7 +195,7 @@ static void syscon_clk_enable(struct clk *clk)
 {
 	unsigned long iflags;
 
-	
+	/* Don't touch the hardware controlled clocks */
 	if (clk->hw_ctrld)
 		return;
 
@@ -146,7 +223,7 @@ static void enable_i2s0_vcxo(void)
 	unsigned long iflags;
 
 	spin_lock_irqsave(&syscon_clkreg_lock, iflags);
-	
+	/* Set I2S0 to use the VCXO 26 MHz clock */
 	val = readw(U300_SYSCON_VBASE + U300_SYSCON_CCR);
 	val |= U300_SYSCON_CCR_TURN_VCXO_ON;
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_CCR);
@@ -164,7 +241,7 @@ static void enable_i2s1_vcxo(void)
 	unsigned long iflags;
 
 	spin_lock_irqsave(&syscon_clkreg_lock, iflags);
-	
+	/* Set I2S1 to use the VCXO 26 MHz clock */
 	val = readw(U300_SYSCON_VBASE + U300_SYSCON_CCR);
 	val |= U300_SYSCON_CCR_TURN_VCXO_ON;
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_CCR);
@@ -182,11 +259,11 @@ static void disable_i2s0_vcxo(void)
 	unsigned long iflags;
 
 	spin_lock_irqsave(&syscon_clkreg_lock, iflags);
-	
+	/* Disable I2S0 use of the VCXO 26 MHz clock */
 	val = readw(U300_SYSCON_VBASE + U300_SYSCON_CCR);
 	val &= ~U300_SYSCON_CCR_I2S0_USE_VCXO;
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_CCR);
-	
+	/* Deactivate VCXO if no one else is using VCXO */
 	if (!(val & U300_SYSCON_CCR_I2S1_USE_VCXO))
 		val &= ~U300_SYSCON_CCR_TURN_VCXO_ON;
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_CCR);
@@ -202,11 +279,11 @@ static void disable_i2s1_vcxo(void)
 	unsigned long iflags;
 
 	spin_lock_irqsave(&syscon_clkreg_lock, iflags);
-	
+	/* Disable I2S1 use of the VCXO 26 MHz clock */
 	val = readw(U300_SYSCON_VBASE + U300_SYSCON_CCR);
 	val &= ~U300_SYSCON_CCR_I2S1_USE_VCXO;
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_CCR);
-	
+	/* Deactivate VCXO if no one else is using VCXO */
 	if (!(val & U300_SYSCON_CCR_I2S0_USE_VCXO))
 		val &= ~U300_SYSCON_CCR_TURN_VCXO_ON;
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_CCR);
@@ -215,7 +292,7 @@ static void disable_i2s1_vcxo(void)
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_CEFR);
 	spin_unlock_irqrestore(&syscon_clkreg_lock, iflags);
 }
-#endif 
+#endif /* CONFIG_MACH_U300_USE_I2S_AS_MASTER */
 
 
 static void syscon_clk_rate_set_mclk(unsigned long rate)
@@ -300,7 +377,7 @@ void clk_disable(struct clk *clk)
 
 	spin_lock_irqsave(&clk->lock, iflags);
 	if (clk->usecount > 0 && !(--clk->usecount)) {
-		
+		/* some blocks lack clocking registers and cannot be disabled */
 		if (clk->disable)
 			clk->disable(clk);
 		if (likely((u32)clk->parent))
@@ -329,9 +406,9 @@ int clk_enable(struct clk *clk)
 		if (unlikely(ret != 0))
 			clk->usecount--;
 		else {
-			
+			/* remove reset line (we never enable reset again) */
 			syscon_block_reset_disable(clk);
-			
+			/* clocks without enable function are always on */
 			if (clk->enable)
 				clk->enable(clk);
 #ifdef CONFIG_MACH_U300_USE_I2S_AS_MASTER
@@ -348,6 +425,7 @@ int clk_enable(struct clk *clk)
 }
 EXPORT_SYMBOL(clk_enable);
 
+/* Returns the clock rate in Hz */
 static unsigned long clk_get_rate_cpuclk(struct clk *clk)
 {
 	u16 val;
@@ -444,12 +522,30 @@ static unsigned long clk_get_rate_mclk(struct clk *clk)
 
 	switch (val) {
 	case U300_SYSCON_CCR_CLKING_PERFORMANCE_LOW_POWER:
+		/*
+		 * Here, the 208 MHz PLL gets shut down and the always
+		 * on 13 MHz PLL used for RTC etc kicks into use
+		 * instead.
+		 */
 		return 13000000;
 	case U300_SYSCON_CCR_CLKING_PERFORMANCE_LOW:
 	case U300_SYSCON_CCR_CLKING_PERFORMANCE_INTERMEDIATE:
 	case U300_SYSCON_CCR_CLKING_PERFORMANCE_HIGH:
 	case U300_SYSCON_CCR_CLKING_PERFORMANCE_BEST:
 	{
+		/*
+		 * This clock is under program control. The register is
+		 * divided in two nybbles, bit 7-4 gives cycles-1 to count
+		 * high, bit 3-0 gives cycles-1 to count low. Distribute
+		 * these with no more than 1 cycle difference between
+		 * low and high and add low and high to get the actual
+		 * divisor. The base PLL is 208 MHz. Writing 0x00 will
+		 * divide by 1 and 1 so the highest frequency possible
+		 * is 104 MHz.
+		 *
+		 * e.g. 0x54 =>
+		 * f = 208 / ((5+1) + (4+1)) = 208 / 11 = 18.9 MHz
+		 */
 		u16 val = readw(U300_SYSCON_VBASE + U300_SYSCON_MMF0R) &
 			U300_SYSCON_MMF0R_MASK;
 		switch (val) {
@@ -546,10 +642,15 @@ static unsigned long clk_round_rate_cpuclk(struct clk *clk, unsigned long rate)
 	return -EINVAL;
 }
 
+/*
+ * This adjusts a requested rate to the closest exact rate
+ * a certain clock can provide. For a fixed clock it's
+ * mostly clk->rate.
+ */
 long clk_round_rate(struct clk *clk, unsigned long rate)
 {
-	
-	
+	/* TODO: get appropriate switches for EMIFCLK, AHBCLK and MCLK */
+	/* Else default to fixed value */
 
 	if (clk->round_rate) {
 		return (long) clk->round_rate(clk, rate);
@@ -575,8 +676,8 @@ static int clk_set_rate_cpuclk(struct clk *clk, unsigned long rate)
 
 int clk_set_rate(struct clk *clk, unsigned long rate)
 {
-	
-	
+	/* TODO: set for EMIFCLK and AHBCLK */
+	/* Else assume the clock is fixed and fail */
 	if (clk->set_rate) {
 		return clk->set_rate(clk, rate);
 	} else {
@@ -587,20 +688,33 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 }
 EXPORT_SYMBOL(clk_set_rate);
 
+/*
+ * Clock definitions. The clock parents are set to respective
+ * bridge and the clock framework makes sure that the clocks have
+ * parents activated and are brought out of reset when in use.
+ *
+ * Clocks that have hw_ctrld = true are hw controlled, and the hw
+ * can by itself turn these clocks on and off.
+ * So in other words, we don't really have to care about them.
+ */
 
 static struct clk amba_clk = {
 	.name	    = "AMBA",
-	.rate	    = 52000000, 
+	.rate	    = 52000000, /* this varies! */
 	.hw_ctrld   = true,
 	.reset	    = false,
 	.lock       = __SPIN_LOCK_UNLOCKED(amba_clk.lock),
 };
 
+/*
+ * These blocks are connected directly to the AMBA bus
+ * with no bridge.
+ */
 
 static struct clk cpu_clk = {
 	.name	    = "CPU",
 	.parent	    = &amba_clk,
-	.rate	    = 208000000, 
+	.rate	    = 208000000, /* this varies! */
 	.hw_ctrld   = true,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
@@ -627,8 +741,8 @@ static struct clk nandif_clk = {
 static struct clk semi_clk = {
 	.name       = "SEMI",
 	.parent	    = &amba_clk,
-	.rate       = 0, 
-	
+	.rate       = 0, /* FIXME */
+	/* It is not possible to reset SEMI */
 	.hw_ctrld   = false,
 	.reset	    = false,
 	.clk_val    = U300_SYSCON_SBCER_SEMI_CLK_EN,
@@ -641,7 +755,7 @@ static struct clk semi_clk = {
 static struct clk isp_clk = {
 	.name	    = "ISP",
 	.parent	    = &amba_clk,
-	.rate	    = 0, 
+	.rate	    = 0, /* FIXME */
 	.hw_ctrld   = false,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
@@ -655,7 +769,7 @@ static struct clk isp_clk = {
 static struct clk cds_clk = {
 	.name	    = "CDS",
 	.parent	    = &amba_clk,
-	.rate	    = 0, 
+	.rate	    = 0, /* FIXME */
 	.hw_ctrld   = false,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
@@ -670,7 +784,7 @@ static struct clk cds_clk = {
 static struct clk dma_clk = {
 	.name       = "DMA",
 	.parent	    = &amba_clk,
-	.rate       = 52000000, 
+	.rate       = 52000000, /* this varies! */
 	.hw_ctrld   = true,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
@@ -684,7 +798,7 @@ static struct clk dma_clk = {
 static struct clk aaif_clk = {
 	.name       = "AAIF",
 	.parent	    = &amba_clk,
-	.rate       = 52000000, 
+	.rate       = 52000000, /* this varies! */
 	.hw_ctrld   = true,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
@@ -698,7 +812,7 @@ static struct clk aaif_clk = {
 static struct clk apex_clk = {
 	.name       = "APEX",
 	.parent	    = &amba_clk,
-	.rate       = 0, 
+	.rate       = 0, /* FIXME */
 	.hw_ctrld   = true,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
@@ -712,11 +826,11 @@ static struct clk apex_clk = {
 static struct clk video_enc_clk = {
 	.name       = "VIDEO_ENC",
 	.parent	    = &amba_clk,
-	.rate       = 208000000, 
+	.rate       = 208000000, /* this varies! */
 	.hw_ctrld   = false,
 	.reset	    = false,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
-	
+	/* This has XGAM in the name but refers to the video encoder */
 	.res_mask   = U300_SYSCON_RRR_XGAM_VC_SYNC_RESET_EN,
 	.clk_val    = U300_SYSCON_SBCER_VIDEO_ENC_CLK_EN,
 	.enable     = syscon_clk_enable,
@@ -727,7 +841,7 @@ static struct clk video_enc_clk = {
 static struct clk xgam_clk = {
 	.name       = "XGAMCLK",
 	.parent	    = &amba_clk,
-	.rate       = 52000000, 
+	.rate       = 52000000, /* this varies! */
 	.hw_ctrld   = false,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
@@ -739,11 +853,12 @@ static struct clk xgam_clk = {
 	.lock       = __SPIN_LOCK_UNLOCKED(xgam_clk.lock),
 };
 
+/* This clock is used to activate the video encoder */
 static struct clk ahb_clk = {
 	.name	    = "AHB",
 	.parent	    = &amba_clk,
-	.rate	    = 52000000, 
-	.hw_ctrld   = false, 
+	.rate	    = 52000000, /* this varies! */
+	.hw_ctrld   = false, /* This one is set to false due to HW bug */
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
 	.res_mask   = U300_SYSCON_RRR_AHB_RESET_EN,
@@ -755,11 +870,14 @@ static struct clk ahb_clk = {
 };
 
 
+/*
+ * Clocks on the AHB bridge
+ */
 
 static struct clk ahb_subsys_clk = {
 	.name	    = "AHB_SUBSYS",
 	.parent	    = &amba_clk,
-	.rate	    = 52000000, 
+	.rate	    = 52000000, /* this varies! */
 	.hw_ctrld   = true,
 	.reset	    = false,
 	.clk_val    = U300_SYSCON_SBCER_AHB_SUBSYS_BRIDGE_CLK_EN,
@@ -772,12 +890,12 @@ static struct clk ahb_subsys_clk = {
 static struct clk intcon_clk = {
 	.name	    = "INTCON",
 	.parent	    = &ahb_subsys_clk,
-	.rate	    = 52000000, 
+	.rate	    = 52000000, /* this varies! */
 	.hw_ctrld   = false,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
 	.res_mask   = U300_SYSCON_RRR_INTCON_RESET_EN,
-	
+	/* INTCON can be reset but not clock-gated */
 	.lock       = __SPIN_LOCK_UNLOCKED(intcon_clk.lock),
 
 };
@@ -785,7 +903,7 @@ static struct clk intcon_clk = {
 static struct clk mspro_clk = {
 	.name       = "MSPRO",
 	.parent	    = &ahb_subsys_clk,
-	.rate       = 0, 
+	.rate       = 0, /* FIXME */
 	.hw_ctrld   = false,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
@@ -799,7 +917,7 @@ static struct clk mspro_clk = {
 static struct clk emif_clk = {
 	.name	    = "EMIF",
 	.parent	    = &ahb_subsys_clk,
-	.rate	    = 104000000, 
+	.rate	    = 104000000, /* this varies! */
 	.hw_ctrld   = false,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RRR,
@@ -812,10 +930,13 @@ static struct clk emif_clk = {
 };
 
 
+/*
+ * Clocks on the FAST bridge
+ */
 static struct clk fast_clk = {
 	.name	    = "FAST_BRIDGE",
 	.parent	    = &amba_clk,
-	.rate	    = 13000000, 
+	.rate	    = 13000000, /* this varies! */
 	.hw_ctrld   = true,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RFR,
@@ -826,10 +947,14 @@ static struct clk fast_clk = {
 	.lock       = __SPIN_LOCK_UNLOCKED(fast_clk.lock),
 };
 
+/*
+ * The MMCI apb_pclk is hardwired to the same terminal as the
+ * external MCI clock. Thus this will be referenced twice.
+ */
 static struct clk mmcsd_clk = {
 	.name       = "MCLK",
 	.parent	    = &fast_clk,
-	.rate       = 18900000, 
+	.rate       = 18900000, /* this varies! */
 	.hw_ctrld   = false,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RFR,
@@ -846,7 +971,7 @@ static struct clk mmcsd_clk = {
 static struct clk i2s0_clk = {
 	.name       = "i2s0",
 	.parent	    = &fast_clk,
-	.rate       = 26000000, 
+	.rate       = 26000000, /* this varies! */
 	.hw_ctrld   = true,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RFR,
@@ -861,7 +986,7 @@ static struct clk i2s0_clk = {
 static struct clk i2s1_clk = {
 	.name       = "i2s1",
 	.parent	    = &fast_clk,
-	.rate       = 26000000, 
+	.rate       = 26000000, /* this varies! */
 	.hw_ctrld   = true,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RFR,
@@ -876,7 +1001,7 @@ static struct clk i2s1_clk = {
 static struct clk i2c0_clk = {
 	.name       = "I2C0",
 	.parent	    = &fast_clk,
-	.rate       = 26000000, 
+	.rate       = 26000000, /* this varies! */
 	.hw_ctrld   = false,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RFR,
@@ -891,7 +1016,7 @@ static struct clk i2c0_clk = {
 static struct clk i2c1_clk = {
 	.name       = "I2C1",
 	.parent	    = &fast_clk,
-	.rate       = 26000000, 
+	.rate       = 26000000, /* this varies! */
 	.hw_ctrld   = false,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RFR,
@@ -903,10 +1028,14 @@ static struct clk i2c1_clk = {
 	.lock       = __SPIN_LOCK_UNLOCKED(i2c1_clk.lock),
 };
 
+/*
+ * The SPI apb_pclk is hardwired to the same terminal as the
+ * external SPI clock. Thus this will be referenced twice.
+ */
 static struct clk spi_clk = {
 	.name       = "SPI",
 	.parent	    = &fast_clk,
-	.rate       = 26000000, 
+	.rate       = 26000000, /* this varies! */
 	.hw_ctrld   = false,
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RFR,
@@ -932,6 +1061,7 @@ static struct clk uart1_pclk = {
 	.lock       = __SPIN_LOCK_UNLOCKED(uart1_pclk.lock),
 };
 
+/* This one is hardwired to PLL13 */
 static struct clk uart1_clk = {
 	.name	    = "UART1_CLK",
 	.rate	    = 13000000,
@@ -941,6 +1071,9 @@ static struct clk uart1_clk = {
 #endif
 
 
+/*
+ * Clocks on the SLOW bridge
+ */
 static struct clk slow_clk = {
 	.name	    = "SLOW_BRIDGE",
 	.parent	    = &amba_clk,
@@ -955,6 +1088,7 @@ static struct clk slow_clk = {
 	.lock       = __SPIN_LOCK_UNLOCKED(slow_clk.lock),
 };
 
+/* TODO: implement SYSCON clock? */
 
 static struct clk wdog_clk = {
 	.name	    = "WDOG",
@@ -962,7 +1096,7 @@ static struct clk wdog_clk = {
 	.hw_ctrld   = false,
 	.rate	    = 32768,
 	.reset	    = false,
-	
+	/* This is always on, cannot be enabled/disabled or reset */
 	.lock       = __SPIN_LOCK_UNLOCKED(wdog_clk.lock),
 };
 
@@ -979,6 +1113,7 @@ static struct clk uart0_pclk = {
 	.lock       = __SPIN_LOCK_UNLOCKED(uart0_pclk.lock),
 };
 
+/* This one is hardwired to PLL13 */
 static struct clk uart0_clk = {
 	.name	    = "UART0_CLK",
 	.parent	    = &slow_clk,
@@ -1023,7 +1158,7 @@ static struct clk rtc_clk = {
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RSR,
 	.res_mask   = U300_SYSCON_RSR_RTC_RESET_EN,
-	
+	/* This clock is always on, cannot be enabled/disabled */
 	.lock       = __SPIN_LOCK_UNLOCKED(rtc_clk.lock),
 };
 
@@ -1069,6 +1204,10 @@ static struct clk timer_clk = {
 	.lock       = __SPIN_LOCK_UNLOCKED(timer_clk.lock),
 };
 
+/*
+ * There is a binary divider in the hardware that divides
+ * the 13MHz PLL by 13 down to 1 MHz.
+ */
 static struct clk app_timer_clk = {
 	.name       = "TIMER_APP",
 	.parent	    = &slow_clk,
@@ -1087,8 +1226,8 @@ static struct clk app_timer_clk = {
 static struct clk ppm_clk = {
 	.name	    = "PPM",
 	.parent	    = &slow_clk,
-	.rate	    = 0, 
-	.hw_ctrld   = true, 
+	.rate	    = 0, /* FIXME */
+	.hw_ctrld   = true, /* TODO: Look up if it is hw ctrld or not */
 	.reset	    = true,
 	.res_reg    = U300_SYSCON_VBASE + U300_SYSCON_RSR,
 	.res_mask   = U300_SYSCON_RSR_PPM_RESET_EN,
@@ -1112,8 +1251,12 @@ static struct clk ppm_clk = {
 	.clk = clkref,				\
 	}
 
+/*
+ * Here we only define clocks that are meaningful to
+ * look up through clockdevice.
+ */
 static struct clk_lookup lookups[] = {
-	
+	/* Connected directly to the AMBA bus */
 	DEF_LOOKUP("amba",      &amba_clk),
 	DEF_LOOKUP("cpu",       &cpu_clk),
 	DEF_LOOKUP("fsmc-nand", &nandif_clk),
@@ -1128,17 +1271,21 @@ static struct clk_lookup lookups[] = {
 	DEF_LOOKUP("video_enc", &video_enc_clk),
 	DEF_LOOKUP("xgam",      &xgam_clk),
 	DEF_LOOKUP("ahb",       &ahb_clk),
-	
+	/* AHB bridge clocks */
 	DEF_LOOKUP("ahb_subsys", &ahb_subsys_clk),
 	DEF_LOOKUP("intcon",    &intcon_clk),
 	DEF_LOOKUP_CON("intcon", "apb_pclk", &intcon_clk),
 	DEF_LOOKUP("mspro",     &mspro_clk),
 	DEF_LOOKUP("pl172",     &emif_clk),
 	DEF_LOOKUP_CON("pl172", "apb_pclk", &emif_clk),
-	
+	/* FAST bridge clocks */
 	DEF_LOOKUP("fast",      &fast_clk),
 	DEF_LOOKUP("mmci",      &mmcsd_clk),
 	DEF_LOOKUP_CON("mmci", "apb_pclk", &mmcsd_clk),
+	/*
+	 * The .0 and .1 identifiers on these comes from the platform device
+	 * .id field and are assigned when the platform devices are registered.
+	 */
 	DEF_LOOKUP("i2s.0",     &i2s0_clk),
 	DEF_LOOKUP("i2s.1",     &i2s1_clk),
 	DEF_LOOKUP("stu300.0",  &i2c0_clk),
@@ -1149,7 +1296,7 @@ static struct clk_lookup lookups[] = {
 	DEF_LOOKUP("uart1",     &uart1_clk),
 	DEF_LOOKUP_CON("uart1", "apb_pclk", &uart1_pclk),
 #endif
-	
+	/* SLOW bridge clocks */
 	DEF_LOOKUP("slow",      &slow_clk),
 	DEF_LOOKUP("coh901327_wdog",      &wdog_clk),
 	DEF_LOOKUP("uart0",     &uart0_clk),
@@ -1168,16 +1315,22 @@ static struct clk_lookup lookups[] = {
 
 static void __init clk_register(void)
 {
-	
+	/* Register the lookups */
 	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
 }
 
 #if (defined(CONFIG_DEBUG_FS) && defined(CONFIG_U300_DEBUG))
+/*
+ * The following makes it possible to view the status (especially
+ * reference count and reset status) for the clocks in the platform
+ * by looking into the special file <debugfs>/u300_clocks
+ */
 
+/* A list of all clocks in the platform */
 static struct clk *clks[] = {
-	
+	/* Top node clock for the AMBA bus */
 	&amba_clk,
-	
+	/* Connected directly to the AMBA bus */
 	&cpu_clk,
 	&nandif_clk,
 	&semi_clk,
@@ -1192,12 +1345,12 @@ static struct clk *clks[] = {
 	&xgam_clk,
 	&ahb_clk,
 
-	
+	/* AHB bridge clocks */
 	&ahb_subsys_clk,
 	&intcon_clk,
 	&mspro_clk,
 	&emif_clk,
-	
+	/* FAST bridge clocks */
 	&fast_clk,
 	&mmcsd_clk,
 	&i2s0_clk,
@@ -1209,7 +1362,7 @@ static struct clk *clks[] = {
 	&uart1_clk,
 	&uart1_pclk,
 #endif
-	
+	/* SLOW bridge clocks */
 	&slow_clk,
 	&wdog_clk,
 	&uart0_clk,
@@ -1238,7 +1391,7 @@ static int u300_clocks_show(struct seq_file *s, void *data)
 	for (i = 0; i < ARRAY_SIZE(clks); i++) {
 		clk = clks[i];
 		if (clk != ERR_PTR(-ENOENT)) {
-			
+			/* Format clock and device name nicely */
 			char cdp[33];
 			int chars;
 
@@ -1293,12 +1446,17 @@ static const struct file_operations u300_clocks_operations = {
 
 static int __init init_clk_read_debugfs(void)
 {
-	
+	/* Expose a simple debugfs interface to view all clocks */
 	(void) debugfs_create_file("u300_clocks", S_IFREG | S_IRUGO,
 				   NULL, NULL,
 				   &u300_clocks_operations);
 	return 0;
 }
+/*
+ * This needs to come in after the core_initcall() for the
+ * overall clocks, because debugfs is not available until
+ * the subsystems come up.
+ */
 module_init(init_clk_read_debugfs);
 #endif
 
@@ -1306,25 +1464,37 @@ int __init u300_clock_init(void)
 {
 	u16 val;
 
+	/*
+	 * FIXME: shall all this powermanagement stuff really live here???
+	 */
 
-	
+	/* Set system to run at PLL208, max performance, a known state. */
 	val = readw(U300_SYSCON_VBASE + U300_SYSCON_CCR);
 	val &= ~U300_SYSCON_CCR_CLKING_PERFORMANCE_MASK;
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_CCR);
-	
+	/* Wait for the PLL208 to lock if not locked in yet */
 	while (!(readw(U300_SYSCON_VBASE + U300_SYSCON_CSR) &
 		 U300_SYSCON_CSR_PLL208_LOCK_IND));
 
-	
+	/* Power management enable */
 	val = readw(U300_SYSCON_VBASE + U300_SYSCON_PMCR);
 	val |= U300_SYSCON_PMCR_PWR_MGNT_ENABLE;
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_PMCR);
 
 	clk_register();
 
+	/*
+	 * Some of these may be on when we boot the system so make sure they
+	 * are turned OFF.
+	 */
 	syscon_block_reset_enable(&timer_clk);
 	timer_clk.disable(&timer_clk);
 
+	/*
+	 * These shall be turned on by default when we boot the system
+	 * so make sure they are ON. (Adding CPU here is a bit too much.)
+	 * These clocks will be claimed by drivers later.
+	 */
 	syscon_block_reset_disable(&semi_clk);
 	syscon_block_reset_disable(&emif_clk);
 	clk_enable(&semi_clk);

@@ -30,6 +30,11 @@ static void __init prom_smp_bootstrap(void)
 	: "r" (secondary_sp), "r" (secondary_gp));
 }
 
+/*
+ * PMON is a fragile beast.  It'll blow up once the mappings it's littering
+ * right into the middle of KSEG3 are blown away so we have to grab the slave
+ * core early and keep it in a waiting loop.
+ */
 void __init prom_grab_secondary(void)
 {
 	arch_spin_lock(&launch_lock);
@@ -66,8 +71,19 @@ void titan_mailbox_irq(void)
 	}
 }
 
+/*
+ * Send inter-processor interrupt
+ */
 static void yos_send_ipi_single(int cpu, unsigned int action)
 {
+	/*
+	 * Generate an INTMSG so that it can be sent over to the
+	 * destination CPU. The INTMSG will put the STATUS bits
+	 * based on the action desired. An alternative strategy
+	 * is to write to the Interrupt Set register, read the
+	 * Interrupt Status register and clear the Interrupt
+	 * Clear register. The latter is preffered.
+	 */
 	switch (action) {
 	case SMP_RESCHEDULE_YOURSELF:
 		if (cpu == 1)
@@ -93,6 +109,10 @@ static void yos_send_ipi_mask(const struct cpumask *mask, unsigned int action)
 		yos_send_ipi_single(i, action);
 }
 
+/*
+ *  After we've done initial boot, this function is called to allow the
+ *  board code to clean up state, if needed
+ */
 static void __cpuinit yos_init_secondary(void)
 {
 	set_c0_status(ST0_CO | ST0_IE | ST0_IM);
@@ -102,10 +122,18 @@ static void __cpuinit yos_smp_finish(void)
 {
 }
 
+/* Hook for after all CPUs are online */
 static void yos_cpus_done(void)
 {
 }
 
+/*
+ * Firmware CPU startup hook
+ * Complicated by PMON's weird interface which tries to minimic the UNIX fork.
+ * It launches the next * available CPU and copies some information on the
+ * stack so the first thing we do is throw away that stuff and load useful
+ * values into the registers ...
+ */
 static void __cpuinit yos_boot_secondary(int cpu, struct task_struct *idle)
 {
 	unsigned long gp = (unsigned long) task_thread_info(idle);
@@ -117,6 +145,12 @@ static void __cpuinit yos_boot_secondary(int cpu, struct task_struct *idle)
 	arch_spin_unlock(&launch_lock);
 }
 
+/*
+ * Detect available CPUs, populate cpu_possible_mask before smp_init
+ *
+ * We don't want to start the secondary CPU yet nor do we have a nice probing
+ * feature in PMON so we just assume presence of the secondary core.
+ */
 static void __init yos_smp_setup(void)
 {
 	int i;
@@ -132,6 +166,9 @@ static void __init yos_smp_setup(void)
 
 static void __init yos_prepare_cpus(unsigned int max_cpus)
 {
+	/*
+	 * Be paranoid.  Enable the IPI only if we're really about to go SMP.
+	 */
 	if (num_possible_cpus())
 		set_c0_status(STATUSF_IP5);
 }

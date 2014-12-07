@@ -1,3 +1,6 @@
+/*
+ * linux/arch/arm/mach-sa1100/neponset.c
+ */
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/ioport.h>
@@ -155,23 +158,48 @@ static struct sa1100_port_fns neponset_port_fns __devinitdata = {
 	.get_mctrl	= neponset_get_mctrl,
 };
 
+/*
+ * Install handler for Neponset IRQ.  Note that we have to loop here
+ * since the ETHERNET and USAR IRQs are level based, and we need to
+ * ensure that the IRQ signal is deasserted before returning.  This
+ * is rather unfortunate.
+ */
 static void neponset_irq_handler(unsigned int irq, struct irq_desc *desc)
 {
 	struct neponset_drvdata *d = irq_desc_get_handler_data(desc);
 	unsigned int irr;
 
 	while (1) {
+		/*
+		 * Acknowledge the parent IRQ.
+		 */
 		desc->irq_data.chip->irq_ack(&desc->irq_data);
 
+		/*
+		 * Read the interrupt reason register.  Let's have all
+		 * active IRQ bits high.  Note: there is a typo in the
+		 * Neponset user's guide for the SA1111 IRR level.
+		 */
 		irr = readb_relaxed(d->base + IRR);
 		irr ^= IRR_ETHERNET | IRR_USAR;
 
 		if ((irr & (IRR_ETHERNET | IRR_USAR | IRR_SA1111)) == 0)
 			break;
 
+		/*
+		 * Since there is no individual mask, we have to
+		 * mask the parent IRQ.  This is safe, since we'll
+		 * recheck the register for any pending IRQs.
+		 */
 		if (irr & (IRR_ETHERNET | IRR_USAR)) {
 			desc->irq_data.chip->irq_mask(&desc->irq_data);
 
+			/*
+			 * Ack the interrupt now to prevent re-entering
+			 * this neponset handler.  Again, this is safe
+			 * since we'll check the IRR register prior to
+			 * leaving.
+			 */
 			desc->irq_data.chip->irq_ack(&desc->irq_data);
 
 			if (irr & IRR_ETHERNET)
@@ -188,6 +216,7 @@ static void neponset_irq_handler(unsigned int irq, struct irq_desc *desc)
 	}
 }
 
+/* Yes, we really do not have any kind of masking or unmasking */
 static void nochip_noop(struct irq_data *irq)
 {
 }
@@ -294,6 +323,10 @@ static int __devinit neponset_probe(struct platform_device *dev)
 	irq_set_handler_data(irq, d);
 	irq_set_chained_handler(irq, neponset_irq_handler);
 
+	/*
+	 * We would set IRQ_GPIO25 to be a wake-up IRQ, but unfortunately
+	 * something on the Neponset activates this IRQ on sleep (eth?)
+	 */
 #if 0
 	enable_irq_wake(irq);
 #endif
@@ -304,10 +337,10 @@ static int __devinit neponset_probe(struct platform_device *dev)
 
 	sa1100_register_uart_fns(&neponset_port_fns);
 
-	
+	/* Ensure that the memory bus request/grant signals are setup */
 	sa1110_mb_disable();
 
-	
+	/* Disable GPIO 0/1 drivers so the buttons work on the Assabet */
 	writeb_relaxed(NCR_GP01_OFF, d->base + NCR_0);
 
 	sa1111_resources[0].parent = sa1111_res;

@@ -33,9 +33,11 @@ static const char *niccy_revision = "$Revision: 1.21.2.4 $";
 #define ISAC_PNP	0
 #define HSCX_PNP	1
 
+/* SUB Types */
 #define NICCY_PNP	1
 #define NICCY_PCI	2
 
+/* PCI stuff */
 #define PCI_IRQ_CTRL_REG	0x38
 #define PCI_IRQ_ENABLE		0x1f00
 #define PCI_IRQ_DISABLE		0xff0000
@@ -71,6 +73,7 @@ static inline void writefifo(unsigned int ale, unsigned int adr, u_char off,
 	outsb(adr, data, size);
 }
 
+/* Interface functions */
 
 static u_char ReadISAC(struct IsdnCardState *cs, u_char offset)
 {
@@ -128,7 +131,7 @@ static irqreturn_t niccy_interrupt(int intno, void *dev_id)
 	if (cs->subtyp == NICCY_PCI) {
 		int ival;
 		ival = inl(cs->hw.niccy.cfg_reg + PCI_IRQ_CTRL_REG);
-		if (!(ival & PCI_IRQ_ASSERT)) {	
+		if (!(ival & PCI_IRQ_ASSERT)) {	/* IRQ not for us (shared) */
 			spin_unlock_irqrestore(&cs->lock, flags);
 			return IRQ_NONE;
 		}
@@ -304,7 +307,7 @@ int __devinit setup_niccy(struct IsdnCard *card)
 						       niccy_dev))) {
 			if (pci_enable_device(niccy_dev))
 				return 0;
-			
+			/* get IRQ */
 			if (!niccy_dev->irq) {
 				printk(KERN_WARNING
 				       "Niccy: No IRQ for PCI card found\n");
@@ -351,7 +354,7 @@ int __devinit setup_niccy(struct IsdnCard *card)
 		printk(KERN_WARNING "Niccy: io0 0 and NO_PCI_BIOS\n");
 		printk(KERN_WARNING "Niccy: unable to config NICCY PCI\n");
 		return 0;
-#endif				
+#endif				/* CONFIG_PCI */
 	}
 	printk(KERN_INFO "HiSax: NICCY %s config irq:%d data:0x%X ale:0x%X\n",
 	       (cs->subtyp == 1) ? "PnP" : "PCI",

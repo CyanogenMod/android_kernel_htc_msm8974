@@ -79,7 +79,7 @@ static int progearbl_probe(struct platform_device *pdev)
 		goto put_pmu;
 	}
 
-	
+	/*     Set SB_MPS1 to enable brightness control. */
 	pci_read_config_byte(sb_dev, SB_MPS1, &temp);
 	pci_write_config_byte(sb_dev, SB_MPS1, temp | 0x20);
 

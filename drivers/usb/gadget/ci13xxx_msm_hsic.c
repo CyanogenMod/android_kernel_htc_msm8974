@@ -37,9 +37,9 @@
 #define MSM_USB_BASE	(mhsic->regs)
 
 #define ULPI_IO_TIMEOUT_USEC			(10 * 1000)
-#define USB_PHY_VDD_DIG_VOL_NONE		0 
-#define USB_PHY_VDD_DIG_VOL_MIN			1045000 
-#define USB_PHY_VDD_DIG_VOL_MAX			1320000 
+#define USB_PHY_VDD_DIG_VOL_NONE		0 /*uV */
+#define USB_PHY_VDD_DIG_VOL_MIN			1045000 /* uV */
+#define USB_PHY_VDD_DIG_VOL_MAX			1320000 /* uV */
 #define LINK_RESET_TIMEOUT_USEC			(250 * 1000)
 #define PHY_SUSPEND_TIMEOUT_USEC		(500 * 1000)
 #define PHY_RESUME_TIMEOUT_USEC			(100 * 1000)
@@ -71,12 +71,12 @@ struct msm_hsic_per {
 };
 
 static const int vdd_val[VDD_TYPE_MAX][VDD_VAL_MAX] = {
-		{   
+		{   /* VDD_CX CORNER Voting */
 			[VDD_NONE]	= RPM_VREG_CORNER_NONE,
 			[VDD_MIN]	= RPM_VREG_CORNER_NOMINAL,
 			[VDD_MAX]	= RPM_VREG_CORNER_HIGH,
 		},
-		{   
+		{   /* VDD_CX Voltage Voting */
 			[VDD_NONE]	= USB_PHY_VDD_DIG_VOL_NONE,
 			[VDD_MIN]	= USB_PHY_VDD_DIG_VOL_MIN,
 			[VDD_MAX]	= USB_PHY_VDD_DIG_VOL_MAX,
@@ -139,12 +139,12 @@ static int ulpi_write(struct msm_hsic_per *mhsic, u32 val, u32 reg)
 {
 	int cnt = 0;
 
-	
+	/* initiate write operation */
 	writel_relaxed(ULPI_RUN | ULPI_WRITE |
 	       ULPI_ADDR(reg) | ULPI_DATA(val),
 	       USB_ULPI_VIEWPORT);
 
-	
+	/* wait for completion */
 	while (cnt < ULPI_IO_TIMEOUT_USEC) {
 		if (!(readl_relaxed(USB_ULPI_VIEWPORT) & ULPI_RUN))
 			break;
@@ -192,6 +192,10 @@ static int msm_hsic_phy_reset(struct msm_hsic_per *mhsic)
 	val = readl_relaxed(USB_PORTSC) & ~PORTSC_PTS_MASK;
 	writel_relaxed(val | PORTSC_PTS_ULPI, USB_PORTSC);
 
+	/*
+	 * Ensure that RESET operation is completed before
+	 * turning off clock.
+	 */
 	mb();
 	dev_dbg(mhsic->dev, "phy_reset: success\n");
 
@@ -290,7 +294,7 @@ static int msm_hsic_reset(struct msm_hsic_per *mhsic)
 	if (cnt >= LINK_RESET_TIMEOUT_USEC)
 		return -ETIMEDOUT;
 
-	
+	/* Reset PORTSC and select ULPI phy */
 	writel_relaxed(0x80000000, USB_PORTSC);
 	return 0;
 }
@@ -305,14 +309,14 @@ static void msm_hsic_start(void)
 {
 	int ret;
 
-	
+	/* programmable length of connect signaling (33.2ns) */
 	ret = ulpi_write(the_mhsic, 3, HSIC_DBG1_REG);
 	if (ret) {
 		pr_err("%s: Unable to program length of connect signaling\n",
 			    __func__);
 	}
 
-	
+	/*set periodic calibration interval to ~2.048sec in HSIC_IO_CAL_REG */
 	ret = ulpi_write(the_mhsic, 0xFF, HSIC_IO_CAL_PER_REG);
 
 	if (ret) {
@@ -320,7 +324,7 @@ static void msm_hsic_start(void)
 			    __func__);
 	}
 
-	
+	/* Enable periodic IO calibration in HSIC_CFG register */
 	ret = ulpi_write(the_mhsic, 0xE9, HSIC_CFG_REG);
 	if (ret) {
 		pr_err("%s: Unable to enable periodic IO calibration\n",
@@ -342,6 +346,11 @@ static int msm_hsic_suspend(struct msm_hsic_per *mhsic)
 	}
 	disable_irq(mhsic->irq);
 
+	/*
+	 * PHY may take some time or even fail to enter into low power
+	 * mode (LPM). Hence poll for 500 msec and reset the PHY and link
+	 * in failure case.
+	 */
 	val = readl_relaxed(USB_PORTSC) | PORTSC_PHCD;
 	writel_relaxed(val, USB_PORTSC);
 
@@ -357,9 +366,20 @@ static int msm_hsic_suspend(struct msm_hsic_per *mhsic)
 		msm_hsic_reset(mhsic);
 	}
 
+	/*
+	 * PHY has capability to generate interrupt asynchronously in low
+	 * power mode (LPM). This interrupt is level triggered. So USB IRQ
+	 * line must be disabled till async interrupt enable bit is cleared
+	 * in USBCMD register. Assert STP (ULPI interface STOP signal) to
+	 * block data communication from PHY.
+	 */
 	writel_relaxed(readl_relaxed(USB_USBCMD) | ASYNC_INTR_CTRL |
 				ULPI_STP_CTRL, USB_USBCMD);
 
+	/*
+	 * Ensure that hardware is put in low power mode before
+	 * clocks are turned OFF and VDD is allowed to minimize.
+	 */
 	mb();
 
 	if (!mhsic->pdata->core_clk_always_on_workaround || !mhsic->connected) {
@@ -445,6 +465,10 @@ static int msm_hsic_resume(struct msm_hsic_per *mhsic)
 	}
 
 	if (cnt >= PHY_RESUME_TIMEOUT_USEC) {
+		/*
+		 * This is a fatal error. Reset the link and
+		 * PHY to make hsic working.
+		 */
 		dev_err(mhsic->dev, "Unable to resume USB. Reset the hsic\n");
 		msm_hsic_reset(mhsic);
 	}
@@ -478,6 +502,10 @@ static int msm_hsic_pm_resume(struct device *dev)
 {
 	dev_dbg(dev, "MSM HSIC Peripheral PM resume\n");
 
+	/*
+	 * Do not resume hardware as part of system resume,
+	 * rather, wait for the ASYNC INT from the h/w
+	 */
 	return 0;
 }
 #else
@@ -496,7 +524,7 @@ static void msm_hsic_pm_suspend_work(struct work_struct *w)
 	pm_runtime_put_noidle(the_mhsic->dev);
 	pm_runtime_suspend(the_mhsic->dev);
 }
-#endif 
+#endif /* CONFIG_PM_SLEEP */
 
 #ifdef CONFIG_PM_RUNTIME
 static int msm_hsic_runtime_idle(struct device *dev)
@@ -534,6 +562,10 @@ static const struct dev_pm_ops msm_hsic_dev_pm_ops = {
 };
 #endif
 
+/**
+ * Dummy match function - will be called only for HSIC msm
+ * device (msm_device_gadget_hsic_peripheral).
+ */
 static inline int __match(struct device *dev, void *data) { return 1; }
 
 static void msm_hsic_connect_peripheral(struct device *msm_udc_dev)
@@ -586,6 +618,11 @@ static void ci13xxx_msm_hsic_notify_event(struct ci13xxx *udc, unsigned event)
 		break;
 	case CI13XXX_CONTROLLER_UDC_STARTED_EVENT:
 		dev_info(dev, "CI13XXX_CONTROLLER_UDC_STARTED_EVENT received\n");
+		/*
+		 * UDC started, suspend the hsic device until it will be
+		 * connected by a pullup (CI13XXX_CONTROLLER_CONNECT_EVENT)
+		 * Before suspend, finish required configurations.
+		 */
 		hw_device_state(_udc->ep0out.qh.dma);
 		msm_hsic_start();
 		usleep(10000);

@@ -10,7 +10,7 @@
 #ifndef _STATUS_H_
 #define _STATUS_H_
 
-#include "fpu_emu.h"		
+#include "fpu_emu.h"		/* for definition of PECULIAR_486 */
 
 #ifdef __ASSEMBLY__
 #define	Const__(x)	$##x
@@ -18,23 +18,23 @@
 #define	Const__(x)	x
 #endif
 
-#define SW_Backward    	Const__(0x8000)	
-#define SW_C3		Const__(0x4000)	
-#define SW_Top		Const__(0x3800)	
-#define SW_Top_Shift 	Const__(11)	
-#define SW_C2		Const__(0x0400)	
-#define SW_C1		Const__(0x0200)	
-#define SW_C0		Const__(0x0100)	
-#define SW_Summary     	Const__(0x0080)	
-#define SW_Stack_Fault	Const__(0x0040)	
-#define SW_Precision   	Const__(0x0020)	
-#define SW_Underflow   	Const__(0x0010)	
-#define SW_Overflow    	Const__(0x0008)	
-#define SW_Zero_Div    	Const__(0x0004)	
-#define SW_Denorm_Op   	Const__(0x0002)	
-#define SW_Invalid     	Const__(0x0001)	
+#define SW_Backward    	Const__(0x8000)	/* backward compatibility */
+#define SW_C3		Const__(0x4000)	/* condition bit 3 */
+#define SW_Top		Const__(0x3800)	/* top of stack */
+#define SW_Top_Shift 	Const__(11)	/* shift for top of stack bits */
+#define SW_C2		Const__(0x0400)	/* condition bit 2 */
+#define SW_C1		Const__(0x0200)	/* condition bit 1 */
+#define SW_C0		Const__(0x0100)	/* condition bit 0 */
+#define SW_Summary     	Const__(0x0080)	/* exception summary */
+#define SW_Stack_Fault	Const__(0x0040)	/* stack fault */
+#define SW_Precision   	Const__(0x0020)	/* loss of precision */
+#define SW_Underflow   	Const__(0x0010)	/* underflow */
+#define SW_Overflow    	Const__(0x0008)	/* overflow */
+#define SW_Zero_Div    	Const__(0x0004)	/* divide by zero */
+#define SW_Denorm_Op   	Const__(0x0002)	/* denormalized operand */
+#define SW_Invalid     	Const__(0x0001)	/* invalid operation */
 
-#define SW_Exc_Mask     Const__(0x27f)	
+#define SW_Exc_Mask     Const__(0x27f)	/* Status word exception bit mask */
 
 #ifndef __ASSEMBLY__
 
@@ -55,13 +55,13 @@ static inline void setcc(int cc)
 }
 
 #ifdef PECULIAR_486
-   
-   
+   /* Default, this conveys no information, but an 80486 does it. */
+   /* Clear the SW_C1 bit, "other bits undefined". */
 #  define clear_C1()  { partial_status &= ~SW_C1; }
 # else
 #  define clear_C1()
-#endif 
+#endif /* PECULIAR_486 */
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _STATUS_H_ */

@@ -47,6 +47,7 @@
 
 */
 
+/* #define USE_KMALLOC */
 
 #include "mite.h"
 
@@ -139,6 +140,10 @@ int mite_setup2(struct mite_struct *mite, unsigned use_iodwbsr_1)
 	addr = pci_resource_start(mite->pcidev, 1);
 	mite->daq_phys_addr = addr;
 	length = pci_resource_len(mite->pcidev, 1);
+	/*
+	 * In case of a 660x board, DAQ size is 8k instead of 4k
+	 * (see as shown by lspci output)
+	 */
 	mite->daq_io_addr = ioremap(mite->daq_phys_addr, length);
 	if (!mite->daq_io_addr) {
 		printk(KERN_ERR "Failed to remap daq io memory address\n");
@@ -158,6 +163,13 @@ int mite_setup2(struct mite_struct *mite, unsigned use_iodwbsr_1)
 		writel(mite->daq_phys_addr | WENAB,
 		       mite->mite_io_addr + MITE_IODWBSR);
 	}
+	/*
+	 * make sure dma bursts work. I got this from running a bus analyzer
+	 * on a pxi-6281 and a pxi-6713. 6713 powered up with register value
+	 * of 0x61f and bursts worked. 6281 powered up with register value of
+	 * 0x1f and bursts didn't work. The NI windows driver reads the
+	 * register, then does a bitwise-or of 0x600 with it and writes it back.
+	 */
 	unknown_dma_burst_bits =
 	    readl(mite->mite_io_addr + MITE_UNKNOWN_DMA_BURST_REG);
 	unknown_dma_burst_bits |= UNKNOWN_DMA_BURST_ENABLE_BITS;
@@ -175,7 +187,7 @@ int mite_setup2(struct mite_struct *mite, unsigned use_iodwbsr_1)
 	dump_chip_signature(csigr_bits);
 	for (i = 0; i < mite->num_channels; i++) {
 		writel(CHOR_DMARESET, mite->mite_io_addr + MITE_CHOR(i));
-		
+		/* disable interrupts */
 		writel(CHCR_CLR_DMA_IE | CHCR_CLR_LINKP_IE | CHCR_CLR_SAR_IE |
 		       CHCR_CLR_DONE_IE | CHCR_CLR_MRDY_IE | CHCR_CLR_DRDY_IE |
 		       CHCR_CLR_LC_IE | CHCR_CLR_CONT_RB_IE,
@@ -208,7 +220,7 @@ void mite_cleanup(void)
 
 void mite_unsetup(struct mite_struct *mite)
 {
-	
+	/* unsigned long offset, start, length; */
 
 	if (!mite)
 		return;
@@ -256,6 +268,9 @@ struct mite_channel *mite_request_channel_in_range(struct mite_struct *mite,
 	unsigned long flags;
 	struct mite_channel *channel = NULL;
 
+	/* spin lock so mite_release_channel can be called safely
+	 * from interrupts
+	 */
 	spin_lock_irqsave(&mite->lock, flags);
 	for (i = min_channel; i <= max_channel; ++i) {
 		if (mite->channel_allocated[i] == 0) {
@@ -275,11 +290,15 @@ void mite_release_channel(struct mite_channel *mite_chan)
 	struct mite_struct *mite = mite_chan->mite;
 	unsigned long flags;
 
-	
+	/*  spin lock to prevent races with mite_request_channel */
 	spin_lock_irqsave(&mite->lock, flags);
 	if (mite->channel_allocated[mite_chan->channel]) {
 		mite_dma_disarm(mite_chan);
 		mite_dma_reset(mite_chan);
+	/*
+	 * disable all channel's interrupts (do it after disarm/reset so
+	 * MITE_CHCR reg isn't changed while dma is still active!)
+	 */
 		writel(CHCR_CLR_DMA_IE | CHCR_CLR_LINKP_IE |
 		       CHCR_CLR_SAR_IE | CHCR_CLR_DONE_IE |
 		       CHCR_CLR_MRDY_IE | CHCR_CLR_DRDY_IE |
@@ -300,17 +319,23 @@ void mite_dma_arm(struct mite_channel *mite_chan)
 	unsigned long flags;
 
 	MDPRINTK("mite_dma_arm ch%i\n", channel);
+	/*
+	 * memory barrier is intended to insure any twiddling with the buffer
+	 * is done before writing to the mite to arm dma transfer
+	 */
 	smp_mb();
-	
+	/* arm */
 	chor = CHOR_START;
 	spin_lock_irqsave(&mite->lock, flags);
 	mite_chan->done = 0;
 	writel(chor, mite->mite_io_addr + MITE_CHOR(mite_chan->channel));
 	mmiowb();
 	spin_unlock_irqrestore(&mite->lock, flags);
+/*       mite_dma_tcr(mite, channel); */
 }
 EXPORT_SYMBOL(mite_dma_arm);
 
+/**************************************/
 
 int mite_buf_change(struct mite_dma_descriptor_ring *ring,
 		    struct comedi_async *async)
@@ -357,6 +382,10 @@ int mite_buf_change(struct mite_dma_descriptor_ring *ring,
 	}
 	ring->descriptors[n_links - 1].next =
 	    cpu_to_le32(ring->descriptors_dma_addr);
+	/*
+	 * barrier is meant to insure that all the writes to the dma descriptors
+	 * have completed before the dma controller is commanded to read them
+	 */
 	smp_wmb();
 	return 0;
 }
@@ -370,15 +399,30 @@ void mite_prep_dma(struct mite_channel *mite_chan,
 
 	MDPRINTK("mite_prep_dma ch%i\n", mite_chan->channel);
 
-	
+	/* reset DMA and FIFO */
 	chor = CHOR_DMARESET | CHOR_FRESET;
 	writel(chor, mite->mite_io_addr + MITE_CHOR(mite_chan->channel));
 
-	
+	/* short link chaining mode */
 	chcr = CHCR_SET_DMA_IE | CHCR_LINKSHORT | CHCR_SET_DONE_IE |
 	    CHCR_BURSTEN;
+	/*
+	 * Link Complete Interrupt: interrupt every time a link
+	 * in MITE_RING is completed. This can generate a lot of
+	 * extra interrupts, but right now we update the values
+	 * of buf_int_ptr and buf_int_count at each interrupt. A
+	 * better method is to poll the MITE before each user
+	 * "read()" to calculate the number of bytes available.
+	 */
 	chcr |= CHCR_SET_LC_IE;
 	if (num_memory_bits == 32 && num_device_bits == 16) {
+		/*
+		 * Doing a combined 32 and 16 bit byteswap gets the 16 bit
+		 * samples into the fifo in the right order. Tested doing 32 bit
+		 * memory to 16 bit device transfers to the analog out of a
+		 * pxi-6281, which has mite version = 1, type = 4. This also
+		 * works for dma reads from the counters on e-series boards.
+		 */
 		chcr |= CHCR_BYTE_SWAP_DEVICE | CHCR_BYTE_SWAP_MEMORY;
 	}
 	if (mite_chan->dir == COMEDI_INPUT)
@@ -386,7 +430,7 @@ void mite_prep_dma(struct mite_channel *mite_chan,
 
 	writel(chcr, mite->mite_io_addr + MITE_CHCR(mite_chan->channel));
 
-	
+	/* to/from memory */
 	mcr = CR_RL(64) | CR_ASEQUP;
 	switch (num_memory_bits) {
 	case 8:
@@ -405,7 +449,7 @@ void mite_prep_dma(struct mite_channel *mite_chan,
 	}
 	writel(mcr, mite->mite_io_addr + MITE_MCR(mite_chan->channel));
 
-	
+	/* from/to device */
 	dcr = CR_RL(64) | CR_ASEQUP;
 	dcr |= CR_PORTIO | CR_AMDEVICE | CR_REQSDRQ(mite_chan->channel);
 	switch (num_device_bits) {
@@ -425,14 +469,14 @@ void mite_prep_dma(struct mite_channel *mite_chan,
 	}
 	writel(dcr, mite->mite_io_addr + MITE_DCR(mite_chan->channel));
 
-	
+	/* reset the DAR */
 	writel(0, mite->mite_io_addr + MITE_DAR(mite_chan->channel));
 
-	
+	/* the link is 32bits */
 	lkcr = CR_RL(64) | CR_ASEQUP | CR_PSIZE32;
 	writel(lkcr, mite->mite_io_addr + MITE_LKCR(mite_chan->channel));
 
-	
+	/* starting address for link chaining */
 	writel(mite_chan->ring->descriptors_dma_addr,
 	       mite->mite_io_addr + MITE_LKAR(mite_chan->channel));
 
@@ -454,6 +498,7 @@ u32 mite_bytes_in_transit(struct mite_channel *mite_chan)
 }
 EXPORT_SYMBOL(mite_bytes_in_transit);
 
+/* returns lower bound for number of bytes transferred from device to memory */
 u32 mite_bytes_written_to_memory_lb(struct mite_channel *mite_chan)
 {
 	u32 device_byte_count;
@@ -463,6 +508,7 @@ u32 mite_bytes_written_to_memory_lb(struct mite_channel *mite_chan)
 }
 EXPORT_SYMBOL(mite_bytes_written_to_memory_lb);
 
+/* returns upper bound for number of bytes transferred from device to memory */
 u32 mite_bytes_written_to_memory_ub(struct mite_channel *mite_chan)
 {
 	u32 in_transit_count;
@@ -472,6 +518,7 @@ u32 mite_bytes_written_to_memory_ub(struct mite_channel *mite_chan)
 }
 EXPORT_SYMBOL(mite_bytes_written_to_memory_ub);
 
+/* returns lower bound for number of bytes read from memory to device */
 u32 mite_bytes_read_from_memory_lb(struct mite_channel *mite_chan)
 {
 	u32 device_byte_count;
@@ -481,6 +528,7 @@ u32 mite_bytes_read_from_memory_lb(struct mite_channel *mite_chan)
 }
 EXPORT_SYMBOL(mite_bytes_read_from_memory_lb);
 
+/* returns upper bound for number of bytes read from memory to device */
 u32 mite_bytes_read_from_memory_ub(struct mite_channel *mite_chan)
 {
 	u32 in_transit_count;
@@ -510,7 +558,7 @@ void mite_dma_disarm(struct mite_channel *mite_chan)
 	struct mite_struct *mite = mite_chan->mite;
 	unsigned chor;
 
-	
+	/* disarm */
 	chor = CHOR_ABORT;
 	writel(chor, mite->mite_io_addr + MITE_CHOR(mite_chan->channel));
 }
@@ -524,7 +572,7 @@ int mite_sync_input_dma(struct mite_channel *mite_chan,
 	const unsigned bytes_per_scan = cfc_bytes_per_scan(async->subdevice);
 
 	old_alloc_count = async->buf_write_alloc_count;
-	
+	/* write alloc as much as we can */
 	comedi_buf_write_alloc(async, async->prealloc_bufsz);
 
 	nbytes = mite_bytes_written_to_memory_lb(mite_chan);
@@ -563,7 +611,7 @@ int mite_sync_output_dma(struct mite_channel *mite_chan,
 	    async->cmd.stop_arg * cfc_bytes_per_scan(async->subdevice);
 
 	old_alloc_count = async->buf_read_alloc_count;
-	
+	/*  read alloc as much as we can */
 	comedi_buf_read_alloc(async, async->prealloc_bufsz);
 	nbytes_lb = mite_bytes_read_from_memory_lb(mite_chan);
 	if (async->cmd.stop_src == TRIG_COUNT &&
@@ -627,6 +675,7 @@ EXPORT_SYMBOL(mite_done);
 
 static void mite_decode(char **bit_str, unsigned int bits);
 
+/* names of bits in mite registers */
 
 static const char *const mite_CHOR_strings[] = {
 	"start", "cont", "stop", "abort",

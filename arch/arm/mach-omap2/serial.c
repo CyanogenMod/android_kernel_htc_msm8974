@@ -42,6 +42,12 @@
 #include "control.h"
 #include "mux.h"
 
+/*
+ * NOTE: By default the serial auto_suspend timeout is disabled as it causes
+ * lost characters over the serial ports. This means that the UART clocks will
+ * stay on until power/autosuspend_delay is set for the uart from sysfs.
+ * This also causes that any deeper omap sleep states are blocked.
+ */
 #define DEFAULT_AUTOSUSPEND_DELAY	-1
 
 #define MAX_UART_HWMOD_NAME_LEN		16
@@ -59,9 +65,9 @@ static u8 console_uart_id = -1;
 static u8 no_console_suspend;
 static u8 uart_debug;
 
-#define DEFAULT_RXDMA_POLLRATE		1	
-#define DEFAULT_RXDMA_BUFSIZE		4096	
-#define DEFAULT_RXDMA_TIMEOUT		(3 * HZ)
+#define DEFAULT_RXDMA_POLLRATE		1	/* RX DMA polling rate (us) */
+#define DEFAULT_RXDMA_BUFSIZE		4096	/* RX DMA buffer size */
+#define DEFAULT_RXDMA_TIMEOUT		(3 * HZ)/* RX DMA timeout (jiffies) */
 
 static struct omap_uart_port_info omap_serial_default_info[] __initdata = {
 	{
@@ -87,6 +93,11 @@ static void omap_uart_enable_wakeup(struct platform_device *pdev, bool enable)
 		omap_hwmod_disable_wakeup(od->hwmods[0]);
 }
 
+/*
+ * Errata i291: [UART]:Cannot Acknowledge Idle Requests
+ * in Smartidle Mode When Configured for DMA Operations.
+ * WA: configure uart in force idle mode.
+ */
 static void omap_uart_set_noidle(struct platform_device *pdev)
 {
 	struct omap_device *od = to_omap_device(pdev);
@@ -112,7 +123,7 @@ static void omap_uart_enable_wakeup(struct platform_device *pdev, bool enable)
 {}
 static void omap_uart_set_noidle(struct platform_device *pdev) {}
 static void omap_uart_set_smartidle(struct platform_device *pdev) {}
-#endif 
+#endif /* CONFIG_PM */
 
 #ifdef CONFIG_OMAP_MUX
 static void omap_serial_fill_default_pads(struct omap_board_data *bdata)
@@ -166,6 +177,15 @@ static int __init omap_serial_early_init(void)
 			if (cmdline_find_option("no_console_suspend"))
 				no_console_suspend = true;
 
+			/*
+			 * omap-uart can be used for earlyprintk logs
+			 * So if omap-uart is used as console then prevent
+			 * uart reset and idle to get logs from omap-uart
+			 * until uart console driver is available to take
+			 * care for console messages.
+			 * Idling or resetting omap-uart while printing logs
+			 * early boot logs can stall the boot-up.
+			 */
 			oh->flags |= HWMOD_INIT_NO_IDLE | HWMOD_INIT_NO_RESET;
 		}
 	} while (1);
@@ -174,6 +194,18 @@ static int __init omap_serial_early_init(void)
 }
 core_initcall(omap_serial_early_init);
 
+/**
+ * omap_serial_init_port() - initialize single serial port
+ * @bdata: port specific board data pointer
+ * @info: platform specific data pointer
+ *
+ * This function initialies serial driver for given port only.
+ * Platforms can call this function instead of omap_serial_init()
+ * if they don't plan to use all available UARTs as serial ports.
+ *
+ * Don't mix calls to omap_serial_init_port() and omap_serial_init(),
+ * use only one of the two.
+ */
 void __init omap_serial_init_port(struct omap_board_data *bdata,
 			struct omap_uart_port_info *info)
 {
@@ -213,11 +245,11 @@ void __init omap_serial_init_port(struct omap_board_data *bdata,
 	omap_up.dma_rx_poll_rate = info->dma_rx_poll_rate;
 	omap_up.autosuspend_timeout = info->autosuspend_timeout;
 
-	
+	/* Enable the MDR1 Errata i202 for OMAP2430/3xxx/44xx */
 	if (!cpu_is_omap2420() && !cpu_is_ti816x())
 		omap_up.errata |= UART_ERRATA_i202_MDR1_ACCESS;
 
-	
+	/* Enable DMA Mode Force Idle Errata i291 for omap34xx/3630 */
 	if (cpu_is_omap34xx() || cpu_is_omap3630())
 		omap_up.errata |= UART_ERRATA_i291_DMA_FORCEIDLE;
 
@@ -244,6 +276,14 @@ void __init omap_serial_init_port(struct omap_board_data *bdata,
 		device_init_wakeup(&pdev->dev, true);
 }
 
+/**
+ * omap_serial_board_init() - initialize all supported serial ports
+ * @info: platform specific data pointer
+ *
+ * Initializes all available UARTs as serial ports. Platforms
+ * can call this function when they want to have default behaviour
+ * for serial ports (e.g initialize them all as serial ports).
+ */
 void __init omap_serial_board_init(struct omap_uart_port_info *info)
 {
 	struct omap_uart_state *uart;
@@ -265,6 +305,13 @@ void __init omap_serial_board_init(struct omap_uart_port_info *info)
 	}
 }
 
+/**
+ * omap_serial_init() - initialize all supported serial ports
+ *
+ * Initializes all available UARTs.
+ * Platforms can call this function when they want to have default behaviour
+ * for serial ports (e.g initialize them all as serial ports).
+ */
 void __init omap_serial_init(void)
 {
 	omap_serial_board_init(NULL);

@@ -58,4 +58,4 @@ struct efi_uga_draw_protocol {
 	void *blt;
 };
 
-#endif 
+#endif /* BOOT_COMPRESSED_EBOOT_H */

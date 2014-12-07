@@ -85,6 +85,11 @@ static void __init vmware_platform_setup(void)
 		       "Failed to get TSC freq from the hypervisor\n");
 }
 
+/*
+ * While checking the dmi string information, just checking the product
+ * serial key should be enough, as this will always have a VMware
+ * specific string when running under VMware hypervisor.
+ */
 static bool __init vmware_platform(void)
 {
 	if (cpu_has_hypervisor) {
@@ -102,6 +107,18 @@ static bool __init vmware_platform(void)
 	return false;
 }
 
+/*
+ * VMware hypervisor takes care of exporting a reliable TSC to the guest.
+ * Still, due to timing difference when running on virtual cpus, the TSC can
+ * be marked as unstable in some cases. For example, the TSC sync check at
+ * bootup can fail due to a marginal offset between vcpus' TSCs (though the
+ * TSCs do not drift from each other).  Also, the ACPI PM timer clocksource
+ * is not suitable as a watchdog when running on a hypervisor because the
+ * kernel may miss a wrap of the counter if the vcpu is descheduled for a
+ * long time. To skip these checks at runtime we set these capability bits,
+ * so that the kernel could just trust the hypervisor with providing a
+ * reliable virtual TSC that is suitable for timekeeping.
+ */
 static void __cpuinit vmware_set_cpu_features(struct cpuinfo_x86 *c)
 {
 	set_cpu_cap(c, X86_FEATURE_CONSTANT_TSC);

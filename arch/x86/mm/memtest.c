@@ -25,7 +25,7 @@ static u64 patterns[] __initdata = {
 	0xbbbbbbbbbbbbbbbbULL,
 	0xddddddddddddddddULL,
 	0xeeeeeeeeeeeeeeeeULL,
-	0x7a6c7258554e494cULL, 
+	0x7a6c7258554e494cULL, /* yeah ;-) */
 };
 
 static void __init reserve_bad_mem(u64 pattern, u64 start_bad, u64 end_bad)
@@ -86,6 +86,7 @@ static void __init do_one_pass(u64 pattern, u64 start, u64 end)
 	}
 }
 
+/* default is disabled */
 static int memtest_pattern __initdata;
 
 static int __init parse_memtest(char *arg)
@@ -117,7 +118,7 @@ void __init early_memtest(unsigned long start, unsigned long end)
 	if (idx > 0) {
 		printk(KERN_INFO "early_memtest: wipe out "
 		       "test pattern from memory\n");
-		
+		/* additional test with pattern 0 will do this */
 		do_one_pass(0, start, end);
 	}
 }

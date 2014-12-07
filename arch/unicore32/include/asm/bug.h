@@ -24,4 +24,4 @@ extern asmlinkage void c_backtrace(unsigned long fp, int pmode);
 
 extern void __show_regs(struct pt_regs *);
 
-#endif 
+#endif /* __UNICORE_BUG_H__ */

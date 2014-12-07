@@ -40,18 +40,26 @@ struct bsg_job {
 	struct device *dev;
 	struct request *req;
 
-	
+	/* Transport/driver specific request/reply structs */
 	void *request;
 	void *reply;
 
 	unsigned int request_len;
 	unsigned int reply_len;
+	/*
+	 * On entry : reply_len indicates the buffer size allocated for
+	 * the reply.
+	 *
+	 * Upon completion : the message handler must set reply_len
+	 *  to indicates the size of the reply to be returned to the
+	 *  caller.
+	 */
 
-	
+	/* DMA payloads for the request/response */
 	struct bsg_buffer request_payload;
 	struct bsg_buffer reply_payload;
 
-	void *dd_data;		
+	void *dd_data;		/* Used for driver-specific storage */
 };
 
 void bsg_job_done(struct bsg_job *job, int result,

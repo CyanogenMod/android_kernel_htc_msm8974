@@ -39,5 +39,5 @@ static inline int ima_file_mmap(struct file *file, unsigned long prot)
 {
 	return 0;
 }
-#endif 
-#endif 
+#endif /* CONFIG_IMA_H */
+#endif /* _LINUX_IMA_H */

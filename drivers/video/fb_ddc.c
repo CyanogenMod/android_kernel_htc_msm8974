@@ -60,6 +60,9 @@ unsigned char *fb_ddc_read(struct i2c_adapter *adapter)
 	algo_data->setscl(algo_data->data, 1);
 
 	for (i = 0; i < 3; i++) {
+		/* For some old monitors we need the
+		 * following process to initialize/stop DDC
+		 */
 		algo_data->setsda(algo_data->data, 1);
 		msleep(13);
 
@@ -79,7 +82,7 @@ unsigned char *fb_ddc_read(struct i2c_adapter *adapter)
 		algo_data->setsda(algo_data->data, 1);
 		msleep(15);
 
-		
+		/* Do the real work */
 		edid = fb_do_probe_ddc_edid(adapter);
 		algo_data->setsda(algo_data->data, 0);
 		algo_data->setscl(algo_data->data, 0);
@@ -99,6 +102,9 @@ unsigned char *fb_ddc_read(struct i2c_adapter *adapter)
 		if (edid)
 			break;
 	}
+	/* Release the DDC lines when done or the Apple Cinema HD display
+	 * will switch off
+	 */
 	algo_data->setsda(algo_data->data, 1);
 	algo_data->setscl(algo_data->data, 1);
 

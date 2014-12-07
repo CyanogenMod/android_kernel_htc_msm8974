@@ -211,7 +211,16 @@ static int __devinit sch_gpio_probe(struct platform_device *pdev)
 			sch_gpio_resume.base = 10;
 			sch_gpio_resume.ngpio = 4;
 
+			/*
+			 * GPIO[6:0] enabled by default
+			 * GPIO7 is configured by the CMC as SLPIOVR
+			 * Enable GPIO[9:8] core powered gpios explicitly
+			 */
 			outb(0x3, gpio_ba + CGEN + 1);
+			/*
+			 * SUS_GPIO[2:0] enabled by default
+			 * Enable SUS_GPIO3 resume powered gpio explicitly
+			 */
 			outb(0x8, gpio_ba + RGEN);
 			break;
 

@@ -10,6 +10,15 @@
 #include <asm/sgialib.h>
 #include <asm/bcache.h>
 
+/*
+ * IP22 boardcache is not compatible with board caches.  Thus we disable it
+ * during romvec action.  Since r4xx0.c is always compiled and linked with your
+ * kernel, this shouldn't cause any harm regardless what MIPS processor you
+ * have.
+ *
+ * The ARC write and read functions seem to interfere with the serial lines
+ * in some way. You should be careful with them.
+ */
 
 void prom_putchar(char c)
 {

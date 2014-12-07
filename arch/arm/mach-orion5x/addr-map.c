@@ -18,7 +18,29 @@
 #include <plat/addr-map.h>
 #include "common.h"
 
+/*
+ * The Orion has fully programmable address map. There's a separate address
+ * map for each of the device _master_ interfaces, e.g. CPU, PCI, PCIe, USB,
+ * Gigabit Ethernet, DMA/XOR engines, etc. Each interface has its own
+ * address decode windows that allow it to access any of the Orion resources.
+ *
+ * CPU address decoding --
+ * Linux assumes that it is the boot loader that already setup the access to
+ * DDR and internal registers.
+ * Setup access to PCI and PCIe IO/MEM space is issued by this file.
+ * Setup access to various devices located on the device bus interface (e.g.
+ * flashes, RTC, etc) should be issued by machine-setup.c according to
+ * specific board population (by using orion5x_setup_*_win()).
+ *
+ * Non-CPU Masters address decoding --
+ * Unlike the CPU, we setup the access from Orion's master interfaces to DDR
+ * banks only (the typical use case).
+ * Setup access for each master to DDR is issued by platform device setup.
+ */
 
+/*
+ * Generic Address Decode Windows bit settings
+ */
 #define TARGET_DEV_BUS		1
 #define TARGET_PCI		3
 #define TARGET_PCIE		4
@@ -51,6 +73,9 @@ static int __init cpu_win_can_remap(const struct orion_addr_map_cfg *cfg,
 	return 0;
 }
 
+/*
+ * Description of the windows needed by the platform code
+ */
 static struct __initdata orion_addr_map_cfg addr_map_cfg = {
 	.num_wins = 8,
 	.cpu_win_can_remap = cpu_win_can_remap,
@@ -58,6 +83,9 @@ static struct __initdata orion_addr_map_cfg addr_map_cfg = {
 };
 
 static const struct __initdata orion_addr_map_info addr_map_info[] = {
+	/*
+	 * Setup windows for PCI+PCIe IO+MEM space.
+	 */
 	{ 0, ORION5X_PCIE_IO_PHYS_BASE, ORION5X_PCIE_IO_SIZE,
 	  TARGET_PCIE, ATTR_PCIE_IO, ORION5X_PCIE_IO_BUS_BASE
 	},
@@ -70,15 +98,21 @@ static const struct __initdata orion_addr_map_info addr_map_info[] = {
 	{ 3, ORION5X_PCI_MEM_PHYS_BASE, ORION5X_PCI_MEM_SIZE,
 	  TARGET_PCI, ATTR_PCI_MEM, -1
 	},
-	
+	/* End marker */
 	{ -1, 0, 0, 0, 0, 0 }
 };
 
 void __init orion5x_setup_cpu_mbus_bridge(void)
 {
+	/*
+	 * Disable, clear and configure windows.
+	 */
 	orion_config_wins(&addr_map_cfg, addr_map_info);
 	win_alloc_count = 4;
 
+	/*
+	 * Setup MBUS dram target info.
+	 */
 	orion_setup_cpu_mbus_target(&addr_map_cfg, ORION5X_DDR_WINDOW_CPU_BASE);
 }
 

@@ -50,16 +50,23 @@ struct zl10036_state {
 };
 
 
+/* This driver assumes the tuner is driven by a 10.111MHz Cristal */
 #define _XTAL 10111
 
+/* Some of the possible dividers:
+ *   64, (write 0x05 to reg), freq step size   158kHz
+ *   10, (write 0x0a to reg), freq step size 1.011kHz (used here)
+ *    5, (write 0x09 to reg), freq step size 2.022kHz
+ */
 
 #define _RDIV 10
 #define _RDIV_REG 0x0a
 #define _FR   (_XTAL/_RDIV)
 
-#define STATUS_POR 0x80 
-#define STATUS_FL  0x40 
+#define STATUS_POR 0x80 /* Power on Reset */
+#define STATUS_FL  0x40 /* Frequency & Phase Lock */
 
+/* read/write for zl10036 and zl10038 */
 
 static int zl10036_read_status_reg(struct zl10036_state *state)
 {
@@ -94,6 +101,8 @@ static int zl10036_write(struct zl10036_state *state, u8 buf[], u8 count)
 	int ret;
 
 	if (zl10036_debug & 0x02) {
+		/* every 8bit-value satisifes this!
+		 * so only check for debug log */
 		if ((buf[0] & 0x80) == 0x00)
 			reg = 2;
 		else if ((buf[0] & 0xc0) == 0x80)
@@ -138,22 +147,39 @@ static int zl10036_release(struct dvb_frontend *fe)
 static int zl10036_sleep(struct dvb_frontend *fe)
 {
 	struct zl10036_state *state = fe->tuner_priv;
-	u8 buf[] = { 0xf0, 0x80 }; 
+	u8 buf[] = { 0xf0, 0x80 }; /* regs 12/13 */
 	int ret;
 
 	deb_info("%s\n", __func__);
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open i2c_gate */
 
 	ret = zl10036_write(state, buf, sizeof(buf));
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close i2c_gate */
 
 	return ret;
 }
 
+/**
+ * register map of the ZL10036/ZL10038
+ *
+ * reg[default] content
+ *  2[0x00]:   0 | N14 | N13 | N12 | N11 | N10 |  N9 |  N8
+ *  3[0x00]:  N7 |  N6 |  N5 |  N4 |  N3 |  N2 |  N1 |  N0
+ *  4[0x80]:   1 |   0 | RFG | BA1 | BA0 | BG1 | BG0 | LEN
+ *  5[0x00]:  P0 |  C1 |  C0 |  R4 |  R3 |  R2 |  R1 |  R0
+ *  6[0xc0]:   1 |   1 |   0 |   0 | RSD |   0 |   0 |   0
+ *  7[0x20]:  P1 | BF6 | BF5 | BF4 | BF3 | BF2 | BF1 |   0
+ *  8[0xdb]:   1 |   1 |   0 |   1 |   0 |  CC |   1 |   1
+ *  9[0x30]: VSD |  V2 |  V1 |  V0 |  S3 |  S2 |  S1 |  S0
+ * 10[0xe1]:   1 |   1 |   1 |   0 |   0 | LS2 | LS1 | LS0
+ * 11[0xf5]:  WS | WH2 | WH1 | WH0 | WL2 | WL1 | WL0 | WRE
+ * 12[0xf0]:   1 |   1 |   1 |   1 |   0 |   0 |   0 |   0
+ * 13[0x28]:  PD | BR4 | BR3 | BR2 | BR1 | BR0 | CLR |  TL
+ */
 
 static int zl10036_set_frequency(struct zl10036_state *state, u32 frequency)
 {
@@ -176,42 +202,49 @@ static int zl10036_set_frequency(struct zl10036_state *state, u32 frequency)
 
 static int zl10036_set_bandwidth(struct zl10036_state *state, u32 fbw)
 {
-	
+	/* fbw is measured in kHz */
 	u8 br, bf;
 	int ret;
 	u8 buf_bf[] = {
-		0xc0, 0x00, 
+		0xc0, 0x00, /*   6/7: rsd=0 bf=0 */
 	};
 	u8 buf_br[] = {
-		0xf0, 0x00, 
+		0xf0, 0x00, /* 12/13: br=0xa clr=0 tl=0*/
 	};
-	u8 zl10036_rsd_off[] = { 0xc8 }; 
+	u8 zl10036_rsd_off[] = { 0xc8 }; /* set RSD=1 */
 
-	
+	/* ensure correct values */
 	if (fbw > 35000)
 		fbw = 35000;
 	if (fbw <  8000)
 		fbw =  8000;
 
-#define _BR_MAXIMUM (_XTAL/575) 
+#define _BR_MAXIMUM (_XTAL/575) /* _XTAL / 575kHz = 17 */
 
-	
+	/* <= 28,82 MHz */
 	if (fbw <= 28820) {
 		br = _BR_MAXIMUM;
 	} else {
+		/**
+		 *  f(bw)=34,6MHz f(xtal)=10.111MHz
+		 *  br = (10111/34600) * 63 * 1/K = 14;
+		 */
 		br = ((_XTAL * 21 * 1000) / (fbw * 419));
 	}
 
-	
+	/* ensure correct values */
 	if (br < 4)
 		br = 4;
 	if (br > _BR_MAXIMUM)
 		br = _BR_MAXIMUM;
 
+	/*
+	 * k = 1.257
+	 * bf = fbw/_XTAL * br * k - 1 */
 
 	bf = (fbw * br * 1257) / (_XTAL * 1000) - 1;
 
-	
+	/* ensure correct values */
 	if (bf > 62)
 		bf = 62;
 
@@ -230,7 +263,9 @@ static int zl10036_set_bandwidth(struct zl10036_state *state, u32 fbw)
 		if (ret < 0)
 			return ret;
 
-		
+		/* time = br/(32* fxtal) */
+		/* minimal sleep time to be calculated
+		 * maximum br is 63 -> max time = 2 /10 MHz = 2e-7 */
 		msleep(1);
 
 		ret = zl10036_write(state, zl10036_rsd_off,
@@ -251,19 +286,19 @@ static int zl10036_set_gain_params(struct zl10036_state *state,
 	u8 buf[2];
 	u8 rfg, ba, bg;
 
-	
-	rfg = 0; 
+	/* default values */
+	rfg = 0; /* enable when using an lna */
 	ba = 1;
 	bg = 1;
 
-	
+	/* reg 4 */
 	buf[0] = 0x80 | ((rfg << 5) & 0x20)
 		| ((ba  << 3) & 0x18) | ((bg  << 1) & 0x06);
 
 	if (!state->config->rf_loop_enable)
 		buf[0] |= 0x01;
 
-	
+	/* P0=0 */
 	buf[1] = _RDIV_REG | ((c << 5) & 0x60);
 
 	deb_info("%s: c=%u rfg=%u ba=%u bg=%u\n", __func__, c, rfg, ba, bg);
@@ -280,19 +315,26 @@ static int zl10036_set_params(struct dvb_frontend *fe)
 	int i;
 	u8 c;
 
+	/* ensure correct values
+	 * maybe redundant as core already checks this */
 	if ((frequency < fe->ops.info.frequency_min)
 	||  (frequency > fe->ops.info.frequency_max))
 		return -EINVAL;
 
+	/**
+	 * alpha = 1.35 for dvb-s
+	 * fBW = (alpha*symbolrate)/(2*0.8)
+	 * 1.35 / (2*0.8) = 27 / 32
+	 */
 	fbw = (27 * p->symbol_rate) / 32;
 
-	
+	/* scale to kHz */
 	fbw /= 1000;
 
-	
+	/* Add safe margin of 3MHz */
 	fbw += 3000;
 
-	
+	/* setting the charge pump - guessed values */
 	if (frequency < 950000)
 		return -EINVAL;
 	else if (frequency < 1250000)
@@ -305,7 +347,7 @@ static int zl10036_set_params(struct dvb_frontend *fe)
 		return -EINVAL;
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open i2c_gate */
 
 	ret = zl10036_set_gain_params(state, c);
 	if (ret < 0)
@@ -319,13 +361,13 @@ static int zl10036_set_params(struct dvb_frontend *fe)
 	if (ret < 0)
 		goto error;
 
-	
+	/* wait for tuner lock - no idea if this is really needed */
 	for (i = 0; i < 20; i++) {
 		ret = zl10036_read_status_reg(state);
 		if (ret < 0)
 			goto error;
 
-		
+		/* check Frequency & Phase Lock Bit */
 		if (ret & STATUS_FL)
 			break;
 
@@ -334,7 +376,7 @@ static int zl10036_set_params(struct dvb_frontend *fe)
 
 error:
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close i2c_gate */
 
 	return ret;
 }
@@ -353,19 +395,19 @@ static int zl10036_init_regs(struct zl10036_state *state)
 	int ret;
 	int i;
 
-	
+	/* could also be one block from reg 2 to 13 and additional 10/11 */
 	u8 zl10036_init_tab[][2] = {
-		{ 0x04, 0x00 },		
-		{ 0x8b, _RDIV_REG },	
-					
-		{ 0xc0, 0x20 },		
-		{ 0xd3, 0x40 },		
-		{ 0xe3, 0x5b },		
-		{ 0xf0, 0x28 },		
-		{ 0xe3, 0xf9 },		
+		{ 0x04, 0x00 },		/*   2/3: div=0x400 - arbitrary value */
+		{ 0x8b, _RDIV_REG },	/*   4/5: rfg=0 ba=1 bg=1 len=? */
+					/*        p0=0 c=0 r=_RDIV_REG */
+		{ 0xc0, 0x20 },		/*   6/7: rsd=0 bf=0x10 */
+		{ 0xd3, 0x40 },		/*   8/9: from datasheet */
+		{ 0xe3, 0x5b },		/* 10/11: lock window level */
+		{ 0xf0, 0x28 },		/* 12/13: br=0xa clr=0 tl=0*/
+		{ 0xe3, 0xf9 },		/* 10/11: unlock window level */
 	};
 
-	
+	/* invalid values to trigger writing */
 	state->br = 0xff;
 	state->bf = 0xff;
 
@@ -389,17 +431,17 @@ static int zl10036_init(struct dvb_frontend *fe)
 	int ret = 0;
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open i2c_gate */
 
 	ret = zl10036_read_status_reg(state);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Only init if Power-on-Reset bit is set? */
 	ret = zl10036_init_regs(state);
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close i2c_gate */
 
 	return ret;
 }
@@ -437,7 +479,7 @@ struct dvb_frontend *zl10036_attach(struct dvb_frontend *fe,
 	state->i2c = i2c;
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open i2c_gate */
 
 	ret = zl10036_read_status_reg(state);
 	if (ret < 0) {
@@ -453,7 +495,7 @@ struct dvb_frontend *zl10036_attach(struct dvb_frontend *fe,
 	}
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close i2c_gate */
 
 	fe->tuner_priv = state;
 

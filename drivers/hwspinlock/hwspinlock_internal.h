@@ -23,18 +23,42 @@
 
 struct hwspinlock_device;
 
+/**
+ * struct hwspinlock_ops - platform-specific hwspinlock handlers
+ *
+ * @trylock: make a single attempt to take the lock. returns 0 on
+ *	     failure and true on success. may _not_ sleep.
+ * @unlock:  release the lock. always succeed. may _not_ sleep.
+ * @relax:   optional, platform-specific relax handler, called by hwspinlock
+ *	     core while spinning on a lock, between two successive
+ *	     invocations of @trylock. may _not_ sleep.
+ */
 struct hwspinlock_ops {
 	int (*trylock)(struct hwspinlock *lock);
 	void (*unlock)(struct hwspinlock *lock);
 	void (*relax)(struct hwspinlock *lock);
 };
 
+/**
+ * struct hwspinlock - this struct represents a single hwspinlock instance
+ * @bank: the hwspinlock_device structure which owns this lock
+ * @lock: initialized and used by hwspinlock core
+ * @priv: private data, owned by the underlying platform-specific hwspinlock drv
+ */
 struct hwspinlock {
 	struct hwspinlock_device *bank;
 	spinlock_t lock;
 	void *priv;
 };
 
+/**
+ * struct hwspinlock_device - a device which usually spans numerous hwspinlocks
+ * @dev: underlying device, will be used to invoke runtime PM api
+ * @ops: platform-specific hwspinlock handlers
+ * @base_id: id index of the first lock in this device
+ * @num_locks: number of locks in this device
+ * @lock: dynamically allocated array of 'struct hwspinlock'
+ */
 struct hwspinlock_device {
 	struct device *dev;
 	const struct hwspinlock_ops *ops;
@@ -50,4 +74,4 @@ static inline int hwlock_to_id(struct hwspinlock *hwlock)
 	return hwlock->bank->base_id + local_id;
 }
 
-#endif 
+#endif /* __HWSPINLOCK_HWSPINLOCK_H */

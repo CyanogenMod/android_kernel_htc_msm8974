@@ -28,6 +28,14 @@ struct qt1010_config {
 	u8 i2c_address;
 };
 
+/**
+ * Attach a qt1010 tuner to the supplied frontend structure.
+ *
+ * @param fe   frontend to attach to
+ * @param i2c  i2c adapter to use
+ * @param cfg  tuner hw based configuration
+ * @return fe  pointer on success, NULL on failure
+ */
 #if defined(CONFIG_MEDIA_TUNER_QT1010) || (defined(CONFIG_MEDIA_TUNER_QT1010_MODULE) && defined(MODULE))
 extern struct dvb_frontend *qt1010_attach(struct dvb_frontend *fe,
 					  struct i2c_adapter *i2c,
@@ -40,6 +48,6 @@ static inline struct dvb_frontend *qt1010_attach(struct dvb_frontend *fe,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_MEDIA_TUNER_QT1010
 
 #endif

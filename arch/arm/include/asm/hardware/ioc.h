@@ -15,6 +15,10 @@
 
 #ifndef __ASSEMBLY__
 
+/*
+ * We use __raw_base variants here so that we give the compiler the
+ * chance to keep IOC_BASE in a register.
+ */
 #define ioc_readb(off)		__raw_readb(IOC_BASE + (off))
 #define ioc_writeb(val,off)	__raw_writeb(val, IOC_BASE + (off))
 

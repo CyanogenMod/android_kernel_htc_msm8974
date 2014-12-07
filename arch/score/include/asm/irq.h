@@ -18,8 +18,8 @@
 
 #define irq_canonicalize(irq)	(irq)
 
-#define IRQ_TIMER (7)		
+#define IRQ_TIMER (7)		/* Timer IRQ number of SPCT6600 */
 
 extern void interrupt_exception_vector(void);
 
-#endif 
+#endif /* _ASM_SCORE_IRQ_H */

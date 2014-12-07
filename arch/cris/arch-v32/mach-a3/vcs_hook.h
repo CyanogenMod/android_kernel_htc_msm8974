@@ -1,3 +1,6 @@
+/*
+ * Simulator hook call mechanism
+ */
 
 #ifndef __hook_h__
 #define __hook_h__

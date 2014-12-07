@@ -21,12 +21,12 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/delay.h>
-#include <linux/init.h> 
+#include <linux/init.h> /* For __init, __exit */
 #include <linux/dma-mapping.h>
 
 #include "prismcompat.h"
 #include "islpci_dev.h"
-#include "islpci_mgt.h"		
+#include "islpci_mgt.h"		/* for pc_debug */
 #include "isl_oid.h"
 
 MODULE_AUTHOR("[Intersil] R.Bastings and W.Termorshuizen, The prism54.org Development Team <prism54-devel@prism54.org>");
@@ -36,37 +36,42 @@ MODULE_LICENSE("GPL");
 static int	init_pcitm = 0;
 module_param(init_pcitm, int, 0);
 
+/* In this order: vendor, device, subvendor, subdevice, class, class_mask,
+ * driver_data
+ * If you have an update for this please contact prism54-devel@prism54.org
+ * The latest list can be found at http://wireless.kernel.org/en/users/Drivers/p54 */
 static DEFINE_PCI_DEVICE_TABLE(prism54_id_tbl) = {
-	
+	/* Intersil PRISM Duette/Prism GT Wireless LAN adapter */
 	{
 	 0x1260, 0x3890,
 	 PCI_ANY_ID, PCI_ANY_ID,
 	 0, 0, 0
 	},
 
-	
+	/* 3COM 3CRWE154G72 Wireless LAN adapter */
 	{
 	 PCI_VDEVICE(3COM, 0x6001), 0
 	},
 
-	
+	/* Intersil PRISM Indigo Wireless LAN adapter */
 	{
 	 0x1260, 0x3877,
 	 PCI_ANY_ID, PCI_ANY_ID,
 	 0, 0, 0
 	},
 
-	
+	/* Intersil PRISM Javelin/Xbow Wireless LAN adapter */
 	{
 	 0x1260, 0x3886,
 	 PCI_ANY_ID, PCI_ANY_ID,
 	 0, 0, 0
 	},
 
-	
+	/* End of list */
 	{0,0,0,0,0,0,0}
 };
 
+/* register the device with the Hotplug facilities of the kernel */
 MODULE_DEVICE_TABLE(pci, prism54_id_tbl);
 
 static int prism54_probe(struct pci_dev *, const struct pci_device_id *);
@@ -83,6 +88,9 @@ static struct pci_driver prism54_driver = {
 	.resume = prism54_resume,
 };
 
+/******************************************************************************
+    Module initialization functions
+******************************************************************************/
 
 static int
 prism54_probe(struct pci_dev *pdev, const struct pci_device_id *id)
@@ -93,29 +101,42 @@ prism54_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	islpci_private *priv;
 	int rvalue;
 
-	
+	/* Enable the pci device */
 	if (pci_enable_device(pdev)) {
 		printk(KERN_ERR "%s: pci_enable_device() failed.\n", DRV_NAME);
 		return -ENODEV;
 	}
 
-	
+	/* check whether the latency timer is set correctly */
 	pci_read_config_byte(pdev, PCI_LATENCY_TIMER, &latency_tmr);
 #if VERBOSE > SHOW_ERROR_MESSAGES
 	DEBUG(SHOW_TRACING, "latency timer: %x\n", latency_tmr);
 #endif
 	if (latency_tmr < PCIDEVICE_LATENCY_TIMER_MIN) {
-		
+		/* set the latency timer */
 		pci_write_config_byte(pdev, PCI_LATENCY_TIMER,
 				      PCIDEVICE_LATENCY_TIMER_VAL);
 	}
 
-	
+	/* enable PCI DMA */
 	if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32))) {
 		printk(KERN_ERR "%s: 32-bit PCI DMA not supported", DRV_NAME);
 		goto do_pci_disable_device;
         }
 
+	/* 0x40 is the programmable timer to configure the response timeout (TRDY_TIMEOUT)
+	 * 0x41 is the programmable timer to configure the retry timeout (RETRY_TIMEOUT)
+	 *	The RETRY_TIMEOUT is used to set the number of retries that the core, as a
+	 *	Master, will perform before abandoning a cycle. The default value for
+	 *	RETRY_TIMEOUT is 0x80, which far exceeds the PCI 2.1 requirement for new
+	 *	devices. A write of zero to the RETRY_TIMEOUT register disables this
+	 *	function to allow use with any non-compliant legacy devices that may
+	 *	execute more retries.
+	 *
+	 *	Writing zero to both these two registers will disable both timeouts and
+	 *	*can* solve problems caused by devices that are slow to respond.
+	 *	Make this configurable - MSW
+	 */
 	if ( init_pcitm >= 0 ) {
 		pci_write_config_byte(pdev, 0x40, (u8)init_pcitm);
 		pci_write_config_byte(pdev, 0x41, (u8)init_pcitm);
@@ -123,7 +144,7 @@ prism54_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		printk(KERN_INFO "PCI TRDY/RETRY unchanged\n");
 	}
 
-	
+	/* request the pci device I/O regions */
 	rvalue = pci_request_regions(pdev, DRV_NAME);
 	if (rvalue) {
 		printk(KERN_ERR "%s: pci_request_regions failure (rc=%d)\n",
@@ -131,7 +152,7 @@ prism54_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto do_pci_disable_device;
 	}
 
-	
+	/* check if the memory window is indeed set */
 	rvalue = pci_read_config_dword(pdev, PCI_BASE_ADDRESS_0, &mem_addr);
 	if (rvalue || !mem_addr) {
 		printk(KERN_ERR "%s: PCI device memory region not configured; fix your BIOS or CardBus bridge/drivers\n",
@@ -139,39 +160,39 @@ prism54_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto do_pci_release_regions;
 	}
 
-	
+	/* enable PCI bus-mastering */
 	DEBUG(SHOW_TRACING, "%s: pci_set_master(pdev)\n", DRV_NAME);
 	pci_set_master(pdev);
 
-	
+	/* enable MWI */
 	pci_try_set_mwi(pdev);
 
-	
+	/* setup the network device interface and its structure */
 	if (!(ndev = islpci_setup(pdev))) {
-		
+		/* error configuring the driver as a network device */
 		printk(KERN_ERR "%s: could not configure network device\n",
 		       DRV_NAME);
 		goto do_pci_clear_mwi;
 	}
 
 	priv = netdev_priv(ndev);
-	islpci_set_state(priv, PRV_STATE_PREBOOT); 
+	islpci_set_state(priv, PRV_STATE_PREBOOT); /* we are attempting to boot */
 
-	
+	/* card is in unknown state yet, might have some interrupts pending */
 	isl38xx_disable_interrupts(priv->device_base);
 
-	
+	/* request for the interrupt before uploading the firmware */
 	rvalue = request_irq(pdev->irq, islpci_interrupt,
 			     IRQF_SHARED, ndev->name, priv);
 
 	if (rvalue) {
-		
+		/* error, could not hook the handler to the irq */
 		printk(KERN_ERR "%s: could not install IRQ handler\n",
 		       ndev->name);
 		goto do_unregister_netdev;
 	}
 
-	
+	/* firmware upload is triggered in islpci_open */
 
 	return 0;
 
@@ -190,8 +211,10 @@ prism54_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	return -EIO;
 }
 
+/* set by cleanup_module */
 static volatile int __in_cleanup_module = 0;
 
+/* this one removes one(!!) instance only */
 static void
 prism54_remove(struct pci_dev *pdev)
 {
@@ -208,17 +231,20 @@ prism54_remove(struct pci_dev *pdev)
 
 	unregister_netdev(ndev);
 
-	
+	/* free the interrupt request */
 
 	if (islpci_get_state(priv) != PRV_STATE_OFF) {
 		isl38xx_disable_interrupts(priv->device_base);
 		islpci_set_state(priv, PRV_STATE_OFF);
-			
+		/* This bellow causes a lockup at rmmod time. It might be
+		 * because some interrupts still linger after rmmod time,
+		 * see bug #17 */
+		/* pci_set_power_state(pdev, 3);*/	/* try to power-off */
 	}
 
 	free_irq(pdev->irq, priv);
 
-	
+	/* free the PCI memory and unmap the remapped page */
 	islpci_free_memory(priv);
 
 	pci_set_drvdata(pdev, NULL);
@@ -242,9 +268,11 @@ prism54_suspend(struct pci_dev *pdev, pm_message_t state)
 
 	pci_save_state(pdev);
 
-	
+	/* tell the device not to trigger interrupts for now... */
 	isl38xx_disable_interrupts(priv->device_base);
 
+	/* from now on assume the hardware was already powered down
+	   and don't touch it anymore */
 	islpci_set_state(priv, PRV_STATE_OFF);
 
 	netif_stop_queue(ndev);
@@ -273,7 +301,7 @@ prism54_resume(struct pci_dev *pdev)
 
 	pci_restore_state(pdev);
 
-	
+	/* alright let's go into the PREBOOT state */
 	islpci_reset(priv, 1);
 
 	netif_device_attach(ndev);
@@ -293,6 +321,9 @@ prism54_module_init(void)
 	return pci_register_driver(&prism54_driver);
 }
 
+/* by the time prism54_module_exit() terminates, as a postcondition
+ * all instances will have been destroyed by calls to
+ * prism54_remove() */
 static void __exit
 prism54_module_exit(void)
 {
@@ -305,5 +336,7 @@ prism54_module_exit(void)
 	__in_cleanup_module = 0;
 }
 
+/* register entry points */
 module_init(prism54_module_init);
 module_exit(prism54_module_exit);
+/* EOF */

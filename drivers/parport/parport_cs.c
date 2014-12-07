@@ -53,7 +53,9 @@
 #include <pcmcia/cisreg.h>
 #include <pcmcia/ciscode.h>
 
+/*====================================================================*/
 
+/* Module parameters */
 
 MODULE_AUTHOR("David Hinds <dahinds@users.sourceforge.net>");
 MODULE_DESCRIPTION("PCMCIA parallel port card driver");
@@ -64,6 +66,7 @@ MODULE_LICENSE("Dual MPL/GPL");
 INT_MODULE_PARM(epp_mode, 1);
 
 
+/*====================================================================*/
 
 #define FORCE_EPP_MODE	0x08
 
@@ -83,7 +86,7 @@ static int parport_probe(struct pcmcia_device *link)
 
     dev_dbg(&link->dev, "parport_attach()\n");
 
-    
+    /* Create new parport device */
     info = kzalloc(sizeof(*info), GFP_KERNEL);
     if (!info) return -ENOMEM;
     link->priv = info;
@@ -92,7 +95,7 @@ static int parport_probe(struct pcmcia_device *link)
     link->config_flags |= CONF_ENABLE_IRQ | CONF_AUTO_SET_IO;
 
     return parport_config(link);
-} 
+} /* parport_attach */
 
 static void parport_detach(struct pcmcia_device *link)
 {
@@ -101,7 +104,7 @@ static void parport_detach(struct pcmcia_device *link)
     parport_cs_release(link);
 
     kfree(link->priv);
-} 
+} /* parport_detach */
 
 static int parport_config_check(struct pcmcia_device *p_dev, void *priv_data)
 {
@@ -157,7 +160,7 @@ static int parport_config(struct pcmcia_device *link)
 failed:
     parport_cs_release(link);
     return -ENODEV;
-} 
+} /* parport_config */
 
 static void parport_cs_release(struct pcmcia_device *link)
 {
@@ -172,7 +175,7 @@ static void parport_cs_release(struct pcmcia_device *link)
 	info->ndev = 0;
 
 	pcmcia_disable_device(link);
-} 
+} /* parport_cs_release */
 
 
 static const struct pcmcia_device_id parport_ids[] = {

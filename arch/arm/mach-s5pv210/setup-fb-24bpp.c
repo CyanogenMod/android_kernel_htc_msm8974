@@ -36,5 +36,14 @@ void s5pv210_fb_gpio_setup_24bpp(void)
 	s5pv210_fb_cfg_gpios(S5PV210_GPF2(0), 8);
 	s5pv210_fb_cfg_gpios(S5PV210_GPF3(0), 4);
 
+	/* Set DISPLAY_CONTROL register for Display path selection.
+	 *
+	 * ouput   |   RGB   |   I80   |   ITU
+	 * -----------------------------------
+	 *  00     |   MIE   |  FIMD   |  FIMD
+	 *  01     | MDNIE   | MDNIE   |  FIMD
+	 *  10     |  FIMD   |  FIMD   |  FIMD
+	 *  11     |  FIMD   |  FIMD   |  FIMD
+	 */
 	writel(0x2, S5P_MDNIE_SEL);
 }

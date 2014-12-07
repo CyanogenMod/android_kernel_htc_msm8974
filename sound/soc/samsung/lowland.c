@@ -50,6 +50,7 @@ static struct snd_soc_ops lowland_ops = {
 
 static struct snd_soc_jack lowland_headset;
 
+/* Headset jack detection DAPM pins */
 static struct snd_soc_jack_pin lowland_headset_pins[] = {
 	{
 		.pin = "Headphone",
@@ -74,7 +75,7 @@ static int lowland_wm5100_init(struct snd_soc_pcm_runtime *rtd)
 		return ret;
 	}
 
-	
+	/* Clock OPCLK, used by the other audio components. */
 	ret = snd_soc_codec_set_sysclk(codec, WM5100_CLK_OPCLK, 0,
 				       CLKOUT_RATE, 0);
 	if (ret < 0) {
@@ -126,7 +127,7 @@ static int lowland_wm9081_init(struct snd_soc_dapm_context *dapm)
 {
 	snd_soc_dapm_nc_pin(dapm, "LINEOUT");
 
-	
+	/* At any time the WM9081 is active it will have this clock */
 	return snd_soc_codec_set_sysclk(dapm->codec, WM9081_SYSCLK_MCLK, 0,
 					CLKOUT_RATE, 0);
 }

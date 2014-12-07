@@ -13,6 +13,9 @@
 #ifndef __MSM_MPMCTR_H__
 #define __MSM_MPMCTR_H__
 
+/*
+ * returns the count value of the mpm timetick.
+ */
 uint32_t msm_mpm_get_count(void);
 
 #endif

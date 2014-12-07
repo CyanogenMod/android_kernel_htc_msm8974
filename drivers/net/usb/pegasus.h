@@ -65,10 +65,10 @@ enum pegasus_registers {
 	EthID = 0x10,
 	Reg1d = 0x1d,
 	EpromOffset = 0x20,
-	EpromData = 0x21,	
+	EpromData = 0x21,	/* 0x21 low, 0x22 high byte */
 	EpromCtrl = 0x23,
 	PhyAddr = 0x25,
-	PhyData = 0x26,		
+	PhyData = 0x26,		/* 0x26 low, 0x27 high byte */
 	PhyCtrl = 0x28,
 	UsbStst = 0x2a,
 	EthTxStat0 = 0x2b,
@@ -115,7 +115,7 @@ struct usb_eth_dev {
 	char	*name;
 	__u16	vendor;
 	__u16	device;
-	__u32	private; 
+	__u32	private; /* LSB is gpio reset value */
 };
 
 #define	VENDOR_3COM		0x0506
@@ -152,7 +152,7 @@ struct usb_eth_dev {
 #define	VENDOR_SIEMENS		0x067c
 
 
-#else	
+#else	/* PEGASUS_DEV */
 
 PEGASUS_DEV("3Com USB Ethernet 3C460B", VENDOR_3COM, 0x4601,
 		DEFAULT_GPIO_RESET | PEGASUS_II)
@@ -202,6 +202,10 @@ PEGASUS_DEV("AEI USB Fast Ethernet Adapter", VENDOR_AEILAB, 0x1701,
 		DEFAULT_GPIO_RESET | PEGASUS_II)
 PEGASUS_DEV("Allied Telesyn Int. AT-USB100", VENDOR_ALLIEDTEL, 0xb100,
 		DEFAULT_GPIO_RESET | PEGASUS_II)
+/*
+ * Distinguish between this Belkin adaptor and the Belkin bluetooth adaptors
+ * with the same product IDs by checking the device class too.
+ */
 PEGASUS_DEV_CLASS("Belkin F5D5050 USB Ethernet", VENDOR_BELKIN, 0x0121, 0x00,
 		DEFAULT_GPIO_RESET | PEGASUS_II)
 PEGASUS_DEV("Belkin F5U122 10/100 USB Ethernet", VENDOR_BELKIN, 0x0122,
@@ -308,4 +312,4 @@ PEGASUS_DEV("SpeedStream USB 10/100 Ethernet", VENDOR_SIEMENS, 0x1001,
 		DEFAULT_GPIO_RESET | PEGASUS_II)
 
 
-#endif	
+#endif	/* PEGASUS_DEV */

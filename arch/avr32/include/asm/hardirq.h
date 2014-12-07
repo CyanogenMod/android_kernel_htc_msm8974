@@ -2,5 +2,5 @@
 #define __ASM_AVR32_HARDIRQ_H
 #ifndef __ASSEMBLY__
 #include <asm-generic/hardirq.h>
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* __ASM_AVR32_HARDIRQ_H */

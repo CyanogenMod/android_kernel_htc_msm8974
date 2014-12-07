@@ -25,28 +25,32 @@
 
 struct scsi_device;
 
+/* The CDROM is fairly slow, so we need a little extra time */
+/* In fact, it is very slow if it has to spin up first */
 #define IOCTL_TIMEOUT 30*HZ
 
 
 typedef struct scsi_cd {
 	struct scsi_driver *driver;
-	unsigned capacity;	
+	unsigned capacity;	/* size in blocks                       */
 	struct scsi_device *device;
-	unsigned int vendor;	
-	unsigned long ms_offset;	
-	unsigned use:1;		
-	unsigned xa_flag:1;	
-	unsigned readcd_known:1;	
-	unsigned readcd_cdda:1;	
-	unsigned media_present:1;	
+	unsigned int vendor;	/* vendor code, see sr_vendor.c         */
+	unsigned long ms_offset;	/* for reading multisession-CD's        */
+	unsigned use:1;		/* is this device still supportable     */
+	unsigned xa_flag:1;	/* CD has XA sectors ? */
+	unsigned readcd_known:1;	/* drive supports READ_CD (0xbe) */
+	unsigned readcd_cdda:1;	/* reading audio data using READ_CD */
+	unsigned media_present:1;	/* media is present */
 
-	
-	int tur_mismatch;		
-	bool tur_changed:1;		
-	bool get_event_changed:1;	
-	bool ignore_get_event:1;	
+	/* GET_EVENT spurious event handling, blk layer guarantees exclusion */
+	int tur_mismatch;		/* nr of get_event TUR mismatches */
+	bool tur_changed:1;		/* changed according to TUR */
+	bool get_event_changed:1;	/* changed according to GET_EVENT */
+	bool ignore_get_event:1;	/* GET_EVENT is unreliable, use TUR */
 
 	struct cdrom_device_info cdi;
+	/* We hold gendisk and scsi_device references on probe and use
+	 * the refs on this kref to decide when to release them */
 	struct kref kref;
 	struct gendisk *disk;
 } Scsi_CD;
@@ -65,6 +69,7 @@ int sr_audio_ioctl(struct cdrom_device_info *, unsigned int, void *);
 
 int sr_is_xa(Scsi_CD *);
 
+/* sr_vendor.c */
 void sr_vendor_init(Scsi_CD *);
 int sr_cd_check(struct cdrom_device_info *);
 int sr_set_blocklength(Scsi_CD *, int blocklength);

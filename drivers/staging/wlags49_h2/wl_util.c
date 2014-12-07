@@ -58,16 +58,32 @@
  *
  ******************************************************************************/
 
+/*******************************************************************************
+ *  include files
+ ******************************************************************************/
 #include <wl_version.h>
 
 #include <linux/kernel.h>
+// #include <linux/sched.h>
+// #include <linux/ptrace.h>
 #include <linux/ctype.h>
+// #include <linux/string.h>
+// #include <linux/timer.h>
+// #include <linux/interrupt.h>
+// #include <linux/in.h>
+// #include <linux/delay.h>
+// #include <asm/io.h>
+// // #include <asm/bitops.h>
 
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
+// #include <linux/skbuff.h>
+// #include <linux/if_arp.h>
+// #include <linux/ioport.h>
 
 #include <debug.h>
 #include <hcf.h>
+// #include <hcfdef.h>
 
 #include <wl_if.h>
 #include <wl_internal.h>
@@ -77,7 +93,11 @@
 
 
 
+/*******************************************************************************
+ * global variables
+ ******************************************************************************/
 
+/* A matrix which maps channels to frequencies */
 #define MAX_CHAN_FREQ_MAP_ENTRIES   50
 static const long chan_freq_list[][MAX_CHAN_FREQ_MAP_ENTRIES] =
 {
@@ -111,53 +131,108 @@ static const long chan_freq_list[][MAX_CHAN_FREQ_MAP_ENTRIES] =
 
 #if DBG
 extern dbg_info_t *DbgInfo;
-#endif  
+#endif  /* DBG */
 
 
 
 
+/*******************************************************************************
+ *	dbm()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Return an energy value in dBm.
+ *
+ *  PARAMETERS:
+ *
+ *      value - the energy value to be converted
+ *
+ *  RETURNS:
+ *
+ *      the value in dBm
+ *
+ ******************************************************************************/
 int dbm( int value )
 {
-    
+    /* Truncate the value to be between min and max. */
     if( value < HCF_MIN_SIGNAL_LEVEL )
         value = HCF_MIN_SIGNAL_LEVEL;
 
     if( value > HCF_MAX_SIGNAL_LEVEL )
         value = HCF_MAX_SIGNAL_LEVEL;
 
-    
+    /* Return the energy value in dBm. */
     return ( value - HCF_0DBM_OFFSET );
-} 
+} // dbm
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	percent()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Return a value as a percentage of min to max.
+ *
+ *  PARAMETERS:
+ *
+ *      value   - the value in question
+ *      min     - the minimum range value
+ *      max     - the maximum range value
+ *
+ *  RETURNS:
+ *
+ *      the percentage value
+ *
+ ******************************************************************************/
 int percent( int value, int min, int max )
 {
-    
+    /* Truncate the value to be between min and max. */
     if( value < min )
         value = min;
 
     if( value > max )
         value = max;
 
-    
+    /* Return the value as a percentage of min to max. */
     return ((( value - min ) * 100 ) / ( max - min ));
-} 
+} // percent
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	is_valid_key_string()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Checks to determine if the WEP key string is valid
+ *
+ *  PARAMETERS:
+ *
+ *      s - the string in question
+ *
+ *  RETURNS:
+ *
+ *      non-zero if the string contains a valid key
+ *
+ ******************************************************************************/
 int is_valid_key_string( char *s )
 {
     int l;
     int i;
-    
+    /*------------------------------------------------------------------------*/
 
 
     l = strlen( s );
 
-    
+    /* 0x followed by 5 or 13 hexadecimal digit pairs is valid */
     if( s[0] == '0' && ( s[1] == 'x' || s[1] == 'X' )) {
         if( l == 12 || l == 28 ) {
             for( i = 2; i < l; i++ ) {
@@ -171,26 +246,47 @@ int is_valid_key_string( char *s )
         }
     }
 
-    
+    /* string with 0, 5, or 13 characters is valid */
     else
     {
         return( l == 0 || l == 5 || l == 13 );
     }
-} 
+} // is_valid_key_string
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	key_string2key()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Converts a key_string to a key, Assumes the key_string is validated with
+ *  is_valid_key_string().
+ *
+ *  PARAMETERS:
+ *
+ *      ks  - the valid key string
+ *      key - a pointer to a KEY_STRUCT where the converted key information will
+ *            be stored.
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void key_string2key( char *ks, KEY_STRCT *key )
 {
     int l,i,n;
     char *p;
-    
+    /*------------------------------------------------------------------------*/
 
 
     l = strlen( ks );
 
-    
+    /* 0x followed by hexadecimal digit pairs */
     if( ks[0] == '0' && ( ks[1] == 'x' || ks[1] == 'X' )) {
         n = 0;
         p = (char *)key->key;
@@ -200,9 +296,11 @@ void key_string2key( char *ks, KEY_STRCT *key )
            n++;
         }
 
+        /* Note that endian translation of the length field is not needed here
+          because it's performed in wl_put_ltv() */
         key->len = n;
     }
-    
+    /* character string */
     else
     {
         strcpy( (char *)key->key, ks );
@@ -210,18 +308,39 @@ void key_string2key( char *ks, KEY_STRCT *key )
     }
 
     return;
-} 
+} // key_string2key
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_has_wep()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Checks to see if the device supports WEP
+ *
+ *  PARAMETERS:
+ *
+ *      ifbp    - the IFB pointer of the device in question
+ *
+ *  RETURNS:
+ *
+ *      1 if WEP is known enabled, else 0
+ *
+ ******************************************************************************/
 int wl_has_wep (IFBP ifbp)
 {
     CFG_PRIVACY_OPT_IMPLEMENTED_STRCT ltv;
 	int rc, privacy;
-    
+    /*------------------------------------------------------------------------*/
 
 
+	/* This function allows us to distiguish bronze cards from other types, to
+       know if WEP exists. Does not distinguish (because there's no way to)
+       between silver and gold cards. */
     ltv.len = 2;
     ltv.typ = CFG_PRIVACY_OPT_IMPLEMENTED;
 
@@ -229,17 +348,35 @@ int wl_has_wep (IFBP ifbp)
 
 	privacy = CNV_LITTLE_TO_INT( ltv.privacy_opt_implemented );
 
-	
+	//return rc ? 0 : privacy;
     return 1;
-} 
+} // wl_has_wep
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_hcf_error()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Report the type of HCF error message
+ *
+ *  PARAMETERS:
+ *
+ *      none
+ *
+ *  RETURNS:
+ *
+ *      A descriptive string indicating the error, quiet otherwise.
+ *
+ ******************************************************************************/
 void wl_hcf_error( struct net_device *dev, int hcfStatus )
 {
     char     buffer[64], *pMsg;
-    
+    /*------------------------------------------------------------------------*/
 
 
     if( hcfStatus != HCF_SUCCESS ) {
@@ -282,10 +419,10 @@ void wl_hcf_error( struct net_device *dev, int hcfStatus )
             break;
 
 
-        
+        //case HCF_ERR_SEQ_BUG:
 
-        
-        
+        //    pMsg = "Unexpected command completed";
+        //    break;
 
 
         case HCF_ERR_DEFUNCT_AUX:
@@ -319,11 +456,30 @@ void wl_hcf_error( struct net_device *dev, int hcfStatus )
         printk( KERN_INFO "%s: Wireless, HCF failure: \"%s\"\n",
                 dev->name, pMsg );
     }
-} 
+} // wl_hcf_error
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_endian_translate_event()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Determines what type of data is in the mailbox and performs the proper
+ *  endian translation.
+ *
+ *  PARAMETERS:
+ *
+ *      pLtv - an LTV pointer
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void wl_endian_translate_event( ltv_t *pLtv )
 {
     DBG_FUNC( "wl_endian_translate_event" );
@@ -382,7 +538,7 @@ void wl_endian_translate_event( ltv_t *pLtv )
 
 #ifndef WARP
             probe_resp->lenType        = CNV_LITTLE_TO_INT( probe_resp->lenType );
-#endif 
+#endif // WARP
 
             probe_resp->beaconInterval = CNV_LITTLE_TO_INT( probe_resp->beaconInterval );
             probe_resp->capability     = CNV_LITTLE_TO_INT( probe_resp->capability );
@@ -430,24 +586,67 @@ void wl_endian_translate_event( ltv_t *pLtv )
 
     DBG_LEAVE( DbgInfo );
     return;
-} 
+} // wl_endian_translate_event
+/*============================================================================*/
 
 
+/*******************************************************************************
+ *	msf_assert()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Print statement used to display asserts from within the HCF. Only called
+ *  when asserts in the HCF are turned on. See hcfcfg.h for more information.
+ *
+ *  PARAMETERS:
+ *
+ *      file_namep  - the filename in which the assert occurred.
+ *      line_number - the line number on which the assert occurred.
+ *      trace       - a comment associated with the assert.
+ *      qual        - return code or other value related to the assert
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void msf_assert( unsigned int line_number, hcf_16 trace, hcf_32 qual )
 {
-    DBG_PRINT( "HCF ASSERT: Line %d, VAL: 0x%.8x\n", line_number, (u32)qual );
-} 
+    DBG_PRINT( "HCF ASSERT: Line %d, VAL: 0x%.8x\n", line_number, /*;?*/(u32)qual );
+} // msf_assert
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_parse_ds_ie()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      This function parses the Direct Sequence Parameter Set IE, used to
+ *      determine channel/frequency information.
+ *
+ *  PARAMETERS:
+ *
+ *      probe_rsp - a pointer to a PROBE_RESP structure containing the probe
+ *                  response.
+ *
+ *  RETURNS:
+ *
+ *      The channel on which the BSS represented by this probe response is
+ *      transmitting.
+ *
+ ******************************************************************************/
 hcf_8 wl_parse_ds_ie( PROBE_RESP *probe_rsp )
 {
     int     i;
     int     ie_length = 0;
     hcf_8   *buf;
     hcf_8   buf_size;
-    
+    /*------------------------------------------------------------------------*/
 
 
     if( probe_rsp == NULL ) {
@@ -460,20 +659,22 @@ hcf_8 wl_parse_ds_ie( PROBE_RESP *probe_rsp )
 
     for( i = 0; i < buf_size; i++ ) {
         if( buf[i] == DS_INFO_ELEM ) {
+            /* Increment by 1 to get the length, and test it; in a DS element,
+               length should always be 1 */
             i++;
             ie_length = buf[i];
 
             if( buf[i] == 1 ) {
-                
+                /* Get the channel information */
                 i++;
                 return buf[i];
             }
         }
     }
 
-    
+    /* If we get here, we didn't find a DS-IE, which is strange */
     return 0;
-} 
+} // wl_parse_ds_ie
 
 
 /*******************************************************************************
@@ -505,7 +706,7 @@ hcf_8 * wl_parse_wpa_ie( PROBE_RESP *probe_rsp, hcf_16 *length )
     hcf_8   *buf;
     hcf_8   buf_size;
     hcf_8   wpa_oui[] = WPA_OUI_TYPE;
-    
+    /*------------------------------------------------------------------------*/
 
 
     if( probe_rsp == NULL || length == NULL ) {
@@ -519,32 +720,58 @@ hcf_8 * wl_parse_wpa_ie( PROBE_RESP *probe_rsp, hcf_16 *length )
 
     for( i = 0; i < buf_size; i++ ) {
         if( buf[i] == GENERIC_INFO_ELEM ) {
-            
+            /* Increment by one to get the IE length */
             i++;
             ie_length = probe_rsp->rawData[i];
 
-            
+            /* Increment by one to point to the IE payload */
             i++;
 
-            
+            /* Does the IE contain a WPA OUI? If not, it's a proprietary IE */
             if( memcmp( &buf[i], &wpa_oui, WPA_SELECTOR_LEN ) == 0 ) {
-                
+                /* Pass back length and return a pointer to the WPA-IE */
+                /* NOTE: Length contained in the WPA-IE is only the length of
+                   the payload. The entire WPA-IE, including the IE identifier
+                   and the length, is 2 bytes larger */
                 *length = ie_length + 2;
 
+                /* Back up the pointer 2 bytes to include the IE identifier and
+                   the length in the buffer returned */
                 i -= 2;
                 return &buf[i];
             }
 
-            
+            /* Increment past this non-WPA IE and continue looking */
             i += ( ie_length - 1 );
         }
     }
 
-    
+    /* If we're here, we didn't find a WPA-IE in the buffer */
     return NULL;
-} 
+} // wl_parse_wpa_ie
 
 
+/*******************************************************************************
+ *	wl_print_wpa_ie()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Function used to take a WPA Information Element (WPA-IE) buffer and
+ *      display it in a readable format.
+ *
+ *  PARAMETERS:
+ *
+ *      buffer - the byte buffer containing the WPA-IE
+ *      length - the length of the above buffer
+ *
+ *  RETURNS:
+ *
+ *      A pointer to the formatted WPA-IE string. Note that the format used is
+ *      byte-by-byte printing as %02x hex values with no spaces. This is
+ *      required for proper operation with some WPA supplicants.
+ *
+ ******************************************************************************/
 hcf_8 * wl_print_wpa_ie( hcf_8 *buffer, int length )
 {
     int count;
@@ -553,19 +780,19 @@ hcf_8 * wl_print_wpa_ie( hcf_8 *buffer, int length )
     int rowsize = 4;
     hcf_8 row_buf[64];
     static hcf_8 output[512];
-    
+    /*------------------------------------------------------------------------*/
 
 
     memset( output, 0, sizeof( output ));
     memset( row_buf, 0, sizeof( row_buf ));
 
 
-    
+    /* Determine how many rows will be needed, and the remainder */
     rows = length / rowsize;
     remainder = length % rowsize;
 
 
-    
+    /* Format the rows */
     for( count = 0; count < rows; count++ ) {
         sprintf( row_buf, "%02x%02x%02x%02x",
                  buffer[count*rowsize], buffer[count*rowsize+1],
@@ -576,30 +803,49 @@ hcf_8 * wl_print_wpa_ie( hcf_8 *buffer, int length )
     memset( row_buf, 0, sizeof( row_buf ));
 
 
-    
+    /* Format the remainder */
     for( count = 0; count < remainder; count++ ) {
         sprintf( row_buf, "%02x", buffer[(rows*rowsize)+count]);
         strcat( output, row_buf );
     }
 
     return output;
-} 
+} // wl_print_wpa_ie
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_is_a_valid_chan()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Checks if a given channel is valid
+ *
+ *  PARAMETERS:
+ *
+ *      channel - the channel
+ *
+ *  RETURNS:
+ *
+ *      1 if TRUE
+ *      0 if FALSE
+ *
+ ******************************************************************************/
 int wl_is_a_valid_chan( int channel )
 {
     int i;
-    
+    /*------------------------------------------------------------------------*/
 
 
-    
+    /* Strip out the high bit set by the FW for 802.11a channels */
     if( channel & 0x100 ) {
         channel = channel & 0x0FF;
     }
 
-    
+    /* Iterate through the matrix and retrieve the frequency */
     for( i = 0; i < MAX_CHAN_FREQ_MAP_ENTRIES; i++ ) {
         if( chan_freq_list[i][0] == channel ) {
             return 1;
@@ -607,18 +853,37 @@ int wl_is_a_valid_chan( int channel )
     }
 
     return 0;
-} 
+} // wl_is_a_valid_chan
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_get_chan_from_freq()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Checks if a given frequency is valid
+ *
+ *  PARAMETERS:
+ *
+ *      freq - the frequency
+ *
+ *  RETURNS:
+ *
+ *      1 if TRUE
+ *      0 if FALSE
+ *
+ ******************************************************************************/
 int wl_is_a_valid_freq( long frequency )
 {
     int i;
-    
+    /*------------------------------------------------------------------------*/
 
 
-    
+    /* Iterate through the matrix and retrieve the channel */
     for( i = 0; i < MAX_CHAN_FREQ_MAP_ENTRIES; i++ ) {
         if( chan_freq_list[i][1] == frequency ) {
             return 1;
@@ -626,23 +891,42 @@ int wl_is_a_valid_freq( long frequency )
     }
 
     return 0;
-} 
+} // wl_is_a_valid_freq
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_get_freq_from_chan()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Function used to look up the frequency for a given channel on which the
+ *      adapter is Tx/Rx.
+ *
+ *  PARAMETERS:
+ *
+ *      channel - the channel
+ *
+ *  RETURNS:
+ *
+ *      The corresponding frequency
+ *
+ ******************************************************************************/
 long wl_get_freq_from_chan( int channel )
 {
     int i;
-    
+    /*------------------------------------------------------------------------*/
 
 
-    
+    /* Strip out the high bit set by the FW for 802.11a channels */
     if( channel & 0x100 ) {
         channel = channel & 0x0FF;
     }
 
-    
+    /* Iterate through the matrix and retrieve the frequency */
     for( i = 0; i < MAX_CHAN_FREQ_MAP_ENTRIES; i++ ) {
         if( chan_freq_list[i][0] == channel ) {
             return chan_freq_list[i][1];
@@ -650,18 +934,37 @@ long wl_get_freq_from_chan( int channel )
     }
 
     return 0;
-} 
+} // wl_get_freq_from_chan
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_get_chan_from_freq()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Function used to look up the channel for a given frequency on which the
+ *      adapter is Tx/Rx.
+ *
+ *  PARAMETERS:
+ *
+ *      frequency - the frequency
+ *
+ *  RETURNS:
+ *
+ *      The corresponding channel
+ *
+ ******************************************************************************/
 int wl_get_chan_from_freq( long frequency )
 {
     int i;
-    
+    /*------------------------------------------------------------------------*/
 
 
-    
+    /* Iterate through the matrix and retrieve the channel */
     for( i = 0; i < MAX_CHAN_FREQ_MAP_ENTRIES; i++ ) {
         if( chan_freq_list[i][1] == frequency ) {
             return chan_freq_list[i][0];
@@ -669,21 +972,39 @@ int wl_get_chan_from_freq( long frequency )
     }
 
     return 0;
-} 
+} // wl_get_chan_from_freq
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_process_link_status()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Process the link status message signaled by the device.
+ *
+ *  PARAMETERS:
+ *
+ *      lp - a pointer to the device's private structure
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void wl_process_link_status( struct wl_private *lp )
 {
     hcf_16 link_stat;
-    
+    /*------------------------------------------------------------------------*/
 
     DBG_FUNC( "wl_process_link_status" );
     DBG_ENTER( DbgInfo );
 
     if( lp != NULL ) {
-        
+        //link_stat = lp->hcfCtx.IFB_DSLinkStat & CFG_LINK_STAT_FW;
         link_stat = lp->hcfCtx.IFB_LinkStat & CFG_LINK_STAT_FW;
         switch( link_stat ) {
         case 1:
@@ -709,17 +1030,36 @@ void wl_process_link_status( struct wl_private *lp )
     }
     DBG_LEAVE( DbgInfo );
     return;
-} 
+} // wl_process_link_status
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_process_probe_response()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Process the probe responses retunred by the device as a result of an
+ *      active scan.
+ *
+ *  PARAMETERS:
+ *
+ *      lp - a pointer to the device's private structure
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void wl_process_probe_response( struct wl_private *lp )
 {
     PROBE_RESP  *probe_rsp;
     hcf_8       *wpa_ie = NULL;
     hcf_16      wpa_ie_len = 0;
-    
+    /*------------------------------------------------------------------------*/
 
 
     DBG_FUNC( "wl_process_probe_response" );
@@ -791,7 +1131,7 @@ void wl_process_probe_response( struct wl_private *lp )
 #else
             DBG_TRACE( DbgInfo, "(%s) lenType     : 0x%04x.\n", lp->dev->name,
                     probe_rsp->lenType );
-#endif  
+#endif  // WARP
 
             DBG_TRACE( DbgInfo, "(%s) timeStamp   : %d.%d.%d.%d.%d.%d.%d.%d\n",
                     lp->dev->name,
@@ -826,7 +1166,7 @@ void wl_process_probe_response( struct wl_private *lp )
             }
 
 
-            
+            /* Parse out the WPA-IE, if one exists */
             wpa_ie = wl_parse_wpa_ie( probe_rsp, &wpa_ie_len );
             if( wpa_ie != NULL ) {
                 DBG_TRACE( DbgInfo, "(%s) WPA-IE      : %s\n",
@@ -840,23 +1180,27 @@ void wl_process_probe_response( struct wl_private *lp )
         DBG_TRACE( DbgInfo, "\n" );
 
 
-        
+        /* If probe response length is 1, then the scan is complete */
         if( probe_rsp->length == 1 ) {
             DBG_TRACE( DbgInfo, "SCAN COMPLETE\n" );
             lp->probe_results.num_aps = lp->probe_num_aps;
             lp->probe_results.scan_complete = TRUE;
 
-            
+            /* Reset the counter for the next scan request */
             lp->probe_num_aps = 0;
 
-            
+            /* Send a wireless extensions event that the scan completed */
             wl_wext_event_scan_complete( lp->dev );
         } else {
+            /* Only copy to the table if the entry is unique; APs sometimes
+                respond more than once to a probe */
             if( lp->probe_num_aps == 0 ) {
+                /* Copy the info to the ScanResult structure in the private
+                adapter struct */
                 memcpy( &( lp->probe_results.ProbeTable[lp->probe_num_aps] ),
                         probe_rsp, sizeof( PROBE_RESP ));
 
-                
+                /* Increment the number of APs detected */
                 lp->probe_num_aps++;
             } else {
                 int count;
@@ -871,6 +1215,9 @@ void wl_process_probe_response( struct wl_private *lp )
                 }
 
                 if( unique ) {
+                    /* Copy the info to the ScanResult structure in the
+                    private adapter struct. Only copy if there's room in the
+                    table */
                     if( lp->probe_num_aps < MAX_NAPS )
                     {
                         memcpy( &( lp->probe_results.ProbeTable[lp->probe_num_aps] ),
@@ -881,6 +1228,9 @@ void wl_process_probe_response( struct wl_private *lp )
                         DBG_WARNING( DbgInfo, "Num of scan results exceeds storage, truncating\n" );
                     }
 
+                    /* Increment the number of APs detected. Note I do this
+                        here even when I don't copy the probe response to the
+                        buffer in order to detect the overflow condition */
                     lp->probe_num_aps++;
                 }
             }
@@ -889,11 +1239,29 @@ void wl_process_probe_response( struct wl_private *lp )
 
     DBG_LEAVE( DbgInfo );
     return;
-} 
+} // wl_process_probe_response
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_process_updated_record()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Process the updated information record message signaled by the device.
+ *
+ *  PARAMETERS:
+ *
+ *      lp - a pointer to the device's private structure
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void wl_process_updated_record( struct wl_private *lp )
 {
     DBG_FUNC( "wl_process_updated_record" );
@@ -911,7 +1279,7 @@ void wl_process_updated_record( struct wl_private *lp )
 
         case CFG_PORT_STAT:
             DBG_TRACE( DbgInfo, "Updated Record: WAIT_FOR_CONNECT (0xFD40)\n" );
-            
+            //wl_connect( lp );
             break;
 
         default:
@@ -922,15 +1290,33 @@ void wl_process_updated_record( struct wl_private *lp )
 
     DBG_LEAVE( DbgInfo );
     return;
-} 
+} // wl_process_updated_record
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_process_assoc_status()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Process the association status event signaled by the device.
+ *
+ *  PARAMETERS:
+ *
+ *      lp - a pointer to the device's private structure
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void wl_process_assoc_status( struct wl_private *lp )
 {
     ASSOC_STATUS_STRCT *assoc_stat;
-    
+    /*------------------------------------------------------------------------*/
 
 
     DBG_FUNC( "wl_process_assoc_status" );
@@ -971,15 +1357,33 @@ void wl_process_assoc_status( struct wl_private *lp )
 
     DBG_LEAVE( DbgInfo );
     return;
-} 
+} // wl_process_assoc_status
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_process_security_status()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Process the security status message signaled by the device.
+ *
+ *  PARAMETERS:
+ *
+ *      lp - a pointer to the device's private structure
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void wl_process_security_status( struct wl_private *lp )
 {
     SECURITY_STATUS_STRCT *sec_stat;
-    
+    /*------------------------------------------------------------------------*/
 
 
     DBG_FUNC( "wl_process_security_status" );
@@ -1025,7 +1429,8 @@ void wl_process_security_status( struct wl_private *lp )
 
     DBG_LEAVE( DbgInfo );
     return;
-} 
+} // wl_process_security_status
+/*============================================================================*/
 
 int wl_get_tallies(struct wl_private *lp,
 		   CFG_HERMES_TALLIES_STRCT *tallies)
@@ -1037,7 +1442,7 @@ int wl_get_tallies(struct wl_private *lp,
     DBG_FUNC( "wl_get_tallies" );
     DBG_ENTER(DbgInfo);
 
-    
+    /* Get the current tallies from the adapter */
     lp->ltvRecord.len = 1 + HCF_TOT_TAL_CNT * sizeof(hcf_16);
     lp->ltvRecord.typ = CFG_TALLIES;
 

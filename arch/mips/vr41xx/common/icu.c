@@ -19,6 +19,15 @@
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * Changes:
+ *  MontaVista Software Inc. <source@mvista.com>
+ *  - New creation, NEC VR4122 and VR4131 are supported.
+ *  - Added support for NEC VR4111 and VR4121.
+ *
+ *  Yoichi Yuasa <yuasa@linux-mips.org>
+ *  - Coped with INTASSIGN of NEC VR4133.
+ */
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/ioport.h>
@@ -85,10 +94,10 @@ static unsigned char sysint2_assign[16] = {
  #define BCUINTR	0x0001
 #define MBCUINTREG	0x1a
 
-#define SYSINT1_IRQ_TO_PIN(x)	((x) - SYSINT1_IRQ_BASE)	
-#define SYSINT2_IRQ_TO_PIN(x)	((x) - SYSINT2_IRQ_BASE)	
+#define SYSINT1_IRQ_TO_PIN(x)	((x) - SYSINT1_IRQ_BASE)	/* Pin 0-15 */
+#define SYSINT2_IRQ_TO_PIN(x)	((x) - SYSINT2_IRQ_BASE)	/* Pin 0-15 */
 
-#define INT_TO_IRQ(x)		((x) + 2)	
+#define INT_TO_IRQ(x)		((x) + 2)	/* Int0-4 -> IRQ2-6 */
 
 #define icu1_read(offset)		readw(icu1_base + (offset))
 #define icu1_write(offset, value)	writew((value), icu1_base + (offset))

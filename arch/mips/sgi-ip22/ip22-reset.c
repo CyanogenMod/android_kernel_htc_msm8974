@@ -25,8 +25,16 @@
 #include <asm/sgi/mc.h>
 #include <asm/sgi/ip22.h>
 
+/*
+ * Just powerdown if init hasn't done after POWERDOWN_TIMEOUT seconds.
+ * I'm not sure if this feature is a good idea, for now it's here just to
+ * make the power button make behave just like under IRIX.
+ */
 #define POWERDOWN_TIMEOUT	120
 
+/*
+ * Blink frequency during reboot grace period and when panicked.
+ */
 #define POWERDOWN_FREQ		(HZ / 4)
 #define PANIC_FREQ		(HZ / 8)
 
@@ -43,7 +51,7 @@ static void __noreturn sgi_machine_power_off(void)
 
 	local_irq_disable();
 
-	
+	/* Disable watchdog */
 	tmp = hpc3c0->rtcregs[RTC_CMD] & 0xff;
 	hpc3c0->rtcregs[RTC_CMD] = tmp | RTC_WAM;
 	hpc3c0->rtcregs[RTC_WSEC] = 0;
@@ -51,8 +59,10 @@ static void __noreturn sgi_machine_power_off(void)
 
 	while (1) {
 		sgioc->panel = ~SGIOC_PANEL_POWERON;
-		
+		/* Good bye cruel world ...  */
 
+		/* If we're still running, we probably got sent an alarm
+		   interrupt.  Read the flag to clear it.  */
 		tmp = hpc3c0->rtcregs[RTC_HOURS_ALARM];
 	}
 }
@@ -79,7 +89,7 @@ static void power_timeout(unsigned long data)
 
 static void blink_timeout(unsigned long data)
 {
-	
+	/* XXX fix this for fullhouse  */
 	sgi_ioc_reset ^= (SGIOC_RESET_LC0OFF|SGIOC_RESET_LC1OFF);
 	sgioc->reset = sgi_ioc_reset;
 
@@ -90,8 +100,8 @@ static void debounce(unsigned long data)
 {
 	del_timer(&debounce_timer);
 	if (sgint->istat1 & SGINT_ISTAT1_PWR) {
-		
-		debounce_timer.expires = jiffies + (HZ / 20); 
+		/* Interrupt still being sent. */
+		debounce_timer.expires = jiffies + (HZ / 20); /* 0.05s  */
 		add_timer(&debounce_timer);
 
 		sgioc->panel = SGIOC_PANEL_POWERON | SGIOC_PANEL_POWERINTR |
@@ -114,7 +124,7 @@ static inline void power_button(void)
 
 	if ((machine_state & MACHINE_SHUTTING_DOWN) ||
 			kill_cad_pid(SIGINT, 1)) {
-		
+		/* No init process or button pressed twice.  */
 		sgi_machine_power_off();
 	}
 
@@ -136,7 +146,7 @@ static irqreturn_t panel_int(int irq, void *dev_id)
 	sgioc->panel = SGIOC_PANEL_POWERON | SGIOC_PANEL_POWERINTR;
 
 	if (sgint->istat1 & SGINT_ISTAT1_PWR) {
-		
+		/* Wait until interrupt goes away */
 		disable_irq_nosync(SGI_PANEL_IRQ);
 		init_timer(&debounce_timer);
 		debounce_timer.function = debounce;
@@ -144,6 +154,11 @@ static irqreturn_t panel_int(int irq, void *dev_id)
 		add_timer(&debounce_timer);
 	}
 
+	/* Power button was pressed
+	 * ioc.ps page 22: "The Panel Register is called Power Control by Full
+	 * House. Only lowest 2 bits are used. Guiness uses upper four bits
+	 * for volume control". This is not true, all bits are pulled high
+	 * on fullhouse */
 	if (!(buttons & SGIOC_PANEL_POWERINTR))
 		power_button();
 

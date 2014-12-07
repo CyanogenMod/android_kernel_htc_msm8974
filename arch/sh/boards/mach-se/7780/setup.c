@@ -16,6 +16,7 @@
 #include <asm/io.h>
 #include <asm/heartbeat.h>
 
+/* Heartbeat */
 static struct resource heartbeat_resource = {
 	.start  = PA_LED,
 	.end    = PA_LED,
@@ -29,6 +30,7 @@ static struct platform_device heartbeat_device = {
 	.resource       = &heartbeat_resource,
 };
 
+/* SMC91x */
 static struct resource smc91x_eth_resources[] = {
 	[0] = {
 		.name   = "smc91x-regs" ,
@@ -47,7 +49,7 @@ static struct platform_device smc91x_eth_device = {
 	.name           = "smc91x",
 	.id             = 0,
 	.dev = {
-		.dma_mask               = NULL,         
+		.dma_mask               = NULL,         /* don't use dma */
 		.coherent_dma_mask      = 0xffffffff,
 	},
 	.num_resources  = ARRAY_SIZE(smc91x_eth_resources),
@@ -72,7 +74,7 @@ device_initcall(se7780_devices_setup);
 
 static void __init se7780_setup(char **cmdline_p)
 {
-	
+	/* "SH-Linux" on LED Display */
 	__raw_writew( 'S' , PA_LED_DISP + (DISP_SEL0_ADDR << 1) );
 	__raw_writew( 'H' , PA_LED_DISP + (DISP_SEL1_ADDR << 1) );
 	__raw_writew( '-' , PA_LED_DISP + (DISP_SEL2_ADDR << 1) );
@@ -84,17 +86,27 @@ static void __init se7780_setup(char **cmdline_p)
 
 	printk(KERN_INFO "Hitachi UL Solutions Engine 7780SE03 support.\n");
 
+	/*
+	 * PCI REQ/GNT setting
+	 *   REQ0/GNT0 -> USB
+	 *   REQ1/GNT1 -> PC Card
+	 *   REQ2/GNT2 -> Serial ATA
+	 *   REQ3/GNT3 -> PCI slot
+	 */
 	__raw_writew(0x0213, FPGA_REQSEL);
 
-	
+	/* GPIO setting */
 	__raw_writew(0x0000, GPIO_PECR);
 	__raw_writew(__raw_readw(GPIO_PHCR)&0xfff3, GPIO_PHCR);
 	__raw_writew(0x0c00, GPIO_PMSELR);
 
-	
+	/* iVDR Power ON */
 	__raw_writew(0x0001, FPGA_IVDRPW);
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_se7780 __initmv = {
 	.mv_name                = "Solution Engine 7780" ,
 	.mv_setup               = se7780_setup ,

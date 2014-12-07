@@ -35,13 +35,13 @@
 #define SEGTYPE_SP_SAMPLE               0x00000003
 #define SEGTYPE_SP_COEFFICIENT          0x00000004
 
-#define DSP_SPOS_UU      0x0deadul     
-#define DSP_SPOS_DC      0x0badul      
-#define DSP_SPOS_DC_DC   0x0bad0badul  
-#define DSP_SPOS_UUUU    0xdeadc0edul  
+#define DSP_SPOS_UU      0x0deadul     /* unused */
+#define DSP_SPOS_DC      0x0badul      /* don't care */
+#define DSP_SPOS_DC_DC   0x0bad0badul  /* don't care */
+#define DSP_SPOS_UUUU    0xdeadc0edul  /* unused */
 #define DSP_SPOS_UUHI    0xdeadul
 #define DSP_SPOS_UULO    0xc0edul
-#define DSP_SPOS_DCDC    0x0badf1d0ul  
+#define DSP_SPOS_DCDC    0x0badf1d0ul  /* don't care */
 #define DSP_SPOS_DCDCHI  0x0badul
 #define DSP_SPOS_DCDCLO  0xf1d0ul
 
@@ -57,7 +57,7 @@
 #define DSP_PCM_MAIN_CHANNEL        1
 #define DSP_PCM_REAR_CHANNEL        2
 #define DSP_PCM_CENTER_LFE_CHANNEL  3
-#define DSP_PCM_S71_CHANNEL         4 
+#define DSP_PCM_S71_CHANNEL         4 /* surround 7.1 */
 #define DSP_IEC958_CHANNEL          5
 
 #define DSP_SPDIF_STATUS_OUTPUT_ENABLED       1
@@ -70,7 +70,7 @@ struct dsp_symbol_entry {
 	char symbol_name[DSP_MAX_SYMBOL_NAME];
 	int symbol_type;
 
-	
+	/* initialized by driver */
 	struct dsp_module_desc * module;
 	int deleted;
 };
@@ -80,7 +80,7 @@ struct dsp_symbol_desc {
 
 	struct dsp_symbol_entry *symbols;
 
-	
+	/* initialized by driver */
 	int highest_frag_index;
 };
 
@@ -97,7 +97,7 @@ struct dsp_module_desc {
 	int nsegments;
 	struct dsp_segment_desc * segments;
 
-	
+	/* initialized by driver */
 	u32 overlay_begin_address;
 	u32 load_address;
 	int nfixups;
@@ -147,22 +147,22 @@ struct dsp_pcm_channel_descriptor {
 };
 
 struct dsp_spos_instance {
-	struct dsp_symbol_desc symbol_table; 
+	struct dsp_symbol_desc symbol_table; /* currently available loaded symbols in SP */
 
 	int nmodules;
-	struct dsp_module_desc * modules; 
+	struct dsp_module_desc * modules; /* modules loaded into SP */
 
 	struct dsp_segment_desc code;
 
-	
+	/* Main PCM playback mixer */
 	struct dsp_scb_descriptor * master_mix_scb;
 	u16 dac_volume_right;
 	u16 dac_volume_left;
 
-	
+	/* Rear/surround PCM playback mixer */
 	struct dsp_scb_descriptor * rear_mix_scb;
 
-	
+	/* Center/LFE mixer */
 	struct dsp_scb_descriptor * center_lfe_mix_scb;
 
 	int npcm_channels;
@@ -170,11 +170,11 @@ struct dsp_spos_instance {
 	struct dsp_pcm_channel_descriptor pcm_channels[DSP_MAX_PCM_CHANNELS];
 	int src_scb_slots[DSP_MAX_SRC_NR];
 
-	
-	struct dsp_symbol_entry * null_algorithm; 
-	struct dsp_symbol_entry * s16_up;         
+	/* cache this symbols */
+	struct dsp_symbol_entry * null_algorithm; /* used by PCMreaderSCB's */
+	struct dsp_symbol_entry * s16_up;         /* used by SRCtaskSCB's */
 
-	  
+	/* proc fs */  
 	struct snd_card *snd_card;
 	struct snd_info_entry * proc_dsp_dir;
 	struct snd_info_entry * proc_sym_info_entry;
@@ -182,51 +182,53 @@ struct dsp_spos_instance {
 	struct snd_info_entry * proc_parameter_dump_info_entry;
 	struct snd_info_entry * proc_sample_dump_info_entry;
 
-	
+	/* SCB's descriptors */
 	int nscb;
 	int scb_highest_frag_index;
 	struct dsp_scb_descriptor scbs[DSP_MAX_SCB_DESC];
 	struct snd_info_entry * proc_scb_info_entry;
 	struct dsp_scb_descriptor * the_null_scb;
 
-	
+	/* Task's descriptors */
 	int ntask;
 	struct dsp_task_descriptor tasks[DSP_MAX_TASK_DESC];
 	struct snd_info_entry * proc_task_info_entry;
 
-	
+	/* SPDIF status */
 	int spdif_status_out;
 	int spdif_status_in;
 	u16 spdif_input_volume_right;
 	u16 spdif_input_volume_left;
+	/* spdif channel status,
+	   left right and user validity bits */
 	unsigned int spdif_csuv_default;
 	unsigned int spdif_csuv_stream;
 
-	
+	/* SPDIF input sample rate converter */
 	struct dsp_scb_descriptor * spdif_in_src;
-	
+	/* SPDIF input asynch. receiver */
 	struct dsp_scb_descriptor * asynch_rx_scb;
 
-	
+	/* Capture record mixer SCB */
 	struct dsp_scb_descriptor * record_mixer_scb;
     
-	
+	/* CODEC input SCB */
 	struct dsp_scb_descriptor * codec_in_scb;
 
-	
+	/* reference snooper */
 	struct dsp_scb_descriptor * ref_snoop_scb;
 
-	
+	/* SPDIF output  PCM reference  */
 	struct dsp_scb_descriptor * spdif_pcm_input_scb;
 
-	
+	/* asynch TX task */
 	struct dsp_scb_descriptor * asynch_tx_scb;
 
-	
+	/* record sources */
 	struct dsp_scb_descriptor * pcm_input;
 	struct dsp_scb_descriptor * adc_input;
 
 	int spdif_in_sample_rate;
 };
 
-#endif 
+#endif /* __DSP_SPOS_H__ */

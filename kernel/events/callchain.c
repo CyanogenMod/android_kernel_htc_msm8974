@@ -62,6 +62,11 @@ static int alloc_callchain_buffers(void)
 	int size;
 	struct callchain_cpus_entries *entries;
 
+	/*
+	 * We can't use the percpu allocation API for data that can be
+	 * accessed from NMI. Use a temporary manual per cpu allocation
+	 * until that gets sorted out.
+	 */
 	size = offsetof(struct callchain_cpus_entries, cpu_entries[nr_cpu_ids]);
 
 	entries = kzalloc(size, GFP_KERNEL);
@@ -103,7 +108,7 @@ int get_callchain_buffers(void)
 	}
 
 	if (count > 1) {
-		
+		/* If the allocation failed, give up */
 		if (!callchain_cpus_entries)
 			err = -ENOMEM;
 		goto exit;

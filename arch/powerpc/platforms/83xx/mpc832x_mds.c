@@ -48,6 +48,11 @@
 #define DBG(fmt...)
 #endif
 
+/* ************************************************************************
+ *
+ * Setup the architecture
+ *
+ */
 static void __init mpc832x_sys_setup_arch(void)
 {
 	struct device_node *np;
@@ -56,7 +61,7 @@ static void __init mpc832x_sys_setup_arch(void)
 	if (ppc_md.progress)
 		ppc_md.progress("mpc832x_sys_setup_arch()", 0);
 
-	
+	/* Map BCSR area */
 	np = of_find_node_by_name(NULL, "bcsr");
 	if (np) {
 		struct resource res;
@@ -81,7 +86,7 @@ static void __init mpc832x_sys_setup_arch(void)
 
 	if ((np = of_find_compatible_node(NULL, "network", "ucc_geth"))
 			!= NULL){
-		
+		/* Reset the Ethernet PHYs */
 #define BCSR8_FETH_RST 0x50
 		clrbits8(&bcsr_regs[8], BCSR8_FETH_RST);
 		udelay(1000);
@@ -89,11 +94,14 @@ static void __init mpc832x_sys_setup_arch(void)
 		iounmap(bcsr_regs);
 		of_node_put(np);
 	}
-#endif				
+#endif				/* CONFIG_QUICC_ENGINE */
 }
 
 machine_device_initcall(mpc832x_mds, mpc83xx_declare_of_platform_devices);
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init mpc832x_sys_probe(void)
 {
         unsigned long root = of_get_flat_dt_root();

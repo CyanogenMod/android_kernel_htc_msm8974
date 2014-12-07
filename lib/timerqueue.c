@@ -27,13 +27,22 @@
 #include <linux/rbtree.h>
 #include <linux/export.h>
 
+/**
+ * timerqueue_add - Adds timer to timerqueue.
+ *
+ * @head: head of timerqueue
+ * @node: timer node to be added
+ *
+ * Adds the timer node to the timerqueue, sorted by the
+ * node's expires value.
+ */
 void timerqueue_add(struct timerqueue_head *head, struct timerqueue_node *node)
 {
 	struct rb_node **p = &head->head.rb_node;
 	struct rb_node *parent = NULL;
 	struct timerqueue_node  *ptr;
 
-	
+	/* Make sure we don't add nodes that are already added */
 	WARN_ON_ONCE(!RB_EMPTY_NODE(&node->node));
 
 	while (*p) {
@@ -52,11 +61,19 @@ void timerqueue_add(struct timerqueue_head *head, struct timerqueue_node *node)
 }
 EXPORT_SYMBOL_GPL(timerqueue_add);
 
+/**
+ * timerqueue_del - Removes a timer from the timerqueue.
+ *
+ * @head: head of timerqueue
+ * @node: timer node to be removed
+ *
+ * Removes the timer node from the timerqueue.
+ */
 void timerqueue_del(struct timerqueue_head *head, struct timerqueue_node *node)
 {
 	WARN_ON_ONCE(RB_EMPTY_NODE(&node->node));
 
-	
+	/* update next pointer */
 	if (head->next == node) {
 		struct rb_node *rbn = rb_next(&node->node);
 
@@ -68,6 +85,15 @@ void timerqueue_del(struct timerqueue_head *head, struct timerqueue_node *node)
 }
 EXPORT_SYMBOL_GPL(timerqueue_del);
 
+/**
+ * timerqueue_iterate_next - Returns the timer after the provided timer
+ *
+ * @node: Pointer to a timer.
+ *
+ * Provides the timer that is after the given node. This is used, when
+ * necessary, to iterate through the list of timers in a timer list
+ * without modifying the list.
+ */
 struct timerqueue_node *timerqueue_iterate_next(struct timerqueue_node *node)
 {
 	struct rb_node *next;

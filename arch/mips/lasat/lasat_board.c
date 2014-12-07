@@ -26,6 +26,7 @@
 #include <linux/mutex.h>
 #include <asm/addrspace.h>
 #include "at93c.h"
+/* New model description table */
 #include "lasat_models.h"
 
 static DEFINE_MUTEX(lasat_eeprom_mutex);
@@ -101,11 +102,11 @@ int lasat_init_board_info(void)
 
 	memset(&lasat_board_info, 0, sizeof(lasat_board_info));
 
-	
+	/* First read the EEPROM info */
 	EEPROMRead(0, (unsigned char *)&lasat_board_info.li_eeprom_info,
 		   sizeof(struct lasat_eeprom_struct));
 
-	
+	/* Check the CRC */
 	crc = EEPROM_CRC((unsigned char *)(&lasat_board_info.li_eeprom_info),
 		    sizeof(struct lasat_eeprom_struct) - 4);
 
@@ -129,7 +130,7 @@ int lasat_init_board_info(void)
 		       "Invalid configuration read from EEPROM, attempting to "
 		       "soldier on...");
 	}
-	
+	/* We have a valid configuration */
 
 	switch (LASAT_W0_SDRAMBANKSZ(cfg0)) {
 	case 0:
@@ -211,7 +212,7 @@ int lasat_init_board_info(void)
 		break;
 	}
 
-	
+	/* Flash size */
 	switch (LASAT_W1_FLASHSIZE(cfg1)) {
 	case 0:
 		lasat_board_info.li_flash_size = 0x200000;
@@ -237,13 +238,13 @@ int lasat_init_board_info(void)
 	if (lasat_board_info.li_prid == 0xffff || lasat_board_info.li_prid == 0)
 		lasat_board_info.li_prid = lasat_board_info.li_bmid;
 
-	
+	/* Base model stuff */
 	if (lasat_board_info.li_bmid > i_n_base_models)
 		lasat_board_info.li_bmid = i_n_base_models;
 	strcpy(lasat_board_info.li_bmstr,
 	       i_txt_base_models[lasat_board_info.li_bmid]);
 
-	
+	/* Product ID dependent values */
 	c = lasat_board_info.li_prid;
 	if (c >= i_n_prids) {
 		strcpy(lasat_board_info.li_namestr, "Unknown Model");
@@ -266,12 +267,12 @@ void lasat_write_eeprom_info(void)
 
 	mutex_lock(&lasat_eeprom_mutex);
 
-	
+	/* Generate the CRC */
 	crc = EEPROM_CRC((unsigned char *)(&lasat_board_info.li_eeprom_info),
 		    sizeof(struct lasat_eeprom_struct) - 4);
 	lasat_board_info.li_eeprom_info.crc32 = crc;
 
-	
+	/* Write the EEPROM info */
 	EEPROMWrite(0, (unsigned char *)&lasat_board_info.li_eeprom_info,
 		    sizeof(struct lasat_eeprom_struct));
 

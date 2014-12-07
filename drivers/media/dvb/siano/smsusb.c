@@ -87,7 +87,7 @@ static void smsusb_onresponse(struct urb *urb)
 					dev->response_alignment +
 					((phdr->msgFlags >> 8) & 3);
 
-				
+				/* sanity check */
 				if (((int) phdr->msgLength +
 				     surb->cb->offset) > urb->actual_length) {
 					sms_err("invalid response "
@@ -99,6 +99,8 @@ static void smsusb_onresponse(struct urb *urb)
 					goto exit_and_resubmit;
 				}
 
+				/* move buffer pointer and
+				 * copy header to its new location */
 				memcpy((char *) phdr + surb->cb->offset,
 				       phdr, sizeof(struct SmsMsgHdr_ST));
 			} else
@@ -292,7 +294,7 @@ static void smsusb_term_device(struct usb_interface *intf)
 	if (dev) {
 		smsusb_stop_streaming(dev);
 
-		
+		/* unregister from smscore */
 		if (dev->coredev)
 			smscore_unregister_device(dev->coredev);
 
@@ -309,7 +311,7 @@ static int smsusb_init_device(struct usb_interface *intf, int board_id)
 	struct smsusb_device_t *dev;
 	int i, rc;
 
-	
+	/* create device object */
 	dev = kzalloc(sizeof(struct smsusb_device_t), GFP_KERNEL);
 	if (!dev) {
 		sms_err("kzalloc(sizeof(struct smsusb_device_t) failed");
@@ -331,7 +333,7 @@ static int smsusb_init_device(struct usb_interface *intf, int board_id)
 		break;
 	default:
 		sms_err("Unspecified sms device type!");
-		
+		/* fall-thru */
 	case SMS_NOVA_A0:
 	case SMS_NOVA_B0:
 	case SMS_VEGA:
@@ -351,7 +353,7 @@ static int smsusb_init_device(struct usb_interface *intf, int board_id)
 	params.context = dev;
 	usb_make_path(dev->udev, params.devpath, sizeof(params.devpath));
 
-	
+	/* register in smscore */
 	rc = smscore_register_device(&params, &dev->coredev);
 	if (rc < 0) {
 		sms_err("smscore_register_device(...) failed, rc %d", rc);
@@ -361,7 +363,7 @@ static int smsusb_init_device(struct usb_interface *intf, int board_id)
 
 	smscore_set_board_id(dev->coredev, board_id);
 
-	
+	/* initialize urbs */
 	for (i = 0; i < MAX_URBS; i++) {
 		dev->surbs[i].dev = dev;
 		usb_init_urb(&dev->surbs[i].urb);
@@ -540,7 +542,7 @@ static const struct usb_device_id smsusb_id_table[] __devinitconst = {
 		.driver_info = SMS1XXX_BOARD_HAUPPAUGE_WINDHAM },
 	{ USB_DEVICE(0x2040, 0xc090),
 		.driver_info = SMS1XXX_BOARD_HAUPPAUGE_WINDHAM },
-	{ } 
+	{ } /* Terminating entry */
 	};
 
 MODULE_DEVICE_TABLE(usb, smsusb_id_table);

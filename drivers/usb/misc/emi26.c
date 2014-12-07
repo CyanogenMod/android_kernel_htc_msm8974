@@ -19,15 +19,15 @@
 #include <linux/firmware.h>
 #include <linux/ihex.h>
 
-#define EMI26_VENDOR_ID 		0x086a  
-#define EMI26_PRODUCT_ID		0x0100	
-#define EMI26B_PRODUCT_ID		0x0102	
+#define EMI26_VENDOR_ID 		0x086a  /* Emagic Soft-und Hardware GmBH */
+#define EMI26_PRODUCT_ID		0x0100	/* EMI 2|6 without firmware */
+#define EMI26B_PRODUCT_ID		0x0102	/* EMI 2|6 without firmware */
 
-#define ANCHOR_LOAD_INTERNAL	0xA0	
-#define ANCHOR_LOAD_EXTERNAL	0xA3	
-#define ANCHOR_LOAD_FPGA	0xA5	
-#define MAX_INTERNAL_ADDRESS	0x1B3F	
-#define CPUCS_REG		0x7F92   
+#define ANCHOR_LOAD_INTERNAL	0xA0	/* Vendor specific request code for Anchor Upload/Download (This one is implemented in the core) */
+#define ANCHOR_LOAD_EXTERNAL	0xA3	/* This command is not implemented in the core. Requires firmware */
+#define ANCHOR_LOAD_FPGA	0xA5	/* This command is not implemented in the core. Requires firmware. Emagic extension */
+#define MAX_INTERNAL_ADDRESS	0x1B3F	/* This is the highest internal RAM address for the AN2131Q */
+#define CPUCS_REG		0x7F92  /* EZ-USB Control and Status Register.  Bit 0 controls 8051 reset */ 
 #define INTERNAL_RAM(address)   (address <= MAX_INTERNAL_ADDRESS)
 
 static int emi26_writememory( struct usb_device *dev, int address,
@@ -38,6 +38,7 @@ static int emi26_load_firmware (struct usb_device *dev);
 static int emi26_probe(struct usb_interface *intf, const struct usb_device_id *id);
 static void emi26_disconnect(struct usb_interface *intf);
 
+/* thanks to drivers/usb/serial/keyspan_pda.c code */
 static int emi26_writememory (struct usb_device *dev, int address,
 			      const unsigned char *data, int length,
 			      __u8 request)
@@ -56,11 +57,12 @@ static int emi26_writememory (struct usb_device *dev, int address,
 	return result;
 }
 
+/* thanks to drivers/usb/serial/keyspan_pda.c code */
 static int emi26_set_reset (struct usb_device *dev, unsigned char reset_bit)
 {
 	int response;
 	dev_info(&dev->dev, "%s - %d\n", __func__, reset_bit);
-	
+	/* printk(KERN_DEBUG "%s - %d", __func__, reset_bit); */
 	response = emi26_writememory (dev, CPUCS_REG, &reset_bit, 1, 0xa0);
 	if (response < 0) {
 		dev_err(&dev->dev, "set_reset (%d) failed\n", reset_bit);
@@ -78,7 +80,7 @@ static int emi26_load_firmware (struct usb_device *dev)
 	const struct ihex_binrec *rec;
 	int err;
 	int i;
-	__u32 addr;	
+	__u32 addr;	/* Address to write */
 	__u8 *buf;
 
 	buf = kmalloc(FW_LOAD_SIZE, GFP_KERNEL);
@@ -107,7 +109,7 @@ static int emi26_load_firmware (struct usb_device *dev)
 		goto wraperr;
 	}
 
-	
+	/* Assert reset (stop the CPU in the EMI) */
 	err = emi26_set_reset(dev,1);
 	if (err < 0) {
 		dev_err(&dev->dev,"%s - error loading firmware: error = %d\n",
@@ -116,7 +118,7 @@ static int emi26_load_firmware (struct usb_device *dev)
 	}
 
 	rec = (const struct ihex_binrec *)loader_fw->data;
-	
+	/* 1. We need to put the loader for the FPGA into the EZ-USB */
 	while (rec) {
 		err = emi26_writememory(dev, be32_to_cpu(rec->addr),
 					rec->data, be16_to_cpu(rec->len),
@@ -128,20 +130,23 @@ static int emi26_load_firmware (struct usb_device *dev)
 		rec = ihex_next_binrec(rec);
 	}
 
-	
+	/* De-assert reset (let the CPU run) */
 	err = emi26_set_reset(dev,0);
 	if (err < 0) {
 		err("%s - error loading firmware: error = %d", __func__, err);
 		goto wraperr;
 	}
-	msleep(250);	
+	msleep(250);	/* let device settle */
 
+	/* 2. We upload the FPGA firmware into the EMI
+	 * Note: collect up to 1023 (yes!) bytes and send them with
+	 * a single request. This is _much_ faster! */
 	rec = (const struct ihex_binrec *)bitstream_fw->data;
 	do {
 		i = 0;
 		addr = be32_to_cpu(rec->addr);
 
-		
+		/* intel hex records are terminated with type 0 element */
 		while (rec && (i + be16_to_cpu(rec->len) < FW_LOAD_SIZE)) {
 			memcpy(buf + i, rec->data, be16_to_cpu(rec->len));
 			i += be16_to_cpu(rec->len);
@@ -154,14 +159,14 @@ static int emi26_load_firmware (struct usb_device *dev)
 		}
 	} while (rec);
 
-	
+	/* Assert reset (stop the CPU in the EMI) */
 	err = emi26_set_reset(dev,1);
 	if (err < 0) {
 		err("%s - error loading firmware: error = %d", __func__, err);
 		goto wraperr;
 	}
 
-	
+	/* 3. We need to put the loader for the firmware into the EZ-USB (again...) */
 	for (rec = (const struct ihex_binrec *)loader_fw->data;
 	     rec; rec = ihex_next_binrec(rec)) {
 		err = emi26_writememory(dev, be32_to_cpu(rec->addr),
@@ -172,16 +177,16 @@ static int emi26_load_firmware (struct usb_device *dev)
 			goto wraperr;
 		}
 	}
-	msleep(250);	
+	msleep(250);	/* let device settle */
 
-	
+	/* De-assert reset (let the CPU run) */
 	err = emi26_set_reset(dev,0);
 	if (err < 0) {
 		err("%s - error loading firmware: error = %d", __func__, err);
 		goto wraperr;
 	}
 
-	
+	/* 4. We put the part of the firmware that lies in the external RAM into the EZ-USB */
 
 	for (rec = (const struct ihex_binrec *)firmware_fw->data;
 	     rec; rec = ihex_next_binrec(rec)) {
@@ -196,7 +201,7 @@ static int emi26_load_firmware (struct usb_device *dev)
 		}
 	}
 	
-	
+	/* Assert reset (stop the CPU in the EMI) */
 	err = emi26_set_reset(dev,1);
 	if (err < 0) {
 		err("%s - error loading firmware: error = %d", __func__, err);
@@ -216,14 +221,16 @@ static int emi26_load_firmware (struct usb_device *dev)
 		}
 	}
 
-	
+	/* De-assert reset (let the CPU run) */
 	err = emi26_set_reset(dev,0);
 	if (err < 0) {
 		err("%s - error loading firmware: error = %d", __func__, err);
 		goto wraperr;
 	}
-	msleep(250);	
+	msleep(250);	/* let device settle */
 
+	/* return 1 to fail the driver inialization
+	 * and give real driver change to load */
 	err = 1;
 
 wraperr:
@@ -238,7 +245,7 @@ wraperr:
 static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(EMI26_VENDOR_ID, EMI26_PRODUCT_ID) },
 	{ USB_DEVICE(EMI26_VENDOR_ID, EMI26B_PRODUCT_ID) },
-	{ }                                             
+	{ }                                             /* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE (usb, id_table);
@@ -251,7 +258,7 @@ static int emi26_probe(struct usb_interface *intf, const struct usb_device_id *i
 
 	emi26_load_firmware(dev);
 
-	
+	/* do not return the driver context, let real audio driver do that */
 	return -EIO;
 }
 
@@ -275,3 +282,5 @@ MODULE_LICENSE("GPL");
 MODULE_FIRMWARE("emi26/loader.fw");
 MODULE_FIRMWARE("emi26/bitstream.fw");
 MODULE_FIRMWARE("emi26/firmware.fw");
+/* vi:ai:syntax=c:sw=8:ts=8:tw=80
+ */

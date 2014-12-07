@@ -36,11 +36,13 @@
 #define IFX_SPI_HEADER_OVERHEAD		4
 #define IFX_RESET_TIMEOUT		msecs_to_jiffies(50)
 
+/* device flags bitfield definitions */
 #define IFX_SPI_STATE_PRESENT		0
 #define IFX_SPI_STATE_IO_IN_PROGRESS	1
 #define IFX_SPI_STATE_IO_READY		2
 #define IFX_SPI_STATE_TIMER_PENDING	3
 
+/* flow control bitfields */
 #define IFX_SPI_DCD			0
 #define IFX_SPI_CTS			1
 #define IFX_SPI_DSR			2
@@ -60,32 +62,33 @@
 
 #define IFX_SPI_STATUS_TIMEOUT		(2000*HZ)
 
+/* values for bits in power status byte */
 #define IFX_SPI_POWER_DATA_PENDING	1
 #define IFX_SPI_POWER_SRDY		2
 
 struct ifx_spi_device {
-	
+	/* Our SPI device */
 	struct spi_device *spi_dev;
 
-	
+	/* Port specific data */
 	struct kfifo tx_fifo;
 	spinlock_t fifo_lock;
 	unsigned long signal_state;
 
-	
+	/* TTY Layer logic */
 	struct tty_port tty_port;
 	struct device *tty_dev;
 	int minor;
 
-	
+	/* Low level I/O work */
 	struct tasklet_struct io_work_tasklet;
 	unsigned long flags;
 	dma_addr_t rx_dma;
 	dma_addr_t tx_dma;
 
-	int modem;		
-	int use_dma;		
-	long max_hz;		
+	int modem;		/* Modem type */
+	int use_dma;		/* provide dma-able addrs in SPI msg */
+	long max_hz;		/* max SPI frequency */
 
 	spinlock_t write_lock;
 	int write_pending;
@@ -105,17 +108,17 @@ struct ifx_spi_device {
 	struct spi_transfer spi_xfer;
 
 	struct {
-		
-		unsigned short srdy;		
-		unsigned short mrdy;		
-		unsigned short reset;		
-		unsigned short po;		
-		unsigned short reset_out;	
-		
+		/* gpio lines */
+		unsigned short srdy;		/* slave-ready gpio */
+		unsigned short mrdy;		/* master-ready gpio */
+		unsigned short reset;		/* modem-reset gpio */
+		unsigned short po;		/* modem-on gpio */
+		unsigned short reset_out;	/* modem-in-reset gpio */
+		/* state/stats */
 		int unack_srdy_int_nb;
 	} gpio;
 
-	
+	/* modem reset */
 	unsigned long mdm_reset_state;
 #define MR_START	0
 #define MR_INPROGRESS	1
@@ -123,4 +126,4 @@ struct ifx_spi_device {
 	wait_queue_head_t mdm_reset_wait;
 };
 
-#endif 
+#endif /* _IFX6X60_H */

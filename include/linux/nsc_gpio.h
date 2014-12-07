@@ -27,7 +27,7 @@ struct nsc_gpio_ops {
 	void	(*gpio_set)	(unsigned iminor, int state);
 	void	(*gpio_change)	(unsigned iminor);
 	int	(*gpio_current)	(unsigned iminor);
-	struct device*	dev;	
+	struct device*	dev;	/* for dev_dbg() support, set in init  */
 };
 
 extern ssize_t nsc_gpio_write(struct file *file, const char __user *data,

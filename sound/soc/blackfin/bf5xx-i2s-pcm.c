@@ -60,7 +60,7 @@ static const struct snd_pcm_hardware bf5xx_pcm_hardware = {
 	.period_bytes_max	= 0x10000,
 	.periods_min		= 1,
 	.periods_max		= PAGE_SIZE/32,
-	.buffer_bytes_max	= 0x20000, 
+	.buffer_bytes_max	= 0x20000, /* 128 kbytes */
 	.fifo_size		= 16,
 };
 
@@ -142,6 +142,11 @@ static snd_pcm_uframes_t bf5xx_pcm_pointer(struct snd_pcm_substream *substream)
 		diff = sport_curr_offset_rx(sport);
 	}
 
+	/*
+	 * TX at least can report one frame beyond the end of the
+	 * buffer if we hit the wraparound case - clamp to within the
+	 * buffer as the ALSA APIs require.
+	 */
 	if (diff == snd_pcm_lib_buffer_bytes(substream))
 		diff = 0;
 

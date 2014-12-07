@@ -53,23 +53,24 @@
 #include "devices.h"
 #include "generic.h"
 
+/* Physical address space information */
 
-#define ATI_W3220_PHYS  PXA_CS2_PHYS 
+#define ATI_W3220_PHYS  PXA_CS2_PHYS /* ATI Imageon 3220 Graphics */
 #define ASIC3_PHYS      PXA_CS3_PHYS
 #define ASIC3_SD_PHYS   (PXA_CS3_PHYS + 0x02000000)
 
 static unsigned long hx4700_pin_config[] __initdata = {
 
-	
+	/* SDRAM and Static Memory I/O Signals */
 	GPIO20_nSDCS_2,
 	GPIO21_nSDCS_3,
 	GPIO15_nCS_1,
-	GPIO78_nCS_2,   
-	GPIO79_nCS_3,   
+	GPIO78_nCS_2,   /* W3220 */
+	GPIO79_nCS_3,   /* ASIC3 */
 	GPIO80_nCS_4,
-	GPIO33_nCS_5,	
+	GPIO33_nCS_5,	/* EGPIO, WLAN */
 
-	
+	/* PC CARD */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -81,11 +82,11 @@ static unsigned long hx4700_pin_config[] __initdata = {
 	GPIO85_nPCE_1,
 	GPIO104_PSKTSEL,
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	
+	/* FFUART (RS-232) */
 	GPIO34_FFUART_RXD,
 	GPIO35_FFUART_CTS,
 	GPIO36_FFUART_DCD,
@@ -95,53 +96,59 @@ static unsigned long hx4700_pin_config[] __initdata = {
 	GPIO40_FFUART_DTR,
 	GPIO41_FFUART_RTS,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD_LPM_LOW,
 	GPIO44_BTUART_CTS,
 	GPIO45_BTUART_RTS_LPM_LOW,
 
-	
+	/* PWM 1 (Backlight) */
 	GPIO17_PWM1_OUT,
 
-	
+	/* I2S */
 	GPIO28_I2S_BITCLK_OUT,
 	GPIO29_I2S_SDATA_IN,
 	GPIO30_I2S_SDATA_OUT,
 	GPIO31_I2S_SYNC,
 	GPIO113_I2S_SYSCLK,
 
-	
+	/* SSP 1 (NavPoint) */
 	GPIO23_SSP1_SCLK,
 	GPIO24_SSP1_SFRM,
 	GPIO25_SSP1_TXD,
 	GPIO26_SSP1_RXD,
 
-	
+	/* SSP 2 (TSC2046) */
 	GPIO19_SSP2_SCLK,
 	GPIO86_SSP2_RXD,
 	GPIO87_SSP2_TXD,
 	GPIO88_GPIO,
 
-	
-	GPIO12_GPIO,	
-	GPIO13_GPIO,	
-	GPIO14_GPIO,	
+	/* HX4700 specific input GPIOs */
+	GPIO12_GPIO,	/* ASIC3_IRQ */
+	GPIO13_GPIO,	/* W3220_IRQ */
+	GPIO14_GPIO,	/* nWLAN_IRQ */
 
-	GPIO10_GPIO,	
-	GPIO13_GPIO,	
-	GPIO107_GPIO,	
-	GPIO108_GPIO,	
-	GPIO58_GPIO,	
-	GPIO66_GPIO,	
+	GPIO10_GPIO,	/* GSM_IRQ */
+	GPIO13_GPIO,	/* CPLD_IRQ */
+	GPIO107_GPIO,	/* DS1WM_IRQ */
+	GPIO108_GPIO,	/* GSM_READY */
+	GPIO58_GPIO,	/* TSC2046_nPENIRQ */
+	GPIO66_GPIO,	/* nSDIO_IRQ */
 };
 
+/*
+ * IRDA
+ */
 
 static struct pxaficp_platform_data ficp_info = {
 	.gpio_pwdown		= GPIO105_HX4700_nIR_ON,
 	.transceiver_cap	= IR_SIRMODE | IR_OFF,
 };
 
+/*
+ * GPIO Keys
+ */
 
 #define INIT_KEY(_code, _gpio, _active_low, _desc)	\
 	{						\
@@ -175,8 +182,13 @@ static struct platform_device gpio_keys = {
 	.id   = -1,
 };
 
+/*
+ * ASIC3
+ */
 
 static u16 asic3_gpio_config[] = {
+	/* ASIC3 GPIO banks A and B along with some of C and D
+	   implement the buffering for the CF slot. */
 	ASIC3_CONFIG_GPIO(0, 1, 1, 0),
 	ASIC3_CONFIG_GPIO(1, 1, 1, 0),
 	ASIC3_CONFIG_GPIO(2, 1, 1, 0),
@@ -211,10 +223,10 @@ static u16 asic3_gpio_config[] = {
 	ASIC3_CONFIG_GPIO(30, 1, 1, 0),
 	ASIC3_CONFIG_GPIO(31, 1, 1, 0),
 
-	
-	ASIC3_GPIOC0_LED0,		
-	ASIC3_GPIOC1_LED1,		
-	ASIC3_GPIOC2_LED2,		
+	/* GPIOC - CF, LEDs, SD */
+	ASIC3_GPIOC0_LED0,		/* red */
+	ASIC3_GPIOC1_LED1,		/* green */
+	ASIC3_GPIOC2_LED2,		/* blue */
 	ASIC3_GPIOC4_CF_nCD,
 	ASIC3_GPIOC5_nCIOW,
 	ASIC3_GPIOC6_nCIOR,
@@ -228,7 +240,7 @@ static u16 asic3_gpio_config[] = {
 	ASIC3_GPIOC14_nPIOIS16,
 	ASIC3_GPIOC15_nPIOR,
 
-	
+	/* GPIOD: input GPIOs, CF */
 	ASIC3_GPIOD11_nCIOIS16,
 	ASIC3_GPIOD12_nCWAIT,
 	ASIC3_GPIOD15_nPIOW,
@@ -250,7 +262,7 @@ static struct asic3_led asic3_leds[ASIC3_NUM_LEDS] = {
 };
 
 static struct resource asic3_resources[] = {
-	
+	/* GPIO part */
 	[0] = {
 		.start	= ASIC3_PHYS,
 		.end	= ASIC3_PHYS + ASIC3_MAP_SIZE_16BIT - 1,
@@ -261,7 +273,7 @@ static struct resource asic3_resources[] = {
 		.end	= PXA_GPIO_TO_IRQ(GPIO12_HX4700_ASIC3_IRQ),
 		.flags	= IORESOURCE_IRQ,
 	},
-	
+	/* SD part */
 	[2] = {
 		.start	= ASIC3_SD_PHYS,
 		.end	= ASIC3_SD_PHYS + ASIC3_MAP_SIZE_16BIT - 1,
@@ -292,6 +304,9 @@ static struct platform_device asic3 = {
 	},
 };
 
+/*
+ * EGPIO
+ */
 
 static struct resource egpio_resources[] = {
 	[0] = {
@@ -327,6 +342,9 @@ static struct platform_device egpio = {
 	},
 };
 
+/*
+ * LCD - Sony display connected to ATI Imageon w3220
+ */
 
 static void sony_lcd_init(void)
 {
@@ -344,7 +362,7 @@ static void sony_lcd_init(void)
 	mdelay(5);
 	gpio_set_value(GPIO111_HX4700_LCD_AVDD_3V3_ON, 1);
 
-	
+	/* FIXME: init w3220 registers here */
 
 	mdelay(5);
 	gpio_set_value(GPIO70_HX4700_LCD_SLIN1, 1);
@@ -388,11 +406,12 @@ static struct w100_tg_info w3220_tg_info = {
 	.resume		= w3220_lcd_resume,
 };
 
+/*  				 W3220_VGA		QVGA */
 static struct w100_gen_regs w3220_regs = {
 	.lcd_format =        0x00000003,
 	.lcdd_cntl1 =        0x00000000,
 	.lcdd_cntl2 =        0x0003ffff,
-	.genlcd_cntl1 =      0x00abf003,	
+	.genlcd_cntl1 =      0x00abf003,	/* 0x00fff003 */
 	.genlcd_cntl2 =      0x00000003,
 	.genlcd_cntl3 =      0x000102aa,
 };
@@ -406,10 +425,10 @@ static struct w100_mode w3220_modes[] = {
 	.upper_margin 	= 8,
 	.lower_margin 	= 7,
 	.crtc_ss	= 0x00000000,
-	.crtc_ls	= 0xa1ff01f9,	
-	.crtc_gs	= 0xc0000000,	
+	.crtc_ls	= 0xa1ff01f9,	/* 0x21ff01f9 */
+	.crtc_gs	= 0xc0000000,	/* 0x40000000 */
 	.crtc_vpos_gs	= 0x0000028f,
-	.crtc_ps1_active = 0x00000000,	
+	.crtc_ps1_active = 0x00000000,	/* 0x41060010 */
 	.crtc_rev	= 0,
 	.crtc_dclk	= 0x80000000,
 	.crtc_gclk	= 0x040a0104,
@@ -448,7 +467,7 @@ static struct w100_mode w3220_modes[] = {
 struct w100_mem_info w3220_mem_info = {
 	.ext_cntl        = 0x09640011,
 	.sdram_mode_reg  = 0x00600021,
-	.ext_timing_cntl = 0x1a001545,	
+	.ext_timing_cntl = 0x1a001545,	/* 0x15001545 */
 	.io_cntl         = 0x7ddd7333,
 	.size            = 0x1fffff,
 };
@@ -464,12 +483,12 @@ struct w100_bm_mem_info w3220_bm_mem_info = {
 };
 
 static struct w100_gpio_regs w3220_gpio_info = {
-	.init_data1 = 0xdfe00100,	
-	.gpio_dir1  = 0xffff0000,	
-	.gpio_oe1   = 0x00000000,	
-	.init_data2 = 0x00000000,	
-	.gpio_dir2  = 0x00000000,	
-	.gpio_oe2   = 0x00000000,	
+	.init_data1 = 0xdfe00100,	/* GPIO_DATA */
+	.gpio_dir1  = 0xffff0000,	/* GPIO_CNTL1 */
+	.gpio_oe1   = 0x00000000,	/* GPIO_CNTL2 */
+	.init_data2 = 0x00000000,	/* GPIO_DATA2 */
+	.gpio_dir2  = 0x00000000,	/* GPIO_CNTL3 */
+	.gpio_oe2   = 0x00000000,	/* GPIO_CNTL4 */
 };
 
 static struct w100fb_mach_info w3220_info = {
@@ -522,6 +541,9 @@ static struct platform_device hx4700_lcd = {
 	},
 };
 
+/*
+ * Backlight
+ */
 
 static struct platform_pwm_backlight_data backlight_data = {
 	.pwm_id         = 1,
@@ -539,6 +561,9 @@ static struct platform_device backlight = {
 	},
 };
 
+/*
+ * USB "Transceiver"
+ */
 
 static struct gpio_vbus_mach_info gpio_vbus_info = {
 	.gpio_pullup        = GPIO76_HX4700_USBC_PUEN,
@@ -554,6 +579,9 @@ static struct platform_device gpio_vbus = {
 	},
 };
 
+/*
+ * Touchscreen - TSC2046 connected to SSP2
+ */
 
 static const struct ads7846_platform_data tsc2046_info = {
 	.model            = 7846,
@@ -576,7 +604,7 @@ static struct spi_board_info tsc2046_board_info[] __initdata = {
 	{
 		.modalias        = "ads7846",
 		.bus_num         = 2,
-		.max_speed_hz    = 2600000, 
+		.max_speed_hz    = 2600000, /* 100 kHz sample rate */
 		.irq             = PXA_GPIO_TO_IRQ(GPIO58_HX4700_TSC2046_nPENIRQ),
 		.platform_data   = &tsc2046_info,
 		.controller_data = &tsc2046_chip,
@@ -589,6 +617,9 @@ static struct pxa2xx_spi_master pxa_ssp2_master_info = {
 	.enable_dma     = 1,
 };
 
+/*
+ * External power
+ */
 
 static int power_supply_init(struct device *dev)
 {
@@ -644,6 +675,9 @@ static struct platform_device power_supply = {
 	.num_resources = ARRAY_SIZE(power_supply_resources),
 };
 
+/*
+ * Battery charger
+ */
 
 static struct regulator_consumer_supply bq24022_consumers[] = {
 	{
@@ -697,6 +731,9 @@ static struct platform_device bq24022 = {
 	},
 };
 
+/*
+ * StrataFlash
+ */
 
 static void hx4700_set_vpp(struct platform_device *pdev, int vpp)
 {
@@ -723,6 +760,9 @@ static struct platform_device strataflash = {
 	},
 };
 
+/*
+ * Maxim MAX1587A on PI2C
+ */
 
 static struct regulator_consumer_supply max1587a_consumer = {
 	.supply = "vcc_core",
@@ -749,7 +789,7 @@ static struct max1586_subdev_data max1587a_subdev = {
 static struct max1586_platform_data max1587a_info = {
 	.num_subdevs = 1,
 	.subdevs     = &max1587a_subdev,
-	.v3_gain     = MAX1586_GAIN_R24_3k32, 
+	.v3_gain     = MAX1586_GAIN_R24_3k32, /* 730..1550 mV */
 };
 
 static struct i2c_board_info __initdata pi2c_board_info[] = {
@@ -759,6 +799,9 @@ static struct i2c_board_info __initdata pi2c_board_info[] = {
 	},
 };
 
+/*
+ * Asahi Kasei AK4641 on I2C
+ */
 
 static struct ak4641_platform_data ak4641_info = {
 	.gpio_power = GPIO27_HX4700_CODEC_ON,
@@ -778,6 +821,9 @@ static struct platform_device audio = {
 };
 
 
+/*
+ * Platform devices
+ */
 
 static struct platform_device *devices[] __initdata = {
 	&asic3,

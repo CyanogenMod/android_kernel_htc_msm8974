@@ -1,8 +1,12 @@
+/*
+ * Machine dependent access functions for RTC registers.
+ */
 #ifndef _ASM_MC146818RTC_H
 #define _ASM_MC146818RTC_H
 
 
 #ifdef CONFIG_ATARI
+/* RTC in Atari machines */
 
 #include <asm/atarihw.h>
 
@@ -17,6 +21,6 @@ atari_inb_p(RTC_PORT(1)); \
 atari_outb_p((addr),RTC_PORT(0)); \
 atari_outb_p((val),RTC_PORT(1)); \
 })
-#endif 
+#endif /* CONFIG_ATARI */
 
-#endif 
+#endif /* _ASM_MC146818RTC_H */

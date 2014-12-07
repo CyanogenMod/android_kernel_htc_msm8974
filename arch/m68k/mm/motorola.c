@@ -35,10 +35,16 @@
 #undef DEBUG
 
 #ifndef mm_cachebits
+/*
+ * Bits to add to page descriptors for "normal" caching mode.
+ * For 68020/030 this is 0.
+ * For 68040, this is _PAGE_CACHE040 (cachable, copyback)
+ */
 unsigned long mm_cachebits;
 EXPORT_SYMBOL(mm_cachebits);
 #endif
 
+/* size of memory already mapped in head.S */
 #define INIT_MAPPED_SIZE	(4UL<<20)
 
 extern unsigned long availmem;
@@ -66,6 +72,10 @@ static pmd_t * __init kernel_ptr_table(void)
 		unsigned long pmd, last;
 		int i;
 
+		/* Find the last ptr table that was used in head.S and
+		 * reuse the remaining space in that page for further
+		 * ptr tables.
+		 */
 		last = (unsigned long)kernel_pg_dir;
 		for (i = 0; i < PTRS_PER_PGD; i++) {
 			if (!pgd_present(kernel_pg_dir[i]))
@@ -189,6 +199,10 @@ static void __init map_node(int node)
 #endif
 }
 
+/*
+ * paging_init() continues the virtual memory environment setup which
+ * was begun by the code in arch/head.S.
+ */
 void __init paging_init(void)
 {
 	unsigned long zones_size[MAX_NR_ZONES] = { 0, };
@@ -200,7 +214,7 @@ void __init paging_init(void)
 	printk ("start of paging_init (%p, %lx)\n", kernel_pg_dir, availmem);
 #endif
 
-	
+	/* Fix the cache mode in the page descriptors for the 680[46]0.  */
 	if (CPU_IS_040_OR_060) {
 		int i;
 #ifndef mm_cachebits
@@ -249,6 +263,12 @@ void __init paging_init(void)
 					      end >> PAGE_SHIFT);
 	}
 
+	/*
+	 * Map the physical memory available into the kernel virtual
+	 * address space. First initialize the bootmem allocator with
+	 * the memory we already mapped, so map_node() has something
+	 * to allocate.
+	 */
 	addr = m68k_memory[0].addr;
 	size = m68k_memory[0].size;
 	free_bootmem_node(NODE_DATA(0), availmem, min(INIT_MAPPED_SIZE, size) - (availmem - addr));
@@ -261,8 +281,15 @@ void __init paging_init(void)
 
 	flush_tlb_all();
 
+	/*
+	 * initialize the bad page table and bad page to point
+	 * to a couple of allocated pages
+	 */
 	empty_zero_page = alloc_bootmem_pages(PAGE_SIZE);
 
+	/*
+	 * Set up SFC/DFC registers
+	 */
 	set_fs(KERNEL_DS);
 
 #ifdef DEBUG

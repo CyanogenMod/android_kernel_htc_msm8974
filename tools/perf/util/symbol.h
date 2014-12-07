@@ -32,6 +32,10 @@ static inline char *bfd_demangle(void __used *v, const char __used *c,
 int hex2u64(const char *ptr, u64 *val);
 char *strxfrchar(char *s, char from, char to);
 
+/*
+ * libelf 0.8.x and earlier do not support ELF_C_READ_MMAP;
+ * for newer versions we can use mmap to reduce memory usage:
+ */
 #ifdef LIBELF_NO_MMAP
 # define PERF_ELF_C_READ_MMAP ELF_C_READ
 #else
@@ -39,12 +43,16 @@ char *strxfrchar(char *s, char from, char to);
 #endif
 
 #ifndef DMGL_PARAMS
-#define DMGL_PARAMS      (1 << 0)       
-#define DMGL_ANSI        (1 << 1)       
+#define DMGL_PARAMS      (1 << 0)       /* Include function args */
+#define DMGL_ANSI        (1 << 1)       /* Include const, volatile, etc */
 #endif
 
 #define BUILD_ID_SIZE 20
 
+/** struct symbol - symtab entry
+ *
+ * @ignore - resolvable but tools ignore it (e.g. idle routines)
+ */
 struct symbol {
 	struct rb_node	rb_node;
 	u64		start;
@@ -259,4 +267,4 @@ bool symbol_type__is_a(char symbol_type, enum map_type map_type);
 
 size_t machine__fprintf_vmlinux_path(struct machine *machine, FILE *fp);
 
-#endif 
+#endif /* __PERF_SYMBOL */

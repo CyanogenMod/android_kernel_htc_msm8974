@@ -144,4 +144,4 @@ void ixgbe_set_rxpba_generic(struct ixgbe_hw *hw, int num_pb,
 	netif_warn(adapter, msglvl, adapter->netdev, format, ## arg)
 #define e_crit(msglvl, format, arg...) \
 	netif_crit(adapter, msglvl, adapter->netdev, format, ## arg)
-#endif 
+#endif /* IXGBE_COMMON */

@@ -59,6 +59,12 @@ int __inet6_hash(struct sock *sk, struct inet_timewait_sock *tw)
 }
 EXPORT_SYMBOL(__inet6_hash);
 
+/*
+ * Sockets in TCP_CLOSE state are _always_ taken out of the hash, so
+ * we need not check it for TCP lookups anymore, thanks Alexey. -DaveM
+ *
+ * The sockhash lock must be held as a reader here.
+ */
 struct sock *__inet6_lookup_established(struct net *net,
 					struct inet_hashinfo *hashinfo,
 					   const struct in6_addr *saddr,
@@ -70,6 +76,9 @@ struct sock *__inet6_lookup_established(struct net *net,
 	struct sock *sk;
 	const struct hlist_nulls_node *node;
 	const __portpair ports = INET_COMBINED_PORTS(sport, hnum);
+	/* Optimize here for direct hit, only listening connections can
+	 * have wildcards anyways.
+	 */
 	unsigned int hash = inet6_ehashfn(net, daddr, hnum, saddr, sport);
 	unsigned int slot = hash & hashinfo->ehash_mask;
 	struct inet_ehash_bucket *head = &hashinfo->ehash[slot];
@@ -78,7 +87,7 @@ struct sock *__inet6_lookup_established(struct net *net,
 	rcu_read_lock();
 begin:
 	sk_nulls_for_each_rcu(sk, node, &head->chain) {
-		
+		/* For IPV6 do the cheaper port and family tests first. */
 		if (INET6_MATCH(sk, net, hash, saddr, daddr, ports, dif)) {
 			if (unlikely(!atomic_inc_not_zero(&sk->sk_refcnt)))
 				goto begintw;
@@ -93,7 +102,7 @@ begin:
 		goto begin;
 
 begintw:
-	
+	/* Must check for a TIME_WAIT'er before going to listener hash. */
 	sk_nulls_for_each_rcu(sk, node, &head->twchain) {
 		if (INET6_TW_MATCH(sk, net, hash, saddr, daddr, ports, dif)) {
 			if (unlikely(!atomic_inc_not_zero(&sk->sk_refcnt))) {
@@ -164,6 +173,11 @@ begin:
 			result = sk;
 		}
 	}
+	/*
+	 * if the nulls value we got at the end of this lookup is
+	 * not the expected one, we must restart lookup.
+	 * We probably met an item that was moved to another chain.
+	 */
 	if (get_nulls_value(node) != hash + LISTENING_NULLS_BASE)
 		goto begin;
 	if (result) {
@@ -220,7 +234,7 @@ static int __inet6_check_established(struct inet_timewait_death_row *death_row,
 
 	spin_lock(lock);
 
-	
+	/* Check TIME-WAIT sockets first. */
 	sk_nulls_for_each(sk2, node, &head->twchain) {
 		tw = inet_twsk(sk2);
 
@@ -233,13 +247,15 @@ static int __inet6_check_established(struct inet_timewait_death_row *death_row,
 	}
 	tw = NULL;
 
-	
+	/* And established part... */
 	sk_nulls_for_each(sk2, node, &head->chain) {
 		if (INET6_MATCH(sk2, net, hash, saddr, daddr, ports, dif))
 			goto not_unique;
 	}
 
 unique:
+	/* Must record num and sport now. Otherwise we will see
+	 * in hash table socket with a funny identity. */
 	inet->inet_num = lport;
 	inet->inet_sport = htons(lport);
 	sk->sk_hash = hash;
@@ -257,7 +273,7 @@ unique:
 	if (twp) {
 		*twp = tw;
 	} else if (tw) {
-		
+		/* Silly. Should hash-dance instead... */
 		inet_twsk_deschedule(tw, death_row);
 
 		inet_twsk_put(tw);

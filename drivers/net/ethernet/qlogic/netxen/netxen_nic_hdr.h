@@ -29,8 +29,11 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 
+/*
+ * The basic unit of access when reading/writing control registers.
+ */
 
-typedef __le32 netxen_crbword_t;	
+typedef __le32 netxen_crbword_t;	/* single word in CRB space */
 
 enum {
 	NETXEN_HW_H0_CH_HUB_ADR = 0x05,
@@ -42,11 +45,13 @@ enum {
 	NETXEN_HW_H6_CH_HUB_ADR = 0x08
 };
 
+/*  Hub 0 */
 enum {
 	NETXEN_HW_MN_CRB_AGT_ADR = 0x15,
 	NETXEN_HW_MS_CRB_AGT_ADR = 0x25
 };
 
+/*  Hub 1 */
 enum {
 	NETXEN_HW_PS_CRB_AGT_ADR = 0x73,
 	NETXEN_HW_SS_CRB_AGT_ADR = 0x20,
@@ -66,6 +71,7 @@ enum {
 	NETXEN_HW_SMB_CRB_AGT_ADR = 0x18
 };
 
+/*  Hub 2 */
 enum {
 	NETXEN_HW_NIU_CRB_AGT_ADR = 0x31,
 	NETXEN_HW_I2C0_CRB_AGT_ADR = 0x19,
@@ -86,6 +92,7 @@ enum {
 	NETXEN_HW_RPMX8_CRB_AGT_ADR = 0x11
 };
 
+/*  Hub 3 */
 enum {
 	NETXEN_HW_PH_CRB_AGT_ADR = 0x1A,
 	NETXEN_HW_SRE_CRB_AGT_ADR = 0x50,
@@ -93,6 +100,7 @@ enum {
 	NETXEN_HW_RPMX0_CRB_AGT_ADR = 0x08
 };
 
+/*  Hub 4 */
 enum {
 	NETXEN_HW_PEGN0_CRB_AGT_ADR = 0x40,
 	NETXEN_HW_PEGN1_CRB_AGT_ADR,
@@ -108,6 +116,7 @@ enum {
 	NETXEN_HW_PEGN4_CRB_AGT_ADR
 };
 
+/*  Hub 5 */
 enum {
 	NETXEN_HW_PEGS0_CRB_AGT_ADR = 0x40,
 	NETXEN_HW_PEGS1_CRB_AGT_ADR,
@@ -118,6 +127,7 @@ enum {
 	NETXEN_HW_PEGSC_CRB_AGT_ADR
 };
 
+/*  Hub 6 */
 enum {
 	NETXEN_HW_CAS0_CRB_AGT_ADR = 0x46,
 	NETXEN_HW_CAS1_CRB_AGT_ADR = 0x47,
@@ -130,8 +140,10 @@ enum {
 	NETXEN_HW_OCM1_CRB_AGT_ADR = 0x07
 };
 
+/*  Floaters - non existent modules */
 #define NETXEN_HW_EFC_RPMX0_CRB_AGT_ADR	0x67
 
+/*  This field defines PCI/X adr [25:20] of agents on the CRB */
 enum {
 	NETXEN_HW_PX_MAP_CRB_PH = 0,
 	NETXEN_HW_PX_MAP_CRB_PS,
@@ -199,6 +211,7 @@ enum {
 	NETXEN_HW_PX_MAP_CRB_PGR0
 };
 
+/*  This field defines CRB adr [31:20] of the agents */
 
 #define NETXEN_HW_CRB_HUB_AGT_ADR_MN	\
 	((NETXEN_HW_H0_CH_HUB_ADR << 7) | NETXEN_HW_MN_CRB_AGT_ADR)
@@ -372,8 +385,16 @@ enum {
 #define NETXEN_ROMUSB_ROM_DUMMY_BYTE_CNT (ROMUSB_ROM + 0x0014)
 #define NETXEN_ROMUSB_ROM_RDATA		(ROMUSB_ROM + 0x0018)
 
+/* Lock IDs for ROM lock */
 #define ROM_LOCK_DRIVER	0x0d417340
 
+/******************************************************************************
+*
+*    Definitions specific to M25P flash
+*
+*******************************************************************************
+*   Instructions
+*/
 #define M25P_INSTR_WREN		0x06
 #define M25P_INSTR_WRDI		0x04
 #define M25P_INSTR_RDID		0x9f
@@ -387,6 +408,7 @@ enum {
 #define M25P_INSTR_DP		0xb9
 #define M25P_INSTR_RES		0xab
 
+/* all are 1MB windows */
 
 #define NETXEN_PCI_CRB_WINDOWSIZE	0x00100000
 #define NETXEN_PCI_CRB_WINDOW(A)	\
@@ -469,12 +491,15 @@ enum {
 #define NETXEN_ADDR_QDR_NET_MAX_P2 (0x00000003003fffffULL)
 #define NETXEN_ADDR_QDR_NET_MAX_P3 (0x0000000303ffffffULL)
 
+/*
+ *   Register offsets for MN
+ */
 #define	NETXEN_MIU_CONTROL	(0x000)
 #define	NETXEN_MIU_MN_CONTROL	(NETXEN_CRB_DDR_NET+NETXEN_MIU_CONTROL)
 
-	
+	/* 200ms delay in each loop */
 #define	NETXEN_NIU_PHY_WAITLEN		200000
-	
+	/* 10 seconds before we give up */
 #define	NETXEN_NIU_PHY_WAITMAX		50
 #define	NETXEN_NIU_MAX_GBE_PORTS	4
 #define	NETXEN_NIU_MAX_XG_PORTS		2
@@ -621,6 +646,7 @@ enum {
 #define NETXEN_NIU_XG1_CONTROL_CHAR_CNT		(NETXEN_CRB_NIU + 0x80054)
 #define NETXEN_NIU_XG1_PAUSE_FRAME_CNT		(NETXEN_CRB_NIU + 0x80058)
 
+/* P3 802.3ap */
 #define NETXEN_NIU_AP_MAC_CONFIG_0(I)      (NETXEN_CRB_NIU+0xa0000+(I)*0x10000)
 #define NETXEN_NIU_AP_MAC_CONFIG_1(I)      (NETXEN_CRB_NIU+0xa0004+(I)*0x10000)
 #define NETXEN_NIU_AP_MAC_IPG_IFG(I)       (NETXEN_CRB_NIU+0xa0008+(I)*0x10000)
@@ -646,6 +672,9 @@ enum {
 #define TA_CTL_WRITE	4
 #define TA_CTL_BUSY	8
 
+/*
+ *   Register offsets for MN
+ */
 #define MIU_TEST_AGT_BASE		(0x90)
 
 #define MIU_TEST_AGT_ADDR_LO		(0x04)
@@ -658,6 +687,9 @@ enum {
 #define MIU_TEST_AGT_ADDR_MASK		0xfffffff8
 #define MIU_TEST_AGT_UPPER_ADDR(off)	(0)
 
+/*
+ *   Register offsets for MS
+ */
 #define SIU_TEST_AGT_BASE		(0x60)
 
 #define SIU_TEST_AGT_ADDR_LO		(0x04)
@@ -672,6 +704,7 @@ enum {
 #define SIU_TEST_AGT_ADDR_MASK		0x3ffff8
 #define SIU_TEST_AGT_UPPER_ADDR(off)	((off)>>22)
 
+/* XG Link status */
 #define XG_LINK_UP	0x10
 #define XG_LINK_DOWN	0x20
 
@@ -745,28 +778,46 @@ enum {
 #define CRB_FW_CAPABILITIES_1		(NETXEN_CAM_RAM(0x128))
 #define CRB_MAC_BLOCK_START		(NETXEN_CAM_RAM(0x1c0))
 
+/*
+ * capabilities register, can be used to selectively enable/disable features
+ * for backward compatibility
+ */
 #define CRB_NIC_CAPABILITIES_HOST	NETXEN_NIC_REG(0x1a8)
 #define CRB_NIC_MSI_MODE_HOST		NETXEN_NIC_REG(0x270)
 
 #define INTR_SCHEME_PERPORT	      	0x1
 #define MSI_MODE_MULTIFUNC	      	0x1
 
+/* used for ethtool tests */
 #define CRB_SCRATCHPAD_TEST	    NETXEN_NIC_REG(0x280)
 
+/*
+ * CrbPortPhanCntrHi/Lo is used to pass the address of HostPhantomIndex address
+ * which can be read by the Phantom host to get producer/consumer indexes from
+ * Phantom/Casper. If it is not HOST_SHARED_MEMORY, then the following
+ * registers will be used for the addresses of the ring's shared memory
+ * on the Phantom.
+ */
 
 #define nx_get_temp_val(x)		((x) >> 16)
 #define nx_get_temp_state(x)		((x) & 0xffff)
 #define nx_encode_temp(val, state)	(((val) << 16) | (state))
 
+/*
+ * Temperature control.
+ */
 enum {
-	NX_TEMP_NORMAL = 0x1,	
-	NX_TEMP_WARN,		
-	NX_TEMP_PANIC		
+	NX_TEMP_NORMAL = 0x1,	/* Normal operating range */
+	NX_TEMP_WARN,		/* Sound alert, temperature getting high */
+	NX_TEMP_PANIC		/* Fatal error, hardware has shut down. */
 };
 
+/* Lock IDs for PHY lock */
 #define PHY_LOCK_DRIVER		0x44524956
 
+/* Used for PS PCI Memory access */
 #define PCIX_PS_OP_ADDR_LO	(0x10000)
+/*   via CRB  (PS side only)     */
 #define PCIX_PS_OP_ADDR_HI	(0x10004)
 
 #define PCIX_INT_VECTOR		(0x10100)
@@ -857,18 +908,18 @@ enum {
 #define PCIE_SEM0_UNLOCK	(0x1c004)
 #define PCIE_SEM1_LOCK		(0x1c008)
 #define PCIE_SEM1_UNLOCK	(0x1c00c)
-#define PCIE_SEM2_LOCK		(0x1c010)	
-#define PCIE_SEM2_UNLOCK	(0x1c014)	
-#define PCIE_SEM3_LOCK	  	(0x1c018)	
-#define PCIE_SEM3_UNLOCK	(0x1c01c)	
+#define PCIE_SEM2_LOCK		(0x1c010)	/* Flash lock   */
+#define PCIE_SEM2_UNLOCK	(0x1c014)	/* Flash unlock */
+#define PCIE_SEM3_LOCK	  	(0x1c018)	/* Phy lock     */
+#define PCIE_SEM3_UNLOCK	(0x1c01c)	/* Phy unlock   */
 #define PCIE_SEM4_LOCK	  	(0x1c020)
 #define PCIE_SEM4_UNLOCK	(0x1c024)
-#define PCIE_SEM5_LOCK		(0x1c028)	
-#define PCIE_SEM5_UNLOCK	(0x1c02c)	
-#define PCIE_SEM6_LOCK		(0x1c030)	
-#define PCIE_SEM6_UNLOCK	(0x1c034)	
-#define PCIE_SEM7_LOCK		(0x1c038)	
-#define PCIE_SEM7_UNLOCK	(0x1c03c)	
+#define PCIE_SEM5_LOCK		(0x1c028)	/* API lock     */
+#define PCIE_SEM5_UNLOCK	(0x1c02c)	/* API unlock   */
+#define PCIE_SEM6_LOCK		(0x1c030)	/* sw lock      */
+#define PCIE_SEM6_UNLOCK	(0x1c034)	/* sw unlock    */
+#define PCIE_SEM7_LOCK		(0x1c038)	/* crb win lock */
+#define PCIE_SEM7_UNLOCK	(0x1c03c)	/* crbwin unlock*/
 #define PCIE_SEM_LOCK(N)	(PCIE_SEM0_LOCK + 8*(N))
 #define PCIE_SEM_UNLOCK(N)	(PCIE_SEM0_UNLOCK + 8*(N))
 
@@ -904,6 +955,7 @@ enum {
 #define NX_CRB_DEV_REF_COUNT		(NETXEN_CAM_RAM(0x138))
 #define NX_CRB_DEV_STATE		(NETXEN_CAM_RAM(0x140))
 
+/* Device State */
 #define NX_DEV_COLD		1
 #define NX_DEV_INITALIZING	2
 #define NX_DEV_READY		3
@@ -926,6 +978,9 @@ enum {
 #define	ISR_MSI_INT_TRIGGER(FUNC) (NETXEN_PCIX_PS_REG(PCIX_MSI_F(FUNC)))
 #define ISR_LEGACY_INT_TRIGGERED(VAL)	(((VAL) & 0x300) == 0x200)
 
+/*
+ * PCI Interrupt Vector Values.
+ */
 #define	PCIX_INT_VECTOR_BIT_F0	0x0080
 #define	PCIX_INT_VECTOR_BIT_F1	0x0100
 #define	PCIX_INT_VECTOR_BIT_F2	0x0200
@@ -993,4 +1048,4 @@ struct netxen_legacy_intr_set {
 		.pci_int_reg	=	ISR_MSI_INT_TRIGGER(7) },	\
 }
 
-#endif				
+#endif				/* __NETXEN_NIC_HDR_H_ */

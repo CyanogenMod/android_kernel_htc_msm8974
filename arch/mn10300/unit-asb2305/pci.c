@@ -26,6 +26,14 @@ int pcibios_last_bus = -1;
 struct pci_bus *pci_root_bus;
 struct pci_ops *pci_root_ops;
 
+/*
+ * The accessible PCI window does not cover the entire CPU address space, but
+ * there are devices we want to access outside of that window, so we need to
+ * insert specific PCI bus resources instead of using the platform-level bus
+ * resources directly for the PCI root bus.
+ *
+ * These are configured and inserted by pcibios_init().
+ */
 static struct resource pci_ioport_resource = {
 	.name	= "PCI IO",
 	.start	= 0xbe000000,
@@ -40,6 +48,9 @@ static struct resource pci_iomem_resource = {
 	.flags	= IORESOURCE_MEM,
 };
 
+/*
+ * Functions for accessing PCI configuration space
+ */
 
 #define CONFIG_CMD(bus, devfn, where) \
 	(0x80000000 | (bus->number << 16) | (devfn << 8) | (where & ~3))
@@ -65,6 +76,9 @@ static inline int __query(const struct pci_bus *bus, unsigned int devfn)
 	return 1;
 }
 
+/*
+ *
+ */
 static int pci_ampci_read_config_byte(struct pci_bus *bus, unsigned int devfn,
 				      int where, u32 *_value)
 {
@@ -218,9 +232,19 @@ static struct pci_ops pci_direct_ampci = {
 	pci_ampci_write_config,
 };
 
+/*
+ * Before we decide to use direct hardware access mechanisms, we try to do some
+ * trivial checks to ensure it at least _seems_ to be working -- we just test
+ * whether bus 00 contains a host bridge (this is similar to checking
+ * techniques used in XFree86, but ours should be more reliable since we
+ * attempt to make use of direct access hints provided by the PCI BIOS).
+ *
+ * This should be close to trivial, but it isn't, because there are buggy
+ * chipsets (yes, you guessed it, by Intel and Compaq) that have no class ID.
+ */
 static int __init pci_sanity_check(struct pci_ops *o)
 {
-	struct pci_bus bus;		
+	struct pci_bus bus;		/* Fake bus and device */
 	u32 x;
 
 	bus.number = 0;
@@ -241,6 +265,9 @@ static int __init pci_check_direct(void)
 
 	local_irq_save(flags);
 
+	/*
+	 * Check if access works.
+	 */
 	if (pci_sanity_check(&pci_direct_ampci)) {
 		local_irq_restore(flags);
 		printk(KERN_INFO "PCI: Using configuration ampci\n");
@@ -295,6 +322,10 @@ static void __devinit pcibios_fixup_device_resources(struct pci_dev *dev)
 	}
 }
 
+/*
+ *  Called after each bus is probed, but before its children
+ *  are examined.
+ */
 void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 {
 	struct pci_dev *dev;
@@ -308,6 +339,12 @@ void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 		pcibios_fixup_device_resources(dev);
 }
 
+/*
+ * Initialization. Try all known PCI access methods. Note that we support
+ * using both PCI BIOS and direct access: in such cases, we use I/O ports
+ * to access config space, but we still keep BIOS order of cards to be
+ * compatible with 2.0.X. This should go away some day.
+ */
 static int __init pcibios_init(void)
 {
 	resource_size_t io_offset, mem_offset;
@@ -376,6 +413,9 @@ int pcibios_enable_device(struct pci_dev *dev, int mask)
 	return err;
 }
 
+/*
+ * disable the ethernet chipset
+ */
 static void __init unit_disable_pcnet(struct pci_bus *bus, struct pci_ops *o)
 {
 	u32 x;
@@ -399,20 +439,23 @@ static void __init unit_disable_pcnet(struct pci_bus *bus, struct pci_ops *o)
 #define __get_RDP() ({ RDP & 0xffff; })
 
 	__set_RAP(0);
-	__set_RDP(0x0004);	
+	__set_RDP(0x0004);	/* CSR0 = STOP */
 
-	__set_RAP(88);		
+	__set_RAP(88);		/* check CSR88 indicates an Am79C973 */
 	BUG_ON(__get_RDP() != 0x5003);
 
 	for (x = 0; x < 100; x++)
 		asm volatile("nop");
 
-	__set_RDP(0x0004);	
+	__set_RDP(0x0004);	/* CSR0 = STOP */
 }
 
+/*
+ * initialise the unit hardware
+ */
 asmlinkage void __init unit_pci_init(void)
 {
-	struct pci_bus bus;		
+	struct pci_bus bus;		/* Fake bus and device */
 	struct pci_ops *o = &pci_direct_ampci;
 	u32 x;
 
@@ -422,6 +465,9 @@ asmlinkage void __init unit_pci_init(void)
 
 	MEM_PAGING_REG = 0xE8000000;
 
+	/* we need to set up the bridge _now_ or we won't be able to access the
+	 * PCI config registers
+	 */
 	BRIDGEREGW(PCI_COMMAND) |=
 		PCI_COMMAND_SERR | PCI_COMMAND_PARITY |
 		PCI_COMMAND_MEMORY | PCI_COMMAND_IO | PCI_COMMAND_MASTER;
@@ -429,18 +475,20 @@ asmlinkage void __init unit_pci_init(void)
 	BRIDGEREGB(PCI_LATENCY_TIMER)	= 0x10;
 	BRIDGEREGL(PCI_BASE_ADDRESS_0)	= 0x80000000;
 	BRIDGEREGB(PCI_INTERRUPT_LINE)	= 1;
-	BRIDGEREGL(0x48)		= 0x98000000;	
-	BRIDGEREGB(0x41)		= 0x00;		
-	BRIDGEREGB(0x42)		= 0x01;		
+	BRIDGEREGL(0x48)		= 0x98000000;	/* AMPCI base addr */
+	BRIDGEREGB(0x41)		= 0x00;		/* secondary bus
+							 * number */
+	BRIDGEREGB(0x42)		= 0x01;		/* subordinate bus
+							 * number */
 	BRIDGEREGB(0x44)		= 0x01;
 	BRIDGEREGL(0x50)		= 0x00000001;
 	BRIDGEREGL(0x58)		= 0x00001002;
 	BRIDGEREGL(0x5C)		= 0x00000011;
 
-	
+	/* we also need to set up the PCI-PCI bridge */
 	bus.number = 0;
 
-	
+	/* IO: 0x00000000-0x00020000 */
 	o->read (&bus, PCI_DEVFN(3, 0), PCI_COMMAND,		2, &x);
 	x |= PCI_COMMAND_MASTER |
 		PCI_COMMAND_IO | PCI_COMMAND_MEMORY |

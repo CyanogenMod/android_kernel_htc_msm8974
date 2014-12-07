@@ -34,6 +34,9 @@ MODULE_DESCRIPTION("SAT support for Cypress USB/ATA bridges with ATACB");
 MODULE_AUTHOR("Matthieu Castet <castet.matthieu@free.fr>");
 MODULE_LICENSE("GPL");
 
+/*
+ * The table of devices
+ */
 #define UNUSUAL_DEV(id_vendor, id_product, bcdDeviceMin, bcdDeviceMax, \
 		    vendorName, productName, useProtocol, useTransport, \
 		    initFunction, flags) \
@@ -42,12 +45,15 @@ MODULE_LICENSE("GPL");
 
 static struct usb_device_id cypress_usb_ids[] = {
 #	include "unusual_cypress.h"
-	{ }		
+	{ }		/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, cypress_usb_ids);
 
 #undef UNUSUAL_DEV
 
+/*
+ * The flags table
+ */
 #define UNUSUAL_DEV(idVendor, idProduct, bcdDeviceMin, bcdDeviceMax, \
 		    vendor_name, product_name, use_protocol, use_transport, \
 		    init_function, Flags) \
@@ -61,12 +67,19 @@ MODULE_DEVICE_TABLE(usb, cypress_usb_ids);
 
 static struct us_unusual_dev cypress_unusual_dev_list[] = {
 #	include "unusual_cypress.h"
-	{ }		
+	{ }		/* Terminating entry */
 };
 
 #undef UNUSUAL_DEV
 
 
+/*
+ * ATACB is a protocol used on cypress usb<->ata bridge to
+ * send raw ATA command over mass storage
+ * There is a ATACB2 protocol that support LBA48 on newer chip.
+ * More info that be found on cy7c68310_8.pdf and cy7c68300c_8.pdf
+ * datasheet from cypress.com.
+ */
 static void cypress_atacb_passthrough(struct scsi_cmnd *srb, struct us_data *us)
 {
 	unsigned char save_cmnd[MAX_COMMAND_SIZE];
@@ -79,65 +92,70 @@ static void cypress_atacb_passthrough(struct scsi_cmnd *srb, struct us_data *us)
 	memcpy(save_cmnd, srb->cmnd, sizeof(save_cmnd));
 	memset(srb->cmnd, 0, MAX_COMMAND_SIZE);
 
-	
-	if (save_cmnd[1] >> 5) 
+	/* check if we support the command */
+	if (save_cmnd[1] >> 5) /* MULTIPLE_COUNT */
 		goto invalid_fld;
-	
+	/* check protocol */
 	switch((save_cmnd[1] >> 1) & 0xf) {
-		case 3: 
-		case 4: 
-		case 5: 
+		case 3: /*no DATA */
+		case 4: /* PIO in */
+		case 5: /* PIO out */
 			break;
 		default:
 			goto invalid_fld;
 	}
 
-	
+	/* first build the ATACB command */
 	srb->cmd_len = 16;
 
-	srb->cmnd[0] = 0x24; 
-	srb->cmnd[1] = 0x24; 
+	srb->cmnd[0] = 0x24; /* bVSCBSignature : vendor-specific command
+	                        this value can change, but most(all ?) manufacturers
+							keep the cypress default : 0x24 */
+	srb->cmnd[1] = 0x24; /* bVSCBSubCommand : 0x24 for ATACB */
 
-	srb->cmnd[3] = 0xff - 1; 
-	srb->cmnd[4] = 1; 
+	srb->cmnd[3] = 0xff - 1; /* features, sector count, lba low, lba med
+								lba high, device, command are valid */
+	srb->cmnd[4] = 1; /* TransferBlockCount : 512 */
 
 	if (save_cmnd[0] == ATA_16) {
-		srb->cmnd[ 6] = save_cmnd[ 4]; 
-		srb->cmnd[ 7] = save_cmnd[ 6]; 
-		srb->cmnd[ 8] = save_cmnd[ 8]; 
-		srb->cmnd[ 9] = save_cmnd[10]; 
-		srb->cmnd[10] = save_cmnd[12]; 
-		srb->cmnd[11] = save_cmnd[13]; 
-		srb->cmnd[12] = save_cmnd[14]; 
+		srb->cmnd[ 6] = save_cmnd[ 4]; /* features */
+		srb->cmnd[ 7] = save_cmnd[ 6]; /* sector count */
+		srb->cmnd[ 8] = save_cmnd[ 8]; /* lba low */
+		srb->cmnd[ 9] = save_cmnd[10]; /* lba med */
+		srb->cmnd[10] = save_cmnd[12]; /* lba high */
+		srb->cmnd[11] = save_cmnd[13]; /* device */
+		srb->cmnd[12] = save_cmnd[14]; /* command */
 
-		if (save_cmnd[1] & 0x01) {
-			
+		if (save_cmnd[1] & 0x01) {/* extended bit set for LBA48 */
+			/* this could be supported by atacb2 */
 			if (save_cmnd[3] || save_cmnd[5] || save_cmnd[7] || save_cmnd[9]
 					|| save_cmnd[11])
 				goto invalid_fld;
 		}
 	}
-	else { 
-		srb->cmnd[ 6] = save_cmnd[3]; 
-		srb->cmnd[ 7] = save_cmnd[4]; 
-		srb->cmnd[ 8] = save_cmnd[5]; 
-		srb->cmnd[ 9] = save_cmnd[6]; 
-		srb->cmnd[10] = save_cmnd[7]; 
-		srb->cmnd[11] = save_cmnd[8]; 
-		srb->cmnd[12] = save_cmnd[9]; 
+	else { /* ATA12 */
+		srb->cmnd[ 6] = save_cmnd[3]; /* features */
+		srb->cmnd[ 7] = save_cmnd[4]; /* sector count */
+		srb->cmnd[ 8] = save_cmnd[5]; /* lba low */
+		srb->cmnd[ 9] = save_cmnd[6]; /* lba med */
+		srb->cmnd[10] = save_cmnd[7]; /* lba high */
+		srb->cmnd[11] = save_cmnd[8]; /* device */
+		srb->cmnd[12] = save_cmnd[9]; /* command */
 
 	}
-	
+	/* Filter SET_FEATURES - XFER MODE command */
 	if ((srb->cmnd[12] == ATA_CMD_SET_FEATURES)
 			&& (srb->cmnd[6] == SETFEATURES_XFER))
 		goto invalid_fld;
 
 	if (srb->cmnd[12] == ATA_CMD_ID_ATA || srb->cmnd[12] == ATA_CMD_ID_ATAPI)
-		srb->cmnd[2] |= (1<<7); 
+		srb->cmnd[2] |= (1<<7); /* set  IdentifyPacketDevice for these cmds */
 
 
 	usb_stor_transparent_scsi_command(srb, us);
 
+	/* if the device doesn't support ATACB
+	 */
 	if (srb->result == SAM_STAT_CHECK_CONDITION &&
 			memcmp(srb->sense_buffer, usb_stor_sense_invalidCDB,
 				sizeof(usb_stor_sense_invalidCDB)) == 0) {
@@ -145,6 +163,9 @@ static void cypress_atacb_passthrough(struct scsi_cmnd *srb, struct us_data *us)
 		goto end;
 	}
 
+	/* if ck_cond flags is set, and there wasn't critical error,
+	 * build the special sense
+	 */
 	if ((srb->result != (DID_ERROR << 16) &&
 				srb->result != (DID_ABORT << 16)) &&
 			save_cmnd[2] & 0x20) {
@@ -154,8 +175,14 @@ static void cypress_atacb_passthrough(struct scsi_cmnd *srb, struct us_data *us)
 		unsigned char *desc = sb + 8;
 		int tmp_result;
 
+		/* build the command for
+		 * reading the ATA registers */
 		scsi_eh_prep_cmnd(srb, &ses, NULL, 0, sizeof(regs));
 
+		/* we use the same command as before, but we set
+		 * the read taskfile bit, for not executing atacb command,
+		 * but reading register selected in srb->cmnd[4]
+		 */
 		srb->cmd_len = 16;
 		srb->cmnd = ses.cmnd;
 		srb->cmnd[2] = 1;
@@ -164,36 +191,41 @@ static void cypress_atacb_passthrough(struct scsi_cmnd *srb, struct us_data *us)
 		memcpy(regs, srb->sense_buffer, sizeof(regs));
 		tmp_result = srb->result;
 		scsi_eh_restore_cmnd(srb, &ses);
-		
+		/* we fail to get registers, report invalid command */
 		if (tmp_result != SAM_STAT_GOOD)
 			goto invalid_fld;
 
-		
+		/* build the sense */
 		memset(sb, 0, SCSI_SENSE_BUFFERSIZE);
 
-		
+		/* set sk, asc for a good command */
 		sb[1] = RECOVERED_ERROR;
-		sb[2] = 0; 
+		sb[2] = 0; /* ATA PASS THROUGH INFORMATION AVAILABLE */
 		sb[3] = 0x1D;
 
+		/* XXX we should generate sk, asc, ascq from status and error
+		 * regs
+		 * (see 11.1 Error translation ATA device error to SCSI error
+		 *  map, and ata_to_sense_error from libata.)
+		 */
 
-		
+		/* Sense data is current and format is descriptor. */
 		sb[0] = 0x72;
-		desc[0] = 0x09; 
+		desc[0] = 0x09; /* ATA_RETURN_DESCRIPTOR */
 
-		
+		/* set length of additional sense data */
 		sb[7] = 14;
 		desc[1] = 12;
 
-		
+		/* Copy registers into sense buffer. */
 		desc[ 2] = 0x00;
-		desc[ 3] = regs[1];  
-		desc[ 5] = regs[2];  
-		desc[ 7] = regs[3];  
-		desc[ 9] = regs[4];  
-		desc[11] = regs[5];  
-		desc[12] = regs[6];  
-		desc[13] = regs[7];  
+		desc[ 3] = regs[1];  /* features */
+		desc[ 5] = regs[2];  /* sector count */
+		desc[ 7] = regs[3];  /* lba low */
+		desc[ 9] = regs[4];  /* lba med */
+		desc[11] = regs[5];  /* lba high */
+		desc[12] = regs[6];  /* device */
+		desc[13] = regs[7];  /* command */
 
 		srb->result = (DRIVER_SENSE << 24) | SAM_STAT_CHECK_CONDITION;
 	}

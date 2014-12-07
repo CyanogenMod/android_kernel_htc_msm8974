@@ -42,12 +42,33 @@
 #define PHONE_VENDOR_DIGI         4
 #define PHONE_VENDOR_FRANKLIN     5
 
+/******************************************************************************
+ *  Vendor Summary Information Area
+ *
+ *  Quicknet Technologies, Inc. - makes low density analog telephony cards
+ *    with audio compression, POTS and PSTN interfaces (www.quicknet.net)
+ *
+ *  (other vendors following this API shuld add a short description of
+ *  the telephony products they support under Linux)
+ *
+ *****************************************************************************/
 #define QTI_PHONEJACK		100
 #define QTI_LINEJACK		300
 #define QTI_PHONEJACK_LITE	400
 #define QTI_PHONEJACK_PCI	500
 #define QTI_PHONECARD		600
 
+/******************************************************************************
+*
+* The capabilities ioctls can inform you of the capabilities of each phone
+* device installed in your system.  The PHONECTL_CAPABILITIES ioctl
+* returns an integer value indicating the number of capabilities the   
+* device has.  The PHONECTL_CAPABILITIES_LIST will fill an array of 
+* capability structs with all of its capabilities.  The
+* PHONECTL_CAPABILITIES_CHECK takes a single capability struct and returns
+* a TRUE if the device has that capability, otherwise it returns false.
+* 
+******************************************************************************/
 typedef enum {
 	vendor = 0,
 	device,
@@ -135,9 +156,21 @@ typedef struct {
 #define PSTN_OFF_HOOK		2
 #define PSTN_PULSE_DIAL		3
 
+/******************************************************************************
+* 
+* The wink duration is tunable with this ioctl.  The default wink duration  
+* is 320ms.  You do not need to use this ioctl if you do not require a
+* different wink duration.
+* 
+******************************************************************************/
 #define PHONE_WINK_DURATION		_IOW ('q', 0xA6, int)
 #define PHONE_WINK			_IOW ('q', 0xAA, int)
 
+/******************************************************************************
+* 
+*  Codec Definitions
+* 
+******************************************************************************/
 typedef enum {
 	G723_63 = 1,
 	G723_53 = 2,
@@ -163,9 +196,43 @@ struct phone_codec_data
 #define PHONE_QUERY_CODEC               _IOWR ('q', 0xA7, struct phone_codec_data *)
 #define PHONE_PSTN_LINETEST             _IO ('q', 0xA8)
 
+/******************************************************************************
+* 
+* This controls the VAD/CNG functionality of G.723.1.  The driver will
+* always pass full size frames, any unused bytes will be padded with zeros,
+* and frames passed to the driver should also be padded with zeros.  The
+* frame type is encoded in the least significant two bits of the first
+* WORD of the frame as follows:
+*
+* bits 1-0	Frame Type	Data Rate		Significant Words
+* 00		0		G.723.1 6.3		12
+* 01		1		G.723.1 5.3		10
+* 10		2		VAD/CNG			 2
+* 11		3		Repeat last CNG		 2 bits
+* 
+******************************************************************************/
 #define PHONE_VAD			_IOW ('q', 0xA9, int)
 
 
+/******************************************************************************
+*
+* The exception structure allows us to multiplex multiple events onto the
+* select() exception set.  If any of these flags are set select() will
+* return with a positive indication on the exception set.  The dtmf_ready
+* bit indicates if there is data waiting in the DTMF buffer.  The
+* hookstate bit is set if there is a change in hookstate status, it does not
+* indicate the current state of the hookswitch.  The pstn_ring bit
+* indicates that the DAA on a LineJACK card has detected ring voltage on
+* the PSTN port.  The caller_id bit indicates that caller_id data has been
+* received and is available.  The pstn_wink bit indicates that the DAA on
+* the LineJACK has received a wink from the telco switch.  The f0, f1, f2
+* and f3 bits indicate that the filter has been triggered by detecting the
+* frequency programmed into that filter.
+*
+* The remaining bits should be set to zero. They will become defined over time
+* for other interface cards and their needs.
+*
+******************************************************************************/
 struct phone_except
 {
 	unsigned int dtmf_ready:1;
@@ -191,5 +258,5 @@ union telephony_exception {
 };
 
 
-#endif		
+#endif		/* TELEPHONY_H */
 

@@ -1,3 +1,13 @@
+/*
+ * Glue code for the ISP1760 driver and bus
+ * Currently there is support for
+ * - OpenFirmware
+ * - PCI
+ * - PDEV (generic platform device centralized driver model)
+ *
+ * (c) 2007 Sebastian Siewior <bigeasy@linutronix.de>
+ *
+ */
 
 #include <linux/usb.h>
 #include <linux/io.h>
@@ -70,7 +80,7 @@ static int of_isp1760_probe(struct platform_device *dev)
 	if (of_device_is_compatible(dp, "nxp,usb-isp1761"))
 		devflags |= ISP1760_FLAG_ISP1761;
 
-	
+	/* Some systems wire up only 16 of the 32 data lines */
 	of_property_read_u32(dp, "bus-width", &bus_width);
 	if (bus_width == 16)
 		devflags |= ISP1760_FLAG_BUS_WIDTH_16;
@@ -192,7 +202,7 @@ static int __devinit isp1761_pci_probe(struct pci_dev *dev,
 	if (!dev->irq)
 		return -ENODEV;
 
-	
+	/* Grab the PLX PCI mem maped port start address we need  */
 	nxp_pci_io_base = pci_resource_start(dev, 0);
 	iolength = pci_resource_len(dev, 0);
 
@@ -207,7 +217,7 @@ static int __devinit isp1761_pci_probe(struct pci_dev *dev,
 		ret_status = -ENOMEM;
 		goto cleanup1;
 	}
-	
+	/* Grab the PLX PCI shared memory of the ISP 1761 we need  */
 	pci_mem_phy0 = pci_resource_start(dev, 3);
 	memlength = pci_resource_len(dev, 3);
 	if (memlength < 0xffff) {
@@ -222,7 +232,7 @@ static int __devinit isp1761_pci_probe(struct pci_dev *dev,
 		goto cleanup2;
 	}
 
-	
+	/* map available memory */
 	chip_addr = ioremap_nocache(pci_mem_phy0,memlength);
 	if (!chip_addr) {
 		printk(KERN_ERR "Error ioremap failed\n");
@@ -230,7 +240,7 @@ static int __devinit isp1761_pci_probe(struct pci_dev *dev,
 		goto cleanup3;
 	}
 
-	
+	/* bad pci latencies can contribute to overruns */
 	pci_read_config_byte(dev, PCI_LATENCY_TIMER, &latency);
 	if (latency) {
 		pci_read_config_byte(dev, PCI_MAX_LAT, &limit);
@@ -238,9 +248,16 @@ static int __devinit isp1761_pci_probe(struct pci_dev *dev,
 			pci_write_config_byte(dev, PCI_LATENCY_TIMER, limit);
 	}
 
+	/* Try to check whether we can access Scratch Register of
+	 * Host Controller or not. The initial PCI access is retried until
+	 * local init for the PCI bridge is completed
+	 */
 	retry_count = 20;
 	reg_data = 0;
 	while ((reg_data != 0xFACE) && retry_count) {
+		/*by default host is in 16bit mode, so
+		 * io operations at this stage must be 16 bit
+		 * */
 		writel(0xface, chip_addr + HC_SCRATCH_REG);
 		udelay(100);
 		reg_data = readl(chip_addr + HC_SCRATCH_REG) & 0x0000ffff;
@@ -249,6 +266,9 @@ static int __devinit isp1761_pci_probe(struct pci_dev *dev,
 
 	iounmap(chip_addr);
 
+	/* Host Controller presence is detected by writing to scratch register
+	 * and reading back and checking the contents are same or not
+	 */
 	if (reg_data != 0xFACE) {
 		dev_err(&dev->dev, "scratch register mismatch %x\n", reg_data);
 		ret_status = -ENOMEM;
@@ -257,7 +277,7 @@ static int __devinit isp1761_pci_probe(struct pci_dev *dev,
 
 	pci_set_master(dev);
 
-	
+	/* configure PLX PCI chip to pass interrupts */
 #define PLX_INT_CSR_REG 0x68
 	reg_data = readl(iobase + PLX_INT_CSR_REG);
 	reg_data |= 0x900;
@@ -272,7 +292,7 @@ static int __devinit isp1761_pci_probe(struct pci_dev *dev,
 		goto cleanup3;
 	}
 
-	
+	/* done with PLX IO access */
 	iounmap(iobase);
 	release_mem_region(nxp_pci_io_base, iolength);
 

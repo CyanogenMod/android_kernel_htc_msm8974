@@ -27,6 +27,9 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * Veritas filesystem driver - shared subroutines.
+ */
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
 #include <linux/kernel.h>
@@ -50,6 +53,17 @@ vxfs_put_page(struct page *pp)
 	page_cache_release(pp);
 }
 
+/**
+ * vxfs_get_page - read a page into memory.
+ * @ip:		inode to read from
+ * @n:		page number
+ *
+ * Description:
+ *   vxfs_get_page reads the @n th page of @ip into the pagecache.
+ *
+ * Returns:
+ *   The wanted page on success, else a NULL pointer.
+ */
 struct page *
 vxfs_get_page(struct address_space *mapping, u_long n)
 {
@@ -59,8 +73,8 @@ vxfs_get_page(struct address_space *mapping, u_long n)
 
 	if (!IS_ERR(pp)) {
 		kmap(pp);
-		
-			
+		/** if (!PageChecked(pp)) **/
+			/** vxfs_check_page(pp); **/
 		if (PageError(pp))
 			goto fail;
 	}
@@ -72,6 +86,18 @@ fail:
 	return ERR_PTR(-EIO);
 }
 
+/**
+ * vxfs_bread - read buffer for a give inode,block tuple
+ * @ip:		inode
+ * @block:	logical block
+ *
+ * Description:
+ *   The vxfs_bread function reads block no @block  of
+ *   @ip into the buffercache.
+ *
+ * Returns:
+ *   The resulting &struct buffer_head.
+ */
 struct buffer_head *
 vxfs_bread(struct inode *ip, int block)
 {
@@ -84,6 +110,21 @@ vxfs_bread(struct inode *ip, int block)
 	return (bp);
 }
 
+/**
+ * vxfs_get_block - locate buffer for given inode,block tuple 
+ * @ip:		inode
+ * @iblock:	logical block
+ * @bp:		buffer skeleton
+ * @create:	%TRUE if blocks may be newly allocated.
+ *
+ * Description:
+ *   The vxfs_get_block function fills @bp with the right physical
+ *   block and device number to perform a lowlevel read/write on
+ *   it.
+ *
+ * Returns:
+ *   Zero on success, else a negativ error code (-EIO).
+ */
 static int
 vxfs_getblk(struct inode *ip, sector_t iblock,
 	    struct buffer_head *bp, int create)
@@ -99,12 +140,42 @@ vxfs_getblk(struct inode *ip, sector_t iblock,
 	return -EIO;
 }
 
+/**
+ * vxfs_readpage - read one page synchronously into the pagecache
+ * @file:	file context (unused)
+ * @page:	page frame to fill in.
+ *
+ * Description:
+ *   The vxfs_readpage routine reads @page synchronously into the
+ *   pagecache.
+ *
+ * Returns:
+ *   Zero on success, else a negative error code.
+ *
+ * Locking status:
+ *   @page is locked and will be unlocked.
+ */
 static int
 vxfs_readpage(struct file *file, struct page *page)
 {
 	return block_read_full_page(page, vxfs_getblk);
 }
  
+/**
+ * vxfs_bmap - perform logical to physical block mapping
+ * @mapping:	logical to physical mapping to use
+ * @block:	logical block (relative to @mapping).
+ *
+ * Description:
+ *   Vxfs_bmap find out the corresponding phsical block to the
+ *   @mapping, @block pair.
+ *
+ * Returns:
+ *   Physical block number on success, else Zero.
+ *
+ * Locking status:
+ *   We are under the bkl.
+ */
 static sector_t
 vxfs_bmap(struct address_space *mapping, sector_t block)
 {

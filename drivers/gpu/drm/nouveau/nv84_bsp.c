@@ -28,6 +28,10 @@
 #include "nouveau_vm.h"
 #include "nouveau_ramht.h"
 
+/*XXX: This stub is currently used on NV98+ also, as soon as this becomes
+ *     more than just an enable/disable stub this needs to be split out to
+ *     nv98_bsp.c...
+ */
 
 struct nv84_bsp_engine {
 	struct nouveau_exec_engine base;

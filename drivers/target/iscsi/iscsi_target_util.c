@@ -57,6 +57,9 @@
 extern struct list_head g_tiqn_list;
 extern spinlock_t tiqn_lock;
 
+/*
+ *	Called with cmd->r2t_lock held.
+ */
 int iscsit_add_r2t_to_list(
 	struct iscsi_cmd *cmd,
 	u32 offset,
@@ -126,6 +129,9 @@ struct iscsi_r2t *iscsit_get_r2t_from_list(struct iscsi_cmd *cmd)
 	return NULL;
 }
 
+/*
+ *	Called with cmd->r2t_lock held.
+ */
 void iscsit_free_r2t(struct iscsi_r2t *r2t, struct iscsi_cmd *cmd)
 {
 	list_del(&r2t->r2t_list);
@@ -142,6 +148,10 @@ void iscsit_free_r2ts_from_list(struct iscsi_cmd *cmd)
 	spin_unlock_bh(&cmd->r2t_lock);
 }
 
+/*
+ * May be called from software interrupt (timer) context for allocating
+ * iSCSI NopINs.
+ */
 struct iscsi_cmd *iscsit_allocate_cmd(struct iscsi_conn *conn, gfp_t gfp_mask)
 {
 	struct iscsi_cmd *cmd;
@@ -166,6 +176,9 @@ struct iscsi_cmd *iscsit_allocate_cmd(struct iscsi_conn *conn, gfp_t gfp_mask)
 	return cmd;
 }
 
+/*
+ * Called from iscsi_handle_scsi_cmd()
+ */
 struct iscsi_cmd *iscsit_allocate_se_cmd(
 	struct iscsi_conn *conn,
 	u32 data_length,
@@ -182,6 +195,9 @@ struct iscsi_cmd *iscsit_allocate_se_cmd(
 
 	cmd->data_direction = data_direction;
 	cmd->data_length = data_length;
+	/*
+	 * Figure out the SAM Task Attribute for the incoming SCSI CDB
+	 */
 	if ((iscsi_task_attr == ISCSI_ATTR_UNTAGGED) ||
 	    (iscsi_task_attr == ISCSI_ATTR_SIMPLE))
 		sam_task_attr = MSG_SIMPLE_TAG;
@@ -198,6 +214,9 @@ struct iscsi_cmd *iscsit_allocate_se_cmd(
 	}
 
 	se_cmd = &cmd->se_cmd;
+	/*
+	 * Initialize struct se_cmd descriptor from target_core_mod infrastructure
+	 */
 	transport_init_se_cmd(se_cmd, &lio_target_fabric_configfs->tf_ops,
 			conn->sess->se_sess, data_length, data_direction,
 			sam_task_attr, &cmd->sense_buffer[0]);
@@ -225,10 +244,17 @@ struct iscsi_cmd *iscsit_allocate_se_cmd_for_tmr(
 			" Task Management command!\n");
 		goto out;
 	}
+	/*
+	 * TASK_REASSIGN for ERL=2 / connection stays inside of
+	 * LIO-Target $FABRIC_MOD
+	 */
 	if (function == ISCSI_TM_FUNC_TASK_REASSIGN)
 		return cmd;
 
 	se_cmd = &cmd->se_cmd;
+	/*
+	 * Initialize struct se_cmd descriptor from target_core_mod infrastructure
+	 */
 	transport_init_se_cmd(se_cmd, &lio_target_fabric_configfs->tf_ops,
 				conn->sess->se_sess, 0, DMA_NONE,
 				MSG_SIMPLE_TAG, &cmd->sense_buffer[0]);
@@ -374,6 +400,12 @@ static inline int iscsit_check_received_cmdsn(struct iscsi_session *sess, u32 cm
 {
 	int ret;
 
+	/*
+	 * This is the proper method of checking received CmdSN against
+	 * ExpCmdSN and MaxCmdSN values, as well as accounting for out
+	 * or order CmdSNs due to multiple connection sessions and/or
+	 * CRC failures.
+	 */
 	if (iscsi_sna_gt(cmdsn, sess->max_cmd_sn)) {
 		pr_err("Received CmdSN: 0x%08x is greater than"
 		       " MaxCmdSN: 0x%08x, protocol error.\n", cmdsn,
@@ -403,6 +435,10 @@ static inline int iscsit_check_received_cmdsn(struct iscsi_session *sess, u32 cm
 	return ret;
 }
 
+/*
+ * Commands may be received out of order if MC/S is in use.
+ * Ensure they are executed in CmdSN order.
+ */
 int iscsit_sequence_cmd(
 	struct iscsi_conn *conn,
 	struct iscsi_cmd *cmd,
@@ -553,6 +589,10 @@ int iscsit_find_cmd_for_recovery(
 {
 	struct iscsi_cmd *cmd = NULL;
 	struct iscsi_conn_recovery *cr;
+	/*
+	 * Scan through the inactive connection recovery list's command list.
+	 * If init_task_tag matches the command is still alligent.
+	 */
 	spin_lock(&sess->cr_i_lock);
 	list_for_each_entry(cr, &sess->cr_inactive_list, cr_list) {
 		spin_lock(&cr->conn_recovery_cmd_lock);
@@ -569,6 +609,10 @@ int iscsit_find_cmd_for_recovery(
 		spin_unlock(&cr->conn_recovery_cmd_lock);
 	}
 	spin_unlock(&sess->cr_i_lock);
+	/*
+	 * Scan through the active connection recovery list's command list.
+	 * If init_task_tag matches the command is ready to be reassigned.
+	 */
 	spin_lock(&sess->cr_a_lock);
 	list_for_each_entry(cr, &sess->cr_active_list, cr_list) {
 		spin_lock(&cr->conn_recovery_cmd_lock);
@@ -795,6 +839,10 @@ void iscsit_release_cmd(struct iscsi_cmd *cmd)
 
 void iscsit_free_cmd(struct iscsi_cmd *cmd)
 {
+	/*
+	 * Determine if a struct se_cmd is assoicated with
+	 * this struct iscsi_cmd.
+	 */
 	switch (cmd->iscsi_opcode) {
 	case ISCSI_OP_SCSI_CMD:
 	case ISCSI_OP_SCSI_TMFUNC:
@@ -810,7 +858,7 @@ void iscsit_free_cmd(struct iscsi_cmd *cmd)
 			transport_generic_free_cmd(&cmd->se_cmd, 1);
 			break;
 		}
-		
+		/* Fall-through */
 	default:
 		iscsit_release_cmd(cmd);
 		break;
@@ -852,13 +900,24 @@ void iscsit_inc_session_usage_count(struct iscsi_session *sess)
 	spin_unlock_bh(&sess->session_usage_lock);
 }
 
+/*
+ *	Setup conn->if_marker and conn->of_marker values based upon
+ *	the initial marker-less interval. (see iSCSI v19 A.2)
+ */
 int iscsit_set_sync_and_steering_values(struct iscsi_conn *conn)
 {
 	int login_ifmarker_count = 0, login_ofmarker_count = 0, next_marker = 0;
+	/*
+	 * IFMarkInt and OFMarkInt are negotiated as 32-bit words.
+	 */
 	u32 IFMarkInt = (conn->conn_ops->IFMarkInt * 4);
 	u32 OFMarkInt = (conn->conn_ops->OFMarkInt * 4);
 
 	if (conn->conn_ops->OFMarker) {
+		/*
+		 * Account for the first Login Command received not
+		 * via iscsi_recv_msg().
+		 */
 		conn->of_marker += ISCSI_HDR_LEN;
 		if (conn->of_marker <= OFMarkInt) {
 			conn->of_marker = (OFMarkInt - conn->of_marker);
@@ -1044,6 +1103,9 @@ void iscsit_mod_nopin_response_timer(struct iscsi_conn *conn)
 	spin_unlock_bh(&conn->nopin_timer_lock);
 }
 
+/*
+ *	Called with conn->nopin_timer_lock held.
+ */
 void iscsit_start_nopin_response_timer(struct iscsi_conn *conn)
 {
 	struct iscsi_session *sess = conn->sess;
@@ -1105,10 +1167,16 @@ static void iscsit_handle_nopin_timeout(unsigned long data)
 	iscsit_dec_conn_usage_count(conn);
 }
 
+/*
+ * Called with conn->nopin_timer_lock held.
+ */
 void __iscsit_start_nopin_timer(struct iscsi_conn *conn)
 {
 	struct iscsi_session *sess = conn->sess;
 	struct iscsi_node_attrib *na = iscsit_tpg_get_node_attrib(sess);
+	/*
+	* NOPIN timeout is disabled.
+	 */
 	if (!na->nopin_timeout)
 		return;
 
@@ -1131,6 +1199,9 @@ void iscsit_start_nopin_timer(struct iscsi_conn *conn)
 {
 	struct iscsi_session *sess = conn->sess;
 	struct iscsi_node_attrib *na = iscsit_tpg_get_node_attrib(sess);
+	/*
+	 * NOPIN timeout is disabled..
+	 */
 	if (!na->nopin_timeout)
 		return;
 
@@ -1231,6 +1302,10 @@ send_hdr:
 	}
 
 	data_len = cmd->tx_size - tx_hdr_size - cmd->padding;
+	/*
+	 * Set iov_off used by padding and data digest tx_data() calls below
+	 * in order to determine proper offset into cmd->iov_data[]
+	 */
 	if (conn->conn_ops->DataDigest) {
 		data_len -= ISCSI_CRC_LEN;
 		if (cmd->padding)
@@ -1240,6 +1315,9 @@ send_hdr:
 	} else {
 		iov_off = (cmd->iov_data_count - 1);
 	}
+	/*
+	 * Perform sendpage() for each page in the scatterlist
+	 */
 	while (data_len) {
 		u32 space = (sg->length - offset);
 		u32 sub_len = min_t(u32, data_len, space);
@@ -1294,6 +1372,14 @@ send_datacrc:
 	return 0;
 }
 
+/*
+ *      This function is used for mainly sending a ISCSI_TARG_LOGIN_RSP PDU
+ *      back to the Initiator when an expection condition occurs with the
+ *      errors set in status_class and status_detail.
+ *
+ *      Parameters:     iSCSI Connection, Status Class, Status Detail.
+ *      Returns:        0 on success, -1 on error.
+ */
 int iscsit_tx_login_rsp(struct iscsi_conn *conn, u8 status_class, u8 status_detail)
 {
 	u8 iscsi_hdr[ISCSI_HDR_LEN];
@@ -1467,7 +1553,7 @@ void iscsit_collect_login_stats(
 	spin_lock(&ls->lock);
 	if (!strcmp(conn->login_ip, ls->last_intr_fail_ip_addr) &&
 	    ((get_jiffies_64() - ls->last_fail_time) < 10)) {
-		
+		/* We already have the failure info for this login */
 		spin_unlock(&ls->lock);
 		return;
 	}
@@ -1494,7 +1580,7 @@ void iscsit_collect_login_stats(
 		ls->last_fail_type = ISCSI_LOGIN_FAIL_OTHER;
 	}
 
-	
+	/* Save initiator name, ip address and time, if it is a failed login */
 	if (status_class != ISCSI_STATUS_CLS_SUCCESS) {
 		if (conn->param_list)
 			intrname = iscsi_find_param_from_key(INITIATORNAME,

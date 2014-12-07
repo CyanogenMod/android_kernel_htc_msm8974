@@ -65,11 +65,14 @@ static int option_rezero(struct us_data *us)
 		goto out;
 	}
 
+	/* Some of the devices need to be asked for a response, but we don't
+	 * care what that response is.
+	 */
 	usb_stor_bulk_transfer_buf(us,
 			us->recv_bulk_pipe,
 			buffer, RESPONSE_LEN, NULL);
 
-	
+	/* Read the CSW */
 	usb_stor_bulk_transfer_buf(us,
 			us->recv_bulk_pipe,
 			buffer, 13, NULL);
@@ -120,7 +123,7 @@ static int option_inquiry(struct us_data *us)
 	if (result != 0)
 		result = memcmp(buffer+8, "ZCOPTION", 8);
 
-	
+	/* Read the CSW */
 	usb_stor_bulk_transfer_buf(us,
 			us->recv_bulk_pipe,
 			buffer, 13, NULL);
@@ -137,6 +140,9 @@ int option_ms_init(struct us_data *us)
 
 	US_DEBUGP("Option MS: option_ms_init called\n");
 
+	/* Additional test for vendor information via INQUIRY,
+	 * because some vendor/product IDs are ambiguous
+	 */
 	result = option_inquiry(us);
 	if (result != 0) {
 		US_DEBUGP("Option MS: vendor is not Option or not determinable,"
@@ -146,7 +152,7 @@ int option_ms_init(struct us_data *us)
 		US_DEBUGP("Option MS: this is a genuine Option device,"
 			  " proceeding\n");
 
-	
+	/* Force Modem mode */
 	if (option_zero_cd == ZCD_FORCE_MODEM) {
 		US_DEBUGP("Option MS: %s", "Forcing Modem Mode\n");
 		result = option_rezero(us);
@@ -154,7 +160,7 @@ int option_ms_init(struct us_data *us)
 			US_DEBUGP("Option MS: Failed to switch to modem mode.\n");
 		return -EIO;
 	} else if (option_zero_cd == ZCD_ALLOW_MS) {
-		
+		/* Allow Mass Storage mode (keep CD-Rom) */
 		US_DEBUGP("Option MS: %s", "Allowing Mass Storage Mode if device"
 		          " requests it\n");
 	}

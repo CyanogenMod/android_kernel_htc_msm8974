@@ -13,6 +13,9 @@
 #include <asm/def_LPBlackfin.h>
 
 typedef pte_t *pte_addr_t;
+/*
+* Trivial page table functions.
+*/
 #define pgd_present(pgd)	(1)
 #define pgd_none(pgd)		(0)
 #define pgd_bad(pgd)		(0)
@@ -27,11 +30,11 @@ typedef pte_t *pte_addr_t;
 
 #define kern_addr_valid(addr) (1)
 
-#define PAGE_NONE		__pgprot(0)	
-#define PAGE_SHARED		__pgprot(0)	
-#define PAGE_COPY		__pgprot(0)	
-#define PAGE_READONLY		__pgprot(0)	
-#define PAGE_KERNEL		__pgprot(0)	
+#define PAGE_NONE		__pgprot(0)	/* these mean nothing to NO_MM */
+#define PAGE_SHARED		__pgprot(0)	/* these mean nothing to NO_MM */
+#define PAGE_COPY		__pgprot(0)	/* these mean nothing to NO_MM */
+#define PAGE_READONLY		__pgprot(0)	/* these mean nothing to NO_MM */
+#define PAGE_KERNEL		__pgprot(0)	/* these mean nothing to NO_MM */
 #define pgprot_noncached(prot)	(prot)
 
 extern void paging_init(void);
@@ -50,6 +53,9 @@ static inline int pte_file(pte_t pte)
 #define set_pte(pteptr, pteval) (*(pteptr) = pteval)
 #define set_pte_at(mm, addr, ptep, pteval) set_pte(ptep, pteval)
 
+/*
+ * Page assess control based on Blackfin CPLB management
+ */
 #define _PAGE_RD	(CPLB_USER_RD)
 #define _PAGE_WR	(CPLB_USER_WR)
 #define _PAGE_USER	(CPLB_USER_RD | CPLB_USER_WR)
@@ -70,18 +76,30 @@ PTE_BIT_FUNC(mkdirty, |= _PAGE_DIRTY);
 PTE_BIT_FUNC(mkold, &= ~_PAGE_ACCESSED);
 PTE_BIT_FUNC(mkyoung, |= _PAGE_ACCESSED);
 
+/*
+ * ZERO_PAGE is a global shared page that is always zero: used
+ * for zero-mapped memory areas etc..
+ */
 #define ZERO_PAGE(vaddr)	virt_to_page(empty_zero_page)
 extern char empty_zero_page[];
 
 extern unsigned int kobjsize(const void *objp);
 
 #define swapper_pg_dir ((pgd_t *) 0)
+/*
+ * No page table caches to initialise.
+ */
 #define pgtable_cache_init()	do { } while (0)
 #define io_remap_pfn_range      remap_pfn_range
 
+/*
+ * All 32bit addresses are effectively valid for vmalloc...
+ * Sort of meaningless for non-VM targets.
+ */
 #define	VMALLOC_START	0
 #define	VMALLOC_END	0xffffffff
 
+/* provide a special get_unmapped_area for framebuffer mmaps of nommu */
 extern unsigned long get_fb_unmapped_area(struct file *filp, unsigned long,
 					  unsigned long, unsigned long,
 					  unsigned long);
@@ -89,4 +107,4 @@ extern unsigned long get_fb_unmapped_area(struct file *filp, unsigned long,
 
 #include <asm-generic/pgtable.h>
 
-#endif				
+#endif				/* _BLACKFIN_PGTABLE_H */

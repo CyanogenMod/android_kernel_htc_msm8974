@@ -35,8 +35,8 @@
 
 static void __init em7210_timer_init(void)
 {
-	
-	
+	/* http://www.kwaak.net/fotos/fotos-nas/slide_24.html */
+	/* 33.333 MHz crystal.                                */
 	iop_init_time(200000000);
 }
 
@@ -44,14 +44,20 @@ static struct sys_timer em7210_timer = {
 	.init		= em7210_timer_init,
 };
 
+/*
+ * EM7210 RTC
+ */
 static struct i2c_board_info __initdata em7210_i2c_devices[] = {
 	{
 		I2C_BOARD_INFO("rs5c372a", 0x32),
 	},
 };
 
+/*
+ * EM7210 I/O
+ */
 static struct map_desc em7210_io_desc[] __initdata = {
-	{	
+	{	/* on-board devices */
 		.virtual	= IQ31244_UART,
 		.pfn		= __phys_to_pfn(IQ31244_UART),
 		.length		= 0x00100000,
@@ -66,6 +72,9 @@ void __init em7210_map_io(void)
 }
 
 
+/*
+ * EM7210 PCI
+ */
 #define INTA	IRQ_IOP32X_XINT0
 #define INTB	IRQ_IOP32X_XINT1
 #define INTC	IRQ_IOP32X_XINT2
@@ -75,12 +84,16 @@ static int __init
 em7210_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	static int pci_irq_table[][4] = {
-		{INTB, INTB, INTB, INTB}, 
-		{INTA, INTA, INTA, INTA}, 
-		{INTD, INTD, INTD, INTD}, 
-		{INTC, INTC, INTC, INTC}, 
-		{INTD, INTA, INTA, INTA}, 
-		{INTD, INTC, INTA, INTA}, 
+		/*
+		 * PCI IDSEL/INTPIN->INTLINE
+		 * A       B       C       D
+		 */
+		{INTB, INTB, INTB, INTB}, /* console / uart */
+		{INTA, INTA, INTA, INTA}, /* 1st 82541      */
+		{INTD, INTD, INTD, INTD}, /* 2nd 82541      */
+		{INTC, INTC, INTC, INTC}, /* GD31244        */
+		{INTD, INTA, INTA, INTA}, /* mini-PCI       */
+		{INTD, INTC, INTA, INTA}, /* NEC USB        */
 	};
 
 	if (pin < 1 || pin > 4)
@@ -109,6 +122,9 @@ static int __init em7210_pci_init(void)
 subsys_initcall(em7210_pci_init);
 
 
+/*
+ * EM7210 Flash
+ */
 static struct physmap_flash_data em7210_flash_data = {
 	.width		= 2,
 };
@@ -130,6 +146,11 @@ static struct platform_device em7210_flash_device = {
 };
 
 
+/*
+ * EM7210 UART
+ * The physical address of the serial port is 0xfe800000,
+ * so it can be used for physical and virtual address.
+ */
 static struct plat_serial8250_port em7210_serial_port[] = {
 	{
 		.mapbase	= IQ31244_UART,

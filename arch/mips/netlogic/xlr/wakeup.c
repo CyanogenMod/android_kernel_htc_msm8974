@@ -52,12 +52,16 @@ int __cpuinit xlr_wakeup_secondary_cpus(void)
 {
 	unsigned int i, boot_cpu;
 
+	/*
+	 *  In case of RMI boot, hit with NMI to get the cores
+	 *  from bootloader to linux code.
+	 */
 	boot_cpu = hard_smp_processor_id();
 	nlm_set_nmi_handler(nlm_rmiboot_preboot);
 	for (i = 0; i < NR_CPUS; i++) {
 		if (i == boot_cpu || (nlm_cpumask & (1u << i)) == 0)
 			continue;
-		nlm_pic_send_ipi(nlm_pic_base, i, 1, 1); 
+		nlm_pic_send_ipi(nlm_pic_base, i, 1, 1); /* send NMI */
 	}
 
 	return 0;

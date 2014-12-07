@@ -22,6 +22,35 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: amplc_pc236
+Description: Amplicon PC36AT, PCI236
+Author: Ian Abbott <abbotti@mev.co.uk>
+Devices: [Amplicon] PC36AT (pc36at), PCI236 (pci236 or amplc_pc236)
+Updated: Wed, 01 Apr 2009 15:41:25 +0100
+Status: works
+
+Configuration options - PC36AT:
+  [0] - I/O port base address
+  [1] - IRQ (optional)
+
+Configuration options - PCI236:
+  [0] - PCI bus of device (optional)
+  [1] - PCI slot of device (optional)
+  If bus/slot is not specified, the first available PCI device will be
+  used.
+
+The PC36AT ISA board and PCI236 PCI board have a single 8255 appearing
+as subdevice 0.
+
+Subdevice 1 pretends to be a digital input device, but it always returns
+0 when read. However, if you run a command with scan_begin_src=TRIG_EXT,
+a rising edge on port C bit 3 acts as an external trigger, which can be
+used to wake up tasks.  This is like the comedi_parport device, but the
+only way to physically disable the interrupt on the PC36AT is to remove
+the IRQ jumper.  If no interrupt is connected, then subdevice 1 is
+unused.
+*/
 
 #include <linux/interrupt.h>
 
@@ -34,20 +63,27 @@
 
 #define PC236_DRIVER_NAME	"amplc_pc236"
 
+/* PCI236 PCI configuration register information */
 #define PCI_VENDOR_ID_AMPLICON 0x14dc
 #define PCI_DEVICE_ID_AMPLICON_PCI236 0x0009
 #define PCI_DEVICE_ID_INVALID 0xffff
 
+/* PC36AT / PCI236 registers */
 
 #define PC236_IO_SIZE		4
 #define PC236_LCR_IO_SIZE	128
 
+/*
+ * INTCSR values for PCI236.
+ */
+/* Disable interrupt, also clear any interrupt there */
 #define PCI236_INTR_DISABLE (PLX9052_INTCSR_LI1ENAB_DISABLED \
 	| PLX9052_INTCSR_LI1POL_HIGH \
 	| PLX9052_INTCSR_LI2POL_HIGH \
 	| PLX9052_INTCSR_PCIENAB_DISABLED \
 	| PLX9052_INTCSR_LI1SEL_EDGE \
 	| PLX9052_INTCSR_LI1CLRINT_ASSERTED)
+/* Enable interrupt, also clear any interrupt there. */
 #define PCI236_INTR_ENABLE (PLX9052_INTCSR_LI1ENAB_ENABLED \
 	| PLX9052_INTCSR_LI1POL_HIGH \
 	| PLX9052_INTCSR_LI2POL_HIGH \
@@ -55,6 +91,9 @@
 	| PLX9052_INTCSR_LI1SEL_EDGE \
 	| PLX9052_INTCSR_LI1CLRINT_ASSERTED)
 
+/*
+ * Board descriptions for Amplicon PC36AT and PCI236.
+ */
 
 enum pc236_bustype { isa_bustype, pci_bustype };
 enum pc236_model { pc36at_model, pci236_model, anypci_model };
@@ -88,7 +127,7 @@ static const struct pc236_board pc236_boards[] = {
 	 .fancy_name = PC236_DRIVER_NAME,
 	 .devid = PCI_DEVICE_ID_INVALID,
 	 .bustype = pci_bustype,
-	 .model = anypci_model,	
+	 .model = anypci_model,	/* wildcard */
 	 },
 #endif
 };
@@ -100,21 +139,34 @@ static DEFINE_PCI_DEVICE_TABLE(pc236_pci_table) = {
 };
 
 MODULE_DEVICE_TABLE(pci, pc236_pci_table);
-#endif 
+#endif /* CONFIG_COMEDI_PCI */
 
+/*
+ * Useful for shorthand access to the particular board structure
+ */
 #define thisboard ((const struct pc236_board *)dev->board_ptr)
 
+/* this structure is for data unique to this hardware driver.  If
+   several hardware drivers keep similar information in this structure,
+   feel free to suggest moving the variable to the struct comedi_device struct.
+ */
 struct pc236_private {
 #ifdef CONFIG_COMEDI_PCI
-	
+	/* PCI device */
 	struct pci_dev *pci_dev;
-	unsigned long lcr_iobase; 
+	unsigned long lcr_iobase; /* PLX PCI9052 config registers in PCIBAR1 */
 #endif
 	int enable_irq;
 };
 
 #define devpriv ((struct pc236_private *)dev->private)
 
+/*
+ * The struct comedi_driver structure tells the Comedi core module
+ * which functions to call to configure/deconfigure (attach/detach)
+ * the board, and also about the kernel module that contains
+ * the device code.
+ */
 static int pc236_attach(struct comedi_device *dev, struct comedi_devconfig *it);
 static int pc236_detach(struct comedi_device *dev);
 static struct comedi_driver driver_amplc_pc236 = {
@@ -199,6 +251,10 @@ static int pc236_intr_cancel(struct comedi_device *dev,
 			     struct comedi_subdevice *s);
 static irqreturn_t pc236_interrupt(int irq, void *d);
 
+/*
+ * This function looks for a PCI device matching the requested board name,
+ * bus and slot.
+ */
 #ifdef CONFIG_COMEDI_PCI
 static int
 pc236_find_pci(struct comedi_device *dev, int bus, int slot,
@@ -208,26 +264,26 @@ pc236_find_pci(struct comedi_device *dev, int bus, int slot,
 
 	*pci_dev_p = NULL;
 
-	
+	/* Look for matching PCI device. */
 	for (pci_dev = pci_get_device(PCI_VENDOR_ID_AMPLICON, PCI_ANY_ID, NULL);
 	     pci_dev != NULL;
 	     pci_dev = pci_get_device(PCI_VENDOR_ID_AMPLICON,
 				      PCI_ANY_ID, pci_dev)) {
-		
+		/* If bus/slot specified, check them. */
 		if (bus || slot) {
 			if (bus != pci_dev->bus->number
 			    || slot != PCI_SLOT(pci_dev->devfn))
 				continue;
 		}
 		if (thisboard->model == anypci_model) {
-			
+			/* Match any supported model. */
 			int i;
 
 			for (i = 0; i < ARRAY_SIZE(pc236_boards); i++) {
 				if (pc236_boards[i].bustype != pci_bustype)
 					continue;
 				if (pci_dev->device == pc236_boards[i].devid) {
-					
+					/* Change board_ptr to matched board. */
 					dev->board_ptr = &pc236_boards[i];
 					break;
 				}
@@ -235,16 +291,16 @@ pc236_find_pci(struct comedi_device *dev, int bus, int slot,
 			if (i == ARRAY_SIZE(pc236_boards))
 				continue;
 		} else {
-			
+			/* Match specific model name. */
 			if (pci_dev->device != thisboard->devid)
 				continue;
 		}
 
-		
+		/* Found a match. */
 		*pci_dev_p = pci_dev;
 		return 0;
 	}
-	
+	/* No match found. */
 	if (bus || slot) {
 		printk(KERN_ERR
 		       "comedi%d: error! no %s found at pci %02x:%02x!\n",
@@ -257,6 +313,12 @@ pc236_find_pci(struct comedi_device *dev, int bus, int slot,
 }
 #endif
 
+/*
+ * Attach is called by the Comedi core to configure the driver
+ * for a particular board.  If you specified a board_name array
+ * in the driver structure, dev->board_ptr contains that
+ * address.
+ */
 static int pc236_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 {
 	struct comedi_subdevice *s;
@@ -271,13 +333,17 @@ static int pc236_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 
 	printk(KERN_DEBUG "comedi%d: %s: attach\n", dev->minor,
 	       PC236_DRIVER_NAME);
+/*
+ * Allocate the private structure area.  alloc_private() is a
+ * convenient macro defined in comedidev.h.
+ */
 	ret = alloc_private(dev, sizeof(struct pc236_private));
 	if (ret < 0) {
 		printk(KERN_ERR "comedi%d: error! out of memory!\n",
 		       dev->minor);
 		return ret;
 	}
-	
+	/* Process options. */
 	switch (thisboard->bustype) {
 	case isa_bustype:
 		iobase = it->options[0];
@@ -295,7 +361,7 @@ static int pc236_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 			return ret;
 		devpriv->pci_dev = pci_dev;
 		break;
-#endif 
+#endif /* CONFIG_COMEDI_PCI */
 	default:
 		printk(KERN_ERR
 		       "comedi%d: %s: BUG! cannot determine board type!\n",
@@ -304,9 +370,12 @@ static int pc236_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		break;
 	}
 
+/*
+ * Initialize dev->board_name.
+ */
 	dev->board_name = thisboard->name;
 
-	
+	/* Enable device and reserve I/O spaces. */
 #ifdef CONFIG_COMEDI_PCI
 	if (pci_dev) {
 
@@ -329,6 +398,10 @@ static int pc236_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 	dev->iobase = iobase;
 
+/*
+ * Allocate the subdevice structures.  alloc_subdevice() is a
+ * convenient macro defined in comedidev.h.
+ */
 	ret = alloc_subdevices(dev, 2);
 	if (ret < 0) {
 		printk(KERN_ERR "comedi%d: error! out of memory!\n",
@@ -337,7 +410,7 @@ static int pc236_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 
 	s = dev->subdevices + 0;
-	
+	/* digital i/o subdevice (8255) */
 	ret = subdev_8255_init(dev, s, NULL, iobase);
 	if (ret < 0) {
 		printk(KERN_ERR "comedi%d: error! out of memory!\n",
@@ -383,6 +456,14 @@ static int pc236_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	return 1;
 }
 
+/*
+ * _detach is called to deconfigure a device.  It should deallocate
+ * resources.
+ * This function is also called when _attach() fails, so it should be
+ * careful not to release resources that were not necessarily
+ * allocated by _attach().  dev->private and dev->subdevices are
+ * deallocated automatically by the core.
+ */
 static int pc236_detach(struct comedi_device *dev)
 {
 	printk(KERN_DEBUG "comedi%d: %s: detach\n", dev->minor,
@@ -414,6 +495,10 @@ static int pc236_detach(struct comedi_device *dev)
 	return 0;
 }
 
+/*
+ * This function checks and requests an I/O region, reporting an error
+ * if there is a conflict.
+ */
 static int pc236_request_region(unsigned minor, unsigned long from,
 				unsigned long extent)
 {
@@ -425,6 +510,11 @@ static int pc236_request_region(unsigned minor, unsigned long from,
 	return 0;
 }
 
+/*
+ * This function is called to mark the interrupt as disabled (no command
+ * configured on subdevice 1) and to physically disable the interrupt
+ * (not possible on the PC36AT, except by removing the IRQ jumper!).
+ */
 static void pc236_intr_disable(struct comedi_device *dev)
 {
 	unsigned long flags;
@@ -438,6 +528,11 @@ static void pc236_intr_disable(struct comedi_device *dev)
 	spin_unlock_irqrestore(&dev->spinlock, flags);
 }
 
+/*
+ * This function is called to mark the interrupt as enabled (a command
+ * configured on subdevice 1) and to physically enable the interrupt
+ * (not possible on the PC36AT, except by (re)connecting the IRQ jumper!).
+ */
 static void pc236_intr_enable(struct comedi_device *dev)
 {
 	unsigned long flags;
@@ -451,6 +546,13 @@ static void pc236_intr_enable(struct comedi_device *dev)
 	spin_unlock_irqrestore(&dev->spinlock, flags);
 }
 
+/*
+ * This function is called when an interrupt occurs to check whether
+ * the interrupt has been marked as enabled and was generated by the
+ * board.  If so, the function prepares the hardware for the next
+ * interrupt.
+ * Returns 0 if the interrupt should be ignored.
+ */
 static int pc236_intr_check(struct comedi_device *dev)
 {
 	int retval = 0;
@@ -466,7 +568,7 @@ static int pc236_intr_check(struct comedi_device *dev)
 			    == PLX9052_INTCSR_LI1STAT_INACTIVE) {
 				retval = 0;
 			} else {
-				
+				/* Clear interrupt and keep it enabled. */
 				outl(PCI236_INTR_ENABLE,
 				     devpriv->lcr_iobase + PLX9052_INTCSR);
 			}
@@ -478,6 +580,10 @@ static int pc236_intr_check(struct comedi_device *dev)
 	return retval;
 }
 
+/*
+ * Input from subdevice 1.
+ * Copied from the comedi_parport driver.
+ */
 static int pc236_intr_insn(struct comedi_device *dev,
 			   struct comedi_subdevice *s, struct comedi_insn *insn,
 			   unsigned int *data)
@@ -486,6 +592,10 @@ static int pc236_intr_insn(struct comedi_device *dev,
 	return 2;
 }
 
+/*
+ * Subdevice 1 command test.
+ * Copied from the comedi_parport driver.
+ */
 static int pc236_intr_cmdtest(struct comedi_device *dev,
 			      struct comedi_subdevice *s,
 			      struct comedi_cmd *cmd)
@@ -493,7 +603,7 @@ static int pc236_intr_cmdtest(struct comedi_device *dev,
 	int err = 0;
 	int tmp;
 
-	
+	/* step 1 */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW;
@@ -523,12 +633,12 @@ static int pc236_intr_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
-	
+	/* step 2: ignored */
 
 	if (err)
 		return 2;
 
-	
+	/* step 3: */
 
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
@@ -554,7 +664,7 @@ static int pc236_intr_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4: ignored */
 
 	if (err)
 		return 4;
@@ -562,6 +672,9 @@ static int pc236_intr_cmdtest(struct comedi_device *dev,
 	return 0;
 }
 
+/*
+ * Subdevice 1 command.
+ */
 static int pc236_intr_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 {
 	pc236_intr_enable(dev);
@@ -569,6 +682,9 @@ static int pc236_intr_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	return 0;
 }
 
+/*
+ * Subdevice 1 cancel command.
+ */
 static int pc236_intr_cancel(struct comedi_device *dev,
 			     struct comedi_subdevice *s)
 {
@@ -577,6 +693,10 @@ static int pc236_intr_cancel(struct comedi_device *dev,
 	return 0;
 }
 
+/*
+ * Interrupt service routine.
+ * Based on the comedi_parport driver.
+ */
 static irqreturn_t pc236_interrupt(int irq, void *d)
 {
 	struct comedi_device *dev = d;

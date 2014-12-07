@@ -16,21 +16,28 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* Supports:
+ * Timberdale FPGA
+ */
 
 #ifndef MFD_TIMBERDALE_H
 #define MFD_TIMBERDALE_H
 
 #define DRV_VERSION		"0.3"
 
+/* This driver only support versions >= 3.8 and < 4.0  */
 #define TIMB_SUPPORTED_MAJOR	3
 
+/* This driver only support minor >= 8 */
 #define TIMB_REQUIRED_MINOR	8
 
+/* Registers of the control area */
 #define TIMB_REV_MAJOR	0x00
 #define TIMB_REV_MINOR	0x04
 #define TIMB_HW_CONFIG	0x08
 #define TIMB_SW_RST	0x40
 
+/* bits in the TIMB_HW_CONFIG register */
 #define TIMB_HW_CONFIG_SPI_8BIT	0x80
 
 #define TIMB_HW_VER_MASK	0x0f
@@ -86,9 +93,11 @@
 #define DMAOFFSET	0x01000000
 #define DMAEND		0x013fffff
 
+/* SDHC0 is placed in PCI bar 1 */
 #define SDHC0OFFSET	0x00
 #define SDHC0END	0xff
 
+/* SDHC1 is placed in PCI bar 2 */
 #define SDHC1OFFSET	0x00
 #define SDHC1END	0xff
 
@@ -118,6 +127,7 @@
 #define GPIO_PIN_BT_RST		15
 #define GPIO_NR_PINS		16
 
+/* DMA Channels */
 #define DMA_UART_RX         0
 #define DMA_UART_TX         1
 #define DMA_MLB_RX          2

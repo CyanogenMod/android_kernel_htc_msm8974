@@ -40,6 +40,7 @@
 
 static bool is_avt2;
 
+/* GPIOs */
 #define QI_LB60_GPIO_SD_CD		JZ_GPIO_PORTD(0)
 #define QI_LB60_GPIO_SD_VCC_EN_N	JZ_GPIO_PORTD(2)
 
@@ -47,6 +48,7 @@ static bool is_avt2;
 #define QI_LB60_GPIO_KEYIN(x)		(JZ_GPIO_PORTD(18) + (x))
 #define QI_LB60_GPIO_KEYIN8		JZ_GPIO_PORTD(26)
 
+/* NAND */
 static struct nand_ecclayout qi_lb60_ecclayout_1gb = {
 	.eccbytes = 36,
 	.eccpos = {
@@ -62,6 +64,9 @@ static struct nand_ecclayout qi_lb60_ecclayout_1gb = {
 	},
 };
 
+/* Early prototypes of the QI LB60 had only 1GB of NAND.
+ * In order to support these devices as well the partition and ecc layout is
+ * initialized depending on the NAND size */
 static struct mtd_partition qi_lb60_partitions_1gb[] = {
 	{
 		.name = "NAND BOOT partition",
@@ -137,6 +142,7 @@ static struct jz_nand_platform_data qi_lb60_nand_pdata = {
 	.busy_gpio = 94,
 };
 
+/* Keyboard*/
 
 #define KEY_QI_QI	KEY_F13
 #define KEY_QI_UPRED	KEY_RIGHTALT
@@ -145,66 +151,66 @@ static struct jz_nand_platform_data qi_lb60_nand_pdata = {
 #define KEY_QI_FN	KEY_LEFTCTRL
 
 static const uint32_t qi_lb60_keymap[] = {
-	KEY(0, 0, KEY_F1),	
-	KEY(0, 1, KEY_F2),	
-	KEY(0, 2, KEY_F3),	
-	KEY(0, 3, KEY_F4),	
-	KEY(0, 4, KEY_F5),	
-	KEY(0, 5, KEY_F6),	
-	KEY(0, 6, KEY_F7),	
+	KEY(0, 0, KEY_F1),	/* S2 */
+	KEY(0, 1, KEY_F2),	/* S3 */
+	KEY(0, 2, KEY_F3),	/* S4 */
+	KEY(0, 3, KEY_F4),	/* S5 */
+	KEY(0, 4, KEY_F5),	/* S6 */
+	KEY(0, 5, KEY_F6),	/* S7 */
+	KEY(0, 6, KEY_F7),	/* S8 */
 
-	KEY(1, 0, KEY_Q),	
-	KEY(1, 1, KEY_W),	
-	KEY(1, 2, KEY_E),	
-	KEY(1, 3, KEY_R),	
-	KEY(1, 4, KEY_T),	
-	KEY(1, 5, KEY_Y),	
-	KEY(1, 6, KEY_U),	
-	KEY(1, 7, KEY_I),	
-	KEY(2, 0, KEY_A),	
-	KEY(2, 1, KEY_S),	
-	KEY(2, 2, KEY_D),	
-	KEY(2, 3, KEY_F),	
-	KEY(2, 4, KEY_G),	
-	KEY(2, 5, KEY_H),	
-	KEY(2, 6, KEY_J),	
-	KEY(2, 7, KEY_K),	
-	KEY(3, 0, KEY_ESC),	
-	KEY(3, 1, KEY_Z),	
-	KEY(3, 2, KEY_X),	
-	KEY(3, 3, KEY_C),	
-	KEY(3, 4, KEY_V),	
-	KEY(3, 5, KEY_B),	
-	KEY(3, 6, KEY_N),	
-	KEY(3, 7, KEY_M),	
-	KEY(4, 0, KEY_TAB),	
-	KEY(4, 1, KEY_CAPSLOCK),	
-	KEY(4, 2, KEY_BACKSLASH),	
-	KEY(4, 3, KEY_APOSTROPHE),	
-	KEY(4, 4, KEY_COMMA),	
-	KEY(4, 5, KEY_DOT),	
-	KEY(4, 6, KEY_SLASH),	
-	KEY(4, 7, KEY_UP),	
-	KEY(5, 0, KEY_O),	
-	KEY(5, 1, KEY_L),	
-	KEY(5, 2, KEY_EQUAL),	
-	KEY(5, 3, KEY_QI_UPRED),	
-	KEY(5, 4, KEY_SPACE),	
-	KEY(5, 5, KEY_QI_QI),	
-	KEY(5, 6, KEY_RIGHTCTRL),	
-	KEY(5, 7, KEY_LEFT),	
-	KEY(6, 0, KEY_F8),	
-	KEY(6, 1, KEY_P),	
-	KEY(6, 2, KEY_BACKSPACE),
-	KEY(6, 3, KEY_ENTER),	
-	KEY(6, 4, KEY_QI_VOLUP),	
-	KEY(6, 5, KEY_QI_VOLDOWN),	
-	KEY(6, 6, KEY_DOWN),	
-	KEY(6, 7, KEY_RIGHT),	
+	KEY(1, 0, KEY_Q),	/* S10 */
+	KEY(1, 1, KEY_W),	/* S11 */
+	KEY(1, 2, KEY_E),	/* S12 */
+	KEY(1, 3, KEY_R),	/* S13 */
+	KEY(1, 4, KEY_T),	/* S14 */
+	KEY(1, 5, KEY_Y),	/* S15 */
+	KEY(1, 6, KEY_U),	/* S16 */
+	KEY(1, 7, KEY_I),	/* S17 */
+	KEY(2, 0, KEY_A),	/* S18 */
+	KEY(2, 1, KEY_S),	/* S19 */
+	KEY(2, 2, KEY_D),	/* S20 */
+	KEY(2, 3, KEY_F),	/* S21 */
+	KEY(2, 4, KEY_G),	/* S22 */
+	KEY(2, 5, KEY_H),	/* S23 */
+	KEY(2, 6, KEY_J),	/* S24 */
+	KEY(2, 7, KEY_K),	/* S25 */
+	KEY(3, 0, KEY_ESC),	/* S26 */
+	KEY(3, 1, KEY_Z),	/* S27 */
+	KEY(3, 2, KEY_X),	/* S28 */
+	KEY(3, 3, KEY_C),	/* S29 */
+	KEY(3, 4, KEY_V),	/* S30 */
+	KEY(3, 5, KEY_B),	/* S31 */
+	KEY(3, 6, KEY_N),	/* S32 */
+	KEY(3, 7, KEY_M),	/* S33 */
+	KEY(4, 0, KEY_TAB),	/* S34 */
+	KEY(4, 1, KEY_CAPSLOCK),	/* S35 */
+	KEY(4, 2, KEY_BACKSLASH),	/* S36 */
+	KEY(4, 3, KEY_APOSTROPHE),	/* S37 */
+	KEY(4, 4, KEY_COMMA),	/* S38 */
+	KEY(4, 5, KEY_DOT),	/* S39 */
+	KEY(4, 6, KEY_SLASH),	/* S40 */
+	KEY(4, 7, KEY_UP),	/* S41 */
+	KEY(5, 0, KEY_O),	/* S42 */
+	KEY(5, 1, KEY_L),	/* S43 */
+	KEY(5, 2, KEY_EQUAL),	/* S44 */
+	KEY(5, 3, KEY_QI_UPRED),	/* S45 */
+	KEY(5, 4, KEY_SPACE),	/* S46 */
+	KEY(5, 5, KEY_QI_QI),	/* S47 */
+	KEY(5, 6, KEY_RIGHTCTRL),	/* S48 */
+	KEY(5, 7, KEY_LEFT),	/* S49 */
+	KEY(6, 0, KEY_F8),	/* S50 */
+	KEY(6, 1, KEY_P),	/* S51 */
+	KEY(6, 2, KEY_BACKSPACE),/* S52 */
+	KEY(6, 3, KEY_ENTER),	/* S53 */
+	KEY(6, 4, KEY_QI_VOLUP),	/* S54 */
+	KEY(6, 5, KEY_QI_VOLDOWN),	/* S55 */
+	KEY(6, 6, KEY_DOWN),	/* S56 */
+	KEY(6, 7, KEY_RIGHT),	/* S57 */
 
-	KEY(7, 0, KEY_LEFTSHIFT),	
-	KEY(7, 1, KEY_LEFTALT),	
-	KEY(7, 2, KEY_QI_FN),	
+	KEY(7, 0, KEY_LEFTSHIFT),	/* S58 */
+	KEY(7, 1, KEY_LEFTALT),	/* S59 */
+	KEY(7, 2, KEY_QI_FN),	/* S60 */
 };
 
 static const struct matrix_keymap_data qi_lb60_keymap_data = {
@@ -254,6 +260,7 @@ static struct platform_device qi_lb60_keypad = {
 	},
 };
 
+/* Display */
 static struct fb_videomode qi_lb60_video_modes[] = {
 	{
 		.name = "320x240",
@@ -307,6 +314,7 @@ static struct spi_board_info qi_lb60_spi_board_info[] = {
 	},
 };
 
+/* Battery */
 static struct jz_battery_platform_data qi_lb60_battery_pdata = {
 	.gpio_charge =  JZ_GPIO_PORTC(27),
 	.gpio_charge_active_low = 1,
@@ -318,6 +326,7 @@ static struct jz_battery_platform_data qi_lb60_battery_pdata = {
 	},
 };
 
+/* GPIO Key: power */
 static struct gpio_keys_button qi_lb60_gpio_keys_buttons[] = {
 	[0] = {
 		.code		= KEY_POWER,
@@ -348,6 +357,7 @@ static struct jz4740_mmc_platform_data qi_lb60_mmc_pdata = {
 	.power_active_low	= 1,
 };
 
+/* OHCI */
 static struct regulator_consumer_supply avt2_usb_regulator_consumer =
 	REGULATOR_SUPPLY("vbus", "jz4740-ohci");
 
@@ -378,6 +388,7 @@ static struct platform_device avt2_usb_regulator_device = {
 	}
 };
 
+/* beeper */
 static struct platform_device qi_lb60_pwm_beeper = {
 	.name = "pwm-beeper",
 	.id = -1,
@@ -386,6 +397,7 @@ static struct platform_device qi_lb60_pwm_beeper = {
 	},
 };
 
+/* charger */
 static char *qi_lb60_batteries[] = {
 	"battery",
 };
@@ -406,6 +418,7 @@ static struct platform_device qi_lb60_charger_device = {
 	},
 };
 
+/* audio */
 static struct platform_device qi_lb60_audio_device = {
 	.name = "qi-lb60-audio",
 	.id = -1,
@@ -431,6 +444,8 @@ static struct platform_device *jz_platform_devices[] __initdata = {
 
 static void __init board_gpio_setup(void)
 {
+	/* We only need to enable/disable pullup here for pins used in generic
+	 * drivers. Everything else is done by the drivers themselves. */
 	jz_gpio_disable_pullup(QI_LB60_GPIO_SD_VCC_EN_N);
 	jz_gpio_disable_pullup(QI_LB60_GPIO_SD_CD);
 }

@@ -96,14 +96,17 @@ static int __devinit rtl8192_pci_probe(struct pci_dev *pdev,
 static void __devexit rtl8192_pci_disconnect(struct pci_dev *pdev);
 
 static struct pci_driver rtl8192_pci_driver = {
-	.name = DRV_NAME,	
-	.id_table = rtl8192_pci_id_tbl,	
-	.probe	= rtl8192_pci_probe,	
-	.remove	 = __devexit_p(rtl8192_pci_disconnect),	
-	.suspend = rtl8192E_suspend,	
-	.resume = rtl8192E_resume,                 
+	.name = DRV_NAME,	/* Driver name   */
+	.id_table = rtl8192_pci_id_tbl,	/* PCI_ID table  */
+	.probe	= rtl8192_pci_probe,	/* probe fn      */
+	.remove	 = __devexit_p(rtl8192_pci_disconnect),	/* remove fn */
+	.suspend = rtl8192E_suspend,	/* PM suspend fn */
+	.resume = rtl8192E_resume,                 /* PM resume fn  */
 };
 
+/****************************************************************************
+   -----------------------------IO STUFF-------------------------
+*****************************************************************************/
 static bool PlatformIOCheckPageLegalAndGetRegMask(u32 u4bPage, u8 *pu1bPageMask)
 {
 	bool		bReturn = false;
@@ -306,6 +309,9 @@ void write_nic_word(struct net_device *dev, int x, u16 y)
 	udelay(20);
 }
 
+/****************************************************************************
+   -----------------------------GENERAL FUNCTION-------------------------
+*****************************************************************************/
 bool MgntActSet_RF_State(struct net_device *dev,
 			 enum rt_rf_power_state StateToSet,
 			 RT_RF_CHANGE_SOURCE ChangeSource,
@@ -450,6 +456,9 @@ static short rtl8192_get_nic_desc_num(struct net_device *dev, int prio)
 	struct r8192_priv *priv = rtllib_priv(dev);
 	struct rtl8192_tx_ring *ring = &priv->tx_ring[prio];
 
+	/* For now, we reserved two free descriptor as a safety boundary
+	* between the tail and the head
+	*/
 	if ((prio == MGNT_QUEUE) && (skb_queue_len(&ring->queue) > 10))
 		RT_TRACE(COMP_DBG, "-----[%d]---------ring->idx=%d "
 			 "queue_len=%d---------\n", prio, ring->idx,
@@ -1334,6 +1343,9 @@ static short rtl8192_init(struct net_device *dev)
 	return 0;
 }
 
+/***************************************************************************
+	-------------------------------WATCHDOG STUFF---------------------------
+***************************************************************************/
 short rtl8192_is_tx_queue_empty(struct net_device *dev)
 {
 	int i = 0;
@@ -1780,6 +1792,9 @@ void watch_dog_timer_callback(unsigned long data)
 		  MSECS(RTLLIB_WATCH_DOG_TIME));
 }
 
+/****************************************************************************
+ ---------------------------- NIC TX/RX STUFF---------------------------
+*****************************************************************************/
 void rtl8192_rx_enable(struct net_device *dev)
 {
 	struct r8192_priv *priv = (struct r8192_priv *)rtllib_priv(dev);
@@ -2259,7 +2274,7 @@ u8 rtl819x_query_rxpwrpercentage(char antpower)
 	else
 		return	100 + antpower;
 
-}	
+}	/* QueryRxPwrPercentage */
 
 u8
 rtl819x_evm_dbtopercentage(
@@ -2328,6 +2343,8 @@ static void rtl8192_rx_normal(struct net_device *dev)
 			pdesc, skb))
 				goto done;
 			new_skb = dev_alloc_skb(priv->rxbuffersize);
+			/* if allocation of new skb failed - drop current packet
+			* and reuse skb */
 			if (unlikely(!new_skb))
 				goto done;
 
@@ -2339,11 +2356,11 @@ static void rtl8192_rx_normal(struct net_device *dev)
 			skb_put(skb, pdesc->Length);
 			skb_reserve(skb, stats.RxDrvInfoSize +
 				stats.RxBufShift);
-			skb_trim(skb, skb->len - 4);
+			skb_trim(skb, skb->len - 4/*sCrcLng*/);
 			rtllib_hdr = (struct rtllib_hdr_1addr *)skb->data;
 			if (!is_broadcast_ether_addr(rtllib_hdr->addr1) &&
 			!is_multicast_ether_addr(rtllib_hdr->addr1)) {
-				
+				/* unicast packet */
 				unicast_packet = true;
 			}
 			fc = le16_to_cpu(rtllib_hdr->frame_ctl);
@@ -2434,6 +2451,9 @@ void rtl8192_irq_rx_tasklet(struct r8192_priv *priv)
 			read_nic_dword(priv->rtllib->dev, INTA_MASK) | IMR_RDU);
 }
 
+/****************************************************************************
+ ---------------------------- NIC START/CLOSE STUFF---------------------------
+*****************************************************************************/
 void rtl8192_cancel_deferred_work(struct r8192_priv *priv)
 {
 	cancel_delayed_work(&priv->watch_dog_wq);
@@ -2553,6 +2573,7 @@ static int r8192_set_mac_adr(struct net_device *dev, void *mac)
 	return 0;
 }
 
+/* based on ipw2200 driver */
 static int rtl8192_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
 	struct r8192_priv *priv = (struct r8192_priv *)rtllib_priv(dev);
@@ -2812,6 +2833,9 @@ done:
 
 
 
+/****************************************************************************
+	---------------------------- PCI_STUFF---------------------------
+*****************************************************************************/
 static const struct net_device_ops rtl8192_netdev_ops = {
 	.ndo_open = rtl8192_open,
 	.ndo_stop = rtl8192_close,
@@ -2897,7 +2921,7 @@ static int __devinit rtl8192_pci_probe(struct pci_dev *pdev,
 	dev->mem_end = ioaddr + pci_resource_len(pdev, 0);
 
 	pci_read_config_byte(pdev, 0x08, &revision_id);
-	
+	/* If the revisionid is 0x10, the device uses rtl8192se. */
 	if (pdev->device == 0x8192 && revision_id == 0x10)
 		goto err_rel_mem;
 
@@ -3066,7 +3090,7 @@ static int __init rtl8192_pci_module_init(void)
 	rtl8192_proc_module_init();
 	if (0 != pci_register_driver(&rtl8192_pci_driver)) {
 		DMESG("No device found");
-		
+		/*pci_unregister_driver (&rtl8192_pci_driver);*/
 		return -ENODEV;
 	}
 	return 0;
@@ -3092,6 +3116,9 @@ void check_rfctrl_gpio_timer(unsigned long data)
 		  MSECS(RTLLIB_WATCH_DOG_TIME));
 }
 
+/***************************************************************************
+	------------------- module init / exit stubs ----------------
+****************************************************************************/
 module_init(rtl8192_pci_module_init);
 module_exit(rtl8192_pci_module_exit);
 

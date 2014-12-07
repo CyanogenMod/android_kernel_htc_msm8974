@@ -30,37 +30,55 @@
 
 #include <linux/kvm_host.h>
 
+/* define itr.i and itr.d  in ia64_itr function */
 #define	ITR	0x01
 #define	DTR	0x02
 #define	IaDTR	0x03
 
-#define IA64_TR_VMM       6 
-#define IA64_TR_VM_DATA   7 
+#define IA64_TR_VMM       6 /*itr6, dtr6 : maps vmm code, vmbuffer*/
+#define IA64_TR_VM_DATA   7 /*dtr7       : maps current vm data*/
 
 #define RR6 (6UL<<61)
 #define RR7 (7UL<<61)
 
 
+/* config_options in pal_vp_init_env */
 #define	VP_INITIALIZE	1UL
 #define	VP_FR_PMC	1UL<<1
 #define	VP_OPCODE	1UL<<8
 #define	VP_CAUSE	1UL<<9
 #define VP_FW_ACC   	1UL<<63
 
+/* init vp env with initializing vm_buffer */
 #define	VP_INIT_ENV_INITALIZE  (VP_INITIALIZE | VP_FR_PMC |\
 	VP_OPCODE | VP_CAUSE | VP_FW_ACC)
+/* init vp env without initializing vm_buffer */
 #define	VP_INIT_ENV  VP_FR_PMC | VP_OPCODE | VP_CAUSE | VP_FW_ACC
 
 #define		PAL_VP_CREATE   265
+/* Stacked Virt. Initializes a new VPD for the operation of
+ * a new virtual processor in the virtual environment.
+ */
 #define		PAL_VP_ENV_INFO 266
+/*Stacked Virt. Returns the parameters needed to enter a virtual environment.*/
 #define		PAL_VP_EXIT_ENV 267
+/*Stacked Virt. Allows a logical processor to exit a virtual environment.*/
 #define		PAL_VP_INIT_ENV 268
+/*Stacked Virt. Allows a logical processor to enter a virtual environment.*/
 #define		PAL_VP_REGISTER 269
+/*Stacked Virt. Register a different host IVT for the virtual processor.*/
 #define		PAL_VP_RESUME   270
+/* Renamed from PAL_VP_RESUME */
 #define		PAL_VP_RESTORE  270
+/*Stacked Virt. Resumes virtual processor operation on the logical processor.*/
 #define		PAL_VP_SUSPEND  271
+/* Renamed from PAL_VP_SUSPEND */
 #define		PAL_VP_SAVE	271
+/* Stacked Virt. Suspends operation for the specified virtual processor on
+ * the logical processor.
+ */
 #define		PAL_VP_TERMINATE 272
+/* Stacked Virt. Terminates operation for the specified virtual processor.*/
 
 union vac {
 	unsigned long value;
@@ -198,6 +216,7 @@ static inline s64 ia64_pal_vp_save(u64 *vpd, u64 pal_proc_vector)
 
 #endif
 
+/*VPD field offset*/
 #define VPD_VAC_START_OFFSET		0
 #define VPD_VDC_START_OFFSET		8
 #define VPD_VHPI_START_OFFSET		256
@@ -214,6 +233,7 @@ static inline s64 ia64_pal_vp_save(u64 *vpd, u64 pal_proc_vector)
 #define VPD_VRR_START_OFFSET		3072
 #define VPD_VMM_VAIL_START_OFFSET	31744
 
+/*Virtualization faults*/
 
 #define EVENT_MOV_TO_AR			 1
 #define EVENT_MOV_TO_AR_IMM		 2
@@ -256,6 +276,7 @@ static inline s64 ia64_pal_vp_save(u64 *vpd, u64 pal_proc_vector)
 #define EVENT_BSW_1			 39
 #define EVENT_VMSW			 40
 
+/**PAL virtual services offsets */
 #define PAL_VPS_RESUME_NORMAL           0x0000
 #define PAL_VPS_RESUME_HANDLER          0x0400
 #define PAL_VPS_SYNC_READ               0x0800
@@ -266,4 +287,4 @@ static inline s64 ia64_pal_vp_save(u64 *vpd, u64 pal_proc_vector)
 #define PAL_VPS_RESTORE                 0x1c00
 #define PAL_VPS_SAVE                    0x2000
 
-#endif
+#endif/* _VT_I_H*/

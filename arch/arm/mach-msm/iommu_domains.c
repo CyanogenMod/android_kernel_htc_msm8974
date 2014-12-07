@@ -398,7 +398,7 @@ int msm_allocate_iova_address(unsigned int iommu_domain,
 	mutex_unlock(&pool->pool_mutex);
 	if (va) {
 		pool->free -= size;
-		
+		/* Offset because genpool can't handle 0 addresses */
 		if (pool->paddr == 0)
 			va -= SZ_4K;
 		*iova = va;
@@ -436,7 +436,7 @@ void msm_free_iova_address(unsigned long iova,
 
 	pool->free += size;
 
-	
+	/* Offset because genpool can't handle 0 addresses */
 	if (pool->paddr == 0)
 		iova += SZ_4K;
 
@@ -479,6 +479,12 @@ int msm_register_domain(struct msm_iova_layout *layout)
 		pools[i].size = layout->partitions[i].size;
 		mutex_init(&pools[i].pool_mutex);
 
+		/*
+		 * genalloc can't handle a pool starting at address 0.
+		 * For now, solve this problem by offsetting the value
+		 * put in by 4k.
+		 * gen pool address = actual address + 4k
+		 */
 		if (pools[i].paddr == 0)
 			layout->partitions[i].start += SZ_4K;
 
@@ -734,7 +740,7 @@ static int iommu_domain_parse_dt(const struct device_node *dt_node)
 			goto free_group;
 		}
 
-		
+		/* This is only needed to clean up memory if something fails */
 		grp_list_entry = kmalloc(sizeof(*grp_list_entry),
 					   GFP_KERNEL);
 		if (grp_list_entry) {
@@ -768,6 +774,10 @@ static int iommu_domain_parse_dt(const struct device_node *dt_node)
 			goto free_group;
 		}
 
+		/* Remove reference to the group that is taken when the group
+		 * is allocated. This will ensure that when all the devices in
+		 * the group are removed the group will be released.
+		 */
 		iommu_group_put(group);
 	}
 

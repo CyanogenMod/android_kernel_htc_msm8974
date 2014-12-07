@@ -60,7 +60,7 @@ static void handle_wds_oper_queue(struct work_struct *work);
 static void prism2_send_mgmt(struct net_device *dev,
 			     u16 type_subtype, char *body,
 			     int body_len, u8 *addr, u16 tx_cb_idx);
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 
 #ifndef PRISM2_NO_PROCFS_DEBUG
@@ -86,7 +86,7 @@ static int ap_debug_proc_read(char *page, char **start, off_t off,
 
 	return (p - page);
 }
-#endif 
+#endif /* PRISM2_NO_PROCFS_DEBUG */
 
 
 static void ap_sta_hash_add(struct ap_data *ap, struct sta_info *sta)
@@ -143,7 +143,7 @@ static void ap_free_sta(struct ap_data *ap, struct sta_info *sta)
 	if (!sta->ap && sta->u.sta.challenge)
 		kfree(sta->u.sta.challenge);
 	del_timer(&sta->timer);
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 	kfree(sta);
 }
@@ -202,12 +202,12 @@ static void ap_handle_timer(unsigned long data)
 		next_time = jiffies + ap->max_inactivity;
 
 	if (time_before(jiffies, sta->last_rx + ap->max_inactivity)) {
-		
+		/* station activity detected; reset timeout state */
 		sta->timeout_next = STA_NULLFUNC;
 		next_time = sta->last_rx + ap->max_inactivity;
 	} else if (sta->timeout_next == STA_DISASSOC &&
 		   !(sta->flags & WLAN_STA_PENDING_POLL)) {
-		
+		/* STA ACKed data nullfunc frame poll */
 		sta->timeout_next = STA_NULLFUNC;
 		next_time = jiffies + ap->max_inactivity;
 	}
@@ -247,6 +247,11 @@ static void ap_handle_timer(unsigned long data)
 			hostap_wds_link_oper(local, sta->addr, WDS_DEL);
 		}
 	} else if (sta->timeout_next == STA_NULLFUNC) {
+		/* send data frame to poll STA and check whether this frame
+		 * is ACKed */
+		/* FIX: IEEE80211_STYPE_NULLFUNC would be more appropriate, but
+		 * it is apparently not retried so TX Exc events are not
+		 * received for it */
 		sta->flags |= WLAN_STA_PENDING_POLL;
 		prism2_send_mgmt(local->dev, IEEE80211_FTYPE_DATA |
 				 IEEE80211_STYPE_DATA, NULL, 0,
@@ -303,6 +308,10 @@ void hostap_deauth_all_stas(struct net_device *dev, struct ap_data *ap,
 
 	resp = cpu_to_le16(WLAN_REASON_PREV_AUTH_NOT_VALID);
 
+	/* deauth message sent; try to resend it few times; the message is
+	 * broadcast, so it may be delayed until next DTIM; there is not much
+	 * else we can do at this point since the driver is going to be shut
+	 * down */
 	for (i = 0; i < 5; i++) {
 		prism2_send_mgmt(dev, IEEE80211_FTYPE_MGMT |
 				 IEEE80211_STYPE_DEAUTH,
@@ -477,7 +486,7 @@ int ap_control_kick_mac(struct ap_data *ap, struct net_device *dev, u8 *mac)
 	return 0;
 }
 
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 
 void ap_control_kickall(struct ap_data *ap)
@@ -556,7 +565,7 @@ static int prism2_ap_proc_read(char *page, char **start, off_t off,
 
 	return (p - page - off);
 }
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 
 void hostap_check_sta_fw_version(struct ap_data *ap, int sta_fw_ver)
@@ -579,6 +588,7 @@ void hostap_check_sta_fw_version(struct ap_data *ap, int sta_fw_ver)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void hostap_ap_tx_cb(struct sk_buff *skb, int ok, void *data)
 {
 	struct ap_data *ap = data;
@@ -589,6 +599,8 @@ static void hostap_ap_tx_cb(struct sk_buff *skb, int ok, void *data)
 		return;
 	}
 
+	/* Pass the TX callback frame to the hostapd; use 802.11 header version
+	 * 1 to indicate failure (no ACK) and 2 success (frame ACKed) */
 
 	hdr = (struct ieee80211_hdr *) skb->data;
 	hdr->frame_control &= cpu_to_le16(~IEEE80211_FCTL_VERS);
@@ -604,6 +616,7 @@ static void hostap_ap_tx_cb(struct sk_buff *skb, int ok, void *data)
 
 
 #ifndef PRISM2_NO_KERNEL_IEEE80211_MGMT
+/* Called only as a tasklet (software IRQ) */
 static void hostap_ap_tx_cb_auth(struct sk_buff *skb, int ok, void *data)
 {
 	struct ap_data *ap = data;
@@ -671,6 +684,7 @@ static void hostap_ap_tx_cb_auth(struct sk_buff *skb, int ok, void *data)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void hostap_ap_tx_cb_assoc(struct sk_buff *skb, int ok, void *data)
 {
 	struct ap_data *ap = data;
@@ -734,6 +748,8 @@ static void hostap_ap_tx_cb_assoc(struct sk_buff *skb, int ok, void *data)
 	dev_kfree_skb(skb);
 }
 
+/* Called only as a tasklet (software IRQ); TX callback for poll frames used
+ * in verifying whether the STA is still present. */
 static void hostap_ap_tx_cb_poll(struct sk_buff *skb, int ok, void *data)
 {
 	struct ap_data *ap = data;
@@ -758,7 +774,7 @@ static void hostap_ap_tx_cb_poll(struct sk_buff *skb, int ok, void *data)
  fail:
 	dev_kfree_skb(skb);
 }
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 
 void hostap_init_data(local_info_t *local)
@@ -781,7 +797,7 @@ void hostap_init_data(local_info_t *local)
 	spin_lock_init(&ap->sta_table_lock);
 	INIT_LIST_HEAD(&ap->sta_list);
 
-	
+	/* Initialize task queue structure for AP management */
 	INIT_WORK(&local->ap->add_sta_proc_queue, handle_add_proc_queue);
 
 	ap->tx_callback_idx =
@@ -805,7 +821,7 @@ void hostap_init_data(local_info_t *local)
 
 	spin_lock_init(&ap->mac_restrictions.lock);
 	INIT_LIST_HEAD(&ap->mac_restrictions.mac_list);
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 	ap->initialized = 1;
 }
@@ -822,14 +838,14 @@ void hostap_init_ap_proc(local_info_t *local)
 #ifndef PRISM2_NO_PROCFS_DEBUG
 	create_proc_read_entry("ap_debug", 0, ap->proc,
 			       ap_debug_proc_read, ap);
-#endif 
+#endif /* PRISM2_NO_PROCFS_DEBUG */
 
 #ifndef PRISM2_NO_KERNEL_IEEE80211_MGMT
 	create_proc_read_entry("ap_control", 0, ap->proc,
 			       ap_control_proc_read, ap);
 	create_proc_read_entry("ap", 0, ap->proc,
 			       prism2_ap_proc_read, ap);
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 }
 
@@ -851,7 +867,7 @@ void hostap_free_data(struct ap_data *ap)
 	if (ap->crypt)
 		ap->crypt->deinit(ap->crypt_priv);
 	ap->crypt = ap->crypt_priv = NULL;
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 	list_for_each_entry_safe(sta, n, &ap->sta_list, list) {
 		ap_sta_hash_del(ap, sta);
@@ -865,7 +881,7 @@ void hostap_free_data(struct ap_data *ap)
 	if (ap->proc != NULL) {
 		remove_proc_entry("ap_debug", ap->proc);
 	}
-#endif 
+#endif /* PRISM2_NO_PROCFS_DEBUG */
 
 #ifndef PRISM2_NO_KERNEL_IEEE80211_MGMT
 	if (ap->proc != NULL) {
@@ -873,12 +889,13 @@ void hostap_free_data(struct ap_data *ap)
 		remove_proc_entry("ap_control", ap->proc);
 	}
 	ap_control_flush_macs(&ap->mac_restrictions);
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 	ap->initialized = 0;
 }
 
 
+/* caller should have mutex for AP STA list handling */
 static struct sta_info* ap_get_sta(struct ap_data *ap, u8 *sta)
 {
 	struct sta_info *s;
@@ -892,6 +909,7 @@ static struct sta_info* ap_get_sta(struct ap_data *ap, u8 *sta)
 
 #ifndef PRISM2_NO_KERNEL_IEEE80211_MGMT
 
+/* Called from timer handler and from scheduled AP queue handlers */
 static void prism2_send_mgmt(struct net_device *dev,
 			     u16 type_subtype, char *body,
 			     int body_len, u8 *addr, u16 tx_cb_idx)
@@ -906,7 +924,7 @@ static void prism2_send_mgmt(struct net_device *dev,
 
 	iface = netdev_priv(dev);
 	local = iface->local;
-	dev = local->dev; 
+	dev = local->dev; /* always use master radio device */
 	iface = netdev_priv(dev);
 
 	if (!(dev->flags & IFF_UP)) {
@@ -930,20 +948,22 @@ static void prism2_send_mgmt(struct net_device *dev,
 
 	memset(hdr, 0, hdrlen);
 
+	/* FIX: ctrl::ack sending used special HFA384X_TX_CTRL_802_11
+	 * tx_control instead of using local->tx_control */
 
 
-	memcpy(hdr->addr1, addr, ETH_ALEN); 
+	memcpy(hdr->addr1, addr, ETH_ALEN); /* DA / RA */
 	if (ieee80211_is_data(hdr->frame_control)) {
 		fc |= IEEE80211_FCTL_FROMDS;
-		memcpy(hdr->addr2, dev->dev_addr, ETH_ALEN); 
-		memcpy(hdr->addr3, dev->dev_addr, ETH_ALEN); 
+		memcpy(hdr->addr2, dev->dev_addr, ETH_ALEN); /* BSSID */
+		memcpy(hdr->addr3, dev->dev_addr, ETH_ALEN); /* SA */
 	} else if (ieee80211_is_ctl(hdr->frame_control)) {
-		
+		/* control:ACK does not have addr2 or addr3 */
 		memset(hdr->addr2, 0, ETH_ALEN);
 		memset(hdr->addr3, 0, ETH_ALEN);
 	} else {
-		memcpy(hdr->addr2, dev->dev_addr, ETH_ALEN); 
-		memcpy(hdr->addr3, dev->dev_addr, ETH_ALEN); 
+		memcpy(hdr->addr2, dev->dev_addr, ETH_ALEN); /* SA */
+		memcpy(hdr->addr3, dev->dev_addr, ETH_ALEN); /* BSSID */
 	}
 
 	hdr->frame_control = cpu_to_le16(fc);
@@ -959,7 +979,7 @@ static void prism2_send_mgmt(struct net_device *dev,
 	skb_reset_network_header(skb);
 	dev_queue_xmit(skb);
 }
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 
 static int prism2_sta_proc_read(char *page, char **start, off_t off,
@@ -969,6 +989,9 @@ static int prism2_sta_proc_read(char *page, char **start, off_t off,
 	struct sta_info *sta = (struct sta_info *) data;
 	int i;
 
+	/* FIX: possible race condition.. the STA data could have just expired,
+	 * but proc entry was still here so that the read could have started;
+	 * some locking should be done here.. */
 
 	if (off != 0) {
 		*eof = 1;
@@ -989,7 +1012,7 @@ static int prism2_sta_proc_read(char *page, char **start, off_t off,
 		     sta->flags & WLAN_STA_AUTHORIZED ? " AUTHORIZED" : "",
 		     sta->flags & WLAN_STA_PENDING_POLL ? " POLL" : "",
 		     sta->capability, sta->listen_interval);
-	
+	/* supported_rates: 500 kbit/s units with msb ignored */
 	for (i = 0; i < sizeof(sta->supported_rates); i++)
 		if (sta->supported_rates[i] != 0)
 			p += sprintf(p, "%d%sMbps ",
@@ -1027,7 +1050,7 @@ static int prism2_sta_proc_read(char *page, char **start, off_t off,
 				     sta->u.ap.ssid[i]);
 		p += sprintf(p, "\n");
 	}
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 	return (p - page);
 }
@@ -1077,7 +1100,7 @@ static struct sta_info * ap_add_sta(struct ap_data *ap, u8 *addr)
 		return NULL;
 	}
 
-	
+	/* initialize STA info data */
 	sta->local = ap->local;
 	skb_queue_head_init(&sta->tx_buf);
 	memcpy(sta->addr, addr, ETH_ALEN);
@@ -1091,6 +1114,8 @@ static struct sta_info * ap_add_sta(struct ap_data *ap, u8 *addr)
 
 	if (ap->proc) {
 		struct add_sta_proc_data *entry;
+		/* schedule a non-interrupt context process to add a procfs
+		 * entry for the STA since procfs code use GFP_KERNEL */
 		entry = kmalloc(sizeof(*entry), GFP_ATOMIC);
 		if (entry) {
 			memcpy(entry->addr, sta->addr, ETH_ALEN);
@@ -1108,7 +1133,7 @@ static struct sta_info * ap_add_sta(struct ap_data *ap, u8 *addr)
 	sta->timer.function = ap_handle_timer;
 	if (!ap->local->hostapd)
 		add_timer(&sta->timer);
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 	return sta;
 }
@@ -1203,6 +1228,14 @@ static void ap_crypt_init(struct ap_data *ap)
 }
 
 
+/* Generate challenge data for shared key authentication. IEEE 802.11 specifies
+ * that WEP algorithm is used for generating challenge. This should be unique,
+ * but otherwise there is not really need for randomness etc. Initialize WEP
+ * with pseudo random key and then use increasing IV to get unique challenge
+ * streams.
+ *
+ * Called only as a scheduled task for pending AP frames.
+ */
 static char * ap_auth_make_challenge(struct ap_data *ap)
 {
 	char *tmpbuf;
@@ -1245,6 +1278,7 @@ static char * ap_auth_make_challenge(struct ap_data *ap)
 }
 
 
+/* Called only as a scheduled task for pending AP frames. */
 static void handle_authen(local_info_t *local, struct sk_buff *skb,
 			  struct hostap_80211_rx_status *rx_stats)
 {
@@ -1359,7 +1393,7 @@ static void handle_authen(local_info_t *local, struct sk_buff *skb,
 		txt = "new STA";
 
 		if (local->ap->num_sta >= MAX_STA_COUNT) {
-			
+			/* FIX: might try to remove some old STAs first? */
 			txt = "no more room for new STAs";
 			resp = WLAN_STATUS_UNSPECIFIED_FAILURE;
 			goto fail;
@@ -1376,6 +1410,11 @@ static void handle_authen(local_info_t *local, struct sk_buff *skb,
 	switch (auth_alg) {
 	case WLAN_AUTH_OPEN:
 		txt = "authOK";
+		/* IEEE 802.11 standard is not completely clear about
+		 * whether STA is considered authenticated after
+		 * authentication OK frame has been send or after it
+		 * has been ACKed. In order to reduce interoperability
+		 * issues, mark the STA authenticated before ACK. */
 		sta->flags |= WLAN_STA_AUTH;
 		break;
 
@@ -1401,6 +1440,11 @@ static void handle_authen(local_info_t *local, struct sk_buff *skb,
 			}
 
 			txt = "challenge OK - authOK";
+			/* IEEE 802.11 standard is not completely clear about
+			 * whether STA is considered authenticated after
+			 * authentication OK frame has been send or after it
+			 * has been ACKed. In order to reduce interoperability
+			 * issues, mark the STA authenticated before ACK. */
 			sta->flags |= WLAN_STA_AUTH;
 			kfree(sta->u.sta.challenge);
 			sta->u.sta.challenge = NULL;
@@ -1414,7 +1458,7 @@ static void handle_authen(local_info_t *local, struct sk_buff *skb,
 	pos++;
 	*pos = cpu_to_le16(auth_transaction + 1);
 	pos++;
-	*pos = cpu_to_le16(resp); 
+	*pos = cpu_to_le16(resp); /* status_code */
 	pos++;
 	olen = 6;
 
@@ -1447,6 +1491,7 @@ static void handle_authen(local_info_t *local, struct sk_buff *skb,
 }
 
 
+/* Called only as a scheduled task for pending AP frames. */
 static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 			 struct hostap_80211_rx_status *rx_stats, int reassoc)
 {
@@ -1477,7 +1522,7 @@ static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 		txt = "trying to associate before authentication";
 		send_deauth = 1;
 		resp = WLAN_STATUS_UNSPECIFIED_FAILURE;
-		sta = NULL; 
+		sta = NULL; /* do not decrement sta->users */
 		goto fail;
 	}
 	atomic_inc(&sta->users);
@@ -1558,7 +1603,7 @@ static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 		goto fail;
 	}
 
-	
+	/* get a unique AID */
 	if (sta->aid > 0)
 		txt = "OK, old AID";
 	else {
@@ -1585,24 +1630,26 @@ static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 		*pos = cpu_to_le16(WLAN_REASON_STA_REQ_ASSOC_WITHOUT_AUTH);
 		pos++;
 	} else {
-		
-		
+		/* FIX: CF-Pollable and CF-PollReq should be set to match the
+		 * values in beacons/probe responses */
+		/* FIX: how about privacy and WEP? */
+		/* capability */
 		*pos = cpu_to_le16(WLAN_CAPABILITY_ESS);
 		pos++;
 
-		
+		/* status_code */
 		*pos = cpu_to_le16(resp);
 		pos++;
 
 		*pos = cpu_to_le16((sta && sta->aid > 0 ? sta->aid : 0) |
-				     BIT(14) | BIT(15)); 
+				     BIT(14) | BIT(15)); /* AID */
 		pos++;
 
-		
+		/* Supported rates (Information element) */
 		p = (char *) pos;
 		*p++ = WLAN_EID_SUPP_RATES;
 		lpos = p;
-		*p++ = 0; 
+		*p++ = 0; /* len */
 		if (local->tx_rate_control & WLAN_RATE_1M) {
 			*p++ = local->basic_rates & WLAN_RATE_1M ? 0x82 : 0x02;
 			(*lpos)++;
@@ -1635,6 +1682,8 @@ static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 	if (sta) {
 		if (resp == WLAN_STATUS_SUCCESS) {
 			sta->last_rx = jiffies;
+			/* STA will be marked associated from TX callback, if
+			 * AssocResp is ACKed */
 		}
 		atomic_dec(&sta->users);
 	}
@@ -1651,6 +1700,7 @@ static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 }
 
 
+/* Called only as a scheduled task for pending AP frames. */
 static void handle_deauth(local_info_t *local, struct sk_buff *skb,
 			  struct hostap_80211_rx_status *rx_stats)
 {
@@ -1692,6 +1742,7 @@ static void handle_deauth(local_info_t *local, struct sk_buff *skb,
 }
 
 
+/* Called only as a scheduled task for pending AP frames. */
 static void handle_disassoc(local_info_t *local, struct sk_buff *skb,
 			    struct hostap_80211_rx_status *rx_stats)
 {
@@ -1733,11 +1784,16 @@ static void handle_disassoc(local_info_t *local, struct sk_buff *skb,
 }
 
 
+/* Called only as a scheduled task for pending AP frames. */
 static void ap_handle_data_nullfunc(local_info_t *local,
 				    struct ieee80211_hdr *hdr)
 {
 	struct net_device *dev = local->dev;
 
+	/* some STA f/w's seem to require control::ACK frame for
+	 * data::nullfunc, but at least Prism2 station f/w version 0.8.0 does
+	 * not send this..
+	 * send control::ACK for the data::nullfunc */
 
 	printk(KERN_DEBUG "Sending control::ACK for data::nullfunc\n");
 	prism2_send_mgmt(dev, IEEE80211_FTYPE_CTL | IEEE80211_STYPE_ACK,
@@ -1745,6 +1801,7 @@ static void ap_handle_data_nullfunc(local_info_t *local,
 }
 
 
+/* Called only as a scheduled task for pending AP frames. */
 static void ap_handle_dropped_data(local_info_t *local,
 				   struct ieee80211_hdr *hdr)
 {
@@ -1774,29 +1831,35 @@ static void ap_handle_dropped_data(local_info_t *local,
 		atomic_dec(&sta->users);
 }
 
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 
+/* Called only as a scheduled task for pending AP frames. */
 static void pspoll_send_buffered(local_info_t *local, struct sta_info *sta,
 				 struct sk_buff *skb)
 {
 	struct hostap_skb_tx_data *meta;
 
 	if (!(sta->flags & WLAN_STA_PS)) {
+		/* Station has moved to non-PS mode, so send all buffered
+		 * frames using normal device queue. */
 		dev_queue_xmit(skb);
 		return;
 	}
 
+	/* add a flag for hostap_handle_sta_tx() to know that this skb should
+	 * be passed through even though STA is using PS */
 	meta = (struct hostap_skb_tx_data *) skb->cb;
 	meta->flags |= HOSTAP_TX_FLAGS_BUFFERED_FRAME;
 	if (!skb_queue_empty(&sta->tx_buf)) {
-		
+		/* indicate to STA that more frames follow */
 		meta->flags |= HOSTAP_TX_FLAGS_ADD_MOREDATA;
 	}
 	dev_queue_xmit(skb);
 }
 
 
+/* Called only as a scheduled task for pending AP frames. */
 static void handle_pspoll(local_info_t *local,
 			  struct ieee80211_hdr *hdr,
 			  struct hostap_80211_rx_status *rx_stats)
@@ -1844,22 +1907,33 @@ static void handle_pspoll(local_info_t *local,
 		return;
 	}
 
+	/* FIX: todo:
+	 * - add timeout for buffering (clear aid in TIM vector if buffer timed
+	 *   out (expiry time must be longer than ListenInterval for
+	 *   the corresponding STA; "8802-11: 11.2.1.9 AP aging function"
+	 * - what to do, if buffered, pspolled, and sent frame is not ACKed by
+	 *   sta; store buffer for later use and leave TIM aid bit set? use
+	 *   TX event to check whether frame was ACKed?
+	 */
 
 	while ((skb = skb_dequeue(&sta->tx_buf)) != NULL) {
-		
+		/* send buffered frame .. */
 		PDEBUG(DEBUG_PS2, "Sending buffered frame to STA after PS POLL"
 		       " (buffer_count=%d)\n", skb_queue_len(&sta->tx_buf));
 
 		pspoll_send_buffered(local, sta, skb);
 
 		if (sta->flags & WLAN_STA_PS) {
-			
+			/* send only one buffered packet per PS Poll */
+			/* FIX: should ignore further PS Polls until the
+			 * buffered packet that was just sent is acknowledged
+			 * (Tx or TxExc event) */
 			break;
 		}
 	}
 
 	if (skb_queue_empty(&sta->tx_buf)) {
-		
+		/* try to clear aid from TIM */
 		if (!(sta->flags & WLAN_STA_TIM))
 			PDEBUG(DEBUG_PS2,  "Re-unsetting TIM for aid %d\n",
 			       aid);
@@ -1903,6 +1977,7 @@ static void handle_wds_oper_queue(struct work_struct *work)
 }
 
 
+/* Called only as a scheduled task for pending AP frames. */
 static void handle_beacon(local_info_t *local, struct sk_buff *skb,
 			  struct hostap_80211_rx_status *rx_stats)
 {
@@ -1928,12 +2003,12 @@ static void handle_beacon(local_info_t *local, struct sk_buff *skb,
 	pos = (__le16 *) body;
 	left = len;
 
-	
+	/* Timestamp (8 octets) */
 	pos += 4; left -= 8;
-	
+	/* Beacon interval (2 octets) */
 	beacon_int = le16_to_cpu(*pos);
 	pos++; left -= 2;
-	
+	/* Capability information (2 octets) */
 	capability = le16_to_cpu(*pos);
 	pos++; left -= 2;
 
@@ -1958,7 +2033,7 @@ static void handle_beacon(local_info_t *local, struct sk_buff *skb,
 			if (local->ap->ap_policy == AP_OTHER_AP_SAME_SSID &&
 			    (ileft != strlen(local->essid) ||
 			     memcmp(local->essid, u, ileft) != 0)) {
-				
+				/* not our SSID */
 				return;
 			}
 
@@ -2010,7 +2085,7 @@ static void handle_beacon(local_info_t *local, struct sk_buff *skb,
 	spin_unlock_bh(&local->ap->sta_table_lock);
 
 	if (sta == NULL) {
-		
+		/* add new AP */
 		new_sta = 1;
 		sta = ap_add_sta(local->ap, hdr->addr2);
 		if (sta == NULL) {
@@ -2020,6 +2095,8 @@ static void handle_beacon(local_info_t *local, struct sk_buff *skb,
 		}
 		hostap_event_new_sta(local->dev, sta);
 
+		/* mark APs authentication and associated for pseudo ad-hoc
+		 * style communication */
 		sta->flags = WLAN_STA_AUTH | WLAN_STA_ASSOC;
 
 		if (local->ap->autom_ap_wds) {
@@ -2052,18 +2129,21 @@ static void handle_beacon(local_info_t *local, struct sk_buff *skb,
 	}
 }
 
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 
+/* Called only as a tasklet. */
 static void handle_ap_item(local_info_t *local, struct sk_buff *skb,
 			   struct hostap_80211_rx_status *rx_stats)
 {
 #ifndef PRISM2_NO_KERNEL_IEEE80211_MGMT
 	struct net_device *dev = local->dev;
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 	u16 fc, type, stype;
 	struct ieee80211_hdr *hdr;
 
+	/* FIX: should give skb->len to handler functions and check that the
+	 * buffer is long enough */
 	hdr = (struct ieee80211_hdr *) skb->data;
 	fc = le16_to_cpu(hdr->frame_control);
 	type = fc & IEEE80211_FCTL_FTYPE;
@@ -2076,6 +2156,9 @@ static void handle_ap_item(local_info_t *local, struct sk_buff *skb,
 		if (!(fc & IEEE80211_FCTL_TODS) ||
 		    (fc & IEEE80211_FCTL_FROMDS)) {
 			if (stype == IEEE80211_STYPE_NULLFUNC) {
+				/* no ToDS nullfunc seems to be used to check
+				 * AP association; so send reject message to
+				 * speed up re-association */
 				ap_handle_dropped_data(local, hdr);
 				goto done;
 			}
@@ -2102,7 +2185,7 @@ static void handle_ap_item(local_info_t *local, struct sk_buff *skb,
 		handle_beacon(local, skb, rx_stats);
 		goto done;
 	}
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 	if (type == IEEE80211_FTYPE_CTL && stype == IEEE80211_STYPE_PSPOLL) {
 		handle_pspoll(local, hdr, rx_stats);
@@ -2163,13 +2246,14 @@ static void handle_ap_item(local_info_t *local, struct sk_buff *skb,
 		       stype >> 4);
 		break;
 	}
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
  done:
 	dev_kfree_skb(skb);
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 void hostap_rx(struct net_device *dev, struct sk_buff *skb,
 	       struct hostap_80211_rx_status *rx_stats)
 {
@@ -2200,6 +2284,7 @@ void hostap_rx(struct net_device *dev, struct sk_buff *skb,
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void schedule_packet_send(local_info_t *local, struct sta_info *sta)
 {
 	struct sk_buff *skb;
@@ -2218,7 +2303,7 @@ static void schedule_packet_send(local_info_t *local, struct sta_info *sta)
 
 	hdr = (struct ieee80211_hdr *) skb_put(skb, 16);
 
-	
+	/* Generate a fake pspoll frame to start packet delivery */
 	hdr->frame_control = cpu_to_le16(
 		IEEE80211_FTYPE_CTL | IEEE80211_STYPE_PSPOLL);
 	memcpy(hdr->addr1, local->dev->dev_addr, ETH_ALEN);
@@ -2276,6 +2361,8 @@ int prism2_ap_get_sta_qual(local_info_t *local, struct sockaddr addr[],
 }
 
 
+/* Translate our list of Access Points & Stations to a card independent
+ * format that the Wireless Tools will understand - Jean II */
 int prism2_ap_translate_scan(struct net_device *dev,
 			     struct iw_request_info *info, char *buffer)
 {
@@ -2300,7 +2387,7 @@ int prism2_ap_translate_scan(struct net_device *dev,
 	     ptr = ptr->next) {
 		struct sta_info *sta = (struct sta_info *) ptr;
 
-		
+		/* First entry *MUST* be the AP MAC address */
 		memset(&iwe, 0, sizeof(iwe));
 		iwe.cmd = SIOCGIWAP;
 		iwe.u.ap_addr.sa_family = ARPHRD_ETHER;
@@ -2309,6 +2396,8 @@ int prism2_ap_translate_scan(struct net_device *dev,
 		current_ev = iwe_stream_add_event(info, current_ev, end_buf,
 						  &iwe, IW_EV_ADDR_LEN);
 
+		/* Use the mode to indicate if it's a station or
+		 * an Access Point */
 		memset(&iwe, 0, sizeof(iwe));
 		iwe.cmd = SIOCGIWMODE;
 		if (sta->ap)
@@ -2319,7 +2408,7 @@ int prism2_ap_translate_scan(struct net_device *dev,
 		current_ev = iwe_stream_add_event(info, current_ev, end_buf,
 						  &iwe, IW_EV_UINT_LEN);
 
-		
+		/* Some quality */
 		memset(&iwe, 0, sizeof(iwe));
 		iwe.cmd = IWEVQUAL;
 		if (sta->last_rx_silence == 0)
@@ -2376,11 +2465,11 @@ int prism2_ap_translate_scan(struct net_device *dev,
 			current_ev = iwe_stream_add_point(info, current_ev,
 							  end_buf, &iwe, buf);
 		}
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 		sta->last_rx_updated = IW_QUAL_DBM;
 
-		
+		/* To be continued, we should make good use of IWEVCUSTOM */
 	}
 
 	spin_unlock_bh(&ap->sta_table_lock);
@@ -2543,6 +2632,8 @@ int prism2_hostapd(struct ap_data *ap, struct prism2_hostapd_param *param)
 }
 
 
+/* Update station info for host-based TX rate control and return current
+ * TX rate */
 static int ap_update_sta_tx_rate(struct sta_info *sta, struct net_device *dev)
 {
 	int ret = sta->tx_rate;
@@ -2557,7 +2648,7 @@ static int ap_update_sta_tx_rate(struct sta_info *sta, struct net_device *dev)
 	sta->tx_consecutive_exc = 0;
 	if (sta->tx_since_last_failure >= WLAN_RATE_UPDATE_COUNT &&
 	    sta->tx_rate_idx < sta->tx_max_rate) {
-		
+		/* use next higher rate */
 		int old_rate, new_rate;
 		old_rate = new_rate = sta->tx_rate_idx;
 		while (new_rate < sta->tx_max_rate) {
@@ -2585,6 +2676,8 @@ static int ap_update_sta_tx_rate(struct sta_info *sta, struct net_device *dev)
 }
 
 
+/* Called only from software IRQ. Called for each TX frame prior possible
+ * encryption and transmit. */
 ap_tx_ret hostap_handle_sta_tx(local_info_t *local, struct hostap_tx_data *tx)
 {
 	struct sta_info *sta = NULL;
@@ -2602,13 +2695,13 @@ ap_tx_ret hostap_handle_sta_tx(local_info_t *local, struct hostap_tx_data *tx)
 	hdr = (struct ieee80211_hdr *) skb->data;
 
 	if (hdr->addr1[0] & 0x01) {
-		
+		/* broadcast/multicast frame - no AP related processing */
 		if (local->ap->num_sta <= 0)
 			ret = AP_TX_DROP;
 		goto out;
 	}
 
-	
+	/* unicast packet - check whether destination STA is associated */
 	spin_lock(&local->ap->sta_table_lock);
 	sta = ap_get_sta(local->ap, hdr->addr1);
 	if (sta)
@@ -2620,6 +2713,11 @@ ap_tx_ret hostap_handle_sta_tx(local_info_t *local, struct hostap_tx_data *tx)
 	    meta->iface->type != HOSTAP_INTERFACE_MASTER &&
 	    meta->iface->type != HOSTAP_INTERFACE_AP) {
 #if 0
+		/* This can happen, e.g., when wlan0 is added to a bridge and
+		 * bridging code does not know which port is the correct target
+		 * for a unicast frame. In this case, the packet is send to all
+		 * ports of the bridge. Since this is a valid scenario, do not
+		 * print out any errors here. */
 		if (net_ratelimit()) {
 			printk(KERN_DEBUG "AP: drop packet to non-associated "
 			       "STA %pM\n", hdr->addr1);
@@ -2636,7 +2734,7 @@ ap_tx_ret hostap_handle_sta_tx(local_info_t *local, struct hostap_tx_data *tx)
 	if (!(sta->flags & WLAN_STA_AUTHORIZED))
 		ret = AP_TX_CONTINUE_NOT_AUTHORIZED;
 
-	
+	/* Set tx_rate if using host-based TX rate control */
 	if (!local->fw_tx_rate_control)
 		local->ap->last_tx_rate = meta->rate =
 			ap_update_sta_tx_rate(sta, local->dev);
@@ -2648,12 +2746,14 @@ ap_tx_ret hostap_handle_sta_tx(local_info_t *local, struct hostap_tx_data *tx)
 		goto out;
 
 	if (meta->flags & HOSTAP_TX_FLAGS_ADD_MOREDATA) {
-		
+		/* indicate to STA that more frames follow */
 		hdr->frame_control |=
 			cpu_to_le16(IEEE80211_FCTL_MOREDATA);
 	}
 
 	if (meta->flags & HOSTAP_TX_FLAGS_BUFFERED_FRAME) {
+		/* packet was already buffered and now send due to
+		 * PS poll, so do not rebuffer it */
 		goto out;
 	}
 
@@ -2661,15 +2761,21 @@ ap_tx_ret hostap_handle_sta_tx(local_info_t *local, struct hostap_tx_data *tx)
 		PDEBUG(DEBUG_PS, "%s: No more space in STA (%pM)'s"
 		       "PS mode buffer\n",
 		       local->dev->name, sta->addr);
+		/* Make sure that TIM is set for the station (it might not be
+		 * after AP wlan hw reset). */
+		/* FIX: should fix hw reset to restore bits based on STA
+		 * buffer state.. */
 		hostap_set_tim(local, sta->aid, 1);
 		sta->flags |= WLAN_STA_TIM;
 		ret = AP_TX_DROP;
 		goto out;
 	}
 
-	
+	/* STA in PS mode, buffer frame for later delivery */
 	set_tim = skb_queue_empty(&sta->tx_buf);
 	skb_queue_tail(&sta->tx_buf, skb);
+	/* FIX: could save RX time to skb and expire buffered frames after
+	 * some time if STA does not poll for them */
 
 	if (set_tim) {
 		if (sta->flags & WLAN_STA_TIM)
@@ -2694,7 +2800,9 @@ ap_tx_ret hostap_handle_sta_tx(local_info_t *local, struct hostap_tx_data *tx)
 		     ret == AP_TX_CONTINUE_NOT_AUTHORIZED) &&
 		    sta->crypt && tx->host_encrypt) {
 			tx->crypt = sta->crypt;
-			tx->sta_ptr = sta; 
+			tx->sta_ptr = sta; /* hostap_handle_sta_release() will
+					    * be called to release sta info
+					    * later */
 		} else
 			atomic_dec(&sta->users);
 	}
@@ -2710,6 +2818,7 @@ void hostap_handle_sta_release(void *ptr)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 void hostap_handle_sta_tx_exc(local_info_t *local, struct sk_buff *skb)
 {
 	struct sta_info *sta;
@@ -2734,7 +2843,7 @@ void hostap_handle_sta_tx_exc(local_info_t *local, struct sk_buff *skb)
 
 	if (sta->tx_consecutive_exc >= WLAN_RATE_DECREASE_THRESHOLD &&
 	    sta->tx_rate_idx > 0 && meta->rate <= sta->tx_rate) {
-		
+		/* use next lower rate */
 		int old, rate;
 		old = rate = sta->tx_rate_idx;
 		while (rate > 0) {
@@ -2782,6 +2891,8 @@ static void hostap_update_sta_ps2(local_info_t *local, struct sta_info *sta,
 }
 
 
+/* Called only as a tasklet (software IRQ). Called for each RX frame to update
+ * STA power saving state. pwrmgt is a flag from 802.11 frame_control field. */
 int hostap_update_sta_ps(local_info_t *local, struct ieee80211_hdr *hdr)
 {
 	struct sta_info *sta;
@@ -2806,6 +2917,8 @@ int hostap_update_sta_ps(local_info_t *local, struct ieee80211_hdr *hdr)
 }
 
 
+/* Called only as a tasklet (software IRQ). Called for each RX frame after
+ * getting RX header and payload from hardware. */
 ap_rx_ret hostap_handle_sta_rx(local_info_t *local, struct net_device *dev,
 			       struct sk_buff *skb,
 			       struct hostap_80211_rx_status *rx_stats,
@@ -2850,13 +2963,15 @@ ap_rx_ret hostap_handle_sta_rx(local_info_t *local, struct net_device *dev,
 				       dev->name, hdr->addr2,
 				       type >> 2, stype >> 4);
 				hostap_rx(dev, skb, rx_stats);
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 			}
 			ret = AP_RX_EXIT;
 			goto out;
 		}
 	} else if (fc & IEEE80211_FCTL_FROMDS) {
 		if (!wds) {
+			/* FromDS frame - not for us; probably
+			 * broadcast/multicast in another BSS - drop */
 			if (memcmp(hdr->addr1, dev->dev_addr, ETH_ALEN) == 0) {
 				printk(KERN_DEBUG "Odd.. FromDS packet "
 				       "received with own BSSID\n");
@@ -2873,16 +2988,28 @@ ap_rx_ret hostap_handle_sta_rx(local_info_t *local, struct net_device *dev,
 					PRISM2_RX_NON_ASSOC);
 #ifndef PRISM2_NO_KERNEL_IEEE80211_MGMT
 		} else {
+			/* At least Lucent f/w seems to send data::nullfunc
+			 * frames with no ToDS flag when the current AP returns
+			 * after being unavailable for some time. Speed up
+			 * re-association by informing the station about it not
+			 * being associated. */
 			printk(KERN_DEBUG "%s: rejected received nullfunc frame"
 			       " without ToDS from not associated STA %pM\n",
 			       dev->name, hdr->addr2);
 			hostap_rx(dev, skb, rx_stats);
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 		}
 		ret = AP_RX_EXIT;
 		goto out;
 	} else if (stype == IEEE80211_STYPE_NULLFUNC) {
+		/* At least Lucent cards seem to send periodic nullfunc
+		 * frames with ToDS. Let these through to update SQ
+		 * stats and PS state. Nullfunc frames do not contain
+		 * any data and they will be dropped below. */
 	} else {
+		/* If BSSID (Addr3) is foreign, this frame is a normal
+		 * broadcast frame from an IBSS network. Drop it silently.
+		 * If BSSID is own, report the dropping of this frame. */
 		if (memcmp(hdr->addr3, dev->dev_addr, ETH_ALEN) == 0) {
 			printk(KERN_DEBUG "%s: dropped received packet from %pM"
 			       " with no ToDS flag "
@@ -2910,8 +3037,13 @@ ap_rx_ret hostap_handle_sta_rx(local_info_t *local, struct net_device *dev,
 					PRISM2_RX_NULLFUNC_ACK);
 #ifndef PRISM2_NO_KERNEL_IEEE80211_MGMT
 		} else {
+			/* some STA f/w's seem to require control::ACK frame
+			 * for data::nullfunc, but Prism2 f/w 0.8.0 (at least
+			 * from Compaq) does not send this.. Try to generate
+			 * ACK for these frames from the host driver to make
+			 * power saving work with, e.g., Lucent WaveLAN f/w */
 			hostap_rx(dev, skb, rx_stats);
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 		}
 		ret = AP_RX_EXIT;
 		goto out;
@@ -2925,6 +3057,7 @@ ap_rx_ret hostap_handle_sta_rx(local_info_t *local, struct net_device *dev,
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 int hostap_handle_sta_crypto(local_info_t *local,
 			     struct ieee80211_hdr *hdr,
 			     struct lib80211_crypt_data **crypt,
@@ -2944,6 +3077,8 @@ int hostap_handle_sta_crypto(local_info_t *local,
 	if (sta->crypt) {
 		*crypt = sta->crypt;
 		*sta_ptr = sta;
+		/* hostap_handle_sta_release() will be called to release STA
+		 * info */
 	} else
 		atomic_dec(&sta->users);
 
@@ -2951,6 +3086,7 @@ int hostap_handle_sta_crypto(local_info_t *local,
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 int hostap_is_sta_assoc(struct ap_data *ap, u8 *sta_addr)
 {
 	struct sta_info *sta;
@@ -2966,6 +3102,7 @@ int hostap_is_sta_assoc(struct ap_data *ap, u8 *sta_addr)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 int hostap_is_sta_authorized(struct ap_data *ap, u8 *sta_addr)
 {
 	struct sta_info *sta;
@@ -2983,6 +3120,7 @@ int hostap_is_sta_authorized(struct ap_data *ap, u8 *sta_addr)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 int hostap_add_sta(struct ap_data *ap, u8 *sta_addr)
 {
 	struct sta_info *sta;
@@ -3004,6 +3142,9 @@ int hostap_add_sta(struct ap_data *ap, u8 *sta_addr)
 		sta->flags = WLAN_STA_AUTH | WLAN_STA_ASSOC;
 		sta->ap = 1;
 		memset(sta->supported_rates, 0, sizeof(sta->supported_rates));
+		/* No way of knowing which rates are supported since we did not
+		 * get supported rates element from beacon/assoc req. Assume
+		 * that remote end supports all 802.11b rates. */
 		sta->supported_rates[0] = 0x82;
 		sta->supported_rates[1] = 0x84;
 		sta->supported_rates[2] = 0x0b;
@@ -3018,6 +3159,7 @@ int hostap_add_sta(struct ap_data *ap, u8 *sta_addr)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 int hostap_update_rx_stats(struct ap_data *ap,
 			   struct ieee80211_hdr *hdr,
 			   struct hostap_80211_rx_status *rx_stats)
@@ -3131,4 +3273,4 @@ EXPORT_SYMBOL(hostap_free_data);
 EXPORT_SYMBOL(hostap_check_sta_fw_version);
 EXPORT_SYMBOL(hostap_handle_sta_tx_exc);
 #ifndef PRISM2_NO_KERNEL_IEEE80211_MGMT
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */

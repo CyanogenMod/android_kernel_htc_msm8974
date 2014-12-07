@@ -99,4 +99,4 @@ static inline void barrier(void)
 	asm volatile("" : : : "memory");
 }
 
-#endif 
+#endif /* _IO_H */

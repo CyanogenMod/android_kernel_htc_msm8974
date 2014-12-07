@@ -121,24 +121,29 @@ void __init isa_init_irq(unsigned int host_irq)
 {
 	unsigned int irq;
 
+	/*
+	 * Setup, and then probe for an ISA PIC
+	 * If the PIC is not there, then we
+	 * ignore the PIC.
+	 */
 	outb(0x11, PIC_LO);
-	outb(_ISA_IRQ(0), PIC_MASK_LO);	
-	outb(0x04, PIC_MASK_LO);	
-	outb(0x01, PIC_MASK_LO);	
-	outb(0xf5, PIC_MASK_LO);	
+	outb(_ISA_IRQ(0), PIC_MASK_LO);	/* IRQ number		*/
+	outb(0x04, PIC_MASK_LO);	/* Slave on Ch2		*/
+	outb(0x01, PIC_MASK_LO);	/* x86			*/
+	outb(0xf5, PIC_MASK_LO);	/* pattern: 11110101	*/
 
 	outb(0x11, PIC_HI);
-	outb(_ISA_IRQ(8), PIC_MASK_HI);	
-	outb(0x02, PIC_MASK_HI);	
-	outb(0x01, PIC_MASK_HI);	
-	outb(0xfa, PIC_MASK_HI);	
+	outb(_ISA_IRQ(8), PIC_MASK_HI);	/* IRQ number		*/
+	outb(0x02, PIC_MASK_HI);	/* Slave on Ch1		*/
+	outb(0x01, PIC_MASK_HI);	/* x86			*/
+	outb(0xfa, PIC_MASK_HI);	/* pattern: 11111010	*/
 
 	outb(0x0b, PIC_LO);
 	outb(0x0b, PIC_HI);
 
 	if (inb(PIC_MASK_LO) == 0xf5 && inb(PIC_MASK_HI) == 0xfa) {
-		outb(0xff, PIC_MASK_LO);
-		outb(0xff, PIC_MASK_HI);
+		outb(0xff, PIC_MASK_LO);/* mask all IRQs	*/
+		outb(0xff, PIC_MASK_HI);/* mask all IRQs	*/
 	} else {
 		printk(KERN_INFO "IRQ: ISA PIC not found\n");
 		host_irq = (unsigned int)-1;
@@ -163,6 +168,12 @@ void __init isa_init_irq(unsigned int host_irq)
 
 		irq_set_chained_handler(host_irq, isa_irq_handler);
 
+		/*
+		 * On the NetWinder, don't automatically
+		 * enable ISA IRQ11 when it is requested.
+		 * There appears to be a missing pull-up
+		 * resistor on this line.
+		 */
 		if (machine_is_netwinder())
 			set_irq_flags(_ISA_IRQ(11), IRQF_VALID |
 				      IRQF_PROBE | IRQF_NOAUTOEN);

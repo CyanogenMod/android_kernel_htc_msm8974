@@ -58,6 +58,10 @@ static struct platform_device sgiwd93_1_device = {
 	},
 };
 
+/*
+ * Create a platform device for the GPI port that receives the
+ * image data from the embedded camera.
+ */
 static int __init sgiwd93_devinit(void)
 {
 	int res;
@@ -122,6 +126,10 @@ static struct platform_device eth1_device = {
 	},
 };
 
+/*
+ * Create a platform device for the GPI port that receives the
+ * image data from the embedded camera.
+ */
 static int __init sgiseeq_devinit(void)
 {
 	unsigned int pbdma __maybe_unused;
@@ -141,7 +149,7 @@ static int __init sgiseeq_devinit(void)
 	if (res)
 		return res;
 
-	
+	/* Second HPC is missing? */
 	if (ip22_is_fullhouse() ||
 	    get_dbe(pbdma, (unsigned int *)&hpc3c1->pbdma[1]))
 		return 0;
@@ -149,7 +157,7 @@ static int __init sgiseeq_devinit(void)
 	sgimc->giopar |= SGIMC_GIOPAR_MASTEREXP1 | SGIMC_GIOPAR_EXP164 |
 	                 SGIMC_GIOPAR_HPC264;
 	hpc3c1->pbus_piocfg[0][0] = 0x3ffff;
-	
+	/* interrupt/config register on Challenge S Mezz board */
 	hpc3c1->pbus_extregs[0][0] = 0x30;
 
 	eth1_pd.hpc = hpc3c1;
@@ -178,7 +186,7 @@ device_initcall(sgi_hal2_devinit);
 static int __init sgi_button_devinit(void)
 {
 	if (ip22_is_fullhouse())
-		return 0; 
+		return 0; /* full house has no volume buttons */
 
 	return IS_ERR(platform_device_register_simple("sgibtns", -1, NULL, 0));
 }

@@ -28,11 +28,11 @@ static struct rc_map_table nebula[] = {
 	{ 0x0b, KEY_AUX },
 	{ 0x0c, KEY_DVD },
 	{ 0x0d, KEY_POWER },
-	{ 0x0e, KEY_CAMERA },	
+	{ 0x0e, KEY_CAMERA },	/* labelled 'Picture' */
 	{ 0x0f, KEY_AUDIO },
 	{ 0x10, KEY_INFO },
-	{ 0x11, KEY_F13 },	
-	{ 0x12, KEY_F14 },	
+	{ 0x11, KEY_F13 },	/* 16:9 */
+	{ 0x12, KEY_F14 },	/* 14:9 */
 	{ 0x13, KEY_EPG },
 	{ 0x14, KEY_EXIT },
 	{ 0x15, KEY_MENU },
@@ -50,22 +50,22 @@ static struct rc_map_table nebula[] = {
 	{ 0x21, KEY_YELLOW },
 	{ 0x22, KEY_BLUE },
 	{ 0x23, KEY_SUBTITLE },
-	{ 0x24, KEY_F15 },	
+	{ 0x24, KEY_F15 },	/* AD */
 	{ 0x25, KEY_TEXT },
 	{ 0x26, KEY_MUTE },
 	{ 0x27, KEY_REWIND },
 	{ 0x28, KEY_STOP },
 	{ 0x29, KEY_PLAY },
 	{ 0x2a, KEY_FASTFORWARD },
-	{ 0x2b, KEY_F16 },	
+	{ 0x2b, KEY_F16 },	/* chapter */
 	{ 0x2c, KEY_PAUSE },
 	{ 0x2d, KEY_PLAY },
 	{ 0x2e, KEY_RECORD },
-	{ 0x2f, KEY_F17 },	
-	{ 0x30, KEY_KPPLUS },	
-	{ 0x31, KEY_KPMINUS },	
-	{ 0x32, KEY_F18 },	
-	{ 0x33, KEY_F19 },	
+	{ 0x2f, KEY_F17 },	/* picture in picture */
+	{ 0x30, KEY_KPPLUS },	/* zoom in */
+	{ 0x31, KEY_KPMINUS },	/* zoom out */
+	{ 0x32, KEY_F18 },	/* capture */
+	{ 0x33, KEY_F19 },	/* web */
 	{ 0x34, KEY_EMAIL },
 	{ 0x35, KEY_PHONE },
 	{ 0x36, KEY_PC },
@@ -75,7 +75,7 @@ static struct rc_map_list nebula_map = {
 	.map = {
 		.scan    = nebula,
 		.size    = ARRAY_SIZE(nebula),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_NEBULA,
 	}
 };

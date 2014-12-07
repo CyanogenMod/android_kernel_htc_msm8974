@@ -1,3 +1,4 @@
+/* -*- mode: c; c-basic-offset: 8 -*- */
 
 /*
  * MCA bus support functions for the proc fs.
@@ -49,7 +50,7 @@ static int get_mca_info(char *page, char **start, off_t off,
 
 	if(MCA_bus) {
 		struct mca_device *mca_dev;
-		
+		/* Format POS registers of eight MCA slots */
 
 		for(i=0; i<MCA_MAX_SLOT_NR; i++) {
 			mca_dev = mca_find_device_by_slot(i);
@@ -58,24 +59,27 @@ static int get_mca_info(char *page, char **start, off_t off,
 			len = get_mca_info_helper(mca_dev, page, len);
 		}
 
-		
+		/* Format POS registers of integrated video subsystem */
 
 		mca_dev = mca_find_device_by_slot(MCA_INTEGVIDEO);
 		len += sprintf(page+len, "Video : ");
 		len = get_mca_info_helper(mca_dev, page, len);
 
-		
+		/* Format POS registers of integrated SCSI subsystem */
 
 		mca_dev = mca_find_device_by_slot(MCA_INTEGSCSI);
 		len += sprintf(page+len, "SCSI  : ");
 		len = get_mca_info_helper(mca_dev, page, len);
 
-		
+		/* Format POS registers of motherboard */
 
 		mca_dev = mca_find_device_by_slot(MCA_MOTHERBOARD);
 		len += sprintf(page+len, "Planar: ");
 		len = get_mca_info_helper(mca_dev, page, len);
 	} else {
+		/* Leave it empty if MCA not detected - this should *never*
+		 * happen!
+		 */
 	}
 
 	if (len <= off+count) *eof = 1;
@@ -86,13 +90,14 @@ static int get_mca_info(char *page, char **start, off_t off,
 	return len;
 }
 
+/*--------------------------------------------------------------------*/
 
 static int mca_default_procfn(char* buf, struct mca_device *mca_dev)
 {
 	int len = 0, i;
 	int slot = mca_dev->slot;
 
-	
+	/* Print out the basic information */
 
 	if(slot < MCA_MAX_SLOT_NR) {
 		len += sprintf(buf+len, "Slot: %d\n", slot+1);
@@ -105,7 +110,7 @@ static int mca_default_procfn(char* buf, struct mca_device *mca_dev)
 	}
 	if (mca_dev->name[0]) {
 
-		
+		/* Drivers might register a name without /proc handler... */
 
 		len += sprintf(buf+len, "Adapter Name: %s\n",
 			       mca_dev->name);
@@ -126,7 +131,7 @@ static int mca_default_procfn(char* buf, struct mca_device *mca_dev)
 	buf[len] = 0;
 
 	return len;
-} 
+} /* mca_default_procfn() */
 
 static int get_mca_machine_info(char* page, char **start, off_t off,
 				 int count, int *eof, void *data)
@@ -151,11 +156,11 @@ static int mca_read_proc(char *page, char **start, off_t off,
 	struct mca_device *mca_dev = (struct mca_device *)data;
 	int len = 0;
 
-	
+	/* Get the standard info */
 
 	len = mca_default_procfn(page, mca_dev);
 
-	
+	/* Do any device-specific processing, if there is any */
 
 	if(mca_dev->procfn) {
 		len += mca_dev->procfn(page+len, mca_dev->slot,
@@ -167,8 +172,9 @@ static int mca_read_proc(char *page, char **start, off_t off,
 	if (len>count) len = count;
 	if (len<0) len = 0;
 	return len;
-} 
+} /* mca_read_proc() */
 
+/*--------------------------------------------------------------------*/
 
 void __init mca_do_proc_init(void)
 {
@@ -181,7 +187,7 @@ void __init mca_do_proc_init(void)
 	create_proc_read_entry("pos",0,proc_mca,get_mca_info,NULL);
 	create_proc_read_entry("machine",0,proc_mca,get_mca_machine_info,NULL);
 
-	
+	/* Initialize /proc/mca entries for existing adapters */
 
 	for(i = 0; i < MCA_NUMADAPTERS; i++) {
 		enum MCA_AdapterStatus status;
@@ -210,8 +216,25 @@ void __init mca_do_proc_init(void)
 		}
 	}
 
-} 
+} /* mca_do_proc_init() */
 
+/**
+ *	mca_set_adapter_procfn - Set the /proc callback
+ *	@slot: slot to configure
+ *	@procfn: callback function to call for /proc
+ *	@dev: device information passed to the callback
+ *
+ *	This sets up an information callback for /proc/mca/slot?.  The
+ *	function is called with the buffer, slot, and device pointer (or
+ *	some equally informative context information, or nothing, if you
+ *	prefer), and is expected to put useful information into the
+ *	buffer.  The adapter name, ID, and POS registers get printed
+ *	before this is called though, so don't do it again.
+ *
+ *	This should be called with a %NULL @procfn when a module
+ *	unregisters, thus preventing kernel crashes and other such
+ *	nastiness.
+ */
 
 void mca_set_adapter_procfn(int slot, MCA_ProcFn procfn, void* proc_dev)
 {

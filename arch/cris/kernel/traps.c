@@ -49,11 +49,22 @@ show_trace(unsigned long *stack)
 
 	while (((long)stack & (THREAD_SIZE-1)) != 0) {
 		if (__get_user(addr, stack)) {
+			/* This message matches "failing address" marked
+			   s390 in ksymoops, so lines containing it will
+			   not be filtered out by ksymoops.  */
 			printk("Failing address 0x%lx\n", (unsigned long)stack);
 			break;
 		}
 		stack++;
 
+		/*
+		 * If the address is either in the text segment of the
+		 * kernel, or in the region which contains vmalloc'ed
+		 * memory, it *may* be the address of a calling
+		 * routine; if so, print it so that someone tracing
+		 * down the cause of the crash will be able to figure
+		 * out the call path that was taken.
+		 */
 		if (((addr >= (unsigned long)&_stext) &&
 		     (addr <= (unsigned long)&_etext)) ||
 		    ((addr >= module_start) && (addr <= module_end))) {
@@ -65,9 +76,20 @@ show_trace(unsigned long *stack)
 	}
 }
 
+/*
+ * These constants are for searching for possible module text
+ * segments. MODULE_RANGE is a guess of how much space is likely
+ * to be vmalloced.
+ */
 
 #define MODULE_RANGE (8*1024*1024)
 
+/*
+ * The output (format, strings and order) is adjusted to be usable with
+ * ksymoops-2.4.1 with some necessary CRIS-specific patches.  Please don't
+ * change it unless you're serious about adjusting ksymoops and syncing
+ * with the ksymoops maintainer.
+ */
 
 void
 show_stack(struct task_struct *task, unsigned long *sp)
@@ -75,6 +97,10 @@ show_stack(struct task_struct *task, unsigned long *sp)
 	unsigned long *stack, addr;
 	int i;
 
+	/*
+	 * debugging aid: "show_stack(NULL);" prints a
+	 * back trace.
+	 */
 
 	if (sp == NULL) {
 		if (task)
@@ -92,6 +118,9 @@ show_stack(struct task_struct *task, unsigned long *sp)
 		if (i && ((i % 8) == 0))
 			printk("\n       ");
 		if (__get_user(addr, stack)) {
+			/* This message matches "failing address" marked
+			   s390 in ksymoops, so lines containing it will
+			   not be filtered out by ksymoops.  */
 			printk("Failing address 0x%lx\n", (unsigned long)stack);
 			break;
 		}
@@ -102,6 +131,7 @@ show_stack(struct task_struct *task, unsigned long *sp)
 }
 
 #if 0
+/* displays a short stack trace */
 
 int
 show_stack(void)
@@ -152,6 +182,11 @@ __initcall(oops_nmi_register);
 
 #endif
 
+/*
+ * This gets called from entry.S when the watchdog has bitten. Show something
+ * similar to an Oops dump, and if the kernel is configured to be a nice
+ * doggy, then halt instead of reboot.
+ */
 void
 watchdog_bite_hook(struct pt_regs *regs)
 {
@@ -161,12 +196,13 @@ watchdog_bite_hook(struct pt_regs *regs)
 	show_registers(regs);
 
 	while (1)
-		; 
+		; /* Do nothing. */
 #else
 	show_registers(regs);
 #endif
 }
 
+/* This is normally the Oops function. */
 void
 die_if_kernel(const char *str, struct pt_regs *regs, long err)
 {
@@ -174,6 +210,11 @@ die_if_kernel(const char *str, struct pt_regs *regs, long err)
 		return;
 
 #ifdef CONFIG_ETRAX_WATCHDOG_NICE_DOGGY
+	/*
+	 * This printout might take too long and could trigger
+	 * the watchdog normally. If NICE_DOGGY is set, simply
+	 * stop the watchdog during the printout.
+	 */
 	stop_watchdog();
 #endif
 
@@ -194,5 +235,5 @@ die_if_kernel(const char *str, struct pt_regs *regs, long err)
 void __init
 trap_init(void)
 {
-	
+	/* Nothing needs to be done */
 }

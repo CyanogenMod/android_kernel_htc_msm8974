@@ -42,12 +42,28 @@
 
 #include "entry.h"
 
+/* #define ALLOW_INIT_TRACING */
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
 void ptrace_disable(struct task_struct *child)
 {
-	
+	/* nothing to do */
 }
 
+/* To get the necessary page struct, access_process_vm() first calls
+ * get_user_pages().  This has done a flush_dcache_page() on the
+ * accessed page.  Then our caller (copy_{to,from}_user_page()) did
+ * to memcpy to read/write the data from that page.
+ *
+ * Now, the only thing we have to do is:
+ * 1) flush the D-cache if it's possible than an illegal alias
+ *    has been created
+ * 2) flush the I-cache if this is pre-cheetah and we did a write
+ */
 void flush_ptrace_access(struct vm_area_struct *vma, struct page *page,
 			 unsigned long uaddr, void *kaddr,
 			 unsigned long len, int write)
@@ -60,6 +76,11 @@ void flush_ptrace_access(struct vm_area_struct *vma, struct page *page,
 	preempt_disable();
 
 #ifdef DCACHE_ALIASING_POSSIBLE
+	/* If bit 13 of the kernel address we used to access the
+	 * user page is the same as the virtual address that page
+	 * is mapped to in the user's address space, we can skip the
+	 * D-cache flush.
+	 */
 	if ((uaddr ^ (unsigned long) kaddr) & (1UL << 13)) {
 		unsigned long start = __pa(kaddr);
 		unsigned long end = start + len;
@@ -76,7 +97,7 @@ void flush_ptrace_access(struct vm_area_struct *vma, struct page *page,
 				__asm__ __volatile__(
 					"stxa %%g0, [%0] %1\n\t"
 					"membar #Sync"
-					: 
+					: /* no outputs */
 					: "r" (start),
 					"i" (ASI_DCACHE_INVALIDATE));
 		}
@@ -206,7 +227,7 @@ static int genregs64_get(struct task_struct *target,
 	}
 
 	if (!ret) {
-		
+		/* TSTATE, TPC, TNPC */
 		ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
 					  &regs->tstate,
 					  32 * sizeof(u64),
@@ -263,12 +284,15 @@ static int genregs64_set(struct task_struct *target,
 	if (!ret && count > 0) {
 		unsigned long tstate;
 
-		
+		/* TSTATE */
 		ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 					 &tstate,
 					 32 * sizeof(u64),
 					 33 * sizeof(u64));
 		if (!ret) {
+			/* Only the condition codes and the "in syscall"
+			 * state can be modified in the %tstate register.
+			 */
 			tstate &= (TSTATE_ICC | TSTATE_XCC | TSTATE_SYSCALL);
 			regs->tstate &= ~(TSTATE_ICC | TSTATE_XCC | TSTATE_SYSCALL);
 			regs->tstate |= tstate;
@@ -276,7 +300,7 @@ static int genregs64_set(struct task_struct *target,
 	}
 
 	if (!ret) {
-		
+		/* TPC, TNPC */
 		ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 					 &regs->tpc,
 					 33 * sizeof(u64),
@@ -412,12 +436,25 @@ static int fpregs64_set(struct task_struct *target,
 }
 
 static const struct user_regset sparc64_regsets[] = {
+	/* Format is:
+	 * 	G0 --> G7
+	 *	O0 --> O7
+	 *	L0 --> L7
+	 *	I0 --> I7
+	 *	TSTATE, TPC, TNPC, Y
+	 */
 	[REGSET_GENERAL] = {
 		.core_note_type = NT_PRSTATUS,
 		.n = 36,
 		.size = sizeof(u64), .align = sizeof(u64),
 		.get = genregs64_get, .set = genregs64_set
 	},
+	/* Format is:
+	 *	F0 --> F63
+	 *	FSR
+	 *	GSR
+	 *	FPRS
+	 */
 	[REGSET_FP] = {
 		.core_note_type = NT_PRFPREG,
 		.n = 35,
@@ -506,20 +543,20 @@ static int genregs32_get(struct task_struct *target,
 	}
 	while (count > 0) {
 		switch (pos) {
-		case 32: 
+		case 32: /* PSR */
 			reg = tstate_to_psr(regs->tstate);
 			break;
-		case 33: 
+		case 33: /* PC */
 			reg = regs->tpc;
 			break;
-		case 34: 
+		case 34: /* NPC */
 			reg = regs->tnpc;
 			break;
-		case 35: 
+		case 35: /* Y */
 			reg = regs->y;
 			break;
-		case 36: 
-		case 37: 
+		case 36: /* WIM */
+		case 37: /* TBR */
 			reg = 0;
 			break;
 		default:
@@ -625,7 +662,7 @@ static int genregs32_set(struct task_struct *target,
 			return -EFAULT;
 
 		switch (pos) {
-		case 32: 
+		case 32: /* PSR */
 			tstate = regs->tstate;
 			tstate &= ~(TSTATE_ICC | TSTATE_XCC | TSTATE_SYSCALL);
 			tstate |= psr_to_tstate_icc(reg);
@@ -633,17 +670,17 @@ static int genregs32_set(struct task_struct *target,
 				tstate |= TSTATE_SYSCALL;
 			regs->tstate = tstate;
 			break;
-		case 33: 
+		case 33: /* PC */
 			regs->tpc = reg;
 			break;
-		case 34: 
+		case 34: /* NPC */
 			regs->tnpc = reg;
 			break;
-		case 35: 
+		case 35: /* Y */
 			regs->y = reg;
 			break;
-		case 36: 
-		case 37: 
+		case 36: /* WIM */
+		case 37: /* TBR */
 			break;
 		default:
 			goto finish;
@@ -761,12 +798,29 @@ static int fpregs32_set(struct task_struct *target,
 }
 
 static const struct user_regset sparc32_regsets[] = {
+	/* Format is:
+	 * 	G0 --> G7
+	 *	O0 --> O7
+	 *	L0 --> L7
+	 *	I0 --> I7
+	 *	PSR, PC, nPC, Y, WIM, TBR
+	 */
 	[REGSET_GENERAL] = {
 		.core_note_type = NT_PRSTATUS,
 		.n = 38,
 		.size = sizeof(u32), .align = sizeof(u32),
 		.get = genregs32_get, .set = genregs32_set
 	},
+	/* Format is:
+	 *	F0 --> F31
+	 *	empty 32-bit word
+	 *	FSR (32--bit word)
+	 *	FPU QUEUE COUNT (8-bit char)
+	 *	FPU QUEUE ENTRYSIZE (8-bit char)
+	 *	FPU ENABLED (8-bit char)
+	 *	empty 8-bit char
+	 *	FPU QUEUE (64 32-bit ints)
+	 */
 	[REGSET_FP] = {
 		.core_note_type = NT_PRFPREG,
 		.n = 99,
@@ -779,7 +833,7 @@ static const struct user_regset_view user_sparc32_view = {
 	.name = "sparc", .e_machine = EM_SPARC,
 	.regsets = sparc32_regsets, .n = ARRAY_SIZE(sparc32_regsets)
 };
-#endif 
+#endif /* CONFIG_COMPAT */
 
 const struct user_regset_view *task_user_regset_view(struct task_struct *task)
 {
@@ -907,7 +961,7 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 
 	return ret;
 }
-#endif 
+#endif /* CONFIG_COMPAT */
 
 struct fps {
 	unsigned int regs[64];
@@ -939,7 +993,7 @@ long arch_ptrace(struct task_struct *child, long request,
 					  15 * sizeof(u64),
 					  &pregs->u_regs[0]);
 		if (!ret) {
-			
+			/* XXX doesn't handle 'y' register correctly XXX */
 			ret = copy_regset_to_user(child, view, REGSET_GENERAL,
 						  32 * sizeof(u64),
 						  4 * sizeof(u64),
@@ -953,7 +1007,7 @@ long arch_ptrace(struct task_struct *child, long request,
 					    15 * sizeof(u64),
 					    &pregs->u_regs[0]);
 		if (!ret) {
-			
+			/* XXX doesn't handle 'y' register correctly XXX */
 			ret = copy_regset_from_user(child, view, REGSET_GENERAL,
 						    32 * sizeof(u64),
 						    4 * sizeof(u64),
@@ -1007,7 +1061,7 @@ asmlinkage int syscall_trace_enter(struct pt_regs *regs)
 {
 	int ret = 0;
 
-	
+	/* do the secure computing check first */
 	secure_computing(regs->u_regs[UREG_G1]);
 
 	if (test_thread_flag(TIF_SYSCALL_TRACE))

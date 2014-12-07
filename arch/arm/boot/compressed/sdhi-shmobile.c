@@ -104,8 +104,9 @@ static int sdhi_boot_wait_resp_end(void __iomem *base)
 	return err;
 }
 
+/* SDHI_CLK_CTRL */
 #define CLK_MMC_ENABLE                 (1 << 8)
-#define CLK_MMC_INIT                   (1 << 6)        
+#define CLK_MMC_INIT                   (1 << 6)        /* clk / 256 */
 
 static void sdhi_boot_mmc_clk_stop(void __iomem *base)
 {
@@ -133,6 +134,12 @@ static void sdhi_boot_reset(void __iomem *base)
 	msleep(10);
 }
 
+/* Set MMC clock / power.
+ * Note: This controller uses a simple divider scheme therefore it cannot
+ * run a MMC card at full speed (20MHz). The max clock is 24MHz on SD, but as
+ * MMC wont run that fast, it has to be clocked at 12MHz which is the next
+ * slowest setting.
+ */
 static int sdhi_boot_mmc_set_ios(void __iomem *base, struct mmc_ios *ios)
 {
 	if (sd_ctrl_read32(base, CTL_STATUS) & TMIO_STAT_CMD_BUSY)
@@ -142,14 +149,14 @@ static int sdhi_boot_mmc_set_ios(void __iomem *base, struct mmc_ios *ios)
 		sd_ctrl_write16(base, CTL_SD_CARD_CLK_CTL,
 				ios->clock | CLK_MMC_ENABLE);
 
-	
+	/* Power sequence - OFF -> ON -> UP */
 	switch (ios->power_mode) {
-	case MMC_POWER_OFF: 
+	case MMC_POWER_OFF: /* power down SD bus */
 		sdhi_boot_mmc_clk_stop(base);
 		break;
-	case MMC_POWER_ON: 
+	case MMC_POWER_ON: /* power up SD bus */
 		break;
-	case MMC_POWER_UP: 
+	case MMC_POWER_UP: /* start bus clock */
 		sdhi_boot_mmc_clk_start(base);
 		break;
 	}
@@ -163,12 +170,14 @@ static int sdhi_boot_mmc_set_ios(void __iomem *base, struct mmc_ios *ios)
 	break;
 	}
 
-	
+	/* Let things settle. delay taken from winCE driver */
 	udelay(140);
 
 	return 0;
 }
 
+/* These are the bitmasks the tmio chip requires to implement the MMC response
+ * types. Note that R1 and R6 are the same in this scheme. */
 #define RESP_NONE      0x0300
 #define RESP_R1        0x0400
 #define RESP_R1B       0x0500
@@ -191,7 +200,7 @@ static int sdhi_boot_request(void __iomem *base, struct mmc_command *cmd)
 		return -EINVAL;
 	}
 
-	
+	/* No interrupts so this may not be cleared */
 	sd_ctrl_write32(base, CTL_STATUS, ~TMIO_STAT_CMDRESPEND);
 
 	sd_ctrl_write32(base, CTL_IRQ_MASK, TMIO_STAT_CMDRESPEND |
@@ -218,7 +227,7 @@ static int sdhi_boot_do_read_single(void __iomem *base, int high_capacity,
 {
 	int err, i;
 
-	
+	/* CMD17 - Read */
 	{
 		struct mmc_command cmd;
 
@@ -282,7 +291,7 @@ int sdhi_boot_init(void __iomem *base)
 	sdhi_boot_mmc_clk_stop(base);
 	sdhi_boot_reset(base);
 
-	
+	/* mmc0: clock 400000Hz busmode 1 powermode 2 cs 0 Vdd 21 width 0 timing 0 */
 	{
 		struct mmc_ios ios;
 		ios.power_mode = MMC_POWER_ON;
@@ -293,7 +302,7 @@ int sdhi_boot_init(void __iomem *base)
 			return err;
 	}
 
-	
+	/* CMD0 */
 	{
 		struct mmc_command cmd;
 		msleep(1);
@@ -306,18 +315,18 @@ int sdhi_boot_init(void __iomem *base)
 		msleep(2);
 	}
 
-	
+	/* CMD8 - Test for SD version 2 */
 	{
 		struct mmc_command cmd;
 		cmd.opcode = SD_SEND_IF_COND;
 		cmd.arg = (VOLTAGES != 0) << 8 | 0xaa;
 		cmd.flags = MMC_RSP_R1;
-		err = sdhi_boot_request(base, &cmd); 
+		err = sdhi_boot_request(base, &cmd); /* Ignore error */
 		if ((cmd.resp[0] & 0xff) == 0xaa)
 			sd_v2 = true;
 	}
 
-	
+	/* CMD55 - Get OCR (SD) */
 	{
 		int timeout = 1000;
 		struct mmc_command cmd;
@@ -352,7 +361,7 @@ int sdhi_boot_init(void __iomem *base)
 		}
 	}
 
-	
+	/* CMD1 - Get OCR (MMC) */
 	if (!sd_v2 && !sd_v1_0) {
 		int timeout = 1000;
 		struct mmc_command cmd;
@@ -374,7 +383,7 @@ int sdhi_boot_init(void __iomem *base)
 		high_capacity = (cmd.resp[0] & OCR_HCS) == OCR_HCS;
 	}
 
-	
+	/* CMD2 - Get CID */
 	{
 		struct mmc_command cmd;
 		cmd.opcode = MMC_ALL_SEND_CID;
@@ -385,6 +394,11 @@ int sdhi_boot_init(void __iomem *base)
 			return err;
 	}
 
+	/* CMD3
+	 * MMC: Set the relative address
+	 * SD:  Get the relative address
+	 * Also puts the card into the standby state
+	 */
 	{
 		struct mmc_command cmd;
 		cmd.opcode = MMC_SET_RELATIVE_ADDR;
@@ -396,7 +410,7 @@ int sdhi_boot_init(void __iomem *base)
 		cid = cmd.resp[0] >> 16;
 	}
 
-	
+	/* CMD9 - Get CSD */
 	{
 		struct mmc_command cmd;
 		cmd.opcode = MMC_SEND_CSD;
@@ -407,20 +421,20 @@ int sdhi_boot_init(void __iomem *base)
 			return err;
 	}
 
-	
+	/* CMD7 - Select the card */
 	{
 		struct mmc_command cmd;
 		cmd.opcode = MMC_SELECT_CARD;
-		
+		//cmd.arg = rca << 16;
 		cmd.arg = cid << 16;
-		
+		//cmd.flags = MMC_RSP_R1B;
 		cmd.flags = MMC_RSP_R1;
 		err = sdhi_boot_request(base, &cmd);
 		if (err)
 			return err;
 	}
 
-	
+	/* CMD16 - Set the block size */
 	{
 		struct mmc_command cmd;
 		cmd.opcode = MMC_SET_BLOCKLEN;

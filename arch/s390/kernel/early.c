@@ -32,6 +32,9 @@
 #include <asm/facility.h>
 #include "entry.h"
 
+/*
+ * Create a Kernel NSS if the SAVESYS= parameter is defined
+ */
 #define DEFSYS_CMD_SIZE		128
 #define SAVESYS_CMD_SIZE	32
 
@@ -39,13 +42,16 @@ char kernel_nss_name[NSS_NAME_SIZE + 1];
 
 static void __init setup_boot_command_line(void);
 
+/*
+ * Get the TOD clock running.
+ */
 static void __init reset_tod_clock(void)
 {
 	u64 time;
 
 	if (store_clock(&time) == 0)
 		return;
-	
+	/* TOD clock not running. Set the clock to Unix Epoch. */
 	if (set_clock(TOD_UNIX_EPOCH) != 0 || store_clock(&time) != 0)
 		disabled_wait(0);
 
@@ -95,11 +101,11 @@ static noinline __init void create_kernel_nss(void)
 	char defsys_cmd[DEFSYS_CMD_SIZE];
 	char savesys_cmd[SAVESYS_CMD_SIZE];
 
-	
+	/* Do nothing if we are not running under VM */
 	if (!MACHINE_IS_VM)
 		return;
 
-	
+	/* Convert COMMAND_LINE to upper case */
 	for (i = 0; i < strlen(boot_command_line); i++)
 		upper_command_line[i] = toupper(boot_command_line[i]);
 
@@ -108,7 +114,7 @@ static noinline __init void create_kernel_nss(void)
 	if (!savesys_ptr)
 		return;
 
-	savesys_ptr += 8;    
+	savesys_ptr += 8;    /* Point to the beginning of the NSS name */
 	for (i = 0; i < NSS_NAME_SIZE; i++) {
 		if (savesys_ptr[i] == ' ' || savesys_ptr[i] == '\0')
 			break;
@@ -155,6 +161,12 @@ static noinline __init void create_kernel_nss(void)
 	ASCEBC(savesys_cmd, len);
 	response = savesys_ipl_nss(savesys_cmd, len);
 
+	/* On success: response is equal to the command size,
+	 *	       max SAVESYS_CMD_SIZE
+	 * On error: response contains the numeric portion of cp error message.
+	 *	     for SAVESYS it will be >= 263
+	 *	     for missing privilege class, it will be 1
+	 */
 	if (response > SAVESYS_CMD_SIZE || response == 1) {
 		pr_err("Saving the Linux kernel NSS failed with rc=%d\n",
 			response);
@@ -162,7 +174,7 @@ static noinline __init void create_kernel_nss(void)
 		return;
 	}
 
-	
+	/* re-initialize cputime accounting. */
 	sched_clock_base_cc = get_clock();
 	S390_lowcore.last_update_clock = sched_clock_base_cc;
 	S390_lowcore.last_update_timer = 0x7fffffffffffffffULL;
@@ -170,24 +182,30 @@ static noinline __init void create_kernel_nss(void)
 	S390_lowcore.system_timer = 0;
 	asm volatile("SPT 0(%0)" : : "a" (&S390_lowcore.last_update_timer));
 
-	
+	/* re-setup boot command line with new ipl vm parms */
 	ipl_update_parameters();
 	setup_boot_command_line();
 
 	ipl_flags = IPL_NSS_VALID;
 }
 
-#else 
+#else /* CONFIG_SHARED_KERNEL */
 
 static inline void create_kernel_nss(void) { }
 
-#endif 
+#endif /* CONFIG_SHARED_KERNEL */
 
+/*
+ * Clear bss memory
+ */
 static noinline __init void clear_bss_section(void)
 {
 	memset(__bss_start, 0, __bss_stop - __bss_start);
 }
 
+/*
+ * Initialize storage key for kernel pages
+ */
 static noinline __init void init_kernel_storage_key(void)
 {
 	unsigned long end_pfn, init_pfn;
@@ -203,16 +221,16 @@ static __initdata struct sysinfo_3_2_2 vmms __aligned(PAGE_SIZE);
 
 static noinline __init void detect_machine_type(void)
 {
-	
+	/* Check current-configuration-level */
 	if ((stsi(NULL, 0, 0, 0) >> 28) <= 2) {
 		S390_lowcore.machine_flags |= MACHINE_FLAG_LPAR;
 		return;
 	}
-	
+	/* Get virtual-machine cpu information. */
 	if (stsi(&vmms, 3, 2, 2) == -ENOSYS || !vmms.count)
 		return;
 
-	
+	/* Running under KVM? If not we assume z/VM */
 	if (!memcmp(vmms.vm[0].cpi, "\xd2\xe5\xd4", 3))
 		S390_lowcore.machine_flags |= MACHINE_FLAG_KVM;
 	else
@@ -365,6 +383,12 @@ static __init void rescue_initrd(void)
 {
 #ifdef CONFIG_BLK_DEV_INITRD
 	unsigned long min_initrd_addr = (unsigned long) _end + (4UL << 20);
+	/*
+	 * Just like in case of IPL from VM reader we make sure there is a
+	 * gap of 4MB between end of kernel and start of initrd.
+	 * That way we can also be sure that saving an NSS will succeed,
+	 * which however only requires different segments.
+	 */
 	if (!INITRD_START || !INITRD_SIZE)
 		return;
 	if (INITRD_START >= min_initrd_addr)
@@ -374,6 +398,7 @@ static __init void rescue_initrd(void)
 #endif
 }
 
+/* Set up boot command line */
 static void __init append_to_cmdline(size_t (*ipl_data)(char *, size_t))
 {
 	char *parm, *delim;
@@ -381,15 +406,15 @@ static void __init append_to_cmdline(size_t (*ipl_data)(char *, size_t))
 
 	len = strlen(boot_command_line);
 
-	delim = boot_command_line + len;	
-	parm  = boot_command_line + len + 1;	
+	delim = boot_command_line + len;	/* '\0' character position */
+	parm  = boot_command_line + len + 1;	/* append right after '\0' */
 
 	rc = ipl_data(parm, COMMAND_LINE_SIZE - len - 1);
 	if (rc) {
 		if (*parm == '=')
 			memmove(boot_command_line, parm + 1, rc);
 		else
-			*delim = ' ';		
+			*delim = ' ';		/* replace '\0' with space */
 	}
 }
 
@@ -406,14 +431,14 @@ static inline int has_ebcdic_char(const char *str)
 static void __init setup_boot_command_line(void)
 {
 	COMMAND_LINE[ARCH_COMMAND_LINE_SIZE - 1] = 0;
-	
+	/* convert arch command line to ascii if necessary */
 	if (has_ebcdic_char(COMMAND_LINE))
 		EBCASC(COMMAND_LINE, ARCH_COMMAND_LINE_SIZE);
-	
+	/* copy arch command line */
 	strlcpy(boot_command_line, strstrip(COMMAND_LINE),
 		ARCH_COMMAND_LINE_SIZE);
 
-	
+	/* append IPL PARM data to the boot command line */
 	if (MACHINE_IS_VM)
 		append_to_cmdline(append_ipl_vmparm);
 
@@ -421,6 +446,10 @@ static void __init setup_boot_command_line(void)
 }
 
 
+/*
+ * Save ipl parameters, clear bss memory, initialize storage keys
+ * and create a kernel NSS at startup if the SAVESYS= parm is defined
+ */
 void __init startup_init(void)
 {
 	reset_tod_clock();

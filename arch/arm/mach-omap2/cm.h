@@ -13,6 +13,13 @@
 #ifndef __ARCH_ASM_MACH_OMAP2_CM_H
 #define __ARCH_ASM_MACH_OMAP2_CM_H
 
+/*
+ * MAX_MODULE_READY_TIME: max duration in microseconds to wait for the
+ * PRCM to request that a module exit the inactive state in the case of
+ * OMAP2 & 3.
+ * In the case of OMAP4 this is the max duration in microseconds for the
+ * module to reach the functionnal state from an inactive state.
+ */
 #define MAX_MODULE_READY_TIME		2000
 
 #endif

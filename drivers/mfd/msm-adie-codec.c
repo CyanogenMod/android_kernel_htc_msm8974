@@ -62,7 +62,7 @@ int adie_codec_close(struct adie_codec_path *path_ptr)
 EXPORT_SYMBOL(adie_codec_close);
 
 int adie_codec_set_device_digital_volume(struct adie_codec_path *path_ptr,
-		u32 num_channels, u32 vol_percentage )
+		u32 num_channels, u32 vol_percentage /* in percentage */)
 {
 	int rc = -EPERM;
 
@@ -81,7 +81,7 @@ int adie_codec_set_device_digital_volume(struct adie_codec_path *path_ptr,
 EXPORT_SYMBOL(adie_codec_set_device_digital_volume);
 
 int adie_codec_set_device_analog_volume(struct adie_codec_path *path_ptr,
-		u32 num_channels, u32 volume )
+		u32 num_channels, u32 volume /* in percentage */)
 {
 	int rc = -EPERM;
 

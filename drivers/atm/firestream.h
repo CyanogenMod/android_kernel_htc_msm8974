@@ -1,3 +1,6 @@
+/* drivers/atm/firestream.h - FireStream 155 (MB86697) and
+ *                            FireStream  50 (MB86695) device driver 
+ */
  
 /* Written & (C) 2000 by R.E.Wolff@BitWizard.nl 
  * Copied snippets from zatm.c by Werner Almesberger, EPFL LRC/ICA 
@@ -24,28 +27,35 @@
 */
 
 
+/***********************************************************************
+ *                  first the defines for the chip.                    *
+ ***********************************************************************/
 
 
+/********************* General chip parameters. ************************/
 
 #define FS_NR_FREE_POOLS   8
 #define FS_NR_RX_QUEUES    4
 
 
+/********************* queues and queue access macros ******************/
 
 
+/* A queue entry. */
 struct FS_QENTRY {
 	u32 cmd;
 	u32 p0, p1, p2;
 };
 
 
+/* A freepool entry. */
 struct FS_BPENTRY {
 	u32 flags;
 	u32 next;
 	u32 bsa;
 	u32 aal_bufsize;
 
-	
+	/* The hardware doesn't look at this, but we need the SKB somewhere... */
 	struct sk_buff *skb;
 	struct freepool *fp;
 	struct fs_dev *dev;
@@ -55,13 +65,16 @@ struct FS_BPENTRY {
 #define STATUS_CODE(qe)  ((qe->cmd >> 22) & 0x3f)
 
 
+/* OFFSETS against the base of a QUEUE... */
 #define QSA     0x00
 #define QEA     0x04
 #define QRP     0x08
 #define QWP     0x0c
-#define QCNF    0x10   
+#define QCNF    0x10   /* Only for Release queues! */
+/* Not for the transmit pending queue. */
 
 
+/* OFFSETS against the base of a FREE POOL... */
 #define FPCNF   0x00
 #define FPSA    0x04
 #define FPEA    0x08
@@ -80,11 +93,13 @@ struct FS_BPENTRY {
 #define FP_CNT(b)   (b + FPCNT)
 #define FP_CTU(b)   (b + FPCTU)
 
+/* bits in a queue register. */
 #define Q_FULL      0x1
 #define Q_EMPTY     0x2
 #define Q_INCWRAP   0x4
 #define Q_ADDR_MASK 0xfffffff0
 
+/* bits in a FreePool config register */
 #define RBFP_RBS    (0x1 << 16)
 #define RBFP_RBSVAL (0x1 << 15)
 #define RBFP_CME    (0x1 << 12)
@@ -94,6 +109,7 @@ struct FS_BPENTRY {
 
 
 
+/* FireStream commands. */
 #define QE_CMD_NULL             (0x00 << 22)
 #define QE_CMD_REG_RD           (0x01 << 22)
 #define QE_CMD_REG_RDM          (0x02 << 22)
@@ -166,8 +182,14 @@ struct FS_BPENTRY {
 #define TXQ_HP 0
 #define TXQ_LP 1
 
+/* Phew. You don't want to know how many revisions these simple queue
+ * address macros went through before I got them nice and compact as
+ * they are now. -- REW
+ */
 
 
+/* And now for something completely different: 
+ * The rest of the registers... */
 
 
 #define CMDR0 0x34
@@ -196,7 +218,8 @@ struct FS_BPENTRY {
 #define SARMODE0_ABRVCS_8k  (0x5 << 4)
 #define SARMODE0_ABRVCS_16k (0x6 << 4)
 #define SARMODE0_ABRVCS_32k (0x7 << 4)
-#define SARMODE0_ABRVCS_32  (0x9 << 4) 
+#define SARMODE0_ABRVCS_32  (0x9 << 4) /* The others are "8", this one really has to 
+					  be 9. Tell me you don't believe me. -- REW */
 
 #define SARMODE0_RXVCS_0    (0x0 << 8)
 #define SARMODE0_RXVCS_1k   (0x1 << 8)
@@ -235,7 +258,7 @@ struct FS_BPENTRY {
 #define SARMODE0_INTMODE_READCLEAR          (0x0 << 28)
 #define SARMODE0_INTMODE_READNOCLEAR        (0x1 << 28)
 #define SARMODE0_INTMODE_READNOCLEARINHIBIT (0x2 << 28)
-#define SARMODE0_INTMODE_READCLEARINHIBIT   (0x3 << 28)  
+#define SARMODE0_INTMODE_READCLEARINHIBIT   (0x3 << 28)  /* Tell me you don't believe me. */
 
 #define SARMODE0_GINT      (0x1 << 30)
 #define SARMODE0_SHADEN    (0x1 << 31)
@@ -244,10 +267,10 @@ struct FS_BPENTRY {
 #define SARMODE1     0x60
 
 
-#define SARMODE1_TRTL_SHIFT 0   
-#define SARMODE1_RRTL_SHIFT 4   
+#define SARMODE1_TRTL_SHIFT 0   /* Program to 0 */
+#define SARMODE1_RRTL_SHIFT 4   /* Program to 0 */
 
-#define SARMODE1_TAGM       (0x1 <<  8)  
+#define SARMODE1_TAGM       (0x1 <<  8)  /* Program to 0 */
 
 #define SARMODE1_HECM0      (0x1 <<  9)
 #define SARMODE1_HECM1      (0x1 << 10)
@@ -285,7 +308,7 @@ struct FS_BPENTRY {
 #define ISR_RBRQ3_NF      (0x1 <<  9)
 #define ISR_BFP_SC        (0x1 << 10)
 #define ISR_INIT          (0x1 << 11)
-#define ISR_INIT_ERR      (0x1 << 12) 
+#define ISR_INIT_ERR      (0x1 << 12) /* Documented as "reserved" */
 #define ISR_USCEO         (0x1 << 13)
 #define ISR_UPEC0         (0x1 << 14)
 #define ISR_VPFCO         (0x1 << 15)
@@ -303,9 +326,11 @@ struct FS_BPENTRY {
 
 
 #define TMCONF 0x78
+/* Bits? */
 
 
 #define CALPRESCALE 0x7c
+/* Bits? */
 
 #define CELLOSCONF 0x84
 #define CELLOSCONF_COTS   (0x1 << 28)
@@ -318,6 +343,7 @@ struct FS_BPENTRY {
 #define CELLOSCONF_COBS   (0x1 << 16)
 #define CELLOSCONF_COPK   (0x1 <<  8)
 #define CELLOSCONF_COST   (0x1 <<  0)
+/* Bits? */
 
 #define RAS0 0x1bc
 #define RAS0_DCD_XHLT (0x1 << 31)
@@ -332,7 +358,7 @@ struct FS_BPENTRY {
 #define DMAMR 0x1cc
 #define DMAMR_TX_MODE_FULL (0x0 << 0)
 #define DMAMR_TX_MODE_PART (0x1 << 0)
-#define DMAMR_TX_MODE_NONE (0x2 << 0) 
+#define DMAMR_TX_MODE_NONE (0x2 << 0) /* And 3 */
 
 
 
@@ -413,6 +439,9 @@ struct fs_transmit_config {
 
 
 
+/************************************************************************
+ *         Then the datastructures that the DRIVER uses.                *
+ ************************************************************************/
 
 #define TXQ_NENTRIES  32
 #define RXRQ_NENTRIES 1024
@@ -439,16 +468,16 @@ struct freepool {
 
 
 struct fs_dev {
-	struct fs_dev *next;		
+	struct fs_dev *next;		/* other FS devices */
 	int flags;
 
-	unsigned char irq;		
-	struct pci_dev *pci_dev;	
+	unsigned char irq;		/* IRQ */
+	struct pci_dev *pci_dev;	/* PCI stuff */
 	struct atm_dev *atm_dev;
 	struct timer_list timer;
 
-	unsigned long hw_base;		
-	void __iomem *base;             
+	unsigned long hw_base;		/* mem base address */
+	void __iomem *base;             /* Mapping of base address */
 	int channo;
 	unsigned long channel_mask;
 
@@ -465,6 +494,7 @@ struct fs_dev {
 
 
 
+/* Number of channesl that the FS50 supports. */
 #define FS50_CHANNEL_BITS  5
 #define FS50_NR_CHANNELS      (1 << FS50_CHANNEL_BITS)
 
@@ -479,6 +509,8 @@ struct fs_dev {
 #define IS_FS50(dev)  (dev->flags & FS_IS50)
 #define IS_FS155(dev) (dev->flags & FS_IS155)
  
+/* Within limits this is user-configurable. */
+/* Note: Currently the sum (10 -> 1k channels) is hardcoded in the driver. */
 #define FS155_VPI_BITS 4
 #define FS155_VCI_BITS 6
 

@@ -21,4 +21,4 @@ struct iblock_dev {
 	struct block_device *ibd_bd;
 } ____cacheline_aligned;
 
-#endif 
+#endif /* TARGET_CORE_IBLOCK_H */

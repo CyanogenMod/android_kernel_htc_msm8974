@@ -62,6 +62,7 @@ static void __exit smdk2443_exit(void)
 module_init(smdk2443_init);
 module_exit(smdk2443_exit);
 
+/* Module information */
 MODULE_AUTHOR("Graeme Gregory, graeme.gregory@wolfsonmicro.com, www.wolfsonmicro.com");
 MODULE_DESCRIPTION("ALSA SoC WM9710 SMDK2443");
 MODULE_LICENSE("GPL");

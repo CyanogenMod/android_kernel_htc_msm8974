@@ -13,12 +13,18 @@
  *  GNU General Public License for more details.
  */
 
+/*
+ * This code handles the 15 bit RC5-ish protocol used by the Streamzap
+ * PC Remote.
+ * It considers a carrier of 36 kHz, with a total of 15 bits, where
+ * the first two bits are start bits, and a third one is a filing bit
+ */
 
 #include "rc-core-priv.h"
 #include <linux/module.h>
 
 #define RC5_SZ_NBITS		15
-#define RC5_UNIT		888888 
+#define RC5_UNIT		888888 /* ns */
 #define RC5_BIT_START		(1 * RC5_UNIT)
 #define RC5_BIT_END		(1 * RC5_UNIT)
 
@@ -29,6 +35,13 @@ enum rc5_sz_state {
 	STATE_FINISHED,
 };
 
+/**
+ * ir_rc5_sz_decode() - Decode one RC-5 Streamzap pulse or space
+ * @dev:	the struct rc_dev descriptor of the device
+ * @ev:		the struct ir_raw_event descriptor of the pulse/space
+ *
+ * This function returns -EINVAL if the pulse violates the state machine
+ */
 static int ir_rc5_sz_decode(struct rc_dev *dev, struct ir_raw_event ev)
 {
 	struct rc5_sz_dec *data = &dev->raw->rc5_sz;
@@ -93,7 +106,7 @@ again:
 		if (ev.pulse)
 			break;
 
-		
+		/* RC5-sz */
 		command  = (data->bits & 0x0003F) >> 0;
 		system   = (data->bits & 0x02FC0) >> 6;
 		toggle   = (data->bits & 0x01000) ? 1 : 0;

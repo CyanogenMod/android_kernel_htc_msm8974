@@ -37,6 +37,7 @@
 
 #define MAX3100_MAJOR 204
 #define MAX3100_MINOR 209
+/* 4 MAX3100s should be enough for everyone */
 #define MAX_MAX3100 4
 
 #include <linux/delay.h>
@@ -88,6 +89,7 @@
 #define MAX3100_RT   (MAX3100_R | MAX3100_T)
 #define MAX3100_RTC  (MAX3100_RT | MAX3100_CTS | MAX3100_RAFE)
 
+/* the following simulate a status reg for ignore_status_mask */
 #define MAX3100_STATUS_PE 1
 #define MAX3100_STATUS_FE 2
 #define MAX3100_STATUS_OE 4
@@ -96,47 +98,48 @@ struct max3100_port {
 	struct uart_port port;
 	struct spi_device *spi;
 
-	int cts;	        
-	int tx_empty;		
+	int cts;	        /* last CTS received for flow ctrl */
+	int tx_empty;		/* last TX empty bit */
 
-	spinlock_t conf_lock;	
-	int conf_commit;	
-	int conf;		
-	int rts_commit;	        
-	int rts;		
-	int baud;		
+	spinlock_t conf_lock;	/* shared data */
+	int conf_commit;	/* need to make changes */
+	int conf;		/* configuration for the MAX31000
+				 * (bits 0-7, bits 8-11 are irqs) */
+	int rts_commit;	        /* need to change rts */
+	int rts;		/* rts status */
+	int baud;		/* current baud rate */
 
-	int parity;		
+	int parity;		/* keeps track if we should send parity */
 #define MAX3100_PARITY_ON 1
 #define MAX3100_PARITY_ODD 2
 #define MAX3100_7BIT 4
-	int rx_enabled;	        
+	int rx_enabled;	        /* if we should rx chars */
 
-	int irq;		
+	int irq;		/* irq assigned to the max3100 */
 
-	int minor;		
-	int crystal;		
-	int loopback;		
+	int minor;		/* minor number */
+	int crystal;		/* 1 if 3.6864Mhz crystal 0 for 1.8432 */
+	int loopback;		/* 1 if we are in loopback mode */
 
-	
+	/* for handling irqs: need workqueue since we do spi_sync */
 	struct workqueue_struct *workqueue;
 	struct work_struct work;
-	
+	/* set to 1 to make the workhandler exit as soon as possible */
 	int  force_end_work;
-	
+	/* need to know we are suspending to avoid deadlock on workqueue */
 	int suspending;
 
-	
+	/* hook for suspending MAX3100 via dedicated pin */
 	void (*max3100_hw_suspend) (int suspend);
 
-	
+	/* poll time (in ms) for ctrl lines */
 	int poll_time;
-	
+	/* and its timer */
 	struct timer_list	timer;
 };
 
-static struct max3100_port *max3100s[MAX_MAX3100]; 
-static DEFINE_MUTEX(max3100s_lock);		   
+static struct max3100_port *max3100s[MAX_MAX3100]; /* the chips */
+static DEFINE_MUTEX(max3100s_lock);		   /* race on probe */
 
 static int max3100_do_parity(struct max3100_port *s, u16 c)
 {
@@ -381,7 +384,7 @@ static unsigned int max3100_tx_empty(struct uart_port *port)
 
 	dev_dbg(&s->spi->dev, "%s\n", __func__);
 
-	
+	/* may not be truly up-to-date */
 	max3100_dowork(s);
 	return s->tx_empty;
 }
@@ -394,9 +397,9 @@ static unsigned int max3100_get_mctrl(struct uart_port *port)
 
 	dev_dbg(&s->spi->dev, "%s\n", __func__);
 
-	
+	/* may not be truly up-to-date */
 	max3100_dowork(s);
-	
+	/* always assert DCD and DSR since these lines are not wired */
 	return (s->cts ? TIOCM_CTS : 0) | TIOCM_DSR | TIOCM_CAR;
 }
 
@@ -516,7 +519,7 @@ max3100_set_termios(struct uart_port *port, struct ktermios *termios,
 	else
 		parity &= ~MAX3100_PARITY_ODD;
 
-	
+	/* mask termios capabilities we don't support */
 	cflag &= ~CMSPAR;
 	termios->c_cflag = cflag;
 
@@ -526,7 +529,7 @@ max3100_set_termios(struct uart_port *port, struct ktermios *termios,
 			MAX3100_STATUS_PE | MAX3100_STATUS_FE |
 			MAX3100_STATUS_OE;
 
-	
+	/* we are sending char from a workqueue so enable */
 	s->port.state->port.tty->low_latency = 1;
 
 	if (s->poll_time > 0)
@@ -569,7 +572,7 @@ static void max3100_shutdown(struct uart_port *port)
 	if (s->irq)
 		free_irq(s->irq, s);
 
-	
+	/* set shutdown mode to save power */
 	if (s->max3100_hw_suspend)
 		s->max3100_hw_suspend(1);
 	else  {
@@ -627,7 +630,7 @@ static int max3100_startup(struct uart_port *port)
 		s->max3100_hw_suspend(0);
 	s->conf_commit = 1;
 	max3100_dowork(s);
-	
+	/* wait for clock to settle */
 	msleep(50);
 
 	max3100_enable_ms(&s->port);
@@ -804,7 +807,7 @@ static int __devinit max3100_probe(struct spi_device *spi)
 			 "uart_add_one_port failed for line %d with error %d\n",
 			 i, retval);
 
-	
+	/* set shutdown mode to save power. Will be woken-up on open */
 	if (max3100s[i]->max3100_hw_suspend)
 		max3100s[i]->max3100_hw_suspend(1);
 	else {
@@ -822,7 +825,7 @@ static int __devexit max3100_remove(struct spi_device *spi)
 
 	mutex_lock(&max3100s_lock);
 
-	
+	/* find out the index for the chip we are removing */
 	for (i = 0; i < MAX_MAX3100; i++)
 		if (max3100s[i] == s)
 			break;
@@ -832,7 +835,7 @@ static int __devexit max3100_remove(struct spi_device *spi)
 	kfree(max3100s[i]);
 	max3100s[i] = NULL;
 
-	
+	/* check if this is the last chip we have */
 	for (i = 0; i < MAX_MAX3100; i++)
 		if (max3100s[i]) {
 			mutex_unlock(&max3100s_lock);
@@ -861,7 +864,7 @@ static int max3100_suspend(struct spi_device *spi, pm_message_t state)
 	if (s->max3100_hw_suspend)
 		s->max3100_hw_suspend(1);
 	else {
-		
+		/* no HW suspend, so do SW one */
 		u16 tx, rx;
 
 		tx = MAX3100_WC | MAX3100_SHDN;

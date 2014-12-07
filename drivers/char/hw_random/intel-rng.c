@@ -36,6 +36,9 @@
 
 #define PFX	KBUILD_MODNAME ": "
 
+/*
+ * RNG registers
+ */
 #define INTEL_RNG_HW_STATUS			0
 #define         INTEL_RNG_PRESENT		0x40
 #define         INTEL_RNG_ENABLED		0x01
@@ -43,11 +46,17 @@
 #define         INTEL_RNG_DATA_PRESENT		0x01
 #define INTEL_RNG_DATA				2
 
+/*
+ * Magic address at which Intel PCI bridges locate the RNG
+ */
 #define INTEL_RNG_ADDR				0xFFBC015F
 #define INTEL_RNG_ADDR_LEN			3
 
+/*
+ * LPC bridge PCI config space registers
+ */
 #define FWH_DEC_EN1_REG_OLD			0xe3
-#define FWH_DEC_EN1_REG_NEW			0xd9 
+#define FWH_DEC_EN1_REG_NEW			0xd9 /* high byte of 16-bit register */
 #define FWH_F8_EN_MASK				0x80
 
 #define BIOS_CNTL_REG_OLD			0x4e
@@ -55,53 +64,85 @@
 #define BIOS_CNTL_WRITE_ENABLE_MASK		0x01
 #define BIOS_CNTL_LOCK_ENABLE_MASK		0x02
 
+/*
+ * Magic address at which Intel Firmware Hubs get accessed
+ */
 #define INTEL_FWH_ADDR				0xffff0000
 #define INTEL_FWH_ADDR_LEN			2
 
-#define INTEL_FWH_RESET_CMD			0xff 
+/*
+ * Intel Firmware Hub command codes (write to any address inside the device)
+ */
+#define INTEL_FWH_RESET_CMD			0xff /* aka READ_ARRAY */
 #define INTEL_FWH_READ_ID_CMD			0x90
 
+/*
+ * Intel Firmware Hub Read ID command result addresses
+ */
 #define INTEL_FWH_MANUFACTURER_CODE_ADDRESS	0x000000
 #define INTEL_FWH_DEVICE_CODE_ADDRESS		0x000001
 
+/*
+ * Intel Firmware Hub Read ID command result values
+ */
 #define INTEL_FWH_MANUFACTURER_CODE		0x89
 #define INTEL_FWH_DEVICE_CODE_8M		0xac
 #define INTEL_FWH_DEVICE_CODE_4M		0xad
 
+/*
+ * Data for PCI driver interface
+ *
+ * This data only exists for exporting the supported
+ * PCI ids via MODULE_DEVICE_TABLE.  We do not actually
+ * register a pci_driver, because someone else might one day
+ * want to register another driver on the same PCI id.
+ */
 static const struct pci_device_id pci_tbl[] = {
-	{ PCI_DEVICE(0x8086, 0x2410) }, 
-	{ PCI_DEVICE(0x8086, 0x2420) }, 
-	{ PCI_DEVICE(0x8086, 0x244c) }, 
-	{ PCI_DEVICE(0x8086, 0x248c) }, 
-	{ PCI_DEVICE(0x8086, 0x24cc) }, 
-	{ PCI_DEVICE(0x8086, 0x2641) }, 
-	{ PCI_DEVICE(0x8086, 0x27b9) }, 
-	{ PCI_DEVICE(0x8086, 0x27bd) }, 
-	{ PCI_DEVICE(0x8086, 0x2440) }, 
-	{ PCI_DEVICE(0x8086, 0x2480) }, 
-	{ PCI_DEVICE(0x8086, 0x24c0) }, 
-	{ PCI_DEVICE(0x8086, 0x24d0) }, 
-	{ PCI_DEVICE(0x8086, 0x25a1) }, 
-	{ PCI_DEVICE(0x8086, 0x2640) }, 
-	{ PCI_DEVICE(0x8086, 0x2670) }, 
-	{ PCI_DEVICE(0x8086, 0x2671) }, 
-	{ PCI_DEVICE(0x8086, 0x2672) }, 
-	{ PCI_DEVICE(0x8086, 0x2673) }, 
-	{ PCI_DEVICE(0x8086, 0x2674) }, 
-	{ PCI_DEVICE(0x8086, 0x2675) }, 
-	{ PCI_DEVICE(0x8086, 0x2676) }, 
-	{ PCI_DEVICE(0x8086, 0x2677) }, 
-	{ PCI_DEVICE(0x8086, 0x2678) }, 
-	{ PCI_DEVICE(0x8086, 0x2679) }, 
-	{ PCI_DEVICE(0x8086, 0x267a) }, 
-	{ PCI_DEVICE(0x8086, 0x267b) }, 
-	{ PCI_DEVICE(0x8086, 0x267c) }, 
-	{ PCI_DEVICE(0x8086, 0x267d) }, 
-	{ PCI_DEVICE(0x8086, 0x267e) }, 
-	{ PCI_DEVICE(0x8086, 0x267f) }, 
-	{ PCI_DEVICE(0x8086, 0x27b8) }, 
-	{ PCI_DEVICE(0x8086, 0x2450) }, 
-	{ 0, },	
+/* AA
+	{ PCI_DEVICE(0x8086, 0x2418) }, */
+	{ PCI_DEVICE(0x8086, 0x2410) }, /* AA */
+/* AB
+	{ PCI_DEVICE(0x8086, 0x2428) }, */
+	{ PCI_DEVICE(0x8086, 0x2420) }, /* AB */
+/* ??
+	{ PCI_DEVICE(0x8086, 0x2430) }, */
+/* BAM, CAM, DBM, FBM, GxM
+	{ PCI_DEVICE(0x8086, 0x2448) }, */
+	{ PCI_DEVICE(0x8086, 0x244c) }, /* BAM */
+	{ PCI_DEVICE(0x8086, 0x248c) }, /* CAM */
+	{ PCI_DEVICE(0x8086, 0x24cc) }, /* DBM */
+	{ PCI_DEVICE(0x8086, 0x2641) }, /* FBM */
+	{ PCI_DEVICE(0x8086, 0x27b9) }, /* GxM */
+	{ PCI_DEVICE(0x8086, 0x27bd) }, /* GxM DH */
+/* BA, CA, DB, Ex, 6300, Fx, 631x/632x, Gx
+	{ PCI_DEVICE(0x8086, 0x244e) }, */
+	{ PCI_DEVICE(0x8086, 0x2440) }, /* BA */
+	{ PCI_DEVICE(0x8086, 0x2480) }, /* CA */
+	{ PCI_DEVICE(0x8086, 0x24c0) }, /* DB */
+	{ PCI_DEVICE(0x8086, 0x24d0) }, /* Ex */
+	{ PCI_DEVICE(0x8086, 0x25a1) }, /* 6300 */
+	{ PCI_DEVICE(0x8086, 0x2640) }, /* Fx */
+	{ PCI_DEVICE(0x8086, 0x2670) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x2671) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x2672) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x2673) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x2674) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x2675) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x2676) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x2677) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x2678) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x2679) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x267a) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x267b) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x267c) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x267d) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x267e) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x267f) }, /* 631x/632x */
+	{ PCI_DEVICE(0x8086, 0x27b8) }, /* Gx */
+/* E
+	{ PCI_DEVICE(0x8086, 0x245e) }, */
+	{ PCI_DEVICE(0x8086, 0x2450) }, /* E  */
+	{ 0, },	/* terminate list */
 };
 MODULE_DEVICE_TABLE(pci, pci_tbl);
 
@@ -154,7 +195,7 @@ static int intel_rng_init(struct hwrng *rng)
 	int err = -EIO;
 
 	hw_status = hwstatus_get(mem);
-	
+	/* turn RNG h/w on, if it's off */
 	if ((hw_status & INTEL_RNG_ENABLED) == 0)
 		hw_status = hwstatus_set(mem, hw_status | INTEL_RNG_ENABLED);
 	if ((hw_status & INTEL_RNG_ENABLED) == 0) {
@@ -201,7 +242,7 @@ static int __init intel_rng_hw_init(void *_intel_rng_hw)
 	struct intel_rng_hw *intel_rng_hw = _intel_rng_hw;
 	u8 mfc, dvc;
 
-	
+	/* interrupts disabled in stop_machine call */
 
 	if (!(intel_rng_hw->fwh_dec_en1_val & FWH_F8_EN_MASK))
 		pci_write_config_byte(intel_rng_hw->dev,
@@ -247,7 +288,7 @@ static int __init intel_init_hw_struct(struct intel_rng_hw *intel_rng_hw,
 	intel_rng_hw->fwh_dec_en1_val = 0xff;
 	intel_rng_hw->dev = dev;
 
-	
+	/* Check for Intel 82802 */
 	if (dev->device < 0x2640) {
 		intel_rng_hw->fwh_dec_en1_off = FWH_DEC_EN1_REG_OLD;
 		intel_rng_hw->bios_cntl_off = BIOS_CNTL_REG_OLD;
@@ -264,7 +305,7 @@ static int __init intel_init_hw_struct(struct intel_rng_hw *intel_rng_hw,
 	if ((intel_rng_hw->bios_cntl_val &
 	     (BIOS_CNTL_LOCK_ENABLE_MASK|BIOS_CNTL_WRITE_ENABLE_MASK))
 	    == BIOS_CNTL_LOCK_ENABLE_MASK) {
-		static __initdata  char warning[] =
+		static __initdata /*const*/ char warning[] =
 			KERN_WARNING
 PFX "Firmware space is locked read-only. If you can't or\n"
 PFX "don't want to disable this in firmware setup, and if\n"
@@ -299,7 +340,7 @@ static int __init mod_init(void)
 				     NULL);
 
 	if (!dev)
-		goto out; 
+		goto out; /* Device not found. */
 
 	if (no_fwh_detect < 0) {
 		pci_dev_put(dev);
@@ -321,6 +362,14 @@ static int __init mod_init(void)
 		goto out;
 	}
 
+	/*
+	 * Since the BIOS code/data is going to disappear from its normal
+	 * location with the Read ID command, all activity on the system
+	 * must be stopped until the state is back to normal.
+	 *
+	 * Use stop_machine because IPIs can be blocked by disabling
+	 * interrupts.
+	 */
 	err = stop_machine(intel_rng_hw_init, intel_rng_hw, NULL);
 	pci_dev_put(dev);
 	iounmap(intel_rng_hw->mem);
@@ -335,7 +384,7 @@ fwh_done:
 		goto out;
 	intel_rng.priv = (unsigned long)mem;
 
-	
+	/* Check for Random Number Generator */
 	err = -ENODEV;
 	hw_status = hwstatus_get(mem);
 	if ((hw_status & INTEL_RNG_PRESENT) == 0) {

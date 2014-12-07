@@ -8,7 +8,7 @@
 struct __new_sigaction32 {
 	unsigned		sa_handler;
 	unsigned int    	sa_flags;
-	unsigned		sa_restorer;     
+	unsigned		sa_restorer;     /* not used by Linux/SPARC yet */
 	compat_sigset_t 	sa_mask;
 };
 
@@ -16,7 +16,7 @@ struct __old_sigaction32 {
 	unsigned		sa_handler;
 	compat_old_sigset_t  	sa_mask;
 	unsigned int    	sa_flags;
-	unsigned		sa_restorer;     
+	unsigned		sa_restorer;     /* not used by Linux/SPARC yet */
 };
 
 typedef struct sigaltstack32 {
@@ -26,4 +26,4 @@ typedef struct sigaltstack32 {
 } stack_t32;
 #endif
 
-#endif 
+#endif /* !(_COMPAT_SIGNAL_H) */

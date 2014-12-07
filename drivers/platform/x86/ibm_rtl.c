@@ -53,8 +53,9 @@ MODULE_AUTHOR("Vernon Mauery <vernux@us.ibm.com>");
 #define RTL_CMD_ENTER_PRTM  1
 #define RTL_CMD_EXIT_PRTM   2
 
+/* The RTL table as presented by the EBDA: */
 struct ibm_rtl_table {
-	char signature[5]; 
+	char signature[5]; /* signature should be "_RTL_" */
 	u8 version;
 	u8 rt_status;
 	u8 command;
@@ -63,10 +64,11 @@ struct ibm_rtl_table {
 	u8 cmd_granularity;
 	u8 cmd_offset;
 	u16 reserve1;
-	u32 cmd_port_address; 
-	u32 cmd_port_value;   
+	u32 cmd_port_address; /* platform dependent address */
+	u32 cmd_port_value;   /* platform dependent value */
 } __attribute__((packed));
 
+/* to locate "_RTL_" signature do a masked 5-byte integer compare */
 #define RTL_SIGNATURE 0x0000005f4c54525fULL
 #define RTL_MASK      0x000000ffffffffffULL
 
@@ -241,11 +243,11 @@ static int __init ibm_rtl_init(void) {
 
 	if (force)
 		pr_warn("module loaded by force\n");
-	
+	/* first ensure that we are running on IBM HW */
 	else if (efi_enabled || !dmi_check_system(ibm_rtl_dmi_table))
 		return -ENODEV;
 
-	
+	/* Get the address for the Extended BIOS Data Area */
 	ebda_addr = get_bios_ebda();
 	if (!ebda_addr) {
 		RTL_DEBUG("no BIOS EBDA found\n");
@@ -256,7 +258,7 @@ static int __init ibm_rtl_init(void) {
 	if (!ebda_map)
 		return -ENOMEM;
 
-	
+	/* First word in the EDBA is the Size in KB */
 	ebda_kb = ioread16(ebda_map);
 	RTL_DEBUG("EBDA is %d kB\n", ebda_kb);
 
@@ -266,12 +268,12 @@ static int __init ibm_rtl_init(void) {
 	iounmap(ebda_map);
 	ebda_size = ebda_kb*1024;
 
-	
+	/* Remap the whole table */
 	ebda_map = ioremap(ebda_addr, ebda_size);
 	if (!ebda_map)
 		return -ENOMEM;
 
-	
+	/* search for the _RTL_ signature at the start of the table */
 	for (i = 0 ; i < ebda_size/sizeof(unsigned int); i++) {
 		struct ibm_rtl_table __iomem * tmp;
 		tmp = (struct ibm_rtl_table __iomem *) (ebda_map+i);
@@ -280,6 +282,8 @@ static int __init ibm_rtl_init(void) {
 			unsigned int plen;
 			RTL_DEBUG("found RTL_SIGNATURE at %p\n", tmp);
 			rtl_table = tmp;
+			/* The address, value, width and offset are platform
+			 * dependent and found in the ibm_rtl_table */
 			rtl_cmd_width = ioread8(&rtl_table->cmd_granularity);
 			rtl_cmd_type = ioread8(&rtl_table->cmd_address_type);
 			RTL_DEBUG("rtl_cmd_width = %u, rtl_cmd_type = %u\n",
@@ -311,9 +315,9 @@ static void __exit ibm_rtl_exit(void)
 {
 	if (rtl_table) {
 		RTL_DEBUG("cleaning up");
-		
+		/* do not leave the machine in SMI-free mode */
 		ibm_rtl_write(0);
-		
+		/* unmap, unlink and remove all traces */
 		rtl_teardown_sysfs();
 		iounmap(ebda_map);
 		rtl_port_unmap(rtl_cmd_addr);

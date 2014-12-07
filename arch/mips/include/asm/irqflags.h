@@ -43,16 +43,38 @@ extern void smtc_ipi_replay(void);
 static inline void arch_local_irq_enable(void)
 {
 #ifdef CONFIG_MIPS_MT_SMTC
+	/*
+	 * SMTC kernel needs to do a software replay of queued
+	 * IPIs, at the cost of call overhead on each local_irq_enable()
+	 */
 	smtc_ipi_replay();
 #endif
 	__asm__ __volatile__(
 		"arch_local_irq_enable"
-		: 
-		: 
+		: /* no outputs */
+		: /* no inputs */
 		: "memory");
 }
 
 
+/*
+ * For cli() we have to insert nops to make sure that the new value
+ * has actually arrived in the status register before the end of this
+ * macro.
+ * R4000/R4400 need three nops, the R4600 two nops and the R10000 needs
+ * no nops at all.
+ */
+/*
+ * For TX49, operating only IE bit is not enough.
+ *
+ * If mfc0 $12 follows store and the mfc0 is last instruction of a
+ * page and fetching the next instruction causes TLB miss, the result
+ * of the mfc0 might wrongly contain EXL bit.
+ *
+ * ERT-TX49H2-027, ERT-TX49H3-012, ERT-TX49HL3-006, ERT-TX49H4-008
+ *
+ * Workaround: mask EXL bit of the result or place a nop before mfc0.
+ */
 __asm__(
 	"	.macro	arch_local_irq_disable\n"
 	"	.set	push						\n"
@@ -79,8 +101,8 @@ static inline void arch_local_irq_disable(void)
 {
 	__asm__ __volatile__(
 		"arch_local_irq_disable"
-		: 
-		: 
+		: /* no outputs */
+		: /* no inputs */
 		: "memory");
 }
 
@@ -133,7 +155,7 @@ static inline unsigned long arch_local_irq_save(void)
 	unsigned long flags;
 	asm volatile("arch_local_irq_save\t%0"
 		     : "=r" (flags)
-		     : 
+		     : /* no inputs */
 		     : "memory");
 	return flags;
 }
@@ -151,11 +173,18 @@ __asm__(
 	"or	\\flags, $1						\n"
 	"mtc0	\\flags, $2, 1						\n"
 #elif defined(CONFIG_CPU_MIPSR2) && defined(CONFIG_IRQ_CPU)
+	/*
+	 * Slow, but doesn't suffer from a relatively unlikely race
+	 * condition we're having since days 1.
+	 */
 	"	beqz	\\flags, 1f					\n"
 	"	 di							\n"
 	"	ei							\n"
 	"1:								\n"
 #elif defined(CONFIG_CPU_MIPSR2)
+	/*
+	 * Fast, dangerous.  Life is fun, life is good.
+	 */
 	"	mfc0	$1, $12						\n"
 	"	ins	$1, \\flags, 0, 1				\n"
 	"	mtc0	$1, $12						\n"
@@ -177,6 +206,11 @@ static inline void arch_local_irq_restore(unsigned long flags)
 	unsigned long __tmp1;
 
 #ifdef CONFIG_MIPS_MT_SMTC
+	/*
+	 * SMTC kernel needs to do a software replay of queued
+	 * IPIs, at the cost of branch and call overhead on each
+	 * local_irq_restore()
+	 */
 	if (unlikely(!(flags & 0x0400)))
 		smtc_ipi_replay();
 #endif
@@ -202,6 +236,9 @@ static inline void __arch_local_irq_restore(unsigned long flags)
 static inline int arch_irqs_disabled_flags(unsigned long flags)
 {
 #ifdef CONFIG_MIPS_MT_SMTC
+	/*
+	 * SMTC model uses TCStatus.IXMT to disable interrupts for a thread/CPU
+	 */
 	return flags & 0x400;
 #else
 	return !(flags & 1);
@@ -210,7 +247,11 @@ static inline int arch_irqs_disabled_flags(unsigned long flags)
 
 #endif
 
+/*
+ * Do the CPU's IRQ-state tracing from assembly code.
+ */
 #ifdef CONFIG_TRACE_IRQFLAGS
+/* Reload some registers clobbered by trace_hardirqs_on */
 #ifdef CONFIG_64BIT
 # define TRACE_IRQS_RELOAD_REGS						\
 	LONG_L	$11, PT_R11(sp);					\
@@ -231,7 +272,7 @@ static inline int arch_irqs_disabled_flags(unsigned long flags)
 	LONG_L	$2, PT_R2(sp)
 #endif
 # define TRACE_IRQS_ON							\
-	CLI;	 \
+	CLI;	/* make sure trace_hardirqs_on() is called in kernel level */ \
 	jal	trace_hardirqs_on
 # define TRACE_IRQS_ON_RELOAD						\
 	TRACE_IRQS_ON;							\
@@ -244,4 +285,4 @@ static inline int arch_irqs_disabled_flags(unsigned long flags)
 # define TRACE_IRQS_OFF
 #endif
 
-#endif 
+#endif /* _ASM_IRQFLAGS_H */

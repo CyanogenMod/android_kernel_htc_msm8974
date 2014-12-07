@@ -24,7 +24,7 @@ static const int tps6105x_voltages[] = {
 	4500000,
 	5000000,
 	5250000,
-	5000000, 
+	5000000, /* There is an additional 5V */
 };
 
 static int tps6105x_regulator_enable(struct regulator_dev *rdev)
@@ -32,7 +32,7 @@ static int tps6105x_regulator_enable(struct regulator_dev *rdev)
 	struct tps6105x *tps6105x = rdev_get_drvdata(rdev);
 	int ret;
 
-	
+	/* Activate voltage mode */
 	ret = tps6105x_mask_and_set(tps6105x, TPS6105X_REG_0,
 		TPS6105X_REG0_MODE_MASK,
 		TPS6105X_REG0_MODE_VOLTAGE << TPS6105X_REG0_MODE_SHIFT);
@@ -47,7 +47,7 @@ static int tps6105x_regulator_disable(struct regulator_dev *rdev)
 	struct tps6105x *tps6105x = rdev_get_drvdata(rdev);
 	int ret;
 
-	
+	/* Set into shutdown mode */
 	ret = tps6105x_mask_and_set(tps6105x, TPS6105X_REG_0,
 		TPS6105X_REG0_MODE_MASK,
 		TPS6105X_REG0_MODE_SHUTDOWN << TPS6105X_REG0_MODE_SHIFT);
@@ -132,20 +132,23 @@ static struct regulator_desc tps6105x_regulator_desc = {
 	.n_voltages	= ARRAY_SIZE(tps6105x_voltages),
 };
 
+/*
+ * Registers the chip as a voltage regulator
+ */
 static int __devinit tps6105x_regulator_probe(struct platform_device *pdev)
 {
 	struct tps6105x *tps6105x = dev_get_platdata(&pdev->dev);
 	struct tps6105x_platform_data *pdata = tps6105x->pdata;
 	int ret;
 
-	
+	/* This instance is not set for regulator mode so bail out */
 	if (pdata->mode != TPS6105X_MODE_VOLTAGE) {
 		dev_info(&pdev->dev,
 			 "chip not in voltage mode mode, exit probe \n");
 		return 0;
 	}
 
-	
+	/* Register regulator with framework */
 	tps6105x->regulator = regulator_register(&tps6105x_regulator_desc,
 					     &tps6105x->client->dev,
 					     pdata->regulator_data, tps6105x,

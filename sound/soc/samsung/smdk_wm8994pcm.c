@@ -18,8 +18,33 @@
 #include "dma.h"
 #include "pcm.h"
 
+/*
+ * Board Settings:
+ *  o '1' means 'ON'
+ *  o '0' means 'OFF'
+ *  o 'X' means 'Don't care'
+ *
+ * SMDKC210, SMDKV310: CFG3- 1001, CFG5-1000, CFG7-111111
+ */
 
+/*
+ * Configure audio route as :-
+ * $ amixer sset 'DAC1' on,on
+ * $ amixer sset 'Right Headphone Mux' 'DAC'
+ * $ amixer sset 'Left Headphone Mux' 'DAC'
+ * $ amixer sset 'DAC1R Mixer AIF1.1' on
+ * $ amixer sset 'DAC1L Mixer AIF1.1' on
+ * $ amixer sset 'IN2L' on
+ * $ amixer sset 'IN2L PGA IN2LN' on
+ * $ amixer sset 'MIXINL IN2L' on
+ * $ amixer sset 'AIF1ADC1L Mixer ADC/DMIC' on
+ * $ amixer sset 'IN2R' on
+ * $ amixer sset 'IN2R PGA IN2RN' on
+ * $ amixer sset 'MIXINR IN2R' on
+ * $ amixer sset 'AIF1ADC1R Mixer ADC/DMIC' on
+ */
 
+/* SMDK has a 16.9344MHZ crystal attached to WM8994 */
 #define SMDK_WM8994_FREQ 16934400
 
 static int smdk_wm8994_pcm_hw_params(struct snd_pcm_substream *substream,
@@ -43,14 +68,14 @@ static int smdk_wm8994_pcm_hw_params(struct snd_pcm_substream *substream,
 
 	mclk_freq = params_rate(params) * rfs;
 
-	
+	/* Set the codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_DSP_B
 				| SND_SOC_DAIFMT_IB_NF
 				| SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Set the cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_DSP_B
 				| SND_SOC_DAIFMT_IB_NF
 				| SND_SOC_DAIFMT_CBS_CFS);
@@ -67,13 +92,13 @@ static int smdk_wm8994_pcm_hw_params(struct snd_pcm_substream *substream,
 	if (ret < 0)
 		return ret;
 
-	
+	/* Set PCM source clock on CPU */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, S3C_PCM_CLKSRC_MUX,
 					mclk_freq, SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Set SCLK_DIV for making bclk */
 	ret = snd_soc_dai_set_clkdiv(cpu_dai, S3C_PCM_SCLK_PER_FS, rfs);
 	if (ret < 0)
 		return ret;

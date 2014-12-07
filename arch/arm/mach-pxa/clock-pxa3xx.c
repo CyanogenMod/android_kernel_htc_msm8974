@@ -17,21 +17,29 @@
 
 #include "clock.h"
 
+/* Crystal clock: 13MHz */
 #define BASE_CLK	13000000
 
+/* Ring Oscillator Clock: 60MHz */
 #define RO_CLK		60000000
 
 #define ACCR_D0CS	(1 << 26)
 #define ACCR_PCCE	(1 << 11)
 
+/* crystal frequency to HSIO bus frequency multiplier (HSS) */
 static unsigned char hss_mult[4] = { 8, 12, 16, 24 };
 
+/*
+ * Get the clock frequency as reflected by CCSR and the turbo flag.
+ * We assume these values have been applied via a fcs.
+ * If info is not 0 we also display the current settings.
+ */
 unsigned int pxa3xx_get_clk_frequency_khz(int info)
 {
 	unsigned long acsr, xclkcfg;
 	unsigned int t, xl, xn, hss, ro, XL, XN, CLK, HSS;
 
-	
+	/* Read XCLKCFG register turbo bit */
 	__asm__ __volatile__("mrc\tp14, 0, %0, c6, c0, 0" : "=r"(xclkcfg));
 	t = xclkcfg & 0x1;
 
@@ -65,6 +73,9 @@ unsigned int pxa3xx_get_clk_frequency_khz(int info)
 	return CLK / 1000;
 }
 
+/*
+ * Return the current AC97 clock frequency.
+ */
 static unsigned long clk_pxa3xx_ac97_getrate(struct clk *clk)
 {
 	unsigned long rate = 312000000;
@@ -72,12 +83,18 @@ static unsigned long clk_pxa3xx_ac97_getrate(struct clk *clk)
 
 	ac97_div = AC97_DIV;
 
+	/* This may loose precision for some rates but won't for the
+	 * standard 24.576MHz.
+	 */
 	rate /= (ac97_div >> 12) & 0x7fff;
 	rate *= (ac97_div & 0xfff);
 
 	return rate;
 }
 
+/*
+ * Return the current HSIO bus clock frequency
+ */
 static unsigned long clk_pxa3xx_hsio_getrate(struct clk *clk)
 {
 	unsigned long acsr;
@@ -91,6 +108,7 @@ static unsigned long clk_pxa3xx_hsio_getrate(struct clk *clk)
 	return hsio_clk;
 }
 
+/* crystal frequency to static memory controller multiplier (SMCFS) */
 static unsigned int smcfs_mult[8] = { 6, 0, 8, 0, 0, 16, };
 static unsigned int df_clkdiv[4] = { 1, 2, 4, 1 };
 

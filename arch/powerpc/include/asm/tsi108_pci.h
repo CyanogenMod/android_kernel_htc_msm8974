@@ -23,6 +23,7 @@
 
 #include <asm/tsi108.h>
 
+/* Register definitions */
 #define TSI108_PCI_P2O_BAR0 (TSI108_PCI_OFFSET + 0x10)
 #define TSI108_PCI_P2O_BAR0_UPPER (TSI108_PCI_OFFSET + 0x14)
 #define TSI108_PCI_P2O_BAR2 (TSI108_PCI_OFFSET + 0x18)
@@ -41,4 +42,4 @@ extern void tsi108_pci_int_init(struct device_node *node);
 extern void tsi108_irq_cascade(unsigned int irq, struct irq_desc *desc);
 extern void tsi108_clear_pci_cfg_error(void);
 
-#endif				
+#endif				/*  _ASM_POWERPC_TSI108_PCI_H */

@@ -42,6 +42,13 @@
 #define NES_ABI_USERSPACE_VER 1
 #define NES_ABI_KERNEL_VER    1
 
+/*
+ * Make sure that all structs defined in this file remain laid out so
+ * that they pack the same way on 32-bit and 64-bit architectures (to
+ * avoid incompatibility between 32-bit userspace and 64-bit kernels).
+ * In particular do not use pointer types -- pass pointers in __u64
+ * instead.
+ */
 
 struct nes_alloc_ucontext_req {
 	__u32 reserved32;
@@ -50,10 +57,10 @@ struct nes_alloc_ucontext_req {
 };
 
 struct nes_alloc_ucontext_resp {
-	__u32 max_pds; 
-	__u32 max_qps; 
-	__u32 wq_size; 
-	__u8  virtwq;  
+	__u32 max_pds; /* maximum pds allowed for this user process */
+	__u32 max_qps; /* maximum qps allowed for this user process */
+	__u32 wq_size; /* size of the WQs (sq+rq) allocated to the mmaped area */
+	__u8  virtwq;  /* flag to indicate if virtual WQ are to be used or not */
 	__u8  kernel_ver;
 	__u8  reserved[2];
 };
@@ -83,7 +90,7 @@ enum iwnes_memreg_type {
 };
 
 struct nes_mem_reg_req {
-	__u32 reg_type;	
+	__u32 reg_type;	/* indicates if id is memory, QP or CQ */
 	__u32 reserved;
 };
 
@@ -103,4 +110,4 @@ struct nes_create_qp_resp {
 	__u32 nes_drv_opt;
 };
 
-#endif				
+#endif				/* NES_USER_H */

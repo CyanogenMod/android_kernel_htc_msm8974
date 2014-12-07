@@ -3,4 +3,4 @@
 
 #include <linux/byteorder/big_endian.h>
 
-#endif 
+#endif /* _SPARC_BYTEORDER_H */

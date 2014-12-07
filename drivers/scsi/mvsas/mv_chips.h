@@ -169,10 +169,10 @@ static inline void __devinit mvs_phy_hacks(struct mvs_info *mvi)
 	tmp |= (1 << 10);
 	mvs_cw32(mvi, CMD_PHY_TIMER, tmp);
 
-	
+	/* enable retry 127 times */
 	mvs_cw32(mvi, CMD_SAS_CTL1, 0x7f7f);
 
-	
+	/* extend open frame timeout to max */
 	tmp = mvs_cr32(mvi, CMD_SAS_CTL0);
 	tmp &= ~0xffff;
 	tmp |= 0x3fff;
@@ -180,7 +180,7 @@ static inline void __devinit mvs_phy_hacks(struct mvs_info *mvi)
 
 	mvs_cw32(mvi, CMD_WD_TIMER, 0x7a0000);
 
-	
+	/* not to halt for different port op during wideport link change */
 	mvs_cw32(mvi, CMD_APP_ERR_CONFIG, 0xffefbf7d);
 }
 
@@ -266,5 +266,5 @@ static inline u32 mvs_hw_max_link_rate(void)
 	return MAX_LINK_RATE;
 }
 
-#endif  
+#endif  /* _MV_CHIPS_H_ */
 

@@ -137,10 +137,10 @@ static int eata_pio_proc_info(struct Scsi_Host *shost, char *buffer, char **star
     
 stop_output:
 	DBG(DBG_PROC, printk("2pos: %ld offset: %ld len: %d\n", pos, offset, len));
-	*start = buffer + (offset - begin);   
-	len -= (offset - begin);            
+	*start = buffer + (offset - begin);   /* Start of wanted data */
+	len -= (offset - begin);            /* Start slop */
 	if (len > length)
-		len = length;               
+		len = length;               /* Ending slop */
 	DBG(DBG_PROC, printk("3pos: %ld offset: %ld len: %d\n", pos, offset, len));
     
 	return len;
@@ -157,7 +157,7 @@ static int eata_pio_release(struct Scsi_Host *sh)
 		if (sh->io_port && sh->n_io_port)
 			release_region(sh->io_port, sh->n_io_port);
 	}
-	
+	/* At this point the PCI reference can go */
 	if (hd->pdev)
 		pci_dev_put(hd->pdev);
 	return 1;
@@ -248,7 +248,7 @@ static irqreturn_t eata_pio_int_handler(int irq, void *dev_id)
 						zwickel = inw(base + HA_RDATA);
 						z--;
 					}
-				} else {	
+				} else {	/* cp->DataOut */
 
 					odd = 0;
 					z = 256;
@@ -281,10 +281,14 @@ static irqreturn_t eata_pio_int_handler(int irq, void *dev_id)
 		}
 		while ((stat & HA_SDRQ) || ((stat & HA_SMORE) && hd->moresupport));
 
+		/* terminate handler if HBA goes busy again, i.e. transfers
+		 * more data */
 
 		if (stat & HA_SBUSY)
 			break;
 
+		/* OK, this is quite stupid, but I haven't found any correct
+		 * way to get HBA&SCSI status so far */
 
 		if (!(inb(base + HA_RSTATUS) & HA_SERROR)) {
 			cmd->result = (DID_OK << 16);
@@ -305,7 +309,7 @@ static irqreturn_t eata_pio_int_handler(int irq, void *dev_id)
 			printk(KERN_DEBUG "stat: %#.2x, result: %#.8x\n", stat, cmd->result);
 #endif
 
-		cp->status = FREE;	
+		cp->status = FREE;	/* now we can release the slot  */
 
 		cmd->scsi_done(cmd);
 	}
@@ -321,6 +325,9 @@ static inline unsigned int eata_pio_send_command(unsigned long base, unsigned ch
 		if (--loop == 0)
 			return 1;
 
+	/* Enable interrupts for HBA.  It is not the best way to do it at this
+	 * place, but I hope that it doesn't interfere with the IDE driver 
+	 * initialization this way */
 
 	outb(HA_CTRL_8HEADS, base + HA_CTRLREG);
 
@@ -344,7 +351,7 @@ static int eata_pio_queue_lck(struct scsi_cmnd *cmd,
 	sh = cmd->device->host;
 	base = sh->base;
 
-	
+	/* use only slot 0, as 2001 can handle only one cmd at a time */
 
 	y = x = 0;
 
@@ -362,7 +369,7 @@ static int eata_pio_queue_lck(struct scsi_cmnd *cmd,
 
 	memset(cp, 0, sizeof(struct eata_ccb));
 
-	cp->status = USED;	
+	cp->status = USED;	/* claim free slot */
 
 	DBG(DBG_QUEUE, scmd_printk(KERN_DEBUG, cmd,
 		"eata_pio_queue 0x%p, y %d\n", cmd, y));
@@ -370,9 +377,9 @@ static int eata_pio_queue_lck(struct scsi_cmnd *cmd,
 	cmd->scsi_done = (void *) done;
 
 	if (cmd->sc_data_direction == DMA_TO_DEVICE)
-		cp->DataOut = 1;	
+		cp->DataOut = 1;	/* Output mode */
 	else
-		cp->DataIn = 0;	
+		cp->DataIn = 0;	/* Input mode  */
 
 	cp->Interpret = (cmd->device->id == hd->hostid);
 	cp->cp_datalen = cpu_to_be32(scsi_bufflen(cmd));
@@ -403,7 +410,8 @@ static int eata_pio_queue_lck(struct scsi_cmnd *cmd,
 		cmd->SCp.ptr = sg_virt(cmd->SCp.buffer);
 		cmd->SCp.this_residual = cmd->SCp.buffer->length;
 	}
-	cmd->SCp.Status = (cmd->SCp.this_residual != 0);	
+	cmd->SCp.Status = (cmd->SCp.this_residual != 0);	/* TRUE as long as bytes 
+								 * are to transfer */
 
 	if (eata_pio_send_command(base, EATA_CMD_PIO_SEND_CP)) {
 		cmd->result = DID_BUS_BUSY << 16;
@@ -414,7 +422,7 @@ static int eata_pio_queue_lck(struct scsi_cmnd *cmd,
 		cp->status = FREE;
 		return 0;
 	}
-	
+	/* FIXME: timeout */
 	while (!(inb(base + HA_RSTATUS) & HA_SDRQ))
 		cpu_relax();
 	outsw(base + HA_RDATA, cp, hd->cplen);
@@ -449,8 +457,8 @@ static int eata_pio_abort(struct scsi_cmnd *cmd)
 	}
 	if (CD(cmd)->status == USED) {
 		DBG(DBG_ABNORM, printk(KERN_WARNING "Returning: SCSI_ABORT_BUSY\n"));
-		
-		return FAILED;		
+		/* We want to sleep a bit more here */
+		return FAILED;		/* SNOOZE */
 	}
 	if (CD(cmd)->status == RESET) {
 		printk(KERN_WARNING "eata_pio: abort, command reset error.\n");
@@ -481,7 +489,7 @@ static int eata_pio_host_reset(struct scsi_cmnd *cmd)
 		return FAILED;
 	}
 
-	
+	/* force all slots to be free */
 
 	for (x = 0; x < cmd->device->host->can_queue; x++) {
 
@@ -496,7 +504,7 @@ static int eata_pio_host_reset(struct scsi_cmnd *cmd)
 			panic("eata_pio_reset: slot %d, sp==NULL.\n", x);
 	}
 
-	
+	/* hard reset the HBA  */
 	outb(EATA_CMD_RESET, cmd->device->host->base + HA_WCOMMAND);
 
 	DBG(DBG_ABNORM, printk(KERN_WARNING "eata_pio_reset: board reset done.\n"));
@@ -510,14 +518,14 @@ static int eata_pio_host_reset(struct scsi_cmnd *cmd)
 
 	for (x = 0; x < cmd->device->host->can_queue; x++) {
 
-		
+		/* Skip slots already set free by interrupt */
 		if (HD(cmd)->ccb[x].status != RESET)
 			continue;
 
 		sp = HD(cmd)->ccb[x].cmd;
 		sp->result = DID_RESET << 16;
 
-		
+		/* This mailbox is terminated */
 		printk(KERN_WARNING "eata_pio_reset: reset ccb %d.\n", x);
 		HD(cmd)->ccb[x].status = FREE;
 
@@ -528,7 +536,7 @@ static int eata_pio_host_reset(struct scsi_cmnd *cmd)
 
 	spin_unlock_irq(host->host_lock);
 
-	if (success) {		
+	if (success) {		/* hmmm... */
 		DBG(DBG_ABNORM, printk(KERN_WARNING "eata_pio_reset: exit, success.\n"));
 		return SUCCESS;
 	} else {
@@ -547,7 +555,7 @@ static char *get_pio_board_data(unsigned long base, unsigned int irq, unsigned i
 	memset(buff, 0, sizeof(buff));
 
 	cp.DataIn = 1;
-	cp.Interpret = 1;	
+	cp.Interpret = 1;	/* Interpret command */
 
 	cp.cp_datalen = cpu_to_be32(254);
 	cp.cp_dataDMA = cpu_to_be32(0);
@@ -666,11 +674,11 @@ static unsigned int print_selftest(unsigned int base)
 	outb(EATA_CMD_PIO_SETUPTEST, base + HA_WCOMMAND);
 	do {
 		while (inb(base + HA_RSTATUS) & HA_SBUSY)
-			 ;
+			/* nothing */ ;
 		if (inb(base + HA_RSTATUS) & HA_SDRQ) {
 			insw(base + HA_RDATA, &buffer, 256);
 #ifdef VERBOSE_SETUP
-			
+			/* no beeps please... */
 			for (z = 0; z < 511 && buffer[z]; z++)
 				if (buffer[z] != 7)
 					printk("%c", buffer[z]);
@@ -714,16 +722,16 @@ static int register_pio_HBA(long base, struct get_conf *gc, struct pci_dev *pdev
 	if (sh == NULL)
 		return 0;
 
-	if (!reg_IRQ[gc->IRQ]) {	
+	if (!reg_IRQ[gc->IRQ]) {	/* Interrupt already registered ? */
 		if (!request_irq(gc->IRQ, do_eata_pio_int_handler, IRQF_DISABLED, "EATA-PIO", sh)) {
 			reg_IRQ[gc->IRQ]++;
 			if (!gc->IRQ_TR)
-				reg_IRQL[gc->IRQ] = 1;	
+				reg_IRQL[gc->IRQ] = 1;	/* IRQ is edge triggered */
 		} else {
 			printk("Couldn't allocate IRQ %d, Sorry.\n", gc->IRQ);
 			return 0;
 		}
-	} else {		
+	} else {		/* More than one HBA on this IRQ */
 		if (reg_IRQL[gc->IRQ]) {
 			printk("Can't support more than one HBA on this IRQ,\n" "  if the IRQ is edge triggered. Sorry.\n");
 			return 0;
@@ -795,7 +803,7 @@ static int register_pio_HBA(long base, struct get_conf *gc, struct pci_dev *pdev
 
 	hd->channel = 0;
 
-	hd->pdev = pci_dev_get(pdev);	
+	hd->pdev = pci_dev_get(pdev);	/* Keep a PCI reference */
 
 	sh->max_id = 8;
 	sh->max_lun = 8;
@@ -805,7 +813,7 @@ static int register_pio_HBA(long base, struct get_conf *gc, struct pci_dev *pdev
 	else
 		hd->primary = 1;
 
-	hd->next = NULL;	
+	hd->next = NULL;	/* build a linked list of all HBAs */
 	hd->prev = last_HBA;
 	if (hd->prev != NULL)
 		SD(hd->prev)->next = sh;
@@ -843,7 +851,7 @@ static void find_pio_EISA(struct get_conf *buf)
 #endif
 
 	for (i = 0; i < MAXEISA; i++) {
-		if (EISAbases[i]) {	
+		if (EISAbases[i]) {	/* Still a possibility ?          */
 
 			base = 0x1c88 + (i * 0x1000);
 #ifdef CHECKPAL
@@ -864,7 +872,7 @@ static void find_pio_EISA(struct get_conf *buf)
 						release_region(base, 9);
 					}
 				}
-				
+				/* Nothing found here so we take it from the list */
 				EISAbases[i] = 0;
 #ifdef CHECKPAL
 			}
@@ -893,18 +901,22 @@ static void find_pio_PCI(struct get_conf *buf)
 			continue;
 		}
 		base = pci_resource_start(dev, 0);
-		
+		/* EISA tag there ? */
 		if ((inb(base) == 0x12) && (inb(base + 1) == 0x14))
-			continue;	
-		base += 0x10;	
+			continue;	/* Jep, it's forced, so move on  */
+		base += 0x10;	/* Now, THIS is the real address */
 		if (base != 0x1f8) {
-			
+			/* We didn't find it in the primary search */
 			if (get_pio_conf_PIO(base, buf)) {
-				if (buf->FORCADR) {	
+				if (buf->FORCADR) {	/* If the address is forced */
 					release_region(base, 9);
-					continue;	
+					continue;	/* we'll find it later      */
 				}
 
+				/* OK. We made it till here, so we can go now  
+				 * and register it. We  only have to check and 
+				 * eventually remove it from the EISA and ISA list 
+				 */
 
 				if (!register_pio_HBA(base, buf, dev)) {
 					release_region(base, 9);
@@ -930,7 +942,7 @@ static void find_pio_PCI(struct get_conf *buf)
 #endif
 		}
 	}
-#endif				
+#endif				/* #ifndef CONFIG_PCI */
 }
 
 static int eata_pio_detect(struct scsi_host_template *tpnt)

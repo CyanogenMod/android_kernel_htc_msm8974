@@ -14,11 +14,26 @@
 #include <linux/spinlock.h>
 #include <linux/debug_locks.h>
 
+/*
+ * We want to turn all lock-debugging facilities on/off at once,
+ * via a global flag. The reason is that once a single bug has been
+ * detected and reported, there might be cascade of followup bugs
+ * that would just muddy the log. So we report the first one and
+ * shut up after that.
+ */
 int debug_locks = 1;
 EXPORT_SYMBOL_GPL(debug_locks);
 
+/*
+ * The locking-testsuite uses <debug_locks_silent> to get a
+ * 'silent failure': nothing is printed to the console when
+ * a locking bug is detected.
+ */
 int debug_locks_silent;
 
+/*
+ * Generic 'turn off all lock debugging' function:
+ */
 int debug_locks_off(void)
 {
 	if (__debug_locks_off()) {

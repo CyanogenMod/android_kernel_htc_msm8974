@@ -31,16 +31,16 @@
 #include <asm/types.h>
 
 struct iommu_table {
-	struct cal_chipset_ops *chip_ops; 
-	unsigned long  it_base;      
-	unsigned long  it_hint;      
-	unsigned long *it_map;       
-	void __iomem  *bbar;         
-	u64	       tar_val;      
+	struct cal_chipset_ops *chip_ops; /* chipset specific funcs */
+	unsigned long  it_base;      /* mapped address of tce table */
+	unsigned long  it_hint;      /* Hint for next alloc */
+	unsigned long *it_map;       /* A simple allocation bitmap for now */
+	void __iomem  *bbar;         /* Bridge BAR */
+	u64	       tar_val;      /* Table Address Register */
 	struct timer_list watchdog_timer;
-	spinlock_t     it_lock;      
-	unsigned int   it_size;      
-	unsigned char  it_busno;     
+	spinlock_t     it_lock;      /* Protects it_map */
+	unsigned int   it_size;      /* Size of iommu table in entries */
+	unsigned char  it_busno;     /* Bus number this table belongs to */
 };
 
 struct cal_chipset_ops {
@@ -67,4 +67,4 @@ extern int detect_calgary(void);
 static inline int detect_calgary(void) { return -ENODEV; }
 #endif
 
-#endif 
+#endif /* _ASM_X86_CALGARY_H */

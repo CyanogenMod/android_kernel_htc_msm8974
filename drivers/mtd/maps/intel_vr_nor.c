@@ -47,15 +47,20 @@ struct vr_nor_mtd {
 	struct pci_dev *dev;
 };
 
+/* Expansion Bus Configuration and Status Registers are in BAR 0 */
 #define EXP_CSR_MBAR 0
+/* Expansion Bus Memory Window is BAR 1 */
 #define EXP_WIN_MBAR 1
+/* Maximum address space for Chip Select 0 is 64MiB */
 #define CS0_SIZE 0x04000000
+/* Chip Select 0 is at offset 0 in the Memory Window */
 #define CS0_START 0x0
+/* Chip Select 0 Timing Register is at offset 0 in CSR */
 #define EXP_TIMING_CS0 0x00
-#define TIMING_CS_EN		(1 << 31)	
-#define TIMING_BOOT_ACCEL_DIS	(1 <<  8)	
-#define TIMING_WR_EN		(1 <<  1)	
-#define TIMING_BYTE_EN		(1 <<  0)	
+#define TIMING_CS_EN		(1 << 31)	/* Chip Select Enable */
+#define TIMING_BOOT_ACCEL_DIS	(1 <<  8)	/* Boot Acceleration Disable */
+#define TIMING_WR_EN		(1 <<  1)	/* Write Enable */
+#define TIMING_BYTE_EN		(1 <<  0)	/* 8-bit vs 16-bit bus */
 #define TIMING_MASK		0x3FFF0000
 
 static void __devexit vr_nor_destroy_partitions(struct vr_nor_mtd *p)
@@ -65,8 +70,8 @@ static void __devexit vr_nor_destroy_partitions(struct vr_nor_mtd *p)
 
 static int __devinit vr_nor_init_partitions(struct vr_nor_mtd *p)
 {
-	
-	
+	/* register the flash bank */
+	/* partition the flash bank */
 	return mtd_device_parse_register(p->info, NULL, NULL, NULL, 0);
 }
 
@@ -95,18 +100,22 @@ static void __devexit vr_nor_destroy_maps(struct vr_nor_mtd *p)
 {
 	unsigned int exp_timing_cs0;
 
-	
+	/* write-protect the flash bank */
 	exp_timing_cs0 = readl(p->csr_base + EXP_TIMING_CS0);
 	exp_timing_cs0 &= ~TIMING_WR_EN;
 	writel(exp_timing_cs0, p->csr_base + EXP_TIMING_CS0);
 
-	
+	/* unmap the flash window */
 	iounmap(p->map.virt);
 
-	
+	/* unmap the csr window */
 	iounmap(p->csr_base);
 }
 
+/*
+ * Initialize the map_info structure and map the flash.
+ * Returns 0 on success, nonzero otherwise.
+ */
 static int __devinit vr_nor_init_maps(struct vr_nor_mtd *p)
 {
 	unsigned long csr_phys, csr_len;
@@ -151,7 +160,7 @@ static int __devinit vr_nor_init_maps(struct vr_nor_mtd *p)
 	}
 	simple_map_init(&p->map);
 
-	
+	/* Enable writes to flash bank */
 	exp_timing_cs0 |= TIMING_BOOT_ACCEL_DIS | TIMING_WR_EN;
 	writel(exp_timing_cs0, p->csr_base + EXP_TIMING_CS0);
 
@@ -222,15 +231,15 @@ vr_nor_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	map_destroy(p->info);
 
       destroy_maps:
-	
+	/* write-protect the flash bank */
 	exp_timing_cs0 = readl(p->csr_base + EXP_TIMING_CS0);
 	exp_timing_cs0 &= ~TIMING_WR_EN;
 	writel(exp_timing_cs0, p->csr_base + EXP_TIMING_CS0);
 
-	
+	/* unmap the flash window */
 	iounmap(p->map.virt);
 
-	
+	/* unmap the csr window */
 	iounmap(p->csr_base);
 
       release:

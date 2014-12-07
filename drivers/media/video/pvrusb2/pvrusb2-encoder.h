@@ -29,5 +29,14 @@ int pvr2_encoder_configure(struct pvr2_hdw *);
 int pvr2_encoder_start(struct pvr2_hdw *);
 int pvr2_encoder_stop(struct pvr2_hdw *);
 
-#endif 
+#endif /* __PVRUSB2_ENCODER_H */
 
+/*
+  Stuff for Emacs to see, in order to encourage consistent editing style:
+  *** Local Variables: ***
+  *** mode: c ***
+  *** fill-column: 70 ***
+  *** tab-width: 8 ***
+  *** c-basic-offset: 8 ***
+  *** End: ***
+  */

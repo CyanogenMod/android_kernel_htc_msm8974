@@ -28,23 +28,23 @@
 #define BRDAC5			(1 << 5)
 #define MAX_RDACS		6
 
-#define F_CMD_INC		(1 << 0)	
-#define F_CMD_EEP		(1 << 1)	
-#define F_CMD_OTP		(1 << 2)	
-#define F_CMD_TOL		(1 << 3)	
-#define F_RDACS_RW		(1 << 4)	
-#define F_RDACS_WONLY		(1 << 5)	
-#define F_AD_APPDATA		(1 << 6)	
-#define F_SPI_8BIT		(1 << 7)	
-#define F_SPI_16BIT		(1 << 8)	
-#define F_SPI_24BIT		(1 << 9)	
+#define F_CMD_INC		(1 << 0)	/* Features INC/DEC ALL, 6dB */
+#define F_CMD_EEP		(1 << 1)	/* Features EEPROM */
+#define F_CMD_OTP		(1 << 2)	/* Features OTP */
+#define F_CMD_TOL		(1 << 3)	/* RDACS feature Tolerance REG */
+#define F_RDACS_RW		(1 << 4)	/* RDACS are Read/Write  */
+#define F_RDACS_WONLY		(1 << 5)	/* RDACS are Write only */
+#define F_AD_APPDATA		(1 << 6)	/* RDAC Address append to data */
+#define F_SPI_8BIT		(1 << 7)	/* All SPI XFERS are 8-bit */
+#define F_SPI_16BIT		(1 << 8)	/* All SPI XFERS are 16-bit */
+#define F_SPI_24BIT		(1 << 9)	/* All SPI XFERS are 24-bit */
 
 #define F_RDACS_RW_TOL	(F_RDACS_RW | F_CMD_EEP | F_CMD_TOL)
 #define F_RDACS_RW_EEP	(F_RDACS_RW | F_CMD_EEP)
 #define F_SPI		(F_SPI_8BIT | F_SPI_16BIT | F_SPI_24BIT)
 
 enum dpot_devid {
-	AD5258_ID = DPOT_CONF(F_RDACS_RW_TOL, BRDAC0, 6, 0), 
+	AD5258_ID = DPOT_CONF(F_RDACS_RW_TOL, BRDAC0, 6, 0), /* I2C */
 	AD5259_ID = DPOT_CONF(F_RDACS_RW_TOL, BRDAC0, 8, 1),
 	AD5251_ID = DPOT_CONF(F_RDACS_RW_TOL | F_CMD_INC,
 			BRDAC1 | BRDAC3, 6, 2),
@@ -57,7 +57,7 @@ enum dpot_devid {
 	AD5255_ID = DPOT_CONF(F_RDACS_RW_TOL | F_CMD_INC,
 			BRDAC0 | BRDAC1 | BRDAC2, 9, 6),
 	AD5160_ID = DPOT_CONF(F_RDACS_WONLY | F_AD_APPDATA | F_SPI_8BIT,
-			BRDAC0, 8, 7), 
+			BRDAC0, 8, 7), /* SPI */
 	AD5161_ID = DPOT_CONF(F_RDACS_WONLY | F_AD_APPDATA | F_SPI_8BIT,
 			BRDAC0, 8, 8),
 	AD5162_ID = DPOT_CONF(F_RDACS_WONLY | F_AD_APPDATA | F_SPI_16BIT,
@@ -149,6 +149,7 @@ enum dpot_devid {
 #define DPOT_TOL_RDAC4		(DPOT_REG_TOL | DPOT_RDAC4)
 #define DPOT_TOL_RDAC5		(DPOT_REG_TOL | DPOT_RDAC5)
 
+/* RDAC-to-EEPROM Interface Commands */
 #define DPOT_ADDR_RDAC		(0x0 << 5)
 #define DPOT_ADDR_EEPROM	(0x1 << 5)
 #define DPOT_ADDR_OTP		(0x1 << 6)
@@ -169,12 +170,14 @@ enum dpot_devid {
 #define DPOT_SPI_DEC_ALL	0x70
 #define DPOT_SPI_INC_ALL	0xF0
 
+/* AD5291/2/3 use special commands */
 #define DPOT_AD5291_RDAC	0x01
 #define DPOT_AD5291_READ_RDAC	0x02
 #define DPOT_AD5291_STORE_XTPM	0x03
 #define DPOT_AD5291_CTRLREG	0x06
 #define DPOT_AD5291_UNLOCK_CMD	0x03
 
+/* AD5270/1/2/4 use special commands */
 #define DPOT_AD5270_1_2_4_RDAC		0x01
 #define DPOT_AD5270_1_2_4_READ_RDAC	0x02
 #define DPOT_AD5270_1_2_4_STORE_XTPM	0x03

@@ -54,4 +54,4 @@
 #define	IXDP2X01_GPIO_SCL		0x07
 #define	IXDP2X01_GPIO_SDA		0x06
 
-#endif 
+#endif /* __IXDP2x01_H__ */

@@ -33,6 +33,17 @@ unsigned int watchdog_alert_counter[NR_CPUS];
 
 EXPORT_SYMBOL(touch_nmi_watchdog);
 
+/*
+ * the best way to detect whether a CPU has a 'hard lockup' problem
+ * is to check its timer makes IRQ counts. If they are not
+ * changing then that CPU has some problem.
+ *
+ * since NMIs dont listen to _any_ locks, we have to be extremely
+ * careful not to rely on unsafe variables. The printk might lock
+ * up though, so we have to break up any console locks first ...
+ * [when there will be more tty-related locks, break them up
+ *  here too!]
+ */
 static unsigned int last_irq_sums[NR_CPUS];
 
 int __init check_watchdog(void)
@@ -43,7 +54,7 @@ int __init check_watchdog(void)
 
 	memcpy(tmp, irq_stat, sizeof(tmp));
 	local_irq_enable();
-	mdelay((10 * 1000) / watchdog_hz); 
+	mdelay((10 * 1000) / watchdog_hz); /* wait 10 ticks */
 	local_irq_disable();
 
 	if (nmi_count(0) - tmp[0].__nmi_count <= 5) {
@@ -54,6 +65,9 @@ int __init check_watchdog(void)
 
 	printk(KERN_INFO "OK.\n");
 
+	/* now that we know it works we can reduce NMI frequency to something
+	 * more reasonable; makes a difference in some configs
+	 */
 	watchdog_hz = 1;
 
 	return 0;
@@ -114,6 +128,10 @@ static void watchdog_dump_register(void *dummy)
 asmlinkage
 void watchdog_interrupt(struct pt_regs *regs, enum exception_code excep)
 {
+	/*
+	 * Since current-> is always on the stack, and we always switch
+	 * the stack NMI-atomically, it's safe to use smp_processor_id().
+	 */
 	int sum, cpu;
 	int irq = NMIIRQ;
 	u8 wdt, tmp;
@@ -136,9 +154,17 @@ void watchdog_interrupt(struct pt_regs *regs, enum exception_code excep)
 			     || atomic_read(&cpu_doing_single_step))
 #endif
 			) {
+			/*
+			 * Ayiee, looks like this CPU is stuck ...
+			 * wait a few IRQs (5 seconds) before doing the oops ...
+			 */
 			watchdog_alert_counter[cpu]++;
 			if (watchdog_alert_counter[cpu] == 5 * watchdog_hz) {
 				spin_lock(&watchdog_print_lock);
+				/*
+				 * We are in trouble anyway, lets at least try
+				 * to get a message out.
+				 */
 				bust_spinlocks(1);
 				printk(KERN_ERR
 				       "NMI Watchdog detected LOCKUP on CPU%d,"

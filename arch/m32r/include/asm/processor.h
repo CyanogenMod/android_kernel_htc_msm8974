@@ -15,10 +15,19 @@
 
 #include <linux/kernel.h>
 #include <asm/cache.h>
-#include <asm/ptrace.h>  
+#include <asm/ptrace.h>  /* pt_regs */
 
+/*
+ * Default implementation of macro that returns current
+ * instruction pointer ("program counter").
+ */
 #define current_text_addr() ({ __label__ _l; _l: &&_l; })
 
+/*
+ *  CPU type and hardware bug flags. Kept separately for each CPU.
+ *  Members of this structure are referenced in head.S, so think twice
+ *  before touching them. [mj]
+ */
 
 struct cpuinfo_m32r {
 	unsigned long pgtable_cache_sz;
@@ -28,6 +37,9 @@ struct cpuinfo_m32r {
 	unsigned long loops_per_jiffy;
 };
 
+/*
+ * capabilities of CPUs
+ */
 
 extern struct cpuinfo_m32r boot_cpu_data;
 
@@ -39,6 +51,9 @@ extern struct cpuinfo_m32r cpu_data[];
 #define current_cpu_data boot_cpu_data
 #endif
 
+/*
+ * User space process size: 2GB (default).
+ */
 #ifdef CONFIG_MMU
 #define TASK_SIZE  (0x80000000UL)
 #else
@@ -50,6 +65,9 @@ extern struct cpuinfo_m32r cpu_data[];
 #define STACK_TOP_MAX	STACK_TOP
 #endif
 
+/* This decides where the kernel will search for a free chunk of vm
+ * space during mmap's.
+ */
 #define TASK_UNMAPPED_BASE	PAGE_ALIGN(TASK_SIZE / 3)
 
 typedef struct {
@@ -66,10 +84,10 @@ struct debug_trap {
 
 struct thread_struct {
 	unsigned long address;
-	unsigned long trap_no;		
-	unsigned long error_code;	
-	unsigned long lr;		
-	unsigned long sp;		
+	unsigned long trap_no;		/* Trap number  */
+	unsigned long error_code;	/* Error code of trap */
+	unsigned long lr;		/* saved pc */
+	unsigned long sp;		/* user stack pointer */
 	struct debug_trap debug_trap;
 };
 
@@ -79,7 +97,11 @@ struct thread_struct {
 	.sp = INIT_SP,		\
 }
 
+/*
+ * Do necessary setup to start up a newly executed thread.
+ */
 
+/* User process Backup PSW */
 #define USERPS_BPSW (M32R_PSW_BSM|M32R_PSW_BIE|M32R_PSW_BPM)
 
 #define start_thread(regs, new_pc, new_spu) 				\
@@ -89,20 +111,27 @@ struct thread_struct {
 		regs->spu = new_spu;					\
 	} while (0)
 
+/* Forward declaration, a strange C thing */
 struct task_struct;
 struct mm_struct;
 
+/* Free all resources held by a thread. */
 extern void release_thread(struct task_struct *);
 
 #define prepare_to_copy(tsk)	do { } while (0)
 
+/*
+ * create a kernel thread without removing it from tasklists
+ */
 extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 
+/* Copy and release all segment info associated with a VM */
 extern void copy_segments(struct task_struct *p, struct mm_struct * mm);
 extern void release_segments(struct mm_struct * mm);
 
 extern unsigned long thread_saved_pc(struct task_struct *);
 
+/* Copy and release all segment info associated with a VM */
 #define copy_segments(p, mm)  do { } while (0)
 #define release_segments(mm)  do { } while (0)
 
@@ -112,4 +141,4 @@ unsigned long get_wchan(struct task_struct *p);
 
 #define cpu_relax()	barrier()
 
-#endif 
+#endif /* _ASM_M32R_PROCESSOR_H */

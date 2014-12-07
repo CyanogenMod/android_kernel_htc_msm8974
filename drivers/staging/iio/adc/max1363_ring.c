@@ -26,6 +26,10 @@ int max1363_update_scan_mode(struct iio_dev *indio_dev,
 {
 	struct max1363_state *st = iio_priv(indio_dev);
 
+	/*
+	 * Need to figure out the current mode based upon the requested
+	 * scan mask in iio_dev
+	 */
 	st->current_mode = max1363_match_mode(scan_mask, st->chip_info);
 	if (!st->current_mode)
 		return -EINVAL;
@@ -45,7 +49,7 @@ static irqreturn_t max1363_trigger_handler(int irq, void *p)
 	unsigned long numvals = bitmap_weight(st->current_mode->modemask,
 					      MAX1363_MAX_CHANNELS);
 
-	
+	/* Ensure the timestamp is 8 byte aligned */
 	if (st->chip_info->bits != 8)
 		d_size = numvals*2;
 	else
@@ -55,6 +59,10 @@ static irqreturn_t max1363_trigger_handler(int irq, void *p)
 		if (d_size % sizeof(s64))
 			d_size += sizeof(s64) - (d_size % sizeof(s64));
 	}
+	/* Monitor mode prevents reading. Whilst not currently implemented
+	 * might as well have this test in here in the meantime as it does
+	 * no harm.
+	 */
 	if (numvals == 0)
 		return IRQ_HANDLED;
 
@@ -108,10 +116,10 @@ int max1363_register_ring_funcs_and_init(struct iio_dev *indio_dev)
 		ret = -ENOMEM;
 		goto error_deallocate_sw_rb;
 	}
-	
+	/* Ring buffer functions - here trigger setup related */
 	indio_dev->setup_ops = &max1363_ring_setup_ops;
 
-	
+	/* Flag that polled ring buffering is possible */
 	indio_dev->modes |= INDIO_BUFFER_TRIGGERED;
 
 	return 0;
@@ -124,7 +132,7 @@ error_ret:
 
 void max1363_ring_cleanup(struct iio_dev *indio_dev)
 {
-	
+	/* ensure that the trigger has been detached */
 	iio_dealloc_pollfunc(indio_dev->pollfunc);
 	iio_sw_rb_free(indio_dev->buffer);
 }

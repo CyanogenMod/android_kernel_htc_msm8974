@@ -28,6 +28,9 @@
 
 #include <mach/mpm.h>
 
+/******************************************************************************
+ * Debug Definitions
+ *****************************************************************************/
 
 enum {
 	MSM_MPM_DEBUG_NON_DETECTABLE_IRQ = BIT(0),
@@ -41,6 +44,9 @@ module_param_named(
 	debug_mask, msm_mpm_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
 );
 
+/******************************************************************************
+ * Request and Status Definitions
+ *****************************************************************************/
 
 enum {
 	MSM_MPM_REQUEST_REG_ENABLE,
@@ -53,6 +59,9 @@ enum {
 	MSM_MPM_STATUS_REG_PENDING,
 };
 
+/******************************************************************************
+ * IRQ Mapping Definitions
+ *****************************************************************************/
 
 #define MSM_MPM_NR_APPS_IRQS  (NR_MSM_IRQS + NR_GPIO_IRQS)
 
@@ -65,6 +74,10 @@ static uint8_t msm_mpm_irqs_a2m[MSM_MPM_NR_APPS_IRQS];
 
 static DEFINE_SPINLOCK(msm_mpm_lock);
 
+/*
+ * Note: the following two bitmaps only mark irqs that are _not_
+ * mappable to MPM.
+ */
 static DECLARE_BITMAP(msm_mpm_enabled_apps_irqs, MSM_MPM_NR_APPS_IRQS);
 static DECLARE_BITMAP(msm_mpm_wake_apps_irqs, MSM_MPM_NR_APPS_IRQS);
 
@@ -76,6 +89,9 @@ static uint32_t msm_mpm_detect_ctl[MSM_MPM_REG_WIDTH];
 static uint32_t msm_mpm_polarity[MSM_MPM_REG_WIDTH];
 
 
+/******************************************************************************
+ * Low Level Functions for Accessing MPM
+ *****************************************************************************/
 
 static inline uint32_t msm_mpm_read(
 	unsigned int reg, unsigned int subreg_index)
@@ -99,7 +115,7 @@ static inline void msm_mpm_send_interrupt(void)
 {
 	__raw_writel(msm_mpm_dev_data.mpm_apps_ipc_val,
 			msm_mpm_dev_data.mpm_apps_ipc_reg);
-	
+	/* Ensure the write is complete before returning. */
 	mb();
 }
 
@@ -108,6 +124,9 @@ static irqreturn_t msm_mpm_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/******************************************************************************
+ * MPM Access Functions
+ *****************************************************************************/
 
 static void msm_mpm_set(bool wakeset)
 {
@@ -130,6 +149,9 @@ static void msm_mpm_set(bool wakeset)
 		msm_mpm_write(reg, i, 0xffffffff);
 	}
 
+	/* Ensure that the set operation is complete before sending the
+	 * interrupt
+	 */
 	mb();
 	msm_mpm_send_interrupt();
 }
@@ -143,11 +165,14 @@ static void msm_mpm_clear(void)
 		msm_mpm_write(MSM_MPM_REQUEST_REG_CLEAR, i, 0xffffffff);
 	}
 
-	
+	/* Ensure the clear is complete before sending the interrupt */
 	mb();
 	msm_mpm_send_interrupt();
 }
 
+/******************************************************************************
+ * Interrupt Mapping Functions
+ *****************************************************************************/
 
 static inline bool msm_mpm_is_valid_apps_irq(unsigned int irq)
 {
@@ -300,6 +325,9 @@ static int msm_mpm_set_irq_type(struct irq_data *d, unsigned int flow_type)
 	return rc;
 }
 
+/******************************************************************************
+ * Public functions
+ *****************************************************************************/
 int msm_mpm_enable_pin(unsigned int pin, unsigned int enable)
 {
 	uint32_t index = MSM_MPM_IRQ_INDEX(pin);

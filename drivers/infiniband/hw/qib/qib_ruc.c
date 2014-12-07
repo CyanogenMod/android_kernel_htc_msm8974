@@ -36,41 +36,48 @@
 #include "qib.h"
 #include "qib_mad.h"
 
+/*
+ * Convert the AETH RNR timeout code into the number of microseconds.
+ */
 const u32 ib_qib_rnr_table[32] = {
-	655360,	
-	10,	
-	20,	
-	30,	
-	40,	
-	60,	
-	80,	
-	120,	
-	160,	
-	240,	
-	320,	
-	480,	
-	640,	
-	960,	
-	1280,	
-	1920,	
-	2560,	
-	3840,	
-	5120,	
-	7680,	
-	10240,	
-	15360,	
-	20480,	
-	30720,	
-	40960,	
-	61440,	
-	81920,	
-	122880,	
-	163840,	
-	245760,	
-	327680,	
-	491520	
+	655360,	/* 00: 655.36 */
+	10,	/* 01:    .01 */
+	20,	/* 02     .02 */
+	30,	/* 03:    .03 */
+	40,	/* 04:    .04 */
+	60,	/* 05:    .06 */
+	80,	/* 06:    .08 */
+	120,	/* 07:    .12 */
+	160,	/* 08:    .16 */
+	240,	/* 09:    .24 */
+	320,	/* 0A:    .32 */
+	480,	/* 0B:    .48 */
+	640,	/* 0C:    .64 */
+	960,	/* 0D:    .96 */
+	1280,	/* 0E:   1.28 */
+	1920,	/* 0F:   1.92 */
+	2560,	/* 10:   2.56 */
+	3840,	/* 11:   3.84 */
+	5120,	/* 12:   5.12 */
+	7680,	/* 13:   7.68 */
+	10240,	/* 14:  10.24 */
+	15360,	/* 15:  15.36 */
+	20480,	/* 16:  20.48 */
+	30720,	/* 17:  30.72 */
+	40960,	/* 18:  40.96 */
+	61440,	/* 19:  61.44 */
+	81920,	/* 1A:  81.92 */
+	122880,	/* 1B: 122.88 */
+	163840,	/* 1C: 163.84 */
+	245760,	/* 1D: 245.76 */
+	327680,	/* 1E: 327.68 */
+	491520	/* 1F: 491.52 */
 };
 
+/*
+ * Validate a RWQE and fill in the SGE state.
+ * Return 1 if OK.
+ */
 static int qib_init_sge(struct qib_qp *qp, struct qib_rwqe *wqe)
 {
 	int i, j, ret;
@@ -87,7 +94,7 @@ static int qib_init_sge(struct qib_qp *qp, struct qib_rwqe *wqe)
 	for (i = j = 0; i < wqe->num_sge; i++) {
 		if (wqe->sg_list[i].length == 0)
 			continue;
-		
+		/* Check LKEY */
 		if (!qib_lkey_ok(rkt, pd, j ? &ss->sg_list[j - 1] : &ss->sge,
 				 &wqe->sg_list[i], IB_ACCESS_LOCAL_WRITE))
 			goto bad_lkey;
@@ -111,13 +118,23 @@ bad_lkey:
 	wc.status = IB_WC_LOC_PROT_ERR;
 	wc.opcode = IB_WC_RECV;
 	wc.qp = &qp->ibqp;
-	
+	/* Signal solicited completion event. */
 	qib_cq_enter(to_icq(qp->ibqp.recv_cq), &wc, 1);
 	ret = 0;
 bail:
 	return ret;
 }
 
+/**
+ * qib_get_rwqe - copy the next RWQE into the QP's RWQE
+ * @qp: the QP
+ * @wr_id_only: update qp->r_wr_id only, not qp->r_sge
+ *
+ * Return -1 if there is a local error, 0 if no RWQE is available,
+ * otherwise return 1.
+ *
+ * Can be called from interrupt level.
+ */
 int qib_get_rwqe(struct qib_qp *qp, int wr_id_only)
 {
 	unsigned long flags;
@@ -147,16 +164,21 @@ int qib_get_rwqe(struct qib_qp *qp, int wr_id_only)
 
 	wq = rq->wq;
 	tail = wq->tail;
-	
+	/* Validate tail before using it since it is user writable. */
 	if (tail >= rq->size)
 		tail = 0;
 	if (unlikely(tail == wq->head)) {
 		ret = 0;
 		goto unlock;
 	}
-	
+	/* Make sure entry is read after head index is read. */
 	smp_rmb();
 	wqe = get_rwqe_ptr(rq, tail);
+	/*
+	 * Even though we update the tail index in memory, the verbs
+	 * consumer is not supposed to post more entries until a
+	 * completion is generated.
+	 */
 	if (++tail >= rq->size)
 		tail = 0;
 	wq->tail = tail;
@@ -171,6 +193,10 @@ int qib_get_rwqe(struct qib_qp *qp, int wr_id_only)
 	if (handler) {
 		u32 n;
 
+		/*
+		 * Validate head pointer value and compute
+		 * the number of remaining WQEs.
+		 */
 		n = wq->head;
 		if (n >= rq->size)
 			n = 0;
@@ -196,6 +222,10 @@ bail:
 	return ret;
 }
 
+/*
+ * Switch to alternate path.
+ * The QP s_lock should be held and interrupts disabled.
+ */
 void qib_migrate_qp(struct qib_qp *qp)
 {
 	struct ib_event ev;
@@ -228,6 +258,12 @@ static int gid_ok(union ib_gid *gid, __be64 gid_prefix, __be64 id)
 		 gid->global.subnet_prefix == IB_DEFAULT_GID_PREFIX));
 }
 
+/*
+ *
+ * This should be called with the QP r_lock held.
+ *
+ * The s_lock will be acquired around the qib_migrate_qp() call.
+ */
 int qib_ruc_check_hdr(struct qib_ibport *ibp, struct qib_ib_header *hdr,
 		      int has_grh, struct qib_qp *qp, u32 bth0)
 {
@@ -258,7 +294,7 @@ int qib_ruc_check_hdr(struct qib_ibport *ibp, struct qib_ib_header *hdr,
 				      hdr->lrh[3], hdr->lrh[1]);
 			goto err;
 		}
-		
+		/* Validate the SLID. See Ch. 9.6.1.5 and 17.2.8 */
 		if (be16_to_cpu(hdr->lrh[3]) != qp->alt_ah_attr.dlid ||
 		    ppd_from_ibp(ibp)->port != qp->alt_ah_attr.port_num)
 			goto err;
@@ -290,7 +326,7 @@ int qib_ruc_check_hdr(struct qib_ibport *ibp, struct qib_ib_header *hdr,
 				      hdr->lrh[3], hdr->lrh[1]);
 			goto err;
 		}
-		
+		/* Validate the SLID. See Ch. 9.6.1.5 */
 		if (be16_to_cpu(hdr->lrh[3]) != qp->remote_ah_attr.dlid ||
 		    ppd_from_ibp(ibp)->port != qp->port_num)
 			goto err;
@@ -305,6 +341,17 @@ err:
 	return 1;
 }
 
+/**
+ * qib_ruc_loopback - handle UC and RC lookback requests
+ * @sqp: the sending QP
+ *
+ * This is called from qib_do_send() to
+ * forward a WQE addressed to the same HCA.
+ * Note that although we are single threaded due to the tasklet, we still
+ * have to protect against post_send().  We don't have to worry about
+ * receive interrupts since this is a connected protocol and all packets
+ * will pass through here.
+ */
 static void qib_ruc_loopback(struct qib_qp *sqp)
 {
 	struct qib_ibport *ibp = to_iport(sqp->ibqp.device, sqp->port_num);
@@ -319,11 +366,15 @@ static void qib_ruc_loopback(struct qib_qp *sqp)
 	int release;
 	int ret;
 
+	/*
+	 * Note that we check the responder QP state after
+	 * checking the requester's state.
+	 */
 	qp = qib_lookup_qpn(ibp, sqp->remote_qpn);
 
 	spin_lock_irqsave(&sqp->s_lock, flags);
 
-	
+	/* Return if we are already busy processing a work request. */
 	if ((sqp->s_flags & (QIB_S_BUSY | QIB_S_ANY_WAIT)) ||
 	    !(ib_qib_state_ops[sqp->state] & QIB_PROCESS_OR_FLUSH_SEND))
 		goto unlock;
@@ -335,15 +386,20 @@ again:
 		goto clr_busy;
 	wqe = get_swqe_ptr(sqp, sqp->s_last);
 
-	
+	/* Return if it is not OK to start a new work reqeust. */
 	if (!(ib_qib_state_ops[sqp->state] & QIB_PROCESS_NEXT_SEND_OK)) {
 		if (!(ib_qib_state_ops[sqp->state] & QIB_FLUSH_SEND))
 			goto clr_busy;
-		
+		/* We are in the error state, flush the work request. */
 		send_status = IB_WC_WR_FLUSH_ERR;
 		goto flush_send;
 	}
 
+	/*
+	 * We can rely on the entry not changing without the s_lock
+	 * being held until we update s_last.
+	 * We increment s_cur to indicate s_last is in progress.
+	 */
 	if (sqp->s_last == sqp->s_cur) {
 		if (++sqp->s_cur >= sqp->s_size)
 			sqp->s_cur = 0;
@@ -353,6 +409,10 @@ again:
 	if (!qp || !(ib_qib_state_ops[qp->state] & QIB_PROCESS_RECV_OK) ||
 	    qp->ibqp.qp_type != sqp->ibqp.qp_type) {
 		ibp->n_pkt_drops++;
+		/*
+		 * For RC, the requester would timeout and retry so
+		 * shortcut the timeouts and just signal too many retries.
+		 */
 		if (sqp->ibqp.qp_type == IB_QPT_RC)
 			send_status = IB_WC_RETRY_EXC_ERR;
 		else
@@ -372,7 +432,7 @@ again:
 	case IB_WR_SEND_WITH_IMM:
 		wc.wc_flags = IB_WC_WITH_IMM;
 		wc.ex.imm_data = wqe->wr.ex.imm_data;
-		
+		/* FALLTHROUGH */
 	case IB_WR_SEND:
 		ret = qib_get_rwqe(qp, 0);
 		if (ret < 0)
@@ -391,7 +451,7 @@ again:
 			goto op_err;
 		if (!ret)
 			goto rnr_nak;
-		
+		/* FALLTHROUGH */
 	case IB_WR_RDMA_WRITE:
 		if (unlikely(!(qp->qp_access_flags & IB_ACCESS_REMOTE_WRITE)))
 			goto inv_err;
@@ -433,7 +493,7 @@ again:
 					  wqe->wr.wr.atomic.rkey,
 					  IB_ACCESS_REMOTE_ATOMIC)))
 			goto acc_err;
-		
+		/* Perform atomic OP and save result. */
 		maddr = (atomic64_t *) qp->r_sge.sge.vaddr;
 		sdata = wqe->wr.wr.atomic.compare_add;
 		*(u64 *) sqp->s_sge.sge.vaddr =
@@ -503,7 +563,7 @@ again:
 	wc.slid = qp->remote_ah_attr.dlid;
 	wc.sl = qp->remote_ah_attr.sl;
 	wc.port_num = 1;
-	
+	/* Signal completion event if the solicited bit is set. */
 	qib_cq_enter(to_icq(qp->ibqp.recv_cq), &wc,
 		       wqe->wr.send_flags & IB_SEND_SOLICITED);
 
@@ -516,10 +576,14 @@ flush_send:
 	goto again;
 
 rnr_nak:
-	
+	/* Handle RNR NAK */
 	if (qp->ibqp.qp_type == IB_QPT_UC)
 		goto send_comp;
 	ibp->n_rnr_naks++;
+	/*
+	 * Note: we don't need the s_lock held since the BUSY flag
+	 * makes this single threaded.
+	 */
 	if (sqp->s_rnr_retry == 0) {
 		send_status = IB_WC_RNR_RETRY_EXC_ERR;
 		goto serr;
@@ -550,7 +614,7 @@ acc_err:
 	send_status = IB_WC_REM_ACCESS_ERR;
 	wc.status = IB_WC_LOC_PROT_ERR;
 err:
-	
+	/* responder goes to error state */
 	qib_rc_error(qp, wc.status);
 
 serr:
@@ -580,6 +644,16 @@ done:
 		wake_up(&qp->wait);
 }
 
+/**
+ * qib_make_grh - construct a GRH header
+ * @ibp: a pointer to the IB port
+ * @hdr: a pointer to the GRH header being constructed
+ * @grh: the global route address to send to
+ * @hwords: the number of 32 bit words of header being sent
+ * @nwords: the number of 32 bit words of data being sent
+ *
+ * Return the size of the header in 32 bit words.
+ */
 u32 qib_make_grh(struct qib_ibport *ibp, struct ib_grh *hdr,
 		 struct ib_global_route *grh, u32 hwords, u32 nwords)
 {
@@ -588,16 +662,16 @@ u32 qib_make_grh(struct qib_ibport *ibp, struct ib_grh *hdr,
 			    (grh->traffic_class << IB_GRH_TCLASS_SHIFT) |
 			    (grh->flow_label << IB_GRH_FLOW_SHIFT));
 	hdr->paylen = cpu_to_be16((hwords - 2 + nwords + SIZE_OF_CRC) << 2);
-	
+	/* next_hdr is defined by C8-7 in ch. 8.4.1 */
 	hdr->next_hdr = IB_GRH_NEXT_HDR;
 	hdr->hop_limit = grh->hop_limit;
-	
+	/* The SGID is 32-bit aligned. */
 	hdr->sgid.global.subnet_prefix = ibp->gid_prefix;
 	hdr->sgid.global.interface_id = grh->sgid_index ?
 		ibp->guids[grh->sgid_index - 1] : ppd_from_ibp(ibp)->guid;
 	hdr->dgid = grh->dgid;
 
-	
+	/* GRH header size in 32-bit words. */
 	return sizeof(struct ib_grh) / sizeof(u32);
 }
 
@@ -609,7 +683,7 @@ void qib_make_ruc_header(struct qib_qp *qp, struct qib_other_headers *ohdr,
 	u32 nwords;
 	u32 extra_bytes;
 
-	
+	/* Construct the header. */
 	extra_bytes = -qp->s_cur_size & 3;
 	nwords = (qp->s_cur_size + extra_bytes) >> 2;
 	lrh0 = QIB_LRH_BTH;
@@ -635,6 +709,14 @@ void qib_make_ruc_header(struct qib_qp *qp, struct qib_other_headers *ohdr,
 	ohdr->bth[2] = cpu_to_be32(bth2);
 }
 
+/**
+ * qib_do_send - perform a send on a QP
+ * @work: contains a pointer to the QP
+ *
+ * Process entries in the send work queue until credit or queue is
+ * exhausted.  Only allow one CPU to send a packet per QP (tasklet).
+ * Otherwise, two threads could send packets out of order.
+ */
 void qib_do_send(struct work_struct *work)
 {
 	struct qib_qp *qp = container_of(work, struct qib_qp, s_work);
@@ -659,7 +741,7 @@ void qib_do_send(struct work_struct *work)
 
 	spin_lock_irqsave(&qp->s_lock, flags);
 
-	
+	/* Return if we are already busy processing a work request. */
 	if (!qib_send_ok(qp)) {
 		spin_unlock_irqrestore(&qp->s_lock, flags);
 		return;
@@ -670,17 +752,24 @@ void qib_do_send(struct work_struct *work)
 	spin_unlock_irqrestore(&qp->s_lock, flags);
 
 	do {
-		
+		/* Check for a constructed packet to be sent. */
 		if (qp->s_hdrwords != 0) {
+			/*
+			 * If the packet cannot be sent now, return and
+			 * the send tasklet will be woken up later.
+			 */
 			if (qib_verbs_send(qp, &qp->s_hdr, qp->s_hdrwords,
 					   qp->s_cur_sge, qp->s_cur_size))
 				break;
-			
+			/* Record that s_hdr is empty. */
 			qp->s_hdrwords = 0;
 		}
 	} while (make_req(qp));
 }
 
+/*
+ * This should be called with s_lock held.
+ */
 void qib_send_complete(struct qib_qp *qp, struct qib_swqe *wqe,
 		       enum ib_wc_status status)
 {
@@ -700,7 +789,7 @@ void qib_send_complete(struct qib_qp *qp, struct qib_swqe *wqe,
 	    qp->ibqp.qp_type == IB_QPT_GSI)
 		atomic_dec(&to_iah(wqe->wr.wr.ud.ah)->refcount);
 
-	
+	/* See ch. 11.2.4.1 and 10.7.3.1 */
 	if (!(qp->s_flags & QIB_S_SIGNAL_REQ_WR) ||
 	    (wqe->wr.send_flags & IB_SEND_SIGNALED) ||
 	    status != IB_WC_SUCCESS) {

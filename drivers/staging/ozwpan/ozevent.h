@@ -26,6 +26,6 @@ void oz_events_clear(void);
 #define oz_event_log(__evt, __ctx1, __ctx2, __ctx3, __ctx4)
 #define oz_events_copy(__lst)
 #define oz_events_clear()
-#endif 
+#endif /* WANT_EVENT_TRACE */
 
-#endif 
+#endif /* _OZEVENT_H */

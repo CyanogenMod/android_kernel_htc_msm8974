@@ -8,7 +8,194 @@
  * published by the Free Software Foundation.
  */
 
+/*
+ * This file contains test code for ARM kprobes.
+ *
+ * The top level function run_all_tests() executes tests for all of the
+ * supported instruction sets: ARM, 16-bit Thumb, and 32-bit Thumb. These tests
+ * fall into two categories; run_api_tests() checks basic functionality of the
+ * kprobes API, and run_test_cases() is a comprehensive test for kprobes
+ * instruction decoding and simulation.
+ *
+ * run_test_cases() first checks the kprobes decoding table for self consistency
+ * (using table_test()) then executes a series of test cases for each of the CPU
+ * instruction forms. coverage_start() and coverage_end() are used to verify
+ * that these test cases cover all of the possible combinations of instructions
+ * described by the kprobes decoding tables.
+ *
+ * The individual test cases are in kprobes-test-arm.c and kprobes-test-thumb.c
+ * which use the macros defined in kprobes-test.h. The rest of this
+ * documentation will describe the operation of the framework used by these
+ * test cases.
+ */
 
+/*
+ * TESTING METHODOLOGY
+ * -------------------
+ *
+ * The methodology used to test an ARM instruction 'test_insn' is to use
+ * inline assembler like:
+ *
+ * test_before: nop
+ * test_case:	test_insn
+ * test_after:	nop
+ *
+ * When the test case is run a kprobe is placed of each nop. The
+ * post-handler of the test_before probe is used to modify the saved CPU
+ * register context to that which we require for the test case. The
+ * pre-handler of the of the test_after probe saves a copy of the CPU
+ * register context. In this way we can execute test_insn with a specific
+ * register context and see the results afterwards.
+ *
+ * To actually test the kprobes instruction emulation we perform the above
+ * step a second time but with an additional kprobe on the test_case
+ * instruction itself. If the emulation is accurate then the results seen
+ * by the test_after probe will be identical to the first run which didn't
+ * have a probe on test_case.
+ *
+ * Each test case is run several times with a variety of variations in the
+ * flags value of stored in CPSR, and for Thumb code, different ITState.
+ *
+ * For instructions which can modify PC, a second test_after probe is used
+ * like this:
+ *
+ * test_before: nop
+ * test_case:	test_insn
+ * test_after:	nop
+ *		b test_done
+ * test_after2: nop
+ * test_done:
+ *
+ * The test case is constructed such that test_insn branches to
+ * test_after2, or, if testing a conditional instruction, it may just
+ * continue to test_after. The probes inserted at both locations let us
+ * determine which happened. A similar approach is used for testing
+ * backwards branches...
+ *
+ *		b test_before
+ *		b test_done  @ helps to cope with off by 1 branches
+ * test_after2: nop
+ *		b test_done
+ * test_before: nop
+ * test_case:	test_insn
+ * test_after:	nop
+ * test_done:
+ *
+ * The macros used to generate the assembler instructions describe above
+ * are TEST_INSTRUCTION, TEST_BRANCH_F (branch forwards) and TEST_BRANCH_B
+ * (branch backwards). In these, the local variables numbered 1, 50, 2 and
+ * 99 represent: test_before, test_case, test_after2 and test_done.
+ *
+ * FRAMEWORK
+ * ---------
+ *
+ * Each test case is wrapped between the pair of macros TESTCASE_START and
+ * TESTCASE_END. As well as performing the inline assembler boilerplate,
+ * these call out to the kprobes_test_case_start() and
+ * kprobes_test_case_end() functions which drive the execution of the test
+ * case. The specific arguments to use for each test case are stored as
+ * inline data constructed using the various TEST_ARG_* macros. Putting
+ * this all together, a simple test case may look like:
+ *
+ *	TESTCASE_START("Testing mov r0, r7")
+ *	TEST_ARG_REG(7, 0x12345678) // Set r7=0x12345678
+ *	TEST_ARG_END("")
+ *	TEST_INSTRUCTION("mov r0, r7")
+ *	TESTCASE_END
+ *
+ * Note, in practice the single convenience macro TEST_R would be used for this
+ * instead.
+ *
+ * The above would expand to assembler looking something like:
+ *
+ *	@ TESTCASE_START
+ *	bl	__kprobes_test_case_start
+ *	@ start of inline data...
+ *	.ascii "mov r0, r7"	@ text title for test case
+ *	.byte	0
+ *	.align	2
+ *
+ *	@ TEST_ARG_REG
+ *	.byte	ARG_TYPE_REG
+ *	.byte	7
+ *	.short	0
+ *	.word	0x1234567
+ *
+ *	@ TEST_ARG_END
+ *	.byte	ARG_TYPE_END
+ *	.byte	TEST_ISA	@ flags, including ISA being tested
+ *	.short	50f-0f		@ offset of 'test_before'
+ *	.short	2f-0f		@ offset of 'test_after2' (if relevent)
+ *	.short	99f-0f		@ offset of 'test_done'
+ *	@ start of test case code...
+ *	0:
+ *	.code	TEST_ISA	@ switch to ISA being tested
+ *
+ *	@ TEST_INSTRUCTION
+ *	50:	nop		@ location for 'test_before' probe
+ *	1:	mov r0, r7	@ the test case instruction 'test_insn'
+ *		nop		@ location for 'test_after' probe
+ *
+ *	// TESTCASE_END
+ *	2:
+ *	99:	bl __kprobes_test_case_end_##TEST_ISA
+ *	.code	NONMAL_ISA
+ *
+ * When the above is execute the following happens...
+ *
+ * __kprobes_test_case_start() is an assembler wrapper which sets up space
+ * for a stack buffer and calls the C function kprobes_test_case_start().
+ * This C function will do some initial processing of the inline data and
+ * setup some global state. It then inserts the test_before and test_after
+ * kprobes and returns a value which causes the assembler wrapper to jump
+ * to the start of the test case code, (local label '0').
+ *
+ * When the test case code executes, the test_before probe will be hit and
+ * test_before_post_handler will call setup_test_context(). This fills the
+ * stack buffer and CPU registers with a test pattern and then processes
+ * the test case arguments. In our example there is one TEST_ARG_REG which
+ * indicates that R7 should be loaded with the value 0x12345678.
+ *
+ * When the test_before probe ends, the test case continues and executes
+ * the "mov r0, r7" instruction. It then hits the test_after probe and the
+ * pre-handler for this (test_after_pre_handler) will save a copy of the
+ * CPU register context. This should now have R0 holding the same value as
+ * R7.
+ *
+ * Finally we get to the call to __kprobes_test_case_end_{32,16}. This is
+ * an assembler wrapper which switches back to the ISA used by the test
+ * code and calls the C function kprobes_test_case_end().
+ *
+ * For each run through the test case, test_case_run_count is incremented
+ * by one. For even runs, kprobes_test_case_end() saves a copy of the
+ * register and stack buffer contents from the test case just run. It then
+ * inserts a kprobe on the test case instruction 'test_insn' and returns a
+ * value to cause the test case code to be re-run.
+ *
+ * For odd numbered runs, kprobes_test_case_end() compares the register and
+ * stack buffer contents to those that were saved on the previous even
+ * numbered run (the one without the kprobe on test_insn). These should be
+ * the same if the kprobe instruction simulation routine is correct.
+ *
+ * The pair of test case runs is repeated with different combinations of
+ * flag values in CPSR and, for Thumb, different ITState. This is
+ * controlled by test_context_cpsr().
+ *
+ * BUILDING TEST CASES
+ * -------------------
+ *
+ *
+ * As an aid to building test cases, the stack buffer is initialised with
+ * some special values:
+ *
+ *   [SP+13*4]	Contains SP+120. This can be used to test instructions
+ *		which load a value into SP.
+ *
+ *   [SP+15*4]	When testing branching instructions using TEST_BRANCH_{F,B},
+ *		this holds the target address of the branch, 'test_after2'.
+ *		This can be used to test instructions which load a PC value
+ *		from memory.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -24,6 +211,9 @@
 #define BENCHMARKING	1
 
 
+/*
+ * Test basic API
+ */
 
 static bool test_regs_ok;
 static int test_func_instance;
@@ -48,12 +238,12 @@ static void __used __naked __arm_kprobes_test_func(void)
 		"arm_func:				\n\t"
 		"adds	r0, r0, r1			\n\t"
 		"bx	lr				\n\t"
-		".code "NORMAL_ISA	 
+		".code "NORMAL_ISA	 /* Back to Thumb if necessary */
 		: : : "r0", "r1", "cc"
 	);
 }
 
-#else 
+#else /* CONFIG_THUMB2_KERNEL */
 
 long thumb16_func(long r0, long r1);
 long thumb32even_func(long r0, long r1);
@@ -84,7 +274,7 @@ static void __used __naked __thumb_kprobes_test_funcs(void)
 	);
 }
 
-#endif 
+#endif /* CONFIG_THUMB2_KERNEL */
 
 
 static int call_test_func(long (*func)(long, long), bool check_test_regs)
@@ -144,7 +334,7 @@ static int test_kprobe(long (*func)(long, long))
 	ret = call_test_func(func, true);
 
 	unregister_kprobe(&the_kprobe);
-	the_kprobe.flags = 0; 
+	the_kprobe.flags = 0; /* Clear disable flag to allow reuse */
 
 	if (!ret)
 		return -EINVAL;
@@ -193,7 +383,7 @@ static int test_jprobe(long (*func)(long, long))
 	ret = call_test_func(func, true);
 
 	unregister_jprobe(&the_jprobe);
-	the_jprobe.kp.flags = 0; 
+	the_jprobe.kp.flags = 0; /* Clear disable flag to allow reuse */
 
 	if (!ret)
 		return -EINVAL;
@@ -238,7 +428,7 @@ static int test_kretprobe(long (*func)(long, long))
 	ret = call_test_func(func, true);
 
 	unregister_kretprobe(&the_kretprobe);
-	the_kretprobe.kp.flags = 0; 
+	the_kretprobe.kp.flags = 0; /* Clear disable flag to allow reuse */
 
 	if (!ret)
 		return -EINVAL;
@@ -279,6 +469,9 @@ static int run_api_tests(long (*func)(long, long))
 }
 
 
+/*
+ * Benchmarking
+ */
 
 #if BENCHMARKING
 
@@ -357,9 +550,9 @@ static int benchmark(void(*fn)(void))
 			fn();
 		t = sched_clock() - t0;
 		if (t >= 250000000)
-			break; 
+			break; /* Stop once we took more than 0.25 seconds */
 	}
-	return t / n; 
+	return t / n; /* Time for one iteration in nanoseconds */
 };
 
 static int kprobe_benchmark(void(*fn)(void), unsigned offset)
@@ -392,6 +585,11 @@ static int run_benchmarks(void)
 	int ret;
 	struct benchmarks list[] = {
 		{&benchmark_nop, 0, "nop"},
+		/*
+		 * benchmark_pushpop{1,3} will have the optimised
+		 * instruction emulation, whilst benchmark_pushpop{2,4} will
+		 * be the equivalent unoptimised instructions.
+		 */
 		{&benchmark_pushpop1, 0, "stmdb	sp!, {r3-r11,lr}"},
 		{&benchmark_pushpop1, 4, "ldmia	sp!, {r3-r11,pc}"},
 		{&benchmark_pushpop2, 0, "stmdb	sp!, {r0-r8,lr}"},
@@ -419,9 +617,12 @@ static int run_benchmarks(void)
 	return 0;
 }
 
-#endif 
+#endif /* BENCHMARKING */
 
 
+/*
+ * Decoding table self-consistency tests
+ */
 
 static const int decode_struct_sizes[NUM_DECODE_TYPES] = {
 	[DECODE_TYPE_TABLE]	= sizeof(struct decode_table),
@@ -505,6 +706,22 @@ static int table_test(const union decode_item *table)
 }
 
 
+/*
+ * Decoding table test coverage analysis
+ *
+ * coverage_start() builds a coverage_table which contains a list of
+ * coverage_entry's to match each entry in the specified kprobes instruction
+ * decoding table.
+ *
+ * When test cases are run, coverage_add() is called to process each case.
+ * This looks up the corresponding entry in the coverage_table and sets it as
+ * being matched, as well as clearing the regs flag appropriate for the test.
+ *
+ * After all test cases have been run, coverage_end() is called to check that
+ * all entries in coverage_table have been matched and that all regs flags are
+ * cleared. I.e. that all possible combinations of instructions described by
+ * the kprobes decoding tables have had a test case executed for them.
+ */
 
 bool coverage_fail;
 
@@ -673,10 +890,10 @@ static void coverage_add(kprobe_opcode_t insn)
 		enum decode_type type = h->type_regs.bits & DECODE_TYPE_MASK;
 
 		if (entry->nesting > nesting)
-			continue; 
+			continue; /* Skip sub-table we didn't match */
 
 		if (entry->nesting < nesting)
-			break; 
+			break; /* End of sub-table we were scanning */
 
 		if (!matched) {
 			if ((insn & h->mask.bits) != h->value.bits)
@@ -733,6 +950,9 @@ static void coverage_end(void)
 }
 
 
+/*
+ * Framework for instruction set test cases
+ */
 
 void __naked __kprobes_test_case_start(void)
 {
@@ -762,7 +982,7 @@ void __naked __kprobes_test_case_end_32(void)
 	);
 }
 
-#else 
+#else /* CONFIG_THUMB2_KERNEL */
 
 void __naked __kprobes_test_case_end_16(void)
 {
@@ -821,6 +1041,13 @@ static int test_case_run_count;
 static bool test_case_is_thumb;
 static int test_instance;
 
+/*
+ * We ignore the state of the imprecise abort disable flag (CPSR.A) because this
+ * can change randomly as the kernel doesn't take care to preserve or initialise
+ * this across context switches. Also, with Security Extentions, the flag may
+ * not be under control of the kernel; for this reason we ignore the state of
+ * the FIQ disable flag CPSR.F as well.
+ */
 #define PSR_IGNORE_BITS (PSR_A_BIT | PSR_F_BIT)
 
 static unsigned long test_check_cc(int cc, unsigned long cpsr)
@@ -831,7 +1058,7 @@ static unsigned long test_check_cc(int cc, unsigned long cpsr)
 }
 
 static int is_last_scenario;
-static int probe_should_run; 
+static int probe_should_run; /* 0 = no, 1 = yes, -1 = unknown */
 static int memory_needs_checking;
 
 static unsigned long test_context_cpsr(int scenario)
@@ -840,13 +1067,13 @@ static unsigned long test_context_cpsr(int scenario)
 
 	probe_should_run = 1;
 
-	
-	cpsr  = (scenario & 0xf) << 28; 
-	cpsr |= (scenario & 0xf) << 16; 
-	cpsr |= (scenario & 0x1) << 27; 
+	/* Default case is that we cycle through 16 combinations of flags */
+	cpsr  = (scenario & 0xf) << 28; /* N,Z,C,V flags */
+	cpsr |= (scenario & 0xf) << 16; /* GE flags */
+	cpsr |= (scenario & 0x1) << 27; /* Toggle Q flag */
 
 	if (!test_case_is_thumb) {
-		
+		/* Testing ARM code */
 		int cc = current_instruction >> 28;
 
 		probe_should_run = test_check_cc(cc, cpsr) != 0;
@@ -854,7 +1081,7 @@ static unsigned long test_context_cpsr(int scenario)
 			is_last_scenario = true;
 
 	} else if (kprobe_test_flags & TEST_FLAG_NO_ITBLOCK) {
-		
+		/* Testing Thumb code without setting ITSTATE */
 		if (kprobe_test_cc_position) {
 			int cc = (current_instruction >> kprobe_test_cc_position) & 0xf;
 			probe_should_run = test_check_cc(cc, cpsr) != 0;
@@ -864,43 +1091,43 @@ static unsigned long test_context_cpsr(int scenario)
 			is_last_scenario = true;
 
 	} else if (kprobe_test_flags & TEST_FLAG_FULL_ITBLOCK) {
-		
+		/* Testing Thumb code with all combinations of ITSTATE */
 		unsigned x = (scenario >> 4);
-		unsigned cond_base = x % 7; 
-		unsigned mask = x / 7 + 2;  
+		unsigned cond_base = x % 7; /* ITSTATE<7:5> */
+		unsigned mask = x / 7 + 2;  /* ITSTATE<4:0>, bits reversed */
 
 		if (mask > 0x1f) {
-			
+			/* Finish by testing state from instruction 'itt al' */
 			cond_base = 7;
 			mask = 0x4;
 			if ((scenario & 0xf) == 0xf)
 				is_last_scenario = true;
 		}
 
-		cpsr |= cond_base << 13;	
-		cpsr |= (mask & 0x1) << 12;	
-		cpsr |= (mask & 0x2) << 10;	
-		cpsr |= (mask & 0x4) << 8;	
-		cpsr |= (mask & 0x8) << 23;	
-		cpsr |= (mask & 0x10) << 21;	
+		cpsr |= cond_base << 13;	/* ITSTATE<7:5> */
+		cpsr |= (mask & 0x1) << 12;	/* ITSTATE<4> */
+		cpsr |= (mask & 0x2) << 10;	/* ITSTATE<3> */
+		cpsr |= (mask & 0x4) << 8;	/* ITSTATE<2> */
+		cpsr |= (mask & 0x8) << 23;	/* ITSTATE<1> */
+		cpsr |= (mask & 0x10) << 21;	/* ITSTATE<0> */
 
 		probe_should_run = test_check_cc((cpsr >> 12) & 0xf, cpsr) != 0;
 
 	} else {
-		
+		/* Testing Thumb code with several combinations of ITSTATE */
 		switch (scenario) {
-		case 16: 
+		case 16: /* Clear NZCV flags and 'it eq' state (false as Z=0) */
 			cpsr = 0x00000800;
 			probe_should_run = 0;
 			break;
-		case 17: 
+		case 17: /* Set NZCV flags and 'it vc' state (false as V=1) */
 			cpsr = 0xf0007800;
 			probe_should_run = 0;
 			break;
-		case 18: 
+		case 18: /* Clear NZCV flags and 'it ls' state (true as C=0) */
 			cpsr = 0x00009800;
 			break;
-		case 19: 
+		case 19: /* Set NZCV flags and 'it cs' state (true as C=1) */
 			cpsr = 0xf0002800;
 			is_last_scenario = true;
 			break;
@@ -920,17 +1147,17 @@ static void setup_test_context(struct pt_regs *regs)
 	is_last_scenario = false;
 	memory_needs_checking = false;
 
-	
+	/* Initialise test memory on stack */
 	val = (scenario & 1) ? VALM : ~VALM;
 	for (i = 0; i < TEST_MEMORY_SIZE / sizeof(current_stack[0]); ++i)
 		current_stack[i] = val + (i << 8);
-	
+	/* Put target of branch on stack for tests which load PC from memory */
 	if (current_branch_target)
 		current_stack[15] = current_branch_target;
-	
+	/* Put a value for SP on stack for tests which load SP from memory */
 	current_stack[13] = (u32)current_stack + 120;
 
-	
+	/* Initialise register values to their default state */
 	val = (scenario & 2) ? VALR : ~VALR;
 	for (i = 0; i < 13; ++i)
 		regs->uregs[i] = val ^ (i << 8);
@@ -938,7 +1165,7 @@ static void setup_test_context(struct pt_regs *regs)
 	regs->ARM_cpsr &= ~(APSR_MASK | PSR_IT_MASK);
 	regs->ARM_cpsr |= test_context_cpsr(scenario);
 
-	
+	/* Perform testcase specific register setup  */
 	args = current_args;
 	for (; args[0].type != ARG_TYPE_END; ++args)
 		switch (args[0].type) {
@@ -976,7 +1203,7 @@ static void unregister_test_probe(struct test_probe *probe)
 {
 	if (probe->registered) {
 		unregister_kprobe(&probe->kprobe);
-		probe->kprobe.flags = 0; 
+		probe->kprobe.flags = 0; /* Clear disable flag to allow reuse */
 	}
 	probe->registered = false;
 }
@@ -1023,12 +1250,12 @@ static int __kprobes
 test_after_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	if (container_of(p, struct test_probe, kprobe)->hit == test_instance)
-		return 0; 
+		return 0; /* Already run for this test instance */
 
 	result_regs = *regs;
 	result_regs.ARM_cpsr &= ~PSR_IGNORE_BITS;
 
-	
+	/* Undo any changes done to SP by the test case */
 	regs->ARM_sp = (unsigned long)current_stack;
 
 	container_of(p, struct test_probe, kprobe)->hit = test_instance;
@@ -1127,7 +1354,7 @@ static uintptr_t __used kprobes_test_case_start(const char *title, void *stack)
 		++args;
 	end_arg = (struct test_arg_end *)args;
 
-	test_code = (unsigned long)(args + 1); 
+	test_code = (unsigned long)(args + 1); /* Code starts after args */
 
 	test_case_is_thumb = end_arg->flags & ARG_FLAG_THUMB;
 	if (test_case_is_thumb)
@@ -1213,7 +1440,7 @@ static uintptr_t __used kprobes_test_case_start(const char *title, void *stack)
 		}
 	}
 
-	
+	/* Start first run of test case */
 	test_case_run_count = 0;
 	++test_instance;
 	return current_code_start;
@@ -1269,10 +1496,10 @@ static uintptr_t __used kprobes_test_case_end(void)
 {
 	if (test_case_run_count < 0) {
 		if (test_case_run_count == TEST_CASE_PASSED)
-			
+			/* kprobes_test_case_start did all the needed testing */
 			goto pass;
 		else
-			
+			/* kprobes_test_case_start failed */
 			goto fail;
 	}
 
@@ -1287,19 +1514,24 @@ static uintptr_t __used kprobes_test_case_end(void)
 		goto fail;
 	}
 
+	/*
+	 * Even numbered test runs ran without a probe on the test case so
+	 * we can gather reference results. The subsequent odd numbered run
+	 * will have the probe inserted.
+	*/
 	if ((test_case_run_count & 1) == 0) {
-		
+		/* Save results from run without probe */
 		u32 *mem = (u32 *)result_regs.ARM_sp;
 		expected_regs = result_regs;
 		memcpy(expected_memory, mem, expected_memory_size(mem));
 
-		
+		/* Insert probe onto test case instruction */
 		if (register_test_probe(&test_case_probe) < 0) {
 			test_case_failed("register test_case_probe failed");
 			goto fail;
 		}
 	} else {
-		
+		/* Check probe ran as expected */
 		if (probe_should_run == 1) {
 			if (test_case_probe.hit != test_instance) {
 				test_case_failed("test_case_handler not run");
@@ -1312,7 +1544,7 @@ static uintptr_t __used kprobes_test_case_end(void)
 			}
 		}
 
-		
+		/* Remove probe for any subsequent reference run */
 		unregister_test_probe(&test_case_probe);
 
 		if (!check_test_results())
@@ -1322,7 +1554,7 @@ static uintptr_t __used kprobes_test_case_end(void)
 			goto pass;
 	}
 
-	
+	/* Do next test run */
 	++test_case_run_count;
 	++test_instance;
 	return current_code_start;
@@ -1337,6 +1569,9 @@ end:
 }
 
 
+/*
+ * Top level test functions
+ */
 
 static int run_test_cases(void (*tests)(void), const union decode_item *table)
 {
@@ -1377,7 +1612,7 @@ static int __init run_all_tests(void)
 	if (ret)
 		goto out;
 
-#else 
+#else /* CONFIG_THUMB2_KERNEL */
 
 	pr_info("Probe 16-bit Thumb code\n");
 	ret = run_api_tests(thumb16_func);
@@ -1422,7 +1657,7 @@ static int __init run_all_tests(void)
 #endif
 
 #if __LINUX_ARM_ARCH__ >= 7
-	
+	/* We are able to run all test cases so coverage should be complete */
 	if (coverage_fail) {
 		pr_err("FAIL: Test coverage checks failed\n");
 		ret = -EINVAL;
@@ -1440,6 +1675,9 @@ out:
 }
 
 
+/*
+ * Module setup
+ */
 
 #ifdef MODULE
 
@@ -1451,7 +1689,7 @@ module_init(run_all_tests)
 module_exit(kprobe_test_exit)
 MODULE_LICENSE("GPL");
 
-#else 
+#else /* !MODULE */
 
 late_initcall(run_all_tests);
 

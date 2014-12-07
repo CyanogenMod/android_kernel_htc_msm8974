@@ -1929,7 +1929,8 @@ static int qpnp_button_backlight_config(struct spmi_device *spmi, struct qpnp_lp
 		led_resource = spmi_get_resource(spmi, NULL, IORESOURCE_MEM, 0);
 		if (!led_resource) {
 			dev_err(&spmi->dev, "Unable to get LED base address\n");
-			rc = -ENXIO;
+			kfree(led_array);
+			return -ENXIO;
 		}
 		led->base = led_resource->start;
 

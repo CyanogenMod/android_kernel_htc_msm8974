@@ -3,4 +3,4 @@
 
 #include <asm-generic/sembuf.h>
 
-#endif 
+#endif /* _ASM_SCORE_SEMBUF_H */

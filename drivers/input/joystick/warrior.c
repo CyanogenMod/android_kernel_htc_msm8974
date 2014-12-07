@@ -2,6 +2,9 @@
  *  Copyright (c) 1999-2001 Vojtech Pavlik
  */
 
+/*
+ * Logitech WingMan Warrior joystick driver for Linux
+ */
 
 /*
  * This program is free warftware; you can redistribute it and/or modify
@@ -36,10 +39,16 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Constants.
+ */
 
 #define WARRIOR_MAX_LENGTH	16
 static char warrior_lengths[] = { 0, 4, 12, 3, 4, 4, 0, 0 };
 
+/*
+ * Per-Warrior data.
+ */
 
 struct warrior {
 	struct input_dev *dev;
@@ -48,6 +57,10 @@ struct warrior {
 	char phys[32];
 };
 
+/*
+ * warrior_process_packet() decodes packets the driver receives from the
+ * Warrior. It updates the data accordingly.
+ */
 
 static void warrior_process_packet(struct warrior *warrior)
 {
@@ -57,17 +70,17 @@ static void warrior_process_packet(struct warrior *warrior)
 	if (!warrior->idx) return;
 
 	switch ((data[0] >> 4) & 7) {
-		case 1:					
+		case 1:					/* Button data */
 			input_report_key(dev, BTN_TRIGGER,  data[3]       & 1);
 			input_report_key(dev, BTN_THUMB,   (data[3] >> 1) & 1);
 			input_report_key(dev, BTN_TOP,     (data[3] >> 2) & 1);
 			input_report_key(dev, BTN_TOP2,    (data[3] >> 3) & 1);
 			break;
-		case 3:					
+		case 3:					/* XY-axis info->data */
 			input_report_abs(dev, ABS_X, ((data[0] & 8) << 5) - (data[2] | ((data[0] & 4) << 5)));
 			input_report_abs(dev, ABS_Y, (data[1] | ((data[0] & 1) << 7)) - ((data[0] & 2) << 7));
 			break;
-		case 5:					
+		case 5:					/* Throttle, spinner, hat info->data */
 			input_report_abs(dev, ABS_THROTTLE, (data[1] | ((data[0] & 1) << 7)) - ((data[0] & 2) << 7));
 			input_report_abs(dev, ABS_HAT0X, (data[3] & 2 ? 1 : 0) - (data[3] & 1 ? 1 : 0));
 			input_report_abs(dev, ABS_HAT0Y, (data[3] & 8 ? 1 : 0) - (data[3] & 4 ? 1 : 0));
@@ -77,6 +90,11 @@ static void warrior_process_packet(struct warrior *warrior)
 	input_sync(dev);
 }
 
+/*
+ * warrior_interrupt() is called by the low level driver when characters
+ * are ready for us. We then buffer them for further processing, or call the
+ * packet processing routine.
+ */
 
 static irqreturn_t warrior_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags)
@@ -100,6 +118,9 @@ static irqreturn_t warrior_interrupt(struct serio *serio,
 	return IRQ_HANDLED;
 }
 
+/*
+ * warrior_disconnect() is the opposite of warrior_connect()
+ */
 
 static void warrior_disconnect(struct serio *serio)
 {
@@ -111,6 +132,11 @@ static void warrior_disconnect(struct serio *serio)
 	kfree(warrior);
 }
 
+/*
+ * warrior_connect() is the routine that is called when someone adds a
+ * new serio device. It looks for the Warrior, and if found, registers
+ * it as an input device.
+ */
 
 static int warrior_connect(struct serio *serio, struct serio_driver *drv)
 {
@@ -164,6 +190,9 @@ static int warrior_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id warrior_serio_ids[] = {
 	{
@@ -188,6 +217,9 @@ static struct serio_driver warrior_drv = {
 	.disconnect	= warrior_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init warrior_init(void)
 {

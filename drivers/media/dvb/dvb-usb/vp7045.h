@@ -17,10 +17,13 @@
 #define DVB_USB_LOG_PREFIX "vp7045"
 #include "dvb-usb.h"
 
+/* vp7045 commands */
 
+/* Twinhan Vendor requests */
 #define TH_COMMAND_IN                     0xC0
 #define TH_COMMAND_OUT                    0xC1
 
+/* command bytes */
 #define TUNER_REG_READ                    0x03
 #define TUNER_REG_WRITE                   0x04
 
@@ -38,6 +41,7 @@
 
 #define TUNER_SIGNAL_READ                 0x0A
 
+/* FX2 eeprom */
 #define SET_EE_VALUE                      0x10
 #define GET_EE_VALUE                      0x11
  #define FX2_ID_ADDR                      0x00

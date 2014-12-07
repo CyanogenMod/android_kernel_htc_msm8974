@@ -29,12 +29,16 @@
 #include <asm/system.h>
 #include <asm/mach-types.h>
 
+/* The following are for MSM5100 on Gator
+*/
 #ifdef FEATURE_PM1000
 #include "pm1000.h"
-#endif 
+#endif /* FEATURE_PM1000 */
+/* The following are for MSM6050 on Bambi
+*/
 #ifdef FEATURE_PMIC_LCDKBD_LED_DRIVER
 #include "pm.h"
-#endif 
+#endif /* FEATURE_PMIC_LCDKBD_LED_DRIVER */
 
 #ifdef DISP_DEVICE_18BPP
 #undef DISP_DEVICE_18BPP
@@ -89,6 +93,8 @@ static void *DISP_DATA_PORT;
 
 #define DISP_DATA_IN() inpw(DISP_DATA_PORT);
 
+/* Epson device column number starts at 2
+*/
 #define DISP_SET_RECT(ulhc_row, lrhc_row, ulhc_col, lrhc_col) \
 	  DISP_CMD_OUT(DISP_CMD_SD_PSET) \
 	  DISP_DATA_OUT((ulhc_row) & 0xFF) \
@@ -116,6 +122,9 @@ static word disp_area_end_row;
 static byte disp_contrast = DISP_DEFAULT_CONTRAST;
 static boolean disp_powered_up;
 static boolean disp_initialized = FALSE;
+/* For some reason the contrast set at init time is not good. Need to do
+ * it again
+ */
 static boolean display_on = FALSE;
 static void epsonQcif_disp_init(struct platform_device *pdev);
 static void epsonQcif_disp_set_contrast(word contrast);
@@ -139,231 +148,231 @@ static void epsonQcif_disp_init(struct platform_device *pdev)
 	DISP_CMD_PORT = mfd->cmd_port;
 	DISP_DATA_PORT = mfd->data_port;
 
-	
+	/* Sleep in */
 	DISP_CMD_OUT(DISP_CMD_SLPIN);
 
-	
+	/* Display off */
 	DISP_CMD_OUT(DISP_CMD_DISOFF);
 
-	
+	/* Display normal */
 	DISP_CMD_OUT(DISP_CMD_DISNOR);
 
-	
+	/* Set data mode */
 	DISP_CMD_OUT(DISP_CMD_DATCTL);
 	DISP_DATA_OUT(DISP_DATCTL_565);
 
-	
+	/* Set display timing */
 	DISP_CMD_OUT(DISP_CMD_DISCTL);
-	DISP_DATA_OUT(0x1c);	
-	DISP_DATA_OUT(0x02);	
-	DISP_DATA_OUT(0x82);	
-	DISP_DATA_OUT(0x00);	
-	DISP_DATA_OUT(0x00);	
-	DISP_DATA_OUT(0xe0);	
-	DISP_DATA_OUT(0x00);	
-	DISP_DATA_OUT(0xdc);	
-	DISP_DATA_OUT(0x00);	
-	DISP_DATA_OUT(0x02);	
-	DISP_DATA_OUT(0x00);	
+	DISP_DATA_OUT(0x1c);	/* p1 */
+	DISP_DATA_OUT(0x02);	/* p1 */
+	DISP_DATA_OUT(0x82);	/* p2 */
+	DISP_DATA_OUT(0x00);	/* p3 */
+	DISP_DATA_OUT(0x00);	/* p4 */
+	DISP_DATA_OUT(0xe0);	/* p5 */
+	DISP_DATA_OUT(0x00);	/* p5 */
+	DISP_DATA_OUT(0xdc);	/* p6 */
+	DISP_DATA_OUT(0x00);	/* p6 */
+	DISP_DATA_OUT(0x02);	/* p7 */
+	DISP_DATA_OUT(0x00);	/* p8 */
 
-	
+	/* Set 64 gray scale level */
 	DISP_CMD_OUT(DISP_CMD_GCP64);
-	DISP_DATA_OUT(0x08);	
+	DISP_DATA_OUT(0x08);	/* p01 */
 	DISP_DATA_OUT(0x00);
-	DISP_DATA_OUT(0x2a);	
+	DISP_DATA_OUT(0x2a);	/* p02 */
 	DISP_DATA_OUT(0x00);
-	DISP_DATA_OUT(0x4e);	
+	DISP_DATA_OUT(0x4e);	/* p03 */
 	DISP_DATA_OUT(0x00);
-	DISP_DATA_OUT(0x6b);	
+	DISP_DATA_OUT(0x6b);	/* p04 */
 	DISP_DATA_OUT(0x00);
-	DISP_DATA_OUT(0x88);	
+	DISP_DATA_OUT(0x88);	/* p05 */
 	DISP_DATA_OUT(0x00);
-	DISP_DATA_OUT(0xa3);	
+	DISP_DATA_OUT(0xa3);	/* p06 */
 	DISP_DATA_OUT(0x00);
-	DISP_DATA_OUT(0xba);	
+	DISP_DATA_OUT(0xba);	/* p07 */
 	DISP_DATA_OUT(0x00);
-	DISP_DATA_OUT(0xd1);	
+	DISP_DATA_OUT(0xd1);	/* p08 */
 	DISP_DATA_OUT(0x00);
-	DISP_DATA_OUT(0xe5);	
+	DISP_DATA_OUT(0xe5);	/* p09 */
 	DISP_DATA_OUT(0x00);
-	DISP_DATA_OUT(0xf3);	
+	DISP_DATA_OUT(0xf3);	/* p10 */
 	DISP_DATA_OUT(0x00);
-	DISP_DATA_OUT(0x03);	
+	DISP_DATA_OUT(0x03);	/* p11 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x13);	
+	DISP_DATA_OUT(0x13);	/* p12 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x22);	
+	DISP_DATA_OUT(0x22);	/* p13 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x2f);	
+	DISP_DATA_OUT(0x2f);	/* p14 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x3b);	
+	DISP_DATA_OUT(0x3b);	/* p15 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x46);	
+	DISP_DATA_OUT(0x46);	/* p16 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x51);	
+	DISP_DATA_OUT(0x51);	/* p17 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x5b);	
+	DISP_DATA_OUT(0x5b);	/* p18 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x64);	
+	DISP_DATA_OUT(0x64);	/* p19 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x6c);	
+	DISP_DATA_OUT(0x6c);	/* p20 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x74);	
+	DISP_DATA_OUT(0x74);	/* p21 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x7c);	
+	DISP_DATA_OUT(0x7c);	/* p22 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x83);	
+	DISP_DATA_OUT(0x83);	/* p23 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x8a);	
+	DISP_DATA_OUT(0x8a);	/* p24 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x91);	
+	DISP_DATA_OUT(0x91);	/* p25 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x98);	
+	DISP_DATA_OUT(0x98);	/* p26 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x9f);	
+	DISP_DATA_OUT(0x9f);	/* p27 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xa6);	
+	DISP_DATA_OUT(0xa6);	/* p28 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xac);	
+	DISP_DATA_OUT(0xac);	/* p29 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xb2);	
+	DISP_DATA_OUT(0xb2);	/* p30 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xb7);	
+	DISP_DATA_OUT(0xb7);	/* p31 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xbc);	
+	DISP_DATA_OUT(0xbc);	/* p32 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xc1);	
+	DISP_DATA_OUT(0xc1);	/* p33 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xc6);	
+	DISP_DATA_OUT(0xc6);	/* p34 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xcb);	
+	DISP_DATA_OUT(0xcb);	/* p35 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xd0);	
+	DISP_DATA_OUT(0xd0);	/* p36 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xd4);	
+	DISP_DATA_OUT(0xd4);	/* p37 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xd8);	
+	DISP_DATA_OUT(0xd8);	/* p38 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xdc);	
+	DISP_DATA_OUT(0xdc);	/* p39 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xe0);	
+	DISP_DATA_OUT(0xe0);	/* p40 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xe4);	
+	DISP_DATA_OUT(0xe4);	/* p41 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xe8);	
+	DISP_DATA_OUT(0xe8);	/* p42 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xec);	
+	DISP_DATA_OUT(0xec);	/* p43 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xf0);	
+	DISP_DATA_OUT(0xf0);	/* p44 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xf4);	
+	DISP_DATA_OUT(0xf4);	/* p45 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xf8);	
+	DISP_DATA_OUT(0xf8);	/* p46 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xfb);	
+	DISP_DATA_OUT(0xfb);	/* p47 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0xfe);	
+	DISP_DATA_OUT(0xfe);	/* p48 */
 	DISP_DATA_OUT(0x01);
-	DISP_DATA_OUT(0x01);	
+	DISP_DATA_OUT(0x01);	/* p49 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x03);	
+	DISP_DATA_OUT(0x03);	/* p50 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x05);	
+	DISP_DATA_OUT(0x05);	/* p51 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x07);	
+	DISP_DATA_OUT(0x07);	/* p52 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x09);	
+	DISP_DATA_OUT(0x09);	/* p53 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x0b);	
+	DISP_DATA_OUT(0x0b);	/* p54 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x0d);	
+	DISP_DATA_OUT(0x0d);	/* p55 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x0f);	
+	DISP_DATA_OUT(0x0f);	/* p56 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x11);	
+	DISP_DATA_OUT(0x11);	/* p57 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x13);	
+	DISP_DATA_OUT(0x13);	/* p58 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x15);	
+	DISP_DATA_OUT(0x15);	/* p59 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x17);	
+	DISP_DATA_OUT(0x17);	/* p60 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x19);	
+	DISP_DATA_OUT(0x19);	/* p61 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x1b);	
+	DISP_DATA_OUT(0x1b);	/* p62 */
 	DISP_DATA_OUT(0x02);
-	DISP_DATA_OUT(0x1c);	
+	DISP_DATA_OUT(0x1c);	/* p63 */
 	DISP_DATA_OUT(0x02);
 
-	
+	/* Set 16 gray scale level */
 	DISP_CMD_OUT(DISP_CMD_GCP16);
-	DISP_DATA_OUT(0x1a);	
-	DISP_DATA_OUT(0x32);	
-	DISP_DATA_OUT(0x42);	
-	DISP_DATA_OUT(0x4c);	
-	DISP_DATA_OUT(0x58);	
-	DISP_DATA_OUT(0x5f);	
-	DISP_DATA_OUT(0x66);	
-	DISP_DATA_OUT(0x6b);	
-	DISP_DATA_OUT(0x70);	
-	DISP_DATA_OUT(0x74);	
-	DISP_DATA_OUT(0x78);	
-	DISP_DATA_OUT(0x7b);	
-	DISP_DATA_OUT(0x7e);	
-	DISP_DATA_OUT(0x80);	
-	DISP_DATA_OUT(0x82);	
+	DISP_DATA_OUT(0x1a);	/* p01 */
+	DISP_DATA_OUT(0x32);	/* p02 */
+	DISP_DATA_OUT(0x42);	/* p03 */
+	DISP_DATA_OUT(0x4c);	/* p04 */
+	DISP_DATA_OUT(0x58);	/* p05 */
+	DISP_DATA_OUT(0x5f);	/* p06 */
+	DISP_DATA_OUT(0x66);	/* p07 */
+	DISP_DATA_OUT(0x6b);	/* p08 */
+	DISP_DATA_OUT(0x70);	/* p09 */
+	DISP_DATA_OUT(0x74);	/* p10 */
+	DISP_DATA_OUT(0x78);	/* p11 */
+	DISP_DATA_OUT(0x7b);	/* p12 */
+	DISP_DATA_OUT(0x7e);	/* p13 */
+	DISP_DATA_OUT(0x80);	/* p14 */
+	DISP_DATA_OUT(0x82);	/* p15 */
 
-	
+	/* Set DSP column */
 	DISP_CMD_OUT(DISP_CMD_MD_CSET);
 	DISP_DATA_OUT(0xff);
 	DISP_DATA_OUT(0x03);
 	DISP_DATA_OUT(0xff);
 	DISP_DATA_OUT(0x03);
 
-	
+	/* Set DSP page */
 	DISP_CMD_OUT(DISP_CMD_MD_PSET);
 	DISP_DATA_OUT(0xff);
 	DISP_DATA_OUT(0x01);
 	DISP_DATA_OUT(0xff);
 	DISP_DATA_OUT(0x01);
 
-	
+	/* Set ARM column */
 	DISP_CMD_OUT(DISP_CMD_SD_CSET);
 	DISP_DATA_OUT(0x02);
 	DISP_DATA_OUT(0x00);
 	DISP_DATA_OUT((QCIF_WIDTH + 1) & 0xFF);
 	DISP_DATA_OUT((QCIF_WIDTH + 1) >> 8);
 
-	
+	/* Set ARM page */
 	DISP_CMD_OUT(DISP_CMD_SD_PSET);
 	DISP_DATA_OUT(0x00);
 	DISP_DATA_OUT(0x00);
 	DISP_DATA_OUT((QCIF_HEIGHT - 1) & 0xFF);
 	DISP_DATA_OUT((QCIF_HEIGHT - 1) >> 8);
 
-	
+	/* Set 64 gray scales */
 	DISP_CMD_OUT(DISP_CMD_GSSET);
 	DISP_DATA_OUT(DISP_GS_64);
 
 	DISP_CMD_OUT(DISP_CMD_OSSEL);
 	DISP_DATA_OUT(0);
 
-	
+	/* Sleep out */
 	DISP_CMD_OUT(DISP_CMD_SLPOUT);
 
 	WAIT_SEC(40000);
 
-	
+	/* Initialize power IC */
 	DISP_CMD_OUT(DISP_CMD_VOLCTL);
 	DISP_DATA_OUT(DISP_VOLCTL_TONE);
 
 	WAIT_SEC(40000);
 
-	
+	/* Set electronic volume, d'xx */
 	DISP_CMD_OUT(DISP_CMD_VOLCTL);
-	DISP_DATA_OUT(DISP_DEFAULT_CONTRAST);	
+	DISP_DATA_OUT(DISP_DEFAULT_CONTRAST);	/* value from 0 to 127 */
 
-	
+	/* Initialize display data */
 	DISP_SET_RECT(0, (QCIF_HEIGHT - 1), 0, (QCIF_WIDTH - 1));
 	DISP_CMD_OUT(DISP_CMD_RAMWR);
 	for (i = 0; i < QCIF_HEIGHT * QCIF_WIDTH; i++)
@@ -407,13 +416,18 @@ static void epsonQcif_disp_set_display_area(word start_row, word end_row)
 	disp_area_start_row = start_row;
 	disp_area_end_row = end_row;
 
+	/* Range checking
+	 */
 	if (end_row >= QCIF_HEIGHT)
 		end_row = QCIF_HEIGHT - 1;
 	if (start_row > end_row)
 		start_row = end_row;
 
+	/* When display is not the full screen, gray scale is set to
+	 ** 2; otherwise it is set to 64.
+	 */
 	if ((start_row == 0) && (end_row == (QCIF_HEIGHT - 1))) {
-		
+		/* The whole screen */
 		DISP_CMD_OUT(DISP_CMD_PTLOUT);
 		WAIT_SEC(10000);
 		DISP_CMD_OUT(DISP_CMD_DISOFF);
@@ -423,7 +437,7 @@ static void epsonQcif_disp_set_display_area(word start_row, word end_row)
 		WAIT_SEC(100000);
 		DISP_CMD_OUT(DISP_CMD_DISON);
 	} else {
-		
+		/* partial screen */
 		DISP_CMD_OUT(DISP_CMD_PTLIN);
 		DISP_DATA_OUT(start_row);
 		DISP_DATA_OUT(start_row >> 8);
@@ -469,25 +483,25 @@ static void epsonQcif_disp_set_contrast(word contrast)
 	if (!disp_initialized)
 		return;
 
-	
+	/* Initialize power IC, d'24 */
 	DISP_CMD_OUT(DISP_CMD_VOLCTL);
 	DISP_DATA_OUT(DISP_VOLCTL_TONE);
 
 	WAIT_SEC(40000);
 
-	
+	/* Set electronic volume, d'xx */
 	DISP_CMD_OUT(DISP_CMD_VOLCTL);
 	if (contrast > 127)
 		contrast = 127;
-	DISP_DATA_OUT(contrast);	
+	DISP_DATA_OUT(contrast);	/* value from 0 to 127 */
 	disp_contrast = (byte) contrast;
-}				
+}				/* End disp_set_contrast */
 
 static void epsonQcif_disp_clear_screen_area(
 	word start_row, word end_row, word start_column, word end_column) {
 	int32 i;
 
-	
+	/* Clear the display screen */
 	DISP_SET_RECT(start_row, end_row, start_column, end_column);
 	DISP_CMD_OUT(DISP_CMD_RAMWR);
 	i = (end_row - start_row + 1) * (end_column - start_column + 1);

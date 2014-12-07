@@ -60,6 +60,17 @@
 #define IGEP3_GPIO_LED1_RED	16
 #define IGEP3_GPIO_USBH_NRESET  183
 
+/*
+ * IGEP2 Hardware Revision Table
+ *
+ *  --------------------------------------------------------------------------
+ * | Id. | Hw Rev.            | HW0 (28) | WIFI_NPD | WIFI_NRESET | BT_NRESET |
+ *  --------------------------------------------------------------------------
+ * |  0  | B                  |   high   |  gpio94  |   gpio95    |     -     |
+ * |  0  | B/C (B-compatible) |   high   |  gpio94  |   gpio95    |  gpio137  |
+ * |  1  | C                  |   low    |  gpio138 |   gpio139   |  gpio137  |
+ *  --------------------------------------------------------------------------
+ */
 
 #define IGEP2_BOARD_HWREV_B	0
 #define IGEP2_BOARD_HWREV_C	1
@@ -104,6 +115,13 @@ static void __init igep2_get_revision(void)
 
 #define ONENAND_MAP             0x20000000
 
+/* NAND04GR4E1A ( x2 Flash built-in COMBO POP MEMORY )
+ * Since the device is equipped with two DataRAMs, and two-plane NAND
+ * Flash memory array, these two component enables simultaneous program
+ * of 4KiB. Plane1 has only even blocks such as block0, block2, block4
+ * while Plane2 has only odd blocks such as block1, block3, block5.
+ * So MTD regards it as 4KiB page size and 256KiB block size 64*(2*2048)
+ */
 
 static struct mtd_partition igep_onenand_partitions[] = {
 	{
@@ -136,7 +154,7 @@ static struct mtd_partition igep_onenand_partitions[] = {
 static struct omap_onenand_platform_data igep_onenand_data = {
 	.parts = igep_onenand_partitions,
 	.nr_parts = ARRAY_SIZE(igep_onenand_partitions),
-	.dma_channel	= -1,	
+	.dma_channel	= -1,	/* disable DMA in OMAP OneNAND driver */
 };
 
 static struct platform_device igep_onenand_device = {
@@ -156,14 +174,14 @@ static void __init igep_flash_init(void)
 		u32 ret;
 		ret = gpmc_cs_read_reg(cs, GPMC_CS_CONFIG1);
 
-		
+		/* Check if NAND/oneNAND is configured */
 		if ((ret & 0xC00) == 0x800)
-			
+			/* NAND found */
 			pr_err("IGEP: Unsupported NAND found\n");
 		else {
 			ret = gpmc_cs_read_reg(cs, GPMC_CS_CONFIG7);
 			if ((ret & 0x3F) == (ONENAND_MAP >> 24))
-				
+				/* ONENAND found */
 				onenandcs = cs;
 		}
 	}
@@ -208,6 +226,7 @@ static struct regulator_consumer_supply igep_vmmc1_supply[] = {
 	REGULATOR_SUPPLY("vmmc", "omap_hsmmc.0"),
 };
 
+/* VMMC1 for OMAP VDD_MMC1 (i/o) and MMC1 card */
 static struct regulator_init_data igep_vmmc1 = {
 	.constraints = {
 		.min_uV			= 1850000,
@@ -286,7 +305,7 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_wp	= -EINVAL,
 	},
 #endif
-	{}      
+	{}      /* Terminator */
 };
 
 #if defined(CONFIG_LEDS_GPIO) || defined(CONFIG_LEDS_GPIO_MODULE)
@@ -308,7 +327,7 @@ static struct gpio_led igep_gpio_leds[] = {
 	[3] = {
 		.name			= "gpio-led:green:d1",
 		.default_trigger	= "heartbeat",
-		.gpio			= -EINVAL, 
+		.gpio			= -EINVAL, /* gets replaced */
 		.active_low		= 1,
 	},
 };
@@ -382,11 +401,11 @@ static int igep_twl_gpio_setup(struct device *dev,
 {
 	int ret;
 
-	
+	/* gpio + 0 is "mmc0_cd" (input/IRQ) */
 	mmc[0].gpio_cd = gpio + 0;
 	omap_hsmmc_late_init(mmc);
 
-	
+	/* TWL4030_GPIO_MAX + 1 == ledB (out, active low LED) */
 #if !defined(CONFIG_LEDS_GPIO) && !defined(CONFIG_LEDS_GPIO_MODULE)
 	ret = gpio_request_one(gpio + TWL4030_GPIO_MAX + 1, GPIOF_OUT_INIT_HIGH,
 			       "gpio-led:green:d1");
@@ -401,9 +420,13 @@ static int igep_twl_gpio_setup(struct device *dev,
 	if (machine_is_igep0030())
 		return 0;
 
+	/*
+	 * REVISIT: need ehci-omap hooks for external VBUS
+	 * power switch and overcurrent detect
+	 */
 	igep2_twl_gpios[0].gpio = gpio + 1;
 
-	
+	/* TWL4030_GPIO_MAX + 0 == ledA, GPIO_USBH_CPEN (out, active low) */
 	igep2_twl_gpios[1].gpio = gpio + TWL4030_GPIO_MAX;
 
 	ret = gpio_request_array(igep2_twl_gpios, ARRAY_SIZE(igep2_twl_gpios));
@@ -501,7 +524,7 @@ static struct twl4030_keypad_data igep2_keypad_pdata = {
 };
 
 static struct twl4030_platform_data igep_twldata = {
-	
+	/* platform_data for children goes here */
 	.gpio		= &igep_twl4030_gpio_pdata,
 	.vmmc1          = &igep_vmmc1,
 	.vio		= &igep_vio,
@@ -520,13 +543,17 @@ static void __init igep_i2c_init(void)
 	omap3_pmic_get_config(&igep_twldata, TWL_COMMON_PDATA_USB, 0);
 
 	if (machine_is_igep0020()) {
+		/*
+		 * Bus 3 is attached to the DVI port where devices like the
+		 * pico DLP projector don't work reliably with 400kHz
+		 */
 		ret = omap_register_i2c_bus(3, 100, igep2_i2c3_boardinfo,
 					    ARRAY_SIZE(igep2_i2c3_boardinfo));
 		if (ret)
 			pr_warning("IGEP2: Could not register I2C3 bus (%d)\n", ret);
 
 		igep_twldata.keypad	= &igep2_keypad_pdata;
-		
+		/* Get common pmic data */
 		omap3_pmic_get_config(&igep_twldata, TWL_COMMON_PDATA_AUDIO,
 				      TWL_COMMON_REGULATOR_VPLL2);
 		igep_twldata.vpll2->constraints.apply_uV = true;
@@ -575,7 +602,7 @@ static void __init igep_wlan_bt_init(void)
 {
 	int err;
 
-	
+	/* GPIO's for WLAN-BT combo depends on hardware revision */
 	if (hwrev == IGEP2_BOARD_HWREV_B) {
 		igep_wlan_bt_gpios[0].gpio = IGEP2_RB_GPIO_WIFI_NPD;
 		igep_wlan_bt_gpios[1].gpio = IGEP2_RB_GPIO_WIFI_NRESET;
@@ -617,12 +644,12 @@ static void __init igep_init(void)
 	regulator_register_fixed(1, dummy_supplies, ARRAY_SIZE(dummy_supplies));
 	omap3_mux_init(board_mux, OMAP_PACKAGE_CBB);
 
-	
+	/* Get IGEP2 hardware revision */
 	igep2_get_revision();
 
 	omap_hsmmc_init(mmc);
 
-	
+	/* Register I2C busses and drivers */
 	igep_i2c_init();
 	platform_add_devices(igep_devices, ARRAY_SIZE(igep_devices));
 	omap_serial_init();
@@ -633,6 +660,10 @@ static void __init igep_init(void)
 	igep_flash_init();
 	igep_leds_init();
 
+	/*
+	 * WLAN-BT combo module from MuRata which has a Marvell WLAN
+	 * (88W8686) + CSR Bluetooth chipset. Uses SDIO interface.
+	 */
 	igep_wlan_bt_init();
 
 	if (machine_is_igep0020()) {

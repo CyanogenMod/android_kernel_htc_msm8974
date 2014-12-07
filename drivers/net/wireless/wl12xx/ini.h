@@ -101,6 +101,7 @@ struct wl1271_ini_fem_params_2 {
 } __packed;
 
 #define WL128X_INI_RATE_GROUP_COUNT 7
+/* low and high temperatures */
 #define WL128X_INI_PD_VS_TEMPERATURE_RANGES 2
 
 struct wl128x_ini_fem_params_2 {
@@ -169,16 +170,17 @@ struct wl128x_ini_fem_params_5 {
 	u8 normal_to_degraded_high_thr;
 } __packed;
 
+/* NVS data structure */
 #define WL1271_INI_NVS_SECTION_SIZE		     468
 #define WL1271_INI_FEM_MODULE_COUNT                  2
 
 #define WL1271_INI_LEGACY_NVS_FILE_SIZE              800
 
 struct wl1271_nvs_file {
-	
+	/* NVS section - must be first! */
 	u8 nvs[WL1271_INI_NVS_SECTION_SIZE];
 
-	
+	/* INI section */
 	struct wl1271_ini_general_params general_params;
 	u8 padding1;
 	struct wl1271_ini_band_params_2 stat_radio_params_2;
@@ -196,10 +198,10 @@ struct wl1271_nvs_file {
 } __packed;
 
 struct wl128x_nvs_file {
-	
+	/* NVS section - must be first! */
 	u8 nvs[WL1271_INI_NVS_SECTION_SIZE];
 
-	
+	/* INI section */
 	struct wl128x_ini_general_params general_params;
 	u8 fem_vendor_and_options;
 	struct wl128x_ini_band_params_2 stat_radio_params_2;

@@ -28,9 +28,15 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
+/*
+ * Addresses to scan
+ */
 
 static const unsigned short normal_i2c[] = { 0x2c, 0x2d, 0x2e, I2C_CLIENT_END };
 
+/*
+ * The EMC6W201 registers
+ */
 
 #define EMC6W201_REG_IN(nr)		(0x20 + (nr))
 #define EMC6W201_REG_TEMP(nr)		(0x26 + (nr))
@@ -46,19 +52,26 @@ static const unsigned short normal_i2c[] = { 0x2c, 0x2d, 0x2e, I2C_CLIENT_END };
 
 enum { input, min, max } subfeature;
 
+/*
+ * Per-device data
+ */
 
 struct emc6w201_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	char valid; 
-	unsigned long last_updated; 
+	char valid; /* zero until following fields are valid */
+	unsigned long last_updated; /* in jiffies */
 
-	
+	/* registers values */
 	u8 in[3][6];
 	s8 temp[3][6];
 	u16 fan[2][5];
 };
 
+/*
+ * Combine LSB and MSB registers in a single value
+ * Locking: must be called with data->update_lock held
+ */
 static u16 emc6w201_read16(struct i2c_client *client, u8 reg)
 {
 	int lsb, msb;
@@ -68,12 +81,16 @@ static u16 emc6w201_read16(struct i2c_client *client, u8 reg)
 	if (unlikely(lsb < 0 || msb < 0)) {
 		dev_err(&client->dev, "%d-bit %s failed at 0x%02x\n",
 			16, "read", reg);
-		return 0xFFFF;	
+		return 0xFFFF;	/* Arbitrary value */
 	}
 
 	return (msb << 8) | lsb;
 }
 
+/*
+ * Write 16-bit value to LSB and MSB registers
+ * Locking: must be called with data->update_lock held
+ */
 static int emc6w201_write16(struct i2c_client *client, u8 reg, u16 val)
 {
 	int err;
@@ -88,6 +105,7 @@ static int emc6w201_write16(struct i2c_client *client, u8 reg, u16 val)
 	return err;
 }
 
+/* Read 8-bit value from register */
 static u8 emc6w201_read8(struct i2c_client *client, u8 reg)
 {
 	int val;
@@ -96,12 +114,13 @@ static u8 emc6w201_read8(struct i2c_client *client, u8 reg)
 	if (unlikely(val < 0)) {
 		dev_err(&client->dev, "%d-bit %s failed at 0x%02x\n",
 			8, "read", reg);
-		return 0x00;	
+		return 0x00;	/* Arbitrary value */
 	}
 
 	return val;
 }
 
+/* Write 8-bit value to register */
 static int emc6w201_write8(struct i2c_client *client, u8 reg, u8 val)
 {
 	int err;
@@ -165,6 +184,9 @@ static struct emc6w201_data *emc6w201_update_device(struct device *dev)
 	return data;
 }
 
+/*
+ * Sysfs callback functions
+ */
 
 static const u16 nominal_mv[6] = { 2500, 1500, 3300, 5000, 1500, 1500 };
 
@@ -423,7 +445,11 @@ static const struct attribute_group emc6w201_group = {
 	.attrs = emc6w201_attributes,
 };
 
+/*
+ * Driver interface
+ */
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int emc6w201_detect(struct i2c_client *client,
 			   struct i2c_board_info *info)
 {
@@ -433,7 +459,7 @@ static int emc6w201_detect(struct i2c_client *client,
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
-	
+	/* Identification */
 	company = i2c_smbus_read_byte_data(client, EMC6W201_REG_COMPANY);
 	if (company != 0x5C)
 		return -ENODEV;
@@ -446,7 +472,7 @@ static int emc6w201_detect(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	
+	/* Check configuration */
 	config = i2c_smbus_read_byte_data(client, EMC6W201_REG_CONFIG);
 	if (config < 0 || (config & 0xF4) != 0x04)
 		return -ENODEV;
@@ -475,12 +501,12 @@ static int emc6w201_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* Create sysfs attribute */
 	err = sysfs_create_group(&client->dev.kobj, &emc6w201_group);
 	if (err)
 		goto exit_free;
 
-	
+	/* Expose as a hwmon device */
 	data->hwmon_dev = hwmon_device_register(&client->dev);
 	if (IS_ERR(data->hwmon_dev)) {
 		err = PTR_ERR(data->hwmon_dev);

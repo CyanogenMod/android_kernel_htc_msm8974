@@ -20,6 +20,10 @@
 
 static DEFINE_SPINLOCK(sched_debug_lock);
 
+/*
+ * This allows printing both to /proc/sched_debug and
+ * to the console
+ */
 #define SEQ_printf(m, x...)			\
  do {						\
 	if (m)					\
@@ -28,6 +32,9 @@ static DEFINE_SPINLOCK(sched_debug_lock);
 		printk(x);			\
  } while (0)
 
+/*
+ * Ease the printing of nsec fields:
+ */
 static long long nsec_high(unsigned long long nsec)
 {
 	if ((long long)nsec < 0) {
@@ -91,6 +98,9 @@ static char *task_group_path(struct task_group *tg)
 	if (autogroup_path(tg, group_path, PATH_MAX))
 		return group_path;
 
+	/*
+	 * May be NULL if the underlying cgroup isn't fully-created yet
+	 */
 	if (!tg->css.cgroup) {
 		group_path[0] = '\0';
 		return group_path;

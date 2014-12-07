@@ -47,6 +47,7 @@ module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "Debug level (0-1)");
 
 
+/* ----------------------------------------------------------------------- */
 
 #define BT856_REG_OFFSET	0xDA
 #define BT856_NR_REG		6
@@ -63,6 +64,7 @@ static inline struct bt856 *to_bt856(struct v4l2_subdev *sd)
 	return container_of(sd, struct bt856, sd);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static inline int bt856_write(struct bt856 *encoder, u8 reg, u8 value)
 {
@@ -89,19 +91,20 @@ static void bt856_dump(struct bt856 *encoder)
 	printk(KERN_CONT "\n");
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int bt856_init(struct v4l2_subdev *sd, u32 arg)
 {
 	struct bt856 *encoder = to_bt856(sd);
 
-	
+	/* This is just for testing!!! */
 	v4l2_dbg(1, debug, sd, "init\n");
 	bt856_write(encoder, 0xdc, 0x18);
 	bt856_write(encoder, 0xda, 0);
 	bt856_write(encoder, 0xde, 0);
 
 	bt856_setbit(encoder, 0xdc, 3, 1);
-	
+	/*bt856_setbit(encoder, 0xdc, 6, 0);*/
 	bt856_setbit(encoder, 0xdc, 4, 1);
 
 	if (encoder->norm & V4L2_STD_NTSC)
@@ -128,7 +131,7 @@ static int bt856_s_std_output(struct v4l2_subdev *sd, v4l2_std_id std)
 	} else if (std & V4L2_STD_PAL) {
 		bt856_setbit(encoder, 0xdc, 2, 1);
 		bt856_setbit(encoder, 0xda, 0, 0);
-		
+		/*bt856_setbit(encoder, 0xda, 0, 1);*/
 	} else {
 		return -EINVAL;
 	}
@@ -145,6 +148,9 @@ static int bt856_s_routing(struct v4l2_subdev *sd,
 
 	v4l2_dbg(1, debug, sd, "set input %d\n", input);
 
+	/* We only have video bus.
+	 * input= 0: input is from bt819
+	 * input= 1: input is from ZR36060 */
 	switch (input) {
 	case 0:
 		bt856_setbit(encoder, 0xde, 4, 0);
@@ -158,7 +164,7 @@ static int bt856_s_routing(struct v4l2_subdev *sd,
 		bt856_setbit(encoder, 0xdc, 3, 1);
 		bt856_setbit(encoder, 0xdc, 6, 1);
 		break;
-	case 2:	
+	case 2:	/* Color bar */
 		bt856_setbit(encoder, 0xdc, 3, 0);
 		bt856_setbit(encoder, 0xde, 4, 1);
 		break;
@@ -178,6 +184,7 @@ static int bt856_g_chip_ident(struct v4l2_subdev *sd, struct v4l2_dbg_chip_ident
 	return v4l2_chip_ident_i2c_client(client, chip, V4L2_IDENT_BT856, 0);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_subdev_core_ops bt856_core_ops = {
 	.g_chip_ident = bt856_g_chip_ident,
@@ -194,6 +201,7 @@ static const struct v4l2_subdev_ops bt856_ops = {
 	.video = &bt856_video_ops,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static int bt856_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
@@ -201,7 +209,7 @@ static int bt856_probe(struct i2c_client *client,
 	struct bt856 *encoder;
 	struct v4l2_subdev *sd;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
@@ -220,7 +228,7 @@ static int bt856_probe(struct i2c_client *client,
 	bt856_write(encoder, 0xde, 0);
 
 	bt856_setbit(encoder, 0xdc, 3, 1);
-	
+	/*bt856_setbit(encoder, 0xdc, 6, 0);*/
 	bt856_setbit(encoder, 0xdc, 4, 1);
 
 	if (encoder->norm & V4L2_STD_NTSC)

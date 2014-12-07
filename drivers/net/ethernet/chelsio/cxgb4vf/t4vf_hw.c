@@ -41,6 +41,11 @@
 #include "../cxgb4/t4_regs.h"
 #include "../cxgb4/t4fw_api.h"
 
+/*
+ * Wait for the device to become ready (signified by our "who am I" register
+ * returning a value other than all 1's).  Return an error if it doesn't
+ * become ready ...
+ */
 int __devinit t4vf_wait_dev_ready(struct adapter *adapter)
 {
 	const u32 whoami = T4VF_PL_BASE_ADDR + PL_VF_WHOAMI;
@@ -59,6 +64,10 @@ int __devinit t4vf_wait_dev_ready(struct adapter *adapter)
 		return -EIO;
 }
 
+/*
+ * Get the reply to a mailbox command and store it in @rpl in big-endian order
+ * (since the firmware data structures are specified in a big-endian layout).
+ */
 static void get_mbox_rpl(struct adapter *adapter, __be64 *rpl, int size,
 			 u32 mbox_data)
 {
@@ -66,6 +75,9 @@ static void get_mbox_rpl(struct adapter *adapter, __be64 *rpl, int size,
 		*rpl++ = cpu_to_be64(t4_read_reg64(adapter, mbox_data));
 }
 
+/*
+ * Dump contents of mailbox with a leading tag.
+ */
 static void dump_mbox(struct adapter *adapter, const char *tag, u32 mbox_data)
 {
 	dev_err(adapter->pdev_dev,
@@ -80,6 +92,26 @@ static void dump_mbox(struct adapter *adapter, const char *tag, u32 mbox_data)
 		(unsigned long long)t4_read_reg64(adapter, mbox_data + 56));
 }
 
+/**
+ *	t4vf_wr_mbox_core - send a command to FW through the mailbox
+ *	@adapter: the adapter
+ *	@cmd: the command to write
+ *	@size: command length in bytes
+ *	@rpl: where to optionally store the reply
+ *	@sleep_ok: if true we may sleep while awaiting command completion
+ *
+ *	Sends the given command to FW through the mailbox and waits for the
+ *	FW to execute the command.  If @rpl is not %NULL it is used to store
+ *	the FW's reply to the command.  The command and its optional reply
+ *	are of the same length.  FW can take up to 500 ms to respond.
+ *	@sleep_ok determines whether we may sleep while awaiting the response.
+ *	If sleeping is allowed we use progressive backoff otherwise we spin.
+ *
+ *	The return value is 0 on success or a negative errno on failure.  A
+ *	failure can happen either because we are not able to execute the
+ *	command or FW executes it but signals an error.  In the latter case
+ *	the return value is the error code indicated by FW (negated).
+ */
 int t4vf_wr_mbox_core(struct adapter *adapter, const void *cmd, int size,
 		      void *rpl, bool sleep_ok)
 {
@@ -93,24 +125,48 @@ int t4vf_wr_mbox_core(struct adapter *adapter, const void *cmd, int size,
 	u32 mbox_data = T4VF_MBDATA_BASE_ADDR;
 	u32 mbox_ctl = T4VF_CIM_BASE_ADDR + CIM_VF_EXT_MAILBOX_CTRL;
 
+	/*
+	 * Commands must be multiples of 16 bytes in length and may not be
+	 * larger than the size of the Mailbox Data register array.
+	 */
 	if ((size % 16) != 0 ||
 	    size > NUM_CIM_VF_MAILBOX_DATA_INSTANCES * 4)
 		return -EINVAL;
 
+	/*
+	 * Loop trying to get ownership of the mailbox.  Return an error
+	 * if we can't gain ownership.
+	 */
 	v = MBOWNER_GET(t4_read_reg(adapter, mbox_ctl));
 	for (i = 0; v == MBOX_OWNER_NONE && i < 3; i++)
 		v = MBOWNER_GET(t4_read_reg(adapter, mbox_ctl));
 	if (v != MBOX_OWNER_DRV)
 		return v == MBOX_OWNER_FW ? -EBUSY : -ETIMEDOUT;
 
+	/*
+	 * Write the command array into the Mailbox Data register array and
+	 * transfer ownership of the mailbox to the firmware.
+	 *
+	 * For the VFs, the Mailbox Data "registers" are actually backed by
+	 * T4's "MA" interface rather than PL Registers (as is the case for
+	 * the PFs).  Because these are in different coherency domains, the
+	 * write to the VF's PL-register-backed Mailbox Control can race in
+	 * front of the writes to the MA-backed VF Mailbox Data "registers".
+	 * So we need to do a read-back on at least one byte of the VF Mailbox
+	 * Data registers before doing the write to the VF Mailbox Control
+	 * register.
+	 */
 	for (i = 0, p = cmd; i < size; i += 8)
 		t4_write_reg64(adapter, mbox_data + i, be64_to_cpu(*p++));
-	t4_read_reg(adapter, mbox_data);         
+	t4_read_reg(adapter, mbox_data);         /* flush write */
 
 	t4_write_reg(adapter, mbox_ctl,
 		     MBMSGVALID | MBOWNER(MBOX_OWNER_FW));
-	t4_read_reg(adapter, mbox_ctl);          
+	t4_read_reg(adapter, mbox_ctl);          /* flush write */
 
+	/*
+	 * Spin waiting for firmware to acknowledge processing our command.
+	 */
 	delay_idx = 0;
 	ms = delay[0];
 
@@ -123,22 +179,36 @@ int t4vf_wr_mbox_core(struct adapter *adapter, const void *cmd, int size,
 		} else
 			mdelay(ms);
 
+		/*
+		 * If we're the owner, see if this is the reply we wanted.
+		 */
 		v = t4_read_reg(adapter, mbox_ctl);
 		if (MBOWNER_GET(v) == MBOX_OWNER_DRV) {
+			/*
+			 * If the Message Valid bit isn't on, revoke ownership
+			 * of the mailbox and continue waiting for our reply.
+			 */
 			if ((v & MBMSGVALID) == 0) {
 				t4_write_reg(adapter, mbox_ctl,
 					     MBOWNER(MBOX_OWNER_NONE));
 				continue;
 			}
 
+			/*
+			 * We now have our reply.  Extract the command return
+			 * value, copy the reply back to our caller's buffer
+			 * (if specified) and revoke ownership of the mailbox.
+			 * We return the (negated) firmware command return
+			 * code (this depends on FW_SUCCESS == 0).
+			 */
 
-			
+			/* return value in low-order little-endian word */
 			v = t4_read_reg(adapter, mbox_data);
 			if (FW_CMD_RETVAL_GET(v))
 				dump_mbox(adapter, "FW Error", mbox_data);
 
 			if (rpl) {
-				
+				/* request bit in high-order BE word */
 				WARN_ON((be32_to_cpu(*(const u32 *)cmd)
 					 & FW_CMD_REQUEST) == 0);
 				get_mbox_rpl(adapter, rpl, size, mbox_data);
@@ -151,10 +221,20 @@ int t4vf_wr_mbox_core(struct adapter *adapter, const void *cmd, int size,
 		}
 	}
 
+	/*
+	 * We timed out.  Return the error ...
+	 */
 	dump_mbox(adapter, "FW Timeout", mbox_data);
 	return -ETIMEDOUT;
 }
 
+/**
+ *	hash_mac_addr - return the hash value of a MAC address
+ *	@addr: the 48-bit Ethernet MAC address
+ *
+ *	Hashes a MAC address according to the hash function used by hardware
+ *	inexact (hash) address matching.
+ */
 static int hash_mac_addr(const u8 *addr)
 {
 	u32 a = ((u32)addr[0] << 16) | ((u32)addr[1] << 8) | addr[2];
@@ -165,6 +245,14 @@ static int hash_mac_addr(const u8 *addr)
 	return a & 0x3f;
 }
 
+/**
+ *	init_link_config - initialize a link's SW state
+ *	@lc: structure holding the link state
+ *	@caps: link capabilities
+ *
+ *	Initializes the SW state maintained for each link, including the link's
+ *	capabilities and default speed/flow-control/autonegotiation settings.
+ */
 static void __devinit init_link_config(struct link_config *lc,
 				       unsigned int caps)
 {
@@ -182,6 +270,11 @@ static void __devinit init_link_config(struct link_config *lc,
 	}
 }
 
+/**
+ *	t4vf_port_init - initialize port hardware/software state
+ *	@adapter: the adapter
+ *	@pidx: the adapter port index
+ */
 int __devinit t4vf_port_init(struct adapter *adapter, int pidx)
 {
 	struct port_info *pi = adap2pinfo(adapter, pidx);
@@ -190,6 +283,10 @@ int __devinit t4vf_port_init(struct adapter *adapter, int pidx)
 	int v;
 	u32 word;
 
+	/*
+	 * Execute a VI Read command to get our Virtual Interface information
+	 * like MAC address, etc.
+	 */
 	memset(&vi_cmd, 0, sizeof(vi_cmd));
 	vi_cmd.op_to_vfn = cpu_to_be32(FW_CMD_OP(FW_VI_CMD) |
 				       FW_CMD_REQUEST |
@@ -204,6 +301,10 @@ int __devinit t4vf_port_init(struct adapter *adapter, int pidx)
 	pi->rss_size = FW_VI_CMD_RSSSIZE_GET(be16_to_cpu(vi_rpl.rsssize_pkd));
 	t4_os_set_hw_addr(adapter, pidx, vi_rpl.mac);
 
+	/*
+	 * If we don't have read access to our port information, we're done
+	 * now.  Otherwise, execute a PORT Read command to get it ...
+	 */
 	if (!(adapter->params.vfres.r_caps & FW_CMD_CAP_PORT))
 		return 0;
 
@@ -234,6 +335,14 @@ int __devinit t4vf_port_init(struct adapter *adapter, int pidx)
 	return 0;
 }
 
+/**
+ *      t4vf_fw_reset - issue a reset to FW
+ *      @adapter: the adapter
+ *
+ *	Issues a reset command to FW.  For a Physical Function this would
+ *	result in the Firmware reseting all of its state.  For a Virtual
+ *	Function this just resets the state associated with the VF.
+ */
 int t4vf_fw_reset(struct adapter *adapter)
 {
 	struct fw_reset_cmd cmd;
@@ -245,6 +354,16 @@ int t4vf_fw_reset(struct adapter *adapter)
 	return t4vf_wr_mbox(adapter, &cmd, sizeof(cmd), NULL);
 }
 
+/**
+ *	t4vf_query_params - query FW or device parameters
+ *	@adapter: the adapter
+ *	@nparams: the number of parameters
+ *	@params: the parameter names
+ *	@vals: the parameter values
+ *
+ *	Reads the values of firmware or device parameters.  Up to 7 parameters
+ *	can be queried at once.
+ */
 int t4vf_query_params(struct adapter *adapter, unsigned int nparams,
 		      const u32 *params, u32 *vals)
 {
@@ -273,6 +392,16 @@ int t4vf_query_params(struct adapter *adapter, unsigned int nparams,
 	return ret;
 }
 
+/**
+ *	t4vf_set_params - sets FW or device parameters
+ *	@adapter: the adapter
+ *	@nparams: the number of parameters
+ *	@params: the parameter names
+ *	@vals: the parameter values
+ *
+ *	Sets the values of firmware or device parameters.  Up to 7 parameters
+ *	can be specified at once.
+ */
 int t4vf_set_params(struct adapter *adapter, unsigned int nparams,
 		    const u32 *params, const u32 *vals)
 {
@@ -299,6 +428,14 @@ int t4vf_set_params(struct adapter *adapter, unsigned int nparams,
 	return t4vf_wr_mbox(adapter, &cmd, sizeof(cmd), NULL);
 }
 
+/**
+ *	t4vf_get_sge_params - retrieve adapter Scatter gather Engine parameters
+ *	@adapter: the adapter
+ *
+ *	Retrieves various core SGE parameters in the form of hardware SGE
+ *	register values.  The caller is responsible for decoding these as
+ *	needed.  The SGE parameters are stored in @adapter->params.sge.
+ */
 int t4vf_get_sge_params(struct adapter *adapter)
 {
 	struct sge_params *sge_params = &adapter->params.sge;
@@ -340,6 +477,13 @@ int t4vf_get_sge_params(struct adapter *adapter)
 	return 0;
 }
 
+/**
+ *	t4vf_get_vpd_params - retrieve device VPD paremeters
+ *	@adapter: the adapter
+ *
+ *	Retrives various device Vital Product Data parameters.  The parameters
+ *	are stored in @adapter->params.vpd.
+ */
 int t4vf_get_vpd_params(struct adapter *adapter)
 {
 	struct vpd_params *vpd_params = &adapter->params.vpd;
@@ -356,6 +500,13 @@ int t4vf_get_vpd_params(struct adapter *adapter)
 	return 0;
 }
 
+/**
+ *	t4vf_get_dev_params - retrieve device paremeters
+ *	@adapter: the adapter
+ *
+ *	Retrives various device parameters.  The parameters are stored in
+ *	@adapter->params.dev.
+ */
 int t4vf_get_dev_params(struct adapter *adapter)
 {
 	struct dev_params *dev_params = &adapter->params.dev;
@@ -375,12 +526,23 @@ int t4vf_get_dev_params(struct adapter *adapter)
 	return 0;
 }
 
+/**
+ *	t4vf_get_rss_glb_config - retrieve adapter RSS Global Configuration
+ *	@adapter: the adapter
+ *
+ *	Retrieves global RSS mode and parameters with which we have to live
+ *	and stores them in the @adapter's RSS parameters.
+ */
 int t4vf_get_rss_glb_config(struct adapter *adapter)
 {
 	struct rss_params *rss = &adapter->params.rss;
 	struct fw_rss_glb_config_cmd cmd, rpl;
 	int v;
 
+	/*
+	 * Execute an RSS Global Configuration read command to retrieve
+	 * our RSS configuration.
+	 */
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.op_to_write = cpu_to_be32(FW_CMD_OP(FW_RSS_GLB_CONFIG_CMD) |
 				      FW_CMD_REQUEST |
@@ -390,6 +552,12 @@ int t4vf_get_rss_glb_config(struct adapter *adapter)
 	if (v)
 		return v;
 
+	/*
+	 * Transate the big-endian RSS Global Configuration into our
+	 * cpu-endian format based on the RSS mode.  We also do first level
+	 * filtering at this point to weed out modes which don't support
+	 * VF Drivers ...
+	 */
 	rss->mode = FW_RSS_GLB_CONFIG_CMD_MODE_GET(
 			be32_to_cpu(rpl.u.manual.mode_pkd));
 	switch (rss->mode) {
@@ -419,20 +587,27 @@ int t4vf_get_rss_glb_config(struct adapter *adapter)
 		rss->u.basicvirtual.hashtoeplitz =
 			((word & FW_RSS_GLB_CONFIG_CMD_HASHTOEPLITZ) != 0);
 
-		
+		/* we need at least Tunnel Map Enable to be set */
 		if (!rss->u.basicvirtual.tnlmapen)
 			return -EINVAL;
 		break;
 	}
 
 	default:
-		
+		/* all unknown/unsupported RSS modes result in an error */
 		return -EINVAL;
 	}
 
 	return 0;
 }
 
+/**
+ *	t4vf_get_vfres - retrieve VF resource limits
+ *	@adapter: the adapter
+ *
+ *	Retrieves configured resource limits and capabilities for a virtual
+ *	function.  The results are stored in @adapter->vfres.
+ */
 int t4vf_get_vfres(struct adapter *adapter)
 {
 	struct vf_resources *vfres = &adapter->params.vfres;
@@ -440,6 +615,10 @@ int t4vf_get_vfres(struct adapter *adapter)
 	int v;
 	u32 word;
 
+	/*
+	 * Execute PFVF Read command to get VF resource limits; bail out early
+	 * with error on command failure.
+	 */
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.op_to_vfn = cpu_to_be32(FW_CMD_OP(FW_PFVF_CMD) |
 				    FW_CMD_REQUEST |
@@ -449,6 +628,9 @@ int t4vf_get_vfres(struct adapter *adapter)
 	if (v)
 		return v;
 
+	/*
+	 * Extract VF resource limits and return success.
+	 */
 	word = be32_to_cpu(rpl.niqflint_niq);
 	vfres->niqflint = FW_PFVF_CMD_NIQFLINT_GET(word);
 	vfres->niq = FW_PFVF_CMD_NIQ_GET(word);
@@ -470,6 +652,15 @@ int t4vf_get_vfres(struct adapter *adapter)
 	return 0;
 }
 
+/**
+ *	t4vf_read_rss_vi_config - read a VI's RSS configuration
+ *	@adapter: the adapter
+ *	@viid: Virtual Interface ID
+ *	@config: pointer to host-native VI RSS Configuration buffer
+ *
+ *	Reads the Virtual Interface's RSS configuration information and
+ *	translates it into CPU-native format.
+ */
 int t4vf_read_rss_vi_config(struct adapter *adapter, unsigned int viid,
 			    union rss_vi_config *config)
 {
@@ -512,6 +703,15 @@ int t4vf_read_rss_vi_config(struct adapter *adapter, unsigned int viid,
 	return 0;
 }
 
+/**
+ *	t4vf_write_rss_vi_config - write a VI's RSS configuration
+ *	@adapter: the adapter
+ *	@viid: Virtual Interface ID
+ *	@config: pointer to host-native VI RSS Configuration buffer
+ *
+ *	Write the Virtual Interface's RSS configuration information
+ *	(translating it into firmware-native format before writing).
+ */
 int t4vf_write_rss_vi_config(struct adapter *adapter, unsigned int viid,
 			     union rss_vi_config *config)
 {
@@ -550,6 +750,21 @@ int t4vf_write_rss_vi_config(struct adapter *adapter, unsigned int viid,
 	return t4vf_wr_mbox(adapter, &cmd, sizeof(cmd), &rpl);
 }
 
+/**
+ *	t4vf_config_rss_range - configure a portion of the RSS mapping table
+ *	@adapter: the adapter
+ *	@viid: Virtual Interface of RSS Table Slice
+ *	@start: starting entry in the table to write
+ *	@n: how many table entries to write
+ *	@rspq: values for the "Response Queue" (Ingress Queue) lookup table
+ *	@nrspq: number of values in @rspq
+ *
+ *	Programs the selected part of the VI's RSS mapping table with the
+ *	provided values.  If @nrspq < @n the supplied values are used repeatedly
+ *	until the full table range is populated.
+ *
+ *	The caller must ensure the values in @rspq are in the range 0..1023.
+ */
 int t4vf_config_rss_range(struct adapter *adapter, unsigned int viid,
 			  int start, int n, const u16 *rspq, int nrspq)
 {
@@ -557,6 +772,9 @@ int t4vf_config_rss_range(struct adapter *adapter, unsigned int viid,
 	const u16 *rsp_end = rspq+nrspq;
 	struct fw_rss_ind_tbl_cmd cmd;
 
+	/*
+	 * Initialize firmware command template to write the RSS table.
+	 */
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.op_to_viid = cpu_to_be32(FW_CMD_OP(FW_RSS_IND_TBL_CMD) |
 				     FW_CMD_REQUEST |
@@ -564,18 +782,42 @@ int t4vf_config_rss_range(struct adapter *adapter, unsigned int viid,
 				     FW_RSS_IND_TBL_CMD_VIID(viid));
 	cmd.retval_len16 = cpu_to_be32(FW_LEN16(cmd));
 
+	/*
+	 * Each firmware RSS command can accommodate up to 32 RSS Ingress
+	 * Queue Identifiers.  These Ingress Queue IDs are packed three to
+	 * a 32-bit word as 10-bit values with the upper remaining 2 bits
+	 * reserved.
+	 */
 	while (n > 0) {
 		__be32 *qp = &cmd.iq0_to_iq2;
 		int nq = min(n, 32);
 		int ret;
 
+		/*
+		 * Set up the firmware RSS command header to send the next
+		 * "nq" Ingress Queue IDs to the firmware.
+		 */
 		cmd.niqid = cpu_to_be16(nq);
 		cmd.startidx = cpu_to_be16(start);
 
+		/*
+		 * "nq" more done for the start of the next loop.
+		 */
 		start += nq;
 		n -= nq;
 
+		/*
+		 * While there are still Ingress Queue IDs to stuff into the
+		 * current firmware RSS command, retrieve them from the
+		 * Ingress Queue ID array and insert them into the command.
+		 */
 		while (nq > 0) {
+			/*
+			 * Grab up to the next 3 Ingress Queue IDs (wrapping
+			 * around the Ingress Queue ID array if necessary) and
+			 * insert them into the firmware RSS command at the
+			 * current 3-tuple position within the commad.
+			 */
 			u16 qbuf[3];
 			u16 *qbp = qbuf;
 			int nqbuf = min(3, nq);
@@ -593,6 +835,10 @@ int t4vf_config_rss_range(struct adapter *adapter, unsigned int viid,
 					    FW_RSS_IND_TBL_CMD_IQ2(qbuf[2]));
 		}
 
+		/*
+		 * Send this portion of the RRS table update to the firmware;
+		 * bail out on any errors.
+		 */
 		ret = t4vf_wr_mbox(adapter, &cmd, sizeof(cmd), NULL);
 		if (ret)
 			return ret;
@@ -600,11 +846,24 @@ int t4vf_config_rss_range(struct adapter *adapter, unsigned int viid,
 	return 0;
 }
 
+/**
+ *	t4vf_alloc_vi - allocate a virtual interface on a port
+ *	@adapter: the adapter
+ *	@port_id: physical port associated with the VI
+ *
+ *	Allocate a new Virtual Interface and bind it to the indicated
+ *	physical port.  Return the new Virtual Interface Identifier on
+ *	success, or a [negative] error number on failure.
+ */
 int t4vf_alloc_vi(struct adapter *adapter, int port_id)
 {
 	struct fw_vi_cmd cmd, rpl;
 	int v;
 
+	/*
+	 * Execute a VI command to allocate Virtual Interface and return its
+	 * VIID.
+	 */
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.op_to_vfn = cpu_to_be32(FW_CMD_OP(FW_VI_CMD) |
 				    FW_CMD_REQUEST |
@@ -620,10 +879,21 @@ int t4vf_alloc_vi(struct adapter *adapter, int port_id)
 	return FW_VI_CMD_VIID_GET(be16_to_cpu(rpl.type_viid));
 }
 
+/**
+ *	t4vf_free_vi -- free a virtual interface
+ *	@adapter: the adapter
+ *	@viid: the virtual interface identifier
+ *
+ *	Free a previously allocated Virtual Interface.  Return an error on
+ *	failure.
+ */
 int t4vf_free_vi(struct adapter *adapter, int viid)
 {
 	struct fw_vi_cmd cmd;
 
+	/*
+	 * Execute a VI command to free the Virtual Interface.
+	 */
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.op_to_vfn = cpu_to_be32(FW_CMD_OP(FW_VI_CMD) |
 				    FW_CMD_REQUEST |
@@ -634,6 +904,15 @@ int t4vf_free_vi(struct adapter *adapter, int viid)
 	return t4vf_wr_mbox(adapter, &cmd, sizeof(cmd), NULL);
 }
 
+/**
+ *	t4vf_enable_vi - enable/disable a virtual interface
+ *	@adapter: the adapter
+ *	@viid: the Virtual Interface ID
+ *	@rx_en: 1=enable Rx, 0=disable Rx
+ *	@tx_en: 1=enable Tx, 0=disable Tx
+ *
+ *	Enables/disables a virtual interface.
+ */
 int t4vf_enable_vi(struct adapter *adapter, unsigned int viid,
 		   bool rx_en, bool tx_en)
 {
@@ -650,6 +929,14 @@ int t4vf_enable_vi(struct adapter *adapter, unsigned int viid,
 	return t4vf_wr_mbox(adapter, &cmd, sizeof(cmd), NULL);
 }
 
+/**
+ *	t4vf_identify_port - identify a VI's port by blinking its LED
+ *	@adapter: the adapter
+ *	@viid: the Virtual Interface ID
+ *	@nblinks: how many times to blink LED at 2.5 Hz
+ *
+ *	Identifies a VI's port by blinking its LED.
+ */
 int t4vf_identify_port(struct adapter *adapter, unsigned int viid,
 		       unsigned int nblinks)
 {
@@ -666,13 +953,26 @@ int t4vf_identify_port(struct adapter *adapter, unsigned int viid,
 	return t4vf_wr_mbox(adapter, &cmd, sizeof(cmd), NULL);
 }
 
+/**
+ *	t4vf_set_rxmode - set Rx properties of a virtual interface
+ *	@adapter: the adapter
+ *	@viid: the VI id
+ *	@mtu: the new MTU or -1 for no change
+ *	@promisc: 1 to enable promiscuous mode, 0 to disable it, -1 no change
+ *	@all_multi: 1 to enable all-multi mode, 0 to disable it, -1 no change
+ *	@bcast: 1 to enable broadcast Rx, 0 to disable it, -1 no change
+ *	@vlanex: 1 to enable hardware VLAN Tag extraction, 0 to disable it,
+ *		-1 no change
+ *
+ *	Sets Rx properties of a virtual interface.
+ */
 int t4vf_set_rxmode(struct adapter *adapter, unsigned int viid,
 		    int mtu, int promisc, int all_multi, int bcast, int vlanex,
 		    bool sleep_ok)
 {
 	struct fw_vi_rxmode_cmd cmd;
 
-	
+	/* convert to FW values */
 	if (mtu < 0)
 		mtu = FW_VI_RXMODE_CMD_MTU_MASK;
 	if (promisc < 0)
@@ -699,6 +999,27 @@ int t4vf_set_rxmode(struct adapter *adapter, unsigned int viid,
 	return t4vf_wr_mbox_core(adapter, &cmd, sizeof(cmd), NULL, sleep_ok);
 }
 
+/**
+ *	t4vf_alloc_mac_filt - allocates exact-match filters for MAC addresses
+ *	@adapter: the adapter
+ *	@viid: the Virtual Interface Identifier
+ *	@free: if true any existing filters for this VI id are first removed
+ *	@naddr: the number of MAC addresses to allocate filters for (up to 7)
+ *	@addr: the MAC address(es)
+ *	@idx: where to store the index of each allocated filter
+ *	@hash: pointer to hash address filter bitmap
+ *	@sleep_ok: call is allowed to sleep
+ *
+ *	Allocates an exact-match filter for each of the supplied addresses and
+ *	sets it to the corresponding address.  If @idx is not %NULL it should
+ *	have at least @naddr entries, each of which will be set to the index of
+ *	the filter allocated for the corresponding MAC address.  If a filter
+ *	could not be allocated for an address its index is set to 0xffff.
+ *	If @hash is not %NULL addresses that fail to allocate an exact filter
+ *	are hashed and update the hash filter bitmap pointed at by @hash.
+ *
+ *	Returns a negative error number or the number of filters allocated.
+ */
 int t4vf_alloc_mac_filt(struct adapter *adapter, unsigned int viid, bool free,
 			unsigned int naddr, const u8 **addr, u16 *idx,
 			u64 *hash, bool sleep_ok)
@@ -711,7 +1032,7 @@ int t4vf_alloc_mac_filt(struct adapter *adapter, unsigned int viid, bool free,
 	if (naddr > FW_CLS_TCAM_NUM_ENTRIES)
 		return -EINVAL;
 
-	for (offset = 0; offset < naddr; ) {
+	for (offset = 0; offset < naddr; /**/) {
 		unsigned int fw_naddr = (rem < ARRAY_SIZE(cmd.u.exact)
 					 ? rem
 					 : ARRAY_SIZE(cmd.u.exact));
@@ -772,6 +1093,24 @@ int t4vf_alloc_mac_filt(struct adapter *adapter, unsigned int viid, bool free,
 	return ret;
 }
 
+/**
+ *	t4vf_change_mac - modifies the exact-match filter for a MAC address
+ *	@adapter: the adapter
+ *	@viid: the Virtual Interface ID
+ *	@idx: index of existing filter for old value of MAC address, or -1
+ *	@addr: the new MAC address value
+ *	@persist: if idx < 0, the new MAC allocation should be persistent
+ *
+ *	Modifies an exact-match filter and sets it to the new MAC address.
+ *	Note that in general it is not possible to modify the value of a given
+ *	filter so the generic way to modify an address filter is to free the
+ *	one being used by the old address value and allocate a new filter for
+ *	the new address value.  @idx can be -1 if the address is a new
+ *	addition.
+ *
+ *	Returns a negative error number or the index of the filter with the new
+ *	MAC value.
+ */
 int t4vf_change_mac(struct adapter *adapter, unsigned int viid,
 		    int idx, const u8 *addr, bool persist)
 {
@@ -781,6 +1120,10 @@ int t4vf_change_mac(struct adapter *adapter, unsigned int viid,
 	size_t len16 = DIV_ROUND_UP(offsetof(struct fw_vi_mac_cmd,
 					     u.exact[1]), 16);
 
+	/*
+	 * If this is a new allocation, determine whether it should be
+	 * persistent (across a "freemacs" operation) or not.
+	 */
 	if (idx < 0)
 		idx = persist ? FW_VI_MAC_ADD_PERSIST_MAC : FW_VI_MAC_ADD_MAC;
 
@@ -833,6 +1176,14 @@ int t4vf_set_addr_hash(struct adapter *adapter, unsigned int viid,
 	return t4vf_wr_mbox_core(adapter, &cmd, sizeof(cmd), NULL, sleep_ok);
 }
 
+/**
+ *	t4vf_get_port_stats - collect "port" statistics
+ *	@adapter: the adapter
+ *	@pidx: the port index
+ *	@s: the stats structure to fill
+ *
+ *	Collect statistics for the "port"'s Virtual Interface.
+ */
 int t4vf_get_port_stats(struct adapter *adapter, int pidx,
 			struct t4vf_port_stats *s)
 {
@@ -841,6 +1192,11 @@ int t4vf_get_port_stats(struct adapter *adapter, int pidx,
 	unsigned int rem = VI_VF_NUM_STATS;
 	__be64 *fwsp = (__be64 *)&fwstats;
 
+	/*
+	 * Grab the Virtual Interface statistics a chunk at a time via mailbox
+	 * commands.  We could use a Work Request and get all of them at once
+	 * but that's an asynchronous interface which is awkward to use.
+	 */
 	while (rem) {
 		unsigned int ix = VI_VF_NUM_STATS - rem;
 		unsigned int nstats = min(6U, rem);
@@ -869,6 +1225,9 @@ int t4vf_get_port_stats(struct adapter *adapter, int pidx,
 		fwsp += nstats;
 	}
 
+	/*
+	 * Translate firmware statistics into host native statistics.
+	 */
 	s->tx_bcast_bytes = be64_to_cpu(fwstats.tx_bcast_bytes);
 	s->tx_bcast_frames = be64_to_cpu(fwstats.tx_bcast_frames);
 	s->tx_mcast_bytes = be64_to_cpu(fwstats.tx_mcast_bytes);
@@ -891,6 +1250,16 @@ int t4vf_get_port_stats(struct adapter *adapter, int pidx,
 	return 0;
 }
 
+/**
+ *	t4vf_iq_free - free an ingress queue and its free lists
+ *	@adapter: the adapter
+ *	@iqtype: the ingress queue type (FW_IQ_TYPE_FL_INT_CAP, etc.)
+ *	@iqid: ingress queue ID
+ *	@fl0id: FL0 queue ID or 0xffff if no attached FL0
+ *	@fl1id: FL1 queue ID or 0xffff if no attached FL1
+ *
+ *	Frees an ingress queue and its associated free lists, if any.
+ */
 int t4vf_iq_free(struct adapter *adapter, unsigned int iqtype,
 		 unsigned int iqid, unsigned int fl0id, unsigned int fl1id)
 {
@@ -911,6 +1280,13 @@ int t4vf_iq_free(struct adapter *adapter, unsigned int iqtype,
 	return t4vf_wr_mbox(adapter, &cmd, sizeof(cmd), NULL);
 }
 
+/**
+ *	t4vf_eth_eq_free - free an Ethernet egress queue
+ *	@adapter: the adapter
+ *	@eqid: egress queue ID
+ *
+ *	Frees an Ethernet egress queue.
+ */
 int t4vf_eth_eq_free(struct adapter *adapter, unsigned int eqid)
 {
 	struct fw_eq_eth_cmd cmd;
@@ -925,6 +1301,13 @@ int t4vf_eth_eq_free(struct adapter *adapter, unsigned int eqid)
 	return t4vf_wr_mbox(adapter, &cmd, sizeof(cmd), NULL);
 }
 
+/**
+ *	t4vf_handle_fw_rpl - process a firmware reply message
+ *	@adapter: the adapter
+ *	@rpl: start of the firmware message
+ *
+ *	Processes a firmware message, such as link state change messages.
+ */
 int t4vf_handle_fw_rpl(struct adapter *adapter, const __be64 *rpl)
 {
 	const struct fw_cmd_hdr *cmd_hdr = (const struct fw_cmd_hdr *)rpl;
@@ -932,11 +1315,17 @@ int t4vf_handle_fw_rpl(struct adapter *adapter, const __be64 *rpl)
 
 	switch (opcode) {
 	case FW_PORT_CMD: {
+		/*
+		 * Link/module state change message.
+		 */
 		const struct fw_port_cmd *port_cmd =
 			(const struct fw_port_cmd *)rpl;
 		u32 word;
 		int action, port_id, link_ok, speed, fc, pidx;
 
+		/*
+		 * Extract various fields from port status change message.
+		 */
 		action = FW_PORT_CMD_ACTION_GET(
 			be32_to_cpu(port_cmd->action_to_len16));
 		if (action != FW_PORT_ACTION_GET_PORT_INFO) {
@@ -964,6 +1353,12 @@ int t4vf_handle_fw_rpl(struct adapter *adapter, const __be64 *rpl)
 		else if (word & FW_PORT_CMD_LSPEED(FW_PORT_CAP_SPEED_10G))
 			speed = SPEED_10000;
 
+		/*
+		 * Scan all of our "ports" (Virtual Interfaces) looking for
+		 * those bound to the physical port which has changed.  If
+		 * our recorded state doesn't match the current state,
+		 * signal that change to the OS code.
+		 */
 		for_each_port(adapter, pidx) {
 			struct port_info *pi = adap2pinfo(adapter, pidx);
 			struct link_config *lc;
@@ -974,7 +1369,7 @@ int t4vf_handle_fw_rpl(struct adapter *adapter, const __be64 *rpl)
 			lc = &pi->link_cfg;
 			if (link_ok != lc->link_ok || speed != lc->speed ||
 			    fc != lc->fc) {
-				
+				/* something changed */
 				lc->link_ok = link_ok;
 				lc->speed = speed;
 				lc->fc = fc;

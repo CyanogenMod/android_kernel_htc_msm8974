@@ -14,12 +14,18 @@
 #include <asm/tlbflush.h>
 
 #ifdef CONFIG_MN10300_TLB_USE_PIDR
+/*
+ * list of the MMU contexts last allocated on each CPU
+ */
 unsigned long mmu_context_cache[NR_CPUS] = {
 	[0 ... NR_CPUS - 1] =
 	MMU_CONTEXT_FIRST_VERSION * 2 - (1 - MMU_CONTEXT_TLBPID_LOCK_NR),
 };
-#endif 
+#endif /* CONFIG_MN10300_TLB_USE_PIDR */
 
+/*
+ * preemptively set a TLB entry
+ */
 void update_mmu_cache(struct vm_area_struct *vma, unsigned long addr, pte_t *ptep)
 {
 	unsigned long pteu, ptel, cnx, flags;
@@ -28,6 +34,8 @@ void update_mmu_cache(struct vm_area_struct *vma, unsigned long addr, pte_t *pte
 	addr &= PAGE_MASK;
 	ptel = pte_val(pte) & ~(xPTEL_UNUSED1 | xPTEL_UNUSED2);
 
+	/* make sure the context doesn't migrate and defend against
+	 * interference from vmalloc'd regions */
 	local_irq_save(flags);
 
 	cnx = ~MMU_NO_CONTEXT;

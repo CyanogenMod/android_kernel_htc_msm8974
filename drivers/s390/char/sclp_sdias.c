@@ -69,6 +69,9 @@ static DECLARE_COMPLETION(evbuf_accepted);
 static DECLARE_COMPLETION(evbuf_done);
 static DEFINE_MUTEX(sdias_mutex);
 
+/*
+ * Called by SCLP base when read event data has been completed (async mode only)
+ */
 static void sclp_sdias_receiver_fn(struct evbuf_header *evbuf)
 {
 	memcpy(&sdias_evbuf, evbuf,
@@ -77,6 +80,9 @@ static void sclp_sdias_receiver_fn(struct evbuf_header *evbuf)
 	TRACE("sclp_sdias_receiver_fn done\n");
 }
 
+/*
+ * Called by SCLP base when sdias event has been accepted
+ */
 static void sdias_callback(struct sclp_req *request, void *data)
 {
 	complete(&evbuf_accepted);
@@ -92,30 +98,33 @@ static int sdias_sclp_send(struct sclp_req *req)
 		TRACE("add request\n");
 		rc = sclp_add_request(req);
 		if (rc) {
-			
+			/* not initiated, wait some time and retry */
 			set_current_state(TASK_INTERRUPTIBLE);
 			TRACE("add request failed: rc = %i\n",rc);
 			schedule_timeout(SDIAS_SLEEP_TICKS);
 			continue;
 		}
-		
+		/* initiated, wait for completion of service call */
 		wait_for_completion(&evbuf_accepted);
 		if (req->status == SCLP_REQ_FAILED) {
 			TRACE("sclp request failed\n");
 			continue;
 		}
-		
+		/* if not accepted, retry */
 		if (!(sccb.evbuf.hdr.flags & 0x80)) {
 			TRACE("sclp request failed: flags=%x\n",
 			      sccb.evbuf.hdr.flags);
 			continue;
 		}
+		/*
+		 * for the sync interface the response is in the initial sccb
+		 */
 		if (!sclp_sdias_register.receiver_fn) {
 			memcpy(&sdias_evbuf, &sccb.evbuf, sizeof(sdias_evbuf));
 			TRACE("sync request done\n");
 			return 0;
 		}
-		
+		/* otherwise we wait for completion */
 		wait_for_completion(&evbuf_done);
 		TRACE("request done\n");
 		return 0;
@@ -123,6 +132,9 @@ static int sdias_sclp_send(struct sclp_req *req)
 	return -EIO;
 }
 
+/*
+ * Get number of blocks (4K) available in the HSA
+ */
 int sclp_sdias_blk_count(void)
 {
 	struct sclp_req request;
@@ -172,6 +184,16 @@ out:
 	return rc;
 }
 
+/*
+ * Copy from HSA to absolute storage (not reentrant):
+ *
+ * @dest     : Address of buffer where data should be copied
+ * @start_blk: Start Block (beginning with 1)
+ * @nr_blks  : Number of 4K blocks to copy
+ *
+ * Return Value: 0 : Requested 'number' of blocks of data copied
+ *		 <0: ERROR - negative event status
+ */
 int sclp_sdias_copy(void *dest, int start_blk, int nr_blks)
 {
 	struct sclp_req request;

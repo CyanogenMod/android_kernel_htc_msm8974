@@ -31,6 +31,9 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sunrpc.h>
 
+/*
+ * RPC slabs and memory pools
+ */
 #define RPC_BUFFER_MAXSIZE	(2048)
 #define RPC_BUFFER_POOLSIZE	(8)
 #define RPC_TASK_POOLSIZE	(8)
@@ -43,10 +46,21 @@ static void			rpc_async_schedule(struct work_struct *);
 static void			 rpc_release_task(struct rpc_task *task);
 static void __rpc_queue_timer_fn(unsigned long ptr);
 
+/*
+ * RPC tasks sit here while waiting for conditions to improve.
+ */
 static struct rpc_wait_queue delay_queue;
 
+/*
+ * rpciod-related stuff
+ */
 struct workqueue_struct *rpciod_workqueue;
 
+/*
+ * Disable the timer for a given RPC task. Should be called with
+ * queue->lock and bh_disabled in order to avoid races within
+ * rpc_run_timer().
+ */
 static void
 __rpc_disable_timer(struct rpc_wait_queue *queue, struct rpc_task *task)
 {
@@ -66,6 +80,9 @@ rpc_set_queue_timer(struct rpc_wait_queue *queue, unsigned long expires)
 	mod_timer(&queue->timer_list.timer, expires);
 }
 
+/*
+ * Set up a timer for the current task.
+ */
 static void
 __rpc_add_timer(struct rpc_wait_queue *queue, struct rpc_task *task)
 {
@@ -81,6 +98,9 @@ __rpc_add_timer(struct rpc_wait_queue *queue, struct rpc_task *task)
 	list_add(&task->u.tk_wait.timer_list, &queue->timer_list.list);
 }
 
+/*
+ * Add new request to a priority queue.
+ */
 static void __rpc_add_wait_queue_priority(struct rpc_wait_queue *queue,
 		struct rpc_task *task,
 		unsigned char queue_priority)
@@ -101,6 +121,14 @@ static void __rpc_add_wait_queue_priority(struct rpc_wait_queue *queue,
 	list_add_tail(&task->u.tk_wait.list, q);
 }
 
+/*
+ * Add new request to wait queue.
+ *
+ * Swapper tasks always get inserted at the head of the queue.
+ * This should avoid many nasty memory deadlocks and hopefully
+ * improve overall performance.
+ * Everyone else gets appended to the queue to ensure proper FIFO behavior.
+ */
 static void __rpc_add_wait_queue(struct rpc_wait_queue *queue,
 		struct rpc_task *task,
 		unsigned char queue_priority)
@@ -121,6 +149,9 @@ static void __rpc_add_wait_queue(struct rpc_wait_queue *queue,
 			task->tk_pid, queue, rpc_qname(queue));
 }
 
+/*
+ * Remove request from a priority queue.
+ */
 static void __rpc_remove_wait_queue_priority(struct rpc_task *task)
 {
 	struct rpc_task *t;
@@ -132,6 +163,10 @@ static void __rpc_remove_wait_queue_priority(struct rpc_task *task)
 	}
 }
 
+/*
+ * Remove request from queue.
+ * Note: must be called with spin lock held.
+ */
 static void __rpc_remove_wait_queue(struct rpc_wait_queue *queue, struct rpc_task *task)
 {
 	__rpc_disable_timer(queue, task);
@@ -223,6 +258,10 @@ static void rpc_set_active(struct rpc_task *task)
 	set_bit(RPC_TASK_ACTIVE, &task->tk_runstate);
 }
 
+/*
+ * Mark an RPC call as having completed by clearing the 'active' bit
+ * and then waking up all tasks that were sleeping.
+ */
 static int rpc_complete_task(struct rpc_task *task)
 {
 	void *m = &task->tk_runstate;
@@ -242,6 +281,13 @@ static int rpc_complete_task(struct rpc_task *task)
 	return ret;
 }
 
+/*
+ * Allow callers to wait for completion of an RPC call
+ *
+ * Note the use of out_of_line_wait_on_bit() rather than wait_on_bit()
+ * to enforce taking of the wq->lock and hence avoid races with
+ * rpc_complete_task().
+ */
 int __rpc_wait_for_completion_task(struct rpc_task *task, int (*action)(void *))
 {
 	if (action == NULL)
@@ -251,6 +297,12 @@ int __rpc_wait_for_completion_task(struct rpc_task *task, int (*action)(void *))
 }
 EXPORT_SYMBOL_GPL(__rpc_wait_for_completion_task);
 
+/*
+ * Make an RPC task runnable.
+ *
+ * Note: If the task is ASYNC, this must be called with
+ * the spinlock held to protect the wait queue operation.
+ */
 static void rpc_make_runnable(struct rpc_task *task)
 {
 	rpc_clear_queued(task);
@@ -263,6 +315,12 @@ static void rpc_make_runnable(struct rpc_task *task)
 		wake_up_bit(&task->tk_runstate, RPC_TASK_QUEUED);
 }
 
+/*
+ * Prepare for sleeping on a wait queue.
+ * By always appending tasks to the list we ensure FIFO behavior.
+ * NB: An RPC task will only receive interrupt-driven events as long
+ * as it's on a wait queue.
+ */
 static void __rpc_sleep_on_priority(struct rpc_wait_queue *q,
 		struct rpc_task *task,
 		rpc_action action,
@@ -283,9 +341,12 @@ static void __rpc_sleep_on_priority(struct rpc_wait_queue *q,
 void rpc_sleep_on(struct rpc_wait_queue *q, struct rpc_task *task,
 				rpc_action action)
 {
-	
+	/* We shouldn't ever put an inactive task to sleep */
 	BUG_ON(!RPC_IS_ACTIVATED(task));
 
+	/*
+	 * Protect the queue operations.
+	 */
 	spin_lock_bh(&q->lock);
 	__rpc_sleep_on_priority(q, task, action, task->tk_priority);
 	spin_unlock_bh(&q->lock);
@@ -295,20 +356,30 @@ EXPORT_SYMBOL_GPL(rpc_sleep_on);
 void rpc_sleep_on_priority(struct rpc_wait_queue *q, struct rpc_task *task,
 		rpc_action action, int priority)
 {
-	
+	/* We shouldn't ever put an inactive task to sleep */
 	BUG_ON(!RPC_IS_ACTIVATED(task));
 
+	/*
+	 * Protect the queue operations.
+	 */
 	spin_lock_bh(&q->lock);
 	__rpc_sleep_on_priority(q, task, action, priority - RPC_PRIORITY_LOW);
 	spin_unlock_bh(&q->lock);
 }
 
+/**
+ * __rpc_do_wake_up_task - wake up a single rpc_task
+ * @queue: wait queue
+ * @task: task to be woken up
+ *
+ * Caller must hold queue->lock, and have cleared the task queued flag.
+ */
 static void __rpc_do_wake_up_task(struct rpc_wait_queue *queue, struct rpc_task *task)
 {
 	dprintk("RPC: %5u __rpc_wake_up_task (now %lu)\n",
 			task->tk_pid, jiffies);
 
-	
+	/* Has the task been executed yet? If not, we cannot wake it up! */
 	if (!RPC_IS_ACTIVATED(task)) {
 		printk(KERN_ERR "RPC: Inactive task (%p) being woken up!\n", task);
 		return;
@@ -323,12 +394,18 @@ static void __rpc_do_wake_up_task(struct rpc_wait_queue *queue, struct rpc_task 
 	dprintk("RPC:       __rpc_wake_up_task done\n");
 }
 
+/*
+ * Wake up a queued task while the queue lock is being held
+ */
 static void rpc_wake_up_task_queue_locked(struct rpc_wait_queue *queue, struct rpc_task *task)
 {
 	if (RPC_IS_QUEUED(task) && task->tk_waitqueue == queue)
 		__rpc_do_wake_up_task(queue, task);
 }
 
+/*
+ * Tests whether rpc queue is empty
+ */
 int rpc_queue_empty(struct rpc_wait_queue *queue)
 {
 	int res;
@@ -340,6 +417,9 @@ int rpc_queue_empty(struct rpc_wait_queue *queue)
 }
 EXPORT_SYMBOL_GPL(rpc_queue_empty);
 
+/*
+ * Wake up a task on a specific queue
+ */
 void rpc_wake_up_queued_task(struct rpc_wait_queue *queue, struct rpc_task *task)
 {
 	spin_lock_bh(&queue->lock);
@@ -348,11 +428,17 @@ void rpc_wake_up_queued_task(struct rpc_wait_queue *queue, struct rpc_task *task
 }
 EXPORT_SYMBOL_GPL(rpc_wake_up_queued_task);
 
+/*
+ * Wake up the next task on a priority queue.
+ */
 static struct rpc_task *__rpc_find_next_queued_priority(struct rpc_wait_queue *queue)
 {
 	struct list_head *q;
 	struct rpc_task *task;
 
+	/*
+	 * Service a batch of tasks from a single owner.
+	 */
 	q = &queue->tasks[queue->priority];
 	if (!list_empty(q)) {
 		task = list_entry(q->next, struct rpc_task, u.tk_wait.list);
@@ -361,10 +447,16 @@ static struct rpc_task *__rpc_find_next_queued_priority(struct rpc_wait_queue *q
 				goto out;
 			list_move_tail(&task->u.tk_wait.list, q);
 		}
+		/*
+		 * Check if we need to switch queues.
+		 */
 		if (--queue->count)
 			goto new_owner;
 	}
 
+	/*
+	 * Service the next queue.
+	 */
 	do {
 		if (q == &queue->tasks[0])
 			q = &queue->tasks[queue->maxpriority];
@@ -396,6 +488,9 @@ static struct rpc_task *__rpc_find_next_queued(struct rpc_wait_queue *queue)
 	return NULL;
 }
 
+/*
+ * Wake up the first task on the wait queue.
+ */
 struct rpc_task *rpc_wake_up_first(struct rpc_wait_queue *queue,
 		bool (*func)(struct rpc_task *, void *), void *data)
 {
@@ -422,12 +517,21 @@ static bool rpc_wake_up_next_func(struct rpc_task *task, void *data)
 	return true;
 }
 
+/*
+ * Wake up the next task on the wait queue.
+*/
 struct rpc_task *rpc_wake_up_next(struct rpc_wait_queue *queue)
 {
 	return rpc_wake_up_first(queue, rpc_wake_up_next_func, NULL);
 }
 EXPORT_SYMBOL_GPL(rpc_wake_up_next);
 
+/**
+ * rpc_wake_up - wake up all rpc_tasks
+ * @queue: rpc_wait_queue on which the tasks are sleeping
+ *
+ * Grabs queue->lock
+ */
 void rpc_wake_up(struct rpc_wait_queue *queue)
 {
 	struct list_head *head;
@@ -450,6 +554,13 @@ void rpc_wake_up(struct rpc_wait_queue *queue)
 }
 EXPORT_SYMBOL_GPL(rpc_wake_up);
 
+/**
+ * rpc_wake_up_status - wake up all rpc_tasks and set their status value.
+ * @queue: rpc_wait_queue on which the tasks are sleeping
+ * @status: status value to set
+ *
+ * Grabs queue->lock
+ */
 void rpc_wake_up_status(struct rpc_wait_queue *queue, int status)
 {
 	struct list_head *head;
@@ -502,6 +613,9 @@ static void __rpc_atrun(struct rpc_task *task)
 	task->tk_status = 0;
 }
 
+/*
+ * Run a task at a later time
+ */
 void rpc_delay(struct rpc_task *task, unsigned long delay)
 {
 	task->tk_timeout = delay;
@@ -509,6 +623,9 @@ void rpc_delay(struct rpc_task *task, unsigned long delay)
 }
 EXPORT_SYMBOL_GPL(rpc_delay);
 
+/*
+ * Helper to call task->tk_ops->rpc_call_prepare
+ */
 void rpc_prepare_task(struct rpc_task *task)
 {
 	task->tk_ops->rpc_call_prepare(task, task->tk_calldata);
@@ -517,12 +634,12 @@ void rpc_prepare_task(struct rpc_task *task)
 static void
 rpc_init_task_statistics(struct rpc_task *task)
 {
-	
+	/* Initialize retry counters */
 	task->tk_garb_retry = 2;
 	task->tk_cred_retry = 2;
 	task->tk_rebind_retry = 2;
 
-	
+	/* starting timestamp */
 	task->tk_start = ktime_get();
 }
 
@@ -535,6 +652,9 @@ rpc_reset_task_statistics(struct rpc_task *task)
 	rpc_init_task_statistics(task);
 }
 
+/*
+ * Helper that calls task->tk_ops->rpc_call_done if it exists
+ */
 void rpc_exit_task(struct rpc_task *task)
 {
 	task->tk_action = NULL;
@@ -542,7 +662,7 @@ void rpc_exit_task(struct rpc_task *task)
 		task->tk_ops->rpc_call_done(task, task->tk_calldata);
 		if (task->tk_action != NULL) {
 			WARN_ON(RPC_ASSASSINATED(task));
-			
+			/* Always release the RPC slot and buffer memory */
 			xprt_release(task);
 			rpc_reset_task_statistics(task);
 		}
@@ -564,6 +684,9 @@ void rpc_release_calldata(const struct rpc_call_ops *ops, void *calldata)
 		ops->rpc_release(calldata);
 }
 
+/*
+ * This is the RPC `scheduler' (or rather, the finite state machine).
+ */
 static void __rpc_execute(struct rpc_task *task)
 {
 	struct rpc_wait_queue *queue;
@@ -578,9 +701,18 @@ static void __rpc_execute(struct rpc_task *task)
 	for (;;) {
 		void (*do_action)(struct rpc_task *);
 
+		/*
+		 * Execute any pending callback first.
+		 */
 		do_action = task->tk_callback;
 		task->tk_callback = NULL;
 		if (do_action == NULL) {
+			/*
+			 * Perform the next FSM step.
+			 * tk_action may be NULL if the task has been killed.
+			 * In particular, note that rpc_killall_tasks may
+			 * do this at any time, so beware when dereferencing.
+			 */
 			do_action = task->tk_action;
 			if (do_action == NULL)
 				break;
@@ -588,8 +720,20 @@ static void __rpc_execute(struct rpc_task *task)
 		trace_rpc_task_run_action(task->tk_client, task, task->tk_action);
 		do_action(task);
 
+		/*
+		 * Lockless check for whether task is sleeping or not.
+		 */
 		if (!RPC_IS_QUEUED(task))
 			continue;
+		/*
+		 * The queue->lock protects against races with
+		 * rpc_make_runnable().
+		 *
+		 * Note that once we clear RPC_TASK_RUNNING on an asynchronous
+		 * rpc_task, rpc_make_runnable() can assign it to a
+		 * different workqueue. We therefore cannot assume that the
+		 * rpc_task pointer may still be dereferenced.
+		 */
 		queue = task->tk_waitqueue;
 		spin_lock_bh(&queue->lock);
 		if (!RPC_IS_QUEUED(task)) {
@@ -601,12 +745,18 @@ static void __rpc_execute(struct rpc_task *task)
 		if (task_is_async)
 			return;
 
-		
+		/* sync task: sleep here */
 		dprintk("RPC: %5u sync task going to sleep\n", task->tk_pid);
 		status = out_of_line_wait_on_bit(&task->tk_runstate,
 				RPC_TASK_QUEUED, rpc_wait_bit_killable,
 				TASK_KILLABLE);
 		if (status == -ERESTARTSYS) {
+			/*
+			 * When a sync task receives a signal, it exits with
+			 * -ERESTARTSYS. In order to catch any callbacks that
+			 * clean up after sleeping on some queue, we don't
+			 * break the loop here, but go around once more.
+			 */
 			dprintk("RPC: %5u got signal\n", task->tk_pid);
 			task->tk_flags |= RPC_TASK_KILLED;
 			rpc_exit(task, -ERESTARTSYS);
@@ -617,10 +767,19 @@ static void __rpc_execute(struct rpc_task *task)
 
 	dprintk("RPC: %5u return %d, status %d\n", task->tk_pid, status,
 			task->tk_status);
-	
+	/* Release all resources associated with the task */
 	rpc_release_task(task);
 }
 
+/*
+ * User-visible entry point to the scheduler.
+ *
+ * This may be called recursively if e.g. an async NFS task updates
+ * the attributes and finds that dirty pages must be flushed.
+ * NOTE: Upon exit of this function the task is guaranteed to be
+ *	 released. In particular note that tk_release() will have
+ *	 been called, so your task memory may have been freed.
+ */
 void rpc_execute(struct rpc_task *task)
 {
 	rpc_set_active(task);
@@ -634,6 +793,22 @@ static void rpc_async_schedule(struct work_struct *work)
 	__rpc_execute(container_of(work, struct rpc_task, u.tk_work));
 }
 
+/**
+ * rpc_malloc - allocate an RPC buffer
+ * @task: RPC task that will use this buffer
+ * @size: requested byte size
+ *
+ * To prevent rpciod from hanging, this allocator never sleeps,
+ * returning NULL if the request cannot be serviced immediately.
+ * The caller can arrange to sleep in a way that is safe for rpciod.
+ *
+ * Most requests are 'small' (under 2KiB) and can be serviced from a
+ * mempool, ensuring that NFS reads and writes can always proceed,
+ * and that there is good locality of reference for these buffers.
+ *
+ * In order to avoid memory starvation triggering more writebacks of
+ * NFS requests, we avoid using GFP_KERNEL.
+ */
 void *rpc_malloc(struct rpc_task *task, size_t size)
 {
 	struct rpc_buffer *buf;
@@ -655,6 +830,11 @@ void *rpc_malloc(struct rpc_task *task, size_t size)
 }
 EXPORT_SYMBOL_GPL(rpc_malloc);
 
+/**
+ * rpc_free - free buffer allocated via rpc_malloc
+ * @buffer: buffer to free
+ *
+ */
 void rpc_free(void *buffer)
 {
 	size_t size;
@@ -676,6 +856,9 @@ void rpc_free(void *buffer)
 }
 EXPORT_SYMBOL_GPL(rpc_free);
 
+/*
+ * Creation and deletion of RPC task structures
+ */
 static void rpc_init_task(struct rpc_task *task, const struct rpc_task_setup *task_setup_data)
 {
 	memset(task, 0, sizeof(*task));
@@ -688,7 +871,7 @@ static void rpc_init_task(struct rpc_task *task, const struct rpc_task_setup *ta
 	task->tk_priority = task_setup_data->priority - RPC_PRIORITY_LOW;
 	task->tk_owner = current->tgid;
 
-	
+	/* Initialize workqueue for async tasks */
 	task->tk_workqueue = task_setup_data->workqueue;
 
 	if (task->tk_ops->rpc_call_prepare != NULL)
@@ -706,6 +889,9 @@ rpc_alloc_task(void)
 	return (struct rpc_task *)mempool_alloc(rpc_task_mempool, GFP_NOFS);
 }
 
+/*
+ * Create a new task for the specified client.
+ */
 struct rpc_task *rpc_new_task(const struct rpc_task_setup *setup_data)
 {
 	struct rpc_task	*task = setup_data->task;
@@ -793,8 +979,13 @@ static void rpc_release_task(struct rpc_task *task)
 
 	rpc_release_resources_task(task);
 
+	/*
+	 * Note: at this point we have been removed from rpc_clnt->cl_tasks,
+	 * so it should be safe to use task->tk_count as a test for whether
+	 * or not any other processes still hold references to our rpc_task.
+	 */
 	if (atomic_read(&task->tk_count) != 1 + !RPC_IS_ASYNC(task)) {
-		
+		/* Wake up anyone who may be waiting for task completion */
 		if (!rpc_complete_task(task))
 			return;
 	} else {
@@ -814,10 +1005,16 @@ void rpciod_down(void)
 	module_put(THIS_MODULE);
 }
 
+/*
+ * Start up the rpciod workqueue.
+ */
 static int rpciod_start(void)
 {
 	struct workqueue_struct *wq;
 
+	/*
+	 * Create the rpciod thread and wait for it to start.
+	 */
 	dprintk("RPC:       creating workqueue rpciod\n");
 	wq = alloc_workqueue("rpciod", WQ_MEM_RECLAIM, 0);
 	rpciod_workqueue = wq;
@@ -855,6 +1052,10 @@ rpc_destroy_mempool(void)
 int
 rpc_init_mempool(void)
 {
+	/*
+	 * The following is not strictly a mempool initialisation,
+	 * but there is no harm in doing it here
+	 */
 	rpc_init_wait_queue(&delay_queue, "delayq");
 	if (!rpciod_start())
 		goto err_nomem;

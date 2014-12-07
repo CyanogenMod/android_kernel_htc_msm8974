@@ -41,6 +41,11 @@
 #define DRIVER_VERSION		"0.0.2"
 
 
+/*
+ * ---------------------------------------------------------------------------
+ *  OMAP1 Camera Interface registers
+ * ---------------------------------------------------------------------------
+ */
 
 #define REG_CTRLCLOCK		0x00
 #define REG_IT_STATUS		0x04
@@ -50,6 +55,7 @@
 #define REG_GPIO		0x14
 #define REG_PEAK_COUNTER	0x18
 
+/* CTRLCLOCK bit shifts */
 #define LCLK_EN			BIT(7)
 #define DPLL_EN			BIT(6)
 #define MCLK_EN			BIT(5)
@@ -63,6 +69,7 @@
 #define FOSCMOD_24MHz		0x5
 #define FOSCMOD_8MHz		0x6
 
+/* IT_STATUS bit shifts */
 #define DATA_TRANSFER		BIT(5)
 #define FIFO_FULL		BIT(4)
 #define H_DOWN			BIT(3)
@@ -70,6 +77,7 @@
 #define V_DOWN			BIT(1)
 #define V_UP			BIT(0)
 
+/* MODE bit shifts */
 #define RAZ_FIFO		BIT(18)
 #define EN_FIFO_FULL		BIT(17)
 #define EN_NIRQ			BIT(16)
@@ -85,11 +93,14 @@
 #define IRQ_MASK		(EN_V_UP | EN_V_DOWN | EN_H_UP | EN_H_DOWN | \
 				 EN_NIRQ | EN_FIFO_FULL)
 
+/* STATUS bit shifts */
 #define HSTATUS			BIT(1)
 #define VSTATUS			BIT(0)
 
+/* GPIO bit shifts */
 #define CAM_RST			BIT(0)
 
+/* end of OMAP1 Camera Interface registers */
 
 
 #define SOCAM_BUS_FLAGS	(V4L2_MBUS_MASTER | \
@@ -118,10 +129,14 @@
 #define THRESHOLD_LEVEL		DMA_FRAME_SIZE
 
 
-#define MAX_VIDEO_MEM		4	
+#define MAX_VIDEO_MEM		4	/* arbitrary video memory limit in MB */
 
 
+/*
+ * Structures
+ */
 
+/* buffer for one video frame */
 struct omap1_cam_buf {
 	struct videobuf_buffer		vb;
 	enum v4l2_mbus_pixelcode	code;
@@ -149,10 +164,10 @@ struct omap1_cam_dev {
 
 	struct list_head		capture;
 
-	
+	/* lock used to protect videobuf */
 	spinlock_t			lock;
 
-	
+	/* Pointers to DMA buffers */
 	struct omap1_cam_buf		*active;
 	struct omap1_cam_buf		*ready;
 
@@ -184,6 +199,9 @@ static u32 cam_read(struct omap1_cam_dev *pcdev, u16 reg, bool from_cache)
 #define CAM_READ_CACHE(pcdev, reg) \
 		cam_read(pcdev, REG_##reg, true)
 
+/*
+ *  Videobuf operations
+ */
 static int omap1_videobuf_setup(struct videobuf_queue *vq, unsigned int *count,
 		unsigned int *size)
 {
@@ -338,6 +356,10 @@ static struct omap1_cam_buf *prepare_next_vb(struct omap1_cam_dev *pcdev)
 {
 	struct omap1_cam_buf *buf;
 
+	/*
+	 * If there is already a buffer pointed out by the pcdev->ready,
+	 * (re)use it, otherwise try to fetch and configure a new one.
+	 */
 	buf = pcdev->ready;
 	if (!buf) {
 		if (list_empty(&pcdev->capture))
@@ -350,8 +372,19 @@ static struct omap1_cam_buf *prepare_next_vb(struct omap1_cam_dev *pcdev)
 	}
 
 	if (pcdev->vb_mode == OMAP1_CAM_DMA_CONTIG) {
+		/*
+		 * In CONTIG mode, we can safely enter next buffer parameters
+		 * into the DMA programming register set after the DMA
+		 * has already been activated on the previous buffer
+		 */
 		set_dma_dest_params(pcdev->dma_ch, buf, pcdev->vb_mode);
 	} else {
+		/*
+		 * In SG mode, the above is not safe since there are probably
+		 * a bunch of sgbufs from previous sglist still pending.
+		 * Instead, mark the sglist fresh for the upcoming
+		 * try_next_sgbuf().
+		 */
 		buf->sgbuf = NULL;
 	}
 
@@ -363,12 +396,12 @@ static struct scatterlist *try_next_sgbuf(int dma_ch, struct omap1_cam_buf *buf)
 	struct scatterlist *sgbuf;
 
 	if (likely(buf->sgbuf)) {
-		
+		/* current sglist is active */
 		if (unlikely(!buf->bytes_left)) {
-			
+			/* indicate sglist complete */
 			sgbuf = NULL;
 		} else {
-			
+			/* process next sgbuf */
 			sgbuf = sg_next(buf->sgbuf);
 			if (WARN_ON(!sgbuf)) {
 				buf->result = VIDEOBUF_ERROR;
@@ -379,7 +412,7 @@ static struct scatterlist *try_next_sgbuf(int dma_ch, struct omap1_cam_buf *buf)
 		}
 		buf->sgbuf = sgbuf;
 	} else {
-		
+		/* sglist is fresh, initialize it before using */
 		struct videobuf_dmabuf *dma = videobuf_to_dma(&buf->vb);
 
 		sgbuf = dma->sglist;
@@ -391,6 +424,10 @@ static struct scatterlist *try_next_sgbuf(int dma_ch, struct omap1_cam_buf *buf)
 		}
 	}
 	if (sgbuf)
+		/*
+		 * Put our next sgbuf parameters (address, size)
+		 * into the DMA programming register set.
+		 */
 		set_dma_dest_params(dma_ch, buf, OMAP1_CAM_DMA_SG);
 
 	return sgbuf;
@@ -405,23 +442,32 @@ static void start_capture(struct omap1_cam_dev *pcdev)
 	if (WARN_ON(!buf))
 		return;
 
+	/*
+	 * Enable start of frame interrupt, which we will use for activating
+	 * our end of frame watchdog when capture actually starts.
+	 */
 	mode |= EN_V_UP;
 
 	if (unlikely(ctrlclock & LCLK_EN))
-		
+		/* stop pixel clock before FIFO reset */
 		CAM_WRITE(pcdev, CTRLCLOCK, ctrlclock & ~LCLK_EN);
-	
+	/* reset FIFO */
 	CAM_WRITE(pcdev, MODE, mode | RAZ_FIFO);
 
 	omap_start_dma(pcdev->dma_ch);
 
 	if (pcdev->vb_mode == OMAP1_CAM_DMA_SG) {
+		/*
+		 * In SG mode, it's a good moment for fetching next sgbuf
+		 * from the current sglist and, if available, already putting
+		 * its parameters into the DMA programming register set.
+		 */
 		try_next_sgbuf(pcdev->dma_ch, buf);
 	}
 
-	
+	/* (re)enable pixel clock */
 	CAM_WRITE(pcdev, CTRLCLOCK, ctrlclock | LCLK_EN);
-	
+	/* release FIFO reset */
 	CAM_WRITE(pcdev, MODE, mode);
 }
 
@@ -453,6 +499,14 @@ static void omap1_videobuf_queue(struct videobuf_queue *vq,
 	vb->state = VIDEOBUF_QUEUED;
 
 	if (pcdev->active) {
+		/*
+		 * Capture in progress, so don't touch pcdev->ready even if
+		 * empty. Since the transfer of the DMA programming register set
+		 * content to the DMA working register set is done automatically
+		 * by the DMA hardware, this can pretty well happen while we
+		 * are keeping the lock here. Leave fetching it from the queue
+		 * to be done when a next DMA interrupt occures instead.
+		 */
 		return;
 	}
 
@@ -472,6 +526,11 @@ static void omap1_videobuf_queue(struct videobuf_queue *vq,
 	CAM_WRITE(pcdev, MODE, mode | EN_FIFO_FULL | DMA);
 
 	if (pcdev->vb_mode == OMAP1_CAM_DMA_SG) {
+		/*
+		 * In SG mode, the above prepare_next_vb() didn't actually
+		 * put anything into the DMA programming register set,
+		 * so we have to do it now, before activating DMA.
+		 */
 		try_next_sgbuf(pcdev->dma_ch, buf);
 	}
 
@@ -547,12 +606,17 @@ static void videobuf_done(struct omap1_cam_dev *pcdev,
 			vb->field_count++;
 		wake_up(&vb->done);
 
-		
+		/* shift in next buffer */
 		buf = pcdev->ready;
 		pcdev->active = buf;
 		pcdev->ready = NULL;
 
 		if (!buf) {
+			/*
+			 * No next buffer was ready on time (see above), so
+			 * indicate error condition to force capture restart or
+			 * stop, depending on next buffer already queued or not.
+			 */
 			result = VIDEOBUF_ERROR;
 			prepare_next_vb(pcdev);
 
@@ -561,22 +625,50 @@ static void videobuf_done(struct omap1_cam_dev *pcdev,
 			pcdev->ready = NULL;
 		}
 	} else if (pcdev->ready) {
+		/*
+		 * In both CONTIG and SG mode, the DMA engine has possibly
+		 * been already autoreinitialized with the preprogrammed
+		 * pcdev->ready buffer.  We can either accept this fact
+		 * and just swap the buffers, or provoke an error condition
+		 * and restart capture.  The former seems less intrusive.
+		 */
 		dev_dbg(dev, "%s: nobody waiting on videobuf, swap with next\n",
 				__func__);
 		pcdev->active = pcdev->ready;
 
 		if (pcdev->vb_mode == OMAP1_CAM_DMA_SG) {
+			/*
+			 * In SG mode, we have to make sure that the buffer we
+			 * are putting back into the pcdev->ready is marked
+			 * fresh.
+			 */
 			buf->sgbuf = NULL;
 		}
 		pcdev->ready = buf;
 
 		buf = pcdev->active;
 	} else {
+		/*
+		 * No next buffer has been entered into
+		 * the DMA programming register set on time.
+		 */
 		if (pcdev->vb_mode == OMAP1_CAM_DMA_CONTIG) {
+			/*
+			 * In CONTIG mode, the DMA engine has already been
+			 * reinitialized with the current buffer. Best we can do
+			 * is not touching it.
+			 */
 			dev_dbg(dev,
 				"%s: nobody waiting on videobuf, reuse it\n",
 				__func__);
 		} else {
+			/*
+			 * In SG mode, the DMA engine has just been
+			 * autoreinitialized with the last sgbuf from the
+			 * current list. Restart capture in order to transfer
+			 * next frame start into the first sgbuf, not the last
+			 * one.
+			 */
 			if (result != VIDEOBUF_ERROR) {
 				suspend_capture(pcdev);
 				result = VIDEOBUF_ERROR;
@@ -591,12 +683,25 @@ static void videobuf_done(struct omap1_cam_dev *pcdev,
 	}
 
 	if (pcdev->vb_mode == OMAP1_CAM_DMA_CONTIG) {
+		/*
+		 * In CONTIG mode, the current buffer parameters had already
+		 * been entered into the DMA programming register set while the
+		 * buffer was fetched with prepare_next_vb(), they may have also
+		 * been transferred into the runtime set and already active if
+		 * the DMA still running.
+		 */
 	} else {
-		
+		/* In SG mode, extra steps are required */
 		if (result == VIDEOBUF_ERROR)
-			
+			/* make sure we (re)use sglist from start on error */
 			buf->sgbuf = NULL;
 
+		/*
+		 * In any case, enter the next sgbuf parameters into the DMA
+		 * programming register set.  They will be used either during
+		 * nearest DMA autoreinitialization or, in case of an error,
+		 * on DMA startup below.
+		 */
 		try_next_sgbuf(pcdev->dma_ch, buf);
 	}
 
@@ -604,8 +709,18 @@ static void videobuf_done(struct omap1_cam_dev *pcdev,
 		dev_dbg(dev, "%s: videobuf error; reset FIFO, restart DMA\n",
 				__func__);
 		start_capture(pcdev);
+		/*
+		 * In SG mode, the above also resulted in the next sgbuf
+		 * parameters being entered into the DMA programming register
+		 * set, making them ready for next DMA autoreinitialization.
+		 */
 	}
 
+	/*
+	 * Finally, try fetching next buffer.
+	 * In CONTIG mode, it will also enter it into the DMA programming
+	 * register set, making it ready for next DMA autoreinitialization.
+	 */
 	prepare_next_vb(pcdev);
 }
 
@@ -624,16 +739,47 @@ static void dma_isr(int channel, unsigned short status, void *data)
 	}
 
 	if (pcdev->vb_mode == OMAP1_CAM_DMA_CONTIG) {
+		/*
+		 * In CONTIG mode, assume we have just managed to collect the
+		 * whole frame, hopefully before our end of frame watchdog is
+		 * triggered. Then, all we have to do is disabling the watchdog
+		 * for this frame, and calling videobuf_done() with success
+		 * indicated.
+		 */
 		CAM_WRITE(pcdev, MODE,
 				CAM_READ_CACHE(pcdev, MODE) & ~EN_V_DOWN);
 		videobuf_done(pcdev, VIDEOBUF_DONE);
 	} else {
+		/*
+		 * In SG mode, we have to process every sgbuf from the current
+		 * sglist, one after another.
+		 */
 		if (buf->sgbuf) {
+			/*
+			 * Current sglist not completed yet, try fetching next
+			 * sgbuf, hopefully putting it into the DMA programming
+			 * register set, making it ready for next DMA
+			 * autoreinitialization.
+			 */
 			try_next_sgbuf(pcdev->dma_ch, buf);
 			if (buf->sgbuf)
 				goto out;
 
+			/*
+			 * No more sgbufs left in the current sglist. This
+			 * doesn't mean that the whole videobuffer is already
+			 * complete, but only that the last sgbuf from the
+			 * current sglist is about to be filled. It will be
+			 * ready on next DMA interrupt, signalled with the
+			 * buf->sgbuf set back to NULL.
+			 */
 			if (buf->result != VIDEOBUF_ERROR) {
+				/*
+				 * Video frame collected without errors so far,
+				 * we can prepare for collecting a next one
+				 * as soon as DMA gets autoreinitialized
+				 * after the current (last) sgbuf is completed.
+				 */
 				buf = prepare_next_vb(pcdev);
 				if (!buf)
 					goto out;
@@ -642,7 +788,7 @@ static void dma_isr(int channel, unsigned short status, void *data)
 				goto out;
 			}
 		}
-		
+		/* end of videobuf */
 		videobuf_done(pcdev, buf->result);
 	}
 
@@ -676,10 +822,23 @@ static irqreturn_t cam_isr(int irq, void *data)
 		dev_warn(dev, "%s: FIFO overflow\n", __func__);
 
 	} else if (it_status & V_DOWN) {
-		
+		/* end of video frame watchdog */
 		if (pcdev->vb_mode == OMAP1_CAM_DMA_CONTIG) {
+			/*
+			 * In CONTIG mode, the watchdog is disabled with
+			 * successful DMA end of block interrupt, and reenabled
+			 * on next frame start. If we get here, there is nothing
+			 * to check, we must be out of sync.
+			 */
 		} else {
 			if (buf->sgcount == 2) {
+				/*
+				 * If exactly 2 sgbufs from the next sglist have
+				 * been programmed into the DMA engine (the
+				 * first one already transferred into the DMA
+				 * runtime register set, the second one still
+				 * in the programming set), then we are in sync.
+				 */
 				goto out;
 			}
 		}
@@ -690,13 +849,22 @@ static irqreturn_t cam_isr(int irq, void *data)
 		u32 mode;
 
 		if (pcdev->vb_mode == OMAP1_CAM_DMA_CONTIG) {
+			/*
+			 * In CONTIG mode, we need this interrupt every frame
+			 * in oredr to reenable our end of frame watchdog.
+			 */
 			mode = CAM_READ_CACHE(pcdev, MODE);
 		} else {
+			/*
+			 * In SG mode, the below enabled end of frame watchdog
+			 * is kept on permanently, so we can turn this one shot
+			 * setup off.
+			 */
 			mode = CAM_READ_CACHE(pcdev, MODE) & ~EN_V_UP;
 		}
 
 		if (!(mode & EN_V_DOWN)) {
-			
+			/* (re)enable end of frame watchdog interrupt */
 			mode |= EN_V_DOWN;
 		}
 		CAM_WRITE(pcdev, MODE, mode);
@@ -722,16 +890,23 @@ static struct videobuf_queue_ops omap1_videobuf_ops = {
 };
 
 
+/*
+ * SOC Camera host operations
+ */
 
 static void sensor_reset(struct omap1_cam_dev *pcdev, bool reset)
 {
-	
+	/* apply/release camera sensor reset if requested by platform data */
 	if (pcdev->pflags & OMAP1_CAMERA_RST_HIGH)
 		CAM_WRITE(pcdev, GPIO, reset);
 	else if (pcdev->pflags & OMAP1_CAMERA_RST_LOW)
 		CAM_WRITE(pcdev, GPIO, !reset);
 }
 
+/*
+ * The following two functions absolutely depend on the fact, that
+ * there can be only one camera on OMAP1 camera sensor interface
+ */
 static int omap1_cam_add_device(struct soc_camera_device *icd)
 {
 	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
@@ -743,7 +918,7 @@ static int omap1_cam_add_device(struct soc_camera_device *icd)
 
 	clk_enable(pcdev->clk);
 
-	
+	/* setup sensor clock */
 	ctrlclock = CAM_READ(pcdev, CTRLCLOCK);
 	ctrlclock &= ~(CAMEXCLK_EN | MCLK_EN | DPLL_EN);
 	CAM_WRITE(pcdev, CTRLCLOCK, ctrlclock);
@@ -769,7 +944,7 @@ static int omap1_cam_add_device(struct soc_camera_device *icd)
 	}
 	CAM_WRITE(pcdev, CTRLCLOCK, ctrlclock & ~DPLL_EN);
 
-	
+	/* enable internal clock */
 	ctrlclock |= MCLK_EN;
 	CAM_WRITE(pcdev, CTRLCLOCK, ctrlclock);
 
@@ -795,7 +970,7 @@ static void omap1_cam_remove_device(struct soc_camera_device *icd)
 
 	sensor_reset(pcdev, true);
 
-	
+	/* disable and release system clocks */
 	ctrlclock = CAM_READ_CACHE(pcdev, CTRLCLOCK);
 	ctrlclock &= ~(MCLK_EN | DPLL_EN | CAMEXCLK_EN);
 	CAM_WRITE(pcdev, CTRLCLOCK, ctrlclock);
@@ -814,6 +989,7 @@ static void omap1_cam_remove_device(struct soc_camera_device *icd)
 		"OMAP1 Camera driver detached from camera %d\n", icd->devnum);
 }
 
+/* Duplicate standard formats based on host capability of byte swapping */
 static const struct soc_mbus_lookup omap1_cam_formats[] = {
 {
 	.code = V4L2_MBUS_FMT_UYVY8_2X8,
@@ -901,7 +1077,7 @@ static int omap1_cam_get_formats(struct soc_camera_device *icd,
 
 	ret = v4l2_subdev_call(sd, video, enum_mbus_fmt, idx, &code);
 	if (ret < 0)
-		
+		/* No more formats */
 		return 0;
 
 	fmt = soc_mbus_get_fmtdesc(code);
@@ -911,7 +1087,7 @@ static int omap1_cam_get_formats(struct soc_camera_device *icd,
 		return 0;
 	}
 
-	
+	/* Check support for the requested bits-per-sample */
 	if (fmt->bits_per_sample != 8)
 		return 0;
 
@@ -1075,7 +1251,7 @@ static int omap1_cam_set_crop(struct soc_camera_device *icd,
 	}
 
 	if (!ret) {
-		
+		/* sensor returned geometry not DMA aligned, trying to fix */
 		ret = set_mbus_format(pcdev, dev, icd, sd, &mf, xlate);
 		if (ret < 0) {
 			dev_err(dev, "%s: failed to set format\n", __func__);
@@ -1146,7 +1322,7 @@ static int omap1_cam_try_fmt(struct soc_camera_device *icd,
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	struct v4l2_mbus_framefmt mf;
 	int ret;
-	
+	/* TODO: limit to mx1 hardware capabilities */
 
 	xlate = soc_camera_xlate_by_fourcc(icd, pix->pixelformat);
 	if (!xlate) {
@@ -1161,7 +1337,7 @@ static int omap1_cam_try_fmt(struct soc_camera_device *icd,
 	mf.colorspace	= pix->colorspace;
 	mf.code		= xlate->code;
 
-	
+	/* limit to sensor capabilities */
 	ret = v4l2_subdev_call(sd, video, try_mbus_fmt, &mf);
 	if (ret < 0)
 		return ret;
@@ -1176,6 +1352,11 @@ static int omap1_cam_try_fmt(struct soc_camera_device *icd,
 
 static bool sg_mode;
 
+/*
+ * Local mmap_mapper wrapper,
+ * used for detecting videobuf-dma-contig buffer allocation failures
+ * and switching to videobuf-dma-sg automatically for future attempts.
+ */
 static int omap1_cam_mmap_mapper(struct videobuf_queue *q,
 				  struct videobuf_buffer *buf,
 				  struct vm_area_struct *vma)
@@ -1210,9 +1391,14 @@ static void omap1_cam_init_videobuf(struct videobuf_queue *q,
 				V4L2_BUF_TYPE_VIDEO_CAPTURE, V4L2_FIELD_NONE,
 				sizeof(struct omap1_cam_buf), icd, &icd->video_lock);
 
-	
+	/* use videobuf mode (auto)selected with the module parameter */
 	pcdev->vb_mode = sg_mode ? OMAP1_CAM_DMA_SG : OMAP1_CAM_DMA_CONTIG;
 
+	/*
+	 * Ensure we substitute the videobuf-dma-contig version of the
+	 * mmap_mapper() callback with our own wrapper, used for switching
+	 * automatically to videobuf-dma-sg on buffer allocation failure.
+	 */
 	if (!sg_mode && q->int_ops->mmap_mapper != omap1_cam_mmap_mapper) {
 		pcdev->mmap_mapper = q->int_ops->mmap_mapper;
 		q->int_ops->mmap_mapper = omap1_cam_mmap_mapper;
@@ -1224,6 +1410,12 @@ static int omap1_cam_reqbufs(struct soc_camera_device *icd,
 {
 	int i;
 
+	/*
+	 * This is for locking debugging only. I removed spinlocks and now I
+	 * check whether .prepare is ever called on a linked buffer, or whether
+	 * a dma IRQ can occur for an in-work or unlinked buffer. Until now
+	 * it hadn't triggered
+	 */
 	for (i = 0; i < p->count; i++) {
 		struct omap1_cam_buf *buf = container_of(icd->vb_vidq.bufs[i],
 						      struct omap1_cam_buf, vb);
@@ -1237,7 +1429,7 @@ static int omap1_cam_reqbufs(struct soc_camera_device *icd,
 static int omap1_cam_querycap(struct soc_camera_host *ici,
 			       struct v4l2_capability *cap)
 {
-	
+	/* cap->name is set by the friendly caller:-> */
 	strlcpy(cap->card, "OMAP1 Camera", sizeof(cap->card));
 	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 
@@ -1273,7 +1465,7 @@ static int omap1_cam_set_bus_param(struct soc_camera_device *icd)
 		common_flags = SOCAM_BUS_FLAGS;
 	}
 
-	
+	/* Make choices, possibly based on platform configuration */
 	if ((common_flags & V4L2_MBUS_PCLK_SAMPLE_RISING) &&
 			(common_flags & V4L2_MBUS_PCLK_SAMPLE_FALLING)) {
 		if (!pcdev->pdata ||
@@ -1307,7 +1499,7 @@ static int omap1_cam_set_bus_param(struct soc_camera_device *icd)
 	if (ctrlclock & LCLK_EN)
 		CAM_WRITE(pcdev, CTRLCLOCK, ctrlclock);
 
-	
+	/* select bus endianess */
 	xlate = soc_camera_xlate_by_fourcc(icd, pixfmt);
 	fmt = xlate->host_fmt;
 
@@ -1401,7 +1593,7 @@ static int __init omap1_cam_probe(struct platform_device *pdev)
 	case 24000000:
 		break;
 	default:
-		
+		/* pcdev->camexclk != 0 => pcdev->pdata != NULL */
 		dev_warn(&pdev->dev,
 				"Incorrect sensor clock frequency %ld kHz, "
 				"should be one of 0, 6, 8, 9.6, 12 or 24 MHz, "
@@ -1415,6 +1607,9 @@ static int __init omap1_cam_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&pcdev->capture);
 	spin_lock_init(&pcdev->lock);
 
+	/*
+	 * Request the region.
+	 */
 	if (!request_mem_region(res->start, resource_size(res), DRIVER_NAME)) {
 		err = -EBUSY;
 		goto exit_kfree;
@@ -1439,12 +1634,12 @@ static int __init omap1_cam_probe(struct platform_device *pdev)
 	}
 	dev_dbg(&pdev->dev, "got DMA channel %d\n", pcdev->dma_ch);
 
-	
+	/* preconfigure DMA */
 	omap_set_dma_src_params(pcdev->dma_ch, OMAP_DMA_PORT_TIPB,
 			OMAP_DMA_AMODE_CONSTANT, res->start + REG_CAMDATA,
 			0, 0);
 	omap_set_dma_dest_burst_mode(pcdev->dma_ch, OMAP_DMA_DATA_BURST_4);
-	
+	/* setup DMA autoinitialization */
 	omap_dma_link_lch(pcdev->dma_ch, pcdev->dma_ch);
 
 	err = request_irq(pcdev->irq, cam_isr, 0, DRIVER_NAME, pcdev);

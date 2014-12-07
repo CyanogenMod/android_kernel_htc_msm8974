@@ -31,7 +31,7 @@ static int prepare_data(u8 cmd, struct sk_buff **skbp, size_t size)
 	if (!skb)
 		return -ENOMEM;
 
-	
+	/* add the message headers */
 	data = genlmsg_put(skb, 0, dlm_nl_seqnum++, &family, 0, cmd);
 	if (!data) {
 		nlmsg_free(skb);
@@ -120,7 +120,7 @@ void dlm_timeout_warn(struct dlm_lkb *lkb)
 	int rv;
 
 	size = nla_total_size(sizeof(struct dlm_lock_data)) +
-	       nla_total_size(0); 
+	       nla_total_size(0); /* why this? */
 
 	rv = prepare_data(DLM_CMD_TIMEOUT, &send_skb, size);
 	if (rv < 0)

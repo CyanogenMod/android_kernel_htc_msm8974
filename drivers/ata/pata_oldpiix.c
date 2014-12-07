@@ -1,3 +1,17 @@
+/*
+ *    pata_oldpiix.c - Intel PATA/SATA controllers
+ *
+ *	(C) 2005 Red Hat
+ *
+ *    Some parts based on ata_piix.c by Jeff Garzik and others.
+ *
+ *    Early PIIX differs significantly from the later PIIX as it lacks
+ *    SITRE and the slave timing registers. This means that you have to
+ *    set timing per channel, or be clever. Libata tells us whenever it
+ *    does drive selection and we use this to reload the timings.
+ *
+ *    Because of these behaviour differences PIIX gets its own driver module.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -13,14 +27,21 @@
 #define DRV_NAME	"pata_oldpiix"
 #define DRV_VERSION	"0.5.5"
 
+/**
+ *	oldpiix_pre_reset		-	probe begin
+ *	@link: ATA link
+ *	@deadline: deadline jiffies for the operation
+ *
+ *	Set up cable type and use generic probe init
+ */
 
 static int oldpiix_pre_reset(struct ata_link *link, unsigned long deadline)
 {
 	struct ata_port *ap = link->ap;
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	static const struct pci_bits oldpiix_enable_bits[] = {
-		{ 0x41U, 1U, 0x80UL, 0x80UL },	
-		{ 0x43U, 1U, 0x80UL, 0x80UL },	
+		{ 0x41U, 1U, 0x80UL, 0x80UL },	/* port 0 */
+		{ 0x43U, 1U, 0x80UL, 0x80UL },	/* port 1 */
 	};
 
 	if (!pci_test_config_bits(pdev, &oldpiix_enable_bits[ap->port_no]))
@@ -29,6 +50,16 @@ static int oldpiix_pre_reset(struct ata_link *link, unsigned long deadline)
 	return ata_sff_prereset(link, deadline);
 }
 
+/**
+ *	oldpiix_set_piomode - Initialize host controller PATA PIO timings
+ *	@ap: Port whose timings we are configuring
+ *	@adev: Device whose timings we are configuring
+ *
+ *	Set PIO mode for device, in host controller PCI config space.
+ *
+ *	LOCKING:
+ *	None (inherited from caller).
+ */
 
 static void oldpiix_set_piomode (struct ata_port *ap, struct ata_device *adev)
 {
@@ -38,8 +69,13 @@ static void oldpiix_set_piomode (struct ata_port *ap, struct ata_device *adev)
 	u16 idetm_data;
 	int control = 0;
 
+	/*
+	 *	See Intel Document 298600-004 for the timing programing rules
+	 *	for PIIX/ICH. Note that the early PIIX does not have the slave
+	 *	timing port at 0x44.
+	 */
 
-	static const	 
+	static const	 /* ISP  RTC */
 	u8 timings[][2]	= { { 0, 0 },
 			    { 0, 0 },
 			    { 1, 0 },
@@ -47,16 +83,20 @@ static void oldpiix_set_piomode (struct ata_port *ap, struct ata_device *adev)
 			    { 2, 3 }, };
 
 	if (pio > 1)
-		control |= 1;	
+		control |= 1;	/* TIME */
 	if (ata_pio_need_iordy(adev))
-		control |= 2;	
+		control |= 2;	/* IE */
 
-	
+	/* Intel specifies that the prefetch/posting is for disk only */
 	if (adev->class == ATA_DEV_ATA)
-		control |= 4;	
+		control |= 4;	/* PPE */
 
 	pci_read_config_word(dev, idetm_port, &idetm_data);
 
+	/*
+	 * Set PPE, IE and TIME as appropriate.
+	 * Clear the other drive's timing bits.
+	 */
 	if (adev->devno == 0) {
 		idetm_data &= 0xCCE0;
 		idetm_data |= control;
@@ -68,10 +108,20 @@ static void oldpiix_set_piomode (struct ata_port *ap, struct ata_device *adev)
 			(timings[pio][1] << 8);
 	pci_write_config_word(dev, idetm_port, idetm_data);
 
-	
+	/* Track which port is configured */
 	ap->private_data = adev;
 }
 
+/**
+ *	oldpiix_set_dmamode - Initialize host controller PATA DMA timings
+ *	@ap: Port whose timings we are configuring
+ *	@adev: Device to program
+ *
+ *	Set MWDMA mode for device, in host controller PCI config space.
+ *
+ *	LOCKING:
+ *	None (inherited from caller).
+ */
 
 static void oldpiix_set_dmamode (struct ata_port *ap, struct ata_device *adev)
 {
@@ -79,13 +129,18 @@ static void oldpiix_set_dmamode (struct ata_port *ap, struct ata_device *adev)
 	u8 idetm_port		= ap->port_no ? 0x42 : 0x40;
 	u16 idetm_data;
 
-	static const	 
+	static const	 /* ISP  RTC */
 	u8 timings[][2]	= { { 0, 0 },
 			    { 0, 0 },
 			    { 1, 0 },
 			    { 2, 1 },
 			    { 2, 3 }, };
 
+	/*
+	 * MWDMA is driven by the PIO timings. We must also enable
+	 * IORDY unconditionally along with TIME1. PPE has already
+	 * been set when the PIO timing was set.
+	 */
 
 	unsigned int mwdma	= adev->dma_mode - XFER_MW_DMA_0;
 	unsigned int control;
@@ -96,16 +151,20 @@ static void oldpiix_set_dmamode (struct ata_port *ap, struct ata_device *adev)
 
 	pci_read_config_word(dev, idetm_port, &idetm_data);
 
-	control = 3;	
-	
+	control = 3;	/* IORDY|TIME0 */
+	/* Intel specifies that the PPE functionality is for disk only */
 	if (adev->class == ATA_DEV_ATA)
-		control |= 4;	
+		control |= 4;	/* PPE enable */
 
+	/* If the drive MWDMA is faster than it can do PIO then
+	   we must force PIO into PIO0 */
 
 	if (adev->pio_mode < needed_pio[mwdma])
-		
-		control |= 8;	
+		/* Enable DMA timing only */
+		control |= 8;	/* PIO cycles in PIO0 */
 
+	/* Mask out the relevant control and timing bits we will load. Also
+	   clear the other drive TIME register as a precaution */
 	if (adev->devno == 0) {
 		idetm_data &= 0xCCE0;
 		idetm_data |= control;
@@ -116,10 +175,20 @@ static void oldpiix_set_dmamode (struct ata_port *ap, struct ata_device *adev)
 	idetm_data |= (timings[pio][0] << 12) | (timings[pio][1] << 8);
 	pci_write_config_word(dev, idetm_port, idetm_data);
 
-	
+	/* Track which port is configured */
 	ap->private_data = adev;
 }
 
+/**
+ *	oldpiix_qc_issue	-	command issue
+ *	@qc: command pending
+ *
+ *	Called when the libata layer is about to issue a command. We wrap
+ *	this interface so that we can load the correct ATA timings if
+ *	necessary. Our logic also clears TIME0/TIME1 for the other device so
+ *	that, even if we get this wrong, cycles to the other device will
+ *	be made PIO0.
+ */
 
 static unsigned int oldpiix_qc_issue(struct ata_queued_cmd *qc)
 {
@@ -149,6 +218,20 @@ static struct ata_port_operations oldpiix_pata_ops = {
 };
 
 
+/**
+ *	oldpiix_init_one - Register PIIX ATA PCI device with kernel services
+ *	@pdev: PCI device to register
+ *	@ent: Entry in oldpiix_pci_tbl matching with @pdev
+ *
+ *	Called from kernel PCI layer.  We probe for combined mode (sigh),
+ *	and then hand over control to libata, for it to do the rest.
+ *
+ *	LOCKING:
+ *	Inherited from PCI layer (may sleep).
+ *
+ *	RETURNS:
+ *	Zero on success, or -ERRNO value.
+ */
 
 static int oldpiix_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 {
@@ -168,7 +251,7 @@ static int oldpiix_init_one (struct pci_dev *pdev, const struct pci_device_id *e
 static const struct pci_device_id oldpiix_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, 0x1230), },
 
-	{ }	
+	{ }	/* terminate list */
 };
 
 static struct pci_driver oldpiix_pci_driver = {

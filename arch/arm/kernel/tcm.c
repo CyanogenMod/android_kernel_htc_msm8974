@@ -12,7 +12,7 @@
 #include <linux/stddef.h>
 #include <linux/ioport.h>
 #include <linux/genalloc.h>
-#include <linux/string.h> 
+#include <linux/string.h> /* memcpy */
 #include <asm/cputype.h>
 #include <asm/mach/map.h>
 #include <asm/memory.h>
@@ -23,12 +23,17 @@ static struct gen_pool *tcm_pool;
 static bool dtcm_present;
 static bool itcm_present;
 
+/* TCM section definitions from the linker */
 extern char __itcm_start, __sitcm_text, __eitcm_text;
 extern char __dtcm_start, __sdtcm_data, __edtcm_data;
 
+/* These will be increased as we run */
 u32 dtcm_end = DTCM_OFFSET;
 u32 itcm_end = ITCM_OFFSET;
 
+/*
+ * TCM memory resources
+ */
 static struct resource dtcm_res = {
 	.name = "DTCM RAM",
 	.start = DTCM_OFFSET,
@@ -61,6 +66,9 @@ static struct map_desc itcm_iomap[] __initdata = {
 	}
 };
 
+/*
+ * Allocate a chunk of TCM memory
+ */
 void *tcm_alloc(size_t len)
 {
 	unsigned long vaddr;
@@ -76,6 +84,9 @@ void *tcm_alloc(size_t len)
 }
 EXPORT_SYMBOL(tcm_alloc);
 
+/*
+ * Free a chunk of TCM memory
+ */
 void tcm_free(void *addr, size_t len)
 {
 	gen_pool_free(tcm_pool, (unsigned long) addr, len);
@@ -102,12 +113,17 @@ static int __init setup_tcm_bank(u8 type, u8 bank, u8 banks,
 	u32 tcm_region;
 	int tcm_size;
 
+	/*
+	 * If there are more than one TCM bank of this type,
+	 * select the TCM bank to operate on in the TCM selection
+	 * register.
+	 */
 	if (banks > 1)
 		asm("mcr	p15, 0, %0, c9, c2, 0"
-		    : 
+		    : /* No output operands */
 		    : "r" (bank));
 
-	
+	/* Read the special TCM region register c9, 0 */
 	if (!type)
 		asm("mrc	p15, 0, %0, c9, c1, 0"
 		    : "=r" (tcm_region));
@@ -133,23 +149,23 @@ static int __init setup_tcm_bank(u8 type, u8 bank, u8 banks,
 			(tcm_region & 1) ? "" : "not ");
 	}
 
-	
+	/* Not much fun you can do with a size 0 bank */
 	if (tcm_size == 0)
 		return 0;
 
-	
+	/* Force move the TCM bank to where we want it, enable */
 	tcm_region = *offset | (tcm_region & 0x00000ffeU) | 1;
 
 	if (!type)
 		asm("mcr	p15, 0, %0, c9, c1, 0"
-		    : 
+		    : /* No output operands */
 		    : "r" (tcm_region));
 	else
 		asm("mcr	p15, 0, %0, c9, c1, 1"
-		    : 
+		    : /* No output operands */
 		    : "r" (tcm_region));
 
-	
+	/* Increase offset */
 	*offset += (tcm_size << 10);
 
 	pr_info("CPU: moved %sTCM%d %dk to %08x, enabled\n",
@@ -160,6 +176,9 @@ static int __init setup_tcm_bank(u8 type, u8 bank, u8 banks,
 	return 0;
 }
 
+/*
+ * This initializes the TCM memory
+ */
 void __init tcm_init(void)
 {
 	u32 tcm_status;
@@ -173,6 +192,10 @@ void __init tcm_init(void)
 	int ret;
 	int i;
 
+	/*
+	 * Prior to ARMv5 there is no TCM, and trying to read the status
+	 * register will hang the processor.
+	 */
 	if (cpu_architecture() < CPU_ARCH_ARMv5) {
 		if (dtcm_code_sz || itcm_code_sz)
 			pr_info("CPU TCM: %u bytes of DTCM and %u bytes of "
@@ -185,20 +208,20 @@ void __init tcm_init(void)
 	dtcm_banks = (tcm_status >> 16) & 0x03;
 	itcm_banks = (tcm_status & 0x03);
 
-	
+	/* Values greater than 2 for D/ITCM banks are "reserved" */
 	if (dtcm_banks > 2)
 		dtcm_banks = 0;
 	if (itcm_banks > 2)
 		itcm_banks = 0;
 
-	
+	/* Setup DTCM if present */
 	if (dtcm_banks > 0) {
 		for (i = 0; i < dtcm_banks; i++) {
 			ret = setup_tcm_bank(0, i, dtcm_banks, &dtcm_end);
 			if (ret)
 				return;
 		}
-		
+		/* This means you compiled more code than fits into DTCM */
 		if (dtcm_code_sz > (dtcm_end - DTCM_OFFSET)) {
 			pr_info("CPU DTCM: %u bytes of code compiled to "
 				"DTCM but only %lu bytes of DTCM present\n",
@@ -209,7 +232,7 @@ void __init tcm_init(void)
 		request_resource(&iomem_resource, &dtcm_res);
 		dtcm_iomap[0].length = dtcm_end - DTCM_OFFSET;
 		iotable_init(dtcm_iomap, 1);
-		
+		/* Copy data from RAM to DTCM */
 		start = &__sdtcm_data;
 		end   = &__edtcm_data;
 		ram   = &__dtcm_start;
@@ -223,14 +246,14 @@ void __init tcm_init(void)
 	}
 
 no_dtcm:
-	
+	/* Setup ITCM if present */
 	if (itcm_banks > 0) {
 		for (i = 0; i < itcm_banks; i++) {
 			ret = setup_tcm_bank(1, i, itcm_banks, &itcm_end);
 			if (ret)
 				return;
 		}
-		
+		/* This means you compiled more code than fits into ITCM */
 		if (itcm_code_sz > (itcm_end - ITCM_OFFSET)) {
 			pr_info("CPU ITCM: %u bytes of code compiled to "
 				"ITCM but only %lu bytes of ITCM present\n",
@@ -241,7 +264,7 @@ no_dtcm:
 		request_resource(&iomem_resource, &itcm_res);
 		itcm_iomap[0].length = itcm_end - ITCM_OFFSET;
 		iotable_init(itcm_iomap, 1);
-		
+		/* Copy code from RAM to ITCM */
 		start = &__sitcm_text;
 		end   = &__eitcm_text;
 		ram   = &__itcm_start;
@@ -255,17 +278,27 @@ no_dtcm:
 	}
 }
 
+/*
+ * This creates the TCM memory pool and has to be done later,
+ * during the core_initicalls, since the allocator is not yet
+ * up and running when the first initialization runs.
+ */
 static int __init setup_tcm_pool(void)
 {
 	u32 dtcm_pool_start = (u32) &__edtcm_data;
 	u32 itcm_pool_start = (u32) &__eitcm_text;
 	int ret;
 
+	/*
+	 * Set up malloc pool, 2^2 = 4 bytes granularity since
+	 * the TCM is sometimes just 4 KiB. NB: pages and cache
+	 * line alignments does not matter in TCM!
+	 */
 	tcm_pool = gen_pool_create(2, -1);
 
 	pr_debug("Setting up TCM memory pool\n");
 
-	
+	/* Add the rest of DTCM to the TCM pool */
 	if (dtcm_present) {
 		if (dtcm_pool_start < dtcm_end) {
 			ret = gen_pool_add(tcm_pool, dtcm_pool_start,
@@ -282,7 +315,7 @@ static int __init setup_tcm_pool(void)
 		}
 	}
 
-	
+	/* Add the rest of ITCM to the TCM pool */
 	if (itcm_present) {
 		if (itcm_pool_start < itcm_end) {
 			ret = gen_pool_add(tcm_pool, itcm_pool_start,

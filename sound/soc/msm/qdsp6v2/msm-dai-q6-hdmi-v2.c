@@ -28,7 +28,7 @@
 #define HDMI_RX_CA_MAX 0x32
 
 enum {
-	STATUS_PORT_STARTED, 
+	STATUS_PORT_STARTED, /* track if AFE port has started */
 	STATUS_MAX
 };
 
@@ -82,6 +82,10 @@ static int msm_dai_q6_hdmi_ca_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/* HDMI format field for AFE_PORT_MULTI_CHAN_HDMI_AUDIO_IF_CONFIG command
+ *  0: linear PCM
+ *  1: non-linear PCM
+ */
 static const char * const hdmi_format[] = {
 	"LPCM",
 	"Compr"
@@ -101,6 +105,10 @@ static const struct snd_kcontrol_new hdmi_config_controls[] = {
 				 msm_dai_q6_hdmi_ca_put),
 };
 
+/* Current implementation assumes hw_param is called once
+ * This may not be the case but what to do when ADM and AFE
+ * port are already opened and parameter changes
+ */
 static int msm_dai_q6_hdmi_hw_params(struct snd_pcm_substream *substream,
 				struct snd_pcm_hw_params *params,
 				struct snd_soc_dai *dai)
@@ -121,7 +129,7 @@ static int msm_dai_q6_hdmi_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/*refer to HDMI spec CEA-861-E: Table 28 Audio InfoFrame Data Byte 4*/
 	switch (dai_data->channels) {
 	case 2:
 		dai_data->port_config.hdmi_multi_ch.channel_allocation = 0;
@@ -174,7 +182,7 @@ static void msm_dai_q6_hdmi_shutdown(struct snd_pcm_substream *substream,
 		return;
 	}
 
-	rc = afe_close(dai->id); 
+	rc = afe_close(dai->id); /* can block */
 
 	if (IS_ERR_VALUE(rc))
 		dev_err(dai->dev, "fail to close AFE port\n");
@@ -246,9 +254,9 @@ static int msm_dai_q6_hdmi_dai_remove(struct snd_soc_dai *dai)
 
 	dai_data = dev_get_drvdata(dai->dev);
 
-	
+	/* If AFE port is still up, close it */
 	if (test_bit(STATUS_PORT_STARTED, dai_data->status_mask)) {
-		rc = afe_close(dai->id); 
+		rc = afe_close(dai->id); /* can block */
 
 		if (IS_ERR_VALUE(rc))
 			dev_err(dai->dev, "fail to close AFE port\n");
@@ -283,6 +291,7 @@ static struct snd_soc_dai_driver msm_dai_q6_hdmi_hdmi_rx_dai = {
 };
 
 
+/* To do: change to register DAIs as batch */
 static __devinit int msm_dai_q6_hdmi_dev_probe(struct platform_device *pdev)
 {
 	int rc, id;
@@ -348,5 +357,6 @@ static void __exit msm_dai_q6_hdmi_exit(void)
 }
 module_exit(msm_dai_q6_hdmi_exit);
 
+/* Module information */
 MODULE_DESCRIPTION("MSM DSP HDMI DAI driver");
 MODULE_LICENSE("GPL v2");

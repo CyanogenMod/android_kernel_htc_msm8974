@@ -15,6 +15,7 @@
 #include <asm/txx9/generic.h>
 #include <asm/txx9/tx4939.h>
 
+/* Address map */
 #define RBTX4939_IOC_REG_ADDR	(IO_BASE + TXX9_CE(1) + 0x00000000)
 #define RBTX4939_BOARD_REV_ADDR	(IO_BASE + TXX9_CE(1) + 0x00000000)
 #define RBTX4939_IOC_REV_ADDR	(IO_BASE + TXX9_CE(1) + 0x00000002)
@@ -50,8 +51,10 @@
 #define RBTX4939_RESETSTAT_ADDR	(IO_BASE + TXX9_CE(1) + 0x00007004)
 #define RBTX4939_ETHER_BASE	(IO_BASE + TXX9_CE(1) + 0x00020000)
 
+/* Ethernet port address */
 #define RBTX4939_ETHER_ADDR	(RBTX4939_ETHER_BASE + 0x300)
 
+/* bits for IEN/IPOL/IFAC */
 #define RBTX4938_INTB_ISA0	0
 #define RBTX4938_INTB_ISA11	1
 #define RBTX4938_INTB_ISA12	2
@@ -65,6 +68,7 @@
 #define RBTX4938_INTF_I2S	(1 << RBTX4938_INTB_I2S)
 #define RBTX4938_INTF_SW	(1 << RBTX4938_INTB_SW)
 
+/* bits for PE1,PE2,PE3 */
 #define RBTX4939_PE1_ATA(ch)	(0x01 << (ch))
 #define RBTX4939_PE1_RMII(ch)	(0x04 << (ch))
 #define RBTX4939_PE2_SIO0	0x01
@@ -110,12 +114,17 @@
 #define rbtx4939_reseten_addr	((u8 __iomem *)RBTX4939_RESETEN_ADDR)
 #define rbtx4939_resetstat_addr	((u8 __iomem *)RBTX4939_RESETSTAT_ADDR)
 
+/*
+ * IRQ mappings
+ */
 #define RBTX4939_NR_IRQ_IOC	8
 
 #define RBTX4939_IRQ_IOC	(TXX9_IRQ_BASE + TX4939_NUM_IR)
 #define RBTX4939_IRQ_END	(RBTX4939_IRQ_IOC + RBTX4939_NR_IRQ_IOC)
 
+/* IOC (ISA, etc) */
 #define RBTX4939_IRQ_IOCINT	(TXX9_IRQ_BASE + TX4939_IR_INT(0))
+/* Onboard 10M Ether */
 #define RBTX4939_IRQ_ETHER	(TXX9_IRQ_BASE + TX4939_IR_INT(1))
 
 void rbtx4939_prom_init(void);
@@ -130,4 +139,4 @@ struct rbtx4939_flash_data {
 	void (*map_init)(struct map_info *map);
 };
 
-#endif 
+#endif /* __ASM_TXX9_RBTX4939_H */

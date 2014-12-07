@@ -60,6 +60,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *****************************************************************************/
+/*
+ * Please use this file (iwl-agn-hw.h) only for hardware-related definitions.
+ */
 
 #ifndef __iwl_agn_hw_h__
 #define __iwl_agn_hw_h__
@@ -84,6 +87,7 @@
 #define IWL60_RTC_DATA_SIZE \
 	(IWL60_RTC_DATA_UPPER_BOUND - IWL60_RTC_DATA_LOWER_BOUND)
 
+/* RSSI to dBm */
 #define IWLAGN_RSSI_OFFSET	44
 
 #define IWLAGN_DEFAULT_TX_RETRY			15
@@ -92,9 +96,11 @@
 #define IWLAGN_BAR_DFAULT_RETRY_LIMIT		60
 #define IWLAGN_LOW_RETRY_LIMIT			7
 
-#define IWLAGN_TX_POWER_TARGET_POWER_MIN	(0)	
-#define IWLAGN_TX_POWER_TARGET_POWER_MAX	(16)	
+/* Limit range of txpower output target to be between these values */
+#define IWLAGN_TX_POWER_TARGET_POWER_MIN	(0)	/* 0 dBm: 1 milliwatt */
+#define IWLAGN_TX_POWER_TARGET_POWER_MAX	(16)	/* 16 dBm */
 
+/* EEPROM */
 #define IWLAGN_EEPROM_IMG_SIZE		2048
 
 #define IWLAGN_CMD_FIFO_NUM		7
@@ -102,4 +108,4 @@
 #define IWLAGN_NUM_AMPDU_QUEUES		9
 #define IWLAGN_FIRST_AMPDU_QUEUE	11
 
-#endif 
+#endif /* __iwl_agn_hw_h__ */

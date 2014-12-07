@@ -28,6 +28,7 @@
 
 struct acpi_dmar_header;
 
+/* DMAR Flags */
 #define DMAR_INTR_REMAP		0x1
 #define DMAR_X2APIC_OPT_OUT	0x2
 
@@ -35,13 +36,13 @@ struct intel_iommu;
 #ifdef CONFIG_DMAR_TABLE
 extern struct acpi_table_header *dmar_tbl;
 struct dmar_drhd_unit {
-	struct list_head list;		
-	struct  acpi_dmar_header *hdr;	
-	u64	reg_base_addr;		
-	struct	pci_dev **devices; 	
-	int	devices_cnt;		
-	u16	segment;		
-	u8	ignored:1; 		
+	struct list_head list;		/* list of drhd units	*/
+	struct  acpi_dmar_header *hdr;	/* ACPI header		*/
+	u64	reg_base_addr;		/* register base address*/
+	struct	pci_dev **devices; 	/* target device array	*/
+	int	devices_cnt;		/* target device count	*/
+	u16	segment;		/* PCI domain		*/
+	u8	ignored:1; 		/* ignore drhd		*/
 	u8	include_all:1;
 	struct intel_iommu *iommu;
 };
@@ -62,6 +63,7 @@ extern struct list_head dmar_drhd_units;
 extern int dmar_table_init(void);
 extern int dmar_dev_scope_init(void);
 
+/* Intel IOMMU detection */
 extern int detect_intel_iommu(void);
 extern int enable_drhd_fault_handling(void);
 
@@ -81,7 +83,7 @@ static inline int enable_drhd_fault_handling(void)
 {
 	return -1;
 }
-#endif 
+#endif /* !CONFIG_DMAR_TABLE */
 
 struct irte {
 	union {
@@ -202,6 +204,9 @@ enum {
 	IRQ_REMAP_X2APIC_MODE,
 };
 
+/* Can't use the common MSI interrupt functions
+ * since DMAR is not a pci device
+ */
 struct irq_data;
 extern void dmar_msi_unmask(struct irq_data *data);
 extern void dmar_msi_mask(struct irq_data *data);
@@ -215,23 +220,23 @@ extern int arch_setup_dmar_msi(unsigned int irq);
 extern int iommu_detected, no_iommu;
 extern struct list_head dmar_rmrr_units;
 struct dmar_rmrr_unit {
-	struct list_head list;		
-	struct acpi_dmar_header *hdr;	
-	u64	base_address;		
-	u64	end_address;		
-	struct pci_dev **devices;	
-	int	devices_cnt;		
+	struct list_head list;		/* list of rmrr units	*/
+	struct acpi_dmar_header *hdr;	/* ACPI header		*/
+	u64	base_address;		/* reserved base address*/
+	u64	end_address;		/* reserved end address */
+	struct pci_dev **devices;	/* target devices */
+	int	devices_cnt;		/* target device count */
 };
 
 #define for_each_rmrr_units(rmrr) \
 	list_for_each_entry(rmrr, &dmar_rmrr_units, list)
 
 struct dmar_atsr_unit {
-	struct list_head list;		
-	struct acpi_dmar_header *hdr;	
-	struct pci_dev **devices;	
-	int devices_cnt;		
-	u8 include_all:1;		
+	struct list_head list;		/* list of ATSR units */
+	struct acpi_dmar_header *hdr;	/* ACPI header */
+	struct pci_dev **devices;	/* target devices */
+	int devices_cnt;		/* target device count */
+	u8 include_all:1;		/* include all ports */
 };
 
 int dmar_parse_rmrr_atsr_dev(void);
@@ -240,7 +245,7 @@ extern int dmar_parse_one_atsr(struct acpi_dmar_header *header);
 extern int dmar_parse_dev_scope(void *start, void *end, int *cnt,
 				struct pci_dev ***devices, u16 segment);
 extern int intel_iommu_init(void);
-#else 
+#else /* !CONFIG_INTEL_IOMMU: */
 static inline int intel_iommu_init(void) { return -ENODEV; }
 static inline int dmar_parse_one_rmrr(struct acpi_dmar_header *header)
 {
@@ -254,6 +259,6 @@ static inline int dmar_parse_rmrr_atsr_dev(void)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_INTEL_IOMMU */
 
-#endif 
+#endif /* __DMAR_H__ */

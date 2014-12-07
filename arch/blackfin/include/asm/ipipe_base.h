@@ -29,11 +29,13 @@
 
 #define IPIPE_NR_XIRQS		NR_IRQS
 
+/* Blackfin-specific, per-cpu pipeline status */
 #define IPIPE_SYNCDEFER_FLAG	15
 #define IPIPE_SYNCDEFER_MASK	(1L << IPIPE_SYNCDEFER_MASK)
 
- 
-#define IPIPE_NR_FAULTS		52 
+ /* Blackfin traps -- i.e. exception vector numbers */
+#define IPIPE_NR_FAULTS		52 /* We leave a gap after VEC_ILL_RES. */
+/* Pseudo-vectors used for kernel events */
 #define IPIPE_FIRST_EVENT	IPIPE_NR_FAULTS
 #define IPIPE_EVENT_SYSCALL	(IPIPE_FIRST_EVENT)
 #define IPIPE_EVENT_SCHEDULE	(IPIPE_FIRST_EVENT + 1)
@@ -52,7 +54,7 @@
 
 #ifndef __ASSEMBLY__
 
-extern unsigned long __ipipe_root_status; 
+extern unsigned long __ipipe_root_status; /* Alias to ipipe_root_cpudom_var(status) */
 
 void __ipipe_stall_root(void);
 
@@ -64,10 +66,10 @@ void __ipipe_lock_root(void);
 
 void __ipipe_unlock_root(void);
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #define __IPIPE_FEATURE_SYSINFO_V2	1
 
-#endif 
+#endif /* CONFIG_IPIPE */
 
-#endif 
+#endif /* !__ASM_BLACKFIN_IPIPE_BASE_H */

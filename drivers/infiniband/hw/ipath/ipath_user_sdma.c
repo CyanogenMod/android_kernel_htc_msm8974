@@ -46,46 +46,54 @@
 #include "ipath_kernel.h"
 #include "ipath_user_sdma.h"
 
+/* minimum size of header */
 #define IPATH_USER_SDMA_MIN_HEADER_LENGTH	64
+/* expected size of headers (for dma_pool) */
 #define IPATH_USER_SDMA_EXP_HEADER_LENGTH	64
+/* length mask in PBC (lower 11 bits) */
 #define IPATH_PBC_LENGTH_MASK			((1 << 11) - 1)
 
 struct ipath_user_sdma_pkt {
-	u8 naddr;		
-	u32 counter;		
-	u64 added;		
+	u8 naddr;		/* dimension of addr (1..3) ... */
+	u32 counter;		/* sdma pkts queued counter for this entry */
+	u64 added;		/* global descq number of entries */
 
 	struct {
-		u32 offset;			
-		u32 length;			
-		u8  put_page;			
-		u8  dma_mapped;			
-		struct page *page;		
-		void *kvaddr;			
+		u32 offset;			/* offset for kvaddr, addr */
+		u32 length;			/* length in page */
+		u8  put_page;			/* should we put_page? */
+		u8  dma_mapped;			/* is page dma_mapped? */
+		struct page *page;		/* may be NULL (coherent mem) */
+		void *kvaddr;			/* FIXME: only for pio hack */
 		dma_addr_t addr;
-	} addr[4];   
-	struct list_head list;	
+	} addr[4];   /* max pages, any more and we coalesce */
+	struct list_head list;	/* list element */
 };
 
 struct ipath_user_sdma_queue {
+	/*
+	 * pkts sent to dma engine are queued on this
+	 * list head.  the type of the elements of this
+	 * list are struct ipath_user_sdma_pkt...
+	 */
 	struct list_head sent;
 
-	
+	/* headers with expected length are allocated from here... */
 	char header_cache_name[64];
 	struct dma_pool *header_cache;
 
-	
+	/* packets are allocated from the slab cache... */
 	char pkt_slab_name[64];
 	struct kmem_cache *pkt_slab;
 
-	
+	/* as packets go on the queued queue, they are counted... */
 	u32 counter;
 	u32 sent_counter;
 
-	
+	/* dma page table */
 	struct rb_root dma_pages_root;
 
-	
+	/* protect everything above... */
 	struct mutex lock;
 };
 
@@ -163,6 +171,7 @@ static void ipath_user_sdma_init_header(struct ipath_user_sdma_pkt *pkt,
 				  kvaddr, dma_addr);
 }
 
+/* we've too many pages in the iovec, coalesce to a single page */
 static int ipath_user_sdma_coalesce(const struct ipath_devdata *dd,
 				    struct ipath_user_sdma_pkt *pkt,
 				    const struct iovec *iov,
@@ -216,6 +225,7 @@ done:
 	return ret;
 }
 
+/* how many pages in this iovec element? */
 static int ipath_user_sdma_num_pages(const struct iovec *iov)
 {
 	const unsigned long addr  = (unsigned long) iov->iov_base;
@@ -226,6 +236,7 @@ static int ipath_user_sdma_num_pages(const struct iovec *iov)
 	return 1 + ((epage - spage) >> PAGE_SHIFT);
 }
 
+/* truncate length to page boundary */
 static int ipath_user_sdma_page_length(unsigned long addr, unsigned long len)
 {
 	const unsigned long offset = addr & ~PAGE_MASK;
@@ -255,11 +266,12 @@ static void ipath_user_sdma_free_pkt_frag(struct device *dev,
 		else
 			__free_page(pkt->addr[i].page);
 	} else if (pkt->addr[i].kvaddr)
-		
+		/* free coherent mem from cache... */
 		dma_pool_free(pq->header_cache,
 			      pkt->addr[i].kvaddr, pkt->addr[i].addr);
 }
 
+/* return number of pages pinned... */
 static int ipath_user_sdma_pin_pages(const struct ipath_devdata *dd,
 				     struct ipath_user_sdma_pkt *pkt,
 				     unsigned long addr, int tlen, int npages)
@@ -282,7 +294,7 @@ static int ipath_user_sdma_pin_pages(const struct ipath_devdata *dd,
 	}
 
 	for (j = 0; j < npages; j++) {
-		
+		/* map the pages... */
 		const int flen =
 			ipath_user_sdma_page_length(addr, tlen);
 		dma_addr_t dma_addr =
@@ -354,6 +366,7 @@ static int ipath_user_sdma_init_payload(const struct ipath_devdata *dd,
 	return ret;
 }
 
+/* free a packet list -- return counter value of last packet */
 static void ipath_user_sdma_free_pkt_list(struct device *dev,
 					  struct ipath_user_sdma_queue *pq,
 					  struct list_head *list)
@@ -370,6 +383,13 @@ static void ipath_user_sdma_free_pkt_list(struct device *dev,
 	}
 }
 
+/*
+ * copy headers, coalesce etc -- pq->lock must be held
+ *
+ * we queue all the packets to list, returning the
+ * number of bytes total.  list must be empty initially,
+ * as, if there is an error we clean it...
+ */
 static int ipath_user_sdma_queue_pkts(const struct ipath_devdata *dd,
 				      struct ipath_user_sdma_queue *pq,
 				      struct list_head *list,
@@ -436,8 +456,22 @@ static int ipath_user_sdma_queue_pkts(const struct ipath_devdata *dd,
 			goto free_pbc;
 		}
 
+		/*
+		 * this assignment is a bit strange.  it's because the
+		 * the pbc counts the number of 32 bit words in the full
+		 * packet _except_ the first word of the pbc itself...
+		 */
 		pktnwc = nw - 1;
 
+		/*
+		 * pktnw computation yields the number of 32 bit words
+		 * that the caller has indicated in the PBC.  note that
+		 * this is one less than the total number of words that
+		 * goes to the send DMA engine as the first 32 bit word
+		 * of the PBC itself is not counted.  Armed with this count,
+		 * we can verify that the packet is consistent with the
+		 * iovec lengths.
+		 */
 		pktnw = le32_to_cpu(*pbc) & IPATH_PBC_LENGTH_MASK;
 		if (pktnw < pktnwc || pktnw > pktnwc + (PAGE_SIZE >> 2)) {
 			ret = -EINVAL;
@@ -526,6 +560,7 @@ static void ipath_user_sdma_set_complete_counter(struct ipath_user_sdma_queue *p
 	pq->sent_counter = c;
 }
 
+/* try to clean out queue -- needs pq->lock */
 static int ipath_user_sdma_queue_clean(const struct ipath_devdata *dd,
 				       struct ipath_user_sdma_queue *pq)
 {
@@ -544,7 +579,7 @@ static int ipath_user_sdma_queue_clean(const struct ipath_devdata *dd,
 
 		list_move_tail(&pkt->list, &free_list);
 
-		
+		/* one more packet cleaned */
 		ret++;
 	}
 
@@ -572,6 +607,7 @@ void ipath_user_sdma_queue_destroy(struct ipath_user_sdma_queue *pq)
 	kfree(pq);
 }
 
+/* clean descriptor queue, returns > 0 if some elements cleaned */
 static int ipath_user_sdma_hwqueue_clean(struct ipath_devdata *dd)
 {
 	int ret;
@@ -584,6 +620,7 @@ static int ipath_user_sdma_hwqueue_clean(struct ipath_devdata *dd)
 	return ret;
 }
 
+/* we're in close, drain packets so that we can cleanup successfully... */
 void ipath_user_sdma_queue_drain(struct ipath_devdata *dd,
 				 struct ipath_user_sdma_queue *pq)
 {
@@ -619,13 +656,13 @@ void ipath_user_sdma_queue_drain(struct ipath_devdata *dd,
 static inline __le64 ipath_sdma_make_desc0(struct ipath_devdata *dd,
 					   u64 addr, u64 dwlen, u64 dwoffset)
 {
-	return cpu_to_le64(
+	return cpu_to_le64(/* SDmaPhyAddr[31:0] */
 			   ((addr & 0xfffffffcULL) << 32) |
-			   
+			   /* SDmaGeneration[1:0] */
 			   ((dd->ipath_sdma_generation & 3ULL) << 30) |
-			   
+			   /* SDmaDwordCount[10:0] */
 			   ((dwlen & 0x7ffULL) << 16) |
-			   
+			   /* SDmaBufOffset[12:2] */
 			   (dwoffset & 0x7ffULL));
 }
 
@@ -636,13 +673,13 @@ static inline __le64 ipath_sdma_make_first_desc0(__le64 descq)
 
 static inline __le64 ipath_sdma_make_last_desc0(__le64 descq)
 {
-					        
+					      /* last */  /* dma head */
 	return descq | cpu_to_le64(1ULL << 11 | 1ULL << 13);
 }
 
 static inline __le64 ipath_sdma_make_desc1(u64 addr)
 {
-	
+	/* SDmaPhyAddr[47:32] */
 	return cpu_to_le64(addr >> 32);
 }
 
@@ -668,6 +705,7 @@ static void ipath_user_sdma_send_frag(struct ipath_devdata *dd,
 	descqp[1] = ipath_sdma_make_desc1(addr);
 }
 
+/* pq->lock must be held, get packets on the wire... */
 static int ipath_user_sdma_push_pkts(struct ipath_devdata *dd,
 				     struct ipath_user_sdma_queue *pq,
 				     struct list_head *pktlist)
@@ -718,6 +756,11 @@ static int ipath_user_sdma_push_pkts(struct ipath_devdata *dd,
 			goto unlock;
 		}
 
+		/*
+		 * if the packet is >= 2KB mtu equivalent, we have to use
+		 * the large buffers, and have to mark each descriptor as
+		 * part of a large buffer packet.
+		 */
 		if (ofs >= IPATH_SMALLBUF_DWORDS) {
 			for (i = 0; i < pkt->naddr; i++) {
 				dd->ipath_sdma_descq[dtail].qw[0] |=
@@ -734,7 +777,7 @@ static int ipath_user_sdma_push_pkts(struct ipath_devdata *dd,
 	}
 
 unlock_check_tail:
-	
+	/* advance the tail on the chip if necessary */
 	if (dd->ipath_sdma_descq_tail != tail) {
 		wmb();
 		ipath_write_kreg(dd, dd->ipath_kregs->kr_senddmatail, tail);
@@ -779,8 +822,13 @@ int ipath_user_sdma_writev(struct ipath_devdata *dd,
 			iov += ret;
 		}
 
-		
+		/* force packets onto the sdma hw queue... */
 		if (!list_empty(&list)) {
+			/*
+			 * lazily clean hw queue.  the 4 is a guess of about
+			 * how many sdma descriptors a packet will take (it
+			 * doesn't have to be perfect).
+			 */
 			if (ipath_sdma_descq_freecnt(dd) < ret * 4) {
 				ipath_user_sdma_hwqueue_clean(dd);
 				ipath_user_sdma_queue_clean(dd, pq);

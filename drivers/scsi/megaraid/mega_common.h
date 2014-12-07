@@ -44,6 +44,27 @@
 #define MEGA_INVALID_FIELD_IN_CDB	0x24
 
 
+/**
+ * scb_t - scsi command control block
+ * @ccb			: command control block for individual driver
+ * @list		: list of control blocks
+ * @gp			: general purpose field for LLDs
+ * @sno			: all SCBs have a serial number
+ * @scp			: associated scsi command
+ * @state		: current state of scb
+ * @dma_dir		: direction of data transfer
+ * @dma_type		: transfer with sg list, buffer, or no data transfer
+ * @dev_channel		: actual channel on the device
+ * @dev_target		: actual target on the device
+ * @status		: completion status
+ *
+ * This is our central data structure to issue commands the each driver.
+ * Driver specific data structures are maintained in the ccb field.
+ * scb provides a field 'gp', which can be used by LLD for its own purposes
+ *
+ * dev_channel and dev_target must be initialized with the actual channel and
+ * target on the controller.
+ */
 typedef struct {
 	caddr_t			ccb;
 	struct list_head	list;
@@ -58,19 +79,77 @@ typedef struct {
 	uint32_t		status;
 } scb_t;
 
-#define SCB_FREE	0x0000	
-#define SCB_ACTIVE	0x0001	
-#define SCB_PENDQ	0x0002	
-#define SCB_ISSUED	0x0004	
-#define SCB_ABORT	0x0008	
-#define SCB_RESET	0x0010	
+/*
+ * SCB states as it transitions from one state to another
+ */
+#define SCB_FREE	0x0000	/* on the free list */
+#define SCB_ACTIVE	0x0001	/* off the free list */
+#define SCB_PENDQ	0x0002	/* on the pending queue */
+#define SCB_ISSUED	0x0004	/* issued - owner f/w */
+#define SCB_ABORT	0x0008	/* Got an abort for this one */
+#define SCB_RESET	0x0010	/* Got a reset for this one */
 
-#define MRAID_DMA_NONE	0x0000	
-#define MRAID_DMA_WSG	0x0001	
-#define MRAID_DMA_WBUF	0x0002	
+/*
+ * DMA types for scb
+ */
+#define MRAID_DMA_NONE	0x0000	/* no data transfer for this command */
+#define MRAID_DMA_WSG	0x0001	/* data transfer using a sg list */
+#define MRAID_DMA_WBUF	0x0002	/* data transfer using a contiguous buffer */
 
 
+/**
+ * struct adapter_t - driver's initialization structure
+ * @aram dpc_h			: tasklet handle
+ * @pdev			: pci configuration pointer for kernel
+ * @host			: pointer to host structure of mid-layer
+ * @lock			: synchronization lock for mid-layer and driver
+ * @quiescent			: driver is quiescent for now.
+ * @outstanding_cmds		: number of commands pending in the driver
+ * @kscb_list			: pointer to the bulk of SCBs pointers for IO
+ * @kscb_pool			: pool of free scbs for IO
+ * @kscb_pool_lock		: lock for pool of free scbs
+ * @pend_list			: pending commands list
+ * @pend_list_lock		: exclusion lock for pending commands list
+ * @completed_list		: list of completed commands
+ * @completed_list_lock		: exclusion lock for list of completed commands
+ * @sglen			: max sg elements supported
+ * @device_ids			: to convert kernel device addr to our devices.
+ * @raid_device			: raid adapter specific pointer
+ * @max_channel			: maximum channel number supported - inclusive
+ * @max_target			: max target supported - inclusive
+ * @max_lun			: max lun supported - inclusive
+ * @unique_id			: unique identifier for each adapter
+ * @irq				: IRQ for this adapter
+ * @ito				: internal timeout value, (-1) means no timeout
+ * @ibuf			: buffer to issue internal commands
+ * @ibuf_dma_h			: dma handle for the above buffer
+ * @uscb_list			: SCB pointers for user cmds, common mgmt module
+ * @uscb_pool			: pool of SCBs for user commands
+ * @uscb_pool_lock		: exclusion lock for these SCBs
+ * @max_cmds			: max outstanding commands
+ * @fw_version			: firmware version
+ * @bios_version		: bios version
+ * @max_cdb_sz			: biggest CDB size supported.
+ * @ha				: is high availability present - clustering
+ * @init_id			: initiator ID, the default value should be 7
+ * @max_sectors			: max sectors per request
+ * @cmd_per_lun			: max outstanding commands per LUN
+ * @being_detached		: set when unloading, no more mgmt calls
+ *
+ *
+ * mraid_setup_device_map() can be called anytime after the device map is
+ * available and MRAID_GET_DEVICE_MAP() can be called whenever the mapping is
+ * required, usually from LLD's queue entry point. The formar API sets up the
+ * MRAID_IS_LOGICAL(adapter_t *, struct scsi_cmnd *) to find out if the
+ * device in question is a logical drive.
+ *
+ * quiescent flag should be set by the driver if it is not accepting more
+ * commands
+ *
+ * NOTE: The fields of this structures are placed to minimize cache misses
+ */
 
+// amount of space required to store the bios and firmware version strings
 #define VERSION_SIZE	16
 
 typedef struct {
@@ -120,12 +199,14 @@ typedef struct {
 #define COMPLETED_LIST_LOCK(adapter)	(&adapter->completed_list_lock)
 
 
-#define SCP2HOST(scp)			(scp)->device->host	
-#define SCP2HOSTDATA(scp)		SCP2HOST(scp)->hostdata	
-#define SCP2CHANNEL(scp)		(scp)->device->channel	
-#define SCP2TARGET(scp)			(scp)->device->id	
-#define SCP2LUN(scp)			(scp)->device->lun	
+// conversion from scsi command
+#define SCP2HOST(scp)			(scp)->device->host	// to host
+#define SCP2HOSTDATA(scp)		SCP2HOST(scp)->hostdata	// to soft state
+#define SCP2CHANNEL(scp)		(scp)->device->channel	// to channel
+#define SCP2TARGET(scp)			(scp)->device->id	// to target
+#define SCP2LUN(scp)			(scp)->device->lun	// to LUN
 
+// generic macro to convert scsi command and host to controller's soft state
 #define SCSIHOST2ADAP(host)	(((caddr_t *)(host->hostdata))[0])
 #define SCP2ADAPTER(scp)	(adapter_t *)SCSIHOST2ADAP(SCP2HOST(scp))
 
@@ -136,11 +217,26 @@ typedef struct {
 #define MRAID_IS_LOGICAL_SDEV(adp, sdev)	\
 	(sdev->channel == (adp)->max_channel) ? 1 : 0
 
+/**
+ * MRAID_GET_DEVICE_MAP - device ids
+ * @adp			: adapter's soft state
+ * @scp			: mid-layer scsi command pointer
+ * @p_chan		: physical channel on the controller
+ * @target		: target id of the device or logical drive number
+ * @islogical		: set if the command is for the logical drive
+ *
+ * Macro to retrieve information about device class, logical or physical and
+ * the corresponding physical channel and target or logical drive number
+ */
 #define MRAID_GET_DEVICE_MAP(adp, scp, p_chan, target, islogical)	\
-								\
+	/*								\
+	 * Is the request coming for the virtual channel		\
+	 */								\
 	islogical = MRAID_IS_LOGICAL(adp, scp);				\
 									\
-								\
+	/*								\
+	 * Get an index into our table of drive ids mapping		\
+	 */								\
 	if (islogical) {						\
 		p_chan = 0xFF;						\
 		target =						\
@@ -153,8 +249,11 @@ typedef struct {
 					[SCP2TARGET(scp)] & 0xFF);	\
 	}
 
-#define LSI_DBGLVL mraid_debug_level	
- 					
+/*
+ * ### Helper routines ###
+ */
+#define LSI_DBGLVL mraid_debug_level	// each LLD must define a global
+ 					// mraid_debug_level
 
 #ifdef DEBUG
 #if defined (_ASSERT_PANIC)
@@ -172,10 +271,20 @@ typedef struct {
 #define ASSERT(expression)
 #endif
 
+/**
+ * struct mraid_pci_blk - structure holds DMA memory block info
+ * @vaddr		: virtual address to a memory block
+ * @dma_addr		: DMA handle to a memory block
+ *
+ * This structure is filled up for the caller. It is the responsibilty of the
+ * caller to allocate this array big enough to store addresses for all
+ * requested elements
+ */
 struct mraid_pci_blk {
 	caddr_t		vaddr;
 	dma_addr_t	dma_addr;
 };
 
-#endif 
+#endif // _MEGA_COMMON_H_
 
+// vim: set ts=8 sw=8 tw=78:

@@ -50,25 +50,31 @@
 #include "kernel.h"
 
 struct screen_info screen_info = {
-	0, 0,			
-	0,			
-	0,			
-	0,			
-	128,			
-	0,0,0,			
-	54,			
-	0,                      
-	16                      
+	0, 0,			/* orig-x, orig-y */
+	0,			/* unused */
+	0,			/* orig-video-page */
+	0,			/* orig-video-mode */
+	128,			/* orig-video-cols */
+	0,0,0,			/* ega_ax, ega_bx, ega_cx */
+	54,			/* orig-video-lines */
+	0,                      /* orig-video-isVGA */
+	16                      /* orig-video-points */
 };
 
+/* Typing sync at the prom prompt calls the function pointed to by
+ * romvec->pv_synchook which I set to the following function.
+ * This should sync all filesystems and return, for now it just
+ * prints out pretty messages and returns.
+ */
 
 extern unsigned long trapbase;
 
+/* Pretty sick eh? */
 static void prom_sync_me(void)
 {
 	unsigned long prom_tbr, flags;
 
-	
+	/* XXX Badly broken. FIX! - Anton */
 	local_irq_save(flags);
 	__asm__ __volatile__("rd %%tbr, %0\n\t" : "=r" (prom_tbr));
 	__asm__ __volatile__("wr %0, 0x0, %%tbr\n\t"
@@ -95,10 +101,12 @@ static void prom_sync_me(void)
 static unsigned int boot_flags __initdata = 0;
 #define BOOTME_DEBUG  0x1
 
+/* Exported for mm/init.c:paging_init. */
 unsigned long cmdline_memory_size __initdata = 0;
 
-unsigned char boot_cpu_id = 0xff; 
-unsigned char boot_cpu_id4; 
+/* which CPU booted us (0xff = not set) */
+unsigned char boot_cpu_id = 0xff; /* 0xff will make it into DATA section... */
+unsigned char boot_cpu_id4; /* boot_cpu_id << 2 */
 
 static void
 prom_console_write(struct console *con, const char *s, unsigned n)
@@ -113,6 +121,10 @@ static struct console prom_early_console = {
 	.index =	-1,
 };
 
+/* 
+ * Process kernel command line switches that are specific to the
+ * SPARC or that require special low-level processing.
+ */
 static void __init process_switch(char c)
 {
 	switch (c) {
@@ -137,11 +149,11 @@ static void __init process_switch(char c)
 static void __init boot_flags_init(char *commands)
 {
 	while (*commands) {
-		
+		/* Move to the start of the next "argument". */
 		while (*commands && *commands == ' ')
 			commands++;
 
-		
+		/* Process any command switches, otherwise skip it. */
 		if (*commands == '\0')
 			break;
 		if (*commands == '-') {
@@ -151,6 +163,10 @@ static void __init boot_flags_init(char *commands)
 			continue;
 		}
 		if (!strncmp(commands, "mem=", 4)) {
+			/*
+			 * "mem=XXX[kKmM] overrides the PROM-reported
+			 * memory size.
+			 */
 			cmdline_memory_size = simple_strtoul(commands + 4,
 						     &commands, 0);
 			if (*commands == 'K' || *commands == 'k') {
@@ -166,6 +182,10 @@ static void __init boot_flags_init(char *commands)
 	}
 }
 
+/* This routine will in the future do all the nasty prom stuff
+ * to probe for the mmu type and its parameters, etc. This will
+ * also be where SMP things happen.
+ */
 
 extern void sun4c_probe_vac(void);
 
@@ -194,7 +214,7 @@ void __init setup_arch(char **cmdline_p)
 
 	sparc_ttable = (struct tt_entry *) &trapbase;
 
-	
+	/* Initialize PROM console and command line. */
 	*cmdline_p = prom_getbootargs();
 	strcpy(boot_command_line, *cmdline_p);
 	parse_early_param();
@@ -203,7 +223,7 @@ void __init setup_arch(char **cmdline_p)
 
 	register_console(&prom_early_console);
 
-	
+	/* Set sparc_cpu_model */
 	sparc_cpu_model = sun_unknown;
 	if (!strcmp(&cputypval[0], "sun4 "))
 		sparc_cpu_model = sun4;
@@ -212,7 +232,7 @@ void __init setup_arch(char **cmdline_p)
 	if (!strcmp(&cputypval[0], "sun4m"))
 		sparc_cpu_model = sun4m;
 	if (!strcmp(&cputypval[0], "sun4s"))
-		sparc_cpu_model = sun4m; 
+		sparc_cpu_model = sun4m; /* CP-1200 with PROM 2.30 -E */
 	if (!strcmp(&cputypval[0], "sun4d"))
 		sparc_cpu_model = sun4d;
 	if (!strcmp(&cputypval[0], "sun4e"))
@@ -318,6 +338,10 @@ static int __init topology_init(void)
 {
 	int i, ncpus, err;
 
+	/* Count the number of physically present processors in
+	 * the machine, even on uniprocessor, so that /proc/cpuinfo
+	 * output is consistent with 2.4.x
+	 */
 	ncpus = 0;
 	while (!cpu_find_by_instance(ncpus, NULL, NULL))
 		ncpus++;

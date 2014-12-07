@@ -32,7 +32,7 @@ static int affs_symlink_readpage(struct file *file, struct page *page)
 	lf = (struct slink_front *)bh->b_data;
 	lc = 0;
 
-	if (strchr(lf->symname,':')) {	
+	if (strchr(lf->symname,':')) {	/* Handle assign or volume name */
 		struct affs_sb_info *sbi = AFFS_SB(inode->i_sb);
 		char *pf;
 		spin_lock(&sbi->symlink_lock);
@@ -48,7 +48,7 @@ static int affs_symlink_readpage(struct file *file, struct page *page)
 		lc = '/';
 	}
 	while (i < 1023 && (c = lf->symname[j])) {
-		if (c == '/' && lc == '/' && i < 1020) {	
+		if (c == '/' && lc == '/' && i < 1020) {	/* parent dir */
 			link[i++] = '.';
 			link[i++] = '.';
 		}

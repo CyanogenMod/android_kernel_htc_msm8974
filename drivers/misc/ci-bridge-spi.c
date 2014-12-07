@@ -11,6 +11,9 @@
  */
 
 
+/* This driver implements a simple SPI read/write interface to access
+ * an external device over SPI.
+ */
 
 #include <linux/types.h>
 #include <linux/errno.h>
@@ -158,12 +161,17 @@ static ssize_t ci_bridge_spi_read(struct file *filp,
 	spi_message.complete = ci_bridge_spi_completion_cb;
 	spi_message.context = &context;
 
-	
+	/* must use spi_async in a context that may sleep */
 	ret = spi_async(bridge->spi, &spi_message);
 	if (ret == 0) {
 		wait_for_completion(&context);
 
 		if (spi_message.status == 0) {
+			/* spi_message.actual_length should contain the number
+			 * of bytes actually read and should update ret to be
+			 * the actual length, but since our driver doesn't
+			 * support this, assume all count bytes were read.
+			 */
 			ret = count;
 		}
 
@@ -207,7 +215,7 @@ static ssize_t ci_bridge_spi_write(struct file *filp,
 	memset(&spi_message, 0, sizeof(struct spi_message));
 
 	mutex_lock(&bridge->lock);
-	
+	/* copy user data to our SPI Tx buffer */
 	not_copied = copy_from_user(bridge->write_buffer, buf, count);
 	if (not_copied != 0) {
 		ret = -EFAULT;
@@ -220,7 +228,7 @@ static ssize_t ci_bridge_spi_write(struct file *filp,
 		spi_message.complete = ci_bridge_spi_completion_cb;
 		spi_message.context = &context;
 
-		
+		/* must use spi_async in a context that may sleep */
 		ret = spi_async(bridge->spi, &spi_message);
 		if (ret == 0) {
 			wait_for_completion(&context);
@@ -244,10 +252,12 @@ static ssize_t ci_bridge_spi_write(struct file *filp,
 
 static int ci_bridge_spi_open(struct inode *inode, struct file *filp)
 {
+	/* forbid opening more then one instance at a time,
+	   parallel execution can still be problematic */
 	if (ci.num_opened != 0)
 		return -EBUSY;
 
-	
+	/* allocate write buffer */
 	ci.write_buffer =
 		kzalloc((CI_MAX_BUFFER_SIZE * sizeof(char)), GFP_KERNEL);
 	if (ci.write_buffer == NULL) {
@@ -255,7 +265,7 @@ static int ci_bridge_spi_open(struct inode *inode, struct file *filp)
 			__func__);
 		return -ENOMEM;
 	}
-	
+	/* allocate read buffer */
 	ci.read_buffer =
 		kzalloc((CI_MAX_BUFFER_SIZE * sizeof(char)), GFP_KERNEL);
 	if (ci.read_buffer == NULL) {
@@ -264,7 +274,7 @@ static int ci_bridge_spi_open(struct inode *inode, struct file *filp)
 		kfree(ci.write_buffer);
 		return -ENOMEM;
 	}
-	
+	/* device is non-seekable */
 	nonseekable_open(inode, filp);
 
 	filp->private_data = &ci;
@@ -383,7 +393,7 @@ static int __init ci_bridge_init(void)
 		goto device_destroy;
 	}
 
-	
+	/* successful return */
 	return 0;
 
 device_destroy:

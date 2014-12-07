@@ -43,7 +43,7 @@
 
 #ifdef CONFIG_CPM2
 #include <asm/cpm2.h>
-#endif 
+#endif /* CONFIG_CPM2 */
 
 static void __init stx_gp3_pic_init(void)
 {
@@ -55,6 +55,9 @@ static void __init stx_gp3_pic_init(void)
 	mpc85xx_cpm2_pic_init();
 }
 
+/*
+ * Setup the architecture
+ */
 static void __init stx_gp3_setup_arch(void)
 {
 #ifdef CONFIG_PCI
@@ -85,13 +88,16 @@ static void stx_gp3_show_cpuinfo(struct seq_file *m)
 	seq_printf(m, "PVR\t\t: 0x%x\n", pvid);
 	seq_printf(m, "SVR\t\t: 0x%x\n", svid);
 
-	
+	/* Display cpu Pll setting */
 	phid1 = mfspr(SPRN_HID1);
 	seq_printf(m, "PLL setting\t: 0x%x\n", ((phid1 >> 24) & 0x3f));
 }
 
 machine_device_initcall(stx_gp3, mpc85xx_common_publish_devices);
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init stx_gp3_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

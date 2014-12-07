@@ -27,7 +27,7 @@
 #include <asm/mach/time.h>
 #include <mach/time.h>
 
-extern int init_atu; 
+extern int init_atu; /* Flag to select which ATU(s) to initialize / disable */
 
 static int __init
 iq81340mc_pcix_map_irq(const struct pci_dev *dev, u8 idsel, u8 pin)
@@ -90,7 +90,7 @@ static struct sys_timer iq81340mc_timer = {
 };
 
 MACHINE_START(IQ81340MC, "Intel IQ81340MC")
-	
+	/* Maintainer: Dan Williams <dan.j.williams@intel.com> */
 	.atag_offset    = 0x100,
 	.init_early     = iop13xx_init_early,
 	.map_io         = iop13xx_map_io,

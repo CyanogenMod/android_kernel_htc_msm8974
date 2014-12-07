@@ -21,7 +21,7 @@
 #include <asm/processor.h>
 #include <asm/mca_asm.h>
 
-#define IA64_MCA_RENDEZ_TIMEOUT		(20 * 1000)	
+#define IA64_MCA_RENDEZ_TIMEOUT		(20 * 1000)	/* value in milliseconds - 20 seconds */
 
 typedef struct ia64_fptr {
 	unsigned long fp;
@@ -51,6 +51,7 @@ enum {
 	IA64_MCA_RENDEZ_CHECKIN_CONCURRENT_MCA	=	0x3,
 };
 
+/* Information maintained by the MC infrastructure */
 typedef struct ia64_mc_info_s {
 	u64		imi_mca_handler;
 	size_t		imi_mca_handler_size;
@@ -62,24 +63,38 @@ typedef struct ia64_mc_info_s {
 
 } ia64_mc_info_t;
 
+/* Handover state from SAL to OS and vice versa, for both MCA and INIT events.
+ * Besides the handover state, it also contains some saved registers from the
+ * time of the event.
+ * Note: mca_asm.S depends on the precise layout of this structure.
+ */
 
 struct ia64_sal_os_state {
 
-	
-	unsigned long		os_gp;			
-	unsigned long		pal_proc;		
-	unsigned long		sal_proc;		
-	unsigned long		rv_rc;			
-	unsigned long		proc_state_param;	
-	unsigned long		monarch;		
+	/* SAL to OS */
+	unsigned long		os_gp;			/* GP of the os registered with the SAL, physical */
+	unsigned long		pal_proc;		/* PAL_PROC entry point, physical */
+	unsigned long		sal_proc;		/* SAL_PROC entry point, physical */
+	unsigned long		rv_rc;			/* MCA - Rendezvous state, INIT - reason code */
+	unsigned long		proc_state_param;	/* from R18 */
+	unsigned long		monarch;		/* 1 for a monarch event, 0 for a slave */
 
-	
-	unsigned long		sal_ra;			
-	unsigned long		sal_gp;			
-	pal_min_state_area_t	*pal_min_state;		
-	unsigned long		prev_IA64_KR_CURRENT;	
+	/* common */
+	unsigned long		sal_ra;			/* Return address in SAL, physical */
+	unsigned long		sal_gp;			/* GP of the SAL - physical */
+	pal_min_state_area_t	*pal_min_state;		/* from R17.  physical in asm, virtual in C */
+	/* Previous values of IA64_KR(CURRENT) and IA64_KR(CURRENT_STACK).
+	 * Note: if the MCA/INIT recovery code wants to resume to a new context
+	 * then it must change these values to reflect the new kernel stack.
+	 */
+	unsigned long		prev_IA64_KR_CURRENT;	/* previous value of IA64_KR(CURRENT) */
 	unsigned long		prev_IA64_KR_CURRENT_STACK;
-	struct task_struct	*prev_task;		
+	struct task_struct	*prev_task;		/* previous task, NULL if it is not useful */
+	/* Some interrupt registers are not saved in minstate, pt_regs or
+	 * switch_stack.  Because MCA/INIT can occur when interrupts are
+	 * disabled, we need to save the additional interrupt registers over
+	 * MCA/INIT and resume.
+	 */
 	unsigned long		isr;
 	unsigned long		ifa;
 	unsigned long		itir;
@@ -87,39 +102,42 @@ struct ia64_sal_os_state {
 	unsigned long		iim;
 	unsigned long		iha;
 
-	
-	unsigned long		os_status;		
-	unsigned long		context;		
+	/* OS to SAL */
+	unsigned long		os_status;		/* OS status to SAL, enum below */
+	unsigned long		context;		/* 0 if return to same context
+							   1 if return to new context */
 
-	
+	/* I-resources */
 	unsigned long		iip;
 	unsigned long		ipsr;
 	unsigned long		ifs;
 };
 
 enum {
-	IA64_MCA_CORRECTED	=	0x0,	
-	IA64_MCA_WARM_BOOT	=	-1,	
-	IA64_MCA_COLD_BOOT	=	-2,	
-	IA64_MCA_HALT		=	-3	
+	IA64_MCA_CORRECTED	=	0x0,	/* Error has been corrected by OS_MCA */
+	IA64_MCA_WARM_BOOT	=	-1,	/* Warm boot of the system need from SAL */
+	IA64_MCA_COLD_BOOT	=	-2,	/* Cold boot of the system need from SAL */
+	IA64_MCA_HALT		=	-3	/* System to be halted by SAL */
 };
 
 enum {
-	IA64_INIT_RESUME	=	0x0,	
-	IA64_INIT_WARM_BOOT	=	-1,	
+	IA64_INIT_RESUME	=	0x0,	/* Resume after return from INIT */
+	IA64_INIT_WARM_BOOT	=	-1,	/* Warm boot of the system need from SAL */
 };
 
 enum {
-	IA64_MCA_SAME_CONTEXT	=	0x0,	
-	IA64_MCA_NEW_CONTEXT	=	-1	
+	IA64_MCA_SAME_CONTEXT	=	0x0,	/* SAL to return to same context */
+	IA64_MCA_NEW_CONTEXT	=	-1	/* SAL to return to new context */
 };
 
+/* Per-CPU MCA state that is too big for normal per-CPU variables.  */
 
 struct ia64_mca_cpu {
 	u64 mca_stack[KERNEL_STACK_SIZE/8];
 	u64 init_stack[KERNEL_STACK_SIZE/8];
 };
 
+/* Array of physical addresses of each CPU's MCA area.  */
 extern unsigned long __per_cpu_mca[NR_CPUS];
 
 extern int cpe_vector;
@@ -151,18 +169,18 @@ struct ia64_mca_notify_die {
 
 DECLARE_PER_CPU(u64, ia64_mca_pal_base);
 
-#else	
+#else	/* __ASSEMBLY__ */
 
-#define IA64_MCA_CORRECTED	0x0	
-#define IA64_MCA_WARM_BOOT	-1	
-#define IA64_MCA_COLD_BOOT	-2	
-#define IA64_MCA_HALT		-3	
+#define IA64_MCA_CORRECTED	0x0	/* Error has been corrected by OS_MCA */
+#define IA64_MCA_WARM_BOOT	-1	/* Warm boot of the system need from SAL */
+#define IA64_MCA_COLD_BOOT	-2	/* Cold boot of the system need from SAL */
+#define IA64_MCA_HALT		-3	/* System to be halted by SAL */
 
-#define IA64_INIT_RESUME	0x0	
-#define IA64_INIT_WARM_BOOT	-1	
+#define IA64_INIT_RESUME	0x0	/* Resume after return from INIT */
+#define IA64_INIT_WARM_BOOT	-1	/* Warm boot of the system need from SAL */
 
-#define IA64_MCA_SAME_CONTEXT	0x0	
-#define IA64_MCA_NEW_CONTEXT	-1	
+#define IA64_MCA_SAME_CONTEXT	0x0	/* SAL to return to same context */
+#define IA64_MCA_NEW_CONTEXT	-1	/* SAL to return to new context */
 
-#endif 
-#endif 
+#endif /* !__ASSEMBLY__ */
+#endif /* _ASM_IA64_MCA_H */

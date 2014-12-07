@@ -25,14 +25,18 @@
 #include <sound/pcm.h>
 #define SND_PCM_FORMAT_UNKNOWN (-1)
 
+/* NOTE: "signed" prefix must be given below since the default char is
+ *       unsigned on some architectures!
+ */
 struct pcm_format_data {
-	unsigned char width;	
-	unsigned char phys;	
-	signed char le;	
-	signed char signd;	
-	unsigned char silence[8];	
+	unsigned char width;	/* bit width */
+	unsigned char phys;	/* physical bit width */
+	signed char le;	/* 0 = big-endian, 1 = little-endian, -1 = others */
+	signed char signd;	/* 0 = unsigned, 1 = signed, -1 = others */
+	unsigned char silence[8];	/* silence data to fill */
 };
 
+/* we do lots of calculations on snd_pcm_format_t; shut up sparse */
 #define INT	__force int
 
 static struct pcm_format_data pcm_formats[(INT)SNDRV_PCM_FORMAT_LAST+1] = {
@@ -136,7 +140,7 @@ static struct pcm_format_data pcm_formats[(INT)SNDRV_PCM_FORMAT_LAST+1] = {
 		.width = 5, .phys = 5, .le = -1, .signd = -1,
 		.silence = {},
 	},
-	
+	/* FIXME: the following three formats are not defined properly yet */
 	[SNDRV_PCM_FORMAT_MPEG] = {
 		.le = -1, .signd = -1,
 	},
@@ -144,7 +148,7 @@ static struct pcm_format_data pcm_formats[(INT)SNDRV_PCM_FORMAT_LAST+1] = {
 		.le = -1, .signd = -1,
 	},
 	[SNDRV_PCM_FORMAT_SPECIAL] = {
-		
+		/* set the width and phys same as S16_LE */
 		.width = 16, .phys = 16, .le = -1, .signd = -1,
 		.silence = {},
 	},
@@ -207,6 +211,13 @@ static struct pcm_format_data pcm_formats[(INT)SNDRV_PCM_FORMAT_LAST+1] = {
 };
 
 
+/**
+ * snd_pcm_format_signed - Check the PCM format is signed linear
+ * @format: the format to check
+ *
+ * Returns 1 if the given PCM format is signed linear, 0 if unsigned
+ * linear, and a negative error code for non-linear formats.
+ */
 int snd_pcm_format_signed(snd_pcm_format_t format)
 {
 	int val;
@@ -219,6 +230,13 @@ int snd_pcm_format_signed(snd_pcm_format_t format)
 
 EXPORT_SYMBOL(snd_pcm_format_signed);
 
+/**
+ * snd_pcm_format_unsigned - Check the PCM format is unsigned linear
+ * @format: the format to check
+ *
+ * Returns 1 if the given PCM format is unsigned linear, 0 if signed
+ * linear, and a negative error code for non-linear formats.
+ */
 int snd_pcm_format_unsigned(snd_pcm_format_t format)
 {
 	int val;
@@ -231,6 +249,12 @@ int snd_pcm_format_unsigned(snd_pcm_format_t format)
 
 EXPORT_SYMBOL(snd_pcm_format_unsigned);
 
+/**
+ * snd_pcm_format_linear - Check the PCM format is linear
+ * @format: the format to check
+ *
+ * Returns 1 if the given PCM format is linear, 0 if not.
+ */
 int snd_pcm_format_linear(snd_pcm_format_t format)
 {
 	return snd_pcm_format_signed(format) >= 0;
@@ -238,6 +262,13 @@ int snd_pcm_format_linear(snd_pcm_format_t format)
 
 EXPORT_SYMBOL(snd_pcm_format_linear);
 
+/**
+ * snd_pcm_format_little_endian - Check the PCM format is little-endian
+ * @format: the format to check
+ *
+ * Returns 1 if the given PCM format is little-endian, 0 if
+ * big-endian, or a negative error code if endian not specified.
+ */
 int snd_pcm_format_little_endian(snd_pcm_format_t format)
 {
 	int val;
@@ -250,6 +281,13 @@ int snd_pcm_format_little_endian(snd_pcm_format_t format)
 
 EXPORT_SYMBOL(snd_pcm_format_little_endian);
 
+/**
+ * snd_pcm_format_big_endian - Check the PCM format is big-endian
+ * @format: the format to check
+ *
+ * Returns 1 if the given PCM format is big-endian, 0 if
+ * little-endian, or a negative error code if endian not specified.
+ */
 int snd_pcm_format_big_endian(snd_pcm_format_t format)
 {
 	int val;
@@ -262,6 +300,13 @@ int snd_pcm_format_big_endian(snd_pcm_format_t format)
 
 EXPORT_SYMBOL(snd_pcm_format_big_endian);
 
+/**
+ * snd_pcm_format_width - return the bit-width of the format
+ * @format: the format to check
+ *
+ * Returns the bit-width of the format, or a negative error code
+ * if unknown format.
+ */
 int snd_pcm_format_width(snd_pcm_format_t format)
 {
 	int val;
@@ -274,6 +319,13 @@ int snd_pcm_format_width(snd_pcm_format_t format)
 
 EXPORT_SYMBOL(snd_pcm_format_width);
 
+/**
+ * snd_pcm_format_physical_width - return the physical bit-width of the format
+ * @format: the format to check
+ *
+ * Returns the physical bit-width of the format, or a negative error code
+ * if unknown format.
+ */
 int snd_pcm_format_physical_width(snd_pcm_format_t format)
 {
 	int val;
@@ -286,6 +338,14 @@ int snd_pcm_format_physical_width(snd_pcm_format_t format)
 
 EXPORT_SYMBOL(snd_pcm_format_physical_width);
 
+/**
+ * snd_pcm_format_size - return the byte size of samples on the given format
+ * @format: the format to check
+ * @samples: sampling rate
+ *
+ * Returns the byte size of the given samples for the format, or a
+ * negative error code if unknown format.
+ */
 ssize_t snd_pcm_format_size(snd_pcm_format_t format, size_t samples)
 {
 	int phys_width = snd_pcm_format_physical_width(format);
@@ -296,6 +356,12 @@ ssize_t snd_pcm_format_size(snd_pcm_format_t format, size_t samples)
 
 EXPORT_SYMBOL(snd_pcm_format_size);
 
+/**
+ * snd_pcm_format_silence_64 - return the silent data in 8 bytes array
+ * @format: the format to check
+ *
+ * Returns the format pattern to fill or NULL if error.
+ */
 const unsigned char *snd_pcm_format_silence_64(snd_pcm_format_t format)
 {
 	if ((INT)format < 0 || (INT)format > (INT)SNDRV_PCM_FORMAT_LAST)
@@ -307,6 +373,16 @@ const unsigned char *snd_pcm_format_silence_64(snd_pcm_format_t format)
 
 EXPORT_SYMBOL(snd_pcm_format_silence_64);
 
+/**
+ * snd_pcm_format_set_silence - set the silence data on the buffer
+ * @format: the PCM format
+ * @data: the buffer pointer
+ * @samples: the number of samples to set silence
+ *
+ * Sets the silence data on the buffer for the given samples.
+ *
+ * Returns zero if successful, or a negative error code on failure.
+ */
 int snd_pcm_format_set_silence(snd_pcm_format_t format, void *data, unsigned int samples)
 {
 	int width;
@@ -316,17 +392,17 @@ int snd_pcm_format_set_silence(snd_pcm_format_t format, void *data, unsigned int
 		return -EINVAL;
 	if (samples == 0)
 		return 0;
-	width = pcm_formats[(INT)format].phys; 
+	width = pcm_formats[(INT)format].phys; /* physical width */
 	pat = pcm_formats[(INT)format].silence;
 	if (! width)
 		return -EINVAL;
-	
+	/* signed or 1 byte data */
 	if (pcm_formats[(INT)format].signd == 1 || width <= 8) {
 		unsigned int bytes = samples * width / 8;
 		memset(data, *pat, bytes);
 		return 0;
 	}
-	
+	/* non-zero samples, fill using a loop */
 	width /= 8;
 	dst = data;
 #if 0
@@ -335,7 +411,7 @@ int snd_pcm_format_set_silence(snd_pcm_format_t format, void *data, unsigned int
 		dst += width;
 	}
 #else
-	
+	/* a bit optimization for constant width */
 	switch (width) {
 	case 2:
 		while (samples--) {
@@ -368,6 +444,15 @@ int snd_pcm_format_set_silence(snd_pcm_format_t format, void *data, unsigned int
 
 EXPORT_SYMBOL(snd_pcm_format_set_silence);
 
+/**
+ * snd_pcm_limit_hw_rates - determine rate_min/rate_max fields
+ * @runtime: the runtime instance
+ *
+ * Determines the rate_min and rate_max fields from the rates bits of
+ * the given runtime->hw.
+ *
+ * Returns zero if successful.
+ */
 int snd_pcm_limit_hw_rates(struct snd_pcm_runtime *runtime)
 {
 	int i;
@@ -388,6 +473,13 @@ int snd_pcm_limit_hw_rates(struct snd_pcm_runtime *runtime)
 
 EXPORT_SYMBOL(snd_pcm_limit_hw_rates);
 
+/**
+ * snd_pcm_rate_to_rate_bit - converts sample rate to SNDRV_PCM_RATE_xxx bit
+ * @rate: the sample rate to convert
+ *
+ * Returns the SNDRV_PCM_RATE_xxx flag that corresponds to the given rate, or
+ * SNDRV_PCM_RATE_KNOT for an unknown rate.
+ */
 unsigned int snd_pcm_rate_to_rate_bit(unsigned int rate)
 {
 	unsigned int i;

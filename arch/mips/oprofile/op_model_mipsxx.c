@@ -40,6 +40,14 @@ static int cpu_has_mipsmt_pertccounters;
 #define vpe_id()	(cpu_has_mipsmt_pertccounters ? \
 			0 : cpu_data[smp_processor_id()].vpe_id)
 
+/*
+ * The number of bits to shift to convert between counters per core and
+ * counters per VPE.  There is no reasonable interface atm to obtain the
+ * number of VPEs used by Linux and in the 34K this number is fixed to two
+ * anyways so we hardcore a few things here for the moment.  The way it's
+ * done here will ensure that oprofile VSMP kernel will run right on a lesser
+ * core like a 24K also or with maxcpus=1.
+ */
 static inline unsigned int vpe_shift(void)
 {
 	if (num_possible_cpus() > 1)
@@ -121,13 +129,14 @@ static struct mipsxx_register_config {
 	unsigned int counter[4];
 } reg;
 
+/* Compute all of the registers in preparation for enabling profiling.  */
 
 static void mipsxx_reg_setup(struct op_counter_config *ctr)
 {
 	unsigned int counters = op_model_mipsxx_ops.num_counters;
 	int i;
 
-	
+	/* Compute the performance counter control word.  */
 	for (i = 0; i < counters; i++) {
 		reg.control[i] = 0;
 		reg.counter[i] = 0;
@@ -147,6 +156,7 @@ static void mipsxx_reg_setup(struct op_counter_config *ctr)
 	}
 }
 
+/* Program all of the registers in preparation for enabling profiling.  */
 
 static void mipsxx_cpu_setup(void *args)
 {
@@ -168,6 +178,7 @@ static void mipsxx_cpu_setup(void *args)
 	}
 }
 
+/* Start all counters on current CPU */
 static void mipsxx_cpu_start(void *args)
 {
 	unsigned int counters = op_model_mipsxx_ops.num_counters;
@@ -184,6 +195,7 @@ static void mipsxx_cpu_start(void *args)
 	}
 }
 
+/* Stop all counters on current CPU */
 static void mipsxx_cpu_stop(void *args)
 {
 	unsigned int counters = op_model_mipsxx_ops.num_counters;
@@ -319,7 +331,7 @@ static int __init mipsxx_init(void)
 
 	case CPU_1004K:
 #if 0
-		
+		/* FIXME: report as 34K for now */
 		op_model_mipsxx_ops.cpu_type = "mips/1004K";
 		break;
 #endif

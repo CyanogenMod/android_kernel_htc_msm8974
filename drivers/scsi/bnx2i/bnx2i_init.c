@@ -70,11 +70,20 @@ DEFINE_PER_CPU(struct bnx2i_percpu_s, bnx2i_percpu);
 
 static int bnx2i_cpu_callback(struct notifier_block *nfb,
 			      unsigned long action, void *hcpu);
+/* notification function for CPU hotplug events */
 static struct notifier_block bnx2i_cpu_notifier = {
 	.notifier_call = bnx2i_cpu_callback,
 };
 
 
+/**
+ * bnx2i_identify_device - identifies NetXtreme II device type
+ * @hba: 		Adapter structure pointer
+ *
+ * This function identifies the NX2 device type and sets appropriate
+ *	queue mailbox register access method, 5709 requires driver to
+ *	access MBOX regs using *bin* mode
+ */
 void bnx2i_identify_device(struct bnx2i_hba *hba)
 {
 	hba->cnic_dev_type = 0;
@@ -109,6 +118,9 @@ void bnx2i_identify_device(struct bnx2i_hba *hba)
 }
 
 
+/**
+ * get_adapter_list_head - returns head of adapter list
+ */
 struct bnx2i_hba *get_adapter_list_head(void)
 {
 	struct bnx2i_hba *hba = NULL;
@@ -130,6 +142,11 @@ hba_not_found:
 }
 
 
+/**
+ * bnx2i_find_hba_for_cnic - maps cnic device instance to bnx2i adapter instance
+ * @cnic:	pointer to cnic device instance
+ *
+ */
 struct bnx2i_hba *bnx2i_find_hba_for_cnic(struct cnic_dev *cnic)
 {
 	struct bnx2i_hba *hba, *temp;
@@ -146,12 +163,30 @@ struct bnx2i_hba *bnx2i_find_hba_for_cnic(struct cnic_dev *cnic)
 }
 
 
+/**
+ * bnx2i_start - cnic callback to initialize & start adapter instance
+ * @handle:	transparent handle pointing to adapter structure
+ *
+ * This function maps adapter structure to pcidev structure and initiates
+ *	firmware handshake to enable/initialize on chip iscsi components
+ * 	This bnx2i - cnic interface api callback is issued after following
+ *	2 conditions are met -
+ *	  a) underlying network interface is up (marked by event 'NETDEV_UP'
+ *		from netdev
+ *	  b) bnx2i adapter instance is registered
+ */
 void bnx2i_start(void *handle)
 {
 #define BNX2I_INIT_POLL_TIME	(1000 / HZ)
 	struct bnx2i_hba *hba = handle;
 	int i = HZ;
 
+	/*
+	 * We should never register devices that don't support iSCSI
+	 * (see bnx2i_init_one), so something is wrong if we try to
+	 * start a iSCSI adapter on hardware with 0 supported iSCSI
+	 * connections
+	 */
 	BUG_ON(!hba->cnic->max_iscsi_conn);
 
 	bnx2i_send_fw_iscsi_init_msg(hba);
@@ -160,19 +195,30 @@ void bnx2i_start(void *handle)
 }
 
 
+/**
+ * bnx2i_chip_cleanup - local routine to handle chip cleanup
+ * @hba:	Adapter instance to register
+ *
+ * Driver checks if adapter still has any active connections before
+ *	executing the cleanup process
+ */
 static void bnx2i_chip_cleanup(struct bnx2i_hba *hba)
 {
 	struct bnx2i_endpoint *bnx2i_ep;
 	struct list_head *pos, *tmp;
 
 	if (hba->ofld_conns_active) {
+		/* Stage to force the disconnection
+		 * This is the case where the daemon is either slow or
+		 * not present
+		 */
 		printk(KERN_ALERT "bnx2i: (%s) chip cleanup for %d active "
 			"connections\n", hba->netdev->name,
 			hba->ofld_conns_active);
 		mutex_lock(&hba->net_dev_lock);
 		list_for_each_safe(pos, tmp, &hba->ep_active_list) {
 			bnx2i_ep = list_entry(pos, struct bnx2i_endpoint, link);
-			
+			/* Clean up the chip only */
 			bnx2i_hw_ep_disconnect(bnx2i_ep);
 			bnx2i_ep->cm_sk = NULL;
 		}
@@ -181,23 +227,39 @@ static void bnx2i_chip_cleanup(struct bnx2i_hba *hba)
 }
 
 
+/**
+ * bnx2i_stop - cnic callback to shutdown adapter instance
+ * @handle:	transparent handle pointing to adapter structure
+ *
+ * driver checks if adapter is already in shutdown mode, if not start
+ *	the shutdown process
+ */
 void bnx2i_stop(void *handle)
 {
 	struct bnx2i_hba *hba = handle;
 	int conns_active;
 	int wait_delay = 1 * HZ;
 
-	
+	/* check if cleanup happened in GOING_DOWN context */
 	if (!test_and_set_bit(ADAPTER_STATE_GOING_DOWN,
 			      &hba->adapter_state)) {
 		iscsi_host_for_each_session(hba->shost,
 					    bnx2i_drop_session);
 		wait_delay = hba->hba_shutdown_tmo;
 	}
+	/* Wait for inflight offload connection tasks to complete before
+	 * proceeding. Forcefully terminate all connection recovery in
+	 * progress at the earliest, either in bind(), send_pdu(LOGIN),
+	 * or conn_start()
+	 */
 	wait_event_interruptible_timeout(hba->eh_wait,
 					 (list_empty(&hba->ep_ofld_list) &&
 					 list_empty(&hba->ep_destroy_list)),
 					 2 * HZ);
+	/* Wait for all endpoints to be torn down, Chip will be reset once
+	 *  control returns to network driver. So it is required to cleanup and
+	 * release all connection resources before returning from this routine.
+	 */
 	while (hba->ofld_conns_active) {
 		conns_active = hba->ofld_conns_active;
 		wait_event_interruptible_timeout(hba->eh_wait,
@@ -208,11 +270,23 @@ void bnx2i_stop(void *handle)
 	}
 	bnx2i_chip_cleanup(hba);
 
+	/* This flag should be cleared last so that ep_disconnect() gracefully
+	 * cleans up connection context
+	 */
 	clear_bit(ADAPTER_STATE_GOING_DOWN, &hba->adapter_state);
 	clear_bit(ADAPTER_STATE_UP, &hba->adapter_state);
 }
 
 
+/**
+ * bnx2i_init_one - initialize an adapter instance and allocate memory resources
+ * @hba:	bnx2i adapter instance
+ * @cnic:	cnic device handle
+ *
+ * Global resource lock is held during critical sections below. This routine is
+ *	called from either cnic_register_driver() or device hot plug context and
+ *	and does majority of device specific initialization
+ */
 static int bnx2i_init_one(struct bnx2i_hba *hba, struct cnic_dev *cnic)
 {
 	int rc;
@@ -232,7 +306,7 @@ static int bnx2i_init_one(struct bnx2i_hba *hba, struct cnic_dev *cnic)
 		set_bit(BNX2I_CNIC_REGISTERED, &hba->reg_with_cnic);
 		list_add_tail(&hba->link, &adapter_list);
 		adapter_count++;
-	} else if (rc == -EBUSY) 	
+	} else if (rc == -EBUSY) 	/* duplicate registration */
 		printk(KERN_ALERT "bnx2i, duplicate registration"
 				  "hba=%p, cnic=%p\n", hba, cnic);
 	else if (rc == -EAGAIN)
@@ -249,18 +323,26 @@ out:
 }
 
 
+/**
+ * bnx2i_ulp_init - initialize an adapter instance
+ * @dev:	cnic device handle
+ *
+ * Called from cnic_register_driver() context to initialize all enumerated
+ *	cnic devices. This routine allocate adapter structure and other
+ *	device specific resources.
+ */
 void bnx2i_ulp_init(struct cnic_dev *dev)
 {
 	struct bnx2i_hba *hba;
 
-	
+	/* Allocate a HBA structure for this device */
 	hba = bnx2i_alloc_hba(dev);
 	if (!hba) {
 		printk(KERN_ERR "bnx2i init: hba initialization failed\n");
 		return;
 	}
 
-	
+	/* Get PCI related information and update hba struct members */
 	clear_bit(BNX2I_CNIC_REGISTERED, &hba->reg_with_cnic);
 	if (bnx2i_init_one(hba, dev)) {
 		printk(KERN_ERR "bnx2i - hba %p init failed\n", hba);
@@ -269,6 +351,11 @@ void bnx2i_ulp_init(struct cnic_dev *dev)
 }
 
 
+/**
+ * bnx2i_ulp_exit - shuts down adapter instance and frees all resources
+ * @dev:	cnic device handle
+ *
+ */
 void bnx2i_ulp_exit(struct cnic_dev *dev)
 {
 	struct bnx2i_hba *hba;
@@ -293,6 +380,12 @@ void bnx2i_ulp_exit(struct cnic_dev *dev)
 }
 
 
+/**
+ * bnx2i_percpu_thread_create - Create a receive thread for an
+ *				online CPU
+ *
+ * @cpu:	cpu index for the online cpu
+ */
 static void bnx2i_percpu_thread_create(unsigned int cpu)
 {
 	struct bnx2i_percpu_s *p;
@@ -303,7 +396,7 @@ static void bnx2i_percpu_thread_create(unsigned int cpu)
 	thread = kthread_create_on_node(bnx2i_percpu_io_thread, (void *)p,
 					cpu_to_node(cpu),
 					"bnx2i_thread/%d", cpu);
-	
+	/* bind thread to the cpu */
 	if (likely(!IS_ERR(thread))) {
 		kthread_bind(thread, cpu);
 		p->iothread = thread;
@@ -318,13 +411,13 @@ static void bnx2i_percpu_thread_destroy(unsigned int cpu)
 	struct task_struct *thread;
 	struct bnx2i_work *work, *tmp;
 
-	
+	/* Prevent any new work from being queued for this CPU */
 	p = &per_cpu(bnx2i_percpu, cpu);
 	spin_lock_bh(&p->p_work_lock);
 	thread = p->iothread;
 	p->iothread = NULL;
 
-	
+	/* Free all work in the list */
 	list_for_each_entry_safe(work, tmp, &p->work_list, list) {
 		list_del_init(&work->list);
 		bnx2i_process_scsi_cmd_resp(work->session,
@@ -338,6 +431,17 @@ static void bnx2i_percpu_thread_destroy(unsigned int cpu)
 }
 
 
+/**
+ * bnx2i_cpu_callback - Handler for CPU hotplug events
+ *
+ * @nfb:	The callback data block
+ * @action:	The event triggering the callback
+ * @hcpu:	The index of the CPU that the event is for
+ *
+ * This creates or destroys per-CPU data for iSCSI
+ *
+ * Returns NOTIFY_OK always.
+ */
 static int bnx2i_cpu_callback(struct notifier_block *nfb,
 			      unsigned long action, void *hcpu)
 {
@@ -362,6 +466,13 @@ static int bnx2i_cpu_callback(struct notifier_block *nfb,
 }
 
 
+/**
+ * bnx2i_mod_init - module init entry point
+ *
+ * initialize any driver wide global data structures such as endpoint pool,
+ *	tcp port manager/queue, sysfs. finally driver will register itself
+ *	with the cnic module
+ */
 static int __init bnx2i_mod_init(void)
 {
 	int err;
@@ -389,7 +500,7 @@ static int __init bnx2i_mod_init(void)
 		goto unreg_xport;
 	}
 
-	
+	/* Create percpu kernel threads to handle iSCSI I/O completions */
 	for_each_possible_cpu(cpu) {
 		p = &per_cpu(bnx2i_percpu, cpu);
 		INIT_LIST_HEAD(&p->work_list);
@@ -400,7 +511,7 @@ static int __init bnx2i_mod_init(void)
 	for_each_online_cpu(cpu)
 		bnx2i_percpu_thread_create(cpu);
 
-	
+	/* Initialize per CPU interrupt thread */
 	register_hotcpu_notifier(&bnx2i_cpu_notifier);
 
 	return 0;
@@ -412,6 +523,14 @@ out:
 }
 
 
+/**
+ * bnx2i_mod_exit - module cleanup/exit entry point
+ *
+ * Global resource lock and host adapter lock is held during critical sections
+ *	in this function. Driver will browse through the adapter list, cleans-up
+ *	each instance, unregisters iscsi transport name and finally driver will
+ *	unregister itself with the cnic module
+ */
 static void __exit bnx2i_mod_exit(void)
 {
 	struct bnx2i_hba *hba;

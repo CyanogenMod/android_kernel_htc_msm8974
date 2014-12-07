@@ -46,19 +46,21 @@
 #include <xen/interface/io/xenbus.h>
 #include <xen/interface/io/xs_wire.h>
 
+/* Register callback to watch this node. */
 struct xenbus_watch
 {
 	struct list_head list;
 
-	
+	/* Path being watched. */
 	const char *node;
 
-	
+	/* Callback (executed in a process context with no locks held). */
 	void (*callback)(struct xenbus_watch *,
 			 const char **vec, unsigned int len);
 };
 
 
+/* A xenbus device. */
 struct xenbus_device {
 	const char *devicetype;
 	const char *nodename;
@@ -77,10 +79,11 @@ static inline struct xenbus_device *to_xenbus_device(struct device *dev)
 
 struct xenbus_device_id
 {
-	
-	char devicetype[32]; 	
+	/* .../device/<device_type>/<identifier> */
+	char devicetype[32]; 	/* General class of device. */
 };
 
+/* A xenbus driver. */
 struct xenbus_driver {
 	const struct xenbus_device_id *ids;
 	int (*probe)(struct xenbus_device *dev,
@@ -118,6 +121,7 @@ struct xenbus_transaction
 	u32 id;
 };
 
+/* Nil transaction ID. */
 #define XBT_NIL ((struct xenbus_transaction) { 0 })
 
 char **xenbus_directory(struct xenbus_transaction t,
@@ -134,16 +138,21 @@ int xenbus_rm(struct xenbus_transaction t, const char *dir, const char *node);
 int xenbus_transaction_start(struct xenbus_transaction *t);
 int xenbus_transaction_end(struct xenbus_transaction t, int abort);
 
+/* Single read and scanf: returns -errno or num scanned if > 0. */
 __scanf(4, 5)
 int xenbus_scanf(struct xenbus_transaction t,
 		 const char *dir, const char *node, const char *fmt, ...);
 
+/* Single printf and write: returns -errno or 0. */
 __printf(4, 5)
 int xenbus_printf(struct xenbus_transaction t,
 		  const char *dir, const char *node, const char *fmt, ...);
 
+/* Generic read function: NULL-terminated triples of name,
+ * sprintf-style type string, and pointer. Returns 0 or errno.*/
 int xenbus_gather(struct xenbus_transaction t, const char *dir, ...);
 
+/* notifer routines for when the xenstore comes up */
 extern int xenstored_ready;
 int register_xenstore_notifier(struct notifier_block *nb);
 void unregister_xenstore_notifier(struct notifier_block *nb);
@@ -154,10 +163,12 @@ void xs_suspend(void);
 void xs_resume(void);
 void xs_suspend_cancel(void);
 
+/* Used by xenbus_dev to borrow kernel's store connection. */
 void *xenbus_dev_request_and_reply(struct xsd_sockmsg *msg);
 
 struct work_struct;
 
+/* Prepare for domain suspend: then resume or cancel the suspend. */
 void xenbus_suspend(void);
 void xenbus_resume(void);
 void xenbus_probe(struct work_struct *);
@@ -209,4 +220,4 @@ const char *xenbus_strstate(enum xenbus_state state);
 int xenbus_dev_is_online(struct xenbus_device *dev);
 int xenbus_frontend_closed(struct xenbus_device *dev);
 
-#endif 
+#endif /* _XEN_XENBUS_H */

@@ -103,6 +103,13 @@ static inline void receive_chars(struct uart_pxa_port *up, int *status)
 	int max_count = 256;
 
 	do {
+		/* work around Errata #20 according to
+		 * Intel(R) PXA27x Processor Family
+		 * Specification Update (May 2005)
+		 *
+		 * Step 2
+		 * Disable the Reciever Time Out Interrupt via IER[RTOEI]
+		 */
 		up->ier &= ~UART_IER_RTOIE;
 		serial_out(up, UART_IER, up->ier);
 
@@ -112,9 +119,18 @@ static inline void receive_chars(struct uart_pxa_port *up, int *status)
 
 		if (unlikely(*status & (UART_LSR_BI | UART_LSR_PE |
 				       UART_LSR_FE | UART_LSR_OE))) {
+			/*
+			 * For statistics only
+			 */
 			if (*status & UART_LSR_BI) {
 				*status &= ~(UART_LSR_FE | UART_LSR_PE);
 				up->port.icount.brk++;
+				/*
+				 * We do the SysRQ and SAK checking
+				 * here because otherwise the break
+				 * may get masked by ignore_status_mask
+				 * or read_status_mask.
+				 */
 				if (uart_handle_break(&up->port))
 					goto ignore_char;
 			} else if (*status & UART_LSR_PE)
@@ -124,11 +140,14 @@ static inline void receive_chars(struct uart_pxa_port *up, int *status)
 			if (*status & UART_LSR_OE)
 				up->port.icount.overrun++;
 
+			/*
+			 * Mask off conditions which should be ignored.
+			 */
 			*status &= up->port.read_status_mask;
 
 #ifdef CONFIG_SERIAL_PXA_CONSOLE
 			if (up->port.line == up->port.cons->index) {
-				
+				/* Recover the break flag from console xmit */
 				*status |= up->lsr_break_flag;
 				up->lsr_break_flag = 0;
 			}
@@ -151,6 +170,13 @@ static inline void receive_chars(struct uart_pxa_port *up, int *status)
 	} while ((*status & UART_LSR_DR) && (max_count-- > 0));
 	tty_flip_buffer_push(tty);
 
+	/* work around Errata #20 according to
+	 * Intel(R) PXA27x Processor Family
+	 * Specification Update (May 2005)
+	 *
+	 * Step 6:
+	 * No more data in FIFO: Re-enable RTO interrupt via IER[RTOIE]
+	 */
 	up->ier |= UART_IER_RTOIE;
 	serial_out(up, UART_IER, up->ier);
 }
@@ -219,6 +245,9 @@ static inline void check_modem_status(struct uart_pxa_port *up)
 	wake_up_interruptible(&up->port.state->port.delta_msr_wait);
 }
 
+/*
+ * This handles the interrupt from one port.
+ */
 static inline irqreturn_t serial_pxa_irq(int irq, void *dev_id)
 {
 	struct uart_pxa_port *up = dev_id;
@@ -319,7 +348,7 @@ static void serial_pxa_dma_init(struct pxa_uart *up)
 	if (!up->dmadesc)
 		goto err_alloc;
 
-	
+	/* ... */
 err_alloc:
 	pxa_free_dma(up->txdma);
 err_rxdma:
@@ -335,27 +364,40 @@ static int serial_pxa_startup(struct uart_port *port)
 	unsigned long flags;
 	int retval;
 
-	if (port->line == 3) 
+	if (port->line == 3) /* HWUART */
 		up->mcr |= UART_MCR_AFE;
 	else
 		up->mcr = 0;
 
 	up->port.uartclk = clk_get_rate(up->clk);
 
+	/*
+	 * Allocate the IRQ
+	 */
 	retval = request_irq(up->port.irq, serial_pxa_irq, 0, up->name, up);
 	if (retval)
 		return retval;
 
+	/*
+	 * Clear the FIFO buffers and disable them.
+	 * (they will be reenabled in set_termios())
+	 */
 	serial_out(up, UART_FCR, UART_FCR_ENABLE_FIFO);
 	serial_out(up, UART_FCR, UART_FCR_ENABLE_FIFO |
 			UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT);
 	serial_out(up, UART_FCR, 0);
 
+	/*
+	 * Clear the interrupt registers.
+	 */
 	(void) serial_in(up, UART_LSR);
 	(void) serial_in(up, UART_RX);
 	(void) serial_in(up, UART_IIR);
 	(void) serial_in(up, UART_MSR);
 
+	/*
+	 * Now, initialize the UART
+	 */
 	serial_out(up, UART_LCR, UART_LCR_WLEN8);
 
 	spin_lock_irqsave(&up->port.lock, flags);
@@ -363,9 +405,17 @@ static int serial_pxa_startup(struct uart_port *port)
 	serial_pxa_set_mctrl(&up->port, up->port.mctrl);
 	spin_unlock_irqrestore(&up->port.lock, flags);
 
+	/*
+	 * Finally, enable interrupts.  Note: Modem status interrupts
+	 * are set via set_termios(), which will be occurring imminently
+	 * anyway, so we don't enable them here.
+	 */
 	up->ier = UART_IER_RLSI | UART_IER_RDI | UART_IER_RTOIE | UART_IER_UUE;
 	serial_out(up, UART_IER, up->ier);
 
+	/*
+	 * And clear the interrupt registers again for luck.
+	 */
 	(void) serial_in(up, UART_LSR);
 	(void) serial_in(up, UART_RX);
 	(void) serial_in(up, UART_IIR);
@@ -381,6 +431,9 @@ static void serial_pxa_shutdown(struct uart_port *port)
 
 	free_irq(up->port.irq, up);
 
+	/*
+	 * Disable interrupts from this port
+	 */
 	up->ier = 0;
 	serial_out(up, UART_IER, 0);
 
@@ -389,6 +442,9 @@ static void serial_pxa_shutdown(struct uart_port *port)
 	serial_pxa_set_mctrl(&up->port, up->port.mctrl);
 	spin_unlock_irqrestore(&up->port.lock, flags);
 
+	/*
+	 * Disable break condition and FIFOs
+	 */
 	serial_out(up, UART_LCR, serial_in(up, UART_LCR) & ~UART_LCR_SBC);
 	serial_out(up, UART_FCR, UART_FCR_ENABLE_FIFO |
 				  UART_FCR_CLEAR_RCVR |
@@ -429,6 +485,9 @@ serial_pxa_set_termios(struct uart_port *port, struct ktermios *termios,
 	if (!(termios->c_cflag & PARODD))
 		cval |= UART_LCR_EPAR;
 
+	/*
+	 * Ask the core to calculate the divisor for us.
+	 */
 	baud = uart_get_baud_rate(port, termios, old, 0, port->uartclk/16);
 	quot = uart_get_divisor(port, baud);
 
@@ -439,10 +498,21 @@ serial_pxa_set_termios(struct uart_port *port, struct ktermios *termios,
 	else
 		fcr = UART_FCR_ENABLE_FIFO | UART_FCR_PXAR32;
 
+	/*
+	 * Ok, we're now changing the port state.  Do it with
+	 * interrupts disabled.
+	 */
 	spin_lock_irqsave(&up->port.lock, flags);
 
+	/*
+	 * Ensure the port will be enabled.
+	 * This is required especially for serial console.
+	 */
 	up->ier |= UART_IER_UUE;
 
+	/*
+	 * Update the per-port timeout.
+	 */
 	uart_update_timeout(port, termios->c_cflag, baud);
 
 	up->port.read_status_mask = UART_LSR_OE | UART_LSR_THRE | UART_LSR_DR;
@@ -451,18 +521,31 @@ serial_pxa_set_termios(struct uart_port *port, struct ktermios *termios,
 	if (termios->c_iflag & (BRKINT | PARMRK))
 		up->port.read_status_mask |= UART_LSR_BI;
 
+	/*
+	 * Characters to ignore
+	 */
 	up->port.ignore_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		up->port.ignore_status_mask |= UART_LSR_PE | UART_LSR_FE;
 	if (termios->c_iflag & IGNBRK) {
 		up->port.ignore_status_mask |= UART_LSR_BI;
+		/*
+		 * If we're ignoring parity and break indicators,
+		 * ignore overruns too (for real raw support).
+		 */
 		if (termios->c_iflag & IGNPAR)
 			up->port.ignore_status_mask |= UART_LSR_OE;
 	}
 
+	/*
+	 * ignore all characters if CREAD is not set
+	 */
 	if ((termios->c_cflag & CREAD) == 0)
 		up->port.ignore_status_mask |= UART_LSR_DR;
 
+	/*
+	 * CTS flow control flag and modem status interrupts
+	 */
 	up->ier &= ~UART_IER_MSI;
 	if (UART_ENABLE_MS(&up->port, termios->c_cflag))
 		up->ier |= UART_IER_MSI;
@@ -474,15 +557,19 @@ serial_pxa_set_termios(struct uart_port *port, struct ktermios *termios,
 	else
 		up->mcr &= ~UART_MCR_AFE;
 
-	serial_out(up, UART_LCR, cval | UART_LCR_DLAB);	
-	serial_out(up, UART_DLL, quot & 0xff);		
+	serial_out(up, UART_LCR, cval | UART_LCR_DLAB);	/* set DLAB */
+	serial_out(up, UART_DLL, quot & 0xff);		/* LS of divisor */
 
+	/*
+	 * work around Errata #75 according to Intel(R) PXA27x Processor Family
+	 * Specification Update (Nov 2005)
+	 */
 	dll = serial_in(up, UART_DLL);
 	WARN_ON(dll != (quot & 0xff));
 
-	serial_out(up, UART_DLM, quot >> 8);		
-	serial_out(up, UART_LCR, cval);			
-	up->lcr = cval;					
+	serial_out(up, UART_DLM, quot >> 8);		/* MS of divisor */
+	serial_out(up, UART_LCR, cval);			/* reset DLAB */
+	up->lcr = cval;					/* Save LCR */
 	serial_pxa_set_mctrl(&up->port, up->port.mctrl);
 	serial_out(up, UART_FCR, fcr);
 	spin_unlock_irqrestore(&up->port.lock, flags);
@@ -518,7 +605,7 @@ static void serial_pxa_config_port(struct uart_port *port, int flags)
 static int
 serial_pxa_verify_port(struct uart_port *port, struct serial_struct *ser)
 {
-	
+	/* we don't want the core code to modify any port params */
 	return -EINVAL;
 }
 
@@ -536,11 +623,14 @@ static struct uart_driver serial_pxa_reg;
 
 #define BOTH_EMPTY (UART_LSR_TEMT | UART_LSR_THRE)
 
+/*
+ *	Wait for transmitter & holding register to empty
+ */
 static inline void wait_for_xmitr(struct uart_pxa_port *up)
 {
 	unsigned int status, tmout = 10000;
 
-	
+	/* Wait up to 10ms for the character(s) to be sent. */
 	do {
 		status = serial_in(up, UART_LSR);
 
@@ -552,7 +642,7 @@ static inline void wait_for_xmitr(struct uart_pxa_port *up)
 		udelay(1);
 	} while ((status & BOTH_EMPTY) != BOTH_EMPTY);
 
-	
+	/* Wait up to 1s for flow control if necessary */
 	if (up->port.flags & UPF_CONS_FLOW) {
 		tmout = 1000000;
 		while (--tmout &&
@@ -569,6 +659,12 @@ static void serial_pxa_console_putchar(struct uart_port *port, int ch)
 	serial_out(up, UART_TX, ch);
 }
 
+/*
+ * Print a string to the serial port trying not to disturb
+ * any possible real use of the port...
+ *
+ *	The console_lock must be held when we get here.
+ */
 static void
 serial_pxa_console_write(struct console *co, const char *s, unsigned int count)
 {
@@ -577,11 +673,18 @@ serial_pxa_console_write(struct console *co, const char *s, unsigned int count)
 
 	clk_prepare_enable(up->clk);
 
+	/*
+	 *	First save the IER then disable the interrupts
+	 */
 	ier = serial_in(up, UART_IER);
 	serial_out(up, UART_IER, UART_IER_UUE);
 
 	uart_console_write(&up->port, s, count, serial_pxa_console_putchar);
 
+	/*
+	 *	Finally, wait for transmitter to become empty
+	 *	and restore the IER
+	 */
 	wait_for_xmitr(up);
 	serial_out(up, UART_IER, ier);
 

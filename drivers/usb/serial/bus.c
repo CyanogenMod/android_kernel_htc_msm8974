@@ -22,6 +22,10 @@ static int usb_serial_device_match(struct device *dev,
 	struct usb_serial_driver *driver;
 	const struct usb_serial_port *port;
 
+	/*
+	 * drivers are already assigned to ports in serial_probe so it's
+	 * a simple check here.
+	 */
 	port = to_usb_serial_port(dev);
 	if (!port)
 		return 0;

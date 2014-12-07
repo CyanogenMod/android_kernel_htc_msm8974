@@ -37,14 +37,38 @@
 #define DBG(x...)
 #endif
 
+/* PCI Controller */
 
 
+/*
+ * pcibios_alloc_controller
+ * pcibios_enable_device
+ * pcibios_fixups
+ * pcibios_align_resource
+ * pcibios_fixup_bus
+ * pcibios_setup
+ * pci_bus_add_device
+ * pci_mmap_page_range
+ */
 
 struct pci_controller* pci_ctrl_head;
 struct pci_controller** pci_ctrl_tail = &pci_ctrl_head;
 
 static int pci_bus_count;
 
+/*
+ * We need to avoid collisions with `mirrored' VGA ports
+ * and other strange ISA hardware, so we always want the
+ * addresses to be allocated in the 0x000-0x0ff region
+ * modulo 0x400.
+ *
+ * Why? Because some silly external IO cards only decode
+ * the low 10 bits of the IO address. The 0x00-0xff region
+ * is reserved for motherboard devices that decode all 16
+ * bits, so it's ok to allocate at, say, 0x2800-0x28ff,
+ * but we want to try to avoid allocating at 0x2900-0x2bff
+ * which might have be mirrored at 0x0100-0x03ff..
+ */
 resource_size_t
 pcibios_align_resource(void *data, const struct resource *res,
 		       resource_size_t size, resource_size_t align)
@@ -155,7 +179,7 @@ static int __init pcibios_init(void)
 
 	printk("PCI: Probing PCI hardware\n");
 
-	
+	/* Scan all of the recorded PCI controllers.  */
 	for (pci_ctrl = pci_ctrl_head; pci_ctrl; pci_ctrl = pci_ctrl->next) {
 		pci_ctrl->last_busno = 0xff;
 		INIT_LIST_HEAD(&resources);
@@ -177,7 +201,7 @@ subsys_initcall(pcibios_init);
 void __init pcibios_fixup_bus(struct pci_bus *bus)
 {
 	if (bus->parent) {
-		
+		/* This is a subordinate bridge */
 		pci_read_bridge_bases(bus);
 	}
 }
@@ -189,9 +213,10 @@ char __init *pcibios_setup(char *str)
 
 void pcibios_set_master(struct pci_dev *dev)
 {
-	
+	/* No special bus mastering setup handling */
 }
 
+/* the next one is stolen from the alpha port... */
 
 void __init
 pcibios_update_irq(struct pci_dev *dev, int irq)
@@ -230,6 +255,9 @@ int pcibios_enable_device(struct pci_dev *dev, int mask)
 
 #ifdef CONFIG_PROC_FS
 
+/*
+ * Return the index of the PCI controller for device pdev.
+ */
 
 int
 pci_controller_num(struct pci_dev *dev)
@@ -238,9 +266,25 @@ pci_controller_num(struct pci_dev *dev)
 	return pci_ctrl->index;
 }
 
-#endif 
+#endif /* CONFIG_PROC_FS */
 
+/*
+ * Platform support for /proc/bus/pci/X/Y mmap()s,
+ * modelled on the sparc64 implementation by Dave Miller.
+ *  -- paulus.
+ */
 
+/*
+ * Adjust vm_pgoff of VMA such that it is the physical page offset
+ * corresponding to the 32-bit pci bus offset for DEV requested by the user.
+ *
+ * Basically, the user finds the base address for his device which he wishes
+ * to mmap.  They read the 32-bit value from the config space base register,
+ * add whatever PAGE_SIZE multiple offset they wish, and feed this into the
+ * offset parameter of mmap on /proc/bus/pci/XXX for that device.
+ *
+ * Returns negative error code on failure, zero on success.
+ */
 static __inline__ int
 __pci_mmap_make_offset(struct pci_dev *dev, struct vm_area_struct *vma,
 		       enum pci_mmap_state mmap_state)
@@ -251,9 +295,9 @@ __pci_mmap_make_offset(struct pci_dev *dev, struct vm_area_struct *vma,
 	int i, res_bit;
 
 	if (pci_ctrl == 0)
-		return -EINVAL;		
+		return -EINVAL;		/* should never happen */
 
-	
+	/* If memory, add on the PCI bridge address offset */
 	if (mmap_state == pci_mmap_mem) {
 		res_bit = IORESOURCE_MEM;
 	} else {
@@ -262,23 +306,27 @@ __pci_mmap_make_offset(struct pci_dev *dev, struct vm_area_struct *vma,
 		res_bit = IORESOURCE_IO;
 	}
 
+	/*
+	 * Check that the offset requested corresponds to one of the
+	 * resources of the device.
+	 */
 	for (i = 0; i <= PCI_ROM_RESOURCE; i++) {
 		struct resource *rp = &dev->resource[i];
 		int flags = rp->flags;
 
-		
+		/* treat ROM as memory (should be already) */
 		if (i == PCI_ROM_RESOURCE)
 			flags |= IORESOURCE_MEM;
 
-		
+		/* Active and same type? */
 		if ((flags & res_bit) == 0)
 			continue;
 
-		
+		/* In the range of this resource? */
 		if (offset < (rp->start & PAGE_MASK) || offset > rp->end)
 			continue;
 
-		
+		/* found it! construct the final physical address */
 		if (mmap_state == pci_mmap_io)
 			offset += pci_ctrl->io_space.start - io_offset;
 		vma->vm_pgoff = offset >> PAGE_SHIFT;
@@ -288,13 +336,17 @@ __pci_mmap_make_offset(struct pci_dev *dev, struct vm_area_struct *vma,
 	return -EINVAL;
 }
 
+/*
+ * Set vm_page_prot of VMA, as appropriate for this architecture, for a pci
+ * device mapping.
+ */
 static __inline__ void
 __pci_mmap_set_pgprot(struct pci_dev *dev, struct vm_area_struct *vma,
 		      enum pci_mmap_state mmap_state, int write_combine)
 {
 	int prot = pgprot_val(vma->vm_page_prot);
 
-	
+	/* Set to write-through */
 	prot &= ~_PAGE_NO_CACHE;
 #if 0
 	if (!write_combine)
@@ -303,6 +355,16 @@ __pci_mmap_set_pgprot(struct pci_dev *dev, struct vm_area_struct *vma,
 	vma->vm_page_prot = __pgprot(prot);
 }
 
+/*
+ * Perform the actual remap of the pages for a PCI device mapping, as
+ * appropriate for this architecture.  The region in the process to map
+ * is described by vm_start and vm_end members of VMA, the base physical
+ * address is found in vm_pgoff.
+ * The pci device structure is provided so that architectures may make mapping
+ * decisions on a per-device or per-bus basis.
+ *
+ * Returns a negative error code on failure, zero on success.
+ */
 int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
 			enum pci_mmap_state mmap_state,
 			int write_combine)

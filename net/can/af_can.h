@@ -46,6 +46,7 @@
 #include <linux/rcupdate.h>
 #include <linux/can.h>
 
+/* af_can rx dispatcher structures */
 
 struct receiver {
 	struct hlist_node list;
@@ -60,6 +61,7 @@ struct receiver {
 
 enum { RX_ERR, RX_ALL, RX_FIL, RX_INV, RX_EFF, RX_MAX };
 
+/* per device receive filters linked at dev->ml_priv */
 struct dev_rcv_lists {
 	struct hlist_head rx[RX_MAX];
 	struct hlist_head rx_sff[0x800];
@@ -67,7 +69,9 @@ struct dev_rcv_lists {
 	int entries;
 };
 
+/* statistic structures */
 
+/* can be reset e.g. by can_init_stats() */
 struct s_stats {
 	unsigned long jiffies_init;
 
@@ -92,6 +96,7 @@ struct s_stats {
 	unsigned long matches_delta;
 };
 
+/* persistent statistics */
 struct s_pstats {
 	unsigned long stats_reset;
 	unsigned long user_reset;
@@ -99,13 +104,15 @@ struct s_pstats {
 	unsigned long rcv_entries_max;
 };
 
+/* function prototypes for the CAN networklayer procfs (proc.c) */
 extern void can_init_proc(void);
 extern void can_remove_proc(void);
 extern void can_stat_update(unsigned long data);
 
-extern struct timer_list can_stattimer;    
-extern struct s_stats    can_stats;        
-extern struct s_pstats   can_pstats;       
-extern struct hlist_head can_rx_dev_list;  
+/* structures and variables from af_can.c needed in proc.c for reading */
+extern struct timer_list can_stattimer;    /* timer for statistics update */
+extern struct s_stats    can_stats;        /* packet statistics */
+extern struct s_pstats   can_pstats;       /* receive list statistics */
+extern struct hlist_head can_rx_dev_list;  /* rx dispatcher structures */
 
-#endif 
+#endif /* AF_CAN_H */

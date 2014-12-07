@@ -43,16 +43,21 @@ void __init board_setup(void)
 
 	alchemy_gpio2_enable();
 
+	/*
+	 * Enable PSC1 SYNC for AC'97.  Normaly done in audio driver,
+	 * but it is board specific code, so put it here.
+	 */
 	pin_func = au_readl(SYS_PINFUNC);
 	au_sync();
 	pin_func |= SYS_PF_MUST_BE_SET | SYS_PF_PSC1_S1;
 	au_writel(pin_func, SYS_PINFUNC);
 
-	bcsr_write(BCSR_PCMCIA, 0);	
+	bcsr_write(BCSR_PCMCIA, 0);	/* turn off PCMCIA power */
 
 	printk(KERN_INFO "AMD Alchemy Pb1550 Board\n");
 }
 
+/******************************************************************************/
 
 static int pb1550_map_pci_irq(const struct pci_dev *d, u8 slot, u8 pin)
 {
@@ -122,7 +127,7 @@ static struct resource au1550_psc2_res[] = {
 
 static struct platform_device pb1550_i2c_dev = {
 	.name		= "au1xpsc_smbus",
-	.id		= 0,	
+	.id		= 0,	/* bus number */
 	.num_resources	= ARRAY_SIZE(au1550_psc2_res),
 	.resource	= au1550_psc2_res,
 };
@@ -143,7 +148,7 @@ static struct mtd_partition pb1550_nand_parts[] = {
 static struct au1550nd_platdata pb1550_nand_pd = {
 	.parts		= pb1550_nand_parts,
 	.num_parts	= ARRAY_SIZE(pb1550_nand_parts),
-	.devwidth	= 0,	
+	.devwidth	= 0,	/* x8 NAND default, needs fixing up */
 };
 
 static struct resource pb1550_nand_res[] = {
@@ -175,15 +180,15 @@ static void __init pb1550_nand_setup(void)
 	case 8:
 	case 0xC:
 	case 0xD:
-		
+		/* x16 NAND Flash */
 		pb1550_nand_pd.devwidth = 1;
-		
+		/* fallthrough */
 	case 1:
 	case 9:
 	case 3:
 	case 0xE:
 	case 0xF:
-		
+		/* x8 NAND, already set up */
 		platform_device_register(&pb1550_nand_dev);
 	}
 }
@@ -196,10 +201,17 @@ static int __init pb1550_dev_init(void)
 	irq_set_irq_type(AU1550_GPIO1_INT, IRQF_TRIGGER_LOW);
 	irq_set_irq_type(AU1550_GPIO201_205_INT, IRQF_TRIGGER_HIGH);
 
-	
+	/* enable both PCMCIA card irqs in the shared line */
 	alchemy_gpio2_enable_int(201);
 	alchemy_gpio2_enable_int(202);
 
+	/* Pb1550, like all others, also has statuschange irqs; however they're
+	* wired up on one of the Au1550's shared GPIO201_205 line, which also
+	* services the PCMCIA card interrupts.  So we ignore statuschange and
+	* use the GPIO201_205 exclusively for card interrupts, since a) pcmcia
+	* drivers are used to shared irqs and b) statuschange isn't really use-
+	* ful anyway.
+	*/
 	db1x_register_pcmcia_socket(
 		AU1000_PCMCIA_ATTR_PHYS_ADDR,
 		AU1000_PCMCIA_ATTR_PHYS_ADDR + 0x000400000 - 1,
@@ -218,8 +230,8 @@ static int __init pb1550_dev_init(void)
 		AU1000_PCMCIA_IO_PHYS_ADDR   + 0x008010000 - 1,
 		AU1550_GPIO201_205_INT, AU1550_GPIO1_INT, 0, 0, 1);
 
-	
-	gpio_direction_input(206);	
+	/* NAND setup */
+	gpio_direction_input(206);	/* GPIO206 high */
 	pb1550_nand_setup();
 
 	swapped = bcsr_read(BCSR_STATUS) & BCSR_STATUS_PB1550_SWAPBOOT;

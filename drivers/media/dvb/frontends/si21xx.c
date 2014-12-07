@@ -142,11 +142,12 @@ struct si21xx_state {
 	struct dvb_frontend frontend;
 	u8 initialised:1;
 	int errmode;
-	int fs;			
+	int fs;			/*Sampling rate of the ADC in MHz*/
 };
 
+/*	register default initialization */
 static u8 serit_sp1511lhb_inittab[] = {
-	0x01, 0x28,	
+	0x01, 0x28,	/* set i2c_inc_disable */
 	0x20, 0x03,
 	0x27, 0x20,
 	0xe0, 0x45,
@@ -222,11 +223,12 @@ static u8 serit_sp1511lhb_inittab[] = {
 	0xff, 0xff
 };
 
+/*	low level read/writes */
 static int si21_writeregs(struct si21xx_state *state, u8 reg1,
 							u8 *data, int len)
 {
 	int ret;
-	u8 buf[60];
+	u8 buf[60];/* = { reg1, data };*/
 	struct i2c_msg msg = {
 				.addr = state->config->demod_address,
 				.flags = 0,
@@ -391,13 +393,13 @@ static int si21xx_send_diseqc_msg(struct dvb_frontend *fe,
 	status |= si21_readregs(state, LNB_CTRL_STATUS_REG, &lnb_status, 0x01);
 	status |= si21_readregs(state, LNB_CTRL_REG_1, &lnb_status, 0x01);
 
-	
+	/*fill the FIFO*/
 	status |= si21_writeregs(state, LNB_FIFO_REGS_0, m->msg, m->msg_len);
 
 	LNB_CTRL_1 = (lnb_status & 0x70);
 	LNB_CTRL_1 |= m->msg_len;
 
-	LNB_CTRL_1 |= 0x80;	
+	LNB_CTRL_1 |= 0x80;	/* begin LNB signaling */
 
 	status |= si21_writeregs(state, LNB_CTRL_REG_1, &LNB_CTRL_1, 0x01);
 
@@ -428,6 +430,7 @@ static int si21xx_send_diseqc_burst(struct dvb_frontend *fe,
 
 	return 0;
 }
+/*	30.06.2008 */
 static int si21xx_set_tone(struct dvb_frontend *fe, fe_sec_tone_mode_t tone)
 {
 	struct si21xx_state *state = fe->demodulator_priv;
@@ -491,11 +494,26 @@ static int si21xx_init(struct dvb_frontend *fe)
 		si21_writeregs(state, reg1, &val, 1);
 	}
 
-	
+	/*DVB QPSK SYSTEM MODE REG*/
 	reg1 = 0x08;
 	si21_writeregs(state, SYSTEM_MODE_REG, &reg1, 0x01);
 
-	
+	/*transport stream config*/
+	/*
+	mode = PARALLEL;
+	sdata_form = LSB_FIRST;
+	clk_edge = FALLING_EDGE;
+	clk_mode = CLK_GAPPED_MODE;
+	strt_len = BYTE_WIDE;
+	sync_pol = ACTIVE_HIGH;
+	val_pol = ACTIVE_HIGH;
+	err_pol = ACTIVE_HIGH;
+	sclk_rate = 0x00;
+	parity = 0x00 ;
+	data_delay = 0x00;
+	clk_delay = 0x00;
+	pclk_smooth = 0x00;
+	*/
 	reg2[0] =
 		PARALLEL + (LSB_FIRST << 1)
 		+ (FALLING_EDGE << 2) + (CLK_GAPPED_MODE << 3)
@@ -503,6 +521,10 @@ static int si21xx_init(struct dvb_frontend *fe)
 		+ (ACTIVE_HIGH << 6) + (ACTIVE_HIGH << 7);
 
 	reg2[1] = 0;
+	/*	sclk_rate + (parity << 2)
+		+ (data_delay << 3) + (clk_delay << 4)
+		+ (pclk_smooth << 5);
+	*/
 	status |= si21_writeregs(state, TS_CTRL_REG_1, reg2, 0x02);
 	if (status != 0)
 		dprintk(" %s : TS Set Error\n", __func__);
@@ -553,6 +575,8 @@ static int si21_read_signal_strength(struct dvb_frontend *fe, u16 *strength)
 {
 	struct si21xx_state *state = fe->demodulator_priv;
 
+	/*status = si21_readreg(state, ANALOG_AGC_POWER_LEVEL_REG,
+						(u8*)agclevel, 0x01);*/
 
 	u16 signal = (3 * si21_readreg(state, 0x27) *
 					si21_readreg(state, 0x28));
@@ -611,6 +635,8 @@ static int si21_read_ucblocks(struct dvb_frontend *fe, u32 *ucblocks)
 	return 0;
 }
 
+/*	initiates a channel acquisition sequence
+	using the specified symbol rate and code rate */
 static int si21xx_setacquire(struct dvb_frontend *fe, int symbrate,
 						fe_code_rate_t crate)
 {
@@ -633,17 +659,17 @@ static int si21xx_setacquire(struct dvb_frontend *fe, int symbrate,
 
 	si21xx_set_symbolrate(fe, symbrate);
 
-	
+	/* write code rates to use in the Viterbi search */
 	status |= si21_writeregs(state,
 				VIT_SRCH_CTRL_REG_1,
 				&coderate_ptr, 0x01);
 
-	
+	/* clear acq_start bit */
 	status |= si21_readregs(state, ACQ_CTRL_REG_2, &reg, 0x01);
 	reg &= ~start_acq;
 	status |= si21_writeregs(state, ACQ_CTRL_REG_2, &reg, 0x01);
 
-	
+	/* use new Carrier Frequency Offset Estimator (QuickLock) */
 	regs[0] = 0xCB;
 	regs[1] = 0x40;
 	regs[2] = 0xCB;
@@ -657,7 +683,7 @@ static int si21xx_setacquire(struct dvb_frontend *fe, int symbrate,
 	reg = 0x05;
 	status |= si21_writeregs(state,
 				BLIND_SCAN_CTRL_REG, &reg, 1);
-	
+	/* start automatic acq */
 	status |= si21_writeregs(state,
 				ACQ_CTRL_REG_2, &start_acq, 0x01);
 
@@ -669,17 +695,19 @@ static int si21xx_set_frontend(struct dvb_frontend *fe)
 	struct si21xx_state *state = fe->demodulator_priv;
 	struct dtv_frontend_properties *c = &fe->dtv_property_cache;
 
+	/* freq		Channel carrier frequency in KHz (i.e. 1550000 KHz)
+	 datarate	Channel symbol rate in Sps (i.e. 22500000 Sps)*/
 
-	
+	/* in MHz */
 	unsigned char coarse_tune_freq;
 	int fine_tune_freq;
 	unsigned char sample_rate = 0;
-	
+	/* boolean */
 	bool inband_interferer_ind;
 
-	
-	int icoarse_tune_freq; 
-	int ifine_tune_freq; 
+	/* INTERMEDIATE VALUES */
+	int icoarse_tune_freq; /* MHz */
+	int ifine_tune_freq; /* MHz */
 	unsigned int band_high;
 	unsigned int band_low;
 	unsigned int x1;
@@ -689,11 +717,11 @@ static int si21xx_set_frontend(struct dvb_frontend *fe)
 	bool inband_interferer_div4[ALLOWABLE_FS_COUNT];
 	int status;
 
-	
+	/* allowable sample rates for ADC in MHz */
 	int afs[ALLOWABLE_FS_COUNT] = { 200, 192, 193, 194, 195,
 					196, 204, 205, 206, 207
 	};
-	
+	/* in MHz */
 	int if_limit_high;
 	int if_limit_low;
 	int lnb_lo;
@@ -716,7 +744,7 @@ static int si21xx_set_frontend(struct dvb_frontend *fe)
 
 	if_limit_high = -700000;
 	if_limit_low = -100000;
-	
+	/* in MHz */
 	lnb_lo = 0;
 	lnb_uncertanity = 0;
 
@@ -805,7 +833,7 @@ static int si21xx_set_frontend(struct dvb_frontend *fe)
 
 	status |= si21_writeregs(state, PLL_DIVISOR_REG, &regs[0], 0x04);
 
-	state->fs = sample_rate;
+	state->fs = sample_rate;/*ADC MHz*/
 	si21xx_setacquire(fe, c->symbol_rate, c->fec_inner);
 
 	return 0;
@@ -841,11 +869,11 @@ static struct dvb_frontend_ops si21xx_ops = {
 		.name			= "SL SI21XX DVB-S",
 		.frequency_min		= 950000,
 		.frequency_max		= 2150000,
-		.frequency_stepsize	= 125,	 
+		.frequency_stepsize	= 125,	 /* kHz for QPSK frontends */
 		.frequency_tolerance	= 0,
 		.symbol_rate_min	= 1000000,
 		.symbol_rate_max	= 45000000,
-		.symbol_rate_tolerance	= 500,	
+		.symbol_rate_tolerance	= 500,	/* ppm */
 		.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 		FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 |
 		FE_CAN_QPSK |
@@ -877,27 +905,33 @@ struct dvb_frontend *si21xx_attach(const struct si21xx_config *config,
 
 	dprintk("%s\n", __func__);
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct si21xx_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 	state->initialised = 0;
 	state->errmode = STATUS_BER;
 
-	
+	/* check if the demod is there */
 	id = si21_readreg(state, SYSTEM_MODE_REG);
-	si21_writereg(state, SYSTEM_MODE_REG, id | 0x40); 
+	si21_writereg(state, SYSTEM_MODE_REG, id | 0x40); /* standby off */
 	msleep(200);
 	id = si21_readreg(state, 0x00);
 
+	/* register 0x00 contains:
+		0x34 for SI2107
+		0x24 for SI2108
+		0x14 for SI2109
+		0x04 for SI2110
+	*/
 	if (id != 0x04 && id != 0x14)
 		goto error;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &si21xx_ops,
 					sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;

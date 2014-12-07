@@ -29,10 +29,11 @@
 #define REG_FPGA_DIP_SWITCH_INPUT2	0x60
 #define MAX_SUPPORTED_GPMC_CONFIG	3
 
-#define DEBUG_BASE		0x08000000 
+#define DEBUG_BASE		0x08000000 /* debug board */
 
-#define FLASH_SIZE_SDPV1	SZ_64M	
-#define FLASH_SIZE_SDPV2	SZ_128M	
+/* various memory sizes */
+#define FLASH_SIZE_SDPV1	SZ_64M	/* NOR flash (64 Meg aligned) */
+#define FLASH_SIZE_SDPV2	SZ_128M	/* NOR flash (256 Meg aligned) */
 
 static struct physmap_flash_data board_nor_data = {
 	.width		= 2,
@@ -60,7 +61,7 @@ __init board_nor_init(struct mtd_partition *nor_parts, u8 nr_parts, u8 cs)
 	board_nor_data.parts	= nor_parts;
 	board_nor_data.nr_parts	= nr_parts;
 
-	
+	/* Configure start address and size of NOR device */
 	if (omap_rev() >= OMAP3430_REV_ES1_0) {
 		err = gpmc_cs_request(cs, FLASH_SIZE_SDPV2 - 1,
 				(unsigned long *)&board_nor_resource.start);
@@ -83,7 +84,7 @@ __init board_nor_init(struct mtd_partition *nor_parts, u8 nr_parts, u8 cs)
 #if defined(CONFIG_MTD_ONENAND_OMAP2) || \
 		defined(CONFIG_MTD_ONENAND_OMAP2_MODULE)
 static struct omap_onenand_platform_data board_onenand_data = {
-	.dma_channel	= -1,   
+	.dma_channel	= -1,   /* disable DMA in OMAP OneNAND driver */
 };
 
 static void
@@ -101,11 +102,12 @@ static void
 __init board_onenand_init(struct mtd_partition *nor_parts, u8 nr_parts, u8 cs)
 {
 }
-#endif 
+#endif /* CONFIG_MTD_ONENAND_OMAP2 || CONFIG_MTD_ONENAND_OMAP2_MODULE */
 
 #if defined(CONFIG_MTD_NAND_OMAP2) || \
 		defined(CONFIG_MTD_NAND_OMAP2_MODULE)
 
+/* Note that all values in this struct are in nanoseconds */
 static struct gpmc_timings nand_timings = {
 
 	.sync_clk = 0,
@@ -146,8 +148,12 @@ __init board_nand_init(struct mtd_partition *nand_parts,
 	board_nand_data.gpmc_irq = OMAP_GPMC_IRQ_BASE + cs;
 	gpmc_nand_init(&board_nand_data);
 }
-#endif 
+#endif /* CONFIG_MTD_NAND_OMAP2 || CONFIG_MTD_NAND_OMAP2_MODULE */
 
+/**
+ * get_gpmc0_type - Reads the FPGA DIP_SWITCH_INPUT_REGISTER2 to get
+ * the various cs values.
+ */
 static u8 get_gpmc0_type(void)
 {
 	u8 cs = 0;
@@ -158,26 +164,31 @@ static u8 get_gpmc0_type(void)
 		return -ENOMEM;
 
 	if (!(__raw_readw(fpga_map_addr + REG_FPGA_REV)))
-		
-		
+		/* we dont have an DEBUG FPGA??? */
+		/* Depend on #defines!! default to strata boot return param */
 		goto unmap;
 
-	
+	/* S8-DIP-OFF = 1, S8-DIP-ON = 0 */
 	cs = __raw_readw(fpga_map_addr + REG_FPGA_DIP_SWITCH_INPUT2) & 0xf;
 
-	
+	/* ES2.0 SDP's onwards 4 dip switches are provided for CS */
 	if (omap_rev() >= OMAP3430_REV_ES1_0)
-		
+		/* change (S8-1:4=DS-2:0) to (S8-4:1=DS-2:0) */
 		cs = ((cs & 8) >> 3) | ((cs & 4) >> 1) |
 			((cs & 2) << 1) | ((cs & 1) << 3);
 	else
-		
+		/* change (S8-1:3=DS-2:0) to (S8-3:1=DS-2:0) */
 		cs = ((cs & 4) >> 2) | (cs & 2) | ((cs & 1) << 2);
 unmap:
 	iounmap(fpga_map_addr);
 	return cs;
 }
 
+/**
+ * board_flash_init - Identify devices connected to GPMC and register.
+ *
+ * @return - void.
+ */
 void __init board_flash_init(struct flash_partitions partition_info[],
 			char chip_sel_board[][GPMC_CS_NUM], int nand_type)
 {
@@ -188,6 +199,9 @@ void __init board_flash_init(struct flash_partitions partition_info[],
 	u8		idx;
 	unsigned char	*config_sel = NULL;
 
+	/* REVISIT: Is this return correct idx for 2430 SDP?
+	 * for which cs configuration matches for 2430 SDP?
+	 */
 	idx = get_gpmc0_type();
 	if (idx >= MAX_SUPPORTED_GPMC_CONFIG) {
 		pr_err("%s: Invalid chip select: %d\n", __func__, cs);

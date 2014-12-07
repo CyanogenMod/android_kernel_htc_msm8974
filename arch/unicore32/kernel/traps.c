@@ -44,6 +44,11 @@ void dump_backtrace_entry(unsigned long where,
 #endif
 }
 
+/*
+ * Stack pointers should always be within the kernels view of
+ * physical memory.  If it is not there, then we can't dump
+ * out any information relating to the stack.
+ */
 static int verify_stack(unsigned long sp)
 {
 	if (sp < PAGE_OFFSET ||
@@ -53,6 +58,9 @@ static int verify_stack(unsigned long sp)
 	return 0;
 }
 
+/*
+ * Dump out the contents of some memory nicely...
+ */
 static void dump_mem(const char *lvl, const char *str, unsigned long bottom,
 		     unsigned long top)
 {
@@ -60,6 +68,11 @@ static void dump_mem(const char *lvl, const char *str, unsigned long bottom,
 	mm_segment_t fs;
 	int i;
 
+	/*
+	 * We need to switch to kernel mode so that we can use __get_user
+	 * to safely read from kernel space.  Note that we now dump the
+	 * code first, just in case the backtrace kills us.
+	 */
 	fs = get_fs();
 	set_fs(KERNEL_DS);
 
@@ -96,6 +109,11 @@ static void dump_instr(const char *lvl, struct pt_regs *regs)
 	char str[sizeof("00000000 ") * 5 + 2 + 1], *p = str;
 	int i;
 
+	/*
+	 * We need to switch to kernel mode so that we can use __get_user
+	 * to safely read from kernel space.  Note that we now dump the
+	 * code first, just in case the backtrace kills us.
+	 */
 	fs = get_fs();
 	set_fs(KERNEL_DS);
 
@@ -174,7 +192,7 @@ static int __die(const char *str, int err, struct thread_info *thread,
 	printk(KERN_EMERG "Internal error: %s: %x [#%d]\n",
 	       str, err, ++die_counter);
 
-	
+	/* trap and error numbers are mostly meaningless on UniCore */
 	ret = notify_die(DIE_OOPS, str, regs, err, tsk->thread.trap_no, \
 			SIGSEGV);
 	if (ret == NOTIFY_STOP)
@@ -197,6 +215,9 @@ static int __die(const char *str, int err, struct thread_info *thread,
 
 DEFINE_SPINLOCK(die_lock);
 
+/*
+ * This function is protected against re-entrancy.
+ */
 void die(const char *str, struct pt_regs *regs, int err)
 {
 	struct thread_info *thread = current_thread_info();
@@ -234,6 +255,12 @@ void uc32_notify_die(const char *str, struct pt_regs *regs,
 		die(str, regs, err);
 }
 
+/*
+ * bad_mode handles the impossible case in the vectors.  If you see one of
+ * these, then it's extremely serious, and could mean you have buggy hardware.
+ * It never returns, and never tries to sync.  We hope that we can at least
+ * dump out some state information...
+ */
 asmlinkage void bad_mode(struct pt_regs *regs, unsigned int reason)
 {
 	console_verbose();
@@ -271,7 +298,7 @@ void abort(void)
 {
 	BUG();
 
-	
+	/* if that doesn't kill us, halt */
 	panic("Oops failed to kill thread");
 }
 EXPORT_SYMBOL(abort);
@@ -285,6 +312,11 @@ void __init early_trap_init(void)
 {
 	unsigned long vectors = VECTORS_BASE;
 
+	/*
+	 * Copy the vectors, stubs (in entry-unicore.S)
+	 * into the vector page, mapped at 0xffff0000, and ensure these
+	 * are visible to the instruction stream.
+	 */
 	memcpy((void *)vectors,
 			__vectors_start,
 			__vectors_end - __vectors_start);

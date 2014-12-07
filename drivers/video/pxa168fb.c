@@ -32,13 +32,19 @@
 
 #include "pxa168fb.h"
 
-#define DEFAULT_REFRESH		60	
+#define DEFAULT_REFRESH		60	/* Hz */
 
 static int determine_best_pix_fmt(struct fb_var_screeninfo *var)
 {
+	/*
+	 * Pseudocolor mode?
+	 */
 	if (var->bits_per_pixel == 8)
 		return PIX_FMT_PSEUDOCOLOR;
 
+	/*
+	 * Check for 565/1555.
+	 */
 	if (var->bits_per_pixel == 16 && var->red.length <= 5 &&
 	    var->green.length <= 6 && var->blue.length <= 5) {
 		if (var->transp.length == 0) {
@@ -55,9 +61,12 @@ static int determine_best_pix_fmt(struct fb_var_screeninfo *var)
 				return PIX_FMT_BGR1555;
 		}
 
-		
+		/* fall through */
 	}
 
+	/*
+	 * Check for 888/A888.
+	 */
 	if (var->bits_per_pixel <= 32 && var->red.length <= 8 &&
 	    var->green.length <= 8 && var->blue.length <= 8) {
 		if (var->bits_per_pixel == 24 && var->transp.length == 0) {
@@ -79,7 +88,7 @@ static int determine_best_pix_fmt(struct fb_var_screeninfo *var)
 				return PIX_FMT_BGR888UNPACK;
 		}
 
-		
+		/* fall through */
 	}
 
 	return -EINVAL;
@@ -189,12 +198,18 @@ static int pxa168fb_check_var(struct fb_var_screeninfo *var,
 	struct pxa168fb_info *fbi = info->par;
 	int pix_fmt;
 
+	/*
+	 * Determine which pixel format we're going to use.
+	 */
 	pix_fmt = determine_best_pix_fmt(var);
 	if (pix_fmt < 0)
 		return pix_fmt;
 	set_pix_fmt(var, pix_fmt);
 	fbi->pix_fmt = pix_fmt;
 
+	/*
+	 * Basic geometry sanity checks.
+	 */
 	if (var->xoffset + var->xres > var->xres_virtual)
 		return -EINVAL;
 	if (var->yoffset + var->yres > var->yres_virtual)
@@ -206,6 +221,9 @@ static int pxa168fb_check_var(struct fb_var_screeninfo *var,
 	    var->vsync_len + var->upper_margin > 2048)
 		return -EINVAL;
 
+	/*
+	 * Check size of framebuffer.
+	 */
 	if (var->xres_virtual * var->yres_virtual *
 	    (var->bits_per_pixel >> 3) > info->fix.smem_len)
 		return -EINVAL;
@@ -213,6 +231,16 @@ static int pxa168fb_check_var(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/*
+ * The hardware clock divider has an integer and a fractional
+ * stage:
+ *
+ *	clk2 = clk_in / integer_divider
+ *	clk_out = clk2 * (1 - (fractional_divider >> 12))
+ *
+ * Calculate integer and fractional divider for given clk_in
+ * and clk_out.
+ */
 static void set_clock_divider(struct pxa168fb_info *fbi,
 			      const struct fb_videomode *m)
 {
@@ -221,27 +249,44 @@ static void set_clock_divider(struct pxa168fb_info *fbi,
 	u64 div_result;
 	u32 x = 0;
 
+	/*
+	 * Notice: The field pixclock is used by linux fb
+	 * is in pixel second. E.g. struct fb_videomode &
+	 * struct fb_var_screeninfo
+	 */
 
+	/*
+	 * Check input values.
+	 */
 	if (!m || !m->pixclock || !m->refresh) {
 		dev_err(fbi->dev, "Input refresh or pixclock is wrong.\n");
 		return;
 	}
 
+	/*
+	 * Using PLL/AXI clock.
+	 */
 	x = 0x80000000;
 
+	/*
+	 * Calc divider according to refresh rate.
+	 */
 	div_result = 1000000000000ll;
 	do_div(div_result, m->pixclock);
 	needed_pixclk = (u32)div_result;
 
 	divider_int = clk_get_rate(fbi->clk) / needed_pixclk;
 
-	
+	/* check whether divisor is too small. */
 	if (divider_int < 2) {
 		dev_warn(fbi->dev, "Warning: clock source is too slow."
 				"Try smaller resolution\n");
 		divider_int = 2;
 	}
 
+	/*
+	 * Set setting to reg.
+	 */
 	x |= divider_int;
 	writel(x, fbi->reg_base + LCD_CFG_SCLK_DIV);
 }
@@ -250,16 +295,31 @@ static void set_dma_control0(struct pxa168fb_info *fbi)
 {
 	u32 x;
 
+	/*
+	 * Set bit to enable graphics DMA.
+	 */
 	x = readl(fbi->reg_base + LCD_SPU_DMA_CTRL0);
 	x &= ~CFG_GRA_ENA_MASK;
 	x |= fbi->active ? CFG_GRA_ENA(1) : CFG_GRA_ENA(0);
 
+	/*
+	 * If we are in a pseudo-color mode, we need to enable
+	 * palette lookup.
+	 */
 	if (fbi->pix_fmt == PIX_FMT_PSEUDOCOLOR)
 		x |= 0x10000000;
 
+	/*
+	 * Configure hardware pixel format.
+	 */
 	x &= ~(0xF << 16);
 	x |= (fbi->pix_fmt >> 1) << 16;
 
+	/*
+	 * Check red and blue pixel swap.
+	 * 1. source data swap
+	 * 2. panel output data swap
+	 */
 	x &= ~(1 << 12);
 	x |= ((fbi->pix_fmt & 1) ^ (fbi->panel_rbswap)) << 12;
 
@@ -270,9 +330,18 @@ static void set_dma_control1(struct pxa168fb_info *fbi, int sync)
 {
 	u32 x;
 
+	/*
+	 * Configure default bits: vsync triggers DMA, gated clock
+	 * enable, power save enable, configure alpha registers to
+	 * display 100% graphics, and set pixel command.
+	 */
 	x = readl(fbi->reg_base + LCD_SPU_DMA_CTRL1);
 	x |= 0x2032ff81;
 
+	/*
+	 * We trigger DMA on the falling edge of vsync if vsync is
+	 * active low, or on the rising edge if vsync is active high.
+	 */
 	if (!(sync & FB_SYNC_VERT_HIGH_ACT))
 		x |= 0x08000000;
 
@@ -298,6 +367,9 @@ static void set_dumb_panel_control(struct fb_info *info)
 	struct pxa168fb_mach_info *mi = fbi->dev->platform_data;
 	u32 x;
 
+	/*
+	 * Preserve enable flag.
+	 */
 	x = readl(fbi->reg_base + LCD_SPU_DUMB_CTRL) & 0x00000001;
 
 	x |= (fbi->is_blanked ? 0x7 : mi->dumb_mode) << 28;
@@ -337,6 +409,9 @@ static int pxa168fb_set_par(struct fb_info *info)
 
 	mi = fbi->dev->platform_data;
 
+	/*
+	 * Set additional mode info.
+	 */
 	if (fbi->pix_fmt == PIX_FMT_PSEUDOCOLOR)
 		info->fix.visual = FB_VISUAL_PSEUDOCOLOR;
 	else
@@ -344,21 +419,33 @@ static int pxa168fb_set_par(struct fb_info *info)
 	info->fix.line_length = var->xres_virtual * var->bits_per_pixel / 8;
 	info->fix.ypanstep = var->yres;
 
+	/*
+	 * Disable panel output while we setup the display.
+	 */
 	x = readl(fbi->reg_base + LCD_SPU_DUMB_CTRL);
 	writel(x & ~1, fbi->reg_base + LCD_SPU_DUMB_CTRL);
 
+	/*
+	 * Configure global panel parameters.
+	 */
 	writel((var->yres << 16) | var->xres,
 		fbi->reg_base + LCD_SPU_V_H_ACTIVE);
 
+	/*
+	 * convet var to video mode
+	 */
 	fb_var_to_videomode(&mode, &info->var);
 
-	
+	/* Calculate clock divisor. */
 	set_clock_divider(fbi, &mode);
 
-	
+	/* Configure dma ctrl regs. */
 	set_dma_control0(fbi);
 	set_dma_control1(fbi, info->var.sync);
 
+	/*
+	 * Configure graphics DMA parameters.
+	 */
 	x = readl(fbi->reg_base + LCD_CFG_GRA_PITCH);
 	x = (x & ~0xFFFF) | ((var->xres_virtual * var->bits_per_pixel) >> 3);
 	writel(x, fbi->reg_base + LCD_CFG_GRA_PITCH);
@@ -367,6 +454,9 @@ static int pxa168fb_set_par(struct fb_info *info)
 	writel((var->yres << 16) | var->xres,
 		fbi->reg_base + LCD_SPU_GZM_HPXL_VLN);
 
+	/*
+	 * Configure dumb panel ctrl regs & timings.
+	 */
 	set_dumb_panel_control(info);
 	set_dumb_screen_dimensions(info);
 
@@ -375,6 +465,9 @@ static int pxa168fb_set_par(struct fb_info *info)
 	writel((var->upper_margin << 16) | var->lower_margin,
 			fbi->reg_base + LCD_SPU_V_PORCH);
 
+	/*
+	 * Re-enable panel output.
+	 */
 	x = readl(fbi->reg_base + LCD_SPU_DUMB_CTRL);
 	writel(x | 1, fbi->reg_base + LCD_SPU_DUMB_CTRL);
 
@@ -477,21 +570,24 @@ static int __devinit pxa168fb_init_mode(struct fb_info *info,
 	u64 div_result;
 	const struct fb_videomode *m;
 
+	/*
+	 * Set default value
+	 */
 	refresh = DEFAULT_REFRESH;
 
-	
+	/* try to find best video mode. */
 	m = fb_find_best_mode(&info->var, &info->modelist);
 	if (m)
 		fb_videomode_to_var(&info->var, m);
 
-	
+	/* Init settings. */
 	var->xres_virtual = var->xres;
 	var->yres_virtual = info->fix.smem_len /
 		(var->xres_virtual * (var->bits_per_pixel >> 3));
 	dev_dbg(fbi->dev, "pxa168fb: find best mode: res = %dx%d\n",
 				var->xres, var->yres);
 
-	
+	/* correct pixclock. */
 	total_w = var->xres + var->left_margin + var->right_margin +
 		  var->hsync_len;
 	total_h = var->yres + var->upper_margin + var->lower_margin +
@@ -545,7 +641,7 @@ static int __devinit pxa168fb_probe(struct platform_device *pdev)
 		goto failed_put_clk;
 	}
 
-	
+	/* Initialize private data */
 	fbi = info->par;
 	fbi->info = info;
 	fbi->clk = clk;
@@ -554,6 +650,9 @@ static int __devinit pxa168fb_probe(struct platform_device *pdev)
 	fbi->is_blanked = 0;
 	fbi->active = mi->active;
 
+	/*
+	 * Initialise static fb parameters.
+	 */
 	info->flags = FBINFO_DEFAULT | FBINFO_PARTIAL_PAN_OK |
 		      FBINFO_HWACCEL_XPAN | FBINFO_HWACCEL_YPAN;
 	info->node = -1;
@@ -569,6 +668,9 @@ static int __devinit pxa168fb_probe(struct platform_device *pdev)
 	info->fbops = &pxa168fb_ops;
 	info->pseudo_palette = fbi->pseudo_palette;
 
+	/*
+	 * Map LCD controller registers.
+	 */
 	fbi->reg_base = devm_ioremap_nocache(&pdev->dev, res->start,
 					     resource_size(res));
 	if (fbi->reg_base == NULL) {
@@ -576,6 +678,9 @@ static int __devinit pxa168fb_probe(struct platform_device *pdev)
 		goto failed_free_info;
 	}
 
+	/*
+	 * Allocate framebuffer memory.
+	 */
 	info->fix.smem_len = PAGE_ALIGN(DEFAULT_FB_SIZE);
 
 	info->screen_base = dma_alloc_writecombine(fbi->dev, info->fix.smem_len,
@@ -588,20 +693,35 @@ static int __devinit pxa168fb_probe(struct platform_device *pdev)
 	info->fix.smem_start = (unsigned long)fbi->fb_start_dma;
 	set_graphics_start(info, 0, 0);
 
+	/*
+	 * Set video mode according to platform data.
+	 */
 	set_mode(fbi, &info->var, mi->modes, mi->pix_fmt, 1);
 
 	fb_videomode_to_modelist(mi->modes, mi->num_modes, &info->modelist);
 
+	/*
+	 * init video mode data.
+	 */
 	pxa168fb_init_mode(info, mi);
 
+	/*
+	 * Fill in sane defaults.
+	 */
 	ret = pxa168fb_check_var(&info->var, info);
 	if (ret)
 		goto failed_free_fbmem;
 
+	/*
+	 * enable controller clock
+	 */
 	clk_enable(fbi->clk);
 
 	pxa168fb_set_par(info);
 
+	/*
+	 * Configure default register values.
+	 */
 	writel(0, fbi->reg_base + LCD_SPU_BLANKCOLOR);
 	writel(mi->io_pin_allocation_mode, fbi->reg_base + SPU_IOPAD_CONTROL);
 	writel(0, fbi->reg_base + LCD_CFG_GRA_START_ADDR1);
@@ -610,11 +730,17 @@ static int __devinit pxa168fb_probe(struct platform_device *pdev)
 	writel(CFG_CSB_256x32(0x1)|CFG_CSB_256x24(0x1)|CFG_CSB_256x8(0x1),
 		fbi->reg_base + LCD_SPU_SRAM_PARA1);
 
+	/*
+	 * Allocate color map.
+	 */
 	if (fb_alloc_cmap(&info->cmap, 256, 0) < 0) {
 		ret = -ENOMEM;
 		goto failed_free_clk;
 	}
 
+	/*
+	 * Register irq handler.
+	 */
 	ret = devm_request_irq(&pdev->dev, irq, pxa168fb_handle_irq,
 			       IRQF_SHARED, info->fix.id, fbi);
 	if (ret < 0) {
@@ -623,8 +749,14 @@ static int __devinit pxa168fb_probe(struct platform_device *pdev)
 		goto failed_free_cmap;
 	}
 
+	/*
+	 * Enable GFX interrupt
+	 */
 	writel(GRA_FRAME_IRQ0_ENA(0x1), fbi->reg_base + SPU_IRQ_ENA);
 
+	/*
+	 * Register framebuffer.
+	 */
 	ret = register_framebuffer(info);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to register pxa168-fb: %d\n", ret);
@@ -661,7 +793,7 @@ static int __devexit pxa168fb_remove(struct platform_device *pdev)
 	if (!fbi)
 		return 0;
 
-	
+	/* disable DMA transfer */
 	data = readl(fbi->reg_base + LCD_SPU_DMA_CTRL0);
 	data &= ~CFG_GRA_ENA_MASK;
 	writel(data, fbi->reg_base + LCD_SPU_DMA_CTRL0);

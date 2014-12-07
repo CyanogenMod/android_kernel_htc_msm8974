@@ -364,7 +364,7 @@ int fat_ent_read(struct inode *inode, struct fat_entry *fatent, int entry)
 	return ops->ent_get(fatent);
 }
 
-static int fat_mirror_bhs(struct super_block *sb, struct buffer_head **bhs,
+int fat_mirror_bhs(struct super_block *sb, struct buffer_head **bhs,
 			  int nr_bhs)
 {
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);

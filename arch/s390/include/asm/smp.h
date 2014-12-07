@@ -31,7 +31,7 @@ extern void smp_yield_cpu(int cpu);
 extern void smp_yield(void);
 extern void smp_stop_cpu(void);
 
-#else 
+#else /* CONFIG_SMP */
 
 static inline void smp_call_ipl_cpu(void (*func)(void *), void *data)
 {
@@ -49,7 +49,7 @@ static inline void smp_yield_cpu(int cpu) { }
 static inline void smp_yield(void) { }
 static inline void smp_stop_cpu(void) { }
 
-#endif 
+#endif /* CONFIG_SMP */
 
 #ifdef CONFIG_HOTPLUG_CPU
 extern int smp_rescan_cpus(void);
@@ -61,4 +61,4 @@ static inline int smp_rescan_cpus(void) { return 0; }
 static inline void cpu_die(void) { }
 #endif
 
-#endif 
+#endif /* __ASM_SMP_H */

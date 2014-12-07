@@ -14,6 +14,7 @@
 
 #ifndef __ASSEMBLY__
 
+/* IRQ to level mappings */
 #define IRQ_GDBSTUB_LEVEL	15
 #define IRQ_UART_LEVEL		13
 
@@ -51,6 +52,7 @@
 #define IRQ_XIRQ6_LEVEL		7
 #define IRQ_XIRQ7_LEVEL		8
 
+/* IRQ IDs presented to drivers */
 #define IRQ_CPU__UNUSED		IRQ_BASE_CPU
 #define IRQ_CPU_UART0		(IRQ_BASE_CPU + IRQ_UART0_LEVEL)
 #define IRQ_CPU_UART1		(IRQ_BASE_CPU + IRQ_UART1_LEVEL)
@@ -74,6 +76,6 @@
 #define IRQ_CPU_EXTERNAL6	(IRQ_BASE_CPU + IRQ_XIRQ6_LEVEL)
 #define IRQ_CPU_EXTERNAL7	(IRQ_BASE_CPU + IRQ_XIRQ7_LEVEL)
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_CPU_IRQS_H */

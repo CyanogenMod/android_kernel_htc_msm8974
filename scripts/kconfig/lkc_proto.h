@@ -1,5 +1,6 @@
 #include <stdarg.h>
 
+/* confdata.c */
 P(conf_parse,void,(const char *name));
 P(conf_read,int,(const char *name));
 P(conf_read_simple,int,(const char *name, int));
@@ -10,6 +11,7 @@ P(conf_get_changed,bool,(void));
 P(conf_set_changed_callback, void,(void (*fn)(void)));
 P(conf_set_message_callback, void,(void (*fn)(const char *fmt, va_list ap)));
 
+/* menu.c */
 P(rootmenu,struct menu,);
 
 P(menu_is_visible, bool, (struct menu *menu));
@@ -23,6 +25,7 @@ P(get_symbol_str, void, (struct gstr *r, struct symbol *sym));
 P(get_relations_str, struct gstr, (struct symbol **sym_arr));
 P(menu_get_ext_help,void,(struct menu *menu, struct gstr *help));
 
+/* symbol.c */
 P(symbol_hash,struct symbol *,[SYMBOL_HASHSIZE]);
 
 P(sym_lookup,struct symbol *,(const char *name, int flags));
@@ -46,5 +49,6 @@ P(sym_get_string_value,const char *,(struct symbol *sym));
 
 P(prop_get_type_name,const char *,(enum prop_type type));
 
+/* expr.c */
 P(expr_compare_type,int,(enum expr_type t1, enum expr_type t2));
 P(expr_print,void,(struct expr *e, void (*fn)(void *, struct symbol *, const char *), void *data, int prevtoken));

@@ -1,3 +1,7 @@
+/*
+ *	Routines to indentify additional cpu features that are scattered in
+ *	cpuid space.
+ */
 #include <linux/cpu.h>
 
 #include <asm/pat.h>
@@ -52,7 +56,7 @@ void __cpuinit init_scattered_cpuid_features(struct cpuinfo_x86 *c)
 
 	for (cb = cpuid_bits; cb->feature; cb++) {
 
-		
+		/* Verify that the level is valid */
 		max_level = cpuid_eax(cb->level & 0xffff0000);
 		if (max_level < cb->level ||
 		    max_level > (cb->level | 0xffff))

@@ -96,6 +96,7 @@ struct mc13xxx_led_platform_data {
 	const char *name;
 	const char *default_trigger;
 
+/* Three or two bits current selection depending on the led */
 	char max_current;
 };
 
@@ -158,11 +159,14 @@ struct mc13xxx_buttons_platform_data {
 };
 
 struct mc13xxx_ts_platform_data {
+	/* Delay between Touchscreen polarization and ADC Conversion.
+	 * Given in clock ticks of a 32 kHz clock which gives a granularity of
+	 * about 30.5ms */
 	u8 ato;
 
 #define MC13783_TS_ATO_FIRST false
 #define MC13783_TS_ATO_EACH  true
-	
+	/* Use the ATO delay only for the first conversion or for each one */
 	bool atox;
 };
 
@@ -203,4 +207,4 @@ struct mc13xxx_platform_data {
 					MC13XXX_ADC0_CHRGICON | \
 					MC13XXX_ADC0_BATICON)
 
-#endif 
+#endif /* ifndef __LINUX_MFD_MC13XXX_H */

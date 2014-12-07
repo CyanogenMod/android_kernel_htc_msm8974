@@ -35,4 +35,4 @@ bool gw_is_dhcp_target(struct sk_buff *skb, unsigned int *header_len);
 bool gw_out_of_range(struct bat_priv *bat_priv,
 		     struct sk_buff *skb, struct ethhdr *ethhdr);
 
-#endif 
+#endif /* _NET_BATMAN_ADV_GATEWAY_CLIENT_H_ */

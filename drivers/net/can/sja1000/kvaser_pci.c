@@ -48,7 +48,7 @@ MODULE_DESCRIPTION("Socket-CAN driver for KVASER PCAN PCI cards");
 MODULE_SUPPORTED_DEVICE("KVASER PCAN PCI CAN card");
 MODULE_LICENSE("GPL v2");
 
-#define MAX_NO_OF_CHANNELS        4 
+#define MAX_NO_OF_CHANNELS        4 /* max no of channels on a single card */
 
 struct kvaser_pci {
 	int channel;
@@ -62,14 +62,35 @@ struct kvaser_pci {
 
 #define KVASER_PCI_CAN_CLOCK      (16000000 / 2)
 
+/*
+ * The board configuration is probably following:
+ * RX1 is connected to ground.
+ * TX1 is not connected.
+ * CLKO is not connected.
+ * Setting the OCR register to 0xDA is a good idea.
+ * This means  normal output mode , push-pull and the correct polarity.
+ */
 #define KVASER_PCI_OCR            (OCR_TX0_PUSHPULL | OCR_TX1_PUSHPULL)
 
+/*
+ * In the CDR register, you should set CBP to 1.
+ * You will probably also want to set the clock divider value to 0
+ * (meaning divide-by-2), the Pelican bit, and the clock-off bit
+ * (you will have no need for CLKOUT anyway).
+ */
 #define KVASER_PCI_CDR            (CDR_CBP | CDR_CLKOUT_MASK)
 
-#define XILINX_VERINT             7   
+/*
+ * These register values are valid for revision 14 of the Xilinx logic.
+ */
+#define XILINX_VERINT             7   /* Lower nibble simulate interrupts,
+					 high nibble version number. */
 
 #define XILINX_PRESUMED_VERSION   14
 
+/*
+ * Important S5920 registers
+ */
 #define S5920_INTCSR              0x38
 #define S5920_PTCR                0x60
 #define INTCSR_ADDON_INTENABLE_M  0x2000
@@ -77,14 +98,14 @@ struct kvaser_pci {
 
 #define KVASER_PCI_PORT_BYTES     0x20
 
-#define PCI_CONFIG_PORT_SIZE      0x80      
-#define PCI_PORT_SIZE             0x80      
-#define PCI_PORT_XILINX_SIZE      0x08      
+#define PCI_CONFIG_PORT_SIZE      0x80      /* size of the config io-memory */
+#define PCI_PORT_SIZE             0x80      /* size of a channel io-memory */
+#define PCI_PORT_XILINX_SIZE      0x08      /* size of a xilinx io-memory */
 
-#define KVASER_PCI_VENDOR_ID1     0x10e8    
+#define KVASER_PCI_VENDOR_ID1     0x10e8    /* the PCI device and vendor IDs */
 #define KVASER_PCI_DEVICE_ID1     0x8406
 
-#define KVASER_PCI_VENDOR_ID2     0x1a07    
+#define KVASER_PCI_VENDOR_ID2     0x1a07    /* the PCI device and vendor IDs */
 #define KVASER_PCI_DEVICE_ID2     0x0008
 
 static DEFINE_PCI_DEVICE_TABLE(kvaser_pci_tbl) = {
@@ -112,7 +133,7 @@ static void kvaser_pci_disable_irq(struct net_device *dev)
 	struct kvaser_pci *board = priv->priv;
 	u32 intcsr;
 
-	
+	/* Disable interrupts from card */
 	intcsr = ioread32(board->conf_addr + S5920_INTCSR);
 	intcsr &= ~INTCSR_ADDON_INTENABLE_M;
 	iowrite32(intcsr, board->conf_addr + S5920_INTCSR);
@@ -124,7 +145,7 @@ static void kvaser_pci_enable_irq(struct net_device *dev)
 	struct kvaser_pci *board = priv->priv;
 	u32 tmp_en_io;
 
-	
+	/* Enable interrupts from card */
 	tmp_en_io = ioread32(board->conf_addr + S5920_INTCSR);
 	tmp_en_io |= INTCSR_ADDON_INTENABLE_M;
 	iowrite32(tmp_en_io, board->conf_addr + S5920_INTCSR);
@@ -136,12 +157,12 @@ static int number_of_sja1000_chip(void __iomem *base_addr)
 	int i;
 
 	for (i = 0; i < MAX_NO_OF_CHANNELS; i++) {
-		
+		/* reset chip */
 		iowrite8(MOD_RM, base_addr +
 			 (i * KVASER_PCI_PORT_BYTES) + REG_MOD);
 		status = ioread8(base_addr +
 				 (i * KVASER_PCI_PORT_BYTES) + REG_MOD);
-		
+		/* check reset bit */
 		if (!(status & MOD_RM))
 			break;
 	}
@@ -165,7 +186,7 @@ static void kvaser_pci_del_chan(struct net_device *dev)
 	dev_info(&board->pci_dev->dev, "Removing device %s\n",
 		 dev->name);
 
-	
+	/* Disable PCI interrupts */
 	kvaser_pci_disable_irq(dev);
 
 	for (i = 0; i < board->no_channels - 1; i++) {
@@ -206,10 +227,10 @@ static int kvaser_pci_add_chan(struct pci_dev *pdev, int channel,
 	board->pci_dev = pdev;
 	board->channel = channel;
 
-	
+	/* S5920 */
 	board->conf_addr = conf_addr;
 
-	
+	/* XILINX board wide address */
 	board->res_addr = res_addr;
 
 	if (channel == 0) {
@@ -217,9 +238,11 @@ static int kvaser_pci_add_chan(struct pci_dev *pdev, int channel,
 			ioread8(board->res_addr + XILINX_VERINT) >> 4;
 		init_step = 2;
 
+		/* Assert PTADR# - we're in passive mode so the other bits are
+		   not important */
 		iowrite32(0x80808080UL, board->conf_addr + S5920_PTCR);
 
-		
+		/* Enable interrupts from card */
 		kvaser_pci_enable_irq(dev);
 	} else {
 		struct sja1000_priv *master_priv = netdev_priv(*master_dev);
@@ -249,7 +272,7 @@ static int kvaser_pci_add_chan(struct pci_dev *pdev, int channel,
 
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
-	
+	/* Register SJA1000 device */
 	err = register_sja1000dev(dev);
 	if (err) {
 		dev_err(&pdev->dev, "Registering device failed (err=%d)\n",
@@ -291,14 +314,14 @@ static int __devinit kvaser_pci_init_one(struct pci_dev *pdev,
 	if (err)
 		goto failure_release_pci;
 
-	
+	/* S5920 */
 	conf_addr = pci_iomap(pdev, 0, PCI_CONFIG_PORT_SIZE);
 	if (conf_addr == NULL) {
 		err = -ENODEV;
 		goto failure_release_regions;
 	}
 
-	
+	/* XILINX board wide address */
 	res_addr = pci_iomap(pdev, 2, PCI_PORT_XILINX_SIZE);
 	if (res_addr == NULL) {
 		err = -ENOMEM;

@@ -77,9 +77,9 @@ extern pmd_t *page_check_address_pmd(struct page *page,
 #define transparent_hugepage_debug_cow()				\
 	(transparent_hugepage_flags &					\
 	 (1<<TRANSPARENT_HUGEPAGE_DEBUG_COW_FLAG))
-#else 
+#else /* CONFIG_DEBUG_VM */
 #define transparent_hugepage_debug_cow() 0
-#endif 
+#endif /* CONFIG_DEBUG_VM */
 
 extern unsigned long transparent_hugepage_flags;
 extern int copy_pte_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
@@ -116,6 +116,7 @@ extern void __vma_adjust_trans_huge(struct vm_area_struct *vma,
 				    long adjust_next);
 extern int __pmd_trans_huge_lock(pmd_t *pmd,
 				 struct vm_area_struct *vma);
+/* mmap_sem must be held on entry */
 static inline int pmd_trans_huge_lock(pmd_t *pmd,
 				      struct vm_area_struct *vma)
 {
@@ -146,12 +147,18 @@ static inline struct page *compound_trans_head(struct page *page)
 		struct page *head;
 		head = page->first_page;
 		smp_rmb();
+		/*
+		 * head may be a dangling pointer.
+		 * __split_huge_page_refcount clears PageTail before
+		 * overwriting first_page, so if PageTail is still
+		 * there it means the head pointer isn't dangling.
+		 */
 		if (PageTail(page))
 			return head;
 	}
 	return page;
 }
-#else 
+#else /* CONFIG_TRANSPARENT_HUGEPAGE */
 #define HPAGE_PMD_SHIFT ({ BUILD_BUG(); 0; })
 #define HPAGE_PMD_MASK ({ BUILD_BUG(); 0; })
 #define HPAGE_PMD_SIZE ({ BUILD_BUG(); 0; })
@@ -187,6 +194,6 @@ static inline int pmd_trans_huge_lock(pmd_t *pmd,
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 
-#endif 
+#endif /* _LINUX_HUGE_MM_H */

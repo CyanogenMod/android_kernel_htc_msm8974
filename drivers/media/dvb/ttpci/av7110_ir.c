@@ -37,13 +37,14 @@
 
 #define IR_RC5		0
 #define IR_RCMM		1
-#define IR_RC5_EXT	2 
+#define IR_RC5_EXT	2 /* internal only */
 
 #define IR_ALL		0xffffffff
 
 #define UP_TIMEOUT	(HZ*7/25)
 
 
+/* Note: enable ir debugging by or'ing debug with 16 */
 
 static int ir_protocol[AV_CNT] = { IR_RCMM, IR_RCMM, IR_RCMM, IR_RCMM};
 module_param_array(ir_protocol, int, NULL, 0644);
@@ -85,6 +86,7 @@ static u16 default_key_map [256] = {
 };
 
 
+/* key-up timer */
 static void av7110_emit_keyup(unsigned long parm)
 {
 	struct infrared *ir = (struct infrared *) parm;
@@ -97,6 +99,7 @@ static void av7110_emit_keyup(unsigned long parm)
 }
 
 
+/* tasklet */
 static void av7110_emit_key(unsigned long parm)
 {
 	struct infrared *ir = (struct infrared *) parm;
@@ -106,24 +109,24 @@ static void av7110_emit_key(unsigned long parm)
 	u16 toggle;
 	u16 keycode;
 
-	
+	/* extract device address and data */
 	switch (ir->protocol) {
-	case IR_RC5: 
+	case IR_RC5: /* RC5: 5 bits device address, 6 bits data */
 		data = ircom & 0x3f;
 		addr = (ircom >> 6) & 0x1f;
 		toggle = ircom & 0x0800;
 		break;
 
-	case IR_RCMM: 
+	case IR_RCMM: /* RCMM: ? bits device address, ? bits data */
 		data = ircom & 0xff;
 		addr = (ircom >> 8) & 0x1f;
 		toggle = ircom & 0x8000;
 		break;
 
-	case IR_RC5_EXT: 
+	case IR_RC5_EXT: /* extended RC5: 5 bits device address, 7 bits data */
 		data = ircom & 0x3f;
 		addr = (ircom >> 6) & 0x1f;
-		
+		/* invert 7th data bit for backward compatibility with RC5 keymaps */
 		if (!(ircom & 0x1000))
 			data |= 0x40;
 		toggle = ircom & 0x0800;
@@ -142,7 +145,7 @@ static void av7110_emit_key(unsigned long parm)
 	dprintk(16, "%s: code %08x -> addr %i data 0x%02x -> keycode %i\n",
 		__func__, ircom, addr, data, keycode);
 
-	
+	/* check device address */
 	if (!(ir->device_mask & (1 << addr)))
 		return;
 
@@ -178,6 +181,7 @@ static void av7110_emit_key(unsigned long parm)
 }
 
 
+/* register with input layer */
 static void input_register_keys(struct infrared *ir)
 {
 	int i;
@@ -204,6 +208,7 @@ static void input_register_keys(struct infrared *ir)
 }
 
 
+/* called by the input driver after rep[REP_DELAY] ms */
 static void input_repeat_key(unsigned long parm)
 {
 	struct infrared *ir = (struct infrared *) parm;
@@ -212,6 +217,7 @@ static void input_repeat_key(unsigned long parm)
 }
 
 
+/* check for configuration changes */
 int av7110_check_ir_config(struct av7110 *av7110, int force)
 {
 	int i;
@@ -228,7 +234,7 @@ int av7110_check_ir_config(struct av7110 *av7110, int force)
 			modified = true;
 
 		if (modified) {
-			
+			/* protocol */
 			if (ir_protocol[i]) {
 				ir_protocol[i] = 1;
 				av7110->ir.protocol = IR_RCMM;
@@ -240,19 +246,19 @@ int av7110_check_ir_config(struct av7110 *av7110, int force)
 				av7110->ir.protocol = IR_RC5;
 				av7110->ir.ir_config = 0x0000;
 			}
-			
+			/* inversion */
 			if (ir_inversion[i]) {
 				ir_inversion[i] = 1;
 				av7110->ir.ir_config |= 0x8000;
 			}
 			av7110->ir.inversion = ir_inversion[i];
-			
+			/* update ARM */
 			ret = av7110_fw_cmd(av7110, COMTYPE_PIDFILTER, SetIR, 1,
 						av7110->ir.ir_config);
 		} else
 			ret = 0;
 
-		
+		/* address */
 		if (av7110->ir.device_mask != ir_device_mask[i])
 			av7110->ir.device_mask = ir_device_mask[i];
 	}
@@ -261,6 +267,7 @@ int av7110_check_ir_config(struct av7110 *av7110, int force)
 }
 
 
+/* /proc/av7110_ir interface */
 static ssize_t av7110_ir_proc_write(struct file *file, const char __user *buffer,
 				    size_t count, loff_t *pos)
 {
@@ -284,17 +291,17 @@ static ssize_t av7110_ir_proc_write(struct file *file, const char __user *buffer
 	memcpy(&ir_config, page, sizeof ir_config);
 
 	for (i = 0; i < av_cnt; i++) {
-		
+		/* keymap */
 		memcpy(av_list[i]->ir.key_map, page + sizeof ir_config,
 			sizeof(av_list[i]->ir.key_map));
-		
+		/* protocol, inversion, address */
 		ir_protocol[i] = ir_config & 0x0001;
 		ir_inversion[i] = ir_config & 0x8000 ? 1 : 0;
 		if (ir_config & 0x4000)
 			ir_device_mask[i] = 1 << ((ir_config >> 16) & 0x1f);
 		else
 			ir_device_mask[i] = IR_ALL;
-		
+		/* update configuration */
 		av7110_check_ir_config(av_list[i], false);
 		input_register_keys(&av_list[i]->ir);
 	}
@@ -308,6 +315,7 @@ static const struct file_operations av7110_ir_proc_fops = {
 	.llseek		= noop_llseek,
 };
 
+/* interrupt handler */
 static void ir_handler(struct av7110 *av7110, u32 ircom)
 {
 	dprintk(4, "ir command = %08x\n", ircom);
@@ -353,7 +361,7 @@ int __devinit av7110_ir_init(struct av7110 *av7110)
 		input_dev->id.product = av7110->dev->pci->device;
 	}
 	input_dev->dev.parent = &av7110->dev->pci->dev;
-	
+	/* initial keymap */
 	memcpy(av7110->ir.key_map, default_key_map, sizeof av7110->ir.key_map);
 	input_register_keys(&av7110->ir);
 	err = input_register_device(input_dev);
@@ -403,4 +411,5 @@ void __devexit av7110_ir_exit(struct av7110 *av7110)
 	av_cnt--;
 }
 
+//MODULE_AUTHOR("Holger Waechtler <holger@convergence.de>, Oliver Endriss <o.endriss@gmx.de>");
 //MODULE_LICENSE("GPL");

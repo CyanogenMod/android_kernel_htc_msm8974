@@ -31,6 +31,21 @@
 #include <linux/module.h>
 #include <mach/leds-ns2.h>
 
+/*
+ * The Network Space v2 dual-GPIO LED is wired to a CPLD and can blink in
+ * relation with the SATA activity. This capability is exposed through the
+ * "sata" sysfs attribute.
+ *
+ * The following array detail the different LED registers and the combination
+ * of their possible values:
+ *
+ *  cmd_led   |  slow_led  | /SATA active | LED state
+ *            |            |              |
+ *     1      |     0      |      x       |  off
+ *     -      |     1      |      x       |  on
+ *     0      |     0      |      1       |  on
+ *     0      |     0      |      0       |  blink (rate 300ms)
+ */
 
 enum ns2_led_modes {
 	NS_V2_LED_OFF,
@@ -55,8 +70,8 @@ struct ns2_led_data {
 	struct led_classdev	cdev;
 	unsigned		cmd;
 	unsigned		slow;
-	unsigned char		sata; 
-	rwlock_t		rw_lock; 
+	unsigned char		sata; /* True when SATA mode active. */
+	rwlock_t		rw_lock; /* Lock GPIOs. */
 };
 
 static int ns2_led_get_mode(struct ns2_led_data *led_dat,
@@ -215,7 +230,7 @@ create_ns2_led(struct platform_device *pdev, struct ns2_led_data *led_dat,
 	if (ret < 0)
 		goto err_free_slow;
 
-	
+	/* Set LED initial state. */
 	led_dat->sata = (mode == NS_V2_LED_SATA) ? 1 : 0;
 	led_dat->cdev.brightness =
 		(mode == NS_V2_LED_OFF) ? LED_OFF : LED_FULL;

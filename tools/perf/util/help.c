@@ -73,13 +73,13 @@ void exclude_cmds(struct cmdnames *cmds, struct cmdnames *excludes)
 static void pretty_print_string_list(struct cmdnames *cmds, int longest)
 {
 	int cols = 1, rows;
-	int space = longest + 1; 
+	int space = longest + 1; /* min 1 SP between words */
 	struct winsize win;
 	int max_cols;
 	int i, j;
 
 	get_term_dimensions(&win);
-	max_cols = win.ws_col - 1; 
+	max_cols = win.ws_col - 1; /* don't print *on* the edge */
 
 	if (space < max_cols)
 		cols = max_cols / space;
@@ -106,7 +106,7 @@ static int is_executable(const char *name)
 {
 	struct stat st;
 
-	if (stat(name, &st) || 
+	if (stat(name, &st) || /* stat, not lstat */
 	    !S_ISREG(st.st_mode))
 		return 0;
 
@@ -238,7 +238,7 @@ static int perf_unknown_cmd_config(const char *var, const char *value, void *cb)
 {
 	if (!strcmp(var, "help.autocorrect"))
 		autocorrect = perf_config_int(var,value);
-	
+	/* Also use aliases for command lookup */
 	if (!prefixcmp(var, "alias."))
 		add_cmdname(&aliases, var + 6, strlen(var + 6));
 
@@ -287,7 +287,7 @@ const char *help_unknown_cmd(const char *cmd)
 	uniq(&main_cmds);
 
 	if (main_cmds.cnt) {
-		
+		/* This reuses cmdname->len for similarity index */
 		for (i = 0; i < main_cmds.cnt; ++i)
 			main_cmds.names[i]->len =
 				levenshtein(cmd, main_cmds.names[i]->name, 0, 2, 1, 4);

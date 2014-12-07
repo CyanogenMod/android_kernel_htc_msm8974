@@ -13,6 +13,15 @@
 #ifndef __SMB137B_H__
 #define __SMB137B_H__
 
+/**
+ * struct smb137b_platform_data
+ * structure to pass board specific information to the smb137b charger driver
+ * @chgcurrent:	max current the smb137bchip can draw
+ * @valid_n_gpio:		gpio to debounce insertion/removal
+ * @chg_detection_config:	machine specific func to configure
+ *				insertion/removal gpio line
+ * @batt_mah_rating:		the battery current rating
+ */
 struct smb137b_platform_data {
 	int valid_n_gpio;
 	int (*chg_detection_config) (void);

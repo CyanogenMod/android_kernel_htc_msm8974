@@ -1,9 +1,13 @@
 
-#define PRED_LEAVE_SYSCALL	1 
-#define PRED_KERNEL_STACK	2 
-#define PRED_USER_STACK		3 
-#define PRED_SYSCALL		4 
-#define PRED_NON_SYSCALL	5 
+/*
+ * Preserved registers that are shared between code in ivt.S and
+ * entry.S.  Be careful not to step on these!
+ */
+#define PRED_LEAVE_SYSCALL	1 /* TRUE iff leave from syscall */
+#define PRED_KERNEL_STACK	2 /* returning to kernel-stacks? */
+#define PRED_USER_STACK		3 /* returning to user-stacks? */
+#define PRED_SYSCALL		4 /* inside a system call? */
+#define PRED_NON_SYSCALL	5 /* complement of PRED_SYSCALL */
 
 #ifdef __ASSEMBLY__
 # define PASTE2(x,y)	x##y

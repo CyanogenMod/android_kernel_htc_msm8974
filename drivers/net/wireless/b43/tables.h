@@ -31,4 +31,4 @@ extern const u16 b43_tab_rssiagc1[];
 #define B43_TAB_RSSIAGC2_SIZE	48
 extern const u16 b43_tab_rssiagc2[];
 
-#endif 
+#endif /* B43_TABLES_H_ */

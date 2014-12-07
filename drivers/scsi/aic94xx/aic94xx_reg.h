@@ -30,8 +30,10 @@
 #include <asm/io.h>
 #include "aic94xx_hwi.h"
 
+/* Values */
 #define AIC9410_DEV_REV_B0            0x8
 
+/* MBAR0, SWA, SWB, SWC, internal memory space addresses */
 #define REG_BASE_ADDR                 0xB8000000
 #define REG_BASE_ADDR_CSEQCIO         0xB8002000
 #define REG_BASE_ADDR_EXSI            0xB8042800
@@ -40,11 +42,14 @@
 extern  u32    MBAR0_SWB_SIZE;
 #define MBAR0_SWC_SIZE                0x8
 
+/* MBAR1, points to On Chip Memory */
 #define OCM_BASE_ADDR                 0xA0000000
 #define OCM_MAX_SIZE                  0x20000
 
+/* Smallest address possible to reference */
 #define ALL_BASE_ADDR                 OCM_BASE_ADDR
 
+/* PCI configuration space registers */
 #define PCI_IOBAR_OFFSET              4
 
 #define PCI_CONF_MBAR1                0x6C
@@ -201,6 +206,21 @@ static inline void asd_scbsite_write_byte(struct asd_ha_struct *asd_ha,
 	asd_scbsite_write_word(asd_ha, scb_site_no, base, rval);
 }
 
+/**
+ * asd_ddbsite_update_word -- atomically update a word in a ddb site
+ * @asd_ha: pointer to host adapter structure
+ * @ddb_site_no: the DDB site number
+ * @offs: the offset into the DDB
+ * @oldval: old value found in that offset
+ * @newval: the new value to replace it
+ *
+ * This function is used when the sequencers are running and we need to
+ * update a DDB site atomically without expensive pausing and upausing
+ * of the sequencers and accessing the DDB site through the CIO bus.
+ *
+ * Return 0 on success; -EFAULT on parity error; -EAGAIN if the old value
+ * is different than the current value at that offset.
+ */
 static inline int asd_ddbsite_update_word(struct asd_ha_struct *asd_ha,
 					  u16 ddb_site_no, u16 offs,
 					  u16 oldval, u16 newval)
@@ -215,11 +235,11 @@ static inline int asd_ddbsite_update_word(struct asd_ha_struct *asd_ha,
 		done = asd_read_reg_byte(asd_ha, ATOMICSTATCTL);
 	} while (!(done & ATOMICDONE));
 	if (done & ATOMICERR)
-		return -EFAULT;	  
+		return -EFAULT;	  /* parity error */
 	else if (done & ATOMICWIN)
-		return 0;	  
+		return 0;	  /* success */
 	else
-		return -EAGAIN;	  
+		return -EAGAIN;	  /* oldval different than current value */
 }
 
 static inline int asd_ddbsite_update_byte(struct asd_ha_struct *asd_ha,
@@ -252,7 +272,7 @@ static inline void asd_write_reg_addr(struct asd_ha_struct *asd_ha, u32 reg,
 
 static inline u32 asd_get_cmdctx_size(struct asd_ha_struct *asd_ha)
 {
-	
+	/* DCHREVISION returns 0, possibly broken */
 	u32 ctxmemsize = asd_read_reg_dword(asd_ha, LmMnINT(0,0)) & CTXMEMSIZE;
 	return ctxmemsize ? 65536 : 32768;
 }
@@ -270,12 +290,12 @@ static inline void asd_disable_ints(struct asd_ha_struct *asd_ha)
 
 static inline void asd_enable_ints(struct asd_ha_struct *asd_ha)
 {
-	
+	/* Enable COM SAS interrupt on errors, COMSTAT */
 	asd_write_reg_dword(asd_ha, COMSTATEN,
 			    EN_CSBUFPERR | EN_CSERR | EN_OVLYERR);
-	
+	/* Enable DCH SAS CFIFTOERR */
 	asd_write_reg_dword(asd_ha, DCHSTATUS, EN_CFIFTOERR);
-	
+	/* Enable Host Device interrupts */
 	asd_write_reg_dword(asd_ha, CHIMINTEN, SET_CHIMINTEN);
 }
 

@@ -58,16 +58,33 @@
 
 #define TIPC_MOD_VER "2.0.0"
 
-struct tipc_msg;	
-struct print_buf;	
+struct tipc_msg;	/* msg.h */
+struct print_buf;	/* log.h */
 
+/*
+ * TIPC system monitoring code
+ */
 
+/*
+ * TIPC's print buffer subsystem supports the following print buffers:
+ *
+ * TIPC_NULL : null buffer (i.e. print nowhere)
+ * TIPC_CONS : system console
+ * TIPC_LOG  : TIPC log buffer
+ * &buf	     : user-defined buffer (struct print_buf *)
+ *
+ * Note: TIPC_LOG is configured to echo its output to the system console;
+ *       user-defined buffers can be configured to do the same thing.
+ */
 extern struct print_buf *const TIPC_NULL;
 extern struct print_buf *const TIPC_CONS;
 extern struct print_buf *const TIPC_LOG;
 
 void tipc_printf(struct print_buf *, const char *fmt, ...);
 
+/*
+ * TIPC_OUTPUT is the destination print buffer for system messages.
+ */
 
 #ifndef TIPC_OUTPUT
 #define TIPC_OUTPUT TIPC_LOG
@@ -82,6 +99,9 @@ void tipc_printf(struct print_buf *, const char *fmt, ...);
 
 #ifdef CONFIG_TIPC_DEBUG
 
+/*
+ * DBG_OUTPUT is the destination print buffer for debug messages.
+ */
 
 #ifndef DBG_OUTPUT
 #define DBG_OUTPUT TIPC_LOG
@@ -103,9 +123,15 @@ void tipc_msg_dbg(struct print_buf *, struct tipc_msg *, const char *);
 #endif
 
 
+/*
+ * TIPC-specific error codes
+ */
 
-#define ELINKCONG EAGAIN	
+#define ELINKCONG EAGAIN	/* link congestion <=> resource unavailable */
 
+/*
+ * Global configuration variables
+ */
 
 extern u32 tipc_own_addr;
 extern int tipc_max_ports;
@@ -114,11 +140,17 @@ extern int tipc_max_publications;
 extern int tipc_net_id;
 extern int tipc_remote_management;
 
+/*
+ * Other global variables
+ */
 
 extern int tipc_random;
 extern const char tipc_alphabet[];
 
 
+/*
+ * Routines available to privileged subsystems
+ */
 
 extern int tipc_core_start_net(unsigned long);
 extern int  tipc_handler_start(void);
@@ -128,11 +160,22 @@ extern void tipc_netlink_stop(void);
 extern int  tipc_socket_init(void);
 extern void tipc_socket_stop(void);
 
+/*
+ * TIPC timer and signal code
+ */
 
 typedef void (*Handler) (unsigned long);
 
 u32 tipc_k_signal(Handler routine, unsigned long argument);
 
+/**
+ * k_init_timer - initialize a timer
+ * @timer: pointer to timer structure
+ * @routine: pointer to routine to invoke when timer expires
+ * @argument: value to pass to routine when timer expires
+ *
+ * Timer must be initialized before use (and terminated when no longer needed).
+ */
 
 static inline void k_init_timer(struct timer_list *timer, Handler routine,
 				unsigned long argument)
@@ -140,24 +183,67 @@ static inline void k_init_timer(struct timer_list *timer, Handler routine,
 	setup_timer(timer, routine, argument);
 }
 
+/**
+ * k_start_timer - start a timer
+ * @timer: pointer to timer structure
+ * @msec: time to delay (in ms)
+ *
+ * Schedules a previously initialized timer for later execution.
+ * If timer is already running, the new timeout overrides the previous request.
+ *
+ * To ensure the timer doesn't expire before the specified delay elapses,
+ * the amount of delay is rounded up when converting to the jiffies
+ * then an additional jiffy is added to account for the fact that
+ * the starting time may be in the middle of the current jiffy.
+ */
 
 static inline void k_start_timer(struct timer_list *timer, unsigned long msec)
 {
 	mod_timer(timer, jiffies + msecs_to_jiffies(msec) + 1);
 }
 
+/**
+ * k_cancel_timer - cancel a timer
+ * @timer: pointer to timer structure
+ *
+ * Cancels a previously initialized timer.
+ * Can be called safely even if the timer is already inactive.
+ *
+ * WARNING: Must not be called when holding locks required by the timer's
+ *          timeout routine, otherwise deadlock can occur on SMP systems!
+ */
 
 static inline void k_cancel_timer(struct timer_list *timer)
 {
 	del_timer_sync(timer);
 }
 
+/**
+ * k_term_timer - terminate a timer
+ * @timer: pointer to timer structure
+ *
+ * Prevents further use of a previously initialized timer.
+ *
+ * WARNING: Caller must ensure timer isn't currently running.
+ *
+ * (Do not "enhance" this routine to automatically cancel an active timer,
+ * otherwise deadlock can arise when a timeout routine calls k_term_timer.)
+ */
 
 static inline void k_term_timer(struct timer_list *timer)
 {
 }
 
 
+/*
+ * TIPC message buffer code
+ *
+ * TIPC message buffer headroom reserves space for the worst-case
+ * link-level device header (in case the message is sent off-node).
+ *
+ * Note: Headroom should be a multiple of 4 to ensure the TIPC header fields
+ *       are word aligned for quicker access
+ */
 
 #define BUF_HEADROOM LL_MAX_HEADER
 

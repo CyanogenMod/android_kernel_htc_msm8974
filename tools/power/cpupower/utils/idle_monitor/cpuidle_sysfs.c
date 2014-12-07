@@ -80,7 +80,7 @@ static int cpuidle_stop(void)
 
 void fix_up_intel_idle_driver_name(char *tmp, int num)
 {
-	
+	/* fix up cpuidle name for intel idle driver */
 	if (!strncmp(tmp, "NHM-", 4)) {
 		switch (num) {
 		case 1:
@@ -131,7 +131,7 @@ static struct cpuidle_monitor *cpuidle_register(void)
 	int num;
 	char *tmp;
 
-	
+	/* Assume idle state count is the same for all CPUs */
 	cpuidle_sysfs_monitor.hw_states_num = sysfs_get_idlestate_count(0);
 
 	if (cpuidle_sysfs_monitor.hw_states_num <= 0)
@@ -158,7 +158,7 @@ static struct cpuidle_monitor *cpuidle_register(void)
 			cpuidle_get_count_percent;
 	};
 
-	
+	/* Free this at program termination */
 	previous_count = malloc(sizeof(long long *) * cpu_count);
 	current_count = malloc(sizeof(long long *) * cpu_count);
 	for (num = 0; num < cpu_count; num++) {

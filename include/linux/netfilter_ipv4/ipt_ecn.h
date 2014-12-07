@@ -12,4 +12,4 @@ enum {
 	IPT_ECN_OP_MATCH_MASK = XT_ECN_OP_MATCH_MASK,
 };
 
-#endif 
+#endif /* IPT_ECN_H */

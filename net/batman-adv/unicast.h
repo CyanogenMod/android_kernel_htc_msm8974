@@ -24,8 +24,8 @@
 
 #include "packet.h"
 
-#define FRAG_TIMEOUT 10000	
-#define FRAG_BUFFER_SIZE 6	
+#define FRAG_TIMEOUT 10000	/* purge frag list entries after time in ms */
+#define FRAG_BUFFER_SIZE 6	/* number of list elements in buffer */
 
 int frag_reassemble_skb(struct sk_buff *skb, struct bat_priv *bat_priv,
 			struct sk_buff **new_skb);
@@ -55,4 +55,4 @@ static inline int frag_can_reassemble(const struct sk_buff *skb, int mtu)
 	return merged_size <= mtu;
 }
 
-#endif 
+#endif /* _NET_BATMAN_ADV_UNICAST_H_ */

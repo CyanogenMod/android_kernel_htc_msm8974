@@ -30,6 +30,7 @@
 
 #include <plat/sdrc.h>
 
+/* GPMC register offsets */
 #define GPMC_REVISION		0x00
 #define GPMC_SYSCONFIG		0x10
 #define GPMC_SYSSTATUS		0x14
@@ -54,15 +55,16 @@
 
 #define GPMC_MEM_START		0x00000000
 #define GPMC_MEM_END		0x3FFFFFFF
-#define BOOT_ROM_SPACE		0x100000	
+#define BOOT_ROM_SPACE		0x100000	/* 1MB */
 
-#define GPMC_CHUNK_SHIFT	24		
-#define GPMC_SECTION_SHIFT	28		
+#define GPMC_CHUNK_SHIFT	24		/* 16 MB */
+#define GPMC_SECTION_SHIFT	28		/* 128 MB */
 
 #define CS_NUM_SHIFT		24
 #define ENABLE_PREFETCH		(0x1 << 7)
 #define DMA_MPU_MODE		2
 
+/* Structure to save gpmc cs context */
 struct gpmc_cs_config {
 	u32 config1;
 	u32 config2;
@@ -74,6 +76,10 @@ struct gpmc_cs_config {
 	int is_valid;
 };
 
+/*
+ * Structure to save/restore gpmc context
+ * to support core off on OMAP3
+ */
 struct omap3_gpmc_regs {
 	u32 sysconfig;
 	u32 irqenable;
@@ -88,8 +94,8 @@ struct omap3_gpmc_regs {
 static struct resource	gpmc_mem_root;
 static struct resource	gpmc_cs_mem[GPMC_CS_NUM];
 static DEFINE_SPINLOCK(gpmc_mem_lock);
-static unsigned int gpmc_cs_map;	
-static int gpmc_ecc_used = -EINVAL;	
+static unsigned int gpmc_cs_map;	/* flag for cs which are initialized */
+static int gpmc_ecc_used = -EINVAL;	/* cs using ecc engine */
 
 static void __iomem *gpmc_base;
 
@@ -139,6 +145,7 @@ u32 gpmc_cs_read_reg(int cs, int idx)
 	return __raw_readl(reg_addr);
 }
 
+/* TODO: Add support for gpmc_fck to clock framework and use it */
 unsigned long gpmc_get_fclk_period(void)
 {
 	unsigned long rate = clk_get_rate(gpmc_l3_clk);
@@ -149,7 +156,7 @@ unsigned long gpmc_get_fclk_period(void)
 	}
 
 	rate /= 1000;
-	rate = 1000000000 / rate;	
+	rate = 1000000000 / rate;	/* In picoseconds */
 
 	return rate;
 }
@@ -158,7 +165,7 @@ unsigned int gpmc_ns_to_ticks(unsigned int time_ns)
 {
 	unsigned long tick_ps;
 
-	
+	/* Calculate in picosecs to yield more exact results */
 	tick_ps = gpmc_get_fclk_period();
 
 	return (time_ns * 1000 + tick_ps - 1) / tick_ps;
@@ -168,7 +175,7 @@ unsigned int gpmc_ps_to_ticks(unsigned int time_ps)
 {
 	unsigned long tick_ps;
 
-	
+	/* Calculate in picosecs to yield more exact results */
 	tick_ps = gpmc_get_fclk_period();
 
 	return (time_ps + tick_ps - 1) / tick_ps;
@@ -284,6 +291,9 @@ int gpmc_cs_set_timings(int cs, const struct gpmc_timings *t)
 		GPMC_SET_ONE(GPMC_CS_CONFIG6, 24, 28, wr_access);
 	}
 
+	/* caller is expected to have initialized CONFIG1 to cover
+	 * at least sync vs async
+	 */
 	l = gpmc_cs_read_reg(cs, GPMC_CS_CONFIG1);
 	if (l & (GPMC_CONFIG1_READTYPE_SYNC | GPMC_CONFIG1_WRITETYPE_SYNC)) {
 #ifdef DEBUG
@@ -439,6 +449,11 @@ void gpmc_cs_free(int cs)
 }
 EXPORT_SYMBOL(gpmc_cs_free);
 
+/**
+ * gpmc_read_status - read access request to get the different gpmc status
+ * @cmd: command type
+ * @return status
+ */
 int gpmc_read_status(int cmd)
 {
 	int	status = -EINVAL;
@@ -461,7 +476,7 @@ int gpmc_read_status(int cmd)
 
 	case GPMC_STATUS_BUFFER:
 		regval = gpmc_read_reg(GPMC_STATUS);
-		
+		/* 1 : buffer is available to write */
 		status = regval & GPMC_STATUS_BUFF_EMPTY;
 		break;
 
@@ -472,6 +487,13 @@ int gpmc_read_status(int cmd)
 }
 EXPORT_SYMBOL(gpmc_read_status);
 
+/**
+ * gpmc_cs_configure - write request to configure gpmc
+ * @cs: chip select number
+ * @cmd: command type
+ * @wval: value to write
+ * @return status of the operation
+ */
 int gpmc_cs_configure(int cs, int cmd, int wval)
 {
 	int err = 0;
@@ -489,9 +511,9 @@ int gpmc_cs_configure(int cs, int cmd, int wval)
 	case GPMC_CONFIG_WP:
 		regval = gpmc_read_reg(GPMC_CONFIG);
 		if (wval)
-			regval &= ~GPMC_CONFIG_WRITEPROTECT; 
+			regval &= ~GPMC_CONFIG_WRITEPROTECT; /* WP is ON */
 		else
-			regval |= GPMC_CONFIG_WRITEPROTECT;  
+			regval |= GPMC_CONFIG_WRITEPROTECT;  /* WP is OFF */
 		gpmc_write_reg(GPMC_CONFIG, regval);
 		break;
 
@@ -507,10 +529,10 @@ int gpmc_cs_configure(int cs, int cmd, int wval)
 	case GPMC_CONFIG_DEV_SIZE:
 		regval  = gpmc_cs_read_reg(cs, GPMC_CS_CONFIG1);
 
-		
+		/* clear 2 target bits */
 		regval &= ~GPMC_CONFIG1_DEVICESIZE(3);
 
-		
+		/* set the proper value */
 		regval |= GPMC_CONFIG1_DEVICESIZE(wval);
 
 		gpmc_cs_write_reg(cs, GPMC_CS_CONFIG1, regval);
@@ -533,6 +555,11 @@ int gpmc_cs_configure(int cs, int cmd, int wval)
 }
 EXPORT_SYMBOL(gpmc_cs_configure);
 
+/**
+ * gpmc_nand_read - nand specific read access request
+ * @cs: chip select number
+ * @cmd: command type
+ */
 int gpmc_nand_read(int cs, int cmd)
 {
 	int rval = -EINVAL;
@@ -549,6 +576,12 @@ int gpmc_nand_read(int cs, int cmd)
 }
 EXPORT_SYMBOL(gpmc_nand_read);
 
+/**
+ * gpmc_nand_write - nand specific write request
+ * @cs: chip select number
+ * @cmd: command type
+ * @wval: value to write
+ */
 int gpmc_nand_write(int cs, int cmd, int wval)
 {
 	int err = 0;
@@ -575,6 +608,14 @@ EXPORT_SYMBOL(gpmc_nand_write);
 
 
 
+/**
+ * gpmc_prefetch_enable - configures and starts prefetch transfer
+ * @cs: cs (chip select) number
+ * @fifo_th: fifo threshold to be used for read/ write
+ * @dma_mode: dma mode enable (1) or disable (0)
+ * @u32_count: number of bytes to be transferred
+ * @is_write: prefetch read(0) or write post(1) mode
+ */
 int gpmc_prefetch_enable(int cs, int fifo_th, int dma_mode,
 				unsigned int u32_count, int is_write)
 {
@@ -583,16 +624,19 @@ int gpmc_prefetch_enable(int cs, int fifo_th, int dma_mode,
 		pr_err("gpmc: fifo threshold is not supported\n");
 		return -1;
 	} else if (!(gpmc_read_reg(GPMC_PREFETCH_CONTROL))) {
-		
+		/* Set the amount of bytes to be prefetched */
 		gpmc_write_reg(GPMC_PREFETCH_CONFIG2, u32_count);
 
+		/* Set dma/mpu mode, the prefetch read / post write and
+		 * enable the engine. Set which cs is has requested for.
+		 */
 		gpmc_write_reg(GPMC_PREFETCH_CONFIG1, ((cs << CS_NUM_SHIFT) |
 					PREFETCH_FIFOTHRESHOLD(fifo_th) |
 					ENABLE_PREFETCH |
 					(dma_mode << DMA_MPU_MODE) |
 					(0x1 & is_write)));
 
-		
+		/*  Start the prefetch engine */
 		gpmc_write_reg(GPMC_PREFETCH_CONTROL, 0x1);
 	} else {
 		return -EBUSY;
@@ -602,19 +646,22 @@ int gpmc_prefetch_enable(int cs, int fifo_th, int dma_mode,
 }
 EXPORT_SYMBOL(gpmc_prefetch_enable);
 
+/**
+ * gpmc_prefetch_reset - disables and stops the prefetch engine
+ */
 int gpmc_prefetch_reset(int cs)
 {
 	u32 config1;
 
-	
+	/* check if the same module/cs is trying to reset */
 	config1 = gpmc_read_reg(GPMC_PREFETCH_CONFIG1);
 	if (((config1 >> CS_NUM_SHIFT) & 0x7) != cs)
 		return -EINVAL;
 
-	
+	/* Stop the PFPW engine */
 	gpmc_write_reg(GPMC_PREFETCH_CONTROL, 0x0);
 
-	
+	/* Reset/disable the PFPW engine */
 	gpmc_write_reg(GPMC_PREFETCH_CONFIG1, 0x0);
 
 	return 0;
@@ -626,14 +673,17 @@ static void __init gpmc_mem_init(void)
 	int cs;
 	unsigned long boot_rom_space = 0;
 
+	/* never allocate the first page, to facilitate bug detection;
+	 * even if we didn't boot from ROM.
+	 */
 	boot_rom_space = BOOT_ROM_SPACE;
-	
+	/* In apollon the CS0 is mapped as 0x0000 0000 */
 	if (machine_is_omap_apollon())
 		boot_rom_space = 0;
 	gpmc_mem_root.start = GPMC_MEM_START + boot_rom_space;
 	gpmc_mem_root.end = GPMC_MEM_END;
 
-	
+	/* Reserve all regions that has been set up by bootloader */
 	for (cs = 0; cs < GPMC_CS_NUM; cs++) {
 		u32 base, size;
 
@@ -689,14 +739,14 @@ static int __init gpmc_init(void)
 
 	l = gpmc_read_reg(GPMC_REVISION);
 	printk(KERN_INFO "GPMC revision %d.%d\n", (l >> 4) & 0x0f, l & 0x0f);
-	
+	/* Set smart idle mode and automatic L3 clock gating */
 	l = gpmc_read_reg(GPMC_SYSCONFIG);
 	l &= 0x03 << 3;
 	l |= (0x02 << 3) | (1 << 0);
 	gpmc_write_reg(GPMC_SYSCONFIG, l);
 	gpmc_mem_init();
 
-	
+	/* initalize the irq_chained */
 	irq = OMAP_GPMC_IRQ_BASE;
 	for (cs = 0; cs < GPMC_CS_NUM; cs++) {
 		irq_set_chip_and_handler(irq, &dummy_irq_chip,
@@ -718,7 +768,7 @@ static irqreturn_t gpmc_handle_irq(int irq, void *dev)
 {
 	u8 cs;
 
-	
+	/* check cs to invoke the irq */
 	cs = ((gpmc_read_reg(GPMC_PREFETCH_CONFIG1)) >> CS_NUM_SHIFT) & 0x7;
 	if (OMAP_GPMC_IRQ_BASE+cs <= OMAP_GPMC_IRQ_END)
 		generic_handle_irq(OMAP_GPMC_IRQ_BASE+cs);
@@ -791,23 +841,30 @@ void omap3_gpmc_restore_context(void)
 		}
 	}
 }
-#endif 
+#endif /* CONFIG_ARCH_OMAP3 */
 
+/**
+ * gpmc_enable_hwecc - enable hardware ecc functionality
+ * @cs: chip select number
+ * @mode: read/write mode
+ * @dev_width: device bus width(1 for x16, 0 for x8)
+ * @ecc_size: bytes for which ECC will be generated
+ */
 int gpmc_enable_hwecc(int cs, int mode, int dev_width, int ecc_size)
 {
 	unsigned int val;
 
-	
+	/* check if ecc module is in used */
 	if (gpmc_ecc_used != -EINVAL)
 		return -EINVAL;
 
 	gpmc_ecc_used = cs;
 
-	
+	/* clear ecc and enable bits */
 	val = ((0x00000001<<8) | 0x00000001);
 	gpmc_write_reg(GPMC_ECC_CONTROL, val);
 
-	
+	/* program ecc and result sizes */
 	val = ((((ecc_size >> 1) - 1) << 22) | (0x0000000F));
 	gpmc_write_reg(GPMC_ECC_SIZE_CONFIG, val);
 
@@ -826,13 +883,25 @@ int gpmc_enable_hwecc(int cs, int mode, int dev_width, int ecc_size)
 		break;
 	}
 
-	
+	/* (ECC 16 or 8 bit col) | ( CS  )  | ECC Enable */
 	val = (dev_width << 7) | (cs << 1) | (0x1);
 	gpmc_write_reg(GPMC_ECC_CONFIG, val);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(gpmc_enable_hwecc);
 
+/**
+ * gpmc_calculate_ecc - generate non-inverted ecc bytes
+ * @cs: chip select number
+ * @dat: data pointer over which ecc is computed
+ * @ecc_code: ecc code buffer
+ *
+ * Using non-inverted ECC is considered ugly since writing a blank
+ * page (padding) will clear the ECC bytes. This is not a problem as long
+ * no one is trying to write data on the seemingly unused page. Reading
+ * an erased page will produce an ECC mismatch between generated and read
+ * ECC bytes that has to be dealt with separately.
+ */
 int gpmc_calculate_ecc(int cs, const u_char *dat, u_char *ecc_code)
 {
 	unsigned int val = 0x0;
@@ -840,11 +909,11 @@ int gpmc_calculate_ecc(int cs, const u_char *dat, u_char *ecc_code)
 	if (gpmc_ecc_used != cs)
 		return -EINVAL;
 
-	
+	/* read ecc result */
 	val = gpmc_read_reg(GPMC_ECC1_RESULT);
-	*ecc_code++ = val;          
-	*ecc_code++ = val >> 16;    
-	
+	*ecc_code++ = val;          /* P128e, ..., P1e */
+	*ecc_code++ = val >> 16;    /* P128o, ..., P1o */
+	/* P2048o, P1024o, P512o, P256o, P2048e, P1024e, P512e, P256e */
 	*ecc_code++ = ((val >> 8) & 0x0f) | ((val >> 20) & 0xf0);
 
 	gpmc_ecc_used = -EINVAL;

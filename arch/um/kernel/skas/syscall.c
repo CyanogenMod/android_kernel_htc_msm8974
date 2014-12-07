@@ -20,6 +20,15 @@ void handle_syscall(struct uml_pt_regs *r)
 
 	syscall_trace(r, 0);
 
+	/*
+	 * This should go in the declaration of syscall, but when I do that,
+	 * strace -f -c bash -c 'ls ; ls' breaks, sometimes not tracing
+	 * children at all, sometimes hanging when bash doesn't see the first
+	 * ls exit.
+	 * The assembly looks functionally the same to me.  This is
+	 *     gcc version 4.0.1 20050727 (Red Hat 4.0.1-5)
+	 * in case it's a compiler bug.
+	 */
 	syscall = UPT_SYSCALL_NR(r);
 	if ((syscall >= NR_SYSCALLS) || (syscall < 0))
 		result = -ENOSYS;

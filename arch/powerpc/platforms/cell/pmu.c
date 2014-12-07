@@ -35,6 +35,11 @@
 
 #include "interrupt.h"
 
+/*
+ * When writing to write-only mmio addresses, save a shadow copy. All of the
+ * registers are 32-bit, but stored in the upper-half of a 64-bit field in
+ * pmd_regs.
+ */
 
 #define WRITE_WO_MMIO(reg, x)					\
 	do {							\
@@ -61,6 +66,10 @@
 		(val) = (u32)(in_be64(&pmd_regs->reg) >> 32);	\
 	} while (0)
 
+/*
+ * Physical counter registers.
+ * Each physical counter can act as one 32-bit counter or two 16-bit counters.
+ */
 
 u32 cbe_read_phys_ctr(u32 cpu, u32 phys_ctr)
 {
@@ -69,7 +78,7 @@ u32 cbe_read_phys_ctr(u32 cpu, u32 phys_ctr)
 	if (phys_ctr < NR_PHYS_CTRS) {
 		READ_SHADOW_REG(val_in_latch, counter_value_in_latch);
 
-		
+		/* Read the latch or the actual counter, whichever is newer. */
 		if (val_in_latch & (1 << phys_ctr)) {
 			READ_SHADOW_REG(val, pm_ctr[phys_ctr]);
 		} else {
@@ -87,10 +96,18 @@ void cbe_write_phys_ctr(u32 cpu, u32 phys_ctr, u32 val)
 	u32 pm_ctrl;
 
 	if (phys_ctr < NR_PHYS_CTRS) {
+		/* Writing to a counter only writes to a hardware latch.
+		 * The new value is not propagated to the actual counter
+		 * until the performance monitor is enabled.
+		 */
 		WRITE_WO_MMIO(pm_ctr[phys_ctr], val);
 
 		pm_ctrl = cbe_read_pm(cpu, pm_control);
 		if (pm_ctrl & CBE_PM_ENABLE_PERF_MON) {
+			/* The counters are already active, so we need to
+			 * rewrite the pm_control register to "re-enable"
+			 * the PMU.
+			 */
 			cbe_write_pm(cpu, pm_control, pm_ctrl);
 		} else {
 			shadow_regs = cbe_get_cpu_pmd_shadow_regs(cpu);
@@ -100,6 +117,11 @@ void cbe_write_phys_ctr(u32 cpu, u32 phys_ctr, u32 val)
 }
 EXPORT_SYMBOL_GPL(cbe_write_phys_ctr);
 
+/*
+ * "Logical" counter registers.
+ * These will read/write 16-bits or 32-bits depending on the
+ * current size of the counter. Counters 4 - 7 are always 16-bit.
+ */
 
 u32 cbe_read_ctr(u32 cpu, u32 ctr)
 {
@@ -135,6 +157,10 @@ void cbe_write_ctr(u32 cpu, u32 ctr, u32 val)
 }
 EXPORT_SYMBOL_GPL(cbe_write_ctr);
 
+/*
+ * Counter-control registers.
+ * Each "logical" counter has a corresponding control register.
+ */
 
 u32 cbe_read_pm07_control(u32 cpu, u32 ctr)
 {
@@ -154,6 +180,9 @@ void cbe_write_pm07_control(u32 cpu, u32 ctr, u32 val)
 }
 EXPORT_SYMBOL_GPL(cbe_write_pm07_control);
 
+/*
+ * Other PMU control registers. Most of these are write-only.
+ */
 
 u32 cbe_read_pm(u32 cpu, enum pm_reg_name reg)
 {
@@ -235,6 +264,9 @@ void cbe_write_pm(u32 cpu, enum pm_reg_name reg, u32 val)
 }
 EXPORT_SYMBOL_GPL(cbe_write_pm);
 
+/*
+ * Get/set the size of a physical counter to either 16 or 32 bits.
+ */
 
 u32 cbe_get_ctr_size(u32 cpu, u32 phys_ctr)
 {
@@ -269,6 +301,10 @@ void cbe_set_ctr_size(u32 cpu, u32 phys_ctr, u32 ctr_size)
 }
 EXPORT_SYMBOL_GPL(cbe_set_ctr_size);
 
+/*
+ * Enable/disable the entire performance monitoring unit.
+ * When we enable the PMU, all pending writes to counters get committed.
+ */
 
 void cbe_enable_pm(u32 cpu)
 {
@@ -291,6 +327,11 @@ void cbe_disable_pm(u32 cpu)
 }
 EXPORT_SYMBOL_GPL(cbe_disable_pm);
 
+/*
+ * Reading from the trace_buffer.
+ * The trace buffer is two 64-bit registers. Reading from
+ * the second half automatically increments the trace_address.
+ */
 
 void cbe_read_trace_buffer(u32 cpu, u64 *buf)
 {
@@ -301,20 +342,23 @@ void cbe_read_trace_buffer(u32 cpu, u64 *buf)
 }
 EXPORT_SYMBOL_GPL(cbe_read_trace_buffer);
 
+/*
+ * Enabling/disabling interrupts for the entire performance monitoring unit.
+ */
 
 u32 cbe_get_and_clear_pm_interrupts(u32 cpu)
 {
-	
+	/* Reading pm_status clears the interrupt bits. */
 	return cbe_read_pm(cpu, pm_status);
 }
 EXPORT_SYMBOL_GPL(cbe_get_and_clear_pm_interrupts);
 
 void cbe_enable_pm_interrupts(u32 cpu, u32 thread, u32 mask)
 {
-	
+	/* Set which node and thread will handle the next interrupt. */
 	iic_set_interrupt_routing(cpu, thread, 0);
 
-	
+	/* Enable the interrupt bits in the pm_status register. */
 	if (mask)
 		cbe_write_pm(cpu, pm_status, mask);
 }

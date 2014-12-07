@@ -11,6 +11,10 @@
  * 2 of the License, or (at your option) any later version.
  */
 
+/* The code in this source file is responsible for generating
+ * vma-to-fileOffset maps for both overlay and non-overlay SPU
+ * applications.
+ */
 
 #include <linux/mm.h>
 #include <linux/string.h>
@@ -33,6 +37,13 @@ unsigned int
 vma_map_lookup(struct vma_to_fileoffset_map *map, unsigned int vma,
 	       const struct spu *aSpu, int *grd_val)
 {
+	/*
+	 * Default the offset to the physical address + a flag value.
+	 * Addresses of dynamically generated code can't be found in the vma
+	 * map.  For those addresses the flagged value will be sent on to
+	 * the user space tools so they can be reported rather than just
+	 * thrown away.
+	 */
 	u32 offset = 0x10000000 + vma;
 	u32 ovly_grd;
 
@@ -78,6 +89,9 @@ vma_map_add(struct vma_to_fileoffset_map *map, unsigned int vma,
 }
 
 
+/* Parse SPE ELF header and generate a list of vma_maps.
+ * A pointer to the first vma_map in the generated list
+ * of vma_maps is returned.  */
 struct vma_to_fileoffset_map *create_vma_map(const struct spu *aSpu,
 					     unsigned long __spu_elf_start)
 {
@@ -113,7 +127,7 @@ struct vma_to_fileoffset_map *create_vma_map(const struct spu *aSpu,
 	struct spu_overlay_info __user *ovly_table;
 	unsigned int n_ovlys;
 
-	
+	/* Get and validate ELF header.	 */
 
 	if (copy_from_user(&ehdr, spu_elf_start, sizeof (ehdr)))
 		goto fail;
@@ -139,7 +153,7 @@ struct vma_to_fileoffset_map *create_vma_map(const struct spu *aSpu,
 	phdr_start = spu_elf_start + ehdr.e_phoff;
 	shdr_start = spu_elf_start + ehdr.e_shoff;
 
-	
+	/* Traverse program headers.  */
 	for (i = 0; i < ehdr.e_phnum; i++) {
 		if (copy_from_user(&phdr, phdr_start + i, sizeof(phdr)))
 			goto fail;
@@ -156,7 +170,7 @@ struct vma_to_fileoffset_map *create_vma_map(const struct spu *aSpu,
 	}
 
 	pr_debug("SPU_PROF: Created non-overlay maps\n");
-	
+	/* Traverse section table and search for overlay-related symbols.  */
 	for (i = 0; i < ehdr.e_shnum; i++) {
 		if (copy_from_user(&shdr, shdr_start + i, sizeof(shdr)))
 			goto fail;
@@ -198,7 +212,7 @@ struct vma_to_fileoffset_map *create_vma_map(const struct spu *aSpu,
 		}
 	}
 
-	
+	/* If we don't have overlays, we're done.  */
 	if (ovly_table_sym == 0 || ovly_buf_table_sym == 0
 	    || ovly_table_end_sym == 0 || ovly_buf_table_end_sym == 0) {
 		pr_debug("SPU_PROF: No overlay table found\n");
@@ -207,6 +221,13 @@ struct vma_to_fileoffset_map *create_vma_map(const struct spu *aSpu,
 		pr_debug("SPU_PROF: Overlay table found\n");
 	}
 
+	/* The _ovly_table symbol represents a table with one entry
+	 * per overlay section.	 The _ovly_buf_table symbol represents
+	 * a table with one entry per overlay region.
+	 * The struct spu_overlay_info gives the structure of the _ovly_table
+	 * entries.  The structure of _ovly_table_buf is simply one
+	 * u32 word per entry.
+	 */
 	overlay_tbl_offset = vma_map_lookup(map, ovly_table_sym,
 					    aSpu, &grd_val);
 	if (overlay_tbl_offset > 0x10000000) {
@@ -220,11 +241,34 @@ struct vma_to_fileoffset_map *create_vma_map(const struct spu *aSpu,
 	n_ovlys = (ovly_table_end_sym -
 		   ovly_table_sym) / sizeof (ovly);
 
-	
+	/* Traverse overlay table.  */
 	for (i = 0; i < n_ovlys; i++) {
 		if (copy_from_user(&ovly, ovly_table + i, sizeof (ovly)))
 			goto fail;
 
+		/* The ovly.vma/size/offset arguments are analogous to the same
+		 * arguments used above for non-overlay maps.  The final two
+		 * args are referred to as the guard pointer and the guard
+		 * value.
+		 * The guard pointer is an entry in the _ovly_buf_table,
+		 * computed using ovly.buf as the index into the table.	 Since
+		 * ovly.buf values begin at '1' to reference the first (or 0th)
+		 * entry in the _ovly_buf_table, the computation subtracts 1
+		 * from ovly.buf.
+		 * The guard value is stored in the _ovly_buf_table entry and
+		 * is an index (starting at 1) back to the _ovly_table entry
+		 * that is pointing at this _ovly_buf_table entry.  So, for
+		 * example, for an overlay scenario with one overlay segment
+		 * and two overlay sections:
+		 *	- Section 1 points to the first entry of the
+		 *	  _ovly_buf_table, which contains a guard value
+		 *	  of '1', referencing the first (index=0) entry of
+		 *	  _ovly_table.
+		 *	- Section 2 points to the second entry of the
+		 *	  _ovly_buf_table, which contains a guard value
+		 *	  of '2', referencing the second (index=1) entry of
+		 *	  _ovly_table.
+		 */
 		map = vma_map_add(map, ovly.vma, ovly.size, ovly.offset,
 				  ovly_buf_table_sym + (ovly.buf-1) * 4, i+1);
 		if (!map)

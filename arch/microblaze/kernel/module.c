@@ -44,6 +44,12 @@ int apply_relocate_add(Elf32_Shdr *sechdrs, const char *strtab,
 
 		switch (ELF32_R_TYPE(rela[i].r_info)) {
 
+		/*
+		 * Be careful! mb-gcc / mb-ld splits the relocs between the
+		 * text and the reloc table. In general this means we must
+		 * read the current contents of (*location), add any offset
+		 * then store the result back in
+		 */
 
 		case R_MICROBLAZE_32:
 #if __GNUC__ < 4
@@ -59,7 +65,7 @@ int apply_relocate_add(Elf32_Shdr *sechdrs, const char *strtab,
 
 		case R_MICROBLAZE_64:
 #if __GNUC__ < 4
-			
+			/* Split relocs only required/used pre gcc4.1.1 */
 			old_value = ((location[0] & 0x0000FFFF) << 16) |
 					(location[1] & 0x0000FFFF);
 			value += old_value;

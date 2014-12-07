@@ -36,6 +36,7 @@
 #include "fbcommon.h"
 #include "dum.h"
 
+/* Framebuffers we have */
 
 static struct pnx4008_fb_addr {
 	int fb_type;
@@ -59,6 +60,7 @@ static struct dum_data {
 	struct dumchannel_uf chan_uf_store[MAX_DUM_CHANNELS];
 } dum_data;
 
+/* Different local helper functions */
 
 static u32 nof_pixels_dx(struct dum_ch_setup *ch_setup)
 {
@@ -199,7 +201,7 @@ static u32 dum_ch_setup(int ch_no, struct dum_ch_setup * ch_setup)
 	if ((ch_setup->xmirror) || (ch_setup->ymirror) || (ch_setup->rotate)) {
 		standard = 0;
 
-		orientation = BIT(1);	
+		orientation = BIT(1);	/* always set 9-bit-bus */
 		if (ch_setup->xmirror)
 			orientation |= BIT(4);
 		if (ch_setup->ymirror)
@@ -211,7 +213,7 @@ static u32 dum_ch_setup(int ch_no, struct dum_ch_setup * ch_setup)
 
 	cmds->channelnr = ch_no;
 
-	
+	/* build command string header */
 	if (standard) {
 		cmds->prestringlen = 32;
 		cmds->poststringlen = 0;
@@ -241,7 +243,7 @@ static u32 dum_ch_setup(int ch_no, struct dum_ch_setup * ch_setup)
 	if (ch_setup->slave_trans)
 		cmds->pixdatlen_high |= BIT(15);
 
-	
+	/* build pre-string */
 	build_disp_window(ch_setup, &dw);
 
 	if (standard) {
@@ -333,21 +335,21 @@ static u32 display_open(int ch_no, int auto_update, u32 * dirty_buffer,
 	struct dum_ch_setup k;
 	int ret;
 
-	
+	/* keep width & height within display area */
 	if ((xpos + w) > DISP_MAX_X_SIZE)
 		w = DISP_MAX_X_SIZE - xpos;
 
 	if ((ypos + h) > DISP_MAX_Y_SIZE)
 		h = DISP_MAX_Y_SIZE - ypos;
 
-	
+	/* assume 1 display only */
 	k.disp_no = 0;
 	k.xmin = xpos;
 	k.ymin = ypos;
 	k.xmax = xpos + (w - 1);
 	k.ymax = ypos + (h - 1);
 
-	
+	/* adjust min and max values if necessary */
 	if (k.xmin > DISP_MAX_X_SIZE - 1)
 		k.xmin = DISP_MAX_X_SIZE - 1;
 	if (k.ymin > DISP_MAX_Y_SIZE - 1)
@@ -389,7 +391,7 @@ static int dum_init(struct platform_device *pdev)
 {
 	struct clk *clk;
 
-	
+	/* enable DUM clock */
 	clk = clk_get(&pdev->dev, "dum_ck");
 	if (IS_ERR(clk)) {
 		printk(KERN_ERR "pnx4008_dum: Unable to access DUM clock\n");
@@ -401,10 +403,10 @@ static int dum_init(struct platform_device *pdev)
 
 	DUM_CTRL = V_DUM_RESET;
 
-	
+	/* set priority to "round-robin". All other params to "false" */
 	DUM_CONF = BIT(9);
 
-	
+	/* Display 1 */
 	DUM_WTCFG1 = PNX4008_DUM_WT_CFG;
 	DUM_RTCFG1 = PNX4008_DUM_RT_CFG;
 	DUM_TCFG = PNX4008_DUM_T_CFG;
@@ -433,7 +435,7 @@ static void dum_chan_init(void)
 	for (ch = 0; ch < MAX_DUM_CHANNELS; ch++)
 		clear_channel(ch);
 
-	
+	/* Clear the cmdstrings */
 	cmdstrings =
 	    (u32 *)ioremap_nocache(*cmdptrs,
 				   BYTES_PER_CMDSTRING * NR_OF_CMDSTRINGS);
@@ -455,7 +457,7 @@ static void lcd_init(void)
 {
 	lcd_reset();
 
-	DUM_OUTP_FORMAT1 = 0; 
+	DUM_OUTP_FORMAT1 = 0; /* RGB666 */
 
 	udelay(1);
 	iowrite32(V_LCD_STANDBY_OFF, dum_data.slave_virt_base);
@@ -476,6 +478,7 @@ static void lcd_init(void)
 	udelay(1);
 }
 
+/* Interface exported to framebuffer drivers */
 
 int pnx4008_get_fb_addresses(int fb_type, void **virt_addr,
 			     dma_addr_t *phys_addr, int *fb_length)
@@ -602,7 +605,7 @@ int pnx4008_set_dum_channel_dirty_detect(int channr, int val, int dev_id)
 
 EXPORT_SYMBOL(pnx4008_set_dum_channel_dirty_detect);
 
-#if 0 
+#if 0 /* Functions not used currently, but likely to be used in future */
 
 static int get_channel(struct dumchannel *p_chan)
 {
@@ -615,7 +618,7 @@ static int get_channel(struct dumchannel *p_chan)
 		p_chan->dum_ch_max = DUM_CH_MAX(i);
 		p_chan->dum_ch_conf = DUM_CH_CONF(i);
 		p_chan->dum_ch_stat = DUM_CH_STAT(i);
-		p_chan->dum_ch_ctrl = 0;	
+		p_chan->dum_ch_ctrl = 0;	/* WriteOnly control register */
 	}
 
 	return 0;
@@ -710,6 +713,7 @@ int pnx4008_set_dum_exit_notification(int dev_id)
 
 EXPORT_SYMBOL(pnx4008_set_dum_exit_notification);
 
+/* Platform device driver for DUM */
 
 static int sdum_suspend(struct platform_device *pdev, pm_message_t state)
 {
@@ -723,10 +727,10 @@ static int sdum_suspend(struct platform_device *pdev, pm_message_t state)
 	} else
 		retval = PTR_ERR(clk);
 
-	
+	/* disable BAC */
 	DUM_CTRL = V_BAC_DISABLE_IDLE;
 
-	
+	/* LCD standby & turn off display */
 	lcd_reset();
 
 	return retval;
@@ -744,16 +748,16 @@ static int sdum_resume(struct platform_device *pdev)
 	} else
 		retval = PTR_ERR(clk);
 
-	
+	/* wait for BAC disable */
 	DUM_CTRL = V_BAC_DISABLE_TRIG;
 
 	while (DUM_CTRL & BAC_ENABLED)
 		udelay(10);
 
-	
+	/* re-init LCD */
 	lcd_init();
 
-	
+	/* enable BAC and reset MUX */
 	DUM_CTRL = V_BAC_ENABLE;
 	udelay(1);
 	DUM_CTRL = V_MUX_RESET;
@@ -764,7 +768,7 @@ static int __devinit sdum_probe(struct platform_device *pdev)
 {
 	int ret = 0, i = 0;
 
-	
+	/* map frame buffer */
 	dum_data.lcd_virt_start = (u32) dma_alloc_writecombine(&pdev->dev,
 						       FB_DMA_SIZE,
 						       &dum_data.lcd_phys_start,
@@ -775,7 +779,7 @@ static int __devinit sdum_probe(struct platform_device *pdev)
 		goto out_3;
 	}
 
-	
+	/* map slave registers */
 	dum_data.slave_phys_base = PNX4008_DUM_SLAVE_BASE;
 	dum_data.slave_virt_base =
 	    (u32 *) ioremap_nocache(dum_data.slave_phys_base, sizeof(u32));
@@ -785,7 +789,7 @@ static int __devinit sdum_probe(struct platform_device *pdev)
 		goto out_2;
 	}
 
-	
+	/* initialize DUM and LCD display */
 	ret = dum_init(pdev);
 	if (ret)
 		goto out_1;
@@ -797,14 +801,14 @@ static int __devinit sdum_probe(struct platform_device *pdev)
 	udelay(1);
 	DUM_CTRL = V_MUX_RESET;
 
-	
+	/* set decode address and sync clock divider */
 	DUM_DECODE = dum_data.lcd_phys_start & DUM_DECODE_MASK;
 	DUM_CLK_DIV = PNX4008_DUM_CLK_DIV;
 
 	for (i = 0; i < MAX_DUM_CHANNELS; i++)
 		dum_data.fb_owning_channel[i] = -1;
 
-	
+	/*setup wakeup interrupt */
 	start_int_set_rising_edge(SE_DISP_SYNC_INT);
 	start_int_ack(SE_DISP_SYNC_INT);
 	start_int_umask(SE_DISP_SYNC_INT);

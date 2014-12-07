@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Name: acutils.h -- prototypes for the common (subsystem-wide) procedures
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -42,6 +47,7 @@
 extern const u8 acpi_gbl_resource_aml_sizes[];
 extern const u8 acpi_gbl_resource_aml_serial_bus_sizes[];
 
+/* Strings used by the disassembler and debugger resource dump routines */
 
 #if defined(ACPI_DISASSEMBLER) || defined (ACPI_DEBUGGER)
 
@@ -65,6 +71,7 @@ extern const char *acpi_gbl_ttp_decode[];
 extern const char *acpi_gbl_typ_decode[];
 #endif
 
+/* Types for Resource descriptor entries */
 
 #define ACPI_INVALID_RESOURCE           0
 #define ACPI_FIXED_LENGTH               1
@@ -94,12 +101,16 @@ struct acpi_pkg_info {
 #define REF_DECREMENT       (u16) 1
 #define REF_FORCE_DELETE    (u16) 2
 
+/* acpi_ut_dump_buffer */
 
 #define DB_BYTE_DISPLAY     1
 #define DB_WORD_DISPLAY     2
 #define DB_DWORD_DISPLAY    4
 #define DB_QWORD_DISPLAY    8
 
+/*
+ * utglobal - Global data structures and procedures
+ */
 acpi_status acpi_ut_init_globals(void);
 
 #if defined(ACPI_DEBUG_OUTPUT) || defined(ACPI_DEBUGGER)
@@ -128,10 +139,16 @@ char acpi_ut_hex_to_ascii_char(u64 integer, u32 position);
 
 u8 acpi_ut_valid_object_type(acpi_object_type type);
 
+/*
+ * utinit - miscellaneous initialization and shutdown
+ */
 acpi_status acpi_ut_hardware_initialize(void);
 
 void acpi_ut_subsystem_shutdown(void);
 
+/*
+ * utclib - Local implementations of C library functions
+ */
 #ifndef ACPI_USE_SYSTEM_CLIBRARY
 
 acpi_size acpi_ut_strlen(const char *string);
@@ -166,16 +183,16 @@ int acpi_ut_to_lower(int c);
 
 extern const u8 _acpi_ctype[];
 
-#define _ACPI_XA     0x00	
-#define _ACPI_XS     0x40	
-#define _ACPI_BB     0x00	
-#define _ACPI_CN     0x20	
-#define _ACPI_DI     0x04	
-#define _ACPI_LO     0x02	
-#define _ACPI_PU     0x10	
-#define _ACPI_SP     0x08	
-#define _ACPI_UP     0x01	
-#define _ACPI_XD     0x80	
+#define _ACPI_XA     0x00	/* extra alphabetic - not supported */
+#define _ACPI_XS     0x40	/* extra space */
+#define _ACPI_BB     0x00	/* BEL, BS, etc. - not supported */
+#define _ACPI_CN     0x20	/* CR, FF, HT, NL, VT */
+#define _ACPI_DI     0x04	/* '0'-'9' */
+#define _ACPI_LO     0x02	/* 'a'-'z' */
+#define _ACPI_PU     0x10	/* punctuation */
+#define _ACPI_SP     0x08	/* space */
+#define _ACPI_UP     0x01	/* 'A'-'Z' */
+#define _ACPI_XD     0x80	/* '0'-'9', 'A'-'F', 'a'-'f' */
 
 #define ACPI_IS_DIGIT(c)  (_acpi_ctype[(unsigned char)(c)] & (_ACPI_DI))
 #define ACPI_IS_SPACE(c)  (_acpi_ctype[(unsigned char)(c)] & (_ACPI_SP))
@@ -185,8 +202,11 @@ extern const u8 _acpi_ctype[];
 #define ACPI_IS_PRINT(c)  (_acpi_ctype[(unsigned char)(c)] & (_ACPI_LO | _ACPI_UP | _ACPI_DI | _ACPI_SP | _ACPI_PU))
 #define ACPI_IS_ALPHA(c)  (_acpi_ctype[(unsigned char)(c)] & (_ACPI_LO | _ACPI_UP))
 
-#endif				
+#endif				/* ACPI_USE_SYSTEM_CLIBRARY */
 
+/*
+ * utcopy - Object construction and conversion interfaces
+ */
 acpi_status
 acpi_ut_build_simple_object(union acpi_operand_object *obj,
 			    union acpi_object *user_obj,
@@ -213,9 +233,15 @@ acpi_ut_copy_iobject_to_iobject(union acpi_operand_object *source_desc,
 				union acpi_operand_object **dest_desc,
 				struct acpi_walk_state *walk_state);
 
+/*
+ * utcreate - Object creation
+ */
 acpi_status
 acpi_ut_update_object_reference(union acpi_operand_object *object, u16 action);
 
+/*
+ * utdebug - Debug interfaces
+ */
 void acpi_ut_init_stack_ptr_trace(void);
 
 void acpi_ut_track_stack_ptr(void);
@@ -271,6 +297,9 @@ void acpi_ut_report_info(char *module_name, u32 line_number);
 
 void acpi_ut_report_warning(char *module_name, u32 line_number);
 
+/*
+ * utdelete - Object deletion and reference counts
+ */
 void acpi_ut_add_reference(union acpi_operand_object *object);
 
 void acpi_ut_remove_reference(union acpi_operand_object *object);
@@ -281,6 +310,9 @@ void acpi_ut_delete_internal_simple_object(union acpi_operand_object *object);
 
 void acpi_ut_delete_internal_object_list(union acpi_operand_object **obj_list);
 
+/*
+ * uteval - object evaluation
+ */
 acpi_status
 acpi_ut_evaluate_object(struct acpi_namespace_node *prefix_node,
 			char *path,
@@ -300,6 +332,9 @@ acpi_ut_execute_power_methods(struct acpi_namespace_node *device_node,
 			      const char **method_names,
 			      u8 method_count, u8 *out_values);
 
+/*
+ * utids - device ID support
+ */
 acpi_status
 acpi_ut_execute_HID(struct acpi_namespace_node *device_node,
 		    struct acpica_device_id **return_id);
@@ -312,6 +347,9 @@ acpi_status
 acpi_ut_execute_CID(struct acpi_namespace_node *device_node,
 		    struct acpica_device_id_list **return_cid_list);
 
+/*
+ * utlock - reader/writer locks
+ */
 acpi_status acpi_ut_create_rw_lock(struct acpi_rw_lock *lock);
 
 void acpi_ut_delete_rw_lock(struct acpi_rw_lock *lock);
@@ -324,6 +362,9 @@ acpi_status acpi_ut_acquire_write_lock(struct acpi_rw_lock *lock);
 
 void acpi_ut_release_write_lock(struct acpi_rw_lock *lock);
 
+/*
+ * utobject - internal object create/delete/cache routines
+ */
 union acpi_operand_object *acpi_ut_create_internal_object_dbg(const char
 							      *module_name,
 							      u32 line_number,
@@ -352,6 +393,9 @@ union acpi_operand_object *acpi_ut_create_string_object(acpi_size string_size);
 acpi_status
 acpi_ut_get_object_size(union acpi_operand_object *obj, acpi_size * obj_length);
 
+/*
+ * utosi - Support for the _OSI predefined control method
+ */
 acpi_status acpi_ut_initialize_interfaces(void);
 
 void acpi_ut_interface_terminate(void);
@@ -364,6 +408,9 @@ struct acpi_interface_info *acpi_ut_get_interface(acpi_string interface_name);
 
 acpi_status acpi_ut_osi_implementation(struct acpi_walk_state *walk_state);
 
+/*
+ * utstate - Generic state creation/cache routines
+ */
 void
 acpi_ut_push_generic_state(union acpi_generic_state **list_head,
 			   union acpi_generic_state *state);
@@ -393,12 +440,15 @@ acpi_ut_create_pkg_state_and_push(void *internal_object,
 				  void *external_object,
 				  u16 index,
 				  union acpi_generic_state **state_list);
-#endif				
+#endif				/* ACPI_FUTURE_USAGE */
 
 union acpi_generic_state *acpi_ut_create_control_state(void);
 
 void acpi_ut_delete_generic_state(union acpi_generic_state *state);
 
+/*
+ * utmath
+ */
 acpi_status
 acpi_ut_divide(u64 in_dividend,
 	       u64 in_divisor, u64 *out_quotient, u64 *out_remainder);
@@ -407,6 +457,9 @@ acpi_status
 acpi_ut_short_divide(u64 in_dividend,
 		     u32 divisor, u64 *out_quotient, u32 *out_remainder);
 
+/*
+ * utmisc
+ */
 const char *acpi_ut_validate_exception(acpi_status status);
 
 u8 acpi_ut_is_pci_root_bridge(char *id);
@@ -434,6 +487,7 @@ u8 acpi_ut_valid_acpi_char(char character, u32 position);
 
 acpi_status acpi_ut_strtoul64(char *string, u32 base, u64 * ret_integer);
 
+/* Values for Base above (16=Hex, 10=Decimal) */
 
 #define ACPI_ANY_BASE        0
 
@@ -448,6 +502,9 @@ acpi_ut_display_init_pathname(u8 type,
 			      char *path);
 #endif
 
+/*
+ * utresrc
+ */
 acpi_status
 acpi_ut_walk_aml_resources(u8 * aml,
 			   acpi_size aml_length,
@@ -468,6 +525,9 @@ acpi_status
 acpi_ut_get_resource_end_tag(union acpi_operand_object *obj_desc,
 			     u8 ** end_tag);
 
+/*
+ * utmutex - mutex support
+ */
 acpi_status acpi_ut_mutex_initialize(void);
 
 void acpi_ut_mutex_terminate(void);
@@ -476,6 +536,9 @@ acpi_status acpi_ut_acquire_mutex(acpi_mutex_handle mutex_id);
 
 acpi_status acpi_ut_release_mutex(acpi_mutex_handle mutex_id);
 
+/*
+ * utalloc - memory allocation and object caching
+ */
 acpi_status acpi_ut_create_caches(void);
 
 acpi_status acpi_ut_delete_caches(void);
@@ -506,7 +569,7 @@ acpi_ut_free_and_track(void *address,
 
 #ifdef	ACPI_FUTURE_USAGE
 void acpi_ut_dump_allocation_info(void);
-#endif				
+#endif				/* ACPI_FUTURE_USAGE */
 
 void acpi_ut_dump_allocations(u32 component, const char *module);
 
@@ -514,8 +577,11 @@ acpi_status
 acpi_ut_create_list(char *list_name,
 		    u16 object_size, struct acpi_memory_list **return_cache);
 
-#endif				
+#endif				/* ACPI_DBG_TRACK_ALLOCATIONS */
 
+/*
+ * utaddress - address range check
+ */
 acpi_status
 acpi_ut_add_address_range(acpi_adr_space_type space_id,
 			  acpi_physical_address address,
@@ -531,6 +597,9 @@ acpi_ut_check_address_range(acpi_adr_space_type space_id,
 
 void acpi_ut_delete_address_lists(void);
 
+/*
+ * utxferror - various error/warning output functions
+ */
 void ACPI_INTERNAL_VAR_XFACE
 acpi_ut_predefined_warning(const char *module_name,
 			   u32 line_number,
@@ -554,4 +623,4 @@ acpi_ut_method_error(const char *module_name,
 		     struct acpi_namespace_node *node,
 		     const char *path, acpi_status lookup_status);
 
-#endif				
+#endif				/* _ACUTILS_H */

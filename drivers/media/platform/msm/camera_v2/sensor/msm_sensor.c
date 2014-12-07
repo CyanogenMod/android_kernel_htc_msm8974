@@ -19,6 +19,7 @@
 #include <mach/rpm-regulator.h>
 #include <mach/rpm-regulator-smd.h>
 #include <linux/regulator/consumer.h>
+#include <mach/devices_cmdline.h>
 
 #ifdef CONFIG_RAWCHIPII
 #include "yushanII.h"
@@ -353,6 +354,7 @@ static int32_t msm_sensor_get_dt_vreg_data(struct device_node *of_node,
 			sensordata->cam_vreg[i].op_mode);
 	}
 
+#ifndef CONFIG_MACH_DUMMY
 	rc = of_property_read_u32_array(of_node, "qcom,cam-vreg-gpios-index",
 		vreg_array, count);
 	if (rc < 0) {
@@ -364,6 +366,7 @@ static int32_t msm_sensor_get_dt_vreg_data(struct device_node *of_node,
 		CDBG("%s cam_vreg[%d].gpios_index = %d\n", __func__, i,
 			sensordata->cam_vreg[i].gpios_index);
 	}
+#endif
 
 	kfree(vreg_array);
 	return rc;
@@ -485,7 +488,8 @@ int32_t msm_sensor_get_dt_gpio_req_tbl(struct device_node *of_node,
 		if (val_array[i] >= gpio_array_size) {
 			pr_err("%s gpio req tbl index %d invalid\n",
 				__func__, val_array[i]);
-			return -EINVAL;
+			rc = -EINVAL;
+			goto ERROR2;
 		}
 		gconf->cam_gpio_req_tbl[i].gpio = gpio_array[val_array[i]];
 		CDBG("%s cam_gpio_req_tbl[%d].gpio = %d\n", __func__, i,
@@ -569,7 +573,8 @@ int32_t msm_sensor_get_dt_gpio_set_tbl(struct device_node *of_node,
 		if (val_array[i] >= gpio_array_size) {
 			pr_err("%s gpio set tbl index %d invalid\n",
 				__func__, val_array[i]);
-			return -EINVAL;
+			rc = -EINVAL;
+			goto ERROR2;
 		}
 		gconf->cam_gpio_set_tbl[i].gpio = gpio_array[val_array[i]];
 		CDBG("%s cam_gpio_set_tbl[%d].gpio = %d\n", __func__, i,
@@ -761,6 +766,24 @@ int32_t msm_sensor_init_gpio_pin_tbl(struct device_node *of_node,
 		CDBG("%s qcom,gpio-vcm-pwd %d\n", __func__,
 			gconf->gpio_num_info->gpio_num[SENSOR_GPIO_VCM_PWD]);
 	}
+
+	if (of_property_read_bool(of_node, "htc,gpio-camid") == true) {
+		rc = of_property_read_u32(of_node, "htc,gpio-camid", &val);
+		if (rc < 0) {
+			pr_err("%s:%d read qcom,gpio-camid failed rc %d\n",
+				__func__, __LINE__, rc);
+			goto ERROR;
+		} else if (val >= gpio_array_size) {
+			pr_err("%s:%d qcom,gpio-camid invalid %d\n",
+				__func__, __LINE__, val);
+			goto ERROR;
+		}
+		gconf->gpio_num_info->gpio_num[SENSOR_GPIO_CAMID] =
+			gpio_array[val];
+		gconf->gpio_num_info->valid[SENSOR_GPIO_CAMID] = 1;
+		CDBG("%s qcom,gpio-cam-id %d\n", __func__,
+			gconf->gpio_num_info->gpio_num[SENSOR_GPIO_CAMID]);
+	}
 	return 0;
 
 ERROR:
@@ -885,10 +908,11 @@ static int32_t msm_sensor_get_dt_data(struct device_node *of_node,
 	CDBG("%s qcom,htc-image %d, rc %d\n", __func__,
 		sensordata->htc_image, rc);
 	if (rc < 0) {
-		pr_err("%s failed %d\n", __func__, __LINE__);
-		goto ERROR1;
+		pr_err("%s htc_image not defined %d\n", __func__, rc);
+		sensordata->htc_image = 0;
 	}
 #endif
+
 
 	
 	rc = of_property_read_u32(of_node, "htc,pm-ncp6924",
@@ -896,7 +920,7 @@ static int32_t msm_sensor_get_dt_data(struct device_node *of_node,
 	CDBG("%s qcom,pm_ncp6924 %d, rc %d\n", __func__,
 		sensordata->pm_ncp6924, rc);
 	if (rc < 0) {
-		pr_err("%s failed %d\n", __func__, __LINE__);
+		pr_info("%s pm-ncp6924 not defined %d\n", __func__, rc);
 		sensordata->pm_ncp6924 = 0;
 	}
 	
@@ -906,6 +930,63 @@ static int32_t msm_sensor_get_dt_data(struct device_node *of_node,
 		pr_err("%s failed %d\n", __func__, __LINE__);
 		goto ERROR1;
 	}
+
+	
+	rc = of_property_read_u32(of_node, "qcom,mount-angle",
+		&sensordata->sensor_info->sensor_mount_angle);
+	CDBG("%s qcom,mount-angle %d, rc %d\n", __func__,
+		sensordata->sensor_info->sensor_mount_angle, rc);
+	if (rc < 0) {
+		
+		pr_err("%s Default sensor mount angle %d\n",
+					__func__, __LINE__);
+		sensordata->sensor_info->is_mount_angle_valid = 0;
+		sensordata->sensor_info->sensor_mount_angle = 0;
+		rc = 0;
+	} else {
+		sensordata->sensor_info->is_mount_angle_valid = 1;
+	}
+
+	rc = of_property_read_u32(of_node, "qcom,sensor-position",
+		&sensordata->sensor_info->position);
+	CDBG("%s qcom,sensor-position %d, rc %d\n", __func__,
+		sensordata->sensor_info->position, rc);
+	if (rc < 0) {
+		pr_err("%s Default sensor position %d\n", __func__, __LINE__);
+		sensordata->sensor_info->position = 0;
+		rc = 0;
+	}
+
+	rc = of_property_read_u32(of_node, "qcom,sensor-mode",
+		&sensordata->sensor_info->modes_supported);
+	CDBG("%s qcom,sensor-mode %d, rc %d\n", __func__,
+		sensordata->sensor_info->modes_supported, rc);
+	if (rc < 0) {
+		pr_err("%s Default sensor mode %d\n", __func__, __LINE__);
+		sensordata->sensor_info->modes_supported = 0;
+		rc = 0;
+	}
+
+	
+	rc = of_property_read_u32(of_node, "htc,mirror-flip",
+		&sensordata->sensor_info->sensor_mirror_flip);
+	if (rc < 0) {
+		pr_info("%s mirror-flip not defined %d\n", __func__, rc);
+		sensordata->sensor_info->sensor_mirror_flip = 0;
+	} else
+		pr_info("%s htc,mirror-flip %d, rc %d\n", __func__,
+		sensordata->sensor_info->sensor_mirror_flip, rc);
+
+	rc = of_property_read_u32(of_node, "htc,camid-value",
+		&sensordata->camid_value);
+	if (rc < 0) {
+		pr_info("%s camid-value not defined %d\n", __func__, rc);
+		sensordata->camid_value = 0xFF;
+	} else
+		pr_info("%s htc,camid-value %d, rc %d\n", __func__,
+		sensordata->camid_value, rc);
+
+	
 
 	rc = msm_sensor_get_dt_csi_data(of_node, sensordata);
 	if (rc < 0) {
@@ -1157,6 +1238,7 @@ int32_t msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 	struct msm_camera_sensor_board_info *data = s_ctrl->sensordata;
 	struct camera_vreg_t *cam_vreg;
 	struct camera_ncp6924_vreg_t *ncp6924_vreg;	
+	uint32_t retry = 0;
 	s_ctrl->stop_setting_valid = 0;
 
 	CDBG("%s:%d\n", __func__, __LINE__);
@@ -1215,6 +1297,14 @@ int32_t msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 			pr_debug("%s:%d gpio set val %d\n", __func__, __LINE__,
 				data->gpio_conf->gpio_num_info->gpio_num
 				[power_setting->seq_val]);
+			 
+			if ( data->gpio_conf->gpio_num_info->gpio_num[power_setting->seq_val] == 429)
+			{
+				gpio_429_index ++;
+			}
+			if ( data->gpio_conf->gpio_num_info->gpio_num[power_setting->seq_val] == 430)
+				gpio_430_index ++;
+			
 			gpio_set_value_cansleep(
 				data->gpio_conf->gpio_num_info->gpio_num
 				[power_setting->seq_val],
@@ -1274,6 +1364,18 @@ int32_t msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 			if (data->i2c_conf && data->i2c_conf->use_i2c_mux)
 				msm_sensor_enable_i2c_mux(data->i2c_conf);
 			break;
+		
+		case SENSOR_CHECK_CAMID:
+			if ((data->gpio_conf->gpio_num_info->valid[SENSOR_GPIO_CAMID] != 1)||(data->camid_value == 0xFF))
+				break;
+			rc = gpio_get_value(data->gpio_conf->gpio_num_info->gpio_num[SENSOR_GPIO_CAMID]);
+			if (rc != data->camid_value){
+				pr_info("%s camid %d != %d\n", __func__,rc, data->camid_value);
+				rc = -ENODEV;
+				goto power_up_failed;
+			}
+			break;
+		
 		default:
 			pr_err("%s error power seq type %d\n", __func__,
 				power_setting->seq_type);
@@ -1296,13 +1398,22 @@ int32_t msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 		}
 	}
 
-	if (s_ctrl->func_tbl->sensor_match_id)
-		rc = s_ctrl->func_tbl->sensor_match_id(s_ctrl);
-	else
-		rc = msm_sensor_match_id(s_ctrl);
-	if (rc < 0) {
-		pr_err("%s:%d match id failed rc %d\n", __func__, __LINE__, rc);
-		goto power_up_failed;
+	for (retry = 0; retry < 3; retry++)
+	{
+		if (s_ctrl->func_tbl->sensor_match_id)
+			rc = s_ctrl->func_tbl->sensor_match_id(s_ctrl);
+		else
+			rc = msm_sensor_match_id(s_ctrl);
+		if (rc < 0) {
+			if (retry < 2) {
+				continue;
+			} else {
+				pr_err("%s:%d match id failed rc %d\n", __func__, __LINE__, rc);
+				goto power_up_failed;
+			}
+		} else {
+			break;
+		}
 	}
 
 	CDBG("%s exit\n", __func__);
@@ -1327,7 +1438,31 @@ power_up_failed:
 				0);
 			break;
 		case SENSOR_GPIO:
+			
+			if (data->gpio_conf->gpio_num_info == NULL) {
+				pr_err("%s data->gpio_conf->gpio_num_info is NULL\n", __func__);
+				break;
+			}
+			
+
 		
+			 
+			if (data->gpio_conf->gpio_num_info->gpio_num[power_setting->seq_val] == 429)
+			{
+				gpio_429_index --;
+				if (gpio_429_index != 0)
+				{
+					break;
+				}
+			}
+			if (data->gpio_conf->gpio_num_info->gpio_num[power_setting->seq_val] == 430)
+			{
+				gpio_430_index --;
+				if (gpio_430_index > 0)
+					break;
+				gpio_430_index = 0;
+			}
+			
 			if(power_setting->config_val == GPIO_OUT_HIGH)
 				gpio_set_value_cansleep(
 					data->gpio_conf->gpio_num_info->gpio_num
@@ -1455,6 +1590,23 @@ int32_t msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 				continue;
 			}
 		
+			 
+			if (data->gpio_conf->gpio_num_info->gpio_num[power_setting->seq_val] == 429)
+			{
+				gpio_429_index --;
+				if (gpio_429_index != 0)
+				{
+					break;
+				}
+			}
+			if (data->gpio_conf->gpio_num_info->gpio_num[power_setting->seq_val] == 430)
+			{
+				gpio_430_index --;
+				if (gpio_430_index > 0)
+					break;
+				gpio_430_index = 0;
+			}
+			
 			if(power_setting->config_val == GPIO_OUT_HIGH)
 				gpio_set_value_cansleep(
 					data->gpio_conf->gpio_num_info->gpio_num
@@ -1654,6 +1806,14 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		for (i = 0; i < SUB_MODULE_MAX; i++)
 			cdata->cfg.sensor_info.subdev_id[i] =
 				s_ctrl->sensordata->sensor_info->subdev_id[i];
+		cdata->cfg.sensor_info.is_mount_angle_valid =
+			s_ctrl->sensordata->sensor_info->is_mount_angle_valid;
+		cdata->cfg.sensor_info.sensor_mount_angle =
+			s_ctrl->sensordata->sensor_info->sensor_mount_angle;
+		cdata->cfg.sensor_info.position =
+			s_ctrl->sensordata->sensor_info->position;
+		cdata->cfg.sensor_info.modes_supported =
+			s_ctrl->sensordata->sensor_info->modes_supported;
 		CDBG("%s:%d sensor name %s\n", __func__, __LINE__,
 			cdata->cfg.sensor_info.sensor_name);
 		CDBG("%s:%d session id %d\n", __func__, __LINE__,
@@ -1661,6 +1821,15 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		for (i = 0; i < SUB_MODULE_MAX; i++)
 			CDBG("%s:%d subdev_id[%d] %d\n", __func__, __LINE__, i,
 				cdata->cfg.sensor_info.subdev_id[i]);
+		CDBG("%s:%d mount angle valid %d value %d\n", __func__,
+			__LINE__, cdata->cfg.sensor_info.is_mount_angle_valid,
+			cdata->cfg.sensor_info.sensor_mount_angle);
+		
+		cdata->cfg.sensor_info.sensor_mirror_flip=
+			s_ctrl->sensordata->sensor_info->sensor_mirror_flip;
+		memcpy(cdata->cfg.sensor_info.OTP_INFO, s_ctrl->sensordata->sensor_info->OTP_INFO, 5);
+		memcpy(cdata->cfg.sensor_info.fuse_id, s_ctrl->sensordata->sensor_info->fuse_id, 5);
+		
 
 		break;
 	case CFG_GET_SENSOR_INIT_PARAMS:
@@ -2223,6 +2392,13 @@ int32_t msm_sensor_platform_probe(struct platform_device *pdev, void *data)
 	uint32_t session_id;
 	unsigned long mount_pos;
 
+	
+	if (board_mfg_mode() == MFG_MODE_OFFMODE_CHARGING) {
+		pr_err("%s: offmode_charging, skip probe\n", __func__);
+		return -EACCES;
+	}
+	
+
 	s_ctrl->pdev = pdev;
 	s_ctrl->dev = &pdev->dev;
 
@@ -2291,7 +2467,7 @@ int32_t msm_sensor_platform_probe(struct platform_device *pdev, void *data)
 		return rc;
 	}
 
-	CDBG("%s %s probe succeeded\n", __func__,
+	pr_info("%s %s probe succeeded\n", __func__,
 		s_ctrl->sensordata->sensor_name);
 	v4l2_subdev_init(&s_ctrl->msm_sd.sd,
 		s_ctrl->sensor_v4l2_subdev_ops);

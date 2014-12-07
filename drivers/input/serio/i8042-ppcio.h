@@ -58,4 +58,4 @@ static inline void i8042_platform_exit(void)
 
 #endif
 
-#endif 
+#endif /* _I8042_PPCIO_H */

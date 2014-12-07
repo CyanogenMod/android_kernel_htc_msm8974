@@ -1,6 +1,15 @@
 #ifndef _ASM_X86_REQUIRED_FEATURES_H
 #define _ASM_X86_REQUIRED_FEATURES_H
 
+/* Define minimum CPUID feature set for kernel These bits are checked
+   really early to actually display a visible error message before the
+   kernel dies.  Make sure to assign features to the proper mask!
+
+   Some requirements that are not in CPUID yet are also in the
+   CONFIG_X86_MINIMUM_CPU_FAMILY which is checked too.
+
+   The real information is in arch/x86/Kconfig.cpu, this just converts
+   the CONFIGs into a bitmask */
 
 #ifndef CONFIG_MATH_EMULATION
 # define NEED_FPU	(1<<(X86_FEATURE_FPU & 31))
@@ -40,6 +49,7 @@
 
 #ifdef CONFIG_X86_64
 #ifdef CONFIG_PARAVIRT
+/* Paravirtualized systems may not have PSE or PGE available */
 #define NEED_PSE	0
 #define NEED_PGE	0
 #else
@@ -77,4 +87,4 @@
 #define REQUIRED_MASK8	0
 #define REQUIRED_MASK9	0
 
-#endif 
+#endif /* _ASM_X86_REQUIRED_FEATURES_H */

@@ -33,7 +33,7 @@
 #ifndef __NES_MGT_H
 #define __NES_MGT_H
 
-#define MPA_FRAMING 6	
+#define MPA_FRAMING 6	/* length is 2 bytes, crc is 4 bytes */
 
 int nes_init_mgt_qp(struct nes_device *nesdev, struct net_device *netdev, struct nes_vnic *nesvnic);
 void nes_queue_mgt_skbs(struct sk_buff *skb, struct nes_vnic *nesvnic, struct nes_qp *nesqp);
@@ -41,8 +41,8 @@ void nes_destroy_mgt(struct nes_vnic *nesvnic);
 void nes_destroy_pau_qp(struct nes_device *nesdev, struct nes_qp *nesqp);
 
 struct nes_hw_mgt {
-	struct nes_hw_nic_rq_wqe *rq_vbase;	
-	dma_addr_t rq_pbase;			
+	struct nes_hw_nic_rq_wqe *rq_vbase;	/* virtual address of rq */
+	dma_addr_t rq_pbase;			/* PCI memory for host rings */
 	struct sk_buff *rx_skb[NES_NIC_WQ_SIZE];
 	u16 qp_id;
 	u16 sq_head;
@@ -94,4 +94,4 @@ struct pau_qh_chg {
 	struct nes_qp *nesqp;
 };
 
-#endif          
+#endif          /* __NES_MGT_H */

@@ -27,7 +27,7 @@ waitforCEC(struct IsdnCardState *cs, int jade, int reg)
 static inline void
 waitforXFW(struct IsdnCardState *cs, int jade)
 {
-	
+	/* Does not work on older jade versions, don't care */
 }
 
 static inline void
@@ -118,12 +118,12 @@ jade_interrupt(struct IsdnCardState *cs, u_char val, u_char jade)
 	struct sk_buff *skb;
 	int fifo_size = 32;
 	int count;
-	int i_jade = (int) jade; 
+	int i_jade = (int) jade; /* To satisfy the compiler */
 
 	if (!test_bit(BC_FLG_INIT, &bcs->Flag))
 		return;
 
-	if (val & 0x80) {	
+	if (val & 0x80) {	/* RME */
 		r = READJADE(cs, i_jade, jade_HDLC_RSTA);
 		if ((r & 0xf0) != 0xa0) {
 			if (!(r & 0x80))
@@ -155,10 +155,10 @@ jade_interrupt(struct IsdnCardState *cs, u_char val, u_char jade)
 		bcs->hw.hscx.rcvidx = 0;
 		schedule_event(bcs, B_RCVBUFREADY);
 	}
-	if (val & 0x40) {	
+	if (val & 0x40) {	/* RPF */
 		jade_empty_fifo(bcs, fifo_size);
 		if (bcs->mode == L1_MODE_TRANS) {
-			
+			/* receive audio data */
 			if (!(skb = dev_alloc_skb(fifo_size)))
 				printk(KERN_WARNING "HiSax: receive out of memory\n");
 			else {
@@ -169,7 +169,7 @@ jade_interrupt(struct IsdnCardState *cs, u_char val, u_char jade)
 			schedule_event(bcs, B_RCVBUFREADY);
 		}
 	}
-	if (val & 0x10) {	
+	if (val & 0x10) {	/* XPR */
 		if (bcs->tx_skb) {
 			if (bcs->tx_skb->len) {
 				jade_fill_fifo(bcs);
@@ -206,15 +206,18 @@ jade_int_main(struct IsdnCardState *cs, u_char val, int jade)
 	bcs = cs->bcs + jade;
 
 	if (val & jadeISR_RFO) {
-		
+		/* handled with RDO */
 		val &= ~jadeISR_RFO;
 	}
 	if (val & jadeISR_XDU) {
-		
-		
+		/* relevant in HDLC mode only */
+		/* don't reset XPR here */
 		if (bcs->mode == 1)
 			jade_fill_fifo(bcs);
 		else {
+			/* Here we lost an TX interrupt, so
+			 * restart transmitting the whole frame.
+			 */
 			if (bcs->tx_skb) {
 				skb_push(bcs->tx_skb, bcs->hw.hscx.count);
 				bcs->tx_cnt += bcs->hw.hscx.count;

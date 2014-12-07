@@ -167,7 +167,7 @@ static int radio_hci_smd_register_dev(struct radio_data *hsmd)
 	hdev->send  = radio_hci_smd_send_frame;
 	hdev->destruct = radio_hci_smd_destruct;
 
-	
+	/* Open the SMD Channel and device and register the callback function */
 	rc = smd_named_open_on_edge("APPS_FM", SMD_APPS_WCNSS,
 		&hsmd->fm_channel, hdev, radio_hci_smd_notify_cmd);
 

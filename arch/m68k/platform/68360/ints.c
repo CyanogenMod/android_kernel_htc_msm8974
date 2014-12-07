@@ -19,11 +19,13 @@
 #include <asm/machdep.h>
 #include <asm/m68360.h>
 
+/* from quicc/commproc.c: */
 extern QUICC *pquicc;
 extern void cpm_interrupt_init(void);
 
 #define INTERNAL_IRQS (96)
 
+/* assembler routines */
 asmlinkage void system_call(void);
 asmlinkage void buserr(void);
 asmlinkage void trap(void);
@@ -52,11 +54,15 @@ static struct irq_chip intc_irq_chip = {
 	.irq_ack	= intc_irq_ack,
 };
 
+/*
+ * This function should be called during kernel startup to initialize
+ * the vector table.
+ */
 void __init trap_init(void)
 {
 	int vba = (CPM_VECTOR_BASE<<4);
 
-	
+	/* set up the vectors */
 	_ramvec[2] = buserr;
 	_ramvec[3] = trap;
 	_ramvec[4] = trap;
@@ -77,46 +83,46 @@ void __init trap_init(void)
 
 	cpm_interrupt_init();
 
-	
-	
+	/* set up CICR for vector base address and irq level */
+	/* irl = 4, hp = 1f - see MC68360UM p 7-377 */
 	pquicc->intr_cicr = 0x00e49f00 | vba;
 
-	
-	_ramvec[vba+CPMVEC_ERROR]       = bad_interrupt; 
-	_ramvec[vba+CPMVEC_PIO_PC11]    = inthandler;   
-	_ramvec[vba+CPMVEC_PIO_PC10]    = inthandler;   
-	_ramvec[vba+CPMVEC_SMC2]        = inthandler;   
-	_ramvec[vba+CPMVEC_SMC1]        = inthandler;   
-	_ramvec[vba+CPMVEC_SPI]         = inthandler;   
-	_ramvec[vba+CPMVEC_PIO_PC9]     = inthandler;   
-	_ramvec[vba+CPMVEC_TIMER4]      = inthandler;   
-	_ramvec[vba+CPMVEC_RESERVED1]   = inthandler;   
-	_ramvec[vba+CPMVEC_PIO_PC8]     = inthandler;   
-	_ramvec[vba+CPMVEC_PIO_PC7]     = inthandler;  
-	_ramvec[vba+CPMVEC_PIO_PC6]     = inthandler;  
-	_ramvec[vba+CPMVEC_TIMER3]      = inthandler;  
-	_ramvec[vba+CPMVEC_PIO_PC5]     = inthandler;  
-	_ramvec[vba+CPMVEC_PIO_PC4]     = inthandler;  
-	_ramvec[vba+CPMVEC_RESERVED2]   = inthandler;  
-	_ramvec[vba+CPMVEC_RISCTIMER]   = inthandler;  
-	_ramvec[vba+CPMVEC_TIMER2]      = inthandler;  
-	_ramvec[vba+CPMVEC_RESERVED3]   = inthandler;  
-	_ramvec[vba+CPMVEC_IDMA2]       = inthandler;  
-	_ramvec[vba+CPMVEC_IDMA1]       = inthandler;  
-	_ramvec[vba+CPMVEC_SDMA_CB_ERR] = inthandler;  
-	_ramvec[vba+CPMVEC_PIO_PC3]     = inthandler;  
-	_ramvec[vba+CPMVEC_PIO_PC2]     = inthandler;  
-	  
-	_ramvec[vba+CPMVEC_TIMER1]      = inthandler;  
-	_ramvec[vba+CPMVEC_PIO_PC1]     = inthandler;  
-	_ramvec[vba+CPMVEC_SCC4]        = inthandler;  
-	_ramvec[vba+CPMVEC_SCC3]        = inthandler;  
-	_ramvec[vba+CPMVEC_SCC2]        = inthandler;  
-	_ramvec[vba+CPMVEC_SCC1]        = inthandler;  
-	_ramvec[vba+CPMVEC_PIO_PC0]     = inthandler;  
+	/* CPM interrupt vectors: (p 7-376) */
+	_ramvec[vba+CPMVEC_ERROR]       = bad_interrupt; /* Error */
+	_ramvec[vba+CPMVEC_PIO_PC11]    = inthandler;   /* pio - pc11 */
+	_ramvec[vba+CPMVEC_PIO_PC10]    = inthandler;   /* pio - pc10 */
+	_ramvec[vba+CPMVEC_SMC2]        = inthandler;   /* smc2/pip */
+	_ramvec[vba+CPMVEC_SMC1]        = inthandler;   /* smc1 */
+	_ramvec[vba+CPMVEC_SPI]         = inthandler;   /* spi */
+	_ramvec[vba+CPMVEC_PIO_PC9]     = inthandler;   /* pio - pc9 */
+	_ramvec[vba+CPMVEC_TIMER4]      = inthandler;   /* timer 4 */
+	_ramvec[vba+CPMVEC_RESERVED1]   = inthandler;   /* reserved */
+	_ramvec[vba+CPMVEC_PIO_PC8]     = inthandler;   /* pio - pc8 */
+	_ramvec[vba+CPMVEC_PIO_PC7]     = inthandler;  /* pio - pc7 */
+	_ramvec[vba+CPMVEC_PIO_PC6]     = inthandler;  /* pio - pc6 */
+	_ramvec[vba+CPMVEC_TIMER3]      = inthandler;  /* timer 3 */
+	_ramvec[vba+CPMVEC_PIO_PC5]     = inthandler;  /* pio - pc5 */
+	_ramvec[vba+CPMVEC_PIO_PC4]     = inthandler;  /* pio - pc4 */
+	_ramvec[vba+CPMVEC_RESERVED2]   = inthandler;  /* reserved */
+	_ramvec[vba+CPMVEC_RISCTIMER]   = inthandler;  /* timer table */
+	_ramvec[vba+CPMVEC_TIMER2]      = inthandler;  /* timer 2 */
+	_ramvec[vba+CPMVEC_RESERVED3]   = inthandler;  /* reserved */
+	_ramvec[vba+CPMVEC_IDMA2]       = inthandler;  /* idma 2 */
+	_ramvec[vba+CPMVEC_IDMA1]       = inthandler;  /* idma 1 */
+	_ramvec[vba+CPMVEC_SDMA_CB_ERR] = inthandler;  /* sdma channel bus error */
+	_ramvec[vba+CPMVEC_PIO_PC3]     = inthandler;  /* pio - pc3 */
+	_ramvec[vba+CPMVEC_PIO_PC2]     = inthandler;  /* pio - pc2 */
+	/* _ramvec[vba+CPMVEC_TIMER1]      = cpm_isr_timer1; */  /* timer 1 */
+	_ramvec[vba+CPMVEC_TIMER1]      = inthandler;  /* timer 1 */
+	_ramvec[vba+CPMVEC_PIO_PC1]     = inthandler;  /* pio - pc1 */
+	_ramvec[vba+CPMVEC_SCC4]        = inthandler;  /* scc 4 */
+	_ramvec[vba+CPMVEC_SCC3]        = inthandler;  /* scc 3 */
+	_ramvec[vba+CPMVEC_SCC2]        = inthandler;  /* scc 2 */
+	_ramvec[vba+CPMVEC_SCC1]        = inthandler;  /* scc 1 */
+	_ramvec[vba+CPMVEC_PIO_PC0]     = inthandler;  /* pio - pc0 */
 
 
-	
+	/* turn off all CPM interrupts */
 	pquicc->intr_cimr = 0x00000000;
 }
 

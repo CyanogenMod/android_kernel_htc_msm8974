@@ -24,4 +24,4 @@ int idset_sch_get_first(struct idset *set, struct subchannel_id *id);
 int idset_is_empty(struct idset *set);
 void idset_add_set(struct idset *to, struct idset *from);
 
-#endif 
+#endif /* S390_IDSET_H */

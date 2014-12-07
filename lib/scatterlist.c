@@ -132,11 +132,13 @@ int __sg_alloc_table(struct sg_table *table, unsigned int nents,
 	struct scatterlist *sg, *prv;
 	unsigned int left;
 
+	memset(table, 0, sizeof(*table));
+
+	if (nents == 0)
+		return -EINVAL;
 #ifndef ARCH_HAS_SG_CHAIN
 	BUG_ON(nents > max_ents);
 #endif
-
-	memset(table, 0, sizeof(*table));
 
 	left = nents;
 	prv = NULL;
@@ -170,8 +172,6 @@ int __sg_alloc_table(struct sg_table *table, unsigned int nents,
 		if (!left)
 			sg_mark_end(&sg[sg_size - 1]);
 
-		gfp_mask &= ~__GFP_WAIT;
-		gfp_mask |= __GFP_HIGH;
 		prv = sg;
 	} while (left);
 

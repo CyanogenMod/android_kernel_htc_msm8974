@@ -42,6 +42,9 @@
 #include <asm/mach-ar7/gpio.h>
 #include <asm/mach-ar7/prom.h>
 
+/*****************************************************************************
+ * VLYNQ Bus
+ ****************************************************************************/
 struct plat_vlynq_data {
 	struct plat_vlynq_ops ops;
 	int gpio_bit;
@@ -189,6 +192,9 @@ static struct platform_device vlynq_high = {
 	.num_resources	= ARRAY_SIZE(vlynq_high_res),
 };
 
+/*****************************************************************************
+ * Flash
+ ****************************************************************************/
 static struct resource physmap_flash_resource = {
 	.name	= "mem",
 	.flags	= IORESOURCE_MEM,
@@ -209,6 +215,9 @@ static struct platform_device physmap_flash = {
 	.num_resources	= 1,
 };
 
+/*****************************************************************************
+ * Ethernet
+ ****************************************************************************/
 static struct resource cpmac_low_res[] = {
 	{
 		.name	= "regs",
@@ -307,6 +316,9 @@ static void __init cpmac_get_mac(int instance, unsigned char *dev_addr)
 		random_ether_addr(dev_addr);
 }
 
+/*****************************************************************************
+ * USB
+ ****************************************************************************/
 static struct resource usb_res[] = {
 	{
 		.name	= "regs",
@@ -334,6 +346,9 @@ static struct platform_device ar7_udc = {
 	.num_resources	= ARRAY_SIZE(usb_res),
 };
 
+/*****************************************************************************
+ * LEDs
+ ****************************************************************************/
 static struct gpio_led default_leds[] = {
 	{
 		.name			= "status",
@@ -494,15 +509,15 @@ static void __init detect_leds(void)
 {
 	char *prid, *usb_prod;
 
-	
+	/* Default LEDs	*/
 	ar7_led_data.num_leds = ARRAY_SIZE(default_leds);
 	ar7_led_data.leds = default_leds;
 
-	
+	/* FIXME: the whole thing is unreliable */
 	prid = prom_getenv("ProductID");
 	usb_prod = prom_getenv("usb_prod");
 
-	
+	/* If we can't get the product id from PROM, use the default LEDs */
 	if (!prid)
 		return;
 
@@ -528,11 +543,14 @@ static void __init detect_leds(void)
 	}
 }
 
+/*****************************************************************************
+ * Watchdog
+ ****************************************************************************/
 static struct resource ar7_wdt_res = {
 	.name		= "regs",
 	.flags		= IORESOURCE_MEM,
-	.start		= -1,	
-	.end		= -1,	
+	.start		= -1,	/* Filled at runtime */
+	.end		= -1,	/* Filled at runtime */
 };
 
 static struct platform_device ar7_wdt = {
@@ -541,6 +559,9 @@ static struct platform_device ar7_wdt = {
 	.num_resources	= 1,
 };
 
+/*****************************************************************************
+ * Init
+ ****************************************************************************/
 static int __init ar7_register_uarts(void)
 {
 #ifdef CONFIG_SERIAL_8250
@@ -568,7 +589,7 @@ static int __init ar7_register_uarts(void)
 	if (res)
 		return res;
 
-	
+	/* Only TNETD73xx have a second serial port */
 	if (ar7_has_second_uart()) {
 		uart_port.line		= 1;
 		uart_port.irq		= AR7_IRQ_UART1;
@@ -586,15 +607,15 @@ static int __init ar7_register_uarts(void)
 
 static void __init titan_fixup_devices(void)
 {
-	
+	/* Set vlynq0 data */
 	vlynq_low_data.reset_bit = 15;
 	vlynq_low_data.gpio_bit = 14;
 
-	
+	/* Set vlynq1 data */
 	vlynq_high_data.reset_bit = 16;
 	vlynq_high_data.gpio_bit = 7;
 
-	
+	/* Set vlynq0 resources */
 	vlynq_low_res[0].start = TITAN_REGS_VLYNQ0;
 	vlynq_low_res[0].end = TITAN_REGS_VLYNQ0 + 0xff;
 	vlynq_low_res[1].start = 33;
@@ -604,7 +625,7 @@ static void __init titan_fixup_devices(void)
 	vlynq_low_res[3].start = 80;
 	vlynq_low_res[3].end = 111;
 
-	
+	/* Set vlynq1 resources */
 	vlynq_high_res[0].start = TITAN_REGS_VLYNQ1;
 	vlynq_high_res[0].end = TITAN_REGS_VLYNQ1 + 0xff;
 	vlynq_high_res[1].start = 34;
@@ -614,17 +635,17 @@ static void __init titan_fixup_devices(void)
 	vlynq_high_res[3].start = 112;
 	vlynq_high_res[3].end = 143;
 
-	
+	/* Set cpmac0 data */
 	cpmac_low_data.phy_mask = 0x40000000;
 
-	
+	/* Set cpmac1 data */
 	cpmac_high_data.phy_mask = 0x80000000;
 
-	
+	/* Set cpmac0 resources */
 	cpmac_low_res[0].start = TITAN_REGS_MAC0;
 	cpmac_low_res[0].end = TITAN_REGS_MAC0 + 0x7ff;
 
-	
+	/* Set cpmac1 resources */
 	cpmac_high_res[0].start = TITAN_REGS_MAC1;
 	cpmac_high_res[0].end = TITAN_REGS_MAC1 + 0x7ff;
 }
@@ -689,7 +710,7 @@ static int __init ar7_register_devices(void)
 	if (res)
 		pr_warning("unable to register usb slave: %d\n", res);
 
-	
+	/* Register watchdog only if enabled in hardware */
 	bootcr = ioremap_nocache(AR7_REGS_DCL, 4);
 	val = readl(bootcr);
 	iounmap(bootcr);

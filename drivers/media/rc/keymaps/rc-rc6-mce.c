@@ -30,8 +30,8 @@ static struct rc_map_table rc6_mce[] = {
 
 	{ 0x800f040a, KEY_DELETE },
 	{ 0x800f040b, KEY_ENTER },
-	{ 0x800f040c, KEY_SLEEP },		
-	{ 0x800f040d, KEY_MEDIA },		
+	{ 0x800f040c, KEY_SLEEP },		/* Formerly PC Power */
+	{ 0x800f040d, KEY_MEDIA },		/* Windows MCE button */
 	{ 0x800f040e, KEY_MUTE },
 	{ 0x800f040f, KEY_INFO },
 
@@ -59,35 +59,35 @@ static struct rc_map_table rc6_mce[] = {
 	{ 0x800f0422, KEY_OK },
 	{ 0x800f0423, KEY_EXIT },
 	{ 0x800f0424, KEY_DVD },
-	{ 0x800f0425, KEY_TUNER },		
-	{ 0x800f0426, KEY_EPG },		
-	{ 0x800f0427, KEY_ZOOM },		
+	{ 0x800f0425, KEY_TUNER },		/* LiveTV */
+	{ 0x800f0426, KEY_EPG },		/* Guide */
+	{ 0x800f0427, KEY_ZOOM },		/* Aspect */
 
-	{ 0x800f0432, KEY_MODE },		
-	{ 0x800f0433, KEY_PRESENTATION },	
+	{ 0x800f0432, KEY_MODE },		/* Visualization */
+	{ 0x800f0433, KEY_PRESENTATION },	/* Slide Show */
 	{ 0x800f0434, KEY_EJECTCD },
 	{ 0x800f043a, KEY_BRIGHTNESSUP },
 
 	{ 0x800f0446, KEY_TV },
-	{ 0x800f0447, KEY_AUDIO },		
-	{ 0x800f0448, KEY_PVR },		
+	{ 0x800f0447, KEY_AUDIO },		/* My Music */
+	{ 0x800f0448, KEY_PVR },		/* RecordedTV */
 	{ 0x800f0449, KEY_CAMERA },
 	{ 0x800f044a, KEY_VIDEO },
 	{ 0x800f044c, KEY_LANGUAGE },
 	{ 0x800f044d, KEY_TITLE },
-	{ 0x800f044e, KEY_PRINT },	
+	{ 0x800f044e, KEY_PRINT },	/* Print - HP OEM version of remote */
 
 	{ 0x800f0450, KEY_RADIO },
 
-	{ 0x800f045a, KEY_SUBTITLE },		
+	{ 0x800f045a, KEY_SUBTITLE },		/* Caption/Teletext */
 	{ 0x800f045b, KEY_RED },
 	{ 0x800f045c, KEY_GREEN },
 	{ 0x800f045d, KEY_YELLOW },
 	{ 0x800f045e, KEY_BLUE },
 
-	{ 0x800f0465, KEY_POWER2 },	
+	{ 0x800f0465, KEY_POWER2 },	/* TV Power */
 	{ 0x800f046e, KEY_PLAYPAUSE },
-	{ 0x800f046f, KEY_PLAYER },	
+	{ 0x800f046f, KEY_PLAYER },	/* Start media application (NEW) */
 
 	{ 0x800f0480, KEY_BRIGHTNESSDOWN },
 	{ 0x800f0481, KEY_PLAYPAUSE },

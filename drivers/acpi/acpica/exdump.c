@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: exdump - Interpreter debug output routines
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -45,7 +50,11 @@
 #define _COMPONENT          ACPI_EXECUTER
 ACPI_MODULE_NAME("exdump")
 
+/*
+ * The following routines are used for debug output only
+ */
 #if defined(ACPI_DEBUG_OUTPUT) || defined(ACPI_DEBUGGER)
+/* Local prototypes */
 static void acpi_ex_out_string(char *title, char *value);
 
 static void acpi_ex_out_pointer(char *title, void *value);
@@ -60,6 +69,14 @@ static void
 acpi_ex_dump_package_obj(union acpi_operand_object *obj_desc,
 			 u32 level, u32 index);
 
+/*******************************************************************************
+ *
+ * Object Descriptor info tables
+ *
+ * Note: The first table entry must be an INIT opcode and must contain
+ * the table length (number of table entries)
+ *
+ ******************************************************************************/
 
 static struct acpi_exdump_info acpi_ex_dump_integer[2] = {
 	{ACPI_EXD_INIT, ACPI_EXD_TABLE_SIZE(acpi_ex_dump_integer), NULL},
@@ -230,6 +247,7 @@ static struct acpi_exdump_info acpi_ex_dump_notify[3] = {
 	{ACPI_EXD_POINTER, ACPI_EXD_OFFSET(notify.context), "Context"}
 };
 
+/* Miscellaneous tables */
 
 static struct acpi_exdump_info acpi_ex_dump_common[4] = {
 	{ACPI_EXD_INIT, ACPI_EXD_TABLE_SIZE(acpi_ex_dump_common), NULL},
@@ -262,6 +280,7 @@ static struct acpi_exdump_info acpi_ex_dump_node[5] = {
 	{ACPI_EXD_POINTER, ACPI_EXD_NSOFFSET(peer), "Next Peer"}
 };
 
+/* Dispatch table, indexed by object type */
 
 static struct acpi_exdump_info *acpi_ex_dump_info[] = {
 	NULL,
@@ -294,6 +313,19 @@ static struct acpi_exdump_info *acpi_ex_dump_info[] = {
 	NULL
 };
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ex_dump_object
+ *
+ * PARAMETERS:  obj_desc            - Descriptor to dump
+ *              Info                - Info table corresponding to this object
+ *                                    type
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Walk the info table for this object
+ *
+ ******************************************************************************/
 
 static void
 acpi_ex_dump_object(union acpi_operand_object *obj_desc,
@@ -310,7 +342,7 @@ acpi_ex_dump_object(union acpi_operand_object *obj_desc,
 		return;
 	}
 
-	
+	/* First table entry must contain the table length (# of table entries) */
 
 	count = info->offset;
 
@@ -374,7 +406,7 @@ acpi_ex_dump_object(union acpi_operand_object *obj_desc,
 
 		case ACPI_EXD_PACKAGE:
 
-			
+			/* Dump the package contents */
 
 			acpi_os_printf("\nPackage Contents:\n");
 			acpi_ex_dump_package_obj(obj_desc, 0, 0);
@@ -407,6 +439,18 @@ acpi_ex_dump_object(union acpi_operand_object *obj_desc,
 	}
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ex_dump_operand
+ *
+ * PARAMETERS:  *obj_desc       - Pointer to entry to be dumped
+ *              Depth           - Current nesting depth
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Dump an operand object
+ *
+ ******************************************************************************/
 
 void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 {
@@ -422,7 +466,7 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 
 	if (!obj_desc) {
 
-		
+		/* This could be a null element of a package */
 
 		ACPI_DEBUG_PRINT((ACPI_DB_EXEC, "Null Object Descriptor\n"));
 		return;
@@ -444,7 +488,7 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 		return;
 	}
 
-	
+	/* obj_desc is a valid object */
 
 	if (depth > 0) {
 		ACPI_DEBUG_PRINT((ACPI_DB_EXEC, "%*s[%u] %p ",
@@ -453,7 +497,7 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 		ACPI_DEBUG_PRINT((ACPI_DB_EXEC, "%p ", obj_desc));
 	}
 
-	
+	/* Decode object type */
 
 	switch (obj_desc->common.type) {
 	case ACPI_TYPE_LOCAL_REFERENCE:
@@ -502,7 +546,7 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 			acpi_os_printf("%X\n", obj_desc->reference.value);
 			break;
 
-		default:	
+		default:	/* Unknown reference class */
 
 			acpi_os_printf("%2.2X\n", obj_desc->reference.class);
 			break;
@@ -515,7 +559,7 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 			       obj_desc->buffer.length,
 			       obj_desc->buffer.pointer);
 
-		
+		/* Debug only -- dump the buffer contents */
 
 		if (obj_desc->buffer.pointer) {
 			length = obj_desc->buffer.length;
@@ -542,6 +586,10 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 			       obj_desc->package.count,
 			       obj_desc->package.elements);
 
+		/*
+		 * If elements exist, package element pointer is valid,
+		 * and debug_level exceeds 1, dump package's elements.
+		 */
 		if (obj_desc->package.count &&
 		    obj_desc->package.elements && acpi_dbg_level > 1) {
 			for (index = 0; index < obj_desc->package.count;
@@ -560,6 +608,10 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 						       space_id),
 			       obj_desc->region.space_id);
 
+		/*
+		 * If the address and length have not been evaluated,
+		 * don't print them.
+		 */
 		if (!(obj_desc->region.flags & AOPOBJ_DATA_VALID)) {
 			acpi_os_printf("\n");
 		} else {
@@ -661,7 +713,7 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 		break;
 
 	default:
-		
+		/* Unknown Type */
 
 		acpi_os_printf("Unknown Type %X\n", obj_desc->common.type);
 		break;
@@ -670,6 +722,17 @@ void acpi_ex_dump_operand(union acpi_operand_object *obj_desc, u32 depth)
 	return;
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ex_dump_operands
+ *
+ * PARAMETERS:	Operands	    - A list of Operand objects
+ *		opcode_name	    - AML opcode name
+ *		num_operands	    - Operand count for this opcode
+ *
+ * DESCRIPTION: Dump the operands associated with the opcode
+ *
+ ******************************************************************************/
 
 void
 acpi_ex_dump_operands(union acpi_operand_object **operands,
@@ -689,7 +752,7 @@ acpi_ex_dump_operands(union acpi_operand_object **operands,
 		num_operands = 1;
 	}
 
-	
+	/* Dump the individual operands */
 
 	while (num_operands) {
 		acpi_ex_dump_operand(*operands, 0);
@@ -702,6 +765,18 @@ acpi_ex_dump_operands(union acpi_operand_object **operands,
 	return;
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ex_out* functions
+ *
+ * PARAMETERS:  Title               - Descriptive text
+ *              Value               - Value to be displayed
+ *
+ * DESCRIPTION: Object dump output formatting functions.  These functions
+ *              reduce the number of format strings required and keeps them
+ *              all in one place for easy modification.
+ *
+ ******************************************************************************/
 
 static void acpi_ex_out_string(char *title, char *value)
 {
@@ -713,6 +788,16 @@ static void acpi_ex_out_pointer(char *title, void *value)
 	acpi_os_printf("%20s : %p\n", title, value);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ex_dump_namespace_node
+ *
+ * PARAMETERS:  Node                - Descriptor to dump
+ *              Flags               - Force display if TRUE
+ *
+ * DESCRIPTION: Dumps the members of the given.Node
+ *
+ ******************************************************************************/
 
 void acpi_ex_dump_namespace_node(struct acpi_namespace_node *node, u32 flags)
 {
@@ -736,6 +821,15 @@ void acpi_ex_dump_namespace_node(struct acpi_namespace_node *node, u32 flags)
 			    acpi_ex_dump_node);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ex_dump_reference_obj
+ *
+ * PARAMETERS:  Object              - Descriptor to dump
+ *
+ * DESCRIPTION: Dumps a reference object
+ *
+ ******************************************************************************/
 
 static void acpi_ex_dump_reference_obj(union acpi_operand_object *obj_desc)
 {
@@ -783,6 +877,17 @@ static void acpi_ex_dump_reference_obj(union acpi_operand_object *obj_desc)
 	}
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ex_dump_package_obj
+ *
+ * PARAMETERS:  obj_desc            - Descriptor to dump
+ *              Level               - Indentation Level
+ *              Index               - Package index for this object
+ *
+ * DESCRIPTION: Dumps the elements of the package
+ *
+ ******************************************************************************/
 
 static void
 acpi_ex_dump_package_obj(union acpi_operand_object *obj_desc,
@@ -790,7 +895,7 @@ acpi_ex_dump_package_obj(union acpi_operand_object *obj_desc,
 {
 	u32 i;
 
-	
+	/* Indentation and index output */
 
 	if (level > 0) {
 		for (i = 0; i < level; i++) {
@@ -802,14 +907,14 @@ acpi_ex_dump_package_obj(union acpi_operand_object *obj_desc,
 
 	acpi_os_printf("%p ", obj_desc);
 
-	
+	/* Null package elements are allowed */
 
 	if (!obj_desc) {
 		acpi_os_printf("[Null Object]\n");
 		return;
 	}
 
-	
+	/* Packages may only contain a few object types */
 
 	switch (obj_desc->common.type) {
 	case ACPI_TYPE_INTEGER:
@@ -867,6 +972,16 @@ acpi_ex_dump_package_obj(union acpi_operand_object *obj_desc,
 	}
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ex_dump_object_descriptor
+ *
+ * PARAMETERS:  obj_desc            - Descriptor to dump
+ *              Flags               - Force display if TRUE
+ *
+ * DESCRIPTION: Dumps the members of the object descriptor given.
+ *
+ ******************************************************************************/
 
 void
 acpi_ex_dump_object_descriptor(union acpi_operand_object *obj_desc, u32 flags)
@@ -908,11 +1023,11 @@ acpi_ex_dump_object_descriptor(union acpi_operand_object *obj_desc, u32 flags)
 		return_VOID;
 	}
 
-	
+	/* Common Fields */
 
 	acpi_ex_dump_object(obj_desc, acpi_ex_dump_common);
 
-	
+	/* Object-specific fields */
 
 	acpi_ex_dump_object(obj_desc, acpi_ex_dump_info[obj_desc->common.type]);
 	return_VOID;

@@ -87,4 +87,4 @@ static inline void mrdemote(mrlock_t *mrp)
 	downgrade_write(&mrp->mr_lock);
 }
 
-#endif 
+#endif /* __XFS_SUPPORT_MRLOCK_H__ */

@@ -30,6 +30,7 @@ enum {
 	DAI_SEC_MIC,
 };
 
+/* Function Prototypes */
 int dai_open(uint32_t dma_ch);
 void dai_close(uint32_t dma_ch);
 int dai_start(uint32_t dma_ch);

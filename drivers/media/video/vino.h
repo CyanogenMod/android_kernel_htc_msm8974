@@ -11,24 +11,25 @@
 #ifndef _VINO_H_
 #define _VINO_H_
 
-#define VINO_BASE	0x00080000	
+#define VINO_BASE	0x00080000	/* Vino is in the EISA address space,
+					 * but it is not an EISA bus card */
 #define VINO_PAGE_SIZE	4096
 
 struct sgi_vino_channel {
 	u32 _pad_alpha;
 	volatile u32 alpha;
 
-#define VINO_CLIP_X(x)		((x) & 0x3ff)		
-#define VINO_CLIP_ODD(x)	(((x) & 0x1ff) << 10)	
-#define VINO_CLIP_EVEN(x)	(((x) & 0x1ff) << 19)	
+#define VINO_CLIP_X(x)		((x) & 0x3ff)		/* bits 0:9 */
+#define VINO_CLIP_ODD(x)	(((x) & 0x1ff) << 10)	/* bits 10:18 */
+#define VINO_CLIP_EVEN(x)	(((x) & 0x1ff) << 19)	/* bits 19:27 */
 	u32 _pad_clip_start;
 	volatile u32 clip_start;
 	u32 _pad_clip_end;
 	volatile u32 clip_end;
 
 #define VINO_FRAMERT_FULL	0xfff
-#define VINO_FRAMERT_PAL	(1<<0)			
-#define VINO_FRAMERT_RT(x)	(((x) & 0xfff) << 1)	
+#define VINO_FRAMERT_PAL	(1<<0)			/* 0=NTSC 1=PAL */
+#define VINO_FRAMERT_RT(x)	(((x) & 0xfff) << 1)	/* bits 1:12 */
 	u32 _pad_frame_rate;
 	volatile u32 frame_rate;
 
@@ -73,52 +74,52 @@ struct sgi_vino {
 	volatile u32 rev_id;
 
 #define VINO_CTRL_LITTLE_ENDIAN		(1<<0)
-#define VINO_CTRL_A_EOF_INT		(1<<1)	
-#define VINO_CTRL_A_FIFO_INT		(1<<2)	
-#define VINO_CTRL_A_EOD_INT		(1<<3)	
+#define VINO_CTRL_A_EOF_INT		(1<<1)	/* Field transferred int */
+#define VINO_CTRL_A_FIFO_INT		(1<<2)	/* FIFO overflow int */
+#define VINO_CTRL_A_EOD_INT		(1<<3)	/* End of desc table int */
 #define VINO_CTRL_A_INT			(VINO_CTRL_A_EOF_INT | \
 					 VINO_CTRL_A_FIFO_INT | \
 					 VINO_CTRL_A_EOD_INT)
-#define VINO_CTRL_B_EOF_INT		(1<<4)	
-#define VINO_CTRL_B_FIFO_INT		(1<<5)	
-#define VINO_CTRL_B_EOD_INT		(1<<6)	
+#define VINO_CTRL_B_EOF_INT		(1<<4)	/* Field transferred int */
+#define VINO_CTRL_B_FIFO_INT		(1<<5)	/* FIFO overflow int */
+#define VINO_CTRL_B_EOD_INT		(1<<6)	/* End of desc table int */
 #define VINO_CTRL_B_INT			(VINO_CTRL_B_EOF_INT | \
 					 VINO_CTRL_B_FIFO_INT | \
 					 VINO_CTRL_B_EOD_INT)
 #define VINO_CTRL_A_DMA_ENBL		(1<<7)
 #define VINO_CTRL_A_INTERLEAVE_ENBL	(1<<8)
 #define VINO_CTRL_A_SYNC_ENBL		(1<<9)
-#define VINO_CTRL_A_SELECT		(1<<10)	
-#define VINO_CTRL_A_RGB			(1<<11)	
+#define VINO_CTRL_A_SELECT		(1<<10)	/* 1=D1 0=Philips */
+#define VINO_CTRL_A_RGB			(1<<11)	/* 1=RGB 0=YUV */
 #define VINO_CTRL_A_LUMA_ONLY		(1<<12)
-#define VINO_CTRL_A_DEC_ENBL		(1<<13)	
-#define VINO_CTRL_A_DEC_SCALE_MASK	0x1c000	
+#define VINO_CTRL_A_DEC_ENBL		(1<<13)	/* Decimation */
+#define VINO_CTRL_A_DEC_SCALE_MASK	0x1c000	/* bits 14:17 */
 #define VINO_CTRL_A_DEC_SCALE_SHIFT	(14)
-#define VINO_CTRL_A_DEC_HOR_ONLY	(1<<17)	
-#define VINO_CTRL_A_DITHER		(1<<18)	
+#define VINO_CTRL_A_DEC_HOR_ONLY	(1<<17)	/* Horizontal only */
+#define VINO_CTRL_A_DITHER		(1<<18)	/* 24 -> 8 bit dither */
 #define VINO_CTRL_B_DMA_ENBL		(1<<19)
 #define VINO_CTRL_B_INTERLEAVE_ENBL	(1<<20)
 #define VINO_CTRL_B_SYNC_ENBL		(1<<21)
-#define VINO_CTRL_B_SELECT		(1<<22)	
-#define VINO_CTRL_B_RGB			(1<<23)	
+#define VINO_CTRL_B_SELECT		(1<<22)	/* 1=D1 0=Philips */
+#define VINO_CTRL_B_RGB			(1<<23)	/* 1=RGB 0=YUV */
 #define VINO_CTRL_B_LUMA_ONLY		(1<<24)
-#define VINO_CTRL_B_DEC_ENBL		(1<<25)	
-#define VINO_CTRL_B_DEC_SCALE_MASK	0x1c000000	
+#define VINO_CTRL_B_DEC_ENBL		(1<<25)	/* Decimation */
+#define VINO_CTRL_B_DEC_SCALE_MASK	0x1c000000	/* bits 26:28 */
 #define VINO_CTRL_B_DEC_SCALE_SHIFT	(26)
-#define VINO_CTRL_B_DEC_HOR_ONLY	(1<<29)	
-#define VINO_CTRL_B_DITHER		(1<<30)	
+#define VINO_CTRL_B_DEC_HOR_ONLY	(1<<29)	/* Decimation horizontal only */
+#define VINO_CTRL_B_DITHER		(1<<30)	/* ChanB 24 -> 8 bit dither */
 	u32 _pad_control;
 	volatile u32 control;
 
-#define VINO_INTSTAT_A_EOF		(1<<0)	
-#define VINO_INTSTAT_A_FIFO		(1<<1)	
-#define VINO_INTSTAT_A_EOD		(1<<2)	
+#define VINO_INTSTAT_A_EOF		(1<<0)	/* Field transferred int */
+#define VINO_INTSTAT_A_FIFO		(1<<1)	/* FIFO overflow int */
+#define VINO_INTSTAT_A_EOD		(1<<2)	/* End of desc table int */
 #define VINO_INTSTAT_A			(VINO_INTSTAT_A_EOF | \
 					 VINO_INTSTAT_A_FIFO | \
 					 VINO_INTSTAT_A_EOD)
-#define VINO_INTSTAT_B_EOF		(1<<3)	
-#define VINO_INTSTAT_B_FIFO		(1<<4)	
-#define VINO_INTSTAT_B_EOD		(1<<5)	
+#define VINO_INTSTAT_B_EOF		(1<<3)	/* Field transferred int */
+#define VINO_INTSTAT_B_FIFO		(1<<4)	/* FIFO overflow int */
+#define VINO_INTSTAT_B_EOD		(1<<5)	/* End of desc table int */
 #define VINO_INTSTAT_B			(VINO_INTSTAT_B_EOF | \
 					 VINO_INTSTAT_B_FIFO | \
 					 VINO_INTSTAT_B_EOD)

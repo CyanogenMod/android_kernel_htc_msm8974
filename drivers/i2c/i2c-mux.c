@@ -25,13 +25,14 @@
 #include <linux/i2c.h>
 #include <linux/i2c-mux.h>
 
+/* multiplexer per channel data */
 struct i2c_mux_priv {
 	struct i2c_adapter adap;
 	struct i2c_algorithm algo;
 
 	struct i2c_adapter *parent;
-	void *mux_dev;	
-	u32  chan_id;	
+	void *mux_dev;	/* the mux chip/device */
+	u32  chan_id;	/* the channel id */
 
 	int (*select)(struct i2c_adapter *, void *mux_dev, u32 chan_id);
 	int (*deselect)(struct i2c_adapter *, void *mux_dev, u32 chan_id);
@@ -44,7 +45,7 @@ static int i2c_mux_master_xfer(struct i2c_adapter *adap,
 	struct i2c_adapter *parent = priv->parent;
 	int ret;
 
-	
+	/* Switch to the right mux port and perform the transfer. */
 
 	ret = priv->select(parent, priv->mux_dev, priv->chan_id);
 	if (ret >= 0)
@@ -64,7 +65,7 @@ static int i2c_mux_smbus_xfer(struct i2c_adapter *adap,
 	struct i2c_adapter *parent = priv->parent;
 	int ret;
 
-	
+	/* Select the right mux port and perform the transfer. */
 
 	ret = priv->select(parent, priv->mux_dev, priv->chan_id);
 	if (ret >= 0)
@@ -76,6 +77,7 @@ static int i2c_mux_smbus_xfer(struct i2c_adapter *adap,
 	return ret;
 }
 
+/* Return the parent's functionality */
 static u32 i2c_mux_functionality(struct i2c_adapter *adap)
 {
 	struct i2c_mux_priv *priv = adap->algo_data;
@@ -98,20 +100,23 @@ struct i2c_adapter *i2c_add_mux_adapter(struct i2c_adapter *parent,
 	if (!priv)
 		return NULL;
 
-	
+	/* Set up private adapter data */
 	priv->parent = parent;
 	priv->mux_dev = mux_dev;
 	priv->chan_id = chan_id;
 	priv->select = select;
 	priv->deselect = deselect;
 
+	/* Need to do algo dynamically because we don't know ahead
+	 * of time what sort of physical adapter we'll be dealing with.
+	 */
 	if (parent->algo->master_xfer)
 		priv->algo.master_xfer = i2c_mux_master_xfer;
 	if (parent->algo->smbus_xfer)
 		priv->algo.smbus_xfer = i2c_mux_smbus_xfer;
 	priv->algo.functionality = i2c_mux_functionality;
 
-	
+	/* Now fill out new adapter structure */
 	snprintf(priv->adap.name, sizeof(priv->adap.name),
 		 "i2c-%d-mux (chan_id %d)", i2c_adapter_id(parent), chan_id);
 	priv->adap.owner = THIS_MODULE;

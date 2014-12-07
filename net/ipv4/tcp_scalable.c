@@ -1,7 +1,17 @@
+/* Tom Kelly's Scalable TCP
+ *
+ * See http://www.deneholme.net/tom/scalable/
+ *
+ * John Heffner <jheffner@sc.edu>
+ */
 
 #include <linux/module.h>
 #include <net/tcp.h>
 
+/* These factors derived from the recommended values in the aer:
+ * .01 and and 7/8. We use 50 instead of 100 to account for
+ * delayed ack.
+ */
 #define TCP_SCALABLE_AI_CNT	50U
 #define TCP_SCALABLE_MD_SCALE	3
 

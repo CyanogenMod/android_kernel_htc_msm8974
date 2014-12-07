@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * SMD Packet Driver -- Provides userspace interface to SMD packet ports.
+ */
 
 #include <linux/slab.h>
 #include <linux/cdev.h>

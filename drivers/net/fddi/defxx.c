@@ -198,6 +198,7 @@
  *		14 Dec 2006	macro		TURBOchannel support.
  */
 
+/* Include files */
 #include <linux/bitops.h>
 #include <linux/compiler.h>
 #include <linux/delay.h>
@@ -222,6 +223,7 @@
 
 #include "defxx.h"
 
+/* Version information string should be updated prior to each new release!  */
 #define DRV_NAME "defxx"
 #define DRV_VERSION "v1.10"
 #define DRV_RELDATE "2006/12/14"
@@ -233,6 +235,10 @@ static char version[] __devinitdata =
 #define DYNAMIC_BUFFERS 1
 
 #define SKBUFF_RX_COPYBREAK 200
+/*
+ * NEW_SKB_SIZE = PI_RCV_DATA_K_SIZE_MAX+128 to allow 128 byte
+ * alignment for compatibility with old EISA boards.
+ */
 #define NEW_SKB_SIZE (PI_RCV_DATA_K_SIZE_MAX+128)
 
 #ifdef CONFIG_PCI
@@ -259,6 +265,7 @@ static char version[] __devinitdata =
 #define DFX_MMIO 0
 #endif
 
+/* Define module-wide (static) routines */
 
 static void		dfx_bus_init(struct net_device *dev);
 static void		dfx_bus_uninit(struct net_device *dev);
@@ -298,12 +305,62 @@ static netdev_tx_t dfx_xmt_queue_pkt(struct sk_buff *skb,
 static int		dfx_xmt_done(DFX_board_t *bp);
 static void		dfx_xmt_flush(DFX_board_t *bp);
 
+/* Define module-wide (static) variables */
 
 static struct pci_driver dfx_pci_driver;
 static struct eisa_driver dfx_eisa_driver;
 static struct tc_driver dfx_tc_driver;
 
 
+/*
+ * =======================
+ * = dfx_port_write_long =
+ * = dfx_port_read_long  =
+ * =======================
+ *
+ * Overview:
+ *   Routines for reading and writing values from/to adapter
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp		- pointer to board information
+ *   offset	- register offset from base I/O address
+ *   data	- for dfx_port_write_long, this is a value to write;
+ *		  for dfx_port_read_long, this is a pointer to store
+ *		  the read value
+ *
+ * Functional Description:
+ *   These routines perform the correct operation to read or write
+ *   the adapter register.
+ *
+ *   EISA port block base addresses are based on the slot number in which the
+ *   controller is installed.  For example, if the EISA controller is installed
+ *   in slot 4, the port block base address is 0x4000.  If the controller is
+ *   installed in slot 2, the port block base address is 0x2000, and so on.
+ *   This port block can be used to access PDQ, ESIC, and DEFEA on-board
+ *   registers using the register offsets defined in DEFXX.H.
+ *
+ *   PCI port block base addresses are assigned by the PCI BIOS or system
+ *   firmware.  There is one 128 byte port block which can be accessed.  It
+ *   allows for I/O mapping of both PDQ and PFI registers using the register
+ *   offsets defined in DEFXX.H.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   bp->base is a valid base I/O address for this adapter.
+ *   offset is a valid register offset for this adapter.
+ *
+ * Side Effects:
+ *   Rather than produce macros for these functions, these routines
+ *   are defined using "inline" to ensure that the compiler will
+ *   generate inline code and not waste a procedure call and return.
+ *   This provides all the benefits of macros, but with the
+ *   advantage of strict data type checking.
+ */
 
 static inline void dfx_writel(DFX_board_t *bp, int offset, u32 data)
 {
@@ -353,6 +410,29 @@ static void dfx_port_read_long(DFX_board_t *bp, int offset, u32 *data)
 }
 
 
+/*
+ * ================
+ * = dfx_get_bars =
+ * ================
+ *
+ * Overview:
+ *   Retrieves the address range used to access control and status
+ *   registers.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bdev	- pointer to device information
+ *   bar_start	- pointer to store the start address
+ *   bar_len	- pointer to store the length of the area
+ *
+ * Assumptions:
+ *   I am sure there are some.
+ *
+ * Side Effects:
+ *   None
+ */
 static void dfx_get_bars(struct device *bdev,
 			 resource_size_t *bar_start, resource_size_t *bar_len)
 {
@@ -407,6 +487,34 @@ static const struct net_device_ops dfx_netdev_ops = {
 	.ndo_set_mac_address	= dfx_ctl_set_mac_address,
 };
 
+/*
+ * ================
+ * = dfx_register =
+ * ================
+ *
+ * Overview:
+ *   Initializes a supported FDDI controller
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   bdev - pointer to device information
+ *
+ * Functional Description:
+ *
+ * Return Codes:
+ *   0		 - This device (fddi0, fddi1, etc) configured successfully
+ *   -EBUSY      - Failed to get resources, or dfx_driver_init failed.
+ *
+ * Assumptions:
+ *   It compiles so it should work :-( (PCI cards do :-)
+ *
+ * Side Effects:
+ *   Device structures for FDDI adapters (fddi0, fddi1, etc) are
+ *   initialized and the board resources are read and stored in
+ *   the device structure.
+ */
 static int __devinit dfx_register(struct device *bdev)
 {
 	static int version_disp;
@@ -415,16 +523,16 @@ static int __devinit dfx_register(struct device *bdev)
 	int dfx_use_mmio = DFX_MMIO || dfx_bus_tc;
 	const char *print_name = dev_name(bdev);
 	struct net_device *dev;
-	DFX_board_t	  *bp;			
-	resource_size_t bar_start = 0;		
-	resource_size_t bar_len = 0;		
-	int alloc_size;				
+	DFX_board_t	  *bp;			/* board pointer */
+	resource_size_t bar_start = 0;		/* pointer to port */
+	resource_size_t bar_len = 0;		/* resource length */
+	int alloc_size;				/* total buffer size used */
 	struct resource *region;
 	int err = 0;
 
-	if (!version_disp) {	
-		version_disp = 1;	
-		printk(version);	
+	if (!version_disp) {	/* display version info if adapter is found */
+		version_disp = 1;	/* set display flag to TRUE so that */
+		printk(version);	/* we only display this string ONCE */
 	}
 
 	dev = alloc_fddidev(sizeof(*bp));
@@ -434,7 +542,7 @@ static int __devinit dfx_register(struct device *bdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Enable PCI device. */
 	if (dfx_bus_pci && pci_enable_device(to_pci_dev(bdev))) {
 		printk(KERN_ERR "%s: Cannot enable PCI device, aborting\n",
 		       print_name);
@@ -461,7 +569,7 @@ static int __devinit dfx_register(struct device *bdev)
 		goto err_out_disable;
 	}
 
-	
+	/* Set up I/O base address. */
 	if (dfx_use_mmio) {
 		bp->base.mem = ioremap_nocache(bar_start, bar_len);
 		if (!bp->base.mem) {
@@ -474,7 +582,7 @@ static int __devinit dfx_register(struct device *bdev)
 		dev->base_addr = bar_start;
 	}
 
-	
+	/* Initialize new device structure */
 	dev->netdev_ops			= &dfx_netdev_ops;
 
 	if (dfx_bus_pci)
@@ -524,6 +632,36 @@ err_out:
 }
 
 
+/*
+ * ================
+ * = dfx_bus_init =
+ * ================
+ *
+ * Overview:
+ *   Initializes the bus-specific controller logic.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   dev - pointer to device information
+ *
+ * Functional Description:
+ *   Determine and save adapter IRQ in device table,
+ *   then perform bus-specific logic initialization.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   bp->base has already been set with the proper
+ *	 base I/O address for this device.
+ *
+ * Side Effects:
+ *   Interrupts are enabled at the adapter bus-specific logic.
+ *   Note:  Interrupts at the DMA engine (PDQ chip) are not
+ *   enabled yet.
+ */
 
 static void __devinit dfx_bus_init(struct net_device *dev)
 {
@@ -537,17 +675,17 @@ static void __devinit dfx_bus_init(struct net_device *dev)
 
 	DBG_printk("In dfx_bus_init...\n");
 
-	
+	/* Initialize a pointer back to the net_device struct */
 	bp->dev = dev;
 
-	
+	/* Initialize adapter based on bus type */
 
 	if (dfx_bus_tc)
 		dev->irq = to_tc_dev(bdev)->interrupt;
 	if (dfx_bus_eisa) {
 		unsigned long base_addr = to_eisa_device(bdev)->base_addr;
 
-		
+		/* Get the interrupt level from the ESIC chip.  */
 		val = inb(base_addr + PI_ESIC_K_IO_CONFIG_STAT_0);
 		val &= PI_CONFIG_STAT_0_M_IRQ;
 		val >>= PI_CONFIG_STAT_0_V_IRQ;
@@ -570,8 +708,18 @@ static void __devinit dfx_bus_init(struct net_device *dev)
 			break;
 		}
 
+		/*
+		 * Enable memory decoding (MEMCS0) and/or port decoding
+		 * (IOCS1/IOCS0) as appropriate in Function Control
+		 * Register.  One of the port chip selects seems to be
+		 * used for the Burst Holdoff register, but this bit of
+		 * documentation is missing and as yet it has not been
+		 * determined which of the two.  This is also the reason
+		 * the size of the decoded port range is twice as large
+		 * as one required by the PDQ.
+		 */
 
-		
+		/* Set the decode range of the board.  */
 		val = ((bp->base.port >> 12) << PI_IO_CMP_V_SLOT);
 		outb(base_addr + PI_ESIC_K_IO_ADD_CMP_0_1, val);
 		outb(base_addr + PI_ESIC_K_IO_ADD_CMP_0_0, 0);
@@ -583,15 +731,23 @@ static void __devinit dfx_bus_init(struct net_device *dev)
 		outb(base_addr + PI_ESIC_K_IO_ADD_MASK_1_1, (val >> 8) & 0xff);
 		outb(base_addr + PI_ESIC_K_IO_ADD_MASK_1_0, val & 0xff);
 
-		
+		/* Enable the decoders.  */
 		val = PI_FUNCTION_CNTRL_M_IOCS1 | PI_FUNCTION_CNTRL_M_IOCS0;
 		if (dfx_use_mmio)
 			val |= PI_FUNCTION_CNTRL_M_MEMCS0;
 		outb(base_addr + PI_ESIC_K_FUNCTION_CNTRL, val);
 
+		/*
+		 * Enable access to the rest of the module
+		 * (including PDQ and packet memory).
+		 */
 		val = PI_SLOT_CNTRL_M_ENB;
 		outb(base_addr + PI_ESIC_K_SLOT_CNTRL, val);
 
+		/*
+		 * Map PDQ registers into memory or port space.  This is
+		 * done with a bit in the Burst Holdoff register.
+		 */
 		val = inb(base_addr + PI_DEFEA_K_BURST_HOLDOFF);
 		if (dfx_use_mmio)
 			val |= PI_BURST_HOLDOFF_V_MEM_MAP;
@@ -599,7 +755,7 @@ static void __devinit dfx_bus_init(struct net_device *dev)
 			val &= ~PI_BURST_HOLDOFF_V_MEM_MAP;
 		outb(base_addr + PI_DEFEA_K_BURST_HOLDOFF, val);
 
-		
+		/* Enable interrupts at EISA bus interface chip (ESIC) */
 		val = inb(base_addr + PI_ESIC_K_IO_CONFIG_STAT_0);
 		val |= PI_CONFIG_STAT_0_M_INT_ENB;
 		outb(base_addr + PI_ESIC_K_IO_CONFIG_STAT_0, val);
@@ -607,11 +763,11 @@ static void __devinit dfx_bus_init(struct net_device *dev)
 	if (dfx_bus_pci) {
 		struct pci_dev *pdev = to_pci_dev(bdev);
 
-		
+		/* Get the interrupt level from the PCI Configuration Table */
 
 		dev->irq = pdev->irq;
 
-		
+		/* Check Latency Timer and set if less than minimal */
 
 		pci_read_config_byte(pdev, PCI_LATENCY_TIMER, &val);
 		if (val < PFI_K_LAT_TIMER_MIN) {
@@ -619,12 +775,39 @@ static void __devinit dfx_bus_init(struct net_device *dev)
 			pci_write_config_byte(pdev, PCI_LATENCY_TIMER, val);
 		}
 
-		
+		/* Enable interrupts at PCI bus interface chip (PFI) */
 		val = PFI_MODE_M_PDQ_INT_ENB | PFI_MODE_M_DMA_ENB;
 		dfx_port_write_long(bp, PFI_K_REG_MODE_CTRL, val);
 	}
 }
 
+/*
+ * ==================
+ * = dfx_bus_uninit =
+ * ==================
+ *
+ * Overview:
+ *   Uninitializes the bus-specific controller logic.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   dev - pointer to device information
+ *
+ * Functional Description:
+ *   Perform bus-specific logic uninitialization.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   bp->base has already been set with the proper
+ *	 base I/O address for this device.
+ *
+ * Side Effects:
+ *   Interrupts are disabled at the adapter bus-specific logic.
+ */
 
 static void __devexit dfx_bus_uninit(struct net_device *dev)
 {
@@ -636,37 +819,77 @@ static void __devexit dfx_bus_uninit(struct net_device *dev)
 
 	DBG_printk("In dfx_bus_uninit...\n");
 
-	
+	/* Uninitialize adapter based on bus type */
 
 	if (dfx_bus_eisa) {
 		unsigned long base_addr = to_eisa_device(bdev)->base_addr;
 
-		
+		/* Disable interrupts at EISA bus interface chip (ESIC) */
 		val = inb(base_addr + PI_ESIC_K_IO_CONFIG_STAT_0);
 		val &= ~PI_CONFIG_STAT_0_M_INT_ENB;
 		outb(base_addr + PI_ESIC_K_IO_CONFIG_STAT_0, val);
 	}
 	if (dfx_bus_pci) {
-		
+		/* Disable interrupts at PCI bus interface chip (PFI) */
 		dfx_port_write_long(bp, PFI_K_REG_MODE_CTRL, 0);
 	}
 }
 
 
+/*
+ * ========================
+ * = dfx_bus_config_check =
+ * ========================
+ *
+ * Overview:
+ *   Checks the configuration (burst size, full-duplex, etc.)  If any parameters
+ *   are illegal, then this routine will set new defaults.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   For Revision 1 FDDI EISA, Revision 2 or later FDDI EISA with rev E or later
+ *   PDQ, and all FDDI PCI controllers, all values are legal.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   dfx_adap_init has NOT been called yet so burst size and other items have
+ *   not been set.
+ *
+ * Side Effects:
+ *   None
+ */
 
 static void __devinit dfx_bus_config_check(DFX_board_t *bp)
 {
 	struct device __maybe_unused *bdev = bp->bus_dev;
 	int dfx_bus_eisa = DFX_BUS_EISA(bdev);
-	int	status;				
-	u32	host_data;			
+	int	status;				/* return code from adapter port control call */
+	u32	host_data;			/* LW data returned from port control call */
 
 	DBG_printk("In dfx_bus_config_check...\n");
 
-	
+	/* Configuration check only valid for EISA adapter */
 
 	if (dfx_bus_eisa) {
+		/*
+		 * First check if revision 2 EISA controller.  Rev. 1 cards used
+		 * PDQ revision B, so no workaround needed in this case.  Rev. 3
+		 * cards used PDQ revision E, so no workaround needed in this
+		 * case, either.  Only Rev. 2 cards used either Rev. D or E
+		 * chips, so we must verify the chip revision on Rev. 2 cards.
+		 */
 		if (to_eisa_device(bdev)->id.driver_data == DEFEA_PROD_ID_2) {
+			/*
+			 * Revision 2 FDDI EISA controller found,
+			 * so let's check PDQ revision of adapter.
+			 */
 			status = dfx_hw_port_ctrl_req(bp,
 											PI_PCTRL_M_SUB_CMD,
 											PI_SUB_CMD_K_PDQ_REV_GET,
@@ -674,8 +897,13 @@ static void __devinit dfx_bus_config_check(DFX_board_t *bp)
 											&host_data);
 			if ((status != DFX_K_SUCCESS) || (host_data == 2))
 				{
+				/*
+				 * Either we couldn't determine the PDQ revision, or
+				 * we determined that it is at revision D.  In either case,
+				 * we need to implement the workaround.
+				 */
 
-				
+				/* Ensure that the burst size is set to 8 longwords or less */
 
 				switch (bp->burst_size)
 					{
@@ -688,7 +916,7 @@ static void __devinit dfx_bus_config_check(DFX_board_t *bp)
 						break;
 					}
 
-				
+				/* Ensure that full-duplex mode is not enabled */
 
 				bp->full_duplex_enb = PI_SNMP_K_FALSE;
 				}
@@ -697,6 +925,42 @@ static void __devinit dfx_bus_config_check(DFX_board_t *bp)
 	}
 
 
+/*
+ * ===================
+ * = dfx_driver_init =
+ * ===================
+ *
+ * Overview:
+ *   Initializes remaining adapter board structure information
+ *   and makes sure adapter is in a safe state prior to dfx_open().
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   dev - pointer to device information
+ *   print_name - printable device name
+ *
+ * Functional Description:
+ *   This function allocates additional resources such as the host memory
+ *   blocks needed by the adapter (eg. descriptor and consumer blocks).
+ *	 Remaining bus initialization steps are also completed.  The adapter
+ *   is also reset so that it is in the DMA_UNAVAILABLE state.  The OS
+ *   must call dfx_open() to open the adapter and bring it on-line.
+ *
+ * Return Codes:
+ *   DFX_K_SUCCESS	- initialization succeeded
+ *   DFX_K_FAILURE	- initialization failed - could not allocate memory
+ *						or read adapter MAC address
+ *
+ * Assumptions:
+ *   Memory allocated from pci_alloc_consistent() call is physically
+ *   contiguous, locked memory.
+ *
+ * Side Effects:
+ *   Adapter is reset and should be in DMA_UNAVAILABLE state before
+ *   returning from this routine.
+ */
 
 static int __devinit dfx_driver_init(struct net_device *dev,
 				     const char *print_name,
@@ -708,37 +972,53 @@ static int __devinit dfx_driver_init(struct net_device *dev,
 	int dfx_bus_eisa = DFX_BUS_EISA(bdev);
 	int dfx_bus_tc = DFX_BUS_TC(bdev);
 	int dfx_use_mmio = DFX_MMIO || dfx_bus_tc;
-	int alloc_size;			
-	char *top_v, *curr_v;		
-	dma_addr_t top_p, curr_p;	
-	u32 data;			
+	int alloc_size;			/* total buffer size needed */
+	char *top_v, *curr_v;		/* virtual addrs into memory block */
+	dma_addr_t top_p, curr_p;	/* physical addrs into memory block */
+	u32 data;			/* host data register value */
 	__le32 le32;
 	char *board_name = NULL;
 
 	DBG_printk("In dfx_driver_init...\n");
 
-	
+	/* Initialize bus-specific hardware registers */
 
 	dfx_bus_init(dev);
 
+	/*
+	 * Initialize default values for configurable parameters
+	 *
+	 * Note: All of these parameters are ones that a user may
+	 *       want to customize.  It'd be nice to break these
+	 *		 out into Space.c or someplace else that's more
+	 *		 accessible/understandable than this file.
+	 */
 
 	bp->full_duplex_enb		= PI_SNMP_K_FALSE;
-	bp->req_ttrt			= 8 * 12500;		
+	bp->req_ttrt			= 8 * 12500;		/* 8ms in 80 nanosec units */
 	bp->burst_size			= PI_PDATA_B_DMA_BURST_SIZE_DEF;
 	bp->rcv_bufs_to_post	= RCV_BUFS_DEF;
 
+	/*
+	 * Ensure that HW configuration is OK
+	 *
+	 * Note: Depending on the hardware revision, we may need to modify
+	 *       some of the configurable parameters to workaround hardware
+	 *       limitations.  We'll perform this configuration check AFTER
+	 *       setting the parameters to their default values.
+	 */
 
 	dfx_bus_config_check(bp);
 
-	
+	/* Disable PDQ interrupts first */
 
 	dfx_port_write_long(bp, PI_PDQ_K_REG_HOST_INT_ENB, PI_HOST_INT_K_DISABLE_ALL_INTS);
 
-	
+	/* Place adapter in DMA_UNAVAILABLE state by resetting adapter */
 
 	(void) dfx_hw_dma_uninit(bp, PI_PDATA_A_RESET_M_SKIP_ST);
 
-	
+	/*  Read the factory MAC address from the adapter then save it */
 
 	if (dfx_hw_port_ctrl_req(bp, PI_PCTRL_M_MLA, PI_PDATA_A_MLA_K_LO, 0,
 				 &data) != DFX_K_SUCCESS) {
@@ -758,6 +1038,12 @@ static int __devinit dfx_driver_init(struct net_device *dev,
 	le32 = cpu_to_le32(data);
 	memcpy(&bp->factory_mac_addr[4], &le32, sizeof(u16));
 
+	/*
+	 * Set current address to factory address
+	 *
+	 * Note: Node address override support is handled through
+	 *       dfx_ctl_set_mac_address.
+	 */
 
 	memcpy(dev->dev_addr, bp->factory_mac_addr, FDDI_K_ALEN);
 	if (dfx_bus_tc)
@@ -791,35 +1077,46 @@ static int __devinit dfx_driver_init(struct net_device *dev,
 		       "and structures!\n", print_name);
 		return DFX_K_FAILURE;
 	}
-	memset(top_v, 0, alloc_size);	
-	top_p = bp->kmalloced_dma;	
+	memset(top_v, 0, alloc_size);	/* zero out memory before continuing */
+	top_p = bp->kmalloced_dma;	/* get physical address of buffer */
 
+	/*
+	 *  To guarantee the 8K alignment required for the descriptor block, 8K - 1
+	 *  plus the amount of memory needed was allocated.  The physical address
+	 *	is now 8K aligned.  By carving up the memory in a specific order,
+	 *  we'll guarantee the alignment requirements for all other structures.
+	 *
+	 *  Note: If the assumptions change regarding the non-paged, non-cached,
+	 *		  physically contiguous nature of the memory block or the address
+	 *		  alignments, then we'll need to implement a different algorithm
+	 *		  for allocating the needed memory.
+	 */
 
 	curr_p = ALIGN(top_p, PI_ALIGN_K_DESC_BLK);
 	curr_v = top_v + (curr_p - top_p);
 
-	
+	/* Reserve space for descriptor block */
 
 	bp->descr_block_virt = (PI_DESCR_BLOCK *) curr_v;
 	bp->descr_block_phys = curr_p;
 	curr_v += sizeof(PI_DESCR_BLOCK);
 	curr_p += sizeof(PI_DESCR_BLOCK);
 
-	
+	/* Reserve space for command request buffer */
 
 	bp->cmd_req_virt = (PI_DMA_CMD_REQ *) curr_v;
 	bp->cmd_req_phys = curr_p;
 	curr_v += PI_CMD_REQ_K_SIZE_MAX;
 	curr_p += PI_CMD_REQ_K_SIZE_MAX;
 
-	
+	/* Reserve space for command response buffer */
 
 	bp->cmd_rsp_virt = (PI_DMA_CMD_RSP *) curr_v;
 	bp->cmd_rsp_phys = curr_p;
 	curr_v += PI_CMD_RSP_K_SIZE_MAX;
 	curr_p += PI_CMD_RSP_K_SIZE_MAX;
 
-	
+	/* Reserve space for the LLC host receive queue buffers */
 
 	bp->rcv_block_virt = curr_v;
 	bp->rcv_block_phys = curr_p;
@@ -829,12 +1126,12 @@ static int __devinit dfx_driver_init(struct net_device *dev,
 	curr_p += (bp->rcv_bufs_to_post * PI_RCV_DATA_K_SIZE_MAX);
 #endif
 
-	
+	/* Reserve space for the consumer block */
 
 	bp->cons_block_virt = (PI_CONSUMER_BLOCK *) curr_v;
 	bp->cons_block_phys = curr_p;
 
-	
+	/* Display virtual and physical addresses if debug driver */
 
 	DBG_printk("%s: Descriptor block virt = %0lX, phys = %0X\n",
 		   print_name,
@@ -852,16 +1149,48 @@ static int __devinit dfx_driver_init(struct net_device *dev,
 }
 
 
+/*
+ * =================
+ * = dfx_adap_init =
+ * =================
+ *
+ * Overview:
+ *   Brings the adapter to the link avail/link unavailable state.
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *   get_buffers - non-zero if buffers to be allocated
+ *
+ * Functional Description:
+ *   Issues the low-level firmware/hardware calls necessary to bring
+ *   the adapter up, or to properly reset and restore adapter during
+ *   run-time.
+ *
+ * Return Codes:
+ *   DFX_K_SUCCESS - Adapter brought up successfully
+ *   DFX_K_FAILURE - Adapter initialization failed
+ *
+ * Assumptions:
+ *   bp->reset_type should be set to a valid reset type value before
+ *   calling this routine.
+ *
+ * Side Effects:
+ *   Adapter should be in LINK_AVAILABLE or LINK_UNAVAILABLE state
+ *   upon a successful return of this routine.
+ */
 
 static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 	{
 	DBG_printk("In dfx_adap_init...\n");
 
-	
+	/* Disable PDQ interrupts first */
 
 	dfx_port_write_long(bp, PI_PDQ_K_REG_HOST_INT_ENB, PI_HOST_INT_K_DISABLE_ALL_INTS);
 
-	
+	/* Place adapter in DMA_UNAVAILABLE state by resetting adapter */
 
 	if (dfx_hw_dma_uninit(bp, bp->reset_type) != DFX_K_SUCCESS)
 		{
@@ -869,19 +1198,29 @@ static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 		return DFX_K_FAILURE;
 		}
 
+	/*
+	 * When the PDQ is reset, some false Type 0 interrupts may be pending,
+	 * so we'll acknowledge all Type 0 interrupts now before continuing.
+	 */
 
 	dfx_port_write_long(bp, PI_PDQ_K_REG_TYPE_0_STATUS, PI_HOST_INT_K_ACK_ALL_TYPE_0);
 
+	/*
+	 * Clear Type 1 and Type 2 registers before going to DMA_AVAILABLE state
+	 *
+	 * Note: We only need to clear host copies of these registers.  The PDQ reset
+	 *       takes care of the on-board register values.
+	 */
 
 	bp->cmd_req_reg.lword	= 0;
 	bp->cmd_rsp_reg.lword	= 0;
 	bp->rcv_xmt_reg.lword	= 0;
 
-	
+	/* Clear consumer block before going to DMA_AVAILABLE state */
 
 	memset(bp->cons_block_virt, 0, sizeof(PI_CONSUMER_BLOCK));
 
-	
+	/* Initialize the DMA Burst Size */
 
 	if (dfx_hw_port_ctrl_req(bp,
 							PI_PCTRL_M_SUB_CMD,
@@ -893,6 +1232,12 @@ static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 		return DFX_K_FAILURE;
 		}
 
+	/*
+	 * Set base address of Consumer Block
+	 *
+	 * Assumption: 32-bit physical address of consumer block is 64 byte
+	 *			   aligned.  That is, bits 0-5 of the address must be zero.
+	 */
 
 	if (dfx_hw_port_ctrl_req(bp,
 							PI_PCTRL_M_CONS_BLOCK,
@@ -904,6 +1249,16 @@ static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 		return DFX_K_FAILURE;
 		}
 
+	/*
+	 * Set the base address of Descriptor Block and bring adapter
+	 * to DMA_AVAILABLE state.
+	 *
+	 * Note: We also set the literal and data swapping requirements
+	 *       in this command.
+	 *
+	 * Assumption: 32-bit physical address of descriptor block
+	 *       is 8Kbyte aligned.
+	 */
 	if (dfx_hw_port_ctrl_req(bp, PI_PCTRL_M_INIT,
 				 (u32)(bp->descr_block_phys |
 				       PI_PDATA_A_INIT_M_BSWAP_INIT),
@@ -913,11 +1268,11 @@ static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 		return DFX_K_FAILURE;
 	}
 
-	
+	/* Set transmit flush timeout value */
 
 	bp->cmd_req_virt->cmd_type = PI_CMD_K_CHARS_SET;
 	bp->cmd_req_virt->char_set.item[0].item_code	= PI_ITEM_K_FLUSH_TIME;
-	bp->cmd_req_virt->char_set.item[0].value		= 3;	
+	bp->cmd_req_virt->char_set.item[0].value		= 3;	/* 3 seconds */
 	bp->cmd_req_virt->char_set.item[0].item_index	= 0;
 	bp->cmd_req_virt->char_set.item[1].item_code	= PI_ITEM_K_EOL;
 	if (dfx_hw_dma_cmd_req(bp) != DFX_K_SUCCESS)
@@ -926,7 +1281,7 @@ static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 		return DFX_K_FAILURE;
 		}
 
-	
+	/* Set the initial values for eFDXEnable and MACTReq MIB objects */
 
 	bp->cmd_req_virt->cmd_type = PI_CMD_K_SNMP_SET;
 	bp->cmd_req_virt->snmp_set.item[0].item_code	= PI_ITEM_K_FDX_ENB_DIS;
@@ -942,7 +1297,7 @@ static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 		return DFX_K_FAILURE;
 		}
 
-	
+	/* Initialize adapter CAM */
 
 	if (dfx_ctl_update_cam(bp) != DFX_K_SUCCESS)
 		{
@@ -950,7 +1305,7 @@ static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 		return DFX_K_FAILURE;
 		}
 
-	
+	/* Initialize adapter filters */
 
 	if (dfx_ctl_update_filters(bp) != DFX_K_SUCCESS)
 		{
@@ -958,11 +1313,15 @@ static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 		return DFX_K_FAILURE;
 		}
 
+	/*
+	 * Remove any existing dynamic buffers (i.e. if the adapter is being
+	 * reinitialized)
+	 */
 
 	if (get_buffers)
 		dfx_rcv_flush(bp);
 
-	
+	/* Initialize receive descriptor block and produce buffers */
 
 	if (dfx_rcv_init(bp, get_buffers))
 	        {
@@ -972,7 +1331,7 @@ static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 		return DFX_K_FAILURE;
 		}
 
-	
+	/* Issue START command and bring adapter to LINK_(UN)AVAILABLE state */
 
 	bp->cmd_req_virt->cmd_type = PI_CMD_K_START;
 	if (dfx_hw_dma_cmd_req(bp) != DFX_K_SUCCESS)
@@ -983,13 +1342,42 @@ static int dfx_adap_init(DFX_board_t *bp, int get_buffers)
 		return DFX_K_FAILURE;
 		}
 
-	
+	/* Initialization succeeded, reenable PDQ interrupts */
 
 	dfx_port_write_long(bp, PI_PDQ_K_REG_HOST_INT_ENB, PI_HOST_INT_K_ENABLE_DEF_INTS);
 	return DFX_K_SUCCESS;
 	}
 
 
+/*
+ * ============
+ * = dfx_open =
+ * ============
+ *
+ * Overview:
+ *   Opens the adapter
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   dev - pointer to device information
+ *
+ * Functional Description:
+ *   This function brings the adapter to an operational state.
+ *
+ * Return Codes:
+ *   0		 - Adapter was successfully opened
+ *   -EAGAIN - Could not register IRQ or adapter initialization failed
+ *
+ * Assumptions:
+ *   This routine should only be called for a device that was
+ *   initialized successfully.
+ *
+ * Side Effects:
+ *   Adapter should be in LINK_AVAILABLE or LINK_UNAVAILABLE state
+ *   if the open is successful.
+ */
 
 static int dfx_open(struct net_device *dev)
 {
@@ -998,7 +1386,7 @@ static int dfx_open(struct net_device *dev)
 
 	DBG_printk("In dfx_open...\n");
 
-	
+	/* Register IRQ - support shared interrupts by passing device ptr */
 
 	ret = request_irq(dev->irq, dfx_interrupt, IRQF_SHARED, dev->name,
 			  dev);
@@ -1007,26 +1395,36 @@ static int dfx_open(struct net_device *dev)
 		return ret;
 	}
 
+	/*
+	 * Set current address to factory MAC address
+	 *
+	 * Note: We've already done this step in dfx_driver_init.
+	 *       However, it's possible that a user has set a node
+	 *		 address override, then closed and reopened the
+	 *		 adapter.  Unless we reset the device address field
+	 *		 now, we'll continue to use the existing modified
+	 *		 address.
+	 */
 
 	memcpy(dev->dev_addr, bp->factory_mac_addr, FDDI_K_ALEN);
 
-	
+	/* Clear local unicast/multicast address tables and counts */
 
 	memset(bp->uc_table, 0, sizeof(bp->uc_table));
 	memset(bp->mc_table, 0, sizeof(bp->mc_table));
 	bp->uc_count = 0;
 	bp->mc_count = 0;
 
-	
+	/* Disable promiscuous filter settings */
 
 	bp->ind_group_prom	= PI_FSTATE_K_BLOCK;
 	bp->group_prom		= PI_FSTATE_K_BLOCK;
 
 	spin_lock_init(&bp->lock);
 
-	
+	/* Reset and initialize adapter */
 
-	bp->reset_type = PI_PDATA_A_RESET_M_SKIP_ST;	
+	bp->reset_type = PI_PDATA_A_RESET_M_SKIP_ST;	/* skip self-test */
 	if (dfx_adap_init(bp, 1) != DFX_K_SUCCESS)
 	{
 		printk(KERN_ERR "%s: Adapter open failed!\n", dev->name);
@@ -1034,12 +1432,43 @@ static int dfx_open(struct net_device *dev)
 		return -EAGAIN;
 	}
 
-	
+	/* Set device structure info */
 	netif_start_queue(dev);
 	return 0;
 }
 
 
+/*
+ * =============
+ * = dfx_close =
+ * =============
+ *
+ * Overview:
+ *   Closes the device/module.
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   dev - pointer to device information
+ *
+ * Functional Description:
+ *   This routine closes the adapter and brings it to a safe state.
+ *   The interrupt service routine is deregistered with the OS.
+ *   The adapter can be opened again with another call to dfx_open().
+ *
+ * Return Codes:
+ *   Always return 0.
+ *
+ * Assumptions:
+ *   No further requests for this adapter are made after this routine is
+ *   called.  dfx_open() can be called to reset and reinitialize the
+ *   adapter.
+ *
+ * Side Effects:
+ *   Adapter should be in DMA_UNAVAILABLE state upon completion of this
+ *   routine.
+ */
 
 static int dfx_close(struct net_device *dev)
 {
@@ -1047,35 +1476,53 @@ static int dfx_close(struct net_device *dev)
 
 	DBG_printk("In dfx_close...\n");
 
-	
+	/* Disable PDQ interrupts first */
 
 	dfx_port_write_long(bp, PI_PDQ_K_REG_HOST_INT_ENB, PI_HOST_INT_K_DISABLE_ALL_INTS);
 
-	
+	/* Place adapter in DMA_UNAVAILABLE state by resetting adapter */
 
 	(void) dfx_hw_dma_uninit(bp, PI_PDATA_A_RESET_M_SKIP_ST);
 
+	/*
+	 * Flush any pending transmit buffers
+	 *
+	 * Note: It's important that we flush the transmit buffers
+	 *		 BEFORE we clear our copy of the Type 2 register.
+	 *		 Otherwise, we'll have no idea how many buffers
+	 *		 we need to free.
+	 */
 
 	dfx_xmt_flush(bp);
 
+	/*
+	 * Clear Type 1 and Type 2 registers after adapter reset
+	 *
+	 * Note: Even though we're closing the adapter, it's
+	 *       possible that an interrupt will occur after
+	 *		 dfx_close is called.  Without some assurance to
+	 *		 the contrary we want to make sure that we don't
+	 *		 process receive and transmit LLC frames and update
+	 *		 the Type 2 register with bad information.
+	 */
 
 	bp->cmd_req_reg.lword	= 0;
 	bp->cmd_rsp_reg.lword	= 0;
 	bp->rcv_xmt_reg.lword	= 0;
 
-	
+	/* Clear consumer block for the same reason given above */
 
 	memset(bp->cons_block_virt, 0, sizeof(PI_CONSUMER_BLOCK));
 
-	
+	/* Release all dynamically allocate skb in the receive ring. */
 
 	dfx_rcv_flush(bp);
 
-	
+	/* Clear device structure flags */
 
 	netif_stop_queue(dev);
 
-	
+	/* Deregister (free) IRQ */
 
 	free_irq(dev->irq, dev);
 
@@ -1083,17 +1530,43 @@ static int dfx_close(struct net_device *dev)
 }
 
 
+/*
+ * ======================
+ * = dfx_int_pr_halt_id =
+ * ======================
+ *
+ * Overview:
+ *   Displays halt id's in string form.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   Determine current halt id and display appropriate string.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   None
+ *
+ * Side Effects:
+ *   None
+ */
 
 static void dfx_int_pr_halt_id(DFX_board_t	*bp)
 	{
-	PI_UINT32	port_status;			
-	PI_UINT32	halt_id;				
+	PI_UINT32	port_status;			/* PDQ port status register value */
+	PI_UINT32	halt_id;				/* PDQ port status halt ID */
 
-	
+	/* Read the latest port status */
 
 	dfx_port_read_long(bp, PI_PDQ_K_REG_PORT_STATUS, &port_status);
 
-	
+	/* Display halt state transition information */
 
 	halt_id = (port_status & PI_PSTATUS_M_HALT_ID) >> PI_PSTATUS_V_HALT_ID;
 	switch (halt_id)
@@ -1141,42 +1614,93 @@ static void dfx_int_pr_halt_id(DFX_board_t	*bp)
 	}
 
 
+/*
+ * ==========================
+ * = dfx_int_type_0_process =
+ * ==========================
+ *
+ * Overview:
+ *   Processes Type 0 interrupts.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   Processes all enabled Type 0 interrupts.  If the reason for the interrupt
+ *   is a serious fault on the adapter, then an error message is displayed
+ *   and the adapter is reset.
+ *
+ *   One tricky potential timing window is the rapid succession of "link avail"
+ *   "link unavail" state change interrupts.  The acknowledgement of the Type 0
+ *   interrupt must be done before reading the state from the Port Status
+ *   register.  This is true because a state change could occur after reading
+ *   the data, but before acknowledging the interrupt.  If this state change
+ *   does happen, it would be lost because the driver is using the old state,
+ *   and it will never know about the new state because it subsequently
+ *   acknowledges the state change interrupt.
+ *
+ *          INCORRECT                                      CORRECT
+ *      read type 0 int reasons                   read type 0 int reasons
+ *      read adapter state                        ack type 0 interrupts
+ *      ack type 0 interrupts                     read adapter state
+ *      ... process interrupt ...                 ... process interrupt ...
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   None
+ *
+ * Side Effects:
+ *   An adapter reset may occur if the adapter has any Type 0 error interrupts
+ *   or if the port status indicates that the adapter is halted.  The driver
+ *   is responsible for reinitializing the adapter with the current CAM
+ *   contents and adapter filter settings.
+ */
 
 static void dfx_int_type_0_process(DFX_board_t	*bp)
 
 	{
-	PI_UINT32	type_0_status;		
-	PI_UINT32	state;				
+	PI_UINT32	type_0_status;		/* Host Interrupt Type 0 register */
+	PI_UINT32	state;				/* current adap state (from port status) */
 
+	/*
+	 * Read host interrupt Type 0 register to determine which Type 0
+	 * interrupts are pending.  Immediately write it back out to clear
+	 * those interrupts.
+	 */
 
 	dfx_port_read_long(bp, PI_PDQ_K_REG_TYPE_0_STATUS, &type_0_status);
 	dfx_port_write_long(bp, PI_PDQ_K_REG_TYPE_0_STATUS, type_0_status);
 
-	
+	/* Check for Type 0 error interrupts */
 
 	if (type_0_status & (PI_TYPE_0_STAT_M_NXM |
 							PI_TYPE_0_STAT_M_PM_PAR_ERR |
 							PI_TYPE_0_STAT_M_BUS_PAR_ERR))
 		{
-		
+		/* Check for Non-Existent Memory error */
 
 		if (type_0_status & PI_TYPE_0_STAT_M_NXM)
 			printk("%s: Non-Existent Memory Access Error\n", bp->dev->name);
 
-		
+		/* Check for Packet Memory Parity error */
 
 		if (type_0_status & PI_TYPE_0_STAT_M_PM_PAR_ERR)
 			printk("%s: Packet Memory Parity Error\n", bp->dev->name);
 
-		
+		/* Check for Host Bus Parity error */
 
 		if (type_0_status & PI_TYPE_0_STAT_M_BUS_PAR_ERR)
 			printk("%s: Host Bus Parity Error\n", bp->dev->name);
 
-		
+		/* Reset adapter and bring it back on-line */
 
-		bp->link_available = PI_K_FALSE;	
-		bp->reset_type = 0;					
+		bp->link_available = PI_K_FALSE;	/* link is no longer available */
+		bp->reset_type = 0;					/* rerun on-board diagnostics */
 		printk("%s: Resetting adapter...\n", bp->dev->name);
 		if (dfx_adap_init(bp, 0) != DFX_K_SUCCESS)
 			{
@@ -1188,14 +1712,14 @@ static void dfx_int_type_0_process(DFX_board_t	*bp)
 		return;
 		}
 
-	
+	/* Check for transmit flush interrupt */
 
 	if (type_0_status & PI_TYPE_0_STAT_M_XMT_FLUSH)
 		{
-		
+		/* Flush any pending xmt's and acknowledge the flush interrupt */
 
-		bp->link_available = PI_K_FALSE;		
-		dfx_xmt_flush(bp);						
+		bp->link_available = PI_K_FALSE;		/* link is no longer available */
+		dfx_xmt_flush(bp);						/* flush any outstanding packets */
 		(void) dfx_hw_port_ctrl_req(bp,
 									PI_PCTRL_M_XMT_DATA_FLUSH_DONE,
 									0,
@@ -1203,23 +1727,28 @@ static void dfx_int_type_0_process(DFX_board_t	*bp)
 									NULL);
 		}
 
-	
+	/* Check for adapter state change */
 
 	if (type_0_status & PI_TYPE_0_STAT_M_STATE_CHANGE)
 		{
-		
+		/* Get latest adapter state */
 
-		state = dfx_hw_adap_state_rd(bp);	
+		state = dfx_hw_adap_state_rd(bp);	/* get adapter state */
 		if (state == PI_STATE_K_HALTED)
 			{
+			/*
+			 * Adapter has transitioned to HALTED state, try to reset
+			 * adapter to bring it back on-line.  If reset fails,
+			 * leave the adapter in the broken state.
+			 */
 
 			printk("%s: Controller has transitioned to HALTED state!\n", bp->dev->name);
-			dfx_int_pr_halt_id(bp);			
+			dfx_int_pr_halt_id(bp);			/* display halt id as string */
 
-			
+			/* Reset adapter and bring it back on-line */
 
-			bp->link_available = PI_K_FALSE;	
-			bp->reset_type = 0;					
+			bp->link_available = PI_K_FALSE;	/* link is no longer available */
+			bp->reset_type = 0;					/* rerun on-board diagnostics */
 			printk("%s: Resetting adapter...\n", bp->dev->name);
 			if (dfx_adap_init(bp, 0) != DFX_K_SUCCESS)
 				{
@@ -1231,41 +1760,121 @@ static void dfx_int_type_0_process(DFX_board_t	*bp)
 			}
 		else if (state == PI_STATE_K_LINK_AVAIL)
 			{
-			bp->link_available = PI_K_TRUE;		
+			bp->link_available = PI_K_TRUE;		/* set link available flag */
 			}
 		}
 	}
 
 
+/*
+ * ==================
+ * = dfx_int_common =
+ * ==================
+ *
+ * Overview:
+ *   Interrupt service routine (ISR)
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   This is the ISR which processes incoming adapter interrupts.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   This routine assumes PDQ interrupts have not been disabled.
+ *   When interrupts are disabled at the PDQ, the Port Status register
+ *   is automatically cleared.  This routine uses the Port Status
+ *   register value to determine whether a Type 0 interrupt occurred,
+ *   so it's important that adapter interrupts are not normally
+ *   enabled/disabled at the PDQ.
+ *
+ *   It's vital that this routine is NOT reentered for the
+ *   same board and that the OS is not in another section of
+ *   code (eg. dfx_xmt_queue_pkt) for the same board on a
+ *   different thread.
+ *
+ * Side Effects:
+ *   Pending interrupts are serviced.  Depending on the type of
+ *   interrupt, acknowledging and clearing the interrupt at the
+ *   PDQ involves writing a register to clear the interrupt bit
+ *   or updating completion indices.
+ */
 
 static void dfx_int_common(struct net_device *dev)
 {
 	DFX_board_t *bp = netdev_priv(dev);
-	PI_UINT32	port_status;		
+	PI_UINT32	port_status;		/* Port Status register */
 
-	
+	/* Process xmt interrupts - frequent case, so always call this routine */
 
-	if(dfx_xmt_done(bp))				
+	if(dfx_xmt_done(bp))				/* free consumed xmt packets */
 		netif_wake_queue(dev);
 
-	
+	/* Process rcv interrupts - frequent case, so always call this routine */
 
-	dfx_rcv_queue_process(bp);		
+	dfx_rcv_queue_process(bp);		/* service received LLC frames */
 
+	/*
+	 * Transmit and receive producer and completion indices are updated on the
+	 * adapter by writing to the Type 2 Producer register.  Since the frequent
+	 * case is that we'll be processing either LLC transmit or receive buffers,
+	 * we'll optimize I/O writes by doing a single register write here.
+	 */
 
 	dfx_port_write_long(bp, PI_PDQ_K_REG_TYPE_2_PROD, bp->rcv_xmt_reg.lword);
 
-	
+	/* Read PDQ Port Status register to find out which interrupts need processing */
 
 	dfx_port_read_long(bp, PI_PDQ_K_REG_PORT_STATUS, &port_status);
 
-	
+	/* Process Type 0 interrupts (if any) - infrequent, so only call when needed */
 
 	if (port_status & PI_PSTATUS_M_TYPE_0_PENDING)
-		dfx_int_type_0_process(bp);	
+		dfx_int_type_0_process(bp);	/* process Type 0 interrupts */
 	}
 
 
+/*
+ * =================
+ * = dfx_interrupt =
+ * =================
+ *
+ * Overview:
+ *   Interrupt processing routine
+ *
+ * Returns:
+ *   Whether a valid interrupt was seen.
+ *
+ * Arguments:
+ *   irq	- interrupt vector
+ *   dev_id	- pointer to device information
+ *
+ * Functional Description:
+ *   This routine calls the interrupt processing routine for this adapter.  It
+ *   disables and reenables adapter interrupts, as appropriate.  We can support
+ *   shared interrupts since the incoming dev_id pointer provides our device
+ *   structure context.
+ *
+ * Return Codes:
+ *   IRQ_HANDLED - an IRQ was handled.
+ *   IRQ_NONE    - no IRQ was handled.
+ *
+ * Assumptions:
+ *   The interrupt acknowledgement at the hardware level (eg. ACKing the PIC
+ *   on Intel-based systems) is done by the operating system outside this
+ *   routine.
+ *
+ *	 System interrupts are enabled through this call.
+ *
+ * Side Effects:
+ *   Interrupts are disabled, then reenabled at the adapter.
+ */
 
 static irqreturn_t dfx_interrupt(int irq, void *dev_id)
 {
@@ -1276,7 +1885,7 @@ static irqreturn_t dfx_interrupt(int irq, void *dev_id)
 	int dfx_bus_eisa = DFX_BUS_EISA(bdev);
 	int dfx_bus_tc = DFX_BUS_TC(bdev);
 
-	
+	/* Service adapter interrupts */
 
 	if (dfx_bus_pci) {
 		u32 status;
@@ -1287,14 +1896,14 @@ static irqreturn_t dfx_interrupt(int irq, void *dev_id)
 
 		spin_lock(&bp->lock);
 
-		
+		/* Disable PDQ-PFI interrupts at PFI */
 		dfx_port_write_long(bp, PFI_K_REG_MODE_CTRL,
 				    PFI_MODE_M_DMA_ENB);
 
-		
+		/* Call interrupt service routine for this adapter */
 		dfx_int_common(dev);
 
-		
+		/* Clear PDQ interrupt status bit and reenable interrupts */
 		dfx_port_write_long(bp, PFI_K_REG_STATUS,
 				    PFI_STATUS_M_PDQ_INT);
 		dfx_port_write_long(bp, PFI_K_REG_MODE_CTRL,
@@ -1313,14 +1922,14 @@ static irqreturn_t dfx_interrupt(int irq, void *dev_id)
 
 		spin_lock(&bp->lock);
 
-		
+		/* Disable interrupts at the ESIC */
 		status &= ~PI_CONFIG_STAT_0_M_INT_ENB;
 		outb(base_addr + PI_ESIC_K_IO_CONFIG_STAT_0, status);
 
-		
+		/* Call interrupt service routine for this adapter */
 		dfx_int_common(dev);
 
-		
+		/* Reenable interrupts at the ESIC */
 		status = inb(base_addr + PI_ESIC_K_IO_CONFIG_STAT_0);
 		status |= PI_CONFIG_STAT_0_M_INT_ENB;
 		outb(base_addr + PI_ESIC_K_IO_CONFIG_STAT_0, status);
@@ -1342,7 +1951,7 @@ static irqreturn_t dfx_interrupt(int irq, void *dev_id)
 
 		spin_lock(&bp->lock);
 
-		
+		/* Call interrupt service routine for this adapter */
 		dfx_int_common(dev);
 
 		spin_unlock(&bp->lock);
@@ -1352,12 +1961,54 @@ static irqreturn_t dfx_interrupt(int irq, void *dev_id)
 }
 
 
+/*
+ * =====================
+ * = dfx_ctl_get_stats =
+ * =====================
+ *
+ * Overview:
+ *   Get statistics for FDDI adapter
+ *
+ * Returns:
+ *   Pointer to FDDI statistics structure
+ *
+ * Arguments:
+ *   dev - pointer to device information
+ *
+ * Functional Description:
+ *   Gets current MIB objects from adapter, then
+ *   returns FDDI statistics structure as defined
+ *   in if_fddi.h.
+ *
+ *   Note: Since the FDDI statistics structure is
+ *   still new and the device structure doesn't
+ *   have an FDDI-specific get statistics handler,
+ *   we'll return the FDDI statistics structure as
+ *   a pointer to an Ethernet statistics structure.
+ *   That way, at least the first part of the statistics
+ *   structure can be decoded properly, and it allows
+ *   "smart" applications to perform a second cast to
+ *   decode the FDDI-specific statistics.
+ *
+ *   We'll have to pay attention to this routine as the
+ *   device structure becomes more mature and LAN media
+ *   independent.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   None
+ *
+ * Side Effects:
+ *   None
+ */
 
 static struct net_device_stats *dfx_ctl_get_stats(struct net_device *dev)
 	{
 	DFX_board_t *bp = netdev_priv(dev);
 
-	
+	/* Fill the bp->stats structure with driver-maintained counters */
 
 	bp->stats.gen.rx_packets = bp->rcv_total_frames;
 	bp->stats.gen.tx_packets = bp->xmt_total_frames;
@@ -1370,15 +2021,15 @@ static struct net_device_stats *dfx_ctl_get_stats(struct net_device *dev)
 	bp->stats.gen.rx_dropped = bp->rcv_discards;
 	bp->stats.gen.tx_dropped = bp->xmt_discards;
 	bp->stats.gen.multicast  = bp->rcv_multicast_frames;
-	bp->stats.gen.collisions = 0;		
+	bp->stats.gen.collisions = 0;		/* always zero (0) for FDDI */
 
-	
+	/* Get FDDI SMT MIB objects */
 
 	bp->cmd_req_virt->cmd_type = PI_CMD_K_SMT_MIB_GET;
 	if (dfx_hw_dma_cmd_req(bp) != DFX_K_SUCCESS)
 		return (struct net_device_stats *)&bp->stats;
 
-	
+	/* Fill the bp->stats structure with the SMT MIB object values */
 
 	memcpy(bp->stats.smt_station_id, &bp->cmd_rsp_virt->smt_mib_get.smt_station_id, sizeof(bp->cmd_rsp_virt->smt_mib_get.smt_station_id));
 	bp->stats.smt_op_version_id					= bp->cmd_rsp_virt->smt_mib_get.smt_op_version_id;
@@ -1473,13 +2124,13 @@ static struct net_device_stats *dfx_ctl_get_stats(struct net_device *dev)
 	bp->stats.port_hardware_present[0]			= bp->cmd_rsp_virt->smt_mib_get.port_hardware_present[0];
 	bp->stats.port_hardware_present[1]			= bp->cmd_rsp_virt->smt_mib_get.port_hardware_present[1];
 
-	
+	/* Get FDDI counters */
 
 	bp->cmd_req_virt->cmd_type = PI_CMD_K_CNTRS_GET;
 	if (dfx_hw_dma_cmd_req(bp) != DFX_K_SUCCESS)
 		return (struct net_device_stats *)&bp->stats;
 
-	
+	/* Fill the bp->stats structure with the FDDI counter values */
 
 	bp->stats.mac_frame_cts				= bp->cmd_rsp_virt->cntrs_get.cntrs.frame_cnt.ls;
 	bp->stats.mac_copied_cts			= bp->cmd_rsp_virt->cntrs_get.cntrs.copied_cnt.ls;
@@ -1497,36 +2148,97 @@ static struct net_device_stats *dfx_ctl_get_stats(struct net_device *dev)
 	}
 
 
+/*
+ * ==============================
+ * = dfx_ctl_set_multicast_list =
+ * ==============================
+ *
+ * Overview:
+ *   Enable/Disable LLC frame promiscuous mode reception
+ *   on the adapter and/or update multicast address table.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   dev - pointer to device information
+ *
+ * Functional Description:
+ *   This routine follows a fairly simple algorithm for setting the
+ *   adapter filters and CAM:
+ *
+ *		if IFF_PROMISC flag is set
+ *			enable LLC individual/group promiscuous mode
+ *		else
+ *			disable LLC individual/group promiscuous mode
+ *			if number of incoming multicast addresses >
+ *					(CAM max size - number of unicast addresses in CAM)
+ *				enable LLC group promiscuous mode
+ *				set driver-maintained multicast address count to zero
+ *			else
+ *				disable LLC group promiscuous mode
+ *				set driver-maintained multicast address count to incoming count
+ *			update adapter CAM
+ *		update adapter filters
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   Multicast addresses are presented in canonical (LSB) format.
+ *
+ * Side Effects:
+ *   On-board adapter CAM and filters are updated.
+ */
 
 static void dfx_ctl_set_multicast_list(struct net_device *dev)
 {
 	DFX_board_t *bp = netdev_priv(dev);
-	int					i;			
+	int					i;			/* used as index in for loop */
 	struct netdev_hw_addr *ha;
 
-	
+	/* Enable LLC frame promiscuous mode, if necessary */
 
 	if (dev->flags & IFF_PROMISC)
-		bp->ind_group_prom = PI_FSTATE_K_PASS;		
+		bp->ind_group_prom = PI_FSTATE_K_PASS;		/* Enable LLC ind/group prom mode */
 
-	
+	/* Else, update multicast address table */
 
 	else
 		{
-		bp->ind_group_prom = PI_FSTATE_K_BLOCK;		
+		bp->ind_group_prom = PI_FSTATE_K_BLOCK;		/* Disable LLC ind/group prom mode */
+		/*
+		 * Check whether incoming multicast address count exceeds table size
+		 *
+		 * Note: The adapters utilize an on-board 64 entry CAM for
+		 *       supporting perfect filtering of multicast packets
+		 *		 and bridge functions when adding unicast addresses.
+		 *		 There is no hash function available.  To support
+		 *		 additional multicast addresses, the all multicast
+		 *		 filter (LLC group promiscuous mode) must be enabled.
+		 *
+		 *		 The firmware reserves two CAM entries for SMT-related
+		 *		 multicast addresses, which leaves 62 entries available.
+		 *		 The following code ensures that we're not being asked
+		 *		 to add more than 62 addresses to the CAM.  If we are,
+		 *		 the driver will enable the all multicast filter.
+		 *		 Should the number of multicast addresses drop below
+		 *		 the high water mark, the filter will be disabled and
+		 *		 perfect filtering will be used.
+		 */
 
 		if (netdev_mc_count(dev) > (PI_CMD_ADDR_FILTER_K_SIZE - bp->uc_count))
 			{
-			bp->group_prom	= PI_FSTATE_K_PASS;		
-			bp->mc_count	= 0;					
+			bp->group_prom	= PI_FSTATE_K_PASS;		/* Enable LLC group prom mode */
+			bp->mc_count	= 0;					/* Don't add mc addrs to CAM */
 			}
 		else
 			{
-			bp->group_prom	= PI_FSTATE_K_BLOCK;	
-			bp->mc_count	= netdev_mc_count(dev);		
+			bp->group_prom	= PI_FSTATE_K_BLOCK;	/* Disable LLC group prom mode */
+			bp->mc_count	= netdev_mc_count(dev);		/* Add mc addrs to CAM */
 			}
 
-		
+		/* Copy addresses to multicast address table, then update adapter CAM */
 
 		i = 0;
 		netdev_for_each_mc_addr(ha, dev)
@@ -1543,7 +2255,7 @@ static void dfx_ctl_set_multicast_list(struct net_device *dev)
 			}
 		}
 
-	
+	/* Update adapter filters */
 
 	if (dfx_ctl_update_filters(bp) != DFX_K_SUCCESS)
 		{
@@ -1556,25 +2268,71 @@ static void dfx_ctl_set_multicast_list(struct net_device *dev)
 	}
 
 
+/*
+ * ===========================
+ * = dfx_ctl_set_mac_address =
+ * ===========================
+ *
+ * Overview:
+ *   Add node address override (unicast address) to adapter
+ *   CAM and update dev_addr field in device table.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   dev  - pointer to device information
+ *   addr - pointer to sockaddr structure containing unicast address to add
+ *
+ * Functional Description:
+ *   The adapter supports node address overrides by adding one or more
+ *   unicast addresses to the adapter CAM.  This is similar to adding
+ *   multicast addresses.  In this routine we'll update the driver and
+ *   device structures with the new address, then update the adapter CAM
+ *   to ensure that the adapter will copy and strip frames destined and
+ *   sourced by that address.
+ *
+ * Return Codes:
+ *   Always returns zero.
+ *
+ * Assumptions:
+ *   The address pointed to by addr->sa_data is a valid unicast
+ *   address and is presented in canonical (LSB) format.
+ *
+ * Side Effects:
+ *   On-board adapter CAM is updated.  On-board adapter filters
+ *   may be updated.
+ */
 
 static int dfx_ctl_set_mac_address(struct net_device *dev, void *addr)
 	{
 	struct sockaddr	*p_sockaddr = (struct sockaddr *)addr;
 	DFX_board_t *bp = netdev_priv(dev);
 
-	
+	/* Copy unicast address to driver-maintained structs and update count */
 
-	memcpy(dev->dev_addr, p_sockaddr->sa_data, FDDI_K_ALEN);	
-	memcpy(&bp->uc_table[0], p_sockaddr->sa_data, FDDI_K_ALEN);	
+	memcpy(dev->dev_addr, p_sockaddr->sa_data, FDDI_K_ALEN);	/* update device struct */
+	memcpy(&bp->uc_table[0], p_sockaddr->sa_data, FDDI_K_ALEN);	/* update driver struct */
 	bp->uc_count = 1;
 
+	/*
+	 * Verify we're not exceeding the CAM size by adding unicast address
+	 *
+	 * Note: It's possible that before entering this routine we've
+	 *       already filled the CAM with 62 multicast addresses.
+	 *		 Since we need to place the node address override into
+	 *		 the CAM, we have to check to see that we're not
+	 *		 exceeding the CAM size.  If we are, we have to enable
+	 *		 the LLC group (multicast) promiscuous mode filter as
+	 *		 in dfx_ctl_set_multicast_list.
+	 */
 
 	if ((bp->uc_count + bp->mc_count) > PI_CMD_ADDR_FILTER_K_SIZE)
 		{
-		bp->group_prom	= PI_FSTATE_K_PASS;		
-		bp->mc_count	= 0;					
+		bp->group_prom	= PI_FSTATE_K_PASS;		/* Enable LLC group prom mode */
+		bp->mc_count	= 0;					/* Don't add mc addrs to CAM */
 
-		
+		/* Update adapter filters */
 
 		if (dfx_ctl_update_filters(bp) != DFX_K_SUCCESS)
 			{
@@ -1586,7 +2344,7 @@ static int dfx_ctl_set_mac_address(struct net_device *dev, void *addr)
 			}
 		}
 
-	
+	/* Update adapter CAM with new unicast address */
 
 	if (dfx_ctl_update_cam(bp) != DFX_K_SUCCESS)
 		{
@@ -1596,44 +2354,88 @@ static int dfx_ctl_set_mac_address(struct net_device *dev, void *addr)
 		{
 		DBG_printk("%s: Adapter CAM updated with new MAC address\n", dev->name);
 		}
-	return 0;			
+	return 0;			/* always return zero */
 	}
 
 
+/*
+ * ======================
+ * = dfx_ctl_update_cam =
+ * ======================
+ *
+ * Overview:
+ *   Procedure to update adapter CAM (Content Addressable Memory)
+ *   with desired unicast and multicast address entries.
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   Updates adapter CAM with current contents of board structure
+ *   unicast and multicast address tables.  Since there are only 62
+ *   free entries in CAM, this routine ensures that the command
+ *   request buffer is not overrun.
+ *
+ * Return Codes:
+ *   DFX_K_SUCCESS - Request succeeded
+ *   DFX_K_FAILURE - Request failed
+ *
+ * Assumptions:
+ *   All addresses being added (unicast and multicast) are in canonical
+ *   order.
+ *
+ * Side Effects:
+ *   On-board adapter CAM is updated.
+ */
 
 static int dfx_ctl_update_cam(DFX_board_t *bp)
 	{
-	int			i;				
-	PI_LAN_ADDR	*p_addr;		
+	int			i;				/* used as index */
+	PI_LAN_ADDR	*p_addr;		/* pointer to CAM entry */
 
+	/*
+	 * Fill in command request information
+	 *
+	 * Note: Even though both the unicast and multicast address
+	 *       table entries are stored as contiguous 6 byte entries,
+	 *		 the firmware address filter set command expects each
+	 *		 entry to be two longwords (8 bytes total).  We must be
+	 *		 careful to only copy the six bytes of each unicast and
+	 *		 multicast table entry into each command entry.  This
+	 *		 is also why we must first clear the entire command
+	 *		 request buffer.
+	 */
 
-	memset(bp->cmd_req_virt, 0, PI_CMD_REQ_K_SIZE_MAX);	
+	memset(bp->cmd_req_virt, 0, PI_CMD_REQ_K_SIZE_MAX);	/* first clear buffer */
 	bp->cmd_req_virt->cmd_type = PI_CMD_K_ADDR_FILTER_SET;
 	p_addr = &bp->cmd_req_virt->addr_filter_set.entry[0];
 
-	
+	/* Now add unicast addresses to command request buffer, if any */
 
 	for (i=0; i < (int)bp->uc_count; i++)
 		{
 		if (i < PI_CMD_ADDR_FILTER_K_SIZE)
 			{
 			memcpy(p_addr, &bp->uc_table[i*FDDI_K_ALEN], FDDI_K_ALEN);
-			p_addr++;			
+			p_addr++;			/* point to next command entry */
 			}
 		}
 
-	
+	/* Now add multicast addresses to command request buffer, if any */
 
 	for (i=0; i < (int)bp->mc_count; i++)
 		{
 		if ((i + bp->uc_count) < PI_CMD_ADDR_FILTER_K_SIZE)
 			{
 			memcpy(p_addr, &bp->mc_table[i*FDDI_K_ALEN], FDDI_K_ALEN);
-			p_addr++;			
+			p_addr++;			/* point to next command entry */
 			}
 		}
 
-	
+	/* Issue command to update adapter CAM, then return */
 
 	if (dfx_hw_dma_cmd_req(bp) != DFX_K_SUCCESS)
 		return DFX_K_FAILURE;
@@ -1641,35 +2443,65 @@ static int dfx_ctl_update_cam(DFX_board_t *bp)
 	}
 
 
+/*
+ * ==========================
+ * = dfx_ctl_update_filters =
+ * ==========================
+ *
+ * Overview:
+ *   Procedure to update adapter filters with desired
+ *   filter settings.
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   Enables or disables filter using current filter settings.
+ *
+ * Return Codes:
+ *   DFX_K_SUCCESS - Request succeeded.
+ *   DFX_K_FAILURE - Request failed.
+ *
+ * Assumptions:
+ *   We must always pass up packets destined to the broadcast
+ *   address (FF-FF-FF-FF-FF-FF), so we'll always keep the
+ *   broadcast filter enabled.
+ *
+ * Side Effects:
+ *   On-board adapter filters are updated.
+ */
 
 static int dfx_ctl_update_filters(DFX_board_t *bp)
 	{
-	int	i = 0;					
+	int	i = 0;					/* used as index */
 
-	
+	/* Fill in command request information */
 
 	bp->cmd_req_virt->cmd_type = PI_CMD_K_FILTERS_SET;
 
-	
+	/* Initialize Broadcast filter - * ALWAYS ENABLED * */
 
 	bp->cmd_req_virt->filter_set.item[i].item_code	= PI_ITEM_K_BROADCAST;
 	bp->cmd_req_virt->filter_set.item[i++].value	= PI_FSTATE_K_PASS;
 
-	
+	/* Initialize LLC Individual/Group Promiscuous filter */
 
 	bp->cmd_req_virt->filter_set.item[i].item_code	= PI_ITEM_K_IND_GROUP_PROM;
 	bp->cmd_req_virt->filter_set.item[i++].value	= bp->ind_group_prom;
 
-	
+	/* Initialize LLC Group Promiscuous filter */
 
 	bp->cmd_req_virt->filter_set.item[i].item_code	= PI_ITEM_K_GROUP_PROM;
 	bp->cmd_req_virt->filter_set.item[i++].value	= bp->group_prom;
 
-	
+	/* Terminate the item code list */
 
 	bp->cmd_req_virt->filter_set.item[i].item_code	= PI_ITEM_K_EOL;
 
-	
+	/* Issue command to update adapter filters, then return */
 
 	if (dfx_hw_dma_cmd_req(bp) != DFX_K_SUCCESS)
 		return DFX_K_FAILURE;
@@ -1677,13 +2509,52 @@ static int dfx_ctl_update_filters(DFX_board_t *bp)
 	}
 
 
+/*
+ * ======================
+ * = dfx_hw_dma_cmd_req =
+ * ======================
+ *
+ * Overview:
+ *   Sends PDQ DMA command to adapter firmware
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   The command request and response buffers are posted to the adapter in the manner
+ *   described in the PDQ Port Specification:
+ *
+ *		1. Command Response Buffer is posted to adapter.
+ *		2. Command Request Buffer is posted to adapter.
+ *		3. Command Request consumer index is polled until it indicates that request
+ *         buffer has been DMA'd to adapter.
+ *		4. Command Response consumer index is polled until it indicates that response
+ *         buffer has been DMA'd from adapter.
+ *
+ *   This ordering ensures that a response buffer is already available for the firmware
+ *   to use once it's done processing the request buffer.
+ *
+ * Return Codes:
+ *   DFX_K_SUCCESS	  - DMA command succeeded
+ * 	 DFX_K_OUTSTATE   - Adapter is NOT in proper state
+ *   DFX_K_HW_TIMEOUT - DMA command timed out
+ *
+ * Assumptions:
+ *   Command request buffer has already been filled with desired DMA command.
+ *
+ * Side Effects:
+ *   None
+ */
 
 static int dfx_hw_dma_cmd_req(DFX_board_t *bp)
 	{
-	int status;			
-	int timeout_cnt;	
+	int status;			/* adapter status */
+	int timeout_cnt;	/* used in for loops */
 
-	
+	/* Make sure the adapter is in a state that we can issue the DMA command in */
 
 	status = dfx_hw_adap_state_rd(bp);
 	if ((status == PI_STATE_K_RESET)		||
@@ -1692,57 +2563,65 @@ static int dfx_hw_dma_cmd_req(DFX_board_t *bp)
 		(status == PI_STATE_K_UPGRADE))
 		return DFX_K_OUTSTATE;
 
-	
+	/* Put response buffer on the command response queue */
 
 	bp->descr_block_virt->cmd_rsp[bp->cmd_rsp_reg.index.prod].long_0 = (u32) (PI_RCV_DESCR_M_SOP |
 			((PI_CMD_RSP_K_SIZE_MAX / PI_ALIGN_K_CMD_RSP_BUFF) << PI_RCV_DESCR_V_SEG_LEN));
 	bp->descr_block_virt->cmd_rsp[bp->cmd_rsp_reg.index.prod].long_1 = bp->cmd_rsp_phys;
 
-	
+	/* Bump (and wrap) the producer index and write out to register */
 
 	bp->cmd_rsp_reg.index.prod += 1;
 	bp->cmd_rsp_reg.index.prod &= PI_CMD_RSP_K_NUM_ENTRIES-1;
 	dfx_port_write_long(bp, PI_PDQ_K_REG_CMD_RSP_PROD, bp->cmd_rsp_reg.lword);
 
-	
+	/* Put request buffer on the command request queue */
 
 	bp->descr_block_virt->cmd_req[bp->cmd_req_reg.index.prod].long_0 = (u32) (PI_XMT_DESCR_M_SOP |
 			PI_XMT_DESCR_M_EOP | (PI_CMD_REQ_K_SIZE_MAX << PI_XMT_DESCR_V_SEG_LEN));
 	bp->descr_block_virt->cmd_req[bp->cmd_req_reg.index.prod].long_1 = bp->cmd_req_phys;
 
-	
+	/* Bump (and wrap) the producer index and write out to register */
 
 	bp->cmd_req_reg.index.prod += 1;
 	bp->cmd_req_reg.index.prod &= PI_CMD_REQ_K_NUM_ENTRIES-1;
 	dfx_port_write_long(bp, PI_PDQ_K_REG_CMD_REQ_PROD, bp->cmd_req_reg.lword);
 
+	/*
+	 * Here we wait for the command request consumer index to be equal
+	 * to the producer, indicating that the adapter has DMAed the request.
+	 */
 
 	for (timeout_cnt = 20000; timeout_cnt > 0; timeout_cnt--)
 		{
 		if (bp->cmd_req_reg.index.prod == (u8)(bp->cons_block_virt->cmd_req))
 			break;
-		udelay(100);			
+		udelay(100);			/* wait for 100 microseconds */
 		}
 	if (timeout_cnt == 0)
 		return DFX_K_HW_TIMEOUT;
 
-	
+	/* Bump (and wrap) the completion index and write out to register */
 
 	bp->cmd_req_reg.index.comp += 1;
 	bp->cmd_req_reg.index.comp &= PI_CMD_REQ_K_NUM_ENTRIES-1;
 	dfx_port_write_long(bp, PI_PDQ_K_REG_CMD_REQ_PROD, bp->cmd_req_reg.lword);
 
+	/*
+	 * Here we wait for the command response consumer index to be equal
+	 * to the producer, indicating that the adapter has DMAed the response.
+	 */
 
 	for (timeout_cnt = 20000; timeout_cnt > 0; timeout_cnt--)
 		{
 		if (bp->cmd_rsp_reg.index.prod == (u8)(bp->cons_block_virt->cmd_rsp))
 			break;
-		udelay(100);			
+		udelay(100);			/* wait for 100 microseconds */
 		}
 	if (timeout_cnt == 0)
 		return DFX_K_HW_TIMEOUT;
 
-	
+	/* Bump (and wrap) the completion index and write out to register */
 
 	bp->cmd_rsp_reg.index.comp += 1;
 	bp->cmd_rsp_reg.index.comp &= PI_CMD_RSP_K_NUM_ENTRIES-1;
@@ -1751,6 +2630,38 @@ static int dfx_hw_dma_cmd_req(DFX_board_t *bp)
 	}
 
 
+/*
+ * ========================
+ * = dfx_hw_port_ctrl_req =
+ * ========================
+ *
+ * Overview:
+ *   Sends PDQ port control command to adapter firmware
+ *
+ * Returns:
+ *   Host data register value in host_data if ptr is not NULL
+ *
+ * Arguments:
+ *   bp			- pointer to board information
+ *	 command	- port control command
+ *	 data_a		- port data A register value
+ *	 data_b		- port data B register value
+ *	 host_data	- ptr to host data register value
+ *
+ * Functional Description:
+ *   Send generic port control command to adapter by writing
+ *   to various PDQ port registers, then polling for completion.
+ *
+ * Return Codes:
+ *   DFX_K_SUCCESS	  - port control command succeeded
+ *   DFX_K_HW_TIMEOUT - port control command timed out
+ *
+ * Assumptions:
+ *   None
+ *
+ * Side Effects:
+ *   None
+ */
 
 static int dfx_hw_port_ctrl_req(
 	DFX_board_t	*bp,
@@ -1761,36 +2672,41 @@ static int dfx_hw_port_ctrl_req(
 	)
 
 	{
-	PI_UINT32	port_cmd;		
-	int			timeout_cnt;	
+	PI_UINT32	port_cmd;		/* Port Control command register value */
+	int			timeout_cnt;	/* used in for loops */
 
-	
+	/* Set Command Error bit in command longword */
 
 	port_cmd = (PI_UINT32) (command | PI_PCTRL_M_CMD_ERROR);
 
-	
+	/* Issue port command to the adapter */
 
 	dfx_port_write_long(bp, PI_PDQ_K_REG_PORT_DATA_A, data_a);
 	dfx_port_write_long(bp, PI_PDQ_K_REG_PORT_DATA_B, data_b);
 	dfx_port_write_long(bp, PI_PDQ_K_REG_PORT_CTRL, port_cmd);
 
-	
+	/* Now wait for command to complete */
 
 	if (command == PI_PCTRL_M_BLAST_FLASH)
-		timeout_cnt = 600000;	
+		timeout_cnt = 600000;	/* set command timeout count to 60 seconds */
 	else
-		timeout_cnt = 20000;	
+		timeout_cnt = 20000;	/* set command timeout count to 2 seconds */
 
 	for (; timeout_cnt > 0; timeout_cnt--)
 		{
 		dfx_port_read_long(bp, PI_PDQ_K_REG_PORT_CTRL, &port_cmd);
 		if (!(port_cmd & PI_PCTRL_M_CMD_ERROR))
 			break;
-		udelay(100);			
+		udelay(100);			/* wait for 100 microseconds */
 		}
 	if (timeout_cnt == 0)
 		return DFX_K_HW_TIMEOUT;
 
+	/*
+	 * If the address of host_data is non-zero, assume caller has supplied a
+	 * non NULL pointer, and return the contents of the HOST_DATA register in
+	 * it.
+	 */
 
 	if (host_data != NULL)
 		dfx_port_read_long(bp, PI_PDQ_K_REG_HOST_DATA, host_data);
@@ -1798,6 +2714,38 @@ static int dfx_hw_port_ctrl_req(
 	}
 
 
+/*
+ * =====================
+ * = dfx_hw_adap_reset =
+ * =====================
+ *
+ * Overview:
+ *   Resets adapter
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp   - pointer to board information
+ *   type - type of reset to perform
+ *
+ * Functional Description:
+ *   Issue soft reset to adapter by writing to PDQ Port Reset
+ *   register.  Use incoming reset type to tell adapter what
+ *   kind of reset operation to perform.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   This routine merely issues a soft reset to the adapter.
+ *   It is expected that after this routine returns, the caller
+ *   will appropriately poll the Port Status register for the
+ *   adapter to enter the proper state.
+ *
+ * Side Effects:
+ *   Internal adapter registers are cleared.
+ */
 
 static void dfx_hw_adap_reset(
 	DFX_board_t	*bp,
@@ -1805,70 +2753,181 @@ static void dfx_hw_adap_reset(
 	)
 
 	{
-	
+	/* Set Reset type and assert reset */
 
-	dfx_port_write_long(bp, PI_PDQ_K_REG_PORT_DATA_A, type);	
+	dfx_port_write_long(bp, PI_PDQ_K_REG_PORT_DATA_A, type);	/* tell adapter type of reset */
 	dfx_port_write_long(bp, PI_PDQ_K_REG_PORT_RESET, PI_RESET_M_ASSERT_RESET);
 
-	
+	/* Wait for at least 1 Microsecond according to the spec. We wait 20 just to be safe */
 
 	udelay(20);
 
-	
+	/* Deassert reset */
 
 	dfx_port_write_long(bp, PI_PDQ_K_REG_PORT_RESET, 0);
 	}
 
 
+/*
+ * ========================
+ * = dfx_hw_adap_state_rd =
+ * ========================
+ *
+ * Overview:
+ *   Returns current adapter state
+ *
+ * Returns:
+ *   Adapter state per PDQ Port Specification
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   Reads PDQ Port Status register and returns adapter state.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   None
+ *
+ * Side Effects:
+ *   None
+ */
 
 static int dfx_hw_adap_state_rd(DFX_board_t *bp)
 	{
-	PI_UINT32 port_status;		
+	PI_UINT32 port_status;		/* Port Status register value */
 
 	dfx_port_read_long(bp, PI_PDQ_K_REG_PORT_STATUS, &port_status);
 	return (port_status & PI_PSTATUS_M_STATE) >> PI_PSTATUS_V_STATE;
 	}
 
 
+/*
+ * =====================
+ * = dfx_hw_dma_uninit =
+ * =====================
+ *
+ * Overview:
+ *   Brings adapter to DMA_UNAVAILABLE state
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   bp   - pointer to board information
+ *   type - type of reset to perform
+ *
+ * Functional Description:
+ *   Bring adapter to DMA_UNAVAILABLE state by performing the following:
+ *		1. Set reset type bit in Port Data A Register then reset adapter.
+ *		2. Check that adapter is in DMA_UNAVAILABLE state.
+ *
+ * Return Codes:
+ *   DFX_K_SUCCESS	  - adapter is in DMA_UNAVAILABLE state
+ *   DFX_K_HW_TIMEOUT - adapter did not reset properly
+ *
+ * Assumptions:
+ *   None
+ *
+ * Side Effects:
+ *   Internal adapter registers are cleared.
+ */
 
 static int dfx_hw_dma_uninit(DFX_board_t *bp, PI_UINT32 type)
 	{
-	int timeout_cnt;	
+	int timeout_cnt;	/* used in for loops */
 
-	
+	/* Set reset type bit and reset adapter */
 
 	dfx_hw_adap_reset(bp, type);
 
-	
+	/* Now wait for adapter to enter DMA_UNAVAILABLE state */
 
 	for (timeout_cnt = 100000; timeout_cnt > 0; timeout_cnt--)
 		{
 		if (dfx_hw_adap_state_rd(bp) == PI_STATE_K_DMA_UNAVAIL)
 			break;
-		udelay(100);					
+		udelay(100);					/* wait for 100 microseconds */
 		}
 	if (timeout_cnt == 0)
 		return DFX_K_HW_TIMEOUT;
 	return DFX_K_SUCCESS;
 	}
 
+/*
+ *	Align an sk_buff to a boundary power of 2
+ *
+ */
 
 static void my_skb_align(struct sk_buff *skb, int n)
 {
 	unsigned long x = (unsigned long)skb->data;
 	unsigned long v;
 
-	v = ALIGN(x, n);	
+	v = ALIGN(x, n);	/* Where we want to be */
 
 	skb_reserve(skb, v - x);
 }
 
 
+/*
+ * ================
+ * = dfx_rcv_init =
+ * ================
+ *
+ * Overview:
+ *   Produces buffers to adapter LLC Host receive descriptor block
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *   get_buffers - non-zero if buffers to be allocated
+ *
+ * Functional Description:
+ *   This routine can be called during dfx_adap_init() or during an adapter
+ *	 reset.  It initializes the descriptor block and produces all allocated
+ *   LLC Host queue receive buffers.
+ *
+ * Return Codes:
+ *   Return 0 on success or -ENOMEM if buffer allocation failed (when using
+ *   dynamic buffer allocation). If the buffer allocation failed, the
+ *   already allocated buffers will not be released and the caller should do
+ *   this.
+ *
+ * Assumptions:
+ *   The PDQ has been reset and the adapter and driver maintained Type 2
+ *   register indices are cleared.
+ *
+ * Side Effects:
+ *   Receive buffers are posted to the adapter LLC queue and the adapter
+ *   is notified.
+ */
 
 static int dfx_rcv_init(DFX_board_t *bp, int get_buffers)
 	{
-	int	i, j;					
+	int	i, j;					/* used in for loop */
 
+	/*
+	 *  Since each receive buffer is a single fragment of same length, initialize
+	 *  first longword in each receive descriptor for entire LLC Host descriptor
+	 *  block.  Also initialize second longword in each receive descriptor with
+	 *  physical address of receive buffer.  We'll always allocate receive
+	 *  buffers in powers of 2 so that we can easily fill the 256 entry descriptor
+	 *  block and produce new receive buffers by simply updating the receive
+	 *  producer index.
+	 *
+	 * 	Assumptions:
+	 *		To support all shipping versions of PDQ, the receive buffer size
+	 *		must be mod 128 in length and the physical address must be 128 byte
+	 *		aligned.  In other words, bits 0-6 of the length and address must
+	 *		be zero for the following descriptor field entries to be correct on
+	 *		all PDQ-based boards.  We guaranteed both requirements during
+	 *		driver initialization when we allocated memory for the receive buffers.
+	 */
 
 	if (get_buffers) {
 #ifdef DYNAMIC_BUFFERS
@@ -1880,12 +2939,20 @@ static int dfx_rcv_init(DFX_board_t *bp, int get_buffers)
 				return -ENOMEM;
 			bp->descr_block_virt->rcv_data[i+j].long_0 = (u32) (PI_RCV_DESCR_M_SOP |
 				((PI_RCV_DATA_K_SIZE_MAX / PI_ALIGN_K_RCV_DATA_BUFF) << PI_RCV_DESCR_V_SEG_LEN));
+			/*
+			 * align to 128 bytes for compatibility with
+			 * the old EISA boards.
+			 */
 
 			my_skb_align(newskb, 128);
 			bp->descr_block_virt->rcv_data[i + j].long_1 =
 				(u32)dma_map_single(bp->bus_dev, newskb->data,
 						    NEW_SKB_SIZE,
 						    DMA_FROM_DEVICE);
+			/*
+			 * p_rcv_buff_va is only used inside the
+			 * kernel so we put the skb pointer here.
+			 */
 			bp->p_rcv_buff_va[i+j] = (char *) newskb;
 		}
 #else
@@ -1900,7 +2967,7 @@ static int dfx_rcv_init(DFX_board_t *bp, int get_buffers)
 #endif
 	}
 
-	
+	/* Update receive producer and Type 2 register */
 
 	bp->rcv_xmt_reg.index.rcv_prod = bp->rcv_bufs_to_post;
 	dfx_port_write_long(bp, PI_PDQ_K_REG_TYPE_2_PROD, bp->rcv_xmt_reg.lword);
@@ -1908,23 +2975,54 @@ static int dfx_rcv_init(DFX_board_t *bp, int get_buffers)
 	}
 
 
+/*
+ * =========================
+ * = dfx_rcv_queue_process =
+ * =========================
+ *
+ * Overview:
+ *   Process received LLC frames.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   Received LLC frames are processed until there are no more consumed frames.
+ *   Once all frames are processed, the receive buffers are returned to the
+ *   adapter.  Note that this algorithm fixes the length of time that can be spent
+ *   in this routine, because there are a fixed number of receive buffers to
+ *   process and buffers are not produced until this routine exits and returns
+ *   to the ISR.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   None
+ *
+ * Side Effects:
+ *   None
+ */
 
 static void dfx_rcv_queue_process(
 	DFX_board_t *bp
 	)
 
 	{
-	PI_TYPE_2_CONSUMER	*p_type_2_cons;		
-	char				*p_buff;			
-	u32					descr, pkt_len;		
-	struct sk_buff		*skb;				
+	PI_TYPE_2_CONSUMER	*p_type_2_cons;		/* ptr to rcv/xmt consumer block register */
+	char				*p_buff;			/* ptr to start of packet receive buffer (FMC descriptor) */
+	u32					descr, pkt_len;		/* FMC descriptor field and packet length */
+	struct sk_buff		*skb;				/* pointer to a sk_buff to hold incoming packet data */
 
-	
+	/* Service all consumed LLC receive frames */
 
 	p_type_2_cons = (PI_TYPE_2_CONSUMER *)(&bp->cons_block_virt->xmt_rcv_data);
 	while (bp->rcv_xmt_reg.index.rcv_comp != p_type_2_cons->index.rcv_cons)
 		{
-		
+		/* Process any errors */
 
 		int entry;
 
@@ -1947,10 +3045,10 @@ static void dfx_rcv_queue_process(
 		{
 			int rx_in_place = 0;
 
-			
+			/* The frame was received without errors - verify packet length */
 
 			pkt_len = (u32)((descr & PI_FMC_DESCR_M_LEN) >> PI_FMC_DESCR_V_LEN);
-			pkt_len -= 4;				
+			pkt_len -= 4;				/* subtract 4 byte CRC */
 			if (!IN_RANGE(pkt_len, FDDI_K_LLC_ZLEN, FDDI_K_LLC_LEN))
 				bp->rcv_length_errors++;
 			else{
@@ -1979,7 +3077,7 @@ static void dfx_rcv_queue_process(
 						skb = NULL;
 				} else
 #endif
-					skb = dev_alloc_skb(pkt_len+3);	
+					skb = dev_alloc_skb(pkt_len+3);	/* alloc new buffer to pass up, add room for PRH */
 				if (skb == NULL)
 					{
 					printk("%s: Could not allocate receive buffer.  Dropping packet.\n", bp->dev->name);
@@ -1991,20 +3089,20 @@ static void dfx_rcv_queue_process(
 					if (! rx_in_place)
 #endif
 					{
-						
+						/* Receive buffer allocated, pass receive packet up */
 
 						skb_copy_to_linear_data(skb,
 							       p_buff + RCV_BUFF_K_PADDING,
 							       pkt_len + 3);
 					}
 
-					skb_reserve(skb,3);		
-					skb_put(skb, pkt_len);		
+					skb_reserve(skb,3);		/* adjust data field so that it points to FC byte */
+					skb_put(skb, pkt_len);		/* pass up packet length, NOT including CRC */
 					skb->protocol = fddi_type_trans(skb, bp->dev);
 					bp->rcv_total_bytes += skb->len;
 					netif_rx(skb);
 
-					
+					/* Update the rcv counters */
 					bp->rcv_total_frames++;
 					if (*(p_buff + RCV_BUFF_K_DA) & 0x01)
 						bp->rcv_multicast_frames++;
@@ -2012,6 +3110,13 @@ static void dfx_rcv_queue_process(
 			}
 			}
 
+		/*
+		 * Advance the producer (for recycling) and advance the completion
+		 * (for servicing received frames).  Note that it is okay to
+		 * advance the producer without checking that it passes the
+		 * completion index because they are both advanced at the same
+		 * rate.
+		 */
 
 		bp->rcv_xmt_reg.index.rcv_prod += 1;
 		bp->rcv_xmt_reg.index.rcv_comp += 1;
@@ -2019,108 +3124,279 @@ static void dfx_rcv_queue_process(
 	}
 
 
+/*
+ * =====================
+ * = dfx_xmt_queue_pkt =
+ * =====================
+ *
+ * Overview:
+ *   Queues packets for transmission
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   skb - pointer to sk_buff to queue for transmission
+ *   dev - pointer to device information
+ *
+ * Functional Description:
+ *   Here we assume that an incoming skb transmit request
+ *   is contained in a single physically contiguous buffer
+ *   in which the virtual address of the start of packet
+ *   (skb->data) can be converted to a physical address
+ *   by using pci_map_single().
+ *
+ *   Since the adapter architecture requires a three byte
+ *   packet request header to prepend the start of packet,
+ *   we'll write the three byte field immediately prior to
+ *   the FC byte.  This assumption is valid because we've
+ *   ensured that dev->hard_header_len includes three pad
+ *   bytes.  By posting a single fragment to the adapter,
+ *   we'll reduce the number of descriptor fetches and
+ *   bus traffic needed to send the request.
+ *
+ *   Also, we can't free the skb until after it's been DMA'd
+ *   out by the adapter, so we'll queue it in the driver and
+ *   return it in dfx_xmt_done.
+ *
+ * Return Codes:
+ *   0 - driver queued packet, link is unavailable, or skbuff was bad
+ *	 1 - caller should requeue the sk_buff for later transmission
+ *
+ * Assumptions:
+ *	 First and foremost, we assume the incoming skb pointer
+ *   is NOT NULL and is pointing to a valid sk_buff structure.
+ *
+ *   The outgoing packet is complete, starting with the
+ *   frame control byte including the last byte of data,
+ *   but NOT including the 4 byte CRC.  We'll let the
+ *   adapter hardware generate and append the CRC.
+ *
+ *   The entire packet is stored in one physically
+ *   contiguous buffer which is not cached and whose
+ *   32-bit physical address can be determined.
+ *
+ *   It's vital that this routine is NOT reentered for the
+ *   same board and that the OS is not in another section of
+ *   code (eg. dfx_int_common) for the same board on a
+ *   different thread.
+ *
+ * Side Effects:
+ *   None
+ */
 
 static netdev_tx_t dfx_xmt_queue_pkt(struct sk_buff *skb,
 				     struct net_device *dev)
 	{
 	DFX_board_t		*bp = netdev_priv(dev);
-	u8			prod;				
-	PI_XMT_DESCR		*p_xmt_descr;		
-	XMT_DRIVER_DESCR	*p_xmt_drv_descr;	
+	u8			prod;				/* local transmit producer index */
+	PI_XMT_DESCR		*p_xmt_descr;		/* ptr to transmit descriptor block entry */
+	XMT_DRIVER_DESCR	*p_xmt_drv_descr;	/* ptr to transmit driver descriptor */
 	unsigned long		flags;
 
 	netif_stop_queue(dev);
 
+	/*
+	 * Verify that incoming transmit request is OK
+	 *
+	 * Note: The packet size check is consistent with other
+	 *		 Linux device drivers, although the correct packet
+	 *		 size should be verified before calling the
+	 *		 transmit routine.
+	 */
 
 	if (!IN_RANGE(skb->len, FDDI_K_LLC_ZLEN, FDDI_K_LLC_LEN))
 	{
 		printk("%s: Invalid packet length - %u bytes\n",
 			dev->name, skb->len);
-		bp->xmt_length_errors++;		
+		bp->xmt_length_errors++;		/* bump error counter */
 		netif_wake_queue(dev);
 		dev_kfree_skb(skb);
-		return NETDEV_TX_OK;			
+		return NETDEV_TX_OK;			/* return "success" */
 	}
+	/*
+	 * See if adapter link is available, if not, free buffer
+	 *
+	 * Note: If the link isn't available, free buffer and return 0
+	 *		 rather than tell the upper layer to requeue the packet.
+	 *		 The methodology here is that by the time the link
+	 *		 becomes available, the packet to be sent will be
+	 *		 fairly stale.  By simply dropping the packet, the
+	 *		 higher layer protocols will eventually time out
+	 *		 waiting for response packets which it won't receive.
+	 */
 
 	if (bp->link_available == PI_K_FALSE)
 		{
-		if (dfx_hw_adap_state_rd(bp) == PI_STATE_K_LINK_AVAIL)	
-			bp->link_available = PI_K_TRUE;		
+		if (dfx_hw_adap_state_rd(bp) == PI_STATE_K_LINK_AVAIL)	/* is link really available? */
+			bp->link_available = PI_K_TRUE;		/* if so, set flag and continue */
 		else
 			{
-			bp->xmt_discards++;					
-			dev_kfree_skb(skb);		
+			bp->xmt_discards++;					/* bump error counter */
+			dev_kfree_skb(skb);		/* free sk_buff now */
 			netif_wake_queue(dev);
-			return NETDEV_TX_OK;		
+			return NETDEV_TX_OK;		/* return "success" */
 			}
 		}
 
 	spin_lock_irqsave(&bp->lock, flags);
 
-	
+	/* Get the current producer and the next free xmt data descriptor */
 
 	prod		= bp->rcv_xmt_reg.index.xmt_prod;
 	p_xmt_descr = &(bp->descr_block_virt->xmt_data[prod]);
 
+	/*
+	 * Get pointer to auxiliary queue entry to contain information
+	 * for this packet.
+	 *
+	 * Note: The current xmt producer index will become the
+	 *	 current xmt completion index when we complete this
+	 *	 packet later on.  So, we'll get the pointer to the
+	 *	 next auxiliary queue entry now before we bump the
+	 *	 producer index.
+	 */
 
-	p_xmt_drv_descr = &(bp->xmt_drv_descr_blk[prod++]);	
+	p_xmt_drv_descr = &(bp->xmt_drv_descr_blk[prod++]);	/* also bump producer index */
 
-	
+	/* Write the three PRH bytes immediately before the FC byte */
 
 	skb_push(skb,3);
-	skb->data[0] = DFX_PRH0_BYTE;	
-	skb->data[1] = DFX_PRH1_BYTE;	
-	skb->data[2] = DFX_PRH2_BYTE;	
+	skb->data[0] = DFX_PRH0_BYTE;	/* these byte values are defined */
+	skb->data[1] = DFX_PRH1_BYTE;	/* in the Motorola FDDI MAC chip */
+	skb->data[2] = DFX_PRH2_BYTE;	/* specification */
 
+	/*
+	 * Write the descriptor with buffer info and bump producer
+	 *
+	 * Note: Since we need to start DMA from the packet request
+	 *		 header, we'll add 3 bytes to the DMA buffer length,
+	 *		 and we'll determine the physical address of the
+	 *		 buffer from the PRH, not skb->data.
+	 *
+	 * Assumptions:
+	 *		 1. Packet starts with the frame control (FC) byte
+	 *		    at skb->data.
+	 *		 2. The 4-byte CRC is not appended to the buffer or
+	 *			included in the length.
+	 *		 3. Packet length (skb->len) is from FC to end of
+	 *			data, inclusive.
+	 *		 4. The packet length does not exceed the maximum
+	 *			FDDI LLC frame length of 4491 bytes.
+	 *		 5. The entire packet is contained in a physically
+	 *			contiguous, non-cached, locked memory space
+	 *			comprised of a single buffer pointed to by
+	 *			skb->data.
+	 *		 6. The physical address of the start of packet
+	 *			can be determined from the virtual address
+	 *			by using pci_map_single() and is only 32-bits
+	 *			wide.
+	 */
 
 	p_xmt_descr->long_0	= (u32) (PI_XMT_DESCR_M_SOP | PI_XMT_DESCR_M_EOP | ((skb->len) << PI_XMT_DESCR_V_SEG_LEN));
 	p_xmt_descr->long_1 = (u32)dma_map_single(bp->bus_dev, skb->data,
 						  skb->len, DMA_TO_DEVICE);
 
+	/*
+	 * Verify that descriptor is actually available
+	 *
+	 * Note: If descriptor isn't available, return 1 which tells
+	 *	 the upper layer to requeue the packet for later
+	 *	 transmission.
+	 *
+	 *       We need to ensure that the producer never reaches the
+	 *	 completion, except to indicate that the queue is empty.
+	 */
 
 	if (prod == bp->rcv_xmt_reg.index.xmt_comp)
 	{
 		skb_pull(skb,3);
 		spin_unlock_irqrestore(&bp->lock, flags);
-		return NETDEV_TX_BUSY;	
+		return NETDEV_TX_BUSY;	/* requeue packet for later */
 	}
 
+	/*
+	 * Save info for this packet for xmt done indication routine
+	 *
+	 * Normally, we'd save the producer index in the p_xmt_drv_descr
+	 * structure so that we'd have it handy when we complete this
+	 * packet later (in dfx_xmt_done).  However, since the current
+	 * transmit architecture guarantees a single fragment for the
+	 * entire packet, we can simply bump the completion index by
+	 * one (1) for each completed packet.
+	 *
+	 * Note: If this assumption changes and we're presented with
+	 *	 an inconsistent number of transmit fragments for packet
+	 *	 data, we'll need to modify this code to save the current
+	 *	 transmit producer index.
+	 */
 
 	p_xmt_drv_descr->p_skb = skb;
 
-	
+	/* Update Type 2 register */
 
 	bp->rcv_xmt_reg.index.xmt_prod = prod;
 	dfx_port_write_long(bp, PI_PDQ_K_REG_TYPE_2_PROD, bp->rcv_xmt_reg.lword);
 	spin_unlock_irqrestore(&bp->lock, flags);
 	netif_wake_queue(dev);
-	return NETDEV_TX_OK;	
+	return NETDEV_TX_OK;	/* packet queued to adapter */
 	}
 
 
+/*
+ * ================
+ * = dfx_xmt_done =
+ * ================
+ *
+ * Overview:
+ *   Processes all frames that have been transmitted.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   For all consumed transmit descriptors that have not
+ *   yet been completed, we'll free the skb we were holding
+ *   onto using dev_kfree_skb and bump the appropriate
+ *   counters.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   The Type 2 register is not updated in this routine.  It is
+ *   assumed that it will be updated in the ISR when dfx_xmt_done
+ *   returns.
+ *
+ * Side Effects:
+ *   None
+ */
 
 static int dfx_xmt_done(DFX_board_t *bp)
 	{
-	XMT_DRIVER_DESCR	*p_xmt_drv_descr;	
-	PI_TYPE_2_CONSUMER	*p_type_2_cons;		
-	u8			comp;			
-	int 			freed = 0;		
+	XMT_DRIVER_DESCR	*p_xmt_drv_descr;	/* ptr to transmit driver descriptor */
+	PI_TYPE_2_CONSUMER	*p_type_2_cons;		/* ptr to rcv/xmt consumer block register */
+	u8			comp;			/* local transmit completion index */
+	int 			freed = 0;		/* buffers freed */
 
-	
+	/* Service all consumed transmit frames */
 
 	p_type_2_cons = (PI_TYPE_2_CONSUMER *)(&bp->cons_block_virt->xmt_rcv_data);
 	while (bp->rcv_xmt_reg.index.xmt_comp != p_type_2_cons->index.xmt_cons)
 		{
-		
+		/* Get pointer to the transmit driver descriptor block information */
 
 		p_xmt_drv_descr = &(bp->xmt_drv_descr_blk[bp->rcv_xmt_reg.index.xmt_comp]);
 
-		
+		/* Increment transmit counters */
 
 		bp->xmt_total_frames++;
 		bp->xmt_total_bytes += p_xmt_drv_descr->p_skb->len;
 
-		
+		/* Return skb to operating system */
 		comp = bp->rcv_xmt_reg.index.xmt_comp;
 		dma_unmap_single(bp->bus_dev,
 				 bp->descr_block_virt->xmt_data[comp].long_1,
@@ -2128,6 +3404,16 @@ static int dfx_xmt_done(DFX_board_t *bp)
 				 DMA_TO_DEVICE);
 		dev_kfree_skb_irq(p_xmt_drv_descr->p_skb);
 
+		/*
+		 * Move to start of next packet by updating completion index
+		 *
+		 * Here we assume that a transmit packet request is always
+		 * serviced by posting one fragment.  We can therefore
+		 * simplify the completion code by incrementing the
+		 * completion index by one.  This code will need to be
+		 * modified if this assumption changes.  See comments
+		 * in dfx_xmt_queue_pkt for more details.
+		 */
 
 		bp->rcv_xmt_reg.index.xmt_comp += 1;
 		freed++;
@@ -2136,6 +3422,32 @@ static int dfx_xmt_done(DFX_board_t *bp)
 	}
 
 
+/*
+ * =================
+ * = dfx_rcv_flush =
+ * =================
+ *
+ * Overview:
+ *   Remove all skb's in the receive ring.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   Free's all the dynamically allocated skb's that are
+ *   currently attached to the device receive ring. This
+ *   function is typically only used when the device is
+ *   initialized or reinitialized.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Side Effects:
+ *   None
+ */
 #ifdef DYNAMIC_BUFFERS
 static void dfx_rcv_flush( DFX_board_t *bp )
 	{
@@ -2156,24 +3468,59 @@ static void dfx_rcv_flush( DFX_board_t *bp )
 static inline void dfx_rcv_flush( DFX_board_t *bp )
 {
 }
-#endif 
+#endif /* DYNAMIC_BUFFERS */
 
+/*
+ * =================
+ * = dfx_xmt_flush =
+ * =================
+ *
+ * Overview:
+ *   Processes all frames whether they've been transmitted
+ *   or not.
+ *
+ * Returns:
+ *   None
+ *
+ * Arguments:
+ *   bp - pointer to board information
+ *
+ * Functional Description:
+ *   For all produced transmit descriptors that have not
+ *   yet been completed, we'll free the skb we were holding
+ *   onto using dev_kfree_skb and bump the appropriate
+ *   counters.  Of course, it's possible that some of
+ *   these transmit requests actually did go out, but we
+ *   won't make that distinction here.  Finally, we'll
+ *   update the consumer index to match the producer.
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   This routine does NOT update the Type 2 register.  It
+ *   is assumed that this routine is being called during a
+ *   transmit flush interrupt, or a shutdown or close routine.
+ *
+ * Side Effects:
+ *   None
+ */
 
 static void dfx_xmt_flush( DFX_board_t *bp )
 	{
-	u32			prod_cons;		
-	XMT_DRIVER_DESCR	*p_xmt_drv_descr;	
-	u8			comp;			
+	u32			prod_cons;		/* rcv/xmt consumer block longword */
+	XMT_DRIVER_DESCR	*p_xmt_drv_descr;	/* ptr to transmit driver descriptor */
+	u8			comp;			/* local transmit completion index */
 
-	
+	/* Flush all outstanding transmit frames */
 
 	while (bp->rcv_xmt_reg.index.xmt_comp != bp->rcv_xmt_reg.index.xmt_prod)
 		{
-		
+		/* Get pointer to the transmit driver descriptor block information */
 
 		p_xmt_drv_descr = &(bp->xmt_drv_descr_blk[bp->rcv_xmt_reg.index.xmt_comp]);
 
-		
+		/* Return skb to operating system */
 		comp = bp->rcv_xmt_reg.index.xmt_comp;
 		dma_unmap_single(bp->bus_dev,
 				 bp->descr_block_virt->xmt_data[comp].long_1,
@@ -2181,21 +3528,57 @@ static void dfx_xmt_flush( DFX_board_t *bp )
 				 DMA_TO_DEVICE);
 		dev_kfree_skb(p_xmt_drv_descr->p_skb);
 
-		
+		/* Increment transmit error counter */
 
 		bp->xmt_discards++;
 
+		/*
+		 * Move to start of next packet by updating completion index
+		 *
+		 * Here we assume that a transmit packet request is always
+		 * serviced by posting one fragment.  We can therefore
+		 * simplify the completion code by incrementing the
+		 * completion index by one.  This code will need to be
+		 * modified if this assumption changes.  See comments
+		 * in dfx_xmt_queue_pkt for more details.
+		 */
 
 		bp->rcv_xmt_reg.index.xmt_comp += 1;
 		}
 
-	
+	/* Update the transmit consumer index in the consumer block */
 
 	prod_cons = (u32)(bp->cons_block_virt->xmt_rcv_data & ~PI_CONS_M_XMT_INDEX);
 	prod_cons |= (u32)(bp->rcv_xmt_reg.index.xmt_prod << PI_CONS_V_XMT_INDEX);
 	bp->cons_block_virt->xmt_rcv_data = prod_cons;
 	}
 
+/*
+ * ==================
+ * = dfx_unregister =
+ * ==================
+ *
+ * Overview:
+ *   Shuts down an FDDI controller
+ *
+ * Returns:
+ *   Condition code
+ *
+ * Arguments:
+ *   bdev - pointer to device information
+ *
+ * Functional Description:
+ *
+ * Return Codes:
+ *   None
+ *
+ * Assumptions:
+ *   It compiles so it should work :-( (PCI cards do :-)
+ *
+ * Side Effects:
+ *   Device structures for FDDI adapters (fddi0, fddi1, etc) are
+ *   freed.
+ */
 static void __devexit dfx_unregister(struct device *bdev)
 {
 	struct net_device *dev = dev_get_drvdata(bdev);
@@ -2203,9 +3586,9 @@ static void __devexit dfx_unregister(struct device *bdev)
 	int dfx_bus_pci = DFX_BUS_PCI(bdev);
 	int dfx_bus_tc = DFX_BUS_TC(bdev);
 	int dfx_use_mmio = DFX_MMIO || dfx_bus_tc;
-	resource_size_t bar_start = 0;		
-	resource_size_t bar_len = 0;		
-	int		alloc_size;		
+	resource_size_t bar_start = 0;		/* pointer to port */
+	resource_size_t bar_len = 0;		/* resource length */
+	int		alloc_size;		/* total buffer size used */
 
 	unregister_netdev(dev);
 
@@ -2267,7 +3650,7 @@ static void __devexit dfx_pci_unregister(struct pci_dev *pdev)
 {
 	dfx_unregister(&pdev->dev);
 }
-#endif 
+#endif /* CONFIG_PCI */
 
 #ifdef CONFIG_EISA
 static struct eisa_device_id dfx_eisa_table[] = {
@@ -2288,7 +3671,7 @@ static struct eisa_driver dfx_eisa_driver = {
 		.remove	= __devexit_p(dfx_dev_unregister),
 	},
 };
-#endif 
+#endif /* CONFIG_EISA */
 
 #ifdef CONFIG_TC
 static struct tc_device_id const dfx_tc_table[] = {
@@ -2309,7 +3692,7 @@ static struct tc_driver dfx_tc_driver = {
 		.remove	= __devexit_p(dfx_dev_unregister),
 	},
 };
-#endif 
+#endif /* CONFIG_TC */
 
 static int __devinit __maybe_unused dfx_dev_register(struct device *dev)
 {

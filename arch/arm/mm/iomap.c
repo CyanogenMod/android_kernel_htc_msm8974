@@ -1,3 +1,9 @@
+/*
+ *  linux/arch/arm/mm/iomap.c
+ *
+ * Map IO port and PCI memory spaces so that {read,write}[bwl] can
+ * be used to access this memory.
+ */
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/ioport.h>

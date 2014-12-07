@@ -47,8 +47,13 @@
 #include <linux/types.h>
 #include <linux/if_ether.h>
 
+/* userland - kernel ABI version (2003/05/08) */
 #define BOND_ABI_VERSION 2
 
+/*
+ * We can remove these ioctl definitions in 2.5.  People should use the
+ * SIOC*** versions of them instead
+ */
 #define BOND_ENSLAVE_OLD		(SIOCDEVPRIVATE)
 #define BOND_RELEASE_OLD		(SIOCDEVPRIVATE + 1)
 #define BOND_SETHWADDR_OLD		(SIOCDEVPRIVATE + 2)
@@ -64,25 +69,28 @@
 #define BOND_MODE_BROADCAST	3
 #define BOND_MODE_8023AD        4
 #define BOND_MODE_TLB           5
-#define BOND_MODE_ALB		6 
+#define BOND_MODE_ALB		6 /* TLB + RLB (receive load balancing) */
 
-#define BOND_LINK_UP    0           
-#define BOND_LINK_FAIL  1           
-#define BOND_LINK_DOWN  2           
-#define BOND_LINK_BACK  3           
+/* each slave's link has 4 states */
+#define BOND_LINK_UP    0           /* link is up and running */
+#define BOND_LINK_FAIL  1           /* link has just gone down */
+#define BOND_LINK_DOWN  2           /* link has been down for too long time */
+#define BOND_LINK_BACK  3           /* link is going back */
 
-#define BOND_STATE_ACTIVE       0   
-#define BOND_STATE_BACKUP       1   
+/* each slave has several states */
+#define BOND_STATE_ACTIVE       0   /* link is active */
+#define BOND_STATE_BACKUP       1   /* link is backup */
 
-#define BOND_DEFAULT_MAX_BONDS  1   
+#define BOND_DEFAULT_MAX_BONDS  1   /* Default maximum number of devices to support */
 
-#define BOND_DEFAULT_TX_QUEUES 16   
+#define BOND_DEFAULT_TX_QUEUES 16   /* Default number of tx queues per device */
 
-#define BOND_DEFAULT_RESEND_IGMP	1 
+#define BOND_DEFAULT_RESEND_IGMP	1 /* Default number of IGMP membership reports */
 
-#define BOND_XMIT_POLICY_LAYER2		0 
-#define BOND_XMIT_POLICY_LAYER34	1 
-#define BOND_XMIT_POLICY_LAYER23	2 
+/* hashing types */
+#define BOND_XMIT_POLICY_LAYER2		0 /* layer 2 (MAC only), default */
+#define BOND_XMIT_POLICY_LAYER34	1 /* layer 3+4 (IP ^ (TCP || UDP)) */
+#define BOND_XMIT_POLICY_LAYER23	2 /* layer 2+3 (IP ^ MAC) */
 
 typedef struct ifbond {
 	__s32 bond_mode;
@@ -91,7 +99,7 @@ typedef struct ifbond {
 } ifbond;
 
 typedef struct ifslave {
-	__s32 slave_id; 
+	__s32 slave_id; /* Used as an IN param to the BOND_SLAVE_INFO_QUERY ioctl */
 	char slave_name[IFNAMSIZ];
 	__s8 link;
 	__s8 state;
@@ -106,6 +114,15 @@ struct ad_info {
 	__u8 partner_system[ETH_ALEN];
 };
 
-#endif 
+#endif /* _LINUX_IF_BONDING_H */
 
+/*
+ * Local variables:
+ *  version-control: t
+ *  kept-new-versions: 5
+ *  c-indent-level: 8
+ *  c-basic-offset: 8
+ *  tab-width: 8
+ * End:
+ */
 

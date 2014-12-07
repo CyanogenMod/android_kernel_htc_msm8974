@@ -7,6 +7,7 @@
  * the Free Software Foundation.
  */
 
+/* Made up value to limit allocation sizes */
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -21,6 +22,11 @@
 
 const char *iio_dir = "/sys/bus/iio/devices/";
 
+/**
+ * iioutils_break_up_name() - extract generic name from full channel name
+ * @full_name: the full channel name
+ * @generic_name: the output generic channel name
+ **/
 static int iioutils_break_up_name(const char *full_name,
 				  char **generic_name)
 {
@@ -46,6 +52,18 @@ static int iioutils_break_up_name(const char *full_name,
 	return 0;
 }
 
+/**
+ * struct iio_channel_info - information about a given channel
+ * @name: channel name
+ * @generic_name: general name for channel type
+ * @scale: scale factor to be applied for conversion to si units
+ * @offset: offset to be applied for conversion to si units
+ * @index: the channel index in the buffer output
+ * @bytes: number of bytes occupied in buffer output
+ * @mask: a bit mask for the raw output
+ * @is_signed: is the raw value stored signed
+ * @enabled: is this channel enabled
+ **/
 struct iio_channel_info {
 	char *name;
 	char *generic_name;
@@ -62,6 +80,16 @@ struct iio_channel_info {
 	unsigned location;
 };
 
+/**
+ * iioutils_get_type() - find and process _type attribute data
+ * @is_signed: output whether channel is signed
+ * @bytes: output how many bytes the channel storage occupies
+ * @mask: output a bit mask for the raw data
+ * @be: big endian
+ * @device_dir: the iio device directory
+ * @name: the channel name
+ * @generic_name: the channel type name
+ **/
 inline int iioutils_get_type(unsigned *is_signed,
 			     unsigned *bytes,
 			     unsigned *bits_used,
@@ -102,6 +130,10 @@ inline int iioutils_get_type(unsigned *is_signed,
 		goto error_free_builtname_generic;
 	}
 	while (ent = readdir(dp), ent != NULL)
+		/*
+		 * Do we allow devices to override a generic name with
+		 * a specific one?
+		 */
 		if ((strcmp(builtname, ent->d_name) == 0) ||
 		    (strcmp(builtname_generic, ent->d_name) == 0)) {
 			ret = asprintf(&filename,
@@ -216,6 +248,10 @@ error_ret:
 	return ret;
 }
 
+/**
+ * bsort_channel_array_by_index() - reorder so that the array is in index order
+ *
+ **/
 
 inline void bsort_channel_array_by_index(struct iio_channel_info **ci_array,
 					 int cnt)
@@ -233,6 +269,11 @@ inline void bsort_channel_array_by_index(struct iio_channel_info **ci_array,
 			}
 }
 
+/**
+ * build_channel_array() - function to figure out what channels are present
+ * @device_dir: the IIO device directory in sysfs
+ * @
+ **/
 inline int build_channel_array(const char *device_dir,
 			      struct iio_channel_info **ci_array,
 			      int *counter)
@@ -293,7 +334,7 @@ inline int build_channel_array(const char *device_dir,
 				       "%s/%s", scan_el_dir, ent->d_name);
 			if (ret < 0) {
 				ret = -ENOMEM;
-				
+				/* decrement count to avoid freeing name */
 				count--;
 				goto error_cleanup_array;
 			}
@@ -322,7 +363,7 @@ inline int build_channel_array(const char *device_dir,
 				ret = -ENOMEM;
 				goto error_cleanup_array;
 			}
-			
+			/* Get the generic and specific name elements */
 			ret = iioutils_break_up_name(current->name,
 						     &current->generic_name);
 			if (ret) {
@@ -342,7 +383,7 @@ inline int build_channel_array(const char *device_dir,
 			fscanf(sysfsfp, "%u", &current->index);
 			fclose(sysfsfp);
 			free(filename);
-			
+			/* Find the scale */
 			ret = iioutils_get_param_float(&current->scale,
 						       "scale",
 						       device_dir,
@@ -370,7 +411,7 @@ inline int build_channel_array(const char *device_dir,
 	}
 
 	closedir(dp);
-	
+	/* reorder so that the array is in index order */
 	bsort_channel_array_by_index(ci_array, *counter);
 
 	return 0;
@@ -387,6 +428,13 @@ error_ret:
 	return ret;
 }
 
+/**
+ * find_type_by_name() - function to match top level types by name
+ * @name: top level type instance name
+ * @type: the type of top level instance being sort
+ *
+ * Typical types this is used for are device and trigger.
+ **/
 inline int find_type_by_name(const char *name, const char *type)
 {
 	const struct dirent *ent;
@@ -411,7 +459,7 @@ inline int find_type_by_name(const char *name, const char *type)
 			numstrlen = sscanf(ent->d_name + strlen(type),
 					   "%d",
 					   &number);
-			
+			/* verify the next character is not a colon */
 			if (strncmp(ent->d_name + strlen(type) + numstrlen,
 					":",
 					1) != 0) {
@@ -530,6 +578,12 @@ error_free:
 	return ret;
 }
 
+/**
+ * write_sysfs_string_and_verify() - string write, readback and verify
+ * @filename: name of file to write to
+ * @basedir: the sysfs directory in which the file is to be found
+ * @val: the string to write
+ **/
 int write_sysfs_string_and_verify(char *filename, char *basedir, char *val)
 {
 	return _write_sysfs_string(filename, basedir, val, 1);

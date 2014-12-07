@@ -16,14 +16,18 @@
 #ifndef __ASM_ARCH_MSM_FIQ_H
 #define __ASM_ARCH_MSM_FIQ_H
 
+/* cause an interrupt to be an FIQ instead of a regular IRQ */
 void msm_fiq_select(int number);
 void msm_fiq_unselect(int number);
 
+/* enable/disable an interrupt that is an FIQ (not safe from FIQ context) */
 void msm_fiq_enable(int number);
 void msm_fiq_disable(int number);
 
+/* install an FIQ handler */
 int msm_fiq_set_handler(void (*func)(void *data, void *regs), void *data);
 
+/* cause an edge triggered interrupt to fire (safe from FIQ context */
 void msm_trigger_irq(int number);
 
 #endif

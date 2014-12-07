@@ -49,21 +49,21 @@ struct cpm_pin {
 };
 
 static __initdata struct cpm_pin km82xx_pins[] = {
-	
+	/* SMC1 */
 	{2, 4, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 5, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 
-	
+	/* SMC2 */
 	{0, 8, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{0, 9, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 
-	
+	/* SCC1 */
 	{2, 21, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 15, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{3, 31, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{3, 30, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 
-	
+	/* SCC4 */
 	{2, 25, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 24, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2,  9, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
@@ -71,7 +71,7 @@ static __initdata struct cpm_pin km82xx_pins[] = {
 	{3, 22, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{3, 21, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 
-	
+	/* FCC1 */
 	{0, 14, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{0, 15, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{0, 16, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
@@ -90,7 +90,7 @@ static __initdata struct cpm_pin km82xx_pins[] = {
 	{2, 22, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 23, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* FCC2 */
 	{1, 18, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{1, 19, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{1, 20, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
@@ -109,25 +109,25 @@ static __initdata struct cpm_pin km82xx_pins[] = {
 	{2, 18, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 19, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* MDC */
 	{0, 13, CPM_PIN_OUTPUT | CPM_PIN_GPIO},
 
 #if defined(CONFIG_I2C_CPM)
-	
+	/* I2C */
 	{3, 14, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_OPENDRAIN},
 	{3, 15, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_OPENDRAIN},
 #endif
 
-	
-	{0, 10, CPM_PIN_OUTPUT | CPM_PIN_GPIO},    
-	{0, 11, CPM_PIN_OUTPUT | CPM_PIN_GPIO},    
-	{2, 10, CPM_PIN_INPUT  | CPM_PIN_PRIMARY}, 
-	{2, 11, CPM_PIN_INPUT  | CPM_PIN_PRIMARY}, 
-	{2, 20, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY}, 
-	{2, 27, CPM_PIN_INPUT  | CPM_PIN_PRIMARY}, 
-	{3, 23, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY}, 
-	{3, 24, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY}, 
-	{3, 25, CPM_PIN_INPUT  | CPM_PIN_PRIMARY}, 
+	/* USB */
+	{0, 10, CPM_PIN_OUTPUT | CPM_PIN_GPIO},    /* FULL_SPEED */
+	{0, 11, CPM_PIN_OUTPUT | CPM_PIN_GPIO},    /*/SLAVE */
+	{2, 10, CPM_PIN_INPUT  | CPM_PIN_PRIMARY}, /* RXN */
+	{2, 11, CPM_PIN_INPUT  | CPM_PIN_PRIMARY}, /* RXP */
+	{2, 20, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY}, /* /OE */
+	{2, 27, CPM_PIN_INPUT  | CPM_PIN_PRIMARY}, /* RXCLK */
+	{3, 23, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY}, /* TXP */
+	{3, 24, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY}, /* TXN */
+	{3, 25, CPM_PIN_INPUT  | CPM_PIN_PRIMARY}, /* RXD */
 };
 
 static void __init init_ioports(void)
@@ -151,9 +151,9 @@ static void __init init_ioports(void)
 	cpm2_clk_setup(CPM_CLK_FCC2, CPM_CLK13, CPM_CLK_RX);
 	cpm2_clk_setup(CPM_CLK_FCC2, CPM_CLK14, CPM_CLK_TX);
 
-	
+	/* Force USB FULL SPEED bit to '1' */
 	setbits32(&cpm2_immr->im_ioport.iop_pdata, 1 << (31 - 10));
-	
+	/* clear USB_SLAVE */
 	clrbits32(&cpm2_immr->im_ioport.iop_pdata, 1 << (31 - 11));
 }
 
@@ -164,6 +164,9 @@ static void __init km82xx_setup_arch(void)
 
 	cpm2_reset();
 
+	/* When this is set, snooping CPM DMA from RAM causes
+	 * machine checks.  See erratum SIU18.
+	 */
 	clrbits32(&cpm2_immr->im_siu_conf.siu_82xx.sc_bcr, MPC82XX_BCR_PLDP);
 
 	init_ioports();
@@ -185,6 +188,9 @@ static int __init declare_of_platform_devices(void)
 }
 machine_device_initcall(km82xx, declare_of_platform_devices);
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init km82xx_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

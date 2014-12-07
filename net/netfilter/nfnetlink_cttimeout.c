@@ -100,7 +100,7 @@ cttimeout_new_timeout(struct sock *ctnl, struct sk_buff *skb,
 
 	l4proto = nf_ct_l4proto_find_get(l3num, l4num);
 
-	
+	/* This protocol is not supportted, skip. */
 	if (l4proto->l4proto != l4num) {
 		ret = -EOPNOTSUPP;
 		goto err_proto_put;
@@ -108,6 +108,9 @@ cttimeout_new_timeout(struct sock *ctnl, struct sk_buff *skb,
 
 	if (matching) {
 		if (nlh->nlmsg_flags & NLM_F_REPLACE) {
+			/* You cannot replace one timeout policy by another of
+			 * different kind, sorry.
+			 */
 			if (matching->l3num != l3num ||
 			    matching->l4proto->l4proto != l4num) {
 				ret = -EINVAL;
@@ -274,24 +277,25 @@ cttimeout_get_timeout(struct sock *ctnl, struct sk_buff *skb,
 		if (ret > 0)
 			ret = 0;
 
-		
+		/* this avoids a loop in nfnetlink. */
 		return ret == -EAGAIN ? -ENOBUFS : ret;
 	}
 	return ret;
 }
 
+/* try to delete object, fail if it is still in use. */
 static int ctnl_timeout_try_del(struct ctnl_timeout *timeout)
 {
 	int ret = 0;
 
-	
+	/* we want to avoid races with nf_ct_timeout_find_get. */
 	if (atomic_dec_and_test(&timeout->refcnt)) {
-		
+		/* We are protected by nfnl mutex. */
 		list_del_rcu(&timeout->head);
 		nf_ct_l4proto_put(timeout->l4proto);
 		kfree_rcu(timeout, rcu_head);
 	} else {
-		
+		/* still in use, restore reference counter. */
 		atomic_inc(&timeout->refcnt);
 		ret = -EBUSY;
 	}
@@ -358,7 +362,7 @@ static void ctnl_timeout_put(struct ctnl_timeout *timeout)
 	atomic_dec(&timeout->refcnt);
 	module_put(THIS_MODULE);
 }
-#endif 
+#endif /* CONFIG_NF_CONNTRACK_TIMEOUT */
 
 static const struct nfnl_callback cttimeout_cb[IPCTNL_MSG_TIMEOUT_MAX] = {
 	[IPCTNL_MSG_TIMEOUT_NEW]	= { .call = cttimeout_new_timeout,
@@ -394,7 +398,7 @@ static int __init cttimeout_init(void)
 #ifdef CONFIG_NF_CONNTRACK_TIMEOUT
 	RCU_INIT_POINTER(nf_ct_timeout_find_get_hook, ctnl_timeout_find_get);
 	RCU_INIT_POINTER(nf_ct_timeout_put_hook, ctnl_timeout_put);
-#endif 
+#endif /* CONFIG_NF_CONNTRACK_TIMEOUT */
 	return 0;
 
 err_out:
@@ -410,13 +414,16 @@ static void __exit cttimeout_exit(void)
 	nfnetlink_subsys_unregister(&cttimeout_subsys);
 	list_for_each_entry_safe(cur, tmp, &cttimeout_list, head) {
 		list_del_rcu(&cur->head);
+		/* We are sure that our objects have no clients at this point,
+		 * it's safe to release them all without checking refcnt.
+		 */
 		nf_ct_l4proto_put(cur->l4proto);
 		kfree_rcu(cur, rcu_head);
 	}
 #ifdef CONFIG_NF_CONNTRACK_TIMEOUT
 	RCU_INIT_POINTER(nf_ct_timeout_find_get_hook, NULL);
 	RCU_INIT_POINTER(nf_ct_timeout_put_hook, NULL);
-#endif 
+#endif /* CONFIG_NF_CONNTRACK_TIMEOUT */
 }
 
 module_init(cttimeout_init);

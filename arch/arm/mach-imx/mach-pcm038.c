@@ -41,22 +41,22 @@
 #include "devices-imx27.h"
 
 static const int pcm038_pins[] __initconst = {
-	
+	/* UART1 */
 	PE12_PF_UART1_TXD,
 	PE13_PF_UART1_RXD,
 	PE14_PF_UART1_CTS,
 	PE15_PF_UART1_RTS,
-	
+	/* UART2 */
 	PE3_PF_UART2_CTS,
 	PE4_PF_UART2_RTS,
 	PE6_PF_UART2_TXD,
 	PE7_PF_UART2_RXD,
-	
+	/* UART3 */
 	PE8_PF_UART3_TXD,
 	PE9_PF_UART3_RXD,
 	PE10_PF_UART3_CTS,
 	PE11_PF_UART3_RTS,
-	
+	/* FEC */
 	PD0_AIN_FEC_TXD0,
 	PD1_AIN_FEC_TXD1,
 	PD2_AIN_FEC_TXD2,
@@ -75,25 +75,25 @@ static const int pcm038_pins[] __initconst = {
 	PD15_AOUT_FEC_COL,
 	PD16_AIN_FEC_TX_ER,
 	PF23_AIN_FEC_TX_EN,
-	
+	/* I2C2 */
 	PC5_PF_I2C2_SDA,
 	PC6_PF_I2C2_SCL,
-	
+	/* SPI1 */
 	PD25_PF_CSPI1_RDY,
 	PD29_PF_CSPI1_SCLK,
 	PD30_PF_CSPI1_MISO,
 	PD31_PF_CSPI1_MOSI,
-	
+	/* SSI1 */
 	PC20_PF_SSI1_FS,
 	PC21_PF_SSI1_RXD,
 	PC22_PF_SSI1_TXD,
 	PC23_PF_SSI1_CLK,
-	
+	/* SSI4 */
 	PC16_PF_SSI4_FS,
 	PC17_PF_SSI4_RXD,
 	PC18_PF_SSI4_TXD,
 	PC19_PF_SSI4_CLK,
-	
+	/* USB host */
 	PA0_PF_USBH2_CLK,
 	PA1_PF_USBH2_DIR,
 	PA2_PF_USBH2_DATA7,
@@ -108,6 +108,10 @@ static const int pcm038_pins[] __initconst = {
 	PD26_AF_USBH2_DATA5,
 };
 
+/*
+ * Phytec's PCM038 comes with 2MiB battery buffered SRAM,
+ * 16 bit width
+ */
 
 static struct platdata_mtd_ram pcm038_sram_data = {
 	.bankwidth = 2,
@@ -129,6 +133,10 @@ static struct platform_device pcm038_sram_mtd_device = {
 	.resource = &pcm038_sram_resource,
 };
 
+/*
+ * Phytec's phyCORE-i.MX27 comes with 32MiB flash,
+ * 16 bit width
+ */
 static struct physmap_flash_data pcm038_flash_data = {
 	.width = 2,
 };
@@ -164,6 +172,8 @@ static struct platform_device *platform_devices[] __initdata = {
 	&pcm038_sram_mtd_device,
 };
 
+/* On pcm038 there's a sram attached to CS1, we enable the chipselect here and
+ * setup other stuffs to access the sram. */
 static void __init pcm038_init_sram(void)
 {
 	__raw_writel(0x0000d843, MX27_IO_ADDRESS(MX27_WEIM_CSCRxU(1)));
@@ -183,7 +193,7 @@ static struct at24_platform_data board_eeprom = {
 
 static struct i2c_board_info pcm038_i2c_devices[] = {
 	{
-		I2C_BOARD_INFO("at24", 0x52), 
+		I2C_BOARD_INFO("at24", 0x52), /* E0=0, E1=1, E2=0 */
 		.platform_data = &board_eeprom,
 	}, {
 		I2C_BOARD_INFO("pcf8563", 0x51),
@@ -300,18 +310,18 @@ static void __init pcm038_init(void)
 	mxc_gpio_mode(PE16_AF_OWIRE);
 	imx27_add_mxc_nand(&pcm038_nand_board_info);
 
-	
+	/* only the i2c master 1 is used on this CPU card */
 	i2c_register_board_info(1, pcm038_i2c_devices,
 				ARRAY_SIZE(pcm038_i2c_devices));
 
 	imx27_add_imx_i2c(1, &pcm038_i2c1_data);
 
-	
+	/* PE18 for user-LED D40 */
 	mxc_gpio_mode(GPIO_PORTE | 18 | GPIO_GPIO | GPIO_OUT);
 
 	mxc_gpio_mode(GPIO_PORTD | 28 | GPIO_GPIO | GPIO_OUT);
 
-	
+	/* MC13783 IRQ */
 	mxc_gpio_mode(GPIO_PORTB | 23 | GPIO_GPIO | GPIO_IN);
 
 	imx27_add_spi_imx0(&pcm038_spi0_data);

@@ -139,7 +139,7 @@ static void radeon_set_cursor(struct drm_crtc *crtc, struct drm_gem_object *obj,
 		       gpu_addr & 0xffffffff);
 	} else {
 		radeon_crtc->legacy_cursor_offset = gpu_addr - radeon_crtc->legacy_display_base_addr;
-		
+		/* offset is from DISP(2)_BASE_ADDRESS */
 		WREG32(RADEON_CUR_OFFSET + radeon_crtc->crtc_offset, radeon_crtc->legacy_cursor_offset);
 	}
 }
@@ -158,7 +158,7 @@ int radeon_crtc_cursor_set(struct drm_crtc *crtc,
 	int ret;
 
 	if (!handle) {
-		
+		/* turn off cursor */
 		radeon_hide_cursor(crtc);
 		obj = NULL;
 		goto unpin;
@@ -179,7 +179,7 @@ int radeon_crtc_cursor_set(struct drm_crtc *crtc,
 	ret = radeon_bo_reserve(robj, false);
 	if (unlikely(ret != 0))
 		goto fail;
-	
+	/* Only 27 bit offset for legacy cursor */
 	ret = radeon_bo_pin_restricted(robj, RADEON_GEM_DOMAIN_VRAM,
 				       ASIC_IS_AVIVO(rdev) ? 0 : 1 << 27,
 				       &gpu_addr);
@@ -223,7 +223,7 @@ int radeon_crtc_cursor_move(struct drm_crtc *crtc,
 	int w = radeon_crtc->cursor_width;
 
 	if (ASIC_IS_AVIVO(rdev)) {
-		
+		/* avivo cursor are offset into the total surface */
 		x += crtc->x;
 		y += crtc->y;
 	}
@@ -242,6 +242,9 @@ int radeon_crtc_cursor_move(struct drm_crtc *crtc,
 		int i = 0;
 		struct drm_crtc *crtc_p;
 
+		/* avivo cursor image can't end on 128 pixel boundary or
+		 * go past the end of the frame if both crtcs are enabled
+		 */
 		list_for_each_entry(crtc_p, &crtc->dev->mode_config.crtc_list, head) {
 			if (crtc_p->enabled)
 				i++;
@@ -287,7 +290,7 @@ int radeon_crtc_cursor_move(struct drm_crtc *crtc,
 		       (RADEON_CUR_LOCK
 			| (x << 16)
 			| y));
-		
+		/* offset is from DISP(2)_BASE_ADDRESS */
 		WREG32(RADEON_CUR_OFFSET + radeon_crtc->crtc_offset, (radeon_crtc->legacy_cursor_offset +
 								      (yorigin * 256)));
 	}

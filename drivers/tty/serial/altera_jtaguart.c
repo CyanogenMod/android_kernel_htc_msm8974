@@ -29,6 +29,10 @@
 
 #define DRV_NAME "altera_jtaguart"
 
+/*
+ * Altera JTAG UART register definitions according to the Altera JTAG UART
+ * datasheet: http://www.altera.com/literature/hb/nios2/n2cpu_nii51009.pdf
+ */
 
 #define ALTERA_JTAGUART_SIZE			8
 
@@ -50,10 +54,13 @@
 #define ALTERA_JTAGUART_CONTROL_WSPACE_MSK	0xFFFF0000
 #define ALTERA_JTAGUART_CONTROL_WSPACE_OFF	16
 
+/*
+ * Local per-uart structure.
+ */
 struct altera_jtaguart {
 	struct uart_port port;
-	unsigned int sigs;	
-	unsigned long imr;	
+	unsigned int sigs;	/* Local copy of line sigs */
+	unsigned long imr;	/* Local IMR mirror */
 };
 
 static unsigned int altera_jtaguart_tx_empty(struct uart_port *port)
@@ -110,7 +117,7 @@ static void altera_jtaguart_set_termios(struct uart_port *port,
 					struct ktermios *termios,
 					struct ktermios *old)
 {
-	
+	/* Just copy the old termios settings back */
 	if (old)
 		tty_termios_copy_hw(termios, old);
 }
@@ -142,7 +149,7 @@ static void altera_jtaguart_tx_chars(struct altera_jtaguart *pp)
 	unsigned int pending, count;
 
 	if (port->x_char) {
-		
+		/* Send special char - probably flow control */
 		writel(port->x_char, port->membase + ALTERA_JTAGUART_DATA_REG);
 		port->x_char = 0;
 		port->icount.tx++;
@@ -201,7 +208,7 @@ static void altera_jtaguart_config_port(struct uart_port *port, int flags)
 {
 	port->type = PORT_ALTERA_JTAGUART;
 
-	
+	/* Clear mask, so no surprise interrupts. */
 	writel(0, port->membase + ALTERA_JTAGUART_CONTROL_REG);
 }
 
@@ -222,7 +229,7 @@ static int altera_jtaguart_startup(struct uart_port *port)
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	
+	/* Enable RX interrupts now */
 	pp->imr = ALTERA_JTAGUART_CONTROL_RE_MSK;
 	writel(pp->imr, port->membase + ALTERA_JTAGUART_CONTROL_REG);
 
@@ -239,7 +246,7 @@ static void altera_jtaguart_shutdown(struct uart_port *port)
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	
+	/* Disable all interrupts now */
 	pp->imr = 0;
 	writel(pp->imr, port->membase + ALTERA_JTAGUART_CONTROL_REG);
 
@@ -255,13 +262,13 @@ static const char *altera_jtaguart_type(struct uart_port *port)
 
 static int altera_jtaguart_request_port(struct uart_port *port)
 {
-	
+	/* UARTs always present */
 	return 0;
 }
 
 static void altera_jtaguart_release_port(struct uart_port *port)
 {
-	
+	/* Nothing to release... */
 }
 
 static int altera_jtaguart_verify_port(struct uart_port *port,
@@ -272,6 +279,9 @@ static int altera_jtaguart_verify_port(struct uart_port *port,
 	return 0;
 }
 
+/*
+ *	Define the basic serial functions we support.
+ */
 static struct uart_ops altera_jtaguart_ops = {
 	.tx_empty	= altera_jtaguart_tx_empty,
 	.get_mctrl	= altera_jtaguart_get_mctrl,
@@ -308,7 +318,7 @@ static void altera_jtaguart_console_putc(struct console *co, const char c)
 		ALTERA_JTAGUART_CONTROL_WSPACE_MSK) == 0) {
 		if ((status & ALTERA_JTAGUART_CONTROL_AC_MSK) == 0) {
 			spin_unlock_irqrestore(&port->lock, flags);
-			return;	
+			return;	/* no connection activity */
 		}
 		spin_unlock_irqrestore(&port->lock, flags);
 		cpu_relax();
@@ -384,7 +394,7 @@ console_initcall(altera_jtaguart_console_init);
 
 #define	ALTERA_JTAGUART_CONSOLE	NULL
 
-#endif 
+#endif /* CONFIG_ALTERA_JTAGUART_CONSOLE */
 
 static struct uart_driver altera_jtaguart_driver = {
 	.owner		= THIS_MODULE,
@@ -403,7 +413,7 @@ static int __devinit altera_jtaguart_probe(struct platform_device *pdev)
 	struct resource *res_irq, *res_mem;
 	int i = pdev->id;
 
-	
+	/* -1 emphasizes that the platform must have one port, no .N suffix */
 	if (i == -1)
 		i = 0;
 
@@ -463,7 +473,7 @@ static struct of_device_id altera_jtaguart_match[] = {
 	{},
 };
 MODULE_DEVICE_TABLE(of, altera_jtaguart_match);
-#endif 
+#endif /* CONFIG_OF */
 
 static struct platform_driver altera_jtaguart_platform_driver = {
 	.probe	= altera_jtaguart_probe,

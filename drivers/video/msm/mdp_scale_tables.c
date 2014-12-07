@@ -634,7 +634,7 @@ struct mdp_table_entry *mdp_downscale_y_table[MDP_DOWNSCALE_MAX] = {
 };
 
 struct mdp_table_entry mdp_gaussian_blur_table[] = {
-	
+	/* max variance */
 	{ 0x5fffc, 0x20000080 },
 	{ 0x50280, 0x20000080 },
 	{ 0x5fffc, 0x20000080 },

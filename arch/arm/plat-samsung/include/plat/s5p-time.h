@@ -13,6 +13,7 @@
 #ifndef __ASM_PLAT_S5P_TIME_H
 #define __ASM_PLAT_S5P_TIME_H __FILE__
 
+/* S5P HR-Timer Clock mode */
 enum s5p_timer_mode {
 	S5P_PWM0,
 	S5P_PWM1,
@@ -26,6 +27,7 @@ struct s5p_timer_source {
 	unsigned int source_id;
 };
 
+/* Be able to sleep for atleast 4 seconds (usually more) */
 #define S5PTIMER_MIN_RANGE	4
 
 #define TCNT_MAX		0xffffffff
@@ -35,4 +37,4 @@ struct s5p_timer_source {
 extern void __init s5p_set_timer_source(enum s5p_timer_mode event,
 					enum s5p_timer_mode source);
 extern	struct sys_timer s5p_timer;
-#endif 
+#endif /* __ASM_PLAT_S5P_TIME_H */

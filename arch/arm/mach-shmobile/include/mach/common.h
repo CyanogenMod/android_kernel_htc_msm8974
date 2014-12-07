@@ -83,4 +83,4 @@ extern int r8a7779_boot_secondary(unsigned int cpu);
 extern void r8a7779_smp_prepare_cpus(void);
 extern void r8a7779_register_twd(void);
 
-#endif 
+#endif /* __ARCH_MACH_COMMON_H */

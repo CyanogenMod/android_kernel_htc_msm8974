@@ -4,15 +4,31 @@
  *  Copyright (C) 1991, 1992  Linus Torvalds
  */
 
+/*
+ * This file builds a disk-image from three different files:
+ *
+ * - bootsect: exactly 512 bytes of 8086 machine code, loads the rest
+ * - setup: 8086 machine code, sets up system parm
+ * - system: 80386 code for actual system
+ *
+ * It does some checking that all files are of the correct type, and
+ * just writes the result to stdout, removing headers and padding to
+ * the right amount. It also writes some system data to stderr.
+ */
 
+/*
+ * Changes by tytso to allow root device specification
+ * High loaded stuff by Hans Lermen & Werner Almesberger, Feb. 1996
+ * Cross compiling fixes by Gertjan van Wingerde, July 1996
+ */
 
-#include <stdio.h>	
+#include <stdio.h>	/* fprintf */
 #include <string.h>
-#include <stdlib.h>	
-#include <sys/types.h>	
+#include <stdlib.h>	/* contains exit */
+#include <sys/types.h>	/* unistd.h needs this */
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
-#include <unistd.h>	
+#include <unistd.h>	/* contains read/write */
 #include <fcntl.h>
 #include <errno.h>
 
@@ -32,6 +48,8 @@ static int GCC_HEADER = sizeof(struct exec);
 #define DEFAULT_MAJOR_ROOT 0
 #define DEFAULT_MINOR_ROOT 0
 
+/* max nr of sectors of setup: don't change unless you also change
+ * bootsect etc */
 #define SETUP_SECTS 4
 
 #define STRINGIFY(x) #x
@@ -173,15 +191,17 @@ int main(int argc, char ** argv)
 #ifdef __BIG_KERNEL__
 	{
 		if (!i) {
+			/* Working with memcpy because of alignment constraints
+			   on Sparc - Gertjan */
 			memcpy(&tmp_long, &buf[2], sizeof(long));
 			if (tmp_long != intel_long(0x53726448) )
 				die("Wrong magic in loader header of 'setup'");
 			memcpy(&tmp_int, &buf[6], sizeof(int));
 			if (tmp_int < intel_int(0x200))
 				die("Wrong version of loader header of 'setup'");
-			buf[0x11] = 1; 
+			buf[0x11] = 1; /* LOADED_HIGH */
 			tmp_long = intel_long(0x100000);
-			memcpy(&buf[0x14], &tmp_long, sizeof(long));  
+			memcpy(&buf[0x14], &tmp_long, sizeof(long));  /* code32_start */
 		}
 #endif
 		if (write(1,buf,c)!=c)
@@ -193,7 +213,7 @@ int main(int argc, char ** argv)
 		die("read-error on 'setup'");
 	close (id);
 	setup_sectors = (unsigned char)((i + 511) / 512);
-	
+	/* for compatibility with LILO */
 	if (setup_sectors < SETUP_SECTS)
 		setup_sectors = SETUP_SECTS;
 	fprintf(stderr,"Setup is %d bytes.\n",i);

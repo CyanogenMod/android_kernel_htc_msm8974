@@ -24,5 +24,5 @@ static inline u16 crc_itu_t_byte(u16 crc, const u8 data)
 	return (crc << 8) ^ crc_itu_t_table[((crc >> 8) ^ data) & 0xff];
 }
 
-#endif 
+#endif /* CRC_ITU_T_H */
 

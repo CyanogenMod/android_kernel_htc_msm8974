@@ -4,6 +4,11 @@
  *  Copyright (C) 1995  Linus Torvalds
  */
 
+/*
+ * This file handles some of the stranger OSF/1 system call interfaces.
+ * Some of the system calls expect a non-C calling standard, others have
+ * special parameter blocks..
+ */
 
 #include <linux/errno.h>
 #include <linux/sched.h>
@@ -40,6 +45,12 @@
 #include <asm/hwrpb.h>
 #include <asm/processor.h>
 
+/*
+ * Brk needs to return an error.  Still support Linux's brk(0) query idiom,
+ * which OSF programs just shouldn't be doing.  We're still not quite
+ * identical to OSF as we don't return 0 on success, but doing otherwise
+ * would require changes to libc.  Hopefully this is good enough.
+ */
 SYSCALL_DEFINE1(osf_brk, unsigned long, brk)
 {
 	unsigned long retval = sys_brk(brk);
@@ -48,6 +59,9 @@ SYSCALL_DEFINE1(osf_brk, unsigned long, brk)
 	return retval;
 }
  
+/*
+ * This is pure guess-work..
+ */
 SYSCALL_DEFINE4(osf_set_program_attributes, unsigned long, text_start,
 		unsigned long, text_len, unsigned long, bss_start,
 		unsigned long, bss_len)
@@ -65,6 +79,13 @@ SYSCALL_DEFINE4(osf_set_program_attributes, unsigned long, text_start,
 	return 0;
 }
 
+/*
+ * OSF/1 directory handling functions...
+ *
+ * The "getdents()" interface is much more sane: the "basep" stuff is
+ * braindamage (it can't really handle filesystems where the directory
+ * offset differences aren't the same as "d_reclen").
+ */
 #define NAME_OFFSET	offsetof (struct osf_dirent, d_name)
 
 struct osf_dirent {
@@ -90,7 +111,7 @@ osf_filldir(void *__buf, const char *name, int namlen, loff_t offset,
 	unsigned int reclen = ALIGN(NAME_OFFSET + namlen + 1, sizeof(u32));
 	unsigned int d_ino;
 
-	buf->error = -EINVAL;	
+	buf->error = -EINVAL;	/* only used if we fail */
 	if (reclen > buf->count)
 		return -EINVAL;
 	d_ino = ino;
@@ -171,6 +192,10 @@ SYSCALL_DEFINE6(osf_mmap, unsigned long, addr, unsigned long, len,
 }
 
 
+/*
+ * The OSF/1 statfs structure is much larger, but this should
+ * match the beginning, at least.
+ */
 struct osf_statfs {
 	short f_type;
 	short f_flags;
@@ -191,7 +216,7 @@ linux_to_osf_statfs(struct kstatfs *linux_stat, struct osf_statfs __user *osf_st
 	struct osf_statfs tmp_stat;
 
 	tmp_stat.f_type = linux_stat->f_type;
-	tmp_stat.f_flags = 0;	
+	tmp_stat.f_flags = 0;	/* mount flags */
 	tmp_stat.f_fsize = linux_stat->f_frsize;
 	tmp_stat.f_bsize = linux_stat->f_bsize;
 	tmp_stat.f_blocks = linux_stat->f_blocks;
@@ -225,6 +250,11 @@ SYSCALL_DEFINE3(osf_fstatfs, unsigned long, fd,
 	return error;
 }
 
+/*
+ * Uhh.. OSF/1 mount parameters aren't exactly obvious..
+ *
+ * Although to be frank, neither are the native Linux/i386 ones..
+ */
 struct ufs_args {
 	char __user *devname;
 	int flags;
@@ -236,6 +266,8 @@ struct cdfs_args {
 	int flags;
 	uid_t exroot;
 
+	/* This has lots more here, which Linux handles with the option block
+	   but I'm too lazy to do the translation into ASCII.  */
 };
 
 struct procfs_args {
@@ -365,6 +397,9 @@ SYSCALL_DEFINE0(getdtablesize)
 	return sysctl_nr_open;
 }
 
+/*
+ * For compatibility with OSF/1 only.  Use utsname(2) instead.
+ */
 SYSCALL_DEFINE2(osf_getdomainname, char __user *, name, int, namelen)
 {
 	unsigned len;
@@ -388,10 +423,20 @@ SYSCALL_DEFINE2(osf_getdomainname, char __user *, name, int, namelen)
 	return 0;
 }
 
+/*
+ * The following stuff should move into a header file should it ever
+ * be labeled "officially supported."  Right now, there is just enough
+ * support to avoid applications (such as tar) printing error
+ * messages.  The attributes are not really implemented.
+ */
 
-#define PLE_PROPAGATE_ON_COPY		0x1	
-#define PLE_FLAG_MASK			0x1	
-#define PLE_FLAG_ALL			-1	
+/*
+ * Values for Property list entry flag
+ */
+#define PLE_PROPAGATE_ON_COPY		0x1	/* cp(1) will copy entry
+						   by default */
+#define PLE_FLAG_MASK			0x1	/* Valid flag values */
+#define PLE_FLAG_ALL			-1	/* All flag value */
 
 struct proplistname_args {
 	unsigned int pl_mask;
@@ -496,10 +541,15 @@ SYSCALL_DEFINE2(osf_sigstack, struct sigstack __user *, uss,
 		if (get_user(ss_sp, &uss->ss_sp))
 			goto out;
 
+		/* If the current stack was set with sigaltstack, don't
+		   swap stacks while we are on it.  */
 		error = -EPERM;
 		if (current->sas_ss_sp && on_sig_stack(usp))
 			goto out;
 
+		/* Since we don't know the extent of the stack, and we don't
+		   track onstack-ness, but rather calculate it, we must 
+		   presume a size.  Ho hum this interface is lossy.  */
 		current->sas_ss_sp = (unsigned long)ss_sp - SIGSTKSZ;
 		current->sas_ss_size = SIGSTKSZ;
 	}
@@ -525,10 +575,10 @@ SYSCALL_DEFINE3(osf_sysinfo, int, command, char __user *, buf, long, count)
 		utsname()->release,
 		utsname()->version,
 		utsname()->machine,
-		"alpha",	
-		"dummy",	
-		"dummy",	
-		"dummy",	
+		"alpha",	/* instruction set architecture */
+		"dummy",	/* hardware serial number */
+		"dummy",	/* hardware manufacturer */
+		"dummy",	/* secure RPC domain */
 	};
 	unsigned long offset;
 	const char *res;
@@ -536,7 +586,7 @@ SYSCALL_DEFINE3(osf_sysinfo, int, command, char __user *, buf, long, count)
 
 	offset = command-1;
 	if (offset >= ARRAY_SIZE(sysinfo_table)) {
-		
+		/* Digital UNIX has a few unpublished interfaces here */
 		printk("sysinfo(%d)", command);
 		goto out;
 	}
@@ -563,8 +613,8 @@ SYSCALL_DEFINE5(osf_getsysinfo, unsigned long, op, void __user *, buffer,
 
 	switch (op) {
 	case GSI_IEEE_FP_CONTROL:
-		
-		
+		/* Return current software fp control & status bits.  */
+		/* Note that DU doesn't verify available space here.  */
 
  		w = current_thread_info()->ieee_state & IEEE_SW_MASK;
  		w = swcr_update_status(w, rdfpcr());
@@ -573,6 +623,11 @@ SYSCALL_DEFINE5(osf_getsysinfo, unsigned long, op, void __user *, buffer,
 		return 0;
 
 	case GSI_IEEE_STATE_AT_SIGNAL:
+		/*
+		 * Not sure anybody will ever use this weird stuff.  These
+		 * ops can be used (under OSF/1) to set the fpcr that should
+		 * be used when a signal handler starts executing.
+		 */
 		break;
 
  	case GSI_UACPROC:
@@ -616,15 +671,21 @@ SYSCALL_DEFINE5(osf_setsysinfo, unsigned long, op, void __user *, buffer,
 		unsigned long swcr, fpcr;
 		unsigned int *state;
 
+		/* 
+		 * Alpha Architecture Handbook 4.7.7.3:
+		 * To be fully IEEE compiant, we must track the current IEEE
+		 * exception state in software, because spurious bits can be
+		 * set in the trap shadow of a software-complete insn.
+		 */
 
 		if (get_user(swcr, (unsigned long __user *)buffer))
 			return -EFAULT;
 		state = &current_thread_info()->ieee_state;
 
-		
+		/* Update softare trap enable bits.  */
 		*state = (*state & ~IEEE_SW_MASK) | (swcr & IEEE_SW_MASK);
 
-		
+		/* Update the real fpcr.  */
 		fpcr = rdfpcr() & FPCR_DYN_MASK;
 		fpcr |= ieee_swcr_to_fpcr(swcr);
 		wrfpcr(fpcr);
@@ -641,15 +702,17 @@ SYSCALL_DEFINE5(osf_setsysinfo, unsigned long, op, void __user *, buffer,
 		state = &current_thread_info()->ieee_state;
 		exc &= IEEE_STATUS_MASK;
 
-		
+		/* Update softare trap enable bits.  */
  		swcr = (*state & IEEE_SW_MASK) | exc;
 		*state |= exc;
 
-		
+		/* Update the real fpcr.  */
 		fpcr = rdfpcr();
 		fpcr |= ieee_swcr_to_fpcr(swcr);
 		wrfpcr(fpcr);
 
+ 		/* If any exceptions set by this call, and are unmasked,
+		   send a signal.  Old exceptions are not signaled.  */
 		fex = (exc >> IEEE_STATUS_TO_EXCSUM_SHIFT) & swcr;
  		if (fex) {
 			siginfo_t info;
@@ -665,7 +728,7 @@ SYSCALL_DEFINE5(osf_setsysinfo, unsigned long, op, void __user *, buffer,
 			info.si_signo = SIGFPE;
 			info.si_errno = 0;
 			info.si_code = si_code;
-			info.si_addr = NULL;  
+			info.si_addr = NULL;  /* FIXME */
  			send_sig_info(SIGFPE, &info, current);
  		}
 		return 0;
@@ -673,6 +736,11 @@ SYSCALL_DEFINE5(osf_setsysinfo, unsigned long, op, void __user *, buffer,
 
 	case SSI_IEEE_STATE_AT_SIGNAL:
 	case SSI_IEEE_IGNORE_STATE_AT_SIGNAL:
+		/*
+		 * Not sure anybody will ever use this weird stuff.  These
+		 * ops can be used (under OSF/1) to set the fpcr that should
+		 * be used when a signal handler starts executing.
+		 */
 		break;
 
  	case SSI_NVPAIRS: {
@@ -710,6 +778,8 @@ SYSCALL_DEFINE5(osf_setsysinfo, unsigned long, op, void __user *, buffer,
 	return -EOPNOTSUPP;
 }
 
+/* Translations due to the fact that OSF's time_t is an int.  Which
+   affects all sorts of things, like timeval and itimerval.  */
 
 extern struct timezone sys_tz;
 
@@ -885,27 +955,27 @@ SYSCALL_DEFINE5(osf_select, int, n, fd_set __user *, inp, fd_set __user *, outp,
 
 	}
 
-	
+	/* OSF does not copy back the remaining time.  */
 	return core_sys_select(n, inp, outp, exp, to);
 }
 
 struct rusage32 {
-	struct timeval32 ru_utime;	
-	struct timeval32 ru_stime;	
-	long	ru_maxrss;		
-	long	ru_ixrss;		
-	long	ru_idrss;		
-	long	ru_isrss;		
-	long	ru_minflt;		
-	long	ru_majflt;		
-	long	ru_nswap;		
-	long	ru_inblock;		
-	long	ru_oublock;		
-	long	ru_msgsnd;		
-	long	ru_msgrcv;		
-	long	ru_nsignals;		
-	long	ru_nvcsw;		
-	long	ru_nivcsw;		
+	struct timeval32 ru_utime;	/* user time used */
+	struct timeval32 ru_stime;	/* system time used */
+	long	ru_maxrss;		/* maximum resident set size */
+	long	ru_ixrss;		/* integral shared memory size */
+	long	ru_idrss;		/* integral unshared data size */
+	long	ru_isrss;		/* integral unshared stack size */
+	long	ru_minflt;		/* page reclaims */
+	long	ru_majflt;		/* page faults */
+	long	ru_nswap;		/* swaps */
+	long	ru_inblock;		/* block input operations */
+	long	ru_oublock;		/* block output operations */
+	long	ru_msgsnd;		/* messages sent */
+	long	ru_msgrcv;		/* messages received */
+	long	ru_nsignals;		/* signals received */
+	long	ru_nvcsw;		/* voluntary context switches */
+	long	ru_nivcsw;		/* involuntary " */
 };
 
 SYSCALL_DEFINE2(osf_getrusage, int, who, struct rusage32 __user *, ru)
@@ -979,6 +1049,11 @@ SYSCALL_DEFINE4(osf_wait4, pid_t, pid, int __user *, ustatus, int, options,
 	return err ? err : ret;
 }
 
+/*
+ * I don't know what the parameters are: the first one
+ * seems to be a timeval pointer, and I suspect the second
+ * one is the time remaining.. Ho humm.. No documentation.
+ */
 SYSCALL_DEFINE2(osf_usleep_thread, struct timeval32 __user *, sleep,
 		struct timeval32 __user *, remain)
 {
@@ -1005,26 +1080,28 @@ SYSCALL_DEFINE2(osf_usleep_thread, struct timeval32 __user *, sleep,
 
 
 struct timex32 {
-	unsigned int modes;	
-	long offset;		
-	long freq;		
-	long maxerror;		
-	long esterror;		
-	int status;		
-	long constant;		
-	long precision;		
-	long tolerance;		
-	struct timeval32 time;	
-	long tick;		
+	unsigned int modes;	/* mode selector */
+	long offset;		/* time offset (usec) */
+	long freq;		/* frequency offset (scaled ppm) */
+	long maxerror;		/* maximum error (usec) */
+	long esterror;		/* estimated error (usec) */
+	int status;		/* clock command/status */
+	long constant;		/* pll time constant */
+	long precision;		/* clock precision (usec) (read only) */
+	long tolerance;		/* clock frequency tolerance (ppm)
+				 * (read only)
+				 */
+	struct timeval32 time;	/* (read only) */
+	long tick;		/* (modified) usecs between clock ticks */
 
-	long ppsfreq;           
-	long jitter;            
-	int shift;              
-	long stabil;            
-	long jitcnt;            
-	long calcnt;            
-	long errcnt;            
-	long stbcnt;            
+	long ppsfreq;           /* pps frequency (scaled ppm) (ro) */
+	long jitter;            /* pps jitter (us) (ro) */
+	int shift;              /* interval duration (s) (shift) (ro) */
+	long stabil;            /* pps stability (scaled ppm) (ro) */
+	long jitcnt;            /* jitter limit exceeded (ro) */
+	long calcnt;            /* calibration intervals (ro) */
+	long errcnt;            /* calibration errors (ro) */
+	long stbcnt;            /* stability limit exceeded (ro) */
 
 	int  :32; int  :32; int  :32; int  :32;
 	int  :32; int  :32; int  :32; int  :32;
@@ -1036,7 +1113,7 @@ SYSCALL_DEFINE1(old_adjtimex, struct timex32 __user *, txc_p)
         struct timex txc;
 	int ret;
 
-	
+	/* copy relevant bits of struct timex. */
 	if (copy_from_user(&txc, txc_p, offsetof(struct timex32, time)) ||
 	    copy_from_user(&txc.tick, &txc_p->tick, sizeof(struct timex32) - 
 			   offsetof(struct timex32, time)))
@@ -1046,7 +1123,7 @@ SYSCALL_DEFINE1(old_adjtimex, struct timex32 __user *, txc_p)
 	if (ret < 0)
 	  return ret;
 	
-	
+	/* copy back to timex32 */
 	if (copy_to_user(txc_p, &txc, offsetof(struct timex32, time)) ||
 	    (copy_to_user(&txc_p->tick, &txc.tick, sizeof(struct timex32) - 
 			  offsetof(struct timex32, tick))) ||
@@ -1056,6 +1133,8 @@ SYSCALL_DEFINE1(old_adjtimex, struct timex32 __user *, txc_p)
 	return ret;
 }
 
+/* Get an address range which is currently unmapped.  Similar to the
+   generic version except that we know how to honor ADDR_LIMIT_32BIT.  */
 
 static unsigned long
 arch_get_unmapped_area_1(unsigned long addr, unsigned long len,
@@ -1064,7 +1143,7 @@ arch_get_unmapped_area_1(unsigned long addr, unsigned long len,
 	struct vm_area_struct *vma = find_vma(current->mm, addr);
 
 	while (1) {
-		
+		/* At this point:  (!vma || addr < vma->vm_end). */
 		if (limit - len < addr)
 			return -ENOMEM;
 		if (!vma || addr + len <= vma->vm_start)
@@ -1081,7 +1160,7 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 {
 	unsigned long limit;
 
-	
+	/* "32 bit" actually means 31 bit, since pointers sign extend.  */
 	if (current->personality & ADDR_LIMIT_32BIT)
 		limit = 0x80000000;
 	else
@@ -1093,6 +1172,15 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 	if (flags & MAP_FIXED)
 		return addr;
 
+	/* First, see if the given suggestion fits.
+
+	   The OSF/1 loader (/sbin/loader) relies on us returning an
+	   address larger than the requested if one exists, which is
+	   a terribly broken way to program.
+
+	   That said, I can see the use in being able to suggest not
+	   merely specific addresses, but regions of memory -- perhaps
+	   this feature should be incorporated into all ports?  */
 
 	if (addr) {
 		addr = arch_get_unmapped_area_1 (PAGE_ALIGN(addr), len, limit);
@@ -1100,13 +1188,13 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 			return addr;
 	}
 
-	
+	/* Next, try allocating at TASK_UNMAPPED_BASE.  */
 	addr = arch_get_unmapped_area_1 (PAGE_ALIGN(TASK_UNMAPPED_BASE),
 					 len, limit);
 	if (addr != (unsigned long) -ENOMEM)
 		return addr;
 
-	
+	/* Finally, try allocating in low memory.  */
 	addr = arch_get_unmapped_area_1 (PAGE_SIZE, len, limit);
 
 	return addr;
@@ -1114,6 +1202,9 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 
 #ifdef CONFIG_OSF4_COMPAT
 
+/* Clear top 32 bits of iov_len in the user's buffer for
+   compatibility with old versions of OSF/1 where iov_len
+   was defined as int. */
 static int
 osf_fix_iov_len(const struct iovec __user *iov, unsigned long count)
 {

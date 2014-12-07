@@ -24,6 +24,7 @@
  *
  */
 #ifdef PLATFORM_GT_32BIT
+/* #define POINTER_32BIT byte * __ptr32 */
 #define POINTER_32BIT dword
 #else
 #define POINTER_32BIT byte *
@@ -108,7 +109,7 @@ typedef union
 	struct OSStruc OSStats;
 	byte   b[BUFFER_SZ];
 	word   w[BUFFER_SZ >> 1];
-	word   l[BUFFER_SZ >> 2]; 
+	word   l[BUFFER_SZ >> 2]; /* word is wrong, do not use! Use 'd' instead. */
 	dword  d[BUFFER_SZ >> 2];
 } BUFFER;
 typedef union
@@ -119,7 +120,7 @@ typedef union
 	struct OSStruc OSStats;
 	byte   b[MIPS_BUFFER_SZ];
 	word   w[MIPS_BUFFER_SZ >> 1];
-	word   l[BUFFER_SZ >> 2]; 
+	word   l[BUFFER_SZ >> 2]; /* word is wrong, do not use! Use 'd' instead. */
 	dword  d[MIPS_BUFFER_SZ >> 2];
 } MIPS_BUFFER;
 #if !defined(MIPS_SCOM)
@@ -138,11 +139,11 @@ struct pc_maint
 {
 	byte req;
 	byte rc;
-	byte reserved[2];     
+	byte reserved[2];     /* R3000 alignment ... */
 	POINTER_32BIT mem;
 	short length;
 	word port;
-	byte fill[4];         
+	byte fill[4];         /* data at offset 16   */
 	BUFFER data;
 };
 #endif
@@ -150,10 +151,10 @@ struct mi_pc_maint
 {
 	byte req;
 	byte rc;
-	byte reserved[2];     
+	byte reserved[2];     /* R3000 alignment ... */
 	POINTER_32BIT mem;
 	short length;
 	word port;
-	byte fill[4];         
+	byte fill[4];         /* data at offset 16   */
 	MIPS_BUFFER data;
 };

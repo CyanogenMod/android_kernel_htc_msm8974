@@ -108,11 +108,14 @@ static void __init sh2007_init_irq(void)
 	plat_irq_setup_pins(IRQ_MODE_IRQ);
 }
 
+/*
+ * Initialize the board
+ */
 static void __init sh2007_setup(char **cmdline_p)
 {
 	printk(KERN_INFO "SH-2007 Setup...");
 
-	
+	/* setup wait control registers for area 5 */
 	__raw_writel(CS5BCR_D, CS5BCR);
 	__raw_writel(CS5WCR_D, CS5WCR);
 	__raw_writel(CS5PCR_D, CS5PCR);
@@ -120,6 +123,9 @@ static void __init sh2007_setup(char **cmdline_p)
 	printk(KERN_INFO " done.\n");
 }
 
+/*
+ * The Machine Vector
+ */
 struct sh_machine_vector mv_sh2007 __initmv = {
 	.mv_setup		= sh2007_setup,
 	.mv_name		= "sh2007",

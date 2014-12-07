@@ -49,6 +49,9 @@
 
 #define _FP_KEEPNANFRACP 1
 
+/* Alpha Architecture Handbook, 4.7.10.4 sais that
+ * we should prefer any type of NaN in Fb, then Fa.
+ */
 #define _FP_CHOOSENAN(fs, wc, R, X, Y, OP)			\
   do {								\
     R##_s = Y##_s;						\
@@ -56,12 +59,14 @@
     R##_c = FP_CLS_NAN;						\
   } while (0)
 
+/* Obtain the current rounding mode. */
 #define FP_ROUNDMODE	mode
 #define FP_RND_NEAREST	(FPCR_DYN_NORMAL >> FPCR_DYN_SHIFT)
 #define FP_RND_ZERO	(FPCR_DYN_CHOPPED >> FPCR_DYN_SHIFT)
 #define FP_RND_PINF	(FPCR_DYN_PLUS >> FPCR_DYN_SHIFT)
 #define FP_RND_MINF	(FPCR_DYN_MINUS >> FPCR_DYN_SHIFT)
 
+/* Exception flags. */
 #define FP_EX_INVALID		IEEE_TRAP_ENABLE_INV
 #define FP_EX_OVERFLOW		IEEE_TRAP_ENABLE_OVF
 #define FP_EX_UNDERFLOW		IEEE_TRAP_ENABLE_UNF
@@ -71,6 +76,7 @@
 
 #define FP_DENORM_ZERO		(swcr & IEEE_MAP_DMZ)
 
+/* We write the results always */
 #define FP_INHIBIT_RESULTS 0
 
 #endif

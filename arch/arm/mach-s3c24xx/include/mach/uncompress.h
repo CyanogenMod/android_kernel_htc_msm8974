@@ -17,6 +17,7 @@
 #include <mach/regs-gpio.h>
 #include <mach/map.h>
 
+/* working in physical space... */
 #undef S3C2410_GPIOREG
 #define S3C2410_GPIOREG(x) ((S3C24XX_PA_GPIO + (x)))
 
@@ -50,4 +51,4 @@ static void arch_detect_cpu(void)
 	}
 }
 
-#endif 
+#endif /* __ASM_ARCH_UNCOMPRESS_H */

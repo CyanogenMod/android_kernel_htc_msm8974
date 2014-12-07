@@ -15,8 +15,10 @@
 #include <linux/bitops.h>
 #include <linux/mutex.h>
 
+/* #define DEBUG */
 #define DEV_DBG_PREFIX "EXT_COMMON: "
 
+/* The start of the data block collection within the CEA Extension Version 3 */
 #define DBC_START_OFFSET 4
 
 #include "msm_fb.h"
@@ -48,6 +50,10 @@ static int atoi(const char *name)
 }
 
 #ifdef DEBUG_EDID
+/*
+ * Block 0 - 1920x1080p, 1360x768p
+ * Block 1 - 1280x720p, 1920x540i, 720x480p
+ */
 const char edid_blk0[0x100] = {
 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x4C, 0x2D, 0x03, 0x05, 0x00,
 0x00, 0x00, 0x00, 0x30, 0x12, 0x01, 0x03, 0x80, 0x10, 0x09, 0x78, 0x0A, 0xEE,
@@ -71,7 +77,7 @@ const char edid_blk1[0x100] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xDF};
-#endif 
+#endif /* DEBUG_EDID */
 
 #define DMA_E_BASE 0xB0000
 void mdp_vid_quant_set(void)
@@ -371,7 +377,7 @@ static ssize_t hdmi_common_wta_vendor_name(struct device *dev,
 		if (*s & 0x60 && *s ^ 0x7f) {
 			*d = *s;
 		} else {
-			
+			/* stop copying if control character found */
 			break;
 		}
 
@@ -411,7 +417,7 @@ static ssize_t hdmi_common_wta_product_description(struct device *dev,
 		if (*s & 0x60 && *s ^ 0x7f) {
 			*d = *s;
 		} else {
-			
+			/* stop copying if control character found */
 			break;
 		}
 
@@ -531,10 +537,15 @@ static ssize_t hdmi_common_wta_hpd(struct device *dev,
 }
 
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT
+/*
+ * This interface for CEC feature is defined to suit
+ * the current requirements. However, the actual functionality is
+ * added to accommodate different interfaces
+ */
 static ssize_t hdmi_msm_rda_cec(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
-	
+	/* 0x028C CEC_CTRL */
 	ssize_t ret = snprintf(buf, PAGE_SIZE, "%d\n",
 		(HDMI_INP(0x028C) & BIT(0)));
 	return ret;
@@ -551,7 +562,7 @@ static ssize_t hdmi_msm_wta_cec(struct device *dev,
 		hdmi_msm_state->cec_enabled = true;
 		hdmi_msm_state->cec_logical_addr = 4;
 
-		
+		/* flush CEC queue */
 		hdmi_msm_state->cec_queue_wr = hdmi_msm_state->cec_queue_start;
 		hdmi_msm_state->cec_queue_rd = hdmi_msm_state->cec_queue_start;
 		hdmi_msm_state->cec_queue_full = false;
@@ -570,7 +581,7 @@ static ssize_t hdmi_msm_wta_cec(struct device *dev,
 		mutex_unlock(&hdmi_msm_state_mutex);
 		hdmi_msm_cec_write_logical_addr(
 			hdmi_msm_state->cec_logical_addr);
-		
+		/* 0x028C CEC_CTRL */
 		HDMI_OUTP(0x028C, 0);
 		DEV_DBG("CEC disabled\n");
 	}
@@ -594,6 +605,9 @@ static ssize_t hdmi_msm_wta_cec_logical_addr(struct device *dev,
 {
 
 #ifdef DRVR_ONLY_CECT_NO_DAEMON
+	/*
+	 * Only for testing
+	 */
 	hdmi_msm_cec_one_touch_play();
 	return 0;
 #else
@@ -657,7 +671,7 @@ static ssize_t hdmi_msm_wta_cec_frame(struct device *dev,
 	else
 		return -EINVAL;
 }
-#endif 
+#endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT */
 
 static ssize_t hdmi_common_rda_3d_present(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -730,7 +744,7 @@ static DEVICE_ATTR(cec_rd_frame, S_IRUGO,
 
 static DEVICE_ATTR(cec_wr_frame, S_IWUSR,
 	NULL, hdmi_msm_wta_cec_frame);
-#endif 
+#endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT */
 
 
 static ssize_t external_common_rda_video_mode(struct device *dev,
@@ -837,7 +851,7 @@ static ssize_t hdmi_common_rda_audio_data_block(struct device *dev,
 		return 0;
 	}
 
-	
+	/* Currently only extracting one audio data block */
 	memcpy(data, &adb_count, sizeof(adb_count));
 	data += sizeof(adb_count);
 	memcpy(data, &adb_size, sizeof(adb_size));
@@ -871,7 +885,7 @@ static ssize_t hdmi_common_rda_spkr_alloc_data_block(struct device *dev,
 		return 0;
 	}
 
-	
+	/* Currently only extracting one speaker allocation data block */
 	memcpy(data, &sadb_count, sizeof(sadb_count));
 	data += sizeof(sadb_count);
 	memcpy(data, &sadb_size, sizeof(sadb_size));
@@ -945,7 +959,7 @@ static struct attribute *external_common_fs_attrs[] = {
 	&dev_attr_cec_logical_addr.attr,
 	&dev_attr_cec_rd_frame.attr,
 	&dev_attr_cec_wr_frame.attr,
-#endif 
+#endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT */
 	&dev_attr_hdmi_primary.attr,
 	&dev_attr_audio_data_block.attr,
 	&dev_attr_spkr_alloc_data_block.attr,
@@ -955,6 +969,7 @@ static struct attribute_group external_common_fs_attr_group = {
 	.attrs = external_common_fs_attrs,
 };
 
+/* create external interface kobject and initialize */
 int external_common_state_create(struct platform_device *pdev)
 {
 	int rc;
@@ -998,6 +1013,7 @@ void external_common_state_remove(void)
 EXPORT_SYMBOL(external_common_state_remove);
 
 #ifdef CONFIG_FB_MSM_HDMI_COMMON
+/* The Logic ID for HDMI TX Core. Currently only support 1 HDMI TX Core. */
 struct hdmi_edid_video_mode_property_type {
 	uint32	video_code;
 	uint32	active_h;
@@ -1007,27 +1023,28 @@ struct hdmi_edid_video_mode_property_type {
 	uint32	total_blank_h;
 	uint32	total_v;
 	uint32	total_blank_v;
-	
+	/* Must divide by 1000 to get the frequency */
 	uint32	freq_h;
-	
+	/* Must divide by 1000 to get the frequency */
 	uint32	freq_v;
-	
+	/* Must divide by 1000 to get the frequency */
 	uint32	pixel_freq;
-	
+	/* Must divide by 1000 to get the frequency */
 	uint32	refresh_rate;
 	boolean	aspect_ratio_4_3;
 };
 
+/* LUT is sorted from lowest Active H to highest Active H - ease searching */
 static struct hdmi_edid_video_mode_property_type
 	hdmi_edid_disp_mode_lut[] = {
 
-	
+	/* All 640 H Active */
 	{HDMI_VFRMT_640x480p60_4_3, 640, 480, FALSE, 800, 160, 525, 45,
 	 31465, 59940, 25175, 59940, TRUE},
 	{HDMI_VFRMT_640x480p60_4_3, 640, 480, FALSE, 800, 160, 525, 45,
 	 31500, 60000, 25200, 60000, TRUE},
 
-	
+	/* All 720 H Active */
 	{HDMI_VFRMT_720x576p50_4_3,  720, 576, FALSE, 864, 144, 625, 49,
 	 31250, 50000, 27000, 50000, TRUE},
 	{HDMI_VFRMT_720x480p60_4_3,  720, 480, FALSE, 858, 138, 525, 45,
@@ -1047,7 +1064,7 @@ static struct hdmi_edid_video_mode_property_type
 	{HDMI_VFRMT_720x480p240_4_3, 720, 480, FALSE, 858, 138, 525, 45,
 	 126000, 240000, 108108, 240000, TRUE},
 
-	
+	/* All 1280 H Active */
 	{HDMI_VFRMT_1280x720p50_16_9,  1280, 720, FALSE, 1980, 700, 750, 30,
 	 37500, 50000, 74250, 50000, FALSE},
 	{HDMI_VFRMT_1280x720p60_16_9,  1280, 720, FALSE, 1650, 370, 750, 30,
@@ -1063,7 +1080,7 @@ static struct hdmi_edid_video_mode_property_type
 	{HDMI_VFRMT_1280x1024p60_5_4, 1280, 1024, FALSE, 1688, 408, 1066, 42,
 	 63981, 60020, 108000, 60000, FALSE},
 
-	
+	/* All 1440 H Active */
 	{HDMI_VFRMT_1440x576i50_4_3, 1440, 576, TRUE,  1728, 288, 625, 24,
 	 15625, 50000, 27000, 50000, TRUE},
 	{HDMI_VFRMT_720x288p50_4_3,  1440, 288, FALSE, 1728, 288, 312, 24,
@@ -1103,7 +1120,7 @@ static struct hdmi_edid_video_mode_property_type
 	{HDMI_VFRMT_1440x480i240_4_3, 1440, 480, TRUE,  1716, 276, 525, 22,
 	 63000, 240000, 108108, 240000, TRUE},
 
-	
+	/* All 1920 H Active */
 	{HDMI_VFRMT_1920x1080p60_16_9, 1920, 1080, FALSE, 2200, 280, 1125,
 	 45, 67433, 59940, 148352, 59940, FALSE},
 	{HDMI_VFRMT_1920x1080p60_16_9, 1920, 1080, TRUE,  2200, 280, 1125,
@@ -1133,7 +1150,7 @@ static struct hdmi_edid_video_mode_property_type
 	{HDMI_VFRMT_1920x1080i120_16_9, 1920, 1080, TRUE,  2200, 280, 1125,
 	 22, 67500, 120000, 148500, 120000, FALSE},
 
-	
+	/* All 2880 H Active */
 	{HDMI_VFRMT_2880x576i50_4_3, 2880, 576, TRUE,  3456, 576, 625, 24,
 	 15625, 50000, 54000, 50000, TRUE},
 	{HDMI_VFRMT_2880x288p50_4_3, 2880, 576, FALSE, 3456, 576, 312, 24,
@@ -1165,12 +1182,16 @@ static struct hdmi_edid_video_mode_property_type
 static const uint8 *hdmi_edid_find_block(const uint8 *in_buf,
 		uint32 start_offset, uint8 type, uint8 *len)
 {
-	
+	/* the start of data block collection, start of Video Data Block */
 	uint32 offset = start_offset;
 	uint32 end_dbc_offset = in_buf[2];
 
 	*len = 0;
 
+	/*edid buffer 1, byte 2 being 4 means no non-DTD/Data block collection
+	  present.
+	  edid buffer 1, byte 2 being 0 menas no non-DTD/DATA block collection
+	  present and no DTD data present.*/
 	if ((end_dbc_offset == 0) || (end_dbc_offset == 4)) {
 		DEV_WARN("EDID: no DTD or non-DTD data present\n");
 		return NULL;
@@ -1233,7 +1254,7 @@ static void hdmi_edid_extract_3d_present(const uint8 *in_buf)
 
 	offset = HDMI_VSDB_3D_DATA_OFFSET(vsd);
 	DEV_DBG("EDID: 3D present @ %d = %02x\n", offset, vsd[offset]);
-	if (vsd[offset] >> 7) { 
+	if (vsd[offset] >> 7) { /* 3D format indication present */
 		DEV_INFO("EDID: 3D present, 3D-len=%d\n", vsd[offset+1] & 0x1F);
 		external_common_state->present_3d = 1;
 	}
@@ -1296,21 +1317,32 @@ static void hdmi_edid_extract_extended_data_blocks(const uint8 *in_buf)
 	uint8 len = 0;
 	uint32 start_offset = DBC_START_OFFSET;
 
-	
+	/* A Tage code of 7 identifies extended data blocks */
 	uint8 const *etag = hdmi_edid_find_block(in_buf, start_offset, 7, &len);
 
 	while (etag != NULL) {
-		
+		/* The extended data block should at least be 2 bytes long */
 		if (len < 2) {
 			DEV_DBG("EDID: Found an extended data block of length"
 				"less than 2 bytes. Ignoring ...\n");
 		} else {
+			/*
+			 * The second byte of the extended data block has the
+			 * extended tag code
+			 */
 			switch (etag[1]) {
 			case 0:
-				
+				/* Video Capability Data Block */
 				DEV_DBG("EDID: VCDB=%02X %02X\n", etag[1],
 						etag[2]);
 
+				/*
+				 * Check if the sink specifies underscan
+				 * support for:
+				 * BIT 5: preferred video format
+				 * BIT 3: IT video format
+				 * BIT 1: CE video format
+				 */
 				external_common_state->pt_scan_info = (etag[2] &
 							(BIT(4) | BIT(5))) >> 4;
 				external_common_state->it_scan_info = (etag[2] &
@@ -1330,7 +1362,7 @@ static void hdmi_edid_extract_extended_data_blocks(const uint8 *in_buf)
 			}
 		}
 
-		
+		/* There could be more that one extended data block */
 		start_offset = etag - in_buf + len + 1;
 		etag = hdmi_edid_find_block(in_buf, start_offset, 7, &len);
 	}
@@ -1349,30 +1381,60 @@ static void hdmi_edid_detail_desc(const uint8 *data_buf, uint32 *disp_mode)
 	uint32	img_size_h          = 0;
 	uint32	img_size_v          = 0;
 
-	
+	/* See VESA Spec */
+	/* EDID_TIMING_DESC_UPPER_H_NIBBLE[0x4]: Relative Offset to the EDID
+	 *   detailed timing descriptors - Upper 4 bit for each H active/blank
+	 *   field */
+	/* EDID_TIMING_DESC_H_ACTIVE[0x2]: Relative Offset to the EDID detailed
+	 *   timing descriptors - H active */
 	active_h = ((((uint32)data_buf[0x4] >> 0x4) & 0xF) << 8)
 		| data_buf[0x2];
 
+	/* EDID_TIMING_DESC_H_BLANK[0x3]: Relative Offset to the EDID detailed
+	 *   timing descriptors - H blank */
 	blank_h = (((uint32)data_buf[0x4] & 0xF) << 8)
 		| data_buf[0x3];
 
+	/* EDID_TIMING_DESC_UPPER_V_NIBBLE[0x7]: Relative Offset to the EDID
+	 *   detailed timing descriptors - Upper 4 bit for each V active/blank
+	 *   field */
+	/* EDID_TIMING_DESC_V_ACTIVE[0x5]: Relative Offset to the EDID detailed
+	 *   timing descriptors - V active */
 	active_v = ((((uint32)data_buf[0x7] >> 0x4) & 0xF) << 8)
 		| data_buf[0x5];
 
+	/* EDID_TIMING_DESC_V_BLANK[0x6]: Relative Offset to the EDID detailed
+	 *   timing descriptors - V blank */
 	blank_v = (((uint32)data_buf[0x7] & 0xF) << 8)
 		| data_buf[0x6];
 
+	/* EDID_TIMING_DESC_IMAGE_SIZE_UPPER_NIBBLE[0xE]: Relative Offset to the
+	 *   EDID detailed timing descriptors - Image Size upper nibble
+	 *   V and H */
+	/* EDID_TIMING_DESC_H_IMAGE_SIZE[0xC]: Relative Offset to the EDID
+	 *   detailed timing descriptors - H image size */
+	/* EDID_TIMING_DESC_V_IMAGE_SIZE[0xD]: Relative Offset to the EDID
+	 *   detailed timing descriptors - V image size */
 	img_size_h = ((((uint32)data_buf[0xE] >> 0x4) & 0xF) << 8)
 		| data_buf[0xC];
 	img_size_v = (((uint32)data_buf[0xE] & 0xF) << 8)
 		| data_buf[0xD];
 
+	/*
+	 * aspect ratio as 4:3 if within specificed range , rathaer than being
+	 * absolute value
+	 */
 	aspect_ratio_4_3 = (abs(img_size_h * 3 - img_size_v * 4) < 5) ? 1 : 0;
 
 	max_num_of_elements  = sizeof(hdmi_edid_disp_mode_lut)
 		/ sizeof(*hdmi_edid_disp_mode_lut);
 
+	/* EDID_TIMING_DESC_INTERLACE[0x11:7]: Relative Offset to the EDID
+	 *   detailed timing descriptors - Interlace flag */
 	DEV_DBG("Interlaced mode byte data_buf[0x11]=[%x]\n", data_buf[0x11]);
+	/*
+	 * CEA 861-D: interlaced bit is bit[7] of byte[0x11]
+	 */
 	interlaced = (data_buf[0x11] & 0x80) >> 7;
 
 	DEV_DBG("%s: A[%ux%u] B[%ux%u] V[%ux%u] %s\n", __func__,
@@ -1392,10 +1454,10 @@ static void hdmi_edid_detail_desc(const uint8 *data_buf, uint32 *disp_mode)
 			 (active_v == (edid->active_v + 1)))
 		) {
 			if (edid->aspect_ratio_4_3 && !aspect_ratio_4_3)
-				
+				/* Aspect ratio 16:9 */
 				*disp_mode = edid->video_code + 1;
 			else
-				
+				/* Aspect ratio 4:3 */
 				*disp_mode = edid->video_code;
 
 			DEV_DBG("%s: mode found:%d\n", __func__, *disp_mode);
@@ -1531,12 +1593,12 @@ static void hdmi_edid_get_display_vsd_3d_mode(const uint8 *data_buf,
 	offset += (hdmi_vic_len + 1);
 	if (present_multi_3d == 1 || present_multi_3d == 2) {
 		DEV_DBG("EDID[3D]: multi 3D present (%d)\n", present_multi_3d);
-		
+		/* 3d_structure_all */
 		structure_all = (vsd[offset] << 8) | vsd[offset + 1];
 		offset += 2;
 		hdmi_3d_len -= 2;
 		if (present_multi_3d == 2) {
-			
+			/* 3d_structure_mask */
 			structure_mask = (vsd[offset] << 8) | vsd[offset + 1];
 			offset += 2;
 			hdmi_3d_len -= 2;
@@ -1553,21 +1615,21 @@ static void hdmi_edid_get_display_vsd_3d_mode(const uint8 *data_buf,
 				continue;
 			}
 
-			
+			/* BIT0: FRAME PACKING */
 			if (structure_all & BIT(0))
 				add_supported_3d_format(disp_mode_list,
 					disp_mode_list->
 						disp_multi_3d_mode_list[i],
 					FRAME_PACKING);
 
-			
+			/* BIT6: TOP AND BOTTOM */
 			if (structure_all & BIT(6))
 				add_supported_3d_format(disp_mode_list,
 					disp_mode_list->
 						disp_multi_3d_mode_list[i],
 					TOP_AND_BOTTOM);
 
-			
+			/* BIT8: SIDE BY SIDE HALF */
 			if (structure_all & BIT(8))
 				add_supported_3d_format(disp_mode_list,
 					disp_mode_list->
@@ -1599,21 +1661,21 @@ static void hdmi_edid_get_display_vsd_3d_mode(const uint8 *data_buf,
 
 		switch (vsd[offset] & 0x0F) {
 		case 0:
-			
+			/* 0000b: FRAME PACKING */
 			add_supported_3d_format(disp_mode_list,
 				disp_mode_list->disp_multi_3d_mode_list
 					[vsd[offset] >> 4],
 				FRAME_PACKING);
 			break;
 		case 6:
-			
+			/* 0110b: TOP AND BOTTOM */
 			add_supported_3d_format(disp_mode_list,
 				disp_mode_list->disp_multi_3d_mode_list
 					[vsd[offset] >> 4],
 				TOP_AND_BOTTOM);
 			break;
 		case 8:
-			
+			/* 1000b: SIDE BY SIDE HALF */
 			add_supported_3d_format(disp_mode_list,
 				disp_mode_list->disp_multi_3d_mode_list
 					[vsd[offset] >> 4],
@@ -1654,10 +1716,13 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 	if (svd != NULL) {
 		++svd;
 		for (i = 0; i < len; ++i, ++svd) {
+			/* Subtract 1 because it is zero based in the driver,
+			 * while the Video identification code is 1 based in the
+			 * CEA_861D spec */
 			video_format = (*svd & 0x7F) - 1;
 			add_supported_video_format(disp_mode_list,
 				video_format);
-			
+			/* Make a note of the preferred video format */
 			if (i == 0) {
 				external_common_state->preferred_video_format =
 					video_format;
@@ -1683,8 +1748,14 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 				has480p = TRUE;
 		}
 	} else if (!num_og_cea_blocks) {
-		
+		/* Detailed timing descriptors */
 		uint32 desc_offset = 0;
+		/* Maximum 4 timing descriptor in block 0 - No CEA
+		 * extension in this case */
+		/* EDID_FIRST_TIMING_DESC[0x36] - 1st detailed timing
+		 *   descriptor */
+		/* EDID_DETAIL_TIMING_DESC_BLCK_SZ[0x12] - Each detailed timing
+		 *   descriptor has block size of 18 */
 		while (4 > i && 0 != edid_blk0[0x36+desc_offset]) {
 			hdmi_edid_detail_desc(edid_blk0+0x36+desc_offset,
 				&video_format);
@@ -1695,7 +1766,7 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 				video_format);
 			if (video_format == HDMI_VFRMT_640x480p60_4_3)
 				has480p = TRUE;
-			
+			/* Make a note of the preferred video format */
 			if (i == 0) {
 				external_common_state->preferred_video_format =
 					video_format;
@@ -1706,6 +1777,10 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 	} else if (1 == num_og_cea_blocks) {
 		uint32 desc_offset = 0;
 
+		/*
+		 * Read from both block 0 and block 1
+		 * Read EDID block[0] as above
+		 */
 		while (4 > i && 0 != edid_blk0[0x36+desc_offset]) {
 			hdmi_edid_detail_desc(edid_blk0+0x36+desc_offset,
 				&video_format);
@@ -1716,7 +1791,7 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 				video_format);
 			if (video_format == HDMI_VFRMT_640x480p60_4_3)
 				has480p = TRUE;
-			
+			/* Make a note of the preferred video format */
 			if (i == 0) {
 				external_common_state->preferred_video_format =
 					video_format;
@@ -1725,8 +1800,14 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 			++i;
 		}
 
+		/* Parse block 1 - CEA extension byte offset of first
+		 * detailed timing generation - offset is relevant to
+		 * the offset of block 1 */
 
-		 
+		/* EDID_CEA_EXTENSION_FIRST_DESC[0x82]: Offset to CEA
+		 * extension first timing desc - indicate the offset of
+		 * the first detailed timing descriptor */
+		 /* EDID_BLOCK_SIZE = 0x80  Each page size in the EDID ROM */
 		desc_offset = edid_blk1[0x02];
 		while (0 != edid_blk1[desc_offset]) {
 			hdmi_edid_detail_desc(edid_blk1+desc_offset,
@@ -1738,7 +1819,7 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 				video_format);
 			if (video_format == HDMI_VFRMT_640x480p60_4_3)
 				has480p = TRUE;
-			
+			/* Make a note of the preferred video format */
 			if (i == 0) {
 				external_common_state->preferred_video_format =
 					video_format;
@@ -1749,6 +1830,10 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 	}
 
 
+	/*
+	 * Check SD Timings if it contains 1280x1024@60Hz.
+	 * SD Timing can be max 8 with 2 byte in size.
+	 */
 	std_blk = 0;
 	offset  = 0;
 	while (std_blk < 8) {
@@ -1763,18 +1848,23 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 		std_blk++;
 	}
 
-	
+	/* check if the EDID revision is 4 (version 1.4) */
 	if (edid_blk0[0x13] == 4) {
 		uint8  start = 0x36;
 
 		i = 0;
 
-		
+		/* Check each of 4 - 18 bytes descriptors */
 		while (i < 4) {
 			uint8  itrate   = start;
 			uint32 header_1 = 0;
 			uint8  header_2 = 0;
 
+			/*
+			 * First 5 bytes are header.
+			 * If they match 0x000000F700, it means its an
+			 * established Timing III descriptor.
+			 */
 			header_1 = edid_blk0[itrate++];
 			header_1 = header_1 << 8 | edid_blk0[itrate++];
 			header_1 = header_1 << 8 | edid_blk0[itrate++];
@@ -1783,10 +1873,10 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 
 			if (header_1 == 0x000000F7 &&
 			    header_2 == 0x00) {
-				itrate++; 
-				itrate++; 
-				itrate++; 
-				
+				itrate++; /* VESA DMT Standard Version (0x0A)*/
+				itrate++; /* First set of supported formats */
+				itrate++; /* Second set of supported formats */
+				/* BIT(1) indicates 1280x1024@60Hz */
 				if (edid_blk0[itrate] & 0x02) {
 					add_supported_video_format(
 						disp_mode_list,
@@ -1799,7 +1889,7 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 		}
 	}
 
-	
+	/* mandaroty 3d format */
 	if (external_common_state->present_3d) {
 		if (has60hz_mode) {
 			add_supported_3d_format(disp_mode_list,
@@ -1824,12 +1914,15 @@ static void hdmi_edid_get_display_mode(const uint8 *data_buf,
 				SIDE_BY_SIDE_HALF);
 		}
 
-		
+		/* 3d format described in Vendor Specific Data */
 		hdmi_edid_get_display_vsd_3d_mode(data_buf, disp_mode_list,
 			num_og_cea_blocks);
 	}
 
 	if (!has480p)
+		/* Need to add default 640 by 480 timings, in case not described
+		 * in the EDID structure.
+		 * All DTV sink devices should support this mode */
 		add_supported_video_format(disp_mode_list,
 			HDMI_VFRMT_640x480p60_4_3);
 }
@@ -1844,7 +1937,7 @@ static int hdmi_common_read_edid_block(int block, uint8 *edid_buf)
 	if (status)
 		goto error;
 
-	
+	/* Calculate checksum */
 	check_sum = 0;
 	for (ndx = 0; ndx < 0x80; ++ndx)
 		check_sum += edid_buf[ndx];
@@ -1896,7 +1989,7 @@ int hdmi_common_read_edid(void)
 	uint32 ieee_reg_id = 0;
 	uint32 i = 1;
 	char vendor_id[5];
-	
+	/* EDID_BLOCK_SIZE[0x80] Each page size in the EDID ROM */
 	uint8 edid_buf[0x80 * 4];
 
 	external_common_state->pt_scan_info = 0;
@@ -1928,19 +2021,19 @@ int hdmi_common_read_edid(void)
 	}
 	hdmi_edid_extract_vendor_id(edid_buf, vendor_id);
 
-	
+	/* EDID_CEA_EXTENSION_FLAG[0x7E] - CEC extension byte */
 	num_og_cea_blocks = edid_buf[0x7E];
 
 	DEV_DBG("[JSR] (%s): No. of CEA blocks is  [%u]\n", __func__,
 		num_og_cea_blocks);
-	
+	/* Find out any CEA extension blocks following block 0 */
 	switch (num_og_cea_blocks) {
-	case 0: 
+	case 0: /* No CEA extension */
 		external_common_state->hdmi_sink = false;
 		DEV_DBG("HDMI DVI mode: %s\n",
 			external_common_state->hdmi_sink ? "no" : "yes");
 		break;
-	case 1: 
+	case 1: /* Read block 1 */
 		status = hdmi_common_read_edid_block(1, &edid_buf[0x80]);
 		if (status) {
 			DEV_ERR("%s: ddc read block(1) failed: %d\n", __func__,
@@ -1997,11 +2090,14 @@ int hdmi_common_read_edid(void)
 	}
 
 	if (num_og_cea_blocks) {
+		/* EDID_CEA_EXTENSION_VERSION[0x81]: Offset to CEA extension
+		 * version number - v1,v2,v3 (v1 is seldom, v2 is obsolete,
+		 * v3 most common) */
 		cea_extension_ver = edid_buf[0x81];
 	}
 
-	
-	
+	/* EDID_VERSION[0x12] - EDID Version */
+	/* EDID_REVISION[0x13] - EDID Revision */
 	DEV_INFO("EDID (V=%d.%d, #CEABlocks=%d[V%d], ID=%s, IEEE=%04x, "
 		"EDID-Ext=0x%02x)\n", edid_buf[0x12], edid_buf[0x13],
 		num_og_cea_blocks, cea_extension_ver, vendor_id, ieee_reg_id,
@@ -2053,12 +2149,14 @@ bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd)
 				format = HDMI_VFRMT_1280x720p60_16_9;
 			break;
 		case 1440:
-			format = (mfd->var_yres == 240) 
+			format = (mfd->var_yres == 240) /* interlaced has half
+							   of y res.
+							*/
 				? HDMI_VFRMT_1440x480i60_16_9
 				: HDMI_VFRMT_1440x576i50_16_9;
 			break;
 		case 1920:
-			if (mfd->var_yres == 540) {
+			if (mfd->var_yres == 540) {/* interlaced */
 				format = HDMI_VFRMT_1920x1080i60_16_9;
 			} else if (mfd->var_yres == 1080) {
 				if (mfd->var_frame_rate == 50000)
@@ -2161,9 +2259,9 @@ void hdmi_common_init_panel_info(struct msm_panel_info *pinfo)
 	else
 		pinfo->fb_num = 1;
 
-	
+	/* blk */
 	pinfo->lcdc.border_clr = 0;
-	
+	/* blue */
 	pinfo->lcdc.underflow_clr = 0xff;
 	pinfo->lcdc.hsync_skew = 0;
 }

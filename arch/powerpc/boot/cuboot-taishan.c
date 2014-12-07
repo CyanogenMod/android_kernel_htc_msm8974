@@ -32,6 +32,8 @@ BSS_STACK(4096);
 
 static void taishan_fixups(void)
 {
+	/* FIXME: sysclk should be derived by reading the FPGA
+	   registers */
 	unsigned long sysclk = 33000000;
 
 	ibm440gx_fixup_clocks(sysclk, 6 * 1843200, 25000000);

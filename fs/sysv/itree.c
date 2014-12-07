@@ -1,10 +1,16 @@
+/*
+ *  linux/fs/sysv/itree.c
+ *
+ *  Handling of indirect blocks' trees.
+ *  AV, Sep--Dec 2000
+ */
 
 #include <linux/buffer_head.h>
 #include <linux/mount.h>
 #include <linux/string.h>
 #include "sysv.h"
 
-enum {DIRECT = 10, DEPTH = 4};	
+enum {DIRECT = 10, DEPTH = 4};	/* Have triple indirect */
 
 static inline void dirty_indirect(struct buffer_head *bh, struct inode *inode)
 {
@@ -39,7 +45,7 @@ static int block_to_path(struct inode *inode, long block, int offsets[DEPTH])
 		offsets[n++] = (block >> ptrs_bits) & (indirect_blocks - 1);
 		offsets[n++] = block & (indirect_blocks - 1);
 	} else {
-		;
+		/* nothing */;
 	}
 	return n;
 }
@@ -75,6 +81,9 @@ static inline sysv_zone_t *block_end(struct buffer_head *bh)
 	return (sysv_zone_t*)((char*)bh->b_data + bh->b_size);
 }
 
+/*
+ * Requires read_lock(&pointers_lock) or write_lock(&pointers_lock)
+ */
 static Indirect *get_branch(struct inode *inode,
 			    int depth,
 			    int offsets[],
@@ -125,10 +134,14 @@ static int alloc_branch(struct inode *inode,
 	if (branch[0].key) for (n = 1; n < num; n++) {
 		struct buffer_head *bh;
 		int parent;
-		
+		/* Allocate the next block */
 		branch[n].key = sysv_new_block(inode->i_sb);
 		if (!branch[n].key)
 			break;
+		/*
+		 * Get buffer_head for parent block, zero it out and set 
+		 * the pointer to new one, then send parent to disk.
+		 */
 		parent = block_to_cpu(SYSV_SB(inode->i_sb), branch[n-1].key);
 		bh = sb_getblk(inode->i_sb, parent);
 		lock_buffer(bh);
@@ -143,7 +156,7 @@ static int alloc_branch(struct inode *inode,
 	if (n == num)
 		return 0;
 
-	
+	/* Allocation failed, free what we already allocated */
 	for (i = 1; i < n; i++)
 		bforget(branch[i].bh);
 	for (i = 0; i < n; i++)
@@ -158,7 +171,7 @@ static inline int splice_branch(struct inode *inode,
 {
 	int i;
 
-	
+	/* Verify that place we are splicing to is still there and vacant */
 	write_lock(&pointers_lock);
 	if (!verify_chain(chain, where-1) || *where->p)
 		goto changed;
@@ -167,7 +180,7 @@ static inline int splice_branch(struct inode *inode,
 
 	inode->i_ctime = CURRENT_TIME_SEC;
 
-	
+	/* had we spliced it onto indirect block? */
 	if (where->bh)
 		dirty_indirect(where->bh, inode);
 
@@ -204,17 +217,17 @@ reread:
 	partial = get_branch(inode, depth, offsets, chain, &err);
 	read_unlock(&pointers_lock);
 
-	
+	/* Simplest case - block found, no allocation needed */
 	if (!partial) {
 got_it:
 		map_bh(bh_result, sb, block_to_cpu(SYSV_SB(sb),
 					chain[depth-1].key));
-		
-		partial = chain+depth-1; 
+		/* Clean up and exit */
+		partial = chain+depth-1; /* the whole chain */
 		goto cleanup;
 	}
 
-	
+	/* Next simple case - plain lookup or failed read of indirect block */
 	if (!create || err == -EIO) {
 cleanup:
 		while (partial > chain) {
@@ -225,6 +238,11 @@ out:
 		return err;
 	}
 
+	/*
+	 * Indirect block might be removed by truncate while we were
+	 * reading it. Handling of that case (forget what we've got and
+	 * reread) is taken out of the main path.
+	 */
 	if (err == -EAGAIN)
 		goto changed;
 
@@ -272,12 +290,22 @@ static Indirect *find_shared(struct inode *inode,
 	partial = get_branch(inode, k, offsets, chain, &err);
 	if (!partial)
 		partial = chain + k-1;
+	/*
+	 * If the branch acquired continuation since we've looked at it -
+	 * fine, it should all survive and (new) top doesn't belong to us.
+	 */
 	if (!partial->key && *partial->p) {
 		write_unlock(&pointers_lock);
 		goto no_top;
 	}
 	for (p=partial; p>chain && all_zeroes((sysv_zone_t*)p->bh->b_data,p->p); p--)
 		;
+	/*
+	 * OK, we've found the last block that must survive. The rest of our
+	 * branch should be detached before unlocking. However, if that rest
+	 * of branch is all ours and does not grow immediately from the inode
+	 * it's easier to cheat and just decrement partial->p.
+	 */
 	if (p == chain + k - 1 && p > chain) {
 		p->p--;
 	} else {
@@ -363,7 +391,7 @@ void sysv_truncate (struct inode * inode)
 	}
 
 	partial = find_shared(inode, n, offsets, chain, &nr);
-	
+	/* Kill the top of shared branch (already detached) */
 	if (nr) {
 		if (partial == chain)
 			mark_inode_dirty(inode);
@@ -371,7 +399,7 @@ void sysv_truncate (struct inode * inode)
 			dirty_indirect(partial->bh, inode);
 		free_branches(inode, &nr, &nr+1, (chain+n-1) - partial);
 	}
-	
+	/* Clear the ends of indirect blocks on the shared branch */
 	while (partial > chain) {
 		free_branches(inode, partial->p + 1, block_end(partial->bh),
 				(chain+n-1) - partial);
@@ -380,7 +408,7 @@ void sysv_truncate (struct inode * inode)
 		partial--;
 	}
 do_indirects:
-	
+	/* Kill the remaining (whole) subtrees (== subtrees deeper than...) */
 	while (n < DEPTH) {
 		nr = i_data[DIRECT + n - 1];
 		if (nr) {

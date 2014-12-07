@@ -21,11 +21,11 @@ void __init prom_init(void)
 
 	bcm63xx_cpu_init();
 
-	
+	/* stop any running watchdog */
 	bcm_wdt_writel(WDT_STOP_1, WDT_CTL_REG);
 	bcm_wdt_writel(WDT_STOP_2, WDT_CTL_REG);
 
-	
+	/* disable all hardware blocks clock for now */
 	if (BCMCPU_IS_6338())
 		mask = CKCTL_6338_ALL_SAFE_EN;
 	else if (BCMCPU_IS_6345())
@@ -43,10 +43,10 @@ void __init prom_init(void)
 	reg &= ~mask;
 	bcm_perf_writel(reg, PERF_CKCTL_REG);
 
-	
+	/* register gpiochip */
 	bcm63xx_gpio_init();
 
-	
+	/* do low level board init */
 	board_prom_init();
 }
 

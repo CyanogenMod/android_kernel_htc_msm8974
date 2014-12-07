@@ -29,9 +29,10 @@
 #include <asm/io.h>
 #include <asm/prom.h>
 #include <asm/rtas.h>
-#include <asm/machdep.h> 
+#include <asm/machdep.h> /* for ppc_md */
 #include <asm/time.h>
 
+/* Token for Sensors */
 #define KEY_SWITCH		0x0001
 #define ENCLOSURE_SWITCH	0x0002
 #define THERMAL_SENSOR		0x0003
@@ -44,12 +45,14 @@
 #define BATTERY_CYCLESTATE	0x000a
 #define BATTERY_CHARGING	0x000b
 
-#define IBM_SURVEILLANCE	0x2328 
-#define IBM_FANRPM		0x2329 
-#define IBM_VOLTAGE		0x232a 
-#define IBM_DRCONNECTOR		0x232b 
-#define IBM_POWERSUPPLY		0x232c 
+/* IBM specific sensors */
+#define IBM_SURVEILLANCE	0x2328 /* 9000 */
+#define IBM_FANRPM		0x2329 /* 9001 */
+#define IBM_VOLTAGE		0x232a /* 9002 */
+#define IBM_DRCONNECTOR		0x232b /* 9003 */
+#define IBM_POWERSUPPLY		0x232c /* 9004 */
 
+/* Status return values */
 #define SENSOR_CRITICAL_HIGH	13
 #define SENSOR_WARNING_HIGH	12
 #define SENSOR_NORMAL		11
@@ -61,6 +64,7 @@
 #define SENSOR_NOT_EXIST	-3
 #define SENSOR_DR_ENTITY	-9000
 
+/* Location Codes */
 #define LOC_SCSI_DEV_ADDR	'A'
 #define LOC_SCSI_DEV_LOC	'B'
 #define LOC_CPU			'C'
@@ -68,7 +72,9 @@
 #define LOC_ETHERNET		'E'
 #define LOC_FAN			'F'
 #define LOC_GRAPHICS		'G'
+/* reserved / not used		'H' */
 #define LOC_IO_ADAPTER		'I'
+/* reserved / not used		'J' */
 #define LOC_KEYBOARD		'K'
 #define LOC_LCD			'L'
 #define LOC_MEMORY		'M'
@@ -79,39 +85,45 @@
 #define LOC_PARALLEL		'R'
 #define LOC_SERIAL		'S'
 #define LOC_DEAD_RING		'T'
-#define LOC_RACKMOUNTED		'U' 
+#define LOC_RACKMOUNTED		'U' /* for _u_nit is rack mounted */
 #define LOC_VOLTAGE		'V'
 #define LOC_SWITCH_ADAPTER	'W'
 #define LOC_OTHER		'X'
 #define LOC_FIRMWARE		'Y'
 #define LOC_SCSI		'Z'
 
-#define TONE_FREQUENCY		0x0001 
-#define TONE_VOLUME		0x0002 
+/* Tokens for indicators */
+#define TONE_FREQUENCY		0x0001 /* 0 - 1000 (HZ)*/
+#define TONE_VOLUME		0x0002 /* 0 - 100 (%) */
 #define SYSTEM_POWER_STATE	0x0003 
 #define WARNING_LIGHT		0x0004
 #define DISK_ACTIVITY_LIGHT	0x0005
 #define HEX_DISPLAY_UNIT	0x0006
 #define BATTERY_WARNING_TIME	0x0007
 #define CONDITION_CYCLE_REQUEST	0x0008
-#define SURVEILLANCE_INDICATOR	0x2328 
-#define DR_ACTION		0x2329 
-#define DR_INDICATOR		0x232a 
+#define SURVEILLANCE_INDICATOR	0x2328 /* 9000 */
+#define DR_ACTION		0x2329 /* 9001 */
+#define DR_INDICATOR		0x232a /* 9002 */
+/* 9003 - 9004: Vendor specific */
+/* 9006 - 9999: Vendor specific */
 
-#define MAX_SENSORS		 17      
+/* other */
+#define MAX_SENSORS		 17  /* I only know of 17 sensors */    
 #define MAX_LINELENGTH          256
 #define SENSOR_PREFIX		"ibm,sensor-"
 #define cel_to_fahr(x)		((x*9/5)+32)
 
 
+/* Globals */
 static struct rtas_sensors sensors;
 static struct device_node *rtas_node = NULL;
-static unsigned long power_on_time = 0; 
+static unsigned long power_on_time = 0; /* Save the time the user set */
 static char progress_led[MAX_LINELENGTH];
 
 static unsigned long rtas_tone_frequency = 1000;
 static unsigned long rtas_tone_volume = 0;
 
+/* ****************STRUCTS******************************************* */
 struct individual_sensor {
 	unsigned int token;
 	unsigned int quant;
@@ -122,6 +134,8 @@ struct rtas_sensors {
 	unsigned int quant;
 };
 
+/* ****************************************************************** */
+/* Declarations */
 static int ppc_rtas_sensors_show(struct seq_file *m, void *v);
 static int ppc_rtas_clock_show(struct seq_file *m, void *v);
 static ssize_t ppc_rtas_clock_write(struct file *file,
@@ -287,6 +301,9 @@ static int parse_number(const char __user *p, size_t count, unsigned long *val)
 	return 0;
 }
 
+/* ****************************************************************** */
+/* POWER-ON-TIME                                                      */
+/* ****************************************************************** */
 static ssize_t ppc_rtas_poweron_write(struct file *file,
 		const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -296,18 +313,19 @@ static ssize_t ppc_rtas_poweron_write(struct file *file,
 	if (error)
 		return error;
 
-	power_on_time = nowtime; 
+	power_on_time = nowtime; /* save the time */
 
 	to_tm(nowtime, &tm);
 
 	error = rtas_call(rtas_token("set-time-for-power-on"), 7, 1, NULL, 
 			tm.tm_year, tm.tm_mon, tm.tm_mday, 
-			tm.tm_hour, tm.tm_min, tm.tm_sec, 0 );
+			tm.tm_hour, tm.tm_min, tm.tm_sec, 0 /* nano */);
 	if (error)
 		printk(KERN_WARNING "error: setting poweron time returned: %s\n", 
 				ppc_rtas_process_error(error));
 	return count;
 }
+/* ****************************************************************** */
 static int ppc_rtas_poweron_show(struct seq_file *m, void *v)
 {
 	if (power_on_time == 0)
@@ -317,6 +335,9 @@ static int ppc_rtas_poweron_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+/* ****************************************************************** */
+/* PROGRESS                                                           */
+/* ****************************************************************** */
 static ssize_t ppc_rtas_progress_write(struct file *file,
 		const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -324,20 +345,21 @@ static ssize_t ppc_rtas_progress_write(struct file *file,
 
 	if (count >= MAX_LINELENGTH)
 		count = MAX_LINELENGTH -1;
-	if (copy_from_user(progress_led, buf, count)) { 
+	if (copy_from_user(progress_led, buf, count)) { /* save the string */
 		return -EFAULT;
 	}
 	progress_led[count] = 0;
 
-	
+	/* Lets see if the user passed hexdigits */
 	hex = simple_strtoul(progress_led, NULL, 10);
 
 	rtas_progress ((char *)progress_led, hex);
 	return count;
 
-	
-	
+	/* clear the line */
+	/* rtas_progress("                   ", 0xffff);*/
 }
+/* ****************************************************************** */
 static int ppc_rtas_progress_show(struct seq_file *m, void *v)
 {
 	if (progress_led[0])
@@ -345,6 +367,9 @@ static int ppc_rtas_progress_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+/* ****************************************************************** */
+/* CLOCK                                                              */
+/* ****************************************************************** */
 static ssize_t ppc_rtas_clock_write(struct file *file,
 		const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -363,6 +388,7 @@ static ssize_t ppc_rtas_clock_write(struct file *file,
 				ppc_rtas_process_error(error));
 	return count;
 }
+/* ****************************************************************** */
 static int ppc_rtas_clock_show(struct seq_file *m, void *v)
 {
 	int ret[8];
@@ -382,6 +408,9 @@ static int ppc_rtas_clock_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+/* ****************************************************************** */
+/* SENSOR STUFF                                                       */
+/* ****************************************************************** */
 static int ppc_rtas_sensors_show(struct seq_file *m, void *v)
 {
 	int i,j;
@@ -406,7 +435,7 @@ static int ppc_rtas_sensors_show(struct seq_file *m, void *v)
 		sprintf (rstr, SENSOR_PREFIX"%04d", p->token);
 		loc = of_get_property(rtas_node, rstr, &llen);
 
-		
+		/* A sensor may have multiple instances */
 		for (j = 0, offs = 0; j <= p->quant; j++) {
 			error =	rtas_call(get_sensor_state, 2, 2, &state, 
 				  	  p->token, j);
@@ -424,6 +453,7 @@ static int ppc_rtas_sensors_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+/* ****************************************************************** */
 
 static int ppc_rtas_find_all_sensors(void)
 {
@@ -436,7 +466,7 @@ static int ppc_rtas_find_all_sensors(void)
 		return 1;
 	}
 
-	sensors.quant = len / 8;      
+	sensors.quant = len / 8;      /* int + int */
 
 	for (i=0; i<sensors.quant; i++) {
 		sensors.sensor[i].token = *utmp++;
@@ -445,6 +475,10 @@ static int ppc_rtas_find_all_sensors(void)
 	return 0;
 }
 
+/* ****************************************************************** */
+/*
+ * Builds a string of what rtas returned
+ */
 static char *ppc_rtas_process_error(int error)
 {
 	switch (error) {
@@ -473,11 +507,15 @@ static char *ppc_rtas_process_error(int error)
 	}
 }
 
+/* ****************************************************************** */
+/*
+ * Builds a string out of what the sensor said
+ */
 
 static void ppc_rtas_process_sensor(struct seq_file *m,
 	struct individual_sensor *s, int state, int error, const char *loc)
 {
-	
+	/* Defined return vales */
 	const char * key_switch[]        = { "Off\t", "Normal\t", "Secure\t", 
 						"Maintenance" };
 	const char * enclosure_switch[]  = { "Closed", "Open" };
@@ -501,7 +539,7 @@ static void ppc_rtas_process_sensor(struct seq_file *m,
 	int temperature = 0;
 	int unknown = 0;
 
-	
+	/* What kind of sensor do we have here? */
 	
 	switch (s->token) {
 		case KEY_SWITCH:
@@ -625,6 +663,7 @@ static void ppc_rtas_process_sensor(struct seq_file *m,
 	}
 }
 
+/* ****************************************************************** */
 
 static void check_location(struct seq_file *m, const char *c)
 {
@@ -657,6 +696,12 @@ static void check_location(struct seq_file *m, const char *c)
 }
 
 
+/* ****************************************************************** */
+/* 
+ * Format: 
+ * ${LETTER}${NUMBER}[[-/]${LETTER}${NUMBER} [ ... ] ]
+ * the '.' may be an abbrevation
+ */
 static void check_location_string(struct seq_file *m, const char *c)
 {
 	while (*c) {
@@ -669,17 +714,21 @@ static void check_location_string(struct seq_file *m, const char *c)
 }
 
 
+/* ****************************************************************** */
 
 static void get_location_code(struct seq_file *m, struct individual_sensor *s,
 		const char *loc)
 {
 	if (!loc || !*loc) {
-		seq_printf(m, "---");
+		seq_printf(m, "---");/* does not have a location */
 	} else {
 		check_location_string(m, loc);
 	}
 	seq_putc(m, ' ');
 }
+/* ****************************************************************** */
+/* INDICATORS - Tone Frequency                                        */
+/* ****************************************************************** */
 static ssize_t ppc_rtas_tone_freq_write(struct file *file,
 		const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -688,7 +737,7 @@ static ssize_t ppc_rtas_tone_freq_write(struct file *file,
 	if (error)
 		return error;
 
-	rtas_tone_frequency = freq; 
+	rtas_tone_frequency = freq; /* save it for later */
 	error = rtas_call(rtas_token("set-indicator"), 3, 1, NULL,
 			TONE_FREQUENCY, 0, freq);
 	if (error)
@@ -696,11 +745,15 @@ static ssize_t ppc_rtas_tone_freq_write(struct file *file,
 				ppc_rtas_process_error(error));
 	return count;
 }
+/* ****************************************************************** */
 static int ppc_rtas_tone_freq_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, "%lu\n", rtas_tone_frequency);
 	return 0;
 }
+/* ****************************************************************** */
+/* INDICATORS - Tone Volume                                           */
+/* ****************************************************************** */
 static ssize_t ppc_rtas_tone_volume_write(struct file *file,
 		const char __user *buf, size_t count, loff_t *ppos)
 {
@@ -712,7 +765,7 @@ static ssize_t ppc_rtas_tone_volume_write(struct file *file,
 	if (volume > 100)
 		volume = 100;
 	
-        rtas_tone_volume = volume; 
+        rtas_tone_volume = volume; /* save it for later */
 	error = rtas_call(rtas_token("set-indicator"), 3, 1, NULL,
 			TONE_VOLUME, 0, volume);
 	if (error)
@@ -720,6 +773,7 @@ static ssize_t ppc_rtas_tone_volume_write(struct file *file,
 				ppc_rtas_process_error(error));
 	return count;
 }
+/* ****************************************************************** */
 static int ppc_rtas_tone_volume_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, "%lu\n", rtas_tone_volume);
@@ -728,6 +782,7 @@ static int ppc_rtas_tone_volume_show(struct seq_file *m, void *v)
 
 #define RMO_READ_BUF_MAX 30
 
+/* RTAS Userspace access */
 static int ppc_rtas_rmo_buf_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, "%016lx %x\n", rtas_rmo_buf, RTAS_RMOBUF_MAX);

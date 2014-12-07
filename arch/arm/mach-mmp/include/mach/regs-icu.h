@@ -19,17 +19,23 @@
 #define ICU_INT_CONF(n)		ICU_REG((n) << 2)
 #define ICU_INT_CONF_MASK	(0xf)
 
+/************ PXA168/PXA910 (MMP) *********************/
 #define ICU_INT_CONF_AP_INT	(1 << 6)
 #define ICU_INT_CONF_CP_INT	(1 << 5)
 #define ICU_INT_CONF_IRQ	(1 << 4)
 
-#define ICU_AP_FIQ_SEL_INT_NUM	ICU_REG(0x108)	
-#define ICU_AP_IRQ_SEL_INT_NUM	ICU_REG(0x10C)	
-#define ICU_AP_GBL_IRQ_MSK	ICU_REG(0x114)	
-#define ICU_INT_STATUS_0	ICU_REG(0x128)	
-#define ICU_INT_STATUS_1	ICU_REG(0x12C)	
+#define ICU_AP_FIQ_SEL_INT_NUM	ICU_REG(0x108)	/* AP FIQ Selected Interrupt */
+#define ICU_AP_IRQ_SEL_INT_NUM	ICU_REG(0x10C)	/* AP IRQ Selected Interrupt */
+#define ICU_AP_GBL_IRQ_MSK	ICU_REG(0x114)	/* AP Global Interrupt Mask */
+#define ICU_INT_STATUS_0	ICU_REG(0x128)	/* Interrupt Stuats 0 */
+#define ICU_INT_STATUS_1	ICU_REG(0x12C)	/* Interrupt Status 1 */
 
+/************************** MMP2 ***********************/
 
+/*
+ * IRQ0/FIQ0 is routed to SP IRQ/FIQ.
+ * IRQ1 is routed to PJ4 IRQ, and IRQ2 is routes to PJ4 FIQ.
+ */
 #define ICU_INT_ROUTE_SP_IRQ		(1 << 4)
 #define ICU_INT_ROUTE_PJ4_IRQ		(1 << 5)
 #define ICU_INT_ROUTE_PJ4_FIQ		(1 << 6)
@@ -62,4 +68,4 @@
 #define MMP2_ICU_INV_COMMTX		(1 << 2)
 #define MMP2_ICU_INV_COMMRX		(1 << 3)
 
-#endif 
+#endif /* __ASM_MACH_ICU_H */

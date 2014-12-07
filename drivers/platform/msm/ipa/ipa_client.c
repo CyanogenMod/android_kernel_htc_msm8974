@@ -12,6 +12,10 @@
 #include <linux/delay.h>
 #include "ipa_i.h"
 
+/*
+ * These values were determined empirically and shows good E2E bi-
+ * directional throughputs
+ */
 #define IPA_A2_HOLB_TMR_EN 0x1
 #define IPA_A2_HOLB_TMR_DEFAULT_VAL 0x1ff
 
@@ -20,7 +24,7 @@
 static void ipa_enable_data_path(u32 clnt_hdl)
 {
 	if (ipa_ctx->ipa_hw_mode == IPA_HW_MODE_VIRTUAL) {
-		
+		/* IPA_HW_MODE_VIRTUAL lacks support for TAG IC & EP suspend */
 		return;
 	}
 
@@ -34,7 +38,7 @@ static int ipa_disable_data_path(u32 clnt_hdl)
 	struct ipa_ep_context *ep = &ipa_ctx->ep[clnt_hdl];
 
 	if (ipa_ctx->ipa_hw_mode == IPA_HW_MODE_VIRTUAL) {
-		
+		/* IPA_HW_MODE_VIRTUAL lacks support for TAG IC & EP suspend */
 		return 0;
 	}
 
@@ -56,7 +60,7 @@ static int ipa_connect_configure_sps(const struct ipa_connect_params *in,
 {
 	int result = -EFAULT;
 
-	
+	/* Default Config */
 	ep->ep_hdl = sps_alloc_endpoint();
 
 	if (ep->ep_hdl == NULL) {
@@ -71,7 +75,7 @@ static int ipa_connect_configure_sps(const struct ipa_connect_params *in,
 		return -EFAULT;
 	}
 
-	
+	/* Specific Config */
 	if (IPA_CLIENT_IS_CONS(in->client)) {
 		ep->connect.mode = SPS_MODE_SRC;
 		ep->connect.destination =
@@ -153,6 +157,21 @@ static void ipa_program_holb(struct ipa_ep_context *ep, int ipa_ep_idx)
 	ipa_cfg_ep_holb(ipa_ep_idx, &holb);
 }
 
+/**
+ * ipa_connect() - low-level IPA client connect
+ * @in:	[in] input parameters from client
+ * @sps:	[out] sps output from IPA needed by client for sps_connect
+ * @clnt_hdl:	[out] opaque client handle assigned by IPA to client
+ *
+ * Should be called by the driver of the peripheral that wants to connect to
+ * IPA in BAM-BAM mode. these peripherals are A2, USB and HSIC. this api
+ * expects caller to take responsibility to add any needed headers, routing
+ * and filtering tables and rules as needed.
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_connect(const struct ipa_connect_params *in, struct ipa_sps_params *sps,
 		u32 *clnt_hdl)
 {
@@ -237,7 +256,7 @@ int ipa_connect(const struct ipa_connect_params *in, struct ipa_sps_params *sps,
 	       ep->connect.data.size);
 
 	ep->connect.event_thresh = IPA_EVENT_THRESHOLD;
-	ep->connect.options = SPS_O_AUTO_ENABLE;    
+	ep->connect.options = SPS_O_AUTO_ENABLE;    /* BAM-to-BAM */
 
 	if (IPA_CLIENT_IS_CONS(in->client))
 		ep->connect.options |= SPS_O_NO_DISABLE;
@@ -290,6 +309,18 @@ fail:
 }
 EXPORT_SYMBOL(ipa_connect);
 
+/**
+ * ipa_disconnect() - low-level IPA client disconnect
+ * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
+ *
+ * Should be called by the driver of the peripheral that wants to disconnect
+ * from IPA in BAM-BAM mode. this api expects caller to take responsibility to
+ * free any needed headers, routing and filtering tables and rules as needed.
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_disconnect(u32 clnt_hdl)
 {
 	int result;
@@ -360,6 +391,20 @@ int ipa_disconnect(u32 clnt_hdl)
 }
 EXPORT_SYMBOL(ipa_disconnect);
 
+/**
+ * ipa_resume() - low-level IPA client resume
+ * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
+ *
+ * Should be called by the driver of the peripheral that wants to resume IPA
+ * connection. Resume IPA connection results in turning on IPA clocks in
+ * case they were off as a result of suspend.
+ * this api can be called only if a call to ipa_suspend() was
+ * made.
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_resume(u32 clnt_hdl)
 {
 	struct ipa_ep_context *ep;
@@ -383,6 +428,19 @@ int ipa_resume(u32 clnt_hdl)
 }
 EXPORT_SYMBOL(ipa_resume);
 
+/**
+* ipa_suspend() - low-level IPA client suspend
+* @clnt_hdl:	[in] opaque client handle assigned by IPA to client
+*
+* Should be called by the driver of the peripheral that wants to suspend IPA
+* connection. Suspend IPA connection results in turning off IPA clocks in
+* case that there is no active clients using IPA. Pipes remains connected in
+* case of suspend.
+*
+* Returns:	0 on success, negative on failure
+*
+* Note:	Should not be called from atomic context
+*/
 int ipa_suspend(u32 clnt_hdl)
 {
 	struct ipa_ep_context *ep;

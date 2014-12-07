@@ -27,7 +27,7 @@ struct cfrfml {
 	int fragment_size;
 	u8  seghead[6];
 	u16 pdu_size;
-	
+	/* Protects serialized processing of packets */
 	spinlock_t sync;
 };
 
@@ -56,7 +56,7 @@ struct cflayer *cfrfml_create(u8 channel_id, struct dev_info *dev_info,
 	this->serv.layer.receive = cfrfml_receive;
 	this->serv.layer.transmit = cfrfml_transmit;
 
-	
+	/* Round down to closest multiple of 16 */
 	tmp = (mtu_size - RFM_HEAD_SIZE - 6) / 16;
 	tmp *= 16;
 
@@ -73,19 +73,19 @@ static struct cfpkt *rfm_append(struct cfrfml *rfml, char *seghead,
 {
 	struct cfpkt *tmppkt;
 	*err = -EPROTO;
-	
+	/* n-th but not last segment */
 
 	if (cfpkt_extr_head(pkt, seghead, 6) < 0)
 		return NULL;
 
-	
+	/* Verify correct header */
 	if (memcmp(seghead, rfml->seghead, 6) != 0)
 		return NULL;
 
 	tmppkt = cfpkt_append(rfml->incomplete_frm, pkt,
 			rfml->pdu_size + RFM_HEAD_SIZE);
 
-	
+	/* If cfpkt_append failes input pkts are not freed */
 	*err = -ENOMEM;
 	if (tmppkt == NULL)
 		return NULL;
@@ -115,7 +115,7 @@ static int cfrfml_receive(struct cflayer *layr, struct cfpkt *pkt)
 
 	if (segmented) {
 		if (rfml->incomplete_frm == NULL) {
-			
+			/* Initial Segment */
 			if (cfpkt_peek_head(pkt, rfml->seghead, 6) < 0)
 				goto out;
 
@@ -146,7 +146,7 @@ static int cfrfml_receive(struct cflayer *layr, struct cfpkt *pkt)
 
 	if (rfml->incomplete_frm) {
 
-		
+		/* Last Segment */
 		tmppkt = rfm_append(rfml, seghead, pkt, &err);
 		if (tmppkt == NULL)
 			goto out;
@@ -158,7 +158,7 @@ static int cfrfml_receive(struct cflayer *layr, struct cfpkt *pkt)
 		pkt = tmppkt;
 		tmppkt = NULL;
 
-		
+		/* Verify that length is correct */
 		err = EPROTO;
 		if (rfml->pdu_size != cfpkt_getlen(pkt) - RFM_HEAD_SIZE + 1)
 			goto out;
@@ -179,14 +179,14 @@ out:
 
 		pr_info("Connection error %d triggered on RFM link\n", err);
 
-		
+		/* Trigger connection error upon failure.*/
 		layr->up->ctrlcmd(layr->up, CAIF_CTRLCMD_REMOTE_SHUTDOWN_IND,
 					rfml->serv.dev_info.id);
 	}
 	spin_unlock(&rfml->sync);
 
 	if (unlikely(err == -EAGAIN))
-		
+		/* It is not possible to recover after drop of a fragment */
 		err = -EIO;
 
 	return err;
@@ -197,9 +197,13 @@ static int cfrfml_transmit_segment(struct cfrfml *rfml, struct cfpkt *pkt)
 {
 	caif_assert(cfpkt_getlen(pkt) < rfml->fragment_size + RFM_HEAD_SIZE);
 
-	
+	/* Add info for MUX-layer to route the packet out. */
 	cfpkt_info(pkt)->channel_id = rfml->serv.layer.id;
 
+	/*
+	 * To optimize alignment, we add up the size of CAIF header before
+	 * payload.
+	 */
 	cfpkt_info(pkt)->hdr_len = RFM_HEAD_SIZE;
 	cfpkt_info(pkt)->dev_info = &rfml->serv.dev_info;
 
@@ -239,6 +243,12 @@ static int cfrfml_transmit(struct cflayer *layr, struct cfpkt *pkt)
 
 		if (cfpkt_add_head(frontpkt, &seg, 1) < 0)
 			goto out;
+		/*
+		 * On OOM error cfpkt_split returns NULL.
+		 *
+		 * NOTE: Segmented pdu is not correctly aligned.
+		 * This has negative performance impact.
+		 */
 
 		rearpkt = cfpkt_split(frontpkt, rfml->fragment_size);
 		if (rearpkt == NULL)
@@ -276,7 +286,7 @@ out:
 
 	if (err != 0) {
 		pr_info("Connection error %d triggered on RFM link\n", err);
-		
+		/* Trigger connection error upon failure.*/
 
 		layr->up->ctrlcmd(layr->up, CAIF_CTRLCMD_REMOTE_SHUTDOWN_IND,
 					rfml->serv.dev_info.id);

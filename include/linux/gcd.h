@@ -5,4 +5,4 @@
 
 unsigned long gcd(unsigned long a, unsigned long b) __attribute_const__;
 
-#endif 
+#endif /* _GCD_H */

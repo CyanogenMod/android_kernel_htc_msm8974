@@ -58,7 +58,7 @@ struct snd_ca_midi {
 	unsigned char (*read)(struct snd_ca_midi *midi, int idx);
 	void (*write)(struct snd_ca_midi *midi, int data, int idx);
 
-	
+	/* get info from dev_id */
 	struct snd_card *(*get_dev_id_card)(void *dev_id);
 	int (*get_dev_id_port)(void *dev_id);
 };

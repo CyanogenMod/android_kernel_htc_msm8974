@@ -6,6 +6,7 @@
 #include <linux/mutex.h>
 #include <linux/wait.h>
 
+/* per-channel registers */
 enum { LDDCKPAT1R, LDDCKPAT2R, LDMT1R, LDMT2R, LDMT3R, LDDFR, LDSM1R,
        LDSM2R, LDSA1R, LDSA2R, LDMLSR, LDHCNR, LDHSYNR, LDVLNR, LDVSYNR, LDPMR,
        LDHAJR,
@@ -25,7 +26,7 @@ struct sh_mobile_lcdc_priv;
 #define SH_MOBILE_LCDC_DISPLAY_CONNECTED	1
 
 struct sh_mobile_lcdc_entity_ops {
-	
+	/* Display */
 	int (*display_on)(struct sh_mobile_lcdc_entity *entity);
 	void (*display_off)(struct sh_mobile_lcdc_entity *entity);
 };
@@ -43,6 +44,13 @@ struct sh_mobile_lcdc_entity {
 	struct fb_videomode def_mode;
 };
 
+/*
+ * struct sh_mobile_lcdc_chan - LCDC display channel
+ *
+ * @base_addr_y: Frame buffer viewport base address (luma component)
+ * @base_addr_c: Frame buffer viewport base address (chroma component)
+ * @pitch: Frame buffer line pitch
+ */
 struct sh_mobile_lcdc_chan {
 	struct sh_mobile_lcdc_priv *lcdc;
 	struct sh_mobile_lcdc_entity *tx_dev;
@@ -50,10 +58,10 @@ struct sh_mobile_lcdc_chan {
 
 	unsigned long *reg_offs;
 	unsigned long ldmt1r_value;
-	unsigned long enabled; 
+	unsigned long enabled; /* ME and SE in LDCNT2R */
 	void *meram;
 
-	struct mutex open_lock;		
+	struct mutex open_lock;		/* protects the use counter */
 	int use_count;
 
 	void *fb_mem;
@@ -82,10 +90,10 @@ struct sh_mobile_lcdc_chan {
 		      const struct fb_videomode *mode,
 		      const struct fb_monspecs *monspec);
 
-	
+	/* Backlight */
 	struct backlight_device *bl;
 
-	
+	/* FB */
 	struct fb_info *info;
 	u32 pseudo_palette[PALETTE_NR];
 	struct {

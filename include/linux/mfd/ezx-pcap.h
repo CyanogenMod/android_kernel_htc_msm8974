@@ -16,7 +16,7 @@ struct pcap_subdev {
 struct pcap_platform_data {
 	unsigned int irq_base;
 	unsigned int config;
-	void (*init) (void *);	
+	void (*init) (void *);	/* board specific init */
 	int num_subdevs;
 	struct pcap_subdev *subdevs;
 };
@@ -45,65 +45,69 @@ void pcap_set_ts_bits(struct pcap_chip *, u32);
 #define PCAP_CLEAR_INTERRUPT_REGISTER	0x01ffffff
 #define PCAP_MASK_ALL_INTERRUPT		0x01ffffff
 
-#define PCAP_REG_ISR		0x0	
-#define PCAP_REG_MSR		0x1	
-#define PCAP_REG_PSTAT		0x2	
-#define PCAP_REG_VREG2		0x6	
-#define PCAP_REG_AUXVREG	0x7	
-#define PCAP_REG_BATT		0x8	
-#define PCAP_REG_ADC		0x9	
-#define PCAP_REG_ADR		0xa	
-#define PCAP_REG_CODEC		0xb	
-#define PCAP_REG_RX_AMPS	0xc	
-#define PCAP_REG_ST_DAC		0xd	
-#define PCAP_REG_BUSCTRL	0x14	
-#define PCAP_REG_PERIPH		0x15	
-#define PCAP_REG_LOWPWR		0x18	
-#define PCAP_REG_TX_AMPS	0x1a	
-#define PCAP_REG_GP		0x1b	
+/* registers accessible by both pcap ports */
+#define PCAP_REG_ISR		0x0	/* Interrupt Status */
+#define PCAP_REG_MSR		0x1	/* Interrupt Mask */
+#define PCAP_REG_PSTAT		0x2	/* Processor Status */
+#define PCAP_REG_VREG2		0x6	/* Regulator Bank 2 Control */
+#define PCAP_REG_AUXVREG	0x7	/* Auxiliary Regulator Control */
+#define PCAP_REG_BATT		0x8	/* Battery Control */
+#define PCAP_REG_ADC		0x9	/* AD Control */
+#define PCAP_REG_ADR		0xa	/* AD Result */
+#define PCAP_REG_CODEC		0xb	/* Audio Codec Control */
+#define PCAP_REG_RX_AMPS	0xc	/* RX Audio Amplifiers Control */
+#define PCAP_REG_ST_DAC		0xd	/* Stereo DAC Control */
+#define PCAP_REG_BUSCTRL	0x14	/* Connectivity Control */
+#define PCAP_REG_PERIPH		0x15	/* Peripheral Control */
+#define PCAP_REG_LOWPWR		0x18	/* Regulator Low Power Control */
+#define PCAP_REG_TX_AMPS	0x1a	/* TX Audio Amplifiers Control */
+#define PCAP_REG_GP		0x1b	/* General Purpose */
 #define PCAP_REG_TEST1		0x1c
 #define PCAP_REG_TEST2		0x1d
 #define PCAP_REG_VENDOR_TEST1	0x1e
 #define PCAP_REG_VENDOR_TEST2	0x1f
 
-#define PCAP_REG_INT_SEL	0x3	
-#define PCAP_REG_SWCTRL		0x4	
-#define PCAP_REG_VREG1		0x5	
-#define PCAP_REG_RTC_TOD	0xe	
-#define PCAP_REG_RTC_TODA	0xf	
-#define PCAP_REG_RTC_DAY	0x10	
-#define PCAP_REG_RTC_DAYA	0x11	
-#define PCAP_REG_MTRTMR		0x12	
-#define PCAP_REG_PWR		0x13	
-#define PCAP_REG_AUXVREG_MASK	0x16	
+/* registers accessible by pcap port 1 only (a1200, e2 & e6) */
+#define PCAP_REG_INT_SEL	0x3	/* Interrupt Select */
+#define PCAP_REG_SWCTRL		0x4	/* Switching Regulator Control */
+#define PCAP_REG_VREG1		0x5	/* Regulator Bank 1 Control */
+#define PCAP_REG_RTC_TOD	0xe	/* RTC Time of Day */
+#define PCAP_REG_RTC_TODA	0xf	/* RTC Time of Day Alarm */
+#define PCAP_REG_RTC_DAY	0x10	/* RTC Day */
+#define PCAP_REG_RTC_DAYA	0x11	/* RTC Day Alarm */
+#define PCAP_REG_MTRTMR		0x12	/* AD Monitor Timer */
+#define PCAP_REG_PWR		0x13	/* Power Control */
+#define PCAP_REG_AUXVREG_MASK	0x16	/* Auxiliary Regulator Mask */
 #define PCAP_REG_VENDOR_REV	0x17
-#define PCAP_REG_PERIPH_MASK	0x19	
+#define PCAP_REG_PERIPH_MASK	0x19	/* Peripheral Mask */
 
+/* PCAP2 Interrupts */
 #define PCAP_NIRQS		23
-#define PCAP_IRQ_ADCDONE	0	
-#define PCAP_IRQ_TS		1	
-#define PCAP_IRQ_1HZ		2	
-#define PCAP_IRQ_WH		3	
-#define PCAP_IRQ_WL		4	
-#define PCAP_IRQ_TODA		5	
-#define PCAP_IRQ_USB4V		6	
-#define PCAP_IRQ_ONOFF		7	
-#define PCAP_IRQ_ONOFF2		8	
-#define PCAP_IRQ_USB1V		9	
+#define PCAP_IRQ_ADCDONE	0	/* ADC done port 1 */
+#define PCAP_IRQ_TS		1	/* Touch Screen */
+#define PCAP_IRQ_1HZ		2	/* 1HZ timer */
+#define PCAP_IRQ_WH		3	/* ADC above high limit */
+#define PCAP_IRQ_WL		4	/* ADC below low limit */
+#define PCAP_IRQ_TODA		5	/* Time of day alarm */
+#define PCAP_IRQ_USB4V		6	/* USB above 4V */
+#define PCAP_IRQ_ONOFF		7	/* On/Off button */
+#define PCAP_IRQ_ONOFF2		8	/* On/Off button 2 */
+#define PCAP_IRQ_USB1V		9	/* USB above 1V */
 #define PCAP_IRQ_MOBPORT	10
-#define PCAP_IRQ_MIC		11	
-#define PCAP_IRQ_HS		12	
+#define PCAP_IRQ_MIC		11	/* Mic attach/HS button */
+#define PCAP_IRQ_HS		12	/* Headset attach */
 #define PCAP_IRQ_ST		13
-#define PCAP_IRQ_PC		14	
+#define PCAP_IRQ_PC		14	/* Power Cut */
 #define PCAP_IRQ_WARM		15
-#define PCAP_IRQ_EOL		16	
+#define PCAP_IRQ_EOL		16	/* Battery End Of Life */
 #define PCAP_IRQ_CLK		17
-#define PCAP_IRQ_SYSRST		18	
+#define PCAP_IRQ_SYSRST		18	/* System Reset */
 #define PCAP_IRQ_DUMMY		19
-#define PCAP_IRQ_ADCDONE2	20	
+#define PCAP_IRQ_ADCDONE2	20	/* ADC done port 2 */
 #define PCAP_IRQ_SOFTRESET	21
 #define PCAP_IRQ_MNEXB		22
 
+/* voltage regulators */
 #define V1		0
 #define V2		1
 #define V3		2
@@ -163,6 +167,7 @@ void pcap_set_ts_bits(struct pcap_chip *, u32);
 
 #define PCAP_ADC_BANK_0			0
 #define PCAP_ADC_BANK_1			1
+/* ADC bank 0 */
 #define PCAP_ADC_CH_COIN		0
 #define PCAP_ADC_CH_BATT		1
 #define PCAP_ADC_CH_BPLUS		2
@@ -170,6 +175,7 @@ void pcap_set_ts_bits(struct pcap_chip *, u32);
 #define PCAP_ADC_CH_TEMPERATURE		4
 #define PCAP_ADC_CH_CHARGER_ID		5
 #define PCAP_ADC_CH_AD6			6
+/* ADC bank 1 */
 #define PCAP_ADC_CH_AD7			0
 #define PCAP_ADC_CH_AD8			1
 #define PCAP_ADC_CH_AD9			2
@@ -216,6 +222,7 @@ void pcap_set_ts_bits(struct pcap_chip *, u32);
 #define PCAP_BUSCTRL_USB_PDM		(1 << 12)
 #define PCAP_BUSCTRL_BUS_PRI_ADJ	(1 << 24)
 
+/* leds */
 #define PCAP_LED0		0
 #define PCAP_LED1		1
 #define PCAP_BL0		2
@@ -236,6 +243,7 @@ void pcap_set_ts_bits(struct pcap_chip *, u32);
 #define PCAP_LED1_C_SHIFT	17
 #define PCAP_BL1_SHIFT		20
 
+/* RTC */
 #define PCAP_RTC_DAY_MASK	0x3fff
 #define PCAP_RTC_TOD_MASK	0xffff
 #define PCAP_RTC_PC_MASK	0x7

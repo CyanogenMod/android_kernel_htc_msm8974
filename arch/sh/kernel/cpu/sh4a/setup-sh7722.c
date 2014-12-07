@@ -134,13 +134,13 @@ static struct sh_dmae_pdata dma_platform_data = {
 
 static struct resource sh7722_dmae_resources[] = {
 	[0] = {
-		
+		/* Channel registers and DMAOR */
 		.start	= 0xfe008020,
 		.end	= 0xfe00808f,
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* DMARSx */
 		.start	= 0xfe009000,
 		.end	= 0xfe00900b,
 		.flags	= IORESOURCE_MEM,
@@ -152,13 +152,13 @@ static struct resource sh7722_dmae_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 	{
-		
+		/* IRQ for channels 0-3 */
 		.start	= 48,
 		.end	= 51,
 		.flags	= IORESOURCE_IRQ,
 	},
 	{
-		
+		/* IRQ for channels 4-5 */
 		.start	= 76,
 		.end	= 77,
 		.flags	= IORESOURCE_IRQ,
@@ -175,6 +175,7 @@ struct platform_device dma_device = {
 	},
 };
 
+/* Serial */
 static struct plat_sci_port scif0_platform_data = {
 	.mapbase        = 0xffe00000,
 	.flags          = UPF_BOOT_AUTOCONF,
@@ -239,17 +240,17 @@ static struct resource rtc_resources[] = {
 		.flags	= IORESOURCE_IO,
 	},
 	[1] = {
-		
+		/* Period IRQ */
 		.start	= 45,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* Carry IRQ */
 		.start	= 46,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[3] = {
-		
+		/* Alarm IRQ */
 		.start	= 44,
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -282,7 +283,7 @@ static struct resource usbf_resources[] = {
 
 static struct platform_device usbf_device = {
 	.name		= "m66592_udc",
-	.id             = 0, 
+	.id             = 0, /* "usbf0" clock */
 	.dev = {
 		.dma_mask		= NULL,
 		.coherent_dma_mask	= 0xffffffff,
@@ -308,7 +309,7 @@ static struct resource iic_resources[] = {
 
 static struct platform_device iic_device = {
 	.name           = "i2c-sh_mobile",
-	.id             = 0, 
+	.id             = 0, /* "i2c0" clock */
 	.num_resources  = ARRAY_SIZE(iic_resources),
 	.resource       = iic_resources,
 };
@@ -327,7 +328,7 @@ static struct resource vpu_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -355,7 +356,7 @@ static struct resource veu_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -383,7 +384,7 @@ static struct resource jpu_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -589,7 +590,7 @@ enum {
 	ENABLED,
 	DISABLED,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7,
 	HUDI,
 	SIM_ERI, SIM_RXI, SIM_TXI, SIM_TEI,
@@ -607,7 +608,7 @@ enum {
 	TMU0, TMU1, TMU2,
 	IRDA, JPU, LCDC,
 
-	
+	/* interrupt groups */
 	SIM, RTC, DMAC0123, VIOVOU, USB, DMAC45, FLCTL, I2C, SDHI,
 };
 
@@ -657,59 +658,59 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xa4080080, 0xa40800c0, 8, 
+	{ 0xa4080080, 0xa40800c0, 8, /* IMR0 / IMCR0 */
 	  { } },
-	{ 0xa4080084, 0xa40800c4, 8, 
+	{ 0xa4080084, 0xa40800c4, 8, /* IMR1 / IMCR1 */
 	  { VOU, VIO_VEUI, VIO_BEUI, VIO_CEUI, DMAC3, DMAC2, DMAC1, DMAC0 } },
-	{ 0xa4080088, 0xa40800c8, 8, 
+	{ 0xa4080088, 0xa40800c8, 8, /* IMR2 / IMCR2 */
 	  { 0, 0, 0, VPU, } },
-	{ 0xa408008c, 0xa40800cc, 8, 
+	{ 0xa408008c, 0xa40800cc, 8, /* IMR3 / IMCR3 */
 	  { SIM_TEI, SIM_TXI, SIM_RXI, SIM_ERI, 0, 0, 0, IRDA } },
-	{ 0xa4080090, 0xa40800d0, 8, 
+	{ 0xa4080090, 0xa40800d0, 8, /* IMR4 / IMCR4 */
 	  { 0, TMU2, TMU1, TMU0, JPU, 0, 0, LCDC } },
-	{ 0xa4080094, 0xa40800d4, 8, 
+	{ 0xa4080094, 0xa40800d4, 8, /* IMR5 / IMCR5 */
 	  { KEYSC, DMAC_DADERR, DMAC5, DMAC4, 0, SCIF2, SCIF1, SCIF0 } },
-	{ 0xa4080098, 0xa40800d8, 8, 
+	{ 0xa4080098, 0xa40800d8, 8, /* IMR6 / IMCR6 */
 	  { 0, 0, 0, SIO, 0, 0, SIOF1, SIOF0 } },
-	{ 0xa408009c, 0xa40800dc, 8, 
+	{ 0xa408009c, 0xa40800dc, 8, /* IMR7 / IMCR7 */
 	  { I2C_DTEI, I2C_WAITI, I2C_TACKI, I2C_ALI,
 	    FLCTL_FLTREQ1I, FLCTL_FLTREQ0I, FLCTL_FLENDI, FLCTL_FLSTEI } },
-	{ 0xa40800a0, 0xa40800e0, 8, 
+	{ 0xa40800a0, 0xa40800e0, 8, /* IMR8 / IMCR8 */
 	  { DISABLED, ENABLED, ENABLED, ENABLED, 0, 0, TWODG, SIU } },
-	{ 0xa40800a4, 0xa40800e4, 8, 
+	{ 0xa40800a4, 0xa40800e4, 8, /* IMR9 / IMCR9 */
 	  { 0, 0, 0, CMT, 0, USB_USBI1, USB_USBI0, } },
-	{ 0xa40800a8, 0xa40800e8, 8, 
+	{ 0xa40800a8, 0xa40800e8, 8, /* IMR10 / IMCR10 */
 	  { } },
-	{ 0xa40800ac, 0xa40800ec, 8, 
+	{ 0xa40800ac, 0xa40800ec, 8, /* IMR11 / IMCR11 */
 	  { 0, RTC_CUI, RTC_PRI, RTC_ATI, 0, TPU, 0, TSIF } },
-	{ 0xa4140044, 0xa4140064, 8, 
+	{ 0xa4140044, 0xa4140064, 8, /* INTMSK00 / INTMSKCLR00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xa4080000, 0, 16, 4,  { TMU0, TMU1, TMU2, IRDA } },
-	{ 0xa4080004, 0, 16, 4,  { JPU, LCDC, SIM } },
-	{ 0xa4080008, 0, 16, 4,  { } },
-	{ 0xa408000c, 0, 16, 4,  { } },
-	{ 0xa4080010, 0, 16, 4,  { DMAC0123, VIOVOU, 0, VPU } },
-	{ 0xa4080014, 0, 16, 4,  { KEYSC, DMAC45, USB, CMT } },
-	{ 0xa4080018, 0, 16, 4,  { SCIF0, SCIF1, SCIF2 } },
-	{ 0xa408001c, 0, 16, 4,  { SIOF0, SIOF1, FLCTL, I2C } },
-	{ 0xa4080020, 0, 16, 4,  { SIO, 0, TSIF, RTC } },
-	{ 0xa4080024, 0, 16, 4,  { 0, 0, SIU } },
-	{ 0xa4080028, 0, 16, 4,  { 0, 0, 0, SDHI } },
-	{ 0xa408002c, 0, 16, 4,  { TWODG, 0, TPU } },
-	{ 0xa4140010, 0, 32, 4, 
+	{ 0xa4080000, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2, IRDA } },
+	{ 0xa4080004, 0, 16, 4, /* IPRB */ { JPU, LCDC, SIM } },
+	{ 0xa4080008, 0, 16, 4, /* IPRC */ { } },
+	{ 0xa408000c, 0, 16, 4, /* IPRD */ { } },
+	{ 0xa4080010, 0, 16, 4, /* IPRE */ { DMAC0123, VIOVOU, 0, VPU } },
+	{ 0xa4080014, 0, 16, 4, /* IPRF */ { KEYSC, DMAC45, USB, CMT } },
+	{ 0xa4080018, 0, 16, 4, /* IPRG */ { SCIF0, SCIF1, SCIF2 } },
+	{ 0xa408001c, 0, 16, 4, /* IPRH */ { SIOF0, SIOF1, FLCTL, I2C } },
+	{ 0xa4080020, 0, 16, 4, /* IPRI */ { SIO, 0, TSIF, RTC } },
+	{ 0xa4080024, 0, 16, 4, /* IPRJ */ { 0, 0, SIU } },
+	{ 0xa4080028, 0, 16, 4, /* IPRK */ { 0, 0, 0, SDHI } },
+	{ 0xa408002c, 0, 16, 4, /* IPRL */ { TWODG, 0, TPU } },
+	{ 0xa4140010, 0, 32, 4, /* INTPRI00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_sense_reg sense_registers[] __initdata = {
-	{ 0xa414001c, 16, 2, 
+	{ 0xa414001c, 16, 2, /* ICR1 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_mask_reg ack_registers[] __initdata = {
-	{ 0xa4140024, 0, 8, 
+	{ 0xa4140024, 0, 8, /* INTREQ00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
@@ -728,6 +729,6 @@ void __init plat_irq_setup(void)
 
 void __init plat_mem_setup(void)
 {
-	
+	/* Register the URAM space as Node 1 */
 	setup_bootmem_node(1, 0x055f0000, 0x05610000);
 }

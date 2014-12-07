@@ -11,6 +11,9 @@
  *
  */
 
+/*
+ * SMD RPCROUTER CLIENTS module.
+ */
 
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -107,7 +110,7 @@ static int rpc_clients_thread(void *data)
 		}
 
 		if (rc < 0) {
-			
+			/* wakeup any pending requests */
 			wake_up(&client->reply_wait);
 			kfree(buffer);
 			continue;
@@ -260,6 +263,11 @@ static void cb_restart_setup(void *client_data)
 	}
 }
 
+/* Returns the reset state of the client.
+ *
+ * Return Value:
+ *	0 if client isn't in reset, >0 otherwise.
+ */
 int msm_rpc_client_in_reset(struct msm_rpc_client *client)
 {
 	int ret = 1;
@@ -271,6 +279,27 @@ int msm_rpc_client_in_reset(struct msm_rpc_client *client)
 }
 EXPORT_SYMBOL(msm_rpc_client_in_reset);
 
+/*
+ * Interface to be used to register the client.
+ *
+ * name: string representing the client
+ *
+ * prog: program number of the client
+ *
+ * ver: version number of the client
+ *
+ * create_cb_thread: if set calls the callback function from a seprate thread
+ *                   which helps the client requests to be processed without
+ *                   getting loaded by callback handling.
+ *
+ * cb_func: function to be called if callback request is received.
+ *          unmarshaling should be handled by the user in callback function
+ *
+ * Return Value:
+ *        Pointer to initialized client data sturcture
+ *        Or, the error code if registration fails.
+ *
+ */
 struct msm_rpc_client *msm_rpc_register_client(
 	const char *name,
 	uint32_t prog, uint32_t ver,
@@ -301,7 +330,7 @@ struct msm_rpc_client *msm_rpc_register_client(
 	client->cb_func = cb_func;
 	client->version = 1;
 
-	
+	/* start the read thread */
 	client->read_thread = kthread_run(rpc_clients_thread, client,
 					  "k%sclntd", name);
 	if (IS_ERR(client->read_thread)) {
@@ -316,7 +345,7 @@ struct msm_rpc_client *msm_rpc_register_client(
 		return client;
 	}
 
-	
+	/* start the callback thread */
 	client->cb_thread = kthread_run(rpc_clients_cb_thread, client,
 					"k%sclntcbd", name);
 	if (IS_ERR(client->cb_thread)) {
@@ -333,6 +362,27 @@ struct msm_rpc_client *msm_rpc_register_client(
 }
 EXPORT_SYMBOL(msm_rpc_register_client);
 
+/*
+ * Interface to be used to register the client.
+ *
+ * name: string representing the client
+ *
+ * prog: program number of the client
+ *
+ * ver: version number of the client
+ *
+ * create_cb_thread: if set calls the callback function from a seprate thread
+ *                   which helps the client requests to be processed without
+ *                   getting loaded by callback handling.
+ *
+ * cb_func: function to be called if callback request is received.
+ *          unmarshaling should be handled by the user in callback function
+ *
+ * Return Value:
+ *        Pointer to initialized client data sturcture
+ *        Or, the error code if registration fails.
+ *
+ */
 struct msm_rpc_client *msm_rpc_register_client2(
 	const char *name,
 	uint32_t prog, uint32_t ver,
@@ -364,7 +414,7 @@ struct msm_rpc_client *msm_rpc_register_client2(
 	ept->cb_restart_teardown = cb_restart_teardown;
 	ept->cb_restart_setup = cb_restart_setup;
 
-	
+	/* start the read thread */
 	client->read_thread = kthread_run(rpc_clients_thread, client,
 					  "k%sclntd", name);
 	if (IS_ERR(client->read_thread)) {
@@ -379,7 +429,7 @@ struct msm_rpc_client *msm_rpc_register_client2(
 		return client;
 	}
 
-	
+	/* start the callback thread */
 	client->cb_thread = kthread_run(rpc_clients_cb_thread, client,
 					"k%sclntcbd", name);
 	if (IS_ERR(client->cb_thread)) {
@@ -396,6 +446,19 @@ struct msm_rpc_client *msm_rpc_register_client2(
 }
 EXPORT_SYMBOL(msm_rpc_register_client2);
 
+/*
+ * Register callbacks for modem state changes.
+ *
+ * Teardown is called when the modem is going into reset.
+ * Setup is called after the modem has come out of reset (but may not
+ * be available, yet).
+ *
+ * client: pointer to client data structure.
+ *
+ * Return Value:
+ *        0 (success)
+ *        1 (client pointer invalid)
+ */
 int msm_rpc_register_reset_callbacks(
 	struct msm_rpc_client *client,
 	void (*teardown)(struct msm_rpc_client *client),
@@ -414,6 +477,16 @@ int msm_rpc_register_reset_callbacks(
 }
 EXPORT_SYMBOL(msm_rpc_register_reset_callbacks);
 
+/*
+ * Interface to be used to unregister the client
+ * No client operations should be done once the unregister function
+ * is called.
+ *
+ * client: pointer to client data structure.
+ *
+ * Return Value:
+ *        Always returns 0 (success).
+ */
 int msm_rpc_unregister_client(struct msm_rpc_client *client)
 {
 	pr_info("%s: stopping client...\n", __func__);
@@ -436,6 +509,33 @@ int msm_rpc_unregister_client(struct msm_rpc_client *client)
 }
 EXPORT_SYMBOL(msm_rpc_unregister_client);
 
+/*
+ * Interface to be used to send a client request.
+ * If the request takes any arguments or expects any return, the user
+ * should handle it in 'arg_func' and 'ret_func' respectively.
+ * Marshaling and Unmarshaling should be handled by the user in argument
+ * and return functions.
+ *
+ * client: pointer to client data sturcture
+ *
+ * proc: procedure being requested
+ *
+ * arg_func: argument function pointer.  'buf' is where arguments needs to
+ *   be filled. 'data' is arg_data.
+ *
+ * ret_func: return function pointer.  'buf' is where returned data should
+ *   be read from. 'data' is ret_data.
+ *
+ * arg_data: passed as an input parameter to argument function.
+ *
+ * ret_data: passed as an input parameter to return function.
+ *
+ * timeout: timeout for reply wait in jiffies.  If negative timeout is
+ *   specified a default timeout of 10s is used.
+ *
+ * Return Value:
+ *        0 on success, otherwise an error code is returned.
+ */
 int msm_rpc_client_req(struct msm_rpc_client *client, uint32_t proc,
 		       int (*arg_func)(struct msm_rpc_client *client,
 				       void *buf, void *data),
@@ -530,6 +630,33 @@ int msm_rpc_client_req(struct msm_rpc_client *client, uint32_t proc,
 }
 EXPORT_SYMBOL(msm_rpc_client_req);
 
+/*
+ * Interface to be used to send a client request.
+ * If the request takes any arguments or expects any return, the user
+ * should handle it in 'arg_func' and 'ret_func' respectively.
+ * Marshaling and Unmarshaling should be handled by the user in argument
+ * and return functions.
+ *
+ * client: pointer to client data sturcture
+ *
+ * proc: procedure being requested
+ *
+ * arg_func: argument function pointer.  'xdr' is the xdr being used.
+ *   'data' is arg_data.
+ *
+ * ret_func: return function pointer.  'xdr' is the xdr being used.
+ *   'data' is ret_data.
+ *
+ * arg_data: passed as an input parameter to argument function.
+ *
+ * ret_data: passed as an input parameter to return function.
+ *
+ * timeout: timeout for reply wait in jiffies.  If negative timeout is
+ *   specified a default timeout of 10s is used.
+ *
+ * Return Value:
+ *        0 on success, otherwise an error code is returned.
+ */
 int msm_rpc_client_req2(struct msm_rpc_client *client, uint32_t proc,
 			int (*arg_func)(struct msm_rpc_client *client,
 					struct msm_rpc_xdr *xdr, void *data),
@@ -586,7 +713,7 @@ int msm_rpc_client_req2(struct msm_rpc_client *client, uint32_t proc,
 		}
 
 		xdr_recv_reply(&client->xdr, &rpc_rsp);
-		
+		/* TODO: may be this check should be a xdr function */
 		if (req_xid != rpc_rsp.xid) {
 			pr_info("%s: xid mismatch, req %d reply %d\n",
 				__func__, req_xid, rpc_rsp.xid);
@@ -615,7 +742,7 @@ int msm_rpc_client_req2(struct msm_rpc_client *client, uint32_t proc,
 
  free_and_release:
 	xdr_clean_input(&client->xdr);
-	
+	/* TODO: put it in xdr_reset_output */
 	client->xdr.out_index = 0;
  release_locks:
 	mutex_unlock(&client->req_lock);
@@ -623,6 +750,21 @@ int msm_rpc_client_req2(struct msm_rpc_client *client, uint32_t proc,
 }
 EXPORT_SYMBOL(msm_rpc_client_req2);
 
+/*
+ * Interface to be used to start accepted reply message required in
+ * callback handling. Returns the buffer pointer to attach any
+ * payload.  Should call msm_rpc_send_accepted_reply to complete
+ * sending reply.  Marshaling should be handled by user for the payload.
+ *
+ * client: pointer to client data structure
+ *
+ * xid: transaction id. Has to be same as the one in callback request.
+ *
+ * accept_status: acceptance status
+ *
+ * Return Value:
+ *        pointer to buffer to attach the payload.
+ */
 void *msm_rpc_start_accepted_reply(struct msm_rpc_client *client,
 				   uint32_t xid, uint32_t accept_status)
 {
@@ -633,7 +775,7 @@ void *msm_rpc_start_accepted_reply(struct msm_rpc_client *client,
 	reply = (struct rpc_reply_hdr *)client->cb_xdr.out_buf;
 
 	reply->xid = cpu_to_be32(xid);
-	reply->type = cpu_to_be32(1); 
+	reply->type = cpu_to_be32(1); /* reply */
 	reply->reply_stat = cpu_to_be32(RPCMSG_REPLYSTAT_ACCEPTED);
 
 	reply->data.acc_hdr.accept_stat = cpu_to_be32(accept_status);
@@ -645,6 +787,18 @@ void *msm_rpc_start_accepted_reply(struct msm_rpc_client *client,
 }
 EXPORT_SYMBOL(msm_rpc_start_accepted_reply);
 
+/*
+ * Interface to be used to send accepted reply required in callback handling.
+ * msm_rpc_start_accepted_reply should have been called before.
+ * Marshaling should be handled by user for the payload.
+ *
+ * client: pointer to client data structure
+ *
+ * size: additional payload size
+ *
+ * Return Value:
+ *        0 on success, otherwise returns an error code.
+ */
 int msm_rpc_send_accepted_reply(struct msm_rpc_client *client, uint32_t size)
 {
 	int rc = 0;
@@ -660,6 +814,21 @@ int msm_rpc_send_accepted_reply(struct msm_rpc_client *client, uint32_t size)
 }
 EXPORT_SYMBOL(msm_rpc_send_accepted_reply);
 
+/*
+ * Interface to be used to add a callback function.
+ * If the call back function is already in client's 'cb_id - cb_func'
+ * table, then that cb_id is returned.  otherwise, new entry
+ * is added to the above table and corresponding cb_id is returned.
+ *
+ * client: pointer to client data structure
+ *
+ * cb_func: callback function
+ *
+ * Return Value:
+ *         callback ID on success, otherwise returns an error code.
+ *         If cb_func is NULL, the callback Id returned is 0xffffffff.
+ *         This tells the other processor that no callback is reqested.
+ */
 int msm_rpc_add_cb_func(struct msm_rpc_client *client, void *cb_func)
 {
 	struct msm_rpc_cb_table_item *cb_item;
@@ -693,6 +862,18 @@ int msm_rpc_add_cb_func(struct msm_rpc_client *client, void *cb_func)
 }
 EXPORT_SYMBOL(msm_rpc_add_cb_func);
 
+/*
+ * Interface to be used to get a callback function from a callback ID.
+ * If no entry is found, NULL is returned.
+ *
+ * client: pointer to client data structure
+ *
+ * cb_id: callback ID
+ *
+ * Return Value:
+ *         callback function pointer if entry with given cb_id is found,
+ *         otherwise returns NULL.
+ */
 void *msm_rpc_get_cb_func(struct msm_rpc_client *client, uint32_t cb_id)
 {
 	struct msm_rpc_cb_table_item *cb_item;
@@ -710,6 +891,14 @@ void *msm_rpc_get_cb_func(struct msm_rpc_client *client, uint32_t cb_id)
 }
 EXPORT_SYMBOL(msm_rpc_get_cb_func);
 
+/*
+ * Interface to be used to remove a callback function.
+ *
+ * client: pointer to client data structure
+ *
+ * cb_func: callback function
+ *
+ */
 void msm_rpc_remove_cb_func(struct msm_rpc_client *client, void *cb_func)
 {
 	struct msm_rpc_cb_table_item *cb_item, *tmp_cb_item;

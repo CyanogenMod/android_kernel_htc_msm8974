@@ -16,8 +16,8 @@
 
 enum {
 	UNUSED = 0,
-	
-	SMC91C111,	
+	/* board specific interrupt sources */
+	SMC91C111,	/* Ethernet controller */
 };
 
 static struct intc_vect fpga_vectors[] __initdata = {
@@ -38,7 +38,7 @@ void __init init_sdk7780_IRQ(void)
 	printk(KERN_INFO "Using SDK7780 interrupt controller.\n");
 
 	__raw_writew(0xFFFF, FPGA_IRQ0MR);
-	
+	/* Setup IRL 0-3 */
 	__raw_writew(0x0003, FPGA_IMSR);
 	plat_irq_setup_pins(IRQ_MODE_IRL3210);
 

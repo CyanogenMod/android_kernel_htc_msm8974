@@ -24,18 +24,43 @@
 #include <linux/dvb/frontend.h>
 
 struct tda10071_config {
+	/* Demodulator I2C address.
+	 * Default: none, must set
+	 * Values: 0x55,
+	 */
 	u8 i2c_address;
 
+	/* Max bytes I2C provider can write at once.
+	 * Note: Buffer is taken from the stack currently!
+	 * Default: none, must set
+	 * Values:
+	 */
 	u16 i2c_wr_max;
 
+	/* TS output mode.
+	 * Default: TDA10071_TS_SERIAL
+	 * Values:
+	 */
 #define TDA10071_TS_SERIAL        0
 #define TDA10071_TS_PARALLEL      1
 	u8 ts_mode;
 
+	/* Input spectrum inversion.
+	 * Default: 0
+	 * Values: 0, 1
+	 */
 	bool spec_inv;
 
+	/* Xtal frequency Hz
+	 * Default: none, must set
+	 * Values:
+	 */
 	u32 xtal;
 
+	/* PLL multiplier.
+	 * Default: none, must set
+	 * Values:
+	 */
 	u8 pll_multiplier;
 };
 
@@ -53,4 +78,4 @@ static inline struct dvb_frontend *tda10071_attach(
 }
 #endif
 
-#endif 
+#endif /* TDA10071_H */

@@ -44,6 +44,17 @@ arch_spin_lock_flags(arch_spinlock_t *lock, unsigned long flags)
 	arch_spin_lock(lock);
 }
 
+/*
+ * Read-write spinlocks, allowing multiple readers
+ * but only one writer.
+ *
+ * NOTE! it is quite common to have readers in interrupts
+ * but no interrupt writers. For those circumstances we
+ * can "mix" irq-safe locks - any writer needs to get a
+ * irq-safe write-lock, but readers can get non-irqsafe
+ * read-locks.
+ *
+ */
 
 static inline int arch_read_can_lock(arch_rwlock_t *x)
 {
@@ -117,4 +128,4 @@ static  inline int arch_write_trylock(arch_rwlock_t *rw)
 #define arch_read_relax(lock)	cpu_relax()
 #define arch_write_relax(lock)	cpu_relax()
 
-#endif 
+#endif /* __ASM_ARCH_SPINLOCK_H */

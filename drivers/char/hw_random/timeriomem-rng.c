@@ -36,6 +36,9 @@ static struct timeriomem_rng_data *timeriomem_rng_data;
 static void timeriomem_rng_trigger(unsigned long);
 static DEFINE_TIMER(timeriomem_rng_timer, timeriomem_rng_trigger, 0, 0);
 
+/*
+ * have data return 1, however return 0 if we have nothing
+ */
 static int timeriomem_rng_data_present(struct hwrng *rng, int wait)
 {
 	if (rng->priv == 0)

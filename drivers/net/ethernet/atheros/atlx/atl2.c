@@ -61,9 +61,12 @@ MODULE_DESCRIPTION("Atheros Fast Ethernet Network Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(ATL2_DRV_VERSION);
 
+/*
+ * atl2_pci_tbl - PCI Device ID Table
+ */
 static DEFINE_PCI_DEVICE_TABLE(atl2_pci_tbl) = {
 	{PCI_DEVICE(PCI_VENDOR_ID_ATTANSIC, PCI_DEVICE_ID_ATTANSIC_L2)},
-	
+	/* required last entry */
 	{0,}
 };
 MODULE_DEVICE_TABLE(pci, atl2_pci_tbl);
@@ -72,12 +75,20 @@ static void atl2_set_ethtool_ops(struct net_device *netdev);
 
 static void atl2_check_options(struct atl2_adapter *adapter);
 
+/*
+ * atl2_sw_init - Initialize general software structures (struct atl2_adapter)
+ * @adapter: board private structure to initialize
+ *
+ * atl2_sw_init initializes the Adapter private data structure.
+ * Fields are initialized based on PCI device information and
+ * OS network device settings (MTU size).
+ */
 static int __devinit atl2_sw_init(struct atl2_adapter *adapter)
 {
 	struct atl2_hw *hw = &adapter->hw;
 	struct pci_dev *pdev = adapter->pdev;
 
-	
+	/* PCI config space info */
 	hw->vendor_id = pdev->vendor;
 	hw->device_id = pdev->device;
 	hw->subsystem_vendor_id = pdev->subsystem_vendor;
@@ -87,8 +98,8 @@ static int __devinit atl2_sw_init(struct atl2_adapter *adapter)
 	pci_read_config_word(pdev, PCI_COMMAND, &hw->pci_cmd_word);
 
 	adapter->wol = 0;
-	adapter->ict = 50000;  
-	adapter->link_speed = SPEED_0;   
+	adapter->ict = 50000;  /* ~100ms */
+	adapter->link_speed = SPEED_0;   /* hardware init */
 	adapter->link_duplex = FULL_DUPLEX;
 
 	hw->phy_configured = false;
@@ -112,6 +123,15 @@ static int __devinit atl2_sw_init(struct atl2_adapter *adapter)
 	return 0;
 }
 
+/*
+ * atl2_set_multi - Multicast and Promiscuous mode set
+ * @netdev: network interface device structure
+ *
+ * The set_multi entry point is called whenever the multicast address
+ * list or the network interface flags are updated.  This routine is
+ * responsible for configuring the hardware for proper multicast,
+ * promiscuous mode, and all-multi behavior.
+ */
 static void atl2_set_multi(struct net_device *netdev)
 {
 	struct atl2_adapter *adapter = netdev_priv(netdev);
@@ -120,7 +140,7 @@ static void atl2_set_multi(struct net_device *netdev)
 	u32 rctl;
 	u32 hash_value;
 
-	
+	/* Check for Promiscuous and All Multicast modes */
 	rctl = ATL2_READ_REG(hw, REG_MAC_CTRL);
 
 	if (netdev->flags & IFF_PROMISC) {
@@ -133,11 +153,11 @@ static void atl2_set_multi(struct net_device *netdev)
 
 	ATL2_WRITE_REG(hw, REG_MAC_CTRL, rctl);
 
-	
+	/* clear the old settings from the multicast hash table */
 	ATL2_WRITE_REG(hw, REG_RX_HASH_TABLE, 0);
 	ATL2_WRITE_REG_ARRAY(hw, REG_RX_HASH_TABLE, 1, 0);
 
-	
+	/* comoute mc addresses' hash value ,and put it into hash table */
 	netdev_for_each_mc_addr(ha, netdev) {
 		hash_value = atl2_hash_mc_addr(hw, ha->addr);
 		atl2_hash_set(hw, hash_value);
@@ -146,7 +166,7 @@ static void atl2_set_multi(struct net_device *netdev)
 
 static void init_ring_ptrs(struct atl2_adapter *adapter)
 {
-	
+	/* Read / Write Ptr Initialize: */
 	adapter->txd_write_ptr = 0;
 	atomic_set(&adapter->txd_read_ptr, 0);
 
@@ -157,15 +177,21 @@ static void init_ring_ptrs(struct atl2_adapter *adapter)
 	adapter->txs_next_clear = 0;
 }
 
+/*
+ * atl2_configure - Configure Transmit&Receive Unit after Reset
+ * @adapter: board private structure
+ *
+ * Configure the Tx /Rx unit of the MAC after a reset.
+ */
 static int atl2_configure(struct atl2_adapter *adapter)
 {
 	struct atl2_hw *hw = &adapter->hw;
 	u32 value;
 
-	
+	/* clear interrupt status */
 	ATL2_WRITE_REG(&adapter->hw, REG_ISR, 0xffffffff);
 
-	
+	/* set MAC Address */
 	value = (((u32)hw->mac_addr[2]) << 24) |
 		(((u32)hw->mac_addr[3]) << 16) |
 		(((u32)hw->mac_addr[4]) << 8) |
@@ -175,11 +201,11 @@ static int atl2_configure(struct atl2_adapter *adapter)
 		(((u32)hw->mac_addr[1]));
 	ATL2_WRITE_REG(hw, (REG_MAC_STA_ADDR+4), value);
 
-	
+	/* HI base address */
 	ATL2_WRITE_REG(hw, REG_DESC_BASE_ADDR_HI,
 		(u32)((adapter->ring_dma & 0xffffffff00000000ULL) >> 32));
 
-	
+	/* LO base address */
 	ATL2_WRITE_REG(hw, REG_TXD_BASE_ADDR_LO,
 		(u32)(adapter->txd_dma & 0x00000000ffffffffULL));
 	ATL2_WRITE_REG(hw, REG_TXS_BASE_ADDR_LO,
@@ -187,14 +213,18 @@ static int atl2_configure(struct atl2_adapter *adapter)
 	ATL2_WRITE_REG(hw, REG_RXD_BASE_ADDR_LO,
 		(u32)(adapter->rxd_dma & 0x00000000ffffffffULL));
 
-	
+	/* element count */
 	ATL2_WRITE_REGW(hw, REG_TXD_MEM_SIZE, (u16)(adapter->txd_ring_size/4));
 	ATL2_WRITE_REGW(hw, REG_TXS_MEM_SIZE, (u16)adapter->txs_ring_size);
 	ATL2_WRITE_REGW(hw, REG_RXD_BUF_NUM,  (u16)adapter->rxd_ring_size);
 
-	
+	/* config Internal SRAM */
+/*
+    ATL2_WRITE_REGW(hw, REG_SRAM_TXRAM_END, sram_tx_end);
+    ATL2_WRITE_REGW(hw, REG_SRAM_TXRAM_END, sram_rx_end);
+*/
 
-	
+	/* config IPG/IFG */
 	value = (((u32)hw->ipgt & MAC_IPG_IFG_IPGT_MASK) <<
 		MAC_IPG_IFG_IPGT_SHIFT) |
 		(((u32)hw->min_ifg & MAC_IPG_IFG_MIFG_MASK) <<
@@ -205,7 +235,7 @@ static int atl2_configure(struct atl2_adapter *adapter)
 		MAC_IPG_IFG_IPGR2_SHIFT);
 	ATL2_WRITE_REG(hw, REG_MAC_IPG_IFG, value);
 
-	
+	/* config  Half-Duplex Control */
 	value = ((u32)hw->lcol & MAC_HALF_DUPLX_CTRL_LCOL_MASK) |
 		(((u32)hw->max_retry & MAC_HALF_DUPLX_CTRL_RETRY_MASK) <<
 		MAC_HALF_DUPLX_CTRL_RETRY_SHIFT) |
@@ -215,55 +245,61 @@ static int atl2_configure(struct atl2_adapter *adapter)
 		MAC_HALF_DUPLX_CTRL_JAMIPG_SHIFT);
 	ATL2_WRITE_REG(hw, REG_MAC_HALF_DUPLX_CTRL, value);
 
-	
+	/* set Interrupt Moderator Timer */
 	ATL2_WRITE_REGW(hw, REG_IRQ_MODU_TIMER_INIT, adapter->imt);
 	ATL2_WRITE_REG(hw, REG_MASTER_CTRL, MASTER_CTRL_ITIMER_EN);
 
-	
+	/* set Interrupt Clear Timer */
 	ATL2_WRITE_REGW(hw, REG_CMBDISDMA_TIMER, adapter->ict);
 
-	
+	/* set MTU */
 	ATL2_WRITE_REG(hw, REG_MTU, adapter->netdev->mtu +
 		ENET_HEADER_SIZE + VLAN_SIZE + ETHERNET_FCS_SIZE);
 
-	
+	/* 1590 */
 	ATL2_WRITE_REG(hw, REG_TX_CUT_THRESH, 0x177);
 
-	
+	/* flow control */
 	ATL2_WRITE_REGW(hw, REG_PAUSE_ON_TH, hw->fc_rxd_hi);
 	ATL2_WRITE_REGW(hw, REG_PAUSE_OFF_TH, hw->fc_rxd_lo);
 
-	
+	/* Init mailbox */
 	ATL2_WRITE_REGW(hw, REG_MB_TXD_WR_IDX, (u16)adapter->txd_write_ptr);
 	ATL2_WRITE_REGW(hw, REG_MB_RXD_RD_IDX, (u16)adapter->rxd_read_ptr);
 
-	
+	/* enable DMA read/write */
 	ATL2_WRITE_REGB(hw, REG_DMAR, DMAR_EN);
 	ATL2_WRITE_REGB(hw, REG_DMAW, DMAW_EN);
 
 	value = ATL2_READ_REG(&adapter->hw, REG_ISR);
 	if ((value & ISR_PHY_LINKDOWN) != 0)
-		value = 1; 
+		value = 1; /* config failed */
 	else
 		value = 0;
 
-	
+	/* clear all interrupt status */
 	ATL2_WRITE_REG(&adapter->hw, REG_ISR, 0x3fffffff);
 	ATL2_WRITE_REG(&adapter->hw, REG_ISR, 0);
 	return value;
 }
 
+/*
+ * atl2_setup_ring_resources - allocate Tx / RX descriptor resources
+ * @adapter: board private structure
+ *
+ * Return 0 on success, negative on failure
+ */
 static s32 atl2_setup_ring_resources(struct atl2_adapter *adapter)
 {
 	struct pci_dev *pdev = adapter->pdev;
 	int size;
 	u8 offset = 0;
 
-	
+	/* real ring DMA buffer */
 	adapter->ring_size = size =
-		adapter->txd_ring_size * 1 + 7 +	
-		adapter->txs_ring_size * 4 + 7 +	
-		adapter->rxd_ring_size * 1536 + 127;	
+		adapter->txd_ring_size * 1 + 7 +	/* dword align */
+		adapter->txs_ring_size * 4 + 7 +	/* dword align */
+		adapter->rxd_ring_size * 1536 + 127;	/* 128bytes align */
 
 	adapter->ring_vir_addr = pci_alloc_consistent(pdev, size,
 		&adapter->ring_dma);
@@ -271,20 +307,20 @@ static s32 atl2_setup_ring_resources(struct atl2_adapter *adapter)
 		return -ENOMEM;
 	memset(adapter->ring_vir_addr, 0, adapter->ring_size);
 
-	
+	/* Init TXD Ring */
 	adapter->txd_dma = adapter->ring_dma ;
 	offset = (adapter->txd_dma & 0x7) ? (8 - (adapter->txd_dma & 0x7)) : 0;
 	adapter->txd_dma += offset;
 	adapter->txd_ring = adapter->ring_vir_addr + offset;
 
-	
+	/* Init TXS Ring */
 	adapter->txs_dma = adapter->txd_dma + adapter->txd_ring_size;
 	offset = (adapter->txs_dma & 0x7) ? (8 - (adapter->txs_dma & 0x7)) : 0;
 	adapter->txs_dma += offset;
 	adapter->txs_ring = (struct tx_pkt_status *)
 		(((u8 *)adapter->txd_ring) + (adapter->txd_ring_size + offset));
 
-	
+	/* Init RXD Ring */
 	adapter->rxd_dma = adapter->txs_dma + adapter->txs_ring_size * 4;
 	offset = (adapter->rxd_dma & 127) ?
 		(128 - (adapter->rxd_dma & 127)) : 0;
@@ -297,15 +333,27 @@ static s32 atl2_setup_ring_resources(struct atl2_adapter *adapter)
 	adapter->rxd_ring = (struct rx_desc *) (((u8 *)adapter->txs_ring) +
 		(adapter->txs_ring_size * 4 + offset));
 
+/*
+ * Read / Write Ptr Initialize:
+ *      init_ring_ptrs(adapter);
+ */
 	return 0;
 }
 
+/*
+ * atl2_irq_enable - Enable default interrupt generation settings
+ * @adapter: board private structure
+ */
 static inline void atl2_irq_enable(struct atl2_adapter *adapter)
 {
 	ATL2_WRITE_REG(&adapter->hw, REG_IMR, IMR_NORMAL_MASK);
 	ATL2_WRITE_FLUSH(&adapter->hw);
 }
 
+/*
+ * atl2_irq_disable - Mask off interrupt generation on the NIC
+ * @adapter: board private structure
+ */
 static inline void atl2_irq_disable(struct atl2_adapter *adapter)
 {
     ATL2_WRITE_REG(&adapter->hw, REG_IMR, 0);
@@ -316,10 +364,10 @@ static inline void atl2_irq_disable(struct atl2_adapter *adapter)
 static void __atl2_vlan_mode(netdev_features_t features, u32 *ctrl)
 {
 	if (features & NETIF_F_HW_VLAN_RX) {
-		
+		/* enable VLAN tag insert/strip */
 		*ctrl |= MAC_CTRL_RMV_VLAN;
 	} else {
-		
+		/* disable VLAN tag insert/strip */
 		*ctrl &= ~MAC_CTRL_RMV_VLAN;
 	}
 }
@@ -347,6 +395,10 @@ static void atl2_restore_vlan(struct atl2_adapter *adapter)
 static netdev_features_t atl2_fix_features(struct net_device *netdev,
 	netdev_features_t features)
 {
+	/*
+	 * Since there is no support for separate rx/tx vlan accel
+	 * enable/disable make sure tx flag is always in same state as rx.
+	 */
 	if (features & NETIF_F_HW_VLAN_RX)
 		features |= NETIF_F_HW_VLAN_TX;
 	else
@@ -375,19 +427,23 @@ static void atl2_intr_rx(struct atl2_adapter *adapter)
 	do {
 		rxd = adapter->rxd_ring+adapter->rxd_write_ptr;
 		if (!rxd->status.update)
-			break; 
+			break; /* end of tx */
 
-		
+		/* clear this flag at once */
 		rxd->status.update = 0;
 
 		if (rxd->status.ok && rxd->status.pkt_size >= 60) {
 			int rx_size = (int)(rxd->status.pkt_size - 4);
-			
+			/* alloc new buffer */
 			skb = netdev_alloc_skb_ip_align(netdev, rx_size);
 			if (NULL == skb) {
 				printk(KERN_WARNING
 					"%s: Mem squeeze, deferring packet.\n",
 					netdev->name);
+				/*
+				 * Check that some rx space is free. If not,
+				 * free one and mark stats->rx_dropped++.
+				 */
 				netdev->stats.rx_dropped++;
 				break;
 			}
@@ -417,12 +473,12 @@ static void atl2_intr_rx(struct atl2_adapter *adapter)
 				netdev->stats.rx_frame_errors++;
 		}
 
-		
+		/* advance write ptr */
 		if (++adapter->rxd_write_ptr == adapter->rxd_ring_size)
 			adapter->rxd_write_ptr = 0;
 	} while (1);
 
-	
+	/* update mailbox? */
 	adapter->rxd_read_ptr = adapter->rxd_write_ptr;
 	ATL2_WRITE_REGW(&adapter->hw, REG_MB_RXD_RD_IDX, adapter->rxd_read_ptr);
 }
@@ -440,7 +496,7 @@ static void atl2_intr_tx(struct atl2_adapter *adapter)
 		txs_write_ptr = (u32) atomic_read(&adapter->txs_write_ptr);
 		txs = adapter->txs_ring + txs_write_ptr;
 		if (!txs->update)
-			break; 
+			break; /* tx stop here */
 
 		free_hole = 1;
 		txs->update = 0;
@@ -480,14 +536,14 @@ static void atl2_intr_tx(struct atl2_adapter *adapter)
 			txs = old_txs;
 		}
 
-		 
+		 /* 4for TPH */
 		txd_read_ptr += (((u32)(txph->pkt_size) + 7) & ~3);
 		if (txd_read_ptr >= adapter->txd_ring_size)
 			txd_read_ptr -= adapter->txd_ring_size;
 
 		atomic_set(&adapter->txd_read_ptr, (int)txd_read_ptr);
 
-		
+		/* tx statistics: */
 		if (txs->ok) {
 			netdev->stats.tx_bytes += txs->pkt_size;
 			netdev->stats.tx_packets++;
@@ -522,9 +578,9 @@ static void atl2_check_for_link(struct atl2_adapter *adapter)
 	atl2_read_phy_reg(&adapter->hw, MII_BMSR, &phy_data);
 	spin_unlock(&adapter->stats_lock);
 
-	
-	if (!(phy_data & BMSR_LSTATUS)) { 
-		if (netif_carrier_ok(netdev)) { 
+	/* notify upper layer link down ASAP */
+	if (!(phy_data & BMSR_LSTATUS)) { /* Link Down */
+		if (netif_carrier_ok(netdev)) { /* old link state: Up */
 		printk(KERN_INFO "%s: %s NIC Link is Down\n",
 			atl2_driver_name, netdev->name);
 		adapter->link_speed = SPEED_0;
@@ -543,6 +599,12 @@ static inline void atl2_clear_phy_int(struct atl2_adapter *adapter)
 	spin_unlock(&adapter->stats_lock);
 }
 
+/*
+ * atl2_intr - Interrupt Handler
+ * @irq: interrupt number
+ * @data: pointer to a network interface device structure
+ * @pt_regs: CPU registers structure
+ */
 static irqreturn_t atl2_intr(int irq, void *data)
 {
 	struct atl2_adapter *adapter = netdev_priv(data);
@@ -553,16 +615,16 @@ static irqreturn_t atl2_intr(int irq, void *data)
 	if (0 == status)
 		return IRQ_NONE;
 
-	
+	/* link event */
 	if (status & ISR_PHY)
 		atl2_clear_phy_int(adapter);
 
-	
+	/* clear ISR status, and Enable CMB DMA/Disable Interrupt */
 	ATL2_WRITE_REG(hw, REG_ISR, status | ISR_DIS_INT);
 
-	
+	/* check if PCIE PHY Link down */
 	if (status & ISR_PHY_LINKDOWN) {
-		if (netif_running(adapter->netdev)) { 
+		if (netif_running(adapter->netdev)) { /* reset MAC */
 			ATL2_WRITE_REG(hw, REG_ISR, 0);
 			ATL2_WRITE_REG(hw, REG_IMR, 0);
 			ATL2_WRITE_FLUSH(hw);
@@ -571,7 +633,7 @@ static irqreturn_t atl2_intr(int irq, void *data)
 		}
 	}
 
-	
+	/* check if DMA read/write error? */
 	if (status & (ISR_DMAR_TO_RST | ISR_DMAW_TO_RST)) {
 		ATL2_WRITE_REG(hw, REG_ISR, 0);
 		ATL2_WRITE_REG(hw, REG_IMR, 0);
@@ -580,21 +642,21 @@ static irqreturn_t atl2_intr(int irq, void *data)
 		return IRQ_HANDLED;
 	}
 
-	
+	/* link event */
 	if (status & (ISR_PHY | ISR_MANUAL)) {
 		adapter->netdev->stats.tx_carrier_errors++;
 		atl2_check_for_link(adapter);
 	}
 
-	
+	/* transmit event */
 	if (status & ISR_TX_EVENT)
 		atl2_intr_tx(adapter);
 
-	
+	/* rx exception */
 	if (status & ISR_RX_EVENT)
 		atl2_intr_rx(adapter);
 
-	
+	/* re-enable Interrupt */
 	ATL2_WRITE_REG(&adapter->hw, REG_ISR, 0);
 	return IRQ_HANDLED;
 }
@@ -617,6 +679,12 @@ static int atl2_request_irq(struct atl2_adapter *adapter)
 		netdev);
 }
 
+/*
+ * atl2_free_ring_resources - Free Tx / RX descriptor Resources
+ * @adapter: board private structure
+ *
+ * Free all transmit software resources
+ */
 static void atl2_free_ring_resources(struct atl2_adapter *adapter)
 {
 	struct pci_dev *pdev = adapter->pdev;
@@ -624,17 +692,29 @@ static void atl2_free_ring_resources(struct atl2_adapter *adapter)
 		adapter->ring_dma);
 }
 
+/*
+ * atl2_open - Called when a network interface is made active
+ * @netdev: network interface device structure
+ *
+ * Returns 0 on success, negative value on failure
+ *
+ * The open entry point is called when a network interface is made
+ * active by the system (IFF_UP).  At this point all resources needed
+ * for transmit and receive operations are allocated, the interrupt
+ * handler is registered with the OS, the watchdog timer is started,
+ * and the stack is notified that the interface is ready.
+ */
 static int atl2_open(struct net_device *netdev)
 {
 	struct atl2_adapter *adapter = netdev_priv(netdev);
 	int err;
 	u32 val;
 
-	
+	/* disallow open during test */
 	if (test_bit(__ATL2_TESTING, &adapter->flags))
 		return -EBUSY;
 
-	
+	/* allocate transmit descriptors */
 	err = atl2_setup_ring_resources(adapter);
 	if (err)
 		return err;
@@ -645,7 +725,7 @@ static int atl2_open(struct net_device *netdev)
 		goto err_init_hw;
 	}
 
-	
+	/* hardware has been reset, we need to reload some things */
 	atl2_set_multi(netdev);
 	init_ring_ptrs(adapter);
 
@@ -685,11 +765,13 @@ static void atl2_down(struct atl2_adapter *adapter)
 {
 	struct net_device *netdev = adapter->netdev;
 
+	/* signal that we're down so the interrupt handler does not
+	 * reschedule our watchdog timer */
 	set_bit(__ATL2_DOWN, &adapter->flags);
 
 	netif_tx_disable(netdev);
 
-	
+	/* reset MAC to disable all RX/TX */
 	atl2_reset_hw(&adapter->hw);
 	msleep(1);
 
@@ -716,6 +798,17 @@ static void atl2_free_irq(struct atl2_adapter *adapter)
 #endif
 }
 
+/*
+ * atl2_close - Disables a network interface
+ * @netdev: network interface device structure
+ *
+ * Returns 0, this is not allowed to fail
+ *
+ * The close entry point is called when an interface is de-activated
+ * by the OS.  The hardware is still under the drivers control, but
+ * needs to be disabled.  A global MAC reset is issued to stop the
+ * hardware, and all transmit and receive resources are freed.
+ */
 static int atl2_close(struct net_device *netdev)
 {
 	struct atl2_adapter *adapter = netdev_priv(netdev);
@@ -773,7 +866,7 @@ static netdev_tx_t atl2_xmit_frame(struct sk_buff *skb,
 
 	if (skb->len + sizeof(struct tx_pkt_header) + 4  > txbuf_unused ||
 		txs_unused < 1) {
-		
+		/* not enough resources */
 		netif_stop_queue(netdev);
 		return NETDEV_TX_BUSY;
 	}
@@ -812,7 +905,7 @@ static netdev_tx_t atl2_xmit_frame(struct sk_buff *skb,
 		offset -= adapter->txd_ring_size;
 	adapter->txd_write_ptr = offset;
 
-	
+	/* clear txs before send */
 	adapter->txs_ring[adapter->txs_next_clear].update = 0;
 	if (++adapter->txs_next_clear == adapter->txs_ring_size)
 		adapter->txs_next_clear = 0;
@@ -825,6 +918,13 @@ static netdev_tx_t atl2_xmit_frame(struct sk_buff *skb,
 	return NETDEV_TX_OK;
 }
 
+/*
+ * atl2_change_mtu - Change the Maximum Transfer Unit
+ * @netdev: network interface device structure
+ * @new_mtu: new value for maximum frame size
+ *
+ * Returns 0 on success, negative on failure
+ */
 static int atl2_change_mtu(struct net_device *netdev, int new_mtu)
 {
 	struct atl2_adapter *adapter = netdev_priv(netdev);
@@ -833,7 +933,7 @@ static int atl2_change_mtu(struct net_device *netdev, int new_mtu)
 	if ((new_mtu < 40) || (new_mtu > (ETH_DATA_LEN + VLAN_SIZE)))
 		return -EINVAL;
 
-	
+	/* set MTU */
 	if (hw->max_frame_size != new_mtu) {
 		netdev->mtu = new_mtu;
 		ATL2_WRITE_REG(hw, REG_MTU, new_mtu + ENET_HEADER_SIZE +
@@ -843,6 +943,13 @@ static int atl2_change_mtu(struct net_device *netdev, int new_mtu)
 	return 0;
 }
 
+/*
+ * atl2_set_mac - Change the Ethernet Address of the NIC
+ * @netdev: network interface device structure
+ * @p: pointer to an address structure
+ *
+ * Returns 0 on success, negative on failure
+ */
 static int atl2_set_mac(struct net_device *netdev, void *p)
 {
 	struct atl2_adapter *adapter = netdev_priv(netdev);
@@ -862,6 +969,12 @@ static int atl2_set_mac(struct net_device *netdev, void *p)
 	return 0;
 }
 
+/*
+ * atl2_mii_ioctl -
+ * @netdev:
+ * @ifreq:
+ * @cmd:
+ */
 static int atl2_mii_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 {
 	struct atl2_adapter *adapter = netdev_priv(netdev);
@@ -898,6 +1011,12 @@ static int atl2_mii_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 	return 0;
 }
 
+/*
+ * atl2_ioctl -
+ * @netdev:
+ * @ifreq:
+ * @cmd:
+ */
 static int atl2_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 {
 	switch (cmd) {
@@ -914,14 +1033,22 @@ static int atl2_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 	}
 }
 
+/*
+ * atl2_tx_timeout - Respond to a Tx Hang
+ * @netdev: network interface device structure
+ */
 static void atl2_tx_timeout(struct net_device *netdev)
 {
 	struct atl2_adapter *adapter = netdev_priv(netdev);
 
-	
+	/* Do the reset outside of interrupt context */
 	schedule_work(&adapter->reset_task);
 }
 
+/*
+ * atl2_watchdog - Timer Call-back
+ * @data: pointer to netdev cast into an unsigned long
+ */
 static void atl2_watchdog(unsigned long data)
 {
 	struct atl2_adapter *adapter = (struct atl2_adapter *) data;
@@ -937,12 +1064,16 @@ static void atl2_watchdog(unsigned long data)
 
 		adapter->netdev->stats.rx_over_errors += drop_rxd + drop_rxs;
 
-		
+		/* Reset the timer */
 		mod_timer(&adapter->watchdog_timer,
 			  round_jiffies(jiffies + 4 * HZ));
 	}
 }
 
+/*
+ * atl2_phy_config - Timer Call-back
+ * @data: pointer to netdev cast into an unsigned long
+ */
 static void atl2_phy_config(unsigned long data)
 {
 	struct atl2_adapter *adapter = (struct atl2_adapter *) data;
@@ -963,7 +1094,7 @@ static int atl2_up(struct atl2_adapter *adapter)
 	int err = 0;
 	u32 val;
 
-	
+	/* hardware has been reset, we need to reload some things */
 
 	err = atl2_init_hw(&adapter->hw);
 	if (err) {
@@ -1017,34 +1148,34 @@ static void atl2_setup_mac_ctrl(struct atl2_adapter *adapter)
 	struct atl2_hw *hw = &adapter->hw;
 	struct net_device *netdev = adapter->netdev;
 
-	
+	/* Config MAC CTRL Register */
 	value = MAC_CTRL_TX_EN | MAC_CTRL_RX_EN | MAC_CTRL_MACLP_CLK_PHY;
 
-	
+	/* duplex */
 	if (FULL_DUPLEX == adapter->link_duplex)
 		value |= MAC_CTRL_DUPLX;
 
-	
+	/* flow control */
 	value |= (MAC_CTRL_TX_FLOW | MAC_CTRL_RX_FLOW);
 
-	
+	/* PAD & CRC */
 	value |= (MAC_CTRL_ADD_CRC | MAC_CTRL_PAD);
 
-	
+	/* preamble length */
 	value |= (((u32)adapter->hw.preamble_len & MAC_CTRL_PRMLEN_MASK) <<
 		MAC_CTRL_PRMLEN_SHIFT);
 
-	
+	/* vlan */
 	__atl2_vlan_mode(netdev->features, &value);
 
-	
+	/* filter mode */
 	value |= MAC_CTRL_BC_EN;
 	if (netdev->flags & IFF_PROMISC)
 		value |= MAC_CTRL_PROMIS_EN;
 	else if (netdev->flags & IFF_ALLMULTI)
 		value |= MAC_CTRL_MC_ALL_EN;
 
-	
+	/* half retry buffer */
 	value |= (((u32)(adapter->hw.retry_buf &
 		MAC_CTRL_HALF_LEFT_BUF_MASK)) << MAC_CTRL_HALF_LEFT_BUF_SHIFT);
 
@@ -1059,13 +1190,13 @@ static int atl2_check_link(struct atl2_adapter *adapter)
 	u16 speed, duplex, phy_data;
 	int reconfig = 0;
 
-	
+	/* MII_BMSR must read twise */
 	atl2_read_phy_reg(hw, MII_BMSR, &phy_data);
 	atl2_read_phy_reg(hw, MII_BMSR, &phy_data);
-	if (!(phy_data&BMSR_LSTATUS)) { 
-		if (netif_carrier_ok(netdev)) { 
+	if (!(phy_data&BMSR_LSTATUS)) { /* link down */
+		if (netif_carrier_ok(netdev)) { /* old link state: Up */
 			u32 value;
-			
+			/* disable rx */
 			value = ATL2_READ_REG(hw, REG_MAC_CTRL);
 			value &= ~MAC_CTRL_RX_EN;
 			ATL2_WRITE_REG(hw, REG_MAC_CTRL, value);
@@ -1076,7 +1207,7 @@ static int atl2_check_link(struct atl2_adapter *adapter)
 		return 0;
 	}
 
-	
+	/* Link Up */
 	ret_val = atl2_get_speed_and_duplex(hw, &speed, &duplex);
 	if (ret_val)
 		return ret_val;
@@ -1098,7 +1229,7 @@ static int atl2_check_link(struct atl2_adapter *adapter)
 			reconfig = 1;
 		break;
 	}
-	
+	/* link result is our setting */
 	if (reconfig == 0) {
 		if (adapter->link_speed != speed ||
 			adapter->link_duplex != duplex) {
@@ -1112,17 +1243,17 @@ static int atl2_check_link(struct atl2_adapter *adapter)
 					"Full Duplex" : "Half Duplex");
 		}
 
-		if (!netif_carrier_ok(netdev)) { 
+		if (!netif_carrier_ok(netdev)) { /* Link down -> Up */
 			netif_carrier_on(netdev);
 			netif_wake_queue(netdev);
 		}
 		return 0;
 	}
 
-	
+	/* change original link status */
 	if (netif_carrier_ok(netdev)) {
 		u32 value;
-		
+		/* disable rx */
 		value = ATL2_READ_REG(hw, REG_MAC_CTRL);
 		value &= ~MAC_CTRL_RX_EN;
 		ATL2_WRITE_REG(hw, REG_MAC_CTRL, value);
@@ -1132,6 +1263,8 @@ static int atl2_check_link(struct atl2_adapter *adapter)
 		netif_stop_queue(netdev);
 	}
 
+	/* auto-neg, insert timer to re-config phy
+	 * (if interval smaller than 5 seconds, something strange) */
 	if (!test_bit(__ATL2_DOWN, &adapter->flags)) {
 		if (!test_and_set_bit(0, &adapter->cfg_phy))
 			mod_timer(&adapter->phy_config_timer,
@@ -1141,6 +1274,10 @@ static int atl2_check_link(struct atl2_adapter *adapter)
 	return 0;
 }
 
+/*
+ * atl2_link_chg_task - deal with link change event Out of interrupt context
+ * @netdev: network interface device structure
+ */
 static void atl2_link_chg_task(struct work_struct *work)
 {
 	struct atl2_adapter *adapter;
@@ -1169,6 +1306,11 @@ static void atl2_setup_pcicmd(struct pci_dev *pdev)
 		cmd |= PCI_COMMAND_MASTER;
 	pci_write_config_word(pdev, PCI_COMMAND, cmd);
 
+	/*
+	 * some motherboards BIOS(PXE/EFI) driver may set PME
+	 * while they transfer control to OS (Windows/Linux)
+	 * so we should clear this bit before NIC work normally
+	 */
 	pci_write_config_dword(pdev, REG_PM_CTRLSTAT, 0);
 }
 
@@ -1199,6 +1341,17 @@ static const struct net_device_ops atl2_netdev_ops = {
 #endif
 };
 
+/*
+ * atl2_probe - Device Initialization Routine
+ * @pdev: PCI device information struct
+ * @ent: entry in atl2_pci_tbl
+ *
+ * Returns 0 on success, negative on failure
+ *
+ * atl2_probe initializes an adapter identified by a pci_dev structure.
+ * The OS initialization, configuring of the adapter private structure,
+ * and a hardware reset occur.
+ */
 static int __devinit atl2_probe(struct pci_dev *pdev,
 	const struct pci_device_id *ent)
 {
@@ -1215,16 +1368,25 @@ static int __devinit atl2_probe(struct pci_dev *pdev,
 	if (err)
 		return err;
 
+	/*
+	 * atl2 is a shared-high-32-bit device, so we're stuck with 32-bit DMA
+	 * until the kernel has the proper infrastructure to support 64-bit DMA
+	 * on these devices.
+	 */
 	if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32)) &&
 		pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32))) {
 		printk(KERN_ERR "atl2: No usable DMA configuration, aborting\n");
 		goto err_dma;
 	}
 
+	/* Mark all PCI regions associated with PCI device
+	 * pdev as being reserved by owner atl2_driver_name */
 	err = pci_request_regions(pdev, atl2_driver_name);
 	if (err)
 		goto err_pci_reg;
 
+	/* Enables bus-mastering on the device and calls
+	 * pcibios_set_master to do the needed arch specific settings */
 	pci_set_master(pdev);
 
 	err = -ENOMEM;
@@ -1262,7 +1424,7 @@ static int __devinit atl2_probe(struct pci_dev *pdev,
 	adapter->bd_number = cards_found;
 	adapter->pci_using_64 = false;
 
-	
+	/* setup the private structure */
 	err = atl2_sw_init(adapter);
 	if (err)
 		goto err_sw_init;
@@ -1272,18 +1434,21 @@ static int __devinit atl2_probe(struct pci_dev *pdev,
 	netdev->hw_features = NETIF_F_SG | NETIF_F_HW_VLAN_RX;
 	netdev->features |= (NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX);
 
-	
+	/* Init PHY as early as possible due to power saving issue  */
 	atl2_phy_init(&adapter->hw);
 
+	/* reset the controller to
+	 * put the device in a known good starting state */
 
 	if (atl2_reset_hw(&adapter->hw)) {
 		err = -EIO;
 		goto err_reset;
 	}
 
-	
+	/* copy the MAC address out of the EEPROM */
 	atl2_read_mac_addr(&adapter->hw);
 	memcpy(netdev->dev_addr, adapter->hw.mac_addr, netdev->addr_len);
+/* FIXME: do we still need this? */
 #ifdef ETHTOOL_GPERMADDR
 	memcpy(netdev->perm_addr, adapter->hw.mac_addr, netdev->addr_len);
 
@@ -1308,12 +1473,12 @@ static int __devinit atl2_probe(struct pci_dev *pdev,
 	INIT_WORK(&adapter->reset_task, atl2_reset_task);
 	INIT_WORK(&adapter->link_chg_task, atl2_link_chg_task);
 
-	strcpy(netdev->name, "eth%d"); 
+	strcpy(netdev->name, "eth%d"); /* ?? */
 	err = register_netdev(netdev);
 	if (err)
 		goto err_register;
 
-	
+	/* assume we have no link for now */
 	netif_carrier_off(netdev);
 	netif_stop_queue(netdev);
 
@@ -1336,11 +1501,24 @@ err_dma:
 	return err;
 }
 
+/*
+ * atl2_remove - Device Removal Routine
+ * @pdev: PCI device information struct
+ *
+ * atl2_remove is called by the PCI subsystem to alert the driver
+ * that it should release a PCI device.  The could be caused by a
+ * Hot-Plug event, or because the driver is going to be removed from
+ * memory.
+ */
+/* FIXME: write the original MAC address back in case it was changed from a
+ * BIOS-set value, as in atl1 -- CHS */
 static void __devexit atl2_remove(struct pci_dev *pdev)
 {
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct atl2_adapter *adapter = netdev_priv(netdev);
 
+	/* flush_scheduled work may reschedule our watchdog task, so
+	 * explicitly disable watchdog tasks from being rescheduled  */
 	set_bit(__ATL2_DOWN, &adapter->flags);
 
 	del_timer_sync(&adapter->watchdog_timer);
@@ -1393,7 +1571,7 @@ static int atl2_suspend(struct pci_dev *pdev, pm_message_t state)
 
 	if (0 != (ctrl & BMSR_LSTATUS) && 0 != wufc) {
 		u32 ret_val;
-		
+		/* get current link speed & duplex */
 		ret_val = atl2_get_speed_and_duplex(hw, &speed, &duplex);
 		if (ret_val) {
 			printk(KERN_DEBUG
@@ -1404,14 +1582,14 @@ static int atl2_suspend(struct pci_dev *pdev, pm_message_t state)
 
 		ctrl = 0;
 
-		
+		/* turn on magic packet wol */
 		if (wufc & ATLX_WUFC_MAG)
 			ctrl |= (WOL_MAGIC_EN | WOL_MAGIC_PME_EN);
 
-		
+		/* ignore Link Chg event when Link is up */
 		ATL2_WRITE_REG(hw, REG_WOL_CTRL, ctrl);
 
-		
+		/* Config MAC CTRL Register */
 		ctrl = MAC_CTRL_RX_EN | MAC_CTRL_MACLP_CLK_PHY;
 		if (FULL_DUPLEX == adapter->link_duplex)
 			ctrl |= MAC_CTRL_DUPLX;
@@ -1422,13 +1600,13 @@ static int atl2_suspend(struct pci_dev *pdev, pm_message_t state)
 			MAC_CTRL_HALF_LEFT_BUF_MASK)) <<
 			MAC_CTRL_HALF_LEFT_BUF_SHIFT);
 		if (wufc & ATLX_WUFC_MAG) {
-			
+			/* magic packet maybe Broadcast&multicast&Unicast */
 			ctrl |= MAC_CTRL_BC_EN;
 		}
 
 		ATL2_WRITE_REG(hw, REG_MAC_CTRL, ctrl);
 
-		
+		/* pcie patch */
 		ctrl = ATL2_READ_REG(hw, REG_PCIE_PHYMISC);
 		ctrl |= PCIE_PHYMISC_FORCE_RCV_DET;
 		ATL2_WRITE_REG(hw, REG_PCIE_PHYMISC, ctrl);
@@ -1441,12 +1619,12 @@ static int atl2_suspend(struct pci_dev *pdev, pm_message_t state)
 	}
 
 	if (0 == (ctrl&BMSR_LSTATUS) && 0 != (wufc&ATLX_WUFC_LNKC)) {
-		
+		/* link is down, so only LINK CHG WOL event enable */
 		ctrl |= (WOL_LINK_CHG_EN | WOL_LINK_CHG_PME_EN);
 		ATL2_WRITE_REG(hw, REG_WOL_CTRL, ctrl);
 		ATL2_WRITE_REG(hw, REG_MAC_CTRL, 0);
 
-		
+		/* pcie patch */
 		ctrl = ATL2_READ_REG(hw, REG_PCIE_PHYMISC);
 		ctrl |= PCIE_PHYMISC_FORCE_RCV_DET;
 		ATL2_WRITE_REG(hw, REG_PCIE_PHYMISC, ctrl);
@@ -1454,7 +1632,7 @@ static int atl2_suspend(struct pci_dev *pdev, pm_message_t state)
 		ctrl |= PCIE_DLL_TX_CTRL1_SEL_NOR_CLK;
 		ATL2_WRITE_REG(hw, REG_PCIE_DLL_TX_CTRL1, ctrl);
 
-		hw->phy_configured = false; 
+		hw->phy_configured = false; /* re-init PHY when resume */
 
 		pci_enable_wake(pdev, pci_choose_state(pdev, state), 1);
 
@@ -1462,10 +1640,10 @@ static int atl2_suspend(struct pci_dev *pdev, pm_message_t state)
 	}
 
 wol_dis:
-	
+	/* WOL disabled */
 	ATL2_WRITE_REG(hw, REG_WOL_CTRL, 0);
 
-	
+	/* pcie patch */
 	ctrl = ATL2_READ_REG(hw, REG_PCIE_PHYMISC);
 	ctrl |= PCIE_PHYMISC_FORCE_RCV_DET;
 	ATL2_WRITE_REG(hw, REG_PCIE_PHYMISC, ctrl);
@@ -1474,7 +1652,7 @@ wol_dis:
 	ATL2_WRITE_REG(hw, REG_PCIE_DLL_TX_CTRL1, ctrl);
 
 	atl2_force_ps(hw);
-	hw->phy_configured = false; 
+	hw->phy_configured = false; /* re-init PHY when resume */
 
 	pci_enable_wake(pdev, pci_choose_state(pdev, state), 0);
 
@@ -1508,7 +1686,7 @@ static int atl2_resume(struct pci_dev *pdev)
 
 	pci_set_master(pdev);
 
-	ATL2_READ_REG(&adapter->hw, REG_WOL_CTRL); 
+	ATL2_READ_REG(&adapter->hw, REG_WOL_CTRL); /* clear WOL status */
 
 	pci_enable_wake(pdev, PCI_D3hot, 0);
 	pci_enable_wake(pdev, PCI_D3cold, 0);
@@ -1542,7 +1720,7 @@ static struct pci_driver atl2_driver = {
 	.id_table = atl2_pci_tbl,
 	.probe    = atl2_probe,
 	.remove   = __devexit_p(atl2_remove),
-	
+	/* Power Management Hooks */
 	.suspend  = atl2_suspend,
 #ifdef CONFIG_PM
 	.resume   = atl2_resume,
@@ -1550,6 +1728,12 @@ static struct pci_driver atl2_driver = {
 	.shutdown = atl2_shutdown,
 };
 
+/*
+ * atl2_init_module - Driver Registration Routine
+ *
+ * atl2_init_module is the first routine called when the driver is
+ * loaded. All it does is register with the PCI subsystem.
+ */
 static int __init atl2_init_module(void)
 {
 	printk(KERN_INFO "%s - version %s\n", atl2_driver_string,
@@ -1559,6 +1743,12 @@ static int __init atl2_init_module(void)
 }
 module_init(atl2_init_module);
 
+/*
+ * atl2_exit_module - Driver Exit Cleanup Routine
+ *
+ * atl2_exit_module is called just before the driver is removed
+ * from memory.
+ */
 static void __exit atl2_exit_module(void)
 {
 	pci_unregister_driver(&atl2_driver);
@@ -1658,7 +1848,7 @@ static int atl2_set_settings(struct net_device *netdev,
 		return -EINVAL;
 	}
 
-	
+	/* reset the link */
 	if (netif_running(adapter->netdev)) {
 		atl2_down(adapter);
 		atl2_up(adapter);
@@ -1674,6 +1864,9 @@ static u32 atl2_get_msglevel(struct net_device *netdev)
 	return 0;
 }
 
+/*
+ * It's sane for this to be empty, but we might want to take advantage of this.
+ */
 static void atl2_set_msglevel(struct net_device *netdev, u32 data)
 {
 }
@@ -1820,8 +2013,8 @@ static int atl2_set_eeprom(struct net_device *netdev,
 	ptr = eeprom_buff;
 
 	if (eeprom->offset & 3) {
-		
-		
+		/* need read/modify/write of first changed EEPROM word */
+		/* only the second byte of the word is being modified */
 		if (!atl2_read_eeprom(hw, first_dword*4, &(eeprom_buff[0]))) {
 			ret_val = -EIO;
 			goto out;
@@ -1829,6 +2022,10 @@ static int atl2_set_eeprom(struct net_device *netdev,
 		ptr++;
 	}
 	if (((eeprom->offset + eeprom->len) & 3)) {
+		/*
+		 * need read/modify/write of last changed EEPROM word
+		 * only the first byte of the word is being modified
+		 */
 		if (!atl2_read_eeprom(hw, last_dword * 4,
 					&(eeprom_buff[last_dword - first_dword]))) {
 			ret_val = -EIO;
@@ -1836,7 +2033,7 @@ static int atl2_set_eeprom(struct net_device *netdev,
 		}
 	}
 
-	
+	/* Device's eeprom is always little-endian, word addressable */
 	memcpy(ptr, bytes, eeprom->len);
 
 	for (i = 0; i < last_dword - first_dword + 1; i++) {
@@ -1897,7 +2094,7 @@ static int atl2_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 	if (wol->wolopts & (WAKE_UCAST | WAKE_BCAST | WAKE_MCAST))
 		return -EOPNOTSUPP;
 
-	
+	/* these settings will always override what we currently have */
 	adapter->wol = 0;
 
 	if (wol->wolopts & WAKE_MAGIC)
@@ -1943,13 +2140,19 @@ static void atl2_set_ethtool_ops(struct net_device *netdev)
 #define LONGSWAP(a)   ((LBYTESWAP(a) << 16) | (LBYTESWAP(a) >> 16))
 #define SHORTSWAP(a)  (((a) << 8) | ((a) >> 8))
 
+/*
+ * Reset the transmit and receive units; mask and clear all interrupts.
+ *
+ * hw - Struct containing variables accessed by shared code
+ * return : 0  or  idle status (if error)
+ */
 static s32 atl2_reset_hw(struct atl2_hw *hw)
 {
 	u32 icr;
 	u16 pci_cfg_cmd_word;
 	int i;
 
-	
+	/* Workaround for PCI problem when BIOS sets MMRBC incorrectly. */
 	atl2_read_pci_cfg(hw, PCI_REG_COMMAND, &pci_cfg_cmd_word);
 	if ((pci_cfg_cmd_word &
 		(CMD_IO_SPACE|CMD_MEMORY_SPACE|CMD_BUS_MASTER)) !=
@@ -1959,20 +2162,28 @@ static s32 atl2_reset_hw(struct atl2_hw *hw)
 		atl2_write_pci_cfg(hw, PCI_REG_COMMAND, &pci_cfg_cmd_word);
 	}
 
-	
-	
-	
+	/* Clear Interrupt mask to stop board from generating
+	 * interrupts & Clear any pending interrupt events
+	 */
+	/* FIXME */
+	/* ATL2_WRITE_REG(hw, REG_IMR, 0); */
+	/* ATL2_WRITE_REG(hw, REG_ISR, 0xffffffff); */
 
+	/* Issue Soft Reset to the MAC.  This will reset the chip's
+	 * transmit, receive, DMA.  It will not effect
+	 * the current PCI configuration.  The global reset bit is self-
+	 * clearing, and should clear within a microsecond.
+	 */
 	ATL2_WRITE_REG(hw, REG_MASTER_CTRL, MASTER_CTRL_SOFT_RST);
 	wmb();
-	msleep(1); 
+	msleep(1); /* delay about 1ms */
 
-	
+	/* Wait at least 10ms for All module to be Idle */
 	for (i = 0; i < 10; i++) {
 		icr = ATL2_READ_REG(hw, REG_IDLE_STATUS);
 		if (!icr)
 			break;
-		msleep(1); 
+		msleep(1); /* delay 1 ms */
 		cpu_relax();
 	}
 
@@ -1990,6 +2201,7 @@ static s32 atl2_reset_hw(struct atl2_hw *hw)
 
 static struct atl2_spi_flash_dev flash_table[] =
 {
+/* MFR    WRSR  READ  PROGRAM WREN  WRDI  RDSR  RDID  SECTOR_ERASE CHIP_ERASE */
 {"Atmel", 0x0,  0x03, 0x02,   0x06, 0x04, 0x05, 0x15, 0x52,        0x62 },
 {"SST",   0x01, 0x03, 0x02,   0x06, 0x04, 0x05, 0x90, 0x20,        0x60 },
 {"ST",    0x01, 0x03, 0x02,   0x06, 0x04, 0x05, 0xAB, 0xD8,        0xC7 },
@@ -2037,6 +2249,10 @@ static bool atl2_spi_read(struct atl2_hw *hw, u32 addr, u32 *buf)
 	return true;
 }
 
+/*
+ * get_permanent_address
+ * return 0 if get valid mac address,
+ */
 static int get_permanent_address(struct atl2_hw *hw)
 {
 	u32 Addr[2];
@@ -2051,11 +2267,11 @@ static int get_permanent_address(struct atl2_hw *hw)
 	Addr[0] = 0;
 	Addr[1] = 0;
 
-	if (!atl2_check_eeprom_exist(hw)) { 
+	if (!atl2_check_eeprom_exist(hw)) { /* eeprom exists */
 		Register = 0;
 		KeyValid = false;
 
-		
+		/* Read out all EEPROM content */
 		i = 0;
 		while (1) {
 			if (atl2_read_eeprom(hw, i + 0x100, &Control)) {
@@ -2070,11 +2286,11 @@ static int get_permanent_address(struct atl2_hw *hw)
 					KeyValid = true;
 					Register = (u16) (Control >> 16);
 				} else {
-			
+			/* assume data end while encount an invalid KEYWORD */
 					break;
 				}
 			} else {
-				break; 
+				break; /* read error */
 			}
 			i += 4;
 		}
@@ -2089,7 +2305,7 @@ static int get_permanent_address(struct atl2_hw *hw)
 		return 1;
 	}
 
-	
+	/* see if SPI flash exists? */
 	Addr[0] = 0;
 	Addr[1] = 0;
 	Register = 0;
@@ -2107,10 +2323,10 @@ static int get_permanent_address(struct atl2_hw *hw)
 				KeyValid = true;
 				Register = (u16) (Control >> 16);
 			} else {
-				break; 
+				break; /* data end */
 			}
 		} else {
-			break; 
+			break; /* read error */
 		}
 		i += 4;
 	}
@@ -2121,7 +2337,7 @@ static int get_permanent_address(struct atl2_hw *hw)
 		memcpy(hw->perm_mac_addr, EthAddr, ETH_ALEN);
 		return 0;
 	}
-	
+	/* maybe MAC-address is from BIOS */
 	Addr[0] = ATL2_READ_REG(hw, REG_MAC_STA_ADDR);
 	Addr[1] = ATL2_READ_REG(hw, REG_MAC_STA_ADDR + 4);
 	*(u32 *) &EthAddr[2] = LONGSWAP(Addr[0]);
@@ -2135,11 +2351,16 @@ static int get_permanent_address(struct atl2_hw *hw)
 	return 1;
 }
 
+/*
+ * Reads the adapter's MAC address from the EEPROM
+ *
+ * hw - Struct containing variables accessed by shared code
+ */
 static s32 atl2_read_mac_addr(struct atl2_hw *hw)
 {
 	if (get_permanent_address(hw)) {
-		
-		
+		/* for test */
+		/* FIXME: shouldn't we use random_ether_addr() here? */
 		hw->perm_mac_addr[0] = 0x00;
 		hw->perm_mac_addr[1] = 0x13;
 		hw->perm_mac_addr[2] = 0x74;
@@ -2153,6 +2374,19 @@ static s32 atl2_read_mac_addr(struct atl2_hw *hw)
 	return 0;
 }
 
+/*
+ * Hashes an address to determine its location in the multicast table
+ *
+ * hw - Struct containing variables accessed by shared code
+ * mc_addr - the multicast address to hash
+ *
+ * atl2_hash_mc_addr
+ *  purpose
+ *      set hash value for a multicast address
+ *      hash calcu processing :
+ *          1. calcu 32bit CRC for multicast address
+ *          2. reverse crc with MSB to LSB
+ */
 static u32 atl2_hash_mc_addr(struct atl2_hw *hw, u8 *mc_addr)
 {
 	u32 crc32, value;
@@ -2167,11 +2401,25 @@ static u32 atl2_hash_mc_addr(struct atl2_hw *hw, u8 *mc_addr)
 	return value;
 }
 
+/*
+ * Sets the bit in the multicast table corresponding to the hash value.
+ *
+ * hw - Struct containing variables accessed by shared code
+ * hash_value - Multicast address hash value
+ */
 static void atl2_hash_set(struct atl2_hw *hw, u32 hash_value)
 {
 	u32 hash_bit, hash_reg;
 	u32 mta;
 
+	/* The HASH Table  is a register array of 2 32-bit registers.
+	 * It is treated like an array of 64 bits.  We want to set
+	 * bit BitArray[hash_value]. So we figure out what register
+	 * the bit is in, read it, OR in the new bit, then write
+	 * back the new value.  The register is determined by the
+	 * upper 7 bits of the hash value and the bit within that
+	 * register are determined by the lower 5 bits of the value.
+	 */
 	hash_reg = (hash_value >> 31) & 0x1;
 	hash_bit = (hash_value >> 26) & 0x1F;
 
@@ -2182,6 +2430,9 @@ static void atl2_hash_set(struct atl2_hw *hw, u32 hash_value)
 	ATL2_WRITE_REG_ARRAY(hw, REG_RX_HASH_TABLE, hash_reg, mta);
 }
 
+/*
+ * atl2_init_pcie - init PCIE module
+ */
 static void atl2_init_pcie(struct atl2_hw *hw)
 {
     u32 value;
@@ -2195,9 +2446,9 @@ static void atl2_init_pcie(struct atl2_hw *hw)
 static void atl2_init_flash_opcode(struct atl2_hw *hw)
 {
 	if (hw->flash_vendor >= ARRAY_SIZE(flash_table))
-		hw->flash_vendor = 0; 
+		hw->flash_vendor = 0; /* ATMEL */
 
-	
+	/* Init OP table */
 	ATL2_WRITE_REGB(hw, REG_SPI_FLASH_OP_PROGRAM,
 		flash_table[hw->flash_vendor].cmdPROGRAM);
 	ATL2_WRITE_REGB(hw, REG_SPI_FLASH_OP_SC_ERASE,
@@ -2216,14 +2467,23 @@ static void atl2_init_flash_opcode(struct atl2_hw *hw)
 		flash_table[hw->flash_vendor].cmdREAD);
 }
 
+/********************************************************************
+* Performs basic configuration of the adapter.
+*
+* hw - Struct containing variables accessed by shared code
+* Assumes that the controller has previously been reset and is in a
+* post-reset uninitialized state. Initializes multicast table,
+* and  Calls routines to setup link
+* Leaves the transmit and receive units disabled and uninitialized.
+********************************************************************/
 static s32 atl2_init_hw(struct atl2_hw *hw)
 {
 	u32 ret_val = 0;
 
 	atl2_init_pcie(hw);
 
-	
-	
+	/* Zero out the Multicast HASH table */
+	/* clear the old settings from the multicast hash table */
 	ATL2_WRITE_REG(hw, REG_RX_HASH_TABLE, 0);
 	ATL2_WRITE_REG_ARRAY(hw, REG_RX_HASH_TABLE, 1, 0);
 
@@ -2234,13 +2494,20 @@ static s32 atl2_init_hw(struct atl2_hw *hw)
 	return ret_val;
 }
 
+/*
+ * Detects the current speed and duplex settings of the hardware.
+ *
+ * hw - Struct containing variables accessed by shared code
+ * speed - Speed of the connection
+ * duplex - Duplex setting of the connection
+ */
 static s32 atl2_get_speed_and_duplex(struct atl2_hw *hw, u16 *speed,
 	u16 *duplex)
 {
 	s32 ret_val;
 	u16 phy_data;
 
-	
+	/* Read PHY Specific Status Register (17) */
 	ret_val = atl2_read_phy_reg(hw, MII_ATLX_PSSR, &phy_data);
 	if (ret_val)
 		return ret_val;
@@ -2268,6 +2535,11 @@ static s32 atl2_get_speed_and_duplex(struct atl2_hw *hw, u16 *speed,
 	return 0;
 }
 
+/*
+ * Reads the value from a PHY register
+ * hw - Struct containing variables accessed by shared code
+ * reg_addr - address of the PHY register to read
+ */
 static s32 atl2_read_phy_reg(struct atl2_hw *hw, u16 reg_addr, u16 *phy_data)
 {
 	u32 val;
@@ -2297,6 +2569,12 @@ static s32 atl2_read_phy_reg(struct atl2_hw *hw, u16 reg_addr, u16 *phy_data)
 	return ATLX_ERR_PHY;
 }
 
+/*
+ * Writes a value to a PHY register
+ * hw - Struct containing variables accessed by shared code
+ * reg_addr - address of the PHY register to write
+ * data - data to write to the PHY
+ */
 static s32 atl2_write_phy_reg(struct atl2_hw *hw, u32 reg_addr, u16 phy_data)
 {
 	int i;
@@ -2326,17 +2604,33 @@ static s32 atl2_write_phy_reg(struct atl2_hw *hw, u32 reg_addr, u16 phy_data)
 	return ATLX_ERR_PHY;
 }
 
+/*
+ * Configures PHY autoneg and flow control advertisement settings
+ *
+ * hw - Struct containing variables accessed by shared code
+ */
 static s32 atl2_phy_setup_autoneg_adv(struct atl2_hw *hw)
 {
 	s32 ret_val;
 	s16 mii_autoneg_adv_reg;
 
-	
+	/* Read the MII Auto-Neg Advertisement Register (Address 4). */
 	mii_autoneg_adv_reg = MII_AR_DEFAULT_CAP_MASK;
 
+	/* Need to parse autoneg_advertised  and set up
+	 * the appropriate PHY registers.  First we will parse for
+	 * autoneg_advertised software override.  Since we can advertise
+	 * a plethora of combinations, we need to check each bit
+	 * individually.
+	 */
 
+	/* First we clear all the 10/100 mb speed bits in the Auto-Neg
+	 * Advertisement Register (Address 4) and the 1000 mb speed bits in
+	 * the  1000Base-T Control Register (Address 9). */
 	mii_autoneg_adv_reg &= ~MII_AR_SPEED_MASK;
 
+	/* Need to parse MediaType and setup the
+	 * appropriate PHY registers. */
 	switch (hw->MediaType) {
 	case MEDIA_TYPE_AUTO_SENSOR:
 		mii_autoneg_adv_reg |=
@@ -2368,7 +2662,7 @@ static s32 atl2_phy_setup_autoneg_adv(struct atl2_hw *hw)
 		break;
 	}
 
-	
+	/* flow control fixed to enable all */
 	mii_autoneg_adv_reg |= (MII_AR_ASM_DIR | MII_AR_PAUSE);
 
 	hw->mii_autoneg_adv_reg = mii_autoneg_adv_reg;
@@ -2381,6 +2675,13 @@ static s32 atl2_phy_setup_autoneg_adv(struct atl2_hw *hw)
 	return 0;
 }
 
+/*
+ * Resets the PHY and make all config validate
+ *
+ * hw - Struct containing variables accessed by shared code
+ *
+ * Sets bit 15 and 12 of the MII Control regiser (for F001 bug)
+ */
 static s32 atl2_phy_commit(struct atl2_hw *hw)
 {
 	s32 ret_val;
@@ -2391,7 +2692,7 @@ static s32 atl2_phy_commit(struct atl2_hw *hw)
 	if (ret_val) {
 		u32 val;
 		int i;
-		
+		/* pcie serdes link may be down ! */
 		for (i = 0; i < 25; i++) {
 			msleep(1);
 			val = ATL2_READ_REG(hw, REG_MDIO_CTRL);
@@ -2415,16 +2716,16 @@ static s32 atl2_phy_init(struct atl2_hw *hw)
 	if (hw->phy_configured)
 		return 0;
 
-	
+	/* Enable PHY */
 	ATL2_WRITE_REGW(hw, REG_PHY_ENABLE, 1);
 	ATL2_WRITE_FLUSH(hw);
 	msleep(1);
 
-	
+	/* check if the PHY is in powersaving mode */
 	atl2_write_phy_reg(hw, MII_DBG_ADDR, 0);
 	atl2_read_phy_reg(hw, MII_DBG_DATA, &phy_val);
 
-	
+	/* 024E / 124E 0r 0274 / 1274 ? */
 	if (phy_val & 0x1000) {
 		phy_val &= ~0x1000;
 		atl2_write_phy_reg(hw, MII_DBG_DATA, phy_val);
@@ -2432,17 +2733,17 @@ static s32 atl2_phy_init(struct atl2_hw *hw)
 
 	msleep(1);
 
-	
+	/*Enable PHY LinkChange Interrupt */
 	ret_val = atl2_write_phy_reg(hw, 18, 0xC00);
 	if (ret_val)
 		return ret_val;
 
-	
+	/* setup AutoNeg parameters */
 	ret_val = atl2_phy_setup_autoneg_adv(hw);
 	if (ret_val)
 		return ret_val;
 
-	
+	/* SW.Reset & En-Auto-Neg to restart Auto-Neg */
 	ret_val = atl2_phy_commit(hw);
 	if (ret_val)
 		return ret_val;
@@ -2455,17 +2756,24 @@ static s32 atl2_phy_init(struct atl2_hw *hw)
 static void atl2_set_mac_addr(struct atl2_hw *hw)
 {
 	u32 value;
+	/* 00-0B-6A-F6-00-DC
+	 * 0:  6AF600DC   1: 000B
+	 * low dword */
 	value = (((u32)hw->mac_addr[2]) << 24) |
 		(((u32)hw->mac_addr[3]) << 16) |
 		(((u32)hw->mac_addr[4]) << 8)  |
 		(((u32)hw->mac_addr[5]));
 	ATL2_WRITE_REG_ARRAY(hw, REG_MAC_STA_ADDR, 0, value);
-	
+	/* hight dword */
 	value = (((u32)hw->mac_addr[0]) << 8) |
 		(((u32)hw->mac_addr[1]));
 	ATL2_WRITE_REG_ARRAY(hw, REG_MAC_STA_ADDR, 1, value);
 }
 
+/*
+ * check_eeprom_exist
+ * return 0 if eeprom exist
+ */
 static int atl2_check_eeprom_exist(struct atl2_hw *hw)
 {
 	u32 value;
@@ -2479,6 +2787,7 @@ static int atl2_check_eeprom_exist(struct atl2_hw *hw)
 	return ((value & 0xFF00) == 0x6C00) ? 0 : 1;
 }
 
+/* FIXME: This doesn't look right. -- CHS */
 static bool atl2_write_eeprom(struct atl2_hw *hw, u32 offset, u32 value)
 {
 	return true;
@@ -2490,7 +2799,7 @@ static bool atl2_read_eeprom(struct atl2_hw *hw, u32 Offset, u32 *pValue)
 	u32    Control;
 
 	if (Offset & 0x3)
-		return false; 
+		return false; /* address do not align */
 
 	ATL2_WRITE_REG(hw, REG_VPD_DATA, 0);
 	Control = (Offset & VPD_CAP_VPD_ADDR_MASK) << VPD_CAP_VPD_ADDR_SHIFT;
@@ -2507,7 +2816,7 @@ static bool atl2_read_eeprom(struct atl2_hw *hw, u32 Offset, u32 *pValue)
 		*pValue = ATL2_READ_REG(hw, REG_VPD_DATA);
 		return true;
 	}
-	return false; 
+	return false; /* timeout */
 }
 
 static void atl2_force_ps(struct atl2_hw *hw)
@@ -2524,14 +2833,30 @@ static void atl2_force_ps(struct atl2_hw *hw)
 	atl2_write_phy_reg(hw, MII_DBG_DATA, 0);
 }
 
+/* This is the only thing that needs to be changed to adjust the
+ * maximum number of ports that the driver can manage.
+ */
 #define ATL2_MAX_NIC 4
 
 #define OPTION_UNSET    -1
 #define OPTION_DISABLED 0
 #define OPTION_ENABLED  1
 
+/* All parameters are treated the same, as an integer array of values.
+ * This macro just reduces the need to repeat the same declaration code
+ * over and over (plus this helps to avoid typo bugs).
+ */
 #define ATL2_PARAM_INIT {[0 ... ATL2_MAX_NIC] = OPTION_UNSET}
 #ifndef module_param_array
+/* Module Parameters are always initialized to -1, so that the driver
+ * can tell the difference between no user specified value or the
+ * user asking for the default value.
+ * The true default values are loaded in when atl2_check_options is called.
+ *
+ * This is a GCC extension to ANSI C.
+ * See the item "Labeled Elements in Initializers" in the section
+ * "Extensions to the C Language Family" of the GCC documentation.
+ */
 
 #define ATL2_PARAM(X, desc) \
     static const int __devinitdata X[ATL2_MAX_NIC + 1] = ATL2_PARAM_INIT; \
@@ -2545,23 +2870,57 @@ static void atl2_force_ps(struct atl2_hw *hw)
     MODULE_PARM_DESC(X, desc);
 #endif
 
-#define ATL2_MIN_TX_MEMSIZE		4	
-#define ATL2_MAX_TX_MEMSIZE		64	
-#define ATL2_DEFAULT_TX_MEMSIZE		8	
+/*
+ * Transmit Memory Size
+ * Valid Range: 64-2048
+ * Default Value: 128
+ */
+#define ATL2_MIN_TX_MEMSIZE		4	/* 4KB */
+#define ATL2_MAX_TX_MEMSIZE		64	/* 64KB */
+#define ATL2_DEFAULT_TX_MEMSIZE		8	/* 8KB */
 ATL2_PARAM(TxMemSize, "Bytes of Transmit Memory");
 
+/*
+ * Receive Memory Block Count
+ * Valid Range: 16-512
+ * Default Value: 128
+ */
 #define ATL2_MIN_RXD_COUNT		16
 #define ATL2_MAX_RXD_COUNT		512
 #define ATL2_DEFAULT_RXD_COUNT		64
 ATL2_PARAM(RxMemBlock, "Number of receive memory block");
 
+/*
+ * User Specified MediaType Override
+ *
+ * Valid Range: 0-5
+ *  - 0    - auto-negotiate at all supported speeds
+ *  - 1    - only link at 1000Mbps Full Duplex
+ *  - 2    - only link at 100Mbps Full Duplex
+ *  - 3    - only link at 100Mbps Half Duplex
+ *  - 4    - only link at 10Mbps Full Duplex
+ *  - 5    - only link at 10Mbps Half Duplex
+ * Default Value: 0
+ */
 ATL2_PARAM(MediaType, "MediaType Select");
 
-#define INT_MOD_DEFAULT_CNT	100 
+/*
+ * Interrupt Moderate Timer in units of 2048 ns (~2 us)
+ * Valid Range: 10-65535
+ * Default Value: 45000(90ms)
+ */
+#define INT_MOD_DEFAULT_CNT	100 /* 200us */
 #define INT_MOD_MAX_CNT		65000
 #define INT_MOD_MIN_CNT		50
 ATL2_PARAM(IntModTimer, "Interrupt Moderator Timer");
 
+/*
+ * FlashVendor
+ * Valid Range: 0-2
+ * 0 - Atmel
+ * 1 - SST
+ * 2 - ST
+ */
 ATL2_PARAM(FlashVendor, "SPI Flash Vendor");
 
 #define AUTONEG_ADV_DEFAULT	0x2F
@@ -2578,11 +2937,11 @@ struct atl2_option {
 	char *err;
 	int  def;
 	union {
-		struct { 
+		struct { /* range_option info */
 			int min;
 			int max;
 		} r;
-		struct { 
+		struct { /* list_option info */
 			int nr;
 			struct atl2_opt_list { int i; char *str; } *p;
 		} l;
@@ -2638,6 +2997,15 @@ static int __devinit atl2_validate_option(int *value, struct atl2_option *opt)
 	return -1;
 }
 
+/*
+ * atl2_check_options - Range Checking for Command Line Parameters
+ * @adapter: board private structure
+ *
+ * This routine checks all command line parameters for valid user
+ * input.  If an invalid value is given, or if no user specified
+ * value exists, a default value is used.  The final value is stored
+ * in a variable in the adapter structure.
+ */
 static void __devinit atl2_check_options(struct atl2_adapter *adapter)
 {
 	int val;
@@ -2652,7 +3020,7 @@ static void __devinit atl2_check_options(struct atl2_adapter *adapter)
 #endif
 	}
 
-	
+	/* Bytes of Transmit Memory */
 	opt.type = range_option;
 	opt.name = "Bytes of Transmit Memory";
 	opt.err = "using default of " __MODULE_STRING(ATL2_DEFAULT_TX_MEMSIZE);
@@ -2669,12 +3037,12 @@ static void __devinit atl2_check_options(struct atl2_adapter *adapter)
 	} else
 		adapter->txd_ring_size = ((u32)opt.def) * 1024;
 #endif
-	
+	/* txs ring size: */
 	adapter->txs_ring_size = adapter->txd_ring_size / 128;
 	if (adapter->txs_ring_size > 160)
 		adapter->txs_ring_size = 160;
 
-	
+	/* Receive Memory Block Count */
 	opt.type = range_option;
 	opt.name = "Number of receive memory block";
 	opt.err = "using default of " __MODULE_STRING(ATL2_DEFAULT_RXD_COUNT);
@@ -2687,19 +3055,19 @@ static void __devinit atl2_check_options(struct atl2_adapter *adapter)
 		val = RxMemBlock[bd];
 		atl2_validate_option(&val, &opt);
 		adapter->rxd_ring_size = (u32)val;
-		
-			
+		/* FIXME */
+		/* ((u16)val)&~1; */	/* even number */
 #ifdef module_param_array
 	} else
 		adapter->rxd_ring_size = (u32)opt.def;
 #endif
-	
+	/* init RXD Flow control value */
 	adapter->hw.fc_rxd_hi = (adapter->rxd_ring_size / 8) * 7;
 	adapter->hw.fc_rxd_lo = (ATL2_MIN_RXD_COUNT / 8) >
 		(adapter->rxd_ring_size / 12) ? (ATL2_MIN_RXD_COUNT / 8) :
 		(adapter->rxd_ring_size / 12);
 
-	
+	/* Interrupt Moderate Timer */
 	opt.type = range_option;
 	opt.name = "Interrupt Moderate Timer";
 	opt.err = "using default of " __MODULE_STRING(INT_MOD_DEFAULT_CNT);
@@ -2716,7 +3084,7 @@ static void __devinit atl2_check_options(struct atl2_adapter *adapter)
 	} else
 		adapter->imt = (u16)(opt.def);
 #endif
-	
+	/* Flash Vendor */
 	opt.type = range_option;
 	opt.name = "SPI Flash Vendor";
 	opt.err = "using default of " __MODULE_STRING(FLASH_VENDOR_DEFAULT);
@@ -2733,7 +3101,7 @@ static void __devinit atl2_check_options(struct atl2_adapter *adapter)
 	} else
 		adapter->hw.flash_vendor = (u8)(opt.def);
 #endif
-	
+	/* MediaType */
 	opt.type = range_option;
 	opt.name = "Speed/Duplex Selection";
 	opt.err = "using default of " __MODULE_STRING(MEDIA_TYPE_AUTO_SENSOR);

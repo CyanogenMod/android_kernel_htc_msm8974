@@ -63,12 +63,16 @@ static struct platform_device smsc9118_device = {
 	},
 };
 
+/*
+ * AP320 and AP325RXA has CPLD data in NOR Flash(0xA80000-0xABFFFF).
+ * If this area erased, this board can not boot.
+ */
 static struct mtd_partition ap325rxa_nor_flash_partitions[] = {
 	{
 		.name = "uboot",
 		.offset = 0,
 		.size = (1 * 1024 * 1024),
-		.mask_flags = MTD_WRITEABLE,	
+		.mask_flags = MTD_WRITEABLE,	/* Read-only */
 	}, {
 		.name = "kernel",
 		.offset = MTDPART_OFS_APPEND,
@@ -80,7 +84,7 @@ static struct mtd_partition ap325rxa_nor_flash_partitions[] = {
 	}, {
 		.name = "CPLD-Data",
 		.offset = MTDPART_OFS_APPEND,
-		.mask_flags = MTD_WRITEABLE,	
+		.mask_flags = MTD_WRITEABLE,	/* Read-only */
 		.size = (1024 * 128 * 2),
 	}, {
 		.name = "free-area1",
@@ -175,13 +179,13 @@ static void ap320_wvga_power_on(void)
 {
 	msleep(100);
 
-	
+	/* ASD AP-320/325 LCD ON */
 	__raw_writew(FPGA_LCDREG_VAL, FPGA_LCDREG);
 }
 
 static void ap320_wvga_power_off(void)
 {
-	
+	/* ASD AP-320/325 LCD OFF */
 	__raw_writew(0, FPGA_LCDREG);
 }
 
@@ -196,7 +200,7 @@ static const struct fb_videomode ap325rxa_lcdc_modes[] = {
 		.upper_margin = 63,
 		.lower_margin = 80,
 		.vsync_len = 1,
-		.sync = 0, 
+		.sync = 0, /* hsync and vsync are active low */
 	},
 };
 
@@ -210,7 +214,7 @@ static struct sh_mobile_lcdc_info lcdc_info = {
 		.lcd_modes = ap325rxa_lcdc_modes,
 		.num_modes = ARRAY_SIZE(ap325rxa_lcdc_modes),
 		.panel_cfg = {
-			.width = 152,	
+			.width = 152,	/* 7.0 inch */
 			.height = 91,
 			.display_on = ap320_wvga_power_on,
 			.display_off = ap320_wvga_power_off,
@@ -227,7 +231,7 @@ static struct sh_mobile_lcdc_info lcdc_info = {
 static struct resource lcdc_resources[] = {
 	[0] = {
 		.name	= "LCDC",
-		.start	= 0xfe940000, 
+		.start	= 0xfe940000, /* P4-only space */
 		.end	= 0xfe942fff,
 		.flags	= IORESOURCE_MEM,
 	},
@@ -248,11 +252,12 @@ static struct platform_device lcdc_device = {
 
 static void camera_power(int val)
 {
-	gpio_set_value(GPIO_PTZ5, val); 
+	gpio_set_value(GPIO_PTZ5, val); /* RST_CAM/RSTB */
 	mdelay(10);
 }
 
 #ifdef CONFIG_I2C
+/* support for the old ncm03j camera */
 static unsigned char camera_ncm03j_magic[] =
 {
 	0x87, 0x00, 0x88, 0x08, 0x89, 0x01, 0x8A, 0xE8,
@@ -303,7 +308,7 @@ static int camera_set_capture(struct soc_camera_platform_info *info,
 
 	camera_power(0);
 	if (!enable)
-		return 0; 
+		return 0; /* no disable for now */
 
 	camera_power(1);
 	for (i = 0; i < ARRAY_SIZE(camera_ncm03j_magic); i += 2) {
@@ -376,7 +381,7 @@ static void ap325rxa_camera_del(struct soc_camera_device *icd)
 {
 	soc_camera_platform_del(icd, camera_device, &camera_link);
 }
-#endif 
+#endif /* CONFIG_I2C */
 
 static int ov7725_power(struct device *dev, int mode)
 {
@@ -403,13 +408,13 @@ static struct resource ceu_resources[] = {
 		.flags  = IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
 static struct platform_device ceu_device = {
 	.name		= "sh_mobile_ceu",
-	.id             = 0, 
+	.id             = 0, /* "ceu0" clock */
 	.num_resources	= ARRAY_SIZE(ceu_resources),
 	.resource	= ceu_resources,
 	.dev		= {
@@ -436,7 +441,7 @@ static struct sh_mobile_sdhi_info sdhi0_cn3_data = {
 
 static struct platform_device sdhi0_cn3_device = {
 	.name		= "sh_mobile_sdhi",
-	.id             = 0, 
+	.id             = 0, /* "sdhi0" clock */
 	.num_resources	= ARRAY_SIZE(sdhi0_cn3_resources),
 	.resource	= sdhi0_cn3_resources,
 	.dev = {
@@ -463,7 +468,7 @@ static struct sh_mobile_sdhi_info sdhi1_cn7_data = {
 
 static struct platform_device sdhi1_cn7_device = {
 	.name		= "sh_mobile_sdhi",
-	.id             = 1, 
+	.id             = 1, /* "sdhi1" clock */
 	.num_resources	= ARRAY_SIZE(sdhi1_cn7_resources),
 	.resource	= sdhi1_cn7_resources,
 	.dev = {
@@ -531,28 +536,28 @@ extern char ap325rxa_sdram_leave_end;
 
 static int __init ap325rxa_devices_setup(void)
 {
-	
+	/* register board specific self-refresh code */
 	sh_mobile_register_self_refresh(SUSP_SH_STANDBY | SUSP_SH_SF,
 					&ap325rxa_sdram_enter_start,
 					&ap325rxa_sdram_enter_end,
 					&ap325rxa_sdram_leave_start,
 					&ap325rxa_sdram_leave_end);
 
-	
-	gpio_request(GPIO_PTX5, NULL); 
+	/* LD3 and LD4 LEDs */
+	gpio_request(GPIO_PTX5, NULL); /* RUN */
 	gpio_direction_output(GPIO_PTX5, 1);
 	gpio_export(GPIO_PTX5, 0);
 
-	gpio_request(GPIO_PTX4, NULL); 
+	gpio_request(GPIO_PTX4, NULL); /* INDICATOR */
 	gpio_direction_output(GPIO_PTX4, 0);
 	gpio_export(GPIO_PTX4, 0);
 
-	
-	gpio_request(GPIO_PTF7, NULL); 
+	/* SW1 input */
+	gpio_request(GPIO_PTF7, NULL); /* MODE */
 	gpio_direction_input(GPIO_PTF7);
 	gpio_export(GPIO_PTF7, 0);
 
-	
+	/* LCDC */
 	gpio_request(GPIO_FN_LCDD15, NULL);
 	gpio_request(GPIO_FN_LCDD14, NULL);
 	gpio_request(GPIO_FN_LCDD13, NULL);
@@ -578,11 +583,11 @@ static int __init ap325rxa_devices_setup(void)
 	gpio_request(GPIO_FN_LCDDISP, NULL);
 	gpio_request(GPIO_FN_LCDDON, NULL);
 
-	
+	/* LCD backlight */
 	gpio_request(GPIO_PTS3, NULL);
 	gpio_direction_output(GPIO_PTS3, 1);
 
-	
+	/* CEU */
 	gpio_request(GPIO_FN_VIO_CLK2, NULL);
 	gpio_request(GPIO_FN_VIO_VD2, NULL);
 	gpio_request(GPIO_FN_VIO_HD2, NULL);
@@ -598,17 +603,17 @@ static int __init ap325rxa_devices_setup(void)
 	gpio_request(GPIO_FN_VIO_D8, NULL);
 
 	gpio_request(GPIO_PTZ7, NULL);
-	gpio_direction_output(GPIO_PTZ7, 0); 
+	gpio_direction_output(GPIO_PTZ7, 0); /* OE_CAM */
 	gpio_request(GPIO_PTZ6, NULL);
-	gpio_direction_output(GPIO_PTZ6, 0); 
+	gpio_direction_output(GPIO_PTZ6, 0); /* STBY_CAM */
 	gpio_request(GPIO_PTZ5, NULL);
-	gpio_direction_output(GPIO_PTZ5, 0); 
+	gpio_direction_output(GPIO_PTZ5, 0); /* RST_CAM */
 	gpio_request(GPIO_PTZ4, NULL);
-	gpio_direction_output(GPIO_PTZ4, 0); 
+	gpio_direction_output(GPIO_PTZ4, 0); /* SADDR */
 
 	__raw_writew(__raw_readw(PORT_MSELCRB) & ~0x0001, PORT_MSELCRB);
 
-	
+	/* FLCTL */
 	gpio_request(GPIO_FN_FCE, NULL);
 	gpio_request(GPIO_FN_NAF7, NULL);
 	gpio_request(GPIO_FN_NAF6, NULL);
@@ -630,7 +635,7 @@ static int __init ap325rxa_devices_setup(void)
 
 	platform_resource_setup_memory(&ceu_device, "ceu", 4 << 20);
 
-	
+	/* SDHI0 - CN3 - SD CARD */
 	gpio_request(GPIO_FN_SDHI0CD_PTD, NULL);
 	gpio_request(GPIO_FN_SDHI0WP_PTD, NULL);
 	gpio_request(GPIO_FN_SDHI0D3_PTD, NULL);
@@ -640,7 +645,7 @@ static int __init ap325rxa_devices_setup(void)
 	gpio_request(GPIO_FN_SDHI0CMD_PTD, NULL);
 	gpio_request(GPIO_FN_SDHI0CLK_PTD, NULL);
 
-	
+	/* SDHI1 - CN7 - MICRO SD CARD */
 	gpio_request(GPIO_FN_SDHI1CD, NULL);
 	gpio_request(GPIO_FN_SDHI1D3, NULL);
 	gpio_request(GPIO_FN_SDHI1D2, NULL);
@@ -657,8 +662,14 @@ static int __init ap325rxa_devices_setup(void)
 }
 arch_initcall(ap325rxa_devices_setup);
 
+/* Return the board specific boot mode pin configuration */
 static int ap325rxa_mode_pins(void)
 {
+	/* MD0=0, MD1=0, MD2=0: Clock Mode 0
+	 * MD3=0: 16-bit Area0 Bus Width
+	 * MD5=1: Little Endian
+	 * TSTMD=1, MD8=1: Test Mode Disabled
+	 */
 	return MODE_PIN5 | MODE_PIN8;
 }
 

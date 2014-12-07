@@ -16,7 +16,7 @@
 
 #define TICK_SIZE (tick_nsec / 1000)
 
-#define CLOCK_TICK_RATE MN10300_JCCLK 
+#define CLOCK_TICK_RATE MN10300_JCCLK /* Underlying HZ */
 
 #ifdef __KERNEL__
 
@@ -40,6 +40,6 @@ static inline void setup_jiffies_interrupt(int irq,
 	tmp = GxICR(irq);
 }
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_TIMEX_H */

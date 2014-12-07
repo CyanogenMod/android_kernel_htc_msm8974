@@ -27,6 +27,7 @@
 #include <linux/slab.h>
 #include <linux/fips.h>
 
+/* Crypto notification events. */
 enum {
 	CRYPTO_MSG_ALG_REQUEST,
 	CRYPTO_MSG_ALG_REGISTER,
@@ -139,5 +140,5 @@ static inline void crypto_notify(unsigned long val, void *v)
 	blocking_notifier_call_chain(&crypto_chain, val, v);
 }
 
-#endif	
+#endif	/* _CRYPTO_INTERNAL_H */
 

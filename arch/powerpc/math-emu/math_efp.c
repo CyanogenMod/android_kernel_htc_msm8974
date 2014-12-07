@@ -187,7 +187,7 @@ int do_spe_mathemu(struct pt_regs *regs)
 	if (get_user(speinsn, (unsigned int __user *) regs->nip))
 		return -EFAULT;
 	if ((speinsn >> 26) != EFAPU)
-		return -EINVAL;         
+		return -EINVAL;         /* not an spe instruction */
 
 	type = insn_type(speinsn);
 	if (type == NOTYPE)
@@ -276,19 +276,19 @@ int do_spe_mathemu(struct pt_regs *regs)
 		case EFSCTSF:
 		case EFSCTUF:
 			if (!((vb.wp[1] >> 23) == 0xff && ((vb.wp[1] & 0x7fffff) > 0))) {
-				
+				/* NaN */
 				if (((vb.wp[1] >> 23) & 0xff) == 0) {
-					
+					/* denorm */
 					vc.wp[1] = 0x0;
 				} else if ((vb.wp[1] >> 31) == 0) {
-					
+					/* positive normal */
 					vc.wp[1] = (func == EFSCTSF) ?
 						0x7fffffff : 0xffffffff;
-				} else { 
+				} else { /* negative normal */
 					vc.wp[1] = (func == EFSCTSF) ?
 						0x80000000 : 0x0;
 				}
-			} else { 
+			} else { /* rB is NaN */
 				vc.wp[1] = 0x0;
 			}
 			goto update_regs;
@@ -406,19 +406,19 @@ cmp_s:
 		case EFDCTUF:
 			if (!((vb.wp[0] >> 20) == 0x7ff &&
 			   ((vb.wp[0] & 0xfffff) > 0 || (vb.wp[1] > 0)))) {
-				
+				/* not a NaN */
 				if (((vb.wp[0] >> 20) & 0x7ff) == 0) {
-					
+					/* denorm */
 					vc.wp[1] = 0x0;
 				} else if ((vb.wp[0] >> 31) == 0) {
-					
+					/* positive normal */
 					vc.wp[1] = (func == EFDCTSF) ?
 						0x7fffffff : 0xffffffff;
-				} else { 
+				} else { /* negative normal */
 					vc.wp[1] = (func == EFDCTSF) ?
 						0x80000000 : 0x0;
 				}
-			} else { 
+			} else { /* NaN */
 				vc.wp[1] = 0x0;
 			}
 			goto update_regs;
@@ -648,7 +648,7 @@ update_regs:
 
 illegal:
 	if (have_e500_cpu_a005_erratum) {
-		
+		/* according to e500 cpu a005 erratum, reissue efp inst */
 		regs->nip -= 4;
 		pr_debug("re-issue efp inst: %08lx\n", speinsn);
 		return 0;
@@ -667,7 +667,7 @@ int speround_handler(struct pt_regs *regs)
 	if (get_user(speinsn, (unsigned int __user *) regs->nip))
 		return -EFAULT;
 	if ((speinsn >> 26) != 4)
-		return -EINVAL;         
+		return -EINVAL;         /* not an spe instruction */
 
 	type = insn_type(speinsn & 0x7ff);
 	if (type == XCR) return -ENOSYS;
@@ -675,7 +675,7 @@ int speround_handler(struct pt_regs *regs)
 	__FPU_FPSCR = mfspr(SPRN_SPEFSCR);
 	pr_debug("speinsn:%08lx spefscr:%08lx\n", speinsn, __FPU_FPSCR);
 
-	
+	/* No need to round if the result is exact */
 	if (!(__FPU_FPSCR & FP_EX_INEXACT))
 		return 0;
 
@@ -688,29 +688,33 @@ int speround_handler(struct pt_regs *regs)
 	pr_debug("round fgpr: %08x  %08x\n", fgpr.wp[0], fgpr.wp[1]);
 
 	switch ((speinsn >> 5) & 0x7) {
+	/* Since SPE instructions on E500 core can handle round to nearest
+	 * and round toward zero with IEEE-754 complied, we just need
+	 * to handle round toward +Inf and round toward -Inf by software.
+	 */
 	case SPFP:
 		if ((FP_ROUNDMODE) == FP_RND_PINF) {
-			if (!s_lo) fgpr.wp[1]++; 
-		} else { 
-			if (s_lo) fgpr.wp[1]++; 
+			if (!s_lo) fgpr.wp[1]++; /* Z > 0, choose Z1 */
+		} else { /* round to -Inf */
+			if (s_lo) fgpr.wp[1]++; /* Z < 0, choose Z2 */
 		}
 		break;
 
 	case DPFP:
 		if (FP_ROUNDMODE == FP_RND_PINF) {
-			if (!s_hi) fgpr.dp[0]++; 
-		} else { 
-			if (s_hi) fgpr.dp[0]++; 
+			if (!s_hi) fgpr.dp[0]++; /* Z > 0, choose Z1 */
+		} else { /* round to -Inf */
+			if (s_hi) fgpr.dp[0]++; /* Z < 0, choose Z2 */
 		}
 		break;
 
 	case VCT:
 		if (FP_ROUNDMODE == FP_RND_PINF) {
-			if (!s_lo) fgpr.wp[1]++; 
-			if (!s_hi) fgpr.wp[0]++; 
-		} else { 
-			if (s_lo) fgpr.wp[1]++; 
-			if (s_hi) fgpr.wp[0]++; 
+			if (!s_lo) fgpr.wp[1]++; /* Z_low > 0, choose Z1 */
+			if (!s_hi) fgpr.wp[0]++; /* Z_high word > 0, choose Z1 */
+		} else { /* round to -Inf */
+			if (s_lo) fgpr.wp[1]++; /* Z_low < 0, choose Z2 */
+			if (s_hi) fgpr.wp[0]++; /* Z_high < 0, choose Z2 */
 		}
 		break;
 
@@ -737,6 +741,10 @@ int __init spe_mathemu_init(void)
 		maj = PVR_MAJ(pvr);
 		min = PVR_MIN(pvr);
 
+		/*
+		 * E500 revision below 1.1, 2.3, 3.1, 4.1, 5.1
+		 * need cpu a005 errata workaround
+		 */
 		switch (maj) {
 		case 1:
 			if (min < 1)

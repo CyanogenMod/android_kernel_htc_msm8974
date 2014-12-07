@@ -5,6 +5,7 @@
 
 /* Written 2002 by Andi Kleen */
 
+/* Only used for special circumstances. Stolen from i386/string.h */
 static __always_inline void *__inline_memcpy(void *to, const void *from, size_t n)
 {
 	unsigned long d0, d1, d2;
@@ -22,6 +23,8 @@ static __always_inline void *__inline_memcpy(void *to, const void *from, size_t 
 	return to;
 }
 
+/* Even with __builtin_ the compiler may decide to use the out of line
+   function. */
 
 #define __HAVE_ARCH_MEMCPY 1
 #ifndef CONFIG_KMEMCHECK
@@ -41,6 +44,10 @@ extern void *__memcpy(void *to, const void *from, size_t len);
 })
 #endif
 #else
+/*
+ * kmemcheck becomes very happy if we use the REP instructions unconditionally,
+ * because it means that we know both memory operands in advance.
+ */
 #define memcpy(dst, src, len) __inline_memcpy((dst), (src), (len))
 #endif
 
@@ -56,6 +63,6 @@ char *strcpy(char *dest, const char *src);
 char *strcat(char *dest, const char *src);
 int strcmp(const char *cs, const char *ct);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_X86_STRING_64_H */

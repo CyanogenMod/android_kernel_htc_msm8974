@@ -17,12 +17,13 @@
 #include <asm/machvec.h>
 #include <asm/sizes.h>
 
+/* NOR Flash */
 static struct mtd_partition espt_nor_flash_partitions[] = {
 	{
 		.name = "U-Boot",
 		.offset = 0,
 		.size = (2 * SZ_128K),
-		.mask_flags = MTD_WRITEABLE,	
+		.mask_flags = MTD_WRITEABLE,	/* Read-only */
 	}, {
 		.name = "Linux-Kernel",
 		.offset = MTDPART_OFS_APPEND,
@@ -58,18 +59,19 @@ static struct platform_device espt_nor_flash_device = {
 	},
 };
 
+/* SH-Ether */
 static struct resource sh_eth_resources[] = {
 	{
-		.start  = 0xFEE00800,   
+		.start  = 0xFEE00800,   /* use eth1 */
 		.end    = 0xFEE00F7C - 1,
 		.flags  = IORESOURCE_MEM,
 	}, {
-		.start  = 0xFEE01800,   
+		.start  = 0xFEE01800,   /* TSU */
 		.end    = 0xFEE01FFF,
 		.flags  = IORESOURCE_MEM,
 	}, {
 
-		.start  = 57,   
+		.start  = 57,   /* irq number */
 		.flags  = IORESOURCE_IRQ,
 	},
 };

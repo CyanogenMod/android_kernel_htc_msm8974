@@ -2,6 +2,13 @@
  *  Copyright (C) 1996-1998  Linus Torvalds & authors (see below)
  */
 
+/*
+ * Authors:
+ * Jaromir Koutek <miri@punknet.cz>,
+ * Jan Harkes <jaharkes@cwi.nl>,
+ * Mark Lord <mlord@pobox.com>
+ * Some parts of code are from ali14xx.c and from rz1000.c.
+ */
 
 #include <linux/types.h>
 #include <linux/module.h>
@@ -13,16 +20,21 @@
 
 #define DRV_NAME "opti621"
 
-#define READ_REG 0	
-#define WRITE_REG 1	
-#define CNTRL_REG 3	
-#define STRAP_REG 5	
-#define MISC_REG 6	
+#define READ_REG 0	/* index of Read cycle timing register */
+#define WRITE_REG 1	/* index of Write cycle timing register */
+#define CNTRL_REG 3	/* index of Control register */
+#define STRAP_REG 5	/* index of Strap register */
+#define MISC_REG 6	/* index of Miscellaneous register */
 
 static int reg_base;
 
 static DEFINE_SPINLOCK(opti621_lock);
 
+/* Write value to register reg, base of register
+ * is at reg_base (0x1f0 primary, 0x170 secondary,
+ * if not changed by PCI configuration).
+ * This is from setupvic.exe program.
+ */
 static void write_reg(u8 value, int reg)
 {
 	inw(reg_base + 1);
@@ -32,6 +44,11 @@ static void write_reg(u8 value, int reg)
 	outb(0x83, reg_base + 2);
 }
 
+/* Read value from register reg, base of register
+ * is at reg_base (0x1f0 primary, 0x170 secondary,
+ * if not changed by PCI configuration).
+ * This is from setupvic.exe program.
+ */
 static u8 read_reg(int reg)
 {
 	u8 ret = 0;
@@ -53,14 +70,14 @@ static void opti621_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	const u8 pio = mode - XFER_PIO_0;
 	u8 tim, misc, addr_pio = pio, clk;
 
-	
+	/* DRDY is default 2 (by OPTi Databook) */
 	static const u8 addr_timings[2][5] = {
-		{ 0x20, 0x10, 0x00, 0x00, 0x00 },	
-		{ 0x10, 0x10, 0x00, 0x00, 0x00 },	
+		{ 0x20, 0x10, 0x00, 0x00, 0x00 },	/* 33 MHz */
+		{ 0x10, 0x10, 0x00, 0x00, 0x00 },	/* 25 MHz */
 	};
 	static const u8 data_rec_timings[2][5] = {
-		{ 0x5b, 0x45, 0x32, 0x21, 0x20 },	
-		{ 0x48, 0x34, 0x21, 0x10, 0x10 }	
+		{ 0x5b, 0x45, 0x32, 0x21, 0x20 },	/* 33 MHz */
+		{ 0x48, 0x34, 0x21, 0x10, 0x10 }	/* 25 MHz */
 	};
 
 	ide_set_drivedata(drive, (void *)mode);
@@ -75,16 +92,16 @@ static void opti621_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 
 	reg_base = hwif->io_ports.data_addr;
 
-	
+	/* allow Register-B */
 	outb(0xc0, reg_base + CNTRL_REG);
-	
+	/* hmm, setupvic.exe does this ;-) */
 	outb(0xff, reg_base + 5);
-	
+	/* if reads 0xff, adapter not exist? */
 	(void)inb(reg_base + CNTRL_REG);
-	
+	/* if reads 0xc0, no interface exist? */
 	read_reg(CNTRL_REG);
 
-	
+	/* check CLK speed */
 	clk = read_reg(STRAP_REG) & 1;
 
 	printk(KERN_INFO "%s: CLK = %d MHz\n", hwif->name, clk ? 25 : 33);
@@ -92,19 +109,19 @@ static void opti621_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	tim  = data_rec_timings[clk][pio];
 	misc = addr_timings[clk][addr_pio];
 
-	
+	/* select Index-0/1 for Register-A/B */
 	write_reg(drive->dn & 1, MISC_REG);
-	
+	/* set read cycle timings */
 	write_reg(tim, READ_REG);
-	
+	/* set write cycle timings */
 	write_reg(tim, WRITE_REG);
 
-	
-	
+	/* use Register-A for drive 0 */
+	/* use Register-B for drive 1 */
 	write_reg(0x85, CNTRL_REG);
 
-	
-	
+	/* set address setup, DRDY timings,   */
+	/*  and read prefetch for both drives */
 	write_reg(misc, MISC_REG);
 
 	spin_unlock_irqrestore(&opti621_lock, flags);

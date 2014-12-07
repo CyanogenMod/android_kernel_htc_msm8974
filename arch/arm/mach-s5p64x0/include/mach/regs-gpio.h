@@ -15,6 +15,7 @@
 
 #include <mach/map.h>
 
+/* Base addresses for each of the banks */
 
 #define S5P64X0_GPA_BASE		(S5P_VA_GPIO + 0x0000)
 #define S5P64X0_GPB_BASE		(S5P_VA_GPIO + 0x0020)
@@ -47,6 +48,7 @@
 #define S5P64X0_EINT12FLTCON		(S5P_VA_GPIO + 0x220)
 #define S5P64X0_EINT12MASK		(S5P_VA_GPIO + 0x240)
 
+/* External interrupt control registers for group0 */
 
 #define EINT0CON0_OFFSET		(0x900)
 #define EINT0FLTCON0_OFFSET		(0x910)
@@ -63,4 +65,4 @@
 #define S5P64X0_SLPEN			(S5P_VA_GPIO + 0x930)
 #define S5P64X0_SLPEN_USE_xSLP		(1 << 0)
 
-#endif 
+#endif /* __ASM_ARCH_REGS_GPIO_H */

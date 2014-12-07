@@ -22,4 +22,4 @@
 
 void heartbeat_sh03(void);
 
-#endif 
+#endif /* _ASM_SH_IO_SH03_H */

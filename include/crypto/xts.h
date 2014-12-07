@@ -24,4 +24,4 @@ int xts_crypt(struct blkcipher_desc *desc, struct scatterlist *dst,
 	      struct scatterlist *src, unsigned int nbytes,
 	      struct xts_crypt_req *req);
 
-#endif  
+#endif  /* _CRYPTO_XTS_H */

@@ -19,6 +19,9 @@
  * Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+/*
+ * basic modesetting functions
+ */
 
 #ifndef __VIA_MODESETTING_H__
 #define __VIA_MODESETTING_H__
@@ -55,4 +58,4 @@ void via_set_secondary_pitch(u32 pitch);
 void via_set_primary_color_depth(u8 depth);
 void via_set_secondary_color_depth(u8 depth);
 
-#endif 
+#endif /* __VIA_MODESETTING_H__ */

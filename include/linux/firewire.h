@@ -19,6 +19,7 @@
 
 #define CSR_REGISTER_BASE		0xfffff0000000ULL
 
+/* register offsets are relative to CSR_REGISTER_BASE */
 #define CSR_STATE_CLEAR			0x0
 #define CSR_STATE_SET			0x4
 #define CSR_NODE_IDS			0x8
@@ -101,11 +102,12 @@ struct fw_card {
 	int link_speed;
 	int config_rom_generation;
 
-	spinlock_t lock; 
+	spinlock_t lock; /* Take this lock when handling the lists in
+			  * this struct. */
 	struct fw_node *local_node;
 	struct fw_node *root_node;
 	struct fw_node *irm_node;
-	u8 color; 
+	u8 color; /* must be u8 to match the definition in struct fw_node */
 	int gap_count;
 	bool beta_repeaters_present;
 
@@ -114,17 +116,17 @@ struct fw_card {
 
 	struct list_head phy_receiver_list;
 
-	struct delayed_work br_work; 
+	struct delayed_work br_work; /* bus reset job */
 	bool br_short;
 
-	struct delayed_work bm_work; 
+	struct delayed_work bm_work; /* bus manager job */
 	int bm_retries;
 	int bm_generation;
 	int bm_node_id;
 	bool bm_abdicate;
 
-	bool priority_budget_implemented;	
-	bool broadcast_channel_auto_allocated;	
+	bool priority_budget_implemented;	/* controller feature */
+	bool broadcast_channel_auto_allocated;	/* controller feature */
 
 	bool broadcast_channel_allocated;
 	u32 broadcast_channel;
@@ -146,6 +148,23 @@ enum fw_device_state {
 	FW_DEVICE_SHUTDOWN,
 };
 
+/*
+ * Note, fw_device.generation always has to be read before fw_device.node_id.
+ * Use SMP memory barriers to ensure this.  Otherwise requests will be sent
+ * to an outdated node_id if the generation was updated in the meantime due
+ * to a bus reset.
+ *
+ * Likewise, fw-core will take care to update .node_id before .generation so
+ * that whenever fw_device.generation is current WRT the actual bus generation,
+ * fw_device.node_id is guaranteed to be current too.
+ *
+ * The same applies to fw_device.card->node_id vs. fw_device.generation.
+ *
+ * fw_device.config_rom and fw_device.config_rom_length may be accessed during
+ * the lifetime of any fw_unit belonging to the fw_device, before device_del()
+ * was called on the last fw_unit.  Alternatively, they may be accessed while
+ * holding fw_device_rwsem.
+ */
 struct fw_device {
 	atomic_t state;
 	struct fw_node *node;
@@ -183,6 +202,9 @@ static inline int fw_device_is_shutdown(struct fw_device *device)
 
 int fw_device_enable_phys_dma(struct fw_device *device);
 
+/*
+ * fw_unit.directory must not be accessed after device_del(&fw_unit.device).
+ */
 struct fw_unit {
 	struct device device;
 	const u32 *directory;
@@ -215,7 +237,7 @@ struct ieee1394_device_id;
 
 struct fw_driver {
 	struct device_driver driver;
-	
+	/* Called when the parent device sits through a bus reset. */
 	void (*update)(struct fw_unit *unit);
 	const struct ieee1394_device_id *id_table;
 };
@@ -228,6 +250,10 @@ typedef void (*fw_packet_callback_t)(struct fw_packet *packet,
 typedef void (*fw_transaction_callback_t)(struct fw_card *card, int rcode,
 					  void *data, size_t length,
 					  void *callback_data);
+/*
+ * Important note:  Except for the FCP registers, the callback must guarantee
+ * that either fw_send_response() or kfree() is called on the @request.
+ */
 typedef void (*fw_address_callback_t)(struct fw_card *card,
 				      struct fw_request *request,
 				      int tcode, int destination, int source,
@@ -247,6 +273,14 @@ struct fw_packet {
 	bool payload_mapped;
 	u32 timestamp;
 
+	/*
+	 * This callback is called when the packet transmission has completed.
+	 * For successful transmission, the status code is the ack received
+	 * from the destination.  Otherwise it is one of the juju-specific
+	 * rcodes:  RCODE_SEND_ERROR, _CANCELLED, _BUSY, _GENERATION, _NO_ACK.
+	 * The callback can be called from tasklet context and thus
+	 * must never block.
+	 */
 	fw_packet_callback_t callback;
 	int ack;
 	struct list_head link;
@@ -254,7 +288,7 @@ struct fw_packet {
 };
 
 struct fw_transaction {
-	int node_id; 
+	int node_id; /* The generation is implied; it is always the current. */
 	int tlabel;
 	struct list_head link;
 	struct fw_card *card;
@@ -263,6 +297,10 @@ struct fw_transaction {
 
 	struct fw_packet packet;
 
+	/*
+	 * The data passed to the callback is valid only during the
+	 * callback.
+	 */
 	fw_transaction_callback_t callback;
 	void *callback_data;
 };
@@ -313,15 +351,23 @@ struct fw_descriptor {
 int fw_core_add_descriptor(struct fw_descriptor *desc);
 void fw_core_remove_descriptor(struct fw_descriptor *desc);
 
+/*
+ * The iso packet format allows for an immediate header/payload part
+ * stored in 'header' immediately after the packet info plus an
+ * indirect payload part that is pointer to by the 'payload' field.
+ * Applications can use one or the other or both to implement simple
+ * low-bandwidth streaming (e.g. audio) or more advanced
+ * scatter-gather streaming (e.g. assembling video frame automatically).
+ */
 struct fw_iso_packet {
-	u16 payload_length;	
-	u32 interrupt:1;	
-	u32 skip:1;		
-				
-	u32 tag:2;		
-	u32 sy:4;		
-	u32 header_length:8;	
-	u32 header[0];		
+	u16 payload_length;	/* Length of indirect payload		*/
+	u32 interrupt:1;	/* Generate interrupt on this packet	*/
+	u32 skip:1;		/* tx: Set to not send packet at all	*/
+				/* rx: Sync bit, wait for matching sy	*/
+	u32 tag:2;		/* tx: Tag in packet header		*/
+	u32 sy:4;		/* tx: Sy in packet header		*/
+	u32 header_length:8;	/* Length of immediate header		*/
+	u32 header[0];		/* tx: Top of 1394 isoch. data_block	*/
 };
 
 #define FW_ISO_CONTEXT_TRANSMIT			0
@@ -334,6 +380,13 @@ struct fw_iso_packet {
 #define FW_ISO_CONTEXT_MATCH_TAG3	 8
 #define FW_ISO_CONTEXT_MATCH_ALL_TAGS	15
 
+/*
+ * An iso buffer is just a set of pages mapped for DMA in the
+ * specified direction.  Since the pages are to be used for DMA, they
+ * are not mapped into the kernel virtual address space.  We store the
+ * DMA address in the page private. The helper function
+ * fw_iso_buffer_map() will map the pages into a given vma.
+ */
 struct fw_iso_buffer {
 	enum dma_data_direction direction;
 	struct page **pages;
@@ -384,4 +437,4 @@ void fw_iso_resource_manage(struct fw_card *card, int generation,
 
 extern struct workqueue_struct *fw_workqueue;
 
-#endif 
+#endif /* _LINUX_FIREWIRE_H */

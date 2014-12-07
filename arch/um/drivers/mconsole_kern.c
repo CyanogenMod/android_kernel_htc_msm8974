@@ -44,6 +44,10 @@ static struct notifier_block reboot_notifier = {
 	.priority		= 0,
 };
 
+/* Safe without explicit locking for now.  Tasklets provide their own
+ * locking, and the interrupt handler is safe because it can't interrupt
+ * itself and it can only happen on CPU 0.
+ */
 
 static LIST_HEAD(mc_requests);
 
@@ -66,10 +70,10 @@ static DECLARE_WORK(mconsole_work, mc_work_proc);
 
 static irqreturn_t mconsole_interrupt(int irq, void *dev_id)
 {
-	
+	/* long to avoid size mismatch warnings from gcc */
 	long fd;
 	struct mconsole_entry *new;
-	static struct mc_request req;	
+	static struct mc_request req;	/* that's OK */
 
 	fd = (long) dev_id;
 	while (mconsole_get_request(fd, &req)) {
@@ -114,6 +118,10 @@ void mconsole_log(struct mc_request *req)
 	mconsole_reply(req, "", 0, 0);
 }
 
+/* This is a more convoluted version of mconsole_proc, which has some stability
+ * problems; however, we need it fixed, because it is expected that UML users
+ * mount HPPFS instead of procfs on /proc. And we want mconsole_proc to still
+ * show the real procfs content, not the ones from hppfs.*/
 #if 0
 void mconsole_proc(struct mc_request *req)
 {
@@ -198,7 +206,7 @@ void mconsole_proc(struct mc_request *req)
 			mconsole_reply(req, "Read of file failed", 1, 0);
 			goto out_free;
 		}
-		
+		/* Begin the file content on his own line. */
 		if (first_chunk) {
 			mconsole_reply(req, "\n", 0, 1);
 			first_chunk = 0;
@@ -218,7 +226,7 @@ void mconsole_proc(struct mc_request *req)
  out_close:
 	sys_close(fd);
  out:
-	;
+	/* nothing */;
 }
 
 #define UML_MCONSOLE_HELPTEXT \
@@ -676,6 +684,10 @@ void mconsole_sysrq(struct mc_request *req)
 	ptr += strlen("sysrq");
 	ptr = skip_spaces(ptr);
 
+	/*
+	 * With 'b', the system will shut down without a chance to reply,
+	 * so in this case, we reply first.
+	 */
 	if (*ptr == 'b')
 		mconsole_reply(req, "", 0, 0);
 
@@ -696,17 +708,31 @@ static void stack_proc(void *arg)
 	switch_to(from, to, from);
 }
 
+/*
+ * Mconsole stack trace
+ *  Added by Allan Graves, Jeff Dike
+ *  Dumps a stacks registers to the linux console.
+ *  Usage stack <pid>.
+ */
 void mconsole_stack(struct mc_request *req)
 {
 	char *ptr = req->request.data;
 	int pid_requested= -1;
 	struct task_struct *to = NULL;
 
+	/*
+	 * Would be nice:
+	 * 1) Send showregs output to mconsole.
+	 * 2) Add a way to stack dump all pids.
+	 */
 
 	ptr += strlen("stack");
 	ptr = skip_spaces(ptr);
 
-	
+	/*
+	 * Should really check for multiple pids or reject bad args here
+	 */
+	/* What do the arguments in mconsole_reply mean? */
 	if (sscanf(ptr, "%d", &pid_requested) == 0) {
 		mconsole_reply(req, "Please specify a pid", 1, 0);
 		return;
@@ -720,11 +746,15 @@ void mconsole_stack(struct mc_request *req)
 	with_console(req, stack_proc, to);
 }
 
+/*
+ * Changed by mconsole_setup, which is __setup, and called before SMP is
+ * active.
+ */
 static char *notify_socket = NULL;
 
 static int __init mconsole_init(void)
 {
-	
+	/* long to avoid size mismatch warnings from gcc */
 	long sock;
 	int err;
 	char file[UNIX_PATH_MAX];

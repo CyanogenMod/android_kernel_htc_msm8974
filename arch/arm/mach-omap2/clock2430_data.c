@@ -33,7 +33,24 @@
 
 #define OMAP_CM_REGADDR			OMAP2430_CM_REGADDR
 
+/*
+ * 2430 clock tree.
+ *
+ * NOTE:In many cases here we are assigning a 'default' parent. In
+ *	many cases the parent is selectable. The set parent calls will
+ *	also switch sources.
+ *
+ *	Several sources are given initial rates which may be wrong, this will
+ *	be fixed up in the init func.
+ *
+ *	Things are broadly separated below by clock domains. It is
+ *	noteworthy that most peripherals have dependencies on multiple clock
+ *	domains. Many get their interface clocks from the L4 domain, but get
+ *	functional clocks from fixed sources or other core domain derived
+ *	clocks.
+ */
 
+/* Base external input clocks */
 static struct clk func_32k_ck = {
 	.name		= "func_32k_ck",
 	.ops		= &clkops_null,
@@ -48,34 +65,44 @@ static struct clk secure_32k_ck = {
 	.clkdm_name	= "wkup_clkdm",
 };
 
-static struct clk osc_ck = {		
+/* Typical 12/13MHz in standalone mode, will be 26Mhz in chassis mode */
+static struct clk osc_ck = {		/* (*12, *13, 19.2, *26, 38.4)MHz */
 	.name		= "osc_ck",
 	.ops		= &clkops_oscck,
 	.clkdm_name	= "wkup_clkdm",
 	.recalc		= &omap2_osc_clk_recalc,
 };
 
-static struct clk sys_ck = {		
-	.name		= "sys_ck",		
+/* Without modem likely 12MHz, with modem likely 13MHz */
+static struct clk sys_ck = {		/* (*12, *13, 19.2, 26, 38.4)MHz */
+	.name		= "sys_ck",		/* ~ ref_clk also */
 	.ops		= &clkops_null,
 	.parent		= &osc_ck,
 	.clkdm_name	= "wkup_clkdm",
 	.recalc		= &omap2xxx_sys_clk_recalc,
 };
 
-static struct clk alt_ck = {		
+static struct clk alt_ck = {		/* Typical 54M or 48M, may not exist */
 	.name		= "alt_ck",
 	.ops		= &clkops_null,
 	.rate		= 54000000,
 	.clkdm_name	= "wkup_clkdm",
 };
 
+/* Optional external clock input for McBSP CLKS */
 static struct clk mcbsp_clks = {
 	.name		= "mcbsp_clks",
 	.ops		= &clkops_null,
 };
 
+/*
+ * Analog domain root source clocks
+ */
 
+/* dpll_ck, is broken out in to special cases through clksel */
+/* REVISIT: Rate changes on dpll_ck trigger a full set change.	...
+ * deal with this
+ */
 
 static struct dpll_data dpll_dd = {
 	.mult_div1_reg		= OMAP_CM_REGADDR(PLL_MOD, CM_CLKSEL1),
@@ -90,10 +117,14 @@ static struct dpll_data dpll_dd = {
 	.max_divider		= 16,
 };
 
+/*
+ * XXX Cannot add round_rate here yet, as this is still a composite clock,
+ * not just a DPLL
+ */
 static struct clk dpll_ck = {
 	.name		= "dpll_ck",
 	.ops		= &clkops_omap2xxx_dpll_ops,
-	.parent		= &sys_ck,		
+	.parent		= &sys_ck,		/* Can be func_32k also */
 	.dpll_data	= &dpll_dd,
 	.clkdm_name	= "wkup_clkdm",
 	.recalc		= &omap2_dpllcore_recalc,
@@ -122,7 +153,11 @@ static struct clk apll54_ck = {
 	.enable_bit	= OMAP24XX_EN_54M_PLL_SHIFT,
 };
 
+/*
+ * PRCM digital base sources
+ */
 
+/* func_54m_ck */
 
 static const struct clksel_rate func_54m_apll54_rates[] = {
 	{ .div = 1, .val = 0, .flags = RATE_IN_24XX },
@@ -143,7 +178,7 @@ static const struct clksel func_54m_clksel[] = {
 static struct clk func_54m_ck = {
 	.name		= "func_54m_ck",
 	.ops		= &clkops_null,
-	.parent		= &apll54_ck,	
+	.parent		= &apll54_ck,	/* can also be alt_clk */
 	.clkdm_name	= "wkup_clkdm",
 	.init		= &omap2_init_clksel_parent,
 	.clksel_reg	= OMAP_CM_REGADDR(PLL_MOD, CM_CLKSEL1),
@@ -155,11 +190,12 @@ static struct clk func_54m_ck = {
 static struct clk core_ck = {
 	.name		= "core_ck",
 	.ops		= &clkops_null,
-	.parent		= &dpll_ck,		
+	.parent		= &dpll_ck,		/* can also be 32k */
 	.clkdm_name	= "wkup_clkdm",
 	.recalc		= &followparent_recalc,
 };
 
+/* func_96m_ck */
 static const struct clksel_rate func_96m_apll96_rates[] = {
 	{ .div = 1, .val = 0, .flags = RATE_IN_24XX },
 	{ .div = 0 },
@@ -188,6 +224,7 @@ static struct clk func_96m_ck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/* func_48m_ck */
 
 static const struct clksel_rate func_48m_apll96_rates[] = {
 	{ .div = 2, .val = 0, .flags = RATE_IN_24XX },
@@ -208,7 +245,7 @@ static const struct clksel func_48m_clksel[] = {
 static struct clk func_48m_ck = {
 	.name		= "func_48m_ck",
 	.ops		= &clkops_null,
-	.parent		= &apll96_ck,	 
+	.parent		= &apll96_ck,	 /* 96M or Alt */
 	.clkdm_name	= "wkup_clkdm",
 	.init		= &omap2_init_clksel_parent,
 	.clksel_reg	= OMAP_CM_REGADDR(PLL_MOD, CM_CLKSEL1),
@@ -228,13 +265,22 @@ static struct clk func_12m_ck = {
 	.recalc		= &omap_fixed_divisor_recalc,
 };
 
+/* Secure timer, only available in secure mode */
 static struct clk wdt1_osc_ck = {
 	.name		= "ck_wdt1_osc",
-	.ops		= &clkops_null, 
+	.ops		= &clkops_null, /* RMK: missing? */
 	.parent		= &osc_ck,
 	.recalc		= &followparent_recalc,
 };
 
+/*
+ * The common_clkout* clksel_rate structs are common to
+ * sys_clkout, sys_clkout_src, sys_clkout2, and sys_clkout2_src.
+ * sys_clkout2_* are 2420-only, so the
+ * clksel_rate flags fields are inaccurate for those clocks. This is
+ * harmless since access to those clocks are gated by the struct clk
+ * flags fields, which mark them as 2420-only.
+ */
 static const struct clksel_rate common_clkout_src_core_rates[] = {
 	{ .div = 1, .val = 0, .flags = RATE_IN_24XX },
 	{ .div = 0 }
@@ -317,6 +363,16 @@ static struct clk emul_ck = {
 
 };
 
+/*
+ * MPU clock domain
+ *	Clocks:
+ *		MPU_FCLK, MPU_ICLK
+ *		INT_M_FCLK, INT_M_I_CLK
+ *
+ * - Individual clocks are hardware managed.
+ * - Base divider comes from: CM_CLKSEL_MPU
+ *
+ */
 static const struct clksel_rate mpu_core_rates[] = {
 	{ .div = 1, .val = 1, .flags = RATE_IN_24XX },
 	{ .div = 2, .val = 2, .flags = RATE_IN_24XX },
@@ -328,7 +384,7 @@ static const struct clksel mpu_clksel[] = {
 	{ .parent = NULL }
 };
 
-static struct clk mpu_ck = {	
+static struct clk mpu_ck = {	/* Control cpu */
 	.name		= "mpu_ck",
 	.ops		= &clkops_null,
 	.parent		= &core_ck,
@@ -340,6 +396,16 @@ static struct clk mpu_ck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/*
+ * DSP (2430-IVA2.1) clock domain
+ * Clocks:
+ *	2430: IVA2.1_FCLK (really just DSP_FCLK), IVA2.1_ICLK
+ *
+ * Won't be too specific here. The core clock comes into this block
+ * it is divided then tee'ed. One branch goes directly to xyz enable
+ * controls. The other branch gets further divided by 2 then possibly
+ * routed into a synchronizer and out of clocks abc.
+ */
 static const struct clksel_rate dsp_fck_core_rates[] = {
 	{ .div = 1, .val = 1, .flags = RATE_IN_24XX },
 	{ .div = 2, .val = 2, .flags = RATE_IN_24XX },
@@ -371,6 +437,7 @@ static const struct clksel dsp_ick_clksel[] = {
 	{ .parent = NULL }
 };
 
+/* 2430 only - EN_DSP controls both dsp fclk and iclk on 2430 */
 static struct clk iva2_1_ick = {
 	.name		= "iva2_1_ick",
 	.ops		= &clkops_omap2_dflt_wait,
@@ -384,6 +451,25 @@ static struct clk iva2_1_ick = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/*
+ * L3 clock domain
+ * L3 clocks are used for both interface and functional clocks to
+ * multiple entities. Some of these clocks are completely managed
+ * by hardware, and some others allow software control. Hardware
+ * managed ones general are based on directly CLK_REQ signals and
+ * various auto idle settings. The functional spec sets many of these
+ * as 'tie-high' for their enables.
+ *
+ * I-CLOCKS:
+ *	L3-Interconnect, SMS, GPMC, SDRC, OCM_RAM, OCM_ROM, SDMA
+ *	CAM, HS-USB.
+ * F-CLOCK
+ *	SSI.
+ *
+ * GPMC memories and SDRC have timing and clock sensitive registers which
+ * may very well need notification when the clock changes. Currently for low
+ * operating points, these are taken care of in sleep.S.
+ */
 static const struct clksel_rate core_l3_core_rates[] = {
 	{ .div = 1, .val = 1, .flags = RATE_IN_24XX },
 	{ .div = 4, .val = 4, .flags = RATE_IN_24XX },
@@ -396,7 +482,7 @@ static const struct clksel core_l3_clksel[] = {
 	{ .parent = NULL }
 };
 
-static struct clk core_l3_ck = {	
+static struct clk core_l3_ck = {	/* Used for ick and fck, interconnect */
 	.name		= "core_l3_ck",
 	.ops		= &clkops_null,
 	.parent		= &core_ck,
@@ -407,6 +493,7 @@ static struct clk core_l3_ck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/* usb_l4_ick */
 static const struct clksel_rate usb_l4_ick_core_l3_rates[] = {
 	{ .div = 1, .val = 1, .flags = RATE_IN_24XX },
 	{ .div = 2, .val = 2, .flags = RATE_IN_24XX },
@@ -419,7 +506,8 @@ static const struct clksel usb_l4_ick_clksel[] = {
 	{ .parent = NULL },
 };
 
-static struct clk usb_l4_ick = {	
+/* It is unclear from TRM whether usb_l4_ick is really in L3 or L4 clkdm */
+static struct clk usb_l4_ick = {	/* FS-USB interface clock */
 	.name		= "usb_l4_ick",
 	.ops		= &clkops_omap2_iclk_dflt_wait,
 	.parent		= &core_l3_ck,
@@ -432,6 +520,13 @@ static struct clk usb_l4_ick = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/*
+ * L4 clock management domain
+ *
+ * This domain contains lots of interface clocks from the L4 interface, some
+ * functional clocks.	Fixed APLL functional source clocks are managed in
+ * this domain.
+ */
 static const struct clksel_rate l4_core_l3_rates[] = {
 	{ .div = 1, .val = 1, .flags = RATE_IN_24XX },
 	{ .div = 2, .val = 2, .flags = RATE_IN_24XX },
@@ -443,7 +538,7 @@ static const struct clksel l4_clksel[] = {
 	{ .parent = NULL }
 };
 
-static struct clk l4_ck = {		
+static struct clk l4_ck = {		/* used both as an ick and fck */
 	.name		= "l4_ck",
 	.ops		= &clkops_null,
 	.parent		= &core_l3_ck,
@@ -454,6 +549,14 @@ static struct clk l4_ck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/*
+ * SSI is in L3 management domain, its direct parent is core not l3,
+ * many core power domain entities are grouped into the L3 clock
+ * domain.
+ * SSI_SSR_FCLK, SSI_SST_FCLK, SSI_L4_ICLK
+ *
+ * ssr = core/1/2/3/4/5, sst = 1/2 ssr.
+ */
 static const struct clksel_rate ssi_ssr_sst_fck_core_rates[] = {
 	{ .div = 1, .val = 1, .flags = RATE_IN_24XX },
 	{ .div = 2, .val = 2, .flags = RATE_IN_24XX },
@@ -481,6 +584,10 @@ static struct clk ssi_ssr_sst_fck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/*
+ * Presumably this is the same as SSI_ICLK.
+ * TRM contradicts itself on what clockdomain SSI_ICLK is in
+ */
 static struct clk ssi_l4_ick = {
 	.name		= "ssi_l4_ick",
 	.ops		= &clkops_omap2_iclk_dflt_wait,
@@ -492,7 +599,19 @@ static struct clk ssi_l4_ick = {
 };
 
 
+/*
+ * GFX clock domain
+ *	Clocks:
+ * GFX_FCLK, GFX_ICLK
+ * GFX_CG1(2d), GFX_CG2(3d)
+ *
+ * GFX_FCLK runs from L3, and is divided by (1,2,3,4)
+ * The 2d and 3d clocks run at a hardware determined
+ * divided value of fclk.
+ *
+ */
 
+/* This clksel struct is shared between gfx_3d_fck and gfx_2d_fck */
 static const struct clksel gfx_fck_clksel[] = {
 	{ .parent = &core_l3_ck, .rates = gfx_l3_rates },
 	{ .parent = NULL },
@@ -526,8 +645,9 @@ static struct clk gfx_2d_fck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/* This interface clock does not have a CM_AUTOIDLE bit */
 static struct clk gfx_ick = {
-	.name		= "gfx_ick",		
+	.name		= "gfx_ick",		/* From l3 */
 	.ops		= &clkops_omap2_dflt_wait,
 	.parent		= &core_l3_ck,
 	.clkdm_name	= "gfx_clkdm",
@@ -536,6 +656,13 @@ static struct clk gfx_ick = {
 	.recalc		= &followparent_recalc,
 };
 
+/*
+ * Modem clock domain (2430)
+ *	CLOCKS:
+ *		MDM_OSC_CLK
+ *		MDM_ICLK
+ * These clocks are usable in chassis mode only.
+ */
 static const struct clksel_rate mdm_ick_core_rates[] = {
 	{ .div = 1, .val = 1, .flags = RATE_IN_243X },
 	{ .div = 4, .val = 4, .flags = RATE_IN_243X },
@@ -549,7 +676,7 @@ static const struct clksel mdm_ick_clksel[] = {
 	{ .parent = NULL }
 };
 
-static struct clk mdm_ick = {		
+static struct clk mdm_ick = {		/* used both as a ick and fck */
 	.name		= "mdm_ick",
 	.ops		= &clkops_omap2_iclk_dflt_wait,
 	.parent		= &core_ck,
@@ -572,6 +699,15 @@ static struct clk mdm_osc_ck = {
 	.recalc		= &followparent_recalc,
 };
 
+/*
+ * DSS clock domain
+ * CLOCKs:
+ * DSS_L4_ICLK, DSS_L3_ICLK,
+ * DSS_CLK1, DSS_CLK2, DSS_54MHz_CLK
+ *
+ * DSS is both initiator and target.
+ */
+/* XXX Add RATE_NOT_VALIDATED */
 
 static const struct clksel_rate dss1_fck_sys_rates[] = {
 	{ .div = 1, .val = 0, .flags = RATE_IN_24XX },
@@ -598,10 +734,10 @@ static const struct clksel dss1_fck_clksel[] = {
 	{ .parent = NULL },
 };
 
-static struct clk dss_ick = {		
+static struct clk dss_ick = {		/* Enables both L3,L4 ICLK's */
 	.name		= "dss_ick",
 	.ops		= &clkops_omap2_iclk_dflt,
-	.parent		= &l4_ck,	
+	.parent		= &l4_ck,	/* really both l3 and l4 */
 	.clkdm_name	= "dss_clkdm",
 	.enable_reg	= OMAP_CM_REGADDR(CORE_MOD, CM_ICLKEN1),
 	.enable_bit	= OMAP24XX_EN_DSS1_SHIFT,
@@ -611,7 +747,7 @@ static struct clk dss_ick = {
 static struct clk dss1_fck = {
 	.name		= "dss1_fck",
 	.ops		= &clkops_omap2_dflt,
-	.parent		= &core_ck,		
+	.parent		= &core_ck,		/* Core or sys */
 	.clkdm_name	= "dss_clkdm",
 	.enable_reg	= OMAP_CM_REGADDR(CORE_MOD, CM_FCLKEN1),
 	.enable_bit	= OMAP24XX_EN_DSS1_SHIFT,
@@ -638,10 +774,10 @@ static const struct clksel dss2_fck_clksel[] = {
 	{ .parent = NULL }
 };
 
-static struct clk dss2_fck = {		
+static struct clk dss2_fck = {		/* Alt clk used in power management */
 	.name		= "dss2_fck",
 	.ops		= &clkops_omap2_dflt,
-	.parent		= &sys_ck,		
+	.parent		= &sys_ck,		/* fixed at sys_ck or 48MHz */
 	.clkdm_name	= "dss_clkdm",
 	.enable_reg	= OMAP_CM_REGADDR(CORE_MOD, CM_FCLKEN1),
 	.enable_bit	= OMAP24XX_EN_DSS2_SHIFT,
@@ -652,8 +788,8 @@ static struct clk dss2_fck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
-static struct clk dss_54m_fck = {	
-	.name		= "dss_54m_fck",	
+static struct clk dss_54m_fck = {	/* Alt clk used in power management */
+	.name		= "dss_54m_fck",	/* 54m tv clk */
 	.ops		= &clkops_omap2_dflt_wait,
 	.parent		= &func_54m_ck,
 	.clkdm_name	= "dss_clkdm",
@@ -670,6 +806,12 @@ static struct clk wu_l4_ick = {
 	.recalc		= &followparent_recalc,
 };
 
+/*
+ * CORE power domain ICLK & FCLK defines.
+ * Many of the these can have more than one possible parent. Entries
+ * here will likely have an L4 interface parent, and may have multiple
+ * functional clock parents.
+ */
 static const struct clksel_rate gpt_alt_rates[] = {
 	{ .div = 1, .val = 2, .flags = RATE_IN_24XX },
 	{ .div = 0 }
@@ -1320,6 +1462,11 @@ static struct clk cam_ick = {
 	.recalc		= &followparent_recalc,
 };
 
+/*
+ * cam_fck controls both CAM_MCLK and CAM_FCLK.  It should probably be
+ * split into two separate clocks, since the parent clocks are different
+ * and the clockdomains are also different.
+ */
 static struct clk cam_fck = {
 	.name		= "cam_fck",
 	.ops		= &clkops_omap2_dflt,
@@ -1420,6 +1567,10 @@ static struct clk hdq_fck = {
 	.recalc		= &followparent_recalc,
 };
 
+/*
+ * XXX This is marked as a 2420-only define, but it claims to be present
+ * on 2430 also.  Double-check.
+ */
 static struct clk i2c2_ick = {
 	.name		= "i2c2_ick",
 	.ops		= &clkops_omap2_iclk_dflt_wait,
@@ -1440,6 +1591,10 @@ static struct clk i2chs2_fck = {
 	.recalc		= &followparent_recalc,
 };
 
+/*
+ * XXX This is marked as a 2420-only define, but it claims to be present
+ * on 2430 also.  Double-check.
+ */
 static struct clk i2c1_ick = {
 	.name		= "i2c1_ick",
 	.ops		= &clkops_omap2_iclk_dflt_wait,
@@ -1460,6 +1615,10 @@ static struct clk i2chs1_fck = {
 	.recalc		= &followparent_recalc,
 };
 
+/*
+ * The enable_reg/enable_bit in this clock is only used for CM_AUTOIDLE
+ * accesses derived from this data.
+ */
 static struct clk gpmc_fck = {
 	.name		= "gpmc_fck",
 	.ops		= &clkops_omap2_iclk_idle_only,
@@ -1473,12 +1632,16 @@ static struct clk gpmc_fck = {
 
 static struct clk sdma_fck = {
 	.name		= "sdma_fck",
-	.ops		= &clkops_null, 
+	.ops		= &clkops_null, /* RMK: missing? */
 	.parent		= &core_l3_ck,
 	.clkdm_name	= "core_l3_clkdm",
 	.recalc		= &followparent_recalc,
 };
 
+/*
+ * The enable_reg/enable_bit in this clock is only used for CM_AUTOIDLE
+ * accesses derived from this data.
+ */
 static struct clk sdma_ick = {
 	.name		= "sdma_ick",
 	.ops		= &clkops_omap2_iclk_idle_only,
@@ -1660,19 +1823,36 @@ static struct clk mmchsdb2_fck = {
 	.recalc		= &followparent_recalc,
 };
 
+/*
+ * This clock is a composite clock which does entire set changes then
+ * forces a rebalance. It keys on the MPU speed, but it really could
+ * be any key speed part of a set in the rate table.
+ *
+ * to really change a set, you need memory table sets which get changed
+ * in sram, pre-notifiers & post notifiers, changing the top set, without
+ * having low level display recalc's won't work... this is why dpm notifiers
+ * work, isr's off, walk a list of clocks already _off_ and not messing with
+ * the bus.
+ *
+ * This clock should have no parent. It embodies the entire upper level
+ * active set. A parent will mess up some of the init also.
+ */
 static struct clk virt_prcm_set = {
 	.name		= "virt_prcm_set",
 	.ops		= &clkops_null,
-	.parent		= &mpu_ck,	
-	.recalc		= &omap2_table_mpu_recalc,	
+	.parent		= &mpu_ck,	/* Indexed by mpu speed, no parent */
+	.recalc		= &omap2_table_mpu_recalc,	/* sets are keyed on mpu rate */
 	.set_rate	= &omap2_select_table_rate,
 	.round_rate	= &omap2_round_to_table_rate,
 };
 
 
+/*
+ * clkdev integration
+ */
 
 static struct omap_clk omap2430_clks[] = {
-	
+	/* external root sources */
 	CLK(NULL,	"func_32k_ck",	&func_32k_ck,	CK_243X),
 	CLK(NULL,	"secure_32k_ck", &secure_32k_ck, CK_243X),
 	CLK(NULL,	"osc_ck",	&osc_ck,	CK_243X),
@@ -1684,11 +1864,11 @@ static struct omap_clk omap2430_clks[] = {
 	CLK("omap-mcbsp.4",	"pad_fck",	&mcbsp_clks,	CK_243X),
 	CLK("omap-mcbsp.5",	"pad_fck",	&mcbsp_clks,	CK_243X),
 	CLK(NULL,	"mcbsp_clks",	&mcbsp_clks,	CK_243X),
-	
+	/* internal analog sources */
 	CLK(NULL,	"dpll_ck",	&dpll_ck,	CK_243X),
 	CLK(NULL,	"apll96_ck",	&apll96_ck,	CK_243X),
 	CLK(NULL,	"apll54_ck",	&apll54_ck,	CK_243X),
-	
+	/* internal prcm root sources */
 	CLK(NULL,	"func_54m_ck",	&func_54m_ck,	CK_243X),
 	CLK(NULL,	"core_ck",	&core_ck,	CK_243X),
 	CLK("omap-mcbsp.1",	"prcm_fck",	&func_96m_ck,	CK_243X),
@@ -1703,34 +1883,34 @@ static struct omap_clk omap2430_clks[] = {
 	CLK(NULL,	"sys_clkout_src", &sys_clkout_src, CK_243X),
 	CLK(NULL,	"sys_clkout",	&sys_clkout,	CK_243X),
 	CLK(NULL,	"emul_ck",	&emul_ck,	CK_243X),
-	
+	/* mpu domain clocks */
 	CLK(NULL,	"mpu_ck",	&mpu_ck,	CK_243X),
-	
+	/* dsp domain clocks */
 	CLK(NULL,	"dsp_fck",	&dsp_fck,	CK_243X),
 	CLK(NULL,	"iva2_1_ick",	&iva2_1_ick,	CK_243X),
-	
+	/* GFX domain clocks */
 	CLK(NULL,	"gfx_3d_fck",	&gfx_3d_fck,	CK_243X),
 	CLK(NULL,	"gfx_2d_fck",	&gfx_2d_fck,	CK_243X),
 	CLK(NULL,	"gfx_ick",	&gfx_ick,	CK_243X),
-	
+	/* Modem domain clocks */
 	CLK(NULL,	"mdm_ick",	&mdm_ick,	CK_243X),
 	CLK(NULL,	"mdm_osc_ck",	&mdm_osc_ck,	CK_243X),
-	
+	/* DSS domain clocks */
 	CLK("omapdss_dss",	"ick",		&dss_ick,	CK_243X),
 	CLK(NULL,	"dss1_fck",		&dss1_fck,	CK_243X),
 	CLK(NULL,	"dss2_fck",	&dss2_fck,	CK_243X),
 	CLK(NULL,	"dss_54m_fck",	&dss_54m_fck,	CK_243X),
-	
+	/* L3 domain clocks */
 	CLK(NULL,	"core_l3_ck",	&core_l3_ck,	CK_243X),
 	CLK(NULL,	"ssi_fck",	&ssi_ssr_sst_fck, CK_243X),
 	CLK(NULL,	"usb_l4_ick",	&usb_l4_ick,	CK_243X),
-	
+	/* L4 domain clocks */
 	CLK(NULL,	"l4_ck",	&l4_ck,		CK_243X),
 	CLK(NULL,	"ssi_l4_ick",	&ssi_l4_ick,	CK_243X),
 	CLK(NULL,	"wu_l4_ick",	&wu_l4_ick,	CK_243X),
-	
+	/* virtual meta-group clock */
 	CLK(NULL,	"virt_prcm_set", &virt_prcm_set, CK_243X),
-	
+	/* general l4 interface ck, multi-parent functional clk */
 	CLK(NULL,	"gpt1_ick",	&gpt1_ick,	CK_243X),
 	CLK(NULL,	"gpt1_fck",	&gpt1_fck,	CK_243X),
 	CLK(NULL,	"gpt2_ick",	&gpt2_ick,	CK_243X),
@@ -1858,6 +2038,9 @@ static struct omap_clk omap2430_clks[] = {
 	CLK("omap_timer.12",	"alt_ck",	&alt_ck,	CK_243X),
 };
 
+/*
+ * init code
+ */
 
 int __init omap2430_clk_init(void)
 {
@@ -1888,10 +2071,10 @@ int __init omap2430_clk_init(void)
 		omap2_init_clk_clkdm(c->lk.clk);
 	}
 
-	
+	/* Disable autoidle on all clocks; let the PM code enable it later */
 	omap_clk_disable_autoidle_all();
 
-	
+	/* Check the MPU rate set by bootloader */
 	clkrate = omap2xxx_clk_get_core_rate(&dpll_ck);
 	for (prcm = rate_table; prcm->mpu_speed; prcm++) {
 		if (!(prcm->flags & cpu_mask))
@@ -1909,9 +2092,13 @@ int __init omap2430_clk_init(void)
 		(sys_ck.rate / 1000000), (sys_ck.rate / 100000) % 10,
 		(dpll_ck.rate / 1000000), (mpu_ck.rate / 1000000)) ;
 
+	/*
+	 * Only enable those clocks we will need, let the drivers
+	 * enable other clocks as necessary
+	 */
 	clk_enable_init_clocks();
 
-	
+	/* Avoid sleeping sleeping during omap2_clk_prepare_for_reboot() */
 	vclk = clk_get(NULL, "virt_prcm_set");
 	sclk = clk_get(NULL, "sys_ck");
 	dclk = clk_get(NULL, "dpll_ck");

@@ -17,16 +17,20 @@
 #include <linux/bcd.h>
 #include <linux/delay.h>
 
-#define RTC_PIE 0x40		
-#define RTC_AIE 0x20		
-#define RTC_UIE 0x10		
+#define RTC_PIE 0x40		/* periodic interrupt enable */
+#define RTC_AIE 0x20		/* alarm interrupt enable */
+#define RTC_UIE 0x10		/* update-finished interrupt enable */
 
-#define RTC_BATT_BAD 0x100	
-#define RTC_SQWE 0x08		
-#define RTC_DM_BINARY 0x04	
-#define RTC_24H 0x02		
-#define RTC_DST_EN 0x01	        
+/* some dummy definitions */
+#define RTC_BATT_BAD 0x100	/* battery bad */
+#define RTC_SQWE 0x08		/* enable square-wave output */
+#define RTC_DM_BINARY 0x04	/* all time/date values are BCD if clear */
+#define RTC_24H 0x02		/* 24 hour mode - else hours bit 7 means pm */
+#define RTC_DST_EN 0x01	        /* auto switch DST - works f. USA only */
 
+/*
+ * Returns true if a clock update is in progress
+ */
 static inline unsigned char rtc_is_updating(void)
 {
 	unsigned char uip;
@@ -47,9 +51,24 @@ static inline unsigned int __get_rtc_time(struct rtc_time *time)
 	unsigned int real_year;
 #endif
 
+	/*
+	 * read RTC once any update in progress is done. The update
+	 * can take just over 2ms. We wait 20ms. There is no need to
+	 * to poll-wait (up to 1s - eeccch) for the falling edge of RTC_UIP.
+	 * If you need to know *exactly* when a second has started, enable
+	 * periodic update complete interrupts, (via ioctl) and then 
+	 * immediately read /dev/rtc which will block until you get the IRQ.
+	 * Once the read clears, read the RTC time (again via ioctl). Easy.
+	 */
 	if (rtc_is_updating())
 		mdelay(20);
 
+	/*
+	 * Only the values that we read from the RTC are set. We leave
+	 * tm_wday, tm_yday and tm_isdst untouched. Even though the
+	 * RTC has RTC_DAY_OF_WEEK, we ignore it, as it is only updated
+	 * by the RTC when initially set to a non-zero value.
+	 */
 	spin_lock_irqsave(&rtc_lock, flags);
 	time->tm_sec = CMOS_READ(RTC_SECONDS);
 	time->tm_min = CMOS_READ(RTC_MINUTES);
@@ -77,6 +96,10 @@ static inline unsigned int __get_rtc_time(struct rtc_time *time)
 	time->tm_year += real_year - 72;
 #endif
 
+	/*
+	 * Account for differences between how the RTC uses the values
+	 * and how they are defined in a struct rtc_time;
+	 */
 	if (time->tm_year <= 69)
 		time->tm_year += 100;
 
@@ -89,6 +112,7 @@ static inline unsigned int __get_rtc_time(struct rtc_time *time)
 #define get_rtc_time	__get_rtc_time
 #endif
 
+/* Set the current date and time in the real time clock. */
 static inline int __set_rtc_time(struct rtc_time *time)
 {
 	unsigned long flags;
@@ -100,13 +124,13 @@ static inline int __set_rtc_time(struct rtc_time *time)
 #endif
 
 	yrs = time->tm_year;
-	mon = time->tm_mon + 1;   
+	mon = time->tm_mon + 1;   /* tm_mon starts at zero */
 	day = time->tm_mday;
 	hrs = time->tm_hour;
 	min = time->tm_min;
 	sec = time->tm_sec;
 
-	if (yrs > 255)	
+	if (yrs > 255)	/* They are unsigned */
 		return -EINVAL;
 
 	spin_lock_irqsave(&rtc_lock, flags);
@@ -116,11 +140,19 @@ static inline int __set_rtc_time(struct rtc_time *time)
 			!((yrs + 1900) % 400));
 	yrs = 72;
 
+	/*
+	 * We want to keep the year set to 73 until March
+	 * for non-leap years, so that Feb, 29th is handled
+	 * correctly.
+	 */
 	if (!leap_yr && mon < 3) {
 		real_yrs--;
 		yrs = 73;
 	}
 #endif
+	/* These limits and adjustments are independent of
+	 * whether the chip is in binary mode or not.
+	 */
 	if (yrs > 169) {
 		spin_unlock_irqrestore(&rtc_lock, flags);
 		return -EINVAL;
@@ -183,4 +215,4 @@ static inline int set_rtc_pll(struct rtc_pll_info *pll)
 	return -EINVAL;
 }
 
-#endif 
+#endif /* __ASM_RTC_H__ */

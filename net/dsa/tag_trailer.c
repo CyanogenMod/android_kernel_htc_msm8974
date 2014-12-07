@@ -24,6 +24,12 @@ netdev_tx_t trailer_xmit(struct sk_buff *skb, struct net_device *dev)
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += skb->len;
 
+	/*
+	 * We have to make sure that the trailer ends up as the very
+	 * last 4 bytes of the packet.  This means that we have to pad
+	 * the packet to the minimum ethernet frame size, if necessary,
+	 * before adding the trailer.
+	 */
 	padlen = 0;
 	if (skb->len < 60)
 		padlen = 60 - skb->len;

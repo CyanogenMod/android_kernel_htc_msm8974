@@ -15,15 +15,35 @@
 #include <asm/sal.h>
 #include <asm/sn/sn_sal.h>
 
+/*
+ * Interval for calling SAL to poll for errors that do NOT cause error
+ * interrupts. SAL will raise a CPEI if any errors are present that
+ * need to be logged.
+ */
 #define CPEI_INTERVAL	(5*HZ)
 
 struct timer_list sn_cpei_timer;
 void sn_init_cpei_timer(void);
 
+/* Printing oemdata from mca uses data that is not passed through SAL, it is
+ * global.  Only one user at a time.
+ */
 static DEFINE_MUTEX(sn_oemdata_mutex);
 static u8 **sn_oemdata;
 static u64 *sn_oemdata_size, sn_oemdata_bufsize;
 
+/*
+ * print_hook
+ *
+ * This function is the callback routine that SAL calls to log error
+ * info for platform errors.  buf is appended to sn_oemdata, resizing as
+ * required.
+ * Note: this is a SAL to OS callback, running under the same rules as the SAL
+ * code.  SAL calls are run with preempt disabled so this routine must not
+ * sleep.  vmalloc can sleep so print_hook cannot resize the output buffer
+ * itself, instead it must set the required size and return to let the caller
+ * resize the buffer then redrive the SAL call.
+ */
 static int print_hook(const char *fmt, ...)
 {
 	char buf[400];
@@ -41,8 +61,13 @@ static int print_hook(const char *fmt, ...)
 
 static void sn_cpei_handler(int irq, void *devid, struct pt_regs *regs)
 {
+	/*
+	 * this function's sole purpose is to call SAL when we receive
+	 * a CE interrupt from SHUB or when the timer routine decides
+	 * we need to call SAL to check for CEs.
+	 */
 
-	
+	/* CALL SAL_LOG_CE */
 
 	ia64_sn_plat_cpei_handler();
 }
@@ -69,7 +94,7 @@ sn_platform_plat_specific_err_print(const u8 * sect_header, u8 ** oemdata,
 	sn_oemdata = oemdata;
 	sn_oemdata_size = oemdata_size;
 	sn_oemdata_bufsize = 0;
-	*sn_oemdata_size = PAGE_SIZE;	
+	*sn_oemdata_size = PAGE_SIZE;	/* first guess at how much data will be generated */
 	while (*sn_oemdata_size > sn_oemdata_bufsize) {
 		u8 *newbuf = vmalloc(*sn_oemdata_size);
 		if (!newbuf) {
@@ -88,6 +113,9 @@ sn_platform_plat_specific_err_print(const u8 * sect_header, u8 ** oemdata,
 	return 0;
 }
 
+/* Callback when userspace salinfo wants to decode oem data via the platform
+ * kernel and/or prom.
+ */
 int sn_salinfo_platform_oemdata(const u8 *sect_header, u8 **oemdata, u64 *oemdata_size)
 {
 	efi_guid_t guid = *(efi_guid_t *)sect_header;

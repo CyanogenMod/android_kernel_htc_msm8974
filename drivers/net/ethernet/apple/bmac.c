@@ -37,8 +37,12 @@
 #define trunc_page(x)	((void *)(((unsigned long)(x)) & ~((unsigned long)(PAGE_SIZE - 1))))
 #define round_page(x)	trunc_page(((unsigned long)(x)) + ((unsigned long)(PAGE_SIZE - 1)))
 
+/*
+ * CRC polynomial - used in working out multicast filter bits.
+ */
 #define ENET_CRCPOLY 0x04c11db7
 
+/* switch to use multicast code lifted from sunhme driver */
 #define SUNHME_MULTICAST
 
 #define N_RX_RING	64
@@ -48,21 +52,22 @@
 #define ETHERMINPACKET	64
 #define ETHERMTU	1500
 #define RX_BUFLEN	(ETHERMTU + 14 + ETHERCRC + 2)
-#define TX_TIMEOUT	HZ	
+#define TX_TIMEOUT	HZ	/* 1 second */
 
+/* Bits in transmit DMA status */
 #define TX_DMA_ERR	0x80
 
 #define XXDEBUG(args)
 
 struct bmac_data {
-	
+	/* volatile struct bmac *bmac; */
 	struct sk_buff_head *queue;
 	volatile struct dbdma_regs __iomem *tx_dma;
 	int tx_dma_intr;
 	volatile struct dbdma_regs __iomem *rx_dma;
 	int rx_dma_intr;
-	volatile struct dbdma_cmd *tx_cmds;	
-	volatile struct dbdma_cmd *rx_cmds;	
+	volatile struct dbdma_cmd *tx_cmds;	/* xmit dma command list */
+	volatile struct dbdma_cmd *rx_cmds;	/* recv dma command list */
 	struct macio_dev *mdev;
 	int is_bmac_plus;
 	struct sk_buff *rx_bufs[N_RX_RING];
@@ -81,7 +86,7 @@ struct bmac_data {
 	spinlock_t lock;
 };
 
-#if 0 
+#if 0 /* Move that to ethtool */
 
 typedef struct bmac_reg_entry {
 	char *name;
@@ -128,6 +133,12 @@ static bmac_reg_entry_t reg_entries[N_REG_ENTRIES] = {
 
 static unsigned char *bmac_emergency_rxbuf;
 
+/*
+ * Number of bytes of private data per BMAC: allow enough for
+ * the rx and tx dma commands plus a branch dma command each,
+ * and another 16 bytes to allow us to align the dma command
+ * buffers on a 16 byte boundary.
+ */
 #define PRIV_BYTES	(sizeof(struct bmac_data) \
 	+ (N_RX_RING + N_TX_RING + 4) * sizeof(struct dbdma_cmd) \
 	+ sizeof(struct sk_buff_head))
@@ -303,7 +314,7 @@ bmac_init_registers(struct net_device *dev)
 	unsigned short *pWord16;
 	int i;
 
-	
+	/* XXDEBUG(("bmac: enter init_registers\n")); */
 
 	bmwrite(dev, RXRST, RxResetValue);
 	bmwrite(dev, TXRST, TxResetBit);
@@ -312,7 +323,7 @@ bmac_init_registers(struct net_device *dev)
 	do {
 		--i;
 		udelay(10000);
-		regValue = bmread(dev, TXRST); 
+		regValue = bmread(dev, TXRST); /* wait for reset to clear..acknowledge */
 	} while ((regValue & TxResetBit) && i > 0);
 
 	if (!bp->is_bmac_plus) {
@@ -330,38 +341,38 @@ bmac_init_registers(struct net_device *dev)
 
 	bmread(dev, PAREG);
 
-	
+	/* set collision counters to 0 */
 	bmwrite(dev, NCCNT, 0);
 	bmwrite(dev, NTCNT, 0);
 	bmwrite(dev, EXCNT, 0);
 	bmwrite(dev, LTCNT, 0);
 
-	
+	/* set rx counters to 0 */
 	bmwrite(dev, FRCNT, 0);
 	bmwrite(dev, LECNT, 0);
 	bmwrite(dev, AECNT, 0);
 	bmwrite(dev, FECNT, 0);
 	bmwrite(dev, RXCV, 0);
 
-	
-	bmwrite(dev, TXTH, 4);	
+	/* set tx fifo information */
+	bmwrite(dev, TXTH, 4);	/* 4 octets before tx starts */
 
-	bmwrite(dev, TXFIFOCSR, 0);	
+	bmwrite(dev, TXFIFOCSR, 0);	/* first disable txFIFO */
 	bmwrite(dev, TXFIFOCSR, TxFIFOEnable );
 
-	
-	bmwrite(dev, RXFIFOCSR, 0);	
+	/* set rx fifo information */
+	bmwrite(dev, RXFIFOCSR, 0);	/* first disable rxFIFO */
 	bmwrite(dev, RXFIFOCSR, RxFIFOEnable );
 
-	
-	bmread(dev, STATUS);		
+	//bmwrite(dev, TXCFG, TxMACEnable);	       	/* TxNeverGiveUp maybe later */
+	bmread(dev, STATUS);		/* read it just to clear it */
 
-	
+	/* zero out the chip Hash Filter registers */
 	for (i=0; i<4; i++) bp->hash_table_mask[i] = 0;
-	bmwrite(dev, BHASH3, bp->hash_table_mask[0]); 	
-	bmwrite(dev, BHASH2, bp->hash_table_mask[1]); 	
-	bmwrite(dev, BHASH1, bp->hash_table_mask[2]); 	
-	bmwrite(dev, BHASH0, bp->hash_table_mask[3]); 	
+	bmwrite(dev, BHASH3, bp->hash_table_mask[0]); 	/* bits 15 - 0 */
+	bmwrite(dev, BHASH2, bp->hash_table_mask[1]); 	/* bits 31 - 16 */
+	bmwrite(dev, BHASH1, bp->hash_table_mask[2]); 	/* bits 47 - 32 */
+	bmwrite(dev, BHASH0, bp->hash_table_mask[3]); 	/* bits 63 - 48 */
 
 	pWord16 = (unsigned short *)dev->dev_addr;
 	bmwrite(dev, MADD0, *pWord16++);
@@ -395,13 +406,13 @@ bmac_start_chip(struct net_device *dev)
 	volatile struct dbdma_regs __iomem *rd = bp->rx_dma;
 	unsigned short	oldConfig;
 
-	
+	/* enable rx dma channel */
 	dbdma_continue(rd);
 
 	oldConfig = bmread(dev, TXCFG);
 	bmwrite(dev, TXCFG, oldConfig | TxMACEnable );
 
-	
+	/* turn on rx plus any other bits already on (promiscuous possibly) */
 	oldConfig = bmread(dev, RXCFG);
 	bmwrite(dev, RXCFG, oldConfig | RxMACEnable );
 	udelay(20000);
@@ -451,7 +462,7 @@ static int bmac_suspend(struct macio_dev *mdev, pm_message_t state)
 	int i;
 
 	netif_device_detach(dev);
-	
+	/* prolly should wait for dma to finish & turn off the chip */
 	spin_lock_irqsave(&bp->lock, flags);
 	if (bp->timeout_active) {
 		del_timer(&bp->tx_timeout);
@@ -470,11 +481,11 @@ static int bmac_suspend(struct macio_dev *mdev, pm_message_t state)
 		bmwrite(dev, RXCFG, (config & ~RxMACEnable));
 		config = bmread(dev, TXCFG);
        		bmwrite(dev, TXCFG, (config & ~TxMACEnable));
-		bmwrite(dev, INTDISABLE, DisableAll); 
-       		
-       		st_le32(&rd->control, DBDMA_CLEAR(RUN|PAUSE|FLUSH|WAKE));	
-       		st_le32(&td->control, DBDMA_CLEAR(RUN|PAUSE|FLUSH|WAKE));	
-       		
+		bmwrite(dev, INTDISABLE, DisableAll); /* disable all intrs */
+       		/* disable rx and tx dma */
+       		st_le32(&rd->control, DBDMA_CLEAR(RUN|PAUSE|FLUSH|WAKE));	/* clear run bit */
+       		st_le32(&td->control, DBDMA_CLEAR(RUN|PAUSE|FLUSH|WAKE));	/* clear run bit */
+       		/* free some skb's */
        		for (i=0; i<N_RX_RING; i++) {
        			if (bp->rx_bufs[i] != NULL) {
        				dev_kfree_skb(bp->rx_bufs[i]);
@@ -497,7 +508,7 @@ static int bmac_resume(struct macio_dev *mdev)
 	struct net_device* dev = macio_get_drvdata(mdev);
 	struct bmac_data *bp = netdev_priv(dev);
 
-	
+	/* see if this is enough */
 	if (bp->opened)
 		bmac_reset_and_enable(dev);
 
@@ -508,7 +519,7 @@ static int bmac_resume(struct macio_dev *mdev)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static int bmac_set_address(struct net_device *dev, void *addr)
 {
@@ -524,7 +535,7 @@ static int bmac_set_address(struct net_device *dev, void *addr)
 	for (i = 0; i < 6; ++i) {
 		dev->dev_addr[i] = p[i];
 	}
-	
+	/* load up the hardware address */
 	pWord16  = (unsigned short *)dev->dev_addr;
 	bmwrite(dev, MADD0, *pWord16++);
 	bmwrite(dev, MADD1, *pWord16++);
@@ -585,11 +596,11 @@ bmac_init_tx_ring(struct bmac_data *bp)
 	bp->tx_fill = 0;
 	bp->tx_fullup = 0;
 
-	
+	/* put a branch at the end of the tx command list */
 	dbdma_setcmd(&bp->tx_cmds[N_TX_RING],
 		     (DBDMA_NOP | BR_ALWAYS), 0, 0, virt_to_bus(bp->tx_cmds));
 
-	
+	/* reset tx dma */
 	dbdma_reset(td);
 	out_le32(&td->wait_sel, 0x00200020);
 	out_le32(&td->cmdptr, virt_to_bus(bp->tx_cmds));
@@ -603,7 +614,7 @@ bmac_init_rx_ring(struct net_device *dev)
 	int i;
 	struct sk_buff *skb;
 
-	
+	/* initialize list of sk_buffs for receiving and set up recv dma */
 	memset((char *)bp->rx_cmds, 0,
 	       (N_RX_RING + 1) * sizeof(struct dbdma_cmd));
 	for (i = 0; i < N_RX_RING; i++) {
@@ -618,11 +629,11 @@ bmac_init_rx_ring(struct net_device *dev)
 	bp->rx_empty = 0;
 	bp->rx_fill = i;
 
-	
+	/* Put a branch back to the beginning of the receive command list */
 	dbdma_setcmd(&bp->rx_cmds[N_RX_RING],
 		     (DBDMA_NOP | BR_ALWAYS), 0, 0, virt_to_bus(bp->rx_cmds));
 
-	
+	/* start rx dma */
 	dbdma_reset(rd);
 	out_le32(&rd->cmdptr, virt_to_bus(bp->rx_cmds));
 
@@ -636,9 +647,9 @@ static int bmac_transmit_packet(struct sk_buff *skb, struct net_device *dev)
 	volatile struct dbdma_regs __iomem *td = bp->tx_dma;
 	int i;
 
-	
-	
-	
+	/* see if there's a free slot in the tx ring */
+	/* XXDEBUG(("bmac_xmit_start: empty=%d fill=%d\n", */
+	/* 	     bp->tx_empty, bp->tx_fill)); */
 	i = bp->tx_fill + 1;
 	if (i >= N_TX_RING)
 		i = 0;
@@ -646,7 +657,7 @@ static int bmac_transmit_packet(struct sk_buff *skb, struct net_device *dev)
 		netif_stop_queue(dev);
 		bp->tx_fullup = 1;
 		XXDEBUG(("bmac_transmit_packet: tx ring full\n"));
-		return -1;		
+		return -1;		/* can't take it at the moment */
 	}
 
 	dbdma_setcmd(&bp->tx_cmds[i], DBDMA_STOP, 0, 0, 0);
@@ -753,8 +764,8 @@ static irqreturn_t bmac_txdma_intr(int irq, void *dev_id)
 		XXDEBUG(("bmac_txdma_intr\n"));
 	}
 
-	
-	
+	/*     del_timer(&bp->tx_timeout); */
+	/*     bp->timeout_active = 0; */
 
 	while (1) {
 		cp = &bp->tx_cmds[bp->tx_empty];
@@ -763,6 +774,9 @@ static irqreturn_t bmac_txdma_intr(int irq, void *dev_id)
 			XXDEBUG(("bmac_txdma_xfer_stat=%#0x\n", stat));
 		}
 		if (!(stat & ACTIVE)) {
+			/*
+			 * status field might not have been filled by DBDMA
+			 */
 			if (cp == bus_to_virt(in_le32(&bp->tx_dma->cmdptr)))
 				break;
 		}
@@ -791,6 +805,7 @@ static irqreturn_t bmac_txdma_intr(int irq, void *dev_id)
 }
 
 #ifndef SUNHME_MULTICAST
+/* Real fast bit-reversal algorithm, 6-bit values */
 static int reverse6[64] = {
 	0x0,0x20,0x10,0x30,0x8,0x28,0x18,0x38,
 	0x4,0x24,0x14,0x34,0xc,0x2c,0x1c,0x3c,
@@ -808,12 +823,12 @@ crc416(unsigned int curval, unsigned short nxtval)
 	register unsigned int counter, cur = curval, next = nxtval;
 	register int high_crc_set, low_data_set;
 
-	
+	/* Swap bytes */
 	next = ((next & 0x00FF) << 8) | (next >> 8);
 
-	
+	/* Compute bit-by-bit */
 	for (counter = 0; counter < 16; ++counter) {
-		
+		/* is high CRC bit set? */
 		if ((cur & 0x80000000) == 0) high_crc_set = 0;
 		else high_crc_set = 1;
 
@@ -824,7 +839,7 @@ crc416(unsigned int curval, unsigned short nxtval)
 
 		next = next >> 1;
 
-		
+		/* do the XOR */
 		if (high_crc_set ^ low_data_set) cur = cur ^ ENET_CRCPOLY;
 	}
 	return cur;
@@ -836,13 +851,17 @@ bmac_crc(unsigned short *address)
 	unsigned int newcrc;
 
 	XXDEBUG(("bmac_crc: addr=%#04x, %#04x, %#04x\n", *address, address[1], address[2]));
-	newcrc = crc416(0xffffffff, *address);	
-	newcrc = crc416(newcrc, address[1]);	
-	newcrc = crc416(newcrc, address[2]);	
+	newcrc = crc416(0xffffffff, *address);	/* address bits 47 - 32 */
+	newcrc = crc416(newcrc, address[1]);	/* address bits 31 - 16 */
+	newcrc = crc416(newcrc, address[2]);	/* address bits 15 - 0  */
 
 	return(newcrc);
 }
 
+/*
+ * Add requested mcast addr to BMac's hash table filter.
+ *
+ */
 
 static void
 bmac_addhash(struct bmac_data *bp, unsigned char *addr)
@@ -851,9 +870,9 @@ bmac_addhash(struct bmac_data *bp, unsigned char *addr)
 	unsigned short	 mask;
 
 	if (!(*addr)) return;
-	crc = bmac_crc((unsigned short *)addr) & 0x3f; 
-	crc = reverse6[crc];	
-	if (bp->hash_use_count[crc]++) return; 
+	crc = bmac_crc((unsigned short *)addr) & 0x3f; /* Big-endian alert! */
+	crc = reverse6[crc];	/* Hyperfast bit-reversing algorithm */
+	if (bp->hash_use_count[crc]++) return; /* This bit is already set */
 	mask = crc % 16;
 	mask = (unsigned char)1 << mask;
 	bp->hash_use_count[crc/16] |= mask;
@@ -865,16 +884,20 @@ bmac_removehash(struct bmac_data *bp, unsigned char *addr)
 	unsigned int crc;
 	unsigned char mask;
 
-	
-	crc = bmac_crc((unsigned short *)addr) & 0x3f; 
-	crc = reverse6[crc];	
-	if (bp->hash_use_count[crc] == 0) return; 
-	if (--bp->hash_use_count[crc]) return; 
+	/* Now, delete the address from the filter copy, as indicated */
+	crc = bmac_crc((unsigned short *)addr) & 0x3f; /* Big-endian alert! */
+	crc = reverse6[crc];	/* Hyperfast bit-reversing algorithm */
+	if (bp->hash_use_count[crc] == 0) return; /* That bit wasn't in use! */
+	if (--bp->hash_use_count[crc]) return; /* That bit is still in use */
 	mask = crc % 16;
-	mask = ((unsigned char)1 << mask) ^ 0xffff; 
+	mask = ((unsigned char)1 << mask) ^ 0xffff; /* To turn off bit */
 	bp->hash_table_mask[crc/16] &= mask;
 }
 
+/*
+ * Sync the adapter with the software copy of the multicast mask
+ *  (logical address filter).
+ */
 
 static void
 bmac_rx_off(struct net_device *dev)
@@ -901,7 +924,7 @@ bmac_rx_on(struct net_device *dev, int hash_enable, int promisc_enable)
 	if (promisc_enable) rx_cfg |= RxPromiscEnable;
 	else rx_cfg &= ~RxPromiscEnable;
 	bmwrite(dev, RXRST, RxResetValue);
-	bmwrite(dev, RXFIFOCSR, 0);	
+	bmwrite(dev, RXFIFOCSR, 0);	/* first disable rxFIFO */
 	bmwrite(dev, RXFIFOCSR, RxFIFOEnable );
 	bmwrite(dev, RXCFG, rx_cfg );
 	return rx_cfg;
@@ -910,10 +933,10 @@ bmac_rx_on(struct net_device *dev, int hash_enable, int promisc_enable)
 static void
 bmac_update_hash_table_mask(struct net_device *dev, struct bmac_data *bp)
 {
-	bmwrite(dev, BHASH3, bp->hash_table_mask[0]); 
-	bmwrite(dev, BHASH2, bp->hash_table_mask[1]); 
-	bmwrite(dev, BHASH1, bp->hash_table_mask[2]); 
-	bmwrite(dev, BHASH0, bp->hash_table_mask[3]); 
+	bmwrite(dev, BHASH3, bp->hash_table_mask[0]); /* bits 15 - 0 */
+	bmwrite(dev, BHASH2, bp->hash_table_mask[1]); /* bits 31 - 16 */
+	bmwrite(dev, BHASH1, bp->hash_table_mask[2]); /* bits 47 - 32 */
+	bmwrite(dev, BHASH0, bp->hash_table_mask[3]); /* bits 63 - 48 */
 }
 
 #if 0
@@ -921,12 +944,12 @@ static void
 bmac_add_multi(struct net_device *dev,
 	       struct bmac_data *bp, unsigned char *addr)
 {
-	
+	/* XXDEBUG(("bmac: enter bmac_add_multi\n")); */
 	bmac_addhash(bp, addr);
 	bmac_rx_off(dev);
 	bmac_update_hash_table_mask(dev, bp);
 	bmac_rx_on(dev, 1, (dev->flags & IFF_PROMISC)? 1 : 0);
-	
+	/* XXDEBUG(("bmac: exit bmac_add_multi\n")); */
 }
 
 static void
@@ -940,6 +963,12 @@ bmac_remove_multi(struct net_device *dev,
 }
 #endif
 
+/* Set or clear the multicast filter for this adaptor.
+    num_addrs == -1	Promiscuous mode, receive all packets
+    num_addrs == 0	Normal mode, clear multicast list
+    num_addrs > 0	Multicast mode, receive normal and MC packets, and do
+			best-effort filtering.
+ */
 static void bmac_set_multicast(struct net_device *dev)
 {
 	struct netdev_hw_addr *ha;
@@ -978,10 +1007,11 @@ static void bmac_set_multicast(struct net_device *dev)
 			XXDEBUG(("bmac: multi enabled, rx_cfg=%#08x\n", rx_cfg));
 		}
 	}
-	
+	/* XXDEBUG(("bmac: exit bmac_set_multicast\n")); */
 }
-#else 
+#else /* ifdef SUNHME_MULTICAST */
 
+/* The version of set_multicast below was lifted from sunhme.c */
 
 static void bmac_set_multicast(struct net_device *dev)
 {
@@ -1019,7 +1049,7 @@ static void bmac_set_multicast(struct net_device *dev)
 		bmwrite(dev, BHASH3, hash_table[3]);
 	}
 }
-#endif 
+#endif /* SUNHME_MULTICAST */
 
 static int miscintcount;
 
@@ -1030,22 +1060,25 @@ static irqreturn_t bmac_misc_intr(int irq, void *dev_id)
 	if (miscintcount++ < 10) {
 		XXDEBUG(("bmac_misc_intr\n"));
 	}
-	
-	
-	
+	/* XXDEBUG(("bmac_misc_intr, status=%#08x\n", status)); */
+	/*     bmac_txdma_intr_inner(irq, dev_id); */
+	/*   if (status & FrameReceived) dev->stats.rx_dropped++; */
 	if (status & RxErrorMask) dev->stats.rx_errors++;
 	if (status & RxCRCCntExp) dev->stats.rx_crc_errors++;
 	if (status & RxLenCntExp) dev->stats.rx_length_errors++;
 	if (status & RxOverFlow) dev->stats.rx_over_errors++;
 	if (status & RxAlignCntExp) dev->stats.rx_frame_errors++;
 
-	
+	/*   if (status & FrameSent) dev->stats.tx_dropped++; */
 	if (status & TxErrorMask) dev->stats.tx_errors++;
 	if (status & TxUnderrun) dev->stats.tx_fifo_errors++;
 	if (status & TxNormalCollExp) dev->stats.collisions++;
 	return IRQ_HANDLED;
 }
 
+/*
+ * Procedure for reading EEPROM
+ */
 #define SROMAddressLength	5
 #define DataInOn		0x0008
 #define DataInOff		0x0000
@@ -1053,9 +1086,9 @@ static irqreturn_t bmac_misc_intr(int irq, void *dev_id)
 #define ChipSelect		0x0001
 #define SDIShiftCount		3
 #define SD0ShiftCount		2
-#define	DelayValue		1000	
-#define SROMStartOffset		10	
-#define SROMReadCount		3	
+#define	DelayValue		1000	/* number of microseconds */
+#define SROMStartOffset		10	/* this is in words */
+#define SROMReadCount		3	/* number of words to read from SROM */
 #define SROMAddressBits		6
 #define EnetAddressOffset	20
 
@@ -1099,11 +1132,11 @@ bmac_clock_in_bit(struct net_device *dev, unsigned int val)
 static void
 reset_and_select_srom(struct net_device *dev)
 {
-	
+	/* first reset */
 	bmwrite(dev, SROMCSR, 0);
 	udelay(DelayValue);
 
-	
+	/* send it the read command (110) */
 	bmac_clock_in_bit(dev, 1);
 	bmac_clock_in_bit(dev, 1);
 	bmac_clock_in_bit(dev, 0);
@@ -1115,13 +1148,13 @@ read_srom(struct net_device *dev, unsigned int addr, unsigned int addr_len)
 	unsigned short data, val;
 	int i;
 
-	
+	/* send out the address we want to read from */
 	for (i = 0; i < addr_len; i++)	{
 		val = addr >> (addr_len-i-1);
 		bmac_clock_in_bit(dev, val & 1);
 	}
 
-	
+	/* Now read in the 16-bit data */
 	data = 0;
 	for (i = 0; i < 16; i++)	{
 		val = bmac_clock_out_bit(dev);
@@ -1133,6 +1166,10 @@ read_srom(struct net_device *dev, unsigned int addr, unsigned int addr_len)
 	return data;
 }
 
+/*
+ * It looks like Cogent and SMC use different methods for calculating
+ * checksums. What a pain..
+ */
 
 static int
 bmac_verify_checksum(struct net_device *dev)
@@ -1178,6 +1215,10 @@ static void bmac_reset_and_enable(struct net_device *dev)
 	bmwrite(dev, INTDISABLE, EnableNormal);
 	bp->sleeping = 0;
 
+	/*
+	 * It seems that the bmac can't receive until it's transmitted
+	 * a packet.  So we give it a dummy packet to transmit.
+	 */
 	skb = netdev_alloc_skb(dev, ETHERMINPACKET);
 	if (skb != NULL) {
 		data = skb_put(skb, ETHERMINPACKET);
@@ -1258,7 +1299,7 @@ static int __devinit bmac_probe(struct macio_dev *mdev, const struct of_device_i
 	for (j = 0; j < 6; ++j)
 		dev->dev_addr[j] = rev ? bitrev8(addr[j]): addr[j];
 
-	
+	/* Enable chip without interrupts for now */
 	bmac_enable_and_reset_chip(dev);
 	bmwrite(dev, INTDISABLE, DisableAll);
 
@@ -1303,6 +1344,9 @@ static int __devinit bmac_probe(struct macio_dev *mdev, const struct of_device_i
 		goto err_out_irq1;
 	}
 
+	/* Mask chip interrupts and disable chip, will be
+	 * re-enabled on open()
+	 */
 	disable_irq(dev->irq);
 	pmac_call_feature(PMAC_FTR_BMAC_ENABLE, macio_get_of_node(bp->mdev), 0, 0);
 
@@ -1342,8 +1386,8 @@ out_free:
 static int bmac_open(struct net_device *dev)
 {
 	struct bmac_data *bp = netdev_priv(dev);
-	
-	
+	/* XXDEBUG(("bmac: enter open\n")); */
+	/* reset the chip */
 	bp->opened = 1;
 	bmac_reset_and_enable(dev);
 	enable_irq(dev->irq);
@@ -1360,20 +1404,20 @@ static int bmac_close(struct net_device *dev)
 
 	bp->sleeping = 1;
 
-	
+	/* disable rx and tx */
 	config = bmread(dev, RXCFG);
 	bmwrite(dev, RXCFG, (config & ~RxMACEnable));
 
 	config = bmread(dev, TXCFG);
 	bmwrite(dev, TXCFG, (config & ~TxMACEnable));
 
-	bmwrite(dev, INTDISABLE, DisableAll); 
+	bmwrite(dev, INTDISABLE, DisableAll); /* disable all intrs */
 
-	
-	st_le32(&rd->control, DBDMA_CLEAR(RUN|PAUSE|FLUSH|WAKE));	
-	st_le32(&td->control, DBDMA_CLEAR(RUN|PAUSE|FLUSH|WAKE));	
+	/* disable rx and tx dma */
+	st_le32(&rd->control, DBDMA_CLEAR(RUN|PAUSE|FLUSH|WAKE));	/* clear run bit */
+	st_le32(&td->control, DBDMA_CLEAR(RUN|PAUSE|FLUSH|WAKE));	/* clear run bit */
 
-	
+	/* free some skb's */
 	XXDEBUG(("bmac: free rx bufs\n"));
 	for (i=0; i<N_RX_RING; i++) {
 		if (bp->rx_bufs[i] != NULL) {
@@ -1447,11 +1491,15 @@ static void bmac_tx_timeout(unsigned long data)
 	spin_lock_irqsave(&bp->lock, flags);
 	bp->timeout_active = 0;
 
-	
+	/* update various counters */
+/*     	bmac_handle_misc_intrs(bp, 0); */
 
 	cp = &bp->tx_cmds[bp->tx_empty];
+/*	XXDEBUG((KERN_DEBUG "bmac: tx dmastat=%x %x runt=%d pr=%x fs=%x fc=%x\n", */
+/* 	   ld_le32(&td->status), ld_le16(&cp->xfer_status), bp->tx_bad_runt, */
+/* 	   mb->pr, mb->xmtfs, mb->fifofc)); */
 
-	
+	/* turn off both tx and rx and reset the chip */
 	config = bmread(dev, RXCFG);
 	bmwrite(dev, RXCFG, (config & ~RxMACEnable));
 	config = bmread(dev, TXCFG);
@@ -1460,14 +1508,14 @@ static void bmac_tx_timeout(unsigned long data)
 	printk(KERN_ERR "bmac: transmit timeout - resetting\n");
 	bmac_enable_and_reset_chip(dev);
 
-	
+	/* restart rx dma */
 	cp = bus_to_virt(ld_le32(&rd->cmdptr));
 	out_le32(&rd->control, DBDMA_CLEAR(RUN|PAUSE|FLUSH|WAKE|ACTIVE|DEAD));
 	out_le16(&cp->xfer_status, 0);
 	out_le32(&rd->cmdptr, virt_to_bus(cp));
 	out_le32(&rd->control, DBDMA_SET(RUN|WAKE));
 
-	
+	/* fix up the transmit side */
 	XXDEBUG((KERN_DEBUG "bmac: tx empty=%d fill=%d fullup=%d\n",
 		 bp->tx_empty, bp->tx_fill, bp->tx_fullup));
 	i = bp->tx_empty;
@@ -1486,11 +1534,11 @@ static void bmac_tx_timeout(unsigned long data)
 		out_le16(&cp->command, OUTPUT_LAST);
 		out_le32(&td->cmdptr, virt_to_bus(cp));
 		out_le32(&td->control, DBDMA_SET(RUN));
-		
+		/* 	bmac_set_timeout(dev); */
 		XXDEBUG((KERN_DEBUG "bmac: starting %d\n", i));
 	}
 
-	
+	/* turn it back on */
 	oldConfig = bmread(dev, RXCFG);
 	bmwrite(dev, RXCFG, oldConfig | RxMACEnable );
 	oldConfig = bmread(dev, TXCFG);

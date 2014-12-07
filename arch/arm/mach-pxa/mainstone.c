@@ -56,14 +56,14 @@
 #include "devices.h"
 
 static unsigned long mainstone_pin_config[] = {
-	
+	/* Chip Select */
 	GPIO15_nCS_1,
 
-	
+	/* LCD - 16bpp Active TFT */
 	GPIOxx_LCD_TFT_16BPP,
-	GPIO16_PWM0_OUT,	
+	GPIO16_PWM0_OUT,	/* Backlight */
 
-	
+	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO112_MMC_CMD,
 	GPIO92_MMC_DAT_0,
@@ -71,11 +71,11 @@ static unsigned long mainstone_pin_config[] = {
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 
-	
+	/* USB Host Port 1 */
 	GPIO88_USBH1_PWR,
 	GPIO89_USBH1_PEN,
 
-	
+	/* PC Card */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -87,14 +87,14 @@ static unsigned long mainstone_pin_config[] = {
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
 	GPIO31_AC97_SYNC,
 	GPIO45_AC97_SYSCLK,
 
-	
+	/* Keypad */
 	GPIO93_KP_DKIN_0,
 	GPIO94_KP_DKIN_1,
 	GPIO95_KP_DKIN_2,
@@ -112,11 +112,11 @@ static unsigned long mainstone_pin_config[] = {
 	GPIO108_KP_MKOUT_5,
 	GPIO96_KP_MKOUT_6,
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	
+	/* GPIO */
 	GPIO1_GPIO | WAKEUP_ON_EDGE_BOTH,
 };
 
@@ -131,7 +131,7 @@ static void mainstone_mask_irq(struct irq_data *d)
 static void mainstone_unmask_irq(struct irq_data *d)
 {
 	int mainstone_irq = (d->irq - MAINSTONE_IRQ(0));
-	
+	/* the irq can be acknowledged only if deasserted, so it's done here */
 	MST_INTSETCLR &= ~(1 << mainstone_irq);
 	MST_INTMSKENA = (mainstone_irq_enabled |= (1 << mainstone_irq));
 }
@@ -147,7 +147,7 @@ static void mainstone_irq_handler(unsigned int irq, struct irq_desc *desc)
 {
 	unsigned long pending = MST_INTSETCLR & mainstone_irq_enabled;
 	do {
-		
+		/* clear useless edge notification */
 		desc->irq_data.chip->irq_ack(&desc->irq_data);
 		if (likely(pending)) {
 			irq = MAINSTONE_IRQ(0) + __ffs(pending);
@@ -163,7 +163,7 @@ static void __init mainstone_init_irq(void)
 
 	pxa27x_init_irq();
 
-	
+	/* setup extra Mainstone irqs */
 	for(irq = MAINSTONE_IRQ(0); irq <= MAINSTONE_IRQ(15); irq++) {
 		irq_set_chip_and_handler(irq, &mainstone_irq_chip,
 					 handle_level_irq);
@@ -285,7 +285,7 @@ static struct mtd_partition mainstoneflash0_partitions[] = {
 		.name =		"Bootloader",
 		.size =		0x00040000,
 		.offset =	0,
-		.mask_flags =	MTD_WRITEABLE  
+		.mask_flags =	MTD_WRITEABLE  /* force read-only */
 	},{
 		.name =		"Kernel",
 		.size =		0x00400000,
@@ -393,6 +393,9 @@ static int mainstone_mci_init(struct device *dev, irq_handler_t mstone_detect_in
 {
 	int err;
 
+	/* make sure SD/Memory Stick multiplexer's signals
+	 * are routed to MMC controller
+	 */
 	MST_MSCWR1 &= ~MST_MSCWR1_MS_SEL;
 
 	err = request_irq(MAINSTONE_MMC_IRQ, mstone_detect_int, IRQF_DISABLED,
@@ -504,8 +507,8 @@ static unsigned int mainstone_matrix_keys[] = {
 	KEY(3, 3, KEY_V), KEY(4, 3, KEY_W), KEY(5, 3, KEY_X),
 	KEY(2, 4, KEY_Y), KEY(3, 4, KEY_Z),
 
-	KEY(0, 4, KEY_DOT),	
-	KEY(1, 4, KEY_CLOSE),	
+	KEY(0, 4, KEY_DOT),	/* . */
+	KEY(1, 4, KEY_CLOSE),	/* @ */
 	KEY(4, 4, KEY_SLASH),
 	KEY(5, 4, KEY_BACKSLASH),
 	KEY(0, 5, KEY_HOME),
@@ -545,7 +548,7 @@ static inline void mainstone_init_keypad(void) {}
 
 static void __init mainstone_init(void)
 {
-	int SW7 = 0;  
+	int SW7 = 0;  /* FIXME: get from SCR (Mst doc section 3.2.1.1) */
 
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(mainstone_pin_config));
 
@@ -556,17 +559,23 @@ static void __init mainstone_init(void)
 	mst_flash_data[0].width = (__raw_readl(BOOT_DEF) & 1) ? 2 : 4;
 	mst_flash_data[1].width = 4;
 
-	
+	/* Compensate for SW7 which swaps the flash banks */
 	mst_flash_data[SW7].name = "processor-flash";
 	mst_flash_data[SW7 ^ 1].name = "mainboard-flash";
 
 	printk(KERN_NOTICE "Mainstone configured to boot from %s\n",
 	       mst_flash_data[0].name);
 
+	/* system bus arbiter setting
+	 * - Core_Park
+	 * - LCD_wt:DMA_wt:CORE_Wt = 2:3:4
+	 */
 	ARB_CNTRL = ARB_CORE_PARK | 0x234;
 
 	platform_add_devices(platform_devices, ARRAY_SIZE(platform_devices));
 
+	/* reading Mainstone's "Virtual Configuration Register"
+	   might be handy to select LCD type here */
 	if (0)
 		mainstone_pxafb_info.modes = &toshiba_ltm04c380k_mode;
 	else
@@ -586,7 +595,7 @@ static void __init mainstone_init(void)
 
 
 static struct map_desc mainstone_io_desc[] __initdata = {
-  	{	
+  	{	/* CPLD */
 		.virtual	=  MST_FPGA_VIRT,
 		.pfn		= __phys_to_pfn(MST_FPGA_PHYS),
 		.length		= 0x00100000,
@@ -599,14 +608,14 @@ static void __init mainstone_map_io(void)
 	pxa27x_map_io();
 	iotable_init(mainstone_io_desc, ARRAY_SIZE(mainstone_io_desc));
 
- 	
+ 	/*	for use I SRAM as framebuffer.	*/
  	PSLR |= 0xF04;
  	PCFR = 0x66;
 }
 
 MACHINE_START(MAINSTONE, "Intel HCDDBBVA0 Development Platform (aka Mainstone)")
-	
-	.atag_offset	= 0x100,	
+	/* Maintainer: MontaVista Software Inc. */
+	.atag_offset	= 0x100,	/* BLOB boot parameter setting */
 	.map_io		= mainstone_map_io,
 	.nr_irqs	= MAINSTONE_NR_IRQS,
 	.init_irq	= mainstone_init_irq,

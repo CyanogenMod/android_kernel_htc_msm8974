@@ -44,6 +44,14 @@
 #include <asm/mmu_context.h>
 #include <asm/mman.h>
 
+/* Use this to get at 32-bit user passed pointers. */
+/* A() macro should be used for places where you e.g.
+   have some internal variable u32 and just want to get
+   rid of a compiler warning. AA() has to be used in
+   places where you want to convert a function argument
+   to 32bit pointer or when you e.g. access pt_regs
+   structure and want to consider 32bit registers only.
+ */
 #define A(__x) ((unsigned long)(__x))
 #define AA(__x) ((unsigned long)((int)__x))
 
@@ -69,6 +77,9 @@ out:
 	return error;
 }
 
+/*
+ * sys_execve() executes a new program.
+ */
 asmlinkage int sys32_execve(nabi_no_regargs struct pt_regs regs)
 {
 	int error;
@@ -113,6 +124,9 @@ SYSCALL_DEFINE5(32_llseek, unsigned int, fd, unsigned int, offset_high,
 	return sys_llseek(fd, offset_high, offset_low, result, origin);
 }
 
+/* From the Single Unix Spec: pread & pwrite act like lseek to pos + op +
+   lseek back to original location.  They fail just like lseek does on
+   non-seekable files.  */
 
 SYSCALL_DEFINE6(32_pread, unsigned long, fd, char __user *, buf, size_t, count,
 	unsigned long, unused, unsigned long, a4, unsigned long, a5)
@@ -149,12 +163,12 @@ SYSCALL_DEFINE6(32_ipc, u32, call, long, first, long, second, long, third,
 {
 	int version, err;
 
-	version = call >> 16; 
+	version = call >> 16; /* hack for backward compatibility */
 	call &= 0xffff;
 
 	switch (call) {
 	case SEMOP:
-		
+		/* struct sembuf is the same on 32 and 64bit :)) */
 		err = sys_semtimedop(first, compat_ptr(ptr), second, NULL);
 		break;
 	case SEMTIMEDOP:
@@ -209,12 +223,12 @@ SYSCALL_DEFINE6(32_ipc, u32, call, int, first, int, second, int, third,
 	return -ENOSYS;
 }
 
-#endif 
+#endif /* CONFIG_SYSVIPC */
 
 #ifdef CONFIG_MIPS32_N32
 SYSCALL_DEFINE4(n32_semctl, int, semid, int, semnum, int, cmd, u32, arg)
 {
-	
+	/* compat_sys_semctl expects a pointer to union semun */
 	u32 __user *uptr = compat_alloc_user_space(sizeof(u32));
 	if (put_user(arg, uptr))
 		return -EFAULT;
@@ -316,6 +330,8 @@ _sys32_clone(nabi_no_regargs struct pt_regs regs)
 		newsp = regs.regs[29];
 	parent_tidptr = (int __user *) regs.regs[6];
 
+	/* Use __dummy4 instead of getting it off the stack, so that
+	   syscall() works.  */
 	child_tidptr = (int __user *) __dummy4;
 	return do_fork(clone_flags, newsp, &regs, 0,
 	               parent_tidptr, child_tidptr);

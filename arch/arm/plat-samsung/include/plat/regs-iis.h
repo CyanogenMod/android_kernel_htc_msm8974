@@ -67,4 +67,4 @@
 
 #define S3C2410_IISFIFO			(0x10)
 
-#endif 
+#endif /* __ASM_ARCH_REGS_IIS_H */

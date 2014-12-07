@@ -1,14 +1,19 @@
+/* $Date: 2005/10/24 23:18:13 $ $RCSfile: mv88e1xxx.c,v $ $Revision: 1.49 $ */
 #include "common.h"
 #include "mv88e1xxx.h"
 #include "cphy.h"
 #include "elmer0.h"
 
+/* MV88E1XXX MDI crossover register values */
 #define CROSSOVER_MDI   0
 #define CROSSOVER_MDIX  1
 #define CROSSOVER_AUTO  3
 
 #define INTR_ENABLE_MASK 0x6CA0
 
+/*
+ * Set the bits given by 'bitval' in PHY register 'reg'.
+ */
 static void mdio_set_bit(struct cphy *cphy, int reg, u32 bitval)
 {
 	u32 val;
@@ -17,6 +22,9 @@ static void mdio_set_bit(struct cphy *cphy, int reg, u32 bitval)
 	(void) simple_mdio_write(cphy, reg, val | bitval);
 }
 
+/*
+ * Clear the bits given by 'bitval' in PHY register 'reg'.
+ */
 static void mdio_clear_bit(struct cphy *cphy, int reg, u32 bitval)
 {
 	u32 val;
@@ -25,6 +33,17 @@ static void mdio_clear_bit(struct cphy *cphy, int reg, u32 bitval)
 	(void) simple_mdio_write(cphy, reg, val & ~bitval);
 }
 
+/*
+ * NAME:   phy_reset
+ *
+ * DESC:   Reset the given PHY's port. NOTE: This is not a global
+ *         chip reset.
+ *
+ * PARAMS: cphy     - Pointer to PHY instance data.
+ *
+ * RETURN:  0 - Successful reset.
+ *         -1 - Timeout.
+ */
 static int mv88e1xxx_reset(struct cphy *cphy, int wait)
 {
 	u32 ctl;
@@ -44,11 +63,11 @@ static int mv88e1xxx_reset(struct cphy *cphy, int wait)
 
 static int mv88e1xxx_interrupt_enable(struct cphy *cphy)
 {
-	
+	/* Enable PHY interrupts. */
 	(void) simple_mdio_write(cphy, MV88E1XXX_INTERRUPT_ENABLE_REGISTER,
 		   INTR_ENABLE_MASK);
 
-	
+	/* Enable Marvell interrupts through Elmer0. */
 	if (t1_is_asic(cphy->adapter)) {
 		u32 elmer;
 
@@ -63,10 +82,10 @@ static int mv88e1xxx_interrupt_enable(struct cphy *cphy)
 
 static int mv88e1xxx_interrupt_disable(struct cphy *cphy)
 {
-	
+	/* Disable all phy interrupts. */
 	(void) simple_mdio_write(cphy, MV88E1XXX_INTERRUPT_ENABLE_REGISTER, 0);
 
-	
+	/* Disable Marvell interrupts through Elmer0. */
 	if (t1_is_asic(cphy->adapter)) {
 		u32 elmer;
 
@@ -83,11 +102,11 @@ static int mv88e1xxx_interrupt_clear(struct cphy *cphy)
 {
 	u32 elmer;
 
-	
+	/* Clear PHY interrupts by reading the register. */
 	(void) simple_mdio_read(cphy,
 			MV88E1XXX_INTERRUPT_STATUS_REGISTER, &elmer);
 
-	
+	/* Clear Marvell interrupts through Elmer0. */
 	if (t1_is_asic(cphy->adapter)) {
 		t1_tpi_read(cphy->adapter, A_ELMER0_INT_CAUSE, &elmer);
 		elmer |= ELMER0_GP_BIT1;
@@ -98,6 +117,10 @@ static int mv88e1xxx_interrupt_clear(struct cphy *cphy)
 	return 0;
 }
 
+/*
+ * Set the PHY speed and duplex.  This also disables auto-negotiation, except
+ * for 1Gb/s, where auto-negotiation is mandatory.
+ */
 static int mv88e1xxx_set_speed_duplex(struct cphy *phy, int speed, int duplex)
 {
 	u32 ctl;
@@ -115,7 +138,7 @@ static int mv88e1xxx_set_speed_duplex(struct cphy *phy, int speed, int duplex)
 		if (duplex == DUPLEX_FULL)
 			ctl |= BMCR_FULLDPLX;
 	}
-	if (ctl & BMCR_SPEED1000)  
+	if (ctl & BMCR_SPEED1000)  /* auto-negotiation required for 1Gb/s */
 		ctl |= BMCR_ANENABLE;
 	(void) simple_mdio_write(phy, MII_BMCR, ctl);
 	return 0;
@@ -141,7 +164,7 @@ static int mv88e1xxx_autoneg_enable(struct cphy *cphy)
 	(void) mv88e1xxx_crossover_set(cphy, CROSSOVER_AUTO);
 
 	(void) simple_mdio_read(cphy, MII_BMCR, &ctl);
-	
+	/* restart autoneg for change to take effect */
 	ctl |= BMCR_ANENABLE | BMCR_ANRESTART;
 	(void) simple_mdio_write(cphy, MII_BMCR, ctl);
 	return 0;
@@ -151,8 +174,16 @@ static int mv88e1xxx_autoneg_disable(struct cphy *cphy)
 {
 	u32 ctl;
 
+	/*
+	 * Crossover *must* be set to manual in order to disable auto-neg.
+	 * The Alaska FAQs document highlights this point.
+	 */
 	(void) mv88e1xxx_crossover_set(cphy, CROSSOVER_MDI);
 
+	/*
+	 * Must include autoneg reset when disabling auto-neg. This
+	 * is described in the Alaska FAQ document.
+	 */
 	(void) simple_mdio_read(cphy, MII_BMCR, &ctl);
 	ctl &= ~BMCR_ANENABLE;
 	(void) simple_mdio_write(cphy, MII_BMCR, ctl | BMCR_ANRESTART);
@@ -246,6 +277,10 @@ static int mv88e1xxx_downshift_set(struct cphy *cphy, int downshift_enable)
 	(void) simple_mdio_read(cphy,
 		MV88E1XXX_EXT_PHY_SPECIFIC_CNTRL_REGISTER, &val);
 
+	/*
+	 * Set the downshift counter to 2 so we try to establish Gb link
+	 * twice before downshifting.
+	 */
 	val &= ~(V_DOWNSHIFT_ENABLE | V_DOWNSHIFT_CNT(M_DOWNSHIFT_CNT));
 
 	if (downshift_enable)
@@ -260,6 +295,9 @@ static int mv88e1xxx_interrupt_handler(struct cphy *cphy)
 	int cphy_cause = 0;
 	u32 status;
 
+	/*
+	 * Loop until cause reads zero. Need to handle bouncing interrupts.
+	 */
 	while (1) {
 		u32 cause;
 
@@ -326,17 +364,20 @@ static struct cphy *mv88e1xxx_phy_create(struct net_device *dev, int phy_addr,
 
 	cphy_init(cphy, dev, phy_addr, &mv88e1xxx_ops, mdio_ops);
 
-	
+	/* Configure particular PHY's to run in a different mode. */
 	if ((board_info(adapter)->caps & SUPPORTED_TP) &&
 	    board_info(adapter)->chip_phy == CHBT_PHY_88E1111) {
+		/*
+		 * Configure the PHY transmitter as class A to reduce EMI.
+		 */
 		(void) simple_mdio_write(cphy,
 				MV88E1XXX_EXTENDED_ADDR_REGISTER, 0xB);
 		(void) simple_mdio_write(cphy,
 				MV88E1XXX_EXTENDED_REGISTER, 0x8004);
 	}
-	(void) mv88e1xxx_downshift_set(cphy, 1);   
+	(void) mv88e1xxx_downshift_set(cphy, 1);   /* Enable downshift */
 
-	
+	/* LED */
 	if (is_T2(adapter)) {
 		(void) simple_mdio_write(cphy,
 				MV88E1XXX_LED_CONTROL_REGISTER, 0x1);

@@ -246,6 +246,12 @@ const char *dlm_errname(enum dlm_status err)
 }
 EXPORT_SYMBOL_GPL(dlm_errname);
 
+/* NOTE: This function converts a lockname into a string. It uses knowledge
+ * of the format of the lockname that should be outside the purview of the dlm.
+ * We are adding only to make dlm debugging slightly easier.
+ *
+ * For more on lockname formats, please refer to dlmglue.c and ocfs2_lockid.h.
+ */
 static int stringify_lockname(const char *lockname, int locklen, char *buf,
 			      int len)
 {
@@ -344,6 +350,7 @@ static struct dentry *dlm_debugfs_root = NULL;
 #define DLM_DEBUGFS_MLE_STATE			"mle_state"
 #define DLM_DEBUGFS_PURGE_LIST			"purge_list"
 
+/* begin - utils funcs */
 static void dlm_debug_free(struct kref *kref)
 {
 	struct dlm_debug_ctxt *dc;
@@ -376,7 +383,9 @@ static ssize_t debug_read(struct file *file, char __user *buf,
 	return simple_read_from_buffer(buf, nbytes, ppos, file->private_data,
 				       i_size_read(file->f_mapping->host));
 }
+/* end - util funcs */
 
+/* begin - purge list funcs */
 static int debug_purgelist_print(struct dlm_ctxt *dlm, char *buf, int len)
 {
 	struct dlm_lock_resource *res;
@@ -430,7 +439,9 @@ static const struct file_operations debug_purgelist_fops = {
 	.read =		debug_read,
 	.llseek =	generic_file_llseek,
 };
+/* end - purge list funcs */
 
+/* begin - debug mle funcs */
 static int debug_mle_print(struct dlm_ctxt *dlm, char *buf, int len)
 {
 	struct dlm_master_list_entry *mle;
@@ -489,7 +500,9 @@ static const struct file_operations debug_mle_fops = {
 	.llseek =	generic_file_llseek,
 };
 
+/* end - debug mle funcs */
 
+/* begin - debug lockres funcs */
 static int dump_lock(struct dlm_lock *lock, int list_type, char *buf, int len)
 {
 	int out;
@@ -537,28 +550,28 @@ static int dump_lockres(struct dlm_lock_resource *res, char *buf, int len)
 			atomic_read(&res->asts_reserved),
 			atomic_read(&res->refs.refcount));
 
-	
+	/* refmap */
 	out += snprintf(buf + out, len - out, "RMAP:");
 	out += stringify_nodemap(res->refmap, O2NM_MAX_NODES,
 				 buf + out, len - out);
 	out += snprintf(buf + out, len - out, "\n");
 
-	
+	/* lvb */
 	out += snprintf(buf + out, len - out, "LVBX:");
 	for (i = 0; i < DLM_LVB_LEN; i++)
 		out += snprintf(buf + out, len - out,
 					"%02x", (unsigned char)res->lvb[i]);
 	out += snprintf(buf + out, len - out, "\n");
 
-	
+	/* granted */
 	list_for_each_entry(lock, &res->granted, list)
 		out += dump_lock(lock, 0, buf + out, len - out);
 
-	
+	/* converting */
 	list_for_each_entry(lock, &res->converting, list)
 		out += dump_lock(lock, 1, buf + out, len - out);
 
-	
+	/* blocked */
 	list_for_each_entry(lock, &res->blocked, list)
 		out += dump_lock(lock, 2, buf + out, len - out);
 
@@ -609,7 +622,7 @@ static void *lockres_seq_start(struct seq_file *m, loff_t *pos)
 		dl = NULL;
 
 bail:
-	
+	/* passed to seq_show */
 	return dl;
 }
 
@@ -696,7 +709,9 @@ static const struct file_operations debug_lockres_fops = {
 	.read =		seq_read,
 	.llseek =	seq_lseek,
 };
+/* end - debug lockres funcs */
 
+/* begin - debug state funcs */
 static int debug_state_print(struct dlm_ctxt *dlm, char *buf, int len)
 {
 	int out = 0;
@@ -720,41 +735,41 @@ static int debug_state_print(struct dlm_ctxt *dlm, char *buf, int len)
 		state = "UNKNOWN"; break;
 	}
 
-	
+	/* Domain: xxxxxxxxxx  Key: 0xdfbac769 */
 	out += snprintf(buf + out, len - out,
 			"Domain: %s  Key: 0x%08x  Protocol: %d.%d\n",
 			dlm->name, dlm->key, dlm->dlm_locking_proto.pv_major,
 			dlm->dlm_locking_proto.pv_minor);
 
-	
+	/* Thread Pid: xxx  Node: xxx  State: xxxxx */
 	out += snprintf(buf + out, len - out,
 			"Thread Pid: %d  Node: %d  State: %s\n",
 			task_pid_nr(dlm->dlm_thread_task), dlm->node_num, state);
 
-	
+	/* Number of Joins: xxx  Joining Node: xxx */
 	out += snprintf(buf + out, len - out,
 			"Number of Joins: %d  Joining Node: %d\n",
 			dlm->num_joins, dlm->joining_node);
 
-	
+	/* Domain Map: xx xx xx */
 	out += snprintf(buf + out, len - out, "Domain Map: ");
 	out += stringify_nodemap(dlm->domain_map, O2NM_MAX_NODES,
 				 buf + out, len - out);
 	out += snprintf(buf + out, len - out, "\n");
 
-	
+	/* Exit Domain Map: xx xx xx */
 	out += snprintf(buf + out, len - out, "Exit Domain Map: ");
 	out += stringify_nodemap(dlm->exit_domain_map, O2NM_MAX_NODES,
 				 buf + out, len - out);
 	out += snprintf(buf + out, len - out, "\n");
 
-	
+	/* Live Map: xx xx xx */
 	out += snprintf(buf + out, len - out, "Live Map: ");
 	out += stringify_nodemap(dlm->live_nodes_map, O2NM_MAX_NODES,
 				 buf + out, len - out);
 	out += snprintf(buf + out, len - out, "\n");
 
-	
+	/* Lock Resources: xxx (xxx) */
 	out += snprintf(buf + out, len - out,
 			"Lock Resources: %d (%d)\n",
 			atomic_read(&dlm->res_cur_count),
@@ -766,29 +781,29 @@ static int debug_state_print(struct dlm_ctxt *dlm, char *buf, int len)
 	for (i = 0; i < DLM_MLE_NUM_TYPES; ++i)
 		cur_mles += atomic_read(&dlm->mle_cur_count[i]);
 
-	
+	/* MLEs: xxx (xxx) */
 	out += snprintf(buf + out, len - out,
 			"MLEs: %d (%d)\n", cur_mles, tot_mles);
 
-	
+	/*  Blocking: xxx (xxx) */
 	out += snprintf(buf + out, len - out,
 			"  Blocking: %d (%d)\n",
 			atomic_read(&dlm->mle_cur_count[DLM_MLE_BLOCK]),
 			atomic_read(&dlm->mle_tot_count[DLM_MLE_BLOCK]));
 
-	
+	/*  Mastery: xxx (xxx) */
 	out += snprintf(buf + out, len - out,
 			"  Mastery: %d (%d)\n",
 			atomic_read(&dlm->mle_cur_count[DLM_MLE_MASTER]),
 			atomic_read(&dlm->mle_tot_count[DLM_MLE_MASTER]));
 
-	
+	/*  Migration: xxx (xxx) */
 	out += snprintf(buf + out, len - out,
 			"  Migration: %d (%d)\n",
 			atomic_read(&dlm->mle_cur_count[DLM_MLE_MIGRATION]),
 			atomic_read(&dlm->mle_tot_count[DLM_MLE_MIGRATION]));
 
-	
+	/* Lists: Dirty=Empty  Purge=InUse  PendingASTs=Empty  ... */
 	out += snprintf(buf + out, len - out,
 			"Lists: Dirty=%s  Purge=%s  PendingASTs=%s  "
 			"PendingBASTs=%s\n",
@@ -797,34 +812,34 @@ static int debug_state_print(struct dlm_ctxt *dlm, char *buf, int len)
 			(list_empty(&dlm->pending_asts) ? "Empty" : "InUse"),
 			(list_empty(&dlm->pending_basts) ? "Empty" : "InUse"));
 
-	
+	/* Purge Count: xxx  Refs: xxx */
 	out += snprintf(buf + out, len - out,
 			"Purge Count: %d  Refs: %d\n", dlm->purge_count,
 			atomic_read(&dlm->dlm_refs.refcount));
 
-	
+	/* Dead Node: xxx */
 	out += snprintf(buf + out, len - out,
 			"Dead Node: %d\n", dlm->reco.dead_node);
 
-	
+	/* What about DLM_RECO_STATE_FINALIZE? */
 	if (dlm->reco.state == DLM_RECO_STATE_ACTIVE)
 		state = "ACTIVE";
 	else
 		state = "INACTIVE";
 
-	
+	/* Recovery Pid: xxxx  Master: xxx  State: xxxx */
 	out += snprintf(buf + out, len - out,
 			"Recovery Pid: %d  Master: %d  State: %s\n",
 			task_pid_nr(dlm->dlm_reco_thread_task),
 			dlm->reco.new_master, state);
 
-	
+	/* Recovery Map: xx xx */
 	out += snprintf(buf + out, len - out, "Recovery Map: ");
 	out += stringify_nodemap(dlm->recovery_map, O2NM_MAX_NODES,
 				 buf + out, len - out);
 	out += snprintf(buf + out, len - out, "\n");
 
-	
+	/* Recovery Node State: */
 	out += snprintf(buf + out, len - out, "Recovery Node State:\n");
 	list_for_each_entry(node, &dlm->reco.node_data, list) {
 		switch (node->state) {
@@ -886,12 +901,14 @@ static const struct file_operations debug_state_fops = {
 	.read =		debug_read,
 	.llseek =	generic_file_llseek,
 };
+/* end  - debug state funcs */
 
+/* files in subroot */
 int dlm_debug_init(struct dlm_ctxt *dlm)
 {
 	struct dlm_debug_ctxt *dc = dlm->dlm_debug_ctxt;
 
-	
+	/* for dumping dlm_ctxt */
 	dc->debug_state_dentry = debugfs_create_file(DLM_DEBUGFS_DLM_STATE,
 						     S_IFREG|S_IRUSR,
 						     dlm->dlm_debugfs_subroot,
@@ -901,7 +918,7 @@ int dlm_debug_init(struct dlm_ctxt *dlm)
 		goto bail;
 	}
 
-	
+	/* for dumping lockres */
 	dc->debug_lockres_dentry =
 			debugfs_create_file(DLM_DEBUGFS_LOCKING_STATE,
 					    S_IFREG|S_IRUSR,
@@ -912,7 +929,7 @@ int dlm_debug_init(struct dlm_ctxt *dlm)
 		goto bail;
 	}
 
-	
+	/* for dumping mles */
 	dc->debug_mle_dentry = debugfs_create_file(DLM_DEBUGFS_MLE_STATE,
 						   S_IFREG|S_IRUSR,
 						   dlm->dlm_debugfs_subroot,
@@ -922,7 +939,7 @@ int dlm_debug_init(struct dlm_ctxt *dlm)
 		goto bail;
 	}
 
-	
+	/* for dumping lockres on the purge list */
 	dc->debug_purgelist_dentry =
 			debugfs_create_file(DLM_DEBUGFS_PURGE_LIST,
 					    S_IFREG|S_IRUSR,
@@ -954,6 +971,7 @@ void dlm_debug_shutdown(struct dlm_ctxt *dlm)
 	}
 }
 
+/* subroot - domain dir */
 int dlm_create_debugfs_subroot(struct dlm_ctxt *dlm)
 {
 	dlm->dlm_debugfs_subroot = debugfs_create_dir(dlm->name,
@@ -982,6 +1000,7 @@ void dlm_destroy_debugfs_subroot(struct dlm_ctxt *dlm)
 	debugfs_remove(dlm->dlm_debugfs_subroot);
 }
 
+/* debugfs root */
 int dlm_create_debugfs_root(void)
 {
 	dlm_debugfs_root = debugfs_create_dir(DLM_DEBUGFS_DIR, NULL);
@@ -996,4 +1015,4 @@ void dlm_destroy_debugfs_root(void)
 {
 	debugfs_remove(dlm_debugfs_root);
 }
-#endif	
+#endif	/* CONFIG_DEBUG_FS */

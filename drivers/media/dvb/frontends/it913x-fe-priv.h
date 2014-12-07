@@ -19,6 +19,8 @@ struct adctable {	u32 adcFrequency;
 			u16 fftinx_bfsfcw_ratio;
 };
 
+/* clock and coeff tables only table 3 is used with IT9137*/
+/* TODO other tables relate AF9035 may be removed */
 static struct adctable tab1[] = {
 	{	20156250, 6000000,
 		0x02b8ba6e, 0x015c5d37, 0x00ae340d, 0x00ae2e9b, 0x00ae292a,
@@ -151,18 +153,19 @@ struct table {
 };
 
 static struct table fe_clockTable[] = {
-		{12000000, tab3},	
-		{20480000, tab6},	
-		{36000000, tab3},	
-		{30000000, tab1},	
-		{26000000, tab4},	
-		{28000000, tab5},	
-		{32000000, tab7},	
-		{34000000, tab2},	
-		{24000000, tab1},	
-		{22000000, tab8},	
+		{12000000, tab3},	/* 12.00MHz */
+		{20480000, tab6},	/* 20.48MHz */
+		{36000000, tab3},	/* 36.00MHz */
+		{30000000, tab1},	/* 30.00MHz */
+		{26000000, tab4},	/* 26.00MHz */
+		{28000000, tab5},	/* 28.00MHz */
+		{32000000, tab7},	/* 32.00MHz */
+		{34000000, tab2},	/* 34.00MHz */
+		{24000000, tab1},	/* 24.00MHz */
+		{22000000, tab8},	/* 22.00MHz */
 };
 
+/* fe get */
 fe_code_rate_t fe_code[] = {
 	FEC_1_2,
 	FEC_2_3,
@@ -199,10 +202,11 @@ fe_modulation_t fe_con[] = {
 };
 
 enum {
-	PRIORITY_HIGH = 0,	
-	PRIORITY_LOW,	
+	PRIORITY_HIGH = 0,	/* High-priority stream */
+	PRIORITY_LOW,	/* Low-priority stream */
 };
 
+/* Standard demodulator functions */
 static struct it913xset set_solo_fe[] = {
 	{PRO_LINK, GPIOH5_EN, {0x01}, 0x01},
 	{PRO_LINK, GPIOH5_ON, {0x01}, 0x01},
@@ -223,7 +227,7 @@ static struct it913xset set_solo_fe[] = {
 	{PRO_DMOD, DCA_ENABLE, {0x00}, 0x01},
 	{PRO_DMOD, MP2IF_MPEG_PAR_MODE, {0x00}, 0x01},
 	{PRO_DMOD, BFS_FCW, {0x00, 0x00, 0x00}, 0x03},
-	{0xff, 0x0000, {0x00}, 0x00}, 
+	{0xff, 0x0000, {0x00}, 0x00}, /* Terminating Entry */
 };
 
 
@@ -232,12 +236,13 @@ static struct it913xset init_1[] = {
 	{PRO_LINK, PADMISCDRSR, {0x01}, 0x01},
 	{PRO_LINK, PADMISCDR2, {0x00}, 0x01},
 	{PRO_DMOD, 0xec57, {0x00, 0x00}, 0x02},
-	{PRO_LINK, PADMISCDR4, {0x00}, 0x01}, 
+	{PRO_LINK, PADMISCDR4, {0x00}, 0x01}, /* Power up */
 	{PRO_LINK, PADMISCDR8, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00} 
+	{0xff, 0x0000, {0x00}, 0x00} /* Terminating Entry */
 };
 
 
+/* Version 1 types */
 static struct it913xset it9135_v1[] = {
 	{PRO_DMOD, 0x0051, {0x01}, 0x01},
 	{PRO_DMOD, 0x0070, {0x0a}, 0x01},
@@ -347,7 +352,7 @@ static struct it913xset it9135_v1[] = {
 	{PRO_DMOD, 0xf905, {0x01}, 0x01},
 	{PRO_DMOD, 0xfb06, {0x03}, 0x01},
 	{PRO_DMOD, 0xfd8b, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00} 
+	{0xff, 0x0000, {0x00}, 0x00} /* Terminating Entry */
 };
 
 static struct it913xset it9135_38[] = {
@@ -435,7 +440,7 @@ static struct it913xset it9135_38[] = {
 	{PRO_DMOD, 0xf905, {0x01}, 0x01},
 	{PRO_DMOD, 0xfb06, {0x03}, 0x01},
 	{PRO_DMOD, 0xfd8b, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00} 
+	{0xff, 0x0000, {0x00}, 0x00} /* Terminating Entry */
 };
 
 static struct it913xset it9135_51[] = {
@@ -523,7 +528,7 @@ static struct it913xset it9135_51[] = {
 	{PRO_DMOD, 0xf905, {0x01}, 0x01},
 	{PRO_DMOD, 0xfb06, {0x03}, 0x01},
 	{PRO_DMOD, 0xfd8b, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00} 
+	{0xff, 0x0000, {0x00}, 0x00} /* Terminating Entry */
 };
 
 static struct it913xset it9135_52[] = {
@@ -611,9 +616,10 @@ static struct it913xset it9135_52[] = {
 	{PRO_DMOD, 0xf905, {0x01}, 0x01},
 	{PRO_DMOD, 0xfb06, {0x03}, 0x01},
 	{PRO_DMOD, 0xfd8b, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00} 
+	{0xff, 0x0000, {0x00}, 0x00} /* Terminating Entry */
 };
 
+/* Version 2 types */
 static struct it913xset it9135_v2[] = {
 	{PRO_DMOD, 0x0051, {0x01}, 0x01},
 	{PRO_DMOD, 0x0070, {0x0a}, 0x01},
@@ -710,7 +716,7 @@ static struct it913xset it9135_v2[] = {
 	{PRO_DMOD, 0xf905, {0x01}, 0x01},
 	{PRO_DMOD, 0xfb06, {0x03}, 0x01},
 	{PRO_DMOD, 0xfd8b, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00} 
+	{0xff, 0x0000, {0x00}, 0x00} /* Terminating Entry */
 };
 
 static struct it913xset it9135_60[] = {
@@ -807,7 +813,7 @@ static struct it913xset it9135_60[] = {
 	{PRO_DMOD, 0xf905, {0x01}, 0x01},
 	{PRO_DMOD, 0xfb06, {0x03}, 0x01},
 	{PRO_DMOD, 0xfd8b, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00} 
+	{0xff, 0x0000, {0x00}, 0x00} /* Terminating Entry */
 };
 
 static struct it913xset it9135_61[] = {
@@ -904,7 +910,7 @@ static struct it913xset it9135_61[] = {
 	{PRO_DMOD, 0xf905, {0x01}, 0x01},
 	{PRO_DMOD, 0xfb06, {0x03}, 0x01},
 	{PRO_DMOD, 0xfd8b, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00} 
+	{0xff, 0x0000, {0x00}, 0x00} /* Terminating Entry */
 };
 
 static struct it913xset it9135_62[] = {
@@ -1002,12 +1008,13 @@ static struct it913xset it9135_62[] = {
 	{PRO_DMOD, 0xf905, {0x01}, 0x01},
 	{PRO_DMOD, 0xfb06, {0x03}, 0x01},
 	{PRO_DMOD, 0xfd8b, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00} 
+	{0xff, 0x0000, {0x00}, 0x00} /* Terminating Entry */
 };
 
+/* Tuner setting scripts (still keeping it9137) */
 static struct it913xset it9137_tuner_off[] = {
-	{PRO_DMOD, 0xfba8, {0x01}, 0x01}, 
-	{PRO_DMOD, 0xec40, {0x00}, 0x01}, 
+	{PRO_DMOD, 0xfba8, {0x01}, 0x01}, /* Tuner Clock Off  */
+	{PRO_DMOD, 0xec40, {0x00}, 0x01}, /* Power Down Tuner */
 	{PRO_DMOD, 0xec02, {0x3f, 0x1f, 0x3f, 0x3f}, 0x04},
 	{PRO_DMOD, 0xec06, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00}, 0x0c},
@@ -1018,7 +1025,7 @@ static struct it913xset it9137_tuner_off[] = {
 				0x00, 0x00}, 0x0a},
 	{PRO_DMOD, 0xec20, {0x00}, 0x01},
 	{PRO_DMOD, 0xec3f, {0x01}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00}, 
+	{0xff, 0x0000, {0x00}, 0x00}, /* Terminating Entry */
 };
 
 static struct it913xset set_it9135_template[] = {
@@ -1027,9 +1034,9 @@ static struct it913xset set_it9135_template[] = {
 	{PRO_DMOD, 0xec4c, {0x00}, 0x01},
 	{PRO_DMOD, 0xec4d, {0x00}, 0x01},
 	{PRO_DMOD, 0xec4e, {0x00}, 0x01},
-	{PRO_DMOD, 0x011e, {0x00}, 0x01}, 
+	{PRO_DMOD, 0x011e, {0x00}, 0x01}, /* Older Devices */
 	{PRO_DMOD, 0x011f, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00}, 
+	{0xff, 0x0000, {0x00}, 0x00}, /* Terminating Entry */
 };
 
 static struct it913xset set_it9137_template[] = {
@@ -1040,5 +1047,5 @@ static struct it913xset set_it9137_template[] = {
 	{PRO_DMOD, 0xec4e, {0x00}, 0x01},
 	{PRO_DMOD, 0xec4f, {0x00}, 0x01},
 	{PRO_DMOD, 0xec50, {0x00}, 0x01},
-	{0xff, 0x0000, {0x00}, 0x00}, 
+	{0xff, 0x0000, {0x00}, 0x00}, /* Terminating Entry */
 };

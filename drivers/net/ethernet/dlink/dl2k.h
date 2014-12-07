@@ -1,3 +1,4 @@
+/*  D-Link DL2000-based Gigabit Ethernet Adapter Linux driver */
 /*
     Copyright (c) 2001, 2002 by D-Link Corporation
     Written by Edward Peng.<edward_peng@dlink.com.tw>
@@ -29,14 +30,14 @@
 #include <linux/ethtool.h>
 #include <linux/mii.h>
 #include <linux/bitops.h>
-#include <asm/processor.h>	
+#include <asm/processor.h>	/* Processor type for cache alignment. */
 #include <asm/io.h>
 #include <asm/uaccess.h>
 #include <linux/delay.h>
 #include <linux/spinlock.h>
 #include <linux/time.h>
 #define TX_RING_SIZE	256
-#define TX_QUEUE_LEN	(TX_RING_SIZE - 1) 
+#define TX_QUEUE_LEN	(TX_RING_SIZE - 1) /* Limit ring entries actually used.*/
 #define RX_RING_SIZE 	256
 #define TX_TOTAL_SIZE	TX_RING_SIZE*sizeof(struct netdev_desc)
 #define RX_TOTAL_SIZE	RX_RING_SIZE*sizeof(struct netdev_desc)
@@ -58,8 +59,16 @@
 #define writel outl
 #endif
 
+/* Offsets to the device registers.
+   Unlike software-only systems, device drivers interact with complex hardware.
+   It's not useful to define symbolic names for every register bit in the
+   device.  The name can only partially document the semantics and make
+   the driver longer and more difficult to read.
+   In general, only the important configuration values or bits changed
+   multiple times should be defined symbolically.
+*/
 enum dl2x_offsets {
-	
+	/* I/O register offsets */
 	DMACtrl = 0x00,
 	RxDMAStatus = 0x08,
 	TFDListPtr0 = 0x10,
@@ -108,7 +117,7 @@ enum dl2x_offsets {
 	IPCheckSumErrors = 0xc2,
 	UDPCheckSumErrors = 0xc4,
 	TxJumboFrames = 0xf4,
-	
+	/* Ethernet MIB statistic register offsets */
 	OctetRcvOk = 0xa8,
 	McstOctetRcvOk = 0xac,
 	BcstOctetRcvOk = 0xb0,
@@ -134,7 +143,7 @@ enum dl2x_offsets {
 	MacControlFramesXmtd = 0xfa,
 	FramesAbortXSColls = 0xfc,
 	FramesWEXDeferal = 0xfe,
-	
+	/* RMON statistic register offsets */
 	EtherStatsCollisions = 0x100,
 	EtherStatsOctetsTransmit = 0x104,
 	EtherStatsPktsTransmit = 0x108,
@@ -158,6 +167,7 @@ enum dl2x_offsets {
 	EtherStatsPkts1024to1518Octets = 0x150,
 };
 
+/* Bits in the interrupt status/mask registers. */
 enum IntStatus_bits {
 	InterruptStatus = 0x0001,
 	HostError = 0x0002,
@@ -174,6 +184,7 @@ enum IntStatus_bits {
 	RxDMAPriority = 0x1000,
 };
 
+/* Bits in the ReceiveMode register. */
 enum ReceiveMode_bits {
 	ReceiveUnicast = 0x0001,
 	ReceiveMulticast = 0x0002,
@@ -184,6 +195,7 @@ enum ReceiveMode_bits {
 	ReceiveVLANMatch = 0x0100,
 	ReceiveVLANHash = 0x0200,
 };
+/* Bits in MACCtrl. */
 enum MACCtrl_bits {
 	DuplexSelect = 0x20,
 	TxFlowControlEnable = 0x80,
@@ -217,6 +229,7 @@ enum ASICCtrl_HiWord_bits {
 	ResetBusy = 0x0400,
 };
 
+/* Transmit Frame Control bits */
 enum TFC_bits {
 	DwordAlign = 0x00000000,
 	WordAlignDisable = 0x00030000,
@@ -234,6 +247,7 @@ enum TFC_bits {
 	UsePriorityShift = 48,
 };
 
+/* Receive Frames Status bits */
 enum RFS_bits {
 	RxFIFOOverrun = 0x00010000,
 	RxRuntFrame = 0x00020000,
@@ -256,10 +270,12 @@ enum RFS_bits {
 };
 
 #define MII_RESET_TIME_OUT		10000
+/* MII register */
 enum _mii_reg {
 	MII_PHY_SCR = 16,
 };
 
+/* PCS register */
 enum _pcs_reg {
 	PCS_BMCR = 0,
 	PCS_BMSR = 1,
@@ -271,28 +287,30 @@ enum _pcs_reg {
 	PCS_ESR = 15,
 };
 
+/* IEEE Extened Status Register */
 enum _mii_esr {
 	MII_ESR_1000BX_FD = 0x8000,
 	MII_ESR_1000BX_HD = 0x4000,
 	MII_ESR_1000BT_FD = 0x2000,
 	MII_ESR_1000BT_HD = 0x1000,
 };
+/* PHY Specific Control Register */
 #if 0
 typedef union t_MII_PHY_SCR {
 	u16 image;
 	struct {
-		u16 disable_jabber:1;	
-		u16 polarity_reversal:1;	
-		u16 SEQ_test:1;	
-		u16 _bit_3:1;	
-		u16 disable_CLK125:1;	
-		u16 mdi_crossover_mode:2;	
-		u16 enable_ext_dist:1;	
-		u16 _bit_8_9:2;	
-		u16 force_link:1;	
-		u16 assert_CRS:1;	
-		u16 rcv_fifo_depth:2;	
-		u16 xmit_fifo_depth:2;	
+		u16 disable_jabber:1;	// bit 0
+		u16 polarity_reversal:1;	// bit 1
+		u16 SEQ_test:1;	// bit 2
+		u16 _bit_3:1;	// bit 3
+		u16 disable_CLK125:1;	// bit 4
+		u16 mdi_crossover_mode:2;	// bit 6:5
+		u16 enable_ext_dist:1;	// bit 7
+		u16 _bit_8_9:2;	// bit 9:8
+		u16 force_link:1;	// bit 10
+		u16 assert_CRS:1;	// bit 11
+		u16 rcv_fifo_depth:2;	// bit 13:12
+		u16 xmit_fifo_depth:2;	// bit 15:14
 	} bits;
 } PHY_SCR_t, *PPHY_SCR_t;
 #endif
@@ -305,6 +323,10 @@ typedef enum t_MII_ADMIN_STATUS {
 	adm_isolate
 } MII_ADMIN_t, *PMII_ADMIN_t;
 
+/* Physical Coding Sublayer Management (PCS) */
+/* PCS control and status registers bitmap as the same as MII */
+/* PCS Extended Status register bitmap as the same as MII */
+/* PCS ANAR */
 enum _pcs_anar {
 	PCS_ANAR_NEXT_PAGE = 0x8000,
 	PCS_ANAR_REMOTE_FAULT = 0x3000,
@@ -313,6 +335,7 @@ enum _pcs_anar {
 	PCS_ANAR_HALF_DUPLEX = 0x0040,
 	PCS_ANAR_FULL_DUPLEX = 0x0020,
 };
+/* PCS ANLPAR */
 enum _pcs_anlpar {
 	PCS_ANLPAR_NEXT_PAGE = PCS_ANAR_NEXT_PAGE,
 	PCS_ANLPAR_REMOTE_FAULT = PCS_ANAR_REMOTE_FAULT,
@@ -323,17 +346,18 @@ enum _pcs_anlpar {
 };
 
 typedef struct t_SROM {
-	u16 config_param;	
-	u16 asic_ctrl;		
-	u16 sub_vendor_id;	
-	u16 sub_system_id;	
-	u16 reserved1[12];	
-	u8 mac_addr[6];		
-	u8 reserved2[10];	
-	u8 sib[204];		
-	u32 crc;		
+	u16 config_param;	/* 0x00 */
+	u16 asic_ctrl;		/* 0x02 */
+	u16 sub_vendor_id;	/* 0x04 */
+	u16 sub_system_id;	/* 0x06 */
+	u16 reserved1[12];	/* 0x08-0x1f */
+	u8 mac_addr[6];		/* 0x20-0x25 */
+	u8 reserved2[10];	/* 0x26-0x2f */
+	u8 sib[204];		/* 0x30-0xfb */
+	u32 crc;		/* 0xfc-0xff */
 } SROM_t, *PSROM_t;
 
+/* Ioctl custom data */
 struct ioctl_data {
 	char signature[10];
 	int cmd;
@@ -341,15 +365,18 @@ struct ioctl_data {
 	char *data;
 };
 
+/* The Rx and Tx buffer descriptors. */
 struct netdev_desc {
 	__le64 next_desc;
 	__le64 status;
 	__le64 fraginfo;
 };
 
-#define PRIV_ALIGN	15	
+#define PRIV_ALIGN	15	/* Required alignment mask */
+/* Use  __attribute__((aligned (L1_CACHE_BYTES)))  to maintain alignment
+   within the structure. */
 struct netdev_private {
-	
+	/* Descriptor rings first for alignment. */
 	struct netdev_desc *rx_ring;
 	struct netdev_desc *tx_ring;
 	struct sk_buff *rx_skbuff[RX_RING_SIZE];
@@ -360,34 +387,42 @@ struct netdev_private {
 	spinlock_t tx_lock;
 	spinlock_t rx_lock;
 	struct net_device_stats stats;
-	unsigned int rx_buf_sz;		
-	unsigned int speed;		
-	unsigned int vlan;		
-	unsigned int chip_id;		
-	unsigned int rx_coalesce; 	
-	unsigned int rx_timeout; 	
-	unsigned int tx_coalesce;	
-	unsigned int full_duplex:1;	
-	unsigned int an_enable:2;	
-	unsigned int jumbo:1;		
-	unsigned int coalesce:1;	
-	unsigned int tx_flow:1;		
-	unsigned int rx_flow:1;		
-	unsigned int phy_media:1;	
-	unsigned int link_status:1;	
-	struct netdev_desc *last_tx;	
-	unsigned long cur_rx, old_rx;	
+	unsigned int rx_buf_sz;		/* Based on MTU+slack. */
+	unsigned int speed;		/* Operating speed */
+	unsigned int vlan;		/* VLAN Id */
+	unsigned int chip_id;		/* PCI table chip id */
+	unsigned int rx_coalesce; 	/* Maximum frames each RxDMAComplete intr */
+	unsigned int rx_timeout; 	/* Wait time between RxDMAComplete intr */
+	unsigned int tx_coalesce;	/* Maximum frames each tx interrupt */
+	unsigned int full_duplex:1;	/* Full-duplex operation requested. */
+	unsigned int an_enable:2;	/* Auto-Negotiated Enable */
+	unsigned int jumbo:1;		/* Jumbo frame enable */
+	unsigned int coalesce:1;	/* Rx coalescing enable */
+	unsigned int tx_flow:1;		/* Tx flow control enable */
+	unsigned int rx_flow:1;		/* Rx flow control enable */
+	unsigned int phy_media:1;	/* 1: fiber, 0: copper */
+	unsigned int link_status:1;	/* Current link status */
+	struct netdev_desc *last_tx;	/* Last Tx descriptor used. */
+	unsigned long cur_rx, old_rx;	/* Producer/consumer ring indices */
 	unsigned long cur_tx, old_tx;
 	struct timer_list timer;
 	int wake_polarity;
-	char name[256];		
+	char name[256];		/* net device description */
 	u8 duplex_polarity;
 	u16 mcast_filter[4];
-	u16 advertising;	
-	u16 negotiate;		
-	int phy_addr;		
+	u16 advertising;	/* NWay media advertisement */
+	u16 negotiate;		/* Negotiated media */
+	int phy_addr;		/* PHY addresses. */
 };
 
+/* The station address location in the EEPROM. */
+/* The struct pci_device_id consist of:
+        vendor, device          Vendor and device ID to match (or PCI_ANY_ID)
+        subvendor, subdevice    Subsystem vendor and device ID to match (or PCI_ANY_ID)
+        class                   Device class to match. The class_mask tells which bits
+        class_mask              of the class are honored during the comparison.
+        driver_data             Data private to the driver.
+*/
 
 static DEFINE_PCI_DEVICE_TABLE(rio_pci_tbl) = {
 	{0x1186, 0x4000, PCI_ANY_ID, PCI_ANY_ID, },
@@ -403,4 +438,4 @@ MODULE_DEVICE_TABLE (pci, rio_pci_tbl);
 #define DEFAULT_RXT		750
 #define DEFAULT_TXC		1
 #define MAX_TXC			8
-#endif				
+#endif				/* __DL2K_H__ */

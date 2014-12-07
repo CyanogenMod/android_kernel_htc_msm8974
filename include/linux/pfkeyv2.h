@@ -1,3 +1,7 @@
+/* PF_KEY user interface, this is defined by rfc2367 so
+ * do not make arbitrary modifications or else this header
+ * file will not be compliant.
+ */
 
 #ifndef _LINUX_PFKEY2_H
 #define _LINUX_PFKEY2_H
@@ -17,11 +21,13 @@ struct sadb_msg {
 	__u32	sadb_msg_seq;
 	__u32	sadb_msg_pid;
 } __attribute__((packed));
+/* sizeof(struct sadb_msg) == 16 */
 
 struct sadb_ext {
 	__u16	sadb_ext_len;
 	__u16	sadb_ext_type;
 } __attribute__((packed));
+/* sizeof(struct sadb_ext) == 4 */
 
 struct sadb_sa {
 	__u16	sadb_sa_len;
@@ -33,6 +39,7 @@ struct sadb_sa {
 	__u8		sadb_sa_encrypt;
 	__u32	sadb_sa_flags;
 } __attribute__((packed));
+/* sizeof(struct sadb_sa) == 16 */
 
 struct sadb_lifetime {
 	__u16	sadb_lifetime_len;
@@ -42,6 +49,7 @@ struct sadb_lifetime {
 	__u64	sadb_lifetime_addtime;
 	__u64	sadb_lifetime_usetime;
 } __attribute__((packed));
+/* sizeof(struct sadb_lifetime) == 32 */
 
 struct sadb_address {
 	__u16	sadb_address_len;
@@ -50,6 +58,7 @@ struct sadb_address {
 	__u8		sadb_address_prefixlen;
 	__u16	sadb_address_reserved;
 } __attribute__((packed));
+/* sizeof(struct sadb_address) == 8 */
 
 struct sadb_key {
 	__u16	sadb_key_len;
@@ -57,6 +66,7 @@ struct sadb_key {
 	__u16	sadb_key_bits;
 	__u16	sadb_key_reserved;
 } __attribute__((packed));
+/* sizeof(struct sadb_key) == 8 */
 
 struct sadb_ident {
 	__u16	sadb_ident_len;
@@ -65,6 +75,7 @@ struct sadb_ident {
 	__u16	sadb_ident_reserved;
 	__u64	sadb_ident_id;
 } __attribute__((packed));
+/* sizeof(struct sadb_ident) == 16 */
 
 struct sadb_sens {
 	__u16	sadb_sens_len;
@@ -76,7 +87,11 @@ struct sadb_sens {
 	__u8		sadb_sens_integ_len;
 	__u32	sadb_sens_reserved;
 } __attribute__((packed));
+/* sizeof(struct sadb_sens) == 16 */
 
+/* followed by:
+	__u64	sadb_sens_bitmap[sens_len];
+	__u64	sadb_integ_bitmap[integ_len];  */
 
 struct sadb_prop {
 	__u16	sadb_prop_len;
@@ -84,7 +99,12 @@ struct sadb_prop {
 	__u8		sadb_prop_replay;
 	__u8		sadb_prop_reserved[3];
 } __attribute__((packed));
+/* sizeof(struct sadb_prop) == 8 */
 
+/* followed by:
+	struct sadb_comb sadb_combs[(sadb_prop_len +
+		sizeof(__u64) - sizeof(struct sadb_prop)) /
+		sizeof(struct sadb_comb)]; */
 
 struct sadb_comb {
 	__u8		sadb_comb_auth;
@@ -104,13 +124,19 @@ struct sadb_comb {
 	__u64	sadb_comb_soft_usetime;
 	__u64	sadb_comb_hard_usetime;
 } __attribute__((packed));
+/* sizeof(struct sadb_comb) == 72 */
 
 struct sadb_supported {
 	__u16	sadb_supported_len;
 	__u16	sadb_supported_exttype;
 	__u32	sadb_supported_reserved;
 } __attribute__((packed));
+/* sizeof(struct sadb_supported) == 8 */
 
+/* followed by:
+	struct sadb_alg sadb_algs[(sadb_supported_len +
+		sizeof(__u64) - sizeof(struct sadb_supported)) /
+		sizeof(struct sadb_alg)]; */
 
 struct sadb_alg {
 	__u8		sadb_alg_id;
@@ -119,6 +145,7 @@ struct sadb_alg {
 	__u16	sadb_alg_maxbits;
 	__u16	sadb_alg_reserved;
 } __attribute__((packed));
+/* sizeof(struct sadb_alg) == 8 */
 
 struct sadb_spirange {
 	__u16	sadb_spirange_len;
@@ -127,12 +154,14 @@ struct sadb_spirange {
 	__u32	sadb_spirange_max;
 	__u32	sadb_spirange_reserved;
 } __attribute__((packed));
+/* sizeof(struct sadb_spirange) == 16 */
 
 struct sadb_x_kmprivate {
 	__u16	sadb_x_kmprivate_len;
 	__u16	sadb_x_kmprivate_exttype;
 	__u32	sadb_x_kmprivate_reserved;
 } __attribute__((packed));
+/* sizeof(struct sadb_x_kmprivate) == 8 */
 
 struct sadb_x_sa2 {
 	__u16	sadb_x_sa2_len;
@@ -143,6 +172,7 @@ struct sadb_x_sa2 {
 	__u32	sadb_x_sa2_sequence;
 	__u32	sadb_x_sa2_reqid;
 } __attribute__((packed));
+/* sizeof(struct sadb_x_sa2) == 16 */
 
 struct sadb_x_policy {
 	__u16	sadb_x_policy_len;
@@ -153,6 +183,7 @@ struct sadb_x_policy {
 	__u32	sadb_x_policy_id;
 	__u32	sadb_x_policy_priority;
 } __attribute__((packed));
+/* sizeof(struct sadb_x_policy) == 16 */
 
 struct sadb_x_ipsecrequest {
 	__u16	sadb_x_ipsecrequest_len;
@@ -163,35 +194,48 @@ struct sadb_x_ipsecrequest {
 	__u32	sadb_x_ipsecrequest_reqid;
 	__u32	sadb_x_ipsecrequest_reserved2;
 } __attribute__((packed));
+/* sizeof(struct sadb_x_ipsecrequest) == 16 */
 
+/* This defines the TYPE of Nat Traversal in use.  Currently only one
+ * type of NAT-T is supported, draft-ietf-ipsec-udp-encaps-06
+ */
 struct sadb_x_nat_t_type {
 	__u16	sadb_x_nat_t_type_len;
 	__u16	sadb_x_nat_t_type_exttype;
 	__u8		sadb_x_nat_t_type_type;
 	__u8		sadb_x_nat_t_type_reserved[3];
 } __attribute__((packed));
+/* sizeof(struct sadb_x_nat_t_type) == 8 */
 
+/* Pass a NAT Traversal port (Source or Dest port) */
 struct sadb_x_nat_t_port {
 	__u16	sadb_x_nat_t_port_len;
 	__u16	sadb_x_nat_t_port_exttype;
 	__be16		sadb_x_nat_t_port_port;
 	__u16	sadb_x_nat_t_port_reserved;
 } __attribute__((packed));
+/* sizeof(struct sadb_x_nat_t_port) == 8 */
 
+/* Generic LSM security context */
 struct sadb_x_sec_ctx {
 	__u16	sadb_x_sec_len;
 	__u16	sadb_x_sec_exttype;
-	__u8		sadb_x_ctx_alg;  
+	__u8		sadb_x_ctx_alg;  /* LSMs: e.g., selinux == 1 */
 	__u8		sadb_x_ctx_doi;
 	__u16	sadb_x_ctx_len;
 } __attribute__((packed));
+/* sizeof(struct sadb_sec_ctx) = 8 */
 
+/* Used by MIGRATE to pass addresses IKE will use to perform
+ * negotiation with the peer */
 struct sadb_x_kmaddress {
 	__u16	sadb_x_kmaddress_len;
 	__u16	sadb_x_kmaddress_exttype;
 	__u32	sadb_x_kmaddress_reserved;
 } __attribute__((packed));
+/* sizeof(struct sadb_x_kmaddress) == 8 */
 
+/* Message types */
 #define SADB_RESERVED		0
 #define SADB_GETSPI		1
 #define SADB_UPDATE		2
@@ -219,17 +263,20 @@ struct sadb_x_kmaddress {
 #define SADB_X_MIGRATE		24
 #define SADB_MAX		24
 
+/* Security Association flags */
 #define SADB_SAFLAGS_PFS	1
 #define SADB_SAFLAGS_NOPMTUDISC	0x20000000
 #define SADB_SAFLAGS_DECAP_DSCP	0x40000000
 #define SADB_SAFLAGS_NOECN	0x80000000
 
+/* Security Association states */
 #define SADB_SASTATE_LARVAL	0
 #define SADB_SASTATE_MATURE	1
 #define SADB_SASTATE_DYING	2
 #define SADB_SASTATE_DEAD	3
 #define SADB_SASTATE_MAX	3
 
+/* Security Association types */
 #define SADB_SATYPE_UNSPEC	0
 #define SADB_SATYPE_AH		2
 #define SADB_SATYPE_ESP		3
@@ -240,6 +287,7 @@ struct sadb_x_kmaddress {
 #define SADB_X_SATYPE_IPCOMP	9
 #define SADB_SATYPE_MAX		9
 
+/* Authentication algorithms */
 #define SADB_AALG_NONE			0
 #define SADB_AALG_MD5HMAC		2
 #define SADB_AALG_SHA1HMAC		3
@@ -248,9 +296,10 @@ struct sadb_x_kmaddress {
 #define SADB_X_AALG_SHA2_512HMAC	7
 #define SADB_X_AALG_RIPEMD160HMAC	8
 #define SADB_X_AALG_AES_XCBC_MAC	9
-#define SADB_X_AALG_NULL		251	
+#define SADB_X_AALG_NULL		251	/* kame */
 #define SADB_AALG_MAX			251
 
+/* Encryption algorithms */
 #define SADB_EALG_NONE			0
 #define SADB_EALG_DESCBC		2
 #define SADB_EALG_3DESCBC		3
@@ -267,10 +316,12 @@ struct sadb_x_kmaddress {
 #define SADB_X_EALG_AES_GCM_ICV16	20
 #define SADB_X_EALG_CAMELLIACBC		22
 #define SADB_X_EALG_NULL_AES_GMAC	23
-#define SADB_EALG_MAX                   253 
-#define SADB_X_EALG_SERPENTCBC  252     
-#define SADB_X_EALG_TWOFISHCBC  253     
+#define SADB_EALG_MAX                   253 /* last EALG */
+/* private allocations should use 249-255 (RFC2407) */
+#define SADB_X_EALG_SERPENTCBC  252     /* draft-ietf-ipsec-ciph-aes-cbc-00 */
+#define SADB_X_EALG_TWOFISHCBC  253     /* draft-ietf-ipsec-ciph-aes-cbc-00 */
 
+/* Compression algorithms */
 #define SADB_X_CALG_NONE		0
 #define SADB_X_CALG_OUI			1
 #define SADB_X_CALG_DEFLATE		2
@@ -278,6 +329,7 @@ struct sadb_x_kmaddress {
 #define SADB_X_CALG_LZJH		4
 #define SADB_X_CALG_MAX			4
 
+/* Extension Header values */
 #define SADB_EXT_RESERVED		0
 #define SADB_EXT_SA			1
 #define SADB_EXT_LIFETIME_CURRENT	2
@@ -298,18 +350,21 @@ struct sadb_x_kmaddress {
 #define SADB_X_EXT_KMPRIVATE		17
 #define SADB_X_EXT_POLICY		18
 #define SADB_X_EXT_SA2			19
+/* The next four entries are for setting up NAT Traversal */
 #define SADB_X_EXT_NAT_T_TYPE		20
 #define SADB_X_EXT_NAT_T_SPORT		21
 #define SADB_X_EXT_NAT_T_DPORT		22
 #define SADB_X_EXT_NAT_T_OA		23
 #define SADB_X_EXT_SEC_CTX		24
+/* Used with MIGRATE to pass @ to IKE for negotiation */
 #define SADB_X_EXT_KMADDRESS		25
 #define SADB_EXT_MAX			25
 
+/* Identity Extension values */
 #define SADB_IDENTTYPE_RESERVED	0
 #define SADB_IDENTTYPE_PREFIX	1
 #define SADB_IDENTTYPE_FQDN	2
 #define SADB_IDENTTYPE_USERFQDN	3
 #define SADB_IDENTTYPE_MAX	3
 
-#endif 
+#endif /* !(_LINUX_PFKEY2_H) */

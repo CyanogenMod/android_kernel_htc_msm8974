@@ -58,11 +58,11 @@ void coprocessor_release_all(struct thread_info *ti)
 	unsigned long cpenable;
 	int i;
 
-	
+	/* Make sure we don't switch tasks during this operation. */
 
 	preempt_disable();
 
-	
+	/* Walk through all cp owners and release it for the requested one. */
 
 	cpenable = ti->cpenable;
 
@@ -100,12 +100,15 @@ void coprocessor_flush_all(struct thread_info *ti)
 #endif
 
 
+/*
+ * Powermanagement idle function, if any is provided by the platform.
+ */
 
 void cpu_idle(void)
 {
   	local_irq_enable();
 
-	
+	/* endless idle loop with no priority at all */
 	while (1) {
 		while (!need_resched())
 			platform_idle();
@@ -113,6 +116,9 @@ void cpu_idle(void)
 	}
 }
 
+/*
+ * This is called when the thread calls exit().
+ */
 void exit_thread(void)
 {
 #if XTENSA_HAVE_COPROCESSORS
@@ -120,6 +126,10 @@ void exit_thread(void)
 #endif
 }
 
+/*
+ * Flush thread state. This is called when a thread does an execve()
+ * Note that we flush coprocessor registers for the case execve fails.
+ */
 void flush_thread(void)
 {
 #if XTENSA_HAVE_COPROCESSORS
@@ -129,6 +139,9 @@ void flush_thread(void)
 #endif
 }
 
+/*
+ * This is called before the thread is copied. 
+ */
 void prepare_to_copy(struct task_struct *tsk)
 {
 #if XTENSA_HAVE_COPROCESSORS
@@ -136,6 +149,25 @@ void prepare_to_copy(struct task_struct *tsk)
 #endif
 }
 
+/*
+ * Copy thread.
+ *
+ * The stack layout for the new thread looks like this:
+ *
+ *	+------------------------+ <- sp in childregs (= tos)
+ *	|       childregs        |
+ *	+------------------------+ <- thread.sp = sp in dummy-frame
+ *	|      dummy-frame       |    (saved in dummy-frame spill-area)
+ *	+------------------------+
+ *
+ * We create a dummy frame to return to ret_from_fork:
+ *   a0 points to ret_from_fork (simulating a call4)
+ *   sp points to itself (thread.sp)
+ *   a2, a3 are unused.
+ *
+ * Note: This is a pristine frame, so we don't need any spill region on top of
+ *       childregs.
+ */
 
 int copy_thread(unsigned long clone_flags, unsigned long usp,
 		unsigned long unused,
@@ -146,7 +178,7 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 	unsigned long tos;
 	int user_mode = user_mode(regs);
 
-	
+	/* Set up new TSS. */
 	tos = (unsigned long)task_stack_page(p) + THREAD_SIZE;
 	if (user_mode)
 		childregs = (struct pt_regs*)(tos - PT_USER_SIZE);
@@ -155,7 +187,7 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 
 	*childregs = *regs;
 
-	
+	/* Create a call4 dummy-frame: a0 = 0, a1 = childregs. */
 	*((int*)childregs - 3) = (unsigned long)childregs;
 	*((int*)childregs - 4) = 0;
 
@@ -171,11 +203,12 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 		childregs->areg[1] = usp;
 		memcpy(&childregs->areg[XCHAL_NUM_AREGS - len/4],
 		       &regs->areg[XCHAL_NUM_AREGS - len/4], len);
+// FIXME: we need to set THREADPTR in thread_info...
 		if (clone_flags & CLONE_SETTLS)
 			childregs->areg[2] = childregs->areg[6];
 
 	} else {
-		
+		/* In kernel space, we start a new thread with a new stack. */
 		childregs->wmask = 1;
 	}
 
@@ -188,6 +221,9 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 }
 
 
+/*
+ * These bracket the sleeping functions..
+ */
 
 unsigned long get_wchan(struct task_struct *p)
 {
@@ -209,7 +245,7 @@ unsigned long get_wchan(struct task_struct *p)
 		if (!in_sched_functions(pc))
 			return pc;
 
-		
+		/* Stack layout: sp-4: ra, sp-3: sp' */
 
 		pc = MAKE_PC_FROM_RA(*(unsigned long*)sp - 4, sp);
 		sp = *(unsigned long *)sp - 3;
@@ -217,6 +253,14 @@ unsigned long get_wchan(struct task_struct *p)
 	return 0;
 }
 
+/*
+ * xtensa_gregset_t and 'struct pt_regs' are vastly different formats
+ * of processor registers.  Besides different ordering,
+ * xtensa_gregset_t contains non-live register information that
+ * 'struct pt_regs' does not.  Exception handling (primarily) uses
+ * 'struct pt_regs'.  Core files and ptrace use xtensa_gregset_t.
+ *
+ */
 
 void xtensa_elf_core_copy_regs (xtensa_gregset_t *elfregs, struct pt_regs *regs)
 {
@@ -228,10 +272,13 @@ void xtensa_elf_core_copy_regs (xtensa_gregset_t *elfregs, struct pt_regs *regs)
 	wm = regs->wmask;
 	ws = ((ws >> wb) | (ws << (WSBITS - wb))) & ((1 << WSBITS) - 1);
 
-	
+	/* Don't leak any random bits. */
 
 	memset(elfregs, 0, sizeof (elfregs));
 
+	/* Note:  PS.EXCM is not set while user task is running; its
+	 * being set in regs->ps is for exception handling convenience.
+	 */
 
 	elfregs->pc		= regs->pc;
 	elfregs->ps		= (regs->ps & ~(1 << PS_EXCM_BIT));
@@ -263,6 +310,9 @@ long xtensa_clone(unsigned long clone_flags, unsigned long newsp,
         return do_fork(clone_flags, newsp, regs, 0, parent_tid, child_tid);
 }
 
+/*
+ * xtensa_execve() executes a new program.
+ */
 
 asmlinkage
 long xtensa_execve(const char __user *name,

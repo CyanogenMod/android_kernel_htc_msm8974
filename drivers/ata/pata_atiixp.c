@@ -38,6 +38,8 @@ static int atiixp_cable_detect(struct ata_port *ap)
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	u8 udma;
 
+	/* Hack from drivers/ide/pci. Really we want to know how to do the
+	   raw detection not play follow the bios mode guess */
 	pci_read_config_byte(pdev, ATIIXP_IDE_UDMA_MODE + ap->port_no, &udma);
 	if ((udma & 0x07) >= 0x04 || (udma & 0x70) >= 0x40)
 		return  ATA_CBL_PATA80;
@@ -46,6 +48,14 @@ static int atiixp_cable_detect(struct ata_port *ap)
 
 static DEFINE_SPINLOCK(atiixp_lock);
 
+/**
+ *	atiixp_prereset	-	perform reset handling
+ *	@link: ATA link
+ *	@deadline: deadline jiffies for the operation
+ *
+ *	Reset sequence checking enable bits to see which ports are
+ *	active.
+ */
 
 static int atiixp_prereset(struct ata_link *link, unsigned long deadline)
 {
@@ -63,6 +73,15 @@ static int atiixp_prereset(struct ata_link *link, unsigned long deadline)
 	return ata_sff_prereset(link, deadline);
 }
 
+/**
+ *	atiixp_set_pio_timing	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Called by both the pio and dma setup functions to set the controller
+ *	timings for PIO transfers. We must load both the mode number and
+ *	timing values into the controller.
+ */
 
 static void atiixp_set_pio_timing(struct ata_port *ap, struct ata_device *adev, int pio)
 {
@@ -85,6 +104,14 @@ static void atiixp_set_pio_timing(struct ata_port *ap, struct ata_device *adev, 
 	pci_write_config_dword(pdev, ATIIXP_IDE_PIO_TIMING, pio_timing_data);
 }
 
+/**
+ *	atiixp_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Called to do the PIO mode setup. We use a shared helper for this
+ *	as the DMA setup must also adjust the PIO timing information.
+ */
 
 static void atiixp_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -94,6 +121,14 @@ static void atiixp_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	spin_unlock_irqrestore(&atiixp_lock, flags);
 }
 
+/**
+ *	atiixp_set_dmamode	-	set initial DMA mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Called to do the DMA mode setup. We use timing tables for most
+ *	modes but must tune an appropriate PIO mode to match.
+ */
 
 static void atiixp_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -129,6 +164,10 @@ static void atiixp_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 		pci_write_config_dword(pdev, ATIIXP_IDE_MWDMA_TIMING,
 				       mwdma_timing_data);
 	}
+	/*
+	 *	We must now look at the PIO mode situation. We may need to
+	 *	adjust the PIO mode to keep the timings acceptable
+	 */
 	 if (adev->dma_mode >= XFER_MW_DMA_2)
 	 	wanted_pio = 4;
 	else if (adev->dma_mode == XFER_MW_DMA_1)
@@ -142,6 +181,16 @@ static void atiixp_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 	spin_unlock_irqrestore(&atiixp_lock, flags);
 }
 
+/**
+ *	atiixp_bmdma_start	-	DMA start callback
+ *	@qc: Command in progress
+ *
+ *	When DMA begins we need to ensure that the UDMA control
+ *	register for the channel is correctly set.
+ *
+ *	Note: The host lock held by the libata layer protects
+ *	us from two channels both trying to set DMA bits at once
+ */
 
 static void atiixp_bmdma_start(struct ata_queued_cmd *qc)
 {
@@ -161,6 +210,16 @@ static void atiixp_bmdma_start(struct ata_queued_cmd *qc)
 	ata_bmdma_start(qc);
 }
 
+/**
+ *	atiixp_dma_stop	-	DMA stop callback
+ *	@qc: Command in progress
+ *
+ *	DMA has completed. Clear the UDMA flag as the next operations will
+ *	be PIO ones not UDMA data transfer.
+ *
+ *	Note: The host lock held by the libata layer protects
+ *	us from two channels both trying to set DMA bits at once
+ */
 
 static void atiixp_bmdma_stop(struct ata_queued_cmd *qc)
 {

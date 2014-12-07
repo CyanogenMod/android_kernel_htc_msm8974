@@ -15,6 +15,7 @@
 #include <linux/sh_timer.h>
 #include <asm/clock.h>
 
+/* Serial */
 static struct plat_sci_port scif0_platform_data = {
 	.mapbase        = 0xffe00000,
 	.flags          = UPF_BOOT_AUTOCONF,
@@ -99,7 +100,7 @@ static struct resource iic0_resources[] = {
 
 static struct platform_device iic0_device = {
 	.name           = "i2c-sh_mobile",
-	.id             = 0, 
+	.id             = 0, /* "i2c0" clock */
 	.num_resources  = ARRAY_SIZE(iic0_resources),
 	.resource       = iic0_resources,
 };
@@ -120,7 +121,7 @@ static struct resource iic1_resources[] = {
 
 static struct platform_device iic1_device = {
 	.name           = "i2c-sh_mobile",
-	.id             = 1, 
+	.id             = 1, /* "i2c1" clock */
 	.num_resources  = ARRAY_SIZE(iic1_resources),
 	.resource       = iic1_resources,
 };
@@ -139,7 +140,7 @@ static struct resource vpu_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -167,7 +168,7 @@ static struct resource veu_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -195,7 +196,7 @@ static struct resource jpu_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -370,7 +371,7 @@ enum {
 	ENABLED,
 	DISABLED,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7,
 	DMAC0, DMAC1, DMAC2, DMAC3,
 	VIO_CEUI, VIO_BEUI, VIO_VEUI, VOU,
@@ -388,7 +389,7 @@ enum {
 	TMU0, TMU1, TMU2,
 	JPU, LCDC,
 
-	
+	/* interrupt groups */
 
 	DMAC0123, VIOVOU, MMC, DMAC45, FLCTL, I2C0, I2C1, SIM, USB,
 };
@@ -442,55 +443,55 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xa4080084, 0xa40800c4, 8, 
+	{ 0xa4080084, 0xa40800c4, 8, /* IMR1 / IMCR1 */
 	  { VOU, VIO_VEUI, VIO_BEUI, VIO_CEUI, DMAC3, DMAC2, DMAC1, DMAC0 } },
-	{ 0xa4080088, 0xa40800c8, 8, 
+	{ 0xa4080088, 0xa40800c8, 8, /* IMR2 / IMCR2 */
 	  { 0, 0, 0, VPU, 0, 0, 0, MFI } },
-	{ 0xa408008c, 0xa40800cc, 8, 
+	{ 0xa408008c, 0xa40800cc, 8, /* IMR3 / IMCR3 */
 	  { SIM_TEI, SIM_TXI, SIM_RXI, SIM_ERI, 0, 0, 0, IRDA } },
-	{ 0xa4080090, 0xa40800d0, 8, 
+	{ 0xa4080090, 0xa40800d0, 8, /* IMR4 / IMCR4 */
 	  { 0, TMU2, TMU1, TMU0, JPU, 0, 0, LCDC } },
-	{ 0xa4080094, 0xa40800d4, 8, 
+	{ 0xa4080094, 0xa40800d4, 8, /* IMR5 / IMCR5 */
 	  { KEYSC, DMAC_DADERR, DMAC5, DMAC4, SCIF3, SCIF2, SCIF1, SCIF } },
-	{ 0xa4080098, 0xa40800d8, 8, 
+	{ 0xa4080098, 0xa40800d8, 8, /* IMR6 / IMCR6 */
 	  { 0, 0, 0, SIO, Z3D4, 0, SIOF1, SIOF0 } },
-	{ 0xa408009c, 0xa40800dc, 8, 
+	{ 0xa408009c, 0xa40800dc, 8, /* IMR7 / IMCR7 */
 	  { I2C0_DTEI, I2C0_WAITI, I2C0_TACKI, I2C0_ALI,
 	    FLCTL_FLTREQ1I, FLCTL_FLTREQ0I, FLCTL_FLENDI, FLCTL_FLSTEI } },
-	{ 0xa40800a0, 0xa40800e0, 8, 
+	{ 0xa40800a0, 0xa40800e0, 8, /* IMR8 / IMCR8 */
 	  { DISABLED, ENABLED, ENABLED, ENABLED, 0, 0, 0, SIU } },
-	{ 0xa40800a4, 0xa40800e4, 8, 
+	{ 0xa40800a4, 0xa40800e4, 8, /* IMR9 / IMCR9 */
 	  { 0, 0, 0, CMT, 0, USBI1, USBI0 } },
-	{ 0xa40800a8, 0xa40800e8, 8, 
+	{ 0xa40800a8, 0xa40800e8, 8, /* IMR10 / IMCR10 */
 	  { MMC_FRDY, MMC_FSTAT, MMC_TRAN, MMC_ERR } },
-	{ 0xa40800ac, 0xa40800ec, 8, 
+	{ 0xa40800ac, 0xa40800ec, 8, /* IMR11 / IMCR11 */
 	  { I2C1_DTEI, I2C1_WAITI, I2C1_TACKI, I2C1_ALI, TPU, 0, 0, TSIF } },
-	{ 0xa4140044, 0xa4140064, 8, 
+	{ 0xa4140044, 0xa4140064, 8, /* INTMSK00 / INTMSKCLR00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xa4080000, 0, 16, 4,  { TMU0, TMU1, TMU2 } },
-	{ 0xa4080004, 0, 16, 4,  { JPU, LCDC, SIM } },
-	{ 0xa4080010, 0, 16, 4,  { DMAC0123, VIOVOU, MFI, VPU } },
-	{ 0xa4080014, 0, 16, 4,  { KEYSC, DMAC45, USB, CMT } },
-	{ 0xa4080018, 0, 16, 4,  { SCIF, SCIF1, SCIF2, SCIF3 } },
-	{ 0xa408001c, 0, 16, 4,  { SIOF0, SIOF1, FLCTL, I2C0 } },
-	{ 0xa4080020, 0, 16, 4,  { SIO, 0, TSIF, I2C1 } },
-	{ 0xa4080024, 0, 16, 4,  { Z3D4, 0, SIU } },
-	{ 0xa4080028, 0, 16, 4,  { 0, MMC, 0, SDHI } },
-	{ 0xa408002c, 0, 16, 4,  { 0, 0, TPU } },
-	{ 0xa4140010, 0, 32, 4, 
+	{ 0xa4080000, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2 } },
+	{ 0xa4080004, 0, 16, 4, /* IPRB */ { JPU, LCDC, SIM } },
+	{ 0xa4080010, 0, 16, 4, /* IPRE */ { DMAC0123, VIOVOU, MFI, VPU } },
+	{ 0xa4080014, 0, 16, 4, /* IPRF */ { KEYSC, DMAC45, USB, CMT } },
+	{ 0xa4080018, 0, 16, 4, /* IPRG */ { SCIF, SCIF1, SCIF2, SCIF3 } },
+	{ 0xa408001c, 0, 16, 4, /* IPRH */ { SIOF0, SIOF1, FLCTL, I2C0 } },
+	{ 0xa4080020, 0, 16, 4, /* IPRI */ { SIO, 0, TSIF, I2C1 } },
+	{ 0xa4080024, 0, 16, 4, /* IPRJ */ { Z3D4, 0, SIU } },
+	{ 0xa4080028, 0, 16, 4, /* IPRK */ { 0, MMC, 0, SDHI } },
+	{ 0xa408002c, 0, 16, 4, /* IPRL */ { 0, 0, TPU } },
+	{ 0xa4140010, 0, 32, 4, /* INTPRI00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_sense_reg sense_registers[] __initdata = {
-	{ 0xa414001c, 16, 2, 
+	{ 0xa414001c, 16, 2, /* ICR1 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_mask_reg ack_registers[] __initdata = {
-	{ 0xa4140024, 0, 8, 
+	{ 0xa4140024, 0, 8, /* INTREQ00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 

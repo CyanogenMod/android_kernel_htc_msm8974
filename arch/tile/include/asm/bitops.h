@@ -28,26 +28,66 @@
 #include <asm/bitops_32.h>
 #endif
 
+/**
+ * __ffs - find first set bit in word
+ * @word: The word to search
+ *
+ * Undefined if no set bit exists, so code should check against 0 first.
+ */
 static inline unsigned long __ffs(unsigned long word)
 {
 	return __builtin_ctzl(word);
 }
 
+/**
+ * ffz - find first zero bit in word
+ * @word: The word to search
+ *
+ * Undefined if no zero exists, so code should check against ~0UL first.
+ */
 static inline unsigned long ffz(unsigned long word)
 {
 	return __builtin_ctzl(~word);
 }
 
+/**
+ * __fls - find last set bit in word
+ * @word: The word to search
+ *
+ * Undefined if no set bit exists, so code should check against 0 first.
+ */
 static inline unsigned long __fls(unsigned long word)
 {
 	return (sizeof(word) * 8) - 1 - __builtin_clzl(word);
 }
 
+/**
+ * ffs - find first set bit in word
+ * @x: the word to search
+ *
+ * This is defined the same way as the libc and compiler builtin ffs
+ * routines, therefore differs in spirit from the other bitops.
+ *
+ * ffs(value) returns 0 if value is 0 or the position of the first
+ * set bit if value is nonzero. The first (least significant) bit
+ * is at position 1.
+ */
 static inline int ffs(int x)
 {
 	return __builtin_ffs(x);
 }
 
+/**
+ * fls - find last set bit in word
+ * @x: the word to search
+ *
+ * This is defined in a similar way as the libc and compiler builtin
+ * ffs, but returns the position of the most significant set bit.
+ *
+ * fls(value) returns 0 if value is 0 or the position of the last
+ * set bit if value is nonzero. The last (most significant) bit is
+ * at position 32.
+ */
 static inline int fls(int x)
 {
 	return (sizeof(int) * 8) - __builtin_clz(x);
@@ -85,4 +125,4 @@ static inline unsigned long __arch_hweight64(__u64 w)
 #include <asm-generic/bitops/non-atomic.h>
 #include <asm-generic/bitops/le.h>
 
-#endif 
+#endif /* _ASM_TILE_BITOPS_H */

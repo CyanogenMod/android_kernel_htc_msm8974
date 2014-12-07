@@ -25,7 +25,22 @@
 #include <mach/common.h>
 #include <mach/r8a7740.h>
 
+/*
+ *        |  MDx  |  XTAL1/EXTAL1   |  System   | EXTALR |
+ *  Clock |-------+-----------------+  clock    | 32.768 |   RCLK
+ *  Mode  | 2/1/0 | src         MHz |  source   |  KHz   |  source
+ * -------+-------+-----------------+-----------+--------+----------
+ *    0   | 0 0 0 | External  20~50 | XTAL1     |    O   |  EXTALR
+ *    1   | 0 0 1 | Crystal   20~30 | XTAL1     |    O   |  EXTALR
+ *    2   | 0 1 0 | External  40~50 | XTAL1 / 2 |    O   |  EXTALR
+ *    3   | 0 1 1 | Crystal   40~50 | XTAL1 / 2 |    O   |  EXTALR
+ *    4   | 1 0 0 | External  20~50 | XTAL1     |    x   |  XTAL1 / 1024
+ *    5   | 1 0 1 | Crystal   20~30 | XTAL1     |    x   |  XTAL1 / 1024
+ *    6   | 1 1 0 | External  40~50 | XTAL1 / 2 |    x   |  XTAL1 / 2048
+ *    7   | 1 1 1 | Crystal   40~50 | XTAL1 / 2 |    x   |  XTAL1 / 2048
+ */
 
+/* CPG registers */
 #define FRQCRA		0xe6150000
 #define FRQCRB		0xe6150004
 #define FRQCRC		0xe61500e0
@@ -44,18 +59,31 @@
 #define SMSTPCR3	0xe615013c
 #define SMSTPCR4	0xe6150140
 
+/* Fixed 32 KHz root clock from EXTALR pin */
 static struct clk extalr_clk = {
 	.rate	= 32768,
 };
 
+/*
+ * 25MHz default rate for the EXTAL1 root input clock.
+ * If needed, reset this with clk_set_rate() from the platform code.
+ */
 static struct clk extal1_clk = {
 	.rate	= 25000000,
 };
 
+/*
+ * 48MHz default rate for the EXTAL2 root input clock.
+ * If needed, reset this with clk_set_rate() from the platform code.
+ */
 static struct clk extal2_clk = {
 	.rate	= 48000000,
 };
 
+/*
+ * 27MHz default rate for the DV_CLKI root input clock.
+ * If needed, reset this with clk_set_rate() from the platform code.
+ */
 static struct clk dv_clk = {
 	.rate	= 27000000,
 };
@@ -69,24 +97,28 @@ static struct sh_clk_ops div_clk_ops = {
 	.recalc	= div_recalc,
 };
 
+/* extal1 / 2 */
 static struct clk extal1_div2_clk = {
 	.ops	= &div_clk_ops,
 	.priv	= (void *)2,
 	.parent	= &extal1_clk,
 };
 
+/* extal1 / 1024 */
 static struct clk extal1_div1024_clk = {
 	.ops	= &div_clk_ops,
 	.priv	= (void *)1024,
 	.parent	= &extal1_clk,
 };
 
+/* extal1 / 2 / 1024 */
 static struct clk extal1_div2048_clk = {
 	.ops	= &div_clk_ops,
 	.priv	= (void *)1024,
 	.parent	= &extal1_div2_clk,
 };
 
+/* extal2 / 2 */
 static struct clk extal2_div2_clk = {
 	.ops	= &div_clk_ops,
 	.priv	= (void *)2,
@@ -97,6 +129,7 @@ static struct sh_clk_ops followparent_clk_ops = {
 	.recalc	= followparent_recalc,
 };
 
+/* Main clock */
 static struct clk system_clk = {
 	.ops	= &followparent_clk_ops,
 };
@@ -107,10 +140,12 @@ static struct clk system_div2_clk = {
 	.parent	= &system_clk,
 };
 
+/* r_clk */
 static struct clk r_clk = {
 	.ops	= &followparent_clk_ops,
 };
 
+/* PLLC0/PLLC1 */
 static unsigned long pllc01_recalc(struct clk *clk)
 {
 	unsigned long mult = 1;
@@ -139,6 +174,7 @@ static struct clk pllc1_clk = {
 	.enable_reg	= (void __iomem *)FRQCRA,
 };
 
+/* PLLC1 / 2 */
 static struct clk pllc1_div2_clk = {
 	.ops		= &div_clk_ops,
 	.priv		= (void *)2,
@@ -166,7 +202,7 @@ static void div4_kick(struct clk *clk)
 {
 	unsigned long value;
 
-	
+	/* set KICK bit in FRQCRB to update hardware setting */
 	value = __raw_readl(FRQCRB);
 	value |= (1 << 31);
 	__raw_writel(value, FRQCRB);
@@ -227,28 +263,28 @@ enum {
 };
 
 static struct clk mstp_clks[MSTP_NR] = {
-	[MSTP125] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR1, 25, 0), 
-	[MSTP117] = SH_CLK_MSTP32(&div4_clks[DIV4_B],	SMSTPCR1, 17, 0), 
-	[MSTP116] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR1, 16, 0), 
-	[MSTP111] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR1, 11, 0), 
-	[MSTP100] = SH_CLK_MSTP32(&div4_clks[DIV4_B],	SMSTPCR1,  0, 0), 
+	[MSTP125] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR1, 25, 0), /* TMU0 */
+	[MSTP117] = SH_CLK_MSTP32(&div4_clks[DIV4_B],	SMSTPCR1, 17, 0), /* LCDC1 */
+	[MSTP116] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR1, 16, 0), /* IIC0 */
+	[MSTP111] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR1, 11, 0), /* TMU1 */
+	[MSTP100] = SH_CLK_MSTP32(&div4_clks[DIV4_B],	SMSTPCR1,  0, 0), /* LCDC0 */
 
-	[MSTP230] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2, 30, 0), 
-	[MSTP222] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2, 22, 0), 
-	[MSTP207] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  7, 0), 
-	[MSTP206] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  6, 0), 
-	[MSTP204] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  4, 0), 
-	[MSTP203] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  3, 0), 
-	[MSTP202] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  2, 0), 
-	[MSTP201] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  1, 0), 
-	[MSTP200] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  0, 0), 
+	[MSTP230] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2, 30, 0), /* SCIFA6 */
+	[MSTP222] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2, 22, 0), /* SCIFA7 */
+	[MSTP207] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  7, 0), /* SCIFA5 */
+	[MSTP206] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  6, 0), /* SCIFB */
+	[MSTP204] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  4, 0), /* SCIFA0 */
+	[MSTP203] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  3, 0), /* SCIFA1 */
+	[MSTP202] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  2, 0), /* SCIFA2 */
+	[MSTP201] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  1, 0), /* SCIFA3 */
+	[MSTP200] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR2,  0, 0), /* SCIFA4 */
 
-	[MSTP329] = SH_CLK_MSTP32(&r_clk,		SMSTPCR3, 29, 0), 
-	[MSTP323] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR3, 23, 0), 
+	[MSTP329] = SH_CLK_MSTP32(&r_clk,		SMSTPCR3, 29, 0), /* CMT10 */
+	[MSTP323] = SH_CLK_MSTP32(&div6_clks[DIV6_SUB],	SMSTPCR3, 23, 0), /* IIC1 */
 };
 
 static struct clk_lookup lookups[] = {
-	
+	/* main clocks */
 	CLKDEV_CON_ID("extalr",			&extalr_clk),
 	CLKDEV_CON_ID("extal1",			&extal1_clk),
 	CLKDEV_CON_ID("extal2",			&extal2_clk),
@@ -264,7 +300,7 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("pllc1_clk",		&pllc1_clk),
 	CLKDEV_CON_ID("pllc1_div2_clk",		&pllc1_div2_clk),
 
-	
+	/* DIV4 clocks */
 	CLKDEV_CON_ID("i_clk",			&div4_clks[DIV4_I]),
 	CLKDEV_CON_ID("zg_clk",			&div4_clks[DIV4_ZG]),
 	CLKDEV_CON_ID("b_clk",			&div4_clks[DIV4_B]),
@@ -276,10 +312,10 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("m3_clk",			&div4_clks[DIV4_M3]),
 	CLKDEV_CON_ID("cp_clk",			&div4_clks[DIV4_CP]),
 
-	
+	/* DIV6 clocks */
 	CLKDEV_CON_ID("sub_clk",		&div6_clks[DIV6_SUB]),
 
-	
+	/* MSTP32 clocks */
 	CLKDEV_DEV_ID("sh_mobile_lcdc_fb.0",	&mstp_clks[MSTP100]),
 	CLKDEV_DEV_ID("sh_tmu.1",		&mstp_clks[MSTP111]),
 	CLKDEV_DEV_ID("i2c-sh_mobile.0",	&mstp_clks[MSTP116]),
@@ -305,13 +341,13 @@ void __init r8a7740_clock_init(u8 md_ck)
 {
 	int k, ret = 0;
 
-	
+	/* detect system clock parent */
 	if (md_ck & MD_CK1)
 		system_clk.parent = &extal1_div2_clk;
 	else
 		system_clk.parent = &extal1_clk;
 
-	
+	/* detect RCLK parent */
 	switch (md_ck & (MD_CK2 | MD_CK1)) {
 	case MD_CK2 | MD_CK1:
 		r_clk.parent = &extal1_div2048_clk;

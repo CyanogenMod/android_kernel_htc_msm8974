@@ -13,6 +13,10 @@
 #define irq_canonicalize(i)	(i)
 #endif
 
+/*
+ * Use this value to indicate lack of interrupt
+ * capability
+ */
 #ifndef NO_IRQ
 #define NO_IRQ	((unsigned int)(-1))
 #endif

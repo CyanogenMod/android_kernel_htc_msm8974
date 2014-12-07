@@ -21,6 +21,7 @@
 #include "mxl111sf-demod.h"
 #include "mxl111sf-reg.h"
 
+/* debug */
 static int mxl111sf_demod_debug;
 module_param_named(debug, mxl111sf_demod_debug, int, 0644);
 MODULE_PARM_DESC(debug, "set debugging level (1=info (or-able)).");
@@ -29,6 +30,7 @@ MODULE_PARM_DESC(debug, "set debugging level (1=info (or-able)).");
 	if (mxl111sf_demod_debug) \
 		mxl_printk(KERN_DEBUG, fmt, ##arg)
 
+/* ------------------------------------------------------------------------ */
 
 struct mxl111sf_demod_state {
 	struct mxl111sf_state *mxl_state;
@@ -38,6 +40,7 @@ struct mxl111sf_demod_state {
 	struct dvb_frontend fe;
 };
 
+/* ------------------------------------------------------------------------ */
 
 static int mxl111sf_demod_read_reg(struct mxl111sf_demod_state *state,
 				   u8 addr, u8 *data)
@@ -64,6 +67,8 @@ int mxl111sf_demod_program_regs(struct mxl111sf_demod_state *state,
 		-EINVAL;
 }
 
+/* ------------------------------------------------------------------------ */
+/* TPS */
 
 static
 int mxl1x1sf_demod_get_tps_code_rate(struct mxl111sf_demod_state *state,
@@ -71,7 +76,7 @@ int mxl1x1sf_demod_get_tps_code_rate(struct mxl111sf_demod_state *state,
 {
 	u8 val;
 	int ret = mxl111sf_demod_read_reg(state, V6_CODE_RATE_TPS_REG, &val);
-	
+	/* bit<2:0> - 000:1/2, 001:2/3, 010:3/4, 011:5/6, 100:7/8 */
 	if (mxl_fail(ret))
 		goto fail;
 
@@ -102,7 +107,7 @@ int mxl1x1sf_demod_get_tps_modulation(struct mxl111sf_demod_state *state,
 {
 	u8 val;
 	int ret = mxl111sf_demod_read_reg(state, V6_MODORDER_TPS_REG, &val);
-	
+	/* Constellation, 00 : QPSK, 01 : 16QAM, 10:64QAM */
 	if (mxl_fail(ret))
 		goto fail;
 
@@ -127,7 +132,7 @@ int mxl1x1sf_demod_get_tps_guard_fft_mode(struct mxl111sf_demod_state *state,
 {
 	u8 val;
 	int ret = mxl111sf_demod_read_reg(state, V6_MODE_TPS_REG, &val);
-	
+	/* FFT Mode, 00:2K, 01:8K, 10:4K */
 	if (mxl_fail(ret))
 		goto fail;
 
@@ -152,7 +157,7 @@ int mxl1x1sf_demod_get_tps_guard_interval(struct mxl111sf_demod_state *state,
 {
 	u8 val;
 	int ret = mxl111sf_demod_read_reg(state, V6_CP_TPS_REG, &val);
-	
+	/* 00:1/32, 01:1/16, 10:1/8, 11:1/4 */
 	if (mxl_fail(ret))
 		goto fail;
 
@@ -180,7 +185,7 @@ int mxl1x1sf_demod_get_tps_hierarchy(struct mxl111sf_demod_state *state,
 {
 	u8 val;
 	int ret = mxl111sf_demod_read_reg(state, V6_TPS_HIERACHY_REG, &val);
-	
+	/* bit<6:4> - 000:Non hierarchy, 001:1, 010:2, 011:4 */
 	if (mxl_fail(ret))
 		goto fail;
 
@@ -202,6 +207,8 @@ fail:
 	return ret;
 }
 
+/* ------------------------------------------------------------------------ */
+/* LOCKS */
 
 static
 int mxl1x1sf_demod_get_sync_lock_status(struct mxl111sf_demod_state *state,
@@ -275,6 +282,7 @@ static int mxl1x1sf_demod_reset_irq_status(struct mxl111sf_demod_state *state)
 	return mxl111sf_demod_write_reg(state, 0x0e, 0xff);
 }
 
+/* ------------------------------------------------------------------------ */
 
 static int mxl111sf_demod_set_frontend(struct dvb_frontend *fe)
 {
@@ -282,12 +290,12 @@ static int mxl111sf_demod_set_frontend(struct dvb_frontend *fe)
 	int ret = 0;
 
 	struct mxl111sf_reg_ctrl_info phy_pll_patch[] = {
-		{0x00, 0xff, 0x01}, 
+		{0x00, 0xff, 0x01}, /* change page to 1 */
 		{0x40, 0xff, 0x05},
 		{0x40, 0xff, 0x01},
 		{0x41, 0xff, 0xca},
 		{0x41, 0xff, 0xc0},
-		{0x00, 0xff, 0x00}, 
+		{0x00, 0xff, 0x00}, /* change page to 0 */
 		{0,    0,    0}
 	};
 
@@ -309,8 +317,11 @@ fail:
 	return ret;
 }
 
+/* ------------------------------------------------------------------------ */
 
 #if 0
+/* resets TS Packet error count */
+/* After setting 7th bit of V5_PER_COUNT_RESET_REG, it should be reset to 0. */
 static
 int mxl1x1sf_demod_reset_packet_error_count(struct mxl111sf_demod_state *state)
 {
@@ -323,6 +334,8 @@ int mxl1x1sf_demod_reset_packet_error_count(struct mxl111sf_demod_state *state)
 }
 #endif
 
+/* returns TS Packet error count */
+/* PER Count = FEC_PER_COUNT * (2 ** (FEC_PER_SCALE * 4)) */
 static int mxl111sf_demod_read_ucblocks(struct dvb_frontend *fe, u32 *ucblocks)
 {
 	struct mxl111sf_demod_state *state = fe->demodulator_priv;
@@ -332,14 +345,14 @@ static int mxl111sf_demod_read_ucblocks(struct dvb_frontend *fe, u32 *ucblocks)
 
 	*ucblocks = 0;
 
-	
+	/* FEC_PER_COUNT Register */
 	ret = mxl111sf_demod_read_reg(state, V6_FEC_PER_COUNT_REG, &val);
 	if (mxl_fail(ret))
 		goto fail;
 
 	fec_per_count = val;
 
-	
+	/* FEC_PER_SCALE Register */
 	ret = mxl111sf_demod_read_reg(state, V6_FEC_PER_SCALE_REG, &val);
 	if (mxl_fail(ret))
 		goto fail;
@@ -422,7 +435,7 @@ static int mxl111sf_demod_read_snr(struct dvb_frontend *fe, u16 *snr)
 	if (mxl_fail(ret))
 		goto fail;
 
-	*snr /= 10; 
+	*snr /= 10; /* 0.1 dB */
 fail:
 	return ret;
 }
@@ -454,7 +467,7 @@ static int mxl111sf_demod_read_status(struct dvb_frontend *fe,
 		*status |= FE_HAS_CARRIER;
 	if (sync_lock)
 		*status |= FE_HAS_SYNC;
-	if (fec_lock) 
+	if (fec_lock) /* false positives? */
 		*status |= FE_HAS_VITERBI;
 
 	if ((locked) && (cr_lock) && (sync_lock))
@@ -501,7 +514,7 @@ static int mxl111sf_demod_get_frontend(struct dvb_frontend *fe)
 
 	mxl_dbg("()");
 #if 0
-	p->inversion =  ? INVERSION_ON : INVERSION_OFF;
+	p->inversion = /* FIXME */ ? INVERSION_ON : INVERSION_OFF;
 #endif
 	if (fe->ops.tuner_ops.get_bandwidth)
 		fe->ops.tuner_ops.get_bandwidth(fe, &p->bandwidth_hz);
@@ -592,3 +605,8 @@ MODULE_AUTHOR("Michael Krufky <mkrufky@kernellabs.com>");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("0.1");
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

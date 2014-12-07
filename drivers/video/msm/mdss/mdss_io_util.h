@@ -48,7 +48,7 @@ enum dss_vreg_type {
 };
 
 struct dss_vreg {
-	struct regulator *vreg; 
+	struct regulator *vreg; /* vreg handle */
 	char vreg_name[32];
 	int min_voltage;
 	int max_voltage;
@@ -67,13 +67,13 @@ struct dss_gpio {
 };
 
 enum dss_clk_type {
-	DSS_CLK_AHB, 
+	DSS_CLK_AHB, /* no set rate. rate controlled through rpm */
 	DSS_CLK_PCLK,
 	DSS_CLK_OTHER,
 };
 
 struct dss_clk {
-	struct clk *clk; 
+	struct clk *clk; /* clk handle */
 	char clk_name[32];
 	enum dss_clk_type type;
 	unsigned long rate;
@@ -109,4 +109,4 @@ int mdss_i2c_byte_read(struct i2c_client *client, uint8_t slave_addr,
 int mdss_i2c_byte_write(struct i2c_client *client, uint8_t slave_addr,
 			uint8_t reg_offset, uint8_t *value);
 
-#endif 
+#endif /* __MDSS_IO_UTIL_H__ */

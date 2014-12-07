@@ -40,6 +40,6 @@ static inline __u64 __arch_swab64p(const __u64 *addr)
 
 #else
 #define __SWAB_64_THRU_32__
-#endif 
+#endif /* defined(__sparc__) && defined(__arch64__) */
 
-#endif 
+#endif /* _SPARC_SWAB_H */

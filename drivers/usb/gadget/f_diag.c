@@ -265,9 +265,11 @@ struct diag_context {
 	struct list_head list_item;
 };
 
-#include "u_xpst.c"
+
 
 static struct list_head diag_dev_list;
+
+#include "u_xpst.c"
 
 static inline struct diag_context *func_to_diag(struct usb_function *f)
 {
@@ -485,20 +487,6 @@ static void free_reqs(struct diag_context *ctxt)
 		usb_ep_free_request(ctxt->out, req);
 	}
 }
-
-void usb_diag_free_req(struct usb_diag_ch *ch)
-{
-	struct diag_context *ctxt = ch->priv_usb;
-	unsigned long flags;
-
-	if (ctxt) {
-		spin_lock_irqsave(&ctxt->lock, flags);
-		free_reqs(ctxt);
-		spin_unlock_irqrestore(&ctxt->lock, flags);
-	}
-
-}
-EXPORT_SYMBOL(usb_diag_free_req);
 
 int usb_diag_alloc_req(struct usb_diag_ch *ch, int n_write, int n_read)
 {

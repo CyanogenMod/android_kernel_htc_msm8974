@@ -30,6 +30,7 @@ MODULE_PARM_DESC(debug, "Turn on/off debugging (default:off).");
 		if (debug) printk(KERN_DEBUG "QT1010: " args); \
 	} while (0)
 
+/* read single register */
 static int qt1010_readreg(struct qt1010_priv *priv, u8 reg, u8 *val)
 {
 	struct i2c_msg msg[2] = {
@@ -46,6 +47,7 @@ static int qt1010_readreg(struct qt1010_priv *priv, u8 reg, u8 *val)
 	return 0;
 }
 
+/* write single register */
 static int qt1010_writereg(struct qt1010_priv *priv, u8 reg, u8 val)
 {
 	u8 buf[2] = { reg, val };
@@ -59,6 +61,7 @@ static int qt1010_writereg(struct qt1010_priv *priv, u8 reg, u8 val)
 	return 0;
 }
 
+/* dump all registers */
 static void qt1010_dump_regs(struct qt1010_priv *priv)
 {
 	u8 reg, val;
@@ -89,56 +92,56 @@ static int qt1010_set_params(struct dvb_frontend *fe)
 	qt1010_i2c_oper_t rd[48] = {
 		{ QT1010_WR, 0x01, 0x80 },
 		{ QT1010_WR, 0x02, 0x3f },
-		{ QT1010_WR, 0x05, 0xff }, 
+		{ QT1010_WR, 0x05, 0xff }, /* 02 c write */
 		{ QT1010_WR, 0x06, 0x44 },
-		{ QT1010_WR, 0x07, 0xff }, 
+		{ QT1010_WR, 0x07, 0xff }, /* 04 c write */
 		{ QT1010_WR, 0x08, 0x08 },
-		{ QT1010_WR, 0x09, 0xff }, 
-		{ QT1010_WR, 0x0a, 0xff }, 
-		{ QT1010_WR, 0x0b, 0xff }, 
+		{ QT1010_WR, 0x09, 0xff }, /* 06 c write */
+		{ QT1010_WR, 0x0a, 0xff }, /* 07 c write */
+		{ QT1010_WR, 0x0b, 0xff }, /* 08 c write */
 		{ QT1010_WR, 0x0c, 0xe1 },
-		{ QT1010_WR, 0x1a, 0xff }, 
+		{ QT1010_WR, 0x1a, 0xff }, /* 10 c write */
 		{ QT1010_WR, 0x1b, 0x00 },
 		{ QT1010_WR, 0x1c, 0x89 },
-		{ QT1010_WR, 0x11, 0xff }, 
-		{ QT1010_WR, 0x12, 0xff }, 
-		{ QT1010_WR, 0x22, 0xff }, 
+		{ QT1010_WR, 0x11, 0xff }, /* 13 c write */
+		{ QT1010_WR, 0x12, 0xff }, /* 14 c write */
+		{ QT1010_WR, 0x22, 0xff }, /* 15 c write */
 		{ QT1010_WR, 0x1e, 0x00 },
 		{ QT1010_WR, 0x1e, 0xd0 },
-		{ QT1010_RD, 0x22, 0xff }, 
+		{ QT1010_RD, 0x22, 0xff }, /* 16 c read */
 		{ QT1010_WR, 0x1e, 0x00 },
-		{ QT1010_RD, 0x05, 0xff }, 
-		{ QT1010_RD, 0x22, 0xff }, 
+		{ QT1010_RD, 0x05, 0xff }, /* 20 c read */
+		{ QT1010_RD, 0x22, 0xff }, /* 21 c read */
 		{ QT1010_WR, 0x23, 0xd0 },
 		{ QT1010_WR, 0x1e, 0x00 },
 		{ QT1010_WR, 0x1e, 0xe0 },
-		{ QT1010_RD, 0x23, 0xff }, 
-		{ QT1010_RD, 0x23, 0xff }, 
+		{ QT1010_RD, 0x23, 0xff }, /* 25 c read */
+		{ QT1010_RD, 0x23, 0xff }, /* 26 c read */
 		{ QT1010_WR, 0x1e, 0x00 },
 		{ QT1010_WR, 0x24, 0xd0 },
 		{ QT1010_WR, 0x1e, 0x00 },
 		{ QT1010_WR, 0x1e, 0xf0 },
-		{ QT1010_RD, 0x24, 0xff }, 
+		{ QT1010_RD, 0x24, 0xff }, /* 31 c read */
 		{ QT1010_WR, 0x1e, 0x00 },
 		{ QT1010_WR, 0x14, 0x7f },
 		{ QT1010_WR, 0x15, 0x7f },
-		{ QT1010_WR, 0x05, 0xff }, 
+		{ QT1010_WR, 0x05, 0xff }, /* 35 c write */
 		{ QT1010_WR, 0x06, 0x00 },
 		{ QT1010_WR, 0x15, 0x1f },
 		{ QT1010_WR, 0x16, 0xff },
 		{ QT1010_WR, 0x18, 0xff },
-		{ QT1010_WR, 0x1f, 0xff }, 
-		{ QT1010_WR, 0x20, 0xff }, 
+		{ QT1010_WR, 0x1f, 0xff }, /* 40 c write */
+		{ QT1010_WR, 0x20, 0xff }, /* 41 c write */
 		{ QT1010_WR, 0x21, 0x53 },
-		{ QT1010_WR, 0x25, 0xff }, 
+		{ QT1010_WR, 0x25, 0xff }, /* 43 c write */
 		{ QT1010_WR, 0x26, 0x15 },
-		{ QT1010_WR, 0x00, 0xff }, 
+		{ QT1010_WR, 0x00, 0xff }, /* 45 c write */
 		{ QT1010_WR, 0x02, 0x00 },
 		{ QT1010_WR, 0x01, 0x00 }
 	};
 
-#define FREQ1 32000000 
-#define FREQ2  4000000 
+#define FREQ1 32000000 /* 32 MHz */
+#define FREQ2  4000000 /* 4 MHz Quartz oscillator in the stick? */
 
 	priv = fe->tuner_priv;
 	freq = c->frequency;
@@ -149,60 +152,60 @@ static int qt1010_set_params(struct dvb_frontend *fe)
 	priv->frequency = freq;
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open i2c_gate */
 
-	
-	if      (freq < 290000000) reg05 = 0x14; 
-	else if (freq < 610000000) reg05 = 0x34; 
-	else if (freq < 802000000) reg05 = 0x54; 
+	/* reg 05 base value */
+	if      (freq < 290000000) reg05 = 0x14; /* 290 MHz */
+	else if (freq < 610000000) reg05 = 0x34; /* 610 MHz */
+	else if (freq < 802000000) reg05 = 0x54; /* 802 MHz */
 	else                       reg05 = 0x74;
 
-	
+	/* 0x5 */
 	rd[2].val = reg05;
 
-	
+	/* 07 - set frequency: 32 MHz scale */
 	rd[4].val = (freq + QT1010_OFFSET) / FREQ1;
 
-	
+	/* 09 - changes every 8/24 MHz */
 	if (mod1 < 8000000) rd[6].val = 0x1d;
 	else                rd[6].val = 0x1c;
 
-	
-	if      (mod1 < 1*FREQ2) rd[7].val = 0x09; 
-	else if (mod1 < 2*FREQ2) rd[7].val = 0x08; 
-	else if (mod1 < 3*FREQ2) rd[7].val = 0x0f; 
-	else if (mod1 < 4*FREQ2) rd[7].val = 0x0e; 
-	else if (mod1 < 5*FREQ2) rd[7].val = 0x0d; 
-	else if (mod1 < 6*FREQ2) rd[7].val = 0x0c; 
-	else if (mod1 < 7*FREQ2) rd[7].val = 0x0b; 
-	else                     rd[7].val = 0x0a; 
+	/* 0a - set frequency: 4 MHz scale (max 28 MHz) */
+	if      (mod1 < 1*FREQ2) rd[7].val = 0x09; /*  +0 MHz */
+	else if (mod1 < 2*FREQ2) rd[7].val = 0x08; /*  +4 MHz */
+	else if (mod1 < 3*FREQ2) rd[7].val = 0x0f; /*  +8 MHz */
+	else if (mod1 < 4*FREQ2) rd[7].val = 0x0e; /* +12 MHz */
+	else if (mod1 < 5*FREQ2) rd[7].val = 0x0d; /* +16 MHz */
+	else if (mod1 < 6*FREQ2) rd[7].val = 0x0c; /* +20 MHz */
+	else if (mod1 < 7*FREQ2) rd[7].val = 0x0b; /* +24 MHz */
+	else                     rd[7].val = 0x0a; /* +28 MHz */
 
-	
+	/* 0b - changes every 2/2 MHz */
 	if (mod2 < 2000000) rd[8].val = 0x45;
 	else                rd[8].val = 0x44;
 
-	
-	tmpval = 0x78; 
+	/* 1a - set frequency: 125 kHz scale (max 3875 kHz)*/
+	tmpval = 0x78; /* byte, overflows intentionally */
 	rd[10].val = tmpval-((mod2/QT1010_STEP)*0x08);
 
-	
-	rd[13].val = 0xfd; 
+	/* 11 */
+	rd[13].val = 0xfd; /* TODO: correct value calculation */
 
-	
-	rd[14].val = 0x91; 
+	/* 12 */
+	rd[14].val = 0x91; /* TODO: correct value calculation */
 
-	
-	if      (freq < 450000000) rd[15].val = 0xd0; 
-	else if (freq < 482000000) rd[15].val = 0xd1; 
-	else if (freq < 514000000) rd[15].val = 0xd4; 
-	else if (freq < 546000000) rd[15].val = 0xd7; 
-	else if (freq < 610000000) rd[15].val = 0xda; 
+	/* 22 */
+	if      (freq < 450000000) rd[15].val = 0xd0; /* 450 MHz */
+	else if (freq < 482000000) rd[15].val = 0xd1; /* 482 MHz */
+	else if (freq < 514000000) rd[15].val = 0xd4; /* 514 MHz */
+	else if (freq < 546000000) rd[15].val = 0xd7; /* 546 MHz */
+	else if (freq < 610000000) rd[15].val = 0xda; /* 610 MHz */
 	else                       rd[15].val = 0xd0;
 
-	
+	/* 05 */
 	rd[35].val = (reg05 & 0xf0);
 
-	
+	/* 1f */
 	if      (mod1 <  8000000) tmpval = 0x00;
 	else if (mod1 < 12000000) tmpval = 0x01;
 	else if (mod1 < 16000000) tmpval = 0x02;
@@ -211,7 +214,7 @@ static int qt1010_set_params(struct dvb_frontend *fe)
 	else                      tmpval = 0x05;
 	rd[40].val = (priv->reg1f_init_val + 0x0e + tmpval);
 
-	
+	/* 20 */
 	if      (mod1 <  8000000) tmpval = 0x00;
 	else if (mod1 < 12000000) tmpval = 0x01;
 	else if (mod1 < 20000000) tmpval = 0x02;
@@ -220,11 +223,11 @@ static int qt1010_set_params(struct dvb_frontend *fe)
 	else                      tmpval = 0x05;
 	rd[41].val = (priv->reg20_init_val + 0x0d + tmpval);
 
-	
+	/* 25 */
 	rd[43].val = priv->reg25_init_val;
 
-	
-	rd[45].val = 0x92; 
+	/* 00 */
+	rd[45].val = 0x92; /* TODO: correct value calculation */
 
 	dprintk("freq:%u 05:%02x 07:%02x 09:%02x 0a:%02x 0b:%02x " \
 		"1a:%02x 11:%02x 12:%02x 22:%02x 05:%02x 1f:%02x " \
@@ -236,7 +239,7 @@ static int qt1010_set_params(struct dvb_frontend *fe)
 	for (i = 0; i < ARRAY_SIZE(rd); i++) {
 		if (rd[i].oper == QT1010_WR) {
 			err = qt1010_writereg(priv, rd[i].reg, rd[i].val);
-		} else { 
+		} else { /* read is required to proper locking */
 			err = qt1010_readreg(priv, rd[i].reg, &tmpval);
 		}
 		if (err) return err;
@@ -246,7 +249,7 @@ static int qt1010_set_params(struct dvb_frontend *fe)
 		qt1010_dump_regs(priv);
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close i2c_gate */
 
 	return 0;
 }
@@ -325,8 +328,8 @@ static int qt1010_init(struct dvb_frontend *fe)
 		{ QT1010_WR, 0x0e, 0xb7 },
 		{ QT1010_WR, 0x2a, 0x23 },
 		{ QT1010_WR, 0x2c, 0xdc },
-		{ QT1010_M1, 0x25, 0x40 }, 
-		{ QT1010_M1, 0x81, 0xff }, 
+		{ QT1010_M1, 0x25, 0x40 }, /* get reg 25 init value */
+		{ QT1010_M1, 0x81, 0xff }, /* get reg 25 init value */
 		{ QT1010_WR, 0x2b, 0x70 },
 		{ QT1010_WR, 0x2a, 0x23 },
 		{ QT1010_M1, 0x26, 0x08 },
@@ -343,9 +346,9 @@ static int qt1010_init(struct dvb_frontend *fe)
 		{ QT1010_WR, 0x02, 0x38 },
 		{ QT1010_WR, 0x03, 0x18 },
 		{ QT1010_WR, 0x20, 0xe0 },
-		{ QT1010_M1, 0x1f, 0x20 }, 
-		{ QT1010_M1, 0x84, 0xff }, 
-		{ QT1010_RD, 0x20, 0x20 }, 
+		{ QT1010_M1, 0x1f, 0x20 }, /* get reg 1f init value */
+		{ QT1010_M1, 0x84, 0xff }, /* get reg 1f init value */
+		{ QT1010_RD, 0x20, 0x20 }, /* get reg 20 init value */
 		{ QT1010_WR, 0x03, 0x19 },
 		{ QT1010_WR, 0x02, 0x3f },
 		{ QT1010_WR, 0x21, 0x53 },
@@ -357,7 +360,7 @@ static int qt1010_init(struct dvb_frontend *fe)
 	};
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open i2c_gate */
 
 	for (i = 0; i < ARRAY_SIZE(i2c_data); i++) {
 		switch (i2c_data[i].oper) {
@@ -388,12 +391,12 @@ static int qt1010_init(struct dvb_frontend *fe)
 		if (err) return err;
 	}
 
-	for (i = 0x31; i < 0x3a; i++) 
+	for (i = 0x31; i < 0x3a; i++) /* 0x31 - 0x39 */
 		if ((err = qt1010_init_meas2(priv, i, &tmpval)))
 			return err;
 
-	c->frequency = 545000000; 
-				      
+	c->frequency = 545000000; /* Sigmatek DVB-110 545000000 */
+				      /* MSI Megasky 580 GL861 533000000 */
 	return qt1010_set_params(fe);
 }
 
@@ -427,7 +430,7 @@ static const struct dvb_tuner_ops qt1010_tuner_ops = {
 
 	.release       = qt1010_release,
 	.init          = qt1010_init,
-	
+	/* TODO: implement sleep */
 
 	.set_params    = qt1010_set_params,
 	.get_frequency = qt1010_get_frequency,
@@ -449,17 +452,17 @@ struct dvb_frontend * qt1010_attach(struct dvb_frontend *fe,
 	priv->i2c = i2c;
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open i2c_gate */
 
 
-	
+	/* Try to detect tuner chip. Probably this is not correct register. */
 	if (qt1010_readreg(priv, 0x29, &id) != 0 || (id != 0x39)) {
 		kfree(priv);
 		return NULL;
 	}
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close i2c_gate */
 
 	printk(KERN_INFO "Quantek QT1010 successfully identified.\n");
 	memcpy(&fe->ops.tuner_ops, &qt1010_tuner_ops,

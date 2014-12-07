@@ -24,6 +24,8 @@
 #include "spu.h"
 #include "dis-asm.h"
 
+/* This file provides a disassembler function which uses
+   the disassembler interface defined in dis-asm.h.   */
 
 extern const struct spu_opcode spu_opcodes[];
 extern const int spu_num_opcodes;
@@ -36,22 +38,27 @@ init_spu_disassemble (void)
 {
   int i;
 
+  /* If two instructions have the same opcode then we prefer the first
+   * one.  In most cases it is just an alternate mnemonic. */
   for (i = 0; i < spu_num_opcodes; i++)
     {
       int o = spu_opcodes[i].opcode;
       if (o >= SPU_DISASM_TBL_SIZE)
-	continue; 
+	continue; /* abort (); */
       if (spu_disassemble_table[o] == 0)
 	spu_disassemble_table[o] = &spu_opcodes[i];
     }
 }
 
+/* Determine the instruction from the 10 least significant bits. */
 static const struct spu_opcode *
 get_index_for_opcode (unsigned int insn)
 {
   const struct spu_opcode *index;
   unsigned int opcode = insn >> (32-11);
 
+  /* Init the table.  This assumes that element 0/opcode 0 (currently
+   * NOP) is always used */
   if (spu_disassemble_table[0] == 0)
     init_spu_disassemble ();
 
@@ -81,6 +88,7 @@ get_index_for_opcode (unsigned int insn)
   return NULL;
 }
 
+/* Print a Spu instruction.  */
 
 int
 print_insn_spu (unsigned long insn, unsigned long memaddr)

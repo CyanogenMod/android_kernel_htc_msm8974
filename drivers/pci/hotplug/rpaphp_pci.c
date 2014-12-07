@@ -29,7 +29,7 @@
 #include <asm/rtas.h>
 #include <asm/machdep.h>
 
-#include "../pci.h"		
+#include "../pci.h"		/* for pci_add_new_bus */
 #include "rpaphp.h"
 
 int rpaphp_get_sensor_state(struct slot *slot, int *state)
@@ -44,6 +44,9 @@ int rpaphp_get_sensor_state(struct slot *slot, int *state)
 			dbg("%s: slot must be power up to get sensor-state\n",
 			    __func__);
 
+			/* some slots have to be powered up 
+			 * before get-sensor will succeed.
+			 */
 			rc = rtas_set_power_level(slot->power_domain, POWER_ON,
 						  &setlevel);
 			if (rc < 0) {
@@ -61,6 +64,15 @@ int rpaphp_get_sensor_state(struct slot *slot, int *state)
 	return rc;
 }
 
+/**
+ * rpaphp_enable_slot - record slot state, config pci device
+ * @slot: target &slot
+ *
+ * Initialize values in the slot, and the hotplug_slot info
+ * structures to indicate if there is a pci card plugged into
+ * the slot. If the slot is not empty, run the pcibios routine
+ * to get pcibios stuff correctly set up.
+ */
 int rpaphp_enable_slot(struct slot *slot)
 {
 	int rc, level, state;
@@ -70,13 +82,13 @@ int rpaphp_enable_slot(struct slot *slot)
 	info->adapter_status = NOT_VALID;
 	slot->state = EMPTY;
 
-	
+	/* Find out if the power is turned on for the slot */
 	rc = rtas_get_power_level(slot->power_domain, &level);
 	if (rc)
 		return rc;
 	info->power_status = level;
 
-	
+	/* Figure out if there is an adapter in the slot */
 	rc = rpaphp_get_sensor_state(slot, &state);
 	if (rc)
 		return rc;
@@ -91,12 +103,12 @@ int rpaphp_enable_slot(struct slot *slot)
 	slot->bus = bus;
 	slot->pci_devs = &bus->devices;
 
-	
+	/* if there's an adapter in the slot, go add the pci devices */
 	if (state == PRESENT) {
 		info->adapter_status = NOT_CONFIGURED;
 		slot->state = NOT_CONFIGURED;
 
-		
+		/* non-empty slot has to have child */
 		if (!slot->dn->child) {
 			err("%s: slot[%s]'s device_node doesn't have child for adapter\n",
 			    __func__, slot->name);

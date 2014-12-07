@@ -45,7 +45,7 @@ static struct sock *llc_get_sk_idx(loff_t pos)
 
 			sk_nulls_for_each(sk, node, head) {
 				if (!pos)
-					goto found; 
+					goto found; /* keep the lock */
 				--pos;
 			}
 		}
@@ -104,7 +104,7 @@ static void *llc_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 		spin_lock_bh(&sap->sk_lock);
 		sk = laddr_hash_next(sap, -1);
 		if (sk)
-			break; 
+			break; /* keep the lock */
 		spin_unlock_bh(&sap->sk_lock);
 	}
 out:
@@ -136,7 +136,7 @@ static int llc_seq_socket_show(struct seq_file *seq, void *v)
 	sk = v;
 	llc = llc_sk(sk);
 
-	
+	/* FIXME: check if the address is multicast */
 	seq_printf(seq, "%2X  %2X ", sk->sk_type, 0);
 
 	if (llc->dev)

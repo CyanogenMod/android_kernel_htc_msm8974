@@ -141,7 +141,7 @@
 #define MSM_CFG_A2DSPS_SMSM_INT
 #define MSM_CFG_A2WCNSS_SMD_INT
 #define MSM_CFG_A2WCNSS_SMSM_INT
-#else 
+#else /* use platform device / device tree configuration */
 #define MSM_CFG_A2M_SMD_INT
 #define MSM_CFG_A2Q6_SMD_INT
 #define MSM_CFG_A2M_SMSM_INT
@@ -152,6 +152,13 @@
 #define MSM_CFG_A2WCNSS_SMSM_INT
 #endif
 
+/*
+ * stub out legacy macros if they are not being used so that the legacy
+ * code compiles even though it is not used
+ *
+ * these definitions should not be used in active code and will cause
+ * an early failure
+ */
 #ifndef INT_A9_M2A_0
 #define INT_A9_M2A_0 -1
 #endif
@@ -414,7 +421,7 @@ int smd_core_platform_init(struct platform_device *pdev)
 
 		interrupt_stats[cfg->irq_config_id].smd_interrupt_id
 						 = cfg->smd_int.irq_id;
-		
+		/* only init smsm structs if this edge supports smsm */
 		if (cfg->smsm_int.irq_id)
 			ret = intr_init(
 				&private_intr_config->smsm,

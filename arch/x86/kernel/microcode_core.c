@@ -96,11 +96,26 @@ MODULE_LICENSE("GPL");
 
 static struct microcode_ops	*microcode_ops;
 
+/*
+ * Synchronization.
+ *
+ * All non cpu-hotplug-callback call sites use:
+ *
+ * - microcode_mutex to synchronize with each other;
+ * - get/put_online_cpus() to synchronize with
+ *   the cpu-hotplug-callback call sites.
+ *
+ * We guarantee that only a single cpu is being
+ * updated at any particular moment of time.
+ */
 static DEFINE_MUTEX(microcode_mutex);
 
 struct ucode_cpu_info		ucode_cpu_info[NR_CPUS];
 EXPORT_SYMBOL_GPL(ucode_cpu_info);
 
+/*
+ * Operations that are run on a target cpu:
+ */
 
 struct cpu_info_ctx {
 	struct cpu_signature	*cpu_sig;
@@ -254,6 +269,7 @@ MODULE_ALIAS("devname:cpu/microcode");
 #define microcode_dev_exit()	do { } while (0)
 #endif
 
+/* fake device for request_firmware */
 static struct platform_device	*microcode_pdev;
 
 static int reload_for_cpu(int cpu)
@@ -363,7 +379,7 @@ static enum ucode_state microcode_init_cpu(int cpu)
 	if (collect_cpu_info(cpu))
 		return UCODE_ERROR;
 
-	
+	/* --dimm. Trigger a delayed update? */
 	if (system_state != SYSTEM_RUNNING)
 		return UCODE_NFOUND;
 
@@ -429,6 +445,9 @@ static struct subsys_interface mc_cpu_interface = {
 	.remove_dev		= mc_device_remove,
 };
 
+/**
+ * mc_bp_resume - Update boot CPU microcode during resume.
+ */
 static void mc_bp_resume(void)
 {
 	int cpu = smp_processor_id();
@@ -461,13 +480,19 @@ mc_cpu_callback(struct notifier_block *nb, unsigned long action, void *hcpu)
 		break;
 	case CPU_DOWN_PREPARE:
 	case CPU_DOWN_PREPARE_FROZEN:
-		
+		/* Suspend is in progress, only remove the interface */
 		sysfs_remove_group(&dev->kobj, &mc_attr_group);
 		pr_debug("CPU%d removed\n", cpu);
 		break;
 
+	/*
+	 * When a CPU goes offline, don't free up or invalidate the copy of
+	 * the microcode in kernel memory, so that we can reuse it when the
+	 * CPU comes back online without unnecessarily requesting the userspace
+	 * for it again.
+	 */
 	case CPU_UP_CANCELED_FROZEN:
-		
+		/* The CPU refused to come up during a system resume */
 		microcode_fini_cpu(cpu);
 		break;
 	}
@@ -479,6 +504,7 @@ static struct notifier_block __refdata mc_cpu_notifier = {
 };
 
 #ifdef MODULE
+/* Autoload on Intel and AMD systems */
 static const struct x86_cpu_id microcode_id[] = {
 #ifdef CONFIG_MICROCODE_INTEL
 	{ X86_VENDOR_INTEL, X86_FAMILY_ANY, X86_MODEL_ANY, },

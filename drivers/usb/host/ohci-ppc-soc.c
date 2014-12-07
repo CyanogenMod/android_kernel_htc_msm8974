@@ -17,7 +17,17 @@
 #include <linux/platform_device.h>
 #include <linux/signal.h>
 
+/* configure so an HC device and id are always provided */
+/* always called with process context; sleeping is OK */
 
+/**
+ * usb_hcd_ppc_soc_probe - initialize On-Chip HCDs
+ * Context: !in_interrupt()
+ *
+ * Allocates basic resources for this USB host controller.
+ *
+ * Store this function in the HCD's struct pci_driver as probe().
+ */
 static int usb_hcd_ppc_soc_probe(const struct hc_driver *driver,
 			  struct platform_device *pdev)
 {
@@ -65,7 +75,7 @@ static int usb_hcd_ppc_soc_probe(const struct hc_driver *driver,
 	ohci->flags |= OHCI_QUIRK_BE_MMIO | OHCI_QUIRK_BE_DESC;
 
 #ifdef CONFIG_PPC_MPC52xx
-	
+	/* MPC52xx doesn't need frame_no shift */
 	ohci->flags |= OHCI_QUIRK_FRAME_NO;
 #endif
 	ohci_hcd_init(ohci);
@@ -85,7 +95,19 @@ static int usb_hcd_ppc_soc_probe(const struct hc_driver *driver,
 }
 
 
+/* may be called without controller electrically present */
+/* may be called with controller, bus, and devices active */
 
+/**
+ * usb_hcd_ppc_soc_remove - shutdown processing for On-Chip HCDs
+ * @pdev: USB Host Controller being removed
+ * Context: !in_interrupt()
+ *
+ * Reverses the effect of usb_hcd_ppc_soc_probe().
+ * It is always called from a thread
+ * context, normally "rmmod", "apmd", or something similar.
+ *
+ */
 static void usb_hcd_ppc_soc_remove(struct usb_hcd *hcd,
 		struct platform_device *pdev)
 {
@@ -120,19 +142,34 @@ static const struct hc_driver ohci_ppc_soc_hc_driver = {
 	.description =		hcd_name,
 	.hcd_priv_size =	sizeof(struct ohci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq =			ohci_irq,
 	.flags =		HCD_USB11 | HCD_MEMORY,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.start =		ohci_ppc_soc_start,
 	.stop =			ohci_stop,
 	.shutdown =		ohci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue =		ohci_urb_enqueue,
 	.urb_dequeue =		ohci_urb_dequeue,
 	.endpoint_disable =	ohci_endpoint_disable,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number =	ohci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data =	ohci_hub_status_data,
 	.hub_control =		ohci_hub_control,
 #ifdef	CONFIG_PM
@@ -166,8 +203,8 @@ static struct platform_driver ohci_hcd_ppc_soc_driver = {
 	.remove		= ohci_hcd_ppc_soc_drv_remove,
 	.shutdown	= usb_hcd_platform_shutdown,
 #ifdef	CONFIG_PM
-	
-	
+	/*.suspend	= ohci_hcd_ppc_soc_drv_suspend,*/
+	/*.resume	= ohci_hcd_ppc_soc_drv_resume,*/
 #endif
 	.driver		= {
 		.name	= "ppc-soc-ohci",

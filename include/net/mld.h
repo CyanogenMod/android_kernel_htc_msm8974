@@ -4,6 +4,7 @@
 #include <linux/in6.h>
 #include <linux/icmpv6.h>
 
+/* MLDv1 Query/Report/Done */
 struct mld_msg {
 	struct icmp6hdr		mld_hdr;
 	struct in6_addr		mld_mca;
@@ -15,6 +16,8 @@ struct mld_msg {
 #define mld_maxdelay		mld_hdr.icmp6_maxdelay
 #define mld_reserved		mld_hdr.icmp6_dataun.un_data16[1]
 
+/* Multicast Listener Discovery version 2 headers */
+/* MLDv2 Report */
 struct mld2_grec {
 	__u8		grec_type;
 	__u8		grec_auxwords;
@@ -34,6 +37,7 @@ struct mld2_report {
 #define mld2r_resv2		mld2r_hdr.icmp6_dataun.un_data16[0]
 #define mld2r_ngrec		mld2r_hdr.icmp6_dataun.un_data16[1]
 
+/* MLDv2 Query */
 struct mld2_query {
 	struct icmp6hdr		mld2q_hdr;
 	struct in6_addr		mld2q_mca;
@@ -59,6 +63,7 @@ struct mld2_query {
 #define mld2q_mrc		mld2q_hdr.icmp6_maxdelay
 #define mld2q_resv1		mld2q_hdr.icmp6_dataun.un_data16[1]
 
+/* Max Response Code */
 #define MLDV2_MASK(value, nb) ((nb)>=32 ? (value) : ((1<<(nb))-1) & (value))
 #define MLDV2_EXP(thresh, nbmant, nbexp, value) \
 	((value) < (thresh) ? (value) : \

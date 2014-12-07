@@ -18,15 +18,20 @@
 #ifndef __XFS_SB_H__
 #define	__XFS_SB_H__
 
+/*
+ * Super block
+ * Fits into a sector-sized buffer at address 0 of each allocation group.
+ * Only the first of these is ever updated except during growfs.
+ */
 
 struct xfs_buf;
 struct xfs_mount;
 
-#define	XFS_SB_MAGIC		0x58465342	
-#define	XFS_SB_VERSION_1	1		
-#define	XFS_SB_VERSION_2	2		
-#define	XFS_SB_VERSION_3	3		
-#define	XFS_SB_VERSION_4	4		
+#define	XFS_SB_MAGIC		0x58465342	/* 'XFSB' */
+#define	XFS_SB_VERSION_1	1		/* 5.3, 6.0.1, 6.1 */
+#define	XFS_SB_VERSION_2	2		/* 6.2 - attributes */
+#define	XFS_SB_VERSION_3	3		/* 6.2 - new inode version */
+#define	XFS_SB_VERSION_4	4		/* 6.2+ - bitmask version */
 #define	XFS_SB_VERSION_NUMBITS		0x000f
 #define	XFS_SB_VERSION_ALLFBITS		0xfff0
 #define	XFS_SB_VERSION_SASHFBITS	0xf000
@@ -41,7 +46,7 @@ struct xfs_mount;
 #define XFS_SB_VERSION_SECTORBIT	0x0800
 #define	XFS_SB_VERSION_EXTFLGBIT	0x1000
 #define	XFS_SB_VERSION_DIRV2BIT		0x2000
-#define	XFS_SB_VERSION_BORGBIT		0x4000	
+#define	XFS_SB_VERSION_BORGBIT		0x4000	/* ASCII only case-insens. */
 #define	XFS_SB_VERSION_MOREBITSBIT	0x8000
 #define	XFS_SB_VERSION_OKSASHFBITS	\
 	(XFS_SB_VERSION_EXTFLGBIT | \
@@ -62,13 +67,20 @@ struct xfs_mount;
 	 XFS_SB_VERSION_OKREALFBITS | \
 	 XFS_SB_VERSION_OKSASHFBITS)
 
-#define XFS_SB_VERSION2_REALFBITS	0x00ffffff	
+/*
+ * There are two words to hold XFS "feature" bits: the original
+ * word, sb_versionnum, and sb_features2.  Whenever a bit is set in
+ * sb_features2, the feature bit XFS_SB_VERSION_MOREBITSBIT must be set.
+ *
+ * These defines represent bits in sb_features2.
+ */
+#define XFS_SB_VERSION2_REALFBITS	0x00ffffff	/* Mask: features */
 #define XFS_SB_VERSION2_RESERVED1BIT	0x00000001
-#define XFS_SB_VERSION2_LAZYSBCOUNTBIT	0x00000002	
+#define XFS_SB_VERSION2_LAZYSBCOUNTBIT	0x00000002	/* Superblk counters */
 #define XFS_SB_VERSION2_RESERVED4BIT	0x00000004
-#define XFS_SB_VERSION2_ATTR2BIT	0x00000008	
-#define XFS_SB_VERSION2_PARENTBIT	0x00000010	
-#define XFS_SB_VERSION2_PROJID32BIT	0x00000080	
+#define XFS_SB_VERSION2_ATTR2BIT	0x00000008	/* Inline attr rework */
+#define XFS_SB_VERSION2_PARENTBIT	0x00000010	/* parent pointers */
+#define XFS_SB_VERSION2_PROJID32BIT	0x00000080	/* 32 bit project id */
 
 #define	XFS_SB_VERSION2_OKREALFBITS	\
 	(XFS_SB_VERSION2_LAZYSBCOUNTBIT	| \
@@ -80,111 +92,150 @@ struct xfs_mount;
 	(XFS_SB_VERSION2_OKREALFBITS |	\
 	 XFS_SB_VERSION2_OKSASHFBITS )
 
+/*
+ * Superblock - in core version.  Must match the ondisk version below.
+ * Must be padded to 64 bit alignment.
+ */
 typedef struct xfs_sb {
-	__uint32_t	sb_magicnum;	
-	__uint32_t	sb_blocksize;	
-	xfs_drfsbno_t	sb_dblocks;	
-	xfs_drfsbno_t	sb_rblocks;	
-	xfs_drtbno_t	sb_rextents;	
-	uuid_t		sb_uuid;	
-	xfs_dfsbno_t	sb_logstart;	
-	xfs_ino_t	sb_rootino;	
-	xfs_ino_t	sb_rbmino;	
-	xfs_ino_t	sb_rsumino;	
-	xfs_agblock_t	sb_rextsize;	
-	xfs_agblock_t	sb_agblocks;	
-	xfs_agnumber_t	sb_agcount;	
-	xfs_extlen_t	sb_rbmblocks;	
-	xfs_extlen_t	sb_logblocks;	
-	__uint16_t	sb_versionnum;	
-	__uint16_t	sb_sectsize;	
-	__uint16_t	sb_inodesize;	
-	__uint16_t	sb_inopblock;	
-	char		sb_fname[12];	
-	__uint8_t	sb_blocklog;	
-	__uint8_t	sb_sectlog;	
-	__uint8_t	sb_inodelog;	
-	__uint8_t	sb_inopblog;	
-	__uint8_t	sb_agblklog;	
-	__uint8_t	sb_rextslog;	
-	__uint8_t	sb_inprogress;	
-	__uint8_t	sb_imax_pct;	
-					
-	__uint64_t	sb_icount;	
-	__uint64_t	sb_ifree;	
-	__uint64_t	sb_fdblocks;	
-	__uint64_t	sb_frextents;	
-	xfs_ino_t	sb_uquotino;	
-	xfs_ino_t	sb_gquotino;	
-	__uint16_t	sb_qflags;	
-	__uint8_t	sb_flags;	
-	__uint8_t	sb_shared_vn;	
-	xfs_extlen_t	sb_inoalignmt;	
-	__uint32_t	sb_unit;	
-	__uint32_t	sb_width;	
-	__uint8_t	sb_dirblklog;	
-	__uint8_t	sb_logsectlog;	
-	__uint16_t	sb_logsectsize;	
-	__uint32_t	sb_logsunit;	
-	__uint32_t	sb_features2;	
+	__uint32_t	sb_magicnum;	/* magic number == XFS_SB_MAGIC */
+	__uint32_t	sb_blocksize;	/* logical block size, bytes */
+	xfs_drfsbno_t	sb_dblocks;	/* number of data blocks */
+	xfs_drfsbno_t	sb_rblocks;	/* number of realtime blocks */
+	xfs_drtbno_t	sb_rextents;	/* number of realtime extents */
+	uuid_t		sb_uuid;	/* file system unique id */
+	xfs_dfsbno_t	sb_logstart;	/* starting block of log if internal */
+	xfs_ino_t	sb_rootino;	/* root inode number */
+	xfs_ino_t	sb_rbmino;	/* bitmap inode for realtime extents */
+	xfs_ino_t	sb_rsumino;	/* summary inode for rt bitmap */
+	xfs_agblock_t	sb_rextsize;	/* realtime extent size, blocks */
+	xfs_agblock_t	sb_agblocks;	/* size of an allocation group */
+	xfs_agnumber_t	sb_agcount;	/* number of allocation groups */
+	xfs_extlen_t	sb_rbmblocks;	/* number of rt bitmap blocks */
+	xfs_extlen_t	sb_logblocks;	/* number of log blocks */
+	__uint16_t	sb_versionnum;	/* header version == XFS_SB_VERSION */
+	__uint16_t	sb_sectsize;	/* volume sector size, bytes */
+	__uint16_t	sb_inodesize;	/* inode size, bytes */
+	__uint16_t	sb_inopblock;	/* inodes per block */
+	char		sb_fname[12];	/* file system name */
+	__uint8_t	sb_blocklog;	/* log2 of sb_blocksize */
+	__uint8_t	sb_sectlog;	/* log2 of sb_sectsize */
+	__uint8_t	sb_inodelog;	/* log2 of sb_inodesize */
+	__uint8_t	sb_inopblog;	/* log2 of sb_inopblock */
+	__uint8_t	sb_agblklog;	/* log2 of sb_agblocks (rounded up) */
+	__uint8_t	sb_rextslog;	/* log2 of sb_rextents */
+	__uint8_t	sb_inprogress;	/* mkfs is in progress, don't mount */
+	__uint8_t	sb_imax_pct;	/* max % of fs for inode space */
+					/* statistics */
+	/*
+	 * These fields must remain contiguous.  If you really
+	 * want to change their layout, make sure you fix the
+	 * code in xfs_trans_apply_sb_deltas().
+	 */
+	__uint64_t	sb_icount;	/* allocated inodes */
+	__uint64_t	sb_ifree;	/* free inodes */
+	__uint64_t	sb_fdblocks;	/* free data blocks */
+	__uint64_t	sb_frextents;	/* free realtime extents */
+	/*
+	 * End contiguous fields.
+	 */
+	xfs_ino_t	sb_uquotino;	/* user quota inode */
+	xfs_ino_t	sb_gquotino;	/* group quota inode */
+	__uint16_t	sb_qflags;	/* quota flags */
+	__uint8_t	sb_flags;	/* misc. flags */
+	__uint8_t	sb_shared_vn;	/* shared version number */
+	xfs_extlen_t	sb_inoalignmt;	/* inode chunk alignment, fsblocks */
+	__uint32_t	sb_unit;	/* stripe or raid unit */
+	__uint32_t	sb_width;	/* stripe or raid width */
+	__uint8_t	sb_dirblklog;	/* log2 of dir block size (fsbs) */
+	__uint8_t	sb_logsectlog;	/* log2 of the log sector size */
+	__uint16_t	sb_logsectsize;	/* sector size for the log, bytes */
+	__uint32_t	sb_logsunit;	/* stripe unit size for the log */
+	__uint32_t	sb_features2;	/* additional feature bits */
 
+	/*
+	 * bad features2 field as a result of failing to pad the sb
+	 * structure to 64 bits. Some machines will be using this field
+	 * for features2 bits. Easiest just to mark it bad and not use
+	 * it for anything else.
+	 */
 	__uint32_t	sb_bad_features2;
 
-	
+	/* must be padded to 64 bit alignment */
 } xfs_sb_t;
 
+/*
+ * Superblock - on disk version.  Must match the in core version above.
+ * Must be padded to 64 bit alignment.
+ */
 typedef struct xfs_dsb {
-	__be32		sb_magicnum;	
-	__be32		sb_blocksize;	
-	__be64		sb_dblocks;	
-	__be64		sb_rblocks;	
-	__be64		sb_rextents;	
-	uuid_t		sb_uuid;	
-	__be64		sb_logstart;	
-	__be64		sb_rootino;	
-	__be64		sb_rbmino;	
-	__be64		sb_rsumino;	
-	__be32		sb_rextsize;	
-	__be32		sb_agblocks;	
-	__be32		sb_agcount;	
-	__be32		sb_rbmblocks;	
-	__be32		sb_logblocks;	
-	__be16		sb_versionnum;	
-	__be16		sb_sectsize;	
-	__be16		sb_inodesize;	
-	__be16		sb_inopblock;	
-	char		sb_fname[12];	
-	__u8		sb_blocklog;	
-	__u8		sb_sectlog;	
-	__u8		sb_inodelog;	
-	__u8		sb_inopblog;	
-	__u8		sb_agblklog;	
-	__u8		sb_rextslog;	
-	__u8		sb_inprogress;	
-	__u8		sb_imax_pct;	
-					
-	__be64		sb_icount;	
-	__be64		sb_ifree;	
-	__be64		sb_fdblocks;	
-	__be64		sb_frextents;	
-	__be64		sb_uquotino;	
-	__be64		sb_gquotino;	
-	__be16		sb_qflags;	
-	__u8		sb_flags;	
-	__u8		sb_shared_vn;	
-	__be32		sb_inoalignmt;	
-	__be32		sb_unit;	
-	__be32		sb_width;	
-	__u8		sb_dirblklog;	
-	__u8		sb_logsectlog;	
-	__be16		sb_logsectsize;	
-	__be32		sb_logsunit;	
-	__be32		sb_features2;	
+	__be32		sb_magicnum;	/* magic number == XFS_SB_MAGIC */
+	__be32		sb_blocksize;	/* logical block size, bytes */
+	__be64		sb_dblocks;	/* number of data blocks */
+	__be64		sb_rblocks;	/* number of realtime blocks */
+	__be64		sb_rextents;	/* number of realtime extents */
+	uuid_t		sb_uuid;	/* file system unique id */
+	__be64		sb_logstart;	/* starting block of log if internal */
+	__be64		sb_rootino;	/* root inode number */
+	__be64		sb_rbmino;	/* bitmap inode for realtime extents */
+	__be64		sb_rsumino;	/* summary inode for rt bitmap */
+	__be32		sb_rextsize;	/* realtime extent size, blocks */
+	__be32		sb_agblocks;	/* size of an allocation group */
+	__be32		sb_agcount;	/* number of allocation groups */
+	__be32		sb_rbmblocks;	/* number of rt bitmap blocks */
+	__be32		sb_logblocks;	/* number of log blocks */
+	__be16		sb_versionnum;	/* header version == XFS_SB_VERSION */
+	__be16		sb_sectsize;	/* volume sector size, bytes */
+	__be16		sb_inodesize;	/* inode size, bytes */
+	__be16		sb_inopblock;	/* inodes per block */
+	char		sb_fname[12];	/* file system name */
+	__u8		sb_blocklog;	/* log2 of sb_blocksize */
+	__u8		sb_sectlog;	/* log2 of sb_sectsize */
+	__u8		sb_inodelog;	/* log2 of sb_inodesize */
+	__u8		sb_inopblog;	/* log2 of sb_inopblock */
+	__u8		sb_agblklog;	/* log2 of sb_agblocks (rounded up) */
+	__u8		sb_rextslog;	/* log2 of sb_rextents */
+	__u8		sb_inprogress;	/* mkfs is in progress, don't mount */
+	__u8		sb_imax_pct;	/* max % of fs for inode space */
+					/* statistics */
+	/*
+	 * These fields must remain contiguous.  If you really
+	 * want to change their layout, make sure you fix the
+	 * code in xfs_trans_apply_sb_deltas().
+	 */
+	__be64		sb_icount;	/* allocated inodes */
+	__be64		sb_ifree;	/* free inodes */
+	__be64		sb_fdblocks;	/* free data blocks */
+	__be64		sb_frextents;	/* free realtime extents */
+	/*
+	 * End contiguous fields.
+	 */
+	__be64		sb_uquotino;	/* user quota inode */
+	__be64		sb_gquotino;	/* group quota inode */
+	__be16		sb_qflags;	/* quota flags */
+	__u8		sb_flags;	/* misc. flags */
+	__u8		sb_shared_vn;	/* shared version number */
+	__be32		sb_inoalignmt;	/* inode chunk alignment, fsblocks */
+	__be32		sb_unit;	/* stripe or raid unit */
+	__be32		sb_width;	/* stripe or raid width */
+	__u8		sb_dirblklog;	/* log2 of dir block size (fsbs) */
+	__u8		sb_logsectlog;	/* log2 of the log sector size */
+	__be16		sb_logsectsize;	/* sector size for the log, bytes */
+	__be32		sb_logsunit;	/* stripe unit size for the log */
+	__be32		sb_features2;	/* additional feature bits */
+	/*
+	 * bad features2 field as a result of failing to pad the sb
+	 * structure to 64 bits. Some machines will be using this field
+	 * for features2 bits. Easiest just to mark it bad and not use
+	 * it for anything else.
+	 */
 	__be32	sb_bad_features2;
 
-	
+	/* must be padded to 64 bit alignment */
 } xfs_dsb_t;
 
+/*
+ * Sequence number values for the fields.
+ */
 typedef enum {
 	XFS_SBS_MAGICNUM, XFS_SBS_BLOCKSIZE, XFS_SBS_DBLOCKS, XFS_SBS_RBLOCKS,
 	XFS_SBS_REXTENTS, XFS_SBS_UUID, XFS_SBS_LOGSTART, XFS_SBS_ROOTINO,
@@ -202,6 +253,10 @@ typedef enum {
 	XFS_SBS_FIELDCOUNT
 } xfs_sb_field_t;
 
+/*
+ * Mask values, defined based on the xfs_sb_field_t values.
+ * Only define the ones we're using.
+ */
 #define	XFS_SB_MVAL(x)		(1LL << XFS_SBS_ ## x)
 #define	XFS_SB_UUID		XFS_SB_MVAL(UUID)
 #define	XFS_SB_FNAME		XFS_SB_MVAL(FNAME)
@@ -230,21 +285,28 @@ typedef enum {
 	 XFS_SB_BAD_FEATURES2)
 
 
-#define XFS_SBF_NOFLAGS		0x00	
-#define XFS_SBF_READONLY	0x01	
+/*
+ * Misc. Flags - warning - these will be cleared by xfs_repair unless
+ * a feature bit is set when the flag is used.
+ */
+#define XFS_SBF_NOFLAGS		0x00	/* no flags set */
+#define XFS_SBF_READONLY	0x01	/* only read-only mounts allowed */
 
+/*
+ * define max. shared version we can interoperate with
+ */
 #define XFS_SB_MAX_SHARED_VN	0
 
 #define	XFS_SB_VERSION_NUM(sbp)	((sbp)->sb_versionnum & XFS_SB_VERSION_NUMBITS)
 
 static inline int xfs_sb_good_version(xfs_sb_t *sbp)
 {
-	
+	/* We always support version 1-3 */
 	if (sbp->sb_versionnum >= XFS_SB_VERSION_1 &&
 	    sbp->sb_versionnum <= XFS_SB_VERSION_3)
 		return 1;
 
-	
+	/* We support version 4 if all feature bits are supported */
 	if (XFS_SB_VERSION_NUM(sbp) == XFS_SB_VERSION_4) {
 		if ((sbp->sb_versionnum & ~XFS_SB_VERSION_OKREALBITS) ||
 		    ((sbp->sb_versionnum & XFS_SB_VERSION_MOREBITSBIT) &&
@@ -266,6 +328,10 @@ static inline int xfs_sb_good_version(xfs_sb_t *sbp)
 	return 0;
 }
 
+/*
+ * Detect a mismatched features2 field.  Older kernels read/wrote
+ * this into the wrong slot, so to be safe we keep them in sync.
+ */
 static inline int xfs_sb_has_mismatched_features2(xfs_sb_t *sbp)
 {
 	return (sbp->sb_bad_features2 != sbp->sb_features2);
@@ -396,6 +462,15 @@ static inline int xfs_sb_version_hasmorebits(xfs_sb_t *sbp)
 		(sbp->sb_versionnum & XFS_SB_VERSION_MOREBITSBIT);
 }
 
+/*
+ * sb_features2 bit version macros.
+ *
+ * For example, for a bit defined as XFS_SB_VERSION2_FUNBIT, has a macro:
+ *
+ * SB_VERSION_HASFUNBIT(xfs_sb_t *sbp)
+ *	((xfs_sb_version_hasmorebits(sbp) &&
+ *	 ((sbp)->sb_features2 & XFS_SB_VERSION2_FUNBIT)
+ */
 
 static inline int xfs_sb_version_haslazysbcount(xfs_sb_t *sbp)
 {
@@ -428,8 +503,11 @@ static inline int xfs_sb_version_hasprojid32bit(xfs_sb_t *sbp)
 		(sbp->sb_features2 & XFS_SB_VERSION2_PROJID32BIT);
 }
 
+/*
+ * end of superblock version macros
+ */
 
-#define XFS_SB_DADDR		((xfs_daddr_t)0) 
+#define XFS_SB_DADDR		((xfs_daddr_t)0) /* daddr in filesystem/ag */
 #define	XFS_SB_BLOCK(mp)	XFS_HDR_BLOCK(mp, XFS_SB_DADDR)
 #define XFS_BUF_TO_SBP(bp)	((xfs_dsb_t *)((bp)->b_addr))
 
@@ -439,17 +517,26 @@ static inline int xfs_sb_version_hasprojid32bit(xfs_sb_t *sbp)
 #define	XFS_FSB_TO_DADDR(mp,fsbno)	XFS_AGB_TO_DADDR(mp, \
 			XFS_FSB_TO_AGNO(mp,fsbno), XFS_FSB_TO_AGBNO(mp,fsbno))
 
+/*
+ * File system sector to basic block conversions.
+ */
 #define XFS_FSS_TO_BB(mp,sec)	((sec) << (mp)->m_sectbb_log)
 
+/*
+ * File system block to basic block conversions.
+ */
 #define	XFS_FSB_TO_BB(mp,fsbno)	((fsbno) << (mp)->m_blkbb_log)
 #define	XFS_BB_TO_FSB(mp,bb)	\
 	(((bb) + (XFS_FSB_TO_BB(mp,1) - 1)) >> (mp)->m_blkbb_log)
 #define	XFS_BB_TO_FSBT(mp,bb)	((bb) >> (mp)->m_blkbb_log)
 
+/*
+ * File system block to byte conversions.
+ */
 #define XFS_FSB_TO_B(mp,fsbno)	((xfs_fsize_t)(fsbno) << (mp)->m_sb.sb_blocklog)
 #define XFS_B_TO_FSB(mp,b)	\
 	((((__uint64_t)(b)) + (mp)->m_blockmask) >> (mp)->m_sb.sb_blocklog)
 #define XFS_B_TO_FSBT(mp,b)	(((__uint64_t)(b)) >> (mp)->m_sb.sb_blocklog)
 #define XFS_B_FSB_OFFSET(mp,b)	((b) & (mp)->m_blockmask)
 
-#endif	
+#endif	/* __XFS_SB_H__ */

@@ -8,4 +8,4 @@
 
 #include <asm-generic/tlb.h>
 
-#endif 
+#endif /* _ASM_X86_TLB_H */

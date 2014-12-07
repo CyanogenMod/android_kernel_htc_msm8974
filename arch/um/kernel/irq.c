@@ -17,6 +17,14 @@
 #include "kern_util.h"
 #include "os.h"
 
+/*
+ * This list is accessed under irq_lock, except in sigio_handler,
+ * where it is safe from being modified.  IRQ handlers won't change it -
+ * if an IRQ source has vanished, it will be freed by free_irqs just
+ * before returning from sigio_handler.  That will process a separate
+ * list of irqs to free, with its own locking, coming back here to
+ * remove list elements, taking the irq_lock to do so.
+ */
 static struct irq_fd *active_fds = NULL;
 static struct irq_fd **last_irq_ptr = &active_fds;
 
@@ -102,6 +110,18 @@ static int activate_fd(int irq, int fd, int type, void *dev_id)
 		if (n == 0)
 			break;
 
+		/*
+		 * n > 0
+		 * It means we couldn't put new pollfd to current pollfds
+		 * and tmp_fds is NULL or too small for new pollfds array.
+		 * Needed size is equal to n as minimum.
+		 *
+		 * Here we have to drop the lock in order to call
+		 * kmalloc, which might sleep.
+		 * If something else came in and changed the pollfds array
+		 * so we will not be able to put new pollfd struct to pollfds
+		 * then we free the buffer tmp_fds and try again.
+		 */
 		spin_unlock_irqrestore(&irq_lock, flags);
 		kfree(tmp_pfd);
 
@@ -117,6 +137,10 @@ static int activate_fd(int irq, int fd, int type, void *dev_id)
 
 	spin_unlock_irqrestore(&irq_lock, flags);
 
+	/*
+	 * This calls activate_fd, so it has to be outside the critical
+	 * section.
+	 */
 	maybe_sigio_broken(fd, (type == IRQ_READ));
 
 	return 0;
@@ -168,6 +192,7 @@ void free_irq_by_fd(int fd)
 	free_irq_by_cb(same_fd, &fd);
 }
 
+/* Must be called with irq_lock held */
 static struct irq_fd *find_irq_by_fd(int fd, int irqnum, int *index_out)
 {
 	struct irq_fd *irq;
@@ -235,6 +260,12 @@ void deactivate_fd(int fd, int irqnum)
 }
 EXPORT_SYMBOL(deactivate_fd);
 
+/*
+ * Called just before shutdown in order to provide a clean exec
+ * environment in case the system is rebooting.  No locking because
+ * that would cause a pointless shutdown hang if something hadn't
+ * released the lock.
+ */
 int deactivate_all_fds(void)
 {
 	struct irq_fd *irq;
@@ -245,12 +276,17 @@ int deactivate_all_fds(void)
 		if (err)
 			return err;
 	}
-	
+	/* If there is a signal already queued, after unblocking ignore it */
 	os_set_ioignore();
 
 	return 0;
 }
 
+/*
+ * do_IRQ handles all normal device IRQs (the special
+ * SMP cross-CPU interrupts have their own specific
+ * handlers).
+ */
 unsigned int do_IRQ(int irq, struct uml_pt_regs *regs)
 {
 	struct pt_regs *old_regs = set_irq_regs((struct pt_regs *)regs);
@@ -280,10 +316,15 @@ int um_request_irq(unsigned int irq, int fd, int type,
 EXPORT_SYMBOL(um_request_irq);
 EXPORT_SYMBOL(reactivate_fd);
 
+/*
+ * irq_chip must define at least enable/disable and ack when
+ * the edge handler is used.
+ */
 static void dummy(struct irq_data *d)
 {
 }
 
+/* This is used for everything else than the timer. */
 static struct irq_chip normal_irq_type = {
 	.name = "SIGIO",
 	.release = free_irq_by_irq_and_dev,
@@ -310,6 +351,52 @@ void __init init_IRQ(void)
 		irq_set_chip_and_handler(i, &normal_irq_type, handle_edge_irq);
 }
 
+/*
+ * IRQ stack entry and exit:
+ *
+ * Unlike i386, UML doesn't receive IRQs on the normal kernel stack
+ * and switch over to the IRQ stack after some preparation.  We use
+ * sigaltstack to receive signals on a separate stack from the start.
+ * These two functions make sure the rest of the kernel won't be too
+ * upset by being on a different stack.  The IRQ stack has a
+ * thread_info structure at the bottom so that current et al continue
+ * to work.
+ *
+ * to_irq_stack copies the current task's thread_info to the IRQ stack
+ * thread_info and sets the tasks's stack to point to the IRQ stack.
+ *
+ * from_irq_stack copies the thread_info struct back (flags may have
+ * been modified) and resets the task's stack pointer.
+ *
+ * Tricky bits -
+ *
+ * What happens when two signals race each other?  UML doesn't block
+ * signals with sigprocmask, SA_DEFER, or sa_mask, so a second signal
+ * could arrive while a previous one is still setting up the
+ * thread_info.
+ *
+ * There are three cases -
+ *     The first interrupt on the stack - sets up the thread_info and
+ * handles the interrupt
+ *     A nested interrupt interrupting the copying of the thread_info -
+ * can't handle the interrupt, as the stack is in an unknown state
+ *     A nested interrupt not interrupting the copying of the
+ * thread_info - doesn't do any setup, just handles the interrupt
+ *
+ * The first job is to figure out whether we interrupted stack setup.
+ * This is done by xchging the signal mask with thread_info->pending.
+ * If the value that comes back is zero, then there is no setup in
+ * progress, and the interrupt can be handled.  If the value is
+ * non-zero, then there is stack setup in progress.  In order to have
+ * the interrupt handled, we leave our signal in the mask, and it will
+ * be handled by the upper handler after it has set up the stack.
+ *
+ * Next is to figure out whether we are the outer handler or a nested
+ * one.  As part of setting up the stack, thread_info->real_thread is
+ * set to non-NULL (and is reset to NULL on exit).  This is the
+ * nesting indicator.  If it is non-NULL, then the stack is already
+ * set up and the handler can run.
+ */
 
 static unsigned long pending_mask;
 
@@ -321,6 +408,15 @@ unsigned long to_irq_stack(unsigned long *mask_out)
 
 	mask = xchg(&pending_mask, *mask_out);
 	if (mask != 0) {
+		/*
+		 * If any interrupts come in at this point, we want to
+		 * make sure that their bits aren't lost by our
+		 * putting our bit in.  So, this loop accumulates bits
+		 * until xchg returns the same value that we put in.
+		 * When that happens, there were no new interrupts,
+		 * and pending_mask contains a bit for each interrupt
+		 * that came in.
+		 */
 		old = *mask_out;
 		do {
 			old |= mask;

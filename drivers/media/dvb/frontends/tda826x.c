@@ -34,7 +34,7 @@ static int debug;
 	} while (0)
 
 struct tda826x_priv {
-	
+	/* i2c details */
 	int i2c_address;
 	struct i2c_adapter *i2c;
 	u8 has_loopthrough:1;
@@ -86,8 +86,8 @@ static int tda826x_set_params(struct dvb_frontend *fe)
 
 	div = (p->frequency + (1000-1)) / 1000;
 
-	
-	
+	/* BW = ((1 + RO) * SR/2 + 5) * 1.3      [SR in MSPS, BW in MHz] */
+	/* with R0 = 0.35 and some transformations: */
 	ksyms = p->symbol_rate / 1000;
 	bandwidth = (878 * ksyms + 6500000) / 1000000 + 1;
 	if (bandwidth < 5)
@@ -95,19 +95,19 @@ static int tda826x_set_params(struct dvb_frontend *fe)
 	else if (bandwidth > 36)
 		bandwidth = 36;
 
-	buf[0] = 0x00; 
-	buf[1] = 0x09; 
+	buf[0] = 0x00; // subaddress
+	buf[1] = 0x09; // powerdown RSSI + the magic value 1
 	if (!priv->has_loopthrough)
-		buf[1] |= 0x20; 
-	buf[2] = (1<<5) | 0x0b; 
+		buf[1] |= 0x20; // power down loopthrough if not needed
+	buf[2] = (1<<5) | 0x0b; // 1Mhz + 0.45 VCO
 	buf[3] = div >> 7;
 	buf[4] = div << 1;
-	buf[5] = ((bandwidth - 5) << 3) | 7; 
-	buf[6] = 0xfe; 
-	buf[7] = 0x83; 
-	buf[8] = 0x80; 
-	buf[9] = 0x1a; 
-	buf[10] = 0xd4; 
+	buf[5] = ((bandwidth - 5) << 3) | 7; /* baseband cut-off */
+	buf[6] = 0xfe; // baseband gain 9 db + no RF attenuation
+	buf[7] = 0x83; // charge pumps at high, tests off
+	buf[8] = 0x80; // recommended value 4 for AMPVCO + disable ports.
+	buf[9] = 0x1a; // normal caltime + recommended values for SELTH + SELVTL
+	buf[10] = 0xd4; // recommended value 13 for BBIAS + unknown bit set on
 
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);

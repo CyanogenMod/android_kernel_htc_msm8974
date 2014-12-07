@@ -56,6 +56,12 @@ enum {
 };
 
 enum {
+	/*
+	 * Largest possible UD header: send with GRH and immediate
+	 * data plus 18 bytes for an Ethernet header with VLAN/802.1Q
+	 * tag.  (LRH would only use 8 bytes, so Ethernet is the
+	 * biggest case)
+	 */
 	MLX4_IB_UD_HEADER_SIZE		= 82,
 	MLX4_IB_LSO_HEADER_SPARE	= 128,
 };
@@ -126,6 +132,15 @@ static void *get_send_wqe(struct mlx4_ib_qp *qp, int n)
 	return get_wqe(qp, qp->sq.offset + (n << qp->sq.wqe_shift));
 }
 
+/*
+ * Stamp a SQ WQE so that it is invalid if prefetched by marking the
+ * first four bytes of every 64 byte chunk with
+ *     0x7FFFFFF | (invalid_ownership_value << 31).
+ *
+ * When the max work request size is less than or equal to the WQE
+ * basic block size, as an optimization, we can stamp all WQEs with
+ * 0xffffffff, and skip the very first chunk of each WQE.
+ */
 static void stamp_send_wqe(struct mlx4_ib_qp *qp, int n, int size)
 {
 	__be32 *wqe;
@@ -174,7 +189,7 @@ static void post_nop_wqe(struct mlx4_ib_qp *qp, int n, int size)
 		s += sizeof(struct mlx4_wqe_datagram_seg);
 	}
 
-	
+	/* Pad the remainder of the WQE with an inline data segment. */
 	if (size > s) {
 		inl = wqe + s;
 		inl->byte_count = cpu_to_be32(1 << 31 | (size - s - sizeof *inl));
@@ -193,6 +208,7 @@ static void post_nop_wqe(struct mlx4_ib_qp *qp, int n, int size)
 	stamp_send_wqe(qp, n + qp->sq_spare_wqes, size);
 }
 
+/* Post NOP WQE to prevent wrap-around in the middle of WR */
 static inline unsigned pad_wraparound(struct mlx4_ib_qp *qp, int ind)
 {
 	unsigned s = qp->sq.wqe_cnt - (ind & (qp->sq.wqe_cnt - 1));
@@ -251,6 +267,12 @@ static void mlx4_ib_qp_event(struct mlx4_qp *qp, enum mlx4_event type)
 
 static int send_wqe_overhead(enum ib_qp_type type, u32 flags)
 {
+	/*
+	 * UD WQEs must have a datagram segment.
+	 * RC and UC WQEs might have a remote address segment.
+	 * MLX WQEs need two extra inline data segments (for the UD
+	 * header and space for the ICRC).
+	 */
 	switch (type) {
 	case IB_QPT_UD:
 		return sizeof (struct mlx4_wqe_ctrl_seg) +
@@ -282,7 +304,7 @@ static int send_wqe_overhead(enum ib_qp_type type, u32 flags)
 static int set_rq_size(struct mlx4_ib_dev *dev, struct ib_qp_cap *cap,
 		       int is_user, int has_rq, struct mlx4_ib_qp *qp)
 {
-	
+	/* Sanity check RQ size before proceeding */
 	if (cap->max_recv_wr  > dev->dev->caps.max_wqes  ||
 	    cap->max_recv_sge > dev->dev->caps.max_rq_sg)
 		return -EINVAL;
@@ -293,7 +315,7 @@ static int set_rq_size(struct mlx4_ib_dev *dev, struct ib_qp_cap *cap,
 
 		qp->rq.wqe_cnt = qp->rq.max_gs = 0;
 	} else {
-		
+		/* HW requires >= 1 RQ entry with >= 1 gather entry */
 		if (is_user && (!cap->max_recv_wr || !cap->max_recv_sge))
 			return -EINVAL;
 
@@ -313,13 +335,17 @@ static int set_kernel_sq_size(struct mlx4_ib_dev *dev, struct ib_qp_cap *cap,
 {
 	int s;
 
-	
+	/* Sanity check SQ size before proceeding */
 	if (cap->max_send_wr	 > dev->dev->caps.max_wqes  ||
 	    cap->max_send_sge	 > dev->dev->caps.max_sq_sg ||
 	    cap->max_inline_data + send_wqe_overhead(type, qp->flags) +
 	    sizeof (struct mlx4_wqe_inline_seg) > dev->dev->caps.max_sq_desc_sz)
 		return -EINVAL;
 
+	/*
+	 * For MLX transport we need 2 extra S/G entries:
+	 * one for the header and one for the checksum at the end
+	 */
 	if ((type == IB_QPT_SMI || type == IB_QPT_GSI) &&
 	    cap->max_send_sge + 2 > dev->dev->caps.max_sq_sg)
 		return -EINVAL;
@@ -331,6 +357,37 @@ static int set_kernel_sq_size(struct mlx4_ib_dev *dev, struct ib_qp_cap *cap,
 	if (s > dev->dev->caps.max_sq_desc_sz)
 		return -EINVAL;
 
+	/*
+	 * Hermon supports shrinking WQEs, such that a single work
+	 * request can include multiple units of 1 << wqe_shift.  This
+	 * way, work requests can differ in size, and do not have to
+	 * be a power of 2 in size, saving memory and speeding up send
+	 * WR posting.  Unfortunately, if we do this then the
+	 * wqe_index field in CQEs can't be used to look up the WR ID
+	 * anymore, so we do this only if selective signaling is off.
+	 *
+	 * Further, on 32-bit platforms, we can't use vmap() to make
+	 * the QP buffer virtually contiguous.  Thus we have to use
+	 * constant-sized WRs to make sure a WR is always fully within
+	 * a single page-sized chunk.
+	 *
+	 * Finally, we use NOP work requests to pad the end of the
+	 * work queue, to avoid wrap-around in the middle of WR.  We
+	 * set NEC bit to avoid getting completions with error for
+	 * these NOP WRs, but since NEC is only supported starting
+	 * with firmware 2.2.232, we use constant-sized WRs for older
+	 * firmware.
+	 *
+	 * And, since MLX QPs only support SEND, we use constant-sized
+	 * WRs in this case.
+	 *
+	 * We look for the smallest value of wqe_shift such that the
+	 * resulting number of wqes does not exceed device
+	 * capabilities.
+	 *
+	 * We set WQE size to at least 64 bytes, this way stamping
+	 * invalidates each WQE.
+	 */
 	if (dev->dev->caps.fw_ver >= MLX4_FW_VER_WQE_CTRL_NEC &&
 	    qp->sq_signal_bits && BITS_PER_LONG == 64 &&
 	    type != IB_QPT_SMI && type != IB_QPT_GSI)
@@ -341,6 +398,10 @@ static int set_kernel_sq_size(struct mlx4_ib_dev *dev, struct ib_qp_cap *cap,
 	for (;;) {
 		qp->sq_max_wqes_per_wr = DIV_ROUND_UP(s, 1U << qp->sq.wqe_shift);
 
+		/*
+		 * We need to leave 2 KB + 1 WR of headroom in the SQ to
+		 * allow HW to prefetch.
+		 */
 		qp->sq_spare_wqes = (2048 >> qp->sq.wqe_shift) + qp->sq_max_wqes_per_wr;
 		qp->sq.wqe_cnt = roundup_pow_of_two(cap->max_send_wr *
 						    qp->sq_max_wqes_per_wr +
@@ -375,7 +436,7 @@ static int set_kernel_sq_size(struct mlx4_ib_dev *dev, struct ib_qp_cap *cap,
 	cap->max_send_sge = min(qp->sq.max_gs,
 				min(dev->dev->caps.max_sq_sg,
 				    dev->dev->caps.max_rq_sg));
-	
+	/* We don't support inline sends for kernel QPs (yet) */
 	cap->max_inline_data = 0;
 
 	return 0;
@@ -385,7 +446,7 @@ static int set_user_sq_size(struct mlx4_ib_dev *dev,
 			    struct mlx4_ib_qp *qp,
 			    struct mlx4_ib_create_qp *ucmd)
 {
-	
+	/* Sanity check SQ size before proceeding */
 	if ((1 << ucmd->log_sq_bb_count) > dev->dev->caps.max_wqes	 ||
 	    ucmd->log_sq_stride >
 		ilog2(roundup_pow_of_two(dev->dev->caps.max_sq_desc_sz)) ||
@@ -704,6 +765,10 @@ struct ib_qp *mlx4_ib_create_qp(struct ib_pd *pd,
 	int err;
 	u16 xrcdn = 0;
 
+	/*
+	 * We only support LSO and multicast loopback blocking, and
+	 * only for kernel UD QPs.
+	 */
 	if (init_attr->create_flags & ~(IB_QP_CREATE_IPOIB_UD_LSO |
 					IB_QP_CREATE_BLOCK_MULTICAST_LOOPBACK))
 		return ERR_PTR(-EINVAL);
@@ -717,12 +782,12 @@ struct ib_qp *mlx4_ib_create_qp(struct ib_pd *pd,
 		pd = to_mxrcd(init_attr->xrcd)->pd;
 		xrcdn = to_mxrcd(init_attr->xrcd)->xrcdn;
 		init_attr->send_cq = to_mxrcd(init_attr->xrcd)->cq;
-		
+		/* fall through */
 	case IB_QPT_XRC_INI:
 		if (!(to_mdev(pd->device)->dev->caps.flags & MLX4_DEV_CAP_FLAG_XRC))
 			return ERR_PTR(-ENOSYS);
 		init_attr->recv_cq = init_attr->send_cq;
-		
+		/* fall through */
 	case IB_QPT_RC:
 	case IB_QPT_UC:
 	case IB_QPT_UD:
@@ -745,7 +810,7 @@ struct ib_qp *mlx4_ib_create_qp(struct ib_pd *pd,
 	case IB_QPT_SMI:
 	case IB_QPT_GSI:
 	{
-		
+		/* Userspace is not allowed to create special QPs: */
 		if (udata)
 			return ERR_PTR(-EINVAL);
 
@@ -771,7 +836,7 @@ struct ib_qp *mlx4_ib_create_qp(struct ib_pd *pd,
 		break;
 	}
 	default:
-		
+		/* Don't support raw QPs */
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -908,7 +973,7 @@ static int mlx4_set_path(struct mlx4_ib_dev *dev, const struct ib_ah_attr *ah,
 
 		memcpy(path->dmac, mac, 6);
 		path->ackto = MLX4_IB_LINK_TYPE_ETH;
-		
+		/* use index 0 into MAC table for IBoE */
 		path->grh_mylmc &= 0x80;
 
 		vlan_tag = rdma_get_vlan_id(&dev->iboe.gid_table[port - 1][ah->grh.sgid_index]);
@@ -1075,7 +1140,7 @@ static int __mlx4_ib_modify_qp(struct ib_qp *ibqp,
 	context->cqn_recv = cpu_to_be32(recv_cq->mcq.cqn);
 	context->params1  = cpu_to_be32(MLX4_IB_ACK_REQ_FREQ << 28);
 
-	
+	/* Set "fast registration enabled" for all kernel QPs */
 	if (!qp->ibqp.uobject)
 		context->params1 |= cpu_to_be32(1 << 11);
 
@@ -1152,6 +1217,12 @@ static int __mlx4_ib_modify_qp(struct ib_qp *ibqp,
 	if (!ibqp->uobject && cur_state == IB_QPS_RESET && new_state == IB_QPS_INIT)
 		context->rlkey |= (1 << 4);
 
+	/*
+	 * Before passing a kernel QP to the HW, make sure that the
+	 * ownership bits of the send queue are set and the SQ
+	 * headroom is stamped so that the hardware doesn't start
+	 * processing stale work requests.
+	 */
 	if (!ibqp->uobject && cur_state == IB_QPS_RESET && new_state == IB_QPS_INIT) {
 		struct mlx4_wqe_ctrl_seg *ctrl;
 		int i;
@@ -1188,6 +1259,10 @@ static int __mlx4_ib_modify_qp(struct ib_qp *ibqp,
 	if (is_sqp(dev, qp))
 		store_sqp_attrs(to_msqp(qp), attr, attr_mask);
 
+	/*
+	 * If we moved QP0 to RTR, bring the IB link up; if we moved
+	 * QP0 to RESET or ERROR, bring the link back down.
+	 */
 	if (is_qp0(dev, qp)) {
 		if (cur_state != IB_QPS_RTR && new_state == IB_QPS_RTR)
 			if (mlx4_INIT_PORT(dev->dev, qp->port))
@@ -1199,6 +1274,10 @@ static int __mlx4_ib_modify_qp(struct ib_qp *ibqp,
 			mlx4_CLOSE_PORT(dev->dev, qp->port);
 	}
 
+	/*
+	 * If we moved a kernel QP to RESET, clean up all old CQ
+	 * entries and reinitialize the QP.
+	 */
 	if (new_state == IB_QPS_RESET && !ibqp->uobject) {
 		mlx4_ib_cq_clean(recv_cq, qp->mqp.qpn,
 				 ibqp->srq ? to_msrq(ibqp->srq): NULL);
@@ -1347,7 +1426,7 @@ static int build_mlx_header(struct mlx4_ib_sqp *sqp, struct ib_send_wr *wr,
 		u8 *smac;
 
 		memcpy(sqp->ud_header.eth.dmac_h, ah->av.eth.mac, 6);
-		
+		/* FIXME: cache smac value? */
 		smac = to_mdev(sqp->qp.ibqp.device)->iboe.netdevs[sqp->qp.port - 1]->dev_addr;
 		memcpy(sqp->ud_header.eth.smac_h, smac, 6);
 		if (!memcmp(sqp->ud_header.eth.smac_h, sqp->ud_header.eth.dmac_h, 6))
@@ -1393,6 +1472,12 @@ static int build_mlx_header(struct mlx4_ib_sqp *sqp, struct ib_send_wr *wr,
 		printk("\n");
 	}
 
+	/*
+	 * Inline data segments may not cross a 64 byte boundary.  If
+	 * our UD header is bigger than the space available up to the
+	 * next 64 byte boundary in the WQE, use two inline data
+	 * segments to hold the UD header.
+	 */
 	spc = MLX4_INLINE_ALIGN -
 		((unsigned long) (inl + 1) & (MLX4_INLINE_ALIGN - 1));
 	if (header_size <= spc) {
@@ -1405,6 +1490,19 @@ static int build_mlx_header(struct mlx4_ib_sqp *sqp, struct ib_send_wr *wr,
 
 		inl = (void *) (inl + 1) + spc;
 		memcpy(inl + 1, sqp->header_buf + spc, header_size - spc);
+		/*
+		 * Need a barrier here to make sure all the data is
+		 * visible before the byte_count field is set.
+		 * Otherwise the HCA prefetcher could grab the 64-byte
+		 * chunk with this inline segment and get a valid (!=
+		 * 0xffffffff) byte count but stale data, and end up
+		 * generating a packet with bad headers.
+		 *
+		 * The first inline segment's byte_count field doesn't
+		 * need a barrier, because it comes after a
+		 * control/MLX segment and therefore is at an offset
+		 * of 16 mod 64.
+		 */
 		wmb();
 		inl->byte_count = cpu_to_be32(1 << 31 | (header_size - spc));
 		i = 2;
@@ -1456,7 +1554,7 @@ static void set_fmr_seg(struct mlx4_wqe_fmr_seg *fseg, struct ib_send_wr *wr)
 	fseg->buf_list		= cpu_to_be64(mfrpl->map);
 	fseg->start_addr	= cpu_to_be64(wr->wr.fast_reg.iova_start);
 	fseg->reg_len		= cpu_to_be64(wr->wr.fast_reg.length);
-	fseg->offset		= 0; 
+	fseg->offset		= 0; /* XXX -- is this just for ZBVA? */
 	fseg->page_size		= cpu_to_be32(wr->wr.fast_reg.page_shift);
 	fseg->reserved[0]	= 0;
 	fseg->reserved[1]	= 0;
@@ -1519,6 +1617,14 @@ static void set_mlx_icrc_seg(void *dseg)
 
 	t[1] = 0;
 
+	/*
+	 * Need a barrier here before writing the byte_count field to
+	 * make sure that all the data is visible before the
+	 * byte_count field is set.  Otherwise, if the segment begins
+	 * a new cacheline, the HCA prefetcher could grab the 64-byte
+	 * chunk and get a valid (!= * 0xffffffff) byte count but
+	 * stale data, and end up sending the wrong data.
+	 */
 	wmb();
 
 	iseg->byte_count = cpu_to_be32((1 << 31) | 4);
@@ -1529,6 +1635,14 @@ static void set_data_seg(struct mlx4_wqe_data_seg *dseg, struct ib_sge *sg)
 	dseg->lkey       = cpu_to_be32(sg->lkey);
 	dseg->addr       = cpu_to_be64(sg->addr);
 
+	/*
+	 * Need a barrier here before writing the byte_count field to
+	 * make sure that all the data is visible before the
+	 * byte_count field is set.  Otherwise, if the segment begins
+	 * a new cacheline, the HCA prefetcher could grab the 64-byte
+	 * chunk and get a valid (!= * 0xffffffff) byte count but
+	 * stale data, and end up sending the wrong data.
+	 */
 	wmb();
 
 	dseg->byte_count = cpu_to_be32(sg->length);
@@ -1693,7 +1807,7 @@ int mlx4_ib_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 				break;
 
 			default:
-				
+				/* No extra segments required for sends */
 				break;
 			}
 			break;
@@ -1730,12 +1844,18 @@ int mlx4_ib_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 			break;
 		}
 
+		/*
+		 * Write data segments in reverse order, so as to
+		 * overwrite cacheline stamp last within each
+		 * cacheline.  This avoids issues with WQE
+		 * prefetching.
+		 */
 
 		dseg = wqe;
 		dseg += wr->num_sge - 1;
 		size += wr->num_sge * (sizeof (struct mlx4_wqe_data_seg) / 16);
 
-		
+		/* Add one more inline data segment for ICRC for MLX sends */
 		if (unlikely(qp->ibqp.qp_type == IB_QPT_SMI ||
 			     qp->ibqp.qp_type == IB_QPT_GSI)) {
 			set_mlx_icrc_seg(dseg + 1);
@@ -1775,6 +1895,15 @@ int mlx4_ib_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 		stamp = ind + qp->sq_spare_wqes;
 		ind += DIV_ROUND_UP(size * 16, 1U << qp->sq.wqe_shift);
 
+		/*
+		 * We can improve latency by not stamping the last
+		 * send queue WQE until after ringing the doorbell, so
+		 * only stamp here if there are still more WQEs to post.
+		 *
+		 * Same optimization applies to padding with NOP wqe
+		 * in case of WQE shrinking (used to prevent wrap-around
+		 * in the middle of WR).
+		 */
 		if (wr->next) {
 			stamp_send_wqe(qp, stamp, size * 16);
 			ind = pad_wraparound(qp, ind);
@@ -1794,6 +1923,10 @@ out:
 		writel(qp->doorbell_qpn,
 		       to_mdev(ibqp->device)->uar_map + MLX4_SEND_DOORBELL);
 
+		/*
+		 * Make sure doorbells don't leak out of SQ spinlock
+		 * and reach the HCA out of order.
+		 */
 		mmiowb();
 
 		stamp_send_wqe(qp, stamp, size * 16);
@@ -1993,7 +2126,7 @@ int mlx4_ib_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr
 	else
 		qp_attr->port_num = context.pri_path.sched_queue & 0x40 ? 2 : 1;
 
-	
+	/* qp_attr->en_sqd_async_notify is only applicable in modify qp */
 	qp_attr->sq_draining = mlx4_state == MLX4_QP_STATE_SQ_DRAINING;
 
 	qp_attr->max_rd_atomic = 1 << ((be32_to_cpu(context.params1) >> 21) & 0x7);
@@ -2020,6 +2153,10 @@ done:
 		qp_attr->cap.max_send_sge = 0;
 	}
 
+	/*
+	 * We don't support inline sends for kernel QPs (yet), and we
+	 * don't know what userspace's value should be.
+	 */
 	qp_attr->cap.max_inline_data = 0;
 
 	qp_init_attr->cap	     = qp_attr->cap;

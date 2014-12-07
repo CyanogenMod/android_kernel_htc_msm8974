@@ -25,12 +25,33 @@
 #include <linux/types.h>
 #include <linux/videodev2.h>
 
+/* ivtv knows several distinct output modes: MPEG streaming,
+   YUV streaming, YUV updates through user DMA and the passthrough
+   mode.
+
+   In order to clearly tell the driver that we are in user DMA
+   YUV mode you need to call IVTV_IOC_DMA_FRAME with y_source == NULL
+   first (althrough if you don't then the first time
+   DMA_FRAME is called the mode switch is done automatically).
+
+   When you close the file handle the user DMA mode is exited again.
+
+   While in one mode, you cannot use another mode (EBUSY is returned).
+
+   All this means that if you want to change the YUV interlacing
+   for the user DMA YUV mode you first need to do call IVTV_IOC_DMA_FRAME
+   with y_source == NULL before you can set the correct format using
+   VIDIOC_S_FMT.
+
+   Eventually all this should be replaced with a proper V4L2 API,
+   but for now we have to do it this way. */
 
 struct ivtv_dma_frame {
-	enum v4l2_buf_type type; 
-	__u32 pixelformat;	 
-	void __user *y_source;   
-	void __user *uv_source;  
+	enum v4l2_buf_type type; /* V4L2_BUF_TYPE_VIDEO_OUTPUT */
+	__u32 pixelformat;	 /* 0 == same as destination */
+	void __user *y_source;   /* if NULL and type == V4L2_BUF_TYPE_VIDEO_OUTPUT,
+				    then just switch to user DMA YUV output mode */
+	void __user *uv_source;  /* Unused for RGB pixelformats */
 	struct v4l2_rect src;
 	struct v4l2_rect dst;
 	__u32 src_width;
@@ -39,11 +60,14 @@ struct ivtv_dma_frame {
 
 #define IVTV_IOC_DMA_FRAME		_IOW ('V', BASE_VIDIOC_PRIVATE+0, struct ivtv_dma_frame)
 
+/* Select the passthrough mode (if the argument is non-zero). In the passthrough
+   mode the output of the encoder is passed immediately into the decoder. */
 #define IVTV_IOC_PASSTHROUGH_MODE	_IOW ('V', BASE_VIDIOC_PRIVATE+1, int)
 
+/* Deprecated defines: applications should use the defines from videodev2.h */
 #define IVTV_SLICED_TYPE_TELETEXT_B     V4L2_MPEG_VBI_IVTV_TELETEXT_B
 #define IVTV_SLICED_TYPE_CAPTION_525    V4L2_MPEG_VBI_IVTV_CAPTION_525
 #define IVTV_SLICED_TYPE_WSS_625        V4L2_MPEG_VBI_IVTV_WSS_625
 #define IVTV_SLICED_TYPE_VPS            V4L2_MPEG_VBI_IVTV_VPS
 
-#endif 
+#endif /* _LINUX_IVTV_H */

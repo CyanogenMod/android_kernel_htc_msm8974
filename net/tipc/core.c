@@ -51,12 +51,14 @@
 #define CONFIG_TIPC_LOG 0
 #endif
 
+/* global variables used by multiple sub-systems within TIPC */
 
 int tipc_random;
 
 const char tipc_alphabet[] =
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.";
 
+/* configurable TIPC parameters */
 
 u32 tipc_own_addr;
 int tipc_max_ports;
@@ -66,6 +68,15 @@ int tipc_net_id;
 int tipc_remote_management;
 
 
+/**
+ * tipc_buf_acquire - creates a TIPC message buffer
+ * @size: message size (including TIPC header)
+ *
+ * Returns a new buffer with data pointers set to the specified size.
+ *
+ * NOTE: Headroom is reserved to allow prepending of a data link header.
+ *       There may also be unrequested tailroom present at the buffer's end.
+ */
 
 struct sk_buff *tipc_buf_acquire(u32 size)
 {
@@ -81,6 +92,9 @@ struct sk_buff *tipc_buf_acquire(u32 size)
 	return skb;
 }
 
+/**
+ * tipc_core_stop_net - shut down TIPC networking sub-systems
+ */
 
 static void tipc_core_stop_net(void)
 {
@@ -88,6 +102,9 @@ static void tipc_core_stop_net(void)
 	tipc_eth_media_stop();
 }
 
+/**
+ * start_net - start TIPC networking sub-systems
+ */
 
 int tipc_core_start_net(unsigned long addr)
 {
@@ -101,6 +118,9 @@ int tipc_core_start_net(unsigned long addr)
 	return res;
 }
 
+/**
+ * tipc_core_stop - switch TIPC from SINGLE NODE to NOT RUNNING mode
+ */
 
 static void tipc_core_stop(void)
 {
@@ -114,6 +134,9 @@ static void tipc_core_stop(void)
 	tipc_log_resize(0);
 }
 
+/**
+ * tipc_core_start - switch TIPC from NOT RUNNING to SINGLE NODE mode
+ */
 
 static int tipc_core_start(void)
 {

@@ -132,13 +132,17 @@ static int zlib_compress_pages(struct list_head *ws,
 			goto out;
 		}
 
-		
+		/* we're making it bigger, give up */
 		if (workspace->def_strm.total_in > 8192 &&
 		    workspace->def_strm.total_in <
 		    workspace->def_strm.total_out) {
 			ret = -1;
 			goto out;
 		}
+		/* we need another page for writing out.  Test this
+		 * before the total_in so we will pull in a new page for
+		 * the stream end if required
+		 */
 		if (workspace->def_strm.avail_out == 0) {
 			kunmap(out_page);
 			if (nr_pages == nr_dest_pages) {
@@ -157,11 +161,11 @@ static int zlib_compress_pages(struct list_head *ws,
 			workspace->def_strm.avail_out = PAGE_CACHE_SIZE;
 			workspace->def_strm.next_out = cpage_out;
 		}
-		
+		/* we're all done */
 		if (workspace->def_strm.total_in >= len)
 			break;
 
-		
+		/* we've read in a full page, get a new one */
 		if (workspace->def_strm.avail_in == 0) {
 			if (workspace->def_strm.total_out > max_out)
 				break;
@@ -236,6 +240,8 @@ static int zlib_decompress_biovec(struct list_head *ws, struct page **pages_in,
 	workspace->inf_strm.avail_out = PAGE_CACHE_SIZE;
 	pg_offset = 0;
 
+	/* If it's deflate, and it's got no preset dictionary, then
+	   we can tell zlib to skip the adler32 check. */
 	if (srclen > 2 && !(data_in[1] & PRESET_DICT) &&
 	    ((data_in[0] & 0x0f) == Z_DEFLATED) &&
 	    !(((data_in[0]<<8) + data_in[1]) % 31)) {
@@ -257,7 +263,7 @@ static int zlib_decompress_biovec(struct list_head *ws, struct page **pages_in,
 		buf_start = total_out;
 		total_out = workspace->inf_strm.total_out;
 
-		
+		/* we didn't make progress in this inflate call, we're done */
 		if (buf_start == total_out)
 			break;
 
@@ -318,6 +324,8 @@ static int zlib_decompress(struct list_head *ws, unsigned char *data_in,
 	workspace->inf_strm.next_out = workspace->buf;
 	workspace->inf_strm.avail_out = PAGE_CACHE_SIZE;
 	workspace->inf_strm.total_out = 0;
+	/* If it's deflate, and it's got no preset dictionary, then
+	   we can tell zlib to skip the adler32 check. */
 	if (srclen > 2 && !(data_in[1] & PRESET_DICT) &&
 	    ((data_in[0] & 0x0f) == Z_DEFLATED) &&
 	    !(((data_in[0]<<8) + data_in[1]) % 31)) {

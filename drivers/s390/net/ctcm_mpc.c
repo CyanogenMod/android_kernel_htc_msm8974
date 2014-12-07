@@ -7,6 +7,13 @@
  *			Peter Tiedemann (ptiedem@de.ibm.com)
  */
 
+/*
+	This module exports functions to be used by CCS:
+	EXPORT_SYMBOL(ctc_mpc_alloc_channel);
+	EXPORT_SYMBOL(ctc_mpc_establish_connectivity);
+	EXPORT_SYMBOL(ctc_mpc_dealloc_ch);
+	EXPORT_SYMBOL(ctc_mpc_flow_control);
+*/
 
 #undef DEBUG
 #undef DEBUGDATA
@@ -37,11 +44,11 @@
 #include <linux/netdevice.h>
 #include <net/dst.h>
 
-#include <linux/io.h>		
+#include <linux/io.h>		/* instead of <asm/io.h> ok ? */
 #include <asm/ccwdev.h>
 #include <asm/ccwgroup.h>
-#include <linux/bitops.h>	
-#include <linux/uaccess.h>	
+#include <linux/bitops.h>	/* instead of <asm/bitops.h> ok ? */
+#include <linux/uaccess.h>	/* instead of <asm/uaccess.h> ok ? */
 #include <linux/wait.h>
 #include <linux/moduleparam.h>
 #include <asm/idals.h>
@@ -89,10 +96,20 @@ static const struct th_header thdummy = {
 	.th_seq_num	=	0x00000000,
 };
 
+/*
+ * Definition of one MPC group
+ */
 
+/*
+ * Compatibility macros for busy handling
+ * of network devices.
+ */
 
 static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb);
 
+/*
+ * MPC Group state machine actions (static prototypes)
+ */
 static void mpc_action_nop(fsm_instance *fsm, int event, void *arg);
 static void mpc_action_go_ready(fsm_instance *fsm, int event, void *arg);
 static void mpc_action_go_inop(fsm_instance *fi, int event, void *arg);
@@ -106,6 +123,10 @@ static void mpc_action_rcvd_xid0(fsm_instance *fsm, int event, void *arg);
 static void mpc_action_rcvd_xid7(fsm_instance *fsm, int event, void *arg);
 
 #ifdef DEBUGDATA
+/*-------------------------------------------------------------------*
+* Dump buffer format						     *
+*								     *
+*--------------------------------------------------------------------*/
 void ctcmpc_dumpit(char *buf, int len)
 {
 	__u32	ct, sw, rm, dup;
@@ -177,7 +198,7 @@ void ctcmpc_dumpit(char *buf, int len)
 
 		sw = 0;
 		rm = 16;
-	}  
+	}  /* endfor */
 
 	if (sw != 0) {
 		for ( ; rm > 0; rm--, sw++) {
@@ -207,10 +228,16 @@ void ctcmpc_dumpit(char *buf, int len)
 
 	return;
 
-}   
+}   /*	 end of ctcmpc_dumpit  */
 #endif
 
 #ifdef DEBUGDATA
+/*
+ * Dump header and first 16 bytes of an sk_buff for debugging purposes.
+ *
+ * skb		The sk_buff to dump.
+ * offset	Offset relative to skb-data, where to start the dump.
+ */
 void ctcmpc_dump_skb(struct sk_buff *skb, int offset)
 {
 	__u8 *p = skb->data;
@@ -303,6 +330,13 @@ static struct net_device *ctcmpc_get_dev(int port_num)
 	return dev;
 }
 
+/*
+ * ctc_mpc_alloc_channel
+ *	(exported interface)
+ *
+ * Device Initialization :
+ *	ACTPATH  driven IO operations
+ */
 int ctc_mpc_alloc_channel(int port_num, void (*callback)(int, int))
 {
 	struct net_device *dev;
@@ -325,15 +359,15 @@ int ctc_mpc_alloc_channel(int port_num, void (*callback)(int, int))
 
 	switch (fsm_getstate(grp->fsm)) {
 	case MPCG_STATE_INOP:
-		
+		/* Group is in the process of terminating */
 		grp->alloc_called = 1;
 		break;
 	case MPCG_STATE_RESET:
-		
-		
-		
-		
-		
+		/* MPC Group will transition to state		  */
+		/* MPCG_STATE_XID2INITW iff the minimum number	  */
+		/* of 1 read and 1 write channel have successfully*/
+		/* activated					  */
+		/*fsm_newstate(grp->fsm, MPCG_STATE_XID2INITW);*/
 		if (callback)
 			grp->send_qllc_disc = 1;
 	case MPCG_STATE_XID0IOWAIT:
@@ -347,17 +381,17 @@ int ctc_mpc_alloc_channel(int port_num, void (*callback)(int, int))
 		fsm_event(priv->fsm, DEV_EVENT_START, dev);
 		break;
 	case MPCG_STATE_READY:
-		
-		
-		
+		/* XID exchanges completed after PORT was activated */
+		/* Link station already active			    */
+		/* Maybe timing issue...retry callback		    */
 		grp->allocchan_callback_retries++;
 		if (grp->allocchan_callback_retries < 4) {
 			if (grp->allochanfunc)
 				grp->allochanfunc(grp->port_num,
 						  grp->group_max_buflen);
 		} else {
-			
-			
+			/* there are problems...bail out	    */
+			/* there may be a state mismatch so restart */
 			fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
 			grp->allocchan_callback_retries = 0;
 		}
@@ -368,6 +402,10 @@ int ctc_mpc_alloc_channel(int port_num, void (*callback)(int, int))
 }
 EXPORT_SYMBOL(ctc_mpc_alloc_channel);
 
+/*
+ * ctc_mpc_establish_connectivity
+ *	(exported interface)
+ */
 void ctc_mpc_establish_connectivity(int port_num,
 				void (*callback)(int, int, int))
 {
@@ -393,9 +431,9 @@ void ctc_mpc_establish_connectivity(int port_num,
 
 	switch (fsm_getstate(grp->fsm)) {
 	case MPCG_STATE_READY:
-		
-		
-		
+		/* XID exchanges completed after PORT was activated */
+		/* Link station already active			    */
+		/* Maybe timing issue...retry callback		    */
 		fsm_deltimer(&grp->timer);
 		grp->estconn_callback_retries++;
 		if (grp->estconn_callback_retries < 4) {
@@ -405,15 +443,15 @@ void ctc_mpc_establish_connectivity(int port_num,
 				grp->estconnfunc = NULL;
 			}
 		} else {
-			
+			/* there are problems...bail out	 */
 			fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
 			grp->estconn_callback_retries = 0;
 		}
 		break;
 	case MPCG_STATE_INOP:
 	case MPCG_STATE_RESET:
-		
-		
+		/* MPC Group is not ready to start XID - min num of */
+		/* 1 read and 1 write channel have not been acquired*/
 
 		CTCM_DBF_TEXT_(MPC_ERROR, CTC_DBF_ERROR,
 			"%s(%s): REJECTED - inactive channels",
@@ -424,9 +462,9 @@ void ctc_mpc_establish_connectivity(int port_num,
 		}
 		break;
 	case MPCG_STATE_XID2INITW:
-		
-		
-		
+		/* alloc channel was called but no XID exchange    */
+		/* has occurred. initiate xside XID exchange	   */
+		/* make sure yside XID0 processing has not started */
 
 		if ((fsm_getstate(rch->fsm) > CH_XID0_PENDING) ||
 			(fsm_getstate(wch->fsm) > CH_XID0_PENDING)) {
@@ -473,7 +511,7 @@ void ctc_mpc_establish_connectivity(int port_num,
 			}
 		break;
 	case MPCG_STATE_XID0IOWAIT:
-		
+		/* already in active XID negotiations */
 	default:
 		break;
 	}
@@ -484,6 +522,10 @@ done:
 }
 EXPORT_SYMBOL(ctc_mpc_establish_connectivity);
 
+/*
+ * ctc_mpc_dealloc_ch
+ *	(exported interface)
+ */
 void ctc_mpc_dealloc_ch(int port_num)
 {
 	struct net_device *dev;
@@ -514,6 +556,10 @@ void ctc_mpc_dealloc_ch(int port_num)
 }
 EXPORT_SYMBOL(ctc_mpc_dealloc_ch);
 
+/*
+ * ctc_mpc_flow_control
+ *	(exported interface)
+ */
 void ctc_mpc_flow_control(int port_num, int flowc)
 {
 	struct ctcm_priv *priv;
@@ -550,11 +596,11 @@ void ctc_mpc_flow_control(int port_num, int flowc)
 	case 0:
 		if (mpcg_state == MPCG_STATE_FLOWC) {
 			fsm_newstate(grp->fsm, MPCG_STATE_READY);
-			
-			
+			/* ensure any data that has accumulated */
+			/* on the io_queue will now be sen t	*/
 			tasklet_schedule(&rch->ch_tasklet);
 		}
-		
+		/* possible race condition			*/
 		if (mpcg_state == MPCG_STATE_READY) {
 			grp->flow_off_called = 1;
 			break;
@@ -567,6 +613,9 @@ EXPORT_SYMBOL(ctc_mpc_flow_control);
 
 static int mpc_send_qllc_discontact(struct net_device *);
 
+/*
+ * helper function of ctcmpc_unpack_skb
+*/
 static void mpc_rcvd_sweep_resp(struct mpcg_info *mpcginfo)
 {
 	struct channel	  *rch = mpcginfo->ch;
@@ -595,6 +644,10 @@ static void mpc_rcvd_sweep_resp(struct mpcg_info *mpcginfo)
 
 }
 
+/*
+ * helper function of mpc_rcvd_sweep_req
+ * which is a helper of ctcmpc_unpack_skb
+ */
 static void ctcmpc_send_sweep_resp(struct channel *rch)
 {
 	struct net_device *dev = rch->netdev;
@@ -647,6 +700,9 @@ done:
 	return;
 }
 
+/*
+ * helper function of ctcmpc_unpack_skb
+ */
 static void mpc_rcvd_sweep_req(struct mpcg_info *mpcginfo)
 {
 	struct channel	  *rch     = mpcginfo->ch;
@@ -674,6 +730,9 @@ static void mpc_rcvd_sweep_req(struct mpcg_info *mpcginfo)
 	return;
 }
 
+/*
+  * MPC Group Station FSM definitions
+ */
 static const char *mpcg_event_names[] = {
 	[MPCG_EVENT_INOP]	= "INOP Condition",
 	[MPCG_EVENT_DISCONC]	= "Discontact Received",
@@ -701,6 +760,10 @@ static const char *mpcg_state_names[] = {
 	[MPCG_STATE_READY]	= "READY",
 };
 
+/*
+ * The MPC Group Station FSM
+ *   22 events
+ */
 static const fsm_node mpcg_fsm[] = {
 	{ MPCG_STATE_RESET,	MPCG_EVENT_INOP,	mpc_action_go_inop    },
 	{ MPCG_STATE_INOP,	MPCG_EVENT_INOP,	mpc_action_nop        },
@@ -771,6 +834,10 @@ static const fsm_node mpcg_fsm[] = {
 
 static int mpcg_fsm_len = ARRAY_SIZE(mpcg_fsm);
 
+/*
+ * MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+ */
 static void mpc_action_go_ready(fsm_instance *fsm, int event, void *arg)
 {
 	struct net_device *dev = arg;
@@ -811,6 +878,10 @@ static void mpc_action_go_ready(fsm_instance *fsm, int event, void *arg)
 	return;
 }
 
+/*
+ * helper of ctcm_init_netdevice
+ * CTCM_PROTO_MPC only
+ */
 void mpc_group_ready(unsigned long adev)
 {
 	struct net_device *dev = (struct net_device *)adev;
@@ -831,14 +902,14 @@ void mpc_group_ready(unsigned long adev)
 
 	fsm_newstate(grp->fsm, MPCG_STATE_READY);
 
-	
+	/* Put up a read on the channel */
 	ch = priv->channel[CTCM_READ];
 	ch->pdu_seq = 0;
 	CTCM_PR_DBGDATA("ctcmpc: %s() ToDCM_pdu_seq= %08x\n" ,
 			__func__, ch->pdu_seq);
 
 	ctcmpc_chx_rxidle(ch->fsm, CTC_EVENT_START, ch);
-	
+	/* Put the write channel in idle state */
 	ch = priv->channel[CTCM_WRITE];
 	if (ch->collect_len > 0) {
 		spin_lock(&ch->collect_lock);
@@ -863,6 +934,10 @@ void mpc_group_ready(unsigned long adev)
 
 }
 
+/*
+ * Increment the MPC Group Active Channel Counts
+ * helper of dev_action (called from channel fsm)
+ */
 void mpc_channel_action(struct channel *ch, int direction, int action)
 {
 	struct net_device  *dev  = ch->netdev;
@@ -968,6 +1043,14 @@ done:
 	CTCM_PR_DEBUG("exit %s: ch=0x%p id=%s\n", __func__, ch, ch->id);
 }
 
+/**
+ * Unpack a just received skb and hand it over to
+ * upper layers.
+ * special MPC version of unpack_skb.
+ *
+ * ch		The channel where this skb has been received.
+ * pskb		The received skb.
+ */
 static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb)
 {
 	struct net_device *dev	= ch->netdev;
@@ -991,7 +1074,7 @@ static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb)
 		(header->th_ch_flag == 0) &&
 		(header->th_blk_flag == 0) &&
 		(header->th_seq_num == 0))
-			goto done;
+		/* nothing for us */	goto done;
 
 	CTCM_PR_DBGDATA("%s: th_header\n", __func__);
 	CTCM_D3_DUMP((char *)header, TH_HEADER_LENGTH);
@@ -1007,6 +1090,12 @@ static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb)
 		   ((fsm_getstate(grp->fsm) == MPCG_STATE_READY) &&
 		    (header->th_seq_num != ch->th_seq_num + 1) &&
 		    (ch->th_seq_num != 0))) {
+			/* This is NOT the next segment		*
+			 * we are not the correct race winner	*
+			 * go away and let someone else win	*
+			 * BUT..this only applies if xid negot	*
+			 * is done				*
+			*/
 			grp->out_of_sequence += 1;
 			__skb_push(pskb, TH_HEADER_LENGTH);
 			skb_queue_tail(&ch->io_queue, pskb);
@@ -1056,11 +1145,11 @@ static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb)
 			CTCM_PR_DBGDATA("%s: new_len: %04x \n",
 						__func__, new_len);
 			if ((new_len == 0) || (new_len > pskb->len)) {
-				
-				
+				/* should never happen		    */
+				/* pskb len must be hosed...bail out */
 				CTCM_DBF_TEXT_(MPC_ERROR, CTC_DBF_ERROR,
 					"%s(%s): non valid pdu_offset: %04x",
-					
+					/* "data may be lost", */
 					CTCM_FUNTAIL, dev->name, new_len);
 				goto done;
 			}
@@ -1098,7 +1187,7 @@ static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb)
 			sendrc = netif_rx(skb);
 			priv->stats.rx_packets++;
 			priv->stats.rx_bytes += skblen;
-			skb_pull(pskb, new_len); 
+			skb_pull(pskb, new_len); /* point to next PDU */
 		}
 	} else {
 		mpcginfo = kmalloc(sizeof(struct mpcg_info), gfp_type());
@@ -1110,7 +1199,7 @@ static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb)
 		mpcginfo->skb = pskb;
 		CTCM_PR_DEBUG("%s: Not PDU - may be control pkt\n",
 					__func__);
-		
+		/*  it's a sweep?   */
 		sweep = (struct th_sweep *)pskb->data;
 		mpcginfo->sweep = sweep;
 		if (header->th_ch_flag == TH_SWEEP_REQ)
@@ -1129,7 +1218,7 @@ static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb)
 				"%s(%s): control pkt expected\n",
 						CTCM_FUNTAIL, dev->name);
 			priv->stats.rx_dropped++;
-			
+			/* mpcginfo only used for non-data transfers */
 			kfree(mpcginfo);
 			if (do_debug_data)
 				ctcmpc_dump_skb(pskb, -8);
@@ -1149,6 +1238,14 @@ done:
 			__func__, dev->name, ch, ch->id);
 }
 
+/**
+ * tasklet helper for mpc's skb unpacking.
+ *
+ * ch		The channel to work on.
+ * Allow flow control back pressure to occur here.
+ * Throttling back channel can result in excessive
+ * channel inactivity and system deact of channel
+ */
 void ctcmpc_bh(unsigned long thischan)
 {
 	struct channel	  *ch	= (struct channel *)thischan;
@@ -1159,14 +1256,14 @@ void ctcmpc_bh(unsigned long thischan)
 
 	CTCM_PR_DEBUG("%s cp:%i enter:  %s() %s\n",
 	       dev->name, smp_processor_id(), __func__, ch->id);
-	
+	/* caller has requested driver to throttle back */
 	while ((fsm_getstate(grp->fsm) != MPCG_STATE_FLOWC) &&
 			(skb = skb_dequeue(&ch->io_queue))) {
 		ctcmpc_unpack_skb(ch, skb);
 		if (grp->out_of_sequence > 20) {
-			
-			
-			
+			/* assume data loss has occurred if */
+			/* missing seq_num for extended     */
+			/* period of time		    */
 			grp->out_of_sequence = 0;
 			fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
 			break;
@@ -1179,6 +1276,9 @@ void ctcmpc_bh(unsigned long thischan)
 	return;
 }
 
+/*
+ *  MPC Group Initializations
+ */
 struct mpc_group *ctcmpc_init_mpc_group(struct ctcm_priv *priv)
 {
 	struct mpc_group *grp;
@@ -1208,7 +1308,7 @@ struct mpc_group *ctcmpc_init_mpc_group(struct ctcm_priv *priv)
 		kfree(grp);
 		return NULL;
 	}
-	
+	/*  base xid for all channels in group  */
 	grp->xid_skb_data = grp->xid_skb->data;
 	grp->xid_th = (struct th_header *)grp->xid_skb->data;
 	memcpy(skb_put(grp->xid_skb, TH_HEADER_LENGTH),
@@ -1240,12 +1340,28 @@ struct mpc_group *ctcmpc_init_mpc_group(struct ctcm_priv *priv)
 	return grp;
 }
 
+/*
+ * The MPC Group Station FSM
+ */
 
+/*
+ * MPC Group Station FSM actions
+ * CTCM_PROTO_MPC only
+ */
 
+/**
+ * NOP action for statemachines
+ */
 static void mpc_action_nop(fsm_instance *fi, int event, void *arg)
 {
 }
 
+/*
+ * invoked when the device transitions to dev_stopped
+ * MPC will stop each individual channel if a single XID failure
+ * occurs, or will intitiate all channels be stopped if a GROUP
+ * level failure occurs.
+ */
 static void mpc_action_go_inop(fsm_instance *fi, int event, void *arg)
 {
 	struct net_device  *dev = arg;
@@ -1271,7 +1387,7 @@ static void mpc_action_go_inop(fsm_instance *fi, int event, void *arg)
 			"%s(%s): MPC GROUP INOPERATIVE",
 				CTCM_FUNTAIL, dev->name);
 	if ((grp->saved_state != MPCG_STATE_RESET) ||
-		
+		/* dealloc_channel has been called */
 		(grp->port_persist == 0))
 		fsm_deltimer(&priv->restart_timer);
 
@@ -1297,7 +1413,7 @@ static void mpc_action_go_inop(fsm_instance *fi, int event, void *arg)
 	}
 
 	grp->xid2_tgnum = 0;
-	grp->group_max_buflen = 0;  
+	grp->group_max_buflen = 0;  /*min of all received */
 	grp->outstanding_xid2 = 0;
 	grp->outstanding_xid7 = 0;
 	grp->outstanding_xid7_p2 = 0;
@@ -1317,11 +1433,11 @@ static void mpc_action_go_inop(fsm_instance *fi, int event, void *arg)
 		mpc_send_qllc_discontact(dev);
 	}
 
-	
-	
-	
-	
-	
+	/* DO NOT issue DEV_EVENT_STOP directly out of this code */
+	/* This can result in INOP of VTAM PU due to halting of  */
+	/* outstanding IO which causes a sense to be returned	 */
+	/* Only about 3 senses are allowed and then IOS/VTAM will*/
+	/* become unreachable without manual intervention	 */
 	if ((grp->port_persist == 1) || (grp->alloc_called)) {
 		grp->alloc_called = 0;
 		fsm_deltimer(&priv->restart_timer);
@@ -1341,6 +1457,15 @@ static void mpc_action_go_inop(fsm_instance *fi, int event, void *arg)
 	}
 }
 
+/**
+ * Handle mpc group  action timeout.
+ * MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+ *
+ * fi		An instance of an mpc_group fsm.
+ * event	The event, just happened.
+ * arg		Generic pointer, casted from net_device * upon call.
+ */
 static void mpc_action_timeout(fsm_instance *fi, int event, void *arg)
 {
 	struct net_device *dev = arg;
@@ -1358,9 +1483,9 @@ static void mpc_action_timeout(fsm_instance *fi, int event, void *arg)
 
 	switch (fsm_getstate(grp->fsm)) {
 	case MPCG_STATE_XID2INITW:
-		
-		
-		
+		/* Unless there is outstanding IO on the  */
+		/* channel just return and wait for ATTN  */
+		/* interrupt to begin XID negotiations	  */
 		if ((fsm_getstate(rch->fsm) == CH_XID0_PENDING) &&
 		   (fsm_getstate(wch->fsm) == CH_XID0_PENDING))
 			break;
@@ -1374,6 +1499,10 @@ static void mpc_action_timeout(fsm_instance *fi, int event, void *arg)
 	return;
 }
 
+/*
+ * MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+ */
 void mpc_action_discontact(fsm_instance *fi, int event, void *arg)
 {
 	struct mpcg_info   *mpcginfo   = arg;
@@ -1400,6 +1529,11 @@ void mpc_action_discontact(fsm_instance *fi, int event, void *arg)
 	return;
 }
 
+/*
+ * MPC Group Station - not part of FSM
+ * CTCM_PROTO_MPC only
+ * called from add_channel in ctcm_main.c
+ */
 void mpc_action_send_discontact(unsigned long thischan)
 {
 	int rc;
@@ -1419,6 +1553,11 @@ void mpc_action_send_discontact(unsigned long thischan)
 }
 
 
+/*
+ * helper function of mpc FSM
+ * CTCM_PROTO_MPC only
+ * mpc_action_rcvd_xid7
+*/
 static int mpc_validate_xid(struct mpcg_info *mpcginfo)
 {
 	struct channel	   *ch	 = mpcginfo->ch;
@@ -1435,7 +1574,7 @@ static int mpc_validate_xid(struct mpcg_info *mpcginfo)
 
 	if (xid == NULL) {
 		rc = 1;
-		
+		/* XID REJECTED: xid == NULL */
 		CTCM_DBF_TEXT_(MPC_ERROR, CTC_DBF_ERROR,
 			"%s(%s): xid = NULL",
 				CTCM_FUNTAIL, ch->id);
@@ -1444,11 +1583,11 @@ static int mpc_validate_xid(struct mpcg_info *mpcginfo)
 
 	CTCM_D3_DUMP((char *)xid, XID2_LENGTH);
 
-	
+	/*the received direction should be the opposite of ours  */
 	if (((CHANNEL_DIRECTION(ch->flags) == CTCM_READ) ? XID2_WRITE_SIDE :
 				XID2_READ_SIDE) != xid->xid2_dlc_type) {
 		rc = 2;
-		
+		/* XID REJECTED: r/w channel pairing mismatch */
 		CTCM_DBF_TEXT_(MPC_ERROR, CTC_DBF_ERROR,
 			"%s(%s): r/w channel pairing mismatch",
 				CTCM_FUNTAIL, ch->id);
@@ -1475,14 +1614,14 @@ static int mpc_validate_xid(struct mpcg_info *mpcginfo)
 		skb_reset_tail_pointer(grp->rcvd_xid_skb);
 		grp->rcvd_xid_skb->len = 0;
 
-		
+		/* convert two 32 bit numbers into 1 64 bit for id compare */
 		our_id = (__u64)priv->xid->xid2_adj_id;
 		our_id = our_id << 32;
 		our_id = our_id + priv->xid->xid2_sender_id;
 		their_id = (__u64)xid->xid2_adj_id;
 		their_id = their_id << 32;
 		their_id = their_id + xid->xid2_sender_id;
-		
+		/* lower id assume the xside role */
 		if (our_id < their_id) {
 			grp->roll = XSIDE;
 			CTCM_DBF_TEXT_(MPC_TRACE, CTC_DBF_NOTICE,
@@ -1498,28 +1637,28 @@ static int mpc_validate_xid(struct mpcg_info *mpcginfo)
 	} else {
 		if (xid->xid2_flag4 != grp->saved_xid2->xid2_flag4) {
 			rc = 3;
-			
+			/* XID REJECTED: xid flag byte4 mismatch */
 			CTCM_DBF_TEXT_(MPC_ERROR, CTC_DBF_ERROR,
 				"%s(%s): xid flag byte4 mismatch",
 					CTCM_FUNTAIL, ch->id);
 		}
 		if (xid->xid2_flag2 == 0x40) {
 			rc = 4;
-			
+			/* XID REJECTED - xid NOGOOD */
 			CTCM_DBF_TEXT_(MPC_ERROR, CTC_DBF_ERROR,
 				"%s(%s): xid NOGOOD",
 					CTCM_FUNTAIL, ch->id);
 		}
 		if (xid->xid2_adj_id != grp->saved_xid2->xid2_adj_id) {
 			rc = 5;
-			
+			/* XID REJECTED - Adjacent Station ID Mismatch */
 			CTCM_DBF_TEXT_(MPC_ERROR, CTC_DBF_ERROR,
 				"%s(%s): Adjacent Station ID Mismatch",
 					CTCM_FUNTAIL, ch->id);
 		}
 		if (xid->xid2_sender_id != grp->saved_xid2->xid2_sender_id) {
 			rc = 6;
-			
+			/* XID REJECTED - Sender Address Mismatch */
 			CTCM_DBF_TEXT_(MPC_ERROR, CTC_DBF_ERROR,
 				"%s(%s): Sender Address Mismatch",
 					CTCM_FUNTAIL, ch->id);
@@ -1537,12 +1676,17 @@ done:
 	return rc;
 }
 
+/*
+ * MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+ */
 static void mpc_action_side_xid(fsm_instance *fsm, void *arg, int side)
 {
 	struct channel *ch = arg;
 	int rc = 0;
 	int gotlock = 0;
-	unsigned long saveflags = 0;	
+	unsigned long saveflags = 0;	/* avoids compiler warning with
+					   spin_unlock_irqrestore */
 
 	CTCM_PR_DEBUG("Enter %s: cp=%i ch=0x%p id=%s\n",
 			__func__, smp_processor_id(), ch, ch->id);
@@ -1550,23 +1694,36 @@ static void mpc_action_side_xid(fsm_instance *fsm, void *arg, int side)
 	if (ctcm_checkalloc_buffer(ch))
 					goto done;
 
+	/*
+	 * skb data-buffer referencing:
+	 */
 	ch->trans_skb->data = ch->trans_skb_data;
 	skb_reset_tail_pointer(ch->trans_skb);
 	ch->trans_skb->len = 0;
+	/* result of the previous 3 statements is NOT always
+	 * already set after ctcm_checkalloc_buffer
+	 * because of possible reuse of the trans_skb
+	 */
 	memset(ch->trans_skb->data, 0, 16);
 	ch->rcvd_xid_th =  (struct th_header *)ch->trans_skb_data;
-	
+	/* check is main purpose here: */
 	skb_put(ch->trans_skb, TH_HEADER_LENGTH);
 	ch->rcvd_xid = (struct xid2 *)skb_tail_pointer(ch->trans_skb);
-	
+	/* check is main purpose here: */
 	skb_put(ch->trans_skb, XID2_LENGTH);
 	ch->rcvd_xid_id = skb_tail_pointer(ch->trans_skb);
-	
+	/* cleanup back to startpoint */
 	ch->trans_skb->data = ch->trans_skb_data;
 	skb_reset_tail_pointer(ch->trans_skb);
 	ch->trans_skb->len = 0;
 
-	
+	/* non-checking rewrite of above skb data-buffer referencing: */
+	/*
+	memset(ch->trans_skb->data, 0, 16);
+	ch->rcvd_xid_th =  (struct th_header *)ch->trans_skb_data;
+	ch->rcvd_xid = (struct xid2 *)(ch->trans_skb_data + TH_HEADER_LENGTH);
+	ch->rcvd_xid_id = ch->trans_skb_data + TH_HEADER_LENGTH + XID2_LENGTH;
+	 */
 
 	ch->ccw[8].flags	= CCW_FLAG_SLI | CCW_FLAG_CC;
 	ch->ccw[8].count	= 0;
@@ -1578,7 +1735,7 @@ static void mpc_action_side_xid(fsm_instance *fsm, void *arg, int side)
 			CTCM_FUNTAIL, ch->id, ch->xid_th, ch->xid, ch->xid_id);
 
 	if (side == XSIDE) {
-		
+		/* mpc_action_xside_xid */
 		if (ch->xid_th == NULL)
 				goto done;
 		ch->ccw[9].cmd_code	= CCW_CMD_WRITE;
@@ -1606,7 +1763,7 @@ static void mpc_action_side_xid(fsm_instance *fsm, void *arg, int side)
 		ch->ccw[13].cmd_code	= CCW_CMD_READ;
 		ch->ccw[13].cda		= virt_to_phys(ch->rcvd_xid_id);
 
-	} else { 
+	} else { /* side == YSIDE : mpc_action_yside_xid */
 		ch->ccw[9].cmd_code	= CCW_CMD_READ;
 		ch->ccw[9].flags	= CCW_FLAG_SLI | CCW_FLAG_CC;
 		ch->ccw[9].count	= TH_HEADER_LENGTH;
@@ -1651,6 +1808,9 @@ static void mpc_action_side_xid(fsm_instance *fsm, void *arg, int side)
 	CTCM_D3_DUMP((char *)ch->xid_id, 4);
 
 	if (!in_irq()) {
+			 /* Such conditional locking is a known problem for
+			  * sparse because its static undeterministic.
+			  * Warnings should be ignored here. */
 		spin_lock_irqsave(get_ccwdev_lock(ch->cdev), saveflags);
 		gotlock = 1;
 	}
@@ -1659,7 +1819,7 @@ static void mpc_action_side_xid(fsm_instance *fsm, void *arg, int side)
 	rc = ccw_device_start(ch->cdev, &ch->ccw[8],
 				(unsigned long)ch, 0xff, 0);
 
-	if (gotlock)	
+	if (gotlock)	/* see remark above about conditional locking */
 		spin_unlock_irqrestore(get_ccwdev_lock(ch->cdev), saveflags);
 
 	if (rc != 0) {
@@ -1674,16 +1834,28 @@ done:
 
 }
 
+/*
+ * MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+ */
 static void mpc_action_xside_xid(fsm_instance *fsm, int event, void *arg)
 {
 	mpc_action_side_xid(fsm, arg, XSIDE);
 }
 
+/*
+ * MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+ */
 static void mpc_action_yside_xid(fsm_instance *fsm, int event, void *arg)
 {
 	mpc_action_side_xid(fsm, arg, YSIDE);
 }
 
+/*
+ * MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+ */
 static void mpc_action_doxid0(fsm_instance *fsm, int event, void *arg)
 {
 	struct channel	   *ch   = arg;
@@ -1721,6 +1893,10 @@ static void mpc_action_doxid0(fsm_instance *fsm, int event, void *arg)
 	return;
 }
 
+/*
+ * MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+*/
 static void mpc_action_doxid7(fsm_instance *fsm, int event, void *arg)
 {
 	struct net_device *dev = arg;
@@ -1743,7 +1919,7 @@ static void mpc_action_doxid7(fsm_instance *fsm, int event, void *arg)
 		thisxid->xid2_option = XID2_7;
 		send = 0;
 
-		
+		/* xid7 phase 1 */
 		if (grp->outstanding_xid7_p2 > 0) {
 			if (grp->roll == YSIDE) {
 				if (fsm_getstate(ch->fsm) == CH_XID7_PENDING1) {
@@ -1763,7 +1939,7 @@ static void mpc_action_doxid7(fsm_instance *fsm, int event, void *arg)
 					send = 1;
 			}
 		} else {
-			
+			/* xid7 phase 2 */
 			if (grp->roll == YSIDE) {
 				if (fsm_getstate(ch->fsm) < CH_XID7_PENDING4) {
 					fsm_newstate(ch->fsm, CH_XID7_PENDING4);
@@ -1789,6 +1965,10 @@ static void mpc_action_doxid7(fsm_instance *fsm, int event, void *arg)
 	return;
 }
 
+/*
+ * MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+ */
 static void mpc_action_rcvd_xid0(fsm_instance *fsm, int event, void *arg)
 {
 
@@ -1809,8 +1989,8 @@ static void mpc_action_rcvd_xid0(fsm_instance *fsm, int event, void *arg)
 	grp->outstanding_xid7++;
 	grp->outstanding_xid7_p2++;
 
-	
-	
+	/* must change state before validating xid to */
+	/* properly handle interim interrupts received*/
 	switch (fsm_getstate(grp->fsm)) {
 	case MPCG_STATE_XID2INITW:
 		fsm_newstate(grp->fsm, MPCG_STATE_XID2INITX);
@@ -1848,6 +2028,10 @@ static void mpc_action_rcvd_xid0(fsm_instance *fsm, int event, void *arg)
 }
 
 
+/*
+ * MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+ */
 static void mpc_action_rcvd_xid7(fsm_instance *fsm, int event, void *arg)
 {
 	struct mpcg_info   *mpcginfo   = arg;
@@ -1896,6 +2080,10 @@ static void mpc_action_rcvd_xid7(fsm_instance *fsm, int event, void *arg)
 	return;
 }
 
+/*
+ * mpc_action helper of an MPC Group Station FSM action
+ * CTCM_PROTO_MPC only
+ */
 static int mpc_send_qllc_discontact(struct net_device *dev)
 {
 	__u32	new_len	= 0;
@@ -1908,6 +2096,10 @@ static int mpc_send_qllc_discontact(struct net_device *dev)
 		__func__, mpcg_state_names[grp->saved_state]);
 
 	switch (grp->saved_state) {
+	/*
+	 * establish conn callback function is
+	 * preferred method to report failure
+	 */
 	case MPCG_STATE_XID0IOWAIT:
 	case MPCG_STATE_XID0IOWAIX:
 	case MPCG_STATE_XID7INITI:
@@ -1964,6 +2156,8 @@ static int mpc_send_qllc_discontact(struct net_device *dev)
 		CTCM_PR_DBGDATA("ctcmpc: %s ToDCM_pdu_seq= %08x\n",
 				__func__, priv->channel[CTCM_READ]->pdu_seq);
 
+		/* receipt of CC03 resets anticipated sequence number on
+		      receiving side */
 		priv->channel[CTCM_READ]->pdu_seq = 0x00;
 		skb_reset_mac_header(skb);
 		skb->dev = dev;
@@ -1981,4 +2175,5 @@ static int mpc_send_qllc_discontact(struct net_device *dev)
 
 	return 0;
 }
+/* --- This is the END my friend --- */
 

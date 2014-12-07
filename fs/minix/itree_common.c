@@ -1,3 +1,4 @@
+/* Generic part */
 
 typedef struct {
 	block_t	*p;
@@ -36,7 +37,7 @@ static inline Indirect *get_branch(struct inode *inode,
 	struct buffer_head *bh;
 
 	*err = 0;
-	
+	/* i_data is not going away, no lock needed */
 	add_chain (chain, NULL, i_data(inode) + *offsets);
 	if (!p->key)
 		goto no_block;
@@ -77,7 +78,7 @@ static int alloc_branch(struct inode *inode,
 	branch[0].key = cpu_to_block(parent);
 	if (parent) for (n = 1; n < num; n++) {
 		struct buffer_head *bh;
-		
+		/* Allocate the next block */
 		int nr = minix_new_block(inode);
 		if (!nr)
 			break;
@@ -96,7 +97,7 @@ static int alloc_branch(struct inode *inode,
 	if (n == num)
 		return 0;
 
-	
+	/* Allocation failed, free what we already allocated */
 	for (i = 1; i < n; i++)
 		bforget(branch[i].bh);
 	for (i = 0; i < n; i++)
@@ -113,7 +114,7 @@ static inline int splice_branch(struct inode *inode,
 
 	write_lock(&pointers_lock);
 
-	
+	/* Verify that place we are splicing to is still there and vacant */
 	if (!verify_chain(chain, where-1) || *where->p)
 		goto changed;
 
@@ -121,11 +122,11 @@ static inline int splice_branch(struct inode *inode,
 
 	write_unlock(&pointers_lock);
 
-	
+	/* We are done with atomic stuff, now do the rest of housekeeping */
 
 	inode->i_ctime = CURRENT_TIME_SEC;
 
-	
+	/* had we spliced it onto indirect block? */
 	if (where->bh)
 		mark_buffer_dirty_inode(where->bh, inode);
 
@@ -157,16 +158,16 @@ static inline int get_block(struct inode * inode, sector_t block,
 reread:
 	partial = get_branch(inode, depth, offsets, chain, &err);
 
-	
+	/* Simplest case - block found, no allocation needed */
 	if (!partial) {
 got_it:
 		map_bh(bh, inode->i_sb, block_to_cpu(chain[depth-1].key));
-		
-		partial = chain+depth-1; 
+		/* Clean up and exit */
+		partial = chain+depth-1; /* the whole chain */
 		goto cleanup;
 	}
 
-	
+	/* Next simple case - plain lookup or failed read of indirect block */
 	if (!create || err == -EIO) {
 cleanup:
 		while (partial > chain) {
@@ -177,6 +178,11 @@ out:
 		return err;
 	}
 
+	/*
+	 * Indirect block might be removed by truncate while we were
+	 * reading it. Handling of that case (forget what we've got and
+	 * reread) is taken out of the main path.
+	 */
 	if (err == -EAGAIN)
 		goto changed;
 
@@ -318,7 +324,7 @@ static inline void truncate (struct inode * inode)
 			mark_buffer_dirty_inode(partial->bh, inode);
 		free_branches(inode, &nr, &nr+1, (chain+n-1) - partial);
 	}
-	
+	/* Clear the ends of indirect blocks on the shared branch */
 	while (partial > chain) {
 		free_branches(inode, partial->p + 1, block_end(partial->bh),
 				(chain+n-1) - partial);
@@ -327,7 +333,7 @@ static inline void truncate (struct inode * inode)
 		partial--;
 	}
 do_indirects:
-	
+	/* Kill the remaining (whole) subtrees */
 	while (first_whole < DEPTH-1) {
 		nr = idata[DIRECT+first_whole];
 		if (nr) {

@@ -76,7 +76,10 @@ static struct clk dummy_apb_pclk = {
 	.mode = CLK_MODE_XTAL,
 };
 
+/* Timer 0 - 25 MHz, Timer3 at bus clock rate, typically  150-166 MHz */
 #if defined(CONFIG_ARCH_FPGA11107)
+/* fpga cpu/bus are currently 30 times slower so scale frequency as well to */
+/* slow down Linux's sense of time */
 #define TIMER0_FREQUENCY_MHZ  (tmrHw_LOW_FREQUENCY_MHZ * 30)
 #define TIMER1_FREQUENCY_MHZ  (tmrHw_LOW_FREQUENCY_MHZ * 30)
 #define TIMER3_FREQUENCY_MHZ  (tmrHw_HIGH_FREQUENCY_MHZ * 30)
@@ -103,24 +106,24 @@ static struct clk sp804_timer3_clk = {
 };
 
 static struct clk_lookup lookups[] = {
-	{			
+	{			/* Bus clock */
 		.con_id = "apb_pclk",
 		.clk = &dummy_apb_pclk,
-	}, {			
+	}, {			/* UART0 */
 		.dev_id = "uarta",
 		.clk = &uart_clk,
-	}, {			
+	}, {			/* UART1 */
 		.dev_id = "uartb",
 		.clk = &uart_clk,
-	}, {			
+	}, {			/* SP804 timer 0 */
 		.dev_id = "sp804",
 		.con_id = "timer0",
 		.clk = &sp804_timer012_clk,
-	}, {			
+	}, {			/* SP804 timer 1 */
 		.dev_id = "sp804",
 		.con_id = "timer1",
 		.clk = &sp804_timer012_clk,
-	}, {			
+	}, {			/* SP804 timer 3 */
 		.dev_id = "sp804",
 		.con_id = "timer3",
 		.clk = &sp804_timer3_clk,
@@ -137,6 +140,10 @@ void __init bcmring_amba_init(void)
 	int i;
 	u32 bus_clock;
 
+/* Linux is run initially in non-secure mode. Secure peripherals */
+/* generate FIQ, and must be handled in secure mode. Until we have */
+/* a linux security monitor implementation, keep everything in */
+/* non-secure mode. */
 	chipcHw_busInterfaceClockEnable(chipcHw_REG_BUS_CLOCK_SPU);
 	secHw_setUnsecure(secHw_BLK_MASK_CHIP_CONTROL |
 			  secHw_BLK_MASK_KEY_SCAN |
@@ -155,10 +162,10 @@ void __init bcmring_amba_init(void)
 			  secHw_BLK_MASK_MPU |
 			  secHw_BLK_MASK_TZCTRL | secHw_BLK_MASK_INTR);
 
-	
-	
-	
-	
+	/* Only the devices attached to the AMBA bus are enabled just before the bus is */
+	/* scanned and the drivers are loaded. The clocks need to be on for the AMBA bus */
+	/* driver to access these blocks. The bus is probed, and the drivers are loaded. */
+	/* FIXME Need to remove enable of PIF once CLCD clock enable used properly in FPGA. */
 	bus_clock = chipcHw_REG_BUS_CLOCK_GE
 	    | chipcHw_REG_BUS_CLOCK_SDIO0 | chipcHw_REG_BUS_CLOCK_SDIO1;
 
@@ -170,6 +177,9 @@ void __init bcmring_amba_init(void)
 	}
 }
 
+/*
+ * Where is the timer (VA)?
+ */
 #define TIMER0_VA_BASE		((void __iomem *)MM_IO_BASE_TMR)
 #define TIMER1_VA_BASE		((void __iomem *)(MM_IO_BASE_TMR + 0x20))
 #define TIMER2_VA_BASE		((void __iomem *)(MM_IO_BASE_TMR + 0x40))
@@ -177,23 +187,32 @@ void __init bcmring_amba_init(void)
 
 static int __init bcmring_clocksource_init(void)
 {
-	
+	/* setup timer1 as free-running clocksource */
 	sp804_clocksource_init(TIMER1_VA_BASE, "timer1");
 
-	
+	/* setup timer3 as free-running clocksource */
 	sp804_clocksource_init(TIMER3_VA_BASE, "timer3");
 
 	return 0;
 }
 
+/*
+ * Set up timer interrupt, and return the current time in seconds.
+ */
 void __init bcmring_init_timer(void)
 {
 	printk(KERN_INFO "bcmring_init_timer\n");
+	/*
+	 * Initialise to a known state (all timers off)
+	 */
 	writel(0, TIMER0_VA_BASE + TIMER_CTRL);
 	writel(0, TIMER1_VA_BASE + TIMER_CTRL);
 	writel(0, TIMER2_VA_BASE + TIMER_CTRL);
 	writel(0, TIMER3_VA_BASE + TIMER_CTRL);
 
+	/*
+	 * Make irqs happen for the system timer
+	 */
 	bcmring_clocksource_init();
 
 	sp804_clockevents_init(TIMER0_VA_BASE, IRQ_TIMER0, "timer0");

@@ -10,6 +10,11 @@
  * GNU General Public License for more details.
  */
 
+/*
+*  perf-function-hooks.c
+*  DESCRIPTION
+*  Hooks for ksapi.ko
+*/
 
 #include <linux/module.h>
 #include <linux/module.h>
@@ -25,6 +30,12 @@
 #include <asm/perftypes.h>
 #include "perf.h"
 
+/*
+* Function Pointers for when the module is installed...
+* Should we use a single  "ready" variable for the testing
+* in the functions below, will be safer when module is removed
+* testing for a locked variable...
+*/
 VPVF pp_interrupt_out_ptr;
 VPVF pp_interrupt_in_ptr;
 VPULF pp_process_remove_ptr;
@@ -33,6 +44,21 @@ EXPORT_SYMBOL(pp_loaded);
 atomic_t pm_op_lock;
 EXPORT_SYMBOL(pm_op_lock);
 
+/*
+FUNCTION  VARIOUS
+
+DESCRIPTION
+Hooks to callinto the module functions after they are loaded.  The
+above pointers will be set and then these functions are ready to be
+called.
+
+DEPENDENCIES
+THe per preocess performance monitor needs to be loaded ...
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void perf_mon_interrupt_out(void)
 {
   if (pp_loaded)

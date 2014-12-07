@@ -22,6 +22,7 @@
 #ifndef __NET2272_H__
 #define __NET2272_H__
 
+/* Main Registers */
 #define REGADDRPTR			0x00
 #define REGDATA				0x01
 #define IRQSTAT0			0x02
@@ -94,6 +95,7 @@
 #define CHIPREV_2272			0x25
 #define 		CHIPREV_NET2272_R1			0x10
 #define 		CHIPREV_NET2272_R1A			0x11
+/* USB Registers */
 #define USBCTL0				0x18
 #define 	IO_WAKEUP_ENABLE			1
 #define 	USB_DETECT_ENABLE			3
@@ -145,6 +147,7 @@
 #define SETUP5				0x45
 #define SETUP6				0x46
 #define SETUP7				0x47
+/* Endpoint Registers (Paged via PAGESEL) */
 #define EP_DATA				0x05
 #define EP_STAT0			0x06
 #define 	DATA_IN_TOKEN_INTERRUPT			0
@@ -210,9 +213,11 @@
 #define 		BUFF_LCL				2
 #define 		BUFF_USB				3
 
+/*---------------------------------------------------------------------------*/
 
 #define PCI_DEVICE_ID_RDK1	0x9054
 
+/* PCI-RDK EPLD Registers */
 #define RDK_EPLD_IO_REGISTER1		0x00000000
 #define 	RDK_EPLD_USB_RESET				0
 #define 	RDK_EPLD_USB_POWERDOWN				1
@@ -228,6 +233,7 @@
 #define 	RDK_EPLD_USB_LRESET				0
 #define RDK_EPLD_REVISION_REGISTER	0x0000000c
 
+/* PCI-RDK PLX 9054 Registers */
 #define INTCSR				0x68
 #define 	PCI_INTERRUPT_ENABLE				8
 #define 	LOCAL_INTERRUPT_INPUT_ENABLE			11
@@ -271,6 +277,7 @@
 #define 	W8_BIT						0
 #define 	W16_BIT						1
 
+/* Special OR'ing of INTCSR bits */
 #define LOCAL_INTERRUPT_TEST \
 	((1 << LOCAL_INPUT_INTERRUPT_ACTIVE) | \
 	 (1 << LOCAL_INTERRUPT_INPUT_ENABLE))
@@ -283,6 +290,7 @@
 	((1 << DMA_CHANNEL_1_INTERRUPT_ACTIVE) | \
 	 (1 << LOCAL_DMA_CHANNEL_1_INTERRUPT_ENABLE))
 
+/* EPLD Registers */
 #define RDK_EPLD_IO_REGISTER1			0x00000000
 #define 	RDK_EPLD_USB_RESET			0
 #define 	RDK_EPLD_USB_POWERDOWN			1
@@ -322,10 +330,13 @@
 #define SPLIT_DMA_RAM				0x4000
 #define DMA_RAM_SIZE				0x1000
 
+/*---------------------------------------------------------------------------*/
 
 #define PCI_DEVICE_ID_RDK2	0x3272
 
+/* PCI-RDK version 2 registers */
 
+/* Main Control Registers */
 
 #define RDK2_IRQENB			0x00
 #define RDK2_IRQSTAT			0x04
@@ -379,14 +390,15 @@
 #define 	FORCE_PCI_INT				0
 #define RDK2_FPGAREV			0x1C
 
+/* Dma Control registers */
 #define RDK2_DMACTL			0x80
 #define 	ADDR_HOLD				24
-#define 	RETRY_COUNT				16	
-#define 	FIFO_THRESHOLD				11	
+#define 	RETRY_COUNT				16	/* 23:16 */
+#define 	FIFO_THRESHOLD				11	/* 15:11 */
 #define 	MEM_WRITE_INVALIDATE			10
 #define 	READ_MULTIPLE				9
 #define 	READ_LINE				8
-#define 	RDK2_DMA_MODE				6	
+#define 	RDK2_DMA_MODE				6	/* 7:6 */
 #define 	CONTROL_DACK				5
 #define 	EOT_ENABLE				4
 #define 	EOT_POLARITY				3
@@ -395,8 +407,8 @@
 #define 	DMA_ENABLE				0
 
 #define RDK2_DMASTAT			0x84
-#define 	GATHER_COUNT				12	
-#define 	FIFO_COUNT				6	
+#define 	GATHER_COUNT				12	/* 14:12 */
+#define 	FIFO_COUNT				6	/* 11:6 */
 #define 	FIFO_FLUSH				5
 #define 	FIFO_TRANSFER				4
 #define 	PAUSE_DONE				3
@@ -406,21 +418,23 @@
 
 #define RDK2_DMAPCICOUNT		0x88
 #define 	DMA_DIRECTION				31
-#define 	DMA_PCI_BYTE_COUNT			0	
+#define 	DMA_PCI_BYTE_COUNT			0	/* 0:23 */
 
-#define RDK2_DMALOCCOUNT		0x8C	
+#define RDK2_DMALOCCOUNT		0x8C	/* 0:23 dma local byte count */
 
-#define RDK2_DMAADDR			0x90	
+#define RDK2_DMAADDR			0x90	/* 2:31 PCI bus starting address */
 
+/*---------------------------------------------------------------------------*/
 
 #define REG_INDEXED_THRESHOLD	(1 << 5)
 
+/* DRIVER DATA STRUCTURES and UTILITIES */
 struct net2272_ep {
 	struct usb_ep ep;
 	struct net2272 *dev;
 	unsigned long irqs;
 
-	
+	/* analogous to a host-side qh */
 	struct list_head queue;
 	const struct usb_endpoint_descriptor *desc;
 	unsigned num:8,
@@ -434,7 +448,7 @@ struct net2272_ep {
 };
 
 struct net2272 {
-	
+	/* each device provides one gadget, several endpoints */
 	struct usb_gadget gadget;
 	struct device *dev;
 	unsigned short dev_id;
@@ -465,7 +479,7 @@ struct net2272 {
 			void __iomem *epld_base_addr;
 		} rdk1;
 		struct {
-			
+			/* Bar0, Bar1 is base_addr both mem-mapped */
 			void __iomem *fpga_base_addr;
 		} rdk2;
 #endif
@@ -482,9 +496,17 @@ static void
 net2272_write(struct net2272 *dev, unsigned int reg, u8 value)
 {
 	if (reg >= REG_INDEXED_THRESHOLD) {
+		/*
+		 * Indexed register; use REGADDRPTR/REGDATA
+		 *  - Save and restore REGADDRPTR. This prevents REGADDRPTR from
+		 *    changes between other code sections, but it is time consuming.
+		 *  - Performance tips: either do not save and restore REGADDRPTR (if it
+		 *    is safe) or do save/restore operations only in critical sections.
+		u8 tmp = readb(dev->base_addr + REGADDRPTR);
+		 */
 		writeb((u8)reg, net2272_reg_addr(dev, REGADDRPTR));
 		writeb(value, net2272_reg_addr(dev, REGDATA));
-		
+		/* writeb(tmp, net2272_reg_addr(dev, REGADDRPTR)); */
 	} else
 		writeb(value, net2272_reg_addr(dev, reg));
 }
@@ -495,9 +517,17 @@ net2272_read(struct net2272 *dev, unsigned int reg)
 	u8 ret;
 
 	if (reg >= REG_INDEXED_THRESHOLD) {
+		/*
+		 * Indexed register; use REGADDRPTR/REGDATA
+		 *  - Save and restore REGADDRPTR. This prevents REGADDRPTR from
+		 *    changes between other code sections, but it is time consuming.
+		 *  - Performance tips: either do not save and restore REGADDRPTR (if it
+		 *    is safe) or do save/restore operations only in critical sections.
+		u8 tmp = readb(dev->base_addr + REGADDRPTR);
+		 */
 		writeb((u8)reg, net2272_reg_addr(dev, REGADDRPTR));
 		ret = readb(net2272_reg_addr(dev, REGDATA));
-		
+		/* writeb(tmp, net2272_reg_addr(dev, REGADDRPTR)); */
 	} else
 		ret = readb(net2272_reg_addr(dev, reg));
 
@@ -530,7 +560,7 @@ net2272_ep_read(struct net2272_ep *ep, unsigned int reg)
 
 static void allow_status(struct net2272_ep *ep)
 {
-	
+	/* ep0 only */
 	net2272_ep_write(ep, EP_RSPCLR,
 		(1 << CONTROL_STATUS_PHASE_HANDSHAKE) |
 		(1 << ALT_NAK_OUT_PACKETS) |
@@ -540,21 +570,22 @@ static void allow_status(struct net2272_ep *ep)
 
 static void set_halt(struct net2272_ep *ep)
 {
-	
+	/* ep0 and bulk/intr endpoints */
 	net2272_ep_write(ep, EP_RSPCLR, 1 << CONTROL_STATUS_PHASE_HANDSHAKE);
 	net2272_ep_write(ep, EP_RSPSET, 1 << ENDPOINT_HALT);
 }
 
 static void clear_halt(struct net2272_ep *ep)
 {
-	
+	/* ep0 and bulk/intr endpoints */
 	net2272_ep_write(ep, EP_RSPCLR,
 		(1 << ENDPOINT_HALT) | (1 << ENDPOINT_TOGGLE));
 }
 
+/* count (<= 4) bytes in the next fifo write will be valid */
 static void set_fifo_bytecount(struct net2272_ep *ep, unsigned count)
 {
-	
+	/* net2272_ep_write will truncate to u8 for us */
 	net2272_ep_write(ep, EP_TRANSFER2, count >> 16);
 	net2272_ep_write(ep, EP_TRANSFER1, count >> 8);
 	net2272_ep_write(ep, EP_TRANSFER0, count);

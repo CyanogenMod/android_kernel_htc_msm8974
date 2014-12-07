@@ -32,8 +32,10 @@
 #define VT1724_SUBDEVICE_PHASE28	0x3b154911
 #define VT1724_SUBDEVICE_TS22		0x3b157b11
 
+/* entry point */
 extern struct snd_ice1712_card_info snd_vt1724_phase_cards[];
 
+/* PHASE28 GPIO bits */
 #define PHASE28_SPI_MISO	(1 << 21)
 #define PHASE28_WM_RESET	(1 << 20)
 #define PHASE28_SPI_CLK		(1 << 19)
@@ -48,4 +50,4 @@ extern struct snd_ice1712_card_info snd_vt1724_phase_cards[];
 #define PHASE28_AC97_DATA_LOW	(1 << 9)
 #define PHASE28_AC97_DATA_HIGH	(1 << 8)
 #define PHASE28_AC97_DATA_MASK	0xFF
-#endif 
+#endif /* __SOUND_PHASE */

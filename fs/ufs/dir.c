@@ -25,6 +25,11 @@
 #include "swab.h"
 #include "util.h"
 
+/*
+ * NOTE! unlike strncmp, ufs_match returns 1 for success, 0 for failure.
+ *
+ * len <= UFS_MAXNAMLEN and de != NULL are guaranteed by caller.
+ */
 static inline int ufs_match(struct super_block *sb, int len,
 		const unsigned char *name, struct ufs_dir_entry *de)
 {
@@ -80,6 +85,7 @@ ino_t ufs_inode_by_name(struct inode *dir, const struct qstr *qstr)
 }
 
 
+/* Releases the page */
 void ufs_set_link(struct inode *dir, struct ufs_dir_entry *de,
 		  struct page *page, struct inode *inode)
 {
@@ -142,7 +148,7 @@ out:
 	SetPageChecked(page);
 	return;
 
-	
+	/* Too bad, we had an error */
 
 Ebadsize:
 	ufs_error(sb, "ufs_check_page",
@@ -199,6 +205,10 @@ fail:
 	return ERR_PTR(-EIO);
 }
 
+/*
+ * Return the offset into page `page_nr' of the last valid
+ * byte in that page, plus one.
+ */
 static unsigned
 ufs_last_byte(struct inode *inode, unsigned long page_nr)
 {
@@ -230,6 +240,14 @@ struct ufs_dir_entry *ufs_dotdot(struct inode *dir, struct page **p)
 	return de;
 }
 
+/*
+ *	ufs_find_entry()
+ *
+ * finds an entry in the specified directory with the wanted name. It
+ * returns the page in which the entry was found, and the entry itself
+ * (as a parameter - res_dir). Page is returned mapped and unlocked.
+ * Entry is guaranteed to be valid.
+ */
 struct ufs_dir_entry *ufs_find_entry(struct inode *dir, const struct qstr *qstr,
 				     struct page **res_page)
 {
@@ -248,7 +266,7 @@ struct ufs_dir_entry *ufs_find_entry(struct inode *dir, const struct qstr *qstr,
 	if (npages == 0 || namelen > UFS_MAXNAMLEN)
 		goto out;
 
-	
+	/* OFFSET_CACHE */
 	*res_page = NULL;
 
 	start = ui->i_dir_start_lookup;
@@ -288,6 +306,9 @@ found:
 	return de;
 }
 
+/*
+ *	Parent is locked.
+ */
 int ufs_add_link(struct dentry *dentry, struct inode *inode)
 {
 	struct inode *dir = dentry->d_parent->d_inode;
@@ -307,6 +328,11 @@ int ufs_add_link(struct dentry *dentry, struct inode *inode)
 
 	UFSD("ENTER, name %s, namelen %u\n", name, namelen);
 
+	/*
+	 * We take care of directory expansion in the same loop.
+	 * This code plays outside i_size, so it locks the page
+	 * to protect that region.
+	 */
 	for (n = 0; n <= npages; n++) {
 		char *dir_end;
 
@@ -321,7 +347,7 @@ int ufs_add_link(struct dentry *dentry, struct inode *inode)
 		kaddr += PAGE_CACHE_SIZE - reclen;
 		while ((char *)de <= kaddr) {
 			if ((char *)de == dir_end) {
-				
+				/* We hit i_size */
 				name_len = 0;
 				rec_len = chunk_size;
 				de->d_reclen = cpu_to_fs16(sb, chunk_size);
@@ -375,7 +401,7 @@ got_it:
 	dir->i_mtime = dir->i_ctime = CURRENT_TIME_SEC;
 
 	mark_inode_dirty(dir);
-	
+	/* OFFSET_CACHE */
 out_put:
 	ufs_put_page(page);
 out:
@@ -400,6 +426,9 @@ ufs_validate_entry(struct super_block *sb, char *base,
 }
 
 
+/*
+ * This is blatantly stolen from ext2fs
+ */
 static int
 ufs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
@@ -479,6 +508,10 @@ ufs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 }
 
 
+/*
+ * ufs_delete_entry deletes a directory entry by merging it with the
+ * previous entry.
+ */
 int ufs_delete_entry(struct inode *inode, struct ufs_dir_entry *dir,
 		     struct page * page)
 {
@@ -572,6 +605,9 @@ fail:
 	return err;
 }
 
+/*
+ * routine to check that the specified directory is empty (for rmdir)
+ */
 int ufs_empty_dir(struct inode * inode)
 {
 	struct super_block *sb = inode->i_sb;
@@ -599,7 +635,7 @@ int ufs_empty_dir(struct inode * inode)
 			}
 			if (de->d_ino) {
 				u16 namelen=ufs_get_de_namlen(sb, de);
-				
+				/* check for . and .. */
 				if (de->d_name[0] != '.')
 					goto not_empty;
 				if (namelen > 2)

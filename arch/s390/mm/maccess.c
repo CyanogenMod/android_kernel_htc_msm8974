@@ -14,6 +14,12 @@
 #include <linux/gfp.h>
 #include <asm/ctl_reg.h>
 
+/*
+ * This function writes to kernel memory bypassing DAT and possible
+ * write protection. It copies one to four bytes from src to dst
+ * using the stura instruction.
+ * Returns the number of bytes copied or -EFAULT.
+ */
 static long probe_kernel_write_odd(void *dst, const void *src, size_t size)
 {
 	unsigned long count, aligned;
@@ -76,6 +82,9 @@ static int __memcpy_real(void *dest, void *src, size_t count)
 	return rc;
 }
 
+/*
+ * Copy memory in real mode (kernel to kernel)
+ */
 int memcpy_real(void *dest, void *src, size_t count)
 {
 	unsigned long flags;
@@ -90,6 +99,9 @@ int memcpy_real(void *dest, void *src, size_t count)
 	return rc;
 }
 
+/*
+ * Copy memory to absolute zero
+ */
 void copy_to_absolute_zero(void *dest, void *src, size_t count)
 {
 	unsigned long cr0;
@@ -97,12 +109,15 @@ void copy_to_absolute_zero(void *dest, void *src, size_t count)
 	BUG_ON((unsigned long) dest + count >= sizeof(struct _lowcore));
 	preempt_disable();
 	__ctl_store(cr0, 0, 0);
-	__ctl_clear_bit(0, 28); 
+	__ctl_clear_bit(0, 28); /* disable lowcore protection */
 	memcpy_real(dest + store_prefix(), src, count);
 	__ctl_load(cr0, 0, 0);
 	preempt_enable();
 }
 
+/*
+ * Copy memory from kernel (real) to user (virtual)
+ */
 int copy_to_user_real(void __user *dest, void *src, size_t count)
 {
 	int offs = 0, size, rc;
@@ -126,6 +141,9 @@ out:
 	return rc;
 }
 
+/*
+ * Copy memory from user (virtual) to kernel (real)
+ */
 int copy_from_user_real(void *dest, void __user *src, size_t count)
 {
 	int offs = 0, size, rc;

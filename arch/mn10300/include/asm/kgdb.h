@@ -12,8 +12,17 @@
 #ifndef _ASM_KGDB_H
 #define _ASM_KGDB_H
 
+/*
+ * BUFMAX defines the maximum number of characters in inbound/outbound
+ * buffers at least NUMREGBYTES*2 are needed for register packets
+ * Longer buffer is needed to list all threads
+ */
 #define BUFMAX			1024
 
+/*
+ * Note that this register image is in a different order than the register
+ * image that Linux produces at interrupt time.
+ */
 enum regnames {
 	GDB_FR_D0		= 0,
 	GDB_FR_D1		= 1,
@@ -69,4 +78,4 @@ extern u8 __arch_kgdb_breakpoint;
 #define BREAK_INSTR_SIZE	1
 #define CACHE_FLUSH_IS_SAFE	1
 
-#endif 
+#endif /* _ASM_KGDB_H */

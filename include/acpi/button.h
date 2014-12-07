@@ -20,6 +20,6 @@ static inline int acpi_lid_open(void)
 {
 	return 1;
 }
-#endif 
+#endif /* defined(CONFIG_ACPI_BUTTON) || defined(CONFIG_ACPI_BUTTON_MODULE) */
 
-#endif 
+#endif /* ACPI_BUTTON_H */

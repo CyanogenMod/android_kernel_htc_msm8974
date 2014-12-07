@@ -60,6 +60,10 @@ static inline __wsum csum_tcpudp_nofold(unsigned long saddr,
 	return sum;
 }
 
+/*
+ * computes the checksum of the TCP/UDP pseudo-header
+ * returns a 16-bit checksum, already complemented
+ */
 static inline __sum16 csum_tcpudp_magic(unsigned long saddr,
 					unsigned long daddr,
 					unsigned short len,
@@ -71,9 +75,12 @@ static inline __sum16 csum_tcpudp_magic(unsigned long saddr,
 
 #undef _HAVE_ARCH_IPV6_CSUM
 
+/*
+ *	Copy and checksum to user
+ */
 #define HAVE_CSUM_COPY_USER
 extern __wsum csum_and_copy_to_user(const void *src, void *dst, int len,
 				    __wsum sum, int *err_ptr);
 
 
-#endif 
+#endif /* _ASM_CHECKSUM_H */

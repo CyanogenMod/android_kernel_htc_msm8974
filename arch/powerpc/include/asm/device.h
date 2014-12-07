@@ -9,10 +9,20 @@
 struct dma_map_ops;
 struct device_node;
 
+/*
+ * Arch extensions to struct device.
+ *
+ * When adding fields, consider macio_add_one_device in
+ * drivers/macintosh/macio_asic.c
+ */
 struct dev_archdata {
-	
+	/* DMA operations on that device */
 	struct dma_map_ops	*dma_ops;
 
+	/*
+	 * When an iommu is in use, dma_data is used as a ptr to the base of the
+	 * iommu_table.  Otherwise, it is a simple numerical offset.
+	 */
 	union {
 		dma_addr_t	dma_offset;
 		void		*iommu_table_base;
@@ -32,4 +42,4 @@ struct pdev_archdata {
 
 #define ARCH_HAS_DMA_GET_REQUIRED_MASK
 
-#endif 
+#endif /* _ASM_POWERPC_DEVICE_H */

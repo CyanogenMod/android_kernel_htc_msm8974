@@ -178,7 +178,7 @@ static int __devinit anatop_regulator_probe(struct platform_device *pdev)
 	rdesc->n_voltages = (sreg->max_voltage - sreg->min_voltage)
 		/ 25000 + 1;
 
-	
+	/* register regulator */
 	rdev = regulator_register(rdesc, dev,
 				  initdata, sreg, pdev->dev.of_node);
 	if (IS_ERR(rdev)) {
@@ -211,7 +211,7 @@ static int __devexit anatop_regulator_remove(struct platform_device *pdev)
 
 static struct of_device_id __devinitdata of_anatop_regulator_match_tbl[] = {
 	{ .compatible = "fsl,anatop-regulator", },
-	{  }
+	{ /* end */ }
 };
 
 static struct platform_driver anatop_regulator_driver = {

@@ -25,6 +25,11 @@ static irqreturn_t line_interrupt(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Returns the free space inside the ring buffer of this line.
+ *
+ * Should be called while holding line->lock (this does not modify data).
+ */
 static int write_room(struct line *line)
 {
 	int n;
@@ -32,11 +37,11 @@ static int write_room(struct line *line)
 	if (line->buffer == NULL)
 		return LINE_BUFSIZE - 1;
 
-	
+	/* This is for the case where the buffer is wrapped! */
 	n = line->head - line->tail;
 
 	if (n <= 0)
-		n += LINE_BUFSIZE; 
+		n += LINE_BUFSIZE; /* The other case */
 	return n - 1;
 }
 
@@ -60,13 +65,22 @@ int line_chars_in_buffer(struct tty_struct *tty)
 	int ret;
 
 	spin_lock_irqsave(&line->lock, flags);
-	
+	/* write_room subtracts 1 for the needed NULL, so we readd it.*/
 	ret = LINE_BUFSIZE - (write_room(line) + 1);
 	spin_unlock_irqrestore(&line->lock, flags);
 
 	return ret;
 }
 
+/*
+ * This copies the content of buf into the circular buffer associated with
+ * this line.
+ * The return value is the number of characters actually copied, i.e. the ones
+ * for which there was space: this function is not supposed to ever flush out
+ * the circular buffer.
+ *
+ * Must be called while holding line->lock!
+ */
 static int buffer_data(struct line *line, const char *buf, int len)
 {
 	int end, room;
@@ -92,7 +106,7 @@ static int buffer_data(struct line *line, const char *buf, int len)
 		line->tail += len;
 	}
 	else {
-		
+		/* The circular buffer is wrapping */
 		memcpy(line->tail, buf, end);
 		buf += end;
 		memcpy(line->buffer, buf, len - end);
@@ -102,6 +116,15 @@ static int buffer_data(struct line *line, const char *buf, int len)
 	return len;
 }
 
+/*
+ * Flushes the ring buffer to the output channels. That is, write_chan is
+ * called, passing it line->head as buffer, and an appropriate count.
+ *
+ * On exit, returns 1 when the buffer is empty,
+ * 0 when the buffer is not empty on exit,
+ * and -errno when an error occurred.
+ *
+ * Must be called while holding line->lock!*/
 static int flush_buffer(struct line *line)
 {
 	int n, count;
@@ -110,7 +133,7 @@ static int flush_buffer(struct line *line)
 		return 1;
 
 	if (line->tail < line->head) {
-		
+		/* line->buffer + LINE_BUFSIZE is the end of the buffer! */
 		count = line->buffer + LINE_BUFSIZE - line->head;
 
 		n = write_chan(line->chan_out, line->head, count,
@@ -118,6 +141,10 @@ static int flush_buffer(struct line *line)
 		if (n < 0)
 			return n;
 		if (n == count) {
+			/*
+			 * We have flushed from ->head to buffer end, now we
+			 * must flush only from the beginning to ->tail.
+			 */
 			line->head = line->buffer;
 		} else {
 			line->head += n;
@@ -146,6 +173,10 @@ void line_flush_buffer(struct tty_struct *tty)
 	spin_unlock_irqrestore(&line->lock, flags);
 }
 
+/*
+ * We map both ->flush_chars and ->put_char (which go in pair) onto
+ * ->flush_buffer and ->write. Hope it's not that bad.
+ */
 void line_flush_chars(struct tty_struct *tty)
 {
 	line_flush_buffer(tty);
@@ -185,7 +216,7 @@ out_up:
 
 void line_set_termios(struct tty_struct *tty, struct ktermios * old)
 {
-	
+	/* nothing */
 }
 
 static const struct {
@@ -193,21 +224,21 @@ static const struct {
 	char *level;
 	char *name;
 } tty_ioctls[] = {
-	
+	/* don't print these, they flood the log ... */
 	{ TCGETS,      NULL,       "TCGETS"      },
 	{ TCSETS,      NULL,       "TCSETS"      },
 	{ TCSETSW,     NULL,       "TCSETSW"     },
 	{ TCFLSH,      NULL,       "TCFLSH"      },
 	{ TCSBRK,      NULL,       "TCSBRK"      },
 
-	
+	/* general tty stuff */
 	{ TCSETSF,     KERN_DEBUG, "TCSETSF"     },
 	{ TCGETA,      KERN_DEBUG, "TCGETA"      },
 	{ TIOCMGET,    KERN_DEBUG, "TIOCMGET"    },
 	{ TCSBRKP,     KERN_DEBUG, "TCSBRKP"     },
 	{ TIOCMSET,    KERN_DEBUG, "TIOCMSET"    },
 
-	
+	/* linux-specific ones */
 	{ TIOCLINUX,   KERN_INFO,  "TIOCLINUX"   },
 	{ KDGKBMODE,   KERN_INFO,  "KDGKBMODE"   },
 	{ KDGKBTYPE,   KERN_INFO,  "KDGKBTYPE"   },
@@ -235,6 +266,8 @@ int line_ioctl(struct tty_struct *tty, unsigned int cmd,
 	case TIOCGLTC:
 	case TIOCSLTC:
 #endif
+	/* Note: these are out of date as we now have TCGETS2 etc but this
+	   whole lot should probably go away */
 	case TCGETS:
 	case TCSETSF:
 	case TCSETSW:
@@ -255,7 +288,7 @@ int line_ioctl(struct tty_struct *tty, unsigned int cmd,
 		return -ENOIOCTLCMD;
 #if 0
 	case TCwhatever:
-		
+		/* do something */
 		break;
 #endif
 	default:
@@ -287,6 +320,11 @@ void line_unthrottle(struct tty_struct *tty)
 	line->throttled = 0;
 	chan_interrupt(line, tty, line->driver->read_irq);
 
+	/*
+	 * Maybe there is enough stuff pending that calling the interrupt
+	 * throttles us again.  In this case, line->throttled will be 1
+	 * again and we shouldn't turn the interrupt back on.
+	 */
 	if (!line->throttled)
 		reactivate_chan(line->chan_in, line->driver->read_irq);
 }
@@ -298,6 +336,10 @@ static irqreturn_t line_write_interrupt(int irq, void *data)
 	struct tty_struct *tty = line->tty;
 	int err;
 
+	/*
+	 * Interrupts are disabled here because genirq keep irqs disabled when
+	 * calling the action handler.
+	 */
 
 	spin_lock(&line->lock);
 	err = flush_buffer(line);
@@ -335,6 +377,22 @@ int line_setup_irq(int fd, int input, int output, struct line *line, void *data)
 	return err;
 }
 
+/*
+ * Normally, a driver like this can rely mostly on the tty layer
+ * locking, particularly when it comes to the driver structure.
+ * However, in this case, mconsole requests can come in "from the
+ * side", and race with opens and closes.
+ *
+ * mconsole config requests will want to be sure the device isn't in
+ * use, and get_config, open, and close will want a stable
+ * configuration.  The checking and modification of the configuration
+ * is done under a spinlock.  Checking whether the device is in use is
+ * line->tty->count > 1, also under the spinlock.
+ *
+ * line->count serves to decide whether the device should be enabled or
+ * disabled on the host.  If it's equal to 0, then we are doing the
+ * first open or last close.  Otherwise, open and close just return.
+ */
 
 int line_open(struct line *lines, struct tty_struct *tty)
 {
@@ -354,7 +412,7 @@ int line_open(struct line *lines, struct tty_struct *tty)
 	line->tty = tty;
 
 	err = enable_chan(line);
-	if (err) 
+	if (err) /* line_close() will be called by our caller */
 		goto out_unlock;
 
 	if (!line->sigio) {
@@ -375,10 +433,14 @@ void line_close(struct tty_struct *tty, struct file * filp)
 {
 	struct line *line = tty->driver_data;
 
+	/*
+	 * If line_open fails (and tty->driver_data is never set),
+	 * tty_open will call line_close.  So just return in this case.
+	 */
 	if (line == NULL)
 		return;
 
-	
+	/* We ignore the error anyway! */
 	flush_buffer(line);
 
 	mutex_lock(&line->count_lock);
@@ -461,6 +523,12 @@ out:
 	return err;
 }
 
+/*
+ * Common setup code for both startup command line and mconsole initialization.
+ * @lines contains the array (of size @num) to modify;
+ * @init is the setup string;
+ * @error_out is an error string in the case of failure;
+ */
 
 int line_setup(char **conf, unsigned int num, char **def,
 	       char *init, char *name)
@@ -468,6 +536,10 @@ int line_setup(char **conf, unsigned int num, char **def,
 	char *error;
 
 	if (*init == '=') {
+		/*
+		 * We said con=/ssl= instead of con#=, so we are configuring all
+		 * consoles at once.
+		 */
 		*def = init + 1;
 	} else {
 		char *end;

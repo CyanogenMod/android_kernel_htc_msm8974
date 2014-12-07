@@ -45,11 +45,11 @@ enum mvumi_qc_result {
 };
 
 enum {
-	
+	/*******************************************/
 
-	
+	/* ARM Mbus Registers Map	*/
 
-	
+	/*******************************************/
 	CPU_MAIN_INT_CAUSE_REG	= 0x20200,
 	CPU_MAIN_IRQ_MASK_REG	= 0x20204,
 	CPU_MAIN_FIQ_MASK_REG	= 0x20208,
@@ -69,11 +69,11 @@ enum {
 	INT_MAP_DL_PCIEA2CPU	= 1 << 0,
 	INT_MAP_DL_CPU2PCIEA	= 1 << 1,
 
-	
+	/***************************************/
 
-	
+	/* ARM Doorbell Registers Map		*/
 
-	
+	/***************************************/
 	CPU_PCIEA_TO_ARM_DRBL_REG	= 0x20400,
 	CPU_PCIEA_TO_ARM_MASK_REG	= 0x20404,
 	CPU_ARM_TO_PCIEA_DRBL_REG	= 0x20408,
@@ -91,11 +91,11 @@ enum {
 	CPU_ARM_TO_PCIEA_MSG0		= 0x20438,
 	CPU_ARM_TO_PCIEA_MSG1		= 0x2043C,
 
-	
+	/*******************************************/
 
-	
+	/* ARM Communication List Registers Map    */
 
-	
+	/*******************************************/
 	CLA_INB_LIST_BASEL		= 0x500,
 	CLA_INB_LIST_BASEH		= 0x504,
 	CLA_INB_AVAL_COUNT_BASEL	= 0x508,
@@ -126,13 +126,16 @@ enum {
 
 	CL_SLOT_NUM_MASK		= 0xFFF,
 
-	
+	/*
+	* Command flag is the flag for the CDB command itself
+	*/
+	/* 1-non data; 0-data command */
 	CMD_FLAG_NON_DATA		= 1 << 0,
 	CMD_FLAG_DMA			= 1 << 1,
 	CMD_FLAG_PIO			= 1 << 2,
-	
+	/* 1-host read data */
 	CMD_FLAG_DATA_IN		= 1 << 3,
-	
+	/* 1-host write data */
 	CMD_FLAG_DATA_OUT		= 1 << 4,
 
 	SCSI_CMD_MARVELL_SPECIFIC	= 0xE1,
@@ -184,9 +187,10 @@ struct mvumi_res {
 	dma_addr_t bus_addr;
 	void *virt_addr;
 	unsigned int size;
-	unsigned short type;	
+	unsigned short type;	/* enum Resource_Type */
 };
 
+/* Resource type */
 enum resource_type {
 	RESOURCE_CACHED_MEMORY = 0,
 	RESOURCE_UNCACHED_MEMORY
@@ -210,6 +214,7 @@ struct mvumi_sense_data {
 	u8 sense_key_specific[3];
 };
 
+/* Request initiator must set the status to REQ_STATUS_PENDING. */
 #define REQ_STATUS_PENDING		0x80
 
 struct mvumi_cmd {
@@ -222,6 +227,9 @@ struct mvumi_cmd {
 	unsigned char cmd_status;
 };
 
+/*
+ * the function type of the in bound frame
+ */
 #define CL_FUN_SCSI_CMD			0x1
 
 struct mvumi_msg_frame {
@@ -238,6 +246,9 @@ struct mvumi_msg_frame {
 	u32 payload[1];
 };
 
+/*
+ * the respond flag for data_payload of the out bound frame
+ */
 #define CL_RSP_FLAG_NODATA		0x0
 #define CL_RSP_FLAG_SENSEDATA		0x1
 
@@ -245,7 +256,7 @@ struct mvumi_rsp_frame {
 	u16 device_id;
 	u16 tag;
 	u8 req_status;
-	u8 rsp_flag;	
+	u8 rsp_flag;	/* Indicates the type of Data_Payload.*/
 	u16 request_id;
 	u32 payload[1];
 };
@@ -267,6 +278,9 @@ struct version_info {
 #define MVUMI_FW_ATTACH			(1U << 1)
 #define MVUMI_FW_ALLOC			(1U << 2)
 
+/*
+ * State is the state of the MU
+ */
 #define FW_STATE_IDLE			0
 #define FW_STATE_STARTING		1
 #define FW_STATE_HANDSHAKING		2
@@ -277,10 +291,12 @@ struct version_info {
 #define HANDSHAKE_READYSTATE		0x55AA5AA5L
 #define HANDSHAKE_DONESTATE		0x55AAA55AL
 
+/* HandShake Status definition */
 #define HS_STATUS_OK			1
 #define HS_STATUS_ERR			2
 #define HS_STATUS_INVALID		3
 
+/* HandShake State/Cmd definition */
 #define HS_S_START			1
 #define HS_S_RESET			2
 #define HS_S_PAGE_ADDR			3
@@ -295,20 +311,21 @@ struct version_info {
 #define HS_SET_STATE(a, b)		(a |= (b & 0xFFFF))
 #define HS_SET_STATUS(a, b)		(a |= ((b & 0xFFFF) << 16))
 
+/* handshake frame */
 struct mvumi_hs_frame {
 	u16 size;
-	
+	/* host information */
 	u8 host_type;
 	u8 reserved_1[1];
-	struct version_info host_ver; 
+	struct version_info host_ver; /* bios or driver version */
 
-	
+	/* controller information */
 	u32 system_io_bus;
 	u32 slot_number;
 	u32 intr_level;
 	u32 intr_vector;
 
-	
+	/* communication list configuration */
 	u32 ib_baseaddr_l;
 	u32 ib_baseaddr_h;
 	u32 ob_baseaddr_l;
@@ -319,7 +336,7 @@ struct mvumi_hs_frame {
 	u8 ob_depth;
 	u8 ib_depth;
 
-	
+	/* system time */
 	u64 seconds_since1970;
 };
 
@@ -330,6 +347,9 @@ struct mvumi_hs_header {
 	u32	frame_content[1];
 };
 
+/*
+ * the page code type of the handshake header
+ */
 #define HS_PAGE_FIRM_CAP	0x1
 #define HS_PAGE_HOST_INFO	0x2
 #define HS_PAGE_FIRM_CTL	0x3
@@ -346,6 +366,7 @@ struct mvumi_hs_header {
 	size;						\
 })
 
+/* The format of the page code for Firmware capability */
 struct mvumi_hs_page1 {
 	u8 pagecode;
 	u8 checksum;
@@ -365,6 +386,7 @@ struct mvumi_hs_page1 {
 	u16 reserved1;
 };
 
+/* The format of the page code for Host information */
 struct mvumi_hs_page2 {
 	u8 pagecode;
 	u8 checksum;
@@ -380,6 +402,7 @@ struct mvumi_hs_page2 {
 	u64 seconds_since1970;
 };
 
+/* The format of the page code for firmware control  */
 struct mvumi_hs_page3 {
 	u8	pagecode;
 	u8	checksum;

@@ -19,6 +19,7 @@
 #include <linux/gfp.h>
 #include <linux/bsg.h>
 #include <linux/smp.h>
+#include <linux/ktime.h>
 
 #include <asm/scatterlist.h>
 
@@ -72,6 +73,10 @@ struct request {
 	unsigned long atomic_flags;
 
 	int cpu;
+
+	ktime_t		enter_time;	
+	ktime_t		process_time;	
+	pid_t pid;	
 
 	
 	unsigned int __data_len;	

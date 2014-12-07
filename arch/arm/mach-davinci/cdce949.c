@@ -27,14 +27,20 @@
 static struct i2c_client *cdce_i2c_client;
 static DEFINE_MUTEX(cdce_mutex);
 
+/* CDCE register descriptor */
 struct cdce_reg {
 	u8	addr;
 	u8	val;
 };
 
+/* Per-Output (Y1, Y2 etc.) frequency descriptor */
 struct cdce_freq {
-	
+	/* Frequency in KHz */
 	unsigned long frequency;
+	/*
+	 * List of registers to program to obtain a particular frequency.
+	 * 0x0 in register address and value is the end of list marker.
+	 */
 	struct cdce_reg *reglist;
 };
 
@@ -44,37 +50,46 @@ struct cdce_freq {
 	.frequency	= out,				\
 }
 
+/* List of CDCE outputs  */
 struct cdce_output {
-	
+	/* List of frequencies on this output */
 	struct cdce_freq *freq_table;
-	
+	/* Number of possible frequencies */
 	int size;
 };
 
+/*
+ * Finding out the values to program into CDCE949 registers for a particular
+ * frequency output is not a simple calculation. Have a look at the datasheet
+ * for the details. There is desktop software available to help users with
+ * the calculations. Here, we just depend on the output of that software
+ * (or hand calculations) instead trying to runtime calculate the register
+ * values and inflicting misery on ourselves.
+ */
 static struct cdce_reg cdce_y1_148500[] = {
 	{ 0x13, 0x00 },
-	
+	/* program PLL1_0 multiplier */
 	{ 0x18, 0xaf },
 	{ 0x19, 0x50 },
 	{ 0x1a, 0x02 },
 	{ 0x1b, 0xc9 },
-	
+	/* program PLL1_11 multiplier */
 	{ 0x1c, 0x00 },
 	{ 0x1d, 0x40 },
 	{ 0x1e, 0x02 },
 	{ 0x1f, 0xc9 },
-	
+	/* output state selection */
 	{ 0x15, 0x00 },
 	{ 0x14, 0xef },
-	
+	/* switch MUX to PLL1 output */
 	{ 0x14, 0x6f },
 	{ 0x16, 0x06 },
-	
+	/* set P2DIV divider, P3DIV and input crystal */
 	{ 0x17, 0x06 },
 	{ 0x01, 0x00 },
 	{ 0x05, 0x48 },
 	{ 0x02, 0x80 },
-	
+	/* enable and disable PLL */
 	{ 0x02, 0xbc },
 	{ 0x03, 0x01 },
 	{ },
@@ -90,18 +105,18 @@ static struct cdce_reg cdce_y1_74250[] = {
 	{ 0x1d, 0x40 },
 	{ 0x1e, 0x02 },
 	{ 0x1f, 0xc9 },
-	
+	/* output state selection */
 	{ 0x15, 0x00 },
 	{ 0x14, 0xef },
-	
+	/* switch MUX to PLL1 output */
 	{ 0x14, 0x6f },
 	{ 0x16, 0x06 },
-	
+	/* set P2DIV divider, P3DIV and input crystal */
 	{ 0x17, 0x06 },
 	{ 0x01, 0x00 },
 	{ 0x05, 0x48 },
 	{ 0x02, 0x80 },
-	
+	/* enable and disable PLL */
 	{ 0x02, 0xbc },
 	{ 0x03, 0x02 },
 	{ },

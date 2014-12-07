@@ -35,7 +35,7 @@ static inline void jpeg_reset(void __iomem *regs)
 
 	writel(1, regs + S5P_JPG_SW_RESET);
 	reg = readl(regs + S5P_JPG_SW_RESET);
-	
+	/* no other way but polling for when JPEG IP becomes operational */
 	while (reg != 0) {
 		cpu_relax();
 		reg = readl(regs + S5P_JPG_SW_RESET);
@@ -141,7 +141,7 @@ static inline void jpeg_htbl_ac(void __iomem *regs, unsigned int t)
 
 	reg = readl(regs + S5P_JPG_HTBL);
 	reg &= ~S5P_HT_NUMt_AC_MASK(t);
-	
+	/* this driver uses table 0 for all color components */
 	reg |= (0 << S5P_HT_NUMt_AC_SHIFT(t)) & S5P_HT_NUMt_AC_MASK(t);
 	writel(reg, regs + S5P_JPG_HTBL);
 }
@@ -152,7 +152,7 @@ static inline void jpeg_htbl_dc(void __iomem *regs, unsigned int t)
 
 	reg = readl(regs + S5P_JPG_HTBL);
 	reg &= ~S5P_HT_NUMt_DC_MASK(t);
-	
+	/* this driver uses table 0 for all color components */
 	reg |= (0 << S5P_HT_NUMt_DC_SHIFT(t)) & S5P_HT_NUMt_DC_MASK(t);
 	writel(reg, regs + S5P_JPG_HTBL);
 }
@@ -354,4 +354,4 @@ static inline unsigned int jpeg_compressed_size(void __iomem *regs)
 	return (unsigned int)jpeg_size;
 }
 
-#endif 
+#endif /* JPEG_HW_H_ */

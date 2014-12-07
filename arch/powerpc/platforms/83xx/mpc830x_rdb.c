@@ -22,6 +22,9 @@
 #include <sysdev/fsl_soc.h>
 #include "mpc83xx.h"
 
+/*
+ * Setup the architecture
+ */
 static void __init mpc830x_rdb_setup_arch(void)
 {
 	if (ppc_md.progress)
@@ -38,6 +41,9 @@ static const char *board[] __initdata = {
 	NULL
 };
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init mpc830x_rdb_probe(void)
 {
 	return of_flat_dt_match(of_get_flat_dt_root(), board);

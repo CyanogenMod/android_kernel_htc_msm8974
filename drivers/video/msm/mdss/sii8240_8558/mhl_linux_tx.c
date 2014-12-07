@@ -3018,6 +3018,18 @@ irq_done:
 	return IRQ_HANDLED;
 }
 
+static ssize_t mhl_chipid_show(struct class *class,
+				struct class_attribute *attr,
+				char *buffer)
+{
+	return scnprintf(buffer, PAGE_SIZE, "%x\n", get_device_id());
+}
+
+static struct class_attribute mhl_attribute[] = {
+	__ATTR(chipid, S_IRUGO, mhl_chipid_show, NULL),
+	__ATTR_NULL,
+};
+
 
 int mhl_tx_init(struct mhl_drv_info const *drv_info,
 				struct i2c_client *client)
@@ -3055,7 +3067,6 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info,
 		goto free_mem;
 	}
 
-
 	if (mhl_class == NULL) {
 		mhl_class = class_create(THIS_MODULE, "mhl");
 		if(IS_ERR(mhl_class)) {
@@ -3065,6 +3076,10 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info,
 		}
 
 		mhl_class->dev_attrs = driver_attribs;
+		ret = class_create_file(mhl_class, mhl_attribute);
+		if (ret) {
+			pr_info("class_create_file mhl_class failed %d\n",ret);
+		}
 
 		ret = alloc_chrdev_region(&dev_num, 0, MHL_DRIVER_MINOR_MAX, MHL_DRIVER_NAME);
 		if (ret) {
@@ -3227,8 +3242,6 @@ int mhl_tx_remove(struct i2c_client *client)
 		
 
 		kfree(dev_context);
-
-		MHL_TX_DBG_INFO(dev_context, "%x\n",dev_context);
 	}
 	return ret;
 }

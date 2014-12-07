@@ -4,7 +4,7 @@
 #include <linux/types.h>
 
 enum {
-	XT_IPVS_IPVS_PROPERTY =	1 << 0, 
+	XT_IPVS_IPVS_PROPERTY =	1 << 0, /* all other options imply this one */
 	XT_IPVS_PROTO =		1 << 1,
 	XT_IPVS_VADDR =		1 << 2,
 	XT_IPVS_VPORT =		1 << 3,
@@ -26,4 +26,4 @@ struct xt_ipvs_mtinfo {
 	__u8			bitmask;
 };
 
-#endif 
+#endif /* _XT_IPVS_H */

@@ -28,17 +28,17 @@ EXPORT_SYMBOL(find_next_bit);
 
 EXPORT_SYMBOL(__backtrace);
 
-	
+	/* platform dependent support */
 EXPORT_SYMBOL(__udelay);
 EXPORT_SYMBOL(__const_udelay);
 
-	
+	/* networking */
 EXPORT_SYMBOL(csum_partial);
 EXPORT_SYMBOL(csum_partial_copy_from_user);
 EXPORT_SYMBOL(csum_partial_copy_nocheck);
 EXPORT_SYMBOL(__csum_ipv6_magic);
 
-	
+	/* io */
 #ifndef __raw_readsb
 EXPORT_SYMBOL(__raw_readsb);
 #endif
@@ -58,7 +58,7 @@ EXPORT_SYMBOL(__raw_writesw);
 EXPORT_SYMBOL(__raw_writesl);
 #endif
 
-	
+	/* string / mem functions */
 EXPORT_SYMBOL(strchr);
 EXPORT_SYMBOL(strrchr);
 EXPORT_SYMBOL(memset);
@@ -66,7 +66,7 @@ EXPORT_SYMBOL(memcpy);
 EXPORT_SYMBOL(memmove);
 EXPORT_SYMBOL(memchr);
 
-	
+	/* user mem (segment) */
 EXPORT_SYMBOL(__strnlen_user);
 EXPORT_SYMBOL(__strncpy_from_user);
 

@@ -19,6 +19,9 @@
 #include <asm/page.h>
 #include <asm/string.h>
 
+/*
+ * virtually-indexed cache management (our cache is physically indexed)
+ */
 #define flush_cache_all()			do {} while (0)
 #define flush_cache_mm(mm)			do {} while (0)
 #define flush_cache_dup_mm(mm)			do {} while (0)
@@ -31,6 +34,9 @@
 #define flush_dcache_mmap_lock(mapping)		do {} while (0)
 #define flush_dcache_mmap_unlock(mapping)	do {} while (0)
 
+/*
+ * physically-indexed cache management
+ */
 #define flush_icache_range(s, e)				  \
 do {								  \
 		L1D_cache_block_writeback((s), (e));		  \
@@ -56,4 +62,4 @@ do {						     \
 #define copy_from_user_page(vma, page, vaddr, dst, src, len) \
 	memcpy(dst, src, len)
 
-#endif 
+#endif /* _ASM_C6X_CACHEFLUSH_H */

@@ -15,14 +15,21 @@
 #include <linux/dmaengine.h>
 
 struct dma_pl330_platdata {
+	/*
+	 * Number of valid peripherals connected to DMAC.
+	 * This may be different from the value read from
+	 * CR0, as the PL330 implementation might have 'holes'
+	 * in the peri list or the peri could also be reached
+	 * from another DMAC which the platform prefers.
+	 */
 	u8 nr_valid_peri;
-	
+	/* Array of valid peripherals */
 	u8 *peri_id;
-	
+	/* Operational capabilities */
 	dma_cap_mask_t cap_mask;
-	
+	/* Bytes to allocate for MC buffer */
 	unsigned mcbuf_sz;
 };
 
 extern bool pl330_filter(struct dma_chan *chan, void *param);
-#endif	
+#endif	/* __AMBA_PL330_H_ */

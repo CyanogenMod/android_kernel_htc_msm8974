@@ -18,6 +18,7 @@
 #include <linux/io.h>
 #include <linux/platform_device.h>
 
+/* XLR I2C REGISTERS */
 #define XLR_I2C_CFG		0x00
 #define XLR_I2C_CLKDIV		0x01
 #define XLR_I2C_DEVADDR		0x02
@@ -29,20 +30,29 @@
 #define XLR_I2C_BYTECNT		0x08
 #define XLR_I2C_HDSTATIM	0x09
 
+/* XLR I2C REGISTERS FLAGS */
 #define XLR_I2C_BUS_BUSY	0x01
 #define XLR_I2C_SDOEMPTY	0x02
 #define XLR_I2C_RXRDY		0x04
 #define XLR_I2C_ACK_ERR		0x08
 #define XLR_I2C_ARB_STARTERR	0x30
 
+/* Register Values */
 #define XLR_I2C_CFG_ADDR	0xF8
 #define XLR_I2C_CFG_NOADDR	0xFA
-#define XLR_I2C_STARTXFR_ND	0x02    
-#define XLR_I2C_STARTXFR_RD	0x01    
-#define XLR_I2C_STARTXFR_WR	0x00    
+#define XLR_I2C_STARTXFR_ND	0x02    /* No Data */
+#define XLR_I2C_STARTXFR_RD	0x01    /* Read */
+#define XLR_I2C_STARTXFR_WR	0x00    /* Write */
 
-#define XLR_I2C_TIMEOUT		10	
+#define XLR_I2C_TIMEOUT		10	/* timeout per byte in msec */
 
+/*
+ * On XLR/XLS, we need to use __raw_ IO to read the I2C registers
+ * because they are in the big-endian MMIO area on the SoC.
+ *
+ * The readl/writel implementation on XLR/XLS byteswaps, because
+ * those are for its little-endian PCI space (see arch/mips/Kconfig).
+ */
 static inline void xlr_i2c_wreg(u32 __iomem *base, unsigned int reg, u32 val)
 {
 	__raw_writel(val, base + reg);
@@ -93,11 +103,11 @@ retry:
 
 		if (i2c_status & XLR_I2C_SDOEMPTY) {
 			pos++;
-			
+			/* need to do a empty dataout after the last byte */
 			byte = (pos < len) ? buf[pos] : 0;
 			xlr_i2c_wreg(priv->iobase, XLR_I2C_DATAOUT, byte);
 
-			
+			/* reset timeout on successful xmit */
 			stoptime = jiffies + timeout;
 		}
 		timedout = time_after(checktime, stoptime);
@@ -142,15 +152,15 @@ retry:
 		i2c_status = xlr_i2c_rdreg(priv->iobase, XLR_I2C_STATUS);
 		if (i2c_status & XLR_I2C_RXRDY) {
 			if (nbytes > len)
-				return -EIO;	
+				return -EIO;	/* should not happen */
 
-			
+			/* we need to do a dummy datain when nbytes == len */
 			byte = xlr_i2c_rdreg(priv->iobase, XLR_I2C_DATAIN);
 			if (nbytes < len)
 				buf[nbytes] = byte;
 			nbytes++;
 
-			
+			/* reset timeout on successful read */
 			stoptime = jiffies + timeout;
 		}
 
@@ -195,7 +205,7 @@ static int xlr_i2c_xfer(struct i2c_adapter *adap,
 
 static u32 xlr_func(struct i2c_adapter *adap)
 {
-	
+	/* Emulate SMBUS over I2C */
 	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_I2C;
 }
 

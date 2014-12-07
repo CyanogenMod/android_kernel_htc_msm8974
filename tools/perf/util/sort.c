@@ -8,7 +8,7 @@ const char	default_sort_order[] = "comm,dso,symbol";
 const char	*sort_order = default_sort_order;
 int		sort__need_collapse = 0;
 int		sort__has_parent = 0;
-int		sort__branch_mode = -1; 
+int		sort__branch_mode = -1; /* -1 = means not set */
 
 enum sort_type	sort__first_dimension;
 
@@ -50,6 +50,7 @@ static int64_t cmp_null(void *l, void *r)
 		return 1;
 }
 
+/* --sort pid */
 
 static int64_t
 sort__thread_cmp(struct hist_entry *left, struct hist_entry *right)
@@ -71,6 +72,7 @@ struct sort_entry sort_thread = {
 	.se_width_idx	= HISTC_THREAD,
 };
 
+/* --sort comm */
 
 static int64_t
 sort__comm_cmp(struct hist_entry *left, struct hist_entry *right)
@@ -124,6 +126,7 @@ struct sort_entry sort_comm = {
 	.se_width_idx	= HISTC_COMM,
 };
 
+/* --sort dso */
 
 static int64_t
 sort__dso_cmp(struct hist_entry *left, struct hist_entry *right)
@@ -210,6 +213,7 @@ static int hist_entry__sym_snprintf(struct hist_entry *self, char *bf,
 					 self->level, bf, size, width);
 }
 
+/* --sort symbol */
 static int64_t
 sort__sym_cmp(struct hist_entry *left, struct hist_entry *right)
 {
@@ -237,6 +241,7 @@ struct sort_entry sort_sym = {
 	.se_width_idx	= HISTC_SYMBOL,
 };
 
+/* --sort parent */
 
 static int64_t
 sort__parent_cmp(struct hist_entry *left, struct hist_entry *right)
@@ -264,6 +269,7 @@ struct sort_entry sort_parent = {
 	.se_width_idx	= HISTC_PARENT,
 };
 
+/* --sort cpu */
 
 static int64_t
 sort__cpu_cmp(struct hist_entry *left, struct hist_entry *right)

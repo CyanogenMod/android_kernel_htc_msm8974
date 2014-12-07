@@ -26,19 +26,30 @@ static int __init fpga_sram_init(void)
 	int ret;
 	u16 data;
 
-	
+	/* Enable FPGA SRAM */
 	data = fpga_read_reg(LCLASR);
 	data |= LCLASR_FRAMEN;
 	fpga_write_reg(data, LCLASR);
 
+	/*
+	 * FPGA_SEL determines the area mapping
+	 */
 	area = (data & LCLASR_FPGA_SEL_MASK) >> LCLASR_FPGA_SEL_SHIFT;
 	if (unlikely(area == LCLASR_AREA_MASK)) {
 		pr_err("FPGA memory unmapped.\n");
 		return -ENXIO;
 	}
 
+	/*
+	 * The memory itself occupies a 2KiB range at the top of the area
+	 * immediately below the system registers.
+	 */
 	phys = (area << 26) + SZ_64M - SZ_4K;
 
+	/*
+	 * The FPGA SRAM resides in translatable physical space, so set
+	 * up a mapping prior to inserting it in to the pool.
+	 */
 	vaddr = ioremap(phys, SZ_2K);
 	if (unlikely(!vaddr)) {
 		pr_err("Failed remapping FPGA memory.\n");

@@ -28,4 +28,4 @@ struct vt8500fb_platform_data {
 	unsigned long		video_mem_len;
 };
 
-#endif 
+#endif /* _VT8500FB_H */

@@ -32,10 +32,10 @@ module_param_named(fw_name, lbtf_fw_name, charp, 0644);
 MODULE_FIRMWARE("lbtf_usb.bin");
 
 static struct usb_device_id if_usb_table[] = {
-	
+	/* Enter the device signature inside */
 	{ USB_DEVICE(0x1286, 0x2001) },
 	{ USB_DEVICE(0x05a3, 0x8388) },
-	{}	
+	{}	/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, if_usb_table);
@@ -51,10 +51,15 @@ static void if_usb_free(struct if_usb_card *cardp);
 static int if_usb_submit_rx_urb(struct if_usb_card *cardp);
 static int if_usb_reset_device(struct if_usb_card *cardp);
 
+/**
+ *  if_usb_wrike_bulk_callback -  call back to handle URB status
+ *
+ *  @param urb		pointer to urb structure
+ */
 static void if_usb_write_bulk_callback(struct urb *urb)
 {
 	if (urb->status != 0) {
-		
+		/* print the failure status number for debug */
 		pr_info("URB in failure status: %d\n", urb->status);
 	} else {
 		lbtf_deb_usb2(&urb->dev->dev, "URB status is successful\n");
@@ -63,11 +68,16 @@ static void if_usb_write_bulk_callback(struct urb *urb)
 	}
 }
 
+/**
+ *  if_usb_free - free tx/rx urb, skb and rx buffer
+ *
+ *  @param cardp	pointer if_usb_card
+ */
 static void if_usb_free(struct if_usb_card *cardp)
 {
 	lbtf_deb_enter(LBTF_DEB_USB);
 
-	
+	/* Unlink tx & rx urb */
 	usb_kill_urb(cardp->tx_urb);
 	usb_kill_urb(cardp->rx_urb);
 	usb_kill_urb(cardp->cmd_urb);
@@ -111,7 +121,7 @@ static void if_usb_fw_timeo(unsigned long priv)
 
 	lbtf_deb_enter(LBTF_DEB_USB);
 	if (!cardp->fwdnldover) {
-		
+		/* Download timed out */
 		cardp->priv->surpriseremoved = 1;
 		pr_err("Download timed out\n");
 	} else {
@@ -121,6 +131,14 @@ static void if_usb_fw_timeo(unsigned long priv)
 	lbtf_deb_leave(LBTF_DEB_USB);
 }
 
+/**
+ *  if_usb_probe - sets the configuration values
+ *
+ *  @ifnum	interface number
+ *  @id		pointer to usb_device_id
+ *
+ *  Returns: 0 on success, error code on failure
+ */
 static int if_usb_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {
@@ -175,7 +193,7 @@ static int if_usb_probe(struct usb_interface *intf,
 	}
 	if (!cardp->ep_out_size || !cardp->ep_in_size) {
 		lbtf_deb_usbd(&udev->dev, "Endpoints not found\n");
-		
+		/* Endpoints not found */
 		goto dealloc;
 	}
 
@@ -227,6 +245,11 @@ lbtf_deb_leave(LBTF_DEB_MAIN);
 	return -ENOMEM;
 }
 
+/**
+ *  if_usb_disconnect -  free resource and cleanup
+ *
+ *  @intf	USB interface structure
+ */
 static void if_usb_disconnect(struct usb_interface *intf)
 {
 	struct if_usb_card *cardp = usb_get_intfdata(intf);
@@ -239,7 +262,7 @@ static void if_usb_disconnect(struct usb_interface *intf)
 	if (priv)
 		lbtf_remove_card(priv);
 
-	
+	/* Unlink and free urb */
 	if_usb_free(cardp);
 
 	usb_set_intfdata(intf, NULL);
@@ -248,6 +271,13 @@ static void if_usb_disconnect(struct usb_interface *intf)
 	lbtf_deb_leave(LBTF_DEB_MAIN);
 }
 
+/**
+ *  if_usb_send_fw_pkt -  This function downloads the FW
+ *
+ *  @priv	pointer to struct lbtf_private
+ *
+ *  Returns: 0
+ */
 static int if_usb_send_fw_pkt(struct if_usb_card *cardp)
 {
 	struct fwdata *fwdata = cardp->ep_out_buf;
@@ -255,6 +285,8 @@ static int if_usb_send_fw_pkt(struct if_usb_card *cardp)
 
 	lbtf_deb_enter(LBTF_DEB_FW);
 
+	/* If we got a CRC failure on the last block, back
+	   up and retry it */
 	if (!cardp->CRC_OK) {
 		cardp->totalbytes = cardp->fwlastblksent;
 		cardp->fwseqnum--;
@@ -263,6 +295,10 @@ static int if_usb_send_fw_pkt(struct if_usb_card *cardp)
 	lbtf_deb_usb2(&cardp->udev->dev, "totalbytes = %d\n",
 		     cardp->totalbytes);
 
+	/* struct fwdata (which we sent to the card) has an
+	   extra __le32 field in between the header and the data,
+	   which is not in the struct fwheader in the actual
+	   firmware binary. Insert the seqnum in the middle... */
 	memcpy(&fwdata->hdr, &firmware[cardp->totalbytes],
 	       sizeof(struct fwheader));
 
@@ -291,6 +327,9 @@ static int if_usb_send_fw_pkt(struct if_usb_card *cardp)
 			"Host has finished FW downloading\n");
 		lbtf_deb_usb2(&cardp->udev->dev, "Donwloading FW JUMP BLOCK\n");
 
+		/* Host has finished FW downloading
+		 * Donwloading FW JUMP BLOCK
+		 */
 		cardp->fwfinalblk = 1;
 	}
 
@@ -328,6 +367,16 @@ static int if_usb_reset_device(struct if_usb_card *cardp)
 }
 EXPORT_SYMBOL_GPL(if_usb_reset_device);
 
+/**
+ *  usb_tx_block - transfer data to the device
+ *
+ *  @priv	pointer to struct lbtf_private
+ *  @payload	pointer to payload data
+ *  @nb		data length
+ *  @data	non-zero for data, zero for commands
+ *
+ *  Returns: 0 on success, nonzero otherwise.
+ */
 static int usb_tx_block(struct if_usb_card *cardp, uint8_t *payload,
 			uint16_t nb, u8 data)
 {
@@ -335,7 +384,7 @@ static int usb_tx_block(struct if_usb_card *cardp, uint8_t *payload,
 	struct urb *urb;
 
 	lbtf_deb_enter(LBTF_DEB_USB);
-	
+	/* check if device is removed */
 	if (cardp->priv->surpriseremoved) {
 		lbtf_deb_usbd(&cardp->udev->dev, "Device removed\n");
 		goto tx_ret;
@@ -385,7 +434,7 @@ static int __if_usb_submit_rx_urb(struct if_usb_card *cardp,
 
 	cardp->rx_skb = skb;
 
-	
+	/* Fill the receive configuration URB and initialise the Rx call back */
 	usb_fill_bulk_urb(cardp->rx_urb, cardp->udev,
 			  usb_rcvbulkpipe(cardp->udev, cardp->ep_in),
 			  skb_tail_pointer(skb),
@@ -441,7 +490,7 @@ static void if_usb_receive_fwload(struct urb *urb)
 
 		if (tmp[0] == cpu_to_le32(CMD_TYPE_INDICATION) &&
 		    tmp[1] == cpu_to_le32(MACREG_INT_CODE_FIRMWARE_READY)) {
-			
+			/* Firmware ready event received */
 			pr_info("Firmware ready event received\n");
 			wake_up(&cardp->fw_wq);
 		} else {
@@ -460,7 +509,7 @@ static void if_usb_receive_fwload(struct urb *urb)
 			kfree_skb(skb);
 			if_usb_submit_rx_urb_fwload(cardp);
 			cardp->bootcmdresp = 1;
-			
+			/* Received valid boot command response */
 			lbtf_deb_usbd(&cardp->udev->dev,
 				     "Received valid boot command response\n");
 			lbtf_deb_leave(LBTF_DEB_USB);
@@ -520,7 +569,7 @@ static void if_usb_receive_fwload(struct urb *urb)
 
 	kfree_skb(skb);
 
-	
+	/* reschedule timer for 200ms hence */
 	mod_timer(&cardp->fw_timeout, jiffies + (HZ/5));
 
 	if (cardp->fwfinalblk) {
@@ -578,6 +627,11 @@ static inline void process_cmdrequest(int recvlength, uint8_t *recvbuff,
 	spin_unlock(&priv->driver_lock);
 }
 
+/**
+ *  if_usb_receive - read data received from the device.
+ *
+ *  @urb		pointer to struct urb
+ */
 static void if_usb_receive(struct urb *urb)
 {
 	struct if_usb_card *cardp = urb->context;
@@ -620,12 +674,12 @@ static void if_usb_receive(struct urb *urb)
 
 	case CMD_TYPE_INDICATION:
 	{
-		
+		/* Event cause handling */
 		u32 event_cause = le32_to_cpu(pkt[1]);
 		lbtf_deb_usbd(&cardp->udev->dev, "**EVENT** 0x%X\n",
 			event_cause);
 
-		
+		/* Icky undocumented magic special case */
 		if (event_cause & 0xffff0000) {
 			u16 tmp;
 			u8 retrycnt;
@@ -656,6 +710,16 @@ setup_for_next:
 	lbtf_deb_leave(LBTF_DEB_USB);
 }
 
+/**
+ *  if_usb_host_to_card -  Download data to the device
+ *
+ *  @priv		pointer to struct lbtf_private structure
+ *  @type		type of data
+ *  @buf		pointer to data buffer
+ *  @len		number of bytes
+ *
+ *  Returns: 0 on success, nonzero otherwise
+ */
 static int if_usb_host_to_card(struct lbtf_private *priv, uint8_t type,
 			       uint8_t *payload, uint16_t nb)
 {
@@ -678,22 +742,37 @@ static int if_usb_host_to_card(struct lbtf_private *priv, uint8_t type,
 			    data);
 }
 
+/**
+ *  if_usb_issue_boot_command - Issue boot command to Boot2.
+ *
+ *  @ivalue   1 boots from FW by USB-Download, 2 boots from FW in EEPROM.
+ *
+ *  Returns: 0
+ */
 static int if_usb_issue_boot_command(struct if_usb_card *cardp, int ivalue)
 {
 	struct bootcmd *bootcmd = cardp->ep_out_buf;
 
-	
+	/* Prepare command */
 	bootcmd->magic = cpu_to_le32(BOOT_CMD_MAGIC_NUMBER);
 	bootcmd->cmd = ivalue;
 	memset(bootcmd->pad, 0, sizeof(bootcmd->pad));
 
-	
+	/* Issue command */
 	usb_tx_block(cardp, cardp->ep_out_buf, sizeof(*bootcmd), 0);
 
 	return 0;
 }
 
 
+/**
+ *  check_fwfile_format - Check the validity of Boot2/FW image.
+ *
+ *  @data	pointer to image
+ *  @totlen	image length
+ *
+ *  Returns: 0 if the image is valid, nonzero otherwise.
+ */
 static int check_fwfile_format(const u8 *data, u32 totlen)
 {
 	u32 bincmd, exit;
@@ -767,9 +846,9 @@ restart:
 	do {
 		int j = 0;
 		i++;
-		
+		/* Issue Boot command = 1, Boot from Download-FW */
 		if_usb_issue_boot_command(cardp, BOOT_CMD_FW_BY_USB);
-		
+		/* wait for command response */
 		do {
 			j++;
 			msleep_interruptible(100);
@@ -794,10 +873,10 @@ restart:
 	cardp->totalbytes = 0;
 	cardp->fwfinalblk = 0;
 
-	
+	/* Send the first firmware packet... */
 	if_usb_send_fw_pkt(cardp);
 
-	
+	/* ... and wait for the process to complete */
 	wait_event_interruptible(cardp->fw_wq, cardp->priv->surpriseremoved ||
 					       cardp->fwdnldover);
 

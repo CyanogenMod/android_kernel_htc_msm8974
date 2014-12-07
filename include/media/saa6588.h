@@ -33,6 +33,7 @@ struct saa6588_command {
 	poll_table    *event_list;
 };
 
+/* These ioctls are internal to the kernel */
 #define SAA6588_CMD_OPEN	_IOW('R', 1, int)
 #define SAA6588_CMD_CLOSE	_IOW('R', 2, int)
 #define SAA6588_CMD_READ	_IOR('R', 3, int)

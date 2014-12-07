@@ -16,6 +16,9 @@
 #define APBC_VIRT_BASE	(APB_VIRT_BASE + 0x015000)
 #define APBC_REG(x)	(APBC_VIRT_BASE + (x))
 
+/*
+ * APB clock register offsets for PXA168
+ */
 #define APBC_PXA168_UART1	APBC_REG(0x000)
 #define APBC_PXA168_UART2	APBC_REG(0x004)
 #define APBC_PXA168_GPIO	APBC_REG(0x008)
@@ -41,6 +44,9 @@
 #define APBC_PXA168_SSP4	APBC_REG(0x858)
 #define APBC_PXA168_SSP5	APBC_REG(0x85c)
 
+/*
+ * APB Clock register offsets for PXA910
+ */
 #define APBC_PXA910_UART0	APBC_REG(0x000)
 #define APBC_PXA910_UART1	APBC_REG(0x004)
 #define APBC_PXA910_GPIO	APBC_REG(0x008)
@@ -64,6 +70,9 @@
 #define APBC_PXA910_ASFAR	APBC_REG(0x050)
 #define APBC_PXA910_ASSAR	APBC_REG(0x054)
 
+/*
+ * APB Clock register offsets for MMP2
+ */
 #define APBC_MMP2_RTC		APBC_REG(0x000)
 #define APBC_MMP2_TWSI1		APBC_REG(0x004)
 #define APBC_MMP2_TWSI2		APBC_REG(0x008)
@@ -99,13 +108,15 @@
 #define APBC_MMP2_TWSI_INTSTS	APBC_REG(0x084)
 #define APBC_MMP2_UART4		APBC_REG(0x088)
 #define APBC_MMP2_RIPC		APBC_REG(0x08c)
-#define APBC_MMP2_THSENS1	APBC_REG(0x090)	
+#define APBC_MMP2_THSENS1	APBC_REG(0x090)	/* Thermal Sensor */
 #define APBC_MMP2_THSENS_INTSTS	APBC_REG(0x0a4)
 
-#define APBC_APBCLK	(1 << 0)  
-#define APBC_FNCLK	(1 << 1)  
-#define APBC_RST	(1 << 2)  
+/* Common APB clock register bit definitions */
+#define APBC_APBCLK	(1 << 0)  /* APB Bus Clock Enable */
+#define APBC_FNCLK	(1 << 1)  /* Functional Clock Enable */
+#define APBC_RST	(1 << 2)  /* Reset Generation */
 
+/* Functional Clock Selection Mask */
 #define APBC_FNCLKSEL(x)	(((x) & 0xf) << 4)
 
-#endif 
+#endif /* __ASM_MACH_REGS_APBC_H */

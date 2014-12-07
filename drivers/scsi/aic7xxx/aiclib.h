@@ -117,6 +117,9 @@ struct scsi_sense_data
 #define SSD_FULL_SIZE sizeof(struct scsi_sense_data)
 };
 
+/*
+ * Status Byte
+ */
 #define	SCSI_STATUS_OK			0x00
 #define	SCSI_STATUS_CHECK_COND		0x02
 #define	SCSI_STATUS_COND_MET		0x04
@@ -124,15 +127,16 @@ struct scsi_sense_data
 #define SCSI_STATUS_INTERMED		0x10
 #define SCSI_STATUS_INTERMED_COND_MET	0x14
 #define SCSI_STATUS_RESERV_CONFLICT	0x18
-#define SCSI_STATUS_CMD_TERMINATED	0x22	
+#define SCSI_STATUS_CMD_TERMINATED	0x22	/* Obsolete in SAM-2 */
 #define SCSI_STATUS_QUEUE_FULL		0x28
 #define SCSI_STATUS_ACA_ACTIVE		0x30
 #define SCSI_STATUS_TASK_ABORTED	0x40
 
+/************************* Large Disk Handling ********************************/
 static inline int
 aic_sector_div(sector_t capacity, int heads, int sectors)
 {
-	
+	/* ugly, ugly sector_div calling convention.. */
 	sector_div(capacity, (heads * sectors));
 	return (int)capacity;
 }
@@ -149,6 +153,7 @@ scsi_4btoul(uint8_t *bytes)
 	return (rv);
 }
 
+/* Macros for generating the elements of the PCI ID tables. */
 
 #define GETID(v, s) (unsigned)(((v) >> (s)) & 0xFFFF ?: PCI_ANY_ID)
 
@@ -164,6 +169,11 @@ scsi_4btoul(uint8_t *bytes)
 
 #define IDIROC(x)  ((x) | ~ID_ALL_IROC_MASK)
 
+/* Generate IDs for all 16 possibilites.
+ * The argument has already masked out
+ * the 4 least significant bits of the device id.
+ * (e.g., mask: ID_9005_GENERIC_MASK).
+ */
 #define ID16(x)                          \
 	ID(x),                           \
 	ID((x) | 0x0001000000000000ull), \
@@ -182,4 +192,4 @@ scsi_4btoul(uint8_t *bytes)
 	ID((x) | 0x000E000000000000ull), \
 	ID((x) | 0x000F000000000000ull)
 
-#endif 
+#endif /*_AICLIB_H */

@@ -11,6 +11,7 @@
  * any later version.
  *
  */
+//#include <linux/crypto.h>
 #include "rtl_crypto.h"
 #include <linux/mm.h>
 #include <linux/errno.h>

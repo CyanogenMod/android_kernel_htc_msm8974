@@ -27,76 +27,80 @@
 #include <mach/ohci.h>
 #include <mach/pxa3xx-u2d.h>
 
-#define UHCREV		(0x0000) 
-#define UHCHCON		(0x0004) 
-#define UHCCOMS		(0x0008) 
-#define UHCINTS		(0x000C) 
-#define UHCINTE		(0x0010) 
-#define UHCINTD		(0x0014) 
-#define UHCHCCA		(0x0018) 
-#define UHCPCED		(0x001C) 
-#define UHCCHED		(0x0020) 
-#define UHCCCED		(0x0024) 
-#define UHCBHED		(0x0028) 
-#define UHCBCED		(0x002C) 
-#define UHCDHEAD	(0x0030) 
-#define UHCFMI		(0x0034) 
-#define UHCFMR		(0x0038) 
-#define UHCFMN		(0x003C) 
-#define UHCPERS		(0x0040) 
-#define UHCLS		(0x0044) 
+/*
+ * UHC: USB Host Controller (OHCI-like) register definitions
+ */
+#define UHCREV		(0x0000) /* UHC HCI Spec Revision */
+#define UHCHCON		(0x0004) /* UHC Host Control Register */
+#define UHCCOMS		(0x0008) /* UHC Command Status Register */
+#define UHCINTS		(0x000C) /* UHC Interrupt Status Register */
+#define UHCINTE		(0x0010) /* UHC Interrupt Enable */
+#define UHCINTD		(0x0014) /* UHC Interrupt Disable */
+#define UHCHCCA		(0x0018) /* UHC Host Controller Comm. Area */
+#define UHCPCED		(0x001C) /* UHC Period Current Endpt Descr */
+#define UHCCHED		(0x0020) /* UHC Control Head Endpt Descr */
+#define UHCCCED		(0x0024) /* UHC Control Current Endpt Descr */
+#define UHCBHED		(0x0028) /* UHC Bulk Head Endpt Descr */
+#define UHCBCED		(0x002C) /* UHC Bulk Current Endpt Descr */
+#define UHCDHEAD	(0x0030) /* UHC Done Head */
+#define UHCFMI		(0x0034) /* UHC Frame Interval */
+#define UHCFMR		(0x0038) /* UHC Frame Remaining */
+#define UHCFMN		(0x003C) /* UHC Frame Number */
+#define UHCPERS		(0x0040) /* UHC Periodic Start */
+#define UHCLS		(0x0044) /* UHC Low Speed Threshold */
 
-#define UHCRHDA		(0x0048) 
-#define UHCRHDA_NOCP	(1 << 12)	
-#define UHCRHDA_OCPM	(1 << 11)	
+#define UHCRHDA		(0x0048) /* UHC Root Hub Descriptor A */
+#define UHCRHDA_NOCP	(1 << 12)	/* No over current protection */
+#define UHCRHDA_OCPM	(1 << 11)	/* Over Current Protection Mode */
 #define UHCRHDA_POTPGT(x) \
-			(((x) & 0xff) << 24) 
+			(((x) & 0xff) << 24) /* Power On To Power Good Time */
 
-#define UHCRHDB		(0x004C) 
-#define UHCRHS		(0x0050) 
-#define UHCRHPS1	(0x0054) 
-#define UHCRHPS2	(0x0058) 
-#define UHCRHPS3	(0x005C) 
+#define UHCRHDB		(0x004C) /* UHC Root Hub Descriptor B */
+#define UHCRHS		(0x0050) /* UHC Root Hub Status */
+#define UHCRHPS1	(0x0054) /* UHC Root Hub Port 1 Status */
+#define UHCRHPS2	(0x0058) /* UHC Root Hub Port 2 Status */
+#define UHCRHPS3	(0x005C) /* UHC Root Hub Port 3 Status */
 
-#define UHCSTAT		(0x0060) 
-#define UHCSTAT_UPS3	(1 << 16)	
-#define UHCSTAT_SBMAI	(1 << 15)	
-#define UHCSTAT_SBTAI	(1 << 14)	
-#define UHCSTAT_UPRI	(1 << 13)	
-#define UHCSTAT_UPS2	(1 << 12)	
-#define UHCSTAT_UPS1	(1 << 11)	
-#define UHCSTAT_HTA	(1 << 10)	
-#define UHCSTAT_HBA	(1 << 8)	
-#define UHCSTAT_RWUE	(1 << 7)	
+#define UHCSTAT		(0x0060) /* UHC Status Register */
+#define UHCSTAT_UPS3	(1 << 16)	/* USB Power Sense Port3 */
+#define UHCSTAT_SBMAI	(1 << 15)	/* System Bus Master Abort Interrupt*/
+#define UHCSTAT_SBTAI	(1 << 14)	/* System Bus Target Abort Interrupt*/
+#define UHCSTAT_UPRI	(1 << 13)	/* USB Port Resume Interrupt */
+#define UHCSTAT_UPS2	(1 << 12)	/* USB Power Sense Port 2 */
+#define UHCSTAT_UPS1	(1 << 11)	/* USB Power Sense Port 1 */
+#define UHCSTAT_HTA	(1 << 10)	/* HCI Target Abort */
+#define UHCSTAT_HBA	(1 << 8)	/* HCI Buffer Active */
+#define UHCSTAT_RWUE	(1 << 7)	/* HCI Remote Wake Up Event */
 
-#define UHCHR           (0x0064) 
-#define UHCHR_SSEP3	(1 << 11)	
-#define UHCHR_SSEP2	(1 << 10)	
-#define UHCHR_SSEP1	(1 << 9)	
-#define UHCHR_PCPL	(1 << 7)	
-#define UHCHR_PSPL	(1 << 6)	
-#define UHCHR_SSE	(1 << 5)	
-#define UHCHR_UIT	(1 << 4)	
-#define UHCHR_SSDC	(1 << 3)	
-#define UHCHR_CGR	(1 << 2)	
-#define UHCHR_FHR	(1 << 1)	
-#define UHCHR_FSBIR	(1 << 0)	
+#define UHCHR           (0x0064) /* UHC Reset Register */
+#define UHCHR_SSEP3	(1 << 11)	/* Sleep Standby Enable for Port3 */
+#define UHCHR_SSEP2	(1 << 10)	/* Sleep Standby Enable for Port2 */
+#define UHCHR_SSEP1	(1 << 9)	/* Sleep Standby Enable for Port1 */
+#define UHCHR_PCPL	(1 << 7)	/* Power control polarity low */
+#define UHCHR_PSPL	(1 << 6)	/* Power sense polarity low */
+#define UHCHR_SSE	(1 << 5)	/* Sleep Standby Enable */
+#define UHCHR_UIT	(1 << 4)	/* USB Interrupt Test */
+#define UHCHR_SSDC	(1 << 3)	/* Simulation Scale Down Clock */
+#define UHCHR_CGR	(1 << 2)	/* Clock Generation Reset */
+#define UHCHR_FHR	(1 << 1)	/* Force Host Controller Reset */
+#define UHCHR_FSBIR	(1 << 0)	/* Force System Bus Iface Reset */
 
-#define UHCHIE          (0x0068) 
-#define UHCHIE_UPS3IE	(1 << 14)	
-#define UHCHIE_UPRIE	(1 << 13)	
-#define UHCHIE_UPS2IE	(1 << 12)	
-#define UHCHIE_UPS1IE	(1 << 11)	
-#define UHCHIE_TAIE	(1 << 10)	
-#define UHCHIE_HBAIE	(1 << 8)	
-#define UHCHIE_RWIE	(1 << 7)	
+#define UHCHIE          (0x0068) /* UHC Interrupt Enable Register*/
+#define UHCHIE_UPS3IE	(1 << 14)	/* Power Sense Port3 IntEn */
+#define UHCHIE_UPRIE	(1 << 13)	/* Port Resume IntEn */
+#define UHCHIE_UPS2IE	(1 << 12)	/* Power Sense Port2 IntEn */
+#define UHCHIE_UPS1IE	(1 << 11)	/* Power Sense Port1 IntEn */
+#define UHCHIE_TAIE	(1 << 10)	/* HCI Interface Transfer Abort
+					   Interrupt Enable*/
+#define UHCHIE_HBAIE	(1 << 8)	/* HCI Buffer Active IntEn */
+#define UHCHIE_RWIE	(1 << 7)	/* Remote Wake-up IntEn */
 
-#define UHCHIT          (0x006C) 
+#define UHCHIT          (0x006C) /* UHC Interrupt Test register */
 
 #define PXA_UHC_MAX_PORTNUM    3
 
 struct pxa27x_ohci {
-	
+	/* must be 1st member here for hcd_to_ohci() to work */
 	struct ohci_hcd ohci;
 
 	struct device	*dev;
@@ -106,6 +110,16 @@ struct pxa27x_ohci {
 
 #define to_pxa27x_ohci(hcd)	(struct pxa27x_ohci *)hcd_to_ohci(hcd)
 
+/*
+  PMM_NPS_MODE -- PMM Non-power switching mode
+      Ports are powered continuously.
+
+  PMM_GLOBAL_MODE -- PMM global switching mode
+      All ports are powered at the same time.
+
+  PMM_PERPORT_MODE -- PMM per port switching mode
+      Ports are powered individually.
+ */
 static int pxa27x_ohci_select_pmm(struct pxa27x_ohci *ohci, int mode)
 {
 	uint32_t uhcrhda = __raw_readl(ohci->mmio_base + UHCRHDA);
@@ -122,7 +136,7 @@ static int pxa27x_ohci_select_pmm(struct pxa27x_ohci *ohci, int mode)
 		uhcrhda &= ~(RH_A_NPS);
 		uhcrhda |= RH_A_PSM;
 
-		
+		/* Set port power control mask bits, only 3 ports. */
 		uhcrhdb |= (0x7<<17);
 		break;
 	default:
@@ -140,6 +154,7 @@ static int pxa27x_ohci_select_pmm(struct pxa27x_ohci *ohci, int mode)
 
 extern int usb_disabled(void);
 
+/*-------------------------------------------------------------------------*/
 
 static inline void pxa27x_setup_hc(struct pxa27x_ohci *ohci,
 				   struct pxaohci_platform_data *inf)
@@ -229,7 +244,7 @@ static int pxa27x_start_hc(struct pxa27x_ohci *ohci, struct device *dev)
 	__raw_writel(uhchr, ohci->mmio_base + UHCHR);
 	__raw_writel(UHCHIE_UPRIE | UHCHIE_RWIE, ohci->mmio_base + UHCHIE);
 
-	
+	/* Clear any OTG Pin Hold */
 	pxa27x_clear_otgph();
 	return 0;
 }
@@ -249,7 +264,7 @@ static void pxa27x_stop_hc(struct pxa27x_ohci *ohci, struct device *dev)
 
 	pxa27x_reset_hc(ohci);
 
-	
+	/* Host Controller Reset */
 	uhccoms = __raw_readl(ohci->mmio_base + UHCCOMS) | 0x01;
 	__raw_writel(uhccoms, ohci->mmio_base + UHCCOMS);
 	udelay(10);
@@ -258,9 +273,21 @@ static void pxa27x_stop_hc(struct pxa27x_ohci *ohci, struct device *dev)
 }
 
 
+/*-------------------------------------------------------------------------*/
+
+/* configure so an HC device and id are always provided */
+/* always called with process context; sleeping is OK */
 
 
-
+/**
+ * usb_hcd_pxa27x_probe - initialize pxa27x-based HCDs
+ * Context: !in_interrupt()
+ *
+ * Allocates basic resources for this USB host controller, and
+ * then invokes the start() method for the HCD associated with it
+ * through the hotplug entry's driver_data.
+ *
+ */
 int usb_hcd_pxa27x_probe (const struct hc_driver *driver, struct platform_device *pdev)
 {
 	int retval, irq;
@@ -314,7 +341,7 @@ int usb_hcd_pxa27x_probe (const struct hc_driver *driver, struct platform_device
 		goto err2;
 	}
 
-	
+	/* initialize "struct pxa27x_ohci" */
 	ohci = (struct pxa27x_ohci *)hcd_to_ohci(hcd);
 	ohci->dev = &pdev->dev;
 	ohci->clk = usb_clk;
@@ -325,7 +352,7 @@ int usb_hcd_pxa27x_probe (const struct hc_driver *driver, struct platform_device
 		goto err3;
 	}
 
-	
+	/* Select Power Management Mode */
 	pxa27x_ohci_select_pmm(ohci, inf->port_mode);
 
 	if (inf->power_budget)
@@ -350,7 +377,19 @@ int usb_hcd_pxa27x_probe (const struct hc_driver *driver, struct platform_device
 }
 
 
+/* may be called without controller electrically present */
+/* may be called with controller, bus, and devices active */
 
+/**
+ * usb_hcd_pxa27x_remove - shutdown processing for pxa27x-based HCDs
+ * @dev: USB Host Controller being removed
+ * Context: !in_interrupt()
+ *
+ * Reverses the effect of usb_hcd_pxa27x_probe(), first invoking
+ * the HCD's stop() method.  It is always called from a thread
+ * context, normally "rmmod", "apmd", or something similar.
+ *
+ */
 void usb_hcd_pxa27x_remove (struct usb_hcd *hcd, struct platform_device *pdev)
 {
 	struct pxa27x_ohci *ohci = to_pxa27x_ohci(hcd);
@@ -363,6 +402,7 @@ void usb_hcd_pxa27x_remove (struct usb_hcd *hcd, struct platform_device *pdev)
 	clk_put(ohci->clk);
 }
 
+/*-------------------------------------------------------------------------*/
 
 static int __devinit
 ohci_pxa27x_start (struct usb_hcd *hcd)
@@ -372,7 +412,7 @@ ohci_pxa27x_start (struct usb_hcd *hcd)
 
 	ohci_dbg (ohci, "ohci_pxa27x_start, ohci:%p", ohci);
 
-	
+	/* The value of NDP in roothub_a is incorrect on this hardware */
 	ohci->num_ports = 3;
 
 	if ((ret = ohci_init(ohci)) < 0)
@@ -387,25 +427,41 @@ ohci_pxa27x_start (struct usb_hcd *hcd)
 	return 0;
 }
 
+/*-------------------------------------------------------------------------*/
 
 static const struct hc_driver ohci_pxa27x_hc_driver = {
 	.description =		hcd_name,
 	.product_desc =		"PXA27x OHCI",
 	.hcd_priv_size =	sizeof(struct pxa27x_ohci),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq =			ohci_irq,
 	.flags =		HCD_USB11 | HCD_MEMORY,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.start =		ohci_pxa27x_start,
 	.stop =			ohci_stop,
 	.shutdown =		ohci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue =		ohci_urb_enqueue,
 	.urb_dequeue =		ohci_urb_dequeue,
 	.endpoint_disable =	ohci_endpoint_disable,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number =	ohci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data =	ohci_hub_status_data,
 	.hub_control =		ohci_hub_control,
 #ifdef  CONFIG_PM
@@ -415,6 +471,7 @@ static const struct hc_driver ohci_pxa27x_hc_driver = {
 	.start_port_reset =	ohci_start_port_reset,
 };
 
+/*-------------------------------------------------------------------------*/
 
 static int ohci_hcd_pxa27x_drv_probe(struct platform_device *pdev)
 {
@@ -463,7 +520,7 @@ static int ohci_hcd_pxa27x_drv_resume(struct device *dev)
 	if ((status = pxa27x_start_hc(ohci, dev)) < 0)
 		return status;
 
-	
+	/* Select Power Management Mode */
 	pxa27x_ohci_select_pmm(ohci, inf->port_mode);
 
 	ohci_finish_controller_resume(hcd);
@@ -476,6 +533,7 @@ static const struct dev_pm_ops ohci_hcd_pxa27x_pm_ops = {
 };
 #endif
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:pxa27x-ohci");
 
 static struct platform_driver ohci_hcd_pxa27x_driver = {

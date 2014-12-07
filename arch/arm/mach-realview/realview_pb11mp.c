@@ -64,7 +64,7 @@ static struct map_desc realview_pb11mp_io_desc[] __initdata = {
 		.pfn		= __phys_to_pfn(REALVIEW_PB11MP_GIC_DIST_BASE),
 		.length		= SZ_4K,
 		.type		= MT_DEVICE,
-	}, {	
+	}, {	/* Maps the SCU, GIC CPU interface, TWD, GIC DIST */
 		.virtual	= IO_ADDRESS(REALVIEW_TC11MP_PRIV_MEM_BASE),
 		.pfn		= __phys_to_pfn(REALVIEW_TC11MP_PRIV_MEM_BASE),
 		.length		= REALVIEW_TC11MP_PRIV_MEM_SIZE,
@@ -123,6 +123,9 @@ static struct pl022_ssp_controller ssp0_plat_data = {
 	.num_chipselect = 1,
 };
 
+/*
+ * RealView PB11MPCore AMBA devices
+ */
 
 #define GPIO2_IRQ		{ IRQ_PB11MP_GPIO2 }
 #define GPIO3_IRQ		{ IRQ_PB11MP_GPIO3 }
@@ -146,12 +149,14 @@ static struct pl022_ssp_controller ssp0_plat_data = {
 #define PB11MP_UART3_IRQ	{ IRQ_PB11MP_UART3 }
 #define PB11MP_SSP_IRQ		{ IRQ_PB11MP_SSP }
 
+/* FPGA Primecells */
 APB_DEVICE(aaci,	"fpga:aaci",	AACI,		NULL);
 APB_DEVICE(mmc0,	"fpga:mmc0",	MMCI0,		&realview_mmc0_plat_data);
 APB_DEVICE(kmi0,	"fpga:kmi0",	KMI0,		NULL);
 APB_DEVICE(kmi1,	"fpga:kmi1",	KMI1,		NULL);
 APB_DEVICE(uart3,	"fpga:uart3",	PB11MP_UART3,	NULL);
 
+/* DevChip Primecells */
 AHB_DEVICE(smc,		"dev:smc",	PB11MP_SMC,	NULL);
 AHB_DEVICE(sctl,	"dev:sctl",	SCTL,		NULL);
 APB_DEVICE(wdog,	"dev:wdog",	PB11MP_WATCHDOG, NULL);
@@ -165,6 +170,7 @@ APB_DEVICE(uart1,	"dev:uart1",	PB11MP_UART1,	NULL);
 APB_DEVICE(uart2,	"dev:uart2",	PB11MP_UART2,	NULL);
 APB_DEVICE(ssp0,	"dev:ssp0",	PB11MP_SSP,	&ssp0_plat_data);
 
+/* Primecells on the NEC ISSP chip */
 AHB_DEVICE(clcd,	"issp:clcd",	PB11MP_CLCD,	&clcd_plat_data);
 AHB_DEVICE(dmac,	"issp:dmac",	DMAC,		NULL);
 
@@ -190,6 +196,9 @@ static struct amba_device *amba_devs[] __initdata = {
 	&kmi1_device,
 };
 
+/*
+ * RealView PB11MPCore platform devices
+ */
 static struct resource realview_pb11mp_flash_resource[] = {
 	[0] = {
 		.start		= REALVIEW_PB11MP_FLASH0_BASE,
@@ -263,18 +272,18 @@ static void __init gic_init_irq(void)
 {
 	unsigned int pldctrl;
 
-	
+	/* new irq mode with no DCC */
 	writel(0x0000a05f, __io_address(REALVIEW_SYS_LOCK));
 	pldctrl = readl(__io_address(REALVIEW_SYS_BASE)	+ REALVIEW_PB11MP_SYS_PLD_CTRL1);
 	pldctrl |= 2 << 22;
 	writel(pldctrl, __io_address(REALVIEW_SYS_BASE) + REALVIEW_PB11MP_SYS_PLD_CTRL1);
 	writel(0x00000000, __io_address(REALVIEW_SYS_LOCK));
 
-	
+	/* ARM11MPCore test chip GIC, primary */
 	gic_init(0, 29, __io_address(REALVIEW_TC11MP_GIC_DIST_BASE),
 		 __io_address(REALVIEW_TC11MP_GIC_CPU_BASE));
 
-	
+	/* board GIC, secondary */
 	gic_init(1, IRQ_PB11MP_GIC_START,
 		 __io_address(REALVIEW_PB11MP_GIC_DIST_BASE),
 		 __io_address(REALVIEW_PB11MP_GIC_CPU_BASE));
@@ -316,6 +325,10 @@ static void realview_pb11mp_restart(char mode, const char *cmd)
 	void __iomem *reset_ctrl = __io_address(REALVIEW_SYS_RESETCTL);
 	void __iomem *lock_ctrl = __io_address(REALVIEW_SYS_LOCK);
 
+	/*
+	 * To reset, we hit the on-board reset register
+	 * in the system FPGA
+	 */
 	__raw_writel(REALVIEW_SYS_LOCK_VAL, lock_ctrl);
 	__raw_writel(0x0000, reset_ctrl);
 	__raw_writel(0x0004, reset_ctrl);
@@ -327,6 +340,8 @@ static void __init realview_pb11mp_init(void)
 	int i;
 
 #ifdef CONFIG_CACHE_L2X0
+	/* 1MB (128KB/way), 8-way associativity, evmon/parity/share enabled
+	 * Bits:  .... ...0 0111 1001 0000 .... .... .... */
 	l2x0_init(__io_address(REALVIEW_TC11MP_L220_BASE), 0x00790000, 0xfe000fff);
 #endif
 
@@ -349,7 +364,7 @@ static void __init realview_pb11mp_init(void)
 }
 
 MACHINE_START(REALVIEW_PB11MP, "ARM-RealView PB11MPCore")
-	
+	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.atag_offset	= 0x100,
 	.fixup		= realview_fixup,
 	.map_io		= realview_pb11mp_map_io,

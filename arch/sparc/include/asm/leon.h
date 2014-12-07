@@ -23,18 +23,25 @@
 #define ASI_LEON_BYPASS		0x1c
 #define ASI_LEON_FLUSH_PAGE	0x10
 
+/* mmu register access, ASI_LEON_MMUREGS */
 #define LEON_CNR_CTRL		0x000
 #define LEON_CNR_CTXP		0x100
 #define LEON_CNR_CTX		0x200
 #define LEON_CNR_F		0x300
 #define LEON_CNR_FADDR		0x400
 
-#define LEON_CNR_CTX_NCTX	256	
+#define LEON_CNR_CTX_NCTX	256	/*number of MMU ctx */
 
 #define LEON_CNR_CTRL_TLBDIS	0x80000000
 
 #define LEON_MMUTLB_ENT_MAX	64
 
+/*
+ * diagnostic access from mmutlb.vhd:
+ * 0: pte address
+ * 4: pte
+ * 8: additional flags
+ */
 #define LEON_DIAGF_LVL		0x3
 #define LEON_DIAGF_WR		0x8
 #define LEON_DIAGF_WR_SHIFT	3
@@ -45,10 +52,12 @@
 #define LEON_DIAGF_VALID	0x2000
 #define LEON_DIAGF_VALID_SHIFT	13
 
-#define LEON_HARD_INT(x)	(1 << (x))	
-#define LEON_IRQMASK_R		0x0000fffe	
-#define LEON_IRQPRIO_R		0xfffe0000	
+/* irq masks */
+#define LEON_HARD_INT(x)	(1 << (x))	/* irq 0-15 */
+#define LEON_IRQMASK_R		0x0000fffe	/* bit 15- 1 of lregs.irqmask */
+#define LEON_IRQPRIO_R		0xfffe0000	/* bit 31-17 of lregs.irqmask */
 
+/* leon uart register definitions */
 #define LEON_OFF_UDATA	0x0
 #define LEON_OFF_USTAT	0x4
 #define LEON_OFF_UCTRL	0x8
@@ -73,14 +82,15 @@
 
 #define LEON_MCFG2_SRAMDIS		0x00002000
 #define LEON_MCFG2_SDRAMEN		0x00004000
-#define LEON_MCFG2_SRAMBANKSZ		0x00001e00	
+#define LEON_MCFG2_SRAMBANKSZ		0x00001e00	/* [12-9] */
 #define LEON_MCFG2_SRAMBANKSZ_SHIFT	9
-#define LEON_MCFG2_SDRAMBANKSZ		0x03800000	
+#define LEON_MCFG2_SDRAMBANKSZ		0x03800000	/* [25-23] */
 #define LEON_MCFG2_SDRAMBANKSZ_SHIFT	23
 
 #define LEON_TCNT0_MASK	0x7fffff
 
 #define LEON_USTAT_ERROR (LEON_USTAT_OV | LEON_USTAT_PE | LEON_USTAT_FE)
+/* no break yet */
 
 #define ASI_LEON3_SYSCTRL		0x02
 #define ASI_LEON3_SYSCTRL_ICFG		0x08
@@ -90,6 +100,7 @@
 
 #ifndef __ASSEMBLY__
 
+/* do a virtual address read without cache */
 static inline unsigned long leon_readnobuffer_reg(unsigned long paddr)
 {
 	unsigned long retval;
@@ -98,12 +109,14 @@ static inline unsigned long leon_readnobuffer_reg(unsigned long paddr)
 	return retval;
 }
 
+/* do a physical address bypass write, i.e. for 0x80000000 */
 static inline void leon_store_reg(unsigned long paddr, unsigned long value)
 {
 	__asm__ __volatile__("sta %0, [%1] %2\n\t" : : "r"(value), "r"(paddr),
 			     "i"(ASI_LEON_BYPASS) : "memory");
 }
 
+/* do a physical address bypass load, i.e. for 0x80000000 */
 static inline unsigned long leon_load_reg(unsigned long paddr)
 {
 	unsigned long retval;
@@ -132,6 +145,7 @@ static inline void leon_srmmu_enabletlb(void)
 			     "i"(ASI_LEON_MMUREGS) : "memory");
 }
 
+/* macro access for leon_load_reg() and leon_store_reg() */
 #define LEON3_BYPASS_LOAD_PA(x)	    (leon_load_reg((unsigned long)(x)))
 #define LEON3_BYPASS_STORE_PA(x, v) (leon_store_reg((unsigned long)(x), (unsigned long)(v)))
 #define LEON3_BYPASS_ANDIN_PA(x, v) LEON3_BYPASS_STORE_PA(x, LEON3_BYPASS_LOAD_PA(x) & v)
@@ -143,6 +157,7 @@ static inline void leon_srmmu_enabletlb(void)
 #define LEON_REGSTORE_OR_PA(x, v)   LEON_REGSTORE_PA(x, LEON_REGLOAD_PA(x) | (unsigned long)(v))
 #define LEON_REGSTORE_AND_PA(x, v)  LEON_REGSTORE_PA(x, LEON_REGLOAD_PA(x) & (unsigned long)(v))
 
+/* macro access for leon_readnobuffer_reg() */
 #define LEON_BYPASSCACHE_LOAD_VA(x) leon_readnobuffer_reg((unsigned long)(x))
 
 extern void leon_init(void);
@@ -161,6 +176,7 @@ static inline unsigned long sparc_leon3_get_dcachecfg(void)
 	return retval;
 }
 
+/* enable snooping */
 static inline void sparc_leon3_enable_snooping(void)
 {
 	__asm__ __volatile__ ("lda [%%g0] 2, %%l1\n\t"
@@ -196,7 +212,7 @@ static inline int sparc_leon3_cpuid(void)
 	return sparc_leon3_asr17() >> 28;
 }
 
-#endif 
+#endif /*!__ASSEMBLY__*/
 
 #ifdef CONFIG_SMP
 # define LEON3_IRQ_IPI_DEFAULT		13
@@ -213,6 +229,7 @@ static inline int sparc_leon3_cpuid(void)
 #endif
 
 #if LEON_PAGE_SIZE_LEON == 0
+/* [ 8, 6, 6 ] + 12 */
 #define LEON_PGD_SH    24
 #define LEON_PGD_M     0xff
 #define LEON_PMD_SH    18
@@ -221,6 +238,7 @@ static inline int sparc_leon3_cpuid(void)
 #define LEON_PTE_SH    12
 #define LEON_PTE_M     0x3f
 #elif LEON_PAGE_SIZE_LEON == 1
+/* [ 7, 6, 6 ] + 13 */
 #define LEON_PGD_SH    25
 #define LEON_PGD_M     0x7f
 #define LEON_PMD_SH    19
@@ -229,6 +247,7 @@ static inline int sparc_leon3_cpuid(void)
 #define LEON_PTE_SH    13
 #define LEON_PTE_M     0x3f
 #elif LEON_PAGE_SIZE_LEON == 2
+/* [ 6, 6, 6 ] + 14 */
 #define LEON_PGD_SH    26
 #define LEON_PGD_M     0x3f
 #define LEON_PMD_SH    20
@@ -237,6 +256,7 @@ static inline int sparc_leon3_cpuid(void)
 #define LEON_PTE_SH    14
 #define LEON_PTE_M     0x3f
 #elif LEON_PAGE_SIZE_LEON == 3
+/* [ 4, 7, 6 ] + 15 */
 #define LEON_PGD_SH    28
 #define LEON_PGD_M     0x0f
 #define LEON_PMD_SH    21
@@ -276,12 +296,16 @@ extern int leon_flush_during_switch;
 extern int leon_flush_needed(void);
 extern void leon_flush_pcache_all(struct vm_area_struct *vma, unsigned long page);
 
+/* struct that hold LEON3 cache configuration registers */
 struct leon3_cacheregs {
-	unsigned long ccr;	
-	unsigned long iccr;     
-	unsigned long dccr;	
+	unsigned long ccr;	/* 0x00 - Cache Control Register  */
+	unsigned long iccr;     /* 0x08 - Instruction Cache Configuration Register */
+	unsigned long dccr;	/* 0x0c - Data Cache Configuration Register */
 };
 
+/* struct that hold LEON2 cache configuration register
+ * & configuration register
+ */
 struct leon2_cacheregs {
 	unsigned long ccr, cfg;
 };
@@ -336,18 +360,20 @@ extern unsigned int t_nmi[], linux_trap_ipi15_leon[];
 extern unsigned int linux_trap_ipi15_sun4m[];
 extern int leon_ipi_irq;
 
-#endif 
+#endif /* CONFIG_SMP */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/* macros used in leon_mm.c */
 #define PFN(x)           ((x) >> PAGE_SHIFT)
 #define _pfn_valid(pfn)	 ((pfn < last_valid_pfn) && (pfn >= PFN(phys_base)))
 #define _SRMMU_PTE_PMASK_LEON 0xffffffff
 
-#else 
+#else /* defined(CONFIG_SPARC_LEON) */
 
+/* nop definitions for !LEON case */
 #define leon_init() do {} while (0)
 #define leon_switch_mm() do {} while (0)
 #define leon_init_IRQ() do {} while (0)
@@ -357,6 +383,6 @@ extern int leon_ipi_irq;
 #define leon_boot_one_cpu(i) 1
 #define leon_init_smp() do {} while (0)
 
-#endif 
+#endif /* !defined(CONFIG_SPARC_LEON) */
 
 #endif

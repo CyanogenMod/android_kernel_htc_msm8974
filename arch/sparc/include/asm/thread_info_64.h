@@ -34,18 +34,18 @@ struct task_struct;
 struct exec_domain;
 
 struct thread_info {
-	
+	/* D$ line 1 */
 	struct task_struct	*task;
 	unsigned long		flags;
 	__u8			fpsaved[7];
 	__u8			status;
 	unsigned long		ksp;
 
-	
+	/* D$ line 2 */
 	unsigned long		fault_address;
 	struct pt_regs		*kregs;
 	struct exec_domain	*exec_domain;
-	int			preempt_count;	
+	int			preempt_count;	/* 0 => preemptable, <0 => BUG */
 	__u8			new_child;
 	__u8			syscall_noerror;
 	__u16			cpu;
@@ -66,8 +66,9 @@ struct thread_info {
 	unsigned long		fpregs[0] __attribute__ ((aligned(64)));
 };
 
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
+/* offsets into the thread_info struct for assembly code access */
 #define TI_TASK		0x00000000
 #define TI_FLAGS	0x00000008
 #define TI_FAULT_CODE	(TI_FLAGS + TI_FLAG_BYTE_FAULT_CODE)
@@ -95,22 +96,26 @@ struct thread_info {
 #define TI_KUNA_INSN	0x000004a8
 #define TI_FPREGS	0x000004c0
 
-#define FAULT_CODE_WRITE	0x01	
-#define FAULT_CODE_DTLB		0x02	
-#define FAULT_CODE_ITLB		0x04	
-#define FAULT_CODE_WINFIXUP	0x08	
-#define FAULT_CODE_BLKCOMMIT	0x10	
+/* We embed this in the uppermost byte of thread_info->flags */
+#define FAULT_CODE_WRITE	0x01	/* Write access, implies D-TLB	   */
+#define FAULT_CODE_DTLB		0x02	/* Miss happened in D-TLB	   */
+#define FAULT_CODE_ITLB		0x04	/* Miss happened in I-TLB	   */
+#define FAULT_CODE_WINFIXUP	0x08	/* Miss happened during spill/fill */
+#define FAULT_CODE_BLKCOMMIT	0x10	/* Use blk-commit ASI in copy_page */
 
 #if PAGE_SHIFT == 13
 #define THREAD_SIZE (2*PAGE_SIZE)
 #define THREAD_SHIFT (PAGE_SHIFT + 1)
-#else 
+#else /* PAGE_SHIFT == 13 */
 #define THREAD_SIZE PAGE_SIZE
 #define THREAD_SHIFT PAGE_SHIFT
-#endif 
+#endif /* PAGE_SHIFT == 13 */
 
 #define PREEMPT_ACTIVE		0x10000000
 
+/*
+ * macros/functions for gaining access to the thread information structure
+ */
 #ifndef __ASSEMBLY__
 
 #define INIT_THREAD_INFO(tsk)				\
@@ -127,14 +132,16 @@ struct thread_info {
 #define init_thread_info	(init_thread_union.thread_info)
 #define init_stack		(init_thread_union.stack)
 
+/* how to get the thread information struct from C */
 register struct thread_info *current_thread_info_reg asm("g6");
 #define current_thread_info()	(current_thread_info_reg)
 
+/* thread information allocation */
 #if PAGE_SHIFT == 13
 #define __THREAD_INFO_ORDER	1
-#else 
+#else /* PAGE_SHIFT == 13 */
 #define __THREAD_INFO_ORDER	0
-#endif 
+#endif /* PAGE_SHIFT == 13 */
 
 #define __HAVE_ARCH_THREAD_INFO_ALLOCATOR
 
@@ -174,18 +181,49 @@ register struct thread_info *current_thread_info_reg asm("g6");
 #define get_thread_wsaved()		(__cur_thread_flag_byte_ptr[TI_FLAG_BYTE_WSAVED])
 #define set_thread_wsaved(val)		(__cur_thread_flag_byte_ptr[TI_FLAG_BYTE_WSAVED] = (val))
 
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
-#define TIF_SYSCALL_TRACE	0	
-#define TIF_NOTIFY_RESUME	1	
-#define TIF_SIGPENDING		2	
-#define TIF_NEED_RESCHED	3	
-#define TIF_UNALIGNED		5	
-#define TIF_32BIT		7	
-#define TIF_SECCOMP		9	
-#define TIF_SYSCALL_AUDIT	10	
-#define TIF_SYSCALL_TRACEPOINT	11	
-#define TIF_MEMDIE		13	
+/*
+ * Thread information flags, only 16 bits are available as we encode
+ * other values into the upper 6 bytes.
+ *
+ * On trap return we need to test several values:
+ *
+ * user:	need_resched, notify_resume, sigpending, wsaved
+ * kernel:	fpdepth
+ *
+ * So to check for work in the kernel case we simply load the fpdepth
+ * byte out of the flags and test it.  For the user case we encode the
+ * lower 3 bytes of flags as follows:
+ *	----------------------------------------
+ *	| wsaved | flags byte 1 | flags byte 2 |
+ *	----------------------------------------
+ * This optimizes the user test into:
+ *	ldx		[%g6 + TI_FLAGS], REG1
+ *	sethi		%hi(_TIF_USER_WORK_MASK), REG2
+ *	or		REG2, %lo(_TIF_USER_WORK_MASK), REG2
+ *	andcc		REG1, REG2, %g0
+ *	be,pt		no_work_to_do
+ *	 nop
+ */
+#define TIF_SYSCALL_TRACE	0	/* syscall trace active */
+#define TIF_NOTIFY_RESUME	1	/* callback before returning to user */
+#define TIF_SIGPENDING		2	/* signal pending */
+#define TIF_NEED_RESCHED	3	/* rescheduling necessary */
+/* flag bit 4 is available */
+#define TIF_UNALIGNED		5	/* allowed to do unaligned accesses */
+/* flag bit 6 is available */
+#define TIF_32BIT		7	/* 32-bit binary */
+/* flag bit 8 is available */
+#define TIF_SECCOMP		9	/* secure computing */
+#define TIF_SYSCALL_AUDIT	10	/* syscall auditing active */
+#define TIF_SYSCALL_TRACEPOINT	11	/* syscall tracepoint instrumentation */
+/* NOTE: Thread flags >= 12 should be ones we have no interest
+ *       in using in assembly, else we can't use the mask as
+ *       an immediate value in instructions such as andcc.
+ */
+/* flag bit 12 is available */
+#define TIF_MEMDIE		13	/* is terminating due to OOM killer */
 #define TIF_POLLING_NRFLAG	14
 
 #define _TIF_SYSCALL_TRACE	(1<<TIF_SYSCALL_TRACE)
@@ -204,7 +242,16 @@ register struct thread_info *current_thread_info_reg asm("g6");
 				 _TIF_NEED_RESCHED)
 #define _TIF_DO_NOTIFY_RESUME_MASK	(_TIF_NOTIFY_RESUME | _TIF_SIGPENDING)
 
-#define TS_RESTORE_SIGMASK	0x0001	
+/*
+ * Thread-synchronous status.
+ *
+ * This is different from the flags in that nobody else
+ * ever touches our thread-synchronous status, so we don't
+ * have to worry about atomic accesses.
+ *
+ * Note that there are only 8 bits available.
+ */
+#define TS_RESTORE_SIGMASK	0x0001	/* restore signal mask in do_signal() */
 
 #ifndef __ASSEMBLY__
 #define HAVE_SET_RESTORE_SIGMASK	1
@@ -214,8 +261,8 @@ static inline void set_restore_sigmask(void)
 	ti->status |= TS_RESTORE_SIGMASK;
 	set_bit(TIF_SIGPENDING, &ti->flags);
 }
-#endif	
+#endif	/* !__ASSEMBLY__ */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_THREAD_INFO_H */

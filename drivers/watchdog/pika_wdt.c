@@ -26,10 +26,13 @@
 
 #define DRV_NAME "PIKA-WDT"
 
+/* Hardware timeout in seconds */
 #define WDT_HW_TIMEOUT 2
 
+/* Timer heartbeat (500ms) */
 #define WDT_TIMEOUT	(HZ/2)
 
+/* User land timeout */
 #define WDT_HEARTBEAT 15
 static int heartbeat = WDT_HEARTBEAT;
 module_param(heartbeat, int, 0);
@@ -43,11 +46,11 @@ MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started "
 
 static struct {
 	void __iomem *fpga;
-	unsigned long next_heartbeat;	
+	unsigned long next_heartbeat;	/* the next_heartbeat for the timer */
 	unsigned long open;
 	char expect_close;
 	int bootstatus;
-	struct timer_list timer;	
+	struct timer_list timer;	/* The timer that pings the watchdog */
 } pikawdt_private;
 
 static struct watchdog_info ident = {
@@ -58,14 +61,29 @@ static struct watchdog_info ident = {
 			  WDIOF_MAGICCLOSE,
 };
 
+/*
+ * Reload the watchdog timer.  (ie, pat the watchdog)
+ */
 static inline void pikawdt_reset(void)
 {
+	/* -- FPGA: Reset Control Register (32bit R/W) (Offset: 0x14) --
+	 * Bit 7,    WTCHDG_EN: When set to 1, the watchdog timer is enabled.
+	 *           Once enabled, it cannot be disabled. The watchdog can be
+	 *           kicked by performing any write access to the reset
+	 *           control register (this register).
+	 * Bit 8-11, WTCHDG_TIMEOUT_SEC: Sets the watchdog timeout value in
+	 *           seconds. Valid ranges are 1 to 15 seconds. The value can
+	 *           be modified dynamically.
+	 */
 	unsigned reset = in_be32(pikawdt_private.fpga + 0x14);
-	
+	/* enable with max timeout - 15 seconds */
 	reset |= (1 << 7) + (WDT_HW_TIMEOUT << 8);
 	out_be32(pikawdt_private.fpga + 0x14, reset);
 }
 
+/*
+ * Timer tick
+ */
 static void pikawdt_ping(unsigned long data)
 {
 	if (time_before(jiffies, pikawdt_private.next_heartbeat) ||
@@ -88,9 +106,12 @@ static void pikawdt_start(void)
 	mod_timer(&pikawdt_private.timer, jiffies + WDT_TIMEOUT);
 }
 
+/*
+ * Watchdog device is opened, and watchdog starts running.
+ */
 static int pikawdt_open(struct inode *inode, struct file *file)
 {
-	
+	/* /dev/watchdog can only be opened once */
 	if (test_and_set_bit(0, &pikawdt_private.open))
 		return -EBUSY;
 
@@ -99,9 +120,12 @@ static int pikawdt_open(struct inode *inode, struct file *file)
 	return nonseekable_open(inode, file);
 }
 
+/*
+ * Close the watchdog device.
+ */
 static int pikawdt_release(struct inode *inode, struct file *file)
 {
-	
+	/* stop internal ping */
 	if (!pikawdt_private.expect_close)
 		del_timer(&pikawdt_private.timer);
 
@@ -119,7 +143,7 @@ static ssize_t pikawdt_write(struct file *file, const char __user *data,
 	if (!len)
 		return 0;
 
-	
+	/* Scan for magic character */
 	if (!nowayout) {
 		size_t i;
 
@@ -141,6 +165,9 @@ static ssize_t pikawdt_write(struct file *file, const char __user *data,
 	return len;
 }
 
+/*
+ * Handle commands from user-space.
+ */
 static long pikawdt_ioctl(struct file *file,
 		unsigned int cmd, unsigned long arg)
 {
@@ -169,7 +196,7 @@ static long pikawdt_ioctl(struct file *file,
 		heartbeat = new_value;
 		pikawdt_keepalive();
 
-		return put_user(new_value, p);  
+		return put_user(new_value, p);  /* return current value */
 
 	case WDIOC_GETTIMEOUT:
 		return put_user(heartbeat, p);
@@ -215,7 +242,7 @@ static int __init pikawdt_init(void)
 
 	ident.firmware_version = in_be32(pikawdt_private.fpga + 0x1c) & 0xffff;
 
-	
+	/* POST information is in the sd area. */
 	np = of_find_compatible_node(NULL, NULL, "pika,fpga-sd");
 	if (np == NULL) {
 		pr_err("Unable to find fpga-sd\n");
@@ -231,6 +258,10 @@ static int __init pikawdt_init(void)
 		goto out;
 	}
 
+	/* -- FPGA: POST Test Results Register 1 (32bit R/W) (Offset: 0x4040) --
+	 * Bit 31,   WDOG: Set to 1 when the last reset was caused by a watchdog
+	 *           timeout.
+	 */
 	post1 = in_be32(fpga + 0x40);
 	if (post1 & 0x80000000)
 		pikawdt_private.bootstatus = WDIOF_CARDRESET;

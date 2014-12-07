@@ -28,8 +28,13 @@
 #include <linux/writeback.h>
 #include "sysv.h"
 
+/* We don't trust the value of
+   sb->sv_sbd2->s_tinode = *sb->sv_sb_total_free_inodes
+   but we nevertheless keep it up to date. */
 
+/* An inode on disk is considered free if both i_mode == 0 and i_nlink == 0. */
 
+/* return &sb->sv_sb_fic_inodes[i] = &sbd->s_inode[i]; */
 static inline sysv_ino_t *
 sv_sb_fic_inode(struct super_block * sb, unsigned int i)
 {
@@ -38,7 +43,7 @@ sv_sb_fic_inode(struct super_block * sb, unsigned int i)
 	if (sbi->s_bh1 == sbi->s_bh2)
 		return &sbi->s_sb_fic_inodes[i];
 	else {
-		
+		/* 512 byte Xenix FS */
 		unsigned int offset = offsetof(struct xenix_super_block, s_inode[i]);
 		if (offset < 512)
 			return (sysv_ino_t*)(sbi->s_sbd1 + offset);
@@ -152,7 +157,7 @@ struct inode * sysv_new_inode(const struct inode * dir, umode_t mode)
 			return ERR_PTR(-ENOSPC);
 		}
 	}
-	
+	/* Now count > 0. */
 	ino = *sv_sb_fic_inode(sb,--count);
 	*sbi->s_sb_fic_count = cpu_to_fs16(sbi, count);
 	fs16_add(sbi, sbi->s_sb_total_free_inodes, -1);
@@ -166,9 +171,9 @@ struct inode * sysv_new_inode(const struct inode * dir, umode_t mode)
 	insert_inode_hash(inode);
 	mark_inode_dirty(inode);
 
-	sysv_write_inode(inode, &wbc);	
-	mark_inode_dirty(inode);	
-	
+	sysv_write_inode(inode, &wbc);	/* ensure inode not allocated again */
+	mark_inode_dirty(inode);	/* cleared by sysv_write_inode() */
+	/* That's it. */
 	unlock_super(sb);
 	return inode;
 }
@@ -187,7 +192,7 @@ unsigned long sysv_count_free_inodes(struct super_block * sb)
 	if (0)
 		goto trust_sb;
 
-	
+	/* this causes a lot of disk traffic ... */
 	count = 0;
 	ino = SYSV_ROOT_INO+1;
 	raw_inode = sysv_raw_inode(sb, ino, &bh);

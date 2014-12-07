@@ -30,7 +30,22 @@ dword diva_get_protocol_file_features(byte *File,
 				      char *IdStringBuffer,
 				      dword IdBufferSize);
 void diva_configure_protocol(PISDN_ADAPTER IoAdapter);
+/*
+  Low level file access system abstraction
+*/
+/* -------------------------------------------------------------------------
+   Access to single file
+   Return pointer to the image of the requested file,
+   write image length to 'FileLength'
+   ------------------------------------------------------------------------- */
 void *xdiLoadFile(char *FileName, dword *FileLength, unsigned long MaxLoadSize);
+/* -------------------------------------------------------------------------
+   Dependent on the protocol settings does read return pointer
+   to the image of appropriate protocol file
+   ------------------------------------------------------------------------- */
 void *xdiLoadArchive(PISDN_ADAPTER IoAdapter, dword *FileLength, unsigned long MaxLoadSize);
+/* --------------------------------------------------------------------------
+   Free all system resources accessed by xdiLoadFile and xdiLoadArchive
+   -------------------------------------------------------------------------- */
 void xdiFreeFile(void *handle);
 #endif

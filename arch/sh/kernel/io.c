@@ -13,8 +13,15 @@
 #include <asm/machvec.h>
 #include <asm/io.h>
 
+/*
+ * Copy data from IO memory space to "real" memory space.
+ */
 void memcpy_fromio(void *to, const volatile void __iomem *from, unsigned long count)
 {
+	/*
+	 * Would it be worthwhile doing byte and long transfers first
+	 * to try and get aligned?
+	 */
 #ifdef CONFIG_CPU_SH4
 	if ((count >= 0x20) &&
 	     (((u32)to & 0x1f) == 0) && (((u32)from & 0x3) == 0)) {
@@ -69,6 +76,9 @@ void memcpy_fromio(void *to, const volatile void __iomem *from, unsigned long co
 }
 EXPORT_SYMBOL(memcpy_fromio);
 
+/*
+ * Copy data from "real" memory space to IO memory space.
+ */
 void memcpy_toio(volatile void __iomem *to, const void *from, unsigned long count)
 {
 	if ((((u32)to | (u32)from) & 0x3) == 0) {
@@ -89,6 +99,10 @@ void memcpy_toio(volatile void __iomem *to, const void *from, unsigned long coun
 }
 EXPORT_SYMBOL(memcpy_toio);
 
+/*
+ * "memset" on IO memory space.
+ * This needs to be optimized.
+ */
 void memset_io(volatile void __iomem *dst, int c, unsigned long count)
 {
         while (count) {

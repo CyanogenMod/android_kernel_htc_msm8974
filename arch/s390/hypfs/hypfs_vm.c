@@ -78,6 +78,9 @@ static int diag2fc(int size, char* query, void *addr)
 		return -residual_cnt;
 }
 
+/*
+ * Allocate buffer for "query" and store diag 2fc at "offset"
+ */
 static void *diag2fc_store(char *query, unsigned int *count, int offset)
 {
 	void *data;
@@ -123,7 +126,7 @@ static int hpyfs_vm_create_guest(struct super_block *sb,
 	capped_value = (data->flags & 0x00000006) >> 1;
 	dedicated_flag = (data->flags & 0x00000008) >> 3;
 
-	
+	/* guest dir */
 	memcpy(guest_name, data->guest_name, NAME_LEN);
 	EBCASC(guest_name, NAME_LEN);
 	strim(guest_name);
@@ -132,7 +135,7 @@ static int hpyfs_vm_create_guest(struct super_block *sb,
 		return PTR_ERR(guest_dir);
 	ATTRIBUTE(sb, guest_dir, "onlinetime_us", data->el_time);
 
-	
+	/* logical cpu information */
 	cpus_dir = hypfs_mkdir(sb, guest_dir, "cpus");
 	if (IS_ERR(cpus_dir))
 		return PTR_ERR(cpus_dir);
@@ -144,7 +147,7 @@ static int hpyfs_vm_create_guest(struct super_block *sb,
 	ATTRIBUTE(sb, cpus_dir, "weight_max", data->cpu_max);
 	ATTRIBUTE(sb, cpus_dir, "weight_cur", data->cpu_shares);
 
-	
+	/* memory information */
 	mem_dir = hypfs_mkdir(sb, guest_dir, "mem");
 	if (IS_ERR(mem_dir))
 		return PTR_ERR(mem_dir);
@@ -153,7 +156,7 @@ static int hpyfs_vm_create_guest(struct super_block *sb,
 	ATTRIBUTE(sb, mem_dir, "used_KiB", data->mem_used_kb);
 	ATTRIBUTE(sb, mem_dir, "share_KiB", data->mem_share_kb);
 
-	
+	/* samples */
 	samples_dir = hypfs_mkdir(sb, guest_dir, "samples");
 	if (IS_ERR(samples_dir))
 		return PTR_ERR(samples_dir);
@@ -177,7 +180,7 @@ int hypfs_vm_create_files(struct super_block *sb, struct dentry *root)
 	if (IS_ERR(data))
 		return PTR_ERR(data);
 
-	
+	/* Hpervisor Info */
 	dir = hypfs_mkdir(sb, root, "hyp");
 	if (IS_ERR(dir)) {
 		rc = PTR_ERR(dir);
@@ -189,7 +192,7 @@ int hypfs_vm_create_files(struct super_block *sb, struct dentry *root)
 		goto failed;
 	}
 
-	
+	/* physical cpus */
 	dir = hypfs_mkdir(sb, root, "cpus");
 	if (IS_ERR(dir)) {
 		rc = PTR_ERR(dir);
@@ -201,7 +204,7 @@ int hypfs_vm_create_files(struct super_block *sb, struct dentry *root)
 		goto failed;
 	}
 
-	
+	/* guests */
 	dir = hypfs_mkdir(sb, root, "systems");
 	if (IS_ERR(dir)) {
 		rc = PTR_ERR(dir);
@@ -222,16 +225,16 @@ failed:
 }
 
 struct dbfs_d2fc_hdr {
-	u64	len;		
-	u16	version;	
-	char	tod_ext[16];	
-	u64	count;		
+	u64	len;		/* Length of d2fc buffer without header */
+	u16	version;	/* Version of header */
+	char	tod_ext[16];	/* TOD clock for d2fc */
+	u64	count;		/* Number of VM guests in d2fc buffer */
 	char	reserved[30];
 } __attribute__ ((packed));
 
 struct dbfs_d2fc {
-	struct dbfs_d2fc_hdr	hdr;	
-	char			buf[];	
+	struct dbfs_d2fc_hdr	hdr;	/* 64 byte header */
+	char			buf[];	/* d2fc buffer */
 } __attribute__ ((packed));
 
 static int dbfs_diag2fc_create(void **data, void **data_free_ptr, size_t *size)

@@ -25,20 +25,22 @@
 #ifndef __OMAP_I2S_H__
 #define __OMAP_I2S_H__
 
+/* Source clocks for McBSP sample rate generator */
 enum omap_mcbsp_clksrg_clk {
-	OMAP_MCBSP_SYSCLK_CLKS_FCLK,	
-	OMAP_MCBSP_SYSCLK_CLKS_EXT,	
-	OMAP_MCBSP_SYSCLK_CLK,		
-	OMAP_MCBSP_SYSCLK_CLKX_EXT,	
-	OMAP_MCBSP_SYSCLK_CLKR_EXT,	
-	OMAP_MCBSP_CLKR_SRC_CLKR,	
-	OMAP_MCBSP_CLKR_SRC_CLKX,	
-	OMAP_MCBSP_FSR_SRC_FSR,		
-	OMAP_MCBSP_FSR_SRC_FSX,		
+	OMAP_MCBSP_SYSCLK_CLKS_FCLK,	/* Internal FCLK */
+	OMAP_MCBSP_SYSCLK_CLKS_EXT,	/* External CLKS pin */
+	OMAP_MCBSP_SYSCLK_CLK,		/* Internal ICLK */
+	OMAP_MCBSP_SYSCLK_CLKX_EXT,	/* External CLKX pin */
+	OMAP_MCBSP_SYSCLK_CLKR_EXT,	/* External CLKR pin */
+	OMAP_MCBSP_CLKR_SRC_CLKR,	/* CLKR from CLKR pin */
+	OMAP_MCBSP_CLKR_SRC_CLKX,	/* CLKR from CLKX pin */
+	OMAP_MCBSP_FSR_SRC_FSR,		/* FSR from FSR pin */
+	OMAP_MCBSP_FSR_SRC_FSX,		/* FSR from FSX pin */
 };
 
+/* McBSP dividers */
 enum omap_mcbsp_div {
-	OMAP_MCBSP_CLKGDV,		
+	OMAP_MCBSP_CLKGDV,		/* Sample rate generator divider */
 };
 
 #if defined(CONFIG_SOC_OMAP2420)

@@ -119,6 +119,19 @@ static int sysmon_send_msg(struct sysmon_subsys *ss, const char *tx_buf,
 	return ret;
 }
 
+/**
+ * sysmon_send_event() - Notify a subsystem of another's state change
+ * @dest_ss:	ID of subsystem the notification should be sent to
+ * @event_ss:	String name of the subsystem that generated the notification
+ * @notif:	ID of the notification type (ex. SUBSYS_BEFORE_SHUTDOWN)
+ *
+ * Returns 0 for success, -EINVAL for invalid destination or notification IDs,
+ * -ENODEV if the transport channel is not open, -ETIMEDOUT if the destination
+ * subsystem does not respond, and -ENOSYS if the destination subsystem
+ * responds, but with something other than an acknowledgement.
+ *
+ * If CONFIG_MSM_SYSMON_COMM is not defined, always return success (0).
+ */
 int sysmon_send_event(enum subsys_id dest_ss, const char *event_ss,
 		      enum subsys_notif_type notif)
 {
@@ -149,6 +162,18 @@ out:
 	return ret;
 }
 
+/**
+ * sysmon_send_shutdown() - send shutdown command to a
+ * subsystem.
+ * @dest_ss:	ID of subsystem to send to.
+ *
+ * Returns 0 for success, -EINVAL for an invalid destination, -ENODEV if
+ * the SMD transport channel is not open, -ETIMEDOUT if the destination
+ * subsystem does not respond, and -ENOSYS if the destination subsystem
+ * responds with something unexpected.
+ *
+ * If CONFIG_MSM_SYSMON_COMM is not defined, always return success (0).
+ */
 int sysmon_send_shutdown(enum subsys_id dest_ss)
 {
 	struct sysmon_subsys *ss = &subsys[dest_ss];
@@ -175,6 +200,19 @@ out:
 	return ret;
 }
 
+/**
+ * sysmon_get_reason() - Retrieve failure reason from a subsystem.
+ * @dest_ss:	ID of subsystem to query
+ * @buf:	Caller-allocated buffer for the returned NUL-terminated reason
+ * @len:	Length of @buf
+ *
+ * Returns 0 for success, -EINVAL for an invalid destination, -ENODEV if
+ * the SMD transport channel is not open, -ETIMEDOUT if the destination
+ * subsystem does not respond, and -ENOSYS if the destination subsystem
+ * responds with something unexpected.
+ *
+ * If CONFIG_MSM_SYSMON_COMM is not defined, always return success (0).
+ */
 int sysmon_get_reason(enum subsys_id dest_ss, char *buf, size_t len)
 {
 	struct sysmon_subsys *ss = &subsys[dest_ss];

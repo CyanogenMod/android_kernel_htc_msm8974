@@ -11,6 +11,11 @@
  *
  */
 
+/*
+*per-axi
+*DESCRIPTION
+*Header File for Functions related to AXI bus performance counter manipulations.
+*/
 
 #ifndef __PER_AXI_H__
 #define __PER_AXI_H__

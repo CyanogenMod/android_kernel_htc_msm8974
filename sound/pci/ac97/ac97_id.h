@@ -44,7 +44,7 @@
 #define AC97_ID_CS4299		0x43525930
 #define AC97_ID_CS4201		0x43525948
 #define AC97_ID_CS4205		0x43525958
-#define AC97_ID_CS_MASK		0xfffffff8	
+#define AC97_ID_CS_MASK		0xfffffff8	/* bit 0-2: rev */
 #define AC97_ID_ALC100		0x414c4300
 #define AC97_ID_ALC650		0x414c4720
 #define AC97_ID_ALC650D		0x414c4721

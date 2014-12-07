@@ -34,6 +34,7 @@
 #include "ttype.h"
 #include "80211hdr.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
 #define WPA_NONE            0
 #define WPA_WEP40           1
@@ -48,10 +49,14 @@
 #define WPA_REPLAYBITSSHIFT 2
 #define WPA_REPLAYBITS      0x03
 
+/*---------------------  Export Classes  ----------------------------*/
+
+/*---------------------  Export Variables  --------------------------*/
+
+/*---------------------  Export Types  ------------------------------*/
 
 
-
-
+/*---------------------  Export Functions  --------------------------*/
 
 void
 WPA_ClearRSN(
@@ -76,4 +81,4 @@ WPAb_Is_RSN(
      PWLAN_IE_RSN_EXT pRSN
     );
 
-#endif 
+#endif /* __WPA_H__ */

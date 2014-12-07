@@ -103,6 +103,7 @@ static int jffs2_sum_add_mem(struct jffs2_summary *s, union jffs2_sum_mem *item)
 }
 
 
+/* The following 3 functions are called from scan.c to collect summary info for not closed jeb */
 
 int jffs2_sum_add_padding_mem(struct jffs2_summary *s, uint32_t size)
 {
@@ -122,7 +123,7 @@ int jffs2_sum_add_inode_mem(struct jffs2_summary *s, struct jffs2_raw_inode *ri,
 	temp->nodetype = ri->nodetype;
 	temp->inode = ri->ino;
 	temp->version = ri->version;
-	temp->offset = cpu_to_je32(ofs); 
+	temp->offset = cpu_to_je32(ofs); /* relative offset from the beginning of the jeb */
 	temp->totlen = ri->totlen;
 	temp->next = NULL;
 
@@ -140,7 +141,7 @@ int jffs2_sum_add_dirent_mem(struct jffs2_summary *s, struct jffs2_raw_dirent *r
 
 	temp->nodetype = rd->nodetype;
 	temp->totlen = rd->totlen;
-	temp->offset = cpu_to_je32(ofs);	
+	temp->offset = cpu_to_je32(ofs);	/* relative from the beginning of the jeb */
 	temp->pino = rd->pino;
 	temp->version = rd->version;
 	temp->ino = rd->ino;
@@ -187,6 +188,7 @@ int jffs2_sum_add_xref_mem(struct jffs2_summary *s, struct jffs2_raw_xref *rr, u
 	return jffs2_sum_add_mem(s, (union jffs2_sum_mem *)temp);
 }
 #endif
+/* Cleanup every collected summary information */
 
 static void jffs2_sum_clean_collected(struct jffs2_summary *s)
 {
@@ -224,6 +226,7 @@ int jffs2_sum_is_disabled(struct jffs2_summary *s)
 	return (s->sum_size == JFFS2_SUMMARY_NOSUM_SIZE);
 }
 
+/* Move the collected summary information into sb (called from scan.c) */
 
 void jffs2_sum_move_collected(struct jffs2_sb_info *c, struct jffs2_summary *s)
 {
@@ -240,6 +243,7 @@ void jffs2_sum_move_collected(struct jffs2_sb_info *c, struct jffs2_summary *s)
 	s->sum_list_head = s->sum_list_tail = NULL;
 }
 
+/* Called from wbuf.c to collect writed node info */
 
 int jffs2_sum_add_kvec(struct jffs2_sb_info *c, const struct kvec *invecs,
 				unsigned long count, uint32_t ofs)
@@ -301,7 +305,7 @@ int jffs2_sum_add_kvec(struct jffs2_sb_info *c, const struct kvec *invecs,
 					break;
 
 				default:
-					BUG();	
+					BUG();	/* impossible count value */
 					break;
 			}
 
@@ -349,6 +353,9 @@ int jffs2_sum_add_kvec(struct jffs2_sb_info *c, const struct kvec *invecs,
 			break;
 
 		default:
+			/* If you implement a new node type you should also implement
+			   summary support for it or disable summary.
+			*/
 			BUG();
 			break;
 	}
@@ -365,15 +372,16 @@ static struct jffs2_raw_node_ref *sum_link_node_ref(struct jffs2_sb_info *c,
 						    uint32_t ofs, uint32_t len,
 						    struct jffs2_inode_cache *ic)
 {
-	
+	/* If there was a gap, mark it dirty */
 	if ((ofs & ~3) > c->sector_size - jeb->free_size) {
-		
+		/* Ew. Summary doesn't actually tell us explicitly about dirty space */
 		jffs2_scan_dirty_space(c, jeb, (ofs & ~3) - (c->sector_size - jeb->free_size));
 	}
 
 	return jffs2_link_node_ref(c, jeb, jeb->offset + ofs, len, ic);
 }
 
+/* Process the stored summary information - helper function for jffs2_sum_scan_sumnode() */
 
 static int jffs2_sum_process_sum_data(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb,
 				struct jffs2_raw_summary *summary, uint32_t *pseudo_random)
@@ -391,7 +399,7 @@ static int jffs2_sum_process_sum_data(struct jffs2_sb_info *c, struct jffs2_eras
 
 		cond_resched();
 
-		
+		/* Make sure there's a spare ref for dirty space */
 		err = jffs2_prealloc_raw_node_refs(c, jeb, 2);
 		if (err)
 			return err;
@@ -433,7 +441,7 @@ static int jffs2_sum_process_sum_data(struct jffs2_sb_info *c, struct jffs2_eras
 					    jeb->offset + je32_to_cpu(spd->offset) + je32_to_cpu(spd->totlen));
 
 
-				
+				/* This should never happen, but https://dev.laptop.org/ticket/4184 */
 				checkedlen = strnlen(spd->name, spd->nsize);
 				if (!checkedlen) {
 					pr_err("Dirent at %08x has zero at start of name. Aborting mount.\n",
@@ -495,7 +503,7 @@ static int jffs2_sum_process_sum_data(struct jffs2_sb_info *c, struct jffs2_eras
 				if (IS_ERR(xd))
 					return PTR_ERR(xd);
 				if (xd->version > je32_to_cpu(spx->version)) {
-					
+					/* node is not the newest one */
 					struct jffs2_raw_node_ref *raw
 						= sum_link_node_ref(c, jeb, je32_to_cpu(spx->offset) | REF_UNCHECKED,
 								    PAD(je32_to_cpu(spx->totlen)), NULL);
@@ -544,7 +552,7 @@ static int jffs2_sum_process_sum_data(struct jffs2_sb_info *c, struct jffs2_eras
 				if ((nodetype & JFFS2_COMPAT_MASK) == JFFS2_FEATURE_INCOMPAT)
 					return -EIO;
 
-				
+				/* For compatible node types, just fall back to the full scan */
 				c->wasted_size -= jeb->wasted_size;
 				c->free_size += c->sector_size - jeb->free_size;
 				c->used_size -= jeb->used_size;
@@ -560,6 +568,7 @@ static int jffs2_sum_process_sum_data(struct jffs2_sb_info *c, struct jffs2_eras
 	return 0;
 }
 
+/* Process the summary node - called from jffs2_scan_eraseblock() */
 int jffs2_sum_scan_sumnode(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb,
 			   struct jffs2_raw_summary *summary, uint32_t sumsize,
 			   uint32_t *pseudo_random)
@@ -573,7 +582,7 @@ int jffs2_sum_scan_sumnode(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb
 	dbg_summary("summary found for 0x%08x at 0x%08x (0x%x bytes)\n",
 		    jeb->offset, jeb->offset + ofs, sumsize);
 
-	
+	/* OK, now check for node validity and CRC */
 	crcnode.magic = cpu_to_je16(JFFS2_MAGIC_BITMASK);
 	crcnode.nodetype = cpu_to_je16(JFFS2_NODETYPE_SUMMARY);
 	crcnode.totlen = summary->totlen;
@@ -629,12 +638,14 @@ int jffs2_sum_scan_sumnode(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb
 	}
 
 	ret = jffs2_sum_process_sum_data(c, jeb, summary, pseudo_random);
+	/* -ENOTRECOVERABLE isn't a fatal error -- it means we should do a full
+	   scan of this eraseblock. So return zero */
 	if (ret == -ENOTRECOVERABLE)
 		return 0;
 	if (ret)
-		return ret;		
+		return ret;		/* real error */
 
-	
+	/* for PARANOIA_CHECK */
 	ret = jffs2_prealloc_raw_node_refs(c, jeb, 2);
 	if (ret)
 		return ret;
@@ -658,6 +669,7 @@ crc_err:
 	return 0;
 }
 
+/* Write summary data to flash - helper function for jffs2_sum_write_sumnode() */
 
 static int jffs2_sum_write_data(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb,
 				uint32_t infosize, uint32_t datasize, int padsize)
@@ -672,22 +684,22 @@ static int jffs2_sum_write_data(struct jffs2_sb_info *c, struct jffs2_eraseblock
 	size_t retlen;
 
 	if (padsize + datasize > MAX_SUMMARY_SIZE) {
-		
+		/* It won't fit in the buffer. Abort summary for this jeb */
 		jffs2_sum_disable_collecting(c->summary);
 
 		JFFS2_WARNING("Summary too big (%d data, %d pad) in eraseblock at %08x\n",
 			      datasize, padsize, jeb->offset);
-		
+		/* Non-fatal */
 		return 0;
 	}
-	
+	/* Is there enough space for summary? */
 	if (padsize < 0) {
-		
+		/* don't try to write out summary for this jeb */
 		jffs2_sum_disable_collecting(c->summary);
 
 		JFFS2_WARNING("Not enough space for summary, padsize = %d\n",
 			      padsize);
-		
+		/* Non-fatal */
 		return 0;
 	}
 
@@ -772,7 +784,7 @@ static int jffs2_sum_write_data(struct jffs2_sb_info *c, struct jffs2_eraseblock
 						    je16_to_cpu(temp->u.nodetype));
 					jffs2_sum_disable_collecting(c->summary);
 				} else {
-					BUG();	
+					BUG();	/* unknown node in summary information */
 				}
 			}
 		}
@@ -811,7 +823,7 @@ static int jffs2_sum_write_data(struct jffs2_sb_info *c, struct jffs2_eraseblock
 			      infosize, sum_ofs, ret, retlen);
 
 		if (retlen) {
-			
+			/* Waste remaining space */
 			spin_lock(&c->erase_completion_lock);
 			jffs2_link_node_ref(c, jeb, sum_ofs | REF_OBSOLETE, infosize, NULL);
 			spin_unlock(&c->erase_completion_lock);
@@ -829,6 +841,7 @@ static int jffs2_sum_write_data(struct jffs2_sb_info *c, struct jffs2_eraseblock
 	return 0;
 }
 
+/* Write out summary information - called from jffs2_do_reserve_space */
 
 int jffs2_sum_write_sumnode(struct jffs2_sb_info *c)
 {

@@ -144,7 +144,12 @@ static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
 		spin_lock_bh(&sk->sk_receive_queue.lock);
 		skb = skb_peek(&sk->sk_receive_queue);
 		if (skb != NULL) {
-			
+			/*
+			 * We will only return the amount
+			 * of this packet since that is all
+			 * that will be read.
+			 */
+			/* FIXME: parse the header for more correct value */
 			amount = skb->len - (3+8+8);
 		}
 		spin_unlock_bh(&sk->sk_receive_queue.lock);
@@ -155,6 +160,7 @@ static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
 	return -ENOIOCTLCMD;
 }
 
+/* FIXME: autobind */
 static int dgram_connect(struct sock *sk, struct sockaddr *uaddr,
 			int len)
 {
@@ -296,7 +302,7 @@ static int dgram_recvmsg(struct kiocb *iocb, struct sock *sk,
 		copied = len;
 	}
 
-	
+	/* FIXME: skip headers if necessary ?! */
 	err = skb_copy_datagram_iovec(skb, 0, msg->msg_iov, copied);
 	if (err)
 		goto done;
@@ -348,7 +354,7 @@ int ieee802154_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 	int ret = NET_RX_SUCCESS;
 	u16 pan_id, short_addr;
 
-	
+	/* Data frame processing */
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
 	pan_id = ieee802154_mlme_ops(dev)->get_pan_id(dev);

@@ -26,8 +26,79 @@
 #include <media/tuner.h>
 #include <media/v4l2-ctrls.h>
 
+/*
+ * GPIO assignment of Yuan MPG600/MPG160
+ *
+ *    bit 15  14  13  12 |  11  10   9   8 |   7   6   5   4 |   3   2   1   0
+ * OUTPUT         IN1 IN0                                       AM3 AM2 AM1 AM0
+ *  INPUT                   DM1         DM0
+ *
+ *   IN* : Input selection
+ *          IN1 IN0
+ *           1   1  N/A
+ *           1   0  Line
+ *           0   1  N/A
+ *           0   0  Tuner
+ *
+ *   AM* : Audio Mode
+ *          AM3  0: Normal        1: Mixed(Sub+Main channel)
+ *          AM2  0: Subchannel    1: Main channel
+ *          AM1  0: Stereo        1: Mono
+ *          AM0  0: Normal        1: Mute
+ *
+ *   DM* : Detected tuner audio Mode
+ *          DM1  0: Stereo        1: Mono
+ *          DM0  0: Multiplex     1: Normal
+ *
+ * GPIO Initial Settings
+ *           MPG600   MPG160
+ *     DIR   0x3080   0x7080
+ *  OUTPUT   0x000C   0x400C
+ *
+ *  Special thanks to Makoto Iguchi <iguchi@tahoo.org> and Mr. Anonymous
+ *  for analyzing GPIO of MPG160.
+ *
+ *****************************************************************************
+ *
+ * GPIO assignment of Avermedia M179 (per information direct from AVerMedia)
+ *
+ *    bit 15  14  13  12 |  11  10   9   8 |   7   6   5   4 |   3   2   1   0
+ * OUTPUT IN0 AM0 IN1               AM1 AM2       IN2     BR0   BR1
+ *  INPUT
+ *
+ *   IN* : Input selection
+ *          IN0 IN1 IN2
+ *           *   1   *  Mute
+ *           0   0   0  Line-In
+ *           1   0   0  TV Tuner Audio
+ *           0   0   1  FM Audio
+ *           1   0   1  Mute
+ *
+ *   AM* : Audio Mode
+ *          AM0 AM1 AM2
+ *           0   0   0  TV Tuner Audio: L_OUT=(L+R)/2, R_OUT=SAP
+ *           0   0   1  TV Tuner Audio: L_OUT=R_OUT=SAP   (SAP)
+ *           0   1   0  TV Tuner Audio: L_OUT=L, R_OUT=R   (stereo)
+ *           0   1   1  TV Tuner Audio: mute
+ *           1   *   *  TV Tuner Audio: L_OUT=R_OUT=(L+R)/2   (mono)
+ *
+ *   BR* : Audio Sample Rate (BR stands for bitrate for some reason)
+ *          BR0 BR1
+ *           0   0   32 kHz
+ *           0   1   44.1 kHz
+ *           1   0   48 kHz
+ *
+ *   DM* : Detected tuner audio Mode
+ *         Unknown currently
+ *
+ * Special thanks to AVerMedia Technologies, Inc. and Jiun-Kuei Jung at
+ * AVerMedia for providing the GPIO information used to add support
+ * for the M179 cards.
+ */
 
+/********************* GPIO stuffs *********************/
 
+/* GPIO registers */
 #define IVTV_REG_GPIO_IN    0x9008
 #define IVTV_REG_GPIO_OUT   0x900c
 #define IVTV_REG_GPIO_DIR   0x9020
@@ -45,7 +116,7 @@ void ivtv_reset_ir_gpio(struct ivtv *itv)
 	write_reg(curdir, IVTV_REG_GPIO_DIR);
 	curout = (curout & ~0xF) | 1;
 	write_reg(curout, IVTV_REG_GPIO_OUT);
-	
+	/* We could use something else for smaller time */
 	schedule_timeout_interruptible(msecs_to_jiffies(1));
 	curout |= 2;
 	write_reg(curout, IVTV_REG_GPIO_OUT);
@@ -53,6 +124,7 @@ void ivtv_reset_ir_gpio(struct ivtv *itv)
 	write_reg(curdir, IVTV_REG_GPIO_DIR);
 }
 
+/* Xceive tuner reset function */
 int ivtv_reset_tuner_gpio(void *dev, int component, int cmd, int value)
 {
 	struct i2c_algo_bit_data *algo = dev;
@@ -221,7 +293,7 @@ static int subdev_s_video_routing(struct v4l2_subdev *sd,
 	struct ivtv *itv = sd_to_ivtv(sd);
 	u16 mask, data;
 
-	if (input > 2) 
+	if (input > 2) /* 0:Tuner 1:Composite 2:S-Video */
 		return -EINVAL;
 	mask = itv->card->gpio_video_input.mask;
 	if (input == 0)
@@ -285,7 +357,7 @@ int ivtv_gpio_init(struct ivtv *itv)
 	IVTV_DEBUG_INFO("GPIO initial dir: %08x out: %08x\n",
 		   read_reg(IVTV_REG_GPIO_DIR), read_reg(IVTV_REG_GPIO_OUT));
 
-	
+	/* init output data then direction */
 	write_reg(itv->card->gpio_init.initial_value | pin, IVTV_REG_GPIO_OUT);
 	write_reg(itv->card->gpio_init.direction | pin, IVTV_REG_GPIO_DIR);
 	v4l2_subdev_init(&itv->sd_gpio, &subdev_ops);

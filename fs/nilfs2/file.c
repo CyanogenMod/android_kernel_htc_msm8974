@@ -29,6 +29,14 @@
 
 int nilfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {
+	/*
+	 * Called from fsync() system call
+	 * This is the only entry point that can catch write and synch
+	 * timing for both data blocks and intermediate blocks.
+	 *
+	 * This function should be implemented when the writeback function
+	 * will be implemented.
+	 */
 	struct inode *inode = file->f_mapping->host;
 	int err;
 
@@ -60,15 +68,18 @@ static int nilfs_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 	int ret;
 
 	if (unlikely(nilfs_near_disk_full(inode->i_sb->s_fs_info)))
-		return VM_FAULT_SIGBUS; 
+		return VM_FAULT_SIGBUS; /* -ENOSPC */
 
 	lock_page(page);
 	if (page->mapping != inode->i_mapping ||
 	    page_offset(page) >= i_size_read(inode) || !PageUptodate(page)) {
 		unlock_page(page);
-		return VM_FAULT_NOPAGE; 
+		return VM_FAULT_NOPAGE; /* make the VM retry the fault */
 	}
 
+	/*
+	 * check to see if the page is mapped already (no holes)
+	 */
 	if (PageMappedToDisk(page))
 		goto mapped;
 
@@ -91,8 +102,11 @@ static int nilfs_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 	}
 	unlock_page(page);
 
+	/*
+	 * fill hole blocks
+	 */
 	ret = nilfs_transaction_begin(inode->i_sb, &ti, 1);
-	
+	/* never returns -ENOMEM, but may return -ENOSPC */
 	if (unlikely(ret))
 		return VM_FAULT_SIGBUS;
 
@@ -122,6 +136,10 @@ static int nilfs_file_mmap(struct file *file, struct vm_area_struct *vma)
 	return 0;
 }
 
+/*
+ * We have mostly NULL's here: the current defaults are ok for
+ * the nilfs filesystem.
+ */
 const struct file_operations nilfs_file_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= do_sync_read,
@@ -131,10 +149,10 @@ const struct file_operations nilfs_file_operations = {
 	.unlocked_ioctl	= nilfs_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl	= nilfs_compat_ioctl,
-#endif	
+#endif	/* CONFIG_COMPAT */
 	.mmap		= nilfs_file_mmap,
 	.open		= generic_file_open,
-	
+	/* .release	= nilfs_release_file, */
 	.fsync		= nilfs_sync_file,
 	.splice_read	= generic_file_splice_read,
 };
@@ -146,3 +164,4 @@ const struct inode_operations nilfs_file_inode_operations = {
 	.fiemap		= nilfs_fiemap,
 };
 
+/* end of file */

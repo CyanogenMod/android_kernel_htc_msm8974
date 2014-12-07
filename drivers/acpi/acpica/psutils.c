@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: psutils - Parser miscellaneous utilities (Parser only)
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -44,6 +49,17 @@
 #define _COMPONENT          ACPI_PARSER
 ACPI_MODULE_NAME("psutils")
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ps_create_scope_op
+ *
+ * PARAMETERS:  None
+ *
+ * RETURN:      A new Scope object, null on failure
+ *
+ * DESCRIPTION: Create a Scope and associated namepath op with the root name
+ *
+ ******************************************************************************/
 union acpi_parse_object *acpi_ps_create_scope_op(void)
 {
 	union acpi_parse_object *scope_op;
@@ -57,6 +73,18 @@ union acpi_parse_object *acpi_ps_create_scope_op(void)
 	return (scope_op);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ps_init_op
+ *
+ * PARAMETERS:  Op              - A newly allocated Op object
+ *              Opcode          - Opcode to store in the Op
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Initialize a parse (Op) object
+ *
+ ******************************************************************************/
 
 void acpi_ps_init_op(union acpi_parse_object *op, u16 opcode)
 {
@@ -71,6 +99,19 @@ void acpi_ps_init_op(union acpi_parse_object *op, u16 opcode)
 					      sizeof(op->common.aml_op_name)));
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ps_alloc_op
+ *
+ * PARAMETERS:  Opcode          - Opcode that will be stored in the new Op
+ *
+ * RETURN:      Pointer to the new Op, null on failure
+ *
+ * DESCRIPTION: Allocate an acpi_op, choose op type (and thus size) based on
+ *              opcode.  A cache of opcodes is available for the pure
+ *              GENERIC_OP, since this is by far the most commonly used.
+ *
+ ******************************************************************************/
 
 union acpi_parse_object *acpi_ps_alloc_op(u16 opcode)
 {
@@ -82,7 +123,7 @@ union acpi_parse_object *acpi_ps_alloc_op(u16 opcode)
 
 	op_info = acpi_ps_get_opcode_info(opcode);
 
-	
+	/* Determine type of parse_op required */
 
 	if (op_info->flags & AML_DEFER) {
 		flags = ACPI_PARSEOP_DEFERRED;
@@ -92,20 +133,20 @@ union acpi_parse_object *acpi_ps_alloc_op(u16 opcode)
 		flags = ACPI_PARSEOP_BYTELIST;
 	}
 
-	
+	/* Allocate the minimum required size object */
 
 	if (flags == ACPI_PARSEOP_GENERIC) {
 
-		
+		/* The generic op (default) is by far the most common (16 to 1) */
 
 		op = acpi_os_acquire_object(acpi_gbl_ps_node_cache);
 	} else {
-		
+		/* Extended parseop */
 
 		op = acpi_os_acquire_object(acpi_gbl_ps_node_ext_cache);
 	}
 
-	
+	/* Initialize the Op */
 
 	if (op) {
 		acpi_ps_init_op(op, opcode);
@@ -115,6 +156,18 @@ union acpi_parse_object *acpi_ps_alloc_op(u16 opcode)
 	return (op);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ps_free_op
+ *
+ * PARAMETERS:  Op              - Op to be freed
+ *
+ * RETURN:      None.
+ *
+ * DESCRIPTION: Free an Op object.  Either put it on the GENERIC_OP cache list
+ *              or actually free it.
+ *
+ ******************************************************************************/
 
 void acpi_ps_free_op(union acpi_parse_object *op)
 {
@@ -132,37 +185,56 @@ void acpi_ps_free_op(union acpi_parse_object *op)
 	}
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    Utility functions
+ *
+ * DESCRIPTION: Low level character and object functions
+ *
+ ******************************************************************************/
 
+/*
+ * Is "c" a namestring lead character?
+ */
 u8 acpi_ps_is_leading_char(u32 c)
 {
 	return ((u8) (c == '_' || (c >= 'A' && c <= 'Z')));
 }
 
+/*
+ * Is "c" a namestring prefix character?
+ */
 u8 acpi_ps_is_prefix_char(u32 c)
 {
 	return ((u8) (c == '\\' || c == '^'));
 }
 
+/*
+ * Get op's name (4-byte name segment) or 0 if unnamed
+ */
 #ifdef ACPI_FUTURE_USAGE
 u32 acpi_ps_get_name(union acpi_parse_object * op)
 {
 
-	
+	/* The "generic" object has no name associated with it */
 
 	if (op->common.flags & ACPI_PARSEOP_GENERIC) {
 		return (0);
 	}
 
-	
+	/* Only the "Extended" parse objects have a name */
 
 	return (op->named.name);
 }
-#endif				
+#endif				/*  ACPI_FUTURE_USAGE  */
 
+/*
+ * Set op's name
+ */
 void acpi_ps_set_name(union acpi_parse_object *op, u32 name)
 {
 
-	
+	/* The "generic" object has no name associated with it */
 
 	if (op->common.flags & ACPI_PARSEOP_GENERIC) {
 		return;

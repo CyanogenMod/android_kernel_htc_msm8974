@@ -48,35 +48,38 @@ extern asmlinkage int fpu_emulator_save_context(struct sigcontext __user *sc);
 extern asmlinkage int fpu_emulator_restore_context(struct sigcontext __user *sc);
 
 struct sigframe {
-	u32 sf_ass[4];		
-	u32 sf_pad[2];		
+	u32 sf_ass[4];		/* argument save space for o32 */
+	u32 sf_pad[2];		/* Was: signal trampoline */
 	struct sigcontext sf_sc;
 	sigset_t sf_mask;
 };
 
 struct rt_sigframe {
-	u32 rs_ass[4];		
-	u32 rs_pad[2];		
+	u32 rs_ass[4];		/* argument save space for o32 */
+	u32 rs_pad[2];		/* Was: signal trampoline */
 	struct siginfo rs_info;
 	struct ucontext rs_uc;
 };
 
+/*
+ * Helper routines
+ */
 static int protected_save_fp_context(struct sigcontext __user *sc)
 {
 	int err;
 	while (1) {
 		lock_fpu_owner();
 		own_fpu_inatomic(1);
-		err = save_fp_context(sc); 
+		err = save_fp_context(sc); /* this might fail */
 		unlock_fpu_owner();
 		if (likely(!err))
 			break;
-		
+		/* touch the sigcontext and try again */
 		err = __put_user(0, &sc->sc_fpregs[0]) |
 			__put_user(0, &sc->sc_fpregs[31]) |
 			__put_user(0, &sc->sc_fpc_csr);
 		if (err)
-			break;	
+			break;	/* really bad sigcontext */
 	}
 	return err;
 }
@@ -87,16 +90,16 @@ static int protected_restore_fp_context(struct sigcontext __user *sc)
 	while (1) {
 		lock_fpu_owner();
 		own_fpu_inatomic(0);
-		err = restore_fp_context(sc); 
+		err = restore_fp_context(sc); /* this might fail */
 		unlock_fpu_owner();
 		if (likely(!err))
 			break;
-		
+		/* touch the sigcontext and try again */
 		err = __get_user(tmp, &sc->sc_fpregs[0]) |
 			__get_user(tmp, &sc->sc_fpregs[31]) |
 			__get_user(tmp, &sc->sc_fpc_csr);
 		if (err)
-			break;	
+			break;	/* really bad sigcontext */
 	}
 	return err;
 }
@@ -132,6 +135,10 @@ int setup_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc)
 	err |= __put_user(used_math, &sc->sc_used_math);
 
 	if (used_math) {
+		/*
+		 * Save FPU state to signal context. Signal handler
+		 * will "inherit" current FPU state.
+		 */
 		err |= protected_save_fp_context(sc);
 	}
 	return err;
@@ -144,6 +151,10 @@ int fpcsr_pending(unsigned int __user *fpcsr)
 
 	err = __get_user(csr, fpcsr);
 	enabled = FPU_CSR_UNI_X | ((csr & FPU_CSR_ALL_E) << 5);
+	/*
+	 * If the signal handler set some FPU exceptions, clear it and
+	 * send SIGFPE.
+	 */
 	if (csr & enabled) {
 		csr &= ~enabled;
 		err |= __put_user(csr, fpcsr);
@@ -171,7 +182,7 @@ int restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc)
 	int err = 0;
 	int i;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
 	err |= __get_user(regs->cp0_epc, &sc->sc_pc);
@@ -198,11 +209,11 @@ int restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc)
 	conditional_used_math(used_math);
 
 	if (used_math) {
-		
+		/* restore fpu context if we have used it before */
 		if (!err)
 			err = check_and_restore_fp_context(sc);
 	} else {
-		
+		/* signal handler may have used FPU.  Give it up. */
 		lose_fpu(0);
 	}
 
@@ -214,18 +225,26 @@ void __user *get_sigframe(struct k_sigaction *ka, struct pt_regs *regs,
 {
 	unsigned long sp;
 
-	
+	/* Default to using normal stack */
 	sp = regs->regs[29];
 
+	/*
+	 * FPU emulator may have it's own trampoline active just
+	 * above the user stack, 16-bytes before the next lowest
+	 * 16 byte boundary.  Try to avoid trashing it.
+	 */
 	sp -= 32;
 
-	
+	/* This is the X/Open sanctioned signal stack switching.  */
 	if ((ka->sa.sa_flags & SA_ONSTACK) && (sas_ss_flags (sp) == 0))
 		sp = current->sas_ss_sp + current->sas_ss_size;
 
 	return (void __user *)((sp - frame_size) & (ICACHE_REFILLS_WORKAROUND_WAR ? ~(cpu_icache_line_size()-1) : ALMASK));
 }
 
+/*
+ * Atomically swap in the new signal mask, and wait for a signal.
+ */
 
 #ifdef CONFIG_TRAD_SIGNALS
 asmlinkage int sys_sigsuspend(nabi_no_regargs struct pt_regs regs)
@@ -254,7 +273,7 @@ asmlinkage int sys_rt_sigsuspend(nabi_no_regargs struct pt_regs regs)
 	sigset_t __user *unewset;
 	size_t sigsetsize;
 
-	
+	/* XXX Don't preclude handling different sized sigset_t's.  */
 	sigsetsize = regs.regs[5];
 	if (sigsetsize != sizeof(sigset_t))
 		return -EINVAL;
@@ -345,17 +364,20 @@ asmlinkage void sys_sigreturn(nabi_no_regargs struct pt_regs regs)
 	else if (sig)
 		force_sig(sig, current);
 
+	/*
+	 * Don't let your children do this ...
+	 */
 	__asm__ __volatile__(
 		"move\t$29, %0\n\t"
 		"j\tsyscall_exit"
-		:
+		:/* no outputs */
 		:"r" (&regs));
-	
+	/* Unreached */
 
 badframe:
 	force_sig(SIGSEGV, current);
 }
-#endif 
+#endif /* CONFIG_TRAD_SIGNALS */
 
 asmlinkage void sys_rt_sigreturn(nabi_no_regargs struct pt_regs regs)
 {
@@ -378,14 +400,19 @@ asmlinkage void sys_rt_sigreturn(nabi_no_regargs struct pt_regs regs)
 	else if (sig)
 		force_sig(sig, current);
 
+	/* It is more difficult to avoid calling this function than to
+	   call it and ignore errors.  */
 	do_sigaltstack(&frame->rs_uc.uc_stack, NULL, regs.regs[29]);
 
+	/*
+	 * Don't let your children do this ...
+	 */
 	__asm__ __volatile__(
 		"move\t$29, %0\n\t"
 		"j\tsyscall_exit"
-		:
+		:/* no outputs */
 		:"r" (&regs));
-	
+	/* Unreached */
 
 badframe:
 	force_sig(SIGSEGV, current);
@@ -407,6 +434,16 @@ static int setup_frame(void *sig_return, struct k_sigaction *ka,
 	if (err)
 		goto give_sigsegv;
 
+	/*
+	 * Arguments to signal handler:
+	 *
+	 *   a0 = signal number
+	 *   a1 = 0 (should be cause)
+	 *   a2 = pointer to struct sigcontext
+	 *
+	 * $25 and c0_epc point to the signal handler, $29 points to the
+	 * struct sigframe.
+	 */
 	regs->regs[ 4] = signr;
 	regs->regs[ 5] = 0;
 	regs->regs[ 6] = (unsigned long) &frame->sf_sc;
@@ -436,10 +473,10 @@ static int setup_rt_frame(void *sig_return, struct k_sigaction *ka,
 	if (!access_ok(VERIFY_WRITE, frame, sizeof (*frame)))
 		goto give_sigsegv;
 
-	
+	/* Create siginfo.  */
 	err |= copy_siginfo_to_user(&frame->rs_info, info);
 
-	
+	/* Create the ucontext.  */
 	err |= __put_user(0, &frame->rs_uc.uc_flags);
 	err |= __put_user(NULL, &frame->rs_uc.uc_link);
 	err |= __put_user((void __user *)current->sas_ss_sp,
@@ -454,6 +491,16 @@ static int setup_rt_frame(void *sig_return, struct k_sigaction *ka,
 	if (err)
 		goto give_sigsegv;
 
+	/*
+	 * Arguments to signal handler:
+	 *
+	 *   a0 = signal number
+	 *   a1 = 0 (should be cause)
+	 *   a2 = pointer to ucontext
+	 *
+	 * $25 and c0_epc point to the signal handler, $29 points to
+	 * the struct rt_sigframe.
+	 */
 	regs->regs[ 4] = signr;
 	regs->regs[ 5] = (unsigned long) &frame->rs_info;
 	regs->regs[ 6] = (unsigned long) &frame->rs_uc;
@@ -501,14 +548,14 @@ static int handle_signal(unsigned long sig, siginfo_t *info,
 				regs->regs[2] = EINTR;
 				break;
 			}
-		
+		/* fallthrough */
 		case ERESTARTNOINTR:
 			regs->regs[7] = regs->regs[26];
 			regs->regs[2] = regs->regs[0];
 			regs->cp0_epc -= 4;
 		}
 
-		regs->regs[0] = 0;		
+		regs->regs[0] = 0;		/* Don't deal with this again.  */
 	}
 
 	if (sig_uses_siginfo(ka))
@@ -533,6 +580,11 @@ static void do_signal(struct pt_regs *regs)
 	siginfo_t info;
 	int signr;
 
+	/*
+	 * We want the common case to go fast, which is why we may in certain
+	 * cases get here from kernel mode. Just return without doing anything
+	 * if so.
+	 */
 	if (!user_mode(regs))
 		return;
 
@@ -543,8 +595,14 @@ static void do_signal(struct pt_regs *regs)
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
-		
+		/* Whee!  Actually deliver the signal.  */
 		if (handle_signal(signr, &info, &ka, oldset, regs) == 0) {
+			/*
+			 * A signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TIF_RESTORE_SIGMASK flag.
+			 */
 			if (test_thread_flag(TIF_RESTORE_SIGMASK))
 				clear_thread_flag(TIF_RESTORE_SIGMASK);
 		}
@@ -565,21 +623,29 @@ static void do_signal(struct pt_regs *regs)
 			regs->regs[7] = regs->regs[26];
 			regs->cp0_epc -= 4;
 		}
-		regs->regs[0] = 0;	
+		regs->regs[0] = 0;	/* Don't deal with this again.  */
 	}
 
+	/*
+	 * If there's no signal to deliver, we just put the saved sigmask
+	 * back
+	 */
 	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
 		clear_thread_flag(TIF_RESTORE_SIGMASK);
 		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
 	}
 }
 
+/*
+ * notification of userspace execution resumption
+ * - triggered by the TIF_WORK_MASK flags
+ */
 asmlinkage void do_notify_resume(struct pt_regs *regs, void *unused,
 	__u32 thread_info_flags)
 {
 	local_irq_enable();
 
-	
+	/* deal with pending signal delivery */
 	if (thread_info_flags & (_TIF_SIGPENDING | _TIF_RESTORE_SIGMASK))
 		do_signal(regs);
 
@@ -610,7 +676,7 @@ static int smp_restore_fp_context(struct sigcontext __user *sc)
 static int signal_setup(void)
 {
 #ifdef CONFIG_SMP
-	
+	/* For now just do the cpu_has_fpu check when the functions are invoked */
 	save_fp_context = smp_save_fp_context;
 	restore_fp_context = smp_restore_fp_context;
 #else

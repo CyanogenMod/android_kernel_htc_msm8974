@@ -67,4 +67,4 @@ static inline void put_unaligned_be64(__u64 val, void *p)
 	__put_unaligned_be64(val, p);
 }
 
-#endif 
+#endif /* _TOOLS_BE_BYTESHIFT_H */

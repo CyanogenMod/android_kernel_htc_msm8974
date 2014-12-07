@@ -61,6 +61,7 @@
 #define UNPACK_D(f,r) \
 	{u32 t[2]; t[0]=((u32*)&r)[1]; t[1]=((u32*)&r)[0]; FP_UNPACK_DP(f,t);}
 
+// 2 args instructions.
 #define BOTH_PRmn(op,x) \
 	FP_DECL_EX; if(FPSCR_PR) op(D,x,DRm,DRn); else op(S,x,FRm,FRn);
 
@@ -88,7 +89,7 @@ fcmp_gt(struct sh_fpu_soft_struct *fregs, struct pt_regs *regs, int m, int n)
 static int
 fcmp_eq(struct sh_fpu_soft_struct *fregs, struct pt_regs *regs, int m, int n)
 {
-	if (CMP(CMP ) == 0)
+	if (CMP(CMP /*EQ*/) == 0)
 		regs->sr |= 1;
 	else
 		regs->sr &= ~1;
@@ -147,6 +148,7 @@ fmac(struct sh_fpu_soft_struct *fregs, struct pt_regs *regs, int m, int n)
 	return 0;
 }
 
+// to process fmov's extension (odd n for DR access XD).
 #define FMOV_EXT(x) if(x&1) x+=16-1
 
 static int
@@ -270,6 +272,7 @@ fnop_mn(struct sh_fpu_soft_struct *fregs, struct pt_regs *regs, int m, int n)
 	return -EINVAL;
 }
 
+// 1 arg instructions.
 #define NOTYETn(i) static int i(struct sh_fpu_soft_struct *fregs, int n) \
 	{ printk( #i " not yet done.\n"); return 0; }
 
@@ -380,6 +383,7 @@ static int fnop_n(struct sh_fpu_soft_struct *fregs, int n)
 	return -EINVAL;
 }
 
+/// Instruction decoders.
 
 static int id_fxfd(struct sh_fpu_soft_struct *, int);
 static int id_fnxd(struct sh_fpu_soft_struct *, struct pt_regs *, int, int);
@@ -463,6 +467,13 @@ static int fpu_emulate(u16 code, struct sh_fpu_soft_struct *fregs, struct pt_reg
 		return id_sys(fregs, regs, code);
 }
 
+/**
+ *	denormal_to_double - Given denormalized float number,
+ *	                     store double float
+ *
+ *	@fpu: Pointer to sh_fpu_soft structure
+ *	@n: Index to FP register
+ */
 static void denormal_to_double(struct sh_fpu_soft_struct *fpu, int n)
 {
 	unsigned long du, dl;
@@ -484,6 +495,13 @@ static void denormal_to_double(struct sh_fpu_soft_struct *fpu, int n)
 	}
 }
 
+/**
+ *	ieee_fpe_handler - Handle denormalized number exception
+ *
+ *	@regs: Pointer to register structure
+ *
+ *	Returns 1 when it's handled (should not cause exception).
+ */
 static int ieee_fpe_handler(struct pt_regs *regs)
 {
 	unsigned short insn = *(unsigned short *)regs->pc;
@@ -497,33 +515,33 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		insn & 0xf};
 
 	if (nib[0] == 0xb ||
-	    (nib[0] == 0x4 && nib[2] == 0x0 && nib[3] == 0xb)) 
+	    (nib[0] == 0x4 && nib[2] == 0x0 && nib[3] == 0xb)) /* bsr & jsr */
 		regs->pr = regs->pc + 4;
 
-	if (nib[0] == 0xa || nib[0] == 0xb) { 
+	if (nib[0] == 0xa || nib[0] == 0xb) { /* bra & bsr */
 		nextpc = regs->pc + 4 + ((short) ((insn & 0xfff) << 4) >> 3);
 		finsn = *(unsigned short *) (regs->pc + 2);
-	} else if (nib[0] == 0x8 && nib[1] == 0xd) { 
+	} else if (nib[0] == 0x8 && nib[1] == 0xd) { /* bt/s */
 		if (regs->sr & 1)
 			nextpc = regs->pc + 4 + ((char) (insn & 0xff) << 1);
 		else
 			nextpc = regs->pc + 4;
 		finsn = *(unsigned short *) (regs->pc + 2);
-	} else if (nib[0] == 0x8 && nib[1] == 0xf) { 
+	} else if (nib[0] == 0x8 && nib[1] == 0xf) { /* bf/s */
 		if (regs->sr & 1)
 			nextpc = regs->pc + 4;
 		else
 			nextpc = regs->pc + 4 + ((char) (insn & 0xff) << 1);
 		finsn = *(unsigned short *) (regs->pc + 2);
 	} else if (nib[0] == 0x4 && nib[3] == 0xb &&
-		 (nib[2] == 0x0 || nib[2] == 0x2)) { 
+		 (nib[2] == 0x0 || nib[2] == 0x2)) { /* jmp & jsr */
 		nextpc = regs->regs[nib[1]];
 		finsn = *(unsigned short *) (regs->pc + 2);
 	} else if (nib[0] == 0x0 && nib[3] == 0x3 &&
-		 (nib[2] == 0x0 || nib[2] == 0x2)) { 
+		 (nib[2] == 0x0 || nib[2] == 0x2)) { /* braf & bsrf */
 		nextpc = regs->pc + 4 + regs->regs[nib[1]];
 		finsn = *(unsigned short *) (regs->pc + 2);
-	} else if (insn == 0x000b) { 
+	} else if (insn == 0x000b) { /* rts */
 		nextpc = regs->pr;
 		finsn = *(unsigned short *) (regs->pc + 2);
 	} else {
@@ -531,11 +549,11 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		finsn = insn;
 	}
 
-	if ((finsn & 0xf1ff) == 0xf0ad) { 
+	if ((finsn & 0xf1ff) == 0xf0ad) { /* fcnvsd */
 		struct task_struct *tsk = current;
 
 		if ((tsk->thread.xstate->softfpu.fpscr & (1 << 17))) {
-			
+			/* FPU error */
 			denormal_to_double (&tsk->thread.xstate->softfpu,
 					    (finsn >> 8) & 0xf);
 			tsk->thread.xstate->softfpu.fpscr &=
@@ -574,6 +592,10 @@ asmlinkage void do_fpu_error(unsigned long r4, unsigned long r5,
 	force_sig_info(SIGFPE, &info, tsk);
 }
 
+/**
+ * fpu_init - Initialize FPU registers
+ * @fpu: Pointer to software emulated FPU registers.
+ */
 static void fpu_init(struct sh_fpu_soft_struct *fpu)
 {
 	int i;
@@ -587,6 +609,11 @@ static void fpu_init(struct sh_fpu_soft_struct *fpu)
 	}
 }
 
+/**
+ * do_fpu_inst - Handle reserved instructions for FPU emulation
+ * @inst: instruction code.
+ * @regs: registers on stack.
+ */
 int do_fpu_inst(unsigned short inst, struct pt_regs *regs)
 {
 	struct task_struct *tsk = current;
@@ -595,7 +622,7 @@ int do_fpu_inst(unsigned short inst, struct pt_regs *regs)
 	perf_sw_event(PERF_COUNT_SW_EMULATION_FAULTS, 1, regs, 0);
 
 	if (!(task_thread_info(tsk)->status & TS_USEDFPU)) {
-		
+		/* initialize once. */
 		fpu_init(fpu);
 		task_thread_info(tsk)->status |= TS_USEDFPU;
 	}

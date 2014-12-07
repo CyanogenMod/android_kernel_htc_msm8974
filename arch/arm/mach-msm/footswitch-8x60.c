@@ -56,9 +56,14 @@
 #define GFS_DELAY_CNT		31
 
 #define DEFAULT_RESET_DELAY_US	1
+/* Clock rate to use if one has not previously been set. */
 #define DEFAULT_RATE		27000000
 #define MAX_CLKS		10
 
+/*
+ * Lock is only needed to protect against the first footswitch_enable()
+ * call occuring concurrently with late_footswitch_init().
+ */
 static DEFINE_MUTEX(claim_lock);
 
 struct footswitch {
@@ -79,6 +84,10 @@ static int setup_clocks(struct footswitch *fs)
 	struct fs_clk_data *clock;
 	long rate;
 
+	/*
+	 * Enable all clocks in the power domain. If a specific clock rate is
+	 * required for reset timing, set that rate before enabling the clocks.
+	 */
 	for (clock = fs->clk_data; clock->clk; clock++) {
 		clock->rate = clk_get_rate(clock->clk);
 		if (!clock->rate || clock->reset_rate) {
@@ -97,6 +106,12 @@ static int setup_clocks(struct footswitch *fs)
 				return rc;
 			}
 		}
+		/*
+		 * Some clocks are for reset purposes only. These clocks will
+		 * fail to enable. Ignore the failures but keep track of them so
+		 * we don't try to disable them later and crash due to
+		 * unbalanced calls.
+		 */
 		clock->enabled = !clk_prepare_enable(clock->clk);
 	}
 
@@ -107,7 +122,7 @@ static void restore_clocks(struct footswitch *fs)
 {
 	struct fs_clk_data *clock;
 
-	
+	/* Restore clocks to their orignal states before setup_clocks(). */
 	for (clock = fs->clk_data; clock->clk; clock++) {
 		if (clock->enabled)
 			clk_disable_unprepare(clock->clk);
@@ -134,17 +149,17 @@ static int footswitch_enable(struct regulator_dev *rdev)
 	fs->is_claimed = true;
 	mutex_unlock(&claim_lock);
 
-	
+	/* Return early if already enabled. */
 	regval = readl_relaxed(fs->gfs_ctl_reg);
 	if ((regval & (ENABLE_BIT | CLAMP_BIT)) == ENABLE_BIT)
 		return 0;
 
-	
+	/* Make sure required clocks are on at the correct rates. */
 	rc = setup_clocks(fs);
 	if (rc)
 		return rc;
 
-	
+	/* Un-halt all bus ports in the power domain. */
 	if (fs->bus_port0) {
 		rc = msm_bus_axi_portunhalt(fs->bus_port0);
 		if (rc) {
@@ -160,28 +175,33 @@ static int footswitch_enable(struct regulator_dev *rdev)
 		}
 	}
 
+	/*
+	 * (Re-)Assert resets for all clocks in the clock domain, since
+	 * footswitch_enable() is first called before footswitch_disable()
+	 * and resets should be asserted before power is restored.
+	 */
 	for (clock = fs->clk_data; clock->clk; clock++)
-		; 
+		; /* Do nothing */
 	for (clock--; clock >= fs->clk_data; clock--)
 		clk_reset(clock->clk, CLK_RESET_ASSERT);
-	
+	/* Wait for synchronous resets to propagate. */
 	udelay(fs->reset_delay_us);
 
-	
+	/* Enable the power rail at the footswitch. */
 	regval |= ENABLE_BIT;
 	writel_relaxed(regval, fs->gfs_ctl_reg);
-	
+	/* Wait for the rail to fully charge. */
 	mb();
 	udelay(1);
 
-	
+	/* Un-clamp the I/O ports. */
 	regval &= ~CLAMP_BIT;
 	writel_relaxed(regval, fs->gfs_ctl_reg);
 
-	
+	/* Deassert resets for all clocks in the power domain. */
 	for (clock = fs->clk_data; clock->clk; clock++)
 		clk_reset(clock->clk, CLK_RESET_DEASSERT);
-	
+	/* Toggle core reset again after first power-on (required for GFX3D). */
 	if (fs->desc.id == FS_GFX3D) {
 		clk_reset(fs->core_clk, CLK_RESET_ASSERT);
 		udelay(fs->reset_delay_us);
@@ -189,10 +209,10 @@ static int footswitch_enable(struct regulator_dev *rdev)
 		udelay(fs->reset_delay_us);
 	}
 
-	
+	/* Prevent core memory from collapsing when its clock is gated. */
 	clk_set_flags(fs->core_clk, CLKFLAG_RETAIN_MEM);
 
-	
+	/* Return clocks to their state before this function. */
 	restore_clocks(fs);
 
 	fs->is_enabled = true;
@@ -211,21 +231,21 @@ static int footswitch_disable(struct regulator_dev *rdev)
 	struct fs_clk_data *clock;
 	uint32_t regval, rc = 0;
 
-	
+	/* Return early if already disabled. */
 	regval = readl_relaxed(fs->gfs_ctl_reg);
 	if ((regval & ENABLE_BIT) == 0)
 		return 0;
 
-	
+	/* Make sure required clocks are on at the correct rates. */
 	rc = setup_clocks(fs);
 	if (rc)
 		return rc;
 
-	
+	/* Allow core memory to collapse when its clock is gated. */
 	if (fs->desc.id != FS_GFX3D_8064)
 		clk_set_flags(fs->core_clk, CLKFLAG_NORETAIN_MEM);
 
-	
+	/* Halt all bus ports in the power domain. */
 	if (fs->bus_port0) {
 		rc = msm_bus_axi_porthalt(fs->bus_port0);
 		if (rc) {
@@ -241,19 +261,33 @@ static int footswitch_disable(struct regulator_dev *rdev)
 		}
 	}
 
+	/*
+	 * Assert resets for all clocks in the clock domain so that
+	 * outputs settle prior to clamping.
+	 */
 	for (clock = fs->clk_data; clock->clk; clock++)
-		; 
+		; /* Do nothing */
 	for (clock--; clock >= fs->clk_data; clock--)
 		clk_reset(clock->clk, CLK_RESET_ASSERT);
-	
+	/* Wait for synchronous resets to propagate. */
 	udelay(fs->reset_delay_us);
 
+	/*
+	 * Return clocks to their state before this function. For robustness
+	 * if memory-retention across collapses is required, clocks should
+	 * be disabled before asserting the clamps. Assuming clocks were off
+	 * before entering footswitch_disable(), this will be true.
+	 */
 	restore_clocks(fs);
 
+	/*
+	 * Clamp the I/O ports of the core to ensure the values
+	 * remain fixed while the core is collapsed.
+	 */
 	regval |= CLAMP_BIT;
 	writel_relaxed(regval, fs->gfs_ctl_reg);
 
-	
+	/* Collapse the power rail at the footswitch. */
 	regval &= ~ENABLE_BIT;
 	writel_relaxed(regval, fs->gfs_ctl_reg);
 
@@ -278,17 +312,17 @@ static int gfx2d_footswitch_enable(struct regulator_dev *rdev)
 	fs->is_claimed = true;
 	mutex_unlock(&claim_lock);
 
-	
+	/* Return early if already enabled. */
 	regval = readl_relaxed(fs->gfs_ctl_reg);
 	if ((regval & (ENABLE_BIT | CLAMP_BIT)) == ENABLE_BIT)
 		return 0;
 
-	
+	/* Make sure required clocks are on at the correct rates. */
 	rc = setup_clocks(fs);
 	if (rc)
 		return rc;
 
-	
+	/* Un-halt all bus ports in the power domain. */
 	if (fs->bus_port0) {
 		rc = msm_bus_axi_portunhalt(fs->bus_port0);
 		if (rc) {
@@ -297,38 +331,43 @@ static int gfx2d_footswitch_enable(struct regulator_dev *rdev)
 		}
 	}
 
-	
+	/* Disable core clock. */
 	clk_disable_unprepare(fs->core_clk);
 
+	/*
+	 * (Re-)Assert resets for all clocks in the clock domain, since
+	 * footswitch_enable() is first called before footswitch_disable()
+	 * and resets should be asserted before power is restored.
+	 */
 	for (clock = fs->clk_data; clock->clk; clock++)
-		; 
+		; /* Do nothing */
 	for (clock--; clock >= fs->clk_data; clock--)
 		clk_reset(clock->clk, CLK_RESET_ASSERT);
-	
+	/* Wait for synchronous resets to propagate. */
 	udelay(fs->reset_delay_us);
 
-	
+	/* Enable the power rail at the footswitch. */
 	regval |= ENABLE_BIT;
 	writel_relaxed(regval, fs->gfs_ctl_reg);
 	mb();
 	udelay(1);
 
-	
+	/* Un-clamp the I/O ports. */
 	regval &= ~CLAMP_BIT;
 	writel_relaxed(regval, fs->gfs_ctl_reg);
 
-	
+	/* Deassert resets for all clocks in the power domain. */
 	for (clock = fs->clk_data; clock->clk; clock++)
 		clk_reset(clock->clk, CLK_RESET_DEASSERT);
 	udelay(fs->reset_delay_us);
 
-	
+	/* Re-enable core clock. */
 	clk_prepare_enable(fs->core_clk);
 
-	
+	/* Prevent core memory from collapsing when its clock is gated. */
 	clk_set_flags(fs->core_clk, CLKFLAG_RETAIN_MEM);
 
-	
+	/* Return clocks to their state before this function. */
 	restore_clocks(fs);
 
 	fs->is_enabled = true;
@@ -345,20 +384,20 @@ static int gfx2d_footswitch_disable(struct regulator_dev *rdev)
 	struct fs_clk_data *clock;
 	uint32_t regval, rc = 0;
 
-	
+	/* Return early if already disabled. */
 	regval = readl_relaxed(fs->gfs_ctl_reg);
 	if ((regval & ENABLE_BIT) == 0)
 		return 0;
 
-	
+	/* Make sure required clocks are on at the correct rates. */
 	rc = setup_clocks(fs);
 	if (rc)
 		return rc;
 
-	
+	/* Allow core memory to collapse when its clock is gated. */
 	clk_set_flags(fs->core_clk, CLKFLAG_NORETAIN_MEM);
 
-	
+	/* Halt all bus ports in the power domain. */
 	if (fs->bus_port0) {
 		rc = msm_bus_axi_porthalt(fs->bus_port0);
 		if (rc) {
@@ -367,27 +406,35 @@ static int gfx2d_footswitch_disable(struct regulator_dev *rdev)
 		}
 	}
 
-	
+	/* Disable core clock. */
 	clk_disable_unprepare(fs->core_clk);
 
+	/*
+	 * Assert resets for all clocks in the clock domain so that
+	 * outputs settle prior to clamping.
+	 */
 	for (clock = fs->clk_data; clock->clk; clock++)
-		; 
+		; /* Do nothing */
 	for (clock--; clock >= fs->clk_data; clock--)
 		clk_reset(clock->clk, CLK_RESET_ASSERT);
-	
+	/* Wait for synchronous resets to propagate. */
 	udelay(5);
 
+	/*
+	 * Clamp the I/O ports of the core to ensure the values
+	 * remain fixed while the core is collapsed.
+	 */
 	regval |= CLAMP_BIT;
 	writel_relaxed(regval, fs->gfs_ctl_reg);
 
-	
+	/* Collapse the power rail at the footswitch. */
 	regval &= ~ENABLE_BIT;
 	writel_relaxed(regval, fs->gfs_ctl_reg);
 
-	
+	/* Re-enable core clock. */
 	clk_prepare_enable(fs->core_clk);
 
-	
+	/* Return clocks to their state before this function. */
 	restore_clocks(fs);
 
 	fs->is_enabled = false;
@@ -432,12 +479,12 @@ static int gfx3d_8064_footswitch_enable(struct regulator_dev *rdev)
 	fs->is_claimed = true;
 	mutex_unlock(&claim_lock);
 
-	
+	/* Return early if already enabled. */
 	regval = readl_relaxed(fs->gfs_ctl_reg);
 	if ((regval & (ENABLE_BIT | CLAMP_BIT)) == ENABLE_BIT)
 		return 0;
 
-	
+	/* Un-halt all bus ports in the power domain. */
 	if (fs->bus_port0) {
 		rc = msm_bus_axi_portunhalt(fs->bus_port0);
 		if (rc) {
@@ -453,43 +500,48 @@ static int gfx3d_8064_footswitch_enable(struct regulator_dev *rdev)
 		}
 	}
 
-	
+	/* Apply AFAB/EBI clock limits. */
 	force_bus_clocks(true);
 
-	
+	/* Enable the power rail at the footswitch. */
 	regval |= ENABLE_BIT;
 	writel_relaxed(regval, fs->gfs_ctl_reg);
-	
+	/* Wait for the rail to fully charge. */
 	mb();
 	udelay(1);
 
-	
+	/* Make sure required clocks are on at the correct rates. */
 	rc = setup_clocks(fs);
 	if (rc)
 		goto err_setup_clocks;
 
+	/*
+	 * (Re-)Assert resets for all clocks in the clock domain, since
+	 * footswitch_enable() is first called before footswitch_disable()
+	 * and resets should be asserted before power is restored.
+	 */
 	for (clock = fs->clk_data; clock->clk; clock++)
-		; 
+		; /* Do nothing */
 	for (clock--; clock >= fs->clk_data; clock--)
 		clk_reset(clock->clk, CLK_RESET_ASSERT);
-	
+	/* Wait for synchronous resets to propagate. */
 	udelay(fs->reset_delay_us);
 
-	
+	/* Un-clamp the I/O ports. */
 	regval &= ~CLAMP_BIT;
 	writel_relaxed(regval, fs->gfs_ctl_reg);
 
-	
+	/* Deassert resets for all clocks in the power domain. */
 	for (clock = fs->clk_data; clock->clk; clock++)
 		clk_reset(clock->clk, CLK_RESET_DEASSERT);
 
-	
+	/* Prevent core memory from collapsing when its clock is gated. */
 	clk_set_flags(fs->core_clk, CLKFLAG_RETAIN_MEM);
 
-	
+	/* Return clocks to their state before this function. */
 	restore_clocks(fs);
 
-	
+	/* Remove AFAB/EBI clock limits after any transients have settled. */
 	udelay(30);
 	force_bus_clocks(false);
 
@@ -587,6 +639,11 @@ static int footswitch_probe(struct platform_device *pdev)
 			fs->core_clk = clock->clk;
 	}
 
+	/*
+	 * Set number of AHB_CLK cycles to delay the assertion of gfs_en_all
+	 * after enabling the footswitch.  Also ensure the retention bit is
+	 * clear so disabling the footswitch will power-collapse the core.
+	 */
 	regval = readl_relaxed(fs->gfs_ctl_reg);
 	regval |= GFS_DELAY_CNT;
 	regval &= ~RETENTION_BIT;
@@ -636,7 +693,7 @@ static int __init late_footswitch_init(void)
 	int i;
 
 	mutex_lock(&claim_lock);
-	
+	/* Turn off all registered but unused footswitches. */
 	for (i = 0; i < ARRAY_SIZE(footswitches); i++)
 		if (footswitches[i].rdev && !footswitches[i].is_claimed)
 			footswitches[i].rdev->desc->ops->

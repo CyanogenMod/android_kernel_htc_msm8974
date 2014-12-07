@@ -15,12 +15,19 @@
 #include "rc-core-priv.h"
 #include <linux/module.h>
 
+/*
+ * This decoder currently supports:
+ * RC6-0-16	(standard toggle bit in header)
+ * RC6-6A-20	(no toggle bit)
+ * RC6-6A-24	(no toggle bit)
+ * RC6-6A-32	(MCE version with toggle bit in body)
+ */
 
-#define RC6_UNIT		444444	
-#define RC6_HEADER_NBITS	4	
+#define RC6_UNIT		444444	/* nanosecs */
+#define RC6_HEADER_NBITS	4	/* not including toggle bit */
 #define RC6_0_NBITS		16
 #define RC6_6A_32_NBITS		32
-#define RC6_6A_NBITS		128	
+#define RC6_6A_NBITS		128	/* Variable 8..128 */
 #define RC6_PREFIX_PULSE	(6 * RC6_UNIT)
 #define RC6_PREFIX_SPACE	(2 * RC6_UNIT)
 #define RC6_BIT_START		(1 * RC6_UNIT)
@@ -28,13 +35,13 @@
 #define RC6_TOGGLE_START	(2 * RC6_UNIT)
 #define RC6_TOGGLE_END		(2 * RC6_UNIT)
 #define RC6_SUFFIX_SPACE	(6 * RC6_UNIT)
-#define RC6_MODE_MASK		0x07	
-#define RC6_STARTBIT_MASK	0x08	
-#define RC6_6A_MCE_TOGGLE_MASK	0x8000	
-#define RC6_6A_LCC_MASK		0xffff0000 
-#define RC6_6A_MCE_CC		0x800f0000 
+#define RC6_MODE_MASK		0x07	/* for the header bits */
+#define RC6_STARTBIT_MASK	0x08	/* for the header bits */
+#define RC6_6A_MCE_TOGGLE_MASK	0x8000	/* for the body bits */
+#define RC6_6A_LCC_MASK		0xffff0000 /* RC6-6A-32 long customer code mask */
+#define RC6_6A_MCE_CC		0x800f0000 /* MCE customer code */
 #ifndef CHAR_BIT
-#define CHAR_BIT 8	
+#define CHAR_BIT 8	/* Normally in <limits.h> */
 #endif
 
 enum rc6_mode {
@@ -63,12 +70,19 @@ static enum rc6_mode rc6_mode(struct rc6_dec *data)
 	case 6:
 		if (!data->toggle)
 			return RC6_MODE_6A;
-		
+		/* fall through */
 	default:
 		return RC6_MODE_UNKNOWN;
 	}
 }
 
+/**
+ * ir_rc6_decode() - Decode one RC6 pulse or space
+ * @dev:	the struct rc_dev descriptor of the device
+ * @ev:		the struct ir_raw_event descriptor of the pulse/space
+ *
+ * This function returns -EINVAL if the pulse violates the state machine
+ */
 static int ir_rc6_decode(struct rc_dev *dev, struct ir_raw_event ev)
 {
 	struct rc6_dec *data = &dev->raw->rc6;
@@ -100,6 +114,9 @@ again:
 		if (!ev.pulse)
 			break;
 
+		/* Note: larger margin on first pulse since each RC6_UNIT
+		   is quite short and some hardware takes some time to
+		   adjust to the signal */
 		if (!eq_margin(ev.duration, RC6_PREFIX_PULSE, RC6_UNIT))
 			break;
 
@@ -179,7 +196,7 @@ again:
 
 	case STATE_BODY_BIT_START:
 		if (eq_margin(ev.duration, RC6_BIT_START, RC6_UNIT / 2)) {
-			
+			/* Discard LSB's that won't fit in data->body */
 			if (data->count++ < CHAR_BIT * sizeof data->body) {
 				data->body <<= 1;
 				if (ev.pulse)
@@ -227,7 +244,7 @@ again:
 			scancode = data->body;
 			if (data->count == RC6_6A_32_NBITS &&
 					(scancode & RC6_6A_LCC_MASK) == RC6_6A_MCE_CC) {
-				
+				/* MCE RC */
 				toggle = (scancode & RC6_6A_MCE_TOGGLE_MASK) ? 1 : 0;
 				scancode &= ~RC6_6A_MCE_TOGGLE_MASK;
 			} else {

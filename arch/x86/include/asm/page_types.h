@@ -4,6 +4,7 @@
 #include <linux/const.h>
 #include <linux/types.h>
 
+/* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT	12
 #define PAGE_SIZE	(_AC(1,UL) << PAGE_SHIFT)
 #define PAGE_MASK	(~(PAGE_SIZE-1))
@@ -11,6 +12,9 @@
 #define __PHYSICAL_MASK		((phys_addr_t)((1ULL << __PHYSICAL_MASK_SHIFT) - 1))
 #define __VIRTUAL_MASK		((1UL << __VIRTUAL_MASK_SHIFT) - 1)
 
+/* Cast PAGE_MASK to a signed type so that it is sign-extended if
+   virtual addresses are 32-bits but physical addresses are larger
+   (ie, 32-bit PAE). */
 #define PHYSICAL_PAGE_MASK	(((signed long)PAGE_MASK) & __PHYSICAL_MASK)
 
 #define PMD_PAGE_SIZE		(_AC(1, UL) << PMD_SHIFT)
@@ -33,7 +37,7 @@
 #include <asm/page_64_types.h>
 #else
 #include <asm/page_32_types.h>
-#endif	
+#endif	/* CONFIG_X86_64 */
 
 #ifndef __ASSEMBLY__
 
@@ -52,6 +56,6 @@ extern unsigned long init_memory_mapping(unsigned long start,
 
 extern void initmem_init(void);
 
-#endif	
+#endif	/* !__ASSEMBLY__ */
 
-#endif	
+#endif	/* _ASM_X86_PAGE_DEFS_H */

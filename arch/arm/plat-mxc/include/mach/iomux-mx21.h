@@ -21,6 +21,7 @@
 #include <mach/iomux-mx2x.h>
 #include <mach/iomux-v1.h>
 
+/* Primary GPIO pin functions */
 
 #define PB22_PF_USBH1_BYP	(GPIO_PORTB | GPIO_PF | 22)
 #define PB25_PF_USBH1_ON	(GPIO_PORTB | GPIO_PF | 25)
@@ -52,6 +53,7 @@
 #define PF14_PF_NFIO7		(GPIO_PORTF | GPIO_PF | 14)
 #define PF16_PF_RES		(GPIO_PORTF | GPIO_PF | 16)
 
+/* Alternate GPIO pin functions */
 
 #define PA5_AF_BMI_CLK_CS	(GPIO_PORTA | GPIO_AF | 5)
 #define PA6_AF_BMI_D0		(GPIO_PORTA | GPIO_AF | 6)
@@ -75,6 +77,7 @@
 #define PA29_AF_BMI_RX_FULL	(GPIO_PORTA | GPIO_AF | 29)
 #define PA30_AF_BMI_READ	(GPIO_PORTA | GPIO_AF | 30)
 
+/* AIN GPIO pin functions */
 
 #define PC14_AIN_SYS_CLK	(GPIO_PORTC | GPIO_AIN | GPIO_OUT | 14)
 #define PD21_AIN_USBH2_FS	(GPIO_PORTD | GPIO_AIN | GPIO_OUT | 21)
@@ -89,13 +92,16 @@
 #define PF4_AIN_PC_OE		(GPIO_PORTF | GPIO_AIN | GPIO_OUT | 4)
 #define PF5_AIN_PC_RW		(GPIO_PORTF | GPIO_AIN | GPIO_OUT | 5)
 
+/* BIN GPIO pin functions */
 
 #define PC14_BIN_SYS_CLK	(GPIO_PORTC | GPIO_BIN | GPIO_OUT | 14)
 #define PD27_BIN_EXT_DMA_GRANT	(GPIO_PORTD | GPIO_BIN | GPIO_OUT | 27)
 
+/* CIN GPIO pin functions */
 
 #define PB26_CIN_USBH1_RXDAT	(GPIO_PORTB | GPIO_CIN | GPIO_OUT | 26)
 
+/* AOUT GPIO pin functions */
 
 #define PA29_AOUT_BMI_WAIT	(GPIO_PORTA | GPIO_AOUT | GPIO_IN | 29)
 #define PD19_AOUT_USBH2_RXDM	(GPIO_PORTD | GPIO_AOUT | GPIO_IN | 19)
@@ -113,4 +119,4 @@
 #define PF13_AOUT_PC_CD2	(GPIO_PORTF | GPIO_AOUT | GPIO_IN | 13)
 #define PF14_AOUT_PC_CD1	(GPIO_PORTF | GPIO_AOUT | GPIO_IN | 14)
 
-#endif 
+#endif /* ifndef __MACH_IOMUX_MX21_H__ */

@@ -19,6 +19,13 @@
  *
  */
 
+/*
+
+   This source file is specifically designed to interface with the
+   saa711x support that is available in the v4l available starting
+   with linux 2.6.15.
+
+*/
 
 #include "pvrusb2-video-v4l.h"
 
@@ -39,6 +46,8 @@ struct routing_scheme {
 
 static const int routing_scheme0[] = {
 	[PVR2_CVAL_INPUT_TV] = SAA7115_COMPOSITE4,
+	/* In radio mode, we mute the video, but point at one
+	   spot just to stay consistent */
 	[PVR2_CVAL_INPUT_RADIO] = SAA7115_COMPOSITE5,
 	[PVR2_CVAL_INPUT_COMPOSITE] = SAA7115_COMPOSITE5,
 	[PVR2_CVAL_INPUT_SVIDEO] =  SAA7115_SVIDEO2,
@@ -53,7 +62,7 @@ static const int routing_scheme1[] = {
 	[PVR2_CVAL_INPUT_TV] = SAA7115_COMPOSITE4,
 	[PVR2_CVAL_INPUT_RADIO] = SAA7115_COMPOSITE5,
 	[PVR2_CVAL_INPUT_COMPOSITE] = SAA7115_COMPOSITE3,
-	[PVR2_CVAL_INPUT_SVIDEO] =  SAA7115_SVIDEO2, 
+	[PVR2_CVAL_INPUT_SVIDEO] =  SAA7115_SVIDEO2, /* or SVIDEO0, it seems */
 };
 
 static const struct routing_scheme routing_def1 = {
@@ -94,3 +103,12 @@ void pvr2_saa7115_subdev_update(struct pvr2_hdw *hdw, struct v4l2_subdev *sd)
 }
 
 
+/*
+  Stuff for Emacs to see, in order to encourage consistent editing style:
+  *** Local Variables: ***
+  *** mode: c ***
+  *** fill-column: 70 ***
+  *** tab-width: 8 ***
+  *** c-basic-offset: 8 ***
+  *** End: ***
+  */

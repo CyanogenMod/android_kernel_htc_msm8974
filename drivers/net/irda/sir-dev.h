@@ -18,7 +18,7 @@
 #include <linux/workqueue.h>
 
 #include <net/irda/irda.h>
-#include <net/irda/irda_device.h>		
+#include <net/irda/irda_device.h>		// iobuff_t
 
 struct sir_fsm {
 	struct semaphore	sem;
@@ -30,15 +30,18 @@ struct sir_fsm {
 
 #define SIRDEV_STATE_WAIT_TX_COMPLETE	0x0100
 
+/* substates for wait_tx_complete */
 #define SIRDEV_STATE_WAIT_XMIT		0x0101
 #define SIRDEV_STATE_WAIT_UNTIL_SENT	0x0102
 #define SIRDEV_STATE_TX_DONE		0x0103
 
 #define SIRDEV_STATE_DONGLE_OPEN		0x0300
 
+/* 0x0301-0x03ff reserved for individual dongle substates */
 
 #define SIRDEV_STATE_DONGLE_CLOSE	0x0400
 
+/* 0x0401-0x04ff reserved for individual dongle substates */
 
 #define SIRDEV_STATE_SET_DTR_RTS		0x0500
 
@@ -46,8 +49,10 @@ struct sir_fsm {
 #define SIRDEV_STATE_DONGLE_CHECK	0x0800
 #define SIRDEV_STATE_DONGLE_RESET	0x0900
 
+/* 0x0901-0x09ff reserved for individual dongle substates */
 
 #define SIRDEV_STATE_DONGLE_SPEED	0x0a00
+/* 0x0a01-0x0aff reserved for individual dongle substates */
 
 #define SIRDEV_STATE_PORT_SPEED		0x0b00
 #define SIRDEV_STATE_DONE		0x0c00
@@ -95,6 +100,7 @@ struct sir_driver {
 };
 
 
+/* exported */
 
 extern int irda_register_dongle(struct dongle_driver *new);
 extern int irda_unregister_dongle(struct dongle_driver *drv);
@@ -106,10 +112,12 @@ extern int sirdev_set_dongle(struct sir_dev *dev, IRDA_DONGLE type);
 extern void sirdev_write_complete(struct sir_dev *dev);
 extern int sirdev_receive(struct sir_dev *dev, const unsigned char *cp, size_t count);
 
+/* low level helpers for SIR device/dongle setup */
 extern int sirdev_raw_write(struct sir_dev *dev, const char *buf, int len);
 extern int sirdev_raw_read(struct sir_dev *dev, char *buf, int len);
 extern int sirdev_set_dtr_rts(struct sir_dev *dev, int dtr, int rts);
 
+/* not exported */
 
 extern int sirdev_get_dongle(struct sir_dev *self, IRDA_DONGLE type);
 extern int sirdev_put_dongle(struct sir_dev *self);
@@ -117,6 +125,7 @@ extern int sirdev_put_dongle(struct sir_dev *self);
 extern void sirdev_enable_rx(struct sir_dev *dev);
 extern int sirdev_schedule_request(struct sir_dev *dev, int state, unsigned param);
 
+/* inline helpers */
 
 static inline int sirdev_schedule_speed(struct sir_dev *dev, unsigned speed)
 {
@@ -168,8 +177,8 @@ struct sir_dev {
 
 	unsigned	speed;
 
-	iobuff_t tx_buff;          
-	iobuff_t rx_buff;          
+	iobuff_t tx_buff;          /* Transmit buffer */
+	iobuff_t rx_buff;          /* Receive buffer */
 	struct sk_buff *tx_skb;
 
 	const struct dongle_driver * dongle_drv;
@@ -178,4 +187,4 @@ struct sir_dev {
 
 };
 
-#endif	
+#endif	/* IRDA_SIR_H */

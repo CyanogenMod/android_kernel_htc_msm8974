@@ -34,25 +34,30 @@
 
 #include "i2c.h"
 
-#define PCF8563_MAJOR 121	
-#define DEVICE_NAME "rtc"	
+#define PCF8563_MAJOR 121	/* Local major number. */
+#define DEVICE_NAME "rtc"	/* Name which is registered in /proc/devices. */
 #define PCF8563_NAME "PCF8563"
 #define DRIVER_VERSION "$Revision: 1.24 $"
 
+/* I2C bus slave registers. */
 #define RTC_I2C_READ		0xa3
 #define RTC_I2C_WRITE		0xa2
 
+/* Two simple wrapper macros, saves a few keystrokes. */
 #define rtc_read(x) i2c_readreg(RTC_I2C_READ, x)
 #define rtc_write(x,y) i2c_writereg(RTC_I2C_WRITE, x, y)
 
 static DEFINE_MUTEX(pcf8563_mutex);
-static DEFINE_MUTEX(rtc_lock); 
+static DEFINE_MUTEX(rtc_lock); /* Protect state etc */
 
 static const unsigned char days_in_month[] =
 	{ 0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
 static long pcf8563_unlocked_ioctl(struct file *, unsigned int, unsigned long);
 
+/* Cache VL bit value read at driver init since writing the RTC_SECOND
+ * register clears the VL status.
+ */
 static int voltage_low;
 
 static const struct file_operations pcf8563_fops = {
@@ -66,7 +71,7 @@ pcf8563_readreg(int reg)
 {
 	unsigned char res = rtc_read(reg);
 
-	
+	/* The PCF8563 does not return 0 for unimplemented bits. */
 	switch (reg) {
 	case RTC_SECONDS:
 	case RTC_MINUTES:
@@ -124,7 +129,7 @@ get_rtc_time(struct rtc_time *tm)
 	tm->tm_min  &= 0x7F;
 	tm->tm_hour &= 0x3F;
 	tm->tm_mday &= 0x3F;
-	tm->tm_wday &= 0x07; 
+	tm->tm_wday &= 0x07; /* Not coded in BCD. */
 	tm->tm_mon  &= 0x1F;
 
 	tm->tm_sec = bcd2bin(tm->tm_sec);
@@ -132,7 +137,7 @@ get_rtc_time(struct rtc_time *tm)
 	tm->tm_hour = bcd2bin(tm->tm_hour);
 	tm->tm_mday = bcd2bin(tm->tm_mday);
 	tm->tm_mon = bcd2bin(tm->tm_mon);
-	tm->tm_mon--; 
+	tm->tm_mon--; /* Month is 1..12 in RTC but 0..11 in linux */
 }
 
 int __init
@@ -145,13 +150,18 @@ pcf8563_init(void)
 		return res;
 	first = 0;
 
-	
+	/* Initiate the i2c protocol. */
 	res = i2c_init();
 	if (res < 0) {
 		printk(KERN_CRIT "pcf8563_init: Failed to init i2c.\n");
 		return res;
 	}
 
+	/*
+	 * First of all we need to reset the chip. This is done by
+	 * clearing control1, control2 and clk freq and resetting
+	 * all alarms.
+	 */
 	if (rtc_write(RTC_CONTROL1, 0x00) < 0)
 		goto err;
 
@@ -164,7 +174,7 @@ pcf8563_init(void)
 	if (rtc_write(RTC_TIMER_CONTROL, 0x03) < 0)
 		goto err;
 
-	
+	/* Reset the alarms. */
 	if (rtc_write(RTC_MINUTE_ALARM, 0x80) < 0)
 		goto err;
 
@@ -177,7 +187,7 @@ pcf8563_init(void)
 	if (rtc_write(RTC_WEEKDAY_ALARM, 0x80) < 0)
 		goto err;
 
-	
+	/* Check for low voltage, and warn about it. */
 	if (rtc_read(RTC_SECONDS) & 0x80) {
 		voltage_low = 1;
 		printk(KERN_WARNING "%s: RTC Voltage Low - reliable "
@@ -199,9 +209,13 @@ pcf8563_exit(void)
 	unregister_chrdev(PCF8563_MAJOR, DEVICE_NAME);
 }
 
+/*
+ * ioctl calls for this driver. Why return -ENOTTY upon error? Because
+ * POSIX says so!
+ */
 static int pcf8563_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
-	
+	/* Some sanity checks. */
 	if (_IOC_TYPE(cmd) != RTC_MAGIC)
 		return -ENOTTY;
 
@@ -241,15 +255,20 @@ static int pcf8563_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (copy_from_user(&tm, (struct rtc_time *) arg, sizeof tm))
 			return -EFAULT;
 
-		
+		/* Convert from struct tm to struct rtc_time. */
 		tm.tm_year += 1900;
 		tm.tm_mon += 1;
 
+		/*
+		 * Check if tm.tm_year is a leap year. A year is a leap
+		 * year if it is divisible by 4 but not 100, except
+		 * that years divisible by 400 _are_ leap years.
+		 */
 		year = tm.tm_year;
 		leap = (tm.tm_mon == 2) &&
 			((year % 4 == 0 && year % 100 != 0) || year % 400 == 0);
 
-		
+		/* Perform some sanity checks. */
 		if ((tm.tm_year < 1970) ||
 		    (tm.tm_mon > 12) ||
 		    (tm.tm_mday == 0) ||
@@ -275,7 +294,7 @@ static int pcf8563_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		rtc_write(RTC_YEAR, tm.tm_year);
 		rtc_write(RTC_MONTH, tm.tm_mon);
-		rtc_write(RTC_WEEKDAY, tm.tm_wday); 
+		rtc_write(RTC_WEEKDAY, tm.tm_wday); /* Not coded in BCD. */
 		rtc_write(RTC_DAY_OF_MONTH, tm.tm_mday);
 		rtc_write(RTC_HOURS, tm.tm_hour);
 		rtc_write(RTC_MINUTES, tm.tm_min);
@@ -298,12 +317,17 @@ static int pcf8563_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case RTC_VL_CLR:
 	{
+		/* Clear the VL bit in the seconds register in case
+		 * the time has not been set already (which would
+		 * have cleared it). This does not really matter
+		 * because of the cached voltage_low value but do it
+		 * anyway for consistency. */
 
 		int ret = rtc_read(RTC_SECONDS);
 
 		rtc_write(RTC_SECONDS, (ret & 0x7F));
 
-		
+		/* Clear the cached value. */
 		voltage_low = 0;
 
 		return 0;
@@ -343,7 +367,7 @@ static int __init pcf8563_register(void)
 	printk(KERN_INFO "%s Real-Time Clock Driver, %s\n", PCF8563_NAME,
 	       DRIVER_VERSION);
 
-	
+	/* Check for low voltage, and warn about it. */
 	if (voltage_low) {
 		printk(KERN_WARNING "%s: RTC Voltage Low - reliable date/time "
 		       "information is no longer guaranteed!\n", PCF8563_NAME);

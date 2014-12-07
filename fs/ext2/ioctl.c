@@ -52,7 +52,7 @@ long ext2_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		flags = ext2_mask_flags(inode->i_mode, flags);
 
 		mutex_lock(&inode->i_mutex);
-		
+		/* Is it quota file? Do not allow user to mess with it */
 		if (IS_NOQUOTA(inode)) {
 			mutex_unlock(&inode->i_mutex);
 			ret = -EPERM;
@@ -60,6 +60,12 @@ long ext2_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		oldflags = ei->i_flags;
 
+		/*
+		 * The IMMUTABLE and APPEND_ONLY flags can only be changed by
+		 * the relevant capability.
+		 *
+		 * This test looks nicer. Thanks to Pauline Middelink
+		 */
 		if ((flags ^ oldflags) & (EXT2_APPEND_FL | EXT2_IMMUTABLE_FL)) {
 			if (!capable(CAP_LINUX_IMMUTABLE)) {
 				mutex_unlock(&inode->i_mutex);
@@ -132,6 +138,14 @@ setversion_out:
 		if (rsv_window_size > EXT2_MAX_RESERVE_BLOCKS)
 			rsv_window_size = EXT2_MAX_RESERVE_BLOCKS;
 
+		/*
+		 * need to allocate reservation structure for this inode
+		 * before set the window size
+		 */
+		/*
+		 * XXX What lock should protect the rsv_goal_size?
+		 * Accessed in ext2_get_block only.  ext3 uses i_truncate.
+		 */
 		mutex_lock(&ei->truncate_mutex);
 		if (!ei->i_block_alloc_info)
 			ext2_init_block_alloc_info(inode);
@@ -152,7 +166,7 @@ setversion_out:
 #ifdef CONFIG_COMPAT
 long ext2_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	
+	/* These are just misnamed, they actually get/put from/to user an int */
 	switch (cmd) {
 	case EXT2_IOC32_GETFLAGS:
 		cmd = EXT2_IOC_GETFLAGS;

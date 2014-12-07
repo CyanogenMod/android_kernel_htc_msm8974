@@ -32,6 +32,7 @@
 #define OSM_DESCRIPTION	"I2O ProcFS OSM"
 
 #define I2O_MAX_MODULES 4
+// FIXME!
 #define FMT_U64_HEX "0x%08x%08x"
 #define U64_VAL(pu64) *((u32*)(pu64)+1), *((u32*)(pu64))
 
@@ -52,14 +53,17 @@
 #include <asm/uaccess.h>
 #include <asm/byteorder.h>
 
+/* Structure used to define /proc entries */
 typedef struct _i2o_proc_entry_t {
-	char *name;		
-	umode_t mode;		
-	const struct file_operations *fops;	
+	char *name;		/* entry name */
+	umode_t mode;		/* mode */
+	const struct file_operations *fops;	/* open function */
 } i2o_proc_entry;
 
+/* global I2O /proc/i2o entry */
 static struct proc_dir_entry *i2o_proc_dir_root;
 
+/* proc OSM driver struct */
 static struct i2o_driver i2o_proc_driver = {
 	.name = OSM_NAME,
 };
@@ -68,61 +72,72 @@ static int print_serial_number(struct seq_file *seq, u8 * serialno, int max_len)
 {
 	int i;
 
+	/* 19990419 -sralston
+	 *      The I2O v1.5 (and v2.0 so far) "official specification"
+	 *      got serial numbers WRONG!
+	 *      Apparently, and despite what Section 3.4.4 says and
+	 *      Figure 3-35 shows (pg 3-39 in the pdf doc),
+	 *      the convention / consensus seems to be:
+	 *        + First byte is SNFormat
+	 *        + Second byte is SNLen (but only if SNFormat==7 (?))
+	 *        + (v2.0) SCSI+BS may use IEEE Registered (64 or 128 bit) format
+	 */
 	switch (serialno[0]) {
-	case I2O_SNFORMAT_BINARY:	
+	case I2O_SNFORMAT_BINARY:	/* Binary */
 		seq_printf(seq, "0x");
 		for (i = 0; i < serialno[1]; i++) {
 			seq_printf(seq, "%02X", serialno[2 + i]);
 		}
 		break;
 
-	case I2O_SNFORMAT_ASCII:	
-		if (serialno[1] < ' ') {	
-			
+	case I2O_SNFORMAT_ASCII:	/* ASCII */
+		if (serialno[1] < ' ') {	/* printable or SNLen? */
+			/* sanity */
 			max_len =
 			    (max_len < serialno[1]) ? max_len : serialno[1];
 			serialno[1 + max_len] = '\0';
 
-			
+			/* just print it */
 			seq_printf(seq, "%s", &serialno[2]);
 		} else {
-			
+			/* print chars for specified length */
 			for (i = 0; i < serialno[1]; i++) {
 				seq_printf(seq, "%c", serialno[2 + i]);
 			}
 		}
 		break;
 
-	case I2O_SNFORMAT_UNICODE:	
+	case I2O_SNFORMAT_UNICODE:	/* UNICODE */
 		seq_printf(seq, "UNICODE Format.  Can't Display\n");
 		break;
 
-	case I2O_SNFORMAT_LAN48_MAC:	
+	case I2O_SNFORMAT_LAN48_MAC:	/* LAN-48 MAC Address */
 		seq_printf(seq, "LAN-48 MAC address @ %pM", &serialno[2]);
 		break;
 
-	case I2O_SNFORMAT_WAN:	
-		
+	case I2O_SNFORMAT_WAN:	/* WAN MAC Address */
+		/* FIXME: Figure out what a WAN access address looks like?? */
 		seq_printf(seq, "WAN Access Address");
 		break;
 
-	case I2O_SNFORMAT_LAN64_MAC:	
-		
+/* plus new in v2.0 */
+	case I2O_SNFORMAT_LAN64_MAC:	/* LAN-64 MAC Address */
+		/* FIXME: Figure out what a LAN-64 address really looks like?? */
 		seq_printf(seq,
 			   "LAN-64 MAC address @ [?:%02X:%02X:?] %pM",
 			   serialno[8], serialno[9], &serialno[2]);
 		break;
 
-	case I2O_SNFORMAT_DDM:	
+	case I2O_SNFORMAT_DDM:	/* I2O DDM */
 		seq_printf(seq,
 			   "DDM: Tid=%03Xh, Rsvd=%04Xh, OrgId=%04Xh",
 			   *(u16 *) & serialno[2],
 			   *(u16 *) & serialno[4], *(u16 *) & serialno[6]);
 		break;
 
-	case I2O_SNFORMAT_IEEE_REG64:	
-	case I2O_SNFORMAT_IEEE_REG128:	
-		
+	case I2O_SNFORMAT_IEEE_REG64:	/* IEEE Registered (64-bit) */
+	case I2O_SNFORMAT_IEEE_REG128:	/* IEEE Registered (128-bit) */
+		/* FIXME: Figure if this is even close?? */
 		seq_printf(seq,
 			   "IEEE NodeName(hi,lo)=(%08Xh:%08Xh), PortName(hi,lo)=(%08Xh:%08Xh)\n",
 			   *(u32 *) & serialno[2],
@@ -130,8 +145,8 @@ static int print_serial_number(struct seq_file *seq, u8 * serialno, int max_len)
 			   *(u32 *) & serialno[10], *(u32 *) & serialno[14]);
 		break;
 
-	case I2O_SNFORMAT_UNKNOWN:	
-	case I2O_SNFORMAT_UNKNOWN2:	
+	case I2O_SNFORMAT_UNKNOWN:	/* Unknown 0    */
+	case I2O_SNFORMAT_UNKNOWN2:	/* Unknown 0xff */
 	default:
 		seq_printf(seq, "Unknown data format (0x%02x)", serialno[0]);
 		break;
@@ -140,6 +155,12 @@ static int print_serial_number(struct seq_file *seq, u8 * serialno, int max_len)
 	return 0;
 }
 
+/**
+ *	i2o_get_class_name - 	do i2o class name lookup
+ *	@class: class number
+ *
+ *	Return a descriptive string for an i2o class.
+ */
 static const char *i2o_get_class_name(int class)
 {
 	int idx = 16;
@@ -398,6 +419,9 @@ static int i2o_seq_show_lct(struct seq_file *seq, void *v)
 		seq_printf(seq, "  Class, SubClass  : %s",
 			   i2o_get_class_name(lct->lct_entry[i].class_id));
 
+		/*
+		 *      Classes which we'll print subclass info for
+		 */
 		switch (lct->lct_entry[i].class_id & 0xFFF) {
 		case I2O_CLASS_RANDOM_BLOCK_STORAGE:
 			switch (lct->lct_entry[i].sub_class) {
@@ -504,12 +528,41 @@ static int i2o_seq_show_status(struct seq_file *seq, void *v)
 	int version;
 	i2o_status_block *sb = c->status_block.virt;
 
-	i2o_status_get(c);	
+	i2o_status_get(c);	// reread the status block
 
 	seq_printf(seq, "Organization ID        : %0#6x\n", sb->org_id);
 
 	version = sb->i2o_version;
 
+/* FIXME for Spec 2.0
+	if (version == 0x02) {
+		seq_printf(seq, "Lowest I2O version supported: ");
+		switch(workspace[2]) {
+			case 0x00:
+				seq_printf(seq, "1.0\n");
+				break;
+			case 0x01:
+				seq_printf(seq, "1.5\n");
+				break;
+			case 0x02:
+				seq_printf(seq, "2.0\n");
+				break;
+		}
+
+		seq_printf(seq, "Highest I2O version supported: ");
+		switch(workspace[3]) {
+			case 0x00:
+				seq_printf(seq, "1.0\n");
+				break;
+			case 0x01:
+				seq_printf(seq, "1.5\n");
+				break;
+			case 0x02:
+				seq_printf(seq, "2.0\n");
+				break;
+		}
+	}
+*/
 	seq_printf(seq, "IOP ID                 : %0#5x\n", sb->iop_id);
 	seq_printf(seq, "Host Unit ID           : %0#6x\n", sb->host_unit_id);
 	seq_printf(seq, "Segment Number         : %0#5x\n", sb->segment_number);
@@ -591,7 +644,7 @@ static int i2o_seq_show_status(struct seq_file *seq, void *v)
 	seq_printf(seq, "Max Outbound Frames    : %d\n",
 		   sb->max_outbound_frames);
 
-	
+	/* Spec doesn't say if NULL terminated or not... */
 	memcpy(prodstr, sb->product_id, 24);
 	prodstr[24] = '\0';
 	seq_printf(seq, "Product ID             : %s\n", prodstr);
@@ -700,7 +753,7 @@ static int i2o_seq_show_hw(struct seq_file *seq, void *v)
 		seq_printf(seq, "Unknown\n");
 	else
 		seq_printf(seq, "%s\n", cpu_table[work8[16]]);
-	
+	/* Anyone using ProcessorVersion? */
 
 	seq_printf(seq, "RAM              : %dkB\n", work32[1] >> 10);
 	seq_printf(seq, "Non-Volatile Mem : %dkB\n", work32[2] >> 10);
@@ -721,6 +774,7 @@ static int i2o_seq_show_hw(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Executive group 0003h - Executing DDM List (table) */
 static int i2o_seq_show_ddm_table(struct seq_file *seq, void *v)
 {
 	struct i2o_controller *c = (struct i2o_controller *)seq->private;
@@ -796,6 +850,7 @@ static int i2o_seq_show_ddm_table(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Executive group 0004h - Driver Store (scalar) */
 static int i2o_seq_show_driver_store(struct seq_file *seq, void *v)
 {
 	struct i2o_controller *c = (struct i2o_controller *)seq->private;
@@ -818,6 +873,7 @@ static int i2o_seq_show_driver_store(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Executive group 0005h - Driver Store Table (table) */
 static int i2o_seq_show_drivers_stored(struct seq_file *seq, void *v)
 {
 	typedef struct _i2o_driver_store {
@@ -896,6 +952,7 @@ static int i2o_seq_show_drivers_stored(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Generic group F000h - Params Descriptor (table) */
 static int i2o_seq_show_groups(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
@@ -971,6 +1028,7 @@ static int i2o_seq_show_groups(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Generic group F001h - Physical Device Table (table) */
 static int i2o_seq_show_phys_device(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
@@ -1011,6 +1069,7 @@ static int i2o_seq_show_phys_device(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Generic group F002h - Claimed Table (table) */
 static int i2o_seq_show_claimed(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
@@ -1050,6 +1109,7 @@ static int i2o_seq_show_claimed(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Generic group F003h - User Table (table) */
 static int i2o_seq_show_users(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
@@ -1103,6 +1163,7 @@ static int i2o_seq_show_users(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Generic group F005h - Private message extensions (table) (optional) */
 static int i2o_seq_show_priv_msgs(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
@@ -1151,6 +1212,7 @@ static int i2o_seq_show_priv_msgs(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Generic group F006h - Authorized User Table (table) */
 static int i2o_seq_show_authorized_users(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
@@ -1191,11 +1253,12 @@ static int i2o_seq_show_authorized_users(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Generic group F100h - Device Identity (scalar) */
 static int i2o_seq_show_dev_identity(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
-	static u32 work32[128];	
-	
+	static u32 work32[128];	// allow for "stuff" + up to 256 byte (max) serial number
+	// == (allow) 512d bytes (max)
 	static u16 *work16 = (u16 *) work32;
 	int token;
 
@@ -1220,6 +1283,9 @@ static int i2o_seq_show_dev_identity(struct seq_file *seq, void *v)
 
 	seq_printf(seq, "Serial number : ");
 	print_serial_number(seq, (u8 *) (work32 + 16),
+			    /* allow for SNLen plus
+			     * possible trailing '\0'
+			     */
 			    sizeof(work32) - (16 * sizeof(u32)) - 2);
 	seq_printf(seq, "\n");
 
@@ -1235,6 +1301,7 @@ static int i2o_seq_show_dev_name(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Generic group F101h - DDM Identity (scalar) */
 static int i2o_seq_show_ddm_identity(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
@@ -1246,7 +1313,7 @@ static int i2o_seq_show_ddm_identity(struct seq_file *seq, void *v)
 		u8 module_rev[8];
 		u8 sn_format;
 		u8 serial_number[12];
-		u8 pad[256];	
+		u8 pad[256];	// allow up to 256 byte (max) serial number
 	} result;
 
 	token = i2o_parm_field_get(d, 0xF101, -1, &result, sizeof(result));
@@ -1264,13 +1331,14 @@ static int i2o_seq_show_ddm_identity(struct seq_file *seq, void *v)
 
 	seq_printf(seq, "Serial number       : ");
 	print_serial_number(seq, result.serial_number, sizeof(result) - 36);
-	
+	/* allow for SNLen plus possible trailing '\0' */
 
 	seq_printf(seq, "\n");
 
 	return 0;
 }
 
+/* Generic group F102h - User Information (scalar) */
 static int i2o_seq_show_uinfo(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
@@ -1302,6 +1370,7 @@ static int i2o_seq_show_uinfo(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/* Generic group F103h - SGL Operating Limits (scalar) */
 static int i2o_seq_show_sgl_limits(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
@@ -1325,6 +1394,10 @@ static int i2o_seq_show_sgl_limits(struct seq_file *seq, void *v)
 	seq_printf(seq, "Max SGL frag count    : %d\n", work16[7]);
 	seq_printf(seq, "SGL frag count target : %d\n", work16[8]);
 
+/* FIXME
+	if (d->i2oversion == 0x02)
+	{
+*/
 	seq_printf(seq, "SGL data alignment    : %d\n", work16[8]);
 	seq_printf(seq, "SGL addr limit        : %d\n", work8[20]);
 	seq_printf(seq, "SGL addr sizes supported : ");
@@ -1337,10 +1410,14 @@ static int i2o_seq_show_sgl_limits(struct seq_file *seq, void *v)
 	if (work8[21] & 0x08)
 		seq_printf(seq, "128 bit ");
 	seq_printf(seq, "\n");
+/*
+	}
+*/
 
 	return 0;
 }
 
+/* Generic group F200h - Sensors (scalar) */
 static int i2o_seq_show_sensors(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
@@ -1755,6 +1832,10 @@ static const struct file_operations i2o_seq_fops_sensors = {
 	.release = single_release,
 };
 
+/*
+ * IOP specific entries...write field just in case someone
+ * ever wants one.
+ */
 static i2o_proc_entry i2o_proc_generic_iop_entries[] = {
 	{"hrt", S_IFREG | S_IRUGO, &i2o_seq_fops_hrt},
 	{"lct", S_IFREG | S_IRUGO, &i2o_seq_fops_lct},
@@ -1766,6 +1847,9 @@ static i2o_proc_entry i2o_proc_generic_iop_entries[] = {
 	{NULL, 0, NULL}
 };
 
+/*
+ * Device specific entries
+ */
 static i2o_proc_entry generic_dev_entries[] = {
 	{"groups", S_IFREG | S_IRUGO, &i2o_seq_fops_groups},
 	{"phys_dev", S_IFREG | S_IRUGO, &i2o_seq_fops_phys_device},
@@ -1781,11 +1865,24 @@ static i2o_proc_entry generic_dev_entries[] = {
 	{NULL, 0, NULL}
 };
 
+/*
+ *  Storage unit specific entries (SCSI Periph, BS) with device names
+ */
 static i2o_proc_entry rbs_dev_entries[] = {
 	{"dev_name", S_IFREG | S_IRUGO, &i2o_seq_fops_dev_name},
 	{NULL, 0, NULL}
 };
 
+/**
+ *	i2o_proc_create_entries - Creates proc dir entries
+ *	@dir: proc dir entry under which the entries should be placed
+ *	@i2o_pe: pointer to the entries which should be added
+ *	@data: pointer to I2O controller or device
+ *
+ *	Create proc dir entries for a I2O controller or I2O device.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 static int i2o_proc_create_entries(struct proc_dir_entry *dir,
 				   i2o_proc_entry * i2o_pe, void *data)
 {
@@ -1803,6 +1900,13 @@ static int i2o_proc_create_entries(struct proc_dir_entry *dir,
 	return 0;
 }
 
+/**
+ *	i2o_proc_subdir_remove - Remove child entries from a proc entry
+ *	@dir: proc dir entry from which the childs should be removed
+ *
+ *	Iterate over each i2o proc entry under dir and remove it. If the child
+ *	also has entries, remove them too.
+ */
 static void i2o_proc_subdir_remove(struct proc_dir_entry *dir)
 {
 	struct proc_dir_entry *pe, *tmp;
@@ -1815,6 +1919,14 @@ static void i2o_proc_subdir_remove(struct proc_dir_entry *dir)
 	}
 };
 
+/**
+ *	i2o_proc_device_add - Add an I2O device to the proc dir
+ *	@dir: proc dir entry to which the device should be added
+ *	@dev: I2O device which should be added
+ *
+ *	Add an I2O device to the proc dir entry dir and create the entries for
+ *	the device depending on the class of the I2O device.
+ */
 static void i2o_proc_device_add(struct proc_dir_entry *dir,
 				struct i2o_device *dev)
 {
@@ -1836,7 +1948,7 @@ static void i2o_proc_device_add(struct proc_dir_entry *dir,
 
 	i2o_proc_create_entries(devdir, generic_dev_entries, dev);
 
-	
+	/* Inform core that we want updates about this device's status */
 	switch (dev->lct_data.class_id) {
 	case I2O_CLASS_SCSI_PERIPHERAL:
 	case I2O_CLASS_RANDOM_BLOCK_STORAGE:
@@ -1849,6 +1961,16 @@ static void i2o_proc_device_add(struct proc_dir_entry *dir,
 		i2o_proc_create_entries(devdir, i2o_pe, dev);
 }
 
+/**
+ *	i2o_proc_iop_add - Add an I2O controller to the i2o proc tree
+ *	@dir: parent proc dir entry
+ *	@c: I2O controller which should be added
+ *
+ *	Add the entries to the parent proc dir entry. Also each device is added
+ *	to the controllers proc dir entry.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 static int i2o_proc_iop_add(struct proc_dir_entry *dir,
 			    struct i2o_controller *c)
 {
@@ -1871,6 +1993,14 @@ static int i2o_proc_iop_add(struct proc_dir_entry *dir,
 	return 0;
 }
 
+/**
+ *	i2o_proc_iop_remove - Removes an I2O controller from the i2o proc tree
+ *	@dir: parent proc dir entry
+ *	@c: I2O controller which should be removed
+ *
+ *	Iterate over each i2o proc entry and search controller c. If it is found
+ *	remove it from the tree.
+ */
 static void i2o_proc_iop_remove(struct proc_dir_entry *dir,
 				struct i2o_controller *c)
 {
@@ -1888,6 +2018,13 @@ static void i2o_proc_iop_remove(struct proc_dir_entry *dir,
 	}
 }
 
+/**
+ *	i2o_proc_fs_create - Create the i2o proc fs.
+ *
+ *	Iterate over each I2O controller and create the entries for it.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 static int __init i2o_proc_fs_create(void)
 {
 	struct i2o_controller *c;
@@ -1902,6 +2039,13 @@ static int __init i2o_proc_fs_create(void)
 	return 0;
 };
 
+/**
+ *	i2o_proc_fs_destroy - Cleanup the all i2o proc entries
+ *
+ *	Iterate over each I2O controller and remove the entries for it.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 static int __exit i2o_proc_fs_destroy(void)
 {
 	struct i2o_controller *c;
@@ -1914,6 +2058,13 @@ static int __exit i2o_proc_fs_destroy(void)
 	return 0;
 };
 
+/**
+ *	i2o_proc_init - Init function for procfs
+ *
+ *	Registers Proc OSM and creates procfs entries.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 static int __init i2o_proc_init(void)
 {
 	int rc;
@@ -1933,6 +2084,11 @@ static int __init i2o_proc_init(void)
 	return 0;
 };
 
+/**
+ *	i2o_proc_exit - Exit function for procfs
+ *
+ *	Unregisters Proc OSM and removes procfs entries.
+ */
 static void __exit i2o_proc_exit(void)
 {
 	i2o_driver_unregister(&i2o_proc_driver);

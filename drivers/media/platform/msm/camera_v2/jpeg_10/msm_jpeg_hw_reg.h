@@ -135,4 +135,4 @@
 #define JPEG_VBIF_OUT_AXI_AMEMTYPE_CONF0       0x160
 #define JPEG_VBIF_OUT_AXI_AMEMTYPE_CONF1       0x164
 
-#endif 
+#endif /* MSM_JPEG_HW_REG_H */

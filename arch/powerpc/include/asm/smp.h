@@ -72,6 +72,7 @@ int generic_check_cpu_restart(unsigned int cpu);
 #define raw_smp_processor_id()	(local_paca->paca_index)
 #define hard_smp_processor_id() (get_paca()->hw_cpu_id)
 #else
+/* 32-bit */
 extern int smp_hw_index[];
 
 #define raw_smp_processor_id()	(current_thread_info()->cpu)
@@ -103,14 +104,20 @@ static inline struct cpumask *cpu_core_mask(int cpu)
 
 extern int cpu_to_core_id(int cpu);
 
+/* Since OpenPIC has only 4 IPIs, we use slightly different message numbers.
+ *
+ * Make sure this matches openpic_request_IPIs in open_pic.c, or what shows up
+ * in /proc/interrupts will be wrong!!! --Troy */
 #define PPC_MSG_CALL_FUNCTION   0
 #define PPC_MSG_RESCHEDULE      1
 #define PPC_MSG_CALL_FUNC_SINGLE	2
 #define PPC_MSG_DEBUGGER_BREAK  3
 
+/* for irq controllers that have dedicated ipis per message (4) */
 extern int smp_request_message_ipi(int virq, int message);
 extern const char *smp_ipi_name[];
 
+/* for irq controllers with only a single ipi */
 extern void smp_muxed_ipi_set_data(int cpu, unsigned long data);
 extern void smp_muxed_ipi_message_pass(int cpu, int msg);
 extern irqreturn_t smp_ipi_demux(void);
@@ -124,10 +131,11 @@ extern int __cpu_disable(void);
 extern void __cpu_die(unsigned int cpu);
 
 #else
+/* for UP */
 #define hard_smp_processor_id()		get_hard_smp_processor_id(0)
 #define smp_setup_cpu_maps()
 
-#endif 
+#endif /* CONFIG_SMP */
 
 #ifdef CONFIG_PPC64
 static inline int get_hard_smp_processor_id(int cpu)
@@ -143,6 +151,7 @@ static inline void set_hard_smp_processor_id(int cpu, int phys)
 extern void smp_release_cpus(void);
 
 #else
+/* 32-bit */
 #ifndef CONFIG_SMP
 extern int boot_cpuid_phys;
 static inline int get_hard_smp_processor_id(int cpu)
@@ -154,8 +163,8 @@ static inline void set_hard_smp_processor_id(int cpu, int phys)
 {
 	boot_cpuid_phys = phys;
 }
-#endif 
-#endif 
+#endif /* !CONFIG_SMP */
+#endif /* !CONFIG_PPC64 */
 
 extern int smt_enabled_at_boot;
 
@@ -171,13 +180,17 @@ extern struct smp_ops_t *smp_ops;
 extern void arch_send_call_function_single_ipi(int cpu);
 extern void arch_send_call_function_ipi_mask(const struct cpumask *mask);
 
+/* Definitions relative to the secondary CPU spin loop
+ * and entry point. Not all of them exist on both 32 and
+ * 64-bit but defining them all here doesn't harm
+ */
 extern void generic_secondary_smp_init(void);
 extern void generic_secondary_thread_init(void);
 extern unsigned long __secondary_hold_spinloop;
 extern unsigned long __secondary_hold_acknowledge;
 extern char __secondary_hold;
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_SMP_H) */

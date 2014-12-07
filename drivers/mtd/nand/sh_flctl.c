@@ -68,8 +68,8 @@ static struct nand_bbt_descr flctl_4secc_largepage = {
 
 static void empty_fifo(struct sh_flctl *flctl)
 {
-	writel(0x000c0000, FLINTDMACR(flctl));	
-	writel(0x00000000, FLINTDMACR(flctl));	
+	writel(0x000c0000, FLINTDMACR(flctl));	/* FIFO Clear */
+	writel(0x00000000, FLINTDMACR(flctl));	/* Clear Error flags */
 }
 
 static void start_translation(struct sh_flctl *flctl)
@@ -104,16 +104,16 @@ static void set_addr(struct mtd_info *mtd, int column, int page_addr)
 	uint32_t addr = 0;
 
 	if (column == -1) {
-		addr = page_addr;	
+		addr = page_addr;	/* ERASE1 */
 	} else if (page_addr != -1) {
-		
+		/* SEQIN, READ0, etc.. */
 		if (flctl->chip.options & NAND_BUSWIDTH_16)
 			column >>= 1;
 		if (flctl->page_size) {
 			addr = column & 0x0FFF;
 			addr |= (page_addr & 0xff) << 16;
 			addr |= ((page_addr >> 8) & 0xff) << 24;
-			
+			/* big than 128MB */
 			if (flctl->rw_ADRCNT == ADRCNT2_E) {
 				uint32_t 	addr2;
 				addr2 = (page_addr >> 16) & 0xff;
@@ -135,7 +135,7 @@ static void wait_rfifo_ready(struct sh_flctl *flctl)
 
 	while (timeout--) {
 		uint32_t val;
-		
+		/* check FIFO */
 		val = readl(FLDTCNTR(flctl)) >> 16;
 		if (val & 0xFF)
 			return;
@@ -149,7 +149,7 @@ static void wait_wfifo_ready(struct sh_flctl *flctl)
 	uint32_t len, timeout = LOOP_TIMEOUT_MAX;
 
 	while (timeout--) {
-		
+		/* check FIFO */
 		len = (readl(FLDTCNTR(flctl)) >> 16) & 0xFF;
 		if (len >= 4)
 			return;
@@ -171,16 +171,16 @@ static int wait_recfifo_ready(struct sh_flctl *flctl, int sector_number)
 	while (timeout--) {
 		size = readl(FLDTCNTR(flctl)) >> 24;
 		if (size & 0xFF)
-			return 0;	
+			return 0;	/* success */
 
 		if (readl(FL4ECCCR(flctl)) & _4ECCFA)
-			return 1;	
+			return 1;	/* can't correct */
 
 		udelay(1);
 		if (!(readl(FL4ECCCR(flctl)) & _4ECCEND))
 			continue;
 
-		
+		/* start error correction */
 		ecc_reg[0] = FL4ECCRESULT0(flctl);
 		ecc_reg[1] = FL4ECCRESULT1(flctl);
 		ecc_reg[2] = FL4ECCRESULT2(flctl);
@@ -208,7 +208,7 @@ static int wait_recfifo_ready(struct sh_flctl *flctl, int sector_number)
 	}
 
 	timeout_error(flctl, __func__);
-	return 1;	
+	return 1;	/* timeout */
 }
 
 static void wait_wecfifo_ready(struct sh_flctl *flctl)
@@ -217,7 +217,7 @@ static void wait_wecfifo_ready(struct sh_flctl *flctl)
 	uint32_t len;
 
 	while (timeout--) {
-		
+		/* check FLECFIFO */
 		len = (readl(FLDTCNTR(flctl)) >> 24) & 0xFF;
 		if (len >= 4)
 			return;
@@ -287,16 +287,16 @@ static void set_cmd_regs(struct mtd_info *mtd, uint32_t cmd, uint32_t flcmcdr_va
 	uint32_t flcmncr_val = flctl->flcmncr_base & ~SEL_16BIT;
 	uint32_t flcmdcr_val, addr_len_bytes = 0;
 
-	
+	/* Set SNAND bit if page size is 2048byte */
 	if (flctl->page_size)
 		flcmncr_val |= SNAND_E;
 	else
 		flcmncr_val &= ~SNAND_E;
 
-	
+	/* default FLCMDCR val */
 	flcmdcr_val = DOCMD1_E | DOADR_E;
 
-	
+	/* Set for FLCMDCR */
 	switch (cmd) {
 	case NAND_CMD_ERASE1:
 		addr_len_bytes = flctl->erase_ADRCNT;
@@ -311,8 +311,8 @@ static void set_cmd_regs(struct mtd_info *mtd, uint32_t cmd, uint32_t flcmcdr_va
 			flcmncr_val |= SEL_16BIT;
 		break;
 	case NAND_CMD_SEQIN:
-		
-		flcmdcr_val &= ~DOADR_E;	
+		/* This case is that cmd is READ0 or READ1 or READ00 */
+		flcmdcr_val &= ~DOADR_E;	/* ONLY execute 1st cmd */
 		break;
 	case NAND_CMD_PAGEPROG:
 		addr_len_bytes = flctl->rw_ADRCNT;
@@ -334,10 +334,10 @@ static void set_cmd_regs(struct mtd_info *mtd, uint32_t cmd, uint32_t flcmcdr_va
 		break;
 	}
 
-	
+	/* Set address bytes parameter */
 	flcmdcr_val |= addr_len_bytes;
 
-	
+	/* Now actually write */
 	writel(flcmncr_val, FLCMNCR(flctl));
 	writel(flcmdcr_val, FLCMDCR(flctl));
 	writel(flcmcdr_val, FLCMCDR(flctl));
@@ -427,7 +427,7 @@ static void execmd_read_oob(struct mtd_info *mtd, int page_addr)
 	empty_fifo(flctl);
 	if (flctl->page_size) {
 		int i;
-		
+		/* In case that the page size is 2k */
 		for (i = 0; i < 16 * 3; i++)
 			flctl->done_buff[i] = 0xFF;
 
@@ -438,7 +438,7 @@ static void execmd_read_oob(struct mtd_info *mtd, int page_addr)
 		read_fiforeg(flctl, 16, 16 * 3);
 		wait_completion(flctl);
 	} else {
-		
+		/* In case that the page size is 512b */
 		set_addr(mtd, 512, page_addr);
 		writel(16, FLDTCNTR(flctl));
 
@@ -473,7 +473,7 @@ static void execmd_write_page_sector(struct mtd_info *mtd)
 		write_fiforeg(flctl, 512, 512 * sector);
 
 		for (i = 0; i < 4; i++) {
-			wait_wecfifo_ready(flctl); 
+			wait_wecfifo_ready(flctl); /* wait for write ready */
 			writel(0xFFFFFFFF, FLECFIFO(flctl));
 		}
 		wait_completion(flctl);
@@ -502,7 +502,7 @@ static void execmd_write_oob(struct mtd_info *mtd)
 	for (; sector < page_sectors; sector++) {
 		empty_fifo(flctl);
 		set_addr(mtd, sector * 528 + 512, page_addr);
-		writel(16, FLDTCNTR(flctl));	
+		writel(16, FLDTCNTR(flctl));	/* set read size */
 
 		start_translation(flctl);
 		write_fiforeg(flctl, 16, 16 * sector);
@@ -526,7 +526,7 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 	case NAND_CMD_READ1:
 	case NAND_CMD_READ0:
 		if (flctl->hwecc) {
-			
+			/* read page with hwecc */
 			execmd_read_page_sector(mtd, page_addr);
 			break;
 		}
@@ -546,7 +546,7 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 
 	case NAND_CMD_READOOB:
 		if (flctl->hwecc) {
-			
+			/* read page with hwecc */
 			execmd_read_oob(mtd, page_addr);
 			break;
 		}
@@ -580,13 +580,13 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 	case NAND_CMD_READID:
 		set_cmd_regs(mtd, command, command);
 
-		
+		/* READID is always performed using an 8-bit bus */
 		if (flctl->chip.options & NAND_BUSWIDTH_16)
 			column <<= 1;
 		set_addr(mtd, column, 0);
 
 		flctl->read_bytes = 8;
-		writel(flctl->read_bytes, FLDTCNTR(flctl)); 
+		writel(flctl->read_bytes, FLDTCNTR(flctl)); /* set read size */
 		empty_fifo(flctl);
 		start_translation(flctl);
 		read_fiforeg(flctl, flctl->read_bytes, 0);
@@ -607,7 +607,7 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 
 	case NAND_CMD_SEQIN:
 		if (!flctl->page_size) {
-			
+			/* output read command */
 			if (column >= mtd->writesize) {
 				column -= mtd->writesize;
 				read_cmd = NAND_CMD_READOOB;
@@ -629,12 +629,12 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 			set_cmd_regs(mtd, NAND_CMD_SEQIN,
 					flctl->seqin_read_cmd);
 			set_addr(mtd, -1, -1);
-			writel(0, FLDTCNTR(flctl));	
+			writel(0, FLDTCNTR(flctl));	/* set 0 size */
 			start_translation(flctl);
 			wait_completion(flctl);
 		}
 		if (flctl->hwecc) {
-			
+			/* write page with hwecc */
 			if (flctl->seqin_column == mtd->writesize)
 				execmd_write_oob(mtd);
 			else if (!flctl->seqin_column)
@@ -645,7 +645,7 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 		}
 		set_cmd_regs(mtd, command, (command << 8) | NAND_CMD_SEQIN);
 		set_addr(mtd, flctl->seqin_column, flctl->seqin_page_addr);
-		writel(flctl->index, FLDTCNTR(flctl));	
+		writel(flctl->index, FLDTCNTR(flctl));	/* set write size */
 		start_translation(flctl);
 		write_fiforeg(flctl, flctl->index, 0);
 		wait_completion(flctl);
@@ -656,16 +656,16 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 		set_addr(mtd, -1, -1);
 
 		flctl->read_bytes = 1;
-		writel(flctl->read_bytes, FLDTCNTR(flctl)); 
+		writel(flctl->read_bytes, FLDTCNTR(flctl)); /* set read size */
 		start_translation(flctl);
-		read_datareg(flctl, 0); 
+		read_datareg(flctl, 0); /* read and end */
 		break;
 
 	case NAND_CMD_RESET:
 		set_cmd_regs(mtd, command, command);
 		set_addr(mtd, -1, -1);
 
-		writel(0, FLDTCNTR(flctl));	
+		writel(0, FLDTCNTR(flctl));	/* set 0 size */
 		start_translation(flctl);
 		wait_completion(flctl);
 		break;
@@ -676,7 +676,7 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 	goto runtime_exit;
 
 read_normal_exit:
-	writel(flctl->read_bytes, FLDTCNTR(flctl));	
+	writel(flctl->read_bytes, FLDTCNTR(flctl));	/* set read size */
 	empty_fifo(flctl);
 	start_translation(flctl);
 	read_fiforeg(flctl, flctl->read_bytes, 0);
@@ -787,11 +787,11 @@ static int flctl_chip_init_tail(struct mtd_info *mtd)
 	if (mtd->writesize == 512) {
 		flctl->page_size = 0;
 		if (chip->chipsize > (32 << 20)) {
-			
+			/* big than 32MB */
 			flctl->rw_ADRCNT = ADRCNT_4;
 			flctl->erase_ADRCNT = ADRCNT_3;
 		} else if (chip->chipsize > (2 << 16)) {
-			
+			/* big than 128KB */
 			flctl->rw_ADRCNT = ADRCNT_3;
 			flctl->erase_ADRCNT = ADRCNT_2;
 		} else {
@@ -801,11 +801,11 @@ static int flctl_chip_init_tail(struct mtd_info *mtd)
 	} else {
 		flctl->page_size = 1;
 		if (chip->chipsize > (128 << 20)) {
-			
+			/* big than 128MB */
 			flctl->rw_ADRCNT = ADRCNT2_E;
 			flctl->erase_ADRCNT = ADRCNT_3;
 		} else if (chip->chipsize > (8 << 16)) {
-			
+			/* big than 512KB */
 			flctl->rw_ADRCNT = ADRCNT_4;
 			flctl->erase_ADRCNT = ADRCNT_2;
 		} else {
@@ -830,7 +830,7 @@ static int flctl_chip_init_tail(struct mtd_info *mtd)
 		chip->ecc.write_page = flctl_write_page_hwecc;
 		chip->ecc.mode = NAND_ECC_HW;
 
-		
+		/* 4 symbols ECC enabled */
 		flctl->flcmncr_base |= _4ECCEN | ECCPOS2 | ECCPOS_02;
 	} else {
 		chip->ecc.mode = NAND_ECC_SOFT;
@@ -883,8 +883,8 @@ static int __devinit flctl_probe(struct platform_device *pdev)
 
 	nand->options = NAND_NO_AUTOINCR;
 
-	
-	
+	/* Set address of hardware control function */
+	/* 20 us command delay time */
 	nand->chip_delay = 20;
 
 	nand->read_byte = flctl_read_byte;

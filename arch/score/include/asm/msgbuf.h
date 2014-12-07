@@ -3,4 +3,4 @@
 
 #include <asm-generic/msgbuf.h>
 
-#endif 
+#endif /* _ASM_SCORE_MSGBUF_H */

@@ -29,6 +29,10 @@ enum mx31moboard_boards {
 	MX31EYEBOT	= 4,
 };
 
+/*
+ * This CPU module needs a baseboard to work. After basic initializing
+ * its own devices, it calls the baseboard's init function.
+ */
 
 extern void mx31moboard_devboard_init(void);
 extern void mx31moboard_marxbot_init(void);
@@ -36,4 +40,4 @@ extern void mx31moboard_smartbot_init(int board);
 
 #endif
 
-#endif 
+#endif /* __ASM_ARCH_MXC_BOARD_MX31MOBOARD_H__ */

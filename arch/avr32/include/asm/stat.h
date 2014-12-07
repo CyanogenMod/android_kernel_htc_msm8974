@@ -58,10 +58,10 @@ struct stat64 {
 	unsigned long long st_rdev;
 
 	long long	st_size;
-	unsigned long	__pad1;		
+	unsigned long	__pad1;		/* align 64-bit st_blocks */
 	unsigned long	st_blksize;
 
-	unsigned long long st_blocks;	
+	unsigned long long st_blocks;	/* Number 512-byte blocks allocated. */
 
 	unsigned long	st_atime;
 	unsigned long	st_atime_nsec;
@@ -76,4 +76,4 @@ struct stat64 {
 	unsigned long	__unused2;
 };
 
-#endif 
+#endif /* __ASM_AVR32_STAT_H */

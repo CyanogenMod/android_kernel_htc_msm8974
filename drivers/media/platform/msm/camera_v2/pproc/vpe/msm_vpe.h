@@ -20,6 +20,7 @@
 #include <media/v4l2-subdev.h>
 #include "msm_sd.h"
 
+/***********  start of register offset *********************/
 #define VPE_INTR_ENABLE_OFFSET                0x0020
 #define VPE_INTR_STATUS_OFFSET                0x0024
 #define VPE_INTR_CLEAR_OFFSET                 0x0028
@@ -70,10 +71,11 @@
 #define VPE_SCALE_COEFF_MSBn(n)	(0x50404 + 8 * (n))
 #define VPE_SCALE_COEFF_NUM			32
 
+/*********** end of register offset ********************/
 
 
 #define VPE_HARDWARE_VERSION          0x00080308
-#define VPE_SW_RESET_VALUE            0x00000010  
+#define VPE_SW_RESET_VALUE            0x00000010  /* bit 4 for PPP*/
 #define VPE_AXI_RD_ARB_CONFIG_VALUE   0x124924
 #define VPE_CMD_MODE_VALUE            0x1
 #define VPE_DEFAULT_OP_MODE_VALUE     0x40FC0004
@@ -84,6 +86,9 @@
 #define VPE_TURBO_MODE_CLOCK_RATE    200000000
 #define VPE_SUBDEV_MAX_EVENTS        30
 
+/**************************************************/
+/*********** End of command id ********************/
+/**************************************************/
 
 #define SCALER_PHASE_BITS 29
 #define HAL_MDP_PHASE_STEP_2P50    0x50000000
@@ -97,6 +102,33 @@
 
 #define MSM_VPE_TASKLETQ_SIZE		16
 
+/**
+ * The format of the msm_vpe_transaction_setup_cfg is as follows:
+ *
+ * - vpe_update_scale_coef (65*4 uint32_t's)
+ *   - Each table is 65 uint32_t's long
+ *   - 1st uint32_t in each table indicates offset
+ *   - Following 64 uint32_t's are the data
+ *
+ * - vpe_input_plane_config (6 uint32_t's)
+ *   - VPE_SRC_FORMAT_OFFSET
+ *   - VPE_SRC_UNPACK_PATTERN1_OFFSET
+ *   - VPE_SRC_IMAGE_SIZE_OFFSET
+ *   - VPE_SRC_YSTRIDE1_OFFSET
+ *   - VPE_SRC_SIZE_OFFSET
+ *   - VPE_SRC_XY_OFFSET
+ *
+ * - vpe_output_plane_config (5 uint32_t's)
+ *   - VPE_OUT_FORMAT_OFFSET
+ *   - VPE_OUT_PACK_PATTERN1_OFFSET
+ *   - VPE_OUT_YSTRIDE1_OFFSET
+ *   - VPE_OUT_SIZE_OFFSET
+ *   - VPE_OUT_XY_OFFSET
+ *
+ * - vpe_operation_config (1 uint32_t)
+ *   - VPE_OP_MODE_OFFSET
+ *
+ */
 
 #define VPE_SCALER_CONFIG_LEN           260
 #define VPE_INPUT_PLANE_CFG_LEN         24
@@ -109,6 +141,7 @@
 		+ VPE_INPUT_PLANE_CFG_LEN			\
 		+ VPE_OUTPUT_PLANE_CFG_LEN			\
 		+ VPE_OPERATION_MODE_CFG_LEN)
+/* VPE_TRANSACTION_SETUP_CONFIG_LEN = 1088 */
 
 struct msm_vpe_transaction_setup_cfg {
 	uint8_t scaler_cfg[VPE_TRANSACTION_SETUP_CONFIG_LEN];
@@ -194,7 +227,7 @@ struct vpe_device {
 	struct ion_client *client;
 	struct kref refcount;
 
-	
+	/* Reusing proven tasklet from msm isp */
 	atomic_t irq_cnt;
 	uint8_t taskletq_idx;
 	spinlock_t  tasklet_lock;
@@ -206,8 +239,12 @@ struct vpe_device {
 	struct vpe_subscribe_info vpe_subscribe_list[MAX_ACTIVE_VPE_INSTANCE];
 	uint32_t vpe_open_cnt;
 
-	struct msm_device_queue eventData_q; 
+	struct msm_device_queue eventData_q; /* V4L2 Event Payload Queue */
 
+	/*
+	 * Processing Queue: store frame info for frames sent to
+	 * microcontroller
+	 */
 	struct msm_device_queue processing_q;
 
 	struct msm_vpe_buff_queue_info_t *buff_queue;
@@ -215,4 +252,4 @@ struct vpe_device {
 	struct v4l2_subdev *buf_mgr_subdev;
 };
 
-#endif 
+#endif /* __MSM_VPE_H__ */

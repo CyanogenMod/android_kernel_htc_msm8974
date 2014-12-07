@@ -33,29 +33,29 @@ static const char *ghsuart_ctrl_names[] = {
 };
 
 struct ghsuart_ctrl_port {
-	
+	/* port */
 	unsigned port_num;
-	
+	/* gadget */
 	enum gadget_type gtype;
 	spinlock_t port_lock;
 	void *port_usb;
 	struct completion close_complete;
-	
+	/* work queue*/
 	struct workqueue_struct	*wq;
 	struct work_struct connect_w;
 	struct work_struct disconnect_w;
-	
+	/*ctrl pkt response cb*/
 	int (*send_cpkt_response)(void *g, void *buf, size_t len);
 	void *ctxt;
 	unsigned int ch_id;
-	
+	/* flow control bits */
 	unsigned long flags;
 	int (*send_pkt)(void *, void *, size_t actual);
-	
+	/* Channel status */
 	unsigned long channel_sts;
-	
+	/* control bits */
 	unsigned cbits_tomodem;
-	
+	/* counters */
 	unsigned long to_modem;
 	unsigned long to_host;
 	unsigned long drp_cpkt_cnt;
@@ -143,7 +143,7 @@ static int ghsuart_ctrl_receive(void *dev, void *buf, size_t actual)
 	pr_debug_ratelimited("%s: read complete bytes read: %d\n",
 			__func__, actual);
 
-	
+	/* send it to USB here */
 	if (port && port->send_cpkt_response) {
 		retval = port->send_cpkt_response(port->port_usb, buf, actual);
 		port->to_host++;
@@ -169,7 +169,7 @@ ghsuart_send_cpkt_tomodem(u8 portno, void *buf, size_t len)
 		pr_err("%s: port is null\n", __func__);
 		return -ENODEV;
 	}
-	
+	/* drop cpkt if ch is not open */
 	if (!test_bit(CH_CONNECTED, &port->channel_sts)) {
 		port->drp_cpkt_cnt++;
 		return 0;
@@ -220,7 +220,7 @@ ghsuart_send_cbits_tomodem(void *gptr, u8 portno, int cbits)
 		return;
 
 	pr_debug("%s: ctrl_tomodem:%d\n", __func__, cbits);
-	
+	/* Send the control bits to the Modem */
 	msm_smux_tiocm_set(port->ch_id, cbits, ~cbits);
 }
 
@@ -347,7 +347,7 @@ static int ghsuart_ctrl_probe(struct platform_device *pdev)
 	port = ghsuart_ctrl_ports[pdev->id].port;
 	set_bit(CH_READY, &port->channel_sts);
 
-	
+	/* if usb is online, start read */
 	spin_lock_irqsave(&port->port_lock, flags);
 	if (port->port_usb)
 		queue_work(port->wq, &port->connect_w);

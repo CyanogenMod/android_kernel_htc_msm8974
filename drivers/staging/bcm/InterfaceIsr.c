@@ -1,7 +1,7 @@
 #include "headers.h"
 
 
-static void read_int_callback(struct urb *urb)
+static void read_int_callback(struct urb *urb/*, struct pt_regs *regs*/)
 {
 	int		status = urb->status;
 	PS_INTERFACE_ADAPTER psIntfAdapter = (PS_INTERFACE_ADAPTER)urb->context;
@@ -25,9 +25,9 @@ static void read_int_callback(struct urb *urb)
 			return ;
 	}
 
-	
+	//BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, NEXT_SEND, DBG_LVL_ALL, "interrupt urb status %d", status);
 	switch (status) {
-	    
+	    /* success */
 	    case STATUS_SUCCESS:
 		if ( urb->actual_length )
 		{
@@ -80,10 +80,10 @@ static void read_int_callback(struct urb *urb)
 		}
 		case -EINPROGRESS:
 		{
-			
+			//This situation may happened when URBunlink is used. for detail check usb_unlink_urb documentation.
 			BCM_DEBUG_PRINT(Adapter,DBG_TYPE_OTHERS, INTF_INIT, DBG_LVL_ALL,"Impossibe condition has occurred... something very bad is going on");
 			break ;
-			
+			//return;
 		}
 		case -EPIPE:
 		{
@@ -93,18 +93,18 @@ static void read_int_callback(struct urb *urb)
 				urb->status = STATUS_SUCCESS ;
 				return;
 		}
-	    
-	    case -ECONNRESET: 
-	    case -ESHUTDOWN:		
-	    						
-	    case -ENODEV : 
-		case -EINVAL : 
+	    /* software-driven interface shutdown */
+	    case -ECONNRESET: //URB got unlinked.
+	    case -ESHUTDOWN:		// hardware gone. this is the serious problem.
+	    						//Occurs only when something happens with the host controller device
+	    case -ENODEV : //Device got removed
+		case -EINVAL : //Some thing very bad happened with the URB. No description is available.
 	    	BCM_DEBUG_PRINT(Adapter,DBG_TYPE_OTHERS, INTF_INIT, DBG_LVL_ALL,"interrupt urb error %d", status);
 			urb->status = STATUS_SUCCESS ;
 			break ;
-			
+			//return;
 	    default:
-			
+			//This is required to check what is the defaults conditions when it occurs..
 			BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, NEXT_SEND, DBG_LVL_ALL,"GOT DEFAULT INTERRUPT URB STATUS :%d..Please Analyze it...", status);
 		break;
 	}

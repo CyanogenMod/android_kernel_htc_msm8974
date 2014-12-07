@@ -81,7 +81,7 @@ void _exception(long signr, struct pt_regs *regs, int code,
 	if (!user_mode(regs)) {
 		const struct exception_table_entry *fixup;
 
-		
+		/* Are we prepared to handle this kernel fault? */
 		fixup = search_exception_tables(regs->pc);
 		if (fixup) {
 			regs->pc = fixup->fixup;
@@ -128,6 +128,7 @@ asmlinkage void do_address_exception(unsigned long ecr, struct pt_regs *regs)
 	_exception(SIGBUS, regs, BUS_ADRALN, regs->pc);
 }
 
+/* This way of handling undefined instructions is stolen from ARM */
 static LIST_HEAD(undef_hook);
 static DEFINE_SPINLOCK(undef_lock);
 
@@ -151,12 +152,12 @@ static int do_cop_absent(u32 insn)
 	u32 cpucr;
 
 	if ((insn & 0xfdf00000) == 0xf1900000)
-		
+		/* LDC0 */
 		cop_nr = 0;
 	else
 		cop_nr = (insn >> 13) & 0x7;
 
-	
+	/* Try enabling the coprocessor */
 	cpucr = sysreg_read(CPUCR);
 	cpucr |= (1 << (24 + cop_nr));
 	sysreg_write(CPUCR, cpucr);
@@ -249,7 +250,7 @@ invalid_area:
 
 asmlinkage void do_fpe(unsigned long ecr, struct pt_regs *regs)
 {
-	
+	/* We have no FPU yet */
 	_exception(SIGILL, regs, ILL_COPROC, regs->pc);
 }
 

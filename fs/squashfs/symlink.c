@@ -21,6 +21,14 @@
  * symlink.c
  */
 
+/*
+ * This file implements code to handle symbolic links.
+ *
+ * The data contents of symbolic links are stored inside the symbolic
+ * link inode within the inode table.  This allows the normally small symbolic
+ * link to be compressed as part of the inode table, achieving much greater
+ * compression than if the symbolic link was compressed individually.
+ */
 
 #include <linux/fs.h>
 #include <linux/vfs.h>
@@ -51,6 +59,9 @@ static int squashfs_symlink_readpage(struct file *file, struct page *page)
 	TRACE("Entered squashfs_symlink_readpage, page index %ld, start block "
 			"%llx, offset %x\n", page->index, block, offset);
 
+	/*
+	 * Skip index bytes into symlink metadata.
+	 */
 	if (index) {
 		bytes = squashfs_read_metadata(sb, NULL, &block, &offset,
 								index);
@@ -62,6 +73,13 @@ static int squashfs_symlink_readpage(struct file *file, struct page *page)
 		}
 	}
 
+	/*
+	 * Read length bytes from symlink metadata.  Squashfs_read_metadata
+	 * is not used here because it can sleep and we want to use
+	 * kmap_atomic to map the page.  Instead call the underlying
+	 * squashfs_cache_get routine.  As length bytes may overlap metadata
+	 * blocks, we may need to call squashfs_cache_get multiple times.
+	 */
 	for (bytes = 0; bytes < length; offset = 0, bytes += copied) {
 		entry = squashfs_cache_get(sb, msblk->block_cache, block, 0);
 		if (entry->error) {

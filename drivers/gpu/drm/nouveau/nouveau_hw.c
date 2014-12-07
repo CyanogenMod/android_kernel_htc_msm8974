@@ -29,6 +29,9 @@
 #define CHIPSET_NFORCE 0x01a0
 #define CHIPSET_NFORCE2 0x01f0
 
+/*
+ * misc hw access wrappers/control functions
+ */
 
 void
 NVWriteVgaSeq(struct drm_device *dev, int head, uint8_t index, uint8_t value)
@@ -58,6 +61,24 @@ NVReadVgaGr(struct drm_device *dev, int head, uint8_t index)
 	return NVReadPRMVIO(dev, head, NV_PRMVIO_GX);
 }
 
+/* CR44 takes values 0 (head A), 3 (head B) and 4 (heads tied)
+ * it affects only the 8 bit vga io regs, which we access using mmio at
+ * 0xc{0,2}3c*, 0x60{1,3}3*, and 0x68{1,3}3d*
+ * in general, the set value of cr44 does not matter: reg access works as
+ * expected and values can be set for the appropriate head by using a 0x2000
+ * offset as required
+ * however:
+ * a) pre nv40, the head B range of PRMVIO regs at 0xc23c* was not exposed and
+ *    cr44 must be set to 0 or 3 for accessing values on the correct head
+ *    through the common 0xc03c* addresses
+ * b) in tied mode (4) head B is programmed to the values set on head A, and
+ *    access using the head B addresses can have strange results, ergo we leave
+ *    tied mode in init once we know to what cr44 should be restored on exit
+ *
+ * the owner parameter is slightly abused:
+ * 0 and 1 are treated as head values and so the set value is (owner * 3)
+ * other values are treated as literal values to set
+ */
 void
 NVSetOwner(struct drm_device *dev, int owner)
 {
@@ -67,14 +88,17 @@ NVSetOwner(struct drm_device *dev, int owner)
 		owner *= 3;
 
 	if (dev_priv->chipset == 0x11) {
+		/* This might seem stupid, but the blob does it and
+		 * omitting it often locks the system up.
+		 */
 		NVReadVgaCrtc(dev, 0, NV_CIO_SR_LOCK_INDEX);
 		NVReadVgaCrtc(dev, 1, NV_CIO_SR_LOCK_INDEX);
 	}
 
-	
+	/* CR44 is always changed on CRTC0 */
 	NVWriteVgaCrtc(dev, 0, NV_CIO_CRE_44, owner);
 
-	if (dev_priv->chipset == 0x11) {	
+	if (dev_priv->chipset == 0x11) {	/* set me harder */
 		NVWriteVgaCrtc(dev, 0, NV_CIO_CRE_2E, owner);
 		NVWriteVgaCrtc(dev, 0, NV_CIO_CRE_2E, owner);
 	}
@@ -98,6 +122,9 @@ NVBlankScreen(struct drm_device *dev, int head, bool blank)
 	NVVgaSeqReset(dev, head, false);
 }
 
+/*
+ * PLL setting
+ */
 
 static int
 powerctrl_1_shift(int chip_version, int reg)
@@ -118,6 +145,10 @@ powerctrl_1_shift(int chip_version, int reg)
 		shift += 4;
 	}
 
+	/*
+	 * the shift for vpll regs is only used for nv3x chips with a single
+	 * stage pll
+	 */
 	if (shift > 4 && (chip_version < 0x32 || chip_version == 0x35 ||
 			  chip_version == 0x36 || chip_version >= 0x40))
 		shift = -4;
@@ -137,7 +168,7 @@ setPLL_single(struct drm_device *dev, uint32_t reg, struct nouveau_pll_vals *pv)
 	int shift_powerctrl_1 = powerctrl_1_shift(chip_version, reg);
 
 	if (oldpll == pll)
-		return;	
+		return;	/* already set */
 
 	if (shift_powerctrl_1 >= 0) {
 		saved_powerctrl_1 = nvReadMC(dev, NV_PBUS_POWERCTRL_1);
@@ -147,18 +178,18 @@ setPLL_single(struct drm_device *dev, uint32_t reg, struct nouveau_pll_vals *pv)
 	}
 
 	if (oldM && pv->M1 && (oldN / oldM < pv->N1 / pv->M1))
-		
+		/* upclock -- write new post divider first */
 		NVWriteRAMDAC(dev, 0, reg, pv->log2P << 16 | (oldpll & 0xffff));
 	else
-		
+		/* downclock -- write new NM first */
 		NVWriteRAMDAC(dev, 0, reg, (oldpll & 0xffff0000) | pv->NM1);
 
 	if (chip_version < 0x17 && chip_version != 0x11)
-		
+		/* wait a bit on older chips */
 		msleep(64);
 	NVReadRAMDAC(dev, 0, reg);
 
-	
+	/* then write the other half as well */
 	NVWriteRAMDAC(dev, 0, reg, pll);
 
 	if (shift_powerctrl_1 >= 0)
@@ -170,7 +201,7 @@ new_ramdac580(uint32_t reg1, bool ss, uint32_t ramdac580)
 {
 	bool head_a = (reg1 == NV_PRAMDAC_VPLL_COEFF);
 
-	if (ss)	
+	if (ss)	/* single stage pll mode */
 		ramdac580 |= head_a ? NV_RAMDAC_580_VPLL1_ACTIVE :
 				      NV_RAMDAC_580_VPLL2_ACTIVE;
 	else
@@ -193,31 +224,31 @@ setPLL_double_highregs(struct drm_device *dev, uint32_t reg1,
 	uint32_t pll1 = (oldpll1 & 0xfff80000) | pv->log2P << 16 | pv->NM1;
 	uint32_t pll2 = (oldpll2 & 0x7fff0000) | 1 << 31 | pv->NM2;
 	uint32_t oldramdac580 = 0, ramdac580 = 0;
-	bool single_stage = !pv->NM2 || pv->N2 == pv->M2;	
+	bool single_stage = !pv->NM2 || pv->N2 == pv->M2;	/* nv41+ only */
 	uint32_t saved_powerctrl_1 = 0, savedc040 = 0;
 	int shift_powerctrl_1 = powerctrl_1_shift(chip_version, reg1);
 
-	
+	/* model specific additions to generic pll1 and pll2 set up above */
 	if (nv3035) {
 		pll1 = (pll1 & 0xfcc7ffff) | (pv->N2 & 0x18) << 21 |
 		       (pv->N2 & 0x7) << 19 | 8 << 4 | (pv->M2 & 7) << 4;
 		pll2 = 0;
 	}
-	if (chip_version > 0x40 && reg1 >= NV_PRAMDAC_VPLL_COEFF) { 
+	if (chip_version > 0x40 && reg1 >= NV_PRAMDAC_VPLL_COEFF) { /* !nv40 */
 		oldramdac580 = NVReadRAMDAC(dev, 0, NV_PRAMDAC_580);
 		ramdac580 = new_ramdac580(reg1, single_stage, oldramdac580);
 		if (oldramdac580 != ramdac580)
-			oldpll1 = ~0;	
+			oldpll1 = ~0;	/* force mismatch */
 		if (single_stage)
-			
+			/* magic value used by nvidia in single stage mode */
 			pll2 |= 0x011f;
 	}
 	if (chip_version > 0x70)
-		
+		/* magic bits set by the blob (but not the bios) on g71-73 */
 		pll1 = (pll1 & 0x7fffffff) | (single_stage ? 0x4 : 0xc) << 28;
 
 	if (oldpll1 == pll1 && oldpll2 == pll2)
-		return;	
+		return;	/* already set */
 
 	if (shift_powerctrl_1 >= 0) {
 		saved_powerctrl_1 = nvReadMC(dev, NV_PBUS_POWERCTRL_1);
@@ -262,6 +293,13 @@ static void
 setPLL_double_lowregs(struct drm_device *dev, uint32_t NMNMreg,
 		      struct nouveau_pll_vals *pv)
 {
+	/* When setting PLLs, there is a merry game of disabling and enabling
+	 * various bits of hardware during the process. This function is a
+	 * synthesis of six nv4x traces, nearly each card doing a subtly
+	 * different thing. With luck all the necessary bits for each card are
+	 * combined herein. Without luck it deviates from each card's formula
+	 * so as to not work on any :)
+	 */
 
 	uint32_t Preg = NMNMreg - 4;
 	bool mpll = Preg == 0x4020;
@@ -270,7 +308,7 @@ setPLL_double_lowregs(struct drm_device *dev, uint32_t NMNMreg,
 	uint32_t Pval = (oldPval & (mpll ? ~(0x77 << 16) : ~(7 << 16))) |
 			0xc << 28 | pv->log2P << 16;
 	uint32_t saved4600 = 0;
-	
+	/* some cards have different maskc040s */
 	uint32_t maskc040 = ~(3 << 14), savedc040;
 	bool single_stage = !pv->NM2 || pv->N2 == pv->M2;
 
@@ -348,6 +386,9 @@ nouveau_hw_setpll(struct drm_device *dev, uint32_t reg1,
 		setPLL_single(dev, reg1, pv);
 }
 
+/*
+ * PLL getting
+ */
 
 static void
 nouveau_hw_decode_pll(struct drm_device *dev, uint32_t reg1, uint32_t pll1,
@@ -355,15 +396,15 @@ nouveau_hw_decode_pll(struct drm_device *dev, uint32_t reg1, uint32_t pll1,
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
-	
+	/* to force parsing as single stage (i.e. nv40 vplls) pass pll2 as 0 */
 
-	
+	/* log2P is & 0x7 as never more than 7, and nv30/35 only uses 3 bits */
 	pllvals->log2P = (pll1 >> 16) & 0x7;
 	pllvals->N2 = pllvals->M2 = 1;
 
 	if (reg1 <= 0x405c) {
 		pllvals->NM1 = pll2 & 0xffff;
-		
+		/* single stage NVPLL and VPLLs use 1 << 8, MPLL uses 1 << 12 */
 		if (!(pll1 & 0x1100))
 			pllvals->NM2 = pll2 >> 16;
 	} else {
@@ -371,7 +412,7 @@ nouveau_hw_decode_pll(struct drm_device *dev, uint32_t reg1, uint32_t pll1,
 		if (nv_two_reg_pll(dev) && pll2 & NV31_RAMDAC_ENABLE_VCO2)
 			pllvals->NM2 = pll2 & 0xffff;
 		else if (dev_priv->chipset == 0x30 || dev_priv->chipset == 0x35) {
-			pllvals->M1 &= 0xf; 
+			pllvals->M1 &= 0xf; /* only 4 bits */
 			if (pll1 & NV30_RAMDAC_ENABLE_VCO2) {
 				pllvals->M2 = (pll1 >> 4) & 0x7;
 				pllvals->N2 = ((pll1 >> 21) & 0x18) |
@@ -406,7 +447,7 @@ nouveau_hw_get_pllvals(struct drm_device *dev, enum pll_types plltype,
 	if (dev_priv->card_type == 0x40 && reg1 >= NV_PRAMDAC_VPLL_COEFF) {
 		uint32_t ramdac580 = NVReadRAMDAC(dev, 0, NV_PRAMDAC_580);
 
-		
+		/* check whether vpll has been forced into single stage mode */
 		if (reg1 == NV_PRAMDAC_VPLL_COEFF) {
 			if (ramdac580 & NV_RAMDAC_580_VPLL1_ACTIVE)
 				pll2 = 0;
@@ -429,7 +470,7 @@ nouveau_hw_get_pllvals(struct drm_device *dev, enum pll_types plltype,
 int
 nouveau_hw_pllvals_to_clk(struct nouveau_pll_vals *pv)
 {
-	
+	/* Avoid divide by zero if called at an inappropriate time */
 	if (!pv->M1 || !pv->M2)
 		return 0;
 
@@ -470,6 +511,11 @@ nouveau_hw_get_clock(struct drm_device *dev, enum pll_types plltype)
 static void
 nouveau_hw_fix_bad_vpll(struct drm_device *dev, int head)
 {
+	/* the vpll on an unused head can come up with a random value, way
+	 * beyond the pll limits.  for some reason this causes the chip to
+	 * lock up when reading the dac palette regs, so set a valid pll here
+	 * when such a condition detected.  only seen on nv11 to date
+	 */
 
 	struct pll_lims pll_lim;
 	struct nouveau_pll_vals pv;
@@ -486,13 +532,16 @@ nouveau_hw_fix_bad_vpll(struct drm_device *dev, int head)
 
 	NV_WARN(dev, "VPLL %d outwith limits, attempting to fix\n", head + 1);
 
-	
+	/* set lowest clock within static limits */
 	pv.M1 = pll_lim.vco1.max_m;
 	pv.N1 = pll_lim.vco1.min_n;
 	pv.log2P = pll_lim.max_usable_log2p;
 	nouveau_hw_setpll(dev, pll_lim.reg, &pv);
 }
 
+/*
+ * vga font save/restore
+ */
 
 static void nouveau_vga_font_io(struct drm_device *dev,
 				void __iomem *iovram,
@@ -529,12 +578,12 @@ nouveau_hw_save_vga_fonts(struct drm_device *dev, bool save)
 	graphicsmode = NVReadVgaAttr(dev, 0, NV_CIO_AR_MODE_INDEX) & 1;
 	NVSetEnablePalette(dev, 0, false);
 
-	if (graphicsmode) 
+	if (graphicsmode) /* graphics mode => framebuffer => no need to save */
 		return;
 
 	NV_INFO(dev, "%sing VGA fonts\n", save ? "Sav" : "Restor");
 
-	
+	/* map first 64KiB of VRAM, holds VGA fonts etc */
 	iovram = ioremap(pci_resource_start(dev->pdev, 1), 65536);
 	if (!iovram) {
 		NV_ERROR(dev, "Failed to map VRAM, "
@@ -546,7 +595,7 @@ nouveau_hw_save_vga_fonts(struct drm_device *dev, bool save)
 		NVBlankScreen(dev, 1, true);
 	NVBlankScreen(dev, 0, true);
 
-	
+	/* save control regs */
 	misc = NVReadPRMVIO(dev, 0, NV_PRMVIO_MISC__READ);
 	seq2 = NVReadVgaSeq(dev, 0, NV_VIO_SR_PLANE_MASK_INDEX);
 	seq4 = NVReadVgaSeq(dev, 0, NV_VIO_SR_MEM_MODE_INDEX);
@@ -559,11 +608,11 @@ nouveau_hw_save_vga_fonts(struct drm_device *dev, bool save)
 	NVWriteVgaGr(dev, 0, NV_VIO_GX_MODE_INDEX, 0x0);
 	NVWriteVgaGr(dev, 0, NV_VIO_GX_MISC_INDEX, 0x5);
 
-	
+	/* store font in planes 0..3 */
 	for (plane = 0; plane < 4; plane++)
 		nouveau_vga_font_io(dev, iovram, save, plane);
 
-	
+	/* restore control regs */
 	NVWritePRMVIO(dev, 0, NV_PRMVIO_MISC__WRITE, misc);
 	NVWriteVgaGr(dev, 0, NV_VIO_GX_READ_MAP_INDEX, gr4);
 	NVWriteVgaGr(dev, 0, NV_VIO_GX_MODE_INDEX, gr5);
@@ -578,6 +627,9 @@ nouveau_hw_save_vga_fonts(struct drm_device *dev, bool save)
 	iounmap(iovram);
 }
 
+/*
+ * mode state save/load
+ */
 
 static void
 rd_cio_state(struct drm_device *dev, int head,
@@ -644,6 +696,8 @@ nv_save_state_ramdac(struct drm_device *dev, int head,
 	regp->fp_control = NVReadRAMDAC(dev, head, NV_PRAMDAC_FP_TG_CONTROL);
 	regp->fp_debug_0 = NVReadRAMDAC(dev, head, NV_PRAMDAC_FP_DEBUG_0);
 	if (!nv_gf4_disp_arch(dev) && head == 0) {
+		/* early chips don't allow access to PRAMDAC_TMDS_* without
+		 * the head A FPCLK on (nv11 even locks up) */
 		NVWriteRAMDAC(dev, 0, NV_PRAMDAC_FP_DEBUG_0, regp->fp_debug_0 &
 			      ~NV_PRAMDAC_FP_DEBUG_0_PWRDOWN_FPCLK);
 	}
@@ -844,7 +898,7 @@ nv_save_state_ext(struct drm_device *dev, int head,
 		rd_cio_state(dev, head, regp, NV_CIO_CRE_4B);
 		rd_cio_state(dev, head, regp, NV_CIO_CRE_TVOUT_LATENCY);
 	}
-	
+	/* NV11 and NV20 don't have this, they stop at 0x52. */
 	if (nv_gf4_disp_arch(dev)) {
 		rd_cio_state(dev, head, regp, NV_CIO_CRE_42);
 		rd_cio_state(dev, head, regp, NV_CIO_CRE_53);
@@ -941,9 +995,11 @@ nv_load_state_ext(struct drm_device *dev, int head,
 		wr_cio_state(dev, head, regp, NV_CIO_CRE_4B);
 		wr_cio_state(dev, head, regp, NV_CIO_CRE_TVOUT_LATENCY);
 	}
-	
+	/* NV11 and NV20 stop at 0x52. */
 	if (nv_gf4_disp_arch(dev)) {
 		if (dev_priv->card_type == NV_10) {
+			/* Not waiting for vertical retrace before modifying
+			   CRE_53/CRE_54 causes lockups. */
 			nouveau_wait_eq(dev, 650000000, NV_PRMCIO_INP0__COLOR, 0x8, 0x8);
 			nouveau_wait_eq(dev, 650000000, NV_PRMCIO_INP0__COLOR, 0x8, 0x0);
 		}
@@ -963,7 +1019,7 @@ nv_load_state_ext(struct drm_device *dev, int head,
 
 	NVWriteCRTC(dev, head, NV_PCRTC_START, regp->fb_start);
 
-	
+	/* Enable vblank interrupts. */
 	NVWriteCRTC(dev, head, NV_PCRTC_INTR_EN_0,
 		    (dev->vblank_enabled[head] ? 1 : 0));
 	NVWriteCRTC(dev, head, NV_PCRTC_INTR_0, NV_PCRTC_INTR_0_VBLANK);
@@ -1011,7 +1067,7 @@ void nouveau_hw_save_state(struct drm_device *dev, int head,
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
 	if (dev_priv->chipset == 0x11)
-		
+		/* NB: no attempt is made to restore the bad pll later on */
 		nouveau_hw_fix_bad_vpll(dev, head);
 	nv_save_state_ramdac(dev, head, state);
 	nv_save_state_vga(dev, head, state);

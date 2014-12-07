@@ -29,7 +29,6 @@
 #include <mach/msm_iomap.h>
 #include "rpm_stats.h"
 
-
 enum {
 	ID_COUNTER,
 	ID_ACCUM_TIME_SCLK,
@@ -68,7 +67,7 @@ struct msm_rpm_stats_data_v2 {
 	u32 reserved[3];
 };
 
-#ifdef CONFIG_HTC_POWER_DEBUG
+#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 struct msm_rpm_stats_data_v3 {
 	u32 count;
 	u32 is_sleep_mode;
@@ -187,7 +186,7 @@ static inline int msm_rpmstats_copy_stats_v2(
 	return length;
 }
 
-#ifdef CONFIG_HTC_POWER_DEBUG
+#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 static inline u32 msm_rpmstats_read_long_register_v3(void __iomem *regbase,
 		int index, int offset)
 {
@@ -250,6 +249,94 @@ static inline int msm_rpmstats_copy_stats_v3(
 	}
 	return length;
 }
+
+#ifdef CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME
+
+struct trackStick {
+	u64 prev_duration;
+	struct timeval start_time;
+};
+
+static struct trackStick aCPU;
+static struct trackStick wlanFW;
+
+void rpm_resetSubsysStickTime(int n)
+{
+	switch (n)
+	{
+	case 0:
+		memset(&aCPU, 0, sizeof(struct trackStick));
+		break;
+#ifdef CONFIG_ARCH_MSM8916
+	case 2:
+#endif
+	case 3:
+		memset(&wlanFW, 0, sizeof(struct trackStick));
+		break;
+	default:
+		pr_info("invalid number when rpm_resetSubsysStickTime");
+		break;
+	}
+}
+EXPORT_SYMBOL(rpm_resetSubsysStickTime);
+
+int rpm_getSubsysStickTime(int n, struct timeval *cur_t)
+{
+	void __iomem *reg;
+	struct msm_rpm_stats_data_v3 data_v3;
+	int ret = 0;
+
+	if (rpm_stats_dev[DEV_V3].init) {
+		reg = rpm_stats_dev[DEV_V3].reg_base;
+
+		data_v3.total_duration = msm_rpmstats_read_quad_register_v3(reg,
+			n, offsetof(struct msm_rpm_stats_data_v3, total_duration));
+
+		switch (n)
+		{
+		case 0:
+			if (aCPU.prev_duration == get_time_in_msec(data_v3.total_duration)) {
+				if (!aCPU.start_time.tv_sec) {
+					do_gettimeofday(&aCPU.start_time);
+				} else {
+					if (aCPU.start_time.tv_sec > 0 &&
+						cur_t->tv_sec > aCPU.start_time.tv_sec)
+						return cur_t->tv_sec - aCPU.start_time.tv_sec;
+				}
+			} else {
+				aCPU.prev_duration = get_time_in_msec(data_v3.total_duration);
+				if (aCPU.start_time.tv_sec)
+					memset(&aCPU, 0, sizeof(struct trackStick));
+			}
+			break;
+#ifdef CONFIG_ARCH_MSM8916
+		case 2:
+#endif
+		case 3:
+			if (wlanFW.prev_duration == get_time_in_msec(data_v3.total_duration)) {
+				if (!wlanFW.start_time.tv_sec) {
+					do_gettimeofday(&wlanFW.start_time);
+				} else {
+					if (wlanFW.start_time.tv_sec > 0 &&
+						cur_t->tv_sec > wlanFW.start_time.tv_sec)
+						return cur_t->tv_sec - wlanFW.start_time.tv_sec;
+				}
+			} else {
+				wlanFW.prev_duration = get_time_in_msec(data_v3.total_duration);
+				if (wlanFW.start_time.tv_sec)
+					memset(&wlanFW, 0, sizeof(struct trackStick));
+			}
+			break;
+		default:
+			pr_info("invalid number when getSubsysStickTime");
+			ret = -1;
+			break;
+		}
+	}
+	return ret;
+}
+EXPORT_SYMBOL(rpm_getSubsysStickTime);
+#endif 
 
 void msm_rpm_dump_stat(void)
 {
@@ -403,7 +490,7 @@ static int msm_rpmstats_file_read(struct file *file, char __user *bufu,
 			else if (prvdata->platform_data->version == 2)
 				prvdata->len = msm_rpmstats_copy_stats_v2(
 						prvdata);
-#ifdef CONFIG_HTC_POWER_DEBUG
+#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 			else if (prvdata->platform_data->version == 3)
 				prvdata->len = msm_rpmstats_copy_stats_v3(
 						prvdata);
@@ -442,7 +529,7 @@ static int msm_rpmstats_file_open(struct inode *inode, struct file *file)
 
 	prvdata->read_idx = prvdata->num_records =  prvdata->len = 0;
 	prvdata->platform_data = pdata;
-#ifdef CONFIG_HTC_POWER_DEBUG
+#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 	if (pdata->version == 2)
 		prvdata->num_records = DEV_V2_RECORD;
 	else if (pdata->version == 3)
@@ -508,7 +595,7 @@ static  int __devinit msm_rpmstats_probe(struct platform_device *pdev)
 			"qcom,sleep-stats-version", &pdata->version);
 
 	if (!ret) {
-#ifdef CONFIG_HTC_POWER_DEBUG
+#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 		if (pdata->version == 2) {
 			dent = debugfs_create_file("rpm_stats", S_IRUGO, NULL,
 					pdata, &msm_rpmstats_fops);
@@ -586,9 +673,15 @@ static struct platform_driver msm_rpmstats_driver = {
 };
 static int __init msm_rpmstats_init(void)
 {
-#ifdef CONFIG_HTC_POWER_DEBUG
+#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 	memset(rpm_stats_dev, 0, sizeof(struct msm_rpm_stats_data)*DEV_MAX);
 #endif
+
+#ifdef CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME
+	memset(&aCPU, 0, sizeof(struct trackStick));
+	memset(&wlanFW, 0, sizeof(struct trackStick));
+#endif
+
 	return platform_driver_register(&msm_rpmstats_driver);
 }
 static void __exit msm_rpmstats_exit(void)

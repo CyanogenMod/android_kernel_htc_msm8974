@@ -42,14 +42,24 @@
  *
  */
 
-#define ESR_BASE 0x005f6900    
-#define EMR_BASE 0x005f6910    
+#define ESR_BASE 0x005f6900    /* Base event status register */
+#define EMR_BASE 0x005f6910    /* Base event mask register */
 
+/*
+ * Helps us determine the EMR group that this event belongs to: 0 = 0x6910,
+ * 1 = 0x6920, 2 = 0x6930; also determine the event offset.
+ */
 #define LEVEL(event) (((event) - HW_EVENT_IRQ_BASE) / 32)
 
+/* Return the hardware event's bit position within the EMR/ESR */
 #define EVENT_BIT(event) (((event) - HW_EVENT_IRQ_BASE) & 31)
 
+/*
+ * For each of these *_irq routines, the IRQ passed in is the virtual IRQ
+ * (logically mapped to the corresponding bit for the hardware event).
+ */
 
+/* Disable the hardware event by masking its bit in its EMR */
 static inline void disable_systemasic_irq(struct irq_data *data)
 {
 	unsigned int irq = data->irq;
@@ -61,6 +71,7 @@ static inline void disable_systemasic_irq(struct irq_data *data)
 	outl(mask, emr);
 }
 
+/* Enable the hardware event by setting its bit in its EMR */
 static inline void enable_systemasic_irq(struct irq_data *data)
 {
 	unsigned int irq = data->irq;
@@ -72,6 +83,7 @@ static inline void enable_systemasic_irq(struct irq_data *data)
 	outl(mask, emr);
 }
 
+/* Acknowledge a hardware event by writing its bit back to its ESR */
 static void mask_ack_systemasic_irq(struct irq_data *data)
 {
 	unsigned int irq = data->irq;
@@ -87,6 +99,9 @@ struct irq_chip systemasic_int = {
 	.irq_unmask	= enable_systemasic_irq,
 };
 
+/*
+ * Map the hardware event indicated by the processor IRQ to a virtual IRQ.
+ */
 int systemasic_irq_demux(int irq)
 {
 	__u32 emr, esr, status, level;
@@ -108,11 +123,11 @@ int systemasic_irq_demux(int irq)
 	emr = EMR_BASE + (level << 4) + (level << 2);
 	esr = ESR_BASE + (level << 2);
 
-	
+	/* Mask the ESR to filter any spurious, unwanted interrupts */
 	status = inl(esr);
 	status &= inl(emr);
 
-	
+	/* Now scan and find the first set bit as the event to map */
 	for (bit = 1, j = 0; j < 32; bit <<= 1, j++) {
 		if (status & bit) {
 			irq = HW_EVENT_IRQ_BASE + j + (level << 5);
@@ -120,7 +135,7 @@ int systemasic_irq_demux(int irq)
 		}
 	}
 
-	
+	/* Not reached */
 	return irq;
 }
 
@@ -128,7 +143,7 @@ void systemasic_irq_init(void)
 {
 	int i, nid = cpu_to_node(boot_cpu_data);
 
-	
+	/* Assign all virtual IRQs to the System ASIC int. handler */
 	for (i = HW_EVENT_IRQ_BASE; i < HW_EVENT_IRQ_MAX; i++) {
 		unsigned int irq;
 

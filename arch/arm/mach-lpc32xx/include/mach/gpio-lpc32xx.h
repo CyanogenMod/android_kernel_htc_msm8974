@@ -17,6 +17,14 @@
 #ifndef __MACH_GPIO_LPC32XX_H
 #define __MACH_GPIO_LPC32XX_H
 
+/*
+ * Note!
+ * Muxed GP pins need to be setup to the GP state in the board level
+ * code prior to using this driver.
+ * GPI pins : 28xP3 group
+ * GPO pins : 24xP3 group
+ * GPIO pins: 8xP0 group, 24xP1 group, 13xP2 group, 6xP3 group
+ */
 
 #define LPC32XX_GPIO_P0_MAX 8
 #define LPC32XX_GPIO_P1_MAX 24
@@ -32,6 +40,11 @@
 #define LPC32XX_GPI_P3_GRP (LPC32XX_GPIO_P3_GRP + LPC32XX_GPIO_P3_MAX)
 #define LPC32XX_GPO_P3_GRP (LPC32XX_GPI_P3_GRP + LPC32XX_GPI_P3_MAX)
 
+/*
+ * A specific GPIO can be selected with this macro
+ * ie, GPIO_05 can be selected with LPC32XX_GPIO(LPC32XX_GPIO_P3_GRP, 5)
+ * See the LPC32x0 User's guide for GPIO group numbers
+ */
 #define LPC32XX_GPIO(x, y) ((x) + (y))
 
-#endif 
+#endif /* __MACH_GPIO_LPC32XX_H */

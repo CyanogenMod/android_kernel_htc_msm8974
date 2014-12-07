@@ -21,6 +21,7 @@
 #include <mach/platform.h>
 #include <mach/gpio-pnx4008.h>
 
+/* register definitions */
 #define PIO_VA_BASE	IO_ADDRESS(PNX4008_PIO_BASE)
 
 #define PIO_INP_STATE	(0x00U)
@@ -47,6 +48,7 @@ static inline void gpio_unlock(void)
 	local_irq_enable();
 }
 
+/* Inline functions */
 static inline int gpio_read_bit(u32 reg, int gpio)
 {
 	u32 bit, val;
@@ -83,12 +85,14 @@ out:
 	return ret;
 }
 
+/* Very simple access control, bitmap for allocated/free */
 static unsigned long access_map[4];
 #define INP_INDEX	0
 #define OUTP_INDEX	1
 #define GPIO_INDEX	2
 #define MUX_INDEX	3
 
+/*GPIO to Input Mapping */
 static short gpio_to_inp_map[32] = {
 	-1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1,
@@ -96,6 +100,7 @@ static short gpio_to_inp_map[32] = {
 	-1, 10, 11, 12, 13, 14, 24, -1
 };
 
+/*GPIO to Mux Mapping */
 static short gpio_to_mux_map[32] = {
 	-1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1,
@@ -103,6 +108,7 @@ static short gpio_to_mux_map[32] = {
 	-1, -1, -1, 0, 1, 4, 5, -1
 };
 
+/*Output to Mux Mapping */
 static short outp_to_mux_map[32] = {
 	-1, -1, -1, 6, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1,
@@ -113,7 +119,7 @@ static short outp_to_mux_map[32] = {
 int pnx4008_gpio_register_pin(unsigned short pin)
 {
 	unsigned long bit = GPIO_BIT(pin);
-	int ret = -EBUSY;	
+	int ret = -EBUSY;	/* Already in use */
 
 	gpio_lock();
 
@@ -155,7 +161,7 @@ EXPORT_SYMBOL(pnx4008_gpio_register_pin);
 int pnx4008_gpio_unregister_pin(unsigned short pin)
 {
 	unsigned long bit = GPIO_BIT(pin);
-	int ret = -EFAULT;	
+	int ret = -EFAULT;	/* Not registered */
 
 	gpio_lock();
 
@@ -217,6 +223,7 @@ unsigned long pnx4008_gpio_read_pin(unsigned short pin)
 
 EXPORT_SYMBOL(pnx4008_gpio_read_pin);
 
+/* Write Value to output */
 int pnx4008_gpio_write_pin(unsigned short pin, int output)
 {
 	int gpio = GPIO_BIT_MASK(pin);
@@ -242,6 +249,8 @@ int pnx4008_gpio_write_pin(unsigned short pin, int output)
 
 EXPORT_SYMBOL(pnx4008_gpio_write_pin);
 
+/* Value = 1 : Set GPIO pin as output */
+/* Value = 0 : Set GPIO pin as input */
 int pnx4008_gpio_set_pin_direction(unsigned short pin, int output)
 {
 	int gpio = GPIO_BIT_MASK(pin);
@@ -257,6 +266,7 @@ int pnx4008_gpio_set_pin_direction(unsigned short pin, int output)
 
 EXPORT_SYMBOL(pnx4008_gpio_set_pin_direction);
 
+/* Read GPIO pin direction: 0= pin used as input, 1= pin used as output*/
 int pnx4008_gpio_read_pin_direction(unsigned short pin)
 {
 	int gpio = GPIO_BIT_MASK(pin);
@@ -272,6 +282,8 @@ int pnx4008_gpio_read_pin_direction(unsigned short pin)
 
 EXPORT_SYMBOL(pnx4008_gpio_read_pin_direction);
 
+/* Value = 1 : Set pin to muxed function  */
+/* Value = 0 : Set pin as GPIO */
 int pnx4008_gpio_set_pin_mux(unsigned short pin, int output)
 {
 	int gpio = GPIO_BIT_MASK(pin);
@@ -295,6 +307,7 @@ int pnx4008_gpio_set_pin_mux(unsigned short pin, int output)
 
 EXPORT_SYMBOL(pnx4008_gpio_set_pin_mux);
 
+/* Read pin mux function: 0= pin used as GPIO, 1= pin used for muxed function*/
 int pnx4008_gpio_read_pin_mux(unsigned short pin)
 {
 	int gpio = GPIO_BIT_MASK(pin);

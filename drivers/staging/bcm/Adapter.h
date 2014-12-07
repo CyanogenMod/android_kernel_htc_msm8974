@@ -1,3 +1,6 @@
+/***********************************
+*	Adapter.h
+************************************/
 #ifndef	__ADAPTER_H__
 #define	__ADAPTER_H__
 
@@ -38,6 +41,7 @@ struct link_request
 typedef struct link_request LINK_REQUEST, *PLINK_REQUEST;
 
 
+//classification extension is added
 typedef struct _ADD_CONNECTION
 {
     ULONG 		SrcIpAddressCount;
@@ -93,13 +97,13 @@ typedef union _U_IP_ADDRESS
 {
     struct
 	{
-		ULONG				ulIpv4Addr[MAX_IP_RANGE_LENGTH];
-		ULONG               ulIpv4Mask[MAX_IP_RANGE_LENGTH];
+		ULONG				ulIpv4Addr[MAX_IP_RANGE_LENGTH];//Source Ip Address Range
+		ULONG               ulIpv4Mask[MAX_IP_RANGE_LENGTH];//Source Ip Mask Address Range
 	};
 	struct
 	{
-		ULONG				ulIpv6Addr[MAX_IP_RANGE_LENGTH * 4];
-		ULONG               ulIpv6Mask[MAX_IP_RANGE_LENGTH * 4];
+		ULONG				ulIpv6Addr[MAX_IP_RANGE_LENGTH * 4];//Source Ip Address Range
+		ULONG               ulIpv6Mask[MAX_IP_RANGE_LENGTH * 4];//Source Ip Mask Address Range
 
 	};
 	struct
@@ -118,8 +122,8 @@ struct _packet_info;
 typedef struct _S_HDR_SUPRESSION_CONTEXTINFO
 {
 
-	UCHAR      ucaHdrSupressionInBuf[MAX_PHS_LENGTHS]; 
-	UCHAR      ucaHdrSupressionOutBuf[MAX_PHS_LENGTHS + PHSI_LEN]; 
+	UCHAR      ucaHdrSupressionInBuf[MAX_PHS_LENGTHS]; //Intermediate buffer to accumulate pkt Header for PHS
+	UCHAR      ucaHdrSupressionOutBuf[MAX_PHS_LENGTHS + PHSI_LEN]; //Intermediate buffer containing pkt Header after PHS
 
 }S_HDR_SUPRESSION_CONTEXTINFO;
 
@@ -131,19 +135,19 @@ typedef struct _S_CLASSIFIER_RULE
 	B_UINT16        uiClassifierRuleIndex;
 	BOOLEAN			bUsed;
 	USHORT			usVCID_Value;
-	B_UINT8         u8ClassifierRulePriority; 
+	B_UINT8         u8ClassifierRulePriority; //This field detemines the Classifier Priority
 	U_IP_ADDRESS	stSrcIpAddress;
-	UCHAR           ucIPSourceAddressLength;
+	UCHAR           ucIPSourceAddressLength;//Ip Source Address Length
 
 	U_IP_ADDRESS    stDestIpAddress;
-    UCHAR           ucIPDestinationAddressLength;
-    UCHAR           ucIPTypeOfServiceLength;
-    UCHAR           ucTosLow;
-    UCHAR           ucTosHigh;
-	UCHAR           ucTosMask;
+    UCHAR           ucIPDestinationAddressLength;//Ip Destination Address Length
+    UCHAR           ucIPTypeOfServiceLength;//Type of service Length
+    UCHAR           ucTosLow;//Tos Low
+    UCHAR           ucTosHigh;//Tos High
+	UCHAR           ucTosMask;//Tos Mask
 
-    UCHAR           ucProtocolLength;
-    UCHAR           ucProtocol[MAX_PROTOCOL_LENGTH];
+    UCHAR           ucProtocolLength;//protocol Length
+    UCHAR           ucProtocol[MAX_PROTOCOL_LENGTH];//protocol Length
     USHORT			usSrcPortRangeLo[MAX_PORT_RANGE];
 	USHORT			usSrcPortRangeHi[MAX_PORT_RANGE];
     UCHAR           ucSrcPortRangeLength;
@@ -157,14 +161,14 @@ typedef struct _S_CLASSIFIER_RULE
 	BOOLEAN			bDestIpValid;
 	BOOLEAN			bSrcIpValid;
 
-	
+	//For IPv6 Addressing
 	UCHAR			ucDirection;
 	BOOLEAN         bIpv6Protocol;
 	UINT32          u32PHSRuleID;
 	S_PHS_RULE 	    sPhsRule;
 	UCHAR			u8AssociatedPHSI;
 
-	
+	//Classification fields for ETH CS
 	UCHAR		ucEthCSSrcMACLen;
 	UCHAR		au8EThCSSrcMAC[MAC_ADDRESS_SIZE];
 	UCHAR		au8EThCSSrcMACMask[MAC_ADDRESS_SIZE];
@@ -177,6 +181,7 @@ typedef struct _S_CLASSIFIER_RULE
 	USHORT		usVLANID;
 	USHORT		usValidityBitMap;
 }S_CLASSIFIER_RULE;
+//typedef struct _S_CLASSIFIER_RULE S_CLASSIFIER_RULE;
 
 typedef struct _S_FRAGMENTED_PACKET_INFO
 {
@@ -189,20 +194,20 @@ typedef struct _S_FRAGMENTED_PACKET_INFO
 
 struct _packet_info
 {
-	
+	//classification extension Rule
    	ULONG			ulSFID;
    	USHORT			usVCID_Value;
 	UINT			uiThreshold;
-	
+	// This field determines the priority of the SF Queues
 	B_UINT8     	u8TrafficPriority;
 
 	BOOLEAN			bValid;
    	BOOLEAN     	bActive;
 	BOOLEAN			bActivateRequestSent;
 
-	B_UINT8			u8QueueType;
+	B_UINT8			u8QueueType;//BE or rtPS
 
-	UINT			uiMaxBucketSize;
+	UINT			uiMaxBucketSize;//maximum size of the bucket for the queue
 	UINT			uiCurrentQueueDepthOnTarget;
 	UINT			uiCurrentBytesOnHost;
 	UINT			uiCurrentPacketsOnHost;
@@ -281,36 +286,48 @@ typedef struct _TARGET_PARAMS
 {
       B_UINT32 m_u32CfgVersion;
 
-      
+      // Scanning Related Params
       B_UINT32 m_u32CenterFrequency;
       B_UINT32 m_u32BandAScan;
       B_UINT32 m_u32BandBScan;
       B_UINT32 m_u32BandCScan;
 
-      
-      B_UINT32 m_u32minGrantsize;	
+      // QoS Params
+      B_UINT32 m_u32minGrantsize;	// size of minimum grant is 0 or 6
       B_UINT32 m_u32PHSEnable;
 
-      
+      // HO Params
       B_UINT32 m_u32HoEnable;
       B_UINT32 m_u32HoReserved1;
       B_UINT32 m_u32HoReserved2;
 
-	
+	// Power Control Params
       B_UINT32 m_u32MimoEnable;
       B_UINT32 m_u32SecurityEnable;
+	/*
+     * bit 1: 1 Idlemode enable;
+     * bit 2: 1 Sleepmode Enable
+     */
       B_UINT32 m_u32PowerSavingModesEnable;
+	  /* PowerSaving Mode Options:
+	     bit 0 = 1: CPE mode - to keep pcmcia if alive;
+	     bit 1 = 1: CINR reporing in Idlemode Msg
+	     bit 2 = 1: Default PSC Enable in sleepmode*/
       B_UINT32 m_u32PowerSavingModeOptions;
 
       B_UINT32 m_u32ArqEnable;
 
-      
+      // From Version #3, the HARQ section renamed as general
       B_UINT32 m_u32HarqEnable;
-       
+       // EEPROM Param Location
        B_UINT32  m_u32EEPROMFlag;
-       
+       /* BINARY TYPE - 4th MSByte:
+        * Interface Type -  3rd MSByte:
+        * Vendor Type - 2nd MSByte
+        */
+       // Unused - LSByte
       B_UINT32   m_u32Customize;
-      B_UINT32   m_u32ConfigBW;  
+      B_UINT32   m_u32ConfigBW;  /* In Hz */
       B_UINT32   m_u32ShutDownTimer;
 
 
@@ -319,6 +336,13 @@ typedef struct _TARGET_PARAMS
       B_UINT32  m_u32PhyParameter2;
       B_UINT32  m_u32PhyParameter3;
 
+	/* in eval mode only;
+     * lower 16bits = basic cid for testing;
+     * then bit 16 is test cqich,
+     * bit 17  test init rang;
+     * bit 18 test periodic rang
+     * bit 19 is test harq ack/nack
+     */
     B_UINT32	  m_u32TestOptions;
 
 	B_UINT32 m_u32MaxMACDataperDLFrame;
@@ -326,7 +350,7 @@ typedef struct _TARGET_PARAMS
 
 	B_UINT32 m_u32Corr2MacFlags;
 
-    
+    //adding driver params.
     B_UINT32 HostDrvrConfig1;
     B_UINT32 HostDrvrConfig2;
     B_UINT32 HostDrvrConfig3;
@@ -335,8 +359,8 @@ typedef struct _TARGET_PARAMS
     B_UINT32 HostDrvrConfig6;
     B_UINT32 m_u32SegmentedPUSCenable;
 
-	
-	
+	//	BAMC enable - but 4.x does not support this feature
+	//	This is added just to sync 4.x and 5.x CFGs
 	B_UINT32 m_u32BandAMCEnable;
 } STARGETPARAMS, *PSTARGETPARAMS;
 #endif
@@ -352,6 +376,9 @@ typedef INT (*FP_FLASH_WRITE)(struct _MINI_ADAPTER*,UINT,PVOID);
 
 typedef INT (*FP_FLASH_WRITE_STATUS)(struct _MINI_ADAPTER*,UINT,PVOID);
 
+/**
+Driver adapter data structure
+*/
 struct _MINI_ADAPTER
 {
 	struct _MINI_ADAPTER *next;
@@ -378,14 +405,14 @@ struct _MINI_ADAPTER
 	spinlock_t			control_queue_lock;
 	wait_queue_head_t	process_read_wait_queue;
 
-	
-	
+	// the pointer to the first packet we have queued in send
+	// deserialized miniport support variables
 	atomic_t		    TotalPacketCount;
 	atomic_t		    TxPktAvail;
 
-	
+	// this to keep track of the Tx and Rx MailBox Registers.
 	atomic_t		    CurrNumFreeTxDesc;
-	
+	// to keep track the no of byte received
 	USHORT				PrevNumRecvDescs;
 	USHORT				CurrNumRecvDescs;
 	UINT				u32TotalDSD;
@@ -393,7 +420,7 @@ struct _MINI_ADAPTER
 	S_CLASSIFIER_RULE	astClassifierTable[MAX_CLASSIFIERS];
 	BOOLEAN			    TransferMode;
 
-	
+	/*************** qos ******************/
 	BOOLEAN			    bETHCSEnabled;
 
 	ULONG			    BEBucketSize;
@@ -444,17 +471,17 @@ struct _MINI_ADAPTER
 	ULONG				ulPowerSaveMode;
 	spinlock_t			txtransmitlock;
 	B_UINT8				txtransmit_running;
-	
+	/* Thread for control packet handling */
 	struct task_struct 	*control_packet_handler;
-	
+	/* thread for transmitting packets. */
 	struct task_struct 	*transmit_packet_thread;
 
-	
+	/* LED Related Structures */
 	LED_INFO_STRUCT		LEDInfo;
 
-	
+	/* Driver State for LED Blinking */
 	LedEventInfo_t		DriverState;
-	
+	/* Interface Specific */
 	PVOID				pvInterfaceAdapter;
 	int (*bcm_file_download)( PVOID,
                         struct file *,
@@ -477,7 +504,7 @@ struct _MINI_ADAPTER
 	BOOLEAN			bShutStatus;
 	BOOLEAN			bWakeUpDevice;
 	unsigned int	usIdleModePattern;
-	
+	//BOOLEAN			bTriedToWakeUpFromShutdown;
 	BOOLEAN			bLinkDownRequested;
 
 	int 			downloadDDR;
@@ -500,8 +527,8 @@ struct _MINI_ADAPTER
 	BOOLEAN			bStatusWrite;
 	UINT			uiNVMDSDSize;
 	UINT			uiVendorExtnFlag;
-	 
-	 
+	 //it will always represent chosen DSD at any point of time.
+	 // Generally it is Active DSD but in case of NVM RD/WR it might be different.
 	UINT			ulFlashCalStart;
 	ULONG                   ulFlashControlSectionStart;
 	ULONG                   ulFlashWriteSize;
@@ -514,29 +541,30 @@ struct _MINI_ADAPTER
 
 	struct device *pstCreatedClassDevice;
 
+//	BOOLEAN				InterfaceUpStatus;
 	PFLASH2X_CS_INFO psFlash2xCSInfo;
 	PFLASH_CS_INFO psFlashCSInfo ;
 	PFLASH2X_VENDORSPECIFIC_INFO psFlash2xVendorInfo;
-	UINT uiFlashBaseAdd; 
-	UINT uiActiveISOOffset; 
-	FLASH2X_SECTION_VAL eActiveISO; 
-	FLASH2X_SECTION_VAL eActiveDSD;	
-	UINT uiActiveDSDOffsetAtFwDld;  
+	UINT uiFlashBaseAdd; //Flash start address
+	UINT uiActiveISOOffset; //Active ISO offset chosen before f/w download
+	FLASH2X_SECTION_VAL eActiveISO; //Active ISO section val
+	FLASH2X_SECTION_VAL eActiveDSD;	//Active DSD val chosen before f/w download
+	UINT uiActiveDSDOffsetAtFwDld;  //For accessing Active DSD chosen before f/w download
 	UINT uiFlashLayoutMajorVersion ;
 	UINT uiFlashLayoutMinorVersion;
 	BOOLEAN bAllDSDWriteAllow ;
 	BOOLEAN bSigCorrupted ;
-	
+	//this should be set who so ever want to change the Headers. after Wrtie it should be reset immediately.
 	BOOLEAN bHeaderChangeAllowed ;
 	INT SelectedChip ;
 	BOOLEAN bEndPointHalted;
-	
+	//while bFlashRawRead will be true, Driver  ignore map lay out and consider flash as of without any map.
 	BOOLEAN bFlashRawRead;
 	BOOLEAN			bPreparingForLowPowerMode ;
 	BOOLEAN bDoSuspend ;
 	UINT syscfgBefFwDld ;
 	BOOLEAN StopAllXaction ;
-	UINT32	liTimeSinceLastNetEntry; 
+	UINT32	liTimeSinceLastNetEntry; //Used to Support extended CAPI requirements from
 	struct semaphore	LowPowerModeSync;
 	ULONG	liDrainCalculated;
 	UINT gpioBitMap;
@@ -563,6 +591,7 @@ typedef struct FirmwareInfo
 	ULONG		u32StartingAddress;
 }__attribute__((packed)) FIRMWARE_INFO, *PFIRMWARE_INFO;
 
+// holds the value of net_device structure..
 extern struct net_device *gblpnetdev;
 typedef struct _cntl_pkt{
 	PMINI_ADAPTER 	Adapter;
@@ -579,6 +608,9 @@ typedef DDR_SETTING DDR_SET_NODE, *PDDR_SET_NODE;
 INT
 InitAdapter(PMINI_ADAPTER psAdapter);
 
+// =====================================================================
+// Beceem vendor request codes for EP0
+// =====================================================================
 
 #define BCM_REQUEST_READ  0x2
 #define BCM_REQUEST_WRITE 0x1
@@ -612,5 +644,5 @@ typedef enum eInterface_setting
 	ALTERNATE_SETTING_1 = 1,
 }INTERFACE_SETTING;
 
-#endif	
+#endif	//__ADAPTER_H__
 

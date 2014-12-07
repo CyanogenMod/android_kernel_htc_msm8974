@@ -9,6 +9,40 @@
  * kind, whether express or implied.
  */
 
+/*
+ * Device tree configuration:
+ *
+ * Required properties:
+ * - compatible      : "opencores,i2c-ocores"
+ * - reg             : bus address start and address range size of device
+ * - interrupts      : interrupt number
+ * - regstep         : size of device registers in bytes
+ * - clock-frequency : frequency of bus clock in Hz
+ * 
+ * Example:
+ *
+ *  i2c0: ocores@a0000000 {
+ *              compatible = "opencores,i2c-ocores";
+ *              reg = <0xa0000000 0x8>;
+ *              interrupts = <10>;
+ *
+ *              regstep = <1>;
+ *              clock-frequency = <20000000>;
+ *
+ * -- Devices connected on this I2C bus get
+ * -- defined here; address- and size-cells
+ * -- apply to these child devices
+ *
+ *              #address-cells = <1>;
+ *              #size-cells = <0>;
+ *
+ *              dummy@60 {
+ *                     compatible = "dummy";
+ *                     reg = <60>;
+ *              };
+ *  };
+ *
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -30,16 +64,17 @@ struct ocores_i2c {
 	struct i2c_msg *msg;
 	int pos;
 	int nmsgs;
-	int state; 
+	int state; /* see STATE_ */
 	int clock_khz;
 };
 
+/* registers */
 #define OCI2C_PRELOW		0
 #define OCI2C_PREHIGH		1
 #define OCI2C_CONTROL		2
 #define OCI2C_DATA		3
-#define OCI2C_CMD		4 
-#define OCI2C_STATUS		4 
+#define OCI2C_CMD		4 /* write only */
+#define OCI2C_STATUS		4 /* read only, same address as OCI2C_CMD */
 
 #define OCI2C_CTRL_IEN		0x40
 #define OCI2C_CTRL_EN		0x80
@@ -80,13 +115,13 @@ static void ocores_process(struct ocores_i2c *i2c)
 	u8 stat = oc_getreg(i2c, OCI2C_STATUS);
 
 	if ((i2c->state == STATE_DONE) || (i2c->state == STATE_ERROR)) {
-		
+		/* stop has been sent */
 		oc_setreg(i2c, OCI2C_CMD, OCI2C_CMD_IACK);
 		wake_up(&i2c->wait);
 		return;
 	}
 
-	
+	/* error? */
 	if (stat & OCI2C_STAT_ARBLOST) {
 		i2c->state = STATE_ERROR;
 		oc_setreg(i2c, OCI2C_CMD, OCI2C_CMD_STOP);
@@ -105,15 +140,15 @@ static void ocores_process(struct ocores_i2c *i2c)
 	} else
 		msg->buf[i2c->pos++] = oc_getreg(i2c, OCI2C_DATA);
 
-	
+	/* end of msg? */
 	if (i2c->pos == msg->len) {
 		i2c->nmsgs--;
 		i2c->msg++;
 		i2c->pos = 0;
 		msg = i2c->msg;
 
-		if (i2c->nmsgs) {	
-			
+		if (i2c->nmsgs) {	/* end? */
+			/* send start? */
 			if (!(msg->flags & I2C_M_NOSTART)) {
 				u8 addr = (msg->addr << 1);
 
@@ -180,14 +215,14 @@ static void ocores_init(struct ocores_i2c *i2c)
 	int prescale;
 	u8 ctrl = oc_getreg(i2c, OCI2C_CONTROL);
 
-	
+	/* make sure the device is disabled */
 	oc_setreg(i2c, OCI2C_CONTROL, ctrl & ~(OCI2C_CTRL_EN|OCI2C_CTRL_IEN));
 
 	prescale = (i2c->clock_khz / (5*100)) - 1;
 	oc_setreg(i2c, OCI2C_PRELOW, prescale & 0xff);
 	oc_setreg(i2c, OCI2C_PREHIGH, prescale >> 8);
 
-	
+	/* Init the device */
 	oc_setreg(i2c, OCI2C_CMD, OCI2C_CMD_IACK);
 	oc_setreg(i2c, OCI2C_CONTROL, ctrl | OCI2C_CTRL_IEN | OCI2C_CTRL_EN);
 }
@@ -290,21 +325,21 @@ static int __devinit ocores_i2c_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	
+	/* hook up driver to tree */
 	platform_set_drvdata(pdev, i2c);
 	i2c->adap = ocores_adapter;
 	i2c_set_adapdata(&i2c->adap, i2c);
 	i2c->adap.dev.parent = &pdev->dev;
 	i2c->adap.dev.of_node = pdev->dev.of_node;
 
-	
+	/* add i2c adapter to i2c tree */
 	ret = i2c_add_adapter(&i2c->adap);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to add adapter\n");
 		return ret;
 	}
 
-	
+	/* add in known devices to the bus */
 	if (pdata) {
 		for (i = 0; i < pdata->num_devices; i++)
 			i2c_new_device(&i2c->adap, pdata->devices + i);
@@ -317,11 +352,11 @@ static int __devexit ocores_i2c_remove(struct platform_device* pdev)
 {
 	struct ocores_i2c *i2c = platform_get_drvdata(pdev);
 
-	
+	/* disable i2c logic */
 	oc_setreg(i2c, OCI2C_CONTROL, oc_getreg(i2c, OCI2C_CONTROL)
 		  & ~(OCI2C_CTRL_EN|OCI2C_CTRL_IEN));
 
-	
+	/* remove adapter & data */
 	i2c_del_adapter(&i2c->adap);
 	platform_set_drvdata(pdev, NULL);
 
@@ -334,7 +369,7 @@ static int ocores_i2c_suspend(struct platform_device *pdev, pm_message_t state)
 	struct ocores_i2c *i2c = platform_get_drvdata(pdev);
 	u8 ctrl = oc_getreg(i2c, OCI2C_CONTROL);
 
-	
+	/* make sure the device is disabled */
 	oc_setreg(i2c, OCI2C_CONTROL, ctrl & ~(OCI2C_CTRL_EN|OCI2C_CTRL_IEN));
 
 	return 0;

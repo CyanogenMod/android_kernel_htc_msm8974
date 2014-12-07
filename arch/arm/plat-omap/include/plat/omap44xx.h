@@ -13,6 +13,10 @@
 #ifndef __ASM_ARCH_OMAP44XX_H
 #define __ASM_ARCH_OMAP44XX_H
 
+/*
+ * Please place only base defines here and put the rest in device
+ * specific headers.
+ */
 #define L4_44XX_BASE			0x4a000000
 #define L4_WK_44XX_BASE			0x4a300000
 #define L4_PER_44XX_BASE		0x48000000
@@ -54,5 +58,5 @@
 #define OMAP44XX_HSUSB_OHCI_BASE	(L4_44XX_BASE + 0x64800)
 #define OMAP44XX_HSUSB_EHCI_BASE	(L4_44XX_BASE + 0x64C00)
 
-#endif 
+#endif /* __ASM_ARCH_OMAP44XX_H */
 

@@ -20,9 +20,14 @@ struct s3c2410_dma_buf;
 #include <mach/dma.h>
 #include <mach/irqs.h>
 
+/* dma channel state information */
 struct s3c2410_dma_chan s3c2410_chans[S3C_DMA_CHANNELS];
 struct s3c2410_dma_chan *s3c_dma_chan_map[DMACH_MAX];
 
+/* s3c_dma_lookup_channel
+ *
+ * change the dma channel number given into a real dma channel id
+*/
 
 struct s3c2410_dma_chan *s3c_dma_lookup_channel(unsigned int channel)
 {
@@ -32,6 +37,9 @@ struct s3c2410_dma_chan *s3c_dma_lookup_channel(unsigned int channel)
 		return s3c_dma_chan_map[channel];
 }
 
+/* do we need to protect the settings of the fields from
+ * irq?
+*/
 
 int s3c2410_dma_set_opfn(enum dma_ch channel, s3c2410_dma_opfn_t rtn)
 {

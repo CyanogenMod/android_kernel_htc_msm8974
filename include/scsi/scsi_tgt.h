@@ -1,3 +1,6 @@
+/*
+ * SCSI target definitions
+ */
 
 #include <linux/dma-mapping.h>
 

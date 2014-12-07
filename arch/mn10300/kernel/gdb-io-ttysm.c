@@ -31,6 +31,9 @@ struct mn10300_serial_port *const gdbstub_port = &mn10300_serial_port_sif2;
 #endif
 
 
+/*
+ * initialise the GDB stub I/O routines
+ */
 void __init gdbstub_io_init(void)
 {
 	uint16_t scxctr;
@@ -50,10 +53,10 @@ void __init gdbstub_io_init(void)
 		BUG();
 	}
 
-	
+	/* set up the serial port */
 	gdbstub_io_set_baud(115200);
 
-	
+	/* we want to get serial receive interrupts */
 	set_intr_level(gdbstub_port->rx_irq,
 		NUM2GxICR_LEVEL(CONFIG_DEBUGGER_IRQ_LEVEL));
 	set_intr_level(gdbstub_port->tx_irq,
@@ -64,11 +67,12 @@ void __init gdbstub_io_init(void)
 	*gdbstub_port->rx_icr |= GxICR_ENABLE;
 	tmp = *gdbstub_port->rx_icr;
 
-	
-	scxctr = SC01CTR_CLN_8BIT;	
+	/* enable the device */
+	scxctr = SC01CTR_CLN_8BIT;	/* 1N8 */
 	switch (gdbstub_port->div_timer) {
 	case MNSCx_DIV_TIMER_16BIT:
-		scxctr |= SC0CTR_CK_TM8UFLOW_8; 
+		scxctr |= SC0CTR_CK_TM8UFLOW_8; /* == SC1CTR_CK_TM9UFLOW_8
+						   == SC2CTR_CK_TM10UFLOW_8 */
 		break;
 
 	case MNSCx_DIV_TIMER_8BIT:
@@ -81,14 +85,18 @@ void __init gdbstub_io_init(void)
 	*gdbstub_port->_control = scxctr;
 	tmp = *gdbstub_port->_control;
 
-	
+	/* permit level 0 IRQs only */
 	arch_local_change_intr_mask_level(
 		NUM2EPSW_IM(CONFIG_DEBUGGER_IRQ_LEVEL + 1));
 }
 
+/*
+ * set up the GDB stub serial port baud rate timers
+ */
 void gdbstub_io_set_baud(unsigned baud)
 {
-	const unsigned bits = 10; 
+	const unsigned bits = 10; /* 1 [start] + 8 [data] + 0 [parity] +
+				   * 1 [stop] */
 	unsigned long ioclk = gdbstub_port->ioclk;
 	unsigned xdiv, tmp;
 	uint16_t tmxbr;
@@ -97,7 +105,7 @@ void gdbstub_io_set_baud(unsigned baud)
 	if (!baud) {
 		baud = 9600;
 	} else if (baud == 134) {
-		baud = 269;	
+		baud = 269;	/* 134 is really 134.5 */
 		xdiv = 2;
 	}
 
@@ -141,7 +149,7 @@ try_alternative:
 		break;
 	}
 
-	
+	/* as a last resort, if the quotient is zero, default to 9600 bps */
 	baud = 9600;
 	goto try_alternative;
 
@@ -149,7 +157,7 @@ timer_okay:
 	gdbstub_port->uart.timeout = (2 * bits * HZ) / baud;
 	gdbstub_port->uart.timeout += HZ / 50;
 
-	
+	/* set the timer to produce the required baud rate */
 	switch (gdbstub_port->div_timer) {
 	case MNSCx_DIV_TIMER_16BIT:
 		*gdbstub_port->_tmxmd = 0;
@@ -167,6 +175,9 @@ timer_okay:
 	}
 }
 
+/*
+ * wait for a character to come from the debugger
+ */
 int gdbstub_io_rx_char(unsigned char *_ch, int nonblock)
 {
 	unsigned ix;
@@ -184,7 +195,7 @@ int gdbstub_io_rx_char(unsigned char *_ch, int nonblock)
 	}
 
 try_again:
-	
+	/* pull chars out of the buffer */
 	ix = gdbstub_rx_outp;
 	barrier();
 	if (ix == gdbstub_rx_inp) {
@@ -205,6 +216,9 @@ try_again:
 	st &= SC01STR_RXF | SC01STR_RBF | SC01STR_FEF | SC01STR_PEF |
 		SC01STR_OEF;
 
+	/* deal with what we've got
+	 * - note that the UART doesn't do BREAK-detection for us
+	 */
 	if (st & SC01STR_FEF && ch == 0) {
 		switch (gdbstub_port->rx_brk) {
 		case 0:	gdbstub_port->rx_brk = 1;	goto try_again;
@@ -236,7 +250,7 @@ try_again:
 		gdbstub_proto("### GDB MNSERIAL Parity Error ###\n");
 		return -EIO;
 	} else {
-		
+		/* look for the tail-end char on a break run */
 		if (gdbstub_port->rx_brk == 3) {
 			switch (ch) {
 			case 0xFF:
@@ -262,6 +276,9 @@ try_again:
 	}
 }
 
+/*
+ * send a character to the debugger
+ */
 void gdbstub_io_tx_char(unsigned char ch)
 {
 	while (*gdbstub_port->_status & SC01STR_TBF)
@@ -276,6 +293,9 @@ void gdbstub_io_tx_char(unsigned char ch)
 	*(u8 *) gdbstub_port->_txb = ch;
 }
 
+/*
+ * flush the transmission buffers
+ */
 void gdbstub_io_tx_flush(void)
 {
 	while (*gdbstub_port->_status & (SC01STR_TBF | SC01STR_TXF))

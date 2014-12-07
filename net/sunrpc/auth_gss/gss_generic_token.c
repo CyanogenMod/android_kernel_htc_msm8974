@@ -43,11 +43,34 @@
 #endif
 
 
+/* TWRITE_STR from gssapiP_generic.h */
 #define TWRITE_STR(ptr, str, len) \
 	memcpy((ptr), (char *) (str), (len)); \
 	(ptr) += (len);
 
+/* XXXX this code currently makes the assumption that a mech oid will
+   never be longer than 127 bytes.  This assumption is not inherent in
+   the interfaces, so the code can be fixed if the OSI namespace
+   balloons unexpectedly. */
 
+/* Each token looks like this:
+
+0x60				tag for APPLICATION 0, SEQUENCE
+					(constructed, definite-length)
+	<length>		possible multiple bytes, need to parse/generate
+	0x06			tag for OBJECT IDENTIFIER
+		<moid_length>	compile-time constant string (assume 1 byte)
+		<moid_bytes>	compile-time constant string
+	<inner_bytes>		the ANY containing the application token
+					bytes 0,1 are the token type
+					bytes 2,n are the token data
+
+For the purposes of this abstraction, the token "header" consists of
+the sequence tag and length octets, the mech OID DER encoding, and the
+first two inner bytes, which indicate the token type.  The token
+"body" consists of everything else.
+
+*/
 
 static int
 der_length_size( int length)
@@ -88,6 +111,8 @@ der_write_length(unsigned char **buf, int length)
 	}
 }
 
+/* returns decoded length, or < 0 on failure.  Advances buf and
+   decrements bufsize */
 
 static int
 der_read_length(unsigned char **buf, int *bufsize)
@@ -116,17 +141,20 @@ der_read_length(unsigned char **buf, int *bufsize)
 	return ret;
 }
 
+/* returns the length of a token, given the mech oid and the body size */
 
 int
 g_token_size(struct xdr_netobj *mech, unsigned int body_size)
 {
-	
-	body_size += 2 + (int) mech->len;         
+	/* set body_size to sequence contents size */
+	body_size += 2 + (int) mech->len;         /* NEED overflow check */
 	return 1 + der_length_size(body_size) + body_size;
 }
 
 EXPORT_SYMBOL_GPL(g_token_size);
 
+/* fills in a buffer with the token header.  The buffer is assumed to
+   be the right size.  buf is advanced past the token header */
 
 void
 g_make_token_header(struct xdr_netobj *mech, int body_size, unsigned char **buf)
@@ -140,6 +168,14 @@ g_make_token_header(struct xdr_netobj *mech, int body_size, unsigned char **buf)
 
 EXPORT_SYMBOL_GPL(g_make_token_header);
 
+/*
+ * Given a buffer containing a token, reads and verifies the token,
+ * leaving buf advanced past the token header, and setting body_size
+ * to the number of remaining bytes.  Returns 0 on success,
+ * G_BAD_TOK_HEADER for a variety of errors, and G_WRONG_MECH if the
+ * mechanism in the token does not match the mech argument.  buf and
+ * *body_size are left unmodified on error.
+ */
 u32
 g_verify_token_header(struct xdr_netobj *mech, int *body_size,
 		      unsigned char **buf_in, int toksize)
@@ -177,6 +213,8 @@ g_verify_token_header(struct xdr_netobj *mech, int *body_size,
 	if (! g_OID_equal(&toid, mech))
 		ret = G_WRONG_MECH;
 
+   /* G_WRONG_MECH is not returned immediately because it's more important
+      to return G_BAD_TOK_HEADER if the token header is in fact bad */
 
 	if ((toksize-=2) < 0)
 		return G_BAD_TOK_HEADER;

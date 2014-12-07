@@ -38,6 +38,10 @@
 
 #include <linux/types.h>
 
+/*
+ * Increment this value if any changes that break userspace ABI
+ * compatibility are made.
+ */
 #define IB_USER_VERBS_ABI_VERSION	6
 
 enum {
@@ -84,10 +88,20 @@ enum {
 	IB_USER_VERBS_CMD_OPEN_QP
 };
 
+/*
+ * Make sure that all structs defined in this file remain laid out so
+ * that they pack the same way on 32-bit and 64-bit architectures (to
+ * avoid incompatibility between 32-bit userspace and 64-bit kernels).
+ * Specifically:
+ *  - Do not use pointer types -- pass pointers in __u64 instead.
+ *  - Make sure that any structure larger than 4 bytes is padded to a
+ *    multiple of 8 bytes.  Otherwise the structure size will be
+ *    different between 32-bit and 64-bit architectures.
+ */
 
 struct ib_uverbs_async_event_desc {
 	__u64 element;
-	__u32 event_type;	
+	__u32 event_type;	/* enum ib_event_type */
 	__u32 reserved;
 };
 
@@ -95,6 +109,13 @@ struct ib_uverbs_comp_event_desc {
 	__u64 cq_handle;
 };
 
+/*
+ * All commands from userspace should start with a __u32 command field
+ * followed by __u16 in_words and out_words fields (which give the
+ * length of the command block and response buffer if any in 32-bit
+ * words).  The kernel driver will read these fields first and read
+ * the rest of the command struct based on these value.
+ */
 
 struct ib_uverbs_cmd_hdr {
 	__u32 command;
@@ -360,7 +381,7 @@ struct ib_uverbs_qp_attr {
 	struct ib_uverbs_ah_attr ah_attr;
 	struct ib_uverbs_ah_attr alt_ah_attr;
 
-	
+	/* ib_qp_cap */
 	__u32	max_send_wr;
 	__u32	max_recv_wr;
 	__u32	max_send_sge;
@@ -412,6 +433,7 @@ struct ib_uverbs_open_qp {
 	__u64 driver_data[0];
 };
 
+/* also used for open response */
 struct ib_uverbs_create_qp_resp {
 	__u32 qp_handle;
 	__u32 qpn;
@@ -423,6 +445,10 @@ struct ib_uverbs_create_qp_resp {
 	__u32 reserved;
 };
 
+/*
+ * This struct needs to remain a multiple of 8 bytes to keep the
+ * alignment of the modify QP parameters.
+ */
 struct ib_uverbs_qp_dest {
 	__u8  dgid[16];
 	__u32 flow_label;
@@ -522,6 +548,12 @@ struct ib_uverbs_destroy_qp_resp {
 	__u32 events_reported;
 };
 
+/*
+ * The ib_uverbs_sge structure isn't used anywhere, since we assume
+ * the ib_sge structure is packed the same way on 32-bit and 64-bit
+ * architectures in both kernel and user space.  It's just here to
+ * document the ABI.
+ */
 struct ib_uverbs_sge {
 	__u64 addr;
 	__u32 length;
@@ -699,4 +731,4 @@ struct ib_uverbs_destroy_srq_resp {
 	__u32 events_reported;
 };
 
-#endif 
+#endif /* IB_USER_VERBS_H */

@@ -44,16 +44,19 @@
 #include "iwl-shared.h"
 #include "iwl-cfg.h"
 
+/* Highest firmware API version supported */
 #define IWL2030_UCODE_API_MAX 6
 #define IWL2000_UCODE_API_MAX 6
 #define IWL105_UCODE_API_MAX 6
 #define IWL135_UCODE_API_MAX 6
 
+/* Oldest version we won't warn about */
 #define IWL2030_UCODE_API_OK 6
 #define IWL2000_UCODE_API_OK 6
 #define IWL105_UCODE_API_OK 6
 #define IWL135_UCODE_API_OK 6
 
+/* Lowest firmware API version supported */
 #define IWL2030_UCODE_API_MIN 5
 #define IWL2000_UCODE_API_MIN 5
 #define IWL105_UCODE_API_MIN 5
@@ -73,11 +76,12 @@
 
 static void iwl2000_set_ct_threshold(struct iwl_priv *priv)
 {
-	
+	/* want Celsius */
 	hw_params(priv).ct_kill_threshold = CT_KILL_THRESHOLD;
 	hw_params(priv).ct_kill_exit_threshold = CT_KILL_EXIT_THRESHOLD;
 }
 
+/* NIC configuration for 2000 series */
 static void iwl2000_nic_config(struct iwl_priv *priv)
 {
 	iwl_rf_config(priv);
@@ -125,7 +129,7 @@ static void iwl2000_hw_set_hw_params(struct iwl_priv *priv)
 
 	iwl2000_set_ct_threshold(priv);
 
-	
+	/* Set initial sensitivity parameters */
 	hw_params(priv).sens = &iwl2000_sensitivity;
 }
 
@@ -204,11 +208,11 @@ static const struct iwl_base_params iwl2030_base_params = {
 
 static const struct iwl_ht_params iwl2000_ht_params = {
 	.ht_greenfield_support = true,
-	.use_rts_for_aggregation = true, 
+	.use_rts_for_aggregation = true, /* use rts/cts protection */
 };
 
 static const struct iwl_bt_params iwl2030_bt_params = {
-	
+	/* Due to bluetooth, we transmit 2.4 GHz probes only on antenna A */
 	.advanced_bt_coexist = true,
 	.agg_time_limit = BT_AGG_THRESHOLD_DEF,
 	.bt_init_traffic_load = IWL_BT_COEX_TRAFFIC_LOAD_NONE,

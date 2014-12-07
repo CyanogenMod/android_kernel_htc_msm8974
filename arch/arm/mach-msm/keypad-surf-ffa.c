@@ -19,8 +19,23 @@
 
 #include <asm/mach-types.h>
 
+/* don't turn this on without updating the ffa support */
 #define SCAN_FUNCTION_KEYS 0
 
+/* FFA:
+ 36: KEYSENSE_N(0)
+ 37: KEYSENSE_N(1)
+ 38: KEYSENSE_N(2)
+ 39: KEYSENSE_N(3)
+ 40: KEYSENSE_N(4)
+
+ 31: KYPD_17
+ 32: KYPD_15
+ 33: KYPD_13
+ 34: KYPD_11
+ 35: KYPD_9
+ 41: KYPD_MEMO
+*/
 
 static unsigned int keypad_row_gpios[] = {
 	31, 32, 33, 34, 35, 41
@@ -42,37 +57,37 @@ static const unsigned short keypad_keymap_surf[ARRAY_SIZE(keypad_col_gpios) *
 					  ARRAY_SIZE(keypad_row_gpios)] = {
 	[KEYMAP_INDEX(0, 0)] = KEY_5,
 	[KEYMAP_INDEX(0, 1)] = KEY_9,
-	[KEYMAP_INDEX(0, 2)] = 229,            
+	[KEYMAP_INDEX(0, 2)] = 229,            /* SOFT1 */
 	[KEYMAP_INDEX(0, 3)] = KEY_6,
 	[KEYMAP_INDEX(0, 4)] = KEY_LEFT,
 
 	[KEYMAP_INDEX(1, 0)] = KEY_0,
 	[KEYMAP_INDEX(1, 1)] = KEY_RIGHT,
 	[KEYMAP_INDEX(1, 2)] = KEY_1,
-	[KEYMAP_INDEX(1, 3)] = 228,           
+	[KEYMAP_INDEX(1, 3)] = 228,           /* KEY_SHARP */
 	[KEYMAP_INDEX(1, 4)] = KEY_SEND,
 
 	[KEYMAP_INDEX(2, 0)] = KEY_VOLUMEUP,
-	[KEYMAP_INDEX(2, 1)] = KEY_HOME,      
-	[KEYMAP_INDEX(2, 2)] = KEY_F8,        
-	[KEYMAP_INDEX(2, 3)] = KEY_F6,        
-	[KEYMAP_INDEX(2, 4)] = KEY_F7,        
+	[KEYMAP_INDEX(2, 1)] = KEY_HOME,      /* FA   */
+	[KEYMAP_INDEX(2, 2)] = KEY_F8,        /* QCHT */
+	[KEYMAP_INDEX(2, 3)] = KEY_F6,        /* R+   */
+	[KEYMAP_INDEX(2, 4)] = KEY_F7,        /* R-   */
 
 	[KEYMAP_INDEX(3, 0)] = KEY_UP,
 	[KEYMAP_INDEX(3, 1)] = KEY_CLEAR,
 	[KEYMAP_INDEX(3, 2)] = KEY_4,
-	[KEYMAP_INDEX(3, 3)] = KEY_MUTE,      
+	[KEYMAP_INDEX(3, 3)] = KEY_MUTE,      /* SPKR */
 	[KEYMAP_INDEX(3, 4)] = KEY_2,
 
-	[KEYMAP_INDEX(4, 0)] = 230,           
-	[KEYMAP_INDEX(4, 1)] = 232,           
+	[KEYMAP_INDEX(4, 0)] = 230,           /* SOFT2 */
+	[KEYMAP_INDEX(4, 1)] = 232,           /* KEY_CENTER */
 	[KEYMAP_INDEX(4, 2)] = KEY_DOWN,
-	[KEYMAP_INDEX(4, 3)] = KEY_BACK,      
+	[KEYMAP_INDEX(4, 3)] = KEY_BACK,      /* FB */
 	[KEYMAP_INDEX(4, 4)] = KEY_8,
 
 	[KEYMAP_INDEX(5, 0)] = KEY_VOLUMEDOWN,
-	[KEYMAP_INDEX(5, 1)] = 227,           
-	[KEYMAP_INDEX(5, 2)] = KEY_MAIL,      
+	[KEYMAP_INDEX(5, 1)] = 227,           /* KEY_STAR */
+	[KEYMAP_INDEX(5, 2)] = KEY_MAIL,      /* MESG */
 	[KEYMAP_INDEX(5, 3)] = KEY_3,
 	[KEYMAP_INDEX(5, 4)] = KEY_7,
 
@@ -87,8 +102,8 @@ static const unsigned short keypad_keymap_surf[ARRAY_SIZE(keypad_col_gpios) *
 
 static const unsigned short keypad_keymap_ffa[ARRAY_SIZE(keypad_col_gpios) *
 					      ARRAY_SIZE(keypad_row_gpios)] = {
-	
-	
+	/*[KEYMAP_INDEX(0, 0)] = ,*/
+	/*[KEYMAP_INDEX(0, 1)] = ,*/
 	[KEYMAP_INDEX(0, 2)] = KEY_1,
 	[KEYMAP_INDEX(0, 3)] = KEY_SEND,
 	[KEYMAP_INDEX(0, 4)] = KEY_LEFT,
@@ -96,19 +111,19 @@ static const unsigned short keypad_keymap_ffa[ARRAY_SIZE(keypad_col_gpios) *
 	[KEYMAP_INDEX(1, 0)] = KEY_3,
 	[KEYMAP_INDEX(1, 1)] = KEY_RIGHT,
 	[KEYMAP_INDEX(1, 2)] = KEY_VOLUMEUP,
-	
+	/*[KEYMAP_INDEX(1, 3)] = ,*/
 	[KEYMAP_INDEX(1, 4)] = KEY_6,
 
-	[KEYMAP_INDEX(2, 0)] = KEY_HOME,      
-	[KEYMAP_INDEX(2, 1)] = KEY_BACK,      
+	[KEYMAP_INDEX(2, 0)] = KEY_HOME,      /* A */
+	[KEYMAP_INDEX(2, 1)] = KEY_BACK,      /* B */
 	[KEYMAP_INDEX(2, 2)] = KEY_0,
-	[KEYMAP_INDEX(2, 3)] = 228,           
+	[KEYMAP_INDEX(2, 3)] = 228,           /* KEY_SHARP */
 	[KEYMAP_INDEX(2, 4)] = KEY_9,
 
 	[KEYMAP_INDEX(3, 0)] = KEY_UP,
-	[KEYMAP_INDEX(3, 1)] = 232,  
+	[KEYMAP_INDEX(3, 1)] = 232, /* KEY_CENTER */ /* i */
 	[KEYMAP_INDEX(3, 2)] = KEY_4,
-	
+	/*[KEYMAP_INDEX(3, 3)] = ,*/
 	[KEYMAP_INDEX(3, 4)] = KEY_2,
 
 	[KEYMAP_INDEX(4, 0)] = KEY_VOLUMEDOWN,
@@ -117,10 +132,10 @@ static const unsigned short keypad_keymap_ffa[ARRAY_SIZE(keypad_col_gpios) *
 	[KEYMAP_INDEX(4, 3)] = KEY_8,
 	[KEYMAP_INDEX(4, 4)] = KEY_5,
 
-	
-	[KEYMAP_INDEX(5, 1)] = 227,           
-	[KEYMAP_INDEX(5, 2)] = 230,  
-	[KEYMAP_INDEX(5, 3)] = KEY_MENU,      
+	/*[KEYMAP_INDEX(5, 0)] = ,*/
+	[KEYMAP_INDEX(5, 1)] = 227,           /* KEY_STAR */
+	[KEYMAP_INDEX(5, 2)] = 230, /*SOFT2*/ /* 2 */
+	[KEYMAP_INDEX(5, 3)] = KEY_MENU,      /* 1 */
 	[KEYMAP_INDEX(5, 4)] = KEY_7,
 };
 
@@ -130,7 +145,7 @@ static const unsigned short keypad_keymap_ffa[ARRAY_SIZE(keypad_col_gpios) *
 static const unsigned short keypad_keymap_8k_ffa[QSD8x50_FFA_KEYMAP_SIZE] = {
 
 	[FFA_8K_KEYMAP_INDEX(0, 0)] = KEY_VOLUMEDOWN,
-	
+	/*[KEYMAP_INDEX(0, 1)] = ,*/
 	[FFA_8K_KEYMAP_INDEX(0, 2)] = KEY_DOWN,
 	[FFA_8K_KEYMAP_INDEX(0, 3)] = KEY_8,
 	[FFA_8K_KEYMAP_INDEX(0, 4)] = KEY_5,
@@ -138,34 +153,35 @@ static const unsigned short keypad_keymap_8k_ffa[QSD8x50_FFA_KEYMAP_SIZE] = {
 	[FFA_8K_KEYMAP_INDEX(1, 0)] = KEY_UP,
 	[FFA_8K_KEYMAP_INDEX(1, 1)] = KEY_CLEAR,
 	[FFA_8K_KEYMAP_INDEX(1, 2)] = KEY_4,
-	
+	/*[KEYMAP_INDEX(1, 3)] = ,*/
 	[FFA_8K_KEYMAP_INDEX(1, 4)] = KEY_2,
 
-	[FFA_8K_KEYMAP_INDEX(2, 0)] = KEY_HOME,      
-	[FFA_8K_KEYMAP_INDEX(2, 1)] = KEY_BACK,      
+	[FFA_8K_KEYMAP_INDEX(2, 0)] = KEY_HOME,      /* A */
+	[FFA_8K_KEYMAP_INDEX(2, 1)] = KEY_BACK,      /* B */
 	[FFA_8K_KEYMAP_INDEX(2, 2)] = KEY_0,
-	[FFA_8K_KEYMAP_INDEX(2, 3)] = 228,           
+	[FFA_8K_KEYMAP_INDEX(2, 3)] = 228,           /* KEY_SHARP */
 	[FFA_8K_KEYMAP_INDEX(2, 4)] = KEY_9,
 
 	[FFA_8K_KEYMAP_INDEX(3, 0)] = KEY_3,
 	[FFA_8K_KEYMAP_INDEX(3, 1)] = KEY_RIGHT,
 	[FFA_8K_KEYMAP_INDEX(3, 2)] = KEY_VOLUMEUP,
-	
+	/*[KEYMAP_INDEX(3, 3)] = ,*/
 	[FFA_8K_KEYMAP_INDEX(3, 4)] = KEY_6,
 
-	[FFA_8K_KEYMAP_INDEX(4, 0)] = 232,		
+	[FFA_8K_KEYMAP_INDEX(4, 0)] = 232,		/* OK */
 	[FFA_8K_KEYMAP_INDEX(4, 1)] = KEY_SOUND,
 	[FFA_8K_KEYMAP_INDEX(4, 2)] = KEY_1,
 	[FFA_8K_KEYMAP_INDEX(4, 3)] = KEY_SEND,
 	[FFA_8K_KEYMAP_INDEX(4, 4)] = KEY_LEFT,
 
-	
-	[FFA_8K_KEYMAP_INDEX(5, 1)] = 227,           
-	[FFA_8K_KEYMAP_INDEX(5, 2)] = 230,  
-	[FFA_8K_KEYMAP_INDEX(5, 3)] = 229,      
+	/*[KEYMAP_INDEX(5, 0)] = ,*/
+	[FFA_8K_KEYMAP_INDEX(5, 1)] = 227,           /* KEY_STAR */
+	[FFA_8K_KEYMAP_INDEX(5, 2)] = 230, /*SOFT2*/ /* 2 */
+	[FFA_8K_KEYMAP_INDEX(5, 3)] = 229,      /* 1 */
 	[FFA_8K_KEYMAP_INDEX(5, 4)] = KEY_7,
 };
 
+/* SURF keypad platform device information */
 static struct gpio_event_matrix_info surf_keypad_matrix_info = {
 	.info.func	= gpio_event_matrix_func,
 	.keymap		= keypad_keymap_surf,
@@ -197,6 +213,7 @@ struct platform_device keypad_device_surf = {
 	},
 };
 
+/* 8k FFA keypad platform device information */
 static struct gpio_event_matrix_info keypad_matrix_info_8k_ffa = {
 	.info.func	= gpio_event_matrix_func,
 	.keymap		= keypad_keymap_8k_ffa,
@@ -228,6 +245,7 @@ struct platform_device keypad_device_8k_ffa = {
 	},
 };
 
+/* 7k FFA keypad platform device information */
 static struct gpio_event_matrix_info keypad_matrix_info_7k_ffa = {
 	.info.func	= gpio_event_matrix_func,
 	.keymap		= keypad_keymap_ffa,

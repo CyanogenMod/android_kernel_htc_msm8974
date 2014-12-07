@@ -11,6 +11,9 @@
  *
  */
 
+/*
+ * RPCROUTER SMD XPRT module.
+ */
 
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -106,6 +109,10 @@ static int rpcrouter_smd_remote_qdsp_write(void *data,
 
 static int rpcrouter_smd_remote_qdsp_close(void)
 {
+	/*
+	 * TBD: Implement when we have N way SMSM ported
+	 * smsm_change_state(SMSM_APPS_STATE, SMSM_RPCINIT, 0);
+	 */
 	return smd_close(smd_remote_qdsp_xprt.channel);
 }
 
@@ -118,7 +125,7 @@ static void rpcrouter_smd_remote_qdsp_notify(void *_dev, unsigned event)
 		break;
 
 	case SMD_EVENT_OPEN:
-		
+		/* Print log info */
 		pr_debug("%s: smd opened\n", __func__);
 
 		msm_rpcrouter_xprt_notify(&smd_remote_qdsp_xprt.xprt,
@@ -126,7 +133,7 @@ static void rpcrouter_smd_remote_qdsp_notify(void *_dev, unsigned event)
 		break;
 
 	case SMD_EVENT_CLOSE:
-		
+		/* Print log info */
 		pr_debug("%s: smd closed\n", __func__);
 
 		msm_rpcrouter_xprt_notify(&smd_remote_qdsp_xprt.xprt,
@@ -149,7 +156,7 @@ static int rpcrouter_smd_remote_qdsp_probe(struct platform_device *pdev)
 	smd_remote_qdsp_xprt.xprt.close = rpcrouter_smd_remote_qdsp_close;
 	smd_remote_qdsp_xprt.xprt.priv = NULL;
 
-	
+	/* Open up SMD channel */
 	rc = smd_named_open_on_edge("RPCCALL_QDSP", SMD_APPS_QDSP,
 			&smd_remote_qdsp_xprt.channel, NULL,
 			rpcrouter_smd_remote_qdsp_notify);
@@ -173,7 +180,7 @@ static inline int register_smd_remote_qpsp_driver(void)
 {
 	return platform_driver_register(&rpcrouter_smd_remote_qdsp_driver);
 }
-#else 
+#else /* CONFIG_ARCH_FSM9XXX */
 static inline int register_smd_remote_qpsp_driver(void)
 {
 	return 0;
@@ -245,7 +252,7 @@ static int rpcrouter_smd_loopback_probe(struct platform_device *pdev)
 	smd_loopback_xprt.xprt.close = rpcrouter_smd_loopback_close;
 	smd_loopback_xprt.xprt.priv = NULL;
 
-	
+	/* Open up SMD LOOPBACK channel */
 	rc = smd_named_open_on_edge("local_loopback", SMD_LOOPBACK_TYPE,
 				    &smd_loopback_xprt.channel, NULL,
 				    rpcrouter_smd_loopback_notify);
@@ -268,7 +275,7 @@ static inline int register_smd_loopback_driver(void)
 {
 	return platform_driver_register(&rpcrouter_smd_loopback_driver);
 }
-#else 
+#else /* CONFIG_MSM_RPC_LOOPBACK_XPRT */
 static inline int register_smd_loopback_driver(void)
 {
 	return 0;
@@ -287,7 +294,7 @@ static int rpcrouter_smd_remote_probe(struct platform_device *pdev)
 	smd_remote_xprt.xprt.close = rpcrouter_smd_remote_close;
 	smd_remote_xprt.xprt.priv = NULL;
 
-	
+	/* Open up SMD channel */
 	rc = smd_open("RPCCALL", &smd_remote_xprt.channel, NULL,
 		      rpcrouter_smd_remote_notify);
 	if (rc < 0)

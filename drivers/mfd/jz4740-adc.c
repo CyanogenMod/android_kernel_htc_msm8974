@@ -80,6 +80,9 @@ static void jz4740_adc_irq_demux(unsigned int irq, struct irq_desc *desc)
 }
 
 
+/* Refcounting for the ADC clock is done in here instead of in the clock
+ * framework, because it is the only clock which is shared between multiple
+ * devices and thus is the only clock which needs refcounting */
 static inline void jz4740_adc_clk_enable(struct jz4740_adc *adc)
 {
 	if (atomic_inc_return(&adc->clk_ref) == 1)
@@ -235,7 +238,7 @@ static int __devinit jz4740_adc_probe(struct platform_device *pdev)
 		goto err_free;
 	}
 
-	
+	/* Only request the shared registers for the MFD driver */
 	adc->mem = request_mem_region(mem_base->start, JZ_REG_ADC_STATUS,
 					pdev->name);
 	if (!adc->mem) {

@@ -53,10 +53,22 @@ struct arxescsi_info {
 
 #define VERSION "1.10 (23/01/2003 2.5.57)"
 
+/*
+ * Function: int arxescsi_dma_setup(host, SCpnt, direction, min_type)
+ * Purpose : initialises DMA/PIO
+ * Params  : host      - host
+ *	     SCpnt     - command
+ *	     direction - DMA on to/off of card
+ *	     min_type  - minimum DMA support that we must have for this transfer
+ * Returns : 0 if we should not set CMD_WITHDMA for transfer info command
+ */
 static fasdmatype_t
 arxescsi_dma_setup(struct Scsi_Host *host, struct scsi_pointer *SCp,
 		       fasdmadir_t direction, fasdmatype_t min_type)
 {
+	/*
+	 * We don't do real DMA
+	 */
 	return fasdma_pseudo;
 }
 
@@ -88,6 +100,14 @@ static void arxescsi_pseudo_dma_write(unsigned char *addr, void __iomem *base)
        : "r" (addr), "r" (base));
 }
 
+/*
+ * Function: int arxescsi_dma_pseudo(host, SCpnt, direction, transfer)
+ * Purpose : handles pseudo DMA
+ * Params  : host      - host
+ *	     SCpnt     - command
+ *	     direction - DMA on to/off of card
+ *	     transfer  - minimum number of bytes we expect to transfer
+ */
 static void
 arxescsi_dma_pseudo(struct Scsi_Host *host, struct scsi_pointer *SCp,
 		    fasdmadir_t direction, int transfer)
@@ -169,10 +189,25 @@ arxescsi_dma_pseudo(struct Scsi_Host *host, struct scsi_pointer *SCp,
 	}
 }
 
+/*
+ * Function: int arxescsi_dma_stop(host, SCpnt)
+ * Purpose : stops DMA/PIO
+ * Params  : host  - host
+ *	     SCpnt - command
+ */
 static void arxescsi_dma_stop(struct Scsi_Host *host, struct scsi_pointer *SCp)
 {
+	/*
+	 * no DMA to stop
+	 */
 }
 
+/*
+ * Function: const char *arxescsi_info(struct Scsi_Host * host)
+ * Purpose : returns a descriptive string about this interface,
+ * Params  : host - driver host structure to return info for.
+ * Returns : pointer to a static buffer containing null terminated string.
+ */
 static const char *arxescsi_info(struct Scsi_Host *host)
 {
 	struct arxescsi_info *info = (struct arxescsi_info *)host->hostdata;
@@ -273,9 +308,9 @@ arxescsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	info->info.scsi.irq		= 0;
 	info->info.scsi.dma		= NO_DMA;
 	info->info.scsi.io_shift	= 5;
-	info->info.ifcfg.clockrate	= 24; 
+	info->info.ifcfg.clockrate	= 24; /* MHz */
 	info->info.ifcfg.select_timeout = 255;
-	info->info.ifcfg.asyncperiod	= 200; 
+	info->info.ifcfg.asyncperiod	= 200; /* ns */
 	info->info.ifcfg.sync_max_depth	= 0;
 	info->info.ifcfg.cntl3		= CNTL3_FASTSCSI | CNTL3_FASTCLK;
 	info->info.ifcfg.disconnect_ok	= 0;

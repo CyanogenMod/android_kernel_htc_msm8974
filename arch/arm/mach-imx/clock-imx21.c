@@ -30,6 +30,7 @@
 
 #define IO_ADDR_CCM(off)	(MX21_IO_ADDRESS(MX21_CCM_BASE_ADDR + (off)))
 
+/* Register offsets */
 #define CCM_CSCR		IO_ADDR_CCM(0x0)
 #define CCM_MPCTL0		IO_ADDR_CCM(0x4)
 #define CCM_MPCTL1		IO_ADDR_CCM(0x8)
@@ -256,8 +257,8 @@
 #define CCM_CCSR_CLKOSEL_OFFSET 0
 #define CCM_CCSR_CLKOSEL_MASK	0x1f
 
-#define SYS_FMCR		0x14	
-#define SYS_CHIP_ID		0x00	
+#define SYS_FMCR		0x14	/* Functional Muxing Control Reg */
+#define SYS_CHIP_ID		0x00	/* The offset of CHIP ID register */
 
 static int _clk_enable(struct clk *clk)
 {
@@ -399,7 +400,7 @@ static unsigned long _clk_ssix_recalc(struct clk *clk, unsigned long pdf)
 
 	parent_rate = clk_get_rate(clk->parent);
 
-	pdf = (pdf < 2) ? 124UL : pdf;  
+	pdf = (pdf < 2) ? 124UL : pdf;  /* MX21 & MX27 TO1 */
 
 	return 2UL * parent_rate / pdf;
 }
@@ -441,24 +442,32 @@ static int _clk_parent_set_rate(struct clk *clk, unsigned long rate)
 	return clk->parent->set_rate(clk->parent, rate);
 }
 
-static unsigned long external_high_reference; 
+static unsigned long external_high_reference; /* in Hz */
 
 static unsigned long get_high_reference_clock_rate(struct clk *clk)
 {
 	return external_high_reference;
 }
 
+/*
+ * the high frequency external clock reference
+ * Default case is 26MHz.
+ */
 static struct clk ckih_clk = {
 	.get_rate = get_high_reference_clock_rate,
 };
 
-static unsigned long external_low_reference; 
+static unsigned long external_low_reference; /* in Hz */
 
 static unsigned long get_low_reference_clock_rate(struct clk *clk)
 {
 	return external_low_reference;
 }
 
+/*
+ * the low frequency external clock reference
+ * Default case is 32.768kHz.
+ */
 static struct clk ckil_clk = {
 	.get_rate = get_low_reference_clock_rate,
 };
@@ -469,6 +478,7 @@ static unsigned long _clk_fpm_recalc(struct clk *clk)
 	return clk_get_rate(clk->parent) * 512;
 }
 
+/* Output of frequency pre multiplier */
 static struct clk fpm_clk = {
 	.parent = &ckil_clk,
 	.get_rate = _clk_fpm_recalc,
@@ -613,14 +623,14 @@ static struct clk per_clk[] = {
 		.round_rate = _clk_perclkx_round_rate,
 		.set_rate = _clk_perclkx_set_rate,
 		.get_rate = _clk_perclkx_recalc,
-		
+		/* Enable/Disable done via lcd_clkc[1] */
 	}, {
 		.id = 3,
 		.parent = &mpll_clk,
 		.round_rate = _clk_perclkx_round_rate,
 		.set_rate = _clk_perclkx_set_rate,
 		.get_rate = _clk_perclkx_recalc,
-		
+		/* Enable/Disable done via csi_clk[1] */
 	},
 };
 
@@ -1060,7 +1070,7 @@ static unsigned long _clk_clko_recalc(struct clk *clk)
 
 	parent_rate = clk_get_rate(clk->parent);
 
-	if (clk->parent == &usb_clk[0]) 
+	if (clk->parent == &usb_clk[0]) /* 48M */
 		div = __raw_readl(CCM_PCDR0) & CCM_PCDR0_48MDIV_MASK
 			 >> CCM_PCDR0_48MDIV_OFFSET;
 	div++;
@@ -1137,6 +1147,16 @@ static struct clk clko_clk = {
 		.clk = &c, \
 	},
 static struct clk_lookup lookups[] = {
+/* It's unlikely that any driver wants one of them directly:
+	_REGISTER_CLOCK(NULL, "ckih", ckih_clk)
+	_REGISTER_CLOCK(NULL, "ckil", ckil_clk)
+	_REGISTER_CLOCK(NULL, "fpm", fpm_clk)
+	_REGISTER_CLOCK(NULL, "mpll", mpll_clk)
+	_REGISTER_CLOCK(NULL, "spll", spll_clk)
+	_REGISTER_CLOCK(NULL, "fclk", fclk_clk)
+	_REGISTER_CLOCK(NULL, "hclk", hclk_clk)
+	_REGISTER_CLOCK(NULL, "ipg", ipg_clk)
+*/
 	_REGISTER_CLOCK(NULL, "perclk1", per_clk[0])
 	_REGISTER_CLOCK(NULL, "perclk2", per_clk[1])
 	_REGISTER_CLOCK(NULL, "perclk3", per_clk[2])
@@ -1173,6 +1193,10 @@ static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK(NULL, "rtc", rtc_clk)
 };
 
+/*
+ * must be called very early to get information about the
+ * available clock rate when the timer framework starts
+ */
 int __init mx21_clocks_init(unsigned long lref, unsigned long href)
 {
 	u32 cscr;
@@ -1180,7 +1204,7 @@ int __init mx21_clocks_init(unsigned long lref, unsigned long href)
 	external_low_reference = lref;
 	external_high_reference = href;
 
-	
+	/* detect clock reference for both system PLL */
 	cscr = CSCR();
 	if (cscr & CCM_CSCR_MCU)
 		mpll_clk.parent = &ckih_clk;
@@ -1194,14 +1218,14 @@ int __init mx21_clocks_init(unsigned long lref, unsigned long href)
 
 	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
 
-	
+	/* Turn off all clock gates */
 	__raw_writel(0, CCM_PCCR0);
 	__raw_writel(CCM_PCCR_GPT1_MASK, CCM_PCCR1);
 
-	
+	/* This turns of the serial PLL as well */
 	spll_clk.disable(&spll_clk);
 
-	
+	/* This will propagate to all children and init all the clock rates. */
 	clk_enable(&per_clk[0]);
 	clk_enable(&gpio_clk);
 

@@ -27,4 +27,4 @@ struct tidaw *itcw_add_tidaw(struct itcw *itcw, u8 flags, void *addr,
 void itcw_set_data(struct itcw *itcw, void *addr, int use_tidal);
 void itcw_finalize(struct itcw *itcw);
 
-#endif 
+#endif /* _ASM_S390_ITCW_H */

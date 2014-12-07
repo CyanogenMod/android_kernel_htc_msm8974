@@ -119,6 +119,7 @@ struct bios_rfkill2_device_state {
 	u8 unknown[4];
 };
 
+/* 7 devices fit into the 128 byte buffer */
 #define HPWMI_MAX_RFKILL2_DEVICES	7
 
 struct bios_rfkill2_state {
@@ -171,6 +172,26 @@ static struct platform_driver hp_wmi_driver = {
 	.remove = hp_wmi_bios_remove,
 };
 
+/*
+ * hp_wmi_perform_query
+ *
+ * query:	The commandtype -> What should be queried
+ * write:	The command -> 0 read, 1 write, 3 ODM specific
+ * buffer:	Buffer used as input and/or output
+ * insize:	Size of input buffer
+ * outsize:	Size of output buffer
+ *
+ * returns zero on success
+ *         an HP WMI query specific error code (which is positive)
+ *         -EINVAL if the query was not successful at all
+ *         -EINVAL if the output buffer size exceeds buffersize
+ *
+ * Note: The buffersize must at least be the maximum of the input and output
+ *       size. E.g. Battery info query (0x7) is defined to have 1 byte input
+ *       and 128 byte output. The caller would do:
+ *       buffer = kzalloc(128, GFP_KERNEL);
+ *       ret = hp_wmi_perform_query(0x7, 0, buffer, 1, 128)
+ */
 static int hp_wmi_perform_query(int query, int write, void *buffer,
 				int insize, int outsize)
 {
@@ -214,7 +235,7 @@ static int hp_wmi_perform_query(int query, int write, void *buffer,
 	}
 
 	if (!outsize) {
-		
+		/* ignore output data */
 		kfree(obj);
 		return 0;
 	}
@@ -303,7 +324,7 @@ static bool hp_wmi_get_sw_state(enum hp_wmi_radio r)
 	hp_wmi_perform_query(HPWMI_WIRELESS_QUERY, 0,
 			     &wireless, sizeof(wireless),
 			     sizeof(wireless));
-	
+	/* TBD: Pass error */
 
 	mask = 0x200 << (r * 8);
 
@@ -320,7 +341,7 @@ static bool hp_wmi_get_hw_state(enum hp_wmi_radio r)
 	hp_wmi_perform_query(HPWMI_WIRELESS_QUERY, 0,
 			     &wireless, sizeof(wireless),
 			     sizeof(wireless));
-	
+	/* TBD: Pass error */
 
 	mask = 0x800 << (r * 8);
 
@@ -462,6 +483,10 @@ static void hp_wmi_notify(u32 value, void *context)
 		return;
 	}
 
+	/*
+	 * Depending on ACPI version the concatenation of id and event data
+	 * inside _WED function will result in a 8 or 16 byte buffer.
+	 */
 	location = (u32 *)obj->buffer.pointer;
 	if (obj->buffer.length == 8) {
 		event_id = *location;
@@ -551,7 +576,7 @@ static int __init hp_wmi_input_setup(void)
 	if (err)
 		goto err_free_dev;
 
-	
+	/* Set initial hardware state */
 	input_report_switch(hp_wmi_input_dev, SW_DOCK, hp_wmi_dock_state());
 	input_report_switch(hp_wmi_input_dev, SW_TABLET_MODE,
 			    hp_wmi_tablet_state());
@@ -747,7 +772,7 @@ static int __devinit hp_wmi_bios_setup(struct platform_device *device)
 {
 	int err;
 
-	
+	/* clear detected rfkill devices */
 	wifi_rfkill = NULL;
 	bluetooth_rfkill = NULL;
 	wwan_rfkill = NULL;
@@ -806,6 +831,12 @@ static int __exit hp_wmi_bios_remove(struct platform_device *device)
 
 static int hp_wmi_resume_handler(struct device *device)
 {
+	/*
+	 * Hardware state may have changed while suspended, so trigger
+	 * input events for the current state. As this is a switch,
+	 * the input layer will only actually pass it on if the state
+	 * changed.
+	 */
 	if (hp_wmi_input_dev) {
 		input_report_switch(hp_wmi_input_dev, SW_DOCK,
 				    hp_wmi_dock_state());

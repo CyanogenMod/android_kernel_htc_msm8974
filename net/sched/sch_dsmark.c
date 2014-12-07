@@ -1,3 +1,4 @@
+/* net/sched/sch_dsmark.c - Differentiated Services field marker */
 
 /* Written 1998-2000 by Werner Almesberger, EPFL ICA */
 
@@ -16,6 +17,20 @@
 #include <net/inet_ecn.h>
 #include <asm/byteorder.h>
 
+/*
+ * classid	class		marking
+ * -------	-----		-------
+ *   n/a	  0		n/a
+ *   x:0	  1		use entry [0]
+ *   ...	 ...		...
+ *   x:y y>0	 y+1		use entry [y]
+ *   ...	 ...		...
+ * x:indices-1	indices		use entry [indices-1]
+ *   ...	 ...		...
+ *   x:y	 y+1		use entry [y & (indices-1)]
+ *   ...	 ...		...
+ * 0xffff	0x10000		use entry [indices-1]
+ */
 
 
 #define NO_DEFAULT_INDEX	(1 << 16)
@@ -23,10 +38,10 @@
 struct dsmark_qdisc_data {
 	struct Qdisc		*q;
 	struct tcf_proto	*filter_list;
-	u8			*mask;	
+	u8			*mask;	/* "owns" the array */
 	u8			*value;
 	u16			indices;
-	u32			default_index;	
+	u32			default_index;	/* index range is 0...0xffff */
 	int			set_tc_index;
 };
 
@@ -35,6 +50,7 @@ static inline int dsmark_valid_index(struct dsmark_qdisc_data *p, u16 index)
 	return (index <= p->indices && index > 0);
 }
 
+/* ------------------------- Class/flow operations ------------------------- */
 
 static int dsmark_graft(struct Qdisc *sch, unsigned long arg,
 			struct Qdisc *new, struct Qdisc **old)
@@ -176,6 +192,7 @@ static inline struct tcf_proto **dsmark_find_tcf(struct Qdisc *sch,
 	return &p->filter_list;
 }
 
+/* --------------------------- Qdisc operations ---------------------------- */
 
 static int dsmark_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 {
@@ -281,6 +298,11 @@ static struct sk_buff *dsmark_dequeue(struct Qdisc *sch)
 				    p->value[index]);
 			break;
 	default:
+		/*
+		 * Only complain if a change was actually attempted.
+		 * This way, we can send non-IP traffic through dsmark
+		 * and don't need yet another qdisc as a bypass.
+		 */
 		if (p->mask[index] != 0xff || p->value[index])
 			pr_warning("dsmark_dequeue: unsupported protocol %d\n",
 				   ntohs(skb->protocol));

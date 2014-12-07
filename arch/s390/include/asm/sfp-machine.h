@@ -51,6 +51,10 @@
 
 #define _FP_KEEPNANFRACP 1
 
+/*
+ * If one NaN is signaling and the other is not,
+ * we choose that one, otherwise we choose X.
+ */
 #define _FP_CHOOSENAN(fs, wc, R, X, Y, OP)                      \
   do {                                                          \
     if ((_FP_FRAC_HIGH_RAW_##fs(X) & _FP_QNANBIT_##fs)          \
@@ -67,6 +71,7 @@
     R##_c = FP_CLS_NAN;                                         \
   } while (0)
 
+/* Some assembly to speed things up. */
 #define __FP_FRAC_ADD_3(r2,r1,r0,x2,x1,x0,y2,y1,y0) ({		\
 	unsigned int __r2 = (x2) + (y2);			\
 	unsigned int __r1 = (x1);				\
@@ -121,14 +126,17 @@
 
 #define __FP_FRAC_DEC_3(x2,x1,x0,y2,y1,y0) __FP_FRAC_SUB_3(x2,x1,x0,x2,x1,x0,y2,y1,y0)
 
+/* Obtain the current rounding mode. */
 #define FP_ROUNDMODE	mode
 
+/* Exception flags. */
 #define FP_EX_INVALID		0x800000
 #define FP_EX_DIVZERO		0x400000
 #define FP_EX_OVERFLOW		0x200000
 #define FP_EX_UNDERFLOW		0x100000
 #define FP_EX_INEXACT		0x080000
 
+/* We write the results always */
 #define FP_INHIBIT_RESULTS 0
 
 #endif

@@ -22,4 +22,4 @@
 #define STAC946X_ADDRESS_CONTROL	0x13
 #define STAC946X_ADDRESS		0x14
 
-#endif  
+#endif  /*  __SOUND_STAC946X_H */

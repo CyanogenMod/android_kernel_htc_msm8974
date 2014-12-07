@@ -1,7 +1,18 @@
+/*
+ *  include/asm-s390/posix_types.h
+ *
+ *  S390 version
+ *
+ */
 
 #ifndef __ARCH_S390_POSIX_TYPES_H
 #define __ARCH_S390_POSIX_TYPES_H
 
+/*
+ * This file is generally used by user-level software, so you need to
+ * be a little careful about namespace pollution etc.  Also, we cannot
+ * assume GCC is being used.
+ */
 
 typedef unsigned long   __kernel_size_t;
 #define __kernel_size_t __kernel_size_t
@@ -20,7 +31,7 @@ typedef unsigned short  __kernel_gid_t;
 typedef int             __kernel_ssize_t;
 typedef int             __kernel_ptrdiff_t;
 
-#else 
+#else /* __s390x__ */
 
 typedef unsigned int    __kernel_ino_t;
 typedef unsigned int    __kernel_mode_t;
@@ -30,9 +41,9 @@ typedef unsigned int    __kernel_uid_t;
 typedef unsigned int    __kernel_gid_t;
 typedef long            __kernel_ssize_t;
 typedef long            __kernel_ptrdiff_t;
-typedef unsigned long   __kernel_sigset_t;      
+typedef unsigned long   __kernel_sigset_t;      /* at least 32 bits */
 
-#endif 
+#endif /* __s390x__ */
 
 #define __kernel_ino_t  __kernel_ino_t
 #define __kernel_mode_t __kernel_mode_t

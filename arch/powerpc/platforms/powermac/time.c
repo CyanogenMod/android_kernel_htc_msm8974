@@ -41,22 +41,29 @@
 #define DBG(x...)
 #endif
 
+/* Apparently the RTC stores seconds since 1 Jan 1904 */
 #define RTC_OFFSET	2082844800
 
-#define VIA_TIMER_FREQ_6	4700000	
+/*
+ * Calibrate the decrementer frequency with the VIA timer 1.
+ */
+#define VIA_TIMER_FREQ_6	4700000	/* time 1 frequency * 6 */
 
-#define RS		0x200		
-#define T1CL		(4*RS)		
-#define T1CH		(5*RS)		
-#define T1LL		(6*RS)		
-#define T1LH		(7*RS)		
-#define ACR		(11*RS)		
-#define IFR		(13*RS)		
+/* VIA registers */
+#define RS		0x200		/* skip between registers */
+#define T1CL		(4*RS)		/* Timer 1 ctr/latch (low 8 bits) */
+#define T1CH		(5*RS)		/* Timer 1 counter (high 8 bits) */
+#define T1LL		(6*RS)		/* Timer 1 latch (low 8 bits) */
+#define T1LH		(7*RS)		/* Timer 1 latch (high 8 bits) */
+#define ACR		(11*RS)		/* Auxiliary control register */
+#define IFR		(13*RS)		/* Interrupt flag register */
 
-#define T1MODE		0xc0		
-#define T1MODE_CONT	0x40		
+/* Bits in ACR */
+#define T1MODE		0xc0		/* Timer 1 mode */
+#define T1MODE_CONT	0x40		/*  continuous interrupts */
 
-#define T1_INT		0x40		
+/* Bits in IFR and IER */
+#define T1_INT		0x40		/* Timer 1 interrupt */
 
 long __init pmac_time_init(void)
 {
@@ -195,9 +202,10 @@ static unsigned long smu_get_time(void)
 #define smu_set_rtc_time(tm, spin)	0
 #endif
 
+/* Can't be __init, it's called when suspending and resuming */
 unsigned long pmac_get_boot_time(void)
 {
-	
+	/* Get the time from the RTC, used only at boot time */
 	switch (sys_ctrler) {
 	case SYS_CTRLER_CUDA:
 		return cuda_get_time();
@@ -212,7 +220,7 @@ unsigned long pmac_get_boot_time(void)
 
 void pmac_get_rtc_time(struct rtc_time *tm)
 {
-	
+	/* Get the time from the RTC, used only at boot time */
 	switch (sys_ctrler) {
 	case SYS_CTRLER_CUDA:
 		cuda_get_rtc_time(tm);
@@ -243,6 +251,10 @@ int pmac_set_rtc_time(struct rtc_time *tm)
 }
 
 #ifdef CONFIG_PPC32
+/*
+ * Calibrate the decrementer register using VIA timer 1.
+ * This is used both on powermacs and CHRP machines.
+ */
 int __init via_calibrate_decr(void)
 {
 	struct device_node *vias;
@@ -267,18 +279,18 @@ int __init via_calibrate_decr(void)
 		return 0;
 	}
 
-	
+	/* set timer 1 for continuous interrupts */
 	out_8(&via[ACR], (via[ACR] & ~T1MODE) | T1MODE_CONT);
-	
+	/* set the counter to a small value */
 	out_8(&via[T1CH], 2);
-	
+	/* set the latch to `count' */
 	out_8(&via[T1LL], count);
 	out_8(&via[T1LH], count >> 8);
-	
+	/* wait until it hits 0 */
 	while ((in_8(&via[IFR]) & T1_INT) == 0)
 		;
 	dstart = get_dec();
-	
+	/* clear the interrupt & wait until it hits 0 again */
 	in_8(&via[T1CL]);
 	while ((in_8(&via[IFR]) & T1_INT) == 0)
 		;
@@ -292,17 +304,29 @@ int __init via_calibrate_decr(void)
 }
 #endif
 
+/*
+ * Query the OF and get the decr frequency.
+ */
 void __init pmac_calibrate_decr(void)
 {
 	generic_calibrate_decr();
 
 #ifdef CONFIG_PPC32
+	/* We assume MacRISC2 machines have correct device-tree
+	 * calibration. That's better since the VIA itself seems
+	 * to be slightly off. --BenH
+	 */
 	if (!of_machine_is_compatible("MacRISC2") &&
 	    !of_machine_is_compatible("MacRISC3") &&
 	    !of_machine_is_compatible("MacRISC4"))
 		if (via_calibrate_decr())
 			return;
 
+	/* Special case: QuickSilver G4s seem to have a badly calibrated
+	 * timebase-frequency in OF, VIA is much better on these. We should
+	 * probably implement calibration based on the KL timer on these
+	 * machines anyway... -BenH
+	 */
 	if (of_machine_is_compatible("PowerMac3,5"))
 		if (via_calibrate_decr())
 			return;

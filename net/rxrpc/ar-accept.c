@@ -23,6 +23,9 @@
 #include <net/ip.h>
 #include "ar-internal.h"
 
+/*
+ * generate a connection-level abort
+ */
 static int rxrpc_busy(struct rxrpc_local *local, struct sockaddr_rxrpc *srx,
 		      struct rxrpc_header *hdr)
 {
@@ -63,6 +66,10 @@ static int rxrpc_busy(struct rxrpc_local *local, struct sockaddr_rxrpc *srx,
 	return 0;
 }
 
+/*
+ * accept an incoming call that needs peer, transport and/or connection setting
+ * up
+ */
 static int rxrpc_accept_incoming_call(struct rxrpc_local *local,
 				      struct rxrpc_sock *rx,
 				      struct sk_buff *skb,
@@ -80,7 +87,7 @@ static int rxrpc_accept_incoming_call(struct rxrpc_local *local,
 
 	sp = rxrpc_skb(skb);
 
-	
+	/* get a notification message to send to the server app */
 	notification = alloc_skb(0, GFP_NOFS);
 	if (!notification) {
 		_debug("no memory");
@@ -121,7 +128,7 @@ static int rxrpc_accept_incoming_call(struct rxrpc_local *local,
 		goto error;
 	}
 
-	
+	/* attach the call to the socket */
 	read_lock_bh(&local->services_lock);
 	if (rx->sk.sk_state == RXRPC_CLOSE)
 		goto invalid_service;
@@ -193,6 +200,10 @@ error_nofree:
 	return ret;
 }
 
+/*
+ * accept incoming calls that need peer, transport and/or connection setting up
+ * - the packets we get are all incoming client DATA packets that have seq == 1
+ */
 void rxrpc_accept_incoming_calls(struct work_struct *work)
 {
 	struct rxrpc_local *local =
@@ -229,7 +240,7 @@ process_next_packet:
 
 	sp = rxrpc_skb(skb);
 
-	
+	/* determine the remote address */
 	memset(&srx, 0, sizeof(srx));
 	srx.srx_family = AF_RXRPC;
 	srx.transport.family = local->srx.transport.family;
@@ -244,7 +255,7 @@ process_next_packet:
 		goto busy;
 	}
 
-	
+	/* get the socket providing the service */
 	service_id = sp->hdr.serviceId;
 	read_lock_bh(&local->services_lock);
 	list_for_each_entry(rx, &local->services, listen_link) {
@@ -268,8 +279,8 @@ found_service:
 		sk_acceptq_removed(&rx->sk);
 	sock_put(&rx->sk);
 	switch (ret) {
-	case -ECONNRESET: 
-	case -ECONNABORTED: 
+	case -ECONNRESET: /* old calls are ignored */
+	case -ECONNABORTED: /* aborted calls are reaborted or ignored */
 	case 0:
 		goto process_next_packet;
 	case -ECONNREFUSED:
@@ -294,13 +305,17 @@ invalid_service:
 	rxrpc_reject_packet(local, skb);
 	goto process_next_packet;
 
-	
+	/* can't change connection security type mid-flow */
 security_mismatch:
 	skb->priority = RX_PROTOCOL_ERROR;
 	rxrpc_reject_packet(local, skb);
 	goto process_next_packet;
 }
 
+/*
+ * handle acceptance of a call by userspace
+ * - assign the user call ID to the call at the front of the queue
+ */
 struct rxrpc_call *rxrpc_accept_call(struct rxrpc_sock *rx,
 				     unsigned long user_call_ID)
 {
@@ -318,7 +333,7 @@ struct rxrpc_call *rxrpc_accept_call(struct rxrpc_sock *rx,
 	if (list_empty(&rx->acceptq))
 		goto out;
 
-	
+	/* check the user ID isn't already in use */
 	ret = -EBADSLT;
 	pp = &rx->calls.rb_node;
 	parent = NULL;
@@ -334,7 +349,7 @@ struct rxrpc_call *rxrpc_accept_call(struct rxrpc_sock *rx,
 			goto out;
 	}
 
-	
+	/* dequeue the first call and check it's still valid */
 	call = list_entry(rx->acceptq.next, struct rxrpc_call, accept_link);
 	list_del_init(&call->accept_link);
 	sk_acceptq_removed(&rx->sk);
@@ -358,7 +373,7 @@ struct rxrpc_call *rxrpc_accept_call(struct rxrpc_sock *rx,
 		BUG();
 	}
 
-	
+	/* formalise the acceptance */
 	call->user_call_ID = user_call_ID;
 	rb_link_node(&call->sock_node, parent, pp);
 	rb_insert_color(&call->sock_node, &rx->calls);
@@ -374,6 +389,9 @@ struct rxrpc_call *rxrpc_accept_call(struct rxrpc_sock *rx,
 	_leave(" = %p{%d}", call, call->debug_id);
 	return call;
 
+	/* if the call is already dying or dead, then we leave the socket's ref
+	 * on it to be released by rxrpc_dead_call_expired() as induced by
+	 * rxrpc_release_call() */
 out_release:
 	_debug("release %p", call);
 	if (!test_bit(RXRPC_CALL_RELEASED, &call->flags) &&
@@ -388,6 +406,10 @@ out:
 	return ERR_PTR(ret);
 }
 
+/*
+ * handle rejectance of a call by userspace
+ * - reject the call at the front of the queue
+ */
 int rxrpc_reject_call(struct rxrpc_sock *rx)
 {
 	struct rxrpc_call *call;
@@ -403,7 +425,7 @@ int rxrpc_reject_call(struct rxrpc_sock *rx)
 	if (list_empty(&rx->acceptq))
 		goto out;
 
-	
+	/* dequeue the first call and check it's still valid */
 	call = list_entry(rx->acceptq.next, struct rxrpc_call, accept_link);
 	list_del_init(&call->accept_link);
 	sk_acceptq_removed(&rx->sk);
@@ -430,6 +452,9 @@ int rxrpc_reject_call(struct rxrpc_sock *rx)
 		BUG();
 	}
 
+	/* if the call is already dying or dead, then we leave the socket's ref
+	 * on it to be released by rxrpc_dead_call_expired() as induced by
+	 * rxrpc_release_call() */
 out_release:
 	_debug("release %p", call);
 	if (!test_bit(RXRPC_CALL_RELEASED, &call->flags) &&
@@ -444,6 +469,14 @@ out:
 	return ret;
 }
 
+/**
+ * rxrpc_kernel_accept_call - Allow a kernel service to accept an incoming call
+ * @sock: The socket on which the impending call is waiting
+ * @user_call_ID: The tag to attach to the call
+ *
+ * Allow a kernel service to accept an incoming call, assuming the incoming
+ * call is still valid.
+ */
 struct rxrpc_call *rxrpc_kernel_accept_call(struct socket *sock,
 					    unsigned long user_call_ID)
 {
@@ -457,6 +490,13 @@ struct rxrpc_call *rxrpc_kernel_accept_call(struct socket *sock,
 
 EXPORT_SYMBOL(rxrpc_kernel_accept_call);
 
+/**
+ * rxrpc_kernel_reject_call - Allow a kernel service to reject an incoming call
+ * @sock: The socket on which the impending call is waiting
+ *
+ * Allow a kernel service to reject an incoming call with a BUSY message,
+ * assuming the incoming call is still valid.
+ */
 int rxrpc_kernel_reject_call(struct socket *sock)
 {
 	int ret;

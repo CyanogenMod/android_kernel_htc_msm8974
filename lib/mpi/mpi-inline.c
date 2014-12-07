@@ -18,8 +18,14 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
  */
 
+/* put the inline functions as real functions into the lib */
 #define G10_MPI_INLINE_DECL
 
 #include "mpi-internal.h"
 
+/* always include the header becuase it is only
+ * included by mpi-internal if __GCC__ is defined but we
+ * need it here in all cases and the above definition of
+ * of the macro allows us to do so
+ */
 #include "mpi-inline.h"

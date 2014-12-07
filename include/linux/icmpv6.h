@@ -115,22 +115,37 @@ static inline struct icmp6hdr *icmp6_hdr(const struct sk_buff *skb)
 #define ICMPV6_MOBILE_PREFIX_SOL	146
 #define ICMPV6_MOBILE_PREFIX_ADV	147
 
+/*
+ *	Codes for Destination Unreachable
+ */
 #define ICMPV6_NOROUTE			0
 #define ICMPV6_ADM_PROHIBITED		1
 #define ICMPV6_NOT_NEIGHBOUR		2
 #define ICMPV6_ADDR_UNREACH		3
 #define ICMPV6_PORT_UNREACH		4
 
+/*
+ *	Codes for Time Exceeded
+ */
 #define ICMPV6_EXC_HOPLIMIT		0
 #define ICMPV6_EXC_FRAGTIME		1
 
+/*
+ *	Codes for Parameter Problem
+ */
 #define ICMPV6_HDR_FIELD		0
 #define ICMPV6_UNK_NEXTHDR		1
 #define ICMPV6_UNK_OPTION		2
 
+/*
+ *	constants for (set|get)sockopt
+ */
 
 #define ICMPV6_FILTER			1
 
+/*
+ *	ICMPV6 filter
+ */
 
 #define ICMPV6_FILTER_BLOCK		1
 #define ICMPV6_FILTER_PASS		2
@@ -141,6 +156,9 @@ struct icmp6_filter {
 	__u32		data[8];
 };
 
+/*
+ *	Definitions for MLDv2
+ */
 #define MLD2_MODE_IS_INCLUDE	1
 #define MLD2_MODE_IS_EXCLUDE	2
 #define MLD2_CHANGE_TO_INCLUDE	3

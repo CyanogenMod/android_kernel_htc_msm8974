@@ -1,3 +1,7 @@
+/*
+ * The device /dev/cryptocop is accessible using this driver using
+ * CRYPTOCOP_MAJOR (254) and minor number 0.
+ */
 
 #ifndef CRYPTOCOP_H
 #define CRYPTOCOP_H
@@ -9,6 +13,7 @@
 
 typedef unsigned long long int cryptocop_session_id;
 
+/* cryptocop ioctls */
 #define ETRAXCRYPTOCOP_IOCTYPE         (250)
 
 #define CRYPTOCOP_IO_CREATE_SESSION    _IOWR(ETRAXCRYPTOCOP_IOCTYPE, 1, struct strcop_session_op)
@@ -20,7 +25,7 @@ typedef enum {
 	cryptocop_cipher_des = 0,
 	cryptocop_cipher_3des = 1,
 	cryptocop_cipher_aes = 2,
-	cryptocop_cipher_m2m = 3, 
+	cryptocop_cipher_m2m = 3, /* mem2mem is essentially a NULL cipher with blocklength=1 */
 	cryptocop_cipher_none
 } cryptocop_cipher_type;
 
@@ -53,57 +58,61 @@ typedef enum {
 	cryptocop_3des_ddd = 7
 } cryptocop_3des_mode;
 
+/* Usermode accessible (ioctl) operations. */
 struct strcop_session_op{
 	cryptocop_session_id    ses_id;
 
-	cryptocop_cipher_type   cipher; 
+	cryptocop_cipher_type   cipher; /* AES, DES, 3DES, m2m, none */
 
-	cryptocop_cipher_mode   cmode; 
+	cryptocop_cipher_mode   cmode; /* ECB, CBC, none */
 	cryptocop_3des_mode     des3_mode;
 
-	cryptocop_digest_type   digest; 
+	cryptocop_digest_type   digest; /* MD5, SHA1, none */
 
-	cryptocop_csum_type     csum;   
+	cryptocop_csum_type     csum;   /* BE, LE, none */
 
 	unsigned char           *key;
 	size_t                  keylen;
 };
 
 #define CRYPTOCOP_CSUM_LENGTH         (2)
-#define CRYPTOCOP_MAX_DIGEST_LENGTH   (20)  
-#define CRYPTOCOP_MAX_IV_LENGTH       (16)  
+#define CRYPTOCOP_MAX_DIGEST_LENGTH   (20)  /* SHA-1 20, MD5 16 */
+#define CRYPTOCOP_MAX_IV_LENGTH       (16)  /* (3)DES==8, AES == 16 */
 #define CRYPTOCOP_MAX_KEY_LENGTH      (32)
 
 struct strcop_crypto_op{
 	cryptocop_session_id ses_id;
 
-	
+	/* Indata. */
 	unsigned char            *indata;
-	size_t                   inlen; 
+	size_t                   inlen; /* Total indata length. */
 
-	
+	/* Cipher configuration. */
 	unsigned char            do_cipher:1;
-	unsigned char            decrypt:1; 
+	unsigned char            decrypt:1; /* 1 == decrypt, 0 == encrypt */
 	unsigned char            cipher_explicit:1;
 	size_t                   cipher_start;
 	size_t                   cipher_len;
+	/* cipher_iv is used if do_cipher and cipher_explicit and the cipher
+	   mode is CBC.  The length is controlled by the type of cipher,
+	   e.g. DES/3DES 8 octets and AES 16 octets. */
 	unsigned char            cipher_iv[CRYPTOCOP_MAX_IV_LENGTH];
-	
+	/* Outdata. */
 	unsigned char            *cipher_outdata;
 	size_t                   cipher_outlen;
 
-	
+	/* digest configuration. */
 	unsigned char            do_digest:1;
 	size_t                   digest_start;
 	size_t                   digest_len;
-	
+	/* Outdata.  The actual length is determined by the type of the digest. */
 	unsigned char            digest[CRYPTOCOP_MAX_DIGEST_LENGTH];
 
-	
+	/* Checksum configuration. */
 	unsigned char            do_csum:1;
 	size_t                   csum_start;
 	size_t                   csum_len;
-	
+	/* Outdata. */
 	unsigned char            csum[CRYPTOCOP_CSUM_LENGTH];
 };
 
@@ -111,6 +120,7 @@ struct strcop_crypto_op{
 
 #ifdef __KERNEL__
 
+/********** The API to use from inside the kernel. ************/
 
 #include <arch/hwregs/dma.h>
 
@@ -134,14 +144,14 @@ typedef void (cryptocop_callback)(struct cryptocop_operation*, void*);
 
 struct cryptocop_transform_init {
 	cryptocop_algorithm    alg;
-	
+	/* Keydata for ciphers. */
 	unsigned char          key[CRYPTOCOP_MAX_KEY_LENGTH];
 	unsigned int           keylen;
 	cryptocop_cipher_mode  cipher_mode;
 	cryptocop_3des_mode    tdes_mode;
-	cryptocop_csum_type    csum_mode; 
+	cryptocop_csum_type    csum_mode; /* cryptocop_csum_none is not allowed when alg==cryptocop_alg_csum */
 
-	cryptocop_tfrm_id tid; 
+	cryptocop_tfrm_id tid; /* Locally unique in session; assigned by user, checked by driver. */
 	struct cryptocop_transform_init *next;
 };
 
@@ -161,7 +171,7 @@ typedef enum {
 struct cryptocop_desc_cfg {
 	cryptocop_tfrm_id tid;
 	cryptocop_source src;
-	unsigned int last:1; 
+	unsigned int last:1; /* Last use of this transform in the operation.  Will push outdata when encountered. */
 	struct cryptocop_desc_cfg *next;
 };
 
@@ -172,6 +182,7 @@ struct cryptocop_desc {
 };
 
 
+/* Flags for cryptocop_tfrm_cfg */
 #define CRYPTOCOP_NO_FLAG     (0x00)
 #define CRYPTOCOP_ENCRYPT     (0x01)
 #define CRYPTOCOP_DECRYPT     (0x02)
@@ -180,11 +191,15 @@ struct cryptocop_desc {
 struct cryptocop_tfrm_cfg {
 	cryptocop_tfrm_id tid;
 
-	unsigned int flags; 
+	unsigned int flags; /* DECRYPT, ENCRYPT, EXPLICIT_IV */
 
-	
+	/* CBC initialisation vector for cihers. */
 	u8 iv[CRYPTOCOP_MAX_IV_LENGTH];
 
+	/* The position in output where to write the transform output.  The order
+	   in which the driver writes the output is unspecified, hence if several
+	   transforms write on the same positions in the output the result is
+	   unspecified. */
 	size_t inject_ix;
 
 	struct cryptocop_tfrm_cfg *next;
@@ -193,9 +208,13 @@ struct cryptocop_tfrm_cfg {
 
 
 struct cryptocop_dma_list_operation{
-	dma_descr_data *outlist; 
+	/* The consumer can provide DMA lists to send to the co-processor.  'use_dmalists' in
+	   struct cryptocop_operation must be set for the driver to use them.  outlist,
+	   out_data_buf, inlist and in_data_buf must all be physical addresses since they will
+	   be loaded to DMA . */
+	dma_descr_data *outlist; /* Out from memory to the co-processor. */
 	char           *out_data_buf;
-	dma_descr_data *inlist; 
+	dma_descr_data *inlist; /* In from the co-processor to memory. */
 	char           *in_data_buf;
 
 	cryptocop_3des_mode tdes_mode;
@@ -204,17 +223,17 @@ struct cryptocop_dma_list_operation{
 
 
 struct cryptocop_tfrm_operation{
-	
+	/* Operation configuration, if not 'use_dmalists' is set. */
 	struct cryptocop_tfrm_cfg *tfrm_cfg;
 	struct cryptocop_desc *desc;
 
 	struct iovec *indata;
 	size_t incount;
-	size_t inlen; 
+	size_t inlen; /* Total inlength. */
 
 	struct iovec *outdata;
 	size_t outcount;
-	size_t outlen; 
+	size_t outlen; /* Total outlength. */
 };
 
 
@@ -224,13 +243,13 @@ struct cryptocop_operation {
 
 	cryptocop_session_id sid;
 
-	
-	int operation_status; 
+	/* The status of the operation when returned to consumer. */
+	int operation_status; /* 0, -EAGAIN */
 
-	
-	unsigned int use_dmalists:1;  
-	unsigned int in_interrupt:1;  
-	unsigned int fast_callback:1; 
+	/* Flags */
+	unsigned int use_dmalists:1;  /* Use outlist and inlist instead of the desc/tfrm_cfg configuration. */
+	unsigned int in_interrupt:1;  /* Set if inserting job from interrupt context. */
+	unsigned int fast_callback:1; /* Set if fast callback wanted, i.e. from interrupt context. */
 
 	union{
 		struct cryptocop_dma_list_operation list_op;
@@ -248,6 +267,6 @@ int cryptocop_job_queue_insert_crypto(struct cryptocop_operation *operation);
 
 int cryptocop_job_queue_insert_user_job(struct cryptocop_operation *operation);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* CRYPTOCOP_H */

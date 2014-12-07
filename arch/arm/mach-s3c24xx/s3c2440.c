@@ -48,12 +48,12 @@ int __init s3c2440_init(void)
 {
 	printk("S3C2440: Initialising architecture\n");
 
-	
+	/* change irq for watchdog */
 
 	s3c_device_wdt.resource[1].start = IRQ_S3C2440_WDT;
 	s3c_device_wdt.resource[1].end   = IRQ_S3C2440_WDT;
 
-	
+	/* register suspend/resume handlers */
 
 #ifdef CONFIG_PM
 	register_syscore_ops(&s3c2410_pm_syscore_ops);
@@ -61,7 +61,7 @@ int __init s3c2440_init(void)
 	register_syscore_ops(&s3c244x_pm_syscore_ops);
 	register_syscore_ops(&s3c24xx_irq_syscore_ops);
 
-	
+	/* register our system device for everything else */
 
 	return device_register(&s3c2440_dev);
 }

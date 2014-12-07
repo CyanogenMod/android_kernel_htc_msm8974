@@ -16,5 +16,5 @@ asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
 # include "syscalls_64.h"
 #endif
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_SH_SYSCALLS_H */

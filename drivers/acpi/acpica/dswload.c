@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: dswload - Dispatcher first pass namespace load callbacks
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -51,6 +56,18 @@
 #define _COMPONENT          ACPI_DISPATCHER
 ACPI_MODULE_NAME("dswload")
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ds_init_callbacks
+ *
+ * PARAMETERS:  walk_state      - Current state of the parse tree walk
+ *              pass_number     - 1, 2, or 3
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Init walk state callbacks
+ *
+ ******************************************************************************/
 acpi_status
 acpi_ds_init_callbacks(struct acpi_walk_state *walk_state, u32 pass_number)
 {
@@ -86,6 +103,18 @@ acpi_ds_init_callbacks(struct acpi_walk_state *walk_state, u32 pass_number)
 	return (AE_OK);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ds_load1_begin_op
+ *
+ * PARAMETERS:  walk_state      - Current state of the parse tree walk
+ *              out_op          - Where to return op if a new one is created
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Descending callback used during the loading of ACPI tables.
+ *
+ ******************************************************************************/
 
 acpi_status
 acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
@@ -104,7 +133,7 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 	ACPI_DEBUG_PRINT((ACPI_DB_DISPATCH, "Op=%p State=%p\n", op,
 			  walk_state));
 
-	
+	/* We are only interested in opcodes that have an associated name */
 
 	if (op) {
 		if (!(walk_state->op_info->flags & AML_NAMED)) {
@@ -112,7 +141,7 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 			return_ACPI_STATUS(AE_OK);
 		}
 
-		
+		/* Check if this object has already been installed in the namespace */
 
 		if (op->common.node) {
 			*out_op = op;
@@ -122,7 +151,7 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 
 	path = acpi_ps_get_next_namestring(&walk_state->parser_state);
 
-	
+	/* Map the raw opcode into an internal object type */
 
 	object_type = walk_state->op_info->object_type;
 
@@ -133,12 +162,22 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 	switch (walk_state->opcode) {
 	case AML_SCOPE_OP:
 
+		/*
+		 * The target name of the Scope() operator must exist at this point so
+		 * that we can actually open the scope to enter new names underneath it.
+		 * Allow search-to-root for single namesegs.
+		 */
 		status =
 		    acpi_ns_lookup(walk_state->scope_info, path, object_type,
 				   ACPI_IMODE_EXECUTE, ACPI_NS_SEARCH_PARENT,
 				   walk_state, &(node));
 #ifdef ACPI_ASL_COMPILER
 		if (status == AE_NOT_FOUND) {
+			/*
+			 * Table disassembly:
+			 * Target of Scope() not found. Generate an External for it, and
+			 * insert the name into the namespace.
+			 */
 			acpi_dm_add_to_external_list(path, ACPI_TYPE_DEVICE, 0);
 			status =
 			    acpi_ns_lookup(walk_state->scope_info, path,
@@ -152,21 +191,35 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 			return_ACPI_STATUS(status);
 		}
 
+		/*
+		 * Check to make sure that the target is
+		 * one of the opcodes that actually opens a scope
+		 */
 		switch (node->type) {
 		case ACPI_TYPE_ANY:
-		case ACPI_TYPE_LOCAL_SCOPE:	
+		case ACPI_TYPE_LOCAL_SCOPE:	/* Scope  */
 		case ACPI_TYPE_DEVICE:
 		case ACPI_TYPE_POWER:
 		case ACPI_TYPE_PROCESSOR:
 		case ACPI_TYPE_THERMAL:
 
-			
+			/* These are acceptable types */
 			break;
 
 		case ACPI_TYPE_INTEGER:
 		case ACPI_TYPE_STRING:
 		case ACPI_TYPE_BUFFER:
 
+			/*
+			 * These types we will allow, but we will change the type.
+			 * This enables some existing code of the form:
+			 *
+			 *  Name (DEB, 0)
+			 *  Scope (DEB) { ... }
+			 *
+			 * Note: silently change the type here. On the second pass,
+			 * we will report a warning
+			 */
 			ACPI_DEBUG_PRINT((ACPI_DB_INFO,
 					  "Type override - [%4.4s] had invalid type (%s) "
 					  "for Scope operator, changed to type ANY\n",
@@ -179,7 +232,7 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 
 		default:
 
-			
+			/* All other types are an error */
 
 			ACPI_ERROR((AE_INFO,
 				    "Invalid type (%s) for target of "
@@ -192,15 +245,35 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 		break;
 
 	default:
+		/*
+		 * For all other named opcodes, we will enter the name into
+		 * the namespace.
+		 *
+		 * Setup the search flags.
+		 * Since we are entering a name into the namespace, we do not want to
+		 * enable the search-to-root upsearch.
+		 *
+		 * There are only two conditions where it is acceptable that the name
+		 * already exists:
+		 *    1) the Scope() operator can reopen a scoping object that was
+		 *       previously defined (Scope, Method, Device, etc.)
+		 *    2) Whenever we are parsing a deferred opcode (op_region, Buffer,
+		 *       buffer_field, or Package), the name of the object is already
+		 *       in the namespace.
+		 */
 		if (walk_state->deferred_node) {
 
-			
+			/* This name is already in the namespace, get the node */
 
 			node = walk_state->deferred_node;
 			status = AE_OK;
 			break;
 		}
 
+		/*
+		 * If we are executing a method, do not create any namespace objects
+		 * during the load phase, only during execution.
+		 */
 		if (walk_state->method_node) {
 			node = NULL;
 			status = AE_OK;
@@ -220,6 +293,12 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 					  acpi_ut_get_type_name(object_type)));
 		}
 
+		/*
+		 * Enter the named type into the internal namespace. We enter the name
+		 * as we go downward in the parse tree. Any necessary subobjects that
+		 * involve arguments to the opcode must be created as we go back up the
+		 * parse tree later.
+		 */
 		status =
 		    acpi_ns_lookup(walk_state->scope_info, path, object_type,
 				   ACPI_IMODE_LOAD_PASS1, flags, walk_state,
@@ -227,13 +306,17 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 		if (ACPI_FAILURE(status)) {
 			if (status == AE_ALREADY_EXISTS) {
 
-				
+				/* The name already exists in this scope */
 
 				if (node->flags & ANOBJ_IS_EXTERNAL) {
+					/*
+					 * Allow one create on an object or segment that was
+					 * previously declared External
+					 */
 					node->flags &= ~ANOBJ_IS_EXTERNAL;
 					node->type = (u8) object_type;
 
-					
+					/* Just retyped a node, probably will need to open a scope */
 
 					if (acpi_ns_opens_scope(object_type)) {
 						status =
@@ -258,11 +341,11 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 		break;
 	}
 
-	
+	/* Common exit */
 
 	if (!op) {
 
-		
+		/* Create a new op */
 
 		op = acpi_ps_alloc_op(walk_state->opcode);
 		if (!op) {
@@ -270,13 +353,17 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 		}
 	}
 
-	
+	/* Initialize the op */
 
 #if (defined (ACPI_NO_METHOD_EXECUTION) || defined (ACPI_CONSTANT_EVAL_ONLY))
 	op->named.path = ACPI_CAST_PTR(u8, path);
 #endif
 
 	if (node) {
+		/*
+		 * Put the Node in the "op" object that the parser uses, so we
+		 * can get it again quickly when this scope is closed
+		 */
 		op->common.node = node;
 		op->named.name = node->name.integer;
 	}
@@ -287,6 +374,18 @@ acpi_ds_load1_begin_op(struct acpi_walk_state * walk_state,
 	return_ACPI_STATUS(status);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ds_load1_end_op
+ *
+ * PARAMETERS:  walk_state      - Current state of the parse tree walk
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Ascending callback used during the loading of the namespace,
+ *              both control methods and everything else.
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ds_load1_end_op(struct acpi_walk_state *walk_state)
 {
@@ -300,18 +399,22 @@ acpi_status acpi_ds_load1_end_op(struct acpi_walk_state *walk_state)
 	ACPI_DEBUG_PRINT((ACPI_DB_DISPATCH, "Op=%p State=%p\n", op,
 			  walk_state));
 
-	
+	/* We are only interested in opcodes that have an associated name */
 
 	if (!(walk_state->op_info->flags & (AML_NAMED | AML_FIELD))) {
 		return_ACPI_STATUS(AE_OK);
 	}
 
-	
+	/* Get the object type to determine if we should pop the scope */
 
 	object_type = walk_state->op_info->object_type;
 
 #ifndef ACPI_NO_METHOD_EXECUTION
 	if (walk_state->op_info->flags & AML_FIELD) {
+		/*
+		 * If we are executing a method, do not create any namespace objects
+		 * during the load phase, only during execution.
+		 */
 		if (!walk_state->method_node) {
 			if (walk_state->opcode == AML_FIELD_OP ||
 			    walk_state->opcode == AML_BANK_FIELD_OP ||
@@ -323,6 +426,10 @@ acpi_status acpi_ds_load1_end_op(struct acpi_walk_state *walk_state)
 		return_ACPI_STATUS(status);
 	}
 
+	/*
+	 * If we are executing a method, do not create any namespace objects
+	 * during the load phase, only during execution.
+	 */
 	if (!walk_state->method_node) {
 		if (op->common.aml_opcode == AML_REGION_OP) {
 			status =
@@ -354,7 +461,7 @@ acpi_status acpi_ds_load1_end_op(struct acpi_walk_state *walk_state)
 
 	if (op->common.aml_opcode == AML_NAME_OP) {
 
-		
+		/* For Name opcode, get the object type from the argument */
 
 		if (op->common.value.arg) {
 			object_type = (acpi_ps_get_opcode_info((op->common.
@@ -363,7 +470,7 @@ acpi_status acpi_ds_load1_end_op(struct acpi_walk_state *walk_state)
 							       aml_opcode))->
 			    object_type;
 
-			
+			/* Set node type if we have a namespace node */
 
 			if (op->common.node) {
 				op->common.node->type = (u8) object_type;
@@ -371,8 +478,20 @@ acpi_status acpi_ds_load1_end_op(struct acpi_walk_state *walk_state)
 		}
 	}
 
+	/*
+	 * If we are executing a method, do not create any namespace objects
+	 * during the load phase, only during execution.
+	 */
 	if (!walk_state->method_node) {
 		if (op->common.aml_opcode == AML_METHOD_OP) {
+			/*
+			 * method_op pkg_length name_string method_flags term_list
+			 *
+			 * Note: We must create the method node/object pair as soon as we
+			 * see the method declaration. This allows later pass1 parsing
+			 * of invocations of the method (need to know the number of
+			 * arguments.)
+			 */
 			ACPI_DEBUG_PRINT((ACPI_DB_DISPATCH,
 					  "LOADING-Method: State=%p Op=%p NamedObj=%p\n",
 					  walk_state, op, op->named.node));
@@ -405,7 +524,7 @@ acpi_status acpi_ds_load1_end_op(struct acpi_walk_state *walk_state)
 		}
 	}
 
-	
+	/* Pop the scope stack (only if loading a table) */
 
 	if (!walk_state->method_node && acpi_ns_opens_scope(object_type)) {
 		ACPI_DEBUG_PRINT((ACPI_DB_DISPATCH,

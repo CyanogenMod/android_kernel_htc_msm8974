@@ -37,6 +37,7 @@ static struct internal_dev *internal_dev_priv(struct net_device *netdev)
 	return netdev_priv(netdev);
 }
 
+/* This function is only called by the kernel network layer.*/
 static struct rtnl_link_stats64 *internal_dev_get_stats(struct net_device *netdev,
 							struct rtnl_link_stats64 *stats)
 {
@@ -45,6 +46,8 @@ static struct rtnl_link_stats64 *internal_dev_get_stats(struct net_device *netde
 
 	ovs_vport_get_stats(vport, &vport_stats);
 
+	/* The tx and rx stats need to be swapped because the
+	 * switch and host OS have opposite perspectives. */
 	stats->rx_packets	= vport_stats.tx_packets;
 	stats->tx_packets	= vport_stats.rx_packets;
 	stats->rx_bytes		= vport_stats.tx_bytes;
@@ -68,6 +71,7 @@ static int internal_dev_mac_addr(struct net_device *dev, void *p)
 	return 0;
 }
 
+/* Called with rcu_read_lock_bh. */
 static int internal_dev_xmit(struct sk_buff *skb, struct net_device *netdev)
 {
 	rcu_read_lock();
@@ -195,7 +199,7 @@ static void internal_dev_destroy(struct vport *vport)
 	netif_stop_queue(netdev_vport->dev);
 	dev_set_promiscuity(netdev_vport->dev, -1);
 
-	
+	/* unregister_netdevice() waits for an RCU grace period. */
 	unregister_netdevice(netdev_vport->dev);
 }
 

@@ -1,3 +1,12 @@
+/*
+ * linux/drivers/char/raw.c
+ *
+ * Front-end raw character devices.  These can be bound to any block
+ * devices to provide genuine Unix raw character device semantics.
+ *
+ * We reserve minor number 0 for a control interface.  ioctl()s on this
+ * device are used to bind the other minor numbers to block devices.
+ */
 
 #include <linux/init.h>
 #include <linux/fs.h>
@@ -24,26 +33,39 @@ struct raw_device_data {
 static struct class *raw_class;
 static struct raw_device_data *raw_devices;
 static DEFINE_MUTEX(raw_mutex);
-static const struct file_operations raw_ctl_fops; 
+static const struct file_operations raw_ctl_fops; /* forward declaration */
 
 static int max_raw_minors = MAX_RAW_MINORS;
 
 module_param(max_raw_minors, int, 0);
 MODULE_PARM_DESC(max_raw_minors, "Maximum number of raw devices (1-65536)");
 
+/*
+ * Open/close code for raw IO.
+ *
+ * We just rewrite the i_mapping for the /dev/raw/rawN file descriptor to
+ * point at the blockdev's address_space and set the file handle to use
+ * O_DIRECT.
+ *
+ * Set the device's soft blocksize to the minimum possible.  This gives the
+ * finest possible alignment and has no adverse impact on performance.
+ */
 static int raw_open(struct inode *inode, struct file *filp)
 {
 	const int minor = iminor(inode);
 	struct block_device *bdev;
 	int err;
 
-	if (minor == 0) {	
+	if (minor == 0) {	/* It is the control device */
 		filp->f_op = &raw_ctl_fops;
 		return 0;
 	}
 
 	mutex_lock(&raw_mutex);
 
+	/*
+	 * All we need to do on open is check that the device is bound.
+	 */
 	bdev = raw_devices[minor].binding;
 	err = -ENODEV;
 	if (!bdev)
@@ -71,6 +93,10 @@ out:
 	return err;
 }
 
+/*
+ * When the final fd which refers to this character-special node is closed, we
+ * make its ->mapping point back at its own i_data.
+ */
 static int raw_release(struct inode *inode, struct file *filp)
 {
 	const int minor= iminor(inode);
@@ -79,7 +105,7 @@ static int raw_release(struct inode *inode, struct file *filp)
 	mutex_lock(&raw_mutex);
 	bdev = raw_devices[minor].binding;
 	if (--raw_devices[minor].inuse == 0) {
-		
+		/* Here  inode->i_mapping == bdev->bd_inode->i_mapping  */
 		inode->i_mapping = &inode->i_data;
 		inode->i_mapping->backing_dev_info = &default_backing_dev_info;
 	}
@@ -89,6 +115,9 @@ static int raw_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+/*
+ * Forward ioctls to the underlying block device.
+ */
 static long
 raw_ioctl(struct file *filp, unsigned int command, unsigned long arg)
 {
@@ -110,9 +139,19 @@ static int bind_set(int number, u64 major, u64 minor)
 
 	rawdev = &raw_devices[number];
 
+	/*
+	 * This is like making block devices, so demand the
+	 * same capability
+	 */
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
+	/*
+	 * For now, we don't need to check that the underlying
+	 * block device is present or not: we can do that when
+	 * the raw device is opened.  Just check that the
+	 * major/minor numbers make sense.
+	 */
 
 	if (MAJOR(dev) == 0 && dev != 0)
 		return -EINVAL;
@@ -127,7 +166,7 @@ static int bind_set(int number, u64 major, u64 minor)
 		module_put(THIS_MODULE);
 	}
 	if (!dev) {
-		
+		/* unbind */
 		rawdev->binding = NULL;
 		device_destroy(raw_class, MKDEV(RAW_MAJOR, number));
 	} else {
@@ -163,6 +202,10 @@ static int bind_get(int number, dev_t *dev)
 	return 0;
 }
 
+/*
+ * Deal with ioctls against the raw-device control interface, to bind
+ * and unbind other raw devices.
+ */
 static long raw_ctl_ioctl(struct file *filp, unsigned int command,
 			  unsigned long arg)
 {

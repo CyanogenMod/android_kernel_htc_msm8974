@@ -10,6 +10,7 @@
 #ifndef __LINUX_MFD_AB8500_REGULATOR_H
 #define __LINUX_MFD_AB8500_REGULATOR_H
 
+/* AB8500 regulators */
 enum ab8500_regulator_id {
 	AB8500_LDO_AUX1,
 	AB8500_LDO_AUX2,
@@ -25,6 +26,7 @@ enum ab8500_regulator_id {
 	AB8500_NUM_REGULATORS,
 };
 
+/* AB9450 regulators */
 enum ab9540_regulator_id {
 	AB9540_LDO_AUX1,
 	AB9540_LDO_AUX2,
@@ -43,6 +45,7 @@ enum ab9540_regulator_id {
 	AB9540_NUM_REGULATORS,
 };
 
+/* AB8500 and AB9540 register initialization */
 struct ab8500_regulator_reg_init {
 	int id;
 	u8 value;
@@ -54,6 +57,7 @@ struct ab8500_regulator_reg_init {
 		.value = _value,		\
 	}
 
+/* AB8500 registers */
 enum ab8500_regulator_reg {
 	AB8500_REGUREQUESTCTRL2,
 	AB8500_REGUREQUESTCTRL3,
@@ -87,6 +91,7 @@ enum ab8500_regulator_reg {
 };
 
 
+/* AB9540 registers */
 enum ab9540_regulator_reg {
 	AB9540_REGUREQUESTCTRL1,
 	AB9540_REGUREQUESTCTRL2,
@@ -108,7 +113,7 @@ enum ab9540_regulator_reg {
 	AB9540_REGUCTRL1VAMIC,
 	AB9540_VSMPS1REGU,
 	AB9540_VSMPS2REGU,
-	AB9540_VSMPS3REGU, 
+	AB9540_VSMPS3REGU, /* NOTE! PRCMU register */
 	AB9540_VPLLVANAREGU,
 	AB9540_EXTSUPPLYREGU,
 	AB9540_VAUX12REGU,
@@ -119,8 +124,8 @@ enum ab9540_regulator_reg {
 	AB9540_VSMPS2SEL1,
 	AB9540_VSMPS2SEL2,
 	AB9540_VSMPS2SEL3,
-	AB9540_VSMPS3SEL1, 
-	AB9540_VSMPS3SEL2, 
+	AB9540_VSMPS3SEL1, /* NOTE! PRCMU register */
+	AB9540_VSMPS3SEL2, /* NOTE! PRCMU register */
 	AB9540_VAUX1SEL,
 	AB9540_VAUX2SEL,
 	AB9540_VRF1VAUX3SEL,

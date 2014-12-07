@@ -24,6 +24,7 @@
 #include <linux/io.h>
 #include <asm/pci-bridge.h>
 
+/* Bus info */
 struct iowa_bus {
 	struct pci_controller *phb;
 	struct ppc_pci_io *ops;
@@ -44,4 +45,4 @@ extern int spiderpci_iowa_init(struct iowa_bus *, void *);
 #define SPIDER_PCI_DUMMY_READ		0x0810
 #define SPIDER_PCI_DUMMY_READ_BASE	0x0814
 
-#endif 
+#endif /* _IO_WORKAROUNDS_H */

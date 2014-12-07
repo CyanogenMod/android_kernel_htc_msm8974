@@ -36,6 +36,7 @@ ArcPowerDown(VOID)
 never:	goto never;
 }
 
+/* XXX is this a soft reset basically? XXX */
 VOID
 ArcRestart(VOID)
 {

@@ -26,7 +26,7 @@ struct minifb_ctrl
 	struct list_head free_queue;
 	struct list_head ready_queue;
 	struct minifb_data *retired;
-	wait_queue_head_t wait_q; 
+	wait_queue_head_t wait_q; /* TBD */
 	u32 state;
 	uint32_t width;
 	uint32_t height;
@@ -183,7 +183,7 @@ int minifb_init(struct minifb_session *sess)
 		minifb_ctrl = kzalloc(sizeof(struct minifb_ctrl), GFP_KERNEL);
 	} else {
 		pr_warn("minifb already initialized\n");
-		
+		/* TBD: EBUSY? */
 	}
 
 	mutex_init(&minifb_ctrl->lock);
@@ -201,7 +201,7 @@ int minifb_init(struct minifb_session *sess)
 	minifb_ctrl->log_time = 0;
 	init_waitqueue_head(&minifb_ctrl->wait_q);
 
-	
+	/* FIXME: get rid of msm_ion_.. */
 	minifb_ctrl->iclient = msm_ion_client_create(-1, "minifb");
 
 	minifb_ctrl->debug_root = debugfs_create_dir("minifb", NULL);
@@ -249,7 +249,7 @@ int minifb_queuebuf(struct minifb_req *data)
 	}
 
 	pr_debug("%s\n", __func__);
-	
+	/* empty ready list and put new buf into ready list */
 	node = kzalloc(sizeof(struct minifb_data), GFP_KERNEL);
 	if (!node) {
 		pr_err("%s: kzalloc fail\n", __func__);
@@ -292,6 +292,7 @@ int minifb_queuebuf(struct minifb_req *data)
 	return 0;
 }
 
+/* blocking/non-blocking operation */
 int minifb_dequeuebuf(struct minifb_req *data)
 {
 	int ret = 0;
@@ -305,7 +306,7 @@ int minifb_dequeuebuf(struct minifb_req *data)
 	pr_debug("%s\n", __func__);
 	mutex_lock(&fbctrl->lock);
 
-	
+	/* find a buf from free list and return it. */
 	if (!list_empty(&fbctrl->free_queue)) {
 		struct minifb_data *node;
 
@@ -333,7 +334,7 @@ int minifb_lockbuf(void **vaddr, unsigned long *ptr_size, int repeat)
 	struct minifb_data *node;
 	struct minifb_ctrl *fbctrl = get_ctrl();
 
-	
+	/* move buf in ready list to busy state */
 	if (!fbctrl) {
 		pr_err("%s: minifb was not initialized\n", __func__);
 		return -EINVAL;
@@ -354,7 +355,7 @@ int minifb_lockbuf(void **vaddr, unsigned long *ptr_size, int repeat)
 		list_move(&node->entry, &fbctrl->busy_queue);
 		pr_debug("%s: lock frame#%d from fd%d\n", __func__, node->info, node->buf_info.memory_id);
 
-		
+		/* map ion memory */
 		*vaddr = ion_map_kernel(fbctrl->iclient, node->ionhdl);
 		ion_handle_get_size(fbctrl->iclient, node->ionhdl, ptr_size);
 		fbctrl->lock_cnt++;
@@ -364,7 +365,7 @@ int minifb_lockbuf(void **vaddr, unsigned long *ptr_size, int repeat)
 		list_move(&node->entry, &fbctrl->busy_queue);
 		pr_debug("%s: lock frame#%d from retired fd%d\n", __func__, node->info, node->buf_info.memory_id);
 
-		
+		/* map ion memory */
 		*vaddr = ion_map_kernel(fbctrl->iclient, node->ionhdl);
 		ion_handle_get_size(fbctrl->iclient, node->ionhdl, ptr_size);
 		fbctrl->lock_cnt++;
@@ -393,7 +394,7 @@ void minifb_unlockbuf(void)
 	pr_debug("%s:\n", __func__);
 	mutex_lock(&fbctrl->lock);
 
-	
+	/* move fb buf from busy state to free list */
 	if (!list_empty(&fbctrl->busy_queue)) {
 		node = list_first_entry(&fbctrl->busy_queue, struct minifb_data, entry);
 		fbctrl->retired = node;

@@ -52,6 +52,7 @@ static struct clcd_panel xvga = {
 	.bpp		= 16,
 };
 
+/* Sanyo TM38QV67A02A - 3.8 inch QVGA (320x240) Color TFT */
 static struct clcd_panel sanyo_tm38qv67a02a = {
 	.mode		= {
 		.name		= "Sanyo TM38QV67A02A",
@@ -100,6 +101,7 @@ static struct clcd_panel sanyo_2_5_in = {
 	.bpp		= 16,
 };
 
+/* Epson L2F50113T00 - 2.2 inch 176x220 Color TFT */
 static struct clcd_panel epson_l2f50113t00 = {
 	.mode		= {
 		.name		= "Epson L2F50113T00",

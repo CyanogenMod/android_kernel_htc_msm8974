@@ -22,9 +22,14 @@
 
 extern unsigned char mx1_camera_sof_fiq_start, mx1_camera_sof_fiq_end;
 
+/**
+ * struct mx1_camera_pdata - i.MX1/i.MXL camera platform data
+ * @mclk_10khz:	master clock frequency in 10kHz units
+ * @flags:	MX1 camera platform flags
+ */
 struct mx1_camera_pdata {
 	unsigned long mclk_10khz;
 	unsigned long flags;
 };
 
-#endif 
+#endif /* __ASM_ARCH_CAMERA_H_ */

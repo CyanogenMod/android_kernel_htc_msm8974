@@ -27,6 +27,20 @@
 #include <net/sock.h>
 #include <net/x25.h>
 
+/**
+ * x25_parse_facilities - Parse facilities from skb into the facilities structs
+ *
+ * @skb: sk_buff to parse
+ * @facilities: Regular facilities, updated as facilities are found
+ * @dte_facs: ITU DTE facilities, updated as DTE facilities are found
+ * @vc_fac_mask: mask is updated with all facilities found
+ *
+ * Return codes:
+ *  -1 - Parsing error, caller should drop call and clean up
+ *   0 - Parse OK, this skb has no facilities
+ *  >0 - Parse OK, returns the length of the facilities header
+ *
+ */
 int x25_parse_facilities(struct sk_buff *skb, struct x25_facilities *facilities,
 		struct x25_dte_facilities *dte_facs, unsigned long *vc_fac_mask)
 {
@@ -35,6 +49,12 @@ int x25_parse_facilities(struct sk_buff *skb, struct x25_facilities *facilities,
 
 	*vc_fac_mask = 0;
 
+	/*
+	 * The kernel knows which facilities were set on an incoming call but
+	 * currently this information is not available to userspace.  Here we
+	 * give userspace who read incoming call facilities 0 length to indicate
+	 * it wasn't set.
+	 */
 	dte_facs->calling_len = 0;
 	dte_facs->called_len = 0;
 	memset(dte_facs->called_ae, '\0', sizeof(dte_facs->called_ae));
@@ -161,6 +181,9 @@ int x25_parse_facilities(struct sk_buff *skb, struct x25_facilities *facilities,
 	return p - skb->data;
 }
 
+/*
+ *	Create a set of facilities.
+ */
 int x25_create_facilities(unsigned char *buffer,
 		struct x25_facilities *facilities,
 		struct x25_dte_facilities *dte_facs, unsigned long facil_mask)
@@ -169,8 +192,12 @@ int x25_create_facilities(unsigned char *buffer,
 	int len;
 
 	if (!facil_mask) {
+		/*
+		 * Length of the facilities field in call_req or
+		 * call_accept packets
+		 */
 		buffer[0] = 0;
-		len = 1; 
+		len = 1; /* 1 byte for the length field */
 		return len;
 	}
 
@@ -229,6 +256,11 @@ int x25_create_facilities(unsigned char *buffer,
 	return len;
 }
 
+/*
+ *	Try to reach a compromise on a set of facilities.
+ *
+ *	The only real problem is with reverse charging.
+ */
 int x25_negotiate_facilities(struct sk_buff *skb, struct sock *sk,
 		struct x25_facilities *new, struct x25_dte_facilities *dte)
 {
@@ -244,6 +276,9 @@ int x25_negotiate_facilities(struct sk_buff *skb, struct sock *sk,
 	if (len < 0)
 		return len;
 
+	/*
+	 *	They want reverse charging, we won't accept it.
+	 */
 	if ((theirs.reverse & 0x01 ) && (ours->reverse & 0x01)) {
 		SOCK_DEBUG(sk, "X.25: rejecting reverse charging request\n");
 		return -1;
@@ -292,6 +327,10 @@ int x25_negotiate_facilities(struct sk_buff *skb, struct sock *sk,
 	return len;
 }
 
+/*
+ *	Limit values of certain facilities according to the capability of the
+ *      currently attached x25 link.
+ */
 void x25_limit_facilities(struct x25_facilities *facilities,
 			  struct x25_neigh *nb)
 {

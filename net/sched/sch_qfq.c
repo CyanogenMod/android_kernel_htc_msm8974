@@ -19,23 +19,88 @@
 #include <net/pkt_cls.h>
 
 
+/*  Quick Fair Queueing
+    ===================
 
+    Sources:
 
+    Fabio Checconi, Luigi Rizzo, and Paolo Valente: "QFQ: Efficient
+    Packet Scheduling with Tight Bandwidth Distribution Guarantees."
+
+    See also:
+    http://retis.sssup.it/~fabio/linux/qfq/
+ */
+
+/*
+
+  Virtual time computations.
+
+  S, F and V are all computed in fixed point arithmetic with
+  FRAC_BITS decimal bits.
+
+  QFQ_MAX_INDEX is the maximum index allowed for a group. We need
+	one bit per index.
+  QFQ_MAX_WSHIFT is the maximum power of two supported as a weight.
+
+  The layout of the bits is as below:
+
+                   [ MTU_SHIFT ][      FRAC_BITS    ]
+                   [ MAX_INDEX    ][ MIN_SLOT_SHIFT ]
+				 ^.__grp->index = 0
+				 *.__grp->slot_shift
+
+  where MIN_SLOT_SHIFT is derived by difference from the others.
+
+  The max group index corresponds to Lmax/w_min, where
+  Lmax=1<<MTU_SHIFT, w_min = 1 .
+  From this, and knowing how many groups (MAX_INDEX) we want,
+  we can derive the shift corresponding to each group.
+
+  Because we often need to compute
+	F = S + len/w_i  and V = V + len/wsum
+  instead of storing w_i store the value
+	inv_w = (1<<FRAC_BITS)/w_i
+  so we can do F = S + len * inv_w * wsum.
+  We use W_TOT in the formulas so we can easily move between
+  static and adaptive weight sum.
+
+  The per-scheduler-instance data contain all the data structures
+  for the scheduler: bitmaps and bucket lists.
+
+ */
+
+/*
+ * Maximum number of consecutive slots occupied by backlogged classes
+ * inside a group.
+ */
 #define QFQ_MAX_SLOTS	32
 
+/*
+ * Shifts used for class<->group mapping.  We allow class weights that are
+ * in the range [1, 2^MAX_WSHIFT], and we try to map each class i to the
+ * group with the smallest index that can support the L_i / r_i configured
+ * for the class.
+ *
+ * grp->index is the index of the group; and grp->slot_shift
+ * is the shift for the corresponding (scaled) sigma_i.
+ */
 #define QFQ_MAX_INDEX		19
 #define QFQ_MAX_WSHIFT		16
 
 #define	QFQ_MAX_WEIGHT		(1<<QFQ_MAX_WSHIFT)
 #define QFQ_MAX_WSUM		(2*QFQ_MAX_WEIGHT)
 
-#define FRAC_BITS		30	
+#define FRAC_BITS		30	/* fixed point arithmetic */
 #define ONE_FP			(1UL << FRAC_BITS)
 #define IWSUM			(ONE_FP/QFQ_MAX_WSUM)
 
 #define QFQ_MTU_SHIFT		11
 #define QFQ_MIN_SLOT_SHIFT	(FRAC_BITS + QFQ_MTU_SHIFT - QFQ_MAX_INDEX)
 
+/*
+ * Possible group states.  These values are used as indexes for the bitmaps
+ * array of struct qfq_queue.
+ */
 enum qfq_state { ER, IR, EB, IB, QFQ_MAX_STATE };
 
 struct qfq_group;
@@ -51,24 +116,28 @@ struct qfq_class {
 	struct gnet_stats_rate_est rate_est;
 	struct Qdisc *qdisc;
 
-	struct hlist_node next;	
-	u64 S, F;		
+	struct hlist_node next;	/* Link for the slot list. */
+	u64 S, F;		/* flow timestamps (exact) */
 
+	/* group we belong to. In principle we would need the index,
+	 * which is log_2(lmax/weight), but we never reference it
+	 * directly, only the group.
+	 */
 	struct qfq_group *grp;
 
-	
-	u32	inv_w;		
-	u32	lmax;		
+	/* these are copied from the flowset. */
+	u32	inv_w;		/* ONE_FP/weight */
+	u32	lmax;		/* Max packet size for this flow. */
 };
 
 struct qfq_group {
-	u64 S, F;			
-	unsigned int slot_shift;	
-	unsigned int index;		
-	unsigned int front;		
-	unsigned long full_slots;	
+	u64 S, F;			/* group timestamps (approx). */
+	unsigned int slot_shift;	/* Slot shift. */
+	unsigned int index;		/* Group index. */
+	unsigned int front;		/* Index of the front slot. */
+	unsigned long full_slots;	/* non-empty slots */
 
-	
+	/* Array of RR lists of active classes. */
 	struct hlist_head slots[QFQ_MAX_SLOTS];
 };
 
@@ -76,11 +145,11 @@ struct qfq_sched {
 	struct tcf_proto *filter_list;
 	struct Qdisc_class_hash clhash;
 
-	u64		V;		
-	u32		wsum;		
+	u64		V;		/* Precise virtual time. */
+	u32		wsum;		/* weight sum */
 
-	unsigned long bitmaps[QFQ_MAX_STATE];	    
-	struct qfq_group groups[QFQ_MAX_INDEX + 1]; 
+	unsigned long bitmaps[QFQ_MAX_STATE];	    /* Group bitmaps. */
+	struct qfq_group groups[QFQ_MAX_INDEX + 1]; /* The groups. */
 };
 
 static struct qfq_class *qfq_find_class(struct Qdisc *sch, u32 classid)
@@ -107,6 +176,11 @@ static const struct nla_policy qfq_policy[TCA_QFQ_MAX + 1] = {
 	[TCA_QFQ_LMAX] = { .type = NLA_U32 },
 };
 
+/*
+ * Calculate a flow index, given its weight and maximum packet length.
+ * index = log_2(maxlen/weight) but we need to apply the scaling.
+ * This is used only once at flow creation.
+ */
 static int qfq_calc_index(u32 inv_w, unsigned int maxlen)
 {
 	u64 slot_size = (u64)maxlen * inv_w;
@@ -117,7 +191,7 @@ static int qfq_calc_index(u32 inv_w, unsigned int maxlen)
 	if (!size_map)
 		goto out;
 
-	index = __fls(size_map) + 1;	
+	index = __fls(size_map) + 1;	/* basically a log_2 */
 	index -= !(slot_size - (1ULL << (index + QFQ_MIN_SLOT_SHIFT - 1)));
 
 	if (index < 0)
@@ -260,6 +334,10 @@ static int qfq_delete_class(struct Qdisc *sch, unsigned long arg)
 	qdisc_class_hash_remove(&q->clhash, &cl->common);
 
 	BUG_ON(--cl->refcnt == 0);
+	/*
+	 * This shouldn't happen: we "hold" one cops->get() when called
+	 * from tc_ctl_tclass; the destroy method is done from cops->put().
+	 */
 
 	sch_tree_unlock(sch);
 	return 0;
@@ -441,30 +519,39 @@ static struct qfq_class *qfq_classify(struct sk_buff *skb, struct Qdisc *sch,
 	return NULL;
 }
 
+/* Generic comparison function, handling wraparound. */
 static inline int qfq_gt(u64 a, u64 b)
 {
 	return (s64)(a - b) > 0;
 }
 
+/* Round a precise timestamp to its slotted value. */
 static inline u64 qfq_round_down(u64 ts, unsigned int shift)
 {
 	return ts & ~((1ULL << shift) - 1);
 }
 
+/* return the pointer to the group with lowest index in the bitmap */
 static inline struct qfq_group *qfq_ffs(struct qfq_sched *q,
 					unsigned long bitmap)
 {
 	int index = __ffs(bitmap);
 	return &q->groups[index];
 }
+/* Calculate a mask to mimic what would be ffs_from(). */
 static inline unsigned long mask_from(unsigned long bitmap, int from)
 {
 	return bitmap & ~((1UL << from) - 1);
 }
 
+/*
+ * The state computation relies on ER=0, IR=1, EB=2, IB=3
+ * First compute eligibility comparing grp->S, q->V,
+ * then check if someone is blocking us and possibly add EB
+ */
 static int qfq_calc_state(struct qfq_sched *q, const struct qfq_group *grp)
 {
-	
+	/* if S > V we are not eligible */
 	unsigned int state = qfq_gt(grp->S, q->V);
 	unsigned long mask = mask_from(q->bitmaps[ER], grp->index);
 	struct qfq_group *next;
@@ -479,6 +566,12 @@ static int qfq_calc_state(struct qfq_sched *q, const struct qfq_group *grp)
 }
 
 
+/*
+ * In principle
+ *	q->bitmaps[dst] |= q->bitmaps[src] & mask;
+ *	q->bitmaps[src] &= ~mask;
+ * but we should make sure that src != dst
+ */
 static inline void qfq_move_groups(struct qfq_sched *q, unsigned long mask,
 				   int src, int dst)
 {
@@ -502,6 +595,16 @@ static void qfq_unblock_groups(struct qfq_sched *q, int index, u64 old_F)
 	qfq_move_groups(q, mask, IB, IR);
 }
 
+/*
+ * perhaps
+ *
+	old_V ^= q->V;
+	old_V >>= QFQ_MIN_SLOT_SHIFT;
+	if (old_V) {
+		...
+	}
+ *
+ */
 static void qfq_make_eligible(struct qfq_sched *q, u64 old_V)
 {
 	unsigned long vslot = q->V >> QFQ_MIN_SLOT_SHIFT;
@@ -515,6 +618,11 @@ static void qfq_make_eligible(struct qfq_sched *q, u64 old_V)
 }
 
 
+/*
+ * XXX we should make sure that slot becomes less than 32.
+ * This is guaranteed by the input values.
+ * roundedS is always cl->S rounded on grp->slot_shift bits.
+ */
 static void qfq_slot_insert(struct qfq_group *grp, struct qfq_class *cl,
 			    u64 roundedS)
 {
@@ -525,12 +633,16 @@ static void qfq_slot_insert(struct qfq_group *grp, struct qfq_class *cl,
 	__set_bit(slot, &grp->full_slots);
 }
 
+/* Maybe introduce hlist_first_entry?? */
 static struct qfq_class *qfq_slot_head(struct qfq_group *grp)
 {
 	return hlist_entry(grp->slots[grp->front].first,
 			   struct qfq_class, next);
 }
 
+/*
+ * remove the entry from the slot
+ */
 static void qfq_front_slot_remove(struct qfq_group *grp)
 {
 	struct qfq_class *cl = qfq_slot_head(grp);
@@ -541,6 +653,11 @@ static void qfq_front_slot_remove(struct qfq_group *grp)
 		__clear_bit(0, &grp->full_slots);
 }
 
+/*
+ * Returns the first full queue in a group. As a side effect,
+ * adjust the bucket list so the first non-empty bucket is at
+ * position 0 in full_slots.
+ */
 static struct qfq_class *qfq_slot_scan(struct qfq_group *grp)
 {
 	unsigned int i;
@@ -551,7 +668,7 @@ static struct qfq_class *qfq_slot_scan(struct qfq_group *grp)
 	if (grp->full_slots == 0)
 		return NULL;
 
-	i = __ffs(grp->full_slots);  
+	i = __ffs(grp->full_slots);  /* zero based */
 	if (i > 0) {
 		grp->front = (grp->front + i) % QFQ_MAX_SLOTS;
 		grp->full_slots >>= i;
@@ -560,6 +677,15 @@ static struct qfq_class *qfq_slot_scan(struct qfq_group *grp)
 	return qfq_slot_head(grp);
 }
 
+/*
+ * adjust the bucket list. When the start time of a group decreases,
+ * we move the index down (modulo QFQ_MAX_SLOTS) so we don't need to
+ * move the objects. The mask of occupied slots must be shifted
+ * because we use ffs() to find the first non-empty slot.
+ * This covers decreases in the group's start time, but what about
+ * increases of the start time ?
+ * Here too we should make sure that i is less than 32
+ */
 static void qfq_slot_rotate(struct qfq_group *grp, u64 roundedS)
 {
 	unsigned int i = (grp->S - roundedS) >> grp->slot_shift;
@@ -584,6 +710,7 @@ static void qfq_update_eligible(struct qfq_sched *q, u64 old_V)
 	}
 }
 
+/* What is length of next packet in queue (0 if queue is empty) */
 static unsigned int qdisc_peek_len(struct Qdisc *sch)
 {
 	struct sk_buff *skb;
@@ -592,13 +719,16 @@ static unsigned int qdisc_peek_len(struct Qdisc *sch)
 	return skb ? qdisc_pkt_len(skb) : 0;
 }
 
+/*
+ * Updates the class, returns true if also the group needs to be updated.
+ */
 static bool qfq_update_class(struct qfq_group *grp, struct qfq_class *cl)
 {
 	unsigned int len = qdisc_peek_len(cl->qdisc);
 
 	cl->S = cl->F;
 	if (!len)
-		qfq_front_slot_remove(grp);	
+		qfq_front_slot_remove(grp);	/* queue is empty */
 	else {
 		u64 roundedS;
 
@@ -672,6 +802,19 @@ skip_unblock:
 	return skb;
 }
 
+/*
+ * Assign a reasonable start time for a new flow k in group i.
+ * Admissible values for \hat(F) are multiples of \sigma_i
+ * no greater than V+\sigma_i . Larger values mean that
+ * we had a wraparound so we consider the timestamp to be stale.
+ *
+ * If F is not stale and F >= V then we set S = F.
+ * Otherwise we should assign S = V, but this may violate
+ * the ordering in ER. So, if we have groups in ER, set S to
+ * the F_j of the first group j which would be blocking us.
+ * We are guaranteed not to move S backward because
+ * otherwise our group i would still be blocked.
+ */
 static void qfq_update_start(struct qfq_sched *q, struct qfq_class *cl)
 {
 	unsigned long mask;
@@ -682,7 +825,7 @@ static void qfq_update_start(struct qfq_sched *q, struct qfq_class *cl)
 	limit = qfq_round_down(q->V, slot_shift) + (1ULL << slot_shift);
 
 	if (!qfq_gt(cl->F, q->V) || qfq_gt(roundedF, limit)) {
-		
+		/* timestamp was stale */
 		mask = mask_from(q->bitmaps[ER], cl->grp->index);
 		if (mask) {
 			struct qfq_group *next = qfq_ffs(q, mask);
@@ -692,7 +835,7 @@ static void qfq_update_start(struct qfq_sched *q, struct qfq_class *cl)
 			}
 		}
 		cl->S = q->V;
-	} else  
+	} else  /* timestamp is not stale */
 		cl->S = cl->F;
 }
 
@@ -727,25 +870,34 @@ static int qfq_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	bstats_update(&cl->bstats, skb);
 	++sch->q.qlen;
 
-	
+	/* If the new skb is not the head of queue, then done here. */
 	if (cl->qdisc->q.qlen != 1)
 		return err;
 
-	
+	/* If reach this point, queue q was idle */
 	grp = cl->grp;
 	qfq_update_start(q, cl);
 
-	
+	/* compute new finish time and rounded start. */
 	cl->F = cl->S + (u64)qdisc_pkt_len(skb) * cl->inv_w;
 	roundedS = qfq_round_down(cl->S, grp->slot_shift);
 
+	/*
+	 * insert cl in the correct bucket.
+	 * If cl->S >= grp->S we don't need to adjust the
+	 * bucket list and simply go to the insertion phase.
+	 * Otherwise grp->S is decreasing, we must make room
+	 * in the bucket list, and also recompute the group state.
+	 * Finally, if there were no flows in this group and nobody
+	 * was in ER make sure to adjust V.
+	 */
 	if (grp->full_slots) {
 		if (!qfq_gt(grp->S, cl->S))
 			goto skip_update;
 
-		
+		/* create a slot for this cl->S */
 		qfq_slot_rotate(grp, roundedS);
-		
+		/* group was surely ineligible, remove */
 		__clear_bit(grp->index, &q->bitmaps[IR]);
 		__clear_bit(grp->index, &q->bitmaps[IB]);
 	} else if (!q->bitmaps[ER] && qfq_gt(roundedS, q->V))
@@ -784,6 +936,13 @@ static void qfq_slot_remove(struct qfq_sched *q, struct qfq_group *grp,
 		__clear_bit(offset, &grp->full_slots);
 }
 
+/*
+ * called to forcibly destroy a queue.
+ * If the queue is not in the front bucket, or if it has
+ * other queues in the front bucket, we can simply remove
+ * the queue with no other side effects.
+ * Otherwise we must propagate the event up.
+ */
 static void qfq_deactivate_class(struct qfq_sched *q, struct qfq_class *cl)
 {
 	struct qfq_group *grp = cl->grp;

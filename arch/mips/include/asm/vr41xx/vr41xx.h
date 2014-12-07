@@ -19,26 +19,39 @@
 
 #include <linux/interrupt.h>
 
+/*
+ * CPU Revision
+ */
+/* VR4122 0x00000c70-0x00000c72 */
 #define PRID_VR4122_REV1_0	0x00000c70
 #define PRID_VR4122_REV2_0	0x00000c70
 #define PRID_VR4122_REV2_1	0x00000c70
 #define PRID_VR4122_REV3_0	0x00000c71
 #define PRID_VR4122_REV3_1	0x00000c72
 
+/* VR4181A 0x00000c73-0x00000c7f */
 #define PRID_VR4181A_REV1_0	0x00000c73
 #define PRID_VR4181A_REV1_1	0x00000c74
 
+/* VR4131 0x00000c80-0x00000c83 */
 #define PRID_VR4131_REV1_2	0x00000c80
 #define PRID_VR4131_REV2_0	0x00000c81
 #define PRID_VR4131_REV2_1	0x00000c82
 #define PRID_VR4131_REV2_2	0x00000c83
 
+/* VR4133 0x00000c84- */
 #define PRID_VR4133		0x00000c84
 
+/*
+ * Bus Control Uint
+ */
 extern unsigned long vr41xx_calculate_clock_frequency(void);
 extern unsigned long vr41xx_get_vtclock_frequency(void);
 extern unsigned long vr41xx_get_tclock_frequency(void);
 
+/*
+ * Clock Mask Unit
+ */
 typedef enum {
 	PIU_CLOCK,
 	SIU_CLOCK,
@@ -58,6 +71,9 @@ typedef enum {
 extern void vr41xx_supply_clock(vr41xx_clock_t clock);
 extern void vr41xx_mask_clock(vr41xx_clock_t clock);
 
+/*
+ * Interrupt Control Unit
+ */
 extern int vr41xx_set_intassign(unsigned int irq, unsigned char intassign);
 extern int cascade_irq(unsigned int irq, int (*get_irq)(unsigned int));
 
@@ -133,4 +149,4 @@ extern void vr41xx_siu_setup(void);
 static inline void vr41xx_siu_setup(void) {}
 #endif
 
-#endif 
+#endif /* __NEC_VR41XX_H */

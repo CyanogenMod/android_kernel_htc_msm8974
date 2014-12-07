@@ -112,38 +112,41 @@ struct pm8xxx_mpp_init {
 			PM_GPIO_STRENGTH_HIGH, \
 			PM_GPIO_FUNC_NORMAL, 0, 0)
 
+/* Initial PM8921 GPIO configurations */
 static struct pm8xxx_gpio_init pm8921_gpios[] __initdata = {
-	PM8921_GPIO_OUTPUT(14, 1, HIGH),	
-	PM8921_GPIO_OUTPUT_BUFCONF(25, 0, LOW, CMOS), 
-	PM8921_GPIO_OUTPUT_FUNC(26, 0, PM_GPIO_FUNC_2), 
-	PM8921_GPIO_OUTPUT_VIN(30, 1, PM_GPIO_VIN_VPH), 
+	PM8921_GPIO_OUTPUT(14, 1, HIGH),	/* HDMI Mux Selector */
+	PM8921_GPIO_OUTPUT_BUFCONF(25, 0, LOW, CMOS), /* DISP_RESET_N */
+	PM8921_GPIO_OUTPUT_FUNC(26, 0, PM_GPIO_FUNC_2), /* Bl: Off, PWM mode */
+	PM8921_GPIO_OUTPUT_VIN(30, 1, PM_GPIO_VIN_VPH), /* SMB349 susp line */
 	PM8921_GPIO_OUTPUT_BUFCONF(36, 1, LOW, OPEN_DRAIN),
 	PM8921_GPIO_OUTPUT_FUNC(44, 0, PM_GPIO_FUNC_2),
 	PM8921_GPIO_OUTPUT(33, 0, HIGH),
 	PM8921_GPIO_OUTPUT(20, 0, HIGH),
 	PM8921_GPIO_INPUT(35, PM_GPIO_PULL_UP_30),
 	PM8921_GPIO_INPUT(38, PM_GPIO_PULL_UP_30),
-	
+	/* TABLA CODEC RESET */
 	PM8921_GPIO_OUTPUT(34, 1, HIGH),
-	PM8921_GPIO_OUTPUT(13, 0, HIGH),               
-	PM8921_GPIO_INPUT(12, PM_GPIO_PULL_UP_30),     
+	PM8921_GPIO_OUTPUT(13, 0, HIGH),               /* PCIE_CLK_PWR_EN */
+	PM8921_GPIO_INPUT(12, PM_GPIO_PULL_UP_30),     /* PCIE_WAKE_N */
 };
 
 static struct pm8xxx_gpio_init pm8921_fsm8064_ep_gpios[] __initdata = {
-	PM8921_GPIO_OUTPUT_VIN(1, 1, PM_GPIO_VIN_VPH),	
-	PM8921_GPIO_OUTPUT_VIN(12, 1, PM_GPIO_VIN_VPH),	
-	
+	PM8921_GPIO_OUTPUT_VIN(1, 1, PM_GPIO_VIN_VPH),	/* 5V reg */
+	PM8921_GPIO_OUTPUT_VIN(12, 1, PM_GPIO_VIN_VPH),	/* 12V reg */
+	/* De-assert CW_GPS_RST_N for CW GPS module to lock to GPS source */
 	PM8921_GPIO_OUTPUT_VIN(14, 1, PM_GPIO_VIN_VPH),
-	PM8921_GPIO_OUTPUT_VIN(19, 0, PM_GPIO_VIN_VPH),	
+	/* PPS_SRC_SEL_N, chooses between WGR7640 PPS source (high) or
+	 * CW GPS module PPS source (low) */
+	PM8921_GPIO_OUTPUT_VIN(19, 0, PM_GPIO_VIN_VPH),	/* PPS_SRC_SEL_N */
 
-	PM8921_GPIO_OUTPUT_VIN(13, 1, PM_GPIO_VIN_VPH),	
-	PM8921_GPIO_OUTPUT_VIN(37, 1, PM_GPIO_VIN_VPH),	
-	PM8921_GPIO_INPUT(11, PM_GPIO_PULL_UP_30),	
+	PM8921_GPIO_OUTPUT_VIN(13, 1, PM_GPIO_VIN_VPH),	/* PCIE_CLK_PWR_EN */
+	PM8921_GPIO_OUTPUT_VIN(37, 1, PM_GPIO_VIN_VPH),	/* PCIE_RST_N */
+	PM8921_GPIO_INPUT(11, PM_GPIO_PULL_UP_30),	/* PCIE_WAKE_N */
 
-	PM8921_GPIO_OUTPUT_VIN(23, 1, PM_GPIO_VIN_VPH),	
+	PM8921_GPIO_OUTPUT_VIN(23, 1, PM_GPIO_VIN_VPH),	/* USB2_HSIC_RST_N */
 
-	PM8921_GPIO_OUTPUT_VIN(24, 1, PM_GPIO_VIN_VPH),	
-	PM8921_GPIO_OUTPUT_VIN(34, 1, PM_GPIO_VIN_VPH),	
+	PM8921_GPIO_OUTPUT_VIN(24, 1, PM_GPIO_VIN_VPH),	/* USB3_RST_N */
+	PM8921_GPIO_OUTPUT_VIN(34, 1, PM_GPIO_VIN_VPH),	/* USB4_RST_N */
 };
 
 static struct pm8xxx_gpio_init pm8921_mtp_kp_gpios[] __initdata = {
@@ -154,38 +157,40 @@ static struct pm8xxx_gpio_init pm8921_mtp_kp_gpios[] __initdata = {
 static struct pm8xxx_gpio_init pm8921_cdp_kp_gpios[] __initdata = {
 	PM8921_GPIO_INPUT(27, PM_GPIO_PULL_UP_30),
 	PM8921_GPIO_INPUT(42, PM_GPIO_PULL_UP_30),
-	PM8921_GPIO_INPUT(17, PM_GPIO_PULL_UP_1P5),	
+	PM8921_GPIO_INPUT(17, PM_GPIO_PULL_UP_1P5),	/* SD_WP */
 };
 
 static struct pm8xxx_gpio_init pm8921_mpq8064_hrd_gpios[] __initdata = {
-	PM8921_GPIO_OUTPUT(37, 0, LOW),	
-	PM8921_GPIO_INPUT(40, PM_GPIO_PULL_UP_30), 
+	PM8921_GPIO_OUTPUT(37, 0, LOW),	/* MUX1_SEL */
+	PM8921_GPIO_INPUT(40, PM_GPIO_PULL_UP_30), /* irq for sx150 exp2 */
 };
 
 static struct pm8xxx_gpio_init touchscreen_gpios[] __initdata = {
-	PM8921_GPIO_OUTPUT(23, 0, HIGH),	
+	PM8921_GPIO_OUTPUT(23, 0, HIGH),	/* touchscreen power FET */
 };
 
+/* Initial PM8917 GPIO configurations */
 static struct pm8xxx_gpio_init pm8917_gpios[] __initdata = {
-	PM8921_GPIO_OUTPUT(14, 1, HIGH),	
-	PM8921_GPIO_OUTPUT_BUFCONF(25, 0, LOW, CMOS), 
-	PM8921_GPIO_OUTPUT(26, 1, HIGH), 
+	PM8921_GPIO_OUTPUT(14, 1, HIGH),	/* HDMI Mux Selector */
+	PM8921_GPIO_OUTPUT_BUFCONF(25, 0, LOW, CMOS), /* DISP_RESET_N */
+	PM8921_GPIO_OUTPUT(26, 1, HIGH), /* Backlight: on */
 	PM8921_GPIO_OUTPUT_BUFCONF(36, 1, LOW, OPEN_DRAIN),
 	PM8921_GPIO_OUTPUT_FUNC(38, 0, PM_GPIO_FUNC_2),
 	PM8921_GPIO_OUTPUT(33, 0, HIGH),
 	PM8921_GPIO_OUTPUT(20, 0, HIGH),
 	PM8921_GPIO_INPUT(35, PM_GPIO_PULL_UP_30),
 	PM8921_GPIO_INPUT(30, PM_GPIO_PULL_UP_30),
-	
+	/* TABLA CODEC RESET */
 	PM8921_GPIO_OUTPUT(34, 1, MED),
-	PM8921_GPIO_OUTPUT(13, 0, HIGH),               
-	PM8921_GPIO_INPUT(12, PM_GPIO_PULL_UP_30),     
+	PM8921_GPIO_OUTPUT(13, 0, HIGH),               /* PCIE_CLK_PWR_EN */
+	PM8921_GPIO_INPUT(12, PM_GPIO_PULL_UP_30),     /* PCIE_WAKE_N */
 };
 
+/* PM8921 GPIO 42 remaps to PM8917 GPIO 8 */
 static struct pm8xxx_gpio_init pm8917_cdp_kp_gpios[] __initdata = {
 	PM8921_GPIO_INPUT(27, PM_GPIO_PULL_UP_30),
 	PM8921_GPIO_INPUT(8, PM_GPIO_PULL_UP_30),
-	PM8921_GPIO_INPUT(17, PM_GPIO_PULL_UP_1P5),	
+	PM8921_GPIO_INPUT(17, PM_GPIO_PULL_UP_1P5),	/* SD_WP */
 };
 
 static struct pm8xxx_gpio_init pm8921_mpq_gpios[] __initdata = {
@@ -194,14 +199,15 @@ static struct pm8xxx_gpio_init pm8921_mpq_gpios[] __initdata = {
 			PM_GPIO_FUNC_NORMAL, 0, 0),
 };
 
+/* Initial PM8XXX MPP configurations */
 static struct pm8xxx_mpp_init pm8xxx_mpps[] __initdata = {
 	PM8921_MPP_INIT(3, D_OUTPUT, PM8921_MPP_DIG_LEVEL_VPH, DOUT_CTRL_LOW),
-	
+	/* External 5V regulator enable; shared by HDMI and USB_OTG switches. */
 	PM8921_MPP_INIT(7, D_OUTPUT, PM8921_MPP_DIG_LEVEL_VPH, DOUT_CTRL_LOW),
 	PM8921_MPP_INIT(8, D_OUTPUT, PM8921_MPP_DIG_LEVEL_S4, DOUT_CTRL_LOW),
-	
+	/*MPP9 is used to detect docking station connection/removal on Liquid*/
 	PM8921_MPP_INIT(9, D_INPUT, PM8921_MPP_DIG_LEVEL_S4, DIN_TO_INT),
-	
+	/* PCIE_RESET_N */
 	PM8921_MPP_INIT(1, D_OUTPUT, PM8921_MPP_DIG_LEVEL_VPH, DOUT_CTRL_HIGH),
 };
 
@@ -223,6 +229,8 @@ void __init apq8064_pm8xxx_gpio_mpp_init(void)
 	int i, rc;
 
 	if (socinfo_get_pmic_model() != PMIC_MODEL_PM8917) {
+		/* PCIE_CLK_PWR_EN is 23 and PCIE_WAKE_N is 22
+		   for MPQ8064 Hybrid */
 		if (machine_is_mpq8064_hrd()) {
 			int size = ARRAY_SIZE(pm8921_gpios);
 			for (i = 0; i < size; i++)
@@ -286,10 +294,14 @@ static struct pm8xxx_misc_platform_data apq8064_pm8921_misc_pdata = {
 	.priority		= 0,
 };
 
-#define PM8921_LC_LED_MAX_CURRENT	4	
-#define PM8921_LC_LED_LOW_CURRENT	1	
+#define PM8921_LC_LED_MAX_CURRENT	4	/* I = 4mA */
+#define PM8921_LC_LED_LOW_CURRENT	1	/* I = 1mA */
 #define PM8XXX_LED_PWM_PERIOD		1000
 #define PM8XXX_LED_PWM_DUTY_MS		20
+/**
+ * PM8XXX_PWM_CHANNEL_NONE shall be used when LED shall not be
+ * driven using PWM feature.
+ */
 #define PM8XXX_PWM_CHANNEL_NONE		-1
 
 static struct led_info pm8921_led_info[] = {
@@ -313,6 +325,11 @@ static int pm8921_led0_pwm_duty_pcts[56] = {
 	14, 10, 6, 4, 1
 };
 
+/*
+ * Note: There is a bug in LPG module that results in incorrect
+ * behavior of pattern when LUT index 0 is used. So effectively
+ * there are 63 usable LUT entries.
+ */
 static struct pm8xxx_pwm_duty_cycles pm8921_led0_pwm_duty_cycles = {
 	.duty_pcts = (int *)&pm8921_led0_pwm_duty_pcts,
 	.num_duty_pcts = ARRAY_SIZE(pm8921_led0_pwm_duty_pcts),
@@ -369,7 +386,7 @@ static struct pm8xxx_adc_amux apq8064_pm8921_adc_channels_data[] = {
 };
 
 static struct pm8xxx_adc_properties apq8064_pm8921_adc_data = {
-	.adc_vdd_reference	= 1800, 
+	.adc_vdd_reference	= 1800, /* milli-voltage for this adc */
 	.bitresolution		= 15,
 	.bipolar                = 0,
 };

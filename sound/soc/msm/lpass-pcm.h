@@ -26,7 +26,7 @@
 struct msm_audio {
 	struct snd_pcm_substream *substream;
 
-	
+	/* data allocated for various buffers */
 	char *data;
 	dma_addr_t phys;
 
@@ -42,4 +42,4 @@ struct msm_audio {
 extern struct snd_soc_dai msm_cpu_dai[NUM_DMAS];
 extern struct snd_soc_platform msm8660_soc_platform;
 
-#endif 
+#endif /*_MSM_PCM_H*/

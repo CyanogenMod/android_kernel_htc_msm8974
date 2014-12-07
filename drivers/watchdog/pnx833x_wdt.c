@@ -32,21 +32,24 @@
 #include <linux/init.h>
 #include <asm/mach-pnx833x/pnx833x.h>
 
-#define WATCHDOG_TIMEOUT 30		
-#define WATCHDOG_COUNT_FREQUENCY 68000000U 
+#define WATCHDOG_TIMEOUT 30		/* 30 sec Maximum timeout */
+#define WATCHDOG_COUNT_FREQUENCY 68000000U /* Watchdog counts at 68MHZ. */
 #define	PNX_WATCHDOG_TIMEOUT	(WATCHDOG_TIMEOUT * WATCHDOG_COUNT_FREQUENCY)
 #define PNX_TIMEOUT_VALUE	2040000000U
 
+/** CONFIG block */
 #define PNX833X_CONFIG                      (0x07000U)
 #define PNX833X_CONFIG_CPU_WATCHDOG         (0x54)
 #define PNX833X_CONFIG_CPU_WATCHDOG_COMPARE (0x58)
 #define PNX833X_CONFIG_CPU_COUNTERS_CONTROL (0x1c)
 
+/** RESET block */
 #define PNX833X_RESET                       (0x08000U)
 #define PNX833X_RESET_CONFIG                (0x08)
 
 static int pnx833x_wdt_alive;
 
+/* Set default timeout in MHZ.*/
 static int pnx833x_wdt_timeout = PNX_WATCHDOG_TIMEOUT;
 module_param(pnx833x_wdt_timeout, int, 0);
 MODULE_PARM_DESC(timeout, "Watchdog timeout in Mhz. (68Mhz clock), default="
@@ -65,12 +68,12 @@ MODULE_PARM_DESC(start_enabled, "Watchdog is started on module insertion "
 
 static void pnx833x_wdt_start(void)
 {
-	
+	/* Enable watchdog causing reset. */
 	PNX833X_REG(PNX833X_RESET + PNX833X_RESET_CONFIG) |= 0x1;
-	
+	/* Set timeout.*/
 	PNX833X_REG(PNX833X_CONFIG +
 		PNX833X_CONFIG_CPU_WATCHDOG_COMPARE) = pnx833x_wdt_timeout;
-	
+	/* Enable watchdog. */
 	PNX833X_REG(PNX833X_CONFIG +
 				PNX833X_CONFIG_CPU_COUNTERS_CONTROL) |= 0x1;
 
@@ -79,9 +82,9 @@ static void pnx833x_wdt_start(void)
 
 static void pnx833x_wdt_stop(void)
 {
-	
+	/* Disable watchdog causing reset. */
 	PNX833X_REG(PNX833X_RESET + PNX833X_CONFIG) &= 0xFFFFFFFE;
-	
+	/* Disable watchdog.*/
 	PNX833X_REG(PNX833X_CONFIG +
 			PNX833X_CONFIG_CPU_COUNTERS_CONTROL) &= 0xFFFFFFFE;
 
@@ -94,6 +97,9 @@ static void pnx833x_wdt_ping(void)
 		PNX833X_CONFIG_CPU_WATCHDOG_COMPARE) = pnx833x_wdt_timeout;
 }
 
+/*
+ *	Allow only one person to hold it open
+ */
 static int pnx833x_wdt_open(struct inode *inode, struct file *file)
 {
 	if (test_and_set_bit(0, &pnx833x_wdt_alive))
@@ -102,7 +108,7 @@ static int pnx833x_wdt_open(struct inode *inode, struct file *file)
 	if (nowayout)
 		__module_get(THIS_MODULE);
 
-	
+	/* Activate timer */
 	if (!start_enabled)
 		pnx833x_wdt_start();
 
@@ -115,8 +121,10 @@ static int pnx833x_wdt_open(struct inode *inode, struct file *file)
 
 static int pnx833x_wdt_release(struct inode *inode, struct file *file)
 {
+	/* Shut off the timer.
+	 * Lock it in if it's a module and we defined ...NOWAYOUT */
 	if (!nowayout)
-		pnx833x_wdt_stop(); 
+		pnx833x_wdt_stop(); /* Turn the WDT off */
 
 	clear_bit(0, &pnx833x_wdt_alive);
 	return 0;
@@ -124,7 +132,7 @@ static int pnx833x_wdt_release(struct inode *inode, struct file *file)
 
 static ssize_t pnx833x_wdt_write(struct file *file, const char *data, size_t len, loff_t *ppos)
 {
-	
+	/* Refresh the timer. */
 	if (len)
 		pnx833x_wdt_ping();
 
@@ -201,7 +209,7 @@ static int pnx833x_wdt_notify_sys(struct notifier_block *this,
 					unsigned long code, void *unused)
 {
 	if (code == SYS_DOWN || code == SYS_HALT)
-		pnx833x_wdt_stop(); 
+		pnx833x_wdt_stop(); /* Turn the WDT off */
 
 	return NOTIFY_DONE;
 }
@@ -229,9 +237,9 @@ static int __init watchdog_init(void)
 {
 	int ret, cause;
 
-	
+	/* Lets check the reason for the reset.*/
 	cause = PNX833X_REG(PNX833X_RESET);
-	
+	/*If bit 31 is set then watchdog was cause of reset.*/
 	if (cause & 0x80000000) {
 		pr_info("The system was previously reset due to the watchdog firing - please investigate...\n");
 	}

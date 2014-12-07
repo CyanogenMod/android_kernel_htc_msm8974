@@ -44,6 +44,7 @@ static u32 RF_CHANNEL_TABLE_ZEBRA[] = {
 	0x0f72,
 };
 
+/*************************Define local function prototype**********************/
 
 static u32 phy_FwRFSerialRead(struct net_device *dev,
 			      enum rf90_radio_path eRFPath,
@@ -304,7 +305,7 @@ static u32 phy_FwRFSerialRead(struct net_device *dev,
 
 	return	retValue;
 
-}	
+}	/* phy_FwRFSerialRead */
 
 static void phy_FwRFSerialWrite(struct net_device *dev,
 				enum rf90_radio_path eRFPath,
@@ -325,7 +326,7 @@ static void phy_FwRFSerialWrite(struct net_device *dev,
 	}
 	write_nic_dword(dev, QPNR, Data);
 
-}	
+}	/* phy_FwRFSerialWrite */
 
 
 void rtl8192_phy_configmac(struct net_device *dev)
@@ -980,7 +981,7 @@ static u8 rtl8192_phy_SwChnlStepByStep(struct net_device *dev, u8 channel,
 
 			break;
 		} while (true);
-	} 
+	} /*for (Number of RF paths)*/
 
 	(*delay) = CurrentCmd->msDelay;
 	(*step)++;

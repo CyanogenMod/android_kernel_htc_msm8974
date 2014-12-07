@@ -22,6 +22,24 @@
  *
  */
 
+/*
+Driver: ni_daq_700
+Description: National Instruments PCMCIA DAQCard-700 DIO only
+Author: Fred Brooks <nsaspook@nsaspook.com>,
+  based on ni_daq_dio24 by Daniel Vecino Castel <dvecino@able.es>
+Devices: [National Instruments] PCMCIA DAQ-Card-700 (ni_daq_700)
+Status: works
+Updated: Thu, 21 Feb 2008 12:07:20 +0000
+
+The daqcard-700 appears in Comedi as a single digital I/O subdevice with
+16 channels.  The channel 0 corresponds to the daqcard-700's output
+port, bit 0; channel 8 corresponds to the input port, bit 0.
+
+Direction configuration: channels 0-7 output, 8-15 input (8225 device
+emu as port A output, port B input, port C N/A).
+
+IRQ is assigned but not used.
+*/
 
 #include <linux/interrupt.h>
 #include <linux/slab.h>
@@ -35,7 +53,7 @@
 
 static struct pcmcia_device *pcmcia_cur_dev;
 
-#define DIO700_SIZE 8		
+#define DIO700_SIZE 8		/*  size of io region used by board */
 
 static int dio700_attach(struct comedi_device *dev,
 			 struct comedi_devconfig *it);
@@ -45,11 +63,11 @@ enum dio700_bustype { pcmcia_bustype };
 
 struct dio700_board {
 	const char *name;
-	int device_id;		
-	enum dio700_bustype bustype;	
-	int have_dio;		
-	
-	
+	int device_id;		/*  device id for pcmcia board */
+	enum dio700_bustype bustype;	/*  PCMCIA */
+	int have_dio;		/*  have daqcard-700 dio */
+	/*  function pointers so we can use inb/outb or readb/writeb */
+	/*  as appropriate */
 	unsigned int (*read_byte) (unsigned int address);
 	void (*write_byte) (unsigned int byte, unsigned int address);
 };
@@ -57,25 +75,28 @@ struct dio700_board {
 static const struct dio700_board dio700_boards[] = {
 	{
 	 .name = "daqcard-700",
-	  
+	  /*  0x10b is manufacturer id, 0x4743 is device id */
 	 .device_id = 0x4743,
 	 .bustype = pcmcia_bustype,
 	 .have_dio = 1,
 	 },
 	{
 	 .name = "ni_daq_700",
-	  
+	  /*  0x10b is manufacturer id, 0x4743 is device id */
 	 .device_id = 0x4743,
 	 .bustype = pcmcia_bustype,
 	 .have_dio = 1,
 	 },
 };
 
+/*
+ * Useful for shorthand access to the particular board structure
+ */
 #define thisboard ((const struct dio700_board *)dev->board_ptr)
 
 struct dio700_private {
 
-	int data;		
+	int data;		/* number of data points left to be taken */
 };
 
 #define devpriv ((struct dio700_private *)dev->private)
@@ -90,6 +111,7 @@ static struct comedi_driver driver_dio700 = {
 	.offset = sizeof(struct dio700_board),
 };
 
+/*	the real driver routines	*/
 
 #define _700_SIZE 8
 
@@ -125,7 +147,7 @@ EXPORT_SYMBOL(subdev_700_interrupt);
 
 static int subdev_700_cb(int dir, int port, int data, unsigned long arg)
 {
-	
+	/* port is always A for output and B for input (8255 emu) */
 	unsigned long iobase = arg;
 
 	if (dir) {
@@ -180,7 +202,7 @@ static int subdev_700_insn_config(struct comedi_device *dev,
 }
 
 static void do_config(struct comedi_device *dev, struct comedi_subdevice *s)
-{				
+{				/* use powerup defaults */
 	return;
 }
 
@@ -191,7 +213,7 @@ static int subdev_700_cmdtest(struct comedi_device *dev,
 	int err = 0;
 	unsigned int tmp;
 
-	
+	/* step 1 */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW;
@@ -221,12 +243,12 @@ static int subdev_700_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
-	
+	/* step 2 */
 
 	if (err)
 		return 2;
 
-	
+	/* step 3 */
 
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
@@ -252,7 +274,7 @@ static int subdev_700_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4 */
 
 	if (err)
 		return 4;
@@ -262,7 +284,7 @@ static int subdev_700_cmdtest(struct comedi_device *dev,
 
 static int subdev_700_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 {
-	
+	/* FIXME */
 
 	return 0;
 }
@@ -270,7 +292,7 @@ static int subdev_700_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 static int subdev_700_cancel(struct comedi_device *dev,
 			     struct comedi_subdevice *s)
 {
-	
+	/* FIXME */
 
 	return 0;
 }
@@ -343,14 +365,14 @@ static int dio700_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 #endif
 	struct pcmcia_device *link;
 
-	
+	/* allocate and initialize dev->private */
 	if (alloc_private(dev, sizeof(struct dio700_private)) < 0)
 		return -ENOMEM;
 
-	
+	/*  get base address, irq etc. based on bustype */
 	switch (thisboard->bustype) {
 	case pcmcia_bustype:
-		link = pcmcia_cur_dev;	
+		link = pcmcia_cur_dev;	/* XXX hack */
 		if (!link)
 			return -EIO;
 		iobase = link->resource[0]->start;
@@ -381,7 +403,7 @@ static int dio700_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	dev->iobase = iobase;
 
 #ifdef incomplete
-	
+	/* grab our IRQ */
 	dev->irq = irq;
 #endif
 
@@ -390,7 +412,7 @@ static int dio700_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	if (alloc_subdevices(dev, 1) < 0)
 		return -ENOMEM;
 
-	
+	/* DAQCard-700 dio */
 	s = dev->subdevices + 0;
 	subdev_700_init(dev, s, NULL, dev->iobase);
 
@@ -434,7 +456,7 @@ static int dio700_cs_attach(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "dio700_cs_attach()\n");
 
-	
+	/* Allocate space for private device-specific data */
 	local = kzalloc(sizeof(struct local_info_t), GFP_KERNEL);
 	if (!local)
 		return -ENOMEM;
@@ -446,7 +468,7 @@ static int dio700_cs_attach(struct pcmcia_device *link)
 	dio700_config(link);
 
 	return 0;
-}				
+}				/* dio700_cs_attach */
 
 static void dio700_cs_detach(struct pcmcia_device *link)
 {
@@ -458,10 +480,10 @@ static void dio700_cs_detach(struct pcmcia_device *link)
 	((struct local_info_t *)link->priv)->stop = 1;
 	dio700_release(link);
 
-	
+	/* This points to the parent struct local_info_t struct */
 	kfree(link->priv);
 
-}				
+}				/* dio700_cs_detach */
 
 static int dio700_pcmcia_config_loop(struct pcmcia_device *p_dev,
 				void *priv_data)
@@ -502,23 +524,23 @@ failed:
 	printk(KERN_INFO "ni_daq_700 cs failed");
 	dio700_release(link);
 
-}				
+}				/* dio700_config */
 
 static void dio700_release(struct pcmcia_device *link)
 {
 	dev_dbg(&link->dev, "dio700_release\n");
 
 	pcmcia_disable_device(link);
-}				
+}				/* dio700_release */
 
 static int dio700_cs_suspend(struct pcmcia_device *link)
 {
 	struct local_info_t *local = link->priv;
 
-	
+	/* Mark the device as stopped, to block IO until later */
 	local->stop = 1;
 	return 0;
-}				
+}				/* dio700_cs_suspend */
 
 static int dio700_cs_resume(struct pcmcia_device *link)
 {
@@ -526,12 +548,13 @@ static int dio700_cs_resume(struct pcmcia_device *link)
 
 	local->stop = 0;
 	return 0;
-}				
+}				/* dio700_cs_resume */
 
+/*====================================================================*/
 
 static const struct pcmcia_device_id dio700_cs_ids[] = {
-	
-	PCMCIA_DEVICE_MANF_CARD(0x010b, 0x4743),	
+	/* N.B. These IDs should match those in dio700_boards */
+	PCMCIA_DEVICE_MANF_CARD(0x010b, 0x4743),	/* daqcard-700 */
 	PCMCIA_DEVICE_NULL
 };
 

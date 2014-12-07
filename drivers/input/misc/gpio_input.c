@@ -26,7 +26,6 @@
 #include <linux/fs.h>
 #include <asm/uaccess.h>
 #include <mach/devices_cmdline.h>
-
 #if defined(CONFIG_PWRKEY_STATUS_API) || defined(CONFIG_PWRKEY_WAKESRC_LOG)
 #include <linux/module.h>
 #endif
@@ -37,6 +36,7 @@
 #else
 #include <linux/les-pm8921.h>
 #endif
+
 #define PWRKEYLEDON_DELAY 3*HZ
 #define PWRKEYKP_DELAY (6*HZ)
 #define PWRKEYLEDOFF_DELAY 0
@@ -52,6 +52,13 @@ static int pre_power_key_led_status;
 #define PWRKEYCLRCHK_DELAY 0
 #define PWRKEYCHKRST_WAKELOCK_TIMEOUT (PWRKEYCHKRST_DELAY + 1 * HZ)
 struct wake_lock key_reset_clr_wake_lock;
+#ifdef CONFIG_KPDPWR_S2_DVDD_RESET
+#include <linux/qpnp/power-on.h>
+struct hrtimer clr_kpd_reset_timer;
+struct hrtimer enable_kpd_s2_timer;
+static int clear_kpdpwr_s2_rst_flag;
+#define KPDPWR_CLR_RESET_TIMER (150 * NSEC_PER_MSEC) 
+#endif 
 #endif
 #ifdef CONFIG_MFD_MAX8957
 static struct workqueue_struct *ki_queue;
@@ -515,6 +522,14 @@ static void power_key_clr_check_work_func(struct work_struct *dummy)
 			KEY_LOGI("[PWR] cancel power key check reset work successfully\n");
 		else
 			KEY_LOGI("[PWR] cancel power key check reset work unsuccessfully\n");
+#ifdef CONFIG_KPDPWR_S2_DVDD_RESET
+		clear_kpdpwr_s2_rst_flag = 0;
+		KEY_LOGD("%s: Disable kpdpwr s2 reset clear up [%d]\n", __func__, clear_kpdpwr_s2_rst_flag);
+		if (hrtimer_is_queued(&clr_kpd_reset_timer))
+			hrtimer_cancel(&clr_kpd_reset_timer);
+		if (hrtimer_is_queued(&enable_kpd_s2_timer))
+			hrtimer_cancel(&enable_kpd_s2_timer);
+#endif 
 #ifdef CONFIG_POWER_VOLUP_RESET
 	}
 #endif
@@ -539,11 +554,21 @@ static void handle_power_key_reset(unsigned int code, int value)
 						i, aa->keymap[i].gpio,
 						(read_val ? "NOT pressed" : "PRESSED" ));
 				if (read_val) {
+#ifdef CONFIG_KPDPWR_S2_DVDD_RESET
+					clear_kpdpwr_s2_rst_flag = 0;
+					KEY_LOGD("%s: Disable kpdpwr s2 reset clear up [%d]\n",
+								__func__, clear_kpdpwr_s2_rst_flag);
+#endif 
 					return;
 				} else {
 					KEY_LOGI("[PWR+VUP] start count for power key led on\n");
 					schedule_delayed_work(&power_key_led_on_work, PWRKEYLEDON_DELAY);
 					power_key_led_requested = 1;
+#ifdef CONFIG_KPDPWR_S2_DVDD_RESET
+					clear_kpdpwr_s2_rst_flag = 1;
+					KEY_LOGD("%s: Enable kpdpwr s2 reset clear up [%d]\n",
+								__func__, clear_kpdpwr_s2_rst_flag);
+#endif 
 					break;
 				}
 			}
@@ -569,6 +594,13 @@ KEY_PWR:
 	if (code == KEY_POWER) {
 #endif
 		if (value) {
+#ifdef CONFIG_KPDPWR_S2_DVDD_RESET
+			clear_kpdpwr_s2_rst_flag = 1;
+			KEY_LOGD("%s: Enable kpdpwr s2 reset clear up [%d]\n",
+						__func__, clear_kpdpwr_s2_rst_flag);
+			hrtimer_start(&clr_kpd_reset_timer,
+				ktime_set(0, KPDPWR_CLR_RESET_TIMER), HRTIMER_MODE_REL);
+#endif 
 #ifdef CONFIG_POWER_VOLUP_RESET
 			wake_lock_timeout(&key_reset_clr_wake_lock, msecs_to_jiffies(2000));
 			KEY_LOGI("[PWR] start count for power key check reset\n");
@@ -584,9 +616,47 @@ KEY_PWR:
 
 			if (!schedule_delayed_work(&power_key_clr_check_work, PWRKEYCLRCHK_DELAY))
 				KEY_LOGI("[PWR] the clear work in already in the queue\n");
+#ifdef CONFIG_KPDPWR_S2_DVDD_RESET
+			clear_kpdpwr_s2_rst_flag = 0;
+			KEY_LOGD("%s: Disable kpdpwr s2 reset clear up [%d]\n",
+						__func__, clear_kpdpwr_s2_rst_flag);
+			if (hrtimer_is_queued(&clr_kpd_reset_timer))
+				hrtimer_cancel(&clr_kpd_reset_timer);
+			if (hrtimer_is_queued(&enable_kpd_s2_timer))
+				hrtimer_cancel(&enable_kpd_s2_timer);
+#endif 
 		}
 	}
 }
+
+#ifdef CONFIG_KPDPWR_S2_DVDD_RESET
+static enum hrtimer_restart clr_kpd_rst_timer_func(struct hrtimer *timer)
+{
+	if (qpnp_get_reset_en(PON_KPDPWR) > 0) {
+		qpnp_config_reset_enable(PON_KPDPWR, 0);
+		qpnp_config_reset_enable(PON_KPDPWR, 1);
+		hrtimer_start(&enable_kpd_s2_timer, ktime_set(0, 0), HRTIMER_MODE_REL);
+	}
+
+	return HRTIMER_NORESTART;
+}
+
+static enum hrtimer_restart enable_kpd_s2_timer_func(struct hrtimer *timer)
+{
+	qpnp_config_reset_enable(PON_KPDPWR, 1);
+	if (clear_kpdpwr_s2_rst_flag) {
+		hrtimer_start(&clr_kpd_reset_timer,
+			ktime_set(0, KPDPWR_CLR_RESET_TIMER), HRTIMER_MODE_REL);
+	} else {
+	        if (hrtimer_is_queued(&clr_kpd_reset_timer))
+			hrtimer_cancel(&clr_kpd_reset_timer);
+		if (hrtimer_is_queued(&enable_kpd_s2_timer))
+			hrtimer_cancel(&enable_kpd_s2_timer);
+	}
+
+	return HRTIMER_NORESTART;
+}
+#endif 
 #endif 
 
 #ifndef CONFIG_MFD_MAX8957
@@ -1045,6 +1115,12 @@ int gpio_event_input_func(struct gpio_event_input_devs *input_devs,
 		ds->timer.function = gpio_event_input_timer_func;
 		hrtimer_start(&ds->timer, ktime_set(0, 0), HRTIMER_MODE_REL);
 #endif
+#if defined(CONFIG_KPDPWR_S2_DVDD_RESET) && defined(CONFIG_POWER_KEY_CLR_RESET)
+		hrtimer_init(&clr_kpd_reset_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+		clr_kpd_reset_timer.function = clr_kpd_rst_timer_func;
+		hrtimer_init(&enable_kpd_s2_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+		enable_kpd_s2_timer.function = enable_kpd_s2_timer_func;
+#endif 
 		spin_unlock_irqrestore(&ds->irq_lock, irqflags);
 		return 0;
 	}

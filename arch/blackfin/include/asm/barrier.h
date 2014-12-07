@@ -12,9 +12,13 @@
 
 #define nop()  __asm__ __volatile__ ("nop;\n\t" : : )
 
+/*
+ * Force strict CPU ordering.
+ */
 #ifdef CONFIG_SMP
 
 #ifdef __ARCH_SYNC_CORE_DCACHE
+/* Force Core data cache coherence */
 # define mb()	do { barrier(); smp_check_barrier(); smp_mark_barrier(); } while (0)
 # define rmb()	do { barrier(); smp_check_barrier(); } while (0)
 # define wmb()	do { barrier(); smp_mark_barrier(); } while (0)
@@ -26,14 +30,14 @@
 # define read_barrier_depends()	do { } while (0)
 #endif
 
-#else 
+#else /* !CONFIG_SMP */
 
 #define mb()	barrier()
 #define rmb()	barrier()
 #define wmb()	barrier()
 #define read_barrier_depends()	do { } while (0)
 
-#endif 
+#endif /* !CONFIG_SMP */
 
 #define smp_mb()  mb()
 #define smp_rmb() rmb()
@@ -41,4 +45,4 @@
 #define set_mb(var, value) do { var = value; mb(); } while (0)
 #define smp_read_barrier_depends()	read_barrier_depends()
 
-#endif 
+#endif /* _BLACKFIN_BARRIER_H */

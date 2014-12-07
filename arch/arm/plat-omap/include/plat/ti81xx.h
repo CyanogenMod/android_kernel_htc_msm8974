@@ -24,4 +24,4 @@
 
 #define TI81XX_ARM_INTC_BASE	0x48200000
 
-#endif 
+#endif /* __ASM_ARCH_TI81XX_H */

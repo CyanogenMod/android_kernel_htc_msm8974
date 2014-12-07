@@ -20,17 +20,20 @@
 #include <linux/types.h>
 #include <asm/amigahw.h>
 
+/* memory layout */
 
 #define GAYLE_RAM		(0x600000+zTwoBase)
 #define GAYLE_RAMSIZE		(0x400000)
 #define GAYLE_ATTRIBUTE		(0xa00000+zTwoBase)
 #define GAYLE_ATTRIBUTESIZE	(0x020000)
-#define GAYLE_IO		(0xa20000+zTwoBase)	
+#define GAYLE_IO		(0xa20000+zTwoBase)	/* 16bit and even 8bit registers */
 #define GAYLE_IOSIZE		(0x010000)
-#define GAYLE_IO_8BITODD	(0xa30000+zTwoBase)	
+#define GAYLE_IO_8BITODD	(0xa30000+zTwoBase)	/* odd 8bit registers */
 
+/* offset for accessing odd IO registers */
 #define GAYLE_ODD		(GAYLE_IO_8BITODD-GAYLE_IO-1)
 
+/* GAYLE registers */
 
 struct GAYLE {
 	u_char cardstatus;
@@ -46,9 +49,10 @@ struct GAYLE {
 	u_char pad3[0x1000-1];
 };
 
-#define GAYLE_ADDRESS	(0xda8000)	
+#define GAYLE_ADDRESS	(0xda8000)	/* gayle main registers base address */
 
-#define GAYLE_RESET	(0xa40000)	
+#define GAYLE_RESET	(0xa40000)	/* write 0x00 to start reset,
+                                           read 1 byte to stop reset */
 
 #define gayle (*(volatile struct GAYLE *)(zTwoBase+GAYLE_ADDRESS))
 #define gayle_reset (*(volatile u_char *)(zTwoBase+GAYLE_RESET))
@@ -63,16 +67,18 @@ struct GAYLE {
 #define gayle_outw(v,a) writew( v, GAYLE_IO+(a) )
 #endif
 
+/* GAYLE_CARDSTATUS bit def */
 
-#define GAYLE_CS_CCDET		0x40	
-#define GAYLE_CS_BVD1		0x20	
-#define GAYLE_CS_SC		0x20	
-#define GAYLE_CS_BVD2		0x10	
-#define GAYLE_CS_DA		0x10	
-#define GAYLE_CS_WR		0x08	
-#define GAYLE_CS_BSY		0x04	
-#define GAYLE_CS_IRQ		0x04	
+#define GAYLE_CS_CCDET		0x40	/* credit card detect */
+#define GAYLE_CS_BVD1		0x20	/* battery voltage detect 1 */
+#define GAYLE_CS_SC		0x20	/* credit card status change */
+#define GAYLE_CS_BVD2		0x10	/* battery voltage detect 2 */
+#define GAYLE_CS_DA		0x10	/* digital audio */
+#define GAYLE_CS_WR		0x08	/* write enable (1 == enabled) */
+#define GAYLE_CS_BSY		0x04	/* credit card busy */
+#define GAYLE_CS_IRQ		0x04	/* interrupt request */
 
+/* GAYLE_IRQ bit def */
 
 #define GAYLE_IRQ_IDE		0x80
 #define GAYLE_IRQ_CCDET		0x40
@@ -86,6 +92,8 @@ struct GAYLE {
 #define GAYLE_IRQ_IDEACK1	0x02
 #define GAYLE_IRQ_IDEACK0	0x01
 
+/* GAYLE_CONFIG bit def
+   (bit 0-1 for program voltage, bit 2-3 for access speed */
 
 #define GAYLE_CFG_0V		0x00
 #define GAYLE_CFG_5V		0x01
@@ -99,7 +107,7 @@ struct GAYLE {
 struct gayle_ide_platform_data {
 	unsigned long base;
 	unsigned long irqport;
-	int explicit_ack;	
+	int explicit_ack;	/* A1200 IDE needs explicit ack */
 };
 
-#endif 
+#endif /* asm-m68k/amigayle.h */

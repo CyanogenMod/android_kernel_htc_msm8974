@@ -118,9 +118,9 @@ static int msm_pcm_close(struct snd_pcm_substream *substream)
 	else if (substream->stream ==  SNDRV_PCM_STREAM_CAPTURE)
 		audio->capture_state = AUDIO_MVS_CLOSED;
 	if (!audio->instance) {
-		
+		/* Release MVS. */
 		release_msg.client_id = cpu_to_be32(MVS_CLIENT_ID_VOIP);
-		
+		/* Derigstering the callbacks with voice driver */
 		voice_register_mvs_cb(NULL, NULL, audio);
 	} else if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		voice_register_mvs_cb(audio_mvs_process_ul_pkt,
@@ -134,7 +134,7 @@ static int msm_pcm_close(struct snd_pcm_substream *substream)
 
 	wake_unlock(&audio->suspend_lock);
 	pm_qos_update_request(&audio->pm_qos_req, PM_QOS_DEFAULT_VALUE);
-	
+	/* Release the IO buffers. */
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		audio->in_write = 0;
 		audio->in_read = 0;
@@ -253,7 +253,7 @@ static int msm_pcm_capture_copy(struct snd_pcm_substream *substream,
 
 	pr_debug("%s\n", __func__);
 
-	
+	/* Ensure the driver has been enabled. */
 	if (audio->capture_state != AUDIO_MVS_ENABLED) {
 		pr_debug("%s:Read performed in invalid state %d\n",
 				__func__, audio->capture_state);
@@ -310,6 +310,7 @@ static int msm_pcm_copy(struct snd_pcm_substream *substream, int a,
 	return ret;
 }
 
+/* Capture path */
 static void audio_mvs_process_ul_pkt(uint8_t *voc_pkt,
 				uint32_t pkt_len,
 				void *private_data)
@@ -334,6 +335,7 @@ static void audio_mvs_process_ul_pkt(uint8_t *voc_pkt,
 	}
 }
 
+/* Playback path */
 static void audio_mvs_process_dl_pkt(uint8_t *voc_pkt,
 				uint32_t *pkt_len,
 				void *private_data)
@@ -403,7 +405,7 @@ enabled:
 		prtd->playback_state = AUDIO_MVS_ENABLED;
 		prtd->pcm_playback_irq_pos = 0;
 		prtd->pcm_playback_buf_pos = 0;
-		
+		/* rate and channels are sent to audio driver */
 	} else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
 		prtd->capture_state = AUDIO_MVS_ENABLED;
 		prtd->pcm_capture_size  = snd_pcm_lib_buffer_bytes(substream);

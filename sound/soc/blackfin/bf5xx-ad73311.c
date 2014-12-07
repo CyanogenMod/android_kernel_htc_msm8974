@@ -69,7 +69,7 @@ static int snd_ad73311_startup(void)
 {
 	pr_debug("%s enter\n", __func__);
 
-	
+	/* Pull up SE pin on AD73311L */
 	gpio_set_value(GPIO_SE, 1);
 	return 0;
 }
@@ -80,6 +80,10 @@ static int snd_ad73311_configure(void)
 	unsigned short status = 0;
 	int count = 0;
 
+	/* DMCLK = MCLK = 16.384 MHz
+	 * SCLK = DMCLK/8 = 2.048 MHz
+	 * Sample Rate = DMCLK/2048  = 8 KHz
+	 */
 	ctrl_regs[0] = AD_CONTROL | AD_WRITE | CTRL_REG_B | REGB_MCDIV(0) | \
 			REGB_SCDIV(0) | REGB_DIRATE(0);
 	ctrl_regs[1] = AD_CONTROL | AD_WRITE | CTRL_REG_C | REGC_PUDEV | \
@@ -98,13 +102,16 @@ static int snd_ad73311_configure(void)
 	bfin_write_SPORT_TCR2(0xF);
 	SSYNC();
 
+	/* SPORT Tx Register is a 8 x 16 FIFO, all the data can be put to
+	 * FIFO before enable SPORT to transfer the data
+	 */
 	for (count = 0; count < 6; count++)
 		bfin_write_SPORT_TX16(ctrl_regs[count]);
 	SSYNC();
 	bfin_write_SPORT_TCR1(bfin_read_SPORT_TCR1() | TSPEN);
 	SSYNC();
 
-	
+	/* When TUVF is set, the data is already send out */
 	while (!(status & TUVF) && ++count < 10000) {
 		udelay(1);
 		status = bfin_read_SPORT_STAT();
@@ -199,6 +206,7 @@ static void __exit bf5xx_ad73311_exit(void)
 module_init(bf5xx_ad73311_init);
 module_exit(bf5xx_ad73311_exit);
 
+/* Module information */
 MODULE_AUTHOR("Cliff Cai");
 MODULE_DESCRIPTION("ALSA SoC AD73311 Blackfin");
 MODULE_LICENSE("GPL");

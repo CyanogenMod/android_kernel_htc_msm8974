@@ -18,7 +18,7 @@
 
 static void ftrace_dump_buf(int skip_lines, long cpu_file)
 {
-	
+	/* use static because iter can be a bit big for the stack */
 	static struct trace_iterator iter;
 	unsigned int old_userobj;
 	int cnt = 0, cpu;
@@ -31,12 +31,12 @@ static void ftrace_dump_buf(int skip_lines, long cpu_file)
 
 	old_userobj = trace_flags;
 
-	
+	/* don't look at user memory in panic mode */
 	trace_flags &= ~TRACE_ITER_SYM_USEROBJ;
 
 	kdb_printf("Dumping ftrace buffer:\n");
 
-	
+	/* reset all but tr, trace, and overruns */
 	memset(&iter.seq, 0,
 		   sizeof(struct trace_iterator) -
 		   offsetof(struct trace_iterator, seq));
@@ -91,6 +91,9 @@ out:
 			ring_buffer_read_finish(iter.buffer_iter[cpu]);
 }
 
+/*
+ * kdb_ftdump - Dump the ftrace log buffer
+ */
 static int kdb_ftdump(int argc, const char **argv)
 {
 	int skip_lines = 0;

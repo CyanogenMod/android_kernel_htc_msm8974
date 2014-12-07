@@ -27,18 +27,24 @@
 #include <linux/slab.h>
 #include <linux/mfd/tps6507x.h>
 
+/* DCDC's */
 #define TPS6507X_DCDC_1				0
 #define TPS6507X_DCDC_2				1
 #define TPS6507X_DCDC_3				2
+/* LDOs */
 #define TPS6507X_LDO_1				3
 #define TPS6507X_LDO_2				4
 
 #define TPS6507X_MAX_REG_ID			TPS6507X_LDO_2
 
+/* Number of step-down converters available */
 #define TPS6507X_NUM_DCDC			3
+/* Number of LDO voltage regulators  available */
 #define TPS6507X_NUM_LDO			2
+/* Number of total regulators available */
 #define TPS6507X_NUM_REGULATOR		(TPS6507X_NUM_DCDC + TPS6507X_NUM_LDO)
 
+/* Supported voltage values for regulators (in milliVolts) */
 static const u16 VDCDCx_VSEL_table[] = {
 	725, 750, 775, 800,
 	825, 850, 875, 900,
@@ -91,7 +97,7 @@ struct tps_info {
 	u8 table_len;
 	const u16 *table;
 
-	
+	/* Does DCDC high or the low register defines output voltage? */
 	bool defdcdc_default;
 };
 
@@ -405,11 +411,19 @@ static __devinit int tps6507x_pmic_probe(struct platform_device *pdev)
 	int i;
 	int error;
 
+	/**
+	 * tps_board points to pmic related constants
+	 * coming from the board-evm file.
+	 */
 
 	tps_board = dev_get_platdata(tps6507x_dev->dev);
 	if (!tps_board)
 		return -EINVAL;
 
+	/**
+	 * init_data points to array of regulator_init structures
+	 * coming from the board-evm file.
+	 */
 	init_data = tps_board->tps6507x_pmic_init_data;
 	if (!init_data)
 		return -EINVAL;
@@ -420,11 +434,11 @@ static __devinit int tps6507x_pmic_probe(struct platform_device *pdev)
 
 	mutex_init(&tps->io_lock);
 
-	
+	/* common for all regulators */
 	tps->mfd = tps6507x_dev;
 
 	for (i = 0; i < TPS6507X_NUM_REGULATOR; i++, info++, init_data++) {
-		
+		/* Register the regulators */
 		tps->info[i] = info;
 		if (init_data->driver_data) {
 			struct tps6507x_reg_platform_data *data =
@@ -449,7 +463,7 @@ static __devinit int tps6507x_pmic_probe(struct platform_device *pdev)
 			goto fail;
 		}
 
-		
+		/* Save regulator for cleanup */
 		tps->rdev[i] = rdev;
 	}
 

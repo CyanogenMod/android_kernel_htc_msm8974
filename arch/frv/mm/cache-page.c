@@ -14,6 +14,11 @@
 #include <linux/module.h>
 #include <asm/pgalloc.h>
 
+/*****************************************************************************/
+/*
+ * DCF takes a virtual address and the page may not currently have one
+ * - temporarily hijack a kmap_atomic() slot and attach the page to it
+ */
 void flush_dcache_page(struct page *page)
 {
 	unsigned long dampr2;
@@ -32,10 +37,15 @@ void flush_dcache_page(struct page *page)
 		__set_IAMPR(2, dampr2);
 	}
 
-} 
+} /* end flush_dcache_page() */
 
 EXPORT_SYMBOL(flush_dcache_page);
 
+/*****************************************************************************/
+/*
+ * ICI takes a virtual address and the page may not currently have one
+ * - so we temporarily attach the page to a bit of virtual space so that is can be flushed
+ */
 void flush_icache_user_range(struct vm_area_struct *vma, struct page *page,
 			     unsigned long start, unsigned long len)
 {
@@ -56,6 +66,6 @@ void flush_icache_user_range(struct vm_area_struct *vma, struct page *page,
 		__set_IAMPR(2, dampr2);
 	}
 
-} 
+} /* end flush_icache_user_range() */
 
 EXPORT_SYMBOL(flush_icache_user_range);

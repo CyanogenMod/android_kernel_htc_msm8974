@@ -23,6 +23,9 @@
 #include <linux/string.h>
 #include "sysv.h"
 
+/* We don't trust the value of
+   sb->sv_sbd2->s_tfree = *sb->sv_free_blocks
+   but we nevertheless keep it up to date. */
 
 static inline sysv_zone_t *get_chunk(struct super_block *sb, struct buffer_head *bh)
 {
@@ -34,6 +37,7 @@ static inline sysv_zone_t *get_chunk(struct super_block *sb, struct buffer_head 
 		return (sysv_zone_t*)(bh_data+2);
 }
 
+/* NOTE NOTE NOTE: nr is a block number _as_ _stored_ _on_ _disk_ */
 
 void sysv_free_block(struct super_block * sb, sysv_zone_t nr)
 {
@@ -43,6 +47,11 @@ void sysv_free_block(struct super_block * sb, sysv_zone_t nr)
 	unsigned count;
 	unsigned block = fs32_to_cpu(sbi, nr);
 
+	/*
+	 * This code does not work at all for AFS (it has a bitmap
+	 * free list).  As AFS is supposed to be read-only no one
+	 * should call this for an AFS filesystem anyway...
+	 */
 	if (sbi->s_type == FSTYPE_AFS)
 		return;
 
@@ -59,6 +68,10 @@ void sysv_free_block(struct super_block * sb, sysv_zone_t nr)
 		unlock_super(sb);
 		return;
 	}
+	/* If the free list head in super-block is full, it is copied
+	 * into this block being freed, ditto if it's completely empty
+	 * (applies only on Coherent).
+	 */
 	if (count == sbi->s_flc_size || count == 0) {
 		block += sbi->s_block_base;
 		bh = sb_getblk(sb, block);
@@ -94,10 +107,10 @@ sysv_zone_t sysv_new_block(struct super_block * sb)
 	lock_super(sb);
 	count = fs16_to_cpu(sbi, *sbi->s_bcache_count);
 
-	if (count == 0) 
+	if (count == 0) /* Applies only to Coherent FS */
 		goto Enospc;
 	nr = sbi->s_bcache[--count];
-	if (nr == 0)  
+	if (nr == 0)  /* Applies only to Xenix FS, SystemV FS */
 		goto Enospc;
 
 	block = fs32_to_cpu(sbi, nr);
@@ -110,13 +123,13 @@ sysv_zone_t sysv_new_block(struct super_block * sb)
 		goto Enospc;
 	}
 
-	if (count == 0) { 
+	if (count == 0) { /* the last block continues the free list */
 		unsigned count;
 
 		block += sbi->s_block_base;
 		if (!(bh = sb_bread(sb, block))) {
 			printk("sysv_new_block: cannot read free-list block\n");
-			
+			/* retry this same block next time */
 			*sbi->s_bcache_count = cpu_to_fs16(sbi, 1);
 			goto Enospc;
 		}
@@ -131,7 +144,7 @@ sysv_zone_t sysv_new_block(struct super_block * sb)
 				count * sizeof(sysv_zone_t));
 		brelse(bh);
 	}
-	
+	/* Now the free list head in the superblock is valid again. */
 	fs32_add(sbi, sbi->s_free_blocks, -1);
 	dirty_sb(sb);
 	unlock_super(sb);
@@ -152,6 +165,11 @@ unsigned long sysv_count_free_blocks(struct super_block * sb)
 	unsigned block;
 	int n;
 
+	/*
+	 * This code does not work at all for AFS (it has a bitmap
+	 * free list).  As AFS is supposed to be read-only we just
+	 * lie and say it has no free block at all.
+	 */
 	if (sbi->s_type == FSTYPE_AFS)
 		return 0;
 
@@ -161,7 +179,7 @@ unsigned long sysv_count_free_blocks(struct super_block * sb)
 	if (0)
 		goto trust_sb;
 
-	
+	/* this causes a lot of disk traffic ... */
 	count = 0;
 	n = fs16_to_cpu(sbi, *sbi->s_bcache_count);
 	blocks = sbi->s_bcache;

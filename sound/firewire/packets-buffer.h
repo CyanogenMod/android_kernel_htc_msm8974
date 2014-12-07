@@ -4,6 +4,11 @@
 #include <linux/dma-mapping.h>
 #include <linux/firewire.h>
 
+/**
+ * struct iso_packets_buffer - manages a buffer for many packets
+ * @iso_buffer: the memory containing the packets
+ * @packets: an array, with each element pointing to one packet
+ */
 struct iso_packets_buffer {
 	struct fw_iso_buffer iso_buffer;
 	struct {

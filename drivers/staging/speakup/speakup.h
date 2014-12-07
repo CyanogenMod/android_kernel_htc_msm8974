@@ -9,6 +9,7 @@
 #define SHIFT_TBL_SIZE 64
 #define MAX_DESC_LEN 72
 
+/* proc permissions */
 #define USER_R (S_IFREG|S_IRUGO)
 #define USER_W (S_IFREG|S_IWUGO)
 #define USER_RW (S_IFREG|S_IRUGO|S_IWUGO)
@@ -89,13 +90,14 @@ extern void synth_write(const char *buf, size_t count);
 extern int synth_supports_indexing(void);
 
 extern struct vc_data *spk_sel_cons;
-extern unsigned short xs, ys, xe, ye; 
+extern unsigned short xs, ys, xe, ye; /* our region points */
 
 extern wait_queue_head_t speakup_event;
 extern struct kobject *speakup_kobj;
 extern struct task_struct *speakup_task;
 extern const u_char key_defaults[];
 
+/* Protect speakup synthesizer list */
 extern struct mutex spk_mutex;
 extern struct st_spk_t *speakup_console[];
 extern struct spk_synth *synth;
@@ -118,6 +120,7 @@ extern bool quiet_boot;
 extern char *synth_name;
 extern struct bleep unprocessed_sound;
 
+/* Prototypes from fakekey.c. */
 int speakup_add_virtual_keyboard(void);
 void speakup_remove_virtual_keyboard(void);
 void speakup_fake_down_arrow(void);

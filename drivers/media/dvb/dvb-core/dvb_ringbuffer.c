@@ -306,14 +306,14 @@ void dvb_ringbuffer_pkt_dispose(struct dvb_ringbuffer *rbuf, size_t idx)
 
 	rbuf->data[(idx + 2) % rbuf->size] = PKT_DISPOSED;
 
-	
+	// clean up disposed packets
 	while(dvb_ringbuffer_avail(rbuf) > DVB_RINGBUFFER_PKTHDRSIZE) {
 		if (DVB_RINGBUFFER_PEEK(rbuf, 2) == PKT_DISPOSED) {
 			pktlen = DVB_RINGBUFFER_PEEK(rbuf, 0) << 8;
 			pktlen |= DVB_RINGBUFFER_PEEK(rbuf, 1);
 			DVB_RINGBUFFER_SKIP(rbuf, pktlen + DVB_RINGBUFFER_PKTHDRSIZE);
 		} else {
-			
+			// first packet is not disposed, so we stop cleaning now
 			break;
 		}
 	}
@@ -357,7 +357,7 @@ ssize_t dvb_ringbuffer_pkt_next(struct dvb_ringbuffer *rbuf, size_t idx, size_t*
 		idx = (idx + curpktlen + DVB_RINGBUFFER_PKTHDRSIZE) % rbuf->size;
 	}
 
-	
+	// no packets available
 	return -1;
 }
 EXPORT_SYMBOL(dvb_ringbuffer_pkt_next);

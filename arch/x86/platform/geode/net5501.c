@@ -85,7 +85,7 @@ static struct __initdata platform_device *net5501_devs[] = {
 
 static void __init register_net5501(void)
 {
-	
+	/* Setup LED control through leds-gpio driver */
 	platform_add_devices(net5501_devs, ARRAY_SIZE(net5501_devs));
 }
 
@@ -96,8 +96,8 @@ struct net5501_board {
 };
 
 static struct net5501_board __initdata boards[] = {
-	{ 0xb7b, 7, "net5501" },	
-	{ 0xb1f, 7, "net5501" },	
+	{ 0xb7b, 7, "net5501" },	/* net5501 v1.33/1.33c */
+	{ 0xb1f, 7, "net5501" },	/* net5501 v1.32i */
 };
 
 static bool __init net5501_present(void)
@@ -112,7 +112,7 @@ static bool __init net5501_present(void)
 		return found;
 	}
 
-	bios = rombase + 0x20;	
+	bios = rombase + 0x20;	/* null terminated */
 
 	if (memcmp(bios, "comBIOS", 7))
 		goto unmap;

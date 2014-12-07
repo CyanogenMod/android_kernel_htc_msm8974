@@ -17,6 +17,7 @@ enum {
 	XT_RECENT_NAME_LEN = 200,
 };
 
+/* Only allowed with --rcheck and --update */
 #define XT_RECENT_MODIFIERS (XT_RECENT_TTL|XT_RECENT_REAP)
 
 #define XT_RECENT_VALID_FLAGS (XT_RECENT_CHECK|XT_RECENT_SET|XT_RECENT_UPDATE|\
@@ -31,4 +32,4 @@ struct xt_recent_mtinfo {
 	__u8 side;
 };
 
-#endif 
+#endif /* _LINUX_NETFILTER_XT_RECENT_H */

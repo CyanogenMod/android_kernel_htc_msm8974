@@ -13,6 +13,7 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Zogis Real Audio 220 - 32 keys IR */
 
 static struct rc_map_table real_audio_220_32_keys[] = {
 	{ 0x1c, KEY_RADIO},
@@ -35,20 +36,20 @@ static struct rc_map_table real_audio_220_32_keys[] = {
 	{ 0x15, KEY_CHANNELDOWN},
 	{ 0x16, KEY_ENTER},
 
-	{ 0x11, KEY_VIDEO},		
-	{ 0x0d, KEY_AUDIO},		
+	{ 0x11, KEY_VIDEO},		/* Source */
+	{ 0x0d, KEY_AUDIO},		/* stereo */
 
-	{ 0x0f, KEY_PREVIOUS},		
-	{ 0x1b, KEY_TIME},		
-	{ 0x1a, KEY_NEXT},		
+	{ 0x0f, KEY_PREVIOUS},		/* Prev */
+	{ 0x1b, KEY_TIME},		/* Timeshift */
+	{ 0x1a, KEY_NEXT},		/* Next */
 
 	{ 0x0e, KEY_STOP},
 	{ 0x1f, KEY_PLAY},
-	{ 0x1e, KEY_PLAYPAUSE},		
+	{ 0x1e, KEY_PLAYPAUSE},		/* Pause */
 
 	{ 0x1d, KEY_RECORD},
 	{ 0x13, KEY_MUTE},
-	{ 0x19, KEY_CAMERA},		
+	{ 0x19, KEY_CAMERA},		/* Snapshot */
 
 };
 
@@ -56,7 +57,7 @@ static struct rc_map_list real_audio_220_32_keys_map = {
 	.map = {
 		.scan    = real_audio_220_32_keys,
 		.size    = ARRAY_SIZE(real_audio_220_32_keys),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_REAL_AUDIO_220_32_KEYS,
 	}
 };

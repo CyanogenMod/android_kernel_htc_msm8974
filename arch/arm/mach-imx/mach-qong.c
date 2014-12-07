@@ -34,6 +34,7 @@
 
 #include "devices-imx31.h"
 
+/* FPGA defines */
 #define QONG_FPGA_VERSION(major, minor, rev)	\
 	(((major & 0xF) << 12) | ((minor & 0xF) << 8) | (rev & 0xFF))
 
@@ -42,6 +43,7 @@
 
 #define QONG_FPGA_CTRL_BASEADDR		QONG_FPGA_BASEADDR
 #define QONG_FPGA_CTRL_SIZE		0x10
+/* FPGA control registers */
 #define QONG_FPGA_CTRL_VERSION		0x00
 
 #define QONG_DNET_ID		1
@@ -97,6 +99,7 @@ static int __init qong_init_dnet(void)
 	return ret;
 }
 
+/* MTD NOR flash */
 
 static struct physmap_flash_data qong_flash_data = {
 	.width = 2,
@@ -123,6 +126,9 @@ static void qong_init_nor_mtd(void)
 	(void)platform_device_register(&qong_nor_mtd_device);
 }
 
+/*
+ * Hardware specific access to control-lines
+ */
 static void qong_nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
 {
 	struct nand_chip *nand_chip = mtd->priv;
@@ -136,6 +142,9 @@ static void qong_nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
 		writeb(cmd, nand_chip->IO_ADDR_W + (1 << 23));
 }
 
+/*
+ * Read the Device Ready pin.
+ */
 static int qong_nand_device_ready(struct mtd_info *mtd)
 {
 	return gpio_get_value(IOMUX_TO_GPIO(MX31_PIN_NFRB));
@@ -180,24 +189,24 @@ static struct platform_device qong_nand_device = {
 
 static void __init qong_init_nand_mtd(void)
 {
-	
+	/* init CS */
 	__raw_writel(0x00004f00, MX31_IO_ADDRESS(MX31_WEIM_CSCRxU(3)));
 	__raw_writel(0x20013b31, MX31_IO_ADDRESS(MX31_WEIM_CSCRxL(3)));
 	__raw_writel(0x00020800, MX31_IO_ADDRESS(MX31_WEIM_CSCRxA(3)));
 
 	mxc_iomux_set_gpr(MUX_SDCTL_CSD1_SEL, true);
 
-	
+	/* enable pin */
 	mxc_iomux_mode(IOMUX_MODE(MX31_PIN_NFCE_B, IOMUX_CONFIG_GPIO));
 	if (!gpio_request(IOMUX_TO_GPIO(MX31_PIN_NFCE_B), "nand_enable"))
 		gpio_direction_output(IOMUX_TO_GPIO(MX31_PIN_NFCE_B), 0);
 
-	
+	/* ready/busy pin */
 	mxc_iomux_mode(IOMUX_MODE(MX31_PIN_NFRB, IOMUX_CONFIG_GPIO));
 	if (!gpio_request(IOMUX_TO_GPIO(MX31_PIN_NFRB), "nand_rdy"))
 		gpio_direction_input(IOMUX_TO_GPIO(MX31_PIN_NFRB));
 
-	
+	/* write protect pin */
 	mxc_iomux_mode(IOMUX_MODE(MX31_PIN_NFWP_B, IOMUX_CONFIG_GPIO));
 	if (!gpio_request(IOMUX_TO_GPIO(MX31_PIN_NFWP_B), "nand_wp"))
 		gpio_direction_input(IOMUX_TO_GPIO(MX31_PIN_NFWP_B));
@@ -228,11 +237,14 @@ static void __init qong_init_fpga(void)
 		return;
 	}
 
-	
+	/* register FPGA-based devices */
 	qong_init_nand_mtd();
 	qong_init_dnet();
 }
 
+/*
+ * Board specific initialization.
+ */
 static void __init qong_init(void)
 {
 	imx31_soc_init();
@@ -253,7 +265,7 @@ static struct sys_timer qong_timer = {
 };
 
 MACHINE_START(QONG, "Dave/DENX QongEVB-LITE")
-	
+	/* Maintainer: DENX Software Engineering GmbH */
 	.atag_offset = 0x100,
 	.map_io = mx31_map_io,
 	.init_early = imx31_init_early,

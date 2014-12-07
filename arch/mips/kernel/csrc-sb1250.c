@@ -27,8 +27,12 @@
 #include <asm/sibyte/sb1250_scd.h>
 
 #define SB1250_HPT_NUM		3
-#define SB1250_HPT_VALUE	M_SCD_TIMER_CNT 
+#define SB1250_HPT_VALUE	M_SCD_TIMER_CNT /* max value */
 
+/*
+ * The HPT is free running from SB1250_HPT_VALUE down to 0 then starts over
+ * again.
+ */
 static cycle_t sb1250_hpt_read(struct clocksource *cs)
 {
 	unsigned int count;
@@ -50,7 +54,7 @@ void __init sb1250_clocksource_init(void)
 {
 	struct clocksource *cs = &bcm1250_clocksource;
 
-	
+	/* Setup hpt using timer #3 but do not enable irq for it */
 	__raw_writeq(0,
 		     IOADDR(A_SCD_TIMER_REGISTER(SB1250_HPT_NUM,
 						 R_SCD_TIMER_CFG)));

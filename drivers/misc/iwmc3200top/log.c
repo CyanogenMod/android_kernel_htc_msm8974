@@ -32,8 +32,10 @@
 #include "iwmc3200top.h"
 #include "log.h"
 
+/* Maximal hexadecimal string size of the FW memdump message */
 #define LOG_MSG_SIZE_MAX		12400
 
+/* iwmct_logdefs is a global used by log macros */
 u8 iwmct_logdefs[LOG_SRC_MAX];
 static u8 iwmct_fw_logdefs[FW_LOG_SRC_MAX];
 
@@ -86,6 +88,9 @@ static int log_msg_format_hex(char *str, int slen, u8 *ibuf,
 	return 0;
 }
 
+/*	NOTE: This function is not thread safe.
+	Currently it's called only from sdio rx worker - no race there
+*/
 void iwmct_log_top_message(struct iwmct_priv *priv, u8 *buf, int len)
 {
 	struct top_msg *msg;
@@ -165,7 +170,7 @@ int log_get_fw_filter_str(char *buf, int size)
 }
 
 #define HEXADECIMAL_RADIX	16
-#define LOG_SRC_FORMAT		7 
+#define LOG_SRC_FORMAT		7 /* log level is in format of "0xXXXX," */
 
 ssize_t show_iwmct_log_level(struct device *d,
 				struct device_attribute *attr, char *buf)
@@ -314,8 +319,8 @@ ssize_t store_iwmct_log_level_fw(struct device *d,
 			goto exit;
 		}
 
-		mask  = val & 0xFF; 
-		src = (val & 0XFF00) >> 8; 
+		mask  = val & 0xFF; /* LSB */
+		src = (val & 0XFF00) >> 8; /* 2nd least significant byte. */
 		iwmct_log_set_fw_filter(src, mask);
 
 		cmd.u.logdefs[i].logsource = src;

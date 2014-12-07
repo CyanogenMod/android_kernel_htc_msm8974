@@ -17,8 +17,12 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#define V4L2_PIX_FMT_MPEG4     v4l2_fourcc('M', 'P', 'G', '4') 
+/* DEPRECATED -- use V4L2_PIX_FMT_MPEG and then call GO7007IOC_S_MPEG_PARAMS
+ * to select between MPEG1, MPEG2, and MPEG4 */
+#define V4L2_PIX_FMT_MPEG4     v4l2_fourcc('M', 'P', 'G', '4') /* MPEG4 */
 
+/* These will be replaced with a better interface
+ * soon, so don't get too attached to them */
 #define	GO7007IOC_S_BITRATE	_IOW('V', BASE_VIDIOC_PRIVATE + 0, int)
 #define	GO7007IOC_G_BITRATE	_IOR('V', BASE_VIDIOC_PRIVATE + 1, int)
 
@@ -30,6 +34,7 @@ enum go7007_aspect_ratio {
 	GO7007_ASPECT_RATIO_16_9_PAL = 4,
 };
 
+/* Used to set generic compression parameters */
 struct go7007_comp_params {
 	__u32 gop_size;
 	__u32 max_b_frames;
@@ -47,6 +52,7 @@ enum go7007_mpeg_video_standard {
 	GO7007_MPEG_VIDEO_MPEG4 = 2,
 };
 
+/* Used to set parameters for V4L2_PIX_FMT_MPEG format */
 struct go7007_mpeg_params {
 	enum go7007_mpeg_video_standard mpeg_video_standard;
 	__u32 flags;

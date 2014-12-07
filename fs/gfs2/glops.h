@@ -25,4 +25,4 @@ extern const struct gfs2_glock_operations *gfs2_glops_list[];
 
 extern void gfs2_ail_flush(struct gfs2_glock *gl, bool fsync);
 
-#endif 
+#endif /* __GLOPS_DOT_H__ */

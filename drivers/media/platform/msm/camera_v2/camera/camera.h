@@ -20,4 +20,4 @@ enum stream_state {
 
 int camera_init_v4l2(struct device *dev, unsigned int *session);
 
-#endif 
+#endif /*_CAMERA_H */

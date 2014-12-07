@@ -30,24 +30,38 @@
 #ifndef _VXFS_FSHEAD_H_
 #define _VXFS_FSHEAD_H_
 
+/*
+ * Veritas filesystem driver - fileset header structures.
+ *
+ * This file contains the physical structure of the VxFS
+ * fileset header.
+ */
 
 
+/*
+ * Fileset header 
+ */
 struct vxfs_fsh {
-	u_int32_t	fsh_version;		
-	u_int32_t	fsh_fsindex;		
-	u_int32_t	fsh_time;		
-	u_int32_t	fsh_utime;		
-	u_int32_t	fsh_extop;		
-	vx_ino_t	fsh_ninodes;		
-	u_int32_t	fsh_nau;		
-	u_int32_t	fsh_old_ilesize;	
-	u_int32_t	fsh_dflags;		
-	u_int32_t	fsh_quota;		
-	vx_ino_t	fsh_maxinode;		
-	vx_ino_t	fsh_iauino;		
-	vx_ino_t	fsh_ilistino[2];	
-	vx_ino_t	fsh_lctino;		
+	u_int32_t	fsh_version;		/* fileset header version */
+	u_int32_t	fsh_fsindex;		/* fileset index */
+	u_int32_t	fsh_time;		/* modification time - sec */
+	u_int32_t	fsh_utime;		/* modification time - usec */
+	u_int32_t	fsh_extop;		/* extop flags */
+	vx_ino_t	fsh_ninodes;		/* allocated inodes */
+	u_int32_t	fsh_nau;		/* number of IAUs */
+	u_int32_t	fsh_old_ilesize;	/* old size of ilist */
+	u_int32_t	fsh_dflags;		/* flags */
+	u_int32_t	fsh_quota;		/* quota limit */
+	vx_ino_t	fsh_maxinode;		/* maximum inode number */
+	vx_ino_t	fsh_iauino;		/* IAU inode */
+	vx_ino_t	fsh_ilistino[2];	/* ilist inodes */
+	vx_ino_t	fsh_lctino;		/* link count table inode */
 
+	/*
+	 * Slightly more fields follow, but they
+	 *  a) are not of any interest for us, and
+	 *  b) differ a lot in different vxfs versions/ports
+	 */
 };
 
-#endif 
+#endif /* _VXFS_FSHEAD_H_ */

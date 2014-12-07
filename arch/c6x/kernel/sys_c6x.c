@@ -37,6 +37,7 @@ _bad_access:
 EXPORT_SYMBOL(_access_ok);
 #endif
 
+/* sys_cache_sync -- sync caches over given range */
 asmlinkage int sys_cache_sync(unsigned long s, unsigned long e)
 {
 	L1D_cache_block_writeback_invalidate(s, e);
@@ -45,9 +46,13 @@ asmlinkage int sys_cache_sync(unsigned long s, unsigned long e)
 	return 0;
 }
 
+/* Provide the actual syscall number to call mapping. */
 #undef __SYSCALL
 #define __SYSCALL(nr, call) [nr] = (call),
 
+/*
+ * Use trampolines
+ */
 #define sys_pread64		sys_pread_c6x
 #define sys_pwrite64		sys_pwrite_c6x
 #define sys_truncate64		sys_truncate64_c6x
@@ -56,8 +61,13 @@ asmlinkage int sys_cache_sync(unsigned long s, unsigned long e)
 #define sys_fadvise64_64	sys_fadvise64_64_c6x
 #define sys_fallocate		sys_fallocate_c6x
 
+/* Use sys_mmap_pgoff directly */
 #define sys_mmap2 sys_mmap_pgoff
 
+/*
+ * Note that we can't include <linux/unistd.h> here since the header
+ * guard will defeat us; <asm/unistd.h> checks for __SYSCALL as well.
+ */
 void *sys_call_table[__NR_syscalls] = {
 	[0 ... __NR_syscalls-1] = sys_ni_syscall,
 #include <asm/unistd.h>

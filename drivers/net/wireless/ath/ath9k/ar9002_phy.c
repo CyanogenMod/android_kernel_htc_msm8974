@@ -14,10 +14,55 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * DOC: Programming Atheros 802.11n analog front end radios
+ *
+ * AR5416 MAC based PCI devices and AR518 MAC based PCI-Express
+ * devices have either an external AR2133 analog front end radio for single
+ * band 2.4 GHz communication or an AR5133 analog front end radio for dual
+ * band 2.4 GHz / 5 GHz communication.
+ *
+ * All devices after the AR5416 and AR5418 family starting with the AR9280
+ * have their analog front radios, MAC/BB and host PCIe/USB interface embedded
+ * into a single-chip and require less programming.
+ *
+ * The following single-chips exist with a respective embedded radio:
+ *
+ * AR9280 - 11n dual-band 2x2 MIMO for PCIe
+ * AR9281 - 11n single-band 1x2 MIMO for PCIe
+ * AR9285 - 11n single-band 1x1 for PCIe
+ * AR9287 - 11n single-band 2x2 MIMO for PCIe
+ *
+ * AR9220 - 11n dual-band 2x2 MIMO for PCI
+ * AR9223 - 11n single-band 2x2 MIMO for PCI
+ *
+ * AR9287 - 11n single-band 1x1 MIMO for USB
+ */
 
 #include "hw.h"
 #include "ar9002_phy.h"
 
+/**
+ * ar9002_hw_set_channel - set channel on single-chip device
+ * @ah: atheros hardware structure
+ * @chan:
+ *
+ * This is the function to change channel on single-chip devices, that is
+ * all devices after ar9280.
+ *
+ * This function takes the channel value in MHz and sets
+ * hardware channel value. Assumes writes have been enabled to analog bus.
+ *
+ * Actual Expression,
+ *
+ * For 2GHz channel,
+ * Channel Frequency = (3/4) * freq_ref * (chansel[8:0] + chanfrac[16:0]/2^17)
+ * (freq_ref = 40MHz)
+ *
+ * For 5GHz channel,
+ * Channel Frequency = (3/2) * freq_ref * (chansel[8:0] + chanfrac[16:0]/2^10)
+ * (freq_ref = 40MHz/(24>>amodeRefSel))
+ */
 static int ar9002_hw_set_channel(struct ath_hw *ah, struct ath9k_channel *chan)
 {
 	u16 bMode, fracMode, aModeRefSel = 0;
@@ -31,7 +76,7 @@ static int ar9002_hw_set_channel(struct ath_hw *ah, struct ath9k_channel *chan)
 	reg32 = REG_READ(ah, AR_PHY_SYNTH_CONTROL);
 	reg32 &= 0xc0000000;
 
-	if (freq < 4800) { 
+	if (freq < 4800) { /* 2 GHz, fractional mode */
 		u32 txctl;
 		int regWrites = 0;
 
@@ -42,7 +87,7 @@ static int ar9002_hw_set_channel(struct ath_hw *ah, struct ath9k_channel *chan)
 
 		if (AR_SREV_9287_11_OR_LATER(ah)) {
 			if (freq == 2484) {
-				
+				/* Enable channel spreading for channel 14 */
 				REG_WRITE_ARRAY(&ah->iniCckfirJapan2484,
 						1, regWrites);
 			} else {
@@ -52,7 +97,7 @@ static int ar9002_hw_set_channel(struct ath_hw *ah, struct ath9k_channel *chan)
 		} else {
 			txctl = REG_READ(ah, AR_PHY_CCK_TX_CTRL);
 			if (freq == 2484) {
-				
+				/* Enable channel spreading for channel 14 */
 				REG_WRITE(ah, AR_PHY_CCK_TX_CTRL,
 					  txctl | AR_PHY_CCK_TX_CTRL_JAPAN);
 			} else {
@@ -77,11 +122,15 @@ static int ar9002_hw_set_channel(struct ath_hw *ah, struct ath9k_channel *chan)
 		case 1:
 		default:
 			aModeRefSel = 0;
+			/*
+			 * Enable 2G (fractional) mode for channels
+			 * which are 5MHz spaced.
+			 */
 			fracMode = 1;
 			refDivA = 1;
 			channelSel = CHANSEL_5G(freq);
 
-			
+			/* RefDivA setting */
 			ath9k_hw_analog_shift_rmw(ah, AR_AN_SYNTH9,
 				      AR_AN_SYNTH9_REFDIVA,
 				      AR_AN_SYNTH9_REFDIVA_S, refDivA);
@@ -108,6 +157,14 @@ static int ar9002_hw_set_channel(struct ath_hw *ah, struct ath9k_channel *chan)
 	return 0;
 }
 
+/**
+ * ar9002_hw_spur_mitigate - convert baseband spur frequency
+ * @ah: atheros hardware structure
+ * @chan:
+ *
+ * For single-chip solutions. Converts to baseband spur frequency given the
+ * input channel frequency and compute register settings below.
+ */
 static void ar9002_hw_spur_mitigate(struct ath_hw *ah,
 				    struct ath9k_channel *chan)
 {
@@ -260,7 +317,7 @@ static void ar9002_hw_spur_mitigate(struct ath_hw *ah,
 	for (i = 0; i < 123; i++) {
 		if ((cur_vit_mask > lower) && (cur_vit_mask < upper)) {
 
-			
+			/* workaround for gcc bug #37014 */
 			volatile int tmp_v = abs(cur_vit_mask - bin);
 
 			if (tmp_v < 75)

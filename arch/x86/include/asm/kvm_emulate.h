@@ -22,52 +22,132 @@ struct x86_exception {
 	bool error_code_valid;
 	u16 error_code;
 	bool nested_page_fault;
-	u64 address; 
+	u64 address; /* cr2 or nested page fault gpa */
 };
 
+/*
+ * This struct is used to carry enough information from the instruction
+ * decoder to main KVM so that a decision can be made whether the
+ * instruction needs to be intercepted or not.
+ */
 struct x86_instruction_info {
-	u8  intercept;          
-	u8  rep_prefix;         
-	u8  modrm_mod;		
-	u8  modrm_reg;          
-	u8  modrm_rm;		
-	u64 src_val;            
-	u8  src_bytes;          
-	u8  dst_bytes;          
-	u8  ad_bytes;           
-	u64 next_rip;           
+	u8  intercept;          /* which intercept                      */
+	u8  rep_prefix;         /* rep prefix?                          */
+	u8  modrm_mod;		/* mod part of modrm			*/
+	u8  modrm_reg;          /* index of register used               */
+	u8  modrm_rm;		/* rm part of modrm			*/
+	u64 src_val;            /* value of source operand              */
+	u8  src_bytes;          /* size of source operand               */
+	u8  dst_bytes;          /* size of destination operand          */
+	u8  ad_bytes;           /* size of src/dst address              */
+	u64 next_rip;           /* rip following the instruction        */
 };
 
+/*
+ * x86_emulate_ops:
+ *
+ * These operations represent the instruction emulator's interface to memory.
+ * There are two categories of operation: those that act on ordinary memory
+ * regions (*_std), and those that act on memory regions known to require
+ * special treatment or emulation (*_emulated).
+ *
+ * The emulator assumes that an instruction accesses only one 'emulated memory'
+ * location, that this location is the given linear faulting address (cr2), and
+ * that this is one of the instruction's data operands. Instruction fetches and
+ * stack operations are assumed never to access emulated memory. The emulator
+ * automatically deduces which operand of a string-move operation is accessing
+ * emulated memory, and assumes that the other operand accesses normal memory.
+ *
+ * NOTES:
+ *  1. The emulator isn't very smart about emulated vs. standard memory.
+ *     'Emulated memory' access addresses should be checked for sanity.
+ *     'Normal memory' accesses may fault, and the caller must arrange to
+ *     detect and handle reentrancy into the emulator via recursive faults.
+ *     Accesses may be unaligned and may cross page boundaries.
+ *  2. If the access fails (cannot emulate, or a standard access faults) then
+ *     it is up to the memop to propagate the fault to the guest VM via
+ *     some out-of-band mechanism, unknown to the emulator. The memop signals
+ *     failure by returning X86EMUL_PROPAGATE_FAULT to the emulator, which will
+ *     then immediately bail.
+ *  3. Valid access sizes are 1, 2, 4 and 8 bytes. On x86/32 systems only
+ *     cmpxchg8b_emulated need support 8-byte accesses.
+ *  4. The emulator cannot handle 64-bit mode emulation on an x86/32 system.
+ */
+/* Access completed successfully: continue emulation as normal. */
 #define X86EMUL_CONTINUE        0
+/* Access is unhandleable: bail from emulation and return error to caller. */
 #define X86EMUL_UNHANDLEABLE    1
-#define X86EMUL_PROPAGATE_FAULT 2 
-#define X86EMUL_RETRY_INSTR     3 
-#define X86EMUL_CMPXCHG_FAILED  4 
-#define X86EMUL_IO_NEEDED       5 
-#define X86EMUL_INTERCEPTED     6 
+/* Terminate emulation but return success to the caller. */
+#define X86EMUL_PROPAGATE_FAULT 2 /* propagate a generated fault to guest */
+#define X86EMUL_RETRY_INSTR     3 /* retry the instruction for some reason */
+#define X86EMUL_CMPXCHG_FAILED  4 /* cmpxchg did not see expected value */
+#define X86EMUL_IO_NEEDED       5 /* IO is needed to complete emulation */
+#define X86EMUL_INTERCEPTED     6 /* Intercepted by nested VMCB/VMCS */
 
 struct x86_emulate_ops {
+	/*
+	 * read_std: Read bytes of standard (non-emulated/special) memory.
+	 *           Used for descriptor reading.
+	 *  @addr:  [IN ] Linear address from which to read.
+	 *  @val:   [OUT] Value read from memory, zero-extended to 'u_long'.
+	 *  @bytes: [IN ] Number of bytes to read from memory.
+	 */
 	int (*read_std)(struct x86_emulate_ctxt *ctxt,
 			unsigned long addr, void *val,
 			unsigned int bytes,
 			struct x86_exception *fault);
 
+	/*
+	 * write_std: Write bytes of standard (non-emulated/special) memory.
+	 *            Used for descriptor writing.
+	 *  @addr:  [IN ] Linear address to which to write.
+	 *  @val:   [OUT] Value write to memory, zero-extended to 'u_long'.
+	 *  @bytes: [IN ] Number of bytes to write to memory.
+	 */
 	int (*write_std)(struct x86_emulate_ctxt *ctxt,
 			 unsigned long addr, void *val, unsigned int bytes,
 			 struct x86_exception *fault);
+	/*
+	 * fetch: Read bytes of standard (non-emulated/special) memory.
+	 *        Used for instruction fetch.
+	 *  @addr:  [IN ] Linear address from which to read.
+	 *  @val:   [OUT] Value read from memory, zero-extended to 'u_long'.
+	 *  @bytes: [IN ] Number of bytes to read from memory.
+	 */
 	int (*fetch)(struct x86_emulate_ctxt *ctxt,
 		     unsigned long addr, void *val, unsigned int bytes,
 		     struct x86_exception *fault);
 
+	/*
+	 * read_emulated: Read bytes from emulated/special memory area.
+	 *  @addr:  [IN ] Linear address from which to read.
+	 *  @val:   [OUT] Value read from memory, zero-extended to 'u_long'.
+	 *  @bytes: [IN ] Number of bytes to read from memory.
+	 */
 	int (*read_emulated)(struct x86_emulate_ctxt *ctxt,
 			     unsigned long addr, void *val, unsigned int bytes,
 			     struct x86_exception *fault);
 
+	/*
+	 * write_emulated: Write bytes to emulated/special memory area.
+	 *  @addr:  [IN ] Linear address to which to write.
+	 *  @val:   [IN ] Value to write to memory (low-order bytes used as
+	 *                required).
+	 *  @bytes: [IN ] Number of bytes to write to memory.
+	 */
 	int (*write_emulated)(struct x86_emulate_ctxt *ctxt,
 			      unsigned long addr, const void *val,
 			      unsigned int bytes,
 			      struct x86_exception *fault);
 
+	/*
+	 * cmpxchg_emulated: Emulate an atomic (LOCKed) CMPXCHG operation on an
+	 *                   emulated/special memory area.
+	 *  @addr:  [IN ] Linear address to access.
+	 *  @old:   [IN ] Value expected to be current at @addr.
+	 *  @new:   [IN ] Value to write to @addr.
+	 *  @bytes: [IN ] Number of bytes to access using CMPXCHG.
+	 */
 	int (*cmpxchg_emulated)(struct x86_emulate_ctxt *ctxt,
 				unsigned long addr,
 				const void *old,
@@ -106,8 +186,8 @@ struct x86_emulate_ops {
 	void (*halt)(struct x86_emulate_ctxt *ctxt);
 	void (*wbinvd)(struct x86_emulate_ctxt *ctxt);
 	int (*fix_hypercall)(struct x86_emulate_ctxt *ctxt);
-	void (*get_fpu)(struct x86_emulate_ctxt *ctxt); 
-	void (*put_fpu)(struct x86_emulate_ctxt *ctxt); 
+	void (*get_fpu)(struct x86_emulate_ctxt *ctxt); /* disables preempt */
+	void (*put_fpu)(struct x86_emulate_ctxt *ctxt); /* reenables preempt */
 	int (*intercept)(struct x86_emulate_ctxt *ctxt,
 			 struct x86_instruction_info *info,
 			 enum x86_intercept_stage stage);
@@ -118,6 +198,7 @@ struct x86_emulate_ops {
 
 typedef u32 __attribute__((vector_size(16))) sse128_t;
 
+/* Type, address-of, and value of an instruction's operand. */
 struct operand {
 	enum { OP_REG, OP_MEM, OP_IMM, OP_XMM, OP_NONE } type;
 	unsigned int bytes;
@@ -156,23 +237,23 @@ struct read_cache {
 struct x86_emulate_ctxt {
 	struct x86_emulate_ops *ops;
 
-	
+	/* Register state before/after emulation. */
 	unsigned long eflags;
-	unsigned long eip; 
-	
+	unsigned long eip; /* eip before instruction emulation */
+	/* Emulated execution mode, represented by an X86EMUL_MODE value. */
 	int mode;
 
-	
+	/* interruptibility state, as a result of execution of STI or MOV SS */
 	int interruptibility;
 
-	bool guest_mode; 
-	bool perm_ok; 
+	bool guest_mode; /* guest running a nested guest */
+	bool perm_ok; /* do not check permissions if true */
 	bool only_vendor_specific_insn;
 
 	bool have_exception;
 	struct x86_exception exception;
 
-	
+	/* decode cache */
 	u8 twobyte;
 	u8 b;
 	u8 intercept;
@@ -189,7 +270,7 @@ struct x86_emulate_ctxt {
 	u64 d;
 	int (*execute)(struct x86_emulate_ctxt *ctxt);
 	int (*check_perm)(struct x86_emulate_ctxt *ctxt);
-	
+	/* modrm */
 	u8 modrm;
 	u8 modrm_mod;
 	u8 modrm_reg;
@@ -197,7 +278,7 @@ struct x86_emulate_ctxt {
 	u8 modrm_seg;
 	bool rip_relative;
 	unsigned long _eip;
-	
+	/* Fields above regs are cleared together. */
 	unsigned long regs[NR_VCPU_REGS];
 	struct operand memop;
 	struct operand *memopp;
@@ -206,18 +287,22 @@ struct x86_emulate_ctxt {
 	struct read_cache mem_read;
 };
 
+/* Repeat String Operation Prefix */
 #define REPE_PREFIX	0xf3
 #define REPNE_PREFIX	0xf2
 
-#define X86EMUL_MODE_REAL     0	
-#define X86EMUL_MODE_VM86     1	
-#define X86EMUL_MODE_PROT16   2	
-#define X86EMUL_MODE_PROT32   4	
-#define X86EMUL_MODE_PROT64   8	
+/* Execution mode, passed to the emulator. */
+#define X86EMUL_MODE_REAL     0	/* Real mode.             */
+#define X86EMUL_MODE_VM86     1	/* Virtual 8086 mode.     */
+#define X86EMUL_MODE_PROT16   2	/* 16-bit protected mode. */
+#define X86EMUL_MODE_PROT32   4	/* 32-bit protected mode. */
+#define X86EMUL_MODE_PROT64   8	/* 64-bit (long) mode.    */
 
+/* any protected mode   */
 #define X86EMUL_MODE_PROT     (X86EMUL_MODE_PROT16|X86EMUL_MODE_PROT32| \
 			       X86EMUL_MODE_PROT64)
 
+/* CPUID vendors */
 #define X86EMUL_CPUID_VENDOR_AuthenticAMD_ebx 0x68747541
 #define X86EMUL_CPUID_VENDOR_AuthenticAMD_ecx 0x444d4163
 #define X86EMUL_CPUID_VENDOR_AuthenticAMD_edx 0x69746e65
@@ -231,7 +316,7 @@ struct x86_emulate_ctxt {
 #define X86EMUL_CPUID_VENDOR_GenuineIntel_edx 0x49656e69
 
 enum x86_intercept_stage {
-	X86_ICTP_NONE = 0,   
+	X86_ICTP_NONE = 0,   /* Allow zero-init to not match anything */
 	X86_ICPT_PRE_EXCEPT,
 	X86_ICPT_POST_EXCEPT,
 	X86_ICPT_POST_MEMACCESS,
@@ -289,6 +374,7 @@ enum x86_intercept {
 	nr_x86_intercepts
 };
 
+/* Host execution mode. */
 #if defined(CONFIG_X86_32)
 #define X86EMUL_MODE_HOST X86EMUL_MODE_PROT32
 #elif defined(CONFIG_X86_64)
@@ -306,4 +392,4 @@ int emulator_task_switch(struct x86_emulate_ctxt *ctxt,
 			 u16 tss_selector, int idt_index, int reason,
 			 bool has_error_code, u32 error_code);
 int emulate_int_real(struct x86_emulate_ctxt *ctxt, int irq);
-#endif 
+#endif /* _ASM_X86_KVM_X86_EMULATE_H */

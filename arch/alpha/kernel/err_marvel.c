@@ -61,7 +61,7 @@ marvel_print_680_frame(struct ev7_lf_subpackets *lf_subpackets)
 		       env->unit_id,
 		       env->condition);
 	}
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 }
 
 static int
@@ -124,7 +124,7 @@ marvel_print_po7_crrct_sym(u64 crrct_sym)
 {
 #define IO7__PO7_CRRCT_SYM__SYN__S	(0)
 #define IO7__PO7_CRRCT_SYM__SYN__M	(0x7f)
-#define IO7__PO7_CRRCT_SYM__ERR_CYC__S	(7)   
+#define IO7__PO7_CRRCT_SYM__ERR_CYC__S	(7)   /* ERR_CYC + ODD_FLT + EVN_FLT */
 #define IO7__PO7_CRRCT_SYM__ERR_CYC__M	(0x1ff)
 
 
@@ -153,8 +153,8 @@ marvel_print_po7_uncrr_sym(u64 uncrr_sym, u64 valid_mask)
 
 #define IO7__PO7_UNCRR_SYM__SYN__S	    (0)
 #define IO7__PO7_UNCRR_SYM__SYN__M	    (0x7f)
-#define IO7__PO7_UNCRR_SYM__ERR_CYC__S	    (7)      
-#define IO7__PO7_UNCRR_SYM__ERR_CYC__M	    (0x1ff)  
+#define IO7__PO7_UNCRR_SYM__ERR_CYC__S	    (7)      /* ERR_CYC + ODD_FLT... */
+#define IO7__PO7_UNCRR_SYM__ERR_CYC__M	    (0x1ff)  /* ... + EVN_FLT        */
 #define IO7__PO7_UNCRR_SYM__CLK__S	    (16)
 #define IO7__PO7_UNCRR_SYM__CLK__M	    (0xff)
 #define IO7__PO7_UNCRR_SYM__CDT_OVF_TO__REQ (1UL << 24)
@@ -364,6 +364,9 @@ marvel_print_po7_err_sum(struct ev7_pal_io_subpacket *io)
 #define IO7__PO7_ERRSUM__ERR_MASK	(IO7__PO7_ERRSUM__ERR_VALID |	\
 					 IO7__PO7_ERRSUM__CR_SBE)
 
+	/*
+	 * Single bit errors aren't covered by ERR_VALID.
+	 */
 	if (io->po7_error_sum & IO7__PO7_ERRSUM__CR_SBE) {
 		printk("%s    %sSingle Bit Error(s) detected/corrected\n",
 		       err_print_prefix,
@@ -372,6 +375,9 @@ marvel_print_po7_err_sum(struct ev7_pal_io_subpacket *io)
 		marvel_print_po7_crrct_sym(io->po7_crrct_sym);
 	}
 
+	/*
+	 * Neither are the interrupt status bits
+	 */
 	if (io->po7_error_sum & IO7__PO7_ERRSUM__HLT_INT)
 		printk("%s    Halt Interrupt posted", err_print_prefix);
 	if (io->po7_error_sum & IO7__PO7_ERRSUM__HP_INT) {
@@ -391,9 +397,20 @@ marvel_print_po7_err_sum(struct ev7_pal_io_subpacket *io)
 		uncrr_sym_valid |= GEN_MASK(IO7__PO7_UNCRR_SYM__DETECT_SP);
 	}
 
+	/*
+	 * Everything else is valid only with ERR_VALID, so skip to the end
+	 * (uncrr_sym check) unless ERR_VALID is set.
+	 */
 	if (!(io->po7_error_sum & IO7__PO7_ERRSUM__ERR_VALID)) 
 		goto check_uncrr_sym;
 
+	/*
+	 * Since ERR_VALID is set, VICTIM_SP in uncrr_sym is valid.
+	 * For bits [29:0] to also be valid, the following bits must
+	 * not be set:
+	 *	CR_PIO_WBYTE	CR_CSR_NXM	CR_RSP_NXM
+	 *	CR_ERR_RESP	MAF_TO
+	 */
 	uncrr_sym_valid |= GEN_MASK(IO7__PO7_UNCRR_SYM__VICTIM_SP);
 	if (!(io->po7_error_sum & (IO7__PO7_ERRSUM__CR_PIO_WBYTE |
 				   IO7__PO7_ERRSUM__CR_CSR_NXM |
@@ -438,6 +455,9 @@ marvel_print_po7_err_sum(struct ev7_pal_io_subpacket *io)
 		printk("%s    Unexpected or bad dealloc field\n",
 		       err_print_prefix);
 
+	/*
+	 * The black hole events.
+	 */
 	if (io->po7_error_sum & IO7__PO7_ERRSUM__MAF_TO)
 		printk("%s    BLACK HOLE: Timeout for all responses\n",
 		       err_print_prefix);
@@ -465,6 +485,10 @@ marvel_print_po7_err_sum(struct ev7_pal_io_subpacket *io)
 	       err_print_prefix,
 	       err_print_prefix, io->po7_err_pkt0,
 	       err_print_prefix, io->po7_err_pkt1);
+	/*
+	 * If there are any valid bits in UNCRR sym for this err, 
+	 * print UNCRR_SYM as well.
+	 */
 check_uncrr_sym:
 	if (uncrr_sym_valid)
 		marvel_print_po7_uncrr_sym(io->po7_uncrr_sym, uncrr_sym_valid);
@@ -665,6 +689,9 @@ marvel_print_pox_err(u64 err_sum, struct ev7_pal_io_one_port *port)
 	if (!(err_sum & IO7__POX_ERRSUM__ERR_VALID))
 		return;
 
+	/*
+	 * First the transaction summary errors
+	 */
 	if (err_sum & IO7__POX_ERRSUM__MRETRY_TO)
 		printk("%s    IO7 Master Retry Timeout expired\n",
 		       err_print_prefix);
@@ -729,14 +756,23 @@ marvel_print_pox_err(u64 err_sum, struct ev7_pal_io_one_port *port)
 		}
 	}
 
+	/*
+	 * POx_TRANS_SUM, if appropriate.
+	 */
 	if (err_sum & IO7__POX_ERRSUM__TRANS_SUM__MASK) 
 		marvel_print_pox_trans_sum(port->pox_trans_sum);
 
+	/*
+	 * Then TLB_ERR.
+	 */
 	if (err_sum & IO7__POX_ERRSUM__TLB_ERR) {
 		printk("%s    TLB ERROR\n", err_print_prefix);
 		marvel_print_pox_tlb_err(port->pox_tlb_err);
 	}
 
+	/*
+	 * And the single bit status errors.
+	 */
 	if (err_sum & IO7__POX_ERRSUM__AGP_REQQ_OVFL)
 		printk("%s    AGP Request Queue Overflow\n", err_print_prefix);
 	if (err_sum & IO7__POX_ERRSUM__AGP_SYNC_ERR)
@@ -755,7 +791,7 @@ marvel_print_pox_err(u64 err_sum, struct ev7_pal_io_one_port *port)
 		printk("%s    HUNG BUS detected\n", err_print_prefix);
 }
 
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 static struct ev7_pal_io_subpacket *
 marvel_find_io7_with_error(struct ev7_lf_subpackets *lf_subpackets)
@@ -764,9 +800,15 @@ marvel_find_io7_with_error(struct ev7_lf_subpackets *lf_subpackets)
 	struct io7 *io7;
 	int i;
 
+	/*
+	 * Caller must provide the packet to fill
+	 */
 	if (!io)
 		return NULL;
 
+	/*
+	 * Fill the subpacket with the console's standard fill pattern
+	 */
 	memset(io, 0x55, sizeof(*io));
 
 	for (io7 = NULL; NULL != (io7 = marvel_next_io7(io7)); ) {
@@ -779,13 +821,24 @@ marvel_find_io7_with_error(struct ev7_lf_subpackets *lf_subpackets)
 			err_sum |= io7->ports[i].csrs->POx_ERR_SUM.csr;
 		}
 
+		/*
+		 * Is there at least one error? 
+		 */
 		if (err_sum & (1UL << 63))
 			break;
 	}
 
+	/*
+	 * Did we find an IO7 with an error?
+	 */
 	if (!io7)
 		return NULL;
 
+	/*
+	 * We have an IO7 with an error. 
+	 *
+	 * Fill in the IO subpacket.
+	 */
 	io->io_asic_rev   = io7->csrs->IO_ASIC_REV.csr;
 	io->io_sys_rev    = io7->csrs->IO_SYS_REV.csr;
 	io->io7_uph       = io7->csrs->IO7_UPH.csr;
@@ -816,16 +869,30 @@ marvel_find_io7_with_error(struct ev7_lf_subpackets *lf_subpackets)
 		io->ports[i].pox_dm_size   = csrs->POx_DM_SIZE.csr;
 		io->ports[i].pox_dm_ctrl   = csrs->POx_DM_CTRL.csr;
 
+		/*
+		 * Ack this port's errors, if any. POx_ERR_SUM must be last.
+		 *
+		 * Most of the error registers get cleared and unlocked when
+		 * the associated bits in POx_ERR_SUM are cleared (by writing
+		 * 1). POx_TLB_ERR is an exception and must be explicitly 
+		 * cleared.
+		 */
 		csrs->POx_TLB_ERR.csr = io->ports[i].pox_tlb_err;
 		csrs->POx_ERR_SUM.csr =	io->ports[i].pox_err_sum;
 		mb();
 		csrs->POx_ERR_SUM.csr;		
 	}
 
+	/*
+	 * Ack any port 7 error(s).
+	 */
 	io7->csrs->PO7_ERROR_SUM.csr = io->po7_error_sum;
 	mb();
 	io7->csrs->PO7_ERROR_SUM.csr;
 	
+	/*
+	 * Correct the io7_pid.
+	 */
 	lf_subpackets->io_pid = io7->pe;
 
 	return io;
@@ -839,23 +906,47 @@ marvel_process_io_error(struct ev7_lf_subpackets *lf_subpackets, int print)
 #ifdef CONFIG_VERBOSE_MCHECK
 	struct ev7_pal_io_subpacket *io = lf_subpackets->io;
 	int i;
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 #define MARVEL_IO_ERR_VALID(x)  ((x) & (1UL << 63))
 
 	if (!lf_subpackets->logout || !lf_subpackets->io)
 		return status;
 
+	/*
+	 * The PALcode only builds an IO subpacket if there is a 
+	 * locally connected IO7. In the cases of
+	 *	1) a uniprocessor kernel
+	 *	2) an mp kernel before the local secondary has called in
+	 * error interrupts are all directed to the primary processor.
+	 * In that case, we may not have an IO subpacket at all and, event
+	 * if we do, it may not be the right now. 
+	 *
+	 * If the RBOX indicates an I/O error interrupt, make sure we have
+	 * the correct IO7 information. If we don't have an IO subpacket
+	 * or it's the wrong one, try to find the right one.
+	 *
+	 * RBOX I/O error interrupts are indicated by RBOX_INT<29> and
+	 * RBOX_INT<10>.
+	 */
 	if ((lf_subpackets->io->po7_error_sum & (1UL << 32)) ||
 	    ((lf_subpackets->io->po7_error_sum        |
 	      lf_subpackets->io->ports[0].pox_err_sum |
 	      lf_subpackets->io->ports[1].pox_err_sum |
 	      lf_subpackets->io->ports[2].pox_err_sum |
 	      lf_subpackets->io->ports[3].pox_err_sum) & (1UL << 63))) {
+		/*
+		 * Either we have no IO subpacket or no error is
+		 * indicated in the one we do have. Try find the
+		 * one with the error.
+		 */
 		if (!marvel_find_io7_with_error(lf_subpackets))
 			return status;
 	}
 
+	/*
+	 * We have an IO7 indicating an error - we're going to report it
+	 */
 	status = MCHK_DISPOSITION_REPORT;
 
 #ifdef CONFIG_VERBOSE_MCHECK
@@ -866,6 +957,9 @@ marvel_process_io_error(struct ev7_lf_subpackets *lf_subpackets, int print)
 	printk("%s*Error occurred on IO7 at PID %u\n", 
 	       err_print_prefix, lf_subpackets->io_pid);
 
+	/*
+	 * Check port 7 first
+	 */
 	if (lf_subpackets->io->po7_error_sum & IO7__PO7_ERRSUM__ERR_MASK) {
 		marvel_print_po7_err_sum(io);
 
@@ -887,6 +981,9 @@ marvel_process_io_error(struct ev7_lf_subpackets *lf_subpackets, int print)
 #endif
 	}
 
+	/*
+	 * Then loop through the ports
+	 */
 	for (i = 0; i < IO7_NUM_PORTS; i++) {
 		if (!MARVEL_IO_ERR_VALID(io->ports[i].pox_err_sum))
 			continue;
@@ -904,7 +1001,7 @@ marvel_process_io_error(struct ev7_lf_subpackets *lf_subpackets, int print)
 	}
 
 
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 	return status;
 }
@@ -914,11 +1011,27 @@ marvel_process_logout_frame(struct ev7_lf_subpackets *lf_subpackets, int print)
 {
 	int status = MCHK_DISPOSITION_UNKNOWN_ERROR;
 
+	/*
+	 * I/O error? 
+	 */
 #define EV7__RBOX_INT__IO_ERROR__MASK 0x20000400ul
 	if (lf_subpackets->logout &&
 	    (lf_subpackets->logout->rbox_int & 0x20000400ul))
 		status = marvel_process_io_error(lf_subpackets, print);
 
+	/*
+	 * Probing behind PCI-X bridges can cause machine checks on
+	 * Marvel when the probe is handled by the bridge as a split
+	 * completion transaction. The symptom is an ERROR_RESPONSE 
+	 * to a CONFIG address. Since these errors will happen in
+	 * normal operation, dismiss them.
+	 *
+	 * Dismiss if:
+	 *	C_STAT		= 0x14 		(Error Response)
+	 *	C_STS<3>	= 0    		(C_ADDR valid)
+	 *	C_ADDR<42>	= 1    		(I/O)
+	 *	C_ADDR<31:22>	= 111110xxb	(PCI Config space)
+	 */
 	if (lf_subpackets->ev7 &&
 	    (lf_subpackets->ev7->c_stat == 0x14) &&
 	    !(lf_subpackets->ev7->c_sts & 0x8) &&
@@ -941,6 +1054,9 @@ marvel_machine_check(unsigned long vector, unsigned long la_ptr)
 	char *saved_err_prefix = err_print_prefix;
 	char *error_type = NULL;
 
+	/*
+	 * Sync the processor
+	 */
 	mb();
 	draina();
 
@@ -961,31 +1077,58 @@ marvel_machine_check(unsigned long vector, unsigned long la_ptr)
 		break;
 
 	default:
-		
+		/* Don't know it - pass it up.  */
 		ev7_machine_check(vector, la_ptr);
 		return;
 	}	
 
+	/*
+	 * A system event or error has occurred, handle it here.
+	 *
+	 * Any errors in the logout frame have already been cleared by the
+	 * PALcode, so just parse it.
+	 */
 	err_print_prefix = KERN_CRIT;
 
+	/* 
+	 * Parse the logout frame without printing first. If the only error(s)
+	 * found are classified as "dismissable", then just dismiss them and
+	 * don't print any message
+	 */
 	lf_subpackets = 
 		ev7_collect_logout_frame_subpackets(el_ptr,
 						    &subpacket_collection);
 	if (process_frame && lf_subpackets && lf_subpackets->logout) {
+		/*
+		 * We might not have the correct (or any) I/O subpacket.
+		 * [ See marvel_process_io_error() for explanation. ]
+		 * If we don't have one, point the io subpacket in
+		 * lf_subpackets at scratch_io_packet so that 
+		 * marvel_find_io7_with_error() will have someplace to
+		 * store the info.
+		 */
 		if (!lf_subpackets->io)
 			lf_subpackets->io = &scratch_io_packet;
 
+		/*
+		 * Default io_pid to the processor reporting the error
+		 * [this will get changed in marvel_find_io7_with_error()
+		 * if a different one is needed]
+		 */
 		lf_subpackets->io_pid = lf_subpackets->logout->whami;
 
+		/*
+		 * Evaluate the frames.
+		 */
 		disposition = process_frame(lf_subpackets, 0);
 	}
 	switch(disposition) {
 	case MCHK_DISPOSITION_DISMISS:
-		
+		/* Nothing to do. */
 		break;
 
 	case MCHK_DISPOSITION_REPORT:
-		
+		/* Recognized error, report it. */
 		printk("%s*%s (Vector 0x%x) reported on CPU %d\n",
 		       err_print_prefix, error_type,
 		       (unsigned int)vector, (int)smp_processor_id());
@@ -994,7 +1137,7 @@ marvel_machine_check(unsigned long vector, unsigned long la_ptr)
 		break;
 
 	default:
-		
+		/* Unknown - dump the annotated subpackets. */
 		printk("%s*%s (Vector 0x%x) reported on CPU %d\n",
 		       err_print_prefix, error_type,
 		       (unsigned int)vector, (int)smp_processor_id());
@@ -1005,7 +1148,7 @@ marvel_machine_check(unsigned long vector, unsigned long la_ptr)
 
 	err_print_prefix = saved_err_prefix;
 
-        
+        /* Release the logout frame.  */
 	wrmces(0x7);
 	mb();
 }

@@ -15,6 +15,13 @@
 
 #define SMB349_NAME		"smb349"
 
+/**
+ * struct smb349_platform_data
+ * structure to pass board specific information to the smb137b charger driver
+ * @chg_current_ma:		maximum fast charge current in mA
+ * @en_n_gpio:		gpio to enable or disable charging
+ * @chg_susp_gpio:	put active low to allow chip to suspend and disable I2C
+ */
 struct smb349_platform_data {
 	int en_n_gpio;
 	int chg_susp_gpio;

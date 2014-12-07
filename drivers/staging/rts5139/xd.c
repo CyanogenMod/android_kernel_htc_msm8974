@@ -279,7 +279,7 @@ static int xd_read_cis(struct rts51x_chip *chip, u32 page_addr, u8 *buf,
 		retval = xd_read_data_from_ppb(chip, 0, buf, buf_len);
 		if (retval != STATUS_SUCCESS)
 			TRACE_RET(chip, retval);
-		if (reg & XD_ECC1_ERROR) {	
+		if (reg & XD_ECC1_ERROR) {	/* correctable error */
 			u8 ecc_bit, ecc_byte;
 
 			RTS51X_READ_REG(chip, XD_ECC_BIT1, &ecc_bit);
@@ -469,7 +469,7 @@ static int reset_xd(struct rts51x_chip *chip)
 	retval = xd_set_init_para(chip);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, STATUS_FAIL);
-	
+	/* Read ID to check if the timing setting is right */
 	for (i = 0; i < 4; i++) {
 		u8 xd_dat, xd_ctl;
 
@@ -525,11 +525,11 @@ static int reset_xd(struct rts51x_chip *chip)
 		switch (xd_card->device_code) {
 		case XD_4M_X8_512_1:
 		case XD_4M_X8_512_2:
-			xd_card->block_shift = 4;	
+			xd_card->block_shift = 4;	/* 16 pages per block */
 			xd_card->page_off = 0x0F;
 			xd_card->addr_cycle = 3;
 			xd_card->zone_cnt = 1;
-			xd_card->capacity = 8000;	
+			xd_card->capacity = 8000;	/* 500 * 2 ^ 4 */
 			XD_SET_4MB(xd_card);
 			break;
 		case XD_8M_X8_512:
@@ -537,61 +537,61 @@ static int reset_xd(struct rts51x_chip *chip)
 			xd_card->page_off = 0x0F;
 			xd_card->addr_cycle = 3;
 			xd_card->zone_cnt = 1;
-			xd_card->capacity = 16000;	
+			xd_card->capacity = 16000;	/* 1000 * 2 ^ 4 */
 			break;
 		case XD_16M_X8_512:
-			XD_PAGE_512(xd_card);	
+			XD_PAGE_512(xd_card);	/* 32 pages per block */
 			xd_card->addr_cycle = 3;
 			xd_card->zone_cnt = 1;
-			xd_card->capacity = 32000;	
+			xd_card->capacity = 32000;	/* 1000 * 2 ^ 5 */
 			break;
 		case XD_32M_X8_512:
 			XD_PAGE_512(xd_card);
 			xd_card->addr_cycle = 3;
 			xd_card->zone_cnt = 2;
-			xd_card->capacity = 64000;	
+			xd_card->capacity = 64000;	/* 2000 * 2 ^ 5 */
 			break;
 		case XD_64M_X8_512:
 			XD_PAGE_512(xd_card);
 			xd_card->addr_cycle = 4;
 			xd_card->zone_cnt = 4;
-			xd_card->capacity = 128000;	
+			xd_card->capacity = 128000;	/* 4000 * 2 ^ 5 */
 			break;
 		case XD_128M_X8_512:
 			XD_PAGE_512(xd_card);
 			xd_card->addr_cycle = 4;
 			xd_card->zone_cnt = 8;
-			xd_card->capacity = 256000;	
+			xd_card->capacity = 256000;	/* 8000 * 2 ^ 5 */
 			break;
 		case XD_256M_X8_512:
 			XD_PAGE_512(xd_card);
 			xd_card->addr_cycle = 4;
 			xd_card->zone_cnt = 16;
-			xd_card->capacity = 512000;	
+			xd_card->capacity = 512000;	/* 16000 * 2 ^ 5 */
 			break;
 		case XD_512M_X8:
 			XD_PAGE_512(xd_card);
 			xd_card->addr_cycle = 4;
 			xd_card->zone_cnt = 32;
-			xd_card->capacity = 1024000;	
+			xd_card->capacity = 1024000;	/* 32000 * 2 ^ 5 */
 			break;
 		case xD_1G_X8_512:
 			XD_PAGE_512(xd_card);
 			xd_card->addr_cycle = 4;
 			xd_card->zone_cnt = 64;
-			xd_card->capacity = 2048000;	
+			xd_card->capacity = 2048000;	/* 64000 * 2 ^ 5 */
 			break;
 		case xD_2G_X8_512:
 			XD_PAGE_512(xd_card);
 			xd_card->addr_cycle = 4;
 			xd_card->zone_cnt = 128;
-			xd_card->capacity = 4096000;	
+			xd_card->capacity = 4096000;	/* 128000 * 2 ^ 5 */
 			break;
 		default:
 			continue;
 		}
 
-		
+		/* Confirm timing setting */
 		for (j = 0; j < 10; j++) {
 			retval = xd_read_id(chip, READ_ID, id_buf, 4);
 			if (retval != STATUS_SUCCESS)
@@ -601,7 +601,7 @@ static int reset_xd(struct rts51x_chip *chip)
 				break;
 		}
 
-		
+		/* Current timing pass */
 		if (j == 10)
 			break;
 	}
@@ -623,7 +623,7 @@ static int reset_xd(struct rts51x_chip *chip)
 	if (id_buf[2] != XD_ID_CODE)
 		TRACE_RET(chip, STATUS_FAIL);
 
-	
+	/* Search CIS block */
 	for (i = 0; i < 24; i++) {
 		u32 page_addr;
 
@@ -644,7 +644,7 @@ static int reset_xd(struct rts51x_chip *chip)
 			continue;
 
 		j = 0;
-		
+		/* Check page status */
 		if (redunt[PAGE_STATUS] != XD_GPG) {
 			for (j = 1; j <= 8; j++) {
 				retval =
@@ -973,7 +973,7 @@ static int xd_mark_bad_block(struct rts51x_chip *chip, u32 phy_blk)
 
 	xd_assign_phy_addr(chip, page_addr, XD_RW_ADDR);
 
-	
+	/* Specify page count */
 	rts51x_add_cmd(chip, WRITE_REG_CMD, XD_PAGE_CNT, 0xFF,
 		       xd_card->page_off + 1);
 
@@ -1097,7 +1097,7 @@ static int xd_copy_page(struct rts51x_chip *chip,
 
 		xd_assign_phy_addr(chip, old_page, XD_RW_ADDR);
 
-		
+		/* Single page read */
 		rts51x_add_cmd(chip, WRITE_REG_CMD, XD_PAGE_CNT, 0xFF, 1);
 		rts51x_add_cmd(chip, WRITE_REG_CMD, XD_CHK_DATA_STATUS,
 			       XD_AUTO_CHK_DATA_STATUS, 0);
@@ -1667,7 +1667,7 @@ Fail:
 	rts51x_ep0_read_register(chip, XD_CTL, &reg_val);
 	RTS51X_DEBUGP("XD_CTL: 0x%x\n", reg_val);
 
-	
+	/* Handle uncorrectable ECC error */
 	if (((reg_val & (XD_ECC1_ERROR | XD_ECC1_UNCORRECTABLE))
 	     == (XD_ECC1_ERROR | XD_ECC1_UNCORRECTABLE))
 	    || ((reg_val & (XD_ECC2_ERROR | XD_ECC2_UNCORRECTABLE))
@@ -1764,7 +1764,7 @@ static int xd_finish_write(struct rts51x_chip *chip,
 				xd_mark_bad_block(chip, old_blk);
 				XD_CLR_BAD_OLDBLK(xd_card);
 			} else {
-				
+				/* Add source block to unused block */
 				xd_set_unused_block(chip, old_blk);
 			}
 		} else {
@@ -1773,7 +1773,7 @@ static int xd_finish_write(struct rts51x_chip *chip,
 		}
 	}
 
-	
+	/* Add target block to L2P table */
 	xd_set_l2p_tbl(chip, zone_no, log_off, (u16) (new_blk & 0x3FF));
 
 	return STATUS_SUCCESS;
@@ -1825,14 +1825,14 @@ static int xd_write_multiple_pages(struct rts51x_chip *chip, u32 old_blk,
 
 	page_addr = (new_blk << xd_card->block_shift) + start_page;
 
-	
+	/* Send index command */
 	retval = xd_send_cmd(chip, READ1_1);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
 
 	rts51x_init_cmd(chip);
 
-	
+	/* Prepare redundant field */
 	rts51x_add_cmd(chip, WRITE_REG_CMD, XD_BLOCK_ADDR1_H, 0xFF,
 		       (u8) (log_off >> 8));
 	rts51x_add_cmd(chip, WRITE_REG_CMD, XD_BLOCK_ADDR1_L, 0xFF,
@@ -1842,7 +1842,7 @@ static int xd_write_multiple_pages(struct rts51x_chip *chip, u32 old_blk,
 
 	xd_assign_phy_addr(chip, page_addr, XD_RW_ADDR);
 
-	
+	/* Transform the block address by hardware */
 	rts51x_add_cmd(chip, WRITE_REG_CMD, XD_CFG, XD_BA_TRANSFORM,
 		       XD_BA_TRANSFORM);
 

@@ -15,9 +15,10 @@
 #ifndef __ASSEMBLY__
 
 #define MN10300_IOCLK		33333333UL
+/* #define MN10300_IOBCLK	66666666UL */
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #define MN10300_WDCLK		MN10300_IOCLK
 
-#endif 
+#endif /* _ASM_UNIT_CLOCK_H */

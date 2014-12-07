@@ -211,7 +211,7 @@ static int cx24113_set_gain_settings(struct cx24113_state *state,
 			state->gain_level, gain_level);
 
 	if (gain_level == state->gain_level)
-		return 0; 
+		return 0; /* nothing to be done */
 
 	ampout |= 0xf;
 
@@ -228,7 +228,7 @@ static int cx24113_set_gain_settings(struct cx24113_state *state,
 	cx24113_writereg(state, 0x1f, vga);
 	cx24113_writereg(state, 0x20, rfvga);
 
-	return 1; 
+	return 1; /* did something */
 }
 
 static int cx24113_set_Fref(struct cx24113_state *state, u8 high)
@@ -332,10 +332,10 @@ static void cx24113_calc_pll_nf(struct cx24113_state *state, u16 *n, s32 *f)
 	do {
 		R = cx24113_set_ref_div(state, R + 1);
 
-		
+		/* calculate tuner PLL settings: */
 		N =  (freq_hz / 100 * vcodiv) * R;
 		N /= (state->config->xtal_khz) * factor * 2;
-		N += 5;     
+		N += 5;     /* For round up. */
 		N /= 10;
 		N -= 32;
 	} while (N < 6 && R < 3);
@@ -347,7 +347,7 @@ static void cx24113_calc_pll_nf(struct cx24113_state *state, u16 *n, s32 *f)
 	F = freq_hz;
 	F *= (u64) (R * vcodiv * 262144);
 	dprintk("1 N: %d, F: %lld, R: %d\n", N, (long long)F, R);
-	
+	/* do_div needs an u64 as first argument */
 	dividend = F;
 	do_div(dividend, state->config->xtal_khz * 1000 * factor * 2);
 	F = dividend;
@@ -392,7 +392,7 @@ static void cx24113_set_nfr(struct cx24113_state *state, u16 n, s32 f, u8 r)
 
 static int cx24113_set_frequency(struct cx24113_state *state, u32 frequency)
 {
-	u8 r = 1; 
+	u8 r = 1; /* or 2 */
 	u16 n = 6;
 	s32 f = 0;
 
@@ -414,7 +414,7 @@ static int cx24113_set_frequency(struct cx24113_state *state, u32 frequency)
 		r |= 1 << 6;
 	cx24113_writereg(state, 0x18, r);
 
-	
+	/* The need for this sleep is not clear. But helps in some cases */
 	msleep(5);
 
 	r = cx24113_readreg(state, 0x1c) & 0xef;
@@ -428,7 +428,7 @@ static int cx24113_init(struct dvb_frontend *fe)
 	int ret;
 
 	state->tuner_gain_thres = -50;
-	state->gain_level = 255; 
+	state->gain_level = 255; /* to force a gain-setting initialization */
 	state->icp_mode = 0;
 
 	if (state->config->xtal_khz < 11000) {
@@ -480,7 +480,7 @@ static int cx24113_set_params(struct dvb_frontend *fe)
 {
 	struct dtv_frontend_properties *c = &fe->dtv_property_cache;
 	struct cx24113_state *state = fe->tuner_priv;
-	
+	/* for a ROLL-OFF factor of 0.35, 0.2: 600, 0.25: 625 */
 	u32 roll_off = 675;
 	u32 bw;
 
@@ -508,7 +508,7 @@ void cx24113_agc_callback(struct dvb_frontend *fe)
 		return;
 
 	do {
-		
+		/* this only works with the current CX24123 implementation */
 		fe->ops.read_signal_strength(fe, (u16 *) &s);
 		s >>= 8;
 		dprintk("signal strength: %d\n", s);
@@ -556,7 +556,7 @@ static const struct dvb_tuner_ops cx24113_tuner_ops = {
 struct dvb_frontend *cx24113_attach(struct dvb_frontend *fe,
 		const struct cx24113_config *config, struct i2c_adapter *i2c)
 {
-	
+	/* allocate memory for the internal state */
 	struct cx24113_state *state =
 		kzalloc(sizeof(struct cx24113_state), GFP_KERNEL);
 	int rc;
@@ -565,12 +565,14 @@ struct dvb_frontend *cx24113_attach(struct dvb_frontend *fe,
 		goto error;
 	}
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 
 	cx_info("trying to detect myself\n");
 
+	/* making a dummy read, because of some expected troubles
+	 * after power on */
 	cx24113_readreg(state, 0x00);
 
 	rc = cx24113_readreg(state, 0x00);
@@ -594,7 +596,7 @@ struct dvb_frontend *cx24113_attach(struct dvb_frontend *fe,
 	state->ver = cx24113_readreg(state, 0x01);
 	cx_info("version: %x\n", state->ver);
 
-	
+	/* create dvb_frontend */
 	memcpy(&fe->ops.tuner_ops, &cx24113_tuner_ops,
 			sizeof(struct dvb_tuner_ops));
 	fe->tuner_priv = state;

@@ -21,6 +21,7 @@
 #ifndef __MANTIS_REG_H
 #define __MANTIS_REG_H
 
+/* Interrupts */
 #define MANTIS_INT_STAT			0x00
 #define MANTIS_INT_MASK			0x04
 
@@ -28,6 +29,7 @@
 #define MANTIS_INT_RISCEN		(0x01 << 27)
 #define MANTIS_INT_I2CRACK		(0x01 << 26)
 
+/* #define MANTIS_INT_GPIF			(0xff << 12) */
 
 #define MANTIS_INT_PCMCIA7		(0x01 << 19)
 #define MANTIS_INT_PCMCIA6		(0x01 << 18)
@@ -47,6 +49,7 @@
 #define MANTIS_INT_RISCI		(0x01 <<  1)
 #define MANTIS_INT_I2CDONE		(0x01 <<  0)
 
+/* DMA */
 #define MANTIS_DMA_CTL			0x08
 #define MANTIS_GPIF_RD			(0xff << 24)
 #define MANTIS_GPIF_WR			(0xff << 16)
@@ -62,6 +65,7 @@
 #define MANTIS_DCAP_EN			(0x01 <<  1)
 #define MANTIS_RISC_EN			(0x01 <<  0)
 
+/* DEBUG */
 #define MANTIS_DEBUGREG			0x0c
 #define MANTIS_DATINV			(0x0e <<  7)
 #define MANTIS_TOP_DEBUGSEL		(0x07 <<  4)
@@ -70,6 +74,7 @@
 #define MANTIS_RISC_START		0x10
 #define MANTIS_RISC_PC			0x14
 
+/* I2C */
 #define MANTIS_I2CDATA_CTL		0x18
 #define MANTIS_I2C_RATE_1		(0x00 <<  6)
 #define MANTIS_I2C_RATE_2		(0x01 <<  6)
@@ -78,6 +83,7 @@
 #define MANTIS_I2C_STOP			(0x01 <<  5)
 #define MANTIS_I2C_PGMODE		(0x01 <<  3)
 
+/* DATA */
 #define MANTIS_CMD_DATA_R1		0x20
 #define MANTIS_CMD_DATA_3		(0xff << 24)
 #define MANTIS_CMD_DATA_2		(0xff << 16)
@@ -188,4 +194,4 @@
 #define MANTIS_GPIF_LOGICRD		(0xffff		<< 16)
 #define MANTIS_GPIF_LOGICRW		(0xffff		<<  0)
 
-#endif 
+#endif /* __MANTIS_REG_H */

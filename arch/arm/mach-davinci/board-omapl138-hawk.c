@@ -53,7 +53,7 @@ static __init void omapl138_hawk_config_emac(void)
 		return;
 	}
 
-	
+	/* configure the CFGCHIP3 register for MII */
 	__raw_writel(val, cfgchip3);
 	pr_info("EMAC: MII PHY configured\n");
 
@@ -65,8 +65,13 @@ static __init void omapl138_hawk_config_emac(void)
 			__func__, ret);
 }
 
+/*
+ * The following EDMA channels/slots are not being used by drivers (for
+ * example: Timer, GPIO, UART events etc) on da850/omap-l138 EVM/Hawkboard,
+ * hence they are being reserved for codecs on the DSP side.
+ */
 static const s16 da850_dma0_rsv_chans[][2] = {
-	
+	/* (offset, number) */
 	{ 8,  6},
 	{24,  4},
 	{30,  2},
@@ -74,7 +79,7 @@ static const s16 da850_dma0_rsv_chans[][2] = {
 };
 
 static const s16 da850_dma0_rsv_slots[][2] = {
-	
+	/* (offset, number) */
 	{ 8,  6},
 	{24,  4},
 	{30, 50},
@@ -82,14 +87,14 @@ static const s16 da850_dma0_rsv_slots[][2] = {
 };
 
 static const s16 da850_dma1_rsv_chans[][2] = {
-	
+	/* (offset, number) */
 	{ 0, 28},
 	{30,  2},
 	{-1, -1}
 };
 
 static const s16 da850_dma1_rsv_slots[][2] = {
-	
+	/* (offset, number) */
 	{ 0, 28},
 	{30, 90},
 	{-1, -1}
@@ -228,8 +233,8 @@ static struct da8xx_ohci_root_hub omapl138_hawk_usb11_pdata = {
 	.get_power      = hawk_usb_get_power,
 	.get_oci        = hawk_usb_get_oci,
 	.ocic_notify    = hawk_usb_ocic_notify,
-	
-	.potpgt         = (3 + 1) / 2,  
+	/* TPS2087 switch @ 5V */
+	.potpgt         = (3 + 1) / 2,  /* 3 ms max */
 };
 
 static irqreturn_t omapl138_hawk_usb_ocic_irq(int irq, void *dev_id)
@@ -250,7 +255,7 @@ static __init void omapl138_hawk_usb_init(void)
 		return;
 	}
 
-	
+	/* Setup the Ref. clock frequency for the HAWK at 24 MHz. */
 
 	cfgchip2 = __raw_readl(DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP2_REG));
 	cfgchip2 &= ~CFGCHIP2_REFFREQ;

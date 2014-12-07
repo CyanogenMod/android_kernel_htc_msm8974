@@ -233,11 +233,15 @@ static void __init printk_xampr(unsigned long ampr, unsigned long amlr, char i_d
 }
 #endif
 
+/*****************************************************************************/
+/*
+ * dump the memory map
+ */
 static void __init dump_memory_map(void)
 {
 
 #if 0
-	
+	/* dump the protection map */
 	printk_xampr(__get_IAMPR(0),  __get_IAMLR(0),  'I', 0);
 	printk_xampr(__get_IAMPR(1),  __get_IAMLR(1),  'I', 1);
 	printk_xampr(__get_IAMPR(2),  __get_IAMLR(2),  'I', 2);
@@ -274,7 +278,7 @@ static void __init dump_memory_map(void)
 #endif
 
 #if 0
-	
+	/* dump the bus controller registers */
 	printk("LGCR: %08lx\n", __get_LGCR());
 	printk("Master: %08lx-%08lx CR=%08lx\n",
 	       __get_LEMBR(), __get_LEMBR() + __get_LEMAM(),
@@ -305,13 +309,17 @@ static void __init dump_memory_map(void)
 #if 0
 	printk("\n");
 #endif
-} 
+} /* end dump_memory_map() */
 
+/*****************************************************************************/
+/*
+ * attempt to detect a VDK motherboard and DAV daughter board on an MB93091 system
+ */
 #ifdef CONFIG_MB93091_VDK
 static void __init detect_mb93091(void)
 {
 #ifdef CONFIG_MB93090_MB00
-	
+	/* Detect CB70 without motherboard */
 	if (!(cpu_system == __frv_mb93091_cb70 && ((*(unsigned short *)0xffc00030) & 0x100))) {
 		cpu_board1 = __frv_mb93090_mb00;
 		mb93090_mb00_detected = 1;
@@ -322,15 +330,45 @@ static void __init detect_mb93091(void)
 	cpu_board2 = __frv_mb93493;
 #endif
 
-} 
+} /* end detect_mb93091() */
 #endif
 
+/*****************************************************************************/
+/*
+ * determine the CPU type and set appropriate parameters
+ *
+ * Family     Series      CPU Core    Silicon    Imple  Vers
+ * ----------------------------------------------------------
+ * FR-V --+-> FR400 --+-> FR401 --+-> MB93401     02     00 [1]
+ *        |           |           |
+ *        |           |           +-> MB93401/A   02     01
+ *        |           |           |
+ *        |           |           +-> MB93403     02     02
+ *        |           |
+ *        |           +-> FR405 ----> MB93405     04     00
+ *        |
+ *        +-> FR450 ----> FR451 ----> MB93451     05     00
+ *        |
+ *        +-> FR500 ----> FR501 --+-> MB93501     01     01 [2]
+ *        |                       |
+ *        |                       +-> MB93501/A   01     02
+ *        |
+ *        +-> FR550 --+-> FR551 ----> MB93555     03     01
+ *
+ *  [1] The MB93401 is an obsolete CPU replaced by the MB93401A
+ *  [2] The MB93501 is an obsolete CPU replaced by the MB93501A
+ *
+ * Imple is PSR(Processor Status Register)[31:28].
+ * Vers is PSR(Processor Status Register)[27:24].
+ *
+ * A "Silicon" consists of CPU core and some on-chip peripherals.
+ */
 static void __init determine_cpu(void)
 {
 	unsigned long hsr0 = __get_HSR(0);
 	unsigned long psr = __get_PSR();
 
-	
+	/* work out what selectable services the CPU supports */
 	__set_PSR(psr | PSR_EM | PSR_EF | PSR_CM | PSR_NEM);
 	cpu_psr_all = __get_PSR();
 	__set_PSR(psr);
@@ -339,7 +377,7 @@ static void __init determine_cpu(void)
 	cpu_hsr0_all = __get_HSR(0);
 	__set_HSR(0, hsr0);
 
-	
+	/* derive other service specs from the CPU type */
 	cpu_series		= "unknown";
 	cpu_core		= "unknown";
 	cpu_silicon		= "unknown";
@@ -398,6 +436,10 @@ static void __init determine_cpu(void)
 			clock_cmodes_permitted = CLOCK_CMODES_PERMITTED_FR405;
 #endif
 
+			/* the FPGA on the CB70 has extra registers
+			 * - it has 0x0046 in the VDK_ID FPGA register at 0x1a0, which is
+			 *   how we tell the difference between it and a CB60
+			 */
 			if (*(volatile unsigned short *) 0xffc001a0 == 0x0046)
 				cpu_system = __frv_mb93091_cb70;
 			break;
@@ -472,8 +514,12 @@ static void __init determine_cpu(void)
 	cpu_board2 = __frv_mb93493;
 #endif
 
-} 
+} /* end determine_cpu() */
 
+/*****************************************************************************/
+/*
+ * calculate the bus clock speed
+ */
 void __pminit determine_clocks(int verbose)
 {
 	const struct clock_cmode *mode, *tmode;
@@ -489,6 +535,8 @@ void __pminit determine_clocks(int verbose)
 	if (verbose)
 		printk("psr=%08lx hsr0=%08lx clkc=%08lx\n", psr, __get_HSR(0), clkc);
 
+	/* the CB70 has some alternative ways of setting the clock speed through switches accessed
+	 * through the FPGA.  */
 	if (cpu_system == __frv_mb93091_cb70) {
 		unsigned short clkswr = *(volatile unsigned short *) 0xffc00104UL & 0x1fffUL;
 
@@ -500,9 +548,9 @@ void __pminit determine_clocks(int verbose)
 				((clkswr >> 4) & 0xf) * 1000000 +
 				((clkswr     ) & 0xf) * 100000;
 	}
-	
+	/* the FR451 is currently fixed at 24MHz */
 	else if (cpu_system == __frv_mb93091_cb451) {
-		
+		//__clkin_clock_speed_HZ = 24000000UL; // CB451-FPGA
 		unsigned short clkswr = *(volatile unsigned short *) 0xffc00104UL & 0x1fffUL;
 
 		if (clkswr & 0x1000)
@@ -513,12 +561,12 @@ void __pminit determine_clocks(int verbose)
 				((clkswr >> 4) & 0xf) * 1000000 +
 				((clkswr     ) & 0xf) * 100000;
 	}
-	
+	/* otherwise determine the clockspeed from VDK or other registers */
 	else {
 		__clkin_clock_speed_HZ = __get_CLKIN();
 	}
 
-	
+	/* look up the appropriate clock relationships table entry */
 	mode = &undef_clock_cmode;
 	if (clock_cmodes) {
 		tmode = &clock_cmodes[(clkc & CLKC_CMODE) >> CLKC_CMODE_s];
@@ -536,16 +584,16 @@ void __pminit determine_clocks(int verbose)
 	__dsu_clock_speed_HZ		= CLOCK(__clkin_clock_speed_HZ, mode->dsu);
 
 	switch (clkc & CLKC_CM) {
-	case 0: 
+	case 0: /* High */
 		__core_bus_clock_speed_HZ	= CLOCK(__clkin_clock_speed_HZ, mode->corebus);
 		__core_clock_speed_HZ		= CLOCK(__clkin_clock_speed_HZ, mode->core);
 		break;
-	case 1: 
+	case 1: /* Medium */
 		__core_bus_clock_speed_HZ	= CLOCK(__clkin_clock_speed_HZ, mode->sdram);
 		__core_clock_speed_HZ		= CLOCK(__clkin_clock_speed_HZ, mode->sdram);
 		break;
-	case 2: 
-	case 3: 
+	case 2: /* Low; not supported */
+	case 3: /* UNDEF */
 		printk("Unsupported CLKC CM %ld\n", clkc & CLKC_CM);
 		panic("Bye");
 	}
@@ -570,15 +618,18 @@ void __pminit determine_clocks(int verbose)
 		       );
 	}
 
-	
+	/* calculate the number of __delay() loop iterations per sec (2 insn loop) */
 	__delay_loops_MHz = __core_clock_speed_HZ / (1000000 * 2);
 
-	
+	/* set the serial prescaler */
 	__serial_clock_speed_HZ = __res_bus_clock_speed_HZ;
 	quot = 1;
 	while (__serial_clock_speed_HZ / quot / 16 / 65536 > 3000)
 		quot += 1;
 
+	/* double the divisor if P0 is clear, so that if/when P0 is set, it's still achievable
+	 * - we have to be careful - dividing too much can mean we can't get 115200 baud
+	 */
 	if (__serial_clock_speed_HZ > 32000000 && !(clkc & CLKC_P0))
 		quot <<= 1;
 
@@ -597,14 +648,18 @@ void __pminit determine_clocks(int verbose)
 
 	__set_UCPVR(quot);
 	__set_UCPSR(0);
-} 
+} /* end determine_clocks() */
 
+/*****************************************************************************/
+/*
+ * reserve some DMA consistent memory
+ */
 #ifdef CONFIG_RESERVE_DMA_COHERENT
 static void __init reserve_dma_coherent(void)
 {
 	unsigned long ampr;
 
-	
+	/* find the first non-kernel memory tile and steal it */
 #define __steal_AMPR(r)						\
 	if (__get_DAMPR(r) & xAMPRx_V) {			\
 		ampr = __get_DAMPR(r);				\
@@ -631,7 +686,7 @@ static void __init reserve_dma_coherent(void)
 		__steal_AMPR(14);
 	}
 
-	
+	/* unable to grant any DMA consistent memory */
 	printk("No DMA consistent memory reserved\n");
 	return;
 
@@ -645,9 +700,13 @@ static void __init reserve_dma_coherent(void)
 	printk("DMA consistent memory reserved %lx-%lx\n",
 	       dma_coherent_mem_start, dma_coherent_mem_end);
 
-} 
+} /* end reserve_dma_coherent() */
 #endif
 
+/*****************************************************************************/
+/*
+ * calibrate the delay loop
+ */
 void __cpuinit calibrate_delay(void)
 {
 	loops_per_jiffy = __delay_loops_MHz * (1000000 / HZ);
@@ -656,8 +715,12 @@ void __cpuinit calibrate_delay(void)
 	       loops_per_jiffy / (500000 / HZ),
 	       (loops_per_jiffy / (5000 / HZ)) % 100);
 
-} 
+} /* end calibrate_delay() */
 
+/*****************************************************************************/
+/*
+ * look through the command line for some things we need to know immediately
+ */
 static void __init parse_cmdline_early(char *cmdline)
 {
 	if (!cmdline)
@@ -667,6 +730,9 @@ static void __init parse_cmdline_early(char *cmdline)
 		if (*cmdline == ' ')
 			cmdline++;
 
+		/* "mem=XXX[kKmM]" sets SDRAM size to <mem>, overriding the value we worked
+		 * out from the SDRAM controller mask register
+		 */
 		if (!memcmp(cmdline, "mem=", 4)) {
 			unsigned long long mem_size;
 
@@ -678,8 +744,12 @@ static void __init parse_cmdline_early(char *cmdline)
 			cmdline++;
 	}
 
-} 
+} /* end parse_cmdline_early() */
 
+/*****************************************************************************/
+/*
+ *
+ */
 void __init setup_arch(char **cmdline_p)
 {
 #ifdef CONFIG_MMU
@@ -693,7 +763,7 @@ void __init setup_arch(char **cmdline_p)
 	determine_cpu();
 	determine_clocks(1);
 
-	
+	/* For printk-directly-beats-on-serial-hardware hack */
 	console_set_baud(115200);
 #ifdef CONFIG_GDBSTUB
 	gdbstub_set_baud(115200);
@@ -709,7 +779,7 @@ void __init setup_arch(char **cmdline_p)
 		mb93090_display();
 #endif
 
-	
+	/* register those serial ports that are available */
 #ifdef CONFIG_FRV_ONCPU_SERIAL
 #ifndef CONFIG_GDBSTUB_UART0
 	__reg(UART0_BASE + UART_IER * 8) = 0;
@@ -721,11 +791,13 @@ void __init setup_arch(char **cmdline_p)
 #endif
 #endif
 
-	
+	/* deal with the command line - RedBoot may have passed one to the kernel */
 	memcpy(command_line, boot_command_line, sizeof(command_line));
 	*cmdline_p = &command_line[0];
 	parse_cmdline_early(command_line);
 
+	/* set up the memory description
+	 * - by now the stack is part of the init task */
 	printk("Memory %08lx-%08lx\n", memory_start, memory_end);
 
 	BUG_ON(memory_start == memory_end);
@@ -733,7 +805,7 @@ void __init setup_arch(char **cmdline_p)
 	init_mm.start_code = (unsigned long) &_stext;
 	init_mm.end_code = (unsigned long) &_etext;
 	init_mm.end_data = (unsigned long) &_edata;
-#if 0 
+#if 0 /* DAVIDM - don't set brk just incase someone decides to use it */
 	init_mm.brk = (unsigned long) &_end;
 #else
 	init_mm.brk = (unsigned long) 0;
@@ -760,23 +832,29 @@ void __init setup_arch(char **cmdline_p)
 	setup_uclinux_memory();
 #endif
 
-	
+	/* get kmalloc into gear */
 	paging_init();
 
-	
+	/* init DMA */
 	frv_dma_init();
 #ifdef DEBUG
 	printk("Done setup_arch\n");
 #endif
 
-	
+	/* start the decrement timer running */
+//	asm volatile("movgs %0,timerd" :: "r"(10000000));
+//	__set_HSR(0, __get_HSR(0) | HSR0_ETMD);
 
-} 
+} /* end setup_arch() */
 
 #if 0
+/*****************************************************************************/
+/*
+ *
+ */
 static int __devinit setup_arch_serial(void)
 {
-	
+	/* register those serial ports that are available */
 #ifndef CONFIG_GDBSTUB_UART0
 	early_serial_setup(&__frv_uart0);
 #endif
@@ -785,11 +863,15 @@ static int __devinit setup_arch_serial(void)
 #endif
 
 	return 0;
-} 
+} /* end setup_arch_serial() */
 
 late_initcall(setup_arch_serial);
 #endif
 
+/*****************************************************************************/
+/*
+ * set up the memory map for normal MMU linux
+ */
 #ifdef CONFIG_MMU
 static void __init setup_linux_memory(void)
 {
@@ -801,13 +883,16 @@ static void __init setup_linux_memory(void)
 	kstart = kstart & PAGE_MASK;
 	kend = (kend + PAGE_SIZE - 1) & PAGE_MASK;
 
+	/* give all the memory to the bootmap allocator,  tell it to put the
+	 * boot mem_map immediately following the kernel image
+	 */
 	bootmap_size = init_bootmem_node(NODE_DATA(0),
-					 kend >> PAGE_SHIFT,		
-					 memory_start >> PAGE_SHIFT,	
-					 memory_end >> PAGE_SHIFT	
+					 kend >> PAGE_SHIFT,		/* map addr */
+					 memory_start >> PAGE_SHIFT,	/* start of RAM */
+					 memory_end >> PAGE_SHIFT	/* end of RAM */
 					 );
 
-	
+	/* pass the memory that the kernel can immediately use over to the bootmem allocator */
 	max_mapnr = num_physpages = (memory_end - memory_start) >> PAGE_SHIFT;
 	low_top_pfn = (KERNEL_LOWMEM_END - KERNEL_LOWMEM_START) >> PAGE_SHIFT;
 	high_mem = 0;
@@ -838,11 +923,11 @@ static void __init setup_linux_memory(void)
 		printk(KERN_NOTICE "%ldMB HIGHMEM available.\n", high_mem >> (20 - PAGE_SHIFT));
 #endif
 
-	
+	/* take back the memory occupied by the kernel image and the bootmem alloc map */
 	reserve_bootmem(kstart, kend - kstart + bootmap_size,
 			BOOTMEM_DEFAULT);
 
-	
+	/* reserve the memory occupied by the initial ramdisk */
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (LOADER_TYPE && INITRD_START) {
 		if (INITRD_START + INITRD_SIZE <= (low_top_pfn << PAGE_SHIFT)) {
@@ -862,9 +947,13 @@ static void __init setup_linux_memory(void)
 	}
 #endif
 
-} 
+} /* end setup_linux_memory() */
 #endif
 
+/*****************************************************************************/
+/*
+ * set up the memory map for uClinux
+ */
 #ifndef CONFIG_MMU
 static void __init setup_uclinux_memory(void)
 {
@@ -877,13 +966,16 @@ static void __init setup_uclinux_memory(void)
 	kend = (unsigned long) &__kernel_image_end;
 	kend = (kend + PAGE_SIZE - 1) & PAGE_MASK;
 
+	/* give all the memory to the bootmap allocator,  tell it to put the
+	 * boot mem_map immediately following the kernel image
+	 */
 	bootmap_size = init_bootmem_node(NODE_DATA(0),
-					 kend >> PAGE_SHIFT,		
-					 memory_start >> PAGE_SHIFT,	
-					 memory_end >> PAGE_SHIFT	
+					 kend >> PAGE_SHIFT,		/* map addr */
+					 memory_start >> PAGE_SHIFT,	/* start of RAM */
+					 memory_end >> PAGE_SHIFT	/* end of RAM */
 					 );
 
-	
+	/* free all the usable memory */
 	free_bootmem(memory_start, memory_end - memory_start);
 
 	high_memory = (void *) (memory_end & PAGE_MASK);
@@ -893,7 +985,7 @@ static void __init setup_uclinux_memory(void)
 	max_low_pfn = memory_end >> PAGE_SHIFT;
 	max_pfn = max_low_pfn;
 
-	
+	/* now take back the bits the core kernel is occupying */
 #ifndef CONFIG_PROTECT_KERNEL
 	reserve_bootmem(kend, bootmap_size, BOOTMEM_DEFAULT);
 	reserve_bootmem((unsigned long) &__kernel_image_start,
@@ -909,7 +1001,7 @@ static void __init setup_uclinux_memory(void)
 	reserve_bootmem(__get_DAMPR(0) & xAMPRx_PPFN, dampr, BOOTMEM_DEFAULT);
 #endif
 
-	
+	/* reserve some memory to do uncached DMA through if requested */
 #ifdef CONFIG_RESERVE_DMA_COHERENT
 	if (dma_coherent_mem_start)
 		reserve_bootmem(dma_coherent_mem_start,
@@ -917,9 +1009,13 @@ static void __init setup_uclinux_memory(void)
 				BOOTMEM_DEFAULT);
 #endif
 
-} 
+} /* end setup_uclinux_memory() */
 #endif
 
+/*****************************************************************************/
+/*
+ * get CPU information for use by procfs
+ */
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	const char *gr, *fr, *fm, *fp, *cm, *nem, *ble;
@@ -999,7 +1095,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		   (loops_per_jiffy * HZ) / 500000, ((loops_per_jiffy * HZ) / 5000) % 100);
 
 	return 0;
-} 
+} /* end show_cpuinfo() */
 
 static void *c_start(struct seq_file *m, loff_t *pos)
 {
@@ -1029,34 +1125,42 @@ void arch_gettod(int *year, int *mon, int *day, int *hour,
 	*year = *mon = *day = *hour = *min = *sec = 0;
 }
 
+/*****************************************************************************/
+/*
+ *
+ */
 #ifdef CONFIG_MB93090_MB00
 static void __init mb93090_sendlcdcmd(uint32_t cmd)
 {
 	unsigned long base = __addr_LCD();
 	int loop;
 
-	
+	/* request reading of the busy flag */
 	__set_LCD(base, LCD_CMD_READ_BUSY);
 	__set_LCD(base, LCD_CMD_READ_BUSY & ~LCD_E);
 
-	
+	/* wait for the busy flag to become clear */
 	for (loop = 10000; loop > 0; loop--)
 		if (!(__get_LCD(base) & 0x80))
 			break;
 
-	
+	/* send the command */
 	__set_LCD(base, cmd);
 	__set_LCD(base, cmd & ~LCD_E);
 
-} 
+} /* end mb93090_sendlcdcmd() */
 
+/*****************************************************************************/
+/*
+ * write to the MB93090 LEDs and LCD
+ */
 static void __init mb93090_display(void)
 {
 	const char *p;
 
 	__set_LEDS(0);
 
-	
+	/* set up the LCD */
 	mb93090_sendlcdcmd(LCD_CMD_CLEAR);
 	mb93090_sendlcdcmd(LCD_CMD_FUNCSET(1,1,0));
 	mb93090_sendlcdcmd(LCD_CMD_ON(0,0));
@@ -1070,6 +1174,6 @@ static void __init mb93090_display(void)
 	for (p = mb93090_version; *p; p++)
 		mb93090_sendlcdcmd(LCD_DATA_WRITE(*p));
 
-} 
+} /* end mb93090_display() */
 
-#endif 
+#endif // CONFIG_MB93090_MB00

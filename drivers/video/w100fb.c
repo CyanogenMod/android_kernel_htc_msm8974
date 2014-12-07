@@ -39,6 +39,9 @@
 #include <video/w100fb.h>
 #include "w100fb.h"
 
+/*
+ * Prototypes
+ */
 static void w100_suspend(u32 mode);
 static void w100_vsync(void);
 static void w100_hw_init(struct w100fb_par*);
@@ -53,6 +56,7 @@ static void calc_hsync(struct w100fb_par *par);
 static void w100_init_graphic_engine(struct w100fb_par *par);
 struct w100_pll_info *w100_get_xtal_table(unsigned int freq) __devinit;
 
+/* Pseudo palette size */
 #define MAX_PALETTES      16
 
 #define W100_SUSPEND_EXTMEM 0
@@ -60,15 +64,22 @@ struct w100_pll_info *w100_get_xtal_table(unsigned int freq) __devinit;
 
 #define BITS_PER_PIXEL    16
 
+/* Remapped addresses for base cfg, memmapped regs and the frame buffer itself */
 static void *remapped_base;
 static void *remapped_regs;
 static void *remapped_fbuf;
 
 #define REMAPPED_FB_LEN   0x15ffff
 
+/* This is the offset in the w100's address space we map the current
+   framebuffer memory to. We use the position of external memory as
+   we can remap internal memory to there if external isn't present. */
 #define W100_FB_BASE MEM_EXT_BASE_VALUE
 
 
+/*
+ * Sysfs functions
+ */
 static ssize_t flip_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct fb_info *info = dev_get_drvdata(dev);
@@ -157,12 +168,16 @@ static ssize_t fastpllclk_store(struct device *dev, struct device_attribute *att
 
 static DEVICE_ATTR(fastpllclk, 0644, fastpllclk_show, fastpllclk_store);
 
+/*
+ * Some touchscreens need hsync information from the video driver to
+ * function correctly. We export it here.
+ */
 unsigned long w100fb_get_hsynclen(struct device *dev)
 {
 	struct fb_info *info = dev_get_drvdata(dev);
 	struct w100fb_par *par=info->par;
 
-	
+	/* If display is blanked/suspended, hsync isn't active */
 	if (par->blanked)
 		return 0;
 	else
@@ -176,15 +191,26 @@ static void w100fb_clear_screen(struct w100fb_par *par)
 }
 
 
+/*
+ * Set a palette value from rgb components
+ */
 static int w100fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 			     u_int trans, struct fb_info *info)
 {
 	unsigned int val;
 	int ret = 1;
 
+	/*
+	 * If greyscale is true, then we convert the RGB value
+	 * to greyscale no matter what visual we are using.
+	 */
 	if (info->var.grayscale)
 		red = green = blue = (19595 * red + 38470 * green + 7471 * blue) >> 16;
 
+	/*
+	 * 16-bit True Colour.  We encode the RGB value
+	 * according to the RGB bitfield information.
+	 */
 	if (regno < MAX_PALETTES) {
 		u32 *pal = info->pseudo_palette;
 
@@ -196,6 +222,9 @@ static int w100fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 }
 
 
+/*
+ * Blank the display based on value in blank_mode
+ */
 static int w100fb_blank(int blank_mode, struct fb_info *info)
 {
 	struct w100fb_par *par = info->par;
@@ -203,10 +232,10 @@ static int w100fb_blank(int blank_mode, struct fb_info *info)
 
 	switch(blank_mode) {
 
- 	case FB_BLANK_NORMAL:         
-	case FB_BLANK_VSYNC_SUSPEND:  
-	case FB_BLANK_HSYNC_SUSPEND:  
- 	case FB_BLANK_POWERDOWN:      
+ 	case FB_BLANK_NORMAL:         /* Normal blanking */
+	case FB_BLANK_VSYNC_SUSPEND:  /* VESA blank (vsync off) */
+	case FB_BLANK_HSYNC_SUSPEND:  /* VESA blank (hsync off) */
+ 	case FB_BLANK_POWERDOWN:      /* Poweroff */
   		if (par->blanked == 0) {
 			if(tg && tg->suspend)
 				tg->suspend(par);
@@ -214,7 +243,7 @@ static int w100fb_blank(int blank_mode, struct fb_info *info)
   		}
   		break;
 
- 	case FB_BLANK_UNBLANK: 
+ 	case FB_BLANK_UNBLANK: /* Unblanking */
   		if (par->blanked != 0) {
 			if(tg && tg->resume)
 				tg->resume(par);
@@ -291,7 +320,7 @@ static void w100_init_graphic_engine(struct w100fb_par *par)
 	gmc.f.gmc_src_clipping = 1;
 	gmc.f.gmc_dst_clipping = 1;
 	gmc.f.gmc_brush_datatype = GMC_BRUSH_NONE;
-	gmc.f.gmc_dst_datatype = 3; 
+	gmc.f.gmc_dst_datatype = 3; /* from DstType_16Bpp_444 */
 	gmc.f.gmc_src_datatype = SRC_DATATYPE_EQU_DST;
 	gmc.f.gmc_byte_pix_order = 1;
 	gmc.f.gmc_default_sel = 0;
@@ -372,6 +401,9 @@ static void w100fb_copyarea(struct fb_info *info,
 }
 
 
+/*
+ *  Change the resolution by calling the appropriate hardware functions
+ */
 static void w100fb_activate_var(struct w100fb_par *par)
 {
 	struct w100_tg_info *tg = par->mach->tg;
@@ -395,6 +427,10 @@ static void w100fb_activate_var(struct w100fb_par *par)
 }
 
 
+/* Select the smallest mode that allows the desired resolution to be
+ * displayed. If desired, the x and y parameters can be rounded up to
+ * match the selected mode.
+ */
 static struct w100_mode *w100fb_get_mode(struct w100fb_par *par, unsigned int *x, unsigned int *y, int saveval)
 {
 	struct w100_mode *mode = NULL;
@@ -425,6 +461,11 @@ static struct w100_mode *w100fb_get_mode(struct w100fb_par *par, unsigned int *x
 }
 
 
+/*
+ *  w100fb_check_var():
+ *  Get the video params out of 'var'. If a value doesn't fit, round it up,
+ *  if it's too big, return -EINVAL.
+ */
 static int w100fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 	struct w100fb_par *par=info->par;
@@ -459,12 +500,17 @@ static int w100fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	var->width = -1;
 	var->vmode = FB_VMODE_NONINTERLACED;
 	var->sync = 0;
-	var->pixclock = 0x04;  
+	var->pixclock = 0x04;  /* 171521; */
 
 	return 0;
 }
 
 
+/*
+ * w100fb_set_par():
+ *	Set the user defined part of the display for the specified console
+ *  by looking at the values in info.var
+ */
 static int w100fb_set_par(struct fb_info *info)
 {
 	struct w100fb_par *par=info->par;
@@ -495,6 +541,9 @@ static int w100fb_set_par(struct fb_info *info)
 }
 
 
+/*
+ *  Frame buffer operations
+ */
 static struct fb_ops w100fb_ops = {
 	.owner        = THIS_MODULE,
 	.fb_check_var = w100fb_check_var,
@@ -593,17 +642,17 @@ int __devinit w100fb_probe(struct platform_device *pdev)
 	if (!mem)
 		return -EINVAL;
 
-	
+	/* Remap the chip base address */
 	remapped_base = ioremap_nocache(mem->start+W100_CFG_BASE, W100_CFG_LEN);
 	if (remapped_base == NULL)
 		goto out;
 
-	
+	/* Map the register space */
 	remapped_regs = ioremap_nocache(mem->start+W100_REG_BASE, W100_REG_LEN);
 	if (remapped_regs == NULL)
 		goto out;
 
-	
+	/* Identify the chip */
 	printk("Found ");
 	chip_id = readl(remapped_regs + mmCHIP_ID);
 	switch(chip_id) {
@@ -617,7 +666,7 @@ int __devinit w100fb_probe(struct platform_device *pdev)
 	}
 	printk(" at 0x%08lx.\n", (unsigned long) mem->start+W100_CFG_BASE);
 
-	
+	/* Remap the framebuffer */
 	remapped_fbuf = ioremap_nocache(mem->start+MEM_WINDOW_BASE, MEM_WINDOW_SIZE);
 	if (remapped_fbuf == NULL)
 		goto out;
@@ -687,7 +736,7 @@ int __devinit w100fb_probe(struct platform_device *pdev)
 
 	info->var.xres_virtual = info->var.xres;
 	info->var.yres_virtual = info->var.yres;
-	info->var.pixclock = 0x04;  
+	info->var.pixclock = 0x04;  /* 171521; */
 	info->var.sync = 0;
 	info->var.grayscale = 0;
 	info->var.xoffset = info->var.yoffset = 0;
@@ -761,6 +810,7 @@ static int __devexit w100fb_remove(struct platform_device *pdev)
 }
 
 
+/* ------------------- chipset specific functions -------------------------- */
 
 
 static void w100_soft_reset(void)
@@ -776,7 +826,7 @@ static void w100_update_disable(void)
 {
 	union disp_db_buf_cntl_wr_u disp_db_buf_wr_cntl;
 
-	
+	/* Prevent display updates */
 	disp_db_buf_wr_cntl.f.db_buf_cntl = 0x1e;
 	disp_db_buf_wr_cntl.f.update_db_buf = 0;
 	disp_db_buf_wr_cntl.f.en_db_buf = 0;
@@ -787,7 +837,7 @@ static void w100_update_enable(void)
 {
 	union disp_db_buf_cntl_wr_u disp_db_buf_wr_cntl;
 
-	
+	/* Enable display updates */
 	disp_db_buf_wr_cntl.f.db_buf_cntl = 0x1e;
 	disp_db_buf_wr_cntl.f.update_db_buf = 1;
 	disp_db_buf_wr_cntl.f.en_db_buf = 1;
@@ -816,6 +866,9 @@ void w100fb_gpio_write(int port, unsigned long value)
 EXPORT_SYMBOL(w100fb_gpio_read);
 EXPORT_SYMBOL(w100fb_gpio_write);
 
+/*
+ * Initialization of critical w100 hardware
+ */
 static void w100_hw_init(struct w100fb_par *par)
 {
 	u32 temp32;
@@ -832,12 +885,14 @@ static void w100_hw_init(struct w100fb_par *par)
 
 	w100_soft_reset();
 
+	/* This is what the fpga_init code does on reset. May be wrong
+	   but there is little info available */
 	writel(0x31, remapped_regs + mmSCRATCH_UMSK);
 	for (temp32 = 0; temp32 < 10000; temp32++)
 		readl(remapped_regs + mmSCRATCH_UMSK);
 	writel(0x30, remapped_regs + mmSCRATCH_UMSK);
 
-	
+	/* Set up CIF */
 	cif_io.val = defCIF_IO;
 	writel((u32)(cif_io.val), remapped_regs + mmCIF_IO);
 
@@ -859,7 +914,7 @@ static void w100_hw_init(struct w100fb_par *par)
 	cif_cntl.f.interrupt_active_high = 1;
 	writel((u32) (cif_cntl.val), remapped_regs + mmCIF_CNTL);
 
-	
+	/* Setup cfgINTF_CNTL and cfgCPU defaults */
 	intf_cntl.val = defINTF_CNTL;
 	intf_cntl.f.ad_inc_a = 1;
 	intf_cntl.f.ad_inc_b = 1;
@@ -874,7 +929,7 @@ static void w100_hw_init(struct w100fb_par *par)
 	cpu_default.f.transition_size = 0;
 	writeb((u8) (cpu_default.val), remapped_base + cfgCPU_DEFAULTS);
 
-	
+	/* set up the apertures */
 	writeb((u8) (W100_REG_BASE >> 16), remapped_base + cfgREG_BASE);
 
 	cfgreg_base.val = defCFGREG_BASE;
@@ -891,13 +946,13 @@ static void w100_hw_init(struct w100fb_par *par)
 
 	writel((u32) 0x2440, remapped_regs + mmRBBM_CNTL);
 
-	
+	/* Set the hardware to 565 colour */
 	temp32 = readl(remapped_regs + mmDISP_DEBUG2);
 	temp32 &= 0xff7fffff;
 	temp32 |= 0x00800000;
 	writel(temp32, remapped_regs + mmDISP_DEBUG2);
 
-	
+	/* Initialise the GPIO lines */
 	if (gpio) {
 		writel(gpio->init_data1, remapped_regs + mmGPIO_DATA);
 		writel(gpio->init_data2, remapped_regs + mmGPIO_DATA2);
@@ -916,39 +971,43 @@ struct power_state {
 	union sclk_cntl_u sclk_cntl;
 	union pclk_cntl_u pclk_cntl;
 	union pwrmgt_cntl_u pwrmgt_cntl;
-	int auto_mode;  
+	int auto_mode;  /* system clock auto changing? */
 };
 
 
 static struct power_state w100_pwr_state;
 
+/* The PLL Fout is determined by (XtalFreq/(M+1)) * ((N_int+1) + (N_fac/8)) */
 
+/* 12.5MHz Crystal PLL Table */
 static struct w100_pll_info xtal_12500000[] = {
-	
-	{ 50,      0,   1,       0,     0xe0,        56},  
-	{ 75,      0,   5,       0,     0xde,        37},  
-	{100,      0,   7,       0,     0xe0,        28},  
-	{125,      0,   9,       0,     0xe0,        22},  
-	{150,      0,   11,      0,     0xe0,        17},  
-	{  0,      0,   0,       0,        0,         0},  
+	/*freq     M   N_int    N_fac  tfgoal  lock_time */
+	{ 50,      0,   1,       0,     0xe0,        56},  /*  50.00 MHz */
+	{ 75,      0,   5,       0,     0xde,        37},  /*  75.00 MHz */
+	{100,      0,   7,       0,     0xe0,        28},  /* 100.00 MHz */
+	{125,      0,   9,       0,     0xe0,        22},  /* 125.00 MHz */
+	{150,      0,   11,      0,     0xe0,        17},  /* 150.00 MHz */
+	{  0,      0,   0,       0,        0,         0},  /* Terminator */
 };
 
+/* 14.318MHz Crystal PLL Table */
 static struct w100_pll_info xtal_14318000[] = {
-	
-	{ 40,      4,   13,      0,     0xe0,        80}, 
-	{ 50,      1,   6,       0,     0xe0,	     64}, 
-	{ 57,      2,   11,      0,     0xe0,        53}, 
-	{ 75,      0,   4,       3,     0xe0,	     43}, 
-	{100,      0,   6,       0,     0xe0,        32}, 
+	/*freq     M   N_int    N_fac  tfgoal  lock_time */
+	{ 40,      4,   13,      0,     0xe0,        80}, /* tfgoal guessed */
+	{ 50,      1,   6,       0,     0xe0,	     64}, /*  50.05 MHz */
+	{ 57,      2,   11,      0,     0xe0,        53}, /* tfgoal guessed */
+	{ 75,      0,   4,       3,     0xe0,	     43}, /*  75.08 MHz */
+	{100,      0,   6,       0,     0xe0,        32}, /* 100.10 MHz */
 	{  0,      0,   0,       0,        0,         0},
 };
 
+/* 16MHz Crystal PLL Table */
 static struct w100_pll_info xtal_16000000[] = {
-	
-	{ 72,      1,   8,       0,     0xe0,        48}, 
-	{ 80,      1,   9,       0,     0xe0,        13}, 
-	{ 95,      1,   10,      7,     0xe0,        38}, 
-	{ 96,      1,   11,      0,     0xe0,        36}, 
+	/*freq     M   N_int    N_fac  tfgoal  lock_time */
+	{ 72,      1,   8,       0,     0xe0,        48}, /* tfgoal guessed */
+	{ 80,      1,   9,       0,     0xe0,        13}, /* tfgoal guessed */
+	{ 95,      1,   10,      7,     0xe0,        38}, /* tfgoal guessed */
+	{ 96,      1,   11,      0,     0xe0,        36}, /* tfgoal guessed */
 	{  0,      0,   0,       0,        0,         0},
 };
 
@@ -981,23 +1040,23 @@ static unsigned int w100_get_testcount(unsigned int testclk_sel)
 
 	udelay(5);
 
-	
+	/* Select the test clock source and reset */
 	clk_test_cntl.f.start_check_freq = 0x0;
 	clk_test_cntl.f.testclk_sel = testclk_sel;
-	clk_test_cntl.f.tstcount_rst = 0x1; 
+	clk_test_cntl.f.tstcount_rst = 0x1; /* set reset */
 	writel((u32) (clk_test_cntl.val), remapped_regs + mmCLK_TEST_CNTL);
 
-	clk_test_cntl.f.tstcount_rst = 0x0; 
+	clk_test_cntl.f.tstcount_rst = 0x0; /* clear reset */
 	writel((u32) (clk_test_cntl.val), remapped_regs + mmCLK_TEST_CNTL);
 
-	
+	/* Run clock test */
 	clk_test_cntl.f.start_check_freq = 0x1;
 	writel((u32) (clk_test_cntl.val), remapped_regs + mmCLK_TEST_CNTL);
 
-	
+	/* Give the test time to complete */
 	udelay(20);
 
-	
+	/* Return the result */
 	clk_test_cntl.val = readl(remapped_regs + mmCLK_TEST_CNTL);
 	clk_test_cntl.f.start_check_freq = 0x0;
 	writel((u32) (clk_test_cntl.val), remapped_regs + mmCLK_TEST_CNTL);
@@ -1011,34 +1070,38 @@ static int w100_pll_adjust(struct w100_pll_info *pll)
 	unsigned int tf80;
 	unsigned int tf20;
 
-	
-	w100_pwr_state.pll_cntl.f.pll_pwdn = 0x0;     
-	w100_pwr_state.pll_cntl.f.pll_reset = 0x0;    
-	w100_pwr_state.pll_cntl.f.pll_tcpoff = 0x1;   
-	w100_pwr_state.pll_cntl.f.pll_pvg = 0x0;      
-	w100_pwr_state.pll_cntl.f.pll_vcofr = 0x0;    
-	w100_pwr_state.pll_cntl.f.pll_ioffset = 0x0;  
+	/* Initial Settings */
+	w100_pwr_state.pll_cntl.f.pll_pwdn = 0x0;     /* power down */
+	w100_pwr_state.pll_cntl.f.pll_reset = 0x0;    /* not reset */
+	w100_pwr_state.pll_cntl.f.pll_tcpoff = 0x1;   /* Hi-Z */
+	w100_pwr_state.pll_cntl.f.pll_pvg = 0x0;      /* VCO gain = 0 */
+	w100_pwr_state.pll_cntl.f.pll_vcofr = 0x0;    /* VCO frequency range control = off */
+	w100_pwr_state.pll_cntl.f.pll_ioffset = 0x0;  /* current offset inside VCO = 0 */
 	w100_pwr_state.pll_cntl.f.pll_ring_off = 0x0;
 
+	/* Wai Ming 80 percent of VDD 1.3V gives 1.04V, minimum operating voltage is 1.08V
+	 * therefore, commented out the following lines
+	 * tf80 meant tf100
+	 */
 	do {
-		
+		/* set VCO input = 0.8 * VDD */
 		w100_pwr_state.pll_cntl.f.pll_dactal = 0xd;
 		writel((u32) (w100_pwr_state.pll_cntl.val), remapped_regs + mmPLL_CNTL);
 
 		tf80 = w100_get_testcount(TESTCLK_SRC_PLL);
 		if (tf80 >= (pll->tfgoal)) {
-			
+			/* set VCO input = 0.2 * VDD */
 			w100_pwr_state.pll_cntl.f.pll_dactal = 0x7;
 			writel((u32) (w100_pwr_state.pll_cntl.val), remapped_regs + mmPLL_CNTL);
 
 			tf20 = w100_get_testcount(TESTCLK_SRC_PLL);
 			if (tf20 <= (pll->tfgoal))
-				return 1;  
+				return 1;  /* Success */
 
 			if ((w100_pwr_state.pll_cntl.f.pll_vcofr == 0x0) &&
 				((w100_pwr_state.pll_cntl.f.pll_pvg == 0x7) ||
 				(w100_pwr_state.pll_cntl.f.pll_ioffset == 0x0))) {
-				
+				/* slow VCO config */
 				w100_pwr_state.pll_cntl.f.pll_vcofr = 0x1;
 				w100_pwr_state.pll_cntl.f.pll_pvg = 0x0;
 				w100_pwr_state.pll_cntl.f.pll_ioffset = 0x0;
@@ -1051,36 +1114,39 @@ static int w100_pll_adjust(struct w100_pll_info *pll)
 			w100_pwr_state.pll_cntl.f.pll_ioffset = 0x0;
 			w100_pwr_state.pll_cntl.f.pll_pvg += 0x1;
 		} else {
-			return 0;  
+			return 0;  /* Error */
 		}
 	} while(1);
 }
 
 
+/*
+ * w100_pll_calibration
+ */
 static int w100_pll_calibration(struct w100_pll_info *pll)
 {
 	int status;
 
 	status = w100_pll_adjust(pll);
 
-	
-	
+	/* PLL Reset And Lock */
+	/* set VCO input = 0.5 * VDD */
 	w100_pwr_state.pll_cntl.f.pll_dactal = 0xa;
 	writel((u32) (w100_pwr_state.pll_cntl.val), remapped_regs + mmPLL_CNTL);
 
-	udelay(1);  
+	udelay(1);  /* reset time */
 
-	
-	w100_pwr_state.pll_cntl.f.pll_tcpoff = 0x0;  
+	/* enable charge pump */
+	w100_pwr_state.pll_cntl.f.pll_tcpoff = 0x0;  /* normal */
 	writel((u32) (w100_pwr_state.pll_cntl.val), remapped_regs + mmPLL_CNTL);
 
-	
+	/* set VCO input = Hi-Z, disable DAC */
 	w100_pwr_state.pll_cntl.f.pll_dactal = 0x0;
 	writel((u32) (w100_pwr_state.pll_cntl.val), remapped_regs + mmPLL_CNTL);
 
-	udelay(400);  
+	udelay(400);  /* lock time */
 
-	
+	/* PLL locked */
 
 	return status;
 }
@@ -1090,14 +1156,14 @@ static int w100_pll_set_clk(struct w100_pll_info *pll)
 {
 	int status;
 
-	if (w100_pwr_state.auto_mode == 1)  
+	if (w100_pwr_state.auto_mode == 1)  /* auto mode */
 	{
-		w100_pwr_state.pwrmgt_cntl.f.pwm_fast_noml_hw_en = 0x0;  
-		w100_pwr_state.pwrmgt_cntl.f.pwm_noml_fast_hw_en = 0x0;  
+		w100_pwr_state.pwrmgt_cntl.f.pwm_fast_noml_hw_en = 0x0;  /* disable fast to normal */
+		w100_pwr_state.pwrmgt_cntl.f.pwm_noml_fast_hw_en = 0x0;  /* disable normal to fast */
 		writel((u32) (w100_pwr_state.pwrmgt_cntl.val), remapped_regs + mmPWRMGT_CNTL);
 	}
 
-	
+	/* Set system clock source to XTAL whilst adjusting the PLL! */
 	w100_pwr_state.sclk_cntl.f.sclk_src_sel = CLK_SRC_XTAL;
 	writel((u32) (w100_pwr_state.sclk_cntl.val), remapped_regs + mmSCLK_CNTL);
 
@@ -1112,15 +1178,16 @@ static int w100_pll_set_clk(struct w100_pll_info *pll)
 
 	status = w100_pll_calibration(pll);
 
-	if (w100_pwr_state.auto_mode == 1)  
+	if (w100_pwr_state.auto_mode == 1)  /* auto mode */
 	{
-		w100_pwr_state.pwrmgt_cntl.f.pwm_fast_noml_hw_en = 0x1;  
-		w100_pwr_state.pwrmgt_cntl.f.pwm_noml_fast_hw_en = 0x1;  
+		w100_pwr_state.pwrmgt_cntl.f.pwm_fast_noml_hw_en = 0x1;  /* reenable fast to normal */
+		w100_pwr_state.pwrmgt_cntl.f.pwm_noml_fast_hw_en = 0x1;  /* reenable normal to fast  */
 		writel((u32) (w100_pwr_state.pwrmgt_cntl.val), remapped_regs + mmPWRMGT_CNTL);
 	}
 	return status;
 }
 
+/* freq = target frequency of the PLL */
 static int w100_set_pll_freq(struct w100fb_par *par, unsigned int freq)
 {
 	struct w100_pll_info *pll = par->pll_table;
@@ -1147,19 +1214,19 @@ static void w100_pwm_setup(struct w100fb_par *par)
 	writel((u32) (w100_pwr_state.clk_pin_cntl.val), remapped_regs + mmCLK_PIN_CNTL);
 
 	w100_pwr_state.sclk_cntl.f.sclk_src_sel = CLK_SRC_XTAL;
-	w100_pwr_state.sclk_cntl.f.sclk_post_div_fast = 0x0;  
+	w100_pwr_state.sclk_cntl.f.sclk_post_div_fast = 0x0;  /* Pfast = 1 */
 	w100_pwr_state.sclk_cntl.f.sclk_clkon_hys = 0x3;
-	w100_pwr_state.sclk_cntl.f.sclk_post_div_slow = 0x0;  
+	w100_pwr_state.sclk_cntl.f.sclk_post_div_slow = 0x0;  /* Pslow = 1 */
 	w100_pwr_state.sclk_cntl.f.disp_cg_ok2switch_en = 0x0;
-	w100_pwr_state.sclk_cntl.f.sclk_force_reg = 0x0;    
-	w100_pwr_state.sclk_cntl.f.sclk_force_disp = 0x0;   
-	w100_pwr_state.sclk_cntl.f.sclk_force_mc = 0x0;     
-	w100_pwr_state.sclk_cntl.f.sclk_force_extmc = 0x0;  
-	w100_pwr_state.sclk_cntl.f.sclk_force_cp = 0x0;     
-	w100_pwr_state.sclk_cntl.f.sclk_force_e2 = 0x0;     
-	w100_pwr_state.sclk_cntl.f.sclk_force_e3 = 0x0;     
-	w100_pwr_state.sclk_cntl.f.sclk_force_idct = 0x0;   
-	w100_pwr_state.sclk_cntl.f.sclk_force_bist = 0x0;   
+	w100_pwr_state.sclk_cntl.f.sclk_force_reg = 0x0;    /* Dynamic */
+	w100_pwr_state.sclk_cntl.f.sclk_force_disp = 0x0;   /* Dynamic */
+	w100_pwr_state.sclk_cntl.f.sclk_force_mc = 0x0;     /* Dynamic */
+	w100_pwr_state.sclk_cntl.f.sclk_force_extmc = 0x0;  /* Dynamic */
+	w100_pwr_state.sclk_cntl.f.sclk_force_cp = 0x0;     /* Dynamic */
+	w100_pwr_state.sclk_cntl.f.sclk_force_e2 = 0x0;     /* Dynamic */
+	w100_pwr_state.sclk_cntl.f.sclk_force_e3 = 0x0;     /* Dynamic */
+	w100_pwr_state.sclk_cntl.f.sclk_force_idct = 0x0;   /* Dynamic */
+	w100_pwr_state.sclk_cntl.f.sclk_force_bist = 0x0;   /* Dynamic */
 	w100_pwr_state.sclk_cntl.f.busy_extend_cp = 0x0;
 	w100_pwr_state.sclk_cntl.f.busy_extend_e2 = 0x0;
 	w100_pwr_state.sclk_cntl.f.busy_extend_e3 = 0x0;
@@ -1167,12 +1234,12 @@ static void w100_pwm_setup(struct w100fb_par *par)
 	writel((u32) (w100_pwr_state.sclk_cntl.val), remapped_regs + mmSCLK_CNTL);
 
 	w100_pwr_state.pclk_cntl.f.pclk_src_sel = CLK_SRC_XTAL;
-	w100_pwr_state.pclk_cntl.f.pclk_post_div = 0x1;    
-	w100_pwr_state.pclk_cntl.f.pclk_force_disp = 0x0;  
+	w100_pwr_state.pclk_cntl.f.pclk_post_div = 0x1;    /* P = 2 */
+	w100_pwr_state.pclk_cntl.f.pclk_force_disp = 0x0;  /* Dynamic */
 	writel((u32) (w100_pwr_state.pclk_cntl.val), remapped_regs + mmPCLK_CNTL);
 
-	w100_pwr_state.pll_ref_fb_div.f.pll_ref_div = 0x0;     
-	w100_pwr_state.pll_ref_fb_div.f.pll_fb_div_int = 0x0;  
+	w100_pwr_state.pll_ref_fb_div.f.pll_ref_div = 0x0;     /* M = 1 */
+	w100_pwr_state.pll_ref_fb_div.f.pll_fb_div_int = 0x0;  /* N = 1.0 */
 	w100_pwr_state.pll_ref_fb_div.f.pll_fb_div_frac = 0x0;
 	w100_pwr_state.pll_ref_fb_div.f.pll_reset_time = 0x5;
 	w100_pwr_state.pll_ref_fb_div.f.pll_lock_time = 0xff;
@@ -1181,7 +1248,7 @@ static void w100_pwm_setup(struct w100fb_par *par)
 	w100_pwr_state.pll_cntl.f.pll_pwdn = 0x1;
 	w100_pwr_state.pll_cntl.f.pll_reset = 0x1;
 	w100_pwr_state.pll_cntl.f.pll_pm_en = 0x0;
-	w100_pwr_state.pll_cntl.f.pll_mode = 0x0;  
+	w100_pwr_state.pll_cntl.f.pll_mode = 0x0;  /* uses VCO clock */
 	w100_pwr_state.pll_cntl.f.pll_refclk_sel = 0x0;
 	w100_pwr_state.pll_cntl.f.pll_fbclk_sel = 0x0;
 	w100_pwr_state.pll_cntl.f.pll_tcpoff = 0x0;
@@ -1191,7 +1258,7 @@ static void w100_pwm_setup(struct w100fb_par *par)
 	w100_pwr_state.pll_cntl.f.pll_ioffset = 0x0;
 	w100_pwr_state.pll_cntl.f.pll_pecc_mode = 0x0;
 	w100_pwr_state.pll_cntl.f.pll_pecc_scon = 0x0;
-	w100_pwr_state.pll_cntl.f.pll_dactal = 0x0;  
+	w100_pwr_state.pll_cntl.f.pll_dactal = 0x0;  /* Hi-Z */
 	w100_pwr_state.pll_cntl.f.pll_cp_clip = 0x3;
 	w100_pwr_state.pll_cntl.f.pll_conf = 0x2;
 	w100_pwr_state.pll_cntl.f.pll_mbctrl = 0x2;
@@ -1199,20 +1266,23 @@ static void w100_pwm_setup(struct w100fb_par *par)
 	writel((u32) (w100_pwr_state.pll_cntl.val), remapped_regs + mmPLL_CNTL);
 
 	w100_pwr_state.pwrmgt_cntl.f.pwm_enable = 0x0;
-	w100_pwr_state.pwrmgt_cntl.f.pwm_mode_req = 0x1;  
+	w100_pwr_state.pwrmgt_cntl.f.pwm_mode_req = 0x1;  /* normal mode (0, 1, 3) */
 	w100_pwr_state.pwrmgt_cntl.f.pwm_wakeup_cond = 0x0;
 	w100_pwr_state.pwrmgt_cntl.f.pwm_fast_noml_hw_en = 0x0;
 	w100_pwr_state.pwrmgt_cntl.f.pwm_noml_fast_hw_en = 0x0;
-	w100_pwr_state.pwrmgt_cntl.f.pwm_fast_noml_cond = 0x1;  
-	w100_pwr_state.pwrmgt_cntl.f.pwm_noml_fast_cond = 0x1;  
+	w100_pwr_state.pwrmgt_cntl.f.pwm_fast_noml_cond = 0x1;  /* PM4,ENG */
+	w100_pwr_state.pwrmgt_cntl.f.pwm_noml_fast_cond = 0x1;  /* PM4,ENG */
 	w100_pwr_state.pwrmgt_cntl.f.pwm_idle_timer = 0xFF;
 	w100_pwr_state.pwrmgt_cntl.f.pwm_busy_timer = 0xFF;
 	writel((u32) (w100_pwr_state.pwrmgt_cntl.val), remapped_regs + mmPWRMGT_CNTL);
 
-	w100_pwr_state.auto_mode = 0;  
+	w100_pwr_state.auto_mode = 0;  /* manual mode */
 }
 
 
+/*
+ * Setup the w100 clocks for the specified mode
+ */
 static void w100_init_clocks(struct w100fb_par *par)
 {
 	struct w100_mode *mode = par->mode;
@@ -1237,7 +1307,7 @@ static void w100_init_lcd(struct w100fb_par *par)
 	union graphic_v_disp_u graphic_v_disp;
 	union crtc_total_u crtc_total;
 
-	
+	/* w3200 doesn't like undefined bits being set so zero register values first */
 
 	active_h_disp.val = 0;
 	active_h_disp.f.active_h_start=mode->left_margin;
@@ -1286,7 +1356,7 @@ static void w100_init_lcd(struct w100fb_par *par)
 	writel(0x00000000, remapped_regs + mmCRTC_DEFAULT_COUNT);
 	writel(0x0000FF00, remapped_regs + mmLCD_BACKGROUND_COLOR);
 
-	
+	/* Hack for overlay in ext memory */
 	temp32 = readl(remapped_regs + mmDISP_DEBUG2);
 	temp32 |= 0xc0000000;
 	writel(temp32, remapped_regs + mmDISP_DEBUG2);
@@ -1303,21 +1373,23 @@ static void w100_setup_memory(struct w100fb_par *par)
 	if (!par->extmem_active) {
 		w100_suspend(W100_SUSPEND_EXTMEM);
 
-		
+		/* Map Internal Memory at FB Base */
 		intmem_location.f.mc_fb_start = W100_FB_BASE >> 8;
 		intmem_location.f.mc_fb_top = (W100_FB_BASE+MEM_INT_SIZE) >> 8;
 		writel((u32) (intmem_location.val), remapped_regs + mmMC_FB_LOCATION);
 
+		/* Unmap External Memory - value is *probably* irrelevant but may have meaning
+		   to acceleration libraries */
 		extmem_location.f.mc_ext_mem_start = MEM_EXT_BASE_VALUE >> 8;
 		extmem_location.f.mc_ext_mem_top = (MEM_EXT_BASE_VALUE-1) >> 8;
 		writel((u32) (extmem_location.val), remapped_regs + mmMC_EXT_MEM_LOCATION);
 	} else {
-		
+		/* Map Internal Memory to its default location */
 		intmem_location.f.mc_fb_start = MEM_INT_BASE_VALUE >> 8;
 		intmem_location.f.mc_fb_top = (MEM_INT_BASE_VALUE+MEM_INT_SIZE) >> 8;
 		writel((u32) (intmem_location.val), remapped_regs + mmMC_FB_LOCATION);
 
-		
+		/* Map External Memory at FB Base */
 		extmem_location.f.mc_ext_mem_start = W100_FB_BASE >> 8;
 		extmem_location.f.mc_ext_mem_top = (W100_FB_BASE+par->mach->mem->size) >> 8;
 		writel((u32) (extmem_location.val), remapped_regs + mmMC_EXT_MEM_LOCATION);
@@ -1349,25 +1421,25 @@ static void w100_set_dispregs(struct w100fb_par *par)
 	unsigned long rot=0, divider, offset=0;
 	union graphic_ctrl_u graphic_ctrl;
 
-	
+	/* See if the mode has been rotated */
 	if (par->xres == par->mode->xres) {
 		if (par->flip) {
-			rot=3; 
+			rot=3; /* 180 degree */
 			offset=(par->xres * par->yres) - 1;
-		} 
+		} /* else 0 degree */
 		divider = par->mode->pixclk_divider;
 	} else {
 		if (par->flip) {
-			rot=2; 
+			rot=2; /* 270 degree */
 			offset=par->xres - 1;
 		} else {
-			rot=1; 
+			rot=1; /* 90 degree */
 			offset=par->xres * (par->yres - 1);
 		}
 		divider = par->mode->pixclk_divider_rotated;
 	}
 
-	graphic_ctrl.val = 0; 
+	graphic_ctrl.val = 0; /* w32xx doesn't like undefined bits */
 	switch (par->chip_id) {
 		case CHIP_ID_W100:
 			graphic_ctrl.f_w100.color_depth=6;
@@ -1380,7 +1452,7 @@ static void w100_set_dispregs(struct w100fb_par *par)
 			graphic_ctrl.f_w100.req_freq=0;
 			graphic_ctrl.f_w100.portrait_mode=rot;
 
-			
+			/* Zaurus needs this */
 			switch(par->xres) {
 				case 240:
 				case 320:
@@ -1390,13 +1462,13 @@ static void w100_set_dispregs(struct w100fb_par *par)
 				case 480:
 				case 640:
 					switch(rot) {
-						case 0:  
-						case 3:  
+						case 0:  /* 0 */
+						case 3:  /* 180 */
 							graphic_ctrl.f_w100.low_power_on=1;
 							graphic_ctrl.f_w100.req_freq=5;
 						break;
-						case 1:  
-						case 2:  
+						case 1:  /* 90 */
+						case 2:  /* 270 */
 							graphic_ctrl.f_w100.req_freq=4;
 							break;
 						default:
@@ -1416,12 +1488,12 @@ static void w100_set_dispregs(struct w100fb_par *par)
 			graphic_ctrl.f_w32xx.lcd_sclk_on=1;
 			graphic_ctrl.f_w32xx.low_power_on=0;
 			graphic_ctrl.f_w32xx.req_freq=0;
-			graphic_ctrl.f_w32xx.total_req_graphic=par->mode->xres >> 1; 
+			graphic_ctrl.f_w32xx.total_req_graphic=par->mode->xres >> 1; /* panel xres, not mode */
 			graphic_ctrl.f_w32xx.portrait_mode=rot;
 			break;
 	}
 
-	
+	/* Set the pixel clock source and divider */
 	w100_pwr_state.pclk_cntl.f.pclk_src_sel = par->mode->pixclk_src;
 	w100_pwr_state.pclk_cntl.f.pclk_post_div = divider;
 	writel((u32) (w100_pwr_state.pclk_cntl.val), remapped_regs + mmPCLK_CNTL);
@@ -1432,6 +1504,10 @@ static void w100_set_dispregs(struct w100fb_par *par)
 }
 
 
+/*
+ * Work out how long the sync pulse lasts
+ * Value is 1/(time in seconds)
+ */
 static void calc_hsync(struct w100fb_par *par)
 {
 	unsigned long hsync;
@@ -1460,26 +1536,26 @@ static void w100_suspend(u32 mode)
 	writel(0x00FF0000, remapped_regs + mmMC_PERF_MON_CNTL);
 
 	val = readl(remapped_regs + mmMEM_EXT_TIMING_CNTL);
-	val &= ~(0x00100000);  
-	val |= 0xFF000000;     
+	val &= ~(0x00100000);  /* bit20=0 */
+	val |= 0xFF000000;     /* bit31:24=0xff */
 	writel(val, remapped_regs + mmMEM_EXT_TIMING_CNTL);
 
 	val = readl(remapped_regs + mmMEM_EXT_CNTL);
-	val &= ~(0x00040000);  
-	val |= 0x00080000;     
+	val &= ~(0x00040000);  /* bit18=0 */
+	val |= 0x00080000;     /* bit19=1 */
 	writel(val, remapped_regs + mmMEM_EXT_CNTL);
 
-	udelay(1);  
+	udelay(1);  /* wait 1us */
 
 	if (mode == W100_SUSPEND_EXTMEM) {
-		
+		/* CKE: Tri-State */
 		val = readl(remapped_regs + mmMEM_EXT_CNTL);
-		val |= 0x40000000;  
+		val |= 0x40000000;  /* bit30=1 */
 		writel(val, remapped_regs + mmMEM_EXT_CNTL);
 
-		
+		/* CLK: Stop */
 		val = readl(remapped_regs + mmMEM_EXT_CNTL);
-		val &= ~(0x00000001);  
+		val &= ~(0x00000001);  /* bit0=0 */
 		writel(val, remapped_regs + mmMEM_EXT_CNTL);
 	} else {
 		writel(0x00000000, remapped_regs + mmSCLK_CNTL);
@@ -1489,7 +1565,7 @@ static void w100_suspend(u32 mode)
 		udelay(5);
 
 		val = readl(remapped_regs + mmPLL_CNTL);
-		val |= 0x00000004;  
+		val |= 0x00000004;  /* bit2=1 */
 		writel(val, remapped_regs + mmPLL_CNTL);
 		writel(0x0000001d, remapped_regs + mmPWRMGT_CNTL);
 	}
@@ -1498,26 +1574,26 @@ static void w100_suspend(u32 mode)
 static void w100_vsync(void)
 {
 	u32 tmp;
-	int timeout = 30000;  
+	int timeout = 30000;  /* VSync timeout = 30[ms] > 16.8[ms] */
 
 	tmp = readl(remapped_regs + mmACTIVE_V_DISP);
 
-	
+	/* set vline pos  */
 	writel((tmp >> 16) & 0x3ff, remapped_regs + mmDISP_INT_CNTL);
 
-	
+	/* disable vline irq */
 	tmp = readl(remapped_regs + mmGEN_INT_CNTL);
 
 	tmp &= ~0x00000002;
 	writel(tmp, remapped_regs + mmGEN_INT_CNTL);
 
-	
+	/* clear vline irq status */
 	writel(0x00000002, remapped_regs + mmGEN_INT_STATUS);
 
-	
+	/* enable vline irq */
 	writel((tmp | 0x00000002), remapped_regs + mmGEN_INT_CNTL);
 
-	
+	/* clear vline irq status */
 	writel(0x00000002, remapped_regs + mmGEN_INT_STATUS);
 
 	while(timeout > 0) {
@@ -1527,10 +1603,10 @@ static void w100_vsync(void)
 		timeout--;
 	}
 
-	
+	/* disable vline irq */
 	writel(tmp, remapped_regs + mmGEN_INT_CNTL);
 
-	
+	/* clear vline irq status */
 	writel(0x00000002, remapped_regs + mmGEN_INT_STATUS);
 }
 

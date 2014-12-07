@@ -1,21 +1,37 @@
 #ifndef __MACH_MX53_H__
 #define __MACH_MX53_H__
 
+/*
+ * IROM
+ */
 #define MX53_IROM_BASE_ADDR		0x0
 #define MX53_IROM_SIZE			SZ_64K
 
+/* TZIC */
 #define MX53_TZIC_BASE_ADDR		0x0FFFC000
 #define MX53_TZIC_SIZE			SZ_16K
 
+/*
+ * AHCI SATA
+ */
 #define MX53_SATA_BASE_ADDR		0x10000000
 
-#define MX53_NFC_AXI_BASE_ADDR	0xF7FF0000	
+/*
+ * NFC
+ */
+#define MX53_NFC_AXI_BASE_ADDR	0xF7FF0000	/* NAND flash AXI */
 #define MX53_NFC_AXI_SIZE		SZ_64K
 
-#define MX53_IRAM_BASE_ADDR	0xF8000000	
+/*
+ * IRAM
+ */
+#define MX53_IRAM_BASE_ADDR	0xF8000000	/* internal ram */
 #define MX53_IRAM_PARTITIONS	16
-#define MX53_IRAM_SIZE		(MX53_IRAM_PARTITIONS * SZ_8K)	
+#define MX53_IRAM_SIZE		(MX53_IRAM_PARTITIONS * SZ_8K)	/* 128KB */
 
+/*
+ * Graphics Memory of GPU
+ */
 #define MX53_IPU_CTRL_BASE_ADDR	0x18000000
 #define MX53_GPU2D_BASE_ADDR		0x20000000
 #define MX53_GPU_BASE_ADDR		0x30000000
@@ -32,6 +48,9 @@
 #define MX53_CTI3_BASE_ADDR		(MX53_DEBUG_BASE_ADDR + 0x00007000)
 #define MX53_CORTEX_DBG_BASE_ADDR	(MX53_DEBUG_BASE_ADDR + 0x00008000)
 
+/*
+ * SPBA global module enabled #0
+ */
 #define MX53_SPBA0_BASE_ADDR		0x50000000
 #define MX53_SPBA0_SIZE		SZ_1M
 
@@ -49,6 +68,9 @@
 #define MX53_HSI2C_DMA_BASE_ADDR	(MX53_SPBA0_BASE_ADDR + 0x00038000)
 #define MX53_SPBA_CTRL_BASE_ADDR	(MX53_SPBA0_BASE_ADDR + 0x0003C000)
 
+/*
+ * AIPS 1
+ */
 #define MX53_AIPS1_BASE_ADDR	0x53F00000
 #define MX53_AIPS1_SIZE		SZ_1M
 
@@ -79,6 +101,9 @@
 #define MX53_I2C3_BASE_ADDR	(MX53_AIPS1_BASE_ADDR + 0x000EC000)
 #define MX53_UART4_BASE_ADDR	(MX53_AIPS1_BASE_ADDR + 0x000F0000)
 
+/*
+ * AIPS 2
+ */
 #define MX53_AIPS2_BASE_ADDR		0x63F00000
 #define MX53_AIPS2_SIZE			SZ_1M
 
@@ -118,6 +143,9 @@
 #define MX53_SAHARA_BASE_ADDR	(MX53_AIPS2_BASE_ADDR + 0x000F8000)
 #define MX53_PTP_BASE_ADDR	(MX53_AIPS2_BASE_ADDR + 0x000FC000)
 
+/*
+ * Memory regions and CS
+ */
 #define MX53_CSD0_BASE_ADDR		0x70000000
 #define MX53_CSD1_BASE_ADDR		0xB0000000
 #define MX53_CS0_BASE_ADDR		0xF0000000
@@ -130,6 +158,9 @@
 #define MX53_IO_P2V(x)			IMX_IO_P2V(x)
 #define MX53_IO_ADDRESS(x)		IOMEM(MX53_IO_P2V(x))
 
+/*
+ * defines for SPBA modules
+ */
 #define MX53_SPBA_SDHC1	0x04
 #define MX53_SPBA_SDHC2	0x08
 #define MX53_SPBA_UART3	0x0C
@@ -143,6 +174,9 @@
 #define MX53_SPBA_HSI2C	0x38
 #define MX53_SPBA_CTRL		0x3C
 
+/*
+ * DMA request assignments
+ */
 #define MX53_DMA_REQ_SSI3_TX0		47
 #define MX53_DMA_REQ_SSI3_RX0		46
 #define MX53_DMA_REQ_SSI3_TX1		45
@@ -192,6 +226,9 @@
 #define MX53_DMA_REQ_GPC		1
 #define MX53_DMA_REQ_VPU		0
 
+/*
+ * Interrupt numbers
+ */
 #define MX53_INT_RESV0		0
 #define MX53_INT_ESDHC1	1
 #define MX53_INT_ESDHC2	2
@@ -301,4 +338,4 @@
 #define MX53_INT_GPIO7_LOW	107
 #define MX53_INT_GPIO7_HIGH	108
 
-#endif 
+#endif /* ifndef __MACH_MX53_H__ */

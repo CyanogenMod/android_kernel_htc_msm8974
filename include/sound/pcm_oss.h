@@ -37,25 +37,25 @@ struct snd_pcm_oss_setup {
 };
 
 struct snd_pcm_oss_runtime {
-	unsigned params: 1,			
-		 prepare: 1,			
-		 trigger: 1,			
-		 sync_trigger: 1;		
-	int rate;				
-	int format;				
-	unsigned int channels;			
+	unsigned params: 1,			/* format/parameter change */
+		 prepare: 1,			/* need to prepare the operation */
+		 trigger: 1,			/* trigger flag */
+		 sync_trigger: 1;		/* sync trigger flag */
+	int rate;				/* requested rate */
+	int format;				/* requested OSS format */
+	unsigned int channels;			/* requested channels */
 	unsigned int fragshift;
 	unsigned int maxfrags;
-	unsigned int subdivision;		
-	size_t period_bytes;			
-	size_t period_frames;			
-	size_t period_ptr;			
+	unsigned int subdivision;		/* requested subdivision */
+	size_t period_bytes;			/* requested period size */
+	size_t period_frames;			/* period frames for poll */
+	size_t period_ptr;			/* actual write pointer to period */
 	unsigned int periods;
-	size_t buffer_bytes;			
-	size_t bytes;				
+	size_t buffer_bytes;			/* requested buffer size */
+	size_t bytes;				/* total # bytes processed */
 	size_t mmap_bytes;
-	char *buffer;				
-	size_t buffer_used;			
+	char *buffer;				/* vmallocated period */
+	size_t buffer_used;			/* used length from period buffer */
 	struct mutex params_lock;
 #ifdef CONFIG_SND_PCM_OSS_PLUGINS
 	struct snd_pcm_plugin *plugin_first;
@@ -69,12 +69,12 @@ struct snd_pcm_oss_file {
 };
 
 struct snd_pcm_oss_substream {
-	unsigned oss: 1;			
-	struct snd_pcm_oss_setup setup;		
+	unsigned oss: 1;			/* oss mode */
+	struct snd_pcm_oss_setup setup;		/* active setup */
 };
 
 struct snd_pcm_oss_stream {
-	struct snd_pcm_oss_setup *setup_list;	
+	struct snd_pcm_oss_setup *setup_list;	/* setup list */
 	struct mutex setup_mutex;
 #ifdef CONFIG_SND_VERBOSE_PROCFS
 	struct snd_info_entry *proc_entry;
@@ -86,4 +86,4 @@ struct snd_pcm_oss {
 	unsigned int reg_mask;
 };
 
-#endif 
+#endif /* __SOUND_PCM_OSS_H */

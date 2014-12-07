@@ -45,6 +45,11 @@ ACPI_MODULE_NAME("processor_thermal");
 
 #ifdef CONFIG_CPU_FREQ
 
+/* If a passive cooling situation is detected, primarily CPUfreq is used, as it
+ * offers (in most cases) voltage scaling in addition to frequency scaling, and
+ * thus a cubic (instead of linear) reduction of energy. Also, we allow for
+ * _any_ cpufreq driver and not only the acpi-cpufreq driver.
+ */
 
 #define CPUFREQ_THERMAL_MIN_STEP 0
 #define CPUFREQ_THERMAL_MAX_STEP 3
@@ -55,6 +60,13 @@ static unsigned int acpi_thermal_cpufreq_is_init = 0;
 #define reduction_pctg(cpu) \
 	per_cpu(cpufreq_thermal_reduction_pctg, phys_package_first_cpu(cpu))
 
+/*
+ * Emulate "per package data" using per cpu data (which should really be
+ * provided elsewhere)
+ *
+ * Note we can lose a CPU on cpu hotunplug, in this case we forget the state
+ * temporarily. Fortunately that's not a big issue here (I hope)
+ */
 static int phys_package_first_cpu(int cpu)
 {
 	int i;
@@ -123,6 +135,11 @@ static int cpufreq_set_cur_state(unsigned int cpu, int state)
 
 	reduction_pctg(cpu) = state;
 
+	/*
+	 * Update all the CPUs in the same package because they all
+	 * contribute to the temperature and often share the same
+	 * frequency.
+	 */
 	for_each_online_cpu(i) {
 		if (topology_physical_package_id(i) ==
 		    topology_physical_package_id(cpu))
@@ -151,7 +168,7 @@ void acpi_thermal_cpufreq_exit(void)
 	acpi_thermal_cpufreq_is_init = 0;
 }
 
-#else				
+#else				/* ! CONFIG_CPU_FREQ */
 static int cpufreq_get_max_state(unsigned int cpu)
 {
 	return 0;
@@ -181,10 +198,15 @@ int acpi_processor_get_limit_info(struct acpi_processor *pr)
 	return 0;
 }
 
+/* thermal coolign device callbacks */
 static int acpi_processor_max_state(struct acpi_processor *pr)
 {
 	int max_state = 0;
 
+	/*
+	 * There exists four states according to
+	 * cpufreq_thermal_reduction_ptg. 0, 1, 2, 3
+	 */
 	max_state += cpufreq_get_max_state(pr->id);
 	if (pr->flags.throttling)
 		max_state += (pr->throttling.state_count -1);

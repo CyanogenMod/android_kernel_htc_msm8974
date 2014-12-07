@@ -66,9 +66,12 @@ nautilus_init_irq(void)
 static int __init
 nautilus_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
-	
+	/* Preserve the IRQ set up by the console.  */
 
 	u8 irq;
+	/* UP1500: AGP INTA is actually routed to IRQ 5, not IRQ 10 as
+	   console reports. Check the device id of AGP bridge to distinguish
+	   UP1500 from UP1000/1100. Note: 'pin' is 2 due to bridge swizzle. */
 	if (slot == 1 && pin == 2 &&
 	    dev->bus->self && dev->bus->self->device == 0x700f)
 		return 5;
@@ -91,27 +94,28 @@ nautilus_kill_arch(int mode)
 			pci_bus_write_config_byte(bus, 0x38, 0x43, t8 | 0x80);
 			outb(1, 0x92);
 			outb(0, 0x92);
-			
+			/* NOTREACHED */
 		}
 		break;
 
 	case LINUX_REBOOT_CMD_POWER_OFF:
-		
-		off = 0x2000;		
+		/* Assume M1543C */
+		off = 0x2000;		/* SLP_TYPE = 0, SLP_EN = 1 */
 		pci_bus_read_config_dword(bus, 0x88, 0x10, &pmuport);
 		if (!pmuport) {
-			
-			off = 0x3400;	
+			/* M1535D/D+ */
+			off = 0x3400;	/* SLP_TYPE = 5, SLP_EN = 1 */
 			pci_bus_read_config_dword(bus, 0x88, 0xe0, &pmuport);
 		}
 		pmuport &= 0xfffe;
-		outw(0xffff, pmuport);	
+		outw(0xffff, pmuport);	/* Clear pending events. */
 		outw(off, pmuport + 4);
-		
+		/* NOTREACHED */
 		break;
 	}
 }
 
+/* Perform analysis of a machine check that arrived from the system (NMI) */
 
 static void
 naut_sys_machine_check(unsigned long vector, unsigned long la_ptr,
@@ -121,30 +125,35 @@ naut_sys_machine_check(unsigned long vector, unsigned long la_ptr,
 	irongate_pci_clr_err();
 }
 
+/* Machine checks can come from two sources - those on the CPU and those
+   in the system.  They are analysed separately but all starts here.  */
 
 void
 nautilus_machine_check(unsigned long vector, unsigned long la_ptr)
 {
 	char *mchk_class;
 
+	/* Now for some analysis.  Machine checks fall into two classes --
+	   those picked up by the system, and those picked up by the CPU.
+	   Add to that the two levels of severity - correctable or not.  */
 
 	if (vector == SCB_Q_SYSMCHK
 	    && ((IRONGATE0->dramms & 0x300) == 0x300)) {
 		unsigned long nmi_ctl;
 
-		
+		/* Clear ALI NMI */
 		nmi_ctl = inb(0x61);
 		nmi_ctl |= 0x0c;
 		outb(nmi_ctl, 0x61);
 		nmi_ctl &= ~0x0c;
 		outb(nmi_ctl, 0x61);
 
-		
+		/* Write again clears error bits.  */
 		IRONGATE0->stat_cmd = IRONGATE0->stat_cmd & ~0x100;
 		mb();
 		IRONGATE0->stat_cmd;
 
-		
+		/* Write again clears error bits.  */
 		IRONGATE0->dramms = IRONGATE0->dramms;
 		mb();
 		IRONGATE0->dramms;
@@ -170,7 +179,7 @@ nautilus_machine_check(unsigned long vector, unsigned long la_ptr)
 
 	naut_sys_machine_check(vector, la_ptr, get_irq_regs());
 
-	
+	/* Tell the PALcode to clear the machine check */
 	draina();
 	wrmces(0x7);
 	mb();
@@ -193,7 +202,7 @@ nautilus_init_pci(void)
 	unsigned long bus_align, bus_size, pci_mem;
 	unsigned long memtop = max_low_pfn << PAGE_SHIFT;
 
-	
+	/* Scan our single hose.  */
 	bus = pci_scan_bus(0, alpha_mv.pci_ops, hose);
 	hose->bus = bus;
 	pcibios_claim_one_bus(bus);
@@ -204,10 +213,12 @@ nautilus_init_pci(void)
 
 	pci_bus_size_bridges(bus);
 
-	
+	/* IO port range. */
 	bus->resource[0]->start = 0;
 	bus->resource[0]->end = 0xffff;
 
+	/* Set up PCI memory range - limit is hardwired to 0xffffffff,
+	   base must be at aligned to 16Mb. */
 	bus_align = bus->resource[1]->start;
 	bus_size = bus->resource[1]->end + 1 - bus_align;
 	if (bus_align < 0x1000000UL)
@@ -229,15 +240,20 @@ nautilus_init_pci(void)
 			(memtop - alpha_mv.min_mem_address) >> 10);
 	}
 
-	if ((IRONGATE0->dev_vendor >> 16) > 0x7006)	
+	if ((IRONGATE0->dev_vendor >> 16) > 0x7006)	/* Albacore? */
 		IRONGATE0->pci_mem = pci_mem;
 
 	pci_bus_assign_resources(bus);
 
+	/* pci_common_swizzle() relies on bus->self being NULL
+	   for the root bus, so just clear it. */
 	bus->self = NULL;
 	pci_fixup_irqs(alpha_mv.pci_swizzle, alpha_mv.pci_map_irq);
 }
 
+/*
+ * The System Vectors
+ */
 
 struct alpha_machine_vector nautilus_mv __initmv = {
 	.vector_name		= "Nautilus",

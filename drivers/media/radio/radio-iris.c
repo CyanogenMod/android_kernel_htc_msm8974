@@ -58,51 +58,6 @@ static char formatting_dir;
 static unsigned char sig_blend = CTRL_ON;
 static DEFINE_MUTEX(iris_fm);
 
-const unsigned char MIN_TX_TONE_VAL = 0x00;
-const unsigned char MAX_TX_TONE_VAL = 0x07;
-const unsigned char MIN_HARD_MUTE_VAL = 0x00;
-const unsigned char MAX_HARD_MUTE_VAL = 0x03;
-const unsigned char MIN_SRCH_MODE = 0x00;
-const unsigned char MAX_SRCH_MODE = 0x01;
-const unsigned char MIN_SCAN_DWELL = 0x00;
-const unsigned char MAX_SCAN_DWELL = 0x0F;
-const unsigned char MIN_SIG_TH = 0x00;
-const unsigned char MAX_SIG_TH = 0x03;
-const unsigned char MIN_PTY = 0X00;
-const unsigned char MAX_PTY = 0x1F;
-const unsigned short MIN_PI = 0x0000;
-const unsigned short MAX_PI = 0xFFFF;
-const unsigned char MIN_SRCH_STATIONS_CNT = 0x00;
-const unsigned char MAX_SRCH_STATIONS_CNT = 0x14;
-const unsigned char MIN_CHAN_SPACING = 0x00;
-const unsigned char MAX_CHAN_SPACING = 0x02;
-const unsigned char MIN_EMPHASIS = 0x00;
-const unsigned char MAX_EMPHASIS = 0x01;
-const unsigned char MIN_RDS_STD = 0x00;
-const unsigned char MAX_RDS_STD = 0x02;
-const unsigned char MIN_ANTENNA_VAL = 0x00;
-const unsigned char MAX_ANTENNA_VAL = 0x01;
-const unsigned char MIN_TX_PS_REPEAT_CNT = 0x01;
-const unsigned char MAX_TX_PS_REPEAT_CNT = 0x0F;
-const unsigned char MIN_SOFT_MUTE = 0x00;
-const unsigned char MAX_SOFT_MUTE = 0x01;
-const unsigned char MIN_PEEK_ACCESS_LEN = 0x01;
-const unsigned char MAX_PEEK_ACCESS_LEN = 0xF9;
-const unsigned char MIN_RESET_CNTR = 0x00;
-const unsigned char MAX_RESET_CNTR = 0x01;
-const unsigned char MIN_HLSI = 0x00;
-const unsigned char MAX_HLSI = 0x02;
-const unsigned char MIN_NOTCH_FILTER = 0x00;
-const unsigned char MAX_NOTCH_FILTER = 0x02;
-const unsigned char MIN_INTF_DET_OUT_LW_TH = 0x00;
-const unsigned char MAX_INTF_DET_OUT_LW_TH = 0xFF;
-const unsigned char MIN_INTF_DET_OUT_HG_TH = 0x00;
-const unsigned char MAX_INTF_DET_OUT_HG_TH = 0xFF;
-const signed char MIN_SINR_TH = -128;
-const signed char MAX_SINR_TH = 127;
-const unsigned char MIN_SINR_SAMPLES = 0x01;
-const unsigned char MAX_SINR_SAMPLES = 0xFF;
-
 module_param(rds_buf, uint, 0);
 MODULE_PARM_DESC(rds_buf, "RDS buffer entries: *100*");
 
@@ -1943,13 +1898,6 @@ static void hci_cc_fm_enable_rsp(struct radio_hci_dev *hdev,
 		return;
 	}
 
-	if (radio->mode == FM_RECV_TURNING_ON) {
-		radio->mode = FM_RECV;
-		iris_q_event(radio, IRIS_EVT_RADIO_READY);
-	} else if (radio->mode == FM_TRANS_TURNING_ON) {
-		radio->mode = FM_TRANS;
-		iris_q_event(radio, IRIS_EVT_RADIO_READY);
-	}
 	radio_hci_req_complete(hdev, rsp->status);
 }
 
@@ -2768,7 +2716,7 @@ static inline void hci_ev_radio_text(struct radio_hci_dev *hdev,
 
 	while ((skb->data[len+RDS_OFFSET] != 0x0d) && (len < MAX_RT_LENGTH))
 		len++;
-	data = kmalloc(len+RDS_OFFSET, GFP_ATOMIC);
+	data = kmalloc(len + RDS_OFFSET + 1, GFP_ATOMIC);
 	if (!data) {
 		FMDERR("Failed to allocate memory");
 		return;
@@ -2783,7 +2731,7 @@ static inline void hci_ev_radio_text(struct radio_hci_dev *hdev,
 	memcpy(data+RDS_OFFSET, &skb->data[RDS_OFFSET], len);
 	data[len+RDS_OFFSET] = 0x00;
 
-	iris_q_evt_data(radio, data, len+RDS_OFFSET, IRIS_BUF_RT_RDS);
+	iris_q_evt_data(radio, data, len + RDS_OFFSET + 1, IRIS_BUF_RT_RDS);
 
 	kfree(data);
 }
@@ -3774,7 +3722,19 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 				radio->mode = FM_OFF;
 				goto END;
 			} else {
-				initialise_recv(radio);
+				retval = initialise_recv(radio);
+				if (retval < 0) {
+					FMDERR("Error while initialising"\
+						"radio %d\n", retval);
+					hci_cmd(HCI_FM_DISABLE_RECV_CMD,
+							radio->fm_hdev);
+					radio->mode = FM_OFF;
+					goto END;
+				}
+			}
+			if (radio->mode == FM_RECV_TURNING_ON) {
+				radio->mode = FM_RECV;
+				iris_q_event(radio, IRIS_EVT_RADIO_READY);
 			}
 			break;
 		case FM_TRANS:
@@ -3791,7 +3751,19 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 				radio->mode = FM_OFF;
 				goto END;
 			} else {
-				initialise_trans(radio);
+				retval = initialise_trans(radio);
+				if (retval < 0) {
+					FMDERR("Error while initialising"\
+							"radio %d\n", retval);
+					hci_cmd(HCI_FM_DISABLE_TRANS_CMD,
+								radio->fm_hdev);
+					radio->mode = FM_OFF;
+					goto END;
+				}
+			}
+			if (radio->mode == FM_TRANS_TURNING_ON) {
+				radio->mode = FM_TRANS;
+				iris_q_event(radio, IRIS_EVT_RADIO_READY);
 			}
 			break;
 		case FM_OFF:

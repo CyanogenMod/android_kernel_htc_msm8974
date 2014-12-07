@@ -34,7 +34,7 @@
 
 #if THREAD_SHIFT >= PAGE_SHIFT
 #define THREAD_SIZE_ORDER	(THREAD_SHIFT - PAGE_SHIFT)
-#else  
+#else  /*  don't use standard allocator  */
 #define __HAVE_ARCH_THREAD_INFO_ALLOCATOR
 extern struct thread_info *alloc_thread_info_node(struct task_struct *tsk, int node);
 extern void free_thread_info(struct thread_info *ti);
@@ -47,26 +47,41 @@ typedef struct {
 	unsigned long seg;
 } mm_segment_t;
 
+/*
+ * This is union'd with the "bottom" of the kernel stack.
+ * It keeps track of thread info which is handy for routines
+ * to access quickly.
+ */
 
 struct thread_info {
-	struct task_struct	*task;		
-	struct exec_domain      *exec_domain;   
-	unsigned long		flags;          
-	__u32                   cpu;            
-	int                     preempt_count;  
-	mm_segment_t            addr_limit;     
+	struct task_struct	*task;		/* main task structure */
+	struct exec_domain      *exec_domain;   /* execution domain */
+	unsigned long		flags;          /* low level flags */
+	__u32                   cpu;            /* current cpu */
+	int                     preempt_count;  /* 0=>preemptible,<0=>BUG */
+	mm_segment_t            addr_limit;     /* segmentation sux */
+	/*
+	 * used for syscalls somehow;
+	 * seems to have a function pointer and four arguments
+	 */
 	struct restart_block    restart_block;
-	
+	/* Points to the current pt_regs frame  */
 	struct pt_regs		*regs;
+	/*
+	 * saved kernel sp at switch_to time;
+	 * not sure if this is used (it's not in the VM model it seems;
+	 * see thread_struct)
+	 */
 	unsigned long		sp;
 };
 
-#else 
+#else /* !__ASSEMBLY__ */
 
 #include <asm/asm-offsets.h>
 
-#endif  
+#endif  /* __ASSEMBLY__  */
 
+/*  looks like "linux/hardirq.h" uses this.  */
 
 #define PREEMPT_ACTIVE		0x10000000
 
@@ -90,6 +105,7 @@ struct thread_info {
 #define init_thread_info        (init_thread_union.thread_info)
 #define init_stack              (init_thread_union.stack)
 
+/* Tacky preprocessor trickery */
 #define	qqstr(s) qstr(s)
 #define qstr(s) #s
 #define QUOTED_THREADINFO_REG qqstr(THREADINFO_REG)
@@ -97,18 +113,26 @@ struct thread_info {
 register struct thread_info *__current_thread_info asm(QUOTED_THREADINFO_REG);
 #define current_thread_info()  __current_thread_info
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/*
+ * thread information flags
+ * - these are process state flags that various assembly files
+ *   may need to access
+ * - pending work-to-be-done flags are in LSW
+ * - other flags in MSW
+ */
 
-#define TIF_SYSCALL_TRACE       0       
-#define TIF_NOTIFY_RESUME       1       
-#define TIF_SIGPENDING          2       
-#define TIF_NEED_RESCHED        3       
-#define TIF_SINGLESTEP          4       
-#define TIF_IRET                5       
-#define TIF_RESTORE_SIGMASK     6       
+#define TIF_SYSCALL_TRACE       0       /* syscall trace active */
+#define TIF_NOTIFY_RESUME       1       /* resumption notification requested */
+#define TIF_SIGPENDING          2       /* signal pending */
+#define TIF_NEED_RESCHED        3       /* rescheduling necessary */
+#define TIF_SINGLESTEP          4       /* restore ss @ return to usr mode */
+#define TIF_IRET                5       /* return with iret */
+#define TIF_RESTORE_SIGMASK     6       /* restore sig mask in do_signal() */
+/* true if poll_idle() is polling TIF_NEED_RESCHED */
 #define TIF_POLLING_NRFLAG      16
-#define TIF_MEMDIE              17      
+#define TIF_MEMDIE              17      /* OOM killer killed process */
 
 #define _TIF_SYSCALL_TRACE      (1 << TIF_SYSCALL_TRACE)
 #define _TIF_NOTIFY_RESUME      (1 << TIF_NOTIFY_RESUME)
@@ -119,10 +143,12 @@ register struct thread_info *__current_thread_info asm(QUOTED_THREADINFO_REG);
 #define _TIF_RESTORE_SIGMASK    (1 << TIF_RESTORE_SIGMASK)
 #define _TIF_POLLING_NRFLAG     (1 << TIF_POLLING_NRFLAG)
 
+/* work to do on interrupt/exception return - All but TIF_SYSCALL_TRACE */
 #define _TIF_WORK_MASK          (0x0000FFFF & ~_TIF_SYSCALL_TRACE)
 
+/* work to do on any return to u-space */
 #define _TIF_ALLWORK_MASK       0x0000FFFF
 
-#endif 
+#endif /* __KERNEL__ */
 
 #endif

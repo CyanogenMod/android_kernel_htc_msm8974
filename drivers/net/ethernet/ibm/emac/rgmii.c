@@ -29,7 +29,12 @@
 #include "emac.h"
 #include "debug.h"
 
+// XXX FIXME: Axon seems to support a subset of the RGMII, we
+// thus need to take that into account and possibly change some
+// of the bit settings below that don't seem to quite match the
+// AXON spec
 
+/* RGMIIx_FER */
 #define RGMII_FER_MASK(idx)	(0x7 << ((idx) * 4))
 #define RGMII_FER_RTBI(idx)	(0x4 << ((idx) * 4))
 #define RGMII_FER_RGMII(idx)	(0x5 << ((idx) * 4))
@@ -37,10 +42,12 @@
 #define RGMII_FER_GMII(idx)	(0x7 << ((idx) * 4))
 #define RGMII_FER_MII(idx)	RGMII_FER_GMII(idx)
 
+/* RGMIIx_SSR */
 #define RGMII_SSR_MASK(idx)	(0x7 << ((idx) * 8))
 #define RGMII_SSR_100(idx)	(0x2 << ((idx) * 8))
 #define RGMII_SSR_1000(idx)	(0x4 << ((idx) * 8))
 
+/* RGMII bridge supports only GMII/TBI and RGMII/RTBI PHYs */
 static inline int rgmii_valid_mode(int phy_mode)
 {
 	return  phy_mode == PHY_MODE_GMII ||
@@ -93,7 +100,7 @@ int __devinit rgmii_attach(struct platform_device *ofdev, int input, int mode)
 
 	RGMII_DBG(dev, "attach(%d)" NL, input);
 
-	
+	/* Check if we need to attach to a RGMII */
 	if (input < 0 || !rgmii_valid_mode(mode)) {
 		printk(KERN_ERR "%s: unsupported settings !\n",
 		       ofdev->dev.of_node->full_name);
@@ -102,7 +109,7 @@ int __devinit rgmii_attach(struct platform_device *ofdev, int input, int mode)
 
 	mutex_lock(&dev->lock);
 
-	
+	/* Enable this input */
 	out_be32(&p->fer, in_be32(&p->fer) | rgmii_mode_mask(mode, input));
 
 	printk(KERN_NOTICE "%s: input %d in %s mode\n",
@@ -191,7 +198,7 @@ void rgmii_detach(struct platform_device *ofdev, int input)
 
 	RGMII_DBG(dev, "detach(%d)" NL, input);
 
-	
+	/* Disable this input */
 	out_be32(&p->fer, in_be32(&p->fer) & ~RGMII_FER_MASK(input));
 
 	--dev->users;
@@ -212,7 +219,10 @@ void *rgmii_dump_regs(struct platform_device *ofdev, void *buf)
 	struct rgmii_regs *regs = (struct rgmii_regs *)(hdr + 1);
 
 	hdr->version = 0;
-	hdr->index = 0; 
+	hdr->index = 0; /* for now, are there chips with more than one
+			 * rgmii ? if yes, then we'll add a cell_index
+			 * like we do for emac
+			 */
 	memcpy_fromio(regs, dev->base, sizeof(struct rgmii_regs));
 	return regs + 1;
 }
@@ -249,18 +259,18 @@ static int __devinit rgmii_probe(struct platform_device *ofdev)
 		goto err_free;
 	}
 
-	
+	/* Check for RGMII flags */
 	if (of_get_property(ofdev->dev.of_node, "has-mdio", NULL))
 		dev->flags |= EMAC_RGMII_FLAG_HAS_MDIO;
 
-	
+	/* CAB lacks the right properties, fix this up */
 	if (of_device_is_compatible(ofdev->dev.of_node, "ibm,rgmii-axon"))
 		dev->flags |= EMAC_RGMII_FLAG_HAS_MDIO;
 
 	DBG2(dev, " Boot FER = 0x%08x, SSR = 0x%08x\n",
 	     in_be32(&dev->base->fer), in_be32(&dev->base->ssr));
 
-	
+	/* Disable all inputs by default */
 	out_be32(&dev->base->fer, 0);
 
 	printk(KERN_INFO

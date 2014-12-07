@@ -23,8 +23,21 @@ extern inline void __delay(unsigned long loops)
 			: "0" (loops));
 }
 
-#define __MAX_UDELAY	(226050910UL/HZ)	
-#define __MAX_NDELAY	(4294967295UL/HZ)	
+/*
+ * Note that 19 * 226 == 4294 ==~ 2^32 / 10^6, so
+ * loops = (4294 * usecs * loops_per_jiffy * HZ) / 2^32.
+ *
+ * The mul instruction gives us loops = (a * b) / 2^32.
+ * We choose a = usecs * 19 * HZ and b = loops_per_jiffy * 226
+ * because this lets us support a wide range of HZ and
+ * loops_per_jiffy values without either a or b overflowing 2^32.
+ * Thus we need usecs * HZ <= (2^32 - 1) / 19 = 226050910 and
+ * loops_per_jiffy <= (2^32 - 1) / 226 = 19004280
+ * (which corresponds to ~3800 bogomips at HZ = 100).
+ * -- paulus
+ */
+#define __MAX_UDELAY	(226050910UL/HZ)	/* maximum udelay argument */
+#define __MAX_NDELAY	(4294967295UL/HZ)	/* maximum ndelay argument */
 
 extern unsigned long loops_per_jiffy;
 
@@ -36,11 +49,15 @@ extern inline void __udelay(unsigned int x)
 			* 226LL;
 	unsigned loops = tmp >> 32;
 
+/*
+	__asm__("mulxuu %0,%1,%2" : "=r" (loops) :
+		"r" (x), "r" (loops_per_jiffy * 226));
+*/
 	__delay(loops);
 }
 
-extern void __bad_udelay(void);		
-extern void __bad_ndelay(void);		
+extern void __bad_udelay(void);		/* deliberately undefined */
+extern void __bad_ndelay(void);		/* deliberately undefined */
 
 #define udelay(n) (__builtin_constant_p(n) ? \
 	((n) > __MAX_UDELAY ? __bad_udelay() : __udelay((n) * (19 * HZ))) : \
@@ -52,4 +69,4 @@ extern void __bad_ndelay(void);
 
 #define muldiv(a, b, c)		(((a)*(b))/(c))
 
-#endif 
+#endif /* _ASM_MICROBLAZE_DELAY_H */

@@ -33,10 +33,12 @@
 #include <linux/mfd/max8997.h>
 #include <linux/regulator/consumer.h>
 
+/* Haptic configuration 2 register */
 #define MAX8997_MOTOR_TYPE_SHIFT	7
 #define MAX8997_ENABLE_SHIFT		6
 #define MAX8997_MODE_SHIFT		5
 
+/* Haptic driver configuration register */
 #define MAX8997_CYCLE_SHIFT		6
 #define MAX8997_SIG_PERIOD_SHIFT	4
 #define MAX8997_SIG_DUTY_SHIFT		2

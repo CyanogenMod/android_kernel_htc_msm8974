@@ -17,14 +17,14 @@
 
 extern void __init calibrate_clock(void);
 
-#else 
+#else /* !CONFIG_MN10300_RTC */
 
 static inline void calibrate_clock(void)
 {
 }
 
-#endif 
+#endif /* !CONFIG_MN10300_RTC */
 
 #include <asm-generic/rtc.h>
 
-#endif 
+#endif /* _ASM_RTC_H */

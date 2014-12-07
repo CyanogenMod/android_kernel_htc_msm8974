@@ -11,11 +11,16 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/*
+ * Avermedia M733A with IR model RM-K6
+ * This is the stock remote controller used with Positivo machines with M733A
+ * Herton Ronaldo Krzesinski <herton@mandriva.com.br>
+ */
 
 static struct rc_map_table avermedia_m733a_rm_k6[] = {
 	{ 0x0401, KEY_POWER2 },
 	{ 0x0406, KEY_MUTE },
-	{ 0x0408, KEY_MODE },     
+	{ 0x0408, KEY_MODE },     /* TV/FM */
 
 	{ 0x0409, KEY_1 },
 	{ 0x040a, KEY_2 },
@@ -26,12 +31,12 @@ static struct rc_map_table avermedia_m733a_rm_k6[] = {
 	{ 0x040f, KEY_7 },
 	{ 0x0410, KEY_8 },
 	{ 0x0411, KEY_9 },
-	{ 0x044c, KEY_DOT },      
+	{ 0x044c, KEY_DOT },      /* '.' */
 	{ 0x0412, KEY_0 },
-	{ 0x0407, KEY_REFRESH },  
+	{ 0x0407, KEY_REFRESH },  /* Refresh/Reload */
 
 	{ 0x0413, KEY_AUDIO },
-	{ 0x0440, KEY_SCREEN },   
+	{ 0x0440, KEY_SCREEN },   /* Full Screen toggle */
 	{ 0x0441, KEY_HOME },
 	{ 0x0442, KEY_BACK },
 	{ 0x0447, KEY_UP },
@@ -51,8 +56,8 @@ static struct rc_map_table avermedia_m733a_rm_k6[] = {
 
 	{ 0x0414, KEY_TEXT },
 	{ 0x0415, KEY_EPG },
-	{ 0x041a, KEY_TV2 },      
-	{ 0x041b, KEY_CAMERA },      
+	{ 0x041a, KEY_TV2 },      /* PIP */
+	{ 0x041b, KEY_CAMERA },      /* Snapshot */
 
 	{ 0x0417, KEY_RECORD },
 	{ 0x0416, KEY_PLAYPAUSE },

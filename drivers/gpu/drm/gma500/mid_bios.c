@@ -17,6 +17,11 @@
  *
  **************************************************************************/
 
+/* TODO
+ * - Split functions by vbt type
+ * - Make them all take drm_device
+ * - Check ioremap failures
+ */
 
 #include <drm/drmP.h>
 #include <drm/drm.h>
@@ -49,14 +54,14 @@ static void mid_get_fuse_settings(struct drm_device *dev)
 	pci_write_config_dword(pci_root, 0xD0, FB_REG06);
 	pci_read_config_dword(pci_root, 0xD4, &fuse_value);
 
-	
+	/* FB_MIPI_DISABLE doesn't mean LVDS on with Medfield */
 	if (IS_MRST(dev))
 		dev_priv->iLVDS_enable = fuse_value & FB_MIPI_DISABLE;
 
 	DRM_INFO("internal display is %s\n",
 		 dev_priv->iLVDS_enable ? "LVDS display" : "MIPI display");
 
-	 
+	 /* Prevent runtime suspend at start*/
 	 if (dev_priv->iLVDS_enable) {
 		dev_priv->is_lvds_on = true;
 		dev_priv->is_mipi_on = false;
@@ -94,6 +99,9 @@ static void mid_get_fuse_settings(struct drm_device *dev)
 	pci_dev_put(pci_root);
 }
 
+/*
+ *	Get the revison ID, B0:D2:F0;0x08
+ */
 static void mid_get_pci_revID(struct drm_psb_private *dev_priv)
 {
 	uint32_t platform_rev_id = 0;
@@ -124,21 +132,21 @@ static void mid_get_vbt_data(struct drm_psb_private *dev_priv)
 	void *pGCT;
 	struct pci_dev *pci_gfx_root = pci_get_bus_and_slot(0, PCI_DEVFN(2, 0));
 
-	
+	/* Get the address of the platform config vbt, B0:D2:F0;0xFC */
 	pci_read_config_dword(pci_gfx_root, 0xFC, &addr);
 	pci_dev_put(pci_gfx_root);
 
 	dev_dbg(dev->dev, "drm platform config address is %x\n", addr);
 
-	
-	
+	/* check for platform config address == 0. */
+	/* this means fw doesn't support vbt */
 
 	if (addr == 0) {
 		vbt->size = 0;
 		return;
 	}
 
-	
+	/* get the virtual address of the vbt */
 	vbt_virtual = ioremap(addr, sizeof(*vbt));
 	if (vbt_virtual == NULL) {
 		vbt->size = 0;
@@ -146,9 +154,9 @@ static void mid_get_vbt_data(struct drm_psb_private *dev_priv)
 	}
 
 	memcpy(vbt, vbt_virtual, sizeof(*vbt));
-	iounmap(vbt_virtual); 
+	iounmap(vbt_virtual); /* Free virtual address space */
 
-	
+	/* No matching signature don't process the data */
 	if (memcmp(vbt->signature, "$GCT", 4)) {
 		vbt->size = 0;
 		return;
@@ -190,31 +198,31 @@ static void mid_get_vbt_data(struct drm_psb_private *dev_priv)
 			((struct oaktrail_gct_v2 *)pGCT)->panel[bpi].Panel_MIPI_Display_Descriptor;
 		break;
 	case 0x10:
-		
-		
-		new_size = vbt->checksum; 
-		
+		/*header definition changed from rev 01 (v2) to rev 10h. */
+		/*so, some values have changed location*/
+		new_size = vbt->checksum; /*checksum contains lo size byte*/
+		/*LSB of oaktrail_gct contains hi size byte*/
 		new_size |= ((0xff & (unsigned int)(long)vbt->oaktrail_gct)) << 8;
 
-		vbt->checksum = vbt->size; 
+		vbt->checksum = vbt->size; /*size contains the checksum*/
 		if (new_size > 0xff)
-			vbt->size = 0xff; 
+			vbt->size = 0xff; /*restrict size to 255*/
 		else
 			vbt->size = new_size;
 
-		
+		/* number of descriptors defined in the GCT */
 		number_desc = ((0xff00 & (unsigned int)(long)vbt->oaktrail_gct)) >> 8;
 		bpi = ((0xff0000 & (unsigned int)(long)vbt->oaktrail_gct)) >> 16;
 		vbt->oaktrail_gct = ioremap(addr + GCT_R10_HEADER_SIZE,
 				GCT_R10_DISPLAY_DESC_SIZE * number_desc);
 		pGCT = vbt->oaktrail_gct;
 		pGCT = (u8 *)pGCT + (bpi*GCT_R10_DISPLAY_DESC_SIZE);
-		dev_priv->gct_data.bpi = bpi; 
+		dev_priv->gct_data.bpi = bpi; /*save boot panel id*/
 
-		
+		/*copy the GCT display timings into a temp structure*/
 		memcpy(&ti, pGCT, sizeof(struct gct_r10_timing_info));
 
-		
+		/*now copy the temp struct into the dev_priv->gct_data*/
 		dp_ti->pixel_clock = ti.pixel_clock;
 		dp_ti->hactive_hi = ti.hactive_hi;
 		dp_ti->hactive_lo = ti.hactive_lo;
@@ -233,7 +241,7 @@ static void mid_get_vbt_data(struct drm_psb_private *dev_priv)
 		dp_ti->vsync_pulse_width_hi = ti.vsync_pulse_width_hi;
 		dp_ti->vsync_pulse_width_lo = ti.vsync_pulse_width_lo;
 
-		
+		/* Move the MIPI_Display_Descriptor data from GCT to dev priv */
 		dev_priv->gct_data.Panel_MIPI_Display_Descriptor =
 							*((u8 *)pGCT + 0x0d);
 		dev_priv->gct_data.Panel_MIPI_Display_Descriptor |=

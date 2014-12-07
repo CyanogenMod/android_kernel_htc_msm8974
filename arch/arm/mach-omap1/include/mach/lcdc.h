@@ -54,4 +54,4 @@
 #define OMAP_LCDC_IRQ_LINE		(1 << 6)
 #define OMAP_LCDC_IRQ_MASK		(((1 << 5) - 1) << 2)
 
-#endif 
+#endif /* __MACH_LCDC_H__ */

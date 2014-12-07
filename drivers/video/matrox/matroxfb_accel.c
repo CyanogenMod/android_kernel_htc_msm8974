@@ -1,3 +1,80 @@
+/*
+ *
+ * Hardware accelerated Matrox Millennium I, II, Mystique, G100, G200 and G400
+ *
+ * (c) 1998-2002 Petr Vandrovec <vandrove@vc.cvut.cz>
+ *
+ * Version: 1.65 2002/08/14
+ *
+ * MTRR stuff: 1998 Tom Rini <trini@kernel.crashing.org>
+ *
+ * Contributors: "menion?" <menion@mindless.com>
+ *                     Betatesting, fixes, ideas
+ *
+ *               "Kurt Garloff" <garloff@suse.de>
+ *                     Betatesting, fixes, ideas, videomodes, videomodes timmings
+ *
+ *               "Tom Rini" <trini@kernel.crashing.org>
+ *                     MTRR stuff, PPC cleanups, betatesting, fixes, ideas
+ *
+ *               "Bibek Sahu" <scorpio@dodds.net>
+ *                     Access device through readb|w|l and write b|w|l
+ *                     Extensive debugging stuff
+ *
+ *               "Daniel Haun" <haund@usa.net>
+ *                     Testing, hardware cursor fixes
+ *
+ *               "Scott Wood" <sawst46+@pitt.edu>
+ *                     Fixes
+ *
+ *               "Gerd Knorr" <kraxel@goldbach.isdn.cs.tu-berlin.de>
+ *                     Betatesting
+ *
+ *               "Kelly French" <targon@hazmat.com>
+ *               "Fernando Herrera" <fherrera@eurielec.etsit.upm.es>
+ *                     Betatesting, bug reporting
+ *
+ *               "Pablo Bianucci" <pbian@pccp.com.ar>
+ *                     Fixes, ideas, betatesting
+ *
+ *               "Inaky Perez Gonzalez" <inaky@peloncho.fis.ucm.es>
+ *                     Fixes, enhandcements, ideas, betatesting
+ *
+ *               "Ryuichi Oikawa" <roikawa@rr.iiij4u.or.jp>
+ *                     PPC betatesting, PPC support, backward compatibility
+ *
+ *               "Paul Womar" <Paul@pwomar.demon.co.uk>
+ *               "Owen Waller" <O.Waller@ee.qub.ac.uk>
+ *                     PPC betatesting
+ *
+ *               "Thomas Pornin" <pornin@bolet.ens.fr>
+ *                     Alpha betatesting
+ *
+ *               "Pieter van Leuven" <pvl@iae.nl>
+ *               "Ulf Jaenicke-Roessler" <ujr@physik.phy.tu-dresden.de>
+ *                     G100 testing
+ *
+ *               "H. Peter Arvin" <hpa@transmeta.com>
+ *                     Ideas
+ *
+ *               "Cort Dougan" <cort@cs.nmt.edu>
+ *                     CHRP fixes and PReP cleanup
+ *
+ *               "Mark Vojkovich" <mvojkovi@ucsd.edu>
+ *                     G400 support
+ *
+ * (following author is not in any relation with this code, but his code
+ *  is included in this driver)
+ *
+ * Based on framebuffer driver for VBE 2.0 compliant graphic boards
+ *     (c) 1998 Gerd Knorr <kraxel@cs.tu-berlin.de>
+ *
+ * (following author is not in any relation with this code, but his ideas
+ *  were used when writing this driver)
+ *
+ *		 FreeVBE/AF (Matrox), "Shawn Hargreaves" <shawn@talula.demon.co.uk>
+ *
+ */
 
 #include "matroxfb_accel.h"
 #include "matroxfb_DAC1064.h"
@@ -49,8 +126,8 @@ void matrox_cfbX_init(struct matrox_fb_info *minfo)
 	accel = (minfo->fbcon.var.accel_flags & FB_ACCELF_TEXT) == FB_ACCELF_TEXT;
 
 	switch (minfo->fbcon.var.bits_per_pixel) {
-		case 4:		maccess = 0x00000000;	
-				mpitch = (mpitch >> 1) | 0x8000; 
+		case 4:		maccess = 0x00000000;	/* accelerate as 8bpp video */
+				mpitch = (mpitch >> 1) | 0x8000; /* disable linearization */
 				mopmode = M_OPMODE_4BPP;
 				matrox_cfb4_pal(minfo->cmap);
 				if (accel && !(mpitch & 1)) {
@@ -96,7 +173,7 @@ void matrox_cfbX_init(struct matrox_fb_info *minfo)
 				break;
 		default:	maccess = 0x00000000;
 				mopmode = 0x00000000;
-				break;	
+				break;	/* turn off acceleration!!! */
 	}
 	mga_fifo(8);
 	mga_outl(M_PITCH, mpitch);
@@ -359,9 +436,11 @@ static void matroxfb_1bpp_imageblit(struct matrox_fb_info *minfo, u_int32_t fgx,
 		mga_writel(mmio, M_AR5, 0);
 		mga_writel(mmio, M_YDSTLEN | M_EXEC, ydstlen);
 		if ((step & 3) == 0) {
+			/* Great. Source has 32bit aligned lines, so we can feed them
+			   directly to the accelerator. */
 			mga_memcpy_toio(mmio, chardata, charcell);
 		} else if (step == 1) {
-			
+			/* Special case for 1..8bit widths */
 			while (height--) {
 #if defined(__BIG_ENDIAN)
 				fb_writel((*chardata) << 24, mmio.vaddr);
@@ -371,7 +450,7 @@ static void matroxfb_1bpp_imageblit(struct matrox_fb_info *minfo, u_int32_t fgx,
 				chardata++;
 			}
 		} else if (step == 2) {
-			
+			/* Special case for 9..15bit widths */
 			while (height--) {
 #if defined(__BIG_ENDIAN)
 				fb_writel((*(u_int16_t*)chardata) << 16, mmio.vaddr);
@@ -381,12 +460,12 @@ static void matroxfb_1bpp_imageblit(struct matrox_fb_info *minfo, u_int32_t fgx,
 				chardata += 2;
 			}
 		} else {
-			
+			/* Tell... well, why bother... */
 			while (height--) {
 				size_t i;
 				
 				for (i = 0; i < step; i += 4) {
-					
+					/* Hope that there are at least three readable bytes beyond the end of bitmap */
 					fb_writel(get_unaligned((u_int32_t*)(chardata + i)),mmio.vaddr);
 				}
 				chardata += step;
@@ -410,6 +489,11 @@ static void matroxfb_imageblit(struct fb_info* info, const struct fb_image* imag
 		bgx = ((u_int32_t*)info->pseudo_palette)[image->bg_color];
 		matroxfb_1bpp_imageblit(minfo, fgx, bgx, image->data, image->width, image->height, image->dy, image->dx);
 	} else {
+		/* Danger! image->depth is useless: logo painting code always
+		   passes framebuffer color depth here, although logo data are
+		   always 8bpp and info->pseudo_palette is changed to contain
+		   logo palette to be used (but only for true/direct-color... sic...).
+		   So do it completely in software... */
 		cfb_imageblit(info, image);
 	}
 }

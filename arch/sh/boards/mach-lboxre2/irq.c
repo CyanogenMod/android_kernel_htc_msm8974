@@ -17,6 +17,9 @@
 #include <asm/io.h>
 #include <mach/lboxre2.h>
 
+/*
+ * Initialize IRQ setting
+ */
 void __init init_lboxre2_IRQ(void)
 {
 	make_imask_irq(IRQ_CF1);

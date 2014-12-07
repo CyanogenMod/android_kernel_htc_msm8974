@@ -29,8 +29,10 @@ static inline struct platform_device *mxs_add_platform_device(
 
 int __init mxs_add_amba_device(const struct amba_device *dev);
 
+/* duart */
 int __init mxs_add_duart(const struct amba_device *dev);
 
+/* auart */
 struct mxs_auart_data {
 	int id;
 	resource_size_t iobase;
@@ -40,6 +42,7 @@ struct mxs_auart_data {
 struct platform_device *__init mxs_add_auart(
 		const struct mxs_auart_data *data);
 
+/* fec */
 #include <linux/fec.h>
 struct mxs_fec_data {
 	int id;
@@ -51,6 +54,7 @@ struct platform_device *__init mxs_add_fec(
 		const struct mxs_fec_data *data,
 		const struct fec_platform_data *pdata);
 
+/* flexcan */
 #include <linux/can/platform/flexcan.h>
 struct mxs_flexcan_data {
 	int id;
@@ -62,6 +66,7 @@ struct platform_device *__init mxs_add_flexcan(
 		const struct mxs_flexcan_data *data,
 		const struct flexcan_platform_data *pdata);
 
+/* gpmi-nand */
 #include <linux/mtd/gpmi-nand.h>
 struct mxs_gpmi_nand_data {
 	const char *devid;
@@ -71,6 +76,7 @@ struct platform_device *__init
 mxs_add_gpmi_nand(const struct gpmi_nand_platform_data *pdata,
 		const struct mxs_gpmi_nand_data *data);
 
+/* i2c */
 struct mxs_mxs_i2c_data {
 	int id;
 	resource_size_t iobase;
@@ -80,6 +86,7 @@ struct mxs_mxs_i2c_data {
 struct platform_device * __init mxs_add_mxs_i2c(
 		const struct mxs_mxs_i2c_data *data);
 
+/* mmc */
 #include <mach/mmc.h>
 struct mxs_mxs_mmc_data {
 	int id;
@@ -92,9 +99,11 @@ struct platform_device *__init mxs_add_mxs_mmc(
 		const struct mxs_mxs_mmc_data *data,
 		const struct mxs_mmc_platform_data *pdata);
 
+/* pwm */
 struct platform_device *__init mxs_add_mxs_pwm(
 		resource_size_t iobase, int id);
 
+/* saif */
 #include <sound/saif.h>
 struct mxs_saif_data {
 	int id;

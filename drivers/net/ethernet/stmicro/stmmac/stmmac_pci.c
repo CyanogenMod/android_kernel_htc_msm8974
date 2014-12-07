@@ -36,7 +36,7 @@ static void stmmac_default_data(void)
 	plat_dat.phy_addr = 0;
 	plat_dat.interface = PHY_INTERFACE_MODE_GMII;
 	plat_dat.pbl = 32;
-	plat_dat.clk_csr = 2;	
+	plat_dat.clk_csr = 2;	/* clk_csr_i = 20-35MHz & MDC = clk_csr_i/16 */
 	plat_dat.has_gmac = 1;
 	plat_dat.force_sf_dma_mode = 1;
 
@@ -46,6 +46,18 @@ static void stmmac_default_data(void)
 	plat_dat.mdio_bus_data = &mdio_data;
 }
 
+/**
+ * stmmac_pci_probe
+ *
+ * @pdev: pci device pointer
+ * @id: pointer to table of device id/id's.
+ *
+ * Description: This probing function gets called for all PCI devices which
+ * match the ID table and are not "owned" by other driver yet. This function
+ * gets passed a "struct pci_dev *" for each device whose entry in the ID table
+ * matches the device. The probe functions returns zero when the driver choose
+ * to take "ownership" of the device or an error code(-ve no) otherwise.
+ */
 static int __devinit stmmac_pci_probe(struct pci_dev *pdev,
 				      const struct pci_device_id *id)
 {
@@ -54,7 +66,7 @@ static int __devinit stmmac_pci_probe(struct pci_dev *pdev,
 	struct stmmac_priv *priv = NULL;
 	int i;
 
-	
+	/* Enable pci device */
 	ret = pci_enable_device(pdev);
 	if (ret) {
 		pr_err("%s : ERROR: failed to enable %s device\n", __func__,
@@ -67,7 +79,7 @@ static int __devinit stmmac_pci_probe(struct pci_dev *pdev,
 		goto err_out_req_reg_failed;
 	}
 
-	
+	/* Get the base address of device */
 	for (i = 0; i <= 5; i++) {
 		if (pci_resource_len(pdev, i) == 0)
 			continue;
@@ -108,6 +120,13 @@ err_out_req_reg_failed:
 	return ret;
 }
 
+/**
+ * stmmac_dvr_remove
+ *
+ * @pdev: platform device pointer
+ * Description: this function calls the main to free the net resources
+ * and releases the PCI resources.
+ */
 static void __devexit stmmac_pci_remove(struct pci_dev *pdev)
 {
 	struct net_device *ndev = pci_get_drvdata(pdev);
@@ -167,6 +186,10 @@ static struct pci_driver stmmac_driver = {
 #endif
 };
 
+/**
+ * stmmac_init_module - Entry point for the driver
+ * Description: This function is the entry point for the driver.
+ */
 static int __init stmmac_init_module(void)
 {
 	int ret;
@@ -178,6 +201,10 @@ static int __init stmmac_init_module(void)
 	return ret;
 }
 
+/**
+ * stmmac_cleanup_module - Cleanup routine for the driver
+ * Description: This function is the cleanup routine for the driver.
+ */
 static void __exit stmmac_cleanup_module(void)
 {
 	pci_unregister_driver(&stmmac_driver);

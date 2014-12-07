@@ -66,4 +66,4 @@ extern int mdp_init(struct v4l2_subdev *sd, u32 val);
 extern long mdp_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg);
 
 
-#endif 
+#endif /* _WFD_MDP_SUBDEV_ */

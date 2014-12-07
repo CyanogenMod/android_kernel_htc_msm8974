@@ -74,8 +74,27 @@ static enum dlm_status dlm_send_remote_unlock_request(struct dlm_ctxt *dlm,
 						 u8 owner);
 
 
+/*
+ * according to the spec:
+ * http://opendlm.sourceforge.net/cvsmirror/opendlm/docs/dlmbook_final.pdf
+ *
+ *  flags & LKM_CANCEL != 0: must be converting or blocked
+ *  flags & LKM_CANCEL == 0: must be granted
+ *
+ * So to unlock a converting lock, you must first cancel the
+ * convert (passing LKM_CANCEL in flags), then call the unlock
+ * again (with no LKM_CANCEL in flags).
+ */
 
 
+/*
+ * locking:
+ *   caller needs:  none
+ *   taken:         res->spinlock and lock->spinlock taken and dropped
+ *   held on exit:  none
+ * returns: DLM_NORMAL, DLM_NOLOCKMGR, status from network
+ * all callers should have taken an extra ref on lock coming in
+ */
 static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 					struct dlm_lock_resource *res,
 					struct dlm_lock *lock,
@@ -97,6 +116,8 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 		BUG_ON(res->owner == dlm->node_num);
 
 	spin_lock(&dlm->ast_lock);
+	/* We want to be sure that we're not freeing a lock
+	 * that still has AST's pending... */
 	in_use = !list_empty(&lock->ast_list);
 	spin_unlock(&dlm->ast_lock);
 	if (in_use && !(flags & LKM_CANCEL)) {
@@ -113,7 +134,7 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 			spin_unlock(&res->spinlock);
 			return DLM_FORWARD;
 		}
-		
+		/* ok for this to sleep if not in a network handler */
 		__dlm_wait_on_lockres(res);
 		res->state |= DLM_LOCK_RES_IN_PROGRESS;
 	}
@@ -129,6 +150,8 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 		goto leave;
 	}
 
+	/* see above for what the spec says about
+	 * LKM_CANCEL and the lock queue state */
 	if (flags & LKM_CANCEL)
 		status = dlm_get_cancel_actions(dlm, res, lock, lksb, &actions);
 	else
@@ -137,18 +160,19 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 	if (status != DLM_NORMAL && (status != DLM_CANCELGRANT || !master_node))
 		goto leave;
 
-	
+	/* By now this has been masked out of cancel requests. */
 	if (flags & LKM_VALBLK) {
-		
+		/* make the final update to the lvb */
 		if (master_node)
 			memcpy(res->lvb, lksb->lvb, DLM_LVB_LEN);
 		else
-			flags |= LKM_PUT_LVB; 
+			flags |= LKM_PUT_LVB; /* let the send function
+					       * handle it. */
 	}
 
 	if (!master_node) {
 		owner = res->owner;
-		
+		/* drop locks and send message */
 		if (flags & LKM_CANCEL)
 			lock->cancel_pending = 1;
 		else
@@ -159,6 +183,8 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 							flags, owner);
 		spin_lock(&res->spinlock);
 		spin_lock(&lock->spinlock);
+		/* if the master told us the lock was already granted,
+		 * let the ast handle all of these actions */
 		if (status == DLM_CANCELGRANT) {
 			actions &= ~(DLM_UNLOCK_REMOVE_LOCK|
 				     DLM_UNLOCK_REGRANT_LOCK|
@@ -166,6 +192,9 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 		} else if (status == DLM_RECOVERING ||
 			   status == DLM_MIGRATING ||
 			   status == DLM_FORWARD) {
+			/* must clear the actions because this unlock
+			 * is about to be retried.  cannot free or do
+			 * any list manipulation. */
 			mlog(0, "%s:%.*s: clearing actions, %s\n",
 			     dlm->name, res->lockname.len,
 			     res->lockname.name,
@@ -181,6 +210,8 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 
 	}
 
+	/* get an extra ref on lock.  if we are just switching
+	 * lists here, we dont want the lock to go away. */
 	dlm_lock_get(lock);
 
 	if (actions & DLM_UNLOCK_REMOVE_LOCK) {
@@ -197,7 +228,7 @@ static enum dlm_status dlmunlock_common(struct dlm_ctxt *dlm,
 		lock->ml.convert_type = LKM_IVMODE;
 	}
 
-	
+	/* remove the extra ref on lock */
 	dlm_lock_put(lock);
 
 leave:
@@ -210,9 +241,9 @@ leave:
 	spin_unlock(&res->spinlock);
 	wake_up(&res->wq);
 
-	
+	/* let the caller's final dlm_lock_put handle the actual kfree */
 	if (actions & DLM_UNLOCK_FREE_LOCK) {
-		
+		/* this should always be coupled with list removal */
 		BUG_ON(!(actions & DLM_UNLOCK_REMOVE_LOCK));
 		mlog(0, "lock %u:%llu should be gone now! refs=%d\n",
 		     dlm_get_lock_cookie_node(be64_to_cpu(lock->ml.cookie)),
@@ -223,7 +254,7 @@ leave:
 	if (actions & DLM_UNLOCK_CALL_AST)
 		*call_ast = 1;
 
-	
+	/* if cancel or unlock succeeded, lvb work is done */
 	if (status == DLM_NORMAL)
 		lksb->flags &= ~(DLM_LKSB_PUT_LVB|DLM_LKSB_GET_LVB);
 
@@ -233,6 +264,8 @@ leave:
 void dlm_commit_pending_unlock(struct dlm_lock_resource *res,
 			       struct dlm_lock *lock)
 {
+	/* leave DLM_LKSB_PUT_LVB on the lksb so any final
+	 * update of the lvb will be sent to the new master */
 	list_del_init(&lock->list);
 }
 
@@ -263,6 +296,13 @@ static inline enum dlm_status dlmunlock_remote(struct dlm_ctxt *dlm,
 	return dlmunlock_common(dlm, res, lock, lksb, flags, call_ast, 0);
 }
 
+/*
+ * locking:
+ *   caller needs:  none
+ *   taken:         none
+ *   held on exit:  none
+ * returns: DLM_NORMAL, DLM_NOLOCKMGR, status from network
+ */
 static enum dlm_status dlm_send_remote_unlock_request(struct dlm_ctxt *dlm,
 						 struct dlm_lock_resource *res,
 						 struct dlm_lock *lock,
@@ -280,6 +320,9 @@ static enum dlm_status dlm_send_remote_unlock_request(struct dlm_ctxt *dlm,
 	mlog(0, "%.*s\n", res->lockname.len, res->lockname.name);
 
 	if (owner == dlm->node_num) {
+		/* ended up trying to contact ourself.  this means
+		 * that the lockres had been remote but became local
+		 * via a migration.  just retry it, now as local */
 		mlog(0, "%s:%.*s: this node became the master due to a "
 		     "migration, re-evaluate now\n", dlm->name,
 		     res->lockname.len, res->lockname.name);
@@ -297,7 +340,7 @@ static enum dlm_status dlm_send_remote_unlock_request(struct dlm_ctxt *dlm,
 	vec[0].iov_base = &unlock;
 
 	if (flags & LKM_PUT_LVB) {
-		
+		/* extra data to send if we are updating lvb */
 		vec[1].iov_len = DLM_LVB_LEN;
 		vec[1].iov_base = lock->lksb->lvb;
 		veclen++;
@@ -306,7 +349,7 @@ static enum dlm_status dlm_send_remote_unlock_request(struct dlm_ctxt *dlm,
 	tmpret = o2net_send_message_vec(DLM_UNLOCK_LOCK_MSG, dlm->key,
 					vec, veclen, owner, &status);
 	if (tmpret >= 0) {
-		
+		// successfully sent and received
 		if (status == DLM_FORWARD)
 			mlog(0, "master was in-progress.  retry\n");
 		ret = status;
@@ -314,9 +357,16 @@ static enum dlm_status dlm_send_remote_unlock_request(struct dlm_ctxt *dlm,
 		mlog(ML_ERROR, "Error %d when sending message %u (key 0x%x) to "
 		     "node %u\n", tmpret, DLM_UNLOCK_LOCK_MSG, dlm->key, owner);
 		if (dlm_is_host_down(tmpret)) {
+			/* NOTE: this seems strange, but it is what we want.
+			 * when the master goes down during a cancel or
+			 * unlock, the recovery code completes the operation
+			 * as if the master had not died, then passes the
+			 * updated state to the recovery master.  this thread
+			 * just needs to finish out the operation and call
+			 * the unlockast. */
 			ret = DLM_NORMAL;
 		} else {
-			
+			/* something bad.  this will BUG in ocfs2 */
 			ret = dlm_err_to_dlm_status(tmpret);
 		}
 	}
@@ -324,6 +374,14 @@ static enum dlm_status dlm_send_remote_unlock_request(struct dlm_ctxt *dlm,
 	return ret;
 }
 
+/*
+ * locking:
+ *   caller needs:  none
+ *   taken:         takes and drops res->spinlock
+ *   held on exit:  none
+ * returns: DLM_NORMAL, DLM_BADARGS, DLM_IVLOCKID,
+ *          return value from dlmunlock_master
+ */
 int dlm_unlock_lock_handler(struct o2net_msg *msg, u32 len, void *data,
 			    void **ret_data)
 {
@@ -367,6 +425,9 @@ int dlm_unlock_lock_handler(struct o2net_msg *msg, u32 len, void *data,
 
 	res = dlm_lookup_lockres(dlm, unlock->name, unlock->namelen);
 	if (!res) {
+		/* We assume here that a no lock resource simply means
+		 * it was migrated away and destroyed before the other
+		 * node could detect it. */
 		mlog(0, "returning DLM_FORWARD -- res no longer exists\n");
 		status = DLM_FORWARD;
 		goto not_found;
@@ -408,7 +469,7 @@ int dlm_unlock_lock_handler(struct o2net_msg *msg, u32 len, void *data,
 		}
 		if (found)
 			break;
-		
+		/* scan granted -> converting -> blocked queues */
 		queue++;
 	}
 	spin_unlock(&res->spinlock);
@@ -417,18 +478,20 @@ int dlm_unlock_lock_handler(struct o2net_msg *msg, u32 len, void *data,
 		goto not_found;
 	}
 
-	
+	/* lock was found on queue */
 	lksb = lock->lksb;
 	if (flags & (LKM_VALBLK|LKM_PUT_LVB) &&
 	    lock->ml.type != LKM_EXMODE)
 		flags &= ~(LKM_VALBLK|LKM_PUT_LVB);
 
-	
+	/* unlockast only called on originating node */
 	if (flags & LKM_PUT_LVB) {
 		lksb->flags |= DLM_LKSB_PUT_LVB;
 		memcpy(&lksb->lvb[0], &unlock->lvb[0], DLM_LVB_LEN);
 	}
 
+	/* if this is in-progress, propagate the DLM_FORWARD
+	 * all the way back out */
 	status = dlmunlock_master(dlm, res, lock, lksb, flags, &ignore);
 	if (status == DLM_FORWARD)
 		mlog(0, "lockres is in progress\n");
@@ -467,19 +530,19 @@ static enum dlm_status dlm_get_cancel_actions(struct dlm_ctxt *dlm,
 	enum dlm_status status;
 
 	if (dlm_lock_on_list(&res->blocked, lock)) {
-		
+		/* cancel this outright */
 		status = DLM_NORMAL;
 		*actions = (DLM_UNLOCK_CALL_AST |
 			    DLM_UNLOCK_REMOVE_LOCK);
 	} else if (dlm_lock_on_list(&res->converting, lock)) {
-		
+		/* cancel the request, put back on granted */
 		status = DLM_NORMAL;
 		*actions = (DLM_UNLOCK_CALL_AST |
 			    DLM_UNLOCK_REMOVE_LOCK |
 			    DLM_UNLOCK_REGRANT_LOCK |
 			    DLM_UNLOCK_CLEAR_CONVERT_TYPE);
 	} else if (dlm_lock_on_list(&res->granted, lock)) {
-		
+		/* too late, already granted. */
 		status = DLM_CANCELGRANT;
 		*actions = DLM_UNLOCK_CALL_AST;
 	} else {
@@ -498,13 +561,13 @@ static enum dlm_status dlm_get_unlock_actions(struct dlm_ctxt *dlm,
 {
 	enum dlm_status status;
 
-	
+	/* unlock request */
 	if (!dlm_lock_on_list(&res->granted, lock)) {
 		status = DLM_DENIED;
 		dlm_error(status);
 		*actions = 0;
 	} else {
-		
+		/* unlock granted lock */
 		status = DLM_NORMAL;
 		*actions = (DLM_UNLOCK_FREE_LOCK |
 			    DLM_UNLOCK_CALL_AST |
@@ -513,6 +576,10 @@ static enum dlm_status dlm_get_unlock_actions(struct dlm_ctxt *dlm,
 	return status;
 }
 
+/* there seems to be no point in doing this async
+ * since (even for the remote case) there is really
+ * no work to queue up... so just do it and fire the
+ * unlockast by hand when done... */
 enum dlm_status dlmunlock(struct dlm_ctxt *dlm, struct dlm_lockstatus *lksb,
 			  int flags, dlm_astunlockfunc_t *unlockast, void *data)
 {
@@ -550,7 +617,7 @@ enum dlm_status dlmunlock(struct dlm_ctxt *dlm, struct dlm_lockstatus *lksb,
 	dlm_lockres_get(res);
 retry:
 	call_ast = 0;
-	
+	/* need to retry up here because owner may have changed */
 	mlog(0, "lock=%p res=%p\n", lock, res);
 
 	spin_lock(&res->spinlock);
@@ -574,8 +641,14 @@ retry:
 	if (status == DLM_RECOVERING ||
 	    status == DLM_MIGRATING ||
 	    status == DLM_FORWARD) {
+		/* We want to go away for a tiny bit to allow recovery
+		 * / migration to complete on this resource. I don't
+		 * know of any wait queue we could sleep on as this
+		 * may be happening on another node. Perhaps the
+		 * proper solution is to queue up requests on the
+		 * other end? */
 
-		
+		/* do we want to yield(); ?? */
 		msleep(50);
 
 		mlog(0, "retrying unlock due to pending recovery/"
@@ -586,6 +659,12 @@ retry:
 	if (call_ast) {
 		mlog(0, "calling unlockast(%p, %d)\n", data, status);
 		if (is_master) {
+			/* it is possible that there is one last bast
+			 * pending.  make sure it is flushed, then
+			 * call the unlockast.
+			 * not an issue if this is a mastered remotely,
+			 * since this lock has been removed from the
+			 * lockres queues and cannot be found. */
 			dlm_kick_thread(dlm, NULL);
 			wait_event(dlm->ast_wq,
 				   dlm_lock_basts_flushed(dlm, lock));

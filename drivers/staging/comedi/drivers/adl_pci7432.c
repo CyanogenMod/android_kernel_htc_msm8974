@@ -19,6 +19,20 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: adl_pci7432
+Description: Driver for the Adlink PCI-7432 64 ch. isolated digital io board
+Devices: [ADLink] PCI-7432 (adl_pci7432)
+Author: Michel Lachaine <mike@mikelachaine.ca>
+Status: experimental
+Updated: Mon, 14 Apr 2008 15:08:14 +0100
+
+Configuration Options:
+  [0] - PCI bus of device (optional)
+  [1] - PCI slot of device (optional)
+  If bus/slot is not specified, the first supported
+  PCI device found will be used.
+*/
 
 #include "../comedidev.h"
 #include <linux/kernel.h>
@@ -53,6 +67,7 @@ static struct comedi_driver driver_adl_pci7432 = {
 	.detach = adl_pci7432_detach,
 };
 
+/* Digital IO */
 
 static int adl_pci7432_di_insn_bits(struct comedi_device *dev,
 				    struct comedi_subdevice *s,
@@ -64,6 +79,7 @@ static int adl_pci7432_do_insn_bits(struct comedi_device *dev,
 				    struct comedi_insn *insn,
 				    unsigned int *data);
 
+/*            */
 
 static int adl_pci7432_attach(struct comedi_device *dev,
 			      struct comedi_devconfig *it)
@@ -88,7 +104,7 @@ static int adl_pci7432_attach(struct comedi_device *dev,
 		if (pcidev->vendor == PCI_VENDOR_ID_ADLINK &&
 		    pcidev->device == PCI_DEVICE_ID_PCI7432) {
 			if (bus || slot) {
-				
+				/* requested particular bus/slot */
 				if (pcidev->bus->number != bus
 				    || PCI_SLOT(pcidev->devfn) != slot) {
 					continue;

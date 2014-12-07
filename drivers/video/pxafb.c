@@ -63,10 +63,14 @@
 #include <mach/bitfield.h>
 #include <mach/pxafb.h>
 
+/*
+ * Complain if VAR is out of range.
+ */
 #define DEBUG_VAR 1
 
 #include "pxafb.h"
 
+/* Bits which should not be set in machine configuration structures */
 #define LCCR0_INVALID_CONFIG_MASK	(LCCR0_OUM | LCCR0_BM | LCCR0_QDM |\
 					 LCCR0_DIS | LCCR0_EFM | LCCR0_IUM |\
 					 LCCR0_SFM | LCCR0_LDM | LCCR0_ENB)
@@ -101,6 +105,16 @@ static inline void pxafb_schedule_work(struct pxafb_info *fbi, u_int state)
 	unsigned long flags;
 
 	local_irq_save(flags);
+	/*
+	 * We need to handle two requests being made at the same time.
+	 * There are two important cases:
+	 *  1. When we are changing VT (C_REENABLE) while unblanking
+	 *     (C_ENABLE) We must perform the unblanking, which will
+	 *     do our REENABLE for us.
+	 *  2. When we are blanking, but immediately unblank before
+	 *     we have blanked.  We do the "REENABLE" thing here as
+	 *     well, just to be sure.
+	 */
 	if (fbi->task_state == C_ENABLE && state == C_REENABLE)
 		state = (u_int) -1;
 	if (fbi->task_state == C_DISABLE && state == C_ENABLE)
@@ -173,18 +187,32 @@ pxafb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	unsigned int val;
 	int ret = 1;
 
+	/*
+	 * If inverse mode was selected, invert all the colours
+	 * rather than the register number.  The register number
+	 * is what you poke into the framebuffer to produce the
+	 * colour you requested.
+	 */
 	if (fbi->cmap_inverse) {
 		red   = 0xffff - red;
 		green = 0xffff - green;
 		blue  = 0xffff - blue;
 	}
 
+	/*
+	 * If greyscale is true, then we convert the RGB value
+	 * to greyscale no matter what visual we are using.
+	 */
 	if (fbi->fb.var.grayscale)
 		red = green = blue = (19595 * red + 38470 * green +
 					7471 * blue) >> 16;
 
 	switch (fbi->fb.fix.visual) {
 	case FB_VISUAL_TRUECOLOR:
+		/*
+		 * 16-bit True Colour.  We encode the RGB value
+		 * according to the RGB bitfield information.
+		 */
 		if (regno < 16) {
 			u32 *pal = fbi->fb.pseudo_palette;
 
@@ -206,12 +234,14 @@ pxafb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	return ret;
 }
 
+/* calculate pixel depth, transparency bit included, >=16bpp formats _only_ */
 static inline int var_to_depth(struct fb_var_screeninfo *var)
 {
 	return var->red.length + var->green.length +
 		var->blue.length + var->transp.length;
 }
 
+/* calculate 4-bit BPP value for LCCR3 and OVLxC1 */
 static int pxafb_var_to_bpp(struct fb_var_screeninfo *var)
 {
 	int bpp = -EINVAL;
@@ -224,15 +254,15 @@ static int pxafb_var_to_bpp(struct fb_var_screeninfo *var)
 	case 16: bpp = 4; break;
 	case 24:
 		switch (var_to_depth(var)) {
-		case 18: bpp = 6; break; 
-		case 19: bpp = 8; break; 
+		case 18: bpp = 6; break; /* 18-bits/pixel packed */
+		case 19: bpp = 8; break; /* 19-bits/pixel packed */
 		case 24: bpp = 9; break;
 		}
 		break;
 	case 32:
 		switch (var_to_depth(var)) {
-		case 18: bpp = 5; break; 
-		case 19: bpp = 7; break; 
+		case 18: bpp = 5; break; /* 18-bits/pixel unpacked */
+		case 19: bpp = 7; break; /* 19-bits/pixel unpacked */
 		case 25: bpp = 10; break;
 		}
 		break;
@@ -240,6 +270,17 @@ static int pxafb_var_to_bpp(struct fb_var_screeninfo *var)
 	return bpp;
 }
 
+/*
+ *  pxafb_var_to_lccr3():
+ *    Convert a bits per pixel value to the correct bit pattern for LCCR3
+ *
+ *  NOTE: for PXA27x with overlays support, the LCCR3_PDFOR_x bits have an
+ *  implication of the acutal use of transparency bit,  which we handle it
+ *  here separatedly. See PXA27x Developer's Manual, Section <<7.4.6 Pixel
+ *  Formats>> for the valid combination of PDFOR, PAL_FOR for various BPP.
+ *
+ *  Transparency for palette pixel formats is not supported at the moment.
+ */
 static uint32_t pxafb_var_to_lccr3(struct fb_var_screeninfo *var)
 {
 	int bpp = pxafb_var_to_bpp(var);
@@ -270,13 +311,16 @@ static uint32_t pxafb_var_to_lccr3(struct fb_var_screeninfo *var)
 	(v)->red.length    = (r); (v)->red.offset = (b) + (g);	\
 })
 
+/* set the RGBT bitfields of fb_var_screeninf according to
+ * var->bits_per_pixel and given depth
+ */
 static void pxafb_set_pixfmt(struct fb_var_screeninfo *var, int depth)
 {
 	if (depth == 0)
 		depth = var->bits_per_pixel;
 
 	if (var->bits_per_pixel < 16) {
-		
+		/* indexed pixel formats */
 		var->red.offset    = 0; var->red.length    = 8;
 		var->green.offset  = 0; var->green.length  = 8;
 		var->blue.offset   = 0; var->blue.length   = 8;
@@ -285,24 +329,38 @@ static void pxafb_set_pixfmt(struct fb_var_screeninfo *var, int depth)
 
 	switch (depth) {
 	case 16: var->transp.length ?
-		 SET_PIXFMT(var, 5, 5, 5, 1) :		
-		 SET_PIXFMT(var, 5, 6, 5, 0); break;	
-	case 18: SET_PIXFMT(var, 6, 6, 6, 0); break;	
-	case 19: SET_PIXFMT(var, 6, 6, 6, 1); break;	
+		 SET_PIXFMT(var, 5, 5, 5, 1) :		/* RGBT555 */
+		 SET_PIXFMT(var, 5, 6, 5, 0); break;	/* RGB565 */
+	case 18: SET_PIXFMT(var, 6, 6, 6, 0); break;	/* RGB666 */
+	case 19: SET_PIXFMT(var, 6, 6, 6, 1); break;	/* RGBT666 */
 	case 24: var->transp.length ?
-		 SET_PIXFMT(var, 8, 8, 7, 1) :		
-		 SET_PIXFMT(var, 8, 8, 8, 0); break;	
-	case 25: SET_PIXFMT(var, 8, 8, 8, 1); break;	
+		 SET_PIXFMT(var, 8, 8, 7, 1) :		/* RGBT887 */
+		 SET_PIXFMT(var, 8, 8, 8, 0); break;	/* RGB888 */
+	case 25: SET_PIXFMT(var, 8, 8, 8, 1); break;	/* RGBT888 */
 	}
 }
 
 #ifdef CONFIG_CPU_FREQ
+/*
+ *  pxafb_display_dma_period()
+ *    Calculate the minimum period (in picoseconds) between two DMA
+ *    requests for the LCD controller.  If we hit this, it means we're
+ *    doing nothing but LCD DMA.
+ */
 static unsigned int pxafb_display_dma_period(struct fb_var_screeninfo *var)
 {
+	/*
+	 * Period = pixclock * bits_per_byte * bytes_per_transfer
+	 *              / memory_bits_per_pixel;
+	 */
 	return var->pixclock * 8 * 16 / var->bits_per_pixel;
 }
 #endif
 
+/*
+ * Select the smallest mode that allows the desired resolution to be
+ * displayed. If desired parameters can be rounded up.
+ */
 static struct pxafb_mode_info *pxafb_getmode(struct pxafb_mach_info *mach,
 					     struct fb_var_screeninfo *var)
 {
@@ -343,7 +401,7 @@ static void pxafb_setmode(struct fb_var_screeninfo *var,
 	var->grayscale		= mode->cmap_greyscale;
 	var->transp.length	= mode->transparency;
 
-	
+	/* set the initial RGBA bitfields */
 	pxafb_set_pixfmt(var, mode->depth);
 }
 
@@ -364,12 +422,12 @@ static int pxafb_adjust_timing(struct pxafb_info *fbi,
 		clamp_val(var->lower_margin, 1, 255);
 	}
 
-	
+	/* make sure each line is aligned on word boundary */
 	line_length = var->xres * var->bits_per_pixel / 8;
 	line_length = ALIGN(line_length, 4);
 	var->xres = line_length * 8 / var->bits_per_pixel;
 
-	
+	/* we don't support xpan, force xres_virtual to be equal to xres */
 	var->xres_virtual = var->xres;
 
 	if (var->accel_flags & FB_ACCELF_TEXT)
@@ -377,7 +435,7 @@ static int pxafb_adjust_timing(struct pxafb_info *fbi,
 	else
 		var->yres_virtual = max(var->yres_virtual, var->yres);
 
-	
+	/* check for limits */
 	if (var->xres > MAX_XRES || var->yres > MAX_YRES)
 		return -EINVAL;
 
@@ -387,6 +445,15 @@ static int pxafb_adjust_timing(struct pxafb_info *fbi,
 	return 0;
 }
 
+/*
+ *  pxafb_check_var():
+ *    Get the video params out of 'var'. If a value doesn't fit, round it up,
+ *    if it's too big, return -EINVAL.
+ *
+ *    Round up in the following order: bits_per_pixel, xres,
+ *    yres, xres_virtual, yres_virtual, xoffset, yoffset, grayscale,
+ *    bitfields, horizontal timing, vertical timing.
+ */
 static int pxafb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 	struct pxafb_info *fbi = (struct pxafb_info *)info;
@@ -402,7 +469,7 @@ static int pxafb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		pxafb_setmode(var, mode);
 	}
 
-	
+	/* do a test conversion to BPP fields to check the color formats */
 	err = pxafb_var_to_bpp(var);
 	if (err < 0)
 		return err;
@@ -421,6 +488,10 @@ static int pxafb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	return 0;
 }
 
+/*
+ * pxafb_set_par():
+ *	Set the user defined part of the display for the specified console
+ */
 static int pxafb_set_par(struct fb_info *info)
 {
 	struct pxafb_info *fbi = (struct pxafb_info *)info;
@@ -431,6 +502,11 @@ static int pxafb_set_par(struct fb_info *info)
 	else if (!fbi->cmap_static)
 		fbi->fb.fix.visual = FB_VISUAL_PSEUDOCOLOR;
 	else {
+		/*
+		 * Some people have weird ideas about wanting static
+		 * pseudocolor maps.  I suspect their user space
+		 * applications are broken.
+		 */
 		fbi->fb.fix.visual = FB_VISUAL_STATIC_PSEUDOCOLOR;
 	}
 
@@ -464,6 +540,9 @@ static int pxafb_pan_display(struct fb_var_screeninfo *var,
 	if (fbi->state != C_ENABLE)
 		return 0;
 
+	/* Only take .xoffset, .yoffset and .vmode & FB_VMODE_YWRAP from what
+	 * was passed in and copy the rest from the old screeninfo.
+	 */
 	memcpy(&newvar, &fbi->fb.var, sizeof(newvar));
 	newvar.xoffset = var->xoffset;
 	newvar.yoffset = var->yoffset;
@@ -479,6 +558,12 @@ static int pxafb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/*
+ * pxafb_blank():
+ *	Blank the display by setting all palette values to zero.  Note, the
+ * 	16 bpp mode does not really use the palette, so this will not
+ *      blank the display in all modes.
+ */
 static int pxafb_blank(int blank, struct fb_info *info)
 {
 	struct pxafb_info *fbi = (struct pxafb_info *)info;
@@ -495,11 +580,11 @@ static int pxafb_blank(int blank, struct fb_info *info)
 				pxafb_setpalettereg(i, 0, 0, 0, 0, info);
 
 		pxafb_schedule_work(fbi, C_DISABLE);
-		
+		/* TODO if (pxafb_blank_helper) pxafb_blank_helper(blank); */
 		break;
 
 	case FB_BLANK_UNBLANK:
-		
+		/* TODO if (pxafb_blank_helper) pxafb_blank_helper(blank); */
 		if (fbi->fb.fix.visual == FB_VISUAL_PSEUDOCOLOR ||
 		    fbi->fb.fix.visual == FB_VISUAL_STATIC_PSEUDOCOLOR)
 			fb_set_cmap(&fbi->fb.cmap, info);
@@ -528,6 +613,9 @@ static void overlay1fb_setup(struct pxafb_layer *ofb)
 	setup_frame_dma(ofb->fbi, DMA_OV1, PAL_NONE, start, size);
 }
 
+/* Depending on the enable status of overlay1/2, the DMA should be
+ * updated from FDADRx (when disabled) or FBRx (when enabled).
+ */
 static void overlay1fb_enable(struct pxafb_layer *ofb)
 {
 	int enabled = lcd_readl(ofb->fbi, OVL1C1) & OVLxC1_OEN;
@@ -639,12 +727,12 @@ static int overlayfb_open(struct fb_info *info, int user)
 {
 	struct pxafb_layer *ofb = (struct pxafb_layer *)info;
 
-	
+	/* no support for framebuffer console on overlay */
 	if (user == 0)
 		return -ENODEV;
 
 	if (ofb->usage++ == 0) {
-		
+		/* unblank the base framebuffer */
 		console_lock();
 		fb_blank(&ofb->fbi->fb, FB_BLANK_UNBLANK);
 		console_unlock();
@@ -684,11 +772,11 @@ static int overlayfb_check_var(struct fb_var_screeninfo *var,
 	if (bpp < 0)
 		return -EINVAL;
 
-	
+	/* no support for YUV format on overlay1 */
 	if (ofb->id == OVERLAY1 && pfor != 0)
 		return -EINVAL;
 
-	
+	/* for YUV packed formats, bpp = 'minimum bpp of YUV components' */
 	switch (pfor) {
 	case OVERLAY_FORMAT_RGB:
 		bpp = pxafb_var_to_bpp(var);
@@ -705,11 +793,11 @@ static int overlayfb_check_var(struct fb_var_screeninfo *var,
 		return -EINVAL;
 	}
 
-	
+	/* each line must start at a 32-bit word boundary */
 	if ((xpos * bpp) % 32)
 		return -EINVAL;
 
-	
+	/* xres must align on 32-bit word boundary */
 	var->xres = roundup(var->xres * bpp, 32) / bpp;
 
 	if ((xpos + var->xres > base_var->xres) ||
@@ -818,6 +906,9 @@ static inline int pxafb_overlay_supported(void)
 static int __devinit pxafb_overlay_map_video_memory(struct pxafb_info *pxafb,
 	struct pxafb_layer *ofb)
 {
+	/* We assume that user will use at most video_mem_size for overlay fb,
+	 * anyway, it's useless to use 16bpp main plane and 24bpp overlay
+	 */
 	ofb->video_mem = alloc_pages_exact(PAGE_ALIGN(pxafb->video_mem_size),
 		GFP_KERNEL | __GFP_ZERO);
 	if (ofb->video_mem == NULL)
@@ -862,7 +953,7 @@ static void __devinit pxafb_overlay_init(struct pxafb_info *fbi)
 		ofb->registered = 1;
 	}
 
-	
+	/* mask all IU/BS/EOF/SOF interrupts */
 	lcd_writel(fbi, LCCR5, ~0);
 
 	pr_info("PXA Overlay driver loaded successfully!\n");
@@ -888,21 +979,60 @@ static void __devexit pxafb_overlay_exit(struct pxafb_info *fbi)
 #else
 static inline void pxafb_overlay_init(struct pxafb_info *fbi) {}
 static inline void pxafb_overlay_exit(struct pxafb_info *fbi) {}
-#endif 
+#endif /* CONFIG_FB_PXA_OVERLAY */
 
+/*
+ * Calculate the PCD value from the clock rate (in picoseconds).
+ * We take account of the PPCR clock setting.
+ * From PXA Developer's Manual:
+ *
+ *   PixelClock =      LCLK
+ *                -------------
+ *                2 ( PCD + 1 )
+ *
+ *   PCD =      LCLK
+ *         ------------- - 1
+ *         2(PixelClock)
+ *
+ * Where:
+ *   LCLK = LCD/Memory Clock
+ *   PCD = LCCR3[7:0]
+ *
+ * PixelClock here is in Hz while the pixclock argument given is the
+ * period in picoseconds. Hence PixelClock = 1 / ( pixclock * 10^-12 )
+ *
+ * The function get_lclk_frequency_10khz returns LCLK in units of
+ * 10khz. Calling the result of this function lclk gives us the
+ * following
+ *
+ *    PCD = (lclk * 10^4 ) * ( pixclock * 10^-12 )
+ *          -------------------------------------- - 1
+ *                          2
+ *
+ * Factoring the 10^4 and 10^-12 out gives 10^-8 == 1 / 100000000 as used below.
+ */
 static inline unsigned int get_pcd(struct pxafb_info *fbi,
 				   unsigned int pixclock)
 {
 	unsigned long long pcd;
 
+	/* FIXME: Need to take into account Double Pixel Clock mode
+	 * (DPC) bit? or perhaps set it based on the various clock
+	 * speeds */
 	pcd = (unsigned long long)(clk_get_rate(fbi->clk) / 10000);
 	pcd *= pixclock;
 	do_div(pcd, 100000000 * 2);
-	
-	 
+	/* no need for this, since we should subtract 1 anyway. they cancel */
+	/* pcd += 1; */ /* make up for integer math truncations */
 	return (unsigned int)pcd;
 }
 
+/*
+ * Some touchscreens need hsync information from the video driver to
+ * function correctly. We export it here.  Note that 'hsync_time' and
+ * the value returned from pxafb_get_hsync_time() is the *reciprocal*
+ * of the hsync period in seconds.
+ */
 static inline void set_hsync_time(struct pxafb_info *fbi, unsigned int pcd)
 {
 	unsigned long htime;
@@ -921,7 +1051,7 @@ unsigned long pxafb_get_hsync_time(struct device *dev)
 {
 	struct pxafb_info *fbi = dev_get_drvdata(dev);
 
-	
+	/* If display is blanked/suspended, hsync isn't active */
 	if (!fbi || (fbi->state != C_ENABLE))
 		return 0;
 
@@ -962,7 +1092,7 @@ static int setup_frame_dma(struct pxafb_info *fbi, int dma, int pal,
 
 		pal_desc->ldcmd |= LDCMD_PAL;
 
-		
+		/* flip back and forth between palette and frame buffer */
 		pal_desc->fdadr = fbi->dma_buff_phys + dma_desc_off;
 		dma_desc->fdadr = fbi->dma_buff_phys + pal_desc_off;
 		fbi->fdadr[dma] = fbi->dma_buff_phys + dma_desc_off;
@@ -1018,9 +1148,13 @@ int pxafb_smart_flush(struct fb_info *info)
 	uint32_t prsr;
 	int ret = 0;
 
-	
+	/* disable controller until all registers are set up */
 	lcd_writel(fbi, LCCR0, fbi->reg_lccr0 & ~LCCR0_ENB);
 
+	/* 1. make it an even number of commands to align on 32-bit boundary
+	 * 2. add the interrupt command to the end of the chain so we can
+	 *    keep track of the end of the transfer
+	 */
 
 	while (fbi->n_smart_cmds & 1)
 		fbi->smart_cmds[fbi->n_smart_cmds++] = SMART_CMD_NOOP;
@@ -1029,14 +1163,14 @@ int pxafb_smart_flush(struct fb_info *info)
 	fbi->smart_cmds[fbi->n_smart_cmds++] = SMART_CMD_WAIT_FOR_VSYNC;
 	setup_smart_dma(fbi);
 
-	
+	/* continue to execute next command */
 	prsr = lcd_readl(fbi, PRSR) | PRSR_ST_OK | PRSR_CON_NT;
 	lcd_writel(fbi, PRSR, prsr);
 
-	
+	/* stop the processor in case it executed "wait for sync" cmd */
 	lcd_writel(fbi, CMDCR, 0x0001);
 
-	
+	/* don't send interrupts for fifo underruns on channel 6 */
 	lcd_writel(fbi, LCCR5, LCCR5_IUM(6));
 
 	lcd_writel(fbi, LCCR1, fbi->reg_lccr1);
@@ -1046,7 +1180,7 @@ int pxafb_smart_flush(struct fb_info *info)
 	lcd_writel(fbi, FDADR0, fbi->fdadr[0]);
 	lcd_writel(fbi, FDADR6, fbi->fdadr[6]);
 
-	
+	/* begin sending */
 	lcd_writel(fbi, LCCR0, fbi->reg_lccr0 | LCCR0_ENB);
 
 	if (wait_for_completion_timeout(&fbi->command_done, HZ/2) == 0) {
@@ -1055,7 +1189,7 @@ int pxafb_smart_flush(struct fb_info *info)
 		ret = -ETIMEDOUT;
 	}
 
-	
+	/* quick disable */
 	prsr = lcd_readl(fbi, PRSR) & ~(PRSR_ST_OK | PRSR_CON_NT);
 	lcd_writel(fbi, PRSR, prsr);
 	lcd_writel(fbi, LCCR0, fbi->reg_lccr0 & ~LCCR0_ENB);
@@ -1070,14 +1204,14 @@ int pxafb_smart_queue(struct fb_info *info, uint16_t *cmds, int n_cmds)
 	struct pxafb_info *fbi = container_of(info, struct pxafb_info, fb);
 
 	for (i = 0; i < n_cmds; i++, cmds++) {
-		
+		/* if it is a software delay, flush and delay */
 		if ((*cmds & 0xff00) == SMART_CMD_DELAY) {
 			pxafb_smart_flush(info);
 			mdelay(*cmds & 0xff);
 			continue;
 		}
 
-		
+		/* leave 2 commands for INTERRUPT and WAIT_FOR_SYNC */
 		if (fbi->n_smart_cmds == CMD_BUFF_SIZE - 8)
 			pxafb_smart_flush(info);
 
@@ -1117,7 +1251,7 @@ static void setup_smart_timing(struct pxafb_info *fbi,
 	fbi->reg_lccr3 |= (var->sync & FB_SYNC_HOR_HIGH_ACT) ? LCCR3_HSP : 0;
 	fbi->reg_lccr3 |= (var->sync & FB_SYNC_VERT_HIGH_ACT) ? LCCR3_VSP : 0;
 
-	
+	/* FIXME: make this configurable */
 	fbi->reg_cmdcr = 1;
 }
 
@@ -1180,7 +1314,7 @@ static int pxafb_smart_init(struct pxafb_info *fbi)
 }
 #else
 static inline int pxafb_smart_init(struct pxafb_info *fbi) { return 0; }
-#endif 
+#endif /* CONFIG_FB_PXA_SMARTPANEL */
 
 static void setup_parallel_timing(struct pxafb_info *fbi,
 				  struct fb_var_screeninfo *var)
@@ -1193,6 +1327,10 @@ static void setup_parallel_timing(struct pxafb_info *fbi,
 		LCCR1_BegLnDel(var->left_margin) +
 		LCCR1_EndLnDel(var->right_margin);
 
+	/*
+	 * If we have a dual scan LCD, we need to halve
+	 * the YRES parameter.
+	 */
 	lines_per_panel = var->yres;
 	if ((fbi->lccr0 & LCCR0_SDS) == LCCR0_Dual)
 		lines_per_panel /= 2;
@@ -1225,7 +1363,7 @@ static int pxafb_activate_var(struct fb_var_screeninfo *var,
 {
 	u_long flags;
 
-	
+	/* Update shadow copy atomically */
 	local_irq_save(flags);
 
 #ifdef CONFIG_FB_PXA_SMARTPANEL
@@ -1247,6 +1385,10 @@ static int pxafb_activate_var(struct fb_var_screeninfo *var,
 	fbi->reg_lccr4 |= (fbi->lccr4 & LCCR4_PAL_FOR_MASK);
 	local_irq_restore(flags);
 
+	/*
+	 * Only update the registers if the controller is enabled
+	 * and something has changed.
+	 */
 	if ((lcd_readl(fbi, LCCR0) != fbi->reg_lccr0) ||
 	    (lcd_readl(fbi, LCCR1) != fbi->reg_lccr1) ||
 	    (lcd_readl(fbi, LCCR2) != fbi->reg_lccr2) ||
@@ -1260,6 +1402,12 @@ static int pxafb_activate_var(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/*
+ * NOTE!  The following functions are purely helpers for set_ctrlr_state.
+ * Do not call them directly; set_ctrlr_state does the correct serialisation
+ * to ensure that things happen in the right way 100% of time time.
+ *	-- rmk
+ */
 static inline void __pxafb_backlight_power(struct pxafb_info *fbi, int on)
 {
 	pr_debug("pxafb: backlight o%s\n", on ? "n" : "ff");
@@ -1286,13 +1434,13 @@ static void pxafb_enable_controller(struct pxafb_info *fbi)
 	pr_debug("reg_lccr2 0x%08x\n", (unsigned int) fbi->reg_lccr2);
 	pr_debug("reg_lccr3 0x%08x\n", (unsigned int) fbi->reg_lccr3);
 
-	
+	/* enable LCD controller clock */
 	clk_prepare_enable(fbi->clk);
 
 	if (fbi->lccr0 & LCCR0_LCDT)
 		return;
 
-	
+	/* Sequence from 11.7.10 */
 	lcd_writel(fbi, LCCR4, fbi->reg_lccr4);
 	lcd_writel(fbi, LCCR3, fbi->reg_lccr3);
 	lcd_writel(fbi, LCCR2, fbi->reg_lccr2);
@@ -1317,7 +1465,7 @@ static void pxafb_disable_controller(struct pxafb_info *fbi)
 	}
 #endif
 
-	
+	/* Clear LCD Status Register */
 	lcd_writel(fbi, LCSR, 0xffffffff);
 
 	lccr0 = lcd_readl(fbi, LCCR0) & ~LCCR0_LDM;
@@ -1326,10 +1474,13 @@ static void pxafb_disable_controller(struct pxafb_info *fbi)
 
 	wait_for_completion_timeout(&fbi->disable_done, 200 * HZ / 1000);
 
-	
+	/* disable LCD controller clock */
 	clk_disable_unprepare(fbi->clk);
 }
 
+/*
+ *  pxafb_handle_irq: Handle 'LCD DONE' interrupts.
+ */
 static irqreturn_t pxafb_handle_irq(int irq, void *dev_id)
 {
 	struct pxafb_info *fbi = dev_id;
@@ -1363,6 +1514,11 @@ static irqreturn_t pxafb_handle_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * This function must be called from task context only, since it will
+ * sleep when disabling the LCD controller, or if we get two contending
+ * processes trying to alter state.
+ */
 static void set_ctrlr_state(struct pxafb_info *fbi, u_int state)
 {
 	u_int old_state;
@@ -1371,20 +1527,30 @@ static void set_ctrlr_state(struct pxafb_info *fbi, u_int state)
 
 	old_state = fbi->state;
 
+	/*
+	 * Hack around fbcon initialisation.
+	 */
 	if (old_state == C_STARTUP && state == C_REENABLE)
 		state = C_ENABLE;
 
 	switch (state) {
 	case C_DISABLE_CLKCHANGE:
+		/*
+		 * Disable controller for clock change.  If the
+		 * controller is already disabled, then do nothing.
+		 */
 		if (old_state != C_DISABLE && old_state != C_DISABLE_PM) {
 			fbi->state = state;
-			
+			/* TODO __pxafb_lcd_power(fbi, 0); */
 			pxafb_disable_controller(fbi);
 		}
 		break;
 
 	case C_DISABLE_PM:
 	case C_DISABLE:
+		/*
+		 * Disable controller
+		 */
 		if (old_state != C_DISABLE) {
 			fbi->state = state;
 			__pxafb_backlight_power(fbi, 0);
@@ -1395,14 +1561,23 @@ static void set_ctrlr_state(struct pxafb_info *fbi, u_int state)
 		break;
 
 	case C_ENABLE_CLKCHANGE:
+		/*
+		 * Enable the controller after clock change.  Only
+		 * do this if we were disabled for the clock change.
+		 */
 		if (old_state == C_DISABLE_CLKCHANGE) {
 			fbi->state = C_ENABLE;
 			pxafb_enable_controller(fbi);
-			
+			/* TODO __pxafb_lcd_power(fbi, 1); */
 		}
 		break;
 
 	case C_REENABLE:
+		/*
+		 * Re-enable the controller only if it was already
+		 * enabled.  This is so we reprogram the control
+		 * registers.
+		 */
 		if (old_state == C_ENABLE) {
 			__pxafb_lcd_power(fbi, 0);
 			pxafb_disable_controller(fbi);
@@ -1412,11 +1587,20 @@ static void set_ctrlr_state(struct pxafb_info *fbi, u_int state)
 		break;
 
 	case C_ENABLE_PM:
+		/*
+		 * Re-enable the controller after PM.  This is not
+		 * perfect - think about the case where we were doing
+		 * a clock change, and we suspended half-way through.
+		 */
 		if (old_state != C_DISABLE_PM)
 			break;
-		
+		/* fall through */
 
 	case C_ENABLE:
+		/*
+		 * Power up the LCD screen, enable controller, and
+		 * turn on the backlight.
+		 */
 		if (old_state != C_ENABLE) {
 			fbi->state = C_ENABLE;
 			pxafb_enable_controller(fbi);
@@ -1428,6 +1612,10 @@ static void set_ctrlr_state(struct pxafb_info *fbi, u_int state)
 	mutex_unlock(&fbi->ctrlr_lock);
 }
 
+/*
+ * Our LCD controller task (which is called when we blank or unblank)
+ * via keventd.
+ */
 static void pxafb_task(struct work_struct *work)
 {
 	struct pxafb_info *fbi =
@@ -1438,11 +1626,18 @@ static void pxafb_task(struct work_struct *work)
 }
 
 #ifdef CONFIG_CPU_FREQ
+/*
+ * CPU clock speed change handler.  We need to adjust the LCD timing
+ * parameters when the CPU clock is adjusted by the power management
+ * subsystem.
+ *
+ * TODO: Determine why f->new != 10*get_lclk_frequency_10khz()
+ */
 static int
 pxafb_freq_transition(struct notifier_block *nb, unsigned long val, void *data)
 {
 	struct pxafb_info *fbi = TO_INF(nb, freq_transition);
-	
+	/* TODO struct cpufreq_freqs *f = data; */
 	u_int pcd;
 
 	switch (val) {
@@ -1477,7 +1672,7 @@ pxafb_freq_policy(struct notifier_block *nb, unsigned long val, void *data)
 		pr_debug("min dma period: %d ps, "
 			"new clock %d kHz\n", pxafb_display_dma_period(var),
 			policy->max);
-		
+		/* TODO: fill in min/max values */
 		break;
 	}
 	return 0;
@@ -1485,6 +1680,10 @@ pxafb_freq_policy(struct notifier_block *nb, unsigned long val, void *data)
 #endif
 
 #ifdef CONFIG_PM
+/*
+ * Power management hooks.  Note that we won't be called from IRQ context,
+ * unlike the blank functions above, so we may sleep.
+ */
 static int pxafb_suspend(struct device *dev)
 {
 	struct pxafb_info *fbi = dev_get_drvdata(dev);
@@ -1556,7 +1755,7 @@ static void pxafb_decode_mach_info(struct pxafb_info *fbi,
 		fbi->lccr0 = LCCR0_LCDT | LCCR0_PAS;
 		break;
 	default:
-		
+		/* fall back to backward compatibility way */
 		fbi->lccr0 = inf->lccr0;
 		fbi->lccr3 = inf->lccr3;
 		goto decode_mode;
@@ -1574,6 +1773,11 @@ static void pxafb_decode_mach_info(struct pxafb_info *fbi,
 decode_mode:
 	pxafb_setmode(&fbi->fb.var, &inf->modes[0]);
 
+	/* decide video memory size as follows:
+	 * 1. default to mode of maximum resolution
+	 * 2. allow platform to override
+	 * 3. allow module parameter to override
+	 */
 	for (i = 0, m = &inf->modes[0]; i < inf->num_modes; i++, m++)
 		fbi->video_mem_size = max_t(size_t, fbi->video_mem_size,
 				m->xres * m->yres * m->bpp / 8);
@@ -1591,7 +1795,7 @@ static struct pxafb_info * __devinit pxafb_init_fbinfo(struct device *dev)
 	void *addr;
 	struct pxafb_mach_info *inf = dev->platform_data;
 
-	
+	/* Alloc the pxafb_info and pseudo_palette in one step */
 	fbi = kmalloc(sizeof(struct pxafb_info) + sizeof(u32) * 16, GFP_KERNEL);
 	if (!fbi)
 		return NULL;
@@ -1635,7 +1839,7 @@ static struct pxafb_info * __devinit pxafb_init_fbinfo(struct device *dev)
 	pxafb_decode_mach_info(fbi, inf);
 
 #ifdef CONFIG_FB_PXA_OVERLAY
-	
+	/* place overlay(s) on top of base */
 	if (pxafb_overlay_supported())
 		fbi->lccr0 |= LCCR0_OUC;
 #endif
@@ -1818,7 +2022,7 @@ static int __devinit pxafb_parse_options(struct device *dev, char *options)
 
 	dev_dbg(dev, "options are \"%s\"\n", options ? options : "null");
 
-	
+	/* could be made table driven or similar?... */
 	while ((this_opt = strsep(&options, ",")) != NULL) {
 		ret = parse_opt(dev, this_opt);
 		if (ret)
@@ -1855,6 +2059,8 @@ MODULE_PARM_DESC(options, "LCD parameters (see Documentation/fb/pxafb.txt)");
 #endif
 
 #ifdef DEBUG_VAR
+/* Check for various illegal bit-combinations. Currently only
+ * a warning is given. */
 static void __devinit pxafb_check_options(struct device *dev,
 					  struct pxafb_mach_info *inf)
 {
@@ -1923,7 +2129,7 @@ static int __devinit pxafb_probe(struct platform_device *dev)
 
 	fbi = pxafb_init_fbinfo(&dev->dev);
 	if (!fbi) {
-		
+		/* only reason for pxafb_init_fbinfo to fail is kmalloc */
 		dev_err(&dev->dev, "Failed to initialize framebuffer device\n");
 		ret = -ENOMEM;
 		goto failed;
@@ -1992,6 +2198,10 @@ static int __devinit pxafb_probe(struct platform_device *dev)
 		goto failed_free_irq;
 	}
 
+	/*
+	 * This makes sure that our colour bitfield
+	 * descriptors are correctly initialised.
+	 */
 	ret = pxafb_check_var(&fbi->fb.var, &fbi->fb);
 	if (ret) {
 		dev_err(&dev->dev, "failed to get suitable mode\n");
@@ -2024,6 +2234,9 @@ static int __devinit pxafb_probe(struct platform_device *dev)
 				CPUFREQ_POLICY_NOTIFIER);
 #endif
 
+	/*
+	 * Ok, now enable the LCD controller
+	 */
 	set_ctrlr_state(fbi, C_ENABLE);
 
 	return 0;

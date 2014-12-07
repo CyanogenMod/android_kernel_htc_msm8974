@@ -13,6 +13,12 @@
 #include <asm/types.h>
 #include <asm/ppc-opcode.h>
 
+/* Flags for create_branch:
+ * "b"   == create_branch(addr, target, 0);
+ * "ba"  == create_branch(addr, target, BRANCH_ABSOLUTE);
+ * "bl"  == create_branch(addr, target, BRANCH_SET_LINK);
+ * "bla" == create_branch(addr, target, BRANCH_ABSOLUTE | BRANCH_SET_LINK);
+ */
 #define BRANCH_SET_LINK	0x1
 #define BRANCH_ABSOLUTE	0x2
 
@@ -32,10 +38,15 @@ unsigned int translate_branch(const unsigned int *dest,
 static inline unsigned long ppc_function_entry(void *func)
 {
 #ifdef CONFIG_PPC64
+	/*
+	 * On PPC64 the function pointer actually points to the function's
+	 * descriptor. The first entry in the descriptor is the address
+	 * of the function text.
+	 */
 	return ((func_descr_t *)func)->entry;
 #else
 	return (unsigned long)func;
 #endif
 }
 
-#endif 
+#endif /* _ASM_POWERPC_CODE_PATCHING_H */

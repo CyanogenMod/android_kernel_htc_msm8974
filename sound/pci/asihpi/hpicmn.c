@@ -38,6 +38,11 @@ struct hpi_adapters_list {
 
 static struct hpi_adapters_list adapters;
 
+/**
+* Given an HPI Message that was sent out and a response that was received,
+* validate that the response has the correct fields filled in,
+* i.e ObjectType, Function etc
+**/
 u16 hpi_validate_response(struct hpi_message *phm, struct hpi_response *phr)
 {
 	if (phr->type != HPI_TYPE_RESPONSE) {
@@ -63,7 +68,7 @@ u16 hpi_validate_response(struct hpi_message *phm, struct hpi_response *phr)
 u16 hpi_add_adapter(struct hpi_adapter_obj *pao)
 {
 	u16 retval = 0;
-	
+	/*HPI_ASSERT(pao->type); */
 
 	hpios_alistlock_lock(&adapters);
 
@@ -111,6 +116,11 @@ void hpi_delete_adapter(struct hpi_adapter_obj *pao)
 	hpios_alistlock_unlock(&adapters);
 }
 
+/**
+* FindAdapter returns a pointer to the struct hpi_adapter_obj with
+* index wAdapterIndex in an HPI_ADAPTERS_LIST structure.
+*
+*/
 struct hpi_adapter_obj *hpi_find_adapter(u16 adapter_index)
 {
 	struct hpi_adapter_obj *pao = NULL;
@@ -123,12 +133,25 @@ struct hpi_adapter_obj *hpi_find_adapter(u16 adapter_index)
 
 	pao = &adapters.adapter[adapter_index];
 	if (pao->type != 0) {
+		/*
+		   HPI_DEBUG_LOG(VERBOSE, "Found adapter index %d\n",
+		   wAdapterIndex);
+		 */
 		return pao;
 	} else {
+		/*
+		   HPI_DEBUG_LOG(VERBOSE, "No adapter index %d\n",
+		   wAdapterIndex);
+		 */
 		return NULL;
 	}
 }
 
+/**
+*
+* wipe an HPI_ADAPTERS_LIST structure.
+*
+**/
 static void wipe_adapter_list(void)
 {
 	memset(&adapters, 0, sizeof(adapters));
@@ -140,7 +163,7 @@ static void subsys_get_adapter(struct hpi_message *phm,
 	int count = phm->obj_index;
 	u16 index = 0;
 
-	
+	/* find the nCount'th nonzero adapter in array */
 	for (index = 0; index < HPI_MAX_ADAPTERS; index++) {
 		if (adapters.adapter[index].type) {
 			if (!count)
@@ -191,6 +214,10 @@ static unsigned int control_cache_alloc_check(struct hpi_control_cache *pC)
 						pC->adap_idx);
 					return 0;
 				}
+				/* The cache is invalid.
+				 * Minimum valid entry size is
+				 * sizeof(struct hpi_control_cache_info)
+				 */
 				HPI_DEBUG_LOG(ERROR,
 					"adap %d zero size cache entry %d\n",
 					pC->adap_idx, i);
@@ -200,7 +227,7 @@ static unsigned int control_cache_alloc_check(struct hpi_control_cache *pC)
 			if (info->control_type) {
 				pC->p_info[info->control_index] = info;
 				cached++;
-			} else {	
+			} else {	/* dummy cache entry */
 				pC->p_info[info->control_index] = NULL;
 			}
 
@@ -212,9 +239,13 @@ static unsigned int control_cache_alloc_check(struct hpi_control_cache *pC)
 				info->control_index, info->control_type,
 				info->size_in32bit_words);
 
+			/* quit loop early if whole cache has been scanned.
+			 * dwControlCount is the maximum possible entries
+			 * but some may be absent from the cache
+			 */
 			if (byte_count >= pC->cache_size_in_bytes)
 				break;
-			
+			/* have seen last control index */
 			if (info->control_index == pC->control_count - 1)
 				break;
 		}
@@ -234,6 +265,8 @@ static unsigned int control_cache_alloc_check(struct hpi_control_cache *pC)
 	return pC->init;
 }
 
+/** Find a control.
+*/
 static short find_control(u16 control_index,
 	struct hpi_control_cache *p_cache, struct hpi_control_cache_info **pI)
 {
@@ -256,6 +289,7 @@ static short find_control(u16 control_index,
 	return 1;
 }
 
+/* allow unified treatment of several string fields within struct */
 #define HPICMN_PAD_OFS_AND_SIZE(m)  {\
 	offsetof(struct hpi_control_cache_pad, m), \
 	sizeof(((struct hpi_control_cache_pad *)(NULL))->m) }
@@ -266,12 +300,15 @@ struct pad_ofs_size {
 };
 
 static const struct pad_ofs_size pad_desc[] = {
-	HPICMN_PAD_OFS_AND_SIZE(c_channel),	
-	HPICMN_PAD_OFS_AND_SIZE(c_artist),	
-	HPICMN_PAD_OFS_AND_SIZE(c_title),	
-	HPICMN_PAD_OFS_AND_SIZE(c_comment),	
+	HPICMN_PAD_OFS_AND_SIZE(c_channel),	/* HPI_PAD_CHANNEL_NAME */
+	HPICMN_PAD_OFS_AND_SIZE(c_artist),	/* HPI_PAD_ARTIST */
+	HPICMN_PAD_OFS_AND_SIZE(c_title),	/* HPI_PAD_TITLE */
+	HPICMN_PAD_OFS_AND_SIZE(c_comment),	/* HPI_PAD_COMMENT */
 };
 
+/** CheckControlCache checks the cache and fills the struct hpi_response
+ * accordingly. It returns one if a cache hit occurred, zero otherwise.
+ */
 short hpi_check_control_cache(struct hpi_control_cache *p_cache,
 	struct hpi_message *phm, struct hpi_response *phr)
 {
@@ -290,11 +327,14 @@ short hpi_check_control_cache(struct hpi_control_cache *p_cache,
 	phr->specific_error = 0;
 	phr->version = 0;
 
-	
+	/* set the default response size */
 	response_size =
 		sizeof(struct hpi_response_header) +
 		sizeof(struct hpi_control_res);
 
+	/* pC is the default cached control strucure. May be cast to
+	   something else in the following switch statement.
+	 */
 	pC = (struct hpi_control_cache_single *)pI;
 
 	switch (pI->control_type) {
@@ -460,7 +500,7 @@ short hpi_check_control_cache(struct hpi_control_cache *p_cache,
 					((char *)p_pad) +
 					pad_desc[index].offset;
 				field_size = pad_desc[index].field_size;
-				
+				/* Ensure null terminator */
 				pad_string[field_size - 1] = 0;
 
 				pad_string_len = strlen(pad_string) + 1;
@@ -503,6 +543,12 @@ short hpi_check_control_cache(struct hpi_control_cache *p_cache,
 	return found;
 }
 
+/** Updates the cache with Set values.
+
+Only update if no error.
+Volume and Level return the limited values in the response, so use these
+Multiplexer does so use sent values
+*/
 void hpi_cmn_control_cache_sync_to_msg(struct hpi_control_cache *p_cache,
 	struct hpi_message *phm, struct hpi_response *phr)
 {
@@ -519,6 +565,9 @@ void hpi_cmn_control_cache_sync_to_msg(struct hpi_control_cache *p_cache,
 		return;
 	}
 
+	/* pC is the default cached control strucure.
+	   May be cast to something else in the following switch statement.
+	 */
 	pC = (struct hpi_control_cache_single *)pI;
 
 	switch (pI->control_type) {
@@ -534,14 +583,14 @@ void hpi_cmn_control_cache_sync_to_msg(struct hpi_control_cache *p_cache,
 		}
 		break;
 	case HPI_CONTROL_MULTIPLEXER:
-		
+		/* mux does not return its setting on Set command. */
 		if (phm->u.c.attribute == HPI_MULTIPLEXER_SOURCE) {
 			pC->u.mux.source_node_type = (u16)phm->u.c.param1;
 			pC->u.mux.source_node_index = (u16)phm->u.c.param2;
 		}
 		break;
 	case HPI_CONTROL_CHANNEL_MODE:
-		
+		/* mode does not return its setting on Set command. */
 		if (phm->u.c.attribute == HPI_CHANNEL_MODE_MODE)
 			pC->u.mode.mode = (u16)phm->u.c.param1;
 		break;
@@ -576,6 +625,10 @@ void hpi_cmn_control_cache_sync_to_msg(struct hpi_control_cache *p_cache,
 	}
 }
 
+/** Allocate control cache.
+
+\return Cache pointer, or NULL if allocation fails.
+*/
 struct hpi_control_cache *hpi_alloc_control_cache(const u32 control_count,
 	const u32 size_in_bytes, u8 *p_dsp_control_buffer)
 {

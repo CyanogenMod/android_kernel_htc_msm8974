@@ -15,6 +15,18 @@
  *  more details.
  */
 
+/******************************************************************************
+
+  TODO:
+       Despite of IGA Card has advanced graphic acceleration, 
+       initial version is almost dummy and does not support it.
+       Support for video modes and acceleration must be added
+       together with accelerated X-Windows driver implementation.
+
+       Most important thing at this moment is that we have working
+       JavaEngine1  console & X  with new console interface.
+
+******************************************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -62,7 +74,7 @@ struct fb_fix_screeninfo igafb_fix __initdata = {
 };
 
 struct fb_var_screeninfo default_var = {
-	
+	/* 640x480, 60 Hz, Non-Interlaced (25.175 MHz dotclock) */
 	.xres		= 640,
 	.yres		= 480,
 	.xres_virtual	= 640,
@@ -86,7 +98,7 @@ struct fb_var_screeninfo default_var = {
 
 #ifdef CONFIG_SPARC
 struct fb_var_screeninfo default_var_1024x768 __initdata = {
-	
+	/* 1024x768, 75 Hz, Non-Interlaced (78.75 MHz dotclock) */
 	.xres		= 1024,
 	.yres		= 768,
 	.xres_virtual	= 1024,
@@ -109,7 +121,7 @@ struct fb_var_screeninfo default_var_1024x768 __initdata = {
 };
 
 struct fb_var_screeninfo default_var_1152x900 __initdata = {
-	
+	/* 1152x900, 76 Hz, Non-Interlaced (110.0 MHz dotclock) */
 	.xres		= 1152,
 	.yres		= 900,
 	.xres_virtual	= 1152,
@@ -132,7 +144,7 @@ struct fb_var_screeninfo default_var_1152x900 __initdata = {
 };
 
 struct fb_var_screeninfo default_var_1280x1024 __initdata = {
-	
+	/* 1280x1024, 75 Hz, Non-Interlaced (135.00 MHz dotclock) */
 	.xres		= 1280,
 	.yres		= 1024,
 	.xres_virtual	= 1280,
@@ -154,7 +166,11 @@ struct fb_var_screeninfo default_var_1280x1024 __initdata = {
 	.vmode		= FB_SYNC_HOR_HIGH_ACT|FB_SYNC_VERT_HIGH_ACT, FB_VMODE_NONINTERLACED
 };
 
- 
+/*
+ *   Memory-mapped I/O functions for Sparc PCI
+ *
+ * On sparc we happen to access I/O with memory mapped functions too.
+ */ 
 #define pci_inb(par, reg)        readb(par->io_base+(reg))
 #define pci_outb(par, val, reg)  writeb(val, par->io_base+(reg))
 
@@ -172,18 +188,31 @@ static inline void iga_outb(struct iga_par *par, unsigned char val,
         pci_outb(par, val, reg+1);
 }
 
-#endif 
+#endif /* CONFIG_SPARC */
 
+/*
+ *  Very important functionality for the JavaEngine1 computer:
+ *  make screen border black (usign special IGA registers) 
+ */
 static void iga_blank_border(struct iga_par *par)
 {
         int i;
 #if 0
-	(void) pci_inb(par, 0x3DA);		
+	/*
+	 * PROM does this for us, so keep this code as a reminder
+	 * about required read from 0x3DA and writing of 0x20 in the end.
+	 */
+	(void) pci_inb(par, 0x3DA);		/* required for every access */
 	pci_outb(par, IGA_IDX_VGA_OVERSCAN, IGA_ATTR_CTL);
 	(void) pci_inb(par, IGA_ATTR_CTL+1);
 	pci_outb(par, 0x38, IGA_ATTR_CTL);
-	pci_outb(par, 0x20, IGA_ATTR_CTL);	
+	pci_outb(par, 0x20, IGA_ATTR_CTL);	/* re-enable visual */
 #endif
+	/*
+	 * This does not work as it was designed because the overscan
+	 * color is looked up in the palette. Therefore, under X11
+	 * overscan changes color.
+	 */
 	for (i=0; i < 3; i++)
 		iga_outb(par, 0, IGA_EXT_CNTRL, IGA_IDX_OVERSCAN_COLOR + i);
 }
@@ -202,7 +231,7 @@ static int igafb_mmap(struct fb_info *info,
 
 	size = vma->vm_end - vma->vm_start;
 
-	
+	/* Each page, see which map applies */
 	for (page = 0; page < size; ) {
 		map_size = 0;
 		for (i = 0; par->mmap_map[i].size; i++) {
@@ -242,12 +271,18 @@ static int igafb_mmap(struct fb_info *info,
 	vma->vm_flags |= VM_IO;
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SPARC */
 
 static int igafb_setcolreg(unsigned regno, unsigned red, unsigned green,
                            unsigned blue, unsigned transp,
                            struct fb_info *info)
 {
+        /*
+         *  Set a single color register. The values supplied are
+         *  already rounded down to the hardware's capabilities
+         *  (according to the entries in the `var' structure). Return
+         *  != 0 for invalid regno.
+         */
 	struct iga_par *par = (struct iga_par *)info->par;
 
         if (regno >= info->cmap.len)
@@ -279,6 +314,9 @@ static int igafb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	return 0;
 }
 
+/*
+ * Framebuffer option structure
+ */
 static struct fb_ops igafb_ops = {
 	.owner 		= THIS_MODULE,
 	.fb_setcolreg 	= igafb_setcolreg,
@@ -344,12 +382,18 @@ static int __init igafb_init(void)
         pdev = pci_get_device(PCI_VENDOR_ID_INTERG,
                                PCI_DEVICE_ID_INTERG_1682, 0);
 	if (pdev == NULL) {
+		/*
+		 * XXX We tried to use cyber2000fb.c for IGS 2000.
+		 * But it does not initialize the chip in JavaStation-E, alas.
+		 */
         	pdev = pci_get_device(PCI_VENDOR_ID_INTERG, 0x2000, 0);
         	if(pdev == NULL) {
         	        return -ENXIO;
 		}
 		iga2000 = 1;
 	}
+	/* We leak a reference here but as it cannot be unloaded this is
+	   fine. If you write unload code remember to free it in unload */
 	
 	size = sizeof(struct iga_par) + sizeof(u32)*16;
 
@@ -379,10 +423,29 @@ static int __init igafb_init(void)
 	par->frame_buffer_phys = addr & PCI_BASE_ADDRESS_MEM_MASK;
 
 #ifdef CONFIG_SPARC
+	/*
+	 * The following is sparc specific and this is why:
+	 *
+	 * IGS2000 has its I/O memory mapped and we want
+	 * to generate memory cycles on PCI, e.g. do ioremap(),
+	 * then readb/writeb() as in Documentation/io-mapping.txt.
+	 *
+	 * IGS1682 is more traditional, it responds to PCI I/O
+	 * cycles, so we want to access it with inb()/outb().
+	 *
+	 * On sparc, PCIC converts CPU memory access within
+	 * phys window 0x3000xxxx into PCI I/O cycles. Therefore
+	 * we may use readb/writeb to access them with IGS1682.
+	 *
+	 * We do not take io_base_phys from resource[n].start
+	 * on IGS1682 because that chip is BROKEN. It does not
+	 * have a base register for I/O. We just "know" what its
+	 * I/O addresses are.
+	 */
 	if (iga2000) {
 		igafb_fix.mmio_start = par->frame_buffer_phys | 0x00800000;
 	} else {
-		igafb_fix.mmio_start = 0x30000000;	
+		igafb_fix.mmio_start = 0x30000000;	/* XXX */
 	}
 	if ((par->io_base = (int) ioremap(igafb_fix.mmio_start, igafb_fix.smem_len)) == 0) {
                 printk("igafb_init: can't remap %lx[4K]\n", igafb_fix.mmio_start);
@@ -392,6 +455,13 @@ static int __init igafb_init(void)
 		return -ENXIO;
 	}
 
+	/*
+	 * Figure mmap addresses from PCI config space.
+	 * We need two regions: for video memory and for I/O ports.
+	 * Later one can add region for video coprocessor registers.
+	 * However, mmap routine loops until size != 0, so we put
+	 * one additional region with size == 0. 
+	 */
 
 	par->mmap_map = kzalloc(4 * sizeof(*par->mmap_map), GFP_ATOMIC);
 	if (!par->mmap_map) {
@@ -403,6 +473,9 @@ static int __init igafb_init(void)
 		return -ENOMEM;
 	}
 
+	/*
+	 * Set default vmode and cmode from PROM properties.
+	 */
 	{
 		struct device_node *dp = pci_device_to_OF_node(pdev);
                 int node = dp->node;
@@ -462,21 +535,24 @@ static int __init igafb_init(void)
         }
 
 #ifdef CONFIG_SPARC
+	    /*
+	     * Add /dev/fb mmap values.
+	     */
 	    
-	    
+	    /* First region is for video memory */
 	    par->mmap_map[0].voff = 0x0;  
 	    par->mmap_map[0].poff = par->frame_buffer_phys & PAGE_MASK;
 	    par->mmap_map[0].size = info->fix.smem_len & PAGE_MASK;
 	    par->mmap_map[0].prot_mask = SRMMU_CACHE;
 	    par->mmap_map[0].prot_flag = SRMMU_WRITE;
 
-	    
+	    /* Second region is for I/O ports */
 	    par->mmap_map[1].voff = par->frame_buffer_phys & PAGE_MASK;
 	    par->mmap_map[1].poff = info->fix.smem_start & PAGE_MASK;
-	    par->mmap_map[1].size = PAGE_SIZE * 2; 
+	    par->mmap_map[1].size = PAGE_SIZE * 2; /* X wants 2 pages */
 	    par->mmap_map[1].prot_mask = SRMMU_CACHE;
 	    par->mmap_map[1].prot_flag = SRMMU_WRITE;
-#endif 
+#endif /* CONFIG_SPARC */
 
 	return 0;
 }

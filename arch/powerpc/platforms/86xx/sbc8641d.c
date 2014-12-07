@@ -69,12 +69,15 @@ sbc8641_show_cpuinfo(struct seq_file *m)
 }
 
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init sbc8641_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
 
 	if (of_flat_dt_is_compatible(root, "wind,sbc8641"))
-		return 1;	
+		return 1;	/* Looks good */
 
 	return 0;
 }
@@ -84,7 +87,7 @@ mpc86xx_time_init(void)
 {
 	unsigned int temp;
 
-	
+	/* Set the time base to zero */
 	mtspr(SPRN_TBWL, 0);
 	mtspr(SPRN_TBWU, 0);
 

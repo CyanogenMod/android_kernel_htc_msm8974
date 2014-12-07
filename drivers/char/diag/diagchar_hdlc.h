@@ -24,15 +24,16 @@ enum diag_send_state_enum_type {
 
 struct diag_send_desc_type {
 	const void *pkt;
-	const void *last;	
+	const void *last;	/* Address of last byte to send. */
 	enum diag_send_state_enum_type state;
-	unsigned char terminate;	
+	unsigned char terminate;	/* True if this fragment
+					   terminates the packet */
 };
 
 struct diag_hdlc_dest_type {
 	void *dest;
 	void *dest_last;
-	
+	/* Below: internal use only */
 	uint16_t crc;
 };
 

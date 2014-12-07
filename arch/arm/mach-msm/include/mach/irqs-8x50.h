@@ -13,6 +13,7 @@
 #ifndef __ASM_ARCH_MSM_IRQS_8XXX_H
 #define __ASM_ARCH_MSM_IRQS_8XXX_H
 
+/* MSM ACPU Interrupt Numbers */
 
 #define INT_A9_M2A_0         0
 #define INT_A9_M2A_1         1

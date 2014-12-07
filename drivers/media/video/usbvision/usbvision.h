@@ -39,7 +39,7 @@
 #include <media/tuner.h>
 #include <linux/videodev2.h>
 
-#define USBVISION_DEBUG		
+#define USBVISION_DEBUG		/* Turn on debug messages */
 
 #define USBVISION_PWR_REG		0x00
 	#define USBVISION_SSPND_EN		(1 << 1)
@@ -137,23 +137,23 @@
 #define MAX_BYTES_PER_PIXEL		4
 
 #define MIN_FRAME_WIDTH			64
-#define MAX_USB_WIDTH			320  
-#define MAX_FRAME_WIDTH			320  			
+#define MAX_USB_WIDTH			320  /* 384 */
+#define MAX_FRAME_WIDTH			320  /* 384 */			/* streching sometimes causes crashes*/
 
 #define MIN_FRAME_HEIGHT		48
-#define MAX_USB_HEIGHT			240  
-#define MAX_FRAME_HEIGHT		240  			
+#define MAX_USB_HEIGHT			240  /* 288 */
+#define MAX_FRAME_HEIGHT		240  /* 288 */			/* Streching sometimes causes crashes*/
 
 #define MAX_FRAME_SIZE			(MAX_FRAME_WIDTH * MAX_FRAME_HEIGHT * MAX_BYTES_PER_PIXEL)
-#define USBVISION_CLIPMASK_SIZE		(MAX_FRAME_WIDTH * MAX_FRAME_HEIGHT / 8) 
+#define USBVISION_CLIPMASK_SIZE		(MAX_FRAME_WIDTH * MAX_FRAME_HEIGHT / 8) /* bytesize of clipmask */
 
 #define USBVISION_URB_FRAMES		32
 
 #define USBVISION_NUM_HEADERMARKER	20
-#define USBVISION_NUMFRAMES		3  
-#define USBVISION_NUMSBUF		2 
+#define USBVISION_NUMFRAMES		3  /* Maximum number of frames an application can get */
+#define USBVISION_NUMSBUF		2 /* Dimensioning the USB S buffering */
 
-#define USBVISION_POWEROFF_TIME		(3 * HZ)		
+#define USBVISION_POWEROFF_TIME		(3 * HZ)		/* 3 seconds */
 
 
 #define FRAMERATE_MIN	0
@@ -165,9 +165,29 @@ enum {
 	ISOC_MODE_COMPRESS = 0x60,
 };
 
+/* This macro restricts an int variable to an inclusive range */
 #define RESTRICT_TO_RANGE(v, mi, ma) \
 	{ if ((v) < (mi)) (v) = (mi); else if ((v) > (ma)) (v) = (ma); }
 
+/*
+ * We use macros to do YUV -> RGB conversion because this is
+ * very important for speed and totally unimportant for size.
+ *
+ * YUV -> RGB Conversion
+ * ---------------------
+ *
+ * B = 1.164*(Y-16)		    + 2.018*(V-128)
+ * G = 1.164*(Y-16) - 0.813*(U-128) - 0.391*(V-128)
+ * R = 1.164*(Y-16) + 1.596*(U-128)
+ *
+ * If you fancy integer arithmetics (as you should), hear this:
+ *
+ * 65536*B = 76284*(Y-16)		  + 132252*(V-128)
+ * 65536*G = 76284*(Y-16) -  53281*(U-128) -  25625*(V-128)
+ * 65536*R = 76284*(Y-16) + 104595*(U-128)
+ *
+ * Make sure the output values are within [0..255] range.
+ */
 #define LIMIT_RGB(x) (((x) < 0) ? 0 : (((x) > 255) ? 255 : (x)))
 #define YUV_TO_RGB_BY_THE_BOOK(my, mu, mv, mr, mg, mb) { \
 	int mm_y, mm_yc, mm_u, mm_v, mm_r, mm_g, mm_b; \
@@ -183,6 +203,7 @@ enum {
 	mr = LIMIT_RGB(mm_r); \
 }
 
+/* Debugging aid */
 #define USBVISION_SAY_AND_WAIT(what) { \
 	wait_queue_head_t wq; \
 	init_waitqueue_head(&wq); \
@@ -190,6 +211,11 @@ enum {
 	interruptible_sleep_on_timeout(&wq, HZ * 3); \
 }
 
+/*
+ * This macro checks if usbvision is still operational. The 'usbvision'
+ * pointer must be valid, usbvision->dev must be valid, we are not
+ * removing the device and the device has not erred on us.
+ */
 #define USBVISION_IS_OPERATIONAL(udevice) (\
 	(udevice != NULL) && \
 	((udevice)->dev != NULL) && \
@@ -200,37 +226,42 @@ enum {
 
 #define USBVISION_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC | V4L2_STD_SECAM | V4L2_STD_PAL_M)
 
+/* ----------------------------------------------------------------- */
+/* usbvision video structures                                        */
+/* ----------------------------------------------------------------- */
 enum scan_state {
-	scan_state_scanning,	
-	scan_state_lines	
+	scan_state_scanning,	/* Scanning for header */
+	scan_state_lines	/* Parsing lines */
 };
 
+/* Completion states of the data parser */
 enum parse_state {
-	parse_state_continue,	
-	parse_state_next_frame,	
-	parse_state_out,	
-	parse_state_end_parse	
+	parse_state_continue,	/* Just parse next item */
+	parse_state_next_frame,	/* Frame done, send it to V4L */
+	parse_state_out,	/* Not enough data for frame */
+	parse_state_end_parse	/* End parsing */
 };
 
 enum frame_state {
-	frame_state_unused,	
-	frame_state_ready,	
-	frame_state_grabbing,	
-	frame_state_done,	
-	frame_state_done_hold,	
-	frame_state_error,	
+	frame_state_unused,	/* Unused (no MCAPTURE) */
+	frame_state_ready,	/* Ready to start grabbing */
+	frame_state_grabbing,	/* In the process of being grabbed into */
+	frame_state_done,	/* Finished grabbing, but not been synced yet */
+	frame_state_done_hold,	/* Are syncing or reading */
+	frame_state_error,	/* Something bad happened while processing */
 };
 
+/* stream states */
 enum stream_state {
-	stream_off,		
-	stream_idle,		
-	stream_interrupt,	
-	stream_on,		
+	stream_off,		/* Driver streaming is completely OFF */
+	stream_idle,		/* Driver streaming is ready to be put ON by the application */
+	stream_interrupt,	/* Driver streaming must be interrupted */
+	stream_on,		/* Driver streaming is put ON by the application */
 };
 
 enum isoc_state {
-	isoc_state_in_frame,	
-	isoc_state_no_frame,	
+	isoc_state_in_frame,	/* Isoc packet is member of frame */
+	isoc_state_no_frame,	/* Isoc packet is not member of any frame */
 };
 
 struct usb_device;
@@ -259,45 +290,45 @@ struct usbvision_v4l2_format_st {
 #define USBVISION_SUPPORTED_PALETTES ARRAY_SIZE(usbvision_v4l2_format)
 
 struct usbvision_frame_header {
-	unsigned char magic_1;				
-	unsigned char magic_2;				
-	unsigned char header_length;			
-	unsigned char frame_num;			
-	unsigned char frame_phase;			
-	unsigned char frame_latency;			
-	unsigned char data_format;			
-	unsigned char format_param;			
-	unsigned char frame_width_lo;			
-	unsigned char frame_width_hi;			
-	unsigned char frame_height_lo;			
-	unsigned char frame_height_hi;			
-	__u16 frame_width;				
-	__u16 frame_height;				
+	unsigned char magic_1;				/* 0 magic */
+	unsigned char magic_2;				/* 1  magic */
+	unsigned char header_length;			/* 2 */
+	unsigned char frame_num;			/* 3 */
+	unsigned char frame_phase;			/* 4 */
+	unsigned char frame_latency;			/* 5 */
+	unsigned char data_format;			/* 6 */
+	unsigned char format_param;			/* 7 */
+	unsigned char frame_width_lo;			/* 8 */
+	unsigned char frame_width_hi;			/* 9 */
+	unsigned char frame_height_lo;			/* 10 */
+	unsigned char frame_height_hi;			/* 11 */
+	__u16 frame_width;				/* 8 - 9 after endian correction*/
+	__u16 frame_height;				/* 10 - 11 after endian correction*/
 };
 
 struct usbvision_frame {
-	char *data;					
-	struct usbvision_frame_header isoc_header;	
+	char *data;					/* Frame buffer */
+	struct usbvision_frame_header isoc_header;	/* Header from stream */
 
-	int width;					
-	int height;					
-	int index;					
-	int frmwidth;					
-	int frmheight;					
+	int width;					/* Width application is expecting */
+	int height;					/* Height */
+	int index;					/* Frame index */
+	int frmwidth;					/* Width the frame actually is */
+	int frmheight;					/* Height */
 
-	volatile int grabstate;				
-	int scanstate;					
+	volatile int grabstate;				/* State of grabbing */
+	int scanstate;					/* State of scanning */
 
 	struct list_head frame;
 
-	int curline;					
+	int curline;					/* Line of frame we're working on */
 
-	long scanlength;				
-	long bytes_read;				
-	struct usbvision_v4l2_format_st v4l2_format;	
-	int v4l2_linesize;				
+	long scanlength;				/* uncompressed, raw data length of frame */
+	long bytes_read;				/* amount of scanlength that has been read from data */
+	struct usbvision_v4l2_format_st v4l2_format;	/* format the user needs*/
+	int v4l2_linesize;				/* bytes for one videoline*/
 	struct timeval timestamp;
-	int sequence;					
+	int sequence;					/* How many video frames we send to user */
 };
 
 #define CODEC_SAA7113	7113
@@ -310,15 +341,15 @@ struct usbvision_frame {
 struct usbvision_device_data_st {
 	__u64 video_norm;
 	const char *model_string;
-	int interface; 
+	int interface; /* to handle special interface number like BELKIN and Hauppauge WinTV-USB II */
 	__u16 codec;
 	unsigned video_channels:3;
 	unsigned audio_channels:2;
 	unsigned radio:1;
 	unsigned vbi:1;
 	unsigned tuner:1;
-	unsigned vin_reg1_override:1;	
-	unsigned vin_reg2_override:1;   
+	unsigned vin_reg1_override:1;	/* Override default value with */
+	unsigned vin_reg2_override:1;   /* vin_reg1, vin_reg2, etc. */
 	unsigned dvi_yuv_override:1;
 	__u8 vin_reg1;
 	__u8 vin_reg2;
@@ -328,15 +359,16 @@ struct usbvision_device_data_st {
 	__s16 y_offset;
 };
 
+/* Declared on usbvision-cards.c */
 extern struct usbvision_device_data_st usbvision_device_data[];
 extern struct usb_device_id usbvision_table[];
 
 struct usb_usbvision {
 	struct v4l2_device v4l2_dev;
-	struct video_device *vdev;					
-	struct video_device *rdev;					
+	struct video_device *vdev;					/* Video Device */
+	struct video_device *rdev;					/* Radio Device */
 
-	
+	/* i2c Declaration Section*/
 	struct i2c_adapter i2c_adap;
 	int registered_i2c;
 
@@ -344,55 +376,55 @@ struct usb_usbvision {
 	unsigned char ctrl_urb_buffer[8];
 	int ctrl_urb_busy;
 	struct usb_ctrlrequest ctrl_urb_setup;
-	wait_queue_head_t ctrl_urb_wq;					
+	wait_queue_head_t ctrl_urb_wq;					/* Processes waiting */
 
-	
+	/* configuration part */
 	int have_tuner;
 	int tuner_type;
-	int bridge_type;						
+	int bridge_type;						/* NT1003, NT1004, NT1005 */
 	int radio;
-	int video_inputs;						
+	int video_inputs;						/* # of inputs */
 	unsigned long freq;
 	int audio_mute;
 	int audio_channel;
-	int isoc_mode;							
-	unsigned int nr;						
+	int isoc_mode;							/* format of video data for the usb isoc-transfer */
+	unsigned int nr;						/* Number of the device */
 
-	
+	/* Device structure */
 	struct usb_device *dev;
-	
-	int num_alt;		
-	unsigned int *alt_max_pkt_size;	
-	unsigned char iface;						
-	unsigned char iface_alt;					
+	/* usb transfer */
+	int num_alt;		/* Number of alternative settings */
+	unsigned int *alt_max_pkt_size;	/* array of max_packet_size */
+	unsigned char iface;						/* Video interface number */
+	unsigned char iface_alt;					/* Alt settings */
 	unsigned char vin_reg2_preset;
 	struct mutex v4l2_lock;
 	struct timer_list power_off_timer;
 	struct work_struct power_off_work;
-	int power;							
-	int user;							
-	int initialized;						
-	int dev_model;							
-	enum stream_state streaming;					
-	int last_error;							
-	int curwidth;							
-	int curheight;							
-	int stretch_width;						
-	int stretch_height;						
-	char *fbuf;							
-	int max_frame_size;						
-	int fbuf_size;							
-	spinlock_t queue_lock;						
-	struct list_head inqueue, outqueue;                             
-	wait_queue_head_t wait_frame;					
-	wait_queue_head_t wait_stream;					
-	struct usbvision_frame *cur_frame;				
-	struct usbvision_frame frame[USBVISION_NUMFRAMES];		
-	int num_frames;							
-	struct usbvision_sbuf sbuf[USBVISION_NUMSBUF];			
-	volatile int remove_pending;					
+	int power;							/* is the device powered on? */
+	int user;							/* user count for exclusive use */
+	int initialized;						/* Had we already sent init sequence? */
+	int dev_model;							/* What type of USBVISION device we got? */
+	enum stream_state streaming;					/* Are we streaming Isochronous? */
+	int last_error;							/* What calamity struck us? */
+	int curwidth;							/* width of the frame the device is currently set to*/
+	int curheight;							/* height of the frame the device is currently set to*/
+	int stretch_width;						/* stretch-factor for frame width (from usb to screen)*/
+	int stretch_height;						/* stretch-factor for frame height (from usb to screen)*/
+	char *fbuf;							/* Videodev buffer area for mmap*/
+	int max_frame_size;						/* Bytes in one video frame */
+	int fbuf_size;							/* Videodev buffer size */
+	spinlock_t queue_lock;						/* spinlock for protecting mods on inqueue and outqueue */
+	struct list_head inqueue, outqueue;                             /* queued frame list and ready to dequeue frame list */
+	wait_queue_head_t wait_frame;					/* Processes waiting */
+	wait_queue_head_t wait_stream;					/* Processes waiting */
+	struct usbvision_frame *cur_frame;				/* pointer to current frame, set by usbvision_find_header */
+	struct usbvision_frame frame[USBVISION_NUMFRAMES];		/* frame buffer */
+	int num_frames;							/* number of frames allocated */
+	struct usbvision_sbuf sbuf[USBVISION_NUMSBUF];			/* S buffering */
+	volatile int remove_pending;					/* If set then about to exit */
 
-	
+	/* Scratch space from the Isochronous Pipe.*/
 	unsigned char *scratch;
 	int scratch_read_ptr;
 	int scratch_write_ptr;
@@ -402,37 +434,37 @@ struct usb_usbvision {
 	enum isoc_state isocstate;
 	struct usbvision_v4l2_format_st palette;
 
-	struct v4l2_capability vcap;					
-	unsigned int ctl_input;						
-	v4l2_std_id tvnorm_id;						
-	unsigned char video_endp;					
+	struct v4l2_capability vcap;					/* Video capabilities */
+	unsigned int ctl_input;						/* selected input */
+	v4l2_std_id tvnorm_id;						/* selected tv norm */
+	unsigned char video_endp;					/* 0x82 for USBVISION devices based */
 
-	
-	unsigned char *intra_frame_buffer;				
-	int block_pos;							
-	int request_intra;						
-	int last_isoc_frame_num;					
-	int isoc_packet_size;						
-	int used_bandwidth;						
-	int compr_level;						
-	int last_compr_level;						
-	int usb_bandwidth;						
+	/* Decompression stuff: */
+	unsigned char *intra_frame_buffer;				/* Buffer for reference frame */
+	int block_pos;							/* for test only */
+	int request_intra;						/* 0 = normal; 1 = intra frame is requested; */
+	int last_isoc_frame_num;					/* check for lost isoc frames */
+	int isoc_packet_size;						/* need to calculate used_bandwidth */
+	int used_bandwidth;						/* used bandwidth 0-100%, need to set compr_level */
+	int compr_level;						/* How strong (100) or weak (0) is compression */
+	int last_compr_level;						/* How strong (100) or weak (0) was compression */
+	int usb_bandwidth;						/* Mbit/s */
 
-	
-	unsigned long isoc_urb_count;			
-	unsigned long urb_length;			
-	unsigned long isoc_data_count;			
-	unsigned long header_count;			
-	unsigned long scratch_ovf_count;		
-	unsigned long isoc_skip_count;			
-	unsigned long isoc_err_count;			
-	unsigned long isoc_packet_count;		
-	unsigned long time_in_irq;			
+	/* Statistics that can be overlayed on the screen */
+	unsigned long isoc_urb_count;			/* How many URBs we received so far */
+	unsigned long urb_length;			/* Length of last URB */
+	unsigned long isoc_data_count;			/* How many bytes we received */
+	unsigned long header_count;			/* How many frame headers we found */
+	unsigned long scratch_ovf_count;		/* How many times we overflowed scratch */
+	unsigned long isoc_skip_count;			/* How many empty ISO packets received */
+	unsigned long isoc_err_count;			/* How many bad ISO packets received */
+	unsigned long isoc_packet_count;		/* How many packets we totally got */
+	unsigned long time_in_irq;			/* How long do we need for interrupt */
 	int isoc_measure_bandwidth_count;
-	int frame_num;					
-	int max_strip_len;				
+	int frame_num;					/* How many video frames we send to user */
+	int max_strip_len;				/* How big is the biggest strip */
 	int comprblock_pos;
-	int strip_len_errors;				
+	int strip_len_errors;				/* How many times was block_pos greater than strip_len */
 	int strip_magic_errors;
 	int strip_line_number_errors;
 	int compr_block_types[4];
@@ -446,10 +478,18 @@ static inline struct usb_usbvision *to_usbvision(struct v4l2_device *v4l2_dev)
 #define call_all(usbvision, o, f, args...) \
 	v4l2_device_call_all(&usbvision->v4l2_dev, 0, o, f, ##args)
 
+/* --------------------------------------------------------------- */
+/* defined in usbvision-i2c.c                                      */
+/* i2c-algo-usb declaration                                        */
+/* --------------------------------------------------------------- */
 
+/* ----------------------------------------------------------------------- */
+/* usbvision specific I2C functions                                        */
+/* ----------------------------------------------------------------------- */
 int usbvision_i2c_register(struct usb_usbvision *usbvision);
 int usbvision_i2c_unregister(struct usb_usbvision *usbvision);
 
+/* defined in usbvision-core.c                                      */
 int usbvision_read_reg(struct usb_usbvision *usbvision, unsigned char reg);
 int usbvision_write_reg(struct usb_usbvision *usbvision, unsigned char reg,
 			unsigned char value);
@@ -484,5 +524,12 @@ void usbvision_reset_power_off_timer(struct usb_usbvision *usbvision);
 int usbvision_power_off(struct usb_usbvision *usbvision);
 int usbvision_power_on(struct usb_usbvision *usbvision);
 
-#endif									
+#endif									/* __LINUX_USBVISION_H */
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

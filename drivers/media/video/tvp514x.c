@@ -43,12 +43,15 @@
 
 #include "tvp514x_regs.h"
 
+/* Module Name */
 #define TVP514X_MODULE_NAME		"tvp514x"
 
+/* Private macros for TVP */
 #define I2C_RETRY_COUNT                 (5)
 #define LOCK_RETRY_COUNT                (5)
 #define LOCK_RETRY_DELAY                (200)
 
+/* Debug functions */
 static bool debug;
 module_param(debug, bool, 0644);
 MODULE_PARM_DESC(debug, "Debug level (0-1)");
@@ -57,12 +60,20 @@ MODULE_AUTHOR("Texas Instruments");
 MODULE_DESCRIPTION("TVP514X linux decoder driver");
 MODULE_LICENSE("GPL");
 
+/* enum tvp514x_std - enum for supported standards */
 enum tvp514x_std {
 	STD_NTSC_MJ = 0,
 	STD_PAL_BDGHIN,
 	STD_INVALID
 };
 
+/**
+ * struct tvp514x_std_info - Structure to store standard informations
+ * @width: Line width in pixels
+ * @height:Number of active lines
+ * @video_std: Value to write in REG_VIDEO_STD register
+ * @standard: v4l2 standard structure information
+ */
 struct tvp514x_std_info {
 	unsigned long width;
 	unsigned long height;
@@ -73,6 +84,19 @@ struct tvp514x_std_info {
 static struct tvp514x_reg tvp514x_reg_list_default[0x40];
 
 static int tvp514x_s_stream(struct v4l2_subdev *sd, int enable);
+/**
+ * struct tvp514x_decoder - TVP5146/47 decoder object
+ * @sd: Subdevice Slave handle
+ * @tvp514x_regs: copy of hw's regs with preset values.
+ * @pdata: Board specific
+ * @ver: Chip version
+ * @streaming: TVP5146/47 decoder streaming - enabled or disabled.
+ * @current_std: Current standard
+ * @num_stds: Number of standards
+ * @std_list: Standards list
+ * @input: Input routing at chip level
+ * @output: Output routing at chip level
+ */
 struct tvp514x_decoder {
 	struct v4l2_subdev sd;
 	struct v4l2_ctrl_handler hdl;
@@ -85,16 +109,17 @@ struct tvp514x_decoder {
 	enum tvp514x_std current_std;
 	int num_stds;
 	const struct tvp514x_std_info *std_list;
-	
+	/* Input and Output Routing parameters */
 	u32 input;
 	u32 output;
 };
 
+/* TVP514x default register values */
 static struct tvp514x_reg tvp514x_reg_list_default[] = {
-	
+	/* Composite selected */
 	{TOK_WRITE, REG_INPUT_SEL, 0x05},
 	{TOK_WRITE, REG_AFE_GAIN_CTRL, 0x0F},
-	
+	/* Auto mode */
 	{TOK_WRITE, REG_VIDEO_STD, 0x00},
 	{TOK_WRITE, REG_OPERATION_MODE, 0x00},
 	{TOK_SKIP, REG_AUTOSWITCH_MASK, 0x3F},
@@ -108,74 +133,80 @@ static struct tvp514x_reg tvp514x_reg_list_default[] = {
 	{TOK_WRITE, REG_HUE, 0x00},
 	{TOK_WRITE, REG_CHROMA_CONTROL1, 0x00},
 	{TOK_WRITE, REG_CHROMA_CONTROL2, 0x0E},
-	
+	/* Reserved */
 	{TOK_SKIP, 0x0F, 0x00},
 	{TOK_WRITE, REG_COMP_PR_SATURATION, 0x80},
 	{TOK_WRITE, REG_COMP_Y_CONTRAST, 0x80},
 	{TOK_WRITE, REG_COMP_PB_SATURATION, 0x80},
-	
+	/* Reserved */
 	{TOK_SKIP, 0x13, 0x00},
 	{TOK_WRITE, REG_COMP_Y_BRIGHTNESS, 0x80},
-	
+	/* Reserved */
 	{TOK_SKIP, 0x15, 0x00},
-	
+	/* NTSC timing */
 	{TOK_SKIP, REG_AVID_START_PIXEL_LSB, 0x55},
 	{TOK_SKIP, REG_AVID_START_PIXEL_MSB, 0x00},
 	{TOK_SKIP, REG_AVID_STOP_PIXEL_LSB, 0x25},
 	{TOK_SKIP, REG_AVID_STOP_PIXEL_MSB, 0x03},
-	
+	/* NTSC timing */
 	{TOK_SKIP, REG_HSYNC_START_PIXEL_LSB, 0x00},
 	{TOK_SKIP, REG_HSYNC_START_PIXEL_MSB, 0x00},
 	{TOK_SKIP, REG_HSYNC_STOP_PIXEL_LSB, 0x40},
 	{TOK_SKIP, REG_HSYNC_STOP_PIXEL_MSB, 0x00},
-	
+	/* NTSC timing */
 	{TOK_SKIP, REG_VSYNC_START_LINE_LSB, 0x04},
 	{TOK_SKIP, REG_VSYNC_START_LINE_MSB, 0x00},
 	{TOK_SKIP, REG_VSYNC_STOP_LINE_LSB, 0x07},
 	{TOK_SKIP, REG_VSYNC_STOP_LINE_MSB, 0x00},
-	
+	/* NTSC timing */
 	{TOK_SKIP, REG_VBLK_START_LINE_LSB, 0x01},
 	{TOK_SKIP, REG_VBLK_START_LINE_MSB, 0x00},
 	{TOK_SKIP, REG_VBLK_STOP_LINE_LSB, 0x15},
 	{TOK_SKIP, REG_VBLK_STOP_LINE_MSB, 0x00},
-	
+	/* Reserved */
 	{TOK_SKIP, 0x26, 0x00},
-	
+	/* Reserved */
 	{TOK_SKIP, 0x27, 0x00},
 	{TOK_SKIP, REG_FAST_SWTICH_CONTROL, 0xCC},
-	
+	/* Reserved */
 	{TOK_SKIP, 0x29, 0x00},
 	{TOK_SKIP, REG_FAST_SWTICH_SCART_DELAY, 0x00},
-	
+	/* Reserved */
 	{TOK_SKIP, 0x2B, 0x00},
 	{TOK_SKIP, REG_SCART_DELAY, 0x00},
 	{TOK_SKIP, REG_CTI_DELAY, 0x00},
 	{TOK_SKIP, REG_CTI_CONTROL, 0x00},
-	
+	/* Reserved */
 	{TOK_SKIP, 0x2F, 0x00},
-	
+	/* Reserved */
 	{TOK_SKIP, 0x30, 0x00},
-	
+	/* Reserved */
 	{TOK_SKIP, 0x31, 0x00},
-	
+	/* HS, VS active high */
 	{TOK_WRITE, REG_SYNC_CONTROL, 0x00},
-	
+	/* 10-bit BT.656 */
 	{TOK_WRITE, REG_OUTPUT_FORMATTER1, 0x00},
-	
+	/* Enable clk & data */
 	{TOK_WRITE, REG_OUTPUT_FORMATTER2, 0x11},
-	
+	/* Enable AVID & FLD */
 	{TOK_WRITE, REG_OUTPUT_FORMATTER3, 0xEE},
-	
+	/* Enable VS & HS */
 	{TOK_WRITE, REG_OUTPUT_FORMATTER4, 0xAF},
 	{TOK_WRITE, REG_OUTPUT_FORMATTER5, 0xFF},
 	{TOK_WRITE, REG_OUTPUT_FORMATTER6, 0xFF},
-	
+	/* Clear status */
 	{TOK_WRITE, REG_CLEAR_LOST_LOCK, 0x01},
 	{TOK_TERM, 0, 0},
 };
 
+/**
+ * Supported standards -
+ *
+ * Currently supports two standards only, need to add support for rest of the
+ * modes, like SECAM, etc...
+ */
 static const struct tvp514x_std_info tvp514x_std_list[] = {
-	
+	/* Standard: STD_NTSC_MJ */
 	[STD_NTSC_MJ] = {
 	 .width = NTSC_NUM_ACTIVE_PIXELS,
 	 .height = NTSC_NUM_ACTIVE_LINES,
@@ -187,7 +218,7 @@ static const struct tvp514x_std_info tvp514x_std_list[] = {
 		      .frameperiod = {1001, 30000},
 		      .framelines = 525
 		     },
-	
+	/* Standard: STD_PAL_BDGHIN */
 	},
 	[STD_PAL_BDGHIN] = {
 	 .width = PAL_NUM_ACTIVE_PIXELS,
@@ -201,7 +232,7 @@ static const struct tvp514x_std_info tvp514x_std_list[] = {
 		      .framelines = 625
 		     },
 	},
-	
+	/* Standard: need to add for additional standard */
 };
 
 
@@ -216,6 +247,13 @@ static inline struct v4l2_subdev *to_sd(struct v4l2_ctrl *ctrl)
 }
 
 
+/**
+ * tvp514x_read_reg() - Read a value from a register in an TVP5146/47.
+ * @sd: ptr to v4l2_subdev struct
+ * @reg: TVP5146/47 register address
+ *
+ * Returns value read if successful, or non-zero (-1) otherwise.
+ */
 static int tvp514x_read_reg(struct v4l2_subdev *sd, u8 reg)
 {
 	int err, retry = 0;
@@ -236,6 +274,11 @@ read_again:
 	return err;
 }
 
+/**
+ * dump_reg() - dump the register content of TVP5146/47.
+ * @sd: ptr to v4l2_subdev struct
+ * @reg: TVP5146/47 register address
+ */
 static void dump_reg(struct v4l2_subdev *sd, u8 reg)
 {
 	u32 val;
@@ -273,6 +316,18 @@ write_again:
 	return err;
 }
 
+/**
+ * tvp514x_write_regs() : Initializes a list of TVP5146/47 registers
+ * @sd: ptr to v4l2_subdev struct
+ * @reglist: list of TVP5146/47 registers and values
+ *
+ * Initializes a list of TVP5146/47 registers:-
+ *		if token is TOK_TERM, then entire write operation terminates
+ *		if token is TOK_DELAY, then a delay of 'val' msec is introduced
+ *		if token is TOK_SKIP, then the register write is skipped
+ *		if token is TOK_WRITE, then the register write is performed
+ * Returns zero if successful, or non-zero otherwise.
+ */
 static int tvp514x_write_regs(struct v4l2_subdev *sd,
 			      const struct tvp514x_reg reglist[])
 {
@@ -297,16 +352,23 @@ static int tvp514x_write_regs(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/**
+ * tvp514x_query_current_std() : Query the current standard detected by TVP5146/47
+ * @sd: ptr to v4l2_subdev struct
+ *
+ * Returns the current standard detected by TVP5146/47, STD_INVALID if there is no
+ * standard detected.
+ */
 static enum tvp514x_std tvp514x_query_current_std(struct v4l2_subdev *sd)
 {
 	u8 std, std_status;
 
 	std = tvp514x_read_reg(sd, REG_VIDEO_STD);
 	if ((std & VIDEO_STD_MASK) == VIDEO_STD_AUTO_SWITCH_BIT)
-		
+		/* use the standard status register */
 		std_status = tvp514x_read_reg(sd, REG_VIDEO_STD_STATUS);
 	else
-		
+		/* use the standard register itself */
 		std_status = std;
 
 	switch (std_status & VIDEO_STD_MASK) {
@@ -323,6 +385,7 @@ static enum tvp514x_std tvp514x_query_current_std(struct v4l2_subdev *sd)
 	return STD_INVALID;
 }
 
+/* TVP5146/47 register dump function */
 static void tvp514x_reg_dump(struct v4l2_subdev *sd)
 {
 	dump_reg(sd, REG_INPUT_SEL);
@@ -369,12 +432,19 @@ static void tvp514x_reg_dump(struct v4l2_subdev *sd)
 	dump_reg(sd, REG_CLEAR_LOST_LOCK);
 }
 
+/**
+ * tvp514x_configure() - Configure the TVP5146/47 registers
+ * @sd: ptr to v4l2_subdev struct
+ * @decoder: ptr to tvp514x_decoder structure
+ *
+ * Returns zero if successful, or non-zero otherwise.
+ */
 static int tvp514x_configure(struct v4l2_subdev *sd,
 		struct tvp514x_decoder *decoder)
 {
 	int err;
 
-	
+	/* common register initialization */
 	err =
 	    tvp514x_write_regs(sd, decoder->tvp514x_regs);
 	if (err)
@@ -386,6 +456,17 @@ static int tvp514x_configure(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/**
+ * tvp514x_detect() - Detect if an tvp514x is present, and if so which revision.
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @decoder: pointer to tvp514x_decoder structure
+ *
+ * A device is considered to be detected if the chip ID (LSB and MSB)
+ * registers match the expected values.
+ * Any value of the rom version register is accepted.
+ * Returns ENODEV error number if no device is detected, or zero
+ * if a device is detected.
+ */
 static int tvp514x_detect(struct v4l2_subdev *sd,
 		struct tvp514x_decoder *decoder)
 {
@@ -402,6 +483,9 @@ static int tvp514x_detect(struct v4l2_subdev *sd,
 	if ((chip_id_msb != TVP514X_CHIP_ID_MSB)
 		|| ((chip_id_lsb != TVP5146_CHIP_ID_LSB)
 		&& (chip_id_lsb != TVP5147_CHIP_ID_LSB))) {
+		/* We didn't read the values we expected, so this must not be
+		 * an TVP5146/47.
+		 */
 		v4l2_err(sd, "chip id mismatch msb:0x%x lsb:0x%x\n",
 				chip_id_msb, chip_id_lsb);
 		return -ENODEV;
@@ -415,6 +499,14 @@ static int tvp514x_detect(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/**
+ * tvp514x_querystd() - V4L2 decoder interface handler for querystd
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @std_id: standard V4L2 std_id ioctl enum
+ *
+ * Returns the current standard detected by TVP5146/47. If no active input is
+ * detected then *std_id is set to 0 and the function returns 0.
+ */
 static int tvp514x_querystd(struct v4l2_subdev *sd, v4l2_std_id *std_id)
 {
 	struct tvp514x_decoder *decoder = to_decoder(sd);
@@ -427,7 +519,7 @@ static int tvp514x_querystd(struct v4l2_subdev *sd, v4l2_std_id *std_id)
 
 	*std_id = V4L2_STD_UNKNOWN;
 
-	
+	/* query the current standard */
 	current_std = tvp514x_query_current_std(sd);
 	if (current_std == STD_INVALID)
 		return 0;
@@ -465,14 +557,14 @@ static int tvp514x_querystd(struct v4l2_subdev *sd, v4l2_std_id *std_id)
 		lock_mask = STATUS_HORZ_SYNC_LOCK_BIT |
 			STATUS_VIRT_SYNC_LOCK_BIT;
 		break;
-		
+		/*Need to add other interfaces*/
 	default:
 		return -EINVAL;
 	}
-	
+	/* check whether signal is locked */
 	sync_lock_status = tvp514x_read_reg(sd, REG_STATUS1);
 	if (lock_mask != (sync_lock_status & lock_mask))
-		return 0;	
+		return 0;	/* No input detected */
 
 	*std_id = decoder->std_list[current_std].standard.id;
 
@@ -481,6 +573,14 @@ static int tvp514x_querystd(struct v4l2_subdev *sd, v4l2_std_id *std_id)
 	return 0;
 }
 
+/**
+ * tvp514x_s_std() - V4L2 decoder interface handler for s_std
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @std_id: standard V4L2 v4l2_std_id ioctl enum
+ *
+ * If std_id is supported, sets the requested standard. Otherwise, returns
+ * -EINVAL
+ */
 static int tvp514x_s_std(struct v4l2_subdev *sd, v4l2_std_id std_id)
 {
 	struct tvp514x_decoder *decoder = to_decoder(sd);
@@ -507,6 +607,17 @@ static int tvp514x_s_std(struct v4l2_subdev *sd, v4l2_std_id std_id)
 	return 0;
 }
 
+/**
+ * tvp514x_s_routing() - V4L2 decoder interface handler for s_routing
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @input: input selector for routing the signal
+ * @output: output selector for routing the signal
+ * @config: config value. Not used
+ *
+ * If index is valid, selects the requested input. Otherwise, returns -EINVAL if
+ * the input is not supported or there is no active signal present in the
+ * selected input.
+ */
 static int tvp514x_s_routing(struct v4l2_subdev *sd,
 				u32 input, u32 output, u32 config)
 {
@@ -519,9 +630,17 @@ static int tvp514x_s_routing(struct v4l2_subdev *sd,
 
 	if ((input >= INPUT_INVALID) ||
 			(output >= OUTPUT_INVALID))
-		
+		/* Index out of bound */
 		return -EINVAL;
 
+	/*
+	 * For the sequence streamon -> streamoff and again s_input
+	 * it fails to lock the signal, since streamoff puts TVP514x
+	 * into power off state which leads to failure in sub-sequent s_input.
+	 *
+	 * So power up the TVP514x device here, since it is important to lock
+	 * the signal at this stage.
+	 */
 	if (!decoder->streaming)
 		tvp514x_s_stream(sd, 1);
 
@@ -542,7 +661,7 @@ static int tvp514x_s_routing(struct v4l2_subdev *sd,
 	decoder->tvp514x_regs[REG_INPUT_SEL].val = input_sel;
 	decoder->tvp514x_regs[REG_OUTPUT_FORMATTER1].val = output_sel;
 
-	
+	/* Clear status */
 	msleep(LOCK_RETRY_DELAY);
 	err =
 	    tvp514x_write_reg(sd, REG_CLEAR_LOST_LOCK, 0x01);
@@ -580,19 +699,19 @@ static int tvp514x_s_routing(struct v4l2_subdev *sd,
 		lock_mask = STATUS_HORZ_SYNC_LOCK_BIT |
 			STATUS_VIRT_SYNC_LOCK_BIT;
 		break;
-	
+	/* Need to add other interfaces*/
 	default:
 		return -EINVAL;
 	}
 
 	while (try_count-- > 0) {
-		
+		/* Allow decoder to sync up with new input */
 		msleep(LOCK_RETRY_DELAY);
 
 		sync_lock_status = tvp514x_read_reg(sd,
 				REG_STATUS1);
 		if (lock_mask == (sync_lock_status & lock_mask))
-			
+			/* Input detected */
 			break;
 	}
 
@@ -607,6 +726,13 @@ static int tvp514x_s_routing(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/**
+ * tvp514x_s_ctrl() - V4L2 decoder interface handler for s_ctrl
+ * @ctrl: pointer to v4l2_ctrl structure
+ *
+ * If the requested control is supported, sets the control's current
+ * value in HW. Otherwise, returns -EINVAL if the control is not supported.
+ */
 static int tvp514x_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct v4l2_subdev *sd = to_sd(ctrl);
@@ -652,6 +778,14 @@ static int tvp514x_s_ctrl(struct v4l2_ctrl *ctrl)
 	return err;
 }
 
+/**
+ * tvp514x_enum_mbus_fmt() - V4L2 decoder interface handler for enum_mbus_fmt
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @index: index of pixelcode to retrieve
+ * @code: receives the pixelcode
+ *
+ * Enumerates supported mediabus formats
+ */
 static int
 tvp514x_enum_mbus_fmt(struct v4l2_subdev *sd, unsigned index,
 					enum v4l2_mbus_pixelcode *code)
@@ -663,6 +797,13 @@ tvp514x_enum_mbus_fmt(struct v4l2_subdev *sd, unsigned index,
 	return 0;
 }
 
+/**
+ * tvp514x_mbus_fmt_cap() - V4L2 decoder interface handler for try/s/g_mbus_fmt
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @f: pointer to the mediabus format structure
+ *
+ * Negotiates the image capture size and mediabus format.
+ */
 static int
 tvp514x_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *f)
 {
@@ -672,7 +813,7 @@ tvp514x_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *f)
 	if (f == NULL)
 		return -EINVAL;
 
-	
+	/* Calculate height and width based on current standard */
 	current_std = decoder->current_std;
 
 	f->code = V4L2_MBUS_FMT_YUYV10_2X10;
@@ -686,6 +827,13 @@ tvp514x_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *f)
 	return 0;
 }
 
+/**
+ * tvp514x_g_parm() - V4L2 decoder interface handler for g_parm
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @a: pointer to standard V4L2 VIDIOC_G_PARM ioctl structure
+ *
+ * Returns the decoder's video CAPTURE parameters.
+ */
 static int
 tvp514x_g_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *a)
 {
@@ -697,10 +845,10 @@ tvp514x_g_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *a)
 		return -EINVAL;
 
 	if (a->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		
+		/* only capture is supported */
 		return -EINVAL;
 
-	
+	/* get the current standard */
 	current_std = decoder->current_std;
 
 	cparm = &a->parm.capture;
@@ -711,6 +859,14 @@ tvp514x_g_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *a)
 	return 0;
 }
 
+/**
+ * tvp514x_s_parm() - V4L2 decoder interface handler for s_parm
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @a: pointer to standard V4L2 VIDIOC_S_PARM ioctl structure
+ *
+ * Configures the decoder to use the input parameters, if possible. If
+ * not possible, returns the appropriate error code.
+ */
 static int
 tvp514x_s_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *a)
 {
@@ -722,12 +878,12 @@ tvp514x_s_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *a)
 		return -EINVAL;
 
 	if (a->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		
+		/* only capture is supported */
 		return -EINVAL;
 
 	timeperframe = &a->parm.capture.timeperframe;
 
-	
+	/* get the current standard */
 	current_std = decoder->current_std;
 
 	*timeperframe =
@@ -736,6 +892,13 @@ tvp514x_s_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *a)
 	return 0;
 }
 
+/**
+ * tvp514x_s_stream() - V4L2 decoder i/f handler for s_stream
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @enable: streaming enable or disable
+ *
+ * Sets streaming to enable or disable, if possible.
+ */
 static int tvp514x_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	int err = 0;
@@ -748,7 +911,7 @@ static int tvp514x_s_stream(struct v4l2_subdev *sd, int enable)
 	switch (enable) {
 	case 0:
 	{
-		
+		/* Power Down Sequence */
 		err = tvp514x_write_reg(sd, REG_OPERATION_MODE, 0x01);
 		if (err) {
 			v4l2_err(sd, "Unable to turn off decoder\n");
@@ -762,13 +925,13 @@ static int tvp514x_s_stream(struct v4l2_subdev *sd, int enable)
 		struct tvp514x_reg *int_seq = (struct tvp514x_reg *)
 				client->driver->id_table->driver_data;
 
-		
+		/* Power Up Sequence */
 		err = tvp514x_write_regs(sd, int_seq);
 		if (err) {
 			v4l2_err(sd, "Unable to turn on decoder\n");
 			return err;
 		}
-		
+		/* Detect if not already detected */
 		err = tvp514x_detect(sd, decoder);
 		if (err) {
 			v4l2_err(sd, "Unable to detect decoder\n");
@@ -830,13 +993,21 @@ static struct tvp514x_decoder tvp514x_dev = {
 
 };
 
+/**
+ * tvp514x_probe() - decoder driver i2c probe handler
+ * @client: i2c driver client device structure
+ * @id: i2c driver id table
+ *
+ * Register decoder as an i2c client device and V4L2
+ * device.
+ */
 static int
 tvp514x_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct tvp514x_decoder *decoder;
 	struct v4l2_subdev *sd;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 
@@ -849,25 +1020,30 @@ tvp514x_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (!decoder)
 		return -ENOMEM;
 
-	
+	/* Initialize the tvp514x_decoder with default configuration */
 	*decoder = tvp514x_dev;
-	
+	/* Copy default register configuration */
 	memcpy(decoder->tvp514x_regs, tvp514x_reg_list_default,
 			sizeof(tvp514x_reg_list_default));
 
-	
+	/* Copy board specific information here */
 	decoder->pdata = client->dev.platform_data;
 
+	/**
+	 * Fetch platform specific data, and configure the
+	 * tvp514x_reg_list[] accordingly. Since this is one
+	 * time configuration, no need to preserve.
+	 */
 	decoder->tvp514x_regs[REG_OUTPUT_FORMATTER2].val |=
 		(decoder->pdata->clk_polarity << 1);
 	decoder->tvp514x_regs[REG_SYNC_CONTROL].val |=
 		((decoder->pdata->hs_polarity << 2) |
 		 (decoder->pdata->vs_polarity << 3));
-	
+	/* Set default standard to auto */
 	decoder->tvp514x_regs[REG_VIDEO_STD].val =
 		VIDEO_STD_AUTO_SWITCH_BIT;
 
-	
+	/* Register with V4L2 layer as slave device */
 	sd = &decoder->sd;
 	v4l2_i2c_subdev_init(sd, client, &tvp514x_ops);
 
@@ -898,6 +1074,13 @@ tvp514x_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 }
 
+/**
+ * tvp514x_remove() - decoder driver i2c remove handler
+ * @client: i2c driver client device structure
+ *
+ * Unregister decoder as an i2c client device and V4L2
+ * device. Complement of tvp514x_probe().
+ */
 static int tvp514x_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
@@ -908,6 +1091,7 @@ static int tvp514x_remove(struct i2c_client *client)
 	kfree(decoder);
 	return 0;
 }
+/* TVP5146 Init/Power on Sequence */
 static const struct tvp514x_reg tvp5146_init_reg_seq[] = {
 	{TOK_WRITE, REG_VBUS_ADDRESS_ACCESS1, 0x02},
 	{TOK_WRITE, REG_VBUS_ADDRESS_ACCESS2, 0x00},
@@ -923,6 +1107,7 @@ static const struct tvp514x_reg tvp5146_init_reg_seq[] = {
 	{TOK_TERM, 0, 0},
 };
 
+/* TVP5147 Init/Power on Sequence */
 static const struct tvp514x_reg tvp5147_init_reg_seq[] =	{
 	{TOK_WRITE, REG_VBUS_ADDRESS_ACCESS1, 0x02},
 	{TOK_WRITE, REG_VBUS_ADDRESS_ACCESS2, 0x00},
@@ -945,12 +1130,19 @@ static const struct tvp514x_reg tvp5147_init_reg_seq[] =	{
 	{TOK_TERM, 0, 0},
 };
 
+/* TVP5146M2/TVP5147M1 Init/Power on Sequence */
 static const struct tvp514x_reg tvp514xm_init_reg_seq[] = {
 	{TOK_WRITE, REG_OPERATION_MODE, 0x01},
 	{TOK_WRITE, REG_OPERATION_MODE, 0x00},
 	{TOK_TERM, 0, 0},
 };
 
+/**
+ * I2C Device Table -
+ *
+ * name - Name of the actual device/chip.
+ * driver_data - Driver data
+ */
 static const struct i2c_device_id tvp514x_id[] = {
 	{"tvp5146", (unsigned long)tvp5146_init_reg_seq},
 	{"tvp5146m2", (unsigned long)tvp514xm_init_reg_seq},

@@ -1,3 +1,15 @@
+/* -*- linux-c -*-
+ *
+ *	$Id: sysrq.h,v 1.3 1997/07/17 11:54:33 mj Exp $
+ *
+ *	Linux Magic System Request Key Hacks
+ *
+ *	(c) 1997 Martin Mares <mj@atrey.karlin.mff.cuni.cz>
+ *
+ *	(c) 2000 Crutcher Dunnavant <crutcher+kernel@datastacks.com>
+ *	overhauled to use key registration
+ *	based upon discusions in irc://irc.openprojects.net/#kernelnewbies
+ */
 
 #ifndef _LINUX_SYSRQ_H
 #define _LINUX_SYSRQ_H
@@ -5,8 +17,11 @@
 #include <linux/errno.h>
 #include <linux/types.h>
 
+/* Enable/disable SYSRQ support by default (0==no, 1==yes). */
 #define SYSRQ_DEFAULT_ENABLE	1
 
+/* Possible values of bitmask for enabling sysrq functions */
+/* 0x0001 is reserved for enable everything */
 #define SYSRQ_ENABLE_LOG	0x0002
 #define SYSRQ_ENABLE_KEYBOARD	0x0004
 #define SYSRQ_ENABLE_DUMP	0x0008
@@ -25,6 +40,10 @@ struct sysrq_key_op {
 
 #ifdef CONFIG_MAGIC_SYSRQ
 
+/* Generic SysRq interface -- you may call it from any device driver, supplying
+ * ASCII code of the key, pointer to registers and kbd/tty structs (if they
+ * are available -- else NULL's).
+ */
 
 void handle_sysrq(int key);
 void __handle_sysrq(int key, bool check_mask);
@@ -56,4 +75,4 @@ static inline int unregister_sysrq_key(int key, struct sysrq_key_op *op)
 
 #endif
 
-#endif 
+#endif /* _LINUX_SYSRQ_H */

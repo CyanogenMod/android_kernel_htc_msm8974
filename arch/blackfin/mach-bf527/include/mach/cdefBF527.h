@@ -7,8 +7,10 @@
 #ifndef _CDEF_BF527_H
 #define _CDEF_BF527_H
 
+/* BF527 is BF525 + EMAC */
 #include "cdefBF525.h"
 
+/* 10/100 Ethernet Controller	(0xFFC03000 - 0xFFC031FF) */
 
 #define bfin_read_EMAC_OPMODE()			bfin_read32(EMAC_OPMODE)
 #define bfin_write_EMAC_OPMODE(val)		bfin_write32(EMAC_OPMODE, val)
@@ -173,4 +175,4 @@
 #define bfin_read_EMAC_TXC_ABORT()		bfin_read32(EMAC_TXC_ABORT)
 #define bfin_write_EMAC_TXC_ABORT(val)		bfin_write32(EMAC_TXC_ABORT, val)
 
-#endif 
+#endif /* _CDEF_BF527_H */

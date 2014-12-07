@@ -22,6 +22,7 @@
 
 #include <drm/drmP.h>
 
+/* This wants cleaning up with respect to the psb_dev and un-needed stuff */
 struct psb_gtt {
 	uint32_t gatt_start;
 	uint32_t mmu_gatt_start;
@@ -34,19 +35,21 @@ struct psb_gtt {
 	struct rw_semaphore sem;
 };
 
+/* Exported functions */
 extern int psb_gtt_init(struct drm_device *dev, int resume);
 extern void psb_gtt_takedown(struct drm_device *dev);
 
+/* Each gtt_range describes an allocation in the GTT area */
 struct gtt_range {
-	struct resource resource;	
-	u32 offset;			
-	struct drm_gem_object gem;	
-	int in_gart;			
-	bool stolen;			
-	bool mmapping;			
-	struct page **pages;		
-	int npage;			
-	int roll;			
+	struct resource resource;	/* Resource for our allocation */
+	u32 offset;			/* GTT offset of our object */
+	struct drm_gem_object gem;	/* GEM high level stuff */
+	int in_gart;			/* Currently in the GART (ref ct) */
+	bool stolen;			/* Backed from stolen RAM */
+	bool mmapping;			/* Is mmappable */
+	struct page **pages;		/* Backing pages if present */
+	int npage;			/* Number of backing pages */
+	int roll;			/* Roll applied to the GTT entries */
 };
 
 extern struct gtt_range *psb_gtt_alloc_range(struct drm_device *dev, int len,

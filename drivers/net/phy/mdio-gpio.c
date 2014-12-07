@@ -262,7 +262,7 @@ static inline void mdio_ofgpio_exit(void)
 #else
 static inline int __init mdio_ofgpio_init(void) { return 0; }
 static inline void mdio_ofgpio_exit(void) { }
-#endif 
+#endif /* CONFIG_OF_GPIO */
 
 static struct platform_driver mdio_gpio_driver = {
 	.probe = mdio_gpio_probe,

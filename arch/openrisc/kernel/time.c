@@ -32,10 +32,17 @@ static int openrisc_timer_set_next_event(unsigned long delta,
 {
 	u32 c;
 
+	/* Read 32-bit counter value, add delta, mask off the low 28 bits.
+	 * We're guaranteed delta won't be bigger than 28 bits because the
+	 * generic timekeeping code ensures that for us.
+	 */
 	c = mfspr(SPR_TTCR);
 	c += delta;
 	c &= SPR_TTMR_TP;
 
+	/* Set counter and enable interrupt.
+	 * Keep timer in continuous mode always.
+	 */
 	mtspr(SPR_TTMR, SPR_TTMR_CR | SPR_TTMR_IE | c);
 
 	return 0;
@@ -64,6 +71,11 @@ static void openrisc_timer_set_mode(enum clock_event_mode mode,
 	}
 }
 
+/* This is the clock event device based on the OR1K tick timer.
+ * As the timer is being used as a continuous clock-source (required for HR
+ * timers) we cannot enable the PERIODIC feature.  The tick timer can run using
+ * one-shot events, so no problem.
+ */
 
 static struct clock_event_device clockevent_openrisc_timer = {
 	.name = "openrisc_timer_clockevent",
@@ -75,10 +87,22 @@ static struct clock_event_device clockevent_openrisc_timer = {
 
 static inline void timer_ack(void)
 {
-	
+	/* Clear the IP bit and disable further interrupts */
+	/* This can be done very simply... we just need to keep the timer
+	   running, so just maintain the CR bits while clearing the rest
+	   of the register
+	 */
 	mtspr(SPR_TTMR, SPR_TTMR_CR);
 }
 
+/*
+ * The timer interrupt is mostly handled in generic code nowadays... this
+ * function just acknowledges the interrupt and fires the event handler that
+ * has been set on the clockevent device by the generic time management code.
+ *
+ * This function needs to be called by the timer exception handler and that's
+ * all the exception handler needs to do.
+ */
 
 irqreturn_t __irq_entry timer_interrupt(struct pt_regs *regs)
 {
@@ -87,6 +111,9 @@ irqreturn_t __irq_entry timer_interrupt(struct pt_regs *regs)
 
 	timer_ack();
 
+	/*
+	 * update_process_times() expects us to have called irq_enter().
+	 */
 	irq_enter();
 	evt->event_handler(evt);
 	irq_exit();
@@ -100,13 +127,19 @@ static __init void openrisc_clockevent_init(void)
 {
 	clockevent_openrisc_timer.cpumask = cpumask_of(0);
 
-	
+	/* We only have 28 bits */
 	clockevents_config_and_register(&clockevent_openrisc_timer,
 					cpuinfo.clock_frequency,
 					100, 0x0fffffff);
 
 }
 
+/**
+ * Clocksource: Based on OpenRISC timer/counter
+ *
+ * This sets up the OpenRISC Tick Timer as a clock source.  The tick timer
+ * is 32 bits wide and runs at the CPU clock frequency.
+ */
 
 static cycle_t openrisc_timer_read(struct clocksource *cs)
 {
@@ -126,7 +159,7 @@ static int __init openrisc_timer_init(void)
 	if (clocksource_register_hz(&openrisc_timer, cpuinfo.clock_frequency))
 		panic("failed to register clocksource");
 
-	
+	/* Enable the incrementer: 'continuous' mode with interrupt disabled */
 	mtspr(SPR_TTMR, SPR_TTMR_CR);
 
 	return 0;

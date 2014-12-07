@@ -38,6 +38,10 @@ static void putc(int c)
 	unsigned long base = MSM_DEBUG_UART_PHYS;
 
 #ifdef CONFIG_MSM_HAS_DEBUG_UART_HS
+	/*
+	 * Wait for TX_READY to be set; but skip it if we have a
+	 * TX underrun.
+	 */
 	if (!(__raw_readl_no_log(base + UARTDM_SR_OFFSET) & 0x08))
 		while (!(__raw_readl_no_log(base + UARTDM_ISR_OFFSET) & 0x80))
 			cpu_relax();
@@ -46,7 +50,7 @@ static void putc(int c)
 	__raw_writel_no_log(0x1, base + UARTDM_NCF_TX_OFFSET);
 	__raw_writel_no_log(c, base + UARTDM_TF_OFFSET);
 #else
-	
+	/* Wait for TX_READY to be set */
 	while (!(__raw_readl_no_log(base + 0x08) & 0x04))
 		cpu_relax();
 	__raw_writel_no_log(c, base + 0x0c);

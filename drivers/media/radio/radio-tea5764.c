@@ -34,9 +34,9 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/module.h>
-#include <linux/init.h>			
-#include <linux/videodev2.h>		
-#include <linux/i2c.h>			
+#include <linux/init.h>			/* Initdata			*/
+#include <linux/videodev2.h>		/* kernel radio structs		*/
+#include <linux/i2c.h>			/* I2C				*/
 #include <media/v4l2-common.h>
 #include <media/v4l2-ioctl.h>
 
@@ -55,10 +55,13 @@
 	printk(KERN_DEBUG KBUILD_MODNAME ": "\
 		DRIVER_VERSION ": " format "\n", ## __VA_ARGS__)
 
+/* Frequency limits in MHz -- these are European values.  For Japanese
+devices, that would be 76000 and 91000.  */
 #define FREQ_MIN  87500
 #define FREQ_MAX 108000
 #define FREQ_MUL 16
 
+/* TEA5764 registers */
 #define TEA5764_MANID		0x002b
 #define TEA5764_CHIPID		0x5764
 
@@ -100,29 +103,29 @@
 #define TEA5764_TESTREG_TRIGFR	0x0800
 
 struct tea5764_regs {
-	u16 intreg;				
-	u16 frqset;				
-	u16 tnctrl;				
-	u16 frqchk;				
-	u16 tunchk;				
-	u16 testreg;				
-	u16 rdsstat;				
-	u16 rdslb;				
-	u16 rdspb;				
-	u16 rdsbc;				
-	u16 rdsctrl;				
-	u16 rdsbbl;				
-	u16 manid;				
-	u16 chipid;				
+	u16 intreg;				/* INTFLAG & INTMSK */
+	u16 frqset;				/* FRQSETMSB & FRQSETLSB */
+	u16 tnctrl;				/* TNCTRL1 & TNCTRL2 */
+	u16 frqchk;				/* FRQCHKMSB & FRQCHKLSB */
+	u16 tunchk;				/* IFCHK & LEVCHK */
+	u16 testreg;				/* TESTBITS & TESTMODE */
+	u16 rdsstat;				/* RDSSTAT1 & RDSSTAT2 */
+	u16 rdslb;				/* RDSLBMSB & RDSLBLSB */
+	u16 rdspb;				/* RDSPBMSB & RDSPBLSB */
+	u16 rdsbc;				/* RDSBBC & RDSGBC */
+	u16 rdsctrl;				/* RDSCTRL1 & RDSCTRL2 */
+	u16 rdsbbl;				/* PAUSEDET & RDSBBL */
+	u16 manid;				/* MANID1 & MANID2 */
+	u16 chipid;				/* CHIPID1 & CHIPID2 */
 } __attribute__ ((packed));
 
 struct tea5764_write_regs {
-	u8 intreg;				
-	u16 frqset;				
-	u16 tnctrl;				
-	u16 testreg;				
-	u16 rdsctrl;				
-	u16 rdsbbl;				
+	u8 intreg;				/* INTMSK */
+	u16 frqset;				/* FRQSETMSB & FRQSETLSB */
+	u16 tnctrl;				/* TNCTRL1 & TNCTRL2 */
+	u16 testreg;				/* TESTBITS & TESTMODE */
+	u16 rdsctrl;				/* RDSCTRL1 & RDSCTRL2 */
+	u16 rdsbbl;				/* PAUSEDET & RDSBBL */
 } __attribute__ ((packed));
 
 #ifdef CONFIG_RADIO_TEA5764_XTAL
@@ -141,6 +144,7 @@ struct tea5764_device {
 	struct mutex			mutex;
 };
 
+/* I2C code related */
 int tea5764_i2c_read(struct tea5764_device *radio)
 {
 	int i;
@@ -176,6 +180,7 @@ int tea5764_i2c_write(struct tea5764_device *radio)
 	return 0;
 }
 
+/* V4L2 code related */
 static struct v4l2_queryctrl radio_qctrl[] = {
 	{
 		.id            = V4L2_CID_AUDIO_MUTE,
@@ -218,7 +223,7 @@ static void tea5764_set_freq(struct tea5764_device *radio, int freq)
 {
 	struct tea5764_regs *r = &radio->regs;
 
-	
+	/* formula: (freq [+ or -] 225000) / 8192 */
 	if (r->tnctrl & TEA5764_TNCTRL_HLSI)
 		r->frqset = (freq + 225000) / 8192;
 	else
@@ -235,6 +240,7 @@ static int tea5764_get_freq(struct tea5764_device *radio)
 		return (r->frqchk * 8192) + 225000;
 }
 
+/* tune an frequency, freq is defined by v4l's TUNER_LOW, i.e. 1/16th kHz */
 static void tea5764_tune(struct tea5764_device *radio, int freq)
 {
 	tea5764_set_freq(radio, freq);
@@ -283,6 +289,7 @@ static int tea5764_is_muted(struct tea5764_device *radio)
 	return radio->regs.tnctrl & TEA5764_TNCTRL_MU;
 }
 
+/* V4L2 vidioc */
 static int vidioc_querycap(struct file *file, void  *priv,
 					struct v4l2_capability *v)
 {
@@ -344,7 +351,7 @@ static int vidioc_s_frequency(struct file *file, void *priv,
 	if (f->tuner != 0 || f->type != V4L2_TUNER_RADIO)
 		return -EINVAL;
 	if (f->frequency == 0) {
-		
+		/* We special case this as a power down control. */
 		tea5764_power_down(radio);
 	}
 	if (f->frequency < (FREQ_MIN * FREQ_MUL))
@@ -449,6 +456,7 @@ static int vidioc_s_audio(struct file *file, void *priv,
 	return 0;
 }
 
+/* File system interface */
 static const struct v4l2_file_operations tea5764_fops = {
 	.owner		= THIS_MODULE,
 	.unlocked_ioctl	= video_ioctl2,
@@ -469,6 +477,7 @@ static const struct v4l2_ioctl_ops tea5764_ioctl_ops = {
 	.vidioc_s_ctrl      = vidioc_s_ctrl,
 };
 
+/* V4L2 interface */
 static struct video_device tea5764_radio_template = {
 	.name		= "TEA5764 FM-Radio",
 	.fops           = &tea5764_fops,
@@ -476,6 +485,7 @@ static struct video_device tea5764_radio_template = {
 	.release	= video_device_release,
 };
 
+/* I2C probe: check if the device exists and register with v4l if it is */
 static int __devinit tea5764_i2c_probe(struct i2c_client *client,
 					const struct i2c_device_id *id)
 {
@@ -514,7 +524,7 @@ static int __devinit tea5764_i2c_probe(struct i2c_client *client,
 	video_set_drvdata(radio->videodev, radio);
 	radio->videodev->lock = &radio->mutex;
 
-	
+	/* initialize and power off the chip */
 	tea5764_i2c_read(radio);
 	tea5764_set_audout_mode(radio, V4L2_TUNER_MODE_STEREO);
 	tea5764_mute(radio, 1);
@@ -548,9 +558,10 @@ static int __devexit tea5764_i2c_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* I2C subsystem interface */
 static const struct i2c_device_id tea5764_id[] = {
 	{ "radio-tea5764", 0 },
-	{ }					
+	{ }					/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(i2c, tea5764_id);
 

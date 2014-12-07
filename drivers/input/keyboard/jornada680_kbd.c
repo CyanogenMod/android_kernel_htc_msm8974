@@ -44,23 +44,23 @@
 #define PLDR 0xa4000134
 
 static const unsigned short jornada_scancodes[] = {
-	KEY_CAPSLOCK, KEY_MACRO, KEY_LEFTCTRL, 0, KEY_ESC, KEY_KP5, 0, 0,			
-		KEY_F1, KEY_F2, KEY_F3, KEY_F8, KEY_F7, KEY_F6, KEY_F4, KEY_F5,				
-	KEY_SLASH, KEY_APOSTROPHE, KEY_ENTER, 0, KEY_Z, 0, 0, 0,				
-		KEY_X, KEY_C, KEY_V, KEY_DOT, KEY_COMMA, KEY_M, KEY_B, KEY_N,				
-	KEY_KP2, KEY_KP6, KEY_KP3, 0, 0, 0, 0, 0,						
-		KEY_F10, KEY_RO, KEY_F9, KEY_KP4, KEY_NUMLOCK, KEY_SCROLLLOCK, KEY_LEFTALT, KEY_HANJA,	
-	KEY_KATAKANA, KEY_KP0, KEY_GRAVE, 0, KEY_FINANCE, 0, 0, 0,				
-		KEY_KPMINUS, KEY_HIRAGANA, KEY_SPACE, KEY_KPDOT, KEY_VOLUMEUP, 249, 0, 0,		
-	KEY_SEMICOLON, KEY_RIGHTBRACE, KEY_BACKSLASH, 0, KEY_A, 0, 0, 0,			
-		KEY_S, KEY_D, KEY_F, KEY_L, KEY_K, KEY_J, KEY_G, KEY_H,					
-	KEY_KP8, KEY_LEFTMETA, KEY_RIGHTSHIFT, 0, KEY_TAB, 0, 0, 0,				
-		0, KEY_LEFTSHIFT, KEY_KP7, KEY_KP9, KEY_KP1, KEY_F11, KEY_KPPLUS, KEY_KPASTERISK,	
-	KEY_P, KEY_LEFTBRACE, KEY_BACKSPACE, 0, KEY_Q, 0, 0, 0,					
-		KEY_W, KEY_E, KEY_R, KEY_O, KEY_I, KEY_U, KEY_T, KEY_Y,					
-	KEY_0, KEY_MINUS, KEY_EQUAL, 0, KEY_1, 0, 0, 0,						
-		KEY_2, KEY_3, KEY_4, KEY_9, KEY_8, KEY_7, KEY_5, KEY_6,					
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+/* PTD1 */	KEY_CAPSLOCK, KEY_MACRO, KEY_LEFTCTRL, 0, KEY_ESC, KEY_KP5, 0, 0,			/*  1  -> 8   */
+		KEY_F1, KEY_F2, KEY_F3, KEY_F8, KEY_F7, KEY_F6, KEY_F4, KEY_F5,				/*  9  -> 16  */
+/* PTD5 */	KEY_SLASH, KEY_APOSTROPHE, KEY_ENTER, 0, KEY_Z, 0, 0, 0,				/*  17 -> 24  */
+		KEY_X, KEY_C, KEY_V, KEY_DOT, KEY_COMMA, KEY_M, KEY_B, KEY_N,				/*  25 -> 32  */
+/* PTD7 */	KEY_KP2, KEY_KP6, KEY_KP3, 0, 0, 0, 0, 0,						/*  33 -> 40  */
+		KEY_F10, KEY_RO, KEY_F9, KEY_KP4, KEY_NUMLOCK, KEY_SCROLLLOCK, KEY_LEFTALT, KEY_HANJA,	/*  41 -> 48  */
+/* PTE0 */	KEY_KATAKANA, KEY_KP0, KEY_GRAVE, 0, KEY_FINANCE, 0, 0, 0,				/*  49 -> 56  */
+		KEY_KPMINUS, KEY_HIRAGANA, KEY_SPACE, KEY_KPDOT, KEY_VOLUMEUP, 249, 0, 0,		/*  57 -> 64  */
+/* PTE1 */	KEY_SEMICOLON, KEY_RIGHTBRACE, KEY_BACKSLASH, 0, KEY_A, 0, 0, 0,			/*  65 -> 72  */
+		KEY_S, KEY_D, KEY_F, KEY_L, KEY_K, KEY_J, KEY_G, KEY_H,					/*  73 -> 80  */
+/* PTE3 */	KEY_KP8, KEY_LEFTMETA, KEY_RIGHTSHIFT, 0, KEY_TAB, 0, 0, 0,				/*  81 -> 88  */
+		0, KEY_LEFTSHIFT, KEY_KP7, KEY_KP9, KEY_KP1, KEY_F11, KEY_KPPLUS, KEY_KPASTERISK,	/*  89 -> 96  */
+/* PTE6 */	KEY_P, KEY_LEFTBRACE, KEY_BACKSPACE, 0, KEY_Q, 0, 0, 0,					/*  97 -> 104 */
+		KEY_W, KEY_E, KEY_R, KEY_O, KEY_I, KEY_U, KEY_T, KEY_Y,					/* 105 -> 112 */
+/* PTE7 */	KEY_0, KEY_MINUS, KEY_EQUAL, 0, KEY_1, 0, 0, 0,						/* 113 -> 120 */
+		KEY_2, KEY_3, KEY_4, KEY_9, KEY_8, KEY_7, KEY_5, KEY_6,					/* 121 -> 128 */
+/* **** */	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0
 };
 
@@ -110,56 +110,62 @@ static void jornada_parse_kbd(struct jornadakbd *jornadakbd)
 static void jornada_scan_keyb(unsigned char *s)
 {
 	int i;
-	unsigned short ec_static, dc_static; 
+	unsigned short ec_static, dc_static; /* = UINT16_t */
 	unsigned char matrix_switch[] = {
-		0xfd, 0xff,   
-		0xdf, 0xff,   
-		0x7f, 0xff,   
-		0xff, 0xfe,   
-		0xff, 0xfd,   
-		0xff, 0xf7,   
-		0xff, 0xbf,   
-		0xff, 0x7f,   
+		0xfd, 0xff,   /* PTD1 PD(1) */
+		0xdf, 0xff,   /* PTD5 PD(5) */
+		0x7f, 0xff,   /* PTD7 PD(7) */
+		0xff, 0xfe,   /* PTE0 PE(0) */
+		0xff, 0xfd,   /* PTE1 PE(1) */
+		0xff, 0xf7,   /* PTE3 PE(3) */
+		0xff, 0xbf,   /* PTE6 PE(6) */
+		0xff, 0x7f,   /* PTE7 PE(7) */
 	}, *t = matrix_switch;
+	/* PD(x) :
+	1.   0xcc0c & (1~(1 << (2*(x)+1)))))
+	2.   (0xf0cf & 0xfffff) */
+	/* PE(x) :
+	1.   0xcc0c & 0xffff
+	2.   0xf0cf & (1~(1 << (2*(x)+1))))) */
 	unsigned short matrix_PDE[] = {
-		0xcc04, 0xf0cf,  
-		0xc40c, 0xf0cf,	 
-		0x4c0c, 0xf0cf,  
-		0xcc0c, 0xf0cd,  
-		0xcc0c, 0xf0c7,	 
-		0xcc0c, 0xf04f,  
-		0xcc0c, 0xd0cf,	 
-		0xcc0c, 0x70cf,	 
+		0xcc04, 0xf0cf,  /* PD(1) */
+		0xc40c, 0xf0cf,	 /* PD(5) */
+		0x4c0c, 0xf0cf,  /* PD(7) */
+		0xcc0c, 0xf0cd,  /* PE(0) */
+		0xcc0c, 0xf0c7,	 /* PE(1) */
+		0xcc0c, 0xf04f,  /* PE(3) */
+		0xcc0c, 0xd0cf,	 /* PE(6) */
+		0xcc0c, 0x70cf,	 /* PE(7) */
 	}, *y = matrix_PDE;
 
-	
+	/* Save these control reg bits */
 	dc_static = (__raw_readw(PDCR) & (~0xcc0c));
 	ec_static = (__raw_readw(PECR) & (~0xf0cf));
 
 	for (i = 0; i < 8; i++) {
-		
+		/* disable output for all but the one we want to scan */
 		__raw_writew((dc_static | *y++), PDCR);
 		__raw_writew((ec_static | *y++), PECR);
 		udelay(5);
 
-		
+		/* Get scanline row */
 		__raw_writeb(*t++, PDDR);
 		__raw_writeb(*t++, PEDR);
 		udelay(50);
 
-		
+		/* Read data */
 		*s++ = __raw_readb(PCDR);
 		*s++ = __raw_readb(PFDR);
 	}
-	
+	/* Scan no lines */
 	__raw_writeb(0xff, PDDR);
 	__raw_writeb(0xff, PEDR);
 
-	
+	/* Enable all scanlines */
 	__raw_writew((dc_static | (0x5555 & 0xcc0c)),PDCR);
 	__raw_writew((ec_static | (0x5555 & 0xf0cf)),PECR);
 
-	
+	/* Ignore extra keys and events */
 	*s++ = __raw_readb(PGDR);
 	*s++ = __raw_readb(PHDR);
 }
@@ -199,7 +205,7 @@ static int __devinit jornada680kbd_probe(struct platform_device *pdev)
 
 	poll_dev->private = jornadakbd;
 	poll_dev->poll = jornadakbd680_poll;
-	poll_dev->poll_interval = 50; 
+	poll_dev->poll_interval = 50; /* msec */
 
 	input_dev = poll_dev->input;
 	input_dev->evbit[0] = BIT(EV_KEY) | BIT(EV_REP);

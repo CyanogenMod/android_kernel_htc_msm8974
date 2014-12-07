@@ -22,7 +22,7 @@ void trap_init(void)
 	__enable_hw_exceptions();
 }
 
-static unsigned long kstack_depth_to_print;	
+static unsigned long kstack_depth_to_print;	/* 0 == entire stack */
 
 static int __init kstack_setup(char *s)
 {
@@ -40,7 +40,7 @@ void show_stack(struct task_struct *task, unsigned long *sp)
 			fp = ((struct thread_info *)
 				(task->stack))->cpu_context.r1;
 		} else {
-			
+			/* Pick up caller of dump_stack() */
 			fp = (u32)&sp - 8;
 		}
 	}
@@ -51,6 +51,10 @@ void show_stack(struct task_struct *task, unsigned long *sp)
 
 	pr_info("Kernel Stack:\n");
 
+	/*
+	 * Make the first line an 'odd' size if necessary to get
+	 * remaining lines to start at an address multiple of 0x10
+	 */
 	if (fp & 0xF) {
 		unsigned long line1_words = (0x10 - (fp & 0xF)) >> 2;
 		if (line1_words < words_to_show) {

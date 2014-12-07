@@ -3,4 +3,4 @@
 
 #define BASE_BAUD ( 1843200 / 16 )
 
-#endif 
+#endif /* __SPARC_SERIAL_H */

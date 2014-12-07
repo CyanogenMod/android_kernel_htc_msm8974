@@ -94,7 +94,7 @@ static struct expr *menu_check_dep(struct expr *e)
 		e->right.expr = menu_check_dep(e->right.expr);
 		break;
 	case E_SYMBOL:
-		
+		/* change 'm' into 'm' && MODULES */
 		if (e->left.sym == &symbol_mod)
 			return expr_alloc_and(e, expr_alloc_symbol(modules_sym));
 		break;
@@ -141,7 +141,7 @@ struct property *menu_add_prop(enum prop_type type, char *prompt, struct expr *e
 		if (current_entry->prompt && current_entry != &rootmenu)
 			prop_warn(prop, "prompt redefined");
 
-		
+		/* Apply all upper menus' visibilities to actual prompts. */
 		if(type == P_PROMPT) {
 			struct menu *menu = current_entry;
 
@@ -270,7 +270,7 @@ void menu_finalize(struct menu *parent)
 	if (parent->list) {
 		if (sym && sym_is_choice(sym)) {
 			if (sym->type == S_UNKNOWN) {
-				
+				/* find the first choice value to find out choice type */
 				current_entry = parent;
 				for (menu = parent->list; menu; menu = menu->next) {
 					if (menu->sym && menu->sym->type != S_UNKNOWN) {
@@ -279,7 +279,7 @@ void menu_finalize(struct menu *parent)
 					}
 				}
 			}
-			
+			/* set the type of the remaining choice values */
 			for (menu = parent->list; menu; menu = menu->next) {
 				current_entry = menu;
 				if (menu->sym && menu->sym->type == S_UNKNOWN)
@@ -369,6 +369,12 @@ void menu_finalize(struct menu *parent)
 				    prop->menu->parent->sym != sym)
 					prop_warn(prop, "choice value used outside its choice group");
 			}
+			/* Non-tristate choice values of tristate choices must
+			 * depend on the choice being set to Y. The choice
+			 * values' dependencies were propagated to their
+			 * properties above, so the change here must be re-
+			 * propagated.
+			 */
 			if (sym->type == S_TRISTATE && menu->sym->type != S_TRISTATE) {
 				basedep = expr_alloc_comp(E_EQUAL, sym, &symbol_yes);
 				menu->dep = expr_alloc_and(basedep, menu->dep);
@@ -405,7 +411,7 @@ void menu_finalize(struct menu *parent)
 		if (sym_is_choice(sym) && !parent->prompt)
 			menu_warn(parent, "choice must have a prompt");
 
-		
+		/* Check properties connected to this symbol */
 		sym_check_prop(sym);
 		sym->flags |= SYMBOL_WARNED;
 	}

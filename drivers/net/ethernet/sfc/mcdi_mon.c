@@ -19,9 +19,9 @@
 
 enum efx_hwmon_type {
 	EFX_HWMON_UNKNOWN,
-	EFX_HWMON_TEMP,         
-	EFX_HWMON_COOL,         
-	EFX_HWMON_IN            
+	EFX_HWMON_TEMP,         /* temperature */
+	EFX_HWMON_COOL,         /* cooling device, probably a heatsink */
+	EFX_HWMON_IN            /* input voltage */
 };
 
 static const struct {
@@ -65,6 +65,8 @@ void efx_mcdi_sensor_event(struct efx_nic *efx, efx_qword_t *ev)
 	state = EFX_QWORD_FIELD(*ev, MCDI_EVENT_SENSOREVT_STATE);
 	value = EFX_QWORD_FIELD(*ev, MCDI_EVENT_SENSOREVT_VALUE);
 
+	/* Deal gracefully with the board having more drivers than we
+	 * know about, but do not expect new sensor states. */
 	if (type < ARRAY_SIZE(efx_mcdi_sensor_type))
 		name = efx_mcdi_sensor_type[type].label;
 	if (!name)
@@ -123,13 +125,13 @@ static int efx_mcdi_mon_get_entry(struct device *dev, unsigned int index,
 
 	mutex_lock(&hwmon->update_lock);
 
-	
+	/* Use cached value if last update was < 1 s ago */
 	if (time_before(jiffies, hwmon->last_update + HZ))
 		rc = 0;
 	else
 		rc = efx_mcdi_mon_update(efx);
 
-	
+	/* Copy out the requested entry */
 	*entry = ((efx_dword_t *)hwmon->dma_buf.addr)[index];
 
 	mutex_unlock(&hwmon->update_lock);
@@ -153,7 +155,7 @@ static ssize_t efx_mcdi_mon_show_value(struct device *dev,
 
 	value = EFX_DWORD_FIELD(entry, MC_CMD_SENSOR_VALUE_ENTRY_TYPEDEF_VALUE);
 
-	
+	/* Convert temperature from degrees to milli-degrees Celsius */
 	if (efx_mcdi_sensor_type[mon_attr->type].hwmon_type == EFX_HWMON_TEMP)
 		value *= 1000;
 
@@ -170,7 +172,7 @@ static ssize_t efx_mcdi_mon_show_limit(struct device *dev,
 
 	value = mon_attr->limit_value;
 
-	
+	/* Convert temperature from degrees to milli-degrees Celsius */
 	if (efx_mcdi_sensor_type[mon_attr->type].hwmon_type == EFX_HWMON_TEMP)
 		value *= 1000;
 
@@ -248,11 +250,14 @@ int efx_mcdi_mon_probe(struct efx_nic *efx)
 	if (outlen < MC_CMD_SENSOR_INFO_OUT_LENMIN)
 		return -EIO;
 
+	/* Find out which sensors are present.  Don't create a device
+	 * if there are none.
+	 */
 	mask = MCDI_DWORD(outbuf, SENSOR_INFO_OUT_MASK);
 	if (mask == 0)
 		return 0;
 
-	
+	/* Check again for short response */
 	if (outlen < MC_CMD_SENSOR_INFO_OUT_LEN(hweight32(mask)))
 		return -EIO;
 
@@ -264,6 +269,10 @@ int efx_mcdi_mon_probe(struct efx_nic *efx)
 	mutex_init(&hwmon->update_lock);
 	efx_mcdi_mon_update(efx);
 
+	/* Allocate space for the maximum possible number of
+	 * attributes for this set of sensors: name of the driver plus
+	 * value, min, max, crit, alarm and label for each sensor.
+	 */
 	n_attrs = 1 + 6 * hweight32(mask);
 	hwmon->attrs = kcalloc(n_attrs, sizeof(*hwmon->attrs), GFP_KERNEL);
 	if (!hwmon->attrs) {
@@ -286,7 +295,7 @@ int efx_mcdi_mon_probe(struct efx_nic *efx)
 		unsigned hwmon_index;
 		u16 min1, max1, min2, max2;
 
-		
+		/* Find next sensor type or exit if there is none */
 		type++;
 		while (!(mask & (1 << type))) {
 			type++;
@@ -294,7 +303,7 @@ int efx_mcdi_mon_probe(struct efx_nic *efx)
 				return 0;
 		}
 
-		
+		/* Skip sensors specific to a different port */
 		if (efx_mcdi_sensor_type[type].hwmon_type != EFX_HWMON_UNKNOWN &&
 		    efx_mcdi_sensor_type[type].port >= 0 &&
 		    efx_mcdi_sensor_type[type].port != efx_port_num(efx))
@@ -303,15 +312,19 @@ int efx_mcdi_mon_probe(struct efx_nic *efx)
 		switch (efx_mcdi_sensor_type[type].hwmon_type) {
 		case EFX_HWMON_TEMP:
 			hwmon_prefix = "temp";
-			hwmon_index = ++n_temp; 
+			hwmon_index = ++n_temp; /* 1-based */
 			break;
 		case EFX_HWMON_COOL:
+			/* This is likely to be a heatsink, but there
+			 * is no convention for representing cooling
+			 * devices other than fans.
+			 */
 			hwmon_prefix = "fan";
-			hwmon_index = ++n_cool; 
+			hwmon_index = ++n_cool; /* 1-based */
 			break;
 		default:
 			hwmon_prefix = "in";
-			hwmon_index = n_in++; 
+			hwmon_index = n_in++; /* 0-based */
 			break;
 		}
 
@@ -349,6 +362,9 @@ int efx_mcdi_mon_probe(struct efx_nic *efx)
 				goto fail;
 
 			if (min2 != max2) {
+				/* Assume max2 is critical value.
+				 * But we have no good way to expose min2.
+				 */
 				snprintf(name, sizeof(name), "%s%u_crit",
 					 hwmon_prefix, hwmon_index);
 				rc = efx_mcdi_mon_add_attr(
@@ -396,4 +412,4 @@ void efx_mcdi_mon_remove(struct efx_nic *efx)
 	efx_nic_free_buffer(efx, &hwmon->dma_buf);
 }
 
-#endif 
+#endif /* CONFIG_SFC_MCDI_MON */

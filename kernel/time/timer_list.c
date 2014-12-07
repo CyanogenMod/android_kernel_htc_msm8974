@@ -24,6 +24,10 @@ typedef void (*print_fn_t)(struct seq_file *m, unsigned int *classes);
 
 DECLARE_PER_CPU(struct hrtimer_cpu_base, hrtimer_bases);
 
+/*
+ * This allows printing both to /proc/timer_list and
+ * to the console (on SysRq-Q):
+ */
 #define SEQ_printf(m, x...)			\
  do {						\
 	if (m)					\
@@ -83,6 +87,10 @@ next_one:
 	raw_spin_lock_irqsave(&base->cpu_base->lock, flags);
 
 	curr = timerqueue_getnext(&base->active);
+	/*
+	 * Crude but we have to do this O(N*N) thing, because
+	 * we have to unlock the base when printing:
+	 */
 	while (curr && i < next) {
 		curr = timerqueue_iterate_next(curr);
 		i++;

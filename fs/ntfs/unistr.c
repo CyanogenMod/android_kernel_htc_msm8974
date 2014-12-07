@@ -25,7 +25,18 @@
 #include "debug.h"
 #include "ntfs.h"
 
+/*
+ * IMPORTANT
+ * =========
+ *
+ * All these routines assume that the Unicode characters are in little endian
+ * encoding inside the strings!!!
+ */
 
+/*
+ * This is used by the name collation functions to quickly determine what
+ * characters are (in)valid.
+ */
 static const u8 legal_ansi_char_array[0x40] = {
 	0x00, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
 	0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
@@ -40,6 +51,20 @@ static const u8 legal_ansi_char_array[0x40] = {
 	0x17, 0x17, 0x04, 0x16, 0x18, 0x16, 0x18, 0x18,
 };
 
+/**
+ * ntfs_are_names_equal - compare two Unicode names for equality
+ * @s1:			name to compare to @s2
+ * @s1_len:		length in Unicode characters of @s1
+ * @s2:			name to compare to @s1
+ * @s2_len:		length in Unicode characters of @s2
+ * @ic:			ignore case bool
+ * @upcase:		upcase table (only if @ic == IGNORE_CASE)
+ * @upcase_size:	length in Unicode characters of @upcase (if present)
+ *
+ * Compare the names @s1 and @s2 and return 'true' (1) if the names are
+ * identical, or 'false' (0) if they are not identical. If @ic is IGNORE_CASE,
+ * the @upcase table is used to performa a case insensitive comparison.
+ */
 bool ntfs_are_names_equal(const ntfschar *s1, size_t s1_len,
 		const ntfschar *s2, size_t s2_len, const IGNORE_CASE_BOOL ic,
 		const ntfschar *upcase, const u32 upcase_size)
@@ -51,6 +76,24 @@ bool ntfs_are_names_equal(const ntfschar *s1, size_t s1_len,
 	return !ntfs_ucsncasecmp(s1, s2, s1_len, upcase, upcase_size);
 }
 
+/**
+ * ntfs_collate_names - collate two Unicode names
+ * @name1:	first Unicode name to compare
+ * @name2:	second Unicode name to compare
+ * @err_val:	if @name1 contains an invalid character return this value
+ * @ic:		either CASE_SENSITIVE or IGNORE_CASE
+ * @upcase:	upcase table (ignored if @ic is CASE_SENSITIVE)
+ * @upcase_len:	upcase table size (ignored if @ic is CASE_SENSITIVE)
+ *
+ * ntfs_collate_names collates two Unicode names and returns:
+ *
+ *  -1 if the first name collates before the second one,
+ *   0 if the names match,
+ *   1 if the second name collates before the first one, or
+ * @err_val if an invalid character is found in @name1 during the comparison.
+ *
+ * The following characters are considered invalid: '"', '*', '<', '>' and '?'.
+ */
 int ntfs_collate_names(const ntfschar *name1, const u32 name1_len,
 		const ntfschar *name2, const u32 name2_len,
 		const int err_val, const IGNORE_CASE_BOOL ic,
@@ -82,13 +125,27 @@ int ntfs_collate_names(const ntfschar *name1, const u32 name1_len,
 		return -1;
 	if (name1_len == name2_len)
 		return 0;
-	
+	/* name1_len > name2_len */
 	c1 = le16_to_cpu(*name1);
 	if (c1 < 64 && legal_ansi_char_array[c1] & 8)
 		return err_val;
 	return 1;
 }
 
+/**
+ * ntfs_ucsncmp - compare two little endian Unicode strings
+ * @s1:		first string
+ * @s2:		second string
+ * @n:		maximum unicode characters to compare
+ *
+ * Compare the first @n characters of the Unicode strings @s1 and @s2,
+ * The strings in little endian format and appropriate le16_to_cpu()
+ * conversion is performed on non-little endian machines.
+ *
+ * The function returns an integer less than, equal to, or greater than zero
+ * if @s1 (or the first @n Unicode characters thereof) is found, respectively,
+ * to be less than, to match, or be greater than @s2.
+ */
 int ntfs_ucsncmp(const ntfschar *s1, const ntfschar *s2, size_t n)
 {
 	u16 c1, c2;
@@ -107,6 +164,24 @@ int ntfs_ucsncmp(const ntfschar *s1, const ntfschar *s2, size_t n)
 	return 0;
 }
 
+/**
+ * ntfs_ucsncasecmp - compare two little endian Unicode strings, ignoring case
+ * @s1:			first string
+ * @s2:			second string
+ * @n:			maximum unicode characters to compare
+ * @upcase:		upcase table
+ * @upcase_size:	upcase table size in Unicode characters
+ *
+ * Compare the first @n characters of the Unicode strings @s1 and @s2,
+ * ignoring case. The strings in little endian format and appropriate
+ * le16_to_cpu() conversion is performed on non-little endian machines.
+ *
+ * Each character is uppercased using the @upcase table before the comparison.
+ *
+ * The function returns an integer less than, equal to, or greater than zero
+ * if @s1 (or the first @n Unicode characters thereof) is found, respectively,
+ * to be less than, to match, or be greater than @s2.
+ */
 int ntfs_ucsncasecmp(const ntfschar *s1, const ntfschar *s2, size_t n,
 		const ntfschar *upcase, const u32 upcase_size)
 {
@@ -189,7 +264,7 @@ int ntfs_nlstoucs(const ntfs_volume *vol, const char *ins,
 	wchar_t wc;
 	int i, o, wc_len;
 
-	
+	/* We do not trust outside sources. */
 	if (likely(ins)) {
 		ucs = kmem_cache_alloc(ntfs_name_cache, GFP_NOFS);
 		if (likely(ucs)) {
@@ -201,19 +276,20 @@ int ntfs_nlstoucs(const ntfs_volume *vol, const char *ins,
 					if (likely(wc)) {
 						ucs[o++] = cpu_to_le16(wc);
 						continue;
-					} 
+					} /* else if (!wc) */
 					break;
-				} 
+				} /* else if (wc_len < 0 ||
+						o >= NTFS_MAX_NAME_LEN) */
 				goto name_err;
 			}
 			ucs[o] = 0;
 			*outs = ucs;
 			return o;
-		} 
+		} /* else if (!ucs) */
 		ntfs_error(vol->sb, "Failed to allocate buffer for converted "
 				"name from ntfs_name_cache.");
 		return -ENOMEM;
-	} 
+	} /* else if (!ins) */
 	ntfs_error(vol->sb, "Received NULL pointer.");
 	return -EINVAL;
 name_err:
@@ -223,7 +299,7 @@ name_err:
 				"characters that cannot be converted to "
 				"Unicode.", nls->charset);
 		i = -EILSEQ;
-	} else  {
+	} else /* if (o >= NTFS_MAX_NAME_LEN) */ {
 		ntfs_error(vol->sb, "Name is too long (maximum length for a "
 				"name on NTFS is %d Unicode characters.",
 				NTFS_MAX_NAME_LEN);
@@ -264,7 +340,7 @@ int ntfs_ucstonls(const ntfs_volume *vol, const ntfschar *ins,
 	unsigned char *ns;
 	int i, o, ns_len, wc;
 
-	
+	/* We don't trust outside sources. */
 	if (ins) {
 		ns = *outs;
 		ns_len = outs_len;
@@ -288,7 +364,7 @@ retry:			wc = nls->uni2char(le16_to_cpu(ins[i]), ns + o,
 				break;
 			else if (wc == -ENAMETOOLONG && ns != *outs) {
 				unsigned char *tc;
-				
+				/* Grow in multiples of 64 bytes. */
 				tc = kmalloc((ns_len + 64) &
 						~63, GFP_NOFS);
 				if (tc) {
@@ -297,14 +373,14 @@ retry:			wc = nls->uni2char(le16_to_cpu(ins[i]), ns + o,
 					kfree(ns);
 					ns = tc;
 					goto retry;
-				} 
-			} 
+				} /* No memory so goto conversion_error; */
+			} /* wc < 0, real error. */
 			goto conversion_err;
 		}
 		ns[o] = 0;
 		*outs = ns;
 		return o;
-	} 
+	} /* else (!ins) */
 	ntfs_error(vol->sb, "Received NULL pointer.");
 	return -EINVAL;
 conversion_err:

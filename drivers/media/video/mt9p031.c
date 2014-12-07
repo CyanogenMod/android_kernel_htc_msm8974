@@ -102,16 +102,16 @@
 struct mt9p031 {
 	struct v4l2_subdev subdev;
 	struct media_pad pad;
-	struct v4l2_rect crop;  
+	struct v4l2_rect crop;  /* Sensor window */
 	struct v4l2_mbus_framefmt format;
 	struct v4l2_ctrl_handler ctrls;
 	struct mt9p031_platform_data *pdata;
-	struct mutex power_lock; 
+	struct mutex power_lock; /* lock to protect power_count */
 	int power_count;
 
 	struct aptina_pll pll;
 
-	
+	/* Registers cache */
 	u16 output_control;
 	u16 mode2;
 };
@@ -165,7 +165,7 @@ static int mt9p031_reset(struct mt9p031 *mt9p031)
 	struct i2c_client *client = v4l2_get_subdevdata(&mt9p031->subdev);
 	int ret;
 
-	
+	/* Disable chip output, synchronous option update */
 	ret = mt9p031_write(client, MT9P031_RST, MT9P031_RST_ENABLE);
 	if (ret < 0)
 		return ret;
@@ -240,18 +240,18 @@ static inline int mt9p031_pll_disable(struct mt9p031 *mt9p031)
 
 static int mt9p031_power_on(struct mt9p031 *mt9p031)
 {
-	
+	/* Ensure RESET_BAR is low */
 	if (mt9p031->pdata->reset) {
 		mt9p031->pdata->reset(&mt9p031->subdev, 1);
 		usleep_range(1000, 2000);
 	}
 
-	
+	/* Emable clock */
 	if (mt9p031->pdata->set_xclk)
 		mt9p031->pdata->set_xclk(&mt9p031->subdev,
 					 mt9p031->pdata->ext_freq);
 
-	
+	/* Now RESET_BAR must be high */
 	if (mt9p031->pdata->reset) {
 		mt9p031->pdata->reset(&mt9p031->subdev, 0);
 		usleep_range(1000, 2000);
@@ -294,6 +294,9 @@ static int __mt9p031_set_power(struct mt9p031 *mt9p031, bool on)
 	return v4l2_ctrl_handler_setup(&mt9p031->ctrls);
 }
 
+/* -----------------------------------------------------------------------------
+ * V4L2 subdev video operations
+ */
 
 static int mt9p031_set_params(struct mt9p031 *mt9p031)
 {
@@ -308,6 +311,12 @@ static int mt9p031_set_params(struct mt9p031 *mt9p031)
 	unsigned int ybin;
 	int ret;
 
+	/* Windows position and size.
+	 *
+	 * TODO: Make sure the start coordinates and window size match the
+	 * skipping, binning and mirroring (see description of registers 2 and 4
+	 * in table 13, and Binning section on page 41).
+	 */
 	ret = mt9p031_write(client, MT9P031_COLUMN_START, crop->left);
 	if (ret < 0)
 		return ret;
@@ -321,6 +330,9 @@ static int mt9p031_set_params(struct mt9p031 *mt9p031)
 	if (ret < 0)
 		return ret;
 
+	/* Row and column binning and skipping. Use the maximum binning value
+	 * compatible with the skipping settings.
+	 */
 	xskip = DIV_ROUND_CLOSEST(crop->width, format->width);
 	yskip = DIV_ROUND_CLOSEST(crop->height, format->height);
 	xbin = 1 << (ffs(xskip) - 1);
@@ -335,6 +347,9 @@ static int mt9p031_set_params(struct mt9p031 *mt9p031)
 	if (ret < 0)
 		return ret;
 
+	/* Blanking - use minimum value for horizontal blanking and default
+	 * value for vertical blanking.
+	 */
 	hblank = 346 * ybin + 64 + (80 >> max_t(unsigned int, xbin, 3));
 	vblank = MT9P031_VERTICAL_BLANK_DEF;
 
@@ -354,7 +369,7 @@ static int mt9p031_s_stream(struct v4l2_subdev *subdev, int enable)
 	int ret;
 
 	if (!enable) {
-		
+		/* Stop sensor readout */
 		ret = mt9p031_set_output_control(mt9p031,
 						 MT9P031_OUTPUT_CONTROL_CEN, 0);
 		if (ret < 0)
@@ -367,7 +382,7 @@ static int mt9p031_s_stream(struct v4l2_subdev *subdev, int enable)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Switch to master "normal" mode */
 	ret = mt9p031_set_output_control(mt9p031, 0,
 					 MT9P031_OUTPUT_CONTROL_CEN);
 	if (ret < 0)
@@ -461,7 +476,7 @@ static int mt9p031_set_format(struct v4l2_subdev *subdev,
 	__crop = __mt9p031_get_pad_crop(mt9p031, fh, format->pad,
 					format->which);
 
-	
+	/* Clamp the width and height to avoid dividing by zero. */
 	width = clamp_t(unsigned int, ALIGN(format->format.width, 2),
 			max(__crop->width / 7, MT9P031_WINDOW_WIDTH_MIN),
 			__crop->width);
@@ -502,6 +517,9 @@ static int mt9p031_set_crop(struct v4l2_subdev *subdev,
 	struct v4l2_rect *__crop;
 	struct v4l2_rect rect;
 
+	/* Clamp the crop rectangle boundaries and align them to a multiple of 2
+	 * pixels to ensure a GRBG Bayer pattern.
+	 */
 	rect.left = clamp(ALIGN(crop->rect.left, 2), MT9P031_COLUMN_START_MIN,
 			  MT9P031_COLUMN_START_MAX);
 	rect.top = clamp(ALIGN(crop->rect.top, 2), MT9P031_ROW_START_MIN,
@@ -519,6 +537,9 @@ static int mt9p031_set_crop(struct v4l2_subdev *subdev,
 	__crop = __mt9p031_get_pad_crop(mt9p031, fh, crop->pad, crop->which);
 
 	if (rect.width != __crop->width || rect.height != __crop->height) {
+		/* Reset the output image size if the crop rectangle size has
+		 * been modified.
+		 */
 		__format = __mt9p031_get_pad_format(mt9p031, fh, crop->pad,
 						    crop->which);
 		__format->width = rect.width;
@@ -531,6 +552,9 @@ static int mt9p031_set_crop(struct v4l2_subdev *subdev,
 	return 0;
 }
 
+/* -----------------------------------------------------------------------------
+ * V4L2 subdev control operations
+ */
 
 #define V4L2_CID_TEST_PATTERN		(V4L2_CID_USER_BASE | 0x1001)
 
@@ -553,6 +577,20 @@ static int mt9p031_s_ctrl(struct v4l2_ctrl *ctrl)
 				     ctrl->val & 0xffff);
 
 	case V4L2_CID_GAIN:
+		/* Gain is controlled by 2 analog stages and a digital stage.
+		 * Valid values for the 3 stages are
+		 *
+		 * Stage                Min     Max     Step
+		 * ------------------------------------------
+		 * First analog stage   x1      x2      1
+		 * Second analog stage  x1      x4      0.125
+		 * Digital stage        x1      x16     0.125
+		 *
+		 * To minimize noise, the gain stages should be used in the
+		 * second analog stage, first analog stage, digital stage order.
+		 * Gain from a previous stage should be pushed to its maximum
+		 * value before the next stage is used.
+		 */
 		if (ctrl->val <= 32) {
 			data = ctrl->val;
 		} else if (ctrl->val <= 64) {
@@ -650,6 +688,9 @@ static const struct v4l2_ctrl_config mt9p031_ctrls[] = {
 	}
 };
 
+/* -----------------------------------------------------------------------------
+ * V4L2 subdev core operations
+ */
 
 static int mt9p031_set_power(struct v4l2_subdev *subdev, int on)
 {
@@ -658,13 +699,16 @@ static int mt9p031_set_power(struct v4l2_subdev *subdev, int on)
 
 	mutex_lock(&mt9p031->power_lock);
 
+	/* If the power count is modified from 0 to != 0 or from != 0 to 0,
+	 * update the power state.
+	 */
 	if (mt9p031->power_count == !on) {
 		ret = __mt9p031_set_power(mt9p031, !!on);
 		if (ret < 0)
 			goto out;
 	}
 
-	
+	/* Update the power count. */
 	mt9p031->power_count += on ? 1 : -1;
 	WARN_ON(mt9p031->power_count < 0);
 
@@ -673,6 +717,9 @@ out:
 	return ret;
 }
 
+/* -----------------------------------------------------------------------------
+ * V4L2 subdev internal operations
+ */
 
 static int mt9p031_registered(struct v4l2_subdev *subdev)
 {
@@ -687,7 +734,7 @@ static int mt9p031_registered(struct v4l2_subdev *subdev)
 		return ret;
 	}
 
-	
+	/* Read out the chip version register */
 	data = mt9p031_read(client, MT9P031_CHIP_VERSION);
 	if (data != MT9P031_CHIP_VERSION_VALUE) {
 		dev_err(&client->dev, "MT9P031 not detected, wrong version "
@@ -764,6 +811,9 @@ static const struct v4l2_subdev_internal_ops mt9p031_subdev_internal_ops = {
 	.close = mt9p031_close,
 };
 
+/* -----------------------------------------------------------------------------
+ * Driver initialization and probing
+ */
 
 static int mt9p031_probe(struct i2c_client *client,
 			 const struct i2c_device_id *did)

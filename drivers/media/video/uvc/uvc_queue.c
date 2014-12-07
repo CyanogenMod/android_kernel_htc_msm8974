@@ -24,7 +24,21 @@
 
 #include "uvcvideo.h"
 
+/* ------------------------------------------------------------------------
+ * Video buffers queue management.
+ *
+ * Video queues is initialized by uvc_queue_init(). The function performs
+ * basic initialization of the uvc_video_queue struct and never fails.
+ *
+ * Video buffers are managed by videobuf2. The driver uses a mutex to protect
+ * the videobuf2 queue operations by serializing calls to videobuf2 and a
+ * spinlock to protect the IRQ queue that holds the buffers to be processed by
+ * the driver.
+ */
 
+/* -----------------------------------------------------------------------------
+ * videobuf2 queue operations
+ */
 
 static int uvc_queue_setup(struct vb2_queue *vq, const struct v4l2_format *fmt,
 			   unsigned int *nbuffers, unsigned int *nplanes,
@@ -80,6 +94,9 @@ static void uvc_buffer_queue(struct vb2_buffer *vb)
 	if (likely(!(queue->flags & UVC_QUEUE_DISCONNECTED))) {
 		list_add_tail(&buf->queue, &queue->irqqueue);
 	} else {
+		/* If the device is disconnected return the buffer to userspace
+		 * directly. The next QBUF call will fail with -ENODEV.
+		 */
 		buf->state = UVC_BUF_STATE_ERROR;
 		vb2_buffer_done(&buf->buf, VB2_BUF_STATE_ERROR);
 	}
@@ -122,6 +139,9 @@ void uvc_queue_init(struct uvc_video_queue *queue, enum v4l2_buf_type type,
 	queue->flags = drop_corrupted ? UVC_QUEUE_DROP_CORRUPTED : 0;
 }
 
+/* -----------------------------------------------------------------------------
+ * V4L2 queue operations
+ */
 
 int uvc_alloc_buffers(struct uvc_video_queue *queue,
 		      struct v4l2_requestbuffers *rb)
@@ -199,7 +219,13 @@ unsigned int uvc_queue_poll(struct uvc_video_queue *queue, struct file *file,
 	return ret;
 }
 
+/* -----------------------------------------------------------------------------
+ *
+ */
 
+/*
+ * Check if buffers have been allocated.
+ */
 int uvc_queue_allocated(struct uvc_video_queue *queue)
 {
 	int allocated;
@@ -212,6 +238,11 @@ int uvc_queue_allocated(struct uvc_video_queue *queue)
 }
 
 #ifndef CONFIG_MMU
+/*
+ * Get unmapped area.
+ *
+ * NO-MMU arch need this function to make mmap() work correctly.
+ */
 unsigned long uvc_queue_get_unmapped_area(struct uvc_video_queue *queue,
 		unsigned long pgoff)
 {
@@ -236,6 +267,22 @@ done:
 }
 #endif
 
+/*
+ * Enable or disable the video buffers queue.
+ *
+ * The queue must be enabled before starting video acquisition and must be
+ * disabled after stopping it. This ensures that the video buffers queue
+ * state can be properly initialized before buffers are accessed from the
+ * interrupt handler.
+ *
+ * Enabling the video queue returns -EBUSY if the queue is already enabled.
+ *
+ * Disabling the video queue cancels the queue and removes all buffers from
+ * the main queue.
+ *
+ * This function can't be called from interrupt context. Use
+ * uvc_queue_cancel() instead.
+ */
 int uvc_queue_enable(struct uvc_video_queue *queue, int enable)
 {
 	unsigned long flags;
@@ -263,6 +310,18 @@ done:
 	return ret;
 }
 
+/*
+ * Cancel the video buffers queue.
+ *
+ * Cancelling the queue marks all buffers on the irq queue as erroneous,
+ * wakes them up and removes them from the queue.
+ *
+ * If the disconnect parameter is set, further calls to uvc_queue_buffer will
+ * fail with -ENODEV.
+ *
+ * This function acquires the irq spinlock and can be called from interrupt
+ * context.
+ */
 void uvc_queue_cancel(struct uvc_video_queue *queue, int disconnect)
 {
 	struct uvc_buffer *buf;
@@ -276,6 +335,12 @@ void uvc_queue_cancel(struct uvc_video_queue *queue, int disconnect)
 		buf->state = UVC_BUF_STATE_ERROR;
 		vb2_buffer_done(&buf->buf, VB2_BUF_STATE_ERROR);
 	}
+	/* This must be protected by the irqlock spinlock to avoid race
+	 * conditions between uvc_buffer_queue and the disconnection event that
+	 * could result in an interruptible wait in uvc_dequeue_buffer. Do not
+	 * blindly replace this logic by checking for the UVC_QUEUE_DISCONNECTED
+	 * state outside the queue code.
+	 */
 	if (disconnect)
 		queue->flags |= UVC_QUEUE_DISCONNECTED;
 	spin_unlock_irqrestore(&queue->irqlock, flags);

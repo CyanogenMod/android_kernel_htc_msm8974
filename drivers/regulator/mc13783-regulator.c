@@ -92,6 +92,7 @@
 #define MC13783_REG_POWERMISC_PWGTSPI_M			(3 << 15)
 
 
+/* Voltage Values */
 static const int mc13783_sw3_val[] = {
 	5000000, 5000000, 5000000, 5500000,
 };
@@ -241,14 +242,14 @@ static int mc13783_powermisc_rmw(struct mc13xxx_regulator_priv *priv, u32 mask,
 	if (ret)
 		return ret;
 
-	
+	/* Update the stored state for Power Gates. */
 	priv->powermisc_pwgt_state =
 				(priv->powermisc_pwgt_state & ~mask) | val;
 	priv->powermisc_pwgt_state &= MC13783_REG_POWERMISC_PWGTSPI_M;
 
-	
+	/* Construct the new register value */
 	valread = (valread & ~mask) | val;
-	
+	/* Overwrite the PWGTxEN with the stored version */
 	valread = (valread & ~MC13783_REG_POWERMISC_PWGTSPI_M) |
 						priv->powermisc_pwgt_state;
 
@@ -265,7 +266,7 @@ static int mc13783_gpo_regulator_enable(struct regulator_dev *rdev)
 
 	dev_dbg(rdev_get_dev(rdev), "%s id: %d\n", __func__, id);
 
-	
+	/* Power Gate enable value is 0 */
 	if (id == MC13783_REG_PWGT1SPI ||
 	    id == MC13783_REG_PWGT2SPI)
 		en_val = 0;
@@ -288,7 +289,7 @@ static int mc13783_gpo_regulator_disable(struct regulator_dev *rdev)
 
 	dev_dbg(rdev_get_dev(rdev), "%s id: %d\n", __func__, id);
 
-	
+	/* Power Gate disable value is 1 */
 	if (id == MC13783_REG_PWGT1SPI ||
 	    id == MC13783_REG_PWGT2SPI)
 		dis_val = mc13xxx_regulators[id].enable_bit;
@@ -315,6 +316,8 @@ static int mc13783_gpo_regulator_is_enabled(struct regulator_dev *rdev)
 	if (ret)
 		return ret;
 
+	/* Power Gates state is stored in powermisc_pwgt_state
+	 * where the meaning of bits is negated */
 	val = (val & ~MC13783_REG_POWERMISC_PWGTSPI_M) |
 	      (priv->powermisc_pwgt_state ^ MC13783_REG_POWERMISC_PWGTSPI_M);
 

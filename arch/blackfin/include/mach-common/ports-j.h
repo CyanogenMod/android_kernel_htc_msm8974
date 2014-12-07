@@ -1,3 +1,6 @@
+/*
+ * Port J Masks
+ */
 
 #ifndef __BFIN_PERIPHERAL_PORT_J__
 #define __BFIN_PERIPHERAL_PORT_J__

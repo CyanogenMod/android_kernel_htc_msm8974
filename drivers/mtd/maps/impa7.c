@@ -17,17 +17,18 @@
 #include <linux/mtd/map.h>
 #include <linux/mtd/partitions.h>
 
-#define WINDOW_ADDR0 0x00000000      
+#define WINDOW_ADDR0 0x00000000      /* physical properties of flash */
 #define WINDOW_SIZE0 0x00800000
-#define WINDOW_ADDR1 0x10000000      
+#define WINDOW_ADDR1 0x10000000      /* physical properties of flash */
 #define WINDOW_SIZE1 0x00800000
 #define NUM_FLASHBANKS 2
 #define BUSWIDTH     4
 
+/* can be { "cfi_probe", "jedec_probe", "map_rom", NULL } */
 #define PROBETYPES { "jedec_probe", NULL }
 
-#define MSG_PREFIX "impA7:"   
-#define MTDID      "impa7-%d"  
+#define MSG_PREFIX "impA7:"   /* prefix for our printk()'s */
+#define MTDID      "impa7-%d"  /* for mtdparts= partitioning */
 
 static struct mtd_info *impa7_mtd[NUM_FLASHBANKS];
 
@@ -45,6 +46,9 @@ static struct map_info impa7_map[NUM_FLASHBANKS] = {
 	},
 };
 
+/*
+ * MTD partitioning stuff
+ */
 static struct mtd_partition partitions[] =
 {
 	{

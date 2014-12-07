@@ -18,6 +18,20 @@
  *    along with this program; if not, write to the Free Software
  *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * BEGIN_DESC
+ *
+ *  Purpose:
+ *	Single Floating-point Round to Integer
+ *	Double Floating-point Round to Integer
+ *	Quad Floating-point Round to Integer (returns unimplemented)
+ *
+ *  External Interfaces:
+ *	dbl_frnd(srcptr,nullptr,dstptr,status)
+ *	sgl_frnd(srcptr,nullptr,dstptr,status)
+ *
+ * END_DESC
+*/
 
 
 #include "float.h"
@@ -25,7 +39,11 @@
 #include "dbl_float.h"
 #include "cnv_float.h"
 
+/*
+ *  Single Floating-point Round to Integer
+ */
 
+/*ARGSUSED*/
 int
 sgl_frnd(sgl_floating_point *srcptr,
 	unsigned int *nullptr,
@@ -37,29 +55,44 @@ sgl_frnd(sgl_floating_point *srcptr,
 	register boolean inexact = FALSE;
 
 	src = *srcptr;
+        /*
+         * check source operand for NaN or infinity
+         */
         if ((src_exponent = Sgl_exponent(src)) == SGL_INFINITY_EXPONENT) {
+                /*
+                 * is signaling NaN?
+                 */
                 if (Sgl_isone_signaling(src)) {
-                        
+                        /* trap if INVALIDTRAP enabled */
                         if (Is_invalidtrap_enabled()) return(INVALIDEXCEPTION);
-                        
+                        /* make NaN quiet */
                         Set_invalidflag();
                         Sgl_set_quiet(src);
                 }
+                /*
+                 * return quiet NaN or infinity
+                 */
                 *dstptr = src;
                 return(NOEXCEPTION);
         }
+	/* 
+	 * Need to round?
+	 */
 	if ((src_exponent -= SGL_BIAS) >= SGL_P - 1) {
 		*dstptr = src;
 		return(NOEXCEPTION);
 	}
+	/*
+	 * Generate result
+	 */
 	if (src_exponent >= 0) {
 		Sgl_clear_exponent_set_hidden(src);
 		result = src;
 		Sgl_rightshift(result,(SGL_P-1) - (src_exponent));
-		
+		/* check for inexact */
 		if (Sgl_isinexact_to_fix(src,src_exponent)) {
 			inexact = TRUE;
-			
+			/*  round result  */
 			switch (Rounding_mode()) {
 			case ROUNDPLUS:
 			     if (Sgl_iszero_sign(src)) Sgl_increment(result);
@@ -80,12 +113,12 @@ sgl_frnd(sgl_floating_point *srcptr,
 		else Sgl_set_exponent(result,src_exponent + SGL_BIAS);
 	}
 	else {
-		result = src;  		
+		result = src;  		/* set sign */
 		Sgl_setzero_exponentmantissa(result);
-		
+		/* check for inexact */
 		if (Sgl_isnotzero_exponentmantissa(src)) {
 			inexact = TRUE;
-			
+			/*  round result  */
 			switch (Rounding_mode()) {
 			case ROUNDPLUS:
 			     if (Sgl_iszero_sign(src)) 
@@ -110,7 +143,11 @@ sgl_frnd(sgl_floating_point *srcptr,
 	return(NOEXCEPTION);
 } 
 
+/*
+ *  Double Floating-point Round to Integer
+ */
 
+/*ARGSUSED*/
 int
 dbl_frnd(
 	dbl_floating_point *srcptr,
@@ -123,30 +160,45 @@ dbl_frnd(
 	register boolean inexact = FALSE;
 
 	Dbl_copyfromptr(srcptr,srcp1,srcp2);
+        /*
+         * check source operand for NaN or infinity
+         */
         if ((src_exponent = Dbl_exponent(srcp1)) == DBL_INFINITY_EXPONENT) {
+                /*
+                 * is signaling NaN?
+                 */
                 if (Dbl_isone_signaling(srcp1)) {
-                        
+                        /* trap if INVALIDTRAP enabled */
                         if (Is_invalidtrap_enabled()) return(INVALIDEXCEPTION);
-                        
+                        /* make NaN quiet */
                         Set_invalidflag();
                         Dbl_set_quiet(srcp1);
                 }
+                /*
+                 * return quiet NaN or infinity
+                 */
                 Dbl_copytoptr(srcp1,srcp2,dstptr);
                 return(NOEXCEPTION);
         }
+	/* 
+	 * Need to round?
+	 */
 	if ((src_exponent -= DBL_BIAS) >= DBL_P - 1) {
 		Dbl_copytoptr(srcp1,srcp2,dstptr);
 		return(NOEXCEPTION);
 	}
+	/*
+	 * Generate result
+	 */
 	if (src_exponent >= 0) {
 		Dbl_clear_exponent_set_hidden(srcp1);
 		resultp1 = srcp1;
 		resultp2 = srcp2;
 		Dbl_rightshift(resultp1,resultp2,(DBL_P-1) - (src_exponent));
-		
+		/* check for inexact */
 		if (Dbl_isinexact_to_fix(srcp1,srcp2,src_exponent)) {
 			inexact = TRUE;
-			
+			/*  round result  */
 			switch (Rounding_mode()) {
 			case ROUNDPLUS:
 			     if (Dbl_iszero_sign(srcp1)) 
@@ -169,12 +221,12 @@ dbl_frnd(
 		else Dbl_set_exponent(resultp1,src_exponent + DBL_BIAS);
 	}
 	else {
-		resultp1 = srcp1;  
+		resultp1 = srcp1;  /* set sign */
 		Dbl_setzero_exponentmantissa(resultp1,resultp2);
-		
+		/* check for inexact */
 		if (Dbl_isnotzero_exponentmantissa(srcp1,srcp2)) {
 			inexact = TRUE;
-			
+			/*  round result  */
 			switch (Rounding_mode()) {
 			case ROUNDPLUS:
 			     if (Dbl_iszero_sign(srcp1)) 

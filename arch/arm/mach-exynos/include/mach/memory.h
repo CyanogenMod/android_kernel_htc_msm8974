@@ -15,7 +15,8 @@
 
 #define PLAT_PHYS_OFFSET		UL(0x40000000)
 
+/* Maximum of 256MiB in one bank */
 #define MAX_PHYSMEM_BITS	32
 #define SECTION_SIZE_BITS	28
 
-#endif 
+#endif /* __ASM_ARCH_MEMORY_H */

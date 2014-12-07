@@ -1,3 +1,4 @@
+/* savage_drv.h -- Private header for the savage driver */
 /*
  * Copyright 2004  Felix Kuehling
  * All Rights Reserved.
@@ -34,6 +35,19 @@
 #define DRIVER_MAJOR		2
 #define DRIVER_MINOR		4
 #define DRIVER_PATCHLEVEL	1
+/* Interface history:
+ *
+ * 1.x   The DRM driver from the VIA/S3 code drop, basically a dummy
+ * 2.0   The first real DRM
+ * 2.1   Scissors registers managed by the DRM, 3D operations clipped by
+ *       cliprects of the cmdbuf ioctl
+ * 2.2   Implemented SAVAGE_CMD_DMA_IDX and SAVAGE_CMD_VB_IDX
+ * 2.3   Event counters used by BCI_EVENT_EMIT/WAIT ioctls are now 32 bits
+ *       wide and thus very long lived (unlikely to ever wrap). The size
+ *       in the struct was 32 bits before, but only 16 bits were used
+ * 2.4   Implemented command DMA. Now drm_savage_init_t.cmd_dma_offset is
+ *       actually used
+ */
 
 typedef struct drm_savage_age {
 	uint16_t event;
@@ -51,9 +65,13 @@ typedef struct drm_savage_dma_page {
 	drm_savage_age_t age;
 	unsigned int used, flushed;
 } drm_savage_dma_page_t;
-#define SAVAGE_DMA_PAGE_SIZE 1024	
+#define SAVAGE_DMA_PAGE_SIZE 1024	/* in dwords */
+/* Fake DMA buffer size in bytes. 4 pages. Allows a maximum command
+ * size of 16kbytes or 4k entries. Minimum requirement would be
+ * 10kbytes for 255 40-byte vertices in one drawing command. */
 #define SAVAGE_FAKE_DMA_SIZE (SAVAGE_DMA_PAGE_SIZE*4*4)
 
+/* interesting bits of hardware state that are saved in dev_priv */
 typedef union {
 	struct drm_savage_common_state {
 		uint32_t vbaddr;
@@ -72,6 +90,7 @@ typedef union {
 	} s4;
 } drm_savage_state_t;
 
+/* these chip tags should match the ones in the 2D driver in savage_regs.h. */
 enum savage_family {
 	S3_UNKNOWN = 0,
 	S3_SAVAGE3D,
@@ -102,6 +121,7 @@ extern int savage_max_ioctl;
 #define S3_MOBILE_TWISTER_SERIES(chip)   ((chip==S3_TWISTER)    \
                                           ||(chip==S3_PROSAVAGEDDR))
 
+/* flags */
 #define SAVAGE_IS_AGP 1
 
 typedef struct drm_savage_private {
@@ -109,28 +129,28 @@ typedef struct drm_savage_private {
 
 	drm_savage_buf_priv_t head, tail;
 
-	
+	/* who am I? */
 	enum savage_family chipset;
 
 	unsigned int cob_size;
 	unsigned int bci_threshold_lo, bci_threshold_hi;
 	unsigned int dma_type;
 
-	
+	/* frame buffer layout */
 	unsigned int fb_bpp;
 	unsigned int front_offset, front_pitch;
 	unsigned int back_offset, back_pitch;
 	unsigned int depth_bpp;
 	unsigned int depth_offset, depth_pitch;
 
-	
+	/* bitmap descriptors for swap and clear */
 	unsigned int front_bd, back_bd, depth_bd;
 
-	
+	/* local textures */
 	unsigned int texture_offset;
 	unsigned int texture_size;
 
-	
+	/* memory regions in physical memory */
 	drm_local_map_t *sarea;
 	drm_local_map_t *mmio;
 	drm_local_map_t *fb;
@@ -145,38 +165,42 @@ typedef struct drm_savage_private {
 		unsigned long base, size;
 	} mtrr[3];
 
-	
+	/* BCI and status-related stuff */
 	volatile uint32_t *status_ptr, *bci_ptr;
 	uint32_t status_used_mask;
 	uint16_t event_counter;
 	unsigned int event_wrap;
 
-	
+	/* Savage4 command DMA */
 	drm_savage_dma_page_t *dma_pages;
 	unsigned int nr_dma_pages, first_dma_page, current_dma_page;
 	drm_savage_age_t last_dma_age;
 
-	
+	/* saved hw state for global/local check on S3D */
 	uint32_t hw_draw_ctrl, hw_zbuf_ctrl;
-	
+	/* and for scissors (global, so don't emit if not changed) */
 	uint32_t hw_scissors_start, hw_scissors_end;
 
 	drm_savage_state_t state;
 
-	
+	/* after emitting a wait cmd Savage3D needs 63 nops before next DMA */
 	unsigned int waiting;
 
-	
+	/* config/hardware-dependent function pointers */
 	int (*wait_fifo) (struct drm_savage_private * dev_priv, unsigned int n);
 	int (*wait_evnt) (struct drm_savage_private * dev_priv, uint16_t e);
+	/* Err, there is a macro wait_event in include/linux/wait.h.
+	 * Avoid unwanted macro expansion. */
 	void (*emit_clip_rect) (struct drm_savage_private * dev_priv,
 				const struct drm_clip_rect * pbox);
 	void (*dma_flush) (struct drm_savage_private * dev_priv);
 } drm_savage_private_t;
 
+/* ioctls */
 extern int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_priv);
 extern int savage_bci_buffers(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
+/* BCI functions */
 extern uint16_t savage_bci_emit_event(drm_savage_private_t * dev_priv,
 				      unsigned int flags);
 extern void savage_freelist_put(struct drm_device * dev, struct drm_buf * buf);
@@ -191,20 +215,26 @@ extern int savage_driver_unload(struct drm_device *dev);
 extern void savage_reclaim_buffers(struct drm_device *dev,
 				   struct drm_file *file_priv);
 
+/* state functions */
 extern void savage_emit_clip_rect_s3d(drm_savage_private_t * dev_priv,
 				      const struct drm_clip_rect * pbox);
 extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 				     const struct drm_clip_rect * pbox);
 
-#define SAVAGE_FB_SIZE_S3	0x01000000	
-#define SAVAGE_FB_SIZE_S4	0x02000000	
-#define SAVAGE_MMIO_SIZE        0x00080000	
-#define SAVAGE_APERTURE_OFFSET  0x02000000	
-#define SAVAGE_APERTURE_SIZE    0x05000000	
+#define SAVAGE_FB_SIZE_S3	0x01000000	/*  16MB */
+#define SAVAGE_FB_SIZE_S4	0x02000000	/*  32MB */
+#define SAVAGE_MMIO_SIZE        0x00080000	/* 512kB */
+#define SAVAGE_APERTURE_OFFSET  0x02000000	/*  32MB */
+#define SAVAGE_APERTURE_SIZE    0x05000000	/* 5 tiled surfaces, 16MB each */
 
-#define SAVAGE_BCI_OFFSET       0x00010000	
-#define SAVAGE_BCI_FIFO_SIZE	32	
+#define SAVAGE_BCI_OFFSET       0x00010000	/* offset of the BCI region
+						 * inside the MMIO region */
+#define SAVAGE_BCI_FIFO_SIZE	32	/* number of entries in on-chip
+					 * BCI FIFO */
 
+/*
+ * MMIO registers
+ */
 #define SAVAGE_STATUS_WORD0		0x48C00
 #define SAVAGE_STATUS_WORD1		0x48C04
 #define SAVAGE_ALT_STATUS_WORD0 	0x48C60
@@ -212,26 +242,39 @@ extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 #define SAVAGE_FIFO_USED_MASK_S3D	0x0001ffff
 #define SAVAGE_FIFO_USED_MASK_S4	0x001fffff
 
+/* Copied from savage_bci.h in the 2D driver with some renaming. */
 
+/* Bitmap descriptors */
 #define SAVAGE_BD_STRIDE_SHIFT 0
 #define SAVAGE_BD_BPP_SHIFT   16
 #define SAVAGE_BD_TILE_SHIFT  24
 #define SAVAGE_BD_BW_DISABLE  (1<<28)
+/* common: */
 #define	SAVAGE_BD_TILE_LINEAR		0
+/* savage4, MX, IX, 3D */
 #define	SAVAGE_BD_TILE_16BPP		2
 #define	SAVAGE_BD_TILE_32BPP		3
+/* twister, prosavage, DDR, supersavage, 2000 */
 #define	SAVAGE_BD_TILE_DEST		1
 #define	SAVAGE_BD_TILE_TEXTURE		2
+/* GBD - BCI enable */
+/* savage4, MX, IX, 3D */
 #define SAVAGE_GBD_BCI_ENABLE                    8
+/* twister, prosavage, DDR, supersavage, 2000 */
 #define SAVAGE_GBD_BCI_ENABLE_TWISTER            0
 
 #define SAVAGE_GBD_BIG_ENDIAN                    4
 #define SAVAGE_GBD_LITTLE_ENDIAN                 0
 #define SAVAGE_GBD_64                            1
 
+/*  Global Bitmap Descriptor */
 #define SAVAGE_BCI_GLB_BD_LOW             0x8168
 #define SAVAGE_BCI_GLB_BD_HIGH            0x816C
 
+/*
+ * BCI registers
+ */
+/* Savage4/Twister/ProSavage 3D registers */
 #define SAVAGE_DRAWLOCALCTRL_S4		0x1e
 #define SAVAGE_TEXPALADDR_S4		0x1f
 #define SAVAGE_TEXCTRL0_S4		0x20
@@ -240,7 +283,7 @@ extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 #define SAVAGE_TEXADDR1_S4		0x23
 #define SAVAGE_TEXBLEND0_S4		0x24
 #define SAVAGE_TEXBLEND1_S4		0x25
-#define SAVAGE_TEXXPRCLR_S4		0x26	
+#define SAVAGE_TEXXPRCLR_S4		0x26	/* never used */
 #define SAVAGE_TEXDESCR_S4		0x27
 #define SAVAGE_FOGTABLE_S4		0x28
 #define SAVAGE_FOGCTRL_S4		0x30
@@ -253,8 +296,9 @@ extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 #define SAVAGE_ZWATERMARK_S4		0x37
 #define SAVAGE_DESTTEXRWWATERMARK_S4	0x38
 #define SAVAGE_TEXBLENDCOLOR_S4		0x39
+/* Savage3D/MX/IX 3D registers */
 #define SAVAGE_TEXPALADDR_S3D		0x18
-#define SAVAGE_TEXXPRCLR_S3D		0x19	
+#define SAVAGE_TEXXPRCLR_S3D		0x19	/* never used */
 #define SAVAGE_TEXADDR_S3D		0x1A
 #define SAVAGE_TEXDESCR_S3D		0x1B
 #define SAVAGE_TEXCTRL_S3D		0x1C
@@ -268,21 +312,40 @@ extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 #define SAVAGE_SCEND_S3D		0x36
 #define SAVAGE_ZWATERMARK_S3D		0x37
 #define SAVAGE_DESTTEXRWWATERMARK_S3D	0x38
+/* common stuff */
 #define SAVAGE_VERTBUFADDR		0x3e
 #define SAVAGE_BITPLANEWTMASK		0xd7
 #define SAVAGE_DMABUFADDR		0x51
 
-#define SAVAGE_TEXCTRL_TEXEN_MASK	0x00010000	
-#define SAVAGE_TEXDESCR_TEX0EN_MASK	0x02000000	
-#define SAVAGE_TEXDESCR_TEX1EN_MASK	0x04000000	
+/* texture enable bits (needed for tex addr checking) */
+#define SAVAGE_TEXCTRL_TEXEN_MASK	0x00010000	/* S3D */
+#define SAVAGE_TEXDESCR_TEX0EN_MASK	0x02000000	/* S4 */
+#define SAVAGE_TEXDESCR_TEX1EN_MASK	0x04000000	/* S4 */
 
+/* Global fields in Savage4/Twister/ProSavage 3D registers:
+ *
+ * All texture registers and DrawLocalCtrl are local. All other
+ * registers are global. */
 
+/* Global fields in Savage3D/MX/IX 3D registers:
+ *
+ * All texture registers are local. DrawCtrl and ZBufCtrl are
+ * partially local. All other registers are global.
+ *
+ * DrawCtrl global fields: cullMode, alphaTestCmpFunc, alphaTestEn, alphaRefVal
+ * ZBufCtrl global fields: zCmpFunc, zBufEn
+ */
 #define SAVAGE_DRAWCTRL_S3D_GLOBAL	0x03f3c00c
 #define SAVAGE_ZBUFCTRL_S3D_GLOBAL	0x00000027
 
+/* Masks for scissor bits (drawCtrl[01] on s4, scissorStart/End on s3d)
+ */
 #define SAVAGE_SCISSOR_MASK_S4		0x00fff7ff
 #define SAVAGE_SCISSOR_MASK_S3D		0x07ff07ff
 
+/*
+ * BCI commands
+ */
 #define BCI_CMD_NOP                  0x40000000
 #define BCI_CMD_RECT                 0x48000000
 #define BCI_CMD_RECT_XP              0x01000000
@@ -389,6 +452,9 @@ extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 	((yp) ? 1<<15 : 0) | \
 	((err) << 16))
 
+/*
+ * common commands
+ */
 #define BCI_SET_REGISTERS( first, n )			\
 	BCI_WRITE(BCI_CMD_SET_REGISTER |		\
 		  ((uint32_t)(n) & 0xff) << 16 |	\
@@ -416,9 +482,15 @@ extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 #define BCI_DMA(n)	\
 	BCI_WRITE(BCI_CMD_DMA | (((n) >> 1) - 1))
 
+/*
+ * access to MMIO
+ */
 #define SAVAGE_READ(reg)	DRM_READ32(  dev_priv->mmio, (reg) )
 #define SAVAGE_WRITE(reg)	DRM_WRITE32( dev_priv->mmio, (reg) )
 
+/*
+ * access to the burst command interface (BCI)
+ */
 #define SAVAGE_BCI_DEBUG 1
 
 #define BCI_LOCALS    volatile uint32_t *bci_ptr;
@@ -430,6 +502,9 @@ extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 
 #define BCI_WRITE( val ) *bci_ptr++ = (uint32_t)(val)
 
+/*
+ * command DMA support
+ */
 #define SAVAGE_DMA_DEBUG 1
 
 #define DMA_LOCALS   uint32_t *dma_ptr;
@@ -440,7 +515,7 @@ extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 		dev_priv->dma_pages[cur].used;				\
 	if ((n) > rest) {						\
 		dma_ptr = savage_dma_alloc(dev_priv, (n));		\
-	} else { 			\
+	} else { /* fast path for small allocations */			\
 		dma_ptr = (uint32_t *)dev_priv->cmd_dma->handle +	\
 			cur * SAVAGE_DMA_PAGE_SIZE +			\
 			dev_priv->dma_pages[cur].used;			\
@@ -470,16 +545,18 @@ extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 	}								\
 } while(0)
 #else
-#define DMA_COMMIT() do {} while(0)
+#define DMA_COMMIT() do {/* nothing */} while(0)
 #endif
 
 #define DMA_FLUSH() dev_priv->dma_flush(dev_priv)
 
+/* Buffer aging via event tag
+ */
 
 #define UPDATE_EVENT_COUNTER( ) do {			\
 	if (dev_priv->status_ptr) {			\
 		uint16_t count;				\
-				\
+		/* coordinate with Xserver */		\
 		count = dev_priv->status_ptr[1023];	\
 		if (count < dev_priv->event_counter)	\
 			dev_priv->event_wrap++;		\
@@ -495,4 +572,4 @@ extern void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 #define TEST_AGE( age, e, w )				\
 	( (age)->wrap < (w) || ( (age)->wrap == (w) && (age)->event <= (e) ) )
 
-#endif				
+#endif				/* __SAVAGE_DRV_H__ */

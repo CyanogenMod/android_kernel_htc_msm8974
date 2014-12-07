@@ -13,9 +13,9 @@
 			 asm volatile("mfspr %0," __stringify(rn) \
 				      : "=r" (rval)); rval; })
 
-#define SPRN_PVR        0x11F	
-#define PVR_VER(pvr)    (((pvr) >>  16) & 0xFFFF) 
-#define PVR_REV(pvr)    (((pvr) >>   0) & 0xFFFF) 
+#define SPRN_PVR        0x11F	/* Processor Version Register */
+#define PVR_VER(pvr)    (((pvr) >>  16) & 0xFFFF) /* Version field */
+#define PVR_REV(pvr)    (((pvr) >>   0) & 0xFFFF) /* Revison field */
 
 int
 get_cpuid(char *buffer, size_t sz)
@@ -27,7 +27,7 @@ get_cpuid(char *buffer, size_t sz)
 
 	nb = scnprintf(buffer, sz, "%lu,%lu$", PVR_VER(pvr), PVR_REV(pvr));
 
-	
+	/* look for end marker to ensure the entire data fit */
 	if (strchr(buffer, '$')) {
 		buffer[nb-1] = '\0';
 		return 0;

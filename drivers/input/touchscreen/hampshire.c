@@ -12,6 +12,10 @@
  * the Free Software Foundation.
  */
 
+/*
+ * 2010/04/08 Adam Bennett <abennett72@gmail.com>
+ *   Copied dynapro.c and edited for Hampshire 4-byte protocol
+ */
 
 #include <linux/errno.h>
 #include <linux/kernel.h>
@@ -27,6 +31,9 @@ MODULE_AUTHOR("Adam Bennett <abennett72@gmail.com>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Definitions & global arrays.
+ */
 
 #define HAMPSHIRE_FORMAT_TOUCH_BIT 0x40
 #define HAMPSHIRE_FORMAT_LENGTH 4
@@ -41,6 +48,9 @@ MODULE_LICENSE("GPL");
 #define HAMPSHIRE_GET_YC(data) ((data[3] & 0x03) | (data[2] << 2) | ((data[0] & 0x07) << 9))
 #define HAMPSHIRE_GET_TOUCHED(data) (HAMPSHIRE_FORMAT_TOUCH_BIT & data[0])
 
+/*
+ * Per-touchscreen data.
+ */
 
 struct hampshire {
 	struct input_dev *dev;
@@ -93,6 +103,11 @@ static void hampshire_disconnect(struct serio *serio)
 	kfree(phampshire);
 }
 
+/*
+ * hampshire_connect() is the routine that is called when someone adds a
+ * new serio device that supports hampshire protocol and registers it as
+ * an input device. This is usually accomplished using inputattach.
+ */
 
 static int hampshire_connect(struct serio *serio, struct serio_driver *drv)
 {
@@ -145,6 +160,9 @@ static int hampshire_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id hampshire_serio_ids[] = {
 	{
@@ -169,6 +187,9 @@ static struct serio_driver hampshire_drv = {
 	.disconnect	= hampshire_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init hampshire_init(void)
 {

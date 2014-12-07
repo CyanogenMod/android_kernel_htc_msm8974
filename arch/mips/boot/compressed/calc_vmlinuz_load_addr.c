@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	
+	/* Convert hex characters to dec number */
 	errno = 0;
 	if (sscanf(argv[2], "%llx", &vmlinux_load_addr) != 1) {
 		if (errno != 0)
@@ -44,6 +44,10 @@ int main(int argc, char *argv[])
 	vmlinux_size = (uint64_t)sb.st_size;
 	vmlinuz_load_addr = vmlinux_load_addr + vmlinux_size;
 
+	/*
+	 * Align with 16 bytes: "greater than that used for any standard data
+	 * types by a MIPS compiler." -- See MIPS Run Linux (Second Edition).
+	 */
 
 	vmlinuz_load_addr += (16 - vmlinux_size % 16);
 

@@ -23,6 +23,41 @@
 *
 *****************************************************************************/
 
+/*
+ * This is my current (2007-04-25) understanding of how this dongle is supposed
+ * to work. This is based on reverse-engineering and examination of the packet
+ * data sent and received by the WinXP driver using USBSnoopy. Feel free to
+ * update here as more of this dongle is known:
+ *
+ * General: Unlike the other USB IrDA dongles, this particular dongle exposes,
+ * not two bulk (in and out) endpoints, but two *interrupt* ones. This dongle,
+ * like the bulk based ones (stir4200.c and mcs7780.c), requires polling in
+ * order to receive data.
+ * Transmission: Just like stir4200, this dongle uses a raw stream of data,
+ * which needs to be wrapped and escaped in a similar way as in stir4200.c.
+ * Reception: Poll-based, as in stir4200. Each read returns the contents of a
+ * 8-byte buffer, of which the first byte (LSB) indicates the number of bytes
+ * (1-7) of valid data contained within the remaining 7 bytes. For example, if
+ * the buffer had the following contents:
+ *  06 ff ff ff c0 01 04 aa
+ * This means that (06) there are 6 bytes of valid data. The byte 0xaa at the
+ * end is garbage (left over from a previous reception) and is discarded.
+ * If a read returns an "impossible" value as the length of valid data (such as
+ * 0x36) in the first byte, then the buffer is uninitialized (as is the case of
+ * first plug-in) and its contents should be discarded. There is currently no
+ * evidence that the top 5 bits of the 1st byte of the buffer can have values
+ * other than 0 once reception begins.
+ * Once valid bytes are collected, the assembled stream is a sequence of
+ * wrapped IrDA frames that is unwrapped and unescaped as in stir4200.c.
+ * BIG FAT WARNING: the dongle does *not* reset the RX buffer in any way after
+ * a successful read from the host, which means that in absence of further
+ * reception, repeated reads from the dongle will return the exact same
+ * contents repeatedly. Attempts to be smart and cache a previous read seem
+ * to result in corrupted packets, so this driver depends on the unwrap logic
+ * to sort out any repeated reads.
+ * Speed change: no commands observed so far to change speed, assumed fixed
+ * 9600bps (SIR).
+ */
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -43,11 +78,16 @@
 #include <net/irda/wrapper.h>
 #include <net/irda/crc.h>
 
+/*
+ * According to lsusb, 0x07c0 is assigned to
+ * "Code Mercenaries Hard- und Software GmbH"
+ */
 #define KING_VENDOR_ID 0x07c0
 #define KING_PRODUCT_ID 0x4200
 
+/* These are the currently known USB ids */
 static struct usb_device_id dongles[] = {
-    
+    /* KingSun Co,Ltd  IrDA/USB Bridge */
     { USB_DEVICE(KING_VENDOR_ID, KING_PRODUCT_ID) },
     { }
 };
@@ -61,18 +101,20 @@ MODULE_DEVICE_TABLE(usb, dongles);
 #define KINGSUN_EP_OUT			1
 
 struct kingsun_cb {
-	struct usb_device *usbdev;      
-	struct net_device *netdev;      
-	struct irlap_cb   *irlap;       
+	struct usb_device *usbdev;      /* init: probe_irda */
+	struct net_device *netdev;      /* network layer */
+	struct irlap_cb   *irlap;       /* The link layer we are binded to */
 
 	struct qos_info   qos;
 
-	__u8		  *in_buf;	
-	__u8		  *out_buf;	
-	__u8		  max_rx;	
-	__u8		  max_tx;	
+	__u8		  *in_buf;	/* receive buffer */
+	__u8		  *out_buf;	/* transmit buffer */
+	__u8		  max_rx;	/* max. atomic read from dongle
+					   (usually 8), also size of in_buf */
+	__u8		  max_tx;	/* max. atomic write to dongle
+					   (usually 8) */
 
-	iobuff_t  	  rx_buff;	
+	iobuff_t  	  rx_buff;	/* receive unwrap state machine */
 	struct timeval	  rx_time;
 	spinlock_t lock;
 	int receiving;
@@ -84,18 +126,19 @@ struct kingsun_cb {
 	struct urb	 *rx_urb;
 };
 
+/* Callback transmission routine */
 static void kingsun_send_irq(struct urb *urb)
 {
 	struct kingsun_cb *kingsun = urb->context;
 	struct net_device *netdev = kingsun->netdev;
 
-	
+	/* in process of stopping, just drop data */
 	if (!netif_running(kingsun->netdev)) {
 		err("kingsun_send_irq: Network not running!");
 		return;
 	}
 
-	
+	/* unlink, shutdown, unplug, other nasties */
 	if (urb->status != 0) {
 		err("kingsun_send_irq: urb asynchronously failed - %d",
 		    urb->status);
@@ -103,6 +146,9 @@ static void kingsun_send_irq(struct urb *urb)
 	netif_wake_queue(netdev);
 }
 
+/*
+ * Called from net/core when new frame is available.
+ */
 static netdev_tx_t kingsun_hard_xmit(struct sk_buff *skb,
 					   struct net_device *netdev)
 {
@@ -112,19 +158,19 @@ static netdev_tx_t kingsun_hard_xmit(struct sk_buff *skb,
 
 	netif_stop_queue(netdev);
 
-	
+	/* the IRDA wrapping routines don't deal with non linear skb */
 	SKB_LINEAR_ASSERT(skb);
 
 	kingsun = netdev_priv(netdev);
 
 	spin_lock(&kingsun->lock);
 
-	
+	/* Append data to the end of whatever data remains to be transmitted */
 	wraplen = async_wrap_skb(skb,
 		kingsun->out_buf,
 		KINGSUN_FIFO_SIZE);
 
-	
+	/* Calculate how much data can be transmitted in this urb */
 	usb_fill_int_urb(kingsun->tx_urb, kingsun->usbdev,
 		usb_sndintpipe(kingsun->usbdev, kingsun->ep_out),
 		kingsun->out_buf, wraplen, kingsun_send_irq,
@@ -151,18 +197,19 @@ static netdev_tx_t kingsun_hard_xmit(struct sk_buff *skb,
 	return NETDEV_TX_OK;
 }
 
+/* Receive callback function */
 static void kingsun_rcv_irq(struct urb *urb)
 {
 	struct kingsun_cb *kingsun = urb->context;
 	int ret;
 
-	
+	/* in process of stopping, just drop data */
 	if (!netif_running(kingsun->netdev)) {
 		kingsun->receiving = 0;
 		return;
 	}
 
-	
+	/* unlink, shutdown, unplug, other nasties */
 	if (urb->status != 0) {
 		err("kingsun_rcv_irq: urb asynchronously failed - %d",
 		    urb->status);
@@ -174,6 +221,11 @@ static void kingsun_rcv_irq(struct urb *urb)
 		__u8 *bytes = urb->transfer_buffer;
 		int i;
 
+		/* The very first byte in the buffer indicates the length of
+		   valid data in the read. This byte must be in the range
+		   1..kingsun->max_rx -1 . Values outside this range indicate
+		   an uninitialized Rx buffer when the dongle has just been
+		   plugged in. */
 		if (bytes[0] >= 1 && bytes[0] < kingsun->max_rx) {
 			for (i = 1; i <= bytes[0]; i++) {
 				async_unwrap_char(kingsun->netdev,
@@ -189,20 +241,25 @@ static void kingsun_rcv_irq(struct urb *urb)
 		err("%s(): Unexpected response length, expected %d got %d",
 		    __func__, kingsun->max_rx, urb->actual_length);
 	}
-	
+	/* This urb has already been filled in kingsun_net_open */
 	ret = usb_submit_urb(urb, GFP_ATOMIC);
 }
 
+/*
+ * Function kingsun_net_open (dev)
+ *
+ *    Network device is taken up. Usually this is done by "ifconfig irda0 up"
+ */
 static int kingsun_net_open(struct net_device *netdev)
 {
 	struct kingsun_cb *kingsun = netdev_priv(netdev);
 	int err = -ENOMEM;
 	char hwname[16];
 
-	
+	/* At this point, urbs are NULL, and skb is NULL (see kingsun_probe) */
 	kingsun->receiving = 0;
 
-	
+	/* Initialize for SIR to copy data directly into skb.  */
 	kingsun->rx_buff.in_frame = FALSE;
 	kingsun->rx_buff.state = OUTSIDE_FRAME;
 	kingsun->rx_buff.truesize = IRDA_SKB_MAX_MTU;
@@ -222,6 +279,10 @@ static int kingsun_net_open(struct net_device *netdev)
 	if (!kingsun->tx_urb)
 		goto free_mem;
 
+	/*
+	 * Now that everything should be initialized properly,
+	 * Open new IrLAP layer instance to take care of us...
+	 */
 	sprintf(hwname, "usb#%d", kingsun->usbdev->devnum);
 	kingsun->irlap = irlap_open(netdev, &kingsun->qos, hwname);
 	if (!kingsun->irlap) {
@@ -229,7 +290,7 @@ static int kingsun_net_open(struct net_device *netdev)
 		goto free_mem;
 	}
 
-	
+	/* Start first reception */
 	usb_fill_int_urb(kingsun->rx_urb, kingsun->usbdev,
 			  usb_rcvintpipe(kingsun->usbdev, kingsun->ep_in),
 			  kingsun->in_buf, kingsun->max_rx,
@@ -243,6 +304,14 @@ static int kingsun_net_open(struct net_device *netdev)
 
 	netif_start_queue(netdev);
 
+	/* Situation at this point:
+	   - all work buffers allocated
+	   - urbs allocated and ready to fill
+	   - max rx packet known (in max_rx)
+	   - unwrap state machine initialized, in state outside of any frame
+	   - receive request in progress
+	   - IrLAP layer started, about to hand over packets to send
+	 */
 
 	return 0;
 
@@ -265,14 +334,20 @@ static int kingsun_net_open(struct net_device *netdev)
 	return err;
 }
 
+/*
+ * Function kingsun_net_close (kingsun)
+ *
+ *    Network device is taken down. Usually this is done by
+ *    "ifconfig irda0 down"
+ */
 static int kingsun_net_close(struct net_device *netdev)
 {
 	struct kingsun_cb *kingsun = netdev_priv(netdev);
 
-	
+	/* Stop transmit processing */
 	netif_stop_queue(netdev);
 
-	
+	/* Mop up receive && transmit urb's */
 	usb_kill_urb(kingsun->tx_urb);
 	usb_kill_urb(kingsun->rx_urb);
 
@@ -289,7 +364,7 @@ static int kingsun_net_close(struct net_device *netdev)
 	kingsun->rx_buff.state = OUTSIDE_FRAME;
 	kingsun->receiving = 0;
 
-	
+	/* Stop and remove instance of IrLAP */
 	if (kingsun->irlap)
 		irlap_close(kingsun->irlap);
 
@@ -298,6 +373,9 @@ static int kingsun_net_close(struct net_device *netdev)
 	return 0;
 }
 
+/*
+ * IOCTLs : Extra out-of-band network commands...
+ */
 static int kingsun_net_ioctl(struct net_device *netdev, struct ifreq *rq,
 			     int cmd)
 {
@@ -306,27 +384,27 @@ static int kingsun_net_ioctl(struct net_device *netdev, struct ifreq *rq,
 	int ret = 0;
 
 	switch (cmd) {
-	case SIOCSBANDWIDTH: 
+	case SIOCSBANDWIDTH: /* Set bandwidth */
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
 
-		
+		/* Check if the device is still there */
 		if (netif_device_present(kingsun->netdev))
-			
+			/* No observed commands for speed change */
 			ret = -EOPNOTSUPP;
 		break;
 
-	case SIOCSMEDIABUSY: 
+	case SIOCSMEDIABUSY: /* Set media busy */
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
 
-		
+		/* Check if the IrDA stack is still there */
 		if (netif_running(kingsun->netdev))
 			irda_device_set_media_busy(kingsun->netdev, TRUE);
 		break;
 
 	case SIOCGRECEIVING:
-		
+		/* Only approximately true */
 		irq->ifr_receiving = kingsun->receiving;
 		break;
 
@@ -344,6 +422,11 @@ static const struct net_device_ops kingsun_ops = {
 	.ndo_do_ioctl        = kingsun_net_ioctl,
 };
 
+/*
+ * This routine is called by the USB subsystem for each new device
+ * in the system. We need to check if the device is ours, and in
+ * this case start handling it.
+ */
 static int kingsun_probe(struct usb_interface *intf,
 		      const struct usb_device_id *id)
 {
@@ -358,6 +441,9 @@ static int kingsun_probe(struct usb_interface *intf,
 	__u8 ep_in;
 	__u8 ep_out;
 
+	/* Check that there really are two interrupt endpoints.
+	   Check based on the one in drivers/usb/input/usbmouse.c
+	 */
 	interface = intf->cur_altsetting;
 	if (interface->desc.bNumEndpoints != 2) {
 		err("kingsun-sir: expected 2 endpoints, found %d",
@@ -389,7 +475,7 @@ static int kingsun_probe(struct usb_interface *intf,
 	pipe = usb_sndintpipe(dev, ep_out);
 	maxp_out = usb_maxpacket(dev, pipe, usb_pipeout(pipe));
 
-	
+	/* Allocate network device container. */
 	net = alloc_irdadev(sizeof(*kingsun));
 	if(!net)
 		goto err_out1;
@@ -413,12 +499,12 @@ static int kingsun_probe(struct usb_interface *intf,
 	kingsun->receiving = 0;
 	spin_lock_init(&kingsun->lock);
 
-	
+	/* Allocate input buffer */
 	kingsun->in_buf = kmalloc(kingsun->max_rx, GFP_KERNEL);
 	if (!kingsun->in_buf)
 		goto free_mem;
 
-	
+	/* Allocate output buffer */
 	kingsun->out_buf = kmalloc(KINGSUN_FIFO_SIZE, GFP_KERNEL);
 	if (!kingsun->out_buf)
 		goto free_mem;
@@ -428,15 +514,15 @@ static int kingsun_probe(struct usb_interface *intf,
 	       dev->devnum, le16_to_cpu(dev->descriptor.idVendor),
 	       le16_to_cpu(dev->descriptor.idProduct));
 
-	
+	/* Initialize QoS for this device */
 	irda_init_max_qos_capabilies(&kingsun->qos);
 
-	
+	/* That's the Rx capability. */
 	kingsun->qos.baud_rate.bits       &= IR_9600;
 	kingsun->qos.min_turn_time.bits   &= KINGSUN_MTT;
 	irda_qos_bits_to_value(&kingsun->qos);
 
-	
+	/* Override the network functions we need to use */
 	net->netdev_ops = &kingsun_ops;
 
 	ret = register_netdev(net);
@@ -448,6 +534,12 @@ static int kingsun_probe(struct usb_interface *intf,
 
 	usb_set_intfdata(intf, kingsun);
 
+	/* Situation at this point:
+	   - all work buffers allocated
+	   - urbs not allocated, set to NULL
+	   - max rx packet known (in max_rx)
+	   - unwrap state machine (partially) initialized, but skb == NULL
+	 */
 
 	return 0;
 
@@ -459,6 +551,9 @@ err_out1:
 	return ret;
 }
 
+/*
+ * The current device is removed, the USB layer tell us to shut it down...
+ */
 static void kingsun_disconnect(struct usb_interface *intf)
 {
 	struct kingsun_cb *kingsun = usb_get_intfdata(intf);
@@ -468,7 +563,7 @@ static void kingsun_disconnect(struct usb_interface *intf)
 
 	unregister_netdev(kingsun->netdev);
 
-	
+	/* Mop up receive && transmit urb's */
 	if (kingsun->tx_urb != NULL) {
 		usb_kill_urb(kingsun->tx_urb);
 		usb_free_urb(kingsun->tx_urb);
@@ -488,6 +583,7 @@ static void kingsun_disconnect(struct usb_interface *intf)
 }
 
 #ifdef CONFIG_PM
+/* USB suspend, so power off the transmitter/receiver */
 static int kingsun_suspend(struct usb_interface *intf, pm_message_t message)
 {
 	struct kingsun_cb *kingsun = usb_get_intfdata(intf);
@@ -498,6 +594,7 @@ static int kingsun_suspend(struct usb_interface *intf, pm_message_t message)
 	return 0;
 }
 
+/* Coming out of suspend, so reset hardware */
 static int kingsun_resume(struct usb_interface *intf)
 {
 	struct kingsun_cb *kingsun = usb_get_intfdata(intf);
@@ -510,6 +607,9 @@ static int kingsun_resume(struct usb_interface *intf)
 }
 #endif
 
+/*
+ * USB device callbacks
+ */
 static struct usb_driver irda_driver = {
 	.name		= "kingsun-sir",
 	.probe		= kingsun_probe,

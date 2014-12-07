@@ -35,37 +35,43 @@
 #include <linux/clk.h>
 #include <linux/platform_device.h>
 
+/*
+ * UART Register offsets
+ */
 
-#define VT8500_URTDR		0x0000	
-#define VT8500_URRDR		0x0004	
-#define VT8500_URDIV		0x0008	
-#define VT8500_URLCR		0x000C	
-#define VT8500_URICR		0x0010	
-#define VT8500_URIER		0x0014	
-#define VT8500_URISR		0x0018	
-#define VT8500_URUSR		0x001c	
-#define VT8500_URFCR		0x0020	
-#define VT8500_URFIDX		0x0024	
-#define VT8500_URBKR		0x0028	
-#define VT8500_URTOD		0x002c	
-#define VT8500_TXFIFO		0x1000	
-#define VT8500_RXFIFO		0x1020	
+#define VT8500_URTDR		0x0000	/* Transmit data */
+#define VT8500_URRDR		0x0004	/* Receive data */
+#define VT8500_URDIV		0x0008	/* Clock/Baud rate divisor */
+#define VT8500_URLCR		0x000C	/* Line control */
+#define VT8500_URICR		0x0010	/* IrDA control */
+#define VT8500_URIER		0x0014	/* Interrupt enable */
+#define VT8500_URISR		0x0018	/* Interrupt status */
+#define VT8500_URUSR		0x001c	/* UART status */
+#define VT8500_URFCR		0x0020	/* FIFO control */
+#define VT8500_URFIDX		0x0024	/* FIFO index */
+#define VT8500_URBKR		0x0028	/* Break signal count */
+#define VT8500_URTOD		0x002c	/* Time out divisor */
+#define VT8500_TXFIFO		0x1000	/* Transmit FIFO (16x8) */
+#define VT8500_RXFIFO		0x1020	/* Receive FIFO (16x10) */
 
+/*
+ * Interrupt enable and status bits
+ */
 
-#define TXDE	(1 << 0)	
-#define RXDF	(1 << 1)	
-#define TXFAE	(1 << 2)	
-#define TXFE	(1 << 3)	
-#define RXFAF	(1 << 4)	
-#define RXFF	(1 << 5)	
-#define TXUDR	(1 << 6)	
-#define RXOVER	(1 << 7)	
-#define PER	(1 << 8)	
-#define FER	(1 << 9)	
-#define TCTS	(1 << 10)	
-#define RXTOUT	(1 << 11)	
-#define BKDONE	(1 << 12)	
-#define ERR	(1 << 13)	
+#define TXDE	(1 << 0)	/* Tx Data empty */
+#define RXDF	(1 << 1)	/* Rx Data full */
+#define TXFAE	(1 << 2)	/* Tx FIFO almost empty */
+#define TXFE	(1 << 3)	/* Tx FIFO empty */
+#define RXFAF	(1 << 4)	/* Rx FIFO almost full */
+#define RXFF	(1 << 5)	/* Rx FIFO full */
+#define TXUDR	(1 << 6)	/* Tx underrun */
+#define RXOVER	(1 << 7)	/* Rx overrun */
+#define PER	(1 << 8)	/* Parity error */
+#define FER	(1 << 9)	/* Frame error */
+#define TCTS	(1 << 10)	/* Toggle of CTS */
+#define RXTOUT	(1 << 11)	/* Rx timeout */
+#define BKDONE	(1 << 12)	/* Break signal done */
+#define ERR	(1 << 13)	/* AHB error response */
 
 #define RX_FIFO_INTS	(RXFAF | RXFF | RXOVER | PER | FER | RXTOUT)
 #define TX_FIFO_INTS	(TXFAE | TXFE | TXUDR)
@@ -122,7 +128,7 @@ static void handle_rx(struct uart_port *port)
 {
 	struct tty_struct *tty = tty_port_tty_get(&port->state->port);
 	if (!tty) {
-		
+		/* Discard data: no tty available */
 		int count = (vt8500_read(port, VT8500_URFIDX) & 0x1f00) >> 8;
 		u16 ch;
 		while (count--)
@@ -130,19 +136,22 @@ static void handle_rx(struct uart_port *port)
 		return;
 	}
 
+	/*
+	 * Handle overrun
+	 */
 	if ((vt8500_read(port, VT8500_URISR) & RXOVER)) {
 		port->icount.overrun++;
 		tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 	}
 
-	
+	/* and now the main RX loop */
 	while (vt8500_read(port, VT8500_URFIDX) & 0x1f00) {
 		unsigned int c;
 		char flag = TTY_NORMAL;
 
 		c = readw(port->membase + VT8500_RXFIFO) & 0x3ff;
 
-		
+		/* Mask conditions we're ignorning. */
 		c &= ~port->read_status_mask;
 
 		if (c & FER) {
@@ -220,7 +229,7 @@ static irqreturn_t vt8500_irq(int irq, void *dev_id)
 	spin_lock(&port->lock);
 	isr = vt8500_read(port, VT8500_URISR);
 
-	
+	/* Acknowledge active status bits */
 	vt8500_write(port, isr, VT8500_URISR);
 
 	if (isr & RX_FIFO_INTS)
@@ -296,7 +305,7 @@ static int vt8500_startup(struct uart_port *port)
 	if (unlikely(ret))
 		return ret;
 
-	vt8500_write(port, 0x03, VT8500_URLCR);	
+	vt8500_write(port, 0x03, VT8500_URLCR);	/* enable TX & RX */
 
 	return 0;
 }
@@ -308,7 +317,7 @@ static void vt8500_shutdown(struct uart_port *port)
 
 	vt8500_port->ier = 0;
 
-	
+	/* disable interrupts and FIFOs */
 	vt8500_write(&vt8500_port->uart, 0, VT8500_URIER);
 	vt8500_write(&vt8500_port->uart, 0x880, VT8500_URFCR);
 	free_irq(port->irq, port);
@@ -326,13 +335,13 @@ static void vt8500_set_termios(struct uart_port *port,
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	
+	/* calculate and set baud rate */
 	baud = uart_get_baud_rate(port, termios, old, 900, 921600);
 	baud = vt8500_set_baud_rate(port, baud);
 	if (tty_termios_baud_rate(termios))
 		tty_termios_encode_baud_rate(termios, baud, baud);
 
-	
+	/* calculate parity */
 	lcr = vt8500_read(&vt8500_port->uart, VT8500_URLCR);
 	lcr &= ~((1 << 5) | (1 << 4));
 	if (termios->c_cflag & PARENB) {
@@ -342,7 +351,7 @@ static void vt8500_set_termios(struct uart_port *port,
 			lcr |= (1 << 5);
 	}
 
-	
+	/* calculate bits per char */
 	lcr &= ~(1 << 2);
 	switch (termios->c_cflag & CSIZE) {
 	case CS7:
@@ -355,30 +364,33 @@ static void vt8500_set_termios(struct uart_port *port,
 		break;
 	}
 
-	
+	/* calculate stop bits */
 	lcr &= ~(1 << 3);
 	if (termios->c_cflag & CSTOPB)
 		lcr |= (1 << 3);
 
-	
+	/* set parity, bits per char, and stop bit */
 	vt8500_write(&vt8500_port->uart, lcr, VT8500_URLCR);
 
-	
+	/* Configure status bits to ignore based on termio flags. */
 	port->read_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		port->read_status_mask = FER | PER;
 
 	uart_update_timeout(port, termios->c_cflag, baud);
 
-	
+	/* Reset FIFOs */
 	vt8500_write(&vt8500_port->uart, 0x88c, VT8500_URFCR);
 	while ((vt8500_read(&vt8500_port->uart, VT8500_URFCR) & 0xc)
 							&& --loops)
 		cpu_relax();
 
-	
+	/* Every possible FIFO-related interrupt */
 	vt8500_port->ier = RX_FIFO_INTS | TX_FIFO_INTS;
 
+	/*
+	 * CTS flow control
+	 */
 	if (UART_ENABLE_MS(&vt8500_port->uart, termios->c_cflag))
 		vt8500_port->ier |= TCTS;
 
@@ -428,7 +440,7 @@ static inline void wait_for_xmitr(struct uart_port *port)
 {
 	unsigned int status, tmout = 10000;
 
-	
+	/* Wait up to 10ms for the character(s) to be sent. */
 	do {
 		status = vt8500_read(port, VT8500_URFIDX);
 
@@ -458,6 +470,10 @@ static void vt8500_console_write(struct console *co, const char *s,
 	uart_console_write(&vt8500_port->uart, s, count,
 			   vt8500_console_putchar);
 
+	/*
+	 *	Finally, wait for transmitter to become empty
+	 *	and switch back to FIFO
+	 */
 	wait_for_xmitr(&vt8500_port->uart);
 	vt8500_write(&vt8500_port->uart, VT8500_URIER, ier);
 }

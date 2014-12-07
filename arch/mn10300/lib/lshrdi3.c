@@ -1,3 +1,4 @@
+/* lshrdi3.c extracted from gcc-2.7.2/libgcc2.c which is: */
 /* Copyright (C) 1989, 1992, 1993, 1994, 1995 Free Software Foundation, Inc.
 
 This file is part of GNU CC.

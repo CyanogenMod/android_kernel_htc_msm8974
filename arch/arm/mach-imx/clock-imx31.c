@@ -34,7 +34,7 @@
 
 #include "crmregs-imx3.h"
 
-#define PRE_DIV_MIN_FREQ    10000000 
+#define PRE_DIV_MIN_FREQ    10000000 /* Minimum Frequency after Predivider */
 
 static void __calc_pre_post_dividers(u32 div, u32 *pre, u32 *post)
 {
@@ -97,7 +97,7 @@ static void cgr_disable(struct clk *clk)
 	reg = __raw_readl(clk->enable_reg);
 	reg &= ~(3 << clk->enable_shift);
 
-	
+	/* special case for EMI clock */
 	if (clk->enable_reg == MXC_CCM_CGR2 && clk->enable_shift == 8)
 		reg |= (1 << clk->enable_shift);
 
@@ -157,7 +157,7 @@ static int usb_pll_enable(struct clk *clk)
 	reg |= MXC_CCM_CCMR_UPE;
 	__raw_writel(reg, MXC_CCM_CCMR);
 
-	
+	/* No lock bit on MX31, so using max time from spec */
 	udelay(80);
 
 	return 0;
@@ -180,7 +180,7 @@ static int serial_pll_enable(struct clk *clk)
 	reg |= MXC_CCM_CCMR_SPE;
 	__raw_writel(reg, MXC_CCM_CCMR);
 
-	
+	/* No lock bit on MX31, so using max time from spec */
 	udelay(80);
 
 	return 0;
@@ -294,7 +294,7 @@ static int csi_set_rate(struct clk *clk, unsigned long rate)
 
 	__calc_pre_post_dividers(div, &pre, &post);
 
-	
+	/* Set CSI clock divider */
 	reg = __raw_readl(MXC_CCM_PDR0) &
 	    ~(MXC_CCM_PDR0_CSI_PODF_MASK | MXC_CCM_PDR0_CSI_PRDF_MASK);
 	reg |= (post - 1) << MXC_CCM_PDR0_CSI_PODF_OFFSET;
@@ -363,7 +363,7 @@ static int firi_set_rate(struct clk *clk, unsigned long rate)
 
 	__calc_pre_post_dividers(div, &pre, &post);
 
-	
+	/* Set FIRI clock divider */
 	reg = __raw_readl(MXC_CCM_PDR1) &
 	    ~(MXC_CCM_PDR1_FIRI_PODF_MASK | MXC_CCM_PDR1_FIRI_PRE_PODF_MASK);
 	reg |= (pre - 1) << MXC_CCM_PDR1_FIRI_PRE_PODF_OFFSET;
@@ -547,7 +547,7 @@ static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK("fsl-usb2-udc", "usb", usb_clk1)
 	_REGISTER_CLOCK("fsl-usb2-udc", "usb_ahb", usb_clk2)
 	_REGISTER_CLOCK("mx3-camera.0", NULL, csi_clk)
-	
+	/* i.mx31 has the i.mx21 type uart */
 	_REGISTER_CLOCK("imx21-uart.0", NULL, uart1_clk)
 	_REGISTER_CLOCK("imx21-uart.1", NULL, uart2_clk)
 	_REGISTER_CLOCK("imx21-uart.2", NULL, uart3_clk)
@@ -583,20 +583,25 @@ int __init mx31_clocks_init(unsigned long fref)
 
 	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
 
-	
+	/* change the csi_clk parent if necessary */
 	reg = __raw_readl(MXC_CCM_CCMR);
 	if (!(reg & MXC_CCM_CCMR_CSCS))
 		if (clk_set_parent(&csi_clk, &usb_pll_clk))
 			pr_err("%s: error changing csi_clk parent\n", __func__);
 
 
-	
+	/* Turn off all possible clocks */
 	__raw_writel((3 << 4), MXC_CCM_CGR0);
 	__raw_writel(0, MXC_CCM_CGR1);
 	__raw_writel((3 << 8) | (3 << 14) | (3 << 16)|
-		     1 << 27 | 1 << 28, 
+		     1 << 27 | 1 << 28, /* Bit 27 and 28 are not defined for
+					   MX32, but still required to be set */
 		     MXC_CCM_CGR2);
 
+	/*
+	 * Before turning off usb_pll make sure ipg_per_clk is generated
+	 * by ipg_clk and not usb_pll.
+	 */
 	__raw_writel(__raw_readl(MXC_CCM_CCMR) | (1 << 24), MXC_CCM_CCMR);
 
 	usb_pll_disable(&usb_pll_clk);
@@ -613,7 +618,7 @@ int __init mx31_clocks_init(unsigned long fref)
 
 	if (mx31_revision() >= IMX_CHIP_REVISION_2_0) {
 		reg = __raw_readl(MXC_CCM_PMCR1);
-		
+		/* No PLL restart on DVFS switch; enable auto EMI handshake */
 		reg |= MXC_CCM_PMCR1_PLLRDIS | MXC_CCM_PMCR1_EMIRQ_EN;
 		__raw_writel(reg, MXC_CCM_PMCR1);
 	}

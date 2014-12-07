@@ -38,6 +38,11 @@
 #endif
 
 
+/**
+ * LDIMM - load immediate value
+ * STI - enable interruption
+ * CLI - disable interruption
+ */
 
 #ifdef __ASSEMBLY__
 
@@ -59,7 +64,7 @@
 	clrpsw  #0x40	    ->	nop
 	; WORKAROUND: "-> nop" is a workaround for the M32700(TS1).
 	.endm
-#else	
+#else	/* CONFIG_CHIP_M32102 || CONFIG_CHIP_M32104 */
 #define ENABLE_INTERRUPTS(reg) ENABLE_INTERRUPTS reg
 	.macro ENABLE_INTERRUPTS reg
 	mvfc	\reg, psw
@@ -73,7 +78,7 @@
 	and3	\reg, \reg, #0xffbf
 	mvtc	\reg, psw
 	.endm
-#endif	
+#endif	/* CONFIG_CHIP_M32102 */
 
 	.macro	SAVE_ALL
 	push	r0		; orig_r0
@@ -196,7 +201,7 @@
 	; switch to kernel stack (spi)
 	clrpsw	#0x80	    ->	nop
 	.endm
-#else	
+#else	/* CONFIG_CHIP_M32102 || CONFIG_CHIP_M32104 */
 	.macro	SWITCH_TO_KERNEL_STACK
 	push	r0		; save r0 for working
 	mvfc	r0, psw
@@ -218,8 +223,8 @@
 	.fillinsn
 2:
 	.endm
-#endif	
+#endif	/* CONFIG_CHIP_M32102 || CONFIG_CHIP_M32104 */
 
-#endif	
+#endif	/* __ASSEMBLY__ */
 
-#endif	
+#endif	/* _ASM_M32R_ASSEMBLER_H */

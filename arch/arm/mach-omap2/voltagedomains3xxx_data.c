@@ -27,12 +27,17 @@
 #include "vc.h"
 #include "vp.h"
 
+/*
+ * VDD data
+ */
 
+/* OMAP3-common voltagedomain data */
 
 static struct voltagedomain omap3_voltdm_wkup = {
 	.name = "wakeup",
 };
 
+/* 34xx/36xx voltagedomain data */
 
 static const struct omap_vfsm_instance omap3_vdd1_vfsm = {
 	.voltsetup_reg = OMAP3_PRM_VOLTSETUP1_OFFSET,
@@ -73,6 +78,7 @@ static struct voltagedomain *voltagedomains_omap3[] __initdata = {
 	NULL,
 };
 
+/* AM35xx voltagedomain data */
 
 static struct voltagedomain am35xx_voltdm_mpu = {
 	.name = "mpu_iva",
@@ -98,6 +104,10 @@ void __init omap3xxx_voltagedomains_init(void)
 	struct voltagedomain **voltdms;
 	int i;
 
+	/*
+	 * XXX Will depend on the process, validation, and binning
+	 * for the currently-running IC
+	 */
 #ifdef CONFIG_PM_OPP
 	if (cpu_is_omap3630()) {
 		omap3_voltdm_mpu.volt_data = omap36xx_vddmpu_volt_data;

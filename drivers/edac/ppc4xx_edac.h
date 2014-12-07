@@ -18,26 +18,36 @@
 
 #include <linux/types.h>
 
+/*
+ * Macro for generating register field mnemonics
+ */
 #define PPC_REG_BITS			32
 #define PPC_REG_VAL(bit, val)		((val) << ((PPC_REG_BITS - 1) - (bit)))
 #define PPC_REG_DECODE(bit, val)	((val) >> ((PPC_REG_BITS - 1) - (bit)))
 
-#define SDRAM_BESR			0x00	
-#define SDRAM_BESRT			0x01	
-#define SDRAM_BEARL			0x02	
-#define SDRAM_BEARH			0x03	
-#define SDRAM_WMIRQ			0x06	
-#define SDRAM_WMIRQT			0x07	
-#define SDRAM_MCOPT1			0x20	
-#define SDRAM_MBXCF_BASE		0x40	
+/*
+ * IBM 4xx DDR1/DDR2 SDRAM memory controller registers (at least those
+ * relevant to ECC)
+ */
+#define SDRAM_BESR			0x00	/* Error status (read/clear) */
+#define SDRAM_BESRT			0x01	/* Error statuss (test/set)  */
+#define SDRAM_BEARL			0x02	/* Error address low	     */
+#define SDRAM_BEARH			0x03	/* Error address high	     */
+#define SDRAM_WMIRQ			0x06	/* Write master (read/clear) */
+#define SDRAM_WMIRQT			0x07	/* Write master (test/set)   */
+#define SDRAM_MCOPT1			0x20	/* Controller options 1	     */
+#define SDRAM_MBXCF_BASE		0x40	/* Bank n configuration base */
 #define	SDRAM_MBXCF(n)			(SDRAM_MBXCF_BASE + (4 * (n)))
 #define SDRAM_MB0CF			SDRAM_MBXCF(0)
 #define SDRAM_MB1CF			SDRAM_MBXCF(1)
 #define SDRAM_MB2CF			SDRAM_MBXCF(2)
 #define SDRAM_MB3CF			SDRAM_MBXCF(3)
-#define SDRAM_ECCCR			0x98	
+#define SDRAM_ECCCR			0x98	/* ECC error status	     */
 #define SDRAM_ECCES			SDRAM_ECCCR
 
+/*
+ * PLB Master IDs
+ */
 #define	SDRAM_PLB_M0ID_FIRST		0
 #define	SDRAM_PLB_M0ID_ICU		SDRAM_PLB_M0ID_FIRST
 #define	SDRAM_PLB_M0ID_PCIE0		1
@@ -52,6 +62,9 @@
 #define SDRAM_PLB_M0ID_COUNT		(SDRAM_PLB_M0ID_LAST - \
 					 SDRAM_PLB_M0ID_FIRST + 1)
 
+/*
+ * Memory Controller Bus Error Status Register
+ */
 #define SDRAM_BESR_MASK			PPC_REG_VAL(7, 0xFF)
 #define SDRAM_BESR_M0ID_MASK		PPC_REG_VAL(3, 0xF)
 #define	SDRAM_BESR_M0ID_DECODE(n)	PPC_REG_DECODE(3, n)
@@ -71,6 +84,9 @@
 #define SDRAM_BESR_M0RW_WRITE		PPC_REG_VAL(7, 0)
 #define SDRAM_BESR_M0RW_READ		PPC_REG_VAL(7, 1)
 
+/*
+ * Memory Controller PLB Write Master Interrupt Register
+ */
 #define SDRAM_WMIRQ_MASK		PPC_REG_VAL(8, 0x1FF)
 #define	SDRAM_WMIRQ_ENCODE(id)		PPC_REG_VAL((id % \
 						     SDRAM_PLB_M0ID_COUNT), 1)
@@ -84,21 +100,27 @@
 #define SDRAM_WMIRQ_SEC			PPC_REG_VAL(SDRAM_PLB_M0ID_SEC, 1)
 #define SDRAM_WMIRQ_AHB			PPC_REG_VAL(SDRAM_PLB_M0ID_AHB, 1)
 
-#define SDRAM_MCOPT1_MCHK_MASK	    PPC_REG_VAL(3, 0x3)	 
-#define SDRAM_MCOPT1_MCHK_NON	    PPC_REG_VAL(3, 0x0)	 
-#define SDRAM_MCOPT1_MCHK_GEN	    PPC_REG_VAL(3, 0x2)	 
-#define SDRAM_MCOPT1_MCHK_CHK	    PPC_REG_VAL(3, 0x1)	 
-#define SDRAM_MCOPT1_MCHK_CHK_REP   PPC_REG_VAL(3, 0x3)	 
+/*
+ * Memory Controller Options 1 Register
+ */
+#define SDRAM_MCOPT1_MCHK_MASK	    PPC_REG_VAL(3, 0x3)	 /* ECC mask	     */
+#define SDRAM_MCOPT1_MCHK_NON	    PPC_REG_VAL(3, 0x0)	 /* No ECC gen	     */
+#define SDRAM_MCOPT1_MCHK_GEN	    PPC_REG_VAL(3, 0x2)	 /* ECC gen	     */
+#define SDRAM_MCOPT1_MCHK_CHK	    PPC_REG_VAL(3, 0x1)	 /* ECC gen and chk  */
+#define SDRAM_MCOPT1_MCHK_CHK_REP   PPC_REG_VAL(3, 0x3)	 /* ECC gen/chk/rpt  */
 #define SDRAM_MCOPT1_MCHK_DECODE(n) ((((u32)(n)) >> 28) & 0x3)
-#define SDRAM_MCOPT1_RDEN_MASK	    PPC_REG_VAL(4, 0x1)	 
-#define SDRAM_MCOPT1_RDEN	    PPC_REG_VAL(4, 0x1)	 
-#define SDRAM_MCOPT1_WDTH_MASK	    PPC_REG_VAL(7, 0x1)	 
-#define SDRAM_MCOPT1_WDTH_32	    PPC_REG_VAL(7, 0x0)	 
-#define SDRAM_MCOPT1_WDTH_16	    PPC_REG_VAL(7, 0x1)	 
-#define SDRAM_MCOPT1_DDR_TYPE_MASK  PPC_REG_VAL(11, 0x1) 
-#define SDRAM_MCOPT1_DDR1_TYPE	    PPC_REG_VAL(11, 0x0) 
-#define SDRAM_MCOPT1_DDR2_TYPE	    PPC_REG_VAL(11, 0x1) 
+#define SDRAM_MCOPT1_RDEN_MASK	    PPC_REG_VAL(4, 0x1)	 /* Rgstrd DIMM mask */
+#define SDRAM_MCOPT1_RDEN	    PPC_REG_VAL(4, 0x1)	 /* Rgstrd DIMM enbl */
+#define SDRAM_MCOPT1_WDTH_MASK	    PPC_REG_VAL(7, 0x1)	 /* Width mask	     */
+#define SDRAM_MCOPT1_WDTH_32	    PPC_REG_VAL(7, 0x0)	 /* 32 bits	     */
+#define SDRAM_MCOPT1_WDTH_16	    PPC_REG_VAL(7, 0x1)	 /* 16 bits	     */
+#define SDRAM_MCOPT1_DDR_TYPE_MASK  PPC_REG_VAL(11, 0x1) /* DDR type mask    */
+#define SDRAM_MCOPT1_DDR1_TYPE	    PPC_REG_VAL(11, 0x0) /* DDR1 type	     */
+#define SDRAM_MCOPT1_DDR2_TYPE	    PPC_REG_VAL(11, 0x1) /* DDR2 type	     */
 
+/*
+ * Memory Bank 0 - n Configuration Register
+ */
 #define SDRAM_MBCF_BA_MASK		PPC_REG_VAL(12, 0x1FFF)
 #define SDRAM_MBCF_SZ_MASK		PPC_REG_VAL(19, 0xF)
 #define SDRAM_MBCF_SZ_DECODE(mbxcf)	PPC_REG_DECODE(19, mbxcf)
@@ -129,6 +151,9 @@
 #define SDRAM_MBCF_BE_DISABLE		PPC_REG_VAL(31, 0x0)
 #define SDRAM_MBCF_BE_ENABLE		PPC_REG_VAL(31, 0x1)
 
+/*
+ * ECC Error Status
+ */
 #define SDRAM_ECCES_MASK		PPC_REG_VAL(21, 0x3FFFFF)
 #define SDRAM_ECCES_BNCE_MASK		PPC_REG_VAL(15, 0xFFFF)
 #define SDRAM_ECCES_BNCE_ENCODE(lane)	PPC_REG_VAL(((lane) & 0xF), 1)
@@ -144,4 +169,4 @@
 #define SDRAM_ECCES_BK0ER		PPC_REG_VAL(20, 1)
 #define SDRAM_ECCES_BK1ER		PPC_REG_VAL(21, 1)
 
-#endif 
+#endif /* __PPC4XX_EDAC_H */

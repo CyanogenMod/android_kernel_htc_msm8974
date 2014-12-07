@@ -31,31 +31,53 @@
 #include "psmouse.h"
 #include "sentelic.h"
 
+/*
+ * Timeout for FSP PS/2 command only (in milliseconds).
+ */
 #define	FSP_CMD_TIMEOUT		200
 #define	FSP_CMD_TIMEOUT2	30
 
 #define	GET_ABS_X(packet)	((packet[1] << 2) | ((packet[3] >> 2) & 0x03))
 #define	GET_ABS_Y(packet)	((packet[2] << 2) | (packet[3] & 0x03))
 
+/** Driver version. */
 static const char fsp_drv_ver[] = "1.0.0-K";
 
+/*
+ * Make sure that the value being sent to FSP will not conflict with
+ * possible sample rate values.
+ */
 static unsigned char fsp_test_swap_cmd(unsigned char reg_val)
 {
 	switch (reg_val) {
 	case 10: case 20: case 40: case 60: case 80: case 100: case 200:
+		/*
+		 * The requested value being sent to FSP matched to possible
+		 * sample rates, swap the given value such that the hardware
+		 * wouldn't get confused.
+		 */
 		return (reg_val >> 4) | (reg_val << 4);
 	default:
-		return reg_val;	
+		return reg_val;	/* swap isn't necessary */
 	}
 }
 
+/*
+ * Make sure that the value being sent to FSP will not conflict with certain
+ * commands.
+ */
 static unsigned char fsp_test_invert_cmd(unsigned char reg_val)
 {
 	switch (reg_val) {
 	case 0xe9: case 0xee: case 0xf2: case 0xff:
+		/*
+		 * The requested value being sent to FSP matched to certain
+		 * commands, inverse the given value such that the hardware
+		 * wouldn't get confused.
+		 */
 		return ~reg_val;
 	default:
-		return reg_val;	
+		return reg_val;	/* inversion isn't necessary */
 	}
 }
 
@@ -66,6 +88,12 @@ static int fsp_reg_read(struct psmouse *psmouse, int reg_addr, int *reg_val)
 	unsigned char addr;
 	int rc = -1;
 
+	/*
+	 * We need to shut off the device and switch it into command
+	 * mode so we don't confuse our protocol handler. We don't need
+	 * to do that for writes because sysfs set helper does this for
+	 * us.
+	 */
 	psmouse_deactivate(psmouse);
 
 	ps2_begin_command(ps2dev);
@@ -73,9 +101,9 @@ static int fsp_reg_read(struct psmouse *psmouse, int reg_addr, int *reg_val)
 	if (ps2_sendbyte(ps2dev, 0xf3, FSP_CMD_TIMEOUT) < 0)
 		goto out;
 
-	
+	/* should return 0xfe(request for resending) */
 	ps2_sendbyte(ps2dev, 0x66, FSP_CMD_TIMEOUT2);
-	
+	/* should return 0xfc(failed) */
 	ps2_sendbyte(ps2dev, 0x88, FSP_CMD_TIMEOUT2);
 
 	if (ps2_sendbyte(ps2dev, 0xf3, FSP_CMD_TIMEOUT) < 0)
@@ -84,15 +112,15 @@ static int fsp_reg_read(struct psmouse *psmouse, int reg_addr, int *reg_val)
 	if ((addr = fsp_test_invert_cmd(reg_addr)) != reg_addr) {
 		ps2_sendbyte(ps2dev, 0x68, FSP_CMD_TIMEOUT2);
 	} else if ((addr = fsp_test_swap_cmd(reg_addr)) != reg_addr) {
-		
+		/* swapping is required */
 		ps2_sendbyte(ps2dev, 0xcc, FSP_CMD_TIMEOUT2);
-		
+		/* expect 0xfe */
 	} else {
-		
+		/* swapping isn't necessary */
 		ps2_sendbyte(ps2dev, 0x66, FSP_CMD_TIMEOUT2);
-		
+		/* expect 0xfe */
 	}
-	
+	/* should return 0xfc(failed) */
 	ps2_sendbyte(ps2dev, addr, FSP_CMD_TIMEOUT);
 
 	if (__ps2_command(ps2dev, param, PSMOUSE_CMD_GETINFO) < 0)
@@ -122,35 +150,35 @@ static int fsp_reg_write(struct psmouse *psmouse, int reg_addr, int reg_val)
 		goto out;
 
 	if ((v = fsp_test_invert_cmd(reg_addr)) != reg_addr) {
-		
+		/* inversion is required */
 		ps2_sendbyte(ps2dev, 0x74, FSP_CMD_TIMEOUT2);
 	} else {
 		if ((v = fsp_test_swap_cmd(reg_addr)) != reg_addr) {
-			
+			/* swapping is required */
 			ps2_sendbyte(ps2dev, 0x77, FSP_CMD_TIMEOUT2);
 		} else {
-			
+			/* swapping isn't necessary */
 			ps2_sendbyte(ps2dev, 0x55, FSP_CMD_TIMEOUT2);
 		}
 	}
-	
+	/* write the register address in correct order */
 	ps2_sendbyte(ps2dev, v, FSP_CMD_TIMEOUT2);
 
 	if (ps2_sendbyte(ps2dev, 0xf3, FSP_CMD_TIMEOUT) < 0)
 		goto out;
 
 	if ((v = fsp_test_invert_cmd(reg_val)) != reg_val) {
-		
+		/* inversion is required */
 		ps2_sendbyte(ps2dev, 0x47, FSP_CMD_TIMEOUT2);
 	} else if ((v = fsp_test_swap_cmd(reg_val)) != reg_val) {
-		
+		/* swapping is required */
 		ps2_sendbyte(ps2dev, 0x44, FSP_CMD_TIMEOUT2);
 	} else {
-		
+		/* swapping isn't necessary */
 		ps2_sendbyte(ps2dev, 0x33, FSP_CMD_TIMEOUT2);
 	}
 
-	
+	/* write the register value in correct order */
 	ps2_sendbyte(ps2dev, v, FSP_CMD_TIMEOUT2);
 	rc = 0;
 
@@ -162,6 +190,7 @@ static int fsp_reg_write(struct psmouse *psmouse, int reg_addr, int reg_val)
 	return rc;
 }
 
+/* Enable register clock gating for writing certain registers */
 static int fsp_reg_write_enable(struct psmouse *psmouse, bool enable)
 {
 	int v, nv;
@@ -174,7 +203,7 @@ static int fsp_reg_write_enable(struct psmouse *psmouse, bool enable)
 	else
 		nv = v & ~FSP_BIT_EN_REG_CLK;
 
-	
+	/* only write if necessary */
 	if (nv != v)
 		if (fsp_reg_write(psmouse, FSP_REG_SYSCTL1, nv) == -1)
 			return -1;
@@ -204,7 +233,7 @@ static int fsp_page_reg_read(struct psmouse *psmouse, int *reg_val)
 	ps2_sendbyte(ps2dev, 0x83, FSP_CMD_TIMEOUT2);
 	ps2_sendbyte(ps2dev, 0x88, FSP_CMD_TIMEOUT2);
 
-	
+	/* get the returned result */
 	if (__ps2_command(ps2dev, param, PSMOUSE_CMD_GETINFO))
 		goto out;
 
@@ -240,10 +269,10 @@ static int fsp_page_reg_write(struct psmouse *psmouse, int reg_val)
 	if ((v = fsp_test_invert_cmd(reg_val)) != reg_val) {
 		ps2_sendbyte(ps2dev, 0x47, FSP_CMD_TIMEOUT2);
 	} else if ((v = fsp_test_swap_cmd(reg_val)) != reg_val) {
-		
+		/* swapping is required */
 		ps2_sendbyte(ps2dev, 0x44, FSP_CMD_TIMEOUT2);
 	} else {
-		
+		/* swapping isn't necessary */
 		ps2_sendbyte(ps2dev, 0x33, FSP_CMD_TIMEOUT2);
 	}
 
@@ -277,10 +306,10 @@ static int fsp_get_revision(struct psmouse *psmouse, int *rev)
 static int fsp_get_buttons(struct psmouse *psmouse, int *btn)
 {
 	static const int buttons[] = {
-		0x16, 
-		0x06, 
-		0x04, 
-		0x02, 
+		0x16, /* Left/Middle/Right/Forward/Backward & Scroll Up/Down */
+		0x06, /* Left/Middle/Right & Scroll Up/Down/Right/Left */
+		0x04, /* Left/Middle/Right & Scroll Up/Down */
+		0x02, /* Left/Middle/Right */
 	};
 	int val;
 
@@ -291,6 +320,7 @@ static int fsp_get_buttons(struct psmouse *psmouse, int *btn)
 	return 0;
 }
 
+/* Enable on-pad command tag output */
 static int fsp_opc_tag_enable(struct psmouse *psmouse, bool enable)
 {
 	int v, nv;
@@ -306,7 +336,7 @@ static int fsp_opc_tag_enable(struct psmouse *psmouse, bool enable)
 	else
 		nv = v & ~FSP_BIT_EN_OPC_TAG;
 
-	
+	/* only write if necessary */
 	if (nv != v) {
 		fsp_reg_write_enable(psmouse, true);
 		res = fsp_reg_write(psmouse, FSP_REG_OPC_QDOWN, nv);
@@ -366,13 +396,18 @@ static int fsp_onpad_hscr(struct psmouse *psmouse, bool enable)
 	if (fsp_reg_write(psmouse, FSP_REG_ONPAD_CTL, val))
 		return -EIO;
 
-	
+	/* reconfigure horizontal scrolling packet output */
 	if (fsp_reg_write(psmouse, FSP_REG_SYSCTL5, v2))
 		return -EIO;
 
 	return 0;
 }
 
+/*
+ * Write device specific initial parameters.
+ *
+ * ex: 0xab 0xcd - write oxcd into register 0xab
+ */
 static ssize_t fsp_attr_set_setreg(struct psmouse *psmouse, void *data,
 				   const char *buf, size_t count)
 {
@@ -411,6 +446,11 @@ static ssize_t fsp_attr_show_getreg(struct psmouse *psmouse,
 	return sprintf(buf, "%02x%02x\n", pad->last_reg, pad->last_val);
 }
 
+/*
+ * Read a register from device.
+ *
+ * ex: 0xab -- read content from register 0xab
+ */
 static ssize_t fsp_attr_set_getreg(struct psmouse *psmouse, void *data,
 					const char *buf, size_t count)
 {
@@ -591,7 +631,7 @@ static void fsp_packet_debug(struct psmouse *psmouse, unsigned char packet[])
 	const char *packet_type = "UNKNOWN";
 	unsigned short abs_x = 0, abs_y = 0;
 
-	
+	/* Interpret & dump the packet data. */
 	switch (packet[0] >> FSP_PKT_TYPE_SHIFT) {
 	case FSP_PKT_TYPE_ABS:
 		packet_type = "Absolute";
@@ -652,6 +692,9 @@ static psmouse_ret_t fsp_process_byte(struct psmouse *psmouse)
 	if (psmouse->pktcnt < 4)
 		return PSMOUSE_GOOD_DATA;
 
+	/*
+	 * Full packet accumulated, process it
+	 */
 
 	fsp_packet_debug(psmouse, packet);
 
@@ -661,12 +704,21 @@ static psmouse_ret_t fsp_process_byte(struct psmouse *psmouse)
 		abs_y = GET_ABS_Y(packet);
 
 		if (packet[0] & FSP_PB0_MFMC) {
+			/*
+			 * MFMC packet: assume that there are two fingers on
+			 * pad
+			 */
 			fgrs = 2;
 
-			
+			/* MFMC packet */
 			if (packet[0] & FSP_PB0_MFMC_FGR2) {
-				
+				/* 2nd finger */
 				if (ad->last_mt_fgr == 2) {
+					/*
+					 * workaround for buggy firmware
+					 * which doesn't clear MFMC bit if
+					 * the 1st finger is up
+					 */
 					fgrs = 1;
 					fsp_set_slot(dev, 0, false, 0, 0);
 				}
@@ -674,8 +726,13 @@ static psmouse_ret_t fsp_process_byte(struct psmouse *psmouse)
 
 				fsp_set_slot(dev, 1, fgrs == 2, abs_x, abs_y);
 			} else {
-				
+				/* 1st finger */
 				if (ad->last_mt_fgr == 1) {
+					/*
+					 * workaround for buggy firmware
+					 * which doesn't clear MFMC bit if
+					 * the 2nd finger is up
+					 */
 					fgrs = 1;
 					fsp_set_slot(dev, 1, false, 0, 0);
 				}
@@ -683,13 +740,17 @@ static psmouse_ret_t fsp_process_byte(struct psmouse *psmouse)
 				fsp_set_slot(dev, 0, fgrs != 0, abs_x, abs_y);
 			}
 		} else {
-			
+			/* SFAC packet */
 			if ((packet[0] & (FSP_PB0_LBTN|FSP_PB0_PHY_BTN)) ==
 				FSP_PB0_LBTN) {
+				/* On-pad click in SFAC mode should be handled
+				 * by userspace.  On-pad clicks in MFMC mode
+				 * are real clickpad clicks, and not ignored.
+				 */
 				packet[0] &= ~FSP_PB0_LBTN;
 			}
 
-			
+			/* no multi-finger information */
 			ad->last_mt_fgr = 0;
 
 			if (abs_x != 0 && abs_y != 0)
@@ -710,35 +771,41 @@ static psmouse_ret_t fsp_process_byte(struct psmouse *psmouse)
 		break;
 
 	case FSP_PKT_TYPE_NORMAL_OPC:
-		
+		/* on-pad click, filter it if necessary */
 		if ((ad->flags & FSPDRV_FLAG_EN_OPC) != FSPDRV_FLAG_EN_OPC)
 			packet[0] &= ~FSP_PB0_LBTN;
-		
+		/* fall through */
 
 	case FSP_PKT_TYPE_NORMAL:
-		
-		
+		/* normal packet */
+		/* special packet data translation from on-pad packets */
 		if (packet[3] != 0) {
 			if (packet[3] & BIT(0))
-				button_status |= 0x01;	
+				button_status |= 0x01;	/* wheel down */
 			if (packet[3] & BIT(1))
-				button_status |= 0x0f;	
+				button_status |= 0x0f;	/* wheel up */
 			if (packet[3] & BIT(2))
-				button_status |= BIT(4);
+				button_status |= BIT(4);/* horizontal left */
 			if (packet[3] & BIT(3))
-				button_status |= BIT(5);
-			
+				button_status |= BIT(5);/* horizontal right */
+			/* push back to packet queue */
 			if (button_status != 0)
 				packet[3] = button_status;
 			rscroll = (packet[3] >> 4) & 1;
 			lscroll = (packet[3] >> 5) & 1;
 		}
+		/*
+		 * Processing wheel up/down and extra button events
+		 */
 		input_report_rel(dev, REL_WHEEL,
 				 (int)(packet[3] & 8) - (int)(packet[3] & 7));
 		input_report_rel(dev, REL_HWHEEL, lscroll - rscroll);
 		input_report_key(dev, BTN_BACK, lscroll);
 		input_report_key(dev, BTN_FORWARD, rscroll);
 
+		/*
+		 * Standard PS/2 Mouse
+		 */
 		input_report_key(dev, BTN_LEFT, packet[0] & 1);
 		input_report_key(dev, BTN_MIDDLE, (packet[0] >> 2) & 1);
 		input_report_key(dev, BTN_RIGHT, (packet[0] >> 1) & 1);
@@ -763,6 +830,10 @@ static int fsp_activate_protocol(struct psmouse *psmouse)
 	unsigned char param[2];
 	int val;
 
+	/*
+	 * Standard procedure to enter FSP Intellimouse mode
+	 * (scrolling wheel, 4th and 5th buttons)
+	 */
 	param[0] = 200;
 	ps2_command(ps2dev, param, PSMOUSE_CMD_SETRATE);
 	param[0] = 200;
@@ -778,7 +849,7 @@ static int fsp_activate_protocol(struct psmouse *psmouse)
 	}
 
 	if (pad->ver < FSP_VER_STL3888_C0) {
-		
+		/* Preparing relative coordinates output for older hardware */
 		if (fsp_reg_read(psmouse, FSP_REG_SYSCTL5, &val)) {
 			psmouse_err(psmouse,
 				    "Unable to read SYSCTL5 register.\n");
@@ -792,10 +863,10 @@ static int fsp_activate_protocol(struct psmouse *psmouse)
 		}
 
 		val &= ~(FSP_BIT_EN_MSID7 | FSP_BIT_EN_MSID8 | FSP_BIT_EN_AUTO_MSID8);
-		
+		/* Ensure we are not in absolute mode */
 		val &= ~FSP_BIT_EN_PKT_G0;
 		if (pad->buttons == 0x06) {
-			
+			/* Left/Middle/Right & Scroll Up/Down/Right/Left */
 			val |= FSP_BIT_EN_MSID6;
 		}
 
@@ -805,17 +876,21 @@ static int fsp_activate_protocol(struct psmouse *psmouse)
 			return -EIO;
 		}
 
+		/*
+		 * Enable OPC tags such that driver can tell the difference
+		 * between on-pad and real button click
+		 */
 		if (fsp_opc_tag_enable(psmouse, true))
 			psmouse_warn(psmouse,
 				     "Failed to enable OPC tag mode.\n");
-		
+		/* enable on-pad click by default */
 		pad->flags |= FSPDRV_FLAG_EN_OPC;
 
-		
+		/* Enable on-pad vertical and horizontal scrolling */
 		fsp_onpad_vscr(psmouse, true);
 		fsp_onpad_hscr(psmouse, true);
 	} else {
-		
+		/* Enable absolute coordinates output for Cx/Dx hardware */
 		if (fsp_reg_write(psmouse, FSP_REG_SWC1,
 				  FSP_BIT_SWC1_EN_ABS_1F |
 				  FSP_BIT_SWC1_EN_ABS_2F |
@@ -842,6 +917,17 @@ static int fsp_set_input_params(struct psmouse *psmouse)
 		__set_bit(REL_WHEEL, dev->relbit);
 		__set_bit(REL_HWHEEL, dev->relbit);
 	} else {
+		/*
+		 * Hardware prior to Cx performs much better in relative mode;
+		 * hence, only enable absolute coordinates output as well as
+		 * multi-touch output for the newer hardware.
+		 *
+		 * Maximum coordinates can be computed as:
+		 *
+		 *	number of scanlines * 64 - 57
+		 *
+		 * where number of X/Y scanline lines are 16/12.
+		 */
 		int abs_x = 967, abs_y = 711;
 
 		__set_bit(EV_ABS, dev->evbit);
@@ -942,7 +1028,7 @@ int fsp_init(struct psmouse *psmouse)
 	if (error)
 		goto err_out;
 
-	
+	/* Set up various supported input event bits */
 	error = fsp_set_input_params(psmouse);
 	if (error)
 		goto err_out;

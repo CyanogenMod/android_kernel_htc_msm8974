@@ -34,6 +34,7 @@
  */
 
 
+/* #define DEBUG */
 
 #define debug(format, arg...) pr_debug("hid-plff: " format "\n" , ## arg)
 
@@ -89,6 +90,18 @@ static int plff_init(struct hid_device *hid)
 	s32 *strong;
 	s32 *weak;
 
+	/* The device contains one output report per physical device, all
+	   containing 1 field, which contains 4 ff00.0002 usages and 4 16bit
+	   absolute values.
+
+	   The input reports also contain a field which contains
+	   8 ff00.0001 usages and 8 boolean values. Their meaning is
+	   currently unknown.
+	   
+	   A version of the 0e8f:0003 exists that has all the values in
+	   separate fields and misses the extra input field, thus resembling
+	   Zeroplus (hid-zpff) devices.
+	*/
 
 	if (list_empty(report_list)) {
 		hid_err(hid, "no output reports found\n");
@@ -190,9 +203,9 @@ err:
 
 static const struct hid_device_id pl_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_GAMERON, USB_DEVICE_ID_GAMERON_DUAL_PSX_ADAPTOR),
-		.driver_data = 1 }, 
+		.driver_data = 1 }, /* Twin USB Joystick */
 	{ HID_USB_DEVICE(USB_VENDOR_ID_GAMERON, USB_DEVICE_ID_GAMERON_DUAL_PCS_ADAPTOR),
-		.driver_data = 1 }, 
+		.driver_data = 1 }, /* Twin USB Joystick */
 	{ HID_USB_DEVICE(USB_VENDOR_ID_GREENASIA, 0x0003), },
 	{ }
 };

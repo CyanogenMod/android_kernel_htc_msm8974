@@ -55,6 +55,7 @@ static const struct maven_gamma {
   { 119, 158, 183, 248, 244, 229, 149, 78, 165}
 };
 
+/* Definition of the various controls */
 struct mctl {
 	struct v4l2_queryctrl desc;
 	size_t control;
@@ -104,6 +105,9 @@ static const struct mctl maven_controls[] =
 
 #define MAVCTRLS ARRAY_SIZE(maven_controls)
 
+/* Return: positive number: id found
+           -EINVAL:         id not found, return failure
+	   -ENOENT:         id not found, create fake disabled control */
 static int get_ctrl_id(__u32 v4l2_id) {
 	int i;
 
@@ -198,7 +202,7 @@ static const struct matrox_pll_ctl maven_PAL = {
 };
 
 static const struct matrox_pll_ctl maven_NTSC = {
-	450450,	
+	450450,	/* 27027000/60 == 27000000/59.94005994 */
 	    60
 };
 
@@ -268,7 +272,7 @@ static int matroxfb_PLL_mavenclock(const struct matrox_pll_features2* pll,
 		}
 	}
 
-	
+	/* if h2/post/in/feed have not been assigned, return zero (error) */
 	if (besth2 < 2)
 		return 0;
 
@@ -324,6 +328,7 @@ static unsigned char maven_compute_deflicker (const struct maven_data* md) {
 	df = (md->version == MGATVO_B?0x40:0x00);
 	switch (md->primary_head->altout.tvo_params.deflicker) {
 		case 0:
+/*			df |= 0x00; */
 			break;
 		case 1:
 			df |= 0xB1;
@@ -351,106 +356,106 @@ static const struct maven_gamma* maven_compute_gamma (const struct maven_data* m
 
 static void maven_init_TVdata(const struct maven_data* md, struct mavenregs* data) {
 	static struct mavenregs palregs = { {
-		0x2A, 0x09, 0x8A, 0xCB,	
+		0x2A, 0x09, 0x8A, 0xCB,	/* 00: chroma subcarrier */
 		0x00,
 		0x00,	/* ? not written */
 		0x00,	/* modified by code (F9 written...) */
 		0x00,	/* ? not written */
-		0x7E,	
-		0x44,	
-		0x9C,	
-		0x2E,	
-		0x21,	
+		0x7E,	/* 08 */
+		0x44,	/* 09 */
+		0x9C,	/* 0A */
+		0x2E,	/* 0B */
+		0x21,	/* 0C */
 		0x00,	/* ? not written */
-		0x3F, 0x03, 
-		0x3F, 0x03, 
-		0x1A,	
-		0x2A,	
-		0x1C, 0x3D, 0x14, 
-		0x9C, 0x01, 
-		0x00,	
-		0xFE,	
-		0x7E,	
-		0x60,	
-		0x05,	
-		0x89, 0x03, 
-		0x72,	
-		0x07,	
-		0x72,	
-		0x00,	
-		0x00,	
-		0x00,	
-		0x08,	
-		0x04,	
-		0x00,	
-		0x1A,	
-		0x55, 0x01, 
-		0x26,	
-		0x07, 0x7E, 
-		0x02, 0x54, 
-		0xB0, 0x00, 
-		0x14,	
-		0x49,	
+		0x3F, 0x03, /* 0E-0F */
+		0x3F, 0x03, /* 10-11 */
+		0x1A,	/* 12 */
+		0x2A,	/* 13 */
+		0x1C, 0x3D, 0x14, /* 14-16 */
+		0x9C, 0x01, /* 17-18 */
+		0x00,	/* 19 */
+		0xFE,	/* 1A */
+		0x7E,	/* 1B */
+		0x60,	/* 1C */
+		0x05,	/* 1D */
+		0x89, 0x03, /* 1E-1F */
+		0x72,	/* 20 */
+		0x07,	/* 21 */
+		0x72,	/* 22 */
+		0x00,	/* 23 */
+		0x00,	/* 24 */
+		0x00,	/* 25 */
+		0x08,	/* 26 */
+		0x04,	/* 27 */
+		0x00,	/* 28 */
+		0x1A,	/* 29 */
+		0x55, 0x01, /* 2A-2B */
+		0x26,	/* 2C */
+		0x07, 0x7E, /* 2D-2E */
+		0x02, 0x54, /* 2F-30 */
+		0xB0, 0x00, /* 31-32 */
+		0x14,	/* 33 */
+		0x49,	/* 34 */
 		0x00,	/* 35 written multiple times */
 		0x00,	/* 36 not written */
-		0xA3,	
-		0xC8,	
-		0x22,	
-		0x02,	
-		0x22,	
-		0x3F, 0x03, 
+		0xA3,	/* 37 */
+		0xC8,	/* 38 */
+		0x22,	/* 39 */
+		0x02,	/* 3A */
+		0x22,	/* 3B */
+		0x3F, 0x03, /* 3C-3D */
 		0x00,	/* 3E written multiple times */
 		0x00,	/* 3F not written */
 	}, MATROXFB_OUTPUT_MODE_PAL, 625, 50 };
 	static struct mavenregs ntscregs = { {
-		0x21, 0xF0, 0x7C, 0x1F,	
+		0x21, 0xF0, 0x7C, 0x1F,	/* 00: chroma subcarrier */
 		0x00,
 		0x00,	/* ? not written */
 		0x00,	/* modified by code (F9 written...) */
 		0x00,	/* ? not written */
-		0x7E,	
-		0x43,	
-		0x7E,	
-		0x3D,	
-		0x00,	
+		0x7E,	/* 08 */
+		0x43,	/* 09 */
+		0x7E,	/* 0A */
+		0x3D,	/* 0B */
+		0x00,	/* 0C */
 		0x00,	/* ? not written */
-		0x41, 0x00, 
-		0x3C, 0x00, 
-		0x17,	
-		0x21,	
-		0x1B, 0x1B, 0x24, 
-		0x83, 0x01, 
-		0x00,	
-		0x0F,	
-		0x0F,	
-		0x60,	
-		0x05,	
-		0x89, 0x02, 
-		0x5F,	
-		0x04,	
-		0x5F,	
-		0x01,	
-		0x02,	
-		0x00,	
-		0x0A,	
-		0x05,	
-		0x00,	
-		0x10,	
-		0xFF, 0x03, 
-		0x24,	
-		0x0F, 0x78, 
-		0x00, 0x00, 
-		0xB2, 0x04, 
-		0x14,	
-		0x02,	
+		0x41, 0x00, /* 0E-0F */
+		0x3C, 0x00, /* 10-11 */
+		0x17,	/* 12 */
+		0x21,	/* 13 */
+		0x1B, 0x1B, 0x24, /* 14-16 */
+		0x83, 0x01, /* 17-18 */
+		0x00,	/* 19 */
+		0x0F,	/* 1A */
+		0x0F,	/* 1B */
+		0x60,	/* 1C */
+		0x05,	/* 1D */
+		0x89, 0x02, /* 1E-1F */
+		0x5F,	/* 20 */
+		0x04,	/* 21 */
+		0x5F,	/* 22 */
+		0x01,	/* 23 */
+		0x02,	/* 24 */
+		0x00,	/* 25 */
+		0x0A,	/* 26 */
+		0x05,	/* 27 */
+		0x00,	/* 28 */
+		0x10,	/* 29 */
+		0xFF, 0x03, /* 2A-2B */
+		0x24,	/* 2C */
+		0x0F, 0x78, /* 2D-2E */
+		0x00, 0x00, /* 2F-30 */
+		0xB2, 0x04, /* 31-32 */
+		0x14,	/* 33 */
+		0x02,	/* 34 */
 		0x00,	/* 35 written multiple times */
 		0x00,	/* 36 not written */
-		0xA3,	
-		0xC8,	
-		0x15,	
-		0x05,	
-		0x3B,	
-		0x3C, 0x00, 
+		0xA3,	/* 37 */
+		0xC8,	/* 38 */
+		0x15,	/* 39 */
+		0x05,	/* 3A */
+		0x3B,	/* 3B */
+		0x3C, 0x00, /* 3C-3D */
 		0x00,	/* 3E written multiple times */
 		0x00,	/* never written */
 	}, MATROXFB_OUTPUT_MODE_NTSC, 525, 60 };
@@ -461,10 +466,10 @@ static void maven_init_TVdata(const struct maven_data* md, struct mavenregs* dat
 	else
 		*data = ntscregs;
 
-	
+	/* Set deflicker */
 	data->regs[0x93] = maven_compute_deflicker(md);
  
-	
+	/* set gamma */
 	{
 		const struct maven_gamma* g;
 		g = maven_compute_gamma(md);
@@ -479,7 +484,7 @@ static void maven_init_TVdata(const struct maven_data* md, struct mavenregs* dat
 		data->regs[0x8B] = g->reg8b;
 	}
  
-	
+	/* Set contrast / brightness */
 	{
 		int bl, wl;
 		maven_compute_bwlevel (md, &bl, &wl);
@@ -489,13 +494,13 @@ static void maven_init_TVdata(const struct maven_data* md, struct mavenregs* dat
 		data->regs[0x1f] = wl & 3;
 	}
 
-	
+	/* Set saturation */
 	{
 		data->regs[0x20] =
 		data->regs[0x22] = minfo->altout.tvo_params.saturation;
 	}
  
-	
+	/* Set HUE */
 	data->regs[0x25] = minfo->altout.tvo_params.hue;
 	return;
 }
@@ -507,24 +512,24 @@ static void maven_init_TV(struct i2c_client* c, const struct mavenregs* m) {
 
 
 	maven_set_reg(c, 0x3E, 0x01);
-	maven_get_reg(c, 0x82);	
+	maven_get_reg(c, 0x82);	/* fetch oscillator state? */
 	maven_set_reg(c, 0x8C, 0x00);
-	maven_get_reg(c, 0x94);	
+	maven_get_reg(c, 0x94);	/* get 0x82 */
 	maven_set_reg(c, 0x94, 0xA2);
-	
+	/* xmiscctrl */
 
 	maven_set_reg_pair(c, 0x8E, 0x1EFF);
 	maven_set_reg(c, 0xC6, 0x01);
 
-	
+	/* removed code... */
 
 	maven_get_reg(c, 0x06);
-	maven_set_reg(c, 0x06, 0xF9);	
+	maven_set_reg(c, 0x06, 0xF9);	/* or read |= 0xF0 ? */
 
-	
+	/* removed code here... */
 
-	
-	
+	/* real code begins here? */
+	/* chroma subcarrier */
 	LR(0x00); LR(0x01); LR(0x02); LR(0x03);
 
 	LR(0x04);
@@ -539,9 +544,9 @@ static void maven_init_TV(struct i2c_client* c, const struct mavenregs* m) {
 	LR(0x0B);
 	LR(0x0C);
 	if (m->mode == MATROXFB_OUTPUT_MODE_PAL) {
-		maven_set_reg(c, 0x35, 0x10); 
+		maven_set_reg(c, 0x35, 0x10); /* ... */
 	} else {
-		maven_set_reg(c, 0x35, 0x0F); 
+		maven_set_reg(c, 0x35, 0x0F); /* ... */
 	}
 
 	LRP(0x10);
@@ -549,9 +554,9 @@ static void maven_init_TV(struct i2c_client* c, const struct mavenregs* m) {
 	LRP(0x0E);
 	LRP(0x1E);
 
-	LR(0x20);	
-	LR(0x22);	
-	LR(0x25);	
+	LR(0x20);	/* saturation #1 */
+	LR(0x22);	/* saturation #2 */
+	LR(0x25);	/* hue */
 	LR(0x34);
 	LR(0x33);
 	LR(0x19);
@@ -577,7 +582,7 @@ static void maven_init_TV(struct i2c_client* c, const struct mavenregs* m) {
 	LR(0x21);
 	LRP(0x2A);
 	if (m->mode == MATROXFB_OUTPUT_MODE_PAL)
-		maven_set_reg(c, 0x35, 0x1D);	
+		maven_set_reg(c, 0x35, 0x1D);	/* ... */
 	else
 		maven_set_reg(c, 0x35, 0x1C);
 
@@ -586,16 +591,16 @@ static void maven_init_TV(struct i2c_client* c, const struct mavenregs* m) {
 	LR(0x38);
 	maven_set_reg(c, 0xB3, 0x01);
 
-	maven_get_reg(c, 0xB0);	
-	maven_set_reg(c, 0xB0, 0x08);	
-	maven_get_reg(c, 0xB9);	
+	maven_get_reg(c, 0xB0);	/* read 0x80 */
+	maven_set_reg(c, 0xB0, 0x08);	/* ugh... */
+	maven_get_reg(c, 0xB9);	/* read 0x7C */
 	maven_set_reg(c, 0xB9, 0x78);
-	maven_get_reg(c, 0xBF);	
+	maven_get_reg(c, 0xBF);	/* read 0x00 */
 	maven_set_reg(c, 0xBF, 0x02);
-	maven_get_reg(c, 0x94);	
+	maven_get_reg(c, 0x94);	/* read 0x82 */
 	maven_set_reg(c, 0x94, 0xB3);
 
-	LR(0x80); 
+	LR(0x80); /* 04 1A 91 or 05 21 91 */
 	LR(0x81);
 	LR(0x82);
 
@@ -603,23 +608,23 @@ static void maven_init_TV(struct i2c_client* c, const struct mavenregs* m) {
 	maven_get_reg(c, 0x8D);
 	maven_set_reg(c, 0x8D, 0x10);
 
-	LR(0x90); 
+	LR(0x90); /* 4D 50 52 or 4E 05 45 */
 	LR(0x91);
 	LR(0x92);
 
-	LRP(0x9A); 
-	LRP(0x9C); 
-	LRP(0x9E); 
-	LRP(0xA0); 
-	LRP(0xA2); 
-	LRP(0xA4); 
-	LRP(0xA6); 
-	LRP(0xA8); 
-	LRP(0x98); 
-	LRP(0xAE); 
-	LRP(0x96); 
-	LRP(0xAA); 
-	LRP(0xAC); 
+	LRP(0x9A); /* 0049 or 004F */
+	LRP(0x9C); /* 0004 or 0004 */
+	LRP(0x9E); /* 0458 or 045E */
+	LRP(0xA0); /* 05DA or 051B */
+	LRP(0xA2); /* 00CC or 00CF */
+	LRP(0xA4); /* 007D or 007F */
+	LRP(0xA6); /* 007C or 007E */
+	LRP(0xA8); /* 03CB or 03CE */
+	LRP(0x98); /* 0000 or 0000 */
+	LRP(0xAE); /* 0044 or 003A */
+	LRP(0x96); /* 05DA or 051B */
+	LRP(0xAA); /* 04BC or 046A */
+	LRP(0xAC); /* 004D or 004E */
 
 	LR(0xBE);
 	LR(0xC2);
@@ -627,18 +632,18 @@ static void maven_init_TV(struct i2c_client* c, const struct mavenregs* m) {
 	maven_get_reg(c, 0x8D);
 	maven_set_reg(c, 0x8D, 0x04);
 
-	LR(0x20);	
-	LR(0x22);	
-	LR(0x93);	
-	LR(0x20);	
-	LR(0x22);	
-	LR(0x25);	
+	LR(0x20);	/* saturation #1 */
+	LR(0x22);	/* saturation #2 */
+	LR(0x93);	/* whoops */
+	LR(0x20);	/* oh, saturation #1 again */
+	LR(0x22);	/* oh, saturation #2 again */
+	LR(0x25);	/* hue */
 	LRP(0x0E);
 	LRP(0x1E);
-	LRP(0x0E);	
-	LRP(0x1E);	
+	LRP(0x0E);	/* problems with memory? */
+	LRP(0x1E);	/* yes, matrox must have problems in memory area... */
 
-	
+	/* load gamma correction stuff */
 	LR(0x83);
 	LR(0x84);
 	LR(0x85);
@@ -650,7 +655,7 @@ static void maven_init_TV(struct i2c_client* c, const struct mavenregs* m) {
 	LR(0x8B);
 
 	val = maven_get_reg(c, 0x8D);
-	val &= 0x14;			
+	val &= 0x14;			/* 0x10 or anything ored with it */
 	maven_set_reg(c, 0x8D, val);
 
 	LR(0x33);
@@ -685,7 +690,7 @@ static void maven_init_TV(struct i2c_client* c, const struct mavenregs* m) {
 	LR(0x38);
 
 	maven_get_reg(c, 0xB0);
-	LR(0xB0);	
+	LR(0xB0);	/* output mode */
 	LR(0x90);
 	LR(0xBE);
 	LR(0xC2);
@@ -705,7 +710,7 @@ static int maven_find_exact_clocks(unsigned int ht, unsigned int vt,
 	unsigned int x;
 	unsigned int err = ~0;
 
-	
+	/* 1:1 */
 	m->regs[0x80] = 0x0F;
 	m->regs[0x81] = 0x07;
 	m->regs[0x82] = 0x81;
@@ -763,27 +768,27 @@ static inline int maven_compute_timming(struct maven_data* md,
 		if (hcrt > mt->HTotal)
 			hcrt -= mt->HTotal;
 		if (hcrt + 2 > mt->HTotal)
-			hcrt = 0;	
+			hcrt = 0;	/* or issue warning? */
 
-		
-		
+		/* last (first? middle?) line in picture can have different length */
+		/* hlen - 2 */
 		m->regs[0x96] = m->hcorr;
 		m->regs[0x97] = m->hcorr >> 8;
-		
+		/* ... */
 		m->regs[0x98] = 0x00; m->regs[0x99] = 0x00;
-		
-		m->regs[0x9A] = lmargin;	
-		m->regs[0x9B] = lmargin >> 8;	
-		
+		/* hblanking end */
+		m->regs[0x9A] = lmargin;	/* 100% */
+		m->regs[0x9B] = lmargin >> 8;	/* 100% */
+		/* who knows */
 		m->regs[0x9C] = 0x04;
 		m->regs[0x9D] = 0x00;
-		
+		/* htotal - 2 */
 		m->regs[0xA0] = m->htotal;
 		m->regs[0xA1] = m->htotal >> 8;
-		
-		m->regs[0xA2] = mt->VTotal - mt->VSyncStart - 1;	
+		/* vblanking end */
+		m->regs[0xA2] = mt->VTotal - mt->VSyncStart - 1;	/* stop vblanking */
 		m->regs[0xA3] = (mt->VTotal - mt->VSyncStart - 1) >> 8;
-		
+		/* something end... [A6]+1..[A8] */
 		if (md->version == MGATVO_B) {
 			m->regs[0xA4] = 0x04;
 			m->regs[0xA5] = 0x00;
@@ -791,20 +796,20 @@ static inline int maven_compute_timming(struct maven_data* md,
 			m->regs[0xA4] = 0x01;
 			m->regs[0xA5] = 0x00;
 		}
-		
+		/* something start... 0..[A4]-1 */
 		m->regs[0xA6] = 0x00;
 		m->regs[0xA7] = 0x00;
-		
+		/* vertical line count - 1 */
 		m->regs[0xA8] = mt->VTotal - 1;
 		m->regs[0xA9] = (mt->VTotal - 1) >> 8;
-		
-		m->regs[0xAA] = hcrt;		
+		/* horizontal vidrst pos */
+		m->regs[0xAA] = hcrt;		/* 0 <= hcrt <= htotal - 2 */
 		m->regs[0xAB] = hcrt >> 8;
-		
+		/* vertical vidrst pos */
 		m->regs[0xAC] = mt->VTotal - 2;
 		m->regs[0xAD] = (mt->VTotal - 2) >> 8;
-		
-		m->regs[0xAE] = 0x01; 
+		/* moves picture up/down and so on... */
+		m->regs[0xAE] = 0x01; /* Fix this... 0..VTotal */
 		m->regs[0xAF] = 0x00;
 		{
 			int hdec;
@@ -813,8 +818,8 @@ static inline int maven_compute_timming(struct maven_data* md,
 			unsigned int ib;
 			int i;
 
-			
-			
+			/* Verify! */
+			/* Where 94208 came from? */
 			if (mt->HTotal)
 				hdec = 94208 / (mt->HTotal);
 			else
@@ -830,6 +835,21 @@ static inline int maven_compute_timming(struct maven_data* md,
 			hlen = hlen >> 8;
 			if (hlen > 0xFF)
 				hlen = 0xFF;
+			/* Now we have to compute input buffer length.
+			   If you want any picture, it must be between
+			     4 + lmargin + xres
+			   and
+			     94208 / hdec
+			   If you want perfect picture even on the top
+			   of screen, it must be also
+			     0x3C0000 * i / hdec + Q - R / hdec
+			   where
+			        R      Qmin   Qmax
+			     0x07000   0x5AE  0x5BF
+			     0x08000   0x5CF  0x5FF
+			     0x0C000   0x653  0x67F
+			     0x10000   0x6F8  0x6FF
+			 */
 			i = 1;
 			do {
 				ib = ((0x3C0000 * i - 0x8000)/ hdec + 0x05E7) >> 8;
@@ -839,9 +859,9 @@ static inline int maven_compute_timming(struct maven_data* md,
 				ib = ibmin;
 			}
 
-			m->regs[0x90] = hdec;	
+			m->regs[0x90] = hdec;	/* < 0x40 || > 0x80 is bad... 0x80 is questionable */
 			m->regs[0xC2] = hlen;
-			
+			/* 'valid' input line length */
 			m->regs[0x9E] = ib;
 			m->regs[0x9F] = ib >> 8;
 		}
@@ -859,7 +879,7 @@ static inline int maven_compute_timming(struct maven_data* md,
 				a = m->vlines * (m->htotal + 2);
 				b = (mt->VTotal - 1) * (m->htotal + 2) + m->hcorr + 2;
 
-				f1 = ((u64)a) << 15;	
+				f1 = ((u64)a) << 15;	/* *32768 */
 				do_div(f1, b);
 				vdec = f1;
 #else
@@ -870,7 +890,7 @@ static inline int maven_compute_timming(struct maven_data* md,
 			if (vdec > 0x8000)
 				vdec = 0x8000;
 			vlen = (vslen + umargin + mt->VDisplay) * vdec;
-			vlen = (vlen >> 16) - 146; 
+			vlen = (vlen >> 16) - 146; /* FIXME: 146?! */
 			if (vlen < 0)
 				vlen = 0;
 			if (vlen > 0xFF)
@@ -880,7 +900,7 @@ static inline int maven_compute_timming(struct maven_data* md,
 			m->regs[0x92] = vdec >> 8;
 			m->regs[0xBE] = vlen;
 		}
-		m->regs[0xB0] = 0x08;	
+		m->regs[0xB0] = 0x08;	/* output: SVideo/Composite */
 		return 0;
 	}
 
@@ -892,61 +912,61 @@ static inline int maven_compute_timming(struct maven_data* md,
 	m->regs[0xB3] = 0x01;
 	m->regs[0x94] = 0xB2;
 
-	
+	/* htotal... */
 	m->regs[0x96] = mt->HTotal;
 	m->regs[0x97] = mt->HTotal >> 8;
-	
+	/* ?? */
 	m->regs[0x98] = 0x00;
 	m->regs[0x99] = 0x00;
-	
+	/* hsync len */
 	tmpi = mt->HSyncEnd - mt->HSyncStart;
 	m->regs[0x9A] = tmpi;
 	m->regs[0x9B] = tmpi >> 8;
-	
+	/* hblank end */
 	tmpi = mt->HTotal - mt->HSyncStart;
 	m->regs[0x9C] = tmpi;
 	m->regs[0x9D] = tmpi >> 8;
-	
+	/* hblank start */
 	tmpi += mt->HDisplay;
 	m->regs[0x9E] = tmpi;
 	m->regs[0x9F] = tmpi >> 8;
-	
+	/* htotal + 1 */
 	tmpi = mt->HTotal + 1;
 	m->regs[0xA0] = tmpi;
 	m->regs[0xA1] = tmpi >> 8;
-	
+	/* vsync?! */
 	tmpi = mt->VSyncEnd - mt->VSyncStart - 1;
 	m->regs[0xA2] = tmpi;
 	m->regs[0xA3] = tmpi >> 8;
-	
+	/* ignored? */
 	tmpi = mt->VTotal - mt->VSyncStart;
 	m->regs[0xA4] = tmpi;
 	m->regs[0xA5] = tmpi >> 8;
-	
+	/* ignored? */
 	tmpi = mt->VTotal - 1;
 	m->regs[0xA6] = tmpi;
 	m->regs[0xA7] = tmpi >> 8;
-	
+	/* vtotal - 1 */
 	m->regs[0xA8] = tmpi;
 	m->regs[0xA9] = tmpi >> 8;
-	
+	/* hor vidrst */
 	tmpi = mt->HTotal - mt->delay;
 	m->regs[0xAA] = tmpi;
 	m->regs[0xAB] = tmpi >> 8;
-	
+	/* vert vidrst */
 	tmpi = mt->VTotal - 2;
 	m->regs[0xAC] = tmpi;
 	m->regs[0xAD] = tmpi >> 8;
-	
+	/* ignored? */
 	m->regs[0xAE] = 0x00;
 	m->regs[0xAF] = 0x00;
 
-	m->regs[0xB0] = 0x03;	
-	m->regs[0xB1] = 0xA0;	
-	m->regs[0x8C] = 0x20;	
-	m->regs[0x8D] = 0x04;	
-	m->regs[0xB9] = 0x1A;	
-	m->regs[0xBF] = 0x22;	
+	m->regs[0xB0] = 0x03;	/* output: monitor */
+	m->regs[0xB1] = 0xA0;	/* ??? */
+	m->regs[0x8C] = 0x20;	/* must be set... */
+	m->regs[0x8D] = 0x04;	/* defaults to 0x10: test signal */
+	m->regs[0xB9] = 0x1A;	/* defaults to 0x2C: too bright */
+	m->regs[0xBF] = 0x22;	/* makes picture stable */
 
 	return 0;
 }
@@ -977,12 +997,12 @@ static int maven_program_timming(struct maven_data* md,
 		LRP(0xAC);
 		LRP(0xAE);
 
-		LR(0xB0);	
-		LR(0xB1);	
-		LR(0x8C);	
-		LR(0x8D);	
-		LR(0xB9);	
-		LR(0xBF);	
+		LR(0xB0);	/* output: monitor */
+		LR(0xB1);	/* ??? */
+		LR(0x8C);	/* must be set... */
+		LR(0x8D);	/* defaults to 0x10: test signal */
+		LR(0xB9);	/* defaults to 0x2C: too bright */
+		LR(0xBF);	/* makes picture stable */
 	} else {
 		maven_init_TV(c, m);
 	}
@@ -991,7 +1011,7 @@ static int maven_program_timming(struct maven_data* md,
 
 static inline int maven_resync(struct maven_data* md) {
 	struct i2c_client *c = md->client;
-	maven_set_reg(c, 0x95, 0x20);	
+	maven_set_reg(c, 0x95, 0x20);	/* start whole thing */
 	return 0;
 }
 
@@ -1024,11 +1044,20 @@ static int maven_set_control (struct maven_data* md,
 	i = get_ctrl_id(p->id);
 	if (i < 0) return -EINVAL;
 
+	/*
+	 * Check if changed.
+	 */
 	if (p->value == *get_ctrl_ptr(md, i)) return 0;
 
+	/*
+	 * Check limits.
+	 */
 	if (p->value > maven_controls[i].desc.maximum) return -EINVAL;
 	if (p->value < maven_controls[i].desc.minimum) return -EINVAL;
 
+	/*
+	 * Store new value.
+	 */
 	*get_ctrl_ptr(md, i) = p->value;
 
 	switch (p->id) {
@@ -1099,6 +1128,7 @@ static int maven_get_control (struct maven_data* md,
 	return 0;
 }
 
+/******************************************************/
 
 static int maven_out_compute(void* md, struct my_timming* mt) {
 #define mdinfo ((struct maven_data*)md)
@@ -1169,10 +1199,13 @@ static int maven_init_client(struct i2c_client* clnt) {
 	up_write(&minfo->altout.lock);
 	if (maven_get_reg(clnt, 0xB2) < 0x14) {
 		md->version = MGATVO_B;
-		
+		/* Tweak some things for this old chip */
 	} else {
 		md->version = MGATVO_C;
 	}
+	/*
+	 * Set all parameters to its initial values.
+	 */
 	{
 		unsigned int i;
 
@@ -1264,3 +1297,4 @@ MODULE_DESCRIPTION("Matrox G200/G400 Matrox MGA-TVO driver");
 MODULE_LICENSE("GPL");
 module_init(matroxfb_maven_init);
 module_exit(matroxfb_maven_exit);
+/* we do not have __setup() yet */

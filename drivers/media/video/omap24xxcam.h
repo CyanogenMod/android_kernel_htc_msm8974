@@ -30,22 +30,43 @@
 #include <media/videobuf-dma-sg.h>
 #include <media/v4l2-int-device.h>
 
+/*
+ *
+ * General driver related definitions.
+ *
+ */
 
 #define CAM_NAME				"omap24xxcam"
 
 #define CAM_MCLK				96000000
 
+/* number of bytes transferred per DMA request */
 #define DMA_THRESHOLD				32
 
+/*
+ * NUM_CAMDMA_CHANNELS is the number of logical channels provided by
+ * the camera DMA controller.
+ */
 #define NUM_CAMDMA_CHANNELS			4
 
+/*
+ * NUM_SG_DMA is the number of scatter-gather DMA transfers that can
+ * be queued. (We don't have any overlay sglists now.)
+ */
 #define NUM_SG_DMA				(VIDEO_MAX_FRAME)
 
+/*
+ *
+ * Register definitions.
+ *
+ */
 
+/* subsystem register block offsets */
 #define CC_REG_OFFSET				0x00000400
 #define CAMDMA_REG_OFFSET			0x00000800
 #define CAMMMU_REG_OFFSET			0x00000C00
 
+/* define camera subsystem register offsets */
 #define CAM_REVISION				0x000
 #define CAM_SYSCONFIG				0x010
 #define CAM_SYSSTATUS				0x014
@@ -53,6 +74,7 @@
 #define CAM_GPO					0x040
 #define CAM_GPI					0x050
 
+/* define camera core register offsets */
 #define CC_REVISION				0x000
 #define CC_SYSCONFIG				0x010
 #define CC_SYSSTATUS				0x014
@@ -70,6 +92,7 @@
 #define CC_CCPLECR				0x064
 #define CC_CCPDFR				0x068
 
+/* define camera dma register offsets */
 #define CAMDMA_REVISION				0x000
 #define CAMDMA_IRQSTATUS_L0			0x008
 #define CAMDMA_IRQSTATUS_L1			0x00C
@@ -105,6 +128,7 @@
 #define CAMDMA_CCFN(n)				(0x0C0 + (n)*0x60)
 #define CAMDMA_COLOR(n)				(0x0C4 + (n)*0x60)
 
+/* define camera mmu register offsets */
 #define CAMMMU_REVISION				0x000
 #define CAMMMU_SYSCONFIG			0x010
 #define CAMMMU_SYSSTATUS			0x014
@@ -124,6 +148,7 @@
 #define CAMMMU_READ_RAM				0x06C
 #define CAMMMU_EMU_FAULT_AD			0x070
 
+/* Define bit fields within selected registers */
 #define CAM_REVISION_MAJOR			(15 << 4)
 #define CAM_REVISION_MAJOR_SHIFT		4
 #define CAM_REVISION_MINOR			(15 << 0)
@@ -366,7 +391,13 @@
 
 #define CAMMMU_SYSCONFIG_AUTOIDLE		(1 <<  0)
 
+/*
+ *
+ * Declarations.
+ *
+ */
 
+/* forward declarations */
 struct omap24xxcam_sgdma;
 struct omap24xxcam_dma;
 
@@ -380,49 +411,73 @@ struct channel_state {
 	void *arg;
 };
 
+/* sgdma state for each of the possible videobuf_buffers + 2 overlays */
 struct sgdma_state {
 	const struct scatterlist *sglist;
-	int sglen;		 
-	int next_sglist;	 
-	unsigned int bytes_read; 
-	unsigned int len;        
-	int queued_sglist;	 
-	u32 csr;		 
+	int sglen;		 /* number of sglist entries */
+	int next_sglist;	 /* index of next sglist entry to process */
+	unsigned int bytes_read; /* number of bytes read */
+	unsigned int len;        /* total length of sglist (excluding
+				  * bytes due to page alignment) */
+	int queued_sglist;	 /* number of sglist entries queued for DMA */
+	u32 csr;		 /* DMA return code */
 	sgdma_callback_t callback;
 	void *arg;
 };
 
+/* physical DMA channel management */
 struct omap24xxcam_dma {
-	spinlock_t lock;	
+	spinlock_t lock;	/* Lock for the whole structure. */
 
-	unsigned long base;	
+	unsigned long base;	/* base address for dma controller */
 
+	/* While dma_stop!=0, an attempt to start a new DMA transfer will
+	 * fail.
+	 */
 	atomic_t dma_stop;
-	int free_dmach;		
-	int next_dmach;		
+	int free_dmach;		/* number of dma channels free */
+	int next_dmach;		/* index of next dma channel to use */
 	struct channel_state ch_state[NUM_CAMDMA_CHANNELS];
 };
 
+/* scatter-gather DMA (scatterlist stuff) management */
 struct omap24xxcam_sgdma {
 	struct omap24xxcam_dma dma;
 
-	spinlock_t lock;	
-	int free_sgdma;		
-	int next_sgdma;		
+	spinlock_t lock;	/* Lock for the fields below. */
+	int free_sgdma;		/* number of free sg dma slots */
+	int next_sgdma;		/* index of next sg dma slot to use */
 	struct sgdma_state sg_state[NUM_SG_DMA];
 
-	
+	/* Reset timer data */
 	struct timer_list reset_timer;
 };
 
+/* per-device data structure */
 struct omap24xxcam_device {
-	
+	/*** mutex  ***/
+	/*
+	 * mutex serialises access to this structure. Also camera
+	 * opening and releasing is synchronised by this.
+	 */
 	struct mutex mutex;
 
-	
+	/*** general driver state information ***/
 	atomic_t users;
+	/*
+	 * Lock to serialise core enabling and disabling and access to
+	 * sgdma_in_queue.
+	 */
 	spinlock_t core_enable_disable_lock;
+	/*
+	 * Number or sgdma requests in scatter-gather queue, protected
+	 * by the lock above.
+	 */
 	int sgdma_in_queue;
+	/*
+	 * Sensor interface parameters: interface type, CC_CTRL
+	 * register value and interface specific data.
+	 */
 	int if_type;
 	union {
 		struct parallel {
@@ -431,46 +486,63 @@ struct omap24xxcam_device {
 	} if_u;
 	u32 cc_ctrl;
 
-	
+	/*** subsystem structures ***/
 	struct omap24xxcam_sgdma sgdma;
 
-	
+	/*** hardware resources ***/
 	unsigned int irq;
 	unsigned long mmio_base;
 	unsigned long mmio_base_phys;
 	unsigned long mmio_size;
 
-	
+	/*** interfaces and device ***/
 	struct v4l2_int_device *sdev;
 	struct device *dev;
 	struct video_device *vfd;
 
-	
+	/*** camera and sensor reset related stuff ***/
 	struct work_struct sensor_reset_work;
+	/*
+	 * We're in the middle of a reset. Don't enable core if this
+	 * is non-zero! This exists to help decisionmaking in a case
+	 * where videobuf_qbuf is called while we are in the middle of
+	 * a reset.
+	 */
 	atomic_t in_reset;
+	/*
+	 * Non-zero if we don't want any resets for now. Used to
+	 * prevent reset work to run when we're about to stop
+	 * streaming.
+	 */
 	atomic_t reset_disable;
 
-	
+	/*** video device parameters ***/
 	int capture_mem;
 
-	
+	/*** camera module clocks ***/
 	struct clk *fck;
 	struct clk *ick;
 
-	
-	
+	/*** capture data ***/
+	/* file handle, if streaming is on */
 	struct file *streaming;
 };
 
+/* Per-file handle data. */
 struct omap24xxcam_fh {
-	spinlock_t vbq_lock; 
+	spinlock_t vbq_lock; /* spinlock for the videobuf queue */
 	struct videobuf_queue vbq;
-	struct v4l2_pix_format pix; 
-	atomic_t field_count; 
-	
+	struct v4l2_pix_format pix; /* serialise pix by vbq->lock */
+	atomic_t field_count; /* field counter for videobuf_buffer */
+	/* accessing cam here doesn't need serialisation: it's constant */
 	struct omap24xxcam_device *cam;
 };
 
+/*
+ *
+ * Register I/O functions.
+ *
+ */
 
 static inline u32 omap24xxcam_reg_in(unsigned long base, u32 offset)
 {
@@ -494,11 +566,18 @@ static inline u32 omap24xxcam_reg_merge(unsigned long base, u32 offset,
 	return new_val;
 }
 
+/*
+ *
+ * Function prototypes.
+ *
+ */
 
+/* dma prototypes */
 
 void omap24xxcam_dma_hwinit(struct omap24xxcam_dma *dma);
 void omap24xxcam_dma_isr(struct omap24xxcam_dma *dma);
 
+/* sgdma prototypes */
 
 void omap24xxcam_sgdma_process(struct omap24xxcam_sgdma *sgdma);
 int omap24xxcam_sgdma_queue(struct omap24xxcam_sgdma *sgdma,

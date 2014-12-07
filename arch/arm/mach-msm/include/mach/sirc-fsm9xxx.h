@@ -14,12 +14,14 @@
 #ifndef __ASM_ARCH_MSM_SIRC_FSM9XXX_H
 #define __ASM_ARCH_MSM_SIRC_FSM9XXX_H
 
+/* Group A */
 #define INT_EBI2_WR_ER_DONE           (FIRST_SIRC_IRQ + 0)
 #define INT_EBI2_OP_DONE              (FIRST_SIRC_IRQ + 1)
 #define INT_SDC1_0                    (FIRST_SIRC_IRQ + 2)
 #define INT_SDC1_1                    (FIRST_SIRC_IRQ + 3)
 #define INT_UARTDM                    (FIRST_SIRC_IRQ + 4)
 #define INT_UART1                     (FIRST_SIRC_IRQ + 5)
+/*  RESERVED 6 */
 #define INT_CE                        (FIRST_SIRC_IRQ + 7)
 #define INT_SYS_ENZO_IEQ              (FIRST_SIRC_IRQ + 8)
 #define INT_PERPH_ENZO                (FIRST_SIRC_IRQ + 9)
@@ -39,6 +41,7 @@
 #define INT_BPM_HW                    (FIRST_SIRC_IRQ + 23)
 #define INT_GPIO_167                  (FIRST_SIRC_IRQ + 24)
 
+/* Group B */
 #define INT_GPIO_166                  (FIRST_SIRC_IRQ + 25)
 #define INT_GPIO_165                  (FIRST_SIRC_IRQ + 26)
 #define INT_GPIO_164                  (FIRST_SIRC_IRQ + 27)
@@ -62,6 +65,7 @@
 #define INT_GPIO_146                  (FIRST_SIRC_IRQ + 45)
 #define INT_GPIO_145                  (FIRST_SIRC_IRQ + 46)
 #define INT_GPIO_144                  (FIRST_SIRC_IRQ + 47)
+/* RESERVED 48 */
 
 #define NR_SIRC_IRQS_GROUPA           25
 #define NR_SIRC_IRQS_GROUPB           24
@@ -77,4 +81,4 @@
 #define SPSS_SIRC_INT_TYPE            (MSM_SIRC_BASE + 0x30)
 #define SPSS_SIRC_VEC_INDEX_RD        (MSM_SIRC_BASE + 0x48)
 
-#endif 
+#endif /* __ASM_ARCH_MSM_SIRC_FSM9XXX_H */

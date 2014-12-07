@@ -20,9 +20,19 @@
  *          Adrian Hunter
  */
 
+/* This file implements reading and writing the master node */
 
 #include "ubifs.h"
 
+/**
+ * scan_for_master - search the valid master node.
+ * @c: UBIFS file-system description object
+ *
+ * This function scans the master node LEBs and search for the latest master
+ * node. Returns zero in case of success, %-EUCLEAN if there master area is
+ * corrupted and requires recovery, and a negative error code in case of
+ * failure.
+ */
 static int scan_for_master(struct ubifs_info *c)
 {
 	struct ubifs_scan_leb *sleb;
@@ -78,6 +88,13 @@ out_dump:
 	return -EINVAL;
 }
 
+/**
+ * validate_master - validate master node.
+ * @c: UBIFS file-system description object
+ *
+ * This function validates data which was read from master node. Returns zero
+ * if the data is all right and %-EINVAL if not.
+ */
 static int validate_master(const struct ubifs_info *c)
 {
 	long long main_sz;
@@ -228,6 +245,14 @@ out:
 	return -EINVAL;
 }
 
+/**
+ * ubifs_read_master - read master node.
+ * @c: UBIFS file-system description object
+ *
+ * This function finds and reads the master node during file-system mount. If
+ * the flash is empty, it creates default master node as well. Returns zero in
+ * case of success and a negative error code in case of failure.
+ */
 int ubifs_read_master(struct ubifs_info *c)
 {
 	int err, old_leb_cnt;
@@ -241,10 +266,14 @@ int ubifs_read_master(struct ubifs_info *c)
 		if (err == -EUCLEAN)
 			err = ubifs_recover_master_node(c);
 		if (err)
+			/*
+			 * Note, we do not free 'c->mst_node' here because the
+			 * unmount routine will take care of this.
+			 */
 			return err;
 	}
 
-	
+	/* Make sure that the recovery flag is clear */
 	c->mst_node->flags &= cpu_to_le32(~UBIFS_MST_RCVRY);
 
 	c->max_sqnum       = le64_to_cpu(c->mst_node->ch.sqnum);
@@ -282,7 +311,7 @@ int ubifs_read_master(struct ubifs_info *c)
 		c->no_orphs = 1;
 
 	if (old_leb_cnt != c->leb_cnt) {
-		
+		/* The file system has been resized */
 		int growth = c->leb_cnt - old_leb_cnt;
 
 		if (c->leb_cnt < old_leb_cnt ||

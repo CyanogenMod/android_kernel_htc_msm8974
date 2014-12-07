@@ -39,6 +39,13 @@
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 
+/*
+ * IrDA
+ *
+ * S67: 5bit : ON  power
+ *    : 6bit : ON  remote control
+ *             OFF IrDA
+ */
 
 static struct mtd_partition nor_flash_partitions[] = {
 	{
@@ -92,12 +99,13 @@ static struct platform_device nor_flash_device = {
 	.resource	= nor_flash_resources,
 };
 
+/* USBHS */
 static void usb_host_port_power(int port, int power)
 {
-	if (!power) 
+	if (!power) /* only power-on supported for now */
 		return;
 
-	
+	/* set VBOUT/PWEN and EXTLP0 in DVSTCTR */
 	__raw_writew(__raw_readw(0xe6890008) | 0x600, 0xe6890008);
 }
 
@@ -114,7 +122,7 @@ static struct resource usb_host_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= evt2irq(0xa20), 
+		.start	= evt2irq(0xa20), /* USBHS_USHI0 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -131,6 +139,7 @@ static struct platform_device usb_host_device = {
 	.resource	= usb_host_resources,
 };
 
+/* KEYSC */
 static struct sh_keysc_info keysc_info = {
 	.mode		= SH_KEYSC_MODE_5,
 	.scan_timing	= 3,
@@ -153,7 +162,7 @@ static struct resource keysc_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
-		.start  = evt2irq(0xbe0), 
+		.start  = evt2irq(0xbe0), /* KEYSC_KEY */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
@@ -216,7 +225,7 @@ static struct resource irda_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start  = evt2irq(0x480), 
+		.start  = evt2irq(0x480), /* IRDA */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
@@ -240,28 +249,28 @@ static void __init g3evm_init(void)
 {
 	sh7367_pinmux_init();
 
-	
+	/* Lit DS4 LED */
 	gpio_request(GPIO_PORT22, NULL);
 	gpio_direction_output(GPIO_PORT22, 1);
 	gpio_export(GPIO_PORT22, 0);
 
-	
+	/* Lit DS8 LED */
 	gpio_request(GPIO_PORT23, NULL);
 	gpio_direction_output(GPIO_PORT23, 1);
 	gpio_export(GPIO_PORT23, 0);
 
-	
+	/* Lit DS3 LED */
 	gpio_request(GPIO_PORT24, NULL);
 	gpio_direction_output(GPIO_PORT24, 1);
 	gpio_export(GPIO_PORT24, 0);
 
-	
+	/* SCIFA1 */
 	gpio_request(GPIO_FN_SCIFA1_TXD, NULL);
 	gpio_request(GPIO_FN_SCIFA1_RXD, NULL);
 	gpio_request(GPIO_FN_SCIFA1_CTS, NULL);
 	gpio_request(GPIO_FN_SCIFA1_RTS, NULL);
 
-	
+	/* USBHS */
 	gpio_request(GPIO_FN_VBUS0, NULL);
 	gpio_request(GPIO_FN_PWEN, NULL);
 	gpio_request(GPIO_FN_OVCN, NULL);
@@ -269,13 +278,13 @@ static void __init g3evm_init(void)
 	gpio_request(GPIO_FN_EXTLP, NULL);
 	gpio_request(GPIO_FN_IDIN, NULL);
 
-	
-	__raw_writew(0x0300, 0xe605810a);	
-	__raw_writew(0x00e0, 0xe60581c0);	
-	__raw_writew(0x6010, 0xe60581c6);	
-	__raw_writew(0x8a0a, 0xe605810c);	
+	/* setup USB phy */
+	__raw_writew(0x0300, 0xe605810a);	/* USBCR1 */
+	__raw_writew(0x00e0, 0xe60581c0);	/* CPFCH */
+	__raw_writew(0x6010, 0xe60581c6);	/* CGPOSR */
+	__raw_writew(0x8a0a, 0xe605810c);	/* USBCR2 */
 
-	
+	/* KEYSC @ CN7 */
 	gpio_request(GPIO_FN_PORT42_KEYOUT0, NULL);
 	gpio_request(GPIO_FN_PORT43_KEYOUT1, NULL);
 	gpio_request(GPIO_FN_PORT44_KEYOUT2, NULL);
@@ -290,7 +299,7 @@ static void __init g3evm_init(void)
 	gpio_request(GPIO_FN_PORT57_KEYIN5_PU, NULL);
 	gpio_request(GPIO_FN_PORT58_KEYIN6_PU, NULL);
 
-	
+	/* FLCTL */
 	gpio_request(GPIO_FN_FCE0, NULL);
 	gpio_request(GPIO_FN_D0_ED0_NAF0, NULL);
 	gpio_request(GPIO_FN_D1_ED1_NAF1, NULL);
@@ -310,10 +319,10 @@ static void __init g3evm_init(void)
 	gpio_request(GPIO_FN_D15_ED15_NAF15, NULL);
 	gpio_request(GPIO_FN_WE0_XWR0_FWE, NULL);
 	gpio_request(GPIO_FN_FRB, NULL);
-	
+	/* FOE, FCDE, FSC on dedicated pins */
 	__raw_writel(__raw_readl(0xe6158048) & ~(1 << 15), 0xe6158048);
 
-	
+	/* IrDA */
 	gpio_request(GPIO_FN_IRDA_OUT, NULL);
 	gpio_request(GPIO_FN_IRDA_IN, NULL);
 	gpio_request(GPIO_FN_IRDA_FIRSEL, NULL);

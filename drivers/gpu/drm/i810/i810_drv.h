@@ -32,6 +32,8 @@
 #ifndef _I810_DRV_H_
 #define _I810_DRV_H_
 
+/* General customization:
+ */
 
 #define DRIVER_AUTHOR		"VA Linux Systems Inc."
 
@@ -39,6 +41,16 @@
 #define DRIVER_DESC		"Intel i810"
 #define DRIVER_DATE		"20030605"
 
+/* Interface history
+ *
+ * 1.1   - XFree86 4.1
+ * 1.2   - XvMC interfaces
+ *       - XFree86 4.2
+ * 1.2.1 - Disable copying code (leave stub ioctls for backwards compatibility)
+ *       - Remove requirement for interrupt (leave stubs again)
+ * 1.3   - Add page flipping.
+ * 1.4   - fix DRM interface
+ */
 #define DRIVER_MAJOR		1
 #define DRIVER_MINOR		4
 #define DRIVER_PATCHLEVEL	0
@@ -102,7 +114,7 @@ typedef struct drm_i810_private {
 	int front_offset;
 } drm_i810_private_t;
 
-				
+				/* i810_dma.c */
 extern int i810_driver_dma_quiescent(struct drm_device *dev);
 extern void i810_driver_reclaim_buffers_locked(struct drm_device *dev,
 					       struct drm_file *file_priv);

@@ -11,8 +11,12 @@
 #include "check.h"
 #include "atari.h"
 
+/* ++guenther: this should be settable by the user ("make config")?.
+ */
 #define ICD_PARTS
 
+/* check if a partition entry looks valid -- Atari format is assumed if at
+   least one of the primary entries is ok this way */
 #define	VALID_PARTITION(pi,hdsiz)					     \
     (((pi)->flg & 1) &&							     \
      isalnum((pi)->id[0]) && isalnum((pi)->id[1]) && isalnum((pi)->id[2]) && \
@@ -35,19 +39,24 @@ int atari_partition(struct parsed_partitions *state)
 	u32 hd_size;
 	int slot;
 #ifdef ICD_PARTS
-	int part_fmt = 0; 
+	int part_fmt = 0; /* 0:unknown, 1:AHDI, 2:ICD/Supra */
 #endif
 
 	rs = read_part_sector(state, 0, &sect);
 	if (!rs)
 		return -1;
 
-	
+	/* Verify this is an Atari rootsector: */
 	hd_size = state->bdev->bd_inode->i_size >> 9;
 	if (!VALID_PARTITION(&rs->part[0], hd_size) &&
 	    !VALID_PARTITION(&rs->part[1], hd_size) &&
 	    !VALID_PARTITION(&rs->part[2], hd_size) &&
 	    !VALID_PARTITION(&rs->part[3], hd_size)) {
+		/*
+		 * if there's no valid primary partition, assume that no Atari
+		 * format partition table (there's no reliable magic or the like
+	         * :-()
+		 */
 		put_dev_sector(sect);
 		return 0;
 	}
@@ -61,14 +70,14 @@ int atari_partition(struct parsed_partitions *state)
 
 		if ( !(pi->flg & 1) )
 			continue;
-		
+		/* active partition */
 		if (memcmp (pi->id, "XGM", 3) != 0) {
-			
+			/* we don't care about other id's */
 			put_partition (state, slot, be32_to_cpu(pi->st),
 					be32_to_cpu(pi->siz));
 			continue;
 		}
-		
+		/* extension partition */
 #ifdef ICD_PARTS
 		part_fmt = 1;
 #endif
@@ -82,7 +91,7 @@ int atari_partition(struct parsed_partitions *state)
 				return -1;
 			}
 
-			
+			/* ++roman: sanity check: bit 0 of flg field must be set */
 			if (!(xrs->part[0].flg & 1)) {
 				printk( "\nFirst sub-partition in extended partition is not valid!\n" );
 				put_dev_sector(sect2);
@@ -94,7 +103,7 @@ int atari_partition(struct parsed_partitions *state)
 				   be32_to_cpu(xrs->part[0].siz));
 
 			if (!(xrs->part[1].flg & 1)) {
-				
+				/* end of linked partition list */
 				put_dev_sector(sect2);
 				break;
 			}
@@ -114,13 +123,13 @@ int atari_partition(struct parsed_partitions *state)
 		strlcat(state->pp_buf, " >", PAGE_SIZE);
 	}
 #ifdef ICD_PARTS
-	if ( part_fmt!=1 ) { 
+	if ( part_fmt!=1 ) { /* no extended partitions -> test ICD-format */
 		pi = &rs->icdpart[0];
-		
+		/* sanity check: no ICD format if first partition invalid */
 		if (OK_id(pi->id)) {
 			strlcat(state->pp_buf, " ICD<", PAGE_SIZE);
 			for (; pi < &rs->icdpart[8] && slot < state->limit; slot++, pi++) {
-				
+				/* accept only GEM,BGM,RAW,LNX,SWP partitions */
 				if (!((pi->flg & 1) && OK_id(pi->id)))
 					continue;
 				part_fmt = 2;

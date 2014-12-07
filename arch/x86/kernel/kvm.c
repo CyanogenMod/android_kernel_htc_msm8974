@@ -63,6 +63,9 @@ static DEFINE_PER_CPU(struct kvm_vcpu_pv_apf_data, apf_reason) __aligned(64);
 static DEFINE_PER_CPU(struct kvm_steal_time, steal_time) __aligned(64);
 static int has_steal_clock = 0;
 
+/*
+ * No need for any "IO delay" on KVM
+ */
 static void kvm_io_delay(void)
 {
 }
@@ -113,7 +116,7 @@ void kvm_async_pf_task_wait(u32 token)
 	spin_lock(&b->lock);
 	e = _find_apf_task(b, token);
 	if (e) {
-		
+		/* dummy entry exist -> wake up was delivered ahead of PF */
 		hlist_del(&e->link);
 		kfree(e);
 		spin_unlock(&b->lock);
@@ -138,6 +141,9 @@ void kvm_async_pf_task_wait(u32 token)
 			schedule();
 			local_irq_disable();
 		} else {
+			/*
+			 * We cannot reschedule. So halt.
+			 */
 			native_safe_halt();
 			local_irq_disable();
 		}
@@ -191,8 +197,16 @@ again:
 	spin_lock(&b->lock);
 	n = _find_apf_task(b, token);
 	if (!n) {
+		/*
+		 * async PF was not yet handled.
+		 * Add dummy entry for the token.
+		 */
 		n = kzalloc(sizeof(*n), GFP_ATOMIC);
 		if (!n) {
+			/*
+			 * Allocation failed! Busy wait while other cpu
+			 * handles async PF.
+			 */
 			spin_unlock(&b->lock);
 			cpu_relax();
 			goto again;
@@ -229,7 +243,7 @@ do_async_page_fault(struct pt_regs *regs, unsigned long error_code)
 		do_page_fault(regs, error_code);
 		break;
 	case KVM_PV_REASON_PAGE_NOT_PRESENT:
-		
+		/* page is swapped out by the host. */
 		kvm_async_pf_task_wait((u32)read_cr2());
 		break;
 	case KVM_PV_REASON_PAGE_READY:

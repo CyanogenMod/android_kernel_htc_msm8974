@@ -38,7 +38,7 @@ const struct register_map cronus_register_map __initdata = {
 	.chipver1 = {.phys = CRONUS_ADDR(0x2A0808)},
 	.chipver0 = {.phys = CRONUS_ADDR(0x2A080C)},
 
-	
+	/* The registers of IRBlaster */
 	.uart1_intstat = {.phys = CRONUS_ADDR(0x2A1800)},
 	.uart1_inten = {.phys = CRONUS_ADDR(0x2A1804)},
 	.uart1_config1 = {.phys = CRONUS_ADDR(0x2A1808)},

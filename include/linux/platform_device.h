@@ -25,10 +25,10 @@ struct platform_device {
 
 	const struct platform_device_id	*id_entry;
 
-	
+	/* MFD cell pointer */
 	struct mfd_cell *mfd_cell;
 
-	
+	/* arch specific additions */
 	struct pdev_archdata	archdata;
 };
 
@@ -65,6 +65,20 @@ struct platform_device_info {
 extern struct platform_device *platform_device_register_full(
 		const struct platform_device_info *pdevinfo);
 
+/**
+ * platform_device_register_resndata - add a platform-level device with
+ * resources and platform-specific data
+ *
+ * @parent: parent device for the device we're adding
+ * @name: base name of the device we're adding
+ * @id: instance id
+ * @res: set of resources that needs to be allocated for the device
+ * @num: number of resources
+ * @data: platform specific data for this platform device
+ * @size: size of platform specific data
+ *
+ * Returns &struct platform_device pointer on success, or ERR_PTR() on error.
+ */
 static inline struct platform_device *platform_device_register_resndata(
 		struct device *parent, const char *name, int id,
 		const struct resource *res, unsigned int num,
@@ -84,6 +98,28 @@ static inline struct platform_device *platform_device_register_resndata(
 	return platform_device_register_full(&pdevinfo);
 }
 
+/**
+ * platform_device_register_simple - add a platform-level device and its resources
+ * @name: base name of the device we're adding
+ * @id: instance id
+ * @res: set of resources that needs to be allocated for the device
+ * @num: number of resources
+ *
+ * This function creates a simple platform device that requires minimal
+ * resource and memory management. Canned release function freeing memory
+ * allocated for the device allows drivers using such devices to be
+ * unloaded without waiting for the last reference to the device to be
+ * dropped.
+ *
+ * This interface is primarily intended for use with legacy drivers which
+ * probe hardware directly.  Because such drivers create sysfs device nodes
+ * themselves, rather than letting system infrastructure handle such device
+ * enumeration tasks, they don't fully conform to the Linux driver model.
+ * In particular, when such drivers are built as modules, they can't be
+ * "hotplugged".
+ *
+ * Returns &struct platform_device pointer on success, or ERR_PTR() on error.
+ */
 static inline struct platform_device *platform_device_register_simple(
 		const char *name, int id,
 		const struct resource *res, unsigned int num)
@@ -92,6 +128,22 @@ static inline struct platform_device *platform_device_register_simple(
 			res, num, NULL, 0);
 }
 
+/**
+ * platform_device_register_data - add a platform-level device with platform-specific data
+ * @parent: parent device for the device we're adding
+ * @name: base name of the device we're adding
+ * @id: instance id
+ * @data: platform specific data for this platform device
+ * @size: size of platform specific data
+ *
+ * This function creates a simple platform device that requires minimal
+ * resource and memory management. Canned release function freeing memory
+ * allocated for the device allows drivers using such devices to be
+ * unloaded without waiting for the last reference to the device to be
+ * dropped.
+ *
+ * Returns &struct platform_device pointer on success, or ERR_PTR() on error.
+ */
 static inline struct platform_device *platform_device_register_data(
 		struct device *parent, const char *name, int id,
 		const void *data, size_t size)
@@ -122,6 +174,9 @@ struct platform_driver {
 extern int platform_driver_register(struct platform_driver *);
 extern void platform_driver_unregister(struct platform_driver *);
 
+/* non-hotpluggable platform devices may use this so that probe() and
+ * its support may live in __init sections, conserving runtime memory.
+ */
 extern int platform_driver_probe(struct platform_driver *driver,
 		int (*probe)(struct platform_device *));
 
@@ -135,6 +190,11 @@ static inline void platform_set_drvdata(struct platform_device *pdev, void *data
 	dev_set_drvdata(&pdev->dev, data);
 }
 
+/* module_platform_driver() - Helper macro for drivers that don't do
+ * anything special in module init/exit.  This eliminates a lot of
+ * boilerplate.  Each module may only use this macro once, and
+ * calling it replaces module_init() and module_exit()
+ */
 #define module_platform_driver(__platform_driver) \
 	module_driver(__platform_driver, platform_driver_register, \
 			platform_driver_unregister)
@@ -144,6 +204,7 @@ extern struct platform_device *platform_create_bundle(struct platform_driver *dr
 					struct resource *res, unsigned int n_res,
 					const void *data, size_t size);
 
+/* early platform driver interface */
 struct early_platform_driver {
 	const char *class_str;
 	struct platform_driver *pdrv;
@@ -187,13 +248,13 @@ static int __init early_platform_driver_setup_func(char *buffer)	\
 	return early_platform_driver_register(&early_driver, buffer);	\
 }									\
 early_param(class_string, early_platform_driver_setup_func)
-#else 
+#else /* MODULE */
 #define early_platform_init_buffer(class_string, platdrv, buf, bufsiz)	\
 static inline char *early_platform_driver_setup_func(void)		\
 {									\
 	return bufsiz ? buf : NULL;					\
 }
-#endif 
+#endif /* MODULE */
 
 #ifdef CONFIG_SUSPEND
 extern int platform_pm_suspend(struct device *dev);
@@ -227,4 +288,4 @@ extern int platform_pm_restore(struct device *dev);
 #define USE_PLATFORM_PM_SLEEP_OPS
 #endif
 
-#endif 
+#endif /* _PLATFORM_DEVICE_H_ */

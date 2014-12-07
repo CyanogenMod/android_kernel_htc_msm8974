@@ -59,14 +59,14 @@ static ssize_t als_lux_input_data_show(struct device *dev,
 	msleep(100);
 
 	mutex_lock(&mutex);
-	temp = i2c_smbus_read_byte_data(client, 0x02); 
+	temp = i2c_smbus_read_byte_data(client, 0x02); /* MSB data */
 	if (temp < 0) {
 		pm_runtime_put_sync(dev);
 		mutex_unlock(&mutex);
 		return temp;
 	}
 
-	ret_val = i2c_smbus_read_byte_data(client, 0x01); 
+	ret_val = i2c_smbus_read_byte_data(client, 0x01); /* LSB data */
 	mutex_unlock(&mutex);
 
 	if (ret_val < 0) {
@@ -95,7 +95,7 @@ static ssize_t als_sensing_range_store(struct device *dev,
 	if (val < 1 || val > 64000)
 		return -EINVAL;
 
-	
+	/* Pick the smallest sensor range that will meet our requirements */
 	if (val <= 1000)
 		val = 1;
 	else if (val <= 4000)
@@ -109,7 +109,7 @@ static ssize_t als_sensing_range_store(struct device *dev,
 	if (ret_val < 0)
 		return ret_val;
 
-	ret_val &= 0xFC; 
+	ret_val &= 0xFC; /*reset the bit before setting them */
 	ret_val |= val - 1;
 	ret_val = i2c_smbus_write_byte_data(client, 0x00, ret_val);
 
@@ -216,9 +216,9 @@ static const struct dev_pm_ops isl29020_pm_ops = {
 };
 
 #define ISL29020_PM_OPS (&isl29020_pm_ops)
-#else	
+#else	/* CONFIG_PM */
 #define ISL29020_PM_OPS NULL
-#endif	
+#endif	/* CONFIG_PM */
 
 static struct i2c_driver isl29020_driver = {
 	.driver = {

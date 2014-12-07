@@ -16,29 +16,32 @@
 #define KS8695_PCI_PA		(KS8695_IO_PA + KS8695_PCI_OFFSET)
 
 
-#define KS8695_CRCFID		(0x000)		
-#define KS8695_CRCFCS		(0x004)		
-#define KS8695_CRCFRV		(0x008)		
-#define KS8695_CRCFLT		(0x00C)		
-#define KS8695_CRCBMA		(0x010)		
-#define KS8695_CRCSID		(0x02C)		
-#define KS8695_CRCFIT		(0x03C)		
-#define KS8695_PBCA		(0x100)		
-#define KS8695_PBCD		(0x104)		
-#define KS8695_PBM		(0x200)		
-#define KS8695_PBCS		(0x204)		
-#define KS8695_PMBA		(0x208)		
-#define KS8695_PMBAC		(0x20C)		
-#define KS8695_PMBAM		(0x210)		
-#define KS8695_PMBAT		(0x214)		
-#define KS8695_PIOBA		(0x218)		
-#define KS8695_PIOBAC		(0x21C)		
-#define KS8695_PIOBAM		(0x220)		
-#define KS8695_PIOBAT		(0x224)		
+#define KS8695_CRCFID		(0x000)		/* Configuration: Identification */
+#define KS8695_CRCFCS		(0x004)		/* Configuration: Command and Status */
+#define KS8695_CRCFRV		(0x008)		/* Configuration: Revision */
+#define KS8695_CRCFLT		(0x00C)		/* Configuration: Latency Timer */
+#define KS8695_CRCBMA		(0x010)		/* Configuration: Base Memory Address */
+#define KS8695_CRCSID		(0x02C)		/* Configuration: Subsystem ID */
+#define KS8695_CRCFIT		(0x03C)		/* Configuration: Interrupt */
+#define KS8695_PBCA		(0x100)		/* Bridge Configuration Address */
+#define KS8695_PBCD		(0x104)		/* Bridge Configuration Data */
+#define KS8695_PBM		(0x200)		/* Bridge Mode */
+#define KS8695_PBCS		(0x204)		/* Bridge Control and Status */
+#define KS8695_PMBA		(0x208)		/* Bridge Memory Base Address */
+#define KS8695_PMBAC		(0x20C)		/* Bridge Memory Base Address Control */
+#define KS8695_PMBAM		(0x210)		/* Bridge Memory Base Address Mask */
+#define KS8695_PMBAT		(0x214)		/* Bridge Memory Base Address Translation */
+#define KS8695_PIOBA		(0x218)		/* Bridge I/O Base Address */
+#define KS8695_PIOBAC		(0x21C)		/* Bridge I/O Base Address Control */
+#define KS8695_PIOBAM		(0x220)		/* Bridge I/O Base Address Mask */
+#define KS8695_PIOBAT		(0x224)		/* Bridge I/O Base Address Translation */
 
 
+/* Configuration: Identification */
 
+/* Configuration: Command and Status */
 
+/* Configuration: Revision */
 
 
 

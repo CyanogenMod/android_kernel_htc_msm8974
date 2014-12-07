@@ -73,4 +73,4 @@ struct ib_user_path_rec {
 	__u8	preference;
 };
 
-#endif 
+#endif /* IB_USER_SA_H */

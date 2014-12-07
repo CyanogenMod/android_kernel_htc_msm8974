@@ -51,7 +51,7 @@ void __init init_pointer_table(unsigned long ptable)
 	printk("init_pointer_table: %lx, %x\n", ptable, PD_MARKBITS(dp));
 #endif
 
-	
+	/* unreserve the page so it's possible to free that page */
 	PD_PAGE(dp)->flags &= ~(1 << PG_reserved);
 	init_page_count(PD_PAGE(dp));
 
@@ -65,6 +65,12 @@ pmd_t *get_pointer_table (void)
 	unsigned char tmp;
 	unsigned int off;
 
+	/*
+	 * For a pointer table for a user process address space, a
+	 * table is taken from a page allocated for the purpose.  Each
+	 * page can hold 8 pointer tables.  The page is remapped in
+	 * virtual address space to be noncacheable.
+	 */
 	if (mask == 0) {
 		void *page;
 		ptable_desc *new;
@@ -86,7 +92,7 @@ pmd_t *get_pointer_table (void)
 		;
 	PD_MARKBITS(dp) = mask & ~tmp;
 	if (!PD_MARKBITS(dp)) {
-		
+		/* move to end of list */
 		list_move_tail(dp, &ptable_list);
 	}
 	return (pmd_t *) (page_address(PD_PAGE(dp)) + off);
@@ -105,17 +111,22 @@ int free_pointer_table (pmd_t *ptable)
 	PD_MARKBITS (dp) |= mask;
 
 	if (PD_MARKBITS(dp) == 0xff) {
-		
+		/* all tables in page are free, free page */
 		list_del(dp);
 		cache_page((void *)page);
 		free_page (page);
 		return 1;
 	} else if (ptable_list.next != dp) {
+		/*
+		 * move this descriptor to the front of the list, since
+		 * it has one or more free tables.
+		 */
 		list_move(dp, &ptable_list);
 	}
 	return 0;
 }
 
+/* invalidate page in both caches */
 static inline void clear040(unsigned long paddr)
 {
 	asm volatile (
@@ -126,6 +137,7 @@ static inline void clear040(unsigned long paddr)
 		: : "a" (paddr));
 }
 
+/* invalidate page in i-cache */
 static inline void cleari040(unsigned long paddr)
 {
 	asm volatile (
@@ -136,6 +148,8 @@ static inline void cleari040(unsigned long paddr)
 		: : "a" (paddr));
 }
 
+/* push page in both caches */
+/* RZ: cpush %bc DOES invalidate %ic, regardless of DPI */
 static inline void push040(unsigned long paddr)
 {
 	asm volatile (
@@ -146,6 +160,8 @@ static inline void push040(unsigned long paddr)
 		: : "a" (paddr));
 }
 
+/* push and invalidate page in both caches, must disable ints
+ * to avoid invalidating valid data */
 static inline void pushcl040(unsigned long paddr)
 {
 	unsigned long flags;
@@ -157,6 +173,24 @@ static inline void pushcl040(unsigned long paddr)
 	local_irq_restore(flags);
 }
 
+/*
+ * 040: Hit every page containing an address in the range paddr..paddr+len-1.
+ * (Low order bits of the ea of a CINVP/CPUSHP are "don't care"s).
+ * Hit every page until there is a page or less to go. Hit the next page,
+ * and the one after that if the range hits it.
+ */
+/* ++roman: A little bit more care is required here: The CINVP instruction
+ * invalidates cache entries WITHOUT WRITING DIRTY DATA BACK! So the beginning
+ * and the end of the region must be treated differently if they are not
+ * exactly at the beginning or end of a page boundary. Else, maybe too much
+ * data becomes invalidated and thus lost forever. CPUSHP does what we need:
+ * it invalidates the page after pushing dirty data to memory. (Thanks to Jes
+ * for discovering the problem!)
+ */
+/* ... but on the '060, CPUSH doesn't invalidate (for us, since we have set
+ * the DPI bit in the CACR; would it cause problems with temporarily changing
+ * this?). So we have to push first and then additionally to invalidate.
+ */
 
 
 /*
@@ -173,6 +207,11 @@ void cache_clear (unsigned long paddr, int len)
     } else if (CPU_IS_040_OR_060) {
 	int tmp;
 
+	/*
+	 * We need special treatment for the first page, in case it
+	 * is not page-aligned. Page align the addresses to work
+	 * around bug I17 in the 68060.
+	 */
 	if ((tmp = -paddr & (PAGE_SIZE - 1))) {
 	    pushcl040(paddr & PAGE_MASK);
 	    if ((len -= tmp) <= 0)
@@ -186,10 +225,10 @@ void cache_clear (unsigned long paddr, int len)
 	    paddr += tmp;
 	}
 	if ((len += tmp))
-	    
+	    /* a page boundary gets crossed at the end */
 	    pushcl040(paddr);
     }
-    else 
+    else /* 68030 or 68020 */
 	asm volatile ("movec %/cacr,%/d0\n\t"
 		      "oriw %0,%/d0\n\t"
 		      "movec %/d0,%/cacr"
@@ -203,6 +242,12 @@ void cache_clear (unsigned long paddr, int len)
 EXPORT_SYMBOL(cache_clear);
 
 
+/*
+ * cache_push() semantics: Write back any dirty cache data in the given area,
+ * and invalidate the range in the instruction cache. It needs not (but may)
+ * invalidate those entries also in the data cache. The range is defined by a
+ * _physical_ address.
+ */
 
 void cache_push (unsigned long paddr, int len)
 {
@@ -211,8 +256,17 @@ void cache_push (unsigned long paddr, int len)
     } else if (CPU_IS_040_OR_060) {
 	int tmp = PAGE_SIZE;
 
+	/*
+         * on 68040 or 68060, push cache lines for pages in the range;
+	 * on the '040 this also invalidates the pushed lines, but not on
+	 * the '060!
+	 */
 	len += paddr & (PAGE_SIZE - 1);
 
+	/*
+	 * Work around bug I17 in the 68060 affecting some instruction
+	 * lines not being invalidated properly.
+	 */
 	paddr &= PAGE_MASK;
 
 	do {
@@ -229,7 +283,7 @@ void cache_push (unsigned long paddr, int len)
      * flushing the icache is appropriate; flushing the dcache shouldn't
      * be required.
      */
-    else 
+    else /* 68030 or 68020 */
 	asm volatile ("movec %/cacr,%/d0\n\t"
 		      "oriw %0,%/d0\n\t"
 		      "movec %/d0,%/cacr"

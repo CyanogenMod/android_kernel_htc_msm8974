@@ -1,3 +1,4 @@
+/* Event cache for netfilter. */
 
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2006 Netfilter Core Team <coreteam@netfilter.org>
@@ -26,6 +27,8 @@
 
 static DEFINE_MUTEX(nf_ct_ecache_mutex);
 
+/* deliver cached events and clear cache entry - must be called with locally
+ * disabled softirqs */
 void nf_ct_deliver_cached_events(struct nf_conn *ct)
 {
 	struct net *net = nf_ct_net(ct);
@@ -49,6 +52,9 @@ void nf_ct_deliver_cached_events(struct nf_conn *ct)
 	if (!nf_ct_is_confirmed(ct) || nf_ct_is_dying(ct) || !events)
 		goto out_unlock;
 
+	/* We make a copy of the missed event cache without taking
+	 * the lock, thus we may send missed events twice. However,
+	 * this does not harm and it happens very rarely. */
 	missed = e->missed;
 
 	if (!((events | missed) & e->ctmask))
@@ -171,7 +177,7 @@ static struct ctl_table event_sysctl_table[] = {
 	},
 	{}
 };
-#endif 
+#endif /* CONFIG_SYSCTL */
 
 static struct nf_ct_ext_type event_extend __read_mostly = {
 	.len	= sizeof(struct nf_conntrack_ecache),
@@ -224,7 +230,7 @@ static int nf_conntrack_event_init_sysctl(struct net *net)
 static void nf_conntrack_event_fini_sysctl(struct net *net)
 {
 }
-#endif 
+#endif /* CONFIG_SYSCTL */
 
 int nf_conntrack_ecache_init(struct net *net)
 {

@@ -38,37 +38,37 @@
 
 void r420_pm_init_profile(struct radeon_device *rdev)
 {
-	
+	/* default */
 	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_off_ps_idx = rdev->pm.default_power_state_index;
 	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_on_ps_idx = rdev->pm.default_power_state_index;
 	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_off_cm_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_on_cm_idx = 0;
-	
+	/* low sh */
 	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_off_ps_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_on_ps_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_off_cm_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_on_cm_idx = 0;
-	
+	/* mid sh */
 	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_off_ps_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_on_ps_idx = 1;
 	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_off_cm_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_on_cm_idx = 0;
-	
+	/* high sh */
 	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_off_ps_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_on_ps_idx = rdev->pm.default_power_state_index;
 	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_off_cm_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_on_cm_idx = 0;
-	
+	/* low mh */
 	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_off_ps_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_on_ps_idx = rdev->pm.default_power_state_index;
 	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_off_cm_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_on_cm_idx = 0;
-	
+	/* mid mh */
 	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_off_ps_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_on_ps_idx = rdev->pm.default_power_state_index;
 	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_off_cm_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_on_cm_idx = 0;
-	
+	/* high mh */
 	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_off_ps_idx = 0;
 	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_on_ps_idx = rdev->pm.default_power_state_index;
 	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_off_cm_idx = 0;
@@ -87,19 +87,19 @@ void r420_pipes_init(struct radeon_device *rdev)
 	unsigned gb_pipe_select;
 	unsigned num_pipes;
 
-	
+	/* GA_ENHANCE workaround TCL deadlock issue */
 	WREG32(R300_GA_ENHANCE, R300_GA_DEADLOCK_CNTL | R300_GA_FASTSYNC_CNTL |
 	       (1 << 2) | (1 << 3));
-	
+	/* add idle wait as per freedesktop.org bug 24041 */
 	if (r100_gui_wait_for_idle(rdev)) {
 		printk(KERN_WARNING "Failed to wait GUI idle while "
 		       "programming pipes. Bad things might happen.\n");
 	}
-	
+	/* get max number of pipes */
 	gb_pipe_select = RREG32(R400_GB_PIPE_SELECT);
 	num_pipes = ((gb_pipe_select >> 12) & 3) + 1;
 
-	
+	/* SE chips have 1 pipe */
 	if ((rdev->pdev->device == 0x5e4c) ||
 	    (rdev->pdev->device == 0x5e4f))
 		num_pipes = 1;
@@ -108,7 +108,7 @@ void r420_pipes_init(struct radeon_device *rdev)
 	tmp = 0;
 	switch (num_pipes) {
 	default:
-		
+		/* force to 1 pipe */
 		num_pipes = 1;
 	case 1:
 		tmp = (0 << 1);
@@ -124,7 +124,7 @@ void r420_pipes_init(struct radeon_device *rdev)
 		break;
 	}
 	WREG32(R500_SU_REG_DEST, (1 << num_pipes) - 1);
-	
+	/* Sub pixel 1/12 so we can have 4K rendering according to doc */
 	tmp |= R300_TILE_SIZE_16 | R300_ENABLE_TILING;
 	WREG32(R300_GB_TILE_CONFIG, tmp);
 	if (r100_gui_wait_for_idle(rdev)) {
@@ -201,6 +201,12 @@ static void r420_cp_errata_init(struct radeon_device *rdev)
 {
 	struct radeon_ring *ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
 
+	/* RV410 and R420 can lock up if CP DMA to host memory happens
+	 * while the 2D engine is busy.
+	 *
+	 * The proper workaround is to queue a RESYNC at the beginning
+	 * of the CP init, apparently.
+	 */
 	radeon_scratch_get(rdev, &rdev->config.r300.resync_scratch);
 	radeon_ring_lock(rdev, ring, 8);
 	radeon_ring_write(ring, PACKET0(R300_CP_RESYNC_ADDR, 1));
@@ -213,6 +219,9 @@ static void r420_cp_errata_fini(struct radeon_device *rdev)
 {
 	struct radeon_ring *ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
 
+	/* Catch the RESYNC we dispatched all the way back,
+	 * at the very beginning of the CP init.
+	 */
 	radeon_ring_lock(rdev, ring, 8);
 	radeon_ring_write(ring, PACKET0(R300_RB3D_DSTCACHE_CTLSTAT, 0));
 	radeon_ring_write(ring, R300_RB3D_DC_FINISH);
@@ -224,12 +233,14 @@ static int r420_startup(struct radeon_device *rdev)
 {
 	int r;
 
-	
+	/* set common regs */
 	r100_set_common_regs(rdev);
-	
+	/* program mc */
 	r300_mc_program(rdev);
-	
+	/* Resume clock */
 	r420_clock_resume(rdev);
+	/* Initialize GART (initialize after TTM so we can allocate
+	 * memory through TTM but finalize after TTM) */
 	if (rdev->flags & RADEON_IS_PCIE) {
 		r = rv370_pcie_gart_enable(rdev);
 		if (r)
@@ -242,7 +253,7 @@ static int r420_startup(struct radeon_device *rdev)
 	}
 	r420_pipes_init(rdev);
 
-	
+	/* allocate wb buffer */
 	r = radeon_wb_init(rdev);
 	if (r)
 		return r;
@@ -253,10 +264,10 @@ static int r420_startup(struct radeon_device *rdev)
 		return r;
 	}
 
-	
+	/* Enable IRQ */
 	r100_irq_set(rdev);
 	rdev->config.r300.hdp_cntl = RREG32(RADEON_HOST_PATH_CNTL);
-	
+	/* 1M ring buffer */
 	r = r100_cp_init(rdev, 1024 * 1024);
 	if (r) {
 		dev_err(rdev->dev, "failed initializing CP (%d).\n", r);
@@ -282,28 +293,28 @@ int r420_resume(struct radeon_device *rdev)
 {
 	int r;
 
-	
+	/* Make sur GART are not working */
 	if (rdev->flags & RADEON_IS_PCIE)
 		rv370_pcie_gart_disable(rdev);
 	if (rdev->flags & RADEON_IS_PCI)
 		r100_pci_gart_disable(rdev);
-	
+	/* Resume clock before doing reset */
 	r420_clock_resume(rdev);
-	
+	/* Reset gpu before posting otherwise ATOM will enter infinite loop */
 	if (radeon_asic_reset(rdev)) {
 		dev_warn(rdev->dev, "GPU reset failed ! (0xE40=0x%08X, 0x7C0=0x%08X)\n",
 			RREG32(R_000E40_RBBM_STATUS),
 			RREG32(R_0007C0_CP_STAT));
 	}
-	
+	/* check if cards are posted or not */
 	if (rdev->is_atom_bios) {
 		atom_asic_init(rdev->mode_info.atom_context);
 	} else {
 		radeon_combios_asic_init(rdev->ddev);
 	}
-	
+	/* Resume clock after posting */
 	r420_clock_resume(rdev);
-	
+	/* Initialize surface registers */
 	radeon_surface_init(rdev);
 
 	rdev->accel_working = true;
@@ -355,14 +366,14 @@ int r420_init(struct radeon_device *rdev)
 {
 	int r;
 
-	
+	/* Initialize scratch registers */
 	radeon_scratch_init(rdev);
-	
+	/* Initialize surface registers */
 	radeon_surface_init(rdev);
-	
-	
+	/* TODO: disable VGA need to use VGA request */
+	/* restore some register to sane defaults */
 	r100_restore_sanity(rdev);
-	
+	/* BIOS*/
 	if (!radeon_get_bios(rdev)) {
 		if (ASIC_IS_AVIVO(rdev))
 			return -EINVAL;
@@ -378,30 +389,30 @@ int r420_init(struct radeon_device *rdev)
 			return r;
 		}
 	}
-	
+	/* Reset gpu before posting otherwise ATOM will enter infinite loop */
 	if (radeon_asic_reset(rdev)) {
 		dev_warn(rdev->dev,
 			"GPU reset failed ! (0xE40=0x%08X, 0x7C0=0x%08X)\n",
 			RREG32(R_000E40_RBBM_STATUS),
 			RREG32(R_0007C0_CP_STAT));
 	}
-	
+	/* check if cards are posted or not */
 	if (radeon_boot_test_post_card(rdev) == false)
 		return -EINVAL;
 
-	
+	/* Initialize clocks */
 	radeon_get_clock_info(rdev->ddev);
-	
+	/* initialize AGP */
 	if (rdev->flags & RADEON_IS_AGP) {
 		r = radeon_agp_init(rdev);
 		if (r) {
 			radeon_agp_disable(rdev);
 		}
 	}
-	
+	/* initialize memory controller */
 	r300_mc_init(rdev);
 	r420_debugfs(rdev);
-	
+	/* Fence driver */
 	r = radeon_fence_driver_init(rdev);
 	if (r) {
 		return r;
@@ -410,7 +421,7 @@ int r420_init(struct radeon_device *rdev)
 	if (r) {
 		return r;
 	}
-	
+	/* Memory manager */
 	r = radeon_bo_init(rdev);
 	if (r) {
 		return r;
@@ -439,7 +450,7 @@ int r420_init(struct radeon_device *rdev)
 
 	r = r420_startup(rdev);
 	if (r) {
-		
+		/* Somethings want wront with the accel init stop accel */
 		dev_err(rdev->dev, "Disabling GPU acceleration\n");
 		r100_cp_fini(rdev);
 		radeon_wb_fini(rdev);
@@ -455,6 +466,9 @@ int r420_init(struct radeon_device *rdev)
 	return 0;
 }
 
+/*
+ * Debugfs info
+ */
 #if defined(CONFIG_DEBUG_FS)
 static int r420_debugfs_pipes_info(struct seq_file *m, void *data)
 {

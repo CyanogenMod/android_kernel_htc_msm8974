@@ -4,6 +4,11 @@
 #include <linux/rwsem.h>
 
 struct autogroup {
+	/*
+	 * reference doesn't mean how many thread attach to this
+	 * autogroup now. It just stands for the number of task
+	 * could use this autogroup.
+	 */
 	struct kref		kref;
 	struct task_group	*tg;
 	struct rw_semaphore	lock;
@@ -34,7 +39,7 @@ autogroup_task_group(struct task_struct *p, struct task_group *tg)
 
 extern int autogroup_path(struct task_group *tg, char *buf, int buflen);
 
-#else 
+#else /* !CONFIG_SCHED_AUTOGROUP */
 
 static inline void autogroup_init(struct task_struct *init_task) {  }
 static inline void autogroup_free(struct task_group *tg) { }
@@ -56,4 +61,4 @@ static inline int autogroup_path(struct task_group *tg, char *buf, int buflen)
 }
 #endif
 
-#endif 
+#endif /* CONFIG_SCHED_AUTOGROUP */

@@ -76,6 +76,9 @@
 #include <bits/wordsize.h>
 #include "mei.h"
 
+/*****************************************************************************
+ * Intel Management Engine Interface
+ *****************************************************************************/
 
 #define mei_msg(_me, fmt, ARGS...) do {         \
 	if (_me->verbose)                       \
@@ -197,7 +200,7 @@ static ssize_t mei_send_msg(struct mei *me, const unsigned char *buffer,
 	} else if (rc == 0) {
 		mei_err(me, "write failed on timeout with status\n");
 		goto out;
-	} else { 
+	} else { /* rc < 0 */
 		mei_err(me, "write failed on select with status %zd\n", rc);
 		goto out;
 	}
@@ -210,6 +213,9 @@ out:
 	return rc;
 }
 
+/***************************************************************************
+ * Intel Advanced Management Technolgy ME Client
+ ***************************************************************************/
 
 #define AMT_MAJOR_VERSION 1
 #define AMT_MINOR_VERSION 1
@@ -249,6 +255,9 @@ struct amt_code_versions {
 	struct amt_version_type versions[AMT_VERSIONS_NUMBER];
 } __attribute__((packed));
 
+/***************************************************************************
+ * Intel Advanced Management Technolgy Host Interface
+ ***************************************************************************/
 
 struct amt_host_if_msg_header {
 	struct amt_version version;
@@ -308,7 +317,7 @@ static uint32_t amt_verify_code_versions(const struct amt_host_if_resp_header *r
 	uint32_t i;
 
 	code_ver = (struct amt_code_versions *)resp->data;
-	
+	/* length - sizeof(status) */
 	code_ver_len = resp->header.length - sizeof(uint32_t);
 	ver_type_cnt = code_ver_len -
 			sizeof(code_ver->bios) -
@@ -427,6 +436,7 @@ out:
 	return status;
 }
 
+/************************** end of amt_host_if_command ***********************/
 int main(int argc, char **argv)
 {
 	struct amt_code_versions ver;

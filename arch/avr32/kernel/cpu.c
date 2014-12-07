@@ -22,6 +22,10 @@ static DEFINE_PER_CPU(struct cpu, cpu_devices);
 
 #ifdef CONFIG_PERFORMANCE_COUNTERS
 
+/*
+ * XXX: If/when a SMP-capable implementation of AVR32 will ever be
+ * made, we must make sure that the code executes on the correct CPU.
+ */
 static ssize_t show_pc0event(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
@@ -170,7 +174,7 @@ static DEVICE_ATTR(pc1count, 0600, show_pc1count, store_pc1count);
 static DEVICE_ATTR(pccycles, 0600, show_pccycles, store_pccycles);
 static DEVICE_ATTR(pcenable, 0600, show_pcenable, store_pcenable);
 
-#endif 
+#endif /* CONFIG_PERFORMANCE_COUNTERS */
 
 static int __init topology_init(void)
 {
@@ -399,4 +403,4 @@ const struct seq_operations cpuinfo_op = {
 	.stop	= c_stop,
 	.show	= c_show
 };
-#endif 
+#endif /* CONFIG_PROC_FS */

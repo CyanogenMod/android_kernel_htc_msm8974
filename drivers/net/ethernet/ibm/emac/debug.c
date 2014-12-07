@@ -267,4 +267,4 @@ int __init emac_init_debug(void)
 void __exit emac_fini_debug(void)
 {
 }
-#endif				
+#endif				/* CONFIG_MAGIC_SYSRQ */

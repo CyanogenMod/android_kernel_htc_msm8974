@@ -3,4 +3,4 @@
 
 #include <asm-generic/xor.h>
 
-#endif  
+#endif  /* _ASM_M32R_XOR_H */

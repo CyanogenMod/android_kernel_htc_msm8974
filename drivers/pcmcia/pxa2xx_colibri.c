@@ -43,6 +43,7 @@ enum {
 	RESET = 5,
 };
 
+/* Contents of this array are configured on-the-fly in init function */
 static struct gpio colibri_pcmcia_gpios[] = {
 	{ 0,	GPIOF_IN,	"PCMCIA Detect" },
 	{ 0,	GPIOF_IN,	"PCMCIA Ready" },
@@ -124,7 +125,7 @@ static int __init colibri_pcmcia_init(void)
 	if (!colibri_pcmcia_device)
 		return -ENOMEM;
 
-	
+	/* Colibri PXA270 */
 	if (machine_is_colibri()) {
 		colibri_pcmcia_gpios[RESET].gpio	= COLIBRI270_RESET_GPIO;
 		colibri_pcmcia_gpios[PPEN].gpio		= COLIBRI270_PPEN_GPIO;
@@ -132,7 +133,7 @@ static int __init colibri_pcmcia_init(void)
 		colibri_pcmcia_gpios[BVD2].gpio		= COLIBRI270_BVD2_GPIO;
 		colibri_pcmcia_gpios[DETECT].gpio	= COLIBRI270_DETECT_GPIO;
 		colibri_pcmcia_gpios[READY].gpio	= COLIBRI270_READY_GPIO;
-	
+	/* Colibri PXA320 */
 	} else if (machine_is_colibri320()) {
 		colibri_pcmcia_gpios[RESET].gpio	= COLIBRI320_RESET_GPIO;
 		colibri_pcmcia_gpios[PPEN].gpio		= COLIBRI320_PPEN_GPIO;

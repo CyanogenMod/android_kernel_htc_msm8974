@@ -24,9 +24,15 @@ int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
 {
 	unsigned long prot;
 
+	/* Leave vm_pgoff as-is, the PCI space address is the physical
+	 * address on this platform.
+	 */
 	prot = pgprot_val(vma->vm_page_prot);
 	vma->vm_page_prot = __pgprot(prot);
 
+	/* Write-combine setting is ignored, it is changed via the mtrr
+	 * interfaces on this platform.
+	 */
 	if (remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
 			     vma->vm_end - vma->vm_start,
 			     vma->vm_page_prot))
@@ -56,7 +62,7 @@ int pcibios_enable_resources(struct pci_dev *dev, int mask)
 	pci_read_config_word(dev, PCI_COMMAND, &cmd);
 	old_cmd = cmd;
 	for(idx=0; idx<6; idx++) {
-		
+		/* Only set up the requested stuff */
 		if (!(mask & (1<<idx)))
 			continue;
 
@@ -106,7 +112,7 @@ int pcibios_assign_resources(void)
 	while ((dev = pci_get_device(PCI_ANY_ID, PCI_ANY_ID, dev)) != NULL) {
 		int class = dev->class >> 8;
 
-		
+		/* Don't touch classless devices and host bridges */
 		if (!class || class == PCI_CLASS_BRIDGE_HOST)
 			continue;
 

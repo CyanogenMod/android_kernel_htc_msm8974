@@ -21,4 +21,4 @@
 
 extern u32 lpc32xx_return_iram_size(void);
 
-#endif  
+#endif  /* __ASM_ARCH_BOARD_H */

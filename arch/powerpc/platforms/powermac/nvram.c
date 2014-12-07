@@ -37,11 +37,12 @@
 #define DBG(x...)
 #endif
 
-#define NVRAM_SIZE		0x2000	
+#define NVRAM_SIZE		0x2000	/* 8kB of non-volatile RAM */
 
 #define CORE99_SIGNATURE	0x5a
 #define CORE99_ADLER_START	0x14
 
+/* On Core99, nvram is either a sharp, a micron or an AMD flash */
 #define SM_FLASH_STATUS_DONE	0x80
 #define SM_FLASH_STATUS_ERR	0x38
 
@@ -52,6 +53,7 @@
 #define SM_FLASH_CMD_CLEAR_STATUS	0x50
 #define SM_FLASH_CMD_READ_STATUS	0x70
 
+/* CHRP NVRAM header */
 struct chrp_header {
   u8		signature;
   u8		cksum;
@@ -67,11 +69,15 @@ struct core99_header {
   u32			reserved[2];
 };
 
+/*
+ * Read and write the non-volatile RAM on PowerMacs and CHRP machines.
+ */
 static int nvram_naddrs;
 static volatile unsigned char __iomem *nvram_data;
 static int is_core_99;
 static int core99_bank = 0;
 static int nvram_partitions[3];
+// XXX Turn that into a sem
 static DEFINE_RAW_SPINLOCK(nv_lock);
 
 static int (*core99_write_bank)(int bank, u8* datas);
@@ -215,8 +221,8 @@ static void pmu_nvram_write_byte(int addr, unsigned char val)
 		pmu_poll();
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_ADB_PMU */
+#endif /* CONFIG_PPC32 */
 
 static u8 chrp_checksum(struct chrp_header* hdr)
 {
@@ -344,14 +350,14 @@ static int amd_erase_bank(int bank)
 
        	DBG("nvram: AMD Erasing bank %d...\n", bank);
 
-	
+	/* Unlock 1 */
 	out_8(base+0x555, 0xaa);
 	udelay(1);
-	
+	/* Unlock 2 */
 	out_8(base+0x2aa, 0x55);
 	udelay(1);
 
-	
+	/* Sector-Erase */
 	out_8(base+0x555, 0x80);
 	udelay(1);
 	out_8(base+0x555, 0xaa);
@@ -370,7 +376,7 @@ static int amd_erase_bank(int bank)
 		stat = in_8(base) ^ in_8(base);
 	} while (stat != 0);
 	
-	
+	/* Reset */
 	out_8(base, 0xf0);
 	udelay(1);
 
@@ -391,14 +397,14 @@ static int amd_write_bank(int bank, u8* datas)
        	DBG("nvram: AMD Writing bank %d...\n", bank);
 
 	for (i=0; i<NVRAM_SIZE; i++) {
-		
+		/* Unlock 1 */
 		out_8(base+0x555, 0xaa);
 		udelay(1);
-		
+		/* Unlock 2 */
 		out_8(base+0x2aa, 0x55);
 		udelay(1);
 
-		
+		/* Write single word */
 		out_8(base+0x555, 0xa0);
 		udelay(1);
 		out_8(base+i, datas[i]);
@@ -415,7 +421,7 @@ static int amd_write_bank(int bank, u8* datas)
 			break;
 	}
 
-	
+	/* Reset */
 	out_8(base, 0xf0);
 	udelay(1);
 
@@ -513,7 +519,7 @@ static int __init core99_nvram_setup(struct device_node *dp, unsigned long addr)
 		return -ENOMEM;
 	}
 	nvram_data = ioremap(addr, NVRAM_SIZE*2);
-	nvram_naddrs = 1; 
+	nvram_naddrs = 1; /* Make sure we get the correct case */
 
 	DBG("nvram: Checking bank 0...\n");
 
@@ -534,6 +540,13 @@ static int __init core99_nvram_setup(struct device_node *dp, unsigned long addr)
 	ppc_md.nvram_size	= core99_nvram_size;
 	ppc_md.nvram_sync	= core99_nvram_sync;
 	ppc_md.machine_shutdown	= core99_nvram_sync;
+	/* 
+	 * Maybe we could be smarter here though making an exclusive list
+	 * of known flash chips is a bit nasty as older OF didn't provide us
+	 * with a useful "compatible" entry. A solution would be to really
+	 * identify the chip using flash id commands and base ourselves on
+	 * a list of known chips IDs
+	 */
 	if (of_device_is_compatible(dp, "amd-0137")) {
 		core99_erase_bank = amd_erase_bank;
 		core99_write_bank = amd_write_bank;
@@ -559,7 +572,7 @@ int __init pmac_nvram_init(void)
 		return -ENODEV;
 	}
 
-	
+	/* Try to obtain an address */
 	if (of_address_to_resource(dp, 0, &r1) == 0) {
 		nvram_naddrs = 1;
 		s1 = resource_size(&r1);
@@ -596,12 +609,12 @@ int __init pmac_nvram_init(void)
 		nvram_naddrs = -1;
 		ppc_md.nvram_read_val	= pmu_nvram_read_byte;
 		ppc_md.nvram_write_val	= pmu_nvram_write_byte;
-#endif 
+#endif /* CONFIG_ADB_PMU */
 	} else {
 		printk(KERN_ERR "Incompatible type of NVRAM\n");
 		err = -ENXIO;
 	}
-#endif 
+#endif /* CONFIG_PPC32 */
 bail:
 	of_node_put(dp);
 	if (err == 0)

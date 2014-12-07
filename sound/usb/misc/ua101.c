@@ -31,11 +31,22 @@ MODULE_AUTHOR("Clemens Ladisch <clemens@ladisch.de>");
 MODULE_LICENSE("GPL v2");
 MODULE_SUPPORTED_DEVICE("{{Edirol,UA-101},{Edirol,UA-1000}}");
 
+/*
+ * Should not be lower than the minimum scheduling delay of the host
+ * controller.  Some Intel controllers need more than one frame; as long as
+ * that driver doesn't tell us about this, use 1.5 frames just to be sure.
+ */
 #define MIN_QUEUE_LENGTH	12
+/* Somewhat random. */
 #define MAX_QUEUE_LENGTH	30
+/*
+ * This magic value optimizes memory usage efficiency for the UA-101's packet
+ * sizes at all sample rates, taking into account the stupid cache pool sizes
+ * that usb_alloc_coherent() uses.
+ */
 #define DEFAULT_QUEUE_LENGTH	21
 
-#define MAX_PACKET_SIZE		672 
+#define MAX_PACKET_SIZE		672 /* hardware specific */
 #define MAX_MEMORY_BUFFERS	DIV_ROUND_UP(MAX_QUEUE_LENGTH, \
 					     PAGE_SIZE / MAX_PACKET_SIZE)
 
@@ -62,6 +73,7 @@ enum {
 	INTF_COUNT
 };
 
+/* bits in struct ua101::states */
 enum {
 	USB_CAPTURE_RUNNING,
 	USB_PLAYBACK_RUNNING,
@@ -88,7 +100,7 @@ struct ua101 {
 	struct mutex mutex;
 	unsigned long states;
 
-	
+	/* FIFO to synchronize playback rate to capture rate */
 	unsigned int rate_feedback_start;
 	unsigned int rate_feedback_count;
 	u8 rate_feedback[MAX_QUEUE_LENGTH];
@@ -172,17 +184,17 @@ static void playback_urb_complete(struct urb *usb_urb)
 	struct ua101 *ua = urb->urb.context;
 	unsigned long flags;
 
-	if (unlikely(urb->urb.status == -ENOENT ||	
-		     urb->urb.status == -ENODEV ||	
-		     urb->urb.status == -ECONNRESET ||	
-		     urb->urb.status == -ESHUTDOWN)) {	
+	if (unlikely(urb->urb.status == -ENOENT ||	/* unlinked */
+		     urb->urb.status == -ENODEV ||	/* device removed */
+		     urb->urb.status == -ECONNRESET ||	/* unlinked */
+		     urb->urb.status == -ESHUTDOWN)) {	/* device disabled */
 		abort_usb_playback(ua);
 		abort_alsa_playback(ua);
 		return;
 	}
 
 	if (test_bit(USB_PLAYBACK_RUNNING, &ua->states)) {
-		
+		/* append URB to FIFO */
 		spin_lock_irqsave(&ua->lock, flags);
 		list_add_tail(&urb->ready_list, &ua->ready_playback_urbs);
 		if (ua->rate_feedback_count > 0)
@@ -205,6 +217,7 @@ static void first_playback_urb_complete(struct urb *urb)
 	wake_up(&ua->alsa_playback_wait);
 }
 
+/* copy data from the ALSA ring buffer into the URB buffer */
 static bool copy_playback_data(struct ua101_stream *stream, struct urb *urb,
 			       unsigned int frames)
 {
@@ -218,7 +231,7 @@ static bool copy_playback_data(struct ua101_stream *stream, struct urb *urb,
 	if (stream->buffer_pos + frames <= runtime->buffer_size) {
 		memcpy(urb->transfer_buffer, source, frames * frame_bytes);
 	} else {
-		
+		/* wrap around at end of ring buffer */
 		frames1 = runtime->buffer_size - stream->buffer_pos;
 		memcpy(urb->transfer_buffer, source, frames1 * frame_bytes);
 		memcpy(urb->transfer_buffer + frames1 * frame_bytes,
@@ -256,20 +269,31 @@ static void playback_tasklet(unsigned long data)
 	if (unlikely(!test_bit(USB_PLAYBACK_RUNNING, &ua->states)))
 		return;
 
+	/*
+	 * Synchronizing the playback rate to the capture rate is done by using
+	 * the same sequence of packet sizes for both streams.
+	 * Submitting a playback URB therefore requires both a ready URB and
+	 * the size of the corresponding capture packet, i.e., both playback
+	 * and capture URBs must have been completed.  Since the USB core does
+	 * not guarantee that playback and capture complete callbacks are
+	 * called alternately, we use two FIFOs for packet sizes and read URBs;
+	 * submitting playback URBs is possible as long as both FIFOs are
+	 * nonempty.
+	 */
 	spin_lock_irqsave(&ua->lock, flags);
 	while (ua->rate_feedback_count > 0 &&
 	       !list_empty(&ua->ready_playback_urbs)) {
-		
+		/* take packet size out of FIFO */
 		frames = ua->rate_feedback[ua->rate_feedback_start];
 		add_with_wraparound(ua, &ua->rate_feedback_start, 1);
 		ua->rate_feedback_count--;
 
-		
+		/* take URB out of FIFO */
 		urb = list_first_entry(&ua->ready_playback_urbs,
 				       struct ua101_urb, ready_list);
 		list_del(&urb->ready_list);
 
-		
+		/* fill packet with data or silence */
 		urb->urb.iso_frame_desc[0].length =
 			frames * ua->playback.frame_bytes;
 		if (test_bit(ALSA_PLAYBACK_RUNNING, &ua->states))
@@ -280,7 +304,7 @@ static void playback_tasklet(unsigned long data)
 			memset(urb->urb.transfer_buffer, 0,
 			       urb->urb.iso_frame_desc[0].length);
 
-		
+		/* and off you go ... */
 		err = usb_submit_urb(&urb->urb, GFP_ATOMIC);
 		if (unlikely(err < 0)) {
 			spin_unlock_irqrestore(&ua->lock, flags);
@@ -297,6 +321,7 @@ static void playback_tasklet(unsigned long data)
 		snd_pcm_period_elapsed(ua->playback.substream);
 }
 
+/* copy data from the URB buffer into the ALSA ring buffer */
 static bool copy_capture_data(struct ua101_stream *stream, struct urb *urb,
 			      unsigned int frames)
 {
@@ -310,7 +335,7 @@ static bool copy_capture_data(struct ua101_stream *stream, struct urb *urb,
 	if (stream->buffer_pos + frames <= runtime->buffer_size) {
 		memcpy(dest, urb->transfer_buffer, frames * frame_bytes);
 	} else {
-		
+		/* wrap around at end of ring buffer */
 		frames1 = runtime->buffer_size - stream->buffer_pos;
 		memcpy(dest, urb->transfer_buffer, frames1 * frame_bytes);
 		memcpy(runtime->dma_area,
@@ -338,10 +363,10 @@ static void capture_urb_complete(struct urb *urb)
 	bool do_period_elapsed;
 	int err;
 
-	if (unlikely(urb->status == -ENOENT ||		
-		     urb->status == -ENODEV ||		
-		     urb->status == -ECONNRESET ||	
-		     urb->status == -ESHUTDOWN))	
+	if (unlikely(urb->status == -ENOENT ||		/* unlinked */
+		     urb->status == -ENODEV ||		/* device removed */
+		     urb->status == -ECONNRESET ||	/* unlinked */
+		     urb->status == -ESHUTDOWN))	/* device disabled */
 		goto stream_stopped;
 
 	if (urb->status >= 0 && urb->iso_frame_desc[0].status >= 0)
@@ -366,7 +391,7 @@ static void capture_urb_complete(struct urb *urb)
 			goto stream_stopped;
 		}
 
-		
+		/* append packet size to FIFO */
 		write_ptr = ua->rate_feedback_start;
 		add_with_wraparound(ua, &write_ptr, ua->rate_feedback_count);
 		ua->rate_feedback[write_ptr] = frames;
@@ -376,6 +401,12 @@ static void capture_urb_complete(struct urb *urb)
 						ua->playback.queue_length)
 				wake_up(&ua->rate_feedback_wait);
 		} else {
+			/*
+			 * Ring buffer overflow; this happens when the playback
+			 * stream is not running.  Throw away the oldest entry,
+			 * so that the playback stream, when it starts, sees
+			 * the most recent packet sizes.
+			 */
 			add_with_wraparound(ua, &ua->rate_feedback_start, 1);
 		}
 		if (test_bit(USB_PLAYBACK_RUNNING, &ua->states) &&
@@ -542,6 +573,10 @@ static int start_usb_playback(struct ua101 *ua)
 	INIT_LIST_HEAD(&ua->ready_playback_urbs);
 	spin_unlock_irq(&ua->lock);
 
+	/*
+	 * We submit the initial URBs all at once, so we have to wait for the
+	 * packet size FIFO to be full.
+	 */
 	wait_event(ua->rate_feedback_wait,
 		   ua->rate_feedback_count >= ua->playback.queue_length ||
 		   !test_bit(USB_CAPTURE_RUNNING, &ua->states) ||
@@ -556,7 +591,7 @@ static int start_usb_playback(struct ua101 *ua)
 	}
 
 	for (i = 0; i < ua->playback.queue_length; ++i) {
-		
+		/* all initial URBs contain silence */
 		spin_lock_irq(&ua->lock);
 		frames = ua->rate_feedback[ua->rate_feedback_start];
 		add_with_wraparound(ua, &ua->rate_feedback_start, 1);
@@ -746,6 +781,12 @@ static int capture_pcm_prepare(struct snd_pcm_substream *substream)
 	if (err < 0)
 		return err;
 
+	/*
+	 * The EHCI driver schedules the first packet of an iso stream at 10 ms
+	 * in the future, i.e., no data is actually captured for that long.
+	 * Take the wait here so that the stream is known to be actually
+	 * running when the start trigger has been called.
+	 */
 	wait_event(ua->alsa_capture_wait,
 		   test_bit(CAPTURE_URB_COMPLETED, &ua->states) ||
 		   !test_bit(USB_CAPTURE_RUNNING, &ua->states));
@@ -772,7 +813,7 @@ static int playback_pcm_prepare(struct snd_pcm_substream *substream)
 	if (err < 0)
 		return err;
 
-	
+	/* see the comment in capture_pcm_prepare() */
 	wait_event(ua->alsa_playback_wait,
 		   test_bit(PLAYBACK_URB_COMPLETED, &ua->states) ||
 		   !test_bit(USB_PLAYBACK_RUNNING, &ua->states));
@@ -1019,6 +1060,12 @@ static int alloc_stream_buffers(struct ua101 *ua, struct ua101_stream *stream)
 	stream->queue_length = min(stream->queue_length,
 				   (unsigned int)MAX_QUEUE_LENGTH);
 
+	/*
+	 * The cache pool sizes used by usb_alloc_coherent() (128, 512, 2048) are
+	 * quite bad when used with the packet sizes of this device (e.g. 280,
+	 * 520, 624).  Therefore, we allocate and subdivide entire pages, using
+	 * a smaller buffer only for the last chunk.
+	 */
 	remaining_packets = stream->queue_length;
 	packets_per_page = PAGE_SIZE / stream->max_packet_bytes;
 	for (i = 0; i < ARRAY_SIZE(stream->buffers); ++i) {
@@ -1153,12 +1200,12 @@ static int ua101_probe(struct usb_interface *interface,
 		.data = &midi_ep
 	};
 	static const int intf_numbers[2][3] = {
-		{	
+		{	/* UA-101 */
 			[INTF_PLAYBACK] = 0,
 			[INTF_CAPTURE] = 1,
 			[INTF_MIDI] = 2,
 		},
-		{	
+		{	/* UA-1000 */
 			[INTF_CAPTURE] = 1,
 			[INTF_PLAYBACK] = 2,
 			[INTF_MIDI] = 3,
@@ -1299,10 +1346,10 @@ static void ua101_disconnect(struct usb_interface *interface)
 	set_bit(DISCONNECTED, &ua->states);
 	wake_up(&ua->rate_feedback_wait);
 
-	
+	/* make sure that userspace cannot create new requests */
 	snd_card_disconnect(ua->card);
 
-	
+	/* make sure that there are no pending USB requests */
 	__list_for_each(midi, &ua->midi_list)
 		snd_usbmidi_disconnect(midi);
 	abort_alsa_playback(ua);
@@ -1322,9 +1369,9 @@ static void ua101_disconnect(struct usb_interface *interface)
 }
 
 static struct usb_device_id ua101_ids[] = {
-	{ USB_DEVICE(0x0582, 0x0044) }, 
-	{ USB_DEVICE(0x0582, 0x007d) }, 
-	{ USB_DEVICE(0x0582, 0x008d) }, 
+	{ USB_DEVICE(0x0582, 0x0044) }, /* UA-1000 high speed */
+	{ USB_DEVICE(0x0582, 0x007d) }, /* UA-101 high speed */
+	{ USB_DEVICE(0x0582, 0x008d) }, /* UA-101 full speed */
 	{ }
 };
 MODULE_DEVICE_TABLE(usb, ua101_ids);

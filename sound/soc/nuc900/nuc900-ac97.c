@@ -39,6 +39,7 @@ static int nuc900_checkready(void)
 	return 0;
 }
 
+/* AC97 controller reads codec register */
 static unsigned short nuc900_ac97_read(struct snd_ac97 *ac97,
 					unsigned short reg)
 {
@@ -53,17 +54,17 @@ static unsigned short nuc900_ac97_read(struct snd_ac97 *ac97,
 		goto out;
 	}
 
-	
+	/* set the R_WB bit and write register index */
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_ACOS1, R_WB | reg);
 
-	
+	/* set the valid frame bit and valid slots */
 	val = AUDIO_READ(nuc900_audio->mmio + ACTL_ACOS0);
 	val |= (VALID_FRAME | SLOT1_VALID);
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_ACOS0, val);
 
 	udelay(100);
 
-	
+	/* polling the AC_R_FINISH */
 	while (!(AUDIO_READ(nuc900_audio->mmio + ACTL_ACCON) & AC_R_FINISH)
 								&& timeout--)
 		mdelay(1);
@@ -91,6 +92,7 @@ out:
 	return val;
 }
 
+/* AC97 controller writes to codec register */
 static void nuc900_ac97_write(struct snd_ac97 *ac97, unsigned short reg,
 				unsigned short val)
 {
@@ -103,20 +105,20 @@ static void nuc900_ac97_write(struct snd_ac97 *ac97, unsigned short reg,
 	if (tmp)
 		dev_err(nuc900_audio->dev, "AC97 codec is not ready\n");
 
-	
+	/* clear the R_WB bit and write register index */
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_ACOS1, reg);
 
-	
+	/* write register value */
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_ACOS2, val);
 
-	
+	/* set the valid frame bit and valid slots */
 	tmp = AUDIO_READ(nuc900_audio->mmio + ACTL_ACOS0);
 	tmp |= SLOT1_VALID | SLOT2_VALID | VALID_FRAME;
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_ACOS0, tmp);
 
 	udelay(100);
 
-	
+	/* polling the AC_W_FINISH */
 	while ((AUDIO_READ(nuc900_audio->mmio + ACTL_ACCON) & AC_W_FINISH)
 								&& timeout--)
 		mdelay(1);
@@ -139,7 +141,7 @@ static void nuc900_ac97_warm_reset(struct snd_ac97 *ac97)
 
 	mutex_lock(&ac97_mutex);
 
-	
+	/* warm reset AC 97 */
 	val = AUDIO_READ(nuc900_audio->mmio + ACTL_ACCON);
 	val |= AC_W_RES;
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_ACCON, val);
@@ -160,7 +162,7 @@ static void nuc900_ac97_cold_reset(struct snd_ac97 *ac97)
 
 	mutex_lock(&ac97_mutex);
 
-	
+	/* reset Audio Controller */
 	val = AUDIO_READ(nuc900_audio->mmio + ACTL_RESET);
 	val |= ACTL_RESET_BIT;
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_RESET, val);
@@ -169,7 +171,7 @@ static void nuc900_ac97_cold_reset(struct snd_ac97 *ac97)
 	val &= (~ACTL_RESET_BIT);
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_RESET, val);
 
-	
+	/* reset AC-link interface */
 
 	val = AUDIO_READ(nuc900_audio->mmio + ACTL_RESET);
 	val |= AC_RESET;
@@ -179,7 +181,7 @@ static void nuc900_ac97_cold_reset(struct snd_ac97 *ac97)
 	val &= ~AC_RESET;
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_RESET, val);
 
-	
+	/* cold reset AC 97 */
 	val = AUDIO_READ(nuc900_audio->mmio + ACTL_ACCON);
 	val |= AC_C_RES;
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_ACCON, val);
@@ -194,6 +196,7 @@ static void nuc900_ac97_cold_reset(struct snd_ac97 *ac97)
 
 }
 
+/* AC97 controller operations */
 struct snd_ac97_bus_ops soc_ac97_ops = {
 	.read		= nuc900_ac97_read,
 	.write		= nuc900_ac97_write,
@@ -267,10 +270,10 @@ static int nuc900_ac97_probe(struct snd_soc_dai *dai)
 
 	mutex_lock(&ac97_mutex);
 
-	
+	/* enable unit clock */
 	clk_enable(nuc900_audio->clk);
 
-	
+	/* enable audio controller and AC-link interface */
 	val = AUDIO_READ(nuc900_audio->mmio + ACTL_CON);
 	val |= (IIS_AC_PIN_SEL | ACLINK_EN);
 	AUDIO_WRITE(nuc900_audio->mmio + ACTL_CON, val);
@@ -362,7 +365,7 @@ static int __devinit nuc900_ac97_drvprobe(struct platform_device *pdev)
 	if (ret)
 		goto out3;
 
-	
+	/* enbale ac97 multifunction pin */
 	mfp_set_groupg(nuc900_audio->dev, NULL);
 
 	return 0;

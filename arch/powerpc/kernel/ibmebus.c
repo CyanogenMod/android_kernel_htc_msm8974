@@ -49,12 +49,13 @@
 #include <asm/ibmebus.h>
 #include <asm/abs_addr.h>
 
-static struct device ibmebus_bus_device = { 
+static struct device ibmebus_bus_device = { /* fake "parent" device */
 	.init_name = "ibmebus",
 };
 
 struct bus_type ibmebus_bus_type;
 
+/* These devices will automatically be added to the bus during init */
 static struct of_device_id __initdata ibmebus_matches[] = {
 	{ .compatible = "IBM,lhca" },
 	{ .compatible = "IBM,lhea" },
@@ -207,7 +208,7 @@ static int ibmebus_create_devices(const struct of_device_id *matches)
 
 int ibmebus_register_driver(struct of_platform_driver *drv)
 {
-	
+	/* If the driver uses devices that ibmebus doesn't know, add them */
 	ibmebus_create_devices(drv->driver.of_match_table);
 
 	drv->driver.bus = &ibmebus_bus_type;
@@ -378,6 +379,9 @@ static void ibmebus_bus_device_shutdown(struct device *dev)
 		drv->shutdown(of_dev);
 }
 
+/*
+ * ibmebus_bus_device_attrs
+ */
 static ssize_t devspec_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -524,14 +528,14 @@ static int ibmebus_bus_pm_resume_noirq(struct device *dev)
 	return ret;
 }
 
-#else 
+#else /* !CONFIG_SUSPEND */
 
 #define ibmebus_bus_pm_suspend		NULL
 #define ibmebus_bus_pm_resume		NULL
 #define ibmebus_bus_pm_suspend_noirq	NULL
 #define ibmebus_bus_pm_resume_noirq	NULL
 
-#endif 
+#endif /* !CONFIG_SUSPEND */
 
 #ifdef CONFIG_HIBERNATE_CALLBACKS
 
@@ -671,7 +675,7 @@ static int ibmebus_bus_pm_restore_noirq(struct device *dev)
 	return ret;
 }
 
-#else 
+#else /* !CONFIG_HIBERNATE_CALLBACKS */
 
 #define ibmebus_bus_pm_freeze		NULL
 #define ibmebus_bus_pm_thaw		NULL
@@ -682,7 +686,7 @@ static int ibmebus_bus_pm_restore_noirq(struct device *dev)
 #define ibmebus_bus_pm_poweroff_noirq	NULL
 #define ibmebus_bus_pm_restore_noirq	NULL
 
-#endif 
+#endif /* !CONFIG_HIBERNATE_CALLBACKS */
 
 static struct dev_pm_ops ibmebus_bus_dev_pm_ops = {
 	.prepare = ibmebus_bus_pm_prepare,
@@ -703,11 +707,11 @@ static struct dev_pm_ops ibmebus_bus_dev_pm_ops = {
 
 #define IBMEBUS_BUS_PM_OPS_PTR	(&ibmebus_bus_dev_pm_ops)
 
-#else 
+#else /* !CONFIG_PM_SLEEP */
 
 #define IBMEBUS_BUS_PM_OPS_PTR	NULL
 
-#endif 
+#endif /* !CONFIG_PM_SLEEP */
 
 struct bus_type ibmebus_bus_type = {
 	.name      = "ibmebus",

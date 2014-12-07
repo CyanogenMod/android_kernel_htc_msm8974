@@ -3,4 +3,4 @@
 
 #include <asm-generic/futex.h>
 
-#endif 
+#endif /* __ASM_AVR32_FUTEX_H */

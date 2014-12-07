@@ -17,6 +17,15 @@
 
 #define GPIO_REGULATOR_DEV_NAME "msm-gpio-regulator"
 
+/**
+ * struct gpio_regulator_platform_data - GPIO regulator platform data
+ * @init_data:		regulator constraints
+ * @gpio_label:		label to use when requesting the GPIO
+ * @regulator_name:	name for regulator used during registration
+ * @gpio:		gpio number
+ * @active_low:		0 = regulator is enabled when GPIO outputs high
+ *			1 = regulator is enabled when GPIO outputs low
+ */
 struct gpio_regulator_platform_data {
 	struct regulator_init_data	init_data;
 	char				*gpio_label;

@@ -35,20 +35,26 @@
 #include <linux/mutex.h>
 #include <linux/pm_runtime.h>
 
-static struct mutex power_mutex;	
-static spinlock_t power_ctrl_lock;	
+static struct mutex power_mutex;	/* Serialize power ops */
+static spinlock_t power_ctrl_lock;	/* Serialize power claim */
 
+/**
+ *	gma_power_init		-	initialise power manager
+ *	@dev: our device
+ *
+ *	Set up for power management tracking of our hardware.
+ */
 void gma_power_init(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
 
-	
+	/* FIXME: Move APM/OSPM base into relevant device code */
 	dev_priv->apm_base = dev_priv->apm_reg & 0xffff;
 	dev_priv->ospm_base &= 0xffff;
 
-	dev_priv->display_power = true;	
-	dev_priv->display_count = 0;	
-	dev_priv->suspended = false;	
+	dev_priv->display_power = true;	/* We start active */
+	dev_priv->display_count = 0;	/* Currently no users */
+	dev_priv->suspended = false;	/* And not suspended */
 	spin_lock_init(&power_ctrl_lock);
 	mutex_init(&power_mutex);
 
@@ -56,12 +62,24 @@ void gma_power_init(struct drm_device *dev)
 		dev_priv->ops->init_pm(dev);
 }
 
+/**
+ *	gma_power_uninit	-	end power manager
+ *	@dev: device to end for
+ *
+ *	Undo the effects of gma_power_init
+ */
 void gma_power_uninit(struct drm_device *dev)
 {
 	pm_runtime_disable(&dev->pdev->dev);
 	pm_runtime_set_suspended(&dev->pdev->dev);
 }
 
+/**
+ *	gma_suspend_display	-	suspend the display logic
+ *	@dev: our DRM device
+ *
+ *	Suspend the display logic of the graphics interface
+ */
 static void gma_suspend_display(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -73,12 +91,18 @@ static void gma_suspend_display(struct drm_device *dev)
 	dev_priv->display_power = false;
 }
 
+/**
+ *	gma_resume_display	-	resume display side logic
+ *
+ *	Resume the display hardware restoring state and enabling
+ *	as necessary.
+ */
 static void gma_resume_display(struct pci_dev *pdev)
 {
 	struct drm_device *dev = pci_get_drvdata(pdev);
 	struct drm_psb_private *dev_priv = dev->dev_private;
 
-	
+	/* turn on the display power island */
 	dev_priv->ops->power_up(dev);
 	dev_priv->suspended = false;
 	dev_priv->display_power = true;
@@ -89,6 +113,12 @@ static void gma_resume_display(struct pci_dev *pdev)
 	dev_priv->ops->restore_regs(dev);
 }
 
+/**
+ *	gma_suspend_pci		-	suspend PCI side
+ *	@pdev: PCI device
+ *
+ *	Perform the suspend processing on our PCI device state
+ */
 static void gma_suspend_pci(struct pci_dev *pdev)
 {
 	struct drm_device *dev = pci_get_drvdata(pdev);
@@ -112,6 +142,13 @@ static void gma_suspend_pci(struct pci_dev *pdev)
 	dev_priv->suspended = true;
 }
 
+/**
+ *	gma_resume_pci		-	resume helper
+ *	@dev: our PCI device
+ *
+ *	Perform the resume processing on our PCI device state - rewrite
+ *	register state and re-enable the PCI device
+ */
 static bool gma_resume_pci(struct pci_dev *pdev)
 {
 	struct drm_device *dev = pci_get_drvdata(pdev);
@@ -125,7 +162,7 @@ static bool gma_resume_pci(struct pci_dev *pdev)
 	pci_restore_state(pdev);
 	pci_write_config_dword(pdev, 0x5c, dev_priv->regs.saveBSM);
 	pci_write_config_dword(pdev, 0xFC, dev_priv->regs.saveVBT);
-	
+	/* restoring MSI address and data in PCIx space */
 	pci_write_config_dword(pdev, PSB_PCIx_MSI_ADDR_LOC, dev_priv->msi_addr);
 	pci_write_config_dword(pdev, PSB_PCIx_MSI_DATA_LOC, dev_priv->msi_data);
 	ret = pci_enable_device(pdev);
@@ -137,6 +174,15 @@ static bool gma_resume_pci(struct pci_dev *pdev)
 	return !dev_priv->suspended;
 }
 
+/**
+ *	gma_power_suspend		-	bus callback for suspend
+ *	@pdev: our PCI device
+ *	@state: suspend type
+ *
+ *	Called back by the PCI layer during a suspend of the system. We
+ *	perform the necessary shut down steps and save enough state that
+ *	we can undo this when resume is called.
+ */
 int gma_power_suspend(struct device *_dev)
 {
 	struct pci_dev *pdev = container_of(_dev, struct pci_dev, dev);
@@ -158,6 +204,12 @@ int gma_power_suspend(struct device *_dev)
 	return 0;
 }
 
+/**
+ *	gma_power_resume		-	resume power
+ *	@pdev: PCI device
+ *
+ *	Resume the PCI side of the graphics and then the displays
+ */
 int gma_power_resume(struct device *_dev)
 {
 	struct pci_dev *pdev = container_of(_dev, struct pci_dev, dev);
@@ -172,12 +224,26 @@ int gma_power_resume(struct device *_dev)
 	return 0;
 }
 
+/**
+ *	gma_power_is_on		-	returne true if power is on
+ *	@dev: our DRM device
+ *
+ *	Returns true if the display island power is on at this moment
+ */
 bool gma_power_is_on(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	return dev_priv->display_power;
 }
 
+/**
+ *	gma_power_begin		-	begin requiring power
+ *	@dev: our DRM device
+ *	@force_on: true to force power on
+ *
+ *	Begin an action that requires the display power island is enabled.
+ *	We refcount the islands.
+ */
 bool gma_power_begin(struct drm_device *dev, bool force_on)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -185,7 +251,7 @@ bool gma_power_begin(struct drm_device *dev, bool force_on)
 	unsigned long flags;
 
 	spin_lock_irqsave(&power_ctrl_lock, flags);
-	
+	/* Power already on ? */
 	if (dev_priv->display_power) {
 		dev_priv->display_count++;
 		pm_runtime_get(&dev->pdev->dev);
@@ -195,7 +261,7 @@ bool gma_power_begin(struct drm_device *dev, bool force_on)
 	if (force_on == false)
 		goto out_false;
 
-	
+	/* Ok power up needed */
 	ret = gma_resume_pci(dev->pdev);
 	if (ret == 0) {
 		psb_irq_preinstall(dev);
@@ -210,6 +276,13 @@ out_false:
 	return false;
 }
 
+/**
+ *	gma_power_end		-	end use of power
+ *	@dev: Our DRM device
+ *
+ *	Indicate that one of our gma_power_begin() requested periods when
+ *	the diplay island power is needed has completed.
+ */
 void gma_power_end(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;

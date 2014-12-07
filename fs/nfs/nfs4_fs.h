@@ -63,9 +63,9 @@ struct nfs_seqid_counter {
 	int owner_id;
 	int flags;
 	u32 counter;
-	spinlock_t lock;		
-	struct list_head list;		
-	struct rpc_wait_queue	wait;	
+	spinlock_t lock;		/* Protects the list */
+	struct list_head list;		/* Defines sequence of RPC calls */
+	struct rpc_wait_queue	wait;	/* RPC call delay queue */
 };
 
 struct nfs_seqid {
@@ -80,13 +80,18 @@ static inline void nfs_confirm_seqid(struct nfs_seqid_counter *seqid, int status
 		seqid->flags |= NFS_SEQID_CONFIRMED;
 }
 
+/*
+ * NFS4 state_owners and lock_owners are simply labels for ordered
+ * sequences of RPC calls. Their sole purpose is to provide once-only
+ * semantics by allowing the server to identify replayed requests.
+ */
 struct nfs4_state_owner {
 	struct nfs_server    *so_server;
 	struct list_head     so_lru;
 	unsigned long        so_expires;
 	struct rb_node	     so_server_node;
 
-	struct rpc_cred	     *so_cred;	 
+	struct rpc_cred	     *so_cred;	 /* Associated cred */
 
 	spinlock_t	     so_lock;
 	atomic_t	     so_count;
@@ -104,6 +109,17 @@ enum {
 #define NFS_LOCK_RECLAIM	1
 #define NFS_LOCK_EXPIRED	2
 
+/*
+ * struct nfs4_state maintains the client-side state for a given
+ * (state_owner,inode) tuple (OPEN) or state_owner (LOCK).
+ *
+ * OPEN:
+ * In order to know when to OPEN_DOWNGRADE or CLOSE the state on the server,
+ * we need to know how many files are open for reading or writing on a
+ * given inode. This information too is stored here.
+ *
+ * LOCK: one nfs4_state (LOCK) to hold the lock stateid nfs4_state(OPEN)
+ */
 
 struct nfs4_lock_owner {
 	unsigned int lo_type;
@@ -117,8 +133,8 @@ struct nfs4_lock_owner {
 };
 
 struct nfs4_lock_state {
-	struct list_head	ls_locks;	
-	struct nfs4_state *	ls_state;	
+	struct list_head	ls_locks;	/* Other lock stateids */
+	struct nfs4_state *	ls_state;	/* Pointer to open state */
 #define NFS_LOCK_INITIALIZED 1
 	int			ls_flags;
 	struct nfs_seqid_counter	ls_seqid;
@@ -127,37 +143,38 @@ struct nfs4_lock_state {
 	struct nfs4_lock_owner	ls_owner;
 };
 
+/* bits for nfs4_state->flags */
 enum {
 	LK_STATE_IN_USE,
-	NFS_DELEGATED_STATE,		
-	NFS_O_RDONLY_STATE,		
-	NFS_O_WRONLY_STATE,		
-	NFS_O_RDWR_STATE,		
-	NFS_STATE_RECLAIM_REBOOT,	
-	NFS_STATE_RECLAIM_NOGRACE,	
-	NFS_STATE_POSIX_LOCKS,		
+	NFS_DELEGATED_STATE,		/* Current stateid is delegation */
+	NFS_O_RDONLY_STATE,		/* OPEN stateid has read-only state */
+	NFS_O_WRONLY_STATE,		/* OPEN stateid has write-only state */
+	NFS_O_RDWR_STATE,		/* OPEN stateid has read/write state */
+	NFS_STATE_RECLAIM_REBOOT,	/* OPEN stateid server rebooted */
+	NFS_STATE_RECLAIM_NOGRACE,	/* OPEN stateid needs to recover state */
+	NFS_STATE_POSIX_LOCKS,		/* Posix locks are supported */
 };
 
 struct nfs4_state {
-	struct list_head open_states;	
-	struct list_head inode_states;	
-	struct list_head lock_states;	
+	struct list_head open_states;	/* List of states for the same state_owner */
+	struct list_head inode_states;	/* List of states for the same inode */
+	struct list_head lock_states;	/* List of subservient lock stateids */
 
-	struct nfs4_state_owner *owner;	
-	struct inode *inode;		
+	struct nfs4_state_owner *owner;	/* Pointer to the open owner */
+	struct inode *inode;		/* Pointer to the inode */
 
-	unsigned long flags;		
-	spinlock_t state_lock;		
+	unsigned long flags;		/* Do we hold any locks? */
+	spinlock_t state_lock;		/* Protects the lock_states list */
 
-	seqlock_t seqlock;		
-	nfs4_stateid stateid;		
-	nfs4_stateid open_stateid;	
+	seqlock_t seqlock;		/* Protects the stateid/open_stateid */
+	nfs4_stateid stateid;		/* Current stateid: may be delegation */
+	nfs4_stateid open_stateid;	/* OPEN stateid */
 
-	
-	unsigned int n_rdonly;		
-	unsigned int n_wronly;		
-	unsigned int n_rdwr;		
-	fmode_t state;			
+	/* The following 3 fields are protected by owner->so_lock */
+	unsigned int n_rdonly;		/* Number of read-only references */
+	unsigned int n_wronly;		/* Number of write-only references */
+	unsigned int n_rdwr;		/* Number of read/write references */
+	fmode_t state;			/* State on the server (R,W, or RW) */
 	atomic_t count;
 };
 
@@ -188,8 +205,10 @@ struct nfs4_state_maintenance_ops {
 extern const struct dentry_operations nfs4_dentry_operations;
 extern const struct inode_operations nfs4_dir_inode_operations;
 
+/* nfs4namespace.c */
 struct rpc_clnt *nfs4_create_sec_client(struct rpc_clnt *, struct inode *, struct qstr *);
 
+/* nfs4proc.c */
 extern int nfs4_proc_setclientid(struct nfs_client *, u32, unsigned short, struct rpc_cred *, struct nfs4_setclientid_res *);
 extern int nfs4_proc_setclientid_confirm(struct nfs_client *, struct nfs4_setclientid_res *arg, struct rpc_cred *);
 extern int nfs4_proc_exchange_id(struct nfs_client *clp, struct rpc_cred *cred);
@@ -240,7 +259,7 @@ is_ds_client(struct nfs_client *clp)
 {
 	return clp->cl_exchange_flags & EXCHGID4_FLAG_USE_PNFS_DS;
 }
-#else 
+#else /* CONFIG_NFS_v4_1 */
 static inline struct nfs4_session *nfs4_get_session(const struct nfs_server *server)
 {
 	return NULL;
@@ -269,7 +288,7 @@ is_ds_client(struct nfs_client *clp)
 {
 	return false;
 }
-#endif 
+#endif /* CONFIG_NFS_V4_1 */
 
 extern const struct nfs4_minor_version_ops *nfs_v4_minor_ops[];
 
@@ -279,11 +298,13 @@ extern const u32 nfs4_pathconf_bitmap[2];
 extern const u32 nfs4_fsinfo_bitmap[3];
 extern const u32 nfs4_fs_locations_bitmap[2];
 
+/* nfs4renewd.c */
 extern void nfs4_schedule_state_renewal(struct nfs_client *);
 extern void nfs4_renewd_prepare_shutdown(struct nfs_server *);
 extern void nfs4_kill_renewd(struct nfs_client *);
 extern void nfs4_renew_state(struct work_struct *);
 
+/* nfs4state.c */
 struct rpc_cred *nfs4_get_setclientid_cred(struct nfs_client *clp);
 struct rpc_cred *nfs4_get_renew_cred_locked(struct nfs_client *clp);
 #if defined(CONFIG_NFS_V4_1)
@@ -294,7 +315,7 @@ extern void nfs4_schedule_session_recovery(struct nfs4_session *);
 static inline void nfs4_schedule_session_recovery(struct nfs4_session *session)
 {
 }
-#endif 
+#endif /* CONFIG_NFS_V4_1 */
 
 extern struct nfs4_state_owner *nfs4_get_state_owner(struct nfs_server *, struct rpc_cred *, gfp_t);
 extern void nfs4_put_state_owner(struct nfs4_state_owner *);
@@ -330,10 +351,12 @@ extern void nfs4_free_lock_state(struct nfs_server *server, struct nfs4_lock_sta
 
 extern const nfs4_stateid zero_stateid;
 
+/* nfs4xdr.c */
 extern struct rpc_procinfo nfs4_procedures[];
 
 struct nfs4_mount_data;
 
+/* callback_xdr.c */
 extern struct svc_version nfs4_callback_version1;
 extern struct svc_version nfs4_callback_version4;
 
@@ -352,5 +375,5 @@ static inline bool nfs4_stateid_match(const nfs4_stateid *dst, const nfs4_statei
 #define nfs4_close_state(a, b) do { } while (0)
 #define nfs4_close_sync(a, b) do { } while (0)
 
-#endif 
-#endif 
+#endif /* CONFIG_NFS_V4 */
+#endif /* __LINUX_FS_NFS_NFS4_FS.H */

@@ -37,6 +37,10 @@ void __init save_atags(const struct tag *tags)
 
 static int __init init_atags_procfs(void)
 {
+	/*
+	 * This cannot go into save_atags() because kmalloc and proc don't work
+	 * yet when it is called.
+	 */
 	struct proc_dir_entry *tags_entry;
 	struct tag *tag = (struct tag *)atags_copy;
 	struct buffer *b;
@@ -50,7 +54,7 @@ static int __init init_atags_procfs(void)
 	for (; tag->hdr.size; tag = tag_next(tag))
 		;
 
-	
+	/* include the terminating ATAG_NONE */
 	size = (char *)tag - atags_copy + sizeof(struct tag_header);
 
 	WARN_ON(tag->hdr.tag != ATAG_NONE);

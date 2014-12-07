@@ -129,7 +129,7 @@ static int do_udf_readdir(struct inode *dir, struct file *filp,
 		if (fibh.sbh == fibh.ebh) {
 			nameptr = fi->fileIdent + liu;
 		} else {
-			int poffset;	
+			int poffset;	/* Unpaded ending offset */
 
 			poffset = fibh.soffset + sizeof(struct fileIdentDesc) + liu + lfi;
 
@@ -170,7 +170,7 @@ static int do_udf_readdir(struct inode *dir, struct file *filp,
 		if (flen && filldir(dirent, fname, flen, filp->f_pos,
 				    iblock, dt_type) < 0)
 			goto out;
-	} 
+	} /* end while */
 
 	filp->f_pos = (nf_pos >> 2) + 1;
 
@@ -200,6 +200,7 @@ static int udf_readdir(struct file *filp, void *dirent, filldir_t filldir)
  	return result;
 }
 
+/* readdir and lookup functions */
 const struct file_operations udf_dir_operations = {
 	.llseek			= generic_file_llseek,
 	.read			= generic_read_dir,

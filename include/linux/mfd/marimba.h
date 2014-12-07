@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * Qualcomm Marimba Core Driver header file
+ */
 
 #ifndef _MARIMBA_H
 #define _MARIMBA_H_
@@ -68,7 +71,7 @@ struct marimba {
 };
 
 struct marimba_top_level_platform_data {
-	int slave_id;     
+	int slave_id;     /* Member added for eg. */
 };
 
 struct marimba_fm_platform_data {
@@ -77,6 +80,11 @@ struct marimba_fm_platform_data {
 	void (*fm_shutdown)(struct marimba_fm_platform_data *pdata);
 	struct vreg *vreg_s2;
 	struct vreg *vreg_xo_out;
+	/*
+	This is to indicate whether Fm SoC is I2S master/slave
+		false	- FM SoC is I2S slave
+		true	- FM SoC is I2S master
+	*/
 	bool is_fm_soc_i2s_master;
 	int (*config_i2s_gpio)(int mode);
 };
@@ -128,6 +136,9 @@ struct marimba_tsadc_platform_data {
 	struct msm_ts_platform_data *tssc_data;
 };
 
+/*
+ * Marimba Platform Data
+ * */
 struct marimba_platform_data {
 	struct marimba_top_level_platform_data	*marimba_tp_level;
 	struct marimba_fm_platform_data		*fm;
@@ -143,21 +154,32 @@ struct marimba_platform_data {
 	u32 tsadc_ssbi_adap;
 };
 
+/*
+ * Read and Write to register
+ * */
 int marimba_read(struct marimba *, u8 reg, u8 *value, unsigned num_bytes);
 int marimba_write(struct marimba *, u8 reg, u8 *value, unsigned num_bytes);
 
+/*
+ * Read and Write single 8 bit register with bit mask
+ * */
 int marimba_read_bit_mask(struct marimba *, u8 reg, u8 *value,
 					unsigned num_bytes, u8 mask);
 int marimba_write_bit_mask(struct marimba *, u8 reg, u8 *value,
 					unsigned num_bytes, u8 mask);
 
+/*
+ * Read and Write to TSADC registers across the SSBI
+ * * */
 int marimba_ssbi_read(struct marimba *, u16 reg, u8 *value, int len);
 int marimba_ssbi_write(struct marimba *, u16 reg , u8 *value, int len);
 
+/* Read and write to Timpani */
 int timpani_read(struct marimba*, u8 reg, u8 *value, unsigned num_bytes);
 int timpani_write(struct marimba*, u8 reg, u8 *value,
 				unsigned num_bytes);
 
+/* Get the detected codec type */
 int adie_get_detected_codec_type(void);
 int adie_get_detected_connectivity_type(void);
 int marimba_gpio_config(int gpio_value);

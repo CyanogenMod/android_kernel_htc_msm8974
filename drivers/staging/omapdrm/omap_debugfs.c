@@ -86,12 +86,14 @@ static int fb_show(struct seq_file *m, void *arg)
 	return 0;
 }
 
+/* list of debufs files that are applicable to all devices */
 static struct drm_info_list omap_debugfs_list[] = {
 	{"gem", gem_show, 0},
 	{"mm", mm_show, 0},
 	{"fb", fb_show, 0},
 };
 
+/* list of debugfs files that are specific to devices with dmm/tiler */
 static struct drm_info_list omap_dmm_debugfs_list[] = {
 	{"tiler_map", tiler_map_show, 0},
 };

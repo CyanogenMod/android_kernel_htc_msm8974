@@ -59,7 +59,7 @@ struct i740fb_par {
 	u8 misc;
 	u8 vss;
 
-	
+	/* i740 specific registers */
 	u8 display_cntl;
 	u8 pixelpipe_cfg0;
 	u8 pixelpipe_cfg1;
@@ -217,6 +217,13 @@ static int i740fb_release(struct fb_info *info, int user)
 
 static u32 i740_calc_fifo(struct i740fb_par *par, u32 freq, int bpp)
 {
+	/*
+	 * Would like to calculate these values automatically, but a generic
+	 * algorithm does not seem possible.  Note: These FIFO water mark
+	 * values were tested on several cards and seem to eliminate the
+	 * all of the snow and vertical banding, but fine adjustments will
+	 * probably be required for other cards.
+	 */
 
 	u32 wm;
 
@@ -334,13 +341,14 @@ static u32 i740_calc_fifo(struct i740fb_par *par, u32 freq, int bpp)
 	return wm;
 }
 
+/* clock calculation from i740fb by Patrick LERDA */
 
 #define I740_RFREQ		1000000
 #define TARGET_MAX_N		30
 #define I740_FFIX		(1 << 8)
 #define I740_RFREQ_FIX		(I740_RFREQ / I740_FFIX)
-#define I740_REF_FREQ		(6667 * I740_FFIX / 100)	
-#define I740_MAX_VCO_FREQ	(450 * I740_FFIX)		
+#define I740_REF_FREQ		(6667 * I740_FFIX / 100)	/* 66.67 MHz */
+#define I740_MAX_VCO_FREQ	(450 * I740_FFIX)		/* 450 MHz */
 
 static void i740_calc_vclk(u32 freq, struct i740fb_par *par)
 {
@@ -395,6 +403,10 @@ static void i740_calc_vclk(u32 freq, struct i740fb_par *par)
 static int i740fb_decode_var(const struct fb_var_screeninfo *var,
 			     struct i740fb_par *par, struct fb_info *info)
 {
+	/*
+	 * Get the video params out of 'var'.
+	 * If a value doesn't fit, round it up, if it's too big, return -EINVAL.
+	 */
 
 	u32 xres, right, hslen, left, xtotal;
 	u32 yres, lower, vslen, upper, ytotal;
@@ -507,14 +519,14 @@ static int i740fb_decode_var(const struct fb_var_screeninfo *var,
 
 	par->crtc[VGA_CRTC_V_TOTAL] = ytotal - 2;
 
-	r7 = 0x10;	
+	r7 = 0x10;	/* disable linecompare */
 	if (ytotal & 0x100)
 		r7 |= 0x01;
 	if (ytotal & 0x200)
 		r7 |= 0x20;
 
 	par->crtc[VGA_CRTC_PRESET_ROW] = 0;
-	par->crtc[VGA_CRTC_MAX_SCAN] = 0x40;	
+	par->crtc[VGA_CRTC_MAX_SCAN] = 0x40;	/* 1 scanline, no linecmp */
 	if (var->vmode & FB_VMODE_DOUBLE)
 		par->crtc[VGA_CRTC_MAX_SCAN] |= 0x80;
 	par->crtc[VGA_CRTC_CURSOR_START] = 0x00;
@@ -536,10 +548,10 @@ static int i740fb_decode_var(const struct fb_var_screeninfo *var,
 		r7 |= 0x80;
 	}
 
-	
+	/* disabled IRQ */
 	par->crtc[VGA_CRTC_V_SYNC_END] =
 		((yres + lower - 1 + vslen) & 0x0F) & ~0x10;
-	
+	/* 0x7F for VGA, but some SVGA chips require all 8 bits to be set */
 	par->crtc[VGA_CRTC_V_BLANK_END] = (yres + lower - 1 + vslen) & 0xFF;
 
 	par->crtc[VGA_CRTC_UNDERLINE] = 0x00;
@@ -547,12 +559,12 @@ static int i740fb_decode_var(const struct fb_var_screeninfo *var,
 	par->crtc[VGA_CRTC_LINE_COMPARE] = 0xFF;
 	par->crtc[VGA_CRTC_OVERFLOW] = r7;
 
-	par->vss = 0x00;	
+	par->vss = 0x00;	/* 3DA */
 
 	for (i = 0x00; i < 0x10; i++)
 		par->atc[i] = i;
 	par->atc[VGA_ATC_MODE] = 0x81;
-	par->atc[VGA_ATC_OVERSCAN] = 0x00;	
+	par->atc[VGA_ATC_OVERSCAN] = 0x00;	/* 0 for EGA, 0xFF for VGA */
 	par->atc[VGA_ATC_PLANE_ENABLE] = 0x0F;
 	par->atc[VGA_ATC_COLOR_PAGE] = 0x00;
 
@@ -585,8 +597,8 @@ static int i740fb_decode_var(const struct fb_var_screeninfo *var,
 		par->pixelpipe_cfg1 = DISPLAY_8BPP_MODE;
 		par->bitblt_cntl = COLEXP_8BPP;
 		break;
-	case 15: 
-	case 16: 
+	case 15: /* 0rrrrrgg gggbbbbb */
+	case 16: /* rrrrrggg gggbbbbb */
 		par->pixelpipe_cfg1 = (var->green.length == 6) ?
 			DISPLAY_16BPP_MODE : DISPLAY_15BPP_MODE;
 		par->crtc[VGA_CRTC_OFFSET] = vxres >> 2;
@@ -599,14 +611,14 @@ static int i740fb_decode_var(const struct fb_var_screeninfo *var,
 		par->ext_offset = (vxres * 3) >> 11;
 		par->pixelpipe_cfg1 = DISPLAY_24BPP_MODE;
 		par->bitblt_cntl = COLEXP_24BPP;
-		base &= 0xFFFFFFFE; 
+		base &= 0xFFFFFFFE; /* ...ignore the last bit. */
 		base *= 3;
 		break;
 	case 32:
 		par->crtc[VGA_CRTC_OFFSET] = vxres >> 1;
 		par->ext_offset = vxres >> 9;
 		par->pixelpipe_cfg1 = DISPLAY_32BPP_MODE;
-		par->bitblt_cntl = COLEXP_RESERVED; 
+		par->bitblt_cntl = COLEXP_RESERVED; /* Unimplemented on i740 */
 		base *= 4;
 		break;
 	}
@@ -624,10 +636,10 @@ static int i740fb_decode_var(const struct fb_var_screeninfo *var,
 	par->address_mapping = LINEAR_MODE_ENABLE | PAGE_MAPPING_ENABLE;
 	par->display_cntl = HIRES_MODE;
 
-	
-	par->pll_cntl = PLL_MEMCLK_100000KHZ; 
+	/* Set the MCLK freq */
+	par->pll_cntl = PLL_MEMCLK_100000KHZ; /* 100 MHz -- use as default */
 
-	
+	/* Calculate the extended CRTC regs */
 	par->ext_vert_total = (ytotal - 2) >> 8;
 	par->ext_vert_disp_end = (yres - 1) >> 8;
 	par->ext_vert_sync_start = (yres + lower) >> 8;
@@ -637,16 +649,16 @@ static int i740fb_decode_var(const struct fb_var_screeninfo *var,
 
 	par->interlace_cntl = INTERLACE_DISABLE;
 
-	
+	/* Set the overscan color to 0. (NOTE: This only affects >8bpp mode) */
 	par->atc[VGA_ATC_OVERSCAN] = 0;
 
-	
+	/* Calculate VCLK that most closely matches the requested dot clock */
 	i740_calc_vclk((((u32)1e9) / var->pixclock) * (u32)(1e3), par);
 
-	
+	/* Since we program the clocks ourselves, always use VCLK2. */
 	par->misc |= 0x0C;
 
-	
+	/* Calculate the FIFO Watermark and Burst Length. */
 	par->lmi_fifo_watermark =
 		i740_calc_fifo(par, 1000000 / var->pixclock, bpp);
 
@@ -712,20 +724,20 @@ static int i740fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 
 static void vga_protect(struct i740fb_par *par)
 {
-	
+	/* disable the display */
 	i740outreg_mask(par, VGA_SEQ_I, VGA_SEQ_CLOCK_MODE, 0x20, 0x20);
 
 	i740inb(par, 0x3DA);
-	i740outb(par, VGA_ATT_W, 0x00);	
+	i740outb(par, VGA_ATT_W, 0x00);	/* enable pallete access */
 }
 
 static void vga_unprotect(struct i740fb_par *par)
 {
-	
+	/* reenable display */
 	i740outreg_mask(par, VGA_SEQ_I, VGA_SEQ_CLOCK_MODE, 0, 0x20);
 
 	i740inb(par, 0x3DA);
-	i740outb(par, VGA_ATT_W, 0x20);	
+	i740outb(par, VGA_ATT_W, 0x20);	/* disable pallete access */
 }
 
 static int i740fb_set_par(struct fb_info *info)
@@ -757,35 +769,35 @@ static int i740fb_set_par(struct fb_info *info)
 	i740inb(par, 0x3DA);
 	i740outb(par, 0x3C0, 0x00);
 
-	
+	/* update misc output register */
 	i740outb(par, VGA_MIS_W, par->misc | 0x01);
 
-	
+	/* synchronous reset on */
 	i740outreg(par, VGA_SEQ_I, VGA_SEQ_RESET, 0x01);
-	
+	/* write sequencer registers */
 	i740outreg(par, VGA_SEQ_I, VGA_SEQ_CLOCK_MODE,
 			par->seq[VGA_SEQ_CLOCK_MODE] | 0x20);
 	for (i = 2; i < VGA_SEQ_C; i++)
 		i740outreg(par, VGA_SEQ_I, i, par->seq[i]);
 
-	
+	/* synchronous reset off */
 	i740outreg(par, VGA_SEQ_I, VGA_SEQ_RESET, 0x03);
 
-	
+	/* deprotect CRT registers 0-7 */
 	i740outreg(par, VGA_CRT_IC, VGA_CRTC_V_SYNC_END,
 			par->crtc[VGA_CRTC_V_SYNC_END]);
 
-	
+	/* write CRT registers */
 	for (i = 0; i < VGA_CRT_C; i++)
 		i740outreg(par, VGA_CRT_IC, i, par->crtc[i]);
 
-	
+	/* write graphics controller registers */
 	for (i = 0; i < VGA_GFX_C; i++)
 		i740outreg(par, VGA_GFX_I, i, par->gdc[i]);
 
-	
+	/* write attribute controller registers */
 	for (i = 0; i < VGA_ATT_C; i++) {
-		i740inb(par, VGA_IS1_RC);		
+		i740inb(par, VGA_IS1_RC);		/* reset flip-flop */
 		i740outb(par, VGA_ATT_IW, i);
 		i740outb(par, VGA_ATT_IW, par->atc[i]);
 	}
@@ -841,7 +853,7 @@ static int i740fb_set_par(struct fb_info *info)
 		}
 	}
 
-	
+	/* Wait for screen to stabilize. */
 	mdelay(50);
 	vga_unprotect(par);
 
@@ -909,7 +921,11 @@ static int i740fb_pan_display(struct fb_var_screeninfo *var,
 		base *= 2;
 		break;
 	case 24:
-		base &= 0xFFFFFFFE; 
+		/*
+		 * The last bit does not seem to have any effect on the start
+		 * address register in 24bpp mode, so...
+		 */
+		base &= 0xFFFFFFFE; /* ...ignore the last bit. */
 		base *= 3;
 		break;
 	case 32:
@@ -962,16 +978,16 @@ static int i740fb_blank(int blank_mode, struct fb_info *info)
 	default:
 		return -EINVAL;
 	}
-	
+	/* Turn the screen on/off */
 	i740outb(par, SRX, 0x01);
 	SEQ01 |= i740inb(par, SRX + 1) & ~0x20;
 	i740outb(par, SRX, 0x01);
 	i740outb(par, SRX + 1, SEQ01);
 
-	
+	/* Set the DPMS mode */
 	i740outreg(par, XRX, DPMS_SYNC_SELECT, DPMSSyncSelect);
 
-	
+	/* Let fbcon do a soft blank for us */
 	return (blank_mode == FB_BLANK_NORMAL) ? 1 : 0;
 }
 
@@ -989,6 +1005,7 @@ static struct fb_ops i740fb_ops = {
 	.fb_imageblit	= cfb_imageblit,
 };
 
+/* ------------------------------------------------------------------------- */
 
 static int __devinit i740fb_probe(struct pci_dev *dev,
 				  const struct pci_device_id *ent)
@@ -1039,14 +1056,14 @@ static int __devinit i740fb_probe(struct pci_dev *dev,
 		goto err_ioremap_2;
 	}
 
-	
+	/* detect memory size */
 	if ((i740inreg(par, XRX, DRAM_ROW_TYPE) & DRAM_ROW_1)
 							== DRAM_ROW_1_SDRAM)
 		i740outb(par, XRX, DRAM_ROW_BNDRY_1);
 	else
 		i740outb(par, XRX, DRAM_ROW_BNDRY_0);
 	info->screen_size = i740inb(par, XRX + 1) * 1024 * 1024;
-	
+	/* detect memory type */
 	tmp = i740inreg(par, XRX, DRAM_ROW_CNTL_LO);
 	par->has_sgram = !((tmp & DRAM_RAS_TIMING) ||
 			   (tmp & DRAM_RAS_PRECHARGE));
@@ -1082,7 +1099,7 @@ static int __devinit i740fb_probe(struct pci_dev *dev,
 							 &info->modelist);
 				if (m) {
 					fb_videomode_to_var(&info->var, m);
-					
+					/* fill all other info->var's fields */
 					if (!i740fb_check_var(&info->var, info))
 						found = true;
 				}
@@ -1108,7 +1125,7 @@ static int __devinit i740fb_probe(struct pci_dev *dev,
 	fb_destroy_modedb(info->monspecs.modedb);
 	info->monspecs.modedb = NULL;
 
-	
+	/* maximize virtual vertical size for fast scrolling */
 	info->var.yres_virtual = info->fix.smem_len * 8 /
 			(info->var.bits_per_pixel * info->var.xres_virtual);
 
@@ -1151,6 +1168,7 @@ err_ioremap_2:
 err_ioremap_1:
 	pci_release_regions(dev);
 err_request_regions:
+/*	pci_disable_device(dev); */
 err_enable_device:
 	framebuffer_release(info);
 	return ret;
@@ -1176,6 +1194,7 @@ static void __devexit i740fb_remove(struct pci_dev *dev)
 		pci_iounmap(dev, par->regs);
 		pci_iounmap(dev, info->screen_base);
 		pci_release_regions(dev);
+/*		pci_disable_device(dev); */
 		pci_set_drvdata(dev, NULL);
 		framebuffer_release(info);
 	}
@@ -1187,14 +1206,14 @@ static int i740fb_suspend(struct pci_dev *dev, pm_message_t state)
 	struct fb_info *info = pci_get_drvdata(dev);
 	struct i740fb_par *par = info->par;
 
-	
+	/* don't disable console during hibernation and wakeup from it */
 	if (state.event == PM_EVENT_FREEZE || state.event == PM_EVENT_PRETHAW)
 		return 0;
 
 	console_lock();
 	mutex_lock(&(par->open_lock));
 
-	
+	/* do nothing if framebuffer is not active */
 	if (par->ref_count == 0) {
 		mutex_unlock(&(par->open_lock));
 		console_unlock();
@@ -1240,7 +1259,7 @@ fail:
 #else
 #define i740fb_suspend NULL
 #define i740fb_resume NULL
-#endif 
+#endif /* CONFIG_PM */
 
 #define I740_ID_PCI 0x00d1
 #define I740_ID_AGP 0x7800

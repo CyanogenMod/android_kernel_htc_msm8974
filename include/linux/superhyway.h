@@ -14,15 +14,18 @@
 
 #include <linux/device.h>
 
+/*
+ * SuperHyway IDs
+ */
 #define SUPERHYWAY_DEVICE_ID_SH5_DMAC	0x0183
 
 struct superhyway_vcr_info {
-	u8	perr_flags;	
-	u8	merr_flags;	
-	u16	mod_vers;	
-	u16	mod_id;		
-	u8	bot_mb;		
-	u8	top_mb;		
+	u8	perr_flags;	/* P-port Error flags */
+	u8	merr_flags;	/* Module Error flags */
+	u16	mod_vers;	/* Module Version */
+	u16	mod_id;		/* Module ID */
+	u8	bot_mb;		/* Bottom Memory block */
+	u8	top_mb;		/* Top Memory block */
 };
 
 struct superhyway_ops {
@@ -91,12 +94,14 @@ superhyway_write_vcr(struct superhyway_device *dev, unsigned long base,
 
 extern int superhyway_scan_bus(struct superhyway_bus *);
 
+/* drivers/sh/superhyway/superhyway.c */
 int superhyway_register_driver(struct superhyway_driver *);
 void superhyway_unregister_driver(struct superhyway_driver *);
 int superhyway_add_device(unsigned long base, struct superhyway_device *, struct superhyway_bus *);
 int superhyway_add_devices(struct superhyway_bus *bus, struct superhyway_device **devices, int nr_devices);
 
+/* drivers/sh/superhyway/superhyway-sysfs.c */
 extern struct device_attribute superhyway_dev_attrs[];
 
-#endif 
+#endif /* __LINUX_SUPERHYWAY_H */
 

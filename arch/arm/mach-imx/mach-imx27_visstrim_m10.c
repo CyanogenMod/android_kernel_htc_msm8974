@@ -49,12 +49,12 @@
 #define SDHC1_IRQ IRQ_GPIOB(25)
 
 static const int visstrim_m10_pins[] __initconst = {
-	
+	/* UART1 (console) */
 	PE12_PF_UART1_TXD,
 	PE13_PF_UART1_RXD,
 	PE14_PF_UART1_CTS,
 	PE15_PF_UART1_RTS,
-	
+	/* FEC */
 	PD0_AIN_FEC_TXD0,
 	PD1_AIN_FEC_TXD1,
 	PD2_AIN_FEC_TXD2,
@@ -73,24 +73,24 @@ static const int visstrim_m10_pins[] __initconst = {
 	PD15_AOUT_FEC_COL,
 	PD16_AIN_FEC_TX_ER,
 	PF23_AIN_FEC_TX_EN,
-	
+	/* SSI1 */
 	PC20_PF_SSI1_FS,
 	PC21_PF_SSI1_RXD,
 	PC22_PF_SSI1_TXD,
 	PC23_PF_SSI1_CLK,
-	
+	/* SDHC1 */
 	PE18_PF_SD1_D0,
 	PE19_PF_SD1_D1,
 	PE20_PF_SD1_D2,
 	PE21_PF_SD1_D3,
 	PE22_PF_SD1_CMD,
 	PE23_PF_SD1_CLK,
-	
+	/* Both I2Cs */
 	PD17_PF_I2C_DATA,
 	PD18_PF_I2C_CLK,
 	PC5_PF_I2C2_SDA,
 	PC6_PF_I2C2_SCL,
-	
+	/* USB OTG */
 	OTG_PHY_CS_GPIO | GPIO_GPIO | GPIO_OUT,
 	PC9_PF_USBOTG_DATA0,
 	PC11_PF_USBOTG_DATA1,
@@ -106,7 +106,7 @@ static const int visstrim_m10_pins[] __initconst = {
 	PE1_PF_USBOTG_STP,
 	PB23_PF_USB_PWR,
 	PB24_PF_USB_OC,
-	
+	/* CSI */
 	PB10_PF_CSI_D0,
 	PB11_PF_CSI_D1,
 	PB12_PF_CSI_D2,
@@ -121,6 +121,7 @@ static const int visstrim_m10_pins[] __initconst = {
 	PB21_PF_CSI_HSYNC,
 };
 
+/* Camera */
 static int visstrim_camera_power(struct device *dev, int on)
 {
 	gpio_set_value(TVP5150_PWDN, on);
@@ -163,7 +164,7 @@ static void __init visstrim_camera_init(void)
 	struct platform_device *pdev;
 	int dma;
 
-	
+	/* Initialize tvp5150 gpios */
 	mxc_gpio_mode(TVP5150_RSTN | GPIO_GPIO | GPIO_OUT);
 	mxc_gpio_mode(TVP5150_PWDN | GPIO_GPIO | GPIO_OUT);
 	gpio_set_value(TVP5150_RSTN, 1);
@@ -191,13 +192,14 @@ static void __init visstrim_camera_init(void)
 
 static void __init visstrim_reserve(void)
 {
-	
+	/* reserve 4 MiB for mx2-camera */
 	mx2_camera_base = memblock_alloc(MX2_CAMERA_BUF_SIZE,
 			MX2_CAMERA_BUF_SIZE);
 	memblock_free(mx2_camera_base, MX2_CAMERA_BUF_SIZE);
 	memblock_remove(mx2_camera_base, MX2_CAMERA_BUF_SIZE);
 }
 
+/* GPIOs used as events for applications */
 static struct gpio_keys_button visstrim_gpio_keys[] = {
 	{
 		.type	= EV_KEY,
@@ -231,6 +233,7 @@ static const struct gpio_keys_platform_data
 	.nbuttons	= ARRAY_SIZE(visstrim_gpio_keys),
 };
 
+/* led */
 static const struct gpio_led visstrim_m10_leds[] __initconst = {
 	{
 		.name = "visstrim:ld0",
@@ -259,6 +262,7 @@ static const struct gpio_led_platform_data visstrim_m10_led_data __initconst = {
 	.num_leds = ARRAY_SIZE(visstrim_m10_leds),
 };
 
+/* Visstrim_SM10 has a microSD slot connected to sdhc1 */
 static int visstrim_m10_sdhc1_init(struct device *dev,
 		irq_handler_t detect_irq, void *data)
 {
@@ -279,6 +283,7 @@ static const struct imxmmc_platform_data visstrim_m10_sdhc_pdata __initconst = {
 	.exit = visstrim_m10_sdhc1_exit,
 };
 
+/* Visstrim_SM10 NOR flash */
 static struct physmap_flash_data visstrim_m10_flash_data = {
 	.width = 2,
 };
@@ -303,16 +308,18 @@ static struct platform_device *platform_devices[] __initdata = {
 	&visstrim_m10_nor_mtd_device,
 };
 
+/* Visstrim_M10 uses UART0 as console */
 static const struct imxuart_platform_data uart_pdata __initconst = {
 	.flags = IMXUART_HAVE_RTSCTS,
 };
 
+/* I2C */
 static const struct imxi2c_platform_data visstrim_m10_i2c_data __initconst = {
 	.bitrate = 100000,
 };
 
 static struct pca953x_platform_data visstrim_m10_pca9555_pdata = {
-	.gpio_base = 240, 
+	.gpio_base = 240, /* After MX27 internal GPIOs */
 	.invert = 0,
 };
 
@@ -341,6 +348,7 @@ static struct i2c_board_info visstrim_m10_i2c_devices[] = {
 	}
 };
 
+/* USB OTG */
 static int otg_phy_init(struct platform_device *pdev)
 {
 	gpio_set_value(OTG_PHY_CS_GPIO, 0);
@@ -356,6 +364,7 @@ visstrim_m10_usbotg_pdata __initconst = {
 	.portsc	= MXC_EHCI_MODE_ULPI | MXC_EHCI_UTMI_8BIT,
 };
 
+/* SSI */
 static const struct imx_ssi_platform_data visstrim_m10_ssi_pdata __initconst = {
 	.flags			= IMX_SSI_DMA | IMX_SSI_SYN,
 };

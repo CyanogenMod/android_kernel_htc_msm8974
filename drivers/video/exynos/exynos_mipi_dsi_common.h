@@ -43,4 +43,4 @@ extern struct fb_info *registered_fb[FB_MAX] __read_mostly;
 int exynos_mipi_dsi_fifo_clear(struct mipi_dsim_device *dsim,
 				unsigned int val);
 
-#endif 
+#endif /* _EXYNOS_MIPI_DSI_COMMON_H */

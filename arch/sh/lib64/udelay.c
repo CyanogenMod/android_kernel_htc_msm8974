@@ -13,6 +13,13 @@
 #include <linux/sched.h>
 #include <asm/param.h>
 
+/*
+ * Use only for very small delays (< 1 msec).
+ *
+ * The active part of our cycle counter is only 32-bits wide, and
+ * we're treating the difference between two marks as signed.  On
+ * a 1GHz box, that's about 2 seconds.
+ */
 
 void __delay(unsigned long loops)
 {
@@ -33,7 +40,7 @@ void __const_udelay(unsigned long xloops)
 
 void __udelay(unsigned long usecs)
 {
-	__const_udelay(usecs * 0x000010c6);  
+	__const_udelay(usecs * 0x000010c6);  /* 2**32 / 1000000 */
 }
 
 void __ndelay(unsigned long nsecs)

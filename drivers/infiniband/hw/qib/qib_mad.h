@@ -69,23 +69,23 @@ struct ib_mad_notice_attr {
 
 		struct {
 			__be16	reserved;
-			__be16	lid;		
-			u8	port_num;	
+			__be16	lid;		/* where violation happened */
+			u8	port_num;	/* where violation happened */
 		} __attribute__ ((packed)) ntc_129_131;
 
 		struct {
 			__be16	reserved;
-			__be16	lid;		
+			__be16	lid;		/* LID where change occurred */
 			u8	reserved2;
-			u8	local_changes;	
-			__be32	new_cap_mask;	
+			u8	local_changes;	/* low bit - local changes */
+			__be32	new_cap_mask;	/* new capability mask */
 			u8	reserved3;
-			u8	change_flags;	
+			u8	change_flags;	/* low 3 bits only */
 		} __attribute__ ((packed)) ntc_144;
 
 		struct {
 			__be16	reserved;
-			__be16	lid;		
+			__be16	lid;		/* lid where sys guid changed */
 			__be16	reserved2;
 			__be64	new_sys_guid;
 		} __attribute__ ((packed)) ntc_145;
@@ -109,8 +109,8 @@ struct ib_mad_notice_attr {
 			__be16		lid1;
 			__be16		lid2;
 			__be32		key;
-			__be32		sl_qp1;	
-			__be32		qp2;	
+			__be32		sl_qp1;	/* SL: high 4 bits */
+			__be32		qp2;	/* high 8 bits reserved */
 			union ib_gid	gid1;
 			union ib_gid	gid2;
 		} __attribute__ ((packed)) ntc_257_258;
@@ -118,17 +118,26 @@ struct ib_mad_notice_attr {
 	} details;
 };
 
+/*
+ * Generic trap/notice types
+ */
 #define IB_NOTICE_TYPE_FATAL	0x80
 #define IB_NOTICE_TYPE_URGENT	0x81
 #define IB_NOTICE_TYPE_SECURITY	0x82
 #define IB_NOTICE_TYPE_SM	0x83
 #define IB_NOTICE_TYPE_INFO	0x84
 
+/*
+ * Generic trap/notice producers
+ */
 #define IB_NOTICE_PROD_CA		cpu_to_be16(1)
 #define IB_NOTICE_PROD_SWITCH		cpu_to_be16(2)
 #define IB_NOTICE_PROD_ROUTER		cpu_to_be16(3)
 #define IB_NOTICE_PROD_CLASS_MGR	cpu_to_be16(4)
 
+/*
+ * Generic trap/notice numbers
+ */
 #define IB_NOTICE_TRAP_LLI_THRESH	cpu_to_be16(129)
 #define IB_NOTICE_TRAP_EBO_THRESH	cpu_to_be16(130)
 #define IB_NOTICE_TRAP_FLOW_UPDATE	cpu_to_be16(131)
@@ -138,6 +147,9 @@ struct ib_mad_notice_attr {
 #define IB_NOTICE_TRAP_BAD_PKEY		cpu_to_be16(257)
 #define IB_NOTICE_TRAP_BAD_QKEY		cpu_to_be16(258)
 
+/*
+ * Repress trap/notice flags
+ */
 #define IB_NOTICE_REPRESS_LLI_THRESH	(1 << 0)
 #define IB_NOTICE_REPRESS_EBO_THRESH	(1 << 1)
 #define IB_NOTICE_REPRESS_FLOW_UPDATE	(1 << 2)
@@ -147,15 +159,21 @@ struct ib_mad_notice_attr {
 #define IB_NOTICE_REPRESS_BAD_PKEY	(1 << 6)
 #define IB_NOTICE_REPRESS_BAD_QKEY	(1 << 7)
 
-#define IB_NOTICE_TRAP_LSE_CHG		0x04	
-#define IB_NOTICE_TRAP_LWE_CHG		0x02	
+/*
+ * Generic trap/notice other local changes flags (trap 144).
+ */
+#define IB_NOTICE_TRAP_LSE_CHG		0x04	/* Link Speed Enable changed */
+#define IB_NOTICE_TRAP_LWE_CHG		0x02	/* Link Width Enable changed */
 #define IB_NOTICE_TRAP_NODE_DESC_CHG	0x01
 
+/*
+ * Generic trap/notice M_Key volation flags in dr_trunc_hop (trap 256).
+ */
 #define IB_NOTICE_TRAP_DR_NOTICE	0x80
 #define IB_NOTICE_TRAP_DR_TRUNC		0x40
 
 struct ib_vl_weight_elem {
-	u8      vl;     
+	u8      vl;     /* Only low 4 bits, upper 4 bits reserved */
 	u8      weight;
 };
 
@@ -180,7 +198,7 @@ struct ib_pma_portcounters_cong {
 	u8 port_xmit_constraint_errors;
 	u8 port_rcv_constraint_errors;
 	u8 reserved2;
-	u8 link_overrun_errors; 
+	u8 link_overrun_errors; /* LocalLink: 7:4, BufferOverrun: 3:0 */
 	__be16 reserved3;
 	__be16 vl15_dropped;
 	__be64 port_xmit_data;
@@ -196,6 +214,7 @@ struct ib_pma_portcounters_cong {
 
 #define QIB_XMIT_RATE_UNSUPPORTED               0x0
 #define QIB_XMIT_RATE_PICO                      0x7
+/* number of 4nsec cycles equaling 2secs */
 #define QIB_CONG_TIMER_PSINTERVAL               0x1DCD64EC
 
 #define IB_PMA_SEL_CONG_ALL                     0x01
@@ -203,6 +222,11 @@ struct ib_pma_portcounters_cong {
 #define IB_PMA_SEL_CONG_XMIT                    0x04
 #define IB_PMA_SEL_CONG_ROUTING                 0x08
 
+/*
+ * The PortSamplesControl.CounterMasks field is an array of 3 bit fields
+ * which specify the N'th counter's capabilities. See ch. 16.1.3.2.
+ * We support 5 counters which only count the mandatory quantities.
+ */
 #define COUNTER_MASK(q, n) (q << ((9 - n) * 3))
 #define COUNTER_MASK0_9 \
 	cpu_to_be32(COUNTER_MASK(1, 0) | \

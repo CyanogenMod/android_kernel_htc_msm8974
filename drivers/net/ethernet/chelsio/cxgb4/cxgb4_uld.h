@@ -40,13 +40,14 @@
 #include <linux/skbuff.h>
 #include <linux/atomic.h>
 
+/* CPL message priority levels */
 enum {
-	CPL_PRIORITY_DATA     = 0,  
-	CPL_PRIORITY_SETUP    = 1,  
-	CPL_PRIORITY_TEARDOWN = 0,  
-	CPL_PRIORITY_LISTEN   = 1,  
-	CPL_PRIORITY_ACK      = 1,  
-	CPL_PRIORITY_CONTROL  = 1   
+	CPL_PRIORITY_DATA     = 0,  /* data messages */
+	CPL_PRIORITY_SETUP    = 1,  /* connection setup messages */
+	CPL_PRIORITY_TEARDOWN = 0,  /* connection teardown messages */
+	CPL_PRIORITY_LISTEN   = 1,  /* listen start/stop messages */
+	CPL_PRIORITY_ACK      = 1,  /* RX ACK messages */
+	CPL_PRIORITY_CONTROL  = 1   /* control messages */
 };
 
 #define INIT_TP_WR(w, tid) do { \
@@ -69,6 +70,7 @@ enum {
 	(w)->wr.wr_lo = cpu_to_be64(0); \
 } while (0)
 
+/* Special asynchronous notification message */
 #define CXGB4_MSG_AN ((void *)1)
 
 struct serv_entry {
@@ -80,6 +82,10 @@ union aopen_entry {
 	union aopen_entry *next;
 };
 
+/*
+ * Holds the size, base address, free list start, etc of the TID, server TID,
+ * and active-open TID tables.  The tables themselves are allocated dynamically.
+ */
 struct tid_info {
 	void **tid_tab;
 	unsigned int ntids;
@@ -168,7 +174,7 @@ struct cxgb4_range {
 	unsigned int size;
 };
 
-struct cxgb4_virt_res {                      
+struct cxgb4_virt_res {                      /* virtualized HW resources */
 	struct cxgb4_range ddp;
 	struct cxgb4_range iscsi;
 	struct cxgb4_range stag;
@@ -182,27 +188,30 @@ struct cxgb4_virt_res {
 #define OCQ_WIN_OFFSET(pdev, vres) \
 	(pci_resource_len((pdev), 2) - roundup_pow_of_two((vres)->ocq.size))
 
+/*
+ * Block of information the LLD provides to ULDs attaching to a device.
+ */
 struct cxgb4_lld_info {
-	struct pci_dev *pdev;                
-	struct l2t_data *l2t;                
-	struct tid_info *tids;               
-	struct net_device **ports;           
-	const struct cxgb4_virt_res *vr;     
-	const unsigned short *mtus;          
-	const unsigned short *rxq_ids;       
-	unsigned short nrxq;                 
-	unsigned short ntxq;                 
-	unsigned char nchan:4;               
-	unsigned char nports:4;              
-	unsigned char wr_cred;               
-	unsigned char adapter_type;          
-	unsigned char fw_api_ver;            
-	unsigned int fw_vers;                
-	unsigned int iscsi_iolen;            
-	unsigned short udb_density;          
-	unsigned short ucq_density;          
-	void __iomem *gts_reg;               
-	void __iomem *db_reg;                
+	struct pci_dev *pdev;                /* associated PCI device */
+	struct l2t_data *l2t;                /* L2 table */
+	struct tid_info *tids;               /* TID table */
+	struct net_device **ports;           /* device ports */
+	const struct cxgb4_virt_res *vr;     /* assorted HW resources */
+	const unsigned short *mtus;          /* MTU table */
+	const unsigned short *rxq_ids;       /* the ULD's Rx queue ids */
+	unsigned short nrxq;                 /* # of Rx queues */
+	unsigned short ntxq;                 /* # of Tx queues */
+	unsigned char nchan:4;               /* # of channels */
+	unsigned char nports:4;              /* # of ports */
+	unsigned char wr_cred;               /* WR 16-byte credits */
+	unsigned char adapter_type;          /* type of adapter */
+	unsigned char fw_api_ver;            /* FW API version */
+	unsigned int fw_vers;                /* FW version */
+	unsigned int iscsi_iolen;            /* iSCSI max I/O length */
+	unsigned short udb_density;          /* # of user DB/page */
+	unsigned short ucq_density;          /* # of user CQs/page */
+	void __iomem *gts_reg;               /* address of GTS register */
+	void __iomem *db_reg;                /* address of kernel doorbell */
 };
 
 struct cxgb4_uld_info {
@@ -227,4 +236,4 @@ void cxgb4_iscsi_init(struct net_device *dev, unsigned int tag_mask,
 		      const unsigned int *pgsz_order);
 struct sk_buff *cxgb4_pktgl_to_skb(const struct pkt_gl *gl,
 				   unsigned int skb_len, unsigned int pull_len);
-#endif  
+#endif  /* !__CXGB4_OFLD_H */

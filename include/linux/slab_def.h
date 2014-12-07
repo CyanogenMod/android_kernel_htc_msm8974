@@ -1,42 +1,60 @@
 #ifndef _LINUX_SLAB_DEF_H
 #define	_LINUX_SLAB_DEF_H
 
+/*
+ * Definitions unique to the original Linux SLAB allocator.
+ *
+ * What we provide here is a way to optimize the frequent kmalloc
+ * calls in the kernel by selecting the appropriate general cache
+ * if kmalloc was called with a size that can be established at
+ * compile time.
+ */
 
 #include <linux/init.h>
-#include <asm/page.h>		
-#include <asm/cache.h>		
+#include <asm/page.h>		/* kmalloc_sizes.h needs PAGE_SIZE */
+#include <asm/cache.h>		/* kmalloc_sizes.h needs L1_CACHE_BYTES */
 #include <linux/compiler.h>
 
+/*
+ * struct kmem_cache
+ *
+ * manages a cache.
+ */
 
 struct kmem_cache {
+/* 1) Cache tunables. Protected by cache_chain_mutex */
 	unsigned int batchcount;
 	unsigned int limit;
 	unsigned int shared;
 
 	unsigned int buffer_size;
 	u32 reciprocal_buffer_size;
+/* 2) touched by every alloc & free from the backend */
 
-	unsigned int flags;		
-	unsigned int num;		
+	unsigned int flags;		/* constant flags */
+	unsigned int num;		/* # of objs per slab */
 
-	
+/* 3) cache_grow/shrink */
+	/* order of pgs per slab (2^n) */
 	unsigned int gfporder;
 
-	
+	/* force GFP flags, e.g. GFP_DMA */
 	gfp_t gfpflags;
 
-	size_t colour;			
-	unsigned int colour_off;	
+	size_t colour;			/* cache colouring range */
+	unsigned int colour_off;	/* colour offset */
 	struct kmem_cache *slabp_cache;
 	unsigned int slab_size;
-	unsigned int dflags;		
+	unsigned int dflags;		/* dynamic flags */
 
-	
+	/* constructor func */
 	void (*ctor)(void *obj);
 
+/* 4) cache creation/removal */
 	const char *name;
 	struct list_head next;
 
+/* 5) statistics */
 #ifdef CONFIG_DEBUG_SLAB
 	unsigned long num_active;
 	unsigned long num_allocations;
@@ -53,14 +71,32 @@ struct kmem_cache {
 	atomic_t freehit;
 	atomic_t freemiss;
 
+	/*
+	 * If debugging is enabled, then the allocator can add additional
+	 * fields and/or padding to every object. buffer_size contains the total
+	 * object size including these internal fields, the following two
+	 * variables contain the offset to the user object and its size.
+	 */
 	int obj_offset;
 	int obj_size;
-#endif 
+#endif /* CONFIG_DEBUG_SLAB */
 
+/* 6) per-cpu/per-node data, touched during every alloc/free */
+	/*
+	 * We put array[] at the end of kmem_cache, because we want to size
+	 * this array to nr_cpu_ids slots instead of NR_CPUS
+	 * (see kmem_cache_init())
+	 * We still use [NR_CPUS] and not [1] or [0] because cache_cache
+	 * is statically defined, so we reserve the max number of cpus.
+	 */
 	struct kmem_list3 **nodelists;
 	struct array_cache *array[NR_CPUS];
+	/*
+	 * Do not add fields after array[]
+	 */
 };
 
+/* Size description struct for general caches. */
 struct cache_sizes {
 	size_t		 	cs_size;
 	struct kmem_cache	*cs_cachep;
@@ -174,6 +210,6 @@ found:
 	return __kmalloc_node(size, flags, node);
 }
 
-#endif	
+#endif	/* CONFIG_NUMA */
 
-#endif	
+#endif	/* _LINUX_SLAB_DEF_H */

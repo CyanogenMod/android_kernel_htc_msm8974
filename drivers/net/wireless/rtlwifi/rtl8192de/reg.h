@@ -30,6 +30,9 @@
 #ifndef __RTL92D_REG_H__
 #define __RTL92D_REG_H__
 
+/* ----------------------------------------------------- */
+/* 0x0000h ~ 0x00FFh System Configuration */
+/* ----------------------------------------------------- */
 #define REG_SYS_ISO_CTRL		0x0000
 #define REG_SYS_FUNC_EN			0x0002
 #define REG_APS_FSMCO			0x0004
@@ -48,6 +51,7 @@
 #define REG_LPLDO_CTRL			0x0023
 #define REG_AFE_XTAL_CTRL		0x0024
 #define REG_AFE_PLL_CTRL		0x0028
+/* for 92d, DMDP,SMSP,DMSP contrl */
 #define REG_MAC_PHY_CTRL		0x002c
 #define REG_EFUSE_CTRL			0x0030
 #define REG_EFUSE_TEST			0x0034
@@ -92,6 +96,9 @@
 #define  MAC0_READY			BIT(0)
 #define  MAC1_READY			BIT(0)
 
+/* ----------------------------------------------------- */
+/* 0x0100h ~ 0x01FFh	MACTOP General Configuration */
+/* ----------------------------------------------------- */
 #define REG_CR				0x0100
 #define REG_PBP				0x0104
 #define REG_TRXDMA_CTRL			0x010C
@@ -134,6 +141,9 @@
 #define REG_BB_ACCESS_DATA		0x01EC
 
 
+/* ----------------------------------------------------- */
+/*	0x0200h ~ 0x027Fh	TXDMA Configuration */
+/* ----------------------------------------------------- */
 #define REG_RQPN			0x0200
 #define REG_FIFOPAGE			0x0204
 #define REG_TDECTRL			0x0208
@@ -141,10 +151,16 @@
 #define REG_TXDMA_STATUS		0x0210
 #define REG_RQPN_NPQ			0x0214
 
+/* ----------------------------------------------------- */
+/*	0x0280h ~ 0x02FFh	RXDMA Configuration */
+/* ----------------------------------------------------- */
 #define REG_RXDMA_AGG_PG_TH		0x0280
 #define REG_RXPKT_NUM			0x0284
 #define REG_RXDMA_STATUS		0x0288
 
+/* ----------------------------------------------------- */
+/*	0x0300h ~ 0x03FFh	PCIe  */
+/* ----------------------------------------------------- */
 #define	REG_PCIE_CTRL_REG		0x0300
 #define	REG_INT_MIG			0x0304
 #define	REG_BCNQ_DESA			0x0308
@@ -168,6 +184,9 @@
 #define	REG_UART_TX_DESA		0x0370
 #define	REG_UART_RX_DESA		0x0378
 
+/* ----------------------------------------------------- */
+/*	0x0400h ~ 0x047Fh	Protocol Configuration  */
+/* ----------------------------------------------------- */
 #define REG_VOQ_INFORMATION		0x0400
 #define REG_VIQ_INFORMATION		0x0404
 #define REG_BEQ_INFORMATION		0x0408
@@ -218,6 +237,9 @@
 #define REG_PTCL_ERR_STATUS		0x04E2
 #define REG_DUMMY			0x04FC
 
+/* ----------------------------------------------------- */
+/*	0x0500h ~ 0x05FFh	EDCA Configuration   */
+/* ----------------------------------------------------- */
 #define REG_EDCA_VO_PARAM		0x0500
 #define REG_EDCA_VI_PARAM		0x0504
 #define REG_EDCA_BE_PARAM		0x0508
@@ -262,8 +284,12 @@
 #define REG_EDCA_RANDOM_GEN		0x05CC
 #define REG_SCH_TXCMD			0x05D0
 
+/* Dual MAC Co-Existence Register  */
 #define REG_DMC				0x05F0
 
+/* ----------------------------------------------------- */
+/*	0x0600h ~ 0x07FFh	WMAC Configuration */
+/* ----------------------------------------------------- */
 #define REG_APSD_CTRL			0x0600
 #define REG_BWOPMODE			0x0603
 #define REG_TCR				0x0604
@@ -286,6 +312,7 @@
 #define REG_EIFS			0x0642
 
 
+/* WMA, BA, CCX */
 #define REG_NAV_CTRL			0x0650
 #define REG_BACAMCMD			0x0654
 #define REG_BACAMCONTENT		0x0658
@@ -295,12 +322,14 @@
 #define REG_WMAC_TRXPTCL_CTL		0x0668
 
 
+/* Security  */
 #define REG_CAMCMD			0x0670
 #define REG_CAMWRITE			0x0674
 #define REG_CAMREAD			0x0678
 #define REG_CAMDBG			0x067C
 #define REG_SECCFG			0x0680
 
+/* Power  */
 #define REG_WOW_CTRL			0x0690
 #define REG_PSSTATUS			0x0691
 #define REG_PS_RX_INFO			0x0692
@@ -317,6 +346,9 @@
 #define REG_WMAC_RESP_TXINFO		0x06D8
 
 
+/* ----------------------------------------------------- */
+/*	Redifine 8192C register definition for compatibility */
+/* ----------------------------------------------------- */
 #define	CR9346				REG_9346CR
 #define	MSR				(REG_CR + 2)
 #define	ISR				REG_HISR
@@ -330,11 +362,18 @@
 #define	IDR0				MACIDR0
 #define	IDR4				MACIDR4
 
+/* ----------------------------------------------------- */
+/* 8192C (MSR) Media Status Register(Offset 0x4C, 8 bits)*/
+/* ----------------------------------------------------- */
 #define	MSR_NOLINK			0x00
 #define	MSR_ADHOC			0x01
 #define	MSR_INFRA			0x02
 #define	MSR_AP				0x03
 
+/* 6. Adaptive Control Registers  (Offset: 0x0160 - 0x01CF) */
+/* ----------------------------------------------------- */
+/* 8192C Response Rate Set Register(offset 0x181, 24bits)*/
+/* ----------------------------------------------------- */
 #define	RRSR_RSC_OFFSET			21
 #define	RRSR_SHORT_OFFSET		23
 #define	RRSR_RSC_BW_40M			0x600000
@@ -363,10 +402,15 @@
 #define	RRSR_MCS7			BIT19
 #define	BRSR_ACKSHORTPMB		BIT23
 
+/* ----------------------------------------------------- */
+/*       8192C Rate Definition  */
+/* ----------------------------------------------------- */
+/* CCK */
 #define	RATR_1M				0x00000001
 #define	RATR_2M				0x00000002
 #define	RATR_55M			0x00000004
 #define	RATR_11M			0x00000008
+/* OFDM */
 #define	RATR_6M				0x00000010
 #define	RATR_9M				0x00000020
 #define	RATR_12M			0x00000040
@@ -375,6 +419,7 @@
 #define	RATR_36M			0x00000200
 #define	RATR_48M			0x00000400
 #define	RATR_54M			0x00000800
+/* MCS 1 Spatial Stream	*/
 #define	RATR_MCS0			0x00001000
 #define	RATR_MCS1			0x00002000
 #define	RATR_MCS2			0x00004000
@@ -383,6 +428,7 @@
 #define	RATR_MCS5			0x00020000
 #define	RATR_MCS6			0x00040000
 #define	RATR_MCS7			0x00080000
+/* MCS 2 Spatial Stream */
 #define	RATR_MCS8			0x00100000
 #define	RATR_MCS9			0x00200000
 #define	RATR_MCS10			0x00400000
@@ -392,10 +438,12 @@
 #define	RATR_MCS14			0x04000000
 #define	RATR_MCS15			0x08000000
 
+/* CCK */
 #define RATE_1M				BIT(0)
 #define RATE_2M				BIT(1)
 #define RATE_5_5M			BIT(2)
 #define RATE_11M			BIT(3)
+/* OFDM  */
 #define RATE_6M				BIT(4)
 #define RATE_9M				BIT(5)
 #define RATE_12M			BIT(6)
@@ -404,6 +452,7 @@
 #define RATE_36M			BIT(9)
 #define RATE_48M			BIT(10)
 #define RATE_54M			BIT(11)
+/* MCS 1 Spatial Stream */
 #define RATE_MCS0			BIT(12)
 #define RATE_MCS1			BIT(13)
 #define RATE_MCS2			BIT(14)
@@ -412,6 +461,7 @@
 #define RATE_MCS5			BIT(17)
 #define RATE_MCS6			BIT(18)
 #define RATE_MCS7			BIT(19)
+/* MCS 2 Spatial Stream */
 #define RATE_MCS8			BIT(20)
 #define RATE_MCS9			BIT(21)
 #define RATE_MCS10			BIT(22)
@@ -421,6 +471,7 @@
 #define RATE_MCS14			BIT(26)
 #define RATE_MCS15			BIT(27)
 
+/* ALL CCK Rate */
 #define	RATE_ALL_CCK			(RATR_1M | RATR_2M | RATR_55M | \
 					RATR_11M)
 #define	RATE_ALL_OFDM_AG		(RATR_6M | RATR_9M | RATR_12M | \
@@ -433,11 +484,17 @@
 					RATR_MCS11 | RATR_MCS12 | RATR_MCS13 | \
 					RATR_MCS14 | RATR_MCS15)
 
+/* ----------------------------------------------------- */
+/*    8192C BW_OPMODE bits		(Offset 0x203, 8bit)     */
+/* ----------------------------------------------------- */
 #define	BW_OPMODE_20MHZ			BIT(2)
 #define	BW_OPMODE_5G			BIT(1)
 #define	BW_OPMODE_11J			BIT(0)
 
 
+/* ----------------------------------------------------- */
+/*     8192C CAM Config Setting (offset 0x250, 1 byte)   */
+/* ----------------------------------------------------- */
 #define	CAM_VALID			BIT(15)
 #define	CAM_NOTVALID			0x0000
 #define	CAM_USEDK			BIT(5)
@@ -457,11 +514,16 @@
 #define	CAM_READ			0x00000000
 #define	CAM_POLLINIG			BIT(31)
 
-#define	WOW_PMEN			BIT0 
-#define	WOW_WOMEN			BIT1 
-#define	WOW_MAGIC			BIT2 
-#define	WOW_UWF				BIT3 
+/* 10. Power Save Control Registers	 (Offset: 0x0260 - 0x02DF) */
+#define	WOW_PMEN			BIT0 /* Power management Enable. */
+#define	WOW_WOMEN			BIT1 /* WoW function on or off. */
+#define	WOW_MAGIC			BIT2 /* Magic packet */
+#define	WOW_UWF				BIT3 /* Unicast Wakeup frame. */
 
+/* 12. Host Interrupt Status Registers	 (Offset: 0x0300 - 0x030F) */
+/* ----------------------------------------------------- */
+/*      8190 IMR/ISR bits	(offset 0xfd,  8bits) */
+/* ----------------------------------------------------- */
 #define	IMR8190_DISABLED		0x0
 #define	IMR_BCNDMAINT6			BIT(31)
 #define	IMR_BCNDMAINT5			BIT(30)
@@ -503,10 +565,16 @@
 #define	IMR_OCPINT			BIT(1)
 #define	IMR_WLANOFF			BIT(0)
 
+/* ----------------------------------------------------- */
+/* 8192C EFUSE */
+/* ----------------------------------------------------- */
 #define	HWSET_MAX_SIZE			256
 #define EFUSE_MAX_SECTION		32
 #define EFUSE_REAL_CONTENT_LEN		512
 
+/* ----------------------------------------------------- */
+/*     8192C EEPROM/EFUSE share register definition. */
+/* ----------------------------------------------------- */
 #define	EEPROM_DEFAULT_TSSI			0x0
 #define EEPROM_DEFAULT_CRYSTALCAP		0x0
 #define	EEPROM_DEFAULT_THERMALMETER		0x12
@@ -515,7 +583,9 @@
 #define	EEPROM_DEFAULT_TXPOWERLEVEL_5G		0x22
 
 #define	EEPROM_DEFAULT_HT40_2SDIFF		0x0
+/* HT20<->40 default Tx Power Index Difference */
 #define EEPROM_DEFAULT_HT20_DIFF		2
+/* OFDM Tx Power index diff */
 #define	EEPROM_DEFAULT_LEGACYHTTXPOWERDIFF	0x4
 #define EEPROM_DEFAULT_HT40_PWRMAXOFFSET	0
 #define EEPROM_DEFAULT_HT20_PWRMAXOFFSET	0
@@ -545,20 +615,21 @@
 #define	EEPROM_WAPI_SUPPORT			0x78
 
 
-#define RTL8190_EEPROM_ID		0x8129	
-#define EEPROM_HPON			0x02 
-#define EEPROM_CLK			0x06 
-#define EEPROM_MAC_FUNCTION		0x08 
+#define RTL8190_EEPROM_ID		0x8129	/* 0-1 */
+#define EEPROM_HPON			0x02 /* LDO settings.2-5 */
+#define EEPROM_CLK			0x06 /* Clock settings.6-7 */
+#define EEPROM_MAC_FUNCTION		0x08 /* SE Test mode.8 */
 
-#define EEPROM_VID			0x28 
-#define EEPROM_DID			0x2A 
-#define EEPROM_SVID			0x2C 
-#define EEPROM_SMID			0x2E 
+#define EEPROM_VID			0x28 /* SE Vendor ID.A-B */
+#define EEPROM_DID			0x2A /* SE Device ID. C-D */
+#define EEPROM_SVID			0x2C /* SE Vendor ID.E-F */
+#define EEPROM_SMID			0x2E /* SE PCI Subsystem ID. 10-11 */
 
-#define EEPROM_MAC_ADDR			0x16 
+#define EEPROM_MAC_ADDR			0x16 /* SEMAC Address. 12-17 */
 #define EEPROM_MAC_ADDR_MAC0_92D	0x55
 #define EEPROM_MAC_ADDR_MAC1_92D	0x5B
 
+/* 2.4G band Tx power index setting */
 #define EEPROM_CCK_TX_PWR_INX_2G	0x61
 #define EEPROM_HT40_1S_TX_PWR_INX_2G	0x67
 #define EEPROM_HT40_2S_TX_PWR_INX_DIFF_2G	0x6D
@@ -567,6 +638,7 @@
 #define EEPROM_HT40_MAX_PWR_OFFSET_2G		0x76
 #define EEPROM_HT20_MAX_PWR_OFFSET_2G		0x79
 
+/*5GL channel 32-64 */
 #define EEPROM_HT40_1S_TX_PWR_INX_5GL		0x7C
 #define EEPROM_HT40_2S_TX_PWR_INX_DIFF_5GL	0x82
 #define EEPROM_HT20_TX_PWR_INX_DIFF_5GL		0x85
@@ -574,6 +646,7 @@
 #define EEPROM_HT40_MAX_PWR_OFFSET_5GL		0x8B
 #define EEPROM_HT20_MAX_PWR_OFFSET_5GL		0x8E
 
+/* 5GM channel 100-140 */
 #define EEPROM_HT40_1S_TX_PWR_INX_5GM		0x91
 #define EEPROM_HT40_2S_TX_PWR_INX_DIFF_5GM	0x97
 #define EEPROM_HT20_TX_PWR_INX_DIFF_5GM		0x9A
@@ -581,6 +654,7 @@
 #define EEPROM_HT40_MAX_PWR_OFFSET_5GM		0xA0
 #define EEPROM_HT20_MAX_PWR_OFFSET_5GM		0xA3
 
+/* 5GH channel 149-165 */
 #define EEPROM_HT40_1S_TX_PWR_INX_5GH		0xA6
 #define EEPROM_HT40_2S_TX_PWR_INX_DIFF_5GH	0xAC
 #define EEPROM_HT20_TX_PWR_INX_DIFF_5GH		0xAF
@@ -588,14 +662,15 @@
 #define EEPROM_HT40_MAX_PWR_OFFSET_5GH		0xB5
 #define EEPROM_HT20_MAX_PWR_OFFSET_5GH		0xB8
 
+/* Map of supported channels. */
 #define EEPROM_CHANNEL_PLAN			0xBB
 #define EEPROM_IQK_DELTA			0xBC
 #define EEPROM_LCK_DELTA			0xBC
-#define EEPROM_XTAL_K				0xBD	
+#define EEPROM_XTAL_K				0xBD	/* [7:5] */
 #define EEPROM_TSSI_A_5G			0xBE
 #define EEPROM_TSSI_B_5G			0xBF
 #define EEPROM_TSSI_AB_5G			0xC0
-#define EEPROM_THERMAL_METER			0xC3	
+#define EEPROM_THERMAL_METER			0xC3	/* [4:0] */
 #define EEPROM_RF_OPT1				0xC4
 #define EEPROM_RF_OPT2				0xC5
 #define EEPROM_RF_OPT3				0xC6
@@ -606,11 +681,26 @@
 #define EEPROM_CUSTOMER_ID			0xCB
 #define EEPROM_RF_OPT7				0xCC
 
-#define EEPROM_DEF_PART_NO			0x3FD    
+#define EEPROM_DEF_PART_NO			0x3FD    /* Byte */
 #define EEPROME_CHIP_VERSION_L			0x3FF
 #define EEPROME_CHIP_VERSION_H			0x3FE
 
+/*
+ * Current IOREG MAP
+ * 0x0000h ~ 0x00FFh   System Configuration (256 Bytes)
+ * 0x0100h ~ 0x01FFh   MACTOP General Configuration (256 Bytes)
+ * 0x0200h ~ 0x027Fh   TXDMA Configuration (128 Bytes)
+ * 0x0280h ~ 0x02FFh   RXDMA Configuration (128 Bytes)
+ * 0x0300h ~ 0x03FFh   PCIE EMAC Reserved Region (256 Bytes)
+ * 0x0400h ~ 0x04FFh   Protocol Configuration (256 Bytes)
+ * 0x0500h ~ 0x05FFh   EDCA Configuration (256 Bytes)
+ * 0x0600h ~ 0x07FFh   WMAC Configuration (512 Bytes)
+ * 0x2000h ~ 0x3FFFh   8051 FW Download Region (8196 Bytes)
+ */
 
+/* ----------------------------------------------------- */
+/* 8192C (RCR)	(Offset 0x608, 32 bits) */
+/* ----------------------------------------------------- */
 #define	RCR_APPFCS				BIT(31)
 #define	RCR_APP_MIC				BIT(30)
 #define	RCR_APP_ICV				BIT(29)
@@ -636,10 +726,18 @@
 #define	RCR_MXDMA_OFFSET			8
 #define	RCR_FIFO_OFFSET				13
 
+/* ----------------------------------------------------- */
+/*       8192C Regsiter Bit and Content definition	 */
+/* ----------------------------------------------------- */
+/* ----------------------------------------------------- */
+/*	0x0000h ~ 0x00FFh	System Configuration */
+/* ----------------------------------------------------- */
 
+/* SPS0_CTRL */
 #define SW18_FPWM				BIT(3)
 
 
+/* SYS_ISO_CTRL */
 #define ISO_MD2PP				BIT(0)
 #define ISO_UA2USB				BIT(1)
 #define ISO_UD2CORE				BIT(2)
@@ -655,6 +753,7 @@
 #define PWC_EV12V				BIT(15)
 
 
+/* SYS_FUNC_EN */
 #define FEN_BBRSTB				BIT(0)
 #define FEN_BB_GLB_RSTn				BIT(1)
 #define FEN_USBA				BIT(2)
@@ -672,6 +771,7 @@
 #define FEN_HWPDN				BIT(14)
 #define FEN_MREGEN				BIT(15)
 
+/* APS_FSMCO */
 #define PFM_LDALL				BIT(0)
 #define PFM_ALDN				BIT(1)
 #define PFM_LDKP				BIT(2)
@@ -699,6 +799,7 @@
 #define SOP_A8M					BIT(30)
 #define XOP_BTCK				BIT(31)
 
+/* SYS_CLKR */
 #define ANAD16V_EN				BIT(0)
 #define ANA8M					BIT(1)
 #define MACSLP					BIT(4)
@@ -712,13 +813,16 @@
 #define RING_CLK_EN				BIT(13)
 
 
+/* 9346CR */
 #define	BOOT_FROM_EEPROM			BIT(4)
 #define	EEPROM_EN				BIT(5)
 
+/* AFE_MISC */
 #define AFE_BGEN				BIT(0)
 #define AFE_MBEN				BIT(1)
 #define MAC_ID_EN				BIT(7)
 
+/* RSV_CTRL */
 #define WLOCK_ALL				BIT(0)
 #define WLOCK_00				BIT(1)
 #define WLOCK_04				BIT(2)
@@ -728,12 +832,14 @@
 #define R_DIS_PRST_1				BIT(6)
 #define LOCK_ALL_EN				BIT(7)
 
+/* RF_CTRL */
 #define RF_EN					BIT(0)
 #define RF_RSTB					BIT(1)
 #define RF_SDMRSTB				BIT(2)
 
 
 
+/* LDOA15_CTRL */
 #define LDA15_EN				BIT(0)
 #define LDA15_STBY				BIT(1)
 #define LDA15_OBUF				BIT(2)
@@ -742,6 +848,7 @@
 
 
 
+/* LDOV12D_CTRL */
 #define LDV12_EN				BIT(0)
 #define LDV12_SDBY				BIT(1)
 #define LPLDO_HSM				BIT(2)
@@ -749,6 +856,7 @@
 #define _LDV12_VADJ(x)				(((x) & 0xF) << 4)
 
 
+/* AFE_XTAL_CTRL */
 #define XTAL_EN					BIT(0)
 #define XTAL_BSEL				BIT(1)
 #define _XTAL_BOSC(x)				(((x) & 0x3) << 2)
@@ -772,6 +880,7 @@
 #define CKDLY_BT				BIT(29)
 
 
+/* AFE_PLL_CTRL */
 #define APLL_EN					BIT(0)
 #define APLL_320_EN				BIT(1)
 #define APLL_FREF_SEL				BIT(2)
@@ -792,13 +901,16 @@
 #define APLL_1MEN				BIT(24)
 
 
+/* EFUSE_CTRL */
 #define ALD_EN					BIT(18)
 #define EF_PD					BIT(19)
 #define EF_FLAG					BIT(31)
 
+/* EFUSE_TEST  */
 #define EF_TRPT					BIT(7)
 #define LDOE25_EN				BIT(31)
 
+/* MCUFWDL  */
 #define MCUFWDL_EN				BIT(0)
 #define MCUFWDL_RDY				BIT(1)
 #define FWDL_ChkSum_rpt				BIT(2)
@@ -809,6 +921,7 @@
 #define MAC1_WINTINI_RDY			BIT(11)
 #define CPRST					BIT(23)
 
+/*  REG_SYS_CFG */
 #define XCLK_VLD				BIT(0)
 #define ACLK_VLD				BIT(1)
 #define UCLK_VLD				BIT(2)
@@ -827,6 +940,7 @@
 #define BD_HCI_SEL				BIT(26)
 #define TYPE_ID					BIT(27)
 
+/* LLT_INIT */
 #define _LLT_NO_ACTIVE				0x0
 #define _LLT_WRITE_ACCESS			0x1
 #define _LLT_READ_ACCESS			0x2
@@ -837,21 +951,33 @@
 #define _LLT_OP_VALUE(x)			(((x) >> 30) & 0x3)
 
 
+/* ----------------------------------------------------- */
+/*	0x0400h ~ 0x047Fh	Protocol Configuration	 */
+/* ----------------------------------------------------- */
 #define	RETRY_LIMIT_SHORT_SHIFT			8
 #define	RETRY_LIMIT_LONG_SHIFT			0
 
 
+/* ----------------------------------------------------- */
+/*	0x0500h ~ 0x05FFh	EDCA Configuration */
+/* ----------------------------------------------------- */
+/* EDCA setting */
 #define AC_PARAM_TXOP_LIMIT_OFFSET		16
 #define AC_PARAM_ECW_MAX_OFFSET			12
 #define AC_PARAM_ECW_MIN_OFFSET			8
 #define AC_PARAM_AIFS_OFFSET			0
 
+/* ACMHWCTRL */
 #define	ACMHW_HWEN				BIT(0)
 #define	ACMHW_BEQEN				BIT(1)
 #define	ACMHW_VIQEN				BIT(2)
 #define	ACMHW_VOQEN				BIT(3)
 
+/* ----------------------------------------------------- */
+/*	0x0600h ~ 0x07FFh	WMAC Configuration */
+/* ----------------------------------------------------- */
 
+/* TCR */
 #define TSFRST					BIT(0)
 #define DIS_GCLK				BIT(1)
 #define PAD_SEL					BIT(2)
@@ -861,6 +987,7 @@
 #define CFENDFORM				BIT(9)
 #define ICV					BIT(10)
 
+/* SECCFG */
 #define	SCR_TXUSEDK				BIT(0)
 #define	SCR_RXUSEDK				BIT(1)
 #define	SCR_TXENCENABLE				BIT(2)
@@ -870,17 +997,27 @@
 #define SCR_TXBCUSEDK				BIT(6)
 #define SCR_RXBCUSEDK				BIT(7)
 
+/* General definitions */
 #define LAST_ENTRY_OF_TX_PKT_BUFFER		255
 #define LAST_ENTRY_OF_TX_PKT_BUFFER_DUAL_MAC	127
 
 #define POLLING_LLT_THRESHOLD			20
 #define POLLING_READY_TIMEOUT_COUNT		1000
 
+/* Min Spacing related settings. */
 #define	MAX_MSS_DENSITY_2T			0x13
 #define	MAX_MSS_DENSITY_1T			0x0A
 
 
+/* BB-PHY register PMAC 0x100 PHY 0x800 - 0xEFF */
+/* 1. PMAC duplicate register due to connection: */
+/*    RF_Mode, TRxRN, NumOf L-STF */
+/* 2. 0x800/0x900/0xA00/0xC00/0xD00/0xE00 */
+/* 3. RF register 0x00-2E */
+/* 4. Bit Mask for BB/RF register */
+/* 5. Other defintion for BB/RF R/W */
 
+/* 3. Page8(0x800) */
 #define	RFPGA0_RFMOD				0x800
 
 #define	RFPGA0_TXINFO				0x804
@@ -931,12 +1068,14 @@
 #define	RFPGA0_XAB_RFINTERFACERB		0x8e0
 #define	RFPGA0_XCD_RFINTERFACERB		0x8e4
 
+/* 4. Page9(0x900) */
 #define	RFPGA1_RFMOD				0x900
 
 #define	RFPGA1_TXBLOCK				0x904
 #define	RFPGA1_DEBUGSELECT			0x908
 #define	RFPGA1_TXINFO				0x90c
 
+/* 5. PageA(0xA00)  */
 #define	RCCK0_SYSTEM				0xa00
 
 #define	RCCK0_AFESSTTING			0xa04
@@ -959,6 +1098,7 @@
 #define	RCCK0_FACOUNTERLOWER			0xa5c
 #define	RCCK0_FACOUNTERUPPER			0xa58
 
+/* 6. PageC(0xC00) */
 #define	ROFDM0_LSTF				0xc00
 
 #define	ROFDM0_TRXPATHENABLE			0xc04
@@ -1018,6 +1158,7 @@
 #define	ROFDM0_TXCOEFF5				0xcb4
 #define	ROFDM0_TXCOEFF6				0xcb8
 
+/* 7. PageD(0xD00) */
 #define	ROFDM1_LSTF				0xd00
 #define	ROFDM1_TRXPATHENABLE			0xd04
 
@@ -1050,6 +1191,7 @@
 #define	ROFDM_RXEVMCSI				0xdd8
 #define	ROFDM_SIGReport				0xddc
 
+/* 8. PageE(0xE00) */
 #define	RTXAGC_A_RATE18_06			0xe00
 #define	RTXAGC_A_RATE54_24			0xe04
 #define	RTXAGC_A_CCK1_MCS32			0xe08
@@ -1067,6 +1209,7 @@
 #define	RTXAGC_B_MCS15_MCS12			0x868
 #define	RTXAGC_B_CCK11_A_CCK2_11		0x86c
 
+/* RL6052 Register definition */
 #define	RF_AC					0x00
 
 #define	RF_IQADJ_G1				0x01
@@ -1124,7 +1267,9 @@
 #define	RF_TXPA_G2				0x32
 #define	RF_TXPA_G3				0x33
 
+/* Bit Mask */
 
+/* 2. Page8(0x800) */
 #define	BRFMOD					0x1
 #define	BCCKTXSC				0x30
 #define	BCCKEN					0x1000000
@@ -1138,8 +1283,10 @@
 #define	BLSSIREADADDRESS			0x7f800000
 #define	BLSSIREADEDGE				0x80000000
 #define	BLSSIREADBACKDATA			0xfffff
+/* 4. PageA(0xA00) */
 #define BCCKSIDEBAND				0x10
 
+/* Other Definition */
 #define	BBYTE0					0x1
 #define	BBYTE1					0x2
 #define	BBYTE2					0x4

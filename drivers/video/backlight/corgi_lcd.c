@@ -29,6 +29,7 @@
 
 #define POWER_IS_ON(pwr)	((pwr) <= FB_BLANK_NORMAL)
 
+/* Register Addresses */
 #define RESCTL_ADRS     0x00
 #define PHACTRL_ADRS    0x01
 #define DUTYCTRL_ADRS   0x02
@@ -38,26 +39,27 @@
 #define PICTRL_ADRS     0x06
 #define POLCTRL_ADRS    0x07
 
+/* Register Bit Definitions */
 #define RESCTL_QVGA     0x01
 #define RESCTL_VGA      0x00
 
-#define POWER1_VW_ON    0x01  
-#define POWER1_GVSS_ON  0x02  
-#define POWER1_VDD_ON   0x04  
+#define POWER1_VW_ON    0x01  /* VW Supply FET ON */
+#define POWER1_GVSS_ON  0x02  /* GVSS(-8V) Power Supply ON */
+#define POWER1_VDD_ON   0x04  /* VDD(8V),SVSS(-4V) Power Supply ON */
 
-#define POWER1_VW_OFF   0x00  
-#define POWER1_GVSS_OFF 0x00  
-#define POWER1_VDD_OFF  0x00  
+#define POWER1_VW_OFF   0x00  /* VW Supply FET OFF */
+#define POWER1_GVSS_OFF 0x00  /* GVSS(-8V) Power Supply OFF */
+#define POWER1_VDD_OFF  0x00  /* VDD(8V),SVSS(-4V) Power Supply OFF */
 
-#define POWER0_COM_DCLK 0x01  
-#define POWER0_COM_DOUT 0x02  
-#define POWER0_DAC_ON   0x04  
-#define POWER0_COM_ON   0x08  
-#define POWER0_VCC5_ON  0x10  
+#define POWER0_COM_DCLK 0x01  /* COM Voltage DC Bias DAC Serial Data Clock */
+#define POWER0_COM_DOUT 0x02  /* COM Voltage DC Bias DAC Serial Data Out */
+#define POWER0_DAC_ON   0x04  /* DAC Power Supply ON */
+#define POWER0_COM_ON   0x08  /* COM Power Supply ON */
+#define POWER0_VCC5_ON  0x10  /* VCC5 Power Supply ON */
 
-#define POWER0_DAC_OFF  0x00  
-#define POWER0_COM_OFF  0x00  
-#define POWER0_VCC5_OFF 0x00  
+#define POWER0_DAC_OFF  0x00  /* DAC Power Supply OFF */
+#define POWER0_COM_OFF  0x00  /* COM Power Supply OFF */
+#define POWER0_VCC5_OFF 0x00  /* VCC5 Power Supply OFF */
 
 #define PICTRL_INIT_STATE      0x01
 #define PICTRL_INIOFF          0x02
@@ -106,6 +108,10 @@ static unsigned long corgibl_flags;
 #define CORGIBL_SUSPENDED     0x01
 #define CORGIBL_BATTLOW       0x02
 
+/*
+ * This is only a pseudo I2C interface. We can't use the standard kernel
+ * routines as the interface is write only. We just assume the data is acked...
+ */
 static void lcdtg_ssp_i2c_send(struct corgi_lcd *lcd, uint8_t data)
 {
 	corgi_ssp_lcdtg_send(lcd, POWERREG0_ADRS, data);
@@ -154,7 +160,7 @@ static void lcdtg_i2c_wait_ack(struct corgi_lcd *lcd, uint8_t base)
 static void lcdtg_set_common_voltage(struct corgi_lcd *lcd,
 				     uint8_t base_data, uint8_t data)
 {
-	
+	/* Set Common Voltage to M62332FP via I2C */
 	lcdtg_i2c_send_start(lcd, base_data);
 	lcdtg_i2c_send_byte(lcd, base_data, 0x9c);
 	lcdtg_i2c_wait_ack(lcd, base_data);
@@ -181,20 +187,21 @@ static int corgi_ssp_lcdtg_send(struct corgi_lcd *lcd, int adrs, uint8_t data)
 	return spi_sync(lcd->spi_dev, &msg);
 }
 
+/* Set Phase Adjust */
 static void lcdtg_set_phadadj(struct corgi_lcd *lcd, int mode)
 {
 	int adj;
 
 	switch(mode) {
 	case CORGI_LCD_MODE_VGA:
-		
+		/* Setting for VGA */
 		adj = sharpsl_param.phadadj;
 		adj = (adj < 0) ? PHACTRL_PHASE_MANUAL :
 				  PHACTRL_PHASE_MANUAL | ((adj & 0xf) << 1);
 		break;
 	case CORGI_LCD_MODE_QVGA:
 	default:
-		
+		/* Setting for QVGA */
 		adj = (DEFAULT_PHAD_QVGA << 1) | PHACTRL_PHASE_MANUAL;
 		break;
 	}
@@ -206,7 +213,7 @@ static void corgi_lcd_power_on(struct corgi_lcd *lcd)
 {
 	int comadj;
 
-	
+	/* Initialize Internal Logic & Port */
 	corgi_ssp_lcdtg_send(lcd, PICTRL_ADRS,
 			PICTRL_POWER_DOWN | PICTRL_INIOFF |
 			PICTRL_INIT_STATE | PICTRL_COM_SIGNAL_OFF |
@@ -219,22 +226,22 @@ static void corgi_lcd_power_on(struct corgi_lcd *lcd)
 	corgi_ssp_lcdtg_send(lcd, POWERREG1_ADRS,
 			POWER1_VW_OFF | POWER1_GVSS_OFF | POWER1_VDD_OFF);
 
-	
+	/* VDD(+8V), SVSS(-4V) ON */
 	corgi_ssp_lcdtg_send(lcd, POWERREG1_ADRS,
 			POWER1_VW_OFF | POWER1_GVSS_OFF | POWER1_VDD_ON);
 	mdelay(3);
 
-	
+	/* DAC ON */
 	corgi_ssp_lcdtg_send(lcd, POWERREG0_ADRS,
 			POWER0_COM_DCLK | POWER0_COM_DOUT | POWER0_DAC_ON |
 			POWER0_COM_OFF | POWER0_VCC5_OFF);
 
-	
-	
+	/* INIB = H, INI = L  */
+	/* PICTL[0] = H , PICTL[1] = PICTL[2] = PICTL[4] = L */
 	corgi_ssp_lcdtg_send(lcd, PICTRL_ADRS,
 			PICTRL_INIT_STATE | PICTRL_COM_SIGNAL_OFF);
 
-	
+	/* Set Common Voltage */
 	comadj = sharpsl_param.comadj;
 	if (comadj < 0)
 		comadj = DEFAULT_COMADJ;
@@ -242,35 +249,35 @@ static void corgi_lcd_power_on(struct corgi_lcd *lcd)
 	lcdtg_set_common_voltage(lcd, POWER0_DAC_ON | POWER0_COM_OFF |
 				 POWER0_VCC5_OFF, comadj);
 
-	
+	/* VCC5 ON, DAC ON */
 	corgi_ssp_lcdtg_send(lcd, POWERREG0_ADRS,
 			POWER0_COM_DCLK | POWER0_COM_DOUT | POWER0_DAC_ON |
 			POWER0_COM_OFF | POWER0_VCC5_ON);
 
-	
+	/* GVSS(-8V) ON, VDD ON */
 	corgi_ssp_lcdtg_send(lcd, POWERREG1_ADRS,
 			POWER1_VW_OFF | POWER1_GVSS_ON | POWER1_VDD_ON);
 	mdelay(2);
 
-	
+	/* COM SIGNAL ON (PICTL[3] = L) */
 	corgi_ssp_lcdtg_send(lcd, PICTRL_ADRS, PICTRL_INIT_STATE);
 
-	
+	/* COM ON, DAC ON, VCC5_ON */
 	corgi_ssp_lcdtg_send(lcd, POWERREG0_ADRS,
 			POWER0_COM_DCLK | POWER0_COM_DOUT | POWER0_DAC_ON |
 			POWER0_COM_ON | POWER0_VCC5_ON);
 
-	
+	/* VW ON, GVSS ON, VDD ON */
 	corgi_ssp_lcdtg_send(lcd, POWERREG1_ADRS,
 			POWER1_VW_ON | POWER1_GVSS_ON | POWER1_VDD_ON);
 
-	
+	/* Signals output enable */
 	corgi_ssp_lcdtg_send(lcd, PICTRL_ADRS, 0);
 
-	
+	/* Set Phase Adjust */
 	lcdtg_set_phadadj(lcd, lcd->mode);
 
-	
+	/* Initialize for Input Signals from ATI */
 	corgi_ssp_lcdtg_send(lcd, POLCTRL_ADRS,
 			POLCTRL_SYNC_POL_RISE | POLCTRL_EN_POL_RISE |
 			POLCTRL_DATA_POL_RISE | POLCTRL_SYNC_ACT_L |
@@ -290,40 +297,40 @@ static void corgi_lcd_power_on(struct corgi_lcd *lcd)
 
 static void corgi_lcd_power_off(struct corgi_lcd *lcd)
 {
-	
+	/* 60Hz x 2 frame = 16.7msec x 2 = 33.4 msec */
 	msleep(34);
 
-	
+	/* (1)VW OFF */
 	corgi_ssp_lcdtg_send(lcd, POWERREG1_ADRS,
 			POWER1_VW_OFF | POWER1_GVSS_ON | POWER1_VDD_ON);
 
-	
+	/* (2)COM OFF */
 	corgi_ssp_lcdtg_send(lcd, PICTRL_ADRS, PICTRL_COM_SIGNAL_OFF);
 	corgi_ssp_lcdtg_send(lcd, POWERREG0_ADRS,
 			POWER0_DAC_ON | POWER0_COM_OFF | POWER0_VCC5_ON);
 
-	
+	/* (3)Set Common Voltage Bias 0V */
 	lcdtg_set_common_voltage(lcd, POWER0_DAC_ON | POWER0_COM_OFF |
 			POWER0_VCC5_ON, 0);
 
-	
+	/* (4)GVSS OFF */
 	corgi_ssp_lcdtg_send(lcd, POWERREG1_ADRS,
 			POWER1_VW_OFF | POWER1_GVSS_OFF | POWER1_VDD_ON);
 
-	
+	/* (5)VCC5 OFF */
 	corgi_ssp_lcdtg_send(lcd, POWERREG0_ADRS,
 			POWER0_DAC_ON | POWER0_COM_OFF | POWER0_VCC5_OFF);
 
-	
+	/* (6)Set PDWN, INIOFF, DACOFF */
 	corgi_ssp_lcdtg_send(lcd, PICTRL_ADRS,
 			PICTRL_INIOFF | PICTRL_DAC_SIGNAL_OFF |
 			PICTRL_POWER_DOWN | PICTRL_COM_SIGNAL_OFF);
 
-	
+	/* (7)DAC OFF */
 	corgi_ssp_lcdtg_send(lcd, POWERREG0_ADRS,
 			POWER0_DAC_OFF | POWER0_COM_OFF | POWER0_VCC5_OFF);
 
-	
+	/* (8)VDD OFF */
 	corgi_ssp_lcdtg_send(lcd, POWERREG1_ADRS,
 			POWER1_VW_OFF | POWER1_GVSS_OFF | POWER1_VDD_OFF);
 }
@@ -398,7 +405,7 @@ static int corgi_bl_set_intensity(struct corgi_lcd *lcd, int intensity)
 
 	corgi_ssp_lcdtg_send(lcd, DUTYCTRL_ADRS, intensity);
 
-	
+	/* Bit 5 via GPIO_BACKLIGHT_CONT */
 	cont = !!(intensity & 0x20) ^ lcd->gpio_backlight_cont_inverted;
 
 	if (gpio_is_valid(lcd->gpio_backlight_cont))
@@ -506,6 +513,9 @@ static int setup_gpio_backlight(struct corgi_lcd *lcd,
 
 		lcd->gpio_backlight_cont = pdata->gpio_backlight_cont;
 
+		/* spitz and akita use both GPIOs for backlight, and
+		 * have inverted polarity of GPIO_BACKLIGHT_CONT
+		 */
 		if (gpio_is_valid(lcd->gpio_backlight_on)) {
 			lcd->gpio_backlight_cont_inverted = 1;
 			gpio_direction_output(lcd->gpio_backlight_cont, 1);

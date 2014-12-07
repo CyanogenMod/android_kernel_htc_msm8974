@@ -15,12 +15,12 @@
 #include <asm/mb-regs.h>
 
 #define DM9000_ARCH_IOBASE	(__region_CS6 + 0x300)
-#define DM9000_ARCH_IRQ		IRQ_CPU_EXTERNAL3	
-#undef DM9000_ARCH_IRQ_ACTLOW				
-#define DM9000_ARCH_BUS_INFO	"CS6#+0x300"		
+#define DM9000_ARCH_IRQ		IRQ_CPU_EXTERNAL3	/* XIRQ #3 (shared with FPGA) */
+#undef DM9000_ARCH_IRQ_ACTLOW				/* IRQ pin active high */
+#define DM9000_ARCH_BUS_INFO	"CS6#+0x300"		/* bus info for ethtool */
 
 #undef __is_PCI_IO
-#define __is_PCI_IO(addr)	0	
+#define __is_PCI_IO(addr)	0	/* not PCI */
 
 #undef inl
 #define inl(addr)										\
@@ -31,7 +31,7 @@
 })
 
 #undef insl
-#define insl(a,b,l)	__insl(a,b,l,0) 
+#define insl(a,b,l)	__insl(a,b,l,0) /* don't byte-swap */
 
 
-#endif 
+#endif /* _ASM_DM9000_H */

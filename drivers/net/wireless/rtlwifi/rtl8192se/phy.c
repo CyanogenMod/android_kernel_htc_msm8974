@@ -278,7 +278,7 @@ void rtl92s_phy_set_bw_mode(struct ieee80211_hw *hw,
 	rtlphy->set_bwmode_inprogress = true;
 
 	reg_bw_opmode = rtl_read_byte(rtlpriv, BW_OPMODE);
-	
+	/* dummy read */
 	rtl_read_byte(rtlpriv, RRSR + 2);
 
 	switch (rtlphy->current_chan_bw) {
@@ -527,6 +527,8 @@ static void _rtl92se_phy_set_rf_sleep(struct ieee80211_hw *hw)
 
 	rtl_write_word(rtlpriv, CMDR, 0x57FC);
 
+	/* we should chnge GPIO to input mode
+	 * this will drop away current about 25mA*/
 	rtl8192se_gpiobit3_cfg_inputmode(hw);
 }
 
@@ -661,7 +663,7 @@ static bool _rtl92s_phy_config_rfpa_bias_current(struct ieee80211_hw *hw,
 	bool rtstatus = true;
 	u32 tmpval = 0;
 
-	
+	/* If inferiority IC, we have to increase the PA bias current */
 	if (rtlhal->ic_class != IC_INFERIORITY_A) {
 		tmpval = rtl92s_phy_query_rf_reg(hw, rfpath, RF_IPA, 0xf);
 		rtl92s_phy_set_rf_reg(hw, rfpath, RF_IPA, 0xf, tmpval + 1);
@@ -704,31 +706,31 @@ static void _rtl92s_phy_init_register_definition(struct ieee80211_hw *hw)
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_phy *rtlphy = &(rtlpriv->phy);
 
-	
+	/*RF Interface Sowrtware Control */
 	rtlphy->phyreg_def[RF90_PATH_A].rfintfs = RFPGA0_XAB_RFINTERFACESW;
 	rtlphy->phyreg_def[RF90_PATH_B].rfintfs = RFPGA0_XAB_RFINTERFACESW;
 	rtlphy->phyreg_def[RF90_PATH_C].rfintfs = RFPGA0_XCD_RFINTERFACESW;
 	rtlphy->phyreg_def[RF90_PATH_D].rfintfs = RFPGA0_XCD_RFINTERFACESW;
 
-	
+	/* RF Interface Readback Value */
 	rtlphy->phyreg_def[RF90_PATH_A].rfintfi = RFPGA0_XAB_RFINTERFACERB;
 	rtlphy->phyreg_def[RF90_PATH_B].rfintfi = RFPGA0_XAB_RFINTERFACERB;
 	rtlphy->phyreg_def[RF90_PATH_C].rfintfi = RFPGA0_XCD_RFINTERFACERB;
 	rtlphy->phyreg_def[RF90_PATH_D].rfintfi = RFPGA0_XCD_RFINTERFACERB;
 
-	
+	/* RF Interface Output (and Enable) */
 	rtlphy->phyreg_def[RF90_PATH_A].rfintfo = RFPGA0_XA_RFINTERFACEOE;
 	rtlphy->phyreg_def[RF90_PATH_B].rfintfo = RFPGA0_XB_RFINTERFACEOE;
 	rtlphy->phyreg_def[RF90_PATH_C].rfintfo = RFPGA0_XC_RFINTERFACEOE;
 	rtlphy->phyreg_def[RF90_PATH_D].rfintfo = RFPGA0_XD_RFINTERFACEOE;
 
-	
+	/* RF Interface (Output and)  Enable */
 	rtlphy->phyreg_def[RF90_PATH_A].rfintfe = RFPGA0_XA_RFINTERFACEOE;
 	rtlphy->phyreg_def[RF90_PATH_B].rfintfe = RFPGA0_XB_RFINTERFACEOE;
 	rtlphy->phyreg_def[RF90_PATH_C].rfintfe = RFPGA0_XC_RFINTERFACEOE;
 	rtlphy->phyreg_def[RF90_PATH_D].rfintfe = RFPGA0_XD_RFINTERFACEOE;
 
-	
+	/* Addr of LSSI. Wirte RF register by driver */
 	rtlphy->phyreg_def[RF90_PATH_A].rf3wire_offset =
 						 RFPGA0_XA_LSSIPARAMETER;
 	rtlphy->phyreg_def[RF90_PATH_B].rf3wire_offset =
@@ -738,31 +740,31 @@ static void _rtl92s_phy_init_register_definition(struct ieee80211_hw *hw)
 	rtlphy->phyreg_def[RF90_PATH_D].rf3wire_offset =
 						 RFPGA0_XD_LSSIPARAMETER;
 
-	
+	/* RF parameter */
 	rtlphy->phyreg_def[RF90_PATH_A].rflssi_select = RFPGA0_XAB_RFPARAMETER;
 	rtlphy->phyreg_def[RF90_PATH_B].rflssi_select = RFPGA0_XAB_RFPARAMETER;
 	rtlphy->phyreg_def[RF90_PATH_C].rflssi_select = RFPGA0_XCD_RFPARAMETER;
 	rtlphy->phyreg_def[RF90_PATH_D].rflssi_select = RFPGA0_XCD_RFPARAMETER;
 
-	
+	/* Tx AGC Gain Stage (same for all path. Should we remove this?) */
 	rtlphy->phyreg_def[RF90_PATH_A].rftxgain_stage = RFPGA0_TXGAINSTAGE;
 	rtlphy->phyreg_def[RF90_PATH_B].rftxgain_stage = RFPGA0_TXGAINSTAGE;
 	rtlphy->phyreg_def[RF90_PATH_C].rftxgain_stage = RFPGA0_TXGAINSTAGE;
 	rtlphy->phyreg_def[RF90_PATH_D].rftxgain_stage = RFPGA0_TXGAINSTAGE;
 
-	
+	/* Tranceiver A~D HSSI Parameter-1 */
 	rtlphy->phyreg_def[RF90_PATH_A].rfhssi_para1 = RFPGA0_XA_HSSIPARAMETER1;
 	rtlphy->phyreg_def[RF90_PATH_B].rfhssi_para1 = RFPGA0_XB_HSSIPARAMETER1;
 	rtlphy->phyreg_def[RF90_PATH_C].rfhssi_para1 = RFPGA0_XC_HSSIPARAMETER1;
 	rtlphy->phyreg_def[RF90_PATH_D].rfhssi_para1 = RFPGA0_XD_HSSIPARAMETER1;
 
-	
+	/* Tranceiver A~D HSSI Parameter-2 */
 	rtlphy->phyreg_def[RF90_PATH_A].rfhssi_para2 = RFPGA0_XA_HSSIPARAMETER2;
 	rtlphy->phyreg_def[RF90_PATH_B].rfhssi_para2 = RFPGA0_XB_HSSIPARAMETER2;
 	rtlphy->phyreg_def[RF90_PATH_C].rfhssi_para2 = RFPGA0_XC_HSSIPARAMETER2;
 	rtlphy->phyreg_def[RF90_PATH_D].rfhssi_para2 = RFPGA0_XD_HSSIPARAMETER2;
 
-	
+	/* RF switch Control */
 	rtlphy->phyreg_def[RF90_PATH_A].rfswitch_control =
 						 RFPGA0_XAB_SWITCHCONTROL;
 	rtlphy->phyreg_def[RF90_PATH_B].rfswitch_control =
@@ -772,19 +774,19 @@ static void _rtl92s_phy_init_register_definition(struct ieee80211_hw *hw)
 	rtlphy->phyreg_def[RF90_PATH_D].rfswitch_control =
 						 RFPGA0_XCD_SWITCHCONTROL;
 
-	
+	/* AGC control 1  */
 	rtlphy->phyreg_def[RF90_PATH_A].rfagc_control1 = ROFDM0_XAAGCCORE1;
 	rtlphy->phyreg_def[RF90_PATH_B].rfagc_control1 = ROFDM0_XBAGCCORE1;
 	rtlphy->phyreg_def[RF90_PATH_C].rfagc_control1 = ROFDM0_XCAGCCORE1;
 	rtlphy->phyreg_def[RF90_PATH_D].rfagc_control1 = ROFDM0_XDAGCCORE1;
 
-	
+	/* AGC control 2  */
 	rtlphy->phyreg_def[RF90_PATH_A].rfagc_control2 = ROFDM0_XAAGCCORE2;
 	rtlphy->phyreg_def[RF90_PATH_B].rfagc_control2 = ROFDM0_XBAGCCORE2;
 	rtlphy->phyreg_def[RF90_PATH_C].rfagc_control2 = ROFDM0_XCAGCCORE2;
 	rtlphy->phyreg_def[RF90_PATH_D].rfagc_control2 = ROFDM0_XDAGCCORE2;
 
-	
+	/* RX AFE control 1  */
 	rtlphy->phyreg_def[RF90_PATH_A].rfrxiq_imbalance =
 						 ROFDM0_XARXIQIMBALANCE;
 	rtlphy->phyreg_def[RF90_PATH_B].rfrxiq_imbalance =
@@ -794,13 +796,13 @@ static void _rtl92s_phy_init_register_definition(struct ieee80211_hw *hw)
 	rtlphy->phyreg_def[RF90_PATH_D].rfrxiq_imbalance =
 						 ROFDM0_XDRXIQIMBALANCE;
 
-	
+	/* RX AFE control 1   */
 	rtlphy->phyreg_def[RF90_PATH_A].rfrx_afe = ROFDM0_XARXAFE;
 	rtlphy->phyreg_def[RF90_PATH_B].rfrx_afe = ROFDM0_XBRXAFE;
 	rtlphy->phyreg_def[RF90_PATH_C].rfrx_afe = ROFDM0_XCRXAFE;
 	rtlphy->phyreg_def[RF90_PATH_D].rfrx_afe = ROFDM0_XDRXAFE;
 
-	
+	/* Tx AFE control 1  */
 	rtlphy->phyreg_def[RF90_PATH_A].rftxiq_imbalance =
 						 ROFDM0_XATXIQIMBALANCE;
 	rtlphy->phyreg_def[RF90_PATH_B].rftxiq_imbalance =
@@ -810,13 +812,13 @@ static void _rtl92s_phy_init_register_definition(struct ieee80211_hw *hw)
 	rtlphy->phyreg_def[RF90_PATH_D].rftxiq_imbalance =
 						 ROFDM0_XDTXIQIMBALANCE;
 
-	
+	/* Tx AFE control 2  */
 	rtlphy->phyreg_def[RF90_PATH_A].rftx_afe = ROFDM0_XATXAFE;
 	rtlphy->phyreg_def[RF90_PATH_B].rftx_afe = ROFDM0_XBTXAFE;
 	rtlphy->phyreg_def[RF90_PATH_C].rftx_afe = ROFDM0_XCTXAFE;
 	rtlphy->phyreg_def[RF90_PATH_D].rftx_afe = ROFDM0_XDTXAFE;
 
-	
+	/* Tranceiver LSSI Readback */
 	rtlphy->phyreg_def[RF90_PATH_A].rflssi_readback =
 			 RFPGA0_XA_LSSIREADBACK;
 	rtlphy->phyreg_def[RF90_PATH_B].rflssi_readback =
@@ -826,7 +828,7 @@ static void _rtl92s_phy_init_register_definition(struct ieee80211_hw *hw)
 	rtlphy->phyreg_def[RF90_PATH_D].rflssi_readback =
 			 RFPGA0_XD_LSSIREADBACK;
 
-	
+	/* Tranceiver LSSI Readback PI mode  */
 	rtlphy->phyreg_def[RF90_PATH_A].rflssi_readbackpi =
 			 TRANSCEIVERA_HSPI_READBACK;
 	rtlphy->phyreg_def[RF90_PATH_B].rflssi_readbackpi =
@@ -843,7 +845,7 @@ static bool _rtl92s_phy_config_bb(struct ieee80211_hw *hw, u8 configtype)
 
 	agc_len = AGCTAB_ARRAYLENGTH;
 	agc_table = rtl8192seagctab_array;
-	
+	/* Default RF_type: 2T2R */
 	phy_reg_len = PHY_REG_2T2RARRAYLENGTH;
 	phy_reg_table = rtl8192sephy_reg_2t2rarray;
 
@@ -862,7 +864,7 @@ static bool _rtl92s_phy_config_bb(struct ieee80211_hw *hw, u8 configtype)
 			else if (phy_reg_table[i] == 0xf9)
 				udelay(1);
 
-			
+			/* Add delay for ECS T20 & LG malow platform, */
 			udelay(1);
 
 			rtl92s_phy_set_bb_reg(hw, phy_reg_table[i], MASKDWORD,
@@ -873,7 +875,7 @@ static bool _rtl92s_phy_config_bb(struct ieee80211_hw *hw, u8 configtype)
 			rtl92s_phy_set_bb_reg(hw, agc_table[i], MASKDWORD,
 					agc_table[i + 1]);
 
-			
+			/* Add delay for ECS T20 & LG malow platform */
 			udelay(1);
 		}
 	}
@@ -969,14 +971,16 @@ static bool _rtl92s_phy_bb_config_parafile(struct ieee80211_hw *hw)
 	struct rtl_efuse *rtlefuse = rtl_efuse(rtl_priv(hw));
 	bool rtstatus = true;
 
-	
-	
+	/* 1. Read PHY_REG.TXT BB INIT!! */
+	/* We will separate as 1T1R/1T2R/1T2R_GREEN/2T2R */
 	if (rtlphy->rf_type == RF_1T2R || rtlphy->rf_type == RF_2T2R ||
 	    rtlphy->rf_type == RF_1T1R || rtlphy->rf_type == RF_2T2R_GREEN) {
 		rtstatus = _rtl92s_phy_config_bb(hw, BASEBAND_CONFIG_PHY_REG);
 
 		if (rtlphy->rf_type != RF_2T2R &&
 		    rtlphy->rf_type != RF_2T2R_GREEN)
+			/* so we should reconfig BB reg with the right
+			 * PHY parameters. */
 			rtstatus = _rtl92s_phy_set_bb_to_diff_rf(hw,
 						BASEBAND_CONFIG_PHY_REG);
 	} else {
@@ -989,6 +993,8 @@ static bool _rtl92s_phy_bb_config_parafile(struct ieee80211_hw *hw)
 		goto phy_BB8190_Config_ParaFile_Fail;
 	}
 
+	/* 2. If EEPROM or EFUSE autoload OK, We must config by
+	 *    PHY_REG_PG.txt */
 	if (rtlefuse->autoload_failflag == false) {
 		rtlphy->pwrgroup_cnt = 0;
 
@@ -1001,7 +1007,7 @@ static bool _rtl92s_phy_bb_config_parafile(struct ieee80211_hw *hw)
 		goto phy_BB8190_Config_ParaFile_Fail;
 	}
 
-	
+	/* 3. BB AGC table Initialization */
 	rtstatus = _rtl92s_phy_config_bb(hw, BASEBAND_CONFIG_AGC_TAB);
 
 	if (!rtstatus) {
@@ -1009,8 +1015,8 @@ static bool _rtl92s_phy_bb_config_parafile(struct ieee80211_hw *hw)
 		goto phy_BB8190_Config_ParaFile_Fail;
 	}
 
-	
-	
+	/* Check if the CCK HighPower is turned ON. */
+	/* This is used to calculate PWDB. */
 	rtlphy->cck_high_power = (bool)(rtl92s_phy_query_bb_reg(hw,
 			RFPGA0_XA_HSSIPARAMETER2, 0x200));
 
@@ -1031,7 +1037,7 @@ u8 rtl92s_phy_config_rf(struct ieee80211_hw *hw, enum radio_path rfpath)
 	radio_a_tblen = RADIOA_1T_ARRAYLENGTH;
 	radio_a_table = rtl8192seradioa_1t_array;
 
-	
+	/* Using Green mode array table for RF_2T2R_GREEN */
 	if (rtlphy->rf_type == RF_2T2R_GREEN) {
 		radio_b_table = rtl8192seradiob_gm_array;
 		radio_b_tblen = RADIOB_GM_ARRAYLENGTH;
@@ -1047,6 +1053,8 @@ u8 rtl92s_phy_config_rf(struct ieee80211_hw *hw, enum radio_path rfpath)
 	case RF90_PATH_A:
 		for (i = 0; i < radio_a_tblen; i = i + 2) {
 			if (radio_a_table[i] == 0xfe)
+				/* Delay specific ms. Only RF configuration
+				 * requires delay. */
 				mdelay(50);
 			else if (radio_a_table[i] == 0xfd)
 				mdelay(5);
@@ -1064,16 +1072,18 @@ u8 rtl92s_phy_config_rf(struct ieee80211_hw *hw, enum radio_path rfpath)
 						      MASK20BITS,
 						      radio_a_table[i + 1]);
 
-			
+			/* Add delay for ECS T20 & LG malow platform */
 			udelay(1);
 		}
 
-		
+		/* PA Bias current for inferiority IC */
 		_rtl92s_phy_config_rfpa_bias_current(hw, rfpath);
 		break;
 	case RF90_PATH_B:
 		for (i = 0; i < radio_b_tblen; i = i + 2) {
 			if (radio_b_table[i] == 0xfe)
+				/* Delay specific ms. Only RF configuration
+				 * requires delay.*/
 				mdelay(50);
 			else if (radio_b_table[i] == 0xfd)
 				mdelay(5);
@@ -1091,7 +1101,7 @@ u8 rtl92s_phy_config_rf(struct ieee80211_hw *hw, enum radio_path rfpath)
 						      MASK20BITS,
 						      radio_b_table[i + 1]);
 
-			
+			/* Add delay for ECS T20 & LG malow platform */
 			udelay(1);
 		}
 		break;
@@ -1136,12 +1146,12 @@ bool rtl92s_phy_bb_config(struct ieee80211_hw *hw)
 
 	_rtl92s_phy_init_register_definition(hw);
 
-	
+	/* Config BB and AGC */
 	rtstatus = _rtl92s_phy_bb_config_parafile(hw);
 
 
-	
-	
+	/* Check BB/RF confiuration setting. */
+	/* We only need to configure RF which is turned on. */
 	path1 = (u8)(rtl92s_phy_query_bb_reg(hw, RFPGA0_TXINFO, 0xf));
 	mdelay(10);
 	path2 = (u8)(rtl92s_phy_query_bb_reg(hw, ROFDM0_TRXPATHENABLE, 0xf));
@@ -1173,13 +1183,13 @@ bool rtl92s_phy_rf_config(struct ieee80211_hw *hw)
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_phy *rtlphy = &(rtlpriv->phy);
 
-	
+	/* Initialize general global value */
 	if (rtlphy->rf_type == RF_1T1R)
 		rtlphy->num_total_rfpath = 1;
 	else
 		rtlphy->num_total_rfpath = 2;
 
-	
+	/* Config BB and RF */
 	return rtl92s_phy_rf6052_config(hw);
 }
 
@@ -1188,7 +1198,7 @@ void rtl92s_phy_get_hw_reg_originalvalue(struct ieee80211_hw *hw)
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_phy *rtlphy = &(rtlpriv->phy);
 
-	
+	/* read rx initial gain */
 	rtlphy->default_initialgain[0] = rtl_get_bbreg(hw,
 			ROFDM0_XAAGCCORE1, MASKBYTE0);
 	rtlphy->default_initialgain[1] = rtl_get_bbreg(hw,
@@ -1204,7 +1214,7 @@ void rtl92s_phy_get_hw_reg_originalvalue(struct ieee80211_hw *hw)
 		 rtlphy->default_initialgain[2],
 		 rtlphy->default_initialgain[3]);
 
-	
+	/* read framesync */
 	rtlphy->framesync = rtl_get_bbreg(hw, ROFDM0_RXDETECTOR3, MASKBYTE0);
 	rtlphy->framesync_c34 = rtl_get_bbreg(hw, ROFDM0_RXDETECTOR2,
 					      MASKDWORD);
@@ -1222,19 +1232,19 @@ static void _rtl92s_phy_get_txpower_index(struct ieee80211_hw *hw, u8 channel,
 	struct rtl_efuse *rtlefuse = rtl_efuse(rtl_priv(hw));
 	u8 index = (channel - 1);
 
-	
-	
+	/* 1. CCK */
+	/* RF-A */
 	cckpowerlevel[0] = rtlefuse->txpwrlevel_cck[0][index];
-	
+	/* RF-B */
 	cckpowerlevel[1] = rtlefuse->txpwrlevel_cck[1][index];
 
-	
+	/* 2. OFDM for 1T or 2T */
 	if (rtlphy->rf_type == RF_1T2R || rtlphy->rf_type == RF_1T1R) {
-		
+		/* Read HT 40 OFDM TX power */
 		ofdmpowerLevel[0] = rtlefuse->txpwrlevel_ht40_1s[0][index];
 		ofdmpowerLevel[1] = rtlefuse->txpwrlevel_ht40_1s[1][index];
 	} else if (rtlphy->rf_type == RF_2T2R) {
-		
+		/* Read HT 40 OFDM TX power */
 		ofdmpowerLevel[0] = rtlefuse->txpwrlevel_ht40_2s[0][index];
 		ofdmpowerLevel[1] = rtlefuse->txpwrlevel_ht40_2s[1][index];
 	}
@@ -1254,12 +1264,18 @@ void rtl92s_phy_set_txpower(struct ieee80211_hw *hw, u8	channel)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_efuse *rtlefuse = rtl_efuse(rtl_priv(hw));
-	
+	/* [0]:RF-A, [1]:RF-B */
 	u8 cckpowerlevel[2], ofdmpowerLevel[2];
 
 	if (!rtlefuse->txpwr_fromeprom)
 		return;
 
+	/* Mainly we use RF-A Tx Power to write the Tx Power registers,
+	 * but the RF-B Tx Power must be calculated by the antenna diff.
+	 * So we have to rewrite Antenna gain offset register here.
+	 * Please refer to BB register 0x80c
+	 * 1. For CCK.
+	 * 2. For OFDM 1T or 2T */
 	_rtl92s_phy_get_txpower_index(hw, channel, &cckpowerlevel[0],
 			&ofdmpowerLevel[0]);
 
@@ -1282,7 +1298,7 @@ void rtl92s_phy_chk_fwcmd_iodone(struct ieee80211_hw *hw)
 	u16 pollingcnt = 10000;
 	u32 tmpvalue;
 
-	
+	/* Make sure that CMD IO has be accepted by FW. */
 	do {
 		udelay(10);
 
@@ -1306,8 +1322,8 @@ static void _rtl92s_phy_set_fwcmd_io(struct ieee80211_hw *hw)
 	if (is_hal_stop(rtlhal))
 		return;
 
-	
-	
+	/* We re-map RA related CMD IO to combinational ones */
+	/* if FW version is v.52 or later. */
 	switch (rtlhal->current_fwcmd_io) {
 	case FW_CMD_RA_REFRESH_N:
 		rtlhal->current_fwcmd_io = FW_CMD_RA_REFRESH_N_COMB;
@@ -1366,14 +1382,14 @@ static void _rtl92s_phy_set_fwcmd_io(struct ieee80211_hw *hw)
 		rtl92s_phy_chk_fwcmd_iodone(hw);
 		break;
 	case FW_CMD_PAUSE_DM_BY_SCAN:
-		
+		/* Lower initial gain */
 		rtl_set_bbreg(hw, ROFDM0_XAAGCCORE1, MASKBYTE0, 0x17);
 		rtl_set_bbreg(hw, ROFDM0_XBAGCCORE1, MASKBYTE0, 0x17);
-		
+		/* CCA threshold */
 		rtl_set_bbreg(hw, RCCK0_CCA, MASKBYTE2, 0x40);
 		break;
 	case FW_CMD_RESUME_DM_BY_SCAN:
-		
+		/* CCA threshold */
 		rtl_set_bbreg(hw, RCCK0_CCA, MASKBYTE2, 0xcd);
 		rtl92s_phy_set_txpower(hw, rtlphy->current_channel);
 		break;
@@ -1381,10 +1397,10 @@ static void _rtl92s_phy_set_fwcmd_io(struct ieee80211_hw *hw)
 		if (rtlpriv->dm.dm_flag & HAL_DM_HIPWR_DISABLE)
 			break;
 
-		
+		/* Lower initial gain */
 		rtl_set_bbreg(hw, ROFDM0_XAAGCCORE1, MASKBYTE0, 0x17);
 		rtl_set_bbreg(hw, ROFDM0_XBAGCCORE1, MASKBYTE0, 0x17);
-		
+		/* CCA threshold */
 		rtl_set_bbreg(hw, RCCK0_CCA, MASKBYTE2, 0x40);
 		break;
 	case FW_CMD_HIGH_PWR_ENABLE:
@@ -1392,7 +1408,7 @@ static void _rtl92s_phy_set_fwcmd_io(struct ieee80211_hw *hw)
 			rtlpriv->dm.dynamic_txpower_enable)
 			break;
 
-		
+		/* CCA threshold */
 		rtl_set_bbreg(hw, RCCK0_CCA, MASKBYTE2, 0xcd);
 		break;
 	case FW_CMD_LPS_ENTER:
@@ -1401,6 +1417,8 @@ static void _rtl92s_phy_set_fwcmd_io(struct ieee80211_hw *hw)
 		rtl_write_dword(rtlpriv, WFM5, (FW_LPS_ENTER |
 				((current_aid | 0xc000) << 8)));
 		rtl92s_phy_chk_fwcmd_iodone(hw);
+		/* FW set TXOP disable here, so disable EDCA
+		 * turbo mode until driver leave LPS */
 		break;
 	case FW_CMD_LPS_LEAVE:
 		RT_TRACE(rtlpriv, COMP_CMD, DBG_DMESG, "FW_CMD_LPS_LEAVE\n");
@@ -1425,7 +1443,7 @@ static void _rtl92s_phy_set_fwcmd_io(struct ieee80211_hw *hw)
 
 	rtl92s_phy_chk_fwcmd_iodone(hw);
 
-	
+	/* Clear FW CMD operation flag. */
 	rtlhal->set_fwcmd_inprogress = false;
 }
 
@@ -1443,8 +1461,8 @@ bool rtl92s_phy_set_fw_cmd(struct ieee80211_hw *hw, enum fwcmd_iotype fw_cmdio)
 		 fw_cmdio, rtlhal->set_fwcmd_inprogress);
 
 	do {
-		
-		
+		/* We re-map to combined FW CMD ones if firmware version */
+		/* is v.53 or later. */
 		switch (fw_cmdio) {
 		case FW_CMD_RA_REFRESH_N:
 			fw_cmdio = FW_CMD_RA_REFRESH_N_COMB;
@@ -1456,18 +1474,22 @@ bool rtl92s_phy_set_fw_cmd(struct ieee80211_hw *hw, enum fwcmd_iotype fw_cmdio)
 			break;
 		}
 
+		/* If firmware version is v.62 or later,
+		 * use FW_CMD_IO_SET for FW_CMD_CTRL_DM_BY_DRIVER */
 		if (hal_get_firmwareversion(rtlpriv) >= 0x3E) {
 			if (fw_cmdio == FW_CMD_CTRL_DM_BY_DRIVER)
 				fw_cmdio = FW_CMD_CTRL_DM_BY_DRIVER_NEW;
 		}
 
 
+		/* We shall revise all FW Cmd IO into Reg0x364
+		 * DM map table in the future. */
 		switch (fw_cmdio) {
 		case FW_CMD_RA_INIT:
 			RT_TRACE(rtlpriv, COMP_CMD, DBG_LOUD, "RA init!!\n");
 			fw_cmdmap |= FW_RA_INIT_CTL;
 			FW_CMD_IO_SET(rtlpriv, fw_cmdmap);
-			
+			/* Clear control flag to sync with FW. */
 			FW_CMD_IO_CLR(rtlpriv, FW_RA_INIT_CTL);
 			break;
 		case FW_CMD_DIG_DISABLE:
@@ -1495,7 +1517,7 @@ bool rtl92s_phy_set_fw_cmd(struct ieee80211_hw *hw, enum fwcmd_iotype fw_cmdio)
 			u8	thermalval = 0;
 			fw_cmdmap |= FW_PWR_TRK_CTL;
 
-			
+			/* Clear FW parameter in terms of thermal parts. */
 			fw_param &= FW_PWR_TRK_PARAM_CLR;
 
 			thermalval = rtlpriv->dm.thermalvalue;
@@ -1509,17 +1531,19 @@ bool rtl92s_phy_set_fw_cmd(struct ieee80211_hw *hw, enum fwcmd_iotype fw_cmdio)
 			FW_CMD_PARA_SET(rtlpriv, fw_param);
 			FW_CMD_IO_SET(rtlpriv, fw_cmdmap);
 
-			
+			/* Clear control flag to sync with FW. */
 			FW_CMD_IO_CLR(rtlpriv, FW_PWR_TRK_CTL);
 			}
 			break;
+		/* The following FW CMDs are only compatible to
+		 * v.53 or later. */
 		case FW_CMD_RA_REFRESH_N_COMB:
 			fw_cmdmap |= FW_RA_N_CTL;
 
-			
+			/* Clear RA BG mode control. */
 			fw_cmdmap &= ~(FW_RA_BG_CTL | FW_RA_INIT_CTL);
 
-			
+			/* Clear FW parameter in terms of RA parts. */
 			fw_param &= FW_RA_PARAM_CLR;
 
 			RT_TRACE(rtlpriv, COMP_CMD, DBG_LOUD,
@@ -1529,35 +1553,35 @@ bool rtl92s_phy_set_fw_cmd(struct ieee80211_hw *hw, enum fwcmd_iotype fw_cmdio)
 			FW_CMD_PARA_SET(rtlpriv, fw_param);
 			FW_CMD_IO_SET(rtlpriv, fw_cmdmap);
 
-			
+			/* Clear control flag to sync with FW. */
 			FW_CMD_IO_CLR(rtlpriv, FW_RA_N_CTL);
 			break;
 		case FW_CMD_RA_REFRESH_BG_COMB:
 			fw_cmdmap |= FW_RA_BG_CTL;
 
-			
+			/* Clear RA n-mode control. */
 			fw_cmdmap &= ~(FW_RA_N_CTL | FW_RA_INIT_CTL);
-			
+			/* Clear FW parameter in terms of RA parts. */
 			fw_param &= FW_RA_PARAM_CLR;
 
 			FW_CMD_PARA_SET(rtlpriv, fw_param);
 			FW_CMD_IO_SET(rtlpriv, fw_cmdmap);
 
-			
+			/* Clear control flag to sync with FW. */
 			FW_CMD_IO_CLR(rtlpriv, FW_RA_BG_CTL);
 			break;
 		case FW_CMD_IQK_ENABLE:
 			fw_cmdmap |= FW_IQK_CTL;
 			FW_CMD_IO_SET(rtlpriv, fw_cmdmap);
-			
+			/* Clear control flag to sync with FW. */
 			FW_CMD_IO_CLR(rtlpriv, FW_IQK_CTL);
 			break;
-		
+		/* The following FW CMD is compatible to v.62 or later.  */
 		case FW_CMD_CTRL_DM_BY_DRIVER_NEW:
 			fw_cmdmap |= FW_DRIVER_CTRL_DM_CTL;
 			FW_CMD_IO_SET(rtlpriv, fw_cmdmap);
 			break;
-		
+		/*  The followed FW Cmds needs post-processing later. */
 		case FW_CMD_RESUME_DM_BY_SCAN:
 			fw_cmdmap |= (FW_DIG_ENABLE_CTL |
 				      FW_HIGH_PWR_ENABLE_CTL |
@@ -1617,14 +1641,18 @@ bool rtl92s_phy_set_fw_cmd(struct ieee80211_hw *hw, enum fwcmd_iotype fw_cmdio)
 			FW_CMD_IO_SET(rtlpriv, fw_cmdmap);
 			break;
 		default:
+			/* Pass to original FW CMD processing callback
+			 * routine. */
 			bPostProcessing = true;
 			break;
 		}
 	} while (false);
 
+	/* We shall post processing these FW CMD if
+	 * variable bPostProcessing is set. */
 	if (bPostProcessing && !rtlhal->set_fwcmd_inprogress) {
 		rtlhal->set_fwcmd_inprogress = true;
-		
+		/* Update current FW Cmd for callback use. */
 		rtlhal->current_fwcmd_io = fw_cmdio;
 	} else {
 		return false;
@@ -1644,6 +1672,8 @@ static	void _rtl92s_phy_check_ephy_switchready(struct ieee80211_hw *hw)
 	while ((regu1 & BIT(5)) && (delay > 0)) {
 		regu1 = rtl_read_byte(rtlpriv, 0x554);
 		delay--;
+		/* We delay only 50us to prevent
+		 * being scheduled out. */
 		udelay(50);
 	}
 }
@@ -1653,10 +1683,14 @@ void rtl92s_phy_switch_ephy_parameter(struct ieee80211_hw *hw)
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_ps_ctl *ppsc = rtl_psc(rtl_priv(hw));
 
+	/* The way to be capable to switch clock request
+	 * when the PG setting does not support clock request.
+	 * This is the backdoor solution to switch clock
+	 * request before ASPM or D3. */
 	rtl_write_dword(rtlpriv, 0x540, 0x73c11);
 	rtl_write_dword(rtlpriv, 0x548, 0x2407c);
 
-	
+	/* Switch EPHY parameter!!!! */
 	rtl_write_word(rtlpriv, 0x550, 0x1000);
 	rtl_write_byte(rtlpriv, 0x554, 0x20);
 	_rtl92s_phy_check_ephy_switchready(hw);
@@ -1669,7 +1703,7 @@ void rtl92s_phy_switch_ephy_parameter(struct ieee80211_hw *hw)
 	rtl_write_byte(rtlpriv, 0x554, 0x39);
 	_rtl92s_phy_check_ephy_switchready(hw);
 
-	
+	/* Delay L1 enter time */
 	if (ppsc->support_aspm && !ppsc->support_backdoor)
 		rtl_write_byte(rtlpriv, 0x560, 0x40);
 	else

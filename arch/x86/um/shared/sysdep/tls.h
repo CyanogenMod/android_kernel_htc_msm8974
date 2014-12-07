@@ -3,6 +3,9 @@
 
 # ifndef __KERNEL__
 
+/* Change name to avoid conflicts with the original one from <asm/ldt.h>, which
+ * may be named user_desc (but in 2.4 and in header matching its API was named
+ * modify_ldt_ldt_s). */
 
 typedef struct um_dup_user_desc {
 	unsigned int  entry_number;
@@ -19,11 +22,11 @@ typedef struct um_dup_user_desc {
 #endif
 } user_desc_t;
 
-# else 
+# else /* __KERNEL__ */
 
 typedef struct user_desc user_desc_t;
 
-# endif 
+# endif /* __KERNEL__ */
 
 extern int os_set_thread_area(user_desc_t *info, int pid);
 extern int os_get_thread_area(user_desc_t *info, int pid);
@@ -33,4 +36,4 @@ extern int os_get_thread_area(user_desc_t *info, int pid);
 #define GDT_ENTRY_TLS_MIN_X86_64 12
 #endif
 
-#endif 
+#endif /* _SYSDEP_TLS_H */

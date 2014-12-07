@@ -22,6 +22,7 @@
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
 
+/* FSA9480 I2C registers */
 #define FSA9480_REG_DEVID		0x01
 #define FSA9480_REG_CTRL		0x02
 #define FSA9480_REG_INT1		0x03
@@ -43,6 +44,7 @@
 #define FSA9480_REG_MANSW1		0x13
 #define FSA9480_REG_MANSW2		0x14
 
+/* Control */
 #define CON_SWITCH_OPEN		(1 << 4)
 #define CON_RAW_DATA		(1 << 3)
 #define CON_MANUAL_SW		(1 << 2)
@@ -51,6 +53,7 @@
 #define CON_MASK		(CON_SWITCH_OPEN | CON_RAW_DATA | \
 				CON_MANUAL_SW | CON_WAIT)
 
+/* Device Type 1 */
 #define DEV_USB_OTG		(1 << 7)
 #define DEV_DEDICATED_CHG	(1 << 6)
 #define DEV_USB_CHG		(1 << 5)
@@ -64,6 +67,7 @@
 #define DEV_T1_UART_MASK	(DEV_UART)
 #define DEV_T1_CHARGER_MASK	(DEV_DEDICATED_CHG | DEV_USB_CHG)
 
+/* Device Type 2 */
 #define DEV_AV			(1 << 6)
 #define DEV_TTY			(1 << 5)
 #define DEV_PPD			(1 << 4)
@@ -77,12 +81,18 @@
 #define DEV_T2_JIG_MASK		(DEV_JIG_USB_OFF | DEV_JIG_USB_ON | \
 				DEV_JIG_UART_OFF | DEV_JIG_UART_ON)
 
+/*
+ * Manual Switch
+ * D- [7:5] / D+ [4:2]
+ * 000: Open all / 001: USB / 010: AUDIO / 011: UART / 100: V_AUDIO
+ */
 #define SW_VAUDIO		((4 << 5) | (4 << 2))
 #define SW_UART			((3 << 5) | (3 << 2))
 #define SW_AUDIO		((2 << 5) | (2 << 2))
 #define SW_DHOST		((1 << 5) | (1 << 2))
 #define SW_AUTO			((0 << 5) | (0 << 2))
 
+/* Interrupt 1 */
 #define INT_DETACH		(1 << 1)
 #define INT_ATTACH		(1 << 0)
 
@@ -205,19 +215,19 @@ static ssize_t fsa9480_show_device(struct device *dev,
 	if (!dev1 && !dev2)
 		return sprintf(buf, "NONE\n");
 
-	
+	/* USB */
 	if (dev1 & DEV_T1_USB_MASK || dev2 & DEV_T2_USB_MASK)
 		return sprintf(buf, "USB\n");
 
-	
+	/* UART */
 	if (dev1 & DEV_T1_UART_MASK || dev2 & DEV_T2_UART_MASK)
 		return sprintf(buf, "UART\n");
 
-	
+	/* CHARGER */
 	if (dev1 & DEV_T1_CHARGER_MASK)
 		return sprintf(buf, "CHARGER\n");
 
-	
+	/* JIG */
 	if (dev2 & DEV_T2_JIG_MASK)
 		return sprintf(buf, "JIG\n");
 
@@ -270,8 +280,8 @@ static void fsa9480_detect_dev(struct fsa9480_usbsw *usbsw, int intr)
 	if (!intr)
 		goto out;
 
-	if (intr & INT_ATTACH) {	
-		
+	if (intr & INT_ATTACH) {	/* Attached */
+		/* USB */
 		if (val1 & DEV_T1_USB_MASK || val2 & DEV_T2_USB_MASK) {
 			if (pdata->usb_cb)
 				pdata->usb_cb(FSA9480_ATTACHED);
@@ -282,7 +292,7 @@ static void fsa9480_detect_dev(struct fsa9480_usbsw *usbsw, int intr)
 			}
 		}
 
-		
+		/* UART */
 		if (val1 & DEV_T1_UART_MASK || val2 & DEV_T2_UART_MASK) {
 			if (pdata->uart_cb)
 				pdata->uart_cb(FSA9480_ATTACHED);
@@ -293,39 +303,39 @@ static void fsa9480_detect_dev(struct fsa9480_usbsw *usbsw, int intr)
 			}
 		}
 
-		
+		/* CHARGER */
 		if (val1 & DEV_T1_CHARGER_MASK) {
 			if (pdata->charger_cb)
 				pdata->charger_cb(FSA9480_ATTACHED);
 		}
 
-		
+		/* JIG */
 		if (val2 & DEV_T2_JIG_MASK) {
 			if (pdata->jig_cb)
 				pdata->jig_cb(FSA9480_ATTACHED);
 		}
-	} else if (intr & INT_DETACH) {	
-		
+	} else if (intr & INT_DETACH) {	/* Detached */
+		/* USB */
 		if (usbsw->dev1 & DEV_T1_USB_MASK ||
 			usbsw->dev2 & DEV_T2_USB_MASK) {
 			if (pdata->usb_cb)
 				pdata->usb_cb(FSA9480_DETACHED);
 		}
 
-		
+		/* UART */
 		if (usbsw->dev1 & DEV_T1_UART_MASK ||
 			usbsw->dev2 & DEV_T2_UART_MASK) {
 			if (pdata->uart_cb)
 				pdata->uart_cb(FSA9480_DETACHED);
 		}
 
-		
+		/* CHARGER */
 		if (usbsw->dev1 & DEV_T1_CHARGER_MASK) {
 			if (pdata->charger_cb)
 				pdata->charger_cb(FSA9480_DETACHED);
 		}
 
-		
+		/* JIG */
 		if (usbsw->dev2 & DEV_T2_JIG_MASK) {
 			if (pdata->jig_cb)
 				pdata->jig_cb(FSA9480_DETACHED);
@@ -346,10 +356,10 @@ static irqreturn_t fsa9480_irq_handler(int irq, void *data)
 	struct i2c_client *client = usbsw->client;
 	int intr;
 
-	
+	/* clear interrupt */
 	fsa9480_read_irq(client, &intr);
 
-	
+	/* device detection */
 	fsa9480_detect_dev(usbsw, intr);
 
 	return IRQ_HANDLED;
@@ -363,17 +373,17 @@ static int fsa9480_irq_init(struct fsa9480_usbsw *usbsw)
 	int intr;
 	unsigned int ctrl = CON_MASK;
 
-	
+	/* clear interrupt */
 	fsa9480_read_irq(client, &intr);
 
-	
+	/* unmask interrupt (attach/detach only) */
 	fsa9480_write_reg(client, FSA9480_REG_INT1_MASK, 0xfc);
 	fsa9480_write_reg(client, FSA9480_REG_INT2_MASK, 0x1f);
 
 	usbsw->mansw = fsa9480_read_reg(client, FSA9480_REG_MANSW1);
 
 	if (usbsw->mansw)
-		ctrl &= ~CON_MANUAL_SW;	
+		ctrl &= ~CON_MANUAL_SW;	/* Manual Switching Mode */
 
 	fsa9480_write_reg(client, FSA9480_REG_CTRL, ctrl);
 
@@ -431,13 +441,13 @@ static int __devinit fsa9480_probe(struct i2c_client *client,
 		goto fail2;
 	}
 
-	
+	/* ADC Detect Time: 500ms */
 	fsa9480_write_reg(client, FSA9480_REG_TIMING1, 0x6);
 
 	if (chip->pdata->reset_cb)
 		chip->pdata->reset_cb();
 
-	
+	/* device detection */
 	fsa9480_detect_dev(usbsw, INT_ATTACH);
 
 	pm_runtime_set_active(&client->dev);
@@ -488,13 +498,18 @@ static int fsa9480_resume(struct i2c_client *client)
 	if (device_may_wakeup(&client->dev) && client->irq)
 		disable_irq_wake(client->irq);
 
+	/*
+	 * Clear Pending interrupt. Note that detect_dev does what
+	 * the interrupt handler does. So, we don't miss pending and
+	 * we reenable interrupt if there is one.
+	 */
 	fsa9480_read_reg(client, FSA9480_REG_INT1);
 	fsa9480_read_reg(client, FSA9480_REG_INT2);
 
 	dev1 = fsa9480_read_reg(client, FSA9480_REG_DEV_T1);
 	dev2 = fsa9480_read_reg(client, FSA9480_REG_DEV_T2);
 
-	
+	/* device detection */
 	fsa9480_detect_dev(usbsw, (dev1 || dev2) ? INT_ATTACH : INT_DETACH);
 
 	return 0;
@@ -505,7 +520,7 @@ static int fsa9480_resume(struct i2c_client *client)
 #define fsa9480_suspend NULL
 #define fsa9480_resume NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct i2c_device_id fsa9480_id[] = {
 	{"fsa9480", 0},

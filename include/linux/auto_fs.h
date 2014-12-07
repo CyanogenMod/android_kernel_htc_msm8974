@@ -21,13 +21,29 @@
 #include <linux/ioctl.h>
 #else
 #include <sys/ioctl.h>
-#endif 
+#endif /* __KERNEL__ */
 
+/* This file describes autofs v3 */
 #define AUTOFS_PROTO_VERSION	3
 
+/* Range of protocol versions defined */
 #define AUTOFS_MAX_PROTO_VERSION	AUTOFS_PROTO_VERSION
 #define AUTOFS_MIN_PROTO_VERSION	AUTOFS_PROTO_VERSION
 
+/*
+ * Architectures where both 32- and 64-bit binaries can be executed
+ * on 64-bit kernels need this.  This keeps the structure format
+ * uniform, and makes sure the wait_queue_token isn't too big to be
+ * passed back down to the kernel.
+ *
+ * This assumes that on these architectures:
+ * mode     32 bit    64 bit
+ * -------------------------
+ * int      32 bit    32 bit
+ * long     32 bit    64 bit
+ *
+ * If so, 32-bit user-space code should be backwards compatible.
+ */
 
 #if defined(__sparc__) || defined(__mips__) || defined(__x86_64__) \
  || defined(__powerpc__) || defined(__s390__)
@@ -36,12 +52,13 @@ typedef unsigned int autofs_wqt_t;
 typedef unsigned long autofs_wqt_t;
 #endif
 
-#define autofs_ptype_missing	0	
-#define autofs_ptype_expire	1	
+/* Packet types */
+#define autofs_ptype_missing	0	/* Missing entry (mount request) */
+#define autofs_ptype_expire	1	/* Expire entry (umount request) */
 
 struct autofs_packet_hdr {
-	int proto_version;		
-	int type;			
+	int proto_version;		/* Protocol version */
+	int type;			/* Type of packet */
 };
 
 struct autofs_packet_missing {
@@ -51,6 +68,7 @@ struct autofs_packet_missing {
 	char name[NAME_MAX+1];
 };	
 
+/* v3 expire (via ioctl) */
 struct autofs_packet_expire {
 	struct autofs_packet_hdr hdr;
 	int len;
@@ -65,4 +83,4 @@ struct autofs_packet_expire {
 #define AUTOFS_IOC_SETTIMEOUT _IOWR(0x93,0x64,unsigned long)
 #define AUTOFS_IOC_EXPIRE     _IOR(0x93,0x65,struct autofs_packet_expire)
 
-#endif 
+#endif /* _LINUX_AUTO_FS_H */

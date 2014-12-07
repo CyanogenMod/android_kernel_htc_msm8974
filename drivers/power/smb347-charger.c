@@ -81,6 +81,7 @@
 #define CFG_STATUS_IRQ_TERMINATION_OR_TAPER	BIT(4)
 #define CFG_ADDRESS				0x0e
 
+/* Command registers */
 #define CMD_A					0x30
 #define CMD_A_CHG_ENABLED			BIT(1)
 #define CMD_A_SUSPEND_ENABLED			BIT(2)
@@ -88,6 +89,7 @@
 #define CMD_B					0x31
 #define CMD_C					0x33
 
+/* Interrupt Status registers */
 #define IRQSTAT_A				0x35
 #define IRQSTAT_C				0x37
 #define IRQSTAT_C_TERMINATION_STAT		BIT(0)
@@ -100,6 +102,7 @@
 #define IRQSTAT_E_DCIN_UV_IRQ			BIT(5)
 #define IRQSTAT_F				0x3a
 
+/* Status registers */
 #define STAT_A					0x3b
 #define STAT_A_FLOAT_VOLTAGE_MASK		0x3f
 #define STAT_B					0x3c
@@ -110,6 +113,19 @@
 #define STAT_C_CHARGER_ERROR			BIT(6)
 #define STAT_E					0x3f
 
+/**
+ * struct smb347_charger - smb347 charger instance
+ * @lock: protects concurrent access to online variables
+ * @client: pointer to i2c client
+ * @mains: power_supply instance for AC/DC power
+ * @usb: power_supply instance for USB power
+ * @battery: power_supply instance for battery
+ * @mains_online: is AC/DC input connected
+ * @usb_online: is USB input connected
+ * @charging_enabled: is charging enabled
+ * @dentry: for debugfs
+ * @pdata: pointer to platform data
+ */
 struct smb347_charger {
 	struct mutex		lock;
 	struct i2c_client	*client;
@@ -123,6 +139,7 @@ struct smb347_charger {
 	const struct smb347_charger_platform_data *pdata;
 };
 
+/* Fast charge current in uA */
 static const unsigned int fcc_tbl[] = {
 	700000,
 	900000,
@@ -134,6 +151,7 @@ static const unsigned int fcc_tbl[] = {
 	2500000,
 };
 
+/* Pre-charge current in uA */
 static const unsigned int pcc_tbl[] = {
 	100000,
 	150000,
@@ -141,6 +159,7 @@ static const unsigned int pcc_tbl[] = {
 	250000,
 };
 
+/* Termination current in uA */
 static const unsigned int tc_tbl[] = {
 	37500,
 	50000,
@@ -152,6 +171,7 @@ static const unsigned int tc_tbl[] = {
 	600000,
 };
 
+/* Input current limit in uA */
 static const unsigned int icl_tbl[] = {
 	300000,
 	500000,
@@ -165,6 +185,7 @@ static const unsigned int icl_tbl[] = {
 	2500000,
 };
 
+/* Charge current compensation in uA */
 static const unsigned int ccc_tbl[] = {
 	250000,
 	700000,
@@ -172,6 +193,7 @@ static const unsigned int ccc_tbl[] = {
 	1200000,
 };
 
+/* Convert register value to current using lookup table */
 static int hw_to_current(const unsigned int *tbl, size_t size, unsigned int val)
 {
 	if (val >= size)
@@ -179,6 +201,7 @@ static int hw_to_current(const unsigned int *tbl, size_t size, unsigned int val)
 	return tbl[val];
 }
 
+/* Convert current to register value using lookup table */
 static int current_to_hw(const unsigned int *tbl, size_t size, unsigned int val)
 {
 	size_t i;
@@ -211,6 +234,14 @@ static int smb347_write(struct smb347_charger *smb, u8 reg, u8 val)
 	return ret;
 }
 
+/**
+ * smb347_update_status - updates the charging status
+ * @smb: pointer to smb347 charger instance
+ *
+ * Function checks status of the charging and updates internal state
+ * accordingly. Returns %0 if there is no change in status, %1 if the
+ * status has changed and negative errno in case of failure.
+ */
 static int smb347_update_status(struct smb347_charger *smb)
 {
 	bool usb = false;
@@ -221,6 +252,10 @@ static int smb347_update_status(struct smb347_charger *smb)
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Dc and usb are set depending on whether they are enabled in
+	 * platform data _and_ whether corresponding undervoltage is set.
+	 */
 	if (smb->pdata->use_mains)
 		dc = !(ret & IRQSTAT_E_DCIN_UV_STAT);
 	if (smb->pdata->use_usb)
@@ -235,6 +270,15 @@ static int smb347_update_status(struct smb347_charger *smb)
 	return ret;
 }
 
+/*
+ * smb347_is_online - returns whether input power source is connected
+ * @smb: pointer to smb347 charger instance
+ *
+ * Returns %true if input power source is connected. Note that this is
+ * dependent on what platform has configured for usable power sources. For
+ * example if USB is disabled, this will return %false even if the USB
+ * cable is connected.
+ */
 static bool smb347_is_online(struct smb347_charger *smb)
 {
 	bool ret;
@@ -246,6 +290,13 @@ static bool smb347_is_online(struct smb347_charger *smb)
 	return ret;
 }
 
+/**
+ * smb347_charging_status - returns status of charging
+ * @smb: pointer to smb347 charger instance
+ *
+ * Function returns charging status. %0 means no charging is in progress,
+ * %1 means pre-charging, %2 fast-charging and %3 taper-charging.
+ */
 static int smb347_charging_status(struct smb347_charger *smb)
 {
 	int ret;
@@ -304,6 +355,11 @@ static int smb347_update_online(struct smb347_charger *smb)
 {
 	int ret;
 
+	/*
+	 * Depending on whether valid power source is connected or not, we
+	 * disable or enable the charging. We do it manually because it
+	 * depends on how the platform has configured the valid inputs.
+	 */
 	if (smb347_is_online(smb)) {
 		ret = smb347_charging_enable(smb);
 		if (ret < 0)
@@ -402,7 +458,7 @@ static int smb347_set_voltage_limits(struct smb347_charger *smb)
 	if (smb->pdata->pre_to_fast_voltage) {
 		val = smb->pdata->pre_to_fast_voltage;
 
-		
+		/* uV */
 		val = clamp_val(val, 2400000, 3000000) - 2400000;
 		val /= 200000;
 
@@ -413,7 +469,7 @@ static int smb347_set_voltage_limits(struct smb347_charger *smb)
 	if (smb->pdata->max_charge_voltage) {
 		val = smb->pdata->max_charge_voltage;
 
-		
+		/* uV */
 		val = clamp_val(val, 3500000, 4500000) - 3500000;
 		val /= 20000;
 
@@ -431,7 +487,7 @@ static int smb347_set_temp_limits(struct smb347_charger *smb)
 	if (smb->pdata->chip_temp_threshold) {
 		val = smb->pdata->chip_temp_threshold;
 
-		
+		/* degree C */
 		val = clamp_val(val, 100, 130) - 100;
 		val /= 10;
 
@@ -456,7 +512,7 @@ static int smb347_set_temp_limits(struct smb347_charger *smb)
 
 		val = clamp_val(val, 0, 15);
 		val /= 5;
-		
+		/* this goes from higher to lower so invert the value */
 		val = ~val & 0x3;
 
 		ret &= ~CFG_TEMP_LIMIT_SOFT_COLD_MASK;
@@ -482,7 +538,7 @@ static int smb347_set_temp_limits(struct smb347_charger *smb)
 
 		val = clamp_val(val, -5, 10) + 5;
 		val /= 5;
-		
+		/* this goes from higher to lower so invert the value */
 		val = ~val & 0x3;
 
 		ret &= ~CFG_TEMP_LIMIT_HARD_COLD_MASK;
@@ -507,6 +563,16 @@ static int smb347_set_temp_limits(struct smb347_charger *smb)
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * If any of the temperature limits are set, we also enable the
+	 * thermistor monitoring.
+	 *
+	 * When soft limits are hit, the device will start to compensate
+	 * current and/or voltage depending on the configuration.
+	 *
+	 * When hard limit is hit, the device will suspend charging
+	 * depending on the configuration.
+	 */
 	if (enable_therm_monitor) {
 		ret = smb347_read(smb, CFG_THERM);
 		if (ret < 0)
@@ -571,6 +637,15 @@ static int smb347_set_temp_limits(struct smb347_charger *smb)
 	return ret;
 }
 
+/*
+ * smb347_set_writable - enables/disables writing to non-volatile registers
+ * @smb: pointer to smb347 charger instance
+ *
+ * You can enable/disable writing to the non-volatile configuration
+ * registers by calling this function.
+ *
+ * Returns %0 on success and negative errno in case of failure.
+ */
 static int smb347_set_writable(struct smb347_charger *smb, bool writable)
 {
 	int ret;
@@ -595,6 +670,10 @@ static int smb347_hw_init(struct smb347_charger *smb)
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Program the platform specific configuration values to the device
+	 * first.
+	 */
 	ret = smb347_set_charge_current(smb);
 	if (ret < 0)
 		goto fail;
@@ -611,7 +690,7 @@ static int smb347_hw_init(struct smb347_charger *smb)
 	if (ret < 0)
 		goto fail;
 
-	
+	/* If USB charging is disabled we put the USB in suspend mode */
 	if (!smb->pdata->use_usb) {
 		ret = smb347_read(smb, CMD_A);
 		if (ret < 0)
@@ -628,6 +707,10 @@ static int smb347_hw_init(struct smb347_charger *smb)
 	if (ret < 0)
 		goto fail;
 
+	/*
+	 * If configured by platform data, we enable hardware Auto-OTG
+	 * support for driving VBUS. Otherwise we disable it.
+	 */
 	ret &= ~CFG_OTHER_RID_MASK;
 	if (smb->pdata->use_usb_otg)
 		ret |= CFG_OTHER_RID_ENABLED_AUTO_OTG;
@@ -640,11 +723,16 @@ static int smb347_hw_init(struct smb347_charger *smb)
 	if (ret < 0)
 		goto fail;
 
+	/*
+	 * Make the charging functionality controllable by a write to the
+	 * command register unless pin control is specified in the platform
+	 * data.
+	 */
 	ret &= ~CFG_PIN_EN_CTRL_MASK;
 
 	switch (smb->pdata->enable_control) {
 	case SMB347_CHG_ENABLE_SW:
-		
+		/* Do nothing, 0 means i2c control */
 		break;
 	case SMB347_CHG_ENABLE_PIN_ACTIVE_LOW:
 		ret |= CFG_PIN_EN_CTRL_ACTIVE_LOW;
@@ -654,7 +742,7 @@ static int smb347_hw_init(struct smb347_charger *smb)
 		break;
 	}
 
-	
+	/* Disable Automatic Power Source Detection (APSD) interrupt. */
 	ret &= ~CFG_PIN_EN_APSD_IRQ;
 
 	ret = smb347_write(smb, CFG_PIN, ret);
@@ -696,6 +784,10 @@ static irqreturn_t smb347_interrupt(int irq, void *data)
 		return IRQ_NONE;
 	}
 
+	/*
+	 * If we get charger error we report the error back to user and
+	 * disable charging.
+	 */
 	if (stat_c & STAT_C_CHARGER_ERROR) {
 		dev_err(&smb->client->dev,
 			"error in charger, disabling charging\n");
@@ -706,12 +798,21 @@ static irqreturn_t smb347_interrupt(int irq, void *data)
 		ret = IRQ_HANDLED;
 	}
 
+	/*
+	 * If we reached the termination current the battery is charged and
+	 * we can update the status now. Charging is automatically
+	 * disabled by the hardware.
+	 */
 	if (irqstat_c & (IRQSTAT_C_TERMINATION_IRQ | IRQSTAT_C_TAPER_IRQ)) {
 		if (irqstat_c & IRQSTAT_C_TERMINATION_STAT)
 			power_supply_changed(&smb->battery);
 		ret = IRQ_HANDLED;
 	}
 
+	/*
+	 * If we got an under voltage interrupt it means that AC/USB input
+	 * was connected or disconnected.
+	 */
 	if (irqstat_e & (IRQSTAT_E_USBIN_UV_IRQ | IRQSTAT_E_DCIN_UV_IRQ)) {
 		if (smb347_update_status(smb) > 0) {
 			smb347_update_online(smb);
@@ -732,6 +833,12 @@ static int smb347_irq_set(struct smb347_charger *smb, bool enable)
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Enable/disable interrupts for:
+	 *	- under voltage
+	 *	- termination current reached
+	 *	- charger error
+	 */
 	if (enable) {
 		ret = smb347_write(smb, CFG_FAULT_IRQ, CFG_FAULT_IRQ_DCIN_UV);
 		if (ret < 0)
@@ -801,6 +908,10 @@ static int smb347_irq_init(struct smb347_charger *smb)
 	if (ret < 0)
 		goto fail_irq;
 
+	/*
+	 * Configure the STAT output to be suitable for interrupts: disable
+	 * all other output (except interrupts) and make it active low.
+	 */
 	ret = smb347_read(smb, CFG_STAT);
 	if (ret < 0)
 		goto fail_readonly;
@@ -896,6 +1007,10 @@ static int smb347_battery_get_property(struct power_supply *psy,
 		if (!smb347_is_online(smb))
 			return -ENODATA;
 
+		/*
+		 * We handle trickle and pre-charging the same, and taper
+		 * and none the same.
+		 */
 		switch (smb347_charging_status(smb)) {
 		case 1:
 			val->intval = POWER_SUPPLY_CHARGE_TYPE_TRICKLE;
@@ -943,6 +1058,10 @@ static int smb347_battery_get_property(struct power_supply *psy,
 		if (ret < 0)
 			return ret;
 
+		/*
+		 * The current value is composition of FCC and PCC values
+		 * and we can detect which table to use from bit 5.
+		 */
 		if (ret & 0x20) {
 			val->intval = hw_to_current(fcc_tbl,
 						    ARRAY_SIZE(fcc_tbl),
@@ -1105,6 +1224,10 @@ static int smb347_probe(struct i2c_client *client,
 		return ret;
 	}
 
+	/*
+	 * Interrupt pin is optional. If it is connected, we setup the
+	 * interrupt support here.
+	 */
 	if (pdata->irq_gpio >= 0) {
 		ret = smb347_irq_init(smb);
 		if (ret < 0) {

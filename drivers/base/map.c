@@ -123,7 +123,7 @@ retry:
 		}
 		mutex_unlock(domain->lock);
 		kobj = probe(dev, index, data);
-		
+		/* Currently ->owner protects _only_ ->probe() itself. */
 		module_put(owner);
 		if (kobj)
 			return kobj;

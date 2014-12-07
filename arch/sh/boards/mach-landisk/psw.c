@@ -27,13 +27,13 @@ static irqreturn_t psw_irq_handler(int irq, void *arg)
 
 	sw_value = (0x0ff & (~__raw_readb(PA_STATUS)));
 
-	
+	/* Nothing to do if there's no state change */
 	if (psw->state) {
 		ret = 1;
 		goto out;
 	}
 
-	
+	/* Figure out who raised it */
 	if (sw_value & (1 << psw_info->bit)) {
 		psw->state = 1;
 		mod_timer(&psw->debounce, jiffies + 50);
@@ -41,7 +41,7 @@ static irqreturn_t psw_irq_handler(int irq, void *arg)
 	}
 
 out:
-	
+	/* Clear the switch IRQs */
 	__raw_writeb(0x00, PA_PWRINT_CLR);
 
 	return IRQ_RETVAL(ret);

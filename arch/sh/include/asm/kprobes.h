@@ -25,8 +25,9 @@ void arch_remove_kprobe(struct kprobe *);
 void kretprobe_trampoline(void);
 void jprobe_return_end(void);
 
+/* Architecture specific copy of original instruction*/
 struct arch_specific_insn {
-	
+	/* copy of the original instruction */
 	kprobe_opcode_t insn[MAX_INSN_SIZE];
 };
 
@@ -35,6 +36,7 @@ struct prev_kprobe {
 	unsigned long status;
 };
 
+/* per-cpu kprobe control block */
 struct kprobe_ctlblk {
 	unsigned long kprobe_status;
 	unsigned long jprobe_saved_r15;
@@ -51,5 +53,5 @@ extern int kprobe_handle_illslot(unsigned long pc);
 
 #define kprobe_handle_illslot(pc)	(-1)
 
-#endif 
-#endif 
+#endif /* CONFIG_KPROBES */
+#endif /* __ASM_SH_KPROBES_H */

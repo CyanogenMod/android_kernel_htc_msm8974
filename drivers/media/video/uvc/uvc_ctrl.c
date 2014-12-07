@@ -32,6 +32,9 @@
 #define UVC_CTRL_DATA_DEF	5
 #define UVC_CTRL_DATA_LAST	6
 
+/* ------------------------------------------------------------------------
+ * Controls
+ */
 
 static struct uvc_control_info uvc_ctrls[] = {
 	{
@@ -666,6 +669,9 @@ static struct uvc_control_mapping uvc_ctrl_mappings[] = {
 	},
 };
 
+/* ------------------------------------------------------------------------
+ * Utility functions
+ */
 
 static inline __u8 *uvc_ctrl_data(struct uvc_control *ctrl, int id)
 {
@@ -682,6 +688,11 @@ static inline void uvc_clear_bit(__u8 *data, int bit)
 	data[bit >> 3] &= ~(1 << (bit & 7));
 }
 
+/* Extract the bit string specified by mapping->offset and mapping->size
+ * from the little-endian data stored at 'data' and return the result as
+ * a signed 32bit integer. Sign extension will be performed if the mapping
+ * references a signed data type.
+ */
 static __s32 uvc_get_le_value(struct uvc_control_mapping *mapping,
 	__u8 query, const __u8 *data)
 {
@@ -702,13 +713,16 @@ static __s32 uvc_get_le_value(struct uvc_control_mapping *mapping,
 		mask = (1 << bits) - 1;
 	}
 
-	
+	/* Sign-extend the value if needed. */
 	if (mapping->data_type == UVC_CTRL_DATA_TYPE_SIGNED)
 		value |= -(value & (1 << (mapping->size - 1)));
 
 	return value;
 }
 
+/* Set the bit string specified by mapping->offset and mapping->size
+ * in the little-endian data stored at 'data' to the value 'value'.
+ */
 static void uvc_set_le_value(struct uvc_control_mapping *mapping,
 	__s32 value, __u8 *data)
 {
@@ -736,6 +750,9 @@ static void uvc_set_le_value(struct uvc_control_mapping *mapping,
 	}
 }
 
+/* ------------------------------------------------------------------------
+ * Terminal and unit management
+ */
 
 static const __u8 uvc_processing_guid[16] = UVC_GUID_UVC_PROCESSING;
 static const __u8 uvc_camera_guid[16] = UVC_GUID_UVC_CAMERA;
@@ -764,6 +781,9 @@ static int uvc_entity_match_guid(const struct uvc_entity *entity,
 	}
 }
 
+/* ------------------------------------------------------------------------
+ * UVC Controls
+ */
 
 static void __uvc_find_control(struct uvc_entity *entity, __u32 v4l2_id,
 	struct uvc_control_mapping **mapping, struct uvc_control **control,
@@ -806,10 +826,10 @@ static struct uvc_control *uvc_find_control(struct uvc_video_chain *chain,
 
 	*mapping = NULL;
 
-	
+	/* Mask the query flags. */
 	v4l2_id &= V4L2_CTRL_ID_MASK;
 
-	
+	/* Find the control. */
 	list_for_each_entry(entity, &chain->entities, chain) {
 		__uvc_find_control(entity, v4l2_id, mapping, &ctrl, next);
 		if (ctrl && !next)
@@ -863,6 +883,10 @@ static int uvc_ctrl_populate_cache(struct uvc_video_chain *chain,
 			    UVC_VC_EXTENSION_UNIT)
 				return ret;
 
+			/* GET_RES is mandatory for XU controls, but some
+			 * cameras still choke on it. Ignore errors and set the
+			 * resolution value to zero.
+			 */
 			uvc_warn_once(chain->dev, UVC_WARN_XU_GET_RES,
 				      "UVC non compliance - GET_RES failed on "
 				      "an XU control. Enabling workaround.\n");
@@ -965,6 +989,15 @@ done:
 	return ret;
 }
 
+/*
+ * Mapping V4L2 controls to UVC controls can be straighforward if done well.
+ * Most of the UVC controls exist in V4L2, and can be mapped directly. Some
+ * must be grouped (for instance the Red Balance, Blue Balance and Do White
+ * Balance V4L2 controls use the White Balance Component UVC control) or
+ * otherwise translated. The approach we take here is to use a translation
+ * table for the controls that can be mapped directly, and handle the others
+ * manually.
+ */
 int uvc_query_v4l2_menu(struct uvc_video_chain *chain,
 	struct v4l2_querymenu *query_menu)
 {
@@ -1022,6 +1055,30 @@ done:
 }
 
 
+/* --------------------------------------------------------------------------
+ * Control transactions
+ *
+ * To make extended set operations as atomic as the hardware allows, controls
+ * are handled using begin/commit/rollback operations.
+ *
+ * At the beginning of a set request, uvc_ctrl_begin should be called to
+ * initialize the request. This function acquires the control lock.
+ *
+ * When setting a control, the new value is stored in the control data field
+ * at position UVC_CTRL_DATA_CURRENT. The control is then marked as dirty for
+ * later processing. If the UVC and V4L2 control sizes differ, the current
+ * value is loaded from the hardware before storing the new value in the data
+ * field.
+ *
+ * After processing all controls in the transaction, uvc_ctrl_commit or
+ * uvc_ctrl_rollback must be called to apply the pending changes to the
+ * hardware or revert them. When applying changes, all controls marked as
+ * dirty will be modified in the UVC device, and the dirty flag will be
+ * cleared. When reverting controls, the control data field
+ * UVC_CTRL_DATA_CURRENT is reverted to its previous value
+ * (UVC_CTRL_DATA_BACKUP) for all dirty controls. Both functions release the
+ * control lock.
+ */
 int uvc_ctrl_begin(struct uvc_video_chain *chain)
 {
 	return mutex_lock_interruptible(&chain->ctrl_mutex) ? -ERESTARTSYS : 0;
@@ -1042,6 +1099,10 @@ static int uvc_ctrl_commit_entity(struct uvc_device *dev,
 		if (!ctrl->initialized)
 			continue;
 
+		/* Reset the loaded flag for auto-update controls that were
+		 * marked as loaded in uvc_ctrl_get/uvc_ctrl_set to prevent
+		 * uvc_ctrl_get from using the cached value.
+		 */
 		if (ctrl->info.flags & UVC_CTRL_FLAG_AUTO_UPDATE)
 			ctrl->loaded = 0;
 
@@ -1075,7 +1136,7 @@ int __uvc_ctrl_commit(struct uvc_video_chain *chain, int rollback)
 	struct uvc_entity *entity;
 	int ret = 0;
 
-	
+	/* Find the control. */
 	list_for_each_entry(entity, &chain->entities, chain) {
 		ret = uvc_ctrl_commit_entity(chain->dev, entity, rollback);
 		if (ret < 0)
@@ -1142,7 +1203,7 @@ int uvc_ctrl_set(struct uvc_video_chain *chain,
 	if (ctrl == NULL || (ctrl->info.flags & UVC_CTRL_FLAG_SET_CUR) == 0)
 		return -EINVAL;
 
-	
+	/* Clamp out of range values. */
 	switch (mapping->v4l2_type) {
 	case V4L2_CTRL_TYPE_INTEGER:
 		if (!ctrl->cached) {
@@ -1175,6 +1236,9 @@ int uvc_ctrl_set(struct uvc_video_chain *chain,
 			return -ERANGE;
 		value = mapping->menu_info[xctrl->value].value;
 
+		/* Valid menu indices are reported by the GET_RES request for
+		 * UVC controls that support it.
+		 */
 		if (mapping->data_type == UVC_CTRL_DATA_TYPE_BITMASK &&
 		    (ctrl->info.flags & UVC_CTRL_FLAG_GET_RES)) {
 			if (!ctrl->cached) {
@@ -1196,6 +1260,10 @@ int uvc_ctrl_set(struct uvc_video_chain *chain,
 		break;
 	}
 
+	/* If the mapping doesn't span the whole UVC control, the current value
+	 * needs to be loaded from the device to perform the read-modify-write
+	 * operation.
+	 */
 	if (!ctrl->loaded && (ctrl->info.size * 8) != mapping->size) {
 		if ((ctrl->info.flags & UVC_CTRL_FLAG_GET_CUR) == 0) {
 			memset(uvc_ctrl_data(ctrl, UVC_CTRL_DATA_CURRENT),
@@ -1213,7 +1281,7 @@ int uvc_ctrl_set(struct uvc_video_chain *chain,
 		ctrl->loaded = 1;
 	}
 
-	
+	/* Backup the current value in case we need to rollback later. */
 	if (!ctrl->dirty) {
 		memcpy(uvc_ctrl_data(ctrl, UVC_CTRL_DATA_BACKUP),
 		       uvc_ctrl_data(ctrl, UVC_CTRL_DATA_CURRENT),
@@ -1228,6 +1296,9 @@ int uvc_ctrl_set(struct uvc_video_chain *chain,
 	return 0;
 }
 
+/* --------------------------------------------------------------------------
+ * Dynamic controls
+ */
 
 static void uvc_ctrl_fixup_xu_info(struct uvc_device *dev,
 	const struct uvc_control *ctrl, struct uvc_control_info *info)
@@ -1268,6 +1339,9 @@ static void uvc_ctrl_fixup_xu_info(struct uvc_device *dev,
 	}
 }
 
+/*
+ * Query control information (size and flags) for XU controls.
+ */
 static int uvc_ctrl_fill_xu_info(struct uvc_device *dev,
 	const struct uvc_control *ctrl, struct uvc_control_info *info)
 {
@@ -1283,7 +1357,7 @@ static int uvc_ctrl_fill_xu_info(struct uvc_device *dev,
 	info->index = ctrl->index;
 	info->selector = ctrl->index + 1;
 
-	
+	/* Query and verify the control length (GET_LEN) */
 	ret = uvc_query_ctrl(dev, UVC_GET_LEN, ctrl->entity->id, dev->intfnum,
 			     info->selector, data, 2);
 	if (ret < 0) {
@@ -1295,7 +1369,7 @@ static int uvc_ctrl_fill_xu_info(struct uvc_device *dev,
 
 	info->size = le16_to_cpup((__le16 *)data);
 
-	
+	/* Query the control information (GET_INFO) */
 	ret = uvc_query_ctrl(dev, UVC_GET_INFO, ctrl->entity->id, dev->intfnum,
 			     info->selector, data, 1);
 	if (ret < 0) {
@@ -1364,7 +1438,7 @@ int uvc_xu_ctrl_query(struct uvc_video_chain *chain,
 	__u8 *data = NULL;
 	int ret;
 
-	
+	/* Find the extension unit. */
 	list_for_each_entry(entity, &chain->entities, chain) {
 		if (UVC_ENTITY_TYPE(entity) == UVC_VC_EXTENSION_UNIT &&
 		    entity->id == xqry->unit)
@@ -1377,7 +1451,7 @@ int uvc_xu_ctrl_query(struct uvc_video_chain *chain,
 		return -ENOENT;
 	}
 
-	
+	/* Find the control and perform delayed initialization if needed. */
 	for (i = 0; i < entity->ncontrols; ++i) {
 		ctrl = &entity->controls[i];
 		if (ctrl->index == xqry->selector - 1) {
@@ -1401,7 +1475,7 @@ int uvc_xu_ctrl_query(struct uvc_video_chain *chain,
 		goto done;
 	}
 
-	
+	/* Validate the required buffer size and flags for the request */
 	reqflags = 0;
 	size = ctrl->info.size;
 
@@ -1471,7 +1545,19 @@ done:
 	return ret;
 }
 
+/* --------------------------------------------------------------------------
+ * Suspend/resume
+ */
 
+/*
+ * Restore control values after resume, skipping controls that haven't been
+ * changed.
+ *
+ * TODO
+ * - Don't restore modified controls that are back to their default value.
+ * - Handle restore order (Auto-Exposure Mode should be restored before
+ *   Exposure Time).
+ */
 int uvc_ctrl_resume_device(struct uvc_device *dev)
 {
 	struct uvc_control *ctrl;
@@ -1479,7 +1565,7 @@ int uvc_ctrl_resume_device(struct uvc_device *dev)
 	unsigned int i;
 	int ret;
 
-	
+	/* Walk the entities list and restore controls when possible. */
 	list_for_each_entry(entity, &dev->entities, list) {
 
 		for (i = 0; i < entity->ncontrols; ++i) {
@@ -1503,7 +1589,13 @@ int uvc_ctrl_resume_device(struct uvc_device *dev)
 	return 0;
 }
 
+/* --------------------------------------------------------------------------
+ * Control and mapping handling
+ */
 
+/*
+ * Add control information to a given control.
+ */
 static int uvc_ctrl_add_info(struct uvc_device *dev, struct uvc_control *ctrl,
 	const struct uvc_control_info *info)
 {
@@ -1512,7 +1604,7 @@ static int uvc_ctrl_add_info(struct uvc_device *dev, struct uvc_control *ctrl,
 	memcpy(&ctrl->info, info, sizeof(*info));
 	INIT_LIST_HEAD(&ctrl->info.mappings);
 
-	
+	/* Allocate an array to save control values (cur, def, max, etc.) */
 	ctrl->uvc_data = kzalloc(ctrl->info.size * UVC_CTRL_DATA_LAST + 1,
 				 GFP_KERNEL);
 	if (ctrl->uvc_data == NULL) {
@@ -1532,12 +1624,19 @@ done:
 	return ret;
 }
 
+/*
+ * Add a control mapping to a given control.
+ */
 static int __uvc_ctrl_add_mapping(struct uvc_device *dev,
 	struct uvc_control *ctrl, const struct uvc_control_mapping *mapping)
 {
 	struct uvc_control_mapping *map;
 	unsigned int size;
 
+	/* Most mappings come from static kernel data and need to be duplicated.
+	 * Mappings that come from userspace will be unnecessarily duplicated,
+	 * this could be optimized.
+	 */
 	map = kmemdup(mapping, sizeof(*mapping), GFP_KERNEL);
 	if (map == NULL)
 		return -ENOMEM;
@@ -1580,7 +1679,7 @@ int uvc_ctrl_add_mapping(struct uvc_video_chain *chain,
 		return -EINVAL;
 	}
 
-	
+	/* Search for the matching (GUID/CS) control on the current chain */
 	list_for_each_entry(entity, &chain->entities, chain) {
 		unsigned int i;
 
@@ -1605,7 +1704,7 @@ int uvc_ctrl_add_mapping(struct uvc_video_chain *chain,
 	if (mutex_lock_interruptible(&chain->ctrl_mutex))
 		return -ERESTARTSYS;
 
-	
+	/* Perform delayed initialization of XU controls */
 	ret = uvc_ctrl_init_xu_ctrl(dev, ctrl);
 	if (ret < 0) {
 		ret = -ENOENT;
@@ -1622,7 +1721,7 @@ int uvc_ctrl_add_mapping(struct uvc_video_chain *chain,
 		}
 	}
 
-	
+	/* Prevent excess memory consumption */
 	if (atomic_inc_return(&dev->nmappings) > UVC_MAX_CONTROL_MAPPINGS) {
 		atomic_dec(&dev->nmappings);
 		uvc_trace(UVC_TRACE_CONTROL, "Can't add mapping '%s', maximum "
@@ -1641,6 +1740,11 @@ done:
 	return ret;
 }
 
+/*
+ * Prune an entity of its bogus controls using a blacklist. Bogus controls
+ * are currently the ones that crash the camera or unconditionally return an
+ * error when queried.
+ */
 static void uvc_ctrl_prune_entity(struct uvc_device *dev,
 	struct uvc_entity *entity)
 {
@@ -1650,12 +1754,12 @@ static void uvc_ctrl_prune_entity(struct uvc_device *dev,
 	};
 
 	static const struct uvc_ctrl_blacklist processing_blacklist[] = {
-		{ { USB_DEVICE(0x13d3, 0x509b) }, 9 }, 
-		{ { USB_DEVICE(0x1c4f, 0x3000) }, 6 }, 
-		{ { USB_DEVICE(0x5986, 0x0241) }, 2 }, 
+		{ { USB_DEVICE(0x13d3, 0x509b) }, 9 }, /* Gain */
+		{ { USB_DEVICE(0x1c4f, 0x3000) }, 6 }, /* WB Temperature */
+		{ { USB_DEVICE(0x5986, 0x0241) }, 2 }, /* Hue */
 	};
 	static const struct uvc_ctrl_blacklist camera_blacklist[] = {
-		{ { USB_DEVICE(0x06f8, 0x3005) }, 9 }, 
+		{ { USB_DEVICE(0x06f8, 0x3005) }, 9 }, /* Zoom, Absolute */
 	};
 
 	const struct uvc_ctrl_blacklist *blacklist;
@@ -1698,6 +1802,10 @@ static void uvc_ctrl_prune_entity(struct uvc_device *dev,
 	}
 }
 
+/*
+ * Add control information and hardcoded stock control mappings to the given
+ * device.
+ */
 static void uvc_ctrl_init_ctrl(struct uvc_device *dev, struct uvc_control *ctrl)
 {
 	const struct uvc_control_info *info = uvc_ctrls;
@@ -1706,6 +1814,11 @@ static void uvc_ctrl_init_ctrl(struct uvc_device *dev, struct uvc_control *ctrl)
 	const struct uvc_control_mapping *mend =
 		mapping + ARRAY_SIZE(uvc_ctrl_mappings);
 
+	/* XU controls initialization requires querying the device for control
+	 * information. As some buggy UVC devices will crash when queried
+	 * repeatedly in a tight loop, delay XU controls initialization until
+	 * first use.
+	 */
 	if (UVC_ENTITY_TYPE(ctrl->entity) == UVC_VC_EXTENSION_UNIT)
 		return;
 
@@ -1727,12 +1840,15 @@ static void uvc_ctrl_init_ctrl(struct uvc_device *dev, struct uvc_control *ctrl)
 	}
 }
 
+/*
+ * Initialize device controls.
+ */
 int uvc_ctrl_init_device(struct uvc_device *dev)
 {
 	struct uvc_entity *entity;
 	unsigned int i;
 
-	
+	/* Walk the entities list and instantiate controls */
 	list_for_each_entry(entity, &dev->entities, list) {
 		struct uvc_control *ctrl;
 		unsigned int bControlSize = 0, ncontrols = 0;
@@ -1749,10 +1865,10 @@ int uvc_ctrl_init_device(struct uvc_device *dev)
 			bControlSize = entity->camera.bControlSize;
 		}
 
-		
+		/* Remove bogus/blacklisted controls */
 		uvc_ctrl_prune_entity(dev, entity);
 
-		
+		/* Count supported controls and allocate the controls array */
 		for (i = 0; i < bControlSize; ++i)
 			ncontrols += hweight8(bmControls[i]);
 		if (ncontrols == 0)
@@ -1764,7 +1880,7 @@ int uvc_ctrl_init_device(struct uvc_device *dev)
 			return -ENOMEM;
 		entity->ncontrols = ncontrols;
 
-		
+		/* Initialize all supported controls */
 		ctrl = entity->controls;
 		for (i = 0; i < bControlSize * 8; ++i) {
 			if (uvc_test_bit(bmControls, i) == 0)
@@ -1781,6 +1897,9 @@ int uvc_ctrl_init_device(struct uvc_device *dev)
 	return 0;
 }
 
+/*
+ * Cleanup device controls.
+ */
 static void uvc_ctrl_cleanup_mappings(struct uvc_device *dev,
 	struct uvc_control *ctrl)
 {
@@ -1798,7 +1917,7 @@ void uvc_ctrl_cleanup_device(struct uvc_device *dev)
 	struct uvc_entity *entity;
 	unsigned int i;
 
-	
+	/* Free controls and control mappings for all entities. */
 	list_for_each_entry(entity, &dev->entities, list) {
 		for (i = 0; i < entity->ncontrols; ++i) {
 			struct uvc_control *ctrl = &entity->controls[i];

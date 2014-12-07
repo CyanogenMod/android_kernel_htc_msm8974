@@ -1,3 +1,6 @@
+/*
+ * D-Box 2 flash driver
+ */
 
 #include <linux/module.h>
 #include <linux/types.h>
@@ -9,6 +12,9 @@
 #include <linux/mtd/partitions.h>
 #include <linux/errno.h>
 
+/* partition_info gives details on the logical partitions that the split the
+ * single flash device into. If the size if zero we use up to the end of the
+ * device. */
 static struct mtd_partition partition_info[]= {
 	{
 	.name		= "BR bootloader",
@@ -74,10 +80,10 @@ static int __init init_dbox2_flash(void)
 	}
 	simple_map_init(&dbox2_flash_map);
 
-	
+	// Probe for dual Intel 28F320 or dual AMD
 	mymtd = do_map_probe("cfi_probe", &dbox2_flash_map);
 	if (!mymtd) {
-	    
+	    // Probe for single Intel 28F640
 	    dbox2_flash_map.bankwidth = 2;
 
 	    mymtd = do_map_probe("cfi_probe", &dbox2_flash_map);
@@ -86,7 +92,7 @@ static int __init init_dbox2_flash(void)
 	if (mymtd) {
 		mymtd->owner = THIS_MODULE;
 
-                
+                /* Create MTD devices for each partition. */
 		mtd_device_register(mymtd, partition_info, NUM_PARTITIONS);
 
 		return 0;

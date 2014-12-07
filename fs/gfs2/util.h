@@ -171,5 +171,5 @@ void gfs2_icbit_munge(struct gfs2_sbd *sdp, unsigned char **bitmap,
 		      unsigned int bit, int new_value);
 int gfs2_lm_withdraw(struct gfs2_sbd *sdp, char *fmt, ...);
 
-#endif 
+#endif /* __UTIL_DOT_H__ */
 

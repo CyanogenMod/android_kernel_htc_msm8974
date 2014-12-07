@@ -39,6 +39,10 @@ static int should_authenticate(struct ceph_auth_client *ac)
 	return xi->starting;
 }
 
+/*
+ * the generic auth code decode the global_id, and we carry no actual
+ * authenticate state, so nothing happens here.
+ */
 static int handle_reply(struct ceph_auth_client *ac, int result,
 			void *buf, void *end)
 {
@@ -48,6 +52,11 @@ static int handle_reply(struct ceph_auth_client *ac, int result,
 	return result;
 }
 
+/*
+ * build an 'authorizer' with our entity_name and global_id.  we can
+ * reuse a single static copy since it is identical for all services
+ * we connect to.
+ */
 static int ceph_auth_none_create_authorizer(
 	struct ceph_auth_client *ac, int peer_type,
 	struct ceph_authorizer **a,
@@ -89,7 +98,7 @@ bad:
 static void ceph_auth_none_destroy_authorizer(struct ceph_auth_client *ac,
 				      struct ceph_authorizer *a)
 {
-	
+	/* nothing to do */
 }
 
 static const struct ceph_auth_client_ops ceph_auth_none_ops = {

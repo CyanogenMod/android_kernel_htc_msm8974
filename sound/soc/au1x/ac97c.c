@@ -23,35 +23,37 @@
 
 #include "psc.h"
 
+/* register offsets and bits */
 #define AC97_CONFIG	0x00
 #define AC97_STATUS	0x04
 #define AC97_DATA	0x08
 #define AC97_CMDRESP	0x0c
 #define AC97_ENABLE	0x10
 
-#define CFG_RC(x)	(((x) & 0x3ff) << 13)	
-#define CFG_XS(x)	(((x) & 0x3ff) << 3)	
-#define CFG_SG		(1 << 2)	
-#define CFG_SN		(1 << 1)	
-#define CFG_RS		(1 << 0)	
-#define STAT_XU		(1 << 11)	
-#define STAT_XO		(1 << 10)	
-#define STAT_RU		(1 << 9)	
-#define STAT_RO		(1 << 8)	
-#define STAT_RD		(1 << 7)	
-#define STAT_CP		(1 << 6)	
-#define STAT_TE		(1 << 4)	
-#define STAT_TF		(1 << 3)	
-#define STAT_RE		(1 << 1)	
-#define STAT_RF		(1 << 0)	
+#define CFG_RC(x)	(((x) & 0x3ff) << 13)	/* valid rx slots mask */
+#define CFG_XS(x)	(((x) & 0x3ff) << 3)	/* valid tx slots mask */
+#define CFG_SG		(1 << 2)	/* sync gate */
+#define CFG_SN		(1 << 1)	/* sync control */
+#define CFG_RS		(1 << 0)	/* acrst# control */
+#define STAT_XU		(1 << 11)	/* tx underflow */
+#define STAT_XO		(1 << 10)	/* tx overflow */
+#define STAT_RU		(1 << 9)	/* rx underflow */
+#define STAT_RO		(1 << 8)	/* rx overflow */
+#define STAT_RD		(1 << 7)	/* codec ready */
+#define STAT_CP		(1 << 6)	/* command pending */
+#define STAT_TE		(1 << 4)	/* tx fifo empty */
+#define STAT_TF		(1 << 3)	/* tx fifo full */
+#define STAT_RE		(1 << 1)	/* rx fifo empty */
+#define STAT_RF		(1 << 0)	/* rx fifo full */
 #define CMD_SET_DATA(x)	(((x) & 0xffff) << 16)
 #define CMD_GET_DATA(x)	((x) & 0xffff)
 #define CMD_READ	(1 << 7)
 #define CMD_WRITE	(0 << 7)
 #define CMD_IDX(x)	((x) & 0x7f)
-#define EN_D		(1 << 1)	
-#define EN_CE		(1 << 0)	
+#define EN_D		(1 << 1)	/* DISable bit */
+#define EN_CE		(1 << 0)	/* clock enable bit */
 
+/* how often to retry failed codec register reads/writes */
 #define AC97_RW_RETRIES	5
 
 #define AC97_RATES	\
@@ -60,6 +62,9 @@
 #define AC97_FMTS	\
 	(SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S16_BE)
 
+/* instance data. There can be only one, MacLeod!!!!, fortunately there IS only
+ * once AC97C on early Alchemy chips. The newer ones aren't so lucky.
+ */
 static struct au1xpsc_audio_data *ac97c_workdata;
 #define ac97_to_ctx(x)		ac97c_workdata
 
@@ -88,7 +93,7 @@ static unsigned short au1xac97c_ac97_read(struct snd_ac97 *ac97,
 
 		tmo = 5;
 		while ((RD(ctx, AC97_STATUS) & STAT_CP) && tmo--)
-			udelay(21);	
+			udelay(21);	/* wait an ac97 frame time */
 		if (!tmo) {
 			pr_debug("ac97rd timeout #1\n");
 			goto next;
@@ -96,6 +101,9 @@ static unsigned short au1xac97c_ac97_read(struct snd_ac97 *ac97,
 
 		WR(ctx, AC97_CMDRESP, CMD_IDX(r) | CMD_READ);
 
+		/* stupid errata: data is only valid for 21us, so
+		 * poll, Forrest, poll...
+		 */
 		tmo = 0x10000;
 		while ((RD(ctx, AC97_STATUS) & STAT_CP) && tmo--)
 			asm volatile ("nop");
@@ -162,7 +170,7 @@ static void au1xac97c_ac97_cold_reset(struct snd_ac97 *ac97)
 	msleep(500);
 	WR(ctx, AC97_CONFIG, ctx->cfg);
 
-	
+	/* wait for codec ready */
 	i = 50;
 	while (((RD(ctx, AC97_STATUS) & STAT_RD) == 0) && --i)
 		msleep(20);
@@ -170,13 +178,14 @@ static void au1xac97c_ac97_cold_reset(struct snd_ac97 *ac97)
 		printk(KERN_ERR "ac97c: codec not ready after cold reset\n");
 }
 
+/* AC97 controller operations */
 struct snd_ac97_bus_ops soc_ac97_ops = {
 	.read		= au1xac97c_ac97_read,
 	.write		= au1xac97c_ac97_write,
 	.reset		= au1xac97c_ac97_cold_reset,
 	.warm_reset	= au1xac97c_ac97_warm_reset,
 };
-EXPORT_SYMBOL_GPL(soc_ac97_ops);	
+EXPORT_SYMBOL_GPL(soc_ac97_ops);	/* globals be gone! */
 
 static int alchemy_ac97c_startup(struct snd_pcm_substream *substream,
 				 struct snd_soc_dai *dai)
@@ -250,7 +259,7 @@ static int __devinit au1xac97c_drvprobe(struct platform_device *pdev)
 		return -EBUSY;
 	ctx->dmaids[SNDRV_PCM_STREAM_CAPTURE] = dmares->start;
 
-	
+	/* switch it on */
 	WR(ctx, AC97_ENABLE, EN_D | EN_CE);
 	WR(ctx, AC97_ENABLE, EN_CE);
 
@@ -273,9 +282,9 @@ static int __devexit au1xac97c_drvremove(struct platform_device *pdev)
 
 	snd_soc_unregister_dai(&pdev->dev);
 
-	WR(ctx, AC97_ENABLE, EN_D);	
+	WR(ctx, AC97_ENABLE, EN_D);	/* clock off, disable */
 
-	ac97c_workdata = NULL;	
+	ac97c_workdata = NULL;	/* MDEV */
 
 	return 0;
 }
@@ -285,7 +294,7 @@ static int au1xac97c_drvsuspend(struct device *dev)
 {
 	struct au1xpsc_audio_data *ctx = dev_get_drvdata(dev);
 
-	WR(ctx, AC97_ENABLE, EN_D);	
+	WR(ctx, AC97_ENABLE, EN_D);	/* clock off, disable */
 
 	return 0;
 }

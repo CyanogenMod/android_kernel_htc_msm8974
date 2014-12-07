@@ -41,12 +41,15 @@
 
 #include <asm/mpc5121.h>
 
+/* Addresses for NFC MAIN RAM BUFFER areas */
 #define NFC_MAIN_AREA(n)	((n) *  0x200)
 
+/* Addresses for NFC SPARE BUFFER areas */
 #define NFC_SPARE_BUFFERS	8
 #define NFC_SPARE_LEN		0x40
 #define NFC_SPARE_AREA(n)	(0x1000 + ((n) * NFC_SPARE_LEN))
 
+/* MPC5121 NFC registers */
 #define NFC_BUF_ADDR		0x1E04
 #define NFC_FLASH_ADDR		0x1E06
 #define NFC_FLASH_CMD		0x1E08
@@ -67,12 +70,15 @@
 #define NFC_UNLOCKSTART_BLK3	0x1E2C
 #define NFC_UNLOCKEND_BLK3	0x1E2E
 
+/* Bit Definitions: NFC_BUF_ADDR */
 #define NFC_RBA_MASK		(7 << 0)
 #define NFC_ACTIVE_CS_SHIFT	5
 #define NFC_ACTIVE_CS_MASK	(3 << NFC_ACTIVE_CS_SHIFT)
 
+/* Bit Definitions: NFC_CONFIG */
 #define NFC_BLS_UNLOCKED	(1 << 1)
 
+/* Bit Definitions: NFC_CONFIG1 */
 #define NFC_ECC_4BIT		(1 << 0)
 #define NFC_FULL_PAGE_DMA	(1 << 1)
 #define NFC_SPARE_ONLY		(1 << 2)
@@ -89,6 +95,7 @@
 #define NFC_PPB_MASK		(3 << 9)
 #define NFC_FULL_PAGE_INT	(1 << 11)
 
+/* Bit Definitions: NFC_CONFIG2 */
 #define NFC_COMMAND		(1 << 0)
 #define NFC_ADDRESS		(1 << 1)
 #define NFC_INPUT		(1 << 2)
@@ -98,14 +105,16 @@
 #define NFC_CMD_FAIL		(1 << 15)
 #define NFC_INT			(1 << 15)
 
+/* Bit Definitions: NFC_WRPROT */
 #define NFC_WPC_LOCK_TIGHT	(1 << 0)
 #define NFC_WPC_LOCK		(1 << 1)
 #define NFC_WPC_UNLOCK		(1 << 2)
 
 #define	DRV_NAME		"mpc5121_nfc"
 
-#define NFC_RESET_TIMEOUT	1000		
-#define NFC_TIMEOUT		(HZ / 10)	
+/* Timeouts */
+#define NFC_RESET_TIMEOUT	1000		/* 1 ms */
+#define NFC_TIMEOUT		(HZ / 10)	/* 1/10 s */
 
 struct mpc5121_nfc_prv {
 	struct mtd_info		mtd;
@@ -122,6 +131,7 @@ struct mpc5121_nfc_prv {
 
 static void mpc5121_nfc_done(struct mtd_info *mtd);
 
+/* Read NFC register */
 static inline u16 nfc_read(struct mtd_info *mtd, uint reg)
 {
 	struct nand_chip *chip = mtd->priv;
@@ -130,6 +140,7 @@ static inline u16 nfc_read(struct mtd_info *mtd, uint reg)
 	return in_be16(prv->regs + reg);
 }
 
+/* Write NFC register */
 static inline void nfc_write(struct mtd_info *mtd, uint reg, u16 val)
 {
 	struct nand_chip *chip = mtd->priv;
@@ -138,16 +149,19 @@ static inline void nfc_write(struct mtd_info *mtd, uint reg, u16 val)
 	out_be16(prv->regs + reg, val);
 }
 
+/* Set bits in NFC register */
 static inline void nfc_set(struct mtd_info *mtd, uint reg, u16 bits)
 {
 	nfc_write(mtd, reg, nfc_read(mtd, reg) | bits);
 }
 
+/* Clear bits in NFC register */
 static inline void nfc_clear(struct mtd_info *mtd, uint reg, u16 bits)
 {
 	nfc_write(mtd, reg, nfc_read(mtd, reg) & ~bits);
 }
 
+/* Invoke address cycle */
 static inline void mpc5121_nfc_send_addr(struct mtd_info *mtd, u16 addr)
 {
 	nfc_write(mtd, NFC_FLASH_ADDR, addr);
@@ -155,6 +169,7 @@ static inline void mpc5121_nfc_send_addr(struct mtd_info *mtd, u16 addr)
 	mpc5121_nfc_done(mtd);
 }
 
+/* Invoke command cycle */
 static inline void mpc5121_nfc_send_cmd(struct mtd_info *mtd, u16 cmd)
 {
 	nfc_write(mtd, NFC_FLASH_CMD, cmd);
@@ -162,6 +177,7 @@ static inline void mpc5121_nfc_send_cmd(struct mtd_info *mtd, u16 cmd)
 	mpc5121_nfc_done(mtd);
 }
 
+/* Send data from NFC buffers to NAND flash */
 static inline void mpc5121_nfc_send_prog_page(struct mtd_info *mtd)
 {
 	nfc_clear(mtd, NFC_BUF_ADDR, NFC_RBA_MASK);
@@ -169,6 +185,7 @@ static inline void mpc5121_nfc_send_prog_page(struct mtd_info *mtd)
 	mpc5121_nfc_done(mtd);
 }
 
+/* Receive data from NAND flash */
 static inline void mpc5121_nfc_send_read_page(struct mtd_info *mtd)
 {
 	nfc_clear(mtd, NFC_BUF_ADDR, NFC_RBA_MASK);
@@ -176,6 +193,7 @@ static inline void mpc5121_nfc_send_read_page(struct mtd_info *mtd)
 	mpc5121_nfc_done(mtd);
 }
 
+/* Receive ID from NAND flash */
 static inline void mpc5121_nfc_send_read_id(struct mtd_info *mtd)
 {
 	nfc_clear(mtd, NFC_BUF_ADDR, NFC_RBA_MASK);
@@ -183,6 +201,7 @@ static inline void mpc5121_nfc_send_read_id(struct mtd_info *mtd)
 	mpc5121_nfc_done(mtd);
 }
 
+/* Receive status from NAND flash */
 static inline void mpc5121_nfc_send_read_status(struct mtd_info *mtd)
 {
 	nfc_clear(mtd, NFC_BUF_ADDR, NFC_RBA_MASK);
@@ -190,6 +209,7 @@ static inline void mpc5121_nfc_send_read_status(struct mtd_info *mtd)
 	mpc5121_nfc_done(mtd);
 }
 
+/* NFC interrupt handler */
 static irqreturn_t mpc5121_nfc_irq(int irq, void *data)
 {
 	struct mtd_info *mtd = data;
@@ -202,6 +222,7 @@ static irqreturn_t mpc5121_nfc_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/* Wait for operation complete */
 static void mpc5121_nfc_done(struct mtd_info *mtd)
 {
 	struct nand_chip *chip = mtd->priv;
@@ -221,6 +242,7 @@ static void mpc5121_nfc_done(struct mtd_info *mtd)
 	nfc_clear(mtd, NFC_CONFIG2, NFC_INT);
 }
 
+/* Do address cycle(s) */
 static void mpc5121_nfc_addr_cycle(struct mtd_info *mtd, int column, int page)
 {
 	struct nand_chip *chip = mtd->priv;
@@ -241,6 +263,7 @@ static void mpc5121_nfc_addr_cycle(struct mtd_info *mtd, int column, int page)
 	}
 }
 
+/* Control chip select signals */
 static void mpc5121_nfc_select_chip(struct mtd_info *mtd, int chip)
 {
 	if (chip < 0) {
@@ -254,6 +277,7 @@ static void mpc5121_nfc_select_chip(struct mtd_info *mtd, int chip)
 	nfc_set(mtd, NFC_CONFIG1, NFC_CE);
 }
 
+/* Init external chip select logic on ADS5121 board */
 static int ads5121_chipselect_init(struct mtd_info *mtd)
 {
 	struct nand_chip *chip = mtd->priv;
@@ -267,7 +291,7 @@ static int ads5121_chipselect_init(struct mtd_info *mtd)
 		if (!prv->csreg)
 			return -ENOMEM;
 
-		
+		/* CPLD Register 9 controls NAND /CE Lines */
 		prv->csreg += 9;
 		return 0;
 	}
@@ -275,6 +299,7 @@ static int ads5121_chipselect_init(struct mtd_info *mtd)
 	return -EINVAL;
 }
 
+/* Control chips select signal on ADS5121 board */
 static void ads5121_select_chip(struct mtd_info *mtd, int chip)
 {
 	struct nand_chip *nand = mtd->priv;
@@ -293,11 +318,17 @@ static void ads5121_select_chip(struct mtd_info *mtd, int chip)
 	out_8(prv->csreg, v);
 }
 
+/* Read NAND Ready/Busy signal */
 static int mpc5121_nfc_dev_ready(struct mtd_info *mtd)
 {
+	/*
+	 * NFC handles ready/busy signal internally. Therefore, this function
+	 * always returns status as ready.
+	 */
 	return 1;
 }
 
+/* Write command to NAND flash */
 static void mpc5121_nfc_command(struct mtd_info *mtd, unsigned command,
 							int column, int page)
 {
@@ -311,6 +342,10 @@ static void mpc5121_nfc_command(struct mtd_info *mtd, unsigned command,
 	case NAND_CMD_PAGEPROG:
 		mpc5121_nfc_send_prog_page(mtd);
 		break;
+	/*
+	 * NFC does not support sub-page reads and writes,
+	 * so emulate them using full page transfers.
+	 */
 	case NAND_CMD_READ0:
 		column = 0;
 		break;
@@ -366,6 +401,7 @@ static void mpc5121_nfc_command(struct mtd_info *mtd, unsigned command,
 	}
 }
 
+/* Copy data from/to NFC spare buffers. */
 static void mpc5121_nfc_copy_spare(struct mtd_info *mtd, uint offset,
 						u8 *buffer, uint size, int wr)
 {
@@ -373,16 +409,34 @@ static void mpc5121_nfc_copy_spare(struct mtd_info *mtd, uint offset,
 	struct mpc5121_nfc_prv *prv = nand->priv;
 	uint o, s, sbsize, blksize;
 
+	/*
+	 * NAND spare area is available through NFC spare buffers.
+	 * The NFC divides spare area into (page_size / 512) chunks.
+	 * Each chunk is placed into separate spare memory area, using
+	 * first (spare_size / num_of_chunks) bytes of the buffer.
+	 *
+	 * For NAND device in which the spare area is not divided fully
+	 * by the number of chunks, number of used bytes in each spare
+	 * buffer is rounded down to the nearest even number of bytes,
+	 * and all remaining bytes are added to the last used spare area.
+	 *
+	 * For more information read section 26.6.10 of MPC5121e
+	 * Microcontroller Reference Manual, Rev. 3.
+	 */
 
-	
+	/* Calculate number of valid bytes in each spare buffer */
 	sbsize = (mtd->oobsize / (mtd->writesize / 512)) & ~1;
 
 	while (size) {
-		
+		/* Calculate spare buffer number */
 		s = offset / sbsize;
 		if (s > NFC_SPARE_BUFFERS - 1)
 			s = NFC_SPARE_BUFFERS - 1;
 
+		/*
+		 * Calculate offset to requested data block in selected spare
+		 * buffer and its size.
+		 */
 		o = offset - (s * sbsize);
 		blksize = min(sbsize - o, size);
 
@@ -399,6 +453,7 @@ static void mpc5121_nfc_copy_spare(struct mtd_info *mtd, uint offset,
 	};
 }
 
+/* Copy data from/to NFC main and spare buffers */
 static void mpc5121_nfc_buf_copy(struct mtd_info *mtd, u_char *buf, int len,
 									int wr)
 {
@@ -407,9 +462,9 @@ static void mpc5121_nfc_buf_copy(struct mtd_info *mtd, u_char *buf, int len,
 	uint c = prv->column;
 	uint l;
 
-	
+	/* Handle spare area access */
 	if (prv->spareonly || c >= mtd->writesize) {
-		
+		/* Calculate offset from beginning of spare area */
 		if (c >= mtd->writesize)
 			c -= mtd->writesize;
 
@@ -418,6 +473,10 @@ static void mpc5121_nfc_buf_copy(struct mtd_info *mtd, u_char *buf, int len,
 		return;
 	}
 
+	/*
+	 * Handle main area access - limit copy length to prevent
+	 * crossing main/spare boundary.
+	 */
 	l = min((uint)len, mtd->writesize - c);
 	prv->column += l;
 
@@ -426,7 +485,7 @@ static void mpc5121_nfc_buf_copy(struct mtd_info *mtd, u_char *buf, int len,
 	else
 		memcpy_fromio(buf, prv->regs + NFC_MAIN_AREA(0) + c, l);
 
-	
+	/* Handle crossing main/spare boundary */
 	if (l != len) {
 		buf += l;
 		len -= l;
@@ -434,17 +493,20 @@ static void mpc5121_nfc_buf_copy(struct mtd_info *mtd, u_char *buf, int len,
 	}
 }
 
+/* Read data from NFC buffers */
 static void mpc5121_nfc_read_buf(struct mtd_info *mtd, u_char *buf, int len)
 {
 	mpc5121_nfc_buf_copy(mtd, buf, len, 0);
 }
 
+/* Write data to NFC buffers */
 static void mpc5121_nfc_write_buf(struct mtd_info *mtd,
 						const u_char *buf, int len)
 {
 	mpc5121_nfc_buf_copy(mtd, (u_char *)buf, len, 1);
 }
 
+/* Compare buffer with NAND flash */
 static int mpc5121_nfc_verify_buf(struct mtd_info *mtd,
 						const u_char *buf, int len)
 {
@@ -465,6 +527,7 @@ static int mpc5121_nfc_verify_buf(struct mtd_info *mtd,
 	return 0;
 }
 
+/* Read byte from NFC buffers */
 static u8 mpc5121_nfc_read_byte(struct mtd_info *mtd)
 {
 	u8 tmp;
@@ -474,6 +537,7 @@ static u8 mpc5121_nfc_read_byte(struct mtd_info *mtd)
 	return tmp;
 }
 
+/* Read word from NFC buffers */
 static u16 mpc5121_nfc_read_word(struct mtd_info *mtd)
 {
 	u16 tmp;
@@ -483,6 +547,13 @@ static u16 mpc5121_nfc_read_word(struct mtd_info *mtd)
 	return tmp;
 }
 
+/*
+ * Read NFC configuration from Reset Config Word
+ *
+ * NFC is configured during reset in basis of information stored
+ * in Reset Config Word. There is no other way to set NAND block
+ * size, spare size and bus width.
+ */
 static int mpc5121_nfc_read_hw_config(struct mtd_info *mtd)
 {
 	struct nand_chip *chip = mtd->priv;
@@ -512,16 +583,16 @@ static int mpc5121_nfc_read_hw_config(struct mtd_info *mtd)
 
 	rcwh = in_be32(&rm->rcwhr);
 
-	
+	/* Bit 6: NFC bus width */
 	rcw_width = ((rcwh >> 6) & 0x1) ? 2 : 1;
 
-	
+	/* Bit 7: NFC Page/Spare size */
 	ps = (rcwh >> 7) & 0x1;
 
-	
+	/* Bits [22:21]: ROM Location */
 	romloc = (rcwh >> 21) & 0x3;
 
-	
+	/* Decode RCW bits */
 	switch ((ps << 2) | romloc) {
 	case 0x00:
 	case 0x01:
@@ -561,6 +632,7 @@ out:
 	return ret;
 }
 
+/* Free driver resources */
 static void mpc5121_nfc_free(struct device *dev, struct mtd_info *mtd)
 {
 	struct nand_chip *chip = mtd->priv;
@@ -590,6 +662,10 @@ static int __devinit mpc5121_nfc_probe(struct platform_device *op)
 	int rev, len;
 	struct mtd_part_parser_data ppdata;
 
+	/*
+	 * Check SoC revision. This driver supports only NFC
+	 * in MPC5121 revision 2 and MPC5123 revision 3.
+	 */
 	rev = (mfspr(SPRN_SVR) >> 4) & 0xF;
 	if ((rev != 2) && (rev != 3)) {
 		dev_err(dev, "SoC revision %u is not supported!\n", rev);
@@ -609,7 +685,7 @@ static int __devinit mpc5121_nfc_probe(struct platform_device *op)
 	chip->priv = prv;
 	prv->dev = dev;
 
-	
+	/* Read NFC configuration from Reset Config Word */
 	retval = mpc5121_nfc_read_hw_config(mtd);
 	if (retval) {
 		dev_err(dev, "Unable to read NFC config!\n");
@@ -662,7 +738,7 @@ static int __devinit mpc5121_nfc_probe(struct platform_device *op)
 	chip->bbt_options = NAND_BBT_USE_FLASH;
 	chip->ecc.mode = NAND_ECC_SOFT;
 
-	
+	/* Support external chip-select logic on ADS5121 board */
 	rootnode = of_find_node_by_path("/");
 	if (of_device_is_compatible(rootnode, "fsl,mpc5121ads")) {
 		retval = ads5121_chipselect_init(mtd);
@@ -676,7 +752,7 @@ static int __devinit mpc5121_nfc_probe(struct platform_device *op)
 	}
 	of_node_put(rootnode);
 
-	
+	/* Enable NFC clock */
 	prv->clk = clk_get(dev, "nfc_clk");
 	if (IS_ERR(prv->clk)) {
 		dev_err(dev, "Unable to acquire NFC clock!\n");
@@ -686,7 +762,7 @@ static int __devinit mpc5121_nfc_probe(struct platform_device *op)
 
 	clk_enable(prv->clk);
 
-	
+	/* Reset NAND Flash controller */
 	nfc_set(mtd, NFC_CONFIG1, NFC_RESET);
 	while (nfc_read(mtd, NFC_CONFIG1) & NFC_RESET) {
 		if (resettime++ >= NFC_RESET_TIMEOUT) {
@@ -698,18 +774,23 @@ static int __devinit mpc5121_nfc_probe(struct platform_device *op)
 		udelay(1);
 	}
 
-	
+	/* Enable write to NFC memory */
 	nfc_write(mtd, NFC_CONFIG, NFC_BLS_UNLOCKED);
 
-	
+	/* Enable write to all NAND pages */
 	nfc_write(mtd, NFC_UNLOCKSTART_BLK0, 0x0000);
 	nfc_write(mtd, NFC_UNLOCKEND_BLK0, 0xFFFF);
 	nfc_write(mtd, NFC_WRPROT, NFC_WPC_UNLOCK);
 
+	/*
+	 * Setup NFC:
+	 *	- Big Endian transfers,
+	 *	- Interrupt after full page read/write.
+	 */
 	nfc_write(mtd, NFC_CONFIG1, NFC_BIG_ENDIAN | NFC_INT_MASK |
 							NFC_FULL_PAGE_INT);
 
-	
+	/* Set spare area size */
 	nfc_write(mtd, NFC_SPAS, mtd->oobsize >> 1);
 
 	init_waitqueue_head(&prv->irq_waitq);
@@ -720,7 +801,7 @@ static int __devinit mpc5121_nfc_probe(struct platform_device *op)
 		goto error;
 	}
 
-	
+	/* Detect NAND chips */
 	if (nand_scan(mtd, be32_to_cpup(chips_no))) {
 		dev_err(dev, "NAND Flash not found !\n");
 		devm_free_irq(dev, prv->irq, mtd);
@@ -728,7 +809,7 @@ static int __devinit mpc5121_nfc_probe(struct platform_device *op)
 		goto error;
 	}
 
-	
+	/* Set erase block size */
 	switch (mtd->erasesize / mtd->writesize) {
 	case 32:
 		nfc_set(mtd, NFC_CONFIG1, NFC_PPB_32);
@@ -755,7 +836,7 @@ static int __devinit mpc5121_nfc_probe(struct platform_device *op)
 
 	dev_set_drvdata(dev, mtd);
 
-	
+	/* Register device in MTD */
 	retval = mtd_device_parse_register(mtd, NULL, &ppdata, NULL, 0);
 	if (retval) {
 		dev_err(dev, "Error adding MTD device!\n");

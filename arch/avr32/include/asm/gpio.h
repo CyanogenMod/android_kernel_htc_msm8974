@@ -3,4 +3,4 @@
 
 #include <mach/gpio.h>
 
-#endif 
+#endif /* __ASM_AVR32_GPIO_H */

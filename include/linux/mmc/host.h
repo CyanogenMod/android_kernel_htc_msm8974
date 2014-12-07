@@ -151,6 +151,12 @@ struct mmc_hotplug {
 	void *handler_priv;
 };
 
+enum dev_state {
+	DEV_SUSPENDING = 1,
+	DEV_SUSPENDED,
+	DEV_RESUMED,
+};
+
 struct mmc_host {
 	struct device		*parent;
 	struct device		class_dev;
@@ -305,6 +311,7 @@ struct mmc_host {
 	int			claim_cnt;	
 
 	struct delayed_work	detect;
+	struct delayed_work	enable_detect;
 	struct delayed_work     remove;
 	struct delayed_work	stats_work;
 	struct wake_lock	detect_wake_lock;
@@ -378,6 +385,9 @@ struct mmc_host {
 		unsigned long erase_blks;	
 		ktime_t erase_time;			
 		ktime_t start;
+		
+		unsigned long wkbytes_drv;
+		ktime_t workload_time;
 	} perf;
 	bool perf_enable;
 
@@ -393,9 +403,14 @@ struct mmc_host {
 		bool		enable;
 		bool		initialized;
 		bool		in_progress;
+		
+		bool		invalid_state;
 		struct delayed_work work;
 		enum mmc_load	state;
 	} clk_scaling;
+	unsigned int crc_count;
+	unsigned int expand_debounce;
+	enum dev_state dev_status;
 	unsigned long		private[0] ____cacheline_aligned;
 };
 

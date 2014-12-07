@@ -126,11 +126,9 @@ void *ion_heap_map_kernel(struct ion_heap *, struct ion_buffer *);
 void ion_heap_unmap_kernel(struct ion_heap *, struct ion_buffer *);
 int ion_heap_map_user(struct ion_heap *, struct ion_buffer *,
 			struct vm_area_struct *);
-int ion_heap_pages_zero(struct page **pages, int num_pages,
-			bool should_invalidate);
+int ion_heap_pages_zero(struct page **pages, int num_pages);
 int ion_heap_buffer_zero(struct ion_buffer *buffer);
-int ion_heap_high_order_page_zero(struct page *page,
-				int order, bool should_invalidate);
+int ion_heap_high_order_page_zero(struct page *page, int order);
 
 int ion_heap_init_deferred_free(struct ion_heap *heap);
 
@@ -174,11 +172,9 @@ struct ion_page_pool {
 	gfp_t gfp_mask;
 	unsigned int order;
 	struct plist_node list;
-	bool should_invalidate;
 };
 
-struct ion_page_pool *ion_page_pool_create(gfp_t gfp_mask, unsigned int order,
-	bool should_invalidate);
+struct ion_page_pool *ion_page_pool_create(gfp_t gfp_mask, unsigned int order);
 void ion_page_pool_destroy(struct ion_page_pool *);
 void *ion_page_pool_alloc(struct ion_page_pool *);
 void ion_page_pool_free(struct ion_page_pool *, struct page *);
@@ -193,5 +189,8 @@ struct ion_handle *ion_handle_get_by_id(struct ion_client *client,
 					int id);
 
 int ion_handle_put(struct ion_handle *handle);
+
+int ion_client_set_debug_name(struct ion_client *client,
+				const char *debug_name);
 
 #endif 

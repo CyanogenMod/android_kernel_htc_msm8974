@@ -108,16 +108,16 @@ static inline int omap1_i2c_add_bus(int bus_id)
 	res[1].start = INT_I2C;
 	pdata = &i2c_pdata[bus_id - 1];
 
-	
+	/* all OMAP1 have IP version 1 register set */
 	pdata->rev = OMAP_I2C_IP_VERSION_1;
 
-	
+	/* all OMAP1 I2C are implemented like this */
 	pdata->flags = OMAP_I2C_FLAG_NO_FIFO |
 		       OMAP_I2C_FLAG_SIMPLE_CLOCK |
 		       OMAP_I2C_FLAG_16BIT_DATA_REG |
 		       OMAP_I2C_FLAG_ALWAYS_ARMXOR_CLK;
 
-	
+	/* how the cpu bus is wired up differs for 7xx only */
 
 	if (cpu_is_omap7xx())
 		pdata->flags |= OMAP_I2C_FLAG_BUS_SHIFT_1;
@@ -129,6 +129,11 @@ static inline int omap1_i2c_add_bus(int bus_id)
 
 
 #ifdef CONFIG_ARCH_OMAP2PLUS
+/*
+ * XXX This function is a temporary compatibility wrapper - only
+ * needed until the I2C driver can be converted to call
+ * omap_pm_set_max_dev_wakeup_lat() and handle a return code.
+ */
 static void omap_pm_set_max_mpu_wakeup_lat_compat(struct device *dev, long t)
 {
 	omap_pm_set_max_mpu_wakeup_lat(dev, t);
@@ -155,11 +160,23 @@ static inline int omap2_i2c_add_bus(int bus_id)
 	}
 
 	pdata = &i2c_pdata[bus_id - 1];
+	/*
+	 * pass the hwmod class's CPU-specific knowledge of I2C IP revision in
+	 * use, and functionality implementation flags, up to the OMAP I2C
+	 * driver via platform data
+	 */
 	pdata->rev = oh->class->rev;
 
 	dev_attr = (struct omap_i2c_dev_attr *)oh->dev_attr;
 	pdata->flags = dev_attr->flags;
 
+	/*
+	 * When waiting for completion of a i2c transfer, we need to
+	 * set a wake up latency constraint for the MPU. This is to
+	 * ensure quick enough wakeup from idle, when transfer
+	 * completes.
+	 * Only omap3 has support for constraints
+	 */
 	if (cpu_is_omap34xx())
 		pdata->set_mpu_wkup_lat = omap_pm_set_max_mpu_wakeup_lat_compat;
 	pdev = omap_device_build(name, bus_id, oh, pdata,
@@ -184,6 +201,17 @@ static int __init omap_i2c_add_bus(int bus_id)
 		return omap2_i2c_add_bus(bus_id);
 }
 
+/**
+ * omap_i2c_bus_setup - Process command line options for the I2C bus speed
+ * @str: String of options
+ *
+ * This function allow to override the default I2C bus speed for given I2C
+ * bus with a command line option.
+ *
+ * Format: i2c_bus=bus_id,clkrate (in kHz)
+ *
+ * Returns 1 on success, 0 otherwise.
+ */
 static int __init omap_i2c_bus_setup(char *str)
 {
 	int ports;
@@ -200,6 +228,10 @@ static int __init omap_i2c_bus_setup(char *str)
 }
 __setup("i2c_bus=", omap_i2c_bus_setup);
 
+/*
+ * Register busses defined in command line but that are not registered with
+ * omap_register_i2c_bus from board initialization code.
+ */
 static int __init omap_register_i2c_bus_cmdline(void)
 {
 	int i, err = 0;
@@ -217,6 +249,15 @@ out:
 }
 subsys_initcall(omap_register_i2c_bus_cmdline);
 
+/**
+ * omap_register_i2c_bus - register I2C bus with device descriptors
+ * @bus_id: bus id counting from number 1
+ * @clkrate: clock rate of the bus in kHz
+ * @info: pointer into I2C device descriptor table or NULL
+ * @len: number of descriptors in the table
+ *
+ * Returns 0 on success or an error code.
+ */
 int __init omap_register_i2c_bus(int bus_id, u32 clkrate,
 			  struct i2c_board_info const *info,
 			  unsigned len)

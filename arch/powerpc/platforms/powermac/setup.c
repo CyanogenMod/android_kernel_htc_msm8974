@@ -19,6 +19,9 @@
  *
  */
 
+/*
+ * bootup setup stuff..
+ */
 
 #include <linux/init.h>
 #include <linux/errno.h>
@@ -85,7 +88,7 @@ static int current_root_goodness = -1;
 
 extern struct machdep_calls pmac_md;
 
-#define DEFAULT_ROOT_DEVICE Root_SDA1	
+#define DEFAULT_ROOT_DEVICE Root_SDA1	/* sda1 - slightly silly choice */
 
 #ifdef CONFIG_PPC64
 int sccdbg;
@@ -116,7 +119,7 @@ static void pmac_show_cpuinfo(struct seq_file *m)
 			      (long) &mbname) != 0)
 		mbname = "Unknown";
 
-	
+	/* find motherboard type */
 	seq_printf(m, "machine\t\t: ");
 	np = of_find_node_by_path("/");
 	if (np != NULL) {
@@ -140,11 +143,11 @@ static void pmac_show_cpuinfo(struct seq_file *m)
 	} else
 		seq_printf(m, "PowerMac\n");
 
-	
+	/* print parsed model */
 	seq_printf(m, "detected as\t: %d (%s)\n", mbmodel, mbname);
 	seq_printf(m, "pmac flags\t: %08x\n", mbflags);
 
-	
+	/* find l2 cache info */
 	np = of_find_node_by_name(NULL, "l2-cache");
 	if (np == NULL)
 		np = of_find_node_by_type(NULL, "cache");
@@ -171,7 +174,7 @@ static void pmac_show_cpuinfo(struct seq_file *m)
 		of_node_put(np);
 	}
 
-	
+	/* Indicate newworld/oldworld */
 	seq_printf(m, "pmac-generation\t: %s\n",
 		   pmac_newworld ? "NewWorld" : "OldWorld");
 }
@@ -207,7 +210,7 @@ int find_via_pmu(void)
 #ifndef CONFIG_PMAC_SMU
 int smu_init(void)
 {
-	
+	/* should check and warn if SMU is present */
 	return 0;
 }
 #endif
@@ -219,8 +222,15 @@ static void __init ohare_init(void)
 {
 	struct device_node *dn;
 
+	/* this area has the CPU identification register
+	   and some registers used by smp boards */
 	sysctrl_regs = (volatile u32 *) ioremap(0xf8000000, 0x1000);
 
+	/*
+	 * Turn on the L2 cache.
+	 * We assume that we have a PSX memory controller iff
+	 * we have an ohare I/O controller.
+	 */
 	dn = of_find_node_by_name(NULL, "ohare");
 	if (dn) {
 		of_node_put(dn);
@@ -237,7 +247,7 @@ static void __init ohare_init(void)
 
 static void __init l2cr_init(void)
 {
-	
+	/* Checks "l2cr-value" property in the registry */
 	if (cpu_has_feature(CPU_FTR_L2CR)) {
 		struct device_node *np = of_find_node_by_name(NULL, "cpus");
 		if (np == 0)
@@ -272,38 +282,40 @@ static void __init pmac_setup_arch(void)
 
 	pvr = PVR_VER(mfspr(SPRN_PVR));
 
+	/* Set loops_per_jiffy to a half-way reasonable value,
+	   for use until calibrate_delay gets called. */
 	loops_per_jiffy = 50000000 / HZ;
 	cpu = of_find_node_by_type(NULL, "cpu");
 	if (cpu != NULL) {
 		fp = of_get_property(cpu, "clock-frequency", NULL);
 		if (fp != NULL) {
 			if (pvr >= 0x30 && pvr < 0x80)
-				
+				/* PPC970 etc. */
 				loops_per_jiffy = *fp / (3 * HZ);
 			else if (pvr == 4 || pvr >= 8)
-				
+				/* 604, G3, G4 etc. */
 				loops_per_jiffy = *fp / HZ;
 			else
-				
+				/* 601, 603, etc. */
 				loops_per_jiffy = *fp / (2 * HZ);
 		}
 		of_node_put(cpu);
 	}
 
-	
+	/* See if newworld or oldworld */
 	ic = of_find_node_with_property(NULL, "interrupt-controller");
 	if (ic) {
 		pmac_newworld = 1;
 		of_node_put(ic);
 	}
 
-	
+	/* Lookup PCI hosts */
 	pmac_pci_init();
 
 #ifdef CONFIG_PPC32
 	ohare_init();
 	l2cr_init();
-#endif 
+#endif /* CONFIG_PPC32 */
 
 	find_via_cuda();
 	find_via_pmu();
@@ -328,7 +340,7 @@ static void __init pmac_setup_arch(void)
 		extern int __adb_probe_sync;
 		__adb_probe_sync = 1;
 	}
-#endif 
+#endif /* CONFIG_ADB */
 }
 
 #ifdef CONFIG_SCSI
@@ -347,6 +359,12 @@ static int pmac_late_init(void)
 }
 machine_late_initcall(powermac, pmac_late_init);
 
+/*
+ * This is __init_refok because we check for "initializing" before
+ * touching any of the __init sensitive things and "initializing"
+ * will be false after __init time. This can't be __init because it
+ * can be called whenever a disk is first accessed.
+ */
 void __init_refok note_bootable_part(dev_t dev, int part, int goodness)
 {
 	char *p;
@@ -436,18 +454,21 @@ pmac_halt(void)
 	pmac_power_off();
 }
 
+/* 
+ * Early initialization.
+ */
 static void __init pmac_init_early(void)
 {
-	
+	/* Enable early btext debug if requested */
 	if (strstr(cmd_line, "btextdbg")) {
 		udbg_adb_init_early();
 		register_early_udbg_console();
 	}
 
-	
+	/* Probe motherboard chipset */
 	pmac_feature_init();
 
-	
+	/* Initialize debug stuff */
 	udbg_scc_init(!!strstr(cmd_line, "sccdbg"));
 	udbg_adb_init(!!strstr(cmd_line, "btextdbg"));
 
@@ -455,6 +476,10 @@ static void __init pmac_init_early(void)
 	iommu_init_early_dart();
 #endif
 
+	/* SMP Init has to be done early as we need to patch up
+	 * cpu_possible_mask before interrupt stacks are allocated
+	 * or kaboom...
+	 */
 #ifdef CONFIG_SMP
 	pmac_setup_smp();
 #endif
@@ -484,7 +509,7 @@ static int __init pmac_declare_of_platform_devices(void)
 	}
 	np = of_find_node_by_type(NULL, "fcu");
 	if (np == NULL) {
-		
+		/* Some machines have strangely broken device-tree */
 		np = of_find_node_by_path("/u3@0,f8000000/i2c@f8001000/fan@15e");
 	}
 	if (np) {
@@ -497,6 +522,12 @@ static int __init pmac_declare_of_platform_devices(void)
 machine_device_initcall(powermac, pmac_declare_of_platform_devices);
 
 #ifdef CONFIG_SERIAL_PMACZILOG_CONSOLE
+/*
+ * This is called very early, as part of console_init() (typically just after
+ * time_init()). This function is respondible for trying to find a good
+ * default console on serial ports. It tries to match the open firmware
+ * default output with one of the available serial console drivers.
+ */
 static int __init check_pmac_serial_console(void)
 {
 	struct device_node *prom_stdout = NULL;
@@ -510,7 +541,7 @@ static int __init check_pmac_serial_console(void)
 
 	pr_debug(" -> check_pmac_serial_console()\n");
 
-	
+	/* The user has requested a console so this is already set up. */
 	if (strstr(boot_command_line, "console=")) {
 		pr_debug(" console was specified !\n");
 		return -EBUSY;
@@ -521,8 +552,8 @@ static int __init check_pmac_serial_console(void)
 		return -ENODEV;
 	}
 
-	
-	
+	/* We are getting a weird phandle from OF ... */
+	/* ... So use the full path instead */
 	name = of_get_property(of_chosen, "linux,stdout-path", NULL);
 	if (name == NULL) {
 		pr_debug(" no linux,stdout-path !\n");
@@ -560,8 +591,11 @@ static int __init check_pmac_serial_console(void)
 }
 console_initcall(check_pmac_serial_console);
 
-#endif 
+#endif /* CONFIG_SERIAL_PMACZILOG_CONSOLE */
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init pmac_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
@@ -571,37 +605,53 @@ static int __init pmac_probe(void)
 		return 0;
 
 #ifdef CONFIG_PPC64
+	/*
+	 * On U3, the DART (iommu) must be allocated now since it
+	 * has an impact on htab_initialize (due to the large page it
+	 * occupies having to be broken up so the DART itself is not
+	 * part of the cacheable linar mapping
+	 */
 	alloc_dart_table();
 
 	hpte_init_native();
 #endif
 
 #ifdef CONFIG_PPC32
-	
+	/* isa_io_base gets set in pmac_pci_init */
 	ISA_DMA_THRESHOLD = ~0L;
 	DMA_MODE_READ = 1;
 	DMA_MODE_WRITE = 2;
-#endif 
+#endif /* CONFIG_PPC32 */
 
 #ifdef CONFIG_PMAC_SMU
+	/*
+	 * SMU based G5s need some memory below 2Gb, at least the current
+	 * driver needs that. We have to allocate it now. We allocate 4k
+	 * (1 small page) for now.
+	 */
 	smu_cmdbuf_abs = memblock_alloc_base(4096, 4096, 0x80000000UL);
-#endif 
+#endif /* CONFIG_PMAC_SMU */
 
 	return 1;
 }
 
 #ifdef CONFIG_PPC64
+/* Move that to pci.c */
 static int pmac_pci_probe_mode(struct pci_bus *bus)
 {
 	struct device_node *node = pci_bus_to_OF_node(bus);
 
+	/* We need to use normal PCI probing for the AGP bus,
+	 * since the device for the AGP bridge isn't in the tree.
+	 * Same for the PCIe host on U4 and the HT host bridge.
+	 */
 	if (bus->self == NULL && (of_device_is_compatible(node, "u3-agp") ||
 				  of_device_is_compatible(node, "u4-pcie") ||
 				  of_device_is_compatible(node, "u3-ht")))
 		return PCI_PROBE_NORMAL;
 	return PCI_PROBE_DEVTREE;
 }
-#endif 
+#endif /* CONFIG_PPC64 */
 
 define_machine(powermac) {
 	.name			= "PowerMac",
@@ -610,7 +660,7 @@ define_machine(powermac) {
 	.init_early		= pmac_init_early,
 	.show_cpuinfo		= pmac_show_cpuinfo,
 	.init_IRQ		= pmac_pic_init,
-	.get_irq		= NULL,	
+	.get_irq		= NULL,	/* changed later */
 	.pci_irq_fixup		= pmac_pci_irq_fixup,
 	.restart		= pmac_restart,
 	.power_off		= pmac_power_off,
@@ -626,7 +676,7 @@ define_machine(powermac) {
 	.pci_probe_mode		= pmac_pci_probe_mode,
 	.power_save		= power4_idle,
 	.enable_pmcs		= power4_enable_pmcs,
-#endif 
+#endif /* CONFIG_PPC64 */
 #ifdef CONFIG_PPC32
 	.pcibios_enable_device_hook = pmac_pci_enable_device_hook,
 	.pcibios_after_init	= pmac_pcibios_after_init,

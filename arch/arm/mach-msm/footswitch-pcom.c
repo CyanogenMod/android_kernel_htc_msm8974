@@ -23,6 +23,7 @@
 #include <mach/proc_comm.h>
 #include "footswitch.h"
 
+/* PCOM power rail IDs */
 #define PCOM_FS_GRP		8
 #define PCOM_FS_GRP_2D		58
 #define PCOM_FS_MDP		14
@@ -34,6 +35,21 @@
 #define PCOM_RAIL_MODE_AUTO	0
 #define PCOM_RAIL_MODE_MANUAL	1
 
+/**
+ * struct footswitch - Per-footswitch data and state
+ * @rdev: Regulator framework device
+ * @desc: Regulator descriptor
+ * @init_data: Regulator platform data
+ * @pcom_id: Proc-comm ID of the footswitch
+ * @is_enabled: Flag set when footswitch is enabled
+ * @has_ahb_clk: Flag set if footswitched core has an ahb_clk
+ * @has_src_clk: Flag set if footswitched core has a src_clk
+ * @src_clk: Controls the core clock's rate
+ * @core_clk: Clocks the core
+ * @ahb_clk: Clocks the core's register interface
+ * @src_clk_init_rate: Rate to use for src_clk if it has not been set yet
+ * @is_rate_set: Flag set if core_clk's rate has been set
+ */
 struct footswitch {
 	struct regulator_dev			*rdev;
 	struct regulator_desc			desc;
@@ -175,6 +191,11 @@ static int get_clocks(struct device *dev, struct footswitch *fs)
 {
 	int rc;
 
+	/*
+	 * Some SoCs may not have a separate rate-settable clock.
+	 * If one can't be found, try to use the core clock for
+	 * rate-setting instead.
+	 */
 	if (fs->has_src_clk) {
 		fs->src_clk = clk_get(dev, "src_clk");
 		if (IS_ERR(fs->src_clk))
@@ -236,6 +257,10 @@ static int footswitch_probe(struct platform_device *pdev)
 	init_data = pdev->dev.platform_data;
 	fs = &footswitches[pdev->id];
 
+	/*
+	 * Enable footswitch in manual mode (ie. not controlled along
+	 * with pcom clocks).
+	 */
 	rc = set_rail_state(fs->pcom_id, PCOM_CLKCTL_RPC_RAIL_ENABLE);
 	if (rc)
 		return rc;

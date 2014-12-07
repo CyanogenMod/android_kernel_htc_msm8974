@@ -86,7 +86,7 @@ static int sh_clk_div6_set_parent(struct clk *clk, struct clk *parent)
 	if (!clk->parent_table || !clk->parent_num)
 		return -EINVAL;
 
-	
+	/* Search the parent */
 	for (i = 0; i < clk->parent_num; i++)
 		if (clk->parent_table[i] == parent)
 			break;
@@ -103,7 +103,7 @@ static int sh_clk_div6_set_parent(struct clk *clk, struct clk *parent)
 
 	iowrite32(value | (i << clk->src_shift), clk->mapped_reg);
 
-	
+	/* Rebuild the frequency table */
 	clk_rate_table_build(clk, clk->freq_table, table->nr_divisors,
 			     table, NULL);
 
@@ -134,7 +134,7 @@ static int sh_clk_div6_enable(struct clk *clk)
 	ret = sh_clk_div6_set_rate(clk, clk->rate);
 	if (ret == 0) {
 		value = ioread32(clk->mapped_reg);
-		value &= ~0x100; 
+		value &= ~0x100; /* clear stop bit to enable clock */
 		iowrite32(value, clk->mapped_reg);
 	}
 	return ret;
@@ -145,8 +145,8 @@ static void sh_clk_div6_disable(struct clk *clk)
 	unsigned long value;
 
 	value = ioread32(clk->mapped_reg);
-	value |= 0x100; 
-	value |= 0x3f; 
+	value |= 0x100; /* stop clock */
+	value |= 0x3f; /* VDIV bits must be non-zero, overwrite divider */
 	iowrite32(value, clk->mapped_reg);
 }
 
@@ -264,6 +264,10 @@ static int sh_clk_div4_set_parent(struct clk *clk, struct clk *parent)
 	u32 value;
 	int ret;
 
+	/* we really need a better way to determine parent index, but for
+	 * now assume internal parent comes with CLK_ENABLE_ON_INIT set,
+	 * no CLK_ENABLE_ON_INIT means external clock...
+	 */
 
 	if (parent->flags & CLK_ENABLE_ON_INIT)
 		value = ioread32(clk->mapped_reg) & ~(1 << 7);
@@ -276,7 +280,7 @@ static int sh_clk_div4_set_parent(struct clk *clk, struct clk *parent)
 
 	iowrite32(value, clk->mapped_reg);
 
-	
+	/* Rebiuld the frequency table */
 	clk_rate_table_build(clk, clk->freq_table, table->nr_divisors,
 			     table, &clk->arch_flags);
 

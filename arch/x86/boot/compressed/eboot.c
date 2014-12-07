@@ -26,6 +26,10 @@ static efi_status_t __get_map(efi_memory_desc_t **map, unsigned long *map_size,
 
 	*map_size = sizeof(*m) * 32;
 again:
+	/*
+	 * Add an additional efi_memory_desc_t because we're doing an
+	 * allocation which may be in a new descriptor region.
+	 */
 	*map_size += sizeof(*m);
 	status = efi_call_phys3(sys_table->boottime->allocate_pool,
 				EFI_LOADER_DATA, *map_size, (void **)&m);
@@ -47,6 +51,9 @@ fail:
 	return status;
 }
 
+/*
+ * Allocate at the highest possible address that is not above 'max'.
+ */
 static efi_status_t high_alloc(unsigned long size, unsigned long align,
 			      unsigned long *addr, unsigned long max)
 {
@@ -89,6 +96,10 @@ again:
 
 		start = round_down(end - size, align);
 
+		/*
+		 * Don't allocate at 0x0. It will confuse code that
+		 * checks pointers against NULL.
+		 */
 		if (start == 0x0)
 			continue;
 
@@ -118,6 +129,9 @@ fail:
 	return status;
 }
 
+/*
+ * Allocate at the lowest possible address.
+ */
 static efi_status_t low_alloc(unsigned long size, unsigned long align,
 			      unsigned long *addr)
 {
@@ -148,6 +162,11 @@ static efi_status_t low_alloc(unsigned long size, unsigned long align,
 		start = desc->phys_addr;
 		end = start + desc->num_pages * (1UL << EFI_PAGE_SHIFT);
 
+		/*
+		 * Don't allocate at 0x0. It will confuse code that
+		 * checks pointers against NULL. Skip the first 8
+		 * bytes so we start at a nice even number.
+		 */
 		if (start == 0x0)
 			start += 8;
 
@@ -204,6 +223,9 @@ static void find_bits(unsigned long mask, u8 *pos, u8 *size)
 	*size = len;
 }
 
+/*
+ * See if we have Graphics Output Protocol
+ */
 static efi_status_t setup_gop(struct screen_info *si, efi_guid_t *proto,
 			      unsigned long size)
 {
@@ -249,6 +271,14 @@ static efi_status_t setup_gop(struct screen_info *si, efi_guid_t *proto,
 		status = efi_call_phys4(gop->query_mode, gop,
 					gop->mode->mode, &size, &info);
 		if (status == EFI_SUCCESS && (!first_gop || pciio)) {
+			/*
+			 * Apple provide GOPs that are not backed by
+			 * real hardware (they're used to handle
+			 * multiple displays). The workaround is to
+			 * search for a GOP implementing the PCIIO
+			 * protocol, and if one isn't found, to just
+			 * fallback to the first GOP.
+			 */
 			width = info->horizontal_resolution;
 			height = info->vertical_resolution;
 			fb_base = gop->mode->frame_buffer_base;
@@ -257,6 +287,10 @@ static efi_status_t setup_gop(struct screen_info *si, efi_guid_t *proto,
 			pixel_info = info->pixel_information;
 			pixels_per_scan_line = info->pixels_per_scan_line;
 
+			/*
+			 * Once we've found a GOP supporting PCIIO,
+			 * don't bother looking any further.
+			 */
 			if (pciio)
 				break;
 
@@ -264,11 +298,11 @@ static efi_status_t setup_gop(struct screen_info *si, efi_guid_t *proto,
 		}
 	}
 
-	
+	/* Did we find any GOPs? */
 	if (!first_gop)
 		goto free_handle;
 
-	
+	/* EFI framebuffer */
 	si->orig_video_isVGA = VIDEO_TYPE_EFI;
 
 	si->lfb_width = width;
@@ -327,6 +361,9 @@ free_handle:
 	return status;
 }
 
+/*
+ * See if we have Universal Graphics Adapter (UGA) protocol
+ */
 static efi_status_t setup_uga(struct screen_info *si, efi_guid_t *uga_proto,
 			      unsigned long size)
 {
@@ -371,6 +408,10 @@ static efi_status_t setup_uga(struct screen_info *si, efi_guid_t *uga_proto,
 			width = w;
 			height = h;
 
+			/*
+			 * Once we've found a UGA supporting PCIIO,
+			 * don't bother looking any further.
+			 */
 			if (pciio)
 				break;
 
@@ -381,7 +422,7 @@ static efi_status_t setup_uga(struct screen_info *si, efi_guid_t *uga_proto,
 	if (!first_uga)
 		goto free_handle;
 
-	
+	/* EFI framebuffer */
 	si->orig_video_isVGA = VIDEO_TYPE_EFI;
 
 	si->lfb_depth = 32;
@@ -438,6 +479,12 @@ struct initrd {
 	u64 size;
 };
 
+/*
+ * Check the cmdline for a LILO-style initrd= arguments.
+ *
+ * We only support loading an initrd from the same filesystem as the
+ * kernel image.
+ */
 static efi_status_t handle_ramdisks(efi_loaded_image_t *image,
 				    struct setup_header *hdr)
 {
@@ -457,7 +504,7 @@ static efi_status_t handle_ramdisks(efi_loaded_image_t *image,
 
 	str = (char *)(unsigned long)hdr->cmd_line_ptr;
 
-	j = 0;			
+	j = 0;			/* See close_handles */
 
 	if (!str || !*str)
 		return EFI_SUCCESS;
@@ -469,7 +516,7 @@ static efi_status_t handle_ramdisks(efi_loaded_image_t *image,
 
 		str += 7;
 
-		
+		/* Skip any leading slashes */
 		while (*str == '/' || *str == '\\')
 			str++;
 
@@ -507,7 +554,7 @@ static efi_status_t handle_ramdisks(efi_loaded_image_t *image,
 		initrd = &initrds[i];
 		p = filename_16;
 
-		
+		/* Skip any leading slashes */
 		while (*str == '/' || *str == '\\')
 			str++;
 
@@ -520,7 +567,7 @@ static efi_status_t handle_ramdisks(efi_loaded_image_t *image,
 
 		*p = '\0';
 
-		
+		/* Only open the volume once. */
 		if (!i) {
 			efi_boot_services_t *boottime;
 
@@ -575,12 +622,17 @@ grow:
 	if (initrd_total) {
 		unsigned long addr;
 
+		/*
+		 * Multiple initrd's need to be at consecutive
+		 * addresses in memory, so allocate enough memory for
+		 * all the initrd's.
+		 */
 		status = high_alloc(initrd_total, 0x1000,
 				   &initrd_addr, hdr->initrd_addr_max);
 		if (status != EFI_SUCCESS)
 			goto close_handles;
 
-		
+		/* We've run out of free low memory. */
 		if (initrd_addr > hdr->initrd_addr_max) {
 			status = EFI_INVALID_PARAMETER;
 			goto free_initrd_total;
@@ -633,6 +685,11 @@ fail:
 	return status;
 }
 
+/*
+ * Because the x86 boot code expects to be passed a boot_params we
+ * need to create one ourselves (usually the bootloader would create
+ * one for us).
+ */
 static efi_status_t make_boot_params(struct boot_params *boot_params,
 				     efi_loaded_image_t *image,
 				     void *handle)
@@ -646,7 +703,7 @@ static efi_status_t make_boot_params(struct boot_params *boot_params,
 	unsigned long size, key, desc_size, _size;
 	efi_memory_desc_t *mem_map;
 	void *options = image->load_options;
-	u32 load_options_size = image->load_options_size / 2; 
+	u32 load_options_size = image->load_options_size / 2; /* ASCII */
 	int options_size = 0;
 	efi_status_t status;
 	__u32 desc_version;
@@ -658,7 +715,7 @@ static efi_status_t make_boot_params(struct boot_params *boot_params,
 
 	hdr->type_of_loader = 0x21;
 
-	
+	/* Convert unicode cmdline to ascii */
 	cmdline = 0;
 	s2 = (u16 *)options;
 
@@ -672,7 +729,7 @@ static efi_status_t make_boot_params(struct boot_params *boot_params,
 			if (options_size > hdr->cmdline_size)
 				options_size = hdr->cmdline_size;
 
-			options_size++;	
+			options_size++;	/* NUL termination */
 
 			status = low_alloc(options_size, 1, &cmdline);
 			if (status != EFI_SUCCESS)
@@ -699,7 +756,7 @@ static efi_status_t make_boot_params(struct boot_params *boot_params,
 
 	setup_graphics(boot_params);
 
-	
+	/* Clear APM BIOS info */
 	memset(bi, 0, sizeof(*bi));
 
 	memset(sdt, 0, sizeof(*sdt));
@@ -736,15 +793,18 @@ again:
 	efi->efi_memmap_hi = (unsigned long)mem_map >> 32;
 #endif
 
-	
+	/* Might as well exit boot services now */
 	status = efi_call_phys2(sys_table->boottime->exit_boot_services,
 				handle, key);
 	if (status != EFI_SUCCESS)
 		goto free_mem_map;
 
-	
+	/* Historic? */
 	boot_params->alt_mem_k = 32 * 1024;
 
+	/*
+	 * Convert the EFI memory map to E820.
+	 */
 	nr_entries = 0;
 	for (i = 0; i < size / desc_size; i++) {
 		efi_memory_desc_t *d;
@@ -786,7 +846,7 @@ again:
 			continue;
 		}
 
-		
+		/* Merge adjacent mappings */
 		if (prev && prev->type == e820_type &&
 		    (prev->addr + prev->size) == d->phys_addr)
 			prev->size += d->num_pages << 12;
@@ -812,6 +872,10 @@ fail:
 	return status;
 }
 
+/*
+ * On success we return a pointer to a boot_params structure, and NULL
+ * on failure.
+ */
 struct boot_params *efi_main(void *handle, efi_system_table_t *_table)
 {
 	struct boot_params *boot_params;
@@ -825,7 +889,7 @@ struct boot_params *efi_main(void *handle, efi_system_table_t *_table)
 
 	sys_table = _table;
 
-	
+	/* Check if we were booted by the EFI firmware */
 	if (sys_table->hdr.signature != EFI_SYSTEM_TABLE_SIGNATURE)
 		goto fail;
 
@@ -840,11 +904,18 @@ struct boot_params *efi_main(void *handle, efi_system_table_t *_table)
 
 	memset(boot_params, 0x0, 0x4000);
 
-	
+	/* Copy first two sectors to boot_params */
 	memcpy(boot_params, image->image_base, 1024);
 
 	hdr = &boot_params->hdr;
 
+	/*
+	 * The EFI firmware loader could have placed the kernel image
+	 * anywhere in memory, but the kernel has various restrictions
+	 * on the max physical address it can run at. Attempt to move
+	 * the kernel to boot_params.pref_address, or as low as
+	 * possible.
+	 */
 	start = hdr->pref_address;
 	nr_pages = round_up(hdr->init_size, EFI_PAGE_SIZE) / EFI_PAGE_SIZE;
 
@@ -890,7 +961,7 @@ struct boot_params *efi_main(void *handle, efi_system_table_t *_table)
 	memset((char *)gdt->address, 0x0, gdt->size);
 	desc = (struct desc_struct *)gdt->address;
 
-	
+	/* The first GDT is a dummy and the second is unused. */
 	desc += 2;
 
 	desc->limit0 = 0xffff;
@@ -923,7 +994,7 @@ struct boot_params *efi_main(void *handle, efi_system_table_t *_table)
 	desc->base2 = 0x00;
 
 #ifdef CONFIG_X86_64
-	
+	/* Task segment value */
 	desc++;
 	desc->limit0 = 0x0000;
 	desc->base0 = 0x0000;
@@ -938,7 +1009,7 @@ struct boot_params *efi_main(void *handle, efi_system_table_t *_table)
 	desc->d = 0;
 	desc->g = SEG_GRANULARITY_4KB;
 	desc->base2 = 0x00;
-#endif 
+#endif /* CONFIG_X86_64 */
 
 	asm volatile ("lidt %0" : : "m" (*idt));
 	asm volatile ("lgdt %0" : : "m" (*gdt));

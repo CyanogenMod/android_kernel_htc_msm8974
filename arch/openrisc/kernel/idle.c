@@ -48,7 +48,7 @@ void cpu_idle(void)
 {
 	set_thread_flag(TIF_POLLING_NRFLAG);
 
-	
+	/* endless idle loop with no priority at all */
 	while (1) {
 		tick_nohz_idle_enter();
 		rcu_idle_enter();
@@ -60,7 +60,7 @@ void cpu_idle(void)
 			clear_thread_flag(TIF_POLLING_NRFLAG);
 
 			local_irq_disable();
-			
+			/* Don't trace irqs off for idle */
 			stop_critical_timings();
 			if (!need_resched() && powersave != NULL)
 				powersave();

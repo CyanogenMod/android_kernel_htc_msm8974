@@ -38,13 +38,13 @@
  * Fully tested with the Keene USB FM Transmitter and the v4l2-compliance tool.
  */
 
-#include <linux/module.h>	
-#include <linux/init.h>		
-#include <linux/ioport.h>	
-#include <linux/delay.h>	
-#include <linux/videodev2.h>	
+#include <linux/module.h>	/* Modules                        */
+#include <linux/init.h>		/* Initdata                       */
+#include <linux/ioport.h>	/* request_region		  */
+#include <linux/delay.h>	/* udelay, msleep                 */
+#include <linux/videodev2.h>	/* kernel radio structs           */
 #include <linux/mutex.h>
-#include <linux/io.h>		
+#include <linux/io.h>		/* outb, outb_p                   */
 #include <linux/slab.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
@@ -92,7 +92,7 @@ static int zoltrix_s_mute_volume(struct radio_isa_card *isa, bool mute, int vol)
 	if (mute || vol == 0) {
 		outb(0, isa->io);
 		outb(0, isa->io);
-		inb(isa->io + 3);            
+		inb(isa->io + 3);            /* Zoltrix needs to be read to confirm */
 		return 0;
 	}
 
@@ -102,6 +102,7 @@ static int zoltrix_s_mute_volume(struct radio_isa_card *isa, bool mute, int vol)
 	return 0;
 }
 
+/* tunes the radio to the desired frequency */
 static int zoltrix_s_frequency(struct radio_isa_card *isa, u32 freq)
 {
 	struct zoltrix *zol = container_of(isa, struct zoltrix, isa);
@@ -123,7 +124,7 @@ static int zoltrix_s_frequency(struct radio_isa_card *isa, u32 freq)
 
 	outb(0, isa->io);
 	outb(0, isa->io);
-	inb(isa->io + 3);            
+	inb(isa->io + 3);            /* Zoltrix needs to be read to confirm */
 
 	outb(0x40, isa->io);
 	outb(0xc0, isa->io);
@@ -147,7 +148,7 @@ static int zoltrix_s_frequency(struct radio_isa_card *isa, u32 freq)
 		}
 		bitmask *= 2;
 	}
-	
+	/* termination sequence */
 	outb(0x80, isa->io);
 	outb(0xc0, isa->io);
 	outb(0x40, isa->io);
@@ -158,12 +159,13 @@ static int zoltrix_s_frequency(struct radio_isa_card *isa, u32 freq)
 	return zoltrix_s_mute_volume(isa, zol->muted, zol->curvol);
 }
 
+/* Get signal strength */
 static u32 zoltrix_g_rxsubchans(struct radio_isa_card *isa)
 {
 	struct zoltrix *zol = container_of(isa, struct zoltrix, isa);
 	int a, b;
 
-	outb(0x00, isa->io);         
+	outb(0x00, isa->io);         /* This stuff I found to do nothing */
 	outb(zol->curvol, isa->io);
 	msleep(20);
 
@@ -180,7 +182,7 @@ static u32 zoltrix_g_signal(struct radio_isa_card *isa)
 	struct zoltrix *zol = container_of(isa, struct zoltrix, isa);
 	int a, b;
 
-	outb(0x00, isa->io);         
+	outb(0x00, isa->io);         /* This stuff I found to do nothing */
 	outb(zol->curvol, isa->io);
 	msleep(20);
 
@@ -191,7 +193,7 @@ static u32 zoltrix_g_signal(struct radio_isa_card *isa)
 	if (a != b)
 		return 0;
 
-	
+	/* I found this out by playing with a binary scanner on the card io */
 	return (a == 0xcf || a == 0xdf || a == 0xef) ? 0xffff : 0;
 }
 

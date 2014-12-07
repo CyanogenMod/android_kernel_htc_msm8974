@@ -24,6 +24,7 @@
 #ifndef __SI_REG_H__
 #define __SI_REG_H__
 
+/* SI */
 #define SI_DC_GPIO_HPD_MASK                      0x65b0
 #define SI_DC_GPIO_HPD_A                         0x65b4
 #define SI_DC_GPIO_HPD_EN                        0x65b8

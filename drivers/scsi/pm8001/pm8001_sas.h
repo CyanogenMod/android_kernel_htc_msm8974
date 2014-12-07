@@ -59,13 +59,13 @@
 
 #define DRV_NAME		"pm8001"
 #define DRV_VERSION		"0.1.36"
-#define PM8001_FAIL_LOGGING	0x01 
-#define PM8001_INIT_LOGGING	0x02 
-#define PM8001_DISC_LOGGING	0x04 
-#define PM8001_IO_LOGGING	0x08 
-#define PM8001_EH_LOGGING	0x10 
-#define PM8001_IOCTL_LOGGING	0x20 
-#define PM8001_MSG_LOGGING	0x40 
+#define PM8001_FAIL_LOGGING	0x01 /* Error message logging */
+#define PM8001_INIT_LOGGING	0x02 /* driver init logging */
+#define PM8001_DISC_LOGGING	0x04 /* discovery layer logging */
+#define PM8001_IO_LOGGING	0x08 /* I/O path logging */
+#define PM8001_EH_LOGGING	0x10 /* libsas EH function logging*/
+#define PM8001_IOCTL_LOGGING	0x20 /* IOCTL message logging */
+#define PM8001_MSG_LOGGING	0x40 /* misc message logging */
 #define pm8001_printk(format, arg...)	printk(KERN_INFO "%s %d:" format,\
 				__func__, __LINE__, ## arg)
 #define PM8001_CHECK_LOGGING(HBA, LEVEL, CMD)	\
@@ -105,13 +105,14 @@ do {						\
 
 #define DEV_IS_EXPANDER(type)	((type == EDGE_DEV) || (type == FANOUT_DEV))
 
-#define PM8001_NAME_LENGTH		32
+#define PM8001_NAME_LENGTH		32/* generic length of strings */
 extern struct list_head hba_list;
 extern const struct pm8001_dispatch pm8001_8001_dispatch;
 
 struct pm8001_hba_info;
 struct pm8001_ccb_info;
 struct pm8001_device;
+/* define task management IU */
 struct pm8001_tmf_task {
 	u8	tmf;
 	u32	tag_of_task_to_be_managed;
@@ -219,9 +220,12 @@ struct pm8001_prd_imt {
 };
 
 struct pm8001_prd {
-	__le64			addr;		
-	struct pm8001_prd_imt	im_len;		
+	__le64			addr;		/* 64-bit buffer address */
+	struct pm8001_prd_imt	im_len;		/* 64-bit length */
 } __attribute__ ((packed));
+/*
+ * CCB(Command Control Block)
+ */
 struct pm8001_ccb_info {
 	struct list_head	entry;
 	struct sas_task		*task;
@@ -246,9 +250,9 @@ struct mpi_mem {
 };
 
 struct mpi_mem_req {
-	
+	/* The number of element in the  mpiMemory array */
 	u32			count;
-	
+	/* The array of structures that define memroy regions*/
 	struct mpi_mem		region[USI_MAX_MEMCNT];
 };
 
@@ -342,22 +346,22 @@ struct pm8001_hba_info {
 	char			name[PM8001_NAME_LENGTH];
 	struct list_head	list;
 	unsigned long		flags;
-	spinlock_t		lock;
-	struct pci_dev		*pdev;
+	spinlock_t		lock;/* host-wide lock */
+	struct pci_dev		*pdev;/* our device */
 	struct device		*dev;
 	struct pm8001_hba_memspace io_mem[6];
 	struct mpi_mem_req	memoryMap;
-	void __iomem	*msg_unit_tbl_addr;
-	void __iomem	*main_cfg_tbl_addr;
-	void __iomem	*general_stat_tbl_addr;
-	void __iomem	*inbnd_q_tbl_addr;
-	void __iomem	*outbnd_q_tbl_addr;
+	void __iomem	*msg_unit_tbl_addr;/*Message Unit Table Addr*/
+	void __iomem	*main_cfg_tbl_addr;/*Main Config Table Addr*/
+	void __iomem	*general_stat_tbl_addr;/*General Status Table Addr*/
+	void __iomem	*inbnd_q_tbl_addr;/*Inbound Queue Config Table Addr*/
+	void __iomem	*outbnd_q_tbl_addr;/*Outbound Queue Config Table Addr*/
 	struct main_cfg_table	main_cfg_tbl;
 	struct general_status_table	gs_tbl;
 	struct inbound_queue_table	inbnd_q_tbl[PM8001_MAX_INB_NUM];
 	struct outbound_queue_table	outbnd_q_tbl[PM8001_MAX_OUTB_NUM];
 	u8			sas_addr[SAS_ADDR_SIZE];
-	struct sas_ha_struct	*sas;
+	struct sas_ha_struct	*sas;/* SCSI/SAS glue */
 	struct Scsi_Host	*shost;
 	u32			chip_id;
 	const struct pm8001_chip_info	*chip;
@@ -371,8 +375,8 @@ struct pm8001_hba_info {
 	struct pm8001_device	*devices;
 	struct pm8001_ccb_info	*ccb_info;
 #ifdef PM8001_USE_MSIX
-	struct msix_entry	msix_entries[16];
-	int			number_of_intr;
+	struct msix_entry	msix_entries[16];/*for msi-x interrupt*/
+	int			number_of_intr;/*will be used in remove()*/
 #endif
 #ifdef PM8001_USE_TASKLET
 	struct tasklet_struct	tasklet;
@@ -402,6 +406,9 @@ struct pm8001_fw_image_header {
 } __attribute__((packed, aligned(4)));
 
 
+/**
+ * FW Flash Update status values
+ */
 #define FLASH_UPDATE_COMPLETE_PENDING_REBOOT	0x00
 #define FLASH_UPDATE_IN_PROGRESS		0x01
 #define FLASH_UPDATE_HDR_ERR			0x02
@@ -412,6 +419,9 @@ struct pm8001_fw_image_header {
 #define FLASH_UPDATE_DNLD_NOT_SUPPORTED		0x10
 #define FLASH_UPDATE_DISABLED			0x11
 
+/**
+ * brief param structure for firmware flash update.
+ */
 struct fw_flash_updata_info {
 	u32			cur_image_offset;
 	u32			cur_image_len;
@@ -420,32 +430,40 @@ struct fw_flash_updata_info {
 };
 
 struct fw_control_info {
-	u32			retcode;
-	u32			phase;
-	u32			phaseCmplt;
-	u32			version;
-	u32			offset;
-	u32			len; 
-	u32			size;
-	u32			reserved;
-	u8			buffer[1];
+	u32			retcode;/*ret code (status)*/
+	u32			phase;/*ret code phase*/
+	u32			phaseCmplt;/*percent complete for the current
+	update phase */
+	u32			version;/*Hex encoded firmware version number*/
+	u32			offset;/*Used for downloading firmware	*/
+	u32			len; /*len of buffer*/
+	u32			size;/* Used in OS VPD and Trace get size
+	operations.*/
+	u32			reserved;/* padding required for 64 bit
+	alignment */
+	u8			buffer[1];/* Start of buffer */
 };
 struct fw_control_ex {
 	struct fw_control_info *fw_control;
-	void			*buffer;
-	void			*virtAddr;
-	void			*usrAddr;
+	void			*buffer;/* keep buffer pointer to be
+	freed when the response comes*/
+	void			*virtAddr;/* keep virtual address of the data */
+	void			*usrAddr;/* keep virtual address of the
+	user data */
 	dma_addr_t		phys_addr;
-	u32			len; 
-	void			*payload; 
-	u8			inProgress;
+	u32			len; /* len of buffer  */
+	void			*payload; /* pointer to IOCTL Payload */
+	u8			inProgress;/*if 1 - the IOCTL request is in
+	progress */
 	void			*param1;
 	void			*param2;
 	void			*param3;
 };
 
+/* pm8001 workqueue */
 extern struct workqueue_struct *pm8001_wq;
 
+/******************** function prototype *********************/
 int pm8001_tag_alloc(struct pm8001_hba_info *pm8001_ha, u32 *tag_out);
 void pm8001_tag_init(struct pm8001_hba_info *pm8001_ha);
 u32 pm8001_get_ncq_tag(struct sas_task *task, u32 *tag);
@@ -477,6 +495,7 @@ int pm8001_mem_alloc(struct pci_dev *pdev, void **virt_addr,
 
 int pm8001_bar4_shift(struct pm8001_hba_info *pm8001_ha, u32 shiftValue);
 
+/* ctl shared API */
 extern struct device_attribute *pm8001_host_attrs[];
 
 #endif

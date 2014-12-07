@@ -19,6 +19,7 @@
 #include "hscx.h"
 #include "isdnl1.h"
 
+/* register offsets */
 #define ADDRREG_OFFSET		0x02
 #define DATAREG_OFFSET		0x03
 #define ASL0_OFFSET		0x04
@@ -26,24 +27,28 @@
 #define MODREG_OFFSET		0x06
 #define VERREG_OFFSET		0x07
 
+/* address offsets */
 #define ISAC_FIFO_OFFSET	0x00
 #define ISAC_REG_OFFSET		0x20
 #define HSCX_CH_DIFF		0x40
 #define HSCX_FIFO_OFFSET	0x80
 #define HSCX_REG_OFFSET		0xa0
 
-#define	 ASL0_R_TIMER		0x10 
-#define	 ASL0_R_ISAC		0x20 
-#define	 ASL0_R_HSCX		0x40 
+/* read bits ASL0 */
+#define	 ASL0_R_TIMER		0x10 /* active low */
+#define	 ASL0_R_ISAC		0x20 /* active low */
+#define	 ASL0_R_HSCX		0x40 /* active low */
 #define	 ASL0_R_TESTBIT		0x80
 #define  ASL0_R_IRQPENDING	(ASL0_R_ISAC | ASL0_R_HSCX | ASL0_R_TIMER)
 
+/* write bits ASL0 */
 #define	 ASL0_W_RESET		0x01
 #define	 ASL0_W_TDISABLE	0x02
 #define	 ASL0_W_TRESET		0x04
 #define	 ASL0_W_IRQENABLE	0x08
 #define	 ASL0_W_TESTBIT		0x80
 
+/* write bits ASL1 */
 #define	 ASL1_W_LED0		0x10
 #define	 ASL1_W_LED1		0x20
 #define	 ASL1_W_ENABLE_S0	0xC0
@@ -123,6 +128,9 @@ WriteHSCXfifo(struct IsdnCardState *cs, int hscx, u_char *data, int size)
 	outsb(cs->hw.avm.cfg_reg + DATAREG_OFFSET, data, size);
 }
 
+/*
+ * fast interrupt HSCX stuff goes here
+ */
 
 #define READHSCX(cs, nr, reg) ReadHSCX(cs, nr, reg)
 #define WRITEHSCX(cs, nr, reg, data) WriteHSCX(cs, nr, reg, data)
@@ -180,8 +188,8 @@ AVM_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 		return 0;
 
 	case CARD_RELEASE:
-		
-		
+		/* free_irq is done in HiSax_closecard(). */
+		/* free_irq(cs->irq, cs); */
 		return 0;
 
 	case CARD_INIT:
@@ -195,11 +203,11 @@ AVM_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 		return 0;
 
 	case CARD_TEST:
-		
+		/* we really don't need it for the PCMCIA Version */
 		return 0;
 
 	default:
-		
+		/* all card drivers ignore others, so we do the same */
 		return 0;
 	}
 	return 0;

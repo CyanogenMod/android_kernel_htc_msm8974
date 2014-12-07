@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,13 +18,16 @@
 
 #define QSEECOM_KEY_ID_SIZE   32
 
-#define	QSEOS_RESULT_FAIL_LOAD_KS         -57
-#define	QSEOS_RESULT_FAIL_SAVE_KS         -58
-#define	QSEOS_RESULT_FAIL_MAX_KEYS        -59
-#define	QSEOS_RESULT_FAIL_KEY_ID_EXISTS   -60
-#define	QSEOS_RESULT_FAIL_KEY_ID_DNE      -61
-#define	QSEOS_RESULT_FAIL_KS_OP           -62
-#define	QSEOS_RESULT_FAIL_CE_PIPE_INVALID -63
+#define QSEOS_RESULT_FAIL_UNSUPPORTED_CE_PIPE -63
+#define QSEOS_RESULT_FAIL_KS_OP               -64
+#define QSEOS_RESULT_FAIL_KEY_ID_EXISTS       -65
+#define QSEOS_RESULT_FAIL_MAX_KEYS            -66
+#define QSEOS_RESULT_FAIL_SAVE_KS             -67
+#define QSEOS_RESULT_FAIL_LOAD_KS             -68
+#define QSEOS_RESULT_FAIL_KS_ALREADY_DONE     -69
+#define QSEOS_RESULT_FAIL_KEY_ID_DNE          -70
+#define QSEOS_RESULT_FAIL_INCORRECT_PSWD      -71
+#define QSEOS_RESULT_FAIL_MAX_ATTEMPT         -72
 
 enum qseecom_command_scm_resp_type {
 	QSEOS_APP_ID = 0xEE01,
@@ -52,6 +55,7 @@ enum qseecom_qceos_cmd_id {
 	QSEOS_DELETE_KEY,
 	QSEOS_MAX_KEY_COUNT,
 	QSEOS_SET_KEY,
+	QSEOS_UPDATE_KEY_USERINFO,
 	QSEOS_CMD_MAX     = 0xEFFFFFFF
 };
 
@@ -81,10 +85,10 @@ __packed struct qseecom_check_app_ireq {
 
 __packed struct qseecom_load_app_ireq {
 	uint32_t qsee_cmd_id;
-	uint32_t mdt_len;		
-	uint32_t img_len;		
-	uint32_t phy_addr;		
-	char     app_name[MAX_APP_NAME_SIZE];	
+	uint32_t mdt_len;		/* Length of the mdt file */
+	uint32_t img_len;		/* Length of .bxx and .mdt files */
+	uint32_t phy_addr;		/* phy addr of the start of image */
+	char     app_name[MAX_APP_NAME_SIZE];	/* application name*/
 };
 
 __packed struct qseecom_unload_app_ireq {
@@ -120,7 +124,7 @@ __packed struct qseecom_client_send_data_ireq {
 	uint32_t app_id;
 	void *req_ptr;
 	uint32_t req_len;
-	void *rsp_ptr;   
+	void *rsp_ptr;   /* First 4 bytes should always be the return status */
 	uint32_t rsp_len;
 };
 
@@ -130,12 +134,20 @@ __packed struct qseecom_reg_log_buf_ireq {
 	uint32_t len;
 };
 
+/* send_data resp */
 __packed struct qseecom_client_listener_data_irsp {
 	uint32_t qsee_cmd_id;
 	uint32_t listener_id;
 	uint32_t status;
 };
 
+/*
+ * struct qseecom_command_scm_resp - qseecom response buffer
+ * @cmd_status: value from enum tz_sched_cmd_status
+ * @sb_in_rsp_addr: points to physical location of response
+ *                buffer
+ * @sb_in_rsp_len: length of command response
+ */
 __packed struct qseecom_command_scm_resp {
 	uint32_t result;
 	enum qseecom_command_scm_resp_type resp_type;
@@ -148,16 +160,17 @@ struct qseecom_rpmb_provision_key {
 
 __packed struct qseecom_client_send_service_ireq {
 	uint32_t qsee_cmd_id;
-	uint32_t key_type; 
-	unsigned int req_len; 
-	void *rsp_ptr; 
-	unsigned int rsp_len; 
+	uint32_t key_type; /* in */
+	unsigned int req_len; /* in */
+	void *rsp_ptr; /* in/out */
+	unsigned int rsp_len; /* in/out */
 };
 
 __packed struct qseecom_key_generate_ireq {
 	uint32_t qsee_command_id;
 	uint32_t flags;
 	uint8_t key_id[QSEECOM_KEY_ID_SIZE];
+	uint8_t hash32[QSEECOM_HASH_SIZE];
 };
 
 __packed struct qseecom_key_select_ireq {
@@ -167,13 +180,23 @@ __packed struct qseecom_key_select_ireq {
 	uint32_t pipe_type;
 	uint32_t flags;
 	uint8_t key_id[QSEECOM_KEY_ID_SIZE];
-	unsigned char hash[QSEECOM_HASH_SIZE];
+	uint8_t hash32[QSEECOM_HASH_SIZE];
 };
 
 __packed struct qseecom_key_delete_ireq {
 	uint32_t qsee_command_id;
 	uint32_t flags;
 	uint8_t key_id[QSEECOM_KEY_ID_SIZE];
+	uint8_t hash32[QSEECOM_HASH_SIZE];
+
+};
+
+__packed struct qseecom_key_userinfo_update_ireq {
+	uint32_t qsee_command_id;
+	uint32_t flags;
+	uint8_t key_id[QSEECOM_KEY_ID_SIZE];
+	uint8_t current_hash32[QSEECOM_HASH_SIZE];
+	uint8_t new_hash32[QSEECOM_HASH_SIZE];
 };
 
 __packed struct qseecom_key_max_count_query_ireq {
@@ -184,10 +207,5 @@ __packed struct qseecom_key_max_count_query_irsp {
 	uint32_t max_key_count;
 };
 
-struct key_id_info {
-	uint32_t	ce_hw;
-	uint32_t	pipe;
-	bool		flags;
-};
 
-#endif 
+#endif /* __QSEECOMI_H_ */

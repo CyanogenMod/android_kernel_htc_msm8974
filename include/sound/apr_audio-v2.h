@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License version 2 and
@@ -298,6 +298,15 @@ struct adm_cmd_matrix_mute_v5 {
 	
 } __packed;
 
+#define ASM_PARAM_ID_AAC_STEREO_MIX_COEFF_SELECTION_FLAG_V2 (0x00010DD8)
+
+struct asm_aac_stereo_mix_coeff_selection_param_v2 {
+	struct apr_hdr          hdr;
+	u32                     param_id;
+	u32                     param_size;
+	u32                     aac_stereo_mix_coeff_flag;
+} __packed;
+
 
 #define ADM_CMD_CONNECT_AFE_PORT_V5	0x0001032E
 #define ADM_CMD_DISCONNECT_AFE_PORT_V5	0x0001032F
@@ -426,6 +435,7 @@ struct adm_cmd_connect_afe_port_v5 {
 #define AFE_PORT_ID_SECONDARY_PCM_RX        0x100C
 #define AFE_PORT_ID_SECONDARY_PCM_TX        0x100D
 #define AFE_PORT_ID_MULTICHAN_HDMI_RX       0x100E
+#define AFE_PORT_ID_SECONDARY_MI2S_RX_VIBRA	0x1010
 #define  AFE_PORT_ID_RT_PROXY_PORT_001_RX   0x2000
 #define  AFE_PORT_ID_RT_PROXY_PORT_001_TX   0x2001
 #define AFE_PORT_ID_INTERNAL_BT_SCO_RX      0x3000
@@ -3503,6 +3513,36 @@ struct asm_params {
 	struct apr_hdr	hdr;
 	struct asm_stream_cmd_set_pp_params_v2 param;
 	struct asm_stream_param_data_v2 data;
+} __packed;
+
+#define AFE_MODULE_GROUP_DEVICE	0x00010254
+#define AFE_PARAM_ID_GROUP_DEVICE_CFG	0x00010255
+#define AFE_PARAM_ID_GROUP_DEVICE_ENABLE 0x00010256
+#define AFE_GROUP_DEVICE_ID_SECONDARY_MI2S_RX	0x1102
+
+struct afe_group_device_group_cfg {
+	u32 minor_version;
+	u16 group_id;
+	u16 num_channels;
+	u16 port_id[8];
+} __packed;
+
+
+
+struct afe_group_device_enable {
+	u16 group_id;
+	
+	u16 enable;
+} __packed;
+
+struct afe_port_group_create {
+	struct apr_hdr hdr;
+	struct afe_svc_cmd_set_param param;
+	struct afe_port_param_data_v2 pdata;
+	union {
+		struct afe_group_device_group_cfg group_cfg;
+		struct afe_group_device_enable group_enable;
+	} __packed data;
 } __packed;
 
 #endif 

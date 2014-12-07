@@ -69,7 +69,7 @@ static void snd_emu10k1_proc_spdif_status(struct snd_emu10k1 * emu,
 			snd_iprintf(buffer, "S/PDIF Valid          : %s\n", rate & SRCS_SPDIFVALID ? "on" : "off");
 			snd_iprintf(buffer, "S/PDIF Locked         : %s\n", rate & SRCS_SPDIFLOCKED ? "on" : "off");
 			snd_iprintf(buffer, "Rate Locked           : %s\n", rate & SRCS_RATELOCKED ? "on" : "off");
-			
+			/* From ((Rate * 48000 ) / 262144); */
 			snd_iprintf(buffer, "Estimated Sample Rate : %d\n", ((rate & 0xFFFFF ) * 375) >> 11); 
 		}
 	} else {
@@ -81,107 +81,107 @@ static void snd_emu10k1_proc_spdif_status(struct snd_emu10k1 * emu,
 static void snd_emu10k1_proc_read(struct snd_info_entry *entry, 
 				  struct snd_info_buffer *buffer)
 {
-	
+	/* FIXME - output names are in emufx.c too */
 	static char *creative_outs[32] = {
-		 "AC97 Left",
-		 "AC97 Right",
-		 "Optical IEC958 Left",
-		 "Optical IEC958 Right",
-		 "Center",
-		 "LFE",
-		 "Headphone Left",
-		 "Headphone Right",
-		 "Surround Left",
-		 "Surround Right",
-		 "PCM Capture Left",
-		 "PCM Capture Right",
-		 "MIC Capture",
-		 "AC97 Surround Left",
-		 "AC97 Surround Right",
-		 "???",
-		 "???",
-		 "Analog Center",
-		 "Analog LFE",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???"
+		/* 00 */ "AC97 Left",
+		/* 01 */ "AC97 Right",
+		/* 02 */ "Optical IEC958 Left",
+		/* 03 */ "Optical IEC958 Right",
+		/* 04 */ "Center",
+		/* 05 */ "LFE",
+		/* 06 */ "Headphone Left",
+		/* 07 */ "Headphone Right",
+		/* 08 */ "Surround Left",
+		/* 09 */ "Surround Right",
+		/* 10 */ "PCM Capture Left",
+		/* 11 */ "PCM Capture Right",
+		/* 12 */ "MIC Capture",
+		/* 13 */ "AC97 Surround Left",
+		/* 14 */ "AC97 Surround Right",
+		/* 15 */ "???",
+		/* 16 */ "???",
+		/* 17 */ "Analog Center",
+		/* 18 */ "Analog LFE",
+		/* 19 */ "???",
+		/* 20 */ "???",
+		/* 21 */ "???",
+		/* 22 */ "???",
+		/* 23 */ "???",
+		/* 24 */ "???",
+		/* 25 */ "???",
+		/* 26 */ "???",
+		/* 27 */ "???",
+		/* 28 */ "???",
+		/* 29 */ "???",
+		/* 30 */ "???",
+		/* 31 */ "???"
 	};
 
 	static char *audigy_outs[64] = {
-		 "Digital Front Left",
-		 "Digital Front Right",
-		 "Digital Center",
-		 "Digital LEF",
-		 "Headphone Left",
-		 "Headphone Right",
-		 "Digital Rear Left",
-		 "Digital Rear Right",
-		 "Front Left",
-		 "Front Right",
-		 "Center",
-		 "LFE",
-		 "???",
-		 "???",
-		 "Rear Left",
-		 "Rear Right",
-		 "AC97 Front Left",
-		 "AC97 Front Right",
-		 "ADC Caputre Left",
-		 "ADC Capture Right",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "???",
-		 "FXBUS2_0",
-		 "FXBUS2_1",
-		 "FXBUS2_2",
-		 "FXBUS2_3",
-		 "FXBUS2_4",
-		 "FXBUS2_5",
-		 "FXBUS2_6",
-		 "FXBUS2_7",
-		 "FXBUS2_8",
-		 "FXBUS2_9",
-		 "FXBUS2_10",
-		 "FXBUS2_11",
-		 "FXBUS2_12",
-		 "FXBUS2_13",
-		 "FXBUS2_14",
-		 "FXBUS2_15",
-		 "FXBUS2_16",
-		 "FXBUS2_17",
-		 "FXBUS2_18",
-		 "FXBUS2_19",
-		 "FXBUS2_20",
-		 "FXBUS2_21",
-		 "FXBUS2_22",
-		 "FXBUS2_23",
-		 "FXBUS2_24",
-		 "FXBUS2_25",
-		 "FXBUS2_26",
-		 "FXBUS2_27",
-		 "FXBUS2_28",
-		 "FXBUS2_29",
-		 "FXBUS2_30",
-		 "FXBUS2_31"
+		/* 00 */ "Digital Front Left",
+		/* 01 */ "Digital Front Right",
+		/* 02 */ "Digital Center",
+		/* 03 */ "Digital LEF",
+		/* 04 */ "Headphone Left",
+		/* 05 */ "Headphone Right",
+		/* 06 */ "Digital Rear Left",
+		/* 07 */ "Digital Rear Right",
+		/* 08 */ "Front Left",
+		/* 09 */ "Front Right",
+		/* 10 */ "Center",
+		/* 11 */ "LFE",
+		/* 12 */ "???",
+		/* 13 */ "???",
+		/* 14 */ "Rear Left",
+		/* 15 */ "Rear Right",
+		/* 16 */ "AC97 Front Left",
+		/* 17 */ "AC97 Front Right",
+		/* 18 */ "ADC Caputre Left",
+		/* 19 */ "ADC Capture Right",
+		/* 20 */ "???",
+		/* 21 */ "???",
+		/* 22 */ "???",
+		/* 23 */ "???",
+		/* 24 */ "???",
+		/* 25 */ "???",
+		/* 26 */ "???",
+		/* 27 */ "???",
+		/* 28 */ "???",
+		/* 29 */ "???",
+		/* 30 */ "???",
+		/* 31 */ "???",
+		/* 32 */ "FXBUS2_0",
+		/* 33 */ "FXBUS2_1",
+		/* 34 */ "FXBUS2_2",
+		/* 35 */ "FXBUS2_3",
+		/* 36 */ "FXBUS2_4",
+		/* 37 */ "FXBUS2_5",
+		/* 38 */ "FXBUS2_6",
+		/* 39 */ "FXBUS2_7",
+		/* 40 */ "FXBUS2_8",
+		/* 41 */ "FXBUS2_9",
+		/* 42 */ "FXBUS2_10",
+		/* 43 */ "FXBUS2_11",
+		/* 44 */ "FXBUS2_12",
+		/* 45 */ "FXBUS2_13",
+		/* 46 */ "FXBUS2_14",
+		/* 47 */ "FXBUS2_15",
+		/* 48 */ "FXBUS2_16",
+		/* 49 */ "FXBUS2_17",
+		/* 50 */ "FXBUS2_18",
+		/* 51 */ "FXBUS2_19",
+		/* 52 */ "FXBUS2_20",
+		/* 53 */ "FXBUS2_21",
+		/* 54 */ "FXBUS2_22",
+		/* 55 */ "FXBUS2_23",
+		/* 56 */ "FXBUS2_24",
+		/* 57 */ "FXBUS2_25",
+		/* 58 */ "FXBUS2_26",
+		/* 59 */ "FXBUS2_27",
+		/* 60 */ "FXBUS2_28",
+		/* 61 */ "FXBUS2_29",
+		/* 62 */ "FXBUS2_30",
+		/* 63 */ "FXBUS2_31"
 	};
 
 	struct snd_emu10k1 *emu = entry->private_data;
@@ -635,37 +635,37 @@ int __devinit snd_emu10k1_proc_init(struct snd_emu10k1 * emu)
 	if (! snd_card_proc_new(emu->card, "fx8010_gpr", &entry)) {
 		entry->content = SNDRV_INFO_CONTENT_DATA;
 		entry->private_data = emu;
-		entry->mode = S_IFREG | S_IRUGO ;
+		entry->mode = S_IFREG | S_IRUGO /*| S_IWUSR*/;
 		entry->size = emu->audigy ? A_TOTAL_SIZE_GPR : TOTAL_SIZE_GPR;
 		entry->c.ops = &snd_emu10k1_proc_ops_fx8010;
 	}
 	if (! snd_card_proc_new(emu->card, "fx8010_tram_data", &entry)) {
 		entry->content = SNDRV_INFO_CONTENT_DATA;
 		entry->private_data = emu;
-		entry->mode = S_IFREG | S_IRUGO ;
+		entry->mode = S_IFREG | S_IRUGO /*| S_IWUSR*/;
 		entry->size = emu->audigy ? A_TOTAL_SIZE_TANKMEM_DATA : TOTAL_SIZE_TANKMEM_DATA ;
 		entry->c.ops = &snd_emu10k1_proc_ops_fx8010;
 	}
 	if (! snd_card_proc_new(emu->card, "fx8010_tram_addr", &entry)) {
 		entry->content = SNDRV_INFO_CONTENT_DATA;
 		entry->private_data = emu;
-		entry->mode = S_IFREG | S_IRUGO ;
+		entry->mode = S_IFREG | S_IRUGO /*| S_IWUSR*/;
 		entry->size = emu->audigy ? A_TOTAL_SIZE_TANKMEM_ADDR : TOTAL_SIZE_TANKMEM_ADDR ;
 		entry->c.ops = &snd_emu10k1_proc_ops_fx8010;
 	}
 	if (! snd_card_proc_new(emu->card, "fx8010_code", &entry)) {
 		entry->content = SNDRV_INFO_CONTENT_DATA;
 		entry->private_data = emu;
-		entry->mode = S_IFREG | S_IRUGO ;
+		entry->mode = S_IFREG | S_IRUGO /*| S_IWUSR*/;
 		entry->size = emu->audigy ? A_TOTAL_SIZE_CODE : TOTAL_SIZE_CODE;
 		entry->c.ops = &snd_emu10k1_proc_ops_fx8010;
 	}
 	if (! snd_card_proc_new(emu->card, "fx8010_acode", &entry)) {
 		entry->content = SNDRV_INFO_CONTENT_TEXT;
 		entry->private_data = emu;
-		entry->mode = S_IFREG | S_IRUGO ;
+		entry->mode = S_IFREG | S_IRUGO /*| S_IWUSR*/;
 		entry->c.text.read = snd_emu10k1_proc_acode_read;
 	}
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PROC_FS */

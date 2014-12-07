@@ -35,17 +35,20 @@
 
 #define P4D_BYT3S(magic, nr_bytes)	u8 __p4dding##magic[nr_bytes]
 #define P4D_BYTES(line, nr_bytes)	P4D_BYT3S(line, nr_bytes)
+/* Magic helper macro to pad structures. Ignore those above. It's magic. */
 #define PAD_BYTES(nr_bytes)		P4D_BYTES( __LINE__ , (nr_bytes))
 
 
 extern int b43_modparam_verbose;
 
+/* Logmessage verbosity levels. Update the b43_modparam_verbose helptext, if
+ * you add or remove levels. */
 enum b43_verbosity {
 	B43_VERBOSITY_ERROR,
 	B43_VERBOSITY_WARN,
 	B43_VERBOSITY_INFO,
 	B43_VERBOSITY_DEBUG,
-	__B43_VERBOSITY_AFTERLAST, 
+	__B43_VERBOSITY_AFTERLAST, /* keep last */
 
 	B43_VERBOSITY_MAX = __B43_VERBOSITY_AFTERLAST - 1,
 #if B43_DEBUG
@@ -56,6 +59,7 @@ enum b43_verbosity {
 };
 
 
+/* Lightweight function to convert a frequency (in Mhz) to a channel number. */
 static inline u8 b43_freq_to_channel_5ghz(int freq)
 {
 	return ((freq - 5000) / 5);
@@ -72,6 +76,7 @@ static inline u8 b43_freq_to_channel_2ghz(int freq)
 	return channel;
 }
 
+/* Lightweight function to convert a channel number to a frequency (in Mhz). */
 static inline int b43_channel_to_freq_5ghz(u8 channel)
 {
 	return (5000 + (5 * channel));
@@ -120,10 +125,10 @@ void b43_wireless_core_reset(struct b43_wldev *dev, bool gmode);
 
 void b43_controller_restart(struct b43_wldev *dev, const char *reason);
 
-#define B43_PS_ENABLED	(1 << 0)	
-#define B43_PS_DISABLED	(1 << 1)	
-#define B43_PS_AWAKE	(1 << 2)	
-#define B43_PS_ASLEEP	(1 << 3)	
+#define B43_PS_ENABLED	(1 << 0)	/* Force enable hardware power saving */
+#define B43_PS_DISABLED	(1 << 1)	/* Force disable hardware power saving */
+#define B43_PS_AWAKE	(1 << 2)	/* Force device awake */
+#define B43_PS_ASLEEP	(1 << 3)	/* Force device asleep */
 void b43_power_saving_ctl_bits(struct b43_wldev *dev, unsigned int ps_flags);
 
 void b43_mac_suspend(struct b43_wldev *dev);
@@ -137,4 +142,4 @@ int b43_do_request_fw(struct b43_request_fw_context *ctx,
 		      struct b43_firmware_file *fw);
 void b43_do_release_fw(struct b43_firmware_file *fw);
 
-#endif 
+#endif /* B43_MAIN_H_ */

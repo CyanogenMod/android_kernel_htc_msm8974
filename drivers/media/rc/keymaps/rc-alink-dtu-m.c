@@ -21,15 +21,16 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* A-Link DTU(m) slim remote, 6 rows, 3 columns. */
 static struct rc_map_table alink_dtu_m[] = {
 	{ 0x0800, KEY_VOLUMEUP },
 	{ 0x0801, KEY_1 },
 	{ 0x0802, KEY_3 },
 	{ 0x0803, KEY_7 },
 	{ 0x0804, KEY_9 },
-	{ 0x0805, KEY_NEW },             
+	{ 0x0805, KEY_NEW },             /* symbol: PIP */
 	{ 0x0806, KEY_0 },
-	{ 0x0807, KEY_CHANNEL },         
+	{ 0x0807, KEY_CHANNEL },         /* JUMP */
 	{ 0x080d, KEY_5 },
 	{ 0x080f, KEY_2 },
 	{ 0x0812, KEY_POWER2 },

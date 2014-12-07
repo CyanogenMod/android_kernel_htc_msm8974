@@ -23,6 +23,61 @@
 
 ************************************************************************
 */
+/*
+Driver: das16
+Description: DAS16 compatible boards
+Author: Sam Moore, Warren Jasper, ds, Chris Baugher, Frank Hess, Roman Fietze
+Devices: [Keithley Metrabyte] DAS-16 (das-16), DAS-16G (das-16g),
+  DAS-16F (das-16f), DAS-1201 (das-1201), DAS-1202 (das-1202),
+  DAS-1401 (das-1401), DAS-1402 (das-1402), DAS-1601 (das-1601),
+  DAS-1602 (das-1602),
+  [ComputerBoards] PC104-DAS16/JR (pc104-das16jr),
+  PC104-DAS16JR/16 (pc104-das16jr/16),
+  CIO-DAS16JR/16 (cio-das16jr/16),
+  CIO-DAS16/JR (cio-das16/jr), CIO-DAS1401/12 (cio-das1401/12),
+  CIO-DAS1402/12 (cio-das1402/12), CIO-DAS1402/16 (cio-das1402/16),
+  CIO-DAS1601/12 (cio-das1601/12), CIO-DAS1602/12 (cio-das1602/12),
+  CIO-DAS1602/16 (cio-das1602/16), CIO-DAS16/330 (cio-das16/330)
+Status: works
+Updated: 2003-10-12
+
+A rewrite of the das16 and das1600 drivers.
+Options:
+	[0] - base io address
+	[1] - irq (does nothing, irq is not used anymore)
+	[2] - dma (optional, required for comedi_command support)
+	[3] - master clock speed in MHz (optional, 1 or 10, ignored if
+		board can probe clock, defaults to 1)
+	[4] - analog input range lowest voltage in microvolts (optional,
+		only useful if your board does not have software
+		programmable gain)
+	[5] - analog input range highest voltage in microvolts (optional,
+		only useful if board does not have software programmable
+		gain)
+	[6] - analog output range lowest voltage in microvolts (optional)
+	[7] - analog output range highest voltage in microvolts (optional)
+	[8] - use timer mode for DMA.  Timer mode is needed e.g. for
+		buggy DMA controllers in NS CS5530A (Geode Companion), and for
+		'jr' cards that lack a hardware fifo.  This option is no
+		longer needed, since timer mode is _always_ used.
+
+Passing a zero for an option is the same as leaving it unspecified.
+
+*/
+/*
+
+Testing and debugging help provided by Daniel Koch.
+
+Keithley Manuals:
+	2309.PDF (das16)
+	4919.PDF (das1400, 1600)
+	4922.PDF (das-1400)
+	4923.PDF (das1200, 1400, 1600)
+
+Computer boards manuals also available from their website
+www.measurementcomputing.com
+
+*/
 
 #include <linux/pci.h>
 #include <linux/slab.h>
@@ -35,6 +90,7 @@
 #include "comedi_fc.h"
 
 #undef DEBUG
+/* #define DEBUG */
 
 #ifdef DEBUG
 #define DEBUG_PRINT(format, args...)	\
@@ -43,12 +99,96 @@
 #define DEBUG_PRINT(format, args...)
 #endif
 
-#define DAS16_SIZE 20		
-#define DAS16_DMA_SIZE 0xff00	
+#define DAS16_SIZE 20		/*  number of ioports */
+#define DAS16_DMA_SIZE 0xff00	/*  size in bytes of allocated dma buffer */
 
+/*
+    cio-das16.pdf
 
+    "das16"
+    "das16/f"
 
+  0	a/d bits 0-3		start 12 bit
+  1	a/d bits 4-11		unused
+  2	mux read		mux set
+  3	di 4 bit		do 4 bit
+  4	unused			ao0_lsb
+  5	unused			ao0_msb
+  6	unused			ao1_lsb
+  7	unused			ao1_msb
+  8	status eoc uni/bip	interrupt reset
+  9	dma, int, trig ctrl	set dma, int
+  a	pacer control		unused
+  b	reserved		reserved
+  cdef	8254
+  0123	8255
 
+*/
+
+/*
+    cio-das16jr.pdf
+
+    "das16jr"
+
+  0	a/d bits 0-3		start 12 bit
+  1	a/d bits 4-11		unused
+  2	mux read		mux set
+  3	di 4 bit		do 4 bit
+  4567	unused			unused
+  8	status eoc uni/bip	interrupt reset
+  9	dma, int, trig ctrl	set dma, int
+  a	pacer control		unused
+  b	gain status		gain control
+  cdef	8254
+
+*/
+
+/*
+    cio-das16jr_16.pdf
+
+    "das16jr_16"
+
+  0	a/d bits 0-7		start 16 bit
+  1	a/d bits 8-15		unused
+  2	mux read		mux set
+  3	di 4 bit		do 4 bit
+  4567	unused			unused
+  8	status eoc uni/bip	interrupt reset
+  9	dma, int, trig ctrl	set dma, int
+  a	pacer control		unused
+  b	gain status		gain control
+  cdef	8254
+
+*/
+/*
+    cio-das160x-1x.pdf
+
+    "das1601/12"
+    "das1602/12"
+    "das1602/16"
+
+  0	a/d bits 0-3		start 12 bit
+  1	a/d bits 4-11		unused
+  2	mux read		mux set
+  3	di 4 bit		do 4 bit
+  4	unused			ao0_lsb
+  5	unused			ao0_msb
+  6	unused			ao1_lsb
+  7	unused			ao1_msb
+  8	status eoc uni/bip	interrupt reset
+  9	dma, int, trig ctrl	set dma, int
+  a	pacer control		unused
+  b	gain status		gain control
+  cdef	8254
+  400	8255
+  404	unused			conversion enable
+  405	unused			burst enable
+  406	unused			das1600 enable
+  407	status
+
+*/
+
+/*  size in bytes of a sample from board */
 static const int sample_size = 2;
 
 #define DAS16_TRIG		0
@@ -134,7 +274,7 @@ static const struct comedi_lrange range_das1x02_unip = { 4, {
 };
 
 static const struct comedi_lrange range_das16jr = { 9, {
-						
+						/*  also used by 16/330 */
 							BIP_RANGE(10),
 							BIP_RANGE(5),
 							BIP_RANGE(2.5),
@@ -235,7 +375,7 @@ struct das16_board {
 	const char *name;
 	void *ai;
 	unsigned int ai_nbits;
-	unsigned int ai_speed;	
+	unsigned int ai_speed;	/*  max conversion speed in nanosec */
 	unsigned int ai_pg;
 	void *ao;
 	unsigned int ao_nbits;
@@ -296,7 +436,7 @@ static const struct das16_board das16_boards[] = {
 	 .id = 0x00,
 	 },
 	{
-	 .name = "cio-das16",	
+	 .name = "cio-das16",	/*  cio-das16.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 20000,
@@ -311,7 +451,7 @@ static const struct das16_board das16_boards[] = {
 	 .id = 0x80,
 	 },
 	{
-	 .name = "cio-das16/f",	
+	 .name = "cio-das16/f",	/*  das16.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 10000,
@@ -326,7 +466,7 @@ static const struct das16_board das16_boards[] = {
 	 .id = 0x80,
 	 },
 	{
-	 .name = "cio-das16/jr",	
+	 .name = "cio-das16/jr",	/*  cio-das16jr.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 7692,
@@ -340,7 +480,7 @@ static const struct das16_board das16_boards[] = {
 	 .id = 0x00,
 	 },
 	{
-	 .name = "pc104-das16jr",	
+	 .name = "pc104-das16jr",	/*  pc104-das16jr_xx.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 3300,
@@ -354,7 +494,7 @@ static const struct das16_board das16_boards[] = {
 	 .id = 0x00,
 	 },
 	{
-	 .name = "cio-das16jr/16",	
+	 .name = "cio-das16jr/16",	/*  cio-das16jr_16.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 16,
 	 .ai_speed = 10000,
@@ -368,7 +508,7 @@ static const struct das16_board das16_boards[] = {
 	 .id = 0x00,
 	 },
 	{
-	 .name = "pc104-das16jr/16",	
+	 .name = "pc104-das16jr/16",	/*  pc104-das16jr_xx.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 16,
 	 .ai_speed = 10000,
@@ -382,7 +522,7 @@ static const struct das16_board das16_boards[] = {
 	 .id = 0x00,
 	 },
 	{
-	 .name = "das-1201",	
+	 .name = "das-1201",	/*  4924.pdf (keithley user's manual) */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 20000,
@@ -396,7 +536,7 @@ static const struct das16_board das16_boards[] = {
 	 .id = 0x20,
 	 },
 	{
-	 .name = "das-1202",	
+	 .name = "das-1202",	/*  4924.pdf (keithley user's manual) */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 10000,
@@ -410,7 +550,7 @@ static const struct das16_board das16_boards[] = {
 	 .id = 0x20,
 	 },
 	{
-	
+	/*  4919.pdf and 4922.pdf (keithley user's manual) */
 	 .name = "das-1401",
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
@@ -422,10 +562,10 @@ static const struct das16_board das16_boards[] = {
 	 .i8255_offset = 0x0,
 	 .i8254_offset = 0x0c,
 	 .size = 0x408,
-	 .id = 0xc0   
+	 .id = 0xc0   /*  4919.pdf says id bits are 0xe0, 4922.pdf says 0xc0 */
 	 },
 	{
-	
+	/*  4919.pdf and 4922.pdf (keithley user's manual) */
 	 .name = "das-1402",
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
@@ -437,10 +577,10 @@ static const struct das16_board das16_boards[] = {
 	 .i8255_offset = 0x0,
 	 .i8254_offset = 0x0c,
 	 .size = 0x408,
-	 .id = 0xc0   
+	 .id = 0xc0   /*  4919.pdf says id bits are 0xe0, 4922.pdf says 0xc0 */
 	 },
 	{
-	 .name = "das-1601",	
+	 .name = "das-1601",	/*  4919.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 10000,
@@ -454,7 +594,7 @@ static const struct das16_board das16_boards[] = {
 	 .size = 0x408,
 	 .id = 0xc0},
 	{
-	 .name = "das-1602",	
+	 .name = "das-1602",	/*  4919.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 10000,
@@ -468,7 +608,7 @@ static const struct das16_board das16_boards[] = {
 	 .size = 0x408,
 	 .id = 0xc0},
 	{
-	 .name = "cio-das1401/12",	
+	 .name = "cio-das1401/12",	/*  cio-das1400_series.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 6250,
@@ -481,7 +621,7 @@ static const struct das16_board das16_boards[] = {
 	 .size = 0x408,
 	 .id = 0xc0},
 	{
-	 .name = "cio-das1402/12",	
+	 .name = "cio-das1402/12",	/*  cio-das1400_series.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 6250,
@@ -494,7 +634,7 @@ static const struct das16_board das16_boards[] = {
 	 .size = 0x408,
 	 .id = 0xc0},
 	{
-	 .name = "cio-das1402/16",	
+	 .name = "cio-das1402/16",	/*  cio-das1400_series.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 16,
 	 .ai_speed = 10000,
@@ -507,7 +647,7 @@ static const struct das16_board das16_boards[] = {
 	 .size = 0x408,
 	 .id = 0xc0},
 	{
-	 .name = "cio-das1601/12",	
+	 .name = "cio-das1601/12",	/*  cio-das160x-1x.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 6250,
@@ -521,7 +661,7 @@ static const struct das16_board das16_boards[] = {
 	 .size = 0x408,
 	 .id = 0xc0},
 	{
-	 .name = "cio-das1602/12",	
+	 .name = "cio-das1602/12",	/*  cio-das160x-1x.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 10000,
@@ -535,7 +675,7 @@ static const struct das16_board das16_boards[] = {
 	 .size = 0x408,
 	 .id = 0xc0},
 	{
-	 .name = "cio-das1602/16",	
+	 .name = "cio-das1602/16",	/*  cio-das160x-1x.pdf */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 16,
 	 .ai_speed = 10000,
@@ -549,7 +689,7 @@ static const struct das16_board das16_boards[] = {
 	 .size = 0x408,
 	 .id = 0xc0},
 	{
-	 .name = "cio-das16/330",	
+	 .name = "cio-das16/330",	/*  ? */
 	 .ai = das16_ai_rinsn,
 	 .ai_nbits = 12,
 	 .ai_speed = 3030,
@@ -563,13 +703,13 @@ static const struct das16_board das16_boards[] = {
 	 .id = 0xf0},
 #if 0
 	{
-	 .name = "das16/330i",	
+	 .name = "das16/330i",	/*  ? */
 	 },
 	{
-	 .name = "das16/jr/ctr5",	
+	 .name = "das16/jr/ctr5",	/*  ? */
 	 },
 	{
-	
+	/*  cio-das16_m1_16.pdf, this board is a bit quirky, no dma */
 	 .name = "cio-das16/m1/16",
 	 },
 #endif
@@ -589,32 +729,38 @@ static struct comedi_driver driver_das16 = {
 
 #define DAS16_TIMEOUT 1000
 
+/* Period for timer interrupt in jiffies.  It's a function
+ * to deal with possibility of dynamic HZ patches  */
 static inline int timer_period(void)
 {
 	return HZ / 20;
 }
 
 struct das16_private_struct {
-	unsigned int ai_unipolar;	
-	unsigned int ai_singleended;	
-	unsigned int clockbase;	
-	volatile unsigned int control_state;	
-	volatile unsigned long adc_byte_count;	
-	
+	unsigned int ai_unipolar;	/*  unipolar flag */
+	unsigned int ai_singleended;	/*  single ended flag */
+	unsigned int clockbase;	/*  master clock speed in ns */
+	volatile unsigned int control_state;	/*  dma, interrupt and trigger control bits */
+	volatile unsigned long adc_byte_count;	/*  number of bytes remaining */
+	/*  divisor dividing master clock to get conversion frequency */
 	unsigned int divisor1;
-	
+	/*  divisor dividing master clock to get conversion frequency */
 	unsigned int divisor2;
-	unsigned int dma_chan;	
+	unsigned int dma_chan;	/*  dma channel */
 	uint16_t *dma_buffer[2];
 	dma_addr_t dma_buffer_addr[2];
 	unsigned int current_buffer;
-	volatile unsigned int dma_transfer_size;	
+	volatile unsigned int dma_transfer_size;	/*  target number of bytes to transfer per dma shot */
+	/**
+	 * user-defined analog input and output ranges
+	 * defined from config options
+	 */
 	struct comedi_lrange *user_ai_range_table;
 	struct comedi_lrange *user_ao_range_table;
 
-	struct timer_list timer;	
+	struct timer_list timer;	/*  for timed interrupt */
 	volatile short timer_running;
-	volatile short timer_mode;	
+	volatile short timer_mode;	/*  true if using timer mode */
 };
 #define devpriv ((struct das16_private_struct *)(dev->private))
 #define thisboard ((struct das16_board *)(dev->board_ptr))
@@ -626,7 +772,7 @@ static int das16_cmd_test(struct comedi_device *dev, struct comedi_subdevice *s,
 	int gain, start_chan, i;
 	int mask;
 
-	
+	/* make sure triggers are valid */
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW;
 	if (!cmd->start_src || tmp != cmd->start_src)
@@ -634,7 +780,7 @@ static int das16_cmd_test(struct comedi_device *dev, struct comedi_subdevice *s,
 
 	tmp = cmd->scan_begin_src;
 	mask = TRIG_FOLLOW;
-	
+	/*  if board supports burst mode */
 	if (thisboard->size > 0x400)
 		mask |= TRIG_TIMER | TRIG_EXT;
 	cmd->scan_begin_src &= mask;
@@ -643,7 +789,7 @@ static int das16_cmd_test(struct comedi_device *dev, struct comedi_subdevice *s,
 
 	tmp = cmd->convert_src;
 	mask = TRIG_TIMER | TRIG_EXT;
-	
+	/*  if board supports burst mode */
 	if (thisboard->size > 0x400)
 		mask |= TRIG_NOW;
 	cmd->convert_src &= mask;
@@ -663,6 +809,10 @@ static int das16_cmd_test(struct comedi_device *dev, struct comedi_subdevice *s,
 	if (err)
 		return 1;
 
+	/**
+	 * step 2: make sure trigger sources are unique and
+	 * mutually compatible
+	 */
 	if (cmd->scan_begin_src != TRIG_TIMER &&
 	    cmd->scan_begin_src != TRIG_EXT &&
 	    cmd->scan_begin_src != TRIG_FOLLOW)
@@ -673,7 +823,7 @@ static int das16_cmd_test(struct comedi_device *dev, struct comedi_subdevice *s,
 	if (cmd->stop_src != TRIG_NONE && cmd->stop_src != TRIG_COUNT)
 		err++;
 
-	
+	/*  make sure scan_begin_src and convert_src dont conflict */
 	if (cmd->scan_begin_src == TRIG_FOLLOW && cmd->convert_src == TRIG_NOW)
 		err++;
 	if (cmd->scan_begin_src != TRIG_FOLLOW && cmd->convert_src != TRIG_NOW)
@@ -682,14 +832,14 @@ static int das16_cmd_test(struct comedi_device *dev, struct comedi_subdevice *s,
 	if (err)
 		return 2;
 
-	
+	/* step 3: make sure arguments are trivially compatible */
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
 		err++;
 	}
 
 	if (cmd->scan_begin_src == TRIG_FOLLOW) {
-		
+		/* internal trigger */
 		if (cmd->scan_begin_arg != 0) {
 			cmd->scan_begin_arg = 0;
 			err++;
@@ -700,7 +850,7 @@ static int das16_cmd_test(struct comedi_device *dev, struct comedi_subdevice *s,
 		cmd->scan_end_arg = cmd->chanlist_len;
 		err++;
 	}
-	
+	/*  check against maximum frequency */
 	if (cmd->scan_begin_src == TRIG_TIMER) {
 		if (cmd->scan_begin_arg <
 		    thisboard->ai_speed * cmd->chanlist_len) {
@@ -725,10 +875,10 @@ static int das16_cmd_test(struct comedi_device *dev, struct comedi_subdevice *s,
 	if (err)
 		return 3;
 
-	
+	/*  step 4: fix up arguments */
 	if (cmd->scan_begin_src == TRIG_TIMER) {
 		unsigned int tmp = cmd->scan_begin_arg;
-		
+		/*  set divisors, correct timing arguments */
 		i8253_cascade_ns_to_timer_2div(devpriv->clockbase,
 					       &(devpriv->divisor1),
 					       &(devpriv->divisor2),
@@ -738,7 +888,7 @@ static int das16_cmd_test(struct comedi_device *dev, struct comedi_subdevice *s,
 	}
 	if (cmd->convert_src == TRIG_TIMER) {
 		unsigned int tmp = cmd->convert_arg;
-		
+		/*  set divisors, correct timing arguments */
 		i8253_cascade_ns_to_timer_2div(devpriv->clockbase,
 					       &(devpriv->divisor1),
 					       &(devpriv->divisor2),
@@ -749,7 +899,7 @@ static int das16_cmd_test(struct comedi_device *dev, struct comedi_subdevice *s,
 	if (err)
 		return 4;
 
-	
+	/*  check channel/gain list against card's limitations */
 	if (cmd->chanlist) {
 		gain = CR_RANGE(cmd->chanlist[0]);
 		start_chan = CR_CHAN(cmd->chanlist[0]);
@@ -800,34 +950,37 @@ static int das16_cmd_exec(struct comedi_device *dev, struct comedi_subdevice *s)
 	devpriv->adc_byte_count =
 	    cmd->stop_arg * cmd->chanlist_len * sizeof(uint16_t);
 
-	
+	/*  disable conversions for das1600 mode */
 	if (thisboard->size > 0x400)
 		outb(DAS1600_CONV_DISABLE, dev->iobase + DAS1600_CONV);
 
-	
+	/*  set scan limits */
 	byte = CR_CHAN(cmd->chanlist[0]);
 	byte |= CR_CHAN(cmd->chanlist[cmd->chanlist_len - 1]) << 4;
 	outb(byte, dev->iobase + DAS16_MUX);
 
+	/* set gain (this is also burst rate register but according to
+	 * computer boards manual, burst rate does nothing, even on
+	 * keithley cards) */
 	if (thisboard->ai_pg != das16_pg_none) {
 		range = CR_RANGE(cmd->chanlist[0]);
 		outb((das16_gainlists[thisboard->ai_pg])[range],
 		     dev->iobase + DAS16_GAIN);
 	}
 
-	
+	/* set counter mode and counts */
 	cmd->convert_arg =
 	    das16_set_pacer(dev, cmd->convert_arg,
 			    cmd->flags & TRIG_ROUND_MASK);
 	DEBUG_PRINT("pacer period: %d ns\n", cmd->convert_arg);
 
-	
+	/* enable counters */
 	byte = 0;
-	
+	/* Enable burst mode if appropriate. */
 	if (thisboard->size > 0x400) {
 		if (cmd->convert_src == TRIG_NOW) {
 			outb(DAS1600_BURST_VAL, dev->iobase + DAS1600_BURST);
-			
+			/*  set burst length */
 			byte |= BURST_LEN_BITS(cmd->chanlist_len - 1);
 		} else {
 			outb(0, dev->iobase + DAS1600_BURST);
@@ -835,29 +988,31 @@ static int das16_cmd_exec(struct comedi_device *dev, struct comedi_subdevice *s)
 	}
 	outb(byte, dev->iobase + DAS16_PACER);
 
-	
+	/*  set up dma transfer */
 	flags = claim_dma_lock();
 	disable_dma(devpriv->dma_chan);
+	/* clear flip-flop to make sure 2-byte registers for
+	 * count and address get set correctly */
 	clear_dma_ff(devpriv->dma_chan);
 	devpriv->current_buffer = 0;
 	set_dma_addr(devpriv->dma_chan,
 		     devpriv->dma_buffer_addr[devpriv->current_buffer]);
-	
+	/*  set appropriate size of transfer */
 	devpriv->dma_transfer_size = das16_suggest_transfer_size(dev, *cmd);
 	set_dma_count(devpriv->dma_chan, devpriv->dma_transfer_size);
 	enable_dma(devpriv->dma_chan);
 	release_dma_lock(flags);
 
-	
+	/*  set up interrupt */
 	if (devpriv->timer_mode) {
 		devpriv->timer_running = 1;
 		devpriv->timer.expires = jiffies + timer_period();
 		add_timer(&devpriv->timer);
 		devpriv->control_state &= ~DAS16_INTE;
 	} else {
-		
+		/* clear interrupt bit */
 		outb(0x00, dev->iobase + DAS16_STATUS);
-		
+		/* enable interrupts */
 		devpriv->control_state |= DAS16_INTE;
 	}
 	devpriv->control_state |= DMA_ENABLE;
@@ -868,7 +1023,7 @@ static int das16_cmd_exec(struct comedi_device *dev, struct comedi_subdevice *s)
 		devpriv->control_state |= INT_PACER;
 	outb(devpriv->control_state, dev->iobase + DAS16_CONTROL);
 
-	
+	/* Enable conversions if using das1600 mode */
 	if (thisboard->size > 0x400)
 		outb(0, dev->iobase + DAS1600_CONV);
 
@@ -881,19 +1036,19 @@ static int das16_cancel(struct comedi_device *dev, struct comedi_subdevice *s)
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->spinlock, flags);
-	
+	/* disable interrupts, dma and pacer clocked conversions */
 	devpriv->control_state &= ~DAS16_INTE & ~PACING_MASK & ~DMA_ENABLE;
 	outb(devpriv->control_state, dev->iobase + DAS16_CONTROL);
 	if (devpriv->dma_chan)
 		disable_dma(devpriv->dma_chan);
 
-	
+	/*  disable SW timer */
 	if (devpriv->timer_mode && devpriv->timer_running) {
 		devpriv->timer_running = 0;
 		del_timer(&devpriv->timer);
 	}
 
-	
+	/* disable burst mode */
 	if (thisboard->size > 0x400)
 		outb(0, dev->iobase + DAS1600_BURST);
 
@@ -919,16 +1074,16 @@ static int das16_ai_rinsn(struct comedi_device *dev, struct comedi_subdevice *s,
 	int chan;
 	int msb, lsb;
 
-	
+	/*  disable interrupts and pacing */
 	devpriv->control_state &= ~DAS16_INTE & ~DMA_ENABLE & ~PACING_MASK;
 	outb(devpriv->control_state, dev->iobase + DAS16_CONTROL);
 
-	
+	/* set multiplexer */
 	chan = CR_CHAN(insn->chanspec);
 	chan |= CR_CHAN(insn->chanspec) << 4;
 	outb(chan, dev->iobase + DAS16_MUX);
 
-	
+	/* set gain */
 	if (thisboard->ai_pg != das16_pg_none) {
 		range = CR_RANGE(insn->chanspec);
 		outb((das16_gainlists[thisboard->ai_pg])[range],
@@ -936,7 +1091,7 @@ static int das16_ai_rinsn(struct comedi_device *dev, struct comedi_subdevice *s,
 	}
 
 	for (n = 0; n < insn->n; n++) {
-		
+		/* trigger conversion */
 		outb_p(0, dev->iobase + DAS16_TRIG);
 
 		for (i = 0; i < DAS16_TIMEOUT; i++) {
@@ -976,12 +1131,12 @@ static int das16_do_wbits(struct comedi_device *dev, struct comedi_subdevice *s,
 {
 	unsigned int wbits;
 
-	
+	/*  only set bits that have been masked */
 	data[0] &= 0xf;
 	wbits = s->state;
-	
+	/*  zero bits that have been masked */
 	wbits &= ~data[0];
-	
+	/*  set masked bits */
 	wbits |= data[0] & data[1];
 	s->state = wbits;
 	data[1] = wbits;
@@ -1027,7 +1182,7 @@ static irqreturn_t das16_dma_interrupt(int irq, void *d)
 		return IRQ_NONE;
 	}
 
-	
+	/* clear interrupt */
 	outb(0x00, dev->iobase + DAS16_STATUS);
 	das16_interrupt(dev);
 	return IRQ_HANDLED;
@@ -1043,6 +1198,12 @@ static void das16_timer_interrupt(unsigned long arg)
 		mod_timer(&devpriv->timer, jiffies + timer_period());
 }
 
+/* the pc104-das16jr (at least) has problems if the dma
+	transfer is interrupted in the middle of transferring
+	a 16 bit sample, so this function takes care to get
+	an even transfer count after disabling dma
+	channel.
+*/
 static int disable_dma_on_even(struct comedi_device *dev)
 {
 	int residue;
@@ -1084,7 +1245,7 @@ static void das16_interrupt(struct comedi_device *dev)
 		comedi_error(dev, "premature interrupt");
 		return;
 	}
-	
+	/*  initialize async here to make sure it is not NULL */
 	async = s->async;
 	cmd = &async->cmd;
 
@@ -1104,7 +1265,7 @@ static void das16_interrupt(struct comedi_device *dev)
 	clear_dma_ff(devpriv->dma_chan);
 	residue = disable_dma_on_even(dev);
 
-	
+	/*  figure out how many points to read */
 	if (residue > devpriv->dma_transfer_size) {
 		comedi_error(dev, "residue > transfer size!\n");
 		async->events |= COMEDI_CB_ERROR | COMEDI_CB_EOA;
@@ -1122,18 +1283,18 @@ static void das16_interrupt(struct comedi_device *dev)
 	devpriv->current_buffer = (devpriv->current_buffer + 1) % 2;
 	devpriv->adc_byte_count -= num_bytes;
 
-	
+	/*  figure out how many bytes for next transfer */
 	if (cmd->stop_src == TRIG_COUNT && devpriv->timer_mode == 0 &&
 	    devpriv->dma_transfer_size > devpriv->adc_byte_count)
 		devpriv->dma_transfer_size = devpriv->adc_byte_count;
 
-	
+	/*  re-enable  dma */
 	if ((async->events & COMEDI_CB_EOA) == 0) {
 		set_dma_addr(devpriv->dma_chan,
 			     devpriv->dma_buffer_addr[devpriv->current_buffer]);
 		set_dma_count(devpriv->dma_chan, devpriv->dma_transfer_size);
 		enable_dma(devpriv->dma_chan);
-		
+		/* reenable conversions for das1600 mode, (stupid hardware) */
 		if (thisboard->size > 0x400 && devpriv->timer_mode == 0)
 			outb(0x00, dev->iobase + DAS1600_CONV);
 
@@ -1155,7 +1316,7 @@ static unsigned int das16_set_pacer(struct comedi_device *dev, unsigned int ns,
 				       &(devpriv->divisor2), &ns,
 				       rounding_flags & TRIG_ROUND_MASK);
 
-	
+	/* Write the values of ctr1 and ctr2 into counters 1 and 2 */
 	i8254_load(dev->iobase + DAS16_CNTR0_DATA, 0, 1, devpriv->divisor1, 2);
 	i8254_load(dev->iobase + DAS16_CNTR0_DATA, 0, 2, devpriv->divisor2, 2);
 
@@ -1185,7 +1346,7 @@ static int das16_probe(struct comedi_device *dev, struct comedi_devconfig *it)
 	int status;
 	int diobits;
 
-	
+	/* status is available on all boards */
 
 	status = inb(dev->iobase + DAS16_STATUS);
 
@@ -1201,7 +1362,7 @@ static int das16_probe(struct comedi_device *dev, struct comedi_devconfig *it)
 		devpriv->ai_singleended = 0;
 
 
-	
+	/* diobits indicates boards */
 
 	diobits = inb(dev->iobase + DAS16_DIO) & 0xf0;
 
@@ -1233,6 +1394,14 @@ static int das1600_mode_detect(struct comedi_device *dev)
 	return 0;
 }
 
+/*
+ *
+ * Options list:
+ *   0  I/O base
+ *   1  IRQ
+ *   2  DMA
+ *   3  Clock speed (in MHz)
+ */
 
 static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 {
@@ -1250,6 +1419,8 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	irq = it->options[1];
 	timer_mode = it->options[8];
 #endif
+	/* always use time_mode since using irq can drop samples while
+	 * waiting for dma done interrupt (due to hardware limitations) */
 	irq = 0;
 	timer_mode = 1;
 	if (timer_mode)
@@ -1257,7 +1428,7 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 
 	printk(KERN_INFO "comedi%d: das16:", dev->minor);
 
-	
+	/*  check that clock setting is valid */
 	if (it->options[3]) {
 		if (it->options[3] != 0 &&
 		    it->options[3] != 1 && it->options[3] != 10) {
@@ -1300,24 +1471,24 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 
 	dev->iobase = iobase;
 
-	
+	/*  probe id bits to make sure they are consistent */
 	if (das16_probe(dev, it)) {
 		printk(KERN_ERR " id bits do not match selected board, aborting\n");
 		return -EINVAL;
 	}
 	dev->board_name = thisboard->name;
 
-	
+	/*  get master clock speed */
 	if (thisboard->size < 0x400) {
 		if (it->options[3])
 			devpriv->clockbase = 1000 / it->options[3];
 		else
-			devpriv->clockbase = 1000;	
+			devpriv->clockbase = 1000;	/*  1 MHz default */
 	} else {
 		das1600_mode_detect(dev);
 	}
 
-	
+	/* now for the irq */
 	if (irq > 1 && irq < 8) {
 		ret = request_irq(irq, das16_dma_interrupt, 0, "das16", dev);
 
@@ -1332,10 +1503,10 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		return -EINVAL;
 	}
 
-	
+	/*  initialize dma */
 	dma_chan = it->options[2];
 	if (dma_chan == 1 || dma_chan == 3) {
-		
+		/*  allocate dma buffers */
 		int i;
 		for (i = 0; i < 2; i++) {
 			devpriv->dma_buffer[i] = pci_alloc_consistent(
@@ -1363,27 +1534,27 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		return -EINVAL;
 	}
 
-	
+	/*  get any user-defined input range */
 	if (thisboard->ai_pg == das16_pg_none &&
 	    (it->options[4] || it->options[5])) {
-		
+		/*  allocate single-range range table */
 		devpriv->user_ai_range_table =
 		    kmalloc(sizeof(struct comedi_lrange) +
 			    sizeof(struct comedi_krange), GFP_KERNEL);
-		
+		/*  initialize ai range */
 		devpriv->user_ai_range_table->length = 1;
 		user_ai_range = devpriv->user_ai_range_table->range;
 		user_ai_range->min = it->options[4];
 		user_ai_range->max = it->options[5];
 		user_ai_range->flags = UNIT_volt;
 	}
-	
+	/*  get any user-defined output range */
 	if (it->options[6] || it->options[7]) {
-		
+		/*  allocate single-range range table */
 		devpriv->user_ao_range_table =
 		    kmalloc(sizeof(struct comedi_lrange) +
 			    sizeof(struct comedi_krange), GFP_KERNEL);
-		
+		/*  initialize ao range */
 		devpriv->user_ao_range_table->length = 1;
 		user_ao_range = devpriv->user_ao_range_table->range;
 		user_ao_range->min = it->options[6];
@@ -1404,7 +1575,7 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 
 	s = dev->subdevices + 0;
 	dev->read_subdev = s;
-	
+	/* ai */
 	if (thisboard->ai) {
 		s->type = COMEDI_SUBD_AI;
 		s->subdev_flags = SDF_READABLE | SDF_CMD_READ;
@@ -1418,7 +1589,7 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 			s->subdev_flags |= SDF_DIFF;
 		}
 		s->maxdata = (1 << thisboard->ai_nbits) - 1;
-		if (devpriv->user_ai_range_table) { 
+		if (devpriv->user_ai_range_table) { /*  user defined ai range */
 			s->range_table = devpriv->user_ai_range_table;
 		} else if (devpriv->ai_unipolar) {
 			s->range_table = das16_ai_uni_lranges[thisboard->ai_pg];
@@ -1435,13 +1606,13 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 
 	s = dev->subdevices + 1;
-	
+	/* ao */
 	if (thisboard->ao) {
 		s->type = COMEDI_SUBD_AO;
 		s->subdev_flags = SDF_WRITABLE;
 		s->n_chan = 2;
 		s->maxdata = (1 << thisboard->ao_nbits) - 1;
-		
+		/*  user defined ao range */
 		if (devpriv->user_ao_range_table)
 			s->range_table = devpriv->user_ao_range_table;
 		else
@@ -1453,7 +1624,7 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 
 	s = dev->subdevices + 2;
-	
+	/* di */
 	if (thisboard->di) {
 		s->type = COMEDI_SUBD_DI;
 		s->subdev_flags = SDF_READABLE;
@@ -1466,7 +1637,7 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 
 	s = dev->subdevices + 3;
-	
+	/* do */
 	if (thisboard->do_) {
 		s->type = COMEDI_SUBD_DO;
 		s->subdev_flags = SDF_WRITABLE | SDF_READABLE;
@@ -1474,14 +1645,14 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		s->maxdata = 1;
 		s->range_table = &range_digital;
 		s->insn_bits = thisboard->do_;
-		
+		/*  initialize digital output lines */
 		outb(s->state, dev->iobase + DAS16_DIO);
 	} else {
 		s->type = COMEDI_SUBD_UNUSED;
 	}
 
 	s = dev->subdevices + 4;
-	
+	/* 8255 */
 	if (thisboard->i8255_offset != 0) {
 		subdev_8255_init(dev, s, NULL, (dev->iobase +
 						thisboard->i8255_offset));
@@ -1490,11 +1661,11 @@ static int das16_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 
 	das16_reset(dev);
-	
+	/* set the interrupt level */
 	devpriv->control_state = DAS16_IRQ(dev->irq);
 	outb(devpriv->control_state, dev->iobase + DAS16_CONTROL);
 
-	
+	/*  turn on das1600 mode if available */
 	if (thisboard->size > 0x400) {
 		outb(DAS1600_ENABLE_VAL, dev->iobase + DAS1600_ENABLE);
 		outb(0, dev->iobase + DAS1600_CONV);
@@ -1557,31 +1728,37 @@ static void __exit driver_das16_cleanup_module(void)
 module_init(driver_das16_init_module);
 module_exit(driver_das16_cleanup_module);
 
+/* utility function that suggests a dma transfer size in bytes */
 static unsigned int das16_suggest_transfer_size(struct comedi_device *dev,
 						struct comedi_cmd cmd)
 {
 	unsigned int size;
 	unsigned int freq;
 
+	/* if we are using timer interrupt, we don't care how long it
+	 * will take to complete transfer since it will be interrupted
+	 * by timer interrupt */
 	if (devpriv->timer_mode)
 		return DAS16_DMA_SIZE;
 
+	/* otherwise, we are relying on dma terminal count interrupt,
+	 * so pick a reasonable size */
 	if (cmd.convert_src == TRIG_TIMER)
 		freq = 1000000000 / cmd.convert_arg;
 	else if (cmd.scan_begin_src == TRIG_TIMER)
 		freq = (1000000000 / cmd.scan_begin_arg) * cmd.chanlist_len;
-	
+	/*  return some default value */
 	else
 		freq = 0xffffffff;
 
 	if (cmd.flags & TRIG_WAKE_EOS) {
 		size = sample_size * cmd.chanlist_len;
 	} else {
-		
+		/*  make buffer fill in no more than 1/3 second */
 		size = (freq / 3) * sample_size;
 	}
 
-	
+	/*  set a minimum and maximum size allowed */
 	if (size > DAS16_DMA_SIZE)
 		size = DAS16_DMA_SIZE - DAS16_DMA_SIZE % sample_size;
 	else if (size < sample_size)

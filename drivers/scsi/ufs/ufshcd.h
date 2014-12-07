@@ -68,6 +68,16 @@
 #define UFSHCD "ufshcd"
 #define UFSHCD_DRIVER_VERSION "0.2"
 
+/**
+ * struct uic_command - UIC command structure
+ * @command: UIC command
+ * @argument1: UIC command argument 1
+ * @argument2: UIC command argument 2
+ * @argument3: UIC command argument 3
+ * @cmd_active: Indicate if UIC command is outstanding
+ * @result: UIC command result
+ * @done: UIC command completion
+ */
 struct uic_command {
 	u32 command;
 	u32 argument1;
@@ -78,6 +88,20 @@ struct uic_command {
 	struct completion done;
 };
 
+/**
+ * struct ufshcd_lrb - local reference block
+ * @utr_descriptor_ptr: UTRD address of the command
+ * @ucd_cmd_ptr: UCD address of the command
+ * @ucd_rsp_ptr: Response UPIU address for this command
+ * @ucd_prdt_ptr: PRDT address of the command
+ * @cmd: pointer to SCSI command
+ * @sense_buffer: pointer to sense buffer address of the SCSI command
+ * @sense_bufflen: Length of the sense buffer
+ * @scsi_status: SCSI status of the command
+ * @command_type: SCSI, UFS, Query.
+ * @task_tag: Task tag of the command
+ * @lun: LUN of the command
+ */
 struct ufshcd_lrb {
 	struct utp_transfer_req_desc *utr_descriptor_ptr;
 	struct utp_upiu_cmd *ucd_cmd_ptr;
@@ -95,15 +119,43 @@ struct ufshcd_lrb {
 };
 
 
+/**
+ * struct ufs_hba - per adapter private structure
+ * @mmio_base: UFSHCI base register address
+ * @ucdl_base_addr: UFS Command Descriptor base address
+ * @utrdl_base_addr: UTP Transfer Request Descriptor base address
+ * @utmrdl_base_addr: UTP Task Management Descriptor base address
+ * @ucdl_dma_addr: UFS Command Descriptor DMA address
+ * @utrdl_dma_addr: UTRDL DMA address
+ * @utmrdl_dma_addr: UTMRDL DMA address
+ * @host: Scsi_Host instance of the driver
+ * @dev: device handle
+ * @lrb: local reference block
+ * @outstanding_tasks: Bits representing outstanding task requests
+ * @outstanding_reqs: Bits representing outstanding transfer requests
+ * @capabilities: UFS Controller Capabilities
+ * @nutrs: Transfer Request Queue depth supported by controller
+ * @nutmrs: Task Management Queue depth supported by controller
+ * @ufs_version: UFS Version to which controller complies
+ * @irq: Irq number of the controller
+ * @active_uic_cmd: handle of active UIC command
+ * @uic_cmd_mutex: mutex for uic command
+ * @ufshcd_tm_wait_queue: wait queue for task management
+ * @tm_condition: condition variable for task management
+ * @ufshcd_state: UFSHCD states
+ * @intr_mask: Interrupt Mask Bits
+ * @feh_workq: Work queue for fatal controller error handling
+ * @errors: HBA errors
+ */
 struct ufs_hba {
 	void __iomem *mmio_base;
 
-	
+	/* Virtual memory reference */
 	struct utp_transfer_cmd_desc *ucdl_base_addr;
 	struct utp_transfer_req_desc *utrdl_base_addr;
 	struct utp_task_req_desc *utmrdl_base_addr;
 
-	
+	/* DMA memory reference */
 	dma_addr_t ucdl_dma_addr;
 	dma_addr_t utrdl_dma_addr;
 	dma_addr_t utmrdl_dma_addr;
@@ -131,10 +183,10 @@ struct ufs_hba {
 	u32 ufshcd_state;
 	u32 intr_mask;
 
-	
+	/* Work Queues */
 	struct work_struct feh_workq;
 
-	
+	/* HBA Errors */
 	u32 errors;
 };
 
@@ -147,9 +199,13 @@ int ufshcd_init(struct device *, struct ufs_hba ** , void __iomem * ,
 			unsigned int);
 void ufshcd_remove(struct ufs_hba *);
 
+/**
+ * ufshcd_hba_stop - Send controller to reset state
+ * @hba: per adapter instance
+ */
 static inline void ufshcd_hba_stop(struct ufs_hba *hba)
 {
 	ufshcd_writel(hba, CONTROLLER_DISABLE,  REG_CONTROLLER_ENABLE);
 }
 
-#endif 
+#endif /* End of Header */

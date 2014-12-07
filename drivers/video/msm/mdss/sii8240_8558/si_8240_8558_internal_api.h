@@ -33,16 +33,16 @@ uint16_t si_mhl_tx_drv_get_incoming_vertical_total(
 void si_mhl_tx_process_info_frame_change(void * driver_context
 									, vendor_specific_info_frame_t *vs_info_frame
 									, avi_info_frame_t *avi_info_frame);
-#ifdef ENABLE_COLOR_SPACE_DEBUG_PRINT 
+#ifdef ENABLE_COLOR_SPACE_DEBUG_PRINT //(
 
 void print_color_settings_impl( void *drv_context,char *pszId,int iLine);
 #define print_color_settings(drv_context,id,line) print_color_settings_impl(drv_context,id,line);
 
-#else 
+#else //)(
 
 #define print_color_settings(drv_context,id,line)
 
-#endif 
+#endif //)
 #if 0
 void si_mhl_tx_tmds_enable( void *drv_context);
-#endif 
+#endif // 0

@@ -27,18 +27,20 @@
 #ifndef	_bcmsrom_fmt_h_
 #define	_bcmsrom_fmt_h_
 
-#define SROM_MAXREV		11	
+#define SROM_MAXREV		11	/* max revisiton supported by driver */
 
+/* Maximum srom: 6 Kilobits == 768 bytes */
 #define	SROM_MAX		768
 #define SROM_MAXW		384
 #define VARS_MAX		4096
 
+/* PCI fields */
 #define PCI_F0DEVID		48
 
 
 #define	SROM_WORDS		64
 
-#define SROM3_SWRGN_OFF		28	
+#define SROM3_SWRGN_OFF		28	/* s/w region offset in words */
 
 #define	SROM_SSID		2
 
@@ -76,6 +78,7 @@
 #define	SROM2_ENETPHY		45
 
 #define	SROM_AABREV		46
+/* Fields in AABREV */
 #define	SROM_BR_MASK		0x00ff
 #define	SROM_CC_MASK		0x0f00
 #define	SROM_CC_SHIFT		8
@@ -113,6 +116,11 @@
 
 #define	SROM_CRCREV		63
 
+/* SROM Rev 4: Reallocate the software part of the srom to accomodate
+ * MIMO features. It assumes up to two PCIE functions and 440 bytes
+ * of useable srom i.e. the useable storage in chips with OTP that
+ * implements hardware redundancy.
+ */
 
 #define	SROM4_WORDS		220
 
@@ -173,6 +181,7 @@
 #define SROM4_SWITCH_SHIFT	8
 
 
+/* Per-path fields */
 #define	MAX_PATH_SROM		4
 #define	SROM4_PATH0		64
 #define	SROM4_PATH1		87
@@ -187,6 +196,7 @@
 #define	SROM4_5GL_PA		11
 #define	SROM4_5GH_PA		15
 
+/* Fields in the ITT_MAXP and 5GLH_MAXP words */
 #define	B2G_MAXP_MASK		0xff
 #define	B2G_ITT_SHIFT		8
 #define	B5G_MAXP_MASK		0xff
@@ -194,6 +204,7 @@
 #define	B5GH_MAXP_MASK		0xff
 #define	B5GL_MAXP_SHIFT		8
 
+/* All the miriad power offsets */
 #define	SROM4_2G_CCKPO		156
 #define	SROM4_2G_OFDMPO		157
 #define	SROM4_5G_OFDMPO		159
@@ -211,6 +222,10 @@
 #define	SROM4_CRCREV		219
 
 
+/* SROM Rev 8: Make space for a 48word hardware header for PCIe rev >= 6.
+ * This is acombined srom for both MIMO and SISO boards, usable in
+ * the .130 4Kilobit OTP with hardware redundancy.
+ */
 
 #define	SROM8_SIGN		64
 
@@ -261,17 +276,22 @@
 
 #define SROM8_THERMAL		89
 
+/* Temp sense related entries */
 #define SROM8_MPWR_RAWTS		90
 #define SROM8_TS_SLP_OPT_CORRX	91
+/* FOC: freiquency offset correction, HWIQ: H/W IOCAL enable, IQSWP: IQ CAL swap disable */
 #define SROM8_FOC_HWIQ_IQSWP	92
 
 #define SROM8_EXTLNAGAIN        93
 
+/* Temperature delta for PHY calibration */
 #define SROM8_PHYCAL_TEMPDELTA	94
 
+/* Measured power 1 & 2, 0-13 bits at offset 95, MSB 2 bits are unused for now. */
 #define SROM8_MPWR_1_AND_2	95
 
 
+/* Per-path offsets & fields */
 #define	SROM8_PATH0		96
 #define	SROM8_PATH1		112
 #define	SROM8_PATH2		128
@@ -285,6 +305,7 @@
 #define	SROM8_5GL_PA		9
 #define	SROM8_5GH_PA		12
 
+/* All the miriad power offsets */
 #define	SROM8_2G_CCKPO		160
 
 #define	SROM8_2G_OFDMPO		161
@@ -302,8 +323,10 @@
 #define	SROM8_BW40PO		203
 #define	SROM8_BWDUPPO		204
 
+/* SISO PA parameters are in the path0 spaces */
 #define	SROM8_SISO		96
 
+/* Legacy names for SISO PA paramters */
 #define	SROM8_W0_ITTMAXP	(SROM8_SISO + SROM8_2G_ITT_MAXP)
 #define	SROM8_W0_PAB0		(SROM8_SISO + SROM8_2G_PA)
 #define	SROM8_W0_PAB1		(SROM8_SISO + SROM8_2G_PA + 1)
@@ -322,6 +345,7 @@
 
 #define	SROM8_CRCREV		219
 
+/* SROM REV 9 */
 #define SROM9_2GPO_CCKBW20	160
 #define SROM9_2GPO_CCKBW20UL	161
 #define SROM9_2GPO_LOFDMBW20	162
@@ -376,6 +400,7 @@
 #define	SROM10_SIGNATURE	SROM4_SIGNATURE
 
 
+/* SROM REV 11 */
 #define SROM11_BREV			65
 
 #define SROM11_BFL0			66
@@ -408,6 +433,7 @@
 #define SROM11_FEM_CFG1			85
 #define SROM11_FEM_CFG2			86
 
+/* Masks and offsets for FEM_CFG */
 #define SROM11_FEMCTRL_MASK		0xf800
 #define SROM11_FEMCTRL_SHIFT		11
 #define SROM11_PAPDCAP_MASK		0x0400
@@ -429,6 +455,7 @@
 #define SROM11_PHYCAL_TEMPDELTA  	92
 #define SROM11_MPWR_1_AND_2 		93
 
+/* Masks and offsets for Terrmal parameters */
 #define SROM11_TEMPS_PERIOD_MASK	0xf0
 #define SROM11_TEMPS_PERIOD_SHIFT	4
 #define SROM11_TEMPS_HYSTERESIS_MASK	0x0f
@@ -447,6 +474,7 @@
 
 #define SROM11_SUBBAND5GVER 		107
 
+/* Per-path fields and offset */
 #define	MAX_PATH_SROM_11		3
 #define SROM11_PATH0			108
 #define SROM11_PATH1			128
@@ -463,6 +491,7 @@
 #define	SROM11_5GB2_PA			14
 #define	SROM11_5GB3_PA			17
 
+/* Masks and offsets for rxgains */
 #define SROM11_RXGAINS5GTRELNABYPA_MASK		0x8000
 #define SROM11_RXGAINS5GTRELNABYPA_SHIFT	15
 #define SROM11_RXGAINS5GTRISOA_MASK		0x7800
@@ -488,6 +517,7 @@
 #define SROM11_RXGAINS5GMELNAGAINA_MASK		0x0007
 #define SROM11_RXGAINS5GMELNAGAINA_SHIFT	0
 
+/* Power per rate */
 #define SROM11_CCKBW202GPO		168
 #define SROM11_CCKBW20UL2GPO		169
 #define SROM11_MCSBW202GPO		170
@@ -544,6 +574,7 @@
 #define SROM11_DOT11AGDUPHRPO 		217
 #define SROM11_DOT11AGDUPLRPO		218
 
+/* MISC */
 #define SROM11_PCIEINGRESS_WAR		220
 #define SROM11_SAR			221
 
@@ -566,11 +597,11 @@
 #define	SROM11_SIGNATURE		0x0634
 
 typedef struct {
-	uint8 tssipos;		
-	uint8 extpagain;	
-	uint8 pdetrange;	
-	uint8 triso;		
-	uint8 antswctrllut;	
+	uint8 tssipos;		/* TSSI positive slope, 1: positive, 0: negative */
+	uint8 extpagain;	/* Ext PA gain-type: full-gain: 0, pa-lite: 1, no_pa: 2 */
+	uint8 pdetrange;	/* support 32 combinations of different Pdet dynamic ranges */
+	uint8 triso;		/* TR switch isolation */
+	uint8 antswctrllut;	/* antswctrl lookup table configuration: 32 possible choices */
 } srom_fem_t;
 
-#endif	
+#endif	/* _bcmsrom_fmt_h_ */

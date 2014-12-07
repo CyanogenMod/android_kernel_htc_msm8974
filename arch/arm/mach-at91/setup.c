@@ -46,10 +46,10 @@ void __init at91_init_irq_default(void)
 
 void __init at91_init_interrupts(unsigned int *priority)
 {
-	
+	/* Initialize the AIC interrupt controller */
 	at91_aic_init(priority);
 
-	
+	/* Enable GPIO interrupts */
 	at91_gpio_irq_setup();
 }
 
@@ -145,12 +145,12 @@ static void __init soc_detect(u32 dbgu_base)
 		break;
 	}
 
-	
+	/* at91sam9g10 */
 	if ((cidr & ~AT91_CIDR_EXT) == ARCH_ID_AT91SAM9G10) {
 		at91_soc_initdata.type = AT91_SOC_SAM9G10;
 		at91_boot_soc = at91sam9261_soc;
 	}
-	
+	/* at91sam9xe */
 	else if ((cidr & AT91_CIDR_ARCH) == ARCH_FAMILY_AT91SAM9XE) {
 		at91_soc_initdata.type = AT91_SOC_SAM9260;
 		at91_soc_initdata.subtype = AT91_SOC_SAM9XE;
@@ -162,7 +162,7 @@ static void __init soc_detect(u32 dbgu_base)
 
 	at91_soc_initdata.cidr = cidr;
 
-	
+	/* sub version of soc */
 	at91_soc_initdata.exid = __raw_readl(AT91_IO_P2V(dbgu_base) + AT91_DBGU_EXID);
 
 	if (at91_soc_initdata.type == AT91_SOC_SAM9G45) {
@@ -243,7 +243,7 @@ EXPORT_SYMBOL(at91_get_soc_subtype);
 
 void __init at91_map_io(void)
 {
-	
+	/* Map peripherals */
 	iotable_init(&at91_io_desc, 1);
 
 	at91_soc_initdata.type = AT91_SOC_NONE;
@@ -306,7 +306,7 @@ void __init at91_ioremap_matrix(u32 base_addr)
 static struct of_device_id rstc_ids[] = {
 	{ .compatible = "atmel,at91sam9260-rstc", .data = at91sam9_alt_restart },
 	{ .compatible = "atmel,at91sam9g45-rstc", .data = at91sam9g45_restart },
-	{  }
+	{ /*sentinel*/ }
 };
 
 static void at91_dt_rstc(void)
@@ -334,7 +334,7 @@ static void at91_dt_rstc(void)
 static struct of_device_id ramc_ids[] = {
 	{ .compatible = "atmel,at91sam9260-sdramc" },
 	{ .compatible = "atmel,at91sam9g45-ddramc" },
-	{  }
+	{ /*sentinel*/ }
 };
 
 static void at91_dt_ramc(void)
@@ -348,7 +348,7 @@ static void at91_dt_ramc(void)
 	at91_ramc_base[0] = of_iomap(np, 0);
 	if (!at91_ramc_base[0])
 		panic("unable to map ramc[0] cpu registers\n");
-	
+	/* the controller may have 2 banks */
 	at91_ramc_base[1] = of_iomap(np, 1);
 
 	of_node_put(np);
@@ -358,7 +358,7 @@ static struct of_device_id shdwc_ids[] = {
 	{ .compatible = "atmel,at91sam9260-shdwc", },
 	{ .compatible = "atmel,at91sam9rl-shdwc", },
 	{ .compatible = "atmel,at91sam9x5-shdwc", },
-	{  }
+	{ /*sentinel*/ }
 };
 
 static const char *shdwc_wakeup_modes[] = {
@@ -436,10 +436,10 @@ void __init at91_dt_initialize(void)
 	at91_dt_ramc();
 	at91_dt_shdwc();
 
-	
+	/* Init clock subsystem */
 	at91_dt_clock_init();
 
-	
+	/* Register the processor-specific clocks */
 	at91_boot_soc.register_clocks();
 
 	at91_boot_soc.init();
@@ -450,10 +450,10 @@ void __init at91_initialize(unsigned long main_clock)
 {
 	at91_boot_soc.ioremap_registers();
 
-	
+	/* Init clock subsystem */
 	at91_clock_init(main_clock);
 
-	
+	/* Register the processor-specific clocks */
 	at91_boot_soc.register_clocks();
 
 	at91_boot_soc.init();

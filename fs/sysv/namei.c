@@ -30,6 +30,8 @@ static int add_nondir(struct dentry *dentry, struct inode *inode)
 static int sysv_hash(const struct dentry *dentry, const struct inode *inode,
 		struct qstr *qstr)
 {
+	/* Truncate the name in place, avoids having to define a compare
+	   function. */
 	if (qstr->len > SYSV_NAMELEN) {
 		qstr->len = SYSV_NAMELEN;
 		qstr->hash = full_name_hash(qstr->name, qstr->len);
@@ -200,6 +202,10 @@ static int sysv_rmdir(struct inode * dir, struct dentry * dentry)
 	return err;
 }
 
+/*
+ * Anybody can rename anything with this: the permission checks are left to the
+ * higher-level routines.
+ */
 static int sysv_rename(struct inode * old_dir, struct dentry * old_dentry,
 		  struct inode * new_dir, struct dentry * new_dentry)
 {
@@ -268,6 +274,9 @@ out:
 	return err;
 }
 
+/*
+ * directories can handle most operations...
+ */
 const struct inode_operations sysv_dir_inode_operations = {
 	.create		= sysv_create,
 	.lookup		= sysv_lookup,

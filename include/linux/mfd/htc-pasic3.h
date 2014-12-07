@@ -18,10 +18,16 @@
 extern void pasic3_write_register(struct device *dev, u32 reg, u8 val);
 extern u8 pasic3_read_register(struct device *dev, u32 reg);
 
+/*
+ * mask for registers 0x20,0x21,0x22
+ */
 #define PASIC3_MASK_LED0 0x04
 #define PASIC3_MASK_LED1 0x08
 #define PASIC3_MASK_LED2 0x40
 
+/*
+ * bits in register 0x06
+ */
 #define PASIC3_BIT2_LED0 0x08
 #define PASIC3_BIT2_LED1 0x10
 #define PASIC3_BIT2_LED2 0x20

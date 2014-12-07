@@ -35,18 +35,30 @@
 #include <asm/gdb-stub.h>
 #include "internal.h"
 
+/*
+ * power management idle function, if any..
+ */
 void (*pm_idle)(void);
 EXPORT_SYMBOL(pm_idle);
 
+/*
+ * return saved PC of a blocked thread.
+ */
 unsigned long thread_saved_pc(struct task_struct *tsk)
 {
 	return ((unsigned long *) tsk->thread.sp)[3];
 }
 
+/*
+ * power off function, if any
+ */
 void (*pm_power_off)(void);
 EXPORT_SYMBOL(pm_power_off);
 
 #if !defined(CONFIG_SMP) || defined(CONFIG_HOTPLUG_CPU)
+/*
+ * we use this if we don't have any better idle routine
+ */
 static void default_idle(void)
 {
 	local_irq_disable();
@@ -56,13 +68,22 @@ static void default_idle(void)
 		local_irq_enable();
 }
 
-#else 
+#else /* !CONFIG_SMP || CONFIG_HOTPLUG_CPU  */
+/*
+ * On SMP it's slightly faster (but much more power-consuming!)
+ * to poll the ->work.need_resched flag instead of waiting for the
+ * cross-CPU IPI to arrive. Use this option with caution.
+ */
 static inline void poll_idle(void)
 {
 	int oldval;
 
 	local_irq_enable();
 
+	/*
+	 * Deal with another CPU just having chosen a thread to
+	 * run here:
+	 */
 	oldval = test_and_clear_thread_flag(TIF_NEED_RESCHED);
 
 	if (!oldval) {
@@ -74,11 +95,17 @@ static inline void poll_idle(void)
 		set_need_resched();
 	}
 }
-#endif 
+#endif /* !CONFIG_SMP || CONFIG_HOTPLUG_CPU */
 
+/*
+ * the idle thread
+ * - there's no useful work to be done, so just try to conserve power and have
+ *   a low exit latency (ie sit in a loop waiting for somebody to say that
+ *   they'd like to reschedule)
+ */
 void cpu_idle(void)
 {
-	
+	/* endless idle loop with no priority at all */
 	for (;;) {
 		while (!need_resched()) {
 			void (*idle)(void);
@@ -88,9 +115,9 @@ void cpu_idle(void)
 			if (!idle) {
 #if defined(CONFIG_SMP) && !defined(CONFIG_HOTPLUG_CPU)
 				idle = poll_idle;
-#else  
+#else  /* CONFIG_SMP && !CONFIG_HOTPLUG_CPU */
 				idle = default_idle;
-#endif 
+#endif /* CONFIG_SMP && !CONFIG_HOTPLUG_CPU */
 			}
 			idle();
 		}
@@ -134,6 +161,9 @@ void show_regs(struct pt_regs *regs)
 {
 }
 
+/*
+ * create a kernel thread
+ */
 int kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
 	struct pt_regs regs;
@@ -146,12 +176,15 @@ int kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 	local_save_flags(regs.epsw);
 	regs.epsw |= EPSW_IE | EPSW_IM_7;
 
-	
+	/* Ok, create the new process.. */
 	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0,
 		       NULL, NULL);
 }
 EXPORT_SYMBOL(kernel_thread);
 
+/*
+ * free current thread data structures etc..
+ */
 void exit_thread(void)
 {
 	exit_fpu();
@@ -166,15 +199,27 @@ void release_thread(struct task_struct *dead_task)
 {
 }
 
+/*
+ * we do not have to muck with descriptors here, that is
+ * done in switch_mm() as needed.
+ */
 void copy_segments(struct task_struct *p, struct mm_struct *new_mm)
 {
 }
 
+/*
+ * this gets called before we allocate a new thread and copy the current task
+ * into it so that we can store lazy state into memory
+ */
 void prepare_to_copy(struct task_struct *tsk)
 {
 	unlazy_fpu(tsk);
 }
 
+/*
+ * set up the kernel stack for a new thread and copy arch-specific thread
+ * control information
+ */
 int copy_thread(unsigned long clone_flags,
 		unsigned long c_usp, unsigned long ustk_size,
 		struct task_struct *p, struct pt_regs *kregs)
@@ -187,22 +232,22 @@ int copy_thread(unsigned long clone_flags,
 
 	c_ksp = (unsigned long) task_stack_page(p) + THREAD_SIZE;
 
-	
+	/* allocate the userspace exception frame and set it up */
 	c_ksp -= sizeof(struct pt_regs);
 	c_uregs = (struct pt_regs *) c_ksp;
 
 	p->thread.uregs = c_uregs;
 	*c_uregs = *uregs;
 	c_uregs->sp = c_usp;
-	c_uregs->epsw &= ~EPSW_FE; 
+	c_uregs->epsw &= ~EPSW_FE; /* my FPU */
 
-	c_ksp -= 12; 
+	c_ksp -= 12; /* allocate function call ABI slack */
 
-	
+	/* the new TLS pointer is passed in as arg #5 to sys_clone() */
 	if (clone_flags & CLONE_SETTLS)
 		c_uregs->e2 = current_frame()->d3;
 
-	
+	/* set up the return kernel frame if called from kernel_thread() */
 	c_kregs = c_uregs;
 	if (kregs != uregs) {
 		c_ksp -= sizeof(struct pt_regs);
@@ -211,13 +256,13 @@ int copy_thread(unsigned long clone_flags,
 		c_kregs->sp = c_usp;
 		c_kregs->next = c_uregs;
 #ifdef CONFIG_MN10300_CURRENT_IN_E2
-		c_kregs->e2 = (unsigned long) p; 
+		c_kregs->e2 = (unsigned long) p; /* current */
 #endif
 
-		c_ksp -= 12; 
+		c_ksp -= 12; /* allocate function call ABI slack */
 	}
 
-	
+	/* set up things up so the scheduler can start the new task */
 	ti->frame	= c_kregs;
 	p->thread.a3	= (unsigned long) c_kregs;
 	p->thread.sp	= c_ksp;
@@ -228,6 +273,10 @@ int copy_thread(unsigned long clone_flags,
 	return 0;
 }
 
+/*
+ * clone a process
+ * - tlsptr is retrieved by copy_thread() from current_frame()->d3
+ */
 asmlinkage long sys_clone(unsigned long clone_flags, unsigned long newsp,
 			  int __user *parent_tidptr, int __user *child_tidptr,
 			  int __user *tlsptr)

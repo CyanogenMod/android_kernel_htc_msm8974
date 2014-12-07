@@ -33,4 +33,4 @@
 
 #endif
 
-#endif 
+#endif /* _SPARC64_BACKOFF_H */

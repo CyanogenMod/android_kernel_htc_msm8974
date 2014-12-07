@@ -6,20 +6,22 @@
  * Released under the GPLv2.
  */
 
+/* verbose messages */
 #include <linux/kernel.h>
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
 
+/* See comments in "zero.c" */
 #include "epautoconf.c"
 
 #ifdef CONFIG_USB_G_DBGP_SERIAL
 #include "u_serial.c"
 #endif
 
-#define DRIVER_VENDOR_ID	0x0525 
-#define DRIVER_PRODUCT_ID	0xc0de 
+#define DRIVER_VENDOR_ID	0x0525 /* NetChip */
+#define DRIVER_PRODUCT_ID	0xc0de /* undefined */
 
 #define USB_DEBUG_MAX_PACKET_SIZE     8
 #define DBGP_REQ_EP0_LEN              128

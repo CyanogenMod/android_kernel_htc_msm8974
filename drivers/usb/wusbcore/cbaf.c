@@ -98,8 +98,9 @@
 #include <linux/usb/wusb.h>
 #include <linux/usb/association.h>
 
-#define CBA_NAME_LEN 0x40 
+#define CBA_NAME_LEN 0x40 /* [WUSB-AM] table 4-7 */
 
+/* An instance of a Cable-Based-Association-Framework device */
 struct cbaf {
 	struct usb_device *usb_dev;
 	struct usb_interface *usb_iface;
@@ -117,6 +118,17 @@ struct cbaf {
 	struct wusb_ckhdid ck;
 };
 
+/*
+ * Verify that a CBAF USB-interface has what we need
+ *
+ * According to [WUSB-AM], CBA devices should provide at least two
+ * interfaces:
+ *  - RETRIEVE_HOST_INFO
+ *  - ASSOCIATE
+ *
+ * If the device doesn't provide these interfaces, we do not know how
+ * to deal with it.
+ */
 static int cbaf_check(struct cbaf *cbaf)
 {
 	int result;
@@ -132,7 +144,7 @@ static int cbaf_check(struct cbaf *cbaf)
 		CBAF_REQ_GET_ASSOCIATION_INFORMATION,
 		USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
 		0, cbaf->usb_iface->cur_altsetting->desc.bInterfaceNumber,
-		cbaf->buffer, cbaf->buffer_size, 1000 );
+		cbaf->buffer, cbaf->buffer_size, 1000 /* FIXME: arbitrary */);
 	if (result < 0) {
 		dev_err(dev, "Cannot get available association types: %d\n",
 			result);
@@ -154,6 +166,11 @@ static int cbaf_check(struct cbaf *cbaf)
 			(size_t)assoc_size, sizeof(*assoc_info));
 		return result;
 	}
+	/*
+	 * From now on, we just verify, but won't error out unless we
+	 * don't find the AR_TYPE_WUSB_{RETRIEVE_HOST_INFO,ASSOCIATE}
+	 * types.
+	 */
 	itr = cbaf->buffer + sizeof(*assoc_info);
 	top = cbaf->buffer + assoc_size;
 	dev_dbg(dev, "Found %u association requests (%zu bytes)\n",
@@ -180,14 +197,14 @@ static int cbaf_check(struct cbaf *cbaf)
 
 		switch (ar_type) {
 		case AR_TYPE_WUSB:
-			
+			/* Verify we have what is mandated by [WUSB-AM]. */
 			switch (ar_subtype) {
 			case AR_TYPE_WUSB_RETRIEVE_HOST_INFO:
 				ar_name = "RETRIEVE_HOST_INFO";
 				ar_rhi = 1;
 				break;
 			case AR_TYPE_WUSB_ASSOCIATE:
-				
+				/* send assoc data */
 				ar_name = "ASSOCIATE";
 				ar_assoc = 1;
 				break;
@@ -226,6 +243,7 @@ static const struct wusb_cbaf_host_info cbaf_host_info_defaults = {
 	.HostFriendlyName_hdr     = WUSB_AR_HostFriendlyName,
 };
 
+/* Send WUSB host information (CHID and name) to a CBAF device */
 static int cbaf_send_host_info(struct cbaf *cbaf)
 {
 	struct wusb_cbaf_host_info *hi;
@@ -236,7 +254,7 @@ static int cbaf_send_host_info(struct cbaf *cbaf)
 	memset(hi, 0, sizeof(*hi));
 	*hi = cbaf_host_info_defaults;
 	hi->CHID = cbaf->chid;
-	hi->LangID = 0;	
+	hi->LangID = 0;	/* FIXME: I guess... */
 	strlcpy(hi->HostFriendlyName, cbaf->host_name, CBA_NAME_LEN);
 	name_len = strlen(cbaf->host_name);
 	hi->HostFriendlyName_hdr.len = cpu_to_le16(name_len);
@@ -247,9 +265,16 @@ static int cbaf_send_host_info(struct cbaf *cbaf)
 			USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
 			0x0101,
 			cbaf->usb_iface->cur_altsetting->desc.bInterfaceNumber,
-			hi, hi_size, 1000 );
+			hi, hi_size, 1000 /* FIXME: arbitrary */);
 }
 
+/*
+ * Get device's information (CDID) associated to CHID
+ *
+ * The device will return it's information (CDID, name, bandgroups)
+ * associated to the CHID we have set before, or 0 CDID and default
+ * name and bandgroup if no CHID set or unknown.
+ */
 static int cbaf_cdid_get(struct cbaf *cbaf)
 {
 	int result;
@@ -263,7 +288,7 @@ static int cbaf_cdid_get(struct cbaf *cbaf)
 		CBAF_REQ_GET_ASSOCIATION_REQUEST,
 		USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
 		0x0200, cbaf->usb_iface->cur_altsetting->desc.bInterfaceNumber,
-		di, cbaf->buffer_size, 1000 );
+		di, cbaf->buffer_size, 1000 /* FIXME: arbitrary */);
 	if (result < 0) {
 		dev_err(dev, "Cannot request device information: %d\n", result);
 		return result;
@@ -482,6 +507,9 @@ static const struct wusb_cbaf_cc_data_fail cbaf_cc_data_fail_defaults = {
 	.AssociationStatus_hdr    = WUSB_AR_AssociationStatus,
 };
 
+/*
+ * Send a new CC to the device.
+ */
 static int cbaf_cc_upload(struct cbaf *cbaf)
 {
 	int result;
@@ -508,7 +536,7 @@ static int cbaf_cc_upload(struct cbaf *cbaf)
 		CBAF_REQ_SET_ASSOCIATION_RESPONSE,
 		USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
 		0x0201, cbaf->usb_iface->cur_altsetting->desc.bInterfaceNumber,
-		ccd, sizeof(*ccd), 1000 );
+		ccd, sizeof(*ccd), 1000 /* FIXME: arbitrary */);
 
 	return result;
 }
@@ -557,7 +585,7 @@ static struct attribute *cbaf_dev_attrs[] = {
 };
 
 static struct attribute_group cbaf_dev_attr_group = {
-	.name = NULL,	
+	.name = NULL,	/* we want them in the same directory */
 	.attrs = cbaf_dev_attrs,
 };
 
@@ -610,7 +638,7 @@ static void cbaf_disconnect(struct usb_interface *iface)
 	usb_set_intfdata(iface, NULL);
 	usb_put_intf(iface);
 	kfree(cbaf->buffer);
-	
+	/* paranoia: clean up crypto keys */
 	kzfree(cbaf);
 }
 

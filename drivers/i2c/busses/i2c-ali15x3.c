@@ -18,7 +18,45 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+/*
+    This is the driver for the SMB Host controller on
+    Acer Labs Inc. (ALI) M1541 and M1543C South Bridges.
 
+    The M1543C is a South bridge for desktop systems.
+    The M1533 is a South bridge for portable systems.
+    They are part of the following ALI chipsets:
+       "Aladdin Pro 2": Includes the M1621 Slot 1 North bridge
+       with AGP and 100MHz CPU Front Side bus
+       "Aladdin V": Includes the M1541 Socket 7 North bridge
+       with AGP and 100MHz CPU Front Side bus
+       "Aladdin IV": Includes the M1541 Socket 7 North bridge
+       with host bus up to 83.3 MHz.
+    For an overview of these chips see http://www.acerlabs.com
+
+    The M1533/M1543C devices appear as FOUR separate devices
+    on the PCI bus. An output of lspci will show something similar
+    to the following:
+
+	00:02.0 USB Controller: Acer Laboratories Inc. M5237
+	00:03.0 Bridge: Acer Laboratories Inc. M7101
+	00:07.0 ISA bridge: Acer Laboratories Inc. M1533
+	00:0f.0 IDE interface: Acer Laboratories Inc. M5229
+
+    The SMB controller is part of the 7101 device, which is an
+    ACPI-compliant Power Management Unit (PMU).
+
+    The whole 7101 device has to be enabled for the SMB to work.
+    You can't just enable the SMB alone.
+    The SMB and the ACPI have separate I/O spaces.
+    We make sure that the SMB is enabled. We leave the ACPI alone.
+
+    This driver controls the SMB Host only.
+    The SMB Slave controller on the M15X3 is not enabled.
+
+    This driver does not use interrupts.
+*/
+
+/* Note: we assume there can only be one ALI15X3, with one SMBus interface */
 
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -31,6 +69,7 @@
 #include <linux/acpi.h>
 #include <linux/io.h>
 
+/* ALI15X3 SMBus address offsets */
 #define SMBHSTSTS	(0 + ali15x3_smba)
 #define SMBHSTCNT	(1 + ali15x3_smba)
 #define SMBHSTSTART	(2 + ali15x3_smba)
@@ -40,21 +79,29 @@
 #define SMBHSTDAT1	(5 + ali15x3_smba)
 #define SMBBLKDAT	(6 + ali15x3_smba)
 
+/* PCI Address Constants */
 #define SMBCOM		0x004
 #define SMBBA		0x014
-#define SMBATPC		0x05B	
+#define SMBATPC		0x05B	/* used to unlock xxxBA registers */
 #define SMBHSTCFG	0x0E0
 #define SMBSLVC		0x0E1
 #define SMBCLK		0x0E2
 #define SMBREV		0x008
 
-#define MAX_TIMEOUT		200	
+/* Other settings */
+#define MAX_TIMEOUT		200	/* times 1/100 sec */
 #define ALI15X3_SMB_IOSIZE	32
 
+/* this is what the Award 1004 BIOS sets them to on a ASUS P5A MB.
+   We don't use these here. If the bases aren't set to some value we
+   tell user to upgrade BIOS and we fail.
+*/
 #define ALI15X3_SMB_DEFAULTBASE	0xE800
 
+/* ALI15X3 address lock bits */
 #define ALI15X3_LOCK		0x06
 
+/* ALI15X3 command constants */
 #define ALI15X3_ABORT		0x02
 #define ALI15X3_T_OUT		0x04
 #define ALI15X3_QUICK		0x00
@@ -64,15 +111,18 @@
 #define ALI15X3_BLOCK_DATA	0x40
 #define ALI15X3_BLOCK_CLR	0x80
 
+/* ALI15X3 status register bits */
 #define ALI15X3_STS_IDLE	0x04
 #define ALI15X3_STS_BUSY	0x08
 #define ALI15X3_STS_DONE	0x10
-#define ALI15X3_STS_DEV		0x20	
-#define ALI15X3_STS_COLL	0x40	
-#define ALI15X3_STS_TERM	0x80	
-#define ALI15X3_STS_ERR		0xE0	
+#define ALI15X3_STS_DEV		0x20	/* device error */
+#define ALI15X3_STS_COLL	0x40	/* collision or no response */
+#define ALI15X3_STS_TERM	0x80	/* terminated by abort */
+#define ALI15X3_STS_ERR		0xE0	/* all the bad error bits */
 
 
+/* If force_addr is set to anything different from 0, we forcibly enable
+   the device at the given address. */
 static u16 force_addr;
 module_param(force_addr, ushort, 0);
 MODULE_PARM_DESC(force_addr,
@@ -86,14 +136,24 @@ static int __devinit ali15x3_setup(struct pci_dev *ALI15X3_dev)
 	u16 a;
 	unsigned char temp;
 
+	/* Check the following things:
+		- SMB I/O address is initialized
+		- Device is enabled
+		- We can use the addresses
+	*/
 
+	/* Unlock the register.
+	   The data sheet says that the address registers are read-only
+	   if the lock bits are 1, but in fact the address registers
+	   are zero unless you clear the lock bits.
+	*/
 	pci_read_config_byte(ALI15X3_dev, SMBATPC, &temp);
 	if (temp & ALI15X3_LOCK) {
 		temp &= ~ALI15X3_LOCK;
 		pci_write_config_byte(ALI15X3_dev, SMBATPC, temp);
 	}
 
-	
+	/* Determine the address of the SMBus area */
 	pci_read_config_word(ALI15X3_dev, SMBBA, &ali15x3_smba);
 	ali15x3_smba &= (0xffff & ~(ALI15X3_SMB_IOSIZE - 1));
 	if (ali15x3_smba == 0 && force_addr == 0) {
@@ -128,29 +188,36 @@ static int __devinit ali15x3_setup(struct pci_dev *ALI15X3_dev)
 								SMBBA, &a))
 			goto error;
 		if ((a & ~(ALI15X3_SMB_IOSIZE - 1)) != ali15x3_smba) {
-			
+			/* make sure it works */
 			dev_err(&ALI15X3_dev->dev,
 				"force address failed - not supported?\n");
 			goto error;
 		}
 	}
-	
+	/* check if whole device is enabled */
 	pci_read_config_byte(ALI15X3_dev, SMBCOM, &temp);
 	if ((temp & 1) == 0) {
 		dev_info(&ALI15X3_dev->dev, "enabling SMBus device\n");
 		pci_write_config_byte(ALI15X3_dev, SMBCOM, temp | 0x01);
 	}
 
-	
+	/* Is SMB Host controller enabled? */
 	pci_read_config_byte(ALI15X3_dev, SMBHSTCFG, &temp);
 	if ((temp & 1) == 0) {
 		dev_info(&ALI15X3_dev->dev, "enabling SMBus controller\n");
 		pci_write_config_byte(ALI15X3_dev, SMBHSTCFG, temp | 0x01);
 	}
 
-	
+	/* set SMB clock to 74KHz as recommended in data sheet */
 	pci_write_config_byte(ALI15X3_dev, SMBCLK, 0x20);
 
+	/*
+	  The interrupt routing for SMB is set up in register 0x77 in the
+	  1533 ISA Bridge device, NOT in the 7101 device.
+	  Don't bother with finding the 1533 device and reading the register.
+	if ((....... & 0x0F) == 1)
+		dev_dbg(&ALI15X3_dev->dev, "ALI15X3 using Interrupt 9 for SMBus.\n");
+	*/
 	pci_read_config_byte(ALI15X3_dev, SMBREV, &temp);
 	dev_dbg(&ALI15X3_dev->dev, "SMBREV = 0x%X\n", temp);
 	dev_dbg(&ALI15X3_dev->dev, "iALI15X3_smba = 0x%X\n", ali15x3_smba);
@@ -161,6 +228,7 @@ error:
 	return -ENODEV;
 }
 
+/* Another internally used function */
 static int ali15x3_transaction(struct i2c_adapter *adap)
 {
 	int temp;
@@ -172,42 +240,64 @@ static int ali15x3_transaction(struct i2c_adapter *adap)
 		inb_p(SMBHSTCNT), inb_p(SMBHSTCMD), inb_p(SMBHSTADD),
 		inb_p(SMBHSTDAT0), inb_p(SMBHSTDAT1));
 
-	
+	/* get status */
 	temp = inb_p(SMBHSTSTS);
 
-	
-	
+	/* Make sure the SMBus host is ready to start transmitting */
+	/* Check the busy bit first */
 	if (temp & ALI15X3_STS_BUSY) {
-	
+	/*
+	   If the host controller is still busy, it may have timed out in the
+	   previous transaction, resulting in a "SMBus Timeout" Dev.
+	   I've tried the following to reset a stuck busy bit.
+		1. Reset the controller with an ABORT command.
+		   (this doesn't seem to clear the controller if an external
+		   device is hung)
+		2. Reset the controller and the other SMBus devices with a
+		   T_OUT command.  (this clears the host busy bit if an
+		   external device is hung, but it comes back upon a new access
+		   to a device)
+		3. Disable and reenable the controller in SMBHSTCFG
+	   Worst case, nothing seems to work except power reset.
+	*/
+	/* Abort - reset the host controller */
+	/*
+	   Try resetting entire SMB bus, including other devices -
+	   This may not work either - it clears the BUSY bit but
+	   then the BUSY bit may come back on when you try and use the chip again.
+	   If that's the case you are stuck.
+	*/
 		dev_info(&adap->dev, "Resetting entire SMB Bus to "
 			"clear busy condition (%02x)\n", temp);
 		outb_p(ALI15X3_T_OUT, SMBHSTCNT);
 		temp = inb_p(SMBHSTSTS);
 	}
 
-	
+	/* now check the error bits and the busy bit */
 	if (temp & (ALI15X3_STS_ERR | ALI15X3_STS_BUSY)) {
-		
+		/* do a clear-on-write */
 		outb_p(0xFF, SMBHSTSTS);
 		if ((temp = inb_p(SMBHSTSTS)) &
 		    (ALI15X3_STS_ERR | ALI15X3_STS_BUSY)) {
-			
+			/* this is probably going to be correctable only by a power reset
+			   as one of the bits now appears to be stuck */
+			/* This may be a bus or device with electrical problems. */
 			dev_err(&adap->dev, "SMBus reset failed! (0x%02x) - "
 				"controller or device on bus is probably hung\n",
 				temp);
 			return -EBUSY;
 		}
 	} else {
-		
+		/* check and clear done bit */
 		if (temp & ALI15X3_STS_DONE) {
 			outb_p(temp, SMBHSTSTS);
 		}
 	}
 
-	
+	/* start the transaction by writing anything to the start register */
 	outb_p(0xFF, SMBHSTSTART);
 
-	
+	/* We will always wait for a fraction of a second! */
 	timeout = 0;
 	do {
 		msleep(1);
@@ -215,7 +305,7 @@ static int ali15x3_transaction(struct i2c_adapter *adap)
 	} while ((!(temp & (ALI15X3_STS_ERR | ALI15X3_STS_DONE)))
 		 && (timeout++ < MAX_TIMEOUT));
 
-	
+	/* If the SMBus is still busy, we give up */
 	if (timeout > MAX_TIMEOUT) {
 		result = -ETIMEDOUT;
 		dev_err(&adap->dev, "SMBus Timeout!\n");
@@ -226,6 +316,12 @@ static int ali15x3_transaction(struct i2c_adapter *adap)
 		dev_dbg(&adap->dev, "Error: Failed bus transaction\n");
 	}
 
+	/*
+	  Unfortunately the ALI SMB controller maps "no response" and "bus
+	  collision" into a single bit. No response is the usual case so don't
+	  do a printk.
+	  This means that bus collisions go unreported.
+	*/
 	if (temp & ALI15X3_STS_COLL) {
 		result = -ENXIO;
 		dev_dbg(&adap->dev,
@@ -233,7 +329,7 @@ static int ali15x3_transaction(struct i2c_adapter *adap)
 			inb_p(SMBHSTADD));
 	}
 
-	
+	/* haven't ever seen this */
 	if (temp & ALI15X3_STS_DEV) {
 		result = -EIO;
 		dev_err(&adap->dev, "Error: device error\n");
@@ -245,6 +341,7 @@ static int ali15x3_transaction(struct i2c_adapter *adap)
 	return result;
 }
 
+/* Return negative errno on error. */
 static s32 ali15x3_access(struct i2c_adapter * adap, u16 addr,
 		   unsigned short flags, char read_write, u8 command,
 		   int size, union i2c_smbus_data * data)
@@ -253,9 +350,9 @@ static s32 ali15x3_access(struct i2c_adapter * adap, u16 addr,
 	int temp;
 	int timeout;
 
-	
+	/* clear all the bits (clear-on-write) */
 	outb_p(0xFF, SMBHSTSTS);
-	
+	/* make sure SMBus is idle */
 	temp = inb_p(SMBHSTSTS);
 	for (timeout = 0;
 	     (timeout < MAX_TIMEOUT) && !(temp & ALI15X3_STS_IDLE);
@@ -313,7 +410,7 @@ static s32 ali15x3_access(struct i2c_adapter * adap, u16 addr,
 				data->block[0] = len;
 			}
 			outb_p(len, SMBHSTDAT0);
-			
+			/* Reset SMBBLKDAT */
 			outb_p(inb_p(SMBHSTCNT) | ALI15X3_BLOCK_CLR, SMBHSTCNT);
 			for (i = 1; i <= len; i++)
 				outb_p(data->block[i], SMBBLKDAT);
@@ -325,7 +422,7 @@ static s32 ali15x3_access(struct i2c_adapter * adap, u16 addr,
 		return -EOPNOTSUPP;
 	}
 
-	outb_p(size, SMBHSTCNT);	
+	outb_p(size, SMBHSTCNT);	/* output command */
 
 	temp = ali15x3_transaction(adap);
 	if (temp)
@@ -336,7 +433,7 @@ static s32 ali15x3_access(struct i2c_adapter * adap, u16 addr,
 
 
 	switch (size) {
-	case ALI15X3_BYTE:	
+	case ALI15X3_BYTE:	/* Result put in SMBHSTDAT0 */
 		data->byte = inb_p(SMBHSTDAT0);
 		break;
 	case ALI15X3_BYTE_DATA:
@@ -350,7 +447,7 @@ static s32 ali15x3_access(struct i2c_adapter * adap, u16 addr,
 		if (len > 32)
 			len = 32;
 		data->block[0] = len;
-		
+		/* Reset SMBBLKDAT */
 		outb_p(inb_p(SMBHSTCNT) | ALI15X3_BLOCK_CLR, SMBHSTCNT);
 		for (i = 1; i <= data->block[0]; i++) {
 			data->block[i] = inb_p(SMBBLKDAT);
@@ -395,7 +492,7 @@ static int __devinit ali15x3_probe(struct pci_dev *dev, const struct pci_device_
 		return -ENODEV;
 	}
 
-	
+	/* set up the sysfs linkage to our parent device */
 	ali15x3_adapter.dev.parent = &dev->dev;
 
 	snprintf(ali15x3_adapter.name, sizeof(ali15x3_adapter.name),

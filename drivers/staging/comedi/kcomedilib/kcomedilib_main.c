@@ -85,7 +85,7 @@ static int comedi_do_insn(struct comedi_device *dev, struct comedi_insn *insn)
 	struct comedi_subdevice *s;
 	int ret = 0;
 
-	
+	/* a subdevice instruction */
 	if (insn->subdev >= dev->n_subdevices) {
 		ret = -EINVAL;
 		goto error;
@@ -98,7 +98,7 @@ static int comedi_do_insn(struct comedi_device *dev, struct comedi_insn *insn)
 		goto error;
 	}
 
-	
+	/* XXX check lock */
 
 	ret = comedi_check_chanlist(s, 1, &insn->chanspec);
 	if (ret < 0) {
@@ -118,7 +118,7 @@ static int comedi_do_insn(struct comedi_device *dev, struct comedi_insn *insn)
 		ret = s->insn_bits(dev, s, insn, insn->data);
 		break;
 	case INSN_CONFIG:
-		
+		/* XXX should check instruction length */
 		ret = s->insn_config(dev, s, insn, insn->data);
 		break;
 	default:

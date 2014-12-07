@@ -27,6 +27,16 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
 
+/**
+ * struct usb_udc - describes one usb device controller
+ * @driver - the gadget driver pointer. For use by the class code
+ * @dev - the child device to the actual controller
+ * @gadget - the gadget. For use by the class code
+ * @list - for use by the udc class driver
+ *
+ * This represents the internal data structure which is used by the UDC-class
+ * to hold information about udc driver and gadget together.
+ */
 struct usb_udc {
 	struct usb_gadget_driver	*driver;
 	struct usb_gadget		*gadget;
@@ -38,6 +48,7 @@ static struct class *udc_class;
 static LIST_HEAD(udc_list);
 static DEFINE_MUTEX(udc_lock);
 
+/* ------------------------------------------------------------------------- */
 
 int usb_gadget_map_request(struct usb_gadget *gadget,
 		struct usb_request *req, int is_in)
@@ -88,7 +99,23 @@ void usb_gadget_unmap_request(struct usb_gadget *gadget,
 }
 EXPORT_SYMBOL_GPL(usb_gadget_unmap_request);
 
+/* ------------------------------------------------------------------------- */
 
+/**
+ * usb_gadget_start - tells usb device controller to start up
+ * @gadget: The gadget we want to get started
+ * @driver: The driver we want to bind to @gadget
+ * @bind: The bind function for @driver
+ *
+ * This call is issued by the UDC Class driver when it's about
+ * to register a gadget driver to the device controller, before
+ * calling gadget driver's bind() method.
+ *
+ * It allows the controller to be powered off until strictly
+ * necessary to have it powered on.
+ *
+ * Returns zero on success, else negative errno.
+ */
 static inline int usb_gadget_start(struct usb_gadget *gadget,
 		struct usb_gadget_driver *driver,
 		int (*bind)(struct usb_gadget *))
@@ -96,24 +123,69 @@ static inline int usb_gadget_start(struct usb_gadget *gadget,
 	return gadget->ops->start(driver, bind);
 }
 
+/**
+ * usb_gadget_udc_start - tells usb device controller to start up
+ * @gadget: The gadget we want to get started
+ * @driver: The driver we want to bind to @gadget
+ *
+ * This call is issued by the UDC Class driver when it's about
+ * to register a gadget driver to the device controller, before
+ * calling gadget driver's bind() method.
+ *
+ * It allows the controller to be powered off until strictly
+ * necessary to have it powered on.
+ *
+ * Returns zero on success, else negative errno.
+ */
 static inline int usb_gadget_udc_start(struct usb_gadget *gadget,
 		struct usb_gadget_driver *driver)
 {
 	return gadget->ops->udc_start(gadget, driver);
 }
 
+/**
+ * usb_gadget_stop - tells usb device controller we don't need it anymore
+ * @gadget: The device we want to stop activity
+ * @driver: The driver to unbind from @gadget
+ *
+ * This call is issued by the UDC Class driver after calling
+ * gadget driver's unbind() method.
+ *
+ * The details are implementation specific, but it can go as
+ * far as powering off UDC completely and disable its data
+ * line pullups.
+ */
 static inline void usb_gadget_stop(struct usb_gadget *gadget,
 		struct usb_gadget_driver *driver)
 {
 	gadget->ops->stop(driver);
 }
 
+/**
+ * usb_gadget_udc_stop - tells usb device controller we don't need it anymore
+ * @gadget: The device we want to stop activity
+ * @driver: The driver to unbind from @gadget
+ *
+ * This call is issued by the UDC Class driver after calling
+ * gadget driver's unbind() method.
+ *
+ * The details are implementation specific, but it can go as
+ * far as powering off UDC completely and disable its data
+ * line pullups.
+ */
 static inline void usb_gadget_udc_stop(struct usb_gadget *gadget,
 		struct usb_gadget_driver *driver)
 {
 	gadget->ops->udc_stop(gadget, driver);
 }
 
+/**
+ * usb_udc_release - release the usb_udc struct
+ * @dev: the dev member within usb_udc
+ *
+ * This is called by driver's core in order to free memory once the last
+ * reference is released.
+ */
 static void usb_udc_release(struct device *dev)
 {
 	struct usb_udc *udc;
@@ -124,6 +196,14 @@ static void usb_udc_release(struct device *dev)
 }
 
 static const struct attribute_group *usb_udc_attr_groups[];
+/**
+ * usb_add_gadget_udc - adds a new gadget to the udc class driver list
+ * @parent: the parent device to this udc. Usually the controller
+ * driver's device.
+ * @gadget: the gadget to be added to the list
+ *
+ * Returns zero on success, negative errno otherwise.
+ */
 int usb_add_gadget_udc(struct device *parent, struct usb_gadget *gadget)
 {
 	struct usb_udc		*udc;
@@ -194,6 +274,13 @@ static void usb_gadget_remove_driver(struct usb_udc *udc)
 	udc->dev.driver = NULL;
 }
 
+/**
+ * usb_del_gadget_udc - deletes @udc from udc_list
+ * @gadget: the gadget to be removed.
+ *
+ * This, will call usb_gadget_unregister_driver() if
+ * the @udc is still busy.
+ */
 void usb_del_gadget_udc(struct usb_gadget *gadget)
 {
 	struct usb_udc		*udc = NULL;
@@ -222,6 +309,7 @@ found:
 }
 EXPORT_SYMBOL_GPL(usb_del_gadget_udc);
 
+/* ------------------------------------------------------------------------- */
 
 int usb_gadget_probe_driver(struct usb_gadget_driver *driver,
 		int (*bind)(struct usb_gadget *))
@@ -234,7 +322,7 @@ int usb_gadget_probe_driver(struct usb_gadget_driver *driver,
 
 	mutex_lock(&udc_lock);
 	list_for_each_entry(udc, &udc_list, list) {
-		
+		/* Match according to usb_core_id */
 		if (!udc->driver && udc->gadget &&
 		    udc->gadget->usb_core_id == driver->usb_core_id)
 			goto found;
@@ -303,6 +391,7 @@ int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
 }
 EXPORT_SYMBOL_GPL(usb_gadget_unregister_driver);
 
+/* ------------------------------------------------------------------------- */
 
 static ssize_t usb_udc_srp_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t n)
@@ -351,6 +440,7 @@ static DEVICE_ATTR(name, S_IRUSR, usb_udc_##param##_show, NULL)
 static USB_UDC_SPEED_ATTR(current_speed, speed);
 static USB_UDC_SPEED_ATTR(maximum_speed, max_speed);
 
+/* TODO: Scheduled for removal in 3.8. */
 static ssize_t usb_udc_is_dualspeed_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {

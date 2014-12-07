@@ -24,6 +24,7 @@
 #define AR9300_EEP_MINOR_VER_1       0x1
 #define AR9300_EEP_MINOR_VER         AR9300_EEP_MINOR_VER_1
 
+/* 16-bit offset location start of calibration struct */
 #define AR9300_EEP_START_LOC         256
 #define AR9300_NUM_5G_CAL_PIERS      8
 #define AR9300_NUM_2G_CAL_PIERS      3
@@ -32,6 +33,7 @@
 #define AR9300_NUM_2G_CCK_TARGET_POWERS 2
 #define AR9300_NUM_2G_20_TARGET_POWERS  3
 #define AR9300_NUM_2G_40_TARGET_POWERS  3
+/* #define AR9300_NUM_CTLS              21 */
 #define AR9300_NUM_CTLS_5G           9
 #define AR9300_NUM_CTLS_2G           12
 #define AR9300_NUM_BAND_EDGES_5G     8
@@ -51,6 +53,7 @@
 #define AR9300_PAPRD_SCALE_2		0x70000000
 #define AR9300_PAPRD_SCALE_2_S		28
 
+/* Delta from which to start power to pdadc table */
 /* This offset is used in both open loop and closed loop power control
  * schemes. In open loop power control, it is not really needed, but for
  * the "sake of consistency" it was kept. For certain AP designs, this
@@ -59,6 +62,7 @@
  */
 #define AR9300_PWR_TABLE_OFFSET  0
 
+/* byte addressable */
 #define AR9300_EEPROM_SIZE (16*1024)
 
 #define AR9300_BASE_ADDR_4K 0xfff
@@ -163,44 +167,54 @@ enum CompressAlgorithm {
 
 struct ar9300_base_eep_hdr {
 	__le16 regDmn[2];
-	
+	/* 4 bits tx and 4 bits rx */
 	u8 txrxMask;
 	struct eepFlags opCapFlags;
 	u8 rfSilent;
 	u8 blueToothOptions;
 	u8 deviceCap;
-	
+	/* takes lower byte in eeprom location */
 	u8 deviceType;
+	/* offset in dB to be added to beginning
+	 * of pdadc table in calibration
+	 */
 	int8_t pwrTableOffset;
 	u8 params_for_tuning_caps[2];
+	/*
+	 * bit0 - enable tx temp comp
+	 * bit1 - enable tx volt comp
+	 * bit2 - enable fastClock - default to 1
+	 * bit3 - enable doubling - default to 1
+	 * bit4 - enable internal regulator - default to 1
+	 */
 	u8 featureEnable;
-	
+	/* misc flags: bit0 - turn down drivestrength */
 	u8 miscConfiguration;
 	u8 eepromWriteEnableGpio;
 	u8 wlanDisableGpio;
 	u8 wlanLedGpio;
 	u8 rxBandSelectGpio;
 	u8 txrxgain;
-	
+	/* SW controlled internal regulator fields */
 	__le32 swreg;
 } __packed;
 
 struct ar9300_modal_eep_header {
-	
+	/* 4 idle, t1, t2, b (4 bits per setting) */
 	__le32 antCtrlCommon;
-	
+	/* 4 ra1l1, ra2l1, ra1l2, ra2l2, ra12 */
 	__le32 antCtrlCommon2;
-	
+	/* 6 idle, t, r, rx1, rx12, b (2 bits each) */
 	__le16 antCtrlChain[AR9300_MAX_CHAINS];
-	
+	/* 3 xatten1_db for AR9280 (0xa20c/b20c 5:0) */
 	u8 xatten1DB[AR9300_MAX_CHAINS];
-	
+	/* 3  xatten1_margin for merlin (0xa20c/b20c 16:12 */
 	u8 xatten1Margin[AR9300_MAX_CHAINS];
 	int8_t tempSlope;
 	int8_t voltSlope;
-	
+	/* spur channels in usual fbin coding format */
 	u8 spurChans[AR_EEPROM_MODAL_SPURS];
-	
+	/* 3  Check if the register is per chain */
 	int8_t noiseFloorThreshCh[AR9300_MAX_CHAINS];
 	u8 reserved[11];
 	int8_t quick_drop;
@@ -223,15 +237,15 @@ struct ar9300_modal_eep_header {
 
 struct ar9300_cal_data_per_freq_op_loop {
 	int8_t refPower;
-	
+	/* pdadc voltage at power measurement */
 	u8 voltMeas;
-	
+	/* pcdac used for power measurement   */
 	u8 tempMeas;
-	
+	/* range is -60 to -127 create a mapping equation 1db resolution */
 	int8_t rxNoisefloorCal;
-	
+	/*range is same as noisefloor */
 	int8_t rxNoisefloorPower;
-	
+	/* temp measured when noisefloor cal was performed */
 	u8 rxTempMeas;
 } __packed;
 

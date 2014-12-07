@@ -5,6 +5,12 @@
 #warning "asm/dwarf2.h should be only included in pure assembly files"
 #endif
 
+/*
+ * Macros for dwarf2 CFI unwind table entries.
+ * See "as.info" for details on these pseudo ops. Unfortunately
+ * they are only supported in very new binutils, so define them
+ * away for older version.
+ */
 
 #ifdef CONFIG_AS_CFI
 
@@ -30,11 +36,23 @@
 #endif
 
 #if defined(CONFIG_AS_CFI_SECTIONS) && defined(__ASSEMBLY__)
+	/*
+	 * Emit CFI data in .debug_frame sections, not .eh_frame sections.
+	 * The latter we currently just discard since we don't do DWARF
+	 * unwinding at runtime.  So only the offline DWARF information is
+	 * useful to anyone.  Note we should not use this directive if this
+	 * file is used in the vDSO assembly, or if vmlinux.lds.S gets
+	 * changed so it doesn't discard .eh_frame.
+	 */
 	.cfi_sections .debug_frame
 #endif
 
 #else
 
+/*
+ * Due to the structure of pre-exisiting code, don't use assembler line
+ * comment character # to ignore the arguments. Instead, use a dummy macro.
+ */
 .macro cfi_ignore a=0, b=0, c=0, d=0
 .endm
 
@@ -56,6 +74,11 @@
 
 #endif
 
+/*
+ * An attempt to make CFI annotations more or less
+ * correct and shorter. It is implied that you know
+ * what you're doing if you use them.
+ */
 #ifdef __ASSEMBLY__
 #ifdef CONFIG_X86_64
 	.macro pushq_cfi reg
@@ -87,7 +110,7 @@
 	movq \offset(%rsp), %\reg
 	CFI_RESTORE \reg
 	.endm
-#else 
+#else /*!CONFIG_X86_64*/
 	.macro pushl_cfi reg
 	pushl \reg
 	CFI_ADJUST_CFA_OFFSET 4
@@ -117,7 +140,7 @@
 	movl \offset(%esp), %\reg
 	CFI_RESTORE \reg
 	.endm
-#endif 
-#endif 
+#endif /*!CONFIG_X86_64*/
+#endif /*__ASSEMBLY__*/
 
-#endif 
+#endif /* _ASM_X86_DWARF2_H */

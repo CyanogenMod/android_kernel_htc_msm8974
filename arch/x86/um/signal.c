@@ -16,18 +16,21 @@
 
 #ifdef CONFIG_X86_32
 
+/*
+ * FPU tag word conversions.
+ */
 
 static inline unsigned short twd_i387_to_fxsr(unsigned short twd)
 {
-	unsigned int tmp; 
+	unsigned int tmp; /* to avoid 16 bit prefixes in the code */
 
-	
+	/* Transform each pair of bits into 01 (valid) or 00 (empty) */
 	tmp = ~twd;
-	tmp = (tmp | (tmp>>1)) & 0x5555; 
-	
-	tmp = (tmp | (tmp >> 1)) & 0x3333; 
-	tmp = (tmp | (tmp >> 2)) & 0x0f0f; 
-	tmp = (tmp | (tmp >> 4)) & 0x00ff; 
+	tmp = (tmp | (tmp>>1)) & 0x5555; /* 0V0V0V0V0V0V0V0V */
+	/* and move the valid bits to the lower byte. */
+	tmp = (tmp | (tmp >> 1)) & 0x3333; /* 00VV00VV00VV00VV */
+	tmp = (tmp | (tmp >> 2)) & 0x0f0f; /* 0000VVVV0000VVVV */
+	tmp = (tmp | (tmp >> 4)) & 0x00ff; /* 00000000VVVVVVVV */
 	return tmp;
 }
 
@@ -47,28 +50,28 @@ static inline unsigned long twd_fxsr_to_i387(struct user_fxsr_struct *fxsave)
 
 			switch (st->exponent & 0x7fff) {
 			case 0x7fff:
-				tag = 2;		
+				tag = 2;		/* Special */
 				break;
 			case 0x0000:
 				if ( !st->significand[0] &&
 				     !st->significand[1] &&
 				     !st->significand[2] &&
 				     !st->significand[3] ) {
-					tag = 1;	
+					tag = 1;	/* Zero */
 				} else {
-					tag = 2;	
+					tag = 2;	/* Special */
 				}
 				break;
 			default:
 				if (st->significand[3] & 0x8000) {
-					tag = 0;	
+					tag = 0;	/* Valid */
 				} else {
-					tag = 2;	
+					tag = 2;	/* Special */
 				}
 				break;
 			}
 		} else {
-			tag = 3;			
+			tag = 3;			/* Empty */
 		}
 		ret |= (tag << (2 * i));
 		twd = twd >> 1;
@@ -374,7 +377,7 @@ int setup_signal_stack_sc(unsigned long stack_top, int sig,
 	void __user *restorer;
 	int err = 0;
 
-	
+	/* This is the same calculation as i386 - ((sp + 4) & 15) == 0 */
 	stack_top = ((stack_top + 4) & -16UL) - 4;
 	frame = (struct sigframe __user *) stack_top - 1;
 	if (!access_ok(VERIFY_WRITE, frame, sizeof(*frame)))
@@ -391,6 +394,13 @@ int setup_signal_stack_sc(unsigned long stack_top, int sig,
 		err |= __copy_to_user(&frame->extramask, &mask->sig[1],
 				      sizeof(frame->extramask));
 
+	/*
+	 * This is popl %eax ; movl $,%eax ; int $0x80
+	 *
+	 * WE DO NOT USE IT ANY MORE! It's only left here for historical
+	 * reasons and because gdb uses it as a signature to notice
+	 * signal handler stack frames.
+	 */
 	err |= __put_user(0xb858, (short __user *)(frame->retcode+0));
 	err |= __put_user(__NR_sigreturn, (int __user *)(frame->retcode+2));
 	err |= __put_user(0x80cd, (short __user *)(frame->retcode+6));
@@ -434,6 +444,13 @@ int setup_signal_stack_si(unsigned long stack_top, int sig,
 	err |= copy_ucontext_to_user(&frame->uc, &frame->fpstate, mask,
 					PT_REGS_SP(regs));
 
+	/*
+	 * This is movl $,%eax ; int $0x80
+	 *
+	 * WE DO NOT USE IT ANY MORE! It's only left here for historical
+	 * reasons and because gdb uses it as a signature to notice
+	 * signal handler stack frames.
+	 */
 	err |= __put_user(0xb8, (char __user *)(frame->retcode+0));
 	err |= __put_user(__NR_rt_sigreturn, (int __user *)(frame->retcode+1));
 	err |= __put_user(0x80cd, (short __user *)(frame->retcode+5));
@@ -472,7 +489,7 @@ long sys_sigreturn(struct pt_regs *regs)
 	if (copy_sc_from_user(&current->thread.regs, sc))
 		goto segfault;
 
-	
+	/* Avoid ERESTART handling */
 	PT_REGS_SYSCALL_NR(&current->thread.regs) = -1;
 	return PT_REGS_SYSCALL_RET(&current->thread.regs);
 
@@ -501,7 +518,7 @@ int setup_signal_stack_si(unsigned long stack_top, int sig,
 
 	frame = (struct rt_sigframe __user *)
 		round_down(stack_top - sizeof(struct rt_sigframe), 16);
-	
+	/* Subtract 128 for a red zone and 8 for proper alignment */
 	frame = (struct rt_sigframe __user *) ((unsigned long) frame - 128 - 8);
 
 	if (!access_ok(VERIFY_WRITE, frame, sizeof(*frame)))
@@ -513,7 +530,7 @@ int setup_signal_stack_si(unsigned long stack_top, int sig,
 			goto out;
 	}
 
-	
+	/* Create the ucontext.  */
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(0, &frame->uc.uc_link);
 	err |= __put_user(me->sas_ss_sp, &frame->uc.uc_stack.ss_sp);
@@ -531,17 +548,21 @@ int setup_signal_stack_si(unsigned long stack_top, int sig,
 		err |= __copy_to_user(&frame->uc.uc_sigmask, set,
 				      sizeof(*set));
 
-	
+	/*
+	 * Set up to return from userspace.  If provided, use a stub
+	 * already in userspace.
+	 */
+	/* x86-64 should always use SA_RESTORER. */
 	if (ka->sa.sa_flags & SA_RESTORER)
 		err |= __put_user(ka->sa.sa_restorer, &frame->pretcode);
 	else
-		
+		/* could use a vstub here */
 		return err;
 
 	if (err)
 		return err;
 
-	
+	/* Set up registers for signal handler */
 	{
 		struct exec_domain *ed = current_thread_info()->exec_domain;
 		if (unlikely(ed && ed->signal_invmap && sig < 32))
@@ -550,9 +571,13 @@ int setup_signal_stack_si(unsigned long stack_top, int sig,
 
 	PT_REGS_SP(regs) = (unsigned long) frame;
 	PT_REGS_RDI(regs) = sig;
-	
+	/* In case the signal handler was declared without prototypes */
 	PT_REGS_RAX(regs) = 0;
 
+	/*
+	 * This also works for non SA_SIGINFO handlers because they expect the
+	 * next argument after the signal number on the stack.
+	 */
 	PT_REGS_RSI(regs) = (unsigned long) &frame->info;
 	PT_REGS_RDX(regs) = (unsigned long) &frame->uc;
 	PT_REGS_RIP(regs) = (unsigned long) ka->sa.sa_handler;
@@ -578,7 +603,7 @@ long sys_rt_sigreturn(struct pt_regs *regs)
 	if (copy_sc_from_user(&current->thread.regs, &uc->uc_mcontext))
 		goto segfault;
 
-	
+	/* Avoid ERESTART handling */
 	PT_REGS_SYSCALL_NR(&current->thread.regs) = -1;
 	return PT_REGS_SYSCALL_RET(&current->thread.regs);
 

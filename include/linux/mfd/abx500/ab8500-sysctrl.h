@@ -25,7 +25,7 @@ static inline int ab8500_sysctrl_write(u16 reg, u8 mask, u8 value)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_AB8500_CORE */
 
 static inline int ab8500_sysctrl_set(u16 reg, u8 bits)
 {
@@ -37,6 +37,7 @@ static inline int ab8500_sysctrl_clear(u16 reg, u8 bits)
 	return ab8500_sysctrl_write(reg, bits, 0);
 }
 
+/* Registers */
 #define AB8500_TURNONSTATUS		0x100
 #define AB8500_RESETSTATUS		0x101
 #define AB8500_PONKEY1PRESSSTATUS	0x102
@@ -78,6 +79,7 @@ static inline int ab8500_sysctrl_clear(u16 reg, u8 bits)
 #define AB9540_SYSCLK12BUF3VALID	0x239
 #define AB9540_SYSCLK12BUF4VALID	0x23A
 
+/* Bits */
 #define AB8500_TURNONSTATUS_PORNVBAT BIT(0)
 #define AB8500_TURNONSTATUS_PONKEY1DBF BIT(1)
 #define AB8500_TURNONSTATUS_PONKEY2DBF BIT(2)
@@ -292,4 +294,4 @@ static inline int ab8500_sysctrl_clear(u16 reg, u8 bits)
 #define AB9540_SYSCLK12BUF4VALID_SYSCLK12BUF4VALID_MASK 0xFF
 #define AB9540_SYSCLK12BUF4VALID_SYSCLK12BUF4VALID_SHIFT 0
 
-#endif 
+#endif /* __AB8500_SYSCTRL_H */

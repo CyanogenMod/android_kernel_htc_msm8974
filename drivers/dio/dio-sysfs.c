@@ -15,6 +15,7 @@
 #include <linux/dio.h>
 #include <linux/stat.h>
 
+/* show configuration fields */
 
 static ssize_t dio_show_id(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -68,7 +69,7 @@ int dio_create_sysfs_dev_files(struct dio_dev *d)
 	struct device *dev = &d->dev;
 	int error;
 
-	
+	/* current configuration's attributes */
 	if ((error = device_create_file(dev, &dev_attr_id)) ||
 	    (error = device_create_file(dev, &dev_attr_ipl)) ||
 	    (error = device_create_file(dev, &dev_attr_secid)) ||

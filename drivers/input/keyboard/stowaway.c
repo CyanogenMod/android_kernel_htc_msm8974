@@ -1,3 +1,6 @@
+/*
+ * Stowaway keyboard driver for Linux
+ */
 
 /*
  *  Copyright (c) 2006 Marek Vasut

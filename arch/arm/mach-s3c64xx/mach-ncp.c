@@ -52,7 +52,7 @@
 #define UFCON S3C2410_UFCON_RXTRIG8 | S3C2410_UFCON_FIFOMODE
 
 static struct s3c2410_uartcfg ncp_uartcfgs[] __initdata = {
-	
+	/* REVISIT: NCP uses only serial 1, 2 */
 	[0] = {
 		.hwport	     = 0,
 		.flags	     = 0,
@@ -98,7 +98,7 @@ static void __init ncp_machine_init(void)
 }
 
 MACHINE_START(NCP, "NCP")
-	
+	/* Maintainer: Samsung Electronics */
 	.atag_offset	= 0x100,
 	.init_irq	= s3c6410_init_irq,
 	.handle_irq	= vic_handle_irq,

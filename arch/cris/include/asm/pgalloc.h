@@ -8,6 +8,9 @@
 #define pmd_populate(mm, pmd, pte) pmd_set(pmd, page_address(pte))
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
+/*
+ * Allocate and free page tables.
+ */
 
 static inline pgd_t *pgd_alloc (struct mm_struct *mm)
 {

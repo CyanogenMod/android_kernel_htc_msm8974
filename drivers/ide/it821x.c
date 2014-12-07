@@ -72,13 +72,15 @@
 
 struct it821x_dev
 {
-	unsigned int smart:1,		
-		timing10:1;		
-	u8	clock_mode;		
-	u8	want[2][2];		
-	u16	pio[2];			
-	u16	mwdma[2];		
-	u16	udma[2];		
+	unsigned int smart:1,		/* Are we in smart raid mode */
+		timing10:1;		/* Rev 0x10 */
+	u8	clock_mode;		/* 0, ATA_50 or ATA_66 */
+	u8	want[2][2];		/* Mode/Pri log for master slave */
+	/* We need these for switching the clock when DMA goes on/off
+	   The high byte is the 66Mhz timing */
+	u16	pio[2];			/* Cached PIO values */
+	u16	mwdma[2];		/* Cached MWDMA values */
+	u16	udma[2];		/* Cached UDMA values (per drive) */
 	u16	quirks;
 };
 
@@ -89,9 +91,23 @@ struct it821x_dev
 #define UDMA_OFF	0
 #define MWDMA_OFF	0
 
+/*
+ *	We allow users to force the card into non raid mode without
+ *	flashing the alternative BIOS. This is also necessary right now
+ *	for embedded platforms that cannot run a PC BIOS but are using this
+ *	device.
+ */
 
 static int it8212_noraid;
 
+/**
+ *	it821x_program	-	program the PIO/MWDMA registers
+ *	@drive: drive to tune
+ *	@timing: timing info
+ *
+ *	Program the PIO/MWDMA timing for this channel according to the
+ *	current clock.
+ */
 
 static void it821x_program(ide_drive_t *drive, u16 timing)
 {
@@ -101,7 +117,7 @@ static void it821x_program(ide_drive_t *drive, u16 timing)
 	int channel = hwif->channel;
 	u8 conf;
 
-	
+	/* Program PIO/MWDMA timing bits */
 	if(itdev->clock_mode == ATA_66)
 		conf = timing >> 8;
 	else
@@ -110,6 +126,14 @@ static void it821x_program(ide_drive_t *drive, u16 timing)
 	pci_write_config_byte(dev, 0x54 + 4 * channel, conf);
 }
 
+/**
+ *	it821x_program_udma	-	program the UDMA registers
+ *	@drive: drive to tune
+ *	@timing: timing info
+ *
+ *	Program the UDMA timing for this drive according to the
+ *	current clock.
+ */
 
 static void it821x_program_udma(ide_drive_t *drive, u16 timing)
 {
@@ -119,7 +143,7 @@ static void it821x_program_udma(ide_drive_t *drive, u16 timing)
 	int channel = hwif->channel;
 	u8 unit = drive->dn & 1, conf;
 
-	
+	/* Program UDMA timing bits */
 	if(itdev->clock_mode == ATA_66)
 		conf = timing >> 8;
 	else
@@ -133,6 +157,13 @@ static void it821x_program_udma(ide_drive_t *drive, u16 timing)
 	}
 }
 
+/**
+ *	it821x_clock_strategy
+ *	@drive: drive to set up
+ *
+ *	Select between the 50 and 66Mhz base clocks to get the best
+ *	results for this interface.
+ */
 
 static void it821x_clock_strategy(ide_drive_t *drive)
 {
@@ -151,17 +182,21 @@ static void it821x_clock_strategy(ide_drive_t *drive)
 		altclock = itdev->want[0][1];
 	}
 
+	/*
+	 * if both clocks can be used for the mode with the higher priority
+	 * use the clock needed by the mode with the lower priority
+	 */
 	if (clock == ATA_ANY)
 		clock = altclock;
 
-	
+	/* Nobody cares - keep the same clock */
 	if(clock == ATA_ANY)
 		return;
-	
+	/* No change */
 	if(clock == itdev->clock_mode)
 		return;
 
-	
+	/* Load this into the controller ? */
 	if(clock == ATA_66)
 		itdev->clock_mode = ATA_66;
 	else {
@@ -174,16 +209,32 @@ static void it821x_clock_strategy(ide_drive_t *drive)
 	v |= sel << (1 + hwif->channel);
 	pci_write_config_byte(dev, 0x50, v);
 
+	/*
+	 *	Reprogram the UDMA/PIO of the pair drive for the switch
+	 *	MWDMA will be dealt with by the dma switcher
+	 */
 	if(pair && itdev->udma[1-unit] != UDMA_OFF) {
 		it821x_program_udma(pair, itdev->udma[1-unit]);
 		it821x_program(pair, itdev->pio[1-unit]);
 	}
+	/*
+	 *	Reprogram the UDMA/PIO of our drive for the switch.
+	 *	MWDMA will be dealt with by the dma switcher
+	 */
 	if(itdev->udma[unit] != UDMA_OFF) {
 		it821x_program_udma(drive, itdev->udma[unit]);
 		it821x_program(drive, itdev->pio[unit]);
 	}
 }
 
+/**
+ *	it821x_set_pio_mode	-	set host controller for PIO mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	Tune the host to the desired PIO mode taking into the consideration
+ *	the maximum PIO mode supported by the other device on the cable.
+ */
 
 static void it821x_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -192,25 +243,40 @@ static void it821x_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	const u8 pio = drive->pio_mode - XFER_PIO_0;
 	u8 unit = drive->dn & 1, set_pio = pio;
 
-	
+	/* Spec says 89 ref driver uses 88 */
 	static u16 pio_timings[]= { 0xAA88, 0xA382, 0xA181, 0x3332, 0x3121 };
 	static u8 pio_want[]    = { ATA_66, ATA_66, ATA_66, ATA_66, ATA_ANY };
 
+	/*
+	 * Compute the best PIO mode we can for a given device. We must
+	 * pick a speed that does not cause problems with the other device
+	 * on the cable.
+	 */
 	if (pair) {
 		u8 pair_pio = pair->pio_mode - XFER_PIO_0;
-		
+		/* trim PIO to the slowest of the master/slave */
 		if (pair_pio < set_pio)
 			set_pio = pair_pio;
 	}
 
-	
+	/* We prefer 66Mhz clock for PIO 0-3, don't care for PIO4 */
 	itdev->want[unit][1] = pio_want[set_pio];
-	itdev->want[unit][0] = 1;	
+	itdev->want[unit][0] = 1;	/* PIO is lowest priority */
 	itdev->pio[unit] = pio_timings[set_pio];
 	it821x_clock_strategy(drive);
 	it821x_program(drive, itdev->pio[unit]);
 }
 
+/**
+ *	it821x_tune_mwdma	-	tune a channel for MWDMA
+ *	@drive: drive to set up
+ *	@mode_wanted: the target operating mode
+ *
+ *	Load the timing settings for this device mode into the
+ *	controller when doing MWDMA in pass through mode. The caller
+ *	must manage the whole lack of per device MWDMA/PIO timings and
+ *	the shared MWDMA/PIO timing register.
+ */
 
 static void it821x_tune_mwdma(ide_drive_t *drive, u8 mode_wanted)
 {
@@ -223,11 +289,11 @@ static void it821x_tune_mwdma(ide_drive_t *drive, u8 mode_wanted)
 	static u8 mwdma_want[]	= { ATA_ANY, ATA_66, ATA_ANY };
 
 	itdev->want[unit][1] = mwdma_want[mode_wanted];
-	itdev->want[unit][0] = 2;	
+	itdev->want[unit][0] = 2;	/* MWDMA is low priority */
 	itdev->mwdma[unit] = dma[mode_wanted];
 	itdev->udma[unit] = UDMA_OFF;
 
-	
+	/* UDMA bits off - Revision 0x10 do them in pairs */
 	pci_read_config_byte(dev, 0x50, &conf);
 	if (itdev->timing10)
 		conf |= channel ? 0x60: 0x18;
@@ -236,10 +302,18 @@ static void it821x_tune_mwdma(ide_drive_t *drive, u8 mode_wanted)
 	pci_write_config_byte(dev, 0x50, conf);
 
 	it821x_clock_strategy(drive);
-	
-	
+	/* FIXME: do we need to program this ? */
+	/* it821x_program(drive, itdev->mwdma[unit]); */
 }
 
+/**
+ *	it821x_tune_udma	-	tune a channel for UDMA
+ *	@drive: drive to set up
+ *	@mode_wanted: the target operating mode
+ *
+ *	Load the timing settings for this device mode into the
+ *	controller when doing UDMA modes in pass through.
+ */
 
 static void it821x_tune_udma(ide_drive_t *drive, u8 mode_wanted)
 {
@@ -252,13 +326,13 @@ static void it821x_tune_udma(ide_drive_t *drive, u8 mode_wanted)
 	static u8 udma_want[]	= { ATA_ANY, ATA_50, ATA_ANY, ATA_66, ATA_66, ATA_50, ATA_66 };
 
 	itdev->want[unit][1] = udma_want[mode_wanted];
-	itdev->want[unit][0] = 3;	
+	itdev->want[unit][0] = 3;	/* UDMA is high priority */
 	itdev->mwdma[unit] = MWDMA_OFF;
 	itdev->udma[unit] = udma[mode_wanted];
 	if(mode_wanted >= 5)
-		itdev->udma[unit] |= 0x8080;	
+		itdev->udma[unit] |= 0x8080;	/* UDMA 5/6 select on */
 
-	
+	/* UDMA on. Again revision 0x10 must do the pair */
 	pci_read_config_byte(dev, 0x50, &conf);
 	if (itdev->timing10)
 		conf &= channel ? 0x9F: 0xE7;
@@ -271,6 +345,18 @@ static void it821x_tune_udma(ide_drive_t *drive, u8 mode_wanted)
 
 }
 
+/**
+ *	it821x_dma_read	-	DMA hook
+ *	@drive: drive for DMA
+ *
+ *	The IT821x has a single timing register for MWDMA and for PIO
+ *	operations. As we flip back and forth we have to reload the
+ *	clock. In addition the rev 0x10 device only works if the same
+ *	timing value is loaded into the master and slave UDMA clock
+ * 	so we must also reload that.
+ *
+ *	FIXME: we could figure out in advance if we need to do reloads
+ */
 
 static void it821x_dma_start(ide_drive_t *drive)
 {
@@ -285,6 +371,14 @@ static void it821x_dma_start(ide_drive_t *drive)
 	ide_dma_start(drive);
 }
 
+/**
+ *	it821x_dma_write	-	DMA hook
+ *	@drive: drive for DMA stop
+ *
+ *	The IT821x has a single timing register for MWDMA and for PIO
+ *	operations. As we flip back and forth we have to reload the
+ *	clock.
+ */
 
 static int it821x_dma_end(ide_drive_t *drive)
 {
@@ -298,24 +392,52 @@ static int it821x_dma_end(ide_drive_t *drive)
 	return ret;
 }
 
+/**
+ *	it821x_set_dma_mode	-	set host controller for DMA mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	Tune the ITE chipset for the desired DMA mode.
+ */
 
 static void it821x_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
 	const u8 speed = drive->dma_mode;
 
+	/*
+	 * MWDMA tuning is really hard because our MWDMA and PIO
+	 * timings are kept in the same place.  We can switch in the
+	 * host dma on/off callbacks.
+	 */
 	if (speed >= XFER_UDMA_0 && speed <= XFER_UDMA_6)
 		it821x_tune_udma(drive, speed - XFER_UDMA_0);
 	else if (speed >= XFER_MW_DMA_0 && speed <= XFER_MW_DMA_2)
 		it821x_tune_mwdma(drive, speed - XFER_MW_DMA_0);
 }
 
+/**
+ *	it821x_cable_detect	-	cable detection
+ *	@hwif: interface to check
+ *
+ *	Check for the presence of an ATA66 capable cable on the
+ *	interface. Problematic as it seems some cards don't have
+ *	the needed logic onboard.
+ */
 
 static u8 it821x_cable_detect(ide_hwif_t *hwif)
 {
-	
+	/* The reference driver also only does disk side */
 	return ATA_CBL_PATA80;
 }
 
+/**
+ *	it821x_quirkproc	-	post init callback
+ *	@drive: drive
+ *
+ *	This callback is run after the drive has been probed but
+ *	before anything gets attached. It allows drivers to do any
+ *	final tuning that is needed, or fixups to work around bugs.
+ */
 
 static void it821x_quirkproc(ide_drive_t *drive)
 {
@@ -323,16 +445,31 @@ static void it821x_quirkproc(ide_drive_t *drive)
 	u16 *id = drive->id;
 
 	if (!itdev->smart) {
+		/*
+		 *	If we are in pass through mode then not much
+		 *	needs to be done, but we do bother to clear the
+		 *	IRQ mask as we may well be in PIO (eg rev 0x10)
+		 *	for now and we know unmasking is safe on this chipset.
+		 */
 		drive->dev_flags |= IDE_DFLAG_UNMASK;
 	} else {
+	/*
+	 *	Perform fixups on smart mode. We need to "lose" some
+	 *	capabilities the firmware lacks but does not filter, and
+	 *	also patch up some capability bits that it forgets to set
+	 *	in RAID mode.
+	 */
 
-		
+		/* Check for RAID v native */
 		if (strstr((char *)&id[ATA_ID_PROD],
 			   "Integrated Technology Express")) {
-			id[ATA_ID_CAPABILITY]    |= (3 << 8); 
-			id[ATA_ID_COMMAND_SET_2] |= 0x0400;   
-			id[ATA_ID_CFS_ENABLE_2]  |= 0x0400;   
-			
+			/* In raid mode the ident block is slightly buggy
+			   We need to set the bits so that the IDE layer knows
+			   LBA28. LBA48 and DMA ar valid */
+			id[ATA_ID_CAPABILITY]    |= (3 << 8); /* LBA28, DMA */
+			id[ATA_ID_COMMAND_SET_2] |= 0x0400;   /* LBA48 valid */
+			id[ATA_ID_CFS_ENABLE_2]  |= 0x0400;   /* LBA48 on */
+			/* Reporting logic */
 			printk(KERN_INFO "%s: IT8212 %sRAID %d volume",
 				drive->name, id[147] ? "Bootable " : "",
 				id[ATA_ID_CSFO]);
@@ -340,6 +477,8 @@ static void it821x_quirkproc(ide_drive_t *drive)
 				printk(KERN_CONT "(%dK stripe)", id[146]);
 			printk(KERN_CONT ".\n");
 		} else {
+			/* Non RAID volume. Fixups to stop the core code
+			   doing unsupported things */
 			id[ATA_ID_FIELD_VALID]	 &= 3;
 			id[ATA_ID_QUEUE_DEPTH]	  = 0;
 			id[ATA_ID_COMMAND_SET_1]  = 0;
@@ -356,6 +495,11 @@ static void it821x_quirkproc(ide_drive_t *drive)
 				drive->name);
 		}
 
+		/*
+		 * Set MWDMA0 mode as enabled/support - just to tell
+		 * IDE core that DMA is supported (it821x hardware
+		 * takes care of DMA mode programming).
+		 */
 		if (ata_id_has_dma(id)) {
 			id[ATA_ID_MWDMA_MODES] |= 0x0101;
 			drive->current_speed = XFER_MW_DMA_0;
@@ -375,6 +519,14 @@ static struct ide_dma_ops it821x_pass_through_dma_ops = {
 	.dma_sff_read_status	= ide_dma_sff_read_status,
 };
 
+/**
+ *	init_hwif_it821x	-	set up hwif structs
+ *	@hwif: interface to set up
+ *
+ *	We do the basic set up of the interface structure. The IT8212
+ *	requires several custom handlers so we override the default
+ *	ide DMA handlers appropriately
+ */
 
 static void __devinit init_hwif_it821x(ide_hwif_t *hwif)
 {
@@ -390,10 +542,12 @@ static void __devinit init_hwif_it821x(ide_hwif_t *hwif)
 	if (conf & 1) {
 		idev->smart = 1;
 		hwif->host_flags |= IDE_HFLAG_NO_ATAPI_DMA;
+		/* Long I/O's although allowed in LBA48 space cause the
+		   onboard firmware to enter the twighlight zone */
 		hwif->rqsize = 256;
 	}
 
-	
+	/* Pull the current clocks from 0x50 also */
 	if (conf & (1 << (1 + hwif->channel)))
 		idev->clock_mode = ATA_50;
 	else
@@ -402,6 +556,10 @@ static void __devinit init_hwif_it821x(ide_hwif_t *hwif)
 	idev->want[0][1] = ATA_ANY;
 	idev->want[1][1] = ATA_ANY;
 
+	/*
+	 *	Not in the docs but according to the reference driver
+	 *	this is necessary.
+	 */
 
 	if (dev->revision == 0x10) {
 		idev->timing10 = 1;
@@ -412,7 +570,7 @@ static void __devinit init_hwif_it821x(ide_hwif_t *hwif)
 	}
 
 	if (idev->smart == 0) {
-		
+		/* MWDMA/PIO clock switching for pass through mode */
 		hwif->dma_ops = &it821x_pass_through_dma_ops;
 	} else
 		hwif->host_flags |= IDE_HFLAG_NO_SET_MODE;
@@ -423,7 +581,7 @@ static void __devinit init_hwif_it821x(ide_hwif_t *hwif)
 	hwif->ultra_mask = ATA_UDMA6;
 	hwif->mwdma_mask = ATA_MWDMA2;
 
-	
+	/* Vortex86SX quirk: prevent Ultra-DMA mode to fix BadCRC issue */
 	if (idev->quirks & QUIRK_VORTEX86) {
 		if (dev->revision == 0x11)
 			hwif->ultra_mask = 0;
@@ -432,10 +590,10 @@ static void __devinit init_hwif_it821x(ide_hwif_t *hwif)
 
 static void it8212_disable_raid(struct pci_dev *dev)
 {
-	
+	/* Reset local CPU, and set BIOS not ready */
 	pci_write_config_byte(dev, 0x5E, 0x01);
 
-	
+	/* Set to bypass mode, and reset PCI bus */
 	pci_write_config_byte(dev, 0x50, 0x00);
 	pci_write_config_word(dev, PCI_COMMAND,
 			      PCI_COMMAND_PARITY | PCI_COMMAND_IO |
@@ -452,7 +610,7 @@ static int init_chipset_it821x(struct pci_dev *dev)
 	u8 conf;
 	static char *mode[2] = { "pass through", "smart" };
 
-	
+	/* Force the card into bypass mode if so requested */
 	if (it8212_noraid) {
 		printk(KERN_INFO DRV_NAME " %s: forcing bypass mode\n",
 			pci_name(dev));
@@ -465,7 +623,7 @@ static int init_chipset_it821x(struct pci_dev *dev)
 }
 
 static const struct ide_port_ops it821x_port_ops = {
-	
+	/* it821x_set_{pio,dma}_mode() are only used in pass-through mode */
 	.set_pio_mode		= it821x_set_pio_mode,
 	.set_dma_mode		= it821x_set_dma_mode,
 	.quirkproc		= it821x_quirkproc,
@@ -480,6 +638,14 @@ static const struct ide_port_info it821x_chipset __devinitdata = {
 	.pio_mask	= ATA_PIO4,
 };
 
+/**
+ *	it821x_init_one	-	pci layer discovery entry
+ *	@dev: PCI device
+ *	@id: ident table entry
+ *
+ *	Called by the PCI code when it finds an ITE821x controller.
+ *	We then use the IDE PCI generic helper to do most of the work.
+ */
 
 static int __devinit it821x_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {

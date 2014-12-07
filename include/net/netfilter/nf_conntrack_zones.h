@@ -21,5 +21,5 @@ static inline u16 nf_ct_zone(const struct nf_conn *ct)
 	return NF_CT_DEFAULT_ZONE;
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_NF_CONNTRACK || CONFIG_NF_CONNTRACK_MODULE */
+#endif /* _NF_CONNTRACK_ZONES_H */

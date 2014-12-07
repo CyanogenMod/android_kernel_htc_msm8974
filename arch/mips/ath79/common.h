@@ -28,4 +28,4 @@ void ath79_gpio_function_disable(u32 mask);
 void ath79_gpio_function_setup(u32 set, u32 clear);
 void ath79_gpio_init(void);
 
-#endif 
+#endif /* __ATH79_COMMON_H */

@@ -5,6 +5,14 @@
  *
  * Copyright (C) 1996 David Mosberger-Tang.
  */
+/*
+ * Converts an ECOFF or ELF object file into a bootable file.  The
+ * object file must be a OMAGIC file (i.e., data and bss follow immediately
+ * behind the text).  See DEC "Assembly Language Programmer's Guide"
+ * documentation for details.  The SRM boot process is documented in
+ * the Alpha AXP Architecture Reference Manual, Second Edition by
+ * Richard L. Sites and Richard T. Witek.
+ */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -21,6 +29,7 @@
 # include <linux/elf.h>
 #endif
 
+/* bootfile size must be multiple of BLOCK_SIZE: */
 #define BLOCK_SIZE	512
 
 const char * prog_name;
@@ -42,11 +51,11 @@ main (int argc, char *argv[])
     size_t nwritten, tocopy, n, mem_size, fil_size, pad = 0;
     int fd, ofd, i, j, verbose = 0, primary = 0;
     char buf[8192], *inname;
-    struct exec * aout;		
+    struct exec * aout;		/* includes file & aout header */
     long offset;
 #ifdef __ELF__
     struct elfhdr *elf;
-    struct elf_phdr *elf_phdr;	
+    struct elf_phdr *elf_phdr;	/* program header */
     unsigned long long e_entry;
 #endif
 
@@ -64,7 +73,7 @@ main (int argc, char *argv[])
 		  break;
 
 	      case 'p':
-		  primary = 1;		
+		  primary = 1;		/* make primary bootblock */
 		  break;
 	    }
 	}
@@ -91,7 +100,7 @@ main (int argc, char *argv[])
     }
 
     if (primary) {
-	
+	/* generate bootblock for primary loader */
 	
 	unsigned long bb[64], sum = 0;
 	struct stat st;
@@ -110,9 +119,9 @@ main (int argc, char *argv[])
 	size = (st.st_size + BLOCK_SIZE - 1) & ~(BLOCK_SIZE - 1);
 	memset(bb, 0, sizeof(bb));
 	strcpy((char *) bb, "Linux SRM bootblock");
-	bb[60] = size / BLOCK_SIZE;	
-	bb[61] = 1;			
-	bb[62] = 0;			
+	bb[60] = size / BLOCK_SIZE;	/* count */
+	bb[61] = 1;			/* starting sector # */
+	bb[62] = 0;			/* flags---must be 0 */
 	for (i = 0; i < 63; ++i) {
 	    sum += bb[i];
 	}
@@ -125,7 +134,7 @@ main (int argc, char *argv[])
 	return 0;
     }
 
-    
+    /* read and inspect exec header: */
 
     if (read(fd, buf, sizeof(buf)) < 0) {
 	perror("read");
@@ -165,7 +174,7 @@ main (int argc, char *argv[])
 	mem_size = elf_phdr->p_memsz;
 	fil_size = elf_phdr->p_filesz;
 
-	
+	/* work around ELF bug: */
 	if (elf_phdr->p_vaddr < e_entry) {
 	    unsigned long delta = e_entry - elf_phdr->p_vaddr;
 	    offset   += delta;

@@ -82,4 +82,4 @@
 
 #define IXGBE_WRITE_FLUSH(a) (IXGBE_READ_REG(a, IXGBE_VFSTATUS))
 
-#endif 
+#endif /* _IXGBEVF_REGS_H_ */

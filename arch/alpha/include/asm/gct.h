@@ -27,7 +27,7 @@ typedef struct __gct6_node {
 	u64 os_usage;
 	u64 fru_id;
 	u32 checksum;
-	u32 magic;	
+	u32 magic;	/* 'GLXY' */
 } gct6_node;
 
 typedef struct {
@@ -36,10 +36,16 @@ typedef struct {
 	void (*callout)(gct6_node *);
 } gct6_search_struct;
 
-#define GCT_NODE_MAGIC	  0x59584c47	
+#define GCT_NODE_MAGIC	  0x59584c47	/* 'GLXY' */
 
+/* 
+ * node types 
+ */
 #define GCT_TYPE_HOSE			0x0E
 
+/*
+ * node subtypes
+ */
 #define GCT_SUBTYPE_IO_PORT_MODULE	0x2C
 
 #define GCT_NODE_PTR(off) ((gct6_node *)((char *)hwrpb + 		\
@@ -48,5 +54,5 @@ typedef struct {
 
 int gct6_find_nodes(gct6_node *, gct6_search_struct *);
 
-#endif 
+#endif /* __ALPHA_GCT_H */
 

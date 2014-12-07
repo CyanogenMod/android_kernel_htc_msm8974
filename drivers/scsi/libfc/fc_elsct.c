@@ -17,6 +17,9 @@
  * Maintained at www.Open-FCoE.org
  */
 
+/*
+ * Provide interface to send ELS/CT FC frames
+ */
 
 #include <linux/export.h>
 #include <asm/unaligned.h>
@@ -27,6 +30,16 @@
 #include <scsi/fc_encode.h>
 #include "fc_libfc.h"
 
+/**
+ * fc_elsct_send() - Send an ELS or CT frame
+ * @lport:	The local port to send the frame on
+ * @did:	The destination ID for the frame
+ * @fp:		The frame to be sent
+ * @op:		The operational code
+ * @resp:	The callback routine when the response is received
+ * @arg:	The argument to pass to the response callback routine
+ * @timer_msec: The timeout period for the frame (in msecs)
+ */
 struct fc_seq *fc_elsct_send(struct fc_lport *lport, u32 did,
 			     struct fc_frame *fp, unsigned int op,
 			     void (*resp)(struct fc_seq *,
@@ -38,11 +51,11 @@ struct fc_seq *fc_elsct_send(struct fc_lport *lport, u32 did,
 	enum fc_fh_type fh_type;
 	int rc;
 
-	
+	/* ELS requests */
 	if ((op >= ELS_LS_RJT) && (op <= ELS_AUTH_ELS))
 		rc = fc_els_fill(lport, did, fp, op, &r_ctl, &fh_type);
 	else {
-		
+		/* CT requests */
 		rc = fc_ct_fill(lport, did, fp, op, &r_ctl, &fh_type, &did);
 	}
 
@@ -58,6 +71,10 @@ struct fc_seq *fc_elsct_send(struct fc_lport *lport, u32 did,
 }
 EXPORT_SYMBOL(fc_elsct_send);
 
+/**
+ * fc_elsct_init() - Initialize the ELS/CT layer
+ * @lport: The local port to initialize the ELS/CT layer for
+ */
 int fc_elsct_init(struct fc_lport *lport)
 {
 	if (!lport->tt.elsct_send)
@@ -67,6 +84,10 @@ int fc_elsct_init(struct fc_lport *lport)
 }
 EXPORT_SYMBOL(fc_elsct_init);
 
+/**
+ * fc_els_resp_type() - Return a string describing the ELS response
+ * @fp: The frame pointer or possible error code
+ */
 const char *fc_els_resp_type(struct fc_frame *fp)
 {
 	const char *msg;

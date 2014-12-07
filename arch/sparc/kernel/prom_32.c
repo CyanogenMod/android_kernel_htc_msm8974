@@ -41,6 +41,23 @@ void * __init prom_early_alloc(unsigned long size)
 	return ret;
 }
 
+/* The following routines deal with the black magic of fully naming a
+ * node.
+ *
+ * Certain well known named nodes are just the simple name string.
+ *
+ * Actual devices have an address specifier appended to the base name
+ * string, like this "foo@addr".  The "addr" can be in any number of
+ * formats, and the platform plus the type of the node determine the
+ * format and how it is constructed.
+ *
+ * For children of the ROOT node, the naming convention is fixed and
+ * determined by whether this is a sun4u or sun4v system.
+ *
+ * For children of other nodes, it is bus type specific.  So
+ * we walk up the tree until we discover a "device_type" property
+ * we recognize and we go from there.
+ */
 static void __init sparc32_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct linux_prom_registers *regs;
@@ -56,6 +73,7 @@ static void __init sparc32_path_component(struct device_node *dp, char *tmp_buf)
 		regs->which_io, regs->phys_addr);
 }
 
+/* "name@slot,offset"  */
 static void __init sbus_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct linux_prom_registers *regs;
@@ -72,6 +90,7 @@ static void __init sbus_path_component(struct device_node *dp, char *tmp_buf)
 		regs->phys_addr);
 }
 
+/* "name@devnum[,func]" */
 static void __init pci_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct linux_prom_pci_registers *regs;
@@ -96,6 +115,7 @@ static void __init pci_path_component(struct device_node *dp, char *tmp_buf)
 	}
 }
 
+/* "name@addrhi,addrlo" */
 static void __init ebus_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct linux_prom_registers *regs;
@@ -112,6 +132,7 @@ static void __init ebus_path_component(struct device_node *dp, char *tmp_buf)
 		regs->which_io, regs->phys_addr);
 }
 
+/* "name:vendor:device@irq,addrlo" */
 static void __init ambapp_path_component(struct device_node *dp, char *tmp_buf)
 {
 	struct amba_prom_registers *regs;
@@ -119,6 +140,9 @@ static void __init ambapp_path_component(struct device_node *dp, char *tmp_buf)
 	struct property *prop;
 	int interrupt = 0;
 
+	/* In order to get a unique ID in the device tree (multiple AMBA devices
+	 * may have the same name) the node number is printed
+	 */
 	prop = of_find_property(dp, "reg", NULL);
 	if (!prop) {
 		reg0 = (unsigned int)dp->phandle;
@@ -127,10 +151,10 @@ static void __init ambapp_path_component(struct device_node *dp, char *tmp_buf)
 		reg0 = regs->phys_addr;
 	}
 
-	
+	/* Not all cores have Interrupt */
 	prop = of_find_property(dp, "interrupts", NULL);
 	if (!prop)
-		intr = &interrupt; 
+		intr = &interrupt; /* IRQ0 does not exist */
 	else
 		intr = prop->value;
 
@@ -163,10 +187,10 @@ static void __init __build_path_component(struct device_node *dp, char *tmp_buf)
 		if (!strcmp(parent->type, "ambapp"))
 			return ambapp_path_component(dp, tmp_buf);
 
-		
+		/* "isa" is handled with platform naming */
 	}
 
-	
+	/* Use platform naming convention.  */
 	return sparc32_path_component(dp, tmp_buf);
 }
 
@@ -208,7 +232,7 @@ void __init of_console_init(void)
 
 		case PROMDEV_TTYB:
 			skip = 1;
-			
+			/* FALLTHRU */
 
 		case PROMDEV_TTYA:
 			type = "serial";

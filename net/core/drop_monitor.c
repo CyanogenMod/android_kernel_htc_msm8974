@@ -36,6 +36,11 @@
 static void send_dm_alert(struct work_struct *unused);
 
 
+/*
+ * Globals, our netlink socket pointer
+ * and the work handle that will send up
+ * netlink alerts
+ */
 static int trace_state = TRACE_OFF;
 static DEFINE_MUTEX(trace_state_mutex);
 
@@ -94,6 +99,13 @@ static void reset_per_cpu_data(struct per_cpu_dm_data *data)
 	} else
 		schedule_work_on(data->cpu, &data->dm_alert_work);
 
+	/*
+	 * Don't need to lock this, since we are guaranteed to only
+	 * run this on a single cpu at a time.
+	 * Note also that we only update data->skb if the old and new skb
+	 * pointers don't match.  This ensures that we don't continually call
+	 * synchornize_rcu if we repeatedly fail to alloc a new netlink message.
+	 */
 	if (skb != oskb) {
 		rcu_assign_pointer(data->skb, skb);
 
@@ -111,16 +123,31 @@ static void send_dm_alert(struct work_struct *unused)
 
 	WARN_ON_ONCE(data->cpu != smp_processor_id());
 
+	/*
+	 * Grab the skb we're about to send
+	 */
 	skb = rcu_dereference_protected(data->skb, 1);
 
+	/*
+	 * Replace it with a new one
+	 */
 	reset_per_cpu_data(data);
 
+	/*
+	 * Ship it!
+	 */
 	if (skb)
 		genlmsg_multicast(skb, 0, NET_DM_GRP_ALERT, GFP_KERNEL);
 
 	put_cpu_var(dm_cpu_data);
 }
 
+/*
+ * This is the timer function to delay the sending of an alert
+ * in the event that more drops will arrive during the
+ * hysteresis period.  Note that it operates under the timer interrupt
+ * so we don't need to disable preemption here
+ */
 static void sched_send_work(unsigned long unused)
 {
 	struct per_cpu_dm_data *data =  &get_cpu_var(dm_cpu_data);
@@ -147,6 +174,9 @@ static void trace_drop_common(struct sk_buff *skb, void *location)
 		goto out;
 
 	if (!atomic_add_unless(&data->dm_hit_count, -1, 0)) {
+		/*
+		 * we're already at zero, discard this hit
+		 */
 		goto out;
 	}
 
@@ -161,6 +191,9 @@ static void trace_drop_common(struct sk_buff *skb, void *location)
 		}
 	}
 
+	/*
+	 * We need to create a new entry
+	 */
 	__nla_reserve_nohdr(dskb, sizeof(struct net_dm_drop_point));
 	nla->nla_len += NLA_ALIGN(sizeof(struct net_dm_drop_point));
 	memcpy(msg->points[msg->entries].pc, &location, sizeof(void *));
@@ -187,11 +220,20 @@ static void trace_napi_poll_hit(void *ignore, struct napi_struct *napi)
 {
 	struct dm_hw_stat_delta *new_stat;
 
+	/*
+	 * Don't check napi structures with no associated device
+	 */
 	if (!napi->dev)
 		return;
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(new_stat, &hw_stats_list, list) {
+		/*
+		 * only add a note to our monitor buffer if:
+		 * 1) this is the dev we received on
+		 * 2) its after the last_rx delta
+		 * 3) our rx_dropped count has gone up
+		 */
 		if ((new_stat->dev == napi->dev)  &&
 		    (time_after(jiffies, new_stat->last_rx + dm_hw_check_delta)) &&
 		    (napi->dev->stats.rx_dropped != new_stat->last_drop_val)) {
@@ -228,6 +270,9 @@ static int set_all_monitor_traces(int state)
 
 		tracepoint_synchronize_unregister();
 
+		/*
+		 * Clean the device list
+		 */
 		list_for_each_entry_safe(new_stat, temp, &hw_stats_list, list) {
 			if (new_stat->dev == NULL) {
 				list_del_rcu(&new_stat->list);

@@ -137,13 +137,13 @@ static u32 get_ff_hwaddr(struct xmit_frame *pxmitframe)
 		case 3:
 		case 1:
 		case 2:
-			addr = RTL8712_DMA_BEQ;
+			addr = RTL8712_DMA_BEQ;/*RTL8712_EP_LO;*/
 			break;
 		case 4:
 		case 5:
 		case 6:
 		case 7:
-			addr = RTL8712_DMA_VOQ;
+			addr = RTL8712_DMA_VOQ;/*RTL8712_EP_HI;*/
 			break;
 		case 0x10:
 		case 0x11:
@@ -152,7 +152,7 @@ static u32 get_ff_hwaddr(struct xmit_frame *pxmitframe)
 			addr = RTL8712_DMA_H2CCMD;
 			break;
 		default:
-			addr = RTL8712_DMA_BEQ;
+			addr = RTL8712_DMA_BEQ;/*RTL8712_EP_LO;*/
 			break;
 		}
 	}
@@ -191,7 +191,7 @@ static struct xmit_frame *dequeue_xframe_ex(struct xmit_priv *pxmitpriv,
 	int i, inx[4];
 	int j, tmp, acirp_cnt[4];
 
-	
+	/*entry indx: 0->vo, 1->vi, 2->be, 3->bk.*/
 	inx[0] = 0; acirp_cnt[0] = pxmitpriv->voq_cnt;
 	inx[1] = 1; acirp_cnt[1] = pxmitpriv->viq_cnt;
 	inx[2] = 2; acirp_cnt[2] = pxmitpriv->beq_cnt;
@@ -224,9 +224,9 @@ static struct xmit_frame *dequeue_xframe_ex(struct xmit_priv *pxmitpriv,
 				goto exit_dequeue_xframe_ex;
 			}
 			sta_plist = get_next(sta_plist);
-			
+			/*Remove sta node when there are no pending packets.*/
 			if (_queue_empty(pframe_queue)) {
-				
+				/*must be done after get_next and before break*/
 				list_delete(&ptxservq->tx_pending);
 			}
 		}
@@ -265,14 +265,14 @@ u8 r8712_construct_txaggr_cmd_desc(struct xmit_buf *pxmitbuf)
 {
 	struct tx_desc *ptx_desc = (struct tx_desc *)pxmitbuf->pbuf;
 
-	
-	
+	/* Fill up TxCmd Descriptor according as USB FW Tx Aaggregation info.*/
+	/* dw0 */
 	ptx_desc->txdw0 = cpu_to_le32(CMD_HDR_SZ&0xffff);
 	ptx_desc->txdw0 |=
 		cpu_to_le32(((TXDESC_SIZE+OFFSET_SZ)<<OFFSET_SHT)&0x00ff0000);
 	ptx_desc->txdw0 |= cpu_to_le32(OWN | FSG | LSG);
 
-	
+	/* dw1 */
 	ptx_desc->txdw1 |= cpu_to_le32((0x13<<QSEL_SHT)&0x00001f00);
 
 	return _SUCCESS;
@@ -287,8 +287,8 @@ u8 r8712_construct_txaggr_cmd_hdr(struct xmit_buf *pxmitbuf)
 	struct cmd_hdr *pcmd_hdr = (struct cmd_hdr  *)
 		(pxmitbuf->pbuf + TXDESC_SIZE);
 
-	
-	
+	/* Fill up Cmd Header for USB FW Tx Aggregation.*/
+	/* dw0 */
 	pcmd_hdr->cmd_dw0 = cpu_to_le32((GEN_CMD_CODE(_AMSDU_TO_AMPDU) << 16) |
 					(pcmdpriv->cmd_seq << 24));
 	pcmdpriv->cmd_seq++;
@@ -304,9 +304,9 @@ u8 r8712_append_mpdu_unit(struct xmit_buf *pxmitbuf,
 	int last_txcmdsz = 0;
 	int padding_sz = 0;
 
-	
+	/* 802.3->802.11 convertor */
 	r8712_xmitframe_coalesce(padapter, pxmitframe->pkt, pxmitframe);
-	
+	/* free skb struct */
 	r8712_xmit_complete(padapter, pxmitframe);
 	if (pxmitframe->attrib.ether_type != 0x0806) {
 		if ((pxmitframe->attrib.ether_type != 0x888e) &&
@@ -318,7 +318,7 @@ u8 r8712_append_mpdu_unit(struct xmit_buf *pxmitbuf,
 	pxmitframe->last[0] = 1;
 	update_txdesc(pxmitframe, (uint *)(pxmitframe->buf_addr),
 		pxmitframe->attrib.last_txcmdsz);
-	
+	/*padding zero */
 	last_txcmdsz = pxmitframe->attrib.last_txcmdsz;
 	padding_sz = (8 - (last_txcmdsz % 8));
 	if ((last_txcmdsz % 8) != 0) {
@@ -326,7 +326,7 @@ u8 r8712_append_mpdu_unit(struct xmit_buf *pxmitbuf,
 		for (i = 0; i < padding_sz; i++)
 			*(pxmitframe->buf_addr+TXDESC_SIZE+last_txcmdsz+i) = 0;
 	}
-	
+	/* Add the new mpdu's length */
 	ptx_desc->txdw0 = cpu_to_le32((ptx_desc->txdw0&0xffff0000) |
 		((ptx_desc->txdw0&0x0000ffff)+
 			((TXDESC_SIZE+last_txcmdsz+padding_sz)&0x0000ffff)));
@@ -338,13 +338,13 @@ u8 r8712_append_mpdu_unit(struct xmit_buf *pxmitbuf,
 u8 r8712_xmitframe_aggr_1st(struct xmit_buf *pxmitbuf,
 			struct xmit_frame *pxmitframe)
 {
-	
+	/* linux complete context doesnt need to protect */
 	pxmitframe->pxmitbuf = pxmitbuf;
 	pxmitbuf->priv_data = pxmitframe;
 	pxmitframe->pxmit_urb[0] = pxmitbuf->pxmit_urb[0];
-	
+	/* buffer addr assoc */
 	pxmitframe->buf_addr = pxmitbuf->pbuf+TXDESC_SIZE+CMD_HDR_SZ;
-	
+	/*RTL8712_DMA_H2CCMD */
 	r8712_construct_txaggr_cmd_desc(pxmitbuf);
 	r8712_construct_txaggr_cmd_hdr(pxmitbuf);
 	if (r8712_append_mpdu_unit(pxmitbuf, pxmitframe) == _SUCCESS)
@@ -359,7 +359,7 @@ u16 r8712_xmitframe_aggr_next(struct xmit_buf *pxmitbuf,
 	pxmitframe->pxmitbuf = pxmitbuf;
 	pxmitbuf->priv_data = pxmitframe;
 	pxmitframe->pxmit_urb[0] = pxmitbuf->pxmit_urb[0];
-	
+	/* buffer addr assoc */
 	pxmitframe->buf_addr = pxmitbuf->pbuf + TXDESC_SIZE +
 		(((struct tx_desc *)pxmitbuf->pbuf)->txdw0 & 0x0000ffff);
 	if (r8712_append_mpdu_unit(pxmitbuf, pxmitframe) == _SUCCESS) {
@@ -382,12 +382,12 @@ u8 r8712_dump_aggr_xframe(struct xmit_buf *pxmitbuf,
 		(pxmitbuf->pbuf + TXDESC_SIZE);
 	u16 total_length = (u16) (ptxdesc->txdw0 & 0xffff);
 
-	
+	/* use 1st xmitframe as media */
 	xmitframe_xmitbuf_attach(pxmitframe, pxmitbuf);
 	pcmd_hdr->cmd_dw0 = cpu_to_le32(((total_length-CMD_HDR_SZ)&0x0000ffff)|
 					(pcmd_hdr->cmd_dw0&0xffff0000));
 
-	
+	/* urb length in cmd_dw1 */
 	pcmd_hdr->cmd_dw1 = cpu_to_le32((pxmitbuf->aggr_nr & 0xff)|
 					((total_length+TXDESC_SIZE) << 16));
 	pxmitframe->last[0] = 1;
@@ -399,11 +399,11 @@ u8 r8712_dump_aggr_xframe(struct xmit_buf *pxmitbuf,
 			((total_length+TXDESC_SIZE)%0x40) == 0))) {
 		ptxdesc->txdw0 |= cpu_to_le32
 			(((TXDESC_SIZE+OFFSET_SZ+8)<<OFFSET_SHT)&0x00ff0000);
-		
+		/*32 bytes for TX Desc + 8 bytes pending*/
 	} else {
 		ptxdesc->txdw0 |= cpu_to_le32
 			(((TXDESC_SIZE+OFFSET_SZ)<<OFFSET_SHT)&0x00ff0000);
-		
+		/*default = 32 bytes for TX Desc*/
 	}
 	r8712_write_port(pxmitframe->padapter, RTL8712_DMA_H2CCMD,
 			total_length+TXDESC_SIZE, (u8 *)pxmitframe);
@@ -433,7 +433,7 @@ static void update_txdesc(struct xmit_frame *pxmitframe, uint *pmem, int sz)
 
 	memcpy(&txdesc_mp, ptxdesc, sizeof(struct tx_desc));
 	memset(ptxdesc, 0, sizeof(struct tx_desc));
-	
+	/* offset 0 */
 	ptxdesc->txdw0 |= cpu_to_le32(sz&0x0000ffff);
 	if (pdvobj->ishighspeed) {
 		if (((sz + TXDESC_SIZE) % 512) == 0)
@@ -447,21 +447,21 @@ static void update_txdesc(struct xmit_frame *pxmitframe, uint *pmem, int sz)
 			blnSetTxDescOffset = 0;
 	}
 	if (blnSetTxDescOffset) {
-		
+		/* 32 bytes for TX Desc + 8 bytes pending */
 		ptxdesc->txdw0 |= cpu_to_le32(((TXDESC_SIZE+OFFSET_SZ + 8) <<
 			      OFFSET_SHT) & 0x00ff0000);
 	} else {
-		
+		/* default = 32 bytes for TX Desc */
 		ptxdesc->txdw0 |= cpu_to_le32(((TXDESC_SIZE+OFFSET_SZ) <<
 				  OFFSET_SHT) & 0x00ff0000);
 	}
 	ptxdesc->txdw0 |= cpu_to_le32(OWN | FSG | LSG);
 	if (pxmitframe->frame_tag == DATA_FRAMETAG) {
-		
+		/* offset 4 */
 		ptxdesc->txdw1 |= cpu_to_le32((pattrib->mac_id)&0x1f);
 
 #ifdef CONFIG_R8712_TX_AGGR
-		
+		/* dirty workaround, need to check if it is aggr cmd. */
 		if ((u8 *)pmem != (u8 *)pxmitframe->pxmitbuf->pbuf) {
 			ptxdesc->txdw0 |= cpu_to_le32
 				((0x3 << TYPE_SHT)&TYPE_MSK);
@@ -494,14 +494,14 @@ static void update_txdesc(struct xmit_frame *pxmitframe, uint *pmem, int sz)
 		ptxdesc->txdw1 |= cpu_to_le32((qsel << QSEL_SHT) & 0x00001f00);
 #endif
 		if (!pqospriv->qos_option)
-			ptxdesc->txdw1 |= cpu_to_le32(BIT(16));
+			ptxdesc->txdw1 |= cpu_to_le32(BIT(16));/*Non-QoS*/
 		if ((pattrib->encrypt > 0) && !pattrib->bswenc) {
-			switch (pattrib->encrypt) {	
+			switch (pattrib->encrypt) {	/*SEC_TYPE*/
 			case _WEP40_:
 			case _WEP104_:
 				ptxdesc->txdw1 |= cpu_to_le32((0x01 << 22) &
 						  0x00c00000);
-				
+				/*KEY_ID when WEP is used;*/
 				ptxdesc->txdw1 |= cpu_to_le32((psecuritypriv->
 						  PrivacyKeyIndex << 17) &
 						  0x00060000);
@@ -520,72 +520,90 @@ static void update_txdesc(struct xmit_frame *pxmitframe, uint *pmem, int sz)
 				break;
 			}
 		}
-		
+		/*offset 8*/
 		if (bmcst)
 			ptxdesc->txdw2 |= cpu_to_le32(BMC);
 
-		
+		/*offset 12*/
+		/* f/w will increase the seqnum by itself, driver pass the
+		 * correct priority to fw
+		 * fw will check the correct priority for increasing the
+		 * seqnum per tid. about usb using 4-endpoint, qsel points out
+		 * the correct mapping between AC&Endpoint,
+		 * the purpose is that correct mapping lets the MAC release
+		 * the AC Queue list correctly. */
 		ptxdesc->txdw3 = cpu_to_le32((pattrib->priority << SEQ_SHT) &
 				 0x0fff0000);
 		if ((pattrib->ether_type != 0x888e) &&
 		    (pattrib->ether_type != 0x0806) &&
 		    (pattrib->dhcp_pkt != 1)) {
-			
-			if (phtpriv->ht_option == 1) { 
+			/*Not EAP & ARP type data packet*/
+			if (phtpriv->ht_option == 1) { /*B/G/N Mode*/
 				if (phtpriv->ampdu_enable != true)
 					ptxdesc->txdw2 |= cpu_to_le32(BK);
 			}
 		} else {
-			
+			/* EAP data packet and ARP packet.
+			 * Use the 1M data rate to send the EAP/ARP packet.
+			 * This will maybe make the handshake smooth.
+			 */
+			/*driver uses data rate*/
 			ptxdesc->txdw4 = cpu_to_le32(0x80000000);
-			ptxdesc->txdw5 = cpu_to_le32(0x001f8000);
+			ptxdesc->txdw5 = cpu_to_le32(0x001f8000);/*1M*/
 		}
-		if (pattrib->pctrl == 1) { 
+		if (pattrib->pctrl == 1) { /* mp tx packets */
 			struct tx_desc *ptxdesc_mp;
 			ptxdesc_mp = &txdesc_mp;
-			
+			/* offset 8 */
 			ptxdesc->txdw2 = cpu_to_le32(ptxdesc_mp->txdw2);
 			if (bmcst)
 				ptxdesc->txdw2 |= cpu_to_le32(BMC);
 			ptxdesc->txdw2 |= cpu_to_le32(BK);
-			
+			/* offset 16 */
 			ptxdesc->txdw4 = cpu_to_le32(ptxdesc_mp->txdw4);
-			
+			/* offset 20 */
 			ptxdesc->txdw5 = cpu_to_le32(ptxdesc_mp->txdw5);
-			pattrib->pctrl = 0;
+			pattrib->pctrl = 0;/* reset to zero; */
 		}
 	} else if (pxmitframe->frame_tag == MGNT_FRAMETAG) {
-		
-		ptxdesc->txdw1 |= (0x05) & 0x1f;
+		/* offset 4 */
+		ptxdesc->txdw1 |= (0x05) & 0x1f;/*CAM_ID(MAC_ID), default=5;*/
 		qsel = (uint)(pattrib->qsel & 0x0000001f);
 		ptxdesc->txdw1 |= cpu_to_le32((qsel << QSEL_SHT) & 0x00001f00);
-		ptxdesc->txdw1 |= cpu_to_le32(BIT(16));
-		
+		ptxdesc->txdw1 |= cpu_to_le32(BIT(16));/* Non-QoS */
+		/* offset 8 */
 		if (bmcst)
 			ptxdesc->txdw2 |= cpu_to_le32(BMC);
-		
+		/* offset 12 */
+		/* f/w will increase the seqnum by itself, driver pass the
+		 * correct priority to fw
+		 * fw will check the correct priority for increasing the seqnum
+		 * per tid. about usb using 4-endpoint, qsel points out the
+		 * correct mapping between AC&Endpoint,
+		 * the purpose is that correct mapping let the MAC releases
+		 * the AC Queue list correctly. */
 		ptxdesc->txdw3 = cpu_to_le32((pattrib->priority << SEQ_SHT) &
 					      0x0fff0000);
-		
-		ptxdesc->txdw4 = cpu_to_le32(0x80002040);
-		
-		ptxdesc->txdw5 = cpu_to_le32(0x001f8000);
+		/* offset 16 */
+		ptxdesc->txdw4 = cpu_to_le32(0x80002040);/*gtest*/
+		/* offset 20 */
+		ptxdesc->txdw5 = cpu_to_le32(0x001f8000);/* gtest 1M */
 	} else if (pxmitframe->frame_tag == TXAGG_FRAMETAG) {
-		
+		/* offset 4 */
 		qsel = 0x13;
 		ptxdesc->txdw1 |= cpu_to_le32((qsel << QSEL_SHT) & 0x00001f00);
 	} else {
-		
+		/* offset 4 */
 		qsel = (uint)(pattrib->priority&0x0000001f);
 		ptxdesc->txdw1 |= cpu_to_le32((qsel << QSEL_SHT) & 0x00001f00);
-		
-		
+		/*offset 8*/
+		/*offset 12*/
 		ptxdesc->txdw3 = cpu_to_le32((pattrib->seqnum << SEQ_SHT) &
 					      0x0fff0000);
-		
-		ptxdesc->txdw4 = cpu_to_le32(0x80002040);
-		
-		ptxdesc->txdw5 = cpu_to_le32(0x001f9600);
+		/*offset 16*/
+		ptxdesc->txdw4 = cpu_to_le32(0x80002040);/*gtest*/
+		/*offset 20*/
+		ptxdesc->txdw5 = cpu_to_le32(0x001f9600);/*gtest*/
 	}
 }
 
@@ -612,12 +630,15 @@ int r8712_xmitframe_complete(struct _adapter *padapter,
 		pxmitbuf->aggr_nr = 0;
 #endif
 	}
-	
+	/* 1st frame dequeued */
 	pxmitframe = dequeue_xframe_ex(pxmitpriv, phwxmits, hwentry);
-	
+	/* need to remember the 1st frame */
 	if (pxmitframe != NULL) {
 
 #ifdef CONFIG_R8712_TX_AGGR
+		/* 1. dequeue 2nd frame
+		 * 2. aggr if 2nd xframe is dequeued, else dump directly
+		 */
 		if (AGGR_NR_HIGH_BOUND > 1)
 			p2ndxmitframe = dequeue_xframe_ex(pxmitpriv, phwxmits,
 							hwentry);
@@ -658,6 +679,8 @@ int r8712_xmitframe_complete(struct _adapter *padapter,
 			if (pxmitframe->attrib.priority <= 15)
 				res = r8712_xmitframe_coalesce(padapter,
 					pxmitframe->pkt, pxmitframe);
+			/* always return ndis_packet after
+			 * r8712_xmitframe_coalesce */
 			r8712_xmit_complete(padapter, pxmitframe);
 		}
 		if (res == _SUCCESS)
@@ -667,7 +690,7 @@ int r8712_xmitframe_complete(struct _adapter *padapter,
 		xcnt++;
 #endif
 
-	} else { 
+	} else { /* pxmitframe == NULL && p2ndxmitframe == NULL */
 		r8712_free_xmitbuf(pxmitpriv, pxmitbuf);
 		return false;
 	}

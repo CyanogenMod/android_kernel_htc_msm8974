@@ -37,11 +37,11 @@ static void dwmac1000_core_init(void __iomem *ioaddr)
 	value |= GMAC_CORE_INIT;
 	writel(value, ioaddr + GMAC_CONTROL);
 
-	
+	/* Mask GMAC interrupts */
 	writel(0x207, ioaddr + GMAC_INT_MASK);
 
 #ifdef STMMAC_VLAN_TAG_USED
-	
+	/* Tag detection without filtering */
 	writel(0x0, ioaddr + GMAC_VLAN_TAG);
 #endif
 }
@@ -96,28 +96,35 @@ static void dwmac1000_set_filter(struct net_device *dev)
 		value = GMAC_FRAME_FILTER_PR;
 	else if ((netdev_mc_count(dev) > HASH_TABLE_SIZE)
 		   || (dev->flags & IFF_ALLMULTI)) {
-		value = GMAC_FRAME_FILTER_PM;	
+		value = GMAC_FRAME_FILTER_PM;	/* pass all multi */
 		writel(0xffffffff, ioaddr + GMAC_HASH_HIGH);
 		writel(0xffffffff, ioaddr + GMAC_HASH_LOW);
 	} else if (!netdev_mc_empty(dev)) {
 		u32 mc_filter[2];
 		struct netdev_hw_addr *ha;
 
-		
+		/* Hash filter for multicast */
 		value = GMAC_FRAME_FILTER_HMC;
 
 		memset(mc_filter, 0, sizeof(mc_filter));
 		netdev_for_each_mc_addr(ha, dev) {
+			/* The upper 6 bits of the calculated CRC are used to
+			   index the contens of the hash table */
 			int bit_nr =
 			    bitrev32(~crc32_le(~0, ha->addr, 6)) >> 26;
+			/* The most significant bit determines the register to
+			 * use (H/L) while the other 5 bits determine the bit
+			 * within the register. */
 			mc_filter[bit_nr >> 5] |= 1 << (bit_nr & 31);
 		}
 		writel(mc_filter[0], ioaddr + GMAC_HASH_LOW);
 		writel(mc_filter[1], ioaddr + GMAC_HASH_HIGH);
 	}
 
-	
+	/* Handle multiple unicast addresses (perfect filtering)*/
 	if (netdev_uc_count(dev) > GMAC_MAX_UNICAST_ADDRESSES)
+		/* Switch to promiscuous mode is more than 16 addrs
+		   are required */
 		value |= GMAC_FRAME_FILTER_PR;
 	else {
 		int reg = 1;
@@ -130,7 +137,7 @@ static void dwmac1000_set_filter(struct net_device *dev)
 	}
 
 #ifdef FRAME_FILTER_DEBUG
-	
+	/* Enable Receive all mode (to debug filtering_fail errors) */
 	value |= GMAC_FRAME_FILTER_RA;
 #endif
 	writel(value, ioaddr + GMAC_FRAME_FILTER);
@@ -184,7 +191,7 @@ static void dwmac1000_irq_status(void __iomem *ioaddr)
 {
 	u32 intr_status = readl(ioaddr + GMAC_INT_STATUS);
 
-	
+	/* Not used events (e.g. MMC interrupts) are not handled. */
 	if ((intr_status & mmc_tx_irq))
 		CHIP_DBG(KERN_DEBUG "GMAC: MMC tx interrupt: 0x%08x\n",
 		    readl(ioaddr + GMAC_MMC_TX_INTR));
@@ -196,6 +203,8 @@ static void dwmac1000_irq_status(void __iomem *ioaddr)
 		    readl(ioaddr + GMAC_MMC_RX_CSUM_OFFLOAD));
 	if (unlikely(intr_status & pmt_irq)) {
 		CHIP_DBG(KERN_DEBUG "GMAC: received Magic frame\n");
+		/* clear the PMT bits 5 and 6 by reading the PMT
+		 * status register. */
 		readl(ioaddr + GMAC_PMT);
 	}
 }

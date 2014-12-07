@@ -71,6 +71,11 @@ int input_ff_effect_from_user(const char __user *buffer, size_t size,
 		if (size != sizeof(struct ff_effect_compat))
 			return -EINVAL;
 
+		/*
+		 * It so happens that the pointer which needs to be changed
+		 * is the last field in the structure, so we can retrieve the
+		 * whole thing and replace just the pointer.
+		 */
 		compat_effect = (struct ff_effect_compat *)effect;
 
 		if (copy_from_user(compat_effect, buffer,
@@ -124,7 +129,7 @@ int input_ff_effect_from_user(const char __user *buffer, size_t size,
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_COMPAT */
 
 EXPORT_SYMBOL_GPL(input_event_from_user);
 EXPORT_SYMBOL_GPL(input_event_to_user);

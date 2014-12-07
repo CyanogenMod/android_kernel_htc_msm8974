@@ -68,7 +68,7 @@ static ssize_t rmi_f19_buttonCount_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(buttonCount, 0444, rmi_f19_buttonCount_show, rmi_f19_buttonCount_store);	
+DEVICE_ATTR(buttonCount, 0444, rmi_f19_buttonCount_show, rmi_f19_buttonCount_store);	/* RO attr */
 
 static ssize_t rmi_f19_buttonMap_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -77,11 +77,22 @@ static ssize_t rmi_f19_buttonMap_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(buttonMap, 0664, rmi_f19_buttonMap_show, rmi_f19_buttonMap_store);	
+DEVICE_ATTR(buttonMap, 0664, rmi_f19_buttonMap_show, rmi_f19_buttonMap_store);	/* RW attr */
 
 
+/*
+ * There is no attention function for F19 - it is left NULL
+ * in the function table so it is not called.
+ *
+ */
 
 
+/*
+ * This reads in a sample and reports the F19 source data to the
+ * input subsystem. It is used for both polling and interrupt driven
+ * operation. This is called a lot so don't put in any informational
+ * printks since they will slow things way down!
+ */
 void FN_19_inthandler(struct rmi_function_info *rmifninfo,
 	unsigned int assertedIRQs)
 {
@@ -93,7 +104,7 @@ void FN_19_inthandler(struct rmi_function_info *rmifninfo,
 
 	function_device = rmifninfo->function_device;
 
-	
+	/* Read the button data. */
 
 	if (rmi_read_multiple(rmifninfo->sensor, rmifninfo->funcDescriptor.dataBaseAddr,
 		instanceData->buttonDataBuffer, instanceData->buttonDataBufferSize)) {
@@ -101,29 +112,29 @@ void FN_19_inthandler(struct rmi_function_info *rmifninfo,
 		return;
 	}
 
-	
+	/* Generate events for buttons that change state. */
 	for (button = 0; button < instanceData->deviceInfo->buttonCount; button++) {
 		int buttonReg;
 		int buttonShift;
 		bool buttonStatus;
 
-		
+		/* determine which data byte the button status is in */
 		buttonReg = button/4;
-		
+		/* bit shift to get button's status */
 		buttonShift = button % 8;
 		buttonStatus = ((instanceData->buttonDataBuffer[buttonReg] >> buttonShift) & 0x01) != 0;
 
-		
+		/* if the button state changed from the last time report it and store the new state */
 		if (buttonStatus != instanceData->buttonDown[button]) {
 			printk(KERN_DEBUG "%s: Button %d (code %d) -> %d.", __func__, button, instanceData->buttonMap[button], buttonStatus);
-			
+			/* Generate an event here. */
 			input_report_key(function_device->input,
 				instanceData->buttonMap[button], buttonStatus);
 			instanceData->buttonDown[button] = buttonStatus;
 		}
 	}
 
-	input_sync(function_device->input); 
+	input_sync(function_device->input); /* sync after groups of events */
 }
 EXPORT_SYMBOL(FN_19_inthandler);
 
@@ -133,11 +144,16 @@ int FN_19_config(struct rmi_function_info *rmifninfo)
 
 	pr_debug("%s: RMI4 F19 config\n", __func__);
 
+	/* TODO: Perform configuration.  In particular, write any cached control
+	 * register values to the device. */
 
 	return retval;
 }
 EXPORT_SYMBOL(FN_19_config);
 
+/* Initialize any F19 specific params and settings - input
+ * settings, device settings, etc.
+ */
 int FN_19_init(struct rmi_function_device *function_device)
 {
 	int i, retval = 0;
@@ -159,10 +175,10 @@ int FN_19_init(struct rmi_function_device *function_device)
 		}
 	}
 
-	
+	/* Set up any input events. */
 	set_bit(EV_SYN, function_device->input->evbit);
 	set_bit(EV_KEY, function_device->input->evbit);
-	
+	/* set bits for each button...*/
 	for (i = 0; i < instance_data->deviceInfo->buttonCount; i++) {
 		set_bit(instance_data->buttonMap[i], function_device->input->keybit);
 	}
@@ -191,16 +207,16 @@ static int getControlRegisters(struct rmi_function_info *rmifninfo,
 	unsigned char *fn19Control = NULL;
 	int retval = 0;
 
-	
+	/* Get the instance data - it should have been allocated and stored in detect.*/
 	instanceData = rmifninfo->fndata;
 
-	
+	/* Check to make sure instanceData is really there before using.*/
 	if (!instanceData) {
 		printk(KERN_ERR "%s: Error - instance data not initialized yet when getting fn19 control registers.\n", __func__);
 		return -EINVAL;
 	}
 
-	
+	/* Allocate memory for the control registers. */
 	instanceData->controlRegisters = kzalloc(sizeof(struct rmi_F19_control), GFP_KERNEL);
 	if (!instanceData->controlRegisters) {
 		printk(KERN_ERR "%s: Error allocating F19 control registers.\n", __func__);
@@ -209,19 +225,21 @@ static int getControlRegisters(struct rmi_function_info *rmifninfo,
 
 	instanceData->fn19regCountForBitPerButton = (instanceData->deviceInfo->buttonCount + 7)/8;
 
-	instanceData->fn19ControlRegisterSize = 1  
-		+ 2*instanceData->fn19regCountForBitPerButton  
-		+ 2*instanceData->deviceInfo->buttonCount  
-		+ 2; 
+	/* Need to compute the amount of data to read since it varies with the
+	 * number of buttons */
+	instanceData->fn19ControlRegisterSize = 1  /* 1 for filter mode and button usage bits */
+		+ 2*instanceData->fn19regCountForBitPerButton  /* interrupt enable bits and single button participation bits */
+		+ 2*instanceData->deviceInfo->buttonCount  /* sensormap registers + single button sensitivity registers */
+		+ 2; /* 1 for global sensitivity adjust + 1 for global hysteresis threshold */
 
-	
+	/* Allocate a temp memory buffer to read the control registers into */
 	fn19Control = kzalloc(instanceData->fn19ControlRegisterSize, GFP_KERNEL);
 	if (!fn19Control) {
 		printk(KERN_ERR "%s: Error allocating temp storage to read fn19 control info.\n", __func__);
 		return -ENOMEM;
 	}
 
-	
+	/* Grab a copy of the control registers. */
 	retval = rmi_read_multiple(rmifninfo->sensor, fndescr->controlBaseAddr,
 		fn19Control, instanceData->fn19ControlRegisterSize);
 	if (retval) {
@@ -229,12 +247,12 @@ static int getControlRegisters(struct rmi_function_info *rmifninfo,
 		return retval;
 	}
 
-	
+	/* Copy over control registers data to the instance data */
 	instanceData->fn19btnUsageandfilterModeOffset = 0;
 	instanceData->controlRegisters->buttonUsage = fn19Control[instanceData->fn19btnUsageandfilterModeOffset] & 0x3;
 	instanceData->controlRegisters->filterMode = fn19Control[instanceData->fn19btnUsageandfilterModeOffset] & 0xc;
 
-	
+	/* Fill in interrupt enable registers */
 	instanceData->fn19intEnableOffset = 1;
 	instanceData->fn19intEnableLen = instanceData->fn19regCountForBitPerButton;
 	instanceData->controlRegisters->intEnableRegisters = kzalloc(instanceData->fn19intEnableLen, GFP_KERNEL);
@@ -245,7 +263,7 @@ static int getControlRegisters(struct rmi_function_info *rmifninfo,
 	memcpy(instanceData->controlRegisters->intEnableRegisters, &fn19Control[instanceData->fn19intEnableOffset],
 		instanceData->fn19intEnableLen);
 
-	
+	/* Fill in single button control registers */
 	instanceData->fn19singleBtnCtrlOffset = instanceData->fn19intEnableOffset + instanceData->fn19intEnableLen;
 	instanceData->fn19singleBtnCtrlLen = instanceData->fn19regCountForBitPerButton;
 	instanceData->controlRegisters->singleButtonControl = kzalloc(instanceData->fn19singleBtnCtrlLen, GFP_KERNEL);
@@ -256,7 +274,7 @@ static int getControlRegisters(struct rmi_function_info *rmifninfo,
 	memcpy(instanceData->controlRegisters->singleButtonControl, &fn19Control[instanceData->fn19singleBtnCtrlOffset],
 		instanceData->fn19singleBtnCtrlLen);
 
-	
+	/* Fill in sensor map registers */
 	instanceData->fn19sensorMapCtrlOffset = instanceData->fn19singleBtnCtrlOffset + instanceData->fn19singleBtnCtrlLen;
 	instanceData->fn19sensorMapCtrlLen = instanceData->deviceInfo->buttonCount;
 	instanceData->controlRegisters->sensorMap = kzalloc(instanceData->fn19sensorMapCtrlLen, GFP_KERNEL);
@@ -267,7 +285,7 @@ static int getControlRegisters(struct rmi_function_info *rmifninfo,
 	memcpy(instanceData->controlRegisters->sensorMap, &fn19Control[instanceData->fn19sensorMapCtrlOffset],
 		instanceData->fn19sensorMapCtrlLen);
 
-	
+	/* Fill in single button sensitivity registers */
 	instanceData->fn19singleBtnSensOffset = instanceData->fn19sensorMapCtrlOffset + instanceData->fn19sensorMapCtrlLen;
 	instanceData->fn19singleBtnSensLen = instanceData->deviceInfo->buttonCount;
 	instanceData->controlRegisters->singleButtonSensitivity = kzalloc(instanceData->fn19singleBtnSensLen, GFP_KERNEL);
@@ -278,13 +296,13 @@ static int getControlRegisters(struct rmi_function_info *rmifninfo,
 	memcpy(instanceData->controlRegisters->singleButtonSensitivity, &fn19Control[instanceData->fn19singleBtnSensOffset],
 		instanceData->fn19singleBtnSensLen);
 
-	
+	/* Fill in global sensitivity adjustment and global hysteresis threshold values */
 	instanceData->fn19globalSensOffset = instanceData->fn19singleBtnSensOffset + instanceData->fn19singleBtnSensLen;
 	instanceData->fn19globalHystThreshOffset = instanceData->fn19globalSensOffset + 1;
 	instanceData->controlRegisters->globalSensitivityAdjustment = fn19Control[instanceData->fn19globalSensOffset] & 0x1f;
 	instanceData->controlRegisters->globalHysteresisThreshold = fn19Control[instanceData->fn19globalHystThreshOffset] & 0x0f;
 
-	
+	/* Free up temp storage that held copy of control registers */
 	kfree(fn19Control);
 
 	return 0;
@@ -313,6 +331,8 @@ int FN_19_detect(struct rmi_function_info *rmifninfo,
 	}
 	rmifninfo->fndata = instanceData;
 
+	/* Store addresses - used elsewhere to read data,
+	* control, query, etc. */
 	rmifninfo->funcDescriptor.queryBaseAddr = fndescr->queryBaseAddr;
 	rmifninfo->funcDescriptor.commandBaseAddr = fndescr->commandBaseAddr;
 	rmifninfo->funcDescriptor.controlBaseAddr = fndescr->controlBaseAddr;
@@ -322,6 +342,9 @@ int FN_19_detect(struct rmi_function_info *rmifninfo,
 
 	rmifninfo->numSources = fndescr->interruptSrcCnt;
 
+	/* need to get number of fingers supported, data size, etc. -
+	to be used when getting data since the number of registers to
+	read depends on the number of fingers supported and data size. */
 	retval = rmi_read_multiple(rmifninfo->sensor, fndescr->queryBaseAddr, fn19queries,
 			sizeof(fn19queries));
 	if (retval) {
@@ -331,15 +354,19 @@ int FN_19_detect(struct rmi_function_info *rmifninfo,
 		return retval;
 	}
 
-	
+	/* Extract device data. */
 	instanceData->deviceInfo->configurable = fn19queries[0] & 0x01;
 	instanceData->deviceInfo->hasSensitivityAdjust = fn19queries[0] & 0x02;
 	instanceData->deviceInfo->hasHysteresisThreshold = fn19queries[0] & 0x04;
 	instanceData->deviceInfo->buttonCount = fn19queries[1] & 0x01F;
 	printk(KERN_DEBUG "%s: F19 device - %d buttons...", __func__, instanceData->deviceInfo->buttonCount);
 
+	/* Need to get interrupt info to be used later when handling
+	interrupts. */
 	rmifninfo->interruptRegister = interruptCount/8;
 
+	/* loop through interrupts for each source in fn $11 and or in a bit
+	to the interrupt mask for each. */
 	fn19InterruptOffset = interruptCount % 8;
 
 	for (i = fn19InterruptOffset;
@@ -347,7 +374,7 @@ int FN_19_detect(struct rmi_function_info *rmifninfo,
 			i++)
 		rmifninfo->interruptMask |= 1 << i;
 
-	
+	/* Figure out just how much data we'll need to read. */
 	instanceData->buttonDown = kcalloc(instanceData->deviceInfo->buttonCount, sizeof(bool), GFP_KERNEL);
 	if (!instanceData->buttonDown) {
 		printk(KERN_ERR "%s: Error allocating F19 button state buffer.\n", __func__);
@@ -368,9 +395,9 @@ int FN_19_detect(struct rmi_function_info *rmifninfo,
 	}
 
 	for (i = 0; i < instanceData->deviceInfo->buttonCount; i++)
-		instanceData->buttonMap[i] = BTN_0 + i; 
+		instanceData->buttonMap[i] = BTN_0 + i; /* default values */
 
-	
+	/* Grab the control register info. */
 	retval = getControlRegisters(rmifninfo, fndescr);
 	if (retval) {
 		printk(KERN_ERR "%s: Error %d getting fn19 control register info.\n", __func__, retval);
@@ -394,7 +421,7 @@ static ssize_t rmi_f19_buttonCount_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	
+	/* Not allowed. */
 	return -EPERM;
 }
 
@@ -405,11 +432,11 @@ static ssize_t rmi_f19_buttonMap_show(struct device *dev,
 	struct f19_instance_data *instance_data = (struct f19_instance_data *)fn->rfi->fndata;
 	int i, len, totalLen = 0;
 
-	
+	/* loop through each button map value and copy it's string representation into buf */
 	for (i = 0; i < instance_data->deviceInfo->buttonCount; i++) {
-		
+		/* get next button mapping value and write it to buf */
 		len = sprintf(buf, "%u ", instance_data->buttonMap[i]);
-		
+		/* bump up ptr to next location in buf if the sprintf was valid */
 		if (len > 0) {
 			buf += len;
 			totalLen += len;
@@ -431,7 +458,9 @@ static ssize_t rmi_f19_buttonMap_store(struct device *dev,
 	int buttonCount = 0;
 	unsigned char *tmpButtonMap;
 
-	
+	/* Do validation on the button map data passed in. */
+	/* Store button mappings into a temp buffer and then verify button count
+	and data prior to clearing out old button mappings and storing the new ones. */
 	tmpButtonMap = kzalloc(instance_data->deviceInfo->buttonCount, GFP_KERNEL);
 	if (!tmpButtonMap) {
 		printk(KERN_ERR "%s: Error allocating temp button map.\n", __func__);
@@ -439,10 +468,10 @@ static ssize_t rmi_f19_buttonMap_store(struct device *dev,
 	}
 
 	for (i = 0; i < instance_data->deviceInfo->buttonCount && *buf != 0; i++) {
-		
+		/* get next button mapping value and store and bump up to point to next item in buf */
 		sscanf(buf, "%u", &button);
 
-		
+		/* Make sure the key is a valid key */
 		if (button > KEY_MAX) {
 			printk(KERN_ERR "%s: Error - button map for button %d is not a valid value 0x%x.\n",
 				__func__, i, button);
@@ -453,7 +482,7 @@ static ssize_t rmi_f19_buttonMap_store(struct device *dev,
 		tmpButtonMap[i] = button;
 		buttonCount++;
 
-		
+		/* bump up buf to point to next item to read */
 		while (*buf != 0) {
 			buf++;
 			if (*(buf-1) == ' ')
@@ -461,7 +490,7 @@ static ssize_t rmi_f19_buttonMap_store(struct device *dev,
 		}
 	}
 
-	
+	/* Make sure the button count matches */
 	if (buttonCount != instance_data->deviceInfo->buttonCount) {
 		printk(KERN_ERR "%s: Error - button map count of %d doesn't match device button count of %d.\n"
 			 , __func__, buttonCount, instance_data->deviceInfo->buttonCount);
@@ -469,10 +498,10 @@ static ssize_t rmi_f19_buttonMap_store(struct device *dev,
 		goto err_ret;
 	}
 
-	
+	/* Clear out old buttonMap data */
 	memset(instance_data->buttonMap, 0, buttonCount);
 
-	
+	/* Loop through the temp buffer and copy the button event and set the key bit for the new mapping. */
 	for (i = 0; i < buttonCount; i++) {
 		instance_data->buttonMap[i] = tmpButtonMap[1];
 		set_bit(instance_data->buttonMap[i], fn->input->keybit);

@@ -599,6 +599,7 @@ DEFINE_EVENT(smmu_map, iommu_map_range,
 	TP_ARGS(va, pa, chunk_size, len)
 	);
 
-#endif 
+#endif /* _TRACE_KMEM_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

@@ -3,4 +3,4 @@
 
 #include <asm-generic/scatterlist.h>
 
-#endif 
+#endif /* !(__ASM_CRIS_SCATTERLIST_H) */

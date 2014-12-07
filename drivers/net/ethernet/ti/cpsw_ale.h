@@ -18,7 +18,7 @@
 struct cpsw_ale_params {
 	struct device		*dev;
 	void __iomem		*ale_regs;
-	unsigned long		ale_ageout;	
+	unsigned long		ale_ageout;	/* in secs */
 	unsigned long		ale_entries;
 	unsigned long		ale_ports;
 };
@@ -30,7 +30,7 @@ struct cpsw_ale {
 };
 
 enum cpsw_ale_control {
-	
+	/* global */
 	ALE_ENABLE,
 	ALE_CLEAR,
 	ALE_AGEOUT,
@@ -42,7 +42,7 @@ enum cpsw_ale_control {
 	ALE_VLAN_AWARE,
 	ALE_AUTH_ENABLE,
 	ALE_RATE_LIMIT,
-	
+	/* port controls */
 	ALE_PORT_STATE,
 	ALE_PORT_DROP_UNTAGGED,
 	ALE_PORT_DROP_UNKNOWN_VLAN,
@@ -63,6 +63,7 @@ enum cpsw_ale_port_state {
 	ALE_PORT_STATE_FORWARD	= 0x03,
 };
 
+/* ALE unicast entry flags - passed into cpsw_ale_add_ucast() */
 #define ALE_SECURE			1
 #define ALE_BLOCKED			2
 

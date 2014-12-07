@@ -44,11 +44,12 @@ void __init trap_init(void)
 }
 
 #ifdef CONFIG_GENERIC_BUG
+/* Maybe should resemble arch/sh/kernel/traps.c ?? */
 int is_valid_bugaddr(unsigned long addr)
 {
 	return 1;
 }
-#endif 
+#endif /* CONFIG_GENERIC_BUG */
 
 static const char *ex_name(int ex)
 {
@@ -118,11 +119,11 @@ static void do_show_stack(struct task_struct *task, unsigned long *fp,
 		return;
 	}
 
-	
+	/* Saved link reg is one word above FP */
 	if (!ip)
 		ip = *(fp+1);
 
-	
+	/* Expect kernel stack to be in-bounds */
 	low = (unsigned long)task_stack_page(task);
 	high = low + THREAD_SIZE - 8;
 	low += sizeof(struct thread_info);
@@ -147,7 +148,7 @@ static void do_show_stack(struct task_struct *task, unsigned long *fp,
 			break;
 		}
 
-		
+		/* Attempt to continue past exception. */
 		if (0 == newfp) {
 			struct pt_regs *regs = (struct pt_regs *) (((void *)fp)
 						+ 8);
@@ -159,7 +160,7 @@ static void do_show_stack(struct task_struct *task, unsigned long *fp,
 					 pt_psp(regs), pt_elr(regs));
 				break;
 			} else {
-				
+				/* really want to see more ... */
 				kstack_depth_to_print += 6;
 				printk(KERN_INFO "-- %s (0x%lx)  badva: %lx\n",
 					ex_name(pt_cause(regs)), pt_cause(regs),
@@ -172,11 +173,11 @@ static void do_show_stack(struct task_struct *task, unsigned long *fp,
 			ip = *(newfp + 1);
 		}
 
-		
+		/* If link reg is null, we are done. */
 		if (ip == 0x0)
 			break;
 
-		
+		/* If newfp isn't larger, we're tracing garbage. */
 		if (newfp > fp)
 			fp = newfp;
 		else
@@ -186,7 +187,7 @@ static void do_show_stack(struct task_struct *task, unsigned long *fp,
 
 void show_stack(struct task_struct *task, unsigned long *fp)
 {
-	
+	/* Saved link reg is one word above FP */
 	do_show_stack(task, fp, 0);
 }
 
@@ -247,12 +248,20 @@ int die_if_kernel(char *str, struct pt_regs *regs, long err)
 		return 0;
 }
 
+/*
+ * It's not clear that misaligned fetches are ever recoverable.
+ */
 static void misaligned_instruction(struct pt_regs *regs)
 {
 	die_if_kernel("Misaligned Instruction", regs, 0);
 	force_sig(SIGBUS, current);
 }
 
+/*
+ * Misaligned loads and stores, on the other hand, can be
+ * emulated, and probably should be, some day.  But for now
+ * they will be considered fatal.
+ */
 static void misaligned_data_load(struct pt_regs *regs)
 {
 	die_if_kernel("Misaligned Data Load", regs, 0);
@@ -271,19 +280,34 @@ static void illegal_instruction(struct pt_regs *regs)
 	force_sig(SIGILL, current);
 }
 
+/*
+ * Precise bus errors may be recoverable with a a retry,
+ * but for now, treat them as irrecoverable.
+ */
 static void precise_bus_error(struct pt_regs *regs)
 {
 	die_if_kernel("Precise Bus Error", regs, 0);
 	force_sig(SIGBUS, current);
 }
 
+/*
+ * If anything is to be done here other than panic,
+ * it will probably be complex and migrate to another
+ * source module.  For now, just die.
+ */
 static void cache_error(struct pt_regs *regs)
 {
 	die("Cache Error", regs, 0);
 }
 
+/*
+ * General exception handler
+ */
 void do_genex(struct pt_regs *regs)
 {
+	/*
+	 * Decode Cause and Dispatch
+	 */
 	switch (pt_cause(regs)) {
 	case HVM_GE_C_XPROT:
 	case HVM_GE_C_XUSER:
@@ -317,12 +341,13 @@ void do_genex(struct pt_regs *regs)
 		cache_error(regs);
 		break;
 	default:
-		
+		/* Halt and catch fire */
 		panic("Unrecognized exception 0x%lx\n", pt_cause(regs));
 		break;
 	}
 }
 
+/* Indirect system call dispatch */
 long sys_syscall(void)
 {
 	printk(KERN_ERR "sys_syscall invoked!\n");
@@ -336,18 +361,34 @@ void do_trap0(struct pt_regs *regs)
 
 	switch (pt_cause(regs)) {
 	case TRAP_SYSCALL:
-		
+		/* System call is trap0 #1 */
 
-		
+		/* allow strace to catch syscall args  */
 		if (unlikely(test_thread_flag(TIF_SYSCALL_TRACE) &&
 			tracehook_report_syscall_entry(regs)))
-			return;  
+			return;  /*  return -ENOSYS somewhere?  */
 
-		
+		/* Interrupts should be re-enabled for syscall processing */
 		__vmsetie(VM_INT_ENABLE);
 
+		/*
+		 * System call number is in r6, arguments in r0..r5.
+		 * Fortunately, no Linux syscall has more than 6 arguments,
+		 * and Hexagon ABI passes first 6 arguments in registers.
+		 * 64-bit arguments are passed in odd/even register pairs.
+		 * Fortunately, we have no system calls that take more
+		 * than three arguments with more than one 64-bit value.
+		 * Should that change, we'd need to redesign to copy
+		 * between user and kernel stacks.
+		 */
 		regs->syscall_nr = regs->r06;
 
+		/*
+		 * GPR R0 carries the first parameter, and is also used
+		 * to report the return value.  We need a backup of
+		 * the user's value in case we need to do a late restart
+		 * of the system call.
+		 */
 		regs->restart_r0 = regs->r00;
 
 		if ((unsigned long) regs->syscall_nr >= __NR_syscalls) {
@@ -360,22 +401,35 @@ void do_trap0(struct pt_regs *regs)
 				   regs->r04, regs->r05);
 		}
 
+		/*
+		 * If it was a sigreturn system call, don't overwrite
+		 * r0 value in stack frame with return value.
+		 *
+		 * __NR_sigreturn doesn't seem to exist in new unistd.h
+		 */
 
 		if (regs->syscall_nr != __NR_rt_sigreturn)
 			regs->r00 = syscallret;
 
-		
+		/* allow strace to get the syscall return state  */
 		if (unlikely(test_thread_flag(TIF_SYSCALL_TRACE)))
 			tracehook_report_syscall_exit(regs, 0);
 
 		break;
 	case TRAP_DEBUG:
-		
+		/* Trap0 0xdb is debug breakpoint */
 		if (user_mode(regs)) {
 			struct siginfo info;
 
 			info.si_signo = SIGTRAP;
 			info.si_errno = 0;
+			/*
+			 * Some architecures add some per-thread state
+			 * to distinguish between breakpoint traps and
+			 * trace traps.  We may want to do that, and
+			 * set the si_code value appropriately, or we
+			 * may want to use a different trap0 flavor.
+			 */
 			info.si_code = TRAP_BRKPT;
 			info.si_addr = (void __user *) pt_elr(regs);
 			send_sig_info(SIGTRAP, &info, current);
@@ -387,11 +441,14 @@ void do_trap0(struct pt_regs *regs)
 		}
 		break;
 	}
-	
+	/* Ignore other trap0 codes for now, especially 0 (Angel calls) */
 }
 
+/*
+ * Machine check exception handler
+ */
 void do_machcheck(struct pt_regs *regs)
 {
-	
+	/* Halt and catch fire */
 	__vmstop();
 }

@@ -10,6 +10,7 @@
  * GNU General Public License for more details.
  */
 
+/* add additional information to our printk's */
 #define pr_fmt(fmt) "%s: " fmt "\n", __func__
 
 #include <linux/kernel.h>
@@ -44,7 +45,7 @@ struct hsic_sysmon {
 	struct platform_device	pdev;
 	int			id;
 
-	
+	/* debugging counters */
 	atomic_t		dbg_bytecnt[NUM_OPS];
 	atomic_t		dbg_pending[NUM_OPS];
 };
@@ -59,6 +60,15 @@ static void hsic_sysmon_delete(struct kref *kref)
 	kfree(hs);
 }
 
+/**
+ * hsic_sysmon_open() - Opens the system monitor bridge.
+ * @id: the HSIC system monitor device to open
+ *
+ * This should only be called after the platform_device "sys_mon" with id
+ * SYSMON_SS_EXT_MODEM has been added. The simplest way to do that is to
+ * register a platform_driver and its probe will be called when the HSIC
+ * device is ready.
+ */
 int hsic_sysmon_open(enum hsic_sysmon_device_id id)
 {
 	struct hsic_sysmon	*hs;
@@ -80,6 +90,10 @@ int hsic_sysmon_open(enum hsic_sysmon_device_id id)
 }
 EXPORT_SYMBOL(hsic_sysmon_open);
 
+/**
+ * hsic_sysmon_close() - Closes the system monitor bridge.
+ * @id: the HSIC system monitor device to close
+ */
 void hsic_sysmon_close(enum hsic_sysmon_device_id id)
 {
 	struct hsic_sysmon	*hs;
@@ -94,6 +108,9 @@ void hsic_sysmon_close(enum hsic_sysmon_device_id id)
 }
 EXPORT_SYMBOL(hsic_sysmon_close);
 
+/**
+ * hsic_sysmon_readwrite() - Common function to send read/write over HSIC
+ */
 static int hsic_sysmon_readwrite(enum hsic_sysmon_device_id id, void *data,
 				 size_t len, size_t *actual_len, int timeout,
 				 enum hsic_sysmon_op op)
@@ -150,6 +167,25 @@ static int hsic_sysmon_readwrite(enum hsic_sysmon_device_id id, void *data,
 	return ret;
 }
 
+/**
+ * hsic_sysmon_read() - Read data from the HSIC sysmon interface.
+ * @id: the HSIC system monitor device to open
+ * @data: pointer to caller-allocated buffer to fill in
+ * @len: length in bytes of the buffer
+ * @actual_len: pointer to a location to put the actual length read
+ *	in bytes
+ * @timeout: time in msecs to wait for the message to complete before
+ *	timing out (if 0 the wait is forever)
+ *
+ * Context: !in_interrupt ()
+ *
+ * Synchronously reads data from the HSIC interface. The call will return
+ * after the read has completed, encountered an error, or timed out. Upon
+ * successful return actual_len will reflect the number of bytes read.
+ *
+ * If successful, it returns 0, otherwise a negative error number.  The number
+ * of actual bytes transferred will be stored in the actual_len paramater.
+ */
 int hsic_sysmon_read(enum hsic_sysmon_device_id id, char *data, size_t len,
 		     size_t *actual_len, int timeout)
 {
@@ -366,12 +402,13 @@ static int hsic_sysmon_resume(struct usb_interface *ifc)
 	return 0;
 }
 
+/* driver_info is the instance number when multiple devices are present */
 static const struct usb_device_id hsic_sysmon_ids[] = {
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9048, 1), .driver_info = 0, },
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x904C, 1), .driver_info = 0, },
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9075, 1), .driver_info = 0, },
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9079, 1), .driver_info = 1, },
-	{} 
+	{} /* terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, hsic_sysmon_ids);
 

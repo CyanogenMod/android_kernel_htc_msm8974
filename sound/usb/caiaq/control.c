@@ -44,7 +44,7 @@ static int control_info(struct snd_kcontrol *kcontrol,
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AUDIO8DJ):
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AUDIO4DJ):
 		if (pos == 0) {
-			
+			/* current input mode of A8DJ and A4DJ */
 			uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
 			uinfo->value.integer.min = 0;
 			uinfo->value.integer.max = 2;
@@ -144,7 +144,7 @@ static struct snd_kcontrol_new kcontrol_template __devinitdata = {
 	.info = control_info,
 	.get  = control_get,
 	.put  = control_put,
-	
+	/* name and private_value filled later */
 };
 
 struct caiaq_controller {

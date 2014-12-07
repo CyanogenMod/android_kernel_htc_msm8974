@@ -31,19 +31,73 @@
 
 #include <dspbridge/dspapi-ioctl.h>
 
-#define BRD_API_MAJOR_VERSION   (u32)8	
+/* This BRD API Library Version: */
+#define BRD_API_MAJOR_VERSION   (u32)8	/* .8x - Alpha, .9x - Beta, 1.x FCS */
 #define BRD_API_MINOR_VERSION   (u32)0
 
+/*
+ *  ======== api_call_dev_ioctl ========
+ *  Purpose:
+ *      Call the (wrapper) function for the corresponding API IOCTL.
+ *  Parameters:
+ *      cmd:        IOCTL id, base 0.
+ *      args:       Argument structure.
+ *      result:
+ *  Returns:
+ *      0 if command called; -EINVAL if command not in IOCTL
+ *      table.
+ *  Requires:
+ *  Ensures:
+ */
 extern int api_call_dev_ioctl(unsigned int cmd,
 				      union trapped_args *args,
 				      u32 *result, void *pr_ctxt);
 
+/*
+ *  ======== api_init ========
+ *  Purpose:
+ *      Initialize modules used by Bridge API.
+ *      This procedure is called when the driver is loaded.
+ *  Parameters:
+ *  Returns:
+ *      TRUE if success; FALSE otherwise.
+ *  Requires:
+ *  Ensures:
+ */
 extern bool api_init(void);
 
+/*
+ *  ======== api_init_complete2 ========
+ *  Purpose:
+ *      Perform any required bridge initialization which cannot
+ *      be performed in api_init() or dev_start_device() due
+ *      to the fact that some services are not yet
+ *      completely initialized.
+ *  Parameters:
+ *  Returns:
+ *      0:        Allow this device to load
+ *      -EPERM:      Failure.
+ *  Requires:
+ *      Bridge API initialized.
+ *  Ensures:
+ */
 extern int api_init_complete2(void);
 
+/*
+ *  ======== api_exit ========
+ *  Purpose:
+ *      Exit all modules initialized in api_init(void).
+ *      This procedure is called when the driver is unloaded.
+ *  Parameters:
+ *  Returns:
+ *  Requires:
+ *      api_init(void) was previously called.
+ *  Ensures:
+ *      Resources acquired in api_init(void) are freed.
+ */
 extern void api_exit(void);
 
+/* MGR wrapper functions */
 extern u32 mgrwrap_enum_node_info(union trapped_args *args, void *pr_ctxt);
 extern u32 mgrwrap_enum_proc_info(union trapped_args *args, void *pr_ctxt);
 extern u32 mgrwrap_register_object(union trapped_args *args, void *pr_ctxt);
@@ -54,6 +108,7 @@ extern u32 mgrwrap_wait_for_bridge_events(union trapped_args *args,
 extern u32 mgrwrap_get_process_resources_info(union trapped_args *args,
 					      void *pr_ctxt);
 
+/* CPRC (Processor) wrapper Functions */
 extern u32 procwrap_attach(union trapped_args *args, void *pr_ctxt);
 extern u32 procwrap_ctrl(union trapped_args *args, void *pr_ctxt);
 extern u32 procwrap_detach(union trapped_args *args, void *pr_ctxt);
@@ -74,6 +129,7 @@ extern u32 procwrap_invalidate_memory(union trapped_args *args, void *pr_ctxt);
 extern u32 procwrap_begin_dma(union trapped_args *args, void *pr_ctxt);
 extern u32 procwrap_end_dma(union trapped_args *args, void *pr_ctxt);
 
+/* NODE wrapper functions */
 extern u32 nodewrap_allocate(union trapped_args *args, void *pr_ctxt);
 extern u32 nodewrap_alloc_msg_buf(union trapped_args *args, void *pr_ctxt);
 extern u32 nodewrap_change_priority(union trapped_args *args, void *pr_ctxt);
@@ -90,6 +146,7 @@ extern u32 nodewrap_run(union trapped_args *args, void *pr_ctxt);
 extern u32 nodewrap_terminate(union trapped_args *args, void *pr_ctxt);
 extern u32 nodewrap_get_uuid_props(union trapped_args *args, void *pr_ctxt);
 
+/* STRM wrapper functions */
 extern u32 strmwrap_allocate_buffer(union trapped_args *args, void *pr_ctxt);
 extern u32 strmwrap_close(union trapped_args *args, void *pr_ctxt);
 extern u32 strmwrap_free_buffer(union trapped_args *args, void *pr_ctxt);
@@ -107,4 +164,4 @@ extern u32 cmmwrap_free_buf(union trapped_args *args, void *pr_ctxt);
 extern u32 cmmwrap_get_handle(union trapped_args *args, void *pr_ctxt);
 extern u32 cmmwrap_get_info(union trapped_args *args, void *pr_ctxt);
 
-#endif 
+#endif /* DSPAPI_ */

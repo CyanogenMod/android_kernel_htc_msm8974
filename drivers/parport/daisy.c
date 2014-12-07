@@ -46,11 +46,13 @@ static DEFINE_SPINLOCK(topology_lock);
 
 static int numdevs = 0;
 
+/* Forward-declaration of lower-level functions. */
 static int mux_present(struct parport *port);
 static int num_mux_ports(struct parport *port);
 static int select_port(struct parport *port);
 static int assign_addrs(struct parport *port);
 
+/* Add a device to the discovered topology. */
 static void add_dev(int devnum, struct parport *port, int daisy)
 {
 	struct daisydev *newdev, **p;
@@ -68,6 +70,7 @@ static void add_dev(int devnum, struct parport *port, int daisy)
 	}
 }
 
+/* Clone a parport (actually, make an alias). */
 static struct parport *clone_parport(struct parport *real, int muxport)
 {
 	struct parport *extra = parport_register_port(real->base,
@@ -84,27 +87,33 @@ static struct parport *clone_parport(struct parport *real, int muxport)
 	return extra;
 }
 
+/* Discover the IEEE1284.3 topology on a port -- muxes and daisy chains.
+ * Return value is number of devices actually detected. */
 int parport_daisy_init(struct parport *port)
 {
 	int detected = 0;
 	char *deviceid;
-	static const char *th[] = { "th", "st", "nd", "rd", "th" };
+	static const char *th[] = { /*0*/"th", "st", "nd", "rd", "th" };
 	int num_ports;
 	int i;
 	int last_try = 0;
 
 again:
+	/* Because this is called before any other devices exist,
+	 * we don't have to claim exclusive access.  */
 
+	/* If mux present on normal port, need to create new
+	 * parports for each extra port. */
 	if (port->muxport < 0 && mux_present(port) &&
-	    
+	    /* don't be fooled: a mux must have 2 or 4 ports. */
 	    ((num_ports = num_mux_ports(port)) == 2 || num_ports == 4)) {
-		
+		/* Leave original as port zero. */
 		port->muxport = 0;
 		printk(KERN_INFO
 			"%s: 1st (default) port of %d-way multiplexor\n",
 			port->name, num_ports);
 		for (i = 1; i < num_ports; i++) {
-			
+			/* Clone the port. */
 			struct parport *extra = clone_parport(port, i);
 			if (!extra) {
 				if (signal_pending(current))
@@ -119,6 +128,9 @@ again:
 				extra->name, i + 1, th[i + 1], num_ports,
 				port->name);
 
+			/* Analyse that port too.  We won't recurse
+			   forever because of the 'port->muxport < 0'
+			   test above. */
 			parport_daisy_init(extra);
 		}
 	}
@@ -129,10 +141,10 @@ again:
 	parport_daisy_deselect_all(port);
 	detected += assign_addrs(port);
 
-	
+	/* Count the potential legacy device at the end. */
 	add_dev(numdevs++, port, -1);
 
-	
+	/* Find out the legacy device's IEEE 1284 device ID. */
 	deviceid = kmalloc(1024, GFP_KERNEL);
 	if (deviceid) {
 		if (parport_device_id(numdevs - 1, deviceid, 1024) > 2)
@@ -142,6 +154,9 @@ again:
 	}
 
 	if (!detected && !last_try) {
+		/* No devices were detected.  Perhaps they are in some
+                   funny state; let's try to reset them and see if
+                   they wake up. */
 		parport_daisy_fini(port);
 		parport_write_control(port, PARPORT_CONTROL_SELECT);
 		udelay(50);
@@ -156,6 +171,7 @@ again:
 	return detected;
 }
 
+/* Forget about devices on a physical port. */
 void parport_daisy_fini(struct parport *port)
 {
 	struct daisydev **p;
@@ -172,11 +188,27 @@ void parport_daisy_fini(struct parport *port)
 		kfree(dev);
 	}
 
+	/* Gaps in the numbering could be handled better.  How should
+           someone enumerate through all IEEE1284.3 devices in the
+           topology?. */
 	if (!topology) numdevs = 0;
 	spin_unlock(&topology_lock);
 	return;
 }
 
+/**
+ *	parport_open - find a device by canonical device number
+ *	@devnum: canonical device number
+ *	@name: name to associate with the device
+ *
+ *	This function is similar to parport_register_device(), except
+ *	that it locates a device by its number rather than by the port
+ *	it is attached to.
+ *
+ *	All parameters except for @devnum are the same as for
+ *	parport_register_device().  The return value is the same as
+ *	for parport_register_device().
+ **/
 
 struct pardevice *parport_open(int devnum, const char *name)
 {
@@ -205,7 +237,7 @@ struct pardevice *parport_open(int devnum, const char *name)
 
 	dev->daisy = daisy;
 
-	
+	/* Check that there really is a device to select. */
 	if (daisy >= 0) {
 		int selected;
 		parport_claim_or_block(dev);
@@ -213,7 +245,7 @@ struct pardevice *parport_open(int devnum, const char *name)
 		parport_release(dev);
 
 		if (selected != daisy) {
-			
+			/* No corresponding device. */
 			parport_unregister_device(dev);
 			return NULL;
 		}
@@ -222,12 +254,20 @@ struct pardevice *parport_open(int devnum, const char *name)
 	return dev;
 }
 
+/**
+ *	parport_close - close a device opened with parport_open()
+ *	@dev: device to close
+ *
+ *	This is to parport_open() as parport_unregister_device() is to
+ *	parport_register_device().
+ **/
 
 void parport_close(struct pardevice *dev)
 {
 	parport_unregister_device(dev);
 }
 
+/* Send a daisy-chain-style CPP command packet. */
 static int cpp_daisy(struct parport *port, int cmd)
 {
 	unsigned char s;
@@ -275,6 +315,7 @@ static int cpp_daisy(struct parport *port, int cmd)
 	return s;
 }
 
+/* Send a mux-style CPP command packet. */
 static int cpp_mux(struct parport *port, int cmd)
 {
 	unsigned char s;
@@ -313,24 +354,24 @@ int parport_daisy_select(struct parport *port, int daisy, int mode)
 {
 	switch (mode)
 	{
-		
+		// For these modes we should switch to EPP mode:
 		case IEEE1284_MODE_EPP:
 		case IEEE1284_MODE_EPPSL:
 		case IEEE1284_MODE_EPPSWE:
 			return !(cpp_daisy(port, 0x20 + daisy) &
 				 PARPORT_STATUS_ERROR);
 
-		
+		// For these modes we should switch to ECP mode:
 		case IEEE1284_MODE_ECP:
 		case IEEE1284_MODE_ECPRLE:
 		case IEEE1284_MODE_ECPSWE: 
 			return !(cpp_daisy(port, 0xd0 + daisy) &
 				 PARPORT_STATUS_ERROR);
 
-		
-		
+		// Nothing was told for BECP in Daisy chain specification.
+		// May be it's wise to use ECP?
 		case IEEE1284_MODE_BECP:
-		
+		// Others use compat mode
 		case IEEE1284_MODE_NIBBLE:
 		case IEEE1284_MODE_BYTE:
 		case IEEE1284_MODE_COMPAT:
@@ -412,9 +453,15 @@ static int assign_addrs(struct parport *port)
 
 		add_dev(numdevs++, port, daisy);
 
+		/* See if this device thought it was the last in the
+		 * chain. */
 		if (!(s & PARPORT_STATUS_BUSY))
 			break;
 
+		/* We are seeing pass through status now. We see
+		   last_dev from next device or if last_dev does not
+		   work status lines from some non-daisy chain
+		   device. */
 		s = parport_read_status(port);
 	}
 
@@ -423,7 +470,7 @@ static int assign_addrs(struct parport *port)
 	DPRINTK(KERN_DEBUG "%s: Found %d daisy-chained devices\n", port->name,
 		 detected);
 
-	
+	/* Ask the new devices to introduce themselves. */
 	deviceid = kmalloc(1024, GFP_KERNEL);
 	if (!deviceid) return 0;
 

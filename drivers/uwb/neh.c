@@ -89,6 +89,17 @@
 
 #include "uwb-internal.h"
 
+/*
+ * UWB Radio Controller Notification/Event Handle
+ *
+ * Represents an entity waiting for an event coming from the UWB Radio
+ * Controller with a given context id (context) and type (evt_type and
+ * evt). On reception of the notification/event, the callback (cb) is
+ * called with the event.
+ *
+ * If the timer expires before the event is received, the callback is
+ * called with -ETIMEDOUT as the event size.
+ */
 struct uwb_rc_neh {
 	struct kref kref;
 
@@ -118,12 +129,36 @@ static void uwb_rc_neh_get(struct uwb_rc_neh *neh)
 	kref_get(&neh->kref);
 }
 
+/**
+ * uwb_rc_neh_put - release reference to a neh
+ * @neh: the neh
+ */
 void uwb_rc_neh_put(struct uwb_rc_neh *neh)
 {
 	kref_put(&neh->kref, uwb_rc_neh_release);
 }
 
 
+/**
+ * Assigns @neh a context id from @rc's pool
+ *
+ * @rc:	    UWB Radio Controller descriptor; @rc->neh_lock taken
+ * @neh:    Notification/Event Handle
+ * @returns 0 if context id was assigned ok; < 0 errno on error (if
+ *	    all the context IDs are taken).
+ *
+ * (assumes @wa is locked).
+ *
+ * NOTE: WUSB spec reserves context ids 0x00 for notifications and
+ *	 0xff is invalid, so they must not be used. Initialization
+ *	 fills up those two in the bitmap so they are not allocated.
+ *
+ * We spread the allocation around to reduce the possibility of two
+ * consecutive opened @neh's getting the same context ID assigned (to
+ * avoid surprises with late events that timed out long time ago). So
+ * first we search from where @rc->ctx_roll is, if not found, we
+ * search from zero.
+ */
 static
 int __uwb_rc_ctx_get(struct uwb_rc *rc, struct uwb_rc_neh *neh)
 {
@@ -143,6 +178,7 @@ found:
 }
 
 
+/** Releases @neh's context ID back to @rc (@rc->neh_lock is locked). */
 static
 void __uwb_rc_ctx_put(struct uwb_rc *rc, struct uwb_rc_neh *neh)
 {
@@ -158,6 +194,18 @@ void __uwb_rc_ctx_put(struct uwb_rc *rc, struct uwb_rc_neh *neh)
 	neh->context = 0;
 }
 
+/**
+ * uwb_rc_neh_add - add a neh for a radio controller command
+ * @rc:             the radio controller
+ * @cmd:            the radio controller command
+ * @expected_type:  the type of the expected response event
+ * @expected_event: the expected event ID
+ * @cb:             callback for when the event is received
+ * @arg:            argument for the callback
+ *
+ * Creates a neh and adds it to the list of those waiting for an
+ * event.  A context ID will be assigned to the command.
+ */
 struct uwb_rc_neh *uwb_rc_neh_add(struct uwb_rc *rc, struct uwb_rccb *cmd,
 				  u8 expected_type, u16 expected_event,
 				  uwb_rc_cmd_cb_f cb, void *arg)
@@ -211,6 +259,14 @@ static void __uwb_rc_neh_rm(struct uwb_rc *rc, struct uwb_rc_neh *neh)
 	list_del(&neh->list_node);
 }
 
+/**
+ * uwb_rc_neh_rm - remove a neh.
+ * @rc:  the radio controller
+ * @neh: the neh to remove
+ *
+ * Remove an active neh immediately instead of waiting for the event
+ * (or a time out).
+ */
 void uwb_rc_neh_rm(struct uwb_rc *rc, struct uwb_rc_neh *neh)
 {
 	unsigned long flags;
@@ -223,6 +279,14 @@ void uwb_rc_neh_rm(struct uwb_rc *rc, struct uwb_rc_neh *neh)
 	uwb_rc_neh_put(neh);
 }
 
+/**
+ * uwb_rc_neh_arm - arm an event handler timeout timer
+ *
+ * @rc:     UWB Radio Controller
+ * @neh:    Notification/event handler for @rc
+ *
+ * The timer is only armed if the neh is active.
+ */
 void uwb_rc_neh_arm(struct uwb_rc *rc, struct uwb_rc_neh *neh)
 {
 	unsigned long flags;
@@ -247,6 +311,20 @@ static bool uwb_rc_neh_match(struct uwb_rc_neh *neh, const struct uwb_rceb *rceb
 		&& neh->context == rceb->bEventContext;
 }
 
+/**
+ * Find the handle waiting for a RC Radio Control Event
+ *
+ * @rc:         UWB Radio Controller
+ * @rceb:       Pointer to the RCEB buffer
+ * @event_size: Pointer to the size of the RCEB buffer. Might be
+ *              adjusted to take into account the @neh->extra_size
+ *              settings.
+ *
+ * If the listener has no buffer (NULL buffer), one is allocated for
+ * the right size (the amount of data received). @neh->ptr will point
+ * to the event payload, which always starts with a 'struct
+ * uwb_rceb'. kfree() it when done.
+ */
 static
 struct uwb_rc_neh *uwb_rc_neh_lookup(struct uwb_rc *rc,
 				     const struct uwb_rceb *rceb)
@@ -272,6 +350,31 @@ struct uwb_rc_neh *uwb_rc_neh_lookup(struct uwb_rc *rc,
 }
 
 
+/*
+ * Process notifications coming from the radio control interface
+ *
+ * @rc:    UWB Radio Control Interface descriptor
+ * @neh:   Notification/Event Handler @neh->ptr points to
+ *         @uwb_evt->buffer.
+ *
+ * This function is called by the event/notif handling subsystem when
+ * notifications arrive (hwarc_probe() arms a notification/event handle
+ * that calls back this function for every received notification; this
+ * function then will rearm itself).
+ *
+ * Notification data buffers are dynamically allocated by the NEH
+ * handling code in neh.c [uwb_rc_neh_lookup()]. What is actually
+ * allocated is space to contain the notification data.
+ *
+ * Buffers are prefixed with a Radio Control Event Block (RCEB) as
+ * defined by the WUSB Wired-Adapter Radio Control interface. We
+ * just use it for the notification code.
+ *
+ * On each case statement we just transcode endianess of the different
+ * fields. We declare a pointer to a RCI definition of an event, and
+ * then to a UWB definition of the same event (which are the same,
+ * remember). Event if we use different pointers
+ */
 static
 void uwb_rc_notif(struct uwb_rc *rc, struct uwb_rceb *rceb, ssize_t size)
 {
@@ -293,7 +396,7 @@ void uwb_rc_notif(struct uwb_rc *rc, struct uwb_rceb *rceb, ssize_t size)
 			rceb->bEventContext);
 		return;
 	}
-	uwb_evt->rc = __uwb_rc_get(rc);	
+	uwb_evt->rc = __uwb_rc_get(rc);	/* will be put by uwbd's uwbd_event_handle() */
 	uwb_evt->ts_jiffies = jiffies;
 	uwb_evt->type = UWB_EVT_TYPE_NOTIF;
 	uwb_evt->notif.size = size;
@@ -322,7 +425,7 @@ static void uwb_rc_neh_grok_event(struct uwb_rc *rc, struct uwb_rceb *rceb, size
 		neh = uwb_rc_neh_lookup(rc, rceb);
 		if (neh) {
 			spin_lock_irqsave(&rc->neh_lock, flags);
-			
+			/* to guard against a timeout */
 			neh->completed = 1;
 			del_timer(&neh->timer);
 			spin_unlock_irqrestore(&rc->neh_lock, flags);
@@ -334,6 +437,46 @@ static void uwb_rc_neh_grok_event(struct uwb_rc *rc, struct uwb_rceb *rceb, size
 	}
 }
 
+/**
+ * Given a buffer with one or more UWB RC events/notifications, break
+ * them up and dispatch them.
+ *
+ * @rc:	      UWB Radio Controller
+ * @buf:      Buffer with the stream of notifications/events
+ * @buf_size: Amount of data in the buffer
+ *
+ * Note each notification/event starts always with a 'struct
+ * uwb_rceb', so the minimum size if 4 bytes.
+ *
+ * The device may pass us events formatted differently than expected.
+ * These are first filtered, potentially creating a new event in a new
+ * memory location. If a new event is created by the filter it is also
+ * freed here.
+ *
+ * For each notif/event, tries to guess the size looking at the EST
+ * tables, then looks for a neh that is waiting for that event and if
+ * found, copies the payload to the neh's buffer and calls it back. If
+ * not, the data is ignored.
+ *
+ * Note that if we can't find a size description in the EST tables, we
+ * still might find a size in the 'neh' handle in uwb_rc_neh_lookup().
+ *
+ * Assumptions:
+ *
+ *   @rc->neh_lock is NOT taken
+ *
+ * We keep track of various sizes here:
+ * size:      contains the size of the buffer that is processed for the
+ *            incoming event. this buffer may contain events that are not
+ *            formatted as WHCI.
+ * real_size: the actual space taken by this event in the buffer.
+ *            We need to keep track of the real size of an event to be able to
+ *            advance the buffer correctly.
+ * event_size: the size of the event as expected by the core layer
+ *            [OR] the size of the event after filtering. if the filtering
+ *            created a new event in a new memory location then this is
+ *            effectively the size of a new event buffer
+ */
 void uwb_rc_neh_grok(struct uwb_rc *rc, void *buf, size_t buf_size)
 {
 	struct device *dev = &rc->uwb_dev.dev;
@@ -366,6 +509,8 @@ void uwb_rc_neh_grok(struct uwb_rc *rc, void *buf, size_t buf_size)
 			}
 		} else
 			needtofree = -ENOANO;
+		/* do real processing if there was no filtering or the
+		 * filtering didn't act */
 		if (needtofree == -ENOANO) {
 			ssize_t ret = uwb_est_find_size(rc, rceb, size);
 			if (ret < 0)
@@ -392,6 +537,14 @@ void uwb_rc_neh_grok(struct uwb_rc *rc, void *buf, size_t buf_size)
 EXPORT_SYMBOL_GPL(uwb_rc_neh_grok);
 
 
+/**
+ * The entity that reads from the device notification/event channel has
+ * detected an error.
+ *
+ * @rc:    UWB Radio Controller
+ * @error: Errno error code
+ *
+ */
 void uwb_rc_neh_error(struct uwb_rc *rc, int error)
 {
 	struct uwb_rc_neh *neh;
@@ -435,16 +588,19 @@ static void uwb_rc_neh_timer(unsigned long arg)
 		uwb_rc_neh_cb(neh, NULL, -ETIMEDOUT);
 }
 
+/** Initializes the @rc's neh subsystem
+ */
 void uwb_rc_neh_create(struct uwb_rc *rc)
 {
 	spin_lock_init(&rc->neh_lock);
 	INIT_LIST_HEAD(&rc->neh_list);
-	set_bit(0, rc->ctx_bm);		
-	set_bit(0xff, rc->ctx_bm);	
+	set_bit(0, rc->ctx_bm);		/* 0 is reserved (see [WUSB] table 8-65) */
+	set_bit(0xff, rc->ctx_bm);	/* and 0xff is invalid */
 	rc->ctx_roll = 1;
 }
 
 
+/** Release's the @rc's neh subsystem */
 void uwb_rc_neh_destroy(struct uwb_rc *rc)
 {
 	unsigned long flags;

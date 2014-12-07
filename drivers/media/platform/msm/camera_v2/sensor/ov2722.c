@@ -253,6 +253,12 @@ static int32_t ov2722_platform_probe(struct platform_device *pdev)
 	int32_t rc = 0;
 	const struct of_device_id *match;
 	match = of_match_device(ov2722_dt_match, &pdev->dev);
+	
+	if (!match) {
+		pr_err("%s:%d\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+	
 	rc = msm_sensor_platform_probe(pdev, match->data);
 	return rc;
 }

@@ -8,6 +8,10 @@
 
 #include <asm/pgalloc.h>
 
+/* Whee.  These systems don't have an HAE:
+       IRONGATE, MARVEL, POLARIS, TSUNAMI, TITAN, WILDFIRE
+   Fix things up for the GENERIC kernel by defining the HAE address
+   to be that of the cache. Now we can read and write it as we like.  ;-)  */
 #define IRONGATE_HAE_ADDRESS	(&alpha_mv.hae_cache)
 #define MARVEL_HAE_ADDRESS	(&alpha_mv.hae_cache)
 #define POLARIS_HAE_ADDRESS	(&alpha_mv.hae_cache)
@@ -25,10 +29,16 @@
 #define T2_HAE_ADDRESS		(&alpha_mv.hae_cache)
 #endif
 
+/* Only a few systems don't define IACK_SC, handling all interrupts through
+   the SRM console.  But splitting out that one case from IO() below
+   seems like such a pain.  Define this to get things to compile.  */
 #define JENSEN_IACK_SC		1
 #define T2_IACK_SC		1
-#define WILDFIRE_IACK_SC	1 
+#define WILDFIRE_IACK_SC	1 /* FIXME */
 
+/*
+ * Some helpful macros for filling in the blanks.
+ */
 
 #define CAT1(x,y)  x##y
 #define CAT(x,y)   CAT1(x,y)
@@ -110,6 +120,21 @@
 			.pci_ops = &cia_pci_ops, \
 			.mv_pci_tbi = cia_pci_tbi
 
+/*
+ * In a GENERIC kernel, we have lots of these vectors floating about,
+ * all but one of which we want to go away.  In a non-GENERIC kernel,
+ * we want only one, ever.
+ *
+ * Accomplish this in the GENERIC kernel by putting all of the vectors
+ * in the .init.data section where they'll go away.  We'll copy the
+ * one we want to the real alpha_mv vector in setup_arch.
+ *
+ * Accomplish this in a non-GENERIC kernel by ifdef'ing out all but
+ * one of the vectors, which will not reside in .init.data.  We then
+ * alias this one vector to alpha_mv, so no copy is needed.
+ *
+ * Upshot: set __initdata to nothing for non-GENERIC kernels.
+ */
 
 #ifdef CONFIG_ALPHA_GENERIC
 #define __initmv __initdata
@@ -117,6 +142,9 @@
 #else
 #define __initmv __initdata_refok
 
+/* GCC actually has a syntax for defining aliases, but is under some
+   delusion that you shouldn't be able to declare it extern somewhere
+   else beforehand.  Fine.  We'll do it ourselves.  */
 #if 0
 #define ALIAS_MV(system) \
   struct alpha_machine_vector alpha_mv __attribute__((alias(#system "_mv")));
@@ -124,4 +152,4 @@
 #define ALIAS_MV(system) \
   asm(".global alpha_mv\nalpha_mv = " #system "_mv");
 #endif
-#endif 
+#endif /* GENERIC */

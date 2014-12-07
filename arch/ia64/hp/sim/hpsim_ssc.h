@@ -8,6 +8,7 @@
 #ifndef _IA64_PLATFORM_HPSIM_SSC_H
 #define _IA64_PLATFORM_HPSIM_SSC_H
 
+/* Simulator system calls: */
 
 #define SSC_CONSOLE_INIT		20
 #define SSC_GETCHAR			21
@@ -27,6 +28,9 @@
 #define SSC_NETDEV_ATTACH		103
 #define SSC_NETDEV_DETACH		104
 
+/*
+ * Simulator system call.
+ */
 extern long ia64_ssc (long arg0, long arg1, long arg2, long arg3, int nr);
 
-#endif 
+#endif /* _IA64_PLATFORM_HPSIM_SSC_H */

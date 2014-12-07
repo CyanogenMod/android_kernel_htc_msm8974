@@ -30,4 +30,4 @@ static inline unsigned long __ffs(unsigned long x)
 #include <asm-generic/bitops/__ffs.h>
 #endif
 
-#endif 
+#endif /* __ASM_OPENRISC___FFS_H */

@@ -122,10 +122,15 @@ static int picodlp_i2c_write_block(struct i2c_client *client,
 	r = i2c_transfer(client->adapter, &msg, msg_count);
 	mutex_unlock(&picodlp_i2c_data->xfer_lock);
 
+	/*
+	 * i2c_transfer returns:
+	 * number of messages sent in case of success
+	 * a negative error number in case of failure
+	 */
 	if (r != msg_count)
 		goto err;
 
-	
+	/* In case of success */
 	for (i = 0; i < len; i++)
 		dev_dbg(&client->dev,
 			"addr %x bw 0x%02x[%d]: 0x%02x\n",
@@ -176,6 +181,14 @@ static int picodlp_wait_for_dma_done(struct i2c_client *client)
 	return 0;
 }
 
+/**
+ * picodlp_i2c_init:	i2c_initialization routine
+ * client:	i2c_client for communication
+ *
+ * return
+ *		0	: Success, no error
+ *	error code	: Failure
+ */
 static int picodlp_i2c_init(struct i2c_client *client)
 {
 	int r;
@@ -352,6 +365,11 @@ static int picodlp_panel_power_on(struct omap_dss_device *dssdev)
 		}
 		msleep(5);
 	}
+	/*
+	 * As per dpp2600 programming guide,
+	 * it is required to sleep for 1000ms after emu_done signal goes high
+	 * then only i2c commands can be successfully sent to dpp2600
+	 */
 	msleep(1000);
 	r = omapdss_dpi_display_enable(dssdev);
 	if (r) {
@@ -468,7 +486,7 @@ static void picodlp_panel_disable(struct omap_dss_device *dssdev)
 	struct picodlp_data *picod = dev_get_drvdata(&dssdev->dev);
 
 	mutex_lock(&picod->lock);
-	
+	/* Turn off DLP Power */
 	if (dssdev->state == OMAP_DSS_DISPLAY_ACTIVE)
 		picodlp_panel_power_off(dssdev);
 
@@ -483,7 +501,7 @@ static int picodlp_panel_suspend(struct omap_dss_device *dssdev)
 	struct picodlp_data *picod = dev_get_drvdata(&dssdev->dev);
 
 	mutex_lock(&picod->lock);
-	
+	/* Turn off DLP Power */
 	if (dssdev->state != OMAP_DSS_DISPLAY_ACTIVE) {
 		mutex_unlock(&picod->lock);
 		dev_err(&dssdev->dev, "unable to suspend picodlp panel,"

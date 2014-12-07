@@ -37,6 +37,11 @@
 
 #include "sb.h"
 
+/*
+ *	Read a soundblaster compatible mixer register.
+ *	In this case we are actually reading an SMI trap
+ *	not real hardware.
+ */
 
 static u8 __devinit mixer_read(unsigned long io, u8 reg)
 {
@@ -65,9 +70,17 @@ static int __devinit probe_one(struct pci_dev *pdev, const struct pci_device_id 
 	mem = ioremap(base, 128);
 	if (!mem)
 		return 1;
-	map = readw(mem + 0x18);	
+	map = readw(mem + 0x18);	/* Read the SMI enables */
 	iounmap(mem);
 	
+	/* Map bits
+		0:1	* 0x20 + 0x200 = sb base
+		2	sb enable
+		3	adlib enable
+		5	MPU enable 0x330
+		6	MPU enable 0x300
+		
+	   The other bits may be used internally so must be masked */
 
 	io = 0x220 + 0x20 * (map & 3);	   
 	
@@ -84,7 +97,7 @@ static int __devinit probe_one(struct pci_dev *pdev, const struct pci_device_id 
 	irq = mixer_read(io, 0x80) & 0x0F;
 	dma8 = mixer_read(io, 0x81);
 
-	
+	// printk("IRQ=%x MAP=%x DMA=%x\n", irq, map, dma8);
 	
 	if(dma8 & 0x20)
 		dma16 = 5;
@@ -182,6 +195,9 @@ MODULE_AUTHOR("Alan Cox");
 MODULE_DESCRIPTION("Kahlua VSA1 PCI Audio");
 MODULE_LICENSE("GPL");
 
+/*
+ *	5530 only. The 5510/5520 decode is different.
+ */
 
 static DEFINE_PCI_DEVICE_TABLE(id_tbl) = {
 	{ PCI_VDEVICE(CYRIX, PCI_DEVICE_ID_CYRIX_5530_AUDIO), 0 },

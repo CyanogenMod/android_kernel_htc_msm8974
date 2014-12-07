@@ -1,12 +1,25 @@
+/*
+ * NOTE: This example is works on x86 and powerpc.
+ * Here's a sample kernel module showing the use of kprobes to dump a
+ * stack trace and selected registers when do_fork() is called.
+ *
+ * For more information on theory of operation of kprobes, see
+ * Documentation/kprobes.txt
+ *
+ * You will see the trace data in /var/log/messages and on the console
+ * whenever do_fork() is invoked to create a new process.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/kprobes.h>
 
+/* For each probe you need to allocate a kprobe structure */
 static struct kprobe kp = {
 	.symbol_name	= "do_fork",
 };
 
+/* kprobe pre_handler: called just before the probed instruction is executed */
 static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
 #ifdef CONFIG_X86
@@ -25,10 +38,11 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 		p->addr, regs->cp0_epc, regs->cp0_status);
 #endif
 
-	
+	/* A dump_stack() here will give a stack backtrace */
 	return 0;
 }
 
+/* kprobe post_handler: called after the probed instruction is executed */
 static void handler_post(struct kprobe *p, struct pt_regs *regs,
 				unsigned long flags)
 {
@@ -46,11 +60,16 @@ static void handler_post(struct kprobe *p, struct pt_regs *regs,
 #endif
 }
 
+/*
+ * fault_handler: this is called if an exception is generated for any
+ * instruction within the pre- or post-handler, or when Kprobes
+ * single-steps the probed instruction.
+ */
 static int handler_fault(struct kprobe *p, struct pt_regs *regs, int trapnr)
 {
 	printk(KERN_INFO "fault_handler: p->addr = 0x%p, trap #%dn",
 		p->addr, trapnr);
-	
+	/* Return 0 because we don't handle the fault. */
 	return 0;
 }
 

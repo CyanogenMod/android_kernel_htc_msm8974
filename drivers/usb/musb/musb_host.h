@@ -45,33 +45,35 @@ static inline struct musb *hcd_to_musb(struct usb_hcd *hcd)
 	return (struct musb *) (hcd->hcd_priv);
 }
 
+/* stored in "usb_host_endpoint.hcpriv" for scheduled endpoints */
 struct musb_qh {
-	struct usb_host_endpoint *hep;		
+	struct usb_host_endpoint *hep;		/* usbcore info */
 	struct usb_device	*dev;
-	struct musb_hw_ep	*hw_ep;		
+	struct musb_hw_ep	*hw_ep;		/* current binding */
 
-	struct list_head	ring;		
-		
-	u8			mux;		
+	struct list_head	ring;		/* of musb_qh */
+	/* struct musb_qh		*next; */	/* for periodic tree */
+	u8			mux;		/* qh multiplexed to hw_ep */
 
-	unsigned		offset;		
-	unsigned		segsize;	
+	unsigned		offset;		/* in urb->transfer_buffer */
+	unsigned		segsize;	/* current xfer fragment */
 
-	u8			type_reg;	
-	u8			intv_reg;	
-	u8			addr_reg;	
-	u8			h_addr_reg;	
-	u8			h_port_reg;	
+	u8			type_reg;	/* {rx,tx} type register */
+	u8			intv_reg;	/* {rx,tx} interval register */
+	u8			addr_reg;	/* device address register */
+	u8			h_addr_reg;	/* hub address register */
+	u8			h_port_reg;	/* hub port register */
 
-	u8			is_ready;	
-	u8			type;		
+	u8			is_ready;	/* safe to modify hw_ep */
+	u8			type;		/* XFERTYPE_* */
 	u8			epnum;
-	u8			hb_mult;	
+	u8			hb_mult;	/* high bandwidth pkts per uf */
 	u16			maxpacket;
-	u16			frame;		
-	unsigned		iso_idx;	
+	u16			frame;		/* for periodic schedule */
+	unsigned		iso_idx;	/* in urb->iso_frame_desc[] */
 };
 
+/* map from control or bulk queue head to the first qh on that ring */
 static inline struct musb_qh *first_qh(struct list_head *q)
 {
 	if (list_empty(q))
@@ -103,4 +105,4 @@ static inline struct urb *next_urb(struct musb_qh *qh)
 	return list_entry(queue->next, struct urb, urb_list);
 }
 
-#endif				
+#endif				/* _MUSB_HOST_H */

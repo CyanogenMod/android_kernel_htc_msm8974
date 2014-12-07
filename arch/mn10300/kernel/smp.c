@@ -45,8 +45,11 @@ static unsigned long sleep_mode[NR_CPUS];
 
 static void run_sleep_cpu(unsigned int cpu);
 static void run_wakeup_cpu(unsigned int cpu);
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */
 
+/*
+ * Debug Message function
+ */
 
 #undef DEBUG_SMP
 #ifdef DEBUG_SMP
@@ -55,8 +58,12 @@ static void run_wakeup_cpu(unsigned int cpu);
 #define Dprintk(fmt, ...) no_printk(KERN_DEBUG fmt, ##__VA_ARGS__)
 #endif
 
+/* timeout value in msec for smp_nmi_call_function. zero is no timeout. */
 #define	CALL_FUNCTION_NMI_IPI_TIMEOUT	0
 
+/*
+ * Structure and data for smp_nmi_call_function().
+ */
 struct nmi_call_data_struct {
 	smp_call_func_t	func;
 	void		*info;
@@ -70,17 +77,26 @@ struct nmi_call_data_struct {
 static DEFINE_SPINLOCK(smp_nmi_call_lock);
 static struct nmi_call_data_struct *nmi_call_data;
 
-static cpumask_t cpu_callin_map;	
-static cpumask_t cpu_callout_map;	
-cpumask_t cpu_boot_map;			
+/*
+ * Data structures and variables
+ */
+static cpumask_t cpu_callin_map;	/* Bitmask of callin CPUs */
+static cpumask_t cpu_callout_map;	/* Bitmask of callout CPUs */
+cpumask_t cpu_boot_map;			/* Bitmask of boot APs */
 unsigned long start_stack[NR_CPUS - 1];
 
+/*
+ * Per CPU parameters
+ */
 struct mn10300_cpuinfo cpu_data[NR_CPUS] __cacheline_aligned;
 
-static int cpucount;			
+static int cpucount;			/* The count of boot CPUs */
 static cpumask_t smp_commenced_mask;
 cpumask_t cpu_initialized __initdata = CPU_MASK_NONE;
 
+/*
+ * Function Prototypes
+ */
 static int do_boot_cpu(int);
 static void smp_show_cpu_info(int cpu_id);
 static void smp_callin(void);
@@ -91,6 +107,9 @@ static void smp_tune_scheduling(void);
 static void send_IPI_mask(const cpumask_t *cpumask, int irq);
 static void init_ipi(void);
 
+/*
+ * IPI Initialization interrupt definitions
+ */
 static void mn10300_ipi_disable(unsigned int irq);
 static void mn10300_ipi_enable(unsigned int irq);
 static void mn10300_ipi_chip_disable(struct irq_data *d);
@@ -127,26 +146,29 @@ static struct irqaction local_timer_ipi = {
 };
 #endif
 
+/**
+ * init_ipi - Initialise the IPI mechanism
+ */
 static void init_ipi(void)
 {
 	unsigned long flags;
 	u16 tmp16;
 
-	
+	/* set up the reschedule IPI */
 	irq_set_chip_and_handler(RESCHEDULE_IPI, &mn10300_ipi_type,
 				 handle_percpu_irq);
 	setup_irq(RESCHEDULE_IPI, &reschedule_ipi);
 	set_intr_level(RESCHEDULE_IPI, RESCHEDULE_GxICR_LV);
 	mn10300_ipi_enable(RESCHEDULE_IPI);
 
-	
+	/* set up the call function IPI */
 	irq_set_chip_and_handler(CALL_FUNC_SINGLE_IPI, &mn10300_ipi_type,
 				 handle_percpu_irq);
 	setup_irq(CALL_FUNC_SINGLE_IPI, &call_function_ipi);
 	set_intr_level(CALL_FUNC_SINGLE_IPI, CALL_FUNCTION_GxICR_LV);
 	mn10300_ipi_enable(CALL_FUNC_SINGLE_IPI);
 
-	
+	/* set up the local timer IPI */
 #if !defined(CONFIG_GENERIC_CLOCKEVENTS) || \
     defined(CONFIG_GENERIC_CLOCKEVENTS_BROADCAST)
 	irq_set_chip_and_handler(LOCAL_TIMER_IPI, &mn10300_ipi_type,
@@ -157,7 +179,7 @@ static void init_ipi(void)
 #endif
 
 #ifdef CONFIG_MN10300_CACHE_ENABLED
-	
+	/* set up the cache flush IPI */
 	flags = arch_local_cli_save();
 	__set_intr_stub(NUM2EXCEP_IRQ_LEVEL(FLUSH_CACHE_GxICR_LV),
 			mn10300_low_ipi_handler);
@@ -166,19 +188,23 @@ static void init_ipi(void)
 	arch_local_irq_restore(flags);
 #endif
 
-	
+	/* set up the NMI call function IPI */
 	flags = arch_local_cli_save();
 	GxICR(CALL_FUNCTION_NMI_IPI) = GxICR_NMI | GxICR_ENABLE | GxICR_DETECT;
 	tmp16 = GxICR(CALL_FUNCTION_NMI_IPI);
 	arch_local_irq_restore(flags);
 
-	
+	/* set up the SMP boot IPI */
 	flags = arch_local_cli_save();
 	__set_intr_stub(NUM2EXCEP_IRQ_LEVEL(SMP_BOOT_GxICR_LV),
 			mn10300_low_ipi_handler);
 	arch_local_irq_restore(flags);
 }
 
+/**
+ * mn10300_ipi_shutdown - Shut down handling of an IPI
+ * @irq: The IPI to be shut down.
+ */
 static void mn10300_ipi_shutdown(unsigned int irq)
 {
 	unsigned long flags;
@@ -193,6 +219,10 @@ static void mn10300_ipi_shutdown(unsigned int irq)
 	arch_local_irq_restore(flags);
 }
 
+/**
+ * mn10300_ipi_enable - Enable an IPI
+ * @irq: The IPI to be enabled.
+ */
 static void mn10300_ipi_enable(unsigned int irq)
 {
 	unsigned long flags;
@@ -212,6 +242,10 @@ static void mn10300_ipi_chip_enable(struct irq_data *d)
 	mn10300_ipi_enable(d->irq);
 }
 
+/**
+ * mn10300_ipi_disable - Disable an IPI
+ * @irq: The IPI to be disabled.
+ */
 static void mn10300_ipi_disable(unsigned int irq)
 {
 	unsigned long flags;
@@ -232,6 +266,13 @@ static void mn10300_ipi_chip_disable(struct irq_data *d)
 }
 
 
+/**
+ * mn10300_ipi_ack - Acknowledge an IPI interrupt in the PIC
+ * @irq: The IPI to be acknowledged.
+ *
+ * Clear the interrupt detection flag for the IPI on the appropriate interrupt
+ * channel in the PIC.
+ */
 static void mn10300_ipi_ack(struct irq_data *d)
 {
 	unsigned int irq = d->irq;
@@ -244,10 +285,23 @@ static void mn10300_ipi_ack(struct irq_data *d)
 	arch_local_irq_restore(flags);
 }
 
+/**
+ * mn10300_ipi_nop - Dummy IPI action
+ * @irq: The IPI to be acted upon.
+ */
 static void mn10300_ipi_nop(struct irq_data *d)
 {
 }
 
+/**
+ * send_IPI_mask - Send IPIs to all CPUs in list
+ * @cpumask: The list of CPUs to target.
+ * @irq: The IPI request to be sent.
+ *
+ * Send the specified IPI to all the CPUs in the list, not waiting for them to
+ * finish before returning.  The caller is responsible for synchronisation if
+ * that is needed.
+ */
 static void send_IPI_mask(const cpumask_t *cpumask, int irq)
 {
 	int i;
@@ -255,20 +309,34 @@ static void send_IPI_mask(const cpumask_t *cpumask, int irq)
 
 	for (i = 0; i < NR_CPUS; i++) {
 		if (cpumask_test_cpu(i, cpumask)) {
-			
+			/* send IPI */
 			tmp = CROSS_GxICR(irq, i);
 			CROSS_GxICR(irq, i) =
 				tmp | GxICR_REQUEST | GxICR_DETECT;
-			tmp = CROSS_GxICR(irq, i); 
+			tmp = CROSS_GxICR(irq, i); /* flush write buffer */
 		}
 	}
 }
 
+/**
+ * send_IPI_self - Send an IPI to this CPU.
+ * @irq: The IPI request to be sent.
+ *
+ * Send the specified IPI to the current CPU.
+ */
 void send_IPI_self(int irq)
 {
 	send_IPI_mask(cpumask_of(smp_processor_id()), irq);
 }
 
+/**
+ * send_IPI_allbutself - Send IPIs to all the other CPUs.
+ * @irq: The IPI request to be sent.
+ *
+ * Send the specified IPI to all CPUs in the system barring the current one,
+ * not waiting for them to finish before returning.  The caller is responsible
+ * for synchronisation if that is needed.
+ */
 void send_IPI_allbutself(int irq)
 {
 	cpumask_t cpumask;
@@ -281,7 +349,7 @@ void send_IPI_allbutself(int irq)
 void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 {
 	BUG();
-	
+	/*send_IPI_mask(mask, CALL_FUNCTION_IPI);*/
 }
 
 void arch_send_call_function_single_ipi(int cpu)
@@ -289,11 +357,28 @@ void arch_send_call_function_single_ipi(int cpu)
 	send_IPI_mask(cpumask_of(cpu), CALL_FUNC_SINGLE_IPI);
 }
 
+/**
+ * smp_send_reschedule - Send reschedule IPI to a CPU
+ * @cpu: The CPU to target.
+ */
 void smp_send_reschedule(int cpu)
 {
 	send_IPI_mask(cpumask_of(cpu), RESCHEDULE_IPI);
 }
 
+/**
+ * smp_nmi_call_function - Send a call function NMI IPI to all CPUs
+ * @func: The function to ask to be run.
+ * @info: The context data to pass to that function.
+ * @wait: If true, wait (atomically) until function is run on all CPUs.
+ *
+ * Send a non-maskable request to all CPUs in the system, requesting them to
+ * run the specified function with the given context data, and, potentially, to
+ * wait for completion of that function on all CPUs.
+ *
+ * Returns 0 if successful, -ETIMEDOUT if we were asked to wait, but hit the
+ * timeout.
+ */
 int smp_nmi_call_function(smp_call_func_t func, void *info, int wait)
 {
 	struct nmi_call_data_struct data;
@@ -317,10 +402,10 @@ int smp_nmi_call_function(smp_call_func_t func, void *info, int wait)
 	nmi_call_data = &data;
 	smp_mb();
 
-	
+	/* Send a message to all other CPUs and wait for them to respond */
 	send_IPI_allbutself(CALL_FUNCTION_NMI_IPI);
 
-	
+	/* Wait for response */
 	if (CALL_FUNCTION_NMI_IPI_TIMEOUT > 0) {
 		for (cnt = 0;
 		     cnt < CALL_FUNCTION_NMI_IPI_TIMEOUT &&
@@ -340,6 +425,8 @@ int smp_nmi_call_function(smp_call_func_t func, void *info, int wait)
 			ret = -ETIMEDOUT;
 
 	} else {
+		/* If timeout value is zero, wait until cpumask has been
+		 * cleared */
 		while (!cpumask_empty(&data.started))
 			barrier();
 		if (wait)
@@ -351,21 +438,37 @@ int smp_nmi_call_function(smp_call_func_t func, void *info, int wait)
 	return ret;
 }
 
+/**
+ * smp_jump_to_debugger - Make other CPUs enter the debugger by sending an IPI
+ *
+ * Send a non-maskable request to all other CPUs in the system, instructing
+ * them to jump into the debugger.  The caller is responsible for checking that
+ * the other CPUs responded to the instruction.
+ *
+ * The caller should make sure that this CPU's debugger IPI is disabled.
+ */
 void smp_jump_to_debugger(void)
 {
 	if (num_online_cpus() > 1)
-		
+		/* Send a message to all other CPUs */
 		send_IPI_allbutself(DEBUGGER_NMI_IPI);
 }
 
+/**
+ * stop_this_cpu - Callback to stop a CPU.
+ * @unused: Callback context (ignored).
+ */
 void stop_this_cpu(void *unused)
 {
 	static volatile int stopflag;
 	unsigned long flags;
 
 #ifdef CONFIG_GDBSTUB
+	/* In case of single stepping smp_send_stop by other CPU,
+	 * clear procindebug to avoid deadlock.
+	 */
 	atomic_set(&procindebug[smp_processor_id()], 0);
-#endif	
+#endif	/* CONFIG_GDBSTUB */
 
 	flags = arch_local_cli_save();
 	set_cpu_online(smp_processor_id(), false);
@@ -377,30 +480,53 @@ void stop_this_cpu(void *unused)
 	arch_local_irq_restore(flags);
 }
 
+/**
+ * smp_send_stop - Send a stop request to all CPUs.
+ */
 void smp_send_stop(void)
 {
 	smp_nmi_call_function(stop_this_cpu, NULL, 0);
 }
 
+/**
+ * smp_reschedule_interrupt - Reschedule IPI handler
+ * @irq: The interrupt number.
+ * @dev_id: The device ID.
+ *
+ * Returns IRQ_HANDLED to indicate we handled the interrupt successfully.
+ */
 static irqreturn_t smp_reschedule_interrupt(int irq, void *dev_id)
 {
 	scheduler_ipi();
 	return IRQ_HANDLED;
 }
 
+/**
+ * smp_call_function_interrupt - Call function IPI handler
+ * @irq: The interrupt number.
+ * @dev_id: The device ID.
+ *
+ * Returns IRQ_HANDLED to indicate we handled the interrupt successfully.
+ */
 static irqreturn_t smp_call_function_interrupt(int irq, void *dev_id)
 {
-	
+	/* generic_smp_call_function_interrupt(); */
 	generic_smp_call_function_single_interrupt();
 	return IRQ_HANDLED;
 }
 
+/**
+ * smp_nmi_call_function_interrupt - Non-maskable call function IPI handler
+ */
 void smp_nmi_call_function_interrupt(void)
 {
 	smp_call_func_t func = nmi_call_data->func;
 	void *info = nmi_call_data->info;
 	int wait = nmi_call_data->wait;
 
+	/* Notify the initiating CPU that I've grabbed the data and am about to
+	 * execute the function
+	 */
 	smp_mb();
 	cpumask_clear_cpu(smp_processor_id(), &nmi_call_data->started);
 	(*func)(info);
@@ -414,6 +540,13 @@ void smp_nmi_call_function_interrupt(void)
 
 #if !defined(CONFIG_GENERIC_CLOCKEVENTS) || \
     defined(CONFIG_GENERIC_CLOCKEVENTS_BROADCAST)
+/**
+ * smp_ipi_timer_interrupt - Local timer IPI handler
+ * @irq: The interrupt number.
+ * @dev_id: The device ID.
+ *
+ * Returns IRQ_HANDLED to indicate we handled the interrupt successfully.
+ */
 static irqreturn_t smp_ipi_timer_interrupt(int irq, void *dev_id)
 {
 	return local_timer_interrupt();
@@ -429,6 +562,12 @@ void __init smp_init_cpus(void)
 	}
 }
 
+/**
+ * smp_cpu_init - Initialise AP in start_secondary.
+ *
+ * For this Application Processor, set up init_mm, initialise FPU and set
+ * interrupt level 0-6 setting.
+ */
 static void __init smp_cpu_init(void)
 {
 	unsigned long flags;
@@ -448,7 +587,7 @@ static void __init smp_cpu_init(void)
 
 	enter_lazy_tlb(&init_mm, current);
 
-	
+	/* Force FPU initialization */
 	clear_using_fpu(current);
 
 	GxICR(CALL_FUNC_SINGLE_IPI) = CALL_FUNCTION_GxICR_LV | GxICR_DETECT;
@@ -467,18 +606,23 @@ static void __init smp_cpu_init(void)
 
 	mn10300_ipi_shutdown(SMP_BOOT_IRQ);
 
-	
+	/* Set up the non-maskable call function IPI */
 	flags = arch_local_cli_save();
 	GxICR(CALL_FUNCTION_NMI_IPI) = GxICR_NMI | GxICR_ENABLE | GxICR_DETECT;
 	tmp16 = GxICR(CALL_FUNCTION_NMI_IPI);
 	arch_local_irq_restore(flags);
 }
 
+/**
+ * smp_prepare_cpu_init - Initialise CPU in startup_secondary
+ *
+ * Set interrupt level 0-6 setting and init ICR of the kernel debugger.
+ */
 void smp_prepare_cpu_init(void)
 {
 	int loop;
 
-	
+	/* Set the interrupt vector registers */
 	IVAR0 = EXCEP_IRQ_LEVEL0;
 	IVAR1 = EXCEP_IRQ_LEVEL1;
 	IVAR2 = EXCEP_IRQ_LEVEL2;
@@ -487,12 +631,12 @@ void smp_prepare_cpu_init(void)
 	IVAR5 = EXCEP_IRQ_LEVEL5;
 	IVAR6 = EXCEP_IRQ_LEVEL6;
 
-	
+	/* Disable all interrupts and set to priority 6 (lowest) */
 	for (loop = 0; loop < GxICR_NUM_IRQS; loop++)
 		GxICR(loop) = GxICR_LEVEL_6 | GxICR_DETECT;
 
 #ifdef CONFIG_KERNEL_DEBUGGER
-	
+	/* initialise the kernel debugger interrupt */
 	do {
 		unsigned long flags;
 		u16 tmp16;
@@ -505,6 +649,10 @@ void smp_prepare_cpu_init(void)
 #endif
 }
 
+/**
+ * start_secondary - Activate a secondary CPU (AP)
+ * @unused: Thread parameter (ignored).
+ */
 int __init start_secondary(void *unused)
 {
 	smp_cpu_init();
@@ -523,25 +671,31 @@ int __init start_secondary(void *unused)
 	return 0;
 }
 
+/**
+ * smp_prepare_cpus - Boot up secondary CPUs (APs)
+ * @max_cpus: Maximum number of CPUs to boot.
+ *
+ * Call do_boot_cpu, and boot up APs.
+ */
 void __init smp_prepare_cpus(unsigned int max_cpus)
 {
 	int phy_id;
 
-	
+	/* Setup boot CPU information */
 	smp_store_cpu_info(0);
 	smp_tune_scheduling();
 
 	init_ipi();
 
-	
+	/* If SMP should be disabled, then finish */
 	if (max_cpus == 0) {
 		printk(KERN_INFO "SMP mode deactivated.\n");
 		goto smp_done;
 	}
 
-	
+	/* Boot secondary CPUs (for which phy_id > 0) */
 	for (phy_id = 0; phy_id < NR_CPUS; phy_id++) {
-		
+		/* Don't boot primary CPU */
 		if (max_cpus <= cpucount + 1)
 			continue;
 		if (phy_id != 0)
@@ -554,6 +708,12 @@ smp_done:
 	Dprintk("Boot done.\n");
 }
 
+/**
+ * smp_store_cpu_info - Save a CPU's information
+ * @cpu: The CPU to save for.
+ *
+ * Save boot_cpu_data and jiffy for the specified CPU.
+ */
 static void __init smp_store_cpu_info(int cpu)
 {
 	struct mn10300_cpuinfo *ci = &cpu_data[cpu];
@@ -563,10 +723,22 @@ static void __init smp_store_cpu_info(int cpu)
 	ci->type = CPUREV;
 }
 
+/**
+ * smp_tune_scheduling - Set time slice value
+ *
+ * Nothing to do here.
+ */
 static void __init smp_tune_scheduling(void)
 {
 }
 
+/**
+ * do_boot_cpu: Boot up one CPU
+ * @phy_id: Physical ID of CPU to boot.
+ *
+ * Send an IPI to a secondary CPU to boot it.  Returns 0 on success, 1
+ * otherwise.
+ */
 static int __init do_boot_cpu(int phy_id)
 {
 	struct task_struct *idle;
@@ -580,7 +752,7 @@ static int __init do_boot_cpu(int phy_id)
 
 	cpucount++;
 
-	
+	/* Create idle thread for this CPU */
 	idle = fork_idle(cpu_id);
 	if (IS_ERR(idle))
 		panic("Failed fork for CPU#%d.", cpu_id);
@@ -592,12 +764,12 @@ static int __init do_boot_cpu(int phy_id)
 
 	task_thread_info(idle)->cpu = cpu_id;
 
-	
+	/* Send boot IPI to AP */
 	send_IPI_mask(cpumask_of(phy_id), SMP_BOOT_IRQ);
 
 	Dprintk("Waiting for send to finish...\n");
 
-	
+	/* Wait for AP's IPI receive in 100[ms] */
 	do {
 		udelay(1000);
 		send_status =
@@ -607,10 +779,10 @@ static int __init do_boot_cpu(int phy_id)
 	Dprintk("Waiting for cpu_callin_map.\n");
 
 	if (send_status == 0) {
-		
+		/* Allow AP to start initializing */
 		cpumask_set_cpu(cpu_id, &cpu_callout_map);
 
-		
+		/* Wait for setting cpu_callin_map */
 		timeout = 0;
 		do {
 			udelay(1000);
@@ -634,6 +806,10 @@ static int __init do_boot_cpu(int phy_id)
 	return 0;
 }
 
+/**
+ * smp_show_cpu_info - Show SMP CPU information
+ * @cpu: The CPU of interest.
+ */
 static void __init smp_show_cpu_info(int cpu)
 {
 	struct mn10300_cpuinfo *ci = &cpu_data[cpu];
@@ -647,6 +823,9 @@ static void __init smp_show_cpu_info(int cpu)
 	       (ci->loops_per_jiffy / (5000 / HZ)) % 100);
 }
 
+/**
+ * smp_callin - Set cpu_callin_map of the current CPU ID
+ */
 static void __init smp_callin(void)
 {
 	unsigned long timeout;
@@ -661,7 +840,7 @@ static void __init smp_callin(void)
 	}
 	Dprintk("CPU#%d waiting for CALLOUT\n", cpu);
 
-	
+	/* Wait for AP startup 2s total */
 	while (time_before(jiffies, timeout)) {
 		if (cpumask_test_cpu(cpu, &cpu_callout_map))
 			break;
@@ -676,16 +855,19 @@ static void __init smp_callin(void)
 	}
 
 #ifdef CONFIG_CALIBRATE_DELAY
-	calibrate_delay();		
+	calibrate_delay();		/* Get our bogomips */
 #endif
 
-	
+	/* Save our processor parameters */
 	smp_store_cpu_info(cpu);
 
-	
+	/* Allow the boot processor to continue */
 	cpumask_set_cpu(cpu, &cpu_callin_map);
 }
 
+/**
+ * smp_online - Set cpu_online_mask
+ */
 static void __init smp_online(void)
 {
 	int cpu;
@@ -701,10 +883,22 @@ static void __init smp_online(void)
 	local_irq_enable();
 }
 
+/**
+ * smp_cpus_done -
+ * @max_cpus: Maximum CPU count.
+ *
+ * Do nothing.
+ */
 void __init smp_cpus_done(unsigned int max_cpus)
 {
 }
 
+/*
+ * smp_prepare_boot_cpu - Set up stuff for the boot processor.
+ *
+ * Set up the cpu_online_mask, cpu_callout_map and cpu_callin_map of the boot
+ * processor (CPU 0).
+ */
 void __devinit smp_prepare_boot_cpu(void)
 {
 	cpumask_set_cpu(0, &cpu_callout_map);
@@ -712,6 +906,11 @@ void __devinit smp_prepare_boot_cpu(void)
 	current_thread_info()->cpu = 0;
 }
 
+/*
+ * initialize_secondary - Initialise a secondary CPU (Application Processor).
+ *
+ * Set SP register and jump to thread's PC address.
+ */
 void initialize_secondary(void)
 {
 	asm volatile (
@@ -721,6 +920,10 @@ void initialize_secondary(void)
 		: "a"(current->thread.sp), "a"(current->thread.pc));
 }
 
+/**
+ * __cpu_up - Set smp_commenced_mask for the nominated CPU
+ * @cpu: The target CPU.
+ */
 int __devinit __cpu_up(unsigned int cpu)
 {
 	int timeout;
@@ -730,11 +933,11 @@ int __devinit __cpu_up(unsigned int cpu)
 		disable_hlt();
 	if (sleep_mode[cpu])
 		run_wakeup_cpu(cpu);
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */
 
 	cpumask_set_cpu(cpu, &smp_commenced_mask);
 
-	
+	/* Wait 5s total for a response */
 	for (timeout = 0 ; timeout < 5000 ; timeout++) {
 		if (cpu_online(cpu))
 			break;
@@ -745,11 +948,21 @@ int __devinit __cpu_up(unsigned int cpu)
 	return 0;
 }
 
+/**
+ * setup_profiling_timer - Set up the profiling timer
+ * @multiplier - The frequency multiplier to use
+ *
+ * The frequency of the profiling timer can be changed by writing a multiplier
+ * value into /proc/profile.
+ */
 int setup_profiling_timer(unsigned int multiplier)
 {
 	return -EINVAL;
 }
 
+/*
+ * CPU hotplug routines
+ */
 #ifdef CONFIG_HOTPLUG_CPU
 
 static DEFINE_PER_CPU(struct cpu, cpu_devices);
@@ -833,16 +1046,31 @@ static inline void hotplug_cpu_invalidate_cache(void)
 		: "cc");
 }
 
-#else 
+#else /* CONFIG_MN10300_CACHE_ENABLED */
 #define hotplug_cpu_disable_cache()	do {} while (0)
 #define hotplug_cpu_enable_cache()	do {} while (0)
 #define hotplug_cpu_invalidate_cache()	do {} while (0)
-#endif 
+#endif /* CONFIG_MN10300_CACHE_ENABLED */
 
+/**
+ * hotplug_cpu_nmi_call_function - Call a function on other CPUs for hotplug
+ * @cpumask: List of target CPUs.
+ * @func: The function to call on those CPUs.
+ * @info: The context data for the function to be called.
+ * @wait: Whether to wait for the calls to complete.
+ *
+ * Non-maskably call a function on another CPU for hotplug purposes.
+ *
+ * This function must be called with maskable interrupts disabled.
+ */
 static int hotplug_cpu_nmi_call_function(cpumask_t cpumask,
 					 smp_call_func_t func, void *info,
 					 int wait)
 {
+	/*
+	 * The address and the size of nmi_call_func_mask_data
+	 * need to be aligned on L1_CACHE_BYTES.
+	 */
 	static struct nmi_call_data_struct nmi_call_func_mask_data
 		__cacheline_aligned;
 	unsigned long start, end;
@@ -899,9 +1127,14 @@ static void prepare_sleep_cpu(void *unused)
 	hotplug_cpu_invalidate_cache();
 }
 
+/* when this function called, IE=0, NMID=0. */
 static void sleep_cpu(void *unused)
 {
 	unsigned int cpu_id = smp_processor_id();
+	/*
+	 * CALL_FUNCTION_NMI_IPI for wakeup_cpu() shall not be requested,
+	 * before this cpu goes in SLEEP mode.
+	 */
 	do {
 		smp_mb();
 		__sleep_cpu();
@@ -918,7 +1151,7 @@ static void run_sleep_cpu(unsigned int cpu)
 	flags = arch_local_cli_save();
 	hotplug_cpu_nmi_call_function(cpumask, prepare_sleep_cpu, NULL, 1);
 	hotplug_cpu_nmi_call_function(cpumask, sleep_cpu, NULL, 0);
-	udelay(1);		
+	udelay(1);		/* delay for the cpu to sleep. */
 	arch_local_irq_restore(flags);
 }
 
@@ -938,10 +1171,14 @@ static void run_wakeup_cpu(unsigned int cpu)
 #if NR_CPUS == 2
 	mn10300_local_dcache_flush_inv();
 #else
+	/*
+	 * Before waking up the cpu,
+	 * all online cpus should stop and flush D-Cache for global data.
+	 */
 #error not support NR_CPUS > 2, when CONFIG_HOTPLUG_CPU=y.
 #endif
 	hotplug_cpu_nmi_call_function(cpumask_of(cpu), wakeup_cpu, NULL, 1);
 	arch_local_irq_restore(flags);
 }
 
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */

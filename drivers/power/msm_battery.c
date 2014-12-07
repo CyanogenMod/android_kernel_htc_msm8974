@@ -11,6 +11,10 @@
  *
  */
 
+/*
+ * this needs to be before <linux/kernel.h> is loaded,
+ * and <linux/sched.h> loads <linux/kernel.h>
+ */
 #define DEBUG  0
 
 #include <linux/slab.h>
@@ -63,7 +67,7 @@
 #define ONCRPC_CHG_GET_GENERAL_STATUS_PROC	12
 #define ONCRPC_CHARGER_API_VERSIONS_PROC	0xffffffff
 
-#define BATT_RPC_TIMEOUT    5000	
+#define BATT_RPC_TIMEOUT    5000	/* 5 sec */
 
 #define INVALID_BATT_HANDLE    -1
 
@@ -88,8 +92,10 @@ enum {
 	BATTERY_DEREGISTRATION_FAILED = 4,
 	BATTERY_MODIFICATION_FAILED = 8,
 	BATTERY_INTERROGATION_FAILED = 16,
-	
+	/* Client's filter could not be set because perhaps it does not exist */
 	BATTERY_SET_FILTER_FAILED         = 32,
+	/* Client's could not be found for enabling or disabling the individual
+	 * client */
 	BATTERY_ENABLE_DISABLE_INDIVIDUAL_CLIENT_FAILED  = 64,
 	BATTERY_LAST_ERROR = 128,
 };
@@ -105,56 +111,68 @@ enum {
 	BATTERY_VOLTAGE_UNKNOWN,
 };
 
+/*
+ * This enum contains defintions of the charger hardware status
+ */
 enum chg_charger_status_type {
-	
+	/* The charger is good      */
 	CHARGER_STATUS_GOOD,
-	
+	/* The charger is bad       */
 	CHARGER_STATUS_BAD,
-	
+	/* The charger is weak      */
 	CHARGER_STATUS_WEAK,
-	
+	/* Invalid charger status.  */
 	CHARGER_STATUS_INVALID
 };
 
+/*
+ *This enum contains defintions of the charger hardware type
+ */
 enum chg_charger_hardware_type {
-	
+	/* The charger is removed                 */
 	CHARGER_TYPE_NONE,
-	
+	/* The charger is a regular wall charger   */
 	CHARGER_TYPE_WALL,
-	
+	/* The charger is a PC USB                 */
 	CHARGER_TYPE_USB_PC,
-	
+	/* The charger is a wall USB charger       */
 	CHARGER_TYPE_USB_WALL,
-	
+	/* The charger is a USB carkit             */
 	CHARGER_TYPE_USB_CARKIT,
-	
+	/* Invalid charger hardware status.        */
 	CHARGER_TYPE_INVALID
 };
 
+/*
+ *  This enum contains defintions of the battery status
+ */
 enum chg_battery_status_type {
-	
+	/* The battery is good        */
 	BATTERY_STATUS_GOOD,
-	
+	/* The battery is cold/hot    */
 	BATTERY_STATUS_BAD_TEMP,
-	
+	/* The battery is bad         */
 	BATTERY_STATUS_BAD,
-	
-	BATTERY_STATUS_REMOVED,		
+	/* The battery is removed     */
+	BATTERY_STATUS_REMOVED,		/* on v2.2 only */
 	BATTERY_STATUS_INVALID_v1 = BATTERY_STATUS_REMOVED,
-	
+	/* Invalid battery status.    */
 	BATTERY_STATUS_INVALID
 };
 
+/*
+ *This enum contains defintions of the battery voltage level
+ */
 enum chg_battery_level_type {
-	
+	/* The battery voltage is dead/very low (less than 3.2V) */
 	BATTERY_LEVEL_DEAD,
-	
+	/* The battery voltage is weak/low (between 3.2V and 3.4V) */
 	BATTERY_LEVEL_WEAK,
-	
+	/* The battery voltage is good/normal(between 3.4V and 4.2V) */
 	BATTERY_LEVEL_GOOD,
-	
+	/* The battery voltage is up to full (close to 4.2V) */
 	BATTERY_LEVEL_FULL,
-	
+	/* Invalid battery voltage level. */
 	BATTERY_LEVEL_INVALID
 };
 
@@ -203,14 +221,14 @@ struct msm_battery_info {
 	u32 batt_health;
 	u32 charger_valid;
 	u32 batt_valid;
-	u32 batt_capacity; 
+	u32 batt_capacity; /* in percentage */
 
 	u32 charger_status;
 	u32 charger_type;
 	u32 battery_status;
 	u32 battery_level;
-	u32 battery_voltage; 
-	u32 battery_temp;  
+	u32 battery_voltage; /* in millie volts */
+	u32 battery_temp;  /* in celsius */
 
 	u32(*calculate_capacity) (u32 voltage);
 
@@ -449,7 +467,7 @@ static void msm_batt_update_psy_status(void)
 	battery_voltage = rep_batt_chg.v1.battery_voltage;
 	battery_temp = rep_batt_chg.v1.battery_temp;
 
-	
+	/* Make correction for battery status */
 	if (battery_status == BATTERY_STATUS_INVALID_v1) {
 		if (msm_batt_info.chg_api_version < CHG_RPC_VER_3_1)
 			battery_status = BATTERY_STATUS_INVALID;
@@ -461,6 +479,9 @@ static void msm_batt_update_psy_status(void)
 	    battery_level == msm_batt_info.battery_level &&
 	    battery_voltage == msm_batt_info.battery_voltage &&
 	    battery_temp == msm_batt_info.battery_temp) {
+		/* Got unnecessary event from Modem PMIC VBATT driver.
+		 * Nothing changed in Battery or charger status.
+		 */
 		unnecessary_event_count++;
 		if ((unnecessary_event_count % 20) == 1)
 			DBG_LIMIT("BATT: same event count = %u\n",
@@ -502,7 +523,7 @@ static void msm_batt_update_psy_status(void)
 			msm_batt_info.current_chg_source = 0;
 			supp = &msm_psy_batt;
 
-			
+			/* Correct charger status */
 			if (charger_status != CHARGER_STATUS_INVALID) {
 				DBG_LIMIT("BATT: No charging!\n");
 				charger_status = CHARGER_STATUS_INVALID;
@@ -521,7 +542,7 @@ static void msm_batt_update_psy_status(void)
 				msm_batt_info.batt_status =
 					POWER_SUPPLY_STATUS_CHARGING;
 
-				
+				/* Correct when supp==NULL */
 				if (msm_batt_info.current_chg_source & AC_CHG)
 					supp = &msm_psy_ac;
 				else
@@ -534,7 +555,7 @@ static void msm_batt_update_psy_status(void)
 			supp = &msm_psy_batt;
 		}
 	} else {
-		
+		/* Correct charger status */
 		if (charger_type != CHARGER_TYPE_INVALID &&
 		    charger_status == CHARGER_STATUS_GOOD) {
 			DBG_LIMIT("BATT: In charging\n");
@@ -543,13 +564,13 @@ static void msm_batt_update_psy_status(void)
 		}
 	}
 
-	
+	/* Correct battery voltage and status */
 	if (!battery_voltage) {
 		if (charger_status == CHARGER_STATUS_INVALID) {
 			DBG_LIMIT("BATT: Read VBATT\n");
 			battery_voltage = msm_batt_get_vbatt_voltage();
 		} else
-			
+			/* Use previous */
 			battery_voltage = msm_batt_info.battery_voltage;
 	}
 	if (battery_status == BATTERY_STATUS_INVALID) {
@@ -636,15 +657,17 @@ struct batt_modify_client_req {
 
 	u32 client_handle;
 
-	
+	/* The voltage at which callback (CB) should be called. */
 	u32 desired_batt_voltage;
 
-	
+	/* The direction when the CB should be called. */
 	u32 voltage_direction;
 
+	/* The registered callback to be called when voltage and
+	 * direction specs are met. */
 	u32 batt_cb_id;
 
-	
+	/* The call back data */
 	u32 cb_data;
 };
 
@@ -860,30 +883,34 @@ static int msm_batt_enable_filter(u32 vbatt_filter)
 }
 
 struct batt_client_registration_req {
-	
+	/* The voltage at which callback (CB) should be called. */
 	u32 desired_batt_voltage;
 
-	
+	/* The direction when the CB should be called. */
 	u32 voltage_direction;
 
+	/* The registered callback to be called when voltage and
+	 * direction specs are met. */
 	u32 batt_cb_id;
 
-	
+	/* The call back data */
 	u32 cb_data;
 	u32 more_data;
 	u32 batt_error;
 };
 
 struct batt_client_registration_req_4_1 {
-	
+	/* The voltage at which callback (CB) should be called. */
 	u32 desired_batt_voltage;
 
-	
+	/* The direction when the CB should be called. */
 	u32 voltage_direction;
 
+	/* The registered callback to be called when voltage and
+	 * direction specs are met. */
 	u32 batt_cb_id;
 
-	
+	/* The call back data */
 	u32 cb_data;
 	u32 batt_error;
 };
@@ -1104,7 +1131,7 @@ static int msm_batt_deregister(u32 batt_handle)
 
 	return 0;
 }
-#endif  
+#endif  /* CONFIG_BATTERY_MSM_FAKE */
 
 static int msm_batt_cleanup(void)
 {
@@ -1123,7 +1150,7 @@ static int msm_batt_cleanup(void)
 
 	if (msm_batt_info.batt_client)
 		msm_rpc_unregister_client(msm_batt_info.batt_client);
-#endif  
+#endif  /* CONFIG_BATTERY_MSM_FAKE */
 
 	if (msm_batt_info.msm_psy_ac)
 		power_supply_unregister(msm_batt_info.msm_psy_ac);
@@ -1211,7 +1238,7 @@ int msm_batt_get_charger_api_version(void)
 			rc = -EIO;
 			break;
 		}
-		
+		/* we should not get RPC REQ or call packets -- ignore them */
 		if (reply->type == RPC_TYPE_REQ) {
 			pr_err("%s: TYPE ERR: type=%d (!=%d)\n",
 			       __func__, reply->type, RPC_TYPE_REQ);
@@ -1219,6 +1246,10 @@ int msm_batt_get_charger_api_version(void)
 			continue;
 		}
 
+		/* If an earlier call timed out, we could get the (no
+		 * longer wanted) reply for it.	 Ignore replies that
+		 * we don't expect
+		 */
 		if (reply->xid != req_chg_api_ver.hdr.xid) {
 			pr_err("%s: XID ERR: xid=%d (!=%d)\n", __func__,
 			       reply->xid, req_chg_api_ver.hdr.xid);
@@ -1291,7 +1322,7 @@ static int msm_batt_cb_func(struct msm_rpc_client *client,
 
 	return rc;
 }
-#endif  
+#endif  /* CONFIG_BATTERY_MSM_FAKE */
 
 static int __devinit msm_batt_probe(struct platform_device *pdev)
 {
@@ -1405,7 +1436,7 @@ static int __devinit msm_batt_probe(struct platform_device *pdev)
 
 #else
 	power_supply_changed(&msm_psy_ac);
-#endif  
+#endif  /* CONFIG_BATTERY_MSM_FAKE */
 
 	return 0;
 }
@@ -1476,12 +1507,12 @@ static int __devinit msm_batt_init_rpc(void)
 		return rc;
 	}
 
-	
+	/* Get the real 1.x version */
 	if (msm_batt_info.chg_api_version == CHG_RPC_VER_1_1)
 		msm_batt_info.chg_api_version =
 			msm_batt_get_charger_api_version();
 
-	
+	/* Fall back to 1.1 for default */
 	if (msm_batt_info.chg_api_version < 0)
 		msm_batt_info.chg_api_version = CHG_RPC_VER_1_1;
 	msm_batt_info.batt_api_version =  BATTERY_RPC_VER_4_1;
@@ -1524,7 +1555,7 @@ static int __devinit msm_batt_init_rpc(void)
 		msm_batt_info.batt_client = NULL;
 		return rc;
 	}
-#endif  
+#endif  /* CONFIG_BATTERY_MSM_FAKE */
 
 	rc = platform_driver_register(&msm_batt_driver);
 

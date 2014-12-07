@@ -1,3 +1,4 @@
+/*****************************************************************************/
 
 /*
  *	cdk.h  -- CDK interface definitions.
@@ -20,12 +21,26 @@
  *	Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*****************************************************************************/
 #ifndef	_CDK_H
 #define	_CDK_H
+/*****************************************************************************/
 
 #pragma	pack(2)
 
+/*
+ *	The following set of definitions is used to communicate with the
+ *	shared memory interface of the Stallion intelligent multiport serial
+ *	boards. The definitions in this file are taken directly from the
+ *	document titled "Generic Stackable Interface, Downloader and
+ *	Communications Development Kit".
+ */
 
+/*
+ *	Define the set of important shared memory addresses. These are
+ *	required to initialize the board and get things started. All of these
+ *	addresses are relative to the start of the shared memory.
+ */
 #define	CDK_SIGADDR	0x200
 #define	CDK_FEATADDR	0x280
 #define	CDK_CDKADDR	0x300
@@ -33,6 +48,12 @@
 
 #define	CDK_ALIVEMARKER	13
 
+/*
+ *	On hardware power up the ROMs located on the EasyConnection 8/64 will
+ *	fill out the following signature information into shared memory. This
+ *	way the host system can quickly determine that the board is present
+ *	and is operational.
+ */
 typedef struct cdkecpsig {
 	unsigned long	magic;
 	unsigned short	romver;
@@ -42,6 +63,12 @@ typedef struct cdkecpsig {
 
 #define	ECP_MAGIC	0x21504345
 
+/*
+ *	On hardware power up the ROMs located on the ONboard, Stallion and
+ *	Brumbys will fill out the following signature information into shared
+ *	memory. This way the host system can quickly determine that the board
+ *	is present and is operational.
+ */
 typedef struct cdkonbsig {
 	unsigned short	magic0;
 	unsigned short	magic1;
@@ -65,6 +92,11 @@ typedef struct cdkonbsig {
 #define	ONB_MAGIC2	0x6352
 #define	ONB_MAGIC3	0xf121
 
+/*
+ *	Define the feature area structure. The feature area is the set of
+ *	startup parameters used by the slave image when it starts executing.
+ *	They allow for the specification of buffer sizes, debug trace, etc.
+ */
 typedef struct cdkfeature {
 	unsigned long	debug;
 	unsigned long	banner;
@@ -79,6 +111,11 @@ typedef struct cdkfeature {
 #define	ETYP_DDK	0
 #define	ETYP_CDK	1
 
+/*
+ *	Define the CDK header structure. This is the info that the slave
+ *	environment sets up after it has been downloaded and started. It
+ *	essentially provides a memory map for the shared memory interface.
+ */
 typedef struct cdkhdr {
 	unsigned short	command;
 	unsigned short	status;
@@ -109,6 +146,12 @@ typedef struct cdkhdr {
 #define	IMD_PPINTR	0x1
 #define	IMD_POLL	0xff
 
+/*
+ *	Define the memory mapping structure. This structure is pointed to by
+ *	the memp field in the stlcdkhdr struct. As many as these structures
+ *	as required are laid out in shared memory to define how the rest of
+ *	shared memory is divided up. There will be one for each port.
+ */
 typedef struct cdkmem {
 	unsigned short	dtype;
 	unsigned long	offset;
@@ -120,7 +163,13 @@ typedef struct cdkmem {
 #define	TYP_PARALLEL	0x40
 #define	TYP_SYNCX21	0x60
 
+/*****************************************************************************/
 
+/*
+ *	Following is a set of defines and structures used to actually deal
+ *	with the serial ports on the board. Firstly is the set of commands
+ *	that can be applied to ports.
+ */
 #define	ASYCMD		(((unsigned long) 'a') << 8)
 
 #define	A_NULL		(ASYCMD | 0)
@@ -145,12 +194,20 @@ typedef struct cdkmem {
 #define	A_FLOWSTATE	(ASYCMD | 19)
 #define	A_CLEARSTATS	(ASYCMD | 20)
 
+/*
+ *	Define those arguments used for simple commands.
+ */
 #define	FLUSHRX		0x1
 #define	FLUSHTX		0x2
 
 #define	BREAKON		-1
 #define	BREAKOFF	-2
 
+/*
+ *	Define the port setting structure, and all those defines that go along
+ *	with it. Basically this structure defines the characteristics of this
+ *	port: baud rate, chars, parity, input/output char cooking etc.
+ */
 typedef struct asyport {
 	unsigned long	baudout;
 	unsigned long	baudin;
@@ -251,6 +308,10 @@ typedef struct asyport {
 #define	P_RXITIME	0x20000
 #define	P_RXTHOLD	0x40000
 
+/*
+ *	Define a structure to communicate serial port signal and data state
+ *	information.
+ */
 typedef struct asysigs {
 	unsigned long	data;
 	unsigned long	signal;
@@ -282,6 +343,11 @@ typedef struct asysigs {
 #define	SG_DSR		0x10
 #define	SG_RI		0x20
 
+/*
+ *	Define the notification setting structure. This is used to tell the
+ *	port what events we want to be informed about. Fields here use the
+ *	same defines as for the asysigs structure above.
+ */
 typedef struct asynotify {
 	unsigned long	ctrl;
 	unsigned long	data;
@@ -289,6 +355,10 @@ typedef struct asynotify {
 	unsigned long	sigvalue;
 } asynotify_t;
 
+/*
+ *	Define the port control structure. It is used to do fine grain
+ *	control operations on the port.
+ */
 typedef struct {
 	unsigned long	rxctrl;
 	unsigned long	txctrl;
@@ -306,6 +376,11 @@ typedef struct {
 #define	CT_STOPFLOW	0x20
 #define	CT_SENDCHR	0x40
 
+/*
+ *	Define the stats structure kept for each port. This is a useful set
+ *	of data collected for each port on the slave. The A_GETSTATS command
+ *	is used to retrieve this data from the slave.
+ */
 typedef struct asystats {
 	unsigned long	opens;
 	unsigned long	txchars;
@@ -338,7 +413,14 @@ typedef struct asystats {
 	unsigned long	hwid;
 } asystats_t;
 
+/*****************************************************************************/
 
+/*
+ *	All command and control communication with a device on the slave is
+ *	via a control block in shared memory. Each device has its own control
+ *	block, defined by the following structure. The control block allows
+ *	the host to open, close and control the device on the slave.
+ */
 typedef struct cdkctrl {
 	unsigned char	open;
 	unsigned char	close;
@@ -349,6 +431,13 @@ typedef struct cdkctrl {
 	unsigned long	args[32];
 } cdkctrl_t;
 
+/*
+ *	Each device on the slave passes data to and from the host via a ring
+ *	queue in shared memory. Define a ring queue structure to hold the
+ *	vital information about each ring queue. Two ring queues will be
+ *	allocated for each port, one for receive data and one for transmit
+ *	data.
+ */
 typedef struct cdkasyrq {
 	unsigned long	offset;
 	unsigned short	size;
@@ -356,6 +445,11 @@ typedef struct cdkasyrq {
 	unsigned short	tail;
 } cdkasyrq_t;
 
+/*
+ *	Each asynchronous port is defined in shared memory by the following
+ *	structure. It contains a control block to command a device, and also
+ *	the necessary data channel information as well.
+ */
 typedef struct cdkasy {
 	cdkctrl_t	ctrl;
 	unsigned short	notify;
@@ -368,7 +462,13 @@ typedef struct cdkasy {
 
 #pragma	pack()
 
+/*****************************************************************************/
 
+/*
+ *	Define the set of ioctls used by the driver to do special things
+ *	to the board. These include interrupting it, and initializing
+ *	the driver after board startup and shutdown.
+ */
 #include <linux/ioctl.h>
 
 #define	STL_BINTR	_IO('s',20)
@@ -376,7 +476,11 @@ typedef struct cdkasy {
 #define	STL_BSTOP	_IO('s',22)
 #define	STL_BRESET	_IO('s',23)
 
+/*
+ *	Define a set of ioctl extensions, used to get at special stuff.
+ */
 #define	STL_GETPFLAG	_IO('s',80)
 #define	STL_SETPFLAG	_IO('s',81)
 
+/*****************************************************************************/
 #endif

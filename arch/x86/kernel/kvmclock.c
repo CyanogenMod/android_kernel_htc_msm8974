@@ -37,9 +37,15 @@ static int parse_no_kvmclock(char *arg)
 }
 early_param("no-kvmclock", parse_no_kvmclock);
 
+/* The hypervisor will put information about time periodically here */
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct pvclock_vcpu_time_info, hv_clock);
 static struct pvclock_wall_clock wall_clock;
 
+/*
+ * The wallclock is the time of day when we booted. Since then, some time may
+ * have elapsed since the hypervisor wrote the data. So we try to account for
+ * that with system time
+ */
 static unsigned long kvm_get_wallclock(void)
 {
 	struct pvclock_vcpu_time_info *vcpu_time;
@@ -80,6 +86,15 @@ static cycle_t kvm_clock_get_cycles(struct clocksource *cs)
 	return kvm_clock_read();
 }
 
+/*
+ * If we don't do that, there is the possibility that the guest
+ * will calibrate under heavy load - thus, getting a lower lpj -
+ * and execute the delays themselves without load. This is wrong,
+ * because no delay loop can finish beforehand.
+ * Any heuristics is subject to fail, because ultimately, a large
+ * poll of guests can be running and trouble each other. So we preset
+ * lpj here
+ */
 static unsigned long kvm_get_tsc_khz(void)
 {
 	struct pvclock_vcpu_time_info *src;
@@ -133,6 +148,10 @@ static void kvm_restore_sched_clock_state(void)
 #ifdef CONFIG_X86_LOCAL_APIC
 static void __cpuinit kvm_setup_secondary_clock(void)
 {
+	/*
+	 * Now that the first cpu already had this clocksource initialized,
+	 * we shouldn't fail.
+	 */
 	WARN_ON(kvm_register_clock("secondary cpu clock"));
 }
 #endif

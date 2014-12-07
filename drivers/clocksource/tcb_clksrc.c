@@ -12,6 +12,32 @@
 #include <linux/atmel_tc.h>
 
 
+/*
+ * We're configured to use a specific TC block, one that's not hooked
+ * up to external hardware, to provide a time solution:
+ *
+ *   - Two channels combine to create a free-running 32 bit counter
+ *     with a base rate of 5+ MHz, packaged as a clocksource (with
+ *     resolution better than 200 nsec).
+ *   - Some chips support 32 bit counter. A single channel is used for
+ *     this 32 bit free-running counter. the second channel is not used.
+ *
+ *   - The third channel may be used to provide a 16-bit clockevent
+ *     source, used in either periodic or oneshot mode.  This runs
+ *     at 32 KiHZ, and can handle delays of up to two seconds.
+ *
+ * A boot clocksource and clockevent source are also currently needed,
+ * unless the relevant platforms (ARM/AT91, AVR32/AT32) are changed so
+ * this code can be used when init_timers() is called, well before most
+ * devices are set up.  (Some low end AT91 parts, which can run uClinux,
+ * have only the timers in one TC block... they currently don't support
+ * the tclib code, because of that initialization issue.)
+ *
+ * REVISIT behavior during system suspend states... we should disable
+ * all clocks and save the power.  Easily done for clockevent devices,
+ * but clocksources won't necessarily get the needed notifications.
+ * For deeper system sleep states, this will be mandatory...
+ */
 
 static void __iomem *tcaddr;
 
@@ -56,6 +82,13 @@ static struct tc_clkevt_device *to_tc_clkevt(struct clock_event_device *clkevt)
 	return container_of(clkevt, struct tc_clkevt_device, clkevt);
 }
 
+/* For now, we always use the 32K clock ... this optimizes for NO_HZ,
+ * because using one of the divided clocks would usually mean the
+ * tick rate can never be less than several dozen Hz (vs 0.5 Hz).
+ *
+ * A divided clock could be good for high resolution timers, since
+ * 30.5 usec resolution can seem "low".
+ */
 static u32 timer_clock;
 
 static void tc_mode(enum clock_event_mode m, struct clock_event_device *d)
@@ -72,19 +105,22 @@ static void tc_mode(enum clock_event_mode m, struct clock_event_device *d)
 
 	switch (m) {
 
+	/* By not making the gentime core emulate periodic mode on top
+	 * of oneshot, we get lower overhead and improved accuracy.
+	 */
 	case CLOCK_EVT_MODE_PERIODIC:
 		clk_enable(tcd->clk);
 
-		
+		/* slow clock, count up to RC, then irq and restart */
 		__raw_writel(timer_clock
 				| ATMEL_TC_WAVE | ATMEL_TC_WAVESEL_UP_AUTO,
 				regs + ATMEL_TC_REG(2, CMR));
 		__raw_writel((32768 + HZ/2) / HZ, tcaddr + ATMEL_TC_REG(2, RC));
 
-		
+		/* Enable clock and interrupts on RC compare */
 		__raw_writel(ATMEL_TC_CPCS, regs + ATMEL_TC_REG(2, IER));
 
-		
+		/* go go gadget! */
 		__raw_writel(ATMEL_TC_CLKEN | ATMEL_TC_SWTRG,
 				regs + ATMEL_TC_REG(2, CCR));
 		break;
@@ -92,13 +128,13 @@ static void tc_mode(enum clock_event_mode m, struct clock_event_device *d)
 	case CLOCK_EVT_MODE_ONESHOT:
 		clk_enable(tcd->clk);
 
-		
+		/* slow clock, count up to RC, then irq and stop */
 		__raw_writel(timer_clock | ATMEL_TC_CPCSTOP
 				| ATMEL_TC_WAVE | ATMEL_TC_WAVESEL_UP_AUTO,
 				regs + ATMEL_TC_REG(2, CMR));
 		__raw_writel(ATMEL_TC_CPCS, regs + ATMEL_TC_REG(2, IER));
 
-		
+		/* set_next_event() configures and starts the timer */
 		break;
 
 	default:
@@ -110,7 +146,7 @@ static int tc_next_event(unsigned long delta, struct clock_event_device *d)
 {
 	__raw_writel(delta, tcaddr + ATMEL_TC_REG(2, RC));
 
-	
+	/* go go gadget! */
 	__raw_writel(ATMEL_TC_CLKEN | ATMEL_TC_SWTRG,
 			tcaddr + ATMEL_TC_REG(2, CCR));
 	return 0;
@@ -122,7 +158,7 @@ static struct tc_clkevt_device clkevt = {
 		.features	= CLOCK_EVT_FEAT_PERIODIC
 					| CLOCK_EVT_FEAT_ONESHOT,
 		.shift		= 32,
-		
+		/* Should be lower than at91rm9200's system timer */
 		.rating		= 125,
 		.set_next_event	= tc_next_event,
 		.set_mode	= tc_mode,
@@ -171,54 +207,54 @@ static void __init setup_clkevents(struct atmel_tc *tc, int clk32k_divisor_idx)
 	setup_irq(irq, &tc_irqaction);
 }
 
-#else 
+#else /* !CONFIG_GENERIC_CLOCKEVENTS */
 
 static void __init setup_clkevents(struct atmel_tc *tc, int clk32k_divisor_idx)
 {
-	
+	/* NOTHING */
 }
 
 #endif
 
 static void __init tcb_setup_dual_chan(struct atmel_tc *tc, int mck_divisor_idx)
 {
-	
-	__raw_writel(mck_divisor_idx			
+	/* channel 0:  waveform mode, input mclk/8, clock TIOA0 on overflow */
+	__raw_writel(mck_divisor_idx			/* likely divide-by-8 */
 			| ATMEL_TC_WAVE
-			| ATMEL_TC_WAVESEL_UP		
-			| ATMEL_TC_ACPA_SET		
-			| ATMEL_TC_ACPC_CLEAR,		
+			| ATMEL_TC_WAVESEL_UP		/* free-run */
+			| ATMEL_TC_ACPA_SET		/* TIOA0 rises at 0 */
+			| ATMEL_TC_ACPC_CLEAR,		/* (duty cycle 50%) */
 			tcaddr + ATMEL_TC_REG(0, CMR));
 	__raw_writel(0x0000, tcaddr + ATMEL_TC_REG(0, RA));
 	__raw_writel(0x8000, tcaddr + ATMEL_TC_REG(0, RC));
-	__raw_writel(0xff, tcaddr + ATMEL_TC_REG(0, IDR));	
+	__raw_writel(0xff, tcaddr + ATMEL_TC_REG(0, IDR));	/* no irqs */
 	__raw_writel(ATMEL_TC_CLKEN, tcaddr + ATMEL_TC_REG(0, CCR));
 
-	
-	__raw_writel(ATMEL_TC_XC1			
+	/* channel 1:  waveform mode, input TIOA0 */
+	__raw_writel(ATMEL_TC_XC1			/* input: TIOA0 */
 			| ATMEL_TC_WAVE
-			| ATMEL_TC_WAVESEL_UP,		
+			| ATMEL_TC_WAVESEL_UP,		/* free-run */
 			tcaddr + ATMEL_TC_REG(1, CMR));
-	__raw_writel(0xff, tcaddr + ATMEL_TC_REG(1, IDR));	
+	__raw_writel(0xff, tcaddr + ATMEL_TC_REG(1, IDR));	/* no irqs */
 	__raw_writel(ATMEL_TC_CLKEN, tcaddr + ATMEL_TC_REG(1, CCR));
 
-	
+	/* chain channel 0 to channel 1*/
 	__raw_writel(ATMEL_TC_TC1XC1S_TIOA0, tcaddr + ATMEL_TC_BMR);
-	
+	/* then reset all the timers */
 	__raw_writel(ATMEL_TC_SYNC, tcaddr + ATMEL_TC_BCR);
 }
 
 static void __init tcb_setup_single_chan(struct atmel_tc *tc, int mck_divisor_idx)
 {
-	
-	__raw_writel(mck_divisor_idx			
+	/* channel 0:  waveform mode, input mclk/8 */
+	__raw_writel(mck_divisor_idx			/* likely divide-by-8 */
 			| ATMEL_TC_WAVE
-			| ATMEL_TC_WAVESEL_UP,		
+			| ATMEL_TC_WAVESEL_UP,		/* free-run */
 			tcaddr + ATMEL_TC_REG(0, CMR));
-	__raw_writel(0xff, tcaddr + ATMEL_TC_REG(0, IDR));	
+	__raw_writel(0xff, tcaddr + ATMEL_TC_REG(0, IDR));	/* no irqs */
 	__raw_writel(ATMEL_TC_CLKEN, tcaddr + ATMEL_TC_REG(0, CCR));
 
-	
+	/* then reset all the timers */
 	__raw_writel(ATMEL_TC_SYNC, tcaddr + ATMEL_TC_BCR);
 }
 
@@ -246,13 +282,13 @@ static int __init tcb_clksrc_init(void)
 	t0_clk = tc->clk[0];
 	clk_enable(t0_clk);
 
-	
+	/* How fast will we be counting?  Pick something over 5 MHz.  */
 	rate = (u32) clk_get_rate(t0_clk);
 	for (i = 0; i < 5; i++) {
 		unsigned divisor = atmel_tc_divisors[i];
 		unsigned tmp;
 
-		
+		/* remember 32 KiHz clock for later */
 		if (!divisor) {
 			clk32k_divisor_idx = i;
 			continue;
@@ -274,20 +310,23 @@ static int __init tcb_clksrc_init(void)
 			((divided_rate + 500000) % 1000000) / 1000);
 
 	if (tc->tcb_config && tc->tcb_config->counter_width == 32) {
-		
+		/* use apropriate function to read 32 bit counter */
 		clksrc.read = tc_get_cycles32;
-		
+		/* setup ony channel 0 */
 		tcb_setup_single_chan(tc, best_divisor_idx);
 	} else {
+		/* tclib will give us three clocks no matter what the
+		 * underlying platform supports.
+		 */
 		clk_enable(tc->clk[1]);
-		
+		/* setup both channel 0 & 1 */
 		tcb_setup_dual_chan(tc, best_divisor_idx);
 	}
 
-	
+	/* and away we go! */
 	clocksource_register_hz(&clksrc, divided_rate);
 
-	
+	/* channel 2:  periodic and oneshot timer support */
 	setup_clkevents(tc, clk32k_divisor_idx);
 
 	return 0;

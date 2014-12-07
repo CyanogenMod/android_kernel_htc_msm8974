@@ -30,7 +30,7 @@ static const char *rclksrc[] = {
 
 static int exynos4_cfg_i2s(struct platform_device *pdev)
 {
-	
+	/* configure GPIO for i2s port */
 	switch (pdev->id) {
 	case 0:
 		s3c_gpio_cfgpin_range(EXYNOS4_GPZ(0), 7, S3C_GPIO_SFN(2));
@@ -165,6 +165,7 @@ struct platform_device exynos4_device_i2s2 = {
 	},
 };
 
+/* PCM Controller platform_devices */
 
 static int exynos4_pcm_cfg_gpio(struct platform_device *pdev)
 {
@@ -274,6 +275,7 @@ struct platform_device exynos4_device_pcm2 = {
 	},
 };
 
+/* AC97 Controller platform devices */
 
 static int exynos4_ac97_cfg_gpio(struct platform_device *pdev)
 {
@@ -326,6 +328,7 @@ struct platform_device exynos4_device_ac97 = {
 	},
 };
 
+/* S/PDIF Controller platform_device */
 
 static int exynos4_spdif_cfg_gpio(struct platform_device *pdev)
 {

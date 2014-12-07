@@ -37,7 +37,7 @@ static u8 initial_registers[] =
 	0x15, 0x01,
 	0x28, 0x20,
 	0x75, 0x82,
-	0xFF, 0xFF, 
+	0xFF, 0xFF, /* Terminator (reg 0xFF is unused) */
 };
 
 static int write_regs(struct i2c_client *client, u8 *regs)

@@ -12,4 +12,4 @@
 
 #define	NUMA_NO_NODE	(-1)
 
-#endif 
+#endif /* _LINUX_NUMA_H */

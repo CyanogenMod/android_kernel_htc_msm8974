@@ -23,6 +23,9 @@
 #include <linux/bitmap.h>
 #include "uwb-internal.h"
 
+/*
+ * Process an incoming IE Received notification.
+ */
 int uwbd_evt_handle_rc_ie_rcv(struct uwb_event *evt)
 {
 	int result = -EINVAL;
@@ -30,7 +33,7 @@ int uwbd_evt_handle_rc_ie_rcv(struct uwb_event *evt)
 	struct uwb_rc_evt_ie_rcv *iercv;
 	size_t iesize;
 
-	
+	/* Is there enough data to decode it? */
 	if (evt->notif.size < sizeof(*iercv)) {
 		dev_err(dev, "IE Received notification: Not enough data to "
 			"decode (%zu vs %zu bytes needed)\n",

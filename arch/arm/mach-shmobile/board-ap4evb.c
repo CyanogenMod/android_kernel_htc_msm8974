@@ -63,14 +63,102 @@
 #include <asm/mach/arch.h>
 #include <asm/setup.h>
 
+/*
+ * Address	Interface		BusWidth	note
+ * ------------------------------------------------------------------
+ * 0x0000_0000	NOR Flash ROM (MCP)	16bit		SW7 : bit1 = ON
+ * 0x0800_0000	user area		-
+ * 0x1000_0000	NOR Flash ROM (MCP)	16bit		SW7 : bit1 = OFF
+ * 0x1400_0000	Ether (LAN9220)		16bit
+ * 0x1600_0000	user area		-		cannot use with NAND
+ * 0x1800_0000	user area		-
+ * 0x1A00_0000	-
+ * 0x4000_0000	LPDDR2-SDRAM (POP)	32bit
+ */
 
+/*
+ * NOR Flash ROM
+ *
+ *  SW1  |     SW2    | SW7  | NOR Flash ROM
+ *  bit1 | bit1  bit2 | bit1 | Memory allocation
+ * ------+------------+------+------------------
+ *  OFF  | ON     OFF | ON   |    Area 0
+ *  OFF  | ON     OFF | OFF  |    Area 4
+ */
 
+/*
+ * NAND Flash ROM
+ *
+ *  SW1  |     SW2    | SW7  | NAND Flash ROM
+ *  bit1 | bit1  bit2 | bit2 | Memory allocation
+ * ------+------------+------+------------------
+ *  OFF  | ON     OFF | ON   |    FCE 0
+ *  OFF  | ON     OFF | OFF  |    FCE 1
+ */
 
+/*
+ * SMSC 9220
+ *
+ *  SW1		SMSC 9220
+ * -----------------------
+ *  ON		access disable
+ *  OFF		access enable
+ */
 
+/*
+ * LCD / IRQ / KEYSC / IrDA
+ *
+ * IRQ = IRQ26 (TS), IRQ27 (VIO), IRQ28 (QHD-TouchScreen)
+ * LCD = 2nd LCDC (WVGA)
+ *
+ * 		|		SW43			|
+ * SW3		|	ON		|	OFF	|
+ * -------------+-----------------------+---------------+
+ * ON		| KEY / IrDA		| LCD		|
+ * OFF		| KEY / IrDA / IRQ	| IRQ		|
+ *
+ *
+ * QHD / WVGA display
+ *
+ * You can choice display type on menuconfig.
+ * Then, check above dip-switch.
+ */
 
+/*
+ * USB
+ *
+ * J7 : 1-2  MAX3355E VBUS
+ *      2-3  DC 5.0V
+ *
+ * S39: bit2: off
+ */
 
+/*
+ * FSI/FSMI
+ *
+ * SW41	:  ON : SH-Mobile AP4 Audio Mode
+ *	: OFF : Bluetooth Audio Mode
+ */
 
+/*
+ * MMC0/SDHI1 (CN7)
+ *
+ * J22 : select card voltage
+ *       1-2 pin : 1.8v
+ *       2-3 pin : 3.3v
+ *
+ *        SW1  |             SW33
+ *             | bit1 | bit2 | bit3 | bit4
+ * ------------+------+------+------+-------
+ * MMC0   OFF  |  OFF |  ON  |  ON  |  X
+ * SDHI1  OFF  |  ON  |   X  |  OFF | ON
+ *
+ * voltage lebel
+ * CN7 : 1.8v
+ * CN12: 3.3v
+ */
 
+/* MTD */
 static struct mtd_partition nor_flash_partitions[] = {
 	{
 		.name		= "loader",
@@ -110,8 +198,8 @@ static struct physmap_flash_data nor_flash_data = {
 
 static struct resource nor_flash_resources[] = {
 	[0]	= {
-		.start	= 0x20000000, 
-		.end	= 0x28000000 - 1, 
+		.start	= 0x20000000, /* CS0 shadow instead of regular CS0 */
+		.end	= 0x28000000 - 1, /* needed by USB MASK ROM boot */
 		.flags	= IORESOURCE_MEM,
 	}
 };
@@ -125,13 +213,14 @@ static struct platform_device nor_flash_device = {
 	.resource	= nor_flash_resources,
 };
 
+/* SMSC 9220 */
 static struct resource smc911x_resources[] = {
 	{
 		.start	= 0x14000000,
 		.end	= 0x16000000 - 1,
 		.flags	= IORESOURCE_MEM,
 	}, {
-		.start	= evt2irq(0x02c0) ,
+		.start	= evt2irq(0x02c0) /* IRQ6A */,
 		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_LOWLEVEL,
 	},
 };
@@ -152,10 +241,15 @@ static struct platform_device smc911x_device = {
 	},
 };
 
+/*
+ * The card detect pin of the top SD/MMC slot (CN7) is active low and is
+ * connected to GPIO A22 of SH7372 (GPIO_PORT41).
+ */
 static int slot_cn7_get_cd(struct platform_device *pdev)
 {
 	return !gpio_get_value(GPIO_PORT41);
 }
+/* MERAM */
 static struct sh_mobile_meram_info meram_info = {
 	.addr_mode      = SH_MOBILE_MERAM_MODE1,
 };
@@ -185,6 +279,7 @@ static struct platform_device meram_device = {
 	},
 };
 
+/* SH_MMCIF */
 static struct resource sh_mmcif_resources[] = {
 	[0] = {
 		.name	= "MMCIF",
@@ -193,12 +288,12 @@ static struct resource sh_mmcif_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* MMC ERR */
 		.start	= evt2irq(0x1ac0),
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* MMC NOR */
 		.start	= evt2irq(0x1ae0),
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -227,6 +322,7 @@ static struct platform_device sh_mmcif_device = {
 	.resource	= sh_mmcif_resources,
 };
 
+/* SDHI0 */
 static struct sh_mobile_sdhi_info sdhi0_info = {
 	.dma_slave_tx	= SHDMA_SLAVE_SDHI0_TX,
 	.dma_slave_rx	= SHDMA_SLAVE_SDHI0_RX,
@@ -241,15 +337,15 @@ static struct resource sdhi0_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= evt2irq(0x0e00) ,
+		.start	= evt2irq(0x0e00) /* SDHI0_SDHI0I0 */,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
-		.start	= evt2irq(0x0e20) ,
+		.start	= evt2irq(0x0e20) /* SDHI0_SDHI0I1 */,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[3] = {
-		.start	= evt2irq(0x0e40) ,
+		.start	= evt2irq(0x0e40) /* SDHI0_SDHI0I2 */,
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -264,6 +360,7 @@ static struct platform_device sdhi0_device = {
 	},
 };
 
+/* SDHI1 */
 static struct sh_mobile_sdhi_info sdhi1_info = {
 	.dma_slave_tx	= SHDMA_SLAVE_SDHI1_TX,
 	.dma_slave_rx	= SHDMA_SLAVE_SDHI1_RX,
@@ -281,15 +378,15 @@ static struct resource sdhi1_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= evt2irq(0x0e80), 
+		.start	= evt2irq(0x0e80), /* SDHI1_SDHI1I0 */
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
-		.start	= evt2irq(0x0ea0), 
+		.start	= evt2irq(0x0ea0), /* SDHI1_SDHI1I1 */
 		.flags	= IORESOURCE_IRQ,
 	},
 	[3] = {
-		.start	= evt2irq(0x0ec0), 
+		.start	= evt2irq(0x0ec0), /* SDHI1_SDHI1I2 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -304,12 +401,13 @@ static struct platform_device sdhi1_device = {
 	},
 };
 
+/* USB1 */
 static void usb1_host_port_power(int port, int power)
 {
-	if (!power) 
+	if (!power) /* only power-on supported for now */
 		return;
 
-	
+	/* set VBOUT/PWEN and EXTLP1 in DVSTCTR */
 	__raw_writew(__raw_readw(0xE68B0008) | 0x600, 0xE68B0008);
 }
 
@@ -326,7 +424,7 @@ static struct resource usb1_host_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= evt2irq(0x1ce0) ,
+		.start	= evt2irq(0x1ce0) /* USB1_USB1I0 */,
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -335,7 +433,7 @@ static struct platform_device usb1_host_device = {
 	.name	= "r8a66597_hcd",
 	.id	= 1,
 	.dev = {
-		.dma_mask		= NULL,         
+		.dma_mask		= NULL,         /*  not use dma */
 		.coherent_dma_mask	= 0xffffffff,
 		.platform_data		= &usb1_host_data,
 	},
@@ -343,8 +441,12 @@ static struct platform_device usb1_host_device = {
 	.resource	= usb1_host_resources,
 };
 
+/*
+ * QHD display
+ */
 #ifdef CONFIG_AP4EVB_QHD
 
+/* KEYSC (Needs SW43 set to ON) */
 static struct sh_keysc_info keysc_info = {
 	.mode		= SH_KEYSC_MODE_1,
 	.scan_timing	= 3,
@@ -366,14 +468,14 @@ static struct resource keysc_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
-		.start  = evt2irq(0x0be0), 
+		.start  = evt2irq(0x0be0), /* KEYSC_KEY */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
 
 static struct platform_device keysc_device = {
 	.name           = "sh_keysc",
-	.id             = 0, 
+	.id             = 0, /* "keysc0" clock */
 	.num_resources  = ARRAY_SIZE(keysc_resources),
 	.resource       = keysc_resources,
 	.dev	= {
@@ -381,6 +483,7 @@ static struct platform_device keysc_device = {
 	},
 };
 
+/* MIPI-DSI */
 static int sh_mipi_set_dot_clock(struct platform_device *pdev,
 				 void __iomem *base,
 				 int enable)
@@ -391,6 +494,14 @@ static int sh_mipi_set_dot_clock(struct platform_device *pdev,
 		return PTR_ERR(pck);
 
 	if (enable) {
+		/*
+		 * DSIPCLK	= 24MHz
+		 * D-PHY	= DSIPCLK * ((0x6*2)+1) = 312MHz (see .phyctrl)
+		 * HsByteCLK	= D-PHY/8 = 39MHz
+		 *
+		 *  X * Y * FPS =
+		 * (544+72+600+16) * (961+8+8+2) * 30 = 36.1MHz
+		 */
 		clk_set_rate(pck, clk_round_rate(pck, 24000000));
 		clk_enable(pck);
 	} else {
@@ -442,8 +553,9 @@ static struct platform_device *qhd_devices[] __initdata = {
 	&mipidsi0_device,
 	&keysc_device,
 };
-#endif 
+#endif /* CONFIG_AP4EVB_QHD */
 
+/* LCDC0 */
 static const struct fb_videomode ap4evb_lcdc_modes[] = {
 	{
 #ifdef CONFIG_AP4EVB_QHD
@@ -498,7 +610,7 @@ static struct sh_mobile_lcdc_info lcdc_info = {
 static struct resource lcdc_resources[] = {
 	[0] = {
 		.name	= "LCDC",
-		.start	= 0xfe940000, 
+		.start	= 0xfe940000, /* P4-only space */
 		.end	= 0xfe943fff,
 		.flags	= IORESOURCE_MEM,
 	},
@@ -518,6 +630,7 @@ static struct platform_device lcdc_device = {
 	},
 };
 
+/* FSI */
 #define IRQ_FSI		evt2irq(0x1840)
 static int __fsi_set_rate(struct clk *clk, long rate, int enable)
 {
@@ -552,17 +665,30 @@ static int fsi_ak4642_set_rate(struct device *dev, int rate, int enable)
 	if (IS_ERR(fsia_ick))
 		return PTR_ERR(fsia_ick);
 
+	/*
+	 * FSIACK is connected to AK4642,
+	 * and use external clock pin from it.
+	 * it is parent of fsia_ick now.
+	 */
 	fsiack = clk_get_parent(fsia_ick);
 	if (!fsiack)
 		goto fsia_ick_out;
 
+	/*
+	 * we get 1/1 divided clock by setting same rate to fsiack and fsia_ick
+	 *
+	 ** FIXME **
+	 * Because the freq_table of external clk (fsiack) are all 0,
+	 * the return value of clk_round_rate became 0.
+	 * So, it use __fsi_set_rate here.
+	 */
 	ret = __fsi_set_rate(fsiack, rate, enable);
 	if (ret < 0)
 		goto fsiack_out;
 
 	ret = __fsi_set_round_rate(fsia_ick, rate, enable);
 	if ((ret < 0) && enable)
-		__fsi_set_round_rate(fsiack, rate, 0); 
+		__fsi_set_round_rate(fsiack, rate, 0); /* disable FSI ACK */
 
 fsiack_out:
 	clk_put(fsiack);
@@ -588,7 +714,7 @@ static int fsi_hdmi_set_rate(struct device *dev, int rate, int enable)
 		ackmd_bpfmd	= SH_FSI_ACKMD_256 | SH_FSI_BPFMD_64;
 		break;
 	case 48000:
-		fsib_rate	= 85428000; 
+		fsib_rate	= 85428000; /* around 48kHz x 256 x 7 */
 		fdiv_rate	= rate * 256;
 		ackmd_bpfmd	= SH_FSI_ACKMD_256 | SH_FSI_BPFMD_64;
 		break;
@@ -597,7 +723,7 @@ static int fsi_hdmi_set_rate(struct device *dev, int rate, int enable)
 		return -EINVAL;
 	}
 
-	
+	/* FSI B setting */
 	fsib_clk = clk_get(dev, "ickb");
 	if (IS_ERR(fsib_clk))
 		return -EIO;
@@ -606,10 +732,10 @@ static int fsi_hdmi_set_rate(struct device *dev, int rate, int enable)
 	if (ret < 0)
 		goto fsi_set_rate_end;
 
-	
+	/* FSI DIV setting */
 	ret = __fsi_set_round_rate(fdiv_clk, fdiv_rate, enable);
 	if (ret < 0) {
-		
+		/* disable FSI B */
 		if (enable)
 			__fsi_set_round_rate(fsib_clk, fsib_rate, 0);
 		goto fsi_set_rate_end;
@@ -675,6 +801,7 @@ static struct platform_device fsi_ak4643_device = {
 	},
 };
 
+/* LCDC1 */
 static long ap4evb_clk_optimize(unsigned long target, unsigned long *best_freq,
 				unsigned long *parent_freq);
 
@@ -691,7 +818,7 @@ static struct resource hdmi_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* There's also an HDMI interrupt on INTCS @ 0x18e0 */
 		.start	= evt2irq(0x17e0),
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -835,7 +962,7 @@ static struct platform_device ap4evb_camera = {
 static struct sh_csi2_client_config csi2_clients[] = {
 	{
 		.phy		= SH_CSI2_PHY_MAIN,
-		.lanes		= 0,		
+		.lanes		= 0,		/* default: 2 lanes */
 		.channel	= 0,
 		.pdev		= &ap4evb_camera,
 	},
@@ -885,13 +1012,13 @@ static struct resource ceu_resources[] = {
 		.flags  = IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
 static struct platform_device ceu_device = {
 	.name		= "sh_mobile_ceu",
-	.id             = 0, 
+	.id             = 0, /* "ceu0" clock */
 	.num_resources	= ARRAY_SIZE(ceu_resources),
 	.resource	= ceu_resources,
 	.dev	= {
@@ -982,21 +1109,32 @@ static void __init fsi_init_pm_clock(void)
 	clk_put(fsia_ick);
 }
 
+/*
+ * FIXME !!
+ *
+ * gpio_no_direction
+ * are quick_hack.
+ *
+ * current gpio frame work doesn't have
+ * the method to control only pull up/down/free.
+ * this function should be replaced by correct gpio function
+ */
 static void __init gpio_no_direction(u32 addr)
 {
 	__raw_writeb(0x00, addr);
 }
 
+/* TouchScreen */
 #ifdef CONFIG_AP4EVB_QHD
 # define GPIO_TSC_IRQ	GPIO_FN_IRQ28_123
 # define GPIO_TSC_PORT	GPIO_PORT123
-#else 
+#else /* WVGA */
 # define GPIO_TSC_IRQ	GPIO_FN_IRQ7_40
 # define GPIO_TSC_PORT	GPIO_PORT40
 #endif
 
-#define IRQ28	evt2irq(0x3380) 
-#define IRQ7	evt2irq(0x02e0) 
+#define IRQ28	evt2irq(0x3380) /* IRQ28A */
+#define IRQ7	evt2irq(0x02e0) /* IRQ7A */
 static int ts_get_pendown_state(void)
 {
 	int val;
@@ -1032,9 +1170,10 @@ static struct i2c_board_info tsc_device = {
 	I2C_BOARD_INFO("tsc2007", 0x48),
 	.type		= "tsc2007",
 	.platform_data	= &tsc2007_info,
-	
+	/*.irq is selected on ap4evb_init */
 };
 
+/* I2C */
 static struct i2c_board_info i2c0_devices[] = {
 	{
 		I2C_BOARD_INFO("ak4643", 0x13),
@@ -1056,20 +1195,20 @@ static void __init ap4evb_init(void)
 	u32 srcr4;
 	struct clk *clk;
 
-	
+	/* External clock source */
 	clk_set_rate(&sh7372_dv_clki_clk, 27000000);
 
 	sh7372_pinmux_init();
 
-	
+	/* enable SCIFA0 */
 	gpio_request(GPIO_FN_SCIFA0_TXD, NULL);
 	gpio_request(GPIO_FN_SCIFA0_RXD, NULL);
 
-	
+	/* enable SMSC911X */
 	gpio_request(GPIO_FN_CS5A,	NULL);
 	gpio_request(GPIO_FN_IRQ6_39,	NULL);
 
-	
+	/* enable Debug switch (S6) */
 	gpio_request(GPIO_PORT32, NULL);
 	gpio_request(GPIO_PORT33, NULL);
 	gpio_request(GPIO_PORT34, NULL);
@@ -1083,7 +1222,7 @@ static void __init ap4evb_init(void)
 	gpio_export(GPIO_PORT34, 0);
 	gpio_export(GPIO_PORT35, 0);
 
-	
+	/* SDHI0 */
 	gpio_request(GPIO_FN_SDHICD0, NULL);
 	gpio_request(GPIO_FN_SDHIWP0, NULL);
 	gpio_request(GPIO_FN_SDHICMD0, NULL);
@@ -1093,7 +1232,7 @@ static void __init ap4evb_init(void)
 	gpio_request(GPIO_FN_SDHID0_1, NULL);
 	gpio_request(GPIO_FN_SDHID0_0, NULL);
 
-	
+	/* SDHI1 */
 	gpio_request(GPIO_FN_SDHICMD1, NULL);
 	gpio_request(GPIO_FN_SDHICLK1, NULL);
 	gpio_request(GPIO_FN_SDHID1_3, NULL);
@@ -1101,7 +1240,7 @@ static void __init ap4evb_init(void)
 	gpio_request(GPIO_FN_SDHID1_1, NULL);
 	gpio_request(GPIO_FN_SDHID1_0, NULL);
 
-	
+	/* MMCIF */
 	gpio_request(GPIO_FN_MMCD0_0, NULL);
 	gpio_request(GPIO_FN_MMCD0_1, NULL);
 	gpio_request(GPIO_FN_MMCD0_2, NULL);
@@ -1113,7 +1252,7 @@ static void __init ap4evb_init(void)
 	gpio_request(GPIO_FN_MMCCMD0, NULL);
 	gpio_request(GPIO_FN_MMCCLK0, NULL);
 
-	
+	/* USB enable */
 	gpio_request(GPIO_FN_VBUS0_1,    NULL);
 	gpio_request(GPIO_FN_IDIN_1_18,  NULL);
 	gpio_request(GPIO_FN_PWEN_1_115, NULL);
@@ -1121,37 +1260,42 @@ static void __init ap4evb_init(void)
 	gpio_request(GPIO_FN_EXTLP_1,    NULL);
 	gpio_request(GPIO_FN_OVCN2_1,    NULL);
 
-	
-	__raw_writew(0x8a0a, 0xE6058130);	
+	/* setup USB phy */
+	__raw_writew(0x8a0a, 0xE6058130);	/* USBCR4 */
 
-	
+	/* enable FSI2 port A (ak4643) */
 	gpio_request(GPIO_FN_FSIAIBT,	NULL);
 	gpio_request(GPIO_FN_FSIAILR,	NULL);
 	gpio_request(GPIO_FN_FSIAISLD,	NULL);
 	gpio_request(GPIO_FN_FSIAOSLD,	NULL);
 	gpio_request(GPIO_PORT161,	NULL);
-	gpio_direction_output(GPIO_PORT161, 0); 
+	gpio_direction_output(GPIO_PORT161, 0); /* slave */
 
 	gpio_request(GPIO_PORT9, NULL);
 	gpio_request(GPIO_PORT10, NULL);
-	gpio_no_direction(GPIO_PORT9CR);  
-	gpio_no_direction(GPIO_PORT10CR); 
+	gpio_no_direction(GPIO_PORT9CR);  /* FSIAOBT needs no direction */
+	gpio_no_direction(GPIO_PORT10CR); /* FSIAOLR needs no direction */
 
-	
+	/* card detect pin for MMC slot (CN7) */
 	gpio_request(GPIO_PORT41, NULL);
 	gpio_direction_input(GPIO_PORT41);
 
-	
+	/* setup FSI2 port B (HDMI) */
 	gpio_request(GPIO_FN_FSIBCK, NULL);
-	__raw_writew(__raw_readw(USCCR1) & ~(1 << 6), USCCR1); 
+	__raw_writew(__raw_readw(USCCR1) & ~(1 << 6), USCCR1); /* use SPDIF */
 
-	
+	/* set SPU2 clock to 119.6 MHz */
 	clk = clk_get(NULL, "spu_clk");
 	if (!IS_ERR(clk)) {
 		clk_set_rate(clk, clk_round_rate(clk, 119600000));
 		clk_put(clk);
 	}
 
+	/*
+	 * set irq priority, to avoid sound chopping
+	 * when NFS rootfs is used
+	 *  FSI(3) > SMSC911X(2)
+	 */
 	intc_set_priority(IRQ_FSI, 3);
 
 	i2c_register_board_info(0, i2c0_devices,
@@ -1162,8 +1306,12 @@ static void __init ap4evb_init(void)
 
 #ifdef CONFIG_AP4EVB_QHD
 
+	/*
+	 * For QHD Panel (MIPI-DSI, CONFIG_AP4EVB_QHD=y) and
+	 * IRQ28 for Touch Panel, set dip switches S3, S43 as OFF, ON.
+	 */
 
-	
+	/* enable KEYSC */
 	gpio_request(GPIO_FN_KEYOUT0, NULL);
 	gpio_request(GPIO_FN_KEYOUT1, NULL);
 	gpio_request(GPIO_FN_KEYOUT2, NULL);
@@ -1175,13 +1323,13 @@ static void __init ap4evb_init(void)
 	gpio_request(GPIO_FN_KEYIN3_133, NULL);
 	gpio_request(GPIO_FN_KEYIN4,     NULL);
 
-	
+	/* enable TouchScreen */
 	irq_set_irq_type(IRQ28, IRQ_TYPE_LEVEL_LOW);
 
 	tsc_device.irq = IRQ28;
 	i2c_register_board_info(1, &tsc_device, 1);
 
-	
+	/* LCDC0 */
 	lcdc_info.clock_source			= LCDC_CLK_PERIPHERAL;
 	lcdc_info.ch[0].interface_type		= RGB24;
 	lcdc_info.ch[0].clock_divider		= 1;
@@ -1192,6 +1340,10 @@ static void __init ap4evb_init(void)
 	platform_add_devices(qhd_devices, ARRAY_SIZE(qhd_devices));
 
 #else
+	/*
+	 * For WVGA Panel (18-bit RGB, CONFIG_AP4EVB_WVGA=y) and
+	 * IRQ7 for Touch Panel, set dip switches S3, S43 to ON, OFF.
+	 */
 
 	gpio_request(GPIO_FN_LCDD17,   NULL);
 	gpio_request(GPIO_FN_LCDD16,   NULL);
@@ -1214,10 +1366,10 @@ static void __init ap4evb_init(void)
 	gpio_request(GPIO_FN_LCDDISP,  NULL);
 	gpio_request(GPIO_FN_LCDDCK,   NULL);
 
-	gpio_request(GPIO_PORT189, NULL); 
+	gpio_request(GPIO_PORT189, NULL); /* backlight */
 	gpio_direction_output(GPIO_PORT189, 1);
 
-	gpio_request(GPIO_PORT151, NULL); 
+	gpio_request(GPIO_PORT151, NULL); /* LCDDON */
 	gpio_direction_output(GPIO_PORT151, 1);
 
 	lcdc_info.clock_source			= LCDC_CLK_BUS;
@@ -1227,17 +1379,21 @@ static void __init ap4evb_init(void)
 	lcdc_info.ch[0].panel_cfg.width		= 152;
 	lcdc_info.ch[0].panel_cfg.height	= 91;
 
-	
+	/* enable TouchScreen */
 	irq_set_irq_type(IRQ7, IRQ_TYPE_LEVEL_LOW);
 
 	tsc_device.irq = IRQ7;
 	i2c_register_board_info(0, &tsc_device, 1);
-#endif 
+#endif /* CONFIG_AP4EVB_QHD */
 
-	
+	/* CEU */
 
+	/*
+	 * TODO: reserve memory for V4L2 DMA buffers, when a suitable API
+	 * becomes available
+	 */
 
-	
+	/* MIPI-CSI stuff */
 	gpio_request(GPIO_FN_VIO_CKO, NULL);
 
 	clk = clk_get(NULL, "vck1_clk");
@@ -1249,11 +1405,11 @@ static void __init ap4evb_init(void)
 
 	sh7372_add_standard_devices();
 
-	
+	/* HDMI */
 	gpio_request(GPIO_FN_HDMI_HPD, NULL);
 	gpio_request(GPIO_FN_HDMI_CEC, NULL);
 
-	
+	/* Reset HDMI, must be held at least one EXTALR (32768Hz) period */
 #define SRCR4 0xe61580bc
 	srcr4 = __raw_readl(SRCR4);
 	__raw_writel(srcr4 | (1 << 13), SRCR4);

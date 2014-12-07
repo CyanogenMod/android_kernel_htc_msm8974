@@ -49,6 +49,7 @@ static int __init ppc460ex_device_probe(void)
 }
 machine_device_initcall(canyonlands, ppc460ex_device_probe);
 
+/* Using this code only for the Canyonlands board.  */
 
 static int __init ppc460ex_probe(void)
 {
@@ -60,6 +61,7 @@ static int __init ppc460ex_probe(void)
 	return 0;
 }
 
+/* USB PHY fixup code on Canyonlands kit. */
 
 static int __init ppc460ex_canyonlands_fixup(void)
 {
@@ -97,15 +99,21 @@ static int __init ppc460ex_canyonlands_fixup(void)
 		ret = -ENODEV;
 		goto err_gpio;
 	}
-	
+	/* Disable USB, through the BCSR7 bits */
 	setbits8(&bcsr[7], BCSR_USB_EN);
 
-	
+	/* Wait for a while after reset */
 	msleep(100);
 
-	
+	/* Enable USB here */
 	clrbits8(&bcsr[7], BCSR_USB_EN);
 
+	/*
+	 * Configure multiplexed gpio16 and gpio19 as alternate1 output
+	 * source after USB reset. In this configuration gpio16 will be
+	 * USB2HStop and gpio19 will be USB2DStop. For more details refer to
+	 * table 34-7 of PPC460EX user manual.
+	 */
 	setbits32((vaddr + GPIO0_OSRH), 0x42000000);
 	setbits32((vaddr + GPIO0_TSRH), 0x42000000);
 err_gpio:

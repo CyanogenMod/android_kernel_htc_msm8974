@@ -28,6 +28,7 @@ static inline cycles_t get_cycles(void)
 	return mfspr(SPR_TTCR);
 }
 
+/* This isn't really used any more */
 #define CLOCK_TICK_RATE 1000
 
 #define ARCH_HAS_READ_CURRENT_TIMER

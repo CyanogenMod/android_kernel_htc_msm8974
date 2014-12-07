@@ -1,8 +1,10 @@
 #ifndef TARGET_CORE_INTERNAL_H
 #define TARGET_CORE_INTERNAL_H
 
+/* target_core_alua.c */
 extern struct t10_alua_lu_gp *default_lu_gp;
 
+/* target_core_cdb.c */
 int	target_emulate_inquiry(struct se_task *task);
 int	target_emulate_readcapacity(struct se_task *task);
 int	target_emulate_readcapacity_16(struct se_task *task);
@@ -13,6 +15,7 @@ int	target_emulate_write_same(struct se_task *task);
 int	target_emulate_synchronize_cache(struct se_task *task);
 int	target_emulate_noop(struct se_task *task);
 
+/* target_core_device.c */
 struct se_dev_entry *core_get_se_deve_from_rtpi(struct se_node_acl *, u16);
 int	core_free_device_list_for_node(struct se_node_acl *,
 		struct se_portal_group *);
@@ -68,14 +71,17 @@ void	core_dev_free_initiator_node_lun_acl(struct se_portal_group *,
 int	core_dev_setup_virtual_lun0(void);
 void	core_dev_release_virtual_lun0(void);
 
+/* target_core_hba.c */
 struct se_hba *core_alloc_hba(const char *, u32, u32);
 int	core_delete_hba(struct se_hba *);
 
+/* target_core_tmr.c */
 void	core_tmr_abort_task(struct se_device *, struct se_tmr_req *,
 			struct se_session *);
 int	core_tmr_lun_reset(struct se_device *, struct se_tmr_req *,
 		struct list_head *, struct se_cmd *);
 
+/* target_core_tpg.c */
 extern struct se_device *g_lun0_dev;
 
 struct se_node_acl *__core_tpg_get_initiator_node_acl(struct se_portal_group *tpg,
@@ -90,6 +96,7 @@ int	core_tpg_post_addlun(struct se_portal_group *, struct se_lun *,
 struct se_lun *core_tpg_pre_dellun(struct se_portal_group *, u32 unpacked_lun);
 int	core_tpg_post_dellun(struct se_portal_group *, struct se_lun *);
 
+/* target_core_transport.c */
 extern struct kmem_cache *se_tmr_req_cache;
 
 int	init_se_kmem_caches(void);
@@ -111,8 +118,9 @@ bool	target_stop_task(struct se_task *task, unsigned long *flags);
 int	transport_clear_lun_from_sessions(struct se_lun *);
 void	transport_send_task_abort(struct se_cmd *);
 
+/* target_core_stat.c */
 void	target_stat_setup_dev_default_groups(struct se_subsystem_dev *);
 void	target_stat_setup_port_default_groups(struct se_lun *);
 void	target_stat_setup_mappedlun_default_groups(struct se_lun_acl *);
 
-#endif 
+#endif /* TARGET_CORE_INTERNAL_H */

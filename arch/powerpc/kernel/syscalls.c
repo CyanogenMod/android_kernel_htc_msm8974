@@ -77,6 +77,12 @@ unsigned long sys_mmap(unsigned long addr, size_t len,
 }
 
 #ifdef CONFIG_PPC32
+/*
+ * Due to some executables calling the wrong select we sometimes
+ * get wrong args.  This determines how the args are being passed
+ * (a single ptr to them all args passed) then calls
+ * sys_select() with the appropriate args. -- Cort
+ */
 int
 ppc_select(int n, fd_set __user *inp, fd_set __user *outp, fd_set __user *exp, struct timeval __user *tvp)
 {

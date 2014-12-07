@@ -136,7 +136,7 @@ static int qeth_l2_send_setgroupmac_cb(struct qeth_card *card,
 	QETH_CARD_TEXT(card, 2, "L2Sgmacb");
 	cmd = (struct qeth_ipa_cmd *) data;
 	mac = &cmd->data.setdelmac.mac[0];
-	
+	/* MAC already registered, needed in couple/uncouple case */
 	if (cmd->hdr.return_code ==  IPA_RC_L2_DUP_MAC) {
 		QETH_DBF_MESSAGE(2, "Group MAC %pM already existing on %s \n",
 			  mac, QETH_CARD_IFNAME(card));
@@ -244,7 +244,7 @@ static void qeth_l2_fill_header(struct qeth_card *card, struct qeth_hdr *hdr,
 	memset(hdr, 0, sizeof(struct qeth_hdr));
 	hdr->hdr.l2.id = QETH_HEADER_TYPE_LAYER2;
 
-	
+	/* set byte byte 3 to casting flags */
 	if (cast_type == RTN_MULTICAST)
 		hdr->hdr.l2.flags[2] |= QETH_LAYER2_FLAG_MULTICAST;
 	else if (cast_type == RTN_BROADCAST)
@@ -253,6 +253,9 @@ static void qeth_l2_fill_header(struct qeth_card *card, struct qeth_hdr *hdr,
 		hdr->hdr.l2.flags[2] |= QETH_LAYER2_FLAG_UNICAST;
 
 	hdr->hdr.l2.pkt_length = skb->len-QETH_HEADER_SIZE;
+	/* VSWITCH relies on the VLAN
+	 * information to be present in
+	 * the QDIO header */
 	if (veth->h_vlan_proto == __constant_htons(ETH_P_8021Q)) {
 		hdr->hdr.l2.flags[2] |= QETH_LAYER2_FLAG_VLAN;
 		hdr->hdr.l2.vlan_id = ntohs(veth->h_vlan_TCI);
@@ -439,7 +442,7 @@ static int qeth_l2_process_inbound_buffer(struct qeth_card *card,
 				card->osn_info.data_cb(skb);
 				break;
 			}
-			
+			/* else unknown */
 		default:
 			dev_kfree_skb_any(skb);
 			QETH_CARD_TEXT(card, 3, "inbunkno");
@@ -755,7 +758,7 @@ static int qeth_l2_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 			memcpy(((char *)hdr) + sizeof(struct qeth_hdr),
 				skb_mac_header(new_skb), ETH_HLEN);
 		} else {
-			
+			/* create a clone with writeable headroom */
 			new_skb = skb_realloc_headroom(skb,
 						sizeof(struct qeth_hdr));
 			if (!new_skb)
@@ -1008,7 +1011,7 @@ static int __qeth_l2_set_online(struct ccwgroup_device *gdev, int recovery_mode)
 	memset(&card->rx, 0, sizeof(struct qeth_rx));
 	qeth_print_status_message(card);
 
-	
+	/* softsetup */
 	QETH_DBF_TEXT(SETUP, 2, "softsetp");
 
 	rc = qeth_send_startlan(card);
@@ -1028,7 +1031,7 @@ static int __qeth_l2_set_online(struct ccwgroup_device *gdev, int recovery_mode)
 contin:
 	if ((card->info.type == QETH_CARD_TYPE_OSD) ||
 	    (card->info.type == QETH_CARD_TYPE_OSX))
-		
+		/* configure isolation level */
 		qeth_set_access_ctrl_online(card);
 
 	if (card->info.type != QETH_CARD_TYPE_OSN &&
@@ -1059,10 +1062,10 @@ contin:
 			dev_open(card->dev);
 			rtnl_unlock();
 		}
-		
+		/* this also sets saved unicast addresses */
 		qeth_l2_set_multicast_list(card->dev);
 	}
-	
+	/* let user_space know that device is online */
 	kobject_uevent(&gdev->dev.kobj, KOBJ_CHANGE);
 	mutex_unlock(&card->conf_mutex);
 	mutex_unlock(&card->discipline_mutex);
@@ -1116,7 +1119,7 @@ static int __qeth_l2_set_offline(struct ccwgroup_device *cgdev,
 		QETH_DBF_TEXT_(SETUP, 2, "1err%d", rc);
 	if (recover_flag == CARD_STATE_UP)
 		card->state = CARD_STATE_RECOVER;
-	
+	/* let user_space know that device is offline */
 	kobject_uevent(&cgdev->dev.kobj, KOBJ_CHANGE);
 	mutex_unlock(&card->conf_mutex);
 	mutex_unlock(&card->discipline_mutex);

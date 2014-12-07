@@ -34,12 +34,16 @@
 
 #define KBC_MAX_DEBOUNCE_CNT	0x3ffu
 
+/* KBC row scan time and delay for beginning the row scan. */
 #define KBC_ROW_SCAN_TIME	16
 #define KBC_ROW_SCAN_DLY	5
 
+/* KBC uses a 32KHz clock so a cycle = 1/32Khz */
 #define KBC_CYCLE_MS	32
 
+/* KBC Registers */
 
+/* KBC Control Register */
 #define KBC_CONTROL_0	0x0
 #define KBC_FIFO_TH_CNT_SHIFT(cnt)	(cnt << 14)
 #define KBC_DEBOUNCE_CNT_SHIFT(cnt)	(cnt << 4)
@@ -47,6 +51,7 @@
 #define KBC_CONTROL_KEYPRESS_INT_EN	(1 << 1)
 #define KBC_CONTROL_KBC_EN		(1 << 0)
 
+/* KBC Interrupt Register */
 #define KBC_INT_0	0x4
 #define KBC_INT_FIFO_CNT_INT_STATUS	(1 << 2)
 #define KBC_INT_KEYPRESS_INT_STATUS	(1 << 0)
@@ -182,7 +187,7 @@ static const u32 tegra_kbc_default_keymap[] __devinitdata = {
 	KEY(15, 6, KEY_CAPSLOCK),
 	KEY(15, 7, KEY_F6),
 
-	
+	/* Software Handled Function Keys */
 	KEY(20, 0, KEY_KP7),
 
 	KEY(21, 0, KEY_KP9),
@@ -277,7 +282,7 @@ static void tegra_kbc_report_keys(struct tegra_kbc *kbc)
 
 			scancodes[num_down] = scancode;
 			keycodes[num_down] = kbc->keycode[scancode];
-			
+			/* If driver uses Fn map, do not report the Fn key. */
 			if ((keycodes[num_down] == KEY_FN) && kbc->use_fn_map)
 				fn_keypress = true;
 			else
@@ -287,12 +292,22 @@ static void tegra_kbc_report_keys(struct tegra_kbc *kbc)
 		val >>= 8;
 	}
 
+	/*
+	 * Matrix keyboard designs are prone to keyboard ghosting.
+	 * Ghosting occurs if there are 3 keys such that -
+	 * any 2 of the 3 keys share a row, and any 2 of them share a column.
+	 * If so ignore the key presses for this iteration.
+	 */
 	if (kbc->use_ghost_filter && num_down >= 3) {
 		for (i = 0; i < num_down; i++) {
 			unsigned int j;
 			u8 curr_col = scancodes[i] & 0x07;
 			u8 curr_row = scancodes[i] >> KBC_ROW_SHIFT;
 
+			/*
+			 * Find 2 keys such that one key is in the same row
+			 * and the other is in the same column as the i-th key.
+			 */
 			for (j = i + 1; j < num_down; j++) {
 				u8 col = scancodes[j] & 0x07;
 				u8 row = scancodes[j] >> KBC_ROW_SHIFT;
@@ -305,6 +320,10 @@ static void tegra_kbc_report_keys(struct tegra_kbc *kbc)
 		}
 	}
 
+	/*
+	 * If the platform uses Fn keymaps, translate keys on a Fn keypress.
+	 * Function keycodes are KBC_MAX_KEY apart from the plain keycodes.
+	 */
 	if (fn_keypress) {
 		for (i = 0; i < num_down; i++) {
 			scancodes[i] += KBC_MAX_KEY;
@@ -312,7 +331,7 @@ static void tegra_kbc_report_keys(struct tegra_kbc *kbc)
 		}
 	}
 
-	
+	/* Ignore the key presses for this iteration? */
 	if (key_in_same_col && key_in_same_row)
 		return;
 
@@ -365,17 +384,21 @@ static void tegra_kbc_keypress_timer(unsigned long data)
 
 		tegra_kbc_report_keys(kbc);
 
+		/*
+		 * If more than one keys are pressed we need not wait
+		 * for the repoll delay.
+		 */
 		dly = (val == 1) ? kbc->repoll_dly : 1;
 		mod_timer(&kbc->timer, jiffies + msecs_to_jiffies(dly));
 	} else {
-		
+		/* Release any pressed keys and exit the polling loop */
 		for (i = 0; i < kbc->num_pressed_keys; i++)
 			input_report_key(kbc->idev, kbc->current_keys[i], 0);
 		input_sync(kbc->idev);
 
 		kbc->num_pressed_keys = 0;
 
-		
+		/* All keys are released so enable the keypress interrupt */
 		tegra_kbc_set_fifo_interrupt(kbc, true);
 	}
 
@@ -390,14 +413,22 @@ static irqreturn_t tegra_kbc_isr(int irq, void *args)
 
 	spin_lock_irqsave(&kbc->lock, flags);
 
+	/*
+	 * Quickly bail out & reenable interrupts if the fifo threshold
+	 * count interrupt wasn't the interrupt source
+	 */
 	val = readl(kbc->mmio + KBC_INT_0);
 	writel(val, kbc->mmio + KBC_INT_0);
 
 	if (val & KBC_INT_FIFO_CNT_INT_STATUS) {
+		/*
+		 * Until all keys are released, defer further processing to
+		 * the polling loop in tegra_kbc_keypress_timer.
+		 */
 		tegra_kbc_set_fifo_interrupt(kbc, false);
 		mod_timer(&kbc->timer, jiffies + kbc->cp_dly_jiffies);
 	} else if (val & KBC_INT_KEYPRESS_INT_STATUS) {
-		
+		/* We can be here only through system resume path */
 		kbc->keypress_caused_wake = true;
 	}
 
@@ -412,7 +443,7 @@ static void tegra_kbc_setup_wakekeys(struct tegra_kbc *kbc, bool filter)
 	int i;
 	unsigned int rst_val;
 
-	
+	/* Either mask all keys or none. */
 	rst_val = (filter && !pdata->wakeup) ? ~0 : 0;
 
 	for (i = 0; i < KBC_MAX_ROW; i++)
@@ -463,7 +494,7 @@ static int tegra_kbc_start(struct tegra_kbc *kbc)
 
 	clk_enable(kbc->clk);
 
-	
+	/* Reset the KBC controller to clear all previous status.*/
 	tegra_periph_reset_assert(kbc->clk);
 	udelay(100);
 	tegra_periph_reset_deassert(kbc->clk);
@@ -474,19 +505,27 @@ static int tegra_kbc_start(struct tegra_kbc *kbc)
 
 	writel(pdata->repeat_cnt, kbc->mmio + KBC_RPT_DLY_0);
 
-	
+	/* Keyboard debounce count is maximum of 12 bits. */
 	debounce_cnt = min(pdata->debounce_cnt, KBC_MAX_DEBOUNCE_CNT);
 	val = KBC_DEBOUNCE_CNT_SHIFT(debounce_cnt);
-	val |= KBC_FIFO_TH_CNT_SHIFT(1); 
-	val |= KBC_CONTROL_FIFO_CNT_INT_EN;  
-	val |= KBC_CONTROL_KBC_EN;     
+	val |= KBC_FIFO_TH_CNT_SHIFT(1); /* set fifo interrupt threshold to 1 */
+	val |= KBC_CONTROL_FIFO_CNT_INT_EN;  /* interrupt on FIFO threshold */
+	val |= KBC_CONTROL_KBC_EN;     /* enable */
 	writel(val, kbc->mmio + KBC_CONTROL_0);
 
+	/*
+	 * Compute the delay(ns) from interrupt mode to continuous polling
+	 * mode so the timer routine is scheduled appropriately.
+	 */
 	val = readl(kbc->mmio + KBC_INIT_DLY_0);
 	kbc->cp_dly_jiffies = usecs_to_jiffies((val & 0xfffff) * 32);
 
 	kbc->num_pressed_keys = 0;
 
+	/*
+	 * Atomically clear out any remaining entries in the key FIFO
+	 * and enable keyboard interrupts.
+	 */
 	while (1) {
 		val = readl(kbc->mmio + KBC_INT_0);
 		val >>= 4;
@@ -607,6 +646,10 @@ tegra_kbc_dt_parse_pdata(struct platform_device *pdev)
 	if (of_find_property(np, "nvidia,wakeup-source", NULL))
 		pdata->wakeup = true;
 
+	/*
+	 * All currently known keymaps with device tree support use the same
+	 * pin_cfg, so set it up here.
+	 */
 	for (i = 0; i < KBC_MAX_ROW; i++) {
 		pdata->pin_cfg[i].num = i;
 		pdata->pin_cfg[i].type = PIN_CFG_ROW;
@@ -619,7 +662,7 @@ tegra_kbc_dt_parse_pdata(struct platform_device *pdev)
 
 	pdata->keymap_data = matrix_keyboard_of_fill_keymap(np, "linux,keymap");
 
-	
+	/* FIXME: Add handling of linux,fn-keymap here */
 
 	return pdata;
 }
@@ -703,6 +746,12 @@ static int __devinit tegra_kbc_probe(struct platform_device *pdev)
 		goto err_iounmap;
 	}
 
+	/*
+	 * The time delay between two consecutive reads of the FIFO is
+	 * the sum of the repeat time and the time taken for scanning
+	 * the rows. There is an additional delay before the row scanning
+	 * starts. The repoll delay is computed in milliseconds.
+	 */
 	debounce_cnt = min(pdata->debounce_cnt, KBC_MAX_DEBOUNCE_CNT);
 	scan_time_rows = (KBC_ROW_SCAN_TIME + debounce_cnt) * num_rows;
 	kbc->repoll_dly = KBC_ROW_SCAN_DLY + scan_time_rows + pdata->repeat_cnt;
@@ -790,6 +839,10 @@ static int __devexit tegra_kbc_remove(struct platform_device *pdev)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	release_mem_region(res->start, resource_size(res));
 
+	/*
+	 * If we do not have platform data attached to the device we
+	 * allocated it ourselves and thus need to free it.
+	 */
 	if (!pdev->dev.platform_data)
 		kfree(kbc->pdata);
 
@@ -810,8 +863,12 @@ static int tegra_kbc_suspend(struct device *dev)
 		del_timer_sync(&kbc->timer);
 		tegra_kbc_set_fifo_interrupt(kbc, false);
 
-		
+		/* Forcefully clear the interrupt status */
 		writel(0x7, kbc->mmio + KBC_INT_0);
+		/*
+		 * Store the previous resident time of continuous polling mode.
+		 * Force the keyboard into interrupt mode.
+		 */
 		kbc->cp_to_wkup_dly = readl(kbc->mmio + KBC_TO_CNT_0);
 		writel(0, kbc->mmio + KBC_TO_CNT_0);
 
@@ -819,7 +876,7 @@ static int tegra_kbc_suspend(struct device *dev)
 		msleep(30);
 
 		kbc->keypress_caused_wake = false;
-		
+		/* Enable keypress interrupt before going into suspend. */
 		tegra_kbc_set_keypress_interrupt(kbc, true);
 		enable_irq(kbc->irq);
 		enable_irq_wake(kbc->irq);
@@ -842,15 +899,22 @@ static int tegra_kbc_resume(struct device *dev)
 	if (device_may_wakeup(&pdev->dev)) {
 		disable_irq_wake(kbc->irq);
 		tegra_kbc_setup_wakekeys(kbc, false);
-		
+		/* We will use fifo interrupts for key detection. */
 		tegra_kbc_set_keypress_interrupt(kbc, false);
 
-		
+		/* Restore the resident time of continuous polling mode. */
 		writel(kbc->cp_to_wkup_dly, kbc->mmio + KBC_TO_CNT_0);
 
 		tegra_kbc_set_fifo_interrupt(kbc, true);
 
 		if (kbc->keypress_caused_wake && kbc->wakeup_key) {
+			/*
+			 * We can't report events directly from the ISR
+			 * because timekeeping is stopped when processing
+			 * wakeup request and we get a nasty warning when
+			 * we try to call do_gettimeofday() in evdev
+			 * handler.
+			 */
 			input_report_key(kbc->idev, kbc->wakeup_key, 1);
 			input_sync(kbc->idev);
 			input_report_key(kbc->idev, kbc->wakeup_key, 0);

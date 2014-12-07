@@ -18,6 +18,10 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: rt2x00mac
+	Abstract: rt2x00 generic mac80211 routines.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -68,9 +72,13 @@ static int rt2x00mac_tx_rts_cts(struct rt2x00_dev *rt2x00dev,
 	else
 		rts_info->flags &= ~IEEE80211_TX_CTL_NO_ACK;
 
-	
+	/* Disable hardware encryption */
 	rts_info->control.hw_key = NULL;
 
+	/*
+	 * RTS/CTS frame should use the length of the frame plus any
+	 * encryption overhead that will be added by the hardware.
+	 */
 	data_length += rt2x00crypto_tx_overhead(rt2x00dev, skb);
 
 	if (tx_info->control.rates[0].flags & IEEE80211_TX_RC_USE_CTS_PROTECT)
@@ -98,9 +106,18 @@ void rt2x00mac_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 	enum data_queue_qid qid = skb_get_queue_mapping(skb);
 	struct data_queue *queue = NULL;
 
+	/*
+	 * Mac80211 might be calling this function while we are trying
+	 * to remove the device or perhaps suspending it.
+	 * Note that we can only stop the TX queues inside the TX path
+	 * due to possible race conditions in mac80211.
+	 */
 	if (!test_bit(DEVICE_STATE_PRESENT, &rt2x00dev->flags))
 		goto exit_free_skb;
 
+	/*
+	 * Use the ATIM queue if appropriate and present.
+	 */
 	if (tx_info->flags & IEEE80211_TX_CTL_SEND_AFTER_DTIM &&
 	    test_bit(REQUIRE_ATIM_QUEUE, &rt2x00dev->cap_flags))
 		qid = QID_ATIM;
@@ -113,6 +130,15 @@ void rt2x00mac_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 		goto exit_free_skb;
 	}
 
+	/*
+	 * If CTS/RTS is required. create and queue that frame first.
+	 * Make sure we have at least enough entries available to send
+	 * this CTS/RTS frame as well as the data frame.
+	 * Note that when the driver has set the set_rts_threshold()
+	 * callback function it doesn't need software generation of
+	 * either RTS or CTS-to-self frame and handles everything
+	 * inside the hardware.
+	 */
 	if (!rt2x00dev->ops->hw->set_rts_threshold &&
 	    (tx_info->control.rates[0].flags & (IEEE80211_TX_RC_USE_RTS_CTS |
 						IEEE80211_TX_RC_USE_CTS_PROTECT))) {
@@ -126,6 +152,11 @@ void rt2x00mac_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 	if (unlikely(rt2x00queue_write_tx_frame(queue, skb, false)))
 		goto exit_fail;
 
+	/*
+	 * Pausing queue has to be serialized with rt2x00lib_txdone(). Note
+	 * we should not use spin_lock_bh variant as bottom halve was already
+	 * disabled before ieee80211_xmit() call.
+	 */
 	spin_lock(&queue->tx_lock);
 	if (rt2x00queue_threshold(queue))
 		rt2x00queue_pause_queue(queue);
@@ -173,15 +204,27 @@ int rt2x00mac_add_interface(struct ieee80211_hw *hw,
 	struct queue_entry *entry = NULL;
 	unsigned int i;
 
+	/*
+	 * Don't allow interfaces to be added
+	 * the device has disappeared.
+	 */
 	if (!test_bit(DEVICE_STATE_PRESENT, &rt2x00dev->flags) ||
 	    !test_bit(DEVICE_STATE_STARTED, &rt2x00dev->flags))
 		return -ENODEV;
 
 	switch (vif->type) {
 	case NL80211_IFTYPE_AP:
+		/*
+		 * We don't support mixed combinations of
+		 * sta and ap interfaces.
+		 */
 		if (rt2x00dev->intf_sta_count)
 			return -ENOBUFS;
 
+		/*
+		 * Check if we exceeded the maximum amount
+		 * of supported interfaces.
+		 */
 		if (rt2x00dev->intf_ap_count >= rt2x00dev->ops->max_ap_intf)
 			return -ENOBUFS;
 
@@ -190,9 +233,17 @@ int rt2x00mac_add_interface(struct ieee80211_hw *hw,
 	case NL80211_IFTYPE_ADHOC:
 	case NL80211_IFTYPE_MESH_POINT:
 	case NL80211_IFTYPE_WDS:
+		/*
+		 * We don't support mixed combinations of
+		 * sta and ap interfaces.
+		 */
 		if (rt2x00dev->intf_ap_count)
 			return -ENOBUFS;
 
+		/*
+		 * Check if we exceeded the maximum amount
+		 * of supported interfaces.
+		 */
 		if (rt2x00dev->intf_sta_count >= rt2x00dev->ops->max_sta_intf)
 			return -ENOBUFS;
 
@@ -201,6 +252,12 @@ int rt2x00mac_add_interface(struct ieee80211_hw *hw,
 		return -EINVAL;
 	}
 
+	/*
+	 * Loop through all beacon queues to find a free
+	 * entry. Since there are as much beacon entries
+	 * as the maximum interfaces, this search shouldn't
+	 * fail.
+	 */
 	for (i = 0; i < queue->limit; i++) {
 		entry = &queue->entries[i];
 		if (!test_and_set_bit(ENTRY_BCN_ASSIGNED, &entry->flags))
@@ -210,6 +267,10 @@ int rt2x00mac_add_interface(struct ieee80211_hw *hw,
 	if (unlikely(i == queue->limit))
 		return -ENOBUFS;
 
+	/*
+	 * We are now absolutely sure the interface can be created,
+	 * increase interface count and start initialization.
+	 */
 
 	if (vif->type == NL80211_IFTYPE_AP)
 		rt2x00dev->intf_ap_count++;
@@ -220,9 +281,23 @@ int rt2x00mac_add_interface(struct ieee80211_hw *hw,
 	mutex_init(&intf->beacon_skb_mutex);
 	intf->beacon = entry;
 
+	/*
+	 * The MAC address must be configured after the device
+	 * has been initialized. Otherwise the device can reset
+	 * the MAC registers.
+	 * The BSSID address must only be configured in AP mode,
+	 * however we should not send an empty BSSID address for
+	 * STA interfaces at this time, since this can cause
+	 * invalid behavior in the device.
+	 */
 	rt2x00lib_config_intf(rt2x00dev, intf, vif->type,
 			      vif->addr, NULL);
 
+	/*
+	 * Some filters depend on the current working mode. We can force
+	 * an update during the next configure_filter() run by mac80211 by
+	 * resetting the current packet_filter state.
+	 */
 	rt2x00dev->packet_filter = 0;
 
 	return 0;
@@ -235,6 +310,11 @@ void rt2x00mac_remove_interface(struct ieee80211_hw *hw,
 	struct rt2x00_dev *rt2x00dev = hw->priv;
 	struct rt2x00_intf *intf = vif_to_intf(vif);
 
+	/*
+	 * Don't allow interfaces to be remove while
+	 * either the device has disappeared or when
+	 * no interface is present.
+	 */
 	if (!test_bit(DEVICE_STATE_PRESENT, &rt2x00dev->flags) ||
 	    (vif->type == NL80211_IFTYPE_AP && !rt2x00dev->intf_ap_count) ||
 	    (vif->type != NL80211_IFTYPE_AP && !rt2x00dev->intf_sta_count))
@@ -245,8 +325,16 @@ void rt2x00mac_remove_interface(struct ieee80211_hw *hw,
 	else
 		rt2x00dev->intf_sta_count--;
 
+	/*
+	 * Release beacon entry so it is available for
+	 * new interfaces again.
+	 */
 	clear_bit(ENTRY_BCN_ASSIGNED, &intf->beacon->flags);
 
+	/*
+	 * Make sure the bssid and mac address registers
+	 * are cleared to prevent false ACKing of frames.
+	 */
 	rt2x00lib_config_intf(rt2x00dev, intf,
 			      NL80211_IFTYPE_UNSPECIFIED, NULL, NULL);
 }
@@ -257,16 +345,38 @@ int rt2x00mac_config(struct ieee80211_hw *hw, u32 changed)
 	struct rt2x00_dev *rt2x00dev = hw->priv;
 	struct ieee80211_conf *conf = &hw->conf;
 
+	/*
+	 * mac80211 might be calling this function while we are trying
+	 * to remove the device or perhaps suspending it.
+	 */
 	if (!test_bit(DEVICE_STATE_PRESENT, &rt2x00dev->flags))
 		return 0;
 
+	/*
+	 * Some configuration parameters (e.g. channel and antenna values) can
+	 * only be set when the radio is enabled, but do require the RX to
+	 * be off. During this period we should keep link tuning enabled,
+	 * if for any reason the link tuner must be reset, this will be
+	 * handled by rt2x00lib_config().
+	 */
 	rt2x00queue_stop_queue(rt2x00dev->rx);
 
+	/*
+	 * When we've just turned on the radio, we want to reprogram
+	 * everything to ensure a consistent state
+	 */
 	rt2x00lib_config(rt2x00dev, conf, changed);
 
+	/*
+	 * After the radio has been enabled we need to configure
+	 * the antenna to the default settings. rt2x00lib_config_antenna()
+	 * should determine if any action should be taken based on
+	 * checking if diversity has been enabled or no antenna changes
+	 * have been made since the last configuration change.
+	 */
 	rt2x00lib_config_antenna(rt2x00dev, rt2x00dev->default_ant);
 
-	
+	/* Turn RX back on */
 	rt2x00queue_start_queue(rt2x00dev->rx);
 
 	return 0;
@@ -280,6 +390,10 @@ void rt2x00mac_configure_filter(struct ieee80211_hw *hw,
 {
 	struct rt2x00_dev *rt2x00dev = hw->priv;
 
+	/*
+	 * Mask off any flags we are going to ignore
+	 * from the total_flags field.
+	 */
 	*total_flags &=
 	    FIF_ALLMULTI |
 	    FIF_FCSFAIL |
@@ -289,11 +403,24 @@ void rt2x00mac_configure_filter(struct ieee80211_hw *hw,
 	    FIF_OTHER_BSS |
 	    FIF_PROMISC_IN_BSS;
 
+	/*
+	 * Apply some rules to the filters:
+	 * - Some filters imply different filters to be set.
+	 * - Some things we can't filter out at all.
+	 * - Multicast filter seems to kill broadcast traffic so never use it.
+	 */
 	*total_flags |= FIF_ALLMULTI;
 	if (*total_flags & FIF_OTHER_BSS ||
 	    *total_flags & FIF_PROMISC_IN_BSS)
 		*total_flags |= FIF_PROMISC_IN_BSS | FIF_OTHER_BSS;
 
+	/*
+	 * If the device has a single filter for all control frames,
+	 * FIF_CONTROL and FIF_PSPOLL flags imply each other.
+	 * And if the device has more than one filter for control frames
+	 * of different types, but has no a separate filter for PS Poll frames,
+	 * FIF_CONTROL flag implies FIF_PSPOLL.
+	 */
 	if (!test_bit(CAPABILITY_CONTROL_FILTERS, &rt2x00dev->cap_flags)) {
 		if (*total_flags & FIF_CONTROL || *total_flags & FIF_PSPOLL)
 			*total_flags |= FIF_CONTROL | FIF_PSPOLL;
@@ -303,6 +430,9 @@ void rt2x00mac_configure_filter(struct ieee80211_hw *hw,
 			*total_flags |= FIF_PSPOLL;
 	}
 
+	/*
+	 * Check if there is any work left for us.
+	 */
 	if (rt2x00dev->packet_filter == *total_flags)
 		return;
 	rt2x00dev->packet_filter = *total_flags;
@@ -337,7 +467,7 @@ int rt2x00mac_set_tim(struct ieee80211_hw *hw, struct ieee80211_sta *sta,
 						   rt2x00mac_set_tim_iter,
 						   rt2x00dev);
 
-	
+	/* queue work to upodate the beacon template */
 	ieee80211_queue_work(rt2x00dev->hw, &rt2x00dev->intf_work);
 	return 0;
 }
@@ -402,6 +532,22 @@ int rt2x00mac_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		memcpy_tkip(&crypto, &key->key[0], key->keylen);
 	else
 		memcpy(crypto.key, &key->key[0], key->keylen);
+	/*
+	 * Each BSS has a maximum of 4 shared keys.
+	 * Shared key index values:
+	 *	0) BSS0 key0
+	 *	1) BSS0 key1
+	 *	...
+	 *	4) BSS1 key0
+	 *	...
+	 *	8) BSS2 key0
+	 *	...
+	 * Both pairwise as shared key indeces are determined by
+	 * driver. This is required because the hardware requires
+	 * keys to be assigned in correct order (When key 1 is
+	 * provided but key 0 is not, then the key is not found
+	 * by the hardware during RX).
+	 */
 	if (cmd == SET_KEY)
 		key->hw_key_idx = 0;
 
@@ -416,7 +562,7 @@ int rt2x00mac_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	return set_key(rt2x00dev, &crypto, key);
 }
 EXPORT_SYMBOL_GPL(rt2x00mac_set_key);
-#endif 
+#endif /* CONFIG_RT2X00_LIB_CRYPTO */
 
 int rt2x00mac_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		      struct ieee80211_sta *sta)
@@ -424,6 +570,10 @@ int rt2x00mac_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	struct rt2x00_dev *rt2x00dev = hw->priv;
 	struct rt2x00_sta *sta_priv = sta_to_rt2x00_sta(sta);
 
+	/*
+	 * If there's no space left in the device table store
+	 * -1 as wcid but tell mac80211 everything went ok.
+	 */
 	if (rt2x00dev->ops->lib->sta_add(rt2x00dev, vif, sta))
 		sta_priv->wcid = -1;
 
@@ -437,6 +587,9 @@ int rt2x00mac_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	struct rt2x00_dev *rt2x00dev = hw->priv;
 	struct rt2x00_sta *sta_priv = sta_to_rt2x00_sta(sta);
 
+	/*
+	 * If we never sent the STA to the device no need to clean it up.
+	 */
 	if (sta_priv->wcid < 0)
 		return 0;
 
@@ -465,6 +618,11 @@ int rt2x00mac_get_stats(struct ieee80211_hw *hw,
 {
 	struct rt2x00_dev *rt2x00dev = hw->priv;
 
+	/*
+	 * The dot11ACKFailureCount, dot11RTSFailureCount and
+	 * dot11RTSSuccessCount are updated in interrupt time.
+	 * dot11FCSErrorCount is updated in the link tuner.
+	 */
 	memcpy(stats, &rt2x00dev->low_level_stats, sizeof(*stats));
 
 	return 0;
@@ -479,16 +637,30 @@ void rt2x00mac_bss_info_changed(struct ieee80211_hw *hw,
 	struct rt2x00_dev *rt2x00dev = hw->priv;
 	struct rt2x00_intf *intf = vif_to_intf(vif);
 
+	/*
+	 * mac80211 might be calling this function while we are trying
+	 * to remove the device or perhaps suspending it.
+	 */
 	if (!test_bit(DEVICE_STATE_PRESENT, &rt2x00dev->flags))
 		return;
 
+	/*
+	 * Update the BSSID.
+	 */
 	if (changes & BSS_CHANGED_BSSID)
 		rt2x00lib_config_intf(rt2x00dev, intf, vif->type, NULL,
 				      bss_conf->bssid);
 
+	/*
+	 * Update the beacon. This is only required on USB devices. PCI
+	 * devices fetch beacons periodically.
+	 */
 	if (changes & BSS_CHANGED_BEACON && rt2x00_is_usb(rt2x00dev))
 		rt2x00queue_update_beacon(rt2x00dev, vif);
 
+	/*
+	 * Start/stop beaconing.
+	 */
 	if (changes & BSS_CHANGED_BEACON_ENABLED) {
 		if (!bss_conf->enable_beacon && intf->enable_beacon) {
 			rt2x00queue_clear_beacon(rt2x00dev, vif);
@@ -496,6 +668,10 @@ void rt2x00mac_bss_info_changed(struct ieee80211_hw *hw,
 			intf->enable_beacon = false;
 
 			if (rt2x00dev->intf_beaconing == 0) {
+				/*
+				 * Last beaconing interface disabled
+				 * -> stop beacon queue.
+				 */
 				mutex_lock(&intf->beacon_skb_mutex);
 				rt2x00queue_stop_queue(rt2x00dev->bcn);
 				mutex_unlock(&intf->beacon_skb_mutex);
@@ -507,6 +683,10 @@ void rt2x00mac_bss_info_changed(struct ieee80211_hw *hw,
 			intf->enable_beacon = true;
 
 			if (rt2x00dev->intf_beaconing == 1) {
+				/*
+				 * First beaconing interface enabled
+				 * -> start beacon queue.
+				 */
 				mutex_lock(&intf->beacon_skb_mutex);
 				rt2x00queue_start_queue(rt2x00dev->bcn);
 				mutex_unlock(&intf->beacon_skb_mutex);
@@ -514,6 +694,12 @@ void rt2x00mac_bss_info_changed(struct ieee80211_hw *hw,
 		}
 	}
 
+	/*
+	 * When the association status has changed we must reset the link
+	 * tuner counter. This is because some drivers determine if they
+	 * should perform link tuning based on the number of seconds
+	 * while associated or not associated.
+	 */
 	if (changes & BSS_CHANGED_ASSOC) {
 		rt2x00dev->link.count = 0;
 
@@ -525,6 +711,10 @@ void rt2x00mac_bss_info_changed(struct ieee80211_hw *hw,
 		rt2x00leds_led_assoc(rt2x00dev, !!rt2x00dev->intf_associated);
 	}
 
+	/*
+	 * When the erp information has changed, we should perform
+	 * additional configuration steps. For all other changes we are done.
+	 */
 	if (changes & (BSS_CHANGED_ERP_CTS_PROT | BSS_CHANGED_ERP_PREAMBLE |
 		       BSS_CHANGED_ERP_SLOT | BSS_CHANGED_BASIC_RATES |
 		       BSS_CHANGED_BEACON_INT | BSS_CHANGED_HT))
@@ -543,15 +733,19 @@ int rt2x00mac_conf_tx(struct ieee80211_hw *hw,
 	if (unlikely(!queue))
 		return -EINVAL;
 
+	/*
+	 * The passed variables are stored as real value ((2^n)-1).
+	 * Ralink registers require to know the bit number 'n'.
+	 */
 	if (params->cw_min > 0)
 		queue->cw_min = fls(params->cw_min);
 	else
-		queue->cw_min = 5; 
+		queue->cw_min = 5; /* cw_min: 2^5 = 32. */
 
 	if (params->cw_max > 0)
 		queue->cw_max = fls(params->cw_max);
 	else
-		queue->cw_max = 10; 
+		queue->cw_max = 10; /* cw_min: 2^10 = 1024. */
 
 	queue->aifs = params->aifs;
 	queue->txop = params->txop;
@@ -590,23 +784,23 @@ int rt2x00mac_set_antenna(struct ieee80211_hw *hw, u32 tx_ant, u32 rx_ant)
 	struct antenna_setup *def = &rt2x00dev->default_ant;
 	struct antenna_setup setup;
 
-	
-	
+	// The antenna value is not supposed to be 0,
+	// or exceed the maximum number of antenna's.
 	if (!tx_ant || (tx_ant & ~3) || !rx_ant || (rx_ant & ~3))
 		return -EINVAL;
 
-	
-	
-	
+	// When the client tried to configure the antenna to or from
+	// diversity mode, we must reset the default antenna as well
+	// as that controls the diversity switch.
 	if (ant->flags & ANTENNA_TX_DIVERSITY && tx_ant != 3)
 		ant->flags &= ~ANTENNA_TX_DIVERSITY;
 	if (ant->flags & ANTENNA_RX_DIVERSITY && rx_ant != 3)
 		ant->flags &= ~ANTENNA_RX_DIVERSITY;
 
-	
-	
-	
-	
+	// If diversity is being enabled, check if we need hardware
+	// or software diversity. In the latter case, reset the value,
+	// and make sure we update the antenna flags to have the
+	// link tuner pick up the diversity tuning.
 	if (tx_ant == 3 && def->tx == ANTENNA_SW_DIVERSITY) {
 		tx_ant = ANTENNA_SW_DIVERSITY;
 		ant->flags |= ANTENNA_TX_DIVERSITY;
@@ -632,8 +826,8 @@ int rt2x00mac_get_antenna(struct ieee80211_hw *hw, u32 *tx_ant, u32 *rx_ant)
 	struct link_ant *ant = &rt2x00dev->link.ant;
 	struct antenna_setup *active = &rt2x00dev->link.ant.active;
 
-	
-	
+	// When software diversity is active, we must report this to the
+	// client and not the current active antenna state.
 	if (ant->flags & ANTENNA_TX_DIVERSITY)
 		*tx_ant = ANTENNA_HW_DIVERSITY;
 	else

@@ -22,6 +22,25 @@
 #include <linux/regulator/machine.h>
 #include <linux/regulator/ab8500.h>
 
+/**
+ * struct ab8500_regulator_info - ab8500 regulator information
+ * @dev: device pointer
+ * @desc: regulator description
+ * @regulator_dev: regulator device
+ * @max_uV: maximum voltage (for variable voltage supplies)
+ * @min_uV: minimum voltage (for variable voltage supplies)
+ * @fixed_uV: typical voltage (for fixed voltage supplies)
+ * @update_bank: bank to control on/off
+ * @update_reg: register to control on/off
+ * @update_mask: mask to enable/disable regulator
+ * @update_val_enable: bits to enable the regulator in normal (high power) mode
+ * @voltage_bank: bank to control regulator voltage
+ * @voltage_reg: register to control regulator voltage
+ * @voltage_mask: mask to control regulator voltage
+ * @voltages: supported voltage table
+ * @voltages_len: number of supported voltages for the regulator
+ * @delay: startup/set voltage delay in us
+ */
 struct ab8500_regulator_info {
 	struct device		*dev;
 	struct regulator_desc	desc;
@@ -41,6 +60,7 @@ struct ab8500_regulator_info {
 	unsigned int delay;
 };
 
+/* voltage tables for the vauxn/vintcore supplies */
 static const int ldo_vauxn_voltages[] = {
 	1100000,
 	1200000,
@@ -171,7 +191,7 @@ static int ab8500_list_voltage(struct regulator_dev *rdev, unsigned selector)
 		return -EINVAL;
 	}
 
-	
+	/* return the uV for the fixed regulators */
 	if (info->fixed_uV)
 		return info->fixed_uV;
 
@@ -206,7 +226,7 @@ static int ab8500_regulator_get_voltage_sel(struct regulator_dev *rdev)
 		info->desc.name, info->voltage_bank, info->voltage_reg,
 		info->voltage_mask, regval);
 
-	
+	/* vintcore has a different layout */
 	val = regval & info->voltage_mask;
 	if (info->desc.id == AB8500_LDO_INTCORE)
 		return val >> 0x3;
@@ -220,7 +240,7 @@ static int ab8500_get_best_voltage_index(struct regulator_dev *rdev,
 	struct ab8500_regulator_info *info = rdev_get_drvdata(rdev);
 	int i;
 
-	
+	/* check the supported voltage */
 	for (i = 0; i < info->voltages_len; i++) {
 		if ((info->voltages[i] >= min_uV) &&
 		    (info->voltages[i] <= max_uV))
@@ -243,7 +263,7 @@ static int ab8500_regulator_set_voltage(struct regulator_dev *rdev,
 		return -EINVAL;
 	}
 
-	
+	/* get the appropriate voltages within the range */
 	ret = ab8500_get_best_voltage_index(rdev, min_uV, max_uV);
 	if (ret < 0) {
 		dev_err(rdev_get_dev(rdev),
@@ -253,7 +273,7 @@ static int ab8500_regulator_set_voltage(struct regulator_dev *rdev,
 
 	*selector = ret;
 
-	
+	/* set the registers for the request */
 	regval = (u8)ret;
 	ret = abx500_mask_and_set_register_interruptible(info->dev,
 			info->voltage_bank, info->voltage_reg,
@@ -285,7 +305,7 @@ static int ab8500_regulator_set_voltage_time_sel(struct regulator_dev *rdev,
 	struct ab8500_regulator_info *info = rdev_get_drvdata(rdev);
 	int ret;
 
-	
+	/* If the regulator isn't on, it won't take time here */
 	ret = ab8500_regulator_is_enabled(rdev);
 	if (ret < 0)
 		return ret;
@@ -329,6 +349,12 @@ static struct regulator_ops ab8500_regulator_fixed_ops = {
 
 static struct ab8500_regulator_info
 		ab8500_regulator_info[AB8500_NUM_REGULATORS] = {
+	/*
+	 * Variable Voltage Regulators
+	 *   name, min mV, max mV,
+	 *   update bank, reg, mask, enable val
+	 *   volt bank, reg, mask, table, table length
+	 */
 	[AB8500_LDO_AUX1] = {
 		.desc = {
 			.name		= "LDO-AUX1",
@@ -414,6 +440,11 @@ static struct ab8500_regulator_info
 		.voltages_len		= ARRAY_SIZE(ldo_vintcore_voltages),
 	},
 
+	/*
+	 * Fixed Voltage Regulators
+	 *   name, fixed mV,
+	 *   update bank, reg, mask, enable val
+	 */
 	[AB8500_LDO_TVOUT] = {
 		.desc = {
 			.name		= "LDO-TVOUT",
@@ -538,33 +569,169 @@ struct ab8500_reg_init {
 	}
 
 static struct ab8500_reg_init ab8500_reg_init[] = {
+	/*
+	 * 0x30, VanaRequestCtrl
+	 * 0x0C, VpllRequestCtrl
+	 * 0xc0, VextSupply1RequestCtrl
+	 */
 	REG_INIT(AB8500_REGUREQUESTCTRL2,	0x03, 0x04, 0xfc),
+	/*
+	 * 0x03, VextSupply2RequestCtrl
+	 * 0x0c, VextSupply3RequestCtrl
+	 * 0x30, Vaux1RequestCtrl
+	 * 0xc0, Vaux2RequestCtrl
+	 */
 	REG_INIT(AB8500_REGUREQUESTCTRL3,	0x03, 0x05, 0xff),
+	/*
+	 * 0x03, Vaux3RequestCtrl
+	 * 0x04, SwHPReq
+	 */
 	REG_INIT(AB8500_REGUREQUESTCTRL4,	0x03, 0x06, 0x07),
+	/*
+	 * 0x08, VanaSysClkReq1HPValid
+	 * 0x20, Vaux1SysClkReq1HPValid
+	 * 0x40, Vaux2SysClkReq1HPValid
+	 * 0x80, Vaux3SysClkReq1HPValid
+	 */
 	REG_INIT(AB8500_REGUSYSCLKREQ1HPVALID1,	0x03, 0x07, 0xe8),
+	/*
+	 * 0x10, VextSupply1SysClkReq1HPValid
+	 * 0x20, VextSupply2SysClkReq1HPValid
+	 * 0x40, VextSupply3SysClkReq1HPValid
+	 */
 	REG_INIT(AB8500_REGUSYSCLKREQ1HPVALID2,	0x03, 0x08, 0x70),
+	/*
+	 * 0x08, VanaHwHPReq1Valid
+	 * 0x20, Vaux1HwHPReq1Valid
+	 * 0x40, Vaux2HwHPReq1Valid
+	 * 0x80, Vaux3HwHPReq1Valid
+	 */
 	REG_INIT(AB8500_REGUHWHPREQ1VALID1,	0x03, 0x09, 0xe8),
+	/*
+	 * 0x01, VextSupply1HwHPReq1Valid
+	 * 0x02, VextSupply2HwHPReq1Valid
+	 * 0x04, VextSupply3HwHPReq1Valid
+	 */
 	REG_INIT(AB8500_REGUHWHPREQ1VALID2,	0x03, 0x0a, 0x07),
+	/*
+	 * 0x08, VanaHwHPReq2Valid
+	 * 0x20, Vaux1HwHPReq2Valid
+	 * 0x40, Vaux2HwHPReq2Valid
+	 * 0x80, Vaux3HwHPReq2Valid
+	 */
 	REG_INIT(AB8500_REGUHWHPREQ2VALID1,	0x03, 0x0b, 0xe8),
+	/*
+	 * 0x01, VextSupply1HwHPReq2Valid
+	 * 0x02, VextSupply2HwHPReq2Valid
+	 * 0x04, VextSupply3HwHPReq2Valid
+	 */
 	REG_INIT(AB8500_REGUHWHPREQ2VALID2,	0x03, 0x0c, 0x07),
+	/*
+	 * 0x20, VanaSwHPReqValid
+	 * 0x80, Vaux1SwHPReqValid
+	 */
 	REG_INIT(AB8500_REGUSWHPREQVALID1,	0x03, 0x0d, 0xa0),
+	/*
+	 * 0x01, Vaux2SwHPReqValid
+	 * 0x02, Vaux3SwHPReqValid
+	 * 0x04, VextSupply1SwHPReqValid
+	 * 0x08, VextSupply2SwHPReqValid
+	 * 0x10, VextSupply3SwHPReqValid
+	 */
 	REG_INIT(AB8500_REGUSWHPREQVALID2,	0x03, 0x0e, 0x1f),
+	/*
+	 * 0x02, SysClkReq2Valid1
+	 * ...
+	 * 0x80, SysClkReq8Valid1
+	 */
 	REG_INIT(AB8500_REGUSYSCLKREQVALID1,	0x03, 0x0f, 0xfe),
+	/*
+	 * 0x02, SysClkReq2Valid2
+	 * ...
+	 * 0x80, SysClkReq8Valid2
+	 */
 	REG_INIT(AB8500_REGUSYSCLKREQVALID2,	0x03, 0x10, 0xfe),
+	/*
+	 * 0x02, VTVoutEna
+	 * 0x04, Vintcore12Ena
+	 * 0x38, Vintcore12Sel
+	 * 0x40, Vintcore12LP
+	 * 0x80, VTVoutLP
+	 */
 	REG_INIT(AB8500_REGUMISC1,		0x03, 0x80, 0xfe),
+	/*
+	 * 0x02, VaudioEna
+	 * 0x04, VdmicEna
+	 * 0x08, Vamic1Ena
+	 * 0x10, Vamic2Ena
+	 */
 	REG_INIT(AB8500_VAUDIOSUPPLY,		0x03, 0x83, 0x1e),
+	/*
+	 * 0x01, Vamic1_dzout
+	 * 0x02, Vamic2_dzout
+	 */
 	REG_INIT(AB8500_REGUCTRL1VAMIC,		0x03, 0x84, 0x03),
+	/*
+	 * 0x0c, VanaRegu
+	 * 0x03, VpllRegu
+	 */
 	REG_INIT(AB8500_VPLLVANAREGU,		0x04, 0x06, 0x0f),
+	/*
+	 * 0x01, VrefDDREna
+	 * 0x02, VrefDDRSleepMode
+	 */
 	REG_INIT(AB8500_VREFDDR,		0x04, 0x07, 0x03),
+	/*
+	 * 0x03, VextSupply1Regu
+	 * 0x0c, VextSupply2Regu
+	 * 0x30, VextSupply3Regu
+	 * 0x40, ExtSupply2Bypass
+	 * 0x80, ExtSupply3Bypass
+	 */
 	REG_INIT(AB8500_EXTSUPPLYREGU,		0x04, 0x08, 0xff),
+	/*
+	 * 0x03, Vaux1Regu
+	 * 0x0c, Vaux2Regu
+	 */
 	REG_INIT(AB8500_VAUX12REGU,		0x04, 0x09, 0x0f),
+	/*
+	 * 0x03, Vaux3Regu
+	 */
 	REG_INIT(AB8500_VRF1VAUX3REGU,		0x04, 0x0a, 0x03),
+	/*
+	 * 0x3f, Vsmps1Sel1
+	 */
 	REG_INIT(AB8500_VSMPS1SEL1,		0x04, 0x13, 0x3f),
+	/*
+	 * 0x0f, Vaux1Sel
+	 */
 	REG_INIT(AB8500_VAUX1SEL,		0x04, 0x1f, 0x0f),
+	/*
+	 * 0x0f, Vaux2Sel
+	 */
 	REG_INIT(AB8500_VAUX2SEL,		0x04, 0x20, 0x0f),
+	/*
+	 * 0x07, Vaux3Sel
+	 */
 	REG_INIT(AB8500_VRF1VAUX3SEL,		0x04, 0x21, 0x07),
+	/*
+	 * 0x01, VextSupply12LP
+	 */
 	REG_INIT(AB8500_REGUCTRL2SPARE,		0x04, 0x22, 0x01),
+	/*
+	 * 0x04, Vaux1Disch
+	 * 0x08, Vaux2Disch
+	 * 0x10, Vaux3Disch
+	 * 0x20, Vintcore12Disch
+	 * 0x40, VTVoutDisch
+	 * 0x80, VaudioDisch
+	 */
 	REG_INIT(AB8500_REGUCTRLDISCH,		0x04, 0x43, 0xfc),
+	/*
+	 * 0x02, VanaDisch
+	 * 0x04, VdmicPullDownEna
+	 * 0x10, VdmicDisch
+	 */
 	REG_INIT(AB8500_REGUCTRLDISCH2,		0x04, 0x44, 0x16),
 };
 
@@ -584,13 +751,13 @@ static __devinit int ab8500_regulator_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* make sure the platform data has the correct size */
 	if (pdata->num_regulator != ARRAY_SIZE(ab8500_regulator_info)) {
 		dev_err(&pdev->dev, "Configuration error: size mismatch.\n");
 		return -EINVAL;
 	}
 
-	
+	/* initialize registers */
 	for (i = 0; i < pdata->num_regulator_reg_init; i++) {
 		int id;
 		u8 value;
@@ -598,7 +765,7 @@ static __devinit int ab8500_regulator_probe(struct platform_device *pdev)
 		id = pdata->regulator_reg_init[i].id;
 		value = pdata->regulator_reg_init[i].value;
 
-		
+		/* check for configuration errors */
 		if (id >= AB8500_NUM_REGULATOR_REGISTERS) {
 			dev_err(&pdev->dev,
 				"Configuration error: id outside range.\n");
@@ -610,7 +777,7 @@ static __devinit int ab8500_regulator_probe(struct platform_device *pdev)
 			return -EINVAL;
 		}
 
-		
+		/* initialize register */
 		err = abx500_mask_and_set_register_interruptible(&pdev->dev,
 			ab8500_reg_init[id].bank,
 			ab8500_reg_init[id].addr,
@@ -631,15 +798,15 @@ static __devinit int ab8500_regulator_probe(struct platform_device *pdev)
 			value);
 	}
 
-	
+	/* register all regulators */
 	for (i = 0; i < ARRAY_SIZE(ab8500_regulator_info); i++) {
 		struct ab8500_regulator_info *info = NULL;
 
-		
+		/* assign per-regulator data */
 		info = &ab8500_regulator_info[i];
 		info->dev = &pdev->dev;
 
-		
+		/* fix for hardware before ab8500v2.0 */
 		if (abx500_get_chip_id(info->dev) < 0x20) {
 			if (info->desc.id == AB8500_LDO_AUX3) {
 				info->desc.n_voltages =
@@ -651,14 +818,14 @@ static __devinit int ab8500_regulator_probe(struct platform_device *pdev)
 			}
 		}
 
-		
+		/* register regulator with framework */
 		info->regulator = regulator_register(&info->desc, &pdev->dev,
 				&pdata->regulator[i], info, NULL);
 		if (IS_ERR(info->regulator)) {
 			err = PTR_ERR(info->regulator);
 			dev_err(&pdev->dev, "failed to register regulator %s\n",
 					info->desc.name);
-			
+			/* when we fail, un-register all earlier regulators */
 			while (--i >= 0) {
 				info = &ab8500_regulator_info[i];
 				regulator_unregister(info->regulator);

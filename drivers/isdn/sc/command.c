@@ -16,7 +16,7 @@
  */
 
 #include <linux/module.h>
-#include "includes.h"		
+#include "includes.h"		/* This must be first */
 #include "hardware.h"
 #include "message.h"
 #include "card.h"
@@ -32,6 +32,9 @@ static int setl3(int card, unsigned long arg);
 static int acceptb(int card, unsigned long channel);
 
 #ifdef DEBUG
+/*
+ * Translate command codes to strings
+ */
 static char *commands[] = { "ISDN_CMD_IOCTL",
 			    "ISDN_CMD_DIAL",
 			    "ISDN_CMD_ACCEPTB",
@@ -51,6 +54,9 @@ static char *commands[] = { "ISDN_CMD_IOCTL",
 			    NULL,
 			    NULL, };
 
+/*
+ * Translates ISDN4Linux protocol codes to strings for debug messages
+ */
 static char *l3protos[] = { "ISDN_PROTO_L3_TRANS" };
 static char *l2protos[] = { "ISDN_PROTO_L2_X75I",
 			    "ISDN_PROTO_L2_X75UI",
@@ -70,6 +76,9 @@ int get_card_from_id(int driver)
 	return -ENODEV;
 }
 
+/*
+ * command
+ */
 
 int command(isdn_ctrl *cmd)
 {
@@ -81,6 +90,9 @@ int command(isdn_ctrl *cmd)
 		return -ENODEV;
 	}
 
+	/*
+	 * Dispatch the command
+	 */
 	switch (cmd->command) {
 	case ISDN_CMD_IOCTL:
 	{
@@ -118,6 +130,9 @@ int command(isdn_ctrl *cmd)
 	return 0;
 }
 
+/*
+ * start the onboard firmware
+ */
 int startproc(int card)
 {
 	int status;
@@ -127,6 +142,9 @@ int startproc(int card)
 		return -ENODEV;
 	}
 
+	/*
+	 * send start msg
+	 */
 	status = sendmessage(card, CMPID, cmReqType2,
 			     cmReqClass0,
 			     cmReqStartProc,
@@ -137,6 +155,9 @@ int startproc(int card)
 }
 
 
+/*
+ * Dials the number passed in
+ */
 static int dial(int card, unsigned long channel, setup_parm setup)
 {
 	int status;
@@ -147,10 +168,10 @@ static int dial(int card, unsigned long channel, setup_parm setup)
 		return -ENODEV;
 	}
 
-	
+	/*extract ISDN number to dial from eaz/msn string*/
 	strcpy(Phone, setup.phone);
 
-	
+	/*send the connection message*/
 	status = sendmessage(card, CEPID, ceReqTypePhy,
 			     ceReqClass1,
 			     ceReqPhyConnect,
@@ -164,6 +185,9 @@ static int dial(int card, unsigned long channel, setup_parm setup)
 	return status;
 }
 
+/*
+ * Answer an incoming call
+ */
 static int answer(int card, unsigned long channel)
 {
 	if (!IS_VALID_CARD(card)) {
@@ -182,6 +206,9 @@ static int answer(int card, unsigned long channel)
 	return 0;
 }
 
+/*
+ * Hangup up the call on specified channel
+ */
 static int hangup(int card, unsigned long channel)
 {
 	int status;
@@ -202,6 +229,9 @@ static int hangup(int card, unsigned long channel)
 	return status;
 }
 
+/*
+ * Set the layer 2 protocol (X.25, HDLC, Raw)
+ */
 static int setl2(int card, unsigned long arg)
 {
 	int status = 0;
@@ -215,6 +245,9 @@ static int setl2(int card, unsigned long arg)
 	channel = arg & 0xff;
 	sc_adapter[card]->channel[channel].l2_proto = protocol;
 
+	/*
+	 * check that the adapter is also set to the correct protocol
+	 */
 	pr_debug("%s: Sending GetFrameFormat for channel %d\n",
 		 sc_adapter[card]->devicename, channel + 1);
 	status = sendmessage(card, CEPID, ceReqTypeCall,
@@ -228,6 +261,9 @@ static int setl2(int card, unsigned long arg)
 	return 0;
 }
 
+/*
+ * Set the layer 3 protocol
+ */
 static int setl3(int card, unsigned long channel)
 {
 	int protocol = channel >> 8;

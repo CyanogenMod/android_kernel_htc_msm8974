@@ -60,6 +60,8 @@ int jffs2_read_dnode(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 		ret = -EIO;
 		goto out_ri;
 	}
+	/* There was a bug where we wrote hole nodes out with csize/dsize
+	   swapped. Deal with it */
 	if (ri->compr == JFFS2_COMPR_ZERO && !je32_to_cpu(ri->dsize) &&
 	    je32_to_cpu(ri->csize)) {
 		ri->dsize = ri->csize;
@@ -79,6 +81,12 @@ int jffs2_read_dnode(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 		goto out_ri;
 	}
 
+	/* Cases:
+	   Reading whole node and it's uncompressed - read directly to buffer provided, check CRC.
+	   Reading whole node and it's compressed - read into comprbuf, check CRC and decompress to buffer provided
+	   Reading partial node and it's uncompressed - read into readbuf, check CRC, and copy
+	   Reading partial node and it's compressed - read into readbuf, check checksum, decompress to decomprbuf and copy
+	*/
 	if (ri->compr == JFFS2_COMPR_NONE && len == je32_to_cpu(ri->dsize)) {
 		readbuf = buf;
 	} else {
@@ -158,6 +166,11 @@ int jffs2_read_inode_range(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 
 	frag = jffs2_lookup_node_frag(&f->fragtree, offset);
 
+	/* XXX FIXME: Where a single physical node actually shows up in two
+	   frags, we read it twice. Don't do that. */
+	/* Now we're pointing at the first frag which overlaps our page
+	 * (or perhaps is before it, if we've been asked to read off the
+	 * end of the file). */
 	while(offset < end) {
 		jffs2_dbg(2, "%s(): offset %d, end %d\n",
 			  __func__, offset, end);
@@ -187,7 +200,7 @@ int jffs2_read_inode_range(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 			continue;
 		} else {
 			uint32_t readlen;
-			uint32_t fragofs; 
+			uint32_t fragofs; /* offset within the frag to start reading */
 
 			fragofs = offset - frag->ofs;
 			readlen = min(frag->size - fragofs, end - offset);

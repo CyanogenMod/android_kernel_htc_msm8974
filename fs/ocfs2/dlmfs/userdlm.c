@@ -73,6 +73,7 @@ static inline void user_wait_on_blocked_lock(struct user_lock_res *lockres)
 		   !user_check_wait_flag(lockres, USER_LOCK_BLOCKED));
 }
 
+/* I heart container_of... */
 static inline struct ocfs2_cluster_connection *
 cluster_connection_from_user_lockres(struct user_lock_res *lockres)
 {
@@ -108,6 +109,9 @@ static inline void user_recover_from_dlm_error(struct user_lock_res *lockres)
 		_lockres->l_namelen, _lockres->l_name); 		\
 } while (0)
 
+/* WARNING: This function lives in a world where the only three lock
+ * levels are EX, PR, and NL. It *will* have to be adjusted when more
+ * lock types are added. */
 static inline int user_highest_compat_lock_level(int level)
 {
 	int new_level = DLM_LOCK_EX;
@@ -142,7 +146,7 @@ static void user_ast(struct ocfs2_dlm_lksb *lksb)
 			"Lockres %.*s, requested ivmode. flags 0x%x\n",
 			lockres->l_namelen, lockres->l_name, lockres->l_flags);
 
-	
+	/* we're downconverting. */
 	if (lockres->l_requested < lockres->l_level) {
 		if (lockres->l_requested <=
 		    user_highest_compat_lock_level(lockres->l_blocking)) {
@@ -236,18 +240,28 @@ static void user_unlock_ast(struct ocfs2_dlm_lksb *lksb, int status)
 		mlog(ML_ERROR, "dlm returns status %d\n", status);
 
 	spin_lock(&lockres->l_lock);
+	/* The teardown flag gets set early during the unlock process,
+	 * so test the cancel flag to make sure that this ast isn't
+	 * for a concurrent cancel. */
 	if (lockres->l_flags & USER_LOCK_IN_TEARDOWN
 	    && !(lockres->l_flags & USER_LOCK_IN_CANCEL)) {
 		lockres->l_level = DLM_LOCK_IV;
 	} else if (status == DLM_CANCELGRANT) {
+		/* We tried to cancel a convert request, but it was
+		 * already granted. Don't clear the busy flag - the
+		 * ast should've done this already. */
 		BUG_ON(!(lockres->l_flags & USER_LOCK_IN_CANCEL));
 		lockres->l_flags &= ~USER_LOCK_IN_CANCEL;
 		goto out_noclear;
 	} else {
 		BUG_ON(!(lockres->l_flags & USER_LOCK_IN_CANCEL));
-		
-		lockres->l_requested = DLM_LOCK_IV; 
+		/* Cancel succeeded, we want to re-queue */
+		lockres->l_requested = DLM_LOCK_IV; /* cancel an
+						    * upconvert
+						    * request. */
 		lockres->l_flags &= ~USER_LOCK_IN_CANCEL;
+		/* we want the unblock thread to look at it again
+		 * now. */
 		if (lockres->l_flags & USER_LOCK_BLOCKED)
 			__user_dlm_queue_lockres(lockres);
 	}
@@ -259,6 +273,11 @@ out_noclear:
 	wake_up(&lockres->l_event);
 }
 
+/*
+ * This is the userdlmfs locking protocol version.
+ *
+ * See fs/ocfs2/dlmglue.c for more details on locking versions.
+ */
 static struct ocfs2_locking_protocol user_dlm_lproto = {
 	.lp_max_version = {
 		.pv_major = OCFS2_LOCKING_PROTOCOL_MAJOR,
@@ -292,8 +311,15 @@ static void user_dlm_unblock_lock(struct work_struct *work)
 			"Lockres %.*s, flags 0x%x\n",
 			lockres->l_namelen, lockres->l_name, lockres->l_flags);
 
+	/* notice that we don't clear USER_LOCK_BLOCKED here. If it's
+	 * set, we want user_ast clear it. */
 	lockres->l_flags &= ~USER_LOCK_QUEUED;
 
+	/* It's valid to get here and no longer be blocked - if we get
+	 * several basts in a row, we might be queued by the first
+	 * one, the unblock thread might run and clear the queued
+	 * flag, and finally we might get another bast which re-queues
+	 * us before our ast for the downconvert is called. */
 	if (!(lockres->l_flags & USER_LOCK_BLOCKED)) {
 		mlog(ML_BASTS, "lockres %.*s USER_LOCK_BLOCKED\n",
 		     lockres->l_namelen, lockres->l_name);
@@ -326,6 +352,9 @@ static void user_dlm_unblock_lock(struct work_struct *work)
 		goto drop_ref;
 	}
 
+	/* If there are still incompat holders, we can exit safely
+	 * without worrying about re-queueing this lock as that will
+	 * happen on the last call to user_cluster_unlock. */
 	if ((lockres->l_blocking == DLM_LOCK_EX)
 	    && (lockres->l_ex_holders || lockres->l_ro_holders)) {
 		spin_unlock(&lockres->l_lock);
@@ -344,7 +373,7 @@ static void user_dlm_unblock_lock(struct work_struct *work)
 		goto drop_ref;
 	}
 
-	
+	/* yay, we can downconvert now. */
 	new_level = user_highest_compat_lock_level(lockres->l_blocking);
 	lockres->l_requested = new_level;
 	lockres->l_flags |= USER_LOCK_BUSY;
@@ -352,7 +381,7 @@ static void user_dlm_unblock_lock(struct work_struct *work)
 	     lockres->l_namelen, lockres->l_name, lockres->l_level, new_level);
 	spin_unlock(&lockres->l_lock);
 
-	
+	/* need lock downconvert request now... */
 	status = ocfs2_dlm_lock(conn, new_level, &lockres->l_lksb,
 				DLM_LKF_CONVERT|DLM_LKF_VALBLK,
 				lockres->l_name,
@@ -381,6 +410,9 @@ static inline void user_dlm_inc_holders(struct user_lock_res *lockres,
 	}
 }
 
+/* predict what lock level we'll be dropping down to on behalf
+ * of another node, and return true if the currently wanted
+ * level will be compatible with it. */
 static inline int
 user_may_continue_on_blocked_lock(struct user_lock_res *lockres,
 				  int wanted)
@@ -417,8 +449,13 @@ again:
 
 	spin_lock(&lockres->l_lock);
 
+	/* We only compare against the currently granted level
+	 * here. If the lock is blocked waiting on a downconvert,
+	 * we'll get caught below. */
 	if ((lockres->l_flags & USER_LOCK_BUSY) &&
 	    (level > lockres->l_level)) {
+		/* is someone sitting in dlm_lock? If so, wait on
+		 * them. */
 		spin_unlock(&lockres->l_lock);
 
 		user_wait_on_busy_lock(lockres);
@@ -427,6 +464,8 @@ again:
 
 	if ((lockres->l_flags & USER_LOCK_BLOCKED) &&
 	    (!user_may_continue_on_blocked_lock(lockres, level))) {
+		/* is the lock is currently blocked on behalf of
+		 * another node */
 		spin_unlock(&lockres->l_lock);
 
 		user_wait_on_blocked_lock(lockres);
@@ -445,7 +484,7 @@ again:
 		BUG_ON(level == DLM_LOCK_IV);
 		BUG_ON(level == DLM_LOCK_NL);
 
-		
+		/* call dlm_lock to upgrade lock now */
 		status = ocfs2_dlm_lock(conn, level, &lockres->l_lksb,
 					local_flags, lockres->l_name,
 					lockres->l_namelen);
@@ -555,7 +594,7 @@ void user_dlm_lock_res_init(struct user_lock_res *lockres,
 	lockres->l_requested = DLM_LOCK_IV;
 	lockres->l_blocking = DLM_LOCK_IV;
 
-	
+	/* should have been checked before getting here. */
 	BUG_ON(dentry->d_name.len >= USER_DLM_LOCK_ID_MAX_LEN);
 
 	memcpy(lockres->l_name,
@@ -619,7 +658,7 @@ bail:
 static void user_dlm_recovery_handler_noop(int node_num,
 					   void *recovery_data)
 {
-	
+	/* We ignore recovery events */
 	return;
 }
 

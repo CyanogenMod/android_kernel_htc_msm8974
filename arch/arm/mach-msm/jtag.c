@@ -24,7 +24,9 @@
 #include <mach/scm.h>
 #include <mach/jtag.h>
 
+/* DBGv7 with baseline CP14 registers implemented */
 #define ARM_DEBUG_ARCH_V7B	(0x3)
+/* DBGv7 with all CP14 registers implemented */
 #define ARM_DEBUG_ARCH_V7	(0x4)
 #define ARM_DEBUG_ARCH_V7p1	(0x5)
 
@@ -32,8 +34,10 @@
 #define BMVAL(val, lsb, msb)	((val & BM(lsb, msb)) >> lsb)
 #define BVAL(val, n)		((val & BIT(n)) >> n)
 
+/* no of dbg regs + 1 (for storing the reg count) */
 #define MAX_DBG_REGS		(90)
 #define MAX_DBG_STATE_SIZE	(MAX_DBG_REGS * num_possible_cpus())
+/* no of etm regs + 1 (for storing the reg count) */
 #define MAX_ETM_REGS		(78)
 #define MAX_ETM_STATE_SIZE	(MAX_ETM_REGS * num_possible_cpus())
 
@@ -383,10 +387,14 @@ static inline void dbg_save_state(int cpu)
 
 	switch (dbg.arch) {
 	case ARM_DEBUG_ARCH_V7p1:
+		/* Set OS lock to inform the debugger that the OS is in the
+		 * process of saving debug registers. It prevents accidental
+		 * modification of the debug regs by the external debugger.
+		 */
 		dbg_write(OSLOCK_MAGIC, DBGOSLAR);
 		isb();
 
-		
+		/* We skip saving DBGBXVRn since not supported on Krait */
 
 		dbg.state[i++] = dbg_read(DBGWFAR);
 		for (j = 0; j < dbg.nr_bp; j++)
@@ -399,17 +407,25 @@ static inline void dbg_save_state(int cpu)
 		dbg.state[i++] = dbg_read(DBGDTRRXext);
 		dbg.state[i++] = dbg_read(DBGDSCRext);
 
-		
+		/* Set the OS double lock */
 		isb();
 		dbg_write(0x1, DBGOSDLR);
 		isb();
 		break;
 	case ARM_DEBUG_ARCH_V7B:
 	case ARM_DEBUG_ARCH_V7:
+		/* Set OS lock to inform the debugger that the OS is in the
+		 * process of saving dbg registers. It prevents accidental
+		 * modification of the dbg regs by the external debugger
+		 * and resets the internal counter.
+		 */
 		dbg_write(OSLOCK_MAGIC, DBGOSLAR);
 		isb();
 
-		cnt = dbg_read(DBGOSSRR); 
+		cnt = dbg_read(DBGOSSRR); /* save count for restore */
+		/* MAX_DBG_REGS = no of dbg regs + 1 (for storing the reg count)
+		 * check for state overflow, if not enough space, don't save
+		 */
 		if (cnt >= MAX_DBG_REGS)
 			cnt = 0;
 		dbg.state[i++] = cnt;
@@ -430,15 +446,18 @@ static inline void dbg_restore_state(int cpu)
 
 	switch (dbg.arch) {
 	case ARM_DEBUG_ARCH_V7p1:
-		
+		/* Clear the OS double lock */
 		isb();
 		dbg_write(0x0, DBGOSDLR);
 		isb();
 
+		/* Set OS lock. Lock will already be set after power collapse
+		 * but this write is included to ensure it is set.
+		 */
 		dbg_write(OSLOCK_MAGIC, DBGOSLAR);
 		isb();
 
-		
+		/* We skip restoring DBGBXVRn since not supported on Krait */
 
 		dbg_write(dbg.state[i++], DBGWFAR);
 		for (j = 0; j < dbg.nr_bp; j++)
@@ -457,16 +476,23 @@ static inline void dbg_restore_state(int cpu)
 		break;
 	case ARM_DEBUG_ARCH_V7B:
 	case ARM_DEBUG_ARCH_V7:
-		
+		/* Clear sticky bit */
 		dbg_read(DBGPRSR);
 		isb();
 
+		/* Set OS lock. Lock will already be set after power collapse
+		 * but this write is required to reset the internal counter used
+		 * for DBG state restore.
+		 */
 		dbg_write(OSLOCK_MAGIC, DBGOSLAR);
 		isb();
 
-		dbg_read(DBGOSSRR); 
+		dbg_read(DBGOSSRR); /* dummy read of OSSRR */
 		cnt = dbg.state[i++];
 		for (j = 0; j < cnt; j++) {
+			/* DBGDSCR special case
+			 * DBGDSCR = DBGDSCR & DBGDSCR_MASK
+			 */
 			if (j == 20)
 				dbg_write(dbg.state[i++] & DBGDSCR_MASK,
 								DBGOSSRR);
@@ -474,7 +500,7 @@ static inline void dbg_restore_state(int cpu)
 				dbg_write(dbg.state[i++], DBGOSSRR);
 		}
 
-		
+		/* Clear the OS lock */
 		isb();
 		dbg_write(0x0, DBGOSLAR);
 		isb();
@@ -814,11 +840,17 @@ static inline void etm_save_state(int cpu)
 
 	i = cpu * MAX_ETM_REGS;
 
-	
+	/* Vote for ETM power/clock enable */
 	etm_clk_enable();
 
 	switch (etm.arch) {
 	case PFT_ARCH_V1_1:
+		/* Set OS lock to inform the debugger that the OS is in the
+		 * process of saving etm registers. It prevents accidental
+		 * modification of the etm regs by the external debugger.
+		 *
+		 * We don't poll for ETMSR[1] since it doesn't get set
+		 */
 		etm_write(OSLOCK_MAGIC, ETMOSLAR);
 		isb();
 
@@ -854,11 +886,29 @@ static inline void etm_save_state(int cpu)
 		etm.state[i++] = etm_read(ETMCLAIMCLR);
 		break;
 	case ETM_ARCH_V3_3:
+		/* In ETMv3.3, it is possible for the coresight lock to be
+		 * implemented for CP14 interface but we currently assume that
+		 * it is not, so no need to unlock and lock coresight lock
+		 * (ETMLAR).
+		 *
+		 * Also since save and restore is not conditional i.e. always
+		 * occurs when enabled, there is no need to clear the sticky
+		 * PDSR bit while saving. It will be cleared during boot up/init
+		 * and then by the restore procedure.
+		 */
 
+		/* Set OS lock to inform the debugger that the OS is in the
+		 * process of saving etm registers. It prevents accidental
+		 * modification of the etm regs by the external debugger
+		 * and resets the internal counter.
+		 */
 		etm_write(OSLOCK_MAGIC, ETMOSLAR);
 		isb();
 
-		cnt = etm_read(ETMOSSRR); 
+		cnt = etm_read(ETMOSSRR); /* save count for restore */
+		/* MAX_ETM_REGS = no of etm regs + 1 (for storing the reg count)
+		 * check for state overflow, if not enough space, don't save
+		 */
 		if (cnt >= MAX_ETM_REGS)
 			cnt = 0;
 		etm.state[i++] = cnt;
@@ -870,7 +920,7 @@ static inline void etm_save_state(int cpu)
 								__func__);
 	}
 
-	
+	/* Vote for ETM power/clock disable */
 	etm_clk_disable();
 }
 
@@ -880,11 +930,16 @@ static inline void etm_restore_state(int cpu)
 
 	i = cpu * MAX_ETM_REGS;
 
-	
+	/* Vote for ETM power/clock enable */
 	etm_clk_enable();
 
 	switch (etm.arch) {
 	case PFT_ARCH_V1_1:
+		/* Set OS lock. Lock will already be set after power collapse
+		 * but this write is included to ensure it is set.
+		 *
+		 * We don't poll for ETMSR[1] since it doesn't get set
+		 */
 		etm_write(OSLOCK_MAGIC, ETMOSLAR);
 		isb();
 
@@ -919,26 +974,35 @@ static inline void etm_restore_state(int cpu)
 		etm_write(etm.state[i++], ETMVMIDCVR);
 		etm_write(etm.state[i++], ETMCLAIMSET);
 
-		
+		/* Clear the OS lock */
 		isb();
 		etm_write(0x0, ETMOSLAR);
 		isb();
 		break;
 	case ETM_ARCH_V3_3:
+		/* In ETMv3.3, it is possible for the coresight lock to be
+		 * implemented for CP14 interface but we currently assume that
+		 * it is not, so no need to unlock and lock coresight lock
+		 * (ETMLAR).
+		 */
 
-		
+		/* Clear sticky bit */
 		etm_read(ETMPDSR);
 		isb();
 
+		/* Set OS lock. Lock will already be set after power collapse
+		 * but this write is required to reset the internal counter used
+		 * for ETM state restore.
+		 */
 		etm_write(OSLOCK_MAGIC, ETMOSLAR);
 		isb();
 
-		etm_read(ETMOSSRR); 
+		etm_read(ETMOSSRR); /* dummy read of OSSRR */
 		cnt = etm.state[i++];
 		for (j = 0; j < cnt; j++)
 			etm_write(etm.state[i++], ETMOSSRR);
 
-		
+		/* Clear the OS lock */
 		isb();
 		etm_write(0x0, ETMOSLAR);
 		isb();
@@ -948,10 +1012,28 @@ static inline void etm_restore_state(int cpu)
 								__func__);
 	}
 
-	
+	/* Vote for ETM power/clock disable */
 	etm_clk_disable();
 }
 
+/**
+ * msm_jtag_save_state - save debug and etm registers
+ *
+ * Debug and etm registers are saved before power collapse if debug
+ * and etm architecture is supported respectively and TZ isn't supporting
+ * the save and restore of debug and etm registers.
+ *
+ * CONTEXT:
+ * Called with preemption off and interrupts locked from:
+ * 1. per_cpu idle thread context for idle power collapses
+ * or
+ * 2. per_cpu idle thread context for hotplug/suspend power collapse
+ *    for nonboot cpus
+ * or
+ * 3. suspend thread context for suspend power collapse for core0
+ *
+ * In all cases we will run on the same cpu for the entire duration.
+ */
 void msm_jtag_save_state(void)
 {
 	int cpu;
@@ -959,7 +1041,7 @@ void msm_jtag_save_state(void)
 	cpu = raw_smp_processor_id();
 
 	msm_jtag_save_cntr[cpu]++;
-	
+	/* ensure counter is updated before moving forward */
 	mb();
 
 	if (dbg.save_restore_enabled)
@@ -969,12 +1051,37 @@ void msm_jtag_save_state(void)
 }
 EXPORT_SYMBOL(msm_jtag_save_state);
 
+/**
+ * msm_jtag_restore_state - restore debug and etm registers
+ *
+ * Debug and etm registers are restored after power collapse if debug
+ * and etm architecture is supported respectively and TZ isn't supporting
+ * the save and restore of debug and etm registers.
+ *
+ * CONTEXT:
+ * Called with preemption off and interrupts locked from:
+ * 1. per_cpu idle thread context for idle power collapses
+ * or
+ * 2. per_cpu idle thread context for hotplug/suspend power collapse
+ *    for nonboot cpus
+ * or
+ * 3. suspend thread context for suspend power collapse for core0
+ *
+ * In all cases we will run on the same cpu for the entire duration.
+ */
 void msm_jtag_restore_state(void)
 {
 	int cpu;
 
 	cpu = raw_smp_processor_id();
 
+	/* Attempt restore only if save has been done. If power collapse
+	 * is disabled, hotplug off of non-boot core will result in WFI
+	 * and hence msm_jtag_save_state will not occur. Subsequently,
+	 * during hotplug on of non-boot core when msm_jtag_restore_state
+	 * is called via msm_platform_secondary_init, this check will help
+	 * bail us out without restoring.
+	 */
 	if (msm_jtag_save_cntr[cpu] == msm_jtag_restore_cntr[cpu])
 		return;
 	else if (msm_jtag_save_cntr[cpu] != msm_jtag_restore_cntr[cpu] + 1)
@@ -983,7 +1090,7 @@ void msm_jtag_restore_state(void)
 				   (unsigned long)msm_jtag_restore_cntr[cpu]);
 
 	msm_jtag_restore_cntr[cpu]++;
-	
+	/* ensure counter is updated before moving forward */
 	mb();
 
 	if (dbg.save_restore_enabled)
@@ -1001,9 +1108,9 @@ static int __init msm_jtag_dbg_init(void)
 	if (msm_jtag_fuse_apps_access_disabled())
 		return -EPERM;
 
-	
+	/* This will run on core0 so use it to populate parameters */
 
-	
+	/* Populate dbg_ctx data */
 
 	dbgdidr = dbg_read(DBGDIDR);
 	dbg.arch = BMVAL(dbgdidr, 16, 19);
@@ -1023,7 +1130,7 @@ static int __init msm_jtag_dbg_init(void)
 		goto dbg_out;
 	}
 
-	
+	/* Allocate dbg state save space */
 	dbg.state = kzalloc(MAX_DBG_STATE_SIZE * sizeof(uint32_t), GFP_KERNEL);
 	if (!dbg.state) {
 		ret = -ENOMEM;
@@ -1045,14 +1152,14 @@ static int __init msm_jtag_etm_init(void)
 	if (msm_jtag_fuse_apps_access_disabled())
 		return -EPERM;
 
-	
+	/* Vote for ETM power/clock enable */
 	etm_clk_enable();
 
-	
+	/* Clear sticky bit in PDSR - required for ETMv3.3 (8660) */
 	etm_read(ETMPDSR);
 	isb();
 
-	
+	/* Populate etm_ctx data */
 
 	etmidr = etm_read(ETMIDR);
 	etm.arch = BMVAL(etmidr, 4, 11);
@@ -1076,10 +1183,10 @@ static int __init msm_jtag_etm_init(void)
 		goto etm_out;
 	}
 
-	
+	/* Vote for ETM power/clock disable */
 	etm_clk_disable();
 
-	
+	/* Allocate etm state save space */
 	etm.state = kzalloc(MAX_ETM_STATE_SIZE * sizeof(uint32_t), GFP_KERNEL);
 	if (!etm.state) {
 		ret = -ENOMEM;

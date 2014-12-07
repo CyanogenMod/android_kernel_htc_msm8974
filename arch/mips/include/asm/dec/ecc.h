@@ -15,21 +15,30 @@
 #ifndef __ASM_MIPS_DEC_ECC_H
 #define __ASM_MIPS_DEC_ECC_H
 
-#define KN0X_EAR_VALID		(1<<31)		
-#define KN0X_EAR_CPU		(1<<30)		
-#define KN0X_EAR_WRITE		(1<<29)		
-#define KN0X_EAR_ECCERR		(1<<28)		
-#define KN0X_EAR_RES_27		(1<<27)		
-#define KN0X_EAR_ADDRESS	(0x7ffffff<<0)	
+/*
+ * Error Address Register bits.
+ * The register is r/wc -- any write clears it.
+ */
+#define KN0X_EAR_VALID		(1<<31)		/* error data valid, bus IRQ */
+#define KN0X_EAR_CPU		(1<<30)		/* CPU/DMA transaction */
+#define KN0X_EAR_WRITE		(1<<29)		/* write/read transaction */
+#define KN0X_EAR_ECCERR		(1<<28)		/* ECC/timeout or overrun */
+#define KN0X_EAR_RES_27		(1<<27)		/* unused */
+#define KN0X_EAR_ADDRESS	(0x7ffffff<<0)	/* address involved */
 
-#define KN0X_ESR_VLDHI		(1<<31)		
-#define KN0X_ESR_CHKHI		(0x7f<<24)	
-#define KN0X_ESR_SNGHI		(1<<23)		
-#define KN0X_ESR_SYNHI		(0x7f<<16)	
-#define KN0X_ESR_VLDLO		(1<<15)		
-#define KN0X_ESR_CHKLO		(0x7f<<8)	
-#define KN0X_ESR_SNGLO		(1<<7)		
-#define KN0X_ESR_SYNLO		(0x7f<<0)	
+/*
+ * Error Syndrome Register bits.
+ * The register is frozen when EAR.VALID is set, otherwise it records bits
+ * from the last memory read.  The register is r/wc -- any write clears it.
+ */
+#define KN0X_ESR_VLDHI		(1<<31)		/* error data valid hi word */
+#define KN0X_ESR_CHKHI		(0x7f<<24)	/* check bits read from mem */
+#define KN0X_ESR_SNGHI		(1<<23)		/* single/double bit error */
+#define KN0X_ESR_SYNHI		(0x7f<<16)	/* syndrome from ECC logic */
+#define KN0X_ESR_VLDLO		(1<<15)		/* error data valid lo word */
+#define KN0X_ESR_CHKLO		(0x7f<<8)	/* check bits read from mem */
+#define KN0X_ESR_SNGLO		(1<<7)		/* single/double bit error */
+#define KN0X_ESR_SYNLO		(0x7f<<0)	/* syndrome from ECC logic */
 
 
 #ifndef __ASSEMBLY__
@@ -43,4 +52,4 @@ extern int dec_ecc_be_handler(struct pt_regs *regs, int is_fixup);
 extern irqreturn_t dec_ecc_be_interrupt(int irq, void *dev_id);
 #endif
 
-#endif 
+#endif /* __ASM_MIPS_DEC_ECC_H */

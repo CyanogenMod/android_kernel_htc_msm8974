@@ -44,7 +44,7 @@ static int am3517evm_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	int ret;
 
-	
+	/* Set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, 0,
 			CODEC_CLOCK, SND_SOC_CLOCK_IN);
 	if (ret < 0) {
@@ -73,6 +73,7 @@ static struct snd_soc_ops am3517evm_ops = {
 	.hw_params = am3517evm_hw_params,
 };
 
+/* am3517evm machine dapm widgets */
 static const struct snd_soc_dapm_widget tlv320aic23_dapm_widgets[] = {
 	SND_SOC_DAPM_HP("Line Out", NULL),
 	SND_SOC_DAPM_LINE("Line In", NULL),
@@ -80,7 +81,7 @@ static const struct snd_soc_dapm_widget tlv320aic23_dapm_widgets[] = {
 };
 
 static const struct snd_soc_dapm_route audio_map[] = {
-	
+	/* Line Out connected to LLOUT, RLOUT */
 	{"Line Out", NULL, "LOUT"},
 	{"Line Out", NULL, "ROUT"},
 
@@ -90,6 +91,7 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"MICIN", NULL, "Mic In"},
 };
 
+/* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link am3517evm_dai = {
 	.name = "TLV320AIC23",
 	.stream_name = "AIC23",
@@ -102,6 +104,7 @@ static struct snd_soc_dai_link am3517evm_dai = {
 	.ops = &am3517evm_ops,
 };
 
+/* Audio machine driver */
 static struct snd_soc_card snd_soc_am3517evm = {
 	.name = "am3517evm",
 	.owner = THIS_MODULE,

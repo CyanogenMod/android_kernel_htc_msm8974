@@ -59,6 +59,8 @@ struct av7110_p2t {
 	struct dvb_demux_feed *feed;
 };
 
+/* video MPEG decoder events: */
+/* (code copied from dvb_frontend.c, should maybe be factored out...) */
 #define MAX_VIDEO_EVENT 8
 struct dvb_video_events {
 	struct video_event	  events[MAX_VIDEO_EVENT];
@@ -72,6 +74,7 @@ struct dvb_video_events {
 
 struct av7110;
 
+/* infrared remote control */
 struct infrared {
 	u16	key_map[256];
 	struct input_dev	*input_dev;
@@ -90,9 +93,10 @@ struct infrared {
 };
 
 
+/* place to store all the necessary device information */
 struct av7110 {
 
-	
+	/* devices */
 
 	struct dvb_device	dvb_dev;
 	struct dvb_net		dvb_net;
@@ -106,7 +110,7 @@ struct av7110 {
 
 	char			*card_name;
 
-	
+	/* support for analog module of dvb-c */
 	int			analog_tuner_flags;
 	int			current_input;
 	u32			current_freq;
@@ -114,7 +118,7 @@ struct av7110 {
 	struct tasklet_struct	debi_tasklet;
 	struct tasklet_struct	gpio_tasklet;
 
-	int adac_type;	       
+	int adac_type;	       /* audio DAC type */
 #define DVB_ADAC_TI	  0
 #define DVB_ADAC_CRYSTAL  1
 #define DVB_ADAC_MSP34x0  2
@@ -122,17 +126,17 @@ struct av7110 {
 #define DVB_ADAC_NONE	 -1
 
 
-	
+	/* buffers */
 
-	void		       *iobuf;	 
-	struct dvb_ringbuffer	avout;   
+	void		       *iobuf;	 /* memory for all buffers */
+	struct dvb_ringbuffer	avout;   /* buffer for video or A/V mux */
 #define AVOUTLEN (128*1024)
-	struct dvb_ringbuffer	aout;    
+	struct dvb_ringbuffer	aout;    /* buffer for audio */
 #define AOUTLEN (64*1024)
 	void		       *bmpbuf;
 #define BMPLEN (8*32768+1024)
 
-	
+	/* bitmap buffers and states */
 
 	int			bmpp;
 	int			bmplen;
@@ -143,7 +147,7 @@ struct av7110 {
 	wait_queue_head_t	bmpq;
 
 
-	
+	/* DEBI and polled command interface */
 
 	spinlock_t		debilock;
 	struct mutex		dcomlock;
@@ -151,7 +155,7 @@ struct av7110 {
 	volatile int		debilen;
 
 
-	
+	/* Recording and playback flags */
 
 	int			rec_mode;
 	int			playing;
@@ -161,13 +165,13 @@ struct av7110 {
 #define RP_AV	 3
 
 
-	
+	/* OSD */
 
-	int			osdwin;      
+	int			osdwin;      /* currently active window */
 	u16			osdbpp[8];
 	struct mutex		osd_mutex;
 
-	
+	/* CA */
 
 	ca_slot_info_t		ci_slot[2];
 
@@ -178,7 +182,7 @@ struct av7110 {
 	struct dmx_frontend	hw_frontend;
 	struct dmx_frontend	mem_frontend;
 
-	
+	/* for budget mode demux1 */
 	struct dmxdev		dmxdev1;
 	struct dvb_demux	demux1;
 	struct dvb_net		dvb_net1;
@@ -217,7 +221,7 @@ struct av7110 {
 	int registered;
 
 
-	
+	/* AV711X */
 
 	u32		    arm_fw;
 	u32		    arm_rtsl;
@@ -253,7 +257,7 @@ struct av7110 {
 
 	struct infrared		ir;
 
-	
+	/* firmware stuff */
 	unsigned char *bin_fw;
 	unsigned long size_fw;
 
@@ -266,7 +270,7 @@ struct av7110 {
 	struct dvb_frontend* fe;
 	fe_status_t fe_status;
 
-	
+	/* crash recovery */
 	void				(*recover)(struct av7110* av7110);
 	fe_sec_voltage_t		saved_voltage;
 	fe_sec_tone_mode_t		saved_tone;
@@ -292,6 +296,7 @@ extern int av7110_check_ir_config(struct av7110 *av7110, int force);
 extern int av7110_ir_init(struct av7110 *av7110);
 extern void av7110_ir_exit(struct av7110 *av7110);
 
+/* msp3400 i2c subaddresses */
 #define MSP_WR_DEM 0x10
 #define MSP_RD_DEM 0x11
 #define MSP_WR_DSP 0x12
@@ -306,4 +311,4 @@ extern int av7110_init_analog_module(struct av7110 *av7110);
 extern int av7110_init_v4l(struct av7110 *av7110);
 extern int av7110_exit_v4l(struct av7110 *av7110);
 
-#endif 
+#endif /* _AV7110_H_ */

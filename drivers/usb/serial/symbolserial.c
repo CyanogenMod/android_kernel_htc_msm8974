@@ -28,6 +28,7 @@ static const struct usb_device_id id_table[] = {
 };
 MODULE_DEVICE_TABLE(usb, id_table);
 
+/* This structure holds all of the individual device information */
 struct symbol_private {
 	struct usb_device *udev;
 	struct usb_serial *serial;
@@ -37,7 +38,7 @@ struct symbol_private {
 	int buffer_size;
 	u8 bInterval;
 	u8 int_address;
-	spinlock_t lock;	
+	spinlock_t lock;	/* protects the following flags */
 	bool throttled;
 	bool actually_throttled;
 	bool rts;
@@ -57,12 +58,12 @@ static void symbol_int_callback(struct urb *urb)
 
 	switch (status) {
 	case 0:
-		
+		/* success */
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
-		
+		/* this urb is terminated, clean up */
 		dbg("%s - urb shutting down with status: %d",
 		    __func__, status);
 		return;
@@ -78,6 +79,14 @@ static void symbol_int_callback(struct urb *urb)
 	if (urb->actual_length > 1) {
 		data_length = urb->actual_length - 1;
 
+		/*
+		 * Data from the device comes with a 1 byte header:
+		 *
+		 * <size of data>data...
+		 * 	This is real data to be sent to the tty layer
+		 * we pretty much just ignore the size and send everything
+		 * else to the tty layer.
+		 */
 		tty = tty_port_tty_get(&port->port);
 		if (tty) {
 			tty_insert_flip_string(tty, &data[1], data_length);
@@ -93,7 +102,7 @@ static void symbol_int_callback(struct urb *urb)
 exit:
 	spin_lock(&priv->lock);
 
-	
+	/* Continue trying to always read if we should */
 	if (!priv->throttled) {
 		usb_fill_int_urb(priv->int_urb, priv->udev,
 				 usb_rcvintpipe(priv->udev,
@@ -124,7 +133,7 @@ static int symbol_open(struct tty_struct *tty, struct usb_serial_port *port)
 	priv->port = port;
 	spin_unlock_irqrestore(&priv->lock, flags);
 
-	
+	/* Start reading from the device */
 	usb_fill_int_urb(priv->int_urb, priv->udev,
 			 usb_rcvintpipe(priv->udev, priv->int_address),
 			 priv->int_buffer, priv->buffer_size,
@@ -143,7 +152,7 @@ static void symbol_close(struct usb_serial_port *port)
 
 	dbg("%s - port %d", __func__, port->number);
 
-	
+	/* shutdown our urbs */
 	usb_kill_urb(priv->int_urb);
 }
 
@@ -190,7 +199,7 @@ static int symbol_startup(struct usb_serial *serial)
 	int retval = -ENOMEM;
 	bool int_in_found = false;
 
-	
+	/* create our private serial structure */
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (priv == NULL) {
 		dev_err(&serial->dev->dev, "%s - Out of memory\n", __func__);
@@ -201,7 +210,7 @@ static int symbol_startup(struct usb_serial *serial)
 	priv->port = serial->port[0];
 	priv->udev = serial->dev;
 
-	
+	/* find our interrupt endpoint */
 	intf = serial->interface->altsetting;
 	for (i = 0; i < intf->desc.bNumEndpoints; ++i) {
 		struct usb_endpoint_descriptor *endpoint;
@@ -226,7 +235,7 @@ static int symbol_startup(struct usb_serial *serial)
 		priv->int_address = endpoint->bEndpointAddress;
 		priv->bInterval = endpoint->bInterval;
 
-		
+		/* set up our int urb */
 		usb_fill_int_urb(priv->int_urb, priv->udev,
 				 usb_rcvintpipe(priv->udev,
 				 		endpoint->bEndpointAddress),

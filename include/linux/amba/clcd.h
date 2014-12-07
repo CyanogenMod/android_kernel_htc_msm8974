@@ -11,6 +11,9 @@
  */
 #include <linux/fb.h>
 
+/*
+ * CLCD Controller Internal Register addresses
+ */
 #define CLCD_TIM0		0x00000000
 #define CLCD_TIM1 		0x00000004
 #define CLCD_TIM2 		0x00000008
@@ -65,7 +68,7 @@
 #define CNTL_WATERMARK		(1 << 16)
 
 enum {
-	
+	/* individual formats */
 	CLCD_CAP_RGB444		= (1 << 0),
 	CLCD_CAP_RGB5551	= (1 << 1),
 	CLCD_CAP_RGB565		= (1 << 2),
@@ -75,13 +78,13 @@ enum {
 	CLCD_CAP_BGR565		= (1 << 6),
 	CLCD_CAP_BGR888		= (1 << 7),
 
-	
+	/* connection layouts */
 	CLCD_CAP_444		= CLCD_CAP_RGB444 | CLCD_CAP_BGR444,
 	CLCD_CAP_5551		= CLCD_CAP_RGB5551 | CLCD_CAP_BGR5551,
 	CLCD_CAP_565		= CLCD_CAP_RGB565 | CLCD_CAP_BGR565,
 	CLCD_CAP_888		= CLCD_CAP_RGB888 | CLCD_CAP_BGR888,
 
-	
+	/* red/blue ordering */
 	CLCD_CAP_RGB		= CLCD_CAP_RGB444 | CLCD_CAP_RGB5551 |
 				  CLCD_CAP_RGB565 | CLCD_CAP_RGB888,
 	CLCD_CAP_BGR		= CLCD_CAP_BGR444 | CLCD_CAP_BGR5551 |
@@ -92,8 +95,8 @@ enum {
 
 struct clcd_panel {
 	struct fb_videomode	mode;
-	signed short		width;	
-	signed short		height;	
+	signed short		width;	/* width in mm */
+	signed short		height;	/* height in mm */
 	u32			tim2;
 	u32			tim3;
 	u32			cntl;
@@ -115,29 +118,59 @@ struct clcd_regs {
 
 struct clcd_fb;
 
+/*
+ * the board-type specific routines
+ */
 struct clcd_board {
 	const char *name;
 
+	/*
+	 * Optional.  Hardware capability flags.
+	 */
 	u32	caps;
 
+	/*
+	 * Optional.  Check whether the var structure is acceptable
+	 * for this display.
+	 */
 	int	(*check)(struct clcd_fb *fb, struct fb_var_screeninfo *var);
 
+	/*
+	 * Compulsory.  Decode fb->fb.var into regs->*.  In the case of
+	 * fixed timing, set regs->* to the register values required.
+	 */
 	void	(*decode)(struct clcd_fb *fb, struct clcd_regs *regs);
 
+	/*
+	 * Optional.  Disable any extra display hardware.
+	 */
 	void	(*disable)(struct clcd_fb *);
 
+	/*
+	 * Optional.  Enable any extra display hardware.
+	 */
 	void	(*enable)(struct clcd_fb *);
 
+	/*
+	 * Setup platform specific parts of CLCD driver
+	 */
 	int	(*setup)(struct clcd_fb *);
 
+	/*
+	 * mmap the framebuffer memory
+	 */
 	int	(*mmap)(struct clcd_fb *, struct vm_area_struct *);
 
+	/*
+	 * Remove platform specific parts of CLCD driver
+	 */
 	void	(*remove)(struct clcd_fb *);
 };
 
 struct amba_device;
 struct clk;
 
+/* this data structure describes each frame buffer device we find */
 struct clcd_fb {
 	struct fb_info		fb;
 	struct amba_device	*dev;
@@ -158,6 +191,9 @@ static inline void clcdfb_decode(struct clcd_fb *fb, struct clcd_regs *regs)
 	struct fb_var_screeninfo *var = &fb->fb.var;
 	u32 val, cpl;
 
+	/*
+	 * Program the CLCD controller registers and start the CLCD
+	 */
 	val = ((var->xres / 16) - 1) << 2;
 	val |= (var->hsync_len - 1) << 8;
 	val |= (var->right_margin - 1) << 16;
@@ -178,13 +214,13 @@ static inline void clcdfb_decode(struct clcd_fb *fb, struct clcd_regs *regs)
 	val |= var->sync & FB_SYNC_VERT_HIGH_ACT ? 0 : TIM2_IVS;
 
 	cpl = var->xres_virtual;
-	if (fb->panel->cntl & CNTL_LCDTFT)	  
-		;
-	else if (!var->grayscale)		  
+	if (fb->panel->cntl & CNTL_LCDTFT)	  /* TFT */
+		/* / 1 */;
+	else if (!var->grayscale)		  /* STN color */
 		cpl = cpl * 8 / 3;
-	else if (fb->panel->cntl & CNTL_LCDMONO8) 
+	else if (fb->panel->cntl & CNTL_LCDMONO8) /* STN monochrome, 8bit */
 		cpl /= 8;
-	else					  
+	else					  /* STN monochrome, 4bit */
 		cpl /= 4;
 
 	regs->tim2 = val | ((cpl - 1) << 16);
@@ -197,6 +233,10 @@ static inline void clcdfb_decode(struct clcd_fb *fb, struct clcd_regs *regs)
 
 	if (fb->panel->caps && fb->board->caps &&
 	    var->bits_per_pixel >= 16) {
+		/*
+		 * if board and panel supply capabilities, we can support
+		 * changing BGR/RGB depending on supplied parameters
+		 */
 		if (var->red.offset == 0)
 			val &= ~CNTL_BGR;
 		else
@@ -217,6 +257,11 @@ static inline void clcdfb_decode(struct clcd_fb *fb, struct clcd_regs *regs)
 		val |= CNTL_LCDBPP8;
 		break;
 	case 16:
+		/*
+		 * PL110 cannot choose between 5551 and 565 modes in its
+		 * control register.  It is possible to use 565 with
+		 * custom external wiring.
+		 */
 		if (amba_part(fb->dev) == 0x110 ||
 		    var->green.length == 5)
 			val |= CNTL_LCDBPP16;
@@ -240,20 +285,24 @@ static inline int clcdfb_check(struct clcd_fb *fb, struct fb_var_screeninfo *var
 	var->yres_virtual = var->yres = (var->yres + 1) & ~1;
 
 #define CHECK(e,l,h) (var->e < l || var->e > h)
-	if (CHECK(right_margin, (5+1), 256) ||	
-	    CHECK(left_margin, (5+1), 256) ||	
+	if (CHECK(right_margin, (5+1), 256) ||	/* back porch */
+	    CHECK(left_margin, (5+1), 256) ||	/* front porch */
 	    CHECK(hsync_len, (5+1), 256) ||
 	    var->xres > 4096 ||
-	    var->lower_margin > 255 ||		
-	    var->upper_margin > 255 ||		
+	    var->lower_margin > 255 ||		/* back porch */
+	    var->upper_margin > 255 ||		/* front porch */
 	    var->vsync_len > 32 ||
 	    var->yres > 1024)
 		return -EINVAL;
 #undef CHECK
 
-	
-	
+	/* single panel mode: PCD = max(PCD, 1) */
+	/* dual panel mode: PCD = max(PCD, 5) */
 
+	/*
+	 * You can't change the grayscale setting, and
+	 * we can only do non-interlaced video.
+	 */
 	if (var->grayscale != fb->fb.var.grayscale ||
 	    (var->vmode & FB_VMODE_MASK) != FB_VMODE_NONINTERLACED)
 		return -EINVAL;

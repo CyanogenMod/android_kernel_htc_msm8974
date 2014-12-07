@@ -39,9 +39,11 @@
 #include <asm/txx9/tx4938.h>
 #endif
 
+/* EBUSC settings of TX4927, etc. */
 struct resource txx9_ce_res[8];
-static char txx9_ce_res_name[8][4];	
+static char txx9_ce_res_name[8][4];	/* "CEn" */
 
+/* pcode, internal register */
 unsigned int txx9_pcode;
 char txx9_pcode_str[8];
 static struct resource txx9_reg_res = {
@@ -68,16 +70,19 @@ txx9_reg_res_init(unsigned int pcode, unsigned long base, unsigned long size)
 	}
 }
 
+/* clocks */
 unsigned int txx9_master_clock;
 unsigned int txx9_cpu_clock;
 unsigned int txx9_gbus_clock;
 
 #ifdef CONFIG_CPU_TX39XX
+/* don't enable by default - see errata */
 int txx9_ccfg_toeon __initdata;
 #else
 int txx9_ccfg_toeon __initdata = 1;
 #endif
 
+/* Minimum CLK support */
 
 struct clk *clk_get(struct device *dev, const char *id)
 {
@@ -111,6 +116,7 @@ void clk_put(struct clk *clk)
 }
 EXPORT_SYMBOL(clk_put);
 
+/* GPIO support */
 
 #ifdef CONFIG_GENERIC_GPIO
 int gpio_to_irq(unsigned gpio)
@@ -143,7 +149,7 @@ static struct txx9_board_vec *__init find_board_byname(const char *name)
 {
 	int i;
 
-	
+	/* search board_vecs table */
 	for (i = 0; i < ARRAY_SIZE(board_vecs); i++) {
 		if (strstr(board_vecs[i]->system, name))
 			return board_vecs[i];
@@ -155,9 +161,13 @@ static void __init prom_init_cmdline(void)
 {
 	int argc;
 	int *argv32;
-	int i;			
+	int i;			/* Always ignore the "-c" at argv[0] */
 
 	if (fw_arg0 >= CKSEG0 || fw_arg1 < CKSEG0) {
+		/*
+		 * argc is not a valid number, or argv32 is not a valid
+		 * pointer
+		 */
 		argc = 0;
 		argv32 = NULL;
 	} else {
@@ -184,6 +194,7 @@ static int txx9_ic_disable __initdata;
 static int txx9_dc_disable __initdata;
 
 #if defined(CONFIG_CPU_TX49XX)
+/* flush all cache on very early stage (before 4k_cache_init) */
 static void __init early_flush_dcache(void)
 {
 	unsigned int conf = read_c0_config();
@@ -192,7 +203,7 @@ static void __init early_flush_dcache(void)
 	unsigned long addr, end;
 
 	end = INDEX_BASE + dc_size / 4;
-	
+	/* 4way, waybit=0 */
 	for (addr = INDEX_BASE; addr < end; addr += linesz) {
 		cache_op(Index_Writeback_Inv_D, addr | 0);
 		cache_op(Index_Writeback_Inv_D, addr | 1);
@@ -206,7 +217,7 @@ static void __init txx9_cache_fixup(void)
 	unsigned int conf;
 
 	conf = read_c0_config();
-	
+	/* flush and disable */
 	if (txx9_ic_disable) {
 		conf |= TX49_CONF_IC;
 		write_c0_config(conf);
@@ -217,7 +228,7 @@ static void __init txx9_cache_fixup(void)
 		write_c0_config(conf);
 	}
 
-	
+	/* enable cache */
 	conf = read_c0_config();
 	if (!txx9_ic_disable)
 		conf &= ~TX49_CONF_IC;
@@ -231,6 +242,7 @@ static void __init txx9_cache_fixup(void)
 		pr_info("TX49XX D-Cache disabled.\n");
 }
 #elif defined(CONFIG_CPU_TX39XX)
+/* flush all cache on very early stage (before tx39_cache_init) */
 static void __init early_flush_dcache(void)
 {
 	unsigned int conf = read_c0_config();
@@ -240,7 +252,7 @@ static void __init early_flush_dcache(void)
 	unsigned long addr, end;
 
 	end = INDEX_BASE + dc_size / 2;
-	
+	/* 2way, waybit=0 */
 	for (addr = INDEX_BASE; addr < end; addr += linesz) {
 		cache_op(Index_Writeback_Inv_D, addr | 0);
 		cache_op(Index_Writeback_Inv_D, addr | 1);
@@ -252,7 +264,7 @@ static void __init txx9_cache_fixup(void)
 	unsigned int conf;
 
 	conf = read_c0_config();
-	
+	/* flush and disable */
 	if (txx9_ic_disable) {
 		conf &= ~TX39_CONF_ICE;
 		write_c0_config(conf);
@@ -263,7 +275,7 @@ static void __init txx9_cache_fixup(void)
 		write_c0_config(conf);
 	}
 
-	
+	/* enable cache */
 	conf = read_c0_config();
 	if (!txx9_ic_disable)
 		conf |= TX39_CONF_ICE;
@@ -325,10 +337,10 @@ static void __init select_board(void)
 {
 	const char *envstr;
 
-	
+	/* first, determine by "board=" argument in preprocess_cmdline() */
 	if (txx9_board_vec)
 		return;
-	
+	/* next, determine by "board" envvar */
 	envstr = prom_getenv("board");
 	if (envstr) {
 		txx9_board_vec = find_board_byname(envstr);
@@ -336,7 +348,7 @@ static void __init select_board(void)
 			return;
 	}
 
-	
+	/* select "default" board */
 #ifdef CONFIG_CPU_TX39XX
 	txx9_board_vec = &jmr3927_vec;
 #endif
@@ -397,7 +409,7 @@ const char *__init prom_getenv(const char *name)
 		return NULL;
 
 	str = (const s32 *)fw_arg2;
-	
+	/* YAMON style ("name", "value" pairs) */
 	while (str[0] && str[1]) {
 		if (!strcmp((const char *)(unsigned long)str[0], name))
 			return (const char *)(unsigned long)str[1];
@@ -414,12 +426,18 @@ static void __noreturn txx9_machine_halt(void)
 		if (cpu_wait) {
 			(*cpu_wait)();
 			if (cpu_has_counter) {
+				/*
+				 * Clear counter interrupt while it
+				 * breaks WAIT instruction even if
+				 * masked.
+				 */
 				write_c0_compare(0);
 			}
 		}
 	}
 }
 
+/* Watchdog support */
 void __init txx9_wdt_init(unsigned long base)
 {
 	struct resource res = {
@@ -434,16 +452,17 @@ void txx9_wdt_now(unsigned long base)
 {
 	struct txx9_tmr_reg __iomem *tmrptr =
 		ioremap(base, sizeof(struct txx9_tmr_reg));
-	
+	/* disable watch dog timer */
 	__raw_writel(TXx9_TMWTMR_WDIS | TXx9_TMWTMR_TWC, &tmrptr->wtmr);
 	__raw_writel(0, &tmrptr->tcr);
-	
+	/* kick watchdog */
 	__raw_writel(TXx9_TMWTMR_TWIE, &tmrptr->wtmr);
-	__raw_writel(1, &tmrptr->cpra); 
+	__raw_writel(1, &tmrptr->cpra); /* immediate */
 	__raw_writel(TXx9_TMTCR_TCE | TXx9_TMTCR_CCDE | TXx9_TMTCR_TMODE_WDOG,
 		     &tmrptr->tcr);
 }
 
+/* SPI support */
 void __init txx9_spi_init(int busid, unsigned long base, int irq)
 {
 	struct resource res[] = {
@@ -483,14 +502,14 @@ void __init txx9_sio_init(unsigned long baseaddr, int irq,
 	req.mapbase = baseaddr;
 	req.irq = irq;
 	if (!nocts)
-		req.flags |= UPF_BUGGY_UART ;
+		req.flags |= UPF_BUGGY_UART /*HAVE_CTS_LINE*/;
 	if (sclk) {
-		req.flags |= UPF_MAGIC_MULTIPLIER ;
+		req.flags |= UPF_MAGIC_MULTIPLIER /*USE_SCLK*/;
 		req.uartclk = sclk;
 	} else
 		req.uartclk = TXX9_IMCLK;
 	early_serial_txx9_setup(&req);
-#endif 
+#endif /* CONFIG_SERIAL_TXX9 */
 }
 
 #ifdef CONFIG_EARLY_PRINTK
@@ -522,16 +541,17 @@ void __init txx9_sio_putchar_init(unsigned long baseaddr)
 	early_txx9_sio_port = ioremap(baseaddr, 0x24);
 	txx9_prom_putchar = early_txx9_sio_putchar;
 }
-#endif 
+#endif /* CONFIG_EARLY_PRINTK */
 
+/* wrappers */
 void __init plat_mem_setup(void)
 {
 	ioport_resource.start = 0;
-	ioport_resource.end = ~0UL;	
+	ioport_resource.end = ~0UL;	/* no limit */
 	iomem_resource.start = 0;
-	iomem_resource.end = ~0UL;	
+	iomem_resource.end = ~0UL;	/* no limit */
 
-	
+	/* fallback restart/halt routines */
 	_machine_restart = (void (*)(char *))txx9_machine_halt;
 	_machine_halt = txx9_machine_halt;
 	pm_power_off = txx9_machine_halt;
@@ -583,6 +603,7 @@ asmlinkage void plat_irq_dispatch(void)
 		spurious_interrupt();
 }
 
+/* see include/asm-mips/mach-tx39xx/mangle-port.h, for example. */
 #ifdef NEEDS_TXX9_SWIZZLE_ADDR_B
 static unsigned long __swizzle_addr_none(unsigned long port)
 {
@@ -621,7 +642,7 @@ void __init txx9_physmap_flash_init(int no, unsigned long addr,
 	static struct mtd_partition parts[2];
 	struct physmap_flash_data pdata_part;
 
-	
+	/* If this area contained boot area, make separate partition */
 	if (pdata->nr_parts == 0 && !pdata->parts &&
 	    addr < 0x1fc00000 && addr + size > 0x1fc00000 &&
 	    !parts[0].name) {
@@ -778,13 +799,13 @@ out_unmap:
 out_free:
 	kfree(iocled);
 }
-#else 
+#else /* CONFIG_LEDS_GPIO */
 void __init txx9_iocled_init(unsigned long baseaddr,
 			     int basenum, unsigned int num, int lowactive,
 			     const char *color, char **deftriggers)
 {
 }
-#endif 
+#endif /* CONFIG_LEDS_GPIO */
 
 void __init txx9_dmac_init(int id, unsigned long baseaddr, int irq,
 			   const struct txx9dmac_platform_data *pdata)

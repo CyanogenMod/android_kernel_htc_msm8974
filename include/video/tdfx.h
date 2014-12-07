@@ -4,6 +4,7 @@
 #include <linux/i2c.h>
 #include <linux/i2c-algo-bit.h>
 
+/* membase0 register offsets */
 #define STATUS		0x00
 #define PCIINIT0	0x04
 #define SIPMONITOR	0x08
@@ -18,6 +19,8 @@
 #define VGAINIT1	0x2c
 #define DRAMCOMMAND	0x30
 #define DRAMDATA	0x34
+/* reserved	0x38 */
+/* reserved	0x3c */
 #define PLLCTRL0	0x40
 #define PLLCTRL1	0x44
 #define PLLCTRL2	0x48
@@ -46,6 +49,7 @@
 #define VIDOVRDUDX	0xa4
 #define VIDOVRDUDXOFF	0xa8
 #define VIDOVRDVDY	0xac
+/* ... */
 #define VIDOVRDVDYOFF	0xe0
 #define VIDDESKSTART	0xe4
 #define VIDDESKSTRIDE	0xe8
@@ -76,16 +80,18 @@
 
 #define COMMAND_3D	(0x00200000 + 0x120)
 
+/* register bitfields (not all, only as needed) */
 
-#define TDFX_ROP_COPY		0xcc	
-#define TDFX_ROP_INVERT		0x55	
-#define TDFX_ROP_XOR		0x66	
+/* COMMAND_2D reg. values */
+#define TDFX_ROP_COPY		0xcc	/* src */
+#define TDFX_ROP_INVERT		0x55	/* NOT dst */
+#define TDFX_ROP_XOR		0x66	/* src XOR dst */
 
 #define AUTOINC_DSTX			BIT(10)
 #define AUTOINC_DSTY			BIT(11)
 #define COMMAND_2D_FILLRECT		0x05
-#define COMMAND_2D_S2S_BITBLT		0x01	
-#define COMMAND_2D_H2S_BITBLT		0x03	
+#define COMMAND_2D_S2S_BITBLT		0x01	/* screen to screen */
+#define COMMAND_2D_H2S_BITBLT		0x03	/* host to screen */
 
 #define COMMAND_3D_NOP			0x00
 #define STATUS_RETRACE			BIT(6)
@@ -120,6 +126,7 @@
 #define VIDCFG_PIXFMT_SHIFT             18
 #define DACMODE_2X			BIT(0)
 
+/* I2C bit locations in the VIDSERPARPORT register */
 #define DDC_ENAB	0x00040000
 #define DDC_SCL_OUT	0x00080000
 #define DDC_SDA_OUT	0x00100000
@@ -131,6 +138,7 @@
 #define I2C_SCL_IN	0x04000000
 #define I2C_SDA_IN	0x08000000
 
+/* VGA rubbish, need to change this for multihead support */
 #define MISC_W		0x3c2
 #define MISC_R		0x3cc
 #define SEQ_I		0x3c4
@@ -145,14 +153,14 @@
 #ifdef __KERNEL__
 
 struct banshee_reg {
-	
+	/* VGA rubbish */
 	unsigned char att[21];
 	unsigned char crt[25];
 	unsigned char gra[9];
 	unsigned char misc[1];
 	unsigned char seq[5];
 
-	
+	/* Banshee extensions */
 	unsigned char ext[2];
 	unsigned long vidcfg;
 	unsigned long vidpll;
@@ -194,7 +202,7 @@ struct tdfx_par {
 #endif
 };
 
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif	
+#endif	/* _TDFX_H */
 

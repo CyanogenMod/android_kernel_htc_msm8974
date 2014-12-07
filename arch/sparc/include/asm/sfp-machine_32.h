@@ -51,6 +51,13 @@
 
 #define _FP_KEEPNANFRACP 1
 
+/* If one NaN is signaling and the other is not,
+ * we choose that one, otherwise we choose X.
+ */
+/* For _Qp_* and _Q_*, this should prefer X, for
+ * CPU instruction emulation this should prefer Y.
+ * (see SPAMv9 B.2.2 section).
+ */
 #define _FP_CHOOSENAN(fs, wc, R, X, Y, OP)			\
   do {								\
     if ((_FP_FRAC_HIGH_RAW_##fs(Y) & _FP_QNANBIT_##fs)		\
@@ -67,6 +74,7 @@
     R##_c = FP_CLS_NAN;						\
   } while (0)
 
+/* Some assembly to speed things up. */
 #define __FP_FRAC_ADD_3(r2,r1,r0,x2,x1,x0,y2,y1,y0)			\
   __asm__ ("addcc %r7,%8,%2\n\t"					\
 	   "addxcc %r5,%6,%1\n\t"					\
@@ -99,7 +107,8 @@
 
 #define __FP_FRAC_ADD_4(r3,r2,r1,r0,x3,x2,x1,x0,y3,y2,y1,y0)		\
   do {									\
-						\
+    /* We need to fool gcc,  as we need to pass more than 10		\
+       input/outputs.  */						\
     register USItype _t1 __asm__ ("g1"), _t2 __asm__ ("g2");		\
     __asm__ __volatile__ (						\
 	    "addcc %r8,%9,%1\n\t"					\
@@ -123,7 +132,8 @@
 
 #define __FP_FRAC_SUB_4(r3,r2,r1,r0,x3,x2,x1,x0,y3,y2,y1,y0)		\
   do {									\
-						\
+    /* We need to fool gcc,  as we need to pass more than 10		\
+       input/outputs.  */						\
     register USItype _t1 __asm__ ("g1"), _t2 __asm__ ("g2");		\
     __asm__ __volatile__ (						\
 	    "subcc %r8,%9,%1\n\t"					\
@@ -169,6 +179,7 @@
 extern struct task_struct *last_task_used_math;
 #endif
 
+/* Obtain the current rounding mode. */
 #ifndef FP_ROUNDMODE
 #ifdef CONFIG_SMP
 #define FP_ROUNDMODE	((current->thread.fsr >> 30) & 0x3)
@@ -177,6 +188,7 @@ extern struct task_struct *last_task_used_math;
 #endif
 #endif
 
+/* Exception flags. */
 #define FP_EX_INVALID		(1 << 4)
 #define FP_EX_OVERFLOW		(1 << 3)
 #define FP_EX_UNDERFLOW		(1 << 2)

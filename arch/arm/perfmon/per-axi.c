@@ -10,6 +10,11 @@
  * GNU General Public License for more details.
  */
 
+/*
+per-axi
+DESCRIPTION
+Functions related to AXI bus performance counter manipulations.
+*/
 
 #include <linux/io.h>
 #include <linux/err.h>
@@ -20,6 +25,9 @@
 #include "per-axi.h"
 #include "perf.h"
 
+/*
+Definitions for AXI register addresses, macros to set and get register values
+*/
 #define AXI_BASE_SIZE						0x00004000
 #define AXI_REG_BASE					(AXI_BASE + 0x00000000)
 #define AXI_REG_BASE_PHYS					0xa8200000
@@ -144,36 +152,121 @@ unsigned int is_first = 1;
 struct perf_mon_axi_data pm_axi_info;
 struct perf_mon_axi_cnts axi_cnts;
 
+/*
+FUNCTION get_axi_sel_reg0
+
+DESCRIPTION
+	Retrieve the value of AXI_SEL_REG0
+
+DEPENDENCIES
+
+RETURN VALUE
+	AXI_SEL_REG0
+SIDE EFFECTS
+*/
 unsigned long get_axi_sel_reg0(void)
 {
 	return pm_axi_info.sel_reg0;
 }
 
+/*
+FUNCTION get_axi_sel_reg1
+
+DESCRIPTION
+	Retrieve the value of AXI_SEL_REG1
+
+DEPENDENCIES
+
+RETURN VALUE
+	AXI_SEL_REG1
+SIDE EFFECTS
+*/
 unsigned long get_axi_sel_reg1(void)
 {
 	return pm_axi_info.sel_reg1;
 }
 
+/*
+FUNCTION get_axi_ten_sel_reg
+
+DESCRIPTION
+	Retrieve the value of AXI_TEN_REG
+
+DEPENDENCIES
+
+RETURN VALUE
+	AXI_TEN_REG
+SIDE EFFECTS
+*/
 unsigned long get_axi_ten_sel_reg(void)
 {
 	return pm_axi_info.ten_sel_reg;
 }
 
+/*
+FUNCTION get_axi_valid
+
+DESCRIPTION
+	Retrieve the value of AXI valid bit
+
+DEPENDENCIES
+
+RETURN VALUE
+	AXI Valid bit
+SIDE EFFECTS
+*/
 unsigned long get_axi_valid(void)
 {
 	return pm_axi_info.valid;
 }
 
+/*
+FUNCTION get_axi_enable
+
+DESCRIPTION
+	Retrieve the value of AXI enable bit
+
+DEPENDENCIES
+
+RETURN VALUE
+	AXI enable bit
+SIDE EFFECTS
+*/
 unsigned long get_axi_enable(void)
 {
 	return pm_axi_info.enable;
 }
 
+/*
+FUNCTION get_axi_clear
+
+DESCRIPTION
+	Retrieve the value of AXI clear bit
+
+DEPENDENCIES
+
+RETURN VALUE
+	AXI clear bit
+SIDE EFFECTS
+*/
 unsigned long get_axi_clear(void)
 {
 	return pm_axi_info.clear;
 }
 
+/*
+FUNCTION pm_axi_cnts_write
+
+DESCRIPTION
+	Write handler for the /proc axi results directory.
+
+DEPENDENCIES
+
+RETURN VALUE
+	Number of characters to output.
+
+SIDE EFFECTS
+*/
 int pm_axi_cnts_write(struct file *file, const char *buff,
     unsigned long cnt, void *data)
 {
@@ -183,6 +276,9 @@ int pm_axi_cnts_write(struct file *file, const char *buff,
 
 	if (p == 0)
 		return cnt;
+	/*
+	* Alloc the user data in kernel space. and then copy user to kernel
+	*/
 	newbuf = kmalloc(cnt + 1, GFP_KERNEL);
 	if (0 == newbuf)
 		return cnt;
@@ -193,6 +289,19 @@ int pm_axi_cnts_write(struct file *file, const char *buff,
 	return cnt;
 }
 
+/*
+FUNCTION pm_axi_update_cnts
+
+DESCRIPTION
+	Read the current AXI counter values. Check for overflows and
+	adjust the values stored accordingly.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void pm_axi_update_cnts(void)
 {
 	if (is_first) {
@@ -218,6 +327,19 @@ void pm_axi_update_cnts(void)
 	pm_axi_start();
 }
 
+/*
+FUNCTION pm_axi_clear_cnts
+
+DESCRIPTION
+	Clear the locally stored AXI counter values.
+	Also clear the AXI counter registers.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void pm_axi_clear_cnts(void)
 {
 	axi_cnts.cycles = 0;
@@ -230,6 +352,19 @@ void pm_axi_clear_cnts(void)
 	pm_axi_start();
 }
 
+/*
+FUNCTION pm_axi_read_decimal
+
+DESCRIPTION
+	Read handler for the /proc axi results directory in decimal format.
+
+DEPENDENCIES
+
+RETURN VALUE
+	Number of characters to output.
+
+SIDE EFFECTS
+*/
 int pm_axi_read_decimal(char *page, char **start, off_t off, int count,
    int *eof, void *data)
 {
@@ -246,6 +381,19 @@ int pm_axi_read_decimal(char *page, char **start, off_t off, int count,
 				p->cycles);
 }
 
+/*
+FUNCTION pm_axi_read_hex
+
+DESCRIPTION
+	Read handler for the /proc axi results directory in hex format.
+
+DEPENDENCIES
+
+RETURN VALUE
+	Number of characters to output.
+
+SIDE EFFECTS
+*/
 int pm_axi_read_hex(char *page, char **start, off_t off, int count,
    int *eof, void *data)
 {
@@ -263,6 +411,18 @@ int pm_axi_read_hex(char *page, char **start, off_t off, int count,
 
 }
 
+/*
+FUNCTION pm_axi_set_proc_entry
+
+DESCRIPTION
+	Create a generic entry for the /proc axi settings directory.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void pm_axi_set_proc_entry(char *name, unsigned long *var,
     struct proc_dir_entry *d, int hex)
 {
@@ -280,6 +440,18 @@ void pm_axi_set_proc_entry(char *name, unsigned long *var,
 	pe->data = (void *)var;
 }
 
+/*
+FUNCTION pm_axi_get_cnt_proc_entry
+
+DESCRIPTION
+	Create a generic entry for the /proc axi results directory.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void pm_axi_get_cnt_proc_entry(char *name, struct perf_mon_axi_cnts *var,
     struct proc_dir_entry *d, int hex)
 {
@@ -297,18 +469,43 @@ void pm_axi_get_cnt_proc_entry(char *name, struct perf_mon_axi_cnts *var,
 	pe->data = (void *)var;
 }
 
+/*
+FUNCTION pm_axi_clear_tenure
+
+DESCRIPTION
+	Clear AXI tenure cntr manually. Temporary solution till hardware bug
+	is fixed
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void pm_axi_clear_tenure(void)
 {
 	HWIO_AXI_MONITOR_TENURE_UPPER_REG_OUT(0x0);
 	HWIO_AXI_MONITOR_TENURE_LOWER_REG_OUT(0x0);
 }
 
+/*
+FUNCTION pm_axi_init
+
+DESCRIPTION
+	Map AXI region to virtual memory.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void pm_axi_init()
 {
-	
+	/*Map the AXI regs*/
 	#ifdef CONFIG_ARCH_QSD8X50
 	{
-		
+		/*Map the AXI regs*/
 		AXI_BASE = (uint32_t)ioremap(AXI_REG_BASE_PHYS, AXI_BASE_SIZE);
 		if (!AXI_BASE)
 			printk(KERN_ERR "Mem map failed\n");
@@ -321,6 +518,19 @@ void pm_axi_init()
 
 }
 
+/*
+FUNCTION pm_axi_start
+
+DESCRIPTION
+	Set event0, event1 and tenure registers based on the /proc entries.
+	Set cycle cntr to fffffffe to start counters.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void
 pm_axi_start()
 {
@@ -329,10 +539,10 @@ pm_axi_start()
 	sel_reg1 = get_axi_sel_reg1();
 	ten_sel_reg = get_axi_ten_sel_reg();
 	HWIO_AXI_CONFIGURATION_REG_OUT(HWIO_AXI_CONFIGURATION_REG_PPDM_BMSK);
-	
+	/*Set AXI Cycle Counter to enable AXI Monitors*/
 	HWIO_AXI_MONITOR_CYCLE_COUNT_UPPER_REG_OUT(0xffff);
 	HWIO_AXI_MONITOR_CYCLE_COUNT_LOWER_REG_OUT(0xfffe);
-	
+	/*Set master/slave*/
 	HWIO_AXI_MONITOR_SELECTION_REG1_OUT(sel_reg1);
 	HWIO_AXI_MONITOR_SELECTION_REG0_OUT(HWIO_AXI_RESET_ALL);
 	HWIO_AXI_MONITOR_SELECTION_REG0_OUT(HWIO_AXI_ENABLE_ALL_NOCYCLES);
@@ -343,6 +553,18 @@ pm_axi_start()
 	HWIO_AXI_CONFIGURATION_REG_OUT(HWIO_AXI_CONFIGURATION_REG_PPDM_BMSK);
 }
 
+/*
+FUNCTION pm_axi_update
+
+DESCRIPTION
+	Set event0, event1 and tenure registers based on the /proc entries.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void
 pm_axi_update()
 {
@@ -354,34 +576,70 @@ pm_axi_update()
 	pm_axi_start();
 }
 
+/*
+FUNCTION pm_axi_disable
+
+DESCRIPTION
+	Disable all cntrs.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void
 pm_axi_disable(void)
 {
 	unsigned long sel_reg0;
-	
+	/*Disable cntrs*/
 	sel_reg0 = get_axi_sel_reg0();
 	HWIO_AXI_MONITOR_SELECTION_REG0_OUT(sel_reg0 & AXI_EVTSEL_DISABLE_MASK);
-	
+	/*Disable clk*/
 	HWIO_AXI_CONFIGURATION_REG_OUT(HWIO_AXI_CONFIGURATION_REG_DISABLE);
 }
 
+/*
+FUNCTION pm_axi_enable
+
+DESCRIPTION
+	Enable all cntrs.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void
 pm_axi_enable(void)
 {
 	unsigned long sel_reg0;
-	
+	/*Enable cntrs*/
 	sel_reg0 = get_axi_sel_reg0();
 	HWIO_AXI_MONITOR_SELECTION_REG0_OUT(sel_reg0 | 0x6a00);
-	
+	/*Enable clk*/
 	HWIO_AXI_CONFIGURATION_REG_OUT(HWIO_AXI_CONFIGURATION_REG_PPDM_BMSK);
 }
 
+/*
+FUNCTION pm_axi_disable_cnts
+
+DESCRIPTION
+	Read cycle cntr value
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 unsigned long
 pm_get_axi_cycle_count(void)
 {
 	if (HWIO_AXI_MONITOR_CYCLE_COUNT_UPPER_REG_IN == 0x0 &&
 		HWIO_AXI_MONITOR_CYCLE_COUNT_LOWER_REG_IN == 0x0) {
-		
+		/*Set AXI Cycle Counter to enable AXI Monitors*/
 		HWIO_AXI_MONITOR_CYCLE_COUNT_UPPER_REG_OUT(0xffff);
 		HWIO_AXI_MONITOR_CYCLE_COUNT_LOWER_REG_OUT(0xfffe);
 	}
@@ -389,6 +647,18 @@ pm_get_axi_cycle_count(void)
 	+ HWIO_AXI_MONITOR_CYCLE_COUNT_LOWER_REG_IN);
 }
 
+/*
+FUNCTION pm_get_axi_evt0_count
+
+DESCRIPTION
+	Read Event0 cntr value
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 unsigned long
 pm_get_axi_evt0_count(void)
 {
@@ -396,6 +666,18 @@ pm_get_axi_evt0_count(void)
 		+ HWIO_AXI_MONITOR_EVENT_LOWER_REG0_IN;
 }
 
+/*
+FUNCTION pm_get_axi_evt1_count
+
+DESCRIPTION
+	Read Event1 cntr value
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 unsigned long
 pm_get_axi_evt1_count(void)
 {
@@ -403,18 +685,54 @@ pm_get_axi_evt1_count(void)
 		+ HWIO_AXI_MONITOR_EVENT_LOWER_REG1_IN;
 }
 
+/*
+FUNCTION pm_get_axi_ten_min_count
+
+DESCRIPTION
+	Read min tenure cntr value
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 unsigned long
 pm_get_axi_ten_min_count(void)
 {
 	return HWIO_AXI_MONITOR_MIN_REG_IN;
 }
 
+/*
+FUNCTION pm_get_axi_ten_max_count
+
+DESCRIPTION
+	Read max tenure cntr value
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 unsigned long
 pm_get_axi_ten_max_count(void)
 {
 	return HWIO_AXI_MONITOR_MAX_REG_IN;
 }
 
+/*
+FUNCTION pm_get_axi_ten_total_count
+
+DESCRIPTION
+	Read total tenure cntr value
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 unsigned long
 pm_get_axi_ten_total_count(void)
 {
@@ -422,6 +740,18 @@ pm_get_axi_ten_total_count(void)
 		+ HWIO_AXI_MONITOR_TENURE_LOWER_REG_IN;
 }
 
+/*
+FUNCTION pm_get_axi_ten_last_count
+
+DESCRIPTION
+	Read last tenure cntr value
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 unsigned long
 pm_get_axi_ten_last_count(void)
 {

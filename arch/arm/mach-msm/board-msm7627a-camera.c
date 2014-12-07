@@ -27,12 +27,12 @@
 
 #define GPIO_SKU1_CAM_VGA_SHDN    18
 #define GPIO_SKU1_CAM_VGA_RESET_N 29
-#define GPIO_SKU3_CAM_5MP_SHDN_N   5         
-#define GPIO_SKU3_CAM_5MP_CAMIF_RESET   6    
+#define GPIO_SKU3_CAM_5MP_SHDN_N   5         /* PWDN */
+#define GPIO_SKU3_CAM_5MP_CAMIF_RESET   6    /* (board_is(EVT))?123:121 RESET */
 #define GPIO_SKU3_CAM_5MP_CAM_DRIVER_PWDN 30
 #define GPIO_SKU7_CAM_VGA_SHDN    91
-#define GPIO_SKU7_CAM_5MP_SHDN_N   93         
-#define GPIO_SKU7_CAM_5MP_CAMIF_RESET   23   
+#define GPIO_SKU7_CAM_5MP_SHDN_N   93         /* PWDN */
+#define GPIO_SKU7_CAM_5MP_CAMIF_RESET   23   /* (board_is(EVT))?123:121 RESET */
 
 #ifdef CONFIG_MSM_CAMERA_V4L2
 static uint32_t camera_off_gpio_table[] = {
@@ -794,7 +794,7 @@ static struct msm_camera_sensor_flash_data flash_imx072 = {
 static struct msm_camera_sensor_info msm_camera_sensor_imx072_data = {
 	.sensor_name		= "imx072",
 	.sensor_reset_enable	= 1,
-	.sensor_reset		= GPIO_CAM_GP_CAMIF_RESET_N, 
+	.sensor_reset		= GPIO_CAM_GP_CAMIF_RESET_N, /* TODO 106,*/
 	.pmic_gpio_enable       = 0,
 	.sensor_pwd	     = 85,
 	.vcm_pwd		= GPIO_CAM_GP_CAM_PWDN,
@@ -1072,9 +1072,9 @@ static void __init register_i2c_devices(void)
 }
 
 #ifndef CONFIG_MSM_CAMERA_V4L2
-#define LCD_CAMERA_LDO_2V8 35 
-#define SKU3_LCD_CAMERA_LDO_1V8 40 
-#define SKU7_LCD_CAMERA_LDO_1V8 58 
+#define LCD_CAMERA_LDO_2V8 35 /* SKU1&SKU3 2.8V LDO */
+#define SKU3_LCD_CAMERA_LDO_1V8 40 /* SKU3 1.8V LDO */
+#define SKU7_LCD_CAMERA_LDO_1V8 58 /* SKU7 1.8V LDO */
 
 static int lcd_camera_ldo_1v8 = SKU3_LCD_CAMERA_LDO_1V8;
 
@@ -1089,7 +1089,7 @@ static void lcd_camera_power_init(void)
 	else
 		lcd_camera_ldo_1v8 = SKU3_LCD_CAMERA_LDO_1V8;
 
-	
+	/* LDO_EXT2V8 */
 	if (gpio_request(LCD_CAMERA_LDO_2V8, "lcd_camera_ldo_2v8")) {
 		pr_err("failed to request gpio lcd_camera_ldo_2v8\n");
 		return;
@@ -1103,7 +1103,7 @@ static void lcd_camera_power_init(void)
 		goto fail_gpio2;
 	}
 
-	
+	/* LDO_EVT1V8 */
 	if (gpio_request(lcd_camera_ldo_1v8, "lcd_camera_ldo_1v8")) {
 		pr_err("failed to request gpio lcd_camera_ldo_1v8\n");
 		goto fail_gpio2;
@@ -1192,7 +1192,7 @@ void __init msm7627a_camera_init(void)
 			GPIO_SKU7_CAM_5MP_CAMIF_RESET;
 	}
 
-	
+	/* LCD and camera power (VREG & LDO) init */
 	if (machine_is_msm7627a_evb() || machine_is_msm8625_evb()
 			|| machine_is_msm8625_evt()
 			|| machine_is_msm7627a_qrd3()

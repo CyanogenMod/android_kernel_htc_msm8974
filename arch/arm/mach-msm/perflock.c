@@ -114,7 +114,7 @@ static unsigned int get_perflock_speed(void)
 	struct perf_lock *lock;
 	unsigned int perf_level = 0;
 
-	
+	/* Get the maxmimum perf level. */
 	if (list_empty(&active_perf_locks))
 		return 0;
 
@@ -134,7 +134,7 @@ static unsigned int get_cpufreq_ceiling_speed(void)
 	struct perf_lock *lock;
 	unsigned int perf_level = PERF_LOCK_HIGHEST;
 
-	
+	/* Get the minimum ceiling level. */
 	if (list_empty(&active_cpufreq_ceiling_locks))
 		return 0;
 
@@ -171,6 +171,15 @@ void htc_print_active_perf_locks(void)
 	spin_unlock_irqrestore(&list_lock, irqflags);
 }
 
+/**
+ * perf_lock_init - acquire a perf lock
+ * @lock: perf lock to acquire
+ * @type: the type of @lock
+ * @level: performance level of @lock
+ * @name: the name of @lock
+ *
+ * Acquire @lock with @name and @level. (It doesn't activate the lock.)
+ */
 void perf_lock_init(struct perf_lock *lock, unsigned int type,
 			unsigned int level, const char *name)
 {
@@ -202,6 +211,12 @@ void perf_lock_init(struct perf_lock *lock, unsigned int type,
 }
 EXPORT_SYMBOL(perf_lock_init);
 
+/**
+ * perf_lock - activate a perf lock
+ * @lock: perf lock to activate
+ *
+ * Activate @lock.(Need to init_perf_lock before activate)
+ */
 
 void perf_lock(struct perf_lock *lock)
 {
@@ -251,6 +266,12 @@ void perf_lock(struct perf_lock *lock)
 }
 EXPORT_SYMBOL(perf_lock);
 
+/**
+ * perf_unlock - de-activate a perf lock
+ * @lock: perf lock to de-activate
+ *
+ * de-activate @lock.
+ */
 void perf_unlock(struct perf_lock *lock)
 {
 	unsigned long irqflags;
@@ -298,18 +319,34 @@ void perf_unlock(struct perf_lock *lock)
 }
 EXPORT_SYMBOL(perf_unlock);
 
+/**
+ * is_perf_lock_active - query if a perf_lock is active or not
+ * @lock: target perf lock
+ * RETURN: 0: inactive; 1: active
+ *
+ * query if @lock is active or not
+ */
 inline int is_perf_lock_active(struct perf_lock *lock)
 {
 	return (lock->flags & PERF_LOCK_ACTIVE);
 }
 EXPORT_SYMBOL(is_perf_lock_active);
 
+/**
+ * is_perf_locked - query if there is any perf lock activates
+ * RETURN: 0: no perf lock activates 1: at least a perf lock activates
+ */
 int is_perf_locked(void)
 {
 	return (!list_empty(&active_perf_locks));
 }
 EXPORT_SYMBOL(is_perf_locked);
 
+/**
+ * perflock_find - find perflock by given name
+ * INPUT: name   - string name of the perflock
+ * RETURN: lock  - pointer of the perflock
+ */
 static struct perf_lock *perflock_find(const char *name)
 {
 	struct perf_lock *lock;
@@ -345,6 +382,11 @@ static struct perf_lock *perflock_find(const char *name)
 	return NULL;
 }
 
+/**
+ * perflock_acquire - acquire a perflock
+ * INPUT: name      - string name of this perflock
+ * RETURN: lock     - pointer of this perf_lock
+ */
 struct perf_lock *perflock_acquire(const char *name)
 {
 	struct perf_lock *lock = NULL;
@@ -356,16 +398,22 @@ struct perf_lock *perflock_acquire(const char *name)
 	lock = kzalloc(sizeof(struct perf_lock), GFP_KERNEL);
 	if(!lock) {
 		pr_err("%s: fail to alloc perflock %s\n", __func__, name);
-		return NULL; 
+		return NULL; //ENOMEM
 	}
 	lock->name = name;
-	
-	lock->flags = 0; 
+	/* Caller MUST init this lock before using it!! */
+	lock->flags = 0; //None-INITIALIZED
 
 	return lock;
 }
 EXPORT_SYMBOL(perflock_acquire);
 
+/**
+ * perflock_release - release a perflock
+ * INPUT: name - the string name of this perf_lock
+ * RETURN: 0   - successful
+ *     -ENOMEM - no memory ??
+ */
 int perflock_release(const char *name)
 {
 	struct perf_lock *lock = NULL;
@@ -375,7 +423,7 @@ int perflock_release(const char *name)
 	if(!lock)
 		return -ENODEV;
 
-	
+	/* Unlock (move to inactive list), delete and kfree it */
 	if(is_perf_lock_active(lock))
 		perf_unlock(lock);
 

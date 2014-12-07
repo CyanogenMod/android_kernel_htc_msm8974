@@ -31,6 +31,15 @@
  * SOFTWARE.
  */
 
+/*
+ * This file contains support for diagnostic functions.  It is accessed by
+ * opening the ipath_diag device, normally minor number 129.  Diagnostic use
+ * of the InfiniPath chip may render the chip or board unusable until the
+ * driver is unloaded, or in some cases, until the system is rebooted.
+ *
+ * Accesses to the chip through this interface are not similar to going
+ * through the /sys/bus/pci resource mmap interface.
+ */
 
 #include <linux/io.h>
 #include <linux/pci.h>
@@ -133,7 +142,7 @@ static int ipath_read_umem64(struct ipath_devdata *dd, void __user *uaddr,
 	const u64 __iomem *reg_end = reg_addr + (count / sizeof(u64));
 	int ret;
 
-	
+	/* not very efficient, but it works for now */
 	if (reg_addr < dd->ipath_kregbase || reg_end > dd->ipath_kregend) {
 		ret = -EINVAL;
 		goto bail;
@@ -152,6 +161,16 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_write_umem64 - write a 64-bit quantity to the chip from user space
+ * @dd: the infinipath device
+ * @caddr: the destination chip address (full pointer, not offset)
+ * @uaddr: the source of the data in user memory
+ * @count: the number of bytes to copy (multiple of 32 bits)
+ *
+ * This is usually used for a single qword
+ * NOTE:  This assumes the chip address is 64-bit aligned.
+ */
 
 static int ipath_write_umem64(struct ipath_devdata *dd, void __iomem *caddr,
 			      const void __user *uaddr, size_t count)
@@ -160,7 +179,7 @@ static int ipath_write_umem64(struct ipath_devdata *dd, void __iomem *caddr,
 	const u64 __iomem *reg_end = reg_addr + (count / sizeof(u64));
 	int ret;
 
-	
+	/* not very efficient, but it works for now */
 	if (reg_addr < dd->ipath_kregbase || reg_end > dd->ipath_kregend) {
 		ret = -EINVAL;
 		goto bail;
@@ -181,6 +200,16 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_read_umem32 - read a 32-bit quantity from the chip into user space
+ * @dd: the infinipath device
+ * @uaddr: the location to store the data in user memory
+ * @caddr: the source chip address (full pointer, not offset)
+ * @count: number of bytes to copy
+ *
+ * read 32 bit values, not 64 bit; for memories that only
+ * support 32 bit reads; usually a single dword.
+ */
 static int ipath_read_umem32(struct ipath_devdata *dd, void __user *uaddr,
 			     const void __iomem *caddr, size_t count)
 {
@@ -193,7 +222,7 @@ static int ipath_read_umem32(struct ipath_devdata *dd, void __user *uaddr,
 		ret = -EINVAL;
 		goto bail;
 	}
-	
+	/* not very efficient, but it works for now */
 	while (reg_addr < reg_end) {
 		u32 data = readl(reg_addr);
 		if (copy_to_user(uaddr, &data, sizeof(data))) {
@@ -210,6 +239,16 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_write_umem32 - write a 32-bit quantity to the chip from user space
+ * @dd: the infinipath device
+ * @caddr: the destination chip address (full pointer, not offset)
+ * @uaddr: the source of the data in user memory
+ * @count: number of bytes to copy
+ *
+ * write 32 bit values, not 64 bit; for memories that only
+ * support 32 bit write; usually a single dword.
+ */
 
 static int ipath_write_umem32(struct ipath_devdata *dd, void __iomem *caddr,
 			      const void __user *uaddr, size_t count)
@@ -265,6 +304,8 @@ static int ipath_diag_open(struct inode *in, struct file *fp)
 	diag_set_link = 0;
 	ret = 0;
 
+	/* Only expose a way to reset the device if we
+	   make it into diag mode. */
 	ipath_expose_reset(&dd->pcidev->dev);
 
 bail:
@@ -273,6 +314,13 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_diagpkt_write - write an IB packet
+ * @fp: the diag data device file pointer
+ * @data: ipath_diag_pkt structure saying where to get the packet
+ * @count: size of data to write
+ * @off: unused by this code
+ */
 static ssize_t ipath_diagpkt_write(struct file *fp,
 				   const char __user *data,
 				   size_t count, loff_t *off)
@@ -285,7 +333,7 @@ static ssize_t ipath_diagpkt_write(struct file *fp,
 	struct ipath_devdata *dd;
 	ssize_t ret = 0;
 	u64 val;
-	u32 l_state, lt_state; 
+	u32 l_state, lt_state; /* LinkState, LinkTrainingState */
 
 	if (count < sizeof(odp)) {
 		ret = -EINVAL;
@@ -302,17 +350,30 @@ static ssize_t ipath_diagpkt_write(struct file *fp,
 		goto bail;
 	}
 
+	/*
+	 * Due to padding/alignment issues (lessened with new struct)
+	 * the old and new structs are the same length. We need to
+	 * disambiguate them, which we can do because odp.len has never
+	 * been less than the total of LRH+BTH+DETH so far, while
+	 * dp.unit (same offset) unit is unlikely to get that high.
+	 * Similarly, dp.data, the pointer to user at the same offset
+	 * as odp.unit, is almost certainly at least one (512byte)page
+	 * "above" NULL. The if-block below can be omitted if compatibility
+	 * between a new driver and older diagnostic code is unimportant.
+	 * compatibility the other direction (new diags, old driver) is
+	 * handled in the diagnostic code, with a warning.
+	 */
 	if (dp.unit >= 20 && dp.data < 512) {
-		
+		/* very probable version mismatch. Fix it up */
 		memcpy(&odp, &dp, sizeof(odp));
-		
+		/* We got a legacy dp, copy elements to dp */
 		dp.unit = odp.unit;
 		dp.data = odp.data;
 		dp.len = odp.len;
-		dp.pbc_wd = 0; 
+		dp.pbc_wd = 0; /* Indicate we need to compute PBC wd */
 	}
 
-	
+	/* send count must be an exact number of dwords */
 	if (dp.len & 3) {
 		ret = -EINVAL;
 		goto bail;
@@ -339,11 +400,16 @@ static ssize_t ipath_diagpkt_write(struct file *fp,
 	}
 
 	if (!(dd->ipath_flags & IPATH_INITTED)) {
-		
+		/* no hardware, freeze, etc. */
 		ipath_cdbg(VERBOSE, "unit %u not usable\n", dd->ipath_unit);
 		ret = -ENODEV;
 		goto bail;
 	}
+	/*
+	 * Want to skip check for l_state if using custom PBC,
+	 * because we might be trying to force an SM packet out.
+	 * first-cut, skip _all_ state checking in that case.
+	 */
 	val = ipath_ib_state(dd, dd->ipath_lastibcstat);
 	lt_state = ipath_ib_linktrstate(dd, dd->ipath_lastibcstat);
 	l_state = ipath_ib_linkstate(dd, dd->ipath_lastibcstat);
@@ -357,14 +423,14 @@ static ssize_t ipath_diagpkt_write(struct file *fp,
 	}
 
 	/* need total length before first word written */
-	
+	/* +1 word is for the qword padding */
 	plen = sizeof(u32) + dp.len;
 
 	if ((plen + 4) > dd->ipath_ibmaxlen) {
 		ipath_dbg("Pkt len 0x%x > ibmaxlen %x\n",
 			  plen - 4, dd->ipath_ibmaxlen);
 		ret = -EINVAL;
-		goto bail;	
+		goto bail;	/* before writing pbc */
 	}
 	tmpbuf = vmalloc(plen);
 	if (!tmpbuf) {
@@ -381,7 +447,7 @@ static ssize_t ipath_diagpkt_write(struct file *fp,
 		goto bail;
 	}
 
-	plen >>= 2;		
+	plen >>= 2;		/* in dwords */
 
 	piobuf = ipath_getpiobuf(dd, plen, &pbufn);
 	if (!piobuf) {
@@ -390,7 +456,7 @@ static ssize_t ipath_diagpkt_write(struct file *fp,
 		ret = -EBUSY;
 		goto bail;
 	}
-	
+	/* disarm it just to be extra sure */
 	ipath_disarm_piobufs(dd, pbufn, 1);
 
 	if (ipath_debug & __IPATH_PKTDBG)
@@ -443,12 +509,12 @@ static ssize_t ipath_diag_read(struct file *fp, char __user *data,
 	if (count == 0)
 		ret = 0;
 	else if ((count % 4) || (*off % 4))
-		
+		/* address or length is not 32-bit aligned, hence invalid */
 		ret = -EINVAL;
 	else if (ipath_diag_inuse < 1 && (*off || count != 8))
-		ret = -EINVAL;  
+		ret = -EINVAL;  /* prevent cat /dev/ipath_diag* */
 	else if ((count % 8) || (*off % 8))
-		
+		/* address or length not 64-bit aligned; do 32-bit reads */
 		ret = ipath_read_umem32(dd, data, kreg_base + *off, count);
 	else
 		ret = ipath_read_umem64(dd, data, kreg_base + *off, count);
@@ -475,13 +541,13 @@ static ssize_t ipath_diag_write(struct file *fp, const char __user *data,
 	if (count == 0)
 		ret = 0;
 	else if ((count % 4) || (*off % 4))
-		
+		/* address or length is not 32-bit aligned, hence invalid */
 		ret = -EINVAL;
 	else if ((ipath_diag_inuse == -1 && (*off || count != 8)) ||
-		 ipath_diag_inuse == -2)  
-		ret = -EINVAL;  
+		 ipath_diag_inuse == -2)  /* read qw off 0, write qw off 0 */
+		ret = -EINVAL;  /* before any other write allowed */
 	else if ((count % 8) || (*off % 8))
-		
+		/* address or length not 64-bit aligned; do 32-bit writes */
 		ret = ipath_write_umem32(dd, kreg_base + *off, data, count);
 	else
 		ret = ipath_write_umem64(dd, kreg_base + *off, data, count);
@@ -490,7 +556,7 @@ static ssize_t ipath_diag_write(struct file *fp, const char __user *data,
 		*off += count;
 		ret = count;
 		if (ipath_diag_inuse == -1)
-			ipath_diag_inuse = 1; 
+			ipath_diag_inuse = 1; /* all read/write OK now */
 	}
 
 	return ret;

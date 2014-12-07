@@ -16,11 +16,17 @@
 
 #define __tlb_remove_tlb_entry(tlb, pte, address) do { } while(0)
 
+/*
+ * Flush whole TLB for MM
+ */
 #define tlb_flush(tlb) flush_tlb_mm((tlb)->mm)
 
 #include <asm-generic/tlb.h>
 
+/*
+ * For debugging purposes
+ */
 extern void show_dtlb_entry(unsigned int index);
 extern void dump_dtlb(void);
 
-#endif 
+#endif /* __ASM_AVR32_TLB_H */

@@ -5,20 +5,23 @@
 #include <linux/socket.h>
 #include <linux/syscalls.h>
 
+/* Macro that masks the high order bit of an 32 bit pointer and converts it*/
+/*       to a 64 bit pointer */
 #define A(__x) ((unsigned long)((__x) & 0x7FFFFFFFUL))
 #define AA(__x)				\
 	((unsigned long)(__x))
 
+/* Now 32bit compatibility types */
 struct ipc_kludge_32 {
-        __u32   msgp;                           
+        __u32   msgp;                           /* pointer              */
         __s32   msgtyp;
 };
 
 struct old_sigaction32 {
-       __u32			sa_handler;	
-       compat_old_sigset_t	sa_mask;	
+       __u32			sa_handler;	/* Really a pointer, but need to deal with 32 bits */
+       compat_old_sigset_t	sa_mask;	/* A 32 bit mask */
        __u32			sa_flags;
-       __u32			sa_restorer;	
+       __u32			sa_restorer;	/* Another 32 bit pointer */
 };
  
 typedef struct compat_siginfo {
@@ -29,49 +32,52 @@ typedef struct compat_siginfo {
 	union {
 		int _pad[((128/sizeof(int)) - 3)];
 
-		
+		/* kill() */
 		struct {
-			pid_t	_pid;	
-			uid_t	_uid;	
+			pid_t	_pid;	/* sender's pid */
+			uid_t	_uid;	/* sender's uid */
 		} _kill;
 
-		
+		/* POSIX.1b timers */
 		struct {
-			compat_timer_t _tid;		
-			int _overrun;		
-			compat_sigval_t _sigval;	
-			int _sys_private;       
+			compat_timer_t _tid;		/* timer id */
+			int _overrun;		/* overrun count */
+			compat_sigval_t _sigval;	/* same as below */
+			int _sys_private;       /* not to be passed to user */
 		} _timer;
 
-		
+		/* POSIX.1b signals */
 		struct {
-			pid_t			_pid;	
-			uid_t			_uid;	
+			pid_t			_pid;	/* sender's pid */
+			uid_t			_uid;	/* sender's uid */
 			compat_sigval_t		_sigval;
 		} _rt;
 
-		
+		/* SIGCHLD */
 		struct {
-			pid_t			_pid;	
-			uid_t			_uid;	
-			int			_status;
+			pid_t			_pid;	/* which child */
+			uid_t			_uid;	/* sender's uid */
+			int			_status;/* exit code */
 			compat_clock_t		_utime;
 			compat_clock_t		_stime;
 		} _sigchld;
 
-		
+		/* SIGILL, SIGFPE, SIGSEGV, SIGBUS */
 		struct {
-			__u32	_addr;	
+			__u32	_addr;	/* faulting insn/memory ref. - pointer */
 		} _sigfault;
                           
-		
+		/* SIGPOLL */
 		struct {
-			int	_band;	
+			int	_band;	/* POLL_IN, POLL_OUT, POLL_MSG */
 			int	_fd;
 		} _sigpoll;
 	} _sifields;
 } compat_siginfo_t;
 
+/*
+ * How these fields are to be accessed.
+ */
 #define si_pid		_sifields._kill._pid
 #define si_uid		_sifields._kill._uid
 #define si_status	_sifields._sigchld._status
@@ -86,6 +92,7 @@ typedef struct compat_siginfo {
 #define si_tid		_sifields._timer._tid
 #define si_overrun	_sifields._timer._overrun
 
+/* asm/sigcontext.h */
 typedef union
 {
 	__u64   d;
@@ -125,28 +132,30 @@ typedef struct
 struct sigcontext32
 {
 	__u32	oldmask[_COMPAT_NSIG_WORDS];
-	__u32	sregs;				
+	__u32	sregs;				/* pointer */
 };
 
+/* asm/signal.h */
 struct sigaction32 {
-	__u32		sa_handler;		
+	__u32		sa_handler;		/* pointer */
 	__u32		sa_flags;
-        __u32		sa_restorer;		
-	compat_sigset_t	sa_mask;        
+        __u32		sa_restorer;		/* pointer */
+	compat_sigset_t	sa_mask;        /* mask last for extensibility */
 };
 
 typedef struct {
-	__u32			ss_sp;		
+	__u32			ss_sp;		/* pointer */
 	int			ss_flags;
 	compat_size_t		ss_size;
 } stack_t32;
 
+/* asm/ucontext.h */
 struct ucontext32 {
 	__u32			uc_flags;
-	__u32			uc_link;		
+	__u32			uc_link;	/* pointer */	
 	stack_t32		uc_stack;
 	_sigregs32		uc_mcontext;
-	compat_sigset_t		uc_sigmask;	
+	compat_sigset_t		uc_sigmask;	/* mask last for extensibility */
 };
 
 struct stat64_emu31;
@@ -215,4 +224,4 @@ long sys32_sigaction(int sig, const struct old_sigaction32 __user *act,
 long sys32_rt_sigaction(int sig, const struct sigaction32 __user *act,
 			struct sigaction32 __user *oact, size_t sigsetsize);
 long sys32_sigaltstack(const stack_t32 __user *uss, stack_t32 __user *uoss);
-#endif 
+#endif /* _ASM_S390X_S390_H */

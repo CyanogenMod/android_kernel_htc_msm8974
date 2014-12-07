@@ -50,10 +50,10 @@ enum {
 	RPCBPROC_SET,
 	RPCBPROC_UNSET,
 	RPCBPROC_GETPORT,
-	RPCBPROC_GETADDR = 3,		
+	RPCBPROC_GETADDR = 3,		/* alias for GETPORT */
 	RPCBPROC_DUMP,
 	RPCBPROC_CALLIT,
-	RPCBPROC_BCAST = 5,		
+	RPCBPROC_BCAST = 5,		/* alias for CALLIT */
 	RPCBPROC_GETTIME,
 	RPCBPROC_UADDR2TADDR,
 	RPCBPROC_TADDR2UADDR,
@@ -63,9 +63,25 @@ enum {
 	RPCBPROC_GETSTAT,
 };
 
+/*
+ * r_owner
+ *
+ * The "owner" is allowed to unset a service in the rpcbind database.
+ *
+ * For AF_LOCAL SET/UNSET requests, rpcbind treats this string as a
+ * UID which it maps to a local user name via a password lookup.
+ * In all other cases it is ignored.
+ *
+ * For SET/UNSET requests, user space provides a value, even for
+ * network requests, and GETADDR uses an empty string.  We follow
+ * those precedents here.
+ */
 #define RPCB_OWNER_STRING	"0"
 #define RPCB_MAXOWNERLEN	sizeof(RPCB_OWNER_STRING)
 
+/*
+ * XDR data type sizes
+ */
 #define RPCB_program_sz		(1)
 #define RPCB_version_sz		(1)
 #define RPCB_protocol_sz	(1)
@@ -76,6 +92,9 @@ enum {
 #define RPCB_addr_sz		(1 + XDR_QUADLEN(RPCBIND_MAXUADDRLEN))
 #define RPCB_ownerstring_sz	(1 + XDR_QUADLEN(RPCB_MAXOWNERLEN))
 
+/*
+ * XDR argument and result sizes
+ */
 #define RPCB_mappingargs_sz	(RPCB_program_sz + RPCB_version_sz + \
 				RPCB_protocol_sz + RPCB_port_sz)
 #define RPCB_getaddrargs_sz	(RPCB_program_sz + RPCB_version_sz + \
@@ -85,6 +104,10 @@ enum {
 #define RPCB_getportres_sz	RPCB_port_sz
 #define RPCB_setres_sz		RPCB_boolean_sz
 
+/*
+ * Note that RFC 1833 does not put any size restrictions on the
+ * address string returned by the remote rpcbind database.
+ */
 #define RPCB_getaddrres_sz	RPCB_addr_sz
 
 static void			rpcb_getport_done(struct rpc_task *, void *);
@@ -168,6 +191,9 @@ void rpcb_put_local(struct net *net)
 	spin_unlock(&sn->rpcb_clnt_lock);
 
 	if (shutdown) {
+		/*
+		 * cleanup_rpcb_clnt - remove xprtsock's sysctls, unregister
+		 */
 		if (clnt4)
 			rpc_shutdown_client(clnt4);
 		if (clnt)
@@ -180,7 +206,7 @@ static void rpcb_set_local(struct net *net, struct rpc_clnt *clnt,
 {
 	struct sunrpc_net *sn = net_generic(net, sunrpc_net_id);
 
-	
+	/* Protected by rpcb_create_local_mutex */
 	sn->rpcb_local_clnt = clnt;
 	sn->rpcb_local_clnt4 = clnt4;
 	smp_wmb(); 
@@ -191,6 +217,10 @@ static void rpcb_set_local(struct net *net, struct rpc_clnt *clnt,
 			net, (net == &init_net) ? " (init_net)" : "");
 }
 
+/*
+ * Returns zero on success, otherwise a negative errno value
+ * is returned.
+ */
 static int rpcb_create_local_unix(struct net *net)
 {
 	static const struct sockaddr_un rpcb_localaddr_rpcbind = {
@@ -210,6 +240,11 @@ static int rpcb_create_local_unix(struct net *net)
 	struct rpc_clnt *clnt, *clnt4;
 	int result = 0;
 
+	/*
+	 * Because we requested an RPC PING at transport creation time,
+	 * this works only if the user space portmapper is rpcbind, and
+	 * it's listening on AF_LOCAL on the named socket.
+	 */
 	clnt = rpc_create(&args);
 	if (IS_ERR(clnt)) {
 		dprintk("RPC:       failed to create AF_LOCAL rpcbind "
@@ -232,6 +267,10 @@ out:
 	return result;
 }
 
+/*
+ * Returns zero on success, otherwise a negative errno value
+ * is returned.
+ */
 static int rpcb_create_local_net(struct net *net)
 {
 	static const struct sockaddr_in rpcb_inaddr_loopback = {
@@ -261,6 +300,11 @@ static int rpcb_create_local_net(struct net *net)
 		goto out;
 	}
 
+	/*
+	 * This results in an RPC ping.  On systems running portmapper,
+	 * the v4 ping will fail.  Proceed anyway, but disallow rpcb
+	 * v4 upcalls.
+	 */
 	clnt4 = rpc_bind_new_program(clnt, &rpcb_program, RPCBVERS_4);
 	if (IS_ERR(clnt4)) {
 		dprintk("RPC:       failed to bind second program to "
@@ -275,6 +319,10 @@ out:
 	return result;
 }
 
+/*
+ * Returns zero on success, otherwise a negative errno value
+ * is returned.
+ */
 int rpcb_create_local(struct net *net)
 {
 	static DEFINE_MUTEX(rpcb_create_local_mutex);
@@ -344,6 +392,38 @@ static int rpcb_register_call(struct rpc_clnt *clnt, struct rpc_message *msg)
 	return 0;
 }
 
+/**
+ * rpcb_register - set or unset a port registration with the local rpcbind svc
+ * @prog: RPC program number to bind
+ * @vers: RPC version number to bind
+ * @prot: transport protocol to register
+ * @port: port value to register
+ *
+ * Returns zero if the registration request was dispatched successfully
+ * and the rpcbind daemon returned success.  Otherwise, returns an errno
+ * value that reflects the nature of the error (request could not be
+ * dispatched, timed out, or rpcbind returned an error).
+ *
+ * RPC services invoke this function to advertise their contact
+ * information via the system's rpcbind daemon.  RPC services
+ * invoke this function once for each [program, version, transport]
+ * tuple they wish to advertise.
+ *
+ * Callers may also unregister RPC services that are no longer
+ * available by setting the passed-in port to zero.  This removes
+ * all registered transports for [program, version] from the local
+ * rpcbind database.
+ *
+ * This function uses rpcbind protocol version 2 to contact the
+ * local rpcbind daemon.
+ *
+ * Registration works over both AF_INET and AF_INET6, and services
+ * registered via this function are advertised as available for any
+ * address.  If the local rpcbind daemon is listening on AF_INET6,
+ * services registered via this function will be advertised on
+ * IN6ADDR_ANY (ie available for all AF_INET and AF_INET6
+ * addresses).
+ */
 int rpcb_register(struct net *net, u32 prog, u32 vers, int prot, unsigned short port)
 {
 	struct rpcbind_args map = {
@@ -368,6 +448,9 @@ int rpcb_register(struct net *net, u32 prog, u32 vers, int prot, unsigned short 
 	return rpcb_register_call(sn->rpcb_local_clnt, &msg);
 }
 
+/*
+ * Fill in AF_INET family-specific arguments to register
+ */
 static int rpcb_register_inet4(struct sunrpc_net *sn,
 			       const struct sockaddr *sap,
 			       struct rpc_message *msg)
@@ -393,6 +476,9 @@ static int rpcb_register_inet4(struct sunrpc_net *sn,
 	return result;
 }
 
+/*
+ * Fill in AF_INET6 family-specific arguments to register
+ */
 static int rpcb_register_inet6(struct sunrpc_net *sn,
 			       const struct sockaddr *sap,
 			       struct rpc_message *msg)
@@ -433,6 +519,49 @@ static int rpcb_unregister_all_protofamilies(struct sunrpc_net *sn,
 	return rpcb_register_call(sn->rpcb_local_clnt4, msg);
 }
 
+/**
+ * rpcb_v4_register - set or unset a port registration with the local rpcbind
+ * @program: RPC program number of service to (un)register
+ * @version: RPC version number of service to (un)register
+ * @address: address family, IP address, and port to (un)register
+ * @netid: netid of transport protocol to (un)register
+ *
+ * Returns zero if the registration request was dispatched successfully
+ * and the rpcbind daemon returned success.  Otherwise, returns an errno
+ * value that reflects the nature of the error (request could not be
+ * dispatched, timed out, or rpcbind returned an error).
+ *
+ * RPC services invoke this function to advertise their contact
+ * information via the system's rpcbind daemon.  RPC services
+ * invoke this function once for each [program, version, address,
+ * netid] tuple they wish to advertise.
+ *
+ * Callers may also unregister RPC services that are registered at a
+ * specific address by setting the port number in @address to zero.
+ * They may unregister all registered protocol families at once for
+ * a service by passing a NULL @address argument.  If @netid is ""
+ * then all netids for [program, version, address] are unregistered.
+ *
+ * This function uses rpcbind protocol version 4 to contact the
+ * local rpcbind daemon.  The local rpcbind daemon must support
+ * version 4 of the rpcbind protocol in order for these functions
+ * to register a service successfully.
+ *
+ * Supported netids include "udp" and "tcp" for UDP and TCP over
+ * IPv4, and "udp6" and "tcp6" for UDP and TCP over IPv6,
+ * respectively.
+ *
+ * The contents of @address determine the address family and the
+ * port to be registered.  The usual practice is to pass INADDR_ANY
+ * as the raw address, but specifying a non-zero address is also
+ * supported by this API if the caller wishes to advertise an RPC
+ * service on a specific network interface.
+ *
+ * Note that passing in INADDR_ANY does not create the same service
+ * registration as IN6ADDR_ANY.  The former advertises an RPC
+ * service on any IPv4 address, but not on IPv6.  The latter
+ * advertises the service on all IPv4 and IPv6 addresses.
+ */
 int rpcb_v4_register(struct net *net, const u32 program, const u32 version,
 		     const struct sockaddr *address, const char *netid)
 {
@@ -481,6 +610,13 @@ static struct rpc_task *rpcb_call_async(struct rpc_clnt *rpcb_clnt, struct rpcbi
 	return rpc_run_task(&task_setup_data);
 }
 
+/*
+ * In the case where rpc clients have been cloned, we want to make
+ * sure that we use the program number/version etc of the actual
+ * owner of the xprt. To do so, we walk back up the tree of parents
+ * to find whoever created the transport and/or whoever has the
+ * autobind flag set.
+ */
 static struct rpc_clnt *rpcb_find_transport_owner(struct rpc_clnt *clnt)
 {
 	struct rpc_clnt *parent = clnt->cl_parent;
@@ -497,6 +633,13 @@ static struct rpc_clnt *rpcb_find_transport_owner(struct rpc_clnt *clnt)
 	return clnt;
 }
 
+/**
+ * rpcb_getport_async - obtain the port for a given RPC service on a given host
+ * @task: task that is waiting for portmapper request
+ *
+ * This one can be called for an ongoing RPC request, and can be used in
+ * an async (rpciod) context.
+ */
 void rpcb_getport_async(struct rpc_task *task)
 {
 	struct rpc_clnt *clnt;
@@ -522,6 +665,8 @@ void rpcb_getport_async(struct rpc_task *task)
 		task->tk_pid, __func__,
 		xprt->servername, clnt->cl_prog, clnt->cl_vers, xprt->prot);
 
+	/* Put self on the wait queue to ensure we get notified if
+	 * some other task is already attempting to bind the port */
 	rpc_sleep_on(&xprt->binding, task, NULL);
 
 	if (xprt_test_and_set_binding(xprt)) {
@@ -531,7 +676,7 @@ void rpcb_getport_async(struct rpc_task *task)
 		return;
 	}
 
-	
+	/* Someone else may have bound if we slept */
 	if (xprt_bound(xprt)) {
 		status = 0;
 		dprintk("RPC: %5u %s: already bound\n",
@@ -539,10 +684,10 @@ void rpcb_getport_async(struct rpc_task *task)
 		goto bailout_nofree;
 	}
 
-	
+	/* Parent transport's destination address */
 	salen = rpc_peeraddr(clnt, sap, sizeof(addr));
 
-	
+	/* Don't ever use rpcbind v2 for AF_INET6 requests */
 	switch (sap->sa_family) {
 	case AF_INET:
 		proc = rpcb_next_version[xprt->bind_index].rpc_proc;
@@ -609,7 +754,7 @@ void rpcb_getport_async(struct rpc_task *task)
 	child = rpcb_call_async(rpcb_clnt, map, proc);
 	rpc_release_client(rpcb_clnt);
 	if (IS_ERR(child)) {
-		
+		/* rpcb_map_release() has freed the arguments */
 		dprintk("RPC: %5u %s: rpc_run_task failed\n",
 			task->tk_pid, __func__);
 		return;
@@ -628,29 +773,32 @@ bailout_nofree:
 }
 EXPORT_SYMBOL_GPL(rpcb_getport_async);
 
+/*
+ * Rpcbind child task calls this callback via tk_exit.
+ */
 static void rpcb_getport_done(struct rpc_task *child, void *data)
 {
 	struct rpcbind_args *map = data;
 	struct rpc_xprt *xprt = map->r_xprt;
 	int status = child->tk_status;
 
-	
+	/* Garbage reply: retry with a lesser rpcbind version */
 	if (status == -EIO)
 		status = -EPROTONOSUPPORT;
 
-	
+	/* rpcbind server doesn't support this rpcbind protocol version */
 	if (status == -EPROTONOSUPPORT)
 		xprt->bind_index++;
 
 	if (status < 0) {
-		
+		/* rpcbind server not available on remote host? */
 		xprt->ops->set_port(xprt, 0);
 	} else if (map->r_port == 0) {
-		
+		/* Requested RPC service wasn't registered on remote host */
 		xprt->ops->set_port(xprt, 0);
 		status = -EACCES;
 	} else {
-		
+		/* Succeeded */
 		xprt->ops->set_port(xprt, map->r_port);
 		xprt_set_bound(xprt);
 		status = 0;
@@ -662,6 +810,9 @@ static void rpcb_getport_done(struct rpc_task *child, void *data)
 	map->r_status = status;
 }
 
+/*
+ * XDR functions for rpcbind
+ */
 
 static void rpcb_enc_mapping(struct rpc_rqst *req, struct xdr_stream *xdr,
 			     const struct rpcbind_args *rpcb)
@@ -769,6 +920,10 @@ static int rpcb_dec_getaddr(struct rpc_rqst *req, struct xdr_stream *xdr,
 		goto out_fail;
 	len = be32_to_cpup(p);
 
+	/*
+	 * If the returned universal address is a null string,
+	 * the requested RPC service was not registered.
+	 */
 	if (len == 0) {
 		dprintk("RPC: %5u RPCB reply: program not registered\n",
 				req->rq_task->tk_pid);
@@ -798,6 +953,10 @@ out_fail:
 	return -EIO;
 }
 
+/*
+ * Not all rpcbind procedures described in RFC 1833 are implemented
+ * since the Linux kernel RPC code requires only these.
+ */
 
 static struct rpc_procinfo rpcb_procedures2[] = {
 	[RPCBPROC_SET] = {

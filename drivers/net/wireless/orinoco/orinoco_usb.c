@@ -73,19 +73,20 @@
 #define URB_ASYNC_UNLINK 0
 #endif
 
+/* 802.2 LLC/SNAP header used for Ethernet encapsulation over 802.11 */
 static const u8 encaps_hdr[] = {0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00};
 #define ENCAPS_OVERHEAD		(sizeof(encaps_hdr) + 2)
 
 struct header_struct {
-	
+	/* 802.3 */
 	u8 dest[ETH_ALEN];
 	u8 src[ETH_ALEN];
 	__be16 len;
-	
+	/* 802.2 */
 	u8 dsap;
 	u8 ssap;
 	u8 ctrl;
-	
+	/* SNAP */
 	u8 oui[3];
 	__be16 ethertype;
 } __packed;
@@ -106,6 +107,7 @@ static int debug = 1;
 static int debug;
 #endif
 
+/* Debugging macros */
 #undef dbg
 #define dbg(format, arg...) \
 	do { if (debug) printk(KERN_DEBUG PFX "%s: " format "\n", \
@@ -114,53 +116,63 @@ static int debug;
 #define err(format, arg...) \
 	do { printk(KERN_ERR PFX format "\n", ## arg); } while (0)
 
+/* Module paramaters */
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug enabled or not");
 
 MODULE_FIRMWARE("orinoco_ezusb_fw");
 
+/*
+ * Under some conditions, the card gets stuck and stops paying attention
+ * to the world (i.e. data communication stalls) until we do something to
+ * it.  Sending an INQ_TALLIES command seems to be enough and should be
+ * harmless otherwise.  This behaviour has been observed when using the
+ * driver on a systemimager client during installation.  In the past a
+ * timer was used to send INQ_TALLIES commands when there was no other
+ * activity, but it was troublesome and was removed.
+ */
 
-#define USB_COMPAQ_VENDOR_ID     0x049f 
-#define USB_COMPAQ_WL215_ID      0x001f 
-#define USB_COMPAQ_W200_ID       0x0076 
-#define USB_HP_WL215_ID          0x0082 
+#define USB_COMPAQ_VENDOR_ID     0x049f /* Compaq Computer Corp. */
+#define USB_COMPAQ_WL215_ID      0x001f /* Compaq WL215 USB Adapter */
+#define USB_COMPAQ_W200_ID       0x0076 /* Compaq W200 USB Adapter */
+#define USB_HP_WL215_ID          0x0082 /* Compaq WL215 USB Adapter */
 
 #define USB_MELCO_VENDOR_ID      0x0411
-#define USB_BUFFALO_L11_ID       0x0006 
-#define USB_BUFFALO_L11G_WR_ID   0x000B 
-#define USB_BUFFALO_L11G_ID      0x000D 
+#define USB_BUFFALO_L11_ID       0x0006 /* BUFFALO WLI-USB-L11 */
+#define USB_BUFFALO_L11G_WR_ID   0x000B /* BUFFALO WLI-USB-L11G-WR */
+#define USB_BUFFALO_L11G_ID      0x000D /* BUFFALO WLI-USB-L11G */
 
-#define USB_LUCENT_VENDOR_ID     0x047E 
-#define USB_LUCENT_ORINOCO_ID    0x0300 
+#define USB_LUCENT_VENDOR_ID     0x047E /* Lucent Technologies */
+#define USB_LUCENT_ORINOCO_ID    0x0300 /* Lucent/Agere Orinoco USB Client */
 
 #define USB_AVAYA8_VENDOR_ID     0x0D98
 #define USB_AVAYAE_VENDOR_ID     0x0D9E
-#define USB_AVAYA_WIRELESS_ID    0x0300 
+#define USB_AVAYA_WIRELESS_ID    0x0300 /* Avaya Wireless USB Card */
 
-#define USB_AGERE_VENDOR_ID      0x0D4E 
-#define USB_AGERE_MODEL0801_ID   0x1000 
-#define USB_AGERE_MODEL0802_ID   0x1001 
-#define USB_AGERE_REBRANDED_ID   0x047A 
+#define USB_AGERE_VENDOR_ID      0x0D4E /* Agere Systems */
+#define USB_AGERE_MODEL0801_ID   0x1000 /* Wireless USB Card Model 0801 */
+#define USB_AGERE_MODEL0802_ID   0x1001 /* Wireless USB Card Model 0802 */
+#define USB_AGERE_REBRANDED_ID   0x047A /* WLAN USB Card */
 
 #define USB_ELSA_VENDOR_ID       0x05CC
-#define USB_ELSA_AIRLANCER_ID    0x3100 
+#define USB_ELSA_AIRLANCER_ID    0x3100 /* ELSA AirLancer USB-11 */
 
 #define USB_LEGEND_VENDOR_ID     0x0E7C
-#define USB_LEGEND_JOYNET_ID     0x0300 
+#define USB_LEGEND_JOYNET_ID     0x0300 /* Joynet WLAN USB Card */
 
 #define USB_SAMSUNG_VENDOR_ID    0x04E8
-#define USB_SAMSUNG_SEW2001U1_ID 0x5002 
-#define USB_SAMSUNG_SEW2001U2_ID 0x5B11 
-#define USB_SAMSUNG_SEW2003U_ID  0x7011 
+#define USB_SAMSUNG_SEW2001U1_ID 0x5002 /* Samsung SEW-2001u Card */
+#define USB_SAMSUNG_SEW2001U2_ID 0x5B11 /* Samsung SEW-2001u Card */
+#define USB_SAMSUNG_SEW2003U_ID  0x7011 /* Samsung SEW-2003U Card */
 
 #define USB_IGATE_VENDOR_ID      0x0681
-#define USB_IGATE_IGATE_11M_ID   0x0012 
+#define USB_IGATE_IGATE_11M_ID   0x0012 /* I-GATE 11M USB Card */
 
 #define USB_FUJITSU_VENDOR_ID    0x0BF8
-#define USB_FUJITSU_E1100_ID     0x1002 
+#define USB_FUJITSU_E1100_ID     0x1002 /* connect2AIR WLAN E-1100 USB */
 
 #define USB_2WIRE_VENDOR_ID      0x1630
-#define USB_2WIRE_WIRELESS_ID    0xff81 
+#define USB_2WIRE_WIRELESS_ID    0xff81 /* 2Wire Wireless USB adapter */
 
 
 #define EZUSB_REQUEST_FW_TRANS		0xA0
@@ -179,6 +191,7 @@ MODULE_FIRMWARE("orinoco_ezusb_fw");
 #define EZUSB_RID_PROG_END		0x0855
 #define EZUSB_RID_DOCMD			0x0860
 
+/* Recognize info frames */
 #define EZUSB_IS_INFO(id)		((id >= 0xF000) && (id <= 0xF2FF))
 
 #define EZUSB_MAGIC			0x0210
@@ -199,17 +212,18 @@ MODULE_FIRMWARE("orinoco_ezusb_fw");
 #define FW_HOLE_END			0x300
 
 struct ezusb_packet {
-	__le16 magic;		
+	__le16 magic;		/* 0x0210 */
 	u8 req_reply_count;
 	u8 ans_reply_count;
-	__le16 frame_type;	
-	__le16 size;		
-	__le16 crc;		
+	__le16 frame_type;	/* 0x01 for data frames, 0x02 otherwise */
+	__le16 size;		/* transport size */
+	__le16 crc;		/* CRC up to here */
 	__le16 hermes_len;
 	__le16 hermes_rid;
 	u8 data[0];
 } __packed;
 
+/* Table of devices that work or may work with this driver */
 static struct usb_device_id ezusb_table[] = {
 	{USB_DEVICE(USB_COMPAQ_VENDOR_ID, USB_COMPAQ_WL215_ID)},
 	{USB_DEVICE(USB_COMPAQ_VENDOR_ID, USB_HP_WL215_ID)},
@@ -232,11 +246,12 @@ static struct usb_device_id ezusb_table[] = {
 	{USB_DEVICE(USB_FUJITSU_VENDOR_ID, USB_FUJITSU_E1100_ID)},
 	{USB_DEVICE(USB_2WIRE_VENDOR_ID, USB_2WIRE_WIRELESS_ID)},
 	{USB_DEVICE(USB_AGERE_VENDOR_ID, USB_AGERE_REBRANDED_ID)},
-	{}			
+	{}			/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, ezusb_table);
 
+/* Structure to hold all of our device specific stuff */
 struct ezusb_priv {
 	struct usb_device *udev;
 	struct net_device *dev;
@@ -269,20 +284,21 @@ enum ezusb_state {
 struct request_context {
 	struct list_head list;
 	atomic_t refcount;
-	struct completion done;	
+	struct completion done;	/* Signals that CTX is dead */
 	int killed;
-	struct urb *outurb;	
+	struct urb *outurb;	/* OUT for req pkt */
 	struct ezusb_priv *upriv;
 	struct ezusb_packet *buf;
 	int buf_length;
-	struct timer_list timer;	
-	enum ezusb_state state;	
-	
+	struct timer_list timer;	/* Timeout handling */
+	enum ezusb_state state;	/* Current state */
+	/* the RID that we will wait for */
 	u16 out_rid;
 	u16 in_rid;
 };
 
 
+/* Forward declarations */
 static void ezusb_ctx_complete(struct request_context *ctx);
 static void ezusb_req_queue_run(struct ezusb_priv *upriv);
 static void ezusb_bulk_in_callback(struct urb *urb);
@@ -370,6 +386,8 @@ static struct request_context *ezusb_alloc_ctx(struct ezusb_priv *upriv,
 }
 
 
+/* Hopefully the real complete_all will soon be exported, in the mean
+ * while this should work. */
 static inline void ezusb_complete_all(struct completion *comp)
 {
 	complete(comp);
@@ -419,6 +437,8 @@ static void ezusb_ctx_complete(struct request_context *ctx)
 	default:
 		spin_unlock_irqrestore(&upriv->req_lock, flags);
 		if (!upriv->udev) {
+			/* This is normal, as all request contexts get flushed
+			 * when the device is disconnected */
 			err("Called, CTX not terminating, but device gone");
 			ezusb_complete_all(&ctx->done);
 			ezusb_request_context_put(ctx);
@@ -426,10 +446,22 @@ static void ezusb_ctx_complete(struct request_context *ctx)
 		}
 
 		err("Called, CTX not in terminating state.");
+		/* Things are really bad if this happens. Just leak
+		 * the CTX because it may still be linked to the
+		 * queue or the OUT urb may still be active.
+		 * Just leaking at least prevents an Oops or Panic.
+		 */
 		break;
 	}
 }
 
+/**
+ * ezusb_req_queue_run:
+ * Description:
+ *	Note: Only one active CTX at any one time, because there's no
+ *	other (reliable) way to match the response URB to the correct
+ *	CTX.
+ **/
 static void ezusb_req_queue_run(struct ezusb_priv *upriv)
 {
 	unsigned long flags;
@@ -451,7 +483,7 @@ static void ezusb_req_queue_run(struct ezusb_priv *upriv)
 	if (!ctx->upriv->udev)
 		goto unlock;
 
-	
+	/* We need to split this off to avoid a race condition */
 	list_move_tail(&ctx->list, &upriv->req_active);
 
 	if (ctx->state == EZUSB_CTX_QUEUED) {
@@ -528,16 +560,16 @@ static void ezusb_request_out_callback(struct urb *urb)
 		case EZUSB_CTX_REQ_SUBMITTED:
 			if (ctx->in_rid) {
 				ctx->state = EZUSB_CTX_REQ_COMPLETE;
-				
+				/* reply URB still pending */
 				ezusb_mod_timer(upriv, &ctx->timer,
 						jiffies + DEF_TIMEOUT);
 				spin_unlock_irqrestore(&upriv->req_lock,
 						       flags);
 				break;
 			}
-			
+			/* fall through */
 		case EZUSB_CTX_RESP_RECEIVED:
-			
+			/* IN already received before this OUT-ACK */
 			ctx->state = EZUSB_CTX_COMPLETE;
 			spin_unlock_irqrestore(&upriv->req_lock, flags);
 			ezusb_ctx_complete(ctx);
@@ -550,11 +582,14 @@ static void ezusb_request_out_callback(struct urb *urb)
 			break;
 		}
 	} else {
+		/* If someone cancels the OUT URB then its status
+		 * should be either -ECONNRESET or -ENOENT.
+		 */
 		switch (state) {
 		case EZUSB_CTX_REQ_SUBMITTED:
 		case EZUSB_CTX_RESP_RECEIVED:
 			ctx->state = EZUSB_CTX_REQ_FAILED;
-			
+			/* fall through */
 
 		case EZUSB_CTX_REQ_FAILED:
 		case EZUSB_CTX_REQ_TIMEOUT:
@@ -583,7 +618,7 @@ static void ezusb_request_in_callback(struct ezusb_priv *upriv,
 	enum ezusb_state state;
 	unsigned long flags;
 
-	
+	/* Find the CTX on the active queue that requested this URB */
 	spin_lock_irqsave(&upriv->req_lock, flags);
 	if (upriv->udev) {
 		struct list_head *item;
@@ -614,7 +649,7 @@ static void ezusb_request_in_callback(struct ezusb_priv *upriv,
 		return;
 	}
 
-	
+	/* The data we want is in the in buffer, exchange */
 	urb->transfer_buffer = ctx->buf;
 	ctx->buf = (void *) ans;
 	ctx->buf_length = urb->actual_length;
@@ -622,20 +657,29 @@ static void ezusb_request_in_callback(struct ezusb_priv *upriv,
 	state = ctx->state;
 	switch (state) {
 	case EZUSB_CTX_REQ_SUBMITTED:
+		/* We have received our response URB before
+		 * our request has been acknowledged. Do NOT
+		 * destroy our CTX yet, because our OUT URB
+		 * is still alive ...
+		 */
 		ctx->state = EZUSB_CTX_RESP_RECEIVED;
 		spin_unlock_irqrestore(&upriv->req_lock, flags);
 
-		
+		/* Let the machine continue running. */
 		break;
 
 	case EZUSB_CTX_REQ_COMPLETE:
+		/* This is the usual path: our request
+		 * has already been acknowledged, and
+		 * we have now received the reply.
+		 */
 		ctx->state = EZUSB_CTX_COMPLETE;
 
-		
+		/* Stop the intimer */
 		del_timer(&ctx->timer);
 		spin_unlock_irqrestore(&upriv->req_lock, flags);
 
-		
+		/* Call the completion handler */
 		ezusb_ctx_complete(ctx);
 		break;
 
@@ -644,13 +688,13 @@ static void ezusb_request_in_callback(struct ezusb_priv *upriv,
 
 		pr_warning("Matched IN URB, unexpected context state(0x%x)",
 		     state);
-		
+		/* Throw this CTX away and try submitting another */
 		del_timer(&ctx->timer);
 		ctx->outurb->transfer_flags |= URB_ASYNC_UNLINK;
 		usb_unlink_urb(ctx->outurb);
 		ezusb_req_queue_run(upriv);
 		break;
-	}			
+	}			/* switch */
 }
 
 
@@ -663,6 +707,9 @@ static void ezusb_req_ctx_wait(struct ezusb_priv *upriv,
 	case EZUSB_CTX_REQ_COMPLETE:
 	case EZUSB_CTX_RESP_RECEIVED:
 		if (in_softirq()) {
+			/* If we get called from a timer, timeout timers don't
+			 * get the chance to run themselves. So we make sure
+			 * that we don't sleep for ever */
 			int msecs = DEF_TIMEOUT * (1000 / HZ);
 			while (!ctx->done.done && msecs--)
 				udelay(1000);
@@ -672,7 +719,7 @@ static void ezusb_req_ctx_wait(struct ezusb_priv *upriv,
 		}
 		break;
 	default:
-		
+		/* Done or failed - nothing to wait for */
 		break;
 	}
 }
@@ -689,6 +736,13 @@ static inline u16 build_crc(struct ezusb_packet *data)
 	return crc;
 }
 
+/**
+ * ezusb_fill_req:
+ *
+ * if data == NULL and length > 0 the data is assumed to be already in
+ * the target buffer and only the header is filled.
+ *
+ */
 static int ezusb_fill_req(struct ezusb_packet *req, u16 length, u16 rid,
 			  const void *data, u16 frame_type, u8 reply_count)
 {
@@ -733,7 +787,7 @@ static int ezusb_submit_in_urb(struct ezusb_priv *upriv)
 
 static inline int ezusb_8051_cpucs(struct ezusb_priv *upriv, int reset)
 {
-	u8 res_val = reset;	
+	u8 res_val = reset;	/* avoid argument promotion */
 
 	if (!upriv->udev) {
 		err("%s: !upriv->udev", __func__);
@@ -754,6 +808,12 @@ static int ezusb_firmware_download(struct ezusb_priv *upriv,
 	int retval, addr;
 	int variant_offset;
 
+	/*
+	 * This byte is 1 and should be replaced with 0.  The offset is
+	 * 0x10AD in version 0.0.6.  The byte in question should follow
+	 * the end of the code pointed to by the jump in the beginning
+	 * of the firmware.  Also, it is read by code located at 0x358.
+	 */
 	variant_offset = be16_to_cpup((__be16 *) &fw->code[FW_VAR_OFFSET_PTR]);
 	if (variant_offset >= fw->size) {
 		printk(KERN_ERR PFX "Invalid firmware variant offset: "
@@ -766,6 +826,8 @@ static int ezusb_firmware_download(struct ezusb_priv *upriv,
 	if (retval < 0)
 		goto fail;
 	for (addr = 0; addr < fw->size; addr += FW_BUF_SIZE) {
+		/* 0x100-0x300 should be left alone, it contains card
+		 * specific data, like USB enumeration information */
 		if ((addr >= FW_HOLE_START) && (addr < FW_HOLE_END))
 			continue;
 
@@ -819,7 +881,7 @@ static int ezusb_access_ltv(struct ezusb_priv *upriv,
 	if (upriv->read_urb->status != -EINPROGRESS)
 		err("%s: in urb not pending", __func__);
 
-	
+	/* protect upriv->reply_count, guarantee sequential numbers */
 	spin_lock_bh(&upriv->reply_count_lock);
 	req_size = ezusb_fill_req(ctx->buf, length, ctx->out_rid, data,
 				  frame_type, upriv->reply_count);
@@ -850,7 +912,7 @@ static int ezusb_access_ltv(struct ezusb_priv *upriv,
 	default:
 		err("%s: Unexpected context state %d", __func__,
 		    state);
-		
+		/* fall though */
 	case EZUSB_CTX_REQ_TIMEOUT:
 	case EZUSB_CTX_REQ_FAILED:
 	case EZUSB_CTX_RESP_TIMEOUT:
@@ -909,6 +971,8 @@ static int ezusb_write_ltv(struct hermes *hw, int bap, u16 rid,
 
 	length = HERMES_RECLEN_TO_BYTES(length);
 
+	/* On memory mapped devices HERMES_RID_CNFGROUPADDRESSES can be
+	 * set to be empty, but the USB bridge doesn't like it */
 	if (length == 0)
 		return 0;
 
@@ -1003,7 +1067,7 @@ static int ezusb_bap_pread(struct hermes *hw, int bap,
 	}
 
 	if (EZUSB_IS_INFO(id)) {
-		
+		/* Include 4 bytes for length/type */
 		if ((sizeof(*ans) + offset + len - 4) > actual_length) {
 			printk(KERN_ERR PFX "BAP read beyond buffer end "
 			       "in info frame\n");
@@ -1031,9 +1095,12 @@ static int ezusb_read_pda(struct hermes *hw, __le16 *pda,
 	if (!ctx)
 		return -ENOMEM;
 
+	/* wl_lkm does not include PDA size in the PDA area.
+	 * We will pad the information into pda, so other routines
+	 * don't have to be modified */
 	pda[0] = cpu_to_le16(pda_len - 2);
-	
-	pda[1] = cpu_to_le16(0x0800); 
+	/* Includes CFG_PROD_DATA but not itself */
+	pda[1] = cpu_to_le16(0x0800); /* CFG_PROD_DATA */
 
 	return ezusb_access_ltv(upriv, ctx, sizeof(data), &data,
 				EZUSB_FRAME_CONTROL, &pda[2], pda_len - 4,
@@ -1099,6 +1166,9 @@ static int ezusb_program(struct hermes *hw, const char *buf,
 	u32 ch_len;
 	int err = 0;
 
+	/* We can only send 2048 bytes out of the bulk xmit at a time,
+	 * so we have to split any programming into chunks of <2048
+	 * bytes. */
 
 	ch_len = (len < MAX_DL_SIZE) ? len : MAX_DL_SIZE;
 	ch_addr = addr;
@@ -1155,10 +1225,13 @@ static netdev_tx_t ezusb_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	if (!netif_carrier_ok(dev) ||
 	    (priv->iw_mode == NL80211_IFTYPE_MONITOR)) {
+		/* Oops, the firmware hasn't established a connection,
+		   silently drop the packet (this seems to be the
+		   safest approach). */
 		goto drop;
 	}
 
-	
+	/* Check packet length */
 	if (skb->len < ETH_HLEN)
 		goto drop;
 
@@ -1187,16 +1260,19 @@ static netdev_tx_t ezusb_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	if (tx_control & HERMES_TXCTRL_MIC) {
 		u8 *m = mic;
+		/* Mic has been offset so it can be copied to an even
+		 * address. We're copying eveything anyway, so we
+		 * don't need to copy that first byte. */
 		if (skb->len % 2)
 			m++;
 		memcpy(buf, m, MICHAEL_MIC_LEN);
 		buf += MICHAEL_MIC_LEN;
 	}
 
-	
+	/* Finally, we actually initiate the send */
 	netif_stop_queue(dev);
 
-	
+	/* The card may behave better if we send evenly sized usb transfers */
 	tx_size = ALIGN(buf - ctx->buf->data, 2);
 
 	err = ezusb_access_ltv(upriv, ctx, tx_size, NULL,
@@ -1289,6 +1365,8 @@ static int ezusb_init(struct hermes *hw)
 	BUG_ON(!upriv);
 
 	upriv->reply_count = 0;
+	/* Write the MAGIC number on the simulated registers to keep
+	 * orinoco.c happy */
 	hermes_write_regn(hw, SWSUPPORT0, HERMES_MAGIC);
 	hermes_write_regn(hw, RXFID, EZUSB_RID_RX);
 
@@ -1324,6 +1402,9 @@ static void ezusb_bulk_in_callback(struct urb *urb)
 	}
 
 	if (urb->status == -ETIMEDOUT) {
+		/* When a device gets unplugged we get this every time
+		 * we resubmit, flooding the logs.  Since we don't use
+		 * USB timeouts, it shouldn't happen any other time*/
 		pr_warning("%s: urb timed out, not resubmiting", __func__);
 		return;
 	}
@@ -1386,7 +1467,7 @@ static inline void ezusb_delete(struct ezusb_priv *upriv)
 	dev = upriv->dev;
 	mutex_lock(&upriv->mtx);
 
-	upriv->udev = NULL;	
+	upriv->udev = NULL;	/* No timer will be rearmed from here */
 
 	usb_kill_urb(upriv->read_urb);
 
@@ -1406,6 +1487,8 @@ static inline void ezusb_delete(struct ezusb_priv *upriv)
 			wait_for_completion(&ctx->done);
 
 		del_timer_sync(&ctx->timer);
+		/* FIXME: there is an slight chance for the irq handler to
+		 * be running */
 		if (!list_empty(&ctx->list))
 			ezusb_ctx_complete(ctx);
 
@@ -1525,8 +1608,8 @@ static int ezusb_probe(struct usb_interface *interface,
 	hw->priv = upriv;
 	hw->ops = &ezusb_ops;
 
-	
-	
+	/* set up the endpoint information */
+	/* check out the endpoints */
 
 	iface_desc = &interface->altsetting[0].desc;
 	for (i = 0; i < iface_desc->bNumEndpoints; ++i) {
@@ -1536,7 +1619,7 @@ static int ezusb_probe(struct usb_interface *interface,
 		     == USB_DIR_IN) &&
 		    ((ep->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
 		     == USB_ENDPOINT_XFER_BULK)) {
-			
+			/* we found a bulk in endpoint */
 			if (upriv->read_urb != NULL) {
 				pr_warning("Found a second bulk in ep, ignored");
 				continue;
@@ -1567,7 +1650,7 @@ static int ezusb_probe(struct usb_interface *interface,
 		     == USB_DIR_OUT) &&
 		    ((ep->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
 		     == USB_ENDPOINT_XFER_BULK)) {
-			
+			/* we found a bulk out endpoint */
 			if (upriv->bap_buf != NULL) {
 				pr_warning("Found a second bulk out ep, ignored");
 				continue;
@@ -1610,13 +1693,17 @@ static int ezusb_probe(struct usb_interface *interface,
 		goto error;
 	}
 
+	/* If the firmware is already downloaded orinoco.c will call
+	 * ezusb_init but if the firmware is not already there, that will make
+	 * the kernel very unstable, so we try initializing here and quit in
+	 * case of error */
 	if (ezusb_init(hw) < 0) {
 		err("Couldn't initialize the device");
 		err("Firmware may not be downloaded or may be wrong.");
 		goto error;
 	}
 
-	
+	/* Initialise the main driver */
 	if (orinoco_init(priv) != 0) {
 		err("orinoco_init() failed\n");
 		goto error;
@@ -1634,7 +1721,7 @@ static int ezusb_probe(struct usb_interface *interface,
  error:
 	ezusb_delete(upriv);
 	if (upriv->dev) {
-		
+		/* upriv->dev was 0, so ezusb_delete() didn't free it */
 		free_orinocodev(priv);
 	}
 	upriv = NULL;
@@ -1659,6 +1746,7 @@ static void ezusb_disconnect(struct usb_interface *intf)
 }
 
 
+/* usb specific object needed to register this driver with the usb subsystem */
 static struct usb_driver orinoco_driver = {
 	.name = DRIVER_NAME,
 	.probe = ezusb_probe,

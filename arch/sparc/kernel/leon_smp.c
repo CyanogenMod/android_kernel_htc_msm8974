@@ -57,6 +57,7 @@ extern cpumask_t smp_commenced_mask;
 void __init leon_configure_cache_smp(void);
 static void leon_ipi_init(void);
 
+/* IRQ number of LEON IPIs */
 int leon_ipi_irq = LEON3_IRQ_IPI_DEFAULT;
 
 static inline unsigned long do_swap(volatile unsigned long *ptr,
@@ -80,7 +81,7 @@ void __cpuinit leon_callin(void)
 
 	notify_cpu_starting(cpuid);
 
-	
+	/* Get our local ticker going. */
 	smp_setup_percpu_timer();
 
 	calibrate_delay();
@@ -89,16 +90,23 @@ void __cpuinit leon_callin(void)
 	local_flush_cache_all();
 	local_flush_tlb_all();
 
+	/*
+	 * Unblock the master CPU _only_ when the scheduler state
+	 * of all secondary CPUs will be up-to-date, so after
+	 * the SMP initialization the master will be just allowed
+	 * to call the scheduler code.
+	 * Allow master to continue.
+	 */
 	do_swap(&cpu_callin_map[cpuid], 1);
 
 	local_flush_cache_all();
 	local_flush_tlb_all();
 
-	
+	/* Fix idle thread fields. */
 	__asm__ __volatile__("ld [%0], %%g6\n\t" : : "r"(&current_set[cpuid])
-			     : "memory" );
+			     : "memory" /* paranoid */);
 
-	
+	/* Attach to the address space of init_task. */
 	atomic_inc(&init_mm.mm_count);
 	current->active_mm = &init_mm;
 
@@ -109,6 +117,9 @@ void __cpuinit leon_callin(void)
 	set_cpu_online(cpuid, true);
 }
 
+/*
+ *	Cycle through the processors asking the PROM to start each one.
+ */
 
 extern struct linux_prom_registers smp_penguin_ctable;
 
@@ -174,7 +185,7 @@ void __init leon_boot_cpus(void)
 	int nrcpu = leon_smp_nrcpus();
 	int me = smp_processor_id();
 
-	
+	/* Setup IPI */
 	leon_ipi_init();
 
 	printk(KERN_INFO "%d:(%d:%d) cpus mpirq at 0x%x\n", (unsigned int)me,
@@ -199,27 +210,32 @@ int __cpuinit leon_boot_one_cpu(int i)
 	struct task_struct *p;
 	int timeout;
 
-	
+	/* Cook up an idler for this guy. */
 	p = fork_idle(i);
 
 	current_set[i] = task_thread_info(p);
 
+	/* See trampoline.S:leon_smp_cpu_startup for details...
+	 * Initialize the contexts table
+	 * Since the call to prom_startcpu() trashes the structure,
+	 * we need to re-initialize it for each cpu
+	 */
 	smp_penguin_ctable.which_io = 0;
 	smp_penguin_ctable.phys_addr = (unsigned int)srmmu_ctx_table_phys;
 	smp_penguin_ctable.reg_size = 0;
 
-	
+	/* whirrr, whirrr, whirrrrrrrrr... */
 	printk(KERN_INFO "Starting CPU %d : (irqmp: 0x%x)\n", (unsigned int)i,
 	       (unsigned int)&leon3_irqctrl_regs->mpstatus);
 	local_flush_cache_all();
 
-	
+	/* Make sure all IRQs are of from the start for this new CPU */
 	LEON_BYPASS_STORE_PA(&leon3_irqctrl_regs->mask[i], 0);
 
-	
+	/* Wake one CPU */
 	LEON_BYPASS_STORE_PA(&(leon3_irqctrl_regs->mpstatus), 1 << i);
 
-	
+	/* wheee... it's going... */
 	for (timeout = 0; timeout < 10000; timeout++) {
 		if (cpu_callin_map[i])
 			break;
@@ -246,7 +262,7 @@ void __init leon_smp_done(void)
 	int i, first;
 	int *prev;
 
-	
+	/* setup cpu list for irq rotation */
 	first = 0;
 	prev = &first;
 	for (i = 0; i < NR_CPUS; i++) {
@@ -258,7 +274,7 @@ void __init leon_smp_done(void)
 	*prev = first;
 	local_flush_cache_all();
 
-	
+	/* Free unneeded trap tables */
 	if (!cpu_present(1)) {
 		ClearPageReserved(virt_to_page(&trapbase_cpu1));
 		init_page_count(virt_to_page(&trapbase_cpu1));
@@ -280,7 +296,7 @@ void __init leon_smp_done(void)
 		totalram_pages++;
 		num_physpages++;
 	}
-	
+	/* Ok, they are spinning and ready to go. */
 	smp_processors_ready = 1;
 
 }
@@ -297,6 +313,9 @@ struct leon_ipi_work {
 
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct leon_ipi_work, leon_ipi_work);
 
+/* Initialize IPIs on the LEON, in order to save IRQ resources only one IRQ
+ * is used for all three types of IPIs.
+ */
 static void __init leon_ipi_init(void)
 {
 	int cpu, len;
@@ -306,7 +325,7 @@ static void __init leon_ipi_init(void)
 	struct tt_entry *trap_table;
 	unsigned long flags;
 
-	
+	/* Find IPI IRQ or stick with default value */
 	rootnp = of_find_node_by_path("/ambapp0");
 	if (rootnp) {
 		pp = of_find_property(rootnp, "ipi_num", &len);
@@ -315,7 +334,7 @@ static void __init leon_ipi_init(void)
 	}
 	printk(KERN_INFO "leon: SMP IPIs at IRQ %d\n", leon_ipi_irq);
 
-	
+	/* Adjust so that we jump directly to smpleon_ipi */
 	local_irq_save(flags);
 	trap_table = &sparc_ttable[SP_TRAP_IRQ1 + (leon_ipi_irq - 1)];
 	trap_table->inst_three += smpleon_ipi - real_irq_entry;
@@ -332,10 +351,10 @@ static void leon_ipi_single(int cpu)
 {
 	struct leon_ipi_work *work = &per_cpu(leon_ipi_work, cpu);
 
-	
+	/* Mark work */
 	work->single = 1;
 
-	
+	/* Generate IRQ on the CPU */
 	set_cpu_int(cpu, leon_ipi_irq);
 }
 
@@ -343,10 +362,10 @@ static void leon_ipi_mask_one(int cpu)
 {
 	struct leon_ipi_work *work = &per_cpu(leon_ipi_work, cpu);
 
-	
+	/* Mark work */
 	work->msk = 1;
 
-	
+	/* Generate IRQ on the CPU */
 	set_cpu_int(cpu, leon_ipi_irq);
 }
 
@@ -354,10 +373,10 @@ static void leon_ipi_resched(int cpu)
 {
 	struct leon_ipi_work *work = &per_cpu(leon_ipi_work, cpu);
 
-	
+	/* Mark work */
 	work->resched = 1;
 
-	
+	/* Generate IRQ on the CPU (any IRQ will cause resched) */
 	set_cpu_int(cpu, leon_ipi_irq);
 }
 
@@ -386,12 +405,13 @@ static struct smp_funcall {
 	unsigned long arg3;
 	unsigned long arg4;
 	unsigned long arg5;
-	unsigned long processors_in[NR_CPUS];	
-	unsigned long processors_out[NR_CPUS];	
+	unsigned long processors_in[NR_CPUS];	/* Set when ipi entered. */
+	unsigned long processors_out[NR_CPUS];	/* Set when ipi exited. */
 } ccall_info;
 
 static DEFINE_SPINLOCK(cross_call_lock);
 
+/* Cross calls must be serialized, at least currently. */
 static void leon_cross_call(smpfunc_t func, cpumask_t mask, unsigned long arg1,
 			    unsigned long arg2, unsigned long arg3,
 			    unsigned long arg4)
@@ -403,7 +423,7 @@ static void leon_cross_call(smpfunc_t func, cpumask_t mask, unsigned long arg1,
 		spin_lock_irqsave(&cross_call_lock, flags);
 
 		{
-			
+			/* If you make changes here, make sure gcc generates proper code... */
 			register smpfunc_t f asm("i0") = func;
 			register unsigned long a1 asm("i1") = arg1;
 			register unsigned long a2 asm("i2") = arg2;
@@ -419,7 +439,7 @@ static void leon_cross_call(smpfunc_t func, cpumask_t mask, unsigned long arg1,
 					     "r"(&ccall_info.func));
 		}
 
-		
+		/* Init receive/complete mapping, plus fire the IPI's off. */
 		{
 			register int i;
 
@@ -461,6 +481,7 @@ static void leon_cross_call(smpfunc_t func, cpumask_t mask, unsigned long arg1,
 	}
 }
 
+/* Running cross calls. */
 void leon_cross_call_irq(void)
 {
 	int i = smp_processor_id();
@@ -502,10 +523,10 @@ void __init leon_blackbox_id(unsigned *addr)
 	int rd = *addr & 0x3e000000;
 	int rs1 = rd >> 11;
 
-	
-	addr[0] = 0x81444000 | rd;	
-	addr[1] = 0x8130201c | rd | rs1;	
-	addr[2] = 0x01000000;	
+	/* patch places where ___b_hard_smp_processor_id appears */
+	addr[0] = 0x81444000 | rd;	/* rd %asr17, reg */
+	addr[1] = 0x8130201c | rd | rs1;	/* srl reg, 0x1c, reg */
+	addr[2] = 0x01000000;	/* nop */
 }
 
 void __init leon_blackbox_current(unsigned *addr)
@@ -513,16 +534,16 @@ void __init leon_blackbox_current(unsigned *addr)
 	int rd = *addr & 0x3e000000;
 	int rs1 = rd >> 11;
 
-	
-	addr[0] = 0x81444000 | rd;	
-	addr[2] = 0x8130201c | rd | rs1;	
-	addr[4] = 0x81282002 | rd | rs1;	
+	/* patch LOAD_CURRENT macro where ___b_load_current appears */
+	addr[0] = 0x81444000 | rd;	/* rd %asr17, reg */
+	addr[2] = 0x8130201c | rd | rs1;	/* srl reg, 0x1c, reg */
+	addr[4] = 0x81282002 | rd | rs1;	/* sll reg, 0x2, reg */
 
 }
 
 void __init leon_init_smp(void)
 {
-	
+	/* Patch ipi15 trap table */
 	t_nmi[1] = t_nmi[1] + (linux_trap_ipi15_leon - linux_trap_ipi15_sun4m);
 
 	BTFIXUPSET_BLACKBOX(hard_smp_processor_id, leon_blackbox_id);
@@ -535,4 +556,4 @@ void __init leon_init_smp(void)
 	BTFIXUPSET_CALL(smp_ipi_mask_one, leon_ipi_mask_one, BTFIXUPCALL_NORM);
 }
 
-#endif 
+#endif /* CONFIG_SPARC_LEON */

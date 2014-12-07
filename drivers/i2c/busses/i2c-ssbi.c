@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * SSBI driver for Qualcomm MSM platforms
+ *
+ */
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <linux/err.h>
@@ -20,29 +24,34 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 
+/* SSBI 2.0 controller registers */
 #define SSBI2_CMD			0x0008
 #define SSBI2_RD			0x0010
 #define SSBI2_STATUS			0x0014
 #define SSBI2_MODE2			0x001C
 
+/* SSBI_CMD fields */
 #define SSBI_CMD_RDWRN			(0x01 << 24)
 #define SSBI_CMD_REG_ADDR_SHFT		(0x10)
 #define SSBI_CMD_REG_ADDR_MASK		(0xFF << SSBI_CMD_REG_ADDR_SHFT)
 #define SSBI_CMD_REG_DATA_SHFT		(0x00)
 #define SSBI_CMD_REG_DATA_MASK		(0xFF << SSBI_CMD_REG_DATA_SHFT)
 
+/* SSBI_STATUS fields */
 #define SSBI_STATUS_DATA_IN		0x10
 #define SSBI_STATUS_RD_CLOBBERED	0x08
 #define SSBI_STATUS_RD_READY		0x04
 #define SSBI_STATUS_READY		0x02
 #define SSBI_STATUS_MCHN_BUSY		0x01
 
+/* SSBI_RD fields */
 #define SSBI_RD_RDWRN			0x01000000
 #define SSBI_RD_REG_ADDR_SHFT		0x10
 #define SSBI_RD_REG_ADDR_MASK		(0xFF << SSBI_RD_REG_ADDR_SHFT)
 #define SSBI_RD_REG_DATA_SHFT		(0x00)
 #define SSBI_RD_REG_DATA_MASK		(0xFF << SSBI_RD_REG_DATA_SHFT)
 
+/* SSBI_MODE2 fields */
 #define SSBI_MODE2_REG_ADDR_15_8_SHFT	0x04
 #define SSBI_MODE2_REG_ADDR_15_8_MASK	(0x7F << SSBI_MODE2_REG_ADDR_15_8_SHFT)
 #define SSBI_MODE2_ADDR_WIDTH_SHFT	0x01
@@ -65,9 +74,11 @@
 	((((AD) & 0xFF) << SSBI_CMD_REG_ADDR_SHFT) | \
 	 (((DT) & 0xFF) << SSBI_CMD_REG_DATA_SHFT))
 
+/* SSBI PMIC Arbiter command registers */
 #define SSBI_PA_CMD			0x0000
 #define SSBI_PA_RD_STATUS		0x0004
 
+/* SSBI_PA_CMD fields */
 #define SSBI_PA_CMD_RDWRN		(0x01 << 24)
 #define SSBI_PA_CMD_REG_ADDR_14_8_SHFT	(0x10)
 #define SSBI_PA_CMD_REG_ADDR_14_8_MASK	(0x7F << SSBI_PA_CMD_REG_ADDR_14_8_SHFT)
@@ -83,6 +94,7 @@
 	(((AD) << SSBI_PA_CMD_REG_ADDR_7_0_SHFT) & \
 	(SSBI_PA_CMD_REG_ADDR_14_8_MASK|SSBI_PA_CMD_REG_ADDR_7_0_MASK))
 
+/* SSBI_PA_RD_STATUS fields */
 #define SSBI_PA_RD_STATUS_TRANS_DONE	(0x01 << 27)
 #define SSBI_PA_RD_STATUS_TRANS_DENIED	(0x01 << 26)
 #define SSBI_PA_RD_STATUS_REG_DATA_SHFT	(0x00)
@@ -90,6 +102,7 @@
 #define SSBI_PA_RD_STATUS_TRANS_COMPLETE \
 	(SSBI_PA_RD_STATUS_TRANS_DONE|SSBI_PA_RD_STATUS_TRANS_DENIED)
 
+/* SSBI_FSM Read and Write commands for the FSM9xxx SSBI implementation */
 #define SSBI_FSM_CMD_REG_ADDR_SHFT	(0x08)
 
 #define SSBI_FSM_CMD_READ(AD) \

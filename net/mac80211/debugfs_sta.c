@@ -15,6 +15,7 @@
 #include "debugfs_sta.h"
 #include "sta_info.h"
 
+/* sta attributtes */
 
 #define STA_READ(name, field, format_string)				\
 static ssize_t sta_ ##name## _read(struct file *file,			\
@@ -279,10 +280,16 @@ static ssize_t sta_ht_capa_read(struct file *file, char __user *userbuf,
 		PRINT_HT_CAP((htc->cap & BIT(11)), "Max AMSDU length: "
 			     "7935 bytes");
 
+		/*
+		 * For beacons and probe response this would mean the BSS
+		 * does or does not allow the usage of DSSS/CCK HT40.
+		 * Otherwise it means the STA does or does not use
+		 * DSSS/CCK HT40.
+		 */
 		PRINT_HT_CAP((htc->cap & BIT(12)), "DSSS/CCK HT40");
 		PRINT_HT_CAP(!(htc->cap & BIT(12)), "No DSSS/CCK HT40");
 
-		
+		/* BIT(13) is reserved */
 
 		PRINT_HT_CAP((htc->cap & BIT(14)), "40 MHz Intolerant");
 
@@ -297,7 +304,7 @@ static ssize_t sta_ht_capa_read(struct file *file, char __user *userbuf,
 					htc->mcs.rx_mask[i]);
 		p += scnprintf(p, sizeof(buf)+buf-p, "\n");
 
-		
+		/* If not set this is meaningless */
 		if (le16_to_cpu(htc->mcs.rx_highest)) {
 			p += scnprintf(p, sizeof(buf)+buf-p,
 				       "MCS rx highest: %d Mbps\n",
@@ -336,6 +343,15 @@ void ieee80211_sta_debugfs_add(struct sta_info *sta)
 
 	snprintf(mac, sizeof(mac), "%pM", sta->sta.addr);
 
+	/*
+	 * This might fail due to a race condition:
+	 * When mac80211 unlinks a station, the debugfs entries
+	 * remain, but it is already possible to link a new
+	 * station with the same address which triggers adding
+	 * it to debugfs; therefore, if the old station isn't
+	 * destroyed quickly enough the old station's debugfs
+	 * dir might still be around.
+	 */
 	sta->debugfs.dir = debugfs_create_dir(mac, stations_dir);
 	if (!sta->debugfs.dir)
 		return;

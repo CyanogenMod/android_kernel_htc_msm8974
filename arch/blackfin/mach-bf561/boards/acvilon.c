@@ -55,6 +55,9 @@
 #include <asm/cacheflush.h>
 #include <linux/i2c.h>
 
+/*
+ * Name the Board for the /proc/cpuinfo
+ */
 const char bfin_board_name[] = "Acvilon board";
 
 #if defined(CONFIG_USB_ISP1760_HCD) || defined(CONFIG_USB_ISP1760_HCD_MODULE)
@@ -113,6 +116,7 @@ struct i2c_pca9564_pf_platform_data pca9564_platform_data = {
 	.timeout = HZ,
 };
 
+/* PCA9564 I2C Bus driver */
 static struct platform_device bfin_i2c_pca_device = {
 	.name = "i2c-pca-platform",
 	.id = 0,
@@ -123,6 +127,7 @@ static struct platform_device bfin_i2c_pca_device = {
 		}
 };
 
+/* I2C devices fitted. */
 static struct i2c_board_info acvilon_i2c_devs[] __initdata = {
 	{
 	 I2C_BOARD_INFO("ds1339", 0x68),
@@ -234,7 +239,7 @@ static struct platform_device bfin_uart0_device = {
 	.num_resources = ARRAY_SIZE(bfin_uart0_resources),
 	.resource = bfin_uart0_resources,
 	.dev = {
-		
+		/* Passed to driver */
 		.platform_data = &bfin_uart0_peripherals,
 		},
 };
@@ -361,12 +366,14 @@ static struct flash_platform_data bfin_spi_dataflash_data = {
 	.nr_parts = ARRAY_SIZE(bfin_spi_dataflash_partitions),
 };
 
+/* DataFlash chip */
 static struct bfin5xx_spi_chip data_flash_chip_info = {
-	.enable_dma = 0,	
+	.enable_dma = 0,	/* use dma transfer with this chip */
 };
 #endif
 
 #if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
+/* SPI (0) */
 static struct resource bfin_spi0_resource[] = {
 	[0] = {
 	       .start = SPI0_REGBASE,
@@ -385,19 +392,20 @@ static struct resource bfin_spi0_resource[] = {
 	       },
 };
 
+/* SPI controller data */
 static struct bfin5xx_spi_master bfin_spi0_info = {
 	.num_chipselect = 8,
-	.enable_dma = 1,	
+	.enable_dma = 1,	/* master has the ability to do dma transfer */
 	.pin_req = {P_SPI0_SCK, P_SPI0_MISO, P_SPI0_MOSI, 0},
 };
 
 static struct platform_device bfin_spi0_device = {
 	.name = "bfin-spi",
-	.id = 0,		
+	.id = 0,		/* Bus number */
 	.num_resources = ARRAY_SIZE(bfin_spi0_resource),
 	.resource = bfin_spi0_resource,
 	.dev = {
-		.platform_data = &bfin_spi0_info,	
+		.platform_data = &bfin_spi0_info,	/* Passed to driver */
 		},
 };
 #endif
@@ -406,17 +414,17 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_SPI_SPIDEV) || defined(CONFIG_SPI_SPIDEV_MODULE)
 	{
 	 .modalias = "spidev",
-	 .max_speed_hz = 3125000,	
+	 .max_speed_hz = 3125000,	/* max spi clock (SCK) speed in HZ */
 	 .bus_num = 0,
 	 .chip_select = 3,
 	 },
 #endif
 #if defined(CONFIG_MTD_DATAFLASH) || defined(CONFIG_MTD_DATAFLASH_MODULE)
-	{			
+	{			/* DataFlash chip */
 	 .modalias = "mtd_dataflash",
-	 .max_speed_hz = 33250000,	
-	 .bus_num = 0,		
-	 .chip_select = 2,	
+	 .max_speed_hz = 33250000,	/* max spi clock (SCK) speed in HZ */
+	 .bus_num = 0,		/* Framework bus number */
+	 .chip_select = 2,	/* Framework chip select */
 	 .platform_data = &bfin_spi_dataflash_data,
 	 .controller_data = &data_flash_chip_info,
 	 .mode = SPI_MODE_3,
@@ -426,6 +434,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 
 static struct resource bfin_gpios_resources = {
 	.start = 31,
+/*      .end   = MAX_BLACKFIN_GPIOS - 1, */
 	.end = 32,
 	.flags = IORESOURCE_IRQ,
 };
@@ -453,7 +462,7 @@ static const unsigned int cclk_vlev_datasheet[] = {
 static struct bfin_dpmc_platform_data bfin_dmpc_vreg_data = {
 	.tuple_tab = cclk_vlev_datasheet,
 	.tabsize = ARRAY_SIZE(cclk_vlev_datasheet),
-	.vr_settling_time = 25  ,
+	.vr_settling_time = 25 /* us */ ,
 };
 
 static struct platform_device bfin_dpmc = {

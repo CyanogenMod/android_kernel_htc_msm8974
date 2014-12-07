@@ -23,10 +23,11 @@
 #include <linux/workqueue.h>
 #include <linux/slab.h>
 
-#define PCA9633_LED_OFF		0x0	
-#define PCA9633_LED_ON		0x1	
-#define PCA9633_LED_PWM		0x2	
-#define PCA9633_LED_GRP_PWM	0x3	
+/* LED select registers determine the source that drives LED outputs */
+#define PCA9633_LED_OFF		0x0	/* LED driver off */
+#define PCA9633_LED_ON		0x1	/* LED driver on */
+#define PCA9633_LED_PWM		0x2	/* Controlled through PWM */
+#define PCA9633_LED_GRP_PWM	0x3	/* Controlled through PWM/GRPPWM */
 
 #define PCA9633_MODE1		0x00
 #define PCA9633_MODE2		0x01
@@ -44,7 +45,7 @@ struct pca9633_led {
 	struct work_struct work;
 	enum led_brightness brightness;
 	struct led_classdev led_cdev;
-	int led_num; 
+	int led_num; /* 0 .. 3 potentially */
 	char name[32];
 };
 
@@ -84,6 +85,10 @@ static void pca9633_led_set(struct led_classdev *led_cdev,
 
 	pca9633->brightness = value;
 
+	/*
+	 * Must use workqueue for the actual I/O since I2C operations
+	 * can sleep.
+	 */
 	schedule_work(&pca9633->work);
 }
 
@@ -113,7 +118,7 @@ static int __devinit pca9633_probe(struct i2c_client *client,
 		pca9633[i].client = client;
 		pca9633[i].led_num = i;
 
-		
+		/* Platform data can specify LED names and default triggers */
 		if (pdata && i < pdata->num_leds) {
 			if (pdata->leds[i].name)
 				snprintf(pca9633[i].name,
@@ -137,10 +142,10 @@ static int __devinit pca9633_probe(struct i2c_client *client,
 			goto exit;
 	}
 
-	
+	/* Disable LED all-call address and set normal mode */
 	i2c_smbus_write_byte_data(client, PCA9633_MODE1, 0x00);
 
-	
+	/* Turn off LEDs */
 	i2c_smbus_write_byte_data(client, PCA9633_LEDOUT, 0x00);
 
 	return 0;

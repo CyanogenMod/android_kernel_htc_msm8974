@@ -26,90 +26,111 @@
 
 #include "ad7192.h"
 
-#define AD7192_REG_COMM		0 
-#define AD7192_REG_STAT		0 
-#define AD7192_REG_MODE		1 
-#define AD7192_REG_CONF		2 
-#define AD7192_REG_DATA		3 
-#define AD7192_REG_ID		4 
-#define AD7192_REG_GPOCON	5 
-#define AD7192_REG_OFFSET	6 
-#define AD7192_REG_FULLSALE	7 
+/* Registers */
+#define AD7192_REG_COMM		0 /* Communications Register (WO, 8-bit) */
+#define AD7192_REG_STAT		0 /* Status Register	     (RO, 8-bit) */
+#define AD7192_REG_MODE		1 /* Mode Register	     (RW, 24-bit */
+#define AD7192_REG_CONF		2 /* Configuration Register  (RW, 24-bit) */
+#define AD7192_REG_DATA		3 /* Data Register	     (RO, 24/32-bit) */
+#define AD7192_REG_ID		4 /* ID Register	     (RO, 8-bit) */
+#define AD7192_REG_GPOCON	5 /* GPOCON Register	     (RO, 8-bit) */
+#define AD7192_REG_OFFSET	6 /* Offset Register	     (RW, 16-bit
+				   * (AD7792)/24-bit (AD7192)) */
+#define AD7192_REG_FULLSALE	7 /* Full-Scale Register
+				   * (RW, 16-bit (AD7792)/24-bit (AD7192)) */
 
-#define AD7192_COMM_WEN		(1 << 7) 
-#define AD7192_COMM_WRITE	(0 << 6) 
-#define AD7192_COMM_READ	(1 << 6) 
-#define AD7192_COMM_ADDR(x)	(((x) & 0x7) << 3) 
-#define AD7192_COMM_CREAD	(1 << 2) 
+/* Communications Register Bit Designations (AD7192_REG_COMM) */
+#define AD7192_COMM_WEN		(1 << 7) /* Write Enable */
+#define AD7192_COMM_WRITE	(0 << 6) /* Write Operation */
+#define AD7192_COMM_READ	(1 << 6) /* Read Operation */
+#define AD7192_COMM_ADDR(x)	(((x) & 0x7) << 3) /* Register Address */
+#define AD7192_COMM_CREAD	(1 << 2) /* Continuous Read of Data Register */
 
-#define AD7192_STAT_RDY		(1 << 7) 
-#define AD7192_STAT_ERR		(1 << 6) 
-#define AD7192_STAT_NOREF	(1 << 5) 
-#define AD7192_STAT_PARITY	(1 << 4) 
-#define AD7192_STAT_CH3		(1 << 2) 
-#define AD7192_STAT_CH2		(1 << 1) 
-#define AD7192_STAT_CH1		(1 << 0) 
+/* Status Register Bit Designations (AD7192_REG_STAT) */
+#define AD7192_STAT_RDY		(1 << 7) /* Ready */
+#define AD7192_STAT_ERR		(1 << 6) /* Error (Overrange, Underrange) */
+#define AD7192_STAT_NOREF	(1 << 5) /* Error no external reference */
+#define AD7192_STAT_PARITY	(1 << 4) /* Parity */
+#define AD7192_STAT_CH3		(1 << 2) /* Channel 3 */
+#define AD7192_STAT_CH2		(1 << 1) /* Channel 2 */
+#define AD7192_STAT_CH1		(1 << 0) /* Channel 1 */
 
-#define AD7192_MODE_SEL(x)	(((x) & 0x7) << 21) 
-#define AD7192_MODE_DAT_STA	(1 << 20) 
-#define AD7192_MODE_CLKSRC(x)	(((x) & 0x3) << 18) 
-#define AD7192_MODE_SINC3	(1 << 15) 
-#define AD7192_MODE_ACX		(1 << 14) 
-#define AD7192_MODE_ENPAR	(1 << 13) 
-#define AD7192_MODE_CLKDIV	(1 << 12) 
-#define AD7192_MODE_SCYCLE	(1 << 11) 
-#define AD7192_MODE_REJ60	(1 << 10) 
-#define AD7192_MODE_RATE(x)	((x) & 0x3FF) 
+/* Mode Register Bit Designations (AD7192_REG_MODE) */
+#define AD7192_MODE_SEL(x)	(((x) & 0x7) << 21) /* Operation Mode Select */
+#define AD7192_MODE_DAT_STA	(1 << 20) /* Status Register transmission */
+#define AD7192_MODE_CLKSRC(x)	(((x) & 0x3) << 18) /* Clock Source Select */
+#define AD7192_MODE_SINC3	(1 << 15) /* SINC3 Filter Select */
+#define AD7192_MODE_ACX		(1 << 14) /* AC excitation enable(AD7195 only)*/
+#define AD7192_MODE_ENPAR	(1 << 13) /* Parity Enable */
+#define AD7192_MODE_CLKDIV	(1 << 12) /* Clock divide by 2 (AD7190/2 only)*/
+#define AD7192_MODE_SCYCLE	(1 << 11) /* Single cycle conversion */
+#define AD7192_MODE_REJ60	(1 << 10) /* 50/60Hz notch filter */
+#define AD7192_MODE_RATE(x)	((x) & 0x3FF) /* Filter Update Rate Select */
 
-#define AD7192_MODE_CONT		0 
-#define AD7192_MODE_SINGLE		1 
-#define AD7192_MODE_IDLE		2 
-#define AD7192_MODE_PWRDN		3 
-#define AD7192_MODE_CAL_INT_ZERO	4 
-#define AD7192_MODE_CAL_INT_FULL	5 
-#define AD7192_MODE_CAL_SYS_ZERO	6 
-#define AD7192_MODE_CAL_SYS_FULL	7 
+/* Mode Register: AD7192_MODE_SEL options */
+#define AD7192_MODE_CONT		0 /* Continuous Conversion Mode */
+#define AD7192_MODE_SINGLE		1 /* Single Conversion Mode */
+#define AD7192_MODE_IDLE		2 /* Idle Mode */
+#define AD7192_MODE_PWRDN		3 /* Power-Down Mode */
+#define AD7192_MODE_CAL_INT_ZERO	4 /* Internal Zero-Scale Calibration */
+#define AD7192_MODE_CAL_INT_FULL	5 /* Internal Full-Scale Calibration */
+#define AD7192_MODE_CAL_SYS_ZERO	6 /* System Zero-Scale Calibration */
+#define AD7192_MODE_CAL_SYS_FULL	7 /* System Full-Scale Calibration */
 
-#define AD7192_CLK_EXT_MCLK1_2		0 
-#define AD7192_CLK_EXT_MCLK2		1 
-#define AD7192_CLK_INT			2 
-#define AD7192_CLK_INT_CO		3 
+/* Mode Register: AD7192_MODE_CLKSRC options */
+#define AD7192_CLK_EXT_MCLK1_2		0 /* External 4.92 MHz Clock connected
+					   * from MCLK1 to MCLK2 */
+#define AD7192_CLK_EXT_MCLK2		1 /* External Clock applied to MCLK2 */
+#define AD7192_CLK_INT			2 /* Internal 4.92 MHz Clock not
+					   * available at the MCLK2 pin */
+#define AD7192_CLK_INT_CO		3 /* Internal 4.92 MHz Clock available
+					   * at the MCLK2 pin */
 
 
+/* Configuration Register Bit Designations (AD7192_REG_CONF) */
 
-#define AD7192_CONF_CHOP	(1 << 23) 
-#define AD7192_CONF_REFSEL	(1 << 20) 
-#define AD7192_CONF_CHAN(x)	(((x) & 0xFF) << 8) 
-#define AD7192_CONF_BURN	(1 << 7) 
-#define AD7192_CONF_REFDET	(1 << 6) 
-#define AD7192_CONF_BUF		(1 << 4) 
-#define AD7192_CONF_UNIPOLAR	(1 << 3) 
-#define AD7192_CONF_GAIN(x)	((x) & 0x7) 
+#define AD7192_CONF_CHOP	(1 << 23) /* CHOP enable */
+#define AD7192_CONF_REFSEL	(1 << 20) /* REFIN1/REFIN2 Reference Select */
+#define AD7192_CONF_CHAN(x)	(((x) & 0xFF) << 8) /* Channel select */
+#define AD7192_CONF_BURN	(1 << 7) /* Burnout current enable */
+#define AD7192_CONF_REFDET	(1 << 6) /* Reference detect enable */
+#define AD7192_CONF_BUF		(1 << 4) /* Buffered Mode Enable */
+#define AD7192_CONF_UNIPOLAR	(1 << 3) /* Unipolar/Bipolar Enable */
+#define AD7192_CONF_GAIN(x)	((x) & 0x7) /* Gain Select */
 
-#define AD7192_CH_AIN1P_AIN2M	0 
-#define AD7192_CH_AIN3P_AIN4M	1 
-#define AD7192_CH_TEMP		2 
-#define AD7192_CH_AIN2P_AIN2M	3 
-#define AD7192_CH_AIN1		4 
-#define AD7192_CH_AIN2		5 
-#define AD7192_CH_AIN3		6 
-#define AD7192_CH_AIN4		7 
+#define AD7192_CH_AIN1P_AIN2M	0 /* AIN1(+) - AIN2(-) */
+#define AD7192_CH_AIN3P_AIN4M	1 /* AIN3(+) - AIN4(-) */
+#define AD7192_CH_TEMP		2 /* Temp Sensor */
+#define AD7192_CH_AIN2P_AIN2M	3 /* AIN2(+) - AIN2(-) */
+#define AD7192_CH_AIN1		4 /* AIN1 - AINCOM */
+#define AD7192_CH_AIN2		5 /* AIN2 - AINCOM */
+#define AD7192_CH_AIN3		6 /* AIN3 - AINCOM */
+#define AD7192_CH_AIN4		7 /* AIN4 - AINCOM */
 
+/* ID Register Bit Designations (AD7192_REG_ID) */
 #define ID_AD7190		0x4
 #define ID_AD7192		0x0
 #define ID_AD7195		0x6
 #define AD7192_ID_MASK		0x0F
 
-#define AD7192_GPOCON_BPDSW	(1 << 6) 
-#define AD7192_GPOCON_GP32EN	(1 << 5) 
-#define AD7192_GPOCON_GP10EN	(1 << 4) 
-#define AD7192_GPOCON_P3DAT	(1 << 3) 
-#define AD7192_GPOCON_P2DAT	(1 << 2) 
-#define AD7192_GPOCON_P1DAT	(1 << 1) 
-#define AD7192_GPOCON_P0DAT	(1 << 0) 
+/* GPOCON Register Bit Designations (AD7192_REG_GPOCON) */
+#define AD7192_GPOCON_BPDSW	(1 << 6) /* Bridge power-down switch enable */
+#define AD7192_GPOCON_GP32EN	(1 << 5) /* Digital Output P3 and P2 enable */
+#define AD7192_GPOCON_GP10EN	(1 << 4) /* Digital Output P1 and P0 enable */
+#define AD7192_GPOCON_P3DAT	(1 << 3) /* P3 state */
+#define AD7192_GPOCON_P2DAT	(1 << 2) /* P2 state */
+#define AD7192_GPOCON_P1DAT	(1 << 1) /* P1 state */
+#define AD7192_GPOCON_P0DAT	(1 << 0) /* P0 state */
 
 #define AD7192_INT_FREQ_MHz	4915200
 
+/* NOTE:
+ * The AD7190/2/5 features a dual use data out ready DOUT/RDY output.
+ * In order to avoid contentions on the SPI bus, it's therefore necessary
+ * to use spi bus locking.
+ *
+ * The DOUT/RDY output must also be wired to an interrupt capable GPIO.
+ */
 
 struct ad7192_state {
 	struct spi_device		*spi;
@@ -128,6 +149,10 @@ struct ad7192_state {
 	long				available_scan_masks[9];
 	u8				gpocon;
 	u8				devid;
+	/*
+	 * DMA (thus cache coherency maintenance) requires the
+	 * transfer buffers to live in their own cache lines.
+	 */
 	u8				data[4] ____cacheline_aligned;
 };
 
@@ -331,14 +356,14 @@ static int ad7192_setup(struct ad7192_state *st)
 	int i, ret, id;
 	u8 ones[6];
 
-	
+	/* reset the serial interface */
 	memset(&ones, 0xFF, 6);
 	ret = spi_write(st->spi, &ones, 6);
 	if (ret < 0)
 		goto out;
-	msleep(1); 
+	msleep(1); /* Wait for at least 500us */
 
-	
+	/* write/read test for device presence */
 	ret = ad7192_read_reg(st, AD7192_REG_ID, &id, 1);
 	if (ret)
 		goto out;
@@ -383,9 +408,9 @@ static int ad7192_setup(struct ad7192_state *st)
 	if (pdata->chop_en) {
 		st->conf |= AD7192_CONF_CHOP;
 		if (pdata->sinc3_en)
-			st->f_order = 3; 
+			st->f_order = 3; /* SINC 3rd order */
 		else
-			st->f_order = 4; 
+			st->f_order = 4; /* SINC 4th order */
 	} else {
 		st->f_order = 1;
 	}
@@ -411,7 +436,7 @@ static int ad7192_setup(struct ad7192_state *st)
 	if (ret)
 		goto out;
 
-	
+	/* Populate available ADC input ranges */
 	for (i = 0; i < ARRAY_SIZE(st->scale_avail); i++) {
 		scale_uv = ((u64)st->int_vref_mv * 100000000)
 			>> (indio_dev->channels[0].scan_type.realbits -
@@ -490,6 +515,9 @@ static int ad7192_ring_postdisable(struct iio_dev *indio_dev)
 	return spi_bus_unlock(st->spi->master);
 }
 
+/**
+ * ad7192_trigger_handler() bh of trigger launched polling to ring buffer
+ **/
 static irqreturn_t ad7192_trigger_handler(int irq, void *p)
 {
 	struct iio_poll_func *pf = p;
@@ -504,7 +532,7 @@ static irqreturn_t ad7192_trigger_handler(int irq, void *p)
 				  dat32,
 				  indio_dev->channels[0].scan_type.realbits/8);
 
-	
+	/* Guaranteed to be aligned with 8 byte boundary */
 	if (ring->scan_timestamp)
 		dat64[1] = pf->timestamp;
 
@@ -544,10 +572,10 @@ static int ad7192_register_ring_funcs_and_init(struct iio_dev *indio_dev)
 		goto error_deallocate_sw_rb;
 	}
 
-	
+	/* Ring buffer functions - here trigger setup related */
 	indio_dev->setup_ops = &ad7192_ring_setup_ops;
 
-	
+	/* Flag that polled ring buffering is possible */
 	indio_dev->modes |= INDIO_BUFFER_TRIGGERED;
 	return 0;
 
@@ -563,6 +591,9 @@ static void ad7192_ring_cleanup(struct iio_dev *indio_dev)
 	iio_sw_rb_free(indio_dev->buffer);
 }
 
+/**
+ * ad7192_data_rdy_trig_poll() the event handler for the data rdy trig
+ **/
 static irqreturn_t ad7192_data_rdy_trig_poll(int irq, void *private)
 {
 	struct ad7192_state *st = iio_priv(private);
@@ -608,7 +639,7 @@ static int ad7192_probe_trigger(struct iio_dev *indio_dev)
 
 	ret = iio_trigger_register(st->trig);
 
-	
+	/* select default trigger */
 	indio_dev->trig = st->trig;
 	if (ret)
 		goto error_free_irq;
@@ -840,8 +871,8 @@ static int ad7192_read_raw(struct iio_dev *indio_dev,
 			break;
 		case IIO_TEMP:
 			*val -= 0x800000;
-			*val /= 2815; 
-			*val -= 273; 
+			*val /= 2815; /* temp Kelvin */
+			*val -= 273; /* temp Celsius */
 			break;
 		default:
 			return -EINVAL;

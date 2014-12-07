@@ -33,6 +33,7 @@
 #include "machvec_impl.h"
 
 
+/* Note mask bit is true for ENABLED irqs.  */
 static int cached_irq_mask;
 
 static inline void
@@ -66,14 +67,18 @@ mikasa_device_interrupt(unsigned long vector)
 	unsigned long pld;
 	unsigned int i;
 
-	
+	/* Read the interrupt summary registers */
 	pld = (((~inw(0x534) & 0x0000ffffUL) << 16)
 	       | (((unsigned long) inb(0xa0)) << 8)
 	       | inb(0x20));
 
+	/*
+	 * Now for every possible bit set, work through them and call
+	 * the appropriate interrupt handler.
+	 */
 	while (pld) {
 		i = ffz(~pld);
-		pld &= pld - 1; 
+		pld &= pld - 1; /* clear least bit set */
 		if (i < 16) {
 			isa_device_interrupt(vector);
 		} else {
@@ -103,20 +108,56 @@ mikasa_init_irq(void)
 }
 
 
+/*
+ * PCI Fixup configuration.
+ *
+ * Summary @ 0x536:
+ * Bit      Meaning
+ * 0        Interrupt Line A from slot 0
+ * 1        Interrupt Line B from slot 0
+ * 2        Interrupt Line C from slot 0
+ * 3        Interrupt Line D from slot 0
+ * 4        Interrupt Line A from slot 1
+ * 5        Interrupt line B from slot 1
+ * 6        Interrupt Line C from slot 1
+ * 7        Interrupt Line D from slot 1
+ * 8        Interrupt Line A from slot 2
+ * 9        Interrupt Line B from slot 2
+ *10        Interrupt Line C from slot 2
+ *11        Interrupt Line D from slot 2
+ *12        NCR 810 SCSI
+ *13        Power Supply Fail
+ *14        Temperature Warn
+ *15        Reserved
+ *
+ * The device to slot mapping looks like:
+ *
+ * Slot     Device
+ *  6       NCR SCSI controller
+ *  7       Intel PCI-EISA bridge chip
+ * 11       PCI on board slot 0
+ * 12       PCI on board slot 1
+ * 13       PCI on board slot 2
+ *   
+ *
+ * This two layered interrupt approach means that we allocate IRQ 16 and 
+ * above for PCI interrupts.  The IRQ relates to which bit the interrupt
+ * comes in on.  This makes interrupt processing much easier.
+ */
 
 static int __init
 mikasa_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	static char irq_tab[8][5] __initdata = {
-		
-		{16+12, 16+12, 16+12, 16+12, 16+12},	
-		{   -1,    -1,    -1,    -1,    -1},	
-		{   -1,    -1,    -1,    -1,    -1},	
-		{   -1,    -1,    -1,    -1,    -1},	
-		{   -1,    -1,    -1,    -1,    -1},	
-		{ 16+0,  16+0,  16+1,  16+2,  16+3},	
-		{ 16+4,  16+4,  16+5,  16+6,  16+7},	
-		{ 16+8,  16+8,  16+9, 16+10, 16+11},	
+		/*INT    INTA   INTB   INTC   INTD */
+		{16+12, 16+12, 16+12, 16+12, 16+12},	/* IdSel 17,  SCSI */
+		{   -1,    -1,    -1,    -1,    -1},	/* IdSel 18,  PCEB */
+		{   -1,    -1,    -1,    -1,    -1},	/* IdSel 19,  ???? */
+		{   -1,    -1,    -1,    -1,    -1},	/* IdSel 20,  ???? */
+		{   -1,    -1,    -1,    -1,    -1},	/* IdSel 21,  ???? */
+		{ 16+0,  16+0,  16+1,  16+2,  16+3},	/* IdSel 22,  slot 0 */
+		{ 16+4,  16+4,  16+5,  16+6,  16+7},	/* IdSel 23,  slot 1 */
+		{ 16+8,  16+8,  16+9, 16+10, 16+11},	/* IdSel 24,  slot 2 */
 	};
 	const long min_idsel = 6, max_idsel = 13, irqs_per_slot = 5;
 	return COMMON_TABLE_LOOKUP;
@@ -135,9 +176,9 @@ mikasa_apecs_machine_check(unsigned long vector, unsigned long la_ptr)
 
 	mchk_header = (struct el_common *)la_ptr;
 
-	
+	/* Clear the error before any reporting.  */
 	mb();
-	mb(); 
+	mb(); /* magic */
 	draina();
 	apecs_pci_clr_err();
 	wrmces(0x7);
@@ -152,6 +193,9 @@ mikasa_apecs_machine_check(unsigned long vector, unsigned long la_ptr)
 #endif
 
 
+/*
+ * The System Vector
+ */
 
 #if defined(CONFIG_ALPHA_GENERIC) || !defined(CONFIG_ALPHA_PRIMO)
 struct alpha_machine_vector mikasa_mv __initmv = {

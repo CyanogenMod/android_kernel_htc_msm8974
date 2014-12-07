@@ -33,6 +33,7 @@
 #include "dib3000.h"
 #include "dib3000mb_priv.h"
 
+/* Version information */
 #define DRIVER_VERSION "0.1"
 #define DRIVER_DESC "DiBcom 3000M-B DVB-T demodulator"
 #define DRIVER_AUTHOR "Patrick Boettcher, patrick.boettcher@desy.de"
@@ -86,27 +87,28 @@ static int dib3000_search_status(u16 irq,u16 lock)
 	if (irq & 0x02) {
 		if (lock & 0x01) {
 			deb_srch("auto search succeeded\n");
-			return 1; 
+			return 1; // auto search succeeded
 		} else {
 			deb_srch("auto search not successful\n");
-			return 0; 
+			return 0; // auto search failed
 		}
 	} else if (irq & 0x01)  {
 		deb_srch("auto search failed\n");
-		return 0; 
+		return 0; // auto search failed
 	}
-	return -1; 
+	return -1; // try again
 }
 
-static u16 dib3000_seq[2][2][2] =     
-	{ 
-		{ 
-			{ 0, 1 },                   
-			{ 3, 9 },                   
+/* for auto search */
+static u16 dib3000_seq[2][2][2] =     /* fft,gua,   inv   */
+	{ /* fft */
+		{ /* gua */
+			{ 0, 1 },                   /*  0   0   { 0,1 } */
+			{ 3, 9 },                   /*  0   1   { 0,1 } */
 		},
 		{
-			{ 2, 5 },                   
-			{ 6, 11 },                  
+			{ 2, 5 },                   /*  1   0   { 0,1 } */
+			{ 6, 11 },                  /*  1   1   { 0,1 } */
 		}
 	};
 
@@ -231,7 +233,7 @@ static int dib3000mb_set_frontend(struct dvb_frontend *fe, int tuner)
 	switch (c->hierarchy) {
 		case HIERARCHY_NONE:
 			deb_setf("none ");
-			
+			/* fall through */
 		case HIERARCHY_1:
 			deb_setf("alpha=1\n");
 			wr(DIB3000MB_REG_VIT_ALPHA, DIB3000_ALPHA_1);
@@ -329,12 +331,12 @@ static int dib3000mb_set_frontend(struct dvb_frontend *fe, int tuner)
 	wr(DIB3000MB_REG_RESTART, DIB3000MB_RESTART_AGC + DIB3000MB_RESTART_CTRL);
 	wr(DIB3000MB_REG_RESTART, DIB3000MB_RESTART_OFF);
 
-	
+	/* wait for AGC lock */
 	msleep(70);
 
 	wr_foreach(dib3000mb_reg_agc_bandwidth, dib3000mb_agc_bandwidth_low);
 
-	
+	/* something has to be auto searched */
 	if (c->modulation == QAM_AUTO ||
 		c->hierarchy == HIERARCHY_AUTO ||
 		fe_cr == FEC_AUTO ||
@@ -637,7 +639,7 @@ static int dib3000mb_read_status(struct dvb_frontend* fe, fe_status_t *stat)
 			rd(DIB3000MB_REG_TPS_FFT),
 			rd(DIB3000MB_REG_TPS_CELL_ID));
 
-	
+	//*stat = FE_HAS_SIGNAL | FE_HAS_CARRIER | FE_HAS_VITERBI | FE_HAS_SYNC | FE_HAS_LOCK;
 	return 0;
 }
 
@@ -649,6 +651,7 @@ static int dib3000mb_read_ber(struct dvb_frontend* fe, u32 *ber)
 	return 0;
 }
 
+/* see dib3000-watch dvb-apps for exact calcuations of signal_strength and snr */
 static int dib3000mb_read_signal_strength(struct dvb_frontend* fe, u16 *strength)
 {
 	struct dib3000_state* state = fe->demodulator_priv;
@@ -705,6 +708,7 @@ static void dib3000mb_release(struct dvb_frontend* fe)
 	kfree(state);
 }
 
+/* pid filter and transfer stuff */
 static int dib3000mb_pid_control(struct dvb_frontend *fe,int index, int pid,int onoff)
 {
 	struct dib3000_state *state = fe->demodulator_priv;
@@ -752,27 +756,27 @@ struct dvb_frontend* dib3000mb_attach(const struct dib3000_config* config,
 {
 	struct dib3000_state* state = NULL;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct dib3000_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->i2c = i2c;
 	memcpy(&state->config,config,sizeof(struct dib3000_config));
 
-	
+	/* check for the correct demod */
 	if (rd(DIB3000_REG_MANUFACTOR_ID) != DIB3000_I2C_ID_DIBCOM)
 		goto error;
 
 	if (rd(DIB3000_REG_DEVICE_ID) != DIB3000MB_DEVICE_ID)
 		goto error;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &dib3000mb_ops, sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
 
-	
+	/* set the xfer operations */
 	xfer_ops->pid_parse = dib3000mb_pid_parse;
 	xfer_ops->fifo_ctrl = dib3000mb_fifo_control;
 	xfer_ops->pid_ctrl = dib3000mb_pid_control;

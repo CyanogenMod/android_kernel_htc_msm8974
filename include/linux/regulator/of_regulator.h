@@ -1,3 +1,7 @@
+/*
+ * OpenFirmware regulator support routines
+ *
+ */
 
 #ifndef __LINUX_OF_REG_H
 #define __LINUX_OF_REG_H
@@ -13,6 +17,6 @@ static inline struct regulator_init_data
 {
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_OF */
 
-#endif 
+#endif /* __LINUX_OF_REG_H */

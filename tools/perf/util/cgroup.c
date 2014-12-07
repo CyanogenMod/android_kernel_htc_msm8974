@@ -19,6 +19,11 @@ cgroupfs_find_mountpoint(char *buf, size_t maxlen)
 	if (!fp)
 		return -1;
 
+	/*
+	 * in order to handle split hierarchy, we need to scan /proc/mounts
+	 * and inspect every cgroupfs mount point to find one that has
+	 * perf_event subsystem
+	 */
 	while (fscanf(fp, "%*s %"STR(PATH_MAX)"s %"STR(PATH_MAX)"s %"
 				STR(PATH_MAX)"s %*d %*d\n",
 				mountpoint, type, tokens) == 3) {
@@ -73,6 +78,9 @@ static int add_cgroup(struct perf_evlist *evlist, char *str)
 	struct perf_evsel *counter;
 	struct cgroup_sel *cgrp = NULL;
 	int n;
+	/*
+	 * check if cgrp is already defined, if so we reuse it
+	 */
 	list_for_each_entry(counter, &evlist->entries, node) {
 		cgrp = counter->cgrp;
 		if (!cgrp)
@@ -97,6 +105,10 @@ static int add_cgroup(struct perf_evlist *evlist, char *str)
 		}
 	}
 
+	/*
+	 * find corresponding event
+	 * if add cgroup N, then need to find event N
+	 */
 	n = 0;
 	list_for_each_entry(counter, &evlist->entries, node) {
 		if (n == nr_cgroups)
@@ -118,7 +130,7 @@ void close_cgroup(struct cgroup_sel *cgrp)
 	if (!cgrp)
 		return;
 
-	
+	/* XXX: not reentrant */
 	if (--cgrp->refcnt == 0) {
 		close(cgrp->fd);
 		free(cgrp->name);
@@ -143,9 +155,9 @@ int parse_cgroups(const struct option *opt __used, const char *str,
 		p = strchr(str, ',');
 		e = p ? p : eos;
 
-		
+		/* allow empty cgroups, i.e., skip */
 		if (e - str) {
-			
+			/* termination added */
 			s = strndup(str, e - str);
 			if (!s)
 				return -1;
@@ -155,7 +167,7 @@ int parse_cgroups(const struct option *opt __used, const char *str,
 				return -1;
 			}
 		}
-		
+		/* nr_cgroups is increased een for empty cgroups */
 		nr_cgroups++;
 		if (!p)
 			break;

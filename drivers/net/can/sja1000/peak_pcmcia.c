@@ -32,6 +32,7 @@ MODULE_DESCRIPTION("CAN driver for PEAK-System PCAN-PC Cards");
 MODULE_LICENSE("GPL v2");
 MODULE_SUPPORTED_DEVICE("PEAK PCAN-PC Card");
 
+/* PEAK-System PCMCIA driver name */
 #define PCC_NAME		"peak_pcmcia"
 
 #define PCC_CHAN_MAX		2
@@ -46,6 +47,7 @@ MODULE_SUPPORTED_DEVICE("PEAK PCAN-PC Card");
 #define PCC_COMN_OFF		(PCC_CHAN_OFF(PCC_CHAN_MAX))
 #define PCC_COMN_SIZE		0x40
 
+/* common area registers */
 #define PCC_CCR			0x00
 #define PCC_CSR			0x02
 #define PCC_CPR			0x04
@@ -56,6 +58,7 @@ MODULE_SUPPORTED_DEVICE("PEAK PCAN-PC Card");
 #define PCC_FW_MAJOR		0x10
 #define PCC_FW_MINOR		0x12
 
+/* CCR bits */
 #define PCC_CCR_CLK_16		0x00
 #define PCC_CCR_CLK_10		0x01
 #define PCC_CCR_CLK_21		0x02
@@ -66,9 +69,11 @@ MODULE_SUPPORTED_DEVICE("PEAK PCAN-PC Card");
 #define PCC_CCR_RST_ALL		(PCC_CCR_RST_CHAN(0) | PCC_CCR_RST_CHAN(1))
 #define PCC_CCR_RST_MASK	PCC_CCR_RST_ALL
 
+/* led selection bits */
 #define PCC_LED(c)		(1 << (c))
 #define PCC_LED_ALL		(PCC_LED(0) | PCC_LED(1))
 
+/* led state value */
 #define PCC_LED_ON		0x00
 #define PCC_LED_FAST		0x01
 #define PCC_LED_SLOW		0x02
@@ -87,25 +92,47 @@ MODULE_SUPPORTED_DEVICE("PEAK PCAN-PC Card");
 
 #define PCC_CCR_INIT	(PCC_CCR_CLK_16 | PCC_CCR_RST_ALL | PCC_CCR_LED_OFF_ALL)
 
+/* CSR bits */
 #define PCC_CSR_SPI_BUSY		0x04
 
+/* time waiting for SPI busy (prevent from infinite loop) */
 #define PCC_SPI_MAX_BUSY_WAIT_MS	3
 
+/* max count of reading the SPI status register waiting for a change */
+/* (prevent from infinite loop) */
 #define PCC_WRITE_MAX_LOOP		1000
 
+/* max nb of int handled by that isr in one shot (prevent from infinite loop) */
 #define PCC_ISR_MAX_LOOP		10
 
+/* EEPROM chip instruction set */
+/* note: EEPROM Read/Write instructions include A8 bit */
 #define PCC_EEP_WRITE(a)	(0x02 | (((a) & 0x100) >> 5))
 #define PCC_EEP_READ(a)		(0x03 | (((a) & 0x100) >> 5))
-#define PCC_EEP_WRDI		0x04	
-#define PCC_EEP_RDSR		0x05	
-#define PCC_EEP_WREN		0x06	
+#define PCC_EEP_WRDI		0x04	/* EEPROM Write Disable */
+#define PCC_EEP_RDSR		0x05	/* EEPROM Read Status Register */
+#define PCC_EEP_WREN		0x06	/* EEPROM Write Enable */
 
-#define PCC_EEP_SR_WEN		0x02	
-#define PCC_EEP_SR_WIP		0x01	
+/* EEPROM Status Register bits */
+#define PCC_EEP_SR_WEN		0x02	/* EEPROM SR Write Enable bit */
+#define PCC_EEP_SR_WIP		0x01	/* EEPROM SR Write In Progress bit */
 
+/*
+ * The board configuration is probably following:
+ * RX1 is connected to ground.
+ * TX1 is not connected.
+ * CLKO is not connected.
+ * Setting the OCR register to 0xDA is a good idea.
+ * This means normal output mode, push-pull and the correct polarity.
+ */
 #define PCC_OCR			(OCR_TX0_PUSHPULL | OCR_TX1_PUSHPULL)
 
+/*
+ * In the CDR register, you should set CBP to 1.
+ * You will probably also want to set the clock divider value to 7
+ * (meaning direct oscillator output) because the second SJA1000 chip
+ * is driven by the first one CLKOUT output.
+ */
 #define PCC_CDR			(CDR_CBP | CDR_CLKOUT_MASK)
 
 struct pcan_channel {
@@ -114,6 +141,7 @@ struct pcan_channel {
 	unsigned long prev_tx_bytes;
 };
 
+/* PCAN-PC Card private structure */
 struct pcan_pccard {
 	struct pcmcia_device *pdev;
 	int chan_count;
@@ -134,36 +162,48 @@ MODULE_DEVICE_TABLE(pcmcia, pcan_table);
 
 static void pcan_set_leds(struct pcan_pccard *card, u8 mask, u8 state);
 
+/*
+ * start timer which controls leds state
+ */
 static void pcan_start_led_timer(struct pcan_pccard *card)
 {
 	if (!timer_pending(&card->led_timer))
 		mod_timer(&card->led_timer, jiffies + HZ);
 }
 
+/*
+ * stop the timer which controls leds state
+ */
 static void pcan_stop_led_timer(struct pcan_pccard *card)
 {
 	del_timer_sync(&card->led_timer);
 }
 
+/*
+ * read a sja1000 register
+ */
 static u8 pcan_read_canreg(const struct sja1000_priv *priv, int port)
 {
 	return ioread8(priv->reg_base + port);
 }
 
+/*
+ * write a sja1000 register
+ */
 static void pcan_write_canreg(const struct sja1000_priv *priv, int port, u8 v)
 {
 	struct pcan_pccard *card = priv->priv;
 	int c = (priv->reg_base - card->ioport_addr) / PCC_CHAN_SIZE;
 
-	
+	/* sja1000 register changes control the leds state */
 	if (port == REG_MOD)
 		switch (v) {
 		case MOD_RM:
-			
+			/* Reset Mode: set led on */
 			pcan_set_leds(card, PCC_LED(c), PCC_LED_ON);
 			break;
 		case 0x00:
-			
+			/* Normal Mode: led slow blinking and start led timer */
 			pcan_set_leds(card, PCC_LED(c), PCC_LED_SLOW);
 			pcan_start_led_timer(card);
 			break;
@@ -174,14 +214,20 @@ static void pcan_write_canreg(const struct sja1000_priv *priv, int port, u8 v)
 	iowrite8(v, priv->reg_base + port);
 }
 
+/*
+ * read a register from the common area
+ */
 static u8 pcan_read_reg(struct pcan_pccard *card, int port)
 {
 	return ioread8(card->ioport_addr + PCC_COMN_OFF + port);
 }
 
+/*
+ * write a register into the common area
+ */
 static void pcan_write_reg(struct pcan_pccard *card, int port, u8 v)
 {
-	
+	/* cache ccr value */
 	if (port == PCC_CCR) {
 		if (card->ccr == v)
 			return;
@@ -191,18 +237,25 @@ static void pcan_write_reg(struct pcan_pccard *card, int port, u8 v)
 	iowrite8(v, card->ioport_addr + PCC_COMN_OFF + port);
 }
 
+/*
+ * check whether the card is present by checking its fw version numbers
+ * against values read at probing time.
+ */
 static inline int pcan_pccard_present(struct pcan_pccard *card)
 {
 	return ((pcan_read_reg(card, PCC_FW_MAJOR) == card->fw_major) &&
 		(pcan_read_reg(card, PCC_FW_MINOR) == card->fw_minor));
 }
 
+/*
+ * wait for SPI engine while it is busy
+ */
 static int pcan_wait_spi_busy(struct pcan_pccard *card)
 {
 	unsigned long timeout = jiffies +
 				msecs_to_jiffies(PCC_SPI_MAX_BUSY_WAIT_MS) + 1;
 
-	
+	/* be sure to read status at least once after sleeping */
 	while (pcan_read_reg(card, PCC_CSR) & PCC_CSR_SPI_BUSY) {
 		if (time_after(jiffies, timeout))
 			return -EBUSY;
@@ -212,26 +265,29 @@ static int pcan_wait_spi_busy(struct pcan_pccard *card)
 	return 0;
 }
 
+/*
+ * write data in device eeprom
+ */
 static int pcan_write_eeprom(struct pcan_pccard *card, u16 addr, u8 v)
 {
 	u8 status;
 	int err, i;
 
-	
+	/* write instruction enabling write */
 	pcan_write_reg(card, PCC_SPI_IR, PCC_EEP_WREN);
 	err = pcan_wait_spi_busy(card);
 	if (err)
 		goto we_spi_err;
 
-	
+	/* wait until write enabled */
 	for (i = 0; i < PCC_WRITE_MAX_LOOP; i++) {
-		
+		/* write instruction reading the status register */
 		pcan_write_reg(card, PCC_SPI_IR, PCC_EEP_RDSR);
 		err = pcan_wait_spi_busy(card);
 		if (err)
 			goto we_spi_err;
 
-		
+		/* get status register value and check write enable bit */
 		status = pcan_read_reg(card, PCC_SPI_DIR);
 		if (status & PCC_EEP_SR_WEN)
 			break;
@@ -243,24 +299,28 @@ static int pcan_write_eeprom(struct pcan_pccard *card, u16 addr, u8 v)
 		return -EIO;
 	}
 
-	
+	/* set address and data */
 	pcan_write_reg(card, PCC_SPI_ADR, addr & 0xff);
 	pcan_write_reg(card, PCC_SPI_DOR, v);
 
+	/*
+	 * write instruction with bit[3] set according to address value:
+	 * if addr refers to upper half of the memory array: bit[3] = 1
+	 */
 	pcan_write_reg(card, PCC_SPI_IR, PCC_EEP_WRITE(addr));
 	err = pcan_wait_spi_busy(card);
 	if (err)
 		goto we_spi_err;
 
-	
+	/* wait while write in progress */
 	for (i = 0; i < PCC_WRITE_MAX_LOOP; i++) {
-		
+		/* write instruction reading the status register */
 		pcan_write_reg(card, PCC_SPI_IR, PCC_EEP_RDSR);
 		err = pcan_wait_spi_busy(card);
 		if (err)
 			goto we_spi_err;
 
-		
+		/* get status register value and check write in progress bit */
 		status = pcan_read_reg(card, PCC_SPI_DIR);
 		if (!(status & PCC_EEP_SR_WIP))
 			break;
@@ -272,7 +332,7 @@ static int pcan_write_eeprom(struct pcan_pccard *card, u16 addr, u8 v)
 		return -EIO;
 	}
 
-	
+	/* write instruction disabling write */
 	pcan_write_reg(card, PCC_SPI_IR, PCC_EEP_WRDI);
 	err = pcan_wait_spi_busy(card);
 	if (err)
@@ -294,16 +354,19 @@ static void pcan_set_leds(struct pcan_pccard *card, u8 led_mask, u8 state)
 
 	for (i = 0; i < card->chan_count; i++)
 		if (led_mask & PCC_LED(i)) {
-			
+			/* clear corresponding led bits in ccr */
 			ccr &= ~PCC_CCR_LED_MASK_CHAN(i);
-			
+			/* then set new bits */
 			ccr |= PCC_CCR_LED_CHAN(state, i);
 		}
 
-	
+	/* real write only if something has changed in ccr */
 	pcan_write_reg(card, PCC_CCR, ccr);
 }
 
+/*
+ * enable/disable CAN connectors power
+ */
 static inline void pcan_set_can_power(struct pcan_pccard *card, int onoff)
 {
 	int err;
@@ -315,6 +378,9 @@ static inline void pcan_set_can_power(struct pcan_pccard *card, int onoff)
 			(onoff) ? "on" : "off", err);
 }
 
+/*
+ * set leds state according to channel activity
+ */
 static void pcan_led_timer(unsigned long arg)
 {
 	struct pcan_pccard *card = (struct pcan_pccard *)arg;
@@ -324,7 +390,7 @@ static void pcan_led_timer(unsigned long arg)
 
 	ccr = card->ccr;
 	for (i = 0; i < card->chan_count; i++) {
-		
+		/* default is: not configured */
 		ccr &= ~PCC_CCR_LED_MASK_CHAN(i);
 		ccr |= PCC_CCR_LED_ON_CHAN(i);
 
@@ -334,11 +400,11 @@ static void pcan_led_timer(unsigned long arg)
 
 		up_count++;
 
-		
+		/* no activity (but configured) */
 		ccr &= ~PCC_CCR_LED_MASK_CHAN(i);
 		ccr |= PCC_CCR_LED_SLOW_CHAN(i);
 
-		
+		/* if bytes counters changed, set fast blinking led */
 		if (netdev->stats.rx_bytes != card->channel[i].prev_rx_bytes) {
 			card->channel[i].prev_rx_bytes = netdev->stats.rx_bytes;
 			ccr &= ~PCC_CCR_LED_MASK_CHAN(i);
@@ -351,34 +417,45 @@ static void pcan_led_timer(unsigned long arg)
 		}
 	}
 
-	
+	/* write the new leds state */
 	pcan_write_reg(card, PCC_CCR, ccr);
 
-	
+	/* restart timer (except if no more configured channels) */
 	if (up_count)
 		mod_timer(&card->led_timer, jiffies + HZ);
 }
 
+/*
+ * interrupt service routine
+ */
 static irqreturn_t pcan_isr(int irq, void *dev_id)
 {
 	struct pcan_pccard *card = dev_id;
 	int irq_handled;
 
-	
+	/* prevent from infinite loop */
 	for (irq_handled = 0; irq_handled < PCC_ISR_MAX_LOOP; irq_handled++) {
-		
+		/* handle shared interrupt and next loop */
 		int nothing_to_handle = 1;
 		int i;
 
-		
+		/* check interrupt for each channel */
 		for (i = 0; i < card->chan_count; i++) {
 			struct net_device *netdev;
 
+			/*
+			 * check whether the card is present before calling
+			 * sja1000_interrupt() to speed up hotplug detection
+			 */
 			if (!pcan_pccard_present(card)) {
-				
+				/* card unplugged during isr */
 				return IRQ_NONE;
 			}
 
+			/*
+			 * should check whether all or SJA1000_MAX_IRQ
+			 * interrupts have been handled: loop again to be sure.
+			 */
 			netdev = card->channel[i].netdev;
 			if (netdev &&
 			    sja1000_interrupt(irq, netdev) == IRQ_HANDLED)
@@ -392,6 +469,9 @@ static irqreturn_t pcan_isr(int irq, void *dev_id)
 	return (irq_handled) ? IRQ_HANDLED : IRQ_NONE;
 }
 
+/*
+ * free all resources used by the channels and switch off leds and can power
+ */
 static void pcan_free_channels(struct pcan_pccard *card)
 {
 	int i;
@@ -416,20 +496,23 @@ static void pcan_free_channels(struct pcan_pccard *card)
 		dev_info(&card->pdev->dev, "%s removed\n", name);
 	}
 
-	
+	/* do it only if device not removed */
 	if (pcan_pccard_present(card)) {
 		pcan_set_leds(card, led_mask, PCC_LED_OFF);
 		pcan_set_can_power(card, 0);
 	}
 }
 
+/*
+ * check if a CAN controller is present at the specified location
+ */
 static inline int pcan_channel_present(struct sja1000_priv *priv)
 {
-	
+	/* make sure SJA1000 is in reset mode */
 	pcan_write_canreg(priv, REG_MOD, 1);
 	pcan_write_canreg(priv, REG_CDR, CDR_PELICAN);
 
-	
+	/* read reset-values */
 	if (pcan_read_canreg(priv, REG_CDR) == CDR_PELICAN)
 		return 1;
 
@@ -442,17 +525,17 @@ static int pcan_add_channels(struct pcan_pccard *card)
 	int i, err = 0;
 	u8 ccr = PCC_CCR_INIT;
 
-	
+	/* init common registers (reset channels and leds off) */
 	card->ccr = ~ccr;
 	pcan_write_reg(card, PCC_CCR, ccr);
 
-	
+	/* wait 2ms before unresetting channels */
 	mdelay(2);
 
 	ccr &= ~PCC_CCR_RST_ALL;
 	pcan_write_reg(card, PCC_CCR, ccr);
 
-	
+	/* create one network device per channel detected */
 	for (i = 0; i < ARRAY_SIZE(card->channel); i++) {
 		struct net_device *netdev;
 		struct sja1000_priv *priv;
@@ -463,7 +546,7 @@ static int pcan_add_channels(struct pcan_pccard *card)
 			break;
 		}
 
-		
+		/* update linkages */
 		priv = netdev_priv(netdev);
 		priv->priv = card;
 		SET_NETDEV_DEV(netdev, &pdev->dev);
@@ -472,7 +555,7 @@ static int pcan_add_channels(struct pcan_pccard *card)
 		netdev->irq = pdev->irq;
 		priv->reg_base = card->ioport_addr + PCC_CHAN_OFF(i);
 
-		
+		/* check if channel is present */
 		if (!pcan_channel_present(priv)) {
 			dev_err(&pdev->dev, "channel %d not present\n", i);
 			free_sja1000dev(netdev);
@@ -485,13 +568,13 @@ static int pcan_add_channels(struct pcan_pccard *card)
 		priv->ocr = PCC_OCR;
 		priv->cdr = PCC_CDR;
 
-		
+		/* Neither a slave device distributes the clock */
 		if (i > 0)
 			priv->cdr |= CDR_CLK_OFF;
 
 		priv->flags |= SJA1000_CUSTOM_IRQ_HANDLER;
 
-		
+		/* register SJA1000 device */
 		err = register_sja1000dev(netdev);
 		if (err) {
 			free_sja1000dev(netdev);
@@ -501,7 +584,7 @@ static int pcan_add_channels(struct pcan_pccard *card)
 		card->channel[i].netdev = netdev;
 		card->chan_count++;
 
-		
+		/* set corresponding led on in the new ccr */
 		ccr &= ~PCC_CCR_LED_OFF_CHAN(i);
 
 		dev_info(&pdev->dev,
@@ -509,7 +592,7 @@ static int pcan_add_channels(struct pcan_pccard *card)
 			netdev->name, i, priv->reg_base, pdev->irq);
 	}
 
-	
+	/* write new ccr (change leds state) */
 	pcan_write_reg(card, PCC_CCR, ccr);
 
 	return err;
@@ -518,13 +601,16 @@ static int pcan_add_channels(struct pcan_pccard *card)
 static int pcan_conf_check(struct pcmcia_device *pdev, void *priv_data)
 {
 	pdev->resource[0]->flags &= ~IO_DATA_PATH_WIDTH;
-	pdev->resource[0]->flags |= IO_DATA_PATH_WIDTH_8; 
+	pdev->resource[0]->flags |= IO_DATA_PATH_WIDTH_8; /* only */
 	pdev->io_lines = 10;
 
-	
+	/* This reserves IO space but doesn't actually enable it */
 	return pcmcia_request_io(pdev);
 }
 
+/*
+ * free all resources used by the device
+ */
 static void pcan_free(struct pcmcia_device *pdev)
 {
 	struct pcan_pccard *card = pdev->priv;
@@ -543,6 +629,9 @@ static void pcan_free(struct pcmcia_device *pdev)
 	pdev->priv = NULL;
 }
 
+/*
+ * setup PCMCIA socket and probe for PEAK-System PC-CARD
+ */
 static int __devinit pcan_probe(struct pcmcia_device *pdev)
 {
 	struct pcan_pccard *card;
@@ -579,7 +668,7 @@ static int __devinit pcan_probe(struct pcmcia_device *pdev)
 	card->pdev = pdev;
 	pdev->priv = card;
 
-	
+	/* sja1000 api uses iomem */
 	card->ioport_addr = ioport_map(pdev->resource[0]->start,
 					resource_size(pdev->resource[0]));
 	if (!card->ioport_addr) {
@@ -590,35 +679,35 @@ static int __devinit pcan_probe(struct pcmcia_device *pdev)
 	card->fw_major = pcan_read_reg(card, PCC_FW_MAJOR);
 	card->fw_minor = pcan_read_reg(card, PCC_FW_MINOR);
 
-	
+	/* display board name and firware version */
 	dev_info(&pdev->dev, "PEAK-System pcmcia card %s fw %d.%d\n",
 		pdev->prod_id[1] ? pdev->prod_id[1] : "PCAN-PC Card",
 		card->fw_major, card->fw_minor);
 
-	
+	/* detect available channels */
 	pcan_add_channels(card);
 	if (!card->chan_count)
 		goto probe_err_4;
 
-	
+	/* init the timer which controls the leds */
 	init_timer(&card->led_timer);
 	card->led_timer.function = pcan_led_timer;
 	card->led_timer.data = (unsigned long)card;
 
-	
+	/* request the given irq */
 	err = request_irq(pdev->irq, &pcan_isr, IRQF_SHARED, PCC_NAME, card);
 	if (err) {
 		dev_err(&pdev->dev, "couldn't request irq%d\n", pdev->irq);
 		goto probe_err_5;
 	}
 
-	
+	/* power on the connectors */
 	pcan_set_can_power(card, 1);
 
 	return 0;
 
 probe_err_5:
-	
+	/* unregister can devices from network */
 	pcan_free_channels(card);
 
 probe_err_4:
@@ -635,6 +724,9 @@ probe_err_1:
 	return err;
 }
 
+/*
+ * release claimed resources
+ */
 static void pcan_remove(struct pcmcia_device *pdev)
 {
 	pcan_free(pdev);

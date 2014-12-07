@@ -31,4 +31,4 @@ extern void	udp_destroy_sock(struct sock *sk);
 #ifdef CONFIG_PROC_FS
 extern int	udp4_seq_show(struct seq_file *seq, void *v);
 #endif
-#endif	
+#endif	/* _UDP4_IMPL_H */

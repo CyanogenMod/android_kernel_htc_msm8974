@@ -23,4 +23,4 @@ void gpio_set_value(unsigned gpio, int value);
 
 #define gpio_cansleep	__gpio_cansleep
 
-#endif 
+#endif /* __ASM_MACH_ATH79_GPIO_H */

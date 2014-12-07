@@ -110,7 +110,7 @@ static int __init i8042_platform_init(void)
 	struct device_node *root = of_find_node_by_path("/");
 
 	if (!strcmp(root->name, "SUNW,JavaStation-1")) {
-		
+		/* Hardcoded values for MrCoffee.  */
 		i8042_kbd_irq = i8042_aux_irq = 13 | 0x20;
 		kbd_iobase = ioremap(0x71300060, 8);
 		if (!kbd_iobase)
@@ -143,7 +143,7 @@ static inline void i8042_platform_exit(void)
 		platform_driver_unregister(&sparc_i8042_driver);
 }
 
-#else 
+#else /* !CONFIG_PCI */
 static int __init i8042_platform_init(void)
 {
 	return -ENODEV;
@@ -152,6 +152,6 @@ static int __init i8042_platform_init(void)
 static inline void i8042_platform_exit(void)
 {
 }
-#endif 
+#endif /* !CONFIG_PCI */
 
-#endif 
+#endif /* _I8042_SPARCIO_H */

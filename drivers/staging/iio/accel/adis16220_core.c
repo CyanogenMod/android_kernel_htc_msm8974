@@ -89,6 +89,13 @@ static int adis16220_spi_write_reg_16(struct iio_dev *indio_dev,
 	return ret;
 }
 
+/**
+ * adis16220_spi_read_reg_16() - read 2 bytes from a 16-bit register
+ * @indio_dev: iio device associated with child of actual device
+ * @reg_address: the address of the lower of the two registers. Second register
+ *               is assumed to have address one greater.
+ * @val: somewhere to pass back the value read
+ **/
 static int adis16220_spi_read_reg_16(struct iio_dev *indio_dev,
 				     u8 lower_reg_address,
 				     u16 *val)
@@ -142,7 +149,7 @@ static ssize_t adis16220_read_16bit(struct device *dev,
 	ssize_t ret;
 	s16 val = 0;
 
-	
+	/* Take the iio_dev status lock */
 	mutex_lock(&indio_dev->mlock);
 	ret = adis16220_spi_read_reg_16(indio_dev, this_attr->address,
 					(u16 *)&val);
@@ -176,11 +183,11 @@ static int adis16220_capture(struct iio_dev *indio_dev)
 	int ret;
 	ret = adis16220_spi_write_reg_16(indio_dev,
 			ADIS16220_GLOB_CMD,
-			0xBF08); 
+			0xBF08); /* initiates a manual data capture */
 	if (ret)
 		dev_err(&indio_dev->dev, "problem beginning capture");
 
-	msleep(10); 
+	msleep(10); /* delay for capture to finish */
 
 	return ret;
 }
@@ -288,14 +295,14 @@ static int adis16220_initial_setup(struct iio_dev *indio_dev)
 {
 	int ret;
 
-	
+	/* Do self test */
 	ret = adis16220_self_test(indio_dev);
 	if (ret) {
 		dev_err(&indio_dev->dev, "self test failure");
 		goto err_ret;
 	}
 
-	
+	/* Read status register to check the result */
 	ret = adis16220_check_status(indio_dev);
 	if (ret) {
 		adis16220_reset(indio_dev);
@@ -347,14 +354,14 @@ static ssize_t adis16220_capture_buffer_read(struct iio_dev *indio_dev,
 	if (off + count > ADIS16220_CAPTURE_SIZE)
 		count = ADIS16220_CAPTURE_SIZE - off;
 
-	
+	/* write the begin position of capture buffer */
 	ret = adis16220_spi_write_reg_16(indio_dev,
 					ADIS16220_CAPT_PNTR,
 					off > 1);
 	if (ret)
 		return -EIO;
 
-	
+	/* read count/2 values from capture buffer */
 	mutex_lock(&st->buf_lock);
 
 	for (i = 0; i < count; i += 2) {
@@ -473,6 +480,7 @@ struct adis16220_address_spec {
 	bool sign;
 };
 
+/* Address / bits / signed */
 static const struct adis16220_address_spec adis16220_addresses[][3] = {
 	[in_supply] =	{ { ADIS16220_CAPT_SUPPLY,	12, 0 }, },
 	[in_1] =	{ { ADIS16220_CAPT_BUF1,	16, 1 },
@@ -524,7 +532,7 @@ static int adis16220_read_raw(struct iio_dev *indio_dev,
 		case IIO_VOLTAGE:
 			if (chan->channel == 0)
 				*val2 = 0012221;
-			else 
+			else /* Should really be dependent on VDD */
 				*val2 = 305;
 			return IIO_VAL_INT_PLUS_MICRO;
 		default:
@@ -620,7 +628,7 @@ static int __devinit adis16220_probe(struct spi_device *spi)
 	struct adis16220_state *st;
 	struct iio_dev *indio_dev;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
@@ -628,7 +636,7 @@ static int __devinit adis16220_probe(struct spi_device *spi)
 	}
 
 	st = iio_priv(indio_dev);
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 
 	st->us = spi;
@@ -657,7 +665,7 @@ static int __devinit adis16220_probe(struct spi_device *spi)
 	if (ret)
 		goto error_rm_adc1_bin;
 
-	
+	/* Get the device into a sane initial state */
 	ret = adis16220_initial_setup(indio_dev);
 	if (ret)
 		goto error_rm_adc2_bin;

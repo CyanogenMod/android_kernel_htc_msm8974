@@ -596,11 +596,11 @@ int sn9c102_probe_ov7630(struct sn9c102_device* cam)
 		err = sn9c102_write_const_regs(cam, {0x01, 0x01}, {0x00, 0x01},
 					       {0x28, 0x17});
 		break;
-	case BRIDGE_SN9C103: 
+	case BRIDGE_SN9C103: /* do _not_ change anything! */
 		err = sn9c102_write_const_regs(cam, {0x09, 0x01}, {0x42, 0x01},
 					       {0x28, 0x17}, {0x44, 0x02});
 		pid = sn9c102_i2c_try_read(cam, &ov7630, 0x0a);
-		if (err || pid < 0) 
+		if (err || pid < 0) /* try a different initialization */
 			err += sn9c102_write_const_regs(cam, {0x01, 0x01},
 							{0x00, 0x01});
 		break;

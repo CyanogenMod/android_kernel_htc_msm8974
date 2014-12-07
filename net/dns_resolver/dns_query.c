@@ -45,6 +45,28 @@
 
 #include "internal.h"
 
+/**
+ * dns_query - Query the DNS
+ * @type: Query type (or NULL for straight host->IP lookup)
+ * @name: Name to look up
+ * @namelen: Length of name
+ * @options: Request options (or NULL if no options)
+ * @_result: Where to place the returned data.
+ * @_expiry: Where to store the result expiry time (or NULL)
+ *
+ * The data will be returned in the pointer at *result, and the caller is
+ * responsible for freeing it.
+ *
+ * The description should be of the form "[<query_type>:]<domain_name>", and
+ * the options need to be appropriate for the query type requested.  If no
+ * query_type is given, then the query is a straight hostname to IP address
+ * lookup.
+ *
+ * The DNS resolution lookup is performed by upcalling to userspace by way of
+ * requesting a key of type dns_resolver.
+ *
+ * Returns the size of the result on success, -ve error code otherwise.
+ */
 int dns_query(const char *type, const char *name, size_t namelen,
 	      const char *options, char **_result, time_t *_expiry)
 {
@@ -61,7 +83,7 @@ int dns_query(const char *type, const char *name, size_t namelen,
 	if (!name || namelen == 0 || !_result)
 		return -EINVAL;
 
-	
+	/* construct the query key description as "[<type>:]<name>" */
 	typelen = 0;
 	desclen = 0;
 	if (type) {
@@ -95,6 +117,9 @@ int dns_query(const char *type, const char *name, size_t namelen,
 		options = "";
 	kdebug("call request_key(,%s,%s)", desc, options);
 
+	/* make the upcall, using special credentials to prevent the use of
+	 * add_key() to preinstall malicious redirections
+	 */
 	saved_cred = override_creds(dns_resolver_cache);
 	rkey = request_key(&key_type_dns_resolver, desc, options);
 	revert_creds(saved_cred);
@@ -111,7 +136,7 @@ int dns_query(const char *type, const char *name, size_t namelen,
 	if (ret < 0)
 		goto put;
 
-	
+	/* If the DNS server gave an error, return that to the caller */
 	ret = rkey->type_data.x[0];
 	if (ret)
 		goto put;

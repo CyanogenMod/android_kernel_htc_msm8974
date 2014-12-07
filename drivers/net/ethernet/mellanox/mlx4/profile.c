@@ -90,6 +90,18 @@ u64 mlx4_make_profile(struct mlx4_dev *dev,
 	if (!profile)
 		return -ENOMEM;
 
+	/*
+	 * We want to scale the number of MTTs with the size of the
+	 * system memory, since it makes sense to register a lot of
+	 * memory on a system with a lot of memory.  As a heuristic,
+	 * make sure we have enough MTTs to cover twice the system
+	 * memory (with PAGE_SIZE entries).
+	 *
+	 * This number has to be a power of two and fit into 32 bits
+	 * due to device limitations, so cap this at 2^31 as well.
+	 * That limits us to 8TB of memory registration per HCA with
+	 * 4KB pages, which is probably OK for the next few months.
+	 */
 	si_meminfo(&si);
 	request->num_mtt =
 		roundup_pow_of_two(max_t(unsigned, request->num_mtt,
@@ -128,6 +140,12 @@ u64 mlx4_make_profile(struct mlx4_dev *dev,
 		profile[i].size     = max(profile[i].size, (u64) PAGE_SIZE);
 	}
 
+	/*
+	 * Sort the resources in decreasing order of size.  Since they
+	 * all have sizes that are powers of 2, we'll be able to keep
+	 * resources aligned to their size and pack them without gaps
+	 * using the sorted order.
+	 */
 	for (i = MLX4_RES_NUM; i > 0; --i)
 		for (j = 1; j < i; ++j) {
 			if (profile[j].size > profile[j - 1].size) {
@@ -174,7 +192,7 @@ u64 mlx4_make_profile(struct mlx4_dev *dev,
 			for (priv->qp_table.rdmarc_shift = 0;
 			     request->num_qp << priv->qp_table.rdmarc_shift < profile[i].num;
 			     ++priv->qp_table.rdmarc_shift)
-				; 
+				; /* nothing */
 			dev->caps.max_qp_dest_rdma = 1 << priv->qp_table.rdmarc_shift;
 			priv->qp_table.rdmarc_base   = (u32) profile[i].start;
 			init_hca->rdmarc_base	     = profile[i].start;
@@ -229,6 +247,10 @@ u64 mlx4_make_profile(struct mlx4_dev *dev,
 		}
 	}
 
+	/*
+	 * PDs don't take any HCA memory, but we assign them as part
+	 * of the HCA profile anyway.
+	 */
 	dev->caps.num_pds = MLX4_NUM_PDS;
 
 	kfree(profile);

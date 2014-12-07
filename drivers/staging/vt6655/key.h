@@ -34,6 +34,7 @@
 #include "tether.h"
 #include "80211mgr.h"
 
+/*---------------------  Export Definitions -------------------------*/
 #define MAX_GROUP_KEY       4
 #define MAX_KEY_TABLE       11
 #define MAX_KEY_LEN         32
@@ -66,34 +67,39 @@ typedef struct tagSKeyItem
     unsigned char byReserved0;
     unsigned long dwKeyIndex;
     void *pvKeyTable;
-} SKeyItem, *PSKeyItem; 
+} SKeyItem, *PSKeyItem; //64
 
 typedef struct tagSKeyTable
 {
-    unsigned char abyBSSID[ETH_ALEN];  
-    unsigned char byReserved0[2];              
+    unsigned char abyBSSID[ETH_ALEN];  //6
+    unsigned char byReserved0[2];              //8
     SKeyItem    PairwiseKey;
-    SKeyItem    GroupKey[MAX_GROUP_KEY]; 
-    unsigned long dwGTKeyIndex;            
+    SKeyItem    GroupKey[MAX_GROUP_KEY]; //64*5 = 320, 320+8=328
+    unsigned long dwGTKeyIndex;            // GroupTransmitKey Index
     bool bInUse;
-    
-    
-    
+    //2006-1116-01,<Modify> by NomadZhao
+    //unsigned short wKeyCtl;
+    //bool bSoftWEP;
     bool bSoftWEP;
-    unsigned short wKeyCtl;      
+    unsigned short wKeyCtl;      // for address of wKeyCtl at align 4
 
     unsigned char byReserved1[6];
-} SKeyTable, *PSKeyTable; 
+} SKeyTable, *PSKeyTable; //348
 
 typedef struct tagSKeyManagement
 {
     SKeyTable   KeyTable[MAX_KEY_TABLE];
 } SKeyManagement, * PSKeyManagement;
 
+/*---------------------  Export Types  ------------------------------*/
 
+/*---------------------  Export Macros ------------------------------*/
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 void KeyvInitTable(PSKeyManagement pTable, unsigned long dwIoBase);
 
@@ -174,5 +180,5 @@ bool KeybSetAllGroupKey (
     unsigned char byLocalID
     );
 
-#endif 
+#endif // __KEY_H__
 

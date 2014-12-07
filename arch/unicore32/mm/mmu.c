@@ -31,9 +31,16 @@
 
 #include "mm.h"
 
+/*
+ * empty_zero_page is a special page that is used for
+ * zero-initialized data and COW.
+ */
 struct page *empty_zero_page;
 EXPORT_SYMBOL(empty_zero_page);
 
+/*
+ * The pmd table for the upper-most set of pages.
+ */
 pmd_t *top_pmd;
 
 pgprot_t pgprot_user;
@@ -82,11 +89,15 @@ struct map_desc {
 				PMD_SECT_READ | PMD_SECT_WRITE)
 
 static struct mem_type mem_types[] = {
-	[MT_DEVICE] = {		  
+	[MT_DEVICE] = {		  /* Strongly ordered */
 		.prot_pte	= PROT_PTE_DEVICE,
 		.prot_l1	= PMD_TYPE_TABLE | PMD_PRESENT,
 		.prot_sect	= PROT_SECT_DEVICE,
 	},
+	/*
+	 * MT_KUSER: pte for vecpage -- cacheable,
+	 *       and sect for unigfx mmap -- noncacheable
+	 */
 	[MT_KUSER] = {
 		.prot_pte  = PTE_PRESENT | PTE_YOUNG | PTE_DIRTY |
 				PTE_CACHEABLE | PTE_READ | PTE_EXEC,
@@ -118,6 +129,9 @@ const struct mem_type *get_mem_type(unsigned int type)
 }
 EXPORT_SYMBOL(get_mem_type);
 
+/*
+ * Adjust the PMD section entries according to the CPU in use.
+ */
 static void __init build_mem_type_table(void)
 {
 	pgprot_user   = __pgprot(PTE_PRESENT | PTE_YOUNG | PTE_CACHEABLE);
@@ -163,6 +177,10 @@ static void __init alloc_init_section(pgd_t *pgd, unsigned long addr,
 {
 	pmd_t *pmd = pmd_offset((pud_t *)pgd, addr);
 
+	/*
+	 * Try a section mapping - end, addr and phys must all be aligned
+	 * to a section boundary.
+	 */
 	if (((addr | end | phys) & ~SECTION_MASK) == 0) {
 		pmd_t *p = pmd;
 
@@ -173,10 +191,20 @@ static void __init alloc_init_section(pgd_t *pgd, unsigned long addr,
 
 		flush_pmd_entry(p);
 	} else {
+		/*
+		 * No need to loop; pte's aren't interested in the
+		 * individual L1 entries.
+		 */
 		alloc_init_pte(pmd, addr, end, __phys_to_pfn(phys), type);
 	}
 }
 
+/*
+ * Create the page directory entries and any necessary
+ * page tables for the mapping specified by `md'.  We
+ * are able to cope here with varying sizes and address
+ * offsets, and we take full advantage of sections.
+ */
 static void __init create_mapping(struct map_desc *md)
 {
 	unsigned long phys, addr, length, end;
@@ -224,6 +252,11 @@ static void __init create_mapping(struct map_desc *md)
 
 static void * __initdata vmalloc_min = (void *)(VMALLOC_END - SZ_128M);
 
+/*
+ * vmalloc=size forces the vmalloc area to be exactly 'size'
+ * bytes. This can be used to increase (or decrease) the vmalloc
+ * area - the default is 128m.
+ */
 static int __init early_vmalloc(char *arg)
 {
 	unsigned long vmalloc_reserve = memparse(arg, NULL);
@@ -269,43 +302,79 @@ static inline void prepare_page_table(void)
 	unsigned long addr;
 	phys_addr_t end;
 
+	/*
+	 * Clear out all the mappings below the kernel image.
+	 */
 	for (addr = 0; addr < MODULES_VADDR; addr += PGDIR_SIZE)
 		pmd_clear(pmd_off_k(addr));
 
 	for ( ; addr < PAGE_OFFSET; addr += PGDIR_SIZE)
 		pmd_clear(pmd_off_k(addr));
 
+	/*
+	 * Find the end of the first block of lowmem.
+	 */
 	end = memblock.memory.regions[0].base + memblock.memory.regions[0].size;
 	if (end >= lowmem_limit)
 		end = lowmem_limit;
 
+	/*
+	 * Clear out all the kernel space mappings, except for the first
+	 * memory bank, up to the end of the vmalloc region.
+	 */
 	for (addr = __phys_to_virt(end);
 	     addr < VMALLOC_END; addr += PGDIR_SIZE)
 		pmd_clear(pmd_off_k(addr));
 }
 
+/*
+ * Reserve the special regions of memory
+ */
 void __init uc32_mm_memblock_reserve(void)
 {
+	/*
+	 * Reserve the page tables.  These are already in use,
+	 * and can only be in node 0.
+	 */
 	memblock_reserve(__pa(swapper_pg_dir), PTRS_PER_PGD * sizeof(pgd_t));
 }
 
+/*
+ * Set up device the mappings.  Since we clear out the page tables for all
+ * mappings above VMALLOC_END, we will remove any debug device mappings.
+ * This means you have to be careful how you debug this function, or any
+ * called function.  This means you can't use any function or debugging
+ * method which may touch any device, otherwise the kernel _will_ crash.
+ */
 static void __init devicemaps_init(void)
 {
 	struct map_desc map;
 	unsigned long addr;
 	void *vectors;
 
+	/*
+	 * Allocate the vector page early.
+	 */
 	vectors = early_alloc(PAGE_SIZE);
 
 	for (addr = VMALLOC_END; addr; addr += PGDIR_SIZE)
 		pmd_clear(pmd_off_k(addr));
 
+	/*
+	 * Create a mapping for the machine vectors at the high-vectors
+	 * location (0xffff0000).  If we aren't using high-vectors, also
+	 * create a mapping at the low-vectors virtual address.
+	 */
 	map.pfn = __phys_to_pfn(virt_to_phys(vectors));
 	map.virtual = VECTORS_BASE;
 	map.length = PAGE_SIZE;
 	map.type = MT_HIGH_VECTORS;
 	create_mapping(&map);
 
+	/*
+	 * Create a mapping for the kuser page at the special
+	 * location (0xbfff0000) to the same vectors location.
+	 */
 	map.pfn = __phys_to_pfn(virt_to_phys(vectors));
 	map.virtual = KUSER_VECPAGE_BASE;
 	map.length = PAGE_SIZE;
@@ -326,7 +395,7 @@ static void __init map_lowmem(void)
 {
 	struct memblock_region *reg;
 
-	
+	/* Map all the lowmem memory banks. */
 	for_each_memblock(memory, reg) {
 		phys_addr_t start = reg->base;
 		phys_addr_t end = start + reg->size;
@@ -346,6 +415,10 @@ static void __init map_lowmem(void)
 	}
 }
 
+/*
+ * paging_init() sets up the page tables, initialises the zone memory
+ * maps, and sets up the zero page, bad page and bad page tables.
+ */
 void __init paging_init(void)
 {
 	void *zero_page;
@@ -358,7 +431,7 @@ void __init paging_init(void)
 
 	top_pmd = pmd_off_k(0xffff0000);
 
-	
+	/* allocate the zero page. */
 	zero_page = early_alloc(PAGE_SIZE);
 
 	bootmem_init();
@@ -367,12 +440,22 @@ void __init paging_init(void)
 	__flush_dcache_page(NULL, empty_zero_page);
 }
 
+/*
+ * In order to soft-boot, we need to insert a 1:1 mapping in place of
+ * the user-mode pages.  This will then ensure that we have predictable
+ * results when turning the mmu off
+ */
 void setup_mm_for_reboot(char mode)
 {
 	unsigned long base_pmdval;
 	pgd_t *pgd;
 	int i;
 
+	/*
+	 * We need to access to user-mode page tables here. For kernel threads
+	 * we don't have any user-mode mappings so we use the context that we
+	 * "borrowed".
+	 */
 	pgd = current->active_mm->pgd;
 
 	base_pmdval = PMD_SECT_WRITE | PMD_SECT_READ | PMD_TYPE_SECT;

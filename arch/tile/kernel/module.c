@@ -40,6 +40,10 @@
 #define DEBUGP(fmt...)
 #endif
 
+/*
+ * Allocate some address space in the range MEM_MODULE_START to
+ * MEM_MODULE_END and populate it with memory.
+ */
 void *module_alloc(unsigned long size)
 {
 	struct page **pages;
@@ -81,17 +85,26 @@ error:
 }
 
 
+/* Free memory returned from module_alloc */
 void module_free(struct module *mod, void *module_region)
 {
 	vfree(module_region);
 
-	
+	/* Globally flush the L1 icache. */
 	flush_remote(0, HV_FLUSH_EVICT_L1I, cpu_online_mask,
 		     0, 0, 0, NULL, NULL, 0);
 
+	/*
+	 * FIXME: If module_region == mod->module_init, trim exception
+	 * table entries.
+	 */
 }
 
 #ifdef __tilegx__
+/*
+ * Validate that the high 16 bits of "value" is just the sign-extension of
+ * the low 48 bits.
+ */
 static int validate_hw2_last(long value, struct module *me)
 {
 	if (((value << 16) >> 16) != value) {
@@ -102,12 +115,15 @@ static int validate_hw2_last(long value, struct module *me)
 	return 1;
 }
 
+/*
+ * Validate that "value" isn't too big to hold in a JumpOff relocation.
+ */
 static int validate_jumpoff(long value)
 {
-	
+	/* Determine size of jump offset. */
 	int shift = __builtin_clzl(get_JumpOff_X1(create_JumpOff_X1(-1)));
 
-	
+	/* Check to see if it fits into the relocation slot. */
 	long f = get_JumpOff_X1(create_JumpOff_X1(value));
 	f = (f << shift) >> shift;
 
@@ -130,9 +146,13 @@ int apply_relocate_add(Elf_Shdr *sechdrs,
 	DEBUGP("Applying relocate section %u to %u\n", relsec,
 	       sechdrs[relsec].sh_info);
 	for (i = 0; i < sechdrs[relsec].sh_size / sizeof(*rel); i++) {
-		
+		/* This is where to make the change */
 		location = (void *)sechdrs[sechdrs[relsec].sh_info].sh_addr
 			+ rel[i].r_offset;
+		/*
+		 * This is the symbol it is referring to.
+		 * Note that all undefined symbols have been resolved.
+		 */
 		sym = (Elf_Sym *)sechdrs[symindex].sh_addr
 			+ ELF_R_SYM(rel[i].r_info);
 		value = sym->st_value + rel[i].r_addend;
@@ -147,19 +167,19 @@ int apply_relocate_add(Elf_Shdr *sechdrs,
 			break;
 		case R_TILE_IMM16_X0_HA:
 			value = (value + 0x8000) >> 16;
-			
+			/*FALLTHROUGH*/
 		case R_TILE_IMM16_X0_LO:
 			MUNGE(create_Imm16_X0);
 			break;
 		case R_TILE_IMM16_X1_HA:
 			value = (value + 0x8000) >> 16;
-			
+			/*FALLTHROUGH*/
 		case R_TILE_IMM16_X1_LO:
 			MUNGE(create_Imm16_X1);
 			break;
 		case R_TILE_JOFFLONG_X1:
-			value -= (unsigned long) location;  
-			value = (long) value >> 3;     
+			value -= (unsigned long) location;  /* pc-relative */
+			value = (long) value >> 3;     /* count by instrs */
 			MUNGE(create_JOffLong_X1);
 			break;
 #else
@@ -170,10 +190,10 @@ int apply_relocate_add(Elf_Shdr *sechdrs,
 			if (!validate_hw2_last(value, me))
 				return -ENOEXEC;
 			value >>= 16;
-			
+			/*FALLTHROUGH*/
 		case R_TILEGX_IMM16_X0_HW1:
 			value >>= 16;
-			
+			/*FALLTHROUGH*/
 		case R_TILEGX_IMM16_X0_HW0:
 			MUNGE(create_Imm16_X0);
 			break;
@@ -181,16 +201,16 @@ int apply_relocate_add(Elf_Shdr *sechdrs,
 			if (!validate_hw2_last(value, me))
 				return -ENOEXEC;
 			value >>= 16;
-			
+			/*FALLTHROUGH*/
 		case R_TILEGX_IMM16_X1_HW1:
 			value >>= 16;
-			
+			/*FALLTHROUGH*/
 		case R_TILEGX_IMM16_X1_HW0:
 			MUNGE(create_Imm16_X1);
 			break;
 		case R_TILEGX_JUMPOFF_X1:
-			value -= (unsigned long) location;  
-			value = (long) value >> 3;     
+			value -= (unsigned long) location;  /* pc-relative */
+			value = (long) value >> 3;     /* count by instrs */
 			if (!validate_jumpoff(value)) {
 				pr_warning("module %s: Out of range jump to"
 					   " %#llx at %#llx (%p)\n", me->name,

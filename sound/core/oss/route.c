@@ -64,7 +64,7 @@ static snd_pcm_sframes_t route_transfer(struct snd_pcm_plugin *plugin,
 	format = plugin->dst_format.format;
 	dvp = dst_channels;
 	if (nsrcs <= 1) {
-		
+		/* expand to all channels */
 		for (dst = 0; dst < ndsts; ++dst) {
 			copy_area(src_channels, dvp, frames, format);
 			dvp++;

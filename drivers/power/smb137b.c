@@ -324,7 +324,7 @@ static int smb137b_start_charging(struct msm_hardware_charger *hw_chg,
 
 	if (smb137b_chg->charging == true
 		&& smb137b_chg->chgcurrent == chg_current)
-		
+		/* we are already charging with the same current*/
 		 dev_err(&smb137b_chg->client->dev,
 			 "%s charge with same current %d called again\n",
 			  __func__, chg_current);
@@ -340,6 +340,12 @@ static int smb137b_start_charging(struct msm_hardware_charger *hw_chg,
 	smb137b_chg->chgcurrent = chg_current;
 	smb137b_chg->cur_charging_mode = cmd_val;
 
+	/* Due to non-volatile reload feature,always enable volatile
+	 * mirror writes before modifying any 00h~09h control register.
+	 * Current mode needs to be programmed according to what's detected
+	 * Otherwise default 100mA mode might cause VOUTL drop and fail
+	 * the system in case of dead battery.
+	 */
 	ret = smb137b_write_reg(smb137b_chg->client,
 					COMMAND_A_REG, cmd_val);
 	if (ret) {
@@ -372,7 +378,7 @@ static int smb137b_start_charging(struct msm_hardware_charger *hw_chg,
 			smb137b_chg->batt_chg_type
 						= POWER_SUPPLY_CHARGE_TYPE_FAST;
 	}
-	
+	/*schedule charge_work to keep track of battery charging state*/
 	schedule_delayed_work(&smb137b_chg->charge_work, SMB137B_CHG_PERIOD);
 
 out:
@@ -430,6 +436,8 @@ static irqreturn_t smb137b_valid_handler(int irq, void *dev_id)
 	smb137b_chg = i2c_get_clientdata(client);
 
 	pr_debug("%s Cable Detected USB inserted\n", __func__);
+	/*extra delay needed to allow CABLE_DET_N settling down and debounce
+	 before	trying to sample its correct value*/
 	usleep_range(1000, 1200);
 	val = gpio_get_value_cansleep(smb137b_chg->valid_n_gpio);
 	if (val < 0) {
@@ -520,7 +528,7 @@ static void smb137b_charge_sm(struct work_struct *smb137b_work)
 	smb137b_chg = container_of(smb137b_work, struct smb137b_data,
 			charge_work.work);
 
-	
+	/*if not charging, exit smb137b charging state transition*/
 	if (!smb137b_chg->charging)
 		return;
 
@@ -591,6 +599,10 @@ static void __smb137b_otg_power(int on)
 		if (ret) {
 			pr_err("%s turning off charging in pin_ctrl err=%d\n",
 								__func__, ret);
+			/*
+			 * don't change the command register if charging in
+			 * pin control cannot be turned off
+			 */
 			return;
 		}
 
@@ -646,7 +658,7 @@ static int __devinit smb137b_probe(struct i2c_client *client,
 	if (smb137b_chg->batt_mah_rating == 0)
 		smb137b_chg->batt_mah_rating = SMB137B_DEFAULT_BATT_RATING;
 
-	
+	/*It supports USB-WALL charger and PC USB charger */
 	smb137b_chg->adapter_hw_chg.type = CHG_TYPE_USB;
 	smb137b_chg->adapter_hw_chg.rating = pdata->batt_mah_rating;
 	smb137b_chg->adapter_hw_chg.name = "smb137b-charger";
@@ -701,7 +713,7 @@ static int __devinit smb137b_probe(struct i2c_client *client,
 		dev_err(&client->dev,
 			"%s gpio_get_value failed for %d ret=%d\n", __func__,
 			pdata->valid_n_gpio, ret);
-		
+		/* assume absent */
 		ret = 1;
 	}
 	if (!ret) {
@@ -715,7 +727,7 @@ static int __devinit smb137b_probe(struct i2c_client *client,
 
 	ret = device_create_file(&smb137b_chg->client->dev, &dev_attr_id_reg);
 
-	
+	/* TODO read min_design and max_design from chip registers */
 	smb137b_chg->min_design = 3200;
 	smb137b_chg->max_design = 4200;
 

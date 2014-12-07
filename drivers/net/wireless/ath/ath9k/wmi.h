@@ -41,6 +41,11 @@ struct wmi_event_swba {
 	u8 beacon_pending;
 };
 
+/*
+ * 64 - HTC header - WMI header - 1 / txstatus
+ * And some other hdr. space is also accounted for.
+ * 12 seems to be the magic number.
+ */
 #define HTC_MAX_TX_STATUS 12
 
 #define ATH9K_HTC_TXSTAT_ACK        BIT(0)
@@ -50,6 +55,12 @@ struct wmi_event_swba {
 #define ATH9K_HTC_TXSTAT_CW40       BIT(4)
 #define ATH9K_HTC_TXSTAT_SGI        BIT(5)
 
+/*
+ * Legacy rates are indicated as indices.
+ * HT rates are indicated as dot11 numbers.
+ * This allows us to resrict the rate field
+ * to 4 bits.
+ */
 #define ATH9K_HTC_TXSTAT_RATE       0x0f
 #define ATH9K_HTC_TXSTAT_RATE_S     0
 
@@ -58,7 +69,7 @@ struct wmi_event_swba {
 
 struct __wmi_event_txstatus {
 	u8 cookie;
-	u8 ts_rate; 
+	u8 ts_rate; /* Also holds EP ID */
 	u8 ts_flags;
 };
 
@@ -71,7 +82,7 @@ enum wmi_cmd_id {
 	WMI_ECHO_CMDID = 0x0001,
 	WMI_ACCESS_MEMORY_CMDID,
 
-	
+	/* Commands to Target */
 	WMI_GET_FW_VERSION,
 	WMI_DISABLE_INTR_CMDID,
 	WMI_ENABLE_INTR_CMDID,
@@ -177,4 +188,4 @@ void ath9k_wmi_event_drain(struct ath9k_htc_priv *priv);
 				    &cmd_rsp, sizeof(cmd_rsp), HZ*2);	\
 	} while (0)
 
-#endif 
+#endif /* WMI_H */

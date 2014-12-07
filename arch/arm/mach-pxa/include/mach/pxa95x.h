@@ -4,4 +4,4 @@
 #include <mach/pxa3xx.h>
 #include <mach/mfp-pxa930.h>
 
-#endif 
+#endif /* __MACH_PXA95X_H */

@@ -49,7 +49,7 @@ struct agp_kern_info {
 	unsigned long mode;
 	unsigned long aper_base;
 	size_t aper_size;
-	int max_memory;		
+	int max_memory;		/* In pages */
 	int current_memory;
 	bool cant_use_aperture;
 	unsigned long page_mask;
@@ -79,9 +79,9 @@ struct agp_memory {
 	u32 physical;
 	bool is_bound;
 	bool is_flushed;
-	
+	/* list of agp_memory mapped to the aperture */
 	struct list_head mapped_list;
-	
+	/* DMA-mapped addresses */
 	struct scatterlist *sg_list;
 	int num_sg;
 };
@@ -106,4 +106,4 @@ extern void agp_enable(struct agp_bridge_data *, u32);
 extern struct agp_bridge_data *agp_backend_acquire(struct pci_dev *);
 extern void agp_backend_release(struct agp_bridge_data *);
 
-#endif				
+#endif				/* _AGP_BACKEND_H */

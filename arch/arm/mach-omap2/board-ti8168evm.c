@@ -45,7 +45,7 @@ static void __init ti81xx_evm_init(void)
 }
 
 MACHINE_START(TI8168EVM, "ti8168evm")
-	
+	/* Maintainer: Texas Instruments */
 	.atag_offset	= 0x100,
 	.map_io		= ti81xx_map_io,
 	.init_early	= ti81xx_init_early,
@@ -56,7 +56,7 @@ MACHINE_START(TI8168EVM, "ti8168evm")
 MACHINE_END
 
 MACHINE_START(TI8148EVM, "ti8148evm")
-	
+	/* Maintainer: Texas Instruments */
 	.atag_offset	= 0x100,
 	.map_io		= ti81xx_map_io,
 	.init_early	= ti81xx_init_early,

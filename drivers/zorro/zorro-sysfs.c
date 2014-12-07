@@ -19,6 +19,7 @@
 #include "zorro.h"
 
 
+/* show configuration fields */
 #define zorro_config_attr(name, field, format_string)			\
 static ssize_t								\
 show_##name(struct device *dev, struct device_attribute *attr, char *buf)				\
@@ -56,7 +57,7 @@ static ssize_t zorro_read_config(struct file *filp, struct kobject *kobj,
 					   kobj));
 	struct ConfigDev cd;
 
-	
+	/* Construct a ConfigDev */
 	memset(&cd, 0, sizeof(cd));
 	cd.cd_Rom = z->rom;
 	cd.cd_SlotAddr = z->slotaddr;
@@ -91,7 +92,7 @@ int zorro_create_sysfs_dev_files(struct zorro_dev *z)
 	struct device *dev = &z->dev;
 	int error;
 
-	
+	/* current configuration's attributes */
 	if ((error = device_create_file(dev, &dev_attr_id)) ||
 	    (error = device_create_file(dev, &dev_attr_type)) ||
 	    (error = device_create_file(dev, &dev_attr_serial)) ||

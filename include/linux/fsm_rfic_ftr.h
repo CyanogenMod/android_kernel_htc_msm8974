@@ -15,10 +15,21 @@
 
 #include <linux/ioctl.h>
 
+/*
+ * Device interface
+ */
 
 #define RFIC_FTR_DEVICE_NAME		"rfic_ftr"
 
+/*
+ * IOCTL interface
+ */
 
+/*
+    Macro to associate the "bus" and "address" pair when accessing the RFIC.
+    Using a 32 bit address, reserve the upper 8 bits for the bus value, and
+    the lower 24 bits for the address.
+ */
 #define RFIC_FTR_ADDR(bus, addr)	(((bus&0x03)<<24)|(addr&0xFFFFFF))
 #define RFIC_FTR_GET_ADDR(busAddr)	(busAddr&0xFFFFFF)
 #define RFIC_FTR_GET_BUS(busAddr)	((busAddr>>24)&0x03)
@@ -57,4 +68,4 @@ struct rfic_grfc_param {
 	_IOC(_IOC_WRITE, RFIC_IOCTL_MAGIC, 0x11, \
 		sizeof(struct rfic_grfc_param *))
 
-#endif 
+#endif /* _FSM_RFIC_FTR_H_ */

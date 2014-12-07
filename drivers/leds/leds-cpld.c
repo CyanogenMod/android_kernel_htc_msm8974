@@ -32,7 +32,7 @@ static int _g_cpld_led_addr;
 
 struct CPLD_LED_data {
 	spinlock_t data_lock;
-	struct led_classdev leds[4];	
+	struct led_classdev leds[4];	/* blue, green, red */
 };
 
 static ssize_t led_blink_solid_show(struct device *dev,
@@ -59,7 +59,7 @@ static ssize_t led_blink_solid_show(struct device *dev,
 	reg_val &= 0x1;
 	spin_unlock(&CPLD_LED->data_lock);
 
-	
+	/* no lock needed for this */
 	sprintf(buf, "%u\n", reg_val);
 	ret = strlen(buf) + 1;
 
@@ -130,7 +130,7 @@ static ssize_t cpldled_blink_all_show(struct device *dev,
 		reg_val = 0;
 	spin_unlock(&CPLD_LED->data_lock);
 
-	
+	/* no lock needed for this */
 	sprintf(buf, "%u\n", reg_val);
 	ret = strlen(buf) + 1;
 
@@ -298,7 +298,7 @@ static int CPLD_LED_probe(struct platform_device *pdev)
 
 	spin_lock_init(&CPLD_LED->data_lock);
 
-	for (i = 0; i < 4; i++) {	
+	for (i = 0; i < 4; i++) {	/* red, green, blue jogball */
 		ret = led_classdev_register(&pdev->dev, &CPLD_LED->leds[i]);
 		if (ret) {
 			printk(KERN_ERR

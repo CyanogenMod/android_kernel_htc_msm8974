@@ -87,6 +87,9 @@ static struct fb_fix_screeninfo mc68x328fb_fix __initdata = {
 	.accel =	FB_ACCEL_NONE,
 };
 
+    /*
+     *  Interface used by the world
+     */
 int mc68x328fb_init(void);
 int mc68x328fb_setup(char *);
 
@@ -110,6 +113,9 @@ static struct fb_ops mc68x328fb_ops = {
 	.fb_mmap	= mc68x328fb_mmap,
 };
 
+    /*
+     *  Internal routines
+     */
 
 static u_long get_line_length(int xres_virtual, int bpp)
 {
@@ -121,12 +127,23 @@ static u_long get_line_length(int xres_virtual, int bpp)
 	return (length);
 }
 
+    /*
+     *  Setting the video mode has been split into two parts.
+     *  First part, xxxfb_check_var, must not write anything
+     *  to hardware, it should only verify and adjust var.
+     *  This means it doesn't alter par but it does use hardware
+     *  data from it to check this var. 
+     */
 
 static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 			 struct fb_info *info)
 {
 	u_long line_length;
 
+	/*
+	 *  FB_VMODE_CONUPDATE and FB_VMODE_SMOOTH_XPAN are equal!
+	 *  as FB_VMODE_SMOOTH_XPAN is only used internally
+	 */
 
 	if (var->vmode & FB_VMODE_CONUPDATE) {
 		var->vmode |= FB_VMODE_YWRAP;
@@ -134,6 +151,9 @@ static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 		var->yoffset = info->var.yoffset;
 	}
 
+	/*
+	 *  Some very basic checks
+	 */
 	if (!var->xres)
 		var->xres = 1;
 	if (!var->yres)
@@ -160,11 +180,19 @@ static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 	if (var->yres_virtual < var->yoffset + var->yres)
 		var->yres_virtual = var->yoffset + var->yres;
 
+	/*
+	 *  Memory limit
+	 */
 	line_length =
 	    get_line_length(var->xres_virtual, var->bits_per_pixel);
 	if (line_length * var->yres_virtual > videomemorysize)
 		return -ENOMEM;
 
+	/*
+	 * Now that we checked it we alter var. The reason being is that the video
+	 * mode passed in might not work but slight changes to it might make it 
+	 * work. This way we let the user know what is acceptable.
+	 */
 	switch (var->bits_per_pixel) {
 	case 1:
 		var->red.offset = 0;
@@ -186,7 +214,7 @@ static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 		var->transp.offset = 0;
 		var->transp.length = 0;
 		break;
-	case 16:		
+	case 16:		/* RGBA 5551 */
 		if (var->transp.length) {
 			var->red.offset = 0;
 			var->red.length = 5;
@@ -196,7 +224,7 @@ static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 			var->blue.length = 5;
 			var->transp.offset = 15;
 			var->transp.length = 1;
-		} else {	
+		} else {	/* RGB 565 */
 			var->red.offset = 0;
 			var->red.length = 5;
 			var->green.offset = 5;
@@ -207,7 +235,7 @@ static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 			var->transp.length = 0;
 		}
 		break;
-	case 24:		
+	case 24:		/* RGB 888 */
 		var->red.offset = 0;
 		var->red.length = 8;
 		var->green.offset = 8;
@@ -217,7 +245,7 @@ static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 		var->transp.offset = 0;
 		var->transp.length = 0;
 		break;
-	case 32:		
+	case 32:		/* RGBA 8888 */
 		var->red.offset = 0;
 		var->red.length = 8;
 		var->green.offset = 8;
@@ -236,6 +264,10 @@ static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/* This routine actually sets the video mode. It's in here where we
+ * the hardware state info->par and fix which can be affected by the 
+ * change in par. For this driver it doesn't do much. 
+ */
 static int mc68x328fb_set_par(struct fb_info *info)
 {
 	info->fix.line_length = get_line_length(info->var.xres_virtual,
@@ -243,20 +275,49 @@ static int mc68x328fb_set_par(struct fb_info *info)
 	return 0;
 }
 
+    /*
+     *  Set a single color register. The values supplied are already
+     *  rounded down to the hardware's capabilities (according to the
+     *  entries in the var structure). Return != 0 for invalid regno.
+     */
 
 static int mc68x328fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 			 u_int transp, struct fb_info *info)
 {
-	if (regno >= 256)	
+	if (regno >= 256)	/* no. of hw registers */
 		return 1;
+	/*
+	 * Program hardware... do anything you want with transp
+	 */
 
-	
+	/* grayscale works only partially under directcolor */
 	if (info->var.grayscale) {
-		
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue =
 		    (red * 77 + green * 151 + blue * 28) >> 8;
 	}
 
+	/* Directcolor:
+	 *   var->{color}.offset contains start of bitfield
+	 *   var->{color}.length contains length of bitfield
+	 *   {hardwarespecific} contains width of RAMDAC
+	 *   cmap[X] is programmed to (X << red.offset) | (X << green.offset) | (X << blue.offset)
+	 *   RAMDAC[X] is programmed to (red, green, blue)
+	 * 
+	 * Pseudocolor:
+	 *    uses offset = 0 && length = RAMDAC register width.
+	 *    var->{color}.offset is 0
+	 *    var->{color}.length contains width of DAC
+	 *    cmap is not used
+	 *    RAMDAC[X] is programmed to (red, green, blue)
+	 * Truecolor:
+	 *    does not use DAC. Usually 3 are present.
+	 *    var->{color}.offset contains start of bitfield
+	 *    var->{color}.length contains length of bitfield
+	 *    cmap is programmed to (red << red.offset) | (green << green.offset) |
+	 *                      (blue << blue.offset) | (transp << transp.offset)
+	 *    RAMDAC does not exist
+	 */
 #define CNVT_TOHW(val,width) ((((val)<<(width))+0x7FFF-(val))>>16)
 	switch (info->fix.visual) {
 	case FB_VISUAL_TRUECOLOR:
@@ -267,15 +328,15 @@ static int mc68x328fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 		transp = CNVT_TOHW(transp, info->var.transp.length);
 		break;
 	case FB_VISUAL_DIRECTCOLOR:
-		red = CNVT_TOHW(red, 8);	
+		red = CNVT_TOHW(red, 8);	/* expect 8 bit DAC */
 		green = CNVT_TOHW(green, 8);
 		blue = CNVT_TOHW(blue, 8);
-		
+		/* hey, there is bug in transp handling... */
 		transp = CNVT_TOHW(transp, 8);
 		break;
 	}
 #undef CNVT_TOHW
-	
+	/* Truecolor has hardware independent palette */
 	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 		u32 v;
 
@@ -302,6 +363,11 @@ static int mc68x328fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	return 0;
 }
 
+    /*
+     *  Pan or Wrap the Display
+     *
+     *  This call looks only at xoffset, yoffset and the FB_VMODE_YWRAP flag
+     */
 
 static int mc68x328fb_pan_display(struct fb_var_screeninfo *var,
 			   struct fb_info *info)
@@ -325,11 +391,14 @@ static int mc68x328fb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+    /*
+     *  Most drivers don't need their own mmap function 
+     */
 
 static int mc68x328fb_mmap(struct fb_info *info, struct vm_area_struct *vma)
 {
 #ifndef MMU
-	
+	/* this is uClinux (no MMU) specific code */
 
 	vma->vm_flags |= VM_RESERVED;
 	vma->vm_start = videomemory;
@@ -359,6 +428,9 @@ int __init mc68x328fb_setup(char *options)
 	return 1;
 }
 
+    /*
+     *  Initialisation
+     */
 
 int __init mc68x328fb_init(void)
 {
@@ -369,6 +441,9 @@ int __init mc68x328fb_init(void)
 		return -ENODEV;
 	mc68x328fb_setup(option);
 #endif
+	/*
+	 *  initialize the default mode from the LCD controller registers
+	 */
 	mc68x328fb_default.xres = LXMAX;
 	mc68x328fb_default.yres = LYMAX+1;
 	mc68x328fb_default.xres_virtual = mc68x328fb_default.xres;
@@ -426,4 +501,4 @@ static void __exit mc68x328fb_cleanup(void)
 module_exit(mc68x328fb_cleanup);
 
 MODULE_LICENSE("GPL");
-#endif				
+#endif				/* MODULE */

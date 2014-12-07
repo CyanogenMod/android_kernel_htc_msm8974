@@ -259,6 +259,10 @@ nouveau_fbcon_zfill(struct drm_device *dev, struct nouveau_fbdev *nfbdev)
 	struct fb_info *info = nfbdev->helper.fbdev;
 	struct fb_fillrect rect;
 
+	/* Clear the entire fbcon.  The drm will program every connector
+	 * with it's preferred mode.  If the sizes differ, one display will
+	 * quite likely have garbage around the console.
+	 */
 	rect.dx = rect.dy = 0;
 	rect.width = info->var.xres_virtual;
 	rect.height = info->var.yres_virtual;
@@ -347,7 +351,7 @@ nouveau_fbcon_create(struct nouveau_fbdev *nfbdev,
 	nouveau_fb = &nfbdev->nouveau_fb;
 	fb = &nouveau_fb->base;
 
-	
+	/* setup helper */
 	nfbdev->helper.fb = fb;
 	nfbdev->helper.fbdev = info;
 
@@ -370,14 +374,14 @@ nouveau_fbcon_create(struct nouveau_fbdev *nfbdev,
 	drm_fb_helper_fill_fix(info, fb->pitches[0], fb->depth);
 	drm_fb_helper_fill_var(info, &nfbdev->helper, sizes->fb_width, sizes->fb_height);
 
-	
+	/* Set aperture base/size for vesafb takeover */
 	info->apertures = dev_priv->apertures;
 	if (!info->apertures) {
 		ret = -ENOMEM;
 		goto out_unref;
 	}
 
-	
+	/* Use default scratch pixmap (info->pixmap.flags = FB_PIXMAP_SYSTEM) */
 
 	mutex_unlock(&dev->struct_mutex);
 
@@ -397,7 +401,7 @@ nouveau_fbcon_create(struct nouveau_fbdev *nfbdev,
 
 	nouveau_fbcon_zfill(dev, nfbdev);
 
-	
+	/* To allow resizeing without swapping buffers */
 	NV_INFO(dev, "allocated %dx%d fb: 0x%lx, bo %p\n",
 						nouveau_fb->base.width,
 						nouveau_fb->base.height,

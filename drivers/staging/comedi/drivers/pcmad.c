@@ -131,6 +131,13 @@ static int pcmad_ai_insn_read(struct comedi_device *dev,
 	return n;
 }
 
+/*
+ * options:
+ * 0	i/o base
+ * 1	unused
+ * 2	0=single ended 1=differential
+ * 3	0=straight binary 1=two's comp
+ */
 static int pcmad_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 {
 	int ret;
@@ -159,7 +166,7 @@ static int pcmad_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s = dev->subdevices + 0;
 	s->type = COMEDI_SUBD_AI;
 	s->subdev_flags = SDF_READABLE | AREF_GROUND;
-	s->n_chan = 16;		
+	s->n_chan = 16;		/* XXX */
 	s->len_chanlist = 1;
 	s->insn_read = pcmad_ai_insn_read;
 	s->maxdata = (1 << this_board->n_ai_bits) - 1;

@@ -11,6 +11,14 @@
  *
  */
 
+/*
+cp15_registers.h
+
+DESCRIPTION: define macros for reading and writing to the cp registers
+for the ARMv7
+
+REV/DATE:  Fri Mar 18 15:54:32 EST 2005
+*/
 
 #ifndef __cp15_registers__
 #define __cp15_registers__
@@ -18,6 +26,9 @@
 #include "mcrmrc.h"
 
 #define WCP15_SDER(reg)			MCR15(reg, 0, c1, c1, 1)
+/*
+* Performance Monitor Registers
+*/
 #define WCP15_PMACTLR(reg)		MCR15(reg, 0, c9, c15, 5)
 #define WCP15_PMCCNTCR(reg)		MCR15(reg, 0, c9, c15, 2)
 #define WCP15_PMCCNTR(reg)		MCR15(reg, 0, c9, c13, 0)
@@ -44,7 +55,13 @@
 #define WCP15_VLPMEVTYPER(reg)		MCR15(reg, 7, c11, c0, 0)
 #define WCP15_L2VR3F1(reg)		MCR15(reg, 3, c15, c15, 1)
 
+/*
+* READ the registers
+*/
 #define RCP15_SDER(reg)			MRC15(reg, 0, c1, c1, 1)
+/*
+* Performance Monitor Registers
+*/
 #define RCP15_PMACTLR(reg)		MRC15(reg, 0, c9, c15, 5)
 #define RCP15_PMCCNTCR(reg)		MRC15(reg, 0, c9, c15, 2)
 #define RCP15_PMCCNTR(reg)		MRC15(reg, 0, c9, c13, 0)

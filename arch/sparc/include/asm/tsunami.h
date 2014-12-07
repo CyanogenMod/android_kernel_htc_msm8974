@@ -9,6 +9,27 @@
 
 #include <asm/asi.h>
 
+/* The MMU control register on the Tsunami:
+ *
+ * -----------------------------------------------------------------------
+ * | implvers |SW|AV|DV|MV| RSV |PC|ITD|ALC| RSV |PE| RC |IE|DE|RSV|NF|ME|
+ * -----------------------------------------------------------------------
+ *  31      24 23 22 21 20 19-18 17  16 14  13-12 11 10-9  8  7 6-2  1  0
+ *
+ * SW: Enable Software Table Walks  0=off 1=on
+ * AV: Address View bit
+ * DV: Data View bit
+ * MV: Memory View bit
+ * PC: Parity Control
+ * ITD: ITBR disable
+ * ALC: Alternate Cacheable
+ * PE: Parity Enable   0=off 1=on
+ * RC: Refresh Control
+ * IE: Instruction cache Enable  0=off 1=on
+ * DE: Data cache Enable  0=off 1=on
+ * NF: No Fault, same as all other SRMMUs
+ * ME: MMU Enable, same as all other SRMMUs
+ */
 
 #define TSUNAMI_SW        0x00800000
 #define TSUNAMI_AV        0x00400000
@@ -27,7 +48,7 @@
 static inline void tsunami_flush_icache(void)
 {
 	__asm__ __volatile__("sta %%g0, [%%g0] %0\n\t"
-			     : 
+			     : /* no outputs */
 			     : "i" (ASI_M_IC_FLCLEAR)
 			     : "memory");
 }
@@ -35,9 +56,9 @@ static inline void tsunami_flush_icache(void)
 static inline void tsunami_flush_dcache(void)
 {
 	__asm__ __volatile__("sta %%g0, [%%g0] %0\n\t"
-			     : 
+			     : /* no outputs */
 			     : "i" (ASI_M_DC_FLCLEAR)
 			     : "memory");
 }
 
-#endif 
+#endif /* !(_SPARC_TSUNAMI_H) */

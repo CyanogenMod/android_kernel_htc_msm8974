@@ -13,6 +13,8 @@
 #ifndef __ARCH_ARM_PLAT_OMAP_INCLUDE_PLAT_L3_2XXX_H
 #define __ARCH_ARM_PLAT_OMAP_INCLUDE_PLAT_L3_2XXX_H
 
+/* L3 CONNIDs */
+/* Display Sub system (DSS) */
 #define OMAP2_L3_CORE_FW_CONNID_DSS			8
 
 #endif

@@ -19,6 +19,7 @@
 #include <linux/kernel.h>
 #include <mach/msm_rpcrouter.h>
 
+/* dog_keepalive server definitions */
 
 #define DOG_KEEPALIVE_PROG 0x30000015
 #if CONFIG_MSM_AMSS_VERSION==6210
@@ -34,6 +35,7 @@
 #define RPC_DOG_KEEPALIVE_NULL 0
 
 
+/* TODO: Remove server registration with _VERS when modem is upated with _COMP*/
 
 static int handle_rpc_call(struct msm_rpc_server *server,
 			   struct rpc_request_hdr *req, unsigned len)
@@ -63,7 +65,7 @@ static struct msm_rpc_server rpc_server[] = {
 
 static int __init rpc_server_init(void)
 {
-	
+	/* Dual server registration to support backwards compatibility vers */
 	int ret;
 	ret = msm_rpc_create_server(&rpc_server[1]);
 	if (ret < 0)

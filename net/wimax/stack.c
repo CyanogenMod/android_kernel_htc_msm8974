@@ -70,8 +70,33 @@ MODULE_PARM_DESC(debug,
 		 "are the different debug submodules and VALUE are the "
 		 "initial debug value to set.");
 
+/*
+ * Authoritative source for the RE_STATE_CHANGE attribute policy
+ *
+ * We don't really use it here, but /me likes to keep the definition
+ * close to where the data is generated.
+ */
+/*
+static const struct nla_policy wimax_gnl_re_status_change[WIMAX_GNL_ATTR_MAX + 1] = {
+	[WIMAX_GNL_STCH_STATE_OLD] = { .type = NLA_U8 },
+	[WIMAX_GNL_STCH_STATE_NEW] = { .type = NLA_U8 },
+};
+*/
 
 
+/*
+ * Allocate a Report State Change message
+ *
+ * @header: save it, you need it for _send()
+ *
+ * Creates and fills a basic state change message; different code
+ * paths can then add more attributes to the message as needed.
+ *
+ * Use wimax_gnl_re_state_change_send() to send the returned skb.
+ *
+ * Returns: skb with the genl message if ok, IS_ERR() ptr on error
+ *     with an errno code.
+ */
 static
 struct sk_buff *wimax_gnl_re_state_change_alloc(
 	struct wimax_dev *wimax_dev,
@@ -128,6 +153,16 @@ error_new:
 }
 
 
+/*
+ * Send a Report State Change message (as created with _alloc).
+ *
+ * @report_skb: as returned by wimax_gnl_re_state_change_alloc()
+ * @header: as returned by wimax_gnl_re_state_change_alloc()
+ *
+ * Returns: 0 if ok, < 0 errno code on error.
+ *
+ * If the message is  NULL, pretend it didn't happen.
+ */
 static
 int wimax_gnl_re_state_change_send(
 	struct wimax_dev *wimax_dev, struct sk_buff *report_skb,
@@ -161,6 +196,10 @@ void __check_new_state(enum wimax_st old_state, enum wimax_st new_state,
 }
 
 
+/*
+ * Set the current state of a WiMAX device [unlocking version of
+ * wimax_state_change().
+ */
 void __wimax_state_change(struct wimax_dev *wimax_dev, enum wimax_st new_state)
 {
 	struct device *dev = wimax_dev_to_dev(wimax_dev);
@@ -178,11 +217,11 @@ void __wimax_state_change(struct wimax_dev *wimax_dev, enum wimax_st new_state)
 	}
 	if (old_state == new_state)
 		goto out;
-	header = NULL;	
+	header = NULL;	/* gcc complains? can't grok why */
 	stch_skb = wimax_gnl_re_state_change_alloc(
 		wimax_dev, new_state, old_state, &header);
 
-	
+	/* Verify the state transition and do exit-from-state actions */
 	switch (old_state) {
 	case __WIMAX_ST_NULL:
 		__check_new_state(old_state, new_state,
@@ -247,12 +286,12 @@ void __wimax_state_change(struct wimax_dev *wimax_dev, enum wimax_st new_state)
 		goto out;
 	}
 
-	
+	/* Execute the actions of entry to the new state */
 	switch (new_state) {
 	case __WIMAX_ST_NULL:
 		dev_err(dev, "SW BUG: wimax_dev %p entering NULL state "
 			"from %u\n", wimax_dev, wimax_dev->state);
-		WARN_ON(1);		
+		WARN_ON(1);		/* Nobody can enter this state */
 		break;
 	case WIMAX_ST_DOWN:
 		break;
@@ -285,8 +324,40 @@ out:
 }
 
 
+/**
+ * wimax_state_change - Set the current state of a WiMAX device
+ *
+ * @wimax_dev: WiMAX device descriptor (properly referenced)
+ * @new_state: New state to switch to
+ *
+ * This implements the state changes for the wimax devices. It will
+ *
+ * - verify that the state transition is legal (for now it'll just
+ *   print a warning if not) according to the table in
+ *   linux/wimax.h's documentation for 'enum wimax_st'.
+ *
+ * - perform the actions needed for leaving the current state and
+ *   whichever are needed for entering the new state.
+ *
+ * - issue a report to user space indicating the new state (and an
+ *   optional payload with information about the new state).
+ *
+ * NOTE: @wimax_dev must be locked
+ */
 void wimax_state_change(struct wimax_dev *wimax_dev, enum wimax_st new_state)
 {
+	/*
+	 * A driver cannot take the wimax_dev out of the
+	 * __WIMAX_ST_NULL state unless by calling wimax_dev_add(). If
+	 * the wimax_dev's state is still NULL, we ignore any request
+	 * to change its state because it means it hasn't been yet
+	 * registered.
+	 *
+	 * There is no need to complain about it, as routines that
+	 * call this might be shared from different code paths that
+	 * are called before or after wimax_dev_add() has done its
+	 * job.
+	 */
 	mutex_lock(&wimax_dev->mutex);
 	if (wimax_dev->state > __WIMAX_ST_NULL)
 		__wimax_state_change(wimax_dev, new_state);
@@ -295,6 +366,13 @@ void wimax_state_change(struct wimax_dev *wimax_dev, enum wimax_st new_state)
 EXPORT_SYMBOL_GPL(wimax_state_change);
 
 
+/**
+ * wimax_state_get() - Return the current state of a WiMAX device
+ *
+ * @wimax_dev: WiMAX device descriptor
+ *
+ * Returns: Current state of the device according to its driver.
+ */
 enum wimax_st wimax_state_get(struct wimax_dev *wimax_dev)
 {
 	enum wimax_st state;
@@ -306,6 +384,15 @@ enum wimax_st wimax_state_get(struct wimax_dev *wimax_dev)
 EXPORT_SYMBOL_GPL(wimax_state_get);
 
 
+/**
+ * wimax_dev_init - initialize a newly allocated instance
+ *
+ * @wimax_dev: WiMAX device descriptor to initialize.
+ *
+ * Initializes fields of a freshly allocated @wimax_dev instance. This
+ * function assumes that after allocation, the memory occupied by
+ * @wimax_dev was zeroed.
+ */
 void wimax_dev_init(struct wimax_dev *wimax_dev)
 {
 	INIT_LIST_HEAD(&wimax_dev->id_table_node);
@@ -315,6 +402,10 @@ void wimax_dev_init(struct wimax_dev *wimax_dev)
 }
 EXPORT_SYMBOL_GPL(wimax_dev_init);
 
+/*
+ * This extern is declared here because it's easier to keep track --
+ * both declarations are a list of the same
+ */
 extern struct genl_ops
 	wimax_gnl_msg_from_user,
 	wimax_gnl_reset,
@@ -343,6 +434,25 @@ size_t wimax_addr_scnprint(char *addr_str, size_t addr_str_size,
 }
 
 
+/**
+ * wimax_dev_add - Register a new WiMAX device
+ *
+ * @wimax_dev: WiMAX device descriptor (as embedded in your @net_dev's
+ *     priv data). You must have called wimax_dev_init() on it before.
+ *
+ * @net_dev: net device the @wimax_dev is associated with. The
+ *     function expects SET_NETDEV_DEV() and register_netdev() were
+ *     already called on it.
+ *
+ * Registers the new WiMAX device, sets up the user-kernel control
+ * interface (generic netlink) and common WiMAX infrastructure.
+ *
+ * Note that the parts that will allow interaction with user space are
+ * setup at the very end, when the rest is in place, as once that
+ * happens, the driver might get user space control requests via
+ * netlink or from debugfs that might translate into calls into
+ * wimax_dev->op_*().
+ */
 int wimax_dev_add(struct wimax_dev *wimax_dev, struct net_device *net_dev)
 {
 	int result;
@@ -351,12 +461,14 @@ int wimax_dev_add(struct wimax_dev *wimax_dev, struct net_device *net_dev)
 
 	d_fnstart(3, dev, "(wimax_dev %p net_dev %p)\n", wimax_dev, net_dev);
 
+	/* Do the RFKILL setup before locking, as RFKILL will call
+	 * into our functions. */
 	wimax_dev->net_dev = net_dev;
 	result = wimax_rfkill_add(wimax_dev);
 	if (result < 0)
 		goto error_rfkill_add;
 
-	
+	/* Set up user-space interaction */
 	mutex_lock(&wimax_dev->mutex);
 	wimax_id_table_add(wimax_dev);
 	result = wimax_debugfs_add(wimax_dev);
@@ -388,6 +500,25 @@ error_rfkill_add:
 EXPORT_SYMBOL_GPL(wimax_dev_add);
 
 
+/**
+ * wimax_dev_rm - Unregister an existing WiMAX device
+ *
+ * @wimax_dev: WiMAX device descriptor
+ *
+ * Unregisters a WiMAX device previously registered for use with
+ * wimax_add_rm().
+ *
+ * IMPORTANT! Must call before calling unregister_netdev().
+ *
+ * After this function returns, you will not get any more user space
+ * control requests (via netlink or debugfs) and thus to wimax_dev->ops.
+ *
+ * Reentrancy control is ensured by setting the state to
+ * %__WIMAX_ST_QUIESCING. rfkill operations coming through
+ * wimax_*rfkill*() will be stopped by the quiescing state; ops coming
+ * from the rfkill subsystem will be stopped by the support being
+ * removed by wimax_rfkill_rm().
+ */
 void wimax_dev_rm(struct wimax_dev *wimax_dev)
 {
 	d_fnstart(3, NULL, "(wimax_dev %p)\n", wimax_dev);
@@ -404,6 +535,7 @@ void wimax_dev_rm(struct wimax_dev *wimax_dev)
 EXPORT_SYMBOL_GPL(wimax_dev_rm);
 
 
+/* Debug framework control of debug levels */
 struct d_level D_LEVEL[] = {
 	D_SUBMODULE_DEFINE(debugfs),
 	D_SUBMODULE_DEFINE(id_table),
@@ -430,6 +562,7 @@ struct genl_multicast_group wimax_gnl_mcg = {
 
 
 
+/* Shutdown the wimax stack */
 static
 int __init wimax_subsys_init(void)
 {
@@ -481,6 +614,7 @@ error_register_family:
 module_init(wimax_subsys_init);
 
 
+/* Shutdown the wimax stack */
 static
 void __exit wimax_subsys_exit(void)
 {

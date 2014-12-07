@@ -4,9 +4,11 @@
  * Shared definitions and data structures for the AB5500 MFD driver
  */
 
+/* Read/write operation values. */
 #define AB5500_PERM_RD (0x01)
 #define AB5500_PERM_WR (0x02)
 
+/* Read/write permissions. */
 #define AB5500_PERM_RO (AB5500_PERM_RD)
 #define AB5500_PERM_RW (AB5500_PERM_RD | AB5500_PERM_WR)
 
@@ -14,23 +16,44 @@
 #define AB5500_MASK_END (0x79)
 #define AB5500_CHIP_ID (0x20)
 
+/**
+ * struct ab5500_reg_range
+ * @first: the first address of the range
+ * @last: the last address of the range
+ * @perm: access permissions for the range
+ */
 struct ab5500_reg_range {
 	u8 first;
 	u8 last;
 	u8 perm;
 };
 
+/**
+ * struct ab5500_i2c_ranges
+ * @count: the number of ranges in the list
+ * @range: the list of register ranges
+ */
 struct ab5500_i2c_ranges {
 	u8 nranges;
 	u8 bankid;
 	const struct ab5500_reg_range *range;
 };
 
+/**
+ * struct ab5500_i2c_banks
+ * @count: the number of ranges in the list
+ * @range: the list of register ranges
+ */
 struct ab5500_i2c_banks {
 	u8 nbanks;
 	const struct ab5500_i2c_ranges *bank;
 };
 
+/**
+ * struct ab5500_bank
+ * @slave_addr: I2C slave_addr found in AB5500 specification
+ * @name: Documentation name of the bank. For reference
+ */
 struct ab5500_bank {
 	u8 slave_addr;
 	const char *name;

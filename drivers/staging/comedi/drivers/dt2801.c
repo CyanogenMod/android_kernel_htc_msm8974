@@ -1,3 +1,33 @@
+/*
+ * comedi/drivers/dt2801.c
+ * Device Driver for DataTranslation DT2801
+ *
+ */
+/*
+Driver: dt2801
+Description: Data Translation DT2801 series and DT01-EZ
+Author: ds
+Status: works
+Devices: [Data Translation] DT2801 (dt2801), DT2801-A, DT2801/5716A,
+  DT2805, DT2805/5716A, DT2808, DT2818, DT2809, DT01-EZ
+
+This driver can autoprobe the type of board.
+
+Configuration options:
+  [0] - I/O port base address
+  [1] - unused
+  [2] - A/D reference 0=differential, 1=single-ended
+  [3] - A/D range
+	  0 = [-10, 10]
+	  1 = [0,10]
+  [4] - D/A 0 range
+	  0 = [-10, 10]
+	  1 = [-5,5]
+	  2 = [-2.5,2.5]
+	  3 = [0,10]
+	  4 = [0,5]
+  [5] - D/A 1 range (same choices)
+*/
 
 #include "../comedidev.h"
 #include <linux/delay.h>
@@ -5,12 +35,18 @@
 
 #define DT2801_TIMEOUT 1000
 
+/* Hardware Configuration */
+/* ====================== */
 
 #define DT2801_MAX_DMA_SIZE (64 * 1024)
 
+/* Ports */
 #define DT2801_IOSIZE 2
 
+/* define's */
+/* ====================== */
 
+/* Commands */
 #define DT_C_RESET       0x0
 #define DT_C_CLEAR_ERR   0x1
 #define DT_C_READ_ERRREG 0x2
@@ -32,17 +68,22 @@
 #define DT_C_SET_AD      0xd
 #define DT_C_READ_AD     0xe
 
+/* Command modifiers (only used with read/write), EXTTRIG can be
+   used with some other commands.
+*/
 #define DT_MOD_DMA     (1<<4)
 #define DT_MOD_CONT    (1<<5)
 #define DT_MOD_EXTCLK  (1<<6)
 #define DT_MOD_EXTTRIG (1<<7)
 
+/* Bits in status register */
 #define DT_S_DATA_OUT_READY   (1<<0)
 #define DT_S_DATA_IN_FULL     (1<<1)
 #define DT_S_READY            (1<<2)
 #define DT_S_COMMAND          (1<<3)
 #define DT_S_COMPOSITE_ERROR  (1<<7)
 
+/* registers */
 #define DT2801_DATA		0
 #define DT2801_STATUS		1
 #define DT2801_CMD		1
@@ -71,6 +112,7 @@ module_init(driver_dt2801_init_module);
 module_exit(driver_dt2801_cleanup_module);
 
 #if 0
+/* ignore 'defined but not used' warning */
 static const struct comedi_lrange range_dt2801_ai_pgh_bipolar = { 4, {
 								      RANGE(-10,
 									    10),
@@ -100,6 +142,7 @@ static const struct comedi_lrange range_dt2801_ai_pgl_bipolar = { 4, {
 };
 
 #if 0
+/* ignore 'defined but not used' warning */
 static const struct comedi_lrange range_dt2801_ai_pgh_unipolar = { 4, {
 								       RANGE(0,
 									     10),
@@ -135,6 +178,9 @@ struct dt2801_board {
 	int dabits;
 };
 
+/* Typeid's for the different boards of the DT2801-series
+   (taken from the test-software, that comes with the board)
+   */
 static const struct dt2801_board boardtypes[] = {
 	{
 	 .name = "dt2801",
@@ -228,7 +274,15 @@ static int dt2801_dio_insn_config(struct comedi_device *dev,
 				  struct comedi_subdevice *s,
 				  struct comedi_insn *insn, unsigned int *data);
 
+/* These are the low-level routines:
+   writecommand: write a command to the board
+   writedata: write data byte
+   readdata: read data byte
+ */
 
+/* Only checks DataOutReady-flag, not the Ready-flag as it is done
+   in the examples of the manual. I don't see why this should be
+   necessary. */
 static int dt2801_readdata(struct comedi_device *dev, int *data)
 {
 	int stat = 0;
@@ -351,17 +405,17 @@ static int dt2801_reset(struct comedi_device *dev)
 	DPRINTK("fingerprint: 0x%02x 0x%02x\n", inb_p(dev->iobase),
 		inb_p(dev->iobase + 1));
 
-	
+	/* pull random data from data port */
 	inb_p(dev->iobase + DT2801_DATA);
 	inb_p(dev->iobase + DT2801_DATA);
 	inb_p(dev->iobase + DT2801_DATA);
 	inb_p(dev->iobase + DT2801_DATA);
 
 	DPRINTK("dt2801: stop\n");
-	
+	/* dt2801_writecmd(dev,DT_C_STOP); */
 	outb_p(DT_C_STOP, dev->iobase + DT2801_CMD);
 
-	
+	/* dt2801_wait_for_ready(dev); */
 	udelay(100);
 	timeout = 10000;
 	do {
@@ -372,12 +426,12 @@ static int dt2801_reset(struct comedi_device *dev)
 	if (!timeout)
 		printk("dt2801: timeout 1 status=0x%02x\n", stat);
 
-	
-	
+	/* printk("dt2801: reading dummy\n"); */
+	/* dt2801_readdata(dev,&board_code); */
 
 	DPRINTK("dt2801: reset\n");
 	outb_p(DT_C_RESET, dev->iobase + DT2801_CMD);
-	
+	/* dt2801_writecmd(dev,DT_C_RESET); */
 
 	udelay(100);
 	timeout = 10000;
@@ -449,6 +503,15 @@ static const struct comedi_lrange *ai_range_lkup(int type, int opt)
 	return &range_unknown;
 }
 
+/*
+   options:
+	[0] - i/o base
+	[1] - unused
+	[2] - a/d 0=differential, 1=single-ended
+	[3] - a/d range 0=[-10,10], 1=[0,10]
+	[4] - dac0 range 0=[-10,10], 1=[-5,5], 2=[-2.5,2.5] 3=[0,10], 4=[0,5]
+	[5] - dac1 range 0=[-10,10], 1=[-5,5], 2=[-2.5,2.5] 3=[0,10], 4=[0,5]
+*/
 static int dt2801_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 {
 	struct comedi_subdevice *s;
@@ -464,11 +527,11 @@ static int dt2801_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 	dev->iobase = iobase;
 
-	
+	/* do some checking */
 
 	board_code = dt2801_reset(dev);
 
-	
+	/* heh.  if it didn't work, try it again. */
 	if (!board_code)
 		board_code = dt2801_reset(dev);
 
@@ -498,7 +561,7 @@ havetype:
 	dev->board_name = boardtype.name;
 
 	s = dev->subdevices + 0;
-	
+	/* ai subdevice */
 	s->type = COMEDI_SUBD_AI;
 	s->subdev_flags = SDF_READABLE | SDF_GROUND;
 #if 1
@@ -514,7 +577,7 @@ havetype:
 	s->insn_read = dt2801_ai_insn_read;
 
 	s++;
-	
+	/* ao subdevice */
 	s->type = COMEDI_SUBD_AO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->n_chan = 2;
@@ -526,7 +589,7 @@ havetype:
 	s->insn_write = dt2801_ao_insn_write;
 
 	s++;
-	
+	/* 1st digital subdevice */
 	s->type = COMEDI_SUBD_DIO;
 	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
 	s->n_chan = 8;
@@ -536,7 +599,7 @@ havetype:
 	s->insn_config = dt2801_dio_insn_config;
 
 	s++;
-	
+	/* 2nd digital subdevice */
 	s->type = COMEDI_SUBD_DIO;
 	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
 	s->n_chan = 8;
@@ -656,7 +719,7 @@ static int dt2801_dio_insn_config(struct comedi_device *dev,
 	if (s == dev->subdevices + 4)
 		which = 1;
 
-	
+	/* configure */
 	switch (data[0]) {
 	case INSN_CONFIG_DIO_OUTPUT:
 		s->io_bits = 0xff;
