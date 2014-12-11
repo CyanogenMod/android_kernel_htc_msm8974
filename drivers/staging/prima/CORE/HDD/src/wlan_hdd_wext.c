@@ -7886,11 +7886,13 @@ int hdd_setBand(struct net_device *dev, u8 ui_band)
 #endif
              ret = DO_NOT_SEND_CHANNEL_CHANGE_EVENT;
         }
+#ifdef CONFIG_ENABLE_LINUX_REG
         else
         {
            vos_update_nv_table_from_wiphy_band((void *)pHddCtx,
                      (void *)pHddCtx->wiphy, (eCsrBand)band);
         }
+#endif
 
         hdd_abort_mac_scan(pHddCtx, pAdapter->sessionId,
                            eCSR_SCAN_ABORT_DUE_TO_BAND_CHANGE);

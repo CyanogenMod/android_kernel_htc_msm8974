@@ -3598,6 +3598,7 @@ static int create_linux_regulatory_entry(struct wiphy *wiphy,
 
 
 }
+#endif
 
 /* function to tell about if Default country is Non-Zero */
 v_BOOL_t vos_is_nv_country_non_zero()
@@ -3615,6 +3616,7 @@ v_BOOL_t vos_is_nv_country_non_zero()
 }
 
 
+#ifdef CONFIG_ENABLE_LINUX_REG
 /*
  * Function: wlan_hdd_linux_reg_notifier
  * This function is called from cfg80211 core to provide regulatory settings
