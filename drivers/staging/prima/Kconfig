@@ -25,10 +25,6 @@ config PRIMA_WLAN_BTAMP
 	bool "Enable the Prima WLAN BT-AMP feature"
 	default n
 
-config HTC_WIFI_NVS
-	bool "Read WiFi data from HTC NVS"
-	default n
-
 config PRIMA_WLAN_LFR
 	bool "Enable the Prima WLAN Legacy Fast Roaming feature"
 	default n
@@ -47,6 +43,10 @@ config WLAN_FEATURE_11W
 
 config QCOM_VOWIFI_11R
 	bool "Enable Fast Transition (11r) feature"
+	default n
+
+config CONFIG_ENABLE_LINUX_REG
+	bool "Enable linux regulatory feature"
 	default n
 
 endif # PRIMA_WLAN || PRONTO_WLAN
