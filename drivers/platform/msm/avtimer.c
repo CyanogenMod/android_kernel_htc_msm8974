@@ -26,7 +26,7 @@
 #include <linux/sched.h>
 #include <mach/qdsp6v2/apr.h>
 #include <mach/subsystem_notif.h>
-#include "../../../sound/soc/msm/qdsp6v2/q6core.h"
+#include <sound/q6core.h>
 
 #define DEVICE_NAME "avtimer"
 #define TIMEOUT_MS 1000
