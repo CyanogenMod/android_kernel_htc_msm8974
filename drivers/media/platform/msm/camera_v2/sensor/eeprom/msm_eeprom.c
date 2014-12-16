@@ -82,6 +82,7 @@ static uint32_t msm_eeprom_match_crc(struct msm_eeprom_memory_block_t *data)
 	return ret;
 }
 
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 static int msm_eeprom_get_mm_data(struct msm_eeprom_ctrl_t *e_ctrl,
 				       struct msm_eeprom_cfg_data *cdata)
 {
@@ -92,6 +93,7 @@ static int msm_eeprom_get_mm_data(struct msm_eeprom_ctrl_t *e_ctrl,
 	cdata->cfg.get_mm_data.mm_size = mm_data->mm_size;
 	return rc;
 }
+#endif
 
 static int eeprom_config_read_cal_data(struct msm_eeprom_ctrl_t *e_ctrl,
 				       struct msm_eeprom_cfg_data *cdata)
@@ -141,10 +143,12 @@ static int msm_eeprom_config(struct msm_eeprom_ctrl_t *e_ctrl,
 		CDBG("%s E CFG_EEPROM_READ_CAL_DATA\n", __func__);
 		rc = eeprom_config_read_cal_data(e_ctrl, cdata);
 		break;
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 	case CFG_EEPROM_GET_MM_INFO:
 		CDBG("%s E CFG_EEPROM_GET_MM_INFO\n", __func__);
 		rc = msm_eeprom_get_mm_data(e_ctrl, cdata);
 		break;
+#endif
 	default:
 		break;
 	}

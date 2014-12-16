@@ -255,6 +255,7 @@ int msm_isp_unsubscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh,
 	return rc;
 }
 
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 static int msm_isp_get_max_clk_rate(struct vfe_device *vfe_dev, long *rate)
 {
 	int           clk_idx = 0;
@@ -291,6 +292,7 @@ static int msm_isp_get_max_clk_rate(struct vfe_device *vfe_dev, long *rate)
 	*rate = round_rate;
 	return 0;
 }
+#endif
 
 static int msm_isp_set_clk_rate(struct vfe_device *vfe_dev, long *rate)
 {
@@ -607,6 +609,7 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 		}
 		break;
 	}
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 	case VFE_HW_UPDATE_LOCK: {
 		uint32_t update_id =
 			vfe_dev->axi_data.src_info[VFE_PIX_0].last_updt_frm_id;
@@ -634,6 +637,7 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 		}
 		break;
 	}
+#endif
 	case VFE_READ: {
 		int i;
 		uint32_t *data_ptr = cfg_data +
@@ -654,6 +658,7 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 	case GET_SOC_HW_VER:
 		*cfg_data = vfe_dev->soc_hw_version;
 		break;
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 	case GET_MAX_CLK_RATE: {
 		int rc = 0;
 
@@ -671,6 +676,7 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 		}
 		break;
 	}
+#endif
 	}
 	return 0;
 }

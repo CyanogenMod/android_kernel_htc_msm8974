@@ -931,7 +931,7 @@ static int32_t msm_sensor_get_dt_data(struct device_node *of_node,
 		goto ERROR1;
 	}
 
-	
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 	rc = of_property_read_u32(of_node, "qcom,mount-angle",
 		&sensordata->sensor_info->sensor_mount_angle);
 	CDBG("%s qcom,mount-angle %d, rc %d\n", __func__,
@@ -985,8 +985,7 @@ static int32_t msm_sensor_get_dt_data(struct device_node *of_node,
 	} else
 		pr_info("%s htc,camid-value %d, rc %d\n", __func__,
 		sensordata->camid_value, rc);
-
-	
+#endif
 
 	rc = msm_sensor_get_dt_csi_data(of_node, sensordata);
 	if (rc < 0) {
@@ -1364,7 +1363,7 @@ int32_t msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 			if (data->i2c_conf && data->i2c_conf->use_i2c_mux)
 				msm_sensor_enable_i2c_mux(data->i2c_conf);
 			break;
-		
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 		case SENSOR_CHECK_CAMID:
 			if ((data->gpio_conf->gpio_num_info->valid[SENSOR_GPIO_CAMID] != 1)||(data->camid_value == 0xFF))
 				break;
@@ -1375,7 +1374,7 @@ int32_t msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 				goto power_up_failed;
 			}
 			break;
-		
+#endif
 		default:
 			pr_err("%s error power seq type %d\n", __func__,
 				power_setting->seq_type);
@@ -1806,6 +1805,7 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		for (i = 0; i < SUB_MODULE_MAX; i++)
 			cdata->cfg.sensor_info.subdev_id[i] =
 				s_ctrl->sensordata->sensor_info->subdev_id[i];
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 		cdata->cfg.sensor_info.is_mount_angle_valid =
 			s_ctrl->sensordata->sensor_info->is_mount_angle_valid;
 		cdata->cfg.sensor_info.sensor_mount_angle =
@@ -1814,6 +1814,7 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 			s_ctrl->sensordata->sensor_info->position;
 		cdata->cfg.sensor_info.modes_supported =
 			s_ctrl->sensordata->sensor_info->modes_supported;
+#endif
 		CDBG("%s:%d sensor name %s\n", __func__, __LINE__,
 			cdata->cfg.sensor_info.sensor_name);
 		CDBG("%s:%d session id %d\n", __func__, __LINE__,
@@ -1821,6 +1822,7 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		for (i = 0; i < SUB_MODULE_MAX; i++)
 			CDBG("%s:%d subdev_id[%d] %d\n", __func__, __LINE__, i,
 				cdata->cfg.sensor_info.subdev_id[i]);
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 		CDBG("%s:%d mount angle valid %d value %d\n", __func__,
 			__LINE__, cdata->cfg.sensor_info.is_mount_angle_valid,
 			cdata->cfg.sensor_info.sensor_mount_angle);
@@ -1829,7 +1831,7 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 			s_ctrl->sensordata->sensor_info->sensor_mirror_flip;
 		memcpy(cdata->cfg.sensor_info.OTP_INFO, s_ctrl->sensordata->sensor_info->OTP_INFO, 5);
 		memcpy(cdata->cfg.sensor_info.fuse_id, s_ctrl->sensordata->sensor_info->fuse_id, 5);
-		
+#endif
 
 		break;
 	case CFG_GET_SENSOR_INIT_PARAMS:

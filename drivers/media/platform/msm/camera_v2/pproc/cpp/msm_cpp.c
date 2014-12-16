@@ -646,6 +646,7 @@ void msm_cpp_do_tasklet(unsigned long data)
 	}
 }
 
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 static void cpp_get_clk_freq_tbl(struct clk *clk, struct cpp_hw_info *hw_info)
 {
 	uint32_t count;
@@ -667,6 +668,8 @@ static void cpp_get_clk_freq_tbl(struct clk *clk, struct cpp_hw_info *hw_info)
 
 	hw_info->freq_tbl_count = count;
 }
+#endif
+
 static int cpp_init_hardware(struct cpp_device *cpp_dev)
 {
 	int rc = 0;
@@ -779,8 +782,10 @@ static int cpp_init_hardware(struct cpp_device *cpp_dev)
 	pr_debug("CPP HW Version: 0x%x\n", cpp_dev->hw_info.cpp_hw_version);
 	cpp_dev->hw_info.cpp_hw_caps =
 		msm_camera_io_r(cpp_dev->cpp_hw_base + 0x4);
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 	cpp_get_clk_freq_tbl(cpp_dev->cpp_clk[MSM_CPP_CORE_CLK_IDX],
 		&cpp_dev->hw_info);
+#endif
 	pr_debug("CPP HW Caps: 0x%x\n", cpp_dev->hw_info.cpp_hw_caps);
 	msm_camera_io_w(0x1, cpp_dev->vbif_base + 0x4);
 	cpp_dev->taskletq_idx = 0;
@@ -1565,7 +1570,9 @@ long msm_cpp_subdev_ioctl(struct v4l2_subdev *sd,
 	case VIDIOC_MSM_CPP_FLUSH_QUEUE:
 		rc = msm_cpp_flush_frames(cpp_dev);
 		break;
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 	case VIDIOC_MSM_CPP_APPEND_STREAM_BUFF_INFO:
+#endif
 	case VIDIOC_MSM_CPP_ENQUEUE_STREAM_BUFF_INFO: {
 		struct msm_cpp_stream_buff_info_t *u_stream_buff_info;
 		struct msm_cpp_stream_buff_info_t k_stream_buff_info;
@@ -1633,11 +1640,15 @@ long msm_cpp_subdev_ioctl(struct v4l2_subdev *sd,
 			return -EINVAL;
 		}
 
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 		if (cmd != VIDIOC_MSM_CPP_APPEND_STREAM_BUFF_INFO) {
+#endif
 			rc = msm_cpp_add_buff_queue_entry(cpp_dev,
 				((k_stream_buff_info.identity >> 16) & 0xFFFF),
 				(k_stream_buff_info.identity & 0xFFFF));
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 		}
+#endif
 
 		if (!rc)
 			rc = msm_cpp_enqueue_buff_info_list(cpp_dev,
@@ -1672,10 +1683,14 @@ long msm_cpp_subdev_ioctl(struct v4l2_subdev *sd,
 				}
 			}
 		}
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 		if (cmd != VIDIOC_MSM_CPP_APPEND_STREAM_BUFF_INFO) {
+#endif
 			cpp_dev->stream_cnt++;
 			pr_err("stream_cnt:%d\n", cpp_dev->stream_cnt);
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 		}
+#endif
 		break;
 	}
 	case VIDIOC_MSM_CPP_DEQUEUE_STREAM_BUFF_INFO: {
@@ -1774,6 +1789,7 @@ long msm_cpp_subdev_ioctl(struct v4l2_subdev *sd,
 		}
 		break;
 	}
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 	case VIDIOC_MSM_CPP_SET_CLOCK: {
 		struct msm_cpp_clock_settings_t clock_settings;
 		unsigned long clock_rate = 0;
@@ -1825,6 +1841,7 @@ long msm_cpp_subdev_ioctl(struct v4l2_subdev *sd,
 		}
 		break;
 	}
+#endif
 	case MSM_SD_SHUTDOWN: {
 		mutex_unlock(&cpp_dev->mutex);
 		pr_info("shutdown cpp node. open cnt:%d\n", cpp_dev->cpp_open_cnt);

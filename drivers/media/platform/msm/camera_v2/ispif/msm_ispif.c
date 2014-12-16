@@ -64,6 +64,11 @@ static inline int msm_ispif_is_intf_valid(uint32_t csid_version,
 		false : true;
 }
 
+static struct msm_cam_clk_info ispif_8974_ahb_clk_info[] = {
+	{"ispif_ahb_clk", -1},
+};
+
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 static struct msm_cam_clk_info ispif_8626_reset_clk_info[] = {
 	{"ispif_ahb_clk", NO_SET_RATE},
 	{"camss_top_ahb_clk", NO_SET_RATE},
@@ -81,10 +86,6 @@ static struct msm_cam_clk_info ispif_8626_reset_clk_info[] = {
 	{"csi1_rdi_clk", NO_SET_RATE},
 	{"camss_vfe_vfe_clk", NO_SET_RATE},
 	{"camss_csi_vfe_clk", NO_SET_RATE},
-};
-
-static struct msm_cam_clk_info ispif_8974_ahb_clk_info[] = {
-	{"ispif_ahb_clk", -1},
 };
 
 static struct msm_cam_clk_info ispif_8974_reset_clk_info[] = {
@@ -205,6 +206,7 @@ static int msm_ispif_reset_hw(struct ispif_device *ispif)
 
 	return rc;
 }
+#endif
 
 static int msm_ispif_clk_ahb_enable(struct ispif_device *ispif, int enable)
 {
@@ -1009,7 +1011,9 @@ static int msm_ispif_init(struct ispif_device *ispif,
 		goto error_ahb;
 	}
 
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 	msm_ispif_reset_hw(ispif);
+#endif
 
 	rc = msm_ispif_reset(ispif);
 	if (rc == 0) {

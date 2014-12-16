@@ -389,6 +389,7 @@ static struct msm_camera_i2c_reg_array lc898212_settings_4[] = {
 int g_infinity_pos = 100;
 #endif
 
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 static int32_t lc898212_check_actuator_unstable(struct msm_actuator_ctrl_t *a_ctrl)
 {
     int32_t rc = 0;
@@ -427,6 +428,7 @@ static int32_t lc898212_check_actuator_unstable(struct msm_actuator_ctrl_t *a_ct
       is_unstable = 0;
     return is_unstable;
 }
+#endif
 
 static void lc898212_move_center(struct msm_actuator_ctrl_t *a_ctrl)
 {
@@ -2343,7 +2345,7 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 			pr_info("%s ois is not supported\n", __func__);
 		}
 		break;
-	
+#if (CONFIG_HTC_CAMERA_HAL_VERSION > 1)
 	case CFG_GET_ACT_STABLE_INFO:
 		cdata->is_act_unstable = lc898212_check_actuator_unstable(a_ctrl);
 		break;
@@ -2356,6 +2358,7 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 		break;
 	default:
 		break;
+#endif
 	}
 	mutex_unlock(a_ctrl->actuator_mutex);
 	CDBG("Exit\n");

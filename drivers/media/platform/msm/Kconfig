@@ -28,6 +28,15 @@ menuconfig MSMB_CAMERA
 	  adds support for the camera driver stack including sensor, isp
 	  and postprocessing drivers.
 
+config HTC_CAMERA_HAL_VERSION
+	depends on MSMB_CAMERA
+	int "HTC Camera HAL version support"
+	default 2 if ARCH_MSM8974
+	default 1 if ARCH_MSM8226
+	---help---
+	  This controls the version of the HTC camera HAL the
+	  kernel driver should be compatible with.
+
 config MSMB_CAMERA_DEBUG
 	bool "Qualcomm MSM camera 2.0 debugging with printk"
 	depends on MSMB_CAMERA
