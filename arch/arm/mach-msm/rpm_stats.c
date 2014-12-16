@@ -67,7 +67,7 @@ struct msm_rpm_stats_data_v2 {
 	u32 reserved[3];
 };
 
-#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
+#if defined (CONFIG_HTC_POWER_DEBUG) || defined (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 struct msm_rpm_stats_data_v3 {
 	u32 count;
 	u32 is_sleep_mode;
@@ -186,7 +186,7 @@ static inline int msm_rpmstats_copy_stats_v2(
 	return length;
 }
 
-#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
+#if defined (CONFIG_HTC_POWER_DEBUG) || defined (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 static inline u32 msm_rpmstats_read_long_register_v3(void __iomem *regbase,
 		int index, int offset)
 {
@@ -490,7 +490,7 @@ static int msm_rpmstats_file_read(struct file *file, char __user *bufu,
 			else if (prvdata->platform_data->version == 2)
 				prvdata->len = msm_rpmstats_copy_stats_v2(
 						prvdata);
-#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
+#if defined (CONFIG_HTC_POWER_DEBUG) || defined (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 			else if (prvdata->platform_data->version == 3)
 				prvdata->len = msm_rpmstats_copy_stats_v3(
 						prvdata);
@@ -529,7 +529,7 @@ static int msm_rpmstats_file_open(struct inode *inode, struct file *file)
 
 	prvdata->read_idx = prvdata->num_records =  prvdata->len = 0;
 	prvdata->platform_data = pdata;
-#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
+#if defined (CONFIG_HTC_POWER_DEBUG) || defined (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 	if (pdata->version == 2)
 		prvdata->num_records = DEV_V2_RECORD;
 	else if (pdata->version == 3)
@@ -595,7 +595,7 @@ static  int __devinit msm_rpmstats_probe(struct platform_device *pdev)
 			"qcom,sleep-stats-version", &pdata->version);
 
 	if (!ret) {
-#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
+#if defined (CONFIG_HTC_POWER_DEBUG) || defined (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 		if (pdata->version == 2) {
 			dent = debugfs_create_file("rpm_stats", S_IRUGO, NULL,
 					pdata, &msm_rpmstats_fops);
@@ -673,7 +673,7 @@ static struct platform_driver msm_rpmstats_driver = {
 };
 static int __init msm_rpmstats_init(void)
 {
-#if defined (CONFIG_HTC_POWER_DEBUG) || (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
+#if defined (CONFIG_HTC_POWER_DEBUG) || defined (CONFIG_HTC_MONITOR_SUBSYS_SLEEP_TIME)
 	memset(rpm_stats_dev, 0, sizeof(struct msm_rpm_stats_data)*DEV_MAX);
 #endif
 

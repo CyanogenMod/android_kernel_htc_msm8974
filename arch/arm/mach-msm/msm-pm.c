@@ -650,7 +650,9 @@ static bool __ref msm_pm_spm_power_collapse(
 	bool collapsed = 0;
 	int ret;
 	bool save_cpu_regs = !cpu || from_idle;
+#ifdef CONFIG_HTC_POWER_DEBUG
 	int curr_len = 0;
+#endif
 
 	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
 		pr_info("CPU%u: %s: notify_rpm %d\n",
