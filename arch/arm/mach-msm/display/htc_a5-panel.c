@@ -234,13 +234,13 @@ static int htc_a5_regulator_deinit(struct platform_device *pdev)
 	return 0;
 }
 
-void htc_a5_panel_reset(struct mdss_panel_data *pdata, int enable)
+int htc_a5_panel_reset(struct mdss_panel_data *pdata, int enable)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 
 	if (pdata == NULL) {
 		PR_DISP_ERR("%s: Invalid input data\n", __func__);
-		return;
+		return -EINVAL;
 	}
 
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
@@ -249,7 +249,7 @@ void htc_a5_panel_reset(struct mdss_panel_data *pdata, int enable)
 	if (!gpio_is_valid(ctrl_pdata->rst_gpio)) {
 		PR_DISP_DEBUG("%s:%d, reset line not configured\n",
 			   __func__, __LINE__);
-		return;
+		return -EINVAL;
 	}
 
 	PR_DISP_DEBUG("%s: enable = %d\n", __func__, enable);
@@ -257,7 +257,7 @@ void htc_a5_panel_reset(struct mdss_panel_data *pdata, int enable)
 	if (enable) {
 		if (pdata->panel_info.first_power_on == 1) {
 			PR_DISP_INFO("reset already on in first time\n");
-			return;
+			return 0;
 		}
 
 		if (pdata->panel_info.panel_id == PANEL_ID_A5_SHARP_HX){
@@ -282,6 +282,7 @@ void htc_a5_panel_reset(struct mdss_panel_data *pdata, int enable)
 		gpio_set_value((ctrl_pdata->rst_gpio), 0);
 	}
 
+	return 0;
 }
 
 static int htc_a5_panel_power_on(struct mdss_panel_data *pdata, int enable)
