@@ -271,6 +271,7 @@
 			qcom,msm-mi2s-tx-lines = <2>;
 		};
 	};
+	/delete-node/ sound-9302;
 /*Audio config end*/
 
 	/include/ "msm8926-ax-soc-common.dtsi"

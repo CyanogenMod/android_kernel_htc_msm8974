@@ -19,7 +19,6 @@
 /include/ "msm8226-a5-storage.dtsi"
 /include/ "msm8926-touch-a5-config.dtsi"
 
-
 / {
 	model = "MSM 8x26 A5 China";
 	compatible = "htc,a5dwg", "qcom,msm8226-mtp", "qcom,msm8226", "qcom,mtp";
@@ -129,17 +128,18 @@
 
 		key0 {
 			gpio    = <&msmgpio 106 3>;
-			keycode = <116>;	//pwr
-			pull = <1>;		//0=pull up, 1=no pull
+			keycode = <116>; /* Power */
+			pull = <1>;
 		};
 		key1 {
 			gpio    = <&msmgpio 108 3>;
-			keycode = <115>;	//vUP
+			keycode = <115>; /* Volume Up */
 		};
 		key2 {
 			gpio    = <&msmgpio 107 3>;
-			keycode = <114>;	//vDN
+			keycode = <114>; /* Volume Down */
 		};
+
 	};
 
 	keyreset {
@@ -265,6 +265,7 @@
 			qcom,msm-mi2s-tx-lines = <2>;
 		};
 	};
+	/delete-node/ sound-9302;
 /*Audio config end*/
 
 	/include/ "msm8926-ax-soc-common.dtsi"
@@ -333,7 +334,7 @@
 	htc,external-ovpfet-gpio = <&msmgpio 114 0>;
 	htc,external-ovpfet-temp-ok-rext = <130>;
 	htc,external-ovpfet-temp-cool-rext = <122>;
-	htc,external-ovpfet-cool-decidegc  = <100>;
+	htc,external-ovpfet-cool-decidegc = <100>;
 
 	status = "ok";
 	qcom,charging-disabled;
