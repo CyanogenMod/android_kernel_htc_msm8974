@@ -170,26 +170,7 @@ static int ion_user_to_kernel(struct smem_client *client, int fd, u32 offset,
 		"%s: ion_handle = 0x%p, fd = %d, device_addr = 0x%x, size = %d, kvaddr = 0x%p, buffer_type = %d\n",
 		__func__, mem->smem_priv, fd, (u32)mem->device_addr,
 		mem->size, mem->kvaddr, mem->buffer_type);
-	
-	switch (mem->buffer_type) {
-	case HAL_BUFFER_INPUT:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Import_I: Addr(%p) SZ(%d) FD(%d)\n",
-			client->inst, hndl->buffer, mem->size, fd);
-		break;
-	case HAL_BUFFER_OUTPUT:
-	case HAL_BUFFER_OUTPUT2:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Import_O: Addr(%p) SZ(%d) FD(%d)\n",
-			client->inst, hndl->buffer, mem->size, fd);
-		break;
-	default:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Import_U: Addr(%p) SZ(%d) FD(%d)\n",
-			client->inst, hndl->buffer, mem->size, fd);
-		break;
-	}
-	
+
 	return rc;
 fail_device_address:
 	ion_free(client->clnt, hndl);
@@ -263,27 +244,7 @@ static int alloc_ion_mem(struct smem_client *client, size_t size, u32 align,
 		"%s: ion_handle = 0x%p, device_addr = 0x%x, size = %d, kvaddr = 0x%p, buffer_type = %d\n",
 		__func__, mem->smem_priv, (u32)mem->device_addr,
 		mem->size, mem->kvaddr, mem->buffer_type);
-	
-	switch (mem->buffer_type) {
-	case HAL_BUFFER_INTERNAL_SCRATCH:
-	case HAL_BUFFER_INTERNAL_SCRATCH_1:
-	case HAL_BUFFER_INTERNAL_SCRATCH_2:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Alloc_S: Addr(%p) SZ(%d)\n",
-			client->inst, hndl->buffer, size);
-		break;
-	case HAL_BUFFER_INTERNAL_CMD_QUEUE:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Alloc_V: Addr(%p) SZ(%d)\n",
-			client->inst, hndl->buffer, size);
-		break;
-	default:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Alloc_U: Addr(%p) SZ(%d)\n",
-			client->inst, hndl->buffer, size);
-		break;
-	}
-	
+
 	return rc;
 fail_device_address:
 	ion_unmap_kernel(client->clnt, hndl);
@@ -296,40 +257,6 @@ fail_shared_mem_alloc:
 static void free_ion_mem(struct smem_client *client, struct msm_smem *mem)
 {
 	int domain, partition, rc;
-	
-	struct ion_handle *hndl = mem->smem_priv;
-
-	switch (mem->buffer_type) {
-	case HAL_BUFFER_INPUT:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Free_I: Addr(%p) SZ(%d)\n",
-			client->inst, hndl->buffer, mem->size);
-		break;
-	case HAL_BUFFER_OUTPUT:
-	case HAL_BUFFER_OUTPUT2:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Free_O: Addr(%p) SZ(%d)\n",
-			client->inst, hndl->buffer, mem->size);
-		break;
-	case HAL_BUFFER_INTERNAL_SCRATCH:
-	case HAL_BUFFER_INTERNAL_SCRATCH_1:
-	case HAL_BUFFER_INTERNAL_SCRATCH_2:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Free_S: Addr(%p) SZ(%d)\n",
-			client->inst, hndl->buffer, mem->size);
-		break;
-	case HAL_BUFFER_INTERNAL_CMD_QUEUE:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Free_V: Addr(%p) SZ(%d)\n",
-			client->inst, hndl->buffer, mem->size);
-		break;
-	default:
-		dprintk(VIDC_WARN,
-			"[Vidc_Mem][%p] Free_U: Addr(%p) SZ(%d)\n",
-			client->inst, hndl->buffer, mem->size);
-		break;
-	}
-	
 
 	dprintk(VIDC_DBG,
 		"%s: ion_handle = 0x%p, device_addr = 0x%x, size = %d, kvaddr = 0x%p, buffer_type = %d\n",

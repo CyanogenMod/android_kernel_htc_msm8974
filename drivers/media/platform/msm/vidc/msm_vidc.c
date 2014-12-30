@@ -502,12 +502,6 @@ int map_and_register_buf(struct msm_vidc_inst *inst, struct v4l2_buffer *b)
 			binfo->handle[i] = same_fd_handle;
 		} else {
 			if (inst->map_output_buffer) {
-				
-				dprintk(VIDC_WARN,
-					"[Vidc_Mem][%p] Import_%s: UsrAddr(%x) FD(%d)\n",
-					inst, ((get_hal_buffer_type(inst, b) == HAL_BUFFER_INPUT)? "I":"O"),
-					binfo->uvaddr[i], b->m.planes[i].reserved[0]);
-				
 				binfo->handle[i] =
 					map_buffer(inst, &b->m.planes[i],
 						get_hal_buffer_type(inst, b));
