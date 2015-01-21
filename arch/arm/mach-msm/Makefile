@@ -464,7 +464,6 @@ obj-y += htc_debug_tools.o
 endif
 obj-y += smlog.o
 
-obj-$(CONFIG_PERFLOCK) += perflock.o
 obj-$(CONFIG_ARCH_RANDOM) += early_random.o
 obj-$(CONFIG_PERFMAP) += perfmap.o
 obj-$(CONFIG_HTC_RPM_CMD) += rpm_htc_cmd.o

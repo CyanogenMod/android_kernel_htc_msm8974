@@ -107,10 +107,6 @@ int board_get_usb_ats(void);
 #include "f_projector.c"
 #include "f_projector2.c"
 
-#ifdef CONFIG_PERFLOCK
-#include <mach/perflock.h>
-#endif
-
 MODULE_AUTHOR("Mike Lockwood");
 MODULE_DESCRIPTION("Android Composite USB Driver");
 MODULE_LICENSE("GPL");
@@ -231,11 +227,6 @@ static int usb_diag_update_pid_and_serial_num(uint32_t pid, const char *snum);
 static int diag_update_supported = 0; 
 
 
-#ifdef CONFIG_PERFLOCK
-static struct perf_lock android_usb_perf_lock;
-#endif
-
-
 #define STRING_MANUFACTURER_IDX		0
 #define STRING_PRODUCT_IDX		1
 #define STRING_SERIAL_IDX		2
@@ -291,22 +282,6 @@ enum android_device_state {
 	USB_SUSPENDED,
 	USB_RESUMED
 };
-#ifdef CONFIG_PERFLOCK
-static unsigned int check_enable_function_performancelock(void)
-{
-	struct android_dev *dev = _android_dev;
-	struct android_configuration *conf;
-	struct android_usb_function_holder *f_holder;
-	
-	conf = list_entry(dev->configs.next, struct android_configuration, list_item);
-
-	list_for_each_entry(f_holder, &conf->enabled_functions, enabled_list) {
-		if (f_holder->f->performance_lock == 1)
-			return 1;
-	}
-	return 0;
-}
-#endif
 
 static void android_pm_qos_update_latency(struct android_dev *dev, int vote)
 {
@@ -343,9 +318,6 @@ static void android_work(struct work_struct *data)
 	char **uevent_envp = NULL;
 	static enum android_device_state last_uevent, next_state;
 	unsigned long flags;
-#ifdef CONFIG_PERFLOCK
-	static int perflock_state = 0;
-#endif
 	int pm_qos_vote = -1;
 
 	printk(KERN_INFO "[USB] android_work : sw_suspended %d  suspended %d config %d,connect2pc %d",dev->sw_suspended,dev->suspended,cdev->config?1:0,connect2pc);
@@ -359,9 +331,6 @@ static void android_work(struct work_struct *data)
 	} else if (cdev->config) {
 		uevent_envp = configured;
 		next_state = USB_CONFIGURED;
-#ifdef CONFIG_PERFLOCK
-		perflock_state = check_enable_function_performancelock();
-#endif
 	} else if (dev->connected != dev->sw_connected) {
 		uevent_envp = dev->connected ? connected : disconnected;
 		next_state = dev->connected ? USB_CONNECTED : USB_DISCONNECTED;
@@ -377,27 +346,6 @@ static void android_work(struct work_struct *data)
 	if (pm_qos_vote != -1)
 		android_pm_qos_update_latency(dev, pm_qos_vote);
 
-
-#ifdef CONFIG_PERFLOCK
-	if (!cdev->config) {
-		if (is_perf_lock_active(&android_usb_perf_lock)) {
-			printk(KERN_INFO "[USB] Performance lock released\n");
-			perf_unlock(&android_usb_perf_lock);
-		}
-	} else {
-		if (perflock_state) {
-			if (!is_perf_lock_active(&android_usb_perf_lock)) {
-				printk(KERN_INFO "[USB] Performance lock requested\n");
-				perf_lock(&android_usb_perf_lock);
-			}
-		} else {
-			if (is_perf_lock_active(&android_usb_perf_lock)) {
-				printk(KERN_INFO "[USB] Performance lock released\n");
-				perf_unlock(&android_usb_perf_lock);
-			}
-		}
-	}
-#endif
 
 	if (uevent_envp) {
 		if (((uevent_envp == connected) &&
@@ -3693,10 +3641,6 @@ static int __devinit android_probe(struct platform_device *pdev)
 	} else {
 		dev_dbg(&pdev->dev, "failed to get mem resource\n");
 	}
-
-#ifdef CONFIG_PERFLOCK
-	perf_lock_init(&android_usb_perf_lock, TYPE_PERF_LOCK, PERF_LOCK_LOW, "android_usb");
-#endif
 
 	ret = android_create_device(android_dev, composite_driver.usb_core_id);
 	if (ret) {

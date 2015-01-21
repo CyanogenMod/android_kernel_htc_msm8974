@@ -35,10 +35,6 @@
 #include <linux/debugfs.h>
 #endif
 
-#ifdef CONFIG_PERFLOCK
-#include <mach/perflock.h>
-#endif
-
 DEFINE_FIXED_DIV_CLK(hfpll_src_clk, 1, NULL);
 DEFINE_FIXED_DIV_CLK(acpu_aux_clk, 2, NULL);
 
@@ -836,39 +832,6 @@ static int clock_krait_8974_driver_probe(struct platform_device *pdev)
 
 	return 0;
 }
-
-#ifdef CONFIG_PERFLOCK
-unsigned msm8974_perf_acpu_table[] = {
-        652800000,  
-        883200000,  
-        1036800000, 
-        1190400000, 
-        1958400000, 
-};
-
-static struct perflock_data msm8974_floor_data = {
-        .perf_acpu_table = msm8974_perf_acpu_table,
-        .table_size = ARRAY_SIZE(msm8974_perf_acpu_table),
-};
-
-static struct perflock_data msm8974_cpufreq_ceiling_data = {
-        .perf_acpu_table = msm8974_perf_acpu_table,
-        .table_size = ARRAY_SIZE(msm8974_perf_acpu_table),
-};
-
-static struct perflock_pdata perflock_pdata = {
-        .perf_floor = &msm8974_floor_data,
-        .perf_ceiling = &msm8974_cpufreq_ceiling_data,
-};
-
-struct platform_device msm8974_device_perf_lock = {
-        .name = "perf_lock",
-        .id = -1,
-        .dev = {
-        .platform_data = &perflock_pdata,
-    },
-};
-#endif
 
 static struct of_device_id match_table[] = {
 	{ .compatible = "qcom,clock-krait-8974" },

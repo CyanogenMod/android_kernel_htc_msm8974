@@ -22,10 +22,6 @@
 #include "acpuclock.h"
 #include "acpuclock-krait.h"
 
-#ifdef CONFIG_PERFLOCK
-#include <mach/perflock.h>
-#endif
-
 #define LVL_NONE	RPM_REGULATOR_CORNER_NONE
 #define LVL_LOW		RPM_REGULATOR_CORNER_SVS_SOC
 #define LVL_NOM		RPM_REGULATOR_CORNER_NORMAL
@@ -2420,38 +2416,6 @@ static struct acpuclk_krait_params acpuclk_8974_params __initdata = {
 	.stby_khz = 300000,
 };
 
-#ifdef CONFIG_PERFLOCK
-unsigned msm8974_perf_acpu_table[] = {
-        652800000,  
-        883200000,  
-        1036800000, 
-        1190400000, 
-        1958400000, 
-};
-
-static struct perflock_data msm8974_floor_data = {
-        .perf_acpu_table = msm8974_perf_acpu_table,
-        .table_size = ARRAY_SIZE(msm8974_perf_acpu_table),
-};
-
-static struct perflock_data msm8974_cpufreq_ceiling_data = {
-        .perf_acpu_table = msm8974_perf_acpu_table,
-        .table_size = ARRAY_SIZE(msm8974_perf_acpu_table),
-};
-
-static struct perflock_pdata perflock_pdata = {
-        .perf_floor = &msm8974_floor_data,
-        .perf_ceiling = &msm8974_cpufreq_ceiling_data,
-};
-
-struct platform_device msm8974_device_perf_lock = {
-        .name = "perf_lock",
-        .id = -1,
-        .dev = {
-        .platform_data = &perflock_pdata,
-    },
-};
-#endif
 #define cpu_is_msm8974pro() (cpu_is_msm8974pro_aa() || cpu_is_msm8974pro_ab() \
 			     || cpu_is_msm8974pro_ac())
 

@@ -74,10 +74,6 @@
 #include <mach/htc_bdaddress.h>
 #endif
 
-#ifdef CONFIG_PERFLOCK
-#include <mach/perflock.h>
-#endif
-
 #ifdef CONFIG_HTC_BUILD_EDIAG
 #include <linux/android_ediagpmem.h>
 #endif
@@ -645,9 +641,6 @@ static void __init htc_8974_early_memory(void)
 }
 
 #if defined(CONFIG_HTC_BATT_8960)
-#ifdef CONFIG_HTC_PNPMGR
-extern int pnpmgr_battery_charging_enabled(int charging_enabled);
-#endif 
 static int critical_alarm_voltage_mv[] = {3000, 3200, 3400};
 
 static struct htc_battery_platform_data htc_battery_pdev_data = {
@@ -737,9 +730,6 @@ static struct htc_battery_platform_data htc_battery_pdev_data = {
 						pm8941_batt_lower_alarm_threshold_set,
 	.igauge.check_soc_for_sw_ocv = pm8941_check_soc_for_sw_ocv,
 	
-#ifdef CONFIG_HTC_PNPMGR
-	.notify_pnpmgr_charging_enabled = pnpmgr_battery_charging_enabled,
-#endif 
 };
 static struct platform_device htc_battery_pdev = {
 	.name = "htc_battery",
@@ -882,9 +872,6 @@ void __init htc_8974_init(void)
 #endif
 #ifdef CONFIG_BT
 	bt_export_bd_address();
-#endif
-#ifdef CONFIG_PERFLOCK
-	platform_device_register(&msm8974_device_perf_lock);
 #endif
 #ifdef CONFIG_HTC_POWER_DEBUG
 	htc_monitor_init();

@@ -3174,12 +3174,6 @@ config PROJECT_NAME
 
 endif
 
-config PERFLOCK
-    depends on CPU_FREQ
-    depends on HTC_PNPMGR
-    default n
-    bool "HTC Performance Lock"
-
 config HTC_MONITOR_SUBSYS_SLEEP_TIME
     default n
     bool "Monitor the sleep time of sub-system"

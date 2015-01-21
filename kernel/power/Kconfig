@@ -278,12 +278,6 @@ config SUSPEND_TIME
 	  keeps statistics on the time spent in suspend in
 	  /sys/kernel/debug/suspend_time
 
-config HTC_PNPMGR
-    bool "Htc Power and Performance manager"
-    depends on PM
-    ---help---
-      Collect the sysfs files nodes for pnpmgr usage.
-
 config SUSPEND_ONLY_ALLOW_WFI
 	bool "Only allow wfi when entering suspend"
 	def_bool y

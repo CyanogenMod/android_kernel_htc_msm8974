@@ -27,10 +27,6 @@
 #include <mach/clock-generic.h>
 #include "clock-local2.h"
 
-#ifdef CONFIG_PERFLOCK
-#include <mach/perflock.h>
-#endif
-
 #define UPDATE_CHECK_MAX_LOOPS 200
 
 struct cortex_reg_data {
@@ -293,55 +289,6 @@ static int of_get_clk_src(struct platform_device *pdev, struct clk_src *parents)
 	return num_parents;
 }
 
-#ifdef CONFIG_PERFLOCK
-unsigned msm8226_perf_acpu_table[] = {
-        787200000, 
-        787200000, 
-        998400000,
-        1094400000,
-        1190400000, 
-};
-
-unsigned msm8226_perf_acpu_table_1p4[] = {
-        787200000, 
-        998400000, 
-        1190400000,
-        1305600000,
-        1401600000, 
-};
-
-unsigned msm8226_perf_acpu_table_1p6[] = {
-        787200000, 
-        998400000, 
-        1190400000,
-        1401600000,
-        1593600000, 
-};
-
-static struct perflock_data msm8226_floor_data = {
-        .perf_acpu_table = msm8226_perf_acpu_table,
-        .table_size = ARRAY_SIZE(msm8226_perf_acpu_table),
-};
-
-static struct perflock_data msm8226_cpufreq_ceiling_data = {
-        .perf_acpu_table = msm8226_perf_acpu_table,
-        .table_size = ARRAY_SIZE(msm8226_perf_acpu_table),
-};
-
-static struct perflock_pdata perflock_pdata = {
-        .perf_floor = &msm8226_floor_data,
-        .perf_ceiling = &msm8226_cpufreq_ceiling_data,
-};
-
-struct platform_device msm8226_device_perf_lock = {
-        .name = "perf_lock",
-        .id = -1,
-        .dev = {
-                .platform_data = &perflock_pdata,
-        },
-};
-#endif
-
 static int clock_a7_probe(struct platform_device *pdev)
 {
 	struct resource *res;
@@ -409,19 +356,6 @@ static int clock_a7_probe(struct platform_device *pdev)
 
 	WARN(clk_prepare_enable(&a7ssmux.c),
 		"Unable to turn on CPU clock");
-
-#ifdef CONFIG_PERFLOCK
-	
-	if (speed_bin == 1) {
-		msm8226_floor_data.perf_acpu_table = msm8226_perf_acpu_table_1p6;
-		msm8226_cpufreq_ceiling_data.perf_acpu_table = msm8226_perf_acpu_table_1p6;
-	}
-	
-	else if(speed_bin == 2 || speed_bin == 4 || speed_bin == 5 || speed_bin == 7) {
-		msm8226_floor_data.perf_acpu_table = msm8226_perf_acpu_table_1p4;
-		msm8226_cpufreq_ceiling_data.perf_acpu_table = msm8226_perf_acpu_table_1p4;
-	}
-#endif
 
 	return 0;
 }

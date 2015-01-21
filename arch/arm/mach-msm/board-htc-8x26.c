@@ -636,9 +636,6 @@ void __init htc_8226_init(void)
 	platform_device_register(&android_pmem_ediag2_device);
 	platform_device_register(&android_pmem_ediag3_device);
 #endif
-#ifdef CONFIG_PERFLOCK
-	platform_device_register(&msm8226_device_perf_lock);
-#endif
 #ifdef CONFIG_HTC_POWER_DEBUG
 	htc_monitor_init();
 #endif

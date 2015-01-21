@@ -485,7 +485,3 @@ extern struct platform_device apq_cpudai_i2s_rx;
 extern struct platform_device apq_cpudai_i2s_tx;
 extern struct dev_avtimer_data dev_avtimer_pdata;
 
-#ifdef CONFIG_PERFLOCK
-extern struct platform_device msm8974_device_perf_lock;
-extern struct platform_device msm8226_device_perf_lock;
-#endif
