@@ -3844,29 +3844,6 @@ out_unlock:
 }
 #endif /* CONFIG_FREEZER */
 
-#if defined(CONFIG_HTC_DEBUG_WORKQUEUE)
-void htc_debug_workqueue_show_pending_work_on_gcwq(void)
-{
-	unsigned int cpu;
-	struct global_cwq *gcwq;
-	struct worker_pool *pool;
-	const char *pri;
-	struct work_struct *work;
-
-	for_each_gcwq_cpu(cpu) {
-		gcwq = get_gcwq(cpu);
-
-		for_each_worker_pool(pool, gcwq) {
-			pri = worker_pool_pri(pool) ? "(H)" : "";
-
-			list_for_each_entry(work, &pool->worklist, entry) {
-				printk("CPU%d pending work %s: %pf\n", cpu, pri, work->func);
-			}
-		}
-	}
-}
-#endif /* CONFIG_HTC_DEBUG_WORKQUEUE */
-
 static int __init init_workqueues(void)
 {
 	unsigned int cpu;

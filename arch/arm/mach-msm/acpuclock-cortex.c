@@ -34,10 +34,6 @@
 #include <mach/clk-provider.h>
 #include <mach/rpm-regulator-smd.h>
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-#include <mach/htc_footprint.h>
-#endif
-
 #include "acpuclock.h"
 #include "acpuclock-cortex.h"
 
@@ -265,16 +261,8 @@ static int acpuclk_cortex_set_rate(int cpu, unsigned long rate,
 	struct clkctl_acpu_speed *tgt_s, *strt_s;
 	int rc = 0;
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, 0x1);
-#endif
-
 	if (reason == SETRATE_CPUFREQ)
 		mutex_lock(&priv->lock);
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, 0x2);
-#endif
 
 	strt_s = priv->current_speed;
 
@@ -291,27 +279,16 @@ static int acpuclk_cortex_set_rate(int cpu, unsigned long rate,
 		goto out;
 	}
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, 0x3);
-#endif
-
 	
 	if ((reason == SETRATE_CPUFREQ)
 			&& (tgt_s->khz > strt_s->khz)) {
 		rc = increase_vdd(tgt_s->vdd_cpu, tgt_s->vdd_mem);
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, 0x4);
-#endif
 		if (rc)
 			goto out;
 	}
 
 	pr_debug("Switching from CPU rate %u KHz -> %u KHz\n",
 		strt_s->khz, tgt_s->khz);
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, 0x6);
-#endif
 
 	
 	if (reason == SETRATE_CPUFREQ || reason == SETRATE_INIT)
@@ -325,11 +302,6 @@ static int acpuclk_cortex_set_rate(int cpu, unsigned long rate,
 	priv->current_speed = tgt_s;
 	pr_debug("CPU speed change complete\n");
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_cpu_freq_footprint(FT_CUR_RATE, cpu, tgt_s->khz);
-	set_acpuclk_footprint(cpu, 0x7);
-#endif
-
 	
 	if (reason == SETRATE_SWFI || reason == SETRATE_PC)
 		goto out;
@@ -337,24 +309,13 @@ static int acpuclk_cortex_set_rate(int cpu, unsigned long rate,
 	
 	set_bus_bw(tgt_s->bw_level);
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, 0x9);
-#endif
-
 	
 	if (tgt_s->khz < strt_s->khz || reason == SETRATE_INIT)
 		decrease_vdd(tgt_s->vdd_cpu, tgt_s->vdd_mem);
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, 0xa);
-#endif
-
 out:
 	if (reason == SETRATE_CPUFREQ)
 		mutex_unlock(&priv->lock);
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, 0xb);
-#endif
 
 	return rc;
 }

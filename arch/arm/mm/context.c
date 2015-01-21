@@ -18,9 +18,6 @@
 #include <asm/tlbflush.h>
 
 #include <mach/msm_rtb.h>
-#if defined(CONFIG_HTC_DEBUG_RTB)
-#include <mach/htc_debug_tools.h>
-#endif
 
 static DEFINE_RAW_SPINLOCK(cpu_asid_lock);
 unsigned int cpu_last_asid = ASID_FIRST_VERSION;
@@ -45,13 +42,7 @@ DEFINE_PER_CPU(struct mm_struct *, current_mm);
 
 static void write_contextidr(u32 contextidr)
 {
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	uncached_logk_pc(LOGK_CTXID,
-		(void *)htc_debug_get_sched_clock_ms(),
-		(void *)contextidr);
-#else
 	uncached_logk(LOGK_CTXID, (void *)contextidr);
-#endif
 	asm("mcr	p15, 0, %0, c13, c0, 1" : : "r" (contextidr));
 	isb();
 }

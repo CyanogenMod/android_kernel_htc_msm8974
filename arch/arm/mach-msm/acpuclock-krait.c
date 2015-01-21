@@ -36,10 +36,6 @@
 #include <mach/msm_bus.h>
 #include <mach/msm_dcvs.h>
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-#include <mach/htc_footprint.h>
-#endif
-
 #include "acpuclock.h"
 #include "acpuclock-krait.h"
 #include "avs.h"
@@ -470,19 +466,11 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 	bool skip_regulators;
 	int rc = 0;
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, ACPU_ENTER);
-#endif
-
 	if (cpu > num_possible_cpus())
 		return -EINVAL;
 
 	if (reason == SETRATE_CPUFREQ || reason == SETRATE_HOTPLUG)
 		mutex_lock(&driver_lock);
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, ACPU_SAME_RATE_RETURN);
-#endif
 
 	strt_acpu_s = drv.scalable[cpu].cur_speed;
 
@@ -514,16 +502,9 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 		drv.scalable[cpu].avs_enabled = false;
 	}
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, ACPU_AFTER_AVS_DISABLE);
-#endif
-
 	
 	if (reason == SETRATE_CPUFREQ || reason == SETRATE_HOTPLUG) {
 		rc = increase_vdd(cpu, &vdd_data, reason);
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-		set_acpuclk_footprint(cpu, ACPU_AFTER_INCREASE_VDD);
-#endif
 		if (rc)
 			goto out;
 
@@ -532,9 +513,6 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 		
 		if (drv.l2_freq_tbl[tgt->l2_level].speed.src == HFPLL) {
 			rc = enable_l2_regulators();
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-		set_acpuclk_footprint(cpu, ACPU_AFTER_ENABLE_L2_REGULATOR);
-#endif
 			if (rc)
 				goto out;
 		}
@@ -543,19 +521,10 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 	dev_dbg(drv.dev, "Switching from ACPU%d rate %lu KHz -> %lu KHz\n",
 		cpu, strt_acpu_s->khz, tgt_acpu_s->khz);
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, ACPU_BEFORE_SET_SPEED);
-#endif
-
 	skip_regulators = (reason == SETRATE_PC);
 
 	
 	set_speed(&drv.scalable[cpu], tgt_acpu_s, skip_regulators);
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_cpu_freq_footprint(FT_CUR_RATE, cpu, tgt_acpu_s->khz);
-	set_acpuclk_footprint(cpu, ACPU_AFTER_SET_SPEED);
-#endif
 
 
 	spin_lock(&l2_lock);
@@ -563,11 +532,6 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 	set_speed(&drv.scalable[L2],
 			&drv.l2_freq_tbl[tgt_l2_l].speed, true);
 	spin_unlock(&l2_lock);
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_l2_freq_footprint(FT_CUR_RATE, drv.l2_freq_tbl[tgt_l2_l].speed.khz);
-	set_acpuclk_footprint(cpu, ACPU_AFTER_SET_L2_BW);
-#endif
 
 	
 	if (reason == SETRATE_PC || reason == SETRATE_SWFI)
@@ -579,16 +543,8 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 	
 	set_bus_bw(drv.l2_freq_tbl[tgt_l2_l].bw_level);
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, ACPU_BEFORE_DECREASE_VDD);
-#endif
-
 	
 	decrease_vdd(cpu, &vdd_data, reason);
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, ACPU_BEFORE_AVS_ENABLE);
-#endif
 
 	
 	if (reason == SETRATE_CPUFREQ && tgt->avsdscr_setting) {
@@ -601,10 +557,6 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 out:
 	if (reason == SETRATE_CPUFREQ || reason == SETRATE_HOTPLUG)
 		mutex_unlock(&driver_lock);
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu, ACPU_LEAVE);
-#endif
 
 	return rc;
 }

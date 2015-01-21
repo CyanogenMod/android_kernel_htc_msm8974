@@ -48,20 +48,6 @@ EXPORT_SYMBOL(__rwlock_init);
 static int spin_dump_panic_call(struct notifier_block *this,
 		unsigned long event, void *ptr)
 {
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-	void msm_watchdog_bark(void);
-	static int barked = 0;
-	if (!barked) {
-		barked = 1;
-
-		pr_info("%s: Force Watchdog bark ...\r\n", __func__);
-		msm_watchdog_bark();
-
-		mdelay(10000);
-		pr_info("%s: Force Watchdog bark does not work, "
-				"falling back to normal process.\r\n", __func__);
-	}
-#endif
 	return NOTIFY_DONE;
 }
 

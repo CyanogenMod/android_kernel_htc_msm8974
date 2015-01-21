@@ -563,19 +563,9 @@ static void dwc3_stop_active_transfer(struct dwc3 *dwc, u32 epnum);
 static void dwc3_remove_requests(struct dwc3 *dwc, struct dwc3_ep *dep)
 {
 	struct dwc3_request		*req;
-#if defined(CONFIG_HTC_DEBUG_RTB)
-		unsigned long long timestamp, timestamp_ms;
-#endif
 
 	if (!list_empty(&dep->req_queued)) {
 		dwc3_stop_active_transfer(dwc, dep->number);
-#if defined(CONFIG_HTC_DEBUG_RTB)
-						timestamp = sched_clock();
-						timestamp_ms = timestamp;
-						do_div(timestamp_ms, NSEC_PER_MSEC);
-						uncached_logk(LOGK_LOGBUF,
-							(void *)((unsigned long)timestamp_ms));
-#endif
 
 		
 		while (!list_empty(&dep->req_queued)) {
@@ -584,13 +574,6 @@ static void dwc3_remove_requests(struct dwc3 *dwc, struct dwc3_ep *dep)
 			dwc3_gadget_giveback(dep, req, -ESHUTDOWN);
 		}
 	}
-#if defined(CONFIG_HTC_DEBUG_RTB)
-				timestamp = sched_clock();
-				timestamp_ms = timestamp;
-				do_div(timestamp_ms, NSEC_PER_MSEC);
-				uncached_logk(LOGK_LOGBUF,
-					(void *)((unsigned long)timestamp_ms));
-#endif
 	while (!list_empty(&dep->request_list)) {
 		req = next_request(&dep->request_list);
 
@@ -603,15 +586,6 @@ static int __dwc3_gadget_ep_disable(struct dwc3_ep *dep)
 {
 	struct dwc3		*dwc = dep->dwc;
 	u32			reg;
-
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	unsigned long long timestamp, timestamp_ms;
-	timestamp = sched_clock();
-	timestamp_ms = timestamp;
-	do_div(timestamp_ms, NSEC_PER_MSEC);
-	uncached_logk(LOGK_LOGBUF,
-		(void *)((unsigned long)timestamp_ms));
-#endif
 
 	g_debug_fp = 0xAA;
 
@@ -626,13 +600,6 @@ static int __dwc3_gadget_ep_disable(struct dwc3_ep *dep)
 	dep->type = 0;
 	dep->flags = 0;
 	g_debug_fp = 0xBB;
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	timestamp = sched_clock();
-	timestamp_ms = timestamp;
-	do_div(timestamp_ms, NSEC_PER_MSEC);
-	uncached_logk(LOGK_LOGBUF,
-		(void *)((unsigned long)timestamp_ms));
-#endif
 
 	return 0;
 }
@@ -2564,9 +2531,6 @@ static irqreturn_t dwc3_process_event_buf(struct dwc3 *dwc, u32 buf)
 	struct dwc3_event_buffer *evt;
 	int left;
 	u32 count;
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	unsigned long long timestamp, timestamp_ms;
-#endif
 	count = dwc3_readl(dwc->regs, DWC3_GEVNTCOUNT(buf));
 	count &= DWC3_GEVNTCOUNT_MASK;
 	if (!count)
@@ -2574,15 +2538,6 @@ static irqreturn_t dwc3_process_event_buf(struct dwc3 *dwc, u32 buf)
 
 	evt = dwc->ev_buffs[buf];
 	left = count;
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	timestamp = sched_clock();
-	timestamp_ms = timestamp;
-	do_div(timestamp_ms, NSEC_PER_MSEC);
-	uncached_logk(LOGK_LOGBUF,
-		(void *)((unsigned long)timestamp_ms));
-	uncached_logk(LOGK_LOGBUF,
-		(void *)((unsigned long)left));
-#endif
 	while (left > 0) {
 		union dwc3_event event;
 
@@ -2604,16 +2559,6 @@ static irqreturn_t dwc3_interrupt(int irq, void *_dwc)
 	struct dwc3			*dwc = _dwc;
 	int				i;
 	irqreturn_t			ret = IRQ_NONE;
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	unsigned long long timestamp, timestamp_ms;
-	timestamp = sched_clock();
-	timestamp_ms = timestamp;
-	do_div(timestamp_ms, NSEC_PER_MSEC);
-	uncached_logk(LOGK_LOGBUF,
-		(void *)((unsigned long)timestamp_ms));
-	uncached_logk(LOGK_LOGBUF,
-		(void *)(dwc->num_event_buffers));
-#endif
 	spin_lock(&dwc->lock);
 #ifdef CONFIG_HTC_USB_DEBUG_FLAG
 	dbg_event(0xFF,"DWC3STR",0);

@@ -21,12 +21,6 @@ enum logk_event_type {
 	LOGK_HOTPLUG = 4,
 	LOGK_CTXID = 5,
 	LOGK_TIMESTAMP = 6,
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	
-	LOGK_IRQ = 10,
-	LOGK_DIE = 11,
-	LOGK_DEBUG_SCM = 12,
-#endif 
 };
 
 #define LOGTYPE_NOPC 0x80
@@ -36,9 +30,6 @@ struct msm_rtb_platform_data {
 };
 
 #if defined(CONFIG_MSM_RTB)
-#if defined(CONFIG_HTC_DEBUG_RTB)
-void msm_rtb_disable(void);
-#endif 
 
 int uncached_logk_pc(enum logk_event_type log_type, void *caller,
 				void *data);
@@ -58,9 +49,6 @@ int uncached_logk(enum logk_event_type log_type, void *data);
 				isb();\
 			 } while (0)
 #else
-#if defined(CONFIG_HTC_DEBUG_RTB)
-static inline void msm_rtb_disable(void) { return; }
-#endif 
 
 static inline int uncached_logk_pc(enum logk_event_type log_type,
 					void *caller,

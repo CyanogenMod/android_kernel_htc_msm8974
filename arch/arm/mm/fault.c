@@ -30,9 +30,6 @@
 #include <asm/io.h>
 #include <mach/msm_iomap.h>
 #endif
-#if defined(CONFIG_HTC_DEBUG_RTB)
-#include <mach/msm_rtb.h>
-#endif
 
 
 #include "fault.h"
@@ -144,28 +141,12 @@ static void
 __do_kernel_fault(struct mm_struct *mm, unsigned long addr, unsigned int fsr,
 		  struct pt_regs *regs)
 {
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	static int enable_logk_die = 1;
-
-	/* prevent recursive panic in RTB */
-	if (enable_logk_die) {
-		enable_logk_die = 0;
-		uncached_logk(LOGK_DIE, (void *)regs->ARM_pc);
-		uncached_logk(LOGK_DIE, (void *)regs->ARM_lr);
-		uncached_logk(LOGK_DIE, (void *)addr);
-	}
-#endif
 
 	/*
 	 * Are we prepared to handle this kernel fault?
 	 */
 	if (fixup_exception(regs))
 		return;
-
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	/* Disable RTB here to avoid weird recursive spinlock/printk behaviors */
-	msm_rtb_disable();
-#endif
 
 	/*
 	 * No handler, we'll have to terminate things with extreme prejudice.

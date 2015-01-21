@@ -74,76 +74,6 @@ static const char * const enable_ramdumps[] = {
 #endif
 
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-
-#define RD_BUF_SIZE			  256
-#define MODEM_ERRMSG_LIST_LEN 10
-
-struct msm_msr_info {
-	int valid;
-	struct timespec msr_time;
-	char modem_errmsg[RD_BUF_SIZE];
-};
-int msm_msr_index = 0;
-static struct msm_msr_info msr_info_list[MODEM_ERRMSG_LIST_LEN];
-
-static ssize_t subsystem_restart_reason_nonblock_show(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-
-	int i = 0;
-	char tmp[RD_BUF_SIZE+30];
-
-	for( i=0; i<MODEM_ERRMSG_LIST_LEN; i++ ) {
-		if( msr_info_list[i].valid != 0 ) {
-			
-			snprintf(tmp, RD_BUF_SIZE+30, "%ld-%s|\n\r", msr_info_list[i].msr_time.tv_sec, msr_info_list[i].modem_errmsg);
-			strcat(buf, tmp);
-			memset(tmp, 0, RD_BUF_SIZE+30);
-		}
-		msr_info_list[i].valid = 0;
-		memset(msr_info_list[i].modem_errmsg, 0, RD_BUF_SIZE);
-	}
-	strcat(buf, "\n\r\0");
-
-	return strlen(buf);
-}
-
-void subsystem_restart_reason_nonblock_init(void)
-{
-	int i = 0;
-	msm_msr_index = 0;
-	for( i=0; i<MODEM_ERRMSG_LIST_LEN; i++ ) {
-		msr_info_list[i].valid = 0;
-		memset(msr_info_list[i].modem_errmsg, 0, RD_BUF_SIZE);
-	}
-}
-
-#define subsystem_restart_ro_attr(_name) \
-	static struct kobj_attribute _name##_attr = {  \
-		.attr   = {                             \
-			.name = __stringify(_name),     \
-			.mode = 0444,                   \
-		},                                      \
-		.show   = _name##_show,                 \
-		.store  = NULL,         \
-	}
-
-
-subsystem_restart_ro_attr(subsystem_restart_reason_nonblock);
-
-
-static struct attribute *g[] = {
-	&subsystem_restart_reason_nonblock_attr.attr,
-	NULL,
-};
-
-static struct attribute_group attr_group = {
-	.attrs = g,
-};
-
-#endif
-
 struct subsys_tracking {
 	enum p_subsys_state p_state;
 	spinlock_t s_lock;
@@ -181,10 +111,6 @@ struct subsys_device {
 	int restart_level;
 #if defined(CONFIG_HTC_FEATURES_SSR)
 	int enable_ramdump;
-#endif
-#if defined(CONFIG_HTC_DEBUG_SSR)
-#define HTC_DEBUG_SSR_REASON_LEN 80
-	char restart_reason[HTC_DEBUG_SSR_REASON_LEN];
 #endif
 	struct subsys_soc_restart_order *restart_order;
 #ifdef CONFIG_DEBUG_FS
@@ -321,16 +247,6 @@ int subsys_get_restart_level(struct subsys_device *dev)
 	return dev->restart_level;
 }
 EXPORT_SYMBOL(subsys_get_restart_level);
-
-#if defined(CONFIG_HTC_DEBUG_SSR)
-void subsys_set_restart_reason(struct subsys_device *dev, const char* reason)
-{
-	if (!dev || !reason)
-		return;
-	snprintf(dev->restart_reason, sizeof(dev->restart_reason) - 1, "%s", reason);
-}
-EXPORT_SYMBOL(subsys_set_restart_reason);
-#endif 
 
 static ssize_t crashed_show(struct device *dev, struct device_attribute *attr,
 		char *buf)
@@ -842,19 +758,6 @@ static void __subsystem_restart_dev(struct subsys_device *dev)
 	struct subsys_tracking *track;
 	unsigned long flags;
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	
-	if (!strncmp(name, "modem",
-				SUBSYS_NAME_MAX_LENGTH)) {
-	msr_info_list[msm_msr_index].valid = 1;
-	msr_info_list[msm_msr_index].msr_time = current_kernel_time();
-	snprintf(msr_info_list[msm_msr_index].modem_errmsg, RD_BUF_SIZE, "%s", dev->restart_reason);
-	if(++msm_msr_index >= MODEM_ERRMSG_LIST_LEN)
-	msm_msr_index = 0;
-		}
-   
-#endif
-
 #if defined(CONFIG_HTC_FEATURES_SSR)
 	pr_info("Restarting %s [level=%s]!\n", desc->name,
 			restart_levels[dev->restart_level]);
@@ -906,11 +809,7 @@ int subsystem_restart_dev(struct subsys_device *dev)
 		__subsystem_restart_dev(dev);
 		break;
 	case RESET_SOC:
-#if defined(CONFIG_HTC_DEBUG_SSR)
-		panic("subsys-restart: %s crashed. %s", name, dev->restart_reason);
-#else
 		panic("subsys-restart: Resetting the SoC - %s crashed.", name);
-#endif
 		break;
 	default:
 		panic("subsys-restart: Unknown restart level!\n");
@@ -1284,10 +1183,6 @@ struct subsys_device *subsys_register(struct subsys_desc *desc)
 	if (ret)
 		goto err_dtree;
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	memset(subsys->restart_reason, 0, sizeof(subsys->restart_reason));
-#endif
-
 	snprintf(subsys->wlname, sizeof(subsys->wlname)-1, "ssr(%s)", desc->name);
 	wake_lock_init(&subsys->wake_lock, WAKE_LOCK_SUSPEND, subsys->wlname);
 	INIT_WORK(&subsys->work, subsystem_restart_wq_func);
@@ -1414,20 +1309,6 @@ static int __init ssr_init_soc_restart_orders(void)
 static int __init subsys_restart_init(void)
 {
 	int ret;
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	struct kobject *properties_kobj;
-	
-	subsystem_restart_reason_nonblock_init();
-	properties_kobj = kobject_create_and_add("subsystem_restart_properties", NULL);
-	if (properties_kobj) {
-		ret = sysfs_create_group(properties_kobj, &attr_group);
-		if (ret) {
-			pr_err("subsys_restart_init: sysfs_create_group failed\n");
-			return ret;
-		}
-	}
-	
-#endif
 	ssr_wq = alloc_workqueue("ssr_wq", WQ_CPU_INTENSIVE, 0);
 	BUG_ON(!ssr_wq);
 

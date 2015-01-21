@@ -22,10 +22,6 @@
 
 #include <mach/scm.h>
 
-#if defined(CONFIG_HTC_DEBUG_RTB)
-#include <mach/msm_rtb.h>
-#endif
-
 static int simlock_mask;
 static int unlock_mask;
 static char *simlock_code = "";
@@ -146,24 +142,13 @@ static int __scm_call(const struct scm_command *cmd)
 {
 	int ret;
 	u32 cmd_addr = virt_to_phys(cmd);
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	register unsigned long current_sp asm ("sp");
-#endif
 
 	
 	WARN_ON( cmd->id >= 0x40000);
 
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	uncached_logk_pc(LOGK_DEBUG_SCM, __builtin_return_address(0), (void *)current_sp);
-	uncached_logk(LOGK_DEBUG_SCM, (void *)cmd);
-#endif
 	__cpuc_flush_dcache_area((void *)cmd, cmd->len);
 	outer_flush_range(cmd_addr, cmd_addr + cmd->len);
 
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	uncached_logk_pc(LOGK_DEBUG_SCM, __builtin_return_address(0), (void *)current_sp);
-	uncached_logk(LOGK_DEBUG_SCM, (void *)cmd);
-#endif
 	ret = smc(cmd_addr);
 	if (ret < 0)
 		ret = scm_remap_error(ret);
@@ -274,10 +259,6 @@ int scm_call(u32 svc_id, u32 cmd_id, const void *cmd_buf, size_t cmd_len,
 	struct scm_command *cmd;
 	int ret;
 	size_t len = SCM_BUF_LEN(cmd_len, resp_len);
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	register unsigned long current_sp asm ("sp");
-	uncached_logk_pc(LOGK_DEBUG_SCM, __builtin_return_address(0), (void *)current_sp);
-#endif
 
 	if (cmd_len > len || resp_len > len)
 		return -EINVAL;

@@ -52,10 +52,6 @@
 #include <mach/irqs.h>
 #endif
 
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG) || defined(CONFIG_HTC_DEBUG_RTB)
-#include <mach/htc_debug_tools.h>
-#endif
-
 union gic_base {
 	void __iomem *common_base;
 	void __percpu __iomem **percpu_base;
@@ -452,37 +448,11 @@ asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 		irqnr = irqstat & ~0x1c00;
 
 		if (likely(irqnr > 15 && irqnr < 1021)) {
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-			/* only check on timer interrupt */
-			if (irqnr == 19 && smp_processor_id() == 0) {
-				unsigned long long timestamp = sched_clock();
-#if defined(CONFIG_HTC_DEBUG_RTB)
-				unsigned long long timestamp_ms = timestamp;
-				do_div(timestamp_ms, NSEC_PER_MSEC);
-				uncached_logk_pc(LOGK_IRQ,
-					(void *)((unsigned long)timestamp_ms),
-					(void *)irqnr);
-#endif
-				htc_debug_watchdog_check_pet(timestamp);
-			}
-#if defined(CONFIG_HTC_DEBUG_RTB)
-			else {
-				uncached_logk_pc(LOGK_IRQ,
-					(void *)htc_debug_get_sched_clock_ms(),
-					(void *)irqnr);
-			}
-#endif
-#endif /* CONFIG_HTC_DEBUG_WATCHDOG */
 			irqnr = irq_find_mapping(gic->domain, irqnr);
 			handle_IRQ(irqnr, regs);
 			continue;
 		}
 		if (irqnr < 16) {
-#if defined(CONFIG_HTC_DEBUG_RTB)
-			uncached_logk_pc(LOGK_IRQ,
-				(void *)htc_debug_get_sched_clock_ms(),
-				(void *)irqnr);
-#endif
 			if (gic->need_access_lock)
 				raw_spin_lock(&irq_controller_lock);
 			writel_relaxed(irqstat, cpu_base + GIC_CPU_EOI);

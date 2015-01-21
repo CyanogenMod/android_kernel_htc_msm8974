@@ -47,10 +47,6 @@
 #define CREATE_TRACE_POINTS
 #include <mach/trace_msm_low_power.h>
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-#include <mach/htc_footprint.h>
-#endif
-
 #ifdef CONFIG_HTC_POWER_DEBUG
 #include <mach/gpio.h>
 #include <mach/htc_util.h>
@@ -507,18 +503,10 @@ static bool msm_pm_pc_hotplug(void)
 {
 	uint32_t cpu = smp_processor_id();
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_reset_vector(cpu);
-#endif
-
 	if (msm_pm_is_L1_writeback())
 		flush_cache_louis();
 
 	msm_pc_inc_debug_count(cpu, MSM_PC_ENTRY_COUNTER);
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_cpu_foot_print(cpu, 0x1);
-#endif
 
 	scm_call_atomic1(SCM_SVC_BOOT, SCM_CMD_TERMINATE_PC,
 			SCM_CMD_CORE_HOTPLUGGED);
@@ -546,10 +534,6 @@ static int msm_pm_collapse(unsigned long unused)
 					  REMOTE_SPINLOCK_TID_START + cpu);
 	spin_unlock(&cpu_cnt_lock);
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_reset_vector(cpu);
-#endif
-
 	if (flag == MSM_SCM_L2_OFF) {
 		flush_cache_all();
 		if (msm_pm_flush_l2_fn)
@@ -561,10 +545,6 @@ static int msm_pm_collapse(unsigned long unused)
 		msm_pm_disable_l2_fn();
 
 	msm_pc_inc_debug_count(cpu, MSM_PC_ENTRY_COUNTER);
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_cpu_foot_print(cpu, 0x1);
-#endif
 
 	scm_call_atomic1(SCM_SVC_BOOT, SCM_CMD_TERMINATE_PC, flag);
 
@@ -673,10 +653,6 @@ static bool __ref msm_pm_spm_power_collapse(
 		pr_info("CPU%u: %s: program vector to %p\n",
 			cpu, __func__, entry);
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	init_cpu_foot_print(cpu, from_idle, notify_rpm);
-#endif
-
 	msm_jtag_save_state();
 	if (!from_idle && smp_processor_id() == 0) {
 #ifdef CONFIG_HTC_POWER_DEBUG
@@ -727,11 +703,6 @@ static bool __ref msm_pm_spm_power_collapse(
 	collapsed = save_cpu_regs ?
 		!cpu_suspend(0, msm_pm_collapse) : msm_pm_pc_hotplug();
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_cpu_foot_print(cpu, 0xa);
-	clean_reset_vector_debug_info(cpu);
-#endif
-
 	if (save_cpu_regs) {
 		spin_lock(&cpu_cnt_lock);
 		cpu_count--;
@@ -740,9 +711,6 @@ static bool __ref msm_pm_spm_power_collapse(
 	}
 	msm_jtag_restore_state();
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_cpu_foot_print(cpu, 0xb);
-#endif
 	if (!from_idle && smp_processor_id() == 0) {
 
 		msm_watchdog_resume_deferred();
@@ -1257,9 +1225,6 @@ static struct platform_driver msm_cpu_pm_snoc_client_driver = {
 
 static int msm_pm_init(void)
 {
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	unsigned int addr;
-#endif
 
 	enum msm_pm_time_stats_id enable_stats[] = {
 		MSM_PM_STAT_IDLE_WFI,
@@ -1272,19 +1237,6 @@ static int msm_pm_init(void)
 	};
 	msm_pm_mode_sysfs_add();
 	msm_pm_add_stats(enable_stats, ARRAY_SIZE(enable_stats));
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	store_pm_boot_entry_addr();
-	get_pm_boot_vector_symbol_address(&addr);
-	pr_info("%s: msm_pm_boot_vector 0x%x", __func__, addr);
-	store_pm_boot_vector_addr(addr);
-
-	clean_reset_vector_debug_info(0);
-	init_cpu_foot_print(0, false, true);
-	set_cpu_foot_print(0, 0xb);
-	set_reset_vector_address_after_pc(0);
-	set_reset_vector_value_after_pc(0);
-#endif
 
 	keep_dig_voltage_low_in_idle(true);
 

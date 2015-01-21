@@ -49,30 +49,6 @@ static int restart_notifier_cb(struct notifier_block *this,
 				unsigned long code,
 				void *data)
 {
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	if (code == SUBSYS_AFTER_SHUTDOWN) {
-		struct restart_notifier_block *notifier;
-
-		notifier = container_of(this,
-					struct restart_notifier_block, nb);
-		pr_debug("%s: ssrestart for processor %d ('%s')\n",
-				__func__, notifier->processor,
-				notifier->name);
-
-		remote_spin_release_all(notifier->processor);
-
-		if (smlog_ramdump_dev) {
-			int ret;
-
-			pr_info("%s: saving ramdump\n", __func__);
-			ret = do_ramdump(smlog_ramdump_dev,
-					smlog_ramdump_segments, num_smlog_areas);
-			if (ret < 0)
-				pr_err("%s: unable to dump smlog %d\n",
-								__func__, ret);
-		}
-	}
-#endif
 	return NOTIFY_DONE;
 }
 

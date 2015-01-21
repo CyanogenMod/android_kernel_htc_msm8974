@@ -983,10 +983,6 @@ static int ngd_slim_power_up(struct msm_slim_ctrl *dev, bool mdm_restart)
 	timeout = wait_for_completion_timeout(&dev->reconf, HZ);
 	if (!timeout) {
 		SLIM_ERR(dev, "Failed to receive master capability\n");
-#ifdef CONFIG_HTC_DEBUG_DSP
-		pr_info("%s:trigger ramdump to keep status\n",__func__);
-		BUG();
-#endif
 		return -ETIMEDOUT;
 	}
 	if (cur_state == MSM_CTRL_DOWN) {

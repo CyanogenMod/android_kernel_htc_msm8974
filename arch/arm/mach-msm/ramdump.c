@@ -319,10 +319,6 @@ static int _do_ramdump(void *handle, struct ramdump_segment *segments,
 		pr_err("Ramdump(%s): Timed out waiting for userspace.\n",
 			rd_dev->name);
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-		if (!strcmp(rd_dev->name,"ramdump_modem") || !strcmp(rd_dev->name,"ramdump_pronto"))
-			BUG();
-#endif
 		ret = -EPIPE;
 	} else
 		ret = (rd_dev->ramdump_status == 0) ? 0 : -EPIPE;

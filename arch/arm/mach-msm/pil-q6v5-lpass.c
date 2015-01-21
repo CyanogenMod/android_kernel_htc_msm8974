@@ -238,11 +238,7 @@ static struct notifier_block mnb = {
 	.notifier_call = modem_notifier_cb,
 };
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-static void adsp_log_failure_reason(struct subsys_device *dev)
-#else
 static void adsp_log_failure_reason(void)
-#endif
 {
 	char *reason;
 	char buffer[81];
@@ -264,20 +260,13 @@ static void adsp_log_failure_reason(void)
 	memcpy(buffer, reason, size);
 	buffer[size] = '\0';
 	pr_err("ADSP subsystem failure reason: %s", buffer);
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	subsys_set_restart_reason(dev, buffer);
-#endif
 	memset((void *)reason, 0x0, size);
 	wmb();
 }
 
 static void restart_adsp(struct lpass_data *drv)
 {
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	adsp_log_failure_reason(drv->subsys);
-#else
 	adsp_log_failure_reason();
-#endif
 	subsystem_restart_dev(drv->subsys);
 }
 
@@ -286,9 +275,6 @@ static void adsp_fatal_fn(struct work_struct *work)
 	struct lpass_data *drv = container_of(work, struct lpass_data, work);
 
 	pr_err("Watchdog bite received from ADSP!\n");
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	subsys_set_restart_reason(drv->subsys, "Watchdog bite received from ADSP!");
-#endif
 	restart_adsp(drv);
 }
 

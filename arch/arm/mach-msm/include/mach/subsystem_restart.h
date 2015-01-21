@@ -78,10 +78,6 @@ struct subsys_desc {
 
 #if defined(CONFIG_MSM_SUBSYSTEM_RESTART)
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-void subsys_set_restart_reason(struct subsys_device *dev, const char *reason);
-#endif /* CONFIG_HTC_DEBUG_SSR  */
-
 #if defined(CONFIG_HTC_FEATURES_SSR)
 extern void subsys_set_enable_ramdump(struct subsys_device *dev, int enable);
 extern void subsys_set_restart_level(struct subsys_device *dev, int level);
@@ -103,13 +99,6 @@ extern void subsys_set_crash_status(struct subsys_device *dev, bool crashed);
 extern bool subsys_get_crash_status(struct subsys_device *dev);
 
 #else
-
-#if defined(CONFIG_HTC_DEBUG_SSR)
-static inline void subsys_set_restart_reason(struct subsys_device *dev, const char *reason)
-{
-	return;
-}
-#endif /* CONFIG_HTC_DEBUG_SSR */
 
 #if defined(CONFIG_HTC_FEATURES_SSR)
 static inline void subsys_set_enable_ramdump(struct subsys_device *dev, int enable)

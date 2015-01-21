@@ -24,9 +24,6 @@
 #include <mach/clk.h>
 #include <mach/clock-generic.h>
 #include <mach/msm-krait-l2-accessors.h>
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-#include <mach/htc_footprint.h>
-#endif
 #include "clock-krait.h"
 #include "avs.h"
 
@@ -390,10 +387,6 @@ static int kpss_cpu_pre_set_rate(struct clk *c, unsigned long new_rate)
 	if (dscr)
 		AVS_DISABLE(cpu->id);
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu->id, ACPU_AFTER_AVS_DISABLE);
-#endif
-
 	return 0;
 }
 
@@ -407,38 +400,13 @@ static long kpss_core_round_rate(struct clk *c, unsigned long rate)
 
 static int kpss_core_set_rate(struct clk *c, unsigned long rate)
 {
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	struct kpss_core_clk *cpu = to_kpss_core_clk(c);
-	int ret = 0;
-
-	if (c->flags & CLKFLAG_CPU_CLK)
-		set_acpuclk_footprint(cpu->id, ACPU_BEFORE_SET_SPEED);
-
-	ret = clk_set_rate(c->parent, rate);
-
-	if (c->flags & CLKFLAG_CPU_CLK) {
-		set_acpuclk_footprint(cpu->id, ACPU_AFTER_SET_SPEED);
-		set_acpuclk_cpu_freq_footprint(FT_CUR_RATE, cpu->id, rate);
-	}
-	else if (c->flags & CLKFLAG_L2_CLK)
-		set_acpuclk_l2_freq_footprint(FT_CUR_RATE, rate);
-	else
-		WARN(1, "Unexpected clock using %s\n", __func__);
-
-	return ret;
-#else
 	return clk_set_rate(c->parent, rate);
-#endif
 }
 
 static void kpss_cpu_post_set_rate(struct clk *c, unsigned long old_rate)
 {
 	struct kpss_core_clk *cpu = to_kpss_core_clk(c);
 	u32 dscr = find_dscr(cpu->avs_tbl, c->rate);
-
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	set_acpuclk_footprint(cpu->id, ACPU_BEFORE_AVS_ENABLE);
-#endif
 
 	if (dscr)
 		AVS_ENABLE(cpu->id, dscr);

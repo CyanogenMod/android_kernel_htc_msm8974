@@ -281,11 +281,7 @@ static void pronto_stop(const struct subsys_desc *desc)
 	pil_shutdown(&drv->desc);
 }
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-static void log_wcnss_sfr(struct subsys_device *dev)
-#else
 static void log_wcnss_sfr(void)
-#endif
 {
 	char *smem_reset_reason;
 	unsigned smem_reset_size;
@@ -302,9 +298,6 @@ static void log_wcnss_sfr(void)
 	} else {
 		pr_err("wcnss subsystem failure reason: %.81s\n",
 				smem_reset_reason);
-#if defined(CONFIG_HTC_DEBUG_SSR)
-		subsys_set_restart_reason(dev, smem_reset_reason);
-#endif
 		memset(smem_reset_reason, 0, smem_reset_size);
 		wmb();
 	}
@@ -312,11 +305,7 @@ static void log_wcnss_sfr(void)
 
 static void restart_wcnss(struct pronto_data *drv)
 {
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	log_wcnss_sfr(drv->subsys);
-#else
 	log_wcnss_sfr();
-#endif
 	subsystem_restart_dev(drv->subsys);
 }
 
@@ -362,10 +351,6 @@ static irqreturn_t wcnss_wdog_bite_irq_hdlr(int irq, void *dev_id)
 		return IRQ_HANDLED;
 	}
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	pr_err("Watchdog bite received from Pronto!\n");
-	subsys_set_restart_reason(drv->subsys, "Watchdog bite received from Pronto!");
-#endif
 	subsys_set_crash_status(drv->subsys, true);
 	drv->restart_inprogress = true;
 	schedule_work(&drv->wcnss_wdog_bite_work);

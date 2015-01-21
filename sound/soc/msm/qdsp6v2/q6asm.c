@@ -4507,12 +4507,6 @@ static int __q6asm_cmd(struct audio_client *ac, int cmd, uint32_t stream_id)
 	if (!rc) {
 		pr_err("timeout. waited for response opcode[0x%x]\n",
 							hdr.opcode);
-#ifdef CONFIG_HTC_DEBUG_DSP
-		if(cmd == CMD_FLUSH) {
-			pr_err("audio trigger ramdump to keep status of flush timeout\n");
-			BUG();
-		}
-#endif
 		goto fail_cmd;
 	}
 	if (cmd == CMD_FLUSH)

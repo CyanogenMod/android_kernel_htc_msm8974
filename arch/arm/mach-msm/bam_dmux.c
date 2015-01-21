@@ -36,38 +36,6 @@
 
 #include "bam_dmux_private.h"
 
-#ifdef CONFIG_HTC_DEBUG_RIL_PCN0006_HTC_DUMP_BAM_DMUX_LOG
-void bam_dmux_dbg_log_event(const char * event, ...);
-
-#define DBG_MSG_LEN   100UL
-
-#define DBG_MAX_MSG   256UL
-
-#define TIME_BUF_LEN  20
-
-static int bam_dmux_htc_debug_enable = 1;
-static int bam_dmux_htc_debug_dump = 1;
-static int bam_dmux_htc_debug_dump_lines = DBG_MAX_MSG;
-static int bam_dmux_htc_debug_print = 0;
-module_param_named(bam_dmux_htc_debug_enable, bam_dmux_htc_debug_enable,
-		   int, S_IRUGO | S_IWUSR | S_IWGRP);
-module_param_named(bam_dmux_htc_debug_dump, bam_dmux_htc_debug_dump,
-		   int, S_IRUGO | S_IWUSR | S_IWGRP);
-module_param_named(bam_dmux_htc_debug_dump_lines, bam_dmux_htc_debug_dump_lines,
-		   int, S_IRUGO | S_IWUSR | S_IWGRP);
-module_param_named(bam_dmux_htc_debug_print, bam_dmux_htc_debug_print,
-		   int, S_IRUGO | S_IWUSR | S_IWGRP);
-
-static struct {
-	char     (buf[DBG_MAX_MSG])[DBG_MSG_LEN];   
-	unsigned idx;   
-	rwlock_t lck;   
-} dbg_bam_dmux = {
-	.idx = 0,
-	.lck = __RW_LOCK_UNLOCKED(lck)
-};
-#endif
-
 #define BAM_CH_LOCAL_OPEN       0x1
 #define BAM_CH_REMOTE_OPEN      0x2
 #define BAM_CH_IN_RESET         0x4
@@ -337,39 +305,6 @@ static void *bam_ipc_log_txt;
 #define BAM_IPC_LOG_PAGES 5
 
 
-#ifdef CONFIG_HTC_DEBUG_RIL_PCN0006_HTC_DUMP_BAM_DMUX_LOG
-#define BAM_DMUX_LOG(fmt, args...) \
-do { \
-	if (bam_ipc_log_txt) { \
-		ipc_log_string(bam_ipc_log_txt, \
-		"<DMUX> %c%c%c%c %c%c%c%c%d " fmt, \
-		a2_pc_disabled ? 'D' : 'd', \
-		in_global_reset ? 'R' : 'r', \
-		bam_dmux_power_state ? 'P' : 'p', \
-		bam_connection_is_active ? 'A' : 'a', \
-		bam_dmux_uplink_vote ? 'V' : 'v', \
-		bam_is_connected ?  'U' : 'u', \
-		wait_for_ack ? 'W' : 'w', \
-		ul_wakeup_ack_completion.done ? 'A' : 'a', \
-		atomic_read(&ul_ondemand_vote), \
-		args); \
-	} \
-	if (bam_dmux_htc_debug_enable) { \
-		bam_dmux_dbg_log_event( \
-		"<DMUX> %c%c%c%c %c%c%c%c%d " fmt, \
-		a2_pc_disabled ? 'D' : 'd', \
-		in_global_reset ? 'R' : 'r', \
-		bam_dmux_power_state ? 'P' : 'p', \
-		bam_connection_is_active ? 'A' : 'a', \
-		bam_dmux_uplink_vote ? 'V' : 'v', \
-		bam_is_connected ?  'U' : 'u', \
-		wait_for_ack ? 'W' : 'w', \
-		ul_wakeup_ack_completion.done ? 'A' : 'a', \
-		atomic_read(&ul_ondemand_vote), \
-		args); \
-	} \
-} while (0)
-#else
 #define BAM_DMUX_LOG(fmt, args...) \
 do { \
 	if (bam_ipc_log_txt) { \
@@ -388,7 +323,6 @@ do { \
 		args); \
 	} \
 } while (0)
-#endif
 
 #define DMUX_LOG_KERR(fmt, args...) \
 do { \
@@ -2517,154 +2451,6 @@ static struct platform_driver bam_dmux_driver = {
 	},
 };
 
-#ifdef CONFIG_HTC_DEBUG_RIL_PCN0006_HTC_DUMP_BAM_DMUX_LOG
-
-static char bam_dmux_klog[PAGE_SIZE];
-
-static void bam_dmux_dbg_inc(unsigned *idx)
-{
-	*idx = (*idx + 1) & (DBG_MAX_MSG-1);
-}
-
-static char *bam_dmux_get_timestamp(char *tbuf)
-{
-	unsigned long long t;
-	unsigned long nanosec_rem;
-
-	t = cpu_clock(smp_processor_id());
-	nanosec_rem = do_div(t, 1000000000)/1000;
-	scnprintf(tbuf, TIME_BUF_LEN, "[%5lu.%06lu] ", (unsigned long)t,
-		nanosec_rem);
-	return tbuf;
-}
-
-void bam_dmux_events_print(void)
-{
-	unsigned long	flags;
-	unsigned	i;
-	unsigned lines = 0;
-
-	pr_info("### Show BAM DMUX Log Start ###\n");
-
-	read_lock_irqsave(&dbg_bam_dmux.lck, flags);
-
-	i = dbg_bam_dmux.idx;
-	for (bam_dmux_dbg_inc(&i); i != dbg_bam_dmux.idx; bam_dmux_dbg_inc(&i)) {
-		if (!strnlen(dbg_bam_dmux.buf[i], DBG_MSG_LEN))
-			continue;
-		pr_info("%s", dbg_bam_dmux.buf[i]);
-		lines++;
-		if ( lines > bam_dmux_htc_debug_dump_lines )
-			break;
-	}
-
-	read_unlock_irqrestore(&dbg_bam_dmux.lck, flags);
-
-	pr_info("### Show BAM DMUX Log End ###\n");
-}
-
-void msm_bam_dmux_dumplog(void)
-{
-	int ret = 0;
-
-	if ( !bam_dmux_htc_debug_enable ) {
-		pr_info("%s: bam_dmux_htc_debug_enable=[%d]\n", __func__, bam_dmux_htc_debug_enable);
-		return;
-	}
-
-	if ( !bam_dmux_htc_debug_dump ) {
-		pr_info("%s: bam_dmux_htc_debug_dump=[%d]\n", __func__, bam_dmux_htc_debug_dump);
-		return;
-	}
-
-	if ( !bam_ipc_log_txt ) {
-		pr_info("%s: bam_ipc_log_txt = NULL\n", __func__);
-		bam_dmux_events_print();
-		return;
-	}
-
-	pr_info("### Show BAM DMUX Log Start ###\n");
-
-	do {
-
-		memset(bam_dmux_klog, 0x0, PAGE_SIZE);
-		ret = ipc_log_extract( bam_ipc_log_txt, bam_dmux_klog, PAGE_SIZE);
-		if ( ret >= 0 ) {
-			pr_info("%s\n", bam_dmux_klog);
-		}
-
-	} while ( ret > 0 );
-
-	pr_info("### Show BAM DMUX Log End ###\n");
-
-}
-EXPORT_SYMBOL(msm_bam_dmux_dumplog);
-
-void bam_dmux_dbg_log_event(const char * event, ...)
-{
-	unsigned long flags;
-	char tbuf[TIME_BUF_LEN];
-	char dbg_buff[DBG_MSG_LEN];
-	va_list arg_list;
-	int data_size;
-
-	if ( !bam_dmux_htc_debug_enable ) {
-		return;
-	}
-
-	va_start(arg_list, event);
-	data_size = vsnprintf(dbg_buff,
-			      DBG_MSG_LEN, event, arg_list);
-	va_end(arg_list);
-
-	write_lock_irqsave(&dbg_bam_dmux.lck, flags);
-
-	scnprintf(dbg_bam_dmux.buf[dbg_bam_dmux.idx], DBG_MSG_LEN,
-		"%s %s", bam_dmux_get_timestamp(tbuf), dbg_buff);
-
-	bam_dmux_dbg_inc(&dbg_bam_dmux.idx);
-
-	if ( bam_dmux_htc_debug_print )
-		pr_info("%s", dbg_buff);
-	write_unlock_irqrestore(&dbg_bam_dmux.lck, flags);
-
-	return;
-
-}
-EXPORT_SYMBOL(bam_dmux_dbg_log_event);
-
-static int bam_dmux_events_show(struct seq_file *s, void *unused)
-{
-	unsigned long	flags;
-	unsigned	i;
-
-	read_lock_irqsave(&dbg_bam_dmux.lck, flags);
-
-	i = dbg_bam_dmux.idx;
-	for (bam_dmux_dbg_inc(&i); i != dbg_bam_dmux.idx; bam_dmux_dbg_inc(&i)) {
-		if (!strnlen(dbg_bam_dmux.buf[i], DBG_MSG_LEN))
-			continue;
-		seq_printf(s, "%s", dbg_bam_dmux.buf[i]);
-	}
-
-	read_unlock_irqrestore(&dbg_bam_dmux.lck, flags);
-
-	return 0;
-}
-
-static int bam_dmux_events_open(struct inode *inode, struct file *f)
-{
-	return single_open(f, bam_dmux_events_show, inode->i_private);
-}
-
-const struct file_operations bam_dmux_dbg_fops = {
-	.open = bam_dmux_events_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
-#endif
-
 static int __init bam_dmux_init(void)
 {
 #ifdef CONFIG_DEBUG_FS
@@ -2675,9 +2461,6 @@ static int __init bam_dmux_init(void)
 		debug_create("tbl", 0444, dent, debug_tbl);
 		debug_create("ul_pkt_cnt", 0444, dent, debug_ul_pkt_cnt);
 		debug_create("stats", 0444, dent, debug_stats);
-#ifdef CONFIG_HTC_DEBUG_RIL_PCN0006_HTC_DUMP_BAM_DMUX_LOG
-		debugfs_create_file("dumplog", S_IRUGO, dent, NULL, &bam_dmux_dbg_fops);
-#endif
 	}
 #endif
 

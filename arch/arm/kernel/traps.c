@@ -254,10 +254,6 @@ void die(const char *str, struct pt_regs *regs, int err)
 	struct thread_info *thread = current_thread_info();
 	int ret;
 	enum bug_trap_type bug_type = BUG_TRAP_TYPE_NONE;
-#if defined(CONFIG_HTC_DEBUG_KP)
-	char sym_pc[KSYM_SYMBOL_LEN];
-	char sym_lr[KSYM_SYMBOL_LEN];
-#endif
 
 	oops_enter();
 
@@ -273,30 +269,15 @@ void die(const char *str, struct pt_regs *regs, int err)
 	if (regs && kexec_should_crash(thread->task))
 		crash_kexec(regs);
 
-#if defined(CONFIG_HTC_DEBUG_KP)
-	if (regs) {
-        sprint_symbol(sym_pc, regs->ARM_pc);
-        sprint_symbol(sym_lr, regs->ARM_lr);
-    }
-#endif
-
 	bust_spinlocks(0);
 	add_taint(TAINT_DIE);
 	raw_spin_unlock_irq(&die_lock);
 	oops_exit();
 
 	if (in_interrupt())
-#if defined(CONFIG_HTC_DEBUG_KP)
-		panic("%.*s PC:%s LR:%s", TASK_COMM_LEN, thread->task->comm, sym_pc, sym_lr);
-#else
 		panic("Fatal exception in interrupt");
-#endif
 	if (panic_on_oops)
-#if defined(CONFIG_HTC_DEBUG_KP)
-		panic("%.*s PC:%s LR:%s", TASK_COMM_LEN, thread->task->comm, sym_pc, sym_lr);
-#else
 		panic("Fatal exception");
-#endif
 	if (ret != NOTIFY_STOP)
 		do_exit(SIGSEGV);
 }

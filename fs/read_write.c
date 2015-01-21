@@ -477,34 +477,6 @@ SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 }
 
 #define WRITE_TIMEOUT_VALUE 5
-#if defined(CONFIG_HTC_DEBUG_BINDER_WRITE)
-static int current_task_is_system_server_binder(void)
-{
-	struct task_struct* leader = current->group_leader;
-
-	if (!strncmp(current->comm, "Binder", strlen("Binder")))
-		if (leader && !strncmp(leader->comm,
-				"system_server", strlen("system_server")))
-			return 1;
-	return 0;
-}
-
-static void vfs_write_timeout(unsigned long data)
-{
-	struct task_struct* tsk = (struct task_struct*) data;
-	pr_warn("%s: vfs_write timed out after %d seconds! dump call stack:\n",
-		__func__, WRITE_TIMEOUT_VALUE);
-	show_stack(tsk, NULL);
-	pr_warn("### Show Blocked State ###\n");
-	show_state_filter(TASK_UNINTERRUPTIBLE);
-	pr_warn("### Show System Server State ###\n");
-	show_thread_group_state_filter("system_server", 0);
-	pr_info("### Show bugreport State ###\n");
-	show_thread_group_state_filter("bugreport", 0);
-	pr_info("### Show adbd State ###\n");
-	show_thread_group_state_filter("adbd", 0);
-}
-#endif
 
 SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf,
 		size_t, count)
@@ -542,36 +514,9 @@ SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf,
 	}
 #endif
 	if (file) {
-#if defined(CONFIG_HTC_DEBUG_BINDER_WRITE)
-		struct timer_list timer;
-		int debug_write;
-#endif
 		loff_t pos = file_pos_read(file);
 
-#if defined(CONFIG_HTC_DEBUG_BINDER_WRITE)
-		debug_write = current_task_is_system_server_binder();
-		if (debug_write) {
-			init_timer_on_stack(&timer);
-			timer.function = vfs_write_timeout;
-			timer.expires = jiffies + HZ * WRITE_TIMEOUT_VALUE;
-			timer.data = (unsigned long) current;
-			add_timer(&timer);
-		}
-#endif
-
 		ret = vfs_write(file, buf, count, &pos);
-
-#if defined(CONFIG_HTC_DEBUG_BINDER_WRITE)
-		if (debug_write) {
-			del_timer_sync(&timer);
-			destroy_timer_on_stack(&timer);
-			if (ret < 0 && file && file->f_op) {
-				pr_info("%s: %s (%d:%d) ret: %d, write: %pf, aio_write: %pf\n",
-						__func__, current->comm, current->tgid, current->pid, ret,
-						file->f_op->write, file->f_op->aio_write);
-			}
-		}
-#endif
 
 		file_pos_write(file, pos);
 		fput_light(file, fput_needed);

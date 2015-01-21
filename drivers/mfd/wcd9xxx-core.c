@@ -1570,10 +1570,6 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	if (ret) {
 		pr_err("%s: failed to get slimbus %s logical address: %d\n",
 		       __func__, wcd9xxx->slim->name, ret);
-#ifdef CONFIG_HTC_DEBUG_DSP
-		pr_info("%s:trigger ramdump to keep status\n",__func__);
-		BUG();
-#endif
 		goto err_reset;
 	}
 	wcd9xxx->read_dev = wcd9xxx_slim_read_device;
@@ -1597,10 +1593,6 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	if (ret) {
 		pr_err("%s: failed to get slimbus %s logical address: %d\n",
 		       __func__, wcd9xxx->slim->name, ret);
-#ifdef CONFIG_HTC_DEBUG_DSP
-		pr_info("%s:trigger ramdump to keep status\n",__func__);
-		BUG();
-#endif
 		goto err_slim_add;
 	}
 	wcd9xxx_inf_la = wcd9xxx->slim_slave->laddr;

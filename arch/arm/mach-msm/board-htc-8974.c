@@ -68,10 +68,6 @@
 #include <linux/qpnp/qpnp-bms.h>
 #endif 
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-#include <mach/htc_mnemosyne.h>
-#endif
-
 #include <linux/qpnp/qpnp-adc.h>
 
 #ifdef CONFIG_BT
@@ -862,9 +858,6 @@ void __init htc_8974_init_early(void)
 	
 	persistent_ram_early_init(&htc_8974_persistent_ram);
 
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-	mnemosyne_early_init((unsigned int)HTC_DEBUG_FOOTPRINT_PHYS, (unsigned int)HTC_DEBUG_FOOTPRINT_BASE);
-#endif
 }
 
 void __init htc_8974_init(void)

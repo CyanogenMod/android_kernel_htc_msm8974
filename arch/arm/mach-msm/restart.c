@@ -480,10 +480,6 @@ static void msm_restart_prepare(char mode, const char *cmd)
 	if (cmd && !strncmp(cmd, "force-dog-bark", 14)) {
 		pr_info("%s: Force dog bark!\r\n", __func__);
 
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-		msm_watchdog_bark();
-#endif
-
 		mdelay(10000);
 
 		pr_info("%s: Force Watchdog bark does not work, falling back to normal process.\r\n", __func__);
@@ -517,11 +513,7 @@ void msm_restart(char mode, const char *cmd)
 		
 		msm_disable_wdog_debug();
 		halt_spmi_pmic_arbiter();
-#if defined(CONFIG_ARCH_MSM8226) && defined(CONFIG_HTC_DEBUG_WATCHDOG)
-		msm_watchdog_reset();
-#else
 		__raw_writel(0, MSM_MPM2_PSHOLD_BASE);
-#endif
 	}
 
 	mdelay(10000);

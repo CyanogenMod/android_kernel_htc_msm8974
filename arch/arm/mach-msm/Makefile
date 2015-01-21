@@ -462,8 +462,6 @@ obj-$(CONFIG_HTC_HEADSET_ONE_WIRE) += htc_headset_one_wire.o
 ifdef CONFIG_HTC_DEBUG
 obj-y += htc_debug_tools.o
 endif
-obj-$(CONFIG_HTC_DEBUG_FOOTPRINT) += htc_mnemosyne.o
-obj-$(CONFIG_HTC_DEBUG_FOOTPRINT) += htc_footprint.o
 obj-y += smlog.o
 
 obj-$(CONFIG_PERFLOCK) += perflock.o

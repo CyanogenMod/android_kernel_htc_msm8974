@@ -1520,14 +1520,6 @@ static int cpr_get_corner_quot_adjustment(struct cpr_regulator *cpr_vreg,
 	return 0;
 }
 
-#ifdef CONFIG_HTC_DEBUG_RBCPR_8226
-#define CX_FUSE_TABLE_ROW_MSM8226 136
-#define CX_FUSE_TABLE_TURBO_MASK_MSM8226 0xF
-#define CX_FUSE_TABLE_TURBO_SHFT_MSM8226 0
-static short cx_turbo_fuse_8226;
-module_param_named(cx_turbo_fuse, cx_turbo_fuse_8226, short, S_IRUSR);
-#endif
-
 static int __devinit cpr_init_cpr_efuse(struct platform_device *pdev,
 				     struct cpr_regulator *cpr_vreg)
 {
@@ -1699,10 +1691,6 @@ static int __devinit cpr_init_cpr_efuse(struct platform_device *pdev,
 		}
 	}
 
-#ifdef CONFIG_HTC_DEBUG_RBCPR_8226
-	fuse_bits = cpr_read_efuse_row(cpr_vreg, CX_FUSE_TABLE_ROW_MSM8226, 0);
-	cx_turbo_fuse_8226 = (fuse_bits >> CX_FUSE_TABLE_TURBO_SHFT_MSM8226) & CX_FUSE_TABLE_TURBO_MASK_MSM8226;
-#endif
 	return 0;
 }
 

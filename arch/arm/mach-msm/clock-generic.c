@@ -22,10 +22,6 @@
 #include <mach/clk-provider.h>
 #include <mach/clock-generic.h>
 
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-#include <mach/htc_footprint.h>
-#endif
-
 
 int parent_to_src_sel(struct clk_src *parents, int num_parents, struct clk *p)
 {
@@ -604,10 +600,6 @@ static int mux_div_clk_set_rate(struct clk *c, unsigned long rate)
 	u32 new_div, old_div;
 	int rc;
 
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	set_acpuclk_footprint(0, ACPU_BEFORE_SAFE_PARENT_INIT);
-#endif
-
 	log_clk_call(c, FN_SET_RATE, rate);
 
 	rc = safe_parent_init_once(c);
@@ -623,10 +615,6 @@ static int mux_div_clk_set_rate(struct clk *c, unsigned long rate)
 	old_div = md->data.div;
 	old_prate = clk_get_rate(c->parent);
 
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	set_acpuclk_footprint(0, ACPU_BEFORE_SET_SAFE_RATE);
-#endif
-
 	
 	if (md->safe_freq)
 		rc = set_src_div(md, md->safe_parent, md->safe_div);
@@ -638,9 +626,6 @@ static int mux_div_clk_set_rate(struct clk *c, unsigned long rate)
 		WARN(rc, "error switching to safe_parent freq=%ld\n", md->safe_freq);
 		return rc;
 	}
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	set_acpuclk_footprint(0, ACPU_BEFORE_SET_PARENT_RATE);
-#endif
 
 	rc = clk_set_rate(new_parent, new_prate);
 	if (rc) {
@@ -649,69 +634,37 @@ static int mux_div_clk_set_rate(struct clk *c, unsigned long rate)
 		goto err_set_rate;
 	}
 
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	set_acpuclk_footprint(0, ACPU_BEFORE_CLK_PREPARE);
-#endif
-
 	rc = __clk_pre_reparent(c, new_parent, &flags);
 	if (rc)
 		goto err_pre_reparent;
-
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	set_acpuclk_footprint(0, ACPU_BEFORE_SET_RATE);
-#endif
 
 	
 	rc = __set_src_div(md, new_parent, new_div);
 	if (rc)
 		goto err_set_src_div;
 
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	
-	set_acpuclk_cpu_freq_footprint(FT_CUR_RATE, 0, rrate);
-	set_acpuclk_footprint(0, ACPU_BEFORE_CLK_UNPREPARE);
-#endif
-
 	c->parent = new_parent;
 
 	__clk_post_reparent(c, old_parent, &flags);
-
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	set_acpuclk_footprint(0, ACPU_BEFORE_RETURN);
-#endif
 
 	return 0;
 
 err_set_src_div:
 	
 	WARN(rc, "disabling %s\n", new_parent->dbg_name);
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	set_acpuclk_footprint(0, ACPU_BEFORE_ERR_CLK_UNPREPARE);
-#endif
 
 	
 	__clk_post_reparent(c, new_parent, &flags);
 err_pre_reparent:
-
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	set_acpuclk_footprint(0, ACPU_BEFORE_ERR_SET_PARENT_RATE);
-#endif
 
 	WARN(rc, "%s: error changing parent (%s) rate to %ld\n",
 		c->dbg_name, old_parent->dbg_name, old_prate);
 	rc = clk_set_rate(old_parent, old_prate);
 err_set_rate:
 
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	set_acpuclk_footprint(0, ACPU_BEFORE_ERR_SET_RATE);
-#endif
-
 	WARN(rc, "%s: error changing back to original div (%d) and parent (%s)\n",
 		c->dbg_name, old_div, old_parent->dbg_name);
 	rc = set_src_div(md, old_parent, old_div);
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT) && defined(CONFIG_MSM_CORTEX_A7)
-	set_acpuclk_footprint(0, ACPU_BEFORE_ERR_RETURN);
-#endif
 
 	return rc;
 }

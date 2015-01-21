@@ -65,21 +65,13 @@
 #ifdef CONFIG_MSM_L1_ERR_PANIC
 #define ERP_L1_ERR(a) panic(a)
 #else
-#if defined(CONFIG_HTC_DEBUG_CACHE)
-#define ERP_L1_ERR(a) WARN(1, a)
-#else
 #define ERP_L1_ERR(a) do { } while (0)
-#endif
 #endif
 
 #ifdef CONFIG_MSM_L1_RECOV_ERR_PANIC
 #define ERP_L1_RECOV_ERR(a) panic(a)
 #else
-#if defined(CONFIG_HTC_DEBUG_CACHE)
-#define ERP_L1_RECOV_ERR(a) WARN(1, a)
-#else
 #define ERP_L1_RECOV_ERR(a) do { } while (0)
-#endif
 #endif
 
 #ifdef CONFIG_MSM_L2_ERP_PORT_PANIC
@@ -91,11 +83,7 @@
 #ifdef CONFIG_MSM_L2_ERP_1BIT_PANIC
 #define ERP_1BIT_ERR(a) panic(a)
 #else
-#if defined(CONFIG_HTC_DEBUG_CACHE)
-#define ERP_1BIT_ERR(a) WARN(1, a)
-#else
 #define ERP_1BIT_ERR(a) do { } while (0)
-#endif
 #endif
 
 #ifdef CONFIG_MSM_L2_ERP_PRINT_ACCESS_ERRORS
@@ -107,11 +95,7 @@
 #ifdef CONFIG_MSM_L2_ERP_2BIT_PANIC
 #define ERP_2BIT_ERR(a) panic(a)
 #else
-#if defined(CONFIG_HTC_DEBUG_CACHE)
-#define ERP_2BIT_ERR(a) WARN(1, a)
-#else
 #define ERP_2BIT_ERR(a) do { } while (0)
-#endif
 #endif
 
 #define MODULE_NAME "msm_cache_erp"

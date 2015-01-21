@@ -437,10 +437,6 @@ int qmi_send_req_wait(struct qmi_handle *handle,
 	mutex_lock(&handle->handle_lock);
 	if (!txn_handle->resp_received) {
 		pr_err("%s: Response Wait Error %d\n", __func__, rc);
-#ifdef CONFIG_HTC_DEBUG_DSP
-		pr_err("[AUD]trigger ramdump to keep status\n");
-		BUG();
-#endif
 		if (handle->handle_reset)
 			rc = -ENETRESET;
 		if (rc >= 0)

@@ -1133,10 +1133,6 @@ static int msm_slim_qmi_send_power_request(struct msm_slim_ctrl *dev,
 					&resp_desc, &resp, sizeof(resp), 5000);
 	if (rc < 0) {
 		SLIM_ERR(dev, "%s: QMI send req failed %d\n", __func__, rc);
-#ifdef CONFIG_HTC_DEBUG_DSP
-		pr_err("trigger ramdump to keep status\n");
-		BUG();
-#endif
 		return rc;
 	}
 
