@@ -58,5 +58,11 @@ obj-$(CONFIG_PHONE)		+= telephony/
 obj-$(CONFIG_RAMSTER)		+= ramster/
 obj-$(CONFIG_USB_WPAN_HCD)	+= ozwpan/
 obj-$(CONFIG_HTC_RADIO_SMEM)   += htc_smem/
+
+ifndef CONFIG_PRIMA_OLDSHIT
 obj-$(CONFIG_PRIMA_WLAN)	+= prima/
 obj-$(CONFIG_PRONTO_WLAN)	+= prima/
+else
+obj-$(CONFIG_PRIMA_WLAN)	+= prima_oldshit/
+obj-$(CONFIG_PRONTO_WLAN)	+= prima_oldshit/
+endif
