@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -18,11 +18,25 @@
  * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-
 /*
- * This file was originally distributed by Qualcomm Atheros, Inc.
- * under proprietary terms before Copyright ownership was assigned
- * to the Linux Foundation.
+ * Copyright (c) 2012, The Linux Foundation. All rights reserved.
+ *
+ * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
+ *
+ *
+ * Permission to use, copy, modify, and/or distribute this software for
+ * any purpose with or without fee is hereby granted, provided that the
+ * above copyright notice and this permission notice appear in all
+ * copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+ * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+ * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+ * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+ * PERFORMANCE OF THIS SOFTWARE.
  */
 
 /*===========================================================================
@@ -240,7 +254,7 @@ void WLANTLPrintPktsRcvdPerRateIdx(v_PVOID_t pAdapter, v_U8_t staId, v_BOOL_t fl
         /* printing int the below format
          * " rateIndex = pktCount "*/
         TLLOG1(VOS_TRACE(VOS_MODULE_ID_TL, VOS_TRACE_LEVEL_ERROR,
-                         "%d = %d", ii+1,
+                         "%d = %ld", ii+1,
                          tlCtxt->atlSTAClients[staId]->trafficStatistics.pktCounterRateIdx[ii]));
     }
 
@@ -295,7 +309,7 @@ void WLANTLPrintPktsRcvdPerRssi(v_PVOID_t pAdapter, v_U8_t staId, v_BOOL_t flush
         /* prints are in the below format
          * " fromRSSI - toRSSI = pktCount " */
         TLLOG1(VOS_TRACE(VOS_MODULE_ID_TL, VOS_TRACE_LEVEL_ERROR,
-                         " %d - %d = %d",
+                         " %d - %d = %ld",
                          ii, ii+(MAX_RSSI_INTERVAL - 1), count));
     }
     return;
@@ -612,7 +626,7 @@ VOS_STATUS WLANTL_StatHandleRXFrame
      tlCtxt->atlSTAClients[STAid]->trafficStatistics.pktCounterRssi[(v_U16_t)((WDA_GET_RX_RSSI_DB(pBDHeader)) * (-1))]++;
 #endif
    TLLOG1(VOS_TRACE (VOS_MODULE_ID_TL, VOS_TRACE_LEVEL_INFO_MED,
-                  "****Received rate Index = %d type=%d subtype=%d****",
+                  "****Received rate Index = %ld type=%d subtype=%d****\n",
                   statistics->rxRate,WDA_GET_RX_TYPE(pBDHeader),WDA_GET_RX_SUBTYPE(pBDHeader)));
 
    statistics->rxBcnt += (packetSize - WLANHAL_RX_BD_HEADER_SIZE);
@@ -1463,7 +1477,7 @@ VOS_STATUS WLANTL_HSRegRSSIIndicationCB
             for(sIdx = (currentHO->numThreshold - 1); (sIdx > idx) || (sIdx == idx); sIdx--)
             {
                TLLOG1(VOS_TRACE(VOS_MODULE_ID_TL, VOS_TRACE_LEVEL_INFO, "Shift %d array to %d", sIdx, sIdx + 1));
-               vos_mem_copy(&hoSupport->registeredInd[sIdx + 1], &hoSupport->registeredInd[sIdx], sizeof(WLANTL_HO_RSSI_INDICATION_TYPE));
+               memcpy(&hoSupport->registeredInd[sIdx + 1], &hoSupport->registeredInd[sIdx], sizeof(WLANTL_HO_RSSI_INDICATION_TYPE));
                memset(&hoSupport->registeredInd[sIdx], 0, sizeof(WLANTL_HO_RSSI_INDICATION_TYPE));
                if(0 == sIdx)
                {
@@ -1676,7 +1690,7 @@ VOS_STATUS WLANTL_HSDeregRSSIIndicationCB
             for(sIdx = idx; sIdx < (currentHO->numThreshold - 1); sIdx++)
             {
                TLLOG1(VOS_TRACE(VOS_MODULE_ID_TL, VOS_TRACE_LEVEL_INFO,"Shift up from %d to %d", sIdx + 1, sIdx));
-               vos_mem_copy(&hoSupport->registeredInd[sIdx], &hoSupport->registeredInd[sIdx + 1], sizeof(WLANTL_HO_RSSI_INDICATION_TYPE));
+               memcpy(&hoSupport->registeredInd[sIdx], &hoSupport->registeredInd[sIdx + 1], sizeof(WLANTL_HO_RSSI_INDICATION_TYPE));
             }
          }
          break;
@@ -2036,4 +2050,4 @@ VOS_STATUS WLANTL_HSSerializeTlIndication
    return status;   
 }
 
-#endif //WLAN_FEATURE_NEIGHBOR_ROAMING
+#endif //FEATURE_WLAN_GEN6_ROAMING || WLAN_FEATURE_NEIGHBOR_ROAMING

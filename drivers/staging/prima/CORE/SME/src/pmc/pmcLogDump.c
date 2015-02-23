@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -18,11 +18,25 @@
  * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-
 /*
- * This file was originally distributed by Qualcomm Atheros, Inc.
- * under proprietary terms before Copyright ownership was assigned
- * to the Linux Foundation.
+ * Copyright (c) 2012, The Linux Foundation. All rights reserved.
+ *
+ * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
+ *
+ *
+ * Permission to use, copy, modify, and/or distribute this software for
+ * any purpose with or without fee is hereby granted, provided that the
+ * above copyright notice and this permission notice appear in all
+ * copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+ * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+ * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+ * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+ * PERFORMANCE OF THIS SOFTWARE.
  */
 
 /******************************************************************************
@@ -51,21 +65,21 @@
 void dump_pmc_callbackRoutine (void *callbackContext, eHalStatus status)
 {
     tpAniSirGlobal pMac = (tpAniSirGlobal)callbackContext;
-    pmcLog(pMac, LOGW, "*********Received callback from PMC with status = %d\n*********",status);
+    smsLog(pMac, LOGW, "*********Received callback from PMC with status = %d\n*********",status);
 }
 
 #ifdef WLAN_WAKEUP_EVENTS
 void dump_pmc_callbackRoutine2 (void *callbackContext, tpSirWakeReasonInd pWakeReasonInd)
 {
     tpAniSirGlobal pMac = (tpAniSirGlobal)callbackContext;
-    pmcLog(pMac, LOGW, "*********Received callback from PMC with reason = %d\n*********",pWakeReasonInd->ulReason);
+    smsLog(pMac, LOGW, "*********Received callback from PMC with reason = %d\n*********",pWakeReasonInd->ulReason);
 }
 #endif // WLAN_WAKEUP_EVENTS
 
 void dump_pmc_deviceUpdateRoutine (void *callbackContext, tPmcState pmcState)
 {
     tpAniSirGlobal pMac = (tpAniSirGlobal)callbackContext;
-    pmcLog(pMac, LOGW, "*********Received msg from PMC: Device is in %s state\n*********", pmcGetPmcStateStr(pmcState));
+    smsLog(pMac, LOGW, "*********Received msg from PMC: Device is in %s state\n*********", pmcGetPmcStateStr(pmcState));
 }
 
 static char *
@@ -89,7 +103,7 @@ dump_pmc_state( tpAniSirGlobal pMac, tANI_U32 arg1, tANI_U32 arg2, tANI_U32 arg3
     p += log_sprintf( pMac,p, " PMC: UapsdSessionRequired = %d\n", pMac->pmc.uapsdSessionRequired);
     p += log_sprintf( pMac,p, " PMC: wowlModeRequired = %d\n\n", pMac->pmc.wowlModeRequired);
 
-    pmcLog(pMac, LOGW, "\n%s", ptr);
+    smsLog(pMac, LOGW, "\n%s", ptr);
 
     return p;
 }
@@ -222,12 +236,11 @@ dump_pmc_enter_wowl( tpAniSirGlobal pMac, tANI_U32 arg1, tANI_U32 arg2, tANI_U32
 
     (void) arg4;
 
-    vos_mem_set(&wowlEnterParams, sizeof(tSirSmeWowlEnterParams), 0);
+    palZeroMemory(pMac->hHdd, &wowlEnterParams, sizeof(tSirSmeWowlEnterParams));
 
     if (arg1 == 0 && arg2 == 0)
     {
-        pmcLog(pMac, LOGE,
-               "Requesting WoWL but neither magic pkt and ptrn byte matching is being enabled\n");
+        smsLog(pMac, LOGE, "Requesting WoWL but neither magic pkt and ptrn byte matching is being enabled\n");
         return p;
     }
     if(arg1 == 1)
@@ -238,8 +251,7 @@ dump_pmc_enter_wowl( tpAniSirGlobal pMac, tANI_U32 arg1, tANI_U32 arg2, tANI_U32
         status = wlan_cfgGetStr(pMac, WNI_CFG_STA_ID, (tANI_U8 *)wowlEnterParams.magicPtrn, &length); 
         if (eSIR_SUCCESS != status)
         {
-            pmcLog(pMac, LOGE,
-                   "Reading of WNI_CFG_STA_ID from CFG failed. Using hardcoded STA MAC Addr\n");
+            smsLog(pMac, LOGE, "Reading of WNI_CFG_STA_ID from CFG failed. Using hardcoded STA MAC Addr\n");
             wowlEnterParams.magicPtrn[0] = 0x00;
             wowlEnterParams.magicPtrn[1] = 0x0a;
             wowlEnterParams.magicPtrn[2] = 0xf5;
@@ -255,7 +267,7 @@ dump_pmc_enter_wowl( tpAniSirGlobal pMac, tANI_U32 arg1, tANI_U32 arg2, tANI_U32
 
     if(arg3 == CSR_ROAM_SESSION_MAX )
     {
-        pmcLog(pMac, LOGE, "Enter valid sessionId\n");
+        smsLog(pMac, LOGE, "Enter valid sessionId\n");
         return p;
     }
     pMac->pmc.bmpsEnabled = TRUE;
@@ -275,7 +287,7 @@ static char *
 dump_pmc_exit_wowl( tpAniSirGlobal pMac, tANI_U32 arg1, tANI_U32 arg2, tANI_U32 arg3, tANI_U32 arg4, char *p)
 {
     (void) arg1; (void) arg2; (void) arg3; (void) arg4;
-    (void)sme_ExitWowl(pMac, eWOWL_EXIT_USER);
+    (void)sme_ExitWowl(pMac);
     return p;
 }
 
@@ -286,7 +298,7 @@ dump_pmc_remove_ptrn( tpAniSirGlobal pMac, tANI_U32 arg1, tANI_U32 arg2, tANI_U3
     tANI_U8  sessionId = 0;
     (void) arg3; (void) arg4;
  
-    vos_mem_set(&delPattern, sizeof(tSirWowlDelBcastPtrn), 0);
+    palZeroMemory(pMac->hHdd, &delPattern, sizeof(tSirWowlDelBcastPtrn));
 
     if((arg1 <= 7) || (arg2 == CSR_ROAM_SESSION_MAX))
     {
@@ -294,7 +306,7 @@ dump_pmc_remove_ptrn( tpAniSirGlobal pMac, tANI_U32 arg1, tANI_U32 arg2, tANI_U3
     }
     else
     {
-        pmcLog(pMac, LOGE, "dump_pmc_remove_ptrn: Invalid pattern Id %d\n",arg1);
+        smsLog(pMac, LOGE, "dump_pmc_remove_ptrn: Invalid pattern Id %d\n",arg1);
         return p;
     }
 
@@ -336,15 +348,15 @@ dump_pmc_test_Wowl( tpAniSirGlobal pMac, tANI_U32 arg1, tANI_U32 arg2, tANI_U32 
     tANI_U8            sessionId = 0;
 
     smeRsp.statusCode = eSIR_SME_SUCCESS;
-    vos_mem_set(&addPattern, sizeof(tSirWowlAddBcastPtrn), 0);
-    vos_mem_set(&delPattern, sizeof(tSirWowlDelBcastPtrn), 0);
-    vos_mem_set(&wowlEnterParams, sizeof(tSirSmeWowlEnterParams), 0);
+    palZeroMemory(pMac->hHdd, &addPattern, sizeof(tSirWowlAddBcastPtrn));
+    palZeroMemory(pMac->hHdd, &delPattern, sizeof(tSirWowlDelBcastPtrn));
+    palZeroMemory(pMac->hHdd, &wowlEnterParams, sizeof(tSirSmeWowlEnterParams));
 
     (void) arg2; (void) arg3; (void) arg4;
 
     if(arg1 == CSR_ROAM_SESSION_MAX)
     {
-        pmcLog(pMac, LOGE, "dump_pmc_test_Wowl: Invalid sessionId\n");
+        smsLog(pMac, LOGE, "dump_pmc_test_Wowl: Invalid sessionId\n");
         return p;
     }
 
@@ -369,7 +381,7 @@ dump_pmc_test_Wowl( tpAniSirGlobal pMac, tANI_U32 arg1, tANI_U32 arg2, tANI_U32 
     pmcMessageProcessor(pMac, &smeRsp);
 
     //Exit Wowl
-    sme_ExitWowl(pMac, eWOWL_EXIT_USER);
+    sme_ExitWowl(pMac);
     smeRsp.messageType = eWNI_PMC_EXIT_WOWL_RSP;
     pmcMessageProcessor(pMac, &smeRsp);
     return p;

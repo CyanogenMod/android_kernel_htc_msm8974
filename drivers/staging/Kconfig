@@ -21,11 +21,6 @@ menuconfig STAGING
 
 	  If in doubt, say N here.
 
-config PRIMA_OLDSHIT
-        tristate "Use the oldshit Qualcomm Atheros Prima WLAN module"
-        default n
-        help
-        Add support for the oldshit Qualcomm Atheros Prima WLAN module
 
 if STAGING
 
@@ -139,12 +134,6 @@ source "drivers/staging/ozwpan/Kconfig"
 
 source "drivers/staging/htc_smem/Kconfig"
 
-endif # STAGING
-
-if !PRIMA_OLDSHIT
 source "drivers/staging/prima/Kconfig"
-endif # !PRIMA_OLDSHIT
 
-if PRIMA_OLDSHIT
-source "drivers/staging/prima_oldshit/Kconfig"
-endif # PRIMA_OLDSHIT
+endif # STAGING

@@ -1,5 +1,25 @@
 /*
- * Copyright (c) 2012-2013 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ *
+ * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
+ *
+ *
+ * Permission to use, copy, modify, and/or distribute this software for
+ * any purpose with or without fee is hereby granted, provided that the
+ * above copyright notice and this permission notice appear in all
+ * copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+ * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+ * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+ * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+ * PERFORMANCE OF THIS SOFTWARE.
+ */
+/*
+ * Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -19,11 +39,6 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/*
- * This file was originally distributed by Qualcomm Atheros, Inc.
- * under proprietary terms before Copyright ownership was assigned
- * to the Linux Foundation.
- */
 
 /*===========================================================================
 
@@ -38,6 +53,10 @@
   DEPENDENCIES:
 
   Are listed for each API below.
+
+  Copyright (c) 2010 Qualcomm Technologies, Inc.
+  All Rights Reserved.
+  Qualcomm Technologies Confidential and Proprietary
 ===========================================================================*/
 
 /*===========================================================================
@@ -620,8 +639,7 @@ WLANSAP_StartBss
             //then we just follow that sessions country info (whether
             //present or not doesn't maater as we have to follow whatever
             //STA session does)
-            if ((0 == sme_GetConcurrentOperationChannel(hHal)) &&
-                pConfig->ieee80211d)
+            if (0 == sme_GetConcurrentOperationChannel(hHal))
             {
                 /* Setting the region/country  information */
                 sme_setRegInfo(hHal, pConfig->countryCode);
@@ -1054,9 +1072,10 @@ WLANSAP_ModifyACL
     if (staInWhiteList && staInBlackList)
     {
         VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR,
-                "Peer mac "MAC_ADDRESS_STR" found in white and black lists."
+                "Peer mac %02x:%02x:%02x:%02x:%02x:%02x found in white and black lists."
                 "Initial lists passed incorrect. Cannot execute this command.",
-                MAC_ADDR_ARRAY(pPeerStaMac));
+                pPeerStaMac[0], pPeerStaMac[1], pPeerStaMac[2], pPeerStaMac[3],
+                pPeerStaMac[4], pPeerStaMac[5]);
         return VOS_STATUS_E_FAILURE;
 
     }
@@ -1072,16 +1091,18 @@ WLANSAP_ModifyACL
                 if (pSapCtx->nAcceptMac == MAX_ACL_MAC_ADDRESS)
                 {
                     VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR,
-                            "White list is already maxed out. Cannot accept "MAC_ADDRESS_STR,
-                            MAC_ADDR_ARRAY(pPeerStaMac));
+                            "White list is already maxed out. Cannot accept %02x:%02x:%02x:%02x:%02x:%02x",
+                            pPeerStaMac[0], pPeerStaMac[1], pPeerStaMac[2], pPeerStaMac[3],
+                            pPeerStaMac[4], pPeerStaMac[5]);
                     return VOS_STATUS_E_FAILURE;
                 }
                 if (staInWhiteList)
                 {
                     //Do nothing if already present in white list. Just print a warning
                     VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_WARN,
-                            "MAC address already present in white list "MAC_ADDRESS_STR,
-                            MAC_ADDR_ARRAY(pPeerStaMac));
+                            "MAC address already present in white list %02x:%02x:%02x:%02x:%02x:%02x",
+                            pPeerStaMac[0], pPeerStaMac[1], pPeerStaMac[2], pPeerStaMac[3],
+                            pPeerStaMac[4], pPeerStaMac[5]);
                 } else
                 {
                     if (staInBlackList)
@@ -1110,8 +1131,9 @@ WLANSAP_ModifyACL
                 else
                 {
                     VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_WARN,
-                            "MAC address to be deleted is not present in the white list "MAC_ADDRESS_STR,
-                            MAC_ADDR_ARRAY(pPeerStaMac));
+                            "MAC address to be deleted is not present in the white list %02x:%02x:%02x:%02x:%02x:%02x",
+                            pPeerStaMac[0], pPeerStaMac[1], pPeerStaMac[2], pPeerStaMac[3],
+                            pPeerStaMac[4], pPeerStaMac[5]);
                     return VOS_STATUS_E_FAILURE;
                 }
             }
@@ -1132,16 +1154,18 @@ WLANSAP_ModifyACL
                 if (pSapCtx->nDenyMac == MAX_ACL_MAC_ADDRESS)
                 {
                     VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR,
-                            "Black list is already maxed out. Cannot accept "MAC_ADDRESS_STR,
-                            MAC_ADDR_ARRAY(pPeerStaMac));
+                            "Black list is already maxed out. Cannot accept %02x:%02x:%02x:%02x:%02x:%02x",
+                            pPeerStaMac[0], pPeerStaMac[1], pPeerStaMac[2], pPeerStaMac[3],
+                            pPeerStaMac[4], pPeerStaMac[5]);
                     return VOS_STATUS_E_FAILURE;
                 }
                 if (staInBlackList)
                 {
                     //Do nothing if already present in white list
                     VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_WARN,
-                            "MAC address already present in black list "MAC_ADDRESS_STR,
-                            MAC_ADDR_ARRAY(pPeerStaMac));
+                            "MAC address already present in black list %02x:%02x:%02x:%02x:%02x:%02x",
+                            pPeerStaMac[0], pPeerStaMac[1], pPeerStaMac[2], pPeerStaMac[3],
+                            pPeerStaMac[4], pPeerStaMac[5]);
                 } else
                 {
                     if (staInWhiteList)
@@ -1170,8 +1194,9 @@ WLANSAP_ModifyACL
                 else
                 {
                     VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_WARN,
-                            "MAC address to be deleted is not present in the black list "MAC_ADDRESS_STR,
-                            MAC_ADDR_ARRAY(pPeerStaMac));
+                            "MAC address to be deleted is not present in the black list %02x:%02x:%02x:%02x:%02x:%02x",
+                            pPeerStaMac[0], pPeerStaMac[1], pPeerStaMac[2], pPeerStaMac[3],
+                            pPeerStaMac[4], pPeerStaMac[5]);
                     return VOS_STATUS_E_FAILURE;
                 }
             }
@@ -1374,11 +1399,7 @@ WLANSAP_SetChannelRange(tHalHandle hHal,v_U8_t startChannel, v_U8_t endChannel,
 
        case RF_SUBBAND_5_MID_GHZ:
           bandStartChannel = RF_CHAN_100;
-#ifndef FEATURE_WLAN_CH144
           bandEndChannel = RF_CHAN_140;
-#else
-          bandEndChannel = RF_CHAN_144;
-#endif /* FEATURE_WLAN_CH144 */
           break;
 
        case RF_SUBBAND_5_HIGH_GHZ:

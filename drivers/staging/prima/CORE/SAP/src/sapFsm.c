@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -18,11 +18,25 @@
  * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-
 /*
- * This file was originally distributed by Qualcomm Atheros, Inc.
- * under proprietary terms before Copyright ownership was assigned
- * to the Linux Foundation.
+ * Copyright (c) 2012, The Linux Foundation. All rights reserved.
+ *
+ * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
+ *
+ *
+ * Permission to use, copy, modify, and/or distribute this software for
+ * any purpose with or without fee is hereby granted, provided that the
+ * above copyright notice and this permission notice appear in all
+ * copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+ * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+ * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+ * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+ * PERFORMANCE OF THIS SOFTWARE.
  */
 
 /*===========================================================================
@@ -86,9 +100,7 @@
 /*----------------------------------------------------------------------------
  *  External declarations for global context
  * -------------------------------------------------------------------------*/
-#ifdef FEATURE_WLAN_CH_AVOID
-extern safeChannelType safeChannels[];
-#endif /* FEATURE_WLAN_CH_AVOID */
+
 /*----------------------------------------------------------------------------
  * Static Variable Definitions
  * -------------------------------------------------------------------------*/
@@ -196,9 +208,6 @@ sapGotoChannelSel
         { /*if a valid channel is returned then use concurrent channel.
                   Else take whatever comes from configuartion*/
             sapContext->channel = channel;
-            sme_SelectCBMode(hHal,
-                             sapConvertSapPhyModeToCsrPhyMode(sapContext->csrRoamProfile.phyMode),
-                             channel);
         }
     }
 
@@ -504,12 +513,7 @@ sapSignalHDDevent
     /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
     /* Format the Start BSS Complete event to return... */
-    if (NULL == sapContext->pfnSapEventCallback)
-    {
-         VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR, "%s: HDD Event"
-                " callaback invalid", __func__);
-        return VOS_STATUS_E_INVAL;
-    }
+    VOS_ASSERT(sapContext->pfnSapEventCallback);
 
     switch (sapHddevent)
     {
@@ -852,7 +856,7 @@ sapFsm
              else if (msg == eSAP_MAC_START_FAILS)
              {
                  /*Transition from STARTING to DISCONNECTED (both without substates)*/
-                 VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR, "In %s, from state %s => %s",
+                 VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH, "In %s, from state %s => %s",
                             __func__, "eSAP_STARTING", "eSAP_DISCONNECTED");
 
                  /*Action code for transition */
@@ -1073,12 +1077,6 @@ sapconvertToCsrProfile(tsap_Config_t *pconfig_params, eCsrRoamBssType bssType, t
     //wps config info
     profile->wps_state = pconfig_params->wps_state;
 
-#ifdef WLAN_FEATURE_11W
-    // MFP capable/required
-    profile->MFPCapable = pconfig_params->mfpCapable ? 1 : 0;
-    profile->MFPRequired = pconfig_params->mfpRequired ? 1 : 0;
-#endif
-
     return eSAP_STATUS_SUCCESS; /* Success.  */
 }
 
@@ -1131,14 +1129,6 @@ sapSortMacList(v_MACADDR_t *macList, v_U8_t size)
     v_U8_t outer, inner;
     v_MACADDR_t temp;
     v_SINT_t nRes = -1;
-
-    if ((NULL == macList) || (size >= MAX_ACL_MAC_ADDRESS))
-    {
-        VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH,
-                      "In %s, either buffer is NULL or size = %d is more."
-                      ,__func__, size);
-        return;
-    }
 
     for(outer = 0; outer < size; outer++)
     {
@@ -1198,15 +1188,6 @@ sapAddMacToACL(v_MACADDR_t *macList, v_U8_t *size, v_U8_t *peerMac)
     v_SINT_t nRes = -1;
     int i;
     VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH,"add acl entered");
-
-    if ((NULL == macList) || (*size >= MAX_ACL_MAC_ADDRESS))
-    {
-        VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH,
-                    "In %s, either buffer is NULL or size %d is incorrect."
-                    , __func__, *size);
-        return;
-    }
-
     for (i=((*size)-1); i>=0; i--)
     {
         nRes = vos_mem_compare2(&macList[i], peerMac, sizeof(v_MACADDR_t));
@@ -1235,13 +1216,7 @@ sapRemoveMacFromACL(v_MACADDR_t *macList, v_U8_t *size, v_U8_t index)
     /* return if the list passed is empty. Ideally this should never happen since this funcn is always
        called after sapSearchMacList to get the index of the mac addr to be removed and this will
        only get called if the search is successful. Still no harm in having the check */
-    if ((macList==NULL) || (*size == 0) || (*size > MAX_ACL_MAC_ADDRESS))
-    {
-        VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH,
-                    "In %s, either buffer is NULL or size %d is incorrect."
-                    , __func__, *size);
-        return;
-    }
+    if (macList==NULL) return;
     for (i=index; i<((*size)-1); i++)
     {
         /* Move mac addresses starting from "index" passed one index up to delete the void
@@ -1257,23 +1232,14 @@ sapRemoveMacFromACL(v_MACADDR_t *macList, v_U8_t *size, v_U8_t index)
 void sapPrintACL(v_MACADDR_t *macList, v_U8_t size)
 {
     int i;
-    v_BYTE_t *macArray;
     VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH,"print acl entered");
-
-    if ((NULL == macList) || (size == 0) || (size >= MAX_ACL_MAC_ADDRESS))
-    {
-        VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH,
-                    "In %s, either buffer is NULL or size %d is incorrect."
-                    , __func__, size);
-        return;
-    }
-
+    if (size==0) return;
     for (i=0; i<size; i++)
     {
-        macArray = (macList+i)->bytes;
         VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH,
-                "** ACL entry %i - "MAC_ADDRESS_STR, i,
-                MAC_ADDR_ARRAY(macArray));
+                "** ACL entry %i - %02x:%02x:%02x:%02x:%02x:%02x", i,
+                (macList+i)->bytes[0], (macList+i)->bytes[1], (macList+i)->bytes[2],
+                (macList+i)->bytes[3], (macList+i)->bytes[4], (macList+i)->bytes[5]);
     }
     return;
 }
@@ -1289,9 +1255,8 @@ sapIsPeerMacAllowed(ptSapContext sapContext, v_U8_t *peerMac)
 
     if (sapSearchMacList(sapContext->denyMacList, sapContext->nDenyMac, peerMac, NULL))
     {
-        VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH,
-                  "In %s, Peer "MAC_ADDRESS_STR" in deny list",
-                  __func__, MAC_ADDR_ARRAY(peerMac));
+        VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH, "In %s, Peer %02x:%02x:%02x:%02x:%02x:%02x in deny list",
+                __func__, *peerMac, *(peerMac + 1), *(peerMac + 2), *(peerMac + 3), *(peerMac + 4), *(peerMac + 5));
         return VOS_STATUS_E_FAILURE;
     }
 
@@ -1302,9 +1267,8 @@ sapIsPeerMacAllowed(ptSapContext sapContext, v_U8_t *peerMac)
     // A new station CANNOT associate, unless in accept list. More stringent mode
     if (eSAP_DENY_UNLESS_ACCEPTED == sapContext->eSapMacAddrAclMode)
     {
-        VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH,
-                  "In %s, Peer "MAC_ADDRESS_STR" denied, Mac filter mode is eSAP_DENY_UNLESS_ACCEPTED",
-                  __func__,  MAC_ADDR_ARRAY(peerMac));
+        VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH, "In %s, Peer %02x:%02x:%02x:%02x:%02x:%02x denied, Mac filter mode is eSAP_DENY_UNLESS_ACCEPTED",
+                __func__,  *peerMac, *(peerMac + 1), *(peerMac + 2), *(peerMac + 3), *(peerMac + 4), *(peerMac + 5));
         return VOS_STATUS_E_FAILURE;
     }
 
@@ -1314,9 +1278,8 @@ sapIsPeerMacAllowed(ptSapContext sapContext, v_U8_t *peerMac)
     if (eSAP_SUPPORT_ACCEPT_AND_DENY == sapContext->eSapMacAddrAclMode)
     {
         sapSignalHDDevent(sapContext, NULL, eSAP_UNKNOWN_STA_JOIN, (v_PVOID_t)peerMac);
-        VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH,
-                  "In %s, Peer "MAC_ADDRESS_STR" denied, Mac filter mode is eSAP_SUPPORT_ACCEPT_AND_DENY",
-                  __func__, MAC_ADDR_ARRAY(peerMac));
+        VOS_TRACE( VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_INFO_HIGH, "In %s, Peer %02x:%02x:%02x:%02x:%02x:%02x denied, Mac filter mode is eSAP_SUPPORT_ACCEPT_AND_DENY",
+                __func__,  *peerMac, *(peerMac + 1), *(peerMac + 2), *(peerMac + 3), *(peerMac + 4), *(peerMac + 5));
         return VOS_STATUS_E_FAILURE;
     }
     return VOS_STATUS_SUCCESS;
@@ -1336,10 +1299,6 @@ static VOS_STATUS sapGetChannelList(ptSapContext sapContext,
     v_U8_t bandEndChannel ;
     v_U32_t enableLTECoex;
     tHalHandle hHal = VOS_GET_HAL_CB(sapContext->pvosGCtx);
-#ifdef FEATURE_WLAN_CH_AVOID
-    v_U8_t i;
-#endif
-
 
     if (NULL == hHal)
     {
@@ -1373,11 +1332,7 @@ static VOS_STATUS sapGetChannelList(ptSapContext sapContext,
 
         case RF_SUBBAND_5_MID_GHZ:
            bandStartChannel = RF_CHAN_100;
-#ifndef FEATURE_WLAN_CH144
            bandEndChannel = RF_CHAN_140;
-#else
-           bandEndChannel = RF_CHAN_144;
-#endif /* FEATURE_WLAN_CH144 */
            break;
 
         case RF_SUBBAND_5_HIGH_GHZ:
@@ -1420,25 +1375,8 @@ static VOS_STATUS sapGetChannelList(ptSapContext sapContext,
         {
             if( regChannels[loopCount].enabled )
             {
-#ifdef FEATURE_WLAN_CH_AVOID
-                for( i = 0; i < NUM_20MHZ_RF_CHANNELS; i++ )
-                {
-                    if( (safeChannels[i].channelNumber ==
-                                rfChannels[loopCount].channelNum) )
-                    {
-                        /* Check if channel is safe */
-                        if(VOS_TRUE == safeChannels[i].isSafe)
-                        {
-#endif
-                            list[channelCount] =
-                                     rfChannels[loopCount].channelNum;
-                            channelCount++;
-#ifdef FEATURE_WLAN_CH_AVOID
-                        }
-                        break;
-                    }
-                }
-#endif
+                list[channelCount] = rfChannels[loopCount].channelNum;
+                channelCount++;
             }
         }
     }

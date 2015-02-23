@@ -1,16 +1,13 @@
 # Android makefile for the WLAN Module
 
-# Assume no targets will be supported
-WLAN_CHIPSET :=
-
 # Build/Package options for 8960 target
-ifeq ($(TARGET_BOARD_PLATFORM),msm8960)
+ifeq ($(call is-board-platform,msm8960),true)
 WLAN_CHIPSET := prima
 WLAN_SELECT := CONFIG_PRIMA_WLAN=m
 endif
 
-# Build/Package options for 8916, 8974, 8226, 8610 targets
-ifneq (,$(filter msm8916 msm8974 msm8226 msm8610,$(TARGET_BOARD_PLATFORM)))
+# Build/Package options for 8974, 8226, 8610 targets
+ifeq ($(call is-board-platform-in-list,msm8974 msm8226 msm8610),true)
 WLAN_CHIPSET := pronto
 WLAN_SELECT := CONFIG_PRONTO_WLAN=m
 endif
@@ -36,22 +33,14 @@ else
     WLAN_BLD_DIR := vendor/qcom/opensource/wlan
 endif
 
-# DLKM_DIR was moved for JELLY_BEAN (PLATFORM_SDK 16)
-ifeq (1,$(filter 1,$(shell echo "$$(( $(PLATFORM_SDK_VERSION) >= 16 ))" )))
+ifeq ($(call is-android-codename,JELLY_BEAN),true)
        DLKM_DIR := $(TOP)/device/qcom/common/dlkm
 else
        DLKM_DIR := build/dlkm
 endif
 
-# Copy WCNSS_cfg.dat file from firmware_bin/ folder to target out directory.
-ifeq ($(WLAN_PROPRIETARY),0)
-
-$(shell mkdir -p $(TARGET_OUT_ETC)/firmware/wlan/prima)
-$(shell rm -f $(TARGET_OUT_ETC)/firmware/wlan/prima/WCNSS_cfg.dat)
-$(shell cp $(LOCAL_PATH)/firmware_bin/WCNSS_cfg.dat $(TARGET_OUT_ETC)/firmware/wlan/prima)
-
-else
-
+ifeq ($(WLAN_PROPRIETARY),1)
+# For the proprietary driver the firmware files are handled here
 include $(CLEAR_VARS)
 LOCAL_MODULE       := WCNSS_qcom_wlan_nv.bin
 LOCAL_MODULE_TAGS  := optional
@@ -108,6 +97,14 @@ include $(DLKM_DIR)/AndroidKernelModule.mk
 $(shell mkdir -p $(TARGET_OUT)/lib/modules; \
         ln -sf /system/lib/modules/$(WLAN_CHIPSET)/$(WLAN_CHIPSET)_wlan.ko \
                $(TARGET_OUT)/lib/modules/wlan.ko)
+
+ifeq ($(WLAN_PROPRIETARY),1)
+$(shell mkdir -p $(TARGET_OUT_ETC)/firmware/wlan/prima; \
+        ln -sf /persist/WCNSS_qcom_wlan_nv.bin \
+        $(TARGET_OUT_ETC)/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin; \
+        ln -sf /data/misc/wifi/WCNSS_qcom_cfg.ini \
+        $(TARGET_OUT_ETC)/firmware/wlan/prima/WCNSS_qcom_cfg.ini)
+endif
 
 endif # DLKM check
 

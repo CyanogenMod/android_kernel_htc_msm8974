@@ -3095,7 +3095,6 @@ CONFIG_UIO_MSM_SHAREDMEM=y
 # Microsoft Hyper-V guest support
 #
 CONFIG_STAGING=y
-CONFIG_PRIMA_OLDSHIT=y
 # CONFIG_USBIP_CORE is not set
 # CONFIG_PRISM2_USB is not set
 # CONFIG_ECHO is not set
