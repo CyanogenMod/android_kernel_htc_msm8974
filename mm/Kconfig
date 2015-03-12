@@ -401,14 +401,3 @@ config USE_USER_ACCESSIBLE_TIMERS
 	  architecture-specific code that will need to be enabled
 	  separately.
 
-config HTC_DEBUG_PAGE_USER_TRACE
-    bool "Record call trace of page user in page structure"
-    depends on PAGE_POISONING
-    default n
-    help
-      For debugging purpose, add call trace of user (freer and
-      allocator) to page structure
-
-config HTC_DEBUG_PAGE_ENTRIES_NR
-    int
-    default 8

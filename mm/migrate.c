@@ -323,10 +323,6 @@ int migrate_huge_page_move_mapping(struct address_space *mapping,
 
 void migrate_page_copy(struct page *newpage, struct page *page)
 {
-#ifdef CONFIG_HTC_DEBUG_PAGE_USER_TRACE
-	memcpy(&newpage->trace_alloc, &page->trace_alloc, sizeof(page->trace_alloc));
-	memcpy(&newpage->trace_free, &page->trace_free, sizeof(page->trace_free));
-#endif
 
 	if (PageHuge(page))
 		copy_huge_page(newpage, page);

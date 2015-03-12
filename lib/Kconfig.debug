@@ -412,14 +412,6 @@ config SLUB_DEBUG_ON
 	  off in a kernel built with CONFIG_SLUB_DEBUG_ON by specifying
 	  "slub_debug=-".
 
-config SLUB_LIGHT_WEIGHT_DEBUG_ON
-	bool "SLUB light weight debugging on by default"
-	depends on SLUB && SLUB_DEBUG && SLUB_DEBUG_ON && !KMEMCHECK
-	default n
-	help
-	  Light weight memory corruption debugging for slub. Only SLAB_STORE_USER
-	  and SLAB_DEBUG_FREE was choosen.
-
 config SLUB_STATS
 	default n
 	bool "Enable SLUB performance statistics"

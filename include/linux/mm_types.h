@@ -24,14 +24,19 @@ struct address_space;
 
 #define USE_SPLIT_PTLOCKS	(NR_CPUS >= CONFIG_SPLIT_PTLOCK_CPUS)
 
-struct page_user_trace {
-	pid_t pid;
-	char comm[16];
-	pid_t tgid;
-	char tgcomm[16];
-	unsigned long entries[UL(CONFIG_HTC_DEBUG_PAGE_ENTRIES_NR)];
-};
-
+/*
+ * Each physical page in the system has a struct page associated with
+ * it to keep track of whatever it is we are using the page for at the
+ * moment. Note that we have no way to track which tasks are using
+ * a page, though if it is a pagecache page, rmap structures can tell us
+ * who is mapping it.
+ *
+ * The objects in struct page are organized in double word blocks in
+ * order to allows us to use atomic double word operations on portions
+ * of struct page. That is currently only used by slub but the arrangement
+ * allows the use of atomic double word operations on the flags/mapping
+ * and lru list pointers also.
+ */
 struct page {
 	
 	unsigned long flags;		
@@ -97,10 +102,6 @@ struct page {
 
 #ifdef CONFIG_KMEMCHECK
 	void *shadow;
-#endif
-#ifdef CONFIG_HTC_DEBUG_PAGE_USER_TRACE
-	struct page_user_trace trace_alloc;
-	struct page_user_trace trace_free;
 #endif
 }
 #ifdef CONFIG_HAVE_ALIGNED_STRUCT_PAGE

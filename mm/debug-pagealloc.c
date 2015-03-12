@@ -5,9 +5,6 @@
 #include <linux/page-debug-flags.h>
 #include <linux/poison.h>
 #include <linux/ratelimit.h>
-#include <linux/stacktrace.h>
-#include <linux/debugfs.h>
-#include <linux/sched.h>
 
 #ifndef mark_addr_rdonly
 #define mark_addr_rdonly(a)
@@ -107,63 +104,10 @@ static void unpoison_pages(struct page *page, int n)
 		unpoison_page(page + i);
 }
 
-#ifdef CONFIG_HTC_DEBUG_PAGE_USER_TRACE
-
-#define page_to_trace(page, free) \
-	(free ? \
-		&page->trace_free : \
-		&page->trace_alloc)
-#define page_to_entries_size(page, free) \
-	(free ? \
-		ARRAY_SIZE(page->trace_free.entries) : \
-		ARRAY_SIZE(page->trace_alloc.entries))
-
-static
-void htc_trace_pages_user(struct page *page, int numpages, int free)
-{
-	struct page_user_trace* user_trace;
-	struct stack_trace trace;
-	unsigned long* entries;
-	int nr_entries;
-
-	if (unlikely(!page))
-		return;
-
-	user_trace = page_to_trace(page, free);
-	entries = user_trace->entries;
-	nr_entries = page_to_entries_size(page, free);
-
-	user_trace->pid = current->pid;
-	user_trace->tgid = current->tgid;
-	memcpy(user_trace->comm, current->comm,
-			sizeof(user_trace->comm));
-	memcpy(user_trace->tgcomm, current->group_leader->comm,
-			sizeof(user_trace->comm));
-
-	if (unlikely(!nr_entries))
-		return;
-
-	memset(entries, 0, nr_entries * sizeof(*entries));
-	trace.max_entries = nr_entries;
-	trace.entries = entries;
-	trace.nr_entries = 0;
-	trace.skip = 3;
-	save_stack_trace(&trace);
-
-	for (; page++, numpages > 1; numpages--)
-		memcpy(page_to_trace(page, free), user_trace, sizeof(*user_trace));
-}
-#else
-static inline
-void htc_trace_pages_user(struct page *page, int numpages, int free) { }
-#endif 
-
 void kernel_map_pages(struct page *page, int numpages, int enable)
 {
 	if (enable)
 		unpoison_pages(page, numpages);
 	else
 		poison_pages(page, numpages);
-
-	htc_trace_pages_user(page, numpages, !enable);
 }
