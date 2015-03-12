@@ -97,11 +97,11 @@ static inline void decrement_wakelocks_number(void)
 {
 	number_of_wakelocks--;
 }
-#else 
+#else /* CONFIG_PM_WAKELOCKS_LIMIT = 0 */
 static inline bool wakelocks_limit_exceeded(void) { return false; }
 static inline void increment_wakelocks_number(void) {}
 static inline void decrement_wakelocks_number(void) {}
-#endif 
+#endif /* CONFIG_PM_WAKELOCKS_LIMIT */
 
 #ifdef CONFIG_PM_WAKELOCKS_GC
 #define WL_GC_COUNT_MAX	100
@@ -152,11 +152,11 @@ static void wakelocks_gc(void)
 	}
 	wakelocks_gc_count = 0;
 }
-#else 
+#else /* !CONFIG_PM_WAKELOCKS_GC */
 static inline void wakelocks_lru_add(struct wakelock *wl) {}
 static inline void wakelocks_lru_most_recent(struct wakelock *wl) {}
 static inline void wakelocks_gc(void) {}
-#endif 
+#endif /* !CONFIG_PM_WAKELOCKS_GC */
 
 static struct wakelock *wakelock_lookup_add(const char *name, size_t len,
 					    bool add_if_not_found)
@@ -188,7 +188,7 @@ static struct wakelock *wakelock_lookup_add(const char *name, size_t len,
 	if (wakelocks_limit_exceeded())
 		return ERR_PTR(-ENOSPC);
 
-	
+	/* Not found, we have to add a new one. */
 	wl = kzalloc(sizeof(*wl), GFP_KERNEL);
 	if (!wl)
 		return ERR_PTR(-ENOMEM);
@@ -223,7 +223,7 @@ int pm_wake_lock(const char *buf)
 		return -EINVAL;
 
 	if (*str && *str != '\n') {
-		
+		/* Find out if there's a valid timeout string appended. */
 		ret = kstrtou64(skip_spaces(str), 10, &timeout_ns);
 		if (ret)
 			return -EINVAL;
