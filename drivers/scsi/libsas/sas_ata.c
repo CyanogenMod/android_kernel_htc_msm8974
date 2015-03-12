@@ -720,7 +720,7 @@ static void async_sas_ata_eh(void *data, async_cookie_t cookie)
 void sas_ata_strategy_handler(struct Scsi_Host *shost)
 {
 	struct sas_ha_struct *sas_ha = SHOST_TO_SAS_HA(shost);
-	ASYNC_DOMAIN_EXCLUSIVE(async);
+	LIST_HEAD(async);
 	int i;
 
 	/* it's ok to defer revalidation events during ata eh, these
