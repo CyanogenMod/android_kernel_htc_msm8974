@@ -18,6 +18,12 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Linux Offload definitions.
+ * This file is only meant to be included via pvtcp_off.h.
+ */
 
 #ifndef _PVTCP_OFF_LINUX_H_
 #define _PVTCP_OFF_LINUX_H_
@@ -52,12 +58,16 @@ typedef enum PvtcpSockNamespace {
 } PvtcpSockNamespace;
 
 
+/* Number of large datagram allocations. */
 extern unsigned long long pvtcpOffDgramAllocations;
 
+/* Inet4 loopback addresses. */
 extern unsigned int pvtcpLoopbackOffAddr;
 
+/* Get the 'struct sock' from a PvtcpSock. */
 #define SkFromPvsk(pvsk) ((pvsk)->sk)
 
+/* Get the PvtcpSock from a 'struct sock'. */
 #define PvskFromSk(sk) ((PvtcpSock *)(sk)->sk_user_data)
 
 int
@@ -78,6 +88,11 @@ void PvtcpOutputAIO(PvtcpSock *pvsk);
 int PvtcpInputAIO(PvtcpSock *pvsk, void *perCpuBuf);
 
 
+/**
+ * @brief Switches a socket to the channel, or the initial name space.
+ * @param pvsk socket to switch.
+ * @param ns which namespace to switch to.
+ */
 
 static inline void
 PvtcpSwitchSock(PvtcpSock *pvsk,
@@ -92,7 +107,7 @@ PvtcpSwitchSock(PvtcpSock *pvsk,
    }
    sk = SkFromPvsk(pvsk);
    if (!sk) {
-      
+      /* If this is a phony, create fail reporting pvsk, just return. */
 
       return;
    }
@@ -111,6 +126,11 @@ PvtcpSwitchSock(PvtcpSock *pvsk,
 }
 
 
+/**
+ * @brief Tests whether a socket has an explicit namespace.
+ * @param pvsk socket to test.
+ * @return 1 if the socket has a namespace, 0 otherwise.
+ */
 
 static inline int
 PvtcpHasSockNamespace(PvtcpSock *pvsk)
@@ -124,7 +144,7 @@ PvtcpHasSockNamespace(PvtcpSock *pvsk)
    }
    sk = SkFromPvsk(pvsk);
    if (!sk) {
-      
+      /* If this is a phony, create fail reporting pvsk, just return 0. */
 
       return rc;
    }
@@ -137,6 +157,10 @@ PvtcpHasSockNamespace(PvtcpSock *pvsk)
 }
 
 
+/**
+ * @brief Retains the pvsock's underlying socket.
+ * @param pvsk socket to retain.
+ */
 
 static inline void
 PvtcpHoldSock(PvtcpSock *pvsk)
@@ -149,6 +173,11 @@ PvtcpHoldSock(PvtcpSock *pvsk)
 }
 
 
+/**
+ * @brief Releases a hold on the pvsock's underlying socket. If the underlying
+ *   socket is NULL, this is an error socket and we deallocate it.
+ * @param pvsk socket to release hold on.
+ */
 
 static inline void
 PvtcpPutSock(PvtcpSock *pvsk)
@@ -158,16 +187,35 @@ PvtcpPutSock(PvtcpSock *pvsk)
    if (likely(sk)) {
       sock_put(sk);
    } else {
+      /*
+       * This is an error socket, which does _not_ have an underlying socket.
+       * We simply need to free it.
+       */
 
       CommOS_Kfree(pvsk);
    }
 }
 
 
+/**
+ * @brief Schedules an offload socket for AIO.
+ * @param pvsk socket to schedule.
+ * @sideeffect the socket will be processed by AIO threads.
+ */
 
 static inline void
 PvtcpSchedSock(PvtcpSock *pvsk)
 {
+   /*
+    * We must hold the socket before we enqueue it for AIO, such that it may
+    * not be released while in the workqueue. If CommSvc_ScheduleAIOWork()
+    * returned non-zero, it means the socket had already been enqueued. In
+    * that case, we release the hold. Otherwise, the hold is released by the
+    * AIO function (PvtcpProcessAIO()).
+    * Note that error pv sockets may only originate from synchronized RPCs,
+    * or to be more precise, from PvtcpCreateOp(), and not from IO processing;
+    * this means that they cannot be attempted to be enqueued more than once.
+    */
 
    PvtcpHoldSock(pvsk);
    if (CommSvc_ScheduleAIOWork(&pvsk->work)) {
@@ -175,5 +223,5 @@ PvtcpSchedSock(PvtcpSock *pvsk)
    }
 }
 
-#endif 
+#endif /* _PVTCP_OFF_LINUX_H_ */
 

@@ -18,11 +18,17 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Communication functions based on transport functionality.
+ */
 
 #include "comm.h"
 #include "comm_transp_impl.h"
 
 
+/* Constant and macro definitions */
 
 #if defined(COMM_INSTRUMENT)
 static CommOSAtomic commMaxCoalesceSize;
@@ -79,35 +85,48 @@ static CommOSAtomic commOpCalls;
 	(((len) - sizeof(CommPacket)) > ((chan)->transpArgs.capacity / 4))
 
 
+/*
+ * Data structure describing the offload <-> paravirtualized module
+ * communication channel.
+ */
 
 struct CommChannelPriv {
-	CommOSAtomic holds;             
-	CommTranspInitArgs transpArgs;  
-	CommTransp transp;              
-	CommOSMutex dispatchMutex;      
-	CommOSMutex writeMutex;         
-	CommOSMutex stateMutex;         
-	CommOSWaitQueue availableWaitQ; 
-	unsigned int desiredWriteSpace; 
-	const CommImpl *impl;           
-	unsigned int implNmbOps;        
-	unsigned int lifecycleState;    
-	void *state;                    
+	CommOSAtomic holds;             /* Active readers and writers */
+	CommTranspInitArgs transpArgs;  /* Transport initialization arguments */
+	CommTransp transp;              /* Transport handle */
+	CommOSMutex dispatchMutex;      /* Dispatch mutex */
+	CommOSMutex writeMutex;         /* Non-BH write mutex */
+	CommOSMutex stateMutex;         /* Upper-layer state mutex */
+	CommOSWaitQueue availableWaitQ; /* Available write space wait data */
+	unsigned int desiredWriteSpace; /* Size of write space needed */
+	const CommImpl *impl;           /* Implementation */
+	unsigned int implNmbOps;        /* # of implementation operations */
+	unsigned int lifecycleState;    /* Lifecycle state */
+	void *state;                    /* Upper layer-specific state */
 };
 
 
-static int running;                     
-static CommOSWaitQueue exitWaitQ;       
-static CommOSSpinlock commGlobalLock;   
+static int running;                     /* Initialized and running */
+static CommOSWaitQueue exitWaitQ;       /* Exit wait queue */
+static CommOSSpinlock commGlobalLock;   /* Global lock */
 
 
+/* Communication channel slots */
 
-static unsigned int commChannelCapacity;     
-static unsigned int commChannelSize;         
-static unsigned int commChannelAllocated;    
-static struct CommChannelPriv *commChannels; 
+static unsigned int commChannelCapacity;     /* Maximum number of channels */
+static unsigned int commChannelSize;         /* Current size of channel array */
+static unsigned int commChannelAllocated;    /* Nmb. entries currently in use */
+static struct CommChannelPriv *commChannels; /* Allocated channel array */
 
 
+/**
+ * @brief Callback function called when the other side created a transport
+ *     handle to which we need to potentially attach.
+ * @param[in,out] transpArgs arguments used when shared memory area was created.
+ * @param probeData our callback data, an implementation block.
+ * @return 0 if successful, -1 otherwise.
+ * @sideeffects May allocate a channel.
+ */
 
 static int
 DefaultTranspListener(CommTranspInitArgs *transpArgs,
@@ -132,8 +151,12 @@ DefaultTranspListener(CommTranspInitArgs *transpArgs,
 	if (impl->checkArgs(transpArgs))
 		goto out;
 
-	transpArgs->mode = COMM_TRANSP_INIT_ATTACH; 
+	transpArgs->mode = COMM_TRANSP_INIT_ATTACH; /* Ensure we attach */
 
+	/*
+	 * We recognized it, so don't let others waste any time.
+	 * Even if we fail.
+	 */
 
 	rc = 0;
 	if (Comm_Alloc(transpArgs, impl, inBH, NULL)) {
@@ -146,6 +169,11 @@ out:
 }
 
 
+/**
+ * @brief Sets the lifecycle state of a channel entry
+ * @param channel channel to update
+ * @param newState state to update to
+ */
 
 static inline void
 SetLifecycleState(CommChannel channel,
@@ -156,7 +184,14 @@ SetLifecycleState(CommChannel channel,
 }
 
 
+/* Wait conditions: functions returning 1: true, 0: false, < 0: error */
 
+/**
+ * @brief Wait condition function to check whether module can be unloaded.
+ * @param arg1 dummy
+ * @param arg2 dummy
+ * @return 1 if no channels are currently allocated, 0 if there are
+ */
 
 static int
 ExitCondition(void *arg1,
@@ -183,6 +218,12 @@ ExitCondition(void *arg1,
 }
 
 
+/**
+ * @brief Wait condition function to check available write space.
+ * @param arg1 pointer to CommChannel struct
+ * @param arg2 size argument
+ * @return 1 if there is enough write space, 0 if not, -ENOMEM if comm down.
+ */
 
 static int
 WriteSpaceCondition(void *arg1,
@@ -198,6 +239,12 @@ WriteSpaceCondition(void *arg1,
 }
 
 
+/**
+ * @brief Registers an implementation block used when attaching to channels
+ *    in response to transport attach events.
+ * @param impl implementation block.
+ * @return 0 if successful, non-zero otherwise.
+ */
 
 int
 Comm_RegisterImpl(const CommImpl *impl)
@@ -211,6 +258,11 @@ Comm_RegisterImpl(const CommImpl *impl)
 }
 
 
+/**
+ * @brief Unregisters an implementation block used when attaching to channels
+ *    in response to transport attach events.
+ * @param impl implementation block.
+ */
 
 void
 Comm_UnregisterImpl(const CommImpl *impl)
@@ -224,6 +276,11 @@ Comm_UnregisterImpl(const CommImpl *impl)
 }
 
 
+/**
+ * @brief Allocates and initializes comm global state. Single-threaded use.
+ * @param maxChannels maximum number of channels.
+ * @return zero if successful, non-zero otherwise.
+ */
 
 int
 Comm_Init(unsigned int maxChannels)
@@ -281,6 +338,11 @@ out:
 }
 
 
+/**
+ * @brief Initiates and finishes, comm global state deallocations.
+ * @param timeoutMillis initialization timeout in milliseconds
+ * @return zero if deallocations done, non-zero if more calls are needed.
+ */
 
 int
 Comm_Finish(unsigned long long *timeoutMillis)
@@ -294,9 +356,12 @@ Comm_Finish(unsigned long long *timeoutMillis)
 
 	running = 0;
 	timeout = timeoutMillis ? *timeoutMillis : 0;
-	
+	/* coverity[var_deref_model] */
 	rc = CommOS_Wait(&exitWaitQ, ExitCondition, NULL, NULL, &timeout);
 	if (rc == 1) {
+		/*
+		 * Didn't time out, task wasn't interrupted, we can wrap it up.
+		 */
 
 		CommTransp_Exit();
 		CommOS_Kfree(commChannels);
@@ -324,6 +389,22 @@ Comm_Finish(unsigned long long *timeoutMillis)
 }
 
 
+/**
+ * @brief Finds a free entry and initializes it with the information provided.
+ *     May be called from BH. It doesn't call potentially blocking functions.
+ *
+ * @note Depending on the choice of shared memory transport (VMCI or MVP QP),
+ * the 'inBH' distinction is important. VMCI datagrams are received under
+ * some circumstances in bottom-half context, so 'inBH' should be set. This
+ * is not a restriction on MVP.
+ *
+ * @param transpArgs transport initialization arguments.
+ * @param impl implementation block.
+ * @param inBH non-zero if called in bottom half.
+ * @param[out] newChannel newly allocated channel.
+ * @return zero if successful, non-zero otherwise.
+ * @sideeffects Initializes the communications channel with given parameters
+ */
 
 int
 Comm_Alloc(const CommTranspInitArgs *transpArgs,
@@ -351,6 +432,11 @@ Comm_Alloc(const CommTranspInitArgs *transpArgs,
 	modHeld = 1;
 
 	for (i = 0; i < commChannelSize; i++) {
+		/*
+		 * Check if this channel is already allocated. We don't match
+		 * against ANY because those channels are in the process of
+		 * being opened; after that happens, they'll get proper IDs.
+		 */
 
 		if (!CommIsFree(&commChannels[i]) &&
 		    (transpArgs->id.d64 != COMM_TRANSP_ID_64_ANY) &&
@@ -370,7 +456,7 @@ Comm_Alloc(const CommTranspInitArgs *transpArgs,
 		restoreSize = 1;
 	}
 
-	if (channel->transp) { 
+	if (channel->transp) { /* Inconsistency! */
 		if (restoreSize)
 			commChannelSize--;
 		goto out;
@@ -404,6 +490,12 @@ out:
 }
 
 
+/**
+ * @brief Zombifies a channel. May fail if channel isn't active.
+ * @param[in,out] channel channel to zombify.
+ * @param inBH non-zero if called in bottom half.
+ * @return zero if channel zombified, non-zero otherwise.
+ */
 
 int
 Comm_Zombify(CommChannel channel,
@@ -436,6 +528,11 @@ out:
 }
 
 
+/**
+ * @brief Reports whether a channel is active.
+ * @param channel channel to report on.
+ * @return non-zero if channel active, zero otherwise.
+ */
 
 int
 Comm_IsActive(CommChannel channel)
@@ -444,6 +541,12 @@ Comm_IsActive(CommChannel channel)
 }
 
 
+/**
+ * @brief Wakes up potential writer on the channel. This function must be
+ *    called on an active channel, with either the dispatch lock taken, or
+ *    the channel ref count incremented.
+ * @param channel CommChannel structure on which potential writer waits.
+ */
 
 static inline void
 WakeUpWriter(CommChannel channel)
@@ -453,6 +556,13 @@ WakeUpWriter(CommChannel channel)
 }
 
 
+/**
+ * @brief Transport event handler for comm channels.
+ * @param transp transport handle.
+ * @param event type of event.
+ * @param data callback data.
+ * @sideeffects may put the channel into zombie state, or schedule it for I/O.
+ */
 
 static void
 TranspEventHandler(CommTransp transp,
@@ -470,6 +580,16 @@ TranspEventHandler(CommTransp transp,
 
 	case COMM_TRANSP_IO_IN:
 	case COMM_TRANSP_IO_INOUT:
+		/*
+		 * The dispatch threads may not have been started because:
+		 * a) we're not running in the CommSvc service, or
+		 * b) the Comm client didn't create them explicitly, by
+		 *    calling CommOS_StartIO().
+		 *
+		 * If so, the CommOS_ScheduleDisp() call is ineffective.
+		 * This is the intended behavior: the client obviously wants
+		 * to call the Comm dispatch function(s) directly.
+		 */
 
 		CommOS_ScheduleDisp();
 		break;
@@ -481,6 +601,13 @@ TranspEventHandler(CommTransp transp,
 
 		CommRelease(channel);
 
+		/*
+		 * After releasing the hold on the channel, we must
+		 * check if it was set to zombie and the dispatcher
+		 * was supposed to nuke it. If the dispatcher had made
+		 * its run while we were holding the channel, it gave
+		 * up. So schedule it.
+		 */
 		if (CommIsZombie(channel))
 			CommOS_ScheduleDisp();
 		break;
@@ -492,6 +619,11 @@ TranspEventHandler(CommTransp transp,
 }
 
 
+/**
+ * @brief Destroys upper layer state, unregisters event handlers and
+ *     detaches from or deletes shared memory.
+ * @param[in,out] channel CommChannel structure to close.
+ */
 
 static void
 CommClose(CommChannel channel)
@@ -524,6 +656,14 @@ CommClose(CommChannel channel)
 }
 
 
+/**
+ * @brief Allocates upper layer state, registers transport event handler
+ *     and creates or attaches to shared memory.
+ * @param[in,out] channel CommChannel structure to open.
+ * @return  zero if successful, -1 otherwise
+ * @sideeffects Memory may be allocated, event handlers registered and
+ *     QP allocated or attached to.
+ */
 
 static int
 CommOpen(CommChannel channel)
@@ -538,7 +678,7 @@ CommOpen(CommChannel channel)
 	if (!channel || !CommIsInitialized(channel))
 		return rc;
 
-	if (!running) 
+	if (!running) /* Ok, toggle it back to FREE */
 		goto out;
 
 	impl = channel->impl;
@@ -564,6 +704,12 @@ out:
 }
 
 
+/**
+ * @brief Retrieves a channel's transport initialization arguments.
+ *     It doesn't lock, the caller must ensure the channel may be accessed.
+ * @param channel CommChannel structure to get initialization arguments from.
+ * @return initialization arguments used to allocate/attach to channel.
+ */
 
 CommTranspInitArgs
 Comm_GetTranspInitArgs(CommChannel channel)
@@ -577,6 +723,12 @@ Comm_GetTranspInitArgs(CommChannel channel)
 }
 
 
+/**
+ * @brief Retrieves upper layer state (pointer). It doesn't lock, the caller
+ *     must ensure the channel may be accessed.
+ * @param channel CommChannel structure to get state from.
+ * @return pointer to upper layer state.
+ */
 
 void *
 Comm_GetState(CommChannel channel)
@@ -588,6 +740,14 @@ Comm_GetState(CommChannel channel)
 }
 
 
+/**
+ * @brief Copies from channel into caller-supplied buffer.
+ * @param channel CommChannel structure.
+ * @param dest destination buffer.
+ * @param size bytes to copy.
+ * @param kern != 0 if destination buffer is in kernel space.
+ * @return number of bytes copied or negative error.
+ */
 
 static int
 CopyFromChannel(CommChannel channel,
@@ -599,6 +759,14 @@ CopyFromChannel(CommChannel channel,
 }
 
 
+/**
+ * @brief Main input processing function operating on a given channel.
+ * @param channel CommChannel structure to process.
+ * @return number of processed channels (0 or 1), or -1 if channel closed.
+ * @sideeffects Lifecycle states are transitioned to and from. Channel may
+ *     be opened or destroyed, waiting writers may be woken up, and input
+ *     may be handed off to operation callbacks.
+ */
 
 int
 Comm_Dispatch(CommChannel channel)
@@ -612,31 +780,40 @@ Comm_Dispatch(CommChannel channel)
 	struct kvec vec[VEC_SIZE];
 	unsigned int vecLen;
 
+	/*
+	 * Taking the reader mutex is safe in all cases: entries, including
+	 * free ones, are guaranteed to have initialized mutexes and locks.
+	 * Locking empty entries may seem wasteful, but those entries are rare.
+	 */
 
 	if (DispatchTrylock(channel))
 		return 0;
 
-	
+	/* Process input and writer wake-up */
 
 	if (CommIsActive(channel)) {
+		/*
+		 * The entry may have transitioned to ZOMBIE, somehow. That's OK
+		 * since it can't be freed just yet (it's currently locked).
+		 */
 
-		
+		/* Wake up any waiting writers, if necessary */
 
 		WakeUpWriter(channel);
 
-		
+		/* Read packets, payloads */
 		CommTransp_DequeueReset(channel->transp);
 
 		for (vecLen = 0; vecLen < VEC_SIZE; vecLen++) {
 			if (!running)
 				break;
 
-			
+			/* Read header */
 
 			rc = CommTransp_DequeueSegment(channel->transp, &packet,
 						       sizeof(packet), 1);
 			if (rc <= 0) {
-				
+				/* No packet (header) */
 
 				rc = vecLen == 0 ? 0 : 1;
 				break;
@@ -646,20 +823,24 @@ Comm_Dispatch(CommChannel channel)
 #endif
 			if ((rc != sizeof(packet)) ||
 			    (packet.len < sizeof(packet))) {
-				rc = -1; 
+				rc = -1; /* Protocol error, close down comm */
 				break;
 			}
 
 			rc = 1;
 
-			
+			/* Read payload, if any */
 
 			dataLen = packet.len - sizeof(packet);
 			if (vecLen == 0) {
-				
+				/* Save header of first packet */
 
 				firstPacket = packet;
 				if (dataLen == 0) {
+					/*
+					 * Commit no-payload packet read and
+					 * we're done.
+					 */
 
 					CommTransp_DequeueCommit(
 						channel->transp);
@@ -671,6 +852,10 @@ Comm_Dispatch(CommChannel channel)
 					break;
 				}
 			} else {
+				/*
+				 * Check if non-equivalent packet or above
+				 * coalescing limit. If so, don't commit.
+				 */
 
 				if (memcmp(&packet.opCode, &firstPacket.opCode,
 					   (sizeof(packet) -
@@ -682,11 +867,22 @@ Comm_Dispatch(CommChannel channel)
 			}
 
 			if (dataLen == 0) {
+				/*
+				 * Received equivalent packet with zero-sized
+				 * payload. This may happen in certain cases,
+				 * such as pvtcp forwarding zero-sized
+				 * datagrams. So don't break the loop, but
+				 * keep going for as along as we can.
+				 */
 
 				vec[vecLen].iov_base = NULL;
 				goto dequeueCommit;
 			}
 
+			/*
+			 * The packet has a payload (dataLen > 0).
+			 * Allocate and read it.
+			 */
 
 			vec[vecLen].iov_base =
 				channel->impl->dataAlloc(dataLen, channel,
@@ -696,7 +892,7 @@ Comm_Dispatch(CommChannel channel)
 				CommOS_Log(("%s: BOOG -- COULD NOT " \
 					    "DEQUEUE PAYLOAD! [%d != %u]",
 					    __func__, rc, dataLen));
-				rc = -1; 
+				rc = -1; /* Protocol error, close down comm. */
 				break;
 			}
 			rc = 1;
@@ -711,6 +907,10 @@ dequeueCommit:
 			if (vecLen > 0) {
 				firstPacket.len += dataLen;
 
+				/*
+				 * Update to latest flags _iff_
+				 * latter non-zero.
+				 */
 				if (packet.flags)
 					firstPacket.flags = packet.flags;
 			}
@@ -721,6 +921,10 @@ dequeueCommit:
 						   firstPacket.len);
 #endif
 			if (COMM_OPF_TEST_ERR(packet.flags)) {
+				/*
+				 * If error bit is set, we're done;
+				 * no more coalescing.
+				 */
 
 				vecLen++;
 				break;
@@ -736,7 +940,7 @@ dequeueCommit:
 		}
 
 #if defined(COMM_DISPATCH_EXTRA_WRITER_WAKEUP)
-		
+		/* Check again if we need to wake up any writers */
 
 		WakeUpWriter(channel);
 #endif
@@ -750,6 +954,22 @@ dequeueCommit:
 			goto outUnlockAndFreeIovec;
 		}
 
+		/*
+		 * NOTE:
+		 * DispatchUnlock() must be called from the operation callback.
+		 * The reason for doing so is that, for better scalability,
+		 * we want it released as soon as possible, BUT:
+		 * - releasing it here, before calling into the operation,
+		 *   doesn't let the latter coordinate its own lock acquisition,
+		 *   such as potential socket or state locks.
+		 * - alternatively, always releasing the dispatch lock after the
+		 *   operation completes, ties up the channel and imposes too
+		 *   much serialization between sockets.
+		 * - to prevent the channel from being torn down while an
+		 *   operation is in flight (and potentially having released
+		 *   the dispatch lock), we increment the ref count on the
+		 *   channel and then release it after the function returns.
+		 */
 
 #if defined(COMM_INSTRUMENT)
 		CommOS_AddReturnAtomic(&commOpCalls, 1);
@@ -759,10 +979,10 @@ dequeueCommit:
 		channel->impl->operations[firstPacket.opCode](
 			channel, channel->state, &firstPacket, vec, vecLen);
 		CommRelease(channel);
-		goto out; 
+		goto out; /* No unlocking, see comment above */
 	}
 
-	
+	/* Process state changes */
 
 	if (CommIsZombie(channel) && !CommIsHeld(channel)) {
 		CommTranspInitArgs transpArgs = channel->transpArgs;
@@ -772,7 +992,7 @@ dequeueCommit:
 		void *closeNtfData = channel->impl->closeNtfData;
 
 		while (WriteTrylock(channel)) {
-			
+			/* Take the write lock; kick writers out if necessary */
 
 			CommOS_Debug(("%s: Kicking writers out.\n", __func__));
 			CommOS_WakeUp(&channel->availableWaitQ);
@@ -790,14 +1010,26 @@ dequeueCommit:
 		if (!CommOpen(channel)) {
 			if (channel->transpArgs.mode ==
 			    COMM_TRANSP_INIT_CREATE) {
+				/*
+				 * If the attach side doesn't get notified, the
+				 * entry will time out in OPENED and will be
+				 * collected.
+				 * Note that during the CommOpen(Transp_Open)
+				 * call, the IDs in the transpArgs may have
+				 * changed. Use those.
+				 */
 
 				CommTransp_Notify(&channel->impl->ntfCenterID,
 						  &channel->transpArgs);
-			} else { 
+			} else { /* Attach mode */
 				packet.len = sizeof(packet);
 				packet.opCode = 0xff;
 				packet.flags = 0x00;
 
+				/*
+				 * Send out control packet, attach ack, and
+				 * transition straight to ACTIVE.
+				 */
 
 				CommTransp_EnqueueReset(channel->transp);
 				rc = CommTransp_EnqueueSegment(
@@ -805,7 +1037,7 @@ dequeueCommit:
 					&packet, sizeof(packet), 1);
 				if ((rc == sizeof(packet)) &&
 				   !CommTransp_EnqueueCommit(channel->transp)) {
-					
+					/* Guard against concurrent zombify. */
 
 					CommGlobalLockBH();
 					if (CommIsOpened(channel)) {
@@ -822,6 +1054,11 @@ dequeueCommit:
 		}
 	} else if (CommIsOpened(channel) &&
 		   (channel->transpArgs.mode == COMM_TRANSP_INIT_CREATE)) {
+		/*
+		 * Get control packet (opCode == 0xff), attach ack
+		 * (flags == 0x0), or check whether the channel timed out
+		 * in OPENED.
+		 */
 
 		rc = CommTransp_DequeueSegment(channel->transp,
 					       &packet, sizeof(packet), 1);
@@ -830,7 +1067,7 @@ dequeueCommit:
 			void (*activateNtf)(void *, CommChannel) = NULL;
 			void *activateNtfData = NULL;
 
-			
+			/* Guard against potentially concurrent zombify */
 
 			CommGlobalLockBH();
 
@@ -850,8 +1087,16 @@ dequeueCommit:
 			CommGlobalUnlockBH();
 
 			if (activateNtf)
+				/*
+				 * The callback must be short and 'put'
+				 * the channel when done.
+				 */
 				activateNtf(activateNtfData, channel);
 			else
+				/*
+				 * Don't forget to put back the channel if
+				 * no activate callback.
+				 */
 				CommRelease(channel);
 
 		} else if ((channel->impl->openTimeoutAtMillis <=
@@ -886,6 +1131,13 @@ outUnlockAndFreeIovec:
 }
 
 
+/**
+ * @brief Main input processing function operating on all channels.
+ * @return number of processed channels.
+ * @sideeffects Lifecycle states are transitioned to and from. Channels may
+ *     be opened and destroyed, waiting writers may be woken up, and input
+ *     may be handed off to operation callbacks.
+ */
 
 unsigned int
 Comm_DispatchAll(void)
@@ -943,16 +1195,16 @@ Comm_Write(CommChannel channel,
 			   (*timeoutMillis != COMM_MAX_TO_UNINT));
 	channel->desiredWriteSpace = -1U;
 
-	if (rc) 
+	if (rc) /* Don't zombify, if it didn't time out */
 		zombify = 0;
 
-	if (rc == 1) { 
+	if (rc == 1) { /* Enough write space, enqueue the packet */
 		rc = CommTransp_EnqueueSegment(channel->transp, packet,
 					       packet->len, 1);
 		if ((rc != packet->len) ||
 		    CommTransp_EnqueueCommit(channel->transp)) {
 			zombify = 1;
-			rc = -1; 
+			rc = -1; /* Fatal protocol error */
 		}
 	}
 
@@ -1031,16 +1283,16 @@ Comm_WriteVec(CommChannel channel,
 			   (*timeoutMillis != COMM_MAX_TO_UNINT));
 	channel->desiredWriteSpace = -1U;
 
-	if (rc) 
+	if (rc) /* Don't zombify, if it didn't time out */
 		zombify = 0;
 
-	if (rc == 1) { 
+	if (rc == 1) { /* Enough write space, enqueue the packet */
 		iovLen = 0;
 		rc = CommTransp_EnqueueSegment(channel->transp,
 					       packet, sizeof(*packet), 1);
 		if (rc != sizeof(*packet)) {
 			zombify = 1;
-			rc = -1; 
+			rc = -1; /* Fatal protocol error */
 			goto out;
 		}
 
@@ -1070,12 +1322,12 @@ Comm_WriteVec(CommChannel channel,
 							       kern);
 				if (rc != iovLen) {
 					if (kern) {
-						
+						/* Protocol error, close it. */
 
 						zombify = 1;
 						rc = -1;
 					} else {
-						
+						/* Bad passed user address */
 
 						rc = -EFAULT;
 					}
@@ -1098,6 +1350,12 @@ Comm_WriteVec(CommChannel channel,
 			}
 
 			if (!done) {
+				/*
+				 * We exhausted all the bytes in the vector,
+				 * but total length in the packet header is
+				 * more than we sent (was available). If so,
+				 * we pad by sending zero bytes up to length.
+				 */
 
 				static char pad[1024];
 				unsigned int delta;
@@ -1117,7 +1375,7 @@ Comm_WriteVec(CommChannel channel,
 						toSend, 1);
 					if (rc != toSend) {
 						zombify = 1;
-						rc = -1; 
+						rc = -1; /* Error, close it. */
 						goto out;
 					}
 
@@ -1148,6 +1406,13 @@ out:
 }
 
 
+/**
+ * @brief Releases channel ref count. This function is exported for the upper
+ *    layer's 'activateNtf' callback which may be run asynchronously. The
+ *    callback is protected from concurrent channel releases until it calls
+ *    this function.
+ * @param[in,out] channel CommChannel structure to release.
+ */
 
 void
 Comm_Put(CommChannel channel)
@@ -1157,6 +1422,12 @@ Comm_Put(CommChannel channel)
 }
 
 
+/**
+ * @brief Uses the read lock. This function is exported for the upper layer
+ *    such that it can order acquisition of a different lock (socket) with
+ *    the release of the dispatch lock.
+ * @param[in,out] channel CommChannel structure to unlock.
+ */
 
 void
 Comm_DispatchUnlock(CommChannel channel)
@@ -1166,6 +1437,15 @@ Comm_DispatchUnlock(CommChannel channel)
 }
 
 
+/**
+ * @brief Lock the channel for upper layer state.
+ *    This function is exported for the upper layer to ensure that channel
+ *    isn't closed while updating the layer state. Operations using this
+ *    function are expected to be short, since unlike the _Write functions,
+ *    these callers cannot be signaled.
+ * @param[in,out] channel CommChannel structure to lock.
+ * @return zero if successful, -1 otherwise.
+ */
 
 int
 Comm_Lock(CommChannel channel)
@@ -1182,6 +1462,12 @@ Comm_Lock(CommChannel channel)
 }
 
 
+/**
+ *  @brief Uses the writer lock. This function is exported for the upper layer
+ *     to ensure that channel isn't closed while updating the layer state.
+ *     See Comm_Lock for details).
+ *  @param[in,out] channel CommChannel structure to unlock.
+ */
 
 void
 Comm_Unlock(CommChannel channel)
@@ -1191,6 +1477,11 @@ Comm_Unlock(CommChannel channel)
 }
 
 
+/**
+ * @brief Requests events be posted in-line after the function completes.
+ * @param channel channel object.
+ * @return current number of requests for inline event posting, or -1 on error.
+ */
 
 unsigned int
 Comm_RequestInlineEvents(CommChannel channel)
@@ -1202,6 +1493,11 @@ Comm_RequestInlineEvents(CommChannel channel)
 }
 
 
+/**
+ * @brief Requests events be posted out-of-band after the function completes.
+ * @param channel channel object.
+ * @return current number of requests for inline event posting, or -1 on error.
+ */
 
 unsigned int
 Comm_ReleaseInlineEvents(CommChannel channel)

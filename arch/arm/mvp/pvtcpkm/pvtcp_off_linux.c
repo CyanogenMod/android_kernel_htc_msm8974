@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Server (offload) side Linux-specific functions and callbacks.
+ */
 
 
 #include "pvtcp.h"
@@ -34,19 +39,26 @@
 #include <linux/cred.h>
 
 
+/* The PVSock address (127.238.0.1) in binary form, host byte order. */
 #define PVTCP_PVSOCK_ADDR 0x7fee0001
 #define PVTCP_PVSOCK_NET  0x7fee0000
 #define PVTCP_PVSOCK_MASK 0x000000ff
 #define PVTCP_PVSOCK_NETMASK 0xffffff00
 
+/* From mvpkm */
 extern uid_t Mvpkm_vmwareUid;
 extern gid_t Mvpkm_vmwareGid;
 
+/*
+ * Credentials to back socket file pointer. Used in Android ICS network
+ * data usage accounting to bill guest data to MVP.
+ */
 static struct cred _cred;
 static struct file _file = {
    .f_cred = &_cred,
 };
 
+/* From pvtcp_off_io_linux.c */
 extern CommOSAtomic PvtcpOutputAIOSection;
 extern void PvtcpOffLargeDgramBufInit(void);
 
@@ -56,7 +68,23 @@ static int hooksRegistered;
 
 static inline int PvtcpTestPortIndexBit(unsigned int addr,
                                         unsigned int portIdx);
+/**
+ * @note
+ * Netfilter hooks:
+ *
+ * We decide to drop each packet based on the following criteria:
+ * 1) Destination address is to a pvsock address AND
+ * 3) (NOT(uid == 0 OR uid == vmwareUid)) OR
+ * 4) (type == UDP AND NOT(port-in-pvsock-range)))
+ */
 
+/**
+ * @brief Netfilter hook. Restricts LOCAL_OUT packets.
+ * See note above to filter policy.
+ * @param skb skbuff
+ * @param inet6 is this socket ipv4 or ipv6?
+ * @return NF_ACCEPT if the packet is allowed through, NF_DROP otherwise
+ */
 static inline unsigned int
 PvsockNfHook(struct sk_buff *skb, int inet6)
 {
@@ -68,7 +96,7 @@ PvsockNfHook(struct sk_buff *skb, int inet6)
                        ntohl(ip_hdr(skb)->daddr);
 
    if (likely((addr ^ PVTCP_PVSOCK_NET) & ~PVTCP_PVSOCK_MASK)) {
-      
+      /* Not a pvsock address. */
       return NF_ACCEPT;
    }
 
@@ -77,13 +105,25 @@ PvsockNfHook(struct sk_buff *skb, int inet6)
       return NF_ACCEPT;
    }
 
+   /*
+    * Guest (kernel) sockets can send to other guest sockets,
+    * Root can send to whoever it wants, no checks.
+    */
    uid = (sock->file ? sock->file->f_cred->uid : 0);
    if (uid == 0 || (sock->type != SOCK_STREAM && sock->type != SOCK_DGRAM)) {
       return NF_ACCEPT;
    }
 
+   /*
+    * Only vmware can send to guest.
+    */
    if (likely(uid == Mvpkm_vmwareUid)) {
       if (sock->type == SOCK_DGRAM) {
+         /*
+          * Deny sending to UDP port in pvsock range, if receiving socket was
+          * not created by the guest with this pvsock address. Drop all other
+          * UDP packets.
+          */
          port = ntohs(udp_hdr(skb)->dest) - portRangeBase;
          if ((port < portRangeSize) &&
               PvtcpTestPortIndexBit(htonl(addr), port)) {
@@ -91,6 +131,9 @@ PvsockNfHook(struct sk_buff *skb, int inet6)
          }
          return NF_DROP;
       }
+      /*
+       * TCP is all-good.
+       */
       return NF_ACCEPT;
    }
 
@@ -98,6 +141,16 @@ PvsockNfHook(struct sk_buff *skb, int inet6)
 }
 
 
+/**
+ * @brief AF_INET4 Netfilter hook. Restricts LOCAL_OUT packets.
+ * See note above to filter policy.
+ * @param hooknum netfilter hook number
+ * @param skb skbuff
+ * @param in rx net_device
+ * @param out out net_device
+ * @param okfn ignored
+ * @return NF_ACCEPT if the packet is allowed through, NF_DROP otherwise
+ */
 static unsigned int
 Inet4NfHook(unsigned int hooknum,
             struct sk_buff *skb,
@@ -108,6 +161,16 @@ Inet4NfHook(unsigned int hooknum,
    return PvsockNfHook(skb, 0);
 }
 
+/**
+ * @brief AF_INET6 Netfilter hook. Restricts LOCAL_OUT packets.
+ * See note above to filter policy.
+ * @param hooknum netfilter hook number
+ * @param skb skbuff
+ * @param in rx net_device
+ * @param out out net_device
+ * @param okfn ignored
+ * @return NF_ACCEPT if the packet is allowed through, NF_DROP otherwise
+ */
 static unsigned int
 Inet6NfHook(unsigned int hooknum,
             struct sk_buff *skb,
@@ -116,7 +179,7 @@ Inet6NfHook(unsigned int hooknum,
             int (*okfn)(struct sk_buff *))
 {
    if (!ipv6_addr_v4mapped(&ipv6_hdr(skb)->daddr)) {
-      
+      /* Not ipv4-mapped, so not a pvsock address. */
       return NF_ACCEPT;
    }
 
@@ -146,6 +209,9 @@ static struct nf_hook_ops netfilterHooks[] = {
 #error "The pvTCP offload module requires sysfs!"
 #endif
 
+/*
+ * State kobject, attributes and type.
+ */
 
 typedef struct PvtcpStateKObj {
    struct kobject kobj;
@@ -163,6 +229,10 @@ typedef struct  PvtcpStateKObjAttr {
 } PvtcpStateKObjAttr;
 
 
+/**
+ * @brief Releases state a kobject.
+ * @param kobj (embedded) state kobject.
+ */
 
 static void
 StateKObjRelease(struct kobject *kobj)
@@ -195,6 +265,14 @@ StateKObjShow(struct kobject *kobj,
 }
 
 
+/**
+ * @brief Sysfs store function for all pvtcp attributes.
+ * @param kobj (embedded) state kobject.
+ * @param attr pvtcp attribute to show.
+ * @param buf input buffer.
+ * @param count input buffer length.
+ * @return number of bytes consumed or negative error code.
+ */
 
 static ssize_t
 StateKObjStore(struct kobject *kobj,
@@ -232,6 +310,11 @@ StateKObjCommInfoShow(PvtcpStateKObj *stateKObj,
 {
    unsigned int typeHash;
 
+   /*
+    * In the offload module, the transport arguments' type field has been
+    * assigned the matching index in the versions array at probe time.
+    * Recover and print out the type hash.
+    */
 
    typeHash = CommTransp_GetType(pvtcpVersions[stateKObj->transpArgs.type]);
 
@@ -281,6 +364,13 @@ StateKObjUseNSShow(PvtcpStateKObj *stateKObj,
 }
 
 
+/**
+ * @brief Store function for the use_ns pvtcp attribute.
+ * @param stateKObj state kobject.
+ * @param buf input buffer.
+ * @param count input buffer length.
+ * @return number of bytes consumed or negative error code.
+ */
 
 static ssize_t
 StateKObjUseNSStore(PvtcpStateKObj *stateKObj,
@@ -289,7 +379,7 @@ StateKObjUseNSStore(PvtcpStateKObj *stateKObj,
 {
    int rc = -EINVAL;
 
-   
+   /* coverity[secure_coding] */
    if (stateKObj->haveNS && (sscanf(buf, "%d", &stateKObj->useNS) == 1)) {
       stateKObj->useNS = !!stateKObj->useNS;
       rc = count;
@@ -324,6 +414,9 @@ static struct kobj_type stateKType = {
 };
 
 
+/*
+ * Initialization of module entry and exit callbacks.
+ */
 
 static int Init(void *args);
 static void Exit(void);
@@ -331,15 +424,18 @@ static void Exit(void);
 COMM_OS_MOD_INIT(Init, Exit);
 
 
+/*
+ * AIO socket read buffers, stats and other global state.
+ */
 
 static CommOSMutex globalLock;
 static char perCpuBuf[NR_CPUS][PVTCP_SOCK_BUF_SIZE];
 
 #define PVTCP_OFF_MAX_LB_ADDRS 255
 static unsigned int loopbackAddrs[PVTCP_OFF_MAX_LB_ADDRS] = {
-   0xffffffff, 
-   0x7fffffff  
-               
+   0xffffffff, /* Network address always on, all ports allowed. */
+   0x7fffffff  /* Host address not yet on, all ports allowed. */
+               /* All the rest zeroed out. */
 };
 
 static const unsigned int loopbackReserved = 0x00000001 << 31;
@@ -386,11 +482,22 @@ unsigned int pvtcpLoopbackOffAddr;
 
 unsigned long long pvtcpOffDgramAllocations;
 
+/*
+ * Destructor shim addresses and function pointer
+ */
 
 extern void asmDestructorShim(struct sock *);
 
 
+/*
+ * Functions.
+ */
 
+/**
+ * @brief Release a socket, NULLing out the fake file field to avoid confusing
+ * Linux on the release path
+ * @param sock socket to release
+ */
 static void
 SockReleaseWrapper(struct socket *sock)
 {
@@ -398,6 +505,11 @@ SockReleaseWrapper(struct socket *sock)
    sock_release(sock);
 }
 
+/**
+ *  @brief Gets a new loopback address in the 127.238.0.255 network.
+ *     Note that the first address, 127.238.0.1, is always the host's.
+ *  @return new address or -1U if none is available.
+ */
 
 static unsigned int
 GetLoopbackAddr(void)
@@ -413,7 +525,7 @@ GetLoopbackAddr(void)
          addrTempl[3] = (unsigned char)idx;
          memcpy(&rc, addrTempl, sizeof(rc));
 
-         
+         /* Create a dgram socket to configure/bring-up the lo:N interface. */
 
          if (!sock_create_kern(AF_INET, SOCK_DGRAM, 0, &sock)) {
             int err;
@@ -433,7 +545,7 @@ GetLoopbackAddr(void)
                CommOS_Log(("%s: Could not set loopback address (ioctl)!\n",
                            __func__));
                rc = -1U;
-               continue; 
+               continue; /* Try next address. */
             } else {
                PvtcpSetLoopbackBit(loopbackAddrs[idx], loopbackReserved);
                CommOS_Debug(("%s: Allocated loopback address [%u.%u.%u.%u].\n",
@@ -459,6 +571,10 @@ GetLoopbackAddr(void)
 }
 
 
+/**
+ *  @brief Puts back a loopback address in the 127.238.0.255 network.
+ *  @param uaddr address to put back.
+ */
 
 static void
 PutLoopbackAddr(unsigned int uaddr)
@@ -498,7 +614,7 @@ PutLoopbackAddr(unsigned int uaddr)
       memcpy(&ifr.ifr_addr, &sin, sizeof(ifr.ifr_addr));
       kernel_sock_ioctl(sock, SIOCSIFFLAGS, (unsigned long)&ifr);
       sock_release(sock);
-      loopbackAddrs[idx] = 0; 
+      loopbackAddrs[idx] = 0; /* Zero everything out. */
       CommOS_Debug(("%s: Deallocated loopback address [%u.%u.%u.%u].\n",
                     __func__, addr[0], addr[1], addr[2], addr[3]));
    } else {
@@ -511,6 +627,16 @@ out:
 }
 
 
+/**
+ *  @brief Retrieves and retains the namespace associated with a channel.
+ *     A server must be listening for requests to retrieve the pid of the
+ *     process owning the net namespace for the passed context/vm id.
+ *     Communication takes place over a datagram socket in the AF_UNIX family,
+ *     bound to "/usr/lib/vmware/pvtcp/config/serv_addr".
+ *  @param state channel state for which to retrieve the network namespace.
+ *  @sideeffect If an associated namespace is found, it is retained and saved
+ *     in the state object.
+ */
 
 static void
 GetNetNamespace(PvtcpState *state)
@@ -533,7 +659,7 @@ GetNetNamespace(PvtcpState *state)
    const int passcred = 1;
    char buf[64];
    struct kvec vec;
-   const char *sockname = "pvtcp-vpn"; 
+   const char *sockname = "pvtcp-vpn"; /* abstract namespace for AF_UNIX/LOCAL sockets */
    const size_t socknamelen = strlen(sockname);
 
    struct msghdr msg = {
@@ -568,6 +694,12 @@ GetNetNamespace(PvtcpState *state)
       goto out;
    }
 
+   /*
+    * Send the configuration request and receive the reply:
+    * - the request carries the VM/guest ID as used in the transport
+    *   arguments used to create the channel.
+    * - the reply is expected to contain the pid of the namespace owner.
+    */
 
    memset(buf, 0, sizeof(buf));
    snprintf(buf, sizeof(buf), "%u\n", args.id.d32[0]);
@@ -575,7 +707,7 @@ GetNetNamespace(PvtcpState *state)
    vec.iov_base = buf;
    vec.iov_len = strlen(buf);
 
-   
+   /* use anonymous name */
    addr.sun_path[0] = 0;
    memcpy(addr.sun_path+1, sockname, socknamelen);
 
@@ -594,7 +726,7 @@ GetNetNamespace(PvtcpState *state)
                     __func__, args.id.d32[0]));
    } else {
       buf[sizeof(buf) - 1] = '\0';
-      
+      /* coverity[secure_coding] */
       sscanf(buf, "%d", &pidn);
    }
    sock_release(sock);
@@ -634,6 +766,11 @@ out:
 }
 
 
+/**
+ *  @brief Releases the network namespace associated with a channel state.
+ *  @param namespace namespace to be released.
+ *  @sideeffect If the namespace is not the initial one, it is released.
+ */
 
 static void
 PutNetNamespace(void *namespace)
@@ -646,6 +783,15 @@ PutNetNamespace(void *namespace)
 }
 
 
+/**
+ *  @brief Offload state constructor called when a channel is created.
+ *      The function first calls the default state allocator; it then retrieves
+ *      the n/w namespace associated with this client, retains it and stores it
+ *      in the state object. Finally, it creates a sysfs node.
+ *  @param[in,out] channel channel to initialize.
+ *  @return pointer to a new state structure or NULL.
+ *  @sideeffect Allocates memory.
+ */
 
 static void *
 StateAlloc(CommChannel channel)
@@ -660,6 +806,13 @@ StateAlloc(CommChannel channel)
 
    transpArgs = CommSvc_GetTranspInitArgs(channel);
 
+   /*
+    * The transport ID is assigned in an implementation-dependent way.
+    * (see lib/comm/comm_transp.h for transport type definitions.)
+    * However, the first 32 bits are expected to denote the guest/VM ID,
+    * while the last 32 bits are a resource handle within that VM. On MVP,
+    * transports map to queue pairs, which follow this convention.
+    */
 
    kset = Mvpkm_FindVMNamedKSet((int)transpArgs.id.d32[0], "devices");
    if (!kset) {
@@ -674,7 +827,7 @@ StateAlloc(CommChannel channel)
       goto error;
    }
 
-   
+   /* coverity[leaked_storage] */
    stateKObj = kzalloc(sizeof(*stateKObj), GFP_KERNEL);
    if (!stateKObj) {
       CommOS_Debug(("%s: Could not allocate state kobject!\n", __func__));
@@ -682,7 +835,7 @@ StateAlloc(CommChannel channel)
    }
 
    stateKObj->kobj.kset = kset;
-   
+   /* coverity[leaked_storage] */
    rc = kobject_init_and_add(&stateKObj->kobj, &stateKType, NULL, "pvtcp");
    if (rc) {
       CommOS_Debug(("%s: Could not add state kobject to parent kset [%d]!\n",
@@ -734,6 +887,13 @@ error:
 }
 
 
+/**
+ *  @brief Offload state destructor called when a channel is closed.
+ *      The function releases this client's n/w namespace and then calls the
+ *      default state deallocator.
+ *  @param arg pointer to state structure.
+ *  @sideeffect Destroys all netifs and their sockets, deallocates memory.
+ */
 
 static void
 StateFree(void *arg)
@@ -762,6 +922,12 @@ StateFree(void *arg)
 }
 
 
+/**
+ * @brief Releases socket. This function is called when the channel state
+ *    owning the socket is closed.
+ * @param[in,out] pvsk PV socket to release.
+ * @sideeffect the socket eventually gets deallocated.
+ */
 
 void
 PvtcpReleaseSocket(PvtcpSock *pvsk)
@@ -780,6 +946,13 @@ PvtcpReleaseSocket(PvtcpSock *pvsk)
 }
 
 
+/**
+ *  @brief Tests if the passed address is 127.238.0.1 or 127.0.0.1.
+ *  @param pvsk socket to test.
+ *  @param addr inet4 address to test.
+ *  @return > 1: morph and propagate new address to caller, 1: just morph,
+ *          0: don't morph, < 0 (-EADDRNOTAVAIL): bad loopback.
+ */
 
 static inline int
 TestLoopbackInet4(PvtcpSock *pvsk,
@@ -794,7 +967,7 @@ TestLoopbackInet4(PvtcpSock *pvsk,
          return -EADDRNOTAVAIL;
       }
       if (PvtcpHasSockNamespace(pvsk)) {
-         
+         /* We don't morph normal 127.0.0.1 when NS present. */
 
          return 0;
       }
@@ -805,6 +978,16 @@ TestLoopbackInet4(PvtcpSock *pvsk,
 }
 
 
+/**
+ *  @brief Tests if the passed address is 127.238.0.1 or 127.0.0.1 and the
+ *     socket has a namespace. If yes, the address will be morphed into
+ *     the actual loopback address, then a bind() is performed.
+ *     Note that the function returns EADDRNOTAVAIL for any other loopbacks.
+ *  @param pvsk socket to test.
+ *  @param[in,out] addr inet4 address to test.
+ *  @param port port to bind, or zero for any port.
+ *  @return 1 if bind should be performed by caller, bind return code otherwise.
+ */
 
 int
 PvtcpTestAndBindLoopbackInet4(PvtcpSock *pvsk,
@@ -819,23 +1002,27 @@ PvtcpTestAndBindLoopbackInet4(PvtcpSock *pvsk,
    rc = TestLoopbackInet4(pvsk, *addr);
    switch (rc) {
    case 2:
-      propagate = 1; 
+      propagate = 1; /* Fall through. */
    case 1:
-      break; 
+      break; /* Proceed with morphing. */
    case 0:
-      return 1; 
+      return 1; /* Don't morph, let bind() be done by caller. */
    default:
       return rc;
    }
 
    if (pvsk->netif->conf.family == PVTCP_PF_LOOPBACK_INET4) {
-      
+      /* The socket has already been morphed/bound. */
 
       morphedAddr = pvsk->netif->conf.addr.in.s_addr;
       rc = 0;
       goto out;
    }
 
+   /*
+    * Move the socket to the initial namespace before binding it
+    * such that the loopback address is accessible to the host.
+    */
 
    PvtcpSwitchSock(pvsk, PVTCP_SOCK_NAMESPACE_INITIAL);
    PvtcpStateAddSocket(pvsk->channel, pvtcpIfLoopbackInet4, pvsk);
@@ -845,7 +1032,7 @@ PvtcpTestAndBindLoopbackInet4(PvtcpSock *pvsk,
    sin.sin_port = port;
    sin.sin_addr.s_addr = morphedAddr;
 
-   
+   /* Bind to the channel loopback address. */
 
    rc = kernel_bind(SkFromPvsk(pvsk)->sk_socket,
                     (struct sockaddr *)&sin, sizeof(sin));
@@ -853,6 +1040,10 @@ PvtcpTestAndBindLoopbackInet4(PvtcpSock *pvsk,
       PvtcpSwitchSock(pvsk, PVTCP_SOCK_NAMESPACE_CHANNEL);
       PvtcpStateAddSocket(pvsk->channel, pvtcpIfUnbound, pvsk);
    } else {
+      /*
+       * Bind succeeded on pvsock address.
+       * If this is a pvsock UDP reserved port, record it.
+       */
 
       port = ntohs(port) - portRangeBase;
       if ((SkFromPvsk(pvsk)->sk_socket->type == SOCK_DGRAM) &&
@@ -862,6 +1053,9 @@ PvtcpTestAndBindLoopbackInet4(PvtcpSock *pvsk,
          CommOS_MutexUnlock(&globalLock);
       }
 
+      /*
+       * pvsock data usage shouldn't be counted as MVP external traffic.
+       */
       SkFromPvsk(pvsk)->sk_socket->file = NULL;
    }
 
@@ -873,6 +1067,18 @@ out:
 }
 
 
+/**
+ *  @brief Tests if the passed address is IPV4-mapped 127.238.0.1 or 127.0.0.1,
+ *     clean ::1, and whether the socket has a namespace.
+ *     If needed, the address will be morphed into the actual loopback address,
+ *     then a bind() is performed.
+ *     Note that the function returns EADDRNOTAVAIL for any other loopbacks.
+ *  @param pvsk socket to test.
+ *  @param[in,out] addr0 first 64 bits of inet6 address to test.
+ *  @param[in,out] addr1 last 64 bits of inet6 address to test.
+ *  @param port port to bind, or zero for any port.
+ *  @return 1 if bind should be performed by caller, bind return code otherwise.
+ */
 
 int
 PvtcpTestAndBindLoopbackInet6(PvtcpSock *pvsk,
@@ -896,14 +1102,14 @@ PvtcpTestAndBindLoopbackInet6(PvtcpSock *pvsk,
          return 1;
       }
 
-      
+      /* Remember that we were passed '::1'. */
 
       PvskSetFlag(pvsk, PVTCP_OFF_PVSKF_IPV6_LOOP, 1);
       ipv6_addr_set_v4mapped(htonl(INADDR_LOOPBACK), &in6Addr.in6);
    }
 
    if (!ipv6_addr_v4mapped(&in6Addr.in6)) {
-      
+      /* If the address is not ipv4-mapped, stop testing. */
 
       return 1;
    }
@@ -911,23 +1117,27 @@ PvtcpTestAndBindLoopbackInet6(PvtcpSock *pvsk,
    rc = TestLoopbackInet4(pvsk, in6Addr.in6.s6_addr32[3]);
    switch (rc) {
    case 2:
-      propagate = 1; 
+      propagate = 1; /* Fall through. */
    case 1:
-      break; 
+      break; /* Proceed with morphing. */
    case 0:
-      return 1; 
+      return 1; /* Don't morph, let bind() be done by caller. */
    default:
       return rc;
    }
 
    if (pvsk->netif->conf.family == PVTCP_PF_LOOPBACK_INET4) {
-      
+      /* The socket has already been morphed/bound. */
 
       ipv6_addr_set_v4mapped(pvsk->netif->conf.addr.in.s_addr, &in6Addr.in6);
       rc = 0;
       goto out;
    }
 
+   /*
+    * Move the socket to the initial namespace before binding it
+    * such that the loopback address is accessible to the host.
+    */
 
    PvtcpSwitchSock(pvsk, PVTCP_SOCK_NAMESPACE_INITIAL);
    PvtcpStateAddSocket(pvsk->channel, pvtcpIfLoopbackInet4, pvsk);
@@ -937,6 +1147,10 @@ PvtcpTestAndBindLoopbackInet6(PvtcpSock *pvsk,
    sin6.sin6_port = port;
    sin6.sin6_addr = in6Addr.in6;
 
+   /*
+    * Ensure we can use ipv4 mapped addresses and bind to the channel
+    * loopback address.
+    */
 
    (void)kernel_setsockopt(SkFromPvsk(pvsk)->sk_socket, IPPROTO_IPV6,
                            IPV6_V6ONLY, (char *)&ipv6Only, sizeof(ipv6Only));
@@ -946,6 +1160,10 @@ PvtcpTestAndBindLoopbackInet6(PvtcpSock *pvsk,
       PvtcpSwitchSock(pvsk, PVTCP_SOCK_NAMESPACE_CHANNEL);
       PvtcpStateAddSocket(pvsk->channel, pvtcpIfUnbound, pvsk);
    } else {
+      /*
+       * Bind succeeded on pvsock address.
+       * If this is a pvsock UDP reserved port, record it.
+       */
 
       port = ntohs(port) - portRangeBase;
       if ((SkFromPvsk(pvsk)->sk_socket->type == SOCK_DGRAM) &&
@@ -955,6 +1173,9 @@ PvtcpTestAndBindLoopbackInet6(PvtcpSock *pvsk,
          CommOS_MutexUnlock(&globalLock);
       }
 
+      /*
+       * pvsock data usage shouldn't be counted as MVP external traffic.
+       */
       SkFromPvsk(pvsk)->sk_socket->file = NULL;
    }
 
@@ -967,6 +1188,11 @@ out:
 }
 
 
+/**
+ *  @brief Resets a 127.238.0.N address to 127.0.0.1.
+ *  @param pvsk socket whose address needs resetting.
+ *  @param[in,out] addr inet4 address to reset.
+ */
 
 void
 PvtcpResetLoopbackInet4(PvtcpSock *pvsk,
@@ -975,7 +1201,7 @@ PvtcpResetLoopbackInet4(PvtcpSock *pvsk,
    if (!PvtcpHasSockNamespace(pvsk)) {
       unsigned int addrOnHost = ntohl(*addr);
 
-      
+      /* If it's a pvsock address but _not_ the host's, overwrite it. */
       if ((addrOnHost & PVTCP_PVSOCK_NETMASK) == PVTCP_PVSOCK_NET &&
           addrOnHost != PVTCP_PVSOCK_ADDR) {
 
@@ -985,6 +1211,11 @@ PvtcpResetLoopbackInet4(PvtcpSock *pvsk,
 }
 
 
+/**
+ *  @brief Resets an IPV4-mapped ::ffff:127.238.0.N IPV6 address to loopback.
+ *  @param pvsk socket whose address needs resetting.
+ *  @param[in,out] in6 inet6 address to reset.
+ */
 
 void
 PvtcpResetLoopbackInet6(PvtcpSock *pvsk,
@@ -992,7 +1223,7 @@ PvtcpResetLoopbackInet6(PvtcpSock *pvsk,
 {
    if (!PvtcpHasSockNamespace(pvsk) && ipv6_addr_v4mapped(in6)) {
       if (PvskTestFlag(pvsk, PVTCP_OFF_PVSKF_IPV6_LOOP)) {
-         
+         /* If the original address came in as ::1, we reset as such. */
 
          static const struct in6_addr in6Loopback = IN6ADDR_LOOPBACK_INIT;
 
@@ -1004,6 +1235,12 @@ PvtcpResetLoopbackInet6(PvtcpSock *pvsk,
 }
 
 
+/**
+ * @brief Called at module load time. It registers with the Comm runtime.
+ * @param args initialization arguments
+ * @return zero if successful, -1 otherwise
+ * @sideeffect Leaves the module loaded
+ */
 
 static int
 Init(void *args)
@@ -1051,6 +1288,10 @@ out:
 }
 
 
+/**
+ *  @brief Called at module unload time. It shuts down pvtcp.
+ *  @sideeffect Total and utter destruction.
+ */
 
 static void
 Exit(void)
@@ -1068,7 +1309,16 @@ Exit(void)
 }
 
 
+/*
+ * Socket callback interceptors.
+ */
 
+/**
+ *  @brief Callback called when socket is destroyed.
+ *  @param[in,out] sk socket to cleanup
+ *  @return 0 if socket memory is freed, < 0 otherwise (no-op)
+ *  @sideeffect Send queue buffers are deallocated
+ */
 
 int
 DestructCB(struct sock *sk)
@@ -1080,7 +1330,7 @@ DestructCB(struct sock *sk)
    if (!pvsk ||
        (SkFromPvsk(pvsk) != sk) ||
        (pvsk->destruct == asmDestructorShim)) {
-      
+      /* Module put _not_ to be performed by asmDestructorShim. */
 
       CommOS_Debug(("%s: pvsk / sk inconsistency. Ignored.\n", __func__));
       return -1;
@@ -1100,11 +1350,19 @@ DestructCB(struct sock *sk)
 
    CommOS_Kfree(pvsk);
 
+   /*
+    * Module put is performed by asmDestructorShim.
+    */
 
    return 0;
 }
 
 
+/**
+ *  @brief Callback called when socket state changes occur.
+ *  @param sk socket specified socket which changed state
+ *  @sideeffect A writer task may be scheduled
+ */
 
 static void
 StateChangeCB(struct sock *sk)
@@ -1118,6 +1376,9 @@ StateChangeCB(struct sock *sk)
       return;
    }
 
+   /*
+    * The socket (spin) lock is held when this function is called.
+    */
 
    CommOS_Debug(("%s: [0x%p] sk_state [%u] sk_err [%d] sk_err_soft [%d].\n",
                  __func__, pvsk, sk->sk_state,
@@ -1132,6 +1393,11 @@ StateChangeCB(struct sock *sk)
 }
 
 
+/**
+ *  @brief Callback called when an error is set on the socket.
+ *  @param sk socket the error happened on
+ *  @sideeffect A writer task may be scheduled
+ */
 
 static void
 ErrorReportCB(struct sock *sk)
@@ -1145,6 +1411,16 @@ ErrorReportCB(struct sock *sk)
       return;
    }
 
+   /*
+    * The socket (spin) lock is held when this function is called.
+    * Interesting sk_err-s:
+    *    ECONNRESET         - tcp_disconnect(), tcp_reset()
+    *    ECONNREFUSED       - tcp_reset()
+    *    EPIPE              - tcp_reset()
+    *    ETIMEDOUT          - tcp_write_error()
+    *    EHOSTUNREACH, etc. - tcp_v4_error()??, icmp errors
+    *    etc.               - __udp4_lib_err(), icmp errors
+    */
 
    CommOS_Debug(("%s: [0x%p] sk_err [%d] sk_err_soft [%d].\n",
                  __func__, pvsk, sk->sk_err, sk->sk_err_soft));
@@ -1156,6 +1432,13 @@ ErrorReportCB(struct sock *sk)
 }
 
 
+/**
+ *  @brief Callback called when data is available to be read from a socket.
+ *  @param sk socket in question
+ *  @param bytes number of bytes to read
+ *  @sideeffect A writer task is scheduled _iff_ the peer can safely
+ *      receive.
+ */
 
 static void
 DataReadyCB(struct sock *sk,
@@ -1170,6 +1453,9 @@ DataReadyCB(struct sock *sk,
       return;
    }
 
+   /*
+    * The socket (spin) lock is held when this function is called.
+    */
 
    if (pvsk->dataReady) {
       pvsk->dataReady(sk, bytes);
@@ -1182,6 +1468,11 @@ DataReadyCB(struct sock *sk,
 }
 
 
+/**
+ *  @brief Callback called when writing is possible on a socket.
+ *  @param sk socket in question
+ *  @sideeffect An AIO thread is scheduled.
+ */
 
 static void
 WriteSpaceCB(struct sock *sk)
@@ -1195,6 +1486,9 @@ WriteSpaceCB(struct sock *sk)
       return;
    }
 
+   /*
+    * The socket (spin) lock is held when this function is called.
+    */
 
    if (pvsk->writeSpace) {
       pvsk->writeSpace(sk);
@@ -1203,6 +1497,14 @@ WriteSpaceCB(struct sock *sk)
 }
 
 
+/**
+ *  @brief Initializes a newly created socket for offload operations.
+ *  @param[in,out] sock socket to initialize
+ *  @param channel channel to update
+ *  @param peerSock peer PV socket of this socket
+ *  @param parentPvsk parent of this socket or NULL
+ *  @return zero on success, error code otherwise
+ */
 
 static int
 SockAllocInit(struct socket *sock,
@@ -1232,25 +1534,34 @@ SockAllocInit(struct socket *sock,
       return -ENOMEM;
    }
 
+   /*
+    * PVTCP sockets should be billed against the vmware uid.
+    */
    sk->sk_socket->file = &_file;
 
+   /*
+    * Fill socket inode with vmware's uid and gid.
+    */
    inode = SOCK_INODE(sock);
    inode->i_uid = _cred.fsuid;
    inode->i_gid = _cred.fsgid;
 
-   
+   /* Set peer (pv) socket. */
    pvsk->peerSock = peerSock;
    pvsk->peerSockSet = 1;
 
-   
+   /* Set up back pointer. */
    pvsk->sk = sk;
 
-   
+   /* Keep track of new socket. */
    if (PvtcpStateAddSocket(channel, pvtcpIfUnbound, pvsk) != 0) {
       CommOS_Kfree(pvsk);
       return -ENOMEM;
    }
 
+   /*
+    * Keep pvtcp around for at least the lifetime of this socket
+    */
    CommOS_ModuleGet(pvtcpImpl.owner);
 
    if (!parentPvsk) {
@@ -1265,6 +1576,10 @@ SockAllocInit(struct socket *sock,
       pvsk->writeSpace = sk->sk_write_space;
       sk->sk_write_space = WriteSpaceCB;
    } else {
+      /*
+       * Copy the parent's saved callbacks. The parent pvsk is only passed
+       * when creating/initializing a socket after an 'accept'.
+       */
 
       pvsk->destruct = parentPvsk->destruct;
       sk->sk_destruct = asmDestructorShim;
@@ -1278,16 +1593,22 @@ SockAllocInit(struct socket *sock,
       sk->sk_write_space = WriteSpaceCB;
 
       if (parentPvsk->netif->conf.family == PVTCP_PF_LOOPBACK_INET4) {
-         
+         /* The parent socket was morphed/bound. */
 
          PvtcpSwitchSock(pvsk, PVTCP_SOCK_NAMESPACE_INITIAL);
          PvtcpStateAddSocket(pvsk->channel, pvtcpIfLoopbackInet4, pvsk);
       }
    }
 
-   
+   /* Install forward socket reference. */
    sk->sk_user_data = pvsk;
 
+   /*
+    * Force the send buffer size high enough, such that we don't lose the
+    * just-a-bit-over-the-limit bytes. This is mainly needed for datagrams.
+    * Note that we always apply flow control between host and guest modules,
+    * according to the sizing model; so this is not artificially inflated.
+    */
 
    kernel_setsockopt(sock, SOL_SOCKET, SO_SNDBUFFORCE,
                      (void *)&sndBuf, sizeof(sndBuf));
@@ -1296,6 +1617,13 @@ SockAllocInit(struct socket *sock,
 }
 
 
+/**
+ *  @brief Allocates a pvsk socket for error reporting (create operation).
+ *  @param err error code to report to PV side
+ *  @param channel channel error socket belongs to
+ *  @param peerSock peer PV socket of this socket
+ *  @return error socket on success, NULL otherwise
+ */
 
 static PvtcpSock *
 SockAllocErrInit(int err,
@@ -1318,18 +1646,30 @@ SockAllocErrInit(int err,
       return NULL;
    }
 
-   
+   /* Set peer (pv) socket and error. */
    pvsk->peerSock = peerSock;
    pvsk->peerSockSet = 1;
    pvsk->err = err;
 
-   
+   /* Set up back pointer to NULL such that PvtcpPutSock deallocates it. */
    pvsk->sk = NULL;
    return pvsk;
 }
 
 
+/*
+ * Offload operations.
+ */
 
+/**
+ * @brief Creates an offload socket and schedules it for reply.
+ * @param channel communication channel with offloader
+ * @param upperLayerState state associated with this channel
+ * @param packet first packet received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ * @sideeffect A writer task is scheduled, which will send reply back.
+ */
 
 void
 PvtcpCreateOp(CommChannel channel,
@@ -1377,6 +1717,11 @@ PvtcpCreateOp(CommChannel channel,
    } else {
       CommOS_Debug(("%s: Error creating offload socket: %d\n",
                     __func__, rc));
+      /*
+       * Pass -rc so we follow error conventions for other reply ops.
+       * The error code is fixed by the PV side so error codes are properly
+       * reported.
+       */
       pvsk = SockAllocErrInit(-rc, channel, packet->data64);
       if (!pvsk) {
          goto fail;
@@ -1394,6 +1739,16 @@ fail:
 }
 
 
+/**
+ * @brief Schedules an offload socket to be removed.
+ * @param channel communication channel with offloader
+ * @param upperLayerState state associated with this channel
+ * @param packet first packet received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ * @sideeffect A writer task is scheduled, which will send reply back and
+ *      then release the socket.
+ */
 
 void
 PvtcpReleaseOp(CommChannel channel,
@@ -1405,6 +1760,10 @@ PvtcpReleaseOp(CommChannel channel,
    PvtcpSock *pvsk = PvtcpGetPvskOrReturn(packet->data64, upperLayerState);
    struct sock *sk = SkFromPvsk(pvsk);
 
+   /*
+    * Check if this is a pvsock datagram socket bound on a reserved port.
+    * If so, reset the bit such that filtering drops rogue packets.
+    */
 
    if ((sk->sk_socket->type == SOCK_DGRAM) &&
        (pvsk->netif->conf.family == PVTCP_PF_LOOPBACK_INET4)) {
@@ -1418,7 +1777,7 @@ PvtcpReleaseOp(CommChannel channel,
                                  (struct sockaddr *)&sin, &addrLen)) {
             port = sin.sin_port;
          }
-      } else { 
+      } else { /* AF_INET6 */
          struct sockaddr_in6 sin = { .sin6_family = AF_INET6 };
          int addrLen = sizeof(sin);
 
@@ -1436,6 +1795,16 @@ PvtcpReleaseOp(CommChannel channel,
       }
    }
 
+   /*
+    * - remove the pvsk from the state, so the state destructor can't find it
+    *   (the state destructor cannot run while operations are in-flight).
+    * - hold the socket before setting the 'release' flag and until after
+    *   the call to PvtcpSchedSock(): if the socket had already been scheduled
+    *   ReleaseAIO may run, find the flag set and release this socket while
+    *   it's being unlocked here.
+    * - hold the dispatch lock until done to ensure that subsequent Ops for
+    *   this socket see peerSockSet == 0.
+    */
 
    PvtcpStateRemoveSocket(pvsk->channel, pvsk);
    PvtcpHoldSock(pvsk);
@@ -1449,6 +1818,15 @@ PvtcpReleaseOp(CommChannel channel,
 }
 
 
+/**
+ * @brief Binds an offload socket to a given address
+ * @param channel communication channel with offloader
+ * @param upperLayerState state associated with this channel
+ * @param packet first packet received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ * @sideeffect A writer task is scheduled, which will send reply back
+ */
 
 void
 PvtcpBindOp(CommChannel channel,
@@ -1469,10 +1847,19 @@ PvtcpBindOp(CommChannel channel,
    PvtcpHoldSock(pvsk);
    PVTCP_UNLOCK_DISP_DISCARD_VEC();
 
+   /*
+    * The socket-level option SO_REUSEADDR is set in the common socket code,
+    * meaning that we cannot intercept it in the guest pvtcp implementation.
+    * In order to respect the setting, the guest would pass the current
+    * setting in 'bind' requests.
+    * If the guest requires 'reuse address' setting, the value is incremented
+    * such that we differentiate between: 0) not requested, 1) 'false' and
+    * 2) 'true'.
+    */
 
    reuseAddr = COMM_OPF_GET_VAL(packet->flags);
    if ((reuseAddr == 1) || (reuseAddr == 2)) {
-      
+      /* Explicit request, so decrement the value. */
 
       reuseAddr--;
       kernel_setsockopt(sk->sk_socket, SOL_SOCKET, SO_REUSEADDR,
@@ -1490,12 +1877,12 @@ PvtcpBindOp(CommChannel channel,
       rc = PvtcpTestAndBindLoopbackInet4(pvsk, &sin.sin_addr.s_addr,
                                          sin.sin_port);
       if (rc <= 0) {
-         
+         /* Bind has already happened. */
 
          pvsk->err = -rc;
          goto out;
       }
-   } else { 
+   } else { /* AF_INET6 */
       memset(&sin6, 0, sizeof(sin6));
       sin6.sin6_family = AF_INET6;
       sin6.sin6_port = packet->data16;
@@ -1505,7 +1892,7 @@ PvtcpBindOp(CommChannel channel,
       rc = PvtcpTestAndBindLoopbackInet6(pvsk, &packet->data64ex,
                                          &packet->data64ex2, sin6.sin6_port);
       if (rc <= 0) {
-         
+         /* Bind has already happened. */
 
          pvsk->err = -rc;
          goto out;
@@ -1514,7 +1901,7 @@ PvtcpBindOp(CommChannel channel,
                         packet->data64ex, packet->data64ex2);
    }
 
-   
+   /* coverity[check_return] */
    pvsk->err = -kernel_bind(sk->sk_socket, addr, addrLen);
 
 out:
@@ -1524,6 +1911,15 @@ out:
 }
 
 
+/**
+ * @brief Sets a socket option.
+ * @param channel communication channel with offloader
+ * @param upperLayerState state associated with this channel
+ * @param packet first packet received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ * @sideeffect A writer task is scheduled, which will send reply back
+ */
 void
 PvtcpSetSockOptOp(CommChannel channel,
                   void *upperLayerState,
@@ -1544,6 +1940,13 @@ PvtcpSetSockOptOp(CommChannel channel,
    }
 
    if (packet->data32 == SOL_TCP) {
+      /*
+       * The back-end implementation must always run in 'nodelay' mode.
+       * Consequently, we ignore, but we cache the TCP_NODELAY and TCP_CORK
+       * settings such that getsockopt() can return them as they were 'set'.
+       * Applications use these settings for performance; pvtcp does quite
+       * well if it's not interfered with.
+       */
 
       int on;
 
@@ -1575,6 +1978,15 @@ out:
 }
 
 
+/**
+ * @brief Retrieves a socket option.
+ * @param channel communication channel with offloader
+ * @param upperLayerState state associated with this channel
+ * @param packet first packet received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ * @sideeffect A writer task is scheduled, which will send reply back
+ */
 void
 PvtcpGetSockOptOp(CommChannel channel,
                   void *upperLayerState,
@@ -1603,6 +2015,10 @@ PvtcpGetSockOptOp(CommChannel channel,
    }
 
    if (packet->data32 == SOL_TCP) {
+      /*
+       * See comment in PvtcpSetSockOptOp() regarding special treatment for
+       * the TCP_NODELAY and TCP_CORK settings.
+       */
 
       int on;
 
@@ -1641,6 +2057,14 @@ out:
 }
 
 
+/**
+ * @brief Performs ioctl on offload socket.
+ * @param channel communication channel with offloader
+ * @param state state associated with this channel
+ * @param packet packet header received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ */
 
 void
 PvtcpIoctlOp(CommChannel channel,
@@ -1655,7 +2079,7 @@ PvtcpIoctlOp(CommChannel channel,
 
    PvtcpHoldSock(pvsk);
 
-   
+   /* Not implemented yet. */
 
    (void)sock;
    pvsk->rpcStatus = -ENOIOCTLCMD;
@@ -1667,6 +2091,15 @@ PvtcpIoctlOp(CommChannel channel,
 }
 
 
+/**
+ * @brief Marks a socket for listening to incoming connections
+ * @param channel communication channel with offloader
+ * @param upperLayerState state associated with this channel
+ * @param packet first packet received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ * @sideeffect A writer task is scheduled, which will send reply back
+ */
 
 void
 PvtcpListenOp(CommChannel channel,
@@ -1689,6 +2122,15 @@ PvtcpListenOp(CommChannel channel,
 }
 
 
+/**
+ * @brief Accepts a connected socket
+ * @param channel communication channel with offloader
+ * @param upperLayerState state associated with this channel
+ * @param packet first packet received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ * @sideeffect A writer task is scheduled, which will send reply back.
+ */
 
 void
 PvtcpAcceptOp(CommChannel channel,
@@ -1717,7 +2159,7 @@ PvtcpAcceptOp(CommChannel channel,
       struct sock *newsk = newsock->sk;
       PvtcpSock *newpvsk = PvskFromSk(newsk);
 
-      
+      /* We temporarily use the state field to cache parent socket. */
 
       newpvsk->state = (PvtcpState *)pvsk;
       PvskSetOpFlag(newpvsk, PVTCP_OP_ACCEPT);
@@ -1732,6 +2174,15 @@ PvtcpAcceptOp(CommChannel channel,
 }
 
 
+/**
+ * @brief Connects an offload socket to given address
+ * @param channel communication channel with offloader
+ * @param upperLayerState state associated with this channel
+ * @param packet first packet received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ * @sideeffect A writer task is scheduled, which will send reply back
+ */
 
 void
 PvtcpConnectOp(CommChannel channel,
@@ -1766,7 +2217,7 @@ PvtcpConnectOp(CommChannel channel,
       }
       sin.sin_family = AF_INET;
       PvtcpTestAndBindLoopbackInet4(pvsk, &sin.sin_addr.s_addr, 0);
-   } else { 
+   } else { /* AF_INET6 */
       addr = (struct sockaddr *)&sin6;
       addrLen = sizeof(sin6);
       memset(&sin6, 0, sizeof(sin6));
@@ -1788,11 +2239,23 @@ PvtcpConnectOp(CommChannel channel,
 connect:
    rc = kernel_connect(sk->sk_socket, addr, addrLen, flags | O_NONBLOCK);
 
+   /*
+    * For datagram sockets, ErrorReportCB is not called, so we need to
+    * explicitly set the pvsk error to be returned back to the guest.
+    * This should not be used on SOCK_STREAM sockets. You have been
+    * warned.
+    */
 
    if (rc && (sk->sk_socket->type == SOCK_DGRAM)) {
       pvsk->err = -rc;
    }
 
+   /*
+    * Quite likely, stream actual connect requests will set err to EINPROGRESS.
+    * That's fine, error_report will trigger an AIO/flow-op reply. When the
+    * connection is established, state_change schedules an AIO/connect reply.
+    * Record whether the request was a disconnect.
+    */
 
    PvskSetFlag(pvsk, PVTCP_OFF_PVSKF_DISCONNECT, disconnect);
    PvskSetOpFlag(pvsk, PVTCP_OP_CONNECT);
@@ -1801,6 +2264,15 @@ connect:
 }
 
 
+/**
+ * @brief Initiates socket shutdown on an offload socket
+ * @param channel communication channel with offloader
+ * @param upperLayerState state associated with this channel
+ * @param packet first packet received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ * @sideeffect Socket queue will be drained and socket shutdown performed.
+ */
 
 void
 PvtcpShutdownOp(CommChannel channel,
@@ -1826,7 +2298,18 @@ PvtcpShutdownOp(CommChannel channel,
 }
 
 
+/*
+ * AIO functions called from the main AIO processing function.
+ * Most of these functions complete processing initiated by the corresponding
+ * offload operations above.
+ */
 
+/**
+ * @brief Processes socket release in an AIO thread. This function is
+ *   called with the socket 'in' lock taken.
+ * @param[in,out] pvsk socket to release.
+ * @sideeffect the socket will be released upon return from this function.
+ */
 
 static inline void
 ReleaseAIO(PvtcpSock *pvsk)
@@ -1848,11 +2331,19 @@ ReleaseAIO(PvtcpSock *pvsk)
    CommOS_Debug(("%s: Sent 'Release' [0x%p] -> 0x%0x] reply.\n",
                  __func__, pvsk, (unsigned)(pvsk->peerSock)));
 #endif
+   /*
+    * 'sk' goes away in the final ProcessAIO::sock_put()
+    */
    SockReleaseWrapper(sock);
    SOCK_OUT_UNLOCK(pvsk);
 }
 
 
+/**
+ * @brief Processes socket create reply in an AIO thread. This function is
+ *   called with the socket 'in' lock taken.
+ * @param[in,out] pvsk newly created socket to send ack for.
+ */
 
 static inline void
 CreateAIO(PvtcpSock *pvsk)
@@ -1870,6 +2361,11 @@ CreateAIO(PvtcpSock *pvsk)
 
    sk = SkFromPvsk(pvsk);
    if (!sk) {
+      /*
+       * This is a create-error socket. The error reply has been sent out
+       * already, by PvtcpFlowAIO(). This is a paranoid safety measure, as
+       * PVTCP_OP_CREATE OpFlag should not have been set.
+       */
 
       return;
    }
@@ -1879,7 +2375,7 @@ CreateAIO(PvtcpSock *pvsk)
 
    rc = CommSvc_Write(pvsk->channel, &packet, &timeout);
    if (rc != packet.len) {
-      
+      /* We mustn't leak it if PV can't get a hold of it. */
 
       PvtcpStateRemoveSocket(pvsk->channel, pvsk);
       SockReleaseWrapper(sock);
@@ -1894,6 +2390,11 @@ CreateAIO(PvtcpSock *pvsk)
 }
 
 
+/**
+ * @brief Processes socket bind in an AIO thread. This function is
+ *   called with the socket 'in' lock taken.
+ * @param[in,out] pvsk socket being bound.
+ */
 
 static inline void
 BindAIO(PvtcpSock *pvsk)
@@ -1920,7 +2421,7 @@ BindAIO(PvtcpSock *pvsk)
             PvtcpResetLoopbackInet4(pvsk, &sin.sin_addr.s_addr);
             packet.data64ex = (unsigned long long)sin.sin_addr.s_addr;
          }
-      } else { 
+      } else { /* AF_INET6 */
          struct sockaddr_in6 sin = { .sin6_family = AF_INET6 };
          int addrLen = sizeof(sin);
 
@@ -1947,6 +2448,11 @@ BindAIO(PvtcpSock *pvsk)
 }
 
 
+/**
+ * @brief Sends result of setsockopt back to guest.
+ *   called with the socket 'in' lock taken.
+ * @param[in,out] pvsk socket that was modified.
+ */
 
 static inline void
 SetSockOptAIO(PvtcpSock *pvsk)
@@ -1965,6 +2471,11 @@ SetSockOptAIO(PvtcpSock *pvsk)
 }
 
 
+/**
+ * @brief Sends result of getsockopt back to guest.
+ *   called with the socket 'in' lock taken.
+ * @param[in,out] pvsk socket that was modified.
+ */
 
 static inline void
 GetSockOptAIO(PvtcpSock *pvsk)
@@ -2003,6 +2514,11 @@ GetSockOptAIO(PvtcpSock *pvsk)
 }
 
 
+/**
+ * @brief Sends result of ioctl back to guest.
+ *   called with the socket 'in' lock taken.
+ * @param[in,out] pvsk socket that was modified.
+ */
 
 static inline void
 IoctlAIO(PvtcpSock *pvsk)
@@ -2021,6 +2537,11 @@ IoctlAIO(PvtcpSock *pvsk)
 }
 
 
+/**
+ * @brief Processes socket listen reply in an AIO thread. This function is
+ *   called with the socket 'in' lock taken.
+ * @param[in,out] pvsk socket being put in listen mode.
+ */
 
 static inline void
 ListenAIO(PvtcpSock *pvsk)
@@ -2049,6 +2570,11 @@ ListenAIO(PvtcpSock *pvsk)
 }
 
 
+/**
+ * @brief Processes socket accept reply in an AIO thread. This function is
+ *   called with the socket 'in' lock taken.
+ * @param[in,out] pvsk new socket or socket to accept on (see PvtcpAcceptOp).
+ */
 
 static inline void
 AcceptAIO(PvtcpSock *pvsk)
@@ -2075,6 +2601,13 @@ AcceptAIO(PvtcpSock *pvsk)
 
       packet.len = sizeof(packet) + sizeof(payloadSocks);
 
+      /*
+       * accept() succeeded, so this is the child socket; its state field
+       * was temporarily changed to hold the parent/accepting socket.
+       * The newly accepted socket and its peer need to be put in a
+       * payload since we use up all available header fields with
+       * addressing information. Finally, the state field is restored.
+       */
 
       packet.data64 = ((PvtcpSock *)pvsk->state)->peerSock;
       pvsk->state = CommSvc_GetState(pvsk->channel);
@@ -2093,7 +2626,7 @@ AcceptAIO(PvtcpSock *pvsk)
             PvtcpResetLoopbackInet4(pvsk, &sin.sin_addr.s_addr);
             packet.data64ex = (unsigned long long)sin.sin_addr.s_addr;
          }
-      } else { 
+      } else { /* AF_INET6 */
          struct sockaddr_in6 sin = { .sin6_family = AF_INET6 };
          int addrLen = sizeof(sin);
 
@@ -2125,7 +2658,7 @@ AcceptAIO(PvtcpSock *pvsk)
       rc = CommSvc_WriteVec(pvsk->channel, &packet,
                             &payload, &payloadLen, &timeout, &iovOffset, 1);
       if ((rc != packet.len) && !COMM_OPF_TEST_ERR(packet.flags)) {
-         
+         /* Mustn't leak the new socket if PV can't get a hold of it. */
 
          PvtcpStateRemoveSocket(pvsk->channel, pvsk);
          SockReleaseWrapper(sock);
@@ -2137,6 +2670,11 @@ AcceptAIO(PvtcpSock *pvsk)
 }
 
 
+/**
+ * @brief Processes socket connect in an AIO thread. This function is
+ *   called with the socket 'in' lock taken.
+ * @param[in,out] pvsk socket being connected.
+ */
 
 static inline void
 ConnectAIO(PvtcpSock *pvsk)
@@ -2173,7 +2711,7 @@ ConnectAIO(PvtcpSock *pvsk)
             PvtcpResetLoopbackInet4(pvsk, &sin.sin_addr.s_addr);
             packet.data64ex = (unsigned long long)sin.sin_addr.s_addr;
          }
-      } else { 
+      } else { /* AF_INET6 */
          struct sockaddr_in6 sin = { .sin6_family = AF_INET6 };
          int addrLen = sizeof(sin);
 
@@ -2207,6 +2745,13 @@ ConnectAIO(PvtcpSock *pvsk)
 }
 
 
+/**
+ * @brief Server side main asynchronous processing function. It writes to
+ *   socket queued output buffers, it reads from socket and outputs to PV; it
+ *   also completes operation processing and sends applicable replies to PV.
+ *   Finally, processes error reporting and delta size acks.
+ * @param arg socket work item.
+ */
 
 void
 PvtcpProcessAIO(CommOSWork *arg)
@@ -2215,6 +2760,12 @@ PvtcpProcessAIO(CommOSWork *arg)
    struct sock *sk = SkFromPvsk(pvsk);
 
    if (!SOCK_OUT_TRYLOCK(pvsk)) {
+      /*
+       * Queued output processing. If trylock failed, we don't retry.
+       * There are only two reasons for not being able to take the lock:
+       * - IoOp() has it -- when done, it reschedules us if we're not running.
+       * - OutputAIO() is already running on another core.
+       */
 
       if (sk && sk->sk_socket) {
          PvtcpOutputAIO(pvsk);
@@ -2222,23 +2773,27 @@ PvtcpProcessAIO(CommOSWork *arg)
       SOCK_OUT_UNLOCK(pvsk);
    }
 
-   
+   /* All other processing needs the socket IN lock. */
 
    if (!SOCK_IN_TRYLOCK(pvsk)) {
 
       if (sk && sk->sk_socket) {
          int err;
 
-         
+         /* Input processing. */
 
+         /*
+          * Workqueue handlers are pinned to CPU cores and therefore not
+          * migratable. No need to disable preemption.
+          */
          err = PvtcpInputAIO(pvsk, perCpuBuf[smp_processor_id()]);
 
-         
+         /* Error and ack notifications. */
 
          PvtcpFlowAIO(pvsk, err);
 
          if (!pvsk->opFlags) {
-            
+            /* No other operations need to be completed. */
 
             goto doneInUnlock;
          }
@@ -2247,12 +2802,12 @@ PvtcpProcessAIO(CommOSWork *arg)
             PvskResetOpFlag(pvsk, PVTCP_OP_RELEASE);
             ReleaseAIO(pvsk);
 
-            
+            /* All possible in-flight operations must be dropped. */
             goto doneInUnlock;
          }
 
          if (PvskTestOpFlag(pvsk, PVTCP_OP_CREATE)) {
-            
+            /* No state locking required. */
 
             PvskResetOpFlag(pvsk, PVTCP_OP_CREATE);
             CreateAIO(pvsk);
@@ -2296,6 +2851,14 @@ PvtcpProcessAIO(CommOSWork *arg)
 doneInUnlock:
          SOCK_IN_UNLOCK(pvsk);
       } else {
+         /*
+          * Special case for error sockets which don't have a sk.
+          * Note that this socket was created by SockAllocErrInit() and so
+          * no 'real' socket sits atop it and is not present on any state
+          * netif list. The socket has a refcnt of one and it will get
+          * deallocated by the PvtcpPutSock() call below, so we don't need
+          * to unlock it.
+          */
 
          PvtcpFlowAIO(pvsk, -ENETDOWN);
       }

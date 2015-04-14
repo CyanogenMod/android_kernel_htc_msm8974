@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Generic shared memory transport API.
+ */
 
 #ifndef _COMM_TRANSP_H_
 #define _COMM_TRANSP_H_
@@ -28,6 +33,10 @@
 #define INCLUDE_ALLOW_GPL
 #include "include_check.h"
 
+/*
+ * Common shared memory identifier.
+ * External handle that makes sense to both hypervisor and guest.
+ */
 
 #define COMM_TRANSP_ID_8_ANY ((unsigned char)-1)
 #define COMM_TRANSP_ID_32_ANY ((unsigned int)-1)
@@ -43,6 +52,7 @@ typedef struct CommTranspID {
 } CommTranspID;
 
 
+/* Basic initialization arguments. */
 
 typedef enum CommTranspInitMode {
 	COMM_TRANSP_INIT_CREATE = 0x0,
@@ -50,13 +60,20 @@ typedef enum CommTranspInitMode {
 } CommTranspInitMode;
 
 typedef struct CommTranspInitArgs {
-	unsigned int capacity;      
-	unsigned int type;          
-	CommTranspID id;            
-	CommTranspInitMode mode;    
+	unsigned int capacity;      /* Shared memory capacity. */
+	unsigned int type;          /* Type / implementation using this area. */
+	CommTranspID id;            /* ID (name) of shared memory area. */
+	CommTranspInitMode mode;    /* Init mode (above). */
 } CommTranspInitArgs;
 
 
+/**
+ * @brief Generate a type id from description (protocol) string. This function
+ *    uses djb2, a string hashing algorithm by Dan Bernstein.
+ *    (see  http://www.cse.yorku.ca/~oz/hash.html)
+ * @param str string to hash
+ * @return 32-bit hash value
+ */
 
 static inline unsigned int
 CommTransp_GetType(const char *str)
@@ -65,10 +82,10 @@ CommTransp_GetType(const char *str)
 	int c;
 
 	while ((c = *str++))
-		hash = ((hash << 5) + hash) + c; 
+		hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
 
 	return hash;
 }
 
-#endif 
+#endif /* _COMM_TRANSP_H_ */
 

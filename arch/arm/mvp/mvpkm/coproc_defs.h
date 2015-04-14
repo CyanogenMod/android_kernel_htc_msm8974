@@ -18,6 +18,13 @@
  */
 #line 5
 
+/**
+ *  @file
+ *
+ *  @brief Constant definitions for ARM CP15 coprocessor registers.
+ *
+ *  Derived from tweety hypervisor/src/armv6/trango_macros.inc file
+ */
 
 #ifndef _COPROC_DEFS_H_
 #define _COPROC_DEFS_H_
@@ -30,6 +37,13 @@
 #define INCLUDE_ALLOW_GPL
 #include "include_check.h"
 
+/**
+ * @name CP10 registers.
+ *
+ * MCR/MRC format:
+ *	@code #define <name> <opcode_1>, <CRn>, <CRm>, <opcode_2> @endcode
+ * @{
+ */
 #define VFP_FPSID                           7,  c0,  c0, 0
 #define VFP_MVFR0                           7,  c7,  c0, 0
 #define VFP_MVFR1                           7,  c6,  c0, 0
@@ -37,8 +51,18 @@
 #define VFP_FPSCR                           7,  c1,  c0, 0
 #define VFP_FPINST                          7,  c9,  c0, 0
 #define VFP_FPINST2                         7, c10,  c0, 0
+/*@}*/
 
 
+/**
+ * @name CP15 registers.
+ *
+ * MCR/MRC format:
+ *	@code #define <name> <opcode_1>, <CRn>, <CRm>, <opcode_2> @endcode
+ * MCRR format:
+ *	@code #define <name> <opcode>, <CRm>@endcode
+ * @{
+ */
 #define ID_CODE                             0,  c0,  c0, 0
 #define CACHE_TYPE                          0,  c0,  c0, 1
 #define MPIDR                               0,  c0,  c0, 5
@@ -107,6 +131,11 @@
 #define CLEAR_FAULT_IN_EFSR                 7, c15,  c0, 1
 #define VBAR                                0, c12,  c0, 0
 
+/*
+ * ARMv7 performance counters' registers (MVP related)
+ * - ARM Architecture Reference Manual v7-A and v7-R: DDI0406B
+ * - Cortex-A8 TRM, rev.r1p1: DDI0344B
+ */
 #define PERF_MON_CONTROL_REGISTER           0,  c9, c12, 0
 #define CYCLE_COUNT                         0,  c9, c13, 0
 #define PERF_MON_COUNT_SET                  0,  c9, c12, 1
@@ -140,7 +169,12 @@
 #define HYP_TTBR                            4,  c2
 #define VIRT_TTBR                           6,  c2
 #define EXT_PHYSICAL_ADDRESS                0,  c7
+/*@}*/
 
+/**
+ * @name CP15 configuration control register bits.
+ * @{
+ */
 #define ARM_CP15_CNTL_M         (1 << 0)
 #define ARM_CP15_CNTL_A         (1 << 1)
 #define ARM_CP15_CNTL_C         (1 << 2)
@@ -155,25 +189,45 @@
 #define ARM_CP15_CNTL_AFE       (1 << 29)
 #define ARM_CP15_CNTL_TE        (1 << 30)
 
+/*@}*/
 
+/**
+ * @brief Initial System Control Register (SCTLR) value.
+ *
+ * Magic described on B3-97 ARM DDI 0406B, it's the power-on
+ * value, e.g. caches/MMU/alignment checking/TEX remap etc. disabled.
+ */
 #define ARM_CP15_CNTL_INIT 0x00c50078
 
-#define ARM_CP15_CRN_ID         0  
-#define ARM_CP15_CRN_CNTL       1  
-#define ARM_CP15_CRN_PT         2  
-#define ARM_CP15_CRN_DACR       3  
-#define ARM_CP15_CRN_F_STATUS   5  
-#define ARM_CP15_CRN_F_ADDR     6  
-#define ARM_CP15_CRN_CACHE      7  
-#define ARM_CP15_CRN_TLB        8  
-#define ARM_CP15_CRN_REMAP      10 
-#define ARM_CP15_CRN_SER        12 
-#define ARM_CP15_CRN_PID        13 
-#define ARM_CP15_CRN_TIMER      14 
+/**
+ * @name System control coprocessor primary registers.
+ * Each primary register is backed by potentially multiple
+ * physical registers in the vCPU CP15 register file.
+ * @{
+ */
+#define ARM_CP15_CRN_ID         0  /**< Processor ID, cache, TCM and TLB type */
+#define ARM_CP15_CRN_CNTL       1  /**< System configuration bits */
+#define ARM_CP15_CRN_PT         2  /**< Page table control */
+#define ARM_CP15_CRN_DACR       3  /**< Domain access control */
+#define ARM_CP15_CRN_F_STATUS   5  /**< Fault status */
+#define ARM_CP15_CRN_F_ADDR     6  /**< Fault address */
+#define ARM_CP15_CRN_CACHE      7  /**< Cache/write buffer control */
+#define ARM_CP15_CRN_TLB        8  /**< TLB control */
+#define ARM_CP15_CRN_REMAP      10 /**< Memory Remap registers */
+#define ARM_CP15_CRN_SER        12 /**< Security Extension registers */
+#define ARM_CP15_CRN_PID        13 /**< Process ID */
+#define ARM_CP15_CRN_TIMER      14 /**< Architecture timers */
 
 #define ARM_CP15_CRM_INVALIDATE_D_CACHE_RANGE            6
 #define ARM_CP15_CRM_CLEAN_AND_INVALIDATE_D_CACHE_RANGE  14
+/*@}*/
 
+/**
+ * @name ARMv7 performance counter control/status register bits (MVP related)
+ * INTEN: counters overflow interrupt enable
+ * CNTEN: counters enable
+ * @{
+ */
 #define ARMV7_PMNC_E        (1 << 0)
 #define ARMV7_PMNC_INTEN_P0 (1 << 0)
 #define ARMV7_PMNC_INTEN_P1 (1 << 1)
@@ -191,11 +245,23 @@
 #define ARMV7_PMNC_FLAG_P2 (1 << 2)
 #define ARMV7_PMNC_FLAG_P3 (1 << 3)
 #define ARMV7_PMNC_FLAG_C (1 << 31)
+/*@}*/
 
+/**
+ * @name TTBR masks.
+ * See B4.9.2 ARM DDI 0100I and B3.12.24 ARM DDI 0406A.
+ * @{
+ */
 #define ARM_CP15_TTBASE_MASK    MVP_MASK(14, 18)
 #define ARM_CP15_TTBASE_SPLIT_MASK(ttbcrn) MVP_MASK(14-ttbcrn, 18+ttbcrn)
 #define ARM_CP15_TTATTRIB_MASK  MVP_MASK(0, 6)
+/*@}*/
 
+/**
+ * @name ARM fault status register encoding/decoding.
+ * See B4.6 and B4.9.6 in ARM DDI 0100I.
+ * @{
+ */
 #define ARM_CP15_FSR_STATUS_POS         0
 #define ARM_CP15_FSR_STATUS_POS2        10
 #define ARM_CP15_FSR_DOMAIN_POS         4
@@ -217,7 +283,15 @@
 #define ARM_CP15_FSR_STATUS_ACCESS_FLAG_PAGE      0x6
 #define ARM_CP15_FSR_STATUS_SYNC_EXT_ABORT        0x8
 #define ARM_CP15_FSR_STATUS_ASYNC_EXT_ABORT      0x16
+/*@}*/
 
+/**
+ * @brief Generate ARM fault status register value.
+ *
+ * @param fs status from Table B4-1. Only implemented for fs <= 0xf.
+ * @param domain domain accessed when abort occurred.
+ * @param write write access caused abort.
+ */
 #define ARM_CP15_FSR(fs, domain, write)			\
 	(((fs) << ARM_CP15_FSR_STATUS_POS) |		\
 	 ((domain) << ARM_CP15_FSR_DOMAIN_POS) |	\
@@ -233,19 +307,31 @@
 
 #define ARM_CP15_FSR_WR(r) \
 	MVP_BIT((r), ARM_CP15_FSR_WR_POS)
+/*@}*/
 
+/*
+ * This should mask out the major and minor revision numbers.
+ * As per http://infocenter.arm.com/help/topic/com.arm.doc.ddi0211k/I65012.html
+ */
 #define ARM_CP15_MAIN_ID_NOREVISION_MASK 0xFF0FFFF0
 
+/* 2-8 ARM DDI 0151C */
 #define ARM_CP15_MAIN_ID_920_T   0x41129200
+/* 3-18 ARM DDI 0211H */
 #define ARM_CP15_MAIN_ID_1136J_S 0x4107B362
 
+/* Coprocessor Access Control Register */
 #define CPACR_ASEDIS              (1 << 31)
 #define CPACR_D32DIS              (1 << 30)
 #define CPACR_CP10_MASK           (0x3 << (10*2))
 #define CPACR_CP10_CP11_MASK      ((0x3 << (10*2)) | (0x3 << (11*2)))
 #define CPACR_CP10_CP11_PRIV_ONLY ((0x1 << (10*2)) | (0x1 << (11*2)))
-				
+				/* 2-bit access permission per Co-Proc */
 
+/**
+ * @name ARM VFP/Adv. SIMD Extension System Registers
+ * @{
+ */
 #define ARM_VFP_SYSTEM_REG_FPSID    0x0
 #define ARM_VFP_SYSTEM_REG_FPSCR    0x1
 #define ARM_VFP_SYSTEM_REG_MVFR1    0x6
@@ -261,8 +347,14 @@
 #define ARM_VFP_SYSTEM_REG_MVFR0_A_SIMD_BIT  (0)
 #define ARM_VFP_SYSTEM_REG_MVFR0_A_SIMD_MASK \
 	(0xf << ARM_VFP_SYSTEM_REG_MVFR0_A_SIMD_BIT)
+/*@}*/
 
+/**
+ * @name ARM Multi Processor ID Register (MPIDR) decoding
+ * @{
+ */
 #define ARM_CP15_MPIDR_MP          (0x1 << 31)
 #define ARM_CP15_MPIDR_U           (0x1 << 30)
+/*@}*/
 
-#endif 
+#endif /* ifndef _COPROC_DEFS_H_ */

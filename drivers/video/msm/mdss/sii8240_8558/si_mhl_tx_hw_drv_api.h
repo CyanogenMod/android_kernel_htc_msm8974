@@ -18,22 +18,26 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 #define SI_MHL_TX_DRV_API_H
 
 
+/*
+ * Structure to hold command details from upper layer to CBUS module
+ */
 struct cbus_req {
 	struct list_head	link;
 	union {
 		struct {
-			uint8_t	cancel	: 1;	
+			uint8_t	cancel	: 1;	/* this command has been canceled */
 			uint8_t	resvd	: 7;
 		} flags;
 		uint8_t	as_uint8;
 	} status;
+//	uint8_t				status;			/* CBUS_IDLE, CBUS_PENDING */
 	uint8_t				retry_count;
-	uint8_t				command;		
+	uint8_t				command;		/* VS_CMD or RCP opcode */
 	uint8_t				reg;
 	uint8_t				reg_data;
-	uint8_t				offset;			
-	uint8_t				length;			
-	uint8_t				msg_data[16];	
+	uint8_t				offset;			/* register offset */
+	uint8_t				length;			/* Only applicable to write burst */
+	uint8_t				msg_data[16];	/* scratch pad data area. */
 };
 
 typedef enum {
@@ -43,6 +47,10 @@ typedef enum {
 	,qs_reserved                  = 3
 } quantization_settings_e;
 
+/*
+ * The APIs listed below must be implemented by the MHL transmitter
+ * hardware support module.
+ */
 
 struct drv_hw_context;
 struct interrupt_info;
@@ -87,5 +95,5 @@ authentication_state_e si_mhl_tx_drv_get_authentication_state(void *drv_context)
 #ifdef CONFIG_INTERNAL_CHARGING_SUPPORT
 void AppVbusControl(struct drv_hw_context *hw_context, uint8_t dev_cat);
 #endif
-#endif 
-#endif 
+#endif // NEVER
+#endif /* if !defined(SI_MHL_TX_DRV_API_H) */

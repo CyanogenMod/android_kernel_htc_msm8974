@@ -18,28 +18,44 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 #define MHL_LINUX_TX_H
 #include <mach/board.h>
 
+/*
+ * Event codes
+ *
+ */
+/* No event worth reporting */
 #define	MHL_TX_EVENT_NONE		0x00
 
+/* MHL connection has been lost */
 #define	MHL_TX_EVENT_DISCONNECTION	0x01
 
+/* MHL connection has been established */
 #define	MHL_TX_EVENT_CONNECTION		0x02
 
+/* Received an RCP key code */
 #define	MHL_TX_EVENT_RCP_RECEIVED	0x04
 
+/* Received an RCPK message */
 #define	MHL_TX_EVENT_RCPK_RECEIVED	0x05
 
+/* Received an RCPE message */
 #define	MHL_TX_EVENT_RCPE_RECEIVED	0x06
 
+/* Received an UTF-8 key code */
 #define	MHL_TX_EVENT_UCP_RECEIVED	0x07
 
+/* Received an UCPK message */
 #define	MHL_TX_EVENT_UCPK_RECEIVED	0x08
 
+/* Received an UCPE message */
 #define	MHL_TX_EVENT_UCPE_RECEIVED	0x09
 
+/* Scratch Pad Data received */
 #define MHL_TX_EVENT_SPAD_RECEIVED	0x0A
 
+/* Peer's power capability has changed */
 #define	MHL_TX_EVENT_POW_BIT_CHG	0x0B
 
+/* Received a Request Action Protocol (RAP) message */
 #define MHL_TX_EVENT_RAP_RECEIVED	0x0C
 
 
@@ -66,6 +82,7 @@ struct timer_obj {
 	void (*timer_callback_handler)(void *callback_param);
 };
 
+/* Convert a value specified in milliseconds to nanoseconds */
 #define MSEC_TO_NSEC(x)		(x * 1000000UL)
 
 union misc_flags_u {
@@ -94,25 +111,30 @@ union misc_flags_u {
 	uint32_t	as_uint32;
 };
 
+/*
+ *  structure used by interrupt handler to return
+ * information about an interrupt.
+ */
 struct interrupt_info {
 	uint16_t		flags;
-#define DRV_INTR_FLAG_MSC_DONE		0x0001	
-#define DRV_INTR_FLAG_MSC_RECVD		0x0002	
-#define DRV_INTR_FLAG_MSC_NAK		0x0004	
-#define DRV_INTR_FLAG_WRITE_STAT	0x0008	
-#define DRV_INTR_FLAG_SET_INT		0x0010	
-#define DRV_INTR_FLAG_WRITE_BURST	0x0020	
-#define DRV_INTR_FLAG_HPD_CHANGE	0x0040	
-#define DRV_INTR_FLAG_CONNECT		0x0080	
-#define DRV_INTR_FLAG_DISCONNECT	0x0100	
-#define DRV_INTR_FLAG_CBUS_ABORT	0x0200	
+/* Flags returned by low level driver interrupt handler */
+#define DRV_INTR_FLAG_MSC_DONE		0x0001	/* message send done */
+#define DRV_INTR_FLAG_MSC_RECVD		0x0002	/* MSC message received */
+#define DRV_INTR_FLAG_MSC_NAK		0x0004	/* message send unsuccessful */
+#define DRV_INTR_FLAG_WRITE_STAT	0x0008	/* write stat msg received */
+#define DRV_INTR_FLAG_SET_INT		0x0010	/* set int message received */
+#define DRV_INTR_FLAG_WRITE_BURST	0x0020	/* write burst received */
+#define DRV_INTR_FLAG_HPD_CHANGE	0x0040	/* Hot plug detect has changed */
+#define DRV_INTR_FLAG_CONNECT		0x0080	/* MHL connection established */
+#define DRV_INTR_FLAG_DISCONNECT	0x0100	/* MHL connection lost */
+#define DRV_INTR_FLAG_CBUS_ABORT	0x0200	/* A CBUS message transfer was aborted */
 
 	void					*edid_parser_context;
 	uint8_t					msc_done_data;
-	uint8_t					hpd_status;		
-	uint8_t					write_stat[2];	
-	uint8_t					msc_msg[2];		
-	uint8_t					int_msg[2];		
+	uint8_t					hpd_status;		/* status of hot plug detect */
+	uint8_t					write_stat[2];	/* received write stat data */
+	uint8_t					msc_msg[2];		/* received msc message data */
+	uint8_t					int_msg[2];		/* received SET INT message data */
 };
 
 #define NUM_CBUS_EVENT_QUEUE_EVENTS 5
@@ -120,7 +142,8 @@ struct interrupt_info {
 #define MHL_DEV_CONTEXT_SIGNATURE	( ('M' << 24) | ('H' << 16) | ('L' << 8) | ' ')
 
 struct mhl_dev_context {
-	uint32_t				signature;	
+	uint32_t				signature;	/* identifies an instance of
+	 	 	 	 	 	 	 	 	 	 this struct */
 	struct mhl_drv_info const *drv_info;
 	struct	i2c_client		*client;
 	struct	cdev			mhl_cdev;
@@ -130,26 +153,26 @@ struct mhl_dev_context {
 	u8				dev_flags;
 	struct 	work_struct 		mhl_notifier_work;
 	struct 	workqueue_struct 	*wq;
-	struct 	delayed_work		irq_timeout_work;	
-	bool 	fake_cable_out;					
+	struct 	delayed_work		irq_timeout_work;	/*workaround, avoid chip with no react*/
+	bool 	fake_cable_out;					/*For fake remove event used */
 	enum 	usb_connect_type 	statMHL;
 	bool 	isMHL;
 
-#define DEV_FLAG_SHUTDOWN			0x01	
-#define DEV_FLAG_COMM_MODE			0x02	
+#define DEV_FLAG_SHUTDOWN			0x01	/* Device is shutting down */
+#define DEV_FLAG_COMM_MODE			0x02	/* user wants to peek/poke at registers */
 
-	u16					mhl_flags;				
-#define MHL_STATE_FLAG_CONNECTED		0x0001	
-#define MHL_STATE_FLAG_RCP_SENT			0x0002	
-#define MHL_STATE_FLAG_RCP_RECEIVED		0x0004	
-#define MHL_STATE_FLAG_RCP_ACK			0x0008	
-#define MHL_STATE_FLAG_RCP_NAK			0x0010	
-#define MHL_STATE_FLAG_UCP_SENT			0x0020	
-#define MHL_STATE_FLAG_UCP_RECEIVED		0x0040	
-#define MHL_STATE_FLAG_UCP_ACK			0x0080	
-#define MHL_STATE_FLAG_UCP_NAK			0x0100	
-#define MHL_STATE_FLAG_SPAD_SENT		0x0200	
-#define MHL_STATE_APPLICATION_RAP_BUSY	0x0400	
+	u16					mhl_flags;				/* various state flags */
+#define MHL_STATE_FLAG_CONNECTED		0x0001	/* MHL connection established */
+#define MHL_STATE_FLAG_RCP_SENT			0x0002	/* last RCP event was a key send */
+#define MHL_STATE_FLAG_RCP_RECEIVED		0x0004	/* last RCP event was a key code receive */
+#define MHL_STATE_FLAG_RCP_ACK			0x0008	/* last RCP key code sent was ACK'd */
+#define MHL_STATE_FLAG_RCP_NAK			0x0010	/* last RCP key code sent was NAK'd */
+#define MHL_STATE_FLAG_UCP_SENT			0x0020	/* last UCP event was a key send */
+#define MHL_STATE_FLAG_UCP_RECEIVED		0x0040	/* last UCP event was a key code receive */
+#define MHL_STATE_FLAG_UCP_ACK			0x0080	/* last UCP key code sent was ACK'd */
+#define MHL_STATE_FLAG_UCP_NAK			0x0100	/* last UCP key code sent was NAK'd */
+#define MHL_STATE_FLAG_SPAD_SENT		0x0200	/* scratch pad send in process */
+#define MHL_STATE_APPLICATION_RAP_BUSY	0x0400	/* application has indicated that it is processing an outstanding request */
 
 	u8					dev_cap_local_offset;
 	u8					dev_cap_remote_offset;
@@ -165,8 +188,8 @@ struct mhl_dev_context {
 	u8					ucp_out_key_code;
 	u8					ucp_err_code;
 	u8					ucp_send_status;
-	u8					pending_event;		
-	u8					pending_event_data;	
+	u8					pending_event;		/* event data wait for retrieval */
+	u8					pending_event_data;	/* by user mode application */
 	u8					spad_offset;
 	u8					spad_xfer_length;
 	u8					spad_send_status;
@@ -184,9 +207,11 @@ struct mhl_dev_context {
 
 	u8			error_key;
 	struct input_dev	*rcp_input_dev;
-	struct semaphore	isr_lock;	
+	struct semaphore	isr_lock;	/* semaphore used to prevent driver access
+	 	 	 	 	 	 	 	 	   from user mode from colliding with the
+	 	 	 	 	 	 	 	 	   threaded interrupt handler */
 
-	u8					status_0;	
+	u8					status_0;	/* Received status from peer saved here */
 	u8					status_1;
 	bool					msc_msg_arrived;
 	u8					msc_msg_sub_command;
@@ -196,7 +221,7 @@ struct mhl_dev_context {
 	u8					msc_save_rcp_key_code;
 	u8					msc_save_ucp_key_code;
 
-	u8					link_mode;	
+	u8					link_mode;	/* local MHL LINK_MODE register value */
 	bool					mhl_connection_event;
 	u8					mhl_connected;
 	struct workqueue_struct	*timer_work_queue;
@@ -219,7 +244,8 @@ struct mhl_dev_context {
 	void				*timer_T_hold_maintain;
 	#endif 
 
-	void				*drv_context;	
+	void				*drv_context;	/* pointer aligned start of mhl
+	 	 	 	 	 	 	 	 	 	   transmitter driver context area */
 };
 
 #define PACKED_PIXEL_AVAILABLE(dev_context)						\
@@ -244,7 +270,7 @@ struct mhl_drv_info {
 		uint8_t	minor	: 4;
 	} mhl_version_support;
 
-	
+	/* APIs required to be supported by the low level MHL transmitter driver */
 	int	 (* mhl_device_initialize) (struct drv_hw_context *hw_context, bool discovery_enable);
 	void (*mhl_device_isr) (struct drv_hw_context *hw_context,
 							struct interrupt_info *intr_info);
@@ -263,6 +289,7 @@ struct mhl_drv_info {
 	struct msm_hdmi_mhl_ops *hdmi_mhl_ops;
 };
 
+/* APIs provided by the Linux layer to the lower level driver */
 int mhl_tx_init(struct mhl_drv_info const *drv_info,
 				struct i2c_client *client);
 
@@ -303,6 +330,7 @@ void si_mhl_tx_handle_atomic_hw_edid_read_complete(struct drv_hw_context *hw_con
 #else
 void si_mhl_tx_handle_atomic_hw_edid_read_complete(edid_3d_data_p mhl_edid_3d_data,struct cbus_req *req);
 #endif
+/* APIs used within the Linux layer of the driver. */
 uint8_t si_mhl_tx_get_peer_dev_cap_entry(struct mhl_dev_context *dev_context,
 										 uint8_t index, uint8_t *data);
 
@@ -310,4 +338,4 @@ enum scratch_pad_status si_get_scratch_pad_vector(
 								struct mhl_dev_context *dev_context,
 								uint8_t offset,uint8_t length,
 								uint8_t *data);
-#endif 
+#endif /* if !defined(MHL_LINUX_TX_H) */

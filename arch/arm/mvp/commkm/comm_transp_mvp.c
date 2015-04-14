@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Generic shared memory transport API.
+ */
 #include <linux/wait.h>
 
 #include "comm_os.h"
@@ -27,6 +32,9 @@
 #include "qp.h"
 
 
+/*
+ * Opaque CommTransp structure. See comm_transp.h
+ */
 
 struct CommTranspPriv {
 	QPHandle *qp;
@@ -39,6 +47,9 @@ struct CommTranspPriv {
 	CommOSAtomic raiseInline;
 };
 
+/*
+ * Transport table object accounting
+ */
 
 typedef struct TranspTableEntry {
 	CommOSAtomic holds;
@@ -49,6 +60,11 @@ typedef struct TranspTableEntry {
 TranspTableEntry transpTable[QP_MAX_QUEUE_PAIRS];
 static CommOSSpinlock_Define(transpTableLock);
 
+/**
+ * @brief Destroy the transport object
+ * @param transp transport object to destroy
+ * @sideeffects detaches from queue pair
+ */
 
 static void
 DestroyTransp(CommTransp transp)
@@ -70,6 +86,11 @@ DestroyTransp(CommTransp transp)
 	transpID.d32[1] = transp->qp->id.resource;
 
 #if !defined(COMM_BUILDING_SERVER)
+	/*
+	 * Tell the host to detach, will block in the host
+	 * until the host has unmapped memory. Once the
+	 * host has unmapped, it is safe to free.
+	 */
 	CommTranspEvent_Raise(transp->peerEvID,
 			      &transpID,
 			      COMM_TRANSP_IO_DETACH);
@@ -78,6 +99,9 @@ DestroyTransp(CommTransp transp)
 	rc = QP_Detach(transp->qp);
 
 #if defined(COMM_BUILDING_SERVER)
+	/*
+	 * Wake up waiters now that unmapping is complete
+	 */
 	CommOS_WakeUp(&transpTable[transp->backRef].wq);
 #endif
 
@@ -89,6 +113,9 @@ DestroyTransp(CommTransp transp)
 }
 
 
+/**
+ * @brief Initialize the transport object table
+ */
 
 static void
 TranspTableInit(void)
@@ -104,6 +131,12 @@ TranspTableInit(void)
 }
 
 
+/**
+ * @brief Add a transport object into the table
+ * @param  transp handle to the transport object
+ * @return 0 on success, -1 otherwise
+ * @sideeffects increments entry refcount
+ */
 
 static inline int32
 TranspTableAdd(CommTransp transp)
@@ -128,6 +161,12 @@ TranspTableAdd(CommTransp transp)
 	return 0;
 }
 
+/**
+ * @brief retrieve a transport object and increment its ref count
+ * @param id transport id to retrieve
+ * @return transport object, or NULL if not found
+ * @sideeffects increments entry ref count
+ */
 
 static inline CommTransp
 TranspTableGet(CommTranspID *id)
@@ -152,6 +191,12 @@ TranspTableGet(CommTranspID *id)
 	return NULL;
 }
 
+/**
+ * @brief Puts back a previously TranspGet-ed transport object.
+ * @param transp the transport object.
+ * @sideeffects decrements the transport reference count.
+ *              frees object if refcount now zero
+ */
 
 static inline void
 TranspTablePut(CommTransp transp)
@@ -179,6 +224,12 @@ TranspTablePut(CommTransp transp)
 }
 
 
+/**
+ * @brief Puts back a previously TranspGet-ed transport object.
+ * @param transp the transport object.
+ * @sideeffects decrements the transport reference count.
+ *              asserts that remaining count > 0
+ */
 
 static inline void
 TranspTablePutNF(CommTransp transp)
@@ -197,6 +248,11 @@ TranspTablePutNF(CommTransp transp)
 }
 
 
+/**
+ * @brief Raises INOUT event in-line or out-of-band. Note that this function
+ *    expects the transport object to be held prior to being called.
+ * @param arg work item of transport object.
+ */
 
 static void
 RaiseEvent(CommOSWork *arg)
@@ -221,6 +277,12 @@ RaiseEvent(CommOSWork *arg)
 }
 
 
+/**
+ * @brief Requests events be posted in-line after the function completes.
+ * @param transp transport object.
+ * @return current number of requests for inline event posting.
+ * @sideeffects posts an event on the first transition to in-line processing.
+ */
 
 unsigned int
 CommTransp_RequestInlineEvents(CommTransp transp)
@@ -228,6 +290,10 @@ CommTransp_RequestInlineEvents(CommTransp transp)
 	unsigned int res = CommOS_AddReturnAtomic(&transp->raiseInline, 1);
 
 	if (res == 1) {
+		/*
+		 * On the first (effective) transition, make sure an
+		 * event is raised.
+		 */
 
 		CommOS_AddReturnAtomic(&transpTable[transp->backRef].holds, 1);
 		RaiseEvent(&transp->work);
@@ -236,6 +302,11 @@ CommTransp_RequestInlineEvents(CommTransp transp)
 }
 
 
+/**
+ * @brief Requests events be posted out-of-band after the function completes.
+ * @param transp transport object.
+ * @return current number of requests for inline event posting.
+ */
 
 unsigned int
 CommTransp_ReleaseInlineEvents(CommTransp transp)
@@ -244,6 +315,9 @@ CommTransp_ReleaseInlineEvents(CommTransp transp)
 }
 
 
+/*
+ * Comm Offload server callbacks.
+ */
 
 #if defined(COMM_BUILDING_SERVER)
 
@@ -257,6 +331,13 @@ static CommTranspListener listeners[COMM_MAX_LISTENERS];
 static uint32 numListeners;
 
 
+/**
+ * @brief Notify callback when guests attach to queue pairs. Notifies any
+ *      registered listeners (e.g. Comm layer).
+ * @param  args Initialization arguments used by the guest to initialize
+ *      its queue pair
+ * @return 0 on success, <0 otherwise. see qp.h for error codes.
+ */
 
 static int32
 NotifyCB(const QPInitArgs *args)
@@ -290,6 +371,11 @@ NotifyCB(const QPInitArgs *args)
 }
 
 
+/**
+ * @brief Detach callback when guests detach from queue pairs. Notifies
+ *      any registered listeners (e.g. CommComm layer).
+ * @param data Transport object passed when the callback was registered
+ */
 
 static void
 DetachCB(void *data)
@@ -309,6 +395,10 @@ DetachCB(void *data)
 #endif
 
 
+/**
+ * @brief Performs one-time initialization of mvp transport provider.
+ * @return 0 on success, < 0 otherwise.
+ */
 
 int
 CommTransp_Init(void)
@@ -326,6 +416,9 @@ CommTransp_Init(void)
 }
 
 
+/**
+ * @brief Performs clean-up of mvp transport provider.
+ */
 
 void
 CommTransp_Exit(void)
@@ -338,6 +431,12 @@ CommTransp_Exit(void)
 
 #if defined(COMM_BUILDING_SERVER)
 
+/**
+ * @brief Checks for a successful detach from Comm
+ * @param arg1 back reference index for channel in transport table
+ * @param arg2 ignored
+ * @return 1 if detach completed, 0 otherwise
+ */
 
 static int
 DetachCondition(void *arg1, void *arg2)
@@ -349,6 +448,16 @@ DetachCondition(void *arg1, void *arg2)
 #endif
 
 
+/**
+ * @brief Processes a raised signal event. This is a callback function called
+ *    from a comm_transp_ev plugin when a signal is received. Delivers an event
+ *    to one or more channels. If id->d32[1] == COMM_TRANSP_ID_32_ANY, the event
+ *    will be delivered to all registered channels associated with vmID
+ *    id->d32[0].
+ * @param id identifies a transport object to signal.
+ * @param event type of event.
+ * @return 0 if delivered to at least one channel, -1 on failure.
+ */
 
 int
 CommTranspEvent_Process(CommTranspID *id,
@@ -377,6 +486,9 @@ CommTranspEvent_Process(CommTranspID *id,
 			TranspTablePut(transp);
 
 #if defined(COMM_BUILDING_SERVER)
+			/*
+			 * Wait for unmap on IO_DETACH, return to monitor.
+			 */
 			if (event == COMM_TRANSP_IO_DETACH) {
 				unsigned long long timeout = 30000;
 
@@ -386,10 +498,10 @@ CommTranspEvent_Process(CommTranspID *id,
 						 NULL,
 						 &timeout);
 				switch (rc) {
-				case 1:     
+				case 1:     /* Memory successfully unmapped */
 					rc = 0;
 					break;
-				default:    
+				default:    /* Timed out or other error. */
 					return -1;
 				}
 			}
@@ -403,6 +515,12 @@ CommTranspEvent_Process(CommTranspID *id,
 }
 
 
+/**
+ * @brief Register a listener to be notified when guests attach to the Comm
+ *      offload server
+ * @param listener the listener to be notified
+ * @return 0 on success, -1 on failure
+ */
 
 int
 CommTransp_Register(const CommTranspListener *listener)
@@ -432,6 +550,11 @@ CommTransp_Register(const CommTranspListener *listener)
 }
 
 
+/**
+ * @brief Unregisters a listener from the transport event notification system
+ * @param listener listener to unregister
+ * @return 0 on success
+ */
 
 void
 CommTransp_Unregister(const CommTranspListener *listener)
@@ -458,6 +581,15 @@ CommTransp_Unregister(const CommTranspListener *listener)
 }
 
 
+/**
+ * @brief Allocates and initializes a transport object
+ * @param[in,out] transp handle to the transport to allocate and initialize
+ * @param transpArgs initialization arguments (see pvtcpTransp.h)
+ * @param transpEvent event callback to be delivered when events occur (e.g.
+ *      detach events)
+ * @return 0 on success, <0 otherwise. See qp.h for error codes.
+ * @sideeffects Allocates memory
+ */
 
 int
 CommTransp_Open(CommTransp *transp,
@@ -487,6 +619,9 @@ CommTransp_Open(CommTransp *transp,
 		goto out;
 	}
 
+	/*
+	 * Attach to the queue pair.
+	 */
 	rc = QP_Attach(&qpInitArgs, &qp);
 	if (rc < 0) {
 		rc = -1;
@@ -495,6 +630,9 @@ CommTransp_Open(CommTransp *transp,
 
 	transpOut->qp = qp;
 
+	/*
+	 * Reassign ID so Comm knows what ID was actually given
+	 */
 	transpArgs->id.d32[0] = qp->id.context;
 	transpArgs->id.d32[1] = qp->id.resource;
 
@@ -540,6 +678,12 @@ out:
 }
 
 
+/**
+ * @brief Tear down the transport channel, destroy the object if the refcount
+ *      drops to zero
+ * @param transp handle to the transport channel
+ * @sideeffects decrements the entry's refcount
+ */
 
 void
 CommTransp_Close(CommTransp transp)
@@ -552,6 +696,12 @@ CommTransp_Close(CommTransp transp)
 }
 
 
+/**
+ * @brief Returns available space for enqueue, in bytes
+ * @param transp handle to the transport object
+ * @return available space in the queue for enqueue operations, <0
+ *      on error conditions. see qp.h for error codes.
+ */
 
 int
 CommTransp_EnqueueSpace(CommTransp transp)
@@ -563,6 +713,11 @@ CommTransp_EnqueueSpace(CommTransp transp)
 }
 
 
+/**
+ * @brief Discards any pending enqueues
+ * @param transp handle to the transport object
+ * @return 0 on success, <0 otherwise. see qp.h for error codes
+ */
 
 int
 CommTransp_EnqueueReset(CommTransp transp)
@@ -575,6 +730,15 @@ CommTransp_EnqueueReset(CommTransp transp)
 }
 
 
+/**
+ * @brief Enqueues a segment of data into the transport object
+ * @param transp handle to the transport object
+ * @param buf data to enqueue
+ * @param bufLen number of bytes to enqueue
+ * @param kern != 0 if copying kernel data
+ * @return number of bytes enqueued on success, <0 otherwise. see qp.h
+ *      for error codes
+ */
 
 int
 CommTransp_EnqueueSegment(CommTransp transp,
@@ -597,6 +761,12 @@ CommTransp_EnqueueSegment(CommTransp transp,
 }
 
 
+/**
+ * @brief Commits any previous EnqueueSegment operations to the transport
+ *      object.
+ * @param transp handle to the transport object.
+ * @return 0 on success, < 0 otherwise.
+ */
 
 int
 CommTransp_EnqueueCommit(CommTransp transp)
@@ -646,6 +816,11 @@ CommTransp_EnqueueCommit(CommTransp transp)
 }
 
 
+/**
+ * @brief Returns any available bytes for dequeue
+ * @param transp handle to the transport object
+ * @return available bytes for dequeue, <0 otherwise. see qp.h for error codes
+ */
 
 int
 CommTransp_DequeueSpace(CommTransp transp)
@@ -657,6 +832,11 @@ CommTransp_DequeueSpace(CommTransp transp)
 }
 
 
+/**
+ * @brief Discards any pending dequeues
+ * @param transp handle to the transport object
+ * @return 0 on success, <0 otherwise, see qp.h for error codes
+ */
 
 int
 CommTransp_DequeueReset(CommTransp transp)
@@ -669,6 +849,16 @@ CommTransp_DequeueReset(CommTransp transp)
 }
 
 
+/**
+ * @brief Dequeues a segment of data from the consumer queue into
+ *      a buffer
+ * @param transp handle to the transport object
+ * @param[out] buf buffer to copy to
+ * @param bufLen number of bytes to dequeue
+ * @param kern != 0 if copying kernel data
+ * @return number of bytes dequeued on success, <0 otherwise,
+ *      see qp.h for error codes
+ */
 
 int
 CommTransp_DequeueSegment(CommTransp transp,
@@ -691,6 +881,12 @@ CommTransp_DequeueSegment(CommTransp transp,
 }
 
 
+/**
+ * @brief Commits any previous DequeueSegment operations to the
+ *      transport object.
+ * @param transp handle to the transport object.
+ * @return 0 on success, < 0 otherwise.
+ */
 
 int
 CommTransp_DequeueCommit(CommTransp transp)
@@ -708,6 +904,11 @@ CommTransp_DequeueCommit(CommTransp transp)
 		if ((readable >= 0) &&
 		    (transp->readSize + (unsigned int)readable >= limit) &&
 		    ((unsigned int)readable < limit)) {
+			/*
+			 * Minimize the number of likely 'peer write OK'
+			 * signalling: only do it, if reading crossed
+			 * half-way down.
+			 */
 
 			BUG_ON(transp->backRef >= QP_MAX_QUEUE_PAIRS);
 			CommOS_AddReturnAtomic(
@@ -722,12 +923,19 @@ CommTransp_DequeueCommit(CommTransp transp)
 		rc = -1;
 	}
 
-	
+	/* coverity[deref_after_free] */
 	transp->readSize = 0;
 	return rc;
 }
 
 
+/**
+ * @brief Notify any registered listeners for the given queue pair
+ * @param notificationCenterID noop, unused on MVP
+ * @param transpArgs initialization arguments used by the guest for this
+ *      channel
+ * @sideeffects the host may attach to the queue pair
+ */
 
 int
 CommTransp_Notify(const CommTranspID *notificationCenterID,

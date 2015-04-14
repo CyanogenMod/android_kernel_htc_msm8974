@@ -26,12 +26,29 @@
 #include <linux/iommu.h>
 #include <linux/seq_file.h>
 
+/**
+ * enum ion_heap_mem_usage - list of all ion memory statistics categories
+ * @ION_IN_USE:		Number of pages used by clients from heaps in ION_HEAP_TYPE_SYSTEM type
+ * @ION_TOTAL:		Number of pages allocated from buddy, including pages in use
+ *			and in free page pools
+ *
+ * @ION_USAGE_MAX:	Helper for iterating over memory statistics
+ */
 enum ion_heap_mem_usage {
 	ION_IN_USE = 0U,
 	ION_TOTAL = 1U,
 	ION_USAGE_MAX,
 };
 
+/**
+ * struct mem_map_data - represents information about the memory map for a heap
+ * @node:		list node used to store in the list of mem_map_data
+ * @addr:		start address of memory region.
+ * @addr:		end address of memory region.
+ * @size:		size of memory region
+ * @client_name:		name of the client who owns this buffer.
+ *
+ */
 struct mem_map_data {
 	struct list_head node;
 	ion_phys_addr_t addr;
@@ -78,6 +95,21 @@ void ion_removed_heap_destroy(struct ion_heap *);
 #define ION_CP_ALLOCATE_FAIL -1
 #define ION_RESERVED_ALLOCATE_FAIL -1
 
+/**
+ * ion_do_cache_op - do cache operations.
+ *
+ * @client - pointer to ION client.
+ * @handle - pointer to buffer handle.
+ * @uaddr -  virtual address to operate on.
+ * @offset - offset from physical address.
+ * @len - Length of data to do cache operation on.
+ * @cmd - Cache operation to perform:
+ *		ION_IOC_CLEAN_CACHES
+ *		ION_IOC_INV_CACHES
+ *		ION_IOC_CLEAN_INV_CACHES
+ *
+ * Returns 0 on success
+ */
 int ion_do_cache_op(struct ion_client *client, struct ion_handle *handle,
 			void *uaddr, unsigned long offset, unsigned long len,
 			unsigned int cmd);
@@ -100,12 +132,35 @@ int ion_heap_allow_heap_secure(enum ion_heap_type type);
 
 int ion_heap_allow_handle_secure(enum ion_heap_type type);
 
+/**
+ * ion_alloc_inc_usage - Add memory usage into ion memory statistics
+ * 			 according to its usage
+ *
+ * @usage - the location of used memory
+ * @size - the size of used memory
+ */
 void ion_alloc_inc_usage(const enum ion_heap_mem_usage usage,
 			 const size_t size);
 
+/**
+ * ion_alloc_dec_usage - subtract memory usage from ion memory statistics
+ * 			 according to its usage
+ *
+ * @usage - the location of used memory
+ * @size - the size of used memory
+ */
 void ion_alloc_dec_usage(const enum ion_heap_mem_usage usage,
 			 const size_t size);
 
+/**
+ * ion_create_chunked_sg_table - helper function to create sg table
+ * with specified chunk size
+ * @buffer_base:	The starting address used for the sg dma address
+ * @chunk_size:		The size of each entry in the sg table
+ * @total_size:		The total size of the sg table (i.e. the sum of the
+ *			entries). This will be rounded up to the nearest
+ *			multiple of `chunk_size'
+ */
 struct sg_table *ion_create_chunked_sg_table(phys_addr_t buffer_base,
 					size_t chunk_size, size_t total_size);
-#endif 
+#endif /* _MSM_ION_PRIV_H */

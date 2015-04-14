@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ *  @file
+ *
+ *  @brief Linux-specific module loading, unloading functions.
+ */
 
 #include "comm_os.h"
 #include "comm_os_mod_ver.h"
@@ -25,11 +30,17 @@
 #include <linux/moduleparam.h>
 
 
+/* Module parameters -- passed as one 'name=value'-list string. */
 
 static char modParams[256];
 module_param_string(COMM_OS_MOD_SHORT_NAME, modParams, sizeof(modParams), 0644);
 
 
+/**
+ *  @brief Module initialization entry point. Calls the commOSModInit
+ *      function pointer to perform upper layer initialization.
+ *  @return zero if successful, non-zero otherwise.
+ */
 
 static int __init
 ModInit(void)
@@ -58,6 +69,10 @@ ModInit(void)
 }
 
 
+/**
+ *  @brief Module exit function. Calls the commOSModExit function pointer
+ *      to perform upper layer cleanup.
+ */
 
 static void __exit
 ModExit(void)
@@ -77,9 +92,16 @@ ModExit(void)
 module_init(ModInit);
 module_exit(ModExit);
 
+/* Module information. */
 MODULE_AUTHOR("VMware, Inc.");
 MODULE_DESCRIPTION(COMM_OS_MOD_NAME_STRING);
 MODULE_VERSION(COMM_OS_MOD_VERSION_STRING);
 MODULE_LICENSE("GPL v2");
+/*
+ * Starting with SLE10sp2, Novell requires that IHVs sign a support agreement
+ * with them and mark their kernel modules as externally supported via a
+ * change to the module header. If this isn't done, the module will not load
+ * by default (i.e., neither mkinitrd nor modprobe will accept it).
+ */
 MODULE_INFO(supported, "external");
 

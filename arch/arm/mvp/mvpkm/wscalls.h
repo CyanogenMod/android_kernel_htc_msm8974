@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Worldswitch call parameters
+ */
 
 #ifndef _WSCALLS_H
 #define _WSCALLS_H
@@ -45,6 +50,12 @@
 #define WSCALL_MONITOR_TIMER         16
 #define WSCALL_COMM_SIGNAL           17
 #define WSCALL_QP_NOTIFY             18
+/*
+ * MVPKM V0.5.2.0 supports all the calls above. If new API calls are
+ * introduced then make sure that the calling function (probably in
+ * mkhost.c) checks the mvpkm's version stored in wsp->mvpkmVersion
+ * and invokes the wscall only when it is supported.
+ */
 
 #define WSCALL_MAX_CALLNO            20
 
@@ -62,25 +73,37 @@
 typedef struct WSParams {
 	uint32 callno;
 	union {
+	/**
+	 * @brief Used for both WSCALL_ACQUIRE_PAGE and WSCALL_RELEASE_PAGE.
+	 */
 	struct {
-		
+		/** IN Number of pages */
 		uint16 pages;
 
+		/**
+		 *  IN Size of each page - 2^(12+order) sized and
+		 *  aligned in machine space. (WSCALL_ACQUIRE_PAGE only)
+		 */
 		uint16 order;
 
-		
+		/** IN Region identifier for pages (WSCALL_ACQUIRE_PAGE only) */
 		PhysMem_RegionType forRegion;
 
+		/**
+		 * OUT (on WSCALL_ACQUIRE_PAGE)
+		 * IN (on WSCALL_RELEASE_PAGE)
+		 * Vector of page base MPNs
+		 */
 		MPN mpns[WSCALL_MAX_MPNS];
 	} pages;
 
 	union {
-		MPN mpn;          
-		_Bool referenced; 
+		MPN mpn;          /**< IN MPN to query refcount. */
+		_Bool referenced; /**< OUT Host page tables contain the MPN? */
 	} refCount;
 
 	struct {
-		ExitStatus   status; 
+		ExitStatus   status; /**< IN the final status of the monitor */
 	} abort;
 
 	struct {
@@ -89,36 +112,40 @@ typedef struct WSParams {
 	} log;
 
 	struct {
-		HKVA mtxHKVA;           
-		MutexMode mode;         
-		uint32 cvi;             
-		_Bool all;              
-		_Bool ok;               
+		HKVA mtxHKVA;           /**< IN mutex's host kernel virt addr */
+		MutexMode mode;         /**< IN shared or exclusive */
+		uint32 cvi;             /**< IN condition variable index */
+		_Bool all;              /**< IN wake all waiting threads? */
+		_Bool ok;               /**< OUT Mutex_Lock completed */
 	} mutex;
 
 	struct {
-		Mksck_VmId  vmId;       
+		Mksck_VmId  vmId;       /**< IN translate and lock this vmID */
 
+		/**
+		 * OUT true if the lookup was successful, page is found,
+		 * and refc incremented
+		 */
 		_Bool found;
 
-		
+		/** OUT array of MPNs of the requested vmId */
 		MPN mpn[MKSCKPAGE_TOTAL];
 	} pageMgmnt;
 
 	struct {
-		
+		/** OUT current time-of-day seconds */
 		unsigned int now;
-		
+		/** OUT current time-of-day microseconds */
 		unsigned int nowusec;
 	} tod;
 
 	struct {
-		QPId id;             
-		uint32 capacity;     
-		uint32 type;         
-		uint32 base;         
-		uint32 nrPages;      
-		int32 rc;            
+		QPId id;             /**< IN/OUT shared memory id */
+		uint32 capacity;     /**< IN size of shared region requested */
+		uint32 type;         /**< IN type of queue pair */
+		uint32 base;         /**< IN base MPN of PA vector page */
+		uint32 nrPages;      /**< IN number of pages to map */
+		int32 rc;            /**< OUT return code */
 	} qp;
 
 	struct {
@@ -127,17 +154,22 @@ typedef struct WSParams {
 	} commEvent;
 
 	struct {
-		uint64 when64;       
+		uint64 when64;       /**< IN timer request */
 	} timer;
 
 	struct {
-		_Bool suspendMode;   
+		_Bool suspendMode;   /**< Is the guest in suspend mode? */
 	} wait;
 
-	};                           
+	};                           /**< anonymous union */
 } WSParams;
 
 
+/**
+ * @brief Cast the opaque param_ member of the wsp to WSParams type
+ * @param wsp_ the world switch page structure pointer
+ * @return the cast pointer
+ */
 static inline WSParams *UNUSED
 WSP_Params(WorldSwitchPage *wsp_) {
 	return (WSParams *)(wsp_->params_);

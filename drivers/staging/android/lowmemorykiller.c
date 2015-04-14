@@ -59,10 +59,10 @@ static int lowmem_adj[6] = {
 };
 static int lowmem_adj_size = 4;
 static int lowmem_minfree[6] = {
-	3 * 512,	
-	2 * 1024,	
-	4 * 1024,	
-	16 * 1024,	
+	3 * 512,	/* 6MB */
+	2 * 1024,	/* 8MB */
+	4 * 1024,	/* 16MB */
+	16 * 1024,	/* 64MB */
 };
 static int lowmem_minfree_size = 4;
 
@@ -76,6 +76,14 @@ static uint32_t lowmem_only_kswapd_sleep = 1;
 			printk(x);			\
 	} while (0)
 
+/**
+ * dump_tasks - dump current memory state of all system tasks
+ *
+ * State information includes task's pid, uid, tgid, vm size, rss, cpu, oom_adj
+ * value, oom_score_adj value, and name.
+ *
+ * Call with tasklist_lock read-locked.
+ */
 static void dump_tasks(void)
 {
        struct task_struct *p;
@@ -85,6 +93,11 @@ static void dump_tasks(void)
        for_each_process(p) {
                task = find_lock_task_mm(p);
                if (!task) {
+                       /*
+                        * This is a kthread or all of p's threads have already
+                        * detached their mm's.  There's no need to report
+                        * them; they can't be oom killed anyway.
+                        */
                        continue;
                }
 
@@ -226,7 +239,7 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 		if (tsk->flags & PF_KTHREAD)
 			continue;
 
-		
+		/* if task no longer has any memory ignore it */
 		if (test_task_flag(tsk, TIF_MM_RELEASED))
 			continue;
 
@@ -235,7 +248,7 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 				lowmem_print(2, "skipping , waiting for process %d (%s) dead\n",
 				tsk->pid, tsk->comm);
 				rcu_read_unlock();
-				
+				/* give the system time to free up the memory */
 				if (!(lowmem_only_kswapd_sleep && !current_is_kswapd())) {
 					msleep_interruptible(lowmem_sleep_ms);
 				}
@@ -300,7 +313,7 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 			dump_tasks();
 		}
 
-		
+		/* give the system time to free up the memory */
 		if (!(lowmem_only_kswapd_sleep && !current_is_kswapd()))
 			msleep_interruptible(lowmem_sleep_ms);
 	} else
@@ -374,7 +387,7 @@ static int lowmem_adj_array_set(const char *val, const struct kernel_param *kp)
 
 	ret = param_array_ops.set(val, kp);
 
-	
+	/* HACK: Autodetect oom_adj values in lowmem_adj array */
 	lowmem_autodetect_oom_adj_values();
 
 	return ret;

@@ -18,6 +18,12 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief top-level include for all basic includes.
+ * This file should not define anything of its own.
+ */
 
 #ifndef _MVP_H
 #define _MVP_H

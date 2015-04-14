@@ -16,6 +16,13 @@
 #define KRAIT_REGULATOR_DRIVER_NAME	"krait-power-regulator"
 #define KRAIT_PDN_DRIVER_NAME		"krait-pdn"
 
+/**
+ * krait_power_init - driver initialization function
+ *
+ * This function registers the krait-power-regulator platform driver. This
+ * should be called from appropriate initialization code. Returns 0 on
+ * success and error on failure.
+ */
 
 #ifdef CONFIG_ARCH_MSM8974
 int __init krait_power_init(void);

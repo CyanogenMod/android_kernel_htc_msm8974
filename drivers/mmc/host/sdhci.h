@@ -20,6 +20,9 @@
 
 #include <linux/mmc/sdhci.h>
 
+/*
+ * Controller registers
+ */
 
 #define SDHCI_DMA_ADDRESS	0x00
 #define SDHCI_ARGUMENT2		SDHCI_DMA_ADDRESS
@@ -163,7 +166,7 @@
 #define   SDHCI_CTRL_UHS_SDR50		0x0002
 #define   SDHCI_CTRL_UHS_SDR104		0x0003
 #define   SDHCI_CTRL_UHS_DDR50		0x0004
-#define   SDHCI_CTRL_HS_SDR200		0x0005 
+#define   SDHCI_CTRL_HS_SDR200		0x0005 /* reserved value in SDIO spec */
 #define  SDHCI_CTRL_VDD_180		0x0008
 #define  SDHCI_CTRL_DRV_TYPE_MASK	0x0030
 #define   SDHCI_CTRL_DRV_TYPE_B		0x0000
@@ -220,15 +223,18 @@
 #define  SDHCI_MAX_CURRENT_180_SHIFT	16
 #define   SDHCI_MAX_CURRENT_MULTIPLIER	4
 
+/* 4C-4F reserved for more max current */
 
 #define SDHCI_SET_ACMD12_ERROR	0x50
 #define SDHCI_SET_INT_ERROR	0x52
 
 #define SDHCI_ADMA_ERROR	0x54
 
+/* 55-57 reserved */
 
 #define SDHCI_ADMA_ADDRESS	0x58
 
+/* 60-FB reserved */
 
 #define SDHCI_SLOT_INT_STATUS	0xFC
 
@@ -241,10 +247,16 @@
 #define   SDHCI_SPEC_200	1
 #define   SDHCI_SPEC_300	2
 
+/*
+ * End of controller registers.
+ */
 
 #define SDHCI_MAX_DIV_SPEC_200	256
 #define SDHCI_MAX_DIV_SPEC_300	2046
 
+/*
+ * Host SDMA buffer boundary. Valid values from 4K to 512K in powers of 2.
+ */
 #define SDHCI_DEFAULT_BOUNDARY_SIZE  (512 * 1024)
 #define SDHCI_DEFAULT_BOUNDARY_ARG   (ilog2(SDHCI_DEFAULT_BOUNDARY_SIZE) - 12)
 
@@ -371,7 +383,7 @@ static inline u8 sdhci_readb(struct sdhci_host *host, int reg)
 	return readb(host->ioaddr + reg);
 }
 
-#endif 
+#endif /* CONFIG_MMC_SDHCI_IO_ACCESSORS */
 
 extern struct sdhci_host *sdhci_alloc_host(struct device *dev,
 	size_t priv_size);
@@ -397,4 +409,4 @@ extern int sdhci_runtime_suspend_host(struct sdhci_host *host);
 extern int sdhci_runtime_resume_host(struct sdhci_host *host);
 #endif
 
-#endif 
+#endif /* __SDHCI_HW_H */

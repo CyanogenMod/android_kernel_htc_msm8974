@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief ASSERT() and related macros.
+ */
 
 #ifndef _MVP_ASSERT_H
 #define _MVP_ASSERT_H
@@ -56,6 +61,17 @@
 
 #endif
 
+/*
+ * Compile-time assertions.
+ *
+ * ASSERT_ON_COMPILE does not use the common
+ * switch (0) { case 0: case (e): ; } trick because some compilers (e.g. MSVC)
+ * generate code for it.
+ *
+ * The implementation uses both enum and typedef because the typedef alone is
+ * insufficient; gcc allows arrays to be declared with non-constant expressions
+ * (even in typedefs, where it makes no sense).
+ */
 #ifdef __COVERITY__
 #define ASSERT_ON_COMPILE(e) ASSERT(e)
 #else
@@ -65,6 +81,21 @@
 } while (0)
 #endif
 
+/*
+ * To put an ASSERT_ON_COMPILE() outside a function, wrap it
+ * in MY_ASSERTS().  The first parameter must be unique in
+ * each .c file where it appears.  For example,
+ *
+ * MY_ASSERTS(FS3_INT,
+ *    ASSERT_ON_COMPILE(sizeof(FS3_DiskLock) == 128);
+ *    ASSERT_ON_COMPILE(sizeof(FS3_DiskLockReserved) == DISK_BLOCK_SIZE);
+ *    ASSERT_ON_COMPILE(sizeof(FS3_DiskBlock) == DISK_BLOCK_SIZE);
+ *    ASSERT_ON_COMPILE(sizeof(Hardware_DMIUUID) == 16);
+ * )
+ *
+ * Caution: ASSERT() within MY_ASSERTS() is silently ignored.
+ * The same goes for anything else not evaluated at compile time.
+ */
 
 #define MY_ASSERTS(name, assertions)	\
 	static inline void name(void)	\
@@ -85,6 +116,9 @@
 		NOT_IMPLEMENTED_JIRA(_tkt);		\
 } while (0)
 
+/*
+ * All sites tagged with this are @knownjira{MVP-1855}.
+ */
 #define NOT_IMPLEMENTEDF(...) \
 	FatalError(__FILE__, __LINE__, FECodeNI, 0, __VA_ARGS__)
 

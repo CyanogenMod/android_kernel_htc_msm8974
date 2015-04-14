@@ -33,23 +33,23 @@
 #define RCG_CONFIG_UPDATE_BIT		BIT(0)
 
 static struct msm_bus_paths bw_level_tbl_8226[] = {
-	[0] =  BW_MBPS(152), 
-	[1] =  BW_MBPS(300), 
-	[2] =  BW_MBPS(400), 
-	[3] =  BW_MBPS(800), 
-	[4] = BW_MBPS(1600), 
-	[5] = BW_MBPS(2128), 
-	[6] = BW_MBPS(3200), 
-	[7] = BW_MBPS(4264), 
+	[0] =  BW_MBPS(152), /* At least 19 MHz on bus. */
+	[1] =  BW_MBPS(300), /* At least 37.5 MHz on bus. */
+	[2] =  BW_MBPS(400), /* At least 50 MHz on bus. */
+	[3] =  BW_MBPS(800), /* At least 100 MHz on bus. */
+	[4] = BW_MBPS(1600), /* At least 200 MHz on bus. */
+	[5] = BW_MBPS(2128), /* At least 266 MHz on bus. */
+	[6] = BW_MBPS(3200), /* At least 400 MHz on bus. */
+	[7] = BW_MBPS(4264), /* At least 533 MHz on bus. */
 };
 
 static struct msm_bus_paths bw_level_tbl_8610[] = {
-	[0] =  BW_MBPS(152), 
-	[1] =  BW_MBPS(300), 
-	[2] =  BW_MBPS(400), 
-	[3] =  BW_MBPS(800), 
-	[4] = BW_MBPS(1600), 
-	[5] = BW_MBPS(2664), 
+	[0] =  BW_MBPS(152), /* At least 19 MHz on bus. */
+	[1] =  BW_MBPS(300), /* At least 37.5 MHz on bus. */
+	[2] =  BW_MBPS(400), /* At least 50 MHz on bus. */
+	[3] =  BW_MBPS(800), /* At least 100 MHz on bus. */
+	[4] = BW_MBPS(1600), /* At least 200 MHz on bus. */
+	[5] = BW_MBPS(2664), /* At least 333 MHz on bus. */
 };
 
 static struct msm_bus_scale_pdata bus_client_pdata = {
@@ -194,7 +194,7 @@ static int __init acpuclk_a7_probe(struct platform_device *pdev)
 		}
 	}
 
-	
+	/* Enable the always on source */
 	clk_prepare_enable(drv_data.src_clocks[PLL0].clk);
 
 	return acpuclk_cortex_init(pdev, &drv_data);

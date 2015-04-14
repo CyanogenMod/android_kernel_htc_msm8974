@@ -21,6 +21,55 @@
 #ifndef _MKSCK_H
 #define _MKSCK_H
 
+/**
+ * @file
+ *
+ * @brief The monitor-kernel socket interface definitions.
+ *
+ * The monitor kernel socket interface was created for (what the name
+ * says) communications between the monitor and host processes. On the
+ * monitor side a special API is introduced, see mksck_vmm.h. On the
+ * host side the API is the standard Berkeley socket interface. Host
+ * process to host process or monitor to monitor communication is not
+ * supported.
+ *
+ * A generic address consists of two 16 bit fields: the vm id and the
+ * port id.  Both hosts (vmx) and monitors (vmm) get their vm id
+ * automatically.  The host vm id is assigned at the time the host
+ * process opens the mvpkm file descriptor, while the monitor vm id is
+ * assigned when the vmx.c:SetupWorldSwitchPage() calls
+ * Mvpkm_SetupIds(). As a vmx may create multiple monitors to service
+ * an MP guest, a vmx vm id may be associated with multiple monitor vm
+ * ids. A monitor id, however, has a single associated vmx host id,
+ * the id of its canonical vmx.
+ *
+ * Sockets on the host get their addresses either by explicit user
+ * call (the bind command) or implicitly by (issuing a send command
+ * first). At an explicit bind the user may omit one or both fields by
+ * providing MKSCK_VMID_UNDEF/MKSCK_PORT_UNDEF respectively. An
+ * implicit bind behaves as if both fields were omitted in an explicit
+ * bind. The default value of the vmid field is the vmid computed from
+ * the thread group id while that of a port is a new number. It is not
+ * invalid to bind a host process socket with a vm id different from
+ * the vmid computed from the tgid.
+ *
+ * Sockets of the monitor are automatically assigned a vmid, that of their
+ * monitor, at the time of their creation. The port id can be assigned by the
+ * user or left to the implementation to assign an unused one (by specifying
+ * MKSCK_PORT_UNDEF at @ref Mksck_Open).
+ *
+ * Host unconnected sockets may receive from any monitor sender, may send to any
+ * monitor socket. A socket can be connected to a peer address, that enables the
+ * use of the send command.
+ *
+ * One of many special predefined port (both host and monitor) is
+ * MKSCK_PORT_MASTER. It is used for initialization.
+ *
+ * Monitor sockets have to send their peer address explicitly (by
+ * Mksck_SetPeer()) or implicitly by receiving first. After the peer
+ * is set, monitor sockets may send or receive only to/from their
+ * peer.
+ */
 
 
 #define INCLUDE_ALLOW_MVPD
@@ -34,6 +83,9 @@
 
 #include "vmid.h"
 
+/*
+ * The interface limits the size of transferable packets.
+ */
 #define MKSCK_XFER_MAX        1024
 
 #define MKSCK_ADDR_UNDEF      ((uint32)0xffffffff)
@@ -55,22 +107,38 @@
 typedef uint16 Mksck_Port;
 typedef VmId   Mksck_VmId;
 
+/**
+ * @brief Page descriptor for typed messages. Each page describes a region of
+ *        the machine address space with base mpn and size 2^(12 + order) bytes.
+ */
 typedef struct {
-	uint32 mpn:20;   
-	uint32 order:12; 
+	uint32 mpn:20;   /**< Base MPN of region described by page */
+	uint32 order:12; /**< Region is 2^(12 + order) bytes. */
 } Mksck_PageDesc;
 
+/**
+ * @brief Typed message template macro. Allows us to avoid having two message
+ *        types, one with page descriptor vector (for VMM), one without (for
+ *        VMX).
+ *
+ * @param type C type of uninterpreted component of the message (following the
+ *             page descriptor vector).
+ * @param pages number of page descriptors in vector.
+ */
 #define MKSCK_DESC_TYPE(type, pages) \
 	struct { \
 		type umsg; \
 		Mksck_PageDesc page[pages]; \
 	}
 
+/**
+ * @brief The monitor kernel socket interface address format
+ */
 typedef union {
-	uint32 addr;		 
-	struct {		 
-		Mksck_Port port; 
-		Mksck_VmId vmId; 
+	uint32 addr;		 /**< the address */
+	struct {		 /* The address is decomposed to two shorts */
+		Mksck_Port port; /**< port unique within a vmid */
+		Mksck_VmId vmId; /**< unique vmid */
 	};
 } Mksck_Address;
 

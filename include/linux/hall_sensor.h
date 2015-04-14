@@ -1,3 +1,4 @@
+/*for Hall sensor common header file*/
 #ifndef __LINUX_HALL_SENSOR_H
 #define __LINUX_HALL_SENSOR_H
 

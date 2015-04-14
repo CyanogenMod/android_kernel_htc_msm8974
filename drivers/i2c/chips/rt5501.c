@@ -837,7 +837,7 @@ static long rt5501_ioctl(struct file *file, unsigned int cmd,
 		pr_info("%s: RT5501_WRITE_REG\n", __func__);
 		mutex_lock(&hp_amp_lock);
 		if (!last_spkamp_state) {
-			
+			/* According to rt5501 Spec */
 			mdelay(30);
 		}
 		if (copy_from_user(reg_value, argp, sizeof(reg_value)))
@@ -859,7 +859,7 @@ err1:
 	case RT5501_READ_CONFIG:
 		mutex_lock(&hp_amp_lock);
 		if (!last_spkamp_state) {
-			
+			/* According to rt5501 Spec */
 			mdelay(30);
 		}
 
@@ -928,7 +928,7 @@ err2:
 
 		pr_info("%s: update rt5501 i2c commands #%d success.\n",
 				__func__, rt5501_config_data.mode_num);
-		
+		/* update default paramater from csv*/
                 mutex_lock(&hp_amp_lock);
 		update_amp_parameter(RT5501_MODE_OFF);
 		update_amp_parameter(RT5501_MUTE);

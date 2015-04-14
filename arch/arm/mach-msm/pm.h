@@ -59,20 +59,25 @@ struct msm_pm_sleep_status_data {
 };
 
 struct msm_pm_platform_data {
-	u8 idle_supported;   
-	u8 suspend_supported; 
-	u8 suspend_enabled;  
-	u8 idle_enabled;     
-	u32 latency;         
-	u32 residency;       
+	u8 idle_supported;   /* Allow device to enter mode during idle */
+	u8 suspend_supported; /* Allow device to enter mode during suspend */
+	u8 suspend_enabled;  /* enabled for suspend */
+	u8 idle_enabled;     /* enabled for idle low power */
+	u32 latency;         /* interrupt latency in microseconds when entering
+				and exiting the low power mode */
+	u32 residency;       /* time threshold in microseconds beyond which
+				staying in the low power mode saves power */
 };
 
 extern struct msm_pm_platform_data msm_pm_sleep_modes[];
 
 enum msm_pm_pc_mode_type {
-	MSM_PM_PC_TZ_L2_INT,   
-	MSM_PM_PC_NOTZ_L2_EXT, 
-	MSM_PM_PC_TZ_L2_EXT,   
+	MSM_PM_PC_TZ_L2_INT,   /*Power collapse terminates in TZ;
+					integrated L2 cache controller */
+	MSM_PM_PC_NOTZ_L2_EXT, /* Power collapse doesn't terminate in
+					TZ; external L2 cache controller */
+	MSM_PM_PC_TZ_L2_EXT,   /* Power collapse terminates in TZ;
+					external L2 cache controller */
 };
 
 struct msm_pm_init_data_type {
@@ -111,7 +116,7 @@ static inline int msm_cpu_pm_enter_sleep(enum msm_pm_sleep_mode mode,
 static inline void msm_pm_sleep_status_init(void) {};
 static inline void msm_pm_set_l2_flush_flag(unsigned int flag)
 {
-	
+	/* empty */
 }
 bool msm_cpu_pm_check_mode(unsigned int cpu, enum msm_pm_sleep_mode mode,
 		bool from_idle)
@@ -157,4 +162,4 @@ int print_gpio_buffer(struct seq_file *m);
 int free_gpio_buffer(void);
 #endif
 
-#endif  
+#endif  /* __ARCH_ARM_MACH_MSM_PM_H */

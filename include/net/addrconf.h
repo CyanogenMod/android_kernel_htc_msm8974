@@ -4,7 +4,7 @@
 #define MAX_RTR_SOLICITATIONS		3
 #define RTR_SOLICITATION_INTERVAL	(4*HZ)
 
-#define MIN_VALID_LIFETIME		(2*3600)	
+#define MIN_VALID_LIFETIME		(2*3600)	/* 2 hours */
 
 #define TEMP_VALID_LIFETIME		(7*86400)
 #define TEMP_PREFERRED_LIFETIME		(86400)
@@ -97,6 +97,11 @@ static inline unsigned long addrconf_timeout_fixup(u32 timeout,
 	if (timeout == 0xffffffff)
 		return ~0UL;
 
+	/*
+	 * Avoid arithmetic overflow.
+	 * Assuming unit is constant and non-zero, this "if" statement
+	 * will go away on 64bit archs.
+	 */
 	if (0xfffffffe > LONG_MAX / unit && timeout > LONG_MAX / unit)
 		return LONG_MAX / unit;
 
@@ -108,6 +113,9 @@ static inline int addrconf_finite_timeout(unsigned long timeout)
 	return ~timeout;
 }
 
+/*
+ *	IPv6 Address Label subsystem (addrlabel.c)
+ */
 extern int			ipv6_addr_label_init(void);
 extern void			ipv6_addr_label_cleanup(void);
 extern void			ipv6_addr_label_rtnl_register(void);
@@ -115,6 +123,9 @@ extern u32			ipv6_addr_label(struct net *net,
 						const struct in6_addr *addr,
 						int type, int ifindex);
 
+/*
+ *	multicast prototypes (mcast.c)
+ */
 extern int ipv6_sock_mc_join(struct sock *sk, int ifindex,
 			     const struct in6_addr *addr);
 extern int ipv6_sock_mc_drop(struct sock *sk, int ifindex,
@@ -143,6 +154,9 @@ extern int ipv6_is_mld(struct sk_buff *skb, int nexthdr);
 extern void addrconf_prefix_rcv(struct net_device *dev,
 				u8 *opt, int len, bool sllao);
 
+/*
+ *	anycast prototypes (anycast.c)
+ */
 extern int ipv6_sock_ac_join(struct sock *sk,int ifindex, const struct in6_addr *addr);
 extern int ipv6_sock_ac_drop(struct sock *sk,int ifindex, const struct in6_addr *addr);
 extern void ipv6_sock_ac_close(struct sock *sk);
@@ -154,15 +168,30 @@ extern int ipv6_chk_acast_addr(struct net *net, struct net_device *dev,
 
 u32 addrconf_rt_table(const struct net_device *dev, u32 default_table);
 
-
+/* Device notifier */
 extern int register_inet6addr_notifier(struct notifier_block *nb);
 extern int unregister_inet6addr_notifier(struct notifier_block *nb);
 
+/**
+ * __in6_dev_get - get inet6_dev pointer from netdevice
+ * @dev: network device
+ *
+ * Caller must hold rcu_read_lock or RTNL, because this function
+ * does not take a reference on the inet6_dev.
+ */
 static inline struct inet6_dev *__in6_dev_get(const struct net_device *dev)
 {
 	return rcu_dereference_rtnl(dev->ip6_ptr);
 }
 
+/**
+ * in6_dev_get - get inet6_dev pointer from netdevice
+ * @dev: network device
+ *
+ * This version can be used in any context, and takes a reference
+ * on the inet6_dev. Callers must use in6_dev_put() later to
+ * release this reference.
+ */
 static inline struct inet6_dev *in6_dev_get(const struct net_device *dev)
 {
 	struct inet6_dev *idev;
@@ -212,6 +241,9 @@ static inline void in6_ifa_hold(struct inet6_ifaddr *ifp)
 }
 
 
+/*
+ *	compute link-local solicited-node multicast address
+ */
 
 static inline void addrconf_addr_solict_mult(const struct in6_addr *addr,
 					     struct in6_addr *solicited)

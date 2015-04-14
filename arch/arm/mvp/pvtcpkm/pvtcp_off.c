@@ -18,9 +18,22 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Server (offload) side code.
+ */
 
 #include "pvtcp.h"
 
+/**
+ * @brief Allocates and initializes a net buffer.
+ * @param size buffer size.
+ * @param channel channel from which to copy.
+ * @param header header of this payload.
+ * @param copy function to use for copying.
+ * @return address of buffer or NULL
+ */
 
 void *
 PvtcpBufAlloc(unsigned int size,
@@ -34,14 +47,23 @@ PvtcpBufAlloc(unsigned int size,
    PvtcpOffBuf *buf;
    void *res = NULL;
 
-   
-   
+   /* coverity[alloc_fn] */
+   /* coverity[var_assign] */
 
    if (size == 0) {
       return NULL;
    }
 
    if ((header->opCode == PVTCP_OP_IO) && (size > PVTCP_SOCK_BUF_SIZE)) {
+      /*
+       * Since stream sockets always chunk payloads, this is a non-stream output
+       * operation that needs fragment allocation. Non-stream payloads are never
+       * enqueued, so we can overload the 'len' and 'off' fields.
+       * Allocate the header with an iovec array, plus each iovec entry. Note that
+       * there will be at least two fragments.
+       * The 'off' field is set to USHRT_MAX to distinguish frag-allocations,
+       * and 'len' stores the number of fragments.
+       */
 
       unsigned int nmbFrags =
          (size + PVTCP_SOCK_BUF_SIZE - 1) / PVTCP_SOCK_BUF_SIZE;
@@ -105,6 +127,11 @@ out:
 }
 
 
+/**
+ * @brief Deallocates given net buffer.
+ * @param buf buffer to deallocate
+ * @sideeffect Frees memory
+ */
 
 void
 PvtcpBufFree(void *buf)
@@ -124,6 +151,12 @@ PvtcpBufFree(void *buf)
 }
 
 
+/**
+ * @brief Initializes the Pvtcp socket offload common fields.
+ * @param pvsk pvtcp socket.
+ * @param channel Comm channel this socket is associated with.
+ * @return 0 if successful, -1 otherwise.
+ */
 
 int
 PvtcpOffSockInit(PvtcpSock *pvsk,

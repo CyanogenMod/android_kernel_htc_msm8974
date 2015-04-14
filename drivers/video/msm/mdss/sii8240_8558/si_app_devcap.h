@@ -14,6 +14,14 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 
 */
 
+/*
+ *****************************************************************************
+ * @file  si_app_devcap.h
+ *
+ * @brief Implementation of the Foo API.
+ *
+ *****************************************************************************
+*/
 #define DEVCAP_VAL_DEV_STATE       0
 #define DEVCAP_VAL_MHL_VERSION     MHL_VERSION
 #define DEVCAP_VAL_DEV_CAT         (MHL_DEV_CAT_SOURCE | MHL_DEV_CATEGORY_POW_BIT)

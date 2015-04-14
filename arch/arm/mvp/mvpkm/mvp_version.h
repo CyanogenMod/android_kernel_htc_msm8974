@@ -18,6 +18,12 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief What version is this?
+ *
+ */
 
 #ifndef _MVP_VERSION_H_
 #define _MVP_VERSION_H_
@@ -31,6 +37,39 @@
 #include "include_check.h"
 #include "utils.h"
 
+/*
+ * MVP Internal Version Numbering
+ *
+ *
+ * There are 4 different usage areas of version information.
+ *
+ *   Version Name. This is a marketing string that is used to sell the
+ *   product. The update of this string has legal consequences, it
+ *   should be done infrequently. Currently we use "V1.0" like
+ *   terms. Developer builds have E.X.P as Version Name.
+ *
+ *   Android Version Code. This is an integer associated with
+ *   com.vmware.mvp.apk on Google Play (a.k.a Android Market). If our
+ *   product is multi-apk (that is, we release individual apks for the
+ *   different Android versions) then the Android Version Code must
+ *   satisfy certain constrains. Typically the Android API level is
+ *   the high order 2 digits.
+ *
+ *   Engineering Version Code. During an update process of one of the
+ *   3 components on the handset (MVP, VVP, OEK) compatibility needs
+ *   to be verified. The Engineering Version Code is a single number
+ *   associated with each of the 4 components and it serves as a basis
+ *   of this compatibility test. It reflects time, bigger number is
+ *   associated with newer code.
+ *
+ *   Git Revision. The git hash is a unique identifier of the
+ *   source. If picked up from a log, engineers can go to the code
+ *   depos and check out the exact code used for the build.  For MVP,
+ *   VVP, and OEK this is the main/mvp.git, for HMM it is
+ *   main/mdm.git. Note that git hash is not ordered, it cannot be
+ *   used to directly determine precedence.
+ *
+ */
 
 #define MVP_VERSION_CODE 16800041
 #define MVP_VERSION_CODE_FORMATSTR       "%s_%d"
@@ -59,6 +98,17 @@
 	versionApi_;					\
 })
 
+/*
+ * MVP.apk must communicate to VVP and OEK on many of its APIs. To
+ * ensure compatibility, it is mandated that any VVP and OEK version
+ * younger than the minimums defined below can be serviced on all of
+ * the various APIs.
+ *
+ * During the deprecation process, first a marketing decision is made
+ * that the limit below can be raised. After the new minimums are
+ * determined, they must be entered here. Then the various APIs can
+ * remove code that has been obsoleted before the new minimum versions.
+ */
 #define VVP_VERSION_CODE_MIN 16800015
 #define OEK_VERSION_CODE_MIN 0x01000001
 
@@ -66,4 +116,4 @@
 #define GUEST_SAME_MINFREE   16800033
 #define BALLOON_WATCHDOG_RO  16800039
 
-#endif 
+#endif /* _MVP_VERSION_H_ */

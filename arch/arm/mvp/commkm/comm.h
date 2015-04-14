@@ -18,6 +18,21 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Communication functions based on queue pair transport APIs.
+ *
+ * Comm is a shared memory-based mechanism that facilitates the implementation
+ * of kernel components that require host-to-guest, or guest-to-guest
+ * communication.
+ * This facility assumes the availability of a minimal shared memory queue pair
+ * implementation, such as MVP queue pairs or VMCI queue pairs. The latter must
+ * provide primitives for queue pair creation and destruction, and reading and
+ * writing from/to queue pairs.
+ * Comm assumes that the queue pair (transport) layer is not concerned with
+ * multi-threading, locking or flow control, and does not require such features.
+ */
 
 #ifndef _COMM_H_
 #define _COMM_H_
@@ -31,6 +46,7 @@
 #include "comm_transp.h"
 
 
+/* Default/maximum Comm timeouts (in milliseconds). */
 #define COMM_MAX_TO 60000ULL
 #define COMM_MAX_TO_UNINT (COMM_MAX_TO + 1)
 
@@ -41,12 +57,18 @@
 #define COMM_OPF_SET_VAL(flags, val) ((flags) |= ((val) & 127))
 #define COMM_OPF_GET_VAL(flags)      ((flags) & 127)
 
+/**
+ * Packet (header) structure.
+ * NB: Do not change this structure, especially the first three fields; there
+ *     will be consequences. It may be extended, but it's not recommended: all
+ *     operations carry this header, so it's better kept in its minimal form.
+ */
 
 typedef struct CommPacket {
-   unsigned int len;                        
-   unsigned char flags;                     
-   unsigned char opCode;                    
-   unsigned short data16;                   
+   unsigned int len;                        /* Total length */
+   unsigned char flags;                     /* Operation flags */
+   unsigned char opCode;                    /* Operation to call */
+   unsigned short data16;                   /* Auxiliary data */
    unsigned long long data64;
    unsigned long long data64ex;
    union {
@@ -59,11 +81,13 @@ typedef struct CommPacket {
 } CommPacket;
 
 
+/* Opaque structure representing a communication channel. */
 
 struct CommChannelPriv;
 typedef struct CommChannelPriv *CommChannel;
 
 
+/* Input operations associated with a comm channel. */
 
 typedef void (*CommOperationFunc)(CommChannel channel,
                                   void *state,
@@ -72,6 +96,7 @@ typedef void (*CommOperationFunc)(CommChannel channel,
                                   unsigned int vecLen);
 
 
+/* Helper macros */
 
 #define COMM_DEFINE_OP(funcName) \
 void                             \
@@ -82,6 +107,7 @@ funcName(CommChannel channel,    \
          unsigned int vecLen)
 
 
+/* Comm-based implementations. */
 
 typedef struct CommImpl {
    struct module *owner;
@@ -149,5 +175,5 @@ Comm_WriteVec(CommChannel channel,
 unsigned int Comm_RequestInlineEvents(CommChannel channel);
 unsigned int Comm_ReleaseInlineEvents(CommChannel channel);
 
-#endif 
+#endif /* _COMM_H_ */
 

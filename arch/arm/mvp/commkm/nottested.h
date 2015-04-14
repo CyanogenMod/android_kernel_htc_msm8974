@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief NOT_TESTED() and related.
+ */
 
 #ifndef _NOTTESTED_H
 #define _NOTTESTED_H

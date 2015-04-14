@@ -1119,12 +1119,12 @@ static void trace_save_cmdline(struct task_struct *tsk)
 
 	memcpy(&saved_cmdlines[idx], tsk->comm, TASK_COMM_LEN);
 
-	
+	/* Add check for tsk->comm corruption */
 	if (strlen(saved_cmdlines[idx]) >= TASK_COMM_LEN) {
-		
+		/* This means source of comm was incorrect */
 		pr_info("%s: tsk->comm has invalid length! %d:%s len=%d\n",
 			__func__, tsk->pid, tsk->comm, strlen(tsk->comm));
-		
+		/* Let's fix it now */
 		saved_cmdlines[idx][TASK_COMM_LEN-1] = '\0';
 	}
 
@@ -1161,12 +1161,12 @@ void trace_find_cmdline(int pid, char comm[])
 	arch_spin_unlock(&trace_cmdline_lock);
 	preempt_enable();
 
-	
+	/* Add more protection here to prevent saved_cmdlines from corruption */
 	if (strlen(comm) >= TASK_COMM_LEN) {
-		
+		/* This means saved_cmdline was corrupted... */
 		pr_info("%s: saved_cmdline has invalid length! comm:%s\n",
 			__func__, comm);
-		
+		/* Let's fix it now */
 		comm[TASK_COMM_LEN-1] = '\0';
 	}
 }

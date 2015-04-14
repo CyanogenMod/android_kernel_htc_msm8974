@@ -46,6 +46,7 @@
 #endif
 
 #define AKM_ACCEL_ITEMS 3
+/* Wait timeout in millisecond */
 #define AKM8963_DRDY_TIMEOUT	100
 
 struct akm8963_data {
@@ -86,6 +87,7 @@ static struct akm8963_data *s_akm;
 
 
 
+/***** I2C I/O function ***********************************************/
 static int akm8963_i2c_rxdata(
 	struct i2c_client *i2c,
 	unsigned char *rxData,
@@ -146,7 +148,7 @@ static int akm8963_i2c_check_device(
 	unsigned char buffer[2];
 	int err;
 
-	
+	/* Set measure mode */
 	buffer[0] = AK8963_REG_WIA;
 	err = akm8963_i2c_rxdata(client, buffer, 1);
 	if (err < 0) {
@@ -155,7 +157,7 @@ static int akm8963_i2c_check_device(
 		return err;
 	}
 
-	
+	/* Check read data */
 	if (buffer[0] != 0x48) {
 		dev_err(&client->dev,
 			"%s: The device is not AK8963.", __func__);
@@ -165,6 +167,7 @@ static int akm8963_i2c_check_device(
 	return err;
 }
 
+/***** akm miscdevice functions *************************************/
 static int AKECS_Open(struct inode *inode, struct file *file);
 static int AKECS_Release(struct inode *inode, struct file *file);
 static long AKECS_ioctl(struct file *file,
@@ -190,16 +193,16 @@ static int AKECS_Set_CNTL1(
 	unsigned char buffer[2];
 	int err;
 
-	
+	/* Busy check */
 	if (atomic_cmpxchg(&akm->is_busy, 0, 1) != 0) {
 		dev_err(&akm->i2c->dev, "%s: device is busy.", __func__);
 		return -EBUSY;
 	}
 
-	
+	/* Set flag */
 	atomic_set(&akm->drdy, 0);
 
-	
+	/* Set measure mode */
 	buffer[0] = AK8963_REG_CNTL1;
 	buffer[1] = mode;
 	err = akm8963_i2c_txdata(akm->i2c, buffer, 2);
@@ -219,7 +222,7 @@ static int AKECS_Set_PowerDown(
 	unsigned char buffer[2];
 	int err;
 
-	
+	/* Set measure mode */
 	buffer[0] = AK8963_REG_CNTL1;
 	buffer[1] = AK8963_MODE_POWERDOWN;
 	err = akm8963_i2c_txdata(akm->i2c, buffer, 2);
@@ -231,7 +234,7 @@ static int AKECS_Set_PowerDown(
 		AKM_DATA(&akm->i2c->dev, "Powerdown mode is set.");
 	}
 
-	
+	/* Set to initial status. */
 	atomic_set(&akm->is_busy, 0);
 	atomic_set(&akm->drdy, 0);
 
@@ -250,7 +253,7 @@ static int AKECS_Reset(
 		udelay(5);
 		gpio_set_value(akm->rstn, 1);
 	} else {
-		
+		/* Set measure mode */
 		buffer[0] = AK8963_REG_CNTL2;
 		buffer[1] = 0x01;
 		err = akm8963_i2c_txdata(akm->i2c, buffer, 2);
@@ -262,7 +265,7 @@ static int AKECS_Reset(
 		}
 	}
 
-	
+	/* Device will be accessible 100 us after */
 	udelay(100);
 
 	return err;
@@ -280,7 +283,10 @@ static int AKECS_SetMode(
 	case AK8963_MODE_FUSE_ACCESS:
 		err = AKECS_Set_CNTL1(akm, mode);
 		if ((err >= 0) && (akm->irq == 0)) {
-			
+			/*D("%s: Calling schedule_delayed_work()\n");*/
+			/*schedule_delayed_work(
+				&akm->work,
+				usecs_to_jiffies(AK8963_MEASUREMENT_TIME_US));*/
 		}
 		break;
 	case AK8963_MODE_POWERDOWN:
@@ -292,12 +298,15 @@ static int AKECS_SetMode(
 		return -EINVAL;
 	}
 
-	
+	/* wait at least 100us after changing mode */
 	udelay(100);
 
 	return err;
 }
 
+/* This function will block a process until the latest measurement
+ * data is available.
+ */
 static int AKECS_GetData(
 	struct akm8963_data *akm,
 	char *rbuf,
@@ -342,7 +351,7 @@ static void AKECS_SetYPR(
 	AKM_DATA(&akm->input->dev, "  Orientation[YPR] : %6d,%6d,%6d",
 		rbuf[9], rbuf[10], rbuf[11]);
 
-	
+	/* No events are reported */
 	if (!rbuf[0]) {
 		dev_err(&akm->i2c->dev, "Don't waste a time.");
 		return;
@@ -352,21 +361,21 @@ static void AKECS_SetYPR(
 	ready = (akm->enable_flag & (uint32_t)rbuf[0]);
 	mutex_unlock(&akm->val_mutex);
 
-	
+	/* Report acceleration sensor information */
 	if (ready & ACC_DATA_READY) {
 		input_report_abs(akm->input, ABS_X, rbuf[1]);
 		input_report_abs(akm->input, ABS_Y, rbuf[2]);
 		input_report_abs(akm->input, ABS_Z, rbuf[3]);
 		input_report_abs(akm->input, ABS_THROTTLE, rbuf[4]);
 	}
-	
+	/* Report magnetic vector information */
 	if (ready & MAG_DATA_READY) {
 		input_report_abs(akm->input, ABS_RX, rbuf[5]);
 		input_report_abs(akm->input, ABS_RY, rbuf[6]);
 		input_report_abs(akm->input, ABS_RZ, rbuf[7]);
 		input_report_abs(akm->input, ABS_RUDDER, rbuf[8]);
 	}
-	
+	/* Report orientation sensor information */
 	if (ready & ORI_DATA_READY) {
 		input_report_abs(akm->input, ABS_HAT0X, rbuf[9]);
 		input_report_abs(akm->input, ABS_HAT0Y, rbuf[10]);
@@ -530,17 +539,17 @@ AKECS_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	void __user *argp = (void __user *)arg;
 	struct akm8963_data *akm = file->private_data;
 
-	
-	char i2c_buf[RWBUF_SIZE] = {0};				
-	int8_t sensor_buf[SENSOR_DATA_SIZE] = {0};	
-	int32_t ypr_buf[YPR_DATA_SIZE] = {0};		
-	int16_t acc_buf[3] = {0};					
-	int64_t delay[AKM_NUM_SENSORS] = {0};		
-	char mode = 0;		
-	char layout = 0;	
-	char outbit = 0;	
-	int status = 0;		
-	int ret = -1;		
+	/* NOTE: In this function the size of "char" should be 1-byte. */
+	char i2c_buf[RWBUF_SIZE] = {0};				/* for READ/WRITE */
+	int8_t sensor_buf[SENSOR_DATA_SIZE] = {0};	/* for GETDATA */
+	int32_t ypr_buf[YPR_DATA_SIZE] = {0};		/* for SET_YPR */
+	int16_t acc_buf[3] = {0};					/* for GET_ACCEL */
+	int64_t delay[AKM_NUM_SENSORS] = {0};		/* for GET_DELAY */
+	char mode = 0;		/* for SET_MODE*/
+	char layout = 0;	/* for GET_LAYOUT */
+	char outbit = 0;	/* for GET_OUTBIT */
+	int status = 0;		/* for OPEN/CLOSE_STATUS */
+	int ret = -1;		/* Return value. */
 
 	switch (cmd) {
 	case ECS_IOCTL_READ:
@@ -580,7 +589,7 @@ AKECS_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case ECS_IOCTL_GET_LAYOUT:
 	case ECS_IOCTL_GET_OUTBIT:
 	case ECS_IOCTL_GET_ACCEL:
-		
+		/* Just check buffer pointer */
 		if (argp == NULL) {
 			dev_err(&akm->i2c->dev, "invalid argument.");
 			return -EINVAL;
@@ -729,6 +738,7 @@ AKECS_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return 0;
 }
 
+/***** akm sysfs functions ******************************************/
 static int create_device_attributes(
 	struct device *dev,
 	struct device_attribute *attrs)
@@ -800,19 +810,19 @@ static bool get_value_as_int(char const *buf, size_t size, int *value)
 	if (size == 0)
 		return false;
 
-	
+	/* maybe text format value */
 	if ((buf[0] == '0') && (size > 1)) {
 		if ((buf[1] == 'x') || (buf[1] == 'X')) {
-			
+			/* hexadecimal format */
 			if (0 != strict_strtol(buf, 16, &tmp))
 				return false;
 		} else {
-			
+			/* octal format */
 			if (0 != strict_strtol(buf, 8, &tmp))
 				return false;
 		}
 	} else {
-		
+		/* decimal format */
 		if (0 != strict_strtol(buf, 10, &tmp))
 			return false;
 	}
@@ -832,19 +842,19 @@ static bool get_value_as_int64(char const *buf, size_t size, long long *value)
 	if (size == 0)
 		return false;
 
-	
+	/* maybe text format value */
 	if ((buf[0] == '0') && (size > 1)) {
 		if ((buf[1] == 'x') || (buf[1] == 'X')) {
-			
+			/* hexadecimal format */
 			if (0 != strict_strtoll(buf, 16, &tmp))
 				return false;
 		} else {
-			
+			/* octal format */
 			if (0 != strict_strtoll(buf, 8, &tmp))
 				return false;
 		}
 	} else {
-		
+		/* decimal format */
 		if (0 != strict_strtoll(buf, 10, &tmp))
 			return false;
 	}
@@ -857,7 +867,30 @@ static bool get_value_as_int64(char const *buf, size_t size, long long *value)
 	return true;
 }
 
+/*********************************************************************
+ *
+ * SysFS attribute functions
+ *
+ * directory : /sys/class/compass/akm8963/
+ * files :
+ *  - enable_acc [rw] [t] : enable flag for accelerometer
+ *  - enable_mag [rw] [t] : enable flag for magnetometer
+ *  - enable_ori [rw] [t] : enable flag for orientation
+ *  - delay_acc  [rw] [t] : delay in nanosecond for accelerometer
+ *  - delay_mag  [rw] [t] : delay in nanosecond for magnetometer
+ *  - delay_ori  [rw] [t] : delay in nanosecond for orientation
+ *  - accel	     [w]  [b] : accelerometer data
+ *
+ * debug :
+ *  - mode       [w]  [t] : AK8963's mode
+ *  - bdata      [r]  [t] : raw data
+ *  - asa        [r]  [t] : FUSEROM data
+ *
+ * [b] = binary format
+ * [t] = text format
+ */
 
+/***** sysfs enable *************************************************/
 static void akm8963_sysfs_update_active_status(
 	struct akm8963_data *akm)
 {
@@ -920,6 +953,7 @@ static ssize_t akm8963_sysfs_enable_store(
 	return count;
 }
 
+/***** Acceleration ***/
 static ssize_t akm8963_enable_acc_show(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -934,6 +968,7 @@ static ssize_t akm8963_enable_acc_store(
 		dev_get_drvdata(dev), buf, count, ACC_DATA_FLAG);
 }
 
+/***** Magnetic field ***/
 static ssize_t akm8963_enable_mag_show(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -948,6 +983,7 @@ static ssize_t akm8963_enable_mag_store(
 		dev_get_drvdata(dev), buf, count, MAG_DATA_FLAG);
 }
 
+/***** Orientation ***/
 static ssize_t akm8963_enable_ori_show(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -962,6 +998,7 @@ static ssize_t akm8963_enable_ori_store(
 		dev_get_drvdata(dev), buf, count, ORI_DATA_FLAG);
 }
 
+/***** sysfs delay **************************************************/
 static ssize_t akm8963_sysfs_delay_show(
 	struct akm8963_data *akm, char *buf, int pos)
 {
@@ -995,6 +1032,7 @@ static ssize_t akm8963_sysfs_delay_store(
 	return count;
 }
 
+/***** Accelerometer ***/
 static ssize_t akm8963_delay_acc_show(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1009,6 +1047,7 @@ static ssize_t akm8963_delay_acc_store(
 		dev_get_drvdata(dev), buf, count, ACC_DATA_FLAG);
 }
 
+/***** Magnetic field ***/
 static ssize_t akm8963_delay_mag_show(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1023,6 +1062,7 @@ static ssize_t akm8963_delay_mag_store(
 		dev_get_drvdata(dev), buf, count, MAG_DATA_FLAG);
 }
 
+/***** Orientation ***/
 static ssize_t akm8963_delay_ori_show(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1038,6 +1078,7 @@ static ssize_t akm8963_delay_ori_store(
 }
 
 
+/***** accel (binary) ***/
 static ssize_t akm8963_bin_accel_write(
 	struct file *file,
 	struct kobject *kobj,
@@ -1261,19 +1302,20 @@ static void remove_sysfs_interfaces(struct akm8963_data *akm)
 }
 
 
+/***** akm input device functions ***********************************/
 static int akm8963_input_init(
 	struct input_dev **input)
 {
 	int err = 0;
 
-	
+	/* Declare input device */
 	*input = input_allocate_device();
 	if (!*input)
 		return -ENOMEM;
 
-	
+	/* Setup input device */
 	set_bit(EV_ABS, (*input)->evbit);
-	
+	/* Accelerometer (720 x 16G)*/
 	input_set_abs_params(*input, ABS_X,
 			-11520, 11520, 0, 0);
 	input_set_abs_params(*input, ABS_Y,
@@ -1282,7 +1324,7 @@ static int akm8963_input_init(
 			-11520, 11520, 0, 0);
 	input_set_abs_params(*input, ABS_THROTTLE,
 			0, 3, 0, 0);
-	
+	/* Magnetic field (-81900, 81900) -> limited to 16bit*/
 	input_set_abs_params(*input, ABS_RX,
 			-32768, 32767, 0, 0);
 	input_set_abs_params(*input, ABS_RY,
@@ -1291,7 +1333,7 @@ static int akm8963_input_init(
 			-32768, 32767, 0, 0);
 	input_set_abs_params(*input, ABS_RUDDER,
 			0, 3, 0, 0);
-	
+	/* Orientation (yaw:0,360 pitch:-180,180 roll:-90,90) */
 	input_set_abs_params(*input, ABS_HAT0X,
 			0, 23040, 0, 0);
 	input_set_abs_params(*input, ABS_HAT0Y,
@@ -1301,10 +1343,10 @@ static int akm8963_input_init(
 	input_set_abs_params(*input, ABS_HAT1Y,
 			0, 3, 0, 0);
 
-	
+	/* Set name */
 	(*input)->name = "compass";
 
-	
+	/* Register */
 	err = input_register_device(*input);
 	if (err) {
 		input_free_device(*input);
@@ -1314,6 +1356,7 @@ static int akm8963_input_init(
 	return err;
 }
 
+/***** akm functions ************************************************/
 
 static irqreturn_t akm8963_irq(int irq, void *handle)
 {
@@ -1328,7 +1371,7 @@ static irqreturn_t akm8963_irq(int irq, void *handle)
 		dev_err(&akm->i2c->dev, "%s failed.", __func__);
 		goto work_func_end;
 	}
-	
+	/* Check ST bit */
 	if ((buffer[0] & 0x01) != 0x01) {
 		dev_err(&akm->i2c->dev, "%s ST is not set.", __func__);
 		goto work_func_end;
@@ -1345,6 +1388,14 @@ static irqreturn_t akm8963_irq(int irq, void *handle)
 work_func_end:
 	return IRQ_HANDLED;
 }
+/* Remove for optimizing code coverage */
+/*static void akm8963_delayed_work(struct work_struct *work)
+{
+	struct akm8963_data *akm = container_of(
+		work, struct akm8963_data, work.work);
+
+	akm8963_irq(akm->irq, akm);
+}*/
 
 #ifdef CONFIG_PM
 static int akm8963_suspend(struct device *dev)
@@ -1430,7 +1481,7 @@ int __devinit akm8963_probe(struct i2c_client *client, const struct i2c_device_i
 		goto exit0;
 	}
 
-	
+	/* Allocate memory for driver data */
 	s_akm = kzalloc(sizeof(struct akm8963_data), GFP_KERNEL);
 	if (!s_akm) {
 		dev_err(&client->dev, "%s: memory allocation failed.",
@@ -1439,7 +1490,7 @@ int __devinit akm8963_probe(struct i2c_client *client, const struct i2c_device_i
 		goto exit1;
 	}
 
-	
+	/***** Set layout information *****/
 	if (client->dev.of_node) {
 		I("Device Tree parsing.");
 		pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
@@ -1467,12 +1518,15 @@ int __devinit akm8963_probe(struct i2c_client *client, const struct i2c_device_i
 	}
 
 	if (pdata) {
-		
+		/* Platform data is available. copy its value to local. */
 		s_akm->layout = pdata->layout;
 		s_akm->outbit = pdata->outbit;
 		s_akm->rstn = pdata->gpio_RST;
 		s_akm->power_LPM = pdata->power_LPM;
 	} else {
+		/* Platform data is not available.
+		   Layout and Outbit information should be set
+		   by each application. */
 		dev_dbg(&client->dev, "%s: No platform data.", __func__);
 		s_akm->layout = 0;
 		s_akm->outbit = 0;
@@ -1480,17 +1534,17 @@ int __devinit akm8963_probe(struct i2c_client *client, const struct i2c_device_i
 		s_akm->power_LPM = NULL;
 	}
 
-	
+	/***** I2C initialization *****/
 	s_akm->i2c = client;
-	
+	/* check connection */
 	err = akm8963_i2c_check_device(client);
 	if (err < 0)
 		goto exit3;
-	
+	/* set client data */
 	i2c_set_clientdata(client, s_akm);
 
 
-	
+	/***** input *****/
 	err = akm8963_input_init(&s_akm->input);
 	if (err) {
 		dev_err(&client->dev,
@@ -1500,7 +1554,7 @@ int __devinit akm8963_probe(struct i2c_client *client, const struct i2c_device_i
 	input_set_drvdata(s_akm->input, s_akm);
 
 
-	
+	/**** initialize variables in akm8963_data *****/
 	init_waitqueue_head(&s_akm->drdy_wq);
 	init_waitqueue_head(&s_akm->open_wq);
 
@@ -1519,14 +1573,15 @@ int __devinit akm8963_probe(struct i2c_client *client, const struct i2c_device_i
 		s_akm->delay[i] = -1;
 
 
-	
+	/***** IRQ setup *****/
 	s_akm->irq = client->irq;
 
 #if 0
+/* Removed for code coverage */
 	if (s_akm->irq == 0) {
 		dev_dbg(&client->dev, "%s: IRQ is not set.", __func__);
-		
-		
+		/* Use timer to notify measurement end */
+		/*INIT_DELAYED_WORK(&s_akm->work, akm8963_delayed_work);*/
 	} else {
 #endif
 		err = request_threaded_irq(
@@ -1545,7 +1600,7 @@ int __devinit akm8963_probe(struct i2c_client *client, const struct i2c_device_i
 	}
 #endif
 
-	
+	/***** misc *****/
 	err = misc_register(&akm8963_dev);
 	if (err) {
 		dev_err(&client->dev,
@@ -1566,7 +1621,7 @@ int __devinit akm8963_probe(struct i2c_client *client, const struct i2c_device_i
 	if (err)
 		E("%s: akm8963_sr_lpm failed 222\n", __func__);
 
-	
+	/***** sysfs *****/
 	err = create_sysfs_interfaces(s_akm);
 	if (0 > err) {
 		dev_err(&client->dev,

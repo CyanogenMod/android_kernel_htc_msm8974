@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief The host kernel mutex definitions.
+ */
 
 #ifndef _MUTEX_KERNEL_H
 #define _MUTEX_KERNEL_H

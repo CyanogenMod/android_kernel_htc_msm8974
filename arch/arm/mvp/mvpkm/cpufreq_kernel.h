@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief The monitor-kernel socket interface kernel-only definitions.
+ */
 
 #ifndef _CPUFREQ_KERNEL_H
 #define _CPUFREQ_KERNEL_H
@@ -26,6 +31,7 @@
 #define INCLUDE_ALLOW_GPL
 #include "include_check.h"
 
+/* Scaling factors to convert CPU clock cycles to Rate64 value */
 struct TscToRate64Cb {
 	uint32 mult;
 	uint32 shift;

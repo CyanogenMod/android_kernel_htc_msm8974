@@ -14,6 +14,12 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 
 */
 
+/*
+ * @file  si_8240_8558_regs.h
+ *
+ * @brief Register descriptions for the Sil-8240 and Sil-8558
+ * MHL transmitter registers.
+ */
 
 typedef enum
 {
@@ -254,7 +260,7 @@ typedef enum
 #define	REG_MHLTX_CTL7									TX_PAGE_2, 0x86
 
 #define	REG_MHLTX_CTL8									TX_PAGE_2, 0x87
-#define		REG_MHLTX_CTL8_NEWDEFVAL					0x02                    
+#define		REG_MHLTX_CTL8_NEWDEFVAL					0x02                    /* TB - Changed Default value from 0x0A to 0x02, since bit 3 is reserved. */
 #define		BIT_MHLTX_CTL8_PLL_BW_CTL_MASK				0x07
 
 #define	REG_PKT_FILTER_0								TX_PAGE_2, 0x90
@@ -467,6 +473,7 @@ typedef enum
 #define		BIT_INTR4_RGND_DETECTION					0x40
 #define		BIT_INTR4_SOFT								0x80
 
+/* On 8558 page 3 offset 0x21 is DISC_INT register */
 #define	REG_DISC_INT									TX_PAGE_3, 0x21
 #define		BIT_MHL_EST_INT								0x04
 #define		BIT_NON_MHL_EST_INT							0x08
@@ -524,6 +531,7 @@ typedef enum
 #define		BIT_8558_DATA_TERM_SEL_OFF					0x00
 #define		BIT_8558_DATA_TERM_SEL_DIFFERENTIAL_100		0x40
 
+/* Remaining page 3 registers are not implemented on the Sil-8240 */
 #define	REG_MHLTX_CFG_TERM								TX_PAGE_3, 0x30
 
 #define REG_MHLTX_CFG_OE								TX_PAGE_3, 0x31
@@ -642,6 +650,7 @@ typedef enum
 
 
 #define REG_ASW_DBG1									TX_PAGE_3, 0x5B
+/* the bit above is some times inverted, so no static definition here */
 
 #define REG_RID2										TX_PAGE_3, 0xE2
 #define DEF_VAL_RID2									0x60
@@ -672,6 +681,9 @@ typedef enum{
 }RID9_bits_e;
 
 #define REG_RIDB										TX_PAGE_3, 0xEB
+/*
+ * CBUS register definitions
+ */
 #define	REG_CBUS_DEVICE_CAP_0							TX_PAGE_CBUS, 0x00
 #define	REG_CBUS_DEVICE_CAP_1							TX_PAGE_CBUS, 0x01
 #define	REG_CBUS_DEVICE_CAP_2							TX_PAGE_CBUS, 0x02

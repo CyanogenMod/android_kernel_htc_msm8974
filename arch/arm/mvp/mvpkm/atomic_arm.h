@@ -18,6 +18,17 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief bus-atomic operators, ARM implementation.
+ * Do not include directly, include 'atomic.h' instead.
+ * Memory where the atomic reside must be shared.
+ *
+ * These operations assume that the exclusive access monitor is cleared during
+ * abort entry but they do not assume that cooperative scheduling (e.g. Linux
+ * schedule()) clears the monitor and hence the use of "clrex" when required.
+ */
 
 #ifndef _ATOMIC_ARM_H
 #define _ATOMIC_ARM_H
@@ -34,14 +45,43 @@
 
 #include "mvp_assert.h"
 
+/**
+ * @brief Atomic Add
+ * @param atm atomic cell to operate on
+ * @param modval value to apply to atomic cell
+ * @return the original value of 'atm'
+ */
 #define ATOMIC_ADDO(atm, modval) ATOMIC_OPO_PRIVATE(atm, modval, add)
 
+/**
+ * @brief Atomic Add
+ * @param atm atomic cell to operate on
+ * @param modval value to apply to atomic cell
+ * @return nothing
+ */
 #define ATOMIC_ADDV(atm, modval) ATOMIC_OPV_PRIVATE(atm, modval, add)
 
+/**
+ * @brief Atomic And
+ * @param atm atomic cell to operate on
+ * @param modval value to apply to atomic cell
+ * @return the original value of 'atm'
+ */
 #define ATOMIC_ANDO(atm, modval) ATOMIC_OPO_PRIVATE(atm, modval, and)
 
+/**
+ * @brief Atomic And
+ * @param atm atomic cell to operate on
+ * @param modval value to apply to atomic cell
+ * @return nothing
+ */
 #define ATOMIC_ANDV(atm, modval) ATOMIC_OPV_PRIVATE(atm, modval, and)
 
+/**
+ * @brief Retrieve an atomic value
+ * @param atm atomic cell to operate on
+ * @return the value of 'atm'
+ */
 #define ATOMIC_GETO(atm) ({					\
 	typeof((atm).atm_Normal) _oldval;			\
 								\
@@ -64,10 +104,30 @@
 	_oldval;						\
 })
 
+/**
+ * @brief Atomic Or
+ * @param atm atomic cell to operate on
+ * @param modval value to apply to atomic cell
+ * @return the original value of 'atm'
+ */
 #define ATOMIC_ORO(atm, modval) ATOMIC_OPO_PRIVATE(atm, modval, orr)
 
+/**
+ * @brief Atomic Or
+ * @param atm atomic cell to operate on
+ * @param modval value to apply to atomic cell
+ * @return nothing
+ */
 #define ATOMIC_ORV(atm, modval) ATOMIC_OPV_PRIVATE(atm, modval, orr)
 
+/**
+ * @brief Atomic Conditional Write, ie,
+ *        set 'atm' to 'newval' iff it was 'oldval'.
+ * @param atm atomic cell to operate on
+ * @param newval value to possibly write to atomic cell
+ * @param oldval value that atomic cell must equal
+ * @return 0 if failed; 1 if successful
+ */
 #define ATOMIC_SETIF(atm, newval, oldval) ({		\
 	int _failed;					\
 	typeof((atm).atm_Normal) _newval = newval;	\
@@ -91,6 +151,12 @@
 })
 
 
+/**
+ * @brief Atomic Write (unconditional)
+ * @param atm atomic cell to operate on
+ * @param newval value to write to atomic cell
+ * @return the original value of 'atm'
+ */
 #define ATOMIC_SETO(atm, newval) ({				\
 	int _failed;						\
 	typeof((atm).atm_Normal) _newval = newval;		\
@@ -125,12 +191,37 @@
 	_oldval;						\
 })
 
+/**
+ * @brief Atomic Write (unconditional)
+ * @param atm atomic cell to operate on
+ * @param newval value to write to atomic cell
+ * @return nothing
+ */
 #define ATOMIC_SETV(atm, newval) ATOMIC_SETO((atm), (newval))
 
+/**
+ * @brief Atomic Subtract
+ * @param atm atomic cell to operate on
+ * @param modval value to apply to atomic cell
+ * @return the original value of 'atm'
+ */
 #define ATOMIC_SUBO(atm, modval) ATOMIC_OPO_PRIVATE(atm, modval, sub)
 
+/**
+ * @brief Atomic Subtract
+ * @param atm atomic cell to operate on
+ * @param modval value to apply to atomic cell
+ * @return nothing
+ */
 #define ATOMIC_SUBV(atm, modval) ATOMIC_OPV_PRIVATE(atm, modval, sub)
 
+/**
+ * @brief Atomic Generic Binary Operation
+ * @param atm atomic cell to operate on
+ * @param modval value to apply to atomic cell
+ * @param op ARM instruction (add, and, orr, etc)
+ * @return the original value of 'atm'
+ */
 #define ATOMIC_OPO_PRIVATE(atm, modval, op) ({		\
 	int _failed;					\
 	typeof((atm).atm_Normal) _modval = modval;	\
@@ -152,6 +243,13 @@
 	_oldval;					\
 })
 
+/**
+ * @brief Atomic Generic Binary Operation
+ * @param atm atomic cell to operate on
+ * @param modval value to apply to atomic cell
+ * @param op ARM instruction (add, and, orr, etc)
+ * @return nothing
+ */
 #define ATOMIC_OPV_PRIVATE(atm, modval, op) do {	\
 	int _failed;					\
 	typeof((atm).atm_Normal) _modval = modval;	\
@@ -170,6 +268,15 @@
 		      : "cc", "memory");		\
 } while (0)
 
+/**
+ * @brief Single-copy atomic word write.
+ *
+ * ARMv7 defines world-aligned word writes to be single-copy atomic. See
+ * A3-26 ARM DDI 0406A.
+ *
+ * @param p word aligned location to write to
+ * @param val word-sized value to write to p
+ */
 #define ATOMIC_SINGLE_COPY_WRITE32(p, val) do {	\
 	ASSERT(sizeof(val) == 4);		\
 	ASSERT((MVA)(p) % sizeof(val) == 0);	\
@@ -180,6 +287,16 @@
 } while (0)
 
 
+/**
+ * @brief Single-copy atomic word read.
+ *
+ * ARMv7 defines world-aligned word reads to be single-copy atomic. See
+ * A3-26 ARM DDI 0406A.
+ *
+ * @param p word aligned location to read from
+ *
+ * @return word-sized value from p
+ */
 #define ATOMIC_SINGLE_COPY_READ32(p) ({		\
 	ASSERT((MVA)(p) % sizeof(uint32) == 0);	\
 	uint32 _val;				\
@@ -189,6 +306,15 @@
 	_val;					\
 })
 
+/**
+ * @brief Single-copy atomic double word write.
+ *
+ * LPAE defines double world-aligned double word writes to be single-copy
+ * atomic. See 6.7 ARM PRD03-GENC-008469 13.0.
+ *
+ * @param p double word aligned location to write to
+ * @param val double word-sized value to write to p
+ */
 #define ATOMIC_SINGLE_COPY_WRITE64(p, val) do {		\
 	ASSERT(sizeof(val) == 8);			\
 	ASSERT((MVA)(p) % sizeof(val) == 0);		\

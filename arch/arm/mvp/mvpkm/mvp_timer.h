@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief timer definitions
+ */
 
 #ifndef _MVP_TIMER_H
 #define _MVP_TIMER_H
@@ -29,17 +34,34 @@
 #define INCLUDE_ALLOW_GPL
 #include "include_check.h"
 
+/**
+ * @brief timer tick rate as returned by MVPTimer_Now64 as a uint64 and used by
+ * MVPTimer.when64.
+ *
+ * For example 1,000,000 means the counter is in microseconds.
+ *
+ * Current implementation requires MVP_TIMER_RATE64 <= 1,000,000,000 and that
+ * it evenly divide 1,000,000,000.  Currently 1,000,000,000 to avoid a multiply
+ * or divide in MVPTimer_Now64.
+ */
 #define MVP_TIMER_RATE64 1000000000
 
+/*
+ * Extract current UNIX-style time_t date/time from the 64-bit time as returned
+ * by MVPTimer_Now64().
+ */
 #define MVP_TIMER_RATE64_TIME_T(time64) ((time_t)((time64) / MVP_TIMER_RATE64))
 
 typedef struct MVPTimer MVPTimer;
 
+/**
+ * @brief timer entry struct
+ */
 struct MVPTimer {
-	MVPTimer *next;				
-	uint64 when64;				
-	void (*entry)(uint64 now64, MVPTimer *timer);
-	void *param;				
+	MVPTimer *next;				/**< next in timers list */
+	uint64 when64;				/**< absolute expiration */
+	void (*entry)(uint64 now64, MVPTimer *timer);/**< callback entrypoint */
+	void *param;				/**< callback parameter */
 };
 
 void   MVPTimer_InitVMX(void);
