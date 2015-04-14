@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Compiler-related definitions and directives.
+ */
 
 #ifndef _MVP_COMPILER_H_
 #define _MVP_COMPILER_H_
@@ -35,10 +40,17 @@
 
 #ifdef __GNUC__
 #include "mvp_compiler_gcc.h"
-#else 
+#else /* __GNUC__ */
 #include "mvp_compiler_other.h"
-#endif 
+#endif /* __GNUC__ */
 
+/**
+ * @brief Find last set bit.
+ *
+ * @param n unsigned 32-bit integer.
+ *
+ * @return 0 if n == 0 otherwise 32 - the number of leading zeroes in n.
+ */
 #define FLS(n) (32 - CLZ(n))
 
-#endif 
+#endif /* ifndef _MVP_COMPILER_H_ */

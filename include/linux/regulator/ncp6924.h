@@ -40,4 +40,4 @@
 #define NCP6924_ID_LDO3			3
 #define NCP6924_ID_LDO4			4
 
-#endif 
+#endif /* _NCP6924_H_ */

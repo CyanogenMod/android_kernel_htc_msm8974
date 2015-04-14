@@ -8,6 +8,7 @@
 #include <linux/types.h>
 #include <media/msmb_generic_buf_mgr.h>
 
+/* Should be same as VIDEO_MAX_PLANES in videodev2.h */
 #define MAX_PLANES VIDEO_MAX_PLANES
 
 #define MAX_NUM_CPP_STRIPS 8
@@ -39,6 +40,12 @@ struct msm_cpp_frame_strip_info {
 	int src_start_y;
 	int src_end_y;
 
+	/* Padding is required for upscaler because it does not
+	 * pad internally like other blocks, also needed for rotation
+	 * rotation expects all the blocks in the stripe to be the same size
+	 * Padding is done such that all the extra padded pixels
+	 * are on the right and bottom
+	 */
 	int pad_bottom;
 	int pad_top;
 	int pad_right;

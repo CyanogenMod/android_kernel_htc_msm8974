@@ -75,6 +75,7 @@ static struct net_device *gdev;
 static int gthreadquit;
 static int firstsetup;
 
+/* Work queue modifications */
 static struct workqueue_struct *gannet_wq;
 
 struct gannet_work_struct {
@@ -115,7 +116,7 @@ static void rx(unsigned char *buf, int len)
 		} else {
 			skb_reserve(skb, NET_IP_ALIGN);
 
-			ptr = skb_put(skb, 14); 
+			ptr = skb_put(skb, 14); /* ethernet hdr */
 			memcpy(&((unsigned char *) ptr)[6],
 				   gthread->dev->dev_addr, 6);
 
@@ -125,7 +126,7 @@ static void rx(unsigned char *buf, int len)
 			skb->dev = gthread->dev;
 			skb->protocol = eth_type_trans(skb, gthread->dev);
 			skb->protocol = htons(ETH_P_IP);
-			skb->ip_summed = CHECKSUM_NONE; 
+			skb->ip_summed = CHECKSUM_NONE; /* check it */
 
 			skb->pkt_type = PACKET_HOST;
 
@@ -210,7 +211,7 @@ static void gannet_wq_func(struct work_struct *work)
 	struct gannet_work_struct *gannet_work =
 					(struct gannet_work_struct *)work;
 
-	
+	/* write skb->data of skb->len to udp socket */
 	struct gannet_private *p = gannet_work->p;
 	struct sk_buff *skb = gannet_work->skb;
 	char *data;
@@ -219,7 +220,7 @@ static void gannet_wq_func(struct work_struct *work)
 	data = skb->data;
 	len = skb->len;
 
-	
+	/* Remove ethernet header */
 	data += 14;
 	len -= 14;
 
@@ -262,7 +263,7 @@ static void gannet_recvloop(void)
 	  mutex_unlock(&ker_lock_mutex);
     
 
-	
+	/* main loop */
 	while (!gthreadquit) {
 		memset(&buf, 0, bufsize + 1);
 		size = ksocket_receive(gthread->priv->rx_sock,
@@ -277,7 +278,7 @@ static void gannet_recvloop(void)
 				   "gannet: error getting datagram, "
 				   "sock_recvmsg error = %d\n", size);
 		} else {
-			
+			/* send to kernel */
 			rx(buf, size);
 		}
 	}
@@ -301,7 +302,7 @@ static int gannet_open(struct net_device *dev)
 		gthreadquit = 0;
 		p = netdev_priv(dev);
 
-		
+		/* Create tx socket */
 		ret = sock_create(PF_INET, SOCK_DGRAM,
 				IPPROTO_UDP, &p->tx_sock);
 		if (ret < 0) {
@@ -309,14 +310,14 @@ static int gannet_open(struct net_device *dev)
 			   "gannet tx socket() failed, failing init.\n");
 			unregister_netdev(dev);
 			free_netdev(dev);
-			return -EIO;	
+			return -EIO;	/* I/O error */
 		}
 		memset(&p->tx_addr, 0, sizeof(p->tx_addr));
 		p->tx_addr.sin_family = AF_INET;
 		p->tx_addr.sin_port = htons(GAN_PS_PORT_2);
 		p->tx_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-		
+		/* Create rx socket */
 		ret = sock_create(PF_INET, SOCK_DGRAM,
 				IPPROTO_UDP, &p->rx_sock);
 		if (ret < 0) {
@@ -325,14 +326,14 @@ static int gannet_open(struct net_device *dev)
 			sock_release(p->tx_sock);
 			unregister_netdev(dev);
 			free_netdev(dev);
-			return -EIO;	
+			return -EIO;	/* I/O error? */
 		}
 		memset(&p->rx_addr, 0, sizeof(p->rx_addr));
 		p->rx_addr.sin_family = AF_INET;
 		p->rx_addr.sin_port = htons(GAN_VIF_LINK_PORT);
 		p->rx_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-		
+		/* Bind rx socket */
 		ret = p->rx_sock->ops->bind(p->rx_sock,
 					(struct sockaddr *) &p->rx_addr,
 					sizeof(struct sockaddr));
@@ -342,12 +343,12 @@ static int gannet_open(struct net_device *dev)
 			sock_release(p->rx_sock);
 			unregister_netdev(dev);
 			free_netdev(dev);
-			return -EIO;	
+			return -EIO;	/* I/O error */
 		} else {
 			printk(KERN_ERR "gannet rx socket() bind success.\n");
 		}
 
-		
+		/* Create kernel thread for rx loop */
 		gthread = kzalloc(sizeof(struct gannet_thread), GFP_KERNEL);
 		if (gthread == NULL) {
 			printk(KERN_ERR MODULE_NAME
@@ -359,7 +360,7 @@ static int gannet_open(struct net_device *dev)
 			return -ENOMEM;
 		}
 
-		
+		/* Create work queue */
 		gannet_wq = create_workqueue("gannet_queue");
 		if (gannet_wq == NULL) {
 			printk(KERN_ERR MODULE_NAME
@@ -372,7 +373,7 @@ static int gannet_open(struct net_device *dev)
 			return -ENOMEM;
 		}
 
-		
+		/* Store ref to private info */
 		gthread->dev = dev;
 		gthread->priv = p;
 
@@ -459,7 +460,7 @@ static const struct net_device_ops gannet_netdev_ops = {
 	.ndo_stop = gannet_stop,
 	.ndo_start_xmit = gannet_xmit,
 	.ndo_get_stats = gannet_get_stats,
-	
+
 	.ndo_tx_timeout = gannet_tx_timeout,
 	.ndo_change_mtu = NULL,
 };
@@ -472,12 +473,18 @@ static void __init gannet_setup(struct net_device *dev)
 
 	dev->mtu = 1000;
 	dev->netdev_ops = &gannet_netdev_ops;
+	/* The minimum time (in jiffies) that should pass before the networking
+	 * layer decides that a transmission timeout has occurred and calls the
+	 * driver's tx_time-out function.
+	 */
 	dev->watchdog_timeo = 200;
 
-	
+	/* keep the default flags, just add NOARP */
 	dev->flags |= IFF_NOARP;
 
 	random_ether_addr(dev->dev_addr);
+  /* Commenting netif_start_queue to avoid Kernal Panic in 2.3.38 Kernal
+	netif_start_queue(dev);*/
 }
 
 static int __init gannet_init(void)

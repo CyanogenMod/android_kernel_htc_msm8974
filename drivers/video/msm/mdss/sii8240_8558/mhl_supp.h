@@ -14,9 +14,14 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 
 */
 
+/*
+ *   @file mhl_supp.h
+ *
+ */
 #if !defined(MHL_SUPP_H)
 #define MHL_SUPP_H
 
+/* APIs exported from mhl_supp.c */
 int si_mhl_tx_initialize(struct mhl_dev_context *dev_context);
 
 void process_cbus_abort(struct mhl_dev_context *dev_context);
@@ -87,4 +92,4 @@ enum hdcp_state si_mhl_tx_get_hdcp_state(struct mhl_dev_context *dev_context);
 
 int si_mhl_tx_shutdown(struct mhl_dev_context *dev_context);
 
-#endif 
+#endif /* #if !defined(MHL_SUPP_H) */

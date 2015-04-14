@@ -18,24 +18,42 @@
  */
 #line 5
 
+/**
+ *  @file
+ *
+ *  @brief Server (offload) side Linux-specific socket I/O functions.
+ */
 
 #include "pvtcp.h"
 
+/*
+ * Data.
+ */
 
+/* Used to check if OutputAIO()-ing is likely in progress. */
 
 CommOSAtomic PvtcpOutputAIOSection;
 
 
+/*
+ * Large datagram bounce buffer (PVTCP_SOCK_BUF_SIZE < size <= 64K).
+ * Only one such buffer is available, shared across cpus via get/put.
+ * A preallocated, smaller buffer is used for most over-size 'allocs'.
+ * A larger, 64K-buffer may need to be __vmalloc()-ed.
+ */
 
 typedef struct LargeDgramBuf {
-   unsigned char buf[PVTCP_SOCK_BUF_SIZE << 1]; 
-   void *spareBuf;                              
+   unsigned char buf[PVTCP_SOCK_BUF_SIZE << 1]; /* Fast buffer. */
+   void *spareBuf;                              /* Dynamically allocated. */
    CommOSMutex lock;
 } LargeDgramBuf;
 
 static LargeDgramBuf largeDgramBuf;
 
 
+/**
+ * @brief One time initialization of large datagram buffer.
+ */
 
 void
 PvtcpOffLargeDgramBufInit(void)
@@ -45,14 +63,20 @@ PvtcpOffLargeDgramBufInit(void)
 }
 
 
+/**
+ * @brief Reserves/holds the large datagram buffer.
+ * @param size size of buffer.
+ * @sideeffect may sleep until the buffer is available.
+ * @return address of buffer, or NULL if size too large or allocation failed.
+ */
 
 static inline void *
 LargeDgramBufGet(int size)
 {
    static const unsigned int maxSize = 64 * 1024;
 
-   
-   
+   /* coverity[alloc_fn] */
+   /* coverity[var_assign] */
 
    CommOS_MutexLockUninterruptible(&largeDgramBuf.lock);
 
@@ -76,6 +100,10 @@ LargeDgramBufGet(int size)
 }
 
 
+/**
+ * @brief Releases hold on the large datagram buffer.
+ * @param buf buffer to put back.
+ */
 
 static inline void
 LargeDgramBufPut(void *buf)
@@ -85,7 +113,7 @@ LargeDgramBufPut(void *buf)
    BUG_ON((buf != largeDgramBuf.buf) && (buf != largeDgramBuf.spareBuf));
 
    if (largeDgramBuf.spareBuf && (++spareBufPuts % 2) == 0) {
-      
+      /* Deallocate the spare buffer every now and then. */
 
       vfree(largeDgramBuf.spareBuf);
       largeDgramBuf.spareBuf = NULL;
@@ -95,7 +123,20 @@ LargeDgramBufPut(void *buf)
 }
 
 
+/*
+ * I/O offload operations.
+ */
 
+/**
+ * @brief Flow control notification received when more (enough) data was
+ *      consumed from a PV socket.
+ * @param channel communication channel with offloader
+ * @param upperLayerState state associated with this channel
+ * @param packet first packet received in reply
+ * @param vec payload buffer descriptors
+ * @param vecLen payload buffer descriptor count
+ * @sideeffect A writer task is scheduled
+ */
 
 void
 PvtcpFlowOp(CommChannel channel,
@@ -114,6 +155,12 @@ PvtcpFlowOp(CommChannel channel,
 }
 
 
+/**
+ * @brief Outputs Zero-sized datagram to socket.
+ * @param sock socket on which to send.
+ * @param msg message header containing destination address.
+ * @return size of sent datagram (0), or error code.
+ */
 
 static inline int
 SendZeroSizedDgram(struct socket *sock,
@@ -130,7 +177,7 @@ SendZeroSizedDgram(struct socket *sock,
       CommOS_Debug(("%s: Dgram [0x%p] sent [%d], expected [%d]\n",
                     __func__, sock, rc, dummy.iov_len));
 #endif
-      if (rc == -EAGAIN) { 
+      if (rc == -EAGAIN) { /* As if lost on the wire. */
          rc = 0;
       }
    }
@@ -139,6 +186,16 @@ SendZeroSizedDgram(struct socket *sock,
 }
 
 
+/**
+ * @brief Outputs bytes to socket.
+ * @param channel communication channel with offloader.
+ * @param upperLayerState state associated with this channel.
+ * @param packet received packet header.
+ * @param vec payload buffer descriptors.
+ * @param vecLen payload buffer descriptor count.
+ * @sideeffect Changes send size/capacity ratio. May schedule AIO processing
+ *   for enqueued bytes, if applicable.
+ */
 
 void
 PvtcpIoOp(CommChannel channel,
@@ -171,7 +228,7 @@ PvtcpIoOp(CommChannel channel,
 
    tmpSize = (int)COMM_OPF_GET_VAL(packet->flags);
    if (tmpSize) {
-      
+      /* It was requested that we update deltaAckSize. */
 
       tmpSize = 1 << tmpSize;
       CommOS_WriteAtomic(&pvsk->deltaAckSize, tmpSize);
@@ -184,8 +241,12 @@ PvtcpIoOp(CommChannel channel,
          if (pvsk->peerSockSet &&
              (sk->sk_state == TCP_ESTABLISHED) &&
              (CommOS_ReadAtomic(&pvsk->queueSize) == 0)) {
-            
+            /* Attempt to write directly as many bytes as we can. */
 
+            /*
+             * kernel_sendmsg() may use memcpy_fromiovec() that
+             * "modifies the original iovec".
+             */
             struct kvec *vecTmp = kmemdup(vec, vecLen * sizeof(*vec), GFP_ATOMIC);
             if (vecTmp) {
                msg.msg_flags = MSG_DONTWAIT | MSG_NOSIGNAL;
@@ -202,12 +263,12 @@ PvtcpIoOp(CommChannel channel,
                dataLen = rc;
                for (vecOff = 0; vecOff < vecLen; vecOff++) {
                   if (rc >= vec[vecOff].iov_len) {
-                     
+                     /* Dispose of all fully consumed buffers. */
 
                      PvtcpBufFree(vec[vecOff].iov_base);
                      rc -= vec[vecOff].iov_len;
                   } else {
-                     
+                     /* Place partly consumed / unconsumed buffers in queue. */
 
                      internalBuf =
                         PvtcpOffInternalFromBuf(vec[vecOff].iov_base);
@@ -226,6 +287,12 @@ PvtcpIoOp(CommChannel channel,
                   needSched = 1;
                }
             } else {
+               /*
+                * We never close offload sockets unless told by the PV side,
+                * or when the comm goes down. Getting out of sync with PV
+                * sockets is a dangerously bad idea.
+                * This is very likely an EPIPE/ECONNRESET.
+                */
 
                dataLen = 0;
                for (vecOff = 0; vecOff < vecLen; vecOff++) {
@@ -238,6 +305,14 @@ PvtcpIoOp(CommChannel channel,
             goto enqueueBytes;
          }
       } else {
+         /*
+          * We enqueue the bytes for aio processing. Note that request
+          * level ordering is preserved since we're still under the dispatch
+          * lock. However, accessing 'queue' must be protected via
+          * the state lock to serialize with aio changes.
+          * Note that the struct socket *sock may have been released, but here
+          * we only access sk which is held (albeit potentially orphaned).
+          */
 
          CommOSList bufList;
 
@@ -266,12 +341,16 @@ enqueueBytes:
             }
          }
       }
-   } else { 
+   } else { /* SOCK_DGRAM || SOCK_RAW */
       struct sockaddr *addr;
       struct sockaddr_in sin;
       struct sockaddr_in6 sin6;
       int addrLen;
 
+      /*
+       * Non-stream sockets don't use the send queue, packets are sent
+       * directly and they must _not_ be merged.
+       */
 
       if (sk->sk_family == AF_INET) {
          sin.sin_family = AF_INET;
@@ -280,7 +359,7 @@ enqueueBytes:
          addrLen = sizeof(sin);
          sin.sin_addr.s_addr = (unsigned int)packet->data64ex;
          PvtcpTestAndBindLoopbackInet4(pvsk, &sin.sin_addr.s_addr, 0);
-      } else { 
+      } else { /* AF_INET6 */
          sin6.sin6_family = AF_INET6;
          sin6.sin6_port = packet->data16;
          addr = (struct sockaddr *)&sin6;
@@ -295,6 +374,14 @@ enqueueBytes:
       msg.msg_namelen = addrLen;
 
       if (pvsk->peerSockSet) {
+         /*
+          * Flow-control already done, based on PVTCP_SOCK_SAFE_RCVSIZE, just
+          * as with stream sockets. Meaning that we block the senders in the
+          * guest (if applicable).
+          *
+          * The send buffer size was set high enough, at socket creation time,
+          * to avoid dropping datagrams during the (non-blocking) write.
+          */
 
          if (vecLen == 0) {
             rc = SendZeroSizedDgram(sock, &msg);
@@ -305,6 +392,11 @@ enqueueBytes:
                BUG_ON(vec[vecOff].iov_base != NULL);
                rc = SendZeroSizedDgram(sock, &msg);
             } else {
+               /*
+                * Backup iov_base as it may be modified by kernel_sendmsg().
+                * New net/ipv4/ping.c is using memcpy_fromiovec() that
+                * "modifies the original iovec".
+                */
                void *buf = vec[vecOff].iov_base;
                size_t len = vec[vecOff].iov_len;
 
@@ -312,7 +404,7 @@ enqueueBytes:
                BUG_ON(internalBuf == NULL);
 
                if (internalBuf->off == USHRT_MAX) {
-                  
+                  /* Fragmented payload containing an embedded iovec. */
 
                   rc = kernel_sendmsg(sock, &msg,
                                       (struct kvec *)buf,
@@ -326,7 +418,7 @@ enqueueBytes:
                   CommOS_Debug(("%s: Dgram [0x%p] sent [%d], expected [%d]\n",
                                 __func__, sk, rc, len));
 #endif
-                  if (rc == -EAGAIN) { 
+                  if (rc == -EAGAIN) { /* As if lost on the wire. */
                      rc = 0;
                   }
                }
@@ -334,7 +426,7 @@ enqueueBytes:
          }
 
          if (COMM_OPF_TEST_ERR(packet->flags)) {
-            
+            /* PV client wants an automatic bind. */
 
             PvskSetOpFlag(pvsk, PVTCP_OP_BIND);
             PvtcpSchedSock(pvsk);
@@ -355,7 +447,7 @@ out:
    if ((tmpSize >= CommOS_ReadAtomic(&pvsk->deltaAckSize)) ||
        pvsk->err || needSched) {
       if (CommOS_AddReturnAtomic(&PvtcpOutputAIOSection, 1) == 1) {
-         
+         /* OutputAIO() (likely) not running. */
 
          PvtcpSchedSock(pvsk);
       }
@@ -366,7 +458,17 @@ out:
 }
 
 
+/*
+ * AI/O functions called from the main AIO processing function.
+ */
 
+/**
+ * @brief Processes socket flow control acks and error notifications in an
+ *   AIO thread. This function is called with the socket 'in' lock taken.
+ * @param[in,out] pvsk socket to process.
+ * @param err non-zero if offload was closed, zero otherwise.
+ * @sideeffect May resume PV socket sending or raise errors.
+ */
 
 void
 PvtcpFlowAIO(PvtcpSock *pvsk,
@@ -395,7 +497,7 @@ PvtcpFlowAIO(PvtcpSock *pvsk,
       if (CommOS_ReadAtomic(&pvsk->sentSize) >= tmpSize) {
          if ((SkFromPvsk(pvsk)->sk_type != SOCK_STREAM) &&
              !sock_writeable(SkFromPvsk(pvsk))) {
-            
+            /* Don't send dgram flow op until WriteSpaceCB tells us to do so. */
 
             packet.data32 = PVTCP_FLOW_OP_INVALID_SIZE;
          } else {
@@ -423,6 +525,12 @@ PvtcpFlowAIO(PvtcpSock *pvsk,
 }
 
 
+/**
+ * @brief Processes queued socket output in an AIO thread. This function is
+ *   called with the socket 'out' lock taken.
+ * @param[in,out] pvsk socket to process.
+ * @sideeffect Changes send size/capacity ratio.
+ */
 
 void
 PvtcpOutputAIO(PvtcpSock *pvsk)
@@ -447,7 +555,7 @@ PvtcpOutputAIO(PvtcpSock *pvsk)
 
    sk = SkFromPvsk(pvsk);
    if (!sk) {
-      
+      /* This is an error socket, we don't process it. */
 
       return;
    }
@@ -457,8 +565,12 @@ PvtcpOutputAIO(PvtcpSock *pvsk)
 again:
    CommOS_AddReturnAtomic(&PvtcpOutputAIOSection, 1);
    while (!done && CommOS_ReadAtomic(&pvsk->queueSize) > 0) {
+      /* Note: only stream sockets can have a positive send queue size.
+       * Similar to PvtcpIoOp: we must check if sock (struct socket *) is
+       * still valid.
+       */
 
-      
+      /* Take the current queue private. */
 
       SOCK_STATE_LOCK(pvsk);
       queue = pvsk->queue;
@@ -491,7 +603,7 @@ again:
             rc = 0;
          }
          if (rc >= 0) {
-            
+            /* If we wrote anything, dispose of the buffers in question. */
 
             queueDelta = rc;
             if (queueDelta > 0) {
@@ -508,7 +620,7 @@ again:
                }
             }
             if (!CommOS_ListEmpty(&queue)) {
-               
+               /* Add the remaining bytes to the beginning of the queue. */
 
                SOCK_STATE_LOCK(pvsk);
                CommOS_ListSplice(&pvsk->queue, &queue);
@@ -523,11 +635,14 @@ again:
             CommOS_AddReturnAtomic(&pvsk->sentSize, queueDelta);
             CommOS_SubReturnAtomic(&pvsk->queueSize, queueDelta);
          } else {
+            /*
+             * Very likely, this is due to the socket being closed, so fine.
+             */
 
             goto discardOutput;
          }
       } else {
-         
+         /* Dispose of all buffers in the queue and mark it empty. */
 
 discardOutput:
          if (!CommOS_ListEmpty(&queue)) {
@@ -554,6 +669,14 @@ discardOutput:
 }
 
 
+/**
+ * @brief Processes socket input in an AIO thread. This function is
+ *   called with the socket 'in' lock taken.
+ * @param[in,out] pvsk socket to process.
+ * @param[in,out] perCpuBuf per-cpu socket read buffer.
+ * @return zero if eof was not detected, non-zero otherwise.
+ * @sideeffect Changes receive size/capacity ratio.
+ */
 
 int
 PvtcpInputAIO(PvtcpSock *pvsk,
@@ -569,12 +692,12 @@ PvtcpInputAIO(PvtcpSock *pvsk,
 
    sk = SkFromPvsk(pvsk);
    if (!sk) {
-      
+      /* IO processing is skipped on socket create-error sockets. */
 
       return -1;
    }
    if (!perCpuBuf) {
-      
+      /* No read buffer. */
 
       return -1;
    }
@@ -584,7 +707,7 @@ PvtcpInputAIO(PvtcpSock *pvsk,
    COMM_OPF_CLEAR_ERR(packet.flags);
 
    if (sk->sk_state == TCP_LISTEN) {
-      
+      /* Process stream listen 'input'. */
 
       packet.len = sizeof(packet);
       packet.data16 = sk->sk_ack_backlog;
@@ -595,7 +718,7 @@ PvtcpInputAIO(PvtcpSock *pvsk,
                        __func__, sk, packet.data16));
       }
    } else {
-      
+      /* Common path for both stream and datagram sockets. */
 
       int rc;
       int tmpSize;
@@ -632,7 +755,7 @@ PvtcpInputAIO(PvtcpSock *pvsk,
             msg.msg_name = NULL;
             msg.msg_namelen = 0;
             vec[0].iov_len = PVTCP_SOCK_STREAM_BUF_SIZE;
-         } else { 
+         } else { /* SOCK_DGRAM || SOCK_RAW */
             if (sk->sk_family == AF_INET) {
                msg.msg_name = &sin;
                msg.msg_namelen = sizeof(sin);
@@ -641,6 +764,12 @@ PvtcpInputAIO(PvtcpSock *pvsk,
                msg.msg_namelen = sizeof(sin6);
             }
 
+            /*
+             * Check if datagram larger than the per cpu buffer; if so,
+             * allocate a large enough buffer. This should happen quite
+             * rarely, as well-behaved applications don't rely on IP
+             * fragmentation to accommodate large sizes.
+             */
 
             vec[0].iov_len = 1;
             msg.msg_flags |= (MSG_PEEK | MSG_TRUNC);
@@ -650,10 +779,19 @@ PvtcpInputAIO(PvtcpSock *pvsk,
             }
             msg.msg_flags = tmpFlags;
             if (rc > PVTCP_SOCK_DGRAM_BUF_SIZE) {
+               /*
+                * Track large datagram allocations, whether allocation succeeds
+                * or not. No need for atomic overhead, approximating is OK.
+                */
 
                pvtcpOffDgramAllocations++;
                ioBuf = LargeDgramBufGet(rc);
                if (!ioBuf) {
+                  /*
+                   * We reset it to the per-cpu buffer such that we can still
+                   * consume the datagram in the next recvmsg, which will set
+                   * MSG_TRUNC so we won't put it on the channel.
+                   */
 
                   CommOS_Debug(("%s: Dropping datagram (alloc failure)!\n",
                                 __func__));
@@ -696,12 +834,12 @@ PvtcpInputAIO(PvtcpSock *pvsk,
             vec[0].iov_len = rc;
             inVecLen = 1;
             packet.len = sizeof(packet) + rc;
-         } else { 
+         } else { /* SOCK_DGRAM || SOCK_RAW */
             if (sk->sk_family == AF_INET) {
                dgramHeader.d0 = (unsigned long long)sin.sin_port;
                PvtcpResetLoopbackInet4(pvsk, &sin.sin_addr.s_addr);
                dgramHeader.d1 = (unsigned long long)sin.sin_addr.s_addr;
-            } else { 
+            } else { /* AF_INET6 */
                dgramHeader.d0 = (unsigned long long)sin6.sin6_port;
                PvtcpResetLoopbackInet6(pvsk, &sin6.sin6_addr);
                PvtcpI6AddrPack(&sin6.sin6_addr.s6_addr32[0],
@@ -725,8 +863,12 @@ PvtcpInputAIO(PvtcpSock *pvsk,
             break;
          }
 
+         /*
+          * If the write failed, we could print a warning. But if this
+          * happened, the comm channel went down.
+          */
          if (inputSize >= coalescingSize) {
-            PvtcpSchedSock(pvsk); 
+            PvtcpSchedSock(pvsk); /* We must schedule ourselves back in. */
             break;
          }
       }

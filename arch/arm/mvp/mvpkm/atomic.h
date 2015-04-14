@@ -18,6 +18,25 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief bus-atomic operators.
+ *
+ * The 'atm' argument is the atomic memory cell being operated on and the
+ * remainder of the arguments are the values being applied to the atomic cell
+ * which is assumed to be located in shared normal memory.  The operation is
+ * both atomic and visible to the default share-ability domain upon completion.
+ *
+ * The design of each macro is such that the compiler should check types
+ * correctly.  For those macros that return a value, the return type should be
+ * the same as the 'atm' argument (with the exception of ATOMIC_SETIF which
+ * returns an int value of 0 or 1).
+ *
+ * Those names ending in 'M' return the modified value of 'atm'.
+ * Those names ending in 'O' return the original value of 'atm'.
+ * Those names ending in 'V' return void (ie, nothing).
+ */
 
 #ifndef _ATOMIC_H
 #define _ATOMIC_H
@@ -32,14 +51,32 @@
 #define INCLUDE_ALLOW_GUESTUSER
 #include "include_check.h"
 
+/*
+ * Wrap type 't' in an atomic struct.
+ * Eg, 'static ATOMIC(uint8) counter;'.
+ *
+ * The function macros use the atm_Normal member to clone the atom's type
+ * when the volatile semantic is not required.  They use the atm_Volatl member
+ * when the volatile semantic is required.
+ */
 #define ATOMIC(t) union { t atm_Normal; t volatile atm_Volatl; }
 
+/*
+ * Static atomic variable initialization.
+ * Eg, 'static ATOMIC(uint8) counter = ATOMIC_INI(35);'.
+ */
 #define ATOMIC_INI(v) { .atm_Normal = v }
 
+/*
+ * Some commonly used atomic types.
+ */
 typedef ATOMIC(int32)  AtmSInt32 __attribute__((aligned(4)));
 typedef ATOMIC(uint32) AtmUInt32 __attribute__((aligned(4)));
 typedef ATOMIC(uint64) AtmUInt64 __attribute__((aligned(8)));
 
+/*
+ * Architecture-dependent implementations.
+ */
 #if defined(__COVERITY__)
 #include "atomic_coverity.h"
 #elif defined(__arm__)

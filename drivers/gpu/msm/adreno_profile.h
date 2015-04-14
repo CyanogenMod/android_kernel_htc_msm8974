@@ -14,6 +14,14 @@
 #define __ADRENO_PROFILE_H
 #include <linux/seq_file.h>
 
+/**
+ * struct adreno_profile_assigns_list: linked list for assigned perf counters
+ * @list: linkage  for nodes in list
+ * @name: group name  or GPU name name
+ * @groupid: group id
+ * @countable: countable assigned to perfcounter
+ * @offset: perfcounter register address offset
+ */
 struct adreno_profile_assigns_list {
 	struct list_head list;
 	char name[25];
@@ -24,12 +32,22 @@ struct adreno_profile_assigns_list {
 };
 
 struct adreno_profile {
-	struct list_head assignments_list; 
-	unsigned int assignment_count;  
+	struct list_head assignments_list; /* list of all assignments */
+	unsigned int assignment_count;  /* Number of assigned counters */
 	unsigned int *log_buffer;
 	unsigned int *log_head;
 	unsigned int *log_tail;
 	bool enabled;
+	/* counter, pre_ib, and post_ib held in one large circular buffer
+	 * shared between kgsl and GPU
+	 * counter entry 0
+	 * pre_ib entry 0
+	 * post_ib entry 0
+	 * ...
+	 * counter entry N
+	 * pre_ib entry N
+	 * post_ib entry N
+	 */
 	struct kgsl_memdesc shared_buffer;
 	unsigned int shared_head;
 	unsigned int shared_tail;
@@ -37,8 +55,10 @@ struct adreno_profile {
 };
 
 #define ADRENO_PROFILE_SHARED_BUF_SIZE_DWORDS (48 * 4096 / sizeof(uint))
+/* sized @ 48 pages should allow for over 50 outstanding IBs minimum, 1755 max*/
 
 #define ADRENO_PROFILE_LOG_BUF_SIZE  (1024 * 920)
+/* sized for 1024 entries of fully assigned 45 cnters in log buffer, 230 pages*/
 #define ADRENO_PROFILE_LOG_BUF_SIZE_DWORDS  (ADRENO_PROFILE_LOG_BUF_SIZE / \
 						sizeof(unsigned int))
 

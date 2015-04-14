@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Exit Status values
+ */
 
 #ifndef _EXITSTATUS_H
 #define _EXITSTATUS_H

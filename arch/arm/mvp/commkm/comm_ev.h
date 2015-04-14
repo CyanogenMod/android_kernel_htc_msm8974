@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief various comm event signaling types and signatures
+ */
 
 #ifndef _COMM_EV_H
 #define _COMM_EV_H
@@ -28,11 +33,16 @@
 #define INCLUDE_ALLOW_MODULE
 #include "include_check.h"
 
-#define MVP_COMM_EV_SIGNATURE 0x4d4d4f43                   
-#define MVP_COMM_EV_SIGNAL    (MVP_OBJECT_CUSTOM_BASE + 0) 
+/**
+ * @name Identifiers of comm event signaling class methods
+ * @{
+ */
+#define MVP_COMM_EV_SIGNATURE 0x4d4d4f43                   /**< 'COMM' */
+#define MVP_COMM_EV_SIGNAL    (MVP_OBJECT_CUSTOM_BASE + 0) /**< Signal host */
 #define MVP_COMM_EV_READ_EVENT_DATA \
-	(MVP_OBJECT_CUSTOM_BASE + 1) 
-#define MVP_COMM_EV_LAST (MVP_OBJECT_CUSTOM_BASE + 2) 
+	(MVP_OBJECT_CUSTOM_BASE + 1) /**< Read event data */
+#define MVP_COMM_EV_LAST (MVP_OBJECT_CUSTOM_BASE + 2) /**< Number of methods */
+/**@}*/
 
 typedef struct CommEvent {
 	CommTranspID id;

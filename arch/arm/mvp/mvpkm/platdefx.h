@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Basic platform definitions needed various places.
+ */
 
 #ifndef _PLATDEFX_H
 #define _PLATDEFX_H

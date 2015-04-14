@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Math library.
+ */
 
 #ifndef _MVP_MATH_H_
 #define _MVP_MATH_H_
@@ -32,6 +37,13 @@
 
 #include "mvp_compiler_gcc.h"
 
+/**
+ * @brief Compute floor log2 of a given 32-bit unsigned integer.
+ *
+ * @param n 32-bit unsigned integer, n > 0.
+ *
+ * @return floor(log2(n)).
+ */
 #define LOG2(n)				\
 (					\
 	__builtin_constant_p(n) ? (	\
@@ -71,6 +83,15 @@
 	) : (uint32)(CLZ(1) - CLZ(n))	\
 )
 
+/**
+ * @brief Multiplicative hash function for 32-bit key and p-bit range. See p229
+ *        Introduction to Algorithms, Cormen, Leiserson and Rivest, 1996.
+ *
+ * @param key 32-bit key.
+ * @param p range order, <= 32.
+ *
+ * @return hash value in range [0..2^p)
+ */
 static inline uint32
 Math_MultiplicativeHash(uint32 key,
 			uint32 p)
@@ -78,12 +99,25 @@ Math_MultiplicativeHash(uint32 key,
 	return (key * 2654435769UL) >> (32 - p);
 }
 
+/**
+ * @brief Compute ceiling log2 of a given 32-bit unsigned integer.
+ *
+ * @param n 32-bit unsigned integer, n > 0.
+ *
+ * @return ceiling(log2(n)).
+ */
 static inline uint32 CLOG2(uint32 n)
 {
 	return LOG2(n) + ((n & -n) != n);
 }
 
 
+/**
+ * @brief djb2 String hashing function by Dan Bernstein, see
+ *      http://www.cse.yorku.ca/~oz/hash.html
+ * @param str String to hash
+ * @return 32-bit hash value
+ */
 static inline
 uint32 Math_Djb2Hash(uint8 *str)
 {
@@ -91,10 +125,10 @@ uint32 Math_Djb2Hash(uint8 *str)
 	int32 c;
 
 	while ((c = *str++))
-		hash = ((hash << 5) + hash) + c; 
+		hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
 
 	return hash;
 }
 
-#endif 
+#endif /* ifndef _MVP_MATH_H_ */
 

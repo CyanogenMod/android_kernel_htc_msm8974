@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Host user space definitions for mksck sockets.
+ */
 
 #ifndef _MKSCK_SOCKADDR_H_
 #define _MKSCK_SOCKADDR_H_
@@ -32,9 +37,11 @@
 
 #include "mksck.h"
 
+/* no one ever uses DECnet anymore? */
 #define AF_MKSCK  AF_DECnet
 #define PF_MKSCK  PF_DECnet
 
+/* Address structure used by the host user socket interface. */
 struct sockaddr_mk {
 	sa_family_t   mk_family;
 	Mksck_Address mk_addr;

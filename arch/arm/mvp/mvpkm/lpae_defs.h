@@ -18,6 +18,13 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Large physical address extension definitions.
+ *
+ * See ARM PRD03-GENC-008469 11.0.
+ */
 #ifndef _LPAE_DEFS_H_
 #define _LPAE_DEFS_H_
 
@@ -44,6 +51,9 @@
 #define ARM_LPAE_L2D_BLOCK_BITS (40 - ARM_LPAE_L2D_BLOCK_ORDER)
 #define ARM_LPAE_L3D_BLOCK_BITS (40 - ARM_LPAE_L3D_BLOCK_ORDER)
 
+/*
+ * Currently supporting up to 16GB PA spaces.
+ */
 #define ARM_LPAE_L1PT_INDX(addr) \
 	MVP_EXTRACT_FIELD64(addr, ARM_LPAE_L1D_BLOCK_ORDER, 4)
 #define ARM_LPAE_L2PT_INDX(addr)				\
@@ -69,10 +79,16 @@
 #define ARM_LPAE_L2D_TYPE_BLOCK 1
 #define ARM_LPAE_L3D_TYPE_BLOCK 3
 
+/**
+ * @name Second stage permission model.
+ *
+ * @{
+ */
 #define ARM_LPAE_S2_PERM_NONE   0
 #define ARM_LPAE_S2_PERM_RO     1
 #define ARM_LPAE_S2_PERM_WO     2
 #define ARM_LPAE_S2_PERM_RW     3
+/*@}*/
 
 
-#endif 
+#endif /* ifndef _LPAE_DEFS_H_ */

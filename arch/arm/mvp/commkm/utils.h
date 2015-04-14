@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief General architecture-independent definitions, typedefs, and macros.
+ */
 
 #ifndef _UTILS_H
 #define _UTILS_H
@@ -35,6 +40,8 @@
 
 #define MAX_FILENAME 128
 
+/* Round address up to given size boundary */
+/* Note: ALIGN() conflicts with Linux */
 
 #define MVP_ALIGN(_v, _n) (((_v) + (_n) - 1) & -(_n))
 
@@ -55,6 +62,10 @@
 
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
 
+/*
+ *  x in [low, high)
+ * args evaluated once
+ */
 #define RANGE(x, low, high)				\
 	({						\
 		typeof(x) _x = (x);			\
@@ -71,10 +82,20 @@
 #define VA_2_VPN(_va)   ((_va) / PAGE_SIZE)
 #define VPN_2_vA(_vpn)  ((_vpn) * PAGE_SIZE)
 
+/*
+ * The following convenience macro can be used in a following situation
+ *
+ *     send(..., &foo, sizeof(foo))  --> send(..., PTR_N_SIZE(foo))
+ */
 
 #define PTR_N_SIZE(_var) &(_var), sizeof(_var)
 
 
+/*
+ *
+ * BIT-PULLING macros
+ *
+ */
 #define MVP_BIT(val, n) (((val)>>(n))&1)
 #define MVP_BITS(val, m, n) (((val)<<(31-(n))) >> ((31-(n)) + (m)))
 #define MVP_EXTRACT_FIELD(w, m, n) MVP_BITS((w), (m), ((m) + (n) - 1))
@@ -83,6 +104,11 @@
 	(((old_val) & ~MVP_MASK((m), (n))) |		\
 	 (MVP_EXTRACT_FIELD((field_val), 0, (n)) << (m)))
 
+/*
+ *
+ * 64BIT-PULLING macros
+ *
+ */
 #define MVP_BITS64(val, m, n) (((val)<<(63-(n))) >> ((63-(n)) + (m)))
 #define MVP_EXTRACT_FIELD64(w, m, n) MVP_BITS64((w), (m), ((m) + (n) - 1))
 #define MVP_MASK64(m, n) (MVP_EXTRACT_FIELD64(~(uint64)0ULL, (m), (n)) << (m))
@@ -90,13 +116,24 @@
 	(((old_val) & ~MVP_MASK64((m), (n))) |		\
 	 (MVP_EXTRACT_FIELD64(((uint64)(field_val)), 0ULL, (n)) << (m)))
 
+/*
+ *
+ * BIT-CHANGING macros
+ *
+ */
 #define MVP_SETBIT(val, n)     ((val) |= (1<<(n)))
 #define MVP_CLRBIT(val, n)     ((val) &= (~(1<<(n))))
 
+/*
+ * Fixed bit-width sign extension.
+ */
 #define MVP_SIGN_EXTEND(val, width) \
 	(((val) ^ (1 << ((width) - 1))) - (1 << ((width) - 1)))
 
 
+/*
+ * Assembler helpers.
+ */
 #define _MVP_HASH #
 #define MVP_HASH() _MVP_HASH
 
@@ -108,6 +145,12 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+/*
+ * Constant equivalents of build-flags.
+ *
+ * Test these when possible instead of using #ifdef so that your code
+ * gets parsed.
+ */
 #ifdef MVP_DEBUG
 static const _Bool mvpDebug = true;
 #else

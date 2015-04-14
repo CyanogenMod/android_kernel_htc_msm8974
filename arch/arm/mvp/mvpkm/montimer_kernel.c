@@ -18,6 +18,20 @@
  */
 #line 5
 
+/**
+ *  @file
+ *
+ *  @brief MVP host kernel implementation of monitor timers
+ *
+ * The monitor sends requests that are simply a 64-bit absolute time that it
+ * wants a reply. If it changes its mind, it simply sends a different 64-bit
+ * absolute time. It is tolerant of us replying too soon, so if we miss the
+ * update to a later time, it doesn't matter, the monitor will re-send the
+ * request for the later time.  The only time we could miss an update to a
+ * sooner time is when we are about to send the reply to the old time anyway,
+ * in which case the monitor sees a reply as quickly as we can generate them,
+ * so no harm there either.
+ */
 
 #include <linux/module.h>
 #include <linux/hrtimer.h>
@@ -27,6 +41,11 @@
 #include "actions.h"
 #include "mvpkm_kernel.h"
 
+/**
+ * @brief Linux timer callback
+ * @param timer The linux timer raised
+ * @return Status to not restart the timer
+ */
 static enum hrtimer_restart
 MonitorTimerCB(struct hrtimer *timer)
 {
@@ -37,6 +56,10 @@ MonitorTimerCB(struct hrtimer *timer)
 	return HRTIMER_NORESTART;
 }
 
+/**
+ * @brief Initialize vm associated timer
+ * @param vm  which virtual machine we're running
+ */
 void
 MonitorTimer_Setup(struct MvpkmVM *vm)
 {
@@ -47,6 +70,11 @@ MonitorTimer_Setup(struct MvpkmVM *vm)
 	monTimer->timer.function = MonitorTimerCB;
 }
 
+/**
+ * @brief New timer request from monitor
+ * @param monTimer Monitor timer
+ * @param when64 Timer target value
+ */
 void
 MonitorTimer_Request(struct MonTimer *monTimer,
 		     uint64 when64)
@@ -54,11 +82,25 @@ MonitorTimer_Request(struct MonTimer *monTimer,
 	if (when64) {
 		ktime_t kt;
 
+		/*
+		 * Simple conversion, assuming RATE64 is 1e+9
+		 */
 		kt = ns_to_ktime(when64);
 		ASSERT_ON_COMPILE(MVP_TIMER_RATE64 == 1000000000);
 
+		/*
+		 * Start the timer.  If it was already active, it will remove
+		 * the previous expiration time.  Linux handles correctly timer
+		 * with deadline in the past, and forces a safety minimal delta
+		 * for closer timer deadlines.
+		 */
 		hrtimer_start(&monTimer->timer, kt, HRTIMER_MODE_ABS);
 	} else {
+		/*
+		 * Cancel a pending request. If there is none, this will do
+		 * nothing.  If it's too late, monitor tolerance will forgive
+		 * us.
+		 */
 		hrtimer_cancel(&monTimer->timer);
 	}
 }

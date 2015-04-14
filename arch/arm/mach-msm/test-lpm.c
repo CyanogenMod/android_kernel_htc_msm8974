@@ -215,7 +215,7 @@ static int lpm_callback(struct notifier_block *self, unsigned long cmd,
 	unsigned int ct;
 	struct lpm_level_stat *stats;
 	stats = per_cpu(lpm_levels, cpu_to_debug);
-	
+	/* Update the stats and get the start/stop time */
 	if (cmd == MSM_LPM_STATE_ENTER && !lpm_latency_test) {
 		time = msm_lpm_get_time();
 		stats[lpm_level_iter].entered = true;
@@ -265,13 +265,13 @@ static void lpm_test_initiate(int lpm_level_test)
 {
 	int test_ret;
 
-	
+	/* This will communicate to 'stat' debugfs to skip latency printing*/
 	lpm_sleep_time = 0;
 	lpm_latency_test = false;
-	
+	/* Unregister any infinitely registered level*/
 	msm_lpm_unregister_notifier(cpu_to_debug, &lpm_idle_nb);
 
-	
+	/* Register/Unregister for Notification */
 	while (lpm_level_iter < lpm_level_count) {
 		test_ret = msm_lpm_register_notifier(cpu_to_debug,
 				lpm_level_iter, &lpm_idle_nb, false);
@@ -309,6 +309,8 @@ static void lpm_latency_test_initiate(unsigned long max_time)
 				return;
 			}
 			usleep(lpm_sleep_time);
+			/*Unregister to ensure that we dont update the latency
+			during the timer value transistion*/
 			msm_lpm_unregister_notifier(cpu_to_debug,
 				&lpm_idle_nb);
 			lpm_sleep_time += latency_test_interval;
@@ -629,7 +631,7 @@ static int __devinit lpm_test_init(int test_lpm_level_count,
 		goto init_err;
 	}
 
-	
+	/*Query RPM resources and allocate the data sturctures*/
 	lpm_init_rpm_levels(test_lpm_level_count, test_levels);
 	ret = 0;
 

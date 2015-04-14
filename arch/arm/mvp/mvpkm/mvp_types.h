@@ -18,6 +18,12 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief basic type definitions.
+ * These may need to be conditionalized for different compilers/platforms.
+ */
 
 #ifndef _MVPTYPES_H
 #define _MVPTYPES_H
@@ -43,24 +49,35 @@ typedef short               int16;
 typedef int                 int32;
 typedef long long           int64;
 
-typedef uint32 CVA;      
-typedef uint32 GVA;      
-typedef uint32 MVA;      
-typedef uint32 HKVA;     
-typedef uint32 HUVA;     
-typedef uint64 PA;       
-typedef uint32 MA;       
+typedef uint32 CVA;      /* whatever we are compiling the code as */
+typedef uint32 GVA;      /* guest virtual addresses */
+typedef uint32 MVA;      /* monitor virtual addresses */
+typedef uint32 HKVA;     /* host kernel virtual addresses */
+typedef uint32 HUVA;     /* host user virtual addresses */
+typedef uint64 PA;       /* (guest) physical addresses (40-bit) */
+typedef uint32 MA;       /* (host) machine addresses */
 
-typedef uint32 PPN;       
-typedef uint32 MPN;       
+typedef uint32 PPN;       /* PA/PAGE_SIZE */
+typedef uint32 MPN;       /* MA/PAGE_SIZE */
 
 typedef uint64 cycle_t;
 
+/**
+ * @brief Page segment.
+ *
+ * Specifies a segment within a single page.
+ */
 typedef struct {
 	uint16 off;
 	uint16 len;
 } PageSeg;
 
+/*
+ * GCC's argument checking for printf-like functions
+ *
+ * fmtPos is the position of the format string argument, beginning at 1
+ * varPos is the position of the variable argument, beginning at 1
+ */
 
 #if defined(__GNUC__)
 # define PRINTF_DECL(fmtPos, varPos) \
@@ -76,4 +93,4 @@ typedef struct {
 # define SCANF_DECL(fmtPos, varPos)
 #endif
 
-#endif 
+#endif /* _MVPTYPES_H */

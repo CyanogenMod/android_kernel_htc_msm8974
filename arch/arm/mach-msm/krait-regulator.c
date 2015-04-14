@@ -36,6 +36,28 @@
 #include "spm.h"
 #include "pm.h"
 
+/*
+ *                   supply
+ *                   from
+ *                   pmic
+ *                   gang
+ *                    |
+ *                    |________________________________
+ *                    |                |               |
+ *                 ___|___             |               |
+ *		  |       |            |               |
+ *		  |       |               /               /
+ *		  |  LDO  |              /               /LDO BYP [6]
+ *		  |       |             /    BHS[6]     /(bypass is a weak BHS
+ *                |_______|            |               |  needs to be on when in
+ *                    |                |               |  BHS mode)
+ *                    |________________|_______________|
+ *                    |
+ *            ________|________
+ *           |                 |
+ *           |      KRAIT      |
+ *           |_________________|
+ */
 
 #define PMIC_VOLTAGE_MIN		350000
 #define PMIC_VOLTAGE_MAX		1355000
@@ -68,11 +90,13 @@
 #define PWR_GATE_CONFIG		0x00000044
 #define VERSION			0x00000FD0
 
+/* MDD register group */
 #define MDD_CONFIG_CTL		0x00000000
 #define MDD_MODE		0x00000010
 
 #define PHASE_SCALING_REF	4
 
+/* bit definitions for phase scaling eFuses */
 #define PHASE_SCALING_EFUSE_VERSION_POS		26
 #define PHASE_SCALING_EFUSE_VERSION_MASK	KRAIT_MASK(27, 26)
 #define PHASE_SCALING_EFUSE_VERSION_SET		1
@@ -80,6 +104,7 @@
 #define PHASE_SCALING_EFUSE_VALUE_POS		16
 #define PHASE_SCALING_EFUSE_VALUE_MASK		KRAIT_MASK(18, 16)
 
+/* bit definitions for APC_PWR_GATE_CTL */
 #define BHS_CNT_BIT_POS		24
 #define BHS_CNT_MASK		KRAIT_MASK(31, 24)
 #define BHS_CNT_DEFAULT		64
@@ -101,6 +126,7 @@
 #define BHS_EN_BIT_POS		0
 #define BHS_EN_MASK		KRAIT_MASK(0, 0)
 
+/* bit definitions for APC_LDO_VREF_SET register */
 #define VREF_RET_POS		8
 #define VREF_RET_MASK		KRAIT_MASK(14, 8)
 
@@ -133,6 +159,26 @@
 
 #define KPSS_VERSION_2P0	0x20000000
 
+/**
+ * struct pmic_gang_vreg -
+ * @name:			the string used to represent the gang
+ * @pmic_vmax_uV:		the current pmic gang voltage
+ * @pmic_phase_count:		the number of phases turned on in the gang
+ * @krait_power_vregs:		a list of krait consumers this gang supplies to
+ * @krait_power_vregs_lock:	lock to prevent simultaneous access to the list
+ *				and its nodes. This needs to be taken by each
+ *				regulator's callback functions to prevent
+ *				simultaneous updates to the pmic's phase
+ *				voltage.
+ * @apcs_gcc_base:		virtual address of the APCS GCC registers
+ * @manage_phases:		begin phase control
+ * @pfm_threshold:		the sum of coefficients below which PFM can be
+ *				enabled
+ * @efuse_phase_scaling_factor:	Phase scaling factor read out of an eFuse.  When
+ *				calculating the appropriate phase count to use,
+ *				coeff2 is multiplied by this factor and then
+ *				divided by PHASE_SCALING_REF.
+ */
 struct pmic_gang_vreg {
 	const char		*name;
 	int			pmic_vmax_uV;
@@ -213,6 +259,11 @@ static void krait_masked_write(struct krait_power_vreg *kvreg,
 	reg_val |= (val & mask);
 	writel_relaxed(reg_val, kvreg->reg_base + reg);
 
+	/*
+	 * Barrier to ensure that the reads and writes from
+	 * other regulator regions (they are 1k apart) execute in
+	 * order to the above write.
+	 */
 	mb();
 }
 
@@ -276,11 +327,15 @@ static int __krait_power_mdd_enable(struct krait_power_vreg *kvreg, bool on)
 {
 	if (on) {
 		writel_relaxed(0x00000002, kvreg->mdd_base + MDD_MODE);
-		
+		/* complete the above write before the delay */
 		mb();
 		udelay(MDD_SETTLING_DELAY_US);
 	} else {
 		writel_relaxed(0x00000000, kvreg->mdd_base + MDD_MODE);
+		/*
+		 * complete the above write before other accesses
+		 * to krait regulator
+		 */
 		mb();
 	}
 	return 0;
@@ -348,6 +403,10 @@ static int set_pmic_gang_phases(struct pmic_gang_vreg *pvreg, int phase_count)
 {
 	pr_debug("programming phase_count = %d\n", phase_count);
 	if (pvreg->use_phase_switching)
+		/*
+		 * note the PMIC sets the phase count to one more than
+		 * the value in the register - hence subtract 1 from it
+		 */
 		return msm_spm_apcs_set_phase(phase_count - 1);
 	else
 		return 0;
@@ -418,7 +477,7 @@ static unsigned int pmic_gang_set_phases(struct krait_power_vreg *from,
 			return 0;
 	}
 
-	
+	/* First check if the coeff is low for PFM mode */
 	if (load_total <= pvreg->pfm_threshold
 			&& n_online == 1
 			&& krait_pmic_is_ready()) {
@@ -435,7 +494,7 @@ static unsigned int pmic_gang_set_phases(struct krait_power_vreg *from,
 		return rc;
 	}
 
-	
+	/* coeff is high switch to PWM mode before changing phases */
 	if (pvreg->pfm_mode) {
 		rc = msm_spm_enable_fts_lpm(PMIC_FTS_MODE_PWM);
 		if (rc) {
@@ -448,7 +507,7 @@ static unsigned int pmic_gang_set_phases(struct krait_power_vreg *from,
 		udelay(PWM_SETTLING_TIME_US);
 	}
 
-	
+	/* calculate phases */
 	if (coeff_total < ONE_PHASE_COEFF)
 		phase_count = 1;
 	else if (coeff_total < TWO_PHASE_COEFF)
@@ -456,7 +515,7 @@ static unsigned int pmic_gang_set_phases(struct krait_power_vreg *from,
 	else
 		phase_count = 4;
 
-	
+	/* don't increase the phase count higher than number of online cpus */
 	if (phase_count > n_online)
 		phase_count = n_online;
 
@@ -468,9 +527,13 @@ static unsigned int pmic_gang_set_phases(struct krait_power_vreg *from,
 			return rc;
 		}
 
-		
+		/* complete the writes before the delay */
 		mb();
 
+		/*
+		 * delay until the phases are settled when
+		 * the count is raised
+		 */
 		if (phase_count > pvreg->pmic_phase_count)
 			udelay(PHASE_SETTLING_TIME_US);
 
@@ -535,40 +598,53 @@ static void __switch_to_using_bhs(void *info)
 {
 	struct krait_power_vreg *kvreg = info;
 
-	
+	/* enable bhs */
 	if (version > KPSS_VERSION_2P0) {
 		krait_masked_write(kvreg, APC_PWR_GATE_MODE,
 			PWR_GATE_SWITCH_MODE_MASK,
 			PWR_GATE_SWITCH_MODE_BHS << PWR_GATE_SWITCH_MODE_POS);
 
-		
+		/* complete the writes before the delay */
 		mb();
 
-		
+		/* wait for the bhs to settle */
 		udelay(BHS_SETTLING_DELAY_US);
 	} else {
-		
+		/* enable bhs */
 		krait_masked_write(kvreg, APC_PWR_GATE_CTL,
 						BHS_EN_MASK, BHS_EN_MASK);
 
-		
+		/* complete the above write before the delay */
 		mb();
 
-		
+		/* wait for the bhs to settle */
 		udelay(BHS_SETTLING_DELAY_US);
 
-		
+		/* Turn on BHS segments */
 		krait_masked_write(kvreg, APC_PWR_GATE_CTL, BHS_SEG_EN_MASK,
 				BHS_SEG_EN_DEFAULT << BHS_SEG_EN_BIT_POS);
 
-		
+		/* complete the above write before the delay */
 		mb();
 
+		/*
+		 * wait for the bhs to settle - note that
+		 * after the voltage has settled both BHS and LDO are supplying
+		 * power to the krait. This avoids glitches during switching
+		 */
 		udelay(BHS_SETTLING_DELAY_US);
 
+		/*
+		 * enable ldo bypass - the krait is powered still by LDO since
+		 * LDO is enabled
+		 */
 		krait_masked_write(kvreg, APC_PWR_GATE_CTL,
 				LDO_BYP_MASK, LDO_BYP_MASK);
 
+		/*
+		 * disable ldo - only the BHS provides voltage to
+		 * the cpu after this
+		 */
 		krait_masked_write(kvreg, APC_PWR_GATE_CTL,
 				LDO_PWR_DWN_MASK, LDO_PWR_DWN_MASK);
 	}
@@ -584,6 +660,10 @@ static void __switch_to_using_ldo(void *info)
 	if (kvreg->ldo_disable)
 		return;
 
+	/*
+	 * if the krait is in ldo mode and a voltage change is requested on the
+	 * ldo switch to using hs before changing ldo voltage
+	 */
 	if (kvreg->mode == LDO_MODE)
 		__switch_to_using_bhs(kvreg);
 
@@ -593,21 +673,30 @@ static void __switch_to_using_ldo(void *info)
 			PWR_GATE_SWITCH_MODE_MASK,
 			PWR_GATE_SWITCH_MODE_LDO << PWR_GATE_SWITCH_MODE_POS);
 
-		
+		/* complete the writes before the delay */
 		mb();
 
-		
+		/* wait for the ldo to settle */
 		udelay(LDO_SETTLING_DELAY_US);
 	} else {
+		/*
+		 * enable ldo - note that both LDO and BHS are are supplying
+		 * voltage to the cpu after this. This avoids glitches during
+		 * switching from BHS to LDO.
+		 */
 		krait_masked_write(kvreg, APC_PWR_GATE_CTL,
 						LDO_PWR_DWN_MASK, 0);
 
-		
+		/* complete the writes before the delay */
 		mb();
 
-		
+		/* wait for the ldo to settle */
 		udelay(LDO_SETTLING_DELAY_US);
 
+		/*
+		 * disable BHS and disable LDO bypass seperate from enabling
+		 * the LDO above.
+		 */
 		krait_masked_write(kvreg, APC_PWR_GATE_CTL,
 			BHS_EN_MASK | LDO_BYP_MASK, 0);
 		krait_masked_write(kvreg, APC_PWR_GATE_CTL, BHS_SEG_EN_MASK, 0);
@@ -677,7 +766,7 @@ static int set_pmic_gang_voltage(struct pmic_gang_vreg *pvreg, int uV)
 
 	setpoint = DIV_ROUND_UP(uV, LV_RANGE_STEP);
 
-	rc = msm_spm_set_vdd(0, setpoint); 
+	rc = msm_spm_set_vdd(0, setpoint); /* value of CPU is don't care */
 	if (rc < 0)
 		pr_err("could not set %duV setpt = 0x%x rc = %d\n",
 				uV, setpoint, rc);
@@ -695,6 +784,11 @@ static int configure_ldo_or_hs_one(struct krait_power_vreg *kvreg, int vmax)
 		return 0;
 
 	if (kvreg->force_bhs)
+		/*
+		 * The cpu is in transitory phase where it is being
+		 * prepared to be offlined or onlined and is being
+		 * forced to run on BHS during that time
+		 */
 		return 0;
 
 	if (kvreg->uV <= kvreg->ldo_threshold_uV
@@ -741,6 +835,10 @@ static int krait_voltage_increase(struct krait_power_vreg *from,
 	int rc = 0;
 	int settling_us = DIV_ROUND_UP(vmax - pvreg->pmic_vmax_uV, SLEW_RATE);
 
+	/*
+	 * since krait voltage is increasing set the gang voltage
+	 * prior to changing ldo/hs states of the requesting krait
+	 */
 	rc = set_pmic_gang_voltage(pvreg, vmax);
 	if (rc < 0) {
 		dev_err(&from->rdev->dev, "%s failed set voltage %d rc = %d\n",
@@ -748,10 +846,10 @@ static int krait_voltage_increase(struct krait_power_vreg *from,
 		return rc;
 	}
 
-	
+	/* complete the above writes before the delay */
 	mb();
 
-	
+	/* delay until the voltage is settled when it is raised */
 	udelay(settling_us);
 
 	rc = configure_ldo_or_hs_all(from, vmax);
@@ -769,6 +867,11 @@ static int krait_voltage_decrease(struct krait_power_vreg *from,
 	struct pmic_gang_vreg *pvreg = from->pvreg;
 	int rc = 0;
 
+	/*
+	 * since krait voltage is decreasing ldos might get out of their
+	 * operating range. Hence configure such kraits to be in hs mode prior
+	 * to setting the pmic gang voltage
+	 */
 	rc = configure_ldo_or_hs_all(from, vmax);
 	if (rc < 0) {
 		dev_err(&from->rdev->dev, "%s failed ldo/hs conf %d rc = %d\n",
@@ -822,11 +925,15 @@ static int _set_voltage(struct regulator_dev *rdev,
 	int coeff_total;
 
 	pr_debug("%s: %d to %d\n", kvreg->name, orig_krait_uV, requested_uV);
+	/*
+	 * Assign the voltage before updating the gang voltage as we iterate
+	 * over all the core voltages and choose HS or LDO for each of them
+	 */
 	kvreg->uV = requested_uV;
 
 	vmax = get_vmax(pvreg);
 
-	
+	/* round up the pmic voltage as per its resolution */
 	vmax = ROUND_UP_VOLTAGE(vmax, LV_RANGE_STEP);
 
 	if (requested_uV > orig_krait_uV)
@@ -841,7 +948,7 @@ static int _set_voltage(struct regulator_dev *rdev,
 
 	kvreg->online_at_probe &= ~WAIT_FOR_VOLTAGE;
 	coeff_total = get_coeff_total(kvreg);
-	
+	/* adjust the phases since coeff2 would have changed */
 	rc = pmic_gang_set_phases(kvreg, coeff_total);
 
 	return rc;
@@ -854,6 +961,11 @@ static int krait_power_set_voltage(struct regulator_dev *rdev,
 	struct pmic_gang_vreg *pvreg = kvreg->pvreg;
 	int rc;
 
+	/*
+	 * if the voltage requested is below LDO_THRESHOLD this cpu could
+	 * switch to LDO mode. Hence round the voltage as per the LDO
+	 * resolution
+	 */
 	if (min_uV < kvreg->ldo_threshold_uV) {
 		if (min_uV < KRAIT_LDO_VOLTAGE_MIN)
 			min_uV = KRAIT_LDO_VOLTAGE_MIN;
@@ -893,6 +1005,10 @@ static int krait_power_enable(struct regulator_dev *rdev)
 	rc = _get_optimum_mode(rdev, kvreg->uV, kvreg->uV, kvreg->load);
 	if (rc < 0)
 		goto en_err;
+	/*
+	 * since the core is being enabled, behave as if it is increasing
+	 * the core voltage
+	 */
 	rc = _set_voltage(rdev, 0, kvreg->uV);
 en_err:
 	mutex_unlock(&pvreg->krait_power_vregs_lock);
@@ -945,6 +1061,10 @@ static int krait_regulator_cpu_callback(struct notifier_block *nfb,
 	case CPU_UP_CANCELED:
 		mutex_lock(&pvreg->krait_power_vregs_lock);
 		kvreg->force_bhs = true;
+		/*
+		 * cpu is offline at this point, force bhs on which ever cpu
+		 * this callback is running on
+		 */
 		pr_debug("%s force BHS locally\n", kvreg->name);
 		__switch_to_using_bhs(kvreg);
 		mutex_unlock(&pvreg->krait_power_vregs_lock);
@@ -952,12 +1072,21 @@ static int krait_regulator_cpu_callback(struct notifier_block *nfb,
 	case CPU_ONLINE:
 		mutex_lock(&pvreg->krait_power_vregs_lock);
 		kvreg->force_bhs = false;
+		/*
+		 * switch the cpu to proper bhs/ldo, the cpu is online at this
+		 * point. The gang voltage and mode votes for the cpu were
+		 * submitted in CPU_UP_PREPARE phase
+		 */
 		configure_ldo_or_hs_one(kvreg, pvreg->pmic_vmax_uV);
 		mutex_unlock(&pvreg->krait_power_vregs_lock);
 		break;
 	case CPU_DOWN_PREPARE:
 		mutex_lock(&pvreg->krait_power_vregs_lock);
 		kvreg->force_bhs = true;
+		/*
+		 * switch the cpu to run on bhs using smp function calls. Note
+		 * that the cpu is online at this point.
+		 */
 		pr_debug("%s force BHS remotely\n", kvreg->name);
 		switch_to_using_bhs(kvreg);
 		mutex_unlock(&pvreg->krait_power_vregs_lock);
@@ -989,7 +1118,7 @@ static int get_retention_dbg_uV(void *data, u64 *val)
 
 	mutex_lock(&pvreg->krait_power_vregs_lock);
 	if (!list_empty(&pvreg->krait_power_vregs)) {
-		
+		/* return the retention voltage on just the first cpu */
 		kvreg = list_entry((&pvreg->krait_power_vregs)->next,
 			typeof(*kvreg), link);
 		*val = get_krait_retention_ldo_uv(kvreg);
@@ -1027,17 +1156,17 @@ static void kvreg_ldo_voltage_init(struct krait_power_vreg *kvreg)
 #define CPU_PWR_CTL_ONLINE_MASK 0x80
 static void kvreg_hw_init(struct krait_power_vreg *kvreg)
 {
-	
+	/* setup the bandgap that configures the reference to the LDO */
 	writel_relaxed(0x00000190, kvreg->mdd_base + MDD_CONFIG_CTL);
-	
+	/* Enable MDD */
 	writel_relaxed(0x00000002, kvreg->mdd_base + MDD_MODE);
 	mb();
 
 	if (version > KPSS_VERSION_2P0) {
-		
+		/* Configure hardware sequencer delays. */
 		writel_relaxed(0x30430600, kvreg->reg_base + APC_PWR_GATE_DLY);
 
-		
+		/* Enable the hardware sequencer in BHS mode. */
 		writel_relaxed(0x00000021, kvreg->reg_base + APC_PWR_GATE_MODE);
 	}
 }
@@ -1057,11 +1186,11 @@ static void online_at_probe(struct krait_power_vreg *kvreg)
 
 static void glb_init(void __iomem *apcs_gcc_base)
 {
-	
+	/* read kpss version */
 	version = readl_relaxed(apcs_gcc_base + VERSION);
 	pr_debug("version= 0x%x\n", version);
 
-	
+	/* configure bi-modal switch */
 	if (version > KPSS_VERSION_2P0)
 		writel_relaxed(0x0308736E, apcs_gcc_base + PWR_GATE_CONFIG);
 	else
@@ -1080,7 +1209,7 @@ static int __devinit krait_power_probe(struct platform_device *pdev)
 	bool ldo_disable = false;
 
 	if (pdev->dev.of_node) {
-		
+		/* Get init_data from device tree. */
 		init_data = of_get_regulator_init_data(&pdev->dev,
 							pdev->dev.of_node);
 		init_data->constraints.valid_ops_mask
@@ -1332,6 +1461,10 @@ static int __devinit krait_pdn_phase_scaling_init(struct pmic_gang_vreg *pvreg,
 
 	use_efuse = of_property_read_bool(node,
 				"qcom,use-phase-scaling-factor");
+	/*
+	 * Allow usage of the eFuse phase scaling factor if it is enabled in
+	 * either device tree or by module parameter.
+	 */
 	use_efuse_phase_scaling_factor = use_efuse_phase_scaling_factor
 					 || use_efuse;
 
@@ -1342,7 +1475,7 @@ static int __devinit krait_pdn_phase_scaling_init(struct pmic_gang_vreg *pvreg,
 		return -EINVAL;
 	}
 
-	
+	/* Read efuse registers */
 	efuse = ioremap(res->start, 8);
 	if (!efuse) {
 		pr_err("could not map phase scaling eFuse address\n");
@@ -1461,7 +1594,7 @@ static int __devinit krait_pdn_probe(struct platform_device *pdev)
 
 	pr_debug("name=%s inited\n", pvreg->name);
 
-	
+	/* global initializtion */
 	glb_init(pvreg->apcs_gcc_base);
 
 	rc = of_platform_populate(node, NULL, NULL, dev);
@@ -1517,6 +1650,20 @@ module_exit(krait_power_exit);
 
 #define GCC_BASE	0xF9011000
 
+/**
+ * secondary_cpu_hs_init - Initialize BHS and LDO registers
+ *				for nonboot cpu
+ *
+ * @base_ptr: address pointer to APC registers of a cpu
+ * @cpu: the cpu being brought out of reset
+ *
+ * seconday_cpu_hs_init() is called when a secondary cpu
+ * is being brought online for the first time. It is not
+ * called for boot cpu. It initializes power related
+ * registers and makes the core run from BHS.
+ * It also ends up turning on MDD which is required when the
+ * core switches to LDO mode
+ */
 void secondary_cpu_hs_init(void *base_ptr, int cpu)
 {
 	uint32_t reg_val;
@@ -1531,28 +1678,28 @@ void secondary_cpu_hs_init(void *base_ptr, int cpu)
 		iounmap(gcc_base_ptr);
 	}
 
-	
+	/* Turn on the BHS, turn off LDO Bypass and power down LDO */
 	reg_val =  BHS_CNT_DEFAULT << BHS_CNT_BIT_POS
 		| LDO_PWR_DWN_MASK
 		| CLK_SRC_DEFAULT << CLK_SRC_SEL_BIT_POS
 		| BHS_EN_MASK;
 	writel_relaxed(reg_val, base_ptr + APC_PWR_GATE_CTL);
 
-	
+	/* complete the above write before the delay */
 	mb();
-	
+	/* wait for the bhs to settle */
 	udelay(BHS_SETTLING_DELAY_US);
 
-	
+	/* Turn on BHS segments */
 	reg_val |= BHS_SEG_EN_DEFAULT << BHS_SEG_EN_BIT_POS;
 	writel_relaxed(reg_val, base_ptr + APC_PWR_GATE_CTL);
 
-	
+	/* complete the above write before the delay */
 	mb();
-	 
+	 /* wait for the bhs to settle */
 	udelay(BHS_SETTLING_DELAY_US);
 
-	
+	/* Finally turn on the bypass so that BHS supplies power */
 	reg_val |= LDO_BYP_MASK;
 	writel_relaxed(reg_val, base_ptr + APC_PWR_GATE_CTL);
 
@@ -1560,11 +1707,16 @@ void secondary_cpu_hs_init(void *base_ptr, int cpu)
 	if (kvreg != NULL) {
 		kvreg_hw_init(kvreg);
 	} else {
+		/*
+		 * This nonboot cpu has not been probed yet. This cpu was
+		 * brought out of reset as a part of maxcpus >= 2. Initialize
+		 * its MDD and APC_PWR_GATE_MODE register here
+		 */
 		mdd_base = ioremap_nocache(MSM_MDD_BASE_PHYS + cpu * 0x10000,
 				SZ_4K);
-		
+		/* setup the bandgap that configures the reference to the LDO */
 		writel_relaxed(0x00000190, mdd_base + MDD_CONFIG_CTL);
-		
+		/* Enable MDD */
 		writel_relaxed(0x00000002, mdd_base + MDD_MODE);
 		mb();
 		iounmap(mdd_base);
@@ -1578,6 +1730,10 @@ void secondary_cpu_hs_init(void *base_ptr, int cpu)
 	}
 
 	if (!the_gang || !the_gang->manage_phases) {
+		/*
+		 * If the driver has not yet started to manage phases then
+		 * enable max phases.
+		 */
 		l2_saw_base = ioremap_nocache(MSM_L2_SAW_PHYS, SZ_4K);
 		if (l2_saw_base) {
 			writel_relaxed(0x10003, l2_saw_base + 0x1c);

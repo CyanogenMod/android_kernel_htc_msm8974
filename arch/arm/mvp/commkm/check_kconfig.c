@@ -18,12 +18,24 @@
  */
 #line 5
 
+/**
+ * @file
+ * @brief Check for required kernel configuration
+ *
+ * Check to make sure that the kernel options that the MVP hypervisor requires
+ * have been enabled in the kernel that this kernel module is being built
+ * against.
+ */
 #include <linux/version.h>
 
+/*
+ * Minimum kernel version
+ */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
 #error "MVP requires a host kernel newer than 3.0.0"
 #endif
 
+/* module loading ability */
 #ifndef CONFIG_MODULES
 #error "MVP requires kernel loadable module support be enabled " \
 	"(CONFIG_MODULES)"
@@ -33,10 +45,12 @@
 	"(CONFIG_MODULE_UNLOAD)"
 #endif
 
+/* sysfs */
 #ifndef CONFIG_SYSFS
 #error "MVP requires sysfs support (CONFIG_SYSFS)"
 #endif
 
+/* network traffic isolation */
 #ifndef CONFIG_NAMESPACES
 #error "MVP requires namespace support (CONFIG_NAMESPACES)"
 #endif
@@ -44,6 +58,7 @@
 #error "MVP requires network namespace support (CONFIG_NET_NS)"
 #endif
 
+/* TCP/IP networking */
 #ifndef CONFIG_INET
 #error "MVP requires IPv4 support (CONFIG_INET)"
 #endif
@@ -51,6 +66,7 @@
 #error "MVP requires IPv6 support (CONFIG_IPV6)"
 #endif
 
+/* VPN support */
 #if !defined(CONFIG_TUN) && !defined(CONFIG_TUN_MODULE)
 #error "MVP VPN support requires TUN device support (CONFIG_TUN)"
 #endif
@@ -59,12 +75,15 @@
 #error "MVP requires netfilter support (CONFIG_NETFILTER)"
 #endif
 
+/* Force /proc/config.gz support for eng/userdebug builds */
 #ifdef MVP_DEBUG
 #if !defined(CONFIG_IKCONFIG) || !defined(CONFIG_IKCONFIG_PROC)
 #error "MVP_DEBUG requires /proc/config.gz support (CONFIG_IKCONFIG_PROC)"
 #endif
 #endif
 
+/* Sanity check we're only dealing with the memory hotplug + migrate and/or
+ * compaction combo */
 #ifdef CONFIG_MIGRATION
 #if defined(CONFIG_NUMA) || defined(CONFIG_CPUSETS) || \
 	defined(CONFIG_MEMORY_FAILURE)

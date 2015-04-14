@@ -18,12 +18,22 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief mvpkm kernel hooks for comm event signaling
+ */
 
 #ifndef _MVPKM_COMM_EV_H
 #define _MVPKM_COMM_EV_H
 
 extern int (*CommTranspEvProcess)(CommTranspID *id, CommTranspIOEvent event);
 
+/**
+ * @brief Forward any guest signal requests to the commkm module
+ * @param id transport channel id
+ * @param event comm event type
+ */
 
 static inline void
 Mvpkm_CommEvSignal(CommTranspID *id,

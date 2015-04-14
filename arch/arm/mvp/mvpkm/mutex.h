@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Common mutex definitions.
+ */
 
 #ifndef _MUTEX_H
 #define _MUTEX_H
@@ -29,49 +34,59 @@
 #define INCLUDE_ALLOW_GPL
 #include "include_check.h"
 
-#define MUTEX_CVAR_MAX 2  
-			  
+#define MUTEX_CVAR_MAX 2  /**< maximum number of condition variables */
+			  /**< supported on a given mutex */
 
 typedef enum MutexMode MutexMode;
 typedef struct HKWaitQ HKWaitQ;
 typedef struct Mutex Mutex;
 
+/**
+ * @brief modes for locking
+ */
 enum MutexMode {
-	MutexModeSH = 1,	
-				
-				
-				
-				
-				
+	MutexModeSH = 1,	/**< minimum value that can be saved in low */
+				/**< 16 bits of 'state', ie, it won't allow */
+				/**< any other EXs without overflowing. */
+				/**< it also will block if there are already */
+				/**< 0xFFFF other shared accesses, but it */
+				/**< should be of little consequence. */
 
-	MutexModeEX = 0xFFFF	
-				
-				
-				
+	MutexModeEX = 0xFFFF	/**< maximum value that can be saved in low */
+				/**< 16 bits of 'state', ie, it won't allow */
+				/**< any other EXs or SHs in there without */
+				/**< overflowing, thus causing a block. */
 };
 
 #include "atomic.h"
 
 typedef union Mutex_State {
-	uint32 state;	
+	uint32 state;	/**< for atomic setting/reading */
 	struct {
-		uint16 mode;	
-		uint16 blck;	
+		uint16 mode;	/**< the sum of mode values of MutexMode */
+		uint16 blck;	/**< The number of threads blocked */
 	};
 } Mutex_State;
 
+/**
+ * @brief shareable mutex struct.
+ */
 struct Mutex {
-	HKVA mtxHKVA;		
-	AtmUInt32 state;	
-				
-				
-	AtmUInt32 waiters;	
-				
-				
-	AtmUInt32 blocked;	
-	HKVA lockWaitQ;		
-	HKVA cvarWaitQs[MUTEX_CVAR_MAX]; 
+	HKVA mtxHKVA;		/**< mutex's host kernel virtual address */
+	AtmUInt32 state;	/**< low 16 bits: # of shared accessors */
+				/**<       or FFFF if granted exclusive */
+				/**< high 16 bits: # of blocked threads */
+	AtmUInt32 waiters;	/**< number of threads on all condWaitQs */
+				/**< ... increment only with mutex locked EX */
+				/**< ... decrement any time */
+	AtmUInt32 blocked;	/**< number times blocked (stats only) */
+	HKVA lockWaitQ;		/**< threads blocked for mutex to be unlocked */
+	HKVA cvarWaitQs[MUTEX_CVAR_MAX]; /**< condition variables */
 
+	/*
+	 * Padding to keep binary compatibility @see{MVP-1876}
+	 * These padding bytes can be used for debugging.
+	 */
 	int    line;
 	int    lineUnl;
 	uint32 pad3;

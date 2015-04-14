@@ -123,8 +123,10 @@ KGSL_LOG_ERR(_dev->dev, _dev->pwr_log, fmt, ##args)
 #define KGSL_PWR_CRIT(_dev, fmt, args...) \
 KGSL_LOG_CRIT(_dev->dev, _dev->pwr_log, fmt, ##args)
 
+/* Core error messages - these are for core KGSL functions that have
+   no device associated with them (such as memory) */
 
 #define KGSL_CORE_ERR(fmt, args...) \
 pr_err("kgsl: %s: " fmt, __func__, ##args)
 
-#endif 
+#endif /* __KGSL_LOG_H */

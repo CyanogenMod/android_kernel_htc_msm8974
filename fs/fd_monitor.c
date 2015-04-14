@@ -136,7 +136,7 @@ static struct fd_list_node *lookup_fd_list(
 	char fd[10] = {0};
 	unsigned int  fd_num = 0;
 	int lock = 0;
-	
+	/* Find length of fd_mid */
 	arg = buf;
 	while (*arg && !isspace(*arg))
 	{
@@ -164,7 +164,7 @@ static struct fd_list_node *lookup_fd_list(
 		printk("%s:lock+\n", __func__);
 	spin_lock_bh(&fd_list_lock);
 	lock = 1;
-	
+	/* Lookup fd in rbtree */
 	while (*p) {
 		parent = *p;
 		l = rb_entry(parent, struct fd_list_node, node);
@@ -173,7 +173,7 @@ static struct fd_list_node *lookup_fd_list(
 			continue;
 		} else if (l->pid == cur_pid) {
 			diff = strncmp(buf, l->fd_mid, ignore_mid?(fd_len + 1):data_len);
-			
+			/* avoid string partial match case, ex. buf = 123_45, l->fd_mid = 123_456 */
 			if (!diff && l->fd_mid[data_len] != '\0'&& !ignore_mid)
 				diff = -1;
 		} else if (l->pid > cur_pid) {
@@ -187,12 +187,12 @@ static struct fd_list_node *lookup_fd_list(
 
 		if (diff < 0) {
 			p = &(*p)->rb_left;
-			
+			/* For specific unregister condition : fd matches but mid */
 			if (action == FD_ACTION_DEL && !ignore_mid && !strncmp(buf, l->fd_mid, (fd_len + 1)))
 				goto return_l;
 		} else if (diff > 0) {
 			p = &(*p)->rb_right;
-			
+			/* For specific unregister condition : fd matches but mid */
 			if (action == FD_ACTION_DEL && !ignore_mid && !strncmp(buf, l->fd_mid, (fd_len + 1)))
 				goto return_l;
 		} else {
@@ -209,7 +209,7 @@ static struct fd_list_node *lookup_fd_list(
 		}
 	}
 
-	
+	/* Allocate and add new fd to rbtree */
 	if (action != FD_ACTION_ADD) {
 		if (fd_m_debug_mask & FD_M_DEBUG_ERROR)
 			pr_info("lookup_fd_list: %.*s not found\n",
@@ -374,7 +374,7 @@ int clean_fd_list(const int cur_pid, const int callfrom)
     if (fd_m_debug_mask & FD_M_DEBUG_LOCK)
 		printk("%s:lock+\n", __func__);
 	spin_lock_bh(&fd_list_lock);
-	
+	/* Lookup fd in rbtree */
 	while (*p) {
 		parent = *p;
 		l = rb_entry(parent, struct fd_list_node, node);

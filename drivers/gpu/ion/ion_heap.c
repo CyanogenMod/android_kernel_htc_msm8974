@@ -102,12 +102,29 @@ int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
 
 #define MAX_VMAP_RETRIES 10
 
+/**
+ * An optimized page-zero'ing function. vmaps arrays of pages in large
+ * chunks to minimize the number of memsets and vmaps/vunmaps.
+ *
+ * Note that the `pages' array should be composed of all 4K pages.
+ */
 int ion_heap_pages_zero(struct page **pages, int num_pages)
 {
 	int i, j, k, npages_to_vmap;
 	void *ptr = NULL;
+	/*
+	 * It's cheaper just to use writecombine memory and skip the
+	 * cache vs. using a cache memory and trying to flush it afterwards
+	 */
 	pgprot_t pgprot = pgprot_writecombine(pgprot_kernel);
 
+	/*
+	 * As an optimization, we manually zero out all of the pages
+	 * in one fell swoop here. To safeguard against insufficient
+	 * vmalloc space, we only vmap `npages_to_vmap' at a time,
+	 * starting with a conservative estimate of 1/8 of the total
+	 * number of vmalloc pages available.
+	 */
 	npages_to_vmap = ((VMALLOC_END - VMALLOC_START)/8)
 			>> PAGE_SHIFT;
 	for (i = 0; i < num_pages; i += npages_to_vmap) {
@@ -152,6 +169,10 @@ static int ion_heap_alloc_pages_mem(int page_tbl_size,
 	struct page **pages;
 	pages_mem->free_fn = kfree;
 	if (page_tbl_size > SZ_8K) {
+		/*
+		 * Do fallback to ensure we have a balance between
+		 * performance and availability.
+		 */
 		pages = kmalloc(page_tbl_size,
 				__GFP_COMP | __GFP_NORETRY |
 				__GFP_NO_KSWAPD | __GFP_NOWARN);

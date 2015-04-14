@@ -202,4 +202,4 @@ typedef enum {
 	,TWELVE_VOLT_PS_SENSE
 }GPIO_INDICES;
 
-#endif 
+#endif /* if !defined(PLATFORM_H) */

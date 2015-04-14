@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief Bit definitions for instrBActions.
+ */
 
 #ifndef _ACTIONS_H
 #define _ACTIONS_H
@@ -27,16 +32,16 @@
 #define INCLUDE_ALLOW_GPL
 #include "include_check.h"
 
-#define L2_ACTION_GDB      0  
-#define L2_ACTION_MKSCK    1  
-#define L2_ACTION_ABORT    2  
-#define L2_ACTION_HALT     3  
-#define L2_ACTION_FIQ      6  
-#define L2_ACTION_IRQ      7  
-#define L2_ACTION_CKPT     8  
-#define L2_ACTION_WFI      9  
-#define L2_ACTION_TIMER   10  
-#define L2_ACTION_BALLOON 11  
+#define L2_ACTION_GDB      0  /**< drop into guest debugger GDB */
+#define L2_ACTION_MKSCK    1  /**< scan the mksck pipes for incoming messages */
+#define L2_ACTION_ABORT    2  /**< abort the monitor cleanly */
+#define L2_ACTION_HALT     3  /**< halt the monitor */
+#define L2_ACTION_FIQ      6  /**< the VCPU's FIQ pin is active */
+#define L2_ACTION_IRQ      7  /**< the VCPU's IRQ pin is active */
+#define L2_ACTION_CKPT     8  /**< do a checkpoint */
+#define L2_ACTION_WFI      9  /**< wait for interrupt */
+#define L2_ACTION_TIMER   10  /**< timer event */
+#define L2_ACTION_BALLOON 11  /**< balloon trigger */
 
 #define ACTION_GDB      (1 << L2_ACTION_GDB)
 #define ACTION_MKSCK    (1 << L2_ACTION_MKSCK)

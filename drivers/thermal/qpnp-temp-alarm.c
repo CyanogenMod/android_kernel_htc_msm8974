@@ -52,25 +52,30 @@ enum qpnp_tm_registers {
 #define ALARM_CTRL_FORCE_ENABLE		0x80
 #define ALARM_CTRL_FOLLOW_HW_ENABLE	0x01
 
-#define TEMP_STAGE_STEP			20000	
+#define TEMP_STAGE_STEP			20000	/* Stage step: 20.000 C */
 #define TEMP_STAGE_HYSTERESIS		2000
 
-#define TEMP_THRESH_MIN			105000	
-#define TEMP_THRESH_STEP		5000	
+#define TEMP_THRESH_MIN			105000	/* Threshold Min: 105 C */
+#define TEMP_THRESH_STEP		5000	/* Threshold step: 5 C */
 
 #define THRESH_MIN			0
 #define THRESH_MAX			3
 
+/* Trip points from most critical to least critical */
 #define TRIP_STAGE3			0
 #define TRIP_STAGE2			1
 #define TRIP_STAGE1			2
 #define TRIP_NUM			3
 
 enum qpnp_tm_adc_type {
-	QPNP_TM_ADC_NONE,	
+	QPNP_TM_ADC_NONE,	/* Estimates temp based on overload level. */
 	QPNP_TM_ADC_QPNP_ADC,
 };
 
+/*
+ * Temperature in millicelcius reported during stage 0 if no ADC is present and
+ * no value has been specified via device tree.
+ */
 #define DEFAULT_NO_ADC_TEMP		37000
 
 struct qpnp_tm_chip {
@@ -91,6 +96,7 @@ struct qpnp_tm_chip {
 	struct qpnp_vadc_chip		*vadc_dev;
 };
 
+/* Delay between TEMP_STAT IRQ going high and status value changing in ms. */
 #define STATUS_REGISTER_DELAY_MS       40
 
 enum pmic_thermal_override_mode {
@@ -165,6 +171,10 @@ static int qpnp_tm_update_temp(struct qpnp_tm_chip *chip)
 	return rc;
 }
 
+/*
+ * This function initializes the internal temperature value based on only the
+ * current thermal stage and threshold.
+ */
 static int qpnp_tm_init_temp_no_adc(struct qpnp_tm_chip *chip)
 {
 	int rc;
@@ -184,6 +194,10 @@ static int qpnp_tm_init_temp_no_adc(struct qpnp_tm_chip *chip)
 	return 0;
 }
 
+/*
+ * This function updates the internal temperature value based on the
+ * current thermal stage and threshold as well as the previous stage
+ */
 static int qpnp_tm_update_temp_no_adc(struct qpnp_tm_chip *chip)
 {
 	unsigned int stage;
@@ -197,12 +211,12 @@ static int qpnp_tm_update_temp_no_adc(struct qpnp_tm_chip *chip)
 	stage = reg & STATUS_STAGE_MASK;
 
 	if (stage > chip->stage) {
-		
+		/* increasing stage, use lower bound */
 		chip->temperature = (stage - 1) * TEMP_STAGE_STEP
 				+ chip->thresh * TEMP_THRESH_STEP
 				+ TEMP_STAGE_HYSTERESIS + TEMP_THRESH_MIN;
 	} else if (stage < chip->stage) {
-		
+		/* decreasing stage, use upper bound */
 		chip->temperature = stage * TEMP_STAGE_STEP
 				+ chip->thresh * TEMP_THRESH_STEP
 				- TEMP_STAGE_HYSTERESIS + TEMP_THRESH_MIN;
@@ -403,7 +417,7 @@ static void qpnp_tm_work(struct work_struct *work)
 
 		thermal_zone_device_update(chip->tz_dev);
 
-		
+		/* Notify user space */
 		sysfs_notify(&chip->tz_dev->device.kobj, NULL, "type");
 	}
 
@@ -427,19 +441,23 @@ static int qpnp_tm_init_reg(struct qpnp_tm_chip *chip)
 	u8 reg;
 
 	if (chip->thresh < THRESH_MIN || chip->thresh > THRESH_MAX) {
-		
+		/* Read hardware threshold value if configuration is invalid. */
 		rc = qpnp_tm_read(chip, QPNP_TM_REG_SHUTDOWN_CTRL1, &reg, 1);
 		if (rc < 0)
 			return rc;
 		chip->thresh = reg & SHUTDOWN_CTRL1_THRESHOLD_MASK;
 	}
 
+	/*
+	 * Set threshold and disable software override of stage 2 and 3
+	 * shutdowns.
+	 */
 	reg = chip->thresh & SHUTDOWN_CTRL1_THRESHOLD_MASK;
 	rc = qpnp_tm_write(chip, QPNP_TM_REG_SHUTDOWN_CTRL1, &reg, 1);
 	if (rc < 0)
 		return rc;
 
-	
+	/* Enable the thermal alarm PMIC module in always-on mode. */
 	reg = ALARM_CTRL_FORCE_ENABLE;
 	rc = qpnp_tm_write(chip, QPNP_TM_REG_ALARM_CTRL, &reg, 1);
 
@@ -511,7 +529,7 @@ static int __devinit qpnp_tm_probe(struct spmi_device *spmi)
 
 	INIT_DELAYED_WORK(&chip->irq_work, qpnp_tm_work);
 
-	
+	/* These bindings are optional, so it is okay if they are not found. */
 	chip->thresh = THRESH_MAX + 1;
 	rc = of_property_read_u32(node, "qcom,threshold-set", &chip->thresh);
 	if (!rc && (chip->thresh < THRESH_MIN || chip->thresh > THRESH_MAX))
@@ -582,7 +600,7 @@ static int __devinit qpnp_tm_probe(struct spmi_device *spmi)
 		}
 	}
 
-	
+	/* Start in HW control; switch to SW control when user changes mode. */
 	chip->mode = THERMAL_DEVICE_DISABLED;
 	rc = qpnp_tm_shutdown_override(chip, SOFTWARE_OVERRIDE_DISABLED);
 	if (rc) {
@@ -641,7 +659,7 @@ static int qpnp_tm_suspend(struct device *dev)
 {
 	struct qpnp_tm_chip *chip = dev_get_drvdata(dev);
 
-	
+	/* Clear override bits in suspend to allow hardware control */
 	qpnp_tm_shutdown_override(chip, SOFTWARE_OVERRIDE_DISABLED);
 
 	return 0;
@@ -651,7 +669,7 @@ static int qpnp_tm_resume(struct device *dev)
 {
 	struct qpnp_tm_chip *chip = dev_get_drvdata(dev);
 
-	
+	/* Override hardware actions so software can control */
 	if (chip->mode == THERMAL_DEVICE_ENABLED)
 		qpnp_tm_shutdown_override(chip, SOFTWARE_OVERRIDE_ENABLED);
 
