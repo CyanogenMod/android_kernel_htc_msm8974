@@ -1,0 +1,233 @@
+/*
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+
+	led_flash2: htc,camera-led-lm3643 {
+		cell-index = <1>;
+		compatible = "htc,camera-led-lm3643";
+		qcom,flash-type = <3>;
+		qcom,flash-source = <&lm3643_flash0 &lm3643_flash1>;
+		qcom,torch-source = <&lm3643_torch0 &lm3643_torch1>;
+	};
+
+};
+
+&cci {
+
+
+	actuator0: qcom,actuator@1c {
+		cell-index = <0>;
+		reg = <0x1c>;
+		compatible = "qcom,actuator";
+		qcom,cci-master = <0>;
+	};
+
+	actuator1: qcom,actuator@36 {
+		cell-index = <1>;
+		reg = <0x36>;
+		compatible = "qcom,actuator";
+		qcom,cci-master = <1>;
+	};
+
+	qcom,camera@20 {
+		compatible = "htc,imx214_800m_fov77";
+		reg = <0x20 0x0>;
+		qcom,slave-id = <0x20 0x0016 0x0214>;
+		qcom,csiphy-sd-index = <0>;
+		qcom,csid-sd-index = <0>;
+		qcom,actuator-src = <&actuator0>;
+		qcom,led-flash-src = <&led_flash0>;
+		qcom,mount-angle = <90>;
+		qcom,sensor-name = "imx214_784m";
+		htc,mirror-flip = <1>;
+		qcom,vdd-cx-supply = <&pm8841_s2>;
+		qcom,vdd-cx-name = "qcom,vdd-cx";
+		cam_vdig-supply = <&ncp6924_dcdc1>;
+		cam_vana-supply = <&ncp6924_ldo1>;
+		cam_vio-supply = <&pm8941_lvs3>;
+		cam_vaf-supply = <&ncp6924_ldo3>;
+		qcom,cam-vreg-name = "cam_vdig", "cam_vio", "cam_vana",
+				     "cam_vaf";
+		qcom,cam-vreg-type = <0 1 0 0>;
+		qcom,cam-vreg-min-voltage = <1000000 1800000 2700000 2800000>;
+		qcom,cam-vreg-max-voltage =<1000000 1800000 2700000 2800000>;
+		qcom,cam-vreg-op-mode = <0 0 2700000 0>;
+		qcom,cam-vreg-gpios-index = <99 99 99 99>;
+
+		qcom,gpio-no-mux = <0>;
+		gpios = <&msmgpio 15 0>,
+			<&pm8941_gpios 12 0>,
+			<&pm8941_gpios 23 0>,
+			<&pm8941_gpios 10 0>;
+
+		qcom,gpio-reset = <1>;
+		qcom,gpio-standby = <2>;   //Used for NCP6924_CAM_EN
+		htc,gpio-camid = <3>;	//index of gpio-req-tbl for camid
+		htc,camid-value = <0>;	//expected value for camid
+		qcom,gpio-req-tbl-num = <0 1 2 3>;
+		qcom,gpio-req-tbl-flags = <0 0 0 1>;
+		qcom,gpio-req-tbl-label = "CAMIF_MCLK",
+					  "CAM_PWDN",
+					  "NCP6924_CAM_EN",
+					  "CAM_ID";
+
+		qcom,csi-lane-assign = <0x4320>;
+		qcom,csi-lane-mask = <0x1F>;
+		qcom,sensor-position = <0>;
+		qcom,sensor-mode = <1>;
+		qcom,cci-master = <0>;
+		status = "ok";
+	};
+
+	qcom,camera@0 {
+		compatible = "htc,ov13850_800m";
+		reg = <0x00 0x0>;
+		qcom,slave-id = <0x20 0x300a 0xd850>;
+		qcom,csiphy-sd-index = <0>;
+		qcom,csid-sd-index = <0>;
+		qcom,actuator-src = <&actuator0>;
+		qcom,led-flash-src = <&led_flash0>;
+		qcom,mount-angle = <90>;
+		qcom,sensor-name = "ov13850_784m";
+
+		qcom,vdd-cx-supply = <&pm8841_s2>;
+		qcom,vdd-cx-name = "qcom,vdd-cx";
+		cam_vdig-supply = <&ncp6924_dcdc1>;
+		cam_vana-supply = <&ncp6924_ldo1>;
+		cam_vio-supply = <&pm8941_lvs3>;
+		cam_vaf-supply = <&ncp6924_ldo3>;
+		qcom,cam-vreg-name = "cam_vdig", "cam_vio", "cam_vana",
+				     "cam_vaf";
+		qcom,cam-vreg-type = <0 1 0 0>;
+		qcom,cam-vreg-min-voltage = <1200000 1800000 2800000 2800000>;
+		qcom,cam-vreg-max-voltage =<1200000 1800000 2800000 2800000>;
+		qcom,cam-vreg-op-mode = <0 0 2800000 0>;
+		qcom,cam-vreg-gpios-index = <99 99 99 99>;
+
+		qcom,gpio-no-mux = <0>;
+		gpios = <&msmgpio 15 0>,
+			<&pm8941_gpios 12 0>,
+			<&pm8941_gpios 23 0>,
+			<&pm8941_gpios 10 0>;
+
+		qcom,gpio-reset = <1>;
+		qcom,gpio-standby = <2>;   //Used for NCP6924_CAM_EN
+		htc,gpio-camid = <3>;	//index of gpio-req-tbl for camid
+		htc,camid-value = <1>;	//expected value for camid
+		qcom,gpio-req-tbl-num = <0 1 2 3>;
+		qcom,gpio-req-tbl-flags = <0 0 0 1>;
+		qcom,gpio-req-tbl-label = "CAMIF_MCLK",
+					  "CAM_PWDN",
+					  "NCP6924_CAM_EN",
+					  "CAM_ID";
+
+		qcom,csi-lane-assign = <0x4320>;
+		qcom,csi-lane-mask = <0x1F>;
+		qcom,sensor-position = <0>;
+		qcom,sensor-mode = <1>;
+		qcom,cci-master = <0>;
+		status = "ok";
+	};
+
+	qcom,camera@01 { //XC and later
+		compatible = "htc,imx214_800m_fov87";
+		reg = <0x01 0x0>;
+		qcom,slave-id = <0x20 0x0016 0x0214>;
+		qcom,csiphy-sd-index = <1>;
+		qcom,csid-sd-index = <1>;
+		qcom,actuator-src = <&actuator1>;
+		qcom,led-flash-src = <&led_flash2>;
+		qcom,mount-angle = <270>;
+		qcom,sensor-name = "imx214_800m_fov87";
+		qcom,htc-image = <0>;
+		qcom,vdd-cx-supply = <&pm8841_s2>;
+		qcom,vdd-cx-name = "qcom,vdd-cx";
+		cam_vdig-supply = <&ncp6924_dcdc2>;
+		cam_vana-supply = <&ncp6924_ldo2>;
+		cam_vio-supply = <&pm8941_lvs3>;
+		cam_vaf-supply = <&ncp6924_ldo4>;
+		qcom,cam-vreg-name = "cam_vdig", "cam_vio", "cam_vana", "cam_vaf";
+		qcom,cam-vreg-type = <0 1 0 0>;
+		qcom,cam-vreg-min-voltage = <1000000 1800000 2700000 2800000>;
+		qcom,cam-vreg-max-voltage =<1000000 1800000 2700000 2800000>;
+		qcom,cam-vreg-op-mode = <0 0 2700000 0>;
+		qcom,cam-vreg-gpios-index = <99 99 99 99>;
+
+		qcom,gpio-no-mux = <0>;
+		gpios = <&msmgpio 16 0>,
+			<&msmgpio 31 0>,
+			<&pm8941_gpios 23 0>;
+		qcom,gpio-reset = <1>;
+		qcom,gpio-standby = <2>;   //Used for NCP6924_CAM_EN
+		qcom,gpio-req-tbl-num = <0 1 2>;
+		qcom,gpio-req-tbl-flags = <0 0 0>;
+		qcom,gpio-req-tbl-label = "CAMIF_MCLK",
+					  "CAM_PWDN",
+					  "NCP6924_CAM_EN";
+
+		qcom,csi-lane-assign = <0x4320>;
+		qcom,csi-lane-mask = <0x1F>;
+		qcom,sensor-position = <1>;
+		qcom,sensor-mode = <1>;
+		qcom,cci-master = <1>;
+		status = "ok";
+	};
+
+	qcom,camera@90 { // XA and XB
+		compatible = "htc,imx214_800m_fov87";
+		reg = <0x90 0x0>;
+		qcom,slave-id = <0x20 0x0016 0x0214>;
+		qcom,csiphy-sd-index = <1>;
+		qcom,csid-sd-index = <1>;
+		qcom,actuator-src = <&actuator1>;
+		qcom,led-flash-src = <&led_flash2>;
+		qcom,mount-angle = <270>;
+		qcom,sensor-name = "imx214_800m_fov87";
+		qcom,htc-image = <0>;
+
+		qcom,vdd-cx-supply = <&pm8841_s2>;
+		qcom,vdd-cx-name = "qcom,vdd-cx";
+		cam_vdig-supply = <&ncp6924_dcdc1>;
+		cam_vana-supply = <&ncp6924_ldo2>;
+		cam_vio-supply = <&pm8941_lvs3>;
+		cam_vaf-supply = <&ncp6924_ldo4>;
+		qcom,cam-vreg-name = "cam_vdig", "cam_vio", "cam_vana",
+				     "cam_vaf";
+		qcom,cam-vreg-type = <0 1 0 0>;
+		qcom,cam-vreg-min-voltage = <1000000 1800000 2700000 2800000>;
+		qcom,cam-vreg-max-voltage =<1000000 1800000 2700000 2800000>;
+		qcom,cam-vreg-op-mode = <0 0 2700000 0>;
+		qcom,cam-vreg-gpios-index = <99 99 99 99>;
+
+		qcom,gpio-no-mux = <0>;
+		gpios = <&msmgpio 16 0>,
+			<&msmgpio 31 0>,
+			<&pm8941_gpios 23 0>;
+
+		qcom,gpio-reset = <1>;
+		qcom,gpio-standby = <2>;   //Used for NCP6924_CAM_EN
+		qcom,gpio-req-tbl-num = <0 1 2>;
+		qcom,gpio-req-tbl-flags = <0 0 0>;
+		qcom,gpio-req-tbl-label = "CAMIF_MCLK",
+					  "CAM_PWDN",
+					  "NCP6924_CAM_EN";
+
+		qcom,csi-lane-assign = <0x4320>;
+		qcom,csi-lane-mask = <0x1F>;
+		qcom,sensor-position = <1>;
+		qcom,sensor-mode = <1>;
+		qcom,cci-master = <1>;
+		status = "ok";
+	};
+};

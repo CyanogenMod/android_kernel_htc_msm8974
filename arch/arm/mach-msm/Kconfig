@@ -3172,6 +3172,12 @@ config PROJECT_NAME
         help
           Support for Project Name
 
+config MACH_EYE_UL
+        depends on ARCH_MSM8974
+        bool "MSM8974 EYE_UL"
+        help
+          Support for HTC MSM8974 EYE_UL
+
 config HAS_MACH_MEMUTILS
 	default n
 	bool "Motorola MSM memcpy enhancements"
