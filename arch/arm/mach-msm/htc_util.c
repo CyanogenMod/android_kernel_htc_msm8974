@@ -640,9 +640,11 @@ static void htc_pm_monitor_work_func(struct work_struct *work)
 	htc_idle_stat_clear();
 
 	
+#ifdef CONFIG_TIMER_STATS
 	htc_timer_stats_onoff('0');
 	htc_timer_stats_show(300); 
 	htc_timer_stats_onoff('1');
+#endif
 
 	
 	htc_print_active_wakeup_sources();
