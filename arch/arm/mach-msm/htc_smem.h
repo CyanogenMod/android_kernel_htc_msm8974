@@ -15,6 +15,7 @@ typedef struct {
 } htc_modem_request_type;
 
 typedef struct {
+/* ========= belows are App write ==================== */
 	u32      	version;
 	u32      	struct_size;
 
@@ -25,6 +26,7 @@ typedef struct {
 	u8      	reserve1[8];
 
 
+/* ========= belows are modem write ==================== */
 	u32      	version_R;
 	u32      	struct_size_R;
 
@@ -34,8 +36,9 @@ typedef struct {
 	u8      	htc_protocol_version_addr[16]; 
 	u8      	reserve2[16];
 
-	htc_modem_request_type		htc_modem_request;		
+	htc_modem_request_type		htc_modem_request;
 
+/* for eMMC feature */
 	u32      	htc_emmc_magic_flag;
 	u32      	htc_emmc_buff_addr;
 	u32      	htc_emmc_buff_size;
@@ -98,4 +101,4 @@ typedef struct {
 
 	u32		htc_ril_fatal;
 } htc_smem_type;
-#endif  
+#endif  /* HTC_SMEM_H */

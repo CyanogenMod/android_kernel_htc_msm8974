@@ -18,6 +18,11 @@
  */
 #line 5
 
+/**
+ * @file
+ *
+ * @brief The kernel level driver.
+ */
 
 #define __KERNEL_SYSCALLS__
 #include <linux/version.h>
@@ -80,6 +85,9 @@
 #endif
 
 
+/*
+ * Definition of the file operations
+ */
 
 static _Bool
 LockedListAdd(struct MvpkmVM *vm,
@@ -102,22 +110,57 @@ static void  UnmapWSPHKVA(struct MvpkmVM *vm);
 static int   MvpkmWaitForInt(struct MvpkmVM *vm, _Bool suspend);
 static void  ReleaseVM(struct MvpkmVM *vm);
 
+/*
+ * Mksck open request must come from this uid. It must be root until
+ * it is set via an ioctl from mvpd.
+ */
 uid_t Mvpkm_vmwareUid;
 EXPORT_SYMBOL(Mvpkm_vmwareUid);
 gid_t Mvpkm_vmwareGid;
 EXPORT_SYMBOL(Mvpkm_vmwareGid);
 
+/*
+ * Mvpd should copy the content of /sys/module/lowmemorykiller/parameters/adj
+ * here, as we don't have access to these numbers within the kernel itself.
+ * Note: Android uses 6 values, and we rely on this.
+ */
 static int lowmemAdjSize;
 static int lowmemAdj[6];
 
+/*
+ * vCPU cpu affinity to let monitor/guest run on some CPUs only (when possible)
+ */
 static DECLARE_BITMAP(vcpuAffinity, NR_CPUS);
 
+/*
+ * Which CPUs are running a monitor ?
+ */
 struct cpumask inMonitor;
 
+/*********************************************************************
+ *
+ * Sysfs nodes
+ *
+ *********************************************************************/
+/*
+ * kobject for our sysfs representation, used for global nodes.
+ */
 static struct kobject *mvpkmKObj;
 
+/*
+ * kobject for the balloon exports.
+ */
 static struct kobject *balloonKObj;
 
+/**
+ * @brief sysfs show function for global version attribute.
+ *
+ * @param kobj reference to kobj nested in MvpkmVM struct.
+ * @param attr kobj_attribute reference, not used.
+ * @param buf PAGE_SIZEd buffer to write to.
+ *
+ * @return number of characters printed (not including trailing null character).
+ */
 static ssize_t
 version_show(struct kobject *kobj,
 	     struct kobj_attribute *attr,
@@ -129,6 +172,18 @@ version_show(struct kobject *kobj,
 
 static struct kobj_attribute versionAttr = __ATTR_RO(version);
 
+/**
+ * @brief sysfs show function for global background_pages attribute.
+ *
+ * Used by vmx balloon policy controller to gauge the amount of freeable
+ * anonymous memory.
+ *
+ * @param kobj reference to kobj nested in MvpkmVM struct.
+ * @param attr kobj_attribute reference, not used.
+ * @param buf PAGE_SIZEd buffer to write to.
+ *
+ * @return number of characters printed (not including trailing null character).
+ */
 static ssize_t
 background_show(struct kobject *kobj,
 		struct kobj_attribute *attr,
@@ -137,7 +192,7 @@ background_show(struct kobject *kobj,
 #ifndef CONFIG_ANDROID_LOW_MEMORY_KILLER
 	return snprintf(buf, PAGE_SIZE, "0\n");
 #else
-	
+	/* The HIDDEN_APP_MIN_ADJ value is the 5th in a list of 6 parameters. */
 	FATAL_IF(lowmemAdjSize != 6);
 	return snprintf(buf, PAGE_SIZE, "%d\n",
 			Balloon_AndroidBackgroundPages(lowmemAdj[4]));
@@ -146,6 +201,23 @@ background_show(struct kobject *kobj,
 
 static struct kobj_attribute backgroundAttr = __ATTR_RO(background);
 
+/**
+ * @brief sysfs show function to export the other_file calculation in
+ *        lowmemorykiller.
+ *
+ * It's helpful, in the balloon controller, to know what the lowmemorykiller
+ * module is using to know when the system has crossed a minfree threshold.
+ * Since there exists a number of different other_file calculations in various
+ * lowmemorykiller patches (@see{MVP-1674}), and the module itself doesn't
+ * provide a clean export of this figure, we provide it on a case-by-case basis
+ * for the various supported hosts here.
+ *
+ * @param kobj reference to kobj nested in MvpkmVM struct.
+ * @param attr kobj_attribute reference, not used.
+ * @param buf PAGE_SIZEd buffer to write to.
+ *
+ * @return number of characters printed (not including trailing null character).
+ */
 static ssize_t
 other_file_show(struct kobject *kobj,
 		struct kobj_attribute *attr,
@@ -165,7 +237,16 @@ other_file_show(struct kobject *kobj,
 #define LOWMEMKILLER_SHRINK_MD5 0
 #endif
 
+	/*
+	 * The build system hashes the lowmemorykiller section related to the
+	 * other_file calculation in the kernel source for us, here we have to
+	 * provide the code.
+	 */
 #if LOWMEMKILLER_VARIANT == 1
+	/*
+	 * This is the same as the non-exported global_reclaimable_pages()
+	 * when there is no swap.
+	 */
 	other_file = global_page_state(NR_ACTIVE_FILE) +
 		     global_page_state(NR_INACTIVE_FILE);
 #elif LOWMEMKILLER_VARIANT == 2
@@ -174,15 +255,28 @@ other_file_show(struct kobject *kobj,
 	other_file = global_page_state(NR_FILE_PAGES) -
 		     global_page_state(NR_SHMEM);
 #elif LOWMEMKILLER_VARIANT == 4
+	/*
+	 * Here free/file pages are fungible and max(free, file) isn't used,
+	 * but we can continue to use max(free, file) since
+	 * max(free, file) = other_file in this case.
+	 */
 	other_file = global_page_state(NR_FREE_PAGES) +
 		     global_page_state(NR_FILE_PAGES);
 #elif LOWMEMKILLER_VARIANT == 5
+	/*
+	 * other_free and other_file are modified depending on zone index or/and
+	 * memory offlining and compared to "lowmem_minfree[i] - zone_adj".
+	 */
 	other_file = global_page_state(NR_FILE_PAGES) -
 		     global_page_state(NR_SHMEM);
 #elif LOWMEMKILLER_VARIANT == 6
 	other_file = global_page_state(NR_FILE_PAGES) -
 		     global_page_state(NR_SHMEM) - global_page_state(NR_MLOCK);
 #elif LOWMEMKILLER_VARIANT == 8
+    /*
+     * other_file depends on total_swapcache_pages and
+     * number of MLOCKED pages
+     */
      if (global_page_state(NR_SHMEM) + global_page_state(NR_MLOCK) + total_swapcache_pages <
               global_page_state(NR_FILE_PAGES))
               other_file = global_page_state(NR_FILE_PAGES) -
@@ -192,9 +286,25 @@ other_file_show(struct kobject *kobj,
      else
               other_file = 0;
 #elif defined(NONANDROID)
+	/*
+	 * Non-Android host platforms don't have ballooning enabled.
+	 */
 #else
+	/*
+	 * If you get this message, you need to run 'make lowmem-info' and
+	 * inspect lowmemorykiller.c. If the "other_file = ..." calculation in
+	 * lowmem_shrink appears above, simply add the "Shrink#" to an existing
+	 * entry in lowmemkiller-variant.sh, pointing to the variant number
+	 * above. Otherwise, provide a new entry above and variant number,
+	 * with the appropriate other_file calculation and update
+	 * lowmemkiller-variant.sh accordingly.
+	 */
 #warning "Unknown lowmemorykiller variant in hosted/module/mvpkm_main.c, " \
 	 "falling back on default (see other_file_show for the remedy)"
+	/*
+	 * Fall back on default - this may bias strangely for/against the host,
+	 * but nothing catastrophic should result.
+	 */
 	 other_file = global_page_state(NR_FILE_PAGES);
 #endif
 
@@ -209,9 +319,20 @@ other_file_show(struct kobject *kobj,
 
 static struct kobj_attribute otherFileAttr = __ATTR_RO(other_file);
 
+/*********************************************************************
+ *
+ * Debugfs nodes
+ *
+ *********************************************************************/
 
 static struct dentry *mvpDebugDentry;
 
+/**
+ * @brief debugfs show function for global inMonitor
+ * @param m seq_file reference
+ * @param private ignored
+ * @return 0 for success
+ */
 static int
 InMonitorShow(struct seq_file *m,
 	      void *private)
@@ -221,6 +342,12 @@ InMonitorShow(struct seq_file *m,
 	return 0;
 }
 
+/**
+ * @brief debugfs open function for global inMonitor
+ * @param inode inode
+ * @param file file
+ * @return result of single_open
+ */
 static int
 InMonitorOpen(struct inode *inode,
 	      struct file *file)
@@ -235,6 +362,9 @@ static const struct file_operations inMonitorFops = {
 	.release = single_release,
 };
 
+/*
+ * kset for our sysfs representation, used for per-VM nodes.
+ */
 static struct kset *mvpkmKSet;
 
 static ssize_t
@@ -251,6 +381,11 @@ static void MvpkmKObjRelease(struct kobject *kobj)
 	__attribute__((optimize("-fomit-frame-pointer")));
 
 
+/**
+ * @brief Releases the vm structure containing the kobject.
+ *
+ * @param kobj the vm's kobject.
+ */
 
 static void
 MvpkmKObjRelease(struct kobject *kobj)
@@ -263,6 +398,11 @@ MvpkmKObjRelease(struct kobject *kobj)
 }
 
 
+/**
+ * @name mvpkm ktype attribute structures for locked_pages.
+ *
+ * @{
+ */
 static const struct sysfs_ops mvpkmSysfsOps = {
 	.show = MvpkmAttrShow,
 	.store = MvpkmAttrStore
@@ -295,18 +435,38 @@ static struct kobj_type mvpkmKType = {
 	.release = MvpkmKObjRelease,
 	.default_attrs = mvpkmDefaultAttrs,
 };
+/*@}*/
 
+/*
+ * As it is not very common for host kernels to have SYS_HYPERVISOR enabled and
+ * you have to "hack" a Kconfig file to enable it, just include the
+ * functionality inline if it is not enabled.
+ */
 #ifndef CONFIG_SYS_HYPERVISOR
 struct kobject *hypervisor_kobj;
 EXPORT_SYMBOL_GPL(hypervisor_kobj);
 #endif
 
 
+/*
+ * kobject and kset utilities.
+ */
 
 extern struct kobject *kset_find_obj(struct kset *, const char *)
 	__attribute__((weak));
 
 
+/**
+ * @brief Finds a kobject in a kset. The actual implementation is copied from
+ *    kernel source in lib/kobject.c. Although the symbol is extern-declared,
+ *    it is not EXPORT_SYMBOL-ed. We use a weak reference in case the symbol
+ *    might be exported in future kernel versions.
+ *
+ * @param kset set to search.
+ * @param name object name.
+ *
+ * @return retained kobject if found, NULL otherwise.
+ */
 
 struct kobject *
 kset_find_obj(struct kset *kset,
@@ -327,6 +487,14 @@ kset_find_obj(struct kset *kset,
 }
 
 
+/**
+ * @brief Finds one of the VM's pre-defined ksets.
+ *
+ * @param vmID a VM ID.
+ * @param name name of one of the VM's pre-defined ksets.
+ *
+ * @return retained kset if found, NULL otherwise.
+ */
 
 struct kset *
 Mvpkm_FindVMNamedKSet(int vmID,
@@ -334,14 +502,14 @@ Mvpkm_FindVMNamedKSet(int vmID,
 {
 	struct MvpkmVM *vm;
 	struct kobject *kobj;
-	char vmName[32] = {}; 
+	char vmName[32] = {}; /* Large enough for externally-formatted int32. */
 	struct kset *res = NULL;
 
 	if (!mvpkmKSet)
 		return NULL;
 
 	snprintf(vmName, sizeof(vmName), "%d", vmID);
-	
+	/* Always null-terminate, no overflow. */
 	vmName[sizeof(vmName) - 1] = '\0';
 
 	kobj = kset_find_obj(mvpkmKSet, vmName);
@@ -362,16 +530,44 @@ EXPORT_SYMBOL(Mvpkm_FindVMNamedKSet);
 
 
 
+/*********************************************************************
+ *
+ * Standard Linux miscellaneous device registration
+ *
+ *********************************************************************/
 
-MODULE_LICENSE("GPL"); 
+MODULE_LICENSE("GPL"); /* for kallsyms_lookup_name */
 
 static int MvpkmFault(struct vm_area_struct *vma, struct vm_fault *vmf);
 
 
+/**
+ * @brief Linux vma operations for /dev/mem-like kernel module mmap. We
+ *        enforce the restriction that only MPNs that have been allocated
+ *        to the opened VM may be mapped and also increment the reference
+ *        count (via vm_insert_page), so that even if the memory is later
+ *        freed by the VM, host process vma's containing the MPN can't
+ *        compromise the system.
+ *
+ *        However, only trusted host processes (e.g. the vmx) should be allowed
+ *        to use this interface, since you can mmap the monitor's code/data/
+ *        page tables etc. with it. Untrusted host processes are limited to
+ *        typed messages for sharing memory with the monitor. Unix file system
+ *        access permissions are the intended method of restricting access.
+ *        Unfortunately, today _any_ host process utilizing Mksck requires
+ *        access to mvpkm to setup its Mksck pages and obtain socket info via
+ *        ioctls - we probably should be exporting two devices, one for trusted
+ *        and one for arbitrary host processes to avoid this confusion of
+ *        concerns.
+ */
 static struct vm_operations_struct mvpkmVMOps = {
 	.fault = MvpkmFault
 };
 
+/*
+ * Generic kernel module file ops. These functions will be registered
+ * at the time the kernel module is loaded.
+ */
 static long
 MvpkmUnlockedIoctl(struct file *filep,
 		   unsigned int cmd,
@@ -380,6 +576,17 @@ static int MvpkmOpen(struct inode *inode, struct file *filp);
 static int MvpkmRelease(struct inode *inode, struct file *filp);
 static int MvpkmMMap(struct file *filp, struct vm_area_struct *vma);
 
+/**
+ * @brief the file_operation structure contains the callback functions
+ *        that are registered with Linux to handle file operations on
+ *        the mvpkm device.
+ *
+ *        The structure contains other members that the mvpkm device
+ *        does not use. Those members are auto-initialized to NULL.
+ *
+ *        WARNING, this structure has changed after Linux kernel 2.6.19:
+ *        readv/writev are changed to aio_read/aio_write (neither is used here).
+ */
 static const struct file_operations mvpkmFileOps = {
 	.owner            = THIS_MODULE,
 	.unlocked_ioctl   = MvpkmUnlockedIoctl,
@@ -388,28 +595,52 @@ static const struct file_operations mvpkmFileOps = {
 	.mmap             = MvpkmMMap
 };
 
+/**
+ * @brief The mvpkm device identifying information to be used to register
+ *        the device with the Linux kernel.
+ */
 static struct miscdevice mvpkmDev = {
 	.minor  = 165,
 	.name   = "mvpkm",
 	.fops   = &mvpkmFileOps
 };
 
+/**
+ * Mvpkm is loaded by mvpd and only mvpd will be allowed to open
+ * it. There is a very simple way to verify that: record the process
+ * id (thread group id) at the time the module is loaded and test it
+ * at the time the module is opened.
+ */
 static struct pid *initTgid;
 
 
 #ifdef CONFIG_ANDROID_LOW_MEMORY_KILLER
+/**
+ * @name Slab shrinker for triggering balloon adjustment.
+ *
+ * @note shrinker us used as a trigger for guest balloon.
+ *
+ * @{
+ */
 static int MvpkmShrink(struct shrinker *this, struct shrink_control *sc);
 
 static struct shrinker mvpkmShrinker = {
 	.shrink = MvpkmShrink,
 	.seeks = DEFAULT_SEEKS
 };
+/*@}*/
 #endif
 
 module_param_array(vcpuAffinity, ulong, NULL, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(vcpuAffinity, "vCPU affinity");
 
 
+/**
+ * @brief Initialize the mvpkm device, register it with the Linux kernel.
+ *
+ * @return A zero is returned on success and a negative errno code for failure.
+ *         (Same as the return policy of misc_register(9).)
+ */
 
 static int __init
 MvpkmInit(void)
@@ -442,6 +673,10 @@ MvpkmInit(void)
 	CpuFreq_Init();
 	cpuFreqInited = true;
 
+	/*
+	 * Reference mvpd (module loader) tgid struct, so that we can avoid
+	 * attacks based on pid number wraparound.
+	 */
 	initTgid = get_pid(task_tgid(current));
 
 #ifndef CONFIG_SYS_HYPERVISOR
@@ -484,7 +719,7 @@ MvpkmInit(void)
 	register_shrinker(&mvpkmShrinker);
 #endif
 
-	
+	/* Create /sys/kernel/debug/mvp for debufs nodes */
 	mvpDebugDentry = debugfs_create_dir("mvp", NULL);
 	if (mvpDebugDentry) {
 		debugfs_create_file("inMonitor", S_IRUGO,
@@ -528,6 +763,9 @@ error:
 	return err;
 }
 
+/**
+ * @brief De-register the mvpkm device with the Linux kernel.
+ */
 void
 MvpkmExit(void)
 {
@@ -559,6 +797,9 @@ MvpkmExit(void)
 	misc_deregister(&mvpkmDev);
 }
 
+/*
+ * The standard module registration macros of Linux.
+ */
 module_init(MvpkmInit);
 module_exit(MvpkmExit);
 
@@ -568,6 +809,13 @@ MODULE_PARM_DESC(lowmemAdj,
 		 "copy of /sys/module/lowmemorykiller/parameters/adj");
 
 #ifdef CONFIG_ANDROID_LOW_MEMORY_KILLER
+/**
+ * @brief Balloon watchdog timeout callback.
+ *
+ * Terminate the VM since it's not responsive.
+ *
+ * @param data vm reference representation.
+ */
 static void
 WatchdogCB(unsigned long data)
 {
@@ -580,6 +828,22 @@ WatchdogCB(unsigned long data)
 	Mvpkm_WakeGuest(vm, ACTION_ABORT);
 }
 
+/**
+ * @brief Slab shrinker.
+ *
+ * Called by Linux kernel when we're under memory pressure. We treat all locked
+ * pages as a slab for this purpose, similar to the Android low memory killer.
+ *
+ * @param this     reference to registered shrinker for callback context.
+ * @param nrToScan number of entries to scan. If 0 then just return the number
+ *                 of present entries. We ignore the value of nrToScan when > 1
+ *                 since the shrinker is a trigger to readjust guest balloons,
+ *                 where the actual balloon size is determined in conjunction
+ *                 with the guest.
+ * @param gfpMask ignored.
+ *
+ * @return number of locked pages.
+ */
 static int
 MvpkmShrink(struct shrinker *this,
 	    struct shrink_control *sc)
@@ -595,9 +859,19 @@ MvpkmShrink(struct shrinker *this,
 
 		locked += ATOMIC_GETO(vm->usedPages);
 
+		/*
+		 * Try and grab the WSP semaphore - if we fail, we must be
+		 * VM setup or teardown, no point trying to wake the guest.
+		 */
 		if (nrToScan > 0 &&
 		    down_read_trylock(&vm->wspSem)) {
 			if (vm->wsp) {
+				/*
+				 * Balloon watchdog.
+				 * We start the timer before waking up the
+				 * guest to avoid races in case of immediate
+				 * descheduling.
+				 */
 				if (vm->balloonWDEnabled) {
 					struct timer_list *t =
 						&vm->balloonWDTimer;
@@ -624,6 +898,9 @@ MvpkmShrink(struct shrinker *this,
 }
 #endif
 
+/**
+ * @brief The open file operation. Initializes the vm specific structure.
+ */
 int
 MvpkmOpen(struct inode *inode,
 	  struct file *filp)
@@ -660,9 +937,17 @@ MvpkmOpen(struct inode *inode,
 	return 0;
 }
 
+/**
+ * @brief Releases a VMs resources
+ * @param  vm vm to release
+ */
 static void
 ReleaseVM(struct MvpkmVM *vm)
 {
+	/*
+	 * Delete balloon watchdog timer. We are already out of VM kset,
+	 * so there is no race with shrink callback.
+	 */
 	del_timer_sync(&vm->balloonWDTimer);
 
 	down_write(&vm->wspSem);
@@ -672,6 +957,10 @@ ReleaseVM(struct MvpkmVM *vm)
 		Mksck_WspRelease(vm->wsp);
 		vm->wsp = NULL;
 #ifdef CONFIG_HAS_WAKELOCK
+		/*
+		 * Destroy wakelock after WSP is released (and MksckPage
+		 * detached).
+		 */
 		wake_lock_destroy(&vm->wakeLock);
 #endif
 	}
@@ -682,26 +971,49 @@ ReleaseVM(struct MvpkmVM *vm)
 
 	UnmapWSPHKVA(vm);
 
+	/*
+	 * All sockets potentially connected to sockets of this vm's vmId
+	 * will fail at send now. DGRAM sockets are not required to tear
+	 * down connection explicitly.
+	 */
 
 	kfree(vm);
 }
 
+/**
+ * @brief The release file operation. Releases the vm specific
+ *        structure including all the locked pages.
+ *
+ * @param inode Unused
+ * @param filp  which VM we're dealing with
+ * @return 0
+ */
 int
 MvpkmRelease(struct inode *inode,
 	     struct file *filp)
 {
 	struct MvpkmVM *vm = filp->private_data;
 
+	/*
+	 * Tear down any queue pairs associated with this VM
+	 */
 	if (vm->isMonitorInited) {
 		ASSERT(vm->wsp);
 		QP_DetachAll(vm->wsp->guestId);
 	}
 
+	/*
+	 * Release the VM's ksets.
+	 */
 
 	kset_unregister(vm->miscKSet);
 	kset_unregister(vm->devicesKSet);
 
 	if (vm->haveKObj) {
+		/*
+		 * Release the VM's kobject.
+		 * 'vm' will be kfree-d in its kobject's release function.
+		 */
 
 		kobject_del(&vm->kobj);
 		kobject_put(&vm->kobj);
@@ -718,6 +1030,10 @@ MvpkmRelease(struct inode *inode,
 	return 0;
 }
 
+/**
+ * @brief Page fault handler for /dev/mem-like regions (see mvpkmVMOps
+ *        block comment).
+ */
 static int
 MvpkmFault(struct vm_area_struct *vma,
 	   struct vm_fault *vmf)
@@ -727,6 +1043,15 @@ MvpkmFault(struct vm_area_struct *vma,
 	struct MvpkmVM *vm = vma->vm_file->private_data;
 
 
+	/*
+	 * Only insert pages belonging to the VM. The check is slow, O(n) in the
+	 * number of MPNs associated with the VM, but it doesn't matter - the
+	 * mmap interface should only be used by trusted processes at
+	 * initialization time and for debugging.
+	 *
+	 * The mpn can be either in the memory reserved the monitor or mvpd
+	 * through the regular mechanisms or it could be a mksck page.
+	 */
 	if (!pfn_valid(mpn)) {
 		pr_err("MvpkmMMap: Failed to insert %x @ %lx, mpn invalid\n",
 		       mpn, address);
@@ -755,6 +1080,15 @@ MvpkmFault(struct vm_area_struct *vma,
 	return VM_FAULT_SIGBUS;
 }
 
+/**
+ * @brief sysfs show function for per-VM locked_pages attribute.
+ *
+ * @param kobj reference to kobj nested in MvpkmVM struct.
+ * @param attr attribute reference.
+ * @param buf PAGE_SIZEd buffer to write to.
+ *
+ * @return number of characters printed (not including trailing null character).
+ */
 static ssize_t
 MvpkmAttrShow(struct kobject *kobj,
 	      struct attribute *attr,
@@ -774,6 +1108,10 @@ MvpkmAttrShow(struct kobject *kobj,
 	} else if (attr == &mvpkmBalloonWatchdogAttr) {
 		struct MvpkmVM *vm = container_of(kobj, struct MvpkmVM, kobj);
 
+		/*
+		 * Enable balloon watchdog on first read. This includes all
+		 * ballooning capable guest.
+		 */
 		vm->balloonWDEnabled = true;
 		del_timer_sync(&vm->balloonWDTimer);
 
@@ -784,6 +1122,17 @@ MvpkmAttrShow(struct kobject *kobj,
 	}
 }
 
+/**
+ * @brief sysfs store function for per-VM locked_pages attribute.
+ *
+ * @param kobj reference to kobj nested in MvpkmVM struct.
+ * @param attr attribute reference.
+ * @param buf PAGE_SIZEd buffer to write to.
+ * @param buf input buffer.
+ * @param count input buffer length.
+ *
+ * @return number of bytes consumed or negative error code.
+ */
 static ssize_t
 MvpkmAttrStore(struct kobject *kobj,
 	       struct attribute *attr,
@@ -793,6 +1142,14 @@ MvpkmAttrStore(struct kobject *kobj,
 	return -EPERM;
 }
 
+/**
+ * @brief Map machine address space region into host process.
+ *
+ * @param filp file reference (ignored).
+ * @param vma Linux virtual memory area defining the region.
+ *
+ * @return 0 on success, otherwise error code.
+ */
 static int
 MvpkmMMap(struct file *filp,
 	  struct vm_area_struct *vma)
@@ -803,9 +1160,29 @@ MvpkmMMap(struct file *filp,
 }
 
 #ifdef CONFIG_ARM_LPAE
+/**
+ * @brief Determine host cacheability/shareability attributes.
+ *
+ * Used to ensure monitor/guest shared mappings are consistent with
+ * those of host user/kernel.
+ *
+ * @param[out] attribMAN when setting up the HW monitor this provides the
+ *                       attributes in the generic ARM_MemAttrNormal form,
+ *                       suitable for configuring the monitor and guest's
+ *                       [H]MAIR0 and setting the shareability attributes of
+ *                       the LPAE descriptors.
+ */
 static void
 DetermineMemAttrLPAE(ARM_MemAttrNormal *attribMAN)
 {
+	/*
+	 * We use set_pte_ext to sample what {S,TEX,CB} bits Linux is using for
+	 * normal kernel/user L2D mappings. These bits should be consistent both
+	 * with each other and what we use in the monitor since we share various
+	 * pages with both host processes, the kernel module and monitor, and
+	 * the ARM ARM requires that synonyms have the same cacheability
+	 * attributes, see end of A3.5.{4,7} ARM DDI 0406A.
+	 */
 	HKVA hkva = __get_free_pages(GFP_KERNEL, 0);
 
 	ARM_LPAE_L3D *pt = (ARM_LPAE_L3D *)hkva;
@@ -845,6 +1222,9 @@ DetermineMemAttrLPAE(ARM_MemAttrNormal *attribMAN)
 				 8 * (kernL3D->blockS1.attrIndx % 4),
 				 8);
 
+	/*
+	 * See B4-1615 ARM DDI 0406C-2c for magic.
+	 */
 #define MAIR_ATTR_2_CACHE_ATTR(x, y) \
 	do { \
 		switch (x) { \
@@ -876,15 +1256,45 @@ DetermineMemAttrLPAE(ARM_MemAttrNormal *attribMAN)
 
 #else
 
+/**
+ * @brief Determine host cacheability/shareability attributes.
+ *
+ * Used to ensure monitor/guest shared mappings are consistent with
+ * those of host user/kernel.
+ *
+ * @param[out] attribL2D when setting up the LPV monitor a template L2D
+ *                       containing cacheability attributes {S, TEX,CB} used by
+ *                       host kernel for normal memory mappings. These may be
+ *                       used directly for monitor/guest mappings, since both
+ *                       worlds share a common {TRE, PRRR, NMRR}.
+ * @param[out] attribMAN when setting up TTBR0 in the LPV monitor and the page
+ *                       tables for the HW monitor this provides the attributes
+ *                       in the generic ARM_MemAttrNormal form, suitable for
+ *                       configuring TTBR0 + the monitor and guest's [H]MAIR0
+ *                       and setting the shareability attributes of the LPAE
+ *                       descriptors.
+ */
 static void
 DetermineMemAttrNonLPAE(ARM_L2D *attribL2D,
 			ARM_MemAttrNormal *attribMAN)
 {
+	/*
+	 * We use set_pte_ext to sample what {S,TEX,CB} bits Linux is using for
+	 * normal kernel/user L2D mappings. These bits should be consistent both
+	 * with each other and what we use in the monitor since we share various
+	 * pages with both host processes, the kernel module and monitor, and
+	 * the ARM ARM requires that synonyms have the same cacheability
+	 * attributes, see end of A3.5.{4,7} ARM DDI 0406A.
+	 */
 	HKVA hkva = __get_free_pages(GFP_KERNEL, 0);
 	uint32 sctlr;
 	ARM_L2D *pt = (ARM_L2D *)hkva;
 	ARM_L2D *kernL2D = &pt[0], *userL2D = &pt[1];
 
+	/*
+	 * Linux 2.6.38 switched the order of Linux vs hardware page tables.
+	 * See mainline d30e45eeabefadc6039d7f876a59e5f5f6cb11c6.
+	 */
 	const uint32 set_pte_ext_offset = 0;
 
 	set_pte_ext((pte_t *)(kernL2D + set_pte_ext_offset/sizeof(ARM_L2D)),
@@ -894,6 +1304,10 @@ DetermineMemAttrNonLPAE(ARM_L2D *attribL2D,
 		    pfn_pte(0, PAGE_NONE),
 		    0);
 
+	/*
+	 * Linux 2.6.38 switched the order of Linux vs hardware page tables.
+	 * See mainline d30e45eeabefadc6039d7f876a59e5f5f6cb11c6.
+	 */
 	kernL2D += 2048/sizeof(ARM_L2D);
 	userL2D += 2048/sizeof(ARM_L2D);
 
@@ -913,6 +1327,10 @@ DetermineMemAttrNonLPAE(ARM_L2D *attribL2D,
 
 	*attribL2D = *kernL2D;
 
+	/*
+	* We now decode TEX remap and obtain the more generic form for use in
+	* the LPV monitor's TTBR0 initialization and the HW monitor.
+	*/
 
 	ARM_MRC_CP15(CONTROL_REGISTER, sctlr);
 
@@ -928,10 +1346,17 @@ DetermineMemAttrNonLPAE(ARM_L2D *attribL2D,
 		pr_info("DetermineMemAttr: PRRR=%x NMRR=%x\n",
 			prrr, nmrr);
 
+		/*
+		 * Decode PRRR/NMRR below. See B3.7 ARM DDI 0406B for register
+		 * encodings, tables and magic numbers.
+		 */
 
 		indx = (MVP_BIT(kernL2D->small.tex, 0) << 2) |
 		       kernL2D->small.cb;
 
+		/*
+		 * Only normal memory makes sense here.
+		 */
 		type = MVP_EXTRACT_FIELD(prrr, 2 * indx, 2);
 		ASSERT(type == 2);
 
@@ -963,6 +1388,17 @@ DetermineMemAttrNonLPAE(ARM_L2D *attribL2D,
 }
 #endif
 
+/**
+ * @brief The ioctl file operation.
+ *
+ * The ioctl command is the main communication method between the
+ * vmx and the mvpkm kernel module.
+ *
+ * @param filp which VM we're dealing with
+ * @param cmd select which cmd function needs to be performed
+ * @param arg argument for command
+ * @return error code, 0 on success
+ */
 long
 MvpkmUnlockedIoctl(struct file  *filp,
 		   unsigned int  cmd,
@@ -985,6 +1421,10 @@ MvpkmUnlockedIoctl(struct file  *filp,
 			ptr[PAGE_SIZE/sizeof(uint32) - 1] = MVPKM_STUBPAGE_END;
 		}
 		break;
+	/*
+	 * Allocate some pinned pages from kernel.
+	 * Returns -ENOMEM if no host pages available for allocation.
+	 */
 	case MVPKM_LOCK_MPN: {
 		struct MvpkmLockMPN buf;
 
@@ -1057,10 +1497,22 @@ MvpkmUnlockedIoctl(struct file  *filp,
 
 #ifdef CONFIG_ARM_LPAE
 		DetermineMemAttrLPAE(&buf.attribMAN);
+		/**
+		 * We need to add support to the LPV monitor for LPAE page
+		 * tables if we want to use it on a LPAE host, due to the
+		 * costs involved in transitioning between LPAE and non-LPAE
+		 * page tables without Hyp assistance.
+		 *
+		 * @knownjira{MVP-2184}
+		 */
 		buf.attribL2D.u = 0;
 #else
 		DetermineMemAttrNonLPAE(&buf.attribL2D, &buf.attribMAN);
 #endif
+		/*
+		 * Are MP extensions implemented?
+		 * See B4-1618 ARM DDI 0406C-2c for magic.
+		 */
 		ARM_MRC_CP15(MPIDR, mpidr);
 
 		buf.mpExt = mpidr & ARM_CP15_MPIDR_MP;
@@ -1082,19 +1534,46 @@ MvpkmUnlockedIoctl(struct file  *filp,
 
 
 
+/*********************************************************************
+ *
+ * Locked page management
+ *
+ *********************************************************************/
 
+/*
+ * Pages locked by the kernel module are remembered so an unlockAll
+ * operation can be performed when the vmm is closed. The locked page
+ * identifiers are stored in a red-black tree to support O(log n)
+ * removal and search (required for /dev/mem-like mmap).
+ */
 
+/**
+ * @brief Descriptor of a locked page range
+ */
 struct LockedPage {
 	struct {
-		__u32 mpn:20;       
-		__u32 order:6;      
-		__u32 forRegion:6;  
+		__u32 mpn:20;       /**< MPN. */
+		__u32 order:6;      /**< Size/alignment exponent for page. */
+		__u32 forRegion:6;  /**< Annotate/identify guest page alloc. */
 	} page;
 	struct rb_node rb;
 };
 
 static void FreeLockedPages(struct LockedPage *lp);
 
+/**
+ * @brief Search for an mpn inside a RB tree of LockedPages. The mpn
+ *        will match a LockedPage as long as it is covered by the
+ *        entry, i.e. in a non-zero order entry it doesn't have to be
+ *        the base MPN.
+ *
+ *        This must be called with the relevant vm->lockedSem held.
+ *
+ * @param root RB tree root.
+ * @param mpn MPN to search for.
+ *
+ * @return reference to LockedPage entry if found, otherwise NULL.
+ */
 static struct LockedPage *
 LockedListSearch(struct rb_root *root,
 		 __u32 mpn)
@@ -1116,6 +1595,13 @@ LockedListSearch(struct rb_root *root,
 	return NULL;
 }
 
+/**
+ * @brief Delete an mpn from the list of locked pages.
+ *
+ * @param vm Mvpkm module control structure pointer
+ * @param mpn MPN to be unlocked and freed for reuse
+ * @return true if list contained MPN and it was deleted from list
+ */
 
 static _Bool
 LockedListDel(struct MvpkmVM *vm,
@@ -1127,6 +1613,11 @@ LockedListDel(struct MvpkmVM *vm,
 
 	lp = LockedListSearch(&vm->lockedRoot, mpn);
 
+	/*
+	 * The MPN should be in the locked pages RB tree and it should be the
+	 * base of an entry, i.e. we can't fragment existing allocations for
+	 * a VM.
+	 */
 	if (lp == NULL || lp->page.mpn != mpn) {
 		up_write(&vm->lockedSem);
 		return false;
@@ -1145,6 +1636,14 @@ LockedListDel(struct MvpkmVM *vm,
 	return true;
 }
 
+/**
+ * @brief Scan the list of locked pages to see if an MPN matches.
+ *
+ * @param vm Mvpkm module control structure pointer
+ * @param mpn MPN to check
+ *
+ * @return true iff list contains MPN.
+ */
 static _Bool
 LockedListLookup(struct MvpkmVM *vm,
 		 __u32 mpn)
@@ -1160,6 +1659,20 @@ LockedListLookup(struct MvpkmVM *vm,
 	return lp != NULL;
 }
 
+/**
+ * @brief Add a new mpn to the locked pages RB tree.
+ *
+ * @param vm control structure pointer
+ *
+ * @param mpn mpn of page that was locked with get_user_pages or some sort of
+ *            get that is undone by put_page.
+ *            The mpn is assumed to be non-zero
+ * @param order size/alignment exponent for page
+ * @param forRegion Annotation for Page pool to identify guest page allocations
+ *
+ * @return false: couldn't allocate internal memory to record mpn in<br>
+ *         true:  successful.
+ */
 static _Bool
 LockedListAdd(struct MvpkmVM *vm,
 	      __u32 mpn,
@@ -1181,6 +1694,9 @@ LockedListAdd(struct MvpkmVM *vm,
 	if (forRegion == MEMREGION_MAINMEM)
 		ATOMIC_ADDV(vm->usedPages, 1U << order);
 
+	/*
+	 * Insert as a red leaf in the tree (see include/linux/rbtree.h).
+	 */
 	p = &vm->lockedRoot.rb_node;
 	parent = NULL;
 
@@ -1188,6 +1704,9 @@ LockedListAdd(struct MvpkmVM *vm,
 		parent = *p;
 		tp = rb_entry(parent, struct LockedPage, rb);
 
+		/*
+		 * MPN should not already exist in the tree.
+		 */
 		ASSERT(tp->page.mpn != (mpn & (~0UL << tp->page.order)));
 
 		if (mpn < tp->page.mpn)
@@ -1198,6 +1717,9 @@ LockedListAdd(struct MvpkmVM *vm,
 
 	rb_link_node(&lp->rb, parent, p);
 
+	/*
+	 * Restructure tree if necessary (see include/linux/rbtree.h).
+	 */
 	rb_insert_color(&lp->rb, &vm->lockedRoot);
 
 	up_write(&vm->lockedSem);
@@ -1205,6 +1727,13 @@ LockedListAdd(struct MvpkmVM *vm,
 	return true;
 }
 
+/**
+ * @brief Traverse RB locked tree, freeing every entry.
+ *
+ *        This must be called with the relevant vm->lockedSem held.
+ *
+ * @param node reference to RB node at root of subtree.
+ */
 static void
 LockedListNuke(struct rb_node *node)
 {
@@ -1214,6 +1743,9 @@ LockedListNuke(struct rb_node *node)
 		} else if (node->rb_right) {
 			node = node->rb_right;
 		} else {
+			/*
+			 * We found a leaf, free it and go back to parent.
+			 */
 			struct LockedPage *lp =
 				rb_entry(node, struct LockedPage, rb);
 
@@ -1231,6 +1763,11 @@ LockedListNuke(struct rb_node *node)
 	}
 }
 
+/**
+ * @brief Unlock all pages at vm close time.
+ *
+ * @param vm control structure pointer
+ */
 static void
 LockedListUnlockAll(struct MvpkmVM *vm)
 {
@@ -1245,6 +1782,22 @@ LockedListUnlockAll(struct MvpkmVM *vm)
 }
 
 
+/**
+ * @brief Allocate zeroed free pages
+ *
+ * @param[in] vm which VM the pages are for so they will be freed when the vm
+ *               closes
+ * @param[in] order log2(number of contiguous pages to allocate)
+ * @param[in] highmem is it OK to allocate this page in ZONE_HIGHMEM? This
+ *                    option should only be specified for pages the host kernel
+ *                    will not need to address directly.
+ * @param[out] hkvaRet where to return host kernel virtual address of the
+ *                     allocated pages, if non-NULL, and ONLY IF !highmem.
+ * @param forRegion Annotation for Page pool to identify guest page allocations
+ * @return 0: no host memory available<br>
+ *      else: starting MPN<br>
+ *            *hkvaRet = filled in
+ */
 static MPN
 AllocZeroedFreePages(struct MvpkmVM *vm,
 		     uint32 order,
@@ -1262,7 +1815,51 @@ AllocZeroedFreePages(struct MvpkmVM *vm,
 			forRegion,
 			PAGE_ALLOC_COSTLY_ORDER);
 
+	/*
+	 * System RAM bank in 0x00000000 workaround. Should only happens once
+	 * in host lifetime as memory page is leaked forever. Also leak the
+	 * MVP's INVALID_MPN page if it appears.
+	 */
 	do {
+		/*
+		 * Get some pages for the requested range. They will be
+		 * physically contiguous and have the requested alignment.
+		 * They will also have a kernel virtual mapping if !highmem.
+		 *
+		 * We allocate out of ZONE_MOVABLE even though we can't just
+		 * pick up our bags. We do this to support platforms that
+		 * explicitly configure ZONE_MOVABLE, such as the Qualcomm
+		 * MSM8960, to enable deep power down of memory banks. When
+		 * the kernel attempts to take a memory bank offline, it will
+		 * try and place the pages on the isolate LRU - only pages
+		 * already on an LRU, such as anon/file, can get there, so it
+		 * will not be able to migrate/move our pages (and hence the
+		 * bank will not be offlined). The other alternative is to
+		 * live withing ZONE_NORMAL, and only have available a small
+		 * fraction of system memory. Long term we plan on hooking the
+		 * offlining callback in mvpkm and perform our own migration
+		 * with the cooperation of the monitor, but we don't have dev
+		 * board to support this today.
+		 *
+		 * @knownjira{MVP-3477}
+		 *
+		 * Allocating all memory as MOVABLE is breaking the linux
+		 * Contiguous Memory Allocator. It sets up several memory
+		 * regions reserved for MOVABLE memory, so that it is able to
+		 * move pages from them on request to satifsy a large memory
+		 * allocation. But as our pages are not really movable, it
+		 * happens that it cannot find enough contiguous memory.
+		 * As a workaround, we now only allocate MOVABLE pages when
+		 * CONFIG_MEMORY_HOTPLUG is enabled.
+		 *
+		 * @knownjira{HW-28182}
+		 *
+		 * In order to fully support linux memory hotplug, we should
+		 * implement a mapping with the "migrate_page" callback and
+		 * corresponding backend in monitor.
+		 *
+		 * @knownjira{HW-28658}
+		 */
 		gfp_t gfp = GFP_USER | __GFP_COMP | __GFP_ZERO;
 		if (highmem) {
 			gfp |= __GFP_HIGHMEM;
@@ -1275,9 +1872,15 @@ AllocZeroedFreePages(struct MvpkmVM *vm,
 		if (page == NULL)
 			return 0;
 
+		/*
+		 * Return the corresponding page number.
+		 */
 		mpn = page_to_pfn(page);
 	} while (mpn == 0 || mpn == INVALID_MPN);
 
+	/*
+	 * Remember to unlock the pages when the FD is closed.
+	 */
 	if (!LockedListAdd(vm, mpn, order, forRegion)) {
 		__free_pages(page, order);
 		return 0;
@@ -1289,6 +1892,16 @@ AllocZeroedFreePages(struct MvpkmVM *vm,
 	return mpn;
 }
 
+/**
+ * @brief Map already-pinned WSP memory in host kernel virtual address(HKVA)
+ * space. Assumes 2 world switch pages on an 8k boundary.
+ *
+ * @param[in] vm which VM the HKVA Area is to be mapped for
+ * @param[in] mapInfo array of MPNs and execute permission flags to be used in
+ *                    inserting a new contiguous map in HKVA space
+ * @return 0: HKVA space could not be mapped
+ *         else: HKVA where mapping was inserted
+ */
 static HKVA
 MapWSPHKVA(struct MvpkmVM *vm,
 	   HkvaMapInfo *mapInfo)
@@ -1298,18 +1911,28 @@ MapWSPHKVA(struct MvpkmVM *vm,
 	struct page **pagesPtr;
 	pgprot_t prot;
 	int retval;
-	int allocateCount = WSP_PAGE_COUNT + 1; 
+	int allocateCount = WSP_PAGE_COUNT + 1; /* extra page for alignment */
 	int pageIndex = 0;
 	HKVA dummyPage = (HKVA)NULL;
 	HKVA start;
 	HKVA startSegment;
 	HKVA endSegment;
 
+	/*
+	 * Add one page for alignment purposes in case __get_vm_area returns an
+	 * unaligned address.
+	 */
 	ASSERT(allocateCount == 3);
 	ASSERT_ON_COMPILE(WSP_PAGE_COUNT == 2);
 
+	/*
+	 * NOT_IMPLEMENTED if MapHKVA is called more than once.
+	 */
 	BUG_ON(vm->wspHkvaArea);
 
+	/*
+	 * Reserve virtual address space.
+	 */
 	vm->wspHkvaArea = __get_vm_area((allocateCount * PAGE_SIZE),
 					VM_ALLOC, MODULES_VADDR, MODULES_END);
 	if (!vm->wspHkvaArea)
@@ -1321,24 +1944,50 @@ MapWSPHKVA(struct MvpkmVM *vm,
 
 	pagesPtr = pages;
 
+	/*
+	 * Use a dummy page to boundary align the section, if needed.
+	 */
 	dummyPage = __get_free_pages(GFP_KERNEL, 0);
 	if (!dummyPage)
 		goto err;
 
 	vm->wspHKVADummyPage = dummyPage;
 
+	/*
+	 * Back every entry with the dummy page.
+	 */
 	for (i = 0; i < allocateCount; i++)
 		pages[i] = virt_to_page(dummyPage);
 
+	/*
+	 * World switch pages must not span a 1MB boundary in order to
+	 * maintain only a single L2 page table.
+	 */
 	start = (HKVA)vm->wspHkvaArea->addr;
 	startSegment = start & ~(ARM_L1D_SECTION_SIZE - 1);
 	endSegment   = (start + PAGE_SIZE) & ~(ARM_L1D_SECTION_SIZE - 1);
 
+	/*
+	 * Insert dummy page at pageIndex, if needed.
+	 */
 	pageIndex = (startSegment != endSegment);
 
+	/*
+	 * Back the rest with the actual world switch pages
+	 */
 	for (i = pageIndex; i < pageIndex + WSP_PAGE_COUNT; i++)
 		pages[i] = pfn_to_page(mapInfo[i - pageIndex].mpn);
 
+	/*
+	 * Given the lack of functionality in the kernel for being able to mark
+	 * mappings for a given vm area with different sets of protection bits,
+	 * we simply mark the entire vm area as PAGE_KERNEL_EXEC for now
+	 * (i.e., union of all the protection bits). Given that the kernel
+	 * itself does something similar while loading modules, this should be a
+	 * reasonable workaround for now. In the future, we should set the
+	 * protection bits to strictly adhere to what has been requested in the
+	 * mapInfo parameter.
+	 */
 	prot = PAGE_KERNEL_EXEC;
 
 	retval = map_vm_area(vm->wspHkvaArea, prot, &pagesPtr);
@@ -1375,6 +2024,11 @@ UnmapWSPHKVA(struct MvpkmVM *vm)
 	}
 }
 
+/**
+ * @brief Clean and release locked pages
+ *
+ * @param lp Reference to the locked pages
+ */
 static void
 FreeLockedPages(struct LockedPage *lp)
 {
@@ -1393,6 +2047,15 @@ FreeLockedPages(struct LockedPage *lp)
 	if (count == 1) {
 		int i;
 
+		/*
+		 * There is no other user for this page, clean it.
+		 *
+		 * We don't bother checking if the page was highmem or not,
+		 * clear_highmem works for both.
+		 * We clear the content of the page, and rely on the fact that
+		 * the previous worldswitch has cleaned the potential
+		 * VIVT I-CACHE.
+		 */
 		for (i = 0; i < (1 << lp->page.order); i++)
 			clear_highpage(page + i);
 	} else if (lp->page.forRegion != MEMREGION_MAINMEM) {
@@ -1403,7 +2066,19 @@ FreeLockedPages(struct LockedPage *lp)
 	__free_pages(page, lp->page.order);
 }
 
+/*********************************************************************
+ *
+ * Communicate with monitor
+ *
+ *********************************************************************/
 
+/**
+ * @brief Register a new monitor page.
+ *
+ * @param vm  which virtual machine we're running
+ * @return 0: successful<br>
+ *      else: -errno
+ */
 static int
 SetupMonitor(struct MvpkmVM *vm)
 {
@@ -1429,10 +2104,19 @@ SetupMonitor(struct MvpkmVM *vm)
 	if (retval)
 		goto error;
 
+	/*
+	 * Get a reference to this module such that it cannot be unloaded until
+	 * our kobject's release function completes.
+	 */
 
 	__module_get(THIS_MODULE);
 	vm->haveKObj = true;
 
+	/*
+	 * Caution: From here on, if we fail, we must not call kobject_put()
+	 * on vm->kobj since that may / will deallocate 'vm'. Unregistering VM
+	 * ksets on failures is fine and should be done for proper ref counting.
+	*/
 
 	vm->devicesKSet = kset_create_and_add("devices", NULL, &vm->kobj);
 	if (!vm->devicesKSet) {
@@ -1450,7 +2134,20 @@ SetupMonitor(struct MvpkmVM *vm)
 
 	down_write(&vm->wspSem);
 
+	/*
+	 * The VE monitor needs to issue a SMC to bootstrap Hyp mode.
+	 */
 	if (wsp->monType == MONITOR_TYPE_VE) {
+		/*
+		 * Here we assemble the monitor's HMAIR0 based on wsp->memAttr.
+		 * We map from the inner/outer normal page cacheability
+		 * attributes obtained from DetermineCacheabilityAttribs to
+		 * the format required in 4.2.8 ARM PRD03-GENC-008469 13.0
+		 * (see this document for the magic numbers).
+		 *
+		 * * Where a choice is available, we opt for read and/or
+		 * write allocation.
+		 */
 		static const uint32 normalCacheAttr2MAIR[4] = {
 						0x4, 0xf, 0xa, 0xe };
 
@@ -1460,12 +2157,21 @@ SetupMonitor(struct MvpkmVM *vm)
 			<< 8 * MVA_MEMORY) |
 			(0x4 << 8 * MVA_DEVICE);
 
+		/*
+		 * See B4.1.74 ARM DDI 0406C-2c for the HTCR magic.
+		 */
 		uint32 htcr =
 			0x80000000 |
 			(wsp->memAttr.innerCache << 8) |
 			(wsp->memAttr.outerCache << 10) |
 			(wsp->memAttr.share << 12);
 
+		/**
+		 * @knownjira{MVP-377}
+		 * Set HSCTLR to enable MMU and caches. We should really run
+		 * the monitor WXN, in non-MVP_DEVEL builds.
+		 * See 13.18 ARM PRD03-GENC-008353 11.0 for the magic.
+		 */
 		static const uint32 hsctlr = 0x30c5187d;
 
 		register uint32 r0 asm("r0") = wsp->monVA.excVec;
@@ -1485,6 +2191,9 @@ SetupMonitor(struct MvpkmVM *vm)
 		);
 	}
 
+	/*
+	 * Initialize guest wait-for-interrupt waitqueue.
+	 */
 	init_waitqueue_head(&vm->wfiWaitQ);
 
 	MonitorTimer_Setup(vm);
@@ -1495,6 +2204,9 @@ SetupMonitor(struct MvpkmVM *vm)
 
 	wsp->mvpkmVersion = MVP_VERSION_CODE;
 	up_write(&vm->wspSem);
+	/*
+	 * Ensure coherence of monitor loading and page tables.
+	 */
 	flush_cache_all();
 	return 0;
 
@@ -1504,12 +2216,24 @@ error:
 	return retval;
 }
 
+/**
+ * @brief dummy function to drop the info parameter
+ * @param info ignored
+ */
 static
 void FlushAllCpuCaches(void *info)
 {
 	flush_cache_all();
 }
 
+/**
+ * @brief return to where monitor called worldswitch
+ *
+ * @param vm  which virtual machine we're running
+ * @return 0: successful, just call back when ready<br>
+ *         1: successful, process code in WSP_Params(wsp)->callno<br>
+ *      else: -errno
+ */
 static int
 RunMonitor(struct MvpkmVM *vm)
 {
@@ -1525,13 +2249,26 @@ RunMonitor(struct MvpkmVM *vm)
 	wake_lock(&vm->wakeLock);
 #endif
 
+	/*
+	 * Set VCPUThread affinity
+	 */
 	if (cpumask_intersects(to_cpumask(vcpuAffinity), cpu_active_mask))
 		set_cpus_allowed_ptr(current, to_cpumask(vcpuAffinity));
 
+	/*
+	 * Record the the current task structure, so an ABORT will know,
+	 * who to wake.
+	 */
 	down_write(&vm->monThreadTaskSem);
 	vm->monThreadTask = get_current();
 	up_write(&vm->monThreadTaskSem);
 
+	/*
+	 * Keep going as long as the monitor is in critical section or
+	 * there are no pending signals such as SIGINT or SIGKILL.  Block
+	 * interrupts before checking so any IPI sent will remain pending
+	 * if our check just misses detecting the signal.
+	 */
 	local_irq_save(flags);
 	while (wsp->critSecCount > 0 ||
 	       (!signal_pending(current) &&
@@ -1539,22 +2276,30 @@ RunMonitor(struct MvpkmVM *vm)
 
 		cpumask_set_cpu(smp_processor_id(), &inMonitor);
 
+		/*
+		 * ARMv7 Performance counters are per CPU core and might be
+		 * disabled over CPU core sleep if there is nothing else in
+		 * the system to re-enable them, so now that we have been
+		 * allocated a CPU core to run the guest,
+		 * enable them and in particular the TSC (CCNT) which is used
+		 * for monitor timing between world switches.
+		 */
 		{
 			uint32 pmnc;
 			uint32 pmcnt;
 
-			
+			/* make sure that Performance Counters are enabled */
 			ARM_MRC_CP15(PERF_MON_CONTROL_REGISTER, pmnc);
 			if ((pmnc & (ARM_PMNC_E | ARM_PMNC_D)) !=
 			    (ARM_PMNC_E)) {
-				pmnc |=  ARM_PMNC_E;  
+				pmnc |=  ARM_PMNC_E;  /* Enable TSC */
 
-				
+				/* Disable cycle count divider */
 				pmnc &= ~ARM_PMNC_D;
 				ARM_MCR_CP15(PERF_MON_CONTROL_REGISTER, pmnc);
 			}
 
-			
+			/* make sure that the CCNT is enabled */
 			ARM_MRC_CP15(PERF_MON_COUNT_SET, pmcnt);
 			if ((pmcnt & ARM_PMCNT_C) != ARM_PMCNT_C) {
 				pmcnt |= ARM_PMCNT_C;
@@ -1562,6 +2307,9 @@ RunMonitor(struct MvpkmVM *vm)
 			}
 		}
 
+		/*
+		 * Update TSC to RATE64 ratio
+		 */
 		{
 			struct TscToRate64Cb ttr;
 
@@ -1571,6 +2319,19 @@ RunMonitor(struct MvpkmVM *vm)
 			}
 		}
 
+		/*
+		 * Save the time of day for the monitor's timer facility.
+		 * The timing facility in the vmm needs to compute current
+		 * time in the host linux's time representation. It uses
+		 * the formula:
+		 *	now = wsp->switchedAt64 + (uint32)(TSC_READ() -
+		 *		wsp->lowerTSC)
+		 *
+		 * Read the timestamp counter *immediately after* ktime_get()
+		 * as that will give the most consistent offset between
+		 * reading the hardware clock register in ktime_get() and
+		 * reading the hardware timestamp counter with TSC_READ().
+		 */
 		ASSERT_ON_COMPILE(MVP_TIMER_RATE64 == NSEC_PER_SEC);
 		{
 			ktime_t now = ktime_get();
@@ -1579,8 +2340,16 @@ RunMonitor(struct MvpkmVM *vm)
 			wsp->switchedAt64 = ktime_to_ns(now);
 		}
 
+		/*
+		 * Save host FPU contents and load monitor contents.
+		 */
 		SWITCH_VFP_TO_MONITOR;
 
+		/*
+		 * Call into the monitor to run guest instructions until it
+		 * wants us to do something for it. Note that any hardware
+		 * interrupt request will cause it to volunteer.
+		 */
 		switch (wsp->monType) {
 		case MONITOR_TYPE_LPV: {
 			uint32 hostVBAR;
@@ -1603,12 +2372,29 @@ RunMonitor(struct MvpkmVM *vm)
 			FATAL();
 		}
 
+		/*
+		 * Save monitor FPU contents and load host contents.
+		 */
 		SWITCH_VFP_TO_HOST;
 
 		cpumask_clear_cpu(smp_processor_id(), &inMonitor);
 
+		/*
+		 * Re-enable local interrupts now that we are back in the
+		 * host world.
+		 */
 		local_irq_restore(flags);
 
+		/*
+		 * Maybe the monitor wrote some messages to monitor->host
+		 * sockets. This will wake the corresponding host threads to
+		 * receive them.
+		 */
+		/**
+		 * @todo This lousy loop is in the critical path. It should
+		 * be changed to some faster algorithm to wake blocked host
+		 * sockets.
+		 */
 		for (ii = 0; ii < MKSCK_MAX_SHARES; ii++) {
 			if (wsp->isPageMapped[ii])
 				Mksck_WakeBlockedSockets(
@@ -1663,6 +2449,12 @@ RunMonitor(struct MvpkmVM *vm)
 				goto monitorExit;
 			}
 
+			/*
+			 * The locking succeeded. From this point on the monitor
+			 * is in critical section. Even if an interrupt comes
+			 * right here, it must return to the monitor to unlock
+			 * the mutex.
+			 */
 			wsp->critSecCount++;
 			WSP_Params(wsp)->mutex.ok = true;
 			break;
@@ -1673,6 +2465,17 @@ RunMonitor(struct MvpkmVM *vm)
 			break;
 
 		case WSCALL_MUTEXUNLSLEEP:
+			/*
+			 * The vcpu has just come back from the monitor. During
+			 * the transition interrupts were disabled. Above,
+			 * however, interrupts were enabled again and it is
+			 * possible that a context switch happened into a thread
+			 * (serve_vmx) that instructed the vcpu thread to
+			 * abort. After returning to this thread the vcpu may
+			 * enter a sleep below never to return from it. To avoid
+			 * this deadlock we need to test the abort flag in
+			 * Mutex_UnlSleepTest.
+			 */
 			retval = Mutex_UnlSleepTest(
 				    (void *)WSP_Params(wsp)->mutex.mtxHKVA,
 				    WSP_Params(wsp)->mutex.mode,
@@ -1689,14 +2492,34 @@ RunMonitor(struct MvpkmVM *vm)
 				      WSP_Params(wsp)->mutex.all);
 			break;
 
+		/*
+		 * The monitor wants us to block (allowing other host threads
+		 * to run) until an async message is waiting for the monitor
+		 * to process.
+		 *
+		 * If MvpkmWaitForInt() returns an error, it should only be
+		 * if there is another signal pending (such as SIGINT).
+		 * So we pretend it completed normally, as the monitor is
+		 * ready to be called again (it will see no messages to
+		 * process and wait again), and return to user mode so the
+		 * signals can be processed.
+		 */
 		case WSCALL_WAIT:
 #ifdef CONFIG_HAS_WAKELOCK
 			if (WSP_Params(wsp)->wait.suspendMode) {
+				/*
+				 * Guest has ok'ed suspend mode, so release
+				 * SUSPEND wakelock
+				 */
 				wake_unlock(&vm->wakeLock);
 				retval = MvpkmWaitForInt(vm, true);
 				wake_lock(&vm->wakeLock);
 				WSP_Params(wsp)->wait.suspendMode = 0;
 			} else {
+				/*
+				 * Guest has asked for WFI not suspend so
+				 * keep holding SUSPEND wakelock
+				 */
 				retval = MvpkmWaitForInt(vm, false);
 			}
 #else
@@ -1709,6 +2532,14 @@ RunMonitor(struct MvpkmVM *vm)
 
 			break;
 
+		/*
+		 * The only reason the monitor returned was because there was a
+		 * pending hardware interrupt. The host serviced and cleared
+		 * that interrupt when we enabled interrupts above.
+		 * Now we call the scheduler in case that interrupt woke
+		 * another thread, we want to allow that thread to run before
+		 * returning to do more guest code.
+		 */
 		case WSCALL_IRQ:
 			break;
 
@@ -1751,6 +2582,9 @@ RunMonitor(struct MvpkmVM *vm)
 			break;
 			}
 
+		/*
+		 * Read current wallclock time.
+		 */
 		case WSCALL_READTOD: {
 			struct timeval nowTV;
 
@@ -1815,6 +2649,10 @@ RunMonitor(struct MvpkmVM *vm)
 			break;
 
 		case WSCALL_FLUSH_ALL_DCACHES:
+			/*
+			 * Broadcast Flush DCache request to all cores.
+			 * Block while waiting for all of them to get done.
+			 */
 			on_each_cpu(FlushAllCpuCaches, NULL, 1);
 			break;
 
@@ -1823,9 +2661,21 @@ RunMonitor(struct MvpkmVM *vm)
 			goto monitorExit;
 		}
 
+		/*
+		 * The params.callno callback was handled in kernel mode and
+		 * completed successfully. Repeat for another call without
+		 * returning to user mode, unless there are signals pending.
+		 *
+		 * But first, call the Linux scheduler to switch threads if
+		 * there is some other thread Linux wants to run now.
+		 */
 		if (need_resched())
 			schedule();
 
+		/*
+		 * Check if cpus allowed mask has to be updated.
+		 * Updating it must be done outside of an atomic context.
+		 */
 		if (cpumask_intersects(to_cpumask(vcpuAffinity),
 				       cpu_active_mask) &&
 		    !cpumask_equal(to_cpumask(vcpuAffinity),
@@ -1835,6 +2685,12 @@ RunMonitor(struct MvpkmVM *vm)
 		local_irq_save(flags);
 	}
 
+	/*
+	 * There are signals pending so don't try to do any more monitor/guest
+	 * stuff. But since we were at the point of just about to run the
+	 * monitor, return success status as user mode can simply call us
+	 * back to run the monitor again.
+	 */
 	local_irq_restore(flags);
 
 monitorExit:
@@ -1859,6 +2715,18 @@ monitorExit:
 	return retval;
 }
 
+/**
+ * @brief Guest is waiting for interrupts, sleep if necessary
+ *
+ * @param vm  which virtual machine we're running
+ * @param suspend is the guest entering suspend or just WFI?
+ * @return 0: woken up, hostActions should have pending events
+ *        -ERESTARTSYS: broke out because other signals are pending
+ *
+ * This function is called in the VCPU context after the world switch to wait
+ * for an incoming message.  If any message gets queued to this VCPU, the
+ * sender will wake us up.
+ */
 int
 MvpkmWaitForInt(struct MvpkmVM *vm,
 		_Bool suspend)
@@ -1884,21 +2752,53 @@ MvpkmWaitForInt(struct MvpkmVM *vm,
 }
 
 
+/**
+ * @brief Force the guest to evaluate its hostActions flag field
+ *
+ * @param vm which guest needs waking
+ * @param why why should be guest be woken up?
+ *
+ * This function updates the hostAction flag field as and wakes up the guest as
+ * required so that it can evaluate it.  The guest could be executing guest
+ * code in an SMP system, in that case send an IPI; or it could be sleeping, in
+ * the case wake it up.
+ */
 void
 Mvpkm_WakeGuest(struct MvpkmVM *vm,
 		int why)
 {
 	ASSERT(why != 0);
 
-	
+	/* set the host action */
 	if (ATOMIC_ORO(vm->wsp->hostActions, why) & why)
-		
+		/* guest has already been woken up so no need to do it again */
 		return;
 
+	/*
+	 * VCPU is certainly in 'wait for interrupt' wait. Wake it up!
+	 */
 #ifdef CONFIG_HAS_WAKELOCK
+	/*
+	 * To prevent the system to go in suspend mode before the monitor had a
+	 * chance on being scheduled, we will hold the VM wakelock from now.
+	 * As the wakelocks are not managed as reference counts, this is not an
+	 * an issue to take a wake_lock twice in a row.
+	 */
 	wake_lock(&vm->wakeLock);
 #endif
 
+	/*
+	 * On a UP system, we ensure the monitor thread isn't blocked.
+	 *
+	 * On an MP system the other CPU might be running the guest. This
+	 * is noop on UP.
+	 *
+	 * When the guest is running, it is an invariant that monThreadTaskSem
+	 * is not held as a write lock, so we should not fail to acquire the
+	 * lock.
+	 * Mvpkm_WakeGuest may be called from an atomic context, so we can't
+	 * sleep here.
+	 */
 	if (down_read_trylock(&vm->monThreadTaskSem)) {
 		if (vm->monThreadTask) {
 			wake_up_process(vm->monThreadTask);

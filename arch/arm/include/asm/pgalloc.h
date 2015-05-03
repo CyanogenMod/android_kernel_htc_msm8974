@@ -43,13 +43,16 @@ static inline void pud_populate(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 	set_pud(pud, __pud(__pa(pmd) | PMD_TYPE_TABLE));
 }
 
-#else	
+#else	/* !CONFIG_ARM_LPAE */
 
+/*
+ * Since we have only two-level page tables, these are trivial
+ */
 #define pmd_alloc_one(mm,addr)		({ BUG(); ((pmd_t *)2); })
 #define pmd_free(mm, pmd)		do { } while (0)
 #define pud_populate(mm,pmd,pte)	BUG()
 
-#endif	
+#endif	/* CONFIG_ARM_LPAE */
 
 extern pgd_t *pgd_alloc(struct mm_struct *mm);
 extern void pgd_free(struct mm_struct *mm, pgd_t *pgd);
@@ -61,6 +64,22 @@ static inline void clean_pte_table(pte_t *pte)
 	clean_dcache_area(pte + PTE_HWTABLE_PTRS, PTE_HWTABLE_SIZE);
 }
 
+/*
+ * Allocate one PTE table.
+ *
+ * This actually allocates two hardware PTE tables, but we wrap this up
+ * into one table thus:
+ *
+ *  +------------+
+ *  | Linux pt 0 |
+ *  +------------+
+ *  | Linux pt 1 |
+ *  +------------+
+ *  |  h/w pt 0  |
+ *  +------------+
+ *  |  h/w pt 1  |
+ *  +------------+
+ */
 static inline pte_t *
 pte_alloc_one_kernel(struct mm_struct *mm, unsigned long addr)
 {
@@ -94,6 +113,9 @@ pte_alloc_one(struct mm_struct *mm, unsigned long addr)
 	return pte;
 }
 
+/*
+ * Free one PTE table.
+ */
 static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
 {
 	if (pte) {
@@ -119,9 +141,18 @@ static inline void __pmd_populate(pmd_t *pmdp, phys_addr_t pte,
 	flush_pmd_entry(pmdp);
 }
 
+/*
+ * Populate the pmdp entry with a pointer to the pte.  This pmd is part
+ * of the mm address space.
+ *
+ * Ensure that we always set both PMD entries.
+ */
 static inline void
 pmd_populate_kernel(struct mm_struct *mm, pmd_t *pmdp, pte_t *ptep)
 {
+	/*
+	 * The pmd must be loaded with the physical address of the PTE table
+	 */
 	__pmd_populate(pmdp, __pa(ptep), _PAGE_KERNEL_TABLE);
 }
 
@@ -132,6 +163,6 @@ pmd_populate(struct mm_struct *mm, pmd_t *pmdp, pgtable_t ptep)
 }
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
-#endif 
+#endif /* CONFIG_MMU */
 
 #endif

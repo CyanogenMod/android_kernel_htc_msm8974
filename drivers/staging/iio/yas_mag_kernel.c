@@ -187,7 +187,7 @@ static irqreturn_t yas_trigger_handler(int irq, void *p)
 		len = j * 4;
 	}
 
-	
+	/* Guaranteed to be aligned with 8 byte boundary */
 	if (buffer->scan_timestamp)
 		*(s64 *)(((phys_addr_t)mag + len
 					+ sizeof(s64) - 1) & ~(sizeof(s64) - 1))
@@ -441,8 +441,8 @@ static int yas_read_raw(struct iio_dev *indio_dev,
 		ret = IIO_VAL_INT;
 		break;
 	case IIO_CHAN_INFO_SCALE:
-		
-		
+		/* Gain : counts / uT = 1000 [nT] */
+		/* Scaling factor : 1000000 / Gain = 1000 */
 		*val = 0;
 		*val2 = 1000;
 		ret = IIO_VAL_INT_PLUS_MICRO;

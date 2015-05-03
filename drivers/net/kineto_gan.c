@@ -26,8 +26,8 @@
 #include <linux/init.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
-#include <linux/ip.h>		
-#include <linux/tcp.h>		
+#include <linux/ip.h>		/* struct iphdr */
+#include <linux/tcp.h>		/* struct tcphdr */
 
 #include <linux/skbuff.h>
 #include <linux/wakelock.h>
@@ -38,6 +38,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+/* For socket etc */
 #include <linux/net.h>
 #include <net/sock.h>
 #include <linux/tcp.h>
@@ -256,6 +257,8 @@ static void gannet_recvloop(void)
 
 	current->flags |= PF_NOFREEZE;
 
+	/* daemonize (take care with signals,
+	   after daemonize they are disabled) */
 	daemonize(MODULE_NAME);
 	allow_signal(SIGKILL);
 	
