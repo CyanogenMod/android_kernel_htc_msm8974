@@ -37,7 +37,7 @@ static const struct file_operations simlock_fops;
 void scm_flush_range(unsigned long start, unsigned long end);
 
 struct msg_s {
-	int size; 	
+	int size; 	/* msg size, return value */
 	unsigned int unlock;
 	char code[CODE_SIZE];
 };

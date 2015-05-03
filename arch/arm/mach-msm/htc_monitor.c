@@ -15,6 +15,7 @@
 
 unsigned int probe_seq_tx;
 
+/* Using Procfs to record log data */
 static struct proc_dir_entry *proc_mtd;
 static char *ProcBuffer;
 static int Ring=0, WritingLength;
@@ -80,7 +81,7 @@ static ssize_t htc_monitor_param_set(struct device *dev,
 
 	ret = strict_strtoul(buf, 10, &result);
 	if (!ret) {
-		if( result != 1) 
+		if( result != 1) /* Only allow enable */
 			return -EINVAL;
 		else {
 			htc_monitor_param = 1;
@@ -114,12 +115,12 @@ int init_module(void)
 	memset(ProcBuffer,0,sizeof(char)*MAXDATASIZE);
 	WritingLength = 0;
 
-	
+	/* Procfs setting */
 	if( (proc_mtd = create_proc_entry("htc_monitor", 0444, NULL)) ) {
 		proc_mtd->proc_fops = &log_proc_ops;
 	}
 
-	
+	/* Attribute file setting */
 	htc_monitor_status_obj = kobject_create_and_add("htc_monitor_status", NULL);
 	if (htc_monitor_status_obj == NULL) {
 		pr_info("kobject_create_and_add: htc_monitor_status failed\n");
@@ -140,10 +141,10 @@ void cleanup_module(void)
 {
 	vfree(ProcBuffer);
 
-	
+	/* Procfs setting */
 	remove_proc_entry("htc_monitor", NULL);
 
-	
+	/* Attribute file setting */
 	if(htc_monitor_status_obj != NULL) {
 		sysfs_remove_file(htc_monitor_status_obj,&dev_attr_htc_monitor_param.attr);
 		kobject_put(htc_monitor_status_obj);

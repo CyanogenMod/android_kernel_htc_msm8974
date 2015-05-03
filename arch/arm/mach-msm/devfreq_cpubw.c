@@ -30,6 +30,7 @@
 #include <mach/msm_bus.h>
 #include <mach/msm_bus_board.h>
 
+/* Has to be ULL to prevent overflow where this macro is used. */
 #define MBYTE (1ULL << 20)
 #define MAX_PATHS	2
 

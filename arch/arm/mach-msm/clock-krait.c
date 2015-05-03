@@ -50,7 +50,7 @@ static void __kpss_mux_set_sel(struct mux_clk *mux, int sel)
 	set_l2_indirect_reg(mux->offset, regval);
 	spin_unlock_irqrestore(&kpss_clock_reg_lock, flags);
 
-	
+	/* Wait for switch to complete. */
 	mb();
 	udelay(1);
 }

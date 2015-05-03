@@ -45,12 +45,12 @@ static int update_config(struct mux_div_clk *md)
 	u32 regval, count;
 	struct cortex_reg_data *r = md->priv;
 
-	
+	/* Update the configuration */
 	regval = readl_relaxed(CMD_REG(md));
 	regval |= r->update_mask;
 	writel_relaxed(regval, CMD_REG(md));
 
-	
+	/* Wait for update to take effect */
 	for (count = UPDATE_CHECK_MAX_LOOPS; count > 0; count--) {
 		if (!(readl_relaxed(CMD_REG(md)) &
 				r->poll_mask))
@@ -325,7 +325,7 @@ static int clock_a7_probe(struct platform_device *pdev)
 			"qcom,speed%d-bin-v%d", speed_bin, version);
 	rc = of_get_fmax_vdd_class(pdev, &a7ssmux.c, prop_name);
 	if (rc) {
-		
+		/* Fall back to most conservative PVS table */
 		dev_err(&pdev->dev, "Unable to load voltage plan %s!\n",
 								prop_name);
 		rc = of_get_fmax_vdd_class(pdev, &a7ssmux.c,
@@ -344,7 +344,7 @@ static int clock_a7_probe(struct platform_device *pdev)
 		return rc;
 	}
 
-	
+	/* Force a PLL reconfiguration */
 	aux_clk = a7ssmux.parents[0].src;
 	main_pll = a7ssmux.parents[1].src;
 
@@ -354,6 +354,13 @@ static int clock_a7_probe(struct platform_device *pdev)
 	clk_set_rate(main_pll, clk_round_rate(main_pll, 1));
 	clk_set_rate(&a7ssmux.c, rate);
 
+	/*
+	 * We don't want the CPU clocks to be turned off at late init
+	 * if CPUFREQ or HOTPLUG configs are disabled. So, bump up the
+	 * refcount of these clocks. Any cpufreq/hotplug manager can assume
+	 * that the clocks have already been prepared and enabled by the time
+	 * they take over.
+	 */
 	WARN(clk_prepare_enable(&a7ssmux.c),
 		"Unable to turn on CPU clock");
 

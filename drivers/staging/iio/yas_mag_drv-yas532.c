@@ -42,7 +42,7 @@
 #define YAS532_DATA_CENTER		(4096)
 #define YAS532_DATA_UNDERFLOW		(0)
 #define YAS532_DATA_OVERFLOW		(8190)
-#define YAS532_DEVICE_ID		(0x02)	
+#define YAS532_DEVICE_ID		(0x02)	/* YAS532 (MS-3R/3F) */
 #define YAS532_TEMP20DEGREE_TYPICAL	(390)
 
 #define YAS_X_OVERFLOW			(0x01)
@@ -57,7 +57,7 @@
 #define YAS532_MAG_STATE_NORMAL		(0)
 #define YAS532_MAG_STATE_INIT_COIL	(1)
 #define YAS532_MAG_STATE_MEASURE_OFFSET	(2)
-#define YAS532_MAG_INITCOIL_TIMEOUT	(1000)	
+#define YAS532_MAG_INITCOIL_TIMEOUT	(1000)	/* msec */
 #define YAS532_MAG_TEMPERATURE_LOG	(10)
 #define YAS532_MAG_NOTRANS_POSITION	(3)
 #if YAS532_DRIVER_NO_SLEEP
@@ -416,7 +416,7 @@ static int yas_measure(struct yas_data *data, int num, int temp_correction,
 			driver.measure_state = YAS532_MAG_STATE_NORMAL;
 			break;
 		}
-		
+		/* FALLTHRU */
 	case YAS532_MAG_STATE_MEASURE_OFFSET:
 		rt = yas_cdrv_measure_and_set_offset();
 		if (rt < 0)
@@ -465,9 +465,9 @@ static int yas_measure(struct yas_data *data, int num, int temp_correction,
 	for (i = 0; i < 3; i++) {
 		data->xyz.v[i] -= data->xyz.v[i] % 10;
 		if (*ouflow & (1<<(i*2)))
-			data->xyz.v[i] += 1; 
+			data->xyz.v[i] += 1; /* set overflow */
 		if (*ouflow & (1<<(i*2+1)))
-			data->xyz.v[i] += 2; 
+			data->xyz.v[i] += 2; /* set underflow */
 	}
 	tm = curtime();
 	data->type = YAS_TYPE_MAG;

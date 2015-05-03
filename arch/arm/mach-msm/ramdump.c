@@ -131,7 +131,7 @@ static int ramdump_read(struct file *filep, char __user *buf, size_t count,
 	addr = offset_translate(*pos - rd_dev->elfcore_size, rd_dev,
 				&data_left);
 
-	
+	/* EOF check */
 	if (data_left == 0) {
 		pr_info("Ramdump(%s): Ramdump complete. %lld bytes read.",
 			rd_dev->name, *pos);
@@ -308,10 +308,10 @@ static int _do_ramdump(void *handle, struct ramdump_segment *segments,
 
 	INIT_COMPLETION(rd_dev->ramdump_complete);
 
-	
+	/* Tell userspace that the data is ready */
 	wake_up(&rd_dev->dump_wait_q);
 
-	
+	/* Wait (with a timeout) to let the ramdump complete */
 	ret = wait_for_completion_timeout(&rd_dev->ramdump_complete,
 			msecs_to_jiffies(RAMDUMP_WAIT_MSECS));
 

@@ -297,7 +297,7 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 		return -EPERM;
 
 #if defined(CONFIG_HTC_DEBUG_RAMCONSOLE)
-	
+	/* last bootloader log */
 	if (pos < bl_old_log_buf_size) {
 		count = min(len, (size_t)(bl_old_log_buf_size - pos));
 		if (copy_to_user(buf, bl_old_log_buf + pos, count))
@@ -308,7 +308,7 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 	pos -= bl_old_log_buf_size;
 #endif
 
-	
+	/* Main last_kmsg log */
 	if (pos < old_log_size) {
 		count = min(len, (size_t)(old_log_size - pos));
 		if (copy_to_user(buf, old_log + pos, count))
@@ -316,7 +316,7 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 		goto out;
 	}
 
-	
+	/* ECC correction notice */
 	pos -= old_log_size;
 	count = persistent_ram_ecc_string(prz, NULL, 0);
 	if (pos < count) {
@@ -332,7 +332,7 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 		goto out;
 	}
 
-	
+	/* Append the boot reason required by Google */
 	pos -= count;
 	if (pos < rst_msg_buf_size) {
 		count = min(len, (size_t)(rst_msg_buf_size - pos));
@@ -341,7 +341,7 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 		goto out;
 	}
 
-	
+	/* Boot info passed through pdata */
 	pos -= rst_msg_buf_size;
 	if (pos < bootinfo_size) {
 		count = min(len, (size_t)(bootinfo_size - pos));
@@ -351,7 +351,7 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 	}
 
 #if defined(CONFIG_HTC_DEBUG_RAMCONSOLE)
-	
+	/* bootloader log */
 	pos -= bootinfo_size;
 	if (pos < bl_log_buf_size) {
 		count = min(len, (size_t)(bl_log_buf_size - pos));
@@ -361,7 +361,7 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 	}
 #endif
 
-	
+	/* EOF */
 	return 0;
 
 out:

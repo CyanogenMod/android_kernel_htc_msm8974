@@ -341,6 +341,7 @@ static void __iomem *virt_bases[N_BASES];
 #define      AUDIO_CORE_IXFABRIC_SPDMTM_CSR_CBCR	   0x28000
 #define    AUDIO_WRAPPER_EFABRIC_SPDMTM_CSR_CBCR	   0x28004
 
+/* Mux source select values */
 #define        gcc_xo_source_val 0
 #define         gpll0_source_val 1
 #define           gnd_source_val 5
@@ -436,10 +437,10 @@ enum vdd_dig_levels {
 };
 
 static int vdd_corner[] = {
-	RPM_REGULATOR_CORNER_NONE,		
-	RPM_REGULATOR_CORNER_SVS_SOC,		
-	RPM_REGULATOR_CORNER_NORMAL,		
-	RPM_REGULATOR_CORNER_SUPER_TURBO,	
+	RPM_REGULATOR_CORNER_NONE,		/* VDD_DIG_NONE */
+	RPM_REGULATOR_CORNER_SVS_SOC,		/* VDD_DIG_LOW */
+	RPM_REGULATOR_CORNER_NORMAL,		/* VDD_DIG_NOMINAL */
+	RPM_REGULATOR_CORNER_SUPER_TURBO,	/* VDD_DIG_HIGH */
 };
 
 static DEFINE_VDD_REGULATORS(vdd_dig, VDD_DIG_NUM, 1, vdd_corner, NULL);
@@ -545,10 +546,10 @@ enum vdd_sr2_pll_levels {
 };
 
 static int vdd_sr2_levels[] = {
-	0,       RPM_REGULATOR_CORNER_NONE,		
-	1800000, RPM_REGULATOR_CORNER_SVS_SOC,		
-	1800000, RPM_REGULATOR_CORNER_NORMAL,		
-	1800000, RPM_REGULATOR_CORNER_SUPER_TURBO,	
+	0,       RPM_REGULATOR_CORNER_NONE,		/* VDD_SR2_PLL_OFF */
+	1800000, RPM_REGULATOR_CORNER_SVS_SOC,		/* VDD_SR2_PLL_SVS */
+	1800000, RPM_REGULATOR_CORNER_NORMAL,		/* VDD_SR2_PLL_NOM */
+	1800000, RPM_REGULATOR_CORNER_SUPER_TURBO,	/* VDD_SR2_PLL_TUR */
 };
 
 static DEFINE_VDD_REGULATORS(vdd_sr2_pll, VDD_SR2_PLL_NUM, 2,
@@ -1761,6 +1762,10 @@ static struct rcg_clk csi1phytimer_clk_src = {
 	},
 };
 
+/*
+ * The DSI clock will always use a divider of 1. However, we still
+ * need to set the right voltage and source.
+ */
 static int set_rate_dsi_clk(struct clk *clk, unsigned long rate)
 {
 	struct rcg_clk *rcg = to_rcg_clk(clk);
@@ -2568,6 +2573,10 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 		return -EINVAL;
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
+	/*
+	 * Program the test vector, measurement period (sample_ticks)
+	 * and scaling multiplier.
+	 */
 	clk->sample_ticks = 0x10000;
 	clk->multiplier = 1;
 
@@ -2584,7 +2593,7 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 		regval = BVAL(11, 0, measure_mux[i].debug_mux);
 		writel_relaxed(regval, MMSS_REG_BASE(MMSS_DEBUG_CLK_CTL));
 
-		
+		/* Activate debug clock output */
 		regval |= BIT(16);
 		writel_relaxed(regval, MMSS_REG_BASE(MMSS_DEBUG_CLK_CTL));
 		break;
@@ -2595,7 +2604,7 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 		regval = BVAL(11, 0, measure_mux[i].debug_mux);
 		writel_relaxed(regval, LPASS_REG_BASE(LPASS_DEBUG_CLK_CTL));
 
-		
+		/* Activate debug clock output */
 		regval |= BIT(20);
 		writel_relaxed(regval, LPASS_REG_BASE(LPASS_DEBUG_CLK_CTL));
 		break;
@@ -2604,7 +2613,7 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 		clk->multiplier = 4;
 		clk_sel = 0x16A;
 		regval = measure_mux[i].debug_mux;
-		
+		/* Use a divider value of 4. */
 		regval |= BVAL(31, 30, 0x3);
 		writel_relaxed(regval, APCS_REG_BASE(GLB_CLK_DIAG));
 		break;
@@ -2613,15 +2622,15 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 		return -EINVAL;
 	}
 
-	
+	/* Set debug mux clock index */
 	regval = BVAL(8, 0, clk_sel);
 	writel_relaxed(regval, GCC_REG_BASE(GCC_DEBUG_CLK_CTL));
 
-	
+	/* Activate debug clock output */
 	regval |= BIT(16);
 	writel_relaxed(regval, GCC_REG_BASE(GCC_DEBUG_CLK_CTL));
 
-	
+	/* Make sure test vector is set before starting measurements. */
 	mb();
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 
@@ -2631,23 +2640,24 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 #define CLOCK_FRQ_MEASURE_CTL		0x1884
 #define CLOCK_FRQ_MEASURE_STATUS	0x1888
 
+/* Sample clock for 'ticks' reference clock ticks. */
 static u32 run_measurement(unsigned ticks)
 {
-	
+	/* Stop counters and set the XO4 counter start value. */
 	writel_relaxed(ticks, GCC_REG_BASE(CLOCK_FRQ_MEASURE_CTL));
 
-	
+	/* Wait for timer to become ready. */
 	while ((readl_relaxed(GCC_REG_BASE(CLOCK_FRQ_MEASURE_STATUS)) &
 			BIT(25)) != 0)
 		cpu_relax();
 
-	
+	/* Run measurement and wait for completion. */
 	writel_relaxed(BIT(20)|ticks, GCC_REG_BASE(CLOCK_FRQ_MEASURE_CTL));
 	while ((readl_relaxed(GCC_REG_BASE(CLOCK_FRQ_MEASURE_STATUS)) &
 			BIT(25)) == 0)
 		cpu_relax();
 
-	
+	/* Return measured ticks. */
 	return readl_relaxed(GCC_REG_BASE(CLOCK_FRQ_MEASURE_STATUS)) &
 				BM(24, 0);
 }
@@ -2655,6 +2665,10 @@ static u32 run_measurement(unsigned ticks)
 #define GCC_XO_DIV4_CBCR	0x10C8
 #define PLLTEST_PAD_CFG		0x188C
 
+/*
+ * Perform a hardware rate measurement for a given clock.
+ * FOR DEBUG USE ONLY: Measurements take ~15 ms!
+ */
 static unsigned long measure_clk_get_rate(struct clk *c)
 {
 	unsigned long flags;
@@ -2671,23 +2685,29 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
 
-	
+	/* Enable CXO/4 and RINGOSC branch. */
 	gcc_xo4_reg_backup = readl_relaxed(GCC_REG_BASE(GCC_XO_DIV4_CBCR));
 	writel_relaxed(0x1, GCC_REG_BASE(GCC_XO_DIV4_CBCR));
 
+	/*
+	 * The ring oscillator counter will not reset if the measured clock
+	 * is not running.  To detect this, run a short measurement before
+	 * the full measurement.  If the raw results of the two are the same
+	 * then the clock must be off.
+	 */
 
-	
+	/* Run a short measurement. (~1 ms) */
 	raw_count_short = run_measurement(0x1000);
-	
+	/* Run a full measurement. (~14 ms) */
 	raw_count_full = run_measurement(clk->sample_ticks);
 
 	writel_relaxed(gcc_xo4_reg_backup, GCC_REG_BASE(GCC_XO_DIV4_CBCR));
 
-	
+	/* Return 0 if the clock is off. */
 	if (raw_count_full == raw_count_short) {
 		ret = 0;
 	} else {
-		
+		/* Compute rate in Hz. */
 		raw_count_full = ((raw_count_full * 10) + 15) * 4800000;
 		do_div(raw_count_full, ((clk->sample_ticks * 10) + 35));
 		ret = (raw_count_full * clk->multiplier);
@@ -2700,7 +2720,7 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	return ret;
 }
-#else 
+#else /* !CONFIG_DEBUG_FS */
 static int measure_clk_set_parent(struct clk *clk, struct clk *parent)
 {
 	return -EINVAL;
@@ -2710,7 +2730,7 @@ static unsigned long measure_clk_get_rate(struct clk *clk)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static struct clk_ops clk_ops_measure = {
 	.set_parent = measure_clk_set_parent,
@@ -2769,7 +2789,7 @@ static struct clk_lookup msm_clocks_8610[] = {
 	CLK_LOOKUP("bus_clk",	mmss_s0_axi_clk.c,	"msm_mmss_noc"),
 	CLK_LOOKUP("bus_a_clk",	mmss_s0_axi_clk.c,	"msm_mmss_noc"),
 
-	
+	/* CoreSight clocks */
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc326000.tmc"),
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc320000.tpiu"),
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc324000.replicator"),
@@ -2995,7 +3015,7 @@ static struct clk_lookup msm_clocks_8610[] = {
 							 "fd010000.qcom,iommu"),
 	CLK_LOOKUP("core_clk",         pnoc_iommu_clk.c, "fd010000.qcom,iommu"),
 
-	
+	/* MM sensor clocks */
 	CLK_LOOKUP("cam_src_clk", mclk0_clk_src.c, "6-006f"),
 	CLK_LOOKUP("cam_src_clk", mclk0_clk_src.c, "6-0034"),
 	CLK_LOOKUP("cam_src_clk", mclk0_clk_src.c, "6-0001"),
@@ -3016,7 +3036,7 @@ static struct clk_lookup msm_clocks_8610[] = {
 	CLK_LOOKUP("cam_clk", mclk0_clk.c, "6-006a"),
 
 
-	
+	/* CSIPHY clocks */
 	CLK_LOOKUP("csiphy_timer_src_clk", csi0phytimer_clk_src.c,
 		"fda00c00.qcom,csiphy"),
 	CLK_LOOKUP("csiphy_timer_clk", csi0phytimer_clk.c,
@@ -3028,7 +3048,7 @@ static struct clk_lookup msm_clocks_8610[] = {
 		"fda01000.qcom,csiphy"),
 	CLK_LOOKUP("csi_ahb_clk", csi_ahb_clk.c,  "fda01000.qcom,csiphy"),
 
-	
+	/* CSID clocks */
 	CLK_LOOKUP("csi_clk", csi0_clk.c, "fda00000.qcom,csid"),
 	CLK_LOOKUP("csi_src_clk", csi0_clk_src.c, "fda00000.qcom,csid"),
 	CLK_LOOKUP("csi_ahb_clk", csi_ahb_clk.c, "fda00000.qcom,csid"),
@@ -3067,7 +3087,7 @@ static struct clk_lookup msm_clocks_8610[] = {
 	CLK_LOOKUP("csi_pix_src_clk", csi1pix_clk.c, "fda00400.qcom,csid"),
 	CLK_LOOKUP("csi_rdi_src_clk", csi0rdi_clk.c, "fda00000.qcom,csid"),
 	CLK_LOOKUP("csi_rdi_src_clk", csi1rdi_clk.c, "fda00400.qcom,csid"),
-	
+	/* ISPIF need no clock */
 
 	CLK_LOOKUP("vfe_clk_src", vfe_clk_src.c, "fde00000.qcom,vfe"),
 	CLK_LOOKUP("vfe_clk", vfe_clk.c, "fde00000.qcom,vfe"),
@@ -3112,7 +3132,7 @@ static struct clk_lookup msm_clocks_8610[] = {
 	CLK_LOOKUP("esc_clk", dsi_esc_clk.c, "fdd00000.qcom,mdss_dsi"),
 	CLK_LOOKUP("pixel_clk", dsi_pclk_clk.c, "fdd00000.qcom,mdss_dsi"),
 
-	
+	/* QSEECOM Clocks */
 	CLK_LOOKUP("core_clk",     gcc_ce1_clk.c,      "qseecom"),
 	CLK_LOOKUP("iface_clk",    gcc_ce1_ahb_clk.c,  "qseecom"),
 	CLK_LOOKUP("bus_clk",      gcc_ce1_axi_clk.c,  "qseecom"),
@@ -3123,25 +3143,25 @@ static struct clk_lookup msm_clocks_8610[] = {
 	CLK_LOOKUP("bus_clk",      gcc_ce1_axi_clk.c,  "scm"),
 	CLK_LOOKUP("core_clk_src", ce1_clk_src.c,      "scm"),
 
-	
+	/* GUD Clocks */
 	CLK_LOOKUP("core_clk",     gcc_ce1_clk.c,      "mcd"),
 	CLK_LOOKUP("iface_clk",    gcc_ce1_ahb_clk.c,  "mcd"),
 	CLK_LOOKUP("bus_clk",      gcc_ce1_axi_clk.c,  "mcd"),
 	CLK_LOOKUP("core_clk_src", ce1_clk_src.c,      "mcd"),
 
-	
+	/* Add QCEDEV clocks */
 	CLK_LOOKUP("core_clk",     gcc_ce1_clk.c,      "fd400000.qcom,qcedev"),
 	CLK_LOOKUP("iface_clk",    gcc_ce1_ahb_clk.c,  "fd400000.qcom,qcedev"),
 	CLK_LOOKUP("bus_clk",      gcc_ce1_axi_clk.c,  "fd400000.qcom,qcedev"),
 	CLK_LOOKUP("core_clk_src", ce1_clk_src.c,      "fd400000.qcom,qcedev"),
 
-	
+	/* Add QCRYPTO clocks */
 	CLK_LOOKUP("core_clk",     gcc_ce1_clk.c,     "fd404000.qcom,qcrypto"),
 	CLK_LOOKUP("iface_clk",    gcc_ce1_ahb_clk.c, "fd404000.qcom,qcrypto"),
 	CLK_LOOKUP("bus_clk",      gcc_ce1_axi_clk.c, "fd404000.qcom,qcrypto"),
 	CLK_LOOKUP("core_clk_src", ce1_clk_src.c,     "fd404000.qcom,qcrypto"),
 
-	
+	/* GDSC clocks */
 	CLK_LOOKUP("core_clk", vfe_clk.c,	"fd8c36a4.qcom,gdsc"),
 	CLK_LOOKUP("iface_clk", vfe_ahb_clk.c,	"fd8c36a4.qcom,gdsc"),
 	CLK_LOOKUP("bus_clk",  vfe_axi_clk.c,	"fd8c36a4.qcom,gdsc"),
@@ -3185,6 +3205,7 @@ struct clock_init_data msm8610_rumi_clock_init_data __initdata = {
 	.size = ARRAY_SIZE(msm_clocks_8610_rumi),
 };
 
+/* MMPLL0 at 800 MHz, main output enabled. */
 static struct pll_config mmpll0_config __initdata = {
 	.l = 0x29,
 	.m = 0x2,
@@ -3201,6 +3222,7 @@ static struct pll_config mmpll0_config __initdata = {
 	.main_output_mask = BIT(0),
 };
 
+/* MMPLL1 at 1200 MHz, main output enabled. */
 static struct pll_config mmpll1_config __initdata = {
 	.l = 0x3E,
 	.m = 0x1,
@@ -3229,15 +3251,26 @@ static void __init reg_init(void)
 	regval |= BIT(0);
 	writel_relaxed(regval, GCC_REG_BASE(APCS_GPLL_ENA_VOTE));
 
+	/*
+	 * TODO: Confirm that no clocks need to be voted on in this sleep vote
+	 * register.
+	 */
 	writel_relaxed(0x0, GCC_REG_BASE(APCS_CLOCK_SLEEP_ENA_VOTE));
 }
 
 static void __init msm8610_clock_post_init(void)
 {
+	/*
+	 * Hold an active set vote for CXO; this is because CXO is expected
+	 * to remain on whenever CPUs aren't power collapsed.
+	 */
 	clk_prepare_enable(&gcc_xo_a_clk_src.c);
+	/*
+	 * Hold an active set vote for the PNOC AHB source. Sleep set vote is 0.
+	 */
 	clk_set_rate(&pnoc_keepalive_a_clk.c, 19200000);
 	clk_prepare_enable(&pnoc_keepalive_a_clk.c);
-	
+	/* Set rates for single-rate clocks. */
 	clk_set_rate(&usb_hs_system_clk_src.c,
 			usb_hs_system_clk_src.freq_tbl[0].freq_hz);
 	clk_set_rate(&pdm2_clk_src.c, pdm2_clk_src.freq_tbl[0].freq_hz);
@@ -3319,14 +3352,14 @@ static void __init msm8610_clock_pre_init(void)
 
 	enable_rpm_scaling();
 
-	
+	/* Enable a clock to allow access to MMSS clock registers */
 	clk_prepare_enable(&gcc_mmss_noc_cfg_ahb_clk.c),
 
 	reg_init();
 
 	dsi_init();
 
-	
+	/* Maintain the max nominal frequency on the MMSSNOC AHB bus. */
 	clk_set_rate(&mmssnoc_ahb_a_clk.c,  40000000);
 	clk_prepare_enable(&mmssnoc_ahb_a_clk.c);
 }
