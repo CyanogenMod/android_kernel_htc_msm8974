@@ -45,7 +45,7 @@
                         nxp,irq-gpio = <&msmgpio 144 0x00>;
                         nxp,fwdl-gpio = <&msmgpio 3 0x00>;
                         nxp,ven_isinvert = <0>;
-						nxp,isalive = <1>;
+                        nxp,isalive = <1>;
                 };
 
                 htc_mcu@3a {
@@ -55,9 +55,9 @@
                         interrupts = <67 0x0>;
                         mcu,intr-gpio  = <&msmgpio 67 0x00>;
                         mcu,GS_chip_layout = <1>;
-                        mcu,Acceleration_axes  = <1>;
+                        mcu,Acceleration_axes  = <3>;
                         mcu,Magnetic_axes  = <0>;
-                        mcu,Gyro_axes  = <1>;
+                        mcu,Gyro_axes  = <3>;
                         mcu,Cpu_wake_mcu-gpio    = <&msmgpio 76 0x00>;
                         mcu,Reset-gpio    = <&msmgpio 89 0x00>;
                         mcu,Chip_mode-gpio    = <&msmgpio 53 0x00>;
