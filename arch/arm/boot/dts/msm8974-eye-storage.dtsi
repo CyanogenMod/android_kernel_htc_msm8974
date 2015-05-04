@@ -29,6 +29,7 @@
 	qcom,bus-speed-mode = "HS200_1p8v", "DDR_1p8v";
 	htc,slot-type = <0>;
 	htc,bkops_support;
+	htc,packed_cmd_support;
 	qcom,nonremovable;
 	status = "ok";
 };
