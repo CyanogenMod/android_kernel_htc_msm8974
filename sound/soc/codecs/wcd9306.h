@@ -56,6 +56,7 @@ enum tapan_mbhc_analog_pwr_cfg {
 	TAPAN_NUM_ANALOG_PWR_CONFIGS,
 };
 
+/* Number of input and output Slimbus port */
 enum {
 	TAPAN_RX1 = 0,
 	TAPAN_RX2,

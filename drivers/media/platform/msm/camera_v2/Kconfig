@@ -300,7 +300,7 @@ config OV13850_1140M
 	bool "Sensor OV13850_1140M (BAYER 13M)"
 	depends on MSMB_CAMERA
 	---help---
-	  Support for ov13850_800M sensor driver.
+	  Support for OV13850_1140M sensor driver.
 
 config OV2722
 	bool "Sensor ov2722"

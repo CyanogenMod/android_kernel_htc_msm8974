@@ -20,6 +20,19 @@
 #include <linux/export.h>
 #include <trace/events/asoc.h>
 
+/**
+ * snd_soc_jack_new - Create a new jack
+ * @card:  ASoC card
+ * @id:    an identifying string for this jack
+ * @type:  a bitmask of enum snd_jack_type values that can be detected by
+ *         this jack
+ * @jack:  structure to use for the jack
+ *
+ * Creates a new jack object.
+ *
+ * Returns zero if successful, or a negative error code on failure.
+ * On success jack will be initialised.
+ */
 int snd_soc_jack_new(struct snd_soc_codec *codec, const char *id, int type,
 		     struct snd_soc_jack *jack)
 {
@@ -33,6 +46,20 @@ int snd_soc_jack_new(struct snd_soc_codec *codec, const char *id, int type,
 }
 EXPORT_SYMBOL_GPL(snd_soc_jack_new);
 
+/**
+ * snd_soc_jack_report - Report the current status for a jack
+ *
+ * @jack:   the jack
+ * @status: a bitmask of enum snd_jack_type values that are currently detected.
+ * @mask:   a bitmask of enum snd_jack_type values that being reported.
+ *
+ * If configured using snd_soc_jack_add_pins() then the associated
+ * DAPM pins will be enabled or disabled as appropriate and DAPM
+ * synchronised.
+ *
+ * Note: This function uses mutexes and should be called from a
+ * context which can sleep (such as a workqueue).
+ */
 void snd_soc_jack_report(struct snd_soc_jack *jack, int status, int mask)
 {
 	struct snd_soc_codec *codec;
@@ -56,6 +83,8 @@ void snd_soc_jack_report(struct snd_soc_jack *jack, int status, int mask)
 	jack->status &= ~mask;
 	jack->status |= status & mask;
 
+	/* The DAPM sync is expensive enough to be worth skipping.
+	 * However, empty mask means pin synchronization is desired. */
 	if (mask && (jack->status == oldstatus))
 		goto out;
 
@@ -73,7 +102,7 @@ void snd_soc_jack_report(struct snd_soc_jack *jack, int status, int mask)
 			snd_soc_dapm_disable_pin(dapm, pin->pin);
 	}
 
-	
+	/* Report before the DAPM sync to help users updating micbias status */
 	blocking_notifier_call_chain(&jack->notifier, status, jack);
 
 	snd_soc_dapm_sync(dapm);
@@ -85,6 +114,13 @@ out:
 }
 EXPORT_SYMBOL_GPL(snd_soc_jack_report);
 
+/**
+ * snd_soc_jack_report_no_dapm - Report the current status for a jack
+ *				 without DAPM sync
+ * @jack:   the jack
+ * @status: a bitmask of enum snd_jack_type values that are currently detected.
+ * @mask:   a bitmask of enum snd_jack_type values that being reported.
+ */
 void snd_soc_jack_report_no_dapm(struct snd_soc_jack *jack, int status,
 				 int mask)
 {
@@ -95,6 +131,16 @@ void snd_soc_jack_report_no_dapm(struct snd_soc_jack *jack, int status,
 }
 EXPORT_SYMBOL_GPL(snd_soc_jack_report_no_dapm);
 
+/**
+ * snd_soc_jack_add_zones - Associate voltage zones with jack
+ *
+ * @jack:  ASoC jack
+ * @count: Number of zones
+ * @zone:  Array of zones
+ *
+ * After this function has been called the zones specified in the
+ * array will be associated with the jack.
+ */
 int snd_soc_jack_add_zones(struct snd_soc_jack *jack, int count,
 			  struct snd_soc_jack_zone *zones)
 {
@@ -108,6 +154,15 @@ int snd_soc_jack_add_zones(struct snd_soc_jack *jack, int count,
 }
 EXPORT_SYMBOL_GPL(snd_soc_jack_add_zones);
 
+/**
+ * snd_soc_jack_get_type - Based on the mic bias value, this function returns
+ * the type of jack from the zones delcared in the jack type
+ *
+ * @micbias_voltage:  mic bias voltage at adc channel when jack is plugged in
+ *
+ * Based on the mic bias value passed, this function helps identify
+ * the type of jack from the already delcared jack zones
+ */
 int snd_soc_jack_get_type(struct snd_soc_jack *jack, int micbias_voltage)
 {
 	struct snd_soc_jack_zone *zone;
@@ -121,6 +176,17 @@ int snd_soc_jack_get_type(struct snd_soc_jack *jack, int micbias_voltage)
 }
 EXPORT_SYMBOL_GPL(snd_soc_jack_get_type);
 
+/**
+ * snd_soc_jack_add_pins - Associate DAPM pins with an ASoC jack
+ *
+ * @jack:  ASoC jack
+ * @count: Number of pins
+ * @pins:  Array of pins
+ *
+ * After this function has been called the DAPM pins specified in the
+ * pins array will have their status updated to reflect the current
+ * state of the jack whenever the jack status is updated.
+ */
 int snd_soc_jack_add_pins(struct snd_soc_jack *jack, int count,
 			  struct snd_soc_jack_pin *pins)
 {
@@ -143,12 +209,28 @@ int snd_soc_jack_add_pins(struct snd_soc_jack *jack, int count,
 
 	snd_soc_dapm_new_widgets(&jack->codec->card->dapm);
 
+	/* Update to reflect the last reported status; canned jack
+	 * implementations are likely to set their state before the
+	 * card has an opportunity to associate pins.
+	 */
 	snd_soc_jack_report(jack, 0, 0);
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(snd_soc_jack_add_pins);
 
+/**
+ * snd_soc_jack_notifier_register - Register a notifier for jack status
+ *
+ * @jack:  ASoC jack
+ * @nb:    Notifier block to register
+ *
+ * Register for notification of the current status of the jack.  Note
+ * that it is not possible to report additional jack events in the
+ * callback from the notifier, this is intended to support
+ * applications such as enabling electrical detection only when a
+ * mechanical detection event has occurred.
+ */
 void snd_soc_jack_notifier_register(struct snd_soc_jack *jack,
 				    struct notifier_block *nb)
 {
@@ -156,6 +238,14 @@ void snd_soc_jack_notifier_register(struct snd_soc_jack *jack,
 }
 EXPORT_SYMBOL_GPL(snd_soc_jack_notifier_register);
 
+/**
+ * snd_soc_jack_notifier_unregister - Unregister a notifier for jack status
+ *
+ * @jack:  ASoC jack
+ * @nb:    Notifier block to unregister
+ *
+ * Stop notifying for status changes.
+ */
 void snd_soc_jack_notifier_unregister(struct snd_soc_jack *jack,
 				      struct notifier_block *nb)
 {
@@ -164,6 +254,7 @@ void snd_soc_jack_notifier_unregister(struct snd_soc_jack *jack,
 EXPORT_SYMBOL_GPL(snd_soc_jack_notifier_unregister);
 
 #ifdef CONFIG_GPIOLIB
+/* gpio detect */
 static void snd_soc_jack_gpio_detect(struct snd_soc_jack_gpio *gpio)
 {
 	struct snd_soc_jack *jack = gpio->jack;
@@ -185,6 +276,7 @@ static void snd_soc_jack_gpio_detect(struct snd_soc_jack_gpio *gpio)
 	snd_soc_jack_report(jack, report, gpio->report);
 }
 
+/* irq handler for gpio pin */
 static irqreturn_t gpio_handler(int irq, void *data)
 {
 	struct snd_soc_jack_gpio *gpio = data;
@@ -201,6 +293,7 @@ static irqreturn_t gpio_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/* gpio work */
 static void gpio_work(struct work_struct *work)
 {
 	struct snd_soc_jack_gpio *gpio;
@@ -209,6 +302,16 @@ static void gpio_work(struct work_struct *work)
 	snd_soc_jack_gpio_detect(gpio);
 }
 
+/**
+ * snd_soc_jack_add_gpios - Associate GPIO pins with an ASoC jack
+ *
+ * @jack:  ASoC jack
+ * @count: number of pins
+ * @gpios: array of gpio pins
+ *
+ * This function will request gpio, set data direction and request irq
+ * for each gpio in the array.
+ */
 int snd_soc_jack_add_gpios(struct snd_soc_jack *jack, int count,
 			struct snd_soc_jack_gpio *gpios)
 {
@@ -256,10 +359,10 @@ int snd_soc_jack_add_gpios(struct snd_soc_jack *jack, int count,
 					gpios[i].gpio, ret);
 		}
 
-		
+		/* Expose GPIO value over sysfs for diagnostic purposes */
 		gpio_export(gpios[i].gpio, false);
 
-		
+		/* Update initial jack status */
 		snd_soc_jack_gpio_detect(&gpios[i]);
 	}
 
@@ -274,6 +377,15 @@ undo:
 }
 EXPORT_SYMBOL_GPL(snd_soc_jack_add_gpios);
 
+/**
+ * snd_soc_jack_free_gpios - Release GPIO pins' resources of an ASoC jack
+ *
+ * @jack:  ASoC jack
+ * @count: number of pins
+ * @gpios: array of gpio pins
+ *
+ * Release gpio and irq resources for gpio pins associated with an ASoC jack.
+ */
 void snd_soc_jack_free_gpios(struct snd_soc_jack *jack, int count,
 			struct snd_soc_jack_gpio *gpios)
 {
@@ -288,4 +400,4 @@ void snd_soc_jack_free_gpios(struct snd_soc_jack *jack, int count,
 	}
 }
 EXPORT_SYMBOL_GPL(snd_soc_jack_free_gpios);
-#endif	
+#endif	/* CONFIG_GPIOLIB */
