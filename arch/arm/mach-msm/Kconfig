@@ -3178,6 +3178,36 @@ config MACH_EYE_UL
         help
           Support for HTC MSM8974 EYE_UL
 
+config MACH_MEC_UL
+        depends on ARCH_MSM8974
+        bool "MSM8974 MEC_UL"
+        help
+          Support for HTC MSM8974 MEC_UL
+
+config MACH_MEC_DWG
+        depends on ARCH_MSM8974
+        bool "MSM8974 MEC_DWG"
+        help
+          Support for HTC MSM8974 MEC_DWG
+
+config MACH_MEC_DUG
+        depends on ARCH_MSM8974
+        bool "MSM8974 MEC_DUG"
+        help
+          Support for HTC MSM8974 MEC_DUG
+
+config MACH_MEC_TL
+        depends on ARCH_MSM8974
+        bool "MSM8974 MEC_TL"
+        help
+          Support for HTC MSM8974 MEC_TL
+
+config MACH_MEC_WHL
+        depends on ARCH_MSM8974
+        bool "MSM8974 MEC_WHL"
+        help
+          Support for HTC MSM8974 MEC_WHL
+
 config HAS_MACH_MEMUTILS
 	default n
 	bool "Motorola MSM memcpy enhancements"
