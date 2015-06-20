@@ -152,7 +152,7 @@ static unsigned char shrink_pwm(int val, int pwm_min, int pwm_default, int pwm_m
         } else if (val > BRI_SETTING_MAX)
                 shrink_br = pwm_max;
 
-        PR_DISP_INFO("brightness orig=%d, transformed=%d\n", val, shrink_br);
+        // PR_DISP_INFO("brightness orig=%d, transformed=%d\n", val, shrink_br);
 
         return shrink_br;
 }
