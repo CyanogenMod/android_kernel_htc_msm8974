@@ -1,18 +1,3 @@
- /*
- * Copyright (c) 2013, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * RMNET Data configuration specification
- */
-
 #ifndef _RMNET_DATA_H_
 #define _RMNET_DATA_H_
 
@@ -23,12 +8,14 @@
 #define RMNET_EGRESS_FORMAT_MAP                 (1<<1)
 #define RMNET_EGRESS_FORMAT_AGGREGATION         (1<<2)
 #define RMNET_EGRESS_FORMAT_MUXING              (1<<3)
+#define RMNET_EGRESS_FORMAT_MAP_CKSUMV3         (1<<4)
 
 #define RMNET_INGRESS_FIX_ETHERNET              (1<<0)
 #define RMNET_INGRESS_FORMAT_MAP                (1<<1)
 #define RMNET_INGRESS_FORMAT_DEAGGREGATION      (1<<2)
 #define RMNET_INGRESS_FORMAT_DEMUXING           (1<<3)
 #define RMNET_INGRESS_FORMAT_MAP_COMMANDS       (1<<4)
+#define RMNET_INGRESS_FORMAT_MAP_CKSUMV3        (1<<5)
 
 /* ***************** Netlink API ******************************************** */
 #define RMNET_NETLINK_PROTO 31
@@ -55,6 +42,7 @@ struct rmnet_nl_msg_s {
 			uint32_t flags;
 			uint16_t agg_size;
 			uint16_t agg_count;
+			uint8_t  tail_spacing;
 		} data_format;
 		struct {
 			uint8_t dev[RMNET_MAX_STR_LEN];
@@ -66,6 +54,11 @@ struct rmnet_nl_msg_s {
 			uint32_t id;
 			uint8_t  vnd_name[RMNET_MAX_STR_LEN];
 		} vnd;
+		struct {
+			uint32_t id;
+			uint32_t map_flow_id;
+			uint32_t tc_flow_id;
+		} flow_control;
 	};
 };
 
@@ -147,6 +140,16 @@ enum rmnet_netlink_message_types_e {
 	RMNET_NETLINK_SET_LOGICAL_EP_CONFIG,
 
 	/*
+	 * RMNET_NETLINK_UNSET_LOGICAL_EP_CONFIG - Un-sets the logical endpoint
+	 *                                       configuration for a particular
+	 *                                       link.
+	 * Args: char[] dev_name: Null terminated ASCII string, max length: 15
+	 *       int32_t logical_ep_id, valid values are -1 through 31
+	 * Returns: status code
+	 */
+	RMNET_NETLINK_UNSET_LOGICAL_EP_CONFIG,
+
+	/*
 	 * RMNET_NETLINK_GET_LOGICAL_EP_CONFIG - Gets the logical endpoint
 	 *                                       configuration for a particular
 	 *                                       link.
@@ -165,18 +168,56 @@ enum rmnet_netlink_message_types_e {
 	RMNET_NETLINK_NEW_VND,
 
 	/*
+	 * RMNET_NETLINK_NEW_VND_WITH_PREFIX - Creates a new virtual network
+	 *                                     device node with the specified
+	 *                                     prefix for the device name
+	 * Args: int32_t node number
+	 *       char[] vnd_name - Use as prefix
+	 * Returns: status code
+	 */
+	RMNET_NETLINK_NEW_VND_WITH_PREFIX,
+
+	/*
+	 * RMNET_NETLINK_GET_VND_NAME - Gets the string name of a VND from ID
+	 * Args: int32_t node number
+	 * Returns: char[] vnd_name
+	 */
+	RMNET_NETLINK_GET_VND_NAME,
+
+	/*
 	 * RMNET_NETLINK_FREE_VND - Removes virtual network device node
 	 * Args: int32_t node number
 	 * Returns: status code
 	 */
-	RMNET_NETLINK_FREE_VND
+	RMNET_NETLINK_FREE_VND,
+
+	/*
+	 * RMNET_NETLINK_ADD_VND_TC_FLOW - Add flow control handle on VND
+	 * Args: int32_t node number
+	 *       uint32_t MAP Flow Handle
+	 *       uint32_t TC Flow Handle
+	 * Returns: status code
+	 */
+	RMNET_NETLINK_ADD_VND_TC_FLOW,
+
+	/*
+	 * RMNET_NETLINK_DEL_VND_TC_FLOW - Removes flow control handle on VND
+	 * Args: int32_t node number
+	 *       uint32_t MAP Flow Handle
+	 * Returns: status code
+	 */
+	RMNET_NETLINK_DEL_VND_TC_FLOW
 };
 
 enum rmnet_config_endpoint_modes_e {
+	/* Pass the frame up the stack with no modifications to skb->dev      */
 	RMNET_EPMODE_NONE,
+	/* Replace skb->dev to a virtual rmnet device and pass up the stack   */
 	RMNET_EPMODE_VND,
+	/* Pass the frame directly to another device with dev_queue_xmit().   */
 	RMNET_EPMODE_BRIDGE,
-	RMNET_EPMODE_LENGTH /* Must be the last item in the list */
+	/* Must be the last item in the list                                  */
+	RMNET_EPMODE_LENGTH
 };
 
 enum rmnet_config_return_codes_e {
@@ -188,7 +229,8 @@ enum rmnet_config_return_codes_e {
 	RMNET_CONFIG_INVALID_REQUEST,
 	RMNET_CONFIG_NO_SUCH_DEVICE,
 	RMNET_CONFIG_BAD_ARGUMENTS,
-	RMNET_CONFIG_BAD_EGRESS_DEVICE
+	RMNET_CONFIG_BAD_EGRESS_DEVICE,
+	RMNET_CONFIG_TC_HANDLE_FULL
 };
 
 #endif /* _RMNET_DATA_H_ */
