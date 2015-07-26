@@ -79,102 +79,6 @@
 #include <linux/android_ediagpmem.h>
 #endif
 
-#ifdef CONFIG_LCD_KCAL
-#include <mach/kcal.h>
-#include <linux/module.h>
-#include "../../../drivers/video/msm/mdss/mdss_fb.h"
-extern int update_preset_lcdc_lut(void);
-
-extern int g_kcal_r;
-extern int g_kcal_g;
-extern int g_kcal_b;
-
-extern int g_kcal_min;
-
-int kcal_set_values(int kcal_r, int kcal_g, int kcal_b)
-{
-
-	if (kcal_r > 255 || kcal_r < 0)
-		kcal_r = kcal_r < 0 ? 0 : kcal_r;
-		kcal_r = kcal_r > 255 ? 255 : kcal_r;
-	if (kcal_g > 255 || kcal_g < 0)
-		kcal_g = kcal_g < 0 ? 0 : kcal_g;
-		kcal_g = kcal_g > 255 ? 255 : kcal_g;
-	if (kcal_b > 255 || kcal_b < 0)
-		kcal_b = kcal_b < 0 ? 0 : kcal_b;
-		kcal_b = kcal_b > 255 ? 255 : kcal_b;
-
-	g_kcal_r = kcal_r < g_kcal_min ? g_kcal_min : kcal_r;
-	g_kcal_g = kcal_g < g_kcal_min ? g_kcal_min : kcal_g;
-	g_kcal_b = kcal_b < g_kcal_min ? g_kcal_min : kcal_b;
-
-	if (kcal_r < g_kcal_min || kcal_g < g_kcal_min || kcal_b < g_kcal_min)
-		update_preset_lcdc_lut();
-
-	return 0;
-}
-
-static int kcal_get_values(int *kcal_r, int *kcal_g, int *kcal_b)
-{
-	*kcal_r = g_kcal_r;
-	*kcal_g = g_kcal_g;
-	*kcal_b = g_kcal_b;
-	return 0;
-}
-
-int kcal_set_min(int kcal_min)
-{
-	g_kcal_min = kcal_min;
-
-	if (g_kcal_min > 255)
-		g_kcal_min = 255;
-
-	if (g_kcal_min < 0)
-		g_kcal_min = 0;
-
-	if (g_kcal_min > g_kcal_r || g_kcal_min > g_kcal_g || g_kcal_min > g_kcal_b) {
-		g_kcal_r = g_kcal_r < g_kcal_min ? g_kcal_min : g_kcal_r;
-		g_kcal_g = g_kcal_g < g_kcal_min ? g_kcal_min : g_kcal_g;
-		g_kcal_b = g_kcal_b < g_kcal_min ? g_kcal_min : g_kcal_b;
-		update_preset_lcdc_lut();
-	}
-
-	return 0;
-}
-
-static int kcal_get_min(int *kcal_min)
-{
-	*kcal_min = g_kcal_min;
-	return 0;
-}
-
-static int kcal_refresh_values(void)
-{
-	return update_preset_lcdc_lut();
-}
-
-static struct kcal_platform_data kcal_pdata = {
-	.set_values = kcal_set_values,
-	.get_values = kcal_get_values,
-	.refresh_display = kcal_refresh_values,
-	.set_min = kcal_set_min,
-	.get_min = kcal_get_min
-};
-
-static struct platform_device kcal_platrom_device = {
-	.name = "kcal_ctrl",
-	.dev = {
-		.platform_data = &kcal_pdata,
-	}
-};
-
-void __init add_lcd_kcal_devices(void)
-{
-	pr_info (" LCD_KCAL_DEBUG : %s \n", __func__);
-	platform_device_register(&kcal_platrom_device);
-};
-#endif
-
 #define HTC_8226_PERSISTENT_RAM_PHYS 0x05B00000
 #ifdef CONFIG_HTC_BUILD_EDIAG
 #define HTC_8226_PERSISTENT_RAM_SIZE (SZ_1M - SZ_128K - SZ_64K)
@@ -638,9 +542,6 @@ void __init htc_8226_init(void)
 #endif
 #ifdef CONFIG_HTC_POWER_DEBUG
 	htc_monitor_init();
-#endif
-#ifdef CONFIG_LCD_KCAL
-	add_lcd_kcal_devices();
 #endif
 }
 
