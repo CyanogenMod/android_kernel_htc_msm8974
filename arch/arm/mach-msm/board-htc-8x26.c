@@ -378,6 +378,11 @@ static void msm8226_add_usb_devices(void)
 		case 318:
 			android_usb_pdata.product_id 	= 0x0645;
 			break;
+		case 322:
+			android_usb_pdata.product_id	= 0x064e;
+			android_usb_pdata.nluns 	= 2;
+			android_usb_pdata.cdrom_lun = 0x2;
+			break;
 		default:
 			android_usb_pdata.product_id 	= 0x0dff;
 			break;
@@ -400,6 +405,7 @@ static struct htc_battery_platform_data htc_battery_pdev_data = {
 	.overload_vol_thr_mv = 4000,
 	.overload_curr_thr_ma = 0,
 	.smooth_chg_full_delay_min = 3,
+	.decreased_batt_level_check = 1,
 
 	.icharger.name = "pm8x26",
 	.icharger.get_charging_source = pm8941_get_charging_source,
@@ -500,7 +506,9 @@ void __init htc_8226_add_drivers(void)
 	msm8x26_add_batt_devices();
 #endif
 	msm8226_add_usb_devices();
+#if defined(CONFIG_HTC_PANEL_PWR_REG)
 	htc_8226_dsi_panel_power_register();
+#endif
 #ifdef CONFIG_HTC_POWER_DEBUG
 	htc_8226_cpu_usage_register();
 #endif

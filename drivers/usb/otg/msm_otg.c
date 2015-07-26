@@ -4182,7 +4182,7 @@ static int usb_phy_setting_MEMUL[9] = {
 	0xffffffff
 };
 #elif defined(CONFIG_MACH_A5)
-static int usb_phy_setting_A5UL[9] = {
+static int usb_phy_setting_A5[9] = {
 	0x44,0x80,
 	0x3c,0x81,
 	0x3d,0x82,
@@ -4198,7 +4198,7 @@ int *htc_msm_otg_get_phy_init(int *phy_init)
 #if defined(CONFIG_MACH_MEM_UL)
 	return usb_phy_setting_MEMUL;
 #elif defined(CONFIG_MACH_A5)
-	return usb_phy_setting_A5UL;
+	return usb_phy_setting_A5;
 #endif
 	printk("[USB] use dt phy init\n");
 	return phy_init;

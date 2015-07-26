@@ -9,8 +9,16 @@
 #include <mach/debug_display.h>
 #include "../../../../drivers/video/msm/mdss/mdss_dsi.h"
 
-#define PANEL_ID_A5_SHARP_HX      0
-#define PANEL_ID_A5_JDI_NT35521_C3      1
+#ifdef CONFIG_HTC_PNPMGR
+extern void set_screen_status(bool onoff);
+#endif
+
+#define PANEL_ID_A5_SHARP_HX           0
+#define PANEL_ID_A5_JDI_NT35521_C3     1
+#define PANEL_ID_A5_TRULY_NT35521      2
+#define PANEL_ID_A5_TRULY_CPT_HX8394D  3
+#define PANEL_ID_A5_TIANMA_HX8394D     4
+
 struct dsi_power_data {
 	uint32_t sysrev;
 	struct regulator *vddio;
@@ -237,6 +245,8 @@ static int htc_a5_regulator_deinit(struct platform_device *pdev)
 int htc_a5_panel_reset(struct mdss_panel_data *pdata, int enable)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+	struct dsi_power_data *pwrdata = NULL;
+	u8 avdd_level = 0x00;
 
 	if (pdata == NULL) {
 		PR_DISP_ERR("%s: Invalid input data\n", __func__);
@@ -249,6 +259,13 @@ int htc_a5_panel_reset(struct mdss_panel_data *pdata, int enable)
 	if (!gpio_is_valid(ctrl_pdata->rst_gpio)) {
 		PR_DISP_DEBUG("%s:%d, reset line not configured\n",
 			   __func__, __LINE__);
+		return -EINVAL;
+	}
+
+	pwrdata = ctrl_pdata->dsi_pwrctrl_data;
+
+	if (!pwrdata) {
+		PR_DISP_ERR("%s: pwrdata not initialized\n", __func__);
 		return -EINVAL;
 	}
 
@@ -267,8 +284,37 @@ int htc_a5_panel_reset(struct mdss_panel_data *pdata, int enable)
 			usleep_range(1000,1500);
 			gpio_set_value((ctrl_pdata->rst_gpio), 1);
 			msleep(25);
+		} else if(pdata->panel_info.panel_id == PANEL_ID_A5_TRULY_CPT_HX8394D) {
+
+			usleep_range(1000,1500);
+			gpio_set_value((ctrl_pdata->rst_gpio), 1);
+
+			usleep_range(5000,5500);
+			gpio_set_value(pwrdata->lcmp5v, 1);
+			avdd_level = 0x0F;
+			platform_write_i2c_block(i2c_bus_adapter,0x7C,0x00, 0x01, &avdd_level);
+			platform_write_i2c_block(i2c_bus_adapter,0x7C,0x01, 0x01, &avdd_level);
+			usleep_range(10000,10500);
+			gpio_set_value(pwrdata->lcmn5v, 1);
+
+			usleep_range(170000,170500);
+		} else if(pdata->panel_info.panel_id == PANEL_ID_A5_TIANMA_HX8394D) {
+
+			usleep_range(1000,1500);
+			gpio_set_value((ctrl_pdata->rst_gpio), 1);
+
+			usleep_range(5000,5500);
+			gpio_set_value(pwrdata->lcmp5v, 1);
+			avdd_level = 0x0F;
+			platform_write_i2c_block(i2c_bus_adapter,0x7C,0x00, 0x01, &avdd_level);
+			platform_write_i2c_block(i2c_bus_adapter,0x7C,0x01, 0x01, &avdd_level);
+			usleep_range(10000,10500);
+			gpio_set_value(pwrdata->lcmn5v, 1);
+
+			usleep_range(150000,150500);
 		} else {
-			msleep(40);
+
+			usleep_range(40000,40500);
 
 			gpio_set_value((ctrl_pdata->rst_gpio), 1);
 			usleep_range(1000,1500);
@@ -363,6 +409,93 @@ static int htc_a5_panel_power_on(struct mdss_panel_data *pdata, int enable)
 				return ret;
 			}
 
+		} else if(pdata->panel_info.panel_id == PANEL_ID_A5_TRULY_CPT_HX8394D) {
+			ret = regulator_set_optimum_mode(pwrdata->vddio, 100000);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vddio set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vddpll, 100000);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vddpll set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+
+			ret = regulator_set_optimum_mode(pwrdata->vdda, 100000);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdda set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_enable(pwrdata->vddio);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to enable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_enable(pwrdata->vddpll);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to enable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_enable(pwrdata->vdda);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to enable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+		} else if(pdata->panel_info.panel_id == PANEL_ID_A5_TIANMA_HX8394D) {
+			ret = regulator_set_optimum_mode(pwrdata->vddio, 100000);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vddio set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vddpll, 100000);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vddpll set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vdda, 100000);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdda set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_enable(pwrdata->vddio);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to enable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_enable(pwrdata->vddpll);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to enable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_enable(pwrdata->vdda);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to enable regulator.\n",
+					__func__);
+				return ret;
+			}
+
 		} else {
 			ret = regulator_set_optimum_mode(pwrdata->vddio, 100000);
 			if (ret < 0) {
@@ -420,62 +553,171 @@ static int htc_a5_panel_power_on(struct mdss_panel_data *pdata, int enable)
 
 		gpio_set_value(pwrdata->lcm_bl_en, 1);
 	} else {
+		if(pdata->panel_info.panel_id == PANEL_ID_A5_TRULY_CPT_HX8394D) {
+			gpio_set_value(pwrdata->lcm_bl_en, 0);
+			usleep_range(2000,2500);
+			htc_a5_panel_reset(pdata, 0);
 
-		gpio_set_value(pwrdata->lcm_bl_en, 0);
-		usleep_range(2000,2500);
-		htc_a5_panel_reset(pdata, 0);
+			ret = regulator_disable(pwrdata->vdda);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to disable regulator.\n",
+					__func__);
+				return ret;
+			}
 
-		ret = regulator_disable(pwrdata->vdda);
-		if (ret) {
-			PR_DISP_ERR("%s: Failed to disable regulator.\n",
-				__func__);
-			return ret;
+			ret = regulator_disable(pwrdata->vddpll);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to disable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			usleep_range(5000,5500);
+			gpio_set_value(pwrdata->lcmn5v, 0);
+			usleep_range(10000,10500);
+			gpio_set_value(pwrdata->lcmp5v, 0);
+			usleep_range(10000,10500);
+
+			ret = regulator_disable(pwrdata->vddio);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to disable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vddio, 100);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdd_io_vreg set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vddpll, 100);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdd_io_vreg set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vdda, 100);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdda_vreg set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+		} else if(pdata->panel_info.panel_id == PANEL_ID_A5_TIANMA_HX8394D) {
+			gpio_set_value(pwrdata->lcm_bl_en, 0);
+			usleep_range(2000,2500);
+			htc_a5_panel_reset(pdata, 0);
+
+			ret = regulator_disable(pwrdata->vdda);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to disable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_disable(pwrdata->vddpll);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to disable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			usleep_range(5000,5500);
+			gpio_set_value(pwrdata->lcmn5v, 0);
+			usleep_range(10000,10500);
+			gpio_set_value(pwrdata->lcmp5v, 0);
+			usleep_range(10000,10500);
+
+			ret = regulator_disable(pwrdata->vddio);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to disable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vddio, 100);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdd_io_vreg set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vddpll, 100);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdd_io_vreg set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vdda, 100);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdda_vreg set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+		} else {
+			gpio_set_value(pwrdata->lcm_bl_en, 0);
+			usleep_range(2000,2500);
+			htc_a5_panel_reset(pdata, 0);
+
+			ret = regulator_disable(pwrdata->vdda);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to disable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_disable(pwrdata->vddpll);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to disable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			usleep_range(2000,2500);
+			gpio_set_value(pwrdata->lcmn5v, 0);
+			usleep_range(2000,2500);
+			gpio_set_value(pwrdata->lcmp5v, 0);
+			usleep_range(2000,2500);
+
+			ret = regulator_disable(pwrdata->vddio);
+			if (ret) {
+				PR_DISP_ERR("%s: Failed to disable regulator.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vddio, 100);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdd_io_vreg set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vddpll, 100);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdd_io_vreg set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
+
+			ret = regulator_set_optimum_mode(pwrdata->vdda, 100);
+			if (ret < 0) {
+				PR_DISP_ERR("%s: vdda_vreg set opt mode failed.\n",
+					__func__);
+				return ret;
+			}
 		}
-
-		ret = regulator_disable(pwrdata->vddpll);
-		if (ret) {
-			PR_DISP_ERR("%s: Failed to disable regulator.\n",
-				__func__);
-			return ret;
-		}
-
-		usleep_range(2000,2500);
-		gpio_set_value(pwrdata->lcmn5v, 0);
-		usleep_range(2000,2500);
-		gpio_set_value(pwrdata->lcmp5v, 0);
-		usleep_range(2000,2500);
-
-		ret = regulator_disable(pwrdata->vddio);
-		if (ret) {
-			PR_DISP_ERR("%s: Failed to disable regulator.\n",
-				__func__);
-			return ret;
-		}
-
-		ret = regulator_set_optimum_mode(pwrdata->vddio, 100);
-		if (ret < 0) {
-			PR_DISP_ERR("%s: vdd_io_vreg set opt mode failed.\n",
-				__func__);
-			return ret;
-		}
-
-		ret = regulator_set_optimum_mode(pwrdata->vddpll, 100);
-		if (ret < 0) {
-			PR_DISP_ERR("%s: vdd_io_vreg set opt mode failed.\n",
-				__func__);
-			return ret;
-		}
-
-		ret = regulator_set_optimum_mode(pwrdata->vdda, 100);
-		if (ret < 0) {
-			PR_DISP_ERR("%s: vdda_vreg set opt mode failed.\n",
-				__func__);
-			return ret;
-		}
-
 	}
 	PR_DISP_INFO("%s: en=%d done\n", __func__, enable);
 
+#ifdef CONFIG_HTC_PNPMGR
+       set_screen_status(enable);
+#endif
 	return 0;
 }
 

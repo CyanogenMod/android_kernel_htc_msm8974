@@ -14,6 +14,11 @@ qcom,A5-id2-batterydata {
 	htc,type = <1>;
 	htc,model_name = "B0P6B100";
 
+	htc,fcc-chgcyl-tab {
+		htc,chgcyl = <500 400 300 200 100 0>;
+		htc,mini = <85 87 89 91 93 95>;
+	};
+
 	qcom,fcc-temp-lut {
 		qcom,lut-col-legend = <(-20) (-10) 0 10 20 30 40>;
 		qcom,lut-data = <2426 2512 2550 2610 2610 2617 2620>;

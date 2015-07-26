@@ -22,7 +22,7 @@
 / {
 	model = "MSM 8x26 A5 China";
 	compatible = "htc,a5dwg", "qcom,msm8226-mtp", "qcom,msm8226", "qcom,mtp";
-	htc,project-id = <290 0 0>, <297 0 0>, <298 0 0>, <318 0 0>, <290 1 0>, <297 1 0>, <298 1 0>, <318 1 0>, <290 2 0>, <297 2 0>, <298 2 0>, <318 2 0>, <290 128 0>, <297 128 0>, <298 128 0>, <318 128 0>, <290 0 0x20000>, <297 0 0x20000>, <298 0 0x20000>, <318 0 0x20000>, <290 1 0x20000>, <297 1 0x20000>, <298 1 0x20000>, <318 1 0x20000>, <290 2 0x20000>, <297 2 0x20000>, <298 2 0x20000>, <318 2 0x20000>, <290 128 0x20000>, <297 128 0x20000>, <298 128 0x20000>, <318 128 0x20000>;  /* <pid hw-version reserve> */
+	htc,project-id = <290 0 0>, <297 0 0>, <298 0 0>, <290 1 0>, <297 1 0>, <298 1 0>, <290 2 0>, <297 2 0>, <298 2 0>, <290 128 0>, <297 128 0>, <298 128 0>, <290 0 0x20000>, <297 0 0x20000>, <298 0 0x20000>, <290 1 0x20000>, <297 1 0x20000>, <298 1 0x20000>, <290 2 0x20000>, <297 2 0x20000>, <298 2 0x20000>, <290 128 0x20000>, <297 128 0x20000>, <298 128 0x20000>;  /* <pid hw-version reserve> */
 	qcom,msm-id = <145 8 0>,
 		      <158 8 0>,
 		      <159 8 0>,
@@ -139,7 +139,6 @@
 			gpio    = <&msmgpio 107 3>;
 			keycode = <114>; /* Volume Down */
 		};
-
 	};
 
 	keyreset {
@@ -156,7 +155,7 @@
 		mgr,wire_alt = <2>;
 		mgr,hs_typenum   = <2>;
 		mgr,hs_type      = <2 1>;
-		mgr,adc_max      = <1557 254>;
+		mgr,adc_max      = <1541 254>;
 		mgr,adc_min      = <255 0>;
 	};
 
@@ -265,7 +264,6 @@
 			qcom,msm-mi2s-tx-lines = <2>;
 		};
 	};
-	/delete-node/ sound-9302;
 /*Audio config end*/
 
 	/include/ "msm8926-ax-soc-common.dtsi"
@@ -298,8 +296,8 @@
 	qcom,min-fcc-learning-soc = <20>;
 	qcom,min-fcc-ocv-pc = <30>;
 	qcom,min-fcc-learning-samples = <5>;
-	qcom,fcc-resolution = <10>;
-	qcom,criteria-sw-est-ocv = <86400000>;
+	qcom,fcc-resolution = <13>;
+	qcom,criteria-sw-est-ocv = <79200000>;
 	qcom,rconn-mohm-sw-est-ocv = <10>;
 	qcom,enable-sw-ocv-in-eoc = <1>;
 	qcom,enable-batt-full-fake-ocv = <1>;
@@ -334,7 +332,9 @@
 	htc,external-ovpfet-gpio = <&msmgpio 114 0>;
 	htc,external-ovpfet-temp-ok-rext = <130>;
 	htc,external-ovpfet-temp-cool-rext = <122>;
-	htc,external-ovpfet-cool-decidegc = <100>;
+	htc,external-ovpfet-cool-decidegc  = <100>;
+	qcom,stored-pre-delta-vddmax-mv= <(-1)>;
+	qcom,stored-batt-magic-num= <(-1)>;
 
 	status = "ok";
 	qcom,charging-disabled;

@@ -521,6 +521,10 @@
 		compatible = "qcom,msm-voice-svc";
 	};
 
+	qcom,msm-voice-svc {
+		compatible = "qcom,msm-voice-svc";
+	};
+
 	qcom,msm-dai-q6 {
 		compatible = "qcom,msm-dai-q6";
 		qcom,msm-dai-q6-sb-0-rx {
@@ -1097,7 +1101,7 @@
 			<  300000 1525 >,
 /*			<  384000 1525 >, */
 			<  600000 1525 >,
-			<  787200 1525 >,
+			<  787200 3051 >,
 			<  998400 4066 >,
 			< 1094400 4066 >,
 			< 1190400 4066 >,
@@ -1318,12 +1322,6 @@
                 status = "disabled";
         };
 
-        qcom,msm-contig-mem {
-                compatible = "qcom,msm-contig-mem";
-		qcom,memory-reservation-type = "EBI1";
-		qcom,memory-reservation-size = <0x100000>; /* 1M EBI1 buffer */
-	};
-
 	qcom,msm-rng@f9bff000 {
                 compatible = "qcom,msm-rng";
                 reg = <0xf9bff000 0x200>;
@@ -1443,6 +1441,12 @@
 		compatible = "arm,cortex-a7-pmu";
 		qcom,irq-is-percpu;
 		interrupts = <1 7 0xf00>;
+	};
+
+	bimc_sharedmem {
+		compatible = "qcom,sharedmem-uio";
+		reg = <0xfc380000 0x00100000>;
+		reg-names = "bimc";
 	};
 };
 
