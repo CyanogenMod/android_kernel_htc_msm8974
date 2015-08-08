@@ -61,21 +61,21 @@ static struct gpiomux_setting ap2mdm_wakeup = {
 };
 
 static struct msm_gpiomux_config mdm_configs[] __initdata = {
-	
+
 	{
 		.gpio = 105,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_cfg,
 		}
 	},
-	
+
 	{
 		.gpio = 46,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &mdm2ap_status_cfg,
 		}
 	},
-	
+
 #if 0
 	{
 		.gpio = 82,
@@ -84,28 +84,28 @@ static struct msm_gpiomux_config mdm_configs[] __initdata = {
 		}
 	},
 #endif
-	
+
 	{
 		.gpio = 106,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_cfg,
 		}
 	},
-	
+
 	{
 		.gpio = 24,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_soft_reset_cfg,
 		}
 	},
-	
+
 	{
 		.gpio = 104,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_wakeup,
 		}
 	},
-	
+
 	{
 		.gpio = 80,
 		.settings = {
@@ -1234,7 +1234,6 @@ void __init msm_htc_8974_init_gpiomux(void)
 	msm_gpiomux_install(msm_sensor_configs, ARRAY_SIZE(msm_sensor_configs));
 	msm_gpiomux_install(msm_sensor_configs_non_common, ARRAY_SIZE(msm_sensor_configs_non_common));
 
-    
     if (of_machine_pid() == m8_UHL_PID)
         msm_gpiomux_install(msm_sensor_configs_china_sku, ARRAY_SIZE(msm_sensor_configs_china_sku));
     else
