@@ -781,14 +781,30 @@ static ssize_t show_available_freqs(struct device *d,
 				    char *buf)
 {
 	struct devfreq *df = to_devfreq(d);
-	int index, num_chars = 0;
+	struct device *dev = df->dev.parent;
+	struct opp *opp;
+	ssize_t count = 0;
+	unsigned long freq = 0;
 
-	for (index = 0; index < df->profile->max_state; index++)
-		num_chars += snprintf(buf + num_chars, PAGE_SIZE, "%d ",
-		df->profile->freq_table[index]);
-	buf[num_chars++] = '\n';
+	rcu_read_lock();
+	do {
+		opp = opp_find_freq_ceil(dev, &freq);
+		if (IS_ERR(opp))
+			break;
 
-	return num_chars;
+		count += scnprintf(&buf[count], (PAGE_SIZE - count - 2),
+				   "%lu ", freq);
+		freq++;
+	} while (1);
+	rcu_read_unlock();
+
+	
+	if (count)
+		count--;
+
+	count += sprintf(&buf[count], "\n");
+
+	return count;
 }
 
 static ssize_t show_trans_table(struct device *dev, struct device_attribute *attr,
