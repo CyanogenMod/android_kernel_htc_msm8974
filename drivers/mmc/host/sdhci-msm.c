@@ -163,7 +163,7 @@ enum sdc_mpm_pin_state {
 /* 8KB descriptors */
 #define SDHCI_MSM_MAX_SEGMENTS  (1 << 13)
 #define SDHCI_MSM_MMC_CLK_GATE_DELAY	200 /* msecs */
-#define SDHCI_MSM_MMC_CLK_GATE_DELAY_EMMC	20 
+#define SDHCI_MSM_MMC_CLK_GATE_DELAY_EMMC	20
 
 #define CORE_FREQ_100MHZ	(100 * 1000 * 1000)
 
@@ -873,7 +873,7 @@ static void sdhci_msm_set_mmc_drv_type(struct sdhci_host *host, u32 opcode,
 		(val << 8) |
 		EXT_CSD_CMD_SET_NORMAL;
 	cmd.flags = MMC_CMD_AC | MMC_RSP_R1B;
-	
+
 	cmd.cmd_timeout_ms = 1000 * 1000;
 
 	memset(cmd.resp, 0, sizeof(cmd.resp));
@@ -946,7 +946,7 @@ int sdhci_msm_execute_tuning(struct sdhci_host *host, u32 opcode)
 retry:
 	tuned_phase_cnt = 0;
 
-	
+
 	rc = msm_init_cm_dll(host);
 	if (rc)
 		goto kfree;
@@ -961,7 +961,7 @@ retry:
 		};
 		struct scatterlist sg;
 
-		
+
 		rc = msm_config_cm_dll_phase(host, phase);
 		if (rc)
 			goto kfree;
@@ -990,7 +990,7 @@ retry:
 			usleep_range(1000, 1200);
 		if (!cmd.error && !data.error &&
 			!memcmp(data_buf, tuning_block_pattern, size)) {
-			
+
 			tuned_phases[tuned_phase_cnt++] = phase;
 			pr_debug("%s: %s: found *** good *** phase = %d\n",
 				mmc_hostname(mmc), __func__, phase);
@@ -1005,7 +1005,7 @@ retry:
 		pr_debug("%s: tuned phases count: %d\n", mmc_hostname(mmc),
 				tuned_phase_cnt);
 
-		
+
 		while (++drv_type <= MAX_DRV_TYPES_SUPPORTED_HS200) {
 			if (card->ext_csd.raw_drive_strength &
 					(1 << drv_type)) {
@@ -1018,7 +1018,7 @@ retry:
 		}
 	}
 
-	
+
 	if (drv_type_changed)
 		sdhci_msm_set_mmc_drv_type(host, opcode, 0);
 
@@ -1399,9 +1399,9 @@ static int sdhci_msm_dt_get_pad_drv_info(struct device *dev, int id,
 		ret = -ENOMEM;
 		goto out;
 	}
-	drv_data->size = 3; 
+	drv_data->size = 3;
 
-	
+
 	drv = devm_kzalloc(dev, 3 * drv_data->size *\
 			sizeof(struct sdhci_msm_pad_drv), GFP_KERNEL);
 	if (!drv) {
@@ -2708,7 +2708,7 @@ static void sdhci_msm_set_clock(struct sdhci_host *host, unsigned int clock)
 	 * All other modes - default (free running MCLK)
 	 */
 	if (curr_ios.timing == MMC_TIMING_MMC_HS400) {
-		
+
 		writel_relaxed(((readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC)
 					& ~CORE_HC_MCLK_SEL_MASK)
 					| CORE_HC_MCLK_SEL_HS400),
@@ -3263,13 +3263,13 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 	/* Enable pwr irq interrupts */
 	writel_relaxed(INT_MASK, (msm_host->core_mem + CORE_PWRCTL_MASK));
 
-	
+
 	if (is_mmc_platform(msm_host->pdata))
 		msm_host->mmc->clkgate_delay = SDHCI_MSM_MMC_CLK_GATE_DELAY_EMMC;
 	else
 		msm_host->mmc->clkgate_delay = SDHCI_MSM_MMC_CLK_GATE_DELAY;
 
-	
+
 	msm_host->mmc->caps |= msm_host->pdata->mmc_bus_width;
 	msm_host->mmc->caps |= msm_host->pdata->caps;
 
@@ -3296,8 +3296,8 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 				MMC_CAP2_DETECT_ON_ERR);
 	msm_host->mmc->caps2 |= MMC_CAP2_SANITIZE;
 	msm_host->mmc->caps2 |= MMC_CAP2_CACHE_CTRL;
-	
-	
+
+
 	msm_host->mmc->caps2 |= MMC_CAP2_STOP_REQUEST;
 	msm_host->mmc->caps2 |= MMC_CAP2_ASYNC_SDIO_IRQ_4BIT_MODE;
 	msm_host->mmc->caps2 |= MMC_CAP2_CORE_PM;
@@ -3543,7 +3543,7 @@ static int sdhci_msm_cfg_sdio_wakeup(struct sdhci_host *host, bool enable)
 
 	spin_lock_irqsave(&host->lock, flags);
 	if (enable) {
-		
+
 		if (sdhci_is_valid_gpio_wakeup_int(msm_host)) {
 			ret = enable_irq_wake(msm_host->pdata->sdiowakeup_irq);
 			if (!ret)

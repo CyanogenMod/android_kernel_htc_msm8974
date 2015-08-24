@@ -141,7 +141,7 @@ static int mmc_decode_cid(struct mmc_card *card)
 		card->cid.month		= UNSTUFF_BITS(resp, 12, 4);
 		card->cid.year		= UNSTUFF_BITS(resp, 8, 4) + 1997;
 
-		
+
 		if (card->cid.manfid == CID_MANFID_TOSHIBA ||
 		    card->cid.manfid ==  CID_MANFID_MICRON ||
 		    card->cid.manfid == CID_MANFID_SAMSUNG ||
@@ -357,7 +357,7 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	if (mmc_card_mmc(card))
 		card->quirks |= MMC_QUIRK_CACHE_DISABLE;
 
-	
+
 	mmc_fixup_device(card, mmc_fixups);
 
 	card->ext_csd.raw_sectors[0] = ext_csd[EXT_CSD_SEC_CNT + 0];
@@ -649,13 +649,13 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		if (buf)
 			kfree(buf);
 
-		
+
 		if (card->cid.manfid == CID_MANFID_SANDISK ||
 		    card->cid.manfid == CID_MANFID_SANDISK_2) {
 			if (card->ext_csd.rev == 6)
 				card->cid.fwrev =
 				ext_csd[EXT_CSD_VENDOR_SPECIFIC_FIELDS_73] & 0x3F;
-			
+
 		}
 		if ((card->cid.manfid == CID_MANFID_HYNIX) && !strncmp(card->cid.prod_name, "HAG2e", 5)
 			&& (card->cid.fwrev < 6)) {
@@ -1618,9 +1618,9 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		}
 	}
 #if 0
-	
+
 	if (card->ext_csd.rev >= 6) {
-		
+
 		if (card->cid.manfid == SAMSUNG_MMC) {
 			if (card->ext_csd.sec_feature_support & EXT_CSD_SEC_SANITIZE)
 				card->need_sanitize = 1;

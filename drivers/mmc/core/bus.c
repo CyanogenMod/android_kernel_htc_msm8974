@@ -203,7 +203,7 @@ static int mmc_runtime_idle(struct device *dev)
 	return ret;
 }
 
-#endif 
+#endif
 
 static const struct dev_pm_ops mmc_bus_pm_ops = {
 	SET_RUNTIME_PM_OPS(mmc_runtime_suspend, mmc_runtime_resume,
@@ -429,7 +429,7 @@ int mmc_add_card(struct mmc_card *card)
 		if (ret)
 			pr_err("%s: %s: creating runtime pm sysfs entry: failed: %d\n",
 			       mmc_hostname(card->host), __func__, ret);
-		
+
 		card->idle_timeout = RUNTIME_SUSPEND_DELAY_MS;
 	}
 

@@ -19,8 +19,8 @@
 #include <linux/mmc/core.h>
 #include <linux/mmc/pm.h>
 
-#define MMC_STATS_INTERVAL 5000 
-#define MMC_STATS_LOG_INTERVAL 60000 
+#define MMC_STATS_INTERVAL 5000
+#define MMC_STATS_LOG_INTERVAL 60000
 extern struct workqueue_struct *stats_workqueue;
 struct mmc_ios {
 	unsigned int	clock;			/* clock rate */
@@ -243,7 +243,7 @@ struct mmc_host {
 #define MMC_VDD_35_36		0x00800000	/* VDD voltage 3.5 ~ 3.6 */
 
 	unsigned long		caps;		/* Host capabilities */
-	unsigned long		caps_uhs;	
+	unsigned long		caps_uhs;
 
 #define MMC_CAP_4_BIT_DATA	(1 << 0)	/* Can the host do 4 bit transfers */
 #define MMC_CAP_MMC_HIGHSPEED	(1 << 1)	/* Can do MMC high-speed timing */
@@ -416,27 +416,27 @@ struct mmc_host {
 	struct {
 
 		unsigned long rbytes_drv;  /* Rd bytes MMC Host  */
-		unsigned long wbytes_drv;  
-		unsigned long rcount;	
-		unsigned long wcount;	
-		ktime_t rtime_drv;	   
-		ktime_t wtime_drv;	   
-		
-		unsigned long rbytes_drv_rand;  
-		unsigned long wbytes_drv_rand;  
-		unsigned long rcount_rand;	
-		unsigned long wcount_rand;	
-		ktime_t rtime_drv_rand;	   
-		ktime_t wtime_drv_rand;	   
+		unsigned long wbytes_drv;
+		unsigned long rcount;
+		unsigned long wcount;
+		ktime_t rtime_drv;
+		ktime_t wtime_drv;
+
+		unsigned long rbytes_drv_rand;
+		unsigned long wbytes_drv_rand;
+		unsigned long rcount_rand;
+		unsigned long wcount_rand;
+		ktime_t rtime_drv_rand;
+		ktime_t wtime_drv_rand;
 		unsigned long wbytes_low_perf;
 		unsigned long  wtime_low_perf;
-		unsigned long lp_duration;	
-		
-		unsigned long erase_rq;		
-		unsigned long erase_blks;	
-		ktime_t erase_time;			
+		unsigned long lp_duration;
+
+		unsigned long erase_rq;
+		unsigned long erase_blks;
+		ktime_t erase_time;
 		ktime_t start;
-		
+
 		unsigned long wkbytes_drv;
 		ktime_t workload_time;
 	} perf;

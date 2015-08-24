@@ -19,7 +19,7 @@
 #include <linux/ratelimit.h>
 #include <linux/delay.h>
 
-static struct workqueue_struct *enable_detection_workqueue;	
+static struct workqueue_struct *enable_detection_workqueue;
 
 struct mmc_cd_gpio {
 	unsigned int gpio;
@@ -88,11 +88,11 @@ static irqreturn_t mmc_cd_gpio_irqt(int irq, void *dev_id)
 			(host->caps2 & MMC_CAP2_CD_ACTIVE_HIGH) ?
 			"HIGH" : "LOW");
 	cd->status = status;
-	
+
 	host->caps |= host->caps_uhs;
 	host->redetect_cnt = 0;
 	host->crc_count = 0;
-	
+
 	mmc_detect_change(host, msecs_to_jiffies(host->expand_debounce+100));
 	mmc_cd_send_uevent(host);
 

@@ -761,7 +761,7 @@ int mmc_add_host(struct mmc_host *host)
 		return err;
 
 	device_enable_async_suspend(&host->class_dev);
-	
+
 
 #ifdef CONFIG_DEBUG_FS
 	mmc_add_host_debugfs(host);
@@ -814,7 +814,7 @@ void mmc_remove_host(struct mmc_host *host)
 
 	device_del(&host->class_dev);
 
-	
+
 
 	mmc_host_clk_exit(host);
 }

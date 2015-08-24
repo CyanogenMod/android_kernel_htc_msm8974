@@ -80,7 +80,7 @@ static int sd_queue_thread(void *d)
 			set_current_state(TASK_RUNNING);
 			mq->issue_fn(mq, req);
 			if (mq->flags & MMC_QUEUE_NEW_REQUEST) {
-				continue; 
+				continue;
 			} else if ((mq->flags & MMC_QUEUE_URGENT_REQUEST) &&
 				   (mq->mqrq_cur->req &&
 				!(mq->mqrq_cur->req->cmd_flags &
@@ -135,7 +135,7 @@ static int mmc_queue_thread(void *d)
 			set_current_state(TASK_RUNNING);
 			mq->issue_fn(mq, req);
 			if (mq->flags & MMC_QUEUE_NEW_REQUEST) {
-				continue; 
+				continue;
 			} else if ((mq->flags & MMC_QUEUE_URGENT_REQUEST) &&
 				   (mq->mqrq_cur->req &&
 				!(mq->mqrq_cur->req->cmd_flags &
@@ -236,10 +236,10 @@ static void mmc_urgent_request(struct request_queue *q)
 	}
 	cntx = &mq->card->host->context_info;
 
-	
+
 	spin_lock_irqsave(&cntx->lock, flags);
 
-	
+
 	if (mq->mqrq_cur->req || mq->mqrq_prev->req) {
 		/*
 		 * Urgent request must be executed alone
@@ -285,7 +285,7 @@ static void mmc_queue_setup_discard(struct request_queue *q,
 	if (card->erased_byte == 0 && !mmc_can_discard(card))
 		q->limits.discard_zeroes_data = 1;
 	q->limits.discard_granularity = card->pref_erase << 9;
-	
+
 	if (card->pref_erase > max_discard)
 		q->limits.discard_granularity = 0;
 	if (mmc_can_secure_erase_trim(card))
