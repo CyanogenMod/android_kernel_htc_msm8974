@@ -2119,10 +2119,10 @@ static int mmc_test_rw_multiple(struct mmc_test_card *test,
 	/* prepare test area */
 	if (mmc_can_erase(test->card) &&
 	    tdata->prepare & MMC_TEST_PREP_ERASE) {
-		/* ret = mmc_erase(test->card, dev_addr,
-				size / 512, MMC_SECURE_ERASE_ARG);
-		if (ret) */
 		ret = mmc_erase(test->card, dev_addr,
+				size / 512, MMC_SECURE_ERASE_ARG);
+		if (ret)
+			ret = mmc_erase(test->card, dev_addr,
 					size / 512, MMC_ERASE_ARG);
 		if (ret)
 			goto err;

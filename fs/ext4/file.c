@@ -28,7 +28,6 @@
 #include "ext4_jbd2.h"
 #include "xattr.h"
 #include "acl.h"
-#include <trace/events/mmcio.h>
 
 static int ext4_release_file(struct inode *inode, struct file *filp)
 {
@@ -36,7 +35,7 @@ static int ext4_release_file(struct inode *inode, struct file *filp)
 		ext4_alloc_da_blocks(inode);
 		ext4_clear_inode_state(inode, EXT4_STATE_DA_ALLOC_CLOSE);
 	}
-
+	
 	if ((filp->f_mode & FMODE_WRITE) &&
 			(atomic_read(&inode->i_writecount) == 1) &&
 		        !EXT4_I(inode)->i_reserved_data_blocks)
@@ -93,8 +92,6 @@ ext4_file_write(struct kiocb *iocb, const struct iovec *iov,
 	int unaligned_aio = 0;
 	int ret;
 
-	trace_ext4_file_write(iocb->ki_filp->f_path.dentry, iocb->ki_left);
-
 	if (!(ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))) {
 		struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 		size_t length = iov_length(iov, nr_segs);
@@ -112,11 +109,11 @@ ext4_file_write(struct kiocb *iocb, const struct iovec *iov,
 		unaligned_aio = ext4_unaligned_aio(inode, iov, nr_segs, pos);
 	}
 
-
+	
 	if (unaligned_aio) {
 		static unsigned long unaligned_warn_time;
 
-
+		
 		if (printk_timed_ratelimit(&unaligned_warn_time, 60*60*24*HZ))
 			ext4_msg(inode->i_sb, KERN_WARNING,
 				 "Unaligned AIO/DIO on inode %ld by %s; "

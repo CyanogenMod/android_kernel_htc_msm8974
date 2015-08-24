@@ -43,14 +43,9 @@
 #endif
 
 #define MAX_TUNING_LOOP 40
-#define MAX_CRCERR_COUNT 2
 
 static unsigned int debug_quirks = 0;
 static unsigned int debug_quirks2;
-
-extern struct scatterlist	*cur_sg;
-extern struct scatterlist	*prev_sg;
-extern struct scatterlist *mmc_alloc_sg(int sg_len, int *err);
 
 static void sdhci_finish_data(struct sdhci_host *);
 
@@ -1914,13 +1909,6 @@ static void sdhci_hw_reset(struct mmc_host *mmc)
 		host->ops->hw_reset(host);
 }
 
-static int sdhci_get_cd(struct mmc_host *mmc)
-{
-       struct sdhci_host *host = mmc_priv(mmc);
-
-       return host->ops->get_cd(host);
-}
-
 static int sdhci_get_ro(struct mmc_host *mmc)
 {
 	struct sdhci_host *host = mmc_priv(mmc);
@@ -2396,7 +2384,6 @@ static const struct mmc_host_ops sdhci_ops = {
 	.request	= sdhci_request,
 	.set_ios	= sdhci_set_ios,
 	.get_ro		= sdhci_get_ro,
-	.get_cd		= sdhci_get_cd,
 	.hw_reset	= sdhci_hw_reset,
 	.enable_sdio_irq = sdhci_enable_sdio_irq,
 	.start_signal_voltage_switch	= sdhci_start_signal_voltage_switch,
@@ -2524,8 +2511,6 @@ static void sdhci_timeout_timer(unsigned long data)
 	spin_lock_irqsave(&host->lock, flags);
 
 	if (host->mrq) {
-		pr_err("%s: CMD%d: Request timeout\n", mmc_hostname(host->mmc),
-				host->mrq->cmd->opcode);
 		if (!host->mrq->cmd->ignore_timeout) {
 			pr_err("%s: Timeout waiting for hardware interrupt.\n",
 			       mmc_hostname(host->mmc));
@@ -2568,34 +2553,11 @@ static void sdhci_tuning_timer(unsigned long data)
 	spin_unlock_irqrestore(&host->lock, flags);
 }
 
-static void sdhci_underclocking(struct sdhci_host *host)
-{
-	if (host->mmc->crc_count++ < MAX_CRCERR_COUNT) {
-		pr_err("%s: %s: error count : %d\n", mmc_hostname(host->mmc),
-			__func__, host->mmc->crc_count);
-		return;
-	}
-	switch (host->mmc->ios.timing) {
-	case MMC_TIMING_UHS_SDR12:
-		host->mmc->caps &= ~MMC_CAP_UHS_SDR12;
-	case MMC_TIMING_UHS_SDR25:
-		host->mmc->caps &= ~MMC_CAP_UHS_SDR25;
-	case MMC_TIMING_UHS_SDR50:
-		host->mmc->caps &= ~MMC_CAP_UHS_SDR50;
-	case MMC_TIMING_UHS_DDR50:
-		host->mmc->caps &= ~MMC_CAP_UHS_DDR50;
-	case MMC_TIMING_UHS_SDR104:
-		host->mmc->caps &= ~MMC_CAP_UHS_SDR104;
-		break;
-	default:
-		pr_err("%s: %s: unknow timing : %d\n", mmc_hostname(host->mmc),
-			__func__, host->mmc->ios.timing);
-		break;
-	}
-	host->mmc->crc_count = 0;
-	pr_err("%s: %s: disable clock : %d\n", mmc_hostname(host->mmc),
-		__func__, host->mmc->ios.timing);
-}
+/*****************************************************************************\
+ *                                                                           *
+ * Interrupt handling                                                        *
+ *                                                                           *
+\*****************************************************************************/
 
 static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 {
@@ -2611,26 +2573,9 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 		return;
 	}
 
-	if (intmask & SDHCI_INT_TIMEOUT) {
-		if (mmc_is_sd_host(host->mmc)) {
-			if (host->cmd->opcode != MMC_SLEEP_AWAKE && host->cmd->opcode != 8 &&
-				host->cmd->opcode != 52 && host->cmd->opcode != 1) {
-				pr_err("%s: CMD%d: Command timeout\n",
-					mmc_hostname(host->mmc), host->cmd->opcode);
-			}
-		}
+	if (intmask & SDHCI_INT_TIMEOUT)
 		host->cmd->error = -ETIMEDOUT;
-	} else if (intmask & SDHCI_INT_CRC) {
-		host->cmd->error = -EILSEQ;
-		if ((host->cmd->opcode != MMC_SEND_TUNING_BLOCK_HS400) &&
-			(host->cmd->opcode != MMC_SEND_TUNING_BLOCK_HS200) &&
-			(host->cmd->opcode != MMC_SEND_TUNING_BLOCK)) {
-			pr_err("%s: CMD%d: Command CRC error\n",
-					mmc_hostname(host->mmc), host->cmd->opcode);
-			if (mmc_is_sd_host(host->mmc))
-				sdhci_underclocking(host);
-		}
-	} else if (intmask & (SDHCI_INT_END_BIT |
+	else if (intmask & (SDHCI_INT_CRC | SDHCI_INT_END_BIT |
 			SDHCI_INT_INDEX))
 		host->cmd->error = -EILSEQ;
 
@@ -2646,17 +2591,6 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 			host->cmd->error = -ETIMEDOUT;
 		else if (auto_cmd_status & SDHCI_AUTO_CMD_CRC_ERR)
 			host->cmd->error = -EILSEQ;
-	}
-
-	if (host->quirks2 & SDHCI_QUIRK2_IGNORE_CMDCRC_FOR_TUNING) {
-		if ((host->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS400) ||
-			(host->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS200) ||
-			(host->cmd->opcode == MMC_SEND_TUNING_BLOCK)) {
-			if (intmask & SDHCI_INT_CRC) {
-				sdhci_reset(host, SDHCI_RESET_CMD);
-				host->cmd->error = 0;
-			}
-		}
 	}
 
 	if (host->cmd->error) {
@@ -2689,17 +2623,8 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 		else if (!(host->quirks & SDHCI_QUIRK_NO_BUSY_IRQ))
 			return;
 
-	}
-
-	if (host->quirks2 & SDHCI_QUIRK2_IGNORE_CMDCRC_FOR_TUNING) {
-		if ((host->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS400) ||
-			(host->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS200) ||
-			(host->cmd->opcode == MMC_SEND_TUNING_BLOCK)) {
-			if (intmask & SDHCI_INT_CRC) {
-				sdhci_finish_command(host);
-				return;
-			}
-		}
+		/* The controller does not support the end-of-busy IRQ,
+		 * fall through and take the SDHCI_INT_RESPONSE */
 	}
 
 	if (intmask & SDHCI_INT_RESPONSE)
@@ -2773,38 +2698,21 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
 		return;
 	}
 
-	if (intmask & SDHCI_INT_DATA_TIMEOUT) {
+	if (intmask & SDHCI_INT_DATA_TIMEOUT)
 		host->data->error = -ETIMEDOUT;
-		command = SDHCI_GET_CMD(sdhci_readw(host,
-					SDHCI_COMMAND));
-		pr_err("%s: CMD%d: Data timeout\n",
-				mmc_hostname(host->mmc), command);
-	} else if (intmask & SDHCI_INT_DATA_END_BIT)
+	else if (intmask & SDHCI_INT_DATA_END_BIT)
 		host->data->error = -EILSEQ;
 	else if ((intmask & SDHCI_INT_DATA_CRC) &&
 		SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND))
-			!= MMC_BUS_TEST_R) {
-		command = SDHCI_GET_CMD(sdhci_readw(host,
-					SDHCI_COMMAND));
+			!= MMC_BUS_TEST_R)
 		host->data->error = -EILSEQ;
-		if ((command != MMC_SEND_TUNING_BLOCK_HS400) &&
-			(command != MMC_SEND_TUNING_BLOCK_HS200) &&
-			(command != MMC_SEND_TUNING_BLOCK)) {
-			pr_err("%s: Data CRC error\n",
-					mmc_hostname(host->mmc));
-			pr_err("%s: opcode 0x%.8x\n", __func__,
-					command);
-			if (mmc_is_sd_host(host->mmc))
-				sdhci_underclocking(host);
-		}
-	} else if (intmask & SDHCI_INT_ADMA_ERROR) {
+	else if (intmask & SDHCI_INT_ADMA_ERROR) {
 		pr_err("%s: ADMA error\n", mmc_hostname(host->mmc));
 		sdhci_show_adma_error(host);
 		host->data->error = -EIO;
 	}
 	if (host->data->error) {
-		if ((intmask & (SDHCI_INT_DATA_CRC | SDHCI_INT_DATA_TIMEOUT)) &&
-		    (host->quirks2 & SDHCI_QUIRK2_IGNORE_CMDCRC_FOR_TUNING)) {
+		if (intmask & (SDHCI_INT_DATA_CRC | SDHCI_INT_DATA_TIMEOUT)) {
 			command = SDHCI_GET_CMD(sdhci_readw(host,
 							    SDHCI_COMMAND));
 			if ((command != MMC_SEND_TUNING_BLOCK_HS400) &&
@@ -3445,12 +3353,10 @@ int sdhci_add_host(struct sdhci_host *host)
 	    mmc_card_is_removable(mmc))
 		mmc->caps |= MMC_CAP_NEEDS_POLL;
 
-	
-	if (!host->disable_sdcard_uhs) {
-		
-		if (caps[1] & (SDHCI_SUPPORT_SDR104 | SDHCI_SUPPORT_SDR50 |
-			       SDHCI_SUPPORT_DDR50))
-			mmc->caps |= MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25;
+	/* Any UHS-I mode in caps implies SDR12 and SDR25 support. */
+	if (caps[1] & (SDHCI_SUPPORT_SDR104 | SDHCI_SUPPORT_SDR50 |
+		       SDHCI_SUPPORT_DDR50))
+		mmc->caps |= MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25;
 
 	/* SDR104 supports also implies SDR50 support */
 	if (caps[1] & SDHCI_SUPPORT_SDR104)
@@ -3465,11 +3371,7 @@ int sdhci_add_host(struct sdhci_host *host)
 	if (caps[1] & SDHCI_USE_SDR50_TUNING)
 		host->flags |= SDHCI_SDR50_NEEDS_TUNING;
 
-		
-		mmc->caps_uhs = mmc->caps;
-	}
-
-	
+	/* Does the host need tuning for HS200? */
 	if (mmc->caps2 & MMC_CAP2_HS200)
 		host->flags |= SDHCI_HS200_NEEDS_TUNING;
 
@@ -3590,15 +3492,11 @@ int sdhci_add_host(struct sdhci_host *host)
 	else/* PIO */
 		mmc->max_segs = host->adma_max_desc;
 
-	if (mmc_is_sd_host(mmc)) {
-		cur_sg = mmc_alloc_sg(mmc->max_segs, &ret);
-		if (ret)
-			printk("%s %s alloc err : %d\n", mmc_hostname(mmc), __func__, ret);
-		prev_sg = mmc_alloc_sg(mmc->max_segs, &ret);
-		if (ret)
-			printk("%s %s alloc err : %d\n", mmc_hostname(mmc), __func__, ret);
-	}
-
+	/*
+	 * Maximum number of sectors in one transfer. Limited by DMA boundary
+	 * size (512KiB), unless specified by platform specific driver. Each
+	 * descriptor can transfer a maximum of 64KB.
+	 */
 	if (host->ops->get_max_segments)
 		mmc->max_req_size = (host->adma_max_desc * 65536);
 	else

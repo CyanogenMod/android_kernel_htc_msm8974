@@ -14,8 +14,6 @@
 #include <linux/backing-dev.h>
 #include "internal.h"
 
-#include <trace/events/mmcio.h>
-
 #define VALID_FLAGS (SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE| \
 			SYNC_FILE_RANGE_WAIT_AFTER)
 
@@ -74,13 +72,11 @@ static void sync_filesystems(int wait)
 
 SYSCALL_DEFINE0(sync)
 {
-	trace_sys_sync(0);
 	wakeup_flusher_threads(0, WB_REASON_SYNC);
 	sync_filesystems(0);
 	sync_filesystems(1);
 	if (unlikely(laptop_mode))
 		laptop_sync_completion();
-	trace_sys_sync_done(0);
 	return 0;
 }
 
@@ -139,9 +135,7 @@ int vfs_fsync_range(struct file *file, loff_t start, loff_t end, int datasync)
 	int err;
 	if (!file->f_op || !file->f_op->fsync)
 		return -EINVAL;
-	trace_vfs_fsync(file);
 	err = file->f_op->fsync(file, start, end, datasync);
-	trace_vfs_fsync_done(file);
 	return err;
 }
 EXPORT_SYMBOL(vfs_fsync_range);

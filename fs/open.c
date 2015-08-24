@@ -858,22 +858,6 @@ struct file *file_open_root(struct dentry *dentry, struct vfsmount *mnt,
 }
 EXPORT_SYMBOL(file_open_root);
 
-extern int get_logfile_prealloc_size(void);
-static int pre_allocate(struct file *f)
-{
-	int prealloc_size = 0;
-	if (!f->f_op->fallocate || !(f->f_mode & FMODE_WRITE))
-		return 0;
-
-	if (f->f_path.dentry->d_parent &&
-			!strcmp(f->f_path.dentry->d_parent->d_name.name, "htclog"))
-		prealloc_size = get_logfile_prealloc_size();
-
-	if (prealloc_size)
-		do_fallocate(f, FALLOC_FL_KEEP_SIZE, 0, prealloc_size);
-	return 0;
-}
-
 long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 {
 	struct open_flags op;
@@ -891,7 +875,6 @@ long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 			} else {
 				fsnotify_open(f);
 				fd_install(fd, f);
-				pre_allocate(f);
 			}
 		}
 		putname(tmp);

@@ -155,8 +155,6 @@ extern int mmc_wait_for_cmd(struct mmc_host *, struct mmc_command *, int);
 extern int mmc_app_cmd(struct mmc_host *, struct mmc_card *);
 extern int mmc_wait_for_app_cmd(struct mmc_host *, struct mmc_card *,
 	struct mmc_command *, int);
-extern int mmc_card_start_bkops(struct mmc_card *host);
-extern int mmc_card_stop_bkops(struct mmc_card *card);
 extern void mmc_start_bkops(struct mmc_card *card, bool from_exception);
 extern void mmc_start_delayed_bkops(struct mmc_card *card);
 extern void mmc_start_idle_time_bkops(struct work_struct *work);
@@ -169,8 +167,11 @@ extern int mmc_switch_ignore_timeout(struct mmc_card *, u8, u8, u8,
 extern int mmc_send_ext_csd(struct mmc_card *card, u8 *ext_csd);
 
 #define MMC_ERASE_ARG		0x00000000
+#define MMC_SECURE_ERASE_ARG	0x80000000
 #define MMC_TRIM_ARG		0x00000001
 #define MMC_DISCARD_ARG		0x00000003
+#define MMC_SECURE_TRIM1_ARG	0x80000001
+#define MMC_SECURE_TRIM2_ARG	0x80008000
 
 #define MMC_SECURE_ARGS		0x80000000
 #define MMC_TRIM_ARGS		0x00008001

@@ -19,9 +19,6 @@
 #include <linux/mmc/core.h>
 #include <linux/mmc/pm.h>
 
-#define MMC_STATS_INTERVAL 5000
-#define MMC_STATS_LOG_INTERVAL 60000
-extern struct workqueue_struct *stats_workqueue;
 struct mmc_ios {
 	unsigned int	clock;			/* clock rate */
 	unsigned int	old_rate;       /* saved clock rate */
@@ -219,10 +216,6 @@ struct mmc_host {
 	u32			ocr_avail_sd;	/* SD-specific OCR */
 	u32			ocr_avail_mmc;	/* MMC-specific OCR */
 	struct notifier_block	pm_notify;
-#define MMC_DEBUG_MEMORY			0x01
-#define MMC_DEBUG_FREE_SPACE		0x02
-#define MMC_DEBUG_RANDOM_RW			0x04
-	unsigned int		debug_mask;
 
 #define MMC_VDD_165_195		0x00000080	/* VDD voltage 1.65 - 1.95 */
 #define MMC_VDD_20_21		0x00000100	/* VDD voltage 2.0 ~ 2.1 */
@@ -243,7 +236,6 @@ struct mmc_host {
 #define MMC_VDD_35_36		0x00800000	/* VDD voltage 3.5 ~ 3.6 */
 
 	unsigned long		caps;		/* Host capabilities */
-	unsigned long		caps_uhs;
 
 #define MMC_CAP_4_BIT_DATA	(1 << 0)	/* Can the host do 4 bit transfers */
 #define MMC_CAP_MMC_HIGHSPEED	(1 << 1)	/* Can do MMC high-speed timing */
@@ -362,11 +354,7 @@ struct mmc_host {
 	int			claim_cnt;	/* "claim" nesting count */
 
 	struct delayed_work	detect;
-	struct delayed_work	enable_detect;
-	struct delayed_work     remove;
-	struct delayed_work	stats_work;
 	struct wake_lock	detect_wake_lock;
-	unsigned int		redetect_cnt;
 	const char		*wlock_name;
 	int			detect_change;	/* card detect flag */
 	struct mmc_hotplug	hotplug;
@@ -413,35 +401,17 @@ struct mmc_host {
 	} embedded_sdio_data;
 #endif
 
+#ifdef CONFIG_MMC_PERF_PROFILING
 	struct {
 
 		unsigned long rbytes_drv;  /* Rd bytes MMC Host  */
-		unsigned long wbytes_drv;
-		unsigned long rcount;
-		unsigned long wcount;
-		ktime_t rtime_drv;
-		ktime_t wtime_drv;
-
-		unsigned long rbytes_drv_rand;
-		unsigned long wbytes_drv_rand;
-		unsigned long rcount_rand;
-		unsigned long wcount_rand;
-		ktime_t rtime_drv_rand;
-		ktime_t wtime_drv_rand;
-		unsigned long wbytes_low_perf;
-		unsigned long  wtime_low_perf;
-		unsigned long lp_duration;
-
-		unsigned long erase_rq;
-		unsigned long erase_blks;
-		ktime_t erase_time;
+		unsigned long wbytes_drv;  /* Wr bytes MMC Host  */
+		ktime_t rtime_drv;	   /* Rd time  MMC Host  */
+		ktime_t wtime_drv;	   /* Wr time  MMC Host  */
 		ktime_t start;
-
-		unsigned long wkbytes_drv;
-		ktime_t workload_time;
 	} perf;
 	bool perf_enable;
-
+#endif
 	struct mmc_ios saved_ios;
 	struct {
 		unsigned long	busy_time_us;
@@ -459,8 +429,6 @@ struct mmc_host {
 		struct delayed_work work;
 		enum mmc_load	state;
 	} clk_scaling;
-	unsigned int crc_count;
-	unsigned int expand_debounce;
 	enum dev_state dev_status;
 	unsigned long		private[0] ____cacheline_aligned;
 };
@@ -497,7 +465,7 @@ static inline void mmc_set_bus_resume_policy(struct mmc_host *host, int manual)
 	if (manual)
 		host->bus_resume_flags |= MMC_BUSRESUME_MANUAL_RESUME;
 	else
-		host->bus_resume_flags &= ~host->bus_resume_flags;
+		host->bus_resume_flags &= ~MMC_BUSRESUME_MANUAL_RESUME;
 }
 
 extern int mmc_resume_bus(struct mmc_host *host);
@@ -528,8 +496,6 @@ static inline void mmc_signal_sdio_irq(struct mmc_host *host)
 
 struct regulator;
 
-int mmc_is_sd_host(struct mmc_host *mmc);
-int mmc_is_mmc_host(struct mmc_host *mmc);
 #ifdef CONFIG_REGULATOR
 int mmc_regulator_get_ocrmask(struct regulator *supply);
 int mmc_regulator_set_ocr(struct mmc_host *mmc,
