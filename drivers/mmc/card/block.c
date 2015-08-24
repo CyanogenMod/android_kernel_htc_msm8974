@@ -610,6 +610,11 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	struct scatterlist sg;
 	int err;
 
+	/*
+	 * The caller must have CAP_SYS_RAWIO, and must be calling this on the
+	 * whole block device, not on a partition.  This prevents overspray
+	 * between sibling partitions.
+	 */
 	if (bdev != bdev->bd_contains)
 		return -EPERM;
 
