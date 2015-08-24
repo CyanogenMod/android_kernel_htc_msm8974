@@ -33,6 +33,9 @@
 struct scatterlist	*cur_sg = NULL;
 struct scatterlist	*prev_sg = NULL;
 
+/*
+ * Prepare a MMC request. This just filters out odd stuff.
+ */
 static int mmc_prep_request(struct request_queue *q, struct request *req)
 {
 	struct mmc_queue *mq = q->queuedata;
@@ -575,6 +578,10 @@ int mmc_queue_suspend(struct mmc_queue *mq, int wait)
 
 		rc = down_trylock(&mq->thread_sem);
 		if (rc && !wait) {
+			/*
+			 * Failed to take the lock so better to abort the
+			 * suspend because mmcqd thread is processing requests.
+			 */
 			mq->flags &= ~MMC_QUEUE_SUSPENDED;
 			spin_lock_irqsave(q->queue_lock, flags);
 			blk_start_queue(q);

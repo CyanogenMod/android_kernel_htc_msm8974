@@ -35,7 +35,7 @@ struct mmc_csd {
 	unsigned int		c_size;
 	unsigned int		r2w_factor;
 	unsigned int		max_dtr;
-	unsigned int		erase_size;		
+	unsigned int		erase_size;		/* In sectors */
 	unsigned int		read_blkbits;
 	unsigned int		write_blkbits;
 	unsigned int		capacity;
@@ -57,11 +57,11 @@ struct mmc_ext_csd {
 	u8			max_packed_writes;
 	u8			max_packed_reads;
 	u8			packed_event_en;
-	unsigned int		part_time;		
-	unsigned int		sa_timeout;		
-	unsigned int		generic_cmd6_time;	
-	unsigned int            power_off_longtime;     
-	u8			power_off_notification;	
+	unsigned int		part_time;		/* Units: ms */
+	unsigned int		sa_timeout;		/* Units: 100ns */
+	unsigned int		generic_cmd6_time;	/* Units: 10ms */
+	unsigned int            power_off_longtime;     /* Units: ms */
+	u8			power_off_notification;	/* state */
 	unsigned int		hs_max_dtr;
 #define MMC_HIGH_26_MAX_DTR	26000000
 #define MMC_HIGH_52_MAX_DTR	52000000
@@ -70,45 +70,45 @@ struct mmc_ext_csd {
 #define MMC_HS400_MAX_DTR	200000000
 	unsigned int		sectors;
 	unsigned int		card_type;
-	unsigned int		hc_erase_size;		
-	unsigned int		hc_erase_timeout;	
-	unsigned int		sec_trim_mult;	
-	unsigned int		sec_erase_mult;	
-	unsigned int		trim_timeout;		
-	bool			enhanced_area_en;	
-	unsigned long long	enhanced_area_offset;	
-	unsigned int		enhanced_area_size;	
-	unsigned int		cache_size;		
-	bool			hpi_en;			
-	bool			hpi;			
-	unsigned int		hpi_cmd;		
-	bool			bkops;		
-	bool			bkops_en;	
-	unsigned int            data_sector_size;       
-	unsigned int            data_tag_unit_size;     
-	unsigned int		boot_ro_lock;		
+	unsigned int		hc_erase_size;		/* In sectors */
+	unsigned int		hc_erase_timeout;	/* In milliseconds */
+	unsigned int		sec_trim_mult;	/* Secure trim multiplier  */
+	unsigned int		sec_erase_mult;	/* Secure erase multiplier */
+	unsigned int		trim_timeout;		/* In milliseconds */
+	bool			enhanced_area_en;	/* enable bit */
+	unsigned long long	enhanced_area_offset;	/* Units: Byte */
+	unsigned int		enhanced_area_size;	/* Units: KB */
+	unsigned int		cache_size;		/* Units: KB */
+	bool			hpi_en;			/* HPI enablebit */
+	bool			hpi;			/* HPI support bit */
+	unsigned int		hpi_cmd;		/* cmd used as HPI */
+	bool			bkops;		/* background support bit */
+	bool			bkops_en;	/* background enable bit */
+	unsigned int            data_sector_size;       /* 512 bytes or 4KB */
+	unsigned int            data_tag_unit_size;     /* DATA TAG UNIT size */
+	unsigned int		boot_ro_lock;		/* ro lock support */
 	bool			boot_ro_lockable;
-	u8			raw_exception_status;	
-	u8			raw_partition_support;	
-	u8			raw_rpmb_size_mult;	
-	u8			raw_erased_mem_count;	
-	u8			raw_ext_csd_structure;	
-	u8			raw_card_type;		
-	u8			raw_drive_strength;	
-	u8			out_of_int_time;	
-	u8			raw_s_a_timeout;		
-	u8			raw_hc_erase_gap_size;	
-	u8			raw_erase_timeout_mult;	
-	u8			raw_hc_erase_grp_size;	
-	u8			raw_sec_trim_mult;	
-	u8			raw_sec_erase_mult;	
-	u8			raw_sec_feature_support;
-	u8			raw_trim_mult;		
-	u8			raw_bkops_status;	
-	u8			raw_sectors[4];		
+	u8			raw_exception_status;	/* 53 */
+	u8			raw_partition_support;	/* 160 */
+	u8			raw_rpmb_size_mult;	/* 168 */
+	u8			raw_erased_mem_count;	/* 181 */
+	u8			raw_ext_csd_structure;	/* 194 */
+	u8			raw_card_type;		/* 196 */
+	u8			raw_drive_strength;	/* 197 */
+	u8			out_of_int_time;	/* 198 */
+	u8			raw_s_a_timeout;		/* 217 */
+	u8			raw_hc_erase_gap_size;	/* 221 */
+	u8			raw_erase_timeout_mult;	/* 223 */
+	u8			raw_hc_erase_grp_size;	/* 224 */
+	u8			raw_sec_trim_mult;	/* 229 */
+	u8			raw_sec_erase_mult;	/* 230 */
+	u8			raw_sec_feature_support;/* 231 */
+	u8			raw_trim_mult;		/* 232 */
+	u8			raw_bkops_status;	/* 246 */
+	u8			raw_sectors[4];		/* 212 - 4 bytes */
 
 	unsigned int            feature_support;
-#define MMC_DISCARD_FEATURE	BIT(0)                  
+#define MMC_DISCARD_FEATURE	BIT(0)                  /* CMD38 feature */
 };
 
 struct sd_scr {
@@ -123,9 +123,9 @@ struct sd_scr {
 };
 
 struct sd_ssr {
-	unsigned int		au;			
-	unsigned int		erase_timeout;		
-	unsigned int		erase_offset;		
+	unsigned int		au;			/* In sectors */
+	unsigned int		erase_timeout;		/* In milliseconds */
+	unsigned int		erase_offset;		/* In milliseconds */
 };
 
 struct sd_switch_caps {
@@ -231,16 +231,22 @@ struct mmc_wr_pack_stats {
 	bool print_in_read;
 };
 
+/* The number of MMC physical partitions.  These consist of:
+ * boot partitions (2), general purpose partitions (4) in MMC v4.4.
+ */
 #define MMC_NUM_BOOT_PARTITION	2
 #define MMC_NUM_GP_PARTITION	4
 #define MMC_NUM_PHY_PARTITION	6
 #define MAX_MMC_PART_NAME_LEN	20
 
+/*
+ * MMC Physical partitions
+ */
 struct mmc_part {
-	unsigned int	size;	
-	unsigned int	part_cfg;	
+	unsigned int	size;	/* partition size (in bytes) */
+	unsigned int	part_cfg;	/* partition type */
 	char	name[MAX_MMC_PART_NAME_LEN];
-	bool	force_ro;	
+	bool	force_ro;	/* to make boot parts RO by default */
 	unsigned int	area_type;
 #define MMC_BLK_DATA_AREA_MAIN	(1<<0)
 #define MMC_BLK_DATA_AREA_BOOT	(1<<1)
@@ -255,8 +261,8 @@ struct mmc_part {
 struct mmc_bkops_stats {
 	spinlock_t		lock;
 	bool			enabled;
-	unsigned int		hpi;    
-	unsigned int		suspend;
+	unsigned int		hpi;    /* hpi issued   */
+	unsigned int		suspend;/* card sleed issued */
 	bool			print_stats;
 	unsigned int bkops_level[BKOPS_NUM_OF_SEVERITY_LEVELS];
 	bool			ignore_card_bkops_status;
@@ -287,20 +293,31 @@ struct mmc_bkops_info {
 	unsigned int		min_sectors_to_queue_delayed_work;
 	unsigned int		size_percentage_to_queue_delayed_work;
 	struct mmc_bkops_stats  bkops_stats;
+/*
+ * A default time for checking the need for non urgent BKOPS once mmcqd
+ * is idle.
+ */
 #define MMC_IDLE_BKOPS_TIME_MS 200
 	bool			cancel_delayed_work;
 	unsigned int		sectors_changed;
-#define BKOPS_SIZE_PERCENTAGE_TO_QUEUE_DELAYED_WORK 1 
+/*
+ * Since canceling the delayed work might have significant effect on the
+ * performance of small requests we won't queue the delayed work every time
+ * mmcqd thread is idle.
+ * The delayed work for idle BKOPS will be scheduled only after a significant
+ * amount of write or discard data.
+ */
+#define BKOPS_SIZE_PERCENTAGE_TO_QUEUE_DELAYED_WORK 1 /* 1% */
 };
 
 struct mmc_card {
-	struct mmc_host		*host;		
-	struct device		dev;		
-	unsigned int		rca;		
-	unsigned int		type;		
-#define MMC_TYPE_MMC		0		
-#define MMC_TYPE_SD		1		
-#define MMC_TYPE_SDIO		2		
+	struct mmc_host		*host;		/* the host this device belongs to */
+	struct device		dev;		/* the device */
+	unsigned int		rca;		/* relative card address of device */
+	unsigned int		type;		/* card type */
+#define MMC_TYPE_MMC		0		/* MMC card */
+#define MMC_TYPE_SD		1		/* SD card */
+#define MMC_TYPE_SDIO		2		/* SDIO card */
 #define MMC_TYPE_SDIO_WIMAX    3               
 #define MMC_TYPE_SDIO_SVLTE    4               
 #define MMC_TYPE_SD_COMBO      5               
@@ -337,46 +354,46 @@ struct mmc_card {
 						
 #define MMC_QUIRK_INAND_DATA_TIMEOUT  (1<<8)    
 #define MMC_QUIRK_BROKEN_HPI (1 << 11)
- 
+ /* Skip data-timeout advertised by card */
 #define MMC_QUIRK_BROKEN_DATA_TIMEOUT	(1<<12)
 
-#define MMC_QUIRK_CACHE_DISABLE (1 << 14)       
+#define MMC_QUIRK_CACHE_DISABLE (1 << 14)       /* prevent cache enable */
 #define MMC_QUIRK_URGENT_REQUEST_DISABLE (1 << 31)	
 
-	unsigned int		erase_size;	
- 	unsigned int		erase_shift;	
- 	unsigned int		pref_erase;	
- 	u8			erased_byte;	
+	unsigned int		erase_size;	/* erase size in sectors */
+ 	unsigned int		erase_shift;	/* if erase unit is power 2 */
+ 	unsigned int		pref_erase;	/* in sectors */
+ 	u8			erased_byte;	/* value of erased bytes */
 
-	u32			raw_cid[4];	
-	u32			raw_csd[4];	
-	u32			raw_scr[2];	
-	struct mmc_cid		cid;		
-	struct mmc_csd		csd;		
-	struct mmc_ext_csd	ext_csd;	
-	struct sd_scr		scr;		
-	struct sd_ssr		ssr;		
-	struct sd_switch_caps	sw_caps;	
+	u32			raw_cid[4];	/* raw card CID */
+	u32			raw_csd[4];	/* raw card CSD */
+	u32			raw_scr[2];	/* raw card SCR */
+	struct mmc_cid		cid;		/* card identification */
+	struct mmc_csd		csd;		/* card specific */
+	struct mmc_ext_csd	ext_csd;	/* mmc v4 extended card specific */
+	struct sd_scr		scr;		/* extra SD information */
+	struct sd_ssr		ssr;		/* yet more SD information */
+	struct sd_switch_caps	sw_caps;	/* switch (CMD6) caps */
 
-	unsigned int		sdio_funcs;	
-	struct sdio_cccr	cccr;		
-	struct sdio_cis		cis;		
-	struct sdio_func	*sdio_func[SDIO_MAX_FUNCS]; 
-	struct sdio_func	*sdio_single_irq; 
-	unsigned		num_info;	
-	const char		**info;		
-	struct sdio_func_tuple	*tuples;	
+	unsigned int		sdio_funcs;	/* number of SDIO functions */
+	struct sdio_cccr	cccr;		/* common card info */
+	struct sdio_cis		cis;		/* common tuple info */
+	struct sdio_func	*sdio_func[SDIO_MAX_FUNCS]; /* SDIO functions (devices) */
+	struct sdio_func	*sdio_single_irq; /* SDIO function when only one IRQ active */
+	unsigned		num_info;	/* number of info strings */
+	const char		**info;		/* info strings */
+	struct sdio_func_tuple	*tuples;	/* unknown common tuples */
 
-	unsigned int		sd_bus_speed;	
+	unsigned int		sd_bus_speed;	/* Bus Speed Mode set for the card */
 
 	struct dentry		*debugfs_root;
 	unsigned char           do_remove;
-	struct mmc_part	part[MMC_NUM_PHY_PARTITION]; 
+	struct mmc_part	part[MMC_NUM_PHY_PARTITION]; /* physical partitions */
 	unsigned int    nr_parts;
 	unsigned int	part_curr;
 	unsigned char	speed_class; 
 
-	struct mmc_wr_pack_stats wr_pack_stats; 
+	struct mmc_wr_pack_stats wr_pack_stats; /* packed commands stats*/
 
 	struct mmc_bkops_info	bkops_info;
 
@@ -387,6 +404,9 @@ struct mmc_card {
 	u8 *cached_ext_csd;
 };
 
+/*
+ * This function fill contents in mmc_part.
+ */
 static inline void mmc_part_add(struct mmc_card *card, unsigned int size,
 			unsigned int part_cfg, char *name, int idx, bool ro,
 			int area_type)
@@ -404,20 +424,24 @@ static inline bool mmc_large_sec(struct mmc_card *card)
 	return card->ext_csd.data_sector_size == 4096;
 }
 
+/*
+ *  The world is not perfect and supplies us with broken mmc/sdio devices.
+ *  For at least some of these bugs we need a work-around.
+ */
 
 struct mmc_fixup {
-	
+	/* CID-specific fields. */
 	const char *name;
 
-	
+	/* Valid revision range */
 	u64 rev_start, rev_end;
 
 	unsigned int manfid;
 	unsigned short oemid;
 
-	
+	/* SDIO-specfic fields. You can use SDIO_ANY_ID here of course */
 	u16 cis_vendor, cis_device;
-	
+	/* for MMC cards */
 	unsigned int ext_csd_rev;
 
 	void (*vendor_fixup)(struct mmc_card *card, int data);
@@ -490,6 +514,9 @@ struct mmc_fixup {
 		    card->cid.year,	  \
 		    card->cid.month)
 
+/*
+ * Unconditionally quirk add/remove.
+ */
 
 static inline void __maybe_unused add_quirk(struct mmc_card *card, int data)
 {
@@ -559,6 +586,9 @@ static inline void __maybe_unused remove_quirk_mmc(struct mmc_card *card,
 		card->quirks &= ~data;
 }
 
+/*
+ * Quirk add/remove for SD products.
+ */
 
 static inline void __maybe_unused add_quirk_sd(struct mmc_card *card, int data)
 {
@@ -612,6 +642,9 @@ static inline int mmc_card_long_read_time(const struct mmc_card *c)
 #define mmc_get_drvdata(c)	dev_get_drvdata(&(c)->dev)
 #define mmc_set_drvdata(c,d)	dev_set_drvdata(&(c)->dev, d)
 
+/*
+ * MMC device driver (e.g., Flash card, I/O card...)
+ */
 struct mmc_driver {
 	struct device_driver drv;
 	int (*probe)(struct mmc_card *);
