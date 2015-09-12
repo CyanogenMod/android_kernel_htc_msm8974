@@ -36,6 +36,10 @@
 			qcom,clk-gpio = <&pm8941_gpios 32 0>;
 		};
 	};
+
+	qcom,bam_dmux@fc834000 {
+		qcom,fast-shutdown;
+	};
 };
 
 &pm8941_gpios {
