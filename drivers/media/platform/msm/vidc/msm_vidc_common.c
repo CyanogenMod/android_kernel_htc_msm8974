@@ -36,7 +36,7 @@
 		V4L2_EVENT_MSM_VIDC_RELEASE_BUFFER_REFERENCE
 
 #define NUM_MBS_PER_SEC(__height, __width, __fps) ({\
-	(__height / 16) * (__width  / 16) * __fps; \
+	(__height >> 4) * (__width >> 4) * __fps; \
 })
 
 #define VIDC_BUS_LOAD(__height, __width, __fps, __br) ({\
@@ -99,52 +99,9 @@ enum multi_stream msm_comm_get_stream_output_mode(struct msm_vidc_inst *inst)
 
 
 }
-static int msm_comm_get_mbs_per_sec(struct msm_vidc_inst *inst)
-{
-	int height, width;
-	height = max(inst->prop.height[CAPTURE_PORT],
-		inst->prop.height[OUTPUT_PORT]);
-	width = max(inst->prop.width[CAPTURE_PORT],
-		inst->prop.width[OUTPUT_PORT]);
-	return NUM_MBS_PER_SEC(height, width, inst->prop.fps);
-}
-enum load_calc_quirks {
-	LOAD_CALC_NO_QUIRKS = 0,
-	LOAD_CALC_IGNORE_TURBO_LOAD = 1 << 0,
-	LOAD_CALC_IGNORE_THUMBNAIL_LOAD = 1 << 1,
-	LOAD_CALC_IGNORE_NON_REALTIME_LOAD = 1 << 2,
-};
-
-static int msm_comm_get_inst_load(struct msm_vidc_inst *inst,
-		enum load_calc_quirks quirks)
-{
-	int load = 0;
-
-	if (!(inst->state >= MSM_VIDC_OPEN_DONE &&
-		inst->state < MSM_VIDC_STOP_DONE))
-		return 0;
-
-	load = msm_comm_get_mbs_per_sec(inst);
-
-	if (is_thumbnail_session(inst)) {
-		if (quirks & LOAD_CALC_IGNORE_THUMBNAIL_LOAD)
-			load = 0;
-	}
-
-	if (is_turbo_session(inst)) {
-		if (!(quirks & LOAD_CALC_IGNORE_TURBO_LOAD))
-			load = inst->core->resources.max_load;
-	}
-
-	if (is_non_realtime_session(inst) &&
-		(quirks & LOAD_CALC_IGNORE_NON_REALTIME_LOAD))
-		load = msm_comm_get_mbs_per_sec(inst) / inst->prop.fps;
-
-        return load;
-}
 
 static int msm_comm_get_load(struct msm_vidc_core *core,
-	enum session_type type, enum load_calc_quirks quirks)
+	enum session_type type, enum vidc_calculation calc)
 {
 	struct msm_vidc_inst *inst = NULL;
 	int num_mbs_per_sec = 0;
@@ -154,12 +111,22 @@ static int msm_comm_get_load(struct msm_vidc_core *core,
 	}
 	mutex_lock(&core->lock);
 	list_for_each_entry(inst, &core->instances, list) {
-		if (inst->session_type != type)
-			continue;
-
 		mutex_lock(&inst->lock);
-		num_mbs_per_sec += msm_comm_get_inst_load(inst, quirks);
-		mutex_unlock(&inst->lock);
+		if (inst->session_type == type &&
+			inst->state >= MSM_VIDC_OPEN_DONE &&
+			inst->state < MSM_VIDC_STOP_DONE) {
+			if (is_non_realtime_session(inst) && calc == LOAD)
+				// 1 fps load for non-realtime
+				num_mbs_per_sec += NUM_MBS_PER_SEC(
+					max(inst->prop.height[CAPTURE_PORT], inst->prop.height[OUTPUT_PORT]),
+					max(inst->prop.width[CAPTURE_PORT], inst->prop.width[OUTPUT_PORT]),
+					inst->prop.fps)/inst->prop.fps;
+			else if (!is_thumbnail_session(inst))
+				num_mbs_per_sec += NUM_MBS_PER_SEC(
+					max(inst->prop.height[CAPTURE_PORT], inst->prop.height[OUTPUT_PORT]),
+					max(inst->prop.width[CAPTURE_PORT], inst->prop.width[OUTPUT_PORT]),
+					inst->prop.fps);
+		}
 	}
 	mutex_unlock(&core->lock);
 	return num_mbs_per_sec;
@@ -171,6 +138,7 @@ static int msm_comm_scale_bus(struct msm_vidc_core *core,
 	int load;
 	int rc = 0;
 	struct hfi_device *hdev;
+	enum vidc_calculation calc = CLOCKS;
 
 	if (!core || type >= MSM_VIDC_MAX_DEVICES) {
 		dprintk(VIDC_ERR, "Invalid args: %p, %d\n", core, type);
@@ -183,7 +151,7 @@ static int msm_comm_scale_bus(struct msm_vidc_core *core,
 		return -EINVAL;
 	}
 
-        load = msm_comm_get_load(core, type, LOAD_CALC_NO_QUIRKS);
+        load = msm_comm_get_load(core, type, calc);
 
 	rc = call_hfi_op(hdev, scale_bus, hdev->hfi_device_data,
 					 load, type, mtype);
@@ -1530,6 +1498,7 @@ static int msm_comm_scale_clocks(struct msm_vidc_core *core)
 	int num_mbs_per_sec;
 	int rc = 0;
 	struct hfi_device *hdev;
+	enum vidc_calculation calc = CLOCKS;
 
 	if (!core) {
 		dprintk(VIDC_ERR, "%s Invalid args: %p\n", __func__, core);
@@ -1543,9 +1512,8 @@ static int msm_comm_scale_clocks(struct msm_vidc_core *core)
 		return -EINVAL;
 	}
 
-	num_mbs_per_sec =
-		msm_comm_get_load(core, MSM_VIDC_ENCODER, LOAD_CALC_NO_QUIRKS) +
-		msm_comm_get_load(core, MSM_VIDC_DECODER, LOAD_CALC_NO_QUIRKS);
+	num_mbs_per_sec = msm_comm_get_load(core, MSM_VIDC_ENCODER, calc);
+	num_mbs_per_sec += msm_comm_get_load(core, MSM_VIDC_DECODER, calc);
 
 
 	dprintk(VIDC_INFO, "num_mbs_per_sec = %d\n", num_mbs_per_sec);
@@ -1876,9 +1844,7 @@ static int msm_vidc_load_resources(int flipped_state,
 	int rc = 0;
 	struct hfi_device *hdev;
 	int num_mbs_per_sec = 0;
-	enum load_calc_quirks quirks = LOAD_CALC_IGNORE_TURBO_LOAD |
-		LOAD_CALC_IGNORE_THUMBNAIL_LOAD |
-		LOAD_CALC_IGNORE_NON_REALTIME_LOAD;
+	enum vidc_calculation calc = LOAD;
 
 	if (!inst || !inst->core || !inst->core->device) {
 		dprintk(VIDC_ERR, "%s invalid parameters", __func__);
@@ -1891,10 +1857,8 @@ static int msm_vidc_load_resources(int flipped_state,
 		return -EINVAL;
 	}
 
-	num_mbs_per_sec =
-		msm_comm_get_load(inst->core, MSM_VIDC_DECODER, quirks) +
-		msm_comm_get_load(inst->core, MSM_VIDC_ENCODER, quirks);
-
+	num_mbs_per_sec = msm_comm_get_load(inst->core, MSM_VIDC_DECODER, calc);
+	num_mbs_per_sec += msm_comm_get_load(inst->core, MSM_VIDC_ENCODER, calc);
 	if (num_mbs_per_sec > inst->core->resources.max_load) {
 		dprintk(VIDC_ERR, "HW is overloaded, needed: %d max: %d\n",
 			num_mbs_per_sec, inst->core->resources.max_load);
@@ -3312,15 +3276,13 @@ int msm_vidc_trigger_ssr(struct msm_vidc_core *core,
 static int msm_vidc_load_supported(struct msm_vidc_inst *inst)
 {
 	int num_mbs_per_sec = 0;
-	enum load_calc_quirks quirks = LOAD_CALC_IGNORE_TURBO_LOAD |
-		LOAD_CALC_IGNORE_THUMBNAIL_LOAD |
-		LOAD_CALC_IGNORE_NON_REALTIME_LOAD;
+	enum vidc_calculation calc = LOAD;
 
 	if (inst->state == MSM_VIDC_OPEN_DONE) {
 		num_mbs_per_sec = msm_comm_get_load(inst->core,
-			MSM_VIDC_DECODER, quirks);
+					MSM_VIDC_DECODER, calc);
 		num_mbs_per_sec += msm_comm_get_load(inst->core,
-			MSM_VIDC_ENCODER, quirks);
+					MSM_VIDC_ENCODER, calc);
 		if (num_mbs_per_sec > inst->core->resources.max_load) {
 			dprintk(VIDC_ERR,
 				"H/w is overloaded. needed: %d max: %d\n",
