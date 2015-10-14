@@ -141,6 +141,7 @@ static int msm_comm_get_load(struct msm_vidc_core *core,
 					}
 			}
 		}
+		mutex_unlock(&inst->lock);
 	}
 	mutex_unlock(&core->lock);
 	return num_mbs_per_sec;
