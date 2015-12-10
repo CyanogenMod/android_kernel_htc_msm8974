@@ -1061,7 +1061,7 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 	pwr->power_flags = 0;
 
 	pwr->idle_needed = pdata->idle_needed;
-	pwr->interval_timeout = pdata->idle_timeout;
+	pwr->interval_timeout = msecs_to_jiffies(pdata->idle_timeout);
 	pwr->strtstp_sleepwake = pdata->strtstp_sleepwake;
 	pwr->ebi1_clk = clk_get(&pdev->dev, "bus_clk");
 	if (IS_ERR(pwr->ebi1_clk))
