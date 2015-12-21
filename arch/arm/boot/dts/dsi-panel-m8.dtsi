@@ -676,6 +676,7 @@
 		qcom,mdss-shrink-pwm = <6 79 255>;
 		qcom,mdss-dsi-lp11-init;
 		qcom,partial-update-enabled;
+		qcom,ulps-enabled;
 		qcom,mdss-even-coordinate-update;
 		htc,mdss-camera-blk = <177>;
 		htc,mdss-camera-dua-blk = <177>;
@@ -2293,6 +2294,7 @@
 		qcom,mdss-shrink-pwm = <6 79 255>;
 		qcom,mdss-dsi-lp11-init;
 		qcom,partial-update-enabled;
+		qcom,ulps-enabled;
 		qcom,mdss-even-coordinate-update;
 		htc,mdss-camera-blk = <177>;
 		htc,mdss-camera-dua-blk = <177>;
