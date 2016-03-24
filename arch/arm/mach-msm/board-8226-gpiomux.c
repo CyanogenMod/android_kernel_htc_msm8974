@@ -1008,5 +1008,3 @@ u32 wcnss_rf_read_reg(u32 rf_reg_addr)
 
 	return rf_data_received;
 }
-
-

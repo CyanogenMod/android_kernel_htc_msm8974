@@ -20,9 +20,9 @@
 /include/ "msm8926-touch-a5-config.dtsi"
 
 / {
-	model = "MSM 8926 A5UL";
-	compatible = "htc,a5ul", "qcom,msm8926-mtp", "qcom,msm8926", "qcom,mtp";
-	htc,project-id = <291 0 0>, <294 0 0>, <295 0 0>, <291 1 0>, <294 1 0>, <295 1 0>, <291 2 0>, <294 2 0>, <295 2 0>, <291 128 0>, <294 128 0>, <295 128 0>, <291 0 0x10001>, <294 0 0x10001>, <295 0 0x10001>, <291 1 0x10001>, <294 1 0x10001>, <295 1 0x10001>, <291 2 0x10001>, <294 2 0x10001>, <295 2 0x10001>, <291 128 0x10001>, <294 128 0x10001>, <295 128 0x10001>;  /* <pid hw-version reserve> */
+	model = "MSM 8926 A5DWGL";
+	compatible = "htc,a5dwgl", "qcom,msm8926-mtp", "qcom,msm8926", "qcom,mtp";
+	htc,project-id = <318 0 0>, <318 1 0>, <318 2 0>, <318 128 0>, <318 0 0x10001>, <318 1 0x10001>, <318 2 0x10001>, <318 128 0x10001>;  /* <pid hw-version reserve> */
 	qcom,msm-id = <145 8 0>,
 		      <158 8 0>,
 		      <159 8 0>,
@@ -38,21 +38,6 @@
 };
 
 &soc {
-	i2c@f9927000 { /* BLSP1 QUP5 */
-	himax@48 {
-			support_htc_event		= <1>;
-			};
-	himax_truly@48 {
-			support_htc_event		= <1>;
-			};
-	himax_cpt@48 {
-			support_htc_event		= <1>;
-			};
-	himax_tianma@48 {
-			support_htc_event		= <1>;
-			};
-		};
-
 	i2c@f9924000 {
 		cm3629@60 {
 			compatible = "CM3629";
@@ -154,7 +139,6 @@
 			gpio    = <&msmgpio 107 3>;
 			keycode = <114>; /* Volume Down */
 		};
-
 	};
 
 	keyreset {
@@ -186,7 +170,7 @@
 		hs_pmic,key_enable_gpio = <0>;
 		hs_pmic,adc_mic         = <0>;
 		hs_pmic,adc_remote      = <0 56 57 146 147 339>;
-		hs_pmic,adc_channel	= <17>;		//P_MUX2_1_1
+		hs_pmic,adc_channel	= <17>;
 		hs_pmic,adc_mpp         = <0>;
 		hs_pmic,adc_amux        = <0>;
 		hs_pmic,hs_controller   = <0>;
@@ -312,8 +296,6 @@
 	qcom,min-fcc-ocv-pc = <30>;
 	qcom,min-fcc-learning-samples = <5>;
 	qcom,fcc-resolution = <13>;
-	qcom,criteria-sw-est-ocv = <79200000>;
-	qcom,rconn-mohm-sw-est-ocv = <10>;
 	qcom,enable-sw-ocv-in-eoc = <1>;
 	qcom,enable-batt-full-fake-ocv = <1>;
 	status = "ok";
@@ -415,7 +397,7 @@
 	qcom,pm8226@1 {
 		qcom,vibrator-pwm {
 			htc,power_en = <&msmgpio 83 0x00>;
-			htc,ctrl_en = <&msmgpio 84 0x00>;
+			htc,ctrl_en = <&msmgpio 80 0x00>;
 			pwm_value_1p = <85>;
 		};
 	};

@@ -269,7 +269,7 @@
 				                 18 FF 06 24 17 FF 07 23 16 FF
 				                 02 22 15 FF 01 21 14 FF 00 20
 				                 13];
-				c43_2 =[40  FF 08 1F 12 FF 09 1E 11 FF
+				c43_2 =[40       FF 08 1F 12 FF 09 1E 11 FF
 				                 0A 1D 10 FF 0B 1C FF FF 0C 1B
 				                 FF FF 0D 1A FF FF 0E FF 0F FF];
 				c44_1 =[40 A3 00 20 00 13 1E 32 00 00 00

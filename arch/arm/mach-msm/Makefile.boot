@@ -203,7 +203,8 @@ endif
 
 ifeq ($(CONFIG_MACH_A5), y)
 	htc_dtb-$(CONFIG_ARCH_MSM8226)	+= msm8926-a5ul.dtb
-	htc_dtb-$(CONFIG_ARCH_MSM8226)	+= msm8926-a5dwg.dtb
+	htc_dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-a5dwg.dtb
+	htc_dtb-$(CONFIG_ARCH_MSM8226)	+= msm8926-a5dwgl.dtb
 endif
 
 ifeq ($(CONFIG_MACH_EYE_UL), y)

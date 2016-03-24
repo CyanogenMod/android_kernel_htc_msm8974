@@ -1512,6 +1512,7 @@ static void bma250_work_func(struct work_struct *work)
 	data_z = ((bma250->pdata->negate_z) ? (-hw_d[bma250->pdata->axis_map_z])
 		   : (hw_d[bma250->pdata->axis_map_z]));
 
+	input_report_abs(bma250->input, ABS_X, 10000);
 	input_report_abs(bma250->input, ABS_X, data_x);
 	input_report_abs(bma250->input, ABS_Y, data_y);
 	input_report_abs(bma250->input, ABS_Z, data_z);
@@ -1743,6 +1744,30 @@ static ssize_t bma250_set_k_value_store(struct device *dev,
 			}
 		}
 	}
+
+	return count;
+}
+
+static ssize_t flush_show(struct device *dev,
+			  struct device_attribute *attr, char *buf)
+{
+	int ret;
+
+	ret = sprintf(buf, "%d\n", 1);
+
+	return ret;
+}
+
+static ssize_t flush_store(struct device *dev,
+			   struct device_attribute *attr,
+			   const char *buf, size_t count)
+{
+	struct bma250_data *bma250 = gdata;
+
+	I("%s++:\n", __func__);
+
+	input_report_rel(bma250->input_cir, SLOP_INTERRUPT, 777);
+	input_sync(bma250->input_cir);
 
 	return count;
 }
@@ -3102,6 +3127,9 @@ static DEVICE_ATTR(get_raw_data, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP,
 static DEVICE_ATTR(set_k_value, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP,
 		bma250_set_k_value_show, bma250_set_k_value_store);
 
+static DEVICE_ATTR(flush, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP,
+		flush_show, flush_store);
+
 static struct attribute *bma250_attributes[] = {
 	&dev_attr_range.attr,
 	&dev_attr_bandwidth.attr,
@@ -3137,6 +3165,7 @@ static struct attribute *bma250_attributes[] = {
 	&dev_attr_chip_layout.attr,
 	&dev_attr_get_raw_data.attr,
 	&dev_attr_set_k_value.attr,
+	&dev_attr_flush.attr,
 #ifdef CONFIG_CIR_ALWAYS_READY
 	&dev_attr_enable_cir_interrupt.attr,
 #endif

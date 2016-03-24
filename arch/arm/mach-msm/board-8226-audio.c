@@ -676,7 +676,7 @@ static const struct soc_enum msm_enum[] = {
 	SOC_ENUM_SINGLE_EXT(4, slim0_tx_ch_text),
 };
 
-static const char *const btsco_rate_text[] = {"BTSCO_RATE_8KHZ", "BTSCO_RATE_16KHZ"};
+static const char *const btsco_rate_text[] = {"8000", "16000"};
 static const struct soc_enum msm_btsco_enum[] = {
 	SOC_ENUM_SINGLE_EXT(2, btsco_rate_text),
 };
@@ -1010,6 +1010,9 @@ static int msm_slim_0_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	if(htc_acoustic_query_feature(HTC_AUD_24BIT)) {
 		param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
 			SNDRV_PCM_FORMAT_S24_LE);
+	} else {
+		param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+                        SNDRV_PCM_FORMAT_S16_LE);
 	}
 	rate->min = rate->max = 48000;
 	channels->min = channels->max = msm_slim_0_rx_ch;
@@ -2225,6 +2228,22 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ignore_suspend = 1,
 	},
+        
+        {
+                .name = "VoWLAN",
+                .stream_name = "VoWLAN",
+                .cpu_dai_name   = "VoWLAN",
+                .platform_name  = "msm-pcm-voice",
+                .dynamic = 1,
+                .trigger = {SND_SOC_DPCM_TRIGGER_POST,
+                            SND_SOC_DPCM_TRIGGER_POST},
+                .no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+                .ignore_suspend = 1,
+                .ignore_pmdown_time = 1,
+                .codec_dai_name = "snd-soc-dummy-dai",
+                .codec_name = "snd-soc-dummy",
+                .be_id = MSM_FRONTEND_DAI_VOWLAN,
+        },
 };
 
 static struct snd_soc_dai_link msm8226_9306_dai[] = {
