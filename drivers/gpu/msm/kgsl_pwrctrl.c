@@ -446,7 +446,7 @@ static int kgsl_pwrctrl_idle_timer_store(struct device *dev,
 	unsigned int val = 0;
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
-	const long div = 1000/HZ;
+	const long div = 1000/msecs_to_jiffies(1000);
 	int ret;
 
 	if (device == NULL)
@@ -473,7 +473,7 @@ static int kgsl_pwrctrl_idle_timer_show(struct device *dev,
 					char *buf)
 {
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
-	int mul = 1000/HZ;
+	int mul = 1000/msecs_to_jiffies(1000);
 	if (device == NULL)
 		return 0;
 	
@@ -1580,6 +1580,7 @@ static int _check_active_count(struct kgsl_device *device, int count)
 int kgsl_active_count_wait(struct kgsl_device *device, int count)
 {
 	int result = 0;
+	long wait_jiffies = msecs_to_jiffies(1000);
 
 	BUG_ON(!mutex_is_locked(&device->mutex));
 
@@ -1587,7 +1588,7 @@ int kgsl_active_count_wait(struct kgsl_device *device, int count)
 		int ret;
 		kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 		ret = wait_event_timeout(device->active_cnt_wq,
-			_check_active_count(device, count), HZ);
+			_check_active_count(device, count), wait_jiffies);
 		kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 		result = ret == 0 ? -ETIMEDOUT : 0;
 	}
