@@ -378,9 +378,9 @@
 &spmi_bus {
 	qcom,pm8941@1 {
 		qcom,vibrator@c000 {
-			/* M8 customized property for msm-pm8941.dtsi */
-			qcom,qpnp-vib-timeout-ms = <15000>;
-			qcom,qpnp-vib-vtg-level-mV = <3100>;
+			qcom,vib-timeout-ms = <15000>;
+			qcom,vib-vtg-level-mV = <3100>;
+			status = "okay";
 		};
 
 		qcom,leds@d800 {

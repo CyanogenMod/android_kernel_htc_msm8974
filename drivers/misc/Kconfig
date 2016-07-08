@@ -594,14 +594,6 @@ config PMIC8XXX_VIBRATOR
 	  This option enables device driver support for the vibrator
 	  on the PM8XXX chips. The vibrator is controlled using the
 	  timed output class.
-config QPNP_VIBRATOR
-	tristate "Vibrator support for QPNP PMIC"
-	depends on OF_SPMI
-	help
-		This option enables device driver support for the vibrator
-		on the Qualcomm's QPNP PMICs. The vibrator is connected on the
-		VIB_DRV_N line and can be controlled manually or by the DEST lines.
-		It uses the android timed-output framework.
 
 config PMIC8XXX_NFC
 	tristate "Qualcomm PM8XXX support for Near Field Communication"
