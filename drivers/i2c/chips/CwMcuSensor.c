@@ -1715,9 +1715,9 @@ static void __devinit CWMCU_init_input_device(struct CWMCU_data *sensor,struct i
 	input_set_abs_params(idev, ABS_MAGNETIC_UNCALIBRATED_BIAS_Y, -DPS_MAX, DPS_MAX, 0, 0);
 	input_set_abs_params(idev, ABS_MAGNETIC_UNCALIBRATED_BIAS_Z, -DPS_MAX, DPS_MAX, 0, 0);
 
-	input_set_abs_params(idev, ABS_GYROSCOPE_UNCALIBRATED_X, -DPS_MAX, DPS_MAX, 0, 0);
-	input_set_abs_params(idev, ABS_GYROSCOPE_UNCALIBRATED_Y, -DPS_MAX, DPS_MAX, 0, 0);
-	input_set_abs_params(idev, ABS_GYROSCOPE_UNCALIBRATED_Z, -DPS_MAX, DPS_MAX, 0, 0);
+//	input_set_abs_params(idev, ABS_GYROSCOPE_UNCALIBRATED_X, -DPS_MAX, DPS_MAX, 0, 0);
+//	input_set_abs_params(idev, ABS_GYROSCOPE_UNCALIBRATED_Y, -DPS_MAX, DPS_MAX, 0, 0);
+//	input_set_abs_params(idev, ABS_GYROSCOPE_UNCALIBRATED_Z, -DPS_MAX, DPS_MAX, 0, 0);
 	input_set_abs_params(idev, ABS_GYROSCOPE_UNCALIBRATED_BIAS_X, -DPS_MAX, DPS_MAX, 0, 0);
 	input_set_abs_params(idev, ABS_GYROSCOPE_UNCALIBRATED_BIAS_Y, -DPS_MAX, DPS_MAX, 0, 0);
 	input_set_abs_params(idev, ABS_GYROSCOPE_UNCALIBRATED_BIAS_Z, -DPS_MAX, DPS_MAX, 0, 0);
