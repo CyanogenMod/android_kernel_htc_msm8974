@@ -119,7 +119,6 @@ struct wake_lock ges_wake_lock;
 struct wake_lock significant_wake_lock;
 
 static int power_key_pressed = 0;
-static int tap2wake = 0;
 struct CWMCU_data {
 	struct i2c_client *client;
 	atomic_t delay;
@@ -1600,26 +1599,6 @@ static int boot_mode_show(struct device *dev, struct device_attribute *attr, cha
 		return snprintf(buf, PAGE_SIZE, "%d\n", -1);
 }
 
-static int tap2wake_set(struct device *dev, struct device_attribute *attr,
-			const char *buf, size_t count)
-{
-	int val;
-	sscanf(buf, "%du", &val);
-
-	if (val > 1 || val < 0) {
-		pr_err("[CWMCU] %s: tap2wake value %d is invalid!\n", __func__, val);
-	} else {
-		tap2wake = val;
-	}
-
-	return count;
-}
-
-static int tap2wake_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%d\n", tap2wake);
-}
-
 #if 0
 static DEVICE_ATTR(enable, 0666, active_show,
 		   active_set);
@@ -2977,16 +2956,12 @@ static void cwmcu_irq_work_func(struct work_struct *work)
 		if (vib_trigger) {
 			/* 15 is the tap to wake gesture */
 			if (data[0] == 15) {
-				if (tap2wake == 1) {
-					D("[CWMCU] Tap to wake - waking device\n");
-					vib_trigger_event(vib_trigger, VIB_TIME);
-					sensor->sensors_time[Gesture_Motion_HIDI] = 0;
-					input_report_rel(sensor->input, HTC_Gesture_Motion_HIDI, data_event);
-					input_sync(sensor->input);
-					power_key_pressed = 0;
-				} else {
-					D("[CWMCU] Tap to wake disabled, ignoring\n");
-				}
+				D("[CWMCU] Tap to wake - waking device\n");
+				vib_trigger_event(vib_trigger, VIB_TIME);
+				sensor->sensors_time[Gesture_Motion_HIDI] = 0;
+				input_report_rel(sensor->input, HTC_Gesture_Motion_HIDI, data_event);
+				input_sync(sensor->input);
+				power_key_pressed = 0;
 			} else {
 				D("[CWMCU] Discard gesture wake\n");
 			}
@@ -3407,7 +3382,6 @@ static struct device_attribute attributes[] = {
 #ifdef HTC_ENABLE_SENSORHUB_UART_DEBUG
 	__ATTR(uart_debug, 0666, NULL, uart_debug_switch),
 #endif
-	__ATTR(tap2wake, 0666, tap2wake_show, tap2wake_set),
 };
 
 
